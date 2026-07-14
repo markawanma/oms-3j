@@ -1,0 +1,31 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    /* body text >=16px on mobile, line-height >=1.5 for Thai readability
+       per ux-ui design summary */
+    font-size: 16px;
+  }
+
+  body {
+    @apply bg-slate-50 text-slate-900 antialiased;
+    line-height: 1.5;
+  }
+
+  /* Visible focus ring everywhere for keyboard navigation (a11y baseline) */
+  :focus-visible {
+    outline: 2px solid #4f46e5;
+    outline-offset: 2px;
+  }
+}
+
+@layer utilities {
+  .scrollbar-none {
+    scrollbar-width: none;
+  }
+  .scrollbar-none::-webkit-scrollbar {
+    display: none;
+  }
+}
