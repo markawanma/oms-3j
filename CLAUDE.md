@@ -36,6 +36,7 @@
 - **security-auditor / red-team / code-reviewer = opus** — safety net ก่อน merge (red-team = โจมตีเชิงรุกพิสูจน์ว่าระบบทนจริง)
 - **sre = opus** — root-cause ใน production ผิดแพง ต้องการ reasoning แน่น
 - **backend / frontend / ux-ui / qa / devops = sonnet** — งาน execute ตาม design ที่ชัดแล้ว
+- **content-strategist / copywriter / content-repurposer = sonnet** — ทีม content (AI-first marketing) ใต้ CMO งาน execute ตามกลยุทธ์ที่ CMO วาง
 - **docs-researcher = haiku** — งานขนข้อมูล คอขวดอยู่ที่ network ไม่ใช่ model
 
 ⚠️ **Fable fallback**: ถ้า request โดน safety classifier flag จะถูกส่งไปรันบน Opus
@@ -86,3 +87,6 @@
 | **devops** | Lando Calrissian | ดูแล Cloud City = infra/deploy/ops |
 | **sre** | Din Djarin (Mando) | นักล่า bug/incident ใน production — ดับไฟจริง + root-cause "This is the Way" |
 | **docs-researcher** | Jocasta Nu | บรรณารักษ์หอจดหมายเหตุ Jedi — ค้นข้อมูลภายนอก |
+| **content-strategist** | Bail Organa | วุฒิสมาชิกวางแผนสื่อสารมีชั้นเชิง — content calendar/cadence ใต้ CMO |
+| **copywriter** | Maz Kanata | ผู้เล่าเรื่องมองทะลุใจคน — script/hook/caption คุม brand voice |
+| **content-repurposer** | BB-8 | droid ขยันวิ่งกระจายข่าว — แตกวัตถุดิบ 1 ชิ้นเป็น content หลายชิ้น |
