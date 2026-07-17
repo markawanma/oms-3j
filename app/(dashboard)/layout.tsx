@@ -1,12 +1,13 @@
 import type { ReactNode } from "react";
 import Link from "next/link";
-import { Boxes, ClipboardList, PlusCircle } from "lucide-react";
+import { Boxes, ClipboardList, PlusCircle, Radio } from "lucide-react";
 import { ToastProvider } from "@/components/ui/Toast";
 
 const NAV_ITEMS = [
   { href: "/", label: "ออเดอร์", icon: ClipboardList },
   { href: "/stock", label: "สต็อก", icon: Boxes },
   { href: "/products/new", label: "เพิ่มสินค้า", icon: PlusCircle },
+  { href: "/live", label: "ไลฟ์", icon: Radio },
 ];
 
 export default function DashboardLayout({ children }: { children: ReactNode }) {

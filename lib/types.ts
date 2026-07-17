@@ -80,3 +80,67 @@ export const STATUS_LABEL_TH: Record<OrderStatus, string> = {
 export type ActionResult<T = undefined> =
   | { ok: true; data: T }
   | { ok: false; error: string };
+
+// ============================================================================
+// Live session ("จดออเดอร์เร็วตอน TikTok Live") — Phase A
+// mirrors supabase/migrations/0008_live_sessions.sql
+// ============================================================================
+
+export type LiveSessionStatus = "open" | "closed";
+
+export interface LiveSession {
+  id: string;
+  title: string;
+  status: LiveSessionStatus;
+  startedAt: string;
+  endedAt: string | null;
+  notes: string | null;
+}
+
+export interface LiveSessionStats {
+  liveSessionId: string;
+  title: string;
+  status: LiveSessionStatus;
+  startedAt: string;
+  endedAt: string | null;
+  orderCount: number;
+  oversoldCount: number;
+  gmv: number;
+  unitsSold: number;
+  durationHours: number;
+}
+
+export interface LiveSessionTopSku {
+  productId: string;
+  sku: string;
+  name: string;
+  qtySold: number;
+}
+
+export interface ProductSearchRow {
+  id: string;
+  sku: string;
+  name: string;
+  /** on_hand - reserved, per central_stock */
+  available: number;
+}
+
+export interface QuickOrderItemInput {
+  productId: string;
+  qty: number;
+  unitPrice: number;
+}
+
+export interface CreateQuickOrderInput {
+  liveSessionId: string;
+  buyerName: string;
+  items: QuickOrderItemInput[];
+}
+
+export interface QuickOrderResult {
+  orderId: string;
+  externalOrderId: string;
+  oversold: boolean;
+  /** populated only when oversold=true — available qty per product at time of failure */
+  availableQty?: Record<string, number>;
+}

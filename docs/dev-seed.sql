@@ -19,6 +19,7 @@ declare
   v_tiktok_channel_id uuid;
   v_shopee_account_id uuid;
   v_tiktok_account_id uuid;
+  v_tiktok_live_account_id uuid;
   v_product_shirt uuid;
   v_product_mug uuid;
   v_product_unmapped uuid;
@@ -39,6 +40,14 @@ begin
   insert into channel_account (shop_id, channel_id, external_shop_id, is_sandbox, status)
     values (v_shop_id, v_tiktok_channel_id, 'dev-tiktok-shop', true, 'active')
     returning id into v_tiktok_account_id;
+
+  -- "จดออเดอร์เร็วตอน TikTok Live" (Phase A) — manual, no marketplace API
+  -- connection behind it (credential_ref stays null; external_shop_id is a
+  -- fixed sentinel, not a real TikTok shop id). All quick-order live orders
+  -- are attached to this channel_account.
+  insert into channel_account (shop_id, channel_id, external_shop_id, credential_ref, is_sandbox, status)
+    values (v_shop_id, v_tiktok_channel_id, 'manual-live', null, false, 'active')
+    returning id into v_tiktok_live_account_id;
 
   insert into product (shop_id, sku, name) values (v_shop_id, 'TSHIRT-BLK-M', 'เสื้อยืดสีดำ ไซส์ M') returning id into v_product_shirt;
   insert into product (shop_id, sku, name) values (v_shop_id, 'MUG-001', 'แก้วมัค ลายการ์ตูน') returning id into v_product_mug;

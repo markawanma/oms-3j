@@ -45,3 +45,33 @@ export function OrderDetailSkeleton() {
     </div>
   );
 }
+
+export function LiveListSkeleton() {
+  return (
+    <div className="space-y-3" role="status" aria-label="กำลังโหลดรายการไลฟ์">
+      <Skeleton className="h-20 w-full" />
+      {Array.from({ length: 4 }).map((_, i) => (
+        <div key={i} className="rounded-lg border border-slate-200 bg-white p-4">
+          <div className="flex items-center justify-between">
+            <Skeleton className="h-5 w-32" />
+            <Skeleton className="h-5 w-16" />
+          </div>
+          <Skeleton className="mt-3 h-4 w-40" />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function LiveOrderTakingSkeleton() {
+  return (
+    <div className="grid gap-4 md:grid-cols-[1fr_320px]" role="status" aria-label="กำลังโหลดหน้าจดออเดอร์">
+      <div className="space-y-3">
+        <Skeleton className="h-11 w-full" />
+        <Skeleton className="h-40 w-full" />
+        <Skeleton className="h-11 w-full" />
+      </div>
+      <Skeleton className="h-64 w-full" />
+    </div>
+  );
+}
