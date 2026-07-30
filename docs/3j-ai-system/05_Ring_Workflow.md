@@ -1,14 +1,17 @@
 # 05 — Ring Workflow (แหวน)
 
 > **ใช้ตอนไหน**: ทำแหวนชิ้นใหม่ — ใช้คู่กับ `04_Claude_Master_Prompt.md` (prompt template) และ `03_3J_CAD_Guideline.md` (เกณฑ์ผลิต)
-> **ต้องอ่าน [`00_Design_Intent.md`](./00_Design_Intent.md) ก่อนเริ่มทุกครั้ง** — กฎโครงสร้างแหวน (split เฉพาะใกล้หัวแหวน / ห้ามบิดทั้งวง) มาจากไฟล์นั้นและเป็นข้อบังคับ ไม่ใช่ทางเลือก
-> ตัวอย่างจริงทั้ง workflow: **SATIN FLOW – HALF TURN RING** — [spec](../cad/satin-flow-half-turn-ring-spec.md) · [RhinoPython](../cad/satin-flow-half-turn-ring.py) · [3D preview](../cad/satin-flow-preview.html)
-> ⚠️ หมายเหตุ: spec/script ของ Satin Flow อ้างอิงจากช่วงที่ยังตีความ ribbon เป็น "twist ตลอดวง" — ถือเป็นบทเรียนของความผิดพลาดที่แก้แล้ว (ดู NEVER-DO ด้านล่าง) เวลาใช้ไฟล์นี้เป็นตัวอย่าง ให้ดู "โครงสร้างและมิติ" เป็นแนวทาง แต่ **ตำแหน่ง twist ต้องแก้ตามกฎใหม่: split เฉพาะใกล้หัวแหวน ครึ่งวงตรงข้ามเป็น band ปกติ**
+> **ต้องอ่าน [`00_Brand_Principles.md`](./00_Brand_Principles.md) ก่อนเริ่มทุกครั้ง** (brand-level) **พร้อมกับ `collections/<ชื่อ collection>/design-intent.md`** ของ collection ที่กำลังทำ (collection-level) — กฎโครงสร้างเฉพาะ motif (เช่น split เฉพาะใกล้หัวแหวน/ห้ามบิดทั้งวงของ Satin Flow) มาจากไฟล์ collection ไม่ใช่ทุกแหวนของทุก collection ต้องมีกฎนี้
+> ตัวอย่างจริงทั้ง workflow (collection **Satin Flow**): **SATIN FLOW – HALF TURN RING** — [design-intent](./collections/satin-flow/design-intent.md) · [spec](../cad/satin-flow-half-turn-ring-spec.md) · [RhinoPython](../cad/satin-flow-half-turn-ring.py) · [3D preview](../cad/satin-flow-preview.html)
+> ⚠️ หมายเหตุ: spec/script ของ Satin Flow อ้างอิงจากช่วงที่ยังตีความ ribbon เป็น "twist ตลอดวง" — ถือเป็นบทเรียนของความผิดพลาดที่แก้แล้ว เวลาใช้ไฟล์นี้เป็นตัวอย่าง ให้ดู "โครงสร้างและมิติ" เป็นแนวทาง แต่ **ตำแหน่ง twist ต้องแก้ตามกฎใหม่ของ Satin Flow: split เฉพาะใกล้หัวแหวน ครึ่งวงตรงข้ามเป็น band ปกติ**
 
 ---
 
-## Test ก่อนเริ่ม + NEVER-DO (บังคับทุกแหวน)
+## Test ก่อนเริ่ม + NEVER-DO (มาจาก collection design-intent — ตัวอย่างด้านล่างคือของ Satin Flow)
 
+> กฎในหัวข้อนี้เป็น**ตัวอย่างอ้างอิงจาก collection Satin Flow เท่านั้น** ถ้าทำแหวน collection อื่น ให้แทนที่ด้วย test/NEVER-DO/กฎโครงสร้างจาก `collections/<ชื่อ>/design-intent.md` ของ collection นั้นแทน — อย่าใช้กฎ Satin Flow กับ collection ที่ไม่ใช่ Satin Flow
+
+**ตัวอย่าง (Satin Flow)**:
 - Test ทุกจุดของ geometry: **"ยังดูเหมือนผ้าซาตินพับอยู่ไหม?"** — ถ้าไม่ใช่ ห้ามใช้วิธีนั้น
 - **ห้าม**: บิดทั้งวง (full twist ตลอดเส้นรอบวง), ริบบิ้นเป็นเชือก/rope, ลาย Celtic/woven/braided, prong เทอะทะ, แยกพลอยออกจากริบบิ้นชัดเจน
 - **กฎโครงสร้างบังคับ**: split (ริบบิ้นแยก/เปิดโอบพลอย) เกิด**เฉพาะบริเวณใกล้หัวแหวน** — ครึ่งวงฝั่งตรงข้ามพลอยต้องเป็น **band ต่อเนื่องธรรมดา ใส่สบาย** ไม่มี motif ริบบิ้น
