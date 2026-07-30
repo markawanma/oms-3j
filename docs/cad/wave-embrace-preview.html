@@ -146,9 +146,11 @@
 
   // ---- ring: oval cross-section + soft wave peak at top ----
   var R_INNER=8.60, TH=1.80, Rc=R_INNER+TH/2, ht=TH/2;
-  var NSEG=280, M=36, WAVE_A=1.25, SIG=0.90, FREQ=1.70;
-  // คลื่นจริง: ยอด (crest) + ร่องนุ่ม 2 ข้าง (cosine × gaussian) — ไม่ใช่ยอดโด่งเดียว
-  function wave(th){var s=Math.atan2(Math.sin(th-Math.PI/2),Math.cos(th-Math.PI/2));return Math.cos(FREQ*s/SIG)*Math.exp(-(s/SIG)*(s/SIG));}
+  var NSEG=280, M=36, WAVE_A=1.0;
+  // คลื่นจริง: ยอดชัด (crest) + ร่องลึก 2 ข้าง (crest gaussian ลบ trough gaussian 2 ตัว)
+  var WA=1.35, WS1=0.55, WB=0.75, WD=0.90, WS2=0.42;
+  function wave(th){var s=Math.atan2(Math.sin(th-Math.PI/2),Math.cos(th-Math.PI/2));
+    return WA*Math.exp(-(s/WS1)*(s/WS1)) - WB*(Math.exp(-((s-WD)/WS2)*((s-WD)/WS2))+Math.exp(-((s+WD)/WS2)*((s+WD)/WS2)));}
   function center(th){var Re=Rc+WAVE_A*wave(th);return[Re*Math.cos(th),Re*Math.sin(th),0];}
   function buildBand(){
     var pos=[],i,j;
