@@ -146,19 +146,20 @@
 
   // ---- ring: oval cross-section + soft wave peak at top ----
   var R_INNER=8.60, TH=1.80, Rc=R_INNER+TH/2, ht=TH/2;
-  var NSEG=280, M=36, WAVE_A=1.30, SIG=0.75;
-  function bump(th){var s=Math.atan2(Math.sin(th-Math.PI/2),Math.cos(th-Math.PI/2));return Math.exp(-(s/SIG)*(s/SIG));}
-  function center(th){var Re=Rc+WAVE_A*bump(th);return[Re*Math.cos(th),Re*Math.sin(th),0];}
+  var NSEG=280, M=36, WAVE_A=1.25, SIG=0.90, FREQ=1.70;
+  // คลื่นจริง: ยอด (crest) + ร่องนุ่ม 2 ข้าง (cosine × gaussian) — ไม่ใช่ยอดโด่งเดียว
+  function wave(th){var s=Math.atan2(Math.sin(th-Math.PI/2),Math.cos(th-Math.PI/2));return Math.cos(FREQ*s/SIG)*Math.exp(-(s/SIG)*(s/SIG));}
+  function center(th){var Re=Rc+WAVE_A*wave(th);return[Re*Math.cos(th),Re*Math.sin(th),0];}
   function buildBand(){
     var pos=[],i,j;
     for(i=0;i<NSEG;i++){
-      var th=2*Math.PI*i/NSEG, b=bump(th);
+      var th=2*Math.PI*i/NSEG, w=wave(th);
       var C=center(th), Cn=center(th+0.01), Cp=center(th-0.01);
       var T=norm(sub(Cn,Cp));
       var rHat=[Math.cos(th),Math.sin(th),0], dv=dot(rHat,T);
       var eThick=norm([rHat[0]-T[0]*dv,rHat[1]-T[1]*dv,rHat[2]-T[2]*dv]);
       var eWidth=norm(cross(T,eThick));
-      var hw=1.00+0.05*b;
+      var hw=1.00+0.05*Math.max(w,0);
       var ring=[];
       for(j=0;j<M;j++){var a=2*Math.PI*j/M, la=hw*Math.cos(a), lb=ht*Math.sin(a);
         ring.push([C[0]+la*eWidth[0]+lb*eThick[0],C[1]+la*eWidth[1]+lb*eThick[1],C[2]+la*eWidth[2]+lb*eThick[2]]);}
