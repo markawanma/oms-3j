@@ -68,6 +68,7 @@ docs/3j-ai-system/
 | `08_Bracelet_Workflow.md` | แบรนด์ | ทำกำไล/สร้อยข้อมือ |
 | `09_Collection_Template.md` | แบรนด์ (เทมเพลต) | เริ่ม collection ใหม่ — copy ไปเป็น `collections/<ชื่อ>/design-intent.md` |
 | `collections/satin-flow/design-intent.md` | **collection** | authoritative เฉพาะ collection Satin Flow — motif "folded satin", NEVER-DO twist/rope/spiral, กฎ split-near-head |
+| `collections/wave-embrace/design-intent.md` | **collection** | authoritative เฉพาะ collection Wave Embrace — motif "soft ocean wave + hidden sparkle", NEVER-DO sharp wave/deep curve/overly wavy/visible stone, กฎ single soft peak + flush inner setting |
 
 ## ไฟล์วัตถุดิบ (ต้นทาง — อยู่นอกโฟลเดอร์นี้ อ้างอิงไม่ก็อปซ้ำ)
 
@@ -76,6 +77,8 @@ docs/3j-ai-system/
 - [`docs/cad/satin-flow-half-turn-ring-spec.md`](../cad/satin-flow-half-turn-ring-spec.md) — worked example CAD spec จริง (แหวน Satin Flow, Part 1–6)
 - [`docs/cad/satin-flow-half-turn-ring.py`](../cad/satin-flow-half-turn-ring.py) — RhinoPython output จริงของ Satin Flow
 - [`docs/cad/satin-flow-preview.html`](../cad/satin-flow-preview.html) — 3D preview (WebGL) ของ Satin Flow
+- [`docs/cad/wave-embrace-ring-spec.md`](../cad/wave-embrace-ring-spec.md) — worked example CAD spec จริง (แหวน Wave Embrace WE-R001, Part 1–6)
+- [`docs/cad/wave-embrace-ring.py`](../cad/wave-embrace-ring.py) — RhinoPython output จริงของ Wave Embrace
 
 ## หมายเหตุสำคัญ
 
