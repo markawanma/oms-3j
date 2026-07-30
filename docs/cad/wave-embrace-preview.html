@@ -1,0 +1,239 @@
+<title>Wave Embrace — 3D Preview</title>
+<style>
+  :root{
+    --ground:#F7F5F2; --panel:#FFFFFF; --ink:#1D1B19; --ink-soft:#6B6560;
+    --line:#E7E3DD; --line-2:#EFEBE5; --accent:#A2191D; --accent-soft:#C7514F;
+    --stage-1:#EAF0F2; --stage-2:#CDD8DC;
+    --serif:Georgia,"Times New Roman",serif;
+    --sans:-apple-system,"Segoe UI",system-ui,"Noto Sans Thai",Arial,sans-serif;
+    --mono:"SF Mono",ui-monospace,Menlo,Consolas,monospace;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --ground:#141618; --panel:#1C1E21; --ink:#ECE9E4; --ink-soft:#9B948C;
+      --line:#2A2D31; --line-2:#23262A; --accent:#E4746F; --accent-soft:#B84A46;
+      --stage-1:#1B2226; --stage-2:#0E1417;
+    }
+  }
+  :root[data-theme="light"]{
+    --ground:#F7F5F2; --panel:#FFFFFF; --ink:#1D1B19; --ink-soft:#6B6560;
+    --line:#E7E3DD; --line-2:#EFEBE5; --accent:#A2191D; --accent-soft:#C7514F;
+    --stage-1:#EAF0F2; --stage-2:#CDD8DC;
+  }
+  :root[data-theme="dark"]{
+    --ground:#141618; --panel:#1C1E21; --ink:#ECE9E4; --ink-soft:#9B948C;
+    --line:#2A2D31; --line-2:#23262A; --accent:#E4746F; --accent-soft:#B84A46;
+    --stage-1:#1B2226; --stage-2:#0E1417;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{background:var(--ground);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased;line-height:1.55}
+  .wrap{max-width:1160px;margin:0 auto;padding:26px 20px 30px}
+  .topbar{display:flex;align-items:baseline;justify-content:space-between;gap:16px;flex-wrap:wrap;padding-bottom:16px;border-bottom:1px solid var(--line)}
+  .brand{display:flex;align-items:center;gap:10px}
+  .brand .mk{font-family:var(--serif);font-size:20px;font-weight:700}
+  .brand .mk b{color:var(--accent)}
+  .brand .tag{font-size:9.5px;letter-spacing:.34em;text-transform:uppercase;color:var(--ink-soft)}
+  .coll{font-size:10.5px;letter-spacing:.28em;text-transform:uppercase;color:var(--ink-soft)}
+  .grid{display:grid;grid-template-columns:340px 1fr;gap:22px;margin-top:22px;align-items:start}
+  @media (max-width:820px){.grid{grid-template-columns:1fr}}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:24px 22px}
+  .eyebrow{font-size:10.5px;letter-spacing:.26em;text-transform:uppercase;color:var(--accent);font-weight:700;margin:0 0 8px}
+  h1{font-family:var(--serif);font-size:29px;line-height:1.1;margin:0 0 6px;font-weight:700;text-wrap:balance}
+  .lede{color:var(--ink-soft);font-size:13.5px;margin:0 0 20px}
+  .spec{display:flex;flex-direction:column;border-top:1px solid var(--line-2)}
+  .spec .row{display:flex;justify-content:space-between;gap:14px;padding:10px 0;border-bottom:1px solid var(--line-2)}
+  .spec .k{font-family:var(--mono);font-size:11px;color:var(--ink-soft);text-transform:lowercase;white-space:nowrap;padding-top:2px}
+  .spec .v{font-size:13.5px;text-align:right;font-variant-numeric:tabular-nums}
+  .spec .v b{font-weight:600}
+  .spec .v .u{color:var(--ink-soft);font-size:11.5px}
+  .weight{display:flex;align-items:center;gap:8px;margin-top:16px;font-size:12.5px;color:var(--ink-soft)}
+  .weight .dot{width:7px;height:7px;border-radius:50%;background:var(--accent)}
+  .note{margin-top:18px;padding:12px 14px;background:var(--stage-1);border-radius:10px;font-size:11.5px;line-height:1.6;color:var(--ink-soft)}
+  .note b{color:var(--ink)}
+  .stage{position:relative;border:1px solid var(--line);border-radius:16px;overflow:hidden;background:radial-gradient(120% 90% at 50% 25%,var(--stage-1),var(--stage-2));min-height:520px;aspect-ratio:1/1}
+  @media (max-width:820px){.stage{aspect-ratio:4/5;min-height:0}}
+  canvas{position:absolute;inset:0;display:block;width:100%;height:100%;touch-action:none;cursor:grab}
+  canvas:active{cursor:grabbing}
+  .hint{position:absolute;left:16px;bottom:14px;font-size:11px;color:var(--ink-soft);pointer-events:none;user-select:none}
+  .hint b{color:var(--ink);font-weight:600}
+  .badge{position:absolute;left:16px;top:15px;font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-soft);background:var(--panel);border:1px solid var(--line);padding:5px 10px;border-radius:20px}
+  .controls{position:absolute;right:14px;bottom:14px;display:flex;gap:8px}
+  .btn{font-family:var(--sans);font-size:12.5px;font-weight:600;border:1px solid var(--line);background:var(--panel);color:var(--ink);padding:9px 15px;border-radius:20px;cursor:pointer;display:inline-flex;align-items:center;gap:7px;transition:border-color .15s,transform .05s}
+  .btn:hover{border-color:var(--accent)}
+  .btn:active{transform:translateY(1px)}
+  .btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+  .btn.primary:hover{background:var(--accent-soft);border-color:var(--accent-soft)}
+  .btn.on{background:var(--accent);border-color:var(--accent);color:#fff}
+  .btn svg{width:14px;height:14px}
+  .btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+  .foot{margin-top:16px;font-size:11px;color:var(--ink-soft);text-align:center;line-height:1.6}
+  .foot b{color:var(--ink)}
+</style>
+
+<div class="wrap">
+  <div class="topbar">
+    <div class="brand"><span class="mk">3<b>J</b> Jewelry</span><span class="tag">CAD Studio</span></div>
+    <span class="coll">New Signature Collection · Wave Embrace</span>
+  </div>
+
+  <div class="grid">
+    <div class="panel">
+      <p class="eyebrow">WE-R001 · Wave Embrace</p>
+      <h1>Wave Embrace</h1>
+      <p class="lede">Soft wave. Hidden sparkle. — คลื่นทะเลนุ่มด้านนอกเรียบหรู · พลอยจิ๋วซ่อนด้านในวงแหวน ประกายลับที่มีแต่คนใส่รู้</p>
+      <div class="spec">
+        <div class="row"><span class="k">metal</span><span class="v"><b>Silver 925</b></span></div>
+        <div class="row"><span class="k">stone</span><span class="v">White Sapphire <b>1.3</b> <span class="u">mm ×1–2 · ซ่อนใน</span></span></div>
+        <div class="row"><span class="k">ring size</span><span class="v"><b>54</b> <span class="u">· ID 17.20 mm</span></span></div>
+        <div class="row"><span class="k">band width</span><span class="v"><b>2.00 → 2.10</b> <span class="u">mm</span></span></div>
+        <div class="row"><span class="k">thickness</span><span class="v"><b>1.80</b> <span class="u">mm</span></span></div>
+        <div class="row"><span class="k">wave height</span><span class="v"><b>1.60</b> <span class="u">mm</span></span></div>
+        <div class="row"><span class="k">section</span><span class="v">Oval · <span class="u">มน G2</span></span></div>
+        <div class="row"><span class="k">finish</span><span class="v">Polish <span class="u">นอก + ใน</span></span></div>
+      </div>
+      <div class="weight"><span class="dot"></span> น้ำหนักประเมิน <b>&nbsp;2.40 g</b>&nbsp; ±15%</div>
+      <div class="note"><b>พรีวิวฟอร์ม (blockout)</b> — คลื่นนุ่มยอดเดียว หน้าตัดวงรี · <b>กดปุ่ม "ด้านใน"</b> เพื่อหมุนดูพลอยซ่อนในวง · ผิว G2 เนียนจริง + flush setting เก็บใน Rhino</div>
+    </div>
+
+    <div>
+      <div class="stage">
+        <span class="badge">Silver 925 · Soft Wave</span>
+        <canvas id="c"></canvas>
+        <div class="hint"><b>ลาก</b> หมุน · <b>สกอลล์</b> ซูม</div>
+        <div class="controls">
+          <button class="btn" id="peek">ดูด้านใน</button>
+          <button class="btn" id="spin" aria-label="หมุนอัตโนมัติ">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v5h-5"/></svg>หมุน
+          </button>
+        </div>
+      </div>
+      <p class="foot">น้ำหนักคำนวณจากปริมาตร × 10.36 g/cm³ (เงิน 925, ไม่รวมพลอย) · เป้า 2.40 g ±15% · ฟอร์มตาม spec sheet — <b>ห้าม redesign</b></p>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+(function(){
+  var canvas=document.getElementById("c");
+  var gl=canvas.getContext("webgl",{antialias:true,alpha:true,premultipliedAlpha:false});
+  if(!gl){canvas.parentNode.innerHTML='<div style="padding:40px;color:#888">เบราว์เซอร์นี้ไม่รองรับ WebGL</div>';return;}
+
+  function mul(a,b){var o=new Float32Array(16);for(var c=0;c<4;c++)for(var r=0;r<4;r++)o[c*4+r]=a[r]*b[c*4]+a[4+r]*b[c*4+1]+a[8+r]*b[c*4+2]+a[12+r]*b[c*4+3];return o;}
+  function perspective(f,asp,n,fa){var t=1/Math.tan(f/2);var o=new Float32Array(16);o[0]=t/asp;o[5]=t;o[10]=(fa+n)/(n-fa);o[11]=-1;o[14]=2*fa*n/(n-fa);return o;}
+  function sub(a,b){return[a[0]-b[0],a[1]-b[1],a[2]-b[2]];}
+  function cross(a,b){return[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];}
+  function norm(a){var l=Math.hypot(a[0],a[1],a[2])||1;return[a[0]/l,a[1]/l,a[2]/l];}
+  function dot(a,b){return a[0]*b[0]+a[1]*b[1]+a[2]*b[2];}
+  function lookAt(e,c,u){var z=norm(sub(e,c)),x=norm(cross(u,z)),y=cross(z,x);
+    return new Float32Array([x[0],y[0],z[0],0,x[1],y[1],z[1],0,x[2],y[2],z[2],0,-dot(x,e),-dot(y,e),-dot(z,e),1]);}
+
+  var vs="attribute vec3 aPos;attribute vec3 aNormal;uniform mat4 uMVP;varying vec3 vN;varying vec3 vW;void main(){vN=aNormal;vW=aPos;gl_Position=uMVP*vec4(aPos,1.0);}";
+  var fs="precision highp float;varying vec3 vN;varying vec3 vW;uniform vec3 uCam;uniform vec3 uColor;uniform float uMetal;uniform float uShin;uniform float uAmb;"+
+    "void main(){vec3 N=normalize(vN);if(!gl_FrontFacing)N=-N;vec3 V=normalize(uCam-vW);"+
+    "vec3 L1=normalize(vec3(0.45,0.95,0.55));vec3 L2=normalize(vec3(-0.6,0.35,-0.65));"+
+    "float d1=max(dot(N,L1),0.0),d2=max(dot(N,L2),0.0);vec3 H1=normalize(L1+V),H2=normalize(L2+V);"+
+    "float s1=pow(max(dot(N,H1),0.0),uShin),s2=pow(max(dot(N,H2),0.0),uShin);"+
+    "float fr=pow(1.0-max(dot(N,V),0.0),3.0);"+
+    "vec3 col=uColor*uAmb+uColor*(d1*0.82+d2*0.36)+vec3(1.0)*(s1*0.9+s2*0.4)*uMetal+fr*0.18*(uColor+0.4);"+
+    "gl_FragColor=vec4(col,1.0);}";
+  function sh(t,s){var o=gl.createShader(t);gl.shaderSource(o,s);gl.compileShader(o);if(!gl.getShaderParameter(o,gl.COMPILE_STATUS))throw gl.getShaderInfoLog(o);return o;}
+  var prog=gl.createProgram();gl.attachShader(prog,sh(gl.VERTEX_SHADER,vs));gl.attachShader(prog,sh(gl.FRAGMENT_SHADER,fs));gl.linkProgram(prog);gl.useProgram(prog);
+  var aPos=gl.getAttribLocation(prog,"aPos"),aNormal=gl.getAttribLocation(prog,"aNormal");
+  var uMVP=gl.getUniformLocation(prog,"uMVP"),uCam=gl.getUniformLocation(prog,"uCam"),uColor=gl.getUniformLocation(prog,"uColor"),
+      uMetal=gl.getUniformLocation(prog,"uMetal"),uShin=gl.getUniformLocation(prog,"uShin"),uAmb=gl.getUniformLocation(prog,"uAmb");
+
+  // ---- ring: oval cross-section + soft wave peak at top ----
+  var R_INNER=8.60, TH=1.80, Rc=R_INNER+TH/2, ht=TH/2;
+  var NSEG=280, M=36, WAVE_A=1.30, SIG=0.75;
+  function bump(th){var s=Math.atan2(Math.sin(th-Math.PI/2),Math.cos(th-Math.PI/2));return Math.exp(-(s/SIG)*(s/SIG));}
+  function center(th){var Re=Rc+WAVE_A*bump(th);return[Re*Math.cos(th),Re*Math.sin(th),0];}
+  function buildBand(){
+    var pos=[],i,j;
+    for(i=0;i<NSEG;i++){
+      var th=2*Math.PI*i/NSEG, b=bump(th);
+      var C=center(th), Cn=center(th+0.01), Cp=center(th-0.01);
+      var T=norm(sub(Cn,Cp));
+      var rHat=[Math.cos(th),Math.sin(th),0], dv=dot(rHat,T);
+      var eThick=norm([rHat[0]-T[0]*dv,rHat[1]-T[1]*dv,rHat[2]-T[2]*dv]);
+      var eWidth=norm(cross(T,eThick));
+      var hw=1.00+0.05*b;
+      var ring=[];
+      for(j=0;j<M;j++){var a=2*Math.PI*j/M, la=hw*Math.cos(a), lb=ht*Math.sin(a);
+        ring.push([C[0]+la*eWidth[0]+lb*eThick[0],C[1]+la*eWidth[1]+lb*eThick[1],C[2]+la*eWidth[2]+lb*eThick[2]]);}
+      pos.push(ring);
+    }
+    var P=new Float32Array(NSEG*M*3),Nn=new Float32Array(NSEG*M*3);
+    for(i=0;i<NSEG;i++)for(j=0;j<M;j++){
+      var di=sub(pos[(i+1)%NSEG][j],pos[(i-1+NSEG)%NSEG][j]);
+      var dj=sub(pos[i][(j+1)%M],pos[i][(j-1+M)%M]);
+      var n=norm(cross(di,dj)),o=(i*M+j)*3;
+      P[o]=pos[i][j][0];P[o+1]=pos[i][j][1];P[o+2]=pos[i][j][2];Nn[o]=n[0];Nn[o+1]=n[1];Nn[o+2]=n[2];
+    }
+    var idx=[];
+    for(i=0;i<NSEG;i++)for(j=0;j<M;j++){var i2=(i+1)%NSEG,j2=(j+1)%M,a=i*M+j,b2=i2*M+j,c=i2*M+j2,d=i*M+j2;idx.push(a,b2,c,a,c,d);}
+    return {pos:P,nor:Nn,idx:idx};
+  }
+  // ---- hidden stone (small sphere on inner surface) ----
+  function buildStone(th){
+    var C=center(th), rHat=[Math.cos(th),Math.sin(th),0];
+    var Cn=center(th+0.01),Cp=center(th-0.01),T=norm(sub(Cn,Cp)),dv=dot(rHat,T);
+    var eThick=norm([rHat[0]-T[0]*dv,rHat[1]-T[1]*dv,rHat[2]-T[2]*dv]);
+    var cx=C[0]-(ht-0.12)*eThick[0], cy=C[1]-(ht-0.12)*eThick[1], cz=C[2]-(ht-0.12)*eThick[2];
+    var r=0.65, La=10, Lo=14, pos=[],nor=[],p,q;
+    for(p=0;p<=La;p++){var v=Math.PI*p/La, sv=Math.sin(v), cv=Math.cos(v);
+      for(q=0;q<=Lo;q++){var u=2*Math.PI*q/Lo;
+        pos.push([cx+r*sv*Math.cos(u),cy+r*cv,cz+r*sv*Math.sin(u)]);
+        nor.push([sv*Math.cos(u),cv,sv*Math.sin(u)]);}}
+    var P=[],N=[],idx=[];
+    for(p=0;p<pos.length;p++){P.push(pos[p][0],pos[p][1],pos[p][2]);N.push(nor[p][0],nor[p][1],nor[p][2]);}
+    var W=Lo+1;
+    for(p=0;p<La;p++)for(q=0;q<Lo;q++){var a=p*W+q,b=a+W;idx.push(a,b,a+1,a+1,b,b+1);}
+    return {pos:new Float32Array(P),nor:new Float32Array(N),idx:idx};
+  }
+
+  var band=buildBand();
+  var st1=buildStone(Math.PI/2+0.13), st2=buildStone(Math.PI/2-0.13);
+
+  function mkbuf(a){var b=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,b);gl.bufferData(gl.ARRAY_BUFFER,a,gl.STATIC_DRAW);return b;}
+  function mesh(m){var ib=gl.createBuffer();gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,ib);gl.bufferData(gl.ELEMENT_ARRAY_BUFFER,new Uint16Array(m.idx),gl.STATIC_DRAW);
+    return {p:mkbuf(m.pos),n:mkbuf(m.nor),ib:ib,count:m.idx.length};}
+  var mBand=mesh(band), mS1=mesh(st1), mS2=mesh(st2);
+  gl.enable(gl.DEPTH_TEST);gl.disable(gl.CULL_FACE);
+
+  var az=0.5,el=0.5,rad=40,target=[0,2.5,0],spin=true,peek=false,drag=false,lx=0,ly=0;
+  canvas.addEventListener("pointerdown",function(e){drag=true;spin=false;lx=e.clientX;ly=e.clientY;canvas.setPointerCapture(e.pointerId);});
+  canvas.addEventListener("pointermove",function(e){if(!drag)return;az+=(e.clientX-lx)*0.01;el+=(e.clientY-ly)*0.01;el=Math.max(-1.35,Math.min(1.35,el));lx=e.clientX;ly=e.clientY;});
+  canvas.addEventListener("pointerup",function(){drag=false;});
+  canvas.addEventListener("wheel",function(e){e.preventDefault();rad*=(1+Math.sign(e.deltaY)*0.08);rad=Math.max(22,Math.min(85,rad));},{passive:false});
+  document.getElementById("spin").addEventListener("click",function(){spin=!spin;this.classList.toggle("on",spin);});
+  document.getElementById("peek").addEventListener("click",function(){peek=!peek;spin=false;this.classList.toggle("on",peek);});
+  if(window.matchMedia&&window.matchMedia("(prefers-reduced-motion:reduce)").matches)spin=false;
+
+  function resize(){var dpr=Math.min(window.devicePixelRatio||1,2);var w=canvas.clientWidth||canvas.parentNode.clientWidth,h=canvas.clientHeight||canvas.parentNode.clientHeight;
+    var W=Math.round(w*dpr),H=Math.round(h*dpr);if(canvas.width!==W||canvas.height!==H){canvas.width=W;canvas.height=H;}gl.viewport(0,0,canvas.width,canvas.height);}
+  window.addEventListener("resize",resize);
+  function bind(p,n){gl.bindBuffer(gl.ARRAY_BUFFER,p);gl.enableVertexAttribArray(aPos);gl.vertexAttribPointer(aPos,3,gl.FLOAT,false,0,0);
+    gl.bindBuffer(gl.ARRAY_BUFFER,n);gl.enableVertexAttribArray(aNormal);gl.vertexAttribPointer(aNormal,3,gl.FLOAT,false,0,0);}
+  function drawMesh(m){bind(m.p,m.n);gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER,m.ib);gl.drawElements(gl.TRIANGLES,m.count,gl.UNSIGNED_SHORT,0);}
+
+  function draw(){
+    if(spin&&!drag)az+=0.004;
+    // peek mode: ease camera to look up into the inner side
+    var tel=peek?-0.95:el, taz=peek?Math.PI:az;
+    if(peek){el+=(tel-el)*0.08;az+=(taz-az)*0.08;}
+    resize();
+    gl.clearColor(0,0,0,0);gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+    var eye=[target[0]+rad*Math.cos(el)*Math.sin(az),target[1]+rad*Math.sin(el),target[2]+rad*Math.cos(el)*Math.cos(az)];
+    var mvp=mul(perspective(0.56,canvas.width/canvas.height,0.5,800),lookAt(eye,target,[0,1,0]));
+    gl.uniformMatrix4fv(uMVP,false,mvp);gl.uniform3fv(uCam,eye);
+    gl.uniform3f(uColor,0.80,0.81,0.83);gl.uniform1f(uMetal,0.85);gl.uniform1f(uShin,70.0);gl.uniform1f(uAmb,0.30);
+    drawMesh(mBand);
+    gl.uniform3f(uColor,0.62,0.80,0.92);gl.uniform1f(uMetal,0.95);gl.uniform1f(uShin,140.0);gl.uniform1f(uAmb,0.55);
+    drawMesh(mS1);drawMesh(mS2);
+    requestAnimationFrame(draw);
+  }
+  resize();draw();
+})();
+</script>
