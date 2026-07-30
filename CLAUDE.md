@@ -36,6 +36,7 @@
 - **security-auditor / red-team / code-reviewer = opus** — safety net ก่อน merge (red-team = โจมตีเชิงรุกพิสูจน์ว่าระบบทนจริง)
 - **sre = opus** — root-cause ใน production ผิดแพง ต้องการ reasoning แน่น
 - **backend / frontend / ux-ui / qa / devops = sonnet** — งาน execute ตาม design ที่ชัดแล้ว
+- **jewelry-designer = sonnet** — งาน execute ออกแบบเครื่องประดับ 3J (CAD spec + RhinoPython) ใต้ ux-ui
 - **content-strategist / copywriter / content-repurposer = sonnet** — ทีม content (AI-first marketing) ใต้ CMO งาน execute ตามกลยุทธ์ที่ CMO วาง
 - **docs-researcher = haiku** — งานขนข้อมูล คอขวดอยู่ที่ network ไม่ใช่ model
 
@@ -78,6 +79,7 @@
 | **Tech Lead** (main session) | Obi-Wan Kenobi | นายพลคุมทัพ ประสาน Jedi ทั้งหมดลงสนาม |
 | **architect** | Yoda | ปรมาจารย์ วางรากฐาน คิดลึก — design ผิดแพงทั้งโปรเจกต์ |
 | **ux-ui** | Padmé Amidala | เข้าใจประชาชน/ผู้ใช้ สื่อสารสง่างาม |
+| **jewelry-designer** | Sabé | องครักษ์ผู้ชำนาญเครื่องทรงราชสำนัก — ออกแบบเครื่องประดับ 3J → CAD spec + RhinoPython |
 | **backend-dev** | Han Solo | ช่างเครื่อง Falcon ทำให้ระบบวิ่งจริง แก้เฉพาะหน้าเก่ง |
 | **frontend-dev** | Luke Skywalker | หน้าตาฮีโร่ของทีม ฝั่งที่ผู้ใช้เห็น |
 | **security-auditor** | Mace Windu | ล่า Sith ไม่ประนีประนอม เจอภัยตัดจบ (defensive review) |
