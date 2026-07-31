@@ -81,7 +81,7 @@
     <div class="panel">
       <p class="eyebrow">WE-R001 · Wave Embrace</p>
       <h1>Wave Embrace</h1>
-      <p class="lede">Soft wave. Hidden sparkle. — คลื่นทะเลนุ่มด้านนอกเรียบหรู · พลอยจิ๋วซ่อนด้านในวงแหวน ประกายลับที่มีแต่คนใส่รู้</p>
+      <p class="lede">Calm ocean wave. — แรกเห็นเหมือน wedding band ธรรมดา มองใกล้ๆถึงเห็นคลื่นนุ่มเส้นเดียว · พลอยจิ๋วซ่อนด้านใน · Georg Jensen / COS มินิมอล</p>
       <div class="spec">
         <div class="row"><span class="k">metal</span><span class="v"><b>Silver 925</b></span></div>
         <div class="row"><span class="k">stone</span><span class="v">White Sapphire <b>1.3</b> <span class="u">mm ×1–2 · ซ่อนใน</span></span></div>
@@ -146,11 +146,10 @@
 
   // ---- ring: oval cross-section + soft wave peak at top ----
   var R_INNER=8.60, TH=1.80, Rc=R_INNER+TH/2, ht=TH/2;
-  var NSEG=280, M=36, WAVE_A=1.0;
-  // คลื่นจริง: ยอดชัด (crest) + ร่องลึก 2 ข้าง (crest gaussian ลบ trough gaussian 2 ตัว)
-  var WA=1.35, WS1=0.55, WB=0.75, WD=0.90, WS2=0.42;
+  var NSEG=280, M=36, WAVE_A=1.10;
+  // คลื่นเดียว เรียบนุ่ม (single smooth curve) — subtle เกือบเหมือน wedding band ปกติ
   function wave(th){var s=Math.atan2(Math.sin(th-Math.PI/2),Math.cos(th-Math.PI/2));
-    return WA*Math.exp(-(s/WS1)*(s/WS1)) - WB*(Math.exp(-((s-WD)/WS2)*((s-WD)/WS2))+Math.exp(-((s+WD)/WS2)*((s+WD)/WS2)));}
+    return Math.abs(s)<Math.PI/2 ? 0.5*(1.0+Math.cos(2.0*s)) : 0.0;}
   function center(th){var Re=Rc+WAVE_A*wave(th);return[Re*Math.cos(th),Re*Math.sin(th),0];}
   function buildBand(){
     var pos=[],i,j;
