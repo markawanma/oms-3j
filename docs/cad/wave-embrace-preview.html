@@ -146,10 +146,10 @@
 
   // ---- ring: oval cross-section + soft wave peak at top ----
   var R_INNER=8.60, TH=1.80, Rc=R_INNER+TH/2, ht=TH/2;
-  var NSEG=280, M=36, WAVE_A=1.10;
-  // คลื่นเดียว เรียบนุ่ม (single smooth curve) — subtle เกือบเหมือน wedding band ปกติ
+  var NSEG=280, M=36, WAVE_A=1.60, WWIN=1.30;
+  // Calm Crest: คลื่นเดียวเรียบ ยอดชัดพอดี localized · wave height 1.60mm · ครึ่งล่าง band วงกลมปกติ
   function wave(th){var s=Math.atan2(Math.sin(th-Math.PI/2),Math.cos(th-Math.PI/2));
-    return Math.abs(s)<Math.PI/2 ? 0.5*(1.0+Math.cos(2.0*s)) : 0.0;}
+    return Math.abs(s)<WWIN ? 0.5*(1.0+Math.cos(Math.PI*s/WWIN)) : 0.0;}
   function center(th){var Re=Rc+WAVE_A*wave(th);return[Re*Math.cos(th),Re*Math.sin(th),0];}
   function buildBand(){
     var pos=[],i,j;
