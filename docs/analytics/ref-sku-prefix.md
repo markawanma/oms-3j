@@ -8,6 +8,20 @@
 `ref_sku_prefix (prefix text PK, category text, subcategory_hint text, product_line text, is_product boolean, note text)`
 - `product_line` ∈ `fashion` / `auspicious` (มงคล) / `bullion` (เงินแท่ง) / `non_product` / `live_weight`
 
+## ทำงานยังไง (auto-categorize)
+
+ตารางนี้ทำให้ **สินค้าใหม่ทุกตัวถูกจัดหมวดอัตโนมัติจากรหัส** โดยไม่ต้องแท็กมือ:
+
+1. เวลามีสินค้า/ออเดอร์เข้ามา ระบบเอา **รหัส SKU** ไปหาแถวใน `ref_sku_prefix` ที่ prefix ตรง
+2. Match แบบ **longest-prefix-first** (prefix ยาวสุดที่ตรงชนะ) — กันชนกัน เช่น
+   - `S-ANC1` → ตรง `S-ANC` (สร้อยข้อเท้า) **ไม่ใช่** `S-` (ต้อง match ตัวที่เจาะจงกว่าก่อน)
+   - `NC20-21` → ตรง `NC` → สร้อยคอ, fashion
+   - `AT-guanyin5` → ตรง `AT-` → จี้องค์เทพ, auspicious
+3. ได้ `category` + `product_line` ติดไปกับ order/สินค้านั้นทันที → ใช้ group ใน dashboard/mart และ **ตั้งเป้า audience ยิงแอด**
+4. เจอ prefix ใหม่ที่ยังไม่มีในตาราง → เข้า **คิว "ยังไม่จัดหมวด"** ให้คนเพิ่มแถว (ไม่เดา ไม่เงียบหาย)
+
+> **เชื่อมกับ DB ยังไง:** `ref_sku_prefix` เป็นตาราง reference ใน schema `analytics` · `v_dim_product` (ดู design §12) เอา `public.product.sku` มา match prefix → เติมคอลัมน์ `category` + `product_line` ให้ product ทุกตัว · fact/mart join ผ่านตรงนี้
+
 ---
 
 ## หมวดที่ยืนยันได้ ✅
@@ -51,8 +65,20 @@
 
 ---
 
+## product_line ใช้ยิงแอดยังไง (นี่คือเหตุผลหลักที่แยก line)
+
+แต่ละ line = **คนละกลุ่มลูกค้า → คนละแคมเปญ/ครีเอทีฟ/audience** ไม่ควรยิงรวมกัน:
+
+| product_line | ลูกค้าเป็นใคร | แนวยิงแอด |
+|---|---|---|
+| **fashion** (สร้อย/แหวน/ต่างหู) | ผู้หญิงใส่สวย ซื้อเอง/เป็นของขวัญ | ครีเอทีฟแฟชั่น มินิมอล · lookalike จากลูกค้า LINE แฟชั่น · geo คอนโด/เมือง |
+| **auspicious** (มงคล ~40 SKU) | สายเสริมดวง/ฮวงจุ้ย จีน-ไทย ยอมจ่ายตามความเชื่อ | ครีเอทีฟความหมาย/พลังองค์เทพ · จับช่วงเทศกาลจีน/ปีชง · audience ความสนใจสายมู · **margin มักดีกว่า** |
+| **bullion** (เงินแท่ง) | สายออม/สะสม/ทำบุญ (รุ่นวัด) | ครีเอทีฟการออม/มูลค่า · จับช่วงราคาเงินขึ้น |
+| **live_weight** | คนดูไลฟ์ ซื้อตามน้ำหนัก | ไม่ใช่หมวดสินค้าจริง — ใช้ดู yield ไลฟ์/กรัม ไม่ใช่ยิงแอดตามแบบ |
+
+> โยงกับ flywheel: `mv_geo_performance` + `mv_rfm` แตกตาม `product_line` ได้ → รู้ว่า "ลูกค้าสายมงคล" vs "สายแฟชั่น" อยู่ที่ไหน มูลค่าเท่าไร แล้ว seed audience/lookalike แยก line
+
 ## หมายเหตุการใช้งาน
-- **subcategory (สไตล์/ลาย)** — derive จาก **ชื่อสินค้า** (keyword: ฟิกาโร่/ดิสโก้/ห่วงคู่/curb…) ไม่ใช่จาก prefix → ทำเป็น `ref_style_keyword` แยกได้ทีหลัง
-- **`product_line=auspicious` (มงคล ~40 SKU)** = insight การตลาด: คนละ audience กับแฟชั่น → ยิงแอดคนละครีเอทีฟ (สายเสริมดวง/ฮวงจุ้ย จีน-ไทย)
+- **subcategory (สไตล์/ลาย)** — derive จาก **ชื่อสินค้า** (keyword: ฟิกาโร่/ดิสโก้/ห่วงคู่/curb…) ไม่ใช่จาก prefix → ทำเป็นตาราง `ref_style_keyword (keyword, style)` แยกได้ทีหลัง match กับชื่อ
 - **`live_weight`** = ไม่ผูกดีไซน์ (ขายตามกรัม) → product-analytics ได้แค่ weight tier · แต่ estimate ต้นทุนจากกรัมได้ (ดู design §12)
-- prefix ที่ยาว (เช่น `S-ANC` vs `S-`) → match แบบ **longest-prefix-first** กันชนกัน
+- **การดูแลตาราง:** สินค้าใหม่ที่ prefix เดิม = จัดหมวดอัตโนมัติทันที · prefix ใหม่ = เพิ่ม 1 แถวครั้งเดียว ใช้ได้ตลอด · เปลี่ยนหมวด = แก้แถวเดียว กระทบทั้งระบบพร้อมกัน (single source of truth)
