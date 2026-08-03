@@ -352,7 +352,7 @@ join analytics.dim_channel c on c.id = r.channel_id;
 
 ## 8. Rollout Phases + Data-Quality Fixes
 
-**Phase 1 — Foundation (สัปดาห์ 1–2):** สร้าง schema analytics + dims + fact_order + stg_order_import · เขียน ELT import export ก.ค. (normalize channel ผ่าน alias, resolve customer ด้วยเบอร์, geo -> TH-XX ถ้า unknown) · ได้ mv_rfm + mv_geo ทันที
+**Phase 1 — Foundation (สัปดาห์ 1–2):** สร้าง schema analytics + dims + fact_order + **fact_order_item** (ยืนยันว่ามี SKU) + stg_order_import · เขียน ELT import export ก.ค. (normalize channel ผ่าน alias, resolve customer ด้วยเบอร์, geo -> TH-XX ถ้า unknown) · ได้ mv_rfm + mv_geo + **product performance** ทันที
 
 **Phase 2 — หยุดเลือดที่ต้นทาง (สัปดาห์ 2–3, แก้ที่ OMS):**
 - บังคับกรอก **cogs/profit ก่อน order เปลี่ยนสถานะเป็น to_ship** (แก้ 58% missing) — ถ้าบังคับแข็งไปทำงานสะดุด ใช้ soft-block + dashboard "orders ไม่มีต้นทุน" ให้เคลียร์รายวัน
@@ -378,11 +378,16 @@ join analytics.dim_channel c on c.id = r.channel_id;
 
 ---
 
-## 10. Open Questions (ต้องยืนยันก่อน implement)
+## 10. Decisions (ยืนยันจากเจ้าของแล้ว) + ผลต่อ design
 
-1. **จะยิงแอด platform ไหนจริงก่อน** — TikTok Ads / Meta / Google? (กระทบ spec hash + หน้า export)
-2. **Export ก.ค. มี line item ระดับสินค้าไหม** หรือมีแค่ยอดรวม/order? (ตัดสินว่า fact_order_item ทำ Phase 1 หรือเลื่อน)
-3. **ต้นทุน TikTok ที่หายไป 58%** — ไม่กรอกเพราะขี้ลืม หรือเพราะ**ไม่รู้ต้นทุนจริง** (ของ live หยิบขายหน้ากล้อง)? ถ้าอย่างหลัง ต้องมี standard cost ต่อ SKU ให้ระบบ estimate แทน (profit_status='estimated')
-4. **Consent ปัจจุบันมีอะไรบ้าง** — LINE OA มี privacy notice แล้วหรือยัง? กระทบว่า customer เก่ากี่ % ใช้ทำ audience ได้เลย
-5. **ใครกรอก ad spend รายวัน** — เจ้าของหรือแอดมิน? (กระทบ UX หน้ากรอก + สิทธิ์ RLS)
-6. **LINE user id เก็บได้ไหมตอนแชท** (Messaging API ให้ userId) — ถ้าได้ identity resolution ฝั่ง LINE จะ exact แทน probable
+1. **Platform ที่จะยิง** — *ยังไม่ตัดสิน* → คง design แบบ **platform-generic** ไว้ (dim_channel/hash/export รองรับทุก platform อยู่แล้ว) เลือกทีหลังได้ไม่ต้องแก้ schema ✅
+2. **Line item ระดับ SKU** — *มี* → **`fact_order_item` เลื่อนขึ้นมาทำใน Phase 1** · เปิด product performance mart (สินค้าไหนดึงลูกค้าใหม่ vs repeat) ได้ตั้งแต่ต้น
+3. **ต้นทุน/กำไรหาย 58%** — *TikTok ไม่ให้ข้อมูล* (marketplace ปิดต้นทุน/ข้อมูลลูกค้า) เจ้าของจะเริ่มแนบใบปะหน้า/เก็บต้นทุน **จากออเดอร์ใหม่เป็นต้นไป**
+   - → order เก่า TikTok คง `profit_status='missing'` (ไม่ย้อนแก้) · ออเดอร์ใหม่ตั้งเป้า `'complete'`
+   - → **สำคัญ:** TikTok Shop ปิดทั้งต้นทุน **และเบอร์/ที่อยู่ลูกค้า** ด้วย = order TikTok ส่วนใหญ่ identity ได้แค่ handle (`probable`) ไม่มีเบอร์ → **audience/lookalike สร้างจากฝั่ง LINE เป็นหลัก** (ดูข้อ 6) ไม่ใช่จาก TikTok
+4. **Consent ปัจจุบัน** — *ยังไม่ยืนยัน* → default `false` ตามเดิม เก็บ consent จากลูกค้าใหม่ผ่าน LINE (Phase 4)
+5. **ใครกรอก ad spend** — *ยังไม่ระบุ* → หน้ากรอกรองรับทั้ง owner/admin ผ่าน RLS shop membership
+6. **LINE user id** — *ได้ / มี LINE OA Messaging API* → **identity ฝั่ง LINE เป็น `exact`** (`identity_type='line_id'`, confidence `exact`)
+   - → ลูกค้า LINE (segment มูลค่าสูงสุด AOV ฿1,528) จับตัวตนแม่น = **seed lookalike คุณภาพสูงสุด** · เก็บ userId ตอนแชท/add friend เข้า `dim_customer_identity`
+
+> **กลยุทธ์ที่ตกผลึกจากคำตอบ:** TikTok = reach/acquisition (แต่ข้อมูลลูกค้าปิด) · **LINE = แหล่งสร้าง audience ทองคำ** (ระบุตัวตน exact + มูลค่าสูง) → เอา audience จาก LINE ไปเป็น lookalike seed ยิงบน TikTok/Meta = ตรงเป้าสุด นี่คือ flywheel ของทั้งระบบ
