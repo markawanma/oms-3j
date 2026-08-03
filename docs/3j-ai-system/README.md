@@ -69,6 +69,7 @@ docs/3j-ai-system/
 | `09_Collection_Template.md` | แบรนด์ (เทมเพลต) | เริ่ม collection ใหม่ — copy ไปเป็น `collections/<ชื่อ>/design-intent.md` |
 | `collections/satin-flow/design-intent.md` | **collection** | authoritative เฉพาะ collection Satin Flow — motif "folded satin", NEVER-DO twist/rope/spiral, กฎ split-near-head |
 | `collections/wave-embrace/design-intent.md` | **collection** | authoritative เฉพาะ collection Wave Embrace — motif "soft ocean wave + hidden sparkle", NEVER-DO sharp wave/deep curve/overly wavy/visible stone, กฎ single soft peak + flush inner setting |
+| `collections/auspicious-pixiu/design-intent.md` | **collection** | authoritative เฉพาะ collection Auspicious Pixiu (hero product ใหม่ 3 tier) — motif "ปี่เซียะย่อรูปทรงเหลือ 3 สัญลักษณ์บังคับ (เขาเดี่ยว/ปีกพับ/หน้าสงบ) + river-stone sculpt", NEVER-DO พู่ห้อย/ลายเมฆ/ฐานแท่น/ปากอ้าเขี้ยว, **สถานะ v1 รอเจ้าของแบรนด์ยืนยัน** |
 
 ## ไฟล์วัตถุดิบ (ต้นทาง — อยู่นอกโฟลเดอร์นี้ อ้างอิงไม่ก็อปซ้ำ)
 
@@ -79,6 +80,7 @@ docs/3j-ai-system/
 - [`docs/cad/satin-flow-preview.html`](../cad/satin-flow-preview.html) — 3D preview (WebGL) ของ Satin Flow
 - [`docs/cad/wave-embrace-ring-spec.md`](../cad/wave-embrace-ring-spec.md) — worked example CAD spec จริง (แหวน Wave Embrace WE-R001, Part 1–6)
 - [`docs/cad/wave-embrace-ring.py`](../cad/wave-embrace-ring.py) — RhinoPython output จริงของ Wave Embrace
+- [`docs/cad/pixiu-signature-pendant-spec.md`](../cad/pixiu-signature-pendant-spec.md) — CAD spec v1 (จี้ปี่เซียะ Signature tier, hero product ใหม่) — เขียนก่อนมี reference image จริง เป็น design brief + RhinoPython blockout (bail + placeholder mass เท่านั้น ตัวสัตว์ต้องปั้น T-Splines)
 
 ## หมายเหตุสำคัญ
 
