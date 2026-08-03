@@ -445,6 +445,9 @@ join analytics.dim_channel c on c.id = r.channel_id;
 - ⚠️ **`ราคาต้นทุน = 0` ทั้ง master** → นี่คือรากของปัญหากำไรหาย · เพิ่ม field `standard_cost` + สถานะ `cost_status ('actual','standard','missing')` → order ที่ไม่มีต้นทุนจริงใช้ standard_cost ต่อ SKU มา estimate (`profit_status='estimated'`) แทนที่จะเป็น NULL
 - **SKU category จาก prefix** — รหัสขึ้นต้นบอกหมวด (เช่น `NC`=สร้อยคอ) → view `v_dim_product` derive `category` จาก prefix (map prefix→หมวดในตาราง `ref_sku_prefix`) ทำ product/category analytics ได้ทันทีโดยไม่ต้องกรอกหมวดใหม่
 - **`sku_alias` (สำคัญ)** — ใบปะหน้า TikTok ใช้ **Seller SKU generic** (`LiveS2` = SKU ไลฟ์) ไม่ใช่รหัสจริง → ตาราง `analytics.sku_alias (alias_raw text, product_id FK, valid_from/to)` map live-SKU → SKU จริง (เหมือน channel alias) · เจอ alias ใหม่ที่ map ไม่ได้ → คิว manual ไม่เงียบหาย
+- **Live SKU = ขายตามน้ำหนัก (ยืนยันจาก master):** `LiveS05…LiveS75` = เงิน 0.5–7.5 กรัม (ราคา = grams × ~150฿/g) · `live05/live1` = @120฿/g → seed `sku_alias` ทั้งชุดผูกกับ pseudo-product **"Live silver by weight"** (category `live_weight`)
+  - ⚠️ live order ไม่ผูกแบบ/ดีไซน์ → product-level analytics ทำไม่ได้ (ได้แค่ weight tier + revenue)
+  - ✅ **derive `weight_grams` จากรหัส (LiveSxx→xx/10 g)** → estimate `cogs = grams × silver_cost_per_gram` → `profit_status='estimated'` แก้กำไรหายฝั่ง live โดยไม่ต้องกรอกมือ (เก็บ `silver_cost_per_gram` เป็น setting refresh ตามราคาเงิน)
 
 ---
 

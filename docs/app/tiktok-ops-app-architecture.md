@@ -182,7 +182,7 @@ Guardrails (hard requirement ทุกข้อ — enforce ใน code ไม�
 | Phase | ของที่ส่ง | Gate ก่อนไปต่อ |
 |---|---|---|
 | **P1** (สัปดาห์ 1–2) | migration (ingest_job / stg / dim_address / sku_alias / commit fn) + upload UI + PDF text extract + address rule + review UI | parse accuracy >= 90% บนใบจริง ~50 ใบ |
-| **P2** (สัปดาห์ 2–3) | OCR fallback + `api_get_*` + dashboard pages + pg_cron refresh | ตัวเลข mart ตรงกับนับมือ 1 สัปดาห์ |
+| **P2** (สัปดาห์ 2–3) | `api_get_*` + dashboard pages + pg_cron refresh + live-weight COGS estimate (ข้อ 3) | ตัวเลข mart ตรงกับนับมือ 1 สัปดาห์ · (OCR ตัดออก — PDF text ล้วน) |
 | **P3** (สัปดาห์ 3–4) | Ad Copilot เฟส 1 (advisory) + `ad_recommendation` + หน้า `/copilot` | เจ้าของประเมินคำแนะนำ "ใช้ได้จริง" >= ครึ่ง ภายใน 2–4 สัปดาห์ |
 | **P4** (เมื่อคุ้ม) | เฟส 2 executor + allowlist/cap/audit/rollback + audience upload flow | spend/เดือนสูงพอ + `copilot_policy` อนุมัติโดย owner |
 
@@ -196,12 +196,14 @@ Guardrails (hard requirement ทุกข้อ — enforce ใน code ไม�
 
 ---
 
-## 7. Open Questions (ให้เจ้าของยืนยันก่อน implement)
+## 7. Decisions (ยืนยันจากเจ้าของแล้ว) + ผลต่อ architecture
 
-1. ใบปะหน้าที่ได้รายวันเป็น **PDF จาก Seller Center** (มี text layer) กี่ % vs ถ่ายรูป/สแกน? — ถ้า PDF ล้วน ตัด OCR ออกจาก P1 ได้เลย
-2. ใครอัป/รีวิวรายวัน (แอดมินคนไหน, role อะไร) — กำหนดสิทธิ์ review/commit
-3. ขอ list Seller SKU generic ที่ใช้บน TikTok ทั้งหมดตอนนี้ (LiveS2, อื่นๆ) เพื่อ seed `sku_alias` รอบแรกด้วยมือ
-4. Ad Copilot เฟส 1 อยากได้ cadence ไหน — on-demand อย่างเดียว หรือสรุปอัตโนมัติทุกจันทร์เช้าด้วย
-5. งบ Claude API/OCR ต่อเดือนที่รับได้ (ประมาณการรวมหลักร้อยถึงพันบาท/เดือนที่ cadence รายสัปดาห์ + on-demand)
-6. เฟส 2 เริ่ม platform ไหนก่อน — TikTok Ads หรือ Meta (กระทบลำดับ integration + ขอ API access ล่วงหน้า)
-7. โอเคไหมกับการส่งภาพใบปะหน้า (ที่อยู่จริง, ชื่อ/เบอร์ mask แล้ว) ไป Google Vision (processor ต่างประเทศ)? — ถ้าไม่ ใช้ Tesseract + manual review หนักขึ้นแทน
+1. **ใบปะหน้า = PDF จาก Seller Center (มี text layer) ทั้งหมด** → **ตัด OCR ออกจาก P1** ใช้ `unpdf`/`pdfjs` text extract อย่างเดียว (แม่น ฟรี ไม่มี dependency นอก) · ถ่ายรูป/สแกน = กรอกมือ (ปริมาณน้อย เจ้าของอัปเอง)
+2. **เจ้าของ upload/review เอง** (single user เฟสแรก) → ออกแบบ role/permission ไว้ใน schema แต่ **ยังไม่ build access control** · เปิดให้แอดมินคนอื่นทีหลัง (RLS shop membership รองรับอยู่แล้ว)
+3. **Seller SKU generic = `LiveS05…LiveS75` (เงินขายตามกรัม 0.5–7.5g @ ~150฿/g) + `live05/live1` (รุ่นเก่า @120฿/g)** — seed `sku_alias` จากลิสต์นี้ → **ผูกกับ pseudo-product "Live silver by weight"** (ไม่ใช่แบบเฉพาะ)
+   - → ⚠️ **TikTok live ขายตามน้ำหนัก ไม่ผูกแบบสินค้า** = product/design-level analytics ทำกับ live order ไม่ได้ (ได้แค่ weight tier + revenue)
+   - → ✅ **แต่ประมาณกำไรได้จากน้ำหนัก**: grams (จาก LiveSxx) × ต้นทุนเงิน/กรัม → `cogs` estimate → `profit_status='estimated'` = **แก้ส่วนหนึ่งของกำไรหาย 58%** โดยไม่ต้องกรอกมือ (เก็บ `silver_cost_per_gram` ใน `copilot_policy`/setting refresh เป็นรอบ)
+4. **Ad Copilot cadence → แนะนำ: on-demand "pre-flight ก่อนยิงแอดทุกครั้ง"** (ไม่ทำ scheduled weekly) — ตรงเป้าเจ้าของ (เจาะกลุ่มชัด + ลงทุนไม่เยอะ): กด Analyze ก่อนวางแคมเปญ → Claude สรุปว่า "รอบนี้ควรยิงใคร/ที่ไหน/งบเท่าไร" จากข้อมูลล่าสุด · ประหยัดสุด (จ่ายเฉพาะตอนใช้)
+5. **งบ = on-demand, ≤1,000฿/สัปดาห์** → ใช้ Sonnet-class, tools คืน aggregate → ~10–30k tokens/รอบ = หลักสิบบาท/ครั้ง → ยิงได้ ~หลายสิบครั้ง/สัปดาห์ในงบ (เหลือเฟือสำหรับ pre-flight) · เก็บ token usage ต่อ recommendation ติดตามจริง
+6. **เฟส 2 = TikTok Ads + Meta ทั้งคู่** → tool layer `lib/adplatform/{tiktok,meta}.ts` แยก adapter · **แนะนำเริ่ม Meta ก่อน** (custom audience + lookalike จาก LINE-seed แม่นกว่า เป็นจุดแข็ง flywheel) แล้วตาม TikTok · ขอ API access ทั้ง 2 ล่วงหน้า
+7. **OCR → แนะนำ: ไม่ใช้ Google Vision เลย** (ข้อ 1 = PDF text ครบ 100%) → **ไม่มีข้อมูลออกนอกประเทศ = PDPA สะอาด + ต้นทุน OCR = 0** · เคสรูป/สแกนที่นานๆเจอ → กรอกมือ (เจ้าของอัปเอง volume ต่ำ คุ้มกว่าตั้ง OCR ทั้งระบบ) · เปิด OCR ทีหลังเฉพาะถ้ารูป-label เยอะขึ้นจริง
