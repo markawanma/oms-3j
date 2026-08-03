@@ -391,3 +391,76 @@ join analytics.dim_channel c on c.id = r.channel_id;
    - → ลูกค้า LINE (segment มูลค่าสูงสุด AOV ฿1,528) จับตัวตนแม่น = **seed lookalike คุณภาพสูงสุด** · เก็บ userId ตอนแชท/add friend เข้า `dim_customer_identity`
 
 > **กลยุทธ์ที่ตกผลึกจากคำตอบ:** TikTok = reach/acquisition (แต่ข้อมูลลูกค้าปิด) · **LINE = แหล่งสร้าง audience ทองคำ** (ระบุตัวตน exact + มูลค่าสูง) → เอา audience จาก LINE ไปเป็น lookalike seed ยิงบน TikTok/Meta = ตรงเป้าสุด นี่คือ flywheel ของทั้งระบบ
+
+---
+
+## 11. Address Model — แยกส่วน + จัดประเภท (ตามที่เจ้าของขอ)
+
+**ตาราง `analytics.dim_address`** — grain: 1 แถว = 1 ที่อยู่จัดส่งของ 1 order (dedupe ต่อ customer ได้ด้วย hash) · เก็บทั้ง raw และ **แยกส่วน (parsed)** เพื่อวิเคราะห์/ยิงแอดตาม geo ละเอียด
+
+| column | type | note |
+|---|---|---|
+| `id` uuid PK · `shop_id` uuid FK · `fact_order_id` uuid FK · `customer_id` uuid FK | | |
+| `raw_address` | text | ที่อยู่เต็มตามที่พิมพ์บนใบปะหน้า (เก็บดิบเสมอ — parse ผิดยังกู้ได้) |
+| `house_no` | text | **เลขที่** (เช่น 112/203) |
+| `building` | text null | **อาคาร** (ตึก/ชื่ออาคาร เช่น B1, Tower A) |
+| `floor_room` | text null | ชั้น/ห้อง (เช่น F11-42) — คอนโดมักมี |
+| `village_project` | text null | **หมู่บ้าน/โครงการ** |
+| `moo` | text null | **หมู่** |
+| `road` | text null | **ถนน/ซอย** |
+| `subdistrict` | text | **ตำบล/แขวง** |
+| `district` | text | **อำเภอ/เขต** |
+| `province_code` | text FK -> dim_geo | **จังหวัด** (map ชื่อ -> TH-XX) |
+| `zipcode` | text(5) | **รหัสไปรษณีย์** |
+| `address_type` | text CHECK in ('residence_house','housing_project','condo','company','business_premise','government_edu','other','unknown') | **ประเภทที่อยู่** (ข้อ 3) |
+| `address_type_source` | text CHECK in ('rule','manual','model') default 'rule' | มาจาก rule/คนแก้/โมเดล |
+| `parse_confidence` | text CHECK in ('high','low','unparsed') | flag ให้คน review ตัว low |
+
+### 11.1 การจัดประเภทที่อยู่ (address_type) — rule-based ก่อน, คน override ได้
+
+ใช้ keyword rule บน `building`/`village_project`/`raw_address` (Phase 1 พอ — 700 order/เดือนคนดู low-confidence ไหว):
+
+| ประเภท | keyword เด่น | ทำไมมีค่าต่อการตลาด |
+|---|---|---|
+| **condo** (คอนโด) | คอนโด, condo, อาคารชุด, residence, tower, ชั้น/ห้อง (F11-42) | คนเมือง กำลังซื้อสูง ของขวัญ/แฟชั่น → bid แรง, ครีเอทีฟพรีเมียม |
+| **housing_project** (หมู่บ้านโครงการ) | หมู่บ้าน, ม., โครงการ, the…, ชื่อโครงการ | ครอบครัว ชานเมือง มีกำลังซื้อ → ของขวัญคู่/แม่ลูก |
+| **company** (บริษัท) | บริษัท, บจก., co.,ltd, ห้างหุ้นส่วน | **B2B/ของขวัญองค์กร/ขายส่ง** → แยกทำ offer พิเศษ |
+| **business_premise** (สถานประกอบการ) | ร้าน, โรงงาน, สำนักงาน, office, คลินิก | ผู้ประกอบการ อาจซื้อซ้ำ/ขายต่อ |
+| **government_edu** | กรม, ราชการ, โรงเรียน, มหาวิทยาลัย, รพ. | กลุ่มเฉพาะ |
+| **residence_house** | ที่เหลือที่มีเลขที่บ้านปกติ | บ้านเดี่ยว/ทั่วไป |
+| **unknown** | parse ไม่ได้ | เข้าคิว manual |
+
+> **ใช้ยิงแอดยังไง:** `address_type` กลายเป็น **dimension ใหม่ใน mv_geo_performance + audience** — เช่นพบว่า condo AOV สูง → ทำ custom audience เฉพาะ + geo-bid คอนโดในเมือง · company = ช่องทางขายส่ง/ของขวัญองค์กรที่ broad targeting มองไม่เห็น
+
+### 11.2 Zipcode เป็น validation
+เก็บตาราง `ref_thai_zipcode (zipcode PK, subdistrict, district, province_code)` — cross-check zipcode ↔ อำเภอ/จังหวัดที่ parse มา ถ้าขัดกัน flag low-confidence · zipcode ยังใช้ derive province ให้ order ที่พิมพ์จังหวัดไม่ชัด
+
+---
+
+## 12. SKU & Cost (จาก SKU master Shipnity + ใบปะหน้า)
+
+- **`dim_product`** ใช้ `public.product` เป็นหลัก · sync SKU master (307 รหัส: sell_price, **cost**, stock) เข้ามา
+- ⚠️ **`ราคาต้นทุน = 0` ทั้ง master** → นี่คือรากของปัญหากำไรหาย · เพิ่ม field `standard_cost` + สถานะ `cost_status ('actual','standard','missing')` → order ที่ไม่มีต้นทุนจริงใช้ standard_cost ต่อ SKU มา estimate (`profit_status='estimated'`) แทนที่จะเป็น NULL
+- **SKU category จาก prefix** — รหัสขึ้นต้นบอกหมวด (เช่น `NC`=สร้อยคอ) → view `v_dim_product` derive `category` จาก prefix (map prefix→หมวดในตาราง `ref_sku_prefix`) ทำ product/category analytics ได้ทันทีโดยไม่ต้องกรอกหมวดใหม่
+- **`sku_alias` (สำคัญ)** — ใบปะหน้า TikTok ใช้ **Seller SKU generic** (`LiveS2` = SKU ไลฟ์) ไม่ใช่รหัสจริง → ตาราง `analytics.sku_alias (alias_raw text, product_id FK, valid_from/to)` map live-SKU → SKU จริง (เหมือน channel alias) · เจอ alias ใหม่ที่ map ไม่ได้ → คิว manual ไม่เงียบหาย
+
+---
+
+## 13. TikTok Label = แหล่งข้อมูล (เริ่มเก็บจากวันนี้ไป · ของเก่าข้าม)
+
+Field mapping จากใบปะหน้า (PDF/สแกน) → ตารางปลายทาง:
+
+| บนใบปะหน้า | → DB field | หมายเหตุ/ข้อจำกัด |
+|---|---|---|
+| Order ID (18 หลัก) | `fact_order.source_order_no` | key หลักของ order TikTok |
+| Tracking (JTTH…) | `fact_order.tracking_no` + carrier=J&T | |
+| ที่อยู่ผู้รับ | `dim_address.*` (§11) | **มีครบ** — parse แยกส่วนได้ |
+| ชื่อผู้รับ | `pii_customer.full_name` | ⚠️ **TikTok mask** (`3** J**`) → ใช้ resolve ไม่ได้ |
+| เบอร์ผู้รับ | — | ⚠️ **mask** (`08******99`) → **จับ identity ด้วยเบอร์ไม่ได้** → order TikTok = identity `probable` (handle/ที่อยู่) เท่านั้น |
+| Seller SKU + Qty | `fact_order_item` ผ่าน `sku_alias` | live-SKU ต้อง map (§12) |
+| Product name | snapshot | generic ("silver 925") |
+| Shipping/Estimated date | `fact_order` วันที่ | |
+
+**Ingestion (เฟสเก็บใบปะหน้า):** เริ่มจาก**กรอก/พาร์สจากไฟล์ใบปะหน้า** (batch) → ระยะยาวถ้าปริมาณเยอะพิจารณา TikTok Shop API ดึง order ตรง (แต่ API ก็ mask PII เหมือนกัน — address ได้ ชื่อ/เบอร์ไม่ได้)
+
+> **สรุปความจริง TikTok:** เก็บได้ = order id, **ที่อยู่ (แยกส่วน+ประเภท)**, สินค้า, วันที่, กำไร (จากนี้ไป) · เก็บไม่ได้ = เบอร์/ชื่อจริง → **TikTok ดีสำหรับ geo/product/ยอด แต่ไม่ใช่แหล่ง identity** ยืนยัน flywheel เดิม: identity+audience มาจาก LINE
