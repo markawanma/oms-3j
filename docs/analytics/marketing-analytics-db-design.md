@@ -1,0 +1,388 @@
+# 3J Jewelry — Marketing Analytics Data Model (Design)
+
+> **สถานะ:** Design only — ยังไม่ apply migration · ออกแบบโดย architect (Yoda) · อิงข้อมูลจริง ก.ค. 2026 (~700 orders/เดือน)
+> **เป้าหมายหลัก:** ยิงแอดข้าม platform (TikTok/Meta/Google) ให้แม่น + วัด ROAS/CAC + ตัดสินใจการตลาดด้วยตัวเลข
+
+---
+
+## 1. ภาพรวมสถาปัตยกรรม
+
+**หลักการ:** ใช้ Supabase Postgres เดิม แต่แยก **schema `analytics`** ออกจาก schema `public` (OMS) — ไม่ตั้ง warehouse ใหม่
+
+```
++- Operational layer (public schema — OMS เดิม, ห้ามแตะ hot path) -+
+| orders / order_item / channel / channel_account / product        |
++--------------+---------------------------------------------------+
+               | ELT: pg_cron ทุกคืน (หรือ on-demand) — plain SQL upsert
+               v
++- Analytics layer (schema: analytics) ----------------------------+
+| Staging:   stg_order_import (รับ export Shopee/มือ)              |
+| Dims:      dim_customer, dim_customer_identity, dim_channel,     |
+|            dim_campaign, dim_date, dim_geo (dim_product = public)|
+| Facts:     fact_order, fact_order_item, fact_ad_spend,           |
+|            fact_touchpoint                                       |
+| Marts:     mv_rfm_segment, mv_customer_ltv, mv_channel_roas,     |
+|            mv_cohort_retention, mv_geo_performance,              |
+|            v_audience_export (hashed)                            |
++------------------------------------------------------------------+
+```
+
+**ทำไมไม่ใช้ BigQuery/dbt/Kafka:** 700 orders/เดือน = ~8,400 แถว/ปี — Postgres เครื่องเดียวสบายไปอีก 10 ปี materialized view refresh ทั้งชุดใช้เวลา < 1 วินาที ที่สเกลนี้เครื่องมือ big data คือ overhead ล้วนๆ (trade-off: ถ้าโตเป็น 100k orders/เดือน ค่อยยก marts ไป warehouse — schema แยกไว้แล้วทำให้ยกง่าย)
+
+**ทำไม ELT copy เข้า fact แทนอ่านตรงจาก OMS view:**
+- Analytics query หนักๆ ไม่กวน RLS/lock ของ OMS
+- Fact เก็บค่า **snapshot ณ เวลาขาย** (กำไร, cost) — OMS แก้ราคา product ย้อนหลังไม่ทำให้ history เพี้ยน
+- Trade-off: ข้อมูล lag ได้ถึง 1 วัน — ยอมรับได้เพราะตัดสินใจแอดเป็นรอบวัน/สัปดาห์ ไม่ใช่ real-time
+
+### ERD (mermaid)
+
+```mermaid
+erDiagram
+    dim_customer ||--o{ dim_customer_identity : "has identities"
+    dim_customer ||--o{ fact_order : "places"
+    dim_customer ||--o{ fact_touchpoint : "touches"
+    dim_channel ||--o{ fact_order : "sold via"
+    dim_channel ||--o{ fact_ad_spend : "spend on"
+    dim_campaign ||--o{ fact_ad_spend : "spend for"
+    dim_campaign ||--o{ fact_touchpoint : "attributed to"
+    dim_date ||--o{ fact_order : "order date"
+    dim_date ||--o{ fact_ad_spend : "spend date"
+    dim_geo ||--o{ fact_order : "ships to"
+    fact_order ||--o{ fact_order_item : "contains"
+
+    dim_customer {
+        uuid id PK
+        text display_name
+        text primary_phone_hash
+        boolean pdpa_consent
+        timestamptz first_order_at
+    }
+    dim_customer_identity {
+        uuid id PK
+        uuid customer_id FK
+        text identity_type
+        text identity_value_norm
+    }
+    fact_order {
+        uuid id PK
+        uuid oms_order_id
+        uuid customer_id FK
+        uuid channel_id FK
+        uuid campaign_id_last FK
+        date order_date FK
+        text province_code FK
+        numeric revenue
+        numeric profit
+    }
+    fact_ad_spend {
+        uuid id PK
+        date spend_date FK
+        uuid channel_id FK
+        uuid campaign_id FK
+        numeric spend_amount
+    }
+    fact_touchpoint {
+        uuid id PK
+        uuid customer_id FK
+        uuid channel_id FK
+        uuid campaign_id FK
+        timestamptz touched_at
+        text touch_type
+    }
+```
+
+---
+
+## 2. Dimension Tables (schema `analytics`)
+
+### 2.1 `dim_customer` — หัวใจของ identity resolution
+
+| column | type | note |
+|---|---|---|
+| `id` | uuid PK | `gen_random_uuid()` |
+| `shop_id` | uuid FK -> public.shop | multi-tenant + RLS เหมือน OMS |
+| `display_name` | text | ชื่อล่าสุดที่เห็น (PII จริงอยู่ตาราง `pii_customer` แยก) |
+| `primary_phone_hash` | text | SHA-256(เบอร์ normalize E.164) — ใช้ join/export ไม่เก็บเบอร์ดิบที่นี่ |
+| `email_hash` | text null | SHA-256(lower(email)) เผื่ออนาคต |
+| `pdpa_consent` | boolean not null default false | ยินยอมใช้ข้อมูลทำการตลาด/audience |
+| `consent_at` / `consent_source` | timestamptz / text | หลักฐาน consent |
+| `first_order_at` / `last_order_at` | timestamptz | denorm ไว้ให้ RFM เร็ว (update ตอน ELT) |
+| `first_touch_channel_id` | uuid FK -> dim_channel | acquisition channel — ใช้ทำ cohort |
+| `merged_into_id` | uuid FK -> dim_customer null | soft-merge: ถ้า resolve ทีหลังว่าเป็นคนเดียวกัน ชี้ไป master record ไม่ลบทิ้ง (audit ได้) |
+| `created_at` / `updated_at` | timestamptz | |
+
+### 2.2 `dim_customer_identity` — ตัวเชื่อมข้าม platform
+
+Grain: 1 แถว = 1 identity ของลูกค้า (เบอร์ / LINE user id / TikTok handle / FB name)
+
+| column | type | note |
+|---|---|---|
+| `id` | uuid PK | |
+| `shop_id` | uuid FK | |
+| `customer_id` | uuid FK -> dim_customer | |
+| `identity_type` | text CHECK in ('phone','line_id','tiktok_handle','facebook','shopee_username','email') | |
+| `identity_value_norm` | text | **normalize แล้ว**: phone -> E.164, handle -> lower/trim |
+| `identity_value_hash` | text | SHA-256 ของค่า norm — ใช้ export |
+| `confidence` | text CHECK in ('exact','probable','manual') | phone match = exact; ชื่อคล้าย = probable ต้อง manual confirm |
+| unique | (shop_id, identity_type, identity_value_norm) | identity หนึ่งค่าเป็นของคนเดียว |
+
+**Resolution rule (deterministic-first):** จับด้วย**เบอร์โทร normalize** เป็นหลัก (มีในทุก order ที่จัดส่ง) -> ถ้าไม่มีเบอร์ ใช้ (channel + handle) -> ชื่อเฉยๆ **ไม่ auto-merge** แค่ flag `probable` ให้คน confirm ใน admin UI
+*Trade-off:* ปฏิเสธ probabilistic matching (fuzzy name+province) เพราะ 700 orders/เดือนคนตรวจมือไหว และ false-merge ทำ RFM/audience เพี้ยนแพงกว่า miss-merge
+
+### 2.3 `dim_channel`
+
+แก้ปัญหา `line_oa` vs `LINE_OA` ที่ต้นเหตุ: ตารางนี้เป็น **canonical list** + ตาราง alias
+
+| column | type | note |
+|---|---|---|
+| `id` | uuid PK | |
+| `code` | text unique | canonical: `tiktok`, `line_oa`, `shopee`, `facebook` — lowercase enforced ด้วย CHECK (code = lower(code)) |
+| `name` | text | ชื่อแสดงผล |
+| `channel_role` | text CHECK in ('acquisition','conversion','both') | จับ insight "TikTok หาคน -> LINE ปิด" เป็น metadata ใช้ในรายงาน |
+| `oms_channel_id` | uuid FK -> public.channel null | ผูกกับ channel ของ OMS ถ้ามี |
+
+พร้อม `dim_channel_alias (alias_raw text unique, channel_id uuid)` — ELT map ค่า raw ทุกแบบ (LINE_OA, Line, line) เข้า canonical อัตโนมัติ; เจอ alias ใหม่ที่ map ไม่ได้ -> ลง `stg_unmapped_channel` ให้คนเคลียร์ ไม่เงียบหาย
+
+### 2.4 `dim_campaign`
+
+| column | type | note |
+|---|---|---|
+| `id` | uuid PK | |
+| `shop_id` | uuid FK | |
+| `channel_id` | uuid FK -> dim_channel | platform ที่ยิง |
+| `platform_campaign_id` | text null | id จาก ads manager (เผื่อ API เฟสหลัง) |
+| `name` | text | |
+| `utm_source` / `utm_medium` / `utm_campaign` / `utm_content` | text | ใช้ match touchpoint จากลิงก์ |
+| `objective` | text CHECK in ('awareness','traffic','conversion','live','retargeting') | |
+| `started_at` / `ended_at` | date | |
+| unique | (shop_id, channel_id, coalesce(platform_campaign_id, name)) | กันซ้ำ |
+
+### 2.5 `dim_date`
+
+ตาราง calendar generate ล่วงหน้า 2019–2035: `date_key date PK, year, quarter, month, month_name_th, day_of_week, is_weekend, is_payday_window boolean (วันที่ 25–5 — ช่วงเงินเดือนออก ยอดเครื่องประดับขึ้น)`
+*Trade-off:* จะใช้ `date_trunc` เอาก็ได้ แต่ dim_date ทำให้ query mart อ่านง่ายและเพิ่ม flag ธุรกิจ (payday, เทศกาล) ได้โดยไม่แก้ SQL ทุก view
+
+### 2.6 `dim_geo`
+
+| column | type |
+|---|---|
+| `province_code` | text PK (มาตรฐาน ISO เช่น `TH-10`) |
+| `province_name_th` / `province_name_en` | text |
+| `region` | text CHECK in ('bkk_metro','central','north','northeast','east','west','south') |
+| `is_unknown` | boolean — แถวพิเศษ `TH-XX` สำหรับ order ที่ไม่รู้จังหวัด (ดีกว่า NULL: aggregate ไม่หลุด) |
+
+### 2.7 `dim_product` — **ไม่สร้างใหม่** ใช้ `public.product` (มี sku, name, unit_cost แล้ว) + view `analytics.v_dim_product` ที่เพิ่ม `category` (แหวน/สร้อย/กำไล — เก็บเพิ่มเฟสหลังถ้าต้องการ)
+*Trade-off:* ผูกตรงกับ operational table = ถ้า OMS ลบ product จะกระทบ — ป้องกันด้วย FK `on delete restrict` ฝั่ง fact และ snapshot ชื่อ/cost ใน fact_order_item อยู่แล้ว
+
+---
+
+## 3. Fact Tables
+
+### 3.1 `fact_order` — grain: **1 แถว = 1 order**
+
+| column | type | note |
+|---|---|---|
+| `id` | uuid PK | |
+| `shop_id` | uuid FK | |
+| `oms_order_id` | uuid unique null | FK -> public.orders ถ้ามาจาก OMS; null ถ้ามาจาก import มือ (เช่น export ก.ค.) |
+| `source_order_no` | text | เลข order จาก export |
+| `customer_id` | uuid FK -> dim_customer | จาก identity resolution |
+| `channel_id` | uuid FK -> dim_channel not null | ช่องทางที่ **ปิดการขาย** |
+| `campaign_id_first` / `campaign_id_last` | uuid FK -> dim_campaign null | denorm attribution จาก fact_touchpoint (ดู §6) |
+| `order_date` | date FK -> dim_date not null | |
+| `paid_at` / `printed_at` | timestamptz | จาก export (วันโอน/พิมพ์) |
+| `province_code` | text FK -> dim_geo default 'TH-XX' | |
+| `carrier_code` | text | |
+| `item_count` | int | |
+| `revenue` | numeric(12,2) not null | ยอดขาย |
+| `discount` | numeric(12,2) default 0 | |
+| `shipping_fee_customer` / `shipping_cost_shop` | numeric(12,2) | ค่าส่งเก็บลูกค้า / ร้านจ่าย |
+| `cogs` | numeric(12,2) null | ต้นทุนสินค้า — snapshot ตอน ELT จาก order_item หรือกรอก |
+| `profit` | numeric(12,2) null | |
+| `profit_status` | text CHECK in ('complete','estimated','missing') not null default 'missing' | **แก้ปัญหากำไรกรอกไม่ครบ 58%** — mart กรองหรือ estimate ได้ชัดเจน ไม่ปนกัน |
+| `payment_method` / `bank` | text | |
+| `is_new_customer` | boolean | denorm: order แรกของ customer นี้ไหม (คำนวณตอน ELT) |
+| `tags` | text[] | จาก export |
+
+Index: `(shop_id, order_date)`, `(customer_id)`, `(channel_id, order_date)`
+
+### 3.2 `fact_order_item` — grain: 1 แถว = 1 SKU ใน 1 order (มีเมื่อ order มาจาก OMS หรือ export มี line item)
+
+`id, shop_id, fact_order_id FK, product_id FK -> public.product null, sku_snapshot text, product_name_snapshot text, qty, unit_price, unit_cost_snapshot numeric null`
+*Note:* export ก.ค. อาจไม่มี line item -> fact_order ยังทำงานได้ครบทุก mart ยกเว้น product performance (open question §10)
+
+### 3.3 `fact_ad_spend` — grain: **1 แถว = 1 วัน x 1 campaign** (หรือ 1 วัน x 1 channel ถ้ายังไม่แยก campaign)
+
+| column | type | note |
+|---|---|---|
+| `id` uuid PK · `shop_id` uuid FK | | |
+| `spend_date` | date FK -> dim_date not null | |
+| `channel_id` | uuid FK not null | |
+| `campaign_id` | uuid FK null | null = spend ระดับ platform รวม (เริ่มกรอกมือหยาบก่อนได้) |
+| `spend_amount` | numeric(12,2) not null check >= 0 | |
+| `impressions` / `clicks` / `platform_reported_conversions` | bigint null | กรอกจาก ads manager ถ้ามี |
+| `entry_method` | text CHECK in ('manual','api') default 'manual' | เฟสหลังต่อ API ทับได้ไม่ชนกัน |
+| unique | (shop_id, spend_date, channel_id, coalesce(campaign_id, uuid_nil())) | upsert รายวันได้ |
+
+### 3.4 `fact_touchpoint` — grain: 1 แถว = 1 เหตุการณ์ที่ลูกค้าสัมผัสช่องทาง/แคมเปญ
+
+| column | type | note |
+|---|---|---|
+| `id` uuid PK · `shop_id` uuid FK · `customer_id` uuid FK null (ผูกทีหลังได้เมื่อ resolve) | | |
+| `channel_id` | uuid FK not null | |
+| `campaign_id` | uuid FK null | match จาก UTM หรือแอดมินเลือกตอนสร้าง order |
+| `touched_at` | timestamptz not null | |
+| `touch_type` | text CHECK in ('ad_click','live_view','line_add_friend','chat','order') | |
+| `utm_raw` | jsonb null | เก็บ UTM ดิบทั้งก้อนไว้ debug |
+| `source_ref` | text | เช่น order id ที่ทำให้เกิด touchpoint นี้ |
+
+*ความจริงที่ต้องยอมรับ:* Phase แรก touchpoint มาจาก 2 ทางเท่านั้น — (1) แอดมินถามลูกค้าใน LINE "เห็นเราจากไหน" แล้วเลือกตอนสร้าง order (2) UTM บนลิงก์ที่คุมได้ (LINE broadcast, bio link) — TikTok organic/live วัด click-level ไม่ได้ นี่คือข้อจำกัดของ platform ไม่ใช่ของ schema
+
+---
+
+## 4. Analytical Views / Marts (materialized views, refresh คืนละครั้งด้วย pg_cron)
+
+> ทุก mart อ่าน `dim_customer` เฉพาะแถวที่ `merged_into_id is null` (master records)
+
+### 4.1 `mv_rfm_segment` — 1 แถว/customer
+
+```sql
+create materialized view analytics.mv_rfm_segment as
+with base as (
+  select customer_id,
+         max(order_date) as last_order,
+         count(*) as frequency,
+         sum(revenue) as monetary
+  from analytics.fact_order group by customer_id
+), scored as (
+  select *,
+    ntile(5) over (order by last_order)  as r_score,   -- 5 = ซื้อล่าสุด
+    ntile(5) over (order by frequency)   as f_score,
+    ntile(5) over (order by monetary)    as m_score
+  from base
+)
+select *,
+  case
+    when r_score >= 4 and f_score >= 4 then 'champion'
+    when r_score >= 4 and f_score <= 2 then 'new_promising'
+    when r_score <= 2 and f_score >= 3 then 'at_risk'      -- เคยซื้อบ่อยแต่หาย -> win-back
+    when r_score <= 2 and f_score <= 2 then 'hibernating'
+    else 'regular'
+  end as segment
+from scored;
+```
+
+### 4.2 `mv_customer_ltv` — revenue/profit สะสม, AOV, acquisition channel, เดือนแรกที่ซื้อ (join dim_customer.first_touch_channel_id) — ใช้จัดอันดับ seed lookalike
+
+### 4.3 `mv_channel_roas` — 1 แถว/channel/เดือน
+
+```sql
+-- sketch: aggregate spend และ order แยก CTE ก่อน join กัน จะไม่ double-count
+with spend as (
+  select date_trunc('month', spend_date) as m, channel_id, sum(spend_amount) as spend
+  from analytics.fact_ad_spend group by 1, 2
+), rev as (
+  select date_trunc('month', order_date) as m, channel_id,
+         sum(revenue) as revenue,
+         sum(revenue) filter (where is_new_customer) as new_customer_revenue,
+         count(*) filter (where is_new_customer)     as new_customers,
+         avg((profit_status = 'complete')::int)      as profit_coverage_pct
+  from analytics.fact_order group by 1, 2
+)
+select r.m, c.code as channel, s.spend, r.revenue, r.new_customers,
+       r.revenue / nullif(s.spend, 0)        as roas,
+       s.spend / nullif(r.new_customers, 0)  as cac,
+       r.profit_coverage_pct
+from rev r
+left join spend s using (m, channel_id)
+join analytics.dim_channel c on c.id = r.channel_id;
+```
+`profit_coverage_pct` กำกับทุกแถว — บอกว่าตัวเลขกำไรเชื่อได้แค่ไหน
+
+### 4.4 `mv_cohort_retention` — cohort = (เดือนที่ซื้อครั้งแรก x first_touch_channel) -> % กลับมาซื้อใน M+1, M+2, M+3 — ตอบตรงๆ ว่า "ลูกค้าที่มาจาก TikTok กลับมาซื้อผ่าน LINE กี่ %" (join channel ของ order ถัดไป)
+
+### 4.5 `mv_geo_performance` — revenue/profit/AOV/จำนวน order ต่อ province+region ต่อเดือน + `unknown_pct` กำกับ
+
+### 4.6 `v_audience_export` — **view ธรรมดา (ไม่ mat.) + security_barrier** — คอลัมน์มีแค่ `phone_sha256, email_sha256, segment, ltv_tier` และ **WHERE pdpa_consent = true** เท่านั้น — ไม่มี PII ดิบหลุดออกทาง view นี้ได้เลย
+
+---
+
+## 5. แต่ละส่วนช่วยยิงแอดยังไง (จุดที่ทั้ง design นี้มีไว้เพื่อ)
+
+| ใช้อะไร | ทำอะไรได้ | Action จริง |
+|---|---|---|
+| `v_audience_export` + `mv_rfm_segment` = champion/high-LTV | **Seed lookalike** บน TikTok/Meta (upload hashed phone list) | ลูกค้า LINE AOV ฿1,528 คือ seed ทองคำ — lookalike จากกลุ่มนี้แม่นกว่า broad targeting มาก |
+| segment `at_risk` / `hibernating` | **Retargeting / win-back** custom audience + LINE broadcast | งบน้อยแต่ conversion สูงสุด (คนเคยซื้อแล้ว) |
+| `mv_channel_roas` (CAC, ROAS, new_customer_revenue ต่อ channel) | **จัดสรร budget ข้าม platform** รายเดือน | เห็นชัดว่า 1 บาทบน TikTok ได้ลูกค้าใหม่กี่คน เทียบ Meta |
+| `mv_cohort_retention` | รู้ว่า TikTok acquisition คุ้มจริงไหมเมื่อรวม repeat ผ่าน LINE | ตัดสิน "AOV ฿490 ต่ำ แต่ LTV รวมสูง" ด้วยตัวเลข ไม่ใช่ความรู้สึก |
+| `mv_geo_performance` | **Geo targeting** ในแอด — จังหวัด AOV สูง bid แรงขึ้น | ลด waste จาก broad ทั้งประเทศ |
+| `dim_campaign` + `fact_touchpoint` | รู้ว่าแคมเปญ/ครีเอทีฟไหน**ก่อ**ลูกค้า ไม่ใช่แค่ view | ปิดแคมเปญที่ spend สูงแต่ touchpoint->order ต่ำ |
+| `fact_order_item` + product | สินค้าไหนดึงลูกค้าใหม่ vs สินค้า repeat | เลือก hero product ขึ้นแอด/live |
+
+---
+
+## 6. Attribution Model
+
+**เลือก: เก็บ raw touchpoint แล้ว denorm ทั้ง first-touch และ last-touch ลง fact_order** (`campaign_id_first`, `campaign_id_last`)
+
+- **First-touch** ตอบ "ช่องทางไหน**หาลูกค้าใหม่**เก่ง" -> ใช้จัด budget acquisition (TikTok)
+- **Last-touch** ตอบ "ช่องทางไหน**ปิดการขาย**" -> ใช้วัด conversion ops (LINE OA)
+- ธุรกิจนี้ journey สั้นและรู้ pattern แล้ว (TikTok -> LINE) — 2 มุมนี้ครอบคลุมการตัดสินใจจริงทั้งหมด
+
+*Trade-off ที่ตัดทิ้ง:*
+- **Multi-touch / linear / time-decay** — ต้องมี touchpoint ครบทุก click ซึ่ง TikTok organic/live ให้ไม่ได้ ที่สเกลนี้จะได้ model สวยบนข้อมูลโหว่ = หลอกตัวเอง (แต่ fact_touchpoint เก็บ raw ไว้แล้ว อนาคตเปลี่ยน model ได้โดยไม่แก้ schema — แค่เพิ่ม view)
+- **Platform-reported attribution (TikTok Ads Manager)** — นับ conversion เกินจริงและข้าม platform เทียบกันไม่ได้ ใช้เป็นตัวเลขอ้างอิงใน fact_ad_spend เท่านั้น ไม่ใช่ source of truth
+
+**Ingestion plan:**
+1. **ตอนสร้าง order ใน OMS (แก้ฟอร์ม)** — เพิ่ม field: `acquisition_source` (dropdown จาก dim_channel — ถามลูกค้า "รู้จักเราจากไหน"), `campaign_ref` (optional), จังหวัด (บังคับตอนกรอกที่อยู่), ต้นทุน/กำไร (บังคับก่อนพิมพ์ใบปะหน้า)
+2. **fact_ad_spend กรอกมือ** — หน้า admin ง่ายๆ กรอกรายวัน/รายสัปดาห์จาก ads manager (5 นาที/วัน) — `entry_method='manual'`
+3. **เฟสหลัง** — TikTok Marketing API / Meta Marketing API ดึง spend+campaign อัตโนมัติ upsert ทับด้วย `entry_method='api'` (unique key รองรับแล้ว) — ทำเมื่อ spend/เดือนสูงพอให้คุ้มค่า dev
+
+---
+
+## 7. Data Governance / PDPA
+
+- **PII แยกตาราง:** `analytics.pii_customer (customer_id PK, phone_e164, full_name, address jsonb)` — RLS เข้มสุด เฉพาะ role owner/admin · dim/fact/mart เก็บเฉพาะ **hash**
+- **Hashing:** SHA-256 ตาม spec ของ TikTok/Meta/Google custom audience — normalize ก่อน hash (phone -> E.164 `+66...` ตัด space/dash, email -> lowercase) มิฉะนั้น match rate ต่ำ · ทำใน Postgres ด้วย `encode(digest(..., 'sha256'), 'hex')` (pgcrypto มีใน Supabase แล้ว)
+- **Consent:** `pdpa_consent` default **false** — เปิดเมื่อมีหลักฐาน (ลูกค้า add LINE + แจ้ง privacy notice, หรือ checkbox) · `v_audience_export` filter consent=true เสมอ + log ทุกครั้งที่ export (`audience_export_log`: ใคร, เมื่อไร, กี่แถว, ไป platform ไหน) — PDPA ต้องแสดง record of processing ได้
+- **RLS:** ทุกตารางใน schema analytics มี `shop_id` + policy เดียวกับ OMS (member ของ shop เท่านั้น) · marts เป็น materialized view ซึ่ง **RLS ไม่ apply** -> **ห้าม grant mart ให้ anon/authenticated ตรงๆ** ให้เข้าผ่าน `security definer` function หรือ view ครอบที่เช็ค shop membership (บทเรียน revoke/grant Supabase จาก migration 0004)
+- **Retention:** PII ลูกค้าที่ไม่ซื้อ > 3 ปี -> anonymize (ลบ pii_customer, เหลือ hash + aggregate)
+
+---
+
+## 8. Rollout Phases + Data-Quality Fixes
+
+**Phase 1 — Foundation (สัปดาห์ 1–2):** สร้าง schema analytics + dims + fact_order + stg_order_import · เขียน ELT import export ก.ค. (normalize channel ผ่าน alias, resolve customer ด้วยเบอร์, geo -> TH-XX ถ้า unknown) · ได้ mv_rfm + mv_geo ทันที
+
+**Phase 2 — หยุดเลือดที่ต้นทาง (สัปดาห์ 2–3, แก้ที่ OMS):**
+- บังคับกรอก **cogs/profit ก่อน order เปลี่ยนสถานะเป็น to_ship** (แก้ 58% missing) — ถ้าบังคับแข็งไปทำงานสะดุด ใช้ soft-block + dashboard "orders ไม่มีต้นทุน" ให้เคลียร์รายวัน
+- **จังหวัดบังคับ** ตอนกรอกที่อยู่จัดส่ง (dropdown ไม่ใช่ free text) — TikTok order ที่แพ็กส่งเองยังไงก็มีที่อยู่ แก้ 65% unknown ได้เกือบหมด
+- **channel เป็น FK ไป dim_channel** ในฟอร์ม ไม่ใช่ text — ฆ่าปัญหา case ซ้ำถาวร
+- เพิ่ม `acquisition_source` + `campaign_ref` ในฟอร์มสร้าง order
+
+**Phase 3 — Ad measurement (สัปดาห์ 3–4):** fact_ad_spend + หน้ากรอกมือ + mv_channel_roas + dim_campaign + UTM convention สำหรับลิงก์ทั้งหมด
+
+**Phase 4 — Activation (เดือน 2):** v_audience_export + export flow (CSV hashed -> upload TikTok/Meta) + consent capture + mv_cohort_retention
+
+**Phase 5 (ทำเมื่อคุ้ม):** Marketing API integration, product-level analytics, dashboard
+
+---
+
+## 9. ความเสี่ยง
+
+1. **Identity resolution พังเงียบ** ถ้าเบอร์กรอกหลาย format — ต้อง normalize E.164 ที่ ELT เสมอ + unique constraint บน identity จับ conflict
+2. **Materialized view + RLS** — จุดหลุด PII/ข้อมูลข้าม shop คลาสสิกบน Supabase ถ้า grant ผิด (ดู §7)
+3. **การบังคับกรอกที่ OMS** กระทบ speed หน้างานช่วง live — ต้อง test กับแอดมินจริงก่อน hard-enforce
+4. **Hash match rate ต่ำ** ถ้า normalize ไม่ตรง spec platform — เขียน unit test ค่า hash เทียบตัวอย่างจาก docs ของ TikTok/Meta
+5. **fact กับ OMS drift** — ELT ต้อง idempotent (upsert ด้วย oms_order_id) + นับ row เทียบทุกคืน
+
+---
+
+## 10. Open Questions (ต้องยืนยันก่อน implement)
+
+1. **จะยิงแอด platform ไหนจริงก่อน** — TikTok Ads / Meta / Google? (กระทบ spec hash + หน้า export)
+2. **Export ก.ค. มี line item ระดับสินค้าไหม** หรือมีแค่ยอดรวม/order? (ตัดสินว่า fact_order_item ทำ Phase 1 หรือเลื่อน)
+3. **ต้นทุน TikTok ที่หายไป 58%** — ไม่กรอกเพราะขี้ลืม หรือเพราะ**ไม่รู้ต้นทุนจริง** (ของ live หยิบขายหน้ากล้อง)? ถ้าอย่างหลัง ต้องมี standard cost ต่อ SKU ให้ระบบ estimate แทน (profit_status='estimated')
+4. **Consent ปัจจุบันมีอะไรบ้าง** — LINE OA มี privacy notice แล้วหรือยัง? กระทบว่า customer เก่ากี่ % ใช้ทำ audience ได้เลย
+5. **ใครกรอก ad spend รายวัน** — เจ้าของหรือแอดมิน? (กระทบ UX หน้ากรอก + สิทธิ์ RLS)
+6. **LINE user id เก็บได้ไหมตอนแชท** (Messaging API ให้ userId) — ถ้าได้ identity resolution ฝั่ง LINE จะ exact แทน probable
