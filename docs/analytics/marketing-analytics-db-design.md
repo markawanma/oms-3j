@@ -191,6 +191,7 @@ Grain: 1 แถว = 1 identity ของลูกค้า (เบอร์ / L
 | `campaign_id_first` / `campaign_id_last` | uuid FK -> dim_campaign null | denorm attribution จาก fact_touchpoint (ดู §6) |
 | `order_date` | date FK -> dim_date not null | |
 | `paid_at` / `printed_at` | timestamptz | จาก export (วันโอน/พิมพ์) |
+| `ship_date` / `estimated_delivery_date` | date null | จากใบปะหน้า TikTok (ShippingDate / EstimatedDate) |
 | `province_code` | text FK -> dim_geo default 'TH-XX' | |
 | `carrier_code` | text | |
 | `item_count` | int | |
@@ -405,9 +406,10 @@ join analytics.dim_channel c on c.id = r.channel_id;
 | `house_no` | text | **เลขที่** (เช่น 112/203) |
 | `building` | text null | **อาคาร** (ตึก/ชื่ออาคาร เช่น B1, Tower A) |
 | `floor_room` | text null | ชั้น/ห้อง (เช่น F11-42) — คอนโดมักมี |
-| `village_project` | text null | **หมู่บ้าน/โครงการ** |
+| `place_name` | text null | **ชื่อสถานที่ตาม address_type** — คอนโด/หมู่บ้าน/บริษัท (1 ช่อง, ตีความตาม `address_type`) · export view pivot เป็นคอลัมน์ Village/Company/Condo ให้ตรง sheet ตัวอย่างได้ |
 | `moo` | text null | **หมู่** |
-| `road` | text null | **ถนน/ซอย** |
+| `road` | text null | **ถนน** |
+| `soi` | text null | **ซอย** (Alley — แยกจากถนน) |
 | `subdistrict` | text | **ตำบล/แขวง** |
 | `district` | text | **อำเภอ/เขต** |
 | `province_code` | text FK -> dim_geo | **จังหวัด** (map ชื่อ -> TH-XX) |
@@ -460,6 +462,37 @@ Field mapping จากใบปะหน้า (PDF/สแกน) → ตาร
 | Seller SKU + Qty | `fact_order_item` ผ่าน `sku_alias` | live-SKU ต้อง map (§12) |
 | Product name | snapshot | generic ("silver 925") |
 | Shipping/Estimated date | `fact_order` วันที่ | |
+
+### 13.1 Coverage เทียบ sample ที่เจ้าของกำหนด (`TikTok_Label_Extract_Sample.xlsx`, 24 fields)
+
+| # | field ที่ขอ | มาจาก | ปลายทาง | หมายเหตุ |
+|---|---|---|---|---|
+| 1 | OrderID | direct | fact_order.source_order_no | 18 หลัก |
+| 2 | Tracking | direct | fact_order.tracking_no | JTTH… |
+| 3 | Receiver | direct | pii_customer.full_name | ชื่อผู้รับ (มักเป็นชื่อเล่น/บางส่วน) |
+| 4 | Phone | direct | — | ⚠️ **mask** → ใช้ resolve ไม่ได้ |
+| 5 | AddressType | **derived** | dim_address.address_type | classify จากที่อยู่ (rule §11.1) |
+| 6 | FullAddress | direct | dim_address.raw_address | เก็บดิบ |
+| 7 | HouseNo | parse | dim_address.house_no | |
+| 8 | Building | parse | dim_address.building | |
+| 9 | Village | parse+derived | dim_address.place_name (type=housing_project) | |
+| 10 | Company | parse+derived | dim_address.place_name (type=company) | |
+| 11 | Condo | parse+derived | dim_address.place_name (type=condo) | |
+| 12 | Road | parse | dim_address.road | |
+| 13 | Alley (ซอย) | parse | dim_address.soi | |
+| 14 | Moo | parse | dim_address.moo | |
+| 15 | Subdistrict | parse | dim_address.subdistrict | |
+| 16 | District | parse | dim_address.district | |
+| 17 | Province | parse | dim_address.province_code (map) | |
+| 18 | Zipcode | direct | dim_address.zipcode | cross-check §11.2 |
+| 19 | Product | direct | fact_order_item.product_name_snapshot | generic |
+| 20 | SellerSKU | direct→map | fact_order_item ผ่าน sku_alias | LiveS2→SKU จริง |
+| 21 | Qty | direct | fact_order_item.qty | |
+| 22 | ShippingDate | direct | fact_order.ship_date | |
+| 23 | EstimatedDate | direct | fact_order.estimated_delivery_date | |
+| 24 | Nickname | direct | dim_customer_identity (tiktok_handle, exact ฝั่ง TikTok) | **anchor identity ของ TikTok** |
+
+**สรุป coverage:** 22/24 ได้ครบ · **Company/Condo/Village** = 1 คอลัมน์ `place_name` + `address_type` (export pivot เป็น 3 คอลัมน์ให้ตรง sheet ได้) · **Phone** = ได้แต่ mask (ข้อจำกัด TikTok ไม่ใช่ของ design) · ทุก field วิเคราะห์จากใบปะหน้าได้จริง (direct 13, parse 8, derived/classify 3)
 
 **Ingestion (เฟสเก็บใบปะหน้า):** เริ่มจาก**กรอก/พาร์สจากไฟล์ใบปะหน้า** (batch) → ระยะยาวถ้าปริมาณเยอะพิจารณา TikTok Shop API ดึง order ตรง (แต่ API ก็ mask PII เหมือนกัน — address ได้ ชื่อ/เบอร์ไม่ได้)
 
