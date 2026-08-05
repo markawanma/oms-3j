@@ -76,8 +76,8 @@
 ## 6. ขั้นตอนถัดไป
 
 1. ✅ ส่วน 1–4 กรอกครบแล้ว (v1) — **รอเจ้าของแบรนด์ยืนยัน** motif reduction (3 สัญลักษณ์บังคับ) ก่อนสั่งสร้าง reference image จริงจำนวนมาก
-2. ให้ ChatGPT สร้าง reference image ตาม prompt ใน `docs/cad/pixiu-signature-pendant-spec.md` Part 7 (แนบไฟล์นี้ + `00_Brand_Principles.md` เป็น knowledge)
-3. Claude/jewelry-designer ใช้ analysis ที่ได้ → ปรับ CAD spec ให้ตรงภาพจริง (ไฟล์ `docs/cad/pixiu-signature-pendant-spec.md` เป็น v1 ตั้งต้น รอ reference image มา fine-tune)
+2. ให้ ChatGPT สร้าง reference image ตาม prompt ใน `docs/3j-jewelry/cad/pixiu-signature-pendant-spec.md` Part 7 (แนบไฟล์นี้ + `00_Brand_Principles.md` เป็น knowledge)
+3. Claude/jewelry-designer ใช้ analysis ที่ได้ → ปรับ CAD spec ให้ตรงภาพจริง (ไฟล์ `docs/3j-jewelry/cad/pixiu-signature-pendant-spec.md` เป็น v1 ตั้งต้น รอ reference image มา fine-tune)
 4. กรอกตารางสเปกกลาง (ข้อ 5) ให้ครบตัวเลขจริงเมื่อมี 3D volume
 5. อัปเดต README index — **ทำแล้วในรอบนี้**
 
@@ -86,5 +86,5 @@
 ## ความสัมพันธ์กับไฟล์อื่นในระบบ
 
 - ไฟล์นี้เป็น **authoritative เฉพาะ collection Auspicious Pixiu** — ใช้คู่กับ [`00_Brand_Principles.md`](../../00_Brand_Principles.md) เสมอ
-- Worked example CAD: [`docs/cad/pixiu-signature-pendant-spec.md`](../../../cad/pixiu-signature-pendant-spec.md)
+- Worked example CAD: [`docs/3j-jewelry/cad/pixiu-signature-pendant-spec.md`](../../../cad/pixiu-signature-pendant-spec.md)
 - เอกสารนี้ยังเป็น **v1 — รอเจ้าของแบรนด์ยืนยัน** (ต่างจาก Satin Flow/Wave Embrace ที่ยืนยันแล้ว) ระบุสถานะนี้ไว้จนกว่าจะมีการ confirm

@@ -1,7 +1,7 @@
 # 3J Jewelry — TikTok Ops App Architecture (Label Ingestion / Dashboard / Ad Copilot)
 
 > **สถานะ: Design only — ยังไม่ implement** · ออกแบบโดย architect (Yoda) · ต่อยอด OMS เดิม (Next.js App Router + Supabase Postgres/RLS/Storage + Vercel, migrations 0001–0008)
-> **อิง data model:** `docs/analytics/marketing-analytics-db-design.md` (schema `analytics`: dims/facts/marts, dim_address §11, sku_alias §12, TikTok label mapping §13, PDPA §7)
+> **อิง data model:** `docs/3j-jewelry/analytics/marketing-analytics-db-design.md` (schema `analytics`: dims/facts/marts, dim_address §11, sku_alias §12, TikTok label mapping §13, PDPA §7)
 > **ความจริงข้อมูล:** TikTok mask ชื่อ+เบอร์ (ทั้งใบปะหน้าและ API) → identity TikTok = handle/address hash (probable) · LINE OA = identity exact · ข้อมูลเก็บจากวันนี้ไป · ~700 orders/เดือน
 
 ---

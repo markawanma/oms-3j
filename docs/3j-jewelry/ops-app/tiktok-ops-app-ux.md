@@ -1,7 +1,7 @@
 # TikTok Ops App — UX/UI Design (Design-only)
 
 > **สถานะ: Design-only — ยังไม่ implement.** ออกแบบโดย ux-ui (Padmé) ต่อยอด OMS เดิม (Next.js App Router + Supabase)
-> **อ้างอิง data model:** `docs/analytics/marketing-analytics-db-design.md` (dim_address, fact_order, profit_status, parse_confidence, sku_alias, mv_channel_roas ฯลฯ)
+> **อ้างอิง data model:** `docs/3j-jewelry/analytics/marketing-analytics-db-design.md` (dim_address, fact_order, profit_status, parse_confidence, sku_alias, mv_channel_roas ฯลฯ)
 > **ผู้ใช้:** เจ้าของ/แอดมิน 1–2 คน ~700 order/เดือน มือถือ+เดสก์ท็อป — งานหน้างานเร็ว ไม่ใช่ dashboard สำหรับทีมใหญ่
 
 ---

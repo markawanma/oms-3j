@@ -1,7 +1,7 @@
 # 01 — 3J Brand DNA (ตัวตนที่ส่งผลต่อดีไซน์)
 
 > **ใช้ตอนไหน**: อ่านก่อนคิดธีม collection ใหม่ทุกครั้ง — ทั้งฝั่ง ChatGPT (คิด concept/สร้างภาพ) และ Claude (ทำ CAD)
-> อ้างอิงเต็มจาก [`docs/ops/3j-brand-brief-for-ai.md`](../ops/3j-brand-brief-for-ai.md) — ไฟล์นี้เจาะเฉพาะส่วนที่กระทบการตัดสินใจดีไซน์/CAD
+> อ้างอิงเต็มจาก [`docs/3j-jewelry/brand-ops/3j-brand-brief-for-ai.md`](../brand-ops/3j-brand-brief-for-ai.md) — ไฟล์นี้เจาะเฉพาะส่วนที่กระทบการตัดสินใจดีไซน์/CAD
 
 ---
 

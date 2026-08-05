@@ -1,7 +1,7 @@
 # 09 — Collection Template (เริ่ม collection ใหม่)
 
 > **ใช้ตอนไหน**: จุดเริ่มก่อนออกแบบ collection ใหม่ทุกครั้ง
-> **วิธีเปิด collection ใหม่**: copy เนื้อหาไฟล์นี้ทั้งหมดไปสร้างเป็นไฟล์ `docs/3j-ai-system/collections/<ชื่อ-collection>/design-intent.md` (เช่น `collections/lotus-2026/design-intent.md`) แล้วกรอกทุกช่อง `[...]` ให้ครบ — ไฟล์ที่กรอกเสร็จนี้จะกลายเป็น **authoritative เฉพาะ collection นั้น** ใช้คู่กับ `00_Brand_Principles.md` เสมอ (ดูตัวอย่างไฟล์ที่กรอกครบแล้วจริง: [`collections/satin-flow/design-intent.md`](./collections/satin-flow/design-intent.md))
+> **วิธีเปิด collection ใหม่**: copy เนื้อหาไฟล์นี้ทั้งหมดไปสร้างเป็นไฟล์ `docs/3j-jewelry/design-system/collections/<ชื่อ-collection>/design-intent.md` (เช่น `collections/lotus-2026/design-intent.md`) แล้วกรอกทุกช่อง `[...]` ให้ครบ — ไฟล์ที่กรอกเสร็จนี้จะกลายเป็น **authoritative เฉพาะ collection นั้น** ใช้คู่กับ `00_Brand_Principles.md` เสมอ (ดูตัวอย่างไฟล์ที่กรอกครบแล้วจริง: [`collections/satin-flow/design-intent.md`](./collections/satin-flow/design-intent.md))
 > จากนั้นค่อยเข้า workflow เฉพาะประเภท (05–08)
 
 ---
@@ -54,7 +54,7 @@
 
 ## 6. ขั้นตอนถัดไป
 
-1. กรอกส่วน 1–4 ให้ครบก่อนเริ่มออกแบบชิ้นแรก — บันทึกเป็น `docs/3j-ai-system/collections/<ชื่อ-collection>/design-intent.md`
+1. กรอกส่วน 1–4 ให้ครบก่อนเริ่มออกแบบชิ้นแรก — บันทึกเป็น `docs/3j-jewelry/design-system/collections/<ชื่อ-collection>/design-intent.md`
 2. เข้า pipeline ตาม `README.md` (ChatGPT reference image → analysis → Claude CAD spec) — ทุกครั้งที่สั่ง Claude ต้องอ้าง `00_Brand_Principles.md` + ไฟล์ collection ที่เพิ่งสร้างคู่กัน
 3. ใช้ `04_Claude_Master_Prompt.md` สั่งงานทีละชิ้น เติมชื่อ collection ในช่อง `[collection name]` เพื่อให้ Claude อ่านไฟล์ design-intent ที่ถูกต้อง
 4. กรอกตารางสเปกกลาง (ข้อ 5) ทุกครั้งที่ชิ้นงานเสร็จ — ใช้เทียบ consistency ระหว่างชิ้นในเซ็ตเดียวกัน

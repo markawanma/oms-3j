@@ -10,7 +10,7 @@
 3J ออก collection ใหม่เรื่อยๆ — แต่ละ collection มี motif/design-intent เฉพาะของตัวเอง **ไม่ใช่ทุก collection ต้องเหมือนกัน** ระบบนี้จึงแยกความรู้เป็น 2 ชั้น:
 
 ```
-docs/3j-ai-system/
+docs/3j-jewelry/design-system/
 ├── 00_Brand_Principles.md      ← ชั้นแบรนด์: สากลทุก collection (วัสดุ, feeling, visual priority, บทบาท AI)
 ├── 01–03, 04–09 (ไฟล์อื่น)     ← ชั้นแบรนด์: มาตรฐานผลิต, prompt template, workflow ตามประเภทชิ้นงาน
 └── collections/
@@ -48,8 +48,8 @@ docs/3j-ai-system/
 
 ## วิธีใช้
 
-- **ฝั่ง ChatGPT**: อัปโหลดไฟล์ `01_3J_Brand_DNA.md` + `02_3J_Design_Language.md` เข้า Custom GPT/Project knowledge (ดูวิธีอัปโหลดใน `docs/ops/3j-brand-brief-for-ai.md` ท้ายไฟล์) เพื่อให้ AI คิดธีม/สร้างภาพตรงตัวตนแบรนด์ — ถ้ากำลังทำ collection ที่มีไฟล์ design-intent แล้ว ให้อัปโหลด `collections/<ชื่อ>/design-intent.md` เพิ่มด้วย
-- **ฝั่ง Claude**: สั่ง `jewelry-designer` โดยอ้างไฟล์ในระบบนี้ตรงๆ ได้เลย เช่น "ให้ jewelry-designer อ่าน `docs/3j-ai-system/00_Brand_Principles.md` + `docs/3j-ai-system/collections/satin-flow/design-intent.md` แล้วทำ CAD spec ของ [ชิ้นงาน]..."
+- **ฝั่ง ChatGPT**: อัปโหลดไฟล์ `01_3J_Brand_DNA.md` + `02_3J_Design_Language.md` เข้า Custom GPT/Project knowledge (ดูวิธีอัปโหลดใน `docs/3j-jewelry/brand-ops/3j-brand-brief-for-ai.md` ท้ายไฟล์) เพื่อให้ AI คิดธีม/สร้างภาพตรงตัวตนแบรนด์ — ถ้ากำลังทำ collection ที่มีไฟล์ design-intent แล้ว ให้อัปโหลด `collections/<ชื่อ>/design-intent.md` เพิ่มด้วย
+- **ฝั่ง Claude**: สั่ง `jewelry-designer` โดยอ้างไฟล์ในระบบนี้ตรงๆ ได้เลย เช่น "ให้ jewelry-designer อ่าน `docs/3j-jewelry/design-system/00_Brand_Principles.md` + `docs/3j-jewelry/design-system/collections/satin-flow/design-intent.md` แล้วทำ CAD spec ของ [ชิ้นงาน]..."
 - **เปิด collection ใหม่**: เริ่มจาก `09_Collection_Template.md` กรอกให้ครบเป็น `collections/<ชื่อ>/design-intent.md` แล้วค่อยเข้า workflow เฉพาะประเภท (05–08)
 
 ## Index ไฟล์ในระบบ
@@ -73,19 +73,19 @@ docs/3j-ai-system/
 
 ## ไฟล์วัตถุดิบ (ต้นทาง — อยู่นอกโฟลเดอร์นี้ อ้างอิงไม่ก็อปซ้ำ)
 
-- [`docs/ops/3j-brand-brief-for-ai.md`](../ops/3j-brand-brief-for-ai.md) — brand brief เต็ม (ตัวตน/ลูกค้า/โทน/สี/guardrails/NAP) + วิธีอัปโหลดเข้า ChatGPT
-- [`docs/ops/3j-jewelry-design-prompts.md`](../ops/3j-jewelry-design-prompts.md) — prompt kit 3 ขั้น (ChatGPT→Claude→Rhino) ต้นฉบับ
-- [`docs/cad/satin-flow-half-turn-ring-spec.md`](../cad/satin-flow-half-turn-ring-spec.md) — worked example CAD spec จริง (แหวน Satin Flow, Part 1–6)
-- [`docs/cad/satin-flow-half-turn-ring.py`](../cad/satin-flow-half-turn-ring.py) — RhinoPython output จริงของ Satin Flow
-- [`docs/cad/satin-flow-preview.html`](../cad/satin-flow-preview.html) — 3D preview (WebGL) ของ Satin Flow
-- [`docs/cad/wave-embrace-ring-spec.md`](../cad/wave-embrace-ring-spec.md) — worked example CAD spec จริง (แหวน Wave Embrace WE-R001, Part 1–6)
-- [`docs/cad/wave-embrace-ring.py`](../cad/wave-embrace-ring.py) — RhinoPython output จริงของ Wave Embrace
-- [`docs/cad/pixiu-signature-pendant-spec.md`](../cad/pixiu-signature-pendant-spec.md) — CAD spec v1 (จี้ปี่เซียะ Signature tier, hero product ใหม่) — เขียนก่อนมี reference image จริง เป็น design brief + RhinoPython blockout (bail + placeholder mass เท่านั้น ตัวสัตว์ต้องปั้น T-Splines)
+- [`docs/3j-jewelry/brand-ops/3j-brand-brief-for-ai.md`](../brand-ops/3j-brand-brief-for-ai.md) — brand brief เต็ม (ตัวตน/ลูกค้า/โทน/สี/guardrails/NAP) + วิธีอัปโหลดเข้า ChatGPT
+- [`docs/3j-jewelry/brand-ops/3j-jewelry-design-prompts.md`](../brand-ops/3j-jewelry-design-prompts.md) — prompt kit 3 ขั้น (ChatGPT→Claude→Rhino) ต้นฉบับ
+- [`docs/3j-jewelry/cad/satin-flow-half-turn-ring-spec.md`](../cad/satin-flow-half-turn-ring-spec.md) — worked example CAD spec จริง (แหวน Satin Flow, Part 1–6)
+- [`docs/3j-jewelry/cad/satin-flow-half-turn-ring.py`](../cad/satin-flow-half-turn-ring.py) — RhinoPython output จริงของ Satin Flow
+- [`docs/3j-jewelry/cad/satin-flow-preview.html`](../cad/satin-flow-preview.html) — 3D preview (WebGL) ของ Satin Flow
+- [`docs/3j-jewelry/cad/wave-embrace-ring-spec.md`](../cad/wave-embrace-ring-spec.md) — worked example CAD spec จริง (แหวน Wave Embrace WE-R001, Part 1–6)
+- [`docs/3j-jewelry/cad/wave-embrace-ring.py`](../cad/wave-embrace-ring.py) — RhinoPython output จริงของ Wave Embrace
+- [`docs/3j-jewelry/cad/pixiu-signature-pendant-spec.md`](../cad/pixiu-signature-pendant-spec.md) — CAD spec v1 (จี้ปี่เซียะ Signature tier, hero product ใหม่) — เขียนก่อนมี reference image จริง เป็น design brief + RhinoPython blockout (bail + placeholder mass เท่านั้น ตัวสัตว์ต้องปั้น T-Splines)
 
 ## หมายเหตุสำคัญ
 
 - **`00_Brand_Principles.md` คือฐานสูงสุดระดับแบรนด์** — สากลทุก collection ทุกไฟล์อื่นต้องไม่ขัดกับไฟล์นี้
 - **`collections/<ชื่อ>/design-intent.md` คือฐานสูงสุดของ collection นั้นๆ** — ต้องอ่านคู่กับ `00_Brand_Principles.md` เสมอ ไม่ใช้แทนกัน และห้ามนำ motif ของ collection หนึ่งไปใช้กับอีก collection
 - ไฟล์ `02_3J_Design_Language.md` เป็นหมวด checklist ที่ทุก collection ต้องนิยามค่าตัวเอง — บางหมวดมี brand default (Metal, Surface calm) บางหมวดไม่มี default เลย (Ribbon/Motif) ต้องไปนิยามที่ collection file
-- ตัวอย่าง Satin Flow ใน `docs/cad/` เป็นตัวอย่างช่วงก่อนแก้ไข (เคยตีความ ribbon เป็น twist ทั้งวง) — ใช้เป็นแนวทางมิติ/โครงสร้างเท่านั้น ตำแหน่ง twist ต้องปรับตามกฎใหม่ใน `collections/satin-flow/design-intent.md` (split เฉพาะใกล้หัวแหวน)
-- อัปเดตแบรนด์/มาตรฐานเมื่อไหร่ → แก้ที่ต้นทาง (`docs/ops/...`) แล้ว sync มาไฟล์ 01/03 ในนี้ ส่วน brand principles (`00`) และ collection design-intent แก้เฉพาะเมื่อเจ้าของแบรนด์ส่ง correction ใหม่เท่านั้น
+- ตัวอย่าง Satin Flow ใน `docs/3j-jewelry/cad/` เป็นตัวอย่างช่วงก่อนแก้ไข (เคยตีความ ribbon เป็น twist ทั้งวง) — ใช้เป็นแนวทางมิติ/โครงสร้างเท่านั้น ตำแหน่ง twist ต้องปรับตามกฎใหม่ใน `collections/satin-flow/design-intent.md` (split เฉพาะใกล้หัวแหวน)
+- อัปเดตแบรนด์/มาตรฐานเมื่อไหร่ → แก้ที่ต้นทาง (`docs/3j-jewelry/brand-ops/...`) แล้ว sync มาไฟล์ 01/03 ในนี้ ส่วน brand principles (`00`) และ collection design-intent แก้เฉพาะเมื่อเจ้าของแบรนด์ส่ง correction ใหม่เท่านั้น

@@ -92,7 +92,7 @@
 ---
 
 ## เอกสารอ้างอิงภายใน (รายละเอียดเต็ม)
-- แผน + ข้อกฎหมาย + checklist: `docs/vet/mobile-vet-plan.md`
-- รายการอุปกรณ์ + งบ: `docs/vet/mobile-vet-equipment.md`
+- แผน + ข้อกฎหมาย + checklist: `docs/mobile-vet/mobile-vet-plan.md`
+- รายการอุปกรณ์ + งบ: `docs/mobile-vet/mobile-vet-equipment.md`
 
 *หมายเหตุ: ตัวเลขทั้งหมดในเอกสารนี้เป็นประมาณการเพื่อการหารือ ยังไม่ใช่ตัวเลขผูกพัน — ต้อง validate ราคาจริง (อุปกรณ์/ค่าเช่า/ค่าตัวสัตวแพทย์) และข้อกฎหมายก่อนตัดสินใจลงทุน*

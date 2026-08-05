@@ -1,7 +1,7 @@
 # Pixiu Signature Pendant — CAD Spec (v1, PRE-REFERENCE-IMAGE)
 
 > **Part ตาม pipeline บังคับ**: Reverse Engineer → Construction → Manufacturing → CAD (`03_3J_CAD_Guideline.md`)
-> อ่านคู่กับ `docs/3j-ai-system/00_Brand_Principles.md` + `docs/3j-ai-system/collections/auspicious-pixiu/design-intent.md` เสมอ
+> อ่านคู่กับ `docs/3j-jewelry/design-system/00_Brand_Principles.md` + `docs/3j-jewelry/design-system/collections/auspicious-pixiu/design-intent.md` เสมอ
 > **สถานะ**: v1 — สเปกนี้เขียนขึ้น**ก่อน**มี reference image จริงจาก ChatGPT (ยังไม่มีภาพให้ reverse-engineer) จึงเป็น **design brief + มิติเป้าหมาย** ไม่ใช่ spec จาก reverse-engineer ภาพจริงแบบ Satin Flow/Wave Embrace — เมื่อได้ reference image แล้วต้องกลับมาแก้ Part 1 ให้ตรงภาพจริงตาม pipeline
 
 ---

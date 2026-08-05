@@ -24,7 +24,7 @@
 ## ขั้นตอน end-to-end
 
 ### 1. Reference image (ChatGPT)
-สร้างภาพ 2 มุม (3/4 perspective + top-down) ตาม prompt ใน [`docs/ops/3j-jewelry-design-prompts.md`](../ops/3j-jewelry-design-prompts.md) ①
+สร้างภาพ 2 มุม (3/4 perspective + top-down) ตาม prompt ใน [`docs/3j-jewelry/brand-ops/3j-jewelry-design-prompts.md`](../brand-ops/3j-jewelry-design-prompts.md) ①
 ตัวอย่าง Satin Flow: ธีม "ริบบิ้นซาตินพับครึ่งรอบ (half turn) โอบเม็ดพลอยกลม"
 
 ### 2. Design analysis (ChatGPT)

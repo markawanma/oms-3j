@@ -3,7 +3,7 @@
 **Collection**: New Signature Collection — "WAVE EMBRACE"
 **Item**: RING — Code WE-R001 — "Soft wave. Hidden sparkle."
 **หมายเหตุขอบเขตงาน**: เอกสารนี้ reverse-engineer จาก spec sheet ต้นฉบับที่เจ้าของแบรนด์ส่งมา **ห้าม redesign / simplify / เพิ่ม detail / เปลี่ยน proportion / เปลี่ยน setting / เปลี่ยน wave flow** เป้าหมายคือ reproduce ให้ตรงตาม spec
-**ต้องอ่านคู่กับ**: [`../3j-ai-system/00_Brand_Principles.md`](../3j-ai-system/00_Brand_Principles.md) + [`../3j-ai-system/collections/wave-embrace/design-intent.md`](../3j-ai-system/collections/wave-embrace/design-intent.md)
+**ต้องอ่านคู่กับ**: [`../design-system/00_Brand_Principles.md`](../design-system/00_Brand_Principles.md) + [`../design-system/collections/wave-embrace/design-intent.md`](../design-system/collections/wave-embrace/design-intent.md)
 
 ---
 
@@ -131,4 +131,4 @@ Single-piece casting — ลำดับงาน: hand-finish จาก wax/cas
 RhinoPython base geometry script: [`wave-embrace-ring.py`](./wave-embrace-ring.py)
 (สร้าง band หน้าตัดวงรี sweep รอบ ID 17.20mm + wave bump ที่ผิวบน + seat พลอยด้านใน placeholder — เป็น **blockout เท่านั้น** ช่างต้องเก็บ G1/G2 wave surface และ flush setting จริงต่อด้วยมือ)
 
-Collection design-intent (authoritative เฉพาะ collection นี้): [`../3j-ai-system/collections/wave-embrace/design-intent.md`](../3j-ai-system/collections/wave-embrace/design-intent.md)
+Collection design-intent (authoritative เฉพาะ collection นี้): [`../design-system/collections/wave-embrace/design-intent.md`](../design-system/collections/wave-embrace/design-intent.md)

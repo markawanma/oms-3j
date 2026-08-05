@@ -1,7 +1,7 @@
 # 03 — 3J CAD Guideline (มาตรฐานผลิตได้จริง)
 
 > **ใช้ตอนไหน**: ตอนแปลง design analysis → CAD spec เสมอ (ทุกประเภทชิ้นงาน) — นี่คือกฎ**บังคับ** ไม่ใช่ draft เหมือน `02_3J_Design_Language.md`
-> ค่าตัวเลขในไฟล์นี้เป็นเกณฑ์วิศวกรรมการหล่อเงิน 925 ทั่วไป + บทเรียนจริงจาก [`docs/cad/satin-flow-half-turn-ring-spec.md`](../cad/satin-flow-half-turn-ring-spec.md)
+> ค่าตัวเลขในไฟล์นี้เป็นเกณฑ์วิศวกรรมการหล่อเงิน 925 ทั่วไป + บทเรียนจริงจาก [`docs/3j-jewelry/cad/satin-flow-half-turn-ring-spec.md`](../cad/satin-flow-half-turn-ring-spec.md)
 
 ---
 
