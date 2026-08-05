@@ -1,0 +1,343 @@
+<title>3J Jewelry — แคตตาล็อกสินค้า</title>
+<style>
+  :root {
+    --brand-red: #A2191D;
+    --brand-red-dark: #7d1316;
+    --gray-dark: #343434;
+    --gray-light: #F0F0F0;
+    --bg: #ffffff;
+    --text: #222222;
+    --card-bg: #ffffff;
+    --border: #e6e6e6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #1a1a1a;
+      --text: #f0f0f0;
+      --card-bg: #242424;
+      --border: #3a3a3a;
+      --gray-light: #2c2c2c;
+    }
+  }
+  * { box-sizing: border-box; }
+  .j3-catalog {
+    font-family: "Noto Sans Thai", "Segoe UI", system-ui, -apple-system, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 0 0 40px;
+  }
+  .j3-header {
+    text-align: center;
+    padding: 28px 16px 18px;
+    border-bottom: 3px solid var(--brand-red);
+    margin-bottom: 20px;
+  }
+  .j3-logo-ring {
+    width: 44px;
+    height: 44px;
+    margin: 0 auto 8px;
+    border-radius: 50%;
+    border: 4px solid var(--brand-red);
+    border-top-color: transparent;
+    transform: rotate(-45deg);
+  }
+  .j3-header h1 {
+    margin: 0;
+    font-size: 1.6rem;
+    letter-spacing: 0.04em;
+    color: var(--text);
+  }
+  .j3-header .j3-tagline {
+    margin: 6px 0 0;
+    font-size: 0.9rem;
+    color: var(--gray-dark);
+    opacity: 0.8;
+  }
+  @media (prefers-color-scheme: dark) {
+    .j3-header .j3-tagline { color: #bbbbbb; opacity: 1; }
+  }
+
+  .j3-tabs {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+    padding: 0 16px 20px;
+  }
+  .j3-tab-btn {
+    font: inherit;
+    font-size: 0.9rem;
+    padding: 8px 18px;
+    border-radius: 999px;
+    border: 1.5px solid var(--border);
+    background: var(--card-bg);
+    color: var(--text);
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+  .j3-tab-btn:hover { border-color: var(--brand-red); }
+  .j3-tab-btn:focus-visible {
+    outline: 2px solid var(--brand-red);
+    outline-offset: 2px;
+  }
+  .j3-tab-btn[aria-pressed="true"] {
+    background: var(--brand-red);
+    border-color: var(--brand-red);
+    color: #fff;
+    font-weight: 600;
+  }
+
+  .j3-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 14px;
+    padding: 0 16px;
+  }
+  @media (min-width: 640px) {
+    .j3-grid { grid-template-columns: repeat(3, 1fr); gap: 18px; }
+  }
+  @media (min-width: 900px) {
+    .j3-grid { grid-template-columns: repeat(4, 1fr); }
+  }
+
+  .j3-card {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+  }
+  .j3-card:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 8px 20px rgba(0,0,0,0.1);
+  }
+
+  /* placeholder image box — แทนที่ด้วย <img src="..." alt="..."> จริงทีหลัง */
+  .j3-card-img {
+    aspect-ratio: 1 / 1;
+    background: linear-gradient(135deg, var(--gray-light) 0%, var(--border) 100%);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--gray-dark);
+    opacity: 0.55;
+    font-size: 0.75rem;
+    text-align: center;
+    padding: 8px;
+  }
+  @media (prefers-color-scheme: dark) {
+    .j3-card-img { color: #ccc; }
+  }
+
+  .j3-card-body {
+    padding: 10px 12px 12px;
+    display: flex;
+    flex-direction: column;
+    flex: 1;
+    gap: 6px;
+  }
+  .j3-card-tag {
+    align-self: flex-start;
+    font-size: 0.68rem;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: var(--gray-light);
+    color: var(--gray-dark);
+    font-weight: 600;
+  }
+  @media (prefers-color-scheme: dark) {
+    .j3-card-tag { color: #ddd; }
+  }
+  .j3-card-tag.fashion { background: #fde8d9; color: #8a4a12; }
+  .j3-card-tag.auspicious { background: #fde3e3; color: var(--brand-red-dark); }
+  .j3-card-tag.bullion { background: #e6ecf5; color: #2b4a7a; }
+  @media (prefers-color-scheme: dark) {
+    .j3-card-tag.fashion { background: #4a3420; color: #f5c99a; }
+    .j3-card-tag.auspicious { background: #4a2222; color: #f5a3a3; }
+    .j3-card-tag.bullion { background: #22314a; color: #a9c2ea; }
+  }
+
+  .j3-card-name {
+    font-size: 0.92rem;
+    font-weight: 600;
+    margin: 0;
+    line-height: 1.3;
+  }
+  .j3-card-sku {
+    font-size: 0.72rem;
+    color: var(--gray-dark);
+    opacity: 0.7;
+    margin: 0;
+  }
+  @media (prefers-color-scheme: dark) { .j3-card-sku { color: #bbb; } }
+
+  .j3-card-price {
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: var(--brand-red);
+    margin: 2px 0 4px;
+  }
+  .j3-card-price.tbd {
+    font-size: 0.85rem;
+    color: var(--gray-dark);
+    opacity: 0.75;
+    font-weight: 500;
+  }
+
+  .j3-line-btn {
+    margin-top: auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    font: inherit;
+    font-size: 0.82rem;
+    font-weight: 600;
+    padding: 9px 10px;
+    border-radius: 8px;
+    border: none;
+    background: #06C755; /* LINE brand green */
+    color: #fff;
+    text-decoration: none;
+    cursor: pointer;
+    transition: filter 0.15s ease;
+  }
+  .j3-line-btn:hover { filter: brightness(0.93); }
+  .j3-line-btn:focus-visible {
+    outline: 2px solid var(--brand-red);
+    outline-offset: 2px;
+  }
+
+  .j3-empty {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--gray-dark);
+    opacity: 0.75;
+  }
+  @media (prefers-color-scheme: dark) { .j3-empty { color: #ccc; } }
+  .j3-empty p:first-child { font-size: 2rem; margin: 0 0 8px; }
+
+  .j3-footer {
+    text-align: center;
+    margin-top: 32px;
+    padding: 18px 16px 0;
+    border-top: 1px solid var(--border);
+    font-size: 0.78rem;
+    color: var(--gray-dark);
+    opacity: 0.75;
+  }
+  @media (prefers-color-scheme: dark) { .j3-footer { color: #bbb; } }
+  .j3-footer a { color: var(--brand-red); text-decoration: none; }
+  .j3-footer a:hover { text-decoration: underline; }
+</style>
+
+<div class="j3-catalog">
+  <header class="j3-header">
+    <div class="j3-logo-ring" aria-hidden="true"></div>
+    <h1>3J JEWELRY</h1>
+    <p class="j3-tagline">เงินแท้ 92.5 · ใส่ได้ทุกวัน · ไม่แพ้ผิว</p>
+  </header>
+
+  <nav class="j3-tabs" role="tablist" aria-label="กรองหมวดสินค้า">
+    <button type="button" class="j3-tab-btn" role="tab" aria-pressed="true" data-line="all">ทั้งหมด</button>
+    <button type="button" class="j3-tab-btn" role="tab" aria-pressed="false" data-line="fashion">แฟชั่น</button>
+    <button type="button" class="j3-tab-btn" role="tab" aria-pressed="false" data-line="auspicious">มงคล</button>
+    <button type="button" class="j3-tab-btn" role="tab" aria-pressed="false" data-line="bullion">เงินแท่ง</button>
+  </nav>
+
+  <main class="j3-grid" id="j3-grid" aria-live="polite">
+    <!-- การ์ดสินค้าถูก render ด้วย JS จาก PRODUCTS ด้านล่าง -->
+  </main>
+
+  <footer class="j3-footer">
+    <p>3J Jewelry · เงินแท้ 92.5 · โทร 02 893 2350 · LINE: <a href="https://line.me/R/ti/p/@3jsilver" target="_blank" rel="noopener">@3jsilver</a></p>
+    <p>ราคาอาจมีการเปลี่ยนแปลง กรุณาทักแชทยืนยันราคาก่อนสั่งซื้อ</p>
+  </footer>
+</div>
+
+<script>
+(function () {
+  // ข้อมูลสินค้าตัวอย่าง (prototype) — อ้างอิง ref-sku-prefix.md
+  // ราคาที่ไม่มีในโจทย์ตั้งเป็น null → แสดง "สอบถามราคา" (ห้ามเดาราคาตามกติกาแบรนด์)
+  var PRODUCTS = [
+    { sku: "NC20-21", name: "สร้อยดิสโก้", price: 1099, line: "fashion" },
+    { sku: "NC20-11", name: "สร้อยห่วงคู่", price: 1749, line: "fashion" },
+    { sku: "BL-fgl75", name: "สร้อยข้อมือฟิกาโร่ 7.5\"", price: null, line: "fashion" },
+    { sku: "R-D56", name: "แหวน", price: null, line: "fashion" },
+    { sku: "E-kt", name: "ต่างหู", price: null, line: "fashion" },
+    { sku: "SE-piu13", name: "จี้ปี่เซียะ 13มม", price: null, line: "auspicious" },
+    { sku: "SP-fu", name: "จี้อักษรฮก โชคดี", price: 200, line: "auspicious" },
+    { sku: "AT-guanyin", name: "จี้กวนอิม", price: null, line: "auspicious" },
+    { sku: "GLC2-R", name: "ไฉ่ซิ่งเอี๊ยะ เชือกแดง", price: 299, line: "auspicious" },
+    { sku: "S-1bath", name: "เงินแท่ง 1 บาท", price: 2115, line: "bullion" },
+    { sku: "WA-1B", name: "เงินแท่งวัดอรุณฯ", price: null, line: "bullion" }
+  ];
+
+  var LINE_LABEL = { fashion: "แฟชั่น", auspicious: "มงคล", bullion: "เงินแท่ง" };
+  var LINE_OA_ID = "@3jsilver"; // basic ID — โปรดตรวจสอบ format จริงกับ LINE OA Manager ก่อนใช้งานจริง
+
+  function buildLineUrl(product) {
+    var text = "สนใจ " + product.name + " (รหัส " + product.sku + ")";
+    // deep link รูปแบบ chat พร้อมข้อความตั้งต้น — ทดสอบบนมือถือที่ติดตั้ง LINE แล้วเท่านั้น
+    return "https://line.me/R/oa/message/" + encodeURIComponent(LINE_OA_ID) + "?text=" + encodeURIComponent(text);
+  }
+
+  function formatPrice(price) {
+    if (price === null || price === undefined) return null;
+    return "฿" + price.toLocaleString("th-TH");
+  }
+
+  function renderCard(product) {
+    var priceLabel = formatPrice(product.price);
+    var priceHtml = priceLabel
+      ? '<p class="j3-card-price">' + priceLabel + '</p>'
+      : '<p class="j3-card-price tbd">สอบถามราคา</p>';
+
+    return (
+      '<article class="j3-card" data-line="' + product.line + '">' +
+        '<div class="j3-card-img" aria-hidden="true">รูปสินค้า<br>(placeholder — แทนที่ด้วยรูปจริง)</div>' +
+        '<div class="j3-card-body">' +
+          '<span class="j3-card-tag ' + product.line + '">' + LINE_LABEL[product.line] + '</span>' +
+          '<h2 class="j3-card-name">' + product.name + '</h2>' +
+          '<p class="j3-card-sku">รหัส ' + product.sku + '</p>' +
+          priceHtml +
+          '<a class="j3-line-btn" href="' + buildLineUrl(product) + '" target="_blank" rel="noopener" ' +
+            'aria-label="สั่งซื้อ ' + product.name + ' ผ่าน LINE">' +
+            '\u{1F4AC} สั่งซื้อผ่าน LINE' +
+          '</a>' +
+        '</div>' +
+      '</article>'
+    );
+  }
+
+  function render(filter) {
+    var grid = document.getElementById("j3-grid");
+    var list = filter === "all" ? PRODUCTS : PRODUCTS.filter(function (p) { return p.line === filter; });
+
+    if (list.length === 0) {
+      grid.innerHTML = '<div class="j3-empty"><p>🔍</p><p>ยังไม่มีสินค้าในหมวดนี้</p></div>';
+      return;
+    }
+    grid.innerHTML = list.map(renderCard).join("");
+  }
+
+  function initTabs() {
+    var buttons = document.querySelectorAll(".j3-tab-btn");
+    buttons.forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        buttons.forEach(function (b) { b.setAttribute("aria-pressed", "false"); });
+        btn.setAttribute("aria-pressed", "true");
+        render(btn.getAttribute("data-line"));
+      });
+    });
+  }
+
+  initTabs();
+  render("all");
+})();
+</script>
