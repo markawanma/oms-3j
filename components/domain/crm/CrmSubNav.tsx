@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { AlertTriangle, LineChart, Users } from "lucide-react";
+import { AlertTriangle, LineChart, Users, Users2 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 const TABS: { href: string; label: string; icon: LucideIcon }[] = [
   { href: "/crm/overview", label: "ภาพรวม", icon: LineChart },
   { href: "/crm/customers", label: "ลูกค้า", icon: Users },
   { href: "/crm/import-errors", label: "ตรวจ import", icon: AlertTriangle },
+  { href: "/crm/merge", label: "รวมลูกค้าซ้ำ", icon: Users2 },
 ];
 
 /** Sticky sub-nav tab bar for the CRM module — mirrors TikTokSubNav

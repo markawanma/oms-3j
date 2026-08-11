@@ -24,6 +24,7 @@ import {
   Tags,
   Target,
   Users,
+  Users2,
   X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -64,6 +65,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/crm/overview", label: "ภาพรวม", icon: LineChart },
       { href: "/crm/customers", label: "ลูกค้า", icon: Users },
       { href: "/crm/import-errors", label: "ตรวจ import", icon: AlertTriangle },
+      { href: "/crm/merge", label: "รวมลูกค้าซ้ำ", icon: Users2 },
     ],
   },
 ];

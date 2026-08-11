@@ -1,10 +1,15 @@
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
-import { getCrmCustomerDetail } from "@/lib/actions/crm";
+import { getCrmCustomerAudit, getCrmCustomerDetail, getCrmCustomerNotes, getCrmEditOptions } from "@/lib/actions/crm";
+import { getDevRole } from "@/lib/dev/context";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { SegmentBadge } from "@/components/domain/crm/SegmentBadge";
 import { StatCard } from "@/components/domain/crm/StatCard";
 import { CustomerOrderHistory } from "@/components/domain/crm/CustomerOrderHistory";
+import { CustomerNameEditor } from "@/components/domain/crm/CustomerNameEditor";
+import { PiiEditForm } from "@/components/domain/crm/PiiEditForm";
+import { NotesSection } from "@/components/domain/crm/NotesSection";
+import { AuditTimeline } from "@/components/domain/crm/AuditTimeline";
 import { formatThaiDateOnly, formatTHBCompact } from "@/lib/tiktok/format";
 
 export const dynamic = "force-dynamic";
@@ -54,6 +59,32 @@ export default async function CrmCustomerDetailPage({ params }: { params: Promis
     ? CRM_CHANNEL_LABEL_TH[c.firstTouchChannel] ?? c.firstTouchChannel
     : null;
 
+  // canWrite = same owner/admin gate the write actions below re-check
+  // server-side (getDevRole() !== "staff") — decided here once so every
+  // section below just reads a boolean instead of importing getDevRole
+  // itself. Audit is fetched conditionally: getCrmCustomerAudit() would
+  // return an error for staff anyway, so skip the round-trip entirely.
+  const canWrite = getDevRole() !== "staff";
+
+  const [notesResult, auditResult, editOptionsResult] = await Promise.all([
+    getCrmCustomerNotes(id),
+    canWrite ? getCrmCustomerAudit(id) : Promise.resolve(null),
+    // Order-edit dropdown options (channel/province) — only needed for
+    // owner/admin, who alone see the edit affordance in CustomerOrderHistory.
+    canWrite ? getCrmEditOptions() : Promise.resolve(null),
+  ]);
+  // Notes failing to load shouldn't blank out the whole customer 360 (which
+  // already rendered above this point) — fall back to an empty list and let
+  // NotesSection show its own empty state; same reasoning as the PII "null =
+  // hidden, not an error" pattern already established on this page.
+  const notes = notesResult.ok ? notesResult.data : [];
+  const auditRows = auditResult && auditResult.ok ? auditResult.data : [];
+  // If options fail to load, fall back to canEdit=false for the order table
+  // rather than showing a broken edit form with empty dropdowns.
+  const canEditOrders = canWrite && !!editOptionsResult?.ok;
+  const editChannels = editOptionsResult && editOptionsResult.ok ? editOptionsResult.data.channels : [];
+  const editProvinces = editOptionsResult && editOptionsResult.ok ? editOptionsResult.data.provinces : [];
+
   return (
     <div className="space-y-4">
       <Link href="/crm/customers" className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-600 hover:text-slate-900">
@@ -64,7 +95,7 @@ export default async function CrmCustomerDetailPage({ params }: { params: Promis
       <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
-            <h1 className="text-lg font-bold text-slate-900">{c.displayName ?? "(ไม่มีชื่อ)"}</h1>
+            <CustomerNameEditor customerId={c.customerId} initialName={c.displayName} canEdit={canWrite} />
             <p className="mt-1 text-xs text-slate-500">
               ลูกค้าตั้งแต่ {formatThaiDateOnly(c.firstOrderAt)} · ช่องทางแรกที่เจอ {channelLabel ?? "ไม่ทราบ"} · ผูก{" "}
               {c.identitiesCount} identity
@@ -89,7 +120,10 @@ export default async function CrmCustomerDetailPage({ params }: { params: Promis
       </div>
 
       <div className="rounded-lg border border-slate-200 bg-white p-3.5 shadow-sm">
-        <h3 className="text-sm font-bold text-slate-800">ข้อมูลส่วนบุคคล (PII)</h3>
+        <div className="flex items-center gap-2">
+          <h3 className="text-sm font-bold text-slate-800">ข้อมูลส่วนบุคคล (PII)</h3>
+          <PiiEditForm customerId={c.customerId} pii={c.pii} canEdit={canWrite} />
+        </div>
         {c.pii ? (
           <dl className="mt-2 grid grid-cols-1 gap-x-4 gap-y-1.5 text-sm sm:grid-cols-2">
             <div>
@@ -127,7 +161,17 @@ export default async function CrmCustomerDetailPage({ params }: { params: Promis
         </div>
       )}
 
-      <CustomerOrderHistory orders={c.orders} />
+      <CustomerOrderHistory
+        orders={c.orders}
+        customerId={c.customerId}
+        canEdit={canEditOrders}
+        channels={editChannels}
+        provinces={editProvinces}
+      />
+
+      <NotesSection customerId={c.customerId} notes={notes} canWrite={canWrite} />
+
+      {canWrite && <AuditTimeline rows={auditRows} />}
     </div>
   );
 }

@@ -1,6 +1,8 @@
 import { ClipboardList } from "lucide-react";
 import type { CrmCustomerOrderRow } from "@/lib/actions/crm";
+import type { CrmChannelOption, CrmProvinceOption } from "@/lib/crm/order-override";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { OrderOverrideForm } from "@/components/domain/crm/OrderOverrideForm";
 import { formatThaiDateOnly, formatTHBCompact } from "@/lib/tiktok/format";
 
 const PROFIT_STATUS_LABEL_TH: Record<string, string> = {
@@ -9,7 +11,26 @@ const PROFIT_STATUS_LABEL_TH: Record<string, string> = {
   actual: "ต้นทุนจริง",
 };
 
-export function CustomerOrderHistory({ orders }: { orders: CrmCustomerOrderRow[] }) {
+/**
+ * `canEdit`/`channels`/`provinces` are only needed to render the
+ * per-row edit affordance (OrderOverrideForm) — page.tsx only fetches
+ * getCrmEditOptions() when the caller is owner/admin, so `channels`/
+ * `provinces` default to [] for staff (who never see the button anyway,
+ * `canEdit` gates it inside OrderOverrideForm too as defense in depth).
+ */
+export function CustomerOrderHistory({
+  orders,
+  customerId,
+  canEdit = false,
+  channels = [],
+  provinces = [],
+}: {
+  orders: CrmCustomerOrderRow[];
+  customerId: string;
+  canEdit?: boolean;
+  channels?: CrmChannelOption[];
+  provinces?: CrmProvinceOption[];
+}) {
   if (orders.length === 0) {
     return (
       <EmptyState
@@ -42,15 +63,27 @@ export function CustomerOrderHistory({ orders }: { orders: CrmCustomerOrderRow[]
               <th scope="col" className="py-2 pr-3 text-right">
                 กำไร
               </th>
-              <th scope="col" className="py-2">
+              <th scope="col" className="py-2 pr-3">
                 จังหวัด
               </th>
+              {canEdit && (
+                <th scope="col" className="py-2 text-right">
+                  <span className="sr-only">แก้ไข</span>
+                </th>
+              )}
             </tr>
           </thead>
           <tbody>
             {orders.map((o) => (
               <tr key={o.id} className="border-b border-slate-100 last:border-0">
-                <td className="py-2 pr-3 font-medium text-slate-800">{o.sourceOrderNo}</td>
+                <td className="py-2 pr-3 font-medium text-slate-800">
+                  {o.sourceOrderNo}
+                  {o.isEdited && (
+                    <span className="ml-1.5 rounded bg-amber-100 px-1.5 py-0.5 text-[0.62rem] font-semibold text-amber-700">
+                      แก้ไขแล้ว
+                    </span>
+                  )}
+                </td>
                 <td className="py-2 pr-3 whitespace-nowrap text-slate-600">{formatThaiDateOnly(o.orderDate)}</td>
                 <td className="py-2 pr-3 text-slate-600">{o.channelName}</td>
                 <td className="py-2 pr-3 text-right tabular-nums text-slate-800">{formatTHBCompact(o.revenue)}</td>
@@ -60,7 +93,18 @@ export function CustomerOrderHistory({ orders }: { orders: CrmCustomerOrderRow[]
                     ({PROFIT_STATUS_LABEL_TH[o.profitStatus] ?? o.profitStatus})
                   </span>
                 </td>
-                <td className="py-2 text-slate-500">{o.provinceCode}</td>
+                <td className="py-2 pr-3 text-slate-500">{o.provinceCode}</td>
+                {canEdit && (
+                  <td className="py-2">
+                    <OrderOverrideForm
+                      order={o}
+                      customerId={customerId}
+                      channels={channels}
+                      provinces={provinces}
+                      canEdit={canEdit}
+                    />
+                  </td>
+                )}
               </tr>
             ))}
           </tbody>
