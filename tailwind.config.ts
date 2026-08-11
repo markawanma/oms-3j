@@ -21,6 +21,14 @@ const config: Config = {
           600: "#4f46e5",
           700: "#4338ca",
         },
+        // TikTok Ops module accent only (design §7) — 3J brand red. NOT a
+        // replacement for `primary`: buttons/chips/tabs stay indigo, `brand`
+        // is scoped to accent bars/eyebrows/hero KPI values so it never
+        // collides with `danger` (also red, reserved for destructive states).
+        brand: {
+          DEFAULT: "#a2191d",
+          ink: "#7d1316",
+        },
       },
       borderRadius: {
         sm: "6px",

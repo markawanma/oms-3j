@@ -1,0 +1,189 @@
+<title>3J Analytics — Data Flow (Workflow Diagram)</title>
+<style>
+  :root{
+    --bg:#f8fafc; --surface:#fff; --ink:#0f172a; --ink-2:#475569; --ink-3:#94a3b8; --line:#cbd5e1;
+    --primary:#4f46e5; --primary-tint:#eef2ff; --brand:#a2191d; --amber:#b45309; --amber-tint:#fef3c7;
+    --a2:#64748b; --font:"Noto Sans Thai","IBM Plex Sans Thai",system-ui,-apple-system,"Segoe UI",sans-serif;
+  }
+  @media(prefers-color-scheme:dark){:root{
+    --bg:#0b1120; --surface:#111827; --ink:#f1f5f9; --ink-2:#94a3b8; --ink-3:#64748b; --line:#334155;
+    --primary:#818cf8; --primary-tint:#1e1b4b; --brand:#f0787c; --amber:#fbbf24; --amber-tint:#3a2e12; --a2:#94a3b8;
+  }}
+  :root[data-theme="light"]{--bg:#f8fafc;--surface:#fff;--ink:#0f172a;--ink-2:#475569;--ink-3:#94a3b8;--line:#cbd5e1;--primary:#4f46e5;--primary-tint:#eef2ff;--brand:#a2191d;--amber:#b45309;--amber-tint:#fef3c7;--a2:#64748b;}
+  :root[data-theme="dark"]{--bg:#0b1120;--surface:#111827;--ink:#f1f5f9;--ink-2:#94a3b8;--ink-3:#64748b;--line:#334155;--primary:#818cf8;--primary-tint:#1e1b4b;--brand:#f0787c;--amber:#fbbf24;--amber-tint:#3a2e12;--a2:#94a3b8;}
+  *{box-sizing:border-box;} body{margin:0;}
+  .wrap{font-family:var(--font);background:var(--bg);color:var(--ink);min-height:100vh;padding:24px 16px 48px;}
+  .inner{max-width:900px;margin:0 auto;}
+  header{display:flex;align-items:flex-start;gap:12px;margin-bottom:8px;flex-wrap:wrap;}
+  .logo{width:30px;height:30px;border-radius:50%;border:3px solid var(--brand);border-top-color:transparent;transform:rotate(-45deg);flex:none;margin-top:3px;}
+  h1{font-size:1.25rem;margin:0;font-weight:800;letter-spacing:-.01em;}
+  .sub{font-size:.82rem;color:var(--ink-2);margin:2px 0 0;}
+  .spacer{flex:1;}
+  .theme-btn{font:inherit;font-size:.78rem;color:var(--ink-2);background:var(--surface);border:1px solid var(--line);border-radius:999px;padding:6px 12px;cursor:pointer;min-height:34px;}
+  figure{margin:16px 0 0;background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:8px 8px 4px;overflow-x:auto;}
+  svg{display:block;width:100%;height:auto;min-width:640px;}
+  figcaption{font-size:.78rem;color:var(--ink-2);line-height:1.6;padding:10px 12px 8px;}
+  .legend{display:flex;gap:16px;flex-wrap:wrap;margin-top:14px;font-size:.78rem;color:var(--ink-2);}
+  .legend span{display:inline-flex;align-items:center;gap:7px;}
+  .sw{width:22px;height:0;border-top:2.5px solid var(--primary);}
+  .sw.a2{border-top:2.5px dashed var(--a2);}
+  .sw.pii{border-top:none;width:13px;height:13px;border-radius:3px;background:var(--brand);}
+  .sw.err{border-top:none;width:13px;height:13px;border-radius:3px;background:var(--amber);}
+  .note{margin-top:16px;font-size:.8rem;color:var(--ink-2);line-height:1.65;border-left:3px solid var(--primary);padding:8px 14px;background:var(--surface);border-radius:0 10px 10px 0;}
+  .note b{color:var(--ink);}
+</style>
+
+<div class="wrap"><div class="inner">
+  <header>
+    <div class="logo" aria-hidden="true"></div>
+    <div><h1>3J Analytics — Data Flow</h1><p class="sub">Source → Staging → Merge → Core → Consumers · ครึ่งบน = กำลัง apply (Phase A1), ครึ่งล่างประ = Phase A2</p></div>
+    <div class="spacer"></div>
+    <button class="theme-btn" id="themeBtn" type="button">🌗 สลับธีม</button>
+  </header>
+
+  <figure>
+    <svg viewBox="0 0 820 1000" role="img" aria-label="แผนภาพการไหลของข้อมูล: Shipnity Excel และ TikTok PDF เข้า staging ผ่าน parse+file_hash, merge ด้วย order id, transform เป็น dims/facts, refresh เป็น marts (Phase A2), ให้ CRM/Marketing/Ops อ่านผ่าน RLS">
+      <defs>
+        <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M0,0 L10,5 L0,10 z" fill="var(--ink-3)"/>
+        </marker>
+      </defs>
+
+      <!-- ============ Band 1 — Sources ============ -->
+      <text x="410" y="22" text-anchor="middle" font-size="11" font-weight="700" fill="var(--ink-3)" letter-spacing="1">SOURCES · แหล่งข้อมูล</text>
+      <g font-size="12.5" fill="var(--ink)">
+        <rect x="40" y="34" width="230" height="56" rx="9" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"/>
+        <text x="155" y="56" text-anchor="middle" font-weight="700">Shipnity Excel</text>
+        <text x="155" y="74" text-anchor="middle" font-size="10.5" fill="var(--ink-2)">order+ชื่อ+เบอร์+จังหวัด+ยอด · ทุกช่องทาง</text>
+
+        <rect x="295" y="34" width="230" height="56" rx="9" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"/>
+        <text x="410" y="56" text-anchor="middle" font-weight="700">TikTok PDF</text>
+        <text x="410" y="74" text-anchor="middle" font-size="10.5" fill="var(--ink-2)">label: ที่อยู่เต็ม+tracking · slip: line items</text>
+
+        <rect x="550" y="34" width="230" height="56" rx="9" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"/>
+        <text x="665" y="56" text-anchor="middle" font-weight="700">Ad platforms</text>
+        <text x="665" y="74" text-anchor="middle" font-size="10.5" fill="var(--ink-2)">TikTok / Meta ads (ค่าแอด)</text>
+      </g>
+
+      <!-- arrow 1 -->
+      <line x1="410" y1="92" x2="410" y2="140" stroke="var(--ink-3)" stroke-width="1.6" marker-end="url(#ar)"/>
+      <text x="420" y="120" font-size="11" fill="var(--ink-2)">parse + <tspan font-weight="700">file_hash</tspan> (กันไฟล์ซ้ำ)</text>
+
+      <!-- ============ Band 2 — Staging (A1) ============ -->
+      <text x="410" y="160" text-anchor="middle" font-size="11" font-weight="700" fill="var(--primary)" letter-spacing="1">STAGING · analytics.stg_* — Phase A1</text>
+      <rect x="120" y="170" width="470" height="86" rx="11" fill="var(--primary-tint)" stroke="var(--primary)" stroke-width="1.8"/>
+      <g font-size="11.5" fill="var(--ink)">
+        <text x="355" y="192" text-anchor="middle" font-weight="700" font-size="12">stg_import_batch → stg_order_import ⋈ stg_order_item_import</text>
+        <text x="355" y="212" text-anchor="middle" font-size="10.5" fill="var(--ink-2)">เก็บ raw jsonb (format เปลี่ยนไม่หาย) · dedup_key กัน order ซ้ำ</text>
+        <text x="355" y="232" text-anchor="middle" font-size="10.5" fill="var(--ink-2)">RLS: owner/admin เท่านั้น · PII ดิบชั่วคราว</text>
+      </g>
+      <!-- error queue (amber) -->
+      <rect x="608" y="170" width="172" height="86" rx="11" fill="var(--amber-tint)" stroke="var(--amber)" stroke-width="1.6"/>
+      <text x="694" y="196" text-anchor="middle" font-size="11.5" font-weight="700" fill="var(--amber)">Error Review</text>
+      <text x="694" y="214" text-anchor="middle" font-size="10" fill="var(--amber)">pdf_orphan</text>
+      <text x="694" y="230" text-anchor="middle" font-size="10" fill="var(--amber)">sku_unmapped</text>
+      <text x="694" y="246" text-anchor="middle" font-size="10" fill="var(--amber)">ที่อยู่ไม่ชัด/ซ้ำ</text>
+      <line x1="590" y1="213" x2="606" y2="213" stroke="var(--amber)" stroke-width="1.5" marker-end="url(#ar)"/>
+
+      <!-- arrow 2 -->
+      <line x1="410" y1="258" x2="410" y2="306" stroke="var(--ink-3)" stroke-width="1.6" marker-end="url(#ar)"/>
+      <text x="420" y="286" font-size="11" fill="var(--ink-2)"><tspan font-weight="700">merge:</tspan> Excel ⋈ PDF (by TikTok order id)</text>
+
+      <!-- ============ Band 3 — Transform (A1) ============ -->
+      <rect x="180" y="316" width="460" height="52" rx="11" fill="var(--surface)" stroke="var(--primary)" stroke-width="1.8"/>
+      <text x="410" y="338" text-anchor="middle" font-size="12.5" font-weight="700">merge() + transform()  ·  service role</text>
+      <text x="410" y="356" text-anchor="middle" font-size="10.5" fill="var(--ink-2)">resolve customer (phone→E.164→hash) · parse ที่อยู่ · map channel alias</text>
+
+      <!-- arrow 3 -->
+      <line x1="410" y1="370" x2="410" y2="416" stroke="var(--ink-3)" stroke-width="1.6" marker-end="url(#ar)"/>
+      <text x="420" y="396" font-size="11" fill="var(--ink-2)">upsert (idempotent)</text>
+
+      <!-- ============ Band 4 — Core dims+facts (A1) ============ -->
+      <text x="410" y="436" text-anchor="middle" font-size="11" font-weight="700" fill="var(--primary)" letter-spacing="1">CORE · dims + facts — Phase A1</text>
+      <rect x="40" y="446" width="360" height="120" rx="11" fill="var(--surface)" stroke="var(--primary)" stroke-width="1.8"/>
+      <text x="220" y="468" text-anchor="middle" font-size="11.5" font-weight="700" fill="var(--primary)">Dimensions</text>
+      <g font-size="10.5" fill="var(--ink-2)">
+        <text x="60" y="488">dim_customer · dim_customer_identity</text>
+        <text x="60" y="507">dim_channel · dim_campaign</text>
+        <text x="60" y="526">dim_geo · dim_address</text>
+        <text x="60" y="545">dim_sku (view → public.product)</text>
+      </g>
+
+      <rect x="420" y="446" width="240" height="120" rx="11" fill="var(--surface)" stroke="var(--primary)" stroke-width="1.8"/>
+      <text x="540" y="468" text-anchor="middle" font-size="11.5" font-weight="700" fill="var(--primary)">Facts</text>
+      <g font-size="10.5" fill="var(--ink-2)">
+        <text x="440" y="488">fact_order</text>
+        <text x="440" y="507">fact_order_item</text>
+        <text x="440" y="526">fact_ad_spend</text>
+        <text x="440" y="545">fact_touchpoint</text>
+      </g>
+
+      <!-- pii (brand red) -->
+      <rect x="672" y="446" width="108" height="120" rx="11" fill="var(--surface)" stroke="var(--brand)" stroke-width="1.8" stroke-dasharray="0"/>
+      <text x="726" y="490" text-anchor="middle" font-size="11" font-weight="700" fill="var(--brand)">pii_</text>
+      <text x="726" y="506" text-anchor="middle" font-size="11" font-weight="700" fill="var(--brand)">customer</text>
+      <text x="726" y="528" text-anchor="middle" font-size="9" fill="var(--brand)">owner/admin</text>
+      <text x="726" y="542" text-anchor="middle" font-size="9" fill="var(--brand)">retention 180d</text>
+
+      <!-- arrow 4 -->
+      <line x1="410" y1="568" x2="410" y2="614" stroke="var(--ink-3)" stroke-width="1.6" marker-end="url(#ar)"/>
+      <text x="420" y="594" font-size="11" fill="var(--ink-2)">refresh (nightly)</text>
+
+      <!-- ============ Band 5 — Marts (A2, dashed) ============ -->
+      <text x="410" y="634" text-anchor="middle" font-size="11" font-weight="700" fill="var(--a2)" letter-spacing="1">MARTS · materialized views — Phase A2</text>
+      <rect x="150" y="644" width="520" height="50" rx="11" fill="none" stroke="var(--a2)" stroke-width="1.8" stroke-dasharray="6 4"/>
+      <text x="410" y="666" text-anchor="middle" font-size="12" font-weight="700" fill="var(--a2)">mv_rfm_segment · mv_customer_ltv · mv_channel_roas · mv_geo</text>
+      <text x="410" y="684" text-anchor="middle" font-size="10" fill="var(--a2)">(สร้างหลังมีข้อมูลจริง — ยังไม่ apply รอบนี้)</text>
+
+      <!-- arrow 5 -->
+      <line x1="410" y1="696" x2="410" y2="742" stroke="var(--ink-3)" stroke-width="1.6" marker-end="url(#ar)"/>
+      <text x="420" y="722" font-size="11" fill="var(--ink-2)">read · <tspan font-weight="700">RLS shop-scoped</tspan></text>
+
+      <!-- ============ Band 6 — Consumers ============ -->
+      <text x="410" y="762" text-anchor="middle" font-size="11" font-weight="700" fill="var(--ink-3)" letter-spacing="1">CONSUMERS · ผู้ใช้ปลายทาง</text>
+      <g font-size="11.5" fill="var(--ink)">
+        <rect x="40" y="772" width="170" height="54" rx="9" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"/>
+        <text x="125" y="794" text-anchor="middle" font-weight="700">CRM บุคคล</text>
+        <text x="125" y="812" text-anchor="middle" font-size="9.5" fill="var(--ink-2)">ใครซื้ออะไร · วันเกิด</text>
+
+        <rect x="225" y="772" width="170" height="54" rx="9" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"/>
+        <text x="310" y="794" text-anchor="middle" font-weight="700">CRM แบรนด์</text>
+        <text x="310" y="812" text-anchor="middle" font-size="9.5" fill="var(--ink-2)">segment · ทิศทางแคมเปญ</text>
+
+        <rect x="410" y="772" width="180" height="54" rx="9" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"/>
+        <text x="500" y="794" text-anchor="middle" font-weight="700">Marketing Intel</text>
+        <text x="500" y="812" text-anchor="middle" font-size="9.5" fill="var(--ink-2)">แนะนำแคมเปญ · ยิงแอด</text>
+
+        <rect x="605" y="772" width="175" height="54" rx="9" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"/>
+        <text x="692" y="794" text-anchor="middle" font-weight="700">Ops Dashboard</text>
+        <text x="692" y="812" text-anchor="middle" font-size="9.5" fill="var(--ink-2)">ยอดขาย/breakdown</text>
+      </g>
+
+      <!-- write-back note -->
+      <path d="M40,799 C18,799 18,506 38,506" fill="none" stroke="var(--ink-3)" stroke-width="1.3" stroke-dasharray="4 3" marker-end="url(#ar)"/>
+      <text x="14" y="650" font-size="9.5" fill="var(--ink-3)" transform="rotate(-90 14 650)">CRM แก้ไขข้อมูล (write-back → dims)</text>
+    </svg>
+    <figcaption><b>แผนภาพการไหลของข้อมูล</b> — จุดสำคัญ: (1) 2 source เติมเต็มกันตรง <b>merge ด้วย TikTok order id</b> (Excel ให้ยอด+ทุกช่องทาง, PDF เติมที่อยู่เต็ม+สินค้า) · (2) <b>Error Review</b> ดักของที่ไม่ชัวร์ไม่ให้หลุดเงียบ · (3) <b>PII</b> (แดง) แยก owner/admin + ลบใน 180 วัน · (4) กรอบทึบน้ำเงิน = <b>Phase A1 กำลัง apply</b>, กรอบประเทา = Phase A2 (มี marts หลังมีข้อมูล)</figcaption>
+  </figure>
+
+  <div class="legend">
+    <span><i class="sw"></i> Phase A1 (apply รอบนี้)</span>
+    <span><i class="sw a2"></i> Phase A2 (ถัดไป)</span>
+    <span><i class="sw pii"></i> PII — owner/admin + retention 180d</span>
+    <span><i class="sw err"></i> Error review queue</span>
+  </div>
+
+  <div class="note">
+    <b>Phase A1 ที่กำลังจะ apply</b> = ทุกอย่างในกรอบทึบน้ำเงิน (staging 3 ตาราง + core dims/facts + pii + RLS ครบ) — <b>สร้างท่อว่างๆ</b> ยังไม่มีข้อมูล · <b>Phase A2</b> = เขียน merge/transform proc + parse Excel/PDF + marts → ข้อมูลเริ่มไหลจริง แล้ว CRM/Marketing ค่อยมีของให้ดู
+  </div>
+</div></div>
+
+<script>
+  (function(){
+    var root=document.documentElement;
+    document.getElementById("themeBtn").addEventListener("click",function(){
+      var c=root.getAttribute("data-theme");
+      root.setAttribute("data-theme", c==="dark"?"light":c==="light"?"dark":(matchMedia("(prefers-color-scheme: dark)").matches?"light":"dark"));
+    });
+  })();
+</script>
