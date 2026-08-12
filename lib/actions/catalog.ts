@@ -17,6 +17,9 @@ import type { ActionResult } from "@/lib/types";
 import type {
   BlendedMarginSuggestion,
   CostType,
+  ProductImportRow,
+  ProductImportResultRow,
+  ProductImportSummary,
   ProductRow,
   ShopSettingData,
   UpsertProductInput,
@@ -178,6 +181,66 @@ export async function upsertProduct(input: UpsertProductInput): Promise<ActionRe
   } catch (err) {
     console.error("upsertProduct failed", err);
     return { ok: false, error: "บันทึกสินค้าไม่สำเร็จ ลองใหม่อีกครั้ง" };
+  }
+}
+
+// ============================================================================
+// /catalog — bulk CSV import via analytics.product_upsert_bulk (0030). The RPC
+// validates each row and skips bad ones (partial success), returning per-row
+// status so the UI can show exactly which rows failed and why.
+// ============================================================================
+
+const IMPORT_MAX_ROWS = 2000;
+
+export async function importProducts(
+  rows: ProductImportRow[]
+): Promise<ActionResult<ProductImportSummary>> {
+  const gateErr = requireOwnerAdmin();
+  if (gateErr) return gateErr;
+
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return { ok: false, error: "ไม่พบข้อมูลในไฟล์ — ตรวจว่าไฟล์มีอย่างน้อย 1 แถว (ไม่นับหัวคอลัมน์)" };
+  }
+  if (rows.length > IMPORT_MAX_ROWS) {
+    return { ok: false, error: `นำเข้าได้ครั้งละไม่เกิน ${IMPORT_MAX_ROWS} แถว (ไฟล์นี้มี ${rows.length}) — แบ่งไฟล์ก่อน` };
+  }
+
+  try {
+    const shopId = getDevShopId();
+    const supabase = getServiceClient();
+
+    const { data, error } = await supabase.schema(SCHEMA).rpc("product_upsert_bulk", {
+      p_shop_id: shopId,
+      p_rows: rows,
+    });
+    if (error) throw error;
+
+    const results: ProductImportResultRow[] = (
+      (data ?? []) as { row_index: number; sku: string; status: string; error: string | null }[]
+    ).map((r) => ({
+      rowIndex: Number(r.row_index) || 0,
+      sku: r.sku ?? "",
+      status: r.status === "ok" ? "ok" : "error",
+      error: r.error,
+    }));
+
+    const okCount = results.filter((r) => r.status === "ok").length;
+
+    revalidatePath("/catalog");
+    revalidatePath("/settings"); // blended-margin suggestion depends on products
+
+    return {
+      ok: true,
+      data: {
+        total: results.length,
+        ok: okCount,
+        error: results.length - okCount,
+        results,
+      },
+    };
+  } catch (err) {
+    console.error("importProducts failed", err);
+    return { ok: false, error: "นำเข้าไฟล์ไม่สำเร็จ ลองใหม่อีกครั้ง" };
   }
 }
 

@@ -6,7 +6,7 @@
 // the modal open/target state and re-fetches via router.refresh() on save.
 
 import { useState } from "react";
-import { Gem, Pencil, PlusCircle } from "lucide-react";
+import { Gem, Pencil, PlusCircle, Upload } from "lucide-react";
 import type { ProductRow } from "@/lib/catalog/types";
 import { COST_TYPE_LABEL_TH } from "@/lib/catalog/types";
 import { Badge } from "@/components/ui/Badge";
@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ProductForm } from "./ProductForm";
+import { ProductImport } from "./ProductImport";
 
 function fmtBaht(n: number | null): string {
   if (n == null) return "—";
@@ -36,6 +37,7 @@ export function ProductsPageClient({
 }) {
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<ProductRow | undefined>(undefined);
+  const [importOpen, setImportOpen] = useState(false);
 
   function openCreate() {
     setEditing(undefined);
@@ -59,10 +61,16 @@ export function ProductsPageClient({
             กรอกต้นทุน + ราคาตั้งของแต่ละ SKU ระบบใช้คำนวณมาร์จิ้นแนะนำและกำไร/ROAS
           </p>
         </div>
-        <Button type="button" variant="primary" size="sm" onClick={openCreate} className="shrink-0">
-          <PlusCircle className="h-4 w-4" aria-hidden="true" />
-          เพิ่ม SKU
-        </Button>
+        <div className="flex shrink-0 gap-2">
+          <Button type="button" variant="secondary" size="sm" onClick={() => setImportOpen(true)}>
+            <Upload className="h-4 w-4" aria-hidden="true" />
+            นำเข้าจากไฟล์
+          </Button>
+          <Button type="button" variant="primary" size="sm" onClick={openCreate}>
+            <PlusCircle className="h-4 w-4" aria-hidden="true" />
+            เพิ่ม SKU
+          </Button>
+        </div>
       </div>
 
       {silverSpot == null && (
@@ -135,6 +143,10 @@ export function ProductsPageClient({
 
       <Modal open={modalOpen} onClose={close} title={editing ? `แก้ไข ${editing.sku}` : "เพิ่ม SKU ใหม่"}>
         <ProductForm initial={editing} silverSpot={silverSpot} onDone={close} />
+      </Modal>
+
+      <Modal open={importOpen} onClose={() => setImportOpen(false)} title="นำเข้าสินค้าจากไฟล์ CSV">
+        <ProductImport onDone={() => setImportOpen(false)} />
       </Modal>
     </div>
   );

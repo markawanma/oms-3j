@@ -79,6 +79,46 @@ export interface BlendedMarginSuggestion {
   suggestedMarginPct: number | null;
 }
 
+// ============================================================================
+// Bulk CSV import (0030 product_upsert_bulk). The RPC parses/validates raw
+// string values per row, so the client sends rows as {column: string} maps
+// (exactly the CSV headers) and gets a per-row result back.
+// ============================================================================
+
+/** Canonical CSV columns, in template order. Header matching is
+ * case-insensitive + trimmed; unknown columns are ignored. */
+export const PRODUCT_IMPORT_COLUMNS = [
+  "sku",
+  "name",
+  "category",
+  "cost_type",
+  "unit_cost",
+  "silver_weight_g",
+  "silver_purity",
+  "labor_cost",
+  "list_price",
+  "barcode",
+  "supplier",
+  "note",
+  "is_active",
+] as const;
+
+export type ProductImportRow = Record<string, string>;
+
+export interface ProductImportResultRow {
+  rowIndex: number;
+  sku: string;
+  status: "ok" | "error";
+  error: string | null;
+}
+
+export interface ProductImportSummary {
+  total: number;
+  ok: number;
+  error: number;
+  results: ProductImportResultRow[];
+}
+
 export const COST_TYPE_LABEL_TH: Record<CostType, string> = {
   fixed: "ต้นทุนคงที่",
   spot: "อิงราคาเงิน (spot)",
