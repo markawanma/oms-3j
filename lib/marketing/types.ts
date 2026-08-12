@@ -120,6 +120,42 @@ export interface MktLiveTargetingDetail {
   hourly_orders: { hour: number; orders: number }[];
 }
 
+// ============================================================================
+// Audience builder (analytics.v_audience, 0033) — one row per customer with
+// RFM segment + channel + province, for pulling LINE-broadcast target lists.
+// No raw PII (display_name only).
+// ============================================================================
+
+export interface AudienceRow {
+  customerId: string;
+  displayName: string;
+  segment: string;
+  orderCount: number;
+  revenueSum: number;
+  recencyDays: number;
+  firstOrderAt: string | null;
+  lastOrderAt: string | null;
+  channelCode: string | null;
+  channelName: string | null;
+  provinceCode: string | null;
+  provinceNameTh: string | null;
+}
+
+/** Segment display order + labels (RFM). `at_risk` is future — appears once
+ * the dataset spans >90 days; today the shop has 0 (data is ~1 month old). */
+export const AUDIENCE_SEGMENTS = ["champion", "loyal", "new", "at_risk"] as const;
+
+export const AUDIENCE_SEGMENT_LABEL_TH: Record<string, string> = {
+  champion: "ชั้นดี (Champion)",
+  loyal: "ประจำ (Loyal)",
+  new: "ใหม่ (ซื้อครั้งเดียว)",
+  at_risk: "เสี่ยงหาย (At-risk)",
+};
+
+export function audienceSegmentLabel(segment: string): string {
+  return AUDIENCE_SEGMENT_LABEL_TH[segment] ?? segment;
+}
+
 export const MKT_SEVERITY_LABEL_TH: Record<MktRecoSeverity, string> = {
   blocker: "ก่อนอื่น · blocker",
   high: "สำคัญ",

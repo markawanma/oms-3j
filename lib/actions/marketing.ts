@@ -24,6 +24,7 @@ import { getServiceClient } from "@/lib/supabase/server";
 import { getDevShopId, getDevRole } from "@/lib/dev/context";
 import type { ActionResult } from "@/lib/types";
 import type {
+  AudienceRow,
   DecideRecoInput,
   MktAdSpendWeeklyRow,
   MktChannelRoasRow,
@@ -303,6 +304,70 @@ export async function getMarketingReco(): Promise<ActionResult<MktRecoRow[]>> {
   } catch (err) {
     console.error("getMarketingReco failed", err);
     return { ok: false, error: "โหลดคำแนะนำการตลาดไม่สำเร็จ ลองใหม่อีกครั้ง" };
+  }
+}
+
+// ============================================================================
+// /marketing/audience — pull a broadcast target list per RFM segment
+// (analytics.v_audience, 0033). Owner/admin only: a customer list is sensitive
+// even without raw PII.
+// ============================================================================
+
+export async function getAudience(segment?: string): Promise<ActionResult<AudienceRow[]>> {
+  const gateErr = requireOwnerAdmin();
+  if (gateErr) return gateErr;
+
+  try {
+    const shopId = getDevShopId();
+    const supabase = getServiceClient();
+
+    let query = supabase
+      .schema(SCHEMA)
+      .from("v_audience")
+      .select(
+        "customer_id, display_name, segment, order_count, revenue_sum, recency_days, first_order_at, last_order_at, channel_code, channel_name, province_code, province_name_th"
+      )
+      .eq("shop_id", shopId);
+
+    if (segment && segment !== "all") query = query.eq("segment", segment);
+
+    const { data, error } = await query.order("revenue_sum", { ascending: false });
+    if (error) throw error;
+
+    const rows: AudienceRow[] = (
+      (data ?? []) as {
+        customer_id: string;
+        display_name: string;
+        segment: string;
+        order_count: number;
+        revenue_sum: number;
+        recency_days: number;
+        first_order_at: string | null;
+        last_order_at: string | null;
+        channel_code: string | null;
+        channel_name: string | null;
+        province_code: string | null;
+        province_name_th: string | null;
+      }[]
+    ).map((r) => ({
+      customerId: r.customer_id,
+      displayName: r.display_name,
+      segment: r.segment,
+      orderCount: Number(r.order_count) || 0,
+      revenueSum: Number(r.revenue_sum) || 0,
+      recencyDays: Number(r.recency_days) || 0,
+      firstOrderAt: r.first_order_at,
+      lastOrderAt: r.last_order_at,
+      channelCode: r.channel_code,
+      channelName: r.channel_name,
+      provinceCode: r.province_code,
+      provinceNameTh: r.province_name_th,
+    }));
+
+    return { ok: true, data: rows };
+  } catch (err) {
+    console.error("getAudience failed", err);
+    return { ok: false, error: "โหลดรายชื่อกลุ่มลูกค้าไม่สำเร็จ ลองใหม่อีกครั้ง" };
   }
 }
 

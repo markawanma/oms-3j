@@ -79,6 +79,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/marketing/ad-spend", label: "ค่าแอด", icon: Wallet },
       { href: "/marketing/copilot", label: "Ad Copilot", icon: Megaphone },
+      { href: "/marketing/audience", label: "กลุ่มลูกค้า", icon: Users2 },
     ],
   },
   {
