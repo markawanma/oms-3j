@@ -33,6 +33,7 @@ export function CrmDateRangeFilter({
   to,
   minDate,
   maxDate,
+  basePath = "/crm/overview",
 }: {
   /** "YYYY-MM-DD" — currently effective range (defaults to minDate/maxDate
    * when the URL has no ?from=/?to=, so the inputs always show a concrete
@@ -41,6 +42,10 @@ export function CrmDateRangeFilter({
   to: string;
   minDate: string | null;
   maxDate: string | null;
+  /** Which page's URL to navigate — defaults to /crm/overview (original
+   * caller); /crm/orders passes its own path so this stays a single shared
+   * component instead of forking a near-identical copy. */
+  basePath?: string;
 }) {
   const router = useRouter();
   const today = bangkokTodayISO();
@@ -48,14 +53,14 @@ export function CrmDateRangeFilter({
   const navigate = useCallback(
     (nextFrom: string, nextTo: string) => {
       const params = new URLSearchParams({ from: nextFrom, to: nextTo });
-      router.push(`/crm/overview?${params.toString()}`);
+      router.push(`${basePath}?${params.toString()}`);
     },
-    [router]
+    [router, basePath]
   );
 
   const navigateAll = useCallback(() => {
-    router.push("/crm/overview");
-  }, [router]);
+    router.push(basePath);
+  }, [router, basePath]);
 
   return (
     <div className="flex flex-wrap items-end gap-2" role="group" aria-label="ช่วงวันที่">

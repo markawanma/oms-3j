@@ -357,6 +357,161 @@ export async function getCrmCustomers(): Promise<ActionResult<CrmCustomerListRow
 }
 
 // ============================================================================
+// /crm/orders — flat, all-orders browse table (design handoff "หน้า
+// /crm/orders"). Same v_fact_order source + shop-scoping + date-range
+// validation as getCrmOverview above, but every row is returned (no
+// aggregation) and customer/channel/province are resolved via batched lookups
+// (dim_customer/dim_channel/dim_geo fetched once, mapped in JS) — same
+// "no N+1" pattern getCrmCustomerDetail uses for a single customer's orders,
+// just applied across the whole shop. 334 rows (design DoD) is well within
+// what a single unpaginated fetch + client-side filter can handle, same
+// reasoning as CustomersPageClient's header comment.
+// ============================================================================
+
+export interface CrmOrderRow {
+  id: string;
+  sourceOrderNo: string;
+  orderDate: string;
+  customerId: string | null;
+  /** null when the order couldn't be attributed to a customer (unmatched
+   * import row) — render as "(ไม่ระบุลูกค้า)", no link. */
+  customerName: string | null;
+  channelId: string;
+  channelCode: string;
+  channelName: string;
+  revenue: number;
+  /** ESTIMATE ONLY (see CrmOverviewData.totals.profitSumEstimated doc above)
+   * — profitStatus tells you so, UI must render the "ประมาณการ 20%" label. */
+  profit: number | null;
+  profitStatus: string;
+  provinceCode: string;
+  provinceNameTh: string | null;
+  itemCount: number | null;
+  trackingNo: string | null;
+  /** true when analytics.crm_order_override has a row for this order
+   * (v_fact_order.is_edited) — "แก้ไขแล้ว" badge, same as
+   * CrmCustomerOrderRow.isEdited. */
+  isEdited: boolean;
+}
+
+export interface GetCrmOrdersParams {
+  /** "YYYY-MM-DD", inclusive. Malformed/invalid values are silently dropped
+   * (same non-throwing contract as getCrmOverview's date validation — these
+   * come straight from URL searchParams on /crm/orders). */
+  from?: string | null;
+  to?: string | null;
+}
+
+export async function getCrmOrders(params?: GetCrmOrdersParams): Promise<ActionResult<CrmOrderRow[]>> {
+  let from = params?.from && isValidDateStr(params.from) ? params.from : null;
+  let to = params?.to && isValidDateStr(params.to) ? params.to : null;
+  if (from && to && from > to) {
+    const swap = from;
+    from = to;
+    to = swap;
+  }
+
+  try {
+    const shopId = getDevShopId();
+    const supabase = getServiceClient();
+
+    let factQuery = supabase
+      .schema(SCHEMA)
+      .from("v_fact_order")
+      .select(
+        "id, source_order_no, order_date, customer_id, channel_id, revenue, profit, profit_status, province_code, tracking_no, item_count, is_edited"
+      )
+      .eq("shop_id", shopId)
+      .order("order_date", { ascending: false });
+    if (from) factQuery = factQuery.gte("order_date", from);
+    if (to) factQuery = factQuery.lte("order_date", to);
+    const { data: factData, error: factErr } = await factQuery;
+    if (factErr) throw factErr;
+
+    const factRows = (factData ?? []) as {
+      id: string;
+      source_order_no: string;
+      order_date: string;
+      customer_id: string | null;
+      channel_id: string;
+      revenue: number;
+      profit: number | null;
+      profit_status: string;
+      province_code: string;
+      tracking_no: string | null;
+      item_count: number | null;
+      is_edited: boolean;
+    }[];
+
+    const customerIds = Array.from(
+      new Set(factRows.map((r) => r.customer_id).filter((id): id is string => Boolean(id)))
+    );
+
+    // Batched lookups, one round-trip each, mapped in JS below — NOT one
+    // query per row (that would be 334 extra round-trips for a page that's
+    // read on every load). dim_channel/dim_geo are global reference data
+    // (no shop_id column, same note as getCrmEditOptions above); dim_customer
+    // IS shop-scoped, so it's additionally filtered by shopId as a second
+    // tenant-isolation layer beyond "only IDs already in this shop's orders".
+    const [customersRes, channelsRes, geoRes] = await Promise.all([
+      customerIds.length > 0
+        ? supabase
+            .schema(SCHEMA)
+            .from("dim_customer")
+            .select("id, display_name")
+            .eq("shop_id", shopId)
+            .in("id", customerIds)
+        : Promise.resolve({ data: [] as { id: string; display_name: string | null }[], error: null }),
+      supabase.schema(SCHEMA).from("dim_channel").select("id, code, name"),
+      supabase.schema(SCHEMA).from("dim_geo").select("province_code, province_name_th"),
+    ]);
+    if (customersRes.error) throw customersRes.error;
+    if (channelsRes.error) throw channelsRes.error;
+    if (geoRes.error) throw geoRes.error;
+
+    const customerMap = new Map<string, string | null>();
+    for (const c of (customersRes.data ?? []) as { id: string; display_name: string | null }[]) {
+      customerMap.set(c.id, c.display_name);
+    }
+    const channelMap = new Map<string, { code: string; name: string }>();
+    for (const c of (channelsRes.data ?? []) as { id: string; code: string; name: string }[]) {
+      channelMap.set(c.id, { code: c.code, name: c.name });
+    }
+    const geoMap = new Map<string, string>();
+    for (const g of (geoRes.data ?? []) as { province_code: string; province_name_th: string }[]) {
+      geoMap.set(g.province_code, g.province_name_th);
+    }
+
+    const rows: CrmOrderRow[] = factRows.map((r) => {
+      const ch = channelMap.get(r.channel_id);
+      return {
+        id: r.id,
+        sourceOrderNo: r.source_order_no,
+        orderDate: r.order_date,
+        customerId: r.customer_id,
+        customerName: r.customer_id ? customerMap.get(r.customer_id) ?? null : null,
+        channelId: r.channel_id,
+        channelCode: ch?.code ?? "-",
+        channelName: ch?.name ?? "ไม่ทราบช่องทาง",
+        revenue: Number(r.revenue) || 0,
+        profit: r.profit === null || r.profit === undefined ? null : Number(r.profit),
+        profitStatus: r.profit_status,
+        provinceCode: r.province_code,
+        provinceNameTh: geoMap.get(r.province_code) ?? null,
+        itemCount: r.item_count,
+        trackingNo: r.tracking_no,
+        isEdited: Boolean(r.is_edited),
+      };
+    });
+
+    return { ok: true, data: rows };
+  } catch (err) {
+    console.error("getCrmOrders failed", err);
+    return { ok: false, error: "โหลดรายการออเดอร์ไม่สำเร็จ ลองใหม่อีกครั้ง" };
+  }
+}
+
+// ============================================================================
 // /crm/customers/[id]
 // ============================================================================
 
