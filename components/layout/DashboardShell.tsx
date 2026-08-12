@@ -17,12 +17,14 @@ import {
   Boxes,
   ClipboardList,
   Coins,
+  Gem,
   LineChart,
   Megaphone,
   Menu,
   PlusCircle,
   Radio,
   Receipt,
+  Settings2,
   Tags,
   Target,
   Users,
@@ -77,6 +79,13 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/marketing/ad-spend", label: "ค่าแอด", icon: Wallet },
       { href: "/marketing/copilot", label: "Ad Copilot", icon: Megaphone },
+    ],
+  },
+  {
+    label: "ต้นทุน & ตั้งค่า",
+    items: [
+      { href: "/catalog", label: "สินค้า / ต้นทุน", icon: Gem },
+      { href: "/settings", label: "ราคา & มาร์จิ้น", icon: Settings2 },
     ],
   },
 ];
