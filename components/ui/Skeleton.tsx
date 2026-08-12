@@ -1,12 +1,12 @@
 export function Skeleton({ className = "" }: { className?: string }) {
-  return <div className={`animate-pulse rounded-md bg-slate-200 ${className}`} aria-hidden="true" />;
+  return <div className={`animate-pulse rounded-md bg-zinc-200 ${className}`} aria-hidden="true" />;
 }
 
 export function OrderListSkeleton() {
   return (
     <div className="space-y-3" role="status" aria-label="กำลังโหลดรายการออเดอร์">
       {Array.from({ length: 6 }).map((_, i) => (
-        <div key={i} className="rounded-lg border border-slate-200 bg-white p-4">
+        <div key={i} className="rounded-lg border border-zinc-200 bg-white p-4">
           <div className="flex items-center justify-between">
             <Skeleton className="h-5 w-24" />
             <Skeleton className="h-5 w-16" />
@@ -23,7 +23,7 @@ export function StockListSkeleton() {
   return (
     <div className="space-y-2" role="status" aria-label="กำลังโหลดข้อมูลสต็อก">
       {Array.from({ length: 8 }).map((_, i) => (
-        <div key={i} className="flex items-center justify-between rounded-lg border border-slate-200 bg-white p-4">
+        <div key={i} className="flex items-center justify-between rounded-lg border border-zinc-200 bg-white p-4">
           <div>
             <Skeleton className="h-4 w-32" />
             <Skeleton className="mt-2 h-3 w-20" />
@@ -51,7 +51,7 @@ export function LiveListSkeleton() {
     <div className="space-y-3" role="status" aria-label="กำลังโหลดรายการไลฟ์">
       <Skeleton className="h-20 w-full" />
       {Array.from({ length: 4 }).map((_, i) => (
-        <div key={i} className="rounded-lg border border-slate-200 bg-white p-4">
+        <div key={i} className="rounded-lg border border-zinc-200 bg-white p-4">
           <div className="flex items-center justify-between">
             <Skeleton className="h-5 w-32" />
             <Skeleton className="h-5 w-16" />

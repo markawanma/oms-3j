@@ -25,8 +25,8 @@ function formatPrice(price: number | null): string {
 function ProductCard({ item }: { item: CatalogItem }) {
   const hasPrice = item.selling_price !== null;
   return (
-    <article className="flex flex-col overflow-hidden rounded-lg border border-slate-200 bg-white transition-shadow hover:shadow-md">
-      <div className="flex aspect-square items-center justify-center bg-gradient-to-br from-slate-100 to-slate-200 p-2 text-center text-slate-400">
+    <article className="flex flex-col overflow-hidden rounded-lg border border-zinc-200 bg-white transition-shadow hover:shadow-md">
+      <div className="flex aspect-square items-center justify-center bg-gradient-to-br from-zinc-100 to-zinc-200 p-2 text-center text-zinc-400">
         {item.image_url ? (
           // eslint-disable-next-line @next/next/no-img-element -- external/placeholder source, next/image not needed yet
           <img
@@ -43,16 +43,16 @@ function ProductCard({ item }: { item: CatalogItem }) {
         )}
       </div>
       <div className="flex flex-1 flex-col gap-1.5 px-3 pb-3 pt-2.5">
-        <span className="w-fit rounded-full bg-slate-100 px-2 py-0.5 text-[0.68rem] font-semibold text-slate-600">
+        <span className="w-fit rounded-full bg-zinc-100 px-2 py-0.5 text-[0.68rem] font-semibold text-zinc-600">
           {item.categoryLabel}
         </span>
-        <h2 className="text-sm font-semibold leading-snug text-slate-900">{item.name}</h2>
-        <p className="text-xs text-slate-500">รหัส {item.sku}</p>
+        <h2 className="text-sm font-semibold leading-snug text-zinc-900">{item.name}</h2>
+        <p className="text-xs text-zinc-500">รหัส {item.sku}</p>
         <p
           className={
             hasPrice
               ? "mb-1 mt-0.5 text-base font-bold text-[#A2191D]"
-              : "mb-1 mt-0.5 text-sm font-medium text-slate-500"
+              : "mb-1 mt-0.5 text-sm font-medium text-zinc-500"
           }
         >
           {formatPrice(item.selling_price)}
@@ -115,7 +115,7 @@ export function CatalogGrid({
               className={
                 isActive
                   ? "min-h-11 rounded-full border border-[#A2191D] bg-[#A2191D] px-4 text-sm font-semibold text-white"
-                  : "min-h-11 rounded-full border border-slate-300 bg-white px-4 text-sm text-slate-700 hover:border-[#A2191D]"
+                  : "min-h-11 rounded-full border border-zinc-300 bg-white px-4 text-sm text-zinc-700 hover:border-[#A2191D]"
               }
             >
               {category.label}

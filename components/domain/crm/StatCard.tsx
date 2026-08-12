@@ -15,16 +15,16 @@ export function StatCard({
   hero?: boolean;
 }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-3.5 shadow-sm">
-      <div className="text-xs text-slate-500">{label}</div>
+    <div className="rounded-lg border border-zinc-200 bg-white p-3.5 shadow-sm">
+      <div className="text-xs text-zinc-500">{label}</div>
       <div
         className={`mt-1 text-xl font-extrabold tracking-tight tabular-nums ${
-          hero ? "text-primary-700" : "text-slate-900"
+          hero ? "text-primary-700" : "text-zinc-900"
         }`}
       >
         {value}
       </div>
-      {sub && <div className="mt-0.5 text-[0.66rem] text-slate-400">{sub}</div>}
+      {sub && <div className="mt-0.5 text-[0.66rem] text-zinc-400">{sub}</div>}
     </div>
   );
 }

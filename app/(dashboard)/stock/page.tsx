@@ -14,7 +14,7 @@ export default async function StockPage() {
 
   return (
     <div>
-      <h1 className="mb-3 text-xl font-bold text-slate-900">สต็อกกลาง</h1>
+      <h1 className="mb-3 text-xl font-bold text-zinc-900">สต็อกกลาง</h1>
       {result.ok ? <StockPageClient initialStock={result.data} /> : <ErrorState message={result.error} />}
     </div>
   );

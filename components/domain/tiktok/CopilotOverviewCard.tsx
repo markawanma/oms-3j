@@ -17,17 +17,17 @@ const SPARK_FILL = `${SPARK_LINE} L244,50 L4,50 Z`;
 
 const TONE_CLASS: Record<"up" | "down" | "flat", string> = {
   up: "text-green-600",
-  down: "text-slate-500",
-  flat: "text-slate-400",
+  down: "text-zinc-500",
+  flat: "text-zinc-400",
 };
 
 export function CopilotOverviewCard() {
   return (
-    <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
+    <div className="overflow-hidden rounded-lg border border-zinc-200 bg-white shadow-sm">
       <div className="flex flex-wrap items-start gap-3.5 px-4 pt-3.5 pb-2.5">
         <div className="min-w-[160px] flex-1">
-          <p className="text-[0.68rem] font-bold tracking-wider text-slate-400 uppercase">ฐานการวิเคราะห์ · ม.ค.–ก.ค. 2026</p>
-          <p className="mt-0.5 text-base font-bold text-slate-900">ยอดขายครึ่งปีแรก — ภาพเต็มที่คำแนะนำอ้างอิง</p>
+          <p className="text-[0.68rem] font-bold tracking-wider text-zinc-400 uppercase">ฐานการวิเคราะห์ · ม.ค.–ก.ค. 2026</p>
+          <p className="mt-0.5 text-base font-bold text-zinc-900">ยอดขายครึ่งปีแรก — ภาพเต็มที่คำแนะนำอ้างอิง</p>
         </div>
         <svg
           width={200}
@@ -49,16 +49,16 @@ export function CopilotOverviewCard() {
           <circle cx={244} cy={43} r={3.2} fill="#a2191d" />
         </svg>
       </div>
-      <div className="grid grid-cols-2 gap-px border-t border-slate-200 bg-slate-200 sm:grid-cols-4">
+      <div className="grid grid-cols-2 gap-px border-t border-zinc-200 bg-zinc-200 sm:grid-cols-4">
         {STATS.map((s) => (
           <div key={s.label} className="bg-white px-3.5 py-2.5">
-            <div className="text-[0.68rem] text-slate-500">{s.label}</div>
-            <div className="text-base font-bold text-slate-900 tabular-nums">{s.value}</div>
+            <div className="text-[0.68rem] text-zinc-500">{s.label}</div>
+            <div className="text-base font-bold text-zinc-900 tabular-nums">{s.value}</div>
             <div className={`text-xs font-bold ${TONE_CLASS[s.tone]}`}>{s.sub}</div>
           </div>
         ))}
       </div>
-      <p className="border-t border-slate-200 bg-slate-50 px-4 py-2 text-[0.68rem] leading-relaxed text-slate-400">
+      <p className="border-t border-zinc-200 bg-zinc-50 px-4 py-2 text-[0.68rem] leading-relaxed text-zinc-400">
         ตัวเลข H1 ด้านบนเป็นสรุปสถิตย์ (static) จากไฟล์สรุปยอดขายจริง — ไม่ใช่ query สดของหน้านี้
       </p>
     </div>

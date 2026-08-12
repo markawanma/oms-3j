@@ -33,13 +33,13 @@ export function SalesTrendChart({ points, granularity }: { points: SalesPeriodPo
   const formatTick = (v: number) => (mode === "orders" ? formatCount(Math.round(v)) : `฿${formatAbbrev(v)}`);
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+    <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
       <div className="flex flex-wrap items-center gap-2">
         <div>
-          <h3 className="text-sm font-bold text-slate-900">ยอดขายรายเดือน</h3>
-          <p className="text-xs text-slate-500">สลับหน่วยที่ปุ่มขวา</p>
+          <h3 className="text-sm font-bold text-zinc-900">ยอดขายรายเดือน</h3>
+          <p className="text-xs text-zinc-500">สลับหน่วยที่ปุ่มขวา</p>
         </div>
-        <div className="ml-auto inline-flex overflow-hidden rounded-full border border-slate-300" role="tablist" aria-label="เลือกหน่วยกราฟ">
+        <div className="ml-auto inline-flex overflow-hidden rounded-full border border-zinc-300" role="tablist" aria-label="เลือกหน่วยกราฟ">
           {(Object.keys(MODE_LABEL) as Mode[]).map((m) => (
             <button
               key={m}
@@ -47,7 +47,7 @@ export function SalesTrendChart({ points, granularity }: { points: SalesPeriodPo
               role="tab"
               aria-selected={mode === m}
               onClick={() => setMode(m)}
-              className={`min-h-9 px-3 text-xs font-semibold ${mode === m ? "bg-primary-600 text-white" : "bg-white text-slate-600"}`}
+              className={`min-h-9 px-3 text-xs font-semibold ${mode === m ? "bg-primary-600 text-white" : "bg-white text-zinc-600"}`}
             >
               {MODE_LABEL[m]}
             </button>
@@ -56,7 +56,7 @@ export function SalesTrendChart({ points, granularity }: { points: SalesPeriodPo
       </div>
 
       {points.length === 0 ? (
-        <p className="mt-6 py-8 text-center text-sm text-slate-400">ไม่มีข้อมูลในช่วงที่เลือก</p>
+        <p className="mt-6 py-8 text-center text-sm text-zinc-400">ไม่มีข้อมูลในช่วงที่เลือก</p>
       ) : (
         <svg viewBox={`0 0 ${W} ${H}`} className="mt-3 block w-full overflow-visible" role="img" aria-label={`กราฟ${MODE_LABEL[mode]}รายช่วง`}>
           {[0, 0.25, 0.5, 0.75, 1].map((f) => {

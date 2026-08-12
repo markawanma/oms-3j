@@ -28,7 +28,7 @@ function SalesKpiSkeleton() {
   return (
     <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-5" role="status" aria-label="กำลังโหลดยอดขาย">
       {Array.from({ length: 5 }).map((_, i) => (
-        <div key={i} className="rounded-lg border border-slate-200 bg-white p-3.5">
+        <div key={i} className="rounded-lg border border-zinc-200 bg-white p-3.5">
           <Skeleton className="h-3 w-16" />
           <Skeleton className="mt-2 h-6 w-20" />
         </div>
@@ -108,8 +108,8 @@ export function SalesPageClient({
         </>
       )}
 
-      <p className="border-t border-slate-200 pt-3 text-xs leading-relaxed text-slate-400">
-        <span className="font-medium text-slate-500">สรุปยอดขาย</span> — ข้อมูลจริงจาก OMS (aggregate รายเดือน) ·
+      <p className="border-t border-zinc-200 pt-3 text-xs leading-relaxed text-zinc-400">
+        <span className="font-medium text-zinc-500">สรุปยอดขาย</span> — ข้อมูลจริงจาก OMS (aggregate รายเดือน) ·
         เลือกช่วงวันที่ด้านบนเพื่อกรอง · กำไรไม่แสดง เพราะต้นทุนกรอกไม่ครบ (เชื่อไม่ได้)
       </p>
     </div>

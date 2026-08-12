@@ -13,8 +13,8 @@ export function SalesScopeNote({ scope }: { scope: SalesScope }) {
       : "ยังไม่มีช่องทางเชื่อมต่อ";
 
   return (
-    <p className="px-0.5 text-xs text-slate-500">
-      ข้อมูลจาก OMS — <span className="font-medium text-slate-700">{channelLabel}</span> เท่านั้น
+    <p className="px-0.5 text-xs text-zinc-500">
+      ข้อมูลจาก OMS — <span className="font-medium text-zinc-700">{channelLabel}</span> เท่านั้น
       {scope.firstOrderDate && <> ตั้งแต่ {formatThaiDateOnly(scope.firstOrderDate)}</>} · LINE กำลังเชื่อมเข้ามา
     </p>
   );

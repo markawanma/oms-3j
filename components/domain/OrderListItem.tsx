@@ -8,20 +8,20 @@ export function OrderListItem({ order }: { order: OrderListRow }) {
   return (
     <Link
       href={`/orders/${order.id}`}
-      className="block rounded-lg border border-slate-200 bg-white p-4 transition-colors hover:border-primary-300 focus-visible:border-primary-600"
+      className="block rounded-lg border border-zinc-200 bg-white p-4 transition-colors hover:border-primary-300 focus-visible:border-primary-600"
     >
       <div className="flex items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <ChannelBadge channel={order.channelCode} />
           <StatusBadge status={order.status} />
         </div>
-        <span className="text-sm font-semibold text-slate-900">{formatTHB(order.totalAmount)}</span>
+        <span className="text-sm font-semibold text-zinc-900">{formatTHB(order.totalAmount)}</span>
       </div>
-      <div className="mt-2 flex items-center justify-between text-sm text-slate-600">
+      <div className="mt-2 flex items-center justify-between text-sm text-zinc-600">
         <span className="truncate">{order.buyerName ?? "ไม่ระบุชื่อผู้ซื้อ"}</span>
-        <span className="shrink-0 text-slate-400">#{order.externalOrderId}</span>
+        <span className="shrink-0 text-zinc-400">#{order.externalOrderId}</span>
       </div>
-      <div className="mt-1 text-xs text-slate-400">{formatBangkokTime(order.placedAt ?? order.createdAt)}</div>
+      <div className="mt-1 text-xs text-zinc-400">{formatBangkokTime(order.placedAt ?? order.createdAt)}</div>
     </Link>
   );
 }

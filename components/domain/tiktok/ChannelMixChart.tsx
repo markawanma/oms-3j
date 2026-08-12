@@ -24,12 +24,12 @@ export function ChannelMixChart({ points }: { points: SalesPeriodPoint[] }) {
   ) as ChannelCode[];
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-      <h3 className="text-sm font-bold text-slate-900">สัดส่วนช่องทางแต่ละเดือน</h3>
-      <p className="text-xs text-slate-500">แยกยอดขายตามช่องทางในแต่ละช่วง</p>
+    <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
+      <h3 className="text-sm font-bold text-zinc-900">สัดส่วนช่องทางแต่ละเดือน</h3>
+      <p className="text-xs text-zinc-500">แยกยอดขายตามช่องทางในแต่ละช่วง</p>
 
       {presentChannels.length > 0 && (
-        <div className="mt-2.5 flex flex-wrap gap-3 text-xs text-slate-600">
+        <div className="mt-2.5 flex flex-wrap gap-3 text-xs text-zinc-600">
           {presentChannels.map((c) => (
             <span key={c} className="inline-flex items-center gap-1.5">
               <i className="inline-block h-2.5 w-2.5 rounded-sm" style={{ background: CHANNEL_COLOR_HEX[c] }} />
@@ -40,7 +40,7 @@ export function ChannelMixChart({ points }: { points: SalesPeriodPoint[] }) {
       )}
 
       {points.length === 0 || presentChannels.length === 0 ? (
-        <p className="mt-4 py-8 text-center text-sm text-slate-400">ไม่มีข้อมูลในช่วงที่เลือก</p>
+        <p className="mt-4 py-8 text-center text-sm text-zinc-400">ไม่มีข้อมูลในช่วงที่เลือก</p>
       ) : (
         <svg viewBox={`0 0 ${W} ${H}`} className="mt-3 block w-full overflow-visible" role="img" aria-label="สัดส่วนช่องทางรายช่วง">
           {points.map((p, i) => {

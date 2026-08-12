@@ -187,24 +187,24 @@ export function UploadPageClient() {
 
       {!validating && queue.length > 0 && (
         <section aria-label="คิวอัปโหลด">
-          <p className="mb-2 text-xs font-bold tracking-wide text-slate-400 uppercase">ไฟล์ในคิว</p>
+          <p className="mb-2 text-xs font-bold tracking-wide text-zinc-400 uppercase">ไฟล์ในคิว</p>
           <UploadQueueList items={queue} onRetry={handleRetryItem} />
         </section>
       )}
 
       {summary && (
         <section aria-label="สรุปผลอัปโหลด">
-          <p className="mb-2 text-xs font-bold tracking-wide text-slate-400 uppercase">สรุปรอบนี้</p>
+          <p className="mb-2 text-xs font-bold tracking-wide text-zinc-400 uppercase">สรุปรอบนี้</p>
           <BatchSummaryCard summary={summary} />
         </section>
       )}
 
       {reviewQueue.length > 0 && (
         <section aria-label="รายการรอตรวจสอบ">
-          <p className="mb-2 text-xs font-bold tracking-wide text-slate-400 uppercase">รอตรวจสอบก่อนบันทึก</p>
+          <p className="mb-2 text-xs font-bold tracking-wide text-zinc-400 uppercase">รอตรวจสอบก่อนบันทึก</p>
           <ReviewQueueList rows={reviewQueue} onConfirm={handleConfirmRow} />
-          <p className="mt-3 text-center text-xs text-slate-500">
-            เหลือรอตรวจสอบ <span className="font-bold text-slate-700">{reviewQueue.length}</span> รายการ
+          <p className="mt-3 text-center text-xs text-zinc-500">
+            เหลือรอตรวจสอบ <span className="font-bold text-zinc-700">{reviewQueue.length}</span> รายการ
           </p>
           <Button variant="primary" className="mt-2 w-full" onClick={() => setConfirmAllOpen(true)}>
             ยืนยันทั้งหมดที่เหลือ
@@ -224,7 +224,7 @@ export function UploadPageClient() {
       )}
 
       <Modal open={confirmAllOpen} onClose={() => setConfirmAllOpen(false)} title="ยืนยันทั้งหมดที่เหลือ?">
-        <p className="text-sm text-slate-600">
+        <p className="text-sm text-zinc-600">
           จะยืนยัน {reviewQueue.length} รายการที่เหลือทั้งหมดโดยไม่แก้ไขทีละแถว — ตรวจสอบแล้วว่าข้อมูลถูกต้องก่อนกดยืนยัน
           (การกระทำนี้เป็นการจำลอง ไม่มีข้อมูลถูกบันทึกจริง)
         </p>
@@ -238,8 +238,8 @@ export function UploadPageClient() {
         </div>
       </Modal>
 
-      <p className="border-t border-slate-200 pt-3 text-xs leading-relaxed text-slate-400">
-        <span className="font-medium text-slate-500">อัปโหลดใบปะหน้า</span> — หน้านี้จำลอง state ทั้งหมด (MOCK, ยังไม่ต่อ parser
+      <p className="border-t border-zinc-200 pt-3 text-xs leading-relaxed text-zinc-400">
+        <span className="font-medium text-zinc-500">อัปโหลดใบปะหน้า</span> — หน้านี้จำลอง state ทั้งหมด (MOCK, ยังไม่ต่อ parser
         จริง) · ไฟล์พัง (parse fail) แยกจาก &quot;รอ review&quot; · ที่อยู่/SKU ไม่ชัด = amber/slate ไม่ใช่แดง
       </p>
     </div>

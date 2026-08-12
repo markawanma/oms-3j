@@ -36,12 +36,12 @@ export function SalesKpiRow({ summary }: { summary: SalesSummary }) {
   return (
     <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-5" role="group" aria-label="ตัวชี้วัดยอดขาย">
       {cards.map((c) => (
-        <div key={c.label} className="rounded-lg border border-slate-200 bg-white p-3.5 shadow-sm">
-          <div className="text-xs text-slate-500">{c.label}</div>
-          <div className={`mt-1 text-xl font-extrabold tracking-tight tabular-nums ${c.hero ? "text-brand" : "text-slate-900"}`}>
+        <div key={c.label} className="rounded-lg border border-zinc-200 bg-white p-3.5 shadow-sm">
+          <div className="text-xs text-zinc-500">{c.label}</div>
+          <div className={`mt-1 text-xl font-extrabold tracking-tight tabular-nums ${c.hero ? "text-brand" : "text-zinc-900"}`}>
             {c.value}
           </div>
-          {c.sub && <div className="mt-0.5 text-[0.66rem] text-slate-400">{c.sub}</div>}
+          {c.sub && <div className="mt-0.5 text-[0.66rem] text-zinc-400">{c.sub}</div>}
         </div>
       ))}
     </div>

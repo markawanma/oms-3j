@@ -33,24 +33,24 @@ export function DateRangeFilter({
 
   return (
     <div className="flex flex-wrap items-end gap-2" role="group" aria-label="ช่วงวันที่">
-      <label className="flex flex-col gap-1 text-xs font-semibold text-slate-600">
+      <label className="flex flex-col gap-1 text-xs font-semibold text-zinc-600">
         ตั้งแต่
         <input
           type="month"
           value={fromMonth}
           max={maxMonth}
           onChange={(e) => e.target.value && onChange(e.target.value, toMonth)}
-          className="min-h-11 rounded-md border border-slate-300 px-2.5 text-sm text-slate-900"
+          className="min-h-11 rounded-md border border-zinc-300 px-2.5 text-sm text-zinc-900"
         />
       </label>
-      <label className="flex flex-col gap-1 text-xs font-semibold text-slate-600">
+      <label className="flex flex-col gap-1 text-xs font-semibold text-zinc-600">
         ถึง
         <input
           type="month"
           value={toMonth}
           max={maxMonth}
           onChange={(e) => e.target.value && onChange(fromMonth, e.target.value)}
-          className="min-h-11 rounded-md border border-slate-300 px-2.5 text-sm text-slate-900"
+          className="min-h-11 rounded-md border border-zinc-300 px-2.5 text-sm text-zinc-900"
         />
       </label>
       <div className="ml-auto flex gap-1.5">
@@ -59,7 +59,7 @@ export function DateRangeFilter({
             key={p.key}
             type="button"
             onClick={() => onChange(p.from(), p.to())}
-            className="min-h-11 rounded-full border border-slate-300 px-3 text-sm font-semibold text-slate-600 hover:border-primary-600 hover:text-primary-700"
+            className="min-h-11 rounded-full border border-zinc-300 px-3 text-sm font-semibold text-zinc-600 hover:border-primary-600 hover:text-primary-700"
           >
             {p.label}
           </button>

@@ -38,12 +38,12 @@ export function DismissReasonSheet({
 
   return (
     <Modal open={open} onClose={onClose} title={`ปัดทิ้ง — ${title}`}>
-      <p className="text-sm text-slate-500">บอกเหตุผลสั้นๆ (ไม่บังคับ) — เก็บไว้ปรับคำแนะนำในอนาคต</p>
+      <p className="text-sm text-zinc-500">บอกเหตุผลสั้นๆ (ไม่บังคับ) — เก็บไว้ปรับคำแนะนำในอนาคต</p>
       <div className="mt-3 flex flex-col gap-2" role="radiogroup" aria-label="เหตุผลที่ปัดทิ้ง">
         {REASONS.map((r) => (
           <label
             key={r.value}
-            className="flex min-h-11 cursor-pointer items-center gap-2.5 rounded-md border border-slate-300 px-3 text-sm text-slate-700 has-[:checked]:border-primary-600 has-[:checked]:bg-primary-50"
+            className="flex min-h-11 cursor-pointer items-center gap-2.5 rounded-md border border-zinc-300 px-3 text-sm text-zinc-700 has-[:checked]:border-primary-600 has-[:checked]:bg-primary-50"
           >
             <input
               type="radio"

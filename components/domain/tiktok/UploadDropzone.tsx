@@ -46,13 +46,13 @@ export function UploadDropzone({ onFilesSelected }: { onFilesSelected: (files: F
           if (e.dataTransfer.files.length > 0) onFilesSelected(e.dataTransfer.files);
         }}
         className={`flex w-full cursor-pointer flex-col items-center gap-2 rounded-lg border-2 border-dashed px-5 py-8 text-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-600 ${
-          dragging ? "border-primary-600 bg-primary-50" : "border-slate-300 bg-white hover:border-primary-400"
+          dragging ? "border-primary-600 bg-primary-50" : "border-zinc-300 bg-white hover:border-primary-300"
         }`}
       >
-        <UploadCloud className={`h-9 w-9 ${dragging ? "text-primary-600" : "text-primary-500"}`} aria-hidden="true" />
-        <p className="text-sm font-bold text-slate-900">ลากไฟล์ใบปะหน้ามาวางที่นี่</p>
-        <p className="text-xs text-slate-500">หรือกดเพื่อเลือกไฟล์ — อัปโหลดหลายไฟล์พร้อมกันได้</p>
-        <p className="text-[0.7rem] text-slate-400">รองรับ PDF / JPG / PNG · สูงสุด 20MB ต่อไฟล์</p>
+        <UploadCloud className={`h-9 w-9 ${dragging ? "text-primary-600" : "text-primary-600"}`} aria-hidden="true" />
+        <p className="text-sm font-bold text-zinc-900">ลากไฟล์ใบปะหน้ามาวางที่นี่</p>
+        <p className="text-xs text-zinc-500">หรือกดเพื่อเลือกไฟล์ — อัปโหลดหลายไฟล์พร้อมกันได้</p>
+        <p className="text-[0.7rem] text-zinc-400">รองรับ PDF / JPG / PNG · สูงสุด 20MB ต่อไฟล์</p>
       </div>
       <input
         ref={inputRef}

@@ -4,7 +4,7 @@ export function CopilotCardSkeleton() {
   return (
     <div className="flex flex-col gap-3" role="status" aria-label="กำลังโหลดคำแนะนำ">
       {Array.from({ length: 3 }).map((_, i) => (
-        <div key={i} className="rounded-lg border border-slate-200 bg-white p-4">
+        <div key={i} className="rounded-lg border border-zinc-200 bg-white p-4">
           <div className="flex items-start gap-3">
             <Skeleton className="h-9 w-9 rounded-md" />
             <div className="flex-1 space-y-2">

@@ -10,7 +10,7 @@ export default function ShopLoading() {
       </div>
       <div className="grid grid-cols-2 gap-3.5 sm:grid-cols-3 sm:gap-4 md:grid-cols-4">
         {Array.from({ length: 8 }).map((_, i) => (
-          <div key={i} className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+          <div key={i} className="overflow-hidden rounded-lg border border-zinc-200 bg-white">
             <Skeleton className="aspect-square w-full rounded-none" />
             <div className="space-y-2 p-3">
               <Skeleton className="h-3 w-16 rounded-full" />

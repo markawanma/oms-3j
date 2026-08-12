@@ -53,7 +53,7 @@ export function StickyActionBar({
 
   return (
     <>
-      <div className="sticky bottom-0 z-10 -mx-4 mt-4 flex gap-2 border-t border-slate-200 bg-white/95 px-4 py-3 backdrop-blur">
+      <div className="sticky bottom-0 z-10 -mx-4 mt-4 flex gap-2 border-t border-zinc-200 bg-white/95 px-4 py-3 backdrop-blur">
         {actions.map((action) => (
           <Button
             key={action.label}
@@ -72,7 +72,7 @@ export function StickyActionBar({
       </div>
 
       <Modal open={cancelModalOpen} onClose={() => setCancelModalOpen(false)} title="ยกเลิกออเดอร์">
-        <label htmlFor="cancel-reason" className="text-sm font-medium text-slate-700">
+        <label htmlFor="cancel-reason" className="text-sm font-medium text-zinc-700">
           เหตุผลการยกเลิก
         </label>
         <textarea
@@ -80,7 +80,7 @@ export function StickyActionBar({
           value={reason}
           onChange={(e) => setReason(e.target.value)}
           rows={3}
-          className="mt-1 w-full rounded-md border border-slate-300 p-2 text-base"
+          className="mt-1 w-full rounded-md border border-zinc-300 p-2 text-base"
           placeholder="เช่น ลูกค้าขอยกเลิก, สินค้าหมด"
         />
         <div className="mt-4 flex gap-2">

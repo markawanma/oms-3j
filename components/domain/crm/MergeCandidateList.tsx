@@ -33,23 +33,23 @@ function SideCard({
       onClick={onPick}
       aria-pressed={isSurvivor}
       className={`flex min-h-11 flex-col gap-1 rounded-md border p-2.5 text-left transition-colors ${
-        isSurvivor ? "border-primary-400 bg-primary-50" : "border-slate-200 bg-white hover:bg-slate-50"
+        isSurvivor ? "border-primary-300 bg-primary-50" : "border-zinc-200 bg-white hover:bg-zinc-50"
       }`}
     >
       <div className="flex items-center justify-between gap-2">
-        <p className="truncate text-sm font-bold text-slate-900">{side.name ?? "(ไม่มีชื่อ)"}</p>
+        <p className="truncate text-sm font-bold text-zinc-900">{side.name ?? "(ไม่มีชื่อ)"}</p>
         {isSurvivor && (
           <span className="shrink-0 rounded-full bg-primary-600 px-2 py-0.5 text-[0.65rem] font-bold text-white">
             เก็บไว้
           </span>
         )}
       </div>
-      <p className="text-xs text-slate-500">{side.province ?? "ไม่ทราบจังหวัด"}</p>
-      <p className="text-xs text-slate-600">
+      <p className="text-xs text-zinc-500">{side.province ?? "ไม่ทราบจังหวัด"}</p>
+      <p className="text-xs text-zinc-600">
         {formatCount(side.orderCount)} ออเดอร์ · {formatTHB(side.revenueSum)}
       </p>
       {side.identities.length > 0 && (
-        <p className="truncate text-[0.68rem] text-slate-400">{side.identities.join(", ")}</p>
+        <p className="truncate text-[0.68rem] text-zinc-400">{side.identities.join(", ")}</p>
       )}
     </button>
   );
@@ -99,7 +99,7 @@ function MergeCandidateCard({
   }
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-3.5 shadow-sm">
+    <div className="rounded-lg border border-zinc-200 bg-white p-3.5 shadow-sm">
       <div className="flex items-center justify-between gap-2">
         <Badge tone={MERGE_CONFIDENCE_TONE[row.confidence]}>
           ความมั่นใจ{MERGE_CONFIDENCE_LABEL_TH[row.confidence]}
@@ -108,7 +108,7 @@ function MergeCandidateCard({
           type="button"
           onClick={() => setSurvivorIsA((v) => !v)}
           disabled={pending}
-          className="flex min-h-9 items-center gap-1 rounded-md px-2 text-xs font-medium text-slate-500 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50"
+          className="flex min-h-9 items-center gap-1 rounded-md px-2 text-xs font-medium text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 disabled:opacity-50"
         >
           <ArrowRightLeft className="h-3.5 w-3.5" aria-hidden="true" />
           สลับฝั่งเก็บไว้
@@ -167,9 +167,9 @@ export function MergeCandidateList({ initialRows }: { initialRows: CrmMergeCandi
 
   if (rows.length === 0) {
     return (
-      <div className="rounded-lg border border-dashed border-slate-300 bg-white px-6 py-10 text-center">
+      <div className="rounded-lg border border-dashed border-zinc-300 bg-white px-6 py-10 text-center">
         <CheckCircle2 className="mx-auto h-8 w-8 text-green-500" aria-hidden="true" />
-        <p className="mt-2 text-sm font-medium text-slate-700">ตรวจครบทุกคู่แล้ว</p>
+        <p className="mt-2 text-sm font-medium text-zinc-700">ตรวจครบทุกคู่แล้ว</p>
       </div>
     );
   }

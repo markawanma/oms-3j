@@ -8,7 +8,7 @@ export default function CrmCustomersLoading() {
         <Skeleton className="h-11 w-28 rounded-md" />
       </div>
       {Array.from({ length: 6 }).map((_, i) => (
-        <div key={i} className="rounded-lg border border-slate-200 bg-white p-3.5">
+        <div key={i} className="rounded-lg border border-zinc-200 bg-white p-3.5">
           <div className="flex items-center justify-between">
             <Skeleton className="h-4 w-32" />
             <Skeleton className="h-4 w-16" />

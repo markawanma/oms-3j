@@ -53,13 +53,13 @@ export function CustomersPageClient({
       <div className="flex flex-col gap-2 sm:flex-row">
         <label className="relative flex-1">
           <span className="sr-only">ค้นหาชื่อลูกค้า</span>
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" aria-hidden="true" />
           <input
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="ค้นหาชื่อลูกค้า..."
-            className="min-h-11 w-full rounded-md border border-slate-300 pl-9 pr-3 text-sm text-slate-900 placeholder:text-slate-400"
+            className="min-h-11 w-full rounded-md border border-zinc-300 pl-9 pr-3 text-sm text-zinc-900 placeholder:text-zinc-400"
           />
         </label>
         <label className="flex flex-col justify-center">
@@ -67,7 +67,7 @@ export function CustomersPageClient({
           <select
             value={segment}
             onChange={(e) => setSegment(e.target.value as SegmentFilter)}
-            className="min-h-11 rounded-md border border-slate-300 px-2.5 text-sm text-slate-900"
+            className="min-h-11 rounded-md border border-zinc-300 px-2.5 text-sm text-zinc-900"
           >
             <option value="all">ทุกกลุ่ม</option>
             {RFM_SEGMENTS.map((s) => (
@@ -79,8 +79,8 @@ export function CustomersPageClient({
         </label>
       </div>
 
-      <p className="text-xs text-slate-400">
-        พบ <span className="font-semibold text-slate-600">{filtered.length}</span> จาก {rows.length} คน
+      <p className="text-xs text-zinc-400">
+        พบ <span className="font-semibold text-zinc-600">{filtered.length}</span> จาก {rows.length} คน
       </p>
 
       {filtered.length === 0 ? (
@@ -91,18 +91,18 @@ export function CustomersPageClient({
             <li key={c.customerId}>
               <Link
                 href={`/crm/customers/${c.customerId}`}
-                className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white p-3.5 shadow-sm hover:border-primary-300 hover:bg-primary-50/40"
+                className="flex items-center justify-between gap-3 rounded-lg border border-zinc-200 bg-white p-3.5 shadow-sm hover:border-primary-300 hover:bg-primary-50/40"
               >
                 <div className="min-w-0">
-                  <p className="truncate text-sm font-semibold text-slate-900">{c.displayName ?? "(ไม่มีชื่อ)"}</p>
+                  <p className="truncate text-sm font-semibold text-zinc-900">{c.displayName ?? "(ไม่มีชื่อ)"}</p>
                   <div className="mt-1 flex flex-wrap items-center gap-1.5">
                     <SegmentBadge segment={c.segment} />
-                    <span className="text-xs text-slate-500">{c.orderCount} ออเดอร์</span>
+                    <span className="text-xs text-zinc-500">{c.orderCount} ออเดอร์</span>
                   </div>
                 </div>
                 <div className="shrink-0 text-right">
-                  <p className="text-sm font-bold tabular-nums text-slate-900">{formatTHBCompact(c.revenueSum)}</p>
-                  <p className="text-[0.68rem] text-slate-400">ล่าสุด {formatThaiDateOnly(c.lastOrderAt)}</p>
+                  <p className="text-sm font-bold tabular-nums text-zinc-900">{formatTHBCompact(c.revenueSum)}</p>
+                  <p className="text-[0.68rem] text-zinc-400">ล่าสุด {formatThaiDateOnly(c.lastOrderAt)}</p>
                 </div>
               </Link>
             </li>

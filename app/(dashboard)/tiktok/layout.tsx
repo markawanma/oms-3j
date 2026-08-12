@@ -11,7 +11,7 @@ export default function TikTokLayout({ children }: { children: ReactNode }) {
       {/* 3J brand red accent — module-scoped only, per design §7 (`brand`
           token is never used for buttons/tabs, those stay indigo `primary`). */}
       <div className="h-[3px] shrink-0 bg-gradient-to-r from-brand to-brand-ink" aria-hidden="true" />
-      <div className="border-b border-slate-200 bg-white px-4 pt-2.5 pb-1">
+      <div className="border-b border-zinc-200 bg-white px-4 pt-2.5 pb-1">
         <p className="text-[0.68rem] font-bold uppercase tracking-wider text-brand">TikTok Ops</p>
       </div>
       <TikTokSubNav />

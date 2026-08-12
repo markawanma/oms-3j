@@ -35,17 +35,17 @@ export function CopilotSection({
           aria-expanded={open}
           className="flex min-h-11 w-full items-center gap-2 text-left"
         >
-          <h2 className="text-xs font-bold tracking-wide text-slate-500 uppercase">{title}</h2>
-          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-600">{count}</span>
+          <h2 className="text-xs font-bold tracking-wide text-zinc-500 uppercase">{title}</h2>
+          <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-bold text-zinc-600">{count}</span>
           <ChevronDown
-            className={`ml-auto h-4 w-4 shrink-0 text-slate-400 transition-transform ${open ? "" : "-rotate-90"}`}
+            className={`ml-auto h-4 w-4 shrink-0 text-zinc-400 transition-transform ${open ? "" : "-rotate-90"}`}
             aria-hidden="true"
           />
         </button>
       ) : (
         <div className="flex items-center gap-2">
-          <h2 className="text-xs font-bold tracking-wide text-slate-500 uppercase">{title}</h2>
-          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-bold text-slate-600">{count}</span>
+          <h2 className="text-xs font-bold tracking-wide text-zinc-500 uppercase">{title}</h2>
+          <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-xs font-bold text-zinc-600">{count}</span>
         </div>
       )}
       {open && <div className="mt-2.5 flex flex-col gap-3">{children}</div>}

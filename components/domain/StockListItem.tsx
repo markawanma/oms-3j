@@ -11,11 +11,11 @@ export function StockListItem({ stock, onAdjust }: { stock: StockRow; onAdjust: 
   const available = stock.qtyOnHand - stock.qtyReserved;
 
   return (
-    <div className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white p-4">
+    <div className="flex items-center justify-between gap-3 rounded-lg border border-zinc-200 bg-white p-4">
       <div className="min-w-0">
-        <p className="truncate font-medium text-slate-900">{stock.name}</p>
-        <p className="text-xs text-slate-400">SKU: {stock.sku}</p>
-        <div className="mt-1 flex gap-3 text-xs text-slate-500">
+        <p className="truncate font-medium text-zinc-900">{stock.name}</p>
+        <p className="text-xs text-zinc-400">SKU: {stock.sku}</p>
+        <div className="mt-1 flex gap-3 text-xs text-zinc-500">
           <span>ในสต็อก {stock.qtyOnHand}</span>
           <span>จองแล้ว {stock.qtyReserved}</span>
         </div>
@@ -26,7 +26,7 @@ export function StockListItem({ stock, onAdjust }: { stock: StockRow; onAdjust: 
         </span>
         <button
           onClick={onAdjust}
-          className="min-h-11 rounded-md border border-slate-300 px-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
+          className="min-h-11 rounded-md border border-zinc-300 px-3 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
         >
           ปรับสต็อก
         </button>

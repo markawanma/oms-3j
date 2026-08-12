@@ -122,7 +122,7 @@ export function CopilotPageClient() {
         <>
           <CopilotSection title="รอพิจารณา" count={pending.length}>
             {pending.length === 0 ? (
-              <p className="py-4 text-center text-sm text-slate-400">ตัดสินใจครบทุกใบแล้ว</p>
+              <p className="py-4 text-center text-sm text-zinc-400">ตัดสินใจครบทุกใบแล้ว</p>
             ) : (
               pending.map((r) => <CopilotCard key={r.id} rec={r} onApprove={handleApprove} onDismiss={handleDismissClick} />)
             )}
@@ -142,8 +142,8 @@ export function CopilotPageClient() {
         </>
       )}
 
-      <p className="border-t border-slate-200 pt-3 text-xs leading-relaxed text-slate-400">
-        <span className="font-medium text-slate-500">Ad Copilot</span> — คำแนะนำอ้างข้อมูลจริง H1 (MOCK, รอ analytics DB + LLM
+      <p className="border-t border-zinc-200 pt-3 text-xs leading-relaxed text-zinc-400">
+        <span className="font-medium text-zinc-500">Ad Copilot</span> — คำแนะนำอ้างข้อมูลจริง H1 (MOCK, รอ analytics DB + LLM
         engine) · human-in-loop ทุกการ์ด · อนุมัติ/ปัดทิ้งบันทึกในเบราว์เซอร์นี้เท่านั้น (localStorage, ไม่แตะ DB)
       </p>
 

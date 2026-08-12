@@ -26,32 +26,32 @@ function ReviewQueueRowItem({ row, onConfirm }: { row: UploadReviewRow; onConfir
   const [recipientName, setRecipientName] = useState("");
 
   return (
-    <div className="flex flex-col gap-2.5 rounded-lg border border-slate-200 bg-white p-3 shadow-sm" role="listitem">
+    <div className="flex flex-col gap-2.5 rounded-lg border border-zinc-200 bg-white p-3 shadow-sm" role="listitem">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="text-sm font-bold text-slate-800 tabular-nums">{row.externalOrderId}</span>
+        <span className="text-sm font-bold text-zinc-800 tabular-nums">{row.externalOrderId}</span>
         <Badge tone={ISSUE_BADGE_TONE[row.issueType]}>{row.issueBadgeLabel}</Badge>
       </div>
 
       {row.issueType === "address_unclear" && (
         <div className="flex flex-wrap gap-2">
-          <label className="flex min-w-[130px] flex-1 flex-col gap-1 text-xs font-semibold text-slate-600">
+          <label className="flex min-w-[130px] flex-1 flex-col gap-1 text-xs font-semibold text-zinc-600">
             ประเภทที่อยู่
             <select
               value={addressType}
               onChange={(e) => setAddressType(e.target.value)}
-              className="min-h-11 rounded-md border border-slate-300 px-2 text-sm text-slate-800"
+              className="min-h-11 rounded-md border border-zinc-300 px-2 text-sm text-zinc-800"
             >
               {ADDRESS_TYPE_OPTIONS.map((o) => (
                 <option key={o}>{o}</option>
               ))}
             </select>
           </label>
-          <label className="flex min-w-[130px] flex-1 flex-col gap-1 text-xs font-semibold text-slate-600">
+          <label className="flex min-w-[130px] flex-1 flex-col gap-1 text-xs font-semibold text-zinc-600">
             จังหวัด
             <select
               value={province}
               onChange={(e) => setProvince(e.target.value)}
-              className="min-h-11 rounded-md border border-slate-300 px-2 text-sm text-slate-800"
+              className="min-h-11 rounded-md border border-zinc-300 px-2 text-sm text-zinc-800"
             >
               {PROVINCE_OPTIONS.map((o) => (
                 <option key={o}>{o}</option>
@@ -62,12 +62,12 @@ function ReviewQueueRowItem({ row, onConfirm }: { row: UploadReviewRow; onConfir
       )}
 
       {row.issueType === "sku_unknown" && (
-        <label className="flex flex-col gap-1 text-xs font-semibold text-slate-600">
+        <label className="flex flex-col gap-1 text-xs font-semibold text-zinc-600">
           จับคู่สินค้า (sku alias)
           <select
             value={skuAlias}
             onChange={(e) => setSkuAlias(e.target.value)}
-            className="min-h-11 rounded-md border border-slate-300 px-2 text-sm text-slate-800"
+            className="min-h-11 rounded-md border border-zinc-300 px-2 text-sm text-zinc-800"
           >
             <option value="">— เลือกสินค้า —</option>
             {SKU_ALIAS_OPTIONS.map((o) => (
@@ -78,14 +78,14 @@ function ReviewQueueRowItem({ row, onConfirm }: { row: UploadReviewRow; onConfir
       )}
 
       {row.issueType === "recipient_name_error" && (
-        <label className="flex flex-col gap-1 text-xs font-semibold text-slate-600">
+        <label className="flex flex-col gap-1 text-xs font-semibold text-zinc-600">
           ชื่อผู้รับ (แก้ให้ถูก)
           <input
             type="text"
             value={recipientName}
             onChange={(e) => setRecipientName(e.target.value)}
             placeholder="พิมพ์ชื่อที่ถูกต้อง"
-            className="min-h-11 rounded-md border border-slate-300 px-2.5 text-sm text-slate-800"
+            className="min-h-11 rounded-md border border-zinc-300 px-2.5 text-sm text-zinc-800"
           />
         </label>
       )}

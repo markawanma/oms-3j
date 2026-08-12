@@ -23,22 +23,22 @@ function BreakdownPanel({ rows }: { rows: BreakdownRow[] }) {
       {rows.map((row) => (
         <div key={row.label} className="grid grid-cols-[96px_1fr_auto] items-center gap-2 sm:grid-cols-[130px_1fr_auto] sm:gap-3">
           <div className="flex min-w-0 items-center gap-1.5">
-            <span className={`truncate text-sm ${row.isUnknown ? "text-slate-500" : "text-slate-700"}`}>{row.label}</span>
+            <span className={`truncate text-sm ${row.isUnknown ? "text-zinc-500" : "text-zinc-700"}`}>{row.label}</span>
             {row.reviewBadge && (
               <Badge tone="amber" className="shrink-0">
                 {row.reviewBadge}
               </Badge>
             )}
           </div>
-          <div className="h-2.5 overflow-hidden rounded-full bg-slate-100">
+          <div className="h-2.5 overflow-hidden rounded-full bg-zinc-100">
             <div
-              className={`h-full rounded-full ${row.isUnknown ? "bg-slate-400" : "bg-primary-600"}`}
+              className={`h-full rounded-full ${row.isUnknown ? "bg-zinc-400" : "bg-primary-600"}`}
               style={{ width: `${Math.min(Math.max(row.barPct, 0), 100)}%` }}
             />
           </div>
-          <div className="min-w-[56px] text-right text-sm font-bold text-slate-900 tabular-nums">
+          <div className="min-w-[56px] text-right text-sm font-bold text-zinc-900 tabular-nums">
             {row.displayValue}
-            {row.subLabel && <span className="ml-1 text-xs font-normal text-slate-400">{row.subLabel}</span>}
+            {row.subLabel && <span className="ml-1 text-xs font-normal text-zinc-400">{row.subLabel}</span>}
           </div>
         </div>
       ))}
@@ -59,11 +59,11 @@ export function BreakdownTabs({ breakdown }: { breakdown: DailyDashboardData["br
 
   return (
     <div>
-      <p className="mb-2.5 text-xs font-bold tracking-wide text-slate-400 uppercase">ดูแยกตาม</p>
+      <p className="mb-2.5 text-xs font-bold tracking-wide text-zinc-400 uppercase">ดูแยกตาม</p>
 
       {/* Mobile: tabs + single panel */}
       <div className="md:hidden">
-        <div role="tablist" aria-label="แยกตามมิติ" className="flex gap-1 rounded-lg bg-slate-100 p-1">
+        <div role="tablist" aria-label="แยกตามมิติ" className="flex gap-1 rounded-lg bg-zinc-100 p-1">
           {DIMENSIONS.map((d) => (
             <button
               key={d.key}
@@ -72,7 +72,7 @@ export function BreakdownTabs({ breakdown }: { breakdown: DailyDashboardData["br
               aria-selected={active === d.key}
               onClick={() => setActive(d.key)}
               className={`min-h-9 flex-1 rounded-md px-2 text-xs font-semibold transition-colors ${
-                active === d.key ? "bg-white text-primary-700 shadow-sm" : "text-slate-600"
+                active === d.key ? "bg-white text-primary-700 shadow-sm" : "text-zinc-600"
               }`}
             >
               {d.label}
@@ -89,8 +89,8 @@ export function BreakdownTabs({ breakdown }: { breakdown: DailyDashboardData["br
           overview on wide screens). */}
       <div className="hidden gap-5 md:grid md:grid-cols-2">
         {DIMENSIONS.map((d) => (
-          <div key={d.key} className="rounded-lg border border-slate-200 bg-white p-3.5 shadow-sm">
-            <p className="mb-2.5 text-xs font-bold text-slate-500">{d.label}</p>
+          <div key={d.key} className="rounded-lg border border-zinc-200 bg-white p-3.5 shadow-sm">
+            <p className="mb-2.5 text-xs font-bold text-zinc-500">{d.label}</p>
             <BreakdownPanel rows={breakdown[d.key]} />
           </div>
         ))}

@@ -15,9 +15,9 @@ export function BatchSummaryCard({ summary }: { summary: UploadBatchSummary }) {
   return (
     <div className="grid grid-cols-4 gap-2" role="group" aria-label="สรุปผลอัปโหลด">
       {CARDS.map((c) => (
-        <div key={c.key} className="rounded-lg border border-slate-200 bg-white p-3 text-center shadow-sm">
+        <div key={c.key} className="rounded-lg border border-zinc-200 bg-white p-3 text-center shadow-sm">
           <div className={`text-xl font-extrabold tabular-nums ${c.toneClass}`}>{summary[c.key]}</div>
-          <div className="mt-0.5 text-[0.66rem] font-semibold text-slate-500">{c.label}</div>
+          <div className="mt-0.5 text-[0.66rem] font-semibold text-zinc-500">{c.label}</div>
         </div>
       ))}
     </div>

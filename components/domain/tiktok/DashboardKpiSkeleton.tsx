@@ -6,7 +6,7 @@ export function DashboardKpiSkeleton() {
       <Skeleton className="h-14 w-full rounded-lg" />
       <div className="grid grid-cols-2 gap-2.5">
         {Array.from({ length: 4 }).map((_, i) => (
-          <div key={i} className="rounded-lg border border-slate-200 bg-white p-3.5">
+          <div key={i} className="rounded-lg border border-zinc-200 bg-white p-3.5">
             <Skeleton className="h-3 w-20" />
             <Skeleton className="mt-2 h-6 w-16" />
             <Skeleton className="mt-2 h-3 w-24" />

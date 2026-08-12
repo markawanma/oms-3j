@@ -26,15 +26,15 @@ export default async function LiveSummaryPage({ params }: { params: Promise<{ id
     <div className="space-y-4">
       <Link
         href="/live"
-        className="mb-1 inline-flex min-h-11 items-center gap-1.5 text-sm font-medium text-slate-600 hover:text-slate-900"
+        className="mb-1 inline-flex min-h-11 items-center gap-1.5 text-sm font-medium text-zinc-600 hover:text-zinc-900"
       >
         <ArrowLeft className="h-4 w-4" aria-hidden="true" />
         กลับไปหน้าไลฟ์
       </Link>
 
       <div>
-        <h1 className="text-xl font-bold text-slate-900">สรุปไลฟ์: {stats.title || "ไม่มีชื่อ"}</h1>
-        <p className="text-sm text-slate-500">
+        <h1 className="text-xl font-bold text-zinc-900">สรุปไลฟ์: {stats.title || "ไม่มีชื่อ"}</h1>
+        <p className="text-sm text-zinc-500">
           {formatBangkokTime(stats.startedAt)} — {stats.endedAt ? formatBangkokTime(stats.endedAt) : "ยังไม่ปิด"}
           {" · "}
           {stats.durationHours.toFixed(2)} ชม.
@@ -52,8 +52,8 @@ export default async function LiveSummaryPage({ params }: { params: Promise<{ id
         />
       </div>
 
-      <div className="rounded-lg border border-slate-200 bg-white p-4">
-        <h2 className="mb-3 text-sm font-semibold text-slate-700">SKU ขายดี (Top 10)</h2>
+      <div className="rounded-lg border border-zinc-200 bg-white p-4">
+        <h2 className="mb-3 text-sm font-semibold text-zinc-700">SKU ขายดี (Top 10)</h2>
         {!topSkusResult.ok ? (
           <ErrorState message={topSkusResult.error} />
         ) : topSkus.length === 0 ? (
@@ -64,10 +64,10 @@ export default async function LiveSummaryPage({ params }: { params: Promise<{ id
               <li key={s.productId} className="flex items-center justify-between gap-2 text-sm">
                 <div className="flex min-w-0 items-center gap-2">
                   <Badge tone="slate">#{index + 1}</Badge>
-                  <span className="truncate font-medium text-slate-900">{s.name}</span>
-                  <span className="shrink-0 text-xs text-slate-400">({s.sku})</span>
+                  <span className="truncate font-medium text-zinc-900">{s.name}</span>
+                  <span className="shrink-0 text-xs text-zinc-400">({s.sku})</span>
                 </div>
-                <span className="shrink-0 font-semibold text-slate-900">{s.qtySold} ชิ้น</span>
+                <span className="shrink-0 font-semibold text-zinc-900">{s.qtySold} ชิ้น</span>
               </li>
             ))}
           </ol>
@@ -79,9 +79,9 @@ export default async function LiveSummaryPage({ params }: { params: Promise<{ id
 
 function SummaryCard({ label, value, tone }: { label: string; value: string; tone?: "red" }) {
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-3">
-      <p className="text-xs text-slate-500">{label}</p>
-      <p className={`mt-1 text-lg font-bold ${tone === "red" ? "text-red-600" : "text-slate-900"}`}>{value}</p>
+    <div className="rounded-lg border border-zinc-200 bg-white p-3">
+      <p className="text-xs text-zinc-500">{label}</p>
+      <p className={`mt-1 text-lg font-bold ${tone === "red" ? "text-red-600" : "text-zinc-900"}`}>{value}</p>
     </div>
   );
 }

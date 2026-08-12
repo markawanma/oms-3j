@@ -42,12 +42,12 @@ export function CustomerOrderHistory({
   }
 
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-3.5 shadow-sm">
-      <h3 className="text-sm font-bold text-slate-800">ประวัติออเดอร์ ({orders.length})</h3>
+    <div className="rounded-lg border border-zinc-200 bg-white p-3.5 shadow-sm">
+      <h3 className="text-sm font-bold text-zinc-800">ประวัติออเดอร์ ({orders.length})</h3>
       <div className="mt-3 overflow-x-auto">
         <table className="w-full min-w-[560px] text-left text-sm">
           <thead>
-            <tr className="border-b border-slate-200 text-xs font-semibold text-slate-500">
+            <tr className="border-b border-zinc-200 text-xs font-semibold text-zinc-500">
               <th scope="col" className="py-2 pr-3">
                 เลขออเดอร์
               </th>
@@ -75,8 +75,8 @@ export function CustomerOrderHistory({
           </thead>
           <tbody>
             {orders.map((o) => (
-              <tr key={o.id} className="border-b border-slate-100 last:border-0">
-                <td className="py-2 pr-3 font-medium text-slate-800">
+              <tr key={o.id} className="border-b border-zinc-100 last:border-0">
+                <td className="py-2 pr-3 font-medium text-zinc-800">
                   {o.sourceOrderNo}
                   {o.isEdited && (
                     <span className="ml-1.5 rounded bg-amber-100 px-1.5 py-0.5 text-[0.62rem] font-semibold text-amber-700">
@@ -84,16 +84,16 @@ export function CustomerOrderHistory({
                     </span>
                   )}
                 </td>
-                <td className="py-2 pr-3 whitespace-nowrap text-slate-600">{formatThaiDateOnly(o.orderDate)}</td>
-                <td className="py-2 pr-3 text-slate-600">{o.channelName}</td>
-                <td className="py-2 pr-3 text-right tabular-nums text-slate-800">{formatTHBCompact(o.revenue)}</td>
-                <td className="py-2 pr-3 text-right tabular-nums text-slate-500">
+                <td className="py-2 pr-3 whitespace-nowrap text-zinc-600">{formatThaiDateOnly(o.orderDate)}</td>
+                <td className="py-2 pr-3 text-zinc-600">{o.channelName}</td>
+                <td className="py-2 pr-3 text-right tabular-nums text-zinc-800">{formatTHBCompact(o.revenue)}</td>
+                <td className="py-2 pr-3 text-right tabular-nums text-zinc-500">
                   {o.profit === null ? "—" : formatTHBCompact(o.profit)}
-                  <span className="ml-1 text-[0.62rem] text-slate-400">
+                  <span className="ml-1 text-[0.62rem] text-zinc-400">
                     ({PROFIT_STATUS_LABEL_TH[o.profitStatus] ?? o.profitStatus})
                   </span>
                 </td>
-                <td className="py-2 pr-3 text-slate-500">{o.provinceCode}</td>
+                <td className="py-2 pr-3 text-zinc-500">{o.provinceCode}</td>
                 {canEdit && (
                   <td className="py-2">
                     <OrderOverrideForm

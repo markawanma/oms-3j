@@ -87,16 +87,16 @@ export default async function CrmCustomerDetailPage({ params }: { params: Promis
 
   return (
     <div className="space-y-4">
-      <Link href="/crm/customers" className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-600 hover:text-slate-900">
+      <Link href="/crm/customers" className="inline-flex items-center gap-1.5 text-sm font-medium text-zinc-600 hover:text-zinc-900">
         <ArrowLeft className="h-4 w-4" aria-hidden="true" />
         กลับไปรายชื่อลูกค้า
       </Link>
 
-      <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div>
             <CustomerNameEditor customerId={c.customerId} initialName={c.displayName} canEdit={canWrite} />
-            <p className="mt-1 text-xs text-slate-500">
+            <p className="mt-1 text-xs text-zinc-500">
               ลูกค้าตั้งแต่ {formatThaiDateOnly(c.firstOrderAt)} · ช่องทางแรกที่เจอ {channelLabel ?? "ไม่ทราบ"} · ผูก{" "}
               {c.identitiesCount} identity
             </p>
@@ -104,7 +104,7 @@ export default async function CrmCustomerDetailPage({ params }: { params: Promis
           <SegmentBadge segment={c.segment} />
         </div>
         {c.recencyDays !== null && (
-          <p className="mt-2 text-xs text-slate-400">ซื้อล่าสุดเมื่อ {c.recencyDays} วันก่อน ({formatThaiDateOnly(c.lastOrderAt)})</p>
+          <p className="mt-2 text-xs text-zinc-400">ซื้อล่าสุดเมื่อ {c.recencyDays} วันก่อน ({formatThaiDateOnly(c.lastOrderAt)})</p>
         )}
       </div>
 
@@ -119,39 +119,39 @@ export default async function CrmCustomerDetailPage({ params }: { params: Promis
         />
       </div>
 
-      <div className="rounded-lg border border-slate-200 bg-white p-3.5 shadow-sm">
+      <div className="rounded-lg border border-zinc-200 bg-white p-3.5 shadow-sm">
         <div className="flex items-center gap-2">
-          <h3 className="text-sm font-bold text-slate-800">ข้อมูลส่วนบุคคล (PII)</h3>
+          <h3 className="text-sm font-bold text-zinc-800">ข้อมูลส่วนบุคคล (PII)</h3>
           <PiiEditForm customerId={c.customerId} pii={c.pii} canEdit={canWrite} />
         </div>
         {c.pii ? (
           <dl className="mt-2 grid grid-cols-1 gap-x-4 gap-y-1.5 text-sm sm:grid-cols-2">
             <div>
-              <dt className="text-xs text-slate-400">ชื่อเต็ม</dt>
-              <dd className="text-slate-800">{c.pii.fullName ?? "—"}</dd>
+              <dt className="text-xs text-zinc-400">ชื่อเต็ม</dt>
+              <dd className="text-zinc-800">{c.pii.fullName ?? "—"}</dd>
             </div>
             <div>
-              <dt className="text-xs text-slate-400">เบอร์โทร</dt>
-              <dd className="text-slate-800">{c.pii.phoneE164 ?? "—"}</dd>
+              <dt className="text-xs text-zinc-400">เบอร์โทร</dt>
+              <dd className="text-zinc-800">{c.pii.phoneE164 ?? "—"}</dd>
             </div>
             <div className="sm:col-span-2">
-              <dt className="text-xs text-slate-400">ที่อยู่</dt>
-              <dd className="text-slate-800">{c.pii.address ? JSON.stringify(c.pii.address) : "—"}</dd>
+              <dt className="text-xs text-zinc-400">ที่อยู่</dt>
+              <dd className="text-zinc-800">{c.pii.address ? JSON.stringify(c.pii.address) : "—"}</dd>
             </div>
           </dl>
         ) : (
-          <p className="mt-2 text-sm text-slate-400">— (เห็นเฉพาะเจ้าของร้าน/แอดมิน)</p>
+          <p className="mt-2 text-sm text-zinc-400">— (เห็นเฉพาะเจ้าของร้าน/แอดมิน)</p>
         )}
       </div>
 
       {c.identities.length > 0 && (
-        <div className="rounded-lg border border-slate-200 bg-white p-3.5 shadow-sm">
-          <h3 className="text-sm font-bold text-slate-800">Identity ที่ผูกไว้</h3>
+        <div className="rounded-lg border border-zinc-200 bg-white p-3.5 shadow-sm">
+          <h3 className="text-sm font-bold text-zinc-800">Identity ที่ผูกไว้</h3>
           <ul className="mt-2 flex flex-wrap gap-1.5">
             {c.identities.map((i, idx) => (
               <li
                 key={`${i.identityType}-${idx}`}
-                className="rounded-md bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700"
+                className="rounded-md bg-zinc-100 px-2.5 py-1 text-xs font-medium text-zinc-700"
                 title={`confidence: ${i.confidence}`}
               >
                 {IDENTITY_TYPE_LABEL_TH[i.identityType] ?? i.identityType}: {i.identityValueNorm}

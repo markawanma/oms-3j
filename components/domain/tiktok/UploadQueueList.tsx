@@ -4,22 +4,22 @@ import type { UploadQueueItem } from "@/lib/tiktok/types";
 
 function UploadQueueItemRow({ item, onRetry }: { item: UploadQueueItem; onRetry: (id: string) => void }) {
   return (
-    <div className="flex items-center gap-2.5 rounded-lg border border-slate-200 bg-white p-3 shadow-sm" role="listitem">
-      <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${item.status === "failed" ? "bg-amber-100" : "bg-slate-100"}`}>
+    <div className="flex items-center gap-2.5 rounded-lg border border-zinc-200 bg-white p-3 shadow-sm" role="listitem">
+      <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${item.status === "failed" ? "bg-amber-100" : "bg-zinc-100"}`}>
         {item.status === "failed" ? (
           <AlertTriangle className="h-4 w-4 text-amber-600" aria-hidden="true" />
         ) : item.status === "done" ? (
           <CheckCircle2 className="h-4 w-4 text-green-600" aria-hidden="true" />
         ) : (
-          <FileText className="h-4 w-4 text-slate-500" aria-hidden="true" />
+          <FileText className="h-4 w-4 text-zinc-500" aria-hidden="true" />
         )}
       </div>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-semibold text-slate-800">{item.fileName}</p>
-        <p className={`mt-0.5 text-xs ${item.status === "failed" ? "text-amber-700" : "text-slate-400"}`}>{item.metaText}</p>
+        <p className="truncate text-sm font-semibold text-zinc-800">{item.fileName}</p>
+        <p className={`mt-0.5 text-xs ${item.status === "failed" ? "text-amber-700" : "text-zinc-400"}`}>{item.metaText}</p>
         {item.status === "parsing" && item.progressPct !== undefined && (
           <div
-            className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-slate-100"
+            className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-zinc-100"
             role="progressbar"
             aria-valuenow={item.progressPct}
             aria-valuemin={0}

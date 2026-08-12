@@ -67,31 +67,31 @@ export function PiiEditForm({ customerId, pii, canEdit }: { customerId: string; 
       <Modal open={open} onClose={() => setOpen(false)} title="แก้ไขข้อมูลส่วนบุคคล (PII)">
         <div className="flex flex-col gap-3">
           <label className="flex flex-col gap-1">
-            <span className="text-xs font-medium text-slate-600">ชื่อเต็ม</span>
+            <span className="text-xs font-medium text-zinc-600">ชื่อเต็ม</span>
             <input
               type="text"
               value={fullName}
               onChange={(e) => setFullName(e.target.value)}
-              className="min-h-11 rounded-md border border-slate-300 px-2.5 text-sm text-slate-900"
+              className="min-h-11 rounded-md border border-zinc-300 px-2.5 text-sm text-zinc-900"
             />
           </label>
           <label className="flex flex-col gap-1">
-            <span className="text-xs font-medium text-slate-600">เบอร์โทร</span>
+            <span className="text-xs font-medium text-zinc-600">เบอร์โทร</span>
             <input
               type="tel"
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
               placeholder="+66812345678"
-              className="min-h-11 rounded-md border border-slate-300 px-2.5 text-sm text-slate-900"
+              className="min-h-11 rounded-md border border-zinc-300 px-2.5 text-sm text-zinc-900"
             />
           </label>
           <label className="flex flex-col gap-1">
-            <span className="text-xs font-medium text-slate-600">ที่อยู่</span>
+            <span className="text-xs font-medium text-zinc-600">ที่อยู่</span>
             <textarea
               value={address}
               onChange={(e) => setAddress(e.target.value)}
               rows={3}
-              className="rounded-md border border-slate-300 px-2.5 py-2 text-sm text-slate-900"
+              className="rounded-md border border-zinc-300 px-2.5 py-2 text-sm text-zinc-900"
             />
           </label>
           {error && <p className="text-xs text-red-600">{error}</p>}

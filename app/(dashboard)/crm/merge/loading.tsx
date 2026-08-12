@@ -8,7 +8,7 @@ export default function CrmMergeLoading() {
         <Skeleton className="mt-2 h-3.5 w-64" />
       </div>
       {Array.from({ length: 3 }).map((_, i) => (
-        <div key={i} className="rounded-lg border border-slate-200 bg-white p-3.5">
+        <div key={i} className="rounded-lg border border-zinc-200 bg-white p-3.5">
           <Skeleton className="h-4 w-20" />
           <div className="mt-3 grid grid-cols-2 gap-3">
             <div className="space-y-1.5">

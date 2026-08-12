@@ -68,8 +68,8 @@ export function DashboardPageClient() {
           cache เก่า → ErrorBanner เหนือตัวเลขเก่า"). */}
       {error && <ErrorBanner message={error} onRetry={load} />}
 
-      <p className="text-xs text-slate-400">
-        ข้อมูลวันที่ <span className="font-semibold text-slate-600">{formatThaiDateOnly(data.date)}</span> ·{" "}
+      <p className="text-xs text-zinc-400">
+        ข้อมูลวันที่ <span className="font-semibold text-zinc-600">{formatThaiDateOnly(data.date)}</span> ·{" "}
         <span className="font-medium text-amber-700">MOCK — รอ analytics DB</span>
       </p>
 

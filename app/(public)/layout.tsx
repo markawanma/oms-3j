@@ -10,11 +10,11 @@ export default function PublicLayout({ children }: { children: ReactNode }) {
           aria-hidden="true"
           className="mx-auto mb-2 h-11 w-11 -rotate-45 rounded-full border-4 border-[#A2191D] border-t-transparent"
         />
-        <h1 className="text-xl font-bold tracking-wide text-slate-900">3J JEWELRY</h1>
-        <p className="mt-1.5 text-sm text-slate-500">เงินแท้ 92.5 · ใส่ได้ทุกวัน · ไม่แพ้ผิว</p>
+        <h1 className="text-xl font-bold tracking-wide text-zinc-900">3J JEWELRY</h1>
+        <p className="mt-1.5 text-sm text-zinc-500">เงินแท้ 92.5 · ใส่ได้ทุกวัน · ไม่แพ้ผิว</p>
       </header>
       <main>{children}</main>
-      <footer className="mt-8 border-t border-slate-200 px-4 pb-6 pt-4 text-center text-xs text-slate-500">
+      <footer className="mt-8 border-t border-zinc-200 px-4 pb-6 pt-4 text-center text-xs text-zinc-500">
         <p>
           3J Jewelry · เงินแท้ 92.5 · LINE:{" "}
           <a

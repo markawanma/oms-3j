@@ -27,8 +27,8 @@ export default async function CrmMergePage() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-lg font-bold text-slate-900">รวมลูกค้าซ้ำ</h1>
-        <p className="mt-0.5 text-sm text-slate-500">
+        <h1 className="text-lg font-bold text-zinc-900">รวมลูกค้าซ้ำ</h1>
+        <p className="mt-0.5 text-sm text-zinc-500">
           ตรวจทีละคู่ ยืนยันรวมหรือทำเครื่องหมายไม่ใช่คนเดียวกัน · ทำสัปดาห์ละครั้งได้
         </p>
       </div>

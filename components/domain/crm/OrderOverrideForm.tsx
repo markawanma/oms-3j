@@ -128,7 +128,7 @@ export function OrderOverrideForm({
         {order.isEdited &&
           (confirmRevert ? (
             <div className="flex items-center gap-1">
-              <span className="text-[0.68rem] text-slate-500">คืนค่าเดิม?</span>
+              <span className="text-[0.68rem] text-zinc-500">คืนค่าเดิม?</span>
               <Button variant="danger" size="sm" loading={pending} onClick={handleRevert}>
                 ยืนยัน
               </Button>
@@ -142,7 +142,7 @@ export function OrderOverrideForm({
               onClick={() => setConfirmRevert(true)}
               aria-label="คืนค่าออเดอร์เดิม"
               title="คืนค่าออเดอร์เดิม"
-              className="flex h-8 w-8 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+              className="flex h-8 w-8 items-center justify-center rounded-md text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600"
             >
               <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
             </button>
@@ -152,7 +152,7 @@ export function OrderOverrideForm({
           onClick={openModal}
           aria-label="แก้ไขออเดอร์"
           title="แก้ไขออเดอร์"
-          className="flex h-8 w-8 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+          className="flex h-8 w-8 items-center justify-center rounded-md text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600"
         >
           <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
         </button>
@@ -161,11 +161,11 @@ export function OrderOverrideForm({
       <Modal open={open} onClose={() => setOpen(false)} title={`แก้ไขออเดอร์ ${order.sourceOrderNo}`}>
         <div className="flex flex-col gap-3">
           <label className="flex flex-col gap-1">
-            <span className="text-xs font-medium text-slate-600">ช่องทาง</span>
+            <span className="text-xs font-medium text-zinc-600">ช่องทาง</span>
             <select
               value={channelId}
               onChange={(e) => setChannelId(e.target.value)}
-              className="min-h-11 rounded-md border border-slate-300 px-2.5 text-sm text-slate-900"
+              className="min-h-11 rounded-md border border-zinc-300 px-2.5 text-sm text-zinc-900"
             >
               {channels.map((c) => (
                 <option key={c.id} value={c.id}>
@@ -175,11 +175,11 @@ export function OrderOverrideForm({
             </select>
           </label>
           <label className="flex flex-col gap-1">
-            <span className="text-xs font-medium text-slate-600">จังหวัด</span>
+            <span className="text-xs font-medium text-zinc-600">จังหวัด</span>
             <select
               value={provinceCode}
               onChange={(e) => setProvinceCode(e.target.value)}
-              className="min-h-11 rounded-md border border-slate-300 px-2.5 text-sm text-slate-900"
+              className="min-h-11 rounded-md border border-zinc-300 px-2.5 text-sm text-zinc-900"
             >
               {provinces.map((p) => (
                 <option key={p.code} value={p.code}>
@@ -190,7 +190,7 @@ export function OrderOverrideForm({
           </label>
           <div className="grid grid-cols-2 gap-3">
             <label className="flex flex-col gap-1">
-              <span className="text-xs font-medium text-slate-600">ยอดขาย (บาท)</span>
+              <span className="text-xs font-medium text-zinc-600">ยอดขาย (บาท)</span>
               <input
                 type="number"
                 inputMode="decimal"
@@ -198,11 +198,11 @@ export function OrderOverrideForm({
                 step="0.01"
                 value={revenue}
                 onChange={(e) => setRevenue(e.target.value)}
-                className="min-h-11 rounded-md border border-slate-300 px-2.5 text-sm text-slate-900"
+                className="min-h-11 rounded-md border border-zinc-300 px-2.5 text-sm text-zinc-900"
               />
             </label>
             <label className="flex flex-col gap-1">
-              <span className="text-xs font-medium text-slate-600">ส่วนลด (บาท)</span>
+              <span className="text-xs font-medium text-zinc-600">ส่วนลด (บาท)</span>
               <input
                 type="number"
                 inputMode="decimal"
@@ -210,48 +210,48 @@ export function OrderOverrideForm({
                 step="0.01"
                 value={discount}
                 onChange={(e) => setDiscount(e.target.value)}
-                className="min-h-11 rounded-md border border-slate-300 px-2.5 text-sm text-slate-900"
+                className="min-h-11 rounded-md border border-zinc-300 px-2.5 text-sm text-zinc-900"
               />
             </label>
           </div>
           <div className="grid grid-cols-2 gap-3">
             <label className="flex flex-col gap-1">
-              <span className="text-xs font-medium text-slate-600">วันที่</span>
+              <span className="text-xs font-medium text-zinc-600">วันที่</span>
               <input
                 type="date"
                 value={orderDate}
                 onChange={(e) => setOrderDate(e.target.value)}
-                className="min-h-11 rounded-md border border-slate-300 px-2.5 text-sm text-slate-900"
+                className="min-h-11 rounded-md border border-zinc-300 px-2.5 text-sm text-zinc-900"
               />
             </label>
             <label className="flex flex-col gap-1">
-              <span className="text-xs font-medium text-slate-600">ธนาคาร</span>
+              <span className="text-xs font-medium text-zinc-600">ธนาคาร</span>
               <input
                 type="text"
                 value={bank}
                 onChange={(e) => setBank(e.target.value)}
-                className="min-h-11 rounded-md border border-slate-300 px-2.5 text-sm text-slate-900"
+                className="min-h-11 rounded-md border border-zinc-300 px-2.5 text-sm text-zinc-900"
               />
             </label>
           </div>
           <label className="flex flex-col gap-1">
-            <span className="text-xs font-medium text-slate-600">แท็ก (คั่นด้วยจุลภาค)</span>
+            <span className="text-xs font-medium text-zinc-600">แท็ก (คั่นด้วยจุลภาค)</span>
             <input
               type="text"
               value={tagsText}
               onChange={(e) => setTagsText(e.target.value)}
               placeholder="เช่น vip, ส่งด่วน"
-              className="min-h-11 rounded-md border border-slate-300 px-2.5 text-sm text-slate-900"
+              className="min-h-11 rounded-md border border-zinc-300 px-2.5 text-sm text-zinc-900"
             />
           </label>
           <label className="flex flex-col gap-1">
-            <span className="text-xs font-medium text-slate-600">เหตุผลการแก้ไข (แนะนำ)</span>
+            <span className="text-xs font-medium text-zinc-600">เหตุผลการแก้ไข (แนะนำ)</span>
             <textarea
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               rows={2}
               placeholder="เช่น ลูกค้าแจ้งที่อยู่ผิด แก้จังหวัดตามที่จัดส่งจริง"
-              className="rounded-md border border-slate-300 px-2.5 py-2 text-sm text-slate-900 placeholder:text-slate-400"
+              className="rounded-md border border-zinc-300 px-2.5 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
             />
           </label>
           {error && <p className="text-xs text-red-600">{error}</p>}

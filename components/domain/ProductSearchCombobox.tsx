@@ -92,11 +92,11 @@ export function ProductSearchCombobox({
 
   return (
     <div className="relative">
-      <label htmlFor="sku-search" className="block text-sm font-medium text-slate-700">
+      <label htmlFor="sku-search" className="block text-sm font-medium text-zinc-700">
         ค้นหาสินค้า (SKU หรือ ชื่อ)
       </label>
       <div className="relative mt-1">
-        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-400" aria-hidden="true" />
         <input
           ref={inputRef}
           id="sku-search"
@@ -111,7 +111,7 @@ export function ProductSearchCombobox({
           onKeyDown={handleKeyDown}
           onFocus={() => results.length > 0 && setOpen(true)}
           placeholder="พิมพ์ SKU หรือชื่อสินค้า..."
-          className="min-h-11 w-full rounded-md border border-slate-300 pl-9 pr-3 text-base focus-visible:border-primary-600"
+          className="min-h-11 w-full rounded-md border border-zinc-300 pl-9 pr-3 text-base focus-visible:border-primary-600"
         />
       </div>
 
@@ -121,10 +121,10 @@ export function ProductSearchCombobox({
         <ul
           id="sku-search-listbox"
           role="listbox"
-          className="absolute z-10 mt-1 max-h-64 w-full overflow-y-auto rounded-md border border-slate-200 bg-white shadow-lg"
+          className="absolute z-10 mt-1 max-h-64 w-full overflow-y-auto rounded-md border border-zinc-200 bg-white shadow-lg"
         >
-          {loading && <li className="px-3 py-2 text-sm text-slate-400">กำลังค้นหา...</li>}
-          {!loading && results.length === 0 && <li className="px-3 py-2 text-sm text-slate-400">ไม่พบสินค้า</li>}
+          {loading && <li className="px-3 py-2 text-sm text-zinc-400">กำลังค้นหา...</li>}
+          {!loading && results.length === 0 && <li className="px-3 py-2 text-sm text-zinc-400">ไม่พบสินค้า</li>}
           {!loading &&
             results.map((product, index) => (
               <li key={product.id} role="option" aria-selected={index === activeIndex}>
@@ -137,16 +137,16 @@ export function ProductSearchCombobox({
                   }}
                   onMouseEnter={() => setActiveIndex(index)}
                   className={`flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm ${
-                    index === activeIndex ? "bg-primary-50" : "hover:bg-slate-50"
+                    index === activeIndex ? "bg-primary-50" : "hover:bg-zinc-50"
                   }`}
                 >
                   <span className="min-w-0 truncate">
-                    <span className="font-medium text-slate-900">{product.name}</span>{" "}
-                    <span className="text-slate-400">({product.sku})</span>
+                    <span className="font-medium text-zinc-900">{product.name}</span>{" "}
+                    <span className="text-zinc-400">({product.sku})</span>
                   </span>
                   <span
                     className={`shrink-0 text-xs font-semibold ${
-                      product.available <= 0 ? "text-red-600" : "text-slate-500"
+                      product.available <= 0 ? "text-red-600" : "text-zinc-500"
                     }`}
                   >
                     เหลือ {product.available}
