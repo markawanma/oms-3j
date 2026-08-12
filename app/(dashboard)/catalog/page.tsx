@@ -1,5 +1,5 @@
 import { Lock } from "lucide-react";
-import { getProducts, getShopSetting } from "@/lib/actions/catalog";
+import { getProducts, getShopSetting, getSkuOrderAlerts } from "@/lib/actions/catalog";
 import { getDevRole } from "@/lib/dev/context";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -22,17 +22,27 @@ export default async function CatalogPage() {
     );
   }
 
-  let productsResult, settingResult;
+  let productsResult, settingResult, alertsResult;
   try {
-    [productsResult, settingResult] = await Promise.all([getProducts(), getShopSetting()]);
+    [productsResult, settingResult, alertsResult] = await Promise.all([
+      getProducts(),
+      getShopSetting(),
+      getSkuOrderAlerts(),
+    ]);
   } catch (err) {
     return <ErrorState message={err instanceof Error ? err.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"} />;
   }
 
   if (!productsResult.ok) return <ErrorState message={productsResult.error} />;
   if (!settingResult.ok) return <ErrorState message={settingResult.error} />;
+  // alerts are a soft/dormant signal — degrade to empty rather than error the page
+  const alerts = alertsResult.ok ? alertsResult.data : [];
 
   return (
-    <ProductsPageClient products={productsResult.data} silverSpot={settingResult.data.silverSpotThbPerGram} />
+    <ProductsPageClient
+      products={productsResult.data}
+      silverSpot={settingResult.data.silverSpotThbPerGram}
+      alerts={alerts}
+    />
   );
 }

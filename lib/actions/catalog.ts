@@ -22,6 +22,7 @@ import type {
   ProductImportSummary,
   ProductRow,
   ShopSettingData,
+  SkuOrderAlert,
   UpsertProductInput,
   UpsertShopSettingInput,
 } from "@/lib/catalog/types";
@@ -220,11 +221,12 @@ export async function importProducts(
     ).map((r) => ({
       rowIndex: Number(r.row_index) || 0,
       sku: r.sku ?? "",
-      status: r.status === "ok" ? "ok" : "error",
+      status: r.status === "ok" ? "ok" : r.status === "deleted" ? "deleted" : "error",
       error: r.error,
     }));
 
     const okCount = results.filter((r) => r.status === "ok").length;
+    const deletedCount = results.filter((r) => r.status === "deleted").length;
 
     revalidatePath("/catalog");
     revalidatePath("/settings"); // blended-margin suggestion depends on products
@@ -234,13 +236,97 @@ export async function importProducts(
       data: {
         total: results.length,
         ok: okCount,
-        error: results.length - okCount,
+        deleted: deletedCount,
+        error: results.length - okCount - deletedCount,
         results,
       },
     };
   } catch (err) {
     console.error("importProducts failed", err);
     return { ok: false, error: "นำเข้าไฟล์ไม่สำเร็จ ลองใหม่อีกครั้ง" };
+  }
+}
+
+// ============================================================================
+// /catalog — delete one SKU (analytics.product_delete, 0031). Hard delete only
+// when the SKU has no order/stock references; the RPC raises a Thai P0001
+// message otherwise, which we surface verbatim (owner-facing, safe).
+// ============================================================================
+
+export async function deleteProduct(sku: string): Promise<ActionResult> {
+  const gateErr = requireOwnerAdmin();
+  if (gateErr) return gateErr;
+
+  const clean = sku?.trim();
+  if (!clean) return { ok: false, error: "ไม่พบ SKU ที่จะลบ" };
+
+  try {
+    const shopId = getDevShopId();
+    const supabase = getServiceClient();
+
+    const { error } = await supabase.schema(SCHEMA).rpc("product_delete", {
+      p_shop_id: shopId,
+      p_sku: clean,
+    });
+    if (error) {
+      // P0001 = "has order/stock links, disable instead"; P0002 = not found.
+      // Both are our own controlled Thai messages — safe to show the owner.
+      const code = (error as { code?: string }).code;
+      if (code === "P0001" || code === "P0002") {
+        return { ok: false, error: error.message };
+      }
+      throw error;
+    }
+
+    revalidatePath("/catalog");
+    revalidatePath("/settings");
+    return { ok: true, data: undefined };
+  } catch (err) {
+    console.error("deleteProduct failed", err);
+    return { ok: false, error: "ลบสินค้าไม่สำเร็จ ลองใหม่อีกครั้ง" };
+  }
+}
+
+// ============================================================================
+// /catalog — dormant "SKU ordered while inactive/unknown" alert
+// (analytics.v_sku_order_alert, 0031). Empty until fact_order_item has data.
+// ============================================================================
+
+export async function getSkuOrderAlerts(): Promise<ActionResult<SkuOrderAlert[]>> {
+  try {
+    const shopId = getDevShopId();
+    const supabase = getServiceClient();
+
+    const { data, error } = await supabase
+      .schema(SCHEMA)
+      .from("v_sku_order_alert")
+      .select("sku, product_id, reason, line_count, qty_sold, last_order_date")
+      .eq("shop_id", shopId)
+      .order("line_count", { ascending: false });
+    if (error) throw error;
+
+    const rows: SkuOrderAlert[] = (
+      (data ?? []) as {
+        sku: string;
+        product_id: string | null;
+        reason: string;
+        line_count: number;
+        qty_sold: number;
+        last_order_date: string | null;
+      }[]
+    ).map((r) => ({
+      sku: r.sku,
+      productId: r.product_id,
+      reason: r.reason === "unknown" ? "unknown" : "inactive",
+      lineCount: Number(r.line_count) || 0,
+      qtySold: Number(r.qty_sold) || 0,
+      lastOrderDate: r.last_order_date,
+    }));
+
+    return { ok: true, data: rows };
+  } catch (err) {
+    console.error("getSkuOrderAlerts failed", err);
+    return { ok: false, error: "โหลดการแจ้งเตือน SKU ไม่สำเร็จ" };
   }
 }
 

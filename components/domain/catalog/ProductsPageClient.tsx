@@ -1,18 +1,21 @@
 "use client";
 
-// ProductsPageClient — SKU catalog table + add/edit modal (docs/3j-jewelry/
-// analytics/phase-c1-sku-cost-margin.md §3.1). Owner/admin only (page gates
-// before rendering this). Reads are server-fetched; this component only owns
-// the modal open/target state and re-fetches via router.refresh() on save.
+// ProductsPageClient — SKU catalog table + add/edit/import/delete (docs/3j-
+// jewelry/analytics/phase-c1-sku-cost-margin.md §3.1). Owner/admin only (page
+// gates before rendering). Reads are server-fetched; this component owns modal
+// + filter state and re-fetches via router.refresh() on any mutation.
 
-import { useState } from "react";
-import { Gem, Pencil, PlusCircle, Upload } from "lucide-react";
-import type { ProductRow } from "@/lib/catalog/types";
+import { useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
+import { AlertTriangle, Gem, Pencil, PlusCircle, Trash2, Upload } from "lucide-react";
+import type { ProductRow, SkuOrderAlert } from "@/lib/catalog/types";
 import { COST_TYPE_LABEL_TH } from "@/lib/catalog/types";
+import { deleteProduct } from "@/lib/actions/catalog";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { useToast } from "@/components/ui/Toast";
 import { ProductForm } from "./ProductForm";
 import { ProductImport } from "./ProductImport";
 
@@ -31,13 +34,20 @@ function MarginCell({ margin }: { margin: number | null }) {
 export function ProductsPageClient({
   products,
   silverSpot,
+  alerts,
 }: {
   products: ProductRow[];
   silverSpot: number | null;
+  alerts: SkuOrderAlert[];
 }) {
+  const router = useRouter();
+  const toast = useToast();
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState<ProductRow | undefined>(undefined);
   const [importOpen, setImportOpen] = useState(false);
+  const [deleting, setDeleting] = useState<ProductRow | undefined>(undefined);
+  const [onlyActive, setOnlyActive] = useState(false);
+  const [deletePending, startDelete] = useTransition();
 
   function openCreate() {
     setEditing(undefined);
@@ -51,6 +61,25 @@ export function ProductsPageClient({
     setModalOpen(false);
     setEditing(undefined);
   }
+
+  function confirmDelete() {
+    if (!deleting) return;
+    const sku = deleting.sku;
+    startDelete(async () => {
+      const result = await deleteProduct(sku);
+      if (!result.ok) {
+        toast.push(result.error, "error");
+        setDeleting(undefined);
+        return;
+      }
+      toast.push(`ลบ ${sku} แล้ว`);
+      setDeleting(undefined);
+      router.refresh();
+    });
+  }
+
+  const visible = onlyActive ? products.filter((p) => p.isActive) : products;
+  const hiddenCount = products.length - visible.length;
 
   return (
     <div className="space-y-4">
@@ -73,6 +102,25 @@ export function ProductsPageClient({
         </div>
       </div>
 
+      {/* dormant alert: a SKU ordered while inactive / not in master */}
+      {alerts.length > 0 && (
+        <div className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2.5">
+          <div className="flex items-center gap-1.5 text-sm font-semibold text-amber-800">
+            <AlertTriangle className="h-4 w-4" aria-hidden="true" />
+            พบ {alerts.length} SKU ที่มีออเดอร์แต่ปิดอยู่/ไม่มีในระบบ — อาจลืมเปิดใช้งาน
+          </div>
+          <ul className="mt-1.5 space-y-0.5 text-xs text-amber-700">
+            {alerts.slice(0, 5).map((a) => (
+              <li key={`${a.reason}-${a.sku}`}>
+                <span className="font-mono">{a.sku}</span> ·{" "}
+                {a.reason === "unknown" ? "ไม่มีในระบบ (SKU ใหม่?)" : "ปิดการใช้งานอยู่"} · ขายไป {a.qtySold} ชิ้น
+              </li>
+            ))}
+            {alerts.length > 5 && <li>…และอีก {alerts.length - 5} รายการ</li>}
+          </ul>
+        </div>
+      )}
+
       {silverSpot == null && (
         <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
           ยังไม่ได้ตั้งราคาเงินสปอต — SKU แบบอิงราคาเงิน (เงินแท่ง) จะยังคำนวณต้นทุนไม่ได้ ตั้งที่หน้า “ราคา &amp; มาร์จิ้น”
@@ -93,8 +141,16 @@ export function ProductsPageClient({
         />
       ) : (
         <div className="rounded-lg border border-zinc-200 bg-white p-3.5 shadow-sm">
+          <div className="mb-2 flex items-center justify-between">
+            <label className="flex items-center gap-1.5 text-xs font-medium text-zinc-600">
+              <input type="checkbox" checked={onlyActive} onChange={(e) => setOnlyActive(e.target.checked)} />
+              แสดงเฉพาะที่เปิดใช้งาน
+              {onlyActive && hiddenCount > 0 && <span className="text-zinc-400">(ซ่อน {hiddenCount})</span>}
+            </label>
+            <span className="text-xs text-zinc-400">{visible.length} รายการ</span>
+          </div>
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[640px] text-left text-sm">
+            <table className="w-full min-w-[680px] text-left text-sm">
               <thead>
                 <tr className="border-b border-zinc-200 text-xs font-semibold text-zinc-500">
                   <th scope="col" className="py-2 pr-3">SKU</th>
@@ -103,11 +159,11 @@ export function ProductsPageClient({
                   <th scope="col" className="py-2 pr-3 text-right">ต้นทุน</th>
                   <th scope="col" className="py-2 pr-3 text-right">ราคาตั้ง</th>
                   <th scope="col" className="py-2 pr-3 text-right">margin</th>
-                  <th scope="col" className="py-2 text-right">แก้ไข</th>
+                  <th scope="col" className="py-2 text-right">จัดการ</th>
                 </tr>
               </thead>
               <tbody>
-                {products.map((p) => (
+                {visible.map((p) => (
                   <tr key={p.productId} className={`border-b border-zinc-100 last:border-0 ${p.isActive ? "" : "opacity-55"}`}>
                     <td className="py-2 pr-3 font-mono text-xs text-zinc-700">
                       {p.sku}
@@ -124,14 +180,24 @@ export function ProductsPageClient({
                     <td className="py-2 pr-3 text-right tabular-nums text-zinc-700">{fmtBaht(p.listPrice)}</td>
                     <td className="py-2 pr-3 text-right"><MarginCell margin={p.marginPct} /></td>
                     <td className="py-2 text-right">
-                      <button
-                        type="button"
-                        onClick={() => openEdit(p)}
-                        aria-label={`แก้ไข ${p.sku}`}
-                        className="inline-flex min-h-9 min-w-9 items-center justify-center rounded-md text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800"
-                      >
-                        <Pencil className="h-4 w-4" aria-hidden="true" />
-                      </button>
+                      <div className="inline-flex gap-1">
+                        <button
+                          type="button"
+                          onClick={() => openEdit(p)}
+                          aria-label={`แก้ไข ${p.sku}`}
+                          className="inline-flex min-h-9 min-w-9 items-center justify-center rounded-md text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800"
+                        >
+                          <Pencil className="h-4 w-4" aria-hidden="true" />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setDeleting(p)}
+                          aria-label={`ลบ ${p.sku}`}
+                          className="inline-flex min-h-9 min-w-9 items-center justify-center rounded-md text-zinc-400 hover:bg-red-50 hover:text-red-600"
+                        >
+                          <Trash2 className="h-4 w-4" aria-hidden="true" />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -147,6 +213,25 @@ export function ProductsPageClient({
 
       <Modal open={importOpen} onClose={() => setImportOpen(false)} title="นำเข้าสินค้าจากไฟล์ CSV">
         <ProductImport onDone={() => setImportOpen(false)} />
+      </Modal>
+
+      <Modal open={Boolean(deleting)} onClose={() => setDeleting(undefined)} title="ลบสินค้า">
+        <div className="flex flex-col gap-3">
+          <p className="text-sm text-zinc-700">
+            ต้องการลบ <span className="font-mono font-semibold">{deleting?.sku}</span> ({deleting?.name}) ออกจากระบบใช่ไหม?
+          </p>
+          <p className="rounded-md bg-zinc-50 px-3 py-2 text-xs text-zinc-500">
+            ถ้า SKU นี้เคยมีออเดอร์/สต็อกผูกอยู่ ระบบจะไม่ลบ และแนะนำให้ “ปิดการใช้งาน” แทน (กันประวัติกำไรหาย)
+          </p>
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="secondary" onClick={() => setDeleting(undefined)} disabled={deletePending}>
+              ยกเลิก
+            </Button>
+            <Button type="button" variant="danger" onClick={confirmDelete} loading={deletePending}>
+              ลบ
+            </Button>
+          </div>
+        </div>
       </Modal>
     </div>
   );

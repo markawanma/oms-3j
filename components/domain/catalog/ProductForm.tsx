@@ -275,7 +275,7 @@ export function ProductForm({
 
       <label className="flex items-center gap-2 text-sm text-zinc-700">
         <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} />
-        เปิดใช้งาน (active)
+        เปิดใช้งาน <span className="text-xs text-zinc-400">(ปิด = ซ่อน/พักไว้ ไม่ลบ — ใช้กับสินค้าตามฤดูกาล)</span>
       </label>
 
       {error && <p className="text-xs text-red-600">{error}</p>}

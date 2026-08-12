@@ -86,8 +86,10 @@ export interface BlendedMarginSuggestion {
 // ============================================================================
 
 /** Canonical CSV columns, in template order. Header matching is
- * case-insensitive + trimmed; unknown columns are ignored. */
+ * case-insensitive + trimmed; unknown columns are ignored. `action`: A =
+ * add+edit (upsert), D = delete; blank = upsert (delete must be explicit). */
 export const PRODUCT_IMPORT_COLUMNS = [
+  "action",
   "sku",
   "name",
   "category",
@@ -108,15 +110,27 @@ export type ProductImportRow = Record<string, string>;
 export interface ProductImportResultRow {
   rowIndex: number;
   sku: string;
-  status: "ok" | "error";
+  status: "ok" | "deleted" | "error";
   error: string | null;
 }
 
 export interface ProductImportSummary {
   total: number;
   ok: number;
+  deleted: number;
   error: number;
   results: ProductImportResultRow[];
+}
+
+/** analytics.v_sku_order_alert — a SKU that was ordered while inactive, or has
+ * no product master row (unknown). Dormant until fact_order_item has data. */
+export interface SkuOrderAlert {
+  sku: string;
+  productId: string | null;
+  reason: "unknown" | "inactive";
+  lineCount: number;
+  qtySold: number;
+  lastOrderDate: string | null;
 }
 
 export const COST_TYPE_LABEL_TH: Record<CostType, string> = {

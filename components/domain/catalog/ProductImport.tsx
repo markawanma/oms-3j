@@ -18,9 +18,10 @@ const PREVIEW_LIMIT = 8;
 
 // Example rows kept in sync with docs/3j-jewelry/analytics/product-import-
 // template.csv — one 'fixed' + one 'spot' the user deletes then replaces.
+// Leading column is `action`: A = add+edit (upsert), D = delete, blank = A.
 const TEMPLATE_EXAMPLE_ROWS = [
-  "R-SILVER-01,แหวนเงินแท้ลายเกลียว,แหวน,fixed,180,,,,490,,,ตัวอย่าง fixed ลบทิ้งได้,true",
-  "BAR-1B-999,เงินแท่ง 999 หนัก 1 บาท,เงินแท่ง,spot,,15.244,0.999,50,,8850001234567,โรงหลอม A,ตัวอย่าง spot ลบทิ้งได้,true",
+  "A,R-SILVER-01,แหวนเงินแท้ลายเกลียว,แหวน,fixed,180,,,,490,,,ตัวอย่าง fixed ลบทิ้งได้,true",
+  "A,BAR-1B-999,เงินแท่ง 999 หนัก 1 บาท,เงินแท่ง,spot,,15.244,0.999,50,,8850001234567,โรงหลอม A,ตัวอย่าง spot ลบทิ้งได้,true",
 ];
 
 /** Build + download the template CSV client-side (leading BOM so Excel reads
@@ -49,9 +50,14 @@ export function ProductImport({ onDone }: { onDone: () => void }) {
   const [summary, setSummary] = useState<ProductImportSummary | null>(null);
   const [pending, startTransition] = useTransition();
 
-  // rows flagged as obviously invalid before we even hit the server (missing
-  // required sku/name) — the server double-checks, this is just early feedback.
-  const missingRequired = rows.filter((r) => !r.sku?.trim() || !r.name?.trim()).length;
+  // rows flagged as obviously invalid before we even hit the server — the
+  // server double-checks, this is just early feedback. Delete rows (action D)
+  // only need a sku, not a name.
+  const isDeleteRow = (r: ProductImportRow) => {
+    const a = (r.action ?? "").trim().toLowerCase();
+    return a === "d" || a === "delete";
+  };
+  const missingRequired = rows.filter((r) => !r.sku?.trim() || (!isDeleteRow(r) && !r.name?.trim())).length;
 
   async function handleFile(file: File) {
     setParseError(null);
@@ -90,8 +96,14 @@ export function ProductImport({ onDone }: { onDone: () => void }) {
         return;
       }
       setSummary(result.data);
-      if (result.data.ok > 0) {
-        toast.push(`นำเข้าสำเร็จ ${result.data.ok} รายการ${result.data.error > 0 ? ` · ผิดพลาด ${result.data.error}` : ""}`);
+      const changed = result.data.ok + result.data.deleted;
+      if (changed > 0) {
+        const parts = [
+          result.data.ok > 0 ? `เพิ่ม/แก้ ${result.data.ok}` : null,
+          result.data.deleted > 0 ? `ลบ ${result.data.deleted}` : null,
+          result.data.error > 0 ? `ผิดพลาด ${result.data.error}` : null,
+        ].filter(Boolean);
+        toast.push(`นำเข้าสำเร็จ — ${parts.join(" · ")}`);
         router.refresh();
       } else {
         toast.push(`นำเข้าไม่สำเร็จทุกแถว (${result.data.error} ผิดพลาด)`, "error");
@@ -107,7 +119,11 @@ export function ProductImport({ onDone }: { onDone: () => void }) {
         <div className="flex gap-3">
           <div className="flex-1 rounded-md bg-green-50 px-3 py-2 text-center">
             <div className="text-2xl font-bold tabular-nums text-green-700">{summary.ok}</div>
-            <div className="text-xs text-green-700">สำเร็จ</div>
+            <div className="text-xs text-green-700">เพิ่ม/แก้</div>
+          </div>
+          <div className="flex-1 rounded-md bg-zinc-100 px-3 py-2 text-center">
+            <div className="text-2xl font-bold tabular-nums text-zinc-700">{summary.deleted}</div>
+            <div className="text-xs text-zinc-600">ลบ</div>
           </div>
           <div className="flex-1 rounded-md bg-red-50 px-3 py-2 text-center">
             <div className="text-2xl font-bold tabular-nums text-red-600">{summary.error}</div>
@@ -150,7 +166,7 @@ export function ProductImport({ onDone }: { onDone: () => void }) {
     <div className="flex flex-col gap-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="text-xs text-zinc-500">
-          อัปโหลดไฟล์ CSV ตาม template. SKU ซ้ำ = อัปเดตทับ.
+          อัปโหลด CSV ตาม template · คอลัมน์ <span className="font-mono">action</span>: <span className="font-mono">A</span>=เพิ่ม/แก้ (ว่าง=A), <span className="font-mono">D</span>=ลบ · SKU ซ้ำ = อัปเดตทับ.
         </p>
         <button
           type="button"
@@ -198,6 +214,7 @@ export function ProductImport({ onDone }: { onDone: () => void }) {
             <table className="w-full min-w-[520px] text-left text-xs">
               <thead>
                 <tr className="border-b border-zinc-200 bg-zinc-50 text-zinc-500">
+                  <th className="px-2 py-1.5">action</th>
                   <th className="px-2 py-1.5">sku</th>
                   <th className="px-2 py-1.5">name</th>
                   <th className="px-2 py-1.5">โหมด</th>
@@ -206,17 +223,25 @@ export function ProductImport({ onDone }: { onDone: () => void }) {
                 </tr>
               </thead>
               <tbody>
-                {rows.slice(0, PREVIEW_LIMIT).map((r, idx) => (
-                  <tr key={idx} className="border-b border-zinc-100 last:border-0">
-                    <td className="px-2 py-1.5 font-mono text-zinc-700">{r.sku || <span className="text-red-500">(ว่าง)</span>}</td>
-                    <td className="px-2 py-1.5 text-zinc-700">{r.name || <span className="text-red-500">(ว่าง)</span>}</td>
-                    <td className="px-2 py-1.5 text-zinc-500">{r.cost_type || "fixed"}</td>
-                    <td className="px-2 py-1.5 text-right tabular-nums text-zinc-600">
-                      {r.cost_type === "spot" ? `${r.silver_weight_g || "—"} ก.` : r.unit_cost || "—"}
-                    </td>
-                    <td className="px-2 py-1.5 text-right tabular-nums text-zinc-600">{r.list_price || "—"}</td>
-                  </tr>
-                ))}
+                {rows.slice(0, PREVIEW_LIMIT).map((r, idx) => {
+                  const isDelete = (r.action ?? "").trim().toLowerCase() === "d" || (r.action ?? "").trim().toLowerCase() === "delete";
+                  return (
+                    <tr key={idx} className="border-b border-zinc-100 last:border-0">
+                      <td className="px-2 py-1.5">
+                        <span className={isDelete ? "font-semibold text-red-600" : "text-zinc-500"}>
+                          {isDelete ? "D (ลบ)" : "A"}
+                        </span>
+                      </td>
+                      <td className="px-2 py-1.5 font-mono text-zinc-700">{r.sku || <span className="text-red-500">(ว่าง)</span>}</td>
+                      <td className="px-2 py-1.5 text-zinc-700">{isDelete ? <span className="text-zinc-400">—</span> : r.name || <span className="text-red-500">(ว่าง)</span>}</td>
+                      <td className="px-2 py-1.5 text-zinc-500">{isDelete ? "—" : r.cost_type || "fixed"}</td>
+                      <td className="px-2 py-1.5 text-right tabular-nums text-zinc-600">
+                        {isDelete ? "—" : r.cost_type === "spot" ? `${r.silver_weight_g || "—"} ก.` : r.unit_cost || "—"}
+                      </td>
+                      <td className="px-2 py-1.5 text-right tabular-nums text-zinc-600">{isDelete ? "—" : r.list_price || "—"}</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
             {rows.length > PREVIEW_LIMIT && (
