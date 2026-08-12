@@ -64,7 +64,9 @@ export async function getChannelRoas(): Promise<ActionResult<MktChannelRoasRow[]
     const { data, error } = await supabase
       .schema(SCHEMA)
       .from("v_channel_perf_roas")
-      .select("month, channel_code, channel_name, orders, revenue, aov, new_customers, spend, roas, profit_roas, cac")
+      .select(
+        "month, channel_code, channel_name, orders, revenue, aov, new_customers, spend, roas, profit_roas, cac, break_even_roas, target_roas"
+      )
       .eq("shop_id", shopId)
       .order("month", { ascending: false })
       .order("channel_code", { ascending: true });
@@ -83,6 +85,8 @@ export async function getChannelRoas(): Promise<ActionResult<MktChannelRoasRow[]
         roas: number | null;
         profit_roas: number | null;
         cac: number | null;
+        break_even_roas: number | null;
+        target_roas: number | null;
       }[]
     ).map((r) => ({
       month: r.month,
@@ -96,6 +100,8 @@ export async function getChannelRoas(): Promise<ActionResult<MktChannelRoasRow[]
       roas: r.roas === null ? null : Number(r.roas),
       profitRoas: r.profit_roas === null ? null : Number(r.profit_roas),
       cac: r.cac === null ? null : Number(r.cac),
+      breakEvenRoas: r.break_even_roas === null ? null : Number(r.break_even_roas),
+      targetRoas: r.target_roas === null ? null : Number(r.target_roas),
     }));
 
     return { ok: true, data: rows };

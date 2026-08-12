@@ -1,5 +1,6 @@
 import { Lock } from "lucide-react";
 import { getChannelRoas, getMarketingReco } from "@/lib/actions/marketing";
+import { getShopSetting } from "@/lib/actions/catalog";
 import { getDevRole } from "@/lib/dev/context";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -22,9 +23,13 @@ export default async function MarketingCopilotPage() {
     );
   }
 
-  let recoResult, roasResult;
+  let recoResult, roasResult, settingResult;
   try {
-    [recoResult, roasResult] = await Promise.all([getMarketingReco(), getChannelRoas()]);
+    [recoResult, roasResult, settingResult] = await Promise.all([
+      getMarketingReco(),
+      getChannelRoas(),
+      getShopSetting(),
+    ]);
   } catch (err) {
     // getDevShopId() throws when DEV_SHOP_ID isn't configured.
     return <ErrorState message={err instanceof Error ? err.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"} />;
@@ -32,6 +37,7 @@ export default async function MarketingCopilotPage() {
 
   if (!recoResult.ok) return <ErrorState message={recoResult.error} />;
   if (!roasResult.ok) return <ErrorState message={roasResult.error} />;
+  if (!settingResult.ok) return <ErrorState message={settingResult.error} />;
 
   return (
     <div className="space-y-4">
@@ -43,7 +49,7 @@ export default async function MarketingCopilotPage() {
       </div>
 
       <RecoList initialRows={recoResult.data} />
-      <ChannelRoasTable rows={roasResult.data} />
+      <ChannelRoasTable rows={roasResult.data} blendedMarginPct={settingResult.data.blendedMarginPct} />
     </div>
   );
 }

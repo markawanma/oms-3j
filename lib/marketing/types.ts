@@ -28,9 +28,16 @@ export interface MktChannelRoasRow {
   newCustomers: number;
   spend: number | null;
   roas: number | null;
-  /** ALWAYS an estimate (20% margin placeholder) — UI must label "ประมาณการ 20%". */
+  /** Estimate from the shop's blended margin (0028 wired v_fact_order /
+   * v_channel_perf_roas to analytics.shop_setting.blended_margin_pct) — UI
+   * labels it "ประมาณการ margin X%" using the live margin, not a fixed 20%. */
   profitRoas: number | null;
   cac: number | null;
+  /** 1/margin — the ROAS at which ads exactly break even (gross). Independent
+   * of spend, so non-null even for months with no spend entered (0028 §6). */
+  breakEvenRoas: number | null;
+  /** 1/(margin × ad_gp_share) — the ROAS the owner is aiming for (0028 §6). */
+  targetRoas: number | null;
 }
 
 // ============================================================================
