@@ -7,14 +7,36 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { UploadCloud } from "lucide-react";
+import { Download, UploadCloud } from "lucide-react";
 import { importProducts } from "@/lib/actions/catalog";
 import { parseProductCsv } from "@/lib/catalog/csv";
-import type { ProductImportRow, ProductImportSummary } from "@/lib/catalog/types";
+import { PRODUCT_IMPORT_COLUMNS, type ProductImportRow, type ProductImportSummary } from "@/lib/catalog/types";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
 
 const PREVIEW_LIMIT = 8;
+
+// Example rows kept in sync with docs/3j-jewelry/analytics/product-import-
+// template.csv — one 'fixed' + one 'spot' the user deletes then replaces.
+const TEMPLATE_EXAMPLE_ROWS = [
+  "R-SILVER-01,แหวนเงินแท้ลายเกลียว,แหวน,fixed,180,,,,490,,,ตัวอย่าง fixed ลบทิ้งได้,true",
+  "BAR-1B-999,เงินแท่ง 999 หนัก 1 บาท,เงินแท่ง,spot,,15.244,0.999,50,,8850001234567,โรงหลอม A,ตัวอย่าง spot ลบทิ้งได้,true",
+];
+
+/** Build + download the template CSV client-side (leading BOM so Excel reads
+ * Thai as UTF-8; CRLF line endings for Excel). No server round-trip. */
+function downloadTemplate() {
+  const csv = "﻿" + [PRODUCT_IMPORT_COLUMNS.join(","), ...TEMPLATE_EXAMPLE_ROWS].join("\r\n") + "\r\n";
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "product-import-template.csv";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
 
 export function ProductImport({ onDone }: { onDone: () => void }) {
   const router = useRouter();
@@ -126,9 +148,19 @@ export function ProductImport({ onDone }: { onDone: () => void }) {
   // ----- upload + preview view -----
   return (
     <div className="flex flex-col gap-3">
-      <p className="text-xs text-zinc-500">
-        อัปโหลดไฟล์ CSV ตาม template (คอลัมน์: sku, name, cost_type, unit_cost/น้ำหนัก, list_price …). SKU ซ้ำ = อัปเดตทับ.
-      </p>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs text-zinc-500">
+          อัปโหลดไฟล์ CSV ตาม template. SKU ซ้ำ = อัปเดตทับ.
+        </p>
+        <button
+          type="button"
+          onClick={downloadTemplate}
+          className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 px-2.5 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
+        >
+          <Download className="h-3.5 w-3.5" aria-hidden="true" />
+          ดาวน์โหลด template
+        </button>
+      </div>
 
       <label className="flex cursor-pointer flex-col items-center gap-2 rounded-lg border border-dashed border-zinc-300 bg-zinc-50 px-4 py-6 text-center hover:border-primary-400 hover:bg-primary-50">
         <UploadCloud className="h-8 w-8 text-zinc-400" aria-hidden="true" />
