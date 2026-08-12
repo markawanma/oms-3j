@@ -18,13 +18,16 @@ import {
   ClipboardList,
   Coins,
   LineChart,
+  Megaphone,
   Menu,
   PlusCircle,
   Radio,
+  Receipt,
   Tags,
   Target,
   Users,
   Users2,
+  Wallet,
   X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
@@ -63,9 +66,17 @@ const NAV_GROUPS: NavGroup[] = [
     label: "CRM",
     items: [
       { href: "/crm/overview", label: "ภาพรวม", icon: LineChart },
+      { href: "/crm/orders", label: "ออเดอร์", icon: Receipt },
       { href: "/crm/customers", label: "ลูกค้า", icon: Users },
       { href: "/crm/import-errors", label: "ตรวจ import", icon: AlertTriangle },
       { href: "/crm/merge", label: "รวมลูกค้าซ้ำ", icon: Users2 },
+    ],
+  },
+  {
+    label: "การตลาด",
+    items: [
+      { href: "/marketing/ad-spend", label: "ค่าแอด", icon: Wallet },
+      { href: "/marketing/copilot", label: "Ad Copilot", icon: Megaphone },
     ],
   },
 ];

@@ -1,0 +1,49 @@
+import { Lock } from "lucide-react";
+import { getChannelRoas, getMarketingReco } from "@/lib/actions/marketing";
+import { getDevRole } from "@/lib/dev/context";
+import { ErrorState } from "@/components/ui/ErrorState";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { RecoList } from "@/components/domain/marketing/RecoList";
+import { ChannelRoasTable } from "@/components/domain/marketing/ChannelRoasTable";
+
+export const dynamic = "force-dynamic"; // recommendations recompute live from marts on every load
+
+// /marketing/copilot (docs/3j-jewelry/analytics/phase-b3-design.md §4) —
+// owner/admin only, same gate + same reasoning as /marketing/ad-spend's page
+// header comment (not silently-empty: a staff visitor gets told plainly).
+export default async function MarketingCopilotPage() {
+  if (getDevRole() === "staff") {
+    return (
+      <EmptyState
+        icon={Lock}
+        title="หน้านี้จำกัดสิทธิ์"
+        description="เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่ดูคำแนะนำการตลาดได้"
+      />
+    );
+  }
+
+  let recoResult, roasResult;
+  try {
+    [recoResult, roasResult] = await Promise.all([getMarketingReco(), getChannelRoas()]);
+  } catch (err) {
+    // getDevShopId() throws when DEV_SHOP_ID isn't configured.
+    return <ErrorState message={err instanceof Error ? err.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"} />;
+  }
+
+  if (!recoResult.ok) return <ErrorState message={recoResult.error} />;
+  if (!roasResult.ok) return <ErrorState message={roasResult.error} />;
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h1 className="text-lg font-bold text-zinc-900">Ad Copilot</h1>
+        <p className="mt-0.5 text-sm text-zinc-500">
+          คำแนะนำอิงข้อมูลจริงจาก CRM/ยอดขาย · human-in-the-loop ทุกการ์ด — ไม่มีอะไรยิงอัตโนมัติ
+        </p>
+      </div>
+
+      <RecoList initialRows={recoResult.data} />
+      <ChannelRoasTable rows={roasResult.data} />
+    </div>
+  );
+}
