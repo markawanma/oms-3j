@@ -203,3 +203,57 @@ export const MKT_RULE_LABEL_TH: Record<string, string> = {
 export function mktRuleLabel(ruleCode: string): string {
   return MKT_RULE_LABEL_TH[ruleCode] ?? ruleCode;
 }
+
+// ============================================================================
+// analytics.v_campaign_calendar — Thai retail calendar (mega-sale/festival/
+// gift-occasion), 1 row/event, "next occurrence" already computed by the view
+// (event_date/days_until/in_lead_window). No shop_id: this is global
+// reference data shared by every shop, not per-tenant. /marketing/calendar.
+// ============================================================================
+
+export interface CampaignEvent {
+  code: string;
+  nameTh: string;
+  /** 'mega_sale' | 'festival' | 'gift_occasion' today — kept as string (not a
+   * union) so a future event_type the view adds still renders via the
+   * fallback in campaignEventTypeLabel/Tone instead of failing to typecheck. */
+  eventType: string;
+  recurMonth: number | null;
+  recurDay: number | null;
+  /** "YYYY-MM-DD" — set only for one-off (non-recurring) events. */
+  specificDate: string | null;
+  durationDays: number;
+  leadDays: number;
+  prepNoteTh: string | null;
+  /** "YYYY-MM-DD" — the next occurrence of this event from today. */
+  eventDate: string;
+  /** Days from today until eventDate (0 = today). */
+  daysUntil: number;
+  /** true when today falls inside [eventDate - leadDays, eventDate] — the
+   * same window that surfaces this event as a "seasonal_calendar" card on
+   * /marketing/copilot (0027 §4). */
+  inLeadWindow: boolean;
+}
+
+/** Cosmetic label/tone lookups only, per "อย่า hardcode business logic ใน
+ * frontend" — an event_type the view emits that isn't listed here still
+ * renders (raw code / slate badge) instead of crashing. */
+export const CAMPAIGN_EVENT_TYPE_LABEL_TH: Record<string, string> = {
+  mega_sale: "มหกรรมลดราคา",
+  festival: "เทศกาล",
+  gift_occasion: "โอกาสให้ของขวัญ",
+};
+
+export const CAMPAIGN_EVENT_TYPE_TONE: Record<string, BadgeTone> = {
+  mega_sale: "red",
+  festival: "amber",
+  gift_occasion: "indigo",
+};
+
+export function campaignEventTypeLabel(eventType: string): string {
+  return CAMPAIGN_EVENT_TYPE_LABEL_TH[eventType] ?? eventType;
+}
+
+export function campaignEventTypeTone(eventType: string): BadgeTone {
+  return CAMPAIGN_EVENT_TYPE_TONE[eventType] ?? "slate";
+}

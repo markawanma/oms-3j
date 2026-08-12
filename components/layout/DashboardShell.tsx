@@ -15,6 +15,7 @@ import {
   AlertTriangle,
   BarChart3,
   Boxes,
+  CalendarDays,
   ClipboardList,
   Coins,
   Gem,
@@ -80,6 +81,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/marketing/ad-spend", label: "ค่าแอด", icon: Wallet },
       { href: "/marketing/copilot", label: "Ad Copilot", icon: Megaphone },
       { href: "/marketing/audience", label: "กลุ่มลูกค้า", icon: Users2 },
+      { href: "/marketing/calendar", label: "ปฏิทินแคมเปญ", icon: CalendarDays },
     ],
   },
   {

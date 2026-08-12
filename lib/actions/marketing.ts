@@ -25,6 +25,7 @@ import { getDevShopId, getDevRole } from "@/lib/dev/context";
 import type { ActionResult } from "@/lib/types";
 import type {
   AudienceRow,
+  CampaignEvent,
   DecideRecoInput,
   MktAdSpendWeeklyRow,
   MktChannelRoasRow,
@@ -368,6 +369,67 @@ export async function getAudience(segment?: string): Promise<ActionResult<Audien
   } catch (err) {
     console.error("getAudience failed", err);
     return { ok: false, error: "โหลดรายชื่อกลุ่มลูกค้าไม่สำเร็จ ลองใหม่อีกครั้ง" };
+  }
+}
+
+// ============================================================================
+// /marketing/calendar — analytics.v_campaign_calendar. No shop_id column on
+// this view (global Thai retail calendar, same 11 events for every shop) —
+// unlike every other read above, do NOT filter by getDevShopId(). Owner/admin
+// gated like the rest of this file: prep_note_th carries pricing/discount
+// prep strategy, not something staff needs to see.
+// ============================================================================
+
+export async function getCampaignCalendar(): Promise<ActionResult<CampaignEvent[]>> {
+  const gateErr = requireOwnerAdmin();
+  if (gateErr) return gateErr;
+
+  try {
+    const supabase = getServiceClient();
+
+    const { data, error } = await supabase
+      .schema(SCHEMA)
+      .from("v_campaign_calendar")
+      .select(
+        "code, name_th, event_type, recur_month, recur_day, specific_date, duration_days, lead_days, prep_note_th, event_date, days_until, in_lead_window"
+      )
+      .order("days_until", { ascending: true });
+    if (error) throw error;
+
+    const rows: CampaignEvent[] = (
+      (data ?? []) as {
+        code: string;
+        name_th: string;
+        event_type: string;
+        recur_month: number | null;
+        recur_day: number | null;
+        specific_date: string | null;
+        duration_days: number;
+        lead_days: number;
+        prep_note_th: string | null;
+        event_date: string;
+        days_until: number;
+        in_lead_window: boolean;
+      }[]
+    ).map((r) => ({
+      code: r.code,
+      nameTh: r.name_th,
+      eventType: r.event_type,
+      recurMonth: r.recur_month,
+      recurDay: r.recur_day,
+      specificDate: r.specific_date,
+      durationDays: Number(r.duration_days) || 0,
+      leadDays: Number(r.lead_days) || 0,
+      prepNoteTh: r.prep_note_th,
+      eventDate: r.event_date,
+      daysUntil: Number(r.days_until) || 0,
+      inLeadWindow: Boolean(r.in_lead_window),
+    }));
+
+    return { ok: true, data: rows };
+  } catch (err) {
+    console.error("getCampaignCalendar failed", err);
+    return { ok: false, error: "โหลดปฏิทินแคมเปญไม่สำเร็จ ลองใหม่อีกครั้ง" };
   }
 }
 
