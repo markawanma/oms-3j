@@ -257,3 +257,53 @@ export function campaignEventTypeLabel(eventType: string): string {
 export function campaignEventTypeTone(eventType: string): BadgeTone {
   return CAMPAIGN_EVENT_TYPE_TONE[eventType] ?? "slate";
 }
+
+// ============================================================================
+// /marketing/attribution — manual promo-code attribution log (0036). No
+// automatic tracking link for a LINE broadcast (e.g. "รับสิทธิ์99") so the
+// owner logs each order the buyer typed the code for in chat. Deliberately
+// separate from dim_campaign (paid-ad/UTM) — see 0036's own header comment.
+// ============================================================================
+
+/** analytics.v_promo_attribution_summary — one row per code, totals. */
+export interface PromoAttributionSummary {
+  code: string;
+  entries: number;
+  totalAmount: number;
+  avgAmount: number;
+  /** "YYYY-MM-DD" */
+  firstOn: string;
+  /** "YYYY-MM-DD" */
+  lastOn: string;
+}
+
+/** analytics.promo_attribution — raw log rows, most recent first. */
+export interface PromoAttributionEntry {
+  id: string;
+  code: string;
+  /** "YYYY-MM-DD" */
+  occurredOn: string;
+  amount: number;
+  channelId: string | null;
+  /** Resolved from analytics.dim_channel — null if channelId is null. */
+  channelName: string | null;
+  customerRef: string | null;
+  note: string | null;
+  /** ISO timestamp */
+  loggedAt: string;
+}
+
+/** analytics.promo_attribution_add RPC input. */
+export interface AddPromoAttributionInput {
+  code: string;
+  amount: number;
+  /** "YYYY-MM-DD" */
+  occurredOn: string;
+  channelId?: string | null;
+  customerRef?: string | null;
+  note?: string | null;
+}
+
+/** Default code owner uses in LINE broadcasts today — pre-filled in the
+ * form, still editable (future campaigns will use a different code). */
+export const PROMO_ATTRIBUTION_DEFAULT_CODE = "รับสิทธิ์99";

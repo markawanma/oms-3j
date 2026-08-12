@@ -24,6 +24,7 @@ import { getServiceClient } from "@/lib/supabase/server";
 import { getDevShopId, getDevRole } from "@/lib/dev/context";
 import type { ActionResult } from "@/lib/types";
 import type {
+  AddPromoAttributionInput,
   AudienceRow,
   CampaignEvent,
   DecideRecoInput,
@@ -31,6 +32,8 @@ import type {
   MktChannelRoasRow,
   MktRecoRow,
   MktRecoStatus,
+  PromoAttributionEntry,
+  PromoAttributionSummary,
   UpsertAdSpendInput,
 } from "@/lib/marketing/types";
 
@@ -430,6 +433,159 @@ export async function getCampaignCalendar(): Promise<ActionResult<CampaignEvent[
   } catch (err) {
     console.error("getCampaignCalendar failed", err);
     return { ok: false, error: "โหลดปฏิทินแคมเปญไม่สำเร็จ ลองใหม่อีกครั้ง" };
+  }
+}
+
+// ============================================================================
+// /marketing/attribution — manual promo-code log (0036). No automatic
+// tracking link for LINE broadcasts, so the owner logs each order the buyer
+// typed the code for in chat. Owner/admin only (same reasoning as audience:
+// this is a sensitive-ish manual ledger, not read-only reference data).
+// ============================================================================
+
+export async function getPromoAttribution(): Promise<
+  ActionResult<{ summary: PromoAttributionSummary[]; entries: PromoAttributionEntry[] }>
+> {
+  const gateErr = requireOwnerAdmin();
+  if (gateErr) return gateErr;
+
+  try {
+    const shopId = getDevShopId();
+    const supabase = getServiceClient();
+
+    const [summaryRes, entriesRes, channelsRes] = await Promise.all([
+      supabase
+        .schema(SCHEMA)
+        .from("v_promo_attribution_summary")
+        .select("code, entries, total_amount, avg_amount, first_on, last_on")
+        .eq("shop_id", shopId)
+        .order("total_amount", { ascending: false }),
+      supabase
+        .schema(SCHEMA)
+        .from("promo_attribution")
+        .select("id, code, occurred_on, amount, channel_id, customer_ref, note, logged_at")
+        .eq("shop_id", shopId)
+        .order("occurred_on", { ascending: false })
+        .order("logged_at", { ascending: false })
+        .limit(100),
+      // dim_channel has no shop_id column (global reference data, same as
+      // getCrmEditOptions) — fetched every call rather than joined, since
+      // PostgREST can't join across schemas/foreign tables here.
+      supabase.schema(SCHEMA).from("dim_channel").select("id, name"),
+    ]);
+    if (summaryRes.error) throw summaryRes.error;
+    if (entriesRes.error) throw entriesRes.error;
+    if (channelsRes.error) throw channelsRes.error;
+
+    const channelNameById = new Map<string, string>(
+      ((channelsRes.data ?? []) as { id: string; name: string }[]).map((c) => [c.id, c.name])
+    );
+
+    const summary: PromoAttributionSummary[] = (
+      (summaryRes.data ?? []) as {
+        code: string;
+        entries: number;
+        total_amount: number;
+        avg_amount: number;
+        first_on: string;
+        last_on: string;
+      }[]
+    ).map((r) => ({
+      code: r.code,
+      entries: Number(r.entries) || 0,
+      totalAmount: Number(r.total_amount) || 0,
+      avgAmount: Number(r.avg_amount) || 0,
+      firstOn: r.first_on,
+      lastOn: r.last_on,
+    }));
+
+    const entries: PromoAttributionEntry[] = (
+      (entriesRes.data ?? []) as {
+        id: string;
+        code: string;
+        occurred_on: string;
+        amount: number;
+        channel_id: string | null;
+        customer_ref: string | null;
+        note: string | null;
+        logged_at: string;
+      }[]
+    ).map((r) => ({
+      id: r.id,
+      code: r.code,
+      occurredOn: r.occurred_on,
+      amount: Number(r.amount) || 0,
+      channelId: r.channel_id,
+      channelName: r.channel_id ? channelNameById.get(r.channel_id) ?? null : null,
+      customerRef: r.customer_ref,
+      note: r.note,
+      loggedAt: r.logged_at,
+    }));
+
+    return { ok: true, data: { summary, entries } };
+  } catch (err) {
+    console.error("getPromoAttribution failed", err);
+    return { ok: false, error: "โหลดข้อมูลการวัดผลโค้ดไม่สำเร็จ ลองใหม่อีกครั้ง" };
+  }
+}
+
+export async function addPromoAttribution(input: AddPromoAttributionInput): Promise<ActionResult<string>> {
+  const gateErr = requireOwnerAdmin();
+  if (gateErr) return gateErr;
+
+  const code = input.code.trim();
+  if (!code) return { ok: false, error: "กรุณากรอกโค้ด" };
+  if (!Number.isFinite(input.amount) || input.amount < 0) {
+    return { ok: false, error: "กรุณากรอกยอดเงินให้ถูกต้อง (ตั้งแต่ 0 ขึ้นไป)" };
+  }
+  if (!isValidDateStr(input.occurredOn)) {
+    return { ok: false, error: "รูปแบบวันที่ไม่ถูกต้อง" };
+  }
+
+  try {
+    const shopId = getDevShopId();
+    const supabase = getServiceClient();
+
+    const { data, error } = await supabase.schema(SCHEMA).rpc("promo_attribution_add", {
+      p_shop_id: shopId,
+      p_code: code,
+      p_amount: input.amount,
+      p_occurred_on: input.occurredOn,
+      p_channel_id: input.channelId ?? null,
+      p_customer_ref: input.customerRef?.trim() || null,
+      p_note: input.note?.trim() || null,
+    });
+    if (error) throw error;
+
+    revalidatePath("/marketing/attribution");
+    return { ok: true, data: data as string };
+  } catch (err) {
+    console.error("addPromoAttribution failed", err);
+    return { ok: false, error: "บันทึกรายการไม่สำเร็จ ลองใหม่อีกครั้ง" };
+  }
+}
+
+export async function deletePromoAttribution(id: string): Promise<ActionResult> {
+  const gateErr = requireOwnerAdmin();
+  if (gateErr) return gateErr;
+
+  if (!id) return { ok: false, error: "ไม่พบรายการที่จะลบ" };
+
+  try {
+    const shopId = getDevShopId();
+    const supabase = getServiceClient();
+
+    const { error } = await supabase.schema(SCHEMA).rpc("promo_attribution_delete", {
+      p_id: id,
+      p_shop_id: shopId,
+    });
+    if (error) throw error;
+
+    revalidatePath("/marketing/attribution");
+    return { ok: true, data: undefined };
+  } catch (err) {
+    console.error("deletePromoAttribution failed", err);
+    return { ok: false, error: "ลบรายการไม่สำเร็จ ลองใหม่อีกครั้ง" };
   }
 }
 
