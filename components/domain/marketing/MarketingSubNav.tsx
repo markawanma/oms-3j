@@ -2,12 +2,20 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Megaphone, Wallet } from "lucide-react";
+import { CalendarDays, Megaphone, Ticket, Users2, Wallet } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
+// Keep in sync with the "การตลาด" group in
+// components/layout/DashboardShell.tsx (NAV_GROUPS) — same 5 routes, same
+// labels/icons. Was previously only 2 tabs, which orphaned the audience/
+// attribution/calendar pages (sub-nav showed neither their tab nor any
+// highlight, so they looked broken from inside the module).
 const TABS: { href: string; label: string; icon: LucideIcon }[] = [
   { href: "/marketing/ad-spend", label: "ค่าแอด", icon: Wallet },
   { href: "/marketing/copilot", label: "Ad Copilot", icon: Megaphone },
+  { href: "/marketing/audience", label: "กลุ่มลูกค้า", icon: Users2 },
+  { href: "/marketing/attribution", label: "วัดผลโค้ด", icon: Ticket },
+  { href: "/marketing/calendar", label: "ปฏิทินแคมเปญ", icon: CalendarDays },
 ];
 
 /** Sticky sub-nav tab bar for the Marketing module — mirrors CrmSubNav
