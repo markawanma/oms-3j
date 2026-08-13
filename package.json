@@ -20,7 +20,7 @@
     "@supabase/supabase-js": "^2.45.0",
     "lucide-react": "^0.462.0",
     "server-only": "^0.0.1",
-    "xlsx": "^0.18.5"
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {
     "typescript": "^5.5.0",

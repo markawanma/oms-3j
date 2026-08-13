@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { AlertTriangle, ClipboardList, LineChart, Users, Users2 } from "lucide-react";
+import { AlertTriangle, ClipboardList, FileUp, LineChart, Users, Users2 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 const TABS: { href: string; label: string; icon: LucideIcon }[] = [
   { href: "/crm/overview", label: "ภาพรวม", icon: LineChart },
   { href: "/crm/orders", label: "ออเดอร์", icon: ClipboardList },
   { href: "/crm/customers", label: "ลูกค้า", icon: Users },
+  { href: "/crm/import", label: "นำเข้ายอดขาย", icon: FileUp },
   { href: "/crm/import-errors", label: "ตรวจ import", icon: AlertTriangle },
   { href: "/crm/merge", label: "รวมลูกค้าซ้ำ", icon: Users2 },
 ];
