@@ -18,6 +18,7 @@ import {
   CalendarDays,
   ClipboardList,
   Coins,
+  Gauge,
   Gem,
   LineChart,
   Megaphone,
@@ -53,6 +54,7 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/", label: "ออเดอร์", icon: ClipboardList },
       { href: "/stock", label: "สต็อก", icon: Boxes },
+      { href: "/stock/hero", label: "จอสต็อก Hero", icon: Gauge },
       { href: "/products/new", label: "เพิ่มสินค้า", icon: PlusCircle },
       { href: "/live", label: "ไลฟ์", icon: Radio },
     ],
