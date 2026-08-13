@@ -38,6 +38,7 @@ import {
   X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { Logo } from "@/components/brand/Logo";
 
 interface NavItem {
   href: string;
@@ -177,7 +178,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
           >
             <Menu className="h-5 w-5" aria-hidden="true" />
           </button>
-          <span className="text-lg font-bold text-primary-700">OMS</span>
+          <Logo />
         </div>
       </header>
 
@@ -199,7 +200,7 @@ export function DashboardShell({ children }: { children: ReactNode }) {
             className="absolute left-0 top-0 h-full w-72 max-w-[80vw] overflow-y-auto bg-white shadow-xl"
           >
             <div className="flex items-center justify-between border-b border-zinc-200 px-4 py-3">
-              <span className="text-lg font-bold text-primary-700">OMS</span>
+              <Logo />
               <button
                 type="button"
                 onClick={() => setDrawerOpen(false)}

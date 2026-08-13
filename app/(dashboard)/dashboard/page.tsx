@@ -9,6 +9,7 @@ import {
 import { ErrorState } from "@/components/ui/ErrorState";
 import { StatCard } from "@/components/ui/StatCard";
 import { Badge } from "@/components/ui/Badge";
+import { Logo } from "@/components/brand/Logo";
 import type { BadgeTone } from "@/components/ui/Badge";
 
 export const dynamic = "force-dynamic";
@@ -50,8 +51,7 @@ export default async function DashboardPage({
       <div className="flex flex-wrap items-end justify-between gap-2">
         <div>
           <div className="flex items-center gap-2">
-            {/* TODO: swap for the 3J logo asset when provided */}
-            <span className="text-lg font-extrabold tracking-tight text-primary-700">3J</span>
+            <Logo markOnly />
             <h1 className="text-lg font-bold text-zinc-900">ภาพรวมร้าน</h1>
           </div>
           <p className="mt-0.5 text-sm text-zinc-500">{today}</p>
