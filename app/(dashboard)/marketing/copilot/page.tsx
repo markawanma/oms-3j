@@ -5,7 +5,7 @@ import { getDevRole } from "@/lib/dev/context";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { RecoList } from "@/components/domain/marketing/RecoList";
-import { ChannelRoasTable } from "@/components/domain/marketing/ChannelRoasTable";
+import { ChannelRoasFilter } from "@/components/domain/marketing/ChannelRoasFilter";
 
 export const dynamic = "force-dynamic"; // recommendations recompute live from marts on every load
 
@@ -49,7 +49,7 @@ export default async function MarketingCopilotPage() {
       </div>
 
       <RecoList initialRows={recoResult.data} />
-      <ChannelRoasTable rows={roasResult.data} blendedMarginPct={settingResult.data.blendedMarginPct} />
+      <ChannelRoasFilter rows={roasResult.data} blendedMarginPct={settingResult.data.blendedMarginPct} />
     </div>
   );
 }
