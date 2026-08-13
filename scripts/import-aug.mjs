@@ -238,20 +238,40 @@ async function main() {
     })
     .map((row) => ({ ...row, batch_id: batchId, shop_id: shopId }));
 
+  // Collapse duplicate dedup keys within one file (the same excel order_no on
+  // two rows — e.g. Mar2026 "A270") keeping the last, matching the transform's
+  // last-wins upsert on fact_order. Needed for two reasons: (1) a plain insert
+  // would hit the unique (shop_id, dedup_key) and fail the whole chunk; (2) an
+  // upsert with both dup rows in one chunk throws "ON CONFLICT DO UPDATE command
+  // cannot affect row a second time". dedup_key for excel = 'E:'+source_order_no
+  // (0011:93).
+  const byDedupKey = new Map();
+  for (const row of mapped) byDedupKey.set(`E:${row.source_order_no ?? ""}`, row);
+  const deduped = [...byDedupKey.values()];
+  const inFileDupCount = mapped.length - deduped.length;
+  if (inFileDupCount > 0) {
+    console.log(`  collapsed ${inFileDupCount} in-file duplicate order_no row(s) (last wins).`);
+  }
+
+  // upsert (not insert) so re-uploading an edited file, or an order_no that
+  // already exists from another month's batch, updates instead of erroring on
+  // the unique (shop_id, dedup_key) constraint — matches the /crm/import server
+  // action (lib/actions/import-orders.ts). dedup_key is a generated column so it
+  // is never sent in the payload; the constraint columns name it for onConflict.
   let insertedCount = 0;
-  for (let i = 0; i < mapped.length; i += STAGING_INSERT_CHUNK_SIZE) {
-    const chunk = mapped.slice(i, i + STAGING_INSERT_CHUNK_SIZE);
+  for (let i = 0; i < deduped.length; i += STAGING_INSERT_CHUNK_SIZE) {
+    const chunk = deduped.slice(i, i + STAGING_INSERT_CHUNK_SIZE);
     const { error: insertErr, count } = await db
       .schema("analytics")
       .from("stg_order_import")
-      .insert(chunk, { count: "exact" });
+      .upsert(chunk, { onConflict: "shop_id,dedup_key", count: "exact" });
     if (insertErr) {
-      console.error(`Failed inserting stg_order_import rows [${i}..${i + chunk.length}):`, insertErr);
+      console.error(`Failed upserting stg_order_import rows [${i}..${i + chunk.length}):`, insertErr);
       process.exit(1);
     }
     insertedCount += count ?? chunk.length;
   }
-  console.log(`Inserted ${insertedCount} stg_order_import rows (skipped ${dataRows.length - mapped.length}).`);
+  console.log(`Upserted ${insertedCount} stg_order_import rows (skipped ${dataRows.length - mapped.length}).`);
 
   await db
     .schema("analytics")
