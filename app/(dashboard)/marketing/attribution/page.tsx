@@ -8,10 +8,15 @@ import { PromoAttributionPageClient } from "@/components/domain/marketing/PromoA
 
 export const dynamic = "force-dynamic";
 
-// /marketing/attribution (0036) — manual promo-code attribution log for LINE
-// broadcasts (no automatic tracking link exists, so the owner logs each order
-// whose buyer typed the code in chat). Owner/admin only, same reasoning as
-// /marketing/audience.
+// /marketing/attribution — TWO independent sources rendered as separate
+// sections (0036 manual log + 0040 auto from Excel import, see design docs/
+// 3j-jewelry/analytics/phase-auto-attribution-design.md §5/§D4):
+//   - manual: owner-logged ledger for codes buyers typed in LINE chat (no
+//     automatic tracking link exists for a broadcast).
+//   - auto: read-only, derived from fact_order.discount_code (marketplace
+//     voucher column in the Excel order report). No form/delete — it comes
+//     from re-importing the file.
+// Owner/admin only, same reasoning as /marketing/audience.
 export default async function MarketingAttributionPage() {
   if (getDevRole() === "staff") {
     return (
@@ -37,6 +42,7 @@ export default async function MarketingAttributionPage() {
     <PromoAttributionPageClient
       summary={attributionResult.data.summary}
       entries={attributionResult.data.entries}
+      auto={attributionResult.data.auto}
       channels={optionsResult.data.channels}
     />
   );

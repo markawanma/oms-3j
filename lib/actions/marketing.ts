@@ -32,6 +32,7 @@ import type {
   MktChannelRoasRow,
   MktRecoRow,
   MktRecoStatus,
+  PromoAttributionAuto,
   PromoAttributionEntry,
   PromoAttributionSummary,
   UpsertAdSpendInput,
@@ -437,14 +438,24 @@ export async function getCampaignCalendar(): Promise<ActionResult<CampaignEvent[
 }
 
 // ============================================================================
-// /marketing/attribution — manual promo-code log (0036). No automatic
-// tracking link for LINE broadcasts, so the owner logs each order the buyer
-// typed the code for in chat. Owner/admin only (same reasoning as audience:
-// this is a sensitive-ish manual ledger, not read-only reference data).
+// /marketing/attribution — TWO independent data sources, deliberately never
+// merged into one total (design docs/3j-jewelry/analytics/
+// phase-auto-attribution-design.md §D4):
+//   - manual (0036): owner-logged ledger for codes buyers typed in LINE chat
+//     (no automatic tracking link exists for a broadcast).
+//   - auto (0040): v_promo_attribution_auto, built from fact_order.discount_code
+//     — the discount-code column the marketplace itself records in the Excel
+//     order report. Read-only, no write RPC (it's derived, not entered).
+// Owner/admin only for both (same reasoning as audience: sensitive-ish ledger
+// data, not read-only reference data).
 // ============================================================================
 
 export async function getPromoAttribution(): Promise<
-  ActionResult<{ summary: PromoAttributionSummary[]; entries: PromoAttributionEntry[] }>
+  ActionResult<{
+    summary: PromoAttributionSummary[];
+    entries: PromoAttributionEntry[];
+    auto: PromoAttributionAuto[];
+  }>
 > {
   const gateErr = requireOwnerAdmin();
   if (gateErr) return gateErr;
@@ -453,7 +464,7 @@ export async function getPromoAttribution(): Promise<
     const shopId = getDevShopId();
     const supabase = getServiceClient();
 
-    const [summaryRes, entriesRes, channelsRes] = await Promise.all([
+    const [summaryRes, entriesRes, channelsRes, autoRes] = await Promise.all([
       supabase
         .schema(SCHEMA)
         .from("v_promo_attribution_summary")
@@ -472,10 +483,17 @@ export async function getPromoAttribution(): Promise<
       // getCrmEditOptions) — fetched every call rather than joined, since
       // PostgREST can't join across schemas/foreign tables here.
       supabase.schema(SCHEMA).from("dim_channel").select("id, name"),
+      supabase
+        .schema(SCHEMA)
+        .from("v_promo_attribution_auto")
+        .select("code, orders, total_revenue, avg_revenue, first_on, last_on, channel_breakdown")
+        .eq("shop_id", shopId)
+        .order("total_revenue", { ascending: false }),
     ]);
     if (summaryRes.error) throw summaryRes.error;
     if (entriesRes.error) throw entriesRes.error;
     if (channelsRes.error) throw channelsRes.error;
+    if (autoRes.error) throw autoRes.error;
 
     const channelNameById = new Map<string, string>(
       ((channelsRes.data ?? []) as { id: string; name: string }[]).map((c) => [c.id, c.name])
@@ -522,7 +540,35 @@ export async function getPromoAttribution(): Promise<
       loggedAt: r.logged_at,
     }));
 
-    return { ok: true, data: { summary, entries } };
+    const auto: PromoAttributionAuto[] = (
+      (autoRes.data ?? []) as {
+        code: string;
+        orders: number;
+        total_revenue: number;
+        avg_revenue: number;
+        first_on: string;
+        last_on: string;
+        channel_breakdown: unknown;
+      }[]
+    ).map((r) => ({
+      code: r.code,
+      orders: Number(r.orders) || 0,
+      totalRevenue: Number(r.total_revenue) || 0,
+      avgRevenue: Number(r.avg_revenue) || 0,
+      firstOn: r.first_on,
+      lastOn: r.last_on,
+      // jsonb_agg from the view — defend against null/malformed shape rather
+      // than trusting it blindly, same caution as any externally-sourced data.
+      channelBreakdown: (Array.isArray(r.channel_breakdown) ? r.channel_breakdown : []).map(
+        (c: { channel_name?: unknown; orders?: unknown; revenue?: unknown }) => ({
+          channelName: typeof c?.channel_name === "string" ? c.channel_name : "ไม่ระบุ",
+          orders: Number(c?.orders) || 0,
+          revenue: Number(c?.revenue) || 0,
+        })
+      ),
+    }));
+
+    return { ok: true, data: { summary, entries, auto } };
   } catch (err) {
     console.error("getPromoAttribution failed", err);
     return { ok: false, error: "โหลดข้อมูลการวัดผลโค้ดไม่สำเร็จ ลองใหม่อีกครั้ง" };

@@ -293,6 +293,22 @@ export interface PromoAttributionEntry {
   loggedAt: string;
 }
 
+/** analytics.v_promo_attribution_auto (0040) — one row per (shop, code) built
+ * from fact_order.discount_code (Excel order-report col R, "รหัสส่วนลด"),
+ * NOT the manual log above. Never sum with PromoAttributionSummary's totals
+ * — see 0040's own header + design §D4 ("ห้ามรวมยอด auto+manual"). */
+export interface PromoAttributionAuto {
+  code: string;
+  orders: number;
+  totalRevenue: number;
+  avgRevenue: number;
+  /** "YYYY-MM-DD" */
+  firstOn: string;
+  /** "YYYY-MM-DD" */
+  lastOn: string;
+  channelBreakdown: { channelName: string; orders: number; revenue: number }[];
+}
+
 /** analytics.promo_attribution_add RPC input. */
 export interface AddPromoAttributionInput {
   code: string;
