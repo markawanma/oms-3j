@@ -91,8 +91,9 @@ export function StickyActionBar({
             variant="danger"
             className="flex-1"
             loading={busy}
+            disabled={reason.trim().length === 0}
             onClick={() => {
-              onCancel(reason);
+              onCancel(reason.trim());
               setCancelModalOpen(false);
             }}
           >
