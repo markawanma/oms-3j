@@ -77,18 +77,22 @@ export class ImportParseError extends Error {}
 // Ported verbatim from scripts/import-aug.mjs
 // ============================================================================
 
-function toNumberOrNull(value: unknown): number | null {
+// Exported (not just used internally) so lib/import/order-line-report.ts
+// (Shipnity line-item report parser, phase-lineitem-import-design.md §5) can
+// reuse these verbatim instead of forking a second copy — same reasoning as
+// the "port pattern from order-report.ts" instruction in that design doc.
+export function toNumberOrNull(value: unknown): number | null {
   if (value === null || value === undefined || value === "") return null;
   const n = typeof value === "number" ? value : Number(String(value).replace(/,/g, "").trim());
   return Number.isFinite(n) ? n : null;
 }
 
-function toIntOrNull(value: unknown): number | null {
+export function toIntOrNull(value: unknown): number | null {
   const n = toNumberOrNull(value);
   return n === null ? null : Math.trunc(n);
 }
 
-function toTextOrNull(value: unknown): string | null {
+export function toTextOrNull(value: unknown): string | null {
   if (value === null || value === undefined) return null;
   const s = String(value).trim();
   return s === "" ? null : s;
@@ -101,7 +105,7 @@ function toTextOrNull(value: unknown): string | null {
  * this format, not Excel date serials. Returns an ISO 8601 string (fixed
  * +07:00 — Thailand has no DST) or null.
  */
-function parseThaiDateText(value: unknown): string | null {
+export function parseThaiDateText(value: unknown): string | null {
   const s = toTextOrNull(value);
   if (s === null) return null;
 
