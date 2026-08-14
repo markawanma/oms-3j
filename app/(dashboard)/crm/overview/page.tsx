@@ -7,6 +7,7 @@ import { StatCard } from "@/components/domain/crm/StatCard";
 import { SegmentBreakdown } from "@/components/domain/crm/SegmentBreakdown";
 import { ChannelPerfTable } from "@/components/domain/crm/ChannelPerfTable";
 import { CrmDateRangeFilter } from "@/components/domain/crm/CrmDateRangeFilter";
+import { CrmChannelFilter } from "@/components/domain/crm/CrmChannelFilter";
 import { formatCount, formatTHBCompact, formatThaiDateOnly } from "@/lib/tiktok/format";
 
 export const dynamic = "force-dynamic"; // orders/customers change daily — never cache
@@ -61,14 +62,34 @@ export default async function CrmOverviewPage({
   const effectiveFrom = scope.requestedFrom ?? scope.minOrderDate;
   const effectiveTo = scope.requestedTo ?? scope.maxOrderDate ?? scope.minOrderDate;
 
-  const dateRangeFilter = (
-    <CrmDateRangeFilter from={effectiveFrom} to={effectiveTo} minDate={scope.minOrderDate} maxDate={scope.maxOrderDate} />
-  );
-
+  // rangeLabel is the human-readable (Thai, Buddhist-era) translation of
+  // whatever the two <input type="date"> fields show — those inputs render
+  // in the browser's locale format (typically US MM/DD/YYYY), which reads as
+  // ambiguous next to Thai พ.ศ. labels elsewhere on the page (e.g. is
+  // "06/01/2026" 1 มิ.ย. or 6 ม.ค.?). The native input's format can't be
+  // changed directly (browser-controlled), so instead this label is made
+  // prominent — right under the filter, calendar icon, bold — so the
+  // trustworthy reading is always the Thai one, not the ambiguous input text.
   const rangeLabel =
     scope.requestedFrom || scope.requestedTo
-      ? `แสดงออเดอร์ตั้งแต่ ${formatThaiDateOnly(effectiveFrom)} ถึง ${formatThaiDateOnly(effectiveTo)}`
-      : `แสดงข้อมูลทั้งหมด — ${formatThaiDateOnly(scope.minOrderDate)} ถึง ${formatThaiDateOnly(scope.maxOrderDate)}`;
+      ? `กำลังดู: ${formatThaiDateOnly(effectiveFrom)} – ${formatThaiDateOnly(effectiveTo)}`
+      : `กำลังดูข้อมูลทั้งหมด: ${formatThaiDateOnly(scope.minOrderDate)} – ${formatThaiDateOnly(scope.maxOrderDate)}`;
+
+  const filters = (
+    <div className="space-y-2">
+      <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
+        <CrmDateRangeFilter from={effectiveFrom} to={effectiveTo} minDate={scope.minOrderDate} maxDate={scope.maxOrderDate} />
+        <CrmChannelFilter
+          channels={scope.channels}
+          requestedChannelCode={scope.requestedChannelCode}
+          from={scope.requestedFrom}
+          to={scope.requestedTo}
+        />
+      </div>
+      <p className="text-xs text-zinc-400">รูปแบบวันที่ในช่อง: เดือน/วัน/ปี (ค.ศ.)</p>
+      <p className="text-sm font-semibold text-zinc-700">📅 {rangeLabel}</p>
+    </div>
+  );
 
   // Data exists for this shop, but zero orders land inside the requested
   // range — different empty state than "no CRM data at all" above, with a
@@ -76,8 +97,7 @@ export default async function CrmOverviewPage({
   if (totals.orders === 0) {
     return (
       <div className="space-y-4">
-        {dateRangeFilter}
-        <p className="text-xs text-zinc-500">{rangeLabel}</p>
+        {filters}
         <EmptyState
           icon={CalendarX}
           title="ไม่มีออเดอร์ในช่วงที่เลือก"
@@ -116,8 +136,7 @@ export default async function CrmOverviewPage({
 
   return (
     <div className="space-y-4">
-      {dateRangeFilter}
-      <p className="text-xs text-zinc-500">{rangeLabel}</p>
+      {filters}
 
       <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4" role="group" aria-label="ตัวชี้วัดภาพรวม CRM">
         <StatCard label="ยอดออเดอร์" value={formatCount(totals.orders)} hero />
