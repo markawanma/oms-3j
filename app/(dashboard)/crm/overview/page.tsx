@@ -25,13 +25,13 @@ export const dynamic = "force-dynamic"; // orders/customers change daily — nev
 export default async function CrmOverviewPage({
   searchParams,
 }: {
-  searchParams: Promise<{ from?: string; to?: string }>;
+  searchParams: Promise<{ from?: string; to?: string; channel?: string }>;
 }) {
-  const { from: fromParam, to: toParam } = await searchParams;
+  const { from: fromParam, to: toParam, channel: channelParam } = await searchParams;
 
   let result;
   try {
-    result = await getCrmOverview({ from: fromParam, to: toParam });
+    result = await getCrmOverview({ from: fromParam, to: toParam, channelCode: channelParam });
   } catch (err) {
     // getDevShopId() throws when DEV_SHOP_ID isn't configured.
     return <ErrorState message={err instanceof Error ? err.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"} />;
@@ -95,6 +95,25 @@ export default async function CrmOverviewPage({
     );
   }
 
+  // profit is a real SUM either way (from v_fact_order.profit); only the
+  // LABEL changes depending on how many of this range's orders still lack a
+  // line-item import (profit_status='estimated') — see CrmOverviewData.
+  // totals doc comment in lib/actions/crm.ts for why this can't be captioned
+  // as purely "จริง" or purely "ประมาณการ 20%" in the mixed case.
+  const { profitActualOrders, profitEstimatedOrders } = totals;
+  let profitLabel: string;
+  let profitNote: string;
+  if (profitEstimatedOrders === 0) {
+    profitLabel = " (กำไรจริงทุกออเดอร์)";
+    profitNote = `คำนวณจากต้นทุนจริงต่อ SKU ครบทั้ง ${formatCount(profitActualOrders)} ออเดอร์ในช่วงนี้`;
+  } else if (profitActualOrders === 0) {
+    profitLabel = " (ประมาณการ 20%)";
+    profitNote = "ยังไม่มีต้นทุนจริงต่อ SKU สำหรับออเดอร์ในช่วงนี้ — ตัวเลขนี้คือ 20% ของรายได้ ไม่ใช่กำไรจริง";
+  } else {
+    profitLabel = "";
+    profitNote = `กำไรจริง ${formatCount(profitActualOrders)} ออเดอร์ (มีต้นทุนจริงต่อ SKU) + ประมาณการ 20% อีก ${formatCount(profitEstimatedOrders)} ออเดอร์ที่ยังไม่มีต้นทุนจริง`;
+  }
+
   return (
     <div className="space-y-4">
       {dateRangeFilter}
@@ -108,9 +127,8 @@ export default async function CrmOverviewPage({
       </div>
 
       <div className="rounded-lg border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-xs leading-relaxed text-amber-900">
-        <span className="font-bold">กำไรสะสม (ประมาณการ 20%):</span>{" "}
-        <span className="font-bold tabular-nums">{formatTHBCompact(totals.profitSumEstimated)}</span> — ยังไม่มีต้นทุนจริงต่อ SKU
-        ตัวเลขนี้คือ 20% ของรายได้ ไม่ใช่กำไรจริง
+        <span className="font-bold">กำไรสะสม{profitLabel}:</span>{" "}
+        <span className="font-bold tabular-nums">{formatTHBCompact(totals.profitSum)}</span> — {profitNote}
       </div>
 
       <SegmentBreakdown counts={segmentCounts} rangeNote="กลุ่ม RFM = สถานะ ณ ปัจจุบันของลูกค้าที่ซื้อในช่วงนี้" />
