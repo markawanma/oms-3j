@@ -7,7 +7,7 @@ import type { LucideIcon } from "lucide-react";
 
 const TABS: { href: string; label: string; icon: LucideIcon }[] = [
   { href: "/crm/overview", label: "ภาพรวม", icon: LineChart },
-  { href: "/crm/orders", label: "ออเดอร์", icon: ClipboardList },
+  { href: "/crm/orders", label: "ประวัติออเดอร์", icon: ClipboardList },
   { href: "/crm/customers", label: "ลูกค้า", icon: Users },
   { href: "/crm/import", label: "นำเข้ายอดขาย", icon: FileUp },
   { href: "/crm/import-errors", label: "ตรวจ import", icon: AlertTriangle },

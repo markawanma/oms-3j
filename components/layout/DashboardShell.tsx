@@ -68,17 +68,17 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "TikTok Ops",
     items: [
-      { href: "/tiktok/dashboard", label: "แดชบอร์ด", icon: BarChart3 },
+      { href: "/tiktok/dashboard", label: "แดชบอร์ด TikTok", icon: BarChart3 },
       { href: "/tiktok/sales", label: "ยอดขาย", icon: Coins },
       { href: "/tiktok/upload", label: "อัปโหลด", icon: Tags },
-      { href: "/tiktok/copilot", label: "Ad Copilot", icon: Target },
+      { href: "/tiktok/copilot", label: "Ad Copilot TikTok", icon: Target },
     ],
   },
   {
     label: "CRM",
     items: [
       { href: "/crm/overview", label: "ภาพรวม", icon: LineChart },
-      { href: "/crm/orders", label: "ออเดอร์", icon: Receipt },
+      { href: "/crm/orders", label: "ประวัติออเดอร์", icon: Receipt },
       { href: "/crm/customers", label: "ลูกค้า", icon: Users },
       { href: "/crm/import", label: "นำเข้ายอดขาย", icon: FileUp },
       { href: "/crm/import-errors", label: "ตรวจ import", icon: AlertTriangle },
