@@ -33,6 +33,21 @@ import type { CrmMergeCandidateRow, MergeCandidateSide, MergeConfidence } from "
 
 const SCHEMA = "analytics";
 
+// PostgREST puts .in() list values straight into the request URL's query
+// string — an unbounded id list (e.g. "every customer with an order this
+// shop has ever had", 2,653+ and growing with every backfill) blows past the
+// ~16K HTTP header limit (HeadersOverflow) well before it's a "big" list in
+// application terms. 200 UUIDs (~36 chars incl. commas) is ~8K, comfortably
+// under the limit with headroom for the rest of the URL — same chunk size
+// already used for dedup-key lookups in lib/actions/import-orders.ts.
+const ID_CHUNK_SIZE = 200;
+
+function chunkArray<T>(arr: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
 // ============================================================================
 // B2a write layer (docs/3j-jewelry/analytics/phase-b-crm-design.md §2.1/§2.2/
 // §2.3, migration 0021_crm_b2a_write.sql). Every RPC below is SECURITY
@@ -235,13 +250,16 @@ export async function getCrmOverview(params?: GetCrmOverviewParams): Promise<Act
       no_orders: 0,
     };
     const customerIdList = Array.from(customerIds);
-    if (customerIdList.length > 0) {
+    // Chunked (ID_CHUNK_SIZE) — customerIdList scales with the shop's whole
+    // customer base (2,653+ after the backfill), which overflows PostgREST's
+    // .in() URL as a single request (HeadersOverflow, see ID_CHUNK_SIZE doc).
+    for (const chunk of chunkArray(customerIdList, ID_CHUNK_SIZE)) {
       const { data: segmentData, error: segmentErr } = await supabase
         .schema(SCHEMA)
         .from("v_rfm_segment")
         .select("segment")
         .eq("shop_id", shopId)
-        .in("customer_id", customerIdList);
+        .in("customer_id", chunk);
       if (segmentErr) throw segmentErr;
       for (const row of (segmentData ?? []) as { segment: string }[]) {
         const seg = row.segment as RfmSegment;
@@ -453,25 +471,30 @@ export async function getCrmOrders(params?: GetCrmOrdersParams): Promise<ActionR
     // (no shop_id column, same note as getCrmEditOptions above); dim_customer
     // IS shop-scoped, so it's additionally filtered by shopId as a second
     // tenant-isolation layer beyond "only IDs already in this shop's orders".
-    const [customersRes, channelsRes, geoRes] = await Promise.all([
-      customerIds.length > 0
-        ? supabase
-            .schema(SCHEMA)
-            .from("dim_customer")
-            .select("id, display_name")
-            .eq("shop_id", shopId)
-            .in("id", customerIds)
-        : Promise.resolve({ data: [] as { id: string; display_name: string | null }[], error: null }),
+    // customerIds scales with every order's customer across the whole shop
+    // (334+ rows -> as many distinct customers), same overflow risk as
+    // getCrmOverview's segment lookup above — chunked (ID_CHUNK_SIZE) for the
+    // same reason, then merged into one customerMap below.
+    const [customerChunkResults, channelsRes, geoRes] = await Promise.all([
+      Promise.all(
+        chunkArray(customerIds, ID_CHUNK_SIZE).map((chunk) =>
+          supabase.schema(SCHEMA).from("dim_customer").select("id, display_name").eq("shop_id", shopId).in("id", chunk)
+        )
+      ),
       supabase.schema(SCHEMA).from("dim_channel").select("id, code, name"),
       supabase.schema(SCHEMA).from("dim_geo").select("province_code, province_name_th"),
     ]);
-    if (customersRes.error) throw customersRes.error;
+    for (const res of customerChunkResults) {
+      if (res.error) throw res.error;
+    }
     if (channelsRes.error) throw channelsRes.error;
     if (geoRes.error) throw geoRes.error;
 
     const customerMap = new Map<string, string | null>();
-    for (const c of (customersRes.data ?? []) as { id: string; display_name: string | null }[]) {
-      customerMap.set(c.id, c.display_name);
+    for (const res of customerChunkResults) {
+      for (const c of (res.data ?? []) as { id: string; display_name: string | null }[]) {
+        customerMap.set(c.id, c.display_name);
+      }
     }
     const channelMap = new Map<string, { code: string; name: string }>();
     for (const c of (channelsRes.data ?? []) as { id: string; code: string; name: string }[]) {
