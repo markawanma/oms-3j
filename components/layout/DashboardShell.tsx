@@ -104,12 +104,29 @@ const NAV_GROUPS: NavGroup[] = [
   },
 ];
 
-function isActive(pathname: string, href: string): boolean {
+/** True when `href` matches the current path at all (exact, or a parent segment).
+ * "/" matches only the exact root so it doesn't light up on every page. */
+function pathMatches(pathname: string, href: string): boolean {
   if (href === "/") return pathname === "/";
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
+/** The single most-specific nav href to highlight. Without the longest-match
+ * step, /stock/hero would light up both "สต็อก" (/stock) and "จอสต็อก Hero"
+ * (/stock/hero) since both are prefixes — only the longest should win. */
+function activeNavHref(pathname: string, hrefs: string[]): string | null {
+  let best: string | null = null;
+  for (const href of hrefs) {
+    if (pathMatches(pathname, href) && (best === null || href.length > best.length)) best = href;
+  }
+  return best;
+}
+
 function NavList({ pathname, onNavigate }: { pathname: string; onNavigate?: () => void }) {
+  const activeHref = activeNavHref(
+    pathname,
+    NAV_GROUPS.flatMap((g) => g.items.map((i) => i.href))
+  );
   return (
     <nav aria-label="เมนูหลัก" className="flex flex-col gap-4 p-3">
       {NAV_GROUPS.map((group) => (
@@ -117,7 +134,7 @@ function NavList({ pathname, onNavigate }: { pathname: string; onNavigate?: () =
           <p className="px-2 pb-1 text-[0.68rem] font-bold uppercase tracking-wider text-zinc-400">{group.label}</p>
           <div className="flex flex-col gap-0.5">
             {group.items.map(({ href, label, icon: Icon }) => {
-              const active = isActive(pathname, href);
+              const active = href === activeHref;
               return (
                 <Link
                   key={href}
