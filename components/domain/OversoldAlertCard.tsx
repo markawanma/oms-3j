@@ -30,7 +30,7 @@ export function OversoldAlertCard({ busy, onCancel }: { busy: boolean; onCancel:
       </section>
 
       <Modal open={modalOpen} onClose={() => setModalOpen(false)} title="ยกเลิกออเดอร์ (ของไม่พอ)">
-        <label htmlFor="oversold-cancel-reason" className="text-sm font-medium text-slate-700">
+        <label htmlFor="oversold-cancel-reason" className="text-sm font-medium text-zinc-700">
           เหตุผลการยกเลิก
         </label>
         <textarea
@@ -38,7 +38,7 @@ export function OversoldAlertCard({ busy, onCancel }: { busy: boolean; onCancel:
           value={reason}
           onChange={(e) => setReason(e.target.value)}
           rows={3}
-          className="mt-1 w-full rounded-md border border-slate-300 p-2 text-base"
+          className="mt-1 w-full rounded-md border border-zinc-300 p-2 text-base"
           placeholder="เช่น สินค้าหมดสต็อกจริง"
         />
         <div className="mt-4 flex gap-2">

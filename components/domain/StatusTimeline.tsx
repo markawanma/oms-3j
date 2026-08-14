@@ -7,7 +7,7 @@ const HAPPY_PATH: OrderStatus[] = ["new", "confirmed", "to_ship", "shipped", "co
 export function StatusTimeline({ status }: { status: OrderStatus }) {
   if (status === "cancelled" || status === "oversold_hold") {
     return (
-      <section aria-label="สถานะออเดอร์" className="rounded-lg border border-slate-200 bg-white p-4">
+      <section aria-label="สถานะออเดอร์" className="rounded-lg border border-zinc-200 bg-white p-4">
         <div className="flex items-center gap-2 text-red-700">
           <X className="h-5 w-5" aria-hidden="true" />
           <span className="font-medium">{STATUS_LABEL_TH[status]}</span>
@@ -19,7 +19,7 @@ export function StatusTimeline({ status }: { status: OrderStatus }) {
   const currentIndex = HAPPY_PATH.indexOf(status);
 
   return (
-    <section aria-label="สถานะออเดอร์" className="rounded-lg border border-slate-200 bg-white p-4">
+    <section aria-label="สถานะออเดอร์" className="rounded-lg border border-zinc-200 bg-white p-4">
       <ol className="flex items-center justify-between">
         {HAPPY_PATH.map((step, i) => {
           const done = i < currentIndex;
@@ -32,13 +32,13 @@ export function StatusTimeline({ status }: { status: OrderStatus }) {
                     ? "bg-green-600 text-white"
                     : active
                       ? "bg-primary-600 text-white"
-                      : "bg-slate-200 text-slate-500"
+                      : "bg-zinc-200 text-zinc-500"
                 }`}
                 aria-current={active ? "step" : undefined}
               >
                 {done ? <Check className="h-4 w-4" aria-hidden="true" /> : i + 1}
               </span>
-              <span className={`mt-1 text-xs ${active ? "font-semibold text-slate-900" : "text-slate-500"}`}>
+              <span className={`mt-1 text-xs ${active ? "font-semibold text-zinc-900" : "text-zinc-500"}`}>
                 {STATUS_LABEL_TH[step]}
               </span>
             </li>

@@ -45,11 +45,11 @@ export function AddProductForm() {
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4 rounded-lg border border-slate-200 bg-white p-4">
+    <form onSubmit={handleSubmit} className="space-y-4 rounded-lg border border-zinc-200 bg-white p-4">
       {error && <ErrorBanner message={error} />}
 
       <div>
-        <label htmlFor="sku" className="block text-sm font-medium text-slate-700">
+        <label htmlFor="sku" className="block text-sm font-medium text-zinc-700">
           SKU
         </label>
         <input
@@ -57,13 +57,13 @@ export function AddProductForm() {
           value={sku}
           onChange={(e) => setSku(e.target.value)}
           required
-          className="mt-1 min-h-11 w-full rounded-md border border-slate-300 px-3 text-base"
+          className="mt-1 min-h-11 w-full rounded-md border border-zinc-300 px-3 text-base"
           placeholder="เช่น TSHIRT-BLK-M"
         />
       </div>
 
       <div>
-        <label htmlFor="product-name" className="block text-sm font-medium text-slate-700">
+        <label htmlFor="product-name" className="block text-sm font-medium text-zinc-700">
           ชื่อสินค้า
         </label>
         <input
@@ -71,13 +71,13 @@ export function AddProductForm() {
           value={name}
           onChange={(e) => setName(e.target.value)}
           required
-          className="mt-1 min-h-11 w-full rounded-md border border-slate-300 px-3 text-base"
+          className="mt-1 min-h-11 w-full rounded-md border border-zinc-300 px-3 text-base"
           placeholder="เช่น เสื้อยืดสีดำ ไซส์ M"
         />
       </div>
 
       <div>
-        <label htmlFor="initial-stock" className="block text-sm font-medium text-slate-700">
+        <label htmlFor="initial-stock" className="block text-sm font-medium text-zinc-700">
           สต็อกเริ่มต้น
         </label>
         <input
@@ -88,7 +88,7 @@ export function AddProductForm() {
           value={initialStock}
           onChange={(e) => setInitialStock(e.target.value)}
           required
-          className="mt-1 min-h-11 w-full rounded-md border border-slate-300 px-3 text-base"
+          className="mt-1 min-h-11 w-full rounded-md border border-zinc-300 px-3 text-base"
         />
       </div>
 

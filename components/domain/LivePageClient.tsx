@@ -87,9 +87,9 @@ export function LivePageClient({
           </div>
         </div>
       ) : (
-        <form onSubmit={handleStart} className="space-y-3 rounded-lg border border-slate-200 bg-white p-4">
+        <form onSubmit={handleStart} className="space-y-3 rounded-lg border border-zinc-200 bg-white p-4">
           <div>
-            <label htmlFor="live-title" className="block text-sm font-medium text-slate-700">
+            <label htmlFor="live-title" className="block text-sm font-medium text-zinc-700">
               ชื่อไลฟ์ (ไม่บังคับ)
             </label>
             <input
@@ -97,7 +97,7 @@ export function LivePageClient({
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="เช่น ไลฟ์เย็นวันศุกร์"
-              className="mt-1 min-h-11 w-full rounded-md border border-slate-300 px-3 text-base"
+              className="mt-1 min-h-11 w-full rounded-md border border-zinc-300 px-3 text-base"
             />
           </div>
           <Button type="submit" variant="primary" loading={starting} className="w-full">
@@ -107,7 +107,7 @@ export function LivePageClient({
       )}
 
       <div>
-        <h2 className="mb-2 text-sm font-semibold text-slate-700">ไลฟ์ล่าสุด</h2>
+        <h2 className="mb-2 text-sm font-semibold text-zinc-700">ไลฟ์ล่าสุด</h2>
         {sessions.length === 0 ? (
           <EmptyState icon={Radio} title="ยังไม่เคยเริ่มไลฟ์" description="กดปุ่ม 'เริ่มไลฟ์' ด้านบนเพื่อเริ่มจดออเดอร์" />
         ) : (

@@ -199,7 +199,7 @@ export function LiveOrderTakingClient({
   return (
     <div className="grid gap-4 md:grid-cols-[1fr_320px]">
       <div className="space-y-4">
-        <form onSubmit={handleSubmit} className="space-y-4 rounded-lg border border-slate-200 bg-white p-4">
+        <form onSubmit={handleSubmit} className="space-y-4 rounded-lg border border-zinc-200 bg-white p-4">
           {formError && <ErrorBanner message={formError} />}
 
           <ProductSearchCombobox onSelect={addProduct} resetKey={resetKey} />
@@ -207,10 +207,10 @@ export function LiveOrderTakingClient({
           {cart.length > 0 && (
             <ul className="space-y-2">
               {cart.map((line) => (
-                <li key={line.key} className="flex items-center gap-2 rounded-md border border-slate-200 p-2">
+                <li key={line.key} className="flex items-center gap-2 rounded-md border border-zinc-200 p-2">
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-slate-900">{line.name}</p>
-                    <p className="text-xs text-slate-400">
+                    <p className="truncate text-sm font-medium text-zinc-900">{line.name}</p>
+                    <p className="text-xs text-zinc-400">
                       SKU: {line.sku} · เหลือ {line.available}
                     </p>
                   </div>
@@ -220,7 +220,7 @@ export function LiveOrderTakingClient({
                       type="button"
                       aria-label={`ลดจำนวน ${line.name}`}
                       onClick={() => updateQty(line.key, -1)}
-                      className="flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 hover:bg-slate-50"
+                      className="flex h-9 w-9 items-center justify-center rounded-md border border-zinc-300 hover:bg-zinc-50"
                     >
                       <Minus className="h-3.5 w-3.5" aria-hidden="true" />
                     </button>
@@ -234,13 +234,13 @@ export function LiveOrderTakingClient({
                       step={1}
                       value={line.qty}
                       onChange={(e) => setQty(line.key, e.target.value)}
-                      className="h-9 w-14 rounded-md border border-slate-300 text-center text-sm"
+                      className="h-9 w-14 rounded-md border border-zinc-300 text-center text-sm"
                     />
                     <button
                       type="button"
                       aria-label={`เพิ่มจำนวน ${line.name}`}
                       onClick={() => updateQty(line.key, 1)}
-                      className="flex h-9 w-9 items-center justify-center rounded-md border border-slate-300 hover:bg-slate-50"
+                      className="flex h-9 w-9 items-center justify-center rounded-md border border-zinc-300 hover:bg-zinc-50"
                     >
                       <Plus className="h-3.5 w-3.5" aria-hidden="true" />
                     </button>
@@ -258,7 +258,7 @@ export function LiveOrderTakingClient({
                       value={line.unitPrice}
                       onChange={(e) => setUnitPrice(line.key, e.target.value)}
                       placeholder="ราคา/ชิ้น"
-                      className="h-9 w-24 rounded-md border border-slate-300 px-2 text-right text-sm"
+                      className="h-9 w-24 rounded-md border border-zinc-300 px-2 text-right text-sm"
                     />
                   </div>
 
@@ -266,7 +266,7 @@ export function LiveOrderTakingClient({
                     type="button"
                     aria-label={`ลบ ${line.name} ออกจากรายการ`}
                     onClick={() => removeLine(line.key)}
-                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-slate-400 hover:bg-red-50 hover:text-red-600"
+                    className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-zinc-400 hover:bg-red-50 hover:text-red-600"
                   >
                     <X className="h-4 w-4" aria-hidden="true" />
                   </button>
@@ -276,7 +276,7 @@ export function LiveOrderTakingClient({
           )}
 
           <div>
-            <label htmlFor="buyer-name" className="block text-sm font-medium text-slate-700">
+            <label htmlFor="buyer-name" className="block text-sm font-medium text-zinc-700">
               ชื่อผู้ซื้อ (CF)
             </label>
             <input
@@ -285,7 +285,7 @@ export function LiveOrderTakingClient({
               value={buyerName}
               onChange={(e) => setBuyerName(e.target.value)}
               placeholder="พิมพ์ชื่อผู้ซื้อ..."
-              className="mt-1 min-h-11 w-full rounded-md border border-slate-300 px-3 text-base focus-visible:border-primary-600"
+              className="mt-1 min-h-11 w-full rounded-md border border-zinc-300 px-3 text-base focus-visible:border-primary-600"
             />
             <datalist id="recent-buyer-names">
               {recentBuyerNames.map((name) => (
@@ -295,7 +295,7 @@ export function LiveOrderTakingClient({
           </div>
 
           {cart.length > 0 && (
-            <p className="text-right text-sm font-semibold text-slate-700">รวม {formatTHB(cartTotal)}</p>
+            <p className="text-right text-sm font-semibold text-zinc-700">รวม {formatTHB(cartTotal)}</p>
           )}
 
           <Button type="submit" variant="primary" loading={submitting} className="w-full">
@@ -309,20 +309,20 @@ export function LiveOrderTakingClient({
       </div>
 
       <aside className="space-y-4">
-        <div className="rounded-lg border border-slate-200 bg-white p-4">
+        <div className="rounded-lg border border-zinc-200 bg-white p-4">
           <div className="mb-2 flex items-center gap-2">
             <Radio className="h-4 w-4 text-primary-600" aria-hidden="true" />
-            <h2 className="text-sm font-semibold text-slate-700">ยอดรวมไลฟ์นี้</h2>
+            <h2 className="text-sm font-semibold text-zinc-700">ยอดรวมไลฟ์นี้</h2>
           </div>
           {stats ? (
             <dl className="space-y-1 text-sm">
               <div className="flex justify-between">
-                <dt className="text-slate-500">ออเดอร์</dt>
-                <dd className="font-medium text-slate-900">{stats.orderCount}</dd>
+                <dt className="text-zinc-500">ออเดอร์</dt>
+                <dd className="font-medium text-zinc-900">{stats.orderCount}</dd>
               </div>
               <div className="flex justify-between">
-                <dt className="text-slate-500">ยอดขาย (GMV)</dt>
-                <dd className="font-medium text-slate-900">{formatTHB(stats.gmv)}</dd>
+                <dt className="text-zinc-500">ยอดขาย (GMV)</dt>
+                <dd className="font-medium text-zinc-900">{formatTHB(stats.gmv)}</dd>
               </div>
               {stats.oversoldCount > 0 && (
                 <div className="flex justify-between">
@@ -332,32 +332,32 @@ export function LiveOrderTakingClient({
               )}
             </dl>
           ) : (
-            <p className="text-sm text-slate-400">ยังไม่มีข้อมูล</p>
+            <p className="text-sm text-zinc-400">ยังไม่มีข้อมูล</p>
           )}
         </div>
 
-        <div className="rounded-lg border border-slate-200 bg-white p-4">
-          <h2 className="mb-2 text-sm font-semibold text-slate-700">รายการล่าสุดที่จด</h2>
+        <div className="rounded-lg border border-zinc-200 bg-white p-4">
+          <h2 className="mb-2 text-sm font-semibold text-zinc-700">รายการล่าสุดที่จด</h2>
           {recentOrders.length === 0 ? (
-            <p className="text-sm text-slate-400">ยังไม่มีรายการในไลฟ์นี้</p>
+            <p className="text-sm text-zinc-400">ยังไม่มีรายการในไลฟ์นี้</p>
           ) : (
             <ul className="space-y-2">
               {recentOrders.map((order, index) => (
-                <li key={order.orderId} className="rounded-md border border-slate-200 p-2 text-sm">
+                <li key={order.orderId} className="rounded-md border border-zinc-200 p-2 text-sm">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="truncate font-medium text-slate-900">
+                    <span className="truncate font-medium text-zinc-900">
                       {order.buyerName ?? "ไม่ระบุชื่อผู้ซื้อ"}
                     </span>
-                    <span className="shrink-0 text-slate-600">{formatTHB(order.totalAmount)}</span>
+                    <span className="shrink-0 text-zinc-600">{formatTHB(order.totalAmount)}</span>
                   </div>
-                  <div className="mt-1 flex items-center justify-between text-xs text-slate-400">
+                  <div className="mt-1 flex items-center justify-between text-xs text-zinc-400">
                     <span>{order.itemCount} ชิ้น · #{order.externalOrderId}</span>
                     {index === 0 && (
                       <button
                         type="button"
                         onClick={() => handleCancelLatest(order.orderId)}
                         disabled={cancellingId === order.orderId}
-                        className="flex items-center gap-1 font-medium text-red-600 hover:underline disabled:text-slate-300"
+                        className="flex items-center gap-1 font-medium text-red-600 hover:underline disabled:text-zinc-300"
                       >
                         <Trash2 className="h-3 w-3" aria-hidden="true" />
                         ยกเลิกรายการนี้

@@ -17,7 +17,7 @@ export default async function LivePage() {
 
   return (
     <div>
-      <h1 className="mb-3 text-xl font-bold text-slate-900">จดออเดอร์เร็วตอนไลฟ์</h1>
+      <h1 className="mb-3 text-xl font-bold text-zinc-900">จดออเดอร์เร็วตอนไลฟ์</h1>
       <LivePageClient initialOpenSession={openResult.data} initialSessions={listResult.data} />
     </div>
   );

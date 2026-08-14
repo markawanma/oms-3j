@@ -1,0 +1,504 @@
+<title>TikTok Ops · 3J Jewelry (Mockup)</title>
+<style>
+  :root{
+    --ground:#f8fafc;--surface:#fff;--surface-2:#f1f5f9;--border:#e2e8f0;--text:#0f172a;--text-2:#475569;--text-3:#94a3b8;
+    --brand:#a2191d;--brand-ink:#7d1316;--primary:#4f46e5;--primary-tint:#eef2ff;
+    --up:#059669;--up-tint:#dcfce7;--up-ink:#166534;--down:#e11d48;--warn:#d97706;--warn-tint:#fef3c7;--warn-ink:#92400e;
+    --hi:#059669;--hi-tint:#dcfce7;--hi-ink:#166534;--info:#0369a1;--info-tint:#e0f2fe;--info-ink:#075985;--unknown:#64748b;
+    --radius:12px;--shadow:0 1px 2px rgba(15,23,42,.06),0 1px 3px rgba(15,23,42,.04);
+    --font:"Noto Sans Thai","IBM Plex Sans Thai",system-ui,-apple-system,"Segoe UI",sans-serif;
+  }
+  @media(prefers-color-scheme:dark){:root{
+    --ground:#0b1120;--surface:#111827;--surface-2:#1e293b;--border:#1e293b;--text:#f1f5f9;--text-2:#94a3b8;--text-3:#64748b;
+    --brand:#f0787c;--brand-ink:#f0787c;--primary:#818cf8;--primary-tint:#1e1b4b;
+    --up:#34d399;--up-tint:#052e1a;--up-ink:#6ee7b7;--down:#fb7185;--warn:#fbbf24;--warn-tint:#3a2e12;--warn-ink:#fcd34d;
+    --hi:#34d399;--hi-tint:#052e1a;--hi-ink:#6ee7b7;--info:#38bdf8;--info-tint:#082f49;--info-ink:#7dd3fc;--unknown:#94a3b8;--shadow:0 1px 2px rgba(0,0,0,.3);
+  }}
+  :root[data-theme="light"]{--ground:#f8fafc;--surface:#fff;--surface-2:#f1f5f9;--border:#e2e8f0;--text:#0f172a;--text-2:#475569;--text-3:#94a3b8;--brand:#a2191d;--brand-ink:#7d1316;--primary:#4f46e5;--primary-tint:#eef2ff;--up:#059669;--up-tint:#dcfce7;--up-ink:#166534;--down:#e11d48;--warn:#d97706;--warn-tint:#fef3c7;--warn-ink:#92400e;--hi:#059669;--hi-tint:#dcfce7;--hi-ink:#166534;--info:#0369a1;--info-tint:#e0f2fe;--info-ink:#075985;--unknown:#64748b;}
+  :root[data-theme="dark"]{--ground:#0b1120;--surface:#111827;--surface-2:#1e293b;--border:#1e293b;--text:#f1f5f9;--text-2:#94a3b8;--text-3:#64748b;--brand:#f0787c;--brand-ink:#f0787c;--primary:#818cf8;--primary-tint:#1e1b4b;--up:#34d399;--up-tint:#052e1a;--up-ink:#6ee7b7;--down:#fb7185;--warn:#fbbf24;--warn-tint:#3a2e12;--warn-ink:#fcd34d;--hi:#34d399;--hi-tint:#052e1a;--hi-ink:#6ee7b7;--info:#38bdf8;--info-tint:#082f49;--info-ink:#7dd3fc;--unknown:#94a3b8;}
+  *{box-sizing:border-box;} body{margin:0;}
+  .ops{font-family:var(--font);background:var(--ground);color:var(--text);min-height:100vh;-webkit-font-smoothing:antialiased;padding-bottom:78px;}
+  .shell{max-width:840px;margin:0 auto;}
+  .tnum{font-variant-numeric:tabular-nums;}
+
+  /* ---- shared header ---- */
+  .hdr{position:sticky;top:0;z-index:10;background:var(--surface);border-bottom:1px solid var(--border);}
+  .hdr-bar{height:3px;background:linear-gradient(90deg,var(--brand),var(--brand-ink));}
+  .hdr-in{max-width:840px;margin:0 auto;padding:12px 20px;display:flex;align-items:center;gap:12px;}
+  .logo{width:30px;height:30px;border-radius:50%;border:3px solid var(--brand);border-top-color:transparent;transform:rotate(-45deg);flex:none;}
+  .hdr-title{display:flex;flex-direction:column;line-height:1.15;}
+  .hdr-title b{font-size:.95rem;font-weight:700;}
+  .hdr-title span{font-size:.68rem;color:var(--brand);font-weight:700;text-transform:uppercase;letter-spacing:.08em;}
+  .hdr-spacer{flex:1;}
+  .theme-btn{font:inherit;font-size:.8rem;color:var(--text-2);background:var(--surface-2);border:1px solid var(--border);border-radius:999px;padding:6px 12px;cursor:pointer;min-height:36px;}
+  .theme-btn:hover{border-color:var(--primary);}
+  :focus-visible{outline:2px solid var(--primary);outline-offset:2px;}
+
+  /* ---- bottom nav ---- */
+  .nav{position:fixed;bottom:0;left:0;right:0;z-index:20;background:color-mix(in srgb,var(--surface) 94%,transparent);backdrop-filter:blur(10px);border-top:1px solid var(--border);display:flex;justify-content:center;}
+  .nav-in{max-width:840px;width:100%;display:flex;}
+  .nav button{flex:1;border:none;background:none;cursor:pointer;font:inherit;color:var(--text-3);padding:9px 4px calc(9px + env(safe-area-inset-bottom,0));display:flex;flex-direction:column;align-items:center;gap:3px;min-height:56px;}
+  .nav button .ni{font-size:1.15rem;line-height:1;}
+  .nav button .nl{font-size:.68rem;font-weight:700;}
+  .nav button.on{color:var(--primary);}
+  .nav button.on .ni{transform:translateY(-1px);}
+
+  /* ---- views ---- */
+  .view{display:none;} .view.on{display:block;}
+  section{padding:16px 20px 0;}
+  .sec-label{font-size:.7rem;text-transform:uppercase;letter-spacing:.07em;color:var(--text-3);font-weight:700;margin:0 0 10px;}
+
+  /* ---- shared: data-quality, badge, foot ---- */
+  .dq{margin:12px 20px 0;padding:11px 14px;background:var(--warn-tint);border:1px solid color-mix(in srgb,var(--warn) 35%,transparent);border-radius:var(--radius);display:flex;gap:10px;align-items:flex-start;}
+  .dq-ic{color:var(--warn);flex:none;margin-top:1px;}
+  .dq-txt{font-size:.8rem;color:var(--warn-ink);line-height:1.5;} .dq-txt b{font-weight:700;}
+  .badge{font-size:.64rem;font-weight:700;padding:2px 8px;border-radius:6px;text-transform:uppercase;letter-spacing:.02em;}
+  .badge.amber{background:var(--warn-tint);color:var(--warn-ink);} .badge.slate{background:var(--surface-2);color:var(--unknown);}
+  .foot{margin:24px 20px 0;padding-top:14px;border-top:1px solid var(--border);font-size:.72rem;color:var(--text-3);line-height:1.6;} .foot b{color:var(--text-2);}
+
+  /* ============ DASHBOARD ============ */
+  .filters{display:flex;gap:8px;padding:14px 20px 4px;flex-wrap:wrap;}
+  .chip{font:inherit;font-size:.82rem;min-height:40px;display:inline-flex;align-items:center;gap:6px;background:var(--surface);border:1px solid var(--border);color:var(--text-2);border-radius:999px;padding:0 14px;cursor:pointer;}
+  .chip[aria-pressed="true"]{background:var(--primary-tint);border-color:var(--primary);color:var(--primary);font-weight:600;}
+  .chip .cv{color:var(--text-3);font-size:.72rem;}
+  .kpis{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;}
+  @media(min-width:720px){.kpis{grid-template-columns:repeat(4,1fr);}}
+  .kpi{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:14px;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:3px;}
+  .kpi-lbl{font-size:.74rem;color:var(--text-2);font-weight:500;} .kpi-val{font-size:1.5rem;font-weight:700;letter-spacing:-.02em;line-height:1.1;}
+  .kpi-meta{display:flex;align-items:center;gap:6px;margin-top:2px;}
+  .delta{font-size:.76rem;font-weight:700;} .delta.up{color:var(--up);} .delta.down{color:var(--down);} .delta.flat{color:var(--text-3);}
+  .delta-lbl{font-size:.7rem;color:var(--text-3);}
+  .cov{font-size:.66rem;font-weight:700;color:var(--warn-ink);background:var(--warn-tint);border-radius:5px;padding:2px 6px;align-self:flex-start;margin-top:6px;}
+  .tabs{display:flex;gap:4px;background:var(--surface-2);border-radius:10px;padding:4px;overflow-x:auto;}
+  .tab{font:inherit;font-size:.8rem;white-space:nowrap;flex:1;min-height:38px;border:none;background:transparent;color:var(--text-2);border-radius:7px;padding:0 12px;cursor:pointer;font-weight:600;}
+  .tab[aria-selected="true"]{background:var(--surface);color:var(--primary);box-shadow:var(--shadow);}
+  .panel{margin-top:14px;display:none;flex-direction:column;gap:12px;} .panel.on{display:flex;}
+  .brow{display:grid;grid-template-columns:130px 1fr auto;align-items:center;gap:12px;}
+  @media(max-width:480px){.brow{grid-template-columns:96px 1fr auto;gap:8px;}}
+  .brow-lbl{font-size:.82rem;color:var(--text);display:flex;align-items:center;gap:6px;} .brow-lbl.mut{color:var(--text-2);}
+  .bar-track{height:10px;background:var(--surface-2);border-radius:999px;overflow:hidden;}
+  .bar-fill{height:100%;border-radius:999px;background:var(--primary);} .bar-fill.unknown{background:var(--unknown);}
+  .brow-val{font-size:.82rem;font-weight:700;color:var(--text);min-width:62px;text-align:right;} .brow-val small{color:var(--text-3);font-weight:500;font-size:.72rem;}
+
+  /* ============ AD COPILOT ============ */
+  .overview{margin:16px 20px 0;background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden;}
+  .ov-top{padding:14px 16px 10px;display:flex;align-items:flex-start;gap:14px;flex-wrap:wrap;}
+  .ov-head{flex:1;min-width:160px;} .ov-eyebrow{font-size:.68rem;text-transform:uppercase;letter-spacing:.07em;color:var(--text-3);font-weight:700;}
+  .ov-title{font-size:1.02rem;font-weight:700;margin:2px 0 0;}
+  .ov-stats{display:grid;grid-template-columns:repeat(2,1fr);gap:1px;background:var(--border);border-top:1px solid var(--border);}
+  @media(min-width:600px){.ov-stats{grid-template-columns:repeat(4,1fr);}}
+  .ov-stat{background:var(--surface);padding:10px 14px;} .ov-stat .k{font-size:.68rem;color:var(--text-2);} .ov-stat .v{font-size:1.05rem;font-weight:700;} .ov-stat .d{font-size:.7rem;font-weight:700;}
+  .d.down{color:var(--down);} .d.up{color:var(--up);} .d.mut{color:var(--text-3);}
+  .sec{margin:20px 20px 0;}
+  .sec-hd{display:flex;align-items:center;gap:8px;width:100%;background:none;border:none;padding:0 0 4px;font:inherit;color:var(--text);}
+  .sec.collapsible .sec-hd{cursor:pointer;}
+  .sec-hd h2{font-size:.82rem;text-transform:uppercase;letter-spacing:.06em;color:var(--text-2);font-weight:700;margin:0;}
+  .sec-count{font-size:.72rem;font-weight:700;background:var(--surface-2);color:var(--text-2);border-radius:999px;padding:1px 9px;min-width:22px;text-align:center;}
+  .sec-hd .chev{margin-left:auto;color:var(--text-3);transition:transform .15s;}
+  .sec.collapsed .chev{transform:rotate(-90deg);} .sec.collapsed .sec-body{display:none;}
+  .sec-body{display:flex;flex-direction:column;gap:12px;padding-top:8px;}
+  .card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);box-shadow:var(--shadow);padding:15px;display:flex;flex-direction:column;gap:10px;}
+  .card.decided{opacity:.72;}
+  .card-top{display:flex;align-items:flex-start;gap:11px;}
+  .card-ic{width:34px;height:34px;border-radius:9px;background:var(--primary-tint);display:flex;align-items:center;justify-content:center;font-size:1.05rem;flex:none;}
+  .card.warn .card-ic{background:var(--warn-tint);}
+  .card-hdtxt{flex:1;} .card-title{font-size:.96rem;font-weight:700;line-height:1.3;margin:0;text-wrap:balance;}
+  .conf{font-size:.64rem;font-weight:700;text-transform:uppercase;letter-spacing:.03em;padding:2px 8px;border-radius:6px;margin-top:3px;display:inline-block;}
+  .conf.hi{background:var(--hi-tint);color:var(--hi-ink);} .conf.mid{background:var(--warn-tint);color:var(--warn-ink);} .conf.low{background:var(--surface-2);color:var(--unknown);}
+  .reason{font-size:.83rem;color:var(--text-2);line-height:1.55;margin:0;}
+  .metrics{display:flex;flex-wrap:wrap;gap:6px;}
+  .metric{font-size:.72rem;font-weight:600;background:var(--surface-2);color:var(--text);border-radius:6px;padding:3px 9px;font-variant-numeric:tabular-nums;} .metric b{color:var(--brand);font-weight:700;}
+  .actions{display:flex;gap:8px;align-items:center;padding-top:2px;flex-wrap:wrap;}
+  .approve{font:inherit;font-size:.84rem;font-weight:600;min-height:40px;padding:0 18px;border-radius:9px;border:none;background:var(--primary);color:#fff;cursor:pointer;}
+  .dismiss{font:inherit;font-size:.84rem;font-weight:600;min-height:40px;padding:0 16px;border-radius:9px;border:1px solid var(--border);background:transparent;color:var(--text-2);cursor:pointer;}
+  .dismiss:hover{border-color:var(--down);color:var(--down);}
+  .apply{font:inherit;font-size:.78rem;font-weight:600;min-height:40px;padding:0 12px;border-radius:9px;border:1px dashed var(--border);background:transparent;color:var(--text-3);cursor:not-allowed;margin-left:auto;}
+  .status-tag{font-size:.74rem;font-weight:700;padding:5px 11px;border-radius:8px;} .status-tag.ok{background:var(--hi-tint);color:var(--hi-ink);} .status-tag.no{background:var(--surface-2);color:var(--text-2);}
+  .decided-meta{font-size:.72rem;color:var(--text-3);}
+
+  /* ============ UPLOAD ============ */
+  .dropzone{width:100%;border:2px dashed var(--border);border-radius:var(--radius);background:var(--surface);padding:30px 20px;display:flex;flex-direction:column;align-items:center;gap:8px;cursor:pointer;text-align:center;transition:border-color .15s,background .15s;}
+  .dropzone:hover,.dropzone.drag{border-color:var(--primary);background:var(--primary-tint);}
+  .dz-ic{color:var(--primary);} .dz-t{font-size:.95rem;font-weight:700;} .dz-d{font-size:.8rem;color:var(--text-2);} .dz-hint{font-size:.72rem;color:var(--text-3);}
+  .qlist{display:flex;flex-direction:column;gap:8px;}
+  .qitem{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:11px 13px;display:flex;align-items:center;gap:11px;box-shadow:var(--shadow);}
+  .q-ic{width:30px;height:30px;border-radius:7px;background:var(--surface-2);display:flex;align-items:center;justify-content:center;flex:none;font-size:.9rem;}
+  .q-body{flex:1;min-width:0;} .q-name{font-size:.82rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;} .q-sub{font-size:.72rem;color:var(--text-3);margin-top:1px;}
+  .q-prog{height:5px;background:var(--surface-2);border-radius:999px;overflow:hidden;margin-top:6px;} .q-prog i{display:block;height:100%;background:var(--primary);border-radius:999px;}
+  .q-st{font-size:.7rem;font-weight:700;padding:3px 9px;border-radius:6px;white-space:nowrap;flex:none;}
+  .q-st.done{background:var(--up-tint);color:var(--up-ink);} .q-st.parsing{background:var(--info-tint);color:var(--info-ink);} .q-st.failed{background:var(--warn-tint);color:var(--warn-ink);}
+  .q-retry{font:inherit;font-size:.72rem;font-weight:600;color:var(--primary);background:none;border:none;cursor:pointer;padding:2px 4px;}
+  .summary{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;}
+  .sm{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px;text-align:center;box-shadow:var(--shadow);}
+  .sm .n{font-size:1.5rem;font-weight:800;line-height:1;} .sm .l{font-size:.68rem;color:var(--text-2);margin-top:4px;font-weight:600;}
+  .sm.ok .n{color:var(--up);} .sm.rev .n{color:var(--warn);} .sm.dup .n{color:var(--info);} .sm.fail .n{color:var(--down);}
+  .rq{display:flex;flex-direction:column;gap:10px;}
+  .rrow{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 13px;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:9px;}
+  .rr-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap;} .rr-oid{font-size:.82rem;font-weight:700;font-variant-numeric:tabular-nums;}
+  .rr-fields{display:flex;gap:8px;flex-wrap:wrap;} .field{display:flex;flex-direction:column;gap:3px;flex:1;min-width:130px;} .field label{font-size:.68rem;color:var(--text-2);font-weight:600;}
+  .sel,.inp{font:inherit;font-size:.82rem;min-height:38px;padding:0 10px;border:1px solid var(--border);border-radius:8px;background:var(--surface);color:var(--text);width:100%;} .inp{padding:8px 10px;}
+  .rr-act{display:flex;justify-content:flex-end;gap:8px;}
+  .btn{font:inherit;font-size:.82rem;font-weight:600;min-height:40px;padding:0 18px;border-radius:9px;border:none;cursor:pointer;} .btn.primary{background:var(--primary);color:#fff;} .btn.ghost{background:transparent;border:1px solid var(--border);color:var(--text-2);}
+  .btn.block{width:100%;margin-top:2px;}
+  .rq-empty{background:var(--surface);border:1px dashed var(--border);border-radius:10px;padding:24px;text-align:center;color:var(--text-2);font-size:.85rem;display:none;} .rq-empty.on{display:block;} .rq-empty b{color:var(--up);}
+  .remain{font-size:.78rem;color:var(--text-2);text-align:center;margin:12px 0 0;} .remain b{color:var(--text);}
+  /* ============ SALES ============ */
+  .drange{display:flex;gap:8px;padding:14px 20px 4px;flex-wrap:wrap;align-items:flex-end;}
+  .drf{display:flex;flex-direction:column;gap:3px;} .drf label{font-size:.68rem;color:var(--text-2);font-weight:600;}
+  .drf input{font:inherit;font-size:.85rem;min-height:40px;padding:0 10px;border:1px solid var(--border);border-radius:9px;background:var(--surface);color:var(--text);}
+  .dpresets{display:flex;gap:6px;margin-left:auto;}
+  .dpresets button{font:inherit;font-size:.78rem;font-weight:600;border:1px solid var(--border);background:var(--surface);color:var(--text-2);border-radius:999px;padding:0 12px;min-height:40px;cursor:pointer;}
+  .dpresets button:hover{border-color:var(--primary);color:var(--primary);}
+  .sscope{padding:0 20px;margin:8px 0 0;font-size:.78rem;color:var(--text-2);}
+  .skpis{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;padding:12px 20px 0;}
+  @media(min-width:760px){.skpis{grid-template-columns:repeat(5,1fr);}}
+  .skpi{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:13px 14px;box-shadow:var(--shadow);}
+  .skpi .l{font-size:.72rem;color:var(--text-2);} .skpi .v{font-size:1.3rem;font-weight:800;margin-top:4px;font-variant-numeric:tabular-nums;letter-spacing:-.01em;}
+  .skpi.hero .v{color:var(--brand);} .skpi .s{font-size:.66rem;color:var(--text-3);margin-top:2px;}
+  .story{margin:14px 20px 0;background:var(--surface);border:1px solid var(--border);border-left:3px solid var(--brand);border-radius:10px;padding:13px 16px;font-size:.8rem;color:var(--text-2);line-height:1.65;} .story b{color:var(--text);}
+  .scard{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px;margin:16px 20px 0;box-shadow:var(--shadow);}
+  .scard-hd{display:flex;align-items:center;gap:10px;flex-wrap:wrap;} .scard h3{margin:0 0 2px;font-size:.9rem;font-weight:700;} .scap{margin:0 0 10px;font-size:.72rem;color:var(--text-2);}
+  .stoggle{display:inline-flex;border:1px solid var(--border);border-radius:999px;overflow:hidden;margin-left:auto;}
+  .stoggle button{border:0;background:var(--surface);color:var(--text-2);padding:6px 12px;cursor:pointer;font:inherit;font-size:.72rem;font-weight:600;} .stoggle button.on{background:var(--primary);color:#fff;}
+  .slegend{display:flex;gap:14px;flex-wrap:wrap;font-size:.72rem;color:var(--text-2);margin-bottom:10px;} .slegend span{display:inline-flex;align-items:center;gap:6px;} .slegend i{width:10px;height:10px;border-radius:3px;}
+  .scard svg{display:block;width:100%;overflow:visible;} .scard text{font-family:var(--font);} .s-axis{fill:var(--text-3);font-size:10px;} .s-gl{stroke:var(--border);stroke-width:1;}
+  .stip{position:fixed;pointer-events:none;opacity:0;transition:opacity .1s;background:var(--text);color:var(--ground);font-size:11.5px;padding:7px 10px;border-radius:8px;z-index:30;white-space:nowrap;box-shadow:0 6px 20px rgba(0,0,0,.25);}
+  @media(prefers-reduced-motion:reduce){*{transition:none!important;}}
+</style>
+
+<div class="ops">
+  <header class="hdr">
+    <div class="hdr-bar"></div>
+    <div class="hdr-in">
+      <div class="logo" aria-hidden="true"></div>
+      <div class="hdr-title"><span>TikTok Ops</span><b id="pageTitle">แดชบอร์ดรายวัน</b></div>
+      <div class="hdr-spacer"></div>
+      <button class="theme-btn" id="themeBtn" type="button">🌗 สลับธีม</button>
+    </div>
+  </header>
+
+  <div class="shell">
+
+    <!-- ========== VIEW: DASHBOARD ========== -->
+    <main class="view on" id="view-dash">
+      <div class="filters" role="group" aria-label="ตัวกรอง">
+        <button class="chip" aria-pressed="true" type="button">📅 วันนี้ <span class="cv">6 ส.ค.</span></button>
+        <button class="chip" aria-pressed="false" type="button">ช่องทาง: ทั้งหมด</button>
+        <button class="chip" aria-pressed="false" type="button">ที่อยู่: ทุกประเภท</button>
+      </div>
+      <div class="dq" role="note">
+        <svg class="dq-ic" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>
+        <div class="dq-txt"><b>คุณภาพข้อมูล:</b> กำไรกรอกต้นทุนครบ <b>62%</b> · จังหวัด unknown <b>4%</b> · ที่อยู่รอตรวจสอบ <b>6 รายการ</b></div>
+      </div>
+      <section aria-label="ตัวชี้วัดหลัก">
+        <div class="kpis">
+          <div class="kpi"><div class="kpi-lbl">ยอดขายวันนี้</div><div class="kpi-val tnum">฿12,480</div><div class="kpi-meta"><span class="delta up">▲ 12%</span><span class="delta-lbl">vs เมื่อวาน</span></div></div>
+          <div class="kpi"><div class="kpi-lbl">จำนวนออเดอร์</div><div class="kpi-val tnum">26</div><div class="kpi-meta"><span class="delta down">▼ 3%</span><span class="delta-lbl">vs เมื่อวาน</span></div></div>
+          <div class="kpi"><div class="kpi-lbl">กำไรโดยประมาณ</div><div class="kpi-val tnum">฿4,120</div><div class="kpi-meta"><span class="delta up">▲ 5%</span><span class="delta-lbl">vs เมื่อวาน</span></div><div class="cov">coverage 62% — กรอกต้นทุนไม่ครบ</div></div>
+          <div class="kpi"><div class="kpi-lbl">ยอดเฉลี่ย/ออเดอร์</div><div class="kpi-val tnum">฿480</div><div class="kpi-meta"><span class="delta flat">— 0%</span><span class="delta-lbl">vs เมื่อวาน</span></div></div>
+        </div>
+      </section>
+      <section aria-label="แยกตามมิติ">
+        <p class="sec-label">ดูแยกตาม</p>
+        <div class="tabs" role="tablist">
+          <button class="tab" role="tab" aria-selected="true" data-p="ch">ช่องทาง</button>
+          <button class="tab" role="tab" aria-selected="false" data-p="pv">จังหวัด</button>
+          <button class="tab" role="tab" aria-selected="false" data-p="ad">ประเภทที่อยู่</button>
+          <button class="tab" role="tab" aria-selected="false" data-p="pr">สินค้าขายดี</button>
+        </div>
+        <div class="panel on" data-panel="ch" role="tabpanel">
+          <div class="brow"><div class="brow-lbl">TikTok Shop</div><div class="bar-track"><div class="bar-fill" style="width:100%"></div></div><div class="brow-val tnum">฿6,800 <small>55%</small></div></div>
+          <div class="brow"><div class="brow-lbl">Shopee</div><div class="bar-track"><div class="bar-fill" style="width:57%"></div></div><div class="brow-val tnum">฿3,900 <small>31%</small></div></div>
+          <div class="brow"><div class="brow-lbl">LINE / แชท</div><div class="bar-track"><div class="bar-fill" style="width:26%"></div></div><div class="brow-val tnum">฿1,780 <small>14%</small></div></div>
+        </div>
+        <div class="panel" data-panel="pv" role="tabpanel">
+          <div class="brow"><div class="brow-lbl">กรุงเทพฯ</div><div class="bar-track"><div class="bar-fill" style="width:100%"></div></div><div class="brow-val tnum">9</div></div>
+          <div class="brow"><div class="brow-lbl">ชลบุรี</div><div class="bar-track"><div class="bar-fill" style="width:45%"></div></div><div class="brow-val tnum">4</div></div>
+          <div class="brow"><div class="brow-lbl">นนทบุรี</div><div class="bar-track"><div class="bar-fill" style="width:33%"></div></div><div class="brow-val tnum">3</div></div>
+          <div class="brow"><div class="brow-lbl mut">ไม่ระบุ <span class="badge slate">unknown</span></div><div class="bar-track"><div class="bar-fill unknown" style="width:11%"></div></div><div class="brow-val tnum">1</div></div>
+        </div>
+        <div class="panel" data-panel="ad" role="tabpanel">
+          <div class="brow"><div class="brow-lbl">บ้าน</div><div class="bar-track"><div class="bar-fill" style="width:100%"></div></div><div class="brow-val tnum">18</div></div>
+          <div class="brow"><div class="brow-lbl">คอนโด</div><div class="bar-track"><div class="bar-fill" style="width:28%"></div></div><div class="brow-val tnum">5</div></div>
+          <div class="brow"><div class="brow-lbl mut">ไม่ระบุ <span class="badge amber">ต้อง review</span></div><div class="bar-track"><div class="bar-fill unknown" style="width:6%"></div></div><div class="brow-val tnum">1</div></div>
+        </div>
+        <div class="panel" data-panel="pr" role="tabpanel">
+          <div class="brow"><div class="brow-lbl">สร้อยเงินดิสโก้</div><div class="bar-track"><div class="bar-fill" style="width:100%"></div></div><div class="brow-val tnum">8 <small>ชิ้น</small></div></div>
+          <div class="brow"><div class="brow-lbl">จี้ปี่เซียะ</div><div class="bar-track"><div class="bar-fill" style="width:62%"></div></div><div class="brow-val tnum">5</div></div>
+          <div class="brow"><div class="brow-lbl">ต่างหูเงิน</div><div class="bar-track"><div class="bar-fill" style="width:50%"></div></div><div class="brow-val tnum">4</div></div>
+          <div class="brow"><div class="brow-lbl">เงินแท่ง 1 บาท</div><div class="bar-track"><div class="bar-fill" style="width:25%"></div></div><div class="brow-val tnum">2</div></div>
+        </div>
+      </section>
+      <p class="foot"><b>แดชบอร์ด · mockup</b> — ตัวเลขตัวอย่าง ยึด UX spec §4 · แถบคุณภาพข้อมูลปิดไม่ได้ (บังคับเห็นก่อนอ่านตัวเลข)</p>
+    </main>
+
+    <!-- ========== VIEW: AD COPILOT ========== -->
+    <main class="view" id="view-copilot">
+      <div class="overview">
+        <div class="ov-top">
+          <div class="ov-head"><div class="ov-eyebrow">ฐานการวิเคราะห์ · ม.ค.–ก.ค. 2026</div><p class="ov-title">ยอดขายครึ่งปีแรก — ภาพเต็มที่คำแนะนำอ้างอิง</p></div>
+          <svg width="248" height="52" viewBox="0 0 248 52" role="img" aria-label="ยอดขายรายเดือนร่วงจาก 12.2 ล้านเหลือ 0.59 ล้าน">
+            <defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--brand)" stop-opacity=".28"/><stop offset="1" stop-color="var(--brand)" stop-opacity="0"/></linearGradient></defs>
+            <path d="M4,6 L44,34 L84,38 L124,41 L164,40 L204,40 L244,43 L244,50 L4,50 Z" fill="url(#g)"/>
+            <path d="M4,6 L44,34 L84,38 L124,41 L164,40 L204,40 L244,43" fill="none" stroke="var(--brand)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+            <circle cx="4" cy="6" r="3.2" fill="var(--brand)"/><circle cx="244" cy="43" r="3.2" fill="var(--brand)"/>
+          </svg>
+        </div>
+        <div class="ov-stats">
+          <div class="ov-stat"><div class="k">ยอดขาย H1</div><div class="v tnum">฿19.8M</div><div class="d mut">3,823 ออเดอร์</div></div>
+          <div class="ov-stat"><div class="k">ม.ค. เดือนเดียว</div><div class="v tnum">62%</div><div class="d mut">ของทั้งครึ่งปี</div></div>
+          <div class="ov-stat"><div class="k">AOV เปลี่ยน</div><div class="v tnum">฿17,106→฿715</div><div class="d down">▼ high→low</div></div>
+          <div class="ov-stat"><div class="k">ช่องทางเด่น</div><div class="v tnum">LINE→TikTok</div><div class="d up">TikTok 0→45%</div></div>
+        </div>
+      </div>
+      <div class="dq" role="note">
+        <svg class="dq-ic" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>
+        <div class="dq-txt"><b>ข้อควรระวัง:</b> ต้นทุนกรอกครบ <b>62%</b> — คำแนะนำอิง <b>ยอดขาย/AOV/ช่องทาง</b> ไม่ใช้กำไรตัดสินงบ</div>
+      </div>
+      <div class="sec" id="pending">
+        <div class="sec-hd"><h2>รอพิจารณา</h2><span class="sec-count" id="cnt-pending">4</span></div>
+        <div class="sec-body">
+          <div class="card"><div class="card-top"><div class="card-ic">💬</div><div class="card-hdtxt"><p class="card-title">Reactivate ลูกค้า LINE เก่า — เปิด pre-order รุ่น Heirloom</p><span class="conf hi">confidence สูง</span></div></div>
+            <p class="reason">ม.ค.–ก.พ. LINE ทำยอด <b>~฿15.4M</b> (≈78% ของครึ่งปี) ที่ AOV ฿11k–17k แล้วเงียบ พร้อม AOV ร่วงเหลือ ฿715 — ฐาน high-value นี้ยังไม่ถูก re-engage เลย</p>
+            <div class="metrics"><span class="metric">LINE ต้นปี <b>฿15.4M</b></span><span class="metric">AOV peak <b>฿17,106</b></span><span class="metric">ปัจจุบัน <b>฿715</b></span></div>
+            <div class="actions"><button class="dismiss" type="button">ปัดทิ้ง</button><button class="approve" type="button">อนุมัติ</button><button class="apply" type="button" disabled title="เร็วๆ นี้">⚡ Apply · เร็วๆ นี้</button></div></div>
+          <div class="card"><div class="card-top"><div class="card-ic">📈</div><div class="card-hdtxt"><p class="card-title">ยิงแอด TikTok เจาะสายมู + lookalike จาก LINE seed</p><span class="conf hi">confidence สูง</span></div></div>
+            <p class="reason">TikTok โต <b>0% → 45%</b> ของยอดใน 5 เดือน ออเดอร์/เดือนเพิ่ม 713→1,364 แต่ AOV แค่ ฿715 — สร้าง lookalike จากฐาน LINE ดึงคนคุณภาพแทนการแย่งราคาต่อกรัม</p>
+            <div class="metrics"><span class="metric">TikTok share <b>45%</b></span><span class="metric">ออเดอร์ <b>×1.9</b></span><span class="metric">AOV <b>฿715</b></span></div>
+            <div class="actions"><button class="dismiss" type="button">ปัดทิ้ง</button><button class="approve" type="button">อนุมัติ</button><button class="apply" type="button" disabled title="เร็วๆ นี้">⚡ Apply · เร็วๆ นี้</button></div></div>
+          <div class="card"><div class="card-top"><div class="card-ic">🧧</div><div class="card-hdtxt"><p class="card-title">Pilot ไลฟ์ธีมมงคล แทนไลฟ์เงินแท่ง (Tier Live ฿300–800)</p><span class="conf mid">confidence กลาง</span></div></div>
+            <p class="reason">เงินแท่งผูกราคา commodity ร่วง <b>~20 เท่า</b> (฿12.2M → ฿975k) มงคลตั้งราคาเองได้ margin นิ่ง + มี <b>~40 SKU</b> พร้อม — แนะนำ pilot 4–6 สัปดาห์ก่อนทุ่มงบ</p>
+            <div class="metrics"><span class="metric">เงินแท่ง <b>−20×</b></span><span class="metric">มงคล <b>~40 SKU</b></span><span class="metric">pilot <b>4–6 wk</b></span></div>
+            <div class="actions"><button class="dismiss" type="button">ปัดทิ้ง</button><button class="approve" type="button">อนุมัติ</button><button class="apply" type="button" disabled title="เร็วๆ นี้">⚡ Apply · เร็วๆ นี้</button></div></div>
+          <div class="card warn"><div class="card-top"><div class="card-ic">⚠️</div><div class="card-hdtxt"><p class="card-title">แก้การกรอกต้นทุนก่อน — อย่าเพิ่งตัดสินงบจากกำไร</p><span class="conf low">ก่อนอื่น · blocker</span></div></div>
+            <p class="reason">ต้นทุนกรอกครบแค่ <b>62%</b> พบออเดอร์ ฿20,441 กรอกต้นทุน ฿50 → margin ปลอมสูง ตราบใดยังไม่แก้ การตัดงบจากกำไรต่อช่องทางเสี่ยงยิงผิดทาง</p>
+            <div class="metrics"><span class="metric">coverage <b>62%</b></span><span class="metric">ผิด <b>฿20,441/฿50</b></span></div>
+            <div class="actions"><button class="dismiss" type="button">ปัดทิ้ง</button><button class="approve" type="button">รับทราบ</button></div></div>
+        </div>
+      </div>
+      <div class="sec collapsible collapsed" id="approved">
+        <button class="sec-hd sec-toggle" type="button" aria-expanded="false"><h2>อนุมัติแล้ว</h2><span class="sec-count" id="cnt-approved">1</span><svg class="chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
+        <div class="sec-body"><div class="card decided"><div class="card-top"><div class="card-ic">🐉</div><div class="card-hdtxt"><p class="card-title">Broadcast ปฏิทินปีชง 2027 — segment ลูกค้าเงินแท่งเดิม</p><span class="decided-meta">อนุมัติเมื่อ 5 ส.ค. 2026</span></div></div><div class="actions"><span class="status-tag ok">✓ อนุมัติแล้ว</span></div></div></div>
+      </div>
+      <div class="sec collapsible collapsed" id="dismissed">
+        <button class="sec-hd sec-toggle" type="button" aria-expanded="false"><h2>ปัดทิ้งแล้ว</h2><span class="sec-count" id="cnt-dismissed">1</span><svg class="chev" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
+        <div class="sec-body"><div class="card decided"><div class="card-top"><div class="card-ic">💍</div><div class="card-hdtxt"><p class="card-title">Signature fashion collection เดี่ยว (ไม่ผูกมงคล)</p><span class="decided-meta">ปัดทิ้ง · red ocean เงิน 925 เทียบราคา/กรัมได้ ไม่มี moat</span></div></div><div class="actions"><span class="status-tag no">✕ ปัดทิ้งแล้ว</span></div></div></div>
+      </div>
+      <p class="foot"><b>Ad Copilot · mockup</b> — คำแนะนำอ้างข้อมูลจริง H1 (sales-2026-h1-summary + hero-product-strategy) · human-in-loop ทุกการ์ด · engine AI ยังไม่ต่อ</p>
+    </main>
+
+    <!-- ========== VIEW: UPLOAD ========== -->
+    <main class="view" id="view-upload">
+      <section>
+        <div class="dropzone" id="dz" tabindex="0" role="button" aria-label="ลากไฟล์ใบปะหน้ามาวาง หรือกดเพื่อเลือกไฟล์">
+          <svg class="dz-ic" width="38" height="38" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 14.9A7 7 0 1 1 15.7 8h1.8a4.5 4.5 0 0 1 2.5 8.2"/><path d="M12 12v9"/><path d="m16 16-4-4-4 4"/></svg>
+          <div class="dz-t">ลากไฟล์ใบปะหน้ามาวางที่นี่</div><div class="dz-d">หรือกดเพื่อเลือกไฟล์ — อัปโหลดหลายไฟล์พร้อมกันได้</div><div class="dz-hint">รองรับ PDF / JPG / PNG · สูงสุด 20MB ต่อไฟล์</div>
+        </div>
+      </section>
+      <section aria-label="คิวอัปโหลด">
+        <p class="sec-label">ไฟล์ในคิว</p>
+        <div class="qlist">
+          <div class="qitem"><div class="q-ic">📄</div><div class="q-body"><div class="q-name">tiktok-labels-batch-01.pdf</div><div class="q-sub">18 หน้า · 4.2MB</div></div><span class="q-st done">✓ เสร็จ</span></div>
+          <div class="qitem"><div class="q-ic">📄</div><div class="q-body"><div class="q-name">tiktok-labels-batch-02.pdf</div><div class="q-sub">กำลังอ่าน… หน้า 22/30</div><div class="q-prog"><i style="width:73%"></i></div></div><span class="q-st parsing">กำลังอ่าน</span></div>
+          <div class="qitem"><div class="q-ic">⚠️</div><div class="q-body"><div class="q-name">label-blurry-777.jpg</div><div class="q-sub" style="color:var(--warn-ink)">อ่านไม่ออก — ภาพเบลอเกินไป</div></div><button class="q-retry" type="button">อัปโหลดใหม่</button><span class="q-st failed">ล้มเหลว</span></div>
+        </div>
+      </section>
+      <section aria-label="สรุปผลอัปโหลด">
+        <p class="sec-label">สรุปรอบนี้</p>
+        <div class="summary">
+          <div class="sm ok"><div class="n tnum">42</div><div class="l">สำเร็จ</div></div>
+          <div class="sm rev"><div class="n tnum" id="revN">3</div><div class="l">ต้อง review</div></div>
+          <div class="sm dup"><div class="n tnum">2</div><div class="l">ซ้ำ</div></div>
+          <div class="sm fail"><div class="n tnum">1</div><div class="l">ล้มเหลว</div></div>
+        </div>
+      </section>
+      <section aria-label="รายการรอตรวจสอบ">
+        <p class="sec-label">รอตรวจสอบก่อนบันทึก</p>
+        <div class="rq" id="rq">
+          <div class="rrow"><div class="rr-top"><span class="rr-oid">#TT-580341</span><span class="badge amber">ที่อยู่ไม่ชัด</span></div>
+            <div class="rr-fields"><div class="field"><label>ประเภทที่อยู่</label><select class="sel"><option>— เลือก —</option><option selected>บ้าน</option><option>คอนโด</option><option>ที่ทำงาน</option></select></div><div class="field"><label>จังหวัด</label><select class="sel"><option selected>กรุงเทพมหานคร</option><option>นนทบุรี</option></select></div></div>
+            <div class="rr-act"><button class="btn primary" type="button" data-confirm>ยืนยัน</button></div></div>
+          <div class="rrow"><div class="rr-top"><span class="rr-oid">#TT-580362</span><span class="badge slate">SKU ไม่รู้จัก</span></div>
+            <div class="rr-fields"><div class="field" style="min-width:100%"><label>จับคู่สินค้า (sku alias)</label><select class="sel"><option>— เลือกสินค้า —</option><option selected>จี้ปี่เซียะ 13มม (SE-piu13)</option><option>สร้อยเงินดิสโก้ (NC20-21)</option></select></div></div>
+            <div class="rr-act"><button class="btn primary" type="button" data-confirm>ยืนยัน</button></div></div>
+          <div class="rrow"><div class="rr-top"><span class="rr-oid">#TT-580388</span><span class="badge amber">ชื่อผู้รับ parse ผิด</span></div>
+            <div class="rr-fields"><div class="field" style="min-width:100%"><label>ชื่อผู้รับ (แก้ให้ถูก)</label><input class="inp" type="text" value="คุณสมหญ..ง จ_นทร์" /></div></div>
+            <div class="rr-act"><button class="btn ghost" type="button" data-confirm>ข้าม</button><button class="btn primary" type="button" data-confirm>ยืนยัน</button></div></div>
+        </div>
+        <div class="rq-empty" id="rqEmpty">🎉 ตรวจสอบครบแล้ว — <b>บันทึกออเดอร์เรียบร้อย</b></div>
+        <p class="remain" id="remainWrap">เหลือรอตรวจสอบ <b id="remainN">3</b> รายการ</p>
+        <button class="btn primary block" id="confirmAll" type="button">ยืนยันทั้งหมดที่เหลือ</button>
+      </section>
+      <p class="foot"><b>อัปโหลดใบปะหน้า · mockup</b> — ไฟล์พัง (parse fail) แยกจาก "รอ review" · ที่อยู่/SKU ไม่ชัด = amber/slate ไม่ใช่แดง</p>
+    </main>
+
+    <!-- ========== VIEW: SALES ========== -->
+    <main class="view" id="view-sales">
+      <div class="drange">
+        <div class="drf"><label for="dFrom">ตั้งแต่</label><input type="month" id="dFrom" min="2026-01" max="2026-07" value="2026-01"></div>
+        <div class="drf"><label for="dTo">ถึง</label><input type="month" id="dTo" min="2026-01" max="2026-07" value="2026-07"></div>
+        <div class="dpresets"><button type="button" data-preset="all">ทั้งหมด</button><button type="button" data-preset="q1">Q1</button><button type="button" data-preset="q2">Q2</button></div>
+      </div>
+      <p class="sscope" id="sScope">ม.ค.–ก.ค. 2026 · ทุกช่องทาง</p>
+      <div class="skpis" id="sKpis"></div>
+      <div class="story"><b>เกิดอะไรครึ่งปีแรก:</b> ต้นปี (ม.ค.–ก.พ.) <b>เงินแท่งขายดีมากตอนราคาเงินสูง</b> ผ่าน LINE — ม.ค. เดือนเดียว ฿12.2M (62% ของครึ่งปี) AOV ฿17,106 · พอ <b>ราคาเงินร่วง เงินแท่งขายไม่ออก</b> ยอดตก ~20 เท่า · <b>TikTok Live เริ่ม มี.ค.</b> เพิ่มออเดอร์แต่ AOV ต่ำ (฿715) → ต้องหา <b style="color:var(--brand)">product ตัวใหม่แทนเงินแท่ง</b></div>
+      <div class="scard">
+        <div class="scard-hd"><div><h3>ยอดขายรายเดือน</h3><p class="scap">แตะแท่งเพื่อดูรายละเอียด · สลับหน่วยขวาบน</p></div>
+          <div class="stoggle" id="sToggle"><button data-m="sales" class="on" type="button">ยอดขาย</button><button data-m="orders" type="button">ออเดอร์</button><button data-m="aov" type="button">AOV</button></div></div>
+        <div id="sTrend"></div>
+      </div>
+      <div class="scard">
+        <h3>สัดส่วนช่องทางแต่ละเดือน</h3><p class="scap">เห็นการเปลี่ยนจาก LINE (เงินแท่งค่าสูง) → TikTok (ไลฟ์ชิ้นเล็ก)</p>
+        <div class="slegend"><span><i style="background:#16a34a"></i>LINE OA</span><span><i style="background:#ea580c"></i>TikTok</span><span><i style="background:#7c6ff0"></i>อื่นๆ</span></div>
+        <div id="sMix"></div>
+      </div>
+      <p class="foot"><b>สรุปยอดขาย · ข้อมูลจริง ม.ค.–ก.ค. 2026</b> (aggregate รายเดือน) · เลือกช่วงวันที่ด้านบนเพื่อกรอง · ⚠️ กำไรไม่แสดง เพราะต้นทุนกรอกไม่ครบ (เชื่อไม่ได้)</p>
+      <div class="stip" id="stip"></div>
+    </main>
+
+  </div>
+
+  <!-- ========== BOTTOM NAV ========== -->
+  <nav class="nav" aria-label="เมนูหลัก">
+    <div class="nav-in">
+      <button class="on" type="button" data-view="dash" data-title="แดชบอร์ดรายวัน"><span class="ni">📊</span><span class="nl">แดชบอร์ด</span></button>
+      <button type="button" data-view="copilot" data-title="Ad Copilot"><span class="ni">🎯</span><span class="nl">Ad Copilot</span></button>
+      <button type="button" data-view="upload" data-title="อัปโหลดใบปะหน้า"><span class="ni">🏷️</span><span class="nl">อัปโหลด</span></button>
+      <button type="button" data-view="sales" data-title="สรุปยอดขาย"><span class="ni">💰</span><span class="nl">ยอดขาย</span></button>
+    </div>
+  </nav>
+</div>
+
+<script>
+(function(){
+  var root=document.documentElement;
+  document.getElementById("themeBtn").addEventListener("click",function(){
+    var c=root.getAttribute("data-theme");
+    root.setAttribute("data-theme",c==="dark"?"light":c==="light"?"dark":(matchMedia("(prefers-color-scheme: dark)").matches?"light":"dark"));
+  });
+
+  // ---- nav switch ----
+  var navBtns=document.querySelectorAll(".nav button");
+  navBtns.forEach(function(b){b.addEventListener("click",function(){
+    navBtns.forEach(function(x){x.classList.remove("on");});
+    b.classList.add("on");
+    var v=b.getAttribute("data-view");
+    document.querySelectorAll(".view").forEach(function(s){s.classList.toggle("on",s.id==="view-"+v);});
+    document.getElementById("pageTitle").textContent=b.getAttribute("data-title");
+    scrollTo({top:0,behavior:"instant"});
+  });});
+
+  // ---- dashboard: breakdown tabs + filter chips ----
+  var tabs=[].slice.call(document.querySelectorAll("#view-dash .tab"));
+  var panels=[].slice.call(document.querySelectorAll("#view-dash .panel"));
+  tabs.forEach(function(t){t.addEventListener("click",function(){
+    tabs.forEach(function(x){x.setAttribute("aria-selected","false");});t.setAttribute("aria-selected","true");
+    var k=t.getAttribute("data-p");panels.forEach(function(p){p.classList.toggle("on",p.getAttribute("data-panel")===k);});
+  });});
+  document.querySelectorAll("#view-dash .chip").forEach(function(c){c.addEventListener("click",function(){
+    c.setAttribute("aria-pressed",c.getAttribute("aria-pressed")==="true"?"false":"true");
+  });});
+
+  // ---- copilot: approve/dismiss + collapse ----
+  function recount(){["pending","approved","dismissed"].forEach(function(id){
+    document.getElementById("cnt-"+id).textContent=document.querySelectorAll("#"+id+" .sec-body > .card").length;
+  });}
+  function decide(card,target,cls,txt){
+    card.classList.add("decided");
+    var act=card.querySelector(".actions"); if(act) act.innerHTML='<span class="status-tag '+cls+'">'+txt+'</span>';
+    var ap=card.querySelector(".apply"); if(ap) ap.remove();
+    document.querySelector("#"+target+" .sec-body").appendChild(card);
+    var sec=document.getElementById(target); sec.classList.remove("collapsed");
+    var tg=sec.querySelector(".sec-toggle"); if(tg) tg.setAttribute("aria-expanded","true");
+    recount();
+  }
+  document.querySelectorAll("#pending .card").forEach(function(card){
+    var a=card.querySelector(".approve"),d=card.querySelector(".dismiss");
+    if(a) a.addEventListener("click",function(){decide(card,"approved","ok","✓ อนุมัติแล้ว");});
+    if(d) d.addEventListener("click",function(){decide(card,"dismissed","no","✕ ปัดทิ้งแล้ว");});
+  });
+  document.querySelectorAll(".sec-toggle").forEach(function(t){t.addEventListener("click",function(){
+    var sec=t.closest(".sec"),open=sec.classList.toggle("collapsed");t.setAttribute("aria-expanded",open?"false":"true");
+  });});
+
+  // ---- upload: dropzone + confirm ----
+  var dz=document.getElementById("dz");
+  ["dragover","dragenter"].forEach(function(e){dz.addEventListener(e,function(ev){ev.preventDefault();dz.classList.add("drag");});});
+  ["dragleave","drop"].forEach(function(e){dz.addEventListener(e,function(ev){ev.preventDefault();dz.classList.remove("drag");});});
+  var rq=document.getElementById("rq");
+  function refreshRq(){
+    var n=rq.querySelectorAll(".rrow").length;
+    document.getElementById("remainN").textContent=n;document.getElementById("revN").textContent=n;
+    if(n===0){document.getElementById("rqEmpty").classList.add("on");document.getElementById("remainWrap").style.display="none";document.getElementById("confirmAll").style.display="none";}
+  }
+  function removeRow(row){row.style.transition="opacity .15s";row.style.opacity="0";setTimeout(function(){row.remove();refreshRq();},150);}
+  rq.querySelectorAll("[data-confirm]").forEach(function(b){b.addEventListener("click",function(){removeRow(b.closest(".rrow"));});});
+  document.getElementById("confirmAll").addEventListener("click",function(){rq.querySelectorAll(".rrow").forEach(function(r){r.remove();});refreshRq();});
+
+  // ---- SALES (ข้อมูลจริง ม.ค.–ก.ค. 2026, aggregate รายเดือน) ----
+  var SM=[
+    {m:"ม.ค.",ym:"2026-01",ord:713,sales:12197167,ls:11963061,ts:0,os:234106},
+    {m:"ก.พ.",ym:"2026-02",ord:279,sales:3203722,ls:3090366,ts:0,os:113356},
+    {m:"มี.ค.",ym:"2026-03",ord:230,sales:1639694,ls:1410982,ts:228712,os:0},
+    {m:"เม.ย.",ym:"2026-04",ord:308,sales:859088,ls:449820,ts:409268,os:0},
+    {m:"พ.ค.",ym:"2026-05",ord:929,sales:936098,ls:535568,ts:400530,os:0},
+    {m:"มิ.ย.",ym:"2026-06",ord:1364,sales:975490,ls:559016,ts:416474,os:0},
+    {m:"ก.ค.",ym:"2026-07",ord:696,sales:587514,ls:368363,ts:219112,os:40}
+  ];
+  SM.forEach(function(d){d.aov=Math.round(d.sales/d.ord);});
+  var sMode="sales",stip=document.getElementById("stip");
+  var dFrom=document.getElementById("dFrom"),dTo=document.getElementById("dTo");
+  var CH={ls:"#16a34a",ts:"#ea580c",os:"#7c6ff0"};
+  function sK(n){return n>=1e6?(n/1e6).toFixed(n>=1e7?0:1)+"M":n>=1e3?Math.round(n/1e3)+"k":""+Math.round(n);}
+  function sN(n){return Math.round(n).toLocaleString("en-US");}
+  function sEl(t,a){var e=document.createElementNS("http://www.w3.org/2000/svg",t);for(var k in a)e.setAttribute(k,a[k]);return e;}
+  function cvar(v){return getComputedStyle(document.documentElement).getPropertyValue(v).trim();}
+  function sTip(e,h){stip.innerHTML=h;stip.style.opacity=1;var x=e.clientX+14,y=e.clientY+14;if(x+190>innerWidth)x=e.clientX-stip.offsetWidth-14;stip.style.left=x+"px";stip.style.top=y+"px";}
+  function sHide(){stip.style.opacity=0;}
+  function sSub(){var f=dFrom.value||"2026-01",t=dTo.value||"2026-07";if(f>t){var x=f;f=t;t=x;}return SM.filter(function(d){return d.ym>=f&&d.ym<=t;});}
+  function renderSKpis(sub){
+    var o=0,s=0,ls=0,ts=0;sub.forEach(function(d){o+=d.ord;s+=d.sales;ls+=d.ls;ts+=d.ts;});
+    var aov=o?Math.round(s/o):0,lp=s?Math.round(ls*100/s):0,tp=s?Math.round(ts*100/s):0;
+    document.getElementById("sScope").textContent=(sub.length?sub[0].m+"–"+sub[sub.length-1].m:"—")+" 2026 · ทุกช่องทาง";
+    var K=[["ยอดขาย","฿"+sN(s),sub.length+" เดือน",1],["ออเดอร์",sN(o),"",0],["AOV","฿"+sN(aov),"ต่อออเดอร์",0],["LINE OA",lp+"%","฿"+sK(ls),0],["TikTok",tp+"%","฿"+sK(ts),0]];
+    var h="";K.forEach(function(k){h+='<div class="skpi'+(k[3]?" hero":"")+'"><div class="l">'+k[0]+'</div><div class="v">'+k[1]+'</div><div class="s">'+k[2]+'</div></div>';});
+    document.getElementById("sKpis").innerHTML=h;
+  }
+  function drawSTrend(sub){
+    var host=document.getElementById("sTrend");host.innerHTML="";
+    var W=1000,H=280,pl=52,pr=16,pt=18,pb=30,n=sub.length||1;
+    var svg=sEl("svg",{viewBox:"0 0 "+W+" "+H}),key=sMode,max=0;
+    sub.forEach(function(d){if(d[key]>max)max=d[key];});max=max*1.14||1;
+    var gap=(W-pl-pr)/n,bw=gap*0.6;
+    [0,.25,.5,.75,1].forEach(function(f){var y=pt+(H-pt-pb)*(1-f);svg.appendChild(sEl("line",{x1:pl,y1:y,x2:W-pr,y2:y,class:"s-gl"}));var tx=sEl("text",{x:pl-8,y:y+3,"text-anchor":"end",class:"s-axis"});var v=max*f;tx.textContent=key==="orders"?Math.round(v):"฿"+sK(v);svg.appendChild(tx);});
+    sub.forEach(function(d,i){var x=pl+gap*i+(gap-bw)/2,v=d[key],bh=(H-pt-pb)*v/max,y=H-pb-bh;
+      var bar=sEl("rect",{x:x,y:y,width:bw,height:Math.max(bh,1),rx:4,fill:cvar("--primary"),style:"cursor:pointer"});
+      bar.addEventListener("mousemove",function(e){sTip(e,"<b>"+d.m+" 2026</b><br>ยอดขาย ฿"+sN(d.sales)+"<br>ออเดอร์ "+sN(d.ord)+" · AOV ฿"+sN(d.aov));});
+      bar.addEventListener("mouseleave",sHide);svg.appendChild(bar);
+      var vl=sEl("text",{x:x+bw/2,y:y-6,"text-anchor":"middle",class:"s-axis"});vl.setAttribute("font-weight","700");vl.setAttribute("fill",cvar("--text-2"));vl.textContent=key==="orders"?sN(v):"฿"+sK(v);svg.appendChild(vl);
+      var xl=sEl("text",{x:x+bw/2,y:H-10,"text-anchor":"middle",class:"s-axis"});xl.textContent=d.m;svg.appendChild(xl);
+    });
+    host.appendChild(svg);
+  }
+  function drawSMix(sub){
+    var host=document.getElementById("sMix");host.innerHTML="";
+    var W=1000,H=220,pl=28,pr=16,pt=10,pb=28,n=sub.length||1;
+    var svg=sEl("svg",{viewBox:"0 0 "+W+" "+H}),gap=(W-pl-pr)/n,bw=gap*0.62;
+    sub.forEach(function(d,i){var x=pl+gap*i+(gap-bw)/2,tot=d.ls+d.ts+d.os,y=pt,hAll=H-pt-pb;
+      [["ls","LINE"],["ts","TikTok"],["os","อื่นๆ"]].forEach(function(seg){var val=d[seg[0]],frac=tot>0?val/tot:0,sh=hAll*frac;if(sh<0.5)return;
+        var r=sEl("rect",{x:x,y:y,width:bw,height:Math.max(sh-1.5,0.5),rx:2,fill:CH[seg[0]]});
+        r.addEventListener("mousemove",function(e){sTip(e,"<b>"+d.m+" · "+seg[1]+"</b><br>"+Math.round(frac*100)+"% · ฿"+sN(val));});
+        r.addEventListener("mouseleave",sHide);svg.appendChild(r);y+=sh;});
+      var xl=sEl("text",{x:x+bw/2,y:H-9,"text-anchor":"middle",class:"s-axis"});xl.textContent=d.m;svg.appendChild(xl);
+    });
+    host.appendChild(svg);
+  }
+  function renderSales(){var sub=sSub();renderSKpis(sub);drawSTrend(sub);drawSMix(sub);}
+  dFrom.addEventListener("change",renderSales);dTo.addEventListener("change",renderSales);
+  document.getElementById("sToggle").addEventListener("click",function(e){if(!e.target.dataset.m)return;sMode=e.target.dataset.m;[].forEach.call(this.children,function(b){b.classList.toggle("on",b.dataset.m===sMode);});renderSales();});
+  document.querySelectorAll(".dpresets button").forEach(function(b){b.addEventListener("click",function(){var p=b.getAttribute("data-preset");
+    if(p==="all"){dFrom.value="2026-01";dTo.value="2026-07";}else if(p==="q1"){dFrom.value="2026-01";dTo.value="2026-03";}else{dFrom.value="2026-04";dTo.value="2026-06";}
+    renderSales();});});
+  renderSales();
+})();
+</script>

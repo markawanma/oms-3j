@@ -40,12 +40,12 @@ export default async function LiveOrderTakingPage({ params }: { params: Promise<
     <div>
       <Link
         href="/live"
-        className="mb-3 inline-flex min-h-11 items-center gap-1.5 text-sm font-medium text-slate-600 hover:text-slate-900"
+        className="mb-3 inline-flex min-h-11 items-center gap-1.5 text-sm font-medium text-zinc-600 hover:text-zinc-900"
       >
         <ArrowLeft className="h-4 w-4" aria-hidden="true" />
         กลับไปหน้าไลฟ์
       </Link>
-      <h1 className="mb-3 text-xl font-bold text-slate-900">{session.title || "จดออเดอร์เร็ว"}</h1>
+      <h1 className="mb-3 text-xl font-bold text-zinc-900">{session.title || "จดออเดอร์เร็ว"}</h1>
       <LiveOrderTakingClient session={session} initialStats={stats} />
     </div>
   );

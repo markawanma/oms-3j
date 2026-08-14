@@ -22,3 +22,30 @@ export function getDevShopId(): string {
   }
   return shopId;
 }
+
+export type DevRole = "owner" | "admin" | "staff";
+
+/**
+ * DEV-ONLY stand-in for a real Supabase Auth session's `shop_member.role`.
+ *
+ * Why this exists: the CRM module (docs/3j-jewelry/analytics/phase-b-crm-design.md
+ * §2.7, Decision Q7) requires PII (analytics.pii_customer: phone/full name/
+ * address) to be visible to owner/admin only, everyone else sees "—". In a
+ * real deployment that's enforced by Postgres RLS on pii_customer (0012
+ * migration) evaluated against `auth.uid()`. This app has no login yet, and
+ * every server action reads through the SERVICE ROLE client
+ * (lib/supabase/server.ts), which BYPASSES RLS entirely — so without an
+ * explicit application-level check, PII would be visible to anyone who can
+ * load a CRM page, regardless of role, silently defeating Q7.
+ *
+ * This function is that application-level check, gating PII reads in
+ * lib/actions/crm.ts until real auth (Supabase Auth + shop_member.role)
+ * replaces it — same seam contract as getDevShopId() above. Defaults to
+ * "staff" (fail closed) if DEV_ROLE is unset or invalid, so a forgotten env
+ * var hides PII instead of leaking it.
+ */
+export function getDevRole(): DevRole {
+  const role = (process.env.DEV_ROLE ?? "staff").trim().toLowerCase();
+  if (role === "owner" || role === "admin" || role === "staff") return role;
+  return "staff";
+}

@@ -84,8 +84,8 @@ export function OrderDetailClient({ initialOrder }: { initialOrder: OrderDetail 
           <StatusBadge status={order.status} />
           <SlaCountdownChip shipByAt={null} />
         </div>
-        <h1 className="mt-2 text-xl font-bold text-slate-900">#{order.externalOrderId}</h1>
-        <p className="text-sm text-slate-500">สั่งซื้อเมื่อ {formatBangkokTime(order.placedAt ?? order.createdAt)}</p>
+        <h1 className="mt-2 text-xl font-bold text-zinc-900">#{order.externalOrderId}</h1>
+        <p className="text-sm text-zinc-500">สั่งซื้อเมื่อ {formatBangkokTime(order.placedAt ?? order.createdAt)}</p>
       </div>
 
       {error && <ErrorBanner message={error} />}
@@ -93,7 +93,7 @@ export function OrderDetailClient({ initialOrder }: { initialOrder: OrderDetail 
       {order.status === "oversold_hold" && <OversoldAlertCard busy={busy} onCancel={handleCancel} />}
 
       {order.status === "cancelled" && order.cancelReason && (
-        <div className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
+        <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-4 text-sm text-zinc-600">
           <span className="font-medium">เหตุผลการยกเลิก: </span>
           {order.cancelReason}
         </div>

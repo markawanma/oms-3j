@@ -216,8 +216,15 @@ export async function countNewOrdersSince(sinceIso: string): Promise<ActionResul
   }
 }
 
+/** Postgres `id` is a uuid column — a non-uuid path segment (e.g. /orders/abc)
+ * would make the query throw "invalid input syntax for type uuid", surfacing a
+ * generic "โหลดไม่สำเร็จ" instead of the correct "ไม่พบออเดอร์นี้". Reject the
+ * bad shape up front so the not-found path handles it. */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export async function getOrderDetail(orderId: string): Promise<ActionResult<OrderDetail>> {
   try {
+    if (!UUID_RE.test(orderId)) return { ok: false, error: "ไม่พบออเดอร์นี้" };
     const shopId = getDevShopId();
     const supabase = getServiceClient();
 

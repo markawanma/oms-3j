@@ -71,7 +71,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
           <div
             key={t.id}
             className={`pointer-events-auto flex items-center gap-2 rounded-md px-4 py-3 text-sm shadow-lg ${
-              t.tone === "success" ? "bg-slate-900 text-white" : "bg-red-600 text-white"
+              t.tone === "success" ? "bg-zinc-900 text-white" : "bg-red-600 text-white"
             }`}
           >
             {t.tone === "success" ? (

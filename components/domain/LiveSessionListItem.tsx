@@ -8,13 +8,13 @@ export function LiveSessionListItem({ session }: { session: LiveSession }) {
   return (
     <Link
       href={`/live/${session.id}`}
-      className="block rounded-lg border border-slate-200 bg-white p-4 transition-colors hover:border-primary-300 focus-visible:border-primary-600"
+      className="block rounded-lg border border-zinc-200 bg-white p-4 transition-colors hover:border-primary-300 focus-visible:border-primary-600"
     >
       <div className="flex items-center justify-between gap-2">
-        <span className="truncate font-medium text-slate-900">{session.title || "ไลฟ์ไม่มีชื่อ"}</span>
+        <span className="truncate font-medium text-zinc-900">{session.title || "ไลฟ์ไม่มีชื่อ"}</span>
         <Badge tone={isOpen ? "green" : "slate"}>{isOpen ? "กำลังไลฟ์" : "ปิดแล้ว"}</Badge>
       </div>
-      <div className="mt-1 text-xs text-slate-400">
+      <div className="mt-1 text-xs text-zinc-400">
         เริ่ม {formatBangkokTime(session.startedAt)}
         {session.endedAt && ` · จบ ${formatBangkokTime(session.endedAt)}`}
       </div>

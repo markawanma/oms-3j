@@ -1,0 +1,328 @@
+<title>TikTok Ops — Dashboard (Mockup) · 3J Jewelry</title>
+<style>
+  :root {
+    --ground: #f8fafc;
+    --surface: #ffffff;
+    --surface-2: #f1f5f9;
+    --border: #e2e8f0;
+    --text: #0f172a;
+    --text-2: #475569;
+    --text-3: #94a3b8;
+    --brand: #a2191d;         /* 3J red — accent เฉพาะจุด */
+    --brand-ink: #7d1316;
+    --primary: #4f46e5;       /* indigo — action/tab active */
+    --primary-tint: #eef2ff;
+    --up: #059669;
+    --down: #e11d48;
+    --warn: #d97706;
+    --warn-tint: #fef3c7;
+    --warn-ink: #92400e;
+    --unknown: #64748b;
+    --radius: 12px;
+    --shadow: 0 1px 2px rgba(15,23,42,.06), 0 1px 3px rgba(15,23,42,.04);
+    --font: "Noto Sans Thai", "IBM Plex Sans Thai", system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ground: #0b1120; --surface: #111827; --surface-2: #1e293b;
+      --border: #1e293b; --text: #f1f5f9; --text-2: #94a3b8; --text-3: #64748b;
+      --brand: #f0787c; --brand-ink: #f0787c; --primary: #818cf8; --primary-tint: #1e1b4b;
+      --up: #34d399; --down: #fb7185; --warn: #fbbf24; --warn-tint: #3a2e12; --warn-ink: #fcd34d;
+      --unknown: #94a3b8; --shadow: 0 1px 2px rgba(0,0,0,.3);
+    }
+  }
+  :root[data-theme="light"] {
+    --ground: #f8fafc; --surface: #ffffff; --surface-2: #f1f5f9; --border: #e2e8f0;
+    --text: #0f172a; --text-2: #475569; --text-3: #94a3b8; --brand: #a2191d; --brand-ink: #7d1316;
+    --primary: #4f46e5; --primary-tint: #eef2ff; --up: #059669; --down: #e11d48;
+    --warn: #d97706; --warn-tint: #fef3c7; --warn-ink: #92400e; --unknown: #64748b;
+  }
+  :root[data-theme="dark"] {
+    --ground: #0b1120; --surface: #111827; --surface-2: #1e293b; --border: #1e293b;
+    --text: #f1f5f9; --text-2: #94a3b8; --text-3: #64748b; --brand: #f0787c; --brand-ink: #f0787c;
+    --primary: #818cf8; --primary-tint: #1e1b4b; --up: #34d399; --down: #fb7185;
+    --warn: #fbbf24; --warn-tint: #3a2e12; --warn-ink: #fcd34d; --unknown: #94a3b8;
+  }
+
+  * { box-sizing: border-box; }
+  body, .ops { margin: 0; }
+  .ops {
+    font-family: var(--font);
+    background: var(--ground);
+    color: var(--text);
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+  }
+  .shell { max-width: 880px; margin: 0 auto; padding-bottom: 48px; }
+  .tnum { font-variant-numeric: tabular-nums; }
+
+  /* ---- header (brand accent) ---- */
+  .hdr {
+    position: sticky; top: 0; z-index: 10;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+  .hdr-bar { height: 3px; background: linear-gradient(90deg, var(--brand), var(--brand-ink)); }
+  .hdr-in {
+    max-width: 880px; margin: 0 auto; padding: 12px 20px;
+    display: flex; align-items: center; gap: 12px;
+  }
+  .logo {
+    width: 30px; height: 30px; border-radius: 50%;
+    border: 3px solid var(--brand); border-top-color: transparent;
+    transform: rotate(-45deg); flex: none;
+  }
+  .hdr-title { display: flex; flex-direction: column; line-height: 1.15; }
+  .hdr-title b { font-size: .95rem; font-weight: 700; letter-spacing: .01em; }
+  .hdr-title span {
+    font-size: .68rem; color: var(--brand); font-weight: 700;
+    text-transform: uppercase; letter-spacing: .08em;
+  }
+  .hdr-spacer { flex: 1; }
+  .theme-btn {
+    font: inherit; font-size: .8rem; color: var(--text-2);
+    background: var(--surface-2); border: 1px solid var(--border);
+    border-radius: 999px; padding: 6px 12px; cursor: pointer; min-height: 36px;
+  }
+  .theme-btn:hover { border-color: var(--primary); }
+
+  /* ---- filter bar ---- */
+  .filters {
+    display: flex; gap: 8px; padding: 14px 20px 4px; flex-wrap: wrap;
+  }
+  .chip {
+    font: inherit; font-size: .82rem; min-height: 40px;
+    display: inline-flex; align-items: center; gap: 6px;
+    background: var(--surface); border: 1px solid var(--border);
+    color: var(--text-2); border-radius: 999px; padding: 0 14px; cursor: pointer;
+  }
+  .chip[aria-pressed="true"] {
+    background: var(--primary-tint); border-color: var(--primary);
+    color: var(--primary); font-weight: 600;
+  }
+  .chip:focus-visible, .tab:focus-visible, .theme-btn:focus-visible {
+    outline: 2px solid var(--primary); outline-offset: 2px;
+  }
+  .chip .cv { color: var(--text-3); font-size: .72rem; }
+
+  /* ---- data quality banner (persistent, no close) ---- */
+  .dq {
+    margin: 12px 20px 4px; padding: 11px 14px;
+    background: var(--warn-tint); border: 1px solid color-mix(in srgb, var(--warn) 35%, transparent);
+    border-radius: var(--radius); display: flex; gap: 10px; align-items: flex-start;
+  }
+  .dq-ic { color: var(--warn); flex: none; margin-top: 1px; }
+  .dq-txt { font-size: .8rem; color: var(--warn-ink); line-height: 1.5; }
+  .dq-txt b { font-weight: 700; }
+
+  section { padding: 16px 20px 0; }
+  .sec-label {
+    font-size: .7rem; text-transform: uppercase; letter-spacing: .07em;
+    color: var(--text-3); font-weight: 700; margin: 0 0 10px;
+  }
+
+  /* ---- KPI grid ---- */
+  .kpis { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+  @media (min-width: 720px) { .kpis { grid-template-columns: repeat(4, 1fr); } }
+  .kpi {
+    background: var(--surface); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 14px; box-shadow: var(--shadow);
+    display: flex; flex-direction: column; gap: 3px;
+  }
+  .kpi-lbl { font-size: .74rem; color: var(--text-2); font-weight: 500; }
+  .kpi-val { font-size: 1.5rem; font-weight: 700; letter-spacing: -.02em; line-height: 1.1; }
+  .kpi-val .u { font-size: .9rem; font-weight: 600; color: var(--text-3); }
+  .kpi-meta { display: flex; align-items: center; gap: 6px; margin-top: 2px; }
+  .delta { font-size: .76rem; font-weight: 700; display: inline-flex; align-items: center; gap: 2px; }
+  .delta.up { color: var(--up); }
+  .delta.down { color: var(--down); }
+  .delta.flat { color: var(--text-3); }
+  .delta-lbl { font-size: .7rem; color: var(--text-3); }
+  .cov {
+    font-size: .66rem; font-weight: 700; color: var(--warn-ink);
+    background: var(--warn-tint); border-radius: 5px; padding: 2px 6px;
+    align-self: flex-start; margin-top: 6px;
+  }
+
+  /* ---- breakdown tabs ---- */
+  .tabs {
+    display: flex; gap: 4px; background: var(--surface-2);
+    border-radius: 10px; padding: 4px; overflow-x: auto;
+  }
+  .tab {
+    font: inherit; font-size: .8rem; white-space: nowrap; flex: 1;
+    min-height: 38px; border: none; background: transparent; color: var(--text-2);
+    border-radius: 7px; padding: 0 12px; cursor: pointer; font-weight: 600;
+  }
+  .tab[aria-selected="true"] { background: var(--surface); color: var(--primary); box-shadow: var(--shadow); }
+
+  .panel { margin-top: 14px; display: none; flex-direction: column; gap: 12px; }
+  .panel.on { display: flex; }
+  .row { display: grid; grid-template-columns: 130px 1fr auto; align-items: center; gap: 12px; }
+  @media (max-width: 480px) { .row { grid-template-columns: 96px 1fr auto; gap: 8px; } }
+  .row-lbl { font-size: .82rem; color: var(--text); display: flex; align-items: center; gap: 6px; }
+  .row-lbl.mut { color: var(--text-2); }
+  .bar-track { height: 10px; background: var(--surface-2); border-radius: 999px; overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 999px; background: var(--primary); }
+  .bar-fill.unknown { background: var(--unknown); }
+  .row-val { font-size: .82rem; font-weight: 700; color: var(--text); min-width: 62px; text-align: right; }
+  .row-val small { color: var(--text-3); font-weight: 500; font-size: .72rem; }
+
+  .badge {
+    font-size: .64rem; font-weight: 700; padding: 2px 7px; border-radius: 5px;
+    text-transform: uppercase; letter-spacing: .03em;
+  }
+  .badge.amber { background: var(--warn-tint); color: var(--warn-ink); }
+  .badge.slate { background: var(--surface-2); color: var(--unknown); }
+
+  .foot {
+    margin: 24px 20px 0; padding-top: 14px; border-top: 1px solid var(--border);
+    font-size: .72rem; color: var(--text-3); line-height: 1.6;
+  }
+  .foot b { color: var(--text-2); }
+</style>
+
+<div class="ops">
+  <header class="hdr">
+    <div class="hdr-bar"></div>
+    <div class="hdr-in">
+      <div class="logo" aria-hidden="true"></div>
+      <div class="hdr-title">
+        <span>TikTok Ops</span>
+        <b>แดชบอร์ดรายวัน</b>
+      </div>
+      <div class="hdr-spacer"></div>
+      <button class="theme-btn" id="themeBtn" type="button">🌗 สลับธีม</button>
+    </div>
+  </header>
+
+  <div class="shell">
+    <!-- Filter bar -->
+    <div class="filters" role="group" aria-label="ตัวกรอง">
+      <button class="chip" aria-pressed="true" type="button">📅 วันนี้ <span class="cv">6 ส.ค.</span></button>
+      <button class="chip" aria-pressed="false" type="button">ช่องทาง: ทั้งหมด</button>
+      <button class="chip" aria-pressed="false" type="button">ที่อยู่: ทุกประเภท</button>
+    </div>
+
+    <!-- Data quality banner (บังคับแสดง ปิดไม่ได้) -->
+    <div class="dq" role="note">
+      <svg class="dq-ic" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 9v4"/><path d="M12 17h.01"/><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg>
+      <div class="dq-txt">
+        <b>คุณภาพข้อมูล:</b> กำไรกรอกต้นทุนครบ <b>62%</b> · จังหวัด unknown <b>4%</b> · ที่อยู่รอตรวจสอบ <b>6 รายการ</b>
+        <span style="color:var(--text-3)"> — ตัวเลขกำไร/จังหวัดอ่านประกอบ coverage</span>
+      </div>
+    </div>
+
+    <!-- KPI grid -->
+    <section aria-label="ตัวชี้วัดหลัก">
+      <div class="kpis">
+        <div class="kpi">
+          <div class="kpi-lbl">ยอดขายวันนี้</div>
+          <div class="kpi-val tnum">฿12,480</div>
+          <div class="kpi-meta"><span class="delta up">▲ 12%</span><span class="delta-lbl">vs เมื่อวาน</span></div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-lbl">จำนวนออเดอร์</div>
+          <div class="kpi-val tnum">26</div>
+          <div class="kpi-meta"><span class="delta down">▼ 3%</span><span class="delta-lbl">vs เมื่อวาน</span></div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-lbl">กำไรโดยประมาณ</div>
+          <div class="kpi-val tnum">฿4,120</div>
+          <div class="kpi-meta"><span class="delta up">▲ 5%</span><span class="delta-lbl">vs เมื่อวาน</span></div>
+          <div class="cov">coverage 62% — กรอกต้นทุนไม่ครบ</div>
+        </div>
+        <div class="kpi">
+          <div class="kpi-lbl">ยอดเฉลี่ย/ออเดอร์</div>
+          <div class="kpi-val tnum">฿480</div>
+          <div class="kpi-meta"><span class="delta flat">— 0%</span><span class="delta-lbl">vs เมื่อวาน</span></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Breakdown -->
+    <section aria-label="แยกตามมิติ">
+      <p class="sec-label">ดูแยกตาม</p>
+      <div class="tabs" role="tablist">
+        <button class="tab" role="tab" aria-selected="true"  data-p="ch">ช่องทาง</button>
+        <button class="tab" role="tab" aria-selected="false" data-p="pv">จังหวัด</button>
+        <button class="tab" role="tab" aria-selected="false" data-p="ad">ประเภทที่อยู่</button>
+        <button class="tab" role="tab" aria-selected="false" data-p="pr">สินค้าขายดี</button>
+      </div>
+
+      <!-- ช่องทาง -->
+      <div class="panel on" data-panel="ch" role="tabpanel">
+        <div class="row"><div class="row-lbl">TikTok Shop</div><div class="bar-track"><div class="bar-fill" style="width:100%"></div></div><div class="row-val tnum">฿6,800 <small>55%</small></div></div>
+        <div class="row"><div class="row-lbl">Shopee</div><div class="bar-track"><div class="bar-fill" style="width:57%"></div></div><div class="row-val tnum">฿3,900 <small>31%</small></div></div>
+        <div class="row"><div class="row-lbl">LINE / แชท</div><div class="bar-track"><div class="bar-fill" style="width:26%"></div></div><div class="row-val tnum">฿1,780 <small>14%</small></div></div>
+      </div>
+
+      <!-- จังหวัด -->
+      <div class="panel" data-panel="pv" role="tabpanel">
+        <div class="row"><div class="row-lbl">กรุงเทพฯ</div><div class="bar-track"><div class="bar-fill" style="width:100%"></div></div><div class="row-val tnum">9</div></div>
+        <div class="row"><div class="row-lbl">ชลบุรี</div><div class="bar-track"><div class="bar-fill" style="width:45%"></div></div><div class="row-val tnum">4</div></div>
+        <div class="row"><div class="row-lbl">นนทบุรี</div><div class="bar-track"><div class="bar-fill" style="width:33%"></div></div><div class="row-val tnum">3</div></div>
+        <div class="row"><div class="row-lbl">เชียงใหม่</div><div class="bar-track"><div class="bar-fill" style="width:22%"></div></div><div class="row-val tnum">2</div></div>
+        <div class="row"><div class="row-lbl mut">ไม่ระบุ <span class="badge slate">unknown</span></div><div class="bar-track"><div class="bar-fill unknown" style="width:11%"></div></div><div class="row-val tnum">1</div></div>
+        <div class="row"><div class="row-lbl mut">อื่นๆ</div><div class="bar-track"><div class="bar-fill" style="width:78%"></div></div><div class="row-val tnum">7</div></div>
+      </div>
+
+      <!-- ประเภทที่อยู่ -->
+      <div class="panel" data-panel="ad" role="tabpanel">
+        <div class="row"><div class="row-lbl">บ้าน</div><div class="bar-track"><div class="bar-fill" style="width:100%"></div></div><div class="row-val tnum">18</div></div>
+        <div class="row"><div class="row-lbl">คอนโด/อพาร์ตเมนต์</div><div class="bar-track"><div class="bar-fill" style="width:28%"></div></div><div class="row-val tnum">5</div></div>
+        <div class="row"><div class="row-lbl">ที่ทำงาน</div><div class="bar-track"><div class="bar-fill" style="width:11%"></div></div><div class="row-val tnum">2</div></div>
+        <div class="row"><div class="row-lbl mut">ไม่ระบุ <span class="badge amber">ต้อง review</span></div><div class="bar-track"><div class="bar-fill unknown" style="width:6%"></div></div><div class="row-val tnum">1</div></div>
+      </div>
+
+      <!-- สินค้าขายดี -->
+      <div class="panel" data-panel="pr" role="tabpanel">
+        <div class="row"><div class="row-lbl">สร้อยเงินดิสโก้</div><div class="bar-track"><div class="bar-fill" style="width:100%"></div></div><div class="row-val tnum">8 <small>ชิ้น</small></div></div>
+        <div class="row"><div class="row-lbl">จี้ปี่เซียะ 13มม</div><div class="bar-track"><div class="bar-fill" style="width:62%"></div></div><div class="row-val tnum">5</div></div>
+        <div class="row"><div class="row-lbl">ต่างหูเงินแท้</div><div class="bar-track"><div class="bar-fill" style="width:50%"></div></div><div class="row-val tnum">4</div></div>
+        <div class="row"><div class="row-lbl">แหวนเงิน</div><div class="bar-track"><div class="bar-fill" style="width:37%"></div></div><div class="row-val tnum">3</div></div>
+        <div class="row"><div class="row-lbl">เงินแท่ง 1 บาท</div><div class="bar-track"><div class="bar-fill" style="width:25%"></div></div><div class="row-val tnum">2</div></div>
+      </div>
+    </section>
+
+    <p class="foot">
+      <b>Mockup — design only</b> · ตัวเลขเป็นข้อมูลตัวอย่าง ยึด UX spec จาก <b>tiktok-ops-app-ux.md</b> §4<br>
+      Design system: primary = indigo (ปุ่ม/tab) · แดง 3J = accent เฉพาะแถบ section · amber = ต้อง review · slate = unknown — semantic แยกจากสีแบรนด์ตามที่ ux-ui วางไว้
+    </p>
+  </div>
+</div>
+
+<script>
+  (function () {
+    // theme toggle
+    var root = document.documentElement, btn = document.getElementById("themeBtn");
+    btn.addEventListener("click", function () {
+      var cur = root.getAttribute("data-theme");
+      var next = cur === "dark" ? "light"
+        : cur === "light" ? "dark"
+        : (window.matchMedia("(prefers-color-scheme: dark)").matches ? "light" : "dark");
+      root.setAttribute("data-theme", next);
+    });
+
+    // breakdown tabs
+    var tabs = Array.prototype.slice.call(document.querySelectorAll(".tab"));
+    var panels = Array.prototype.slice.call(document.querySelectorAll(".panel"));
+    tabs.forEach(function (t) {
+      t.addEventListener("click", function () {
+        tabs.forEach(function (x) { x.setAttribute("aria-selected", "false"); });
+        t.setAttribute("aria-selected", "true");
+        var key = t.getAttribute("data-p");
+        panels.forEach(function (p) {
+          p.classList.toggle("on", p.getAttribute("data-panel") === key);
+        });
+      });
+    });
+
+    // filter chips (mock toggle)
+    document.querySelectorAll(".filters .chip").forEach(function (c) {
+      c.addEventListener("click", function () {
+        c.setAttribute("aria-pressed", c.getAttribute("aria-pressed") === "true" ? "false" : "true");
+      });
+    });
+  })();
+</script>

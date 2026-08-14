@@ -123,8 +123,8 @@ export function OrderDashboardClient({
             ))}
           </div>
           <div ref={sentinelRef} className="h-4" />
-          {loadingMore && <p className="py-4 text-center text-sm text-slate-400">กำลังโหลดเพิ่ม...</p>}
-          {!cursor && orders.length > 0 && <p className="py-4 text-center text-sm text-slate-400">ถึงรายการสุดท้ายแล้ว</p>}
+          {loadingMore && <p className="py-4 text-center text-sm text-zinc-400">กำลังโหลดเพิ่ม...</p>}
+          {!cursor && orders.length > 0 && <p className="py-4 text-center text-sm text-zinc-400">ถึงรายการสุดท้ายแล้ว</p>}
         </>
       )}
     </div>

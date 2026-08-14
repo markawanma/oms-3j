@@ -10,7 +10,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --ext .ts,.tsx",
     "test": "vitest run",
-    "test:db": "vitest run supabase/tests"
+    "test:db": "vitest run supabase/tests",
+    "import:aug": "node scripts/import-aug.mjs"
   },
   "dependencies": {
     "next": "^15.0.0",
@@ -18,7 +19,8 @@
     "react-dom": "^18.3.0",
     "@supabase/supabase-js": "^2.45.0",
     "lucide-react": "^0.462.0",
-    "server-only": "^0.0.1"
+    "server-only": "^0.0.1",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {
     "typescript": "^5.5.0",
