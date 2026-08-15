@@ -40,6 +40,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Logo } from "@/components/brand/Logo";
+import { signOut } from "@/lib/actions/auth";
 
 interface NavItem {
   href: string;
@@ -159,7 +160,17 @@ function NavList({ pathname, onNavigate }: { pathname: string; onNavigate?: () =
   );
 }
 
-export function DashboardShell({ children }: { children: ReactNode }) {
+export function DashboardShell({
+  children,
+  userEmail = null,
+}: {
+  children: ReactNode;
+  /** Phase A1 (auth infra, additive) — set only when a real Supabase Auth
+   * session exists (checked server-side in app/(dashboard)/layout.tsx). null
+   * under the current DEV_ROLE flow (no session cookie), which hides the
+   * sign-out button so it doesn't show up with nothing to sign out of. */
+  userEmail?: string | null;
+}) {
   const pathname = usePathname() ?? "";
   const [drawerOpen, setDrawerOpen] = useState(false);
 
@@ -187,17 +198,40 @@ export function DashboardShell({ children }: { children: ReactNode }) {
   return (
     <div className="flex min-h-screen flex-col">
       <header className="sticky top-0 z-30 border-b border-zinc-200 bg-white">
-        <div className="flex items-center gap-2 px-4 py-3">
-          <button
-            type="button"
-            onClick={() => setDrawerOpen(true)}
-            aria-label="เปิดเมนู"
-            aria-expanded={drawerOpen}
-            className="-ml-1.5 flex min-h-11 min-w-11 items-center justify-center rounded-md text-zinc-600 hover:bg-zinc-100 md:hidden"
-          >
-            <Menu className="h-5 w-5" aria-hidden="true" />
-          </button>
-          <Logo />
+        <div className="flex items-center justify-between gap-2 px-4 py-3">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setDrawerOpen(true)}
+              aria-label="เปิดเมนู"
+              aria-expanded={drawerOpen}
+              className="-ml-1.5 flex min-h-11 min-w-11 items-center justify-center rounded-md text-zinc-600 hover:bg-zinc-100 md:hidden"
+            >
+              <Menu className="h-5 w-5" aria-hidden="true" />
+            </button>
+            <Logo />
+            {/* system name — the logo carries "3J JEWELRY", so this reads as
+                "3J · Insight" (the CRM/marketing/analytics platform). */}
+            <span className="hidden items-center gap-1.5 text-sm sm:flex">
+              <span aria-hidden="true" className="text-zinc-300">/</span>
+              <span className="font-bold tracking-tight text-primary-700">Insight</span>
+            </span>
+          </div>
+
+          {/* Phase A1 (auth infra, additive) — only rendered when a real
+              Supabase Auth session exists; DEV_ROLE flow (userEmail=null)
+              shows nothing here, unchanged from before this phase. */}
+          {userEmail && (
+            <form action={signOut} className="flex items-center gap-2">
+              <span className="hidden truncate text-xs text-zinc-500 sm:inline">{userEmail}</span>
+              <button
+                type="submit"
+                className="min-h-11 rounded-md px-3 text-sm font-medium text-zinc-600 hover:bg-zinc-100"
+              >
+                ออกจากระบบ
+              </button>
+            </form>
+          )}
         </div>
       </header>
 

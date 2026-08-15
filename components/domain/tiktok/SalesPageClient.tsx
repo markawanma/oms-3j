@@ -109,7 +109,7 @@ export function SalesPageClient({
       )}
 
       <p className="border-t border-zinc-200 pt-3 text-xs leading-relaxed text-zinc-400">
-        <span className="font-medium text-zinc-500">สรุปยอดขาย</span> — ข้อมูลจริงจาก OMS (aggregate รายเดือน) ·
+        <span className="font-medium text-zinc-500">สรุปยอดขาย</span> — ข้อมูลจริงจาก 3J Insight (aggregate รายเดือน) ·
         เลือกช่วงวันที่ด้านบนเพื่อกรอง · กำไรไม่แสดง เพราะต้นทุนกรอกไม่ครบ (เชื่อไม่ได้)
       </p>
     </div>

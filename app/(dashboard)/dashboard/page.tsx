@@ -168,16 +168,18 @@ export default async function DashboardPage({
       {/* money KPIs — owner/admin only (kpi is null for staff) */}
       {d.kpi && (
         <section>
-          <div className="grid grid-cols-2 gap-2.5 md:grid-cols-3 lg:grid-cols-6">
+          {/* 6 KPIs as 2 rows of 3 (grid-cols-3) — wider cards read easier than
+              a single tight 6-across row; 2-up on the smallest screens. */}
+          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3">
             <StatCard label="ยอดขาย" value={fmtBaht(d.kpi.revenue)} tone="brand" icon={Coins} />
             <StatCard label="ออเดอร์" value={d.kpi.orders.toLocaleString("en-US")} tone="neutral" icon={Receipt} />
-            <StatCard label="กำไร (ประมาณการ)" value={fmtBaht(d.kpi.profit)} tone="brand" icon={Wallet} />
-            <StatCard label="AOV เฉลี่ย/ออเดอร์" value={fmtBaht(d.kpi.aov)} tone="neutral" />
-            <StatCard label="ลูกค้า (ช่วงนี้)" value={d.kpi.customers.toLocaleString("en-US")} tone="neutral" icon={Users} />
+            <StatCard label="กำไร" value={fmtBaht(d.kpi.profit)} sub="ประมาณการ" tone="brand" icon={Wallet} />
+            <StatCard label="AOV" value={fmtBaht(d.kpi.aov)} sub="ต่อออเดอร์" tone="neutral" />
+            <StatCard label="ลูกค้า" value={d.kpi.customers.toLocaleString("en-US")} sub="ในช่วงนี้" tone="neutral" icon={Users} />
             <StatCard
               label="Repeat"
               value={`${Math.round(d.kpi.repeatRate * 100)}%`}
-              sub="ลูกค้าช่วงนี้ที่เป็นขาประจำ"
+              sub="ขาประจำ"
               tone="neutral"
               icon={Repeat}
             />

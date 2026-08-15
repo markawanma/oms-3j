@@ -40,9 +40,9 @@ export function StatCard({
 }) {
   const inner = (
     <>
-      <div className="flex items-center gap-1.5 text-xs font-medium text-zinc-500">
+      <div className="flex items-center gap-1.5 text-xs font-medium leading-tight text-zinc-500">
         {Icon && <Icon className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />}
-        {label}
+        <span className="min-w-0">{label}</span>
       </div>
       <div className={`mt-1 text-2xl font-bold tabular-nums ${VALUE_TONE[tone]}`}>{value}</div>
       {sub && <div className="mt-0.5 text-xs text-zinc-400">{sub}</div>}
