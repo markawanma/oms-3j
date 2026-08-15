@@ -337,7 +337,14 @@ select
   case when cp.anchor_date is null then null
     else (cp.anchor_date + cs.offset_start_days) - current_date end as days_until,
   cs.audience_segment,
-  case when cs.audience_segment is null then null else coalesce(rfm.live_count, 0) end as audience_live_count,
+  -- Only the four RFM segments have a live count in v_rfm_segment; every other
+  -- segment (all_followers, geo_bkk, silver_bar, tiktok_buyer, line_follower)
+  -- has no source yet, so return NULL ("not countable") rather than 0 ("counted,
+  -- found none") — the UI hides the count chip on null. (effective_status below
+  -- still reads coalesce(rfm.live_count,0) directly, so waiting_data for
+  -- silver_bar et al. is unaffected by this display-only change.)
+  case when cs.audience_segment in ('champion', 'loyal', 'new', 'at_risk')
+    then coalesce(rfm.live_count, 0) else null end as audience_live_count,
   cs.channel,
   cs.goal_kpi,
   cs.status as step_status,

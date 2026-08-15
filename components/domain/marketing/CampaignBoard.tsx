@@ -47,12 +47,12 @@ function countdownText(daysUntil: number | null): string {
 
 function StepCard({
   step,
-  busyId,
+  busyIds,
   onToggleArtifact,
   onPassGate,
 }: {
   step: CampaignBoardStep;
-  busyId: string | null;
+  busyIds: Set<string>;
   onToggleArtifact: (artifactId: string, done: boolean) => void;
   onPassGate: (stepId: string, gateKind: string) => void;
 }) {
@@ -102,9 +102,9 @@ function StepCard({
             {step.artifacts.map((a) => {
               const isDone = a.status === "done";
               const isBlocked = a.status === "blocked";
-              const busy = busyId === a.id;
+              const busy = busyIds.has(a.id);
               return (
-                <li key={a.id} className="flex items-center gap-2">
+                <li key={a.id} className="flex items-start gap-2">
                   <button
                     type="button"
                     disabled={isBlocked || busy}
@@ -121,12 +121,19 @@ function StepCard({
                       <Circle className="h-4 w-4 text-zinc-300" aria-hidden="true" />
                     )}
                   </button>
-                  <span className={`min-w-0 flex-1 text-xs ${isDone ? "text-zinc-400 line-through" : "text-zinc-700"}`}>
-                    {ARTIFACT_TYPE_LABEL[a.artifactType] ?? a.artifactType}
-                    <span className="text-zinc-400"> · {OWNER_ROLE_LABEL[a.ownerRole] ?? a.ownerRole}</span>
-                  </span>
-                  {isBlocked && <Badge tone="slate">{ARTIFACT_STATUS_LABEL.blocked}</Badge>}
-                  {a.status === "draft" && <Badge tone="amber">ร่างแล้ว</Badge>}
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className={`text-xs ${isDone ? "text-zinc-400 line-through" : "text-zinc-700"}`}>
+                        {ARTIFACT_TYPE_LABEL[a.artifactType] ?? a.artifactType}
+                        <span className="text-zinc-400"> · {OWNER_ROLE_LABEL[a.ownerRole] ?? a.ownerRole}</span>
+                      </span>
+                      {isBlocked && <Badge tone="slate">{ARTIFACT_STATUS_LABEL.blocked}</Badge>}
+                      {a.status === "draft" && <Badge tone="amber">ร่างแล้ว</Badge>}
+                    </div>
+                    {/* note carries the "what to do / why blocked" detail (e.g. bundle
+                        blocked reason) — the core value for todo/blocked items */}
+                    {a.note && <p className="mt-0.5 text-[0.7rem] leading-relaxed text-zinc-500">{a.note}</p>}
+                  </div>
                 </li>
               );
             })}
@@ -139,7 +146,7 @@ function StepCard({
         <div className="flex flex-wrap items-center gap-1.5">
           {step.gates.map((g) => {
             const passed = g.status === "passed";
-            const busy = busyId === `${step.stepId}:${g.gateKind}`;
+            const busy = busyIds.has(`${step.stepId}:${g.gateKind}`);
             return passed ? (
               <Badge key={g.gateKind} tone="green">
                 ✓ {GATE_LABEL[g.gateKind] ?? g.gateKind}
@@ -165,18 +172,28 @@ function StepCard({
 export function CampaignBoard({ initialSteps }: { initialSteps: CampaignBoardStep[] }) {
   const toast = useToast();
   const [steps, setSteps] = useState(initialSteps);
-  const [busyId, setBusyId] = useState<string | null>(null);
+  // per-item busy set (not a single id) — two items can be in flight at once
+  // without one clearing the other's disabled state (race → double-submit).
+  const [busyIds, setBusyIds] = useState<Set<string>>(() => new Set());
   const [, startTransition] = useTransition();
+
+  const markBusy = (key: string, busy: boolean) =>
+    setBusyIds((prev) => {
+      const next = new Set(prev);
+      if (busy) next.add(key);
+      else next.delete(key);
+      return next;
+    });
 
   if (steps.length === 0) return null;
 
   const campaignName = steps[0].campaignName;
 
   function handleToggleArtifact(artifactId: string, done: boolean) {
-    setBusyId(artifactId);
+    markBusy(artifactId, true);
     startTransition(async () => {
       const result = await setCampaignArtifactStatus(artifactId, done ? "done" : "draft");
-      setBusyId(null);
+      markBusy(artifactId, false);
       if (!result.ok) {
         toast.push(result.error, "error");
         return;
@@ -195,10 +212,11 @@ export function CampaignBoard({ initialSteps }: { initialSteps: CampaignBoardSte
   }
 
   function handlePassGate(stepId: string, gateKind: string) {
-    setBusyId(`${stepId}:${gateKind}`);
+    const key = `${stepId}:${gateKind}`;
+    markBusy(key, true);
     startTransition(async () => {
       const result = await passCampaignGate(stepId, gateKind);
-      setBusyId(null);
+      markBusy(key, false);
       if (!result.ok) {
         toast.push(result.error, "error");
         return;
@@ -220,7 +238,7 @@ export function CampaignBoard({ initialSteps }: { initialSteps: CampaignBoardSte
   const waiting = steps.filter((s) => s.effectiveStatus === "waiting_data" || s.effectiveStatus === "blocked");
   const done = steps.filter((s) => s.effectiveStatus === "done");
 
-  const cardProps = { busyId, onToggleArtifact: handleToggleArtifact, onPassGate: handlePassGate };
+  const cardProps = { busyIds, onToggleArtifact: handleToggleArtifact, onPassGate: handlePassGate };
 
   return (
     <section className="space-y-3">

@@ -701,6 +701,7 @@ export async function getCampaignBoard(): Promise<ActionResult<CampaignBoardStep
         "step_id, campaign_id, campaign_name, campaign_type, trigger_kind, anchor_date, seq, step_kind, resolved_start, resolved_end, days_until, audience_segment, audience_live_count, channel, goal_kpi, step_status, step_blocked_reason, artifacts, art_total, art_done, gates, effective_status"
       )
       .eq("shop_id", shopId)
+      .order("campaign_id", { ascending: true })
       .order("seq", { ascending: true });
     if (error) throw error;
 
@@ -780,11 +781,14 @@ export async function setCampaignArtifactStatus(
     return { ok: true, data: undefined };
   } catch (err) {
     console.error("setCampaignArtifactStatus failed", err);
-    // rule 1 (silver_bar + discount) surfaces as a Postgres exception — show a
-    // readable message rather than the raw SQLSTATE.
-    const msg = err instanceof Error && err.message.includes("silver_bar")
-      ? "สินค้าเงินแท่งห้ามมีส่วนลด (กันเก็งกำไรราคา)"
-      : "อัปเดตสถานะไม่สำเร็จ ลองใหม่อีกครั้ง";
+    // rule 1 (silver_bar + discount) is raised with SQLSTATE 22023 — match the
+    // code first (stable), fall back to the message text only if the code
+    // didn't propagate, so re-wording the SQL exception can't break this.
+    const code = (err as { code?: string })?.code;
+    const msg =
+      code === "22023" || (err instanceof Error && err.message.includes("silver_bar"))
+        ? "สินค้าเงินแท่งห้ามมีส่วนลด (กันเก็งกำไรราคา)"
+        : "อัปเดตสถานะไม่สำเร็จ ลองใหม่อีกครั้ง";
     return { ok: false, error: msg };
   }
 }
