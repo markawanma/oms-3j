@@ -10,10 +10,12 @@ export default function LoginPage() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-zinc-50 px-4">
       <div className="w-full max-w-sm">
-        <div className="mb-6 flex justify-center">
+        <div className="mb-6 flex flex-col items-center gap-2">
           <Logo />
+          <p className="text-2xl font-bold tracking-tight text-primary-700">3J Insight</p>
+          <p className="text-sm text-zinc-500">CRM · การตลาด · วิเคราะห์ยอดขาย</p>
         </div>
-        <h1 className="mb-4 text-center text-lg font-bold text-zinc-900">เข้าสู่ระบบ</h1>
+        <h1 className="mb-4 text-center text-sm font-semibold text-zinc-600">เข้าสู่ระบบ</h1>
         <LoginForm />
       </div>
     </div>
