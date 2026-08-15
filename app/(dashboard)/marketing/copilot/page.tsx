@@ -1,9 +1,10 @@
 import { Lock } from "lucide-react";
-import { getChannelRoas, getMarketingReco } from "@/lib/actions/marketing";
+import { getCampaignBoard, getChannelRoas, getMarketingReco } from "@/lib/actions/marketing";
 import { getShopSetting } from "@/lib/actions/catalog";
 import { getDevRole } from "@/lib/dev/context";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { CampaignBoard } from "@/components/domain/marketing/CampaignBoard";
 import { RecoList } from "@/components/domain/marketing/RecoList";
 import { ChannelRoasFilter } from "@/components/domain/marketing/ChannelRoasFilter";
 
@@ -23,12 +24,13 @@ export default async function MarketingCopilotPage() {
     );
   }
 
-  let recoResult, roasResult, settingResult;
+  let recoResult, roasResult, settingResult, boardResult;
   try {
-    [recoResult, roasResult, settingResult] = await Promise.all([
+    [recoResult, roasResult, settingResult, boardResult] = await Promise.all([
       getMarketingReco(),
       getChannelRoas(),
       getShopSetting(),
+      getCampaignBoard(),
     ]);
   } catch (err) {
     // getDevShopId() throws when DEV_SHOP_ID isn't configured.
@@ -48,6 +50,7 @@ export default async function MarketingCopilotPage() {
         </p>
       </div>
 
+      {boardResult?.ok && <CampaignBoard initialSteps={boardResult.data} />}
       <RecoList initialRows={recoResult.data} />
       <ChannelRoasFilter rows={roasResult.data} blendedMarginPct={settingResult.data.blendedMarginPct} />
     </div>

@@ -37,6 +37,7 @@ import type {
   PromoAttributionSummary,
   UpsertAdSpendInput,
 } from "@/lib/marketing/types";
+import type { ArtifactStatus, CampaignBoardStep } from "@/lib/marketing/campaign-types";
 
 const SCHEMA = "analytics";
 
@@ -673,5 +674,139 @@ export async function decideReco(input: DecideRecoInput): Promise<ActionResult> 
   } catch (err) {
     console.error("decideReco failed", err);
     return { ok: false, error: "บันทึกการตัดสินใจไม่สำเร็จ ลองใหม่อีกครั้ง" };
+  }
+}
+
+// ============================================================================
+// /marketing/copilot — Campaign Playbook (analytics.v_campaign_board, 0049).
+// One row per campaign step; effective_status/audience_live_count are resolved
+// live in the view (from v_rfm_segment + gate/artifact state), so winback shows
+// waiting_data on its own when at_risk grows/shrinks. Owner/admin only — same
+// gate as the rest of the copilot. Writes go ONLY through the two RPCs below
+// (they enforce rule 1: silver_bar steps must never carry a discount).
+// ============================================================================
+
+export async function getCampaignBoard(): Promise<ActionResult<CampaignBoardStep[]>> {
+  const gateErr = requireOwnerAdmin();
+  if (gateErr) return gateErr;
+
+  try {
+    const shopId = getDevShopId();
+    const supabase = getServiceClient();
+
+    const { data, error } = await supabase
+      .schema(SCHEMA)
+      .from("v_campaign_board")
+      .select(
+        "step_id, campaign_id, campaign_name, campaign_type, trigger_kind, anchor_date, seq, step_kind, resolved_start, resolved_end, days_until, audience_segment, audience_live_count, channel, goal_kpi, step_status, step_blocked_reason, artifacts, art_total, art_done, gates, effective_status"
+      )
+      .eq("shop_id", shopId)
+      .order("seq", { ascending: true });
+    if (error) throw error;
+
+    const rows: CampaignBoardStep[] = (
+      (data ?? []) as Record<string, unknown>[]
+    ).map((r) => ({
+      stepId: String(r.step_id),
+      campaignId: String(r.campaign_id),
+      campaignName: String(r.campaign_name),
+      campaignType: String(r.campaign_type),
+      triggerKind: String(r.trigger_kind),
+      anchorDate: (r.anchor_date as string) ?? null,
+      seq: Number(r.seq) || 0,
+      stepKind: String(r.step_kind),
+      resolvedStart: (r.resolved_start as string) ?? null,
+      resolvedEnd: (r.resolved_end as string) ?? null,
+      daysUntil: r.days_until === null || r.days_until === undefined ? null : Number(r.days_until),
+      audienceSegment: (r.audience_segment as string) ?? null,
+      audienceLiveCount:
+        r.audience_live_count === null || r.audience_live_count === undefined ? null : Number(r.audience_live_count),
+      channel: (r.channel as string) ?? null,
+      goalKpi: (r.goal_kpi as string) ?? null,
+      stepStatus: String(r.step_status),
+      stepBlockedReason: (r.step_blocked_reason as string) ?? null,
+      artifacts: (Array.isArray(r.artifacts) ? r.artifacts : []).map(
+        (a: Record<string, unknown>) => ({
+          id: String(a.id),
+          artifactType: String(a.artifact_type),
+          ownerRole: String(a.owner_role),
+          sourceDoc: (a.source_doc as string) ?? null,
+          status: a.status as ArtifactStatus,
+          isDynamic: Boolean(a.is_dynamic),
+          dynamicSource: (a.dynamic_source as string) ?? null,
+          discountPct: a.discount_pct === null || a.discount_pct === undefined ? null : Number(a.discount_pct),
+          note: (a.note as string) ?? null,
+        })
+      ),
+      artTotal: Number(r.art_total) || 0,
+      artDone: Number(r.art_done) || 0,
+      gates: (Array.isArray(r.gates) ? r.gates : []).map((g: Record<string, unknown>) => ({
+        gateKind: String(g.gate_kind),
+        status: g.status as CampaignBoardStep["gates"][number]["status"],
+        passedAt: (g.passed_at as string) ?? null,
+        note: (g.note as string) ?? null,
+      })),
+      effectiveStatus: r.effective_status as CampaignBoardStep["effectiveStatus"],
+    }));
+
+    return { ok: true, data: rows };
+  } catch (err) {
+    console.error("getCampaignBoard failed", err);
+    return { ok: false, error: "โหลดบอร์ดแคมเปญไม่สำเร็จ ลองใหม่อีกครั้ง" };
+  }
+}
+
+export async function setCampaignArtifactStatus(
+  artifactId: string,
+  status: ArtifactStatus
+): Promise<ActionResult> {
+  const gateErr = requireOwnerAdmin();
+  if (gateErr) return gateErr;
+
+  if (!artifactId) return { ok: false, error: "ไม่พบรายการ content" };
+  if (!["todo", "draft", "done", "blocked"].includes(status)) {
+    return { ok: false, error: "สถานะไม่ถูกต้อง" };
+  }
+
+  try {
+    const supabase = getServiceClient();
+    const { error } = await supabase.schema(SCHEMA).rpc("campaign_set_artifact_status", {
+      p_artifact_id: artifactId,
+      p_status: status,
+    });
+    if (error) throw error;
+
+    revalidatePath("/marketing/copilot");
+    return { ok: true, data: undefined };
+  } catch (err) {
+    console.error("setCampaignArtifactStatus failed", err);
+    // rule 1 (silver_bar + discount) surfaces as a Postgres exception — show a
+    // readable message rather than the raw SQLSTATE.
+    const msg = err instanceof Error && err.message.includes("silver_bar")
+      ? "สินค้าเงินแท่งห้ามมีส่วนลด (กันเก็งกำไรราคา)"
+      : "อัปเดตสถานะไม่สำเร็จ ลองใหม่อีกครั้ง";
+    return { ok: false, error: msg };
+  }
+}
+
+export async function passCampaignGate(stepId: string, gateKind: string): Promise<ActionResult> {
+  const gateErr = requireOwnerAdmin();
+  if (gateErr) return gateErr;
+
+  if (!stepId || !gateKind) return { ok: false, error: "ไม่พบเงื่อนไขที่จะผ่าน" };
+
+  try {
+    const supabase = getServiceClient();
+    const { error } = await supabase.schema(SCHEMA).rpc("campaign_pass_gate", {
+      p_step_id: stepId,
+      p_gate_kind: gateKind,
+    });
+    if (error) throw error;
+
+    revalidatePath("/marketing/copilot");
+    return { ok: true, data: undefined };
+  } catch (err) {
+    console.error("passCampaignGate failed", err);
+    return { ok: false, error: "อัปเดตเงื่อนไขไม่สำเร็จ ลองใหม่อีกครั้ง" };
   }
 }
