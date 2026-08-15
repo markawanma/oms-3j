@@ -14,7 +14,7 @@ export function SalesScopeNote({ scope }: { scope: SalesScope }) {
 
   return (
     <p className="px-0.5 text-xs text-zinc-500">
-      ข้อมูลจาก OMS — <span className="font-medium text-zinc-700">{channelLabel}</span> เท่านั้น
+      ข้อมูลจาก 3J Insight — <span className="font-medium text-zinc-700">{channelLabel}</span> เท่านั้น
       {scope.firstOrderDate && <> ตั้งแต่ {formatThaiDateOnly(scope.firstOrderDate)}</>} · LINE กำลังเชื่อมเข้ามา
     </p>
   );

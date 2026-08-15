@@ -13,8 +13,8 @@ const notoSansThai = Noto_Sans_Thai({
 });
 
 export const metadata: Metadata = {
-  title: "OMS — ระบบจัดการออเดอร์",
-  description: "รวมออเดอร์ Shopee / TikTok Shop ไว้ในที่เดียว",
+  title: "3J Insight",
+  description: "CRM · การตลาด · วิเคราะห์ยอดขาย — สมองกลางของ 3J Jewelry",
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {

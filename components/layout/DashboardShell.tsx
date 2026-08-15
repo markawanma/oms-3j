@@ -210,6 +210,12 @@ export function DashboardShell({
               <Menu className="h-5 w-5" aria-hidden="true" />
             </button>
             <Logo />
+            {/* system name — the logo carries "3J JEWELRY", so this reads as
+                "3J · Insight" (the CRM/marketing/analytics platform). */}
+            <span className="hidden items-center gap-1.5 text-sm sm:flex">
+              <span aria-hidden="true" className="text-zinc-300">/</span>
+              <span className="font-bold tracking-tight text-primary-700">Insight</span>
+            </span>
           </div>
 
           {/* Phase A1 (auth infra, additive) — only rendered when a real
