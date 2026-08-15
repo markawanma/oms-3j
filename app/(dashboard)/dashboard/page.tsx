@@ -100,28 +100,33 @@ export default async function DashboardPage({
 
   return (
     <div className="space-y-5">
-      {/* header + brand + period toggle — shown always; graphs below react to
-          the same `period` query param even though staff can't see money */}
-      <div className="flex flex-wrap items-end justify-between gap-2">
-        <div>
-          <div className="flex items-center gap-2">
+      {/* header — brand-accented panel: deep-maroon ribbon (echoes the logo
+          enso), white card, logo + title + date, period toggle on the right.
+          Toggle is shown always (not gated on d.kpi): the count-only charts
+          below react to `period` too, so even staff need it. */}
+      <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm">
+        <div className="h-1 bg-gradient-to-r from-primary-800 via-primary-600 to-primary-800" aria-hidden="true" />
+        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-4 sm:px-5">
+          <div className="flex items-center gap-3">
             <Logo markOnly />
-            <h1 className="text-lg font-bold text-zinc-900">ภาพรวมร้าน</h1>
+            <div>
+              <h1 className="text-xl font-bold tracking-tight text-zinc-900">ภาพรวมร้าน</h1>
+              <p className="mt-0.5 text-sm text-zinc-500">{today}</p>
+            </div>
           </div>
-          <p className="mt-0.5 text-sm text-zinc-500">{today}</p>
-        </div>
-        <div className="inline-flex rounded-md border border-zinc-200 bg-white p-0.5 text-xs">
-          {DASHBOARD_PERIODS.map((p) => (
-            <Link
-              key={p}
-              href={`/dashboard?period=${p}`}
-              className={`rounded px-2.5 py-1 font-medium ${
-                p === period ? "bg-primary-100 text-primary-700" : "text-zinc-500 hover:bg-zinc-100"
-              }`}
-            >
-              {DASHBOARD_PERIOD_LABEL_TH[p]}
-            </Link>
-          ))}
+          <div className="inline-flex rounded-lg border border-zinc-200 bg-zinc-50 p-0.5 text-xs">
+            {DASHBOARD_PERIODS.map((p) => (
+              <Link
+                key={p}
+                href={`/dashboard?period=${p}`}
+                className={`rounded-md px-2.5 py-1 font-medium transition-colors ${
+                  p === period ? "bg-primary-700 text-white shadow-sm" : "text-zinc-500 hover:bg-zinc-200/60"
+                }`}
+              >
+                {DASHBOARD_PERIOD_LABEL_TH[p]}
+              </Link>
+            ))}
+          </div>
         </div>
       </div>
 
