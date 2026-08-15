@@ -1,0 +1,144 @@
+// lib/marketing/campaign-types.ts — Campaign Playbook (Ad Copilot "แคมเปญตามแผน")
+// TS mirror of analytics.v_campaign_board (0049) + Thai label maps. Enum values
+// are the source of truth in docs/3j-jewelry/marketing/campaign-playbook-taxonomy.md
+// §ENUMS and the CHECK constraints in 0049 — keep these in sync with both.
+
+export type EffectiveStatus =
+  | "todo"
+  | "scheduled"
+  | "active"
+  | "blocked"
+  | "waiting_data"
+  | "done";
+
+export type ArtifactStatus = "todo" | "draft" | "done" | "blocked";
+export type GateStatus = "pending" | "passed" | "blocked" | "na";
+
+export interface CampaignArtifact {
+  id: string;
+  artifactType: string;
+  ownerRole: string;
+  sourceDoc: string | null;
+  status: ArtifactStatus;
+  isDynamic: boolean;
+  dynamicSource: string | null;
+  discountPct: number | null;
+  note: string | null;
+}
+
+export interface CampaignGate {
+  gateKind: string;
+  status: GateStatus;
+  passedAt: string | null;
+  note: string | null;
+}
+
+export interface CampaignBoardStep {
+  stepId: string;
+  campaignId: string;
+  campaignName: string;
+  campaignType: string;
+  triggerKind: string;
+  anchorDate: string | null;
+  seq: number;
+  stepKind: string;
+  resolvedStart: string | null;
+  resolvedEnd: string | null;
+  daysUntil: number | null;
+  audienceSegment: string | null;
+  audienceLiveCount: number | null;
+  channel: string | null;
+  goalKpi: string | null;
+  stepStatus: string;
+  stepBlockedReason: string | null;
+  artifacts: CampaignArtifact[];
+  artTotal: number;
+  artDone: number;
+  gates: CampaignGate[];
+  effectiveStatus: EffectiveStatus;
+}
+
+// ---- Thai labels ----------------------------------------------------------
+
+export const STEP_KIND_LABEL: Record<string, string> = {
+  teaser: "Teaser (ปล่อยตัวอย่าง)",
+  vip_private_access: "VIP เปิดจองก่อน",
+  main_day: "วันจริง",
+  last_call: "ปิดการขาย (last call)",
+  post_sale: "หลังการขาย",
+  reconnect: "ทักกลับ (soft)",
+  segment_offer: "ยื่นข้อเสนอตามกลุ่ม",
+  followup_nudge: "กระตุ้นซ้ำ",
+  pre_live_hook: "hook ก่อนไลฟ์",
+  live_session: "ไลฟ์",
+  live_highlight_recap: "ตัดคลิปไฮไลต์",
+  identify: "คัดกลุ่มเป้าหมาย",
+  personal_outreach: "ทัก 1:1",
+  perk_fulfillment: "จัด perk (สลัก/กล่อง)",
+  remind: "เตือน",
+  cross_sell_matching: "เสนอชิ้นเข้าชุด",
+  insert_card: "การ์ดในพัสดุ",
+  live_cta: "CTA ในไลฟ์",
+  capture_consent: "เก็บ consent",
+  close: "ปิดแคมเปญ",
+};
+
+export const ARTIFACT_TYPE_LABEL: Record<string, string> = {
+  broadcast_script_line: "สคริปต์ broadcast (LINE)",
+  dm_script_1to1: "สคริปต์ทัก 1:1",
+  teaser_image: "รูป teaser",
+  cta_button_flex: "ปุ่ม CTA (Flex)",
+  parcel_card: "การ์ดใส่พัสดุ",
+  live_rundown: "รันดาวน์ไลฟ์",
+  attribution_code: "โค้ดวัดผล",
+  short_form_clip: "คลิปสั้น",
+  live_highlight_clip: "คลิปไฮไลต์ไลฟ์",
+  fb_post: "โพสต์ Facebook",
+  bundle_offer_spec: "สเปกบันเดิล",
+};
+
+export const OWNER_ROLE_LABEL: Record<string, string> = {
+  copywriter: "Copywriter",
+  content_repurposer: "Content",
+  owner: "เจ้าของร้าน",
+  cfo: "CFO",
+  coo: "COO",
+  tech_lead: "Tech Lead",
+  host: "Host ไลฟ์",
+};
+
+export const AUDIENCE_LABEL: Record<string, string> = {
+  champion: "ลูกค้าชั้นดี (champion)",
+  loyal: "ลูกค้าประจำ (loyal)",
+  new: "ลูกค้าใหม่",
+  at_risk: "ลูกค้าเสี่ยงหาย",
+  all_followers: "ผู้ติดตามทั้งหมด",
+  geo_bkk: "กรุงเทพฯ",
+  silver_bar: "สายเงินแท่ง/ลงทุน",
+  tiktok_buyer: "ลูกค้า TikTok",
+  line_follower: "ผู้ติดตาม LINE",
+};
+
+export const GATE_LABEL: Record<string, string> = {
+  cfo_discount_approval: "CFO อนุมัติส่วนลด",
+  coo_stock_check: "COO เช็คสต็อก",
+  pdpa_consent: "PDPA consent",
+  quota_check: "เช็คโควตาข้อความ",
+  price_realtime_fill: "กรอกราคาเงินวันนี้",
+};
+
+export const ARTIFACT_STATUS_LABEL: Record<ArtifactStatus, string> = {
+  todo: "ยังไม่ทำ",
+  draft: "ร่างแล้ว",
+  done: "เสร็จ",
+  blocked: "ติดเงื่อนไข",
+};
+
+export const EFFECTIVE_STATUS_LABEL: Record<EffectiveStatus, string> = {
+  todo: "ยังไม่ถึงคิว",
+  scheduled: "ตามแผน",
+  active: "กำลังทำ",
+  blocked: "ติดเงื่อนไข",
+  waiting_data: "รอข้อมูล",
+  done: "เสร็จแล้ว",
+};
