@@ -39,7 +39,8 @@ export default async function CrmImportPage() {
       <div>
         <h1 className="text-lg font-bold text-zinc-900">นำเข้ายอดขาย</h1>
         <p className="mt-0.5 text-sm text-zinc-500">
-          รายงานยอดขายรายเดือน — ทุกช่องทาง LINE/TikTok/Facebook อยู่ในไฟล์เดียว
+          รายงานยอดขายรายเดือน (ทุกช่องทาง LINE/TikTok/Facebook อยู่ในไฟล์เดียว) หรือรายงาน &quot;สินค้าในออเดอร์&quot;
+          จาก Shipnity เพื่อคำนวณกำไรจริงต่อออเดอร์ — อัปโหลดที่เดียว ระบบตรวจชนิดไฟล์ให้อัตโนมัติ
         </p>
       </div>
 

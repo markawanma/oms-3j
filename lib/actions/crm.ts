@@ -27,7 +27,7 @@ import { revalidatePath } from "next/cache";
 import { getServiceClient } from "@/lib/supabase/server";
 import { getDevShopId, getDevRole } from "@/lib/dev/context";
 import type { ActionResult } from "@/lib/types";
-import type { RfmSegment } from "@/lib/crm/segments";
+import { RFM_SEGMENTS, type RfmSegment } from "@/lib/crm/segments";
 import type { CrmChannelOption, CrmProvinceOption, OrderOverrideInput } from "@/lib/crm/order-override";
 import type { CrmMergeCandidateRow, MergeCandidateSide, MergeConfidence } from "@/lib/crm/merge";
 
@@ -94,6 +94,15 @@ export interface CrmOverviewScope {
    * null only when the shop has zero fact_order rows. */
   minOrderDate: string | null;
   maxOrderDate: string | null;
+  /** Validated, effective channel filter actually applied — null means "every
+   * channel" (either the caller didn't pass one, or passed a code that isn't
+   * in `channels` below, see getCrmOverview's channel validation — same
+   * "silently drop, never 500" contract as the date bounds). */
+  requestedChannelCode: string | null;
+  /** Every channel this shop's dim_channel carries (global reference data,
+   * same set getCrmEditOptions returns) — for the UI to render a channel
+   * filter dropdown. */
+  channels: CrmChannelOption[];
 }
 
 export interface CrmOverviewData {
@@ -104,10 +113,18 @@ export interface CrmOverviewData {
     /** Distinct customers with >=1 order INSIDE the requested range (not
      * all-time) — see getCrmOverview's date-filter note. */
     customers: number;
-    /** ESTIMATE ONLY (20% of revenue placeholder, no real COGS yet — design
-     * Decision Q3). Every UI surfacing this MUST render the "ประมาณการ 20%"
-     * label alongside it; never present it as a fact. */
-    profitSumEstimated: number;
+    /** SUM of v_fact_order.profit for every order in range — REAL profit
+     * (profit_status='actual') for orders a line-item import (0041) has
+     * processed, still a 20%-of-revenue ESTIMATE (profit_status='estimated')
+     * for the rest. This is a MIXED sum, not purely one or the other — use
+     * profitActualOrders/profitEstimatedOrders below to render an accurate
+     * label (e.g. "กำไรจริง X ออเดอร์ + ประมาณการ Y ออเดอร์"), do not caption
+     * this whole number as either "จริง" or "ประมาณการ 20%" alone. */
+    profitSum: number;
+    /** Order count with profit_status='actual' inside the requested range. */
+    profitActualOrders: number;
+    /** Order count with profit_status='estimated' inside the requested range. */
+    profitEstimatedOrders: number;
   };
   /** Segment breakdown of customers active (>=1 order) in the requested
    * range — but the segment VALUE itself is each customer's current
@@ -127,6 +144,11 @@ export interface GetCrmOverviewParams {
    * so a hand-edited or stale query string must never 500 the page. */
   from?: string | null;
   to?: string | null;
+  /** analytics.dim_channel.code (e.g. "line", "tiktok"). A value that doesn't
+   * match any of this shop's channels is silently dropped (falls back to
+   * "every channel"), same non-throwing contract as from/to — this also
+   * comes straight from URL searchParams. */
+  channelCode?: string | null;
 }
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
@@ -148,11 +170,17 @@ export async function getCrmOverview(params?: GetCrmOverviewParams): Promise<Act
     from = to;
     to = swap;
   }
+  const requestedChannelCode = params?.channelCode?.trim() || null;
 
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();
 
+    // min/maxOrderDate stays a bounded (.limit(1)) direct query — no row cap
+    // risk, same as before. channelsRes (dim_channel) is global reference
+    // data (no shop_id column, same as getCrmEditOptions below) and doubles
+    // as both the channel-filter dropdown source AND the whitelist that
+    // validates `requestedChannelCode` against, below.
     const [minRes, maxRes, channelsRes] = await Promise.all([
       supabase
         .schema(SCHEMA)
@@ -170,9 +198,7 @@ export async function getCrmOverview(params?: GetCrmOverviewParams): Promise<Act
         .order("order_date", { ascending: false })
         .limit(1)
         .maybeSingle(),
-      // dim_channel is global reference data shared by every shop (no
-      // shop_id column) — same as getCrmEditOptions below.
-      supabase.schema(SCHEMA).from("dim_channel").select("id, code, name"),
+      supabase.schema(SCHEMA).from("dim_channel").select("id, code, name").order("name", { ascending: true }),
     ]);
     if (minRes.error) throw minRes.error;
     if (maxRes.error) throw maxRes.error;
@@ -181,121 +207,88 @@ export async function getCrmOverview(params?: GetCrmOverviewParams): Promise<Act
     const minOrderDate = (minRes.data as { order_date: string } | null)?.order_date ?? null;
     const maxOrderDate = (maxRes.data as { order_date: string } | null)?.order_date ?? null;
 
-    const channelMap = new Map<string, { code: string; name: string }>();
-    for (const c of (channelsRes.data ?? []) as { id: string; code: string; name: string }[]) {
-      channelMap.set(c.id, { code: c.code, name: c.name });
-    }
-
-    // Business totals + channel breakdown both come from v_fact_order
-    // directly (not v_customer_master / v_channel_perf_monthly), same
-    // reasoning as before the date filter was added: v_customer_master only
-    // aggregates orders WITH a customer_id, so orders that couldn't be
-    // attributed to a customer would silently drop from a customer-rooted
-    // count. Date-filtering happens here, in the one query, so every widget
-    // below stays consistent with each other by construction.
-    let factQuery = supabase
-      .schema(SCHEMA)
-      .from("v_fact_order")
-      .select("revenue, profit, customer_id, order_date, channel_id, is_new_customer")
-      .eq("shop_id", shopId);
-    if (from) factQuery = factQuery.gte("order_date", from);
-    if (to) factQuery = factQuery.lte("order_date", to);
-    const { data: factData, error: factErr } = await factQuery;
-    if (factErr) throw factErr;
-
-    const factRows = (factData ?? []) as {
-      revenue: number;
-      profit: number | null;
-      customer_id: string | null;
-      order_date: string;
-      channel_id: string;
-      is_new_customer: boolean | null;
-    }[];
-
-    let totalOrders = 0;
-    let totalRevenue = 0;
-    let totalProfit = 0;
-    const customerIds = new Set<string>();
-    // "YYYY-MM" -> channel_id -> agg (mirrors what v_channel_perf_monthly
-    // used to compute in SQL — is_new_customer is a flag stamped once at
-    // import time per order, so filtering the *rows* by date range and then
-    // counting the flag is equivalent to the view's per-month aggregate).
-    const channelBuckets = new Map<string, Map<string, { orders: number; revenue: number; newCustomers: number }>>();
-
-    for (const r of factRows) {
-      totalOrders += 1;
-      totalRevenue += Number(r.revenue) || 0;
-      totalProfit += Number(r.profit) || 0;
-      if (r.customer_id) customerIds.add(r.customer_id);
-
-      const month = r.order_date.slice(0, 7);
-      if (!channelBuckets.has(month)) channelBuckets.set(month, new Map());
-      const chMap = channelBuckets.get(month)!;
-      const cur = chMap.get(r.channel_id) ?? { orders: 0, revenue: 0, newCustomers: 0 };
-      cur.orders += 1;
-      cur.revenue += Number(r.revenue) || 0;
-      if (r.is_new_customer) cur.newCustomers += 1;
-      chMap.set(r.channel_id, cur);
-    }
-
-    // Segment breakdown: only customers with >=1 order inside the requested
-    // range — see CrmOverviewData.segmentCounts doc comment above for the
-    // "segment value is still current/as-of-today" caveat the UI must show.
-    const segmentCounts: Record<RfmSegment, number> = {
-      champion: 0,
-      loyal: 0,
-      new: 0,
-      standard: 0,
-      at_risk: 0,
-      no_orders: 0,
-    };
-    const customerIdList = Array.from(customerIds);
-    // Chunked (ID_CHUNK_SIZE) — customerIdList scales with the shop's whole
-    // customer base (2,653+ after the backfill), which overflows PostgREST's
-    // .in() URL as a single request (HeadersOverflow, see ID_CHUNK_SIZE doc).
-    for (const chunk of chunkArray(customerIdList, ID_CHUNK_SIZE)) {
-      const { data: segmentData, error: segmentErr } = await supabase
-        .schema(SCHEMA)
-        .from("v_rfm_segment")
-        .select("segment")
-        .eq("shop_id", shopId)
-        .in("customer_id", chunk);
-      if (segmentErr) throw segmentErr;
-      for (const row of (segmentData ?? []) as { segment: string }[]) {
-        const seg = row.segment as RfmSegment;
-        if (seg in segmentCounts) segmentCounts[seg] += 1;
-      }
-    }
-
-    const channelPerf: CrmChannelPerfRow[] = [];
-    for (const [month, chMap] of channelBuckets.entries()) {
-      for (const [channelId, agg] of chMap.entries()) {
-        const ch = channelMap.get(channelId);
-        channelPerf.push({
-          month: `${month}-01`,
-          channelCode: ch?.code ?? "-",
-          channelName: ch?.name ?? "ไม่ทราบช่องทาง",
-          orders: agg.orders,
-          revenue: agg.revenue,
-          aov: agg.orders > 0 ? Math.round(agg.revenue / agg.orders) : 0,
-          newCustomers: agg.newCustomers,
-        });
-      }
-    }
-    // Same order as the old view query: month desc, then channel_code asc.
-    channelPerf.sort((a, b) =>
-      a.month === b.month ? a.channelCode.localeCompare(b.channelCode) : b.month.localeCompare(a.month)
+    const channels: CrmChannelOption[] = ((channelsRes.data ?? []) as { id: string; code: string; name: string }[]).map(
+      (c) => ({ id: c.id, code: c.code, name: c.name })
     );
+    // Same non-throwing contract as the date validation above: an unknown/
+    // stale channel code from the URL silently falls back to "every channel"
+    // rather than erroring or reaching the RPC with a code that just matches
+    // zero rows (which would render as "no data" instead of "filter reset").
+    const channelCode = requestedChannelCode && channels.some((c) => c.code === requestedChannelCode)
+      ? requestedChannelCode
+      : null;
+
+    // Everything else (totals/channel_perf/segment_counts) aggregates in SQL
+    // via one RPC call — no PostgREST row cap, since only the aggregate ever
+    // crosses the wire (see migration 0043_crm_overview_summary.sql header
+    // for the full bug writeup this replaces).
+    const { data: summaryData, error: summaryErr } = await supabase.schema(SCHEMA).rpc("crm_overview_summary", {
+      p_shop_id: shopId,
+      p_from: from,
+      p_to: to,
+      p_channel_code: channelCode,
+    });
+    if (summaryErr) throw summaryErr;
+
+    const summary = (summaryData ?? {}) as {
+      totals?: {
+        orders: number;
+        revenue: number;
+        profit: number;
+        customers: number;
+        profit_actual_orders: number;
+        profit_estimated_orders: number;
+      };
+      channel_perf?: {
+        month: string;
+        channel_code: string;
+        channel_name: string;
+        orders: number;
+        revenue: number;
+        aov: number;
+        new_customers: number;
+      }[];
+      segment_counts?: Partial<Record<RfmSegment, number>>;
+    };
+
+    const t = summary.totals ?? {
+      orders: 0,
+      revenue: 0,
+      profit: 0,
+      customers: 0,
+      profit_actual_orders: 0,
+      profit_estimated_orders: 0,
+    };
+
+    const channelPerf: CrmChannelPerfRow[] = (summary.channel_perf ?? []).map((r) => ({
+      month: r.month,
+      channelCode: r.channel_code,
+      channelName: r.channel_name,
+      orders: Number(r.orders) || 0,
+      revenue: Number(r.revenue) || 0,
+      aov: Number(r.aov) || 0,
+      newCustomers: Number(r.new_customers) || 0,
+    }));
+
+    // RPC only returns segments that actually have >=1 matching customer
+    // (jsonb_object_agg over a GROUP BY) — every other segment must still
+    // report 0, not be missing, so the UI can render a full RFM breakdown.
+    const segmentCounts = RFM_SEGMENTS.reduce((acc, seg) => {
+      acc[seg] = Number(summary.segment_counts?.[seg]) || 0;
+      return acc;
+    }, {} as Record<RfmSegment, number>);
 
     return {
       ok: true,
       data: {
         totals: {
-          orders: totalOrders,
-          revenue: totalRevenue,
-          aov: totalOrders > 0 ? Math.round(totalRevenue / totalOrders) : 0,
-          customers: customerIds.size,
-          profitSumEstimated: totalProfit,
+          orders: Number(t.orders) || 0,
+          revenue: Number(t.revenue) || 0,
+          aov: Number(t.orders) > 0 ? Math.round(Number(t.revenue) / Number(t.orders)) : 0,
+          customers: Number(t.customers) || 0,
+          profitSum: Number(t.profit) || 0,
+          profitActualOrders: Number(t.profit_actual_orders) || 0,
+          profitEstimatedOrders: Number(t.profit_estimated_orders) || 0,
         },
         segmentCounts,
         channelPerf,
@@ -304,6 +297,8 @@ export async function getCrmOverview(params?: GetCrmOverviewParams): Promise<Act
           requestedTo: to,
           minOrderDate,
           maxOrderDate,
+          requestedChannelCode: channelCode,
+          channels,
         },
       },
     };
