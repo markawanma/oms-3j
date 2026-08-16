@@ -95,7 +95,7 @@ export interface NewReturning {
   unknown: number;
 }
 
-/** One weekday (dow 0=Sun..6=Sat) of the all-time weekday pattern. revenue is null for staff. */
+/** One weekday (dow 0=Sun..6=Sat) of the period-scoped weekday pattern (0052 — follows the period toggle). revenue is null for staff. */
 export interface WeekdayPoint {
   dow: number;
   label: string;

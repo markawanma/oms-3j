@@ -1,11 +1,12 @@
 import type { WeekdayPoint } from "@/lib/dashboard/types";
 import { formatCount, formatTHBCompact } from "@/lib/tiktok/format";
 
-// Sales by Weekday, all-time (design §1a — not bound to the period toggle).
-// Server component, 7 vertical bars. Bar height is always driven by `orders`
-// (present for every role, per design §6) — `revenue` is folded into the
-// tooltip only when non-null, so this one chart works unchanged for both
-// owner and staff without a mode toggle.
+// Sales by Weekday, scoped to the selected period (0052 — was all-time in
+// 0044 §1a; owner asked for it to follow the วันนี้/7 วัน/เดือนนี้ toggle like
+// every other chart). Server component, 7 vertical bars. Bar height is always
+// driven by `orders` (present for every role, per design §6) — `revenue` is
+// folded into the tooltip only when non-null, so this one chart works
+// unchanged for both owner and staff without a mode toggle.
 const DISPLAY_DOW_ORDER = [1, 2, 3, 4, 5, 6, 0]; // Mon..Sun; RPC returns dow 0=Sun..6=Sat
 
 export function WeekdayChart({ points }: { points: WeekdayPoint[] }) {
@@ -28,7 +29,7 @@ export function WeekdayChart({ points }: { points: WeekdayPoint[] }) {
   return (
     <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
       <h3 className="text-sm font-bold text-zinc-900">รูปแบบรายวันในสัปดาห์</h3>
-      <p className="text-xs text-zinc-500">ทุกช่วงเวลา (ไม่ผูกตัวเลือกช่วงด้านบน)</p>
+      <p className="text-xs text-zinc-500">ตามช่วงที่เลือกด้านบน</p>
 
       {ordered.length === 0 ? (
         <p className="mt-6 py-8 text-center text-sm text-zinc-400">ไม่มีข้อมูล</p>
