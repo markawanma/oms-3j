@@ -737,6 +737,7 @@ export async function getCampaignBoard(): Promise<ActionResult<CampaignBoardStep
           dynamicSource: (a.dynamic_source as string) ?? null,
           discountPct: a.discount_pct === null || a.discount_pct === undefined ? null : Number(a.discount_pct),
           note: (a.note as string) ?? null,
+          contentBody: (a.content_body as string) ?? null,
         })
       ),
       artTotal: Number(r.art_total) || 0,

@@ -48,13 +48,19 @@ function countdownText(daysUntil: number | null): string {
 function StepCard({
   step,
   busyIds,
+  openArtifactIds,
   onToggleArtifact,
   onPassGate,
+  onToggleContentOpen,
+  onCopyContent,
 }: {
   step: CampaignBoardStep;
   busyIds: Set<string>;
+  openArtifactIds: Set<string>;
   onToggleArtifact: (artifactId: string, done: boolean) => void;
   onPassGate: (stepId: string, gateKind: string) => void;
+  onToggleContentOpen: (artifactId: string) => void;
+  onCopyContent: (text: string) => void;
 }) {
   const dimmed = step.effectiveStatus === "waiting_data" || step.effectiveStatus === "done";
 
@@ -133,6 +139,34 @@ function StepCard({
                     {/* note carries the "what to do / why blocked" detail (e.g. bundle
                         blocked reason) — the core value for todo/blocked items */}
                     {a.note && <p className="mt-0.5 text-[0.7rem] leading-relaxed text-zinc-500">{a.note}</p>}
+                    {/* full copy (LINE script ฯลฯ) — only shown once the copywriter has
+                        actually written something; expandable so the checklist stays
+                        scannable by default */}
+                    {a.contentBody && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => onToggleContentOpen(a.id)}
+                          className="mt-1 text-[0.7rem] font-semibold text-primary-600 hover:underline"
+                        >
+                          {openArtifactIds.has(a.id) ? "ซ่อนสคริปต์" : "📄 อ่านสคริปต์"}
+                        </button>
+                        {openArtifactIds.has(a.id) && (
+                          <div className="mt-1.5 rounded-md border border-zinc-200 bg-white p-2.5">
+                            <p className="whitespace-pre-wrap text-xs leading-relaxed text-zinc-700">
+                              {a.contentBody}
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => onCopyContent(a.contentBody as string)}
+                              className="mt-1.5 text-[0.7rem] font-semibold text-primary-600 hover:underline"
+                            >
+                              คัดลอก
+                            </button>
+                          </div>
+                        )}
+                      </>
+                    )}
                   </div>
                 </li>
               );
@@ -175,6 +209,9 @@ export function CampaignBoard({ initialSteps }: { initialSteps: CampaignBoardSte
   // per-item busy set (not a single id) — two items can be in flight at once
   // without one clearing the other's disabled state (race → double-submit).
   const [busyIds, setBusyIds] = useState<Set<string>>(() => new Set());
+  // artifact ids whose full script is expanded — several can be open at once,
+  // same pattern as busyIds above.
+  const [openArtifactIds, setOpenArtifactIds] = useState<Set<string>>(() => new Set());
   const [, startTransition] = useTransition();
 
   const markBusy = (key: string, busy: boolean) =>
@@ -211,6 +248,24 @@ export function CampaignBoard({ initialSteps }: { initialSteps: CampaignBoardSte
     });
   }
 
+  function handleToggleContentOpen(artifactId: string) {
+    setOpenArtifactIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(artifactId)) next.delete(artifactId);
+      else next.add(artifactId);
+      return next;
+    });
+  }
+
+  async function handleCopyContent(text: string) {
+    try {
+      await navigator.clipboard.writeText(text);
+      toast.push("คัดลอกแล้ว");
+    } catch {
+      toast.push("คัดลอกไม่สำเร็จ ลองใหม่อีกครั้ง", "error");
+    }
+  }
+
   function handlePassGate(stepId: string, gateKind: string) {
     const key = `${stepId}:${gateKind}`;
     markBusy(key, true);
@@ -238,7 +293,14 @@ export function CampaignBoard({ initialSteps }: { initialSteps: CampaignBoardSte
   const waiting = steps.filter((s) => s.effectiveStatus === "waiting_data" || s.effectiveStatus === "blocked");
   const done = steps.filter((s) => s.effectiveStatus === "done");
 
-  const cardProps = { busyIds, onToggleArtifact: handleToggleArtifact, onPassGate: handlePassGate };
+  const cardProps = {
+    busyIds,
+    openArtifactIds,
+    onToggleArtifact: handleToggleArtifact,
+    onPassGate: handlePassGate,
+    onToggleContentOpen: handleToggleContentOpen,
+    onCopyContent: handleCopyContent,
+  };
 
   return (
     <section className="space-y-3">
