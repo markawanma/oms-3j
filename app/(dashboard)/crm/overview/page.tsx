@@ -78,7 +78,13 @@ export default async function CrmOverviewPage({
   const filters = (
     <div className="space-y-2">
       <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
-        <CrmDateRangeFilter from={effectiveFrom} to={effectiveTo} minDate={scope.minOrderDate} maxDate={scope.maxOrderDate} />
+        <CrmDateRangeFilter
+          from={effectiveFrom}
+          to={effectiveTo}
+          minDate={scope.minOrderDate}
+          maxDate={scope.maxOrderDate}
+          channelCode={scope.requestedChannelCode}
+        />
         <CrmChannelFilter
           channels={scope.channels}
           requestedChannelCode={scope.requestedChannelCode}

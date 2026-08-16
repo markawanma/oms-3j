@@ -33,6 +33,7 @@ export function CrmDateRangeFilter({
   to,
   minDate,
   maxDate,
+  channelCode = null,
   basePath = "/crm/overview",
 }: {
   /** "YYYY-MM-DD" — currently effective range (defaults to minDate/maxDate
@@ -42,6 +43,12 @@ export function CrmDateRangeFilter({
   to: string;
   minDate: string | null;
   maxDate: string | null;
+  /** Current ?channel= code (null = all channels). Preserved in every
+   * navigation so changing the date range does NOT silently reset the channel
+   * filter — mirrors CrmChannelFilter, which already carries from/to through.
+   * Omitted by callers with no URL channel filter (e.g. /crm/orders, which
+   * filters channel client-side), where it stays null and no param is added. */
+  channelCode?: string | null;
   /** Which page's URL to navigate — defaults to /crm/overview (original
    * caller); /crm/orders passes its own path so this stays a single shared
    * component instead of forking a near-identical copy. */
@@ -53,14 +60,20 @@ export function CrmDateRangeFilter({
   const navigate = useCallback(
     (nextFrom: string, nextTo: string) => {
       const params = new URLSearchParams({ from: nextFrom, to: nextTo });
+      if (channelCode) params.set("channel", channelCode);
       router.push(`${basePath}?${params.toString()}`);
     },
-    [router, basePath]
+    [router, basePath, channelCode]
   );
 
   const navigateAll = useCallback(() => {
-    router.push(basePath);
-  }, [router, basePath]);
+    // "ทั้งหมด" clears the date range but keeps the active channel filter
+    // (resetting both would be a surprising side effect of a date-only button).
+    const params = new URLSearchParams();
+    if (channelCode) params.set("channel", channelCode);
+    const qs = params.toString();
+    router.push(qs ? `${basePath}?${qs}` : basePath);
+  }, [router, basePath, channelCode]);
 
   return (
     <div className="flex flex-wrap items-end gap-2" role="group" aria-label="ช่วงวันที่">
