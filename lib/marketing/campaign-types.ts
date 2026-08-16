@@ -24,6 +24,10 @@ export interface CampaignArtifact {
   dynamicSource: string | null;
   discountPct: number | null;
   note: string | null;
+  /** Full copy the copywriter wrote (LINE script ฯลฯ) — null when not written
+   * yet. Rendered expandable in the board so the owner reads it in-app instead
+   * of digging in repo docs. */
+  contentBody: string | null;
 }
 
 export interface CampaignGate {
