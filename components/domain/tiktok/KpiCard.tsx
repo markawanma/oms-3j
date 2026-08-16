@@ -27,7 +27,11 @@ const TREND_CLASS: Record<DashboardKpi["trend"], string> = {
 export function KpiCard({ kpi }: { kpi: DashboardKpi }) {
   const Icon = TREND_ICON[kpi.trend];
   const hasCoverageWarning = kpi.coveragePct !== undefined && kpi.coveragePct < 100;
-  const deltaSign = kpi.deltaPct > 0 ? "+" : "";
+  // deltaPct === null means "up from a zero baseline" (yesterday had no
+  // orders): no finite %, so show a "ใหม่" badge instead of a misleading
+  // "0%". The trend arrow (kpi.trend === "up") still carries the direction.
+  const isUpFromZero = kpi.deltaPct === null;
+  const deltaSign = kpi.deltaPct !== null && kpi.deltaPct > 0 ? "+" : "";
 
   return (
     <div className="flex flex-col gap-0.5 rounded-lg border border-zinc-200 bg-white p-3.5 shadow-sm">
@@ -35,11 +39,20 @@ export function KpiCard({ kpi }: { kpi: DashboardKpi }) {
       <span className="text-xl font-bold tracking-tight text-zinc-900 tabular-nums">{kpi.displayValue}</span>
       <div className={`mt-0.5 flex items-center gap-1 text-xs font-semibold ${TREND_CLASS[kpi.trend]}`}>
         <Icon className="h-3.5 w-3.5" aria-hidden="true" />
-        <span className="tabular-nums">
-          {deltaSign}
-          {kpi.deltaPct}%
-        </span>
-        <span className="font-normal text-zinc-400">vs เมื่อวาน</span>
+        {isUpFromZero ? (
+          <>
+            <span>ใหม่</span>
+            <span className="font-normal text-zinc-400">เมื่อวานไม่มียอด</span>
+          </>
+        ) : (
+          <>
+            <span className="tabular-nums">
+              {deltaSign}
+              {kpi.deltaPct}%
+            </span>
+            <span className="font-normal text-zinc-400">vs เมื่อวาน</span>
+          </>
+        )}
       </div>
       {hasCoverageWarning && (
         <span className="mt-1.5 inline-block self-start rounded px-1.5 py-0.5 text-[0.65rem] font-bold text-amber-800 bg-amber-100">

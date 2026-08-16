@@ -66,7 +66,11 @@ export interface DashboardKpi {
   value: number;
   /** Pre-formatted display string (e.g. "฿12,480", "26") — currency/number formatting decided by fixture, not the component, since some KPIs are counts and some are THB. */
   displayValue: string;
-  deltaPct: number;
+  /** Percent change vs the comparison period. `null` means "up from a zero
+   * baseline" (yesterday had no orders) — there is no finite %, so the card
+   * shows a "ใหม่" badge instead of a misleading "0%". `trend` still carries
+   * the direction in that case. */
+  deltaPct: number | null;
   trend: KpiTrend;
   /** Only set on KPIs with incomplete underlying data (e.g. profit — cost coverage < 100%). */
   coveragePct?: number;

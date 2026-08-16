@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Coins } from "lucide-react";
-import { getDailyDashboard } from "@/lib/tiktok/mock-actions";
+import { getDailyDashboard } from "@/lib/actions/tiktok-dashboard";
 import type { DailyDashboardData } from "@/lib/tiktok/types";
 import { formatThaiDateOnly } from "@/lib/tiktok/format";
 import { DataQualityBanner } from "./DataQualityBanner";
@@ -13,17 +13,18 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorBanner, ErrorState } from "@/components/ui/ErrorState";
 
 /**
- * Client component so it can `await getDailyDashboard()` (mock-actions.ts,
- * same call shape as the real sales action) and drive the loading/error/
- * empty/success states from design §4 — even though today's fixture call
- * resolves near-instantly, this is the shape the real analytics-DB call will
- * have once it lands (design §5 "สลับไฟล์เดียว UI ไม่แก้").
+ * Client component so it can `await getDailyDashboard()` (lib/actions/
+ * tiktok-dashboard.ts, real data via analytics.tiktok_daily_dashboard RPC —
+ * swapped in per design §5 "สลับไฟล์เดียว UI ไม่แก้", same call shape as the
+ * fixture it replaced) and drive the loading/error/empty/success states from
+ * design §4.
  *
  * NOTE: filter chips (date range / channel / address_type) shown in the
- * approved mockup are NOT implemented here — mock-actions.getDailyDashboard()
- * takes no params and this chunk's scope (see handoff) only lists KpiCard /
- * DataQualityBanner / BreakdownTabs / DashboardKpiSkeleton. Flagged as
- * technical debt in the delivery summary, not silently dropped.
+ * approved mockup are NOT implemented here — getDailyDashboard() accepts an
+ * optional dateISO but the UI never passes one yet, and this chunk's scope
+ * (see handoff) only lists KpiCard / DataQualityBanner / BreakdownTabs /
+ * DashboardKpiSkeleton. Flagged as technical debt in the delivery summary,
+ * not silently dropped.
  */
 export function DashboardPageClient() {
   const [data, setData] = useState<DailyDashboardData | null>(null);
@@ -55,7 +56,8 @@ export function DashboardPageClient() {
   }
 
   if (!data) {
-    // Defensive only — mock-actions always returns `ok:true` with data today.
+    // Defensive only — getDailyDashboard() returns has_data:false as a valid
+    // `ok:true` payload (zero-order day), never a null-data success.
     return <EmptyState icon={Coins} title="ยังไม่มีข้อมูลแดชบอร์ด" />;
   }
 
@@ -70,7 +72,7 @@ export function DashboardPageClient() {
 
       <p className="text-xs text-zinc-400">
         ข้อมูลวันที่ <span className="font-semibold text-zinc-600">{formatThaiDateOnly(data.date)}</span> ·{" "}
-        <span className="font-medium text-amber-700">MOCK — รอ analytics DB</span>
+        ข้อมูลจริงจาก OMS
       </p>
 
       <DataQualityBanner dataQuality={data.dataQuality} />
