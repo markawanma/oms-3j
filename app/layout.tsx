@@ -18,9 +18,19 @@ export const metadata: Metadata = {
 };
 
 export default function RootLayout({ children }: { children: ReactNode }) {
+  // suppressHydrationWarning on <html>/<body> ONLY: browser extensions
+  // (Grammarly → `data-gr-ext-installed` / `cz-shortcut-listen`, Google
+  // Translate, dark-mode helpers, Thai IME helpers, …) mutate these two
+  // top-level tags *before* React hydrates, adding attributes the server HTML
+  // never had. That triggers an app-wide "server rendered HTML didn't match
+  // the client" error on every route — with no app-code cause (our shell
+  // renders deterministically; every toLocale* call pins an explicit locale).
+  // React/Next.js's sanctioned fix is this flag. It suppresses the warning for
+  // the html/body element's OWN attributes only — it does NOT cascade to the
+  // subtree — so any real content mismatch deeper in the tree is still caught.
   return (
-    <html lang="th" className={notoSansThai.variable}>
-      <body className="font-sans min-h-screen">{children}</body>
+    <html lang="th" className={notoSansThai.variable} suppressHydrationWarning>
+      <body className="font-sans min-h-screen" suppressHydrationWarning>{children}</body>
     </html>
   );
 }
