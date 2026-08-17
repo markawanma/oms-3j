@@ -12,12 +12,16 @@ export function DonutChart({
   slices,
   formatValue = (v: number) => v.toLocaleString("en-US"),
   emptyMessage = "ไม่มีข้อมูล",
+  showValue = false,
 }: {
   title: string;
   subtitle?: string;
   slices: DonutSlice[];
   formatValue?: (v: number) => string;
   emptyMessage?: string;
+  /** Also show the formatted value in the legend (e.g. "฿252K · 53%"), not
+   * just the %. Default false keeps Product Mix / New-Returning unchanged. */
+  showValue?: boolean;
 }) {
   const total = slices.reduce((sum, s) => sum + s.value, 0);
   const nonZero = slices.filter((s) => s.value > 0);
@@ -67,7 +71,9 @@ export function DonutChart({
                 <i className="inline-block h-2.5 w-2.5 shrink-0 rounded-sm" style={{ background: s.color }} aria-hidden="true" />
                 <span className="min-w-0 truncate">{s.label}</span>
                 <span className="ml-auto shrink-0 font-semibold text-zinc-900">
-                  {total > 0 ? Math.round((s.value / total) * 100) : 0}%
+                  {showValue
+                    ? `${formatValue(s.value)} · ${total > 0 ? Math.round((s.value / total) * 100) : 0}%`
+                    : `${total > 0 ? Math.round((s.value / total) * 100) : 0}%`}
                 </span>
               </li>
             ))}

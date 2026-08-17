@@ -14,11 +14,6 @@ import {
   Wallet,
 } from "lucide-react";
 import { getDashboard, getDashboardCharts } from "@/lib/actions/dashboard";
-import {
-  DASHBOARD_PERIODS,
-  DASHBOARD_PERIOD_LABEL_TH,
-  toDashboardPeriod,
-} from "@/lib/dashboard/types";
 import type { DashboardCharts, MixSlice } from "@/lib/dashboard/types";
 import { ErrorState, ErrorBanner } from "@/components/ui/ErrorState";
 import { StatCard } from "@/components/ui/StatCard";
@@ -28,7 +23,10 @@ import { TrendChart } from "@/components/domain/dashboard/TrendChart";
 import { HBarChart } from "@/components/domain/dashboard/HBarChart";
 import { DonutChart } from "@/components/domain/dashboard/DonutChart";
 import { WeekdayChart } from "@/components/domain/dashboard/WeekdayChart";
-import { formatTHBCompact, formatCount, formatThaiDateOnly } from "@/lib/tiktok/format";
+import { CrmDateRangeFilter } from "@/components/domain/crm/CrmDateRangeFilter";
+import { CrmChannelFilter } from "@/components/domain/crm/CrmChannelFilter";
+import { CHANNEL_COLOR } from "@/lib/dashboard/channel-colors";
+import { formatTHBCompact, formatCount, formatThaiDateOnly, effectiveDateBangkok } from "@/lib/tiktok/format";
 import type { BadgeTone } from "@/components/ui/Badge";
 
 export const dynamic = "force-dynamic";
@@ -70,6 +68,10 @@ function mixToSlices(mix: MixSlice[]) {
   return mix.map((m) => ({ label: m.label, value: m.revenue, color: BUCKET_COLOR[m.bucket] ?? BUCKET_COLOR.other }));
 }
 
+function firstDayOfThisMonthBangkokISO(): string {
+  return `${effectiveDateBangkok(new Date().toISOString()).slice(0, 7)}-01`;
+}
+
 // /dashboard — Home overview (docs/3j-jewelry/analytics/phase-dashboard-charts-
 // design.md §4 IA). Not staff-blocked: staff see "action needed" + the count-
 // only charts; every money section (KPI row, Top SKU, Product Mix, AOV by
@@ -80,14 +82,18 @@ function mixToSlices(mix: MixSlice[]) {
 export default async function DashboardPage({
   searchParams,
 }: {
-  searchParams: Promise<{ period?: string }>;
+  searchParams: Promise<{ from?: string; to?: string; channel?: string }>;
 }) {
   const sp = await searchParams;
-  const period = toDashboardPeriod(sp.period);
+  // Default = this month-to-date (Bangkok), never all-time — an all-time
+  // default would blow the daily trend chart up to hundreds of bars.
+  const from = sp.from ?? firstDayOfThisMonthBangkokISO();
+  const to = sp.to ?? effectiveDateBangkok(new Date().toISOString());
+  const channel = sp.channel ?? null;
 
   const [dashboardResult, chartsResult] = await Promise.all([
-    getDashboard(period),
-    getDashboardCharts(period),
+    getDashboard({ from, to, channel }),
+    getDashboardCharts({ from, to, channel }),
   ]);
 
   if (!dashboardResult.ok) return <ErrorState message={dashboardResult.error} />;
@@ -95,37 +101,61 @@ export default async function DashboardPage({
   const charts = chartsResult.ok ? chartsResult.data : null;
   const chartsError = chartsResult.ok ? null : chartsResult.error;
 
+  // Effective range = what the RPC actually applied (validateRange may have
+  // swapped a reversed from/to or clamped an over-wide span) — drive the date
+  // inputs + label off this, not the raw URL values, so the UI never shows a
+  // range that differs from the data below it. Never null for /dashboard
+  // (from/to are always passed), but fall back defensively.
+  const effFrom = d.scope.requestedFrom ?? from;
+  const effTo = d.scope.requestedTo ?? to;
+
   const today = new Date().toLocaleDateString("th-TH", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
   const hasAction = d.action.oversold > 0 || d.action.lowStock > 0;
 
   return (
     <div className="space-y-5">
       {/* header — brand-accented panel: deep-maroon ribbon (echoes the logo
-          enso), white card, logo + title + date, period toggle on the right.
-          Toggle is shown always (not gated on d.kpi): the count-only charts
-          below react to `period` too, so even staff need it. */}
+          enso), white card, logo + title + date. Date-range + channel filter
+          sits below (CRM's shared pattern), shown always — the count-only
+          charts react to it too, so even staff need it. */}
       <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm">
         <div className="h-1 bg-gradient-to-r from-primary-800 via-primary-600 to-primary-800" aria-hidden="true" />
-        <div className="flex flex-wrap items-center justify-between gap-3 px-4 py-4 sm:px-5">
-          <div className="flex items-center gap-3">
-            <Logo markOnly />
-            <div>
-              <h1 className="text-xl font-bold tracking-tight text-zinc-900">ภาพรวมร้าน</h1>
-              <p className="mt-0.5 text-sm text-zinc-500">{today}</p>
-            </div>
+        <div className="flex flex-wrap items-center gap-3 px-4 py-4 sm:px-5">
+          <Logo markOnly />
+          <div>
+            <h1 className="text-xl font-bold tracking-tight text-zinc-900">ภาพรวมร้าน</h1>
+            <p className="mt-0.5 text-sm text-zinc-500">{today}</p>
           </div>
-          <div className="inline-flex rounded-lg border border-zinc-200 bg-zinc-50 p-0.5 text-xs">
-            {DASHBOARD_PERIODS.map((p) => (
-              <Link
-                key={p}
-                href={`/dashboard?period=${p}`}
-                className={`rounded-md px-2.5 py-1 font-medium transition-colors ${
-                  p === period ? "bg-primary-700 text-white shadow-sm" : "text-zinc-500 hover:bg-zinc-200/60"
-                }`}
-              >
-                {DASHBOARD_PERIOD_LABEL_TH[p]}
-              </Link>
-            ))}
+        </div>
+        <div className="border-t border-zinc-100 px-4 py-3 sm:px-5">
+          <div className="space-y-2">
+            <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
+              <CrmDateRangeFilter
+                basePath="/dashboard"
+                from={effFrom}
+                to={effTo}
+                minDate={d.scope.minOrderDate}
+                maxDate={d.scope.maxOrderDate}
+                channelCode={channel}
+                allRange={
+                  d.scope.minOrderDate && d.scope.maxOrderDate
+                    ? { from: d.scope.minOrderDate, to: d.scope.maxOrderDate }
+                    : null
+                }
+              />
+              <CrmChannelFilter
+                basePath="/dashboard"
+                channels={d.scope.channels.map((c) => ({ id: c.code, code: c.code, name: c.name }))}
+                requestedChannelCode={channel}
+                from={effFrom}
+                to={effTo}
+              />
+            </div>
+            <p className="text-xs text-zinc-400">รูปแบบวันที่ในช่อง: เดือน/วัน/ปี (ค.ศ.)</p>
+            <p className="text-sm font-semibold text-zinc-700">
+              📅 กำลังดู: {formatThaiDateOnly(effFrom)} – {formatThaiDateOnly(effTo)}
+              {channel ? ` · ${d.scope.channels.find((c) => c.code === channel)?.name ?? channel}` : ""}
+            </p>
           </div>
         </div>
       </div>
@@ -235,6 +265,19 @@ export default async function DashboardPage({
               emptyMessage="ไม่มีข้อมูล (หรือไม่มีสิทธิ์ดูมูลค่าเงิน)"
             />
           </div>
+
+          <DonutChart
+            title="ยอดขายตามช่องทาง"
+            subtitle="แยกตามช่องทาง (ทุกช่องทางเสมอ)"
+            slices={charts.salesByChannel.map((c) => ({
+              label: c.channelName,
+              value: c.revenue,
+              color: CHANNEL_COLOR[c.channelCode] ?? CHANNEL_COLOR.default,
+            }))}
+            formatValue={formatTHBCompact}
+            showValue
+            emptyMessage="ไม่มีข้อมูล (หรือไม่มีสิทธิ์ดูมูลค่าเงิน)"
+          />
 
           <WeekdayChart points={charts.weekday} />
         </section>

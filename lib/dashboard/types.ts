@@ -1,21 +1,12 @@
 // lib/dashboard/types.ts — Home/Dashboard (docs/3j-jewelry/design/ui-refresh-
-// plan.md §1), backed by analytics.dashboard_summary (0039). All numbers come
+// plan.md §1), backed by analytics.dashboard_summary. All numbers come
 // pre-aggregated from that one RPC. `kpi`/`reco`/`rfm`/`topChannel` are null/
-// empty for staff (money hidden) — only `action` is always present.
-
-export type DashboardPeriod = "today" | "7d" | "month";
-
-export const DASHBOARD_PERIODS: DashboardPeriod[] = ["today", "7d", "month"];
-
-export const DASHBOARD_PERIOD_LABEL_TH: Record<DashboardPeriod, string> = {
-  today: "วันนี้",
-  "7d": "7 วัน",
-  month: "เดือนนี้",
-};
-
-export function toDashboardPeriod(v: string | undefined): DashboardPeriod {
-  return v === "today" || v === "7d" || v === "month" ? v : "month";
-}
+// empty for staff (money hidden) — only `action`/`scope` are always present.
+//
+// 0054: the period toggle (วันนี้/7วัน/เดือนนี้) was replaced by a real
+// date-range + channel filter (matching /crm/overview) — DashboardPeriod is
+// gone from this file; the filter's current from/to/channel now lives in
+// DashboardScope below.
 
 export interface DashboardKpi {
   revenue: number;
@@ -45,8 +36,24 @@ export interface DashboardTopChannel {
   roas: number | null;
 }
 
+/** Filter-UI scope for /dashboard (0054) — mirrors CrmOverviewScope's shape
+ * (lib/actions/crm.ts) so the date-range + channel filter behaves the same
+ * across /dashboard and /crm/overview: min/max are ALL-TIME (unscoped), so
+ * date-input bounds and channel chips never move/disappear just because the
+ * currently-selected window has no orders. */
+export interface DashboardScope {
+  minOrderDate: string | null;
+  maxOrderDate: string | null;
+  channels: { code: string; name: string }[];
+  /** Validated/effective values actually applied by the RPC — null means
+   * "no bound" / "every channel" (either not passed, or dropped by
+   * getDashboard's own validation before ever reaching the RPC). */
+  requestedFrom: string | null;
+  requestedTo: string | null;
+  requestedChannel: string | null;
+}
+
 export interface DashboardData {
-  period: DashboardPeriod;
   /** null when the viewer is staff (money hidden). */
   kpi: DashboardKpi | null;
   action: DashboardAction;
@@ -54,6 +61,7 @@ export interface DashboardData {
   /** RFM segment → customer count (e.g. { champion: 6, loyal: 55, new: 177 }). */
   rfm: Record<string, number>;
   topChannel: DashboardTopChannel | null;
+  scope: DashboardScope;
 }
 
 // ============================================================================
@@ -64,7 +72,7 @@ export interface DashboardData {
 // SQL-level money gate as DashboardData.kpi, never a UI-only hide.
 // ============================================================================
 
-/** One day of the fixed 30-day sales trend. revenue/aov are null for staff. */
+/** One day of the sales trend, zero-filled across the selected [from,to] range (0054 — was a fixed 30-day window pre-0054). revenue/aov are null for staff. */
 export interface TrendPoint {
   date: string;
   revenue: number | null;
@@ -95,7 +103,7 @@ export interface NewReturning {
   unknown: number;
 }
 
-/** One weekday (dow 0=Sun..6=Sat) of the period-scoped weekday pattern (0052 — follows the period toggle). revenue is null for staff. */
+/** One weekday (dow 0=Sun..6=Sat) of the weekday pattern, scoped to the selected [from,to]+channel filter (0052 introduced date-scoping under the old period toggle; 0054 carried it forward to range+channel). revenue is null for staff. */
 export interface WeekdayPoint {
   dow: number;
   label: string;
@@ -113,8 +121,18 @@ export interface ChartCoverage {
   rangeTo: string | null;
 }
 
+/** Donut-chart slice — sales by channel (0054). Scoped to [from,to] ONLY,
+ * NOT the channel filter (always shows every channel so it stays useful as
+ * a comparison even while one channel is selected). [] for staff. */
+export interface SalesByChannel {
+  channelCode: string;
+  channelName: string;
+  revenue: number;
+  orders: number;
+  sharePct: number;
+}
+
 export interface DashboardCharts {
-  period: DashboardPeriod;
   coverage: ChartCoverage;
   /** [] for staff */
   topSku: HBarRow[];
@@ -125,4 +143,6 @@ export interface DashboardCharts {
   newReturning: NewReturning;
   salesTrend: TrendPoint[];
   weekday: WeekdayPoint[];
+  /** [] for staff */
+  salesByChannel: SalesByChannel[];
 }

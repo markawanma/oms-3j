@@ -8,10 +8,12 @@ type Mode = "revenue" | "orders";
 
 const MODE_LABEL: Record<Mode, string> = { revenue: "ยอดขาย", orders: "ออเดอร์" };
 
-// Sales Trend, 30 days fixed (design §1a — not bound to the period toggle).
-// Ported from components/domain/tiktok/SalesTrendChart.tsx: daily x-labels
-// instead of formatMonthShort, per-bar value labels dropped (30 bars is too
-// dense), and x-axis ticks are sparse (every ~5th day) to avoid overlap.
+// Sales Trend — scoped to whatever [from,to] range the page's date filter is
+// currently set to (0054; was a fixed 30-day window pre-0054, see design
+// §1a). Ported from components/domain/tiktok/SalesTrendChart.tsx: daily
+// x-labels instead of formatMonthShort, per-bar value labels dropped (many
+// bars is too dense), and x-axis ticks are sparse (every ~5th day) to avoid
+// overlap.
 // Staff: revenue/aov come back null from the RPC (money gated in SQL, see
 // design §6) — mode is forced to "orders" and the money toggle is hidden
 // entirely rather than merely disabled.
@@ -44,8 +46,8 @@ export function TrendChart({ points }: { points: TrendPoint[] }) {
     <div className="rounded-lg border border-zinc-200 bg-white p-4 shadow-sm">
       <div className="flex flex-wrap items-center gap-2">
         <div>
-          <h3 className="text-sm font-bold text-zinc-900">ยอดขาย 30 วันล่าสุด</h3>
-          <p className="text-xs text-zinc-500">รายวัน</p>
+          <h3 className="text-sm font-bold text-zinc-900">ยอดขายรายวัน</h3>
+          <p className="text-xs text-zinc-500">ตามช่วงที่เลือก</p>
         </div>
         {moneyAvailable && (
           <div className="ml-auto inline-flex overflow-hidden rounded-full border border-zinc-300" role="tablist" aria-label="เลือกหน่วยกราฟ">
@@ -68,7 +70,7 @@ export function TrendChart({ points }: { points: TrendPoint[] }) {
       {points.length === 0 ? (
         <p className="mt-6 py-8 text-center text-sm text-zinc-400">ไม่มีข้อมูล</p>
       ) : (
-        <svg viewBox={`0 0 ${W} ${H}`} className="mt-3 block w-full overflow-visible" role="img" aria-label={`กราฟ${MODE_LABEL[mode]}รายวัน 30 วันล่าสุด`}>
+        <svg viewBox={`0 0 ${W} ${H}`} className="mt-3 block w-full overflow-visible" role="img" aria-label={`กราฟ${MODE_LABEL[mode]}รายวัน ตามช่วงที่เลือก`}>
           {[0, 0.25, 0.5, 0.75, 1].map((f) => {
             const y = padTop + plotH * (1 - f);
             return (

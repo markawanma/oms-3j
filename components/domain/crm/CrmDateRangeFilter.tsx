@@ -35,6 +35,7 @@ export function CrmDateRangeFilter({
   maxDate,
   channelCode = null,
   basePath = "/crm/overview",
+  allRange = null,
 }: {
   /** "YYYY-MM-DD" — currently effective range (defaults to minDate/maxDate
    * when the URL has no ?from=/?to=, so the inputs always show a concrete
@@ -53,6 +54,13 @@ export function CrmDateRangeFilter({
    * caller); /crm/orders passes its own path so this stays a single shared
    * component instead of forking a near-identical copy. */
   basePath?: string;
+  /** When set, the "ทั้งหมด" button navigates to this explicit range
+   * (min–max) instead of clearing from/to entirely. CRM's own default is
+   * already all-time when the URL has no from/to, so clearing works there;
+   * /dashboard defaults to "this month" instead, so its "ทั้งหมด" needs an
+   * explicit min–max push or it would just land back on this month. Omitted
+   * (null) preserves the original CRM behavior exactly. */
+  allRange?: { from: string; to: string } | null;
 }) {
   const router = useRouter();
   const today = bangkokTodayISO();
@@ -68,12 +76,19 @@ export function CrmDateRangeFilter({
 
   const navigateAll = useCallback(() => {
     // "ทั้งหมด" clears the date range but keeps the active channel filter
-    // (resetting both would be a surprising side effect of a date-only button).
+    // (resetting both would be a surprising side effect of a date-only button)
+    // — unless the caller passed an explicit allRange (e.g. /dashboard, whose
+    // default is "this month", not all-time; clearing there would just land
+    // back on this month, not "all"), in which case push that range instead.
     const params = new URLSearchParams();
+    if (allRange) {
+      params.set("from", allRange.from);
+      params.set("to", allRange.to);
+    }
     if (channelCode) params.set("channel", channelCode);
     const qs = params.toString();
     router.push(qs ? `${basePath}?${qs}` : basePath);
-  }, [router, basePath, channelCode]);
+  }, [router, basePath, channelCode, allRange]);
 
   return (
     <div className="flex flex-wrap items-end gap-2" role="group" aria-label="ช่วงวันที่">
