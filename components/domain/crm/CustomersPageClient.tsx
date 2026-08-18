@@ -5,15 +5,30 @@ import Link from "next/link";
 import { Search, Users } from "lucide-react";
 import type { CrmCustomerListRow } from "@/lib/actions/crm";
 import type { RfmSegment } from "@/lib/crm/segments";
-import { RFM_SEGMENTS, SEGMENT_LABEL_TH } from "@/lib/crm/segments";
+import { RFM_SEGMENTS, SEGMENT_LABEL_TH, SEGMENT_DESC_TH, VALUE_TIER_DESC_TH } from "@/lib/crm/segments";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { Badge } from "@/components/ui/Badge";
 import { formatTHBCompact, formatThaiDateOnly } from "@/lib/tiktok/format";
 import { SegmentBadge } from "./SegmentBadge";
 
-type SegmentFilter = RfmSegment | "all";
+/** 'champion' splits into two dropdown options by value_tier (core vs high) —
+ * NOT a new RfmSegment, just a client-side filter refinement (see
+ * lib/crm/segments.ts ValueTier comment). */
+type SegmentFilter = RfmSegment | "all" | "champion_high";
 
-function isValidSegment(v: string): v is RfmSegment {
-  return (RFM_SEGMENTS as string[]).includes(v);
+/** Dropdown options in RFM_SEGMENTS order, with 'champion' expanded into two
+ * (ordinary vs value_tier='high') right where 'champion' would sit. */
+const SEGMENT_FILTER_OPTIONS: { value: SegmentFilter; label: string }[] = RFM_SEGMENTS.flatMap((s) =>
+  s === "champion"
+    ? [
+        { value: "champion" as SegmentFilter, label: "ลูกค้าชั้นดี (ยอดทั่วไป)" },
+        { value: "champion_high" as SegmentFilter, label: "ลูกค้าชั้นดี · ยอดเยอะ ⭐" },
+      ]
+    : [{ value: s as SegmentFilter, label: SEGMENT_LABEL_TH[s] }]
+);
+
+function isValidSegment(v: string): v is SegmentFilter {
+  return v === "champion_high" || (RFM_SEGMENTS as string[]).includes(v);
 }
 
 /** Client-side search + segment filter over the full customer list — data
@@ -36,7 +51,13 @@ export function CustomersPageClient({
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return rows.filter((r) => {
-      if (segment !== "all" && r.segment !== segment) return false;
+      if (segment === "champion") {
+        if (!(r.segment === "champion" && r.valueTier === "core")) return false;
+      } else if (segment === "champion_high") {
+        if (!(r.segment === "champion" && r.valueTier === "high")) return false;
+      } else if (segment !== "all" && r.segment !== segment) {
+        return false;
+      }
       if (q && !(r.displayName ?? "").toLowerCase().includes(q)) return false;
       return true;
     });
@@ -70,9 +91,9 @@ export function CustomersPageClient({
             className="min-h-11 rounded-md border border-zinc-300 px-2.5 text-sm text-zinc-900"
           >
             <option value="all">ทุกกลุ่ม</option>
-            {RFM_SEGMENTS.map((s) => (
-              <option key={s} value={s}>
-                {SEGMENT_LABEL_TH[s]}
+            {SEGMENT_FILTER_OPTIONS.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
               </option>
             ))}
           </select>
@@ -82,6 +103,34 @@ export function CustomersPageClient({
       <p className="text-xs text-zinc-400">
         พบ <span className="font-semibold text-zinc-600">{filtered.length}</span> จาก {rows.length} คน
       </p>
+
+      <details className="rounded-md border border-zinc-200 bg-zinc-50 p-2.5 text-xs text-zinc-600">
+        <summary className="cursor-pointer select-none font-medium text-zinc-700">
+          กลุ่มลูกค้าแต่ละแบบคืออะไร?
+        </summary>
+        <ul className="mt-2 space-y-1.5">
+          {RFM_SEGMENTS.flatMap((s) =>
+            s === "champion"
+              ? [
+                  <li key="champion" className="flex flex-wrap items-start gap-1.5">
+                    <SegmentBadge segment="champion" />
+                    <span>{SEGMENT_DESC_TH.champion}</span>
+                  </li>,
+                  <li key="champion_high" className="flex flex-wrap items-start gap-1.5">
+                    <SegmentBadge segment="champion" />
+                    <Badge tone="amber">⭐ ยอดเยอะ</Badge>
+                    <span>{VALUE_TIER_DESC_TH.high}</span>
+                  </li>,
+                ]
+              : [
+                  <li key={s} className="flex flex-wrap items-start gap-1.5">
+                    <SegmentBadge segment={s} />
+                    <span>{SEGMENT_DESC_TH[s]}</span>
+                  </li>,
+                ]
+          )}
+        </ul>
+      </details>
 
       {filtered.length === 0 ? (
         <EmptyState icon={Users} title="ไม่พบลูกค้าที่ตรงเงื่อนไข" description="ลองล้างคำค้นหรือเปลี่ยนตัวกรองกลุ่ม" />
@@ -97,7 +146,9 @@ export function CustomersPageClient({
                   <p className="truncate text-sm font-semibold text-zinc-900">{c.displayName ?? "(ไม่มีชื่อ)"}</p>
                   <div className="mt-1 flex flex-wrap items-center gap-1.5">
                     <SegmentBadge segment={c.segment} />
+                    {c.valueTier === "high" && <Badge tone="amber">⭐ ยอดเยอะ</Badge>}
                     <span className="text-xs text-zinc-500">{c.orderCount} ออเดอร์</span>
+                    {c.province && <span className="text-xs text-zinc-500">· {c.province}</span>}
                   </div>
                 </div>
                 <div className="shrink-0 text-right">

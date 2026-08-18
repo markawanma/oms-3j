@@ -27,7 +27,7 @@ import { revalidatePath } from "next/cache";
 import { getServiceClient } from "@/lib/supabase/server";
 import { getDevShopId, getDevRole } from "@/lib/dev/context";
 import type { ActionResult } from "@/lib/types";
-import { RFM_SEGMENTS, type RfmSegment } from "@/lib/crm/segments";
+import { RFM_SEGMENTS, type RfmSegment, type ValueTier } from "@/lib/crm/segments";
 import type { CrmChannelOption, CrmProvinceOption, OrderOverrideInput } from "@/lib/crm/order-override";
 import type { CrmMergeCandidateRow, MergeCandidateSide, MergeConfidence } from "@/lib/crm/merge";
 
@@ -316,9 +316,18 @@ export interface CrmCustomerListRow {
   customerId: string;
   displayName: string | null;
   segment: RfmSegment;
+  /** Sub-split of segment='champion' only (migration
+   * 0055_crm_province_champion_tier.sql) — null for every non-champion
+   * customer, 'high' = champion with revenue_sum > 5,000 THB (VIP), 'core' =
+   * ordinary champion. */
+  valueTier: ValueTier | null;
   orderCount: number;
   revenueSum: number;
   lastOrderAt: string | null;
+  /** Real Thai province name of the customer's most recent order
+   * (v_customer_master.latest_province_name) — already resolved to
+   * "ไม่ระบุ" for TH-XX/unknown/no-orders, never a raw TH-40-style code. */
+  province: string | null;
 }
 
 export async function getCrmCustomers(): Promise<ActionResult<CrmCustomerListRow[]>> {
@@ -330,16 +339,22 @@ export async function getCrmCustomers(): Promise<ActionResult<CrmCustomerListRow
       supabase
         .schema(SCHEMA)
         .from("v_customer_master")
-        .select("customer_id, display_name, order_count, revenue_sum, last_order_at")
+        .select("customer_id, display_name, order_count, revenue_sum, last_order_at, latest_province_name")
         .eq("shop_id", shopId),
-      supabase.schema(SCHEMA).from("v_rfm_segment").select("customer_id, segment").eq("shop_id", shopId),
+      supabase
+        .schema(SCHEMA)
+        .from("v_rfm_segment")
+        .select("customer_id, segment, value_tier")
+        .eq("shop_id", shopId),
     ]);
     if (masterRes.error) throw masterRes.error;
     if (segmentRes.error) throw segmentRes.error;
 
     const segmentMap = new Map<string, RfmSegment>();
-    for (const row of (segmentRes.data ?? []) as { customer_id: string; segment: string }[]) {
+    const valueTierMap = new Map<string, ValueTier | null>();
+    for (const row of (segmentRes.data ?? []) as { customer_id: string; segment: string; value_tier: string | null }[]) {
       segmentMap.set(row.customer_id, row.segment as RfmSegment);
+      valueTierMap.set(row.customer_id, (row.value_tier as ValueTier | null) ?? null);
     }
 
     const rows: CrmCustomerListRow[] = (
@@ -349,15 +364,18 @@ export async function getCrmCustomers(): Promise<ActionResult<CrmCustomerListRow
         order_count: number;
         revenue_sum: number;
         last_order_at: string | null;
+        latest_province_name: string | null;
       }[]
     )
       .map((m) => ({
         customerId: m.customer_id,
         displayName: m.display_name,
         segment: segmentMap.get(m.customer_id) ?? "no_orders",
+        valueTier: valueTierMap.get(m.customer_id) ?? null,
         orderCount: Number(m.order_count) || 0,
         revenueSum: Number(m.revenue_sum) || 0,
         lastOrderAt: m.last_order_at,
+        province: m.latest_province_name,
       }))
       // Most-recently-active first; customers with no orders (null last_order_at) sort last.
       .sort((a, b) => (b.lastOrderAt ?? "").localeCompare(a.lastOrderAt ?? ""));
@@ -546,6 +564,11 @@ export interface CrmCustomerOrderRow {
   profit: number | null;
   profitStatus: string;
   provinceCode: string;
+  /** Real Thai province name resolved from provinceCode (analytics.dim_geo)
+   * — "ไม่ระบุ" for TH-XX/unknown/unmapped, never a raw TH-40-style code.
+   * provinceCode is kept alongside for the edit form (dropdown keys on the
+   * code, not the name). */
+  provinceName: string;
   bank: string | null;
   itemCount: number | null;
   tags: string[] | null;
@@ -619,7 +642,7 @@ export async function getCrmCustomerDetail(customerId: string): Promise<ActionRe
 
     const wantsPii = getDevRole() !== "staff";
 
-    const [segmentRes, ltvRes, ordersRes, identitiesRes, channelsRes, piiRes] = await Promise.all([
+    const [segmentRes, ltvRes, ordersRes, identitiesRes, channelsRes, geoRes, piiRes] = await Promise.all([
       supabase
         .schema(SCHEMA)
         .from("v_rfm_segment")
@@ -659,6 +682,10 @@ export async function getCrmCustomerDetail(customerId: string): Promise<ActionRe
             .eq("shop_id", shopId)
         : Promise.resolve({ data: [], error: null } as const),
       supabase.schema(SCHEMA).from("dim_channel").select("id, code, name"),
+      // dim_geo is global reference data (no shop_id column, same note as
+      // getCrmEditOptions/getCrmOrders above) — fetched once here and mapped
+      // in JS below, not one lookup per order row.
+      supabase.schema(SCHEMA).from("dim_geo").select("province_code, province_name_th, is_unknown"),
       // PII: application-level gate (see module header) — see getDevRole()
       // doc comment for why this can't just rely on RLS today.
       wantsPii
@@ -677,12 +704,23 @@ export async function getCrmCustomerDetail(customerId: string): Promise<ActionRe
     if (ordersRes.error) throw ordersRes.error;
     if (identitiesRes.error) throw identitiesRes.error;
     if (channelsRes.error) throw channelsRes.error;
+    if (geoRes.error) throw geoRes.error;
     if (piiRes.error) throw piiRes.error;
 
     const channelMap = new Map<string, { code: string; name: string }>();
     for (const c of (channelsRes.data ?? []) as { id: string; code: string; name: string }[]) {
       channelMap.set(c.id, { code: c.code, name: c.name });
     }
+    const geoMap = new Map<string, { name: string; isUnknown: boolean }>();
+    for (const g of (geoRes.data ?? []) as { province_code: string; province_name_th: string; is_unknown: boolean }[]) {
+      geoMap.set(g.province_code, { name: g.province_name_th, isUnknown: Boolean(g.is_unknown) });
+    }
+    const resolveProvinceName = (code: string | null | undefined): string => {
+      if (!code) return "ไม่ระบุ";
+      const g = geoMap.get(code);
+      if (!g || g.isUnknown) return "ไม่ระบุ";
+      return g.name;
+    };
 
     const orders: CrmCustomerOrderRow[] = (
       (ordersRes.data ?? []) as {
@@ -714,6 +752,7 @@ export async function getCrmCustomerDetail(customerId: string): Promise<ActionRe
         profit: o.profit === null || o.profit === undefined ? null : Number(o.profit),
         profitStatus: o.profit_status,
         provinceCode: o.province_code,
+        provinceName: resolveProvinceName(o.province_code),
         bank: o.bank,
         itemCount: o.item_count,
         tags: o.tags,
