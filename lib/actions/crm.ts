@@ -309,6 +309,51 @@ export async function getCrmOverview(params?: GetCrmOverviewParams): Promise<Act
 }
 
 // ============================================================================
+// /crm/overview — customer dimensions (segment x tier x province x channel)
+// for the province/channel charts + multi-select segment filter. No
+// revenue/money field here (segment/province/channel only) so, unlike
+// getCrmCustomerAudit/getCrmMergeCandidates above, this is NOT owner/admin
+// gated — same as getCrmCustomers below, which exposes segment+province to
+// every dev role without a getDevRole() check.
+// ============================================================================
+
+/** One RFM group's customer histogram (province + first-touch channel), plus
+ * its total. `provinces`/`channels` are name→count maps ("ไม่ระบุ" is a valid
+ * key). Aggregated server-side (see below), so counts are complete. */
+export interface CrmDimensionBucket {
+  total: number;
+  provinces: Record<string, number>;
+  channels: Record<string, number>;
+}
+
+/** Keyed by the /crm/overview panel's filter keys — champion is pre-split into
+ * `champion_high` / `champion_core`, everyone else keyed by RFM segment
+ * (`loyal`/`new`/`standard`/`at_risk`; `no_orders` never appears). A key is
+ * absent when that group has zero customers. */
+export type CrmCustomerDimensions = Record<string, CrmDimensionBucket>;
+
+/** Province/channel histograms per RFM group for /crm/overview's charts +
+ * segment multi-select. Aggregated ENTIRELY in SQL (analytics.
+ * crm_customer_dimensions, migration 0056) and returned as one jsonb value —
+ * the earlier two-.select()-and-merge-in-JS version silently under-counted
+ * because PostgREST caps each select at 1000 rows (~3k customers → the two
+ * capped sets intersected to ~333). Money-free (counts only). */
+export async function getCrmCustomerDimensions(): Promise<ActionResult<CrmCustomerDimensions>> {
+  try {
+    const shopId = getDevShopId();
+    const supabase = getServiceClient();
+
+    const { data, error } = await supabase.schema(SCHEMA).rpc("crm_customer_dimensions", { p_shop_id: shopId });
+    if (error) throw error;
+
+    return { ok: true, data: (data ?? {}) as CrmCustomerDimensions };
+  } catch (err) {
+    console.error("getCrmCustomerDimensions failed", err);
+    return { ok: false, error: "โหลดข้อมูลมิติลูกค้าไม่สำเร็จ ลองใหม่อีกครั้ง" };
+  }
+}
+
+// ============================================================================
 // /crm/customers
 // ============================================================================
 

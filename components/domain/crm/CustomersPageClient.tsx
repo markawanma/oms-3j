@@ -11,24 +11,28 @@ import { Badge } from "@/components/ui/Badge";
 import { formatTHBCompact, formatThaiDateOnly } from "@/lib/tiktok/format";
 import { SegmentBadge } from "./SegmentBadge";
 
-/** 'champion' splits into two dropdown options by value_tier (core vs high) —
- * NOT a new RfmSegment, just a client-side filter refinement (see
- * lib/crm/segments.ts ValueTier comment). */
-type SegmentFilter = RfmSegment | "all" | "champion_high";
+/** 'champion' splits into two tiers by value_tier — NOT new RfmSegments, just
+ * client-side filter refinements (see lib/crm/segments.ts ValueTier comment).
+ * Bare "champion" is kept meaning ALL champions (both tiers) so the
+ * SegmentBreakdown deep-link (/crm/customers?segment=champion, whose count is
+ * core+high) lands on the same set it advertised; the dropdown instead offers
+ * the two explicit tiers (champion_core / champion_high). */
+type SegmentFilter = RfmSegment | "all" | "champion_core" | "champion_high";
 
-/** Dropdown options in RFM_SEGMENTS order, with 'champion' expanded into two
- * (ordinary vs value_tier='high') right where 'champion' would sit. */
+/** Dropdown options in RFM_SEGMENTS order, with 'champion' expanded into its
+ * two tiers right where 'champion' would sit (bare 'champion' stays valid for
+ * deep-links but is not offered as its own dropdown row). */
 const SEGMENT_FILTER_OPTIONS: { value: SegmentFilter; label: string }[] = RFM_SEGMENTS.flatMap((s) =>
   s === "champion"
     ? [
-        { value: "champion" as SegmentFilter, label: "ลูกค้าชั้นดี (ยอดทั่วไป)" },
+        { value: "champion_core" as SegmentFilter, label: "ลูกค้าชั้นดี (ยอดทั่วไป)" },
         { value: "champion_high" as SegmentFilter, label: "ลูกค้าชั้นดี · ยอดเยอะ ⭐" },
       ]
     : [{ value: s as SegmentFilter, label: SEGMENT_LABEL_TH[s] }]
 );
 
 function isValidSegment(v: string): v is SegmentFilter {
-  return v === "champion_high" || (RFM_SEGMENTS as string[]).includes(v);
+  return v === "champion_core" || v === "champion_high" || (RFM_SEGMENTS as string[]).includes(v);
 }
 
 /** Client-side search + segment filter over the full customer list — data
@@ -52,6 +56,9 @@ export function CustomersPageClient({
     const q = query.trim().toLowerCase();
     return rows.filter((r) => {
       if (segment === "champion") {
+        // deep-link: ALL champions (both tiers) — matches SegmentBreakdown's count
+        if (r.segment !== "champion") return false;
+      } else if (segment === "champion_core") {
         if (!(r.segment === "champion" && r.valueTier === "core")) return false;
       } else if (segment === "champion_high") {
         if (!(r.segment === "champion" && r.valueTier === "high")) return false;

@@ -1,10 +1,13 @@
 import Link from "next/link";
 import { LineChart, CalendarX } from "lucide-react";
-import { getCrmOverview } from "@/lib/actions/crm";
+import { getCrmOverview, getCrmCustomerDimensions } from "@/lib/actions/crm";
+import type { CrmCustomerDimensions } from "@/lib/actions/crm";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { StatCard } from "@/components/domain/crm/StatCard";
 import { SegmentBreakdown } from "@/components/domain/crm/SegmentBreakdown";
+import { SegmentLegend } from "@/components/domain/crm/SegmentLegend";
+import { CustomerDimensionsPanel } from "@/components/domain/crm/CustomerDimensionsPanel";
 import { ChannelPerfTable } from "@/components/domain/crm/ChannelPerfTable";
 import { CrmDateRangeFilter } from "@/components/domain/crm/CrmDateRangeFilter";
 import { CrmChannelFilter } from "@/components/domain/crm/CrmChannelFilter";
@@ -30,16 +33,36 @@ export default async function CrmOverviewPage({
 }) {
   const { from: fromParam, to: toParam, channel: channelParam } = await searchParams;
 
-  let result;
-  try {
-    result = await getCrmOverview({ from: fromParam, to: toParam, channelCode: channelParam });
-  } catch (err) {
+  // getCrmCustomerDimensions() runs alongside getCrmOverview() (allSettled,
+  // not a plain Promise.all) so a failure there — throw or !ok — can never
+  // take down the whole page: it only means the province/channel section
+  // below doesn't render, same "non-blocking" contract as the handoff notes
+  // on other optional sections (e.g. profit-estimate note above).
+  const [overviewSettled, dimsSettled] = await Promise.allSettled([
+    getCrmOverview({ from: fromParam, to: toParam, channelCode: channelParam }),
+    getCrmCustomerDimensions(),
+  ]);
+
+  if (overviewSettled.status === "rejected") {
     // getDevShopId() throws when DEV_SHOP_ID isn't configured.
+    const err = overviewSettled.reason;
     return <ErrorState message={err instanceof Error ? err.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"} />;
   }
+  const result = overviewSettled.value;
 
   if (!result.ok) {
     return <ErrorState message={result.error} />;
+  }
+
+  let dims: CrmCustomerDimensions = {};
+  if (dimsSettled.status === "fulfilled") {
+    if (dimsSettled.value.ok) {
+      dims = dimsSettled.value.data;
+    } else {
+      console.error("getCrmCustomerDimensions failed on /crm/overview:", dimsSettled.value.error);
+    }
+  } else {
+    console.error("getCrmCustomerDimensions threw on /crm/overview:", dimsSettled.reason);
   }
 
   const { totals, segmentCounts, channelPerf, scope } = result.data;
@@ -157,6 +180,8 @@ export default async function CrmOverviewPage({
       </div>
 
       <SegmentBreakdown counts={segmentCounts} rangeNote="กลุ่ม RFM = สถานะ ณ ปัจจุบันของลูกค้าที่ซื้อในช่วงนี้" />
+      <SegmentLegend />
+      {Object.keys(dims).length > 0 && <CustomerDimensionsPanel data={dims} />}
       <ChannelPerfTable rows={channelPerf} />
     </div>
   );
