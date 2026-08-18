@@ -16,3 +16,28 @@ export const SEGMENT_LABEL_TH: Record<RfmSegment, string> = {
   at_risk: "เสี่ยงหาย (เงียบ >90 วัน)",
   no_orders: "ยังไม่มีออเดอร์",
 };
+
+export const SEGMENT_DESC_TH: Record<RfmSegment, string> = {
+  champion: "ซื้อใน 30 วัน · ≥4 ออเดอร์ · ยอด >฿1,500 — รักษาไว้/upsell",
+  loyal: "ซื้อซ้ำ ≥2 ออเดอร์ ใน 90 วัน — ดันให้ขึ้นชั้นดี",
+  new: "เพิ่งซื้อครั้งแรก (ใน 30 วัน) — ทำให้ซื้อครั้งที่ 2",
+  standard: "ซื้อบ้าง ความถี่/ยอดน้อย — nurture ทั่วไป",
+  at_risk: "เงียบเกิน 90 วัน — ยิง win-back",
+  no_orders: "มีชื่อในระบบแต่ยังไม่เคยซื้อ",
+};
+
+// value_tier — sub-split of segment='champion' only (migration
+// 0055_crm_province_champion_tier.sql). NOT a new RfmSegment value: every
+// value_tier row still has segment='champion', this just distinguishes
+// "champion, ordinary" (core) from "champion, revenue_sum > 5,000 THB" (high).
+export type ValueTier = "high" | "core";
+
+export const VALUE_TIER_LABEL_TH: Record<ValueTier, string> = {
+  high: "แชมป์เปี้ยน (ยอดเยอะ)",
+  core: "แชมป์เปี้ยน (ปกติ)",
+};
+
+export const VALUE_TIER_DESC_TH: Record<ValueTier, string> = {
+  high: "ชั้นดี + ยอดสะสม >฿5,000 — VIP ดูแล 1:1/perk พิเศษ",
+  core: "ชั้นดีทั่วไป (ยอดสะสม ≤฿5,000)",
+};

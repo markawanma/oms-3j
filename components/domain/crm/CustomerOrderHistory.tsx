@@ -93,7 +93,7 @@ export function CustomerOrderHistory({
                     ({PROFIT_STATUS_LABEL_TH[o.profitStatus] ?? o.profitStatus})
                   </span>
                 </td>
-                <td className="py-2 pr-3 text-zinc-500">{o.provinceCode}</td>
+                <td className="py-2 pr-3 text-zinc-500">{o.provinceName}</td>
                 {canEdit && (
                   <td className="py-2">
                     <OrderOverrideForm
