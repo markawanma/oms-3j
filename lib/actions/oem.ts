@@ -129,7 +129,11 @@ function fromCalcResult(raw: Record<string, unknown>): OemPriceCalcResult {
     metal: {
       perPiece: Number(metal.per_piece ?? 0),
       grossLossPct: metal.gross_loss_pct == null ? null : Number(metal.gross_loss_pct),
+      // 0066: straight column reads off oem_price_calc's jsonb — no arithmetic here.
+      polishLossPct: metal.polish_loss_pct == null ? null : Number(metal.polish_loss_pct),
+      lossBasis: metal.loss_basis == null ? null : String(metal.loss_basis),
       effectiveLossPct: metal.effective_loss_pct == null ? null : Number(metal.effective_loss_pct),
+      metalLossMultiplier: metal.metal_loss_multiplier == null ? null : Number(metal.metal_loss_multiplier),
       priceUsed: metal.price_used == null ? null : Number(metal.price_used),
       priceSource: metal.price_source == null ? null : String(metal.price_source),
     },

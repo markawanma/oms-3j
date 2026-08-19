@@ -8,7 +8,7 @@
 
 import Link from "next/link";
 import { AlertTriangle, Package } from "lucide-react";
-import type { OemBatchLine, OemMetal, OemPriceCalcResult } from "@/lib/oem/types";
+import type { OemBatchLine, OemMetal, OemMissingRateEntry, OemPriceBreakdown, OemPriceCalcResult } from "@/lib/oem/types";
 import { fmtPct } from "@/lib/oem/display";
 import { formatTHB } from "@/lib/format";
 
@@ -24,6 +24,55 @@ function FloorChip({ label, pass }: { label: string; pass: boolean | null }) {
     <span className={`inline-flex items-center gap-1 rounded-md border px-2 py-1 text-xs font-medium ${cls}`}>
       {label}: {text}
     </span>
+  );
+}
+
+/** 0066 CFO requirement: always show the gross sprue % NEXT TO the net
+ * ("effective") % the price actually used — never just the net number alone.
+ * This is the direct fix for how the old bug survived: gross sprue was
+ * charged in full while nobody could see, on this screen, that it didn't
+ * match what should have been charged after recovery — the wrong number and
+ * the right number were never on screen together, so no one caught it. Every
+ * field read here comes straight off oem_price_calc's breakdown.metal
+ * (0066); this component does NOT recompute L_eff or the multiplier. */
+function MetalLossLine({
+  metal,
+  missing,
+}: {
+  metal: OemPriceBreakdown["metal"];
+  missing: OemMissingRateEntry[];
+}) {
+  const missingSprue = metal.grossLossPct == null;
+  const missingRecovery = missing.some((m) => m.rateKey === "recovery_rate_pct");
+  const missingPolish = missing.some((m) => m.rateKey === "polish_loss_pct");
+
+  if (missingSprue) {
+    return (
+      <div className="text-xs text-amber-700">ยังไม่ได้กรอกอัตราก้านต้น (sprue) — ตัวเลขเนื้อโลหะข้างบนยังไม่รวมค่าสูญเสียโลหะ</div>
+    );
+  }
+
+  const grossTxt = fmtPct(metal.grossLossPct);
+  const effTxt = fmtPct(metal.effectiveLossPct);
+  const multTxt = metal.metalLossMultiplier != null ? `×${metal.metalLossMultiplier.toFixed(3)}` : "—";
+
+  // Fail-safe path (0066 header): while recovery/polish are unfilled the RPC
+  // silently falls back to gross-sprue behaviour so prices don't move — say
+  // that out loud instead of drawing an arrow that implies a real net figure.
+  if (missingRecovery || missingPolish) {
+    const missingParts = [missingRecovery && "อัตราหลอมคืน", missingPolish && "อัตราขัดหาย"].filter(Boolean).join(" · ");
+    return (
+      <div className="text-xs text-amber-700">
+        ก้านต้น {grossTxt} · ยังไม่ได้กรอก: {missingParts} → ใช้สูตรสำรองชั่วคราว (เท่ากับก้านต้นเต็ม): สูญจริง {effTxt} ({multTxt})
+      </div>
+    );
+  }
+
+  const polishTxt = fmtPct(metal.polishLossPct);
+  return (
+    <div className="text-xs text-zinc-500">
+      ก้านต้น {grossTxt} · ขัดหาย {polishTxt} (หลังหักหลอมคืนแล้ว) → สูญจริง {effTxt} ({multTxt})
+    </div>
   );
 }
 
@@ -133,6 +182,7 @@ export function OemCalcBreakdown({
             <dt className="text-zinc-600">เนื้อโลหะ</dt>
             <dd className="tabular-nums text-zinc-800">{formatTHB(calc.breakdown.metal.perPiece)}</dd>
           </div>
+          <MetalLossLine metal={calc.breakdown.metal} missing={calc.missing} />
           <div className="flex justify-between">
             <dt className="text-zinc-600">ค่าแรง</dt>
             <dd className="tabular-nums text-zinc-800">{formatTHB(calc.breakdown.labor.perPiece)}</dd>
