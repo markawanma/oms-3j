@@ -38,6 +38,8 @@ import type {
   UpsertAdSpendInput,
 } from "@/lib/marketing/types";
 import type { ArtifactStatus, CampaignBoardStep } from "@/lib/marketing/campaign-types";
+import { ARTIFACT_STATUSES } from "@/lib/marketing/campaign-types";
+import { CAMPAIGN_BOARD_SELECT, mapCampaignBoardRow } from "@/lib/marketing/campaign-board-mapper";
 
 const SCHEMA = "analytics";
 
@@ -697,59 +699,13 @@ export async function getCampaignBoard(): Promise<ActionResult<CampaignBoardStep
     const { data, error } = await supabase
       .schema(SCHEMA)
       .from("v_campaign_board")
-      .select(
-        "step_id, campaign_id, campaign_name, campaign_type, trigger_kind, anchor_date, seq, step_kind, resolved_start, resolved_end, days_until, audience_segment, audience_live_count, channel, goal_kpi, step_status, step_blocked_reason, artifacts, art_total, art_done, gates, effective_status"
-      )
+      .select(CAMPAIGN_BOARD_SELECT)
       .eq("shop_id", shopId)
       .order("campaign_id", { ascending: true })
       .order("seq", { ascending: true });
     if (error) throw error;
 
-    const rows: CampaignBoardStep[] = (
-      (data ?? []) as Record<string, unknown>[]
-    ).map((r) => ({
-      stepId: String(r.step_id),
-      campaignId: String(r.campaign_id),
-      campaignName: String(r.campaign_name),
-      campaignType: String(r.campaign_type),
-      triggerKind: String(r.trigger_kind),
-      anchorDate: (r.anchor_date as string) ?? null,
-      seq: Number(r.seq) || 0,
-      stepKind: String(r.step_kind),
-      resolvedStart: (r.resolved_start as string) ?? null,
-      resolvedEnd: (r.resolved_end as string) ?? null,
-      daysUntil: r.days_until === null || r.days_until === undefined ? null : Number(r.days_until),
-      audienceSegment: (r.audience_segment as string) ?? null,
-      audienceLiveCount:
-        r.audience_live_count === null || r.audience_live_count === undefined ? null : Number(r.audience_live_count),
-      channel: (r.channel as string) ?? null,
-      goalKpi: (r.goal_kpi as string) ?? null,
-      stepStatus: String(r.step_status),
-      stepBlockedReason: (r.step_blocked_reason as string) ?? null,
-      artifacts: (Array.isArray(r.artifacts) ? r.artifacts : []).map(
-        (a: Record<string, unknown>) => ({
-          id: String(a.id),
-          artifactType: String(a.artifact_type),
-          ownerRole: String(a.owner_role),
-          sourceDoc: (a.source_doc as string) ?? null,
-          status: a.status as ArtifactStatus,
-          isDynamic: Boolean(a.is_dynamic),
-          dynamicSource: (a.dynamic_source as string) ?? null,
-          discountPct: a.discount_pct === null || a.discount_pct === undefined ? null : Number(a.discount_pct),
-          note: (a.note as string) ?? null,
-          contentBody: (a.content_body as string) ?? null,
-        })
-      ),
-      artTotal: Number(r.art_total) || 0,
-      artDone: Number(r.art_done) || 0,
-      gates: (Array.isArray(r.gates) ? r.gates : []).map((g: Record<string, unknown>) => ({
-        gateKind: String(g.gate_kind),
-        status: g.status as CampaignBoardStep["gates"][number]["status"],
-        passedAt: (g.passed_at as string) ?? null,
-        note: (g.note as string) ?? null,
-      })),
-      effectiveStatus: r.effective_status as CampaignBoardStep["effectiveStatus"],
-    }));
+    const rows: CampaignBoardStep[] = ((data ?? []) as Record<string, unknown>[]).map(mapCampaignBoardRow);
 
     return { ok: true, data: rows };
   } catch (err) {
@@ -766,7 +722,7 @@ export async function setCampaignArtifactStatus(
   if (gateErr) return gateErr;
 
   if (!artifactId) return { ok: false, error: "ไม่พบรายการ content" };
-  if (!["todo", "draft", "done", "blocked"].includes(status)) {
+  if (!ARTIFACT_STATUSES.includes(status)) {
     return { ok: false, error: "สถานะไม่ถูกต้อง" };
   }
 

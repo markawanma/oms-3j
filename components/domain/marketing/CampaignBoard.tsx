@@ -134,7 +134,15 @@ function StepCard({
                         <span className="text-zinc-400"> · {OWNER_ROLE_LABEL[a.ownerRole] ?? a.ownerRole}</span>
                       </span>
                       {isBlocked && <Badge tone="slate">{ARTIFACT_STATUS_LABEL.blocked}</Badge>}
-                      {a.status === "draft" && <Badge tone="amber">ร่างแล้ว</Badge>}
+                      {/* Anything in flight gets a badge, not just "draft":
+                          the same artifacts are now editable from the calendar
+                          detail page, so a script the owner approved (or an
+                          agent drafted) must not read as untouched here. */}
+                      {!isBlocked && a.status !== "todo" && a.status !== "done" && (
+                        <Badge tone={a.status === "approved" ? "green" : "amber"}>
+                          {ARTIFACT_STATUS_LABEL[a.status]}
+                        </Badge>
+                      )}
                     </div>
                     {/* note carries the "what to do / why blocked" detail (e.g. bundle
                         blocked reason) — the core value for todo/blocked items */}
@@ -205,7 +213,11 @@ function StepCard({
 
 export function CampaignBoard({ initialSteps }: { initialSteps: CampaignBoardStep[] }) {
   const toast = useToast();
-  const [steps, setSteps] = useState(initialSteps);
+  // design §4 "CampaignBoard เดิม" row: standalone owner-added tasks
+  // (campaign_type='content_task', 0057) live in v_campaign_board too now
+  // (the calendar reads the same view) but must never show up on this
+  // multi-step campaign board — they belong on /marketing/calendar instead.
+  const [steps, setSteps] = useState(() => initialSteps.filter((s) => s.campaignType !== "content_task"));
   // per-item busy set (not a single id) — two items can be in flight at once
   // without one clearing the other's disabled state (race → double-submit).
   const [busyIds, setBusyIds] = useState<Set<string>>(() => new Set());

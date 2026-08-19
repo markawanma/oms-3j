@@ -1,5 +1,6 @@
 import { Lock } from "lucide-react";
 import { getCampaignBoard, getChannelRoas, getMarketingReco } from "@/lib/actions/marketing";
+import { getCampaignTemplates } from "@/lib/actions/calendar";
 import { getShopSetting } from "@/lib/actions/catalog";
 import { getDevRole } from "@/lib/dev/context";
 import { ErrorState } from "@/components/ui/ErrorState";
@@ -24,13 +25,21 @@ export default async function MarketingCopilotPage() {
     );
   }
 
-  let recoResult, roasResult, settingResult, boardResult;
+  let recoResult, roasResult, settingResult, boardResult, templatesResult;
   try {
-    [recoResult, roasResult, settingResult, boardResult] = await Promise.all([
+    [recoResult, roasResult, settingResult, boardResult, templatesResult] = await Promise.all([
       getMarketingReco(),
       getChannelRoas(),
       getShopSetting(),
       getCampaignBoard(),
+      // Non-blocking (design §4/§8 M5): getCampaignTemplates failing must not
+      // take down the whole Ad Copilot page — RecoList just falls back to
+      // every row's original decideReco-only approve button when templates
+      // comes back [].
+      getCampaignTemplates().catch((err) => {
+        console.error("getCampaignTemplates failed (non-blocking)", err);
+        return { ok: true as const, data: [] };
+      }),
     ]);
   } catch (err) {
     // getDevShopId() throws when DEV_SHOP_ID isn't configured.
@@ -40,6 +49,8 @@ export default async function MarketingCopilotPage() {
   if (!recoResult.ok) return <ErrorState message={recoResult.error} />;
   if (!roasResult.ok) return <ErrorState message={roasResult.error} />;
   if (!settingResult.ok) return <ErrorState message={settingResult.error} />;
+
+  const templates = templatesResult.ok ? templatesResult.data : [];
 
   return (
     <div className="space-y-4">
@@ -51,7 +62,7 @@ export default async function MarketingCopilotPage() {
       </div>
 
       {boardResult?.ok && <CampaignBoard initialSteps={boardResult.data} />}
-      <RecoList initialRows={recoResult.data} />
+      <RecoList initialRows={recoResult.data} templates={templates} />
       <ChannelRoasFilter rows={roasResult.data} blendedMarginPct={settingResult.data.blendedMarginPct} />
     </div>
   );

@@ -1,7 +1,10 @@
 // lib/marketing/campaign-types.ts — Campaign Playbook (Ad Copilot "แคมเปญตามแผน")
-// TS mirror of analytics.v_campaign_board (0049) + Thai label maps. Enum values
-// are the source of truth in docs/3j-jewelry/marketing/campaign-playbook-taxonomy.md
-// §ENUMS and the CHECK constraints in 0049 — keep these in sync with both.
+// TS mirror of analytics.v_campaign_board (0049, extended by 0057) + Thai label
+// maps. Enum values are the source of truth in
+// docs/3j-jewelry/marketing/campaign-playbook-taxonomy.md §ENUMS and the CHECK
+// constraints in 0049/0057 — keep these in sync with both.
+
+import type { ClipBrief } from "@/lib/marketing/clip-brief";
 
 export type EffectiveStatus =
   | "todo"
@@ -11,8 +14,20 @@ export type EffectiveStatus =
   | "waiting_data"
   | "done";
 
-export type ArtifactStatus = "todo" | "draft" | "done" | "blocked";
+// 0057 widens this to 6 values (design §D5): 'draft_pending_review' = an AI
+// agent wrote it and nobody has looked yet, 'approved' = a human signed off
+// (reviewed_by/at stamped by campaign_set_artifact_status). The original 4
+// stay exactly as they were — CampaignBoard (9.9 board) keeps working as-is.
+export type ArtifactStatus =
+  | "todo"
+  | "draft_pending_review"
+  | "draft"
+  | "approved"
+  | "done"
+  | "blocked";
 export type GateStatus = "pending" | "passed" | "blocked" | "na";
+
+export type ArtifactGeneratedBy = "human" | "ai_copywriter" | "template_seed";
 
 export interface CampaignArtifact {
   id: string;
@@ -28,6 +43,13 @@ export interface CampaignArtifact {
    * yet. Rendered expandable in the board so the owner reads it in-app instead
    * of digging in repo docs. */
   contentBody: string | null;
+  /** Structured shooting brief for short_form_clip / live_highlight_clip
+   * artifacts (design §5). null for every other artifact_type. */
+  clipBrief: ClipBrief | null;
+  generatedBy: ArtifactGeneratedBy;
+  generatedModel: string | null;
+  humanEdited: boolean;
+  reviewedAt: string | null;
 }
 
 export interface CampaignGate {
@@ -60,6 +82,12 @@ export interface CampaignBoardStep {
   artDone: number;
   gates: CampaignGate[];
   effectiveStatus: EffectiveStatus;
+  /** cs.title (0057) — a person-typed name for this step; null = fall back to
+   * STEP_KIND_LABEL[stepKind] (unchanged rendering rule for template steps). */
+  stepTitle: string | null;
+  /** cp.source_reco_key (0057) — the Ad Copilot reco_key that spawned this
+   * campaign, if any. Lets the calendar link back to /marketing/copilot. */
+  sourceRecoKey: string | null;
 }
 
 // ---- Thai labels ----------------------------------------------------------
@@ -85,6 +113,7 @@ export const STEP_KIND_LABEL: Record<string, string> = {
   live_cta: "CTA ในไลฟ์",
   capture_consent: "เก็บ consent",
   close: "ปิดแคมเปญ",
+  content_task: "งานที่เพิ่มเอง",
 };
 
 export const ARTIFACT_TYPE_LABEL: Record<string, string> = {
@@ -133,10 +162,19 @@ export const GATE_LABEL: Record<string, string> = {
 
 export const ARTIFACT_STATUS_LABEL: Record<ArtifactStatus, string> = {
   todo: "ยังไม่ทำ",
+  draft_pending_review: "AI ร่าง รอตรวจ",
   draft: "ร่างแล้ว",
+  approved: "อนุมัติแล้ว",
   done: "เสร็จ",
   blocked: "ติดเงื่อนไข",
 };
+
+/** Runtime whitelist for the status write path. Genuinely derived from the
+ * label map above (which TS forces to be exhaustive over ArtifactStatus), so a
+ * new state can't be added to the union and silently left out here — a
+ * hand-written array would only catch extras, never omissions, and an omission
+ * is exactly what made the "อนุมัติ" button reject its own status. */
+export const ARTIFACT_STATUSES = Object.keys(ARTIFACT_STATUS_LABEL) as ArtifactStatus[];
 
 export const EFFECTIVE_STATUS_LABEL: Record<EffectiveStatus, string> = {
   todo: "ยังไม่ถึงคิว",
