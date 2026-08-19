@@ -38,9 +38,11 @@ function FloorChip({ label, pass }: { label: string; pass: boolean | null }) {
 function MetalLossLine({
   metal,
   missing,
+  formulaVersion,
 }: {
   metal: OemPriceBreakdown["metal"];
   missing: OemMissingRateEntry[];
+  formulaVersion: number;
 }) {
   const missingSprue = metal.grossLossPct == null;
   const missingRecovery = missing.some((m) => m.rateKey === "recovery_rate_pct");
@@ -49,6 +51,20 @@ function MetalLossLine({
   if (missingSprue) {
     return (
       <div className="text-xs text-amber-700">ยังไม่ได้กรอกอัตราก้านต้น (sprue) — ตัวเลขเนื้อโลหะข้างบนยังไม่รวมค่าสูญเสียโลหะ</div>
+    );
+  }
+
+  // Saved quotes are a snapshot of calc at the time they were quoted — a
+  // quote priced under the pre-0066 formula (gross sprue charged in full, no
+  // recovery netting) still returns lossBasis/effectiveLossPct shaped like
+  // today's contract, but they were never the number the price used. Say so
+  // instead of silently presenting an old quote's gross loss as if it were
+  // net.
+  if (formulaVersion < 3) {
+    return (
+      <div className="text-xs text-amber-700">
+        ก้านต้น {fmtPct(metal.grossLossPct)} · ใบนี้คิดด้วยสูตรเดิม (คิดก้านต้นเต็ม ไม่หักหลอมคืน) — ถ้าจะยึดตัวเลขนี้ ให้กดคิดใหม่
+      </div>
     );
   }
 
@@ -182,7 +198,9 @@ export function OemCalcBreakdown({
             <dt className="text-zinc-600">เนื้อโลหะ</dt>
             <dd className="tabular-nums text-zinc-800">{formatTHB(calc.breakdown.metal.perPiece)}</dd>
           </div>
-          <MetalLossLine metal={calc.breakdown.metal} missing={calc.missing} />
+          <dd className="col-span-2">
+            <MetalLossLine metal={calc.breakdown.metal} missing={calc.missing} formulaVersion={calc.formulaVersion} />
+          </dd>
           <div className="flex justify-between">
             <dt className="text-zinc-600">ค่าแรง</dt>
             <dd className="tabular-nums text-zinc-800">{formatTHB(calc.breakdown.labor.perPiece)}</dd>

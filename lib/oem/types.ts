@@ -192,9 +192,9 @@ export interface OemPriceBreakdown {
   metal: {
     perPiece: number;
     grossLossPct: number | null;
-    /** 0066: net loss the melt house dust (โลหะที่หายตอนขัด). Charged in FULL
-     * (not netted by recovery — see 0066 header). null = polish_loss_pct not
-     * filled in yet. */
+    /** 0066: metal lost as polishing dust — recovery ~0, charged in full
+     * (§1.5, โลหะที่หายตอนขัด). Not netted by recovery_rate_pct — see 0066
+     * header. null = polish_loss_pct not filled in yet. */
     polishLossPct: number | null;
     /** 0066: what basis effective_loss_pct/metal_loss_multiplier were computed
      * on — currently always 'effective' when present; kept for audit. */

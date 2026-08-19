@@ -5,7 +5,7 @@
 // error), not as part of a page-wide submit — the owner fills this form one
 // field at a time across days (T4 design brief).
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Check, Loader2 } from "lucide-react";
 import { saveRate } from "@/lib/actions/oem";
@@ -36,6 +36,7 @@ export function RateCell({ row }: { row: OemRateStatusRow }) {
   const [note, setNote] = useState(row.note ?? "");
   const [saving, setSaving] = useState(false);
   const [justSaved, setJustSaved] = useState(false);
+  const noteRef = useRef<HTMLInputElement>(null);
 
   // Resync from the server's last-known value after a refresh (e.g. this
   // exact save landing, or someone else editing the same shop concurrently).
@@ -49,6 +50,9 @@ export function RateCell({ row }: { row: OemRateStatusRow }) {
   const unit = oemUnitLabel(row.rateKey, row.inputUnit);
 
   async function commit() {
+    if (saving) return; // number cell and note cell both call commit() — a
+    // near-simultaneous blur from filling in both would otherwise double-fire
+    // the RPC + router.refresh().
     const trimmed = value.trim();
     if (trimmed === "") {
       setValue(toDisplay(row));
@@ -113,7 +117,15 @@ export function RateCell({ row }: { row: OemRateStatusRow }) {
           step="any"
           value={value}
           onChange={(e) => setValue(e.target.value)}
-          onBlur={commit}
+          onBlur={(e) => {
+            // Tabbing straight into the note field is mid-entry, not
+            // "done" — don't fire the required-note error toast for a form
+            // the owner hasn't finished filling in yet. A blur to anywhere
+            // else (including no note-field case where relatedTarget is
+            // never it) still commits/validates as normal.
+            if (noteRequired && e.relatedTarget === noteRef.current) return;
+            commit();
+          }}
           onKeyDown={(e) => {
             if (e.key === "Enter") {
               e.preventDefault();
@@ -132,6 +144,7 @@ export function RateCell({ row }: { row: OemRateStatusRow }) {
          will save these. Shown only for those 3 keys, not every cell. */}
       {noteRequired && (
         <input
+          ref={noteRef}
           type="text"
           value={note}
           onChange={(e) => setNote(e.target.value)}
