@@ -192,7 +192,20 @@ export interface OemPriceBreakdown {
   metal: {
     perPiece: number;
     grossLossPct: number | null;
+    /** 0066: metal lost as polishing dust — recovery ~0, charged in full
+     * (§1.5, โลหะที่หายตอนขัด). Not netted by recovery_rate_pct — see 0066
+     * header. null = polish_loss_pct not filled in yet. */
+    polishLossPct: number | null;
+    /** 0066: what basis effective_loss_pct/metal_loss_multiplier were computed
+     * on — currently always 'effective' when present; kept for audit. */
+    lossBasis: string | null;
+    /** 0066: THIS is the loss rate actually used in the formula (L_eff =
+     * grossLossPct * (1 - recovery) + polishLossPct). Was already returned by
+     * 0062 but nothing read it — see OemCalcBreakdown for why it must be shown. */
     effectiveLossPct: number | null;
+    /** 0066: 1 + effectiveLossPct — the multiplier actually applied to the raw
+     * metal value. */
+    metalLossMultiplier: number | null;
     priceUsed: number | null;
     priceSource: string | null;
   };
