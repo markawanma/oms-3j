@@ -6,8 +6,8 @@ import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { CampaignCalendar } from "@/components/domain/marketing/CampaignCalendar";
 import { CalendarPageTabs } from "@/components/domain/marketing/CalendarPageTabs";
-import { DateStrip } from "@/components/domain/marketing/DateStrip";
-import type { DayDots } from "@/components/domain/marketing/DateStrip";
+import { MonthCalendar } from "@/components/domain/marketing/MonthCalendar";
+import type { DayDots } from "@/components/domain/marketing/MonthCalendar";
 import { DayAgenda } from "@/components/domain/marketing/DayAgenda";
 import { AddPlanForm } from "@/components/domain/marketing/AddPlanForm";
 import { effectiveDateBangkok } from "@/lib/tiktok/format";
@@ -17,9 +17,10 @@ export const dynamic = "force-dynamic";
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 /** "YYYY-MM-DD" -> whole calendar month it falls in (design §4: agenda/date
- * strip/month overlay all read one getCalendarTasks(from,to) call per month,
- * grouped client-side — "ไม่ต้องมี view นับวัน"). UTC date math throughout
- * (date-only strings, no time component — see DateStrip's addDaysISO). */
+ * grid and agenda both read one getCalendarTasks(from,to) call per month,
+ * grouped client-side — "ไม่ต้องมี view นับวัน"). UTC date math throughout:
+ * these are date-only strings with no time component, so UTC keeps the
+ * arithmetic from drifting a day. */
 function monthRangeOf(dateStr: string): { from: string; to: string; year: number; month: number } {
   const [y, m] = dateStr.split("-").map(Number);
   const from = `${y}-${String(m).padStart(2, "0")}-01`;
@@ -97,7 +98,7 @@ export default async function MarketingCalendarPage({
     );
   }
 
-  // Per-day dot info for both DateStrip and MonthOverlay — one pass over the
+  // Per-day dot info for the month grid — one pass over the
   // month's rows, computed here rather than in either child so both agree.
   const dots: Record<string, DayDots> = {};
   for (const t of tasksResult.data) {
@@ -117,16 +118,9 @@ export default async function MarketingCalendarPage({
         <AddPlanForm variant="button" defaultDate={selectedDate} />
       </div>
 
-      <DateStrip selectedDate={selectedDate} today={today} dots={dots} />
+      <MonthCalendar year={year} month={month} selectedDate={selectedDate} today={today} dots={dots} />
 
-      <DayAgenda
-        tasks={tasksResult.data}
-        selectedDate={selectedDate}
-        today={today}
-        year={year}
-        month={month}
-        dots={dots}
-      />
+      <DayAgenda tasks={tasksResult.data} selectedDate={selectedDate} today={today} />
 
       {/* Mobile-only floating trigger — stays reachable while the agenda
           list scrolls long (UX doc mobile rule); header button above covers

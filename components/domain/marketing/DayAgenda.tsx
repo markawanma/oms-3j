@@ -10,8 +10,6 @@ import type { CampaignBoardStep } from "@/lib/marketing/campaign-types";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { AgendaTaskCard } from "@/components/domain/marketing/AgendaTaskCard";
 import { AddPlanForm } from "@/components/domain/marketing/AddPlanForm";
-import { MonthOverlay } from "@/components/domain/marketing/MonthOverlay";
-import type { DayDots } from "@/components/domain/marketing/DateStrip";
 
 const HEADING_FMT = new Intl.DateTimeFormat("th-TH", {
   timeZone: "Asia/Bangkok",
@@ -24,19 +22,12 @@ export function DayAgenda({
   tasks,
   selectedDate,
   today,
-  year,
-  month,
-  dots,
 }: {
   /** Whole month's rows (design §4: one getCalendarTasks call, grouped
    * client-side) — filtered down to selectedDate here. */
   tasks: CampaignBoardStep[];
   selectedDate: string;
   today: string;
-  year: number;
-  /** 1-12, passed through to MonthOverlay. */
-  month: number;
-  dots: Record<string, DayDots>;
 }) {
   const dayTasks = tasks
     .filter((t) => t.resolvedStart === selectedDate)
@@ -66,10 +57,6 @@ export function DayAgenda({
           ))}
         </ul>
       )}
-
-      <div className="flex justify-center pt-1">
-        <MonthOverlay dots={dots} year={year} month={month} selectedDate={selectedDate} today={today} />
-      </div>
     </div>
   );
 }
