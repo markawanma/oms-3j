@@ -48,9 +48,16 @@ function revalidateOemPaths(): void {
   for (const p of OEM_PATHS) revalidatePath(p);
 }
 
+// Gates BOTH reads and writes. The page components check the role too, but a
+// server action is its own POST endpoint: its action id ships in the client
+// bundle, so anyone who can load any page in the app can invoke it directly
+// regardless of what the page rendered. Reads matter as much as writes here —
+// calcPrice alone returns per-department labour rates, batch costs, NRE and
+// the margin actually charged, i.e. the entire cost structure this feature
+// exists to keep off competitors' desks (pricing-disclosure-policy.md §2.5).
 function requireOwnerAdmin(): ActionResult<never> | null {
   if (getDevRole() === "staff") {
-    return { ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่แก้ไขต้นทุน/ราคางาน OEM ได้" };
+    return { ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่ดูหรือแก้ต้นทุน/ราคางาน OEM ได้" };
   }
   return null;
 }
@@ -177,6 +184,9 @@ function fromCalcResult(raw: Record<string, unknown>): OemPriceCalcResult {
 export async function getRateStatus(): Promise<
   ActionResult<{ rows: OemRateStatusRow[]; readiness: OemReadiness | null }>
 > {
+  const gateErr = requireOwnerAdmin();
+  if (gateErr) return gateErr;
+
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();
@@ -321,6 +331,9 @@ export async function deleteRate(input: DeleteOemRateInput): Promise<ActionResul
 // ============================================================================
 
 export async function getOemSetting(): Promise<ActionResult<OemSettingData>> {
+  const gateErr = requireOwnerAdmin();
+  if (gateErr) return gateErr;
+
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();
@@ -450,6 +463,9 @@ const OEM_METALS = ["silver", "gold", "brass"] as const;
  * currently on file" and by /oem/quote to warn before the calc RPC does.
  * Not a formula: straight column reads, latest as_of_date first. */
 export async function getMetalPrices(): Promise<ActionResult<OemMetalPriceMap>> {
+  const gateErr = requireOwnerAdmin();
+  if (gateErr) return gateErr;
+
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();
@@ -482,6 +498,9 @@ export async function getMetalPrices(): Promise<ActionResult<OemMetalPriceMap>> 
 // ============================================================================
 
 export async function calcPrice(input: OemPriceCalcInput): Promise<ActionResult<OemPriceCalcResult>> {
+  const gateErr = requireOwnerAdmin();
+  if (gateErr) return gateErr;
+
   if (!input?.metal || !input.itemKind?.trim() || !input.polishTier?.trim()) {
     return { ok: false, error: "กรุณาเลือกวัสดุ / ประเภทงาน / ระดับความยากขัด" };
   }
@@ -583,14 +602,26 @@ export async function setQuoteStatus(input: SetQuoteStatusInput): Promise<Action
   if (gateErr) return gateErr;
 
   if (!input?.quoteId) return { ok: false, error: "ไม่พบใบเสนอราคา" };
+
+  // A TypeScript union is gone at runtime — this endpoint accepts whatever the
+  // caller posts. Without this list, "draft" or "quoted" could be set here,
+  // which skips oem_quote_save entirely and with it the recompute and every
+  // floor gate (0065 blocks the same two states server-side; this is the
+  // matching client-facing message).
+  const SETTABLE = ["won", "lost", "rejected", "expired"] as const;
+  if (!(SETTABLE as readonly string[]).includes(input.status)) {
+    return { ok: false, error: "สถานะนี้เปลี่ยนตรงๆ ไม่ได้ — ต้องออกใบเสนอราคาใหม่ผ่านหน้าคิดราคา" };
+  }
   if (input.status === "lost" && !input.lostReason?.trim()) {
     return { ok: false, error: "ปฏิเสธ/แพ้งานต้องระบุเหตุผล" };
   }
 
   try {
+    const shopId = getDevShopId();
     const supabase = getServiceClient();
 
     const { error } = await supabase.schema(SCHEMA).rpc("oem_quote_set_status", {
+      p_shop_id: shopId,
       p_quote_id: input.quoteId,
       p_status: input.status,
       p_lost_reason: input.lostReason?.trim() || null,
@@ -610,6 +641,9 @@ export async function setQuoteStatus(input: SetQuoteStatusInput): Promise<Action
 }
 
 export async function getQuotes(status?: OemQuoteStatus): Promise<ActionResult<OemQuoteRow[]>> {
+  const gateErr = requireOwnerAdmin();
+  if (gateErr) return gateErr;
+
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();
@@ -627,6 +661,9 @@ export async function getQuotes(status?: OemQuoteStatus): Promise<ActionResult<O
 }
 
 export async function getQuote(quoteId: string): Promise<ActionResult<OemQuoteRow>> {
+  const gateErr = requireOwnerAdmin();
+  if (gateErr) return gateErr;
+
   if (!quoteId) return { ok: false, error: "ไม่พบใบเสนอราคา" };
 
   try {

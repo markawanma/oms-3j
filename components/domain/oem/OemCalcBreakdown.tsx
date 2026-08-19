@@ -55,15 +55,30 @@ export function OemCalcBreakdown({
   const hardBlocked = marginState === "hard_floor_breach";
   const needsNote = marginState === "needs_approval_note";
 
+  // While rates are missing the RPC still returns a per-piece price, but it is
+  // built with the un-entered components coalesced to 0 — i.e. it is always
+  // LOWER than the real cost, by an unknown amount. Showing it as a number is
+  // worse than showing nothing: someone can read it off the screen and quote a
+  // customer below cost. Only quoteTotal is nulled server-side, so the
+  // per-piece figures have to be suppressed here.
+  const incomplete = !calc.isComplete;
+
   return (
     <>
       {/* price */}
       <div className="rounded-lg border border-zinc-200 bg-white p-3.5 shadow-sm">
         <div className="flex items-baseline justify-between">
           <span className="text-xs text-zinc-500">ราคา/ชิ้น</span>
-          <span className="text-xl font-bold tabular-nums text-zinc-900">{formatTHB(calc.breakdown.pricePerPiece)}</span>
+          <span className="text-xl font-bold tabular-nums text-zinc-900">
+            {incomplete ? "—" : formatTHB(calc.breakdown.pricePerPiece)}
+          </span>
         </div>
-        {calc.breakdown.nre.price > 0 && (
+        {incomplete && (
+          <p className="mt-1 text-xs text-amber-700">
+            ยังคิดราคาไม่ได้ — ขาดต้นทุน {calc.missing.length} รายการ (ดูด้านล่าง) ตัวเลขที่คำนวณได้ตอนนี้จะต่ำกว่าความจริง
+          </p>
+        )}
+        {!incomplete && calc.breakdown.nre.price > 0 && (
           <div className="mt-1.5 flex items-baseline justify-between border-t border-dashed border-zinc-200 pt-1.5">
             <span className="text-xs text-zinc-500">NRE (เก็บครั้งเดียว แยกจากราคาชิ้น)</span>
             <span className="text-sm font-semibold tabular-nums text-zinc-700">{formatTHB(calc.breakdown.nre.price)}</span>
