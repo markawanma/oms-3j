@@ -16,6 +16,17 @@ export const dynamic = "force-dynamic";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
+/** Shape AND calendar validity. The regex alone lets "2026-02-30" through,
+ * which JS then rolls over to Mar 2 — the agenda heading would say one date
+ * while the URL and the grid disagreed. A round-trip check rejects those, so
+ * any bad ?d= falls back to today instead of rendering a confusing (or
+ * error-page) state. */
+function isRealDate(s: string): boolean {
+  if (!DATE_RE.test(s)) return false;
+  const d = new Date(`${s}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
+}
+
 /** "YYYY-MM-DD" -> whole calendar month it falls in (design §4: agenda/date
  * grid and agenda both read one getCalendarTasks(from,to) call per month,
  * grouped client-side — "ไม่ต้องมี view นับวัน"). UTC date math throughout:
@@ -53,7 +64,7 @@ export default async function MarketingCalendarPage({
   const sp = await searchParams;
   const tab: "plan" | "seasonal" = sp.tab === "seasonal" ? "seasonal" : "plan";
   const today = effectiveDateBangkok(new Date().toISOString());
-  const selectedDate = sp.d && DATE_RE.test(sp.d) ? sp.d : today;
+  const selectedDate = sp.d && isRealDate(sp.d) ? sp.d : today;
 
   if (tab === "seasonal") {
     let result;

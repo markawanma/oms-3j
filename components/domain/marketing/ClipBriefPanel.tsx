@@ -21,7 +21,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Plus } from "lucide-react";
+import { Plus, Trash2 } from "lucide-react";
 import { setArtifactContent, toggleClipShot } from "@/lib/actions/calendar";
 import { CTA_TYPE_LABEL, PILLAR_LABEL, emptyClipBrief, nextShotId } from "@/lib/marketing/clip-brief";
 import type { ClipBrief, ClipSegment, ClipSegmentRole } from "@/lib/marketing/clip-brief";
@@ -146,6 +146,24 @@ export function ClipBriefPanel({ artifactId, clipBrief }: { artifactId: string; 
     });
   }
 
+  /** Remove a shot typed by mistake. Rewrites the whole shots[] (unlike
+   * ticking, which goes through the per-shot RPC to avoid clobbering a
+   * concurrent tick) — deleting is deliberate and rare, so the simpler
+   * whole-brief write is the right trade here. */
+  function handleDeleteShot(shotId: string) {
+    const nextBrief: ClipBrief = { ...brief!, shots: shots.filter((s) => s.id !== shotId) };
+    startAddShotTransition(async () => {
+      const result = await setArtifactContent(artifactId, { clipBrief: nextBrief });
+      if (!result.ok) {
+        toast.push(result.error, "error");
+        return;
+      }
+      setBrief(nextBrief);
+      toast.push("ลบช็อตแล้ว");
+      router.refresh();
+    });
+  }
+
   const cta = brief.cta ?? { type: "none" as const };
   const meta = brief.meta ?? {};
 
@@ -211,8 +229,8 @@ export function ClipBriefPanel({ artifactId, clipBrief }: { artifactId: string; 
             {shots.map((s) => {
               const busy = busyShotIds.has(s.id);
               return (
-                <li key={s.id}>
-                  <label className="flex min-h-11 cursor-pointer items-center gap-2.5 rounded-md px-1.5 hover:bg-zinc-50">
+                <li key={s.id} className="flex items-center gap-1">
+                  <label className="flex min-h-11 flex-1 cursor-pointer items-center gap-2.5 rounded-md px-1.5 hover:bg-zinc-50">
                     <input
                       type="checkbox"
                       checked={!!s.done}
@@ -227,6 +245,15 @@ export function ClipBriefPanel({ artifactId, clipBrief }: { artifactId: string; 
                       )}
                     </span>
                   </label>
+                  <button
+                    type="button"
+                    onClick={() => handleDeleteShot(s.id)}
+                    disabled={busy || addShotPending}
+                    aria-label={`ลบช็อต ${s.desc || ""}`}
+                    className="flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-md text-zinc-300 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
+                  >
+                    <Trash2 className="h-4 w-4" aria-hidden="true" />
+                  </button>
                 </li>
               );
             })}

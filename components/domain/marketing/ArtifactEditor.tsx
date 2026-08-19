@@ -7,16 +7,10 @@
 // approved -> done) instead of a single done/not-done toggle, plus the AI
 // provenance badges 0057 added (generated_by/generated_model/human_edited).
 //
-// Status writes go through setCampaignArtifactStatus (lib/actions/marketing.ts,
-// unchanged this phase) — ⚠️ that action's runtime whitelist is
-// ["todo","draft","done","blocked"] and does NOT yet include the two 0057
-// values ("draft_pending_review","approved") even though its `status`
-// param is typed ArtifactStatus (all 6). Clicking "อนุมัติ" today will hit
-// that whitelist and show "สถานะไม่ถูกต้อง" via toast — a real gap in a file
-// this task is not allowed to touch (see PR notes). The button is still
-// wired correctly (campaign_set_artifact_status, the RPC underneath,
-// already supports 'approved' per 0057 R7) so it starts working the moment
-// that one-line whitelist is widened.
+// Status writes go through setCampaignArtifactStatus (lib/actions/marketing.ts),
+// whose runtime whitelist is now ARTIFACT_STATUSES — derived from the same
+// union as the type, so all six states (including the two AI-draft ones) are
+// accepted and adding a state later can't leave the action rejecting it.
 
 import { useState, useTransition } from "react";
 import { setCampaignArtifactStatus } from "@/lib/actions/marketing";

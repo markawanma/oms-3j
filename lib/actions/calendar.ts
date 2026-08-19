@@ -45,7 +45,10 @@ function friendlyError(err: unknown, fallback: string): string {
   const code = (err as { code?: string })?.code;
   if (code === "22023") {
     const msg = err instanceof Error ? err.message : "";
-    if (msg.includes("only manually-created tasks can be deleted")) {
+    // Match the stable half of the sentence: 0058 reworded "tasks" -> "steps"
+    // when delete became a per-step decision, and an exact-phrase match here
+    // silently fell through to the generic error.
+    if (msg.includes("can be deleted")) {
       return "ลบไม่ได้ — งานนี้มาจากแผนสำเร็จรูป (template) ลบได้เฉพาะงานที่เพิ่มเอง";
     }
     if (msg.includes("was edited by a human")) {
