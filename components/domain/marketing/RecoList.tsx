@@ -18,6 +18,7 @@
 // section-collapse component.
 
 import { useState, useTransition } from "react";
+import Link from "next/link";
 import {
   AlertTriangle,
   Ban,
@@ -28,6 +29,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { decideReco } from "@/lib/actions/marketing";
+import type { CampaignTemplateRow } from "@/lib/actions/calendar";
 import {
   mktRuleLabel,
   mktSeverityLabel,
@@ -42,6 +44,7 @@ import { useToast } from "@/components/ui/Toast";
 import { CopilotSection } from "@/components/domain/tiktok/CopilotSection";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { formatCount, formatThaiDateOnly, formatTHBCompact } from "@/lib/tiktok/format";
+import { ApproveRecoSheet } from "@/components/domain/marketing/ApproveRecoSheet";
 
 const SEVERITY_ICON: Record<string, LucideIcon> = {
   blocker: AlertTriangle,
@@ -158,11 +161,22 @@ function LiveTargetingDetail({ detail }: { detail: Partial<MktLiveTargetingDetai
 function RecoCard({
   row,
   busy,
+  template,
+  calendarDate,
   onDecide,
+  onOpenApproveSheet,
 }: {
   row: MktRecoRow;
   busy: boolean;
+  /** campaign_template matching this row's ruleCode, if any (design §6) —
+   * presence alone decides which approve path renders below. */
+  template: CampaignTemplateRow | undefined;
+  /** anchor_date used the moment this row was approved via the sheet, kept
+   * client-side only (not refetched) — powers the "ดูแผนในปฏิทิน" link for
+   * rows approved this session. Optional per design §4's "ไม่บังคับ". */
+  calendarDate: string | undefined;
   onDecide: (recoKey: string, status: "approved" | "dismissed") => void;
+  onOpenApproveSheet: (row: MktRecoRow, template: CampaignTemplateRow) => void;
 }) {
   const Icon = SEVERITY_ICON[row.severity] ?? Sparkles;
   const decided = row.status !== "pending";
@@ -217,10 +231,30 @@ function RecoCard({
           <Badge tone="slate">ยังใช้งานไม่ได้</Badge>
         </div>
       ) : decided ? (
-        <div>
+        <div className="flex flex-col items-start gap-1.5">
           <Badge tone={row.status === "approved" ? "green" : "slate"}>
             {row.status === "approved" ? "✓ อนุมัติแล้ว" : "✕ ปิดแล้ว"}
           </Badge>
+          {row.status === "approved" && template && calendarDate && (
+            <Link
+              href={`/marketing/calendar?tab=plan&d=${calendarDate}`}
+              className="text-xs font-semibold text-primary-700 hover:underline"
+            >
+              ดูแผนในปฏิทิน
+            </Link>
+          )}
+        </div>
+      ) : template && !isBlockerSeverity ? (
+        // design §6: this rule_code has a matching campaign_template — approve
+        // opens the date-picker sheet instead of writing mkt_reco_decision
+        // directly (that happens only after the plan is created, see the sheet).
+        <div className="flex flex-wrap items-center gap-2 pt-0.5">
+          <Button variant="secondary" size="sm" disabled={busy} onClick={() => onDecide(row.recoKey, "dismissed")}>
+            ปิด
+          </Button>
+          <Button variant="primary" size="sm" loading={busy} onClick={() => onOpenApproveSheet(row, template)}>
+            อนุมัติ → สร้างแผน
+          </Button>
         </div>
       ) : (
         <div className="flex flex-wrap items-center gap-2 pt-0.5">
@@ -236,11 +270,29 @@ function RecoCard({
   );
 }
 
-export function RecoList({ initialRows }: { initialRows: MktRecoRow[] }) {
+export function RecoList({
+  initialRows,
+  templates,
+}: {
+  initialRows: MktRecoRow[];
+  /** getCampaignTemplates() result — [] when that fetch failed or none
+   * exist, in which case every row falls back to the original decideReco-
+   * only behavior (design §6). */
+  templates: CampaignTemplateRow[];
+}) {
   const toast = useToast();
   const [rows, setRows] = useState(initialRows);
   const [busyKey, setBusyKey] = useState<string | null>(null);
+  const [approveTarget, setApproveTarget] = useState<{ row: MktRecoRow; template: CampaignTemplateRow } | null>(null);
+  const [calendarDates, setCalendarDates] = useState<Record<string, string>>({});
   const [, startTransition] = useTransition();
+
+  // rule_code -> template, template.rule_code null entries excluded (design
+  // §2.3: null means "manual only", never matches a reco row).
+  const templateByRuleCode = new Map<string, CampaignTemplateRow>();
+  for (const t of templates) {
+    if (t.ruleCode) templateByRuleCode.set(t.ruleCode, t);
+  }
 
   function handleDecide(recoKey: string, status: "approved" | "dismissed") {
     setBusyKey(recoKey);
@@ -256,6 +308,15 @@ export function RecoList({ initialRows }: { initialRows: MktRecoRow[] }) {
       );
       toast.push(status === "approved" ? "บันทึกการอนุมัติแล้ว" : "ปิดคำแนะนำนี้แล้ว");
     });
+  }
+
+  /** ApproveRecoSheet already did create+decide itself — this just syncs
+   * local row state the same way handleDecide's success branch does. */
+  function handleApproved(recoKey: string, anchorDate: string) {
+    setRows((prev) =>
+      prev.map((r) => (r.recoKey === recoKey ? { ...r, status: "approved", decidedAt: new Date().toISOString() } : r))
+    );
+    setCalendarDates((prev) => ({ ...prev, [recoKey]: anchorDate }));
   }
 
   if (rows.length === 0) {
@@ -275,29 +336,72 @@ export function RecoList({ initialRows }: { initialRows: MktRecoRow[] }) {
         {pending.length === 0 ? (
           <p className="py-4 text-center text-sm text-zinc-400">ตัดสินใจครบทุกใบแล้ว</p>
         ) : (
-          pending.map((r) => <RecoCard key={r.recoKey} row={r} busy={busyKey === r.recoKey} onDecide={handleDecide} />)
+          pending.map((r) => (
+            <RecoCard
+              key={r.recoKey}
+              row={r}
+              busy={busyKey === r.recoKey}
+              template={templateByRuleCode.get(r.ruleCode)}
+              calendarDate={calendarDates[r.recoKey]}
+              onDecide={handleDecide}
+              onOpenApproveSheet={(row, template) => setApproveTarget({ row, template })}
+            />
+          ))
         )}
       </CopilotSection>
 
       {blocked.length > 0 && (
         <CopilotSection title="รอข้อมูล/เงื่อนไข" count={blocked.length} collapsible defaultOpen={false}>
           {blocked.map((r) => (
-            <RecoCard key={r.recoKey} row={r} busy={false} onDecide={handleDecide} />
+            <RecoCard
+              key={r.recoKey}
+              row={r}
+              busy={false}
+              template={templateByRuleCode.get(r.ruleCode)}
+              calendarDate={calendarDates[r.recoKey]}
+              onDecide={handleDecide}
+              onOpenApproveSheet={(row, template) => setApproveTarget({ row, template })}
+            />
           ))}
         </CopilotSection>
       )}
 
       <CopilotSection title="อนุมัติแล้ว" count={approved.length} collapsible defaultOpen={false}>
         {approved.map((r) => (
-          <RecoCard key={r.recoKey} row={r} busy={busyKey === r.recoKey} onDecide={handleDecide} />
+          <RecoCard
+            key={r.recoKey}
+            row={r}
+            busy={busyKey === r.recoKey}
+            template={templateByRuleCode.get(r.ruleCode)}
+            calendarDate={calendarDates[r.recoKey]}
+            onDecide={handleDecide}
+            onOpenApproveSheet={(row, template) => setApproveTarget({ row, template })}
+          />
         ))}
       </CopilotSection>
 
       <CopilotSection title="ปิดแล้ว" count={dismissed.length} collapsible defaultOpen={false}>
         {dismissed.map((r) => (
-          <RecoCard key={r.recoKey} row={r} busy={busyKey === r.recoKey} onDecide={handleDecide} />
+          <RecoCard
+            key={r.recoKey}
+            row={r}
+            busy={busyKey === r.recoKey}
+            template={templateByRuleCode.get(r.ruleCode)}
+            calendarDate={calendarDates[r.recoKey]}
+            onDecide={handleDecide}
+            onOpenApproveSheet={(row, template) => setApproveTarget({ row, template })}
+          />
         ))}
       </CopilotSection>
+
+      {approveTarget && (
+        <ApproveRecoSheet
+          reco={approveTarget.row}
+          template={approveTarget.template}
+          onClose={() => setApproveTarget(null)}
+          onApproved={handleApproved}
+        />
+      )}
     </div>
   );
 }

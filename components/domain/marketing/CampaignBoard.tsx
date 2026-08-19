@@ -205,7 +205,11 @@ function StepCard({
 
 export function CampaignBoard({ initialSteps }: { initialSteps: CampaignBoardStep[] }) {
   const toast = useToast();
-  const [steps, setSteps] = useState(initialSteps);
+  // design §4 "CampaignBoard เดิม" row: standalone owner-added tasks
+  // (campaign_type='content_task', 0057) live in v_campaign_board too now
+  // (the calendar reads the same view) but must never show up on this
+  // multi-step campaign board — they belong on /marketing/calendar instead.
+  const [steps, setSteps] = useState(() => initialSteps.filter((s) => s.campaignType !== "content_task"));
   // per-item busy set (not a single id) — two items can be in flight at once
   // without one clearing the other's disabled state (race → double-submit).
   const [busyIds, setBusyIds] = useState<Set<string>>(() => new Set());
