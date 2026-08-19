@@ -88,6 +88,16 @@ export interface CampaignBoardStep {
   /** cp.source_reco_key (0057) — the Ad Copilot reco_key that spawned this
    * campaign, if any. Lets the calendar link back to /marketing/copilot. */
   sourceRecoKey: string | null;
+  /** campaign_step.start_time (0060), "HH:MM" 24-hour text or null — the
+   * live's start time isn't fixed day to day (18:00 one day, 21:00 the
+   * next), so this is owner-typed, never derived. null = no time set
+   * ("ทั้งวัน" in the UI), not midnight. */
+  startTime: string | null;
+  /** v_campaign_board.step_origin (0060): 'template' rows came from a
+   * campaign_template plan and can't be deleted (R8 rejects them
+   * server-side already) — surfaced here so the UI can disable the delete
+   * button instead of letting the owner hit an error. */
+  stepOrigin: "template" | "manual";
 }
 
 // ---- Thai labels ----------------------------------------------------------
