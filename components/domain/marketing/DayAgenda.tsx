@@ -2,8 +2,9 @@
 // §2/§4 empty-state rule, phase-content-calendar-design.md §7). Server-safe
 // (no hooks): tasks for the whole month already arrive from the page via
 // getCalendarTasks, this component just filters+sorts down to the selected
-// day and renders. Interactive bits (add-plan sheet, month overlay) are
-// self-contained client components dropped in as children.
+// day and renders. Interactive bits (add-plan sheet) are
+// self-contained client components dropped in as children (the month grid
+// lives on the page above, not here).
 
 import { CalendarDays } from "lucide-react";
 import type { CampaignBoardStep } from "@/lib/marketing/campaign-types";

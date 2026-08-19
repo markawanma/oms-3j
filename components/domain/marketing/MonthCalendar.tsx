@@ -22,7 +22,7 @@ export interface DayDots {
 }
 
 const WEEKDAY_HEADER = ["อา", "จ", "อ", "พ", "พฤ", "ศ", "ส"];
-const MONTH_YEAR_FMT = new Intl.DateTimeFormat("th-TH", { month: "long", year: "numeric" });
+const MONTH_YEAR_FMT = new Intl.DateTimeFormat("th-TH", { timeZone: "UTC", month: "long", year: "numeric" });
 
 function isoDate(y: number, m: number, d: number): string {
   return `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;

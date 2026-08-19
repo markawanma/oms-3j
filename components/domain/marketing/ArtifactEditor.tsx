@@ -48,6 +48,10 @@ export function ArtifactEditor({ artifact }: { artifact: CampaignArtifact }) {
         return;
       }
       setContentBody(draftText);
+      // R4 bumps an untouched artifact from todo -> draft server-side; mirror
+      // that here or the badge keeps reading "ยังไม่ทำ" and the "เริ่มร่าง"
+      // button stays up, firing a redundant status write when tapped.
+      if (status === "todo") setStatus("draft");
       setEditing(false);
       toast.push("บันทึกเนื้อหาแล้ว");
     });

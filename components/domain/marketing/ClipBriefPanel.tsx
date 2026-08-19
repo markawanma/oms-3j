@@ -89,7 +89,7 @@ export function ClipBriefPanel({ artifactId, clipBrief }: { artifactId: string; 
 
   function handleSaveSegments() {
     startSaveSegmentsTransition(async () => {
-      const nextBrief: ClipBrief = { ...brief!, segments: SEGMENT_ORDER.map((role) => editRows[role]) };
+      const nextBrief: ClipBrief = { ...brief!, v: 1, segments: SEGMENT_ORDER.map((role) => editRows[role]) };
       const result = await setArtifactContent(artifactId, { clipBrief: nextBrief });
       if (!result.ok) {
         toast.push(result.error, "error");
@@ -131,7 +131,7 @@ export function ClipBriefPanel({ artifactId, clipBrief }: { artifactId: string; 
     const desc = newShotDesc.trim();
     if (!desc) return;
     const id = nextShotId(brief!);
-    const nextBrief: ClipBrief = { ...brief!, shots: [...shots, { id, desc, done: false }] };
+    const nextBrief: ClipBrief = { ...brief!, v: 1, shots: [...shots, { id, desc, done: false }] };
     startAddShotTransition(async () => {
       const result = await setArtifactContent(artifactId, { clipBrief: nextBrief });
       if (!result.ok) {
@@ -151,7 +151,7 @@ export function ClipBriefPanel({ artifactId, clipBrief }: { artifactId: string; 
    * concurrent tick) — deleting is deliberate and rare, so the simpler
    * whole-brief write is the right trade here. */
   function handleDeleteShot(shotId: string) {
-    const nextBrief: ClipBrief = { ...brief!, shots: shots.filter((s) => s.id !== shotId) };
+    const nextBrief: ClipBrief = { ...brief!, v: 1, shots: shots.filter((s) => s.id !== shotId) };
     startAddShotTransition(async () => {
       const result = await setArtifactContent(artifactId, { clipBrief: nextBrief });
       if (!result.ok) {

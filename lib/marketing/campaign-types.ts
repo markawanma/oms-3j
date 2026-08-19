@@ -160,19 +160,6 @@ export const GATE_LABEL: Record<string, string> = {
   price_realtime_fill: "กรอกราคาเงินวันนี้",
 };
 
-/** Runtime whitelist for the status write path — derived from the same list as
- * ArtifactStatus so adding a state can't leave a server action rejecting it
- * (that gap is exactly what broke the "อนุมัติ" button when the two AI-draft
- * states were added). */
-export const ARTIFACT_STATUSES: ArtifactStatus[] = [
-  "todo",
-  "draft_pending_review",
-  "draft",
-  "approved",
-  "done",
-  "blocked",
-];
-
 export const ARTIFACT_STATUS_LABEL: Record<ArtifactStatus, string> = {
   todo: "ยังไม่ทำ",
   draft_pending_review: "AI ร่าง รอตรวจ",
@@ -181,6 +168,13 @@ export const ARTIFACT_STATUS_LABEL: Record<ArtifactStatus, string> = {
   done: "เสร็จ",
   blocked: "ติดเงื่อนไข",
 };
+
+/** Runtime whitelist for the status write path. Genuinely derived from the
+ * label map above (which TS forces to be exhaustive over ArtifactStatus), so a
+ * new state can't be added to the union and silently left out here — a
+ * hand-written array would only catch extras, never omissions, and an omission
+ * is exactly what made the "อนุมัติ" button reject its own status. */
+export const ARTIFACT_STATUSES = Object.keys(ARTIFACT_STATUS_LABEL) as ArtifactStatus[];
 
 export const EFFECTIVE_STATUS_LABEL: Record<EffectiveStatus, string> = {
   todo: "ยังไม่ถึงคิว",
