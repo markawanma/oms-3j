@@ -33,6 +33,17 @@ export function DayAgenda({
   const dayTasks = tasks
     .filter((t) => t.resolvedStart === selectedDate)
     .sort((a, b) => {
+      // Timed tasks first, earliest to latest; untimed ("ทั้งวัน") tasks
+      // last — a live at 18:00 needs to read above "ถ่ายคลิป" with no time,
+      // not interleaved with it (design: "งานไม่มีเวลาไว้ท้ายสุด").
+      if (a.startTime && b.startTime) {
+        const byTime = a.startTime.localeCompare(b.startTime);
+        if (byTime !== 0) return byTime;
+      } else if (a.startTime && !b.startTime) {
+        return -1;
+      } else if (!a.startTime && b.startTime) {
+        return 1;
+      }
       const byCampaign = a.campaignName.localeCompare(b.campaignName, "th");
       return byCampaign !== 0 ? byCampaign : a.seq - b.seq;
     });

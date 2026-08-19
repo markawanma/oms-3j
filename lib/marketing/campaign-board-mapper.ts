@@ -13,7 +13,7 @@ import type { ArtifactStatus, CampaignArtifact, CampaignBoardStep } from "@/lib/
  * (clip_brief, generated_by, ...) live inside the `artifacts` jsonb column
  * already, so they don't need their own entry here. */
 export const CAMPAIGN_BOARD_SELECT =
-  "step_id, campaign_id, campaign_name, campaign_type, trigger_kind, anchor_date, seq, step_kind, resolved_start, resolved_end, days_until, audience_segment, audience_live_count, channel, goal_kpi, step_status, step_blocked_reason, artifacts, art_total, art_done, gates, effective_status, step_title, source_reco_key";
+  "step_id, campaign_id, campaign_name, campaign_type, trigger_kind, anchor_date, seq, step_kind, resolved_start, resolved_end, days_until, audience_segment, audience_live_count, channel, goal_kpi, step_status, step_blocked_reason, artifacts, art_total, art_done, gates, effective_status, step_title, source_reco_key, start_time, step_origin";
 
 function mapArtifact(a: Record<string, unknown>): CampaignArtifact {
   return {
@@ -73,5 +73,7 @@ export function mapCampaignBoardRow(r: Record<string, unknown>): CampaignBoardSt
     effectiveStatus: r.effective_status as CampaignBoardStep["effectiveStatus"],
     stepTitle: (r.step_title as string) ?? null,
     sourceRecoKey: (r.source_reco_key as string) ?? null,
+    startTime: (r.start_time as string) ?? null,
+    stepOrigin: (r.step_origin as CampaignBoardStep["stepOrigin"]) ?? "manual",
   };
 }

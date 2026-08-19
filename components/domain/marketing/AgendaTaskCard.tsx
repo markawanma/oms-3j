@@ -43,7 +43,10 @@ export function AgendaTaskCard({ step }: { step: CampaignBoardStep }) {
       >
         <div className="flex flex-wrap items-start justify-between gap-2">
           <div className="min-w-0">
-            <p className="text-sm font-bold text-zinc-900">{title}</p>
+            <p className="text-sm font-bold text-zinc-900">
+              {step.startTime && <span className="mr-1.5 text-primary-700">{step.startTime}</span>}
+              {title}
+            </p>
             {/* standalone "content_task" steps have no meaningful parent
                 campaign to show (design item 4: "ถ้าไม่ใช่ content_task") */}
             {step.campaignType !== "content_task" && (

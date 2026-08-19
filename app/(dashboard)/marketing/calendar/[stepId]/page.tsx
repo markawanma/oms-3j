@@ -117,6 +117,7 @@ export default async function CalendarTaskDetailPage({ params }: { params: Promi
           <span className="inline-flex items-center gap-1">
             <CalendarClock className="h-3.5 w-3.5" aria-hidden="true" />
             {formatThaiDateOnly(step.resolvedStart)}
+            {step.startTime && <span className="font-semibold text-zinc-700">{step.startTime} น.</span>}
           </span>
           {step.audienceSegment && (
             <span className="inline-flex items-center gap-1">
@@ -160,7 +161,12 @@ export default async function CalendarTaskDetailPage({ params }: { params: Promi
 
       <TaskGateSection stepId={step.stepId} gates={step.gates} />
 
-      <TaskDateActions stepId={step.stepId} initialDate={step.resolvedStart} />
+      <TaskDateActions
+        stepId={step.stepId}
+        initialDate={step.resolvedStart}
+        initialStartTime={step.startTime}
+        stepOrigin={step.stepOrigin}
+      />
     </div>
   );
 }

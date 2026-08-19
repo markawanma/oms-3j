@@ -38,6 +38,7 @@ export function AddPlanForm({
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState("");
   const [date, setDate] = useState(defaultDate);
+  const [startTime, setStartTime] = useState("");
   const [artifactType, setArtifactType] = useState("");
   const [titleError, setTitleError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
@@ -47,6 +48,7 @@ export function AddPlanForm({
   function reset() {
     setTitle("");
     setDate(defaultDate);
+    setStartTime("");
     setArtifactType("");
     setTitleError(null);
   }
@@ -67,6 +69,7 @@ export function AddPlanForm({
       const result = await createManualTask({
         title: trimmed,
         date,
+        startTime: startTime || undefined,
         artifactType: artifactType || undefined,
       });
       if (!result.ok) {
@@ -141,18 +144,32 @@ export function AddPlanForm({
               {titleError && <p className="mt-1 text-xs text-red-600">{titleError}</p>}
             </div>
 
-            <div>
-              <label htmlFor="plan-date" className="mb-1 block text-xs font-medium text-zinc-600">
-                วันที่
-              </label>
-              <input
-                id="plan-date"
-                type="date"
-                value={date}
-                onChange={(e) => setDate(e.target.value)}
-                required
-                className="min-h-11 w-full rounded-md border border-zinc-300 px-3 text-sm focus:border-primary-500 focus:outline-none"
-              />
+            <div className="flex gap-2">
+              <div className="flex-1">
+                <label htmlFor="plan-date" className="mb-1 block text-xs font-medium text-zinc-600">
+                  วันที่
+                </label>
+                <input
+                  id="plan-date"
+                  type="date"
+                  value={date}
+                  onChange={(e) => setDate(e.target.value)}
+                  required
+                  className="min-h-11 w-full rounded-md border border-zinc-300 px-3 text-sm focus:border-primary-500 focus:outline-none"
+                />
+              </div>
+              <div className="flex-1">
+                <label htmlFor="plan-start-time" className="mb-1 block text-xs font-medium text-zinc-600">
+                  เวลา (ไม่บังคับ)
+                </label>
+                <input
+                  id="plan-start-time"
+                  type="time"
+                  value={startTime}
+                  onChange={(e) => setStartTime(e.target.value)}
+                  className="min-h-11 w-full rounded-md border border-zinc-300 px-3 text-sm focus:border-primary-500 focus:outline-none"
+                />
+              </div>
             </div>
 
             <div>

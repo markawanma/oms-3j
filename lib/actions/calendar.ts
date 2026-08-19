@@ -30,6 +30,14 @@ function isValidDateStr(s: string): boolean {
   return !Number.isNaN(d.getTime());
 }
 
+// 24-hour "HH:MM" only — matches the <input type="time"> the forms use and
+// what campaign_create_task/campaign_reschedule_step's `time` params accept
+// unquestioned (no seconds, no AM/PM).
+const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+function isValidTimeStr(s: string): boolean {
+  return TIME_RE.test(s);
+}
+
 // Not exported from marketing.ts (module-private there) — same gate, copied
 // rather than imported so this file has no dependency on that one.
 function requireOwnerAdmin(): ActionResult<never> | null {
@@ -217,6 +225,10 @@ export interface CreateManualTaskInput {
   artifactType?: string;
   campaignId?: string;
   stepKind?: string;
+  /** "HH:MM" 24-hour, or omitted/empty/null for no time ("ทั้งวัน") — optional
+   * everywhere, never required (design: TikTok live start time moves day to
+   * day, owner types it in when they know it). */
+  startTime?: string | null;
 }
 
 /** R2 — "เพิ่มแผนเอง". Returns the new step_id. */
@@ -228,6 +240,10 @@ export async function createManualTask(input: CreateManualTaskInput): Promise<Ac
   if (!title) return { ok: false, error: "กรุณากรอกชื่องาน" };
   if (!isValidDateStr(input.date)) {
     return { ok: false, error: "รูปแบบวันที่ไม่ถูกต้อง" };
+  }
+  const startTimeTrimmed = input.startTime?.trim() || "";
+  if (startTimeTrimmed && !isValidTimeStr(startTimeTrimmed)) {
+    return { ok: false, error: "รูปแบบเวลาไม่ถูกต้อง (ต้องเป็น HH:MM แบบ 24 ชั่วโมง)" };
   }
 
   try {
@@ -241,6 +257,7 @@ export async function createManualTask(input: CreateManualTaskInput): Promise<Ac
       p_artifact_type: input.artifactType?.trim() || null,
       p_campaign_id: input.campaignId || null,
       p_step_kind: input.stepKind?.trim() || null,
+      p_start_time: startTimeTrimmed || null,
     });
     if (error) throw error;
 
@@ -252,9 +269,25 @@ export async function createManualTask(input: CreateManualTaskInput): Promise<Ac
   }
 }
 
+export interface RescheduleTaskOpts {
+  /** "HH:MM" 24-hour to set/change the time, or omitted/undefined to leave
+   * the existing start_time untouched. Ignored when clearTime is true. */
+  startTime?: string | null;
+  /** true = remove the existing start_time (goes back to "ทั้งวัน"). Takes
+   * priority over startTime if both are somehow set. */
+  clearTime?: boolean;
+}
+
 /** R3 — move one step (or the whole content_task if it's a single-step
- * standalone task). */
-export async function rescheduleTask(stepId: string, newDate: string): Promise<ActionResult> {
+ * standalone task). `opts` is optional so every existing 2-arg call site
+ * keeps compiling unchanged; omitting it leaves start_time exactly as it
+ * was (p_new_time null + p_clear_time false is the RPC's "don't touch
+ * time" case). */
+export async function rescheduleTask(
+  stepId: string,
+  newDate: string,
+  opts?: RescheduleTaskOpts
+): Promise<ActionResult> {
   const gateErr = requireOwnerAdmin();
   if (gateErr) return gateErr;
 
@@ -262,12 +295,19 @@ export async function rescheduleTask(stepId: string, newDate: string): Promise<A
   if (!isValidDateStr(newDate)) {
     return { ok: false, error: "รูปแบบวันที่ไม่ถูกต้อง" };
   }
+  const clearTime = opts?.clearTime ?? false;
+  const startTimeTrimmed = clearTime ? "" : opts?.startTime?.trim() || "";
+  if (startTimeTrimmed && !isValidTimeStr(startTimeTrimmed)) {
+    return { ok: false, error: "รูปแบบเวลาไม่ถูกต้อง (ต้องเป็น HH:MM แบบ 24 ชั่วโมง)" };
+  }
 
   try {
     const supabase = getServiceClient();
     const { error } = await supabase.schema(SCHEMA).rpc("campaign_reschedule_step", {
       p_step_id: stepId,
       p_new_date: newDate,
+      p_new_time: startTimeTrimmed || null,
+      p_clear_time: clearTime,
     });
     if (error) throw error;
 
