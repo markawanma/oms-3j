@@ -23,6 +23,7 @@ import type {
   OemBatchLine,
   OemFloors,
   OemLaborStep,
+  OemMetalPriceMap,
   OemMissingRateEntry,
   OemPriceBreakdown,
   OemPriceCalcInput,
@@ -40,10 +41,12 @@ import type {
 } from "@/lib/oem/types";
 
 const SCHEMA = "analytics";
-// Placeholder revalidate target — no /oem pages exist yet (T1-T3 is data +
-// actions only); the frontend phase should replace this with real route(s)
-// (e.g. /oem/rates, /oem/quotes) once they exist.
-const OEM_PATH = "/oem";
+// T4-T6 routes (all `dynamic = "force-dynamic"`, so this is belt-and-braces
+// alongside router.refresh() on the client side, not the only cache-buster).
+const OEM_PATHS = ["/oem/rates", "/oem/quote", "/oem/quotes"] as const;
+function revalidateOemPaths(): void {
+  for (const p of OEM_PATHS) revalidatePath(p);
+}
 
 function requireOwnerAdmin(): ActionResult<never> | null {
   if (getDevRole() === "staff") {
@@ -77,6 +80,8 @@ function toCalcInputPayload(input: OemPriceCalcInput): Record<string, unknown> {
     gem_tier: input.gemTier ?? null,
     gem_count: input.gemCount ?? 0,
     as_of_date: input.asOfDate ?? null,
+    // 0063: margin to CHARGE — omit to fall back to oem_setting.margin_target_pct.
+    margin_pct: input.marginPct ?? null,
   };
 }
 
@@ -134,6 +139,7 @@ function fromCalcResult(raw: Record<string, unknown>): OemPriceCalcResult {
     pricePerPiece: Number(b.price_per_piece ?? 0),
     quoteTotal: b.quote_total == null ? null : Number(b.quote_total),
     marginActualPct: b.margin_actual_pct == null ? null : Number(b.margin_actual_pct),
+    marginPctUsed: Number(b.margin_pct_used ?? 0),
   };
 
   const f = (raw?.floors ?? {}) as Record<string, unknown>;
@@ -146,7 +152,12 @@ function fromCalcResult(raw: Record<string, unknown>): OemPriceCalcResult {
     qty: { pass: fQty.pass == null ? null : Boolean(fQty.pass), moq: fQty.moq == null ? null : Number(fQty.moq), actual: Number(fQty.actual ?? 0) },
     jobValue: { pass: fJob.pass == null ? null : Boolean(fJob.pass), min: Number(fJob.min ?? 0) },
     metalWeight: { pass: fMetal.pass == null ? null : Boolean(fMetal.pass), applies: Boolean(fMetal.applies) },
-    margin: { state: (fMargin.state as OemFloors["margin"]["state"]) ?? null, value: fMargin.value == null ? null : Number(fMargin.value) },
+    margin: {
+      state: (fMargin.state as OemFloors["margin"]["state"]) ?? null,
+      value: fMargin.value == null ? null : Number(fMargin.value),
+      blended: fMargin.blended == null ? null : Number(fMargin.blended),
+      target: fMargin.target == null ? null : Number(fMargin.target),
+    },
   };
 
   return {
@@ -269,7 +280,7 @@ export async function saveRate(input: UpsertOemRateInput): Promise<ActionResult>
       throw error;
     }
 
-    revalidatePath(OEM_PATH);
+    revalidateOemPaths();
     return { ok: true, data: undefined };
   } catch (err) {
     console.error("saveRate failed", err);
@@ -297,7 +308,7 @@ export async function deleteRate(input: DeleteOemRateInput): Promise<ActionResul
     });
     if (error) throw error;
 
-    revalidatePath(OEM_PATH);
+    revalidateOemPaths();
     return { ok: true, data: undefined };
   } catch (err) {
     console.error("deleteRate failed", err);
@@ -390,7 +401,7 @@ export async function saveOemSetting(input: UpsertOemSettingInput): Promise<Acti
     });
     if (error) throw error;
 
-    revalidatePath(OEM_PATH);
+    revalidateOemPaths();
     return { ok: true, data: undefined };
   } catch (err) {
     console.error("saveOemSetting failed", err);
@@ -425,11 +436,42 @@ export async function saveMetalPrice(input: SaveMetalPriceInput): Promise<Action
     });
     if (error) throw error;
 
-    revalidatePath(OEM_PATH);
+    revalidateOemPaths();
     return { ok: true, data: undefined };
   } catch (err) {
     console.error("saveMetalPrice failed", err);
     return { ok: false, error: "บันทึกราคาโลหะไม่สำเร็จ ลองใหม่อีกครั้ง" };
+  }
+}
+
+const OEM_METALS = ["silver", "gold", "brass"] as const;
+
+/** Latest row per metal — read-only, used by /oem/rates to show "what's
+ * currently on file" and by /oem/quote to warn before the calc RPC does.
+ * Not a formula: straight column reads, latest as_of_date first. */
+export async function getMetalPrices(): Promise<ActionResult<OemMetalPriceMap>> {
+  try {
+    const shopId = getDevShopId();
+    const supabase = getServiceClient();
+
+    const { data, error } = await supabase
+      .schema(SCHEMA)
+      .from("oem_metal_price")
+      .select("metal, price_thb_per_gram, as_of_date, source")
+      .eq("shop_id", shopId)
+      .order("as_of_date", { ascending: false });
+    if (error) throw error;
+
+    const result: OemMetalPriceMap = { silver: null, gold: null, brass: null };
+    for (const row of (data ?? []) as { metal: string; price_thb_per_gram: number; as_of_date: string; source: string }[]) {
+      const metal = row.metal as (typeof OEM_METALS)[number];
+      if (!OEM_METALS.includes(metal) || result[metal] !== null) continue; // keep only the latest per metal
+      result[metal] = { priceThbPerGram: Number(row.price_thb_per_gram), asOfDate: row.as_of_date, source: row.source };
+    }
+    return { ok: true, data: result };
+  } catch (err) {
+    console.error("getMetalPrices failed", err);
+    return { ok: false, error: "โหลดราคาโลหะไม่สำเร็จ ลองใหม่อีกครั้ง" };
   }
 }
 
@@ -482,6 +524,7 @@ function mapQuoteRow(r: Record<string, unknown>): OemQuoteRow {
     piecesSubtotal: r.pieces_subtotal == null ? null : Number(r.pieces_subtotal),
     quoteTotal: r.quote_total == null ? null : Number(r.quote_total),
     marginActualPct: r.margin_actual_pct == null ? null : Number(r.margin_actual_pct),
+    marginChargedPct: r.margin_charged_pct == null ? null : Number(r.margin_charged_pct),
     qRun: r.q_run == null ? null : Number(r.q_run),
     flaskCount: r.flask_count == null ? null : Number(r.flask_count),
     platingBatchCount: r.plating_batch_count == null ? null : Number(r.plating_batch_count),
@@ -499,7 +542,7 @@ function mapQuoteRow(r: Record<string, unknown>): OemQuoteRow {
 }
 
 const QUOTE_COLUMNS =
-  "id, quote_no, customer_name, customer_contact, input, calc, cost_piece, price_per_piece, nre_cost, nre_price, pieces_subtotal, quote_total, margin_actual_pct, q_run, flask_count, plating_batch_count, status, approval_note, approved_by, quote_valid_until, lost_reason, lost_to, is_expired, days_left, created_at, updated_at";
+  "id, quote_no, customer_name, customer_contact, input, calc, cost_piece, price_per_piece, nre_cost, nre_price, pieces_subtotal, quote_total, margin_actual_pct, margin_charged_pct, q_run, flask_count, plating_batch_count, status, approval_note, approved_by, quote_valid_until, lost_reason, lost_to, is_expired, days_left, created_at, updated_at";
 
 export async function saveQuote(input: SaveQuoteInput): Promise<ActionResult<{ quoteId: string }>> {
   const gateErr = requireOwnerAdmin();
@@ -517,6 +560,8 @@ export async function saveQuote(input: SaveQuoteInput): Promise<ActionResult<{ q
       p_quote_id: input.quoteId || null,
       p_status: input.status || "draft",
       p_approval_note: input.approvalNote?.trim() || null,
+      p_customer_name: input.customerName?.trim() || null,
+      p_customer_contact: input.customerContact?.trim() || null,
     });
     if (error) {
       // 22023 = our own controlled Thai validation messages (floor/margin/
@@ -525,7 +570,7 @@ export async function saveQuote(input: SaveQuoteInput): Promise<ActionResult<{ q
       throw error;
     }
 
-    revalidatePath(OEM_PATH);
+    revalidateOemPaths();
     return { ok: true, data: { quoteId: String(data) } };
   } catch (err) {
     console.error("saveQuote failed", err);
@@ -556,7 +601,7 @@ export async function setQuoteStatus(input: SetQuoteStatusInput): Promise<Action
       throw error;
     }
 
-    revalidatePath(OEM_PATH);
+    revalidateOemPaths();
     return { ok: true, data: undefined };
   } catch (err) {
     console.error("setQuoteStatus failed", err);

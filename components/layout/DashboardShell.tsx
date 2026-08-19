@@ -15,9 +15,11 @@ import {
   AlertTriangle,
   BarChart3,
   Boxes,
+  Calculator,
   CalendarDays,
   ClipboardList,
   Coins,
+  Factory,
   FileUp,
   Gauge,
   Gem,
@@ -101,6 +103,9 @@ const NAV_GROUPS: NavGroup[] = [
     items: [
       { href: "/catalog", label: "สินค้า / ต้นทุน", icon: Gem },
       { href: "/settings", label: "ราคา & มาร์จิ้น", icon: Settings2 },
+      { href: "/oem/rates", label: "ต้นทุน OEM", icon: Factory },
+      { href: "/oem/quote", label: "คิดราคา OEM", icon: Calculator },
+      { href: "/oem/quotes", label: "ใบเสนอราคา OEM", icon: ClipboardList },
     ],
   },
 ];

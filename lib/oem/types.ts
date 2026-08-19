@@ -130,6 +130,10 @@ export interface SaveMetalPriceInput {
   source?: "manual" | "feed" | "sheet";
 }
 
+/** Latest known price per metal (analytics.oem_metal_price, one row per
+ * metal — the shop's current answer, not history). null = never set. */
+export type OemMetalPriceMap = Record<OemMetal, { priceThbPerGram: number; asOfDate: string; source: string } | null>;
+
 // ============================================================================
 // Price calc (oem_price_calc jsonb contract — mirrors the shape documented in
 // 0062's header comment, 1:1). This is a PREVIEW shape only; the formula that
@@ -157,6 +161,9 @@ export interface OemPriceCalcInput {
   gemCount?: number | null;
   /** default current_date — pins metal price + rate lookups (reprint uses the saved quote's value). */
   asOfDate?: string | null;
+  /** margin to CHARGE, fraction [0,1) — 0063: omit to use oem_setting.margin_target_pct.
+   * This is the number floors.margin judges (not the blended margin_actual_pct). */
+  marginPct?: number | null;
 }
 
 export interface OemMissingRateEntry {
@@ -196,8 +203,14 @@ export interface OemPriceBreakdown {
   pricePerPiece: number;
   /** null when is_complete=false — do not trust/display a partial total. */
   quoteTotal: number | null;
-  /** null when is_complete=false. */
+  /** BLENDED margin over the whole job (incl. pass-through metal) — reported
+   * only, never gated. Null when is_complete=false. For gold this is much
+   * lower than marginPctUsed by design (§2.3) — see floors.margin.blended,
+   * same number, kept here too since 0062 always returned it at this path. */
   marginActualPct: number | null;
+  /** 0063: the margin rate actually applied while pricing (input marginPct,
+   * else oem_setting.margin_target_pct). Same value as floors.margin.value. */
+  marginPctUsed: number;
 }
 
 export type OemMarginState = "ok" | "discount_zone" | "needs_approval_note" | "hard_floor_breach" | null;
@@ -206,7 +219,12 @@ export interface OemFloors {
   qty: { pass: boolean | null; moq: number | null; actual: number };
   jobValue: { pass: boolean | null; min: number };
   metalWeight: { pass: boolean | null; applies: boolean };
-  margin: { state: OemMarginState; value: number | null };
+  /** 0063: `value` (margin CHARGED) is what state/pass is judged on — this is
+   * the decision variable. `blended` is the whole-job margin incl. pass-
+   * through metal, display-only (gold's blended is ~0.3% by design, not a
+   * bug — see 0063 header). `target` is oem_setting.margin_target_pct, for
+   * showing "vs. your usual target" context. */
+  margin: { state: OemMarginState; value: number | null; blended: number | null; target: number | null };
 }
 
 export interface OemPriceCalcResult {
@@ -232,6 +250,10 @@ export interface SaveQuoteInput {
    * a free-text reason, not a permission check (this app has one write-tier
    * today; see 0062 header comment). */
   approvalNote?: string | null;
+  /** 0064: oem_quote_save's p_customer_name/p_customer_contact — added by the
+   * frontend phase to close a gap (columns existed, no write path). */
+  customerName?: string | null;
+  customerContact?: string | null;
 }
 
 export interface SetQuoteStatusInput {
@@ -254,7 +276,10 @@ export interface OemQuoteRow {
   nrePrice: number | null;
   piecesSubtotal: number | null;
   quoteTotal: number | null;
+  /** blended margin over the whole job (display-only, see OemPriceBreakdown). */
   marginActualPct: number | null;
+  /** 0063: margin rate actually charged — what the floor gate judged. */
+  marginChargedPct: number | null;
   qRun: number | null;
   flaskCount: number | null;
   platingBatchCount: number | null;
