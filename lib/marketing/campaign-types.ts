@@ -160,6 +160,19 @@ export const GATE_LABEL: Record<string, string> = {
   price_realtime_fill: "กรอกราคาเงินวันนี้",
 };
 
+/** Runtime whitelist for the status write path — derived from the same list as
+ * ArtifactStatus so adding a state can't leave a server action rejecting it
+ * (that gap is exactly what broke the "อนุมัติ" button when the two AI-draft
+ * states were added). */
+export const ARTIFACT_STATUSES: ArtifactStatus[] = [
+  "todo",
+  "draft_pending_review",
+  "draft",
+  "approved",
+  "done",
+  "blocked",
+];
+
 export const ARTIFACT_STATUS_LABEL: Record<ArtifactStatus, string> = {
   todo: "ยังไม่ทำ",
   draft_pending_review: "AI ร่าง รอตรวจ",

@@ -38,6 +38,7 @@ import type {
   UpsertAdSpendInput,
 } from "@/lib/marketing/types";
 import type { ArtifactStatus, CampaignBoardStep } from "@/lib/marketing/campaign-types";
+import { ARTIFACT_STATUSES } from "@/lib/marketing/campaign-types";
 import { CAMPAIGN_BOARD_SELECT, mapCampaignBoardRow } from "@/lib/marketing/campaign-board-mapper";
 
 const SCHEMA = "analytics";
@@ -721,7 +722,7 @@ export async function setCampaignArtifactStatus(
   if (gateErr) return gateErr;
 
   if (!artifactId) return { ok: false, error: "ไม่พบรายการ content" };
-  if (!["todo", "draft", "done", "blocked"].includes(status)) {
+  if (!ARTIFACT_STATUSES.includes(status)) {
     return { ok: false, error: "สถานะไม่ถูกต้อง" };
   }
 

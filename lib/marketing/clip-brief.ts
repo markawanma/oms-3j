@@ -205,3 +205,41 @@ export function nextShotId(brief: ClipBrief): string {
   while (used.has(`s${n}`)) n++;
   return `s${n}`;
 }
+
+// ---- M4 (task detail page) additions --------------------------------------
+
+/** `step_artifact.artifact_type` values that get a ClipBriefPanel instead of
+ * (in addition to, per ux-content-calendar.md §3) the plain checklist —
+ * mirrors the DB CHECK on `clip_brief` in 0057 ("clip_brief is null or
+ * artifact_type in (...)"). Single source so page.tsx and any future caller
+ * agree on the same 2 values. */
+export const CLIP_ARTIFACT_TYPES = ["short_form_clip", "live_highlight_clip"] as const;
+
+export function isClipArtifactType(artifactType: string): boolean {
+  return (CLIP_ARTIFACT_TYPES as readonly string[]).includes(artifactType);
+}
+
+/** Thai labels for the closed `cta.type` union (design §5) — CTA + meta
+ * accordion in ClipBriefPanel. */
+export const CTA_TYPE_LABEL: Record<ClipCtaType, string> = {
+  comment_keyword: "คอมเมนต์คำคีย์เวิร์ด",
+  add_line: "เพิ่มเพื่อน LINE",
+  cart_link: "ลิงก์ตะกร้า",
+  live_reminder: "เตือนไลฟ์",
+  follow: "กดติดตาม",
+  dm: "ทักแชท",
+  none: "ไม่มี CTA",
+};
+
+/** `meta.pillar` vocabulary from CMO §5 (design §5 comment) — display-only
+ * (not a DB CHECK), so an unrecognised value falls back to the raw string
+ * rather than throwing. `hook_type` is deliberately NOT given a label map
+ * here (ClipBriefMeta's own comment: free-form, not a closed union). */
+export const PILLAR_LABEL: Record<string, string> = {
+  knowledge: "ให้ความรู้",
+  entertain: "บันเทิง",
+  product: "โชว์สินค้า",
+  story: "เล่าเรื่อง",
+  proof: "พิสูจน์/รีวิว",
+  promo: "โปรโมชัน",
+};
