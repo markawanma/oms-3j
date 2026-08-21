@@ -105,12 +105,39 @@ export interface BreakdownRow {
 
 export type DashboardBreakdownDimension = "channel" | "province" | "addressType" | "topProducts";
 
+/**
+ * Date-picker clamp + "day might be incomplete" warning (0070 — added to the
+ * analytics.tiktok_daily_dashboard RPC alongside the rest of the payload).
+ * Optional on DailyDashboardData below so this type keeps compiling against
+ * both an RPC that hasn't shipped `meta` yet and the static MOCK_DASHBOARD_DATA
+ * fixture (lib/tiktok/fixtures.ts) — `undefined` just means "no meta", never
+ * a crash, and the UI treats it as "don't clamp, don't warn" (fail-quiet).
+ */
+export interface DashboardMeta {
+  /** Earliest business day with any order data ("YYYY-MM-DD"), or null if unknown — clamps the date picker's `min`. */
+  minDate: string | null;
+  /** Latest business day with any order data ("YYYY-MM-DD"), or null if unknown — clamps the date picker's `max`. */
+  maxDate: string | null;
+  /** Bangkok-local ISO timestamp the import data actually reaches (last row seen), or null if unknown. Drives isPossiblyIncomplete below; also the raw source for incompleteLabel's time-of-day text. */
+  dataThrough: string | null;
+  /** True when the viewed day might still be missing later-in-the-day orders
+   * (import ran before this day's close-of-business) — computed server-side
+   * (lib/actions/tiktok-dashboard.ts, DAY_COMPLETE_HOUR = 23 Bangkok) so the
+   * component never re-derives the cutoff rule. Always false when dataThrough
+   * is null: no signal means no warning, not an assumed-incomplete guess. */
+  isPossiblyIncomplete: boolean;
+  /** Pre-formatted Thai warning text, ready to render as-is, e.g. "ข้อมูลอาจยังไม่ครบวัน — นำเข้าล่าสุดถึง 15:29 (ช่วงไลฟ์ 20:00–23:00 อาจยังไม่ถูกนับ)". States the import time as fact, not a verdict — stays true even on a genuinely quiet night. Null when isPossiblyIncomplete is false. */
+  incompleteLabel: string | null;
+}
+
 export interface DailyDashboardData {
   /** "YYYY-MM-DD", Asia/Bangkok business day this snapshot covers. */
   date: string;
   kpis: DashboardKpis;
   dataQuality: DashboardDataQuality;
   breakdown: Record<DashboardBreakdownDimension, BreakdownRow[]>;
+  /** See DashboardMeta above. Optional — absent until the 0070 RPC ships / for the static fixture. */
+  meta?: DashboardMeta;
 }
 
 // ============================================================================
