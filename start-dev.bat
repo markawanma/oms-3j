@@ -1,23 +1,30 @@
 @echo off
-chcp 65001 >nul
-title 3J Insight - Dev Server (ปิดหน้าต่างนี้ = ปิดเซิร์ฟเวอร์)
+rem ---------------------------------------------------------------
+rem 3J Insight - start local dev server
+rem ASCII ONLY. Do NOT put Thai text in this file: cmd.exe misparses
+rem multi-byte characters and the whole script breaks, not just the
+rem message. (Learned the hard way 2026-08-21.)
+rem ---------------------------------------------------------------
+title 3J Insight - Dev Server
 cd /d "%~dp0"
 
-rem Node ไม่ได้อยู่ใน PATH ของเครื่องนี้ ต้องเติมเองทุกครั้ง
+rem Node is not on this machine's PATH - add it here every time.
 set "PATH=C:\Program Files\nodejs;%PATH%"
 
 echo.
-echo   3J Insight — กำลังเปิดเซิร์ฟเวอร์...
-echo   เดี๋ยวเบราว์เซอร์จะเปิดให้เองใน 8 วินาที
+echo   3J Insight - starting dev server...
+echo   Browser opens by itself as soon as the server is ready.
 echo.
-echo   ปิดเซิร์ฟเวอร์: กด Ctrl+C หรือปิดหน้าต่างนี้ทิ้ง
+echo   URL  : http://localhost:3000
+echo   Stop : press Ctrl+C, or just close this window.
 echo.
 
-rem เปิดเบราว์เซอร์แบบหน่วงเวลา ให้ Next.js ตั้งตัวเสร็จก่อน
-start "" /min cmd /c "timeout /t 8 /nobreak >nul & start "" http://localhost:3000"
+rem Delayed browser open runs in its own minimised window so it does not
+rem block the server. Separate file = no nested-quote headaches.
+start "" /min "%~dp0dev-open-browser.bat"
 
 call npm run dev
 
 echo.
-echo   เซิร์ฟเวอร์หยุดแล้ว — กดปุ่มอะไรก็ได้เพื่อปิดหน้าต่าง
+echo   Server stopped. Press any key to close this window.
 pause >nul
