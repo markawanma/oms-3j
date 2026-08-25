@@ -49,6 +49,26 @@ function depositInputLabel(mode: OemDepositMode | null, input: number | null): s
   return mode === "pct" ? `มัดจำ ${fmtPct(input)}` : `มัดจำ ${formatTHB(input)}`;
 }
 
+/** Why the VAT-mode / deposit edit buttons are hidden — mirrors the
+ * canEditFinancials gate (oem_quote_set_deposit / oem_quote_set_vat_mode
+ * both hard-gate status IN ('draft','quoted') server-side) so the owner
+ * sees a reason instead of a silently missing button. Only called when
+ * canEditFinancials is false, so 'draft'/'quoted' never reach here. */
+function financialsLockedReasonTh(status: OemQuoteRow["status"]): string {
+  switch (status) {
+    case "won":
+    case "lost":
+    case "rejected":
+      return "ใบนี้ปิดงานแล้ว แก้เงื่อนไขภาษี/มัดจำย้อนหลังไม่ได้ — เอกสารที่ส่งลูกค้าไปแล้วต้องตรงกับที่บันทึกไว้";
+    case "superseded":
+      return "ใบนี้ถูกแทนที่ด้วยใบต่อราคาใหม่แล้ว — ไปแก้ที่ใบใหม่แทน";
+    case "expired":
+      return "ใบนี้เลยวันยืนราคาแล้ว";
+    default:
+      return "";
+  }
+}
+
 const STATUS_TONE: Record<OemQuoteRow["status"], BadgeTone> = {
   draft: "slate",
   quoted: "blue",
@@ -405,7 +425,9 @@ export function QuoteDetailClient({
               </div>
             </dl>
           )}
-          <p className="mt-1 text-[11px] text-zinc-400">เปลี่ยนโหมดนี้ไม่กระทบยอดที่ลูกค้าจ่าย แค่เปลี่ยนวิธีแสดงในเอกสาร</p>
+          <p className="mt-1 text-[11px] text-zinc-400">
+            {canEditFinancials ? "เปลี่ยนโหมดนี้ไม่กระทบยอดที่ลูกค้าจ่าย แค่เปลี่ยนวิธีแสดงในเอกสาร" : financialsLockedReasonTh(quote.status)}
+          </p>
         </div>
 
         {/* 0081: มัดจำ — depositAmountThb/balanceThb read STRAIGHT off the
@@ -417,9 +439,9 @@ export function QuoteDetailClient({
             {canEditFinancials && (
               <Button
                 type="button"
-                variant="ghost"
+                variant={quote.depositMode ? "ghost" : "primary"}
                 size="sm"
-                className="border border-zinc-300"
+                className={quote.depositMode ? "border border-zinc-300" : ""}
                 onClick={() => setDepositOpen(true)}
               >
                 <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
@@ -434,7 +456,12 @@ export function QuoteDetailClient({
               <span className={quote.balanceThb < 0 ? "font-semibold text-red-600" : ""}>{formatTHB(quote.balanceThb)}</span>
             </p>
           ) : (
-            <p className="mt-1 text-xs text-zinc-400">ยังไม่ได้ตั้งมัดจำสำหรับใบนี้</p>
+            <p className="mt-1 text-xs text-zinc-400">
+              {canEditFinancials ? "ยังไม่ได้ตั้งมัดจำสำหรับใบนี้" : financialsLockedReasonTh(quote.status)}
+            </p>
+          )}
+          {!canEditFinancials && quote.depositMode && (
+            <p className="mt-1 text-[11px] text-zinc-400">{financialsLockedReasonTh(quote.status)}</p>
           )}
           {quote.balanceThb != null && quote.balanceThb < 0 && (
             <p className="mt-1.5 rounded-md bg-red-50 px-2.5 py-1.5 text-xs text-red-700">

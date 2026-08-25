@@ -82,7 +82,11 @@ export function PrintQuoteClient({ quote, sellerProfile }: { quote: PrintableQuo
   // customer, so there's nothing here worth printing yet. 'superseded' is
   // deliberately allowed through (watermarked below) — it's still a real
   // document that was once sent to a customer.
-  const canPrint = missing.length === 0 && !isDraft;
+  // มัดจำ > ยอดสุทธิ (เกิดได้เมื่อตั้งมัดจำเป็นยอดเงินไว้ แล้วยอดใบลดลงทีหลัง
+  // จากการแก้รายการ/ต่อราคา — 0081 จงใจปล่อยให้ติดลบเพื่อไม่ซ่อนปัญหา) เอกสาร
+  // ที่ "คงเหลือชำระ" ติดลบคือเอกสารที่บวกไม่ลง ห้ามให้ถึงมือลูกค้าเด็ดขาด
+  const balanceNegative = quote.balanceThb != null && quote.balanceThb < 0;
+  const canPrint = missing.length === 0 && !isDraft && !balanceNegative;
   // "ดูตัวอย่างรูปแบบเอกสาร" (2026-08 UAT: owner had never seen the layout
   // yet because seller info was empty) — only reachable when the REAL
   // document is blocked, and only ever a look, never a substitute for the
@@ -108,6 +112,14 @@ export function PrintQuoteClient({ quote, sellerProfile }: { quote: PrintableQuo
                     ข้อมูลร้านเรา (หัวกระดาษ) ยังไม่ได้กรอก: {missing.join(", ")} —{" "}
                     <Link href="/oem/rates" className="font-medium underline underline-offset-2">
                       ไปกรอกข้อมูลร้านเรา
+                    </Link>
+                  </li>
+                )}
+                {balanceNegative && (
+                  <li>
+                    มัดจำที่ตั้งไว้มากกว่ายอดสุทธิปัจจุบัน ทำให้ยอดคงเหลือติดลบ — เอกสารจะบวกไม่ลง{" "}
+                    <Link href={`/oem/quotes/${quote.id}`} className="font-medium underline underline-offset-2">
+                      แก้มัดจำก่อน
                     </Link>
                   </li>
                 )}
@@ -402,15 +414,23 @@ export function PrintQuoteClient({ quote, sellerProfile }: { quote: PrintableQuo
           <div className="mt-2 flex justify-end">
             <dl className="w-64 space-y-1 border-t border-dashed border-zinc-300 pt-2 text-xs">
               <div className="flex justify-between text-zinc-600">
-                <dt>มัดจำ{quote.depositPctEffective != null ? ` ${fmtPct(quote.depositPctEffective)}` : ""}</dt>
+                {/* โชว์ % เฉพาะตอนที่ผู้ใช้ตั้งเป็น % จริง — โหมดยอดเงินจะได้ %
+                    ที่หารกลับมาแล้วปัดเหลือทศนิยม 1 ตำแหน่ง (เช่น 30,000/78,966
+                    = 37.99% พิมพ์เป็น 38.0%) ลูกค้าเอา 38% คูณกลับจะได้ 30,007
+                    ไม่ตรงกับตัวเลขข้างๆ 7 บาท — ตัวเลขที่ตกลงกันคือจำนวนเงิน
+                    ไม่ใช่ % จึงไม่พิมพ์ % ในโหมดนั้น */}
+                <dt>มัดจำ{quote.depositMode === "pct" && quote.depositPctEffective != null ? ` ${fmtPct(quote.depositPctEffective)}` : ""}</dt>
                 <dd className="tabular-nums">{formatTHB(quote.depositAmountThb)}</dd>
               </div>
               <div className="flex justify-between font-semibold">
                 <dt className={quote.balanceThb < 0 ? "text-red-700" : "text-zinc-700"}>คงเหลือชำระ</dt>
                 <dd className={`tabular-nums ${quote.balanceThb < 0 ? "text-red-700" : "text-zinc-800"}`}>{formatTHB(quote.balanceThb)}</dd>
               </div>
+              {/* print:hidden — ข้อความนี้พูดกับพนักงานร้าน ไม่ใช่กับลูกค้า
+                  ห้ามติดไปบนกระดาษ (ตอนนี้ canPrint บล็อกเคสนี้อยู่แล้ว
+                  บรรทัดนี้จึงเหลือไว้เตือนบนจอเท่านั้น) */}
               {quote.balanceThb < 0 && (
-                <p className="pt-0.5 text-right text-[10px] font-normal text-red-600">* ยอดคงเหลือติดลบ — ตรวจสอบมัดจำก่อนส่งเอกสารนี้ให้ลูกค้า</p>
+                <p className="pt-0.5 text-right text-[10px] font-normal text-red-600 print:hidden">* ยอดคงเหลือติดลบ — ตรวจสอบมัดจำก่อนส่งเอกสารนี้ให้ลูกค้า</p>
               )}
             </dl>
           </div>

@@ -136,6 +136,10 @@ export interface PrintableQuote {
    * when this quote has no deposit configured. Print-only, never re-derive
    * from a percentage client-side (see OemQuoteRow.depositAmountThb). */
   depositAmountThb: number | null;
+  /** 0081: วิธีที่ผู้ใช้ตั้งมัดจำ ('pct' | 'thb' | null) — ไม่ใช่ตัวเลขต้นทุน
+   * ปลอดภัยตามกฎของไฟล์นี้ · หน้าพิมพ์ใช้ตัดสินว่าจะโชว์ % ข้างยอดมัดจำไหม
+   * (โหมดยอดเงิน % ที่หารกลับมาจะปัดแล้วคูณกลับไม่ตรง ลูกค้าทัก) */
+  depositMode: "pct" | "thb" | null;
   /** 0081: deposit as a 0-1 fraction regardless of how it was entered (pct
    * or thb) — feed straight into fmtPct() for the "มัดจำ 50%" label. */
   depositPctEffective: number | null;
@@ -206,6 +210,7 @@ export function toPrintableQuote(quote: OemQuoteRow, items: OemQuoteItemRow[]): 
     vatBaseThb: quote.vatBaseThb,
     vatAmountThb: quote.vatAmountThb,
     depositAmountThb: quote.depositAmountThb,
+    depositMode: quote.depositMode,
     depositPctEffective: quote.depositPctEffective,
     balanceThb: quote.balanceThb,
   };
