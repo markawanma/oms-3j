@@ -10,8 +10,9 @@ import type { OemMetal, OemPriceCalcResult } from "@/lib/oem/types";
 import { OEM_METAL_LABEL_TH } from "@/lib/oem/types";
 import type { JobForm } from "@/lib/oem/quoteForm";
 import { OEM_DEFAULT_PURITY } from "@/lib/oem/quoteForm";
-import { OEM_GEM_TIER_OPTIONS, OEM_ITEM_KIND_OPTIONS, OEM_PLATING_OPTIONS, OEM_POLISH_TIER_OPTIONS, fmtPct } from "@/lib/oem/display";
+import { OEM_GEM_TIER_OPTIONS, OEM_ITEM_KIND_OPTIONS, OEM_PLATING_OPTIONS, OEM_POLISH_TIER_OPTIONS } from "@/lib/oem/display";
 import { formatTHB } from "@/lib/format";
+import { OemCalcBreakdown } from "./OemCalcBreakdown";
 
 const inputCls = "min-h-11 w-full rounded-md border border-zinc-300 px-2.5 text-sm text-zinc-900";
 const labelCls = "flex flex-col gap-1 text-xs font-semibold text-zinc-600";
@@ -259,12 +260,14 @@ export function QuoteJobItemCard({
             </label>
           </div>
 
-          {calc?.isComplete && (
-            <div className="flex items-center justify-between border-t border-zinc-100 pt-2 text-xs text-zinc-500">
-              <span>
-                ต้นทุน/ชิ้น {formatTHB(calc.breakdown.costPiece)} · margin {fmtPct(calc.floors.margin.value)}
-              </span>
-              {calc.breakdown.nre.price > 0 && <span>NRE {formatTHB(calc.breakdown.nre.price)}</span>}
+          {/* รายละเอียดต้นทุน/ค่าแรง/floor ของรายการนี้ — ตัวเดียวกับที่หน้า
+              ใบเสนอราคาที่บันทึกแล้วใช้ ตอนคิดราคาคือจังหวะที่ต้องเห็นมันที่สุด
+              จึงโชว์เต็ม ไม่ใช่ย่อเหลือบรรทัดเดียว (สรุปบรรทัดเดียวอยู่ที่หัว
+              การ์ดตอนพับแล้ว) approvalNoteSlot ไม่ส่ง เพราะ v2 ย้ายช่องเหตุผล
+              ไปอยู่ระดับทั้งใบที่ QuoteResultPanel */}
+          {calc && !calcLoading && (
+            <div className="border-t border-zinc-100 pt-3">
+              <OemCalcBreakdown calc={calc} metal={job.metal} />
             </div>
           )}
         </div>
