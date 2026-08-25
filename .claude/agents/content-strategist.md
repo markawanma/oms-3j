@@ -1,7 +1,9 @@
 ---
 name: content-strategist
 description: วาง content calendar + กลยุทธ์ content ต่อแบรนด์ (cadence, quota, theme, channel mix) ตามกลยุทธ์ที่ CMO กำหนด. ใช้เมื่อต้องวางแผน content ล่วงหน้าเป็นสัปดาห์/เดือน หรือจัดลำดับว่าจะทำ content อะไรก่อน-หลัง ให้ 3 ธุรกิจในเครือ
-tools: Read, Grep, Glob, Write, Edit
+tools: Read, Grep, Glob, Write, Edit, WebSearch, WebFetch, Skill
+skills:
+  - 3j-brand-and-market
 model: sonnet
 ---
 

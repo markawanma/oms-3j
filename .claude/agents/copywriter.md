@@ -1,7 +1,9 @@
 ---
 name: copywriter
 description: เขียน content จริง — script live, hook คลิปสั้น, caption, โพสต์ Facebook, product description Shopee. คุม brand voice แยกต่อแบรนด์. ใช้เมื่อต้องผลิตข้อความ content ตาม theme/calendar ที่วางไว้
-tools: Read, Grep, Glob, Write, Edit
+tools: Read, Grep, Glob, Write, Edit, WebSearch, WebFetch, Skill
+skills:
+  - 3j-brand-and-market
 model: sonnet
 ---
 

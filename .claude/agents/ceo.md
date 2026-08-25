@@ -1,7 +1,9 @@
 ---
 name: ceo
 description: ตัดสินใจระดับธุรกิจเหนืองานเทคนิค — product vision, priority, scope, go/no-go, ROI, trade-off เวลา/ต้นทุน/ความเสี่ยง. ใช้เมื่อต้องเลือกทิศทางที่กระทบธุรกิจ ไม่ใช่แค่วิธี implement
-tools: Read, Grep, Glob
+tools: Read, Grep, Glob, WebSearch, WebFetch, Skill
+skills:
+  - 3j-brand-and-market
 model: fable
 ---
 
