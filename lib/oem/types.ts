@@ -144,6 +144,33 @@ export interface UpsertOemSettingInput {
   quoteValidDaysGold?: number | null;
   quoteValidDaysBrass?: number | null;
   barMarginPct?: number | null;
+  // 0079/0080: seller_* — the shop's own info printed on the quotation
+  // header (analytics.oem_setting.seller_*, edited from /oem/rates'
+  // "ข้อมูลร้านเรา (หัวกระดาษ)" section). Sent through the SAME
+  // oem_setting_upsert RPC call as the margin/floor fields above — see
+  // saveOemSetting's comment on why there is only ever one RPC round trip
+  // here, never two separate writes.
+  //
+  // 3-state semantics on every TEXT scalar field below (0080 — fixes a real
+  // UAT bug where the owner could never clear an already-filled field):
+  //   omit / null -> leave unchanged
+  //   ''          -> clear back to null
+  //   anything else -> overwrite (server trims)
+  // The two ARRAY fields (sellerAddressLines/sellerTerms) work differently —
+  // there's no "leave unchanged" for them; the caller always sends the full
+  // current list (or `[]` to clear it entirely), same as before 0080.
+  // sellerVatRegistered is a checkbox, always a real boolean from the form,
+  // never a "leave unchanged" signal — stays plain coalesce semantics.
+  sellerLegalName?: string | null;
+  sellerBranchLabel?: string | null;
+  sellerAddressLines?: string[] | null;
+  sellerTaxId?: string | null;
+  sellerVatRegistered?: boolean | null;
+  sellerPhone?: string | null;
+  sellerLine?: string | null;
+  sellerEmail?: string | null;
+  sellerWebsite?: string | null;
+  sellerTerms?: string[] | null;
 }
 
 // ============================================================================
@@ -407,6 +434,14 @@ export interface OemCustomerAddress {
   subdistrict?: string | null;
   district?: string | null;
   province?: string | null;
+  /** analytics.dim_geo.province_code (e.g. "TH-10") for the province above —
+   * added 2026-08 so the province dropdown (getOemProvinces) can round-trip
+   * a known province through edit without re-matching by name text. Purely
+   * additive/optional: address jsonb has zero shape validation server-side
+   * (see parseBillAddress), so old rows saved before this field existed
+   * still read back fine with provinceCode undefined. Display always uses
+   * `province` (the Thai name), never this code. */
+  provinceCode?: string | null;
   postalCode?: string | null;
 }
 
@@ -544,3 +579,13 @@ export const OEM_QUOTE_STATUS_LABEL_TH: Record<OemQuoteStatus, string> = {
   rejected: "ปฏิเสธ",
   superseded: "ถูกแทนที่",
 };
+
+/** analytics.dim_geo — global 77-province list (+ 'TH-XX' unknown, excluded
+ * here), shared with lib/actions/crm.ts's getCrmEditOptions (same table,
+ * same shape). Kept as its own OEM-side action (getOemProvinces) rather than
+ * importing crm.ts's CrmProvinceOption so the OEM module's write layer
+ * doesn't reach across into an unrelated module for a 2-field type. */
+export interface OemProvinceOption {
+  code: string;
+  nameTh: string;
+}

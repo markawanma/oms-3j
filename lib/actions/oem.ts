@@ -31,6 +31,7 @@ import type {
   OemPriceCalcInput,
   OemPriceCalcResult,
   OemProductOption,
+  OemProvinceOption,
   OemQuoteItemRow,
   OemQuoteRow,
   OemQuoteStatus,
@@ -45,7 +46,8 @@ import type {
   UpsertOemRateInput,
   UpsertOemSettingInput,
 } from "@/lib/oem/types";
-import { isValidThaiTaxId, parseBillAddress } from "@/lib/oem/display";
+import { hasAnyContact, isValidThaiTaxId, parseBillAddress } from "@/lib/oem/display";
+import type { SellerProfile } from "@/lib/oem/sellerProfile";
 
 const SCHEMA = "analytics";
 // T4-T6 routes (all `dynamic = "force-dynamic"`, so this is belt-and-braces
@@ -504,15 +506,67 @@ export async function saveOemSetting(input: UpsertOemSettingInput): Promise<Acti
   if (validSilver != null && validSilver <= 0) return { ok: false, error: "อายุใบเสนอราคา (เงิน) ต้องมากกว่า 0 วัน" };
   if (validGold != null && validGold <= 0) return { ok: false, error: "อายุใบเสนอราคา (ทอง) ต้องมากกว่า 0 วัน" };
   if (validBrass != null && validBrass <= 0) return { ok: false, error: "อายุใบเสนอราคา (ทองเหลือง) ต้องมากกว่า 0 วัน" };
-  // 0078: same open-interval check the DB's check(bar_margin_pct > 0 and < 1) enforces.
+  // 0079: same open-interval check the DB's check(bar_margin_pct > 0 and < 1)
+  // enforces — plus 0079's SECOND constraint (bar_margin_pct <=
+  // margin_target_pct) is checked by the RPC itself (22023, surfaced below),
+  // not duplicated here, because it depends on the row's CURRENT
+  // margin_target_pct when target isn't part of this same submit (the
+  // seller-profile-only save path below never sends margin fields).
   if (barMarginPct != null && (barMarginPct <= 0 || barMarginPct >= 1)) {
     return { ok: false, error: "margin แฝงเงินแท่ง ต้องอยู่ระหว่าง 0–100% (ไม่รวมขอบ)" };
+  }
+
+  // 0080: seller_* text scalars are now a genuine 3-state RPC param —
+  // null = leave unchanged, '' = clear to null, anything else = overwrite
+  // (analytics.oem_setting_upsert's own case/when, not coalesce anymore for
+  // these 8 fields — see 0080's header). Before 0080 the RPC only had
+  // coalesce(p_x, os.x), so there was NO way to clear an already-set field;
+  // this file used to collapse '' -> null on the way in specifically to
+  // paper over that (both "not sent" and "sent empty" meant the same thing
+  // to the old RPC). That collapsing is now WRONG — it would silently turn
+  // every intentional clear back into a no-op. sellerScalar below is a thin
+  // pass-through (trim non-null strings, leave null/undefined as null) so
+  // the caller's null/''/value choice reaches the RPC unchanged. The actual
+  // decision of WHICH of the 3 to send lives in SellerProfileSection (the
+  // only caller), which compares the current input against the loaded
+  // profile to tell "user deleted this" apart from "field was already
+  // empty, never touched" — see that file's sellerFieldForSave comment.
+  const sellerScalar = (v: string | null | undefined): string | null => (v == null ? null : v.trim());
+  const sellerLegalName = sellerScalar(input.sellerLegalName);
+  const sellerBranchLabel = sellerScalar(input.sellerBranchLabel);
+  // Array fields keep their pre-0080 "[]` genuinely clears" behaviour
+  // (coalesce(v_x, os.x) in the RPC, x being a computed/normalized value —
+  // see 0080 §array-normalize) — untouched here, not part of this fix.
+  const sellerAddressLines = Array.isArray(input.sellerAddressLines)
+    ? input.sellerAddressLines.map((l) => l.trim()).filter(Boolean)
+    : null;
+  const sellerTaxId = sellerScalar(input.sellerTaxId);
+  const sellerPhone = sellerScalar(input.sellerPhone);
+  const sellerLine = sellerScalar(input.sellerLine);
+  const sellerEmail = sellerScalar(input.sellerEmail);
+  const sellerWebsite = sellerScalar(input.sellerWebsite);
+  const sellerTerms = Array.isArray(input.sellerTerms) ? input.sellerTerms.map((t) => t.trim()).filter(Boolean) : null;
+  // Boolean checkbox — always a real true/false from the form, never a
+  // "leave unchanged" signal, so this one keeps coalesce semantics
+  // untouched by 0080 on purpose (see that migration's header, "ที่ไม่แตะ").
+  const sellerVatRegistered = input.sellerVatRegistered ?? null;
+
+  // Client also validates this (SellerProfileSection), but that's UX-only —
+  // this is the real gate. The DB's own check + oem_setting_upsert's own
+  // '22023' raise are belt-and-braces beneath this, not a substitute for it
+  // (see this file's header on why the client is never trusted alone).
+  if (sellerTaxId && !/^\d{13}$/.test(sellerTaxId)) {
+    return { ok: false, error: "เลขประจำตัวผู้เสียภาษีร้านต้องเป็นตัวเลข 13 หลัก" };
   }
 
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();
 
+    // 0079 resolves the prior "0078 GAP" (bar_margin_pct written via a
+    // second, non-atomic table upsert): oem_setting_upsert now accepts
+    // p_bar_margin_pct AND every p_seller_* param, so this is a single RPC
+    // round trip — no more "half-saved but the screen says it failed".
     const { error } = await supabase.schema(SCHEMA).rpc("oem_setting_upsert", {
       p_shop_id: shopId,
       p_margin_target_pct: target,
@@ -524,34 +578,115 @@ export async function saveOemSetting(input: UpsertOemSettingInput): Promise<Acti
       p_quote_valid_days_silver: validSilver,
       p_quote_valid_days_gold: validGold,
       p_quote_valid_days_brass: validBrass,
+      p_bar_margin_pct: barMarginPct,
+      p_seller_legal_name: sellerLegalName,
+      p_seller_branch_label: sellerBranchLabel,
+      p_seller_address_lines: sellerAddressLines,
+      p_seller_tax_id: sellerTaxId,
+      p_seller_vat_registered: sellerVatRegistered,
+      p_seller_phone: sellerPhone,
+      p_seller_line: sellerLine,
+      p_seller_email: sellerEmail,
+      p_seller_website: sellerWebsite,
+      p_seller_terms: sellerTerms,
     });
-    if (error) throw error;
-
-    // 0078 GAP (see final report to Tech Lead): analytics.oem_setting_upsert
-    // (0061) was never extended with a p_bar_margin_pct parameter — 0078 only
-    // ALTERs the column onto the table, it does not touch this RPC. Rather
-    // than block the settings UI on a migration this app isn't allowed to
-    // write (Han owns supabase/migrations/), bar_margin_pct is written with
-    // its own direct table upsert. This has the SAME real security gate as
-    // every RPC call in this file (requireOwnerAdmin() above — see this
-    // file's header: getServiceClient() bypasses RLS and short-circuits
-    // crm_require_owner_admin() inside every RPC here regardless, so a plain
-    // table write through the same service client is not a weaker gate than
-    // the RPC path). Every column has a table-level DEFAULT (0061 §"oem_setting"),
-    // so this upsert is safe even if no row exists yet for this shop.
-    if (barMarginPct != null) {
-      const { error: barErr } = await supabase
-        .schema(SCHEMA)
-        .from("oem_setting")
-        .upsert({ shop_id: shopId, bar_margin_pct: barMarginPct }, { onConflict: "shop_id" });
-      if (barErr) throw barErr;
+    if (error) {
+      if ((error as { code?: string }).code === "22023") return { ok: false, error: error.message };
+      throw error;
     }
 
     revalidateOemPaths();
     return { ok: true, data: undefined };
   } catch (err) {
     console.error("saveOemSetting failed", err);
-    return { ok: false, error: "บันทึกการตั้งค่ามาร์จิ้น/floor ไม่สำเร็จ — ตรวจว่า hard floor ≤ floor ≤ เพดานส่วนลด ≤ เป้าหมาย" };
+    return { ok: false, error: "บันทึกการตั้งค่าไม่สำเร็จ — ตรวจว่า hard floor ≤ floor ≤ เพดานส่วนลด ≤ เป้าหมาย และ margin แฝงเงินแท่ง ≤ margin เป้าหมาย" };
+  }
+}
+
+// ============================================================================
+// Seller profile (0079: analytics.oem_setting.seller_* via analytics.v_oem_seller)
+// — the shop's OWN info printed as the quotation header. Distinct from
+// setQuoteBilling above (that's the CUSTOMER's billing info) — see
+// BillingDialog's file header for the naming collision this used to cause in
+// UAT. Read via getSellerProfile, written via saveOemSetting above (same RPC
+// as the margin/floor policy form — never a second write path).
+// ============================================================================
+
+function toStringArray(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((v): v is string => typeof v === "string" && v.trim().length > 0).map((v) => v.trim());
+}
+
+export async function getSellerProfile(): Promise<ActionResult<SellerProfile>> {
+  const gateErr = requireOwnerAdmin();
+  if (gateErr) return gateErr;
+
+  try {
+    const shopId = getDevShopId();
+    const supabase = getServiceClient();
+
+    const { data, error } = await supabase
+      .schema(SCHEMA)
+      .from("v_oem_seller")
+      .select(
+        "seller_legal_name, seller_branch_label, seller_address_lines, seller_tax_id, seller_vat_registered, seller_phone, seller_line, seller_email, seller_website, seller_terms"
+      )
+      .eq("shop_id", shopId)
+      .maybeSingle();
+    if (error) throw error;
+
+    const profile: SellerProfile = {
+      legalName: data?.seller_legal_name ?? null,
+      branchLabel: data?.seller_branch_label ?? null,
+      addressLines: toStringArray(data?.seller_address_lines),
+      taxId: data?.seller_tax_id ?? null,
+      vatRegistered: Boolean(data?.seller_vat_registered),
+      phone: data?.seller_phone ?? null,
+      line: data?.seller_line ?? null,
+      email: data?.seller_email ?? null,
+      website: data?.seller_website ?? null,
+      terms: toStringArray(data?.seller_terms),
+    };
+    return { ok: true, data: profile };
+  } catch (err) {
+    console.error("getSellerProfile failed", err);
+    return { ok: false, error: "โหลดข้อมูลร้านเราไม่สำเร็จ ลองใหม่อีกครั้ง" };
+  }
+}
+
+// ============================================================================
+// Province dropdown (analytics.dim_geo) — global reference data (no shop_id
+// column, every shop shares the same 77-province catalog; see
+// lib/actions/crm.ts's getCrmEditOptions, same table/shape, kept as its own
+// query here rather than a cross-module import — see OemProvinceOption's
+// comment). Gated with requireOwnerAdmin() for consistency with the rest of
+// this module even though province names aren't cost data, per the coordinator's
+// explicit ask. is_unknown ('TH-XX' / "ไม่ทราบจังหวัด") excluded — never a
+// selectable option on a real billing address.
+// ============================================================================
+
+export async function getOemProvinces(): Promise<ActionResult<OemProvinceOption[]>> {
+  const gateErr = requireOwnerAdmin();
+  if (gateErr) return gateErr;
+
+  try {
+    const supabase = getServiceClient();
+    const { data, error } = await supabase
+      .schema(SCHEMA)
+      .from("dim_geo")
+      .select("province_code, province_name_th")
+      .eq("is_unknown", false)
+      .order("province_name_th", { ascending: true });
+    if (error) throw error;
+
+    const provinces: OemProvinceOption[] = ((data ?? []) as { province_code: string; province_name_th: string }[]).map((p) => ({
+      code: p.province_code,
+      nameTh: p.province_name_th,
+    }));
+    return { ok: true, data: provinces };
+  } catch (err) {
+    console.error("getOemProvinces failed", err);
+    return { ok: false, error: "โหลดรายชื่อจังหวัดไม่สำเร็จ ลองใหม่อีกครั้ง" };
   }
 }
 
@@ -885,11 +1020,34 @@ export async function setQuoteBilling(input: SetQuoteBillingInput): Promise<Acti
 
   if (!input?.quoteId) return { ok: false, error: "ไม่พบใบเสนอราคา" };
   const legalName = input.legalName?.trim();
-  if (!legalName) return { ok: false, error: "ต้องกรอกชื่อนิติบุคคล/ชื่อออกบิล" };
+  if (!legalName) return { ok: false, error: "ต้องกรอกชื่อเต็ม/ชื่อนิติบุคคล" };
+  // 2026-08 UAT fix (revised 2026-08 again — owner overruled "phone
+  // mandatory"): mandatory/optional split is a Tech Lead decision, not just
+  // BillingDialog's UX — legalName + full address + (phone OR
+  // contactChannel) are required to print a usable quotation (procurement
+  // can't open a PO without an address; some customers only talk over LINE
+  // and have no phone to give, so it's "some way to reach them", not
+  // "phone specifically" — see hasAnyContact in lib/oem/display.ts, the same
+  // helper BillingDialog uses so client/server can't drift). BillingDialog
+  // enforces the SAME rule client-side (per-field, on blur) but that is
+  // UX-only; this is the real gate — never trust the client as the only
+  // checkpoint (see this file's header).
+  const addr = input.address;
+  const missingAddr =
+    !addr?.line1?.trim() || !addr?.subdistrict?.trim() || !addr?.district?.trim() || !addr?.province?.trim() || !addr?.postalCode?.trim();
+  if (missingAddr) {
+    return { ok: false, error: "ต้องกรอกที่อยู่ให้ครบ: บรรทัด 1, ตำบล/แขวง, อำเภอ/เขต, จังหวัด, รหัสไปรษณีย์" };
+  }
+  if (!/^\d{5}$/.test(addr!.postalCode!.trim())) {
+    return { ok: false, error: "รหัสไปรษณีย์ต้องเป็นตัวเลข 5 หลัก" };
+  }
+  if (!hasAnyContact(input.phone, input.contactChannel)) {
+    return { ok: false, error: "ต้องกรอกเบอร์โทร หรือช่องทางติดต่ออื่น (เช่น LINE ID) อย่างน้อย 1 อย่าง" };
+  }
   // oem_quote_set_billing (0075) does NOT validate tax_id format itself
   // (stores whatever btrim() leaves) — this is the only gate. Client also
   // checks this before submit (BillingDialog), but that is UX-only; this is
-  // the real one.
+  // the real one. taxId itself stays OPTIONAL (a private individual has none).
   if (input.taxId && !isValidThaiTaxId(input.taxId)) {
     return { ok: false, error: "เลขประจำตัวผู้เสียภาษีต้องเป็นตัวเลข 13 หลัก (หรือเว้นว่างไว้ถ้าเป็นบุคคลธรรมดา)" };
   }
@@ -918,7 +1076,7 @@ export async function setQuoteBilling(input: SetQuoteBillingInput): Promise<Acti
     return { ok: true, data: { customerId: String(data) } };
   } catch (err) {
     console.error("setQuoteBilling failed", err);
-    return { ok: false, error: "บันทึกข้อมูลออกบิลไม่สำเร็จ ลองใหม่อีกครั้ง" };
+    return { ok: false, error: "บันทึกข้อมูลลูกค้าไม่สำเร็จ ลองใหม่อีกครั้ง" };
   }
 }
 

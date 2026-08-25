@@ -13,7 +13,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, ChevronDown, ChevronUp, Pencil, Printer } from "lucide-react";
 import { setQuoteStatus } from "@/lib/actions/oem";
-import type { OemQuoteItemRow, OemQuoteRow } from "@/lib/oem/types";
+import type { OemProvinceOption, OemQuoteItemRow, OemQuoteRow } from "@/lib/oem/types";
 import { OEM_BAR_SIZE_LABEL_TH, OEM_METAL_LABEL_TH, OEM_QUOTE_STATUS_LABEL_TH } from "@/lib/oem/types";
 import { formatBangkokTime, formatTHB } from "@/lib/format";
 import { formatThaiDateOnly } from "@/lib/tiktok/format";
@@ -38,7 +38,15 @@ const STATUS_TONE: Record<OemQuoteRow["status"], BadgeTone> = {
   superseded: "slate",
 };
 
-export function QuoteDetailClient({ quote, items }: { quote: OemQuoteRow; items: OemQuoteItemRow[] }) {
+export function QuoteDetailClient({
+  quote,
+  items,
+  provinces,
+}: {
+  quote: OemQuoteRow;
+  items: OemQuoteItemRow[];
+  provinces: OemProvinceOption[];
+}) {
   const router = useRouter();
   const toast = useToast();
   const [lostOpen, setLostOpen] = useState(false);
@@ -159,7 +167,7 @@ export function QuoteDetailClient({ quote, items }: { quote: OemQuoteRow; items:
 
       <section className="rounded-lg border border-zinc-200 bg-white p-3.5 shadow-sm">
         <div className="flex items-start justify-between gap-2">
-          <h2 className="text-sm font-bold text-zinc-800">ข้อมูลออกบิล</h2>
+          <h2 className="text-sm font-bold text-zinc-800">ข้อมูลลูกค้าสำหรับออกเอกสาร</h2>
           {canEditBilling && (
             <Button type="button" variant="ghost" size="sm" className="border border-zinc-300" onClick={() => setBillingOpen(true)}>
               <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
@@ -198,14 +206,14 @@ export function QuoteDetailClient({ quote, items }: { quote: OemQuoteRow; items:
           </dl>
         ) : (
           <p className="mt-2 text-sm text-zinc-500">
-            ยังไม่ได้กรอกข้อมูลออกบิล — ใบพิมพ์จะใช้ชื่อ/ช่องทางติดต่อจาก &quot;ลูกค้า&quot; ด้านบนแทนไปก่อน
+            ยังไม่ได้กรอกข้อมูลลูกค้าสำหรับออกเอกสาร — ใบพิมพ์จะใช้ชื่อ/ช่องทางติดต่อจาก &quot;ลูกค้า&quot; ด้านบนแทนไปก่อน
           </p>
         )}
         {!canEditBilling && (
           <p className="mt-2 text-xs text-zinc-400">
             {quote.status === "draft"
-              ? "กรอกข้อมูลออกบิลได้หลังออกใบเสนอราคาแล้ว (สถานะ \"เสนอราคาแล้ว\" ขึ้นไป)"
-              : "ใบนี้ปิดแล้ว แก้ไขข้อมูลออกบิลไม่ได้"}
+              ? "กรอกข้อมูลลูกค้าสำหรับออกเอกสารได้หลังออกใบเสนอราคาแล้ว (สถานะ \"เสนอราคาแล้ว\" ขึ้นไป)"
+              : "ใบนี้ปิดแล้ว แก้ไขข้อมูลลูกค้าไม่ได้"}
           </p>
         )}
       </section>
@@ -361,6 +369,7 @@ export function QuoteDetailClient({ quote, items }: { quote: OemQuoteRow; items:
       {billingOpen && (
         <BillingDialog
           quote={quote}
+          provinces={provinces}
           onClose={() => setBillingOpen(false)}
           onSaved={() => {
             setBillingOpen(false);

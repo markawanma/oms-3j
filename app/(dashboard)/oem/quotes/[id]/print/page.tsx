@@ -1,7 +1,8 @@
 import { Lock } from "lucide-react";
-import { getQuote, getQuoteItems } from "@/lib/actions/oem";
+import { getQuote, getQuoteItems, getSellerProfile } from "@/lib/actions/oem";
 import { getDevRole } from "@/lib/dev/context";
 import { toPrintableQuote } from "@/lib/oem/printableQuote";
+import { EMPTY_SELLER_PROFILE } from "@/lib/oem/sellerProfile";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { PrintQuoteClient } from "@/components/domain/oem/PrintQuoteClient";
@@ -35,9 +36,9 @@ export default async function OemQuotePrintPage({ params }: { params: Promise<{ 
 
   const { id } = await params;
 
-  let quoteResult, itemsResult;
+  let quoteResult, itemsResult, sellerResult;
   try {
-    [quoteResult, itemsResult] = await Promise.all([getQuote(id), getQuoteItems(id)]);
+    [quoteResult, itemsResult, sellerResult] = await Promise.all([getQuote(id), getQuoteItems(id), getSellerProfile()]);
   } catch (err) {
     return <ErrorState message={err instanceof Error ? err.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"} />;
   }
@@ -46,6 +47,17 @@ export default async function OemQuotePrintPage({ params }: { params: Promise<{ 
   if (itemsResult.data.length === 0) {
     return <EmptyState title="ไม่พบรายการในใบเสนอราคานี้" description="ใบเสนอราคานี้ยังไม่มีรายการสินค้า พิมพ์ไม่ได้" />;
   }
+  // Degrade, don't ErrorState the whole print page over this — an empty
+  // seller profile is ALREADY the correct conservative default here
+  // (PrintQuoteClient blocks printing until every required seller field is
+  // present), so a fetch failure and "not filled in yet" end up showing the
+  // same safe "พิมพ์ไม่ได้" screen instead of a hard crash.
+  if (!sellerResult.ok) console.error("getSellerProfile failed:", sellerResult.error);
 
-  return <PrintQuoteClient quote={toPrintableQuote(quoteResult.data, itemsResult.data)} />;
+  return (
+    <PrintQuoteClient
+      quote={toPrintableQuote(quoteResult.data, itemsResult.data)}
+      sellerProfile={sellerResult.ok ? sellerResult.data : EMPTY_SELLER_PROFILE}
+    />
+  );
 }

@@ -1,18 +1,27 @@
 // sellerProfile — ข้อมูล "ฝั่งเรา" ที่ต้องพิมพ์บนหัวใบเสนอราคาที่ส่งลูกค้า
 //
-// ทำไมเป็นไฟล์ ไม่ใช่ตารางใน DB: ข้อมูลชุดนี้เป็นของนิติบุคคลเดียว เปลี่ยนปีละ
-// ครั้งก็ยังไม่มี ไม่คุ้มที่จะทำหน้าจอแก้ + migration + RLS มาดูแล ถ้าวันหนึ่ง
-// ร้านมีหลายนิติบุคคล/หลายสาขาที่ออกบิลแยกกัน ค่อยย้ายเข้า DB แล้วผูกกับ shop_id
+// 0079: ย้ายจากค่าคงที่ในไฟล์นี้ (ที่เจ้าของกรอกเองไม่ได้ ต้องรอ dev แก้โค้ด
+// ทุกครั้ง — ปัญหาจริงที่เจอตอน UAT) ไปเก็บใน analytics.oem_setting.seller_*
+// แทน (คอลัมน์ใหม่บนแถวการตั้งค่าที่มีอยู่แล้ว 1 แถวต่อร้าน) เจ้าของกรอกเองได้
+// จากหน้า /oem/rates ส่วน "ข้อมูลร้านเรา (หัวกระดาษ)" — ดู
+// lib/actions/oem.ts's getSellerProfile/saveOemSetting สำหรับฝั่งอ่าน/เขียน
 //
-// ⚠️ ค่าที่เป็น null คือยังไม่ได้รับข้อมูลจากเจ้าของร้าน — หน้าใบเสนอราคาจะ
-// ขึ้นแถบเตือนสีแดงและกันไม่ให้สั่งพิมพ์ จนกว่าจะกรอกครบ เพื่อไม่ให้เอกสารที่
-// ยังไม่มีเลขผู้เสียภาษี/ที่อยู่หลุดไปถึงลูกค้า
+// ไฟล์นี้เหลือแค่ shape (SellerProfile) + missingSellerFields() — ทั้งหน้า
+// พิมพ์ (PrintQuoteClient) และหน้ากรอก (SellerProfileSection) ใช้ type เดียวกัน
+// ตัวฟังก์ชัน missingSellerFields ต้อง "รับ profile ที่โหลดมา" เสมอ (ไม่มี
+// default เป็นค่าคงที่อีกต่อไป) — เรียกไม่ถูกจะ error ตอน build ให้เห็นทันที
+// แทนที่จะเงียบแล้วพิมพ์ค่าเก่าที่ค้างอยู่
+//
+// ช่องทางติดต่อ (phone-OR-line, ไม่ใช่บังคับทั้งคู่) ใช้ hasAnyContact จาก
+// lib/oem/display.ts — ฟังก์ชันเดียวกับที่ BillingDialog/setQuoteBilling ใช้
+// กับข้อมูล "ลูกค้า" (phone-OR-contactChannel) กันสองกฎนี้ดริฟต์กัน แม้จะเป็น
+// คนละคู่ช่อง (ร้านเรา: phone/line — ลูกค้า: phone/contactChannel).
+
+import { hasAnyContact } from "./display";
 
 export interface SellerProfile {
   /** ชื่อตามทะเบียนที่ใช้ออกบิล เช่น "บริษัท ... จำกัด" หรือชื่อร้านตามทะเบียนพาณิชย์ */
   legalName: string | null;
-  /** ชื่อที่ลูกค้ารู้จัก ใช้เป็นหัวกระดาษถ้าต่างจากชื่อจดทะเบียน */
-  displayName: string;
   /** สำนักงานใหญ่ / สาขาที่ ... — พิมพ์ใต้ที่อยู่ตามแบบใบกำกับภาษีไทย */
   branchLabel: string | null;
   /** ที่อยู่จดทะเบียน แยกเป็นบรรทัด ปิดท้ายด้วยรหัสไปรษณีย์ */
@@ -30,27 +39,51 @@ export interface SellerProfile {
   terms: string[];
 }
 
-export const SELLER_PROFILE: SellerProfile = {
-  legalName: null, // TODO(owner): ชื่อตามทะเบียน
-  displayName: "3J Jewelry",
-  branchLabel: null, // TODO(owner): "สำนักงานใหญ่" หรือ "สาขาที่ 00001"
-  addressLines: [], // TODO(owner): ที่อยู่จดทะเบียน + รหัสไปรษณีย์
-  taxId: null, // TODO(owner): เลขผู้เสียภาษี 13 หลัก
-  vatRegistered: false, // TODO(owner): จด VAT แล้วหรือยัง
-  phone: null, // TODO(owner)
-  line: null, // TODO(owner)
+/** ค่าว่างเปล่าล้วน — ใช้เป็น fallback เมื่อโหลด getSellerProfile ไม่สำเร็จ
+ * (เช่น schema cache ของ PostgREST ยังไม่เห็น analytics.v_oem_seller หลัง
+ * migration ใหม่) เพื่อไม่ให้หน้า /oem/rates หรือหน้าพิมพ์ทั้งหน้าล่มเป็น
+ * ErrorState เต็มจอจากปัญหาโครงสร้างพื้นฐานชั่วคราว — หน้าที่เรียกต้องเช็ค
+ * ActionResult.ok เองก่อนแล้วส่ง error message แยกไปแสดงเป็นแบนเนอร์แทน
+ * ไม่ใช่แปลว่า "เจ้าของยังไม่กรอก" ต้องแยกสองเคสนี้ให้ชัดในหน้าที่ใช้งาน. */
+export const EMPTY_SELLER_PROFILE: SellerProfile = {
+  legalName: null,
+  branchLabel: null,
+  addressLines: [],
+  taxId: null,
+  vatRegistered: false,
+  phone: null,
+  line: null,
   email: null,
-  website: "www.3jthailand.com",
-  terms: [], // TODO(owner): มัดจำกี่ % · ผลิตกี่วันหลังยืนยันแบบ · บัญชีรับเงิน
+  website: null,
+  terms: [],
 };
 
 /** รายการข้อมูลที่ยังขาด — หน้าใบเสนอราคาใช้ตัดสินว่าให้สั่งพิมพ์ได้หรือยัง
- *  คืน [] = ครบ พิมพ์ได้ */
-export function missingSellerFields(p: SellerProfile = SELLER_PROFILE): string[] {
+ *  คืน [] = ครบ พิมพ์ได้. ต้องส่ง profile ที่โหลดจาก DB มาเสมอ (ดู
+ *  getSellerProfile ใน lib/actions/oem.ts) — ไม่มีค่าคงที่ให้ fallback อีกแล้ว. */
+export function missingSellerFields(p: SellerProfile): string[] {
   const missing: string[] = [];
   if (!p.legalName?.trim()) missing.push("ชื่อที่ใช้ออกบิล");
   if (p.addressLines.filter((l) => l.trim()).length === 0) missing.push("ที่อยู่จดทะเบียน");
   if (!p.taxId?.trim()) missing.push("เลขประจำตัวผู้เสียภาษี");
-  if (!p.phone?.trim() && !p.line?.trim()) missing.push("ช่องทางติดต่อกลับ");
+  if (!hasAnyContact(p.phone, p.line)) missing.push("ช่องทางติดต่อกลับ");
   return missing;
+}
+
+/** "โหมดดูตัวอย่าง" (PrintQuoteClient, เมื่อพิมพ์จริงยังไม่ได้) — เติมเฉพาะ
+ * ช่องที่ยังขาดจริง (ตาม missingSellerFields) ด้วยข้อความที่อ่านออกชัดเจนว่า
+ * เป็นของปลอม (ไม่ใช่ชื่อบริษัท/เลขที่ดูสมจริง) ส่วนช่องที่เจ้าของกรอกไว้แล้ว
+ * ใช้ค่าจริงตามปกติ — ให้เห็น "รูปแบบเอกสารจริงของร้านนี้" มากที่สุดเท่าที่มี
+ * ข้อมูล ไม่ใช่บริษัทตัวอย่างที่ไม่เกี่ยวข้อง. รายการ/ยอดเงินไม่ถูกแตะเลย
+ * (มาจาก PrintableQuote จริงเสมอ — ฟังก์ชันนี้แก้เฉพาะ SellerProfile). */
+export function previewSellerProfile(real: SellerProfile): SellerProfile {
+  const hasContact = !!real.phone?.trim() || !!real.line?.trim();
+  const hasAddress = real.addressLines.some((l) => l.trim());
+  return {
+    ...real,
+    legalName: real.legalName?.trim() || "(ยังไม่ได้กรอกชื่อร้าน)",
+    addressLines: hasAddress ? real.addressLines : ["(ยังไม่ได้กรอกที่อยู่ร้าน)"],
+    taxId: real.taxId?.trim() || "(ยังไม่ได้กรอกเลขผู้เสียภาษี)",
+    phone: hasContact ? real.phone : "(ยังไม่ได้กรอกช่องทางติดต่อกลับ)",
+  };
 }

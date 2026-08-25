@@ -175,6 +175,7 @@ export function parseBillAddress(raw: unknown): OemCustomerAddress | null {
     subdistrict: pick("subdistrict"),
     district: pick("district"),
     province: pick("province"),
+    provinceCode: pick("provinceCode"),
     postalCode: pick("postalCode"),
   };
   const hasAnyField = Object.values(addr).some((v) => v != null);
@@ -208,4 +209,17 @@ export function formatOemAddressLines(addr: OemCustomerAddress | null): string[]
 export function isValidThaiTaxId(taxId: string): boolean {
   const t = taxId.trim();
   return t === "" || /^\d{13}$/.test(t);
+}
+
+/** phone-OR-alternate-contact: true if at least one of the two carries real
+ * text. 2026-08 UAT: some OEM customers (and the shop itself) only ever
+ * communicate over LINE, no phone on file — a bare "phone required" rule
+ * blocked real customers. Same shape used for two DIFFERENT pairs, kept as
+ * one implementation so neither can drift from the other:
+ *   - the CUSTOMER's billing contact (BillingDialog client validation +
+ *     setQuoteBilling server validation, phone vs. contactChannel/LINE)
+ *   - the SHOP's own seller profile (missingSellerFields, phone vs. line)
+ */
+export function hasAnyContact(a: string | null | undefined, b: string | null | undefined): boolean {
+  return !!a?.trim() || !!b?.trim();
 }

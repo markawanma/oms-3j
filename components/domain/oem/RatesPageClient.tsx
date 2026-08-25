@@ -7,12 +7,14 @@
 import { useMemo } from "react";
 import { CheckCircle2, ChevronRight } from "lucide-react";
 import type { OemMetalPriceMap, OemRateStatusRow, OemReadiness, OemSettingData } from "@/lib/oem/types";
+import type { SellerProfile } from "@/lib/oem/sellerProfile";
 import { OEM_GROUP_LABEL_TH, OEM_GROUP_ORDER, oemScopeLabel, oemScopeSort } from "@/lib/oem/display";
 import { Badge } from "@/components/ui/Badge";
 import type { BadgeTone } from "@/components/ui/Badge";
 import { RateCell } from "./RateCell";
 import { MetalPriceSection } from "./MetalPriceSection";
 import { OemPolicySection } from "./OemPolicySection";
+import { SellerProfileSection } from "./SellerProfileSection";
 
 const PRIORITY_TONE: Record<string, BadgeTone> = { P0: "amber", P1: "blue", P2: "slate" };
 
@@ -63,11 +65,15 @@ export function RatesPageClient({
   readiness,
   setting,
   metalPrices,
+  sellerProfile,
+  sellerLoadError,
 }: {
   rows: OemRateStatusRow[];
   readiness: OemReadiness | null;
   setting: OemSettingData;
   metalPrices: OemMetalPriceMap;
+  sellerProfile: SellerProfile;
+  sellerLoadError?: string | null;
 }) {
   const groupsByCode = useMemo(() => {
     const groups = groupRows(rows);
@@ -138,6 +144,10 @@ export function RatesPageClient({
           </div>
         )}
       </div>
+
+      {/* ข้อมูลร้านเรา (หัวกระดาษ) — ยกไว้บนสุด (เหนือช่องต้นทุน) เพราะเป็น
+          ด่านบล็อกการพิมพ์ใบเสนอราคาจริง เจ้าของควรเห็น/กรอกได้ทันทีที่เข้าหน้านี้ */}
+      <SellerProfileSection profile={sellerProfile} loadError={sellerLoadError} />
 
       {OEM_GROUP_ORDER.map((code) => {
         const groups = groupsByCode.get(code);
