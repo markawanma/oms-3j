@@ -113,8 +113,11 @@ export interface QuoteAggregatePreview {
 
 export function aggregateQuotePreview(
   items: { calc: OemPriceCalcResult | null; metal: OemMetal; qty: number }[],
-  discountThb: number
+  discountRaw: number
 ): QuoteAggregatePreview {
+  // ช่องส่วนลดพิมพ์ค่าติดลบได้ (type=number กัน min ไม่อยู่) — ปล่อยผ่านแล้ว
+  // "ยอดสุทธิ" จะโตกว่ายอดก่อนหักส่วนลดเงียบๆ ตัดทิ้งตั้งแต่ตรงนี้
+  const discountThb = Number.isFinite(discountRaw) && discountRaw > 0 ? discountRaw : 0;
   let isComplete = items.length > 0;
   let piecesSubtotal = 0;
   let nreTotal = 0;
@@ -149,8 +152,10 @@ export function aggregateQuotePreview(
   const quoteTotal = piecesSubtotal + nreTotal;
   const grandTotal = quoteTotal - discountThb;
   const priceExGoldAfterDiscount = priceExGoldSum - discountThb;
+  // ต้อง > 0 ไม่ใช่ !== 0 — ตัวหารติดลบทำให้อัตราส่วนพลิกเป็นบวกใหญ่ แล้ว
+  // พรีวิวจะโชว์ margin สวยทั้งที่ขาดทุน (อาการเดียวกับ C1 ใน 0076 ฝั่ง DB)
   const marginAfterDiscountPct =
-    isComplete && priceExGoldAfterDiscount !== 0 ? (priceExGoldAfterDiscount - costExGoldSum) / priceExGoldAfterDiscount : null;
+    isComplete && priceExGoldAfterDiscount > 0 ? (priceExGoldAfterDiscount - costExGoldSum) / priceExGoldAfterDiscount : null;
 
   return { isComplete, piecesSubtotal, nreTotal, quoteTotal, grandTotal, minMarginChargedPct, marginAfterDiscountPct };
 }
