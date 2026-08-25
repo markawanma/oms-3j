@@ -28,6 +28,7 @@ import type {
   OemPriceBreakdown,
   OemPriceCalcInput,
   OemPriceCalcResult,
+  OemProductOption,
   OemQuoteItemRow,
   OemQuoteRow,
   OemQuoteStatus,
@@ -495,6 +496,41 @@ export async function getMetalPrices(): Promise<ActionResult<OemMetalPriceMap>> 
   } catch (err) {
     console.error("getMetalPrices failed", err);
     return { ok: false, error: "โหลดราคาโลหะไม่สำเร็จ ลองใหม่อีกครั้ง" };
+  }
+}
+
+// ============================================================================
+// SKU picker (analytics.v_dim_product) — read-only, label/traceability only.
+// See lib/oem/types.ts's OemProductOption header for why unit_cost/
+// list_price/margin_pct are excluded from both the query AND the mapped
+// result below: this endpoint must never leak retail cost/margin to the OEM
+// quote screen, even by accident via a future column-order change.
+// ============================================================================
+
+export async function getOemProducts(): Promise<ActionResult<OemProductOption[]>> {
+  const gateErr = requireOwnerAdmin();
+  if (gateErr) return gateErr;
+
+  try {
+    const shopId = getDevShopId();
+    const supabase = getServiceClient();
+
+    const { data, error } = await supabase
+      .schema(SCHEMA)
+      .from("v_dim_product")
+      .select("product_id, sku, name, category")
+      .eq("shop_id", shopId)
+      .eq("is_active", true)
+      .order("sku", { ascending: true });
+    if (error) throw error;
+
+    const result: OemProductOption[] = (
+      (data ?? []) as { product_id: string; sku: string; name: string; category: string | null }[]
+    ).map((r) => ({ productId: r.product_id, sku: r.sku, name: r.name, category: r.category }));
+    return { ok: true, data: result };
+  } catch (err) {
+    console.error("getOemProducts failed", err);
+    return { ok: false, error: "โหลดรายการ SKU ไม่สำเร็จ ลองใหม่อีกครั้ง" };
   }
 }
 

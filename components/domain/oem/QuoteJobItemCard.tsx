@@ -5,8 +5,8 @@
 // number shown comes from the calc the parent (QuoteCalculatorClient) already
 // fetched via calcPrice() — no arithmetic here.
 
-import { ChevronDown, ChevronUp, Loader2, Trash2 } from "lucide-react";
-import type { OemMetal, OemPriceCalcResult } from "@/lib/oem/types";
+import { ChevronDown, ChevronUp, Loader2, Trash2, X } from "lucide-react";
+import type { OemMetal, OemPriceCalcResult, OemProductOption } from "@/lib/oem/types";
 import { OEM_METAL_LABEL_TH } from "@/lib/oem/types";
 import type { JobForm } from "@/lib/oem/quoteForm";
 import { OEM_DEFAULT_PURITY } from "@/lib/oem/quoteForm";
@@ -17,6 +17,85 @@ import { OemCalcBreakdown } from "./OemCalcBreakdown";
 const inputCls = "min-h-11 w-full rounded-md border border-zinc-300 px-2.5 text-sm text-zinc-900";
 const labelCls = "flex flex-col gap-1 text-xs font-semibold text-zinc-600";
 
+/** Formats one option's <datalist> display text — the only string
+ * handleSkuTextChange matches back against, so keep this in sync with it. */
+function skuOptionLabel(p: OemProductOption): string {
+  return `${p.sku} · ${p.name}`;
+}
+
+function SkuPicker({
+  index,
+  job,
+  products,
+  productsLoading,
+  productsError,
+  onSelectSku,
+}: {
+  index: number;
+  job: JobForm;
+  products: OemProductOption[];
+  productsLoading: boolean;
+  productsError: string | null;
+  onSelectSku: (product: OemProductOption | null) => void;
+}) {
+  const listId = `oem-sku-options-${index}`;
+
+  function handleSkuTextChange(text: string) {
+    const match = products.find((p) => skuOptionLabel(p) === text);
+    if (match) onSelectSku(match);
+  }
+
+  return (
+    <div className="border-b border-zinc-100 pb-3">
+      <span className="text-xs font-semibold text-zinc-600">ผูก SKU ที่มีอยู่แล้ว (ไม่บังคับ)</span>
+      {job.productId ? (
+        <div className="mt-1 flex min-h-11 items-center justify-between gap-2 rounded-md border border-zinc-300 bg-zinc-50 px-2.5 py-1.5">
+          <span className="truncate text-sm text-zinc-800">
+            <span className="font-semibold">{job.skuSnapshot}</span> · {job.productNameSnapshot}
+          </span>
+          <button
+            type="button"
+            onClick={() => onSelectSku(null)}
+            aria-label="ล้าง SKU ที่ผูกไว้"
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-zinc-400 hover:bg-red-50 hover:text-red-600"
+          >
+            <X className="h-4 w-4" aria-hidden="true" />
+          </button>
+        </div>
+      ) : (
+        <>
+          <input
+            type="text"
+            list={listId}
+            defaultValue=""
+            disabled={productsLoading || (!productsError && products.length === 0)}
+            onChange={(e) => handleSkuTextChange(e.target.value)}
+            className={`${inputCls} mt-1 disabled:bg-zinc-100 disabled:text-zinc-400`}
+            placeholder={
+              productsLoading
+                ? "กำลังโหลดรายการ SKU..."
+                : productsError
+                ? "โหลดรายการ SKU ไม่สำเร็จ"
+                : products.length === 0
+                ? "ไม่มี SKU ที่ใช้งานอยู่ในระบบ"
+                : "พิมพ์ค้นหา SKU หรือชื่อสินค้า..."
+            }
+          />
+          <datalist id={listId}>
+            {products.map((p) => (
+              <option key={p.productId} value={skuOptionLabel(p)} />
+            ))}
+          </datalist>
+        </>
+      )}
+      {productsError && <p className="mt-1 text-xs text-red-600">{productsError}</p>}
+      <p className="mt-1 text-xs text-zinc-400">
+        ผูกไว้เพื่อให้ใบเสนอราคาระบุแบบได้ — น้ำหนักกับจำนวนยังต้องกรอกเอง ไม่ได้กรอกให้อัตโนมัติ
+      </p>
+    </div>
+  );
+}
+
 export function QuoteJobItemCard({
   index,
   job,
@@ -25,7 +104,11 @@ export function QuoteJobItemCard({
   calc,
   calcLoading,
   calcError,
+  products,
+  productsLoading,
+  productsError,
   onChange,
+  onSelectSku,
   onRemove,
   onToggleCollapse,
 }: {
@@ -36,11 +119,17 @@ export function QuoteJobItemCard({
   calc: OemPriceCalcResult | null;
   calcLoading: boolean;
   calcError: string | null;
+  products: OemProductOption[];
+  productsLoading: boolean;
+  productsError: string | null;
   onChange: <K extends keyof JobForm>(key: K, value: JobForm[K]) => void;
+  onSelectSku: (product: OemProductOption | null) => void;
   onRemove: () => void;
   onToggleCollapse: () => void;
 }) {
-  const summaryLabel = [job.itemKind || "ยังไม่ระบุประเภท", job.qty ? `${job.qty} ชิ้น` : null].filter(Boolean).join(" · ");
+  const summaryLabel = [job.skuSnapshot || null, job.itemKind || "ยังไม่ระบุประเภท", job.qty ? `${job.qty} ชิ้น` : null]
+    .filter(Boolean)
+    .join(" · ");
   const priceLabel = calcLoading
     ? "กำลังคำนวณ..."
     : calcError
@@ -87,6 +176,15 @@ export function QuoteJobItemCard({
               ยังคิดราคาไม่ได้ — ขาดต้นทุน {calc.missing.length} รายการ
             </p>
           )}
+
+          <SkuPicker
+            index={index}
+            job={job}
+            products={products}
+            productsLoading={productsLoading}
+            productsError={productsError}
+            onSelectSku={onSelectSku}
+          />
 
           <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
             <label className={labelCls}>

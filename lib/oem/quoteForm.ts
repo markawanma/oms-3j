@@ -34,6 +34,13 @@ export interface JobForm {
   platingType: string;
   isNewDesign: boolean;
   marginPct: string;
+  /** SKU picker (analytics.v_dim_product) — label/traceability only, never
+   * fed into buildJobInput()/OemPriceCalcInput below: silver_weight_g is
+   * null on every SKU today, so there is nothing safe to prefill from a
+   * selection. Null = "ไม่ผูก SKU" (default), a free-text/new-design job. */
+  productId: string | null;
+  skuSnapshot: string | null;
+  productNameSnapshot: string | null;
 }
 
 export function createJobForm(defaultMarginPct: number): JobForm {
@@ -51,6 +58,9 @@ export function createJobForm(defaultMarginPct: number): JobForm {
     platingType: "",
     isNewDesign: true,
     marginPct: String(defaultMarginPct),
+    productId: null,
+    skuSnapshot: null,
+    productNameSnapshot: null,
   };
 }
 

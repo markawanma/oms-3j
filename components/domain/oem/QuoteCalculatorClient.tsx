@@ -8,15 +8,19 @@
 // (QuoteResultPanel's aggregate preview sums already-computed numbers only,
 // see lib/oem/quoteForm.ts).
 //
-// No SKU picker / PDF in this phase (separate phase) — every saved item's
-// product_id/sku_snapshot/product_name_snapshot is left unset; oem_quote_item
-// stores itemKind (free text from OEM_ITEM_KIND_OPTIONS) as the only label.
+// SKU picker (T-next): products are fetched once on mount via
+// getOemProducts() and handed down to every QuoteJobItemCard. Selecting a
+// SKU only sets productId/skuSnapshot/productNameSnapshot on that item's
+// JobForm — it is deliberately excluded from buildJobInput()'s
+// OemPriceCalcInput (see quoteForm.ts), so changing/clearing a SKU never
+// touches itemSnapshots and therefore never re-triggers the debounced
+// calcPrice() call below.
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
-import { calcPrice, saveQuote } from "@/lib/actions/oem";
-import type { OemPriceCalcResult, OemSettingData } from "@/lib/oem/types";
+import { calcPrice, getOemProducts, saveQuote } from "@/lib/actions/oem";
+import type { OemPriceCalcResult, OemProductOption, OemSettingData, SaveQuoteInput } from "@/lib/oem/types";
 import { roundTo } from "@/lib/oem/display";
 import type { JobForm } from "@/lib/oem/quoteForm";
 import { OEM_DEFAULT_PURITY, buildJobInput, createJobForm } from "@/lib/oem/quoteForm";
@@ -60,6 +64,31 @@ export function QuoteCalculatorClient({ setting }: { setting: OemSettingData }) 
   const [savingDraft, startDraft] = useTransition();
   const [savingQuote, startQuote] = useTransition();
 
+  // Fetched once — shared read-only list across every QuoteJobItemCard's SKU
+  // picker (no per-item fetch, no dependency on which item is open).
+  const [products, setProducts] = useState<OemProductOption[]>([]);
+  const [productsLoading, setProductsLoading] = useState(true);
+  const [productsError, setProductsError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setProductsLoading(true);
+    setProductsError(null);
+    getOemProducts().then((result) => {
+      if (cancelled) return;
+      if (!result.ok) {
+        setProductsError(result.error);
+        setProductsLoading(false);
+        return;
+      }
+      setProducts(result.data);
+      setProductsLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   function addItem() {
     setItems((prev) => [
       ...prev,
@@ -87,6 +116,27 @@ export function QuoteCalculatorClient({ setting }: { setting: OemSettingData }) 
       })
     );
     setQuoteId(null); // editing any item starts a fresh (unsaved) quote
+  }
+
+  /** Sets/clears an item's SKU label atomically (all 3 fields in one
+   * update) — separate from updateItemField() so a selection never fires 3
+   * separate setState calls for fields that never feed buildJobInput(). */
+  function updateItemSku(key: string, product: OemProductOption | null) {
+    setItems((prev) =>
+      prev.map((it) =>
+        it.key === key
+          ? {
+              ...it,
+              job: {
+                ...it.job,
+                productId: product?.productId ?? null,
+                skuSnapshot: product?.sku ?? null,
+                productNameSnapshot: product?.name ?? null,
+              },
+            }
+          : it
+      )
+    );
   }
 
   // Snapshot of {key, input} per item, recomputed whenever any job field
@@ -128,11 +178,17 @@ export function QuoteCalculatorClient({ setting }: { setting: OemSettingData }) 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [JSON.stringify(itemSnapshots)]);
 
-  function buildPayloadItems() {
-    const payload: { input: NonNullable<(typeof itemSnapshots)[number]["input"]> }[] = [];
+  function buildPayloadItems(): SaveQuoteInput["items"] | null {
+    const payload: SaveQuoteInput["items"] = [];
     for (const snap of itemSnapshots) {
       if (!snap.input) return null;
-      payload.push({ input: snap.input });
+      const it = items.find((x) => x.key === snap.key);
+      payload.push({
+        input: snap.input,
+        productId: it?.job.productId ?? null,
+        skuSnapshot: it?.job.skuSnapshot ?? null,
+        productNameSnapshot: it?.job.productNameSnapshot ?? null,
+      });
     }
     return payload;
   }
@@ -231,7 +287,11 @@ export function QuoteCalculatorClient({ setting }: { setting: OemSettingData }) 
                   calc={it.calc}
                   calcLoading={it.calcLoading}
                   calcError={it.calcError}
+                  products={products}
+                  productsLoading={productsLoading}
+                  productsError={productsError}
                   onChange={(field, value) => updateItemField(it.key, field, value)}
+                  onSelectSku={(product) => updateItemSku(it.key, product)}
                   onRemove={() => removeItem(it.key)}
                   onToggleCollapse={() => toggleCollapse(it.key)}
                 />

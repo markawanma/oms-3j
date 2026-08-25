@@ -183,7 +183,10 @@ export function QuoteDetailClient({ quote, items }: { quote: OemQuoteRow; items:
                             {it.seq}
                           </span>
                         </td>
-                        <td className="py-2 pr-2 text-zinc-800">{it.productNameSnapshot || it.input.itemKind}</td>
+                        <td className="py-2 pr-2 text-zinc-800">
+                          {it.skuSnapshot && <span className="font-semibold">{it.skuSnapshot} · </span>}
+                          {it.productNameSnapshot || it.input.itemKind}
+                        </td>
                         <td className="py-2 pr-2 text-zinc-600">{OEM_METAL_LABEL_TH[it.input.metal]}</td>
                         <td className="py-2 pr-2 text-right tabular-nums text-zinc-700">{it.qty}</td>
                         <td className="py-2 pr-2 text-right tabular-nums text-zinc-700">{it.pricePerPiece != null ? formatTHB(it.pricePerPiece) : "—"}</td>

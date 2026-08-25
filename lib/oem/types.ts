@@ -120,6 +120,25 @@ export interface UpsertOemSettingInput {
 }
 
 // ============================================================================
+// SKU picker (analytics.v_dim_product, read-only) — lets a quote item label
+// itself with an existing product for traceability. NEVER returns
+// unit_cost/effective_unit_cost/list_price/margin_pct — those are retail
+// cost/margin figures, unrelated to (and more sensitive than) OEM job
+// pricing, which analytics.oem_price_calc computes independently. As of
+// 2026-08, silver_weight_g is null on all 301 SKUs and silver_purity is a
+// flat 0.925 across the board, so this deliberately does NOT try to prefill
+// weight/purity from a selected SKU — see QuoteJobItemCard's picker copy,
+// which says so out loud rather than let the user assume it did.
+// ============================================================================
+
+export interface OemProductOption {
+  productId: string;
+  sku: string;
+  name: string;
+  category: string | null;
+}
+
+// ============================================================================
 // Metal price (oem_metal_price)
 // ============================================================================
 
@@ -262,9 +281,9 @@ export type OemQuoteStatus = "draft" | "quoted" | "won" | "lost" | "expired" | "
 
 /** One line of p_items for oem_quote_save (0075, 9-arg). `input` is the exact
  * oem_price_calc payload (unchanged, same as pre-v2 SaveQuoteInput.input).
- * product_id/sku_snapshot/product_name_snapshot are plumbing for a future SKU
- * picker (T-next) — this phase never sets them (no SKU picker/PDF this
- * round, see QuoteCalculatorClient header comment). */
+ * product_id/sku_snapshot/product_name_snapshot come from the SKU picker in
+ * QuoteJobItemCard (getOemProducts()) — all three are optional; a job with
+ * no matching SKU (new design) simply omits them, same as before. */
 export interface OemQuoteItemInput {
   input: OemPriceCalcInput;
   productId?: string | null;
