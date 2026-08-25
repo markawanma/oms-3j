@@ -85,7 +85,7 @@ export function QuoteDetailClient({ quote }: { quote: OemQuoteRow }) {
           </div>
           <div>
             <dt className="text-xs text-zinc-500">น้ำหนัก/ชิ้น</dt>
-            <dd className="text-zinc-800">{quote.input.weightG} ก.</dd>
+            <dd className="text-zinc-800">{quote.input.weightG} กรัม</dd>
           </div>
           <div>
             <dt className="text-xs text-zinc-500">จำนวน</dt>

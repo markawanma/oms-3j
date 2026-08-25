@@ -72,7 +72,7 @@ function MetalPriceCell({ metal, current }: { metal: OemMetal; current: OemMetal
           placeholder="ยังไม่ตั้งราคา"
           className="min-h-11 w-full rounded-md border border-zinc-300 px-2.5 text-sm text-zinc-900 tabular-nums placeholder:text-zinc-400"
         />
-        <span className="shrink-0 text-xs text-zinc-500">บาท/ก.</span>
+        <span className="shrink-0 text-xs text-zinc-500">บาท/กรัม</span>
         {saving && <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-zinc-400" aria-hidden="true" />}
         {!saving && justSaved && <Check className="h-3.5 w-3.5 shrink-0 text-green-600" aria-hidden="true" />}
       </div>
