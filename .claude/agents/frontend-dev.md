@@ -1,7 +1,9 @@
 ---
 name: frontend-dev
 description: เขียน frontend — UI component, state management, responsive design. ใช้เมื่อต้อง implement ฝั่ง client/UI
-tools: Read, Grep, Glob, Bash, Write, Edit
+tools: Read, Grep, Glob, Bash, Write, Edit, Skill
+skills:
+  - oem-quote-invariants
 model: sonnet
 ---
 

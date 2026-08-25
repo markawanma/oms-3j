@@ -1,7 +1,10 @@
 ---
 name: devops
 description: เตรียม deploy — environment config, CI/CD, rollback plan, monitoring. ใช้เมื่องานผ่าน review แล้วและใกล้ขึ้น production
-tools: Read, Grep, Glob, Bash, Write, Edit
+tools: Read, Grep, Glob, Bash, Write, Edit, Skill
+skills:
+  - 3j-migration-traps
+  - supabase-migrate
 model: sonnet
 ---
 

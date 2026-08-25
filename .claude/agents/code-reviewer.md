@@ -1,7 +1,10 @@
 ---
 name: code-reviewer
 description: Review โค้ดแบบ senior ก่อน merge — naming, duplication, performance, readability, over-engineering. Use PROACTIVELY หลังเขียนหรือแก้โค้ดทุกครั้ง
-tools: Read, Grep, Glob, Bash
+tools: Read, Grep, Glob, Bash, Skill
+skills:
+  - oem-quote-invariants
+  - 3j-migration-traps
 model: opus
 ---
 

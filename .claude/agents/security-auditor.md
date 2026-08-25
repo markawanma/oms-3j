@@ -1,7 +1,10 @@
 ---
 name: security-auditor
 description: ไล่หาช่องโหว่ security ในโค้ด — injection, XSS, auth หลวม, secret หลุด, input ไม่ validate. Use PROACTIVELY หลัง implement เสร็จทุกครั้ง ก่อน merge
-tools: Read, Grep, Glob, Bash
+tools: Read, Grep, Glob, Bash, Skill
+skills:
+  - oem-quote-invariants
+  - 3j-migration-traps
 model: opus
 ---
 

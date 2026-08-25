@@ -1,7 +1,9 @@
 ---
 name: qa-tester
 description: เขียนและรัน test — unit test, edge case, integration. ใช้หลัง implement เสร็จ และใช้รัน test suite แทน main agent เพื่อไม่ให้ output ท่วม context
-tools: Read, Grep, Glob, Bash, Write, Edit
+tools: Read, Grep, Glob, Bash, Write, Edit, Skill
+skills:
+  - oem-quote-invariants
 model: sonnet
 ---
 
