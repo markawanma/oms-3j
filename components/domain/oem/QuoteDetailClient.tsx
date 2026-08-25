@@ -13,7 +13,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, ChevronDown, ChevronUp, Pencil, Printer } from "lucide-react";
 import { setQuoteStatus } from "@/lib/actions/oem";
-import type { OemDepositMode, OemProvinceOption, OemQuoteItemRow, OemQuoteRow } from "@/lib/oem/types";
+import type { OemDepositMode, OemProvinceOption, OemQuoteItemRow, OemQuoteRow, OemReceiptRow } from "@/lib/oem/types";
 import { OEM_BAR_SIZE_LABEL_TH, OEM_METAL_LABEL_TH, OEM_QUOTE_STATUS_LABEL_TH } from "@/lib/oem/types";
 import type { SellerProfile } from "@/lib/oem/sellerProfile";
 import { formatBangkokTime, formatTHB } from "@/lib/format";
@@ -30,6 +30,7 @@ import { RenegotiateDialog } from "./RenegotiateDialog";
 import { BillingDialog } from "./BillingDialog";
 import { DepositDialog } from "./DepositDialog";
 import { VatModeDialog } from "./VatModeDialog";
+import { ReceiptSection } from "./ReceiptSection";
 
 /** RAW deposit fields (mode + input, never the computed amount) of the
  * quote's parent, when it has one — used only to detect the 0081 renegotiate
@@ -85,12 +86,14 @@ export function QuoteDetailClient({
   provinces,
   sellerProfile,
   parentDeposit,
+  receipts,
 }: {
   quote: OemQuoteRow;
   items: OemQuoteItemRow[];
   provinces: OemProvinceOption[];
   sellerProfile: SellerProfile;
   parentDeposit: ParentDepositInfo | null;
+  receipts: OemReceiptRow[];
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -130,7 +133,19 @@ export function QuoteDetailClient({
     });
   }
 
-  const canRenegotiate = quote.status === "quoted" && !quote.isExpiredTh;
+  // 0085: oem_quote_renegotiate now accepts 'won' too (the owner explicitly
+  // asked to be able to renegotiate a deal after a deposit was received —
+  // see 0084's header §3 / 0085's header). 'quoted' still hard-checks
+  // quote_valid_until server-side; 'won' skips that check server-side (the
+  // pricing-window guarantee is moot once the customer already committed
+  // money) — mirror BOTH halves here so this button never opens a dialog
+  // that can only ever fail.
+  const canRenegotiate = (quote.status === "quoted" && !quote.isExpiredTh) || quote.status === "won";
+  // 0085 §ผลข้างเคียง: renegotiating a deal that already has money collected
+  // can push outstandingThb negative (a refund the shop now owes) — the DB
+  // does not block this on purpose (0084 header §3), so the warning has to
+  // live here, before the dialog even opens.
+  const hasReceivedPayment = !!quote.paidThb && quote.paidThb > 0;
   // oem_quote_set_billing (0075 §7) hard-gates status IN ('quoted','won')
   // server-side — mirror that here so the edit button never opens a dialog
   // that can only ever fail. Draft quotes haven't been sent to a customer
@@ -477,6 +492,8 @@ export function QuoteDetailClient({
         </div>
       </section>
 
+      <ReceiptSection quote={quote} receipts={receipts} onChanged={() => router.refresh()} />
+
       {(quote.status === "quoted" || canRenegotiate) && (
         <div className="flex flex-wrap gap-2">
           {quote.status === "quoted" && (
@@ -496,6 +513,11 @@ export function QuoteDetailClient({
           )}
         </div>
       )}
+      {canRenegotiate && hasReceivedPayment && (
+        <p className="-mt-2 rounded-md bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800">
+          ใบนี้รับเงินไปแล้ว {formatTHB(quote.paidThb!)} — ต่อราคาลงต่ำกว่านี้ได้ แต่จะทำให้ยอดคงค้างติดลบ (ร้านต้องคืนเงินลูกค้า) ระบบไม่กันไว้ ตรวจสอบก่อนกด
+        </p>
+      )}
 
       {lostOpen && (
         <LostQuoteDialog
@@ -508,7 +530,7 @@ export function QuoteDetailClient({
         />
       )}
 
-      {renegotiateOpen && <RenegotiateDialog quote={quote} onClose={() => setRenegotiateOpen(false)} />}
+      {renegotiateOpen && <RenegotiateDialog quote={quote} hasReceivedPayment={hasReceivedPayment} onClose={() => setRenegotiateOpen(false)} />}
 
       {billingOpen && (
         <BillingDialog

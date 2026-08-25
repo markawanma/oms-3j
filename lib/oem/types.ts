@@ -621,6 +621,25 @@ export interface OemQuoteRow {
    * parseBillAddress). null if never set OR if the stored jsonb doesn't
    * look like an OemCustomerAddress at all. */
   billAddress: OemCustomerAddress | null;
+  // ---- 0084 additions (v_oem_quote appended past vat_amount_thb — §7 of
+  // design-oem-payment-invoice.md) — computed FRESH every read at DEAL level
+  // (sum across the whole root_quote_id chain, not just this row's own
+  // quote_id — see that view's comment). Never re-derive these client-side. ----
+  /** Sum of amount_thb across every 'issued' oem_receipt in this deal. */
+  paidThb: number | null;
+  /** grandTotal - paidThb. DELIBERATELY not clamped to 0 or floored — can go
+   * NEGATIVE after a renegotiate lowers grandTotal below money already
+   * collected (0085 opened that path on the owner's explicit instruction —
+   * "ต่อได้ แต่ขึ้นคำเตือนตัวใหญ่", not blocked at the DB). Any UI reading this
+   * MUST show a prominent warning when < 0 — it means the shop owes the
+   * customer a refund. Never silently floor it at 0 (same rule as
+   * OemQuoteRow.balanceThb above, now doubly true because this number is
+   * backed by REAL money already received, not just a planned deposit). */
+  outstandingThb: number | null;
+  /** paidThb >= grandTotal. null when grandTotal is null (never priced). */
+  isFullyPaid: boolean | null;
+  /** Count of 'issued' receipts across the whole deal (chain), not just this row. */
+  receiptCount: number | null;
 }
 
 /** analytics.oem_quote_item / v_oem_quote_item (0075) — one priced line per
@@ -677,4 +696,159 @@ export const OEM_QUOTE_STATUS_LABEL_TH: Record<OemQuoteStatus, string> = {
 export interface OemProvinceOption {
   code: string;
   nameTh: string;
+}
+
+// ============================================================================
+// Receipts / tax invoices (0084: analytics.oem_receipt, oem_receipt_issue,
+// oem_receipt_void, analytics.v_oem_receipt) — "รับชำระเงิน + ใบเสร็จรับเงิน/
+// ใบกำกับภาษี". Unlike oem_quote (a "เอกสารมีชีวิต" that renegotiates in
+// place), a receipt is IMMUTABLE once issued: no update RPC exists anywhere,
+// only void (issued -> void) + reissue-as-a-brand-new-row. Every money figure
+// here (amountThb, vatBaseThb, vatAmountThb, grandTotalSnapshot,
+// paidBeforeThb, balanceAfterThb) was computed ONCE server-side at issue time
+// and frozen — never recompute any of them client-side, same rule as every
+// other OEM money figure in this app (see lib/actions/oem.ts's header).
+// ============================================================================
+
+export type OemReceiptKind = "deposit" | "partial" | "final";
+export type OemReceiptStatus = "issued" | "void";
+export type OemReceiptPaymentMethod = "transfer" | "cash" | "other";
+
+export const OEM_RECEIPT_KIND_LABEL_TH: Record<OemReceiptKind, string> = {
+  deposit: "เงินมัดจำ",
+  partial: "ชำระบางส่วน",
+  final: "ชำระงวดสุดท้าย",
+};
+
+export const OEM_RECEIPT_STATUS_LABEL_TH: Record<OemReceiptStatus, string> = {
+  issued: "ออกแล้ว",
+  void: "ยกเลิกแล้ว",
+};
+
+export const OEM_PAYMENT_METHOD_LABEL_TH: Record<OemReceiptPaymentMethod, string> = {
+  transfer: "โอนเงิน",
+  cash: "เงินสด",
+  other: "อื่นๆ",
+};
+
+/** analytics.oem_receipt.seller_snapshot (jsonb) — frozen copy of
+ * oem_setting.seller_* AT THE MOMENT this receipt was issued. Deliberately
+ * NOT the same object as SellerProfile (lib/oem/sellerProfile.ts): that type
+ * describes the shop's CURRENT, editable info; this one is what a specific
+ * historical document actually printed and must keep printing forever, even
+ * after the owner edits their profile tomorrow. */
+export interface OemReceiptSellerSnapshot {
+  legalName: string | null;
+  displayName: string | null;
+  branchLabel: string | null;
+  addressLines: string[] | null;
+  taxId: string | null;
+  phone: string | null;
+}
+
+/** analytics.oem_receipt / analytics.v_oem_receipt (0084) — one row = one
+ * payment received = one tax document. Read-only from the app's perspective
+ * past issueReceipt (getReceipts/getReceipt map this shape; there is no
+ * "update" input type because no update RPC exists — see file header). */
+export interface OemReceiptRow {
+  id: string;
+  shopId: string;
+  quoteId: string;
+  receiptNo: string;
+  kind: OemReceiptKind;
+  status: OemReceiptStatus;
+  /** Amount actually received, VAT-inclusive (gross). */
+  amountThb: number;
+  /** VAT rate snapshot from the quote at issue time (e.g. 0.07) — NOT a live
+   * constant. Re-derive every "7%" label from this field, never hardcode. */
+  vatRate: number;
+  /** round(amountThb / (1 + vatRate), 2). */
+  vatBaseThb: number;
+  /** amountThb - vatBaseThb — the REMAINDER, not independently rounded.
+   * vatBaseThb + vatAmountThb === amountThb exactly, always. */
+  vatAmountThb: number;
+  /** วันที่รับเงินจริง (tax point) — may differ from issueDate if backdated
+   * within the "not in the future" gate. */
+  receivedDate: string;
+  /** วันที่ออกเอกสาร (เวลาไทย ณ ตอนเรียก oem_receipt_issue). */
+  issueDate: string;
+  paymentMethod: OemReceiptPaymentMethod | null;
+  paymentRef: string | null;
+  /** บรรทัดรายการบนเอกสาร — RPC auto-generates a Thai sentence from `kind` +
+   * quote_no when not overridden at issue time. */
+  description: string;
+  sellerSnapshot: OemReceiptSellerSnapshot;
+  buyerLegalName: string;
+  buyerTaxId: string | null;
+  /** Always null today — analytics.oem_customer has no branch-label column
+   * yet (see 0084's column comment on oem_receipt.buyer_branch_label). Kept
+   * on the shape because the DB column exists and is legally meaningful once
+   * a data source is added; nothing in this app writes it yet. */
+  buyerBranchLabel: string | null;
+  /** Parsed defensively the same way OemQuoteRow.billAddress is — see
+   * lib/oem/display.ts's parseBillAddress (buyer_address is unvalidated jsonb). */
+  buyerAddress: OemCustomerAddress | null;
+  /** Quote number this receipt was issued against — a SNAPSHOT (text, not a
+   * live join) taken at issue time. May not match quoteNo below if the deal
+   * was renegotiated afterwards (informational only — see the DB column
+   * comment: never use this to compute anything, read v_oem_quote for that). */
+  quoteNoSnapshot: string;
+  /** grand_total of the quote row this receipt was issued against, AT THAT
+   * TIME — informational only, goes stale the moment the deal is
+   * renegotiated. Never use to compute today's outstanding balance (read
+   * OemQuoteRow.outstandingThb for that). */
+  grandTotalSnapshot: number;
+  /** Sum of every OTHER 'issued' receipt in this deal's chain, as of just
+   * before this one was issued (deal-level, not per quote_id — see 0084 §6). */
+  paidBeforeThb: number;
+  /** grandTotalSnapshot - (paidBeforeThb + amountThb) — the deal's remaining
+   * balance immediately after this receipt, AT ISSUE TIME. Also goes stale
+   * after a later renegotiate; historical record only. */
+  balanceAfterThb: number;
+  voidReason: string | null;
+  voidedAt: string | null;
+  voidedBy: string | null;
+  /** Set when this receipt was issued to replace a voided one (chain link —
+   * see IssueReceiptInput.reissuedFrom). null on a normal, non-reissue receipt. */
+  reissuedFromReceiptId: string | null;
+  createdBy: string | null;
+  createdAt: string;
+  // ---- from v_oem_receipt's join (not stored on oem_receipt itself) ----
+  /** quote_no of quoteId's CURRENT row (may differ from quoteNoSnapshot —
+   * see that field's comment). */
+  quoteNo: string;
+  /** Whether the quote row this receipt points at (quoteId, not the deal's
+   * current active row) is still active (status <> 'superseded'). Describes
+   * ONE row, not the whole deal — see v_oem_receipt's header comment in 0084. */
+  isDealActive: boolean;
+}
+
+/** analytics.oem_receipt_issue (0084) — the ONLY way a receipt is created.
+ * Every amount/date gate (paid-so-far vs. grand_total, received_date not in
+ * the future, seller/buyer completeness) is enforced server-side; this input
+ * shape is belt-and-braces validated client-side first, same posture as
+ * every other write in lib/actions/oem.ts. */
+export interface IssueReceiptInput {
+  quoteId: string;
+  /** Gross amount actually received (VAT-inclusive), > 0, <= 100,000,000
+   * (matches the DB's own range check — see 0084's NaN-safety comment). */
+  amountThb: number;
+  /** ISO date (YYYY-MM-DD), Bangkok calendar date, must not be in the future. */
+  receivedDate: string;
+  kind: OemReceiptKind;
+  paymentMethod?: OemReceiptPaymentMethod | null;
+  paymentRef?: string | null;
+  /** Overrides the RPC's auto-generated Thai sentence when non-empty. */
+  description?: string | null;
+  /** Set only when reissuing to replace a voided receipt — must point at a
+   * receipt already in 'void' status in this shop, not yet reissued from. */
+  reissuedFrom?: string | null;
+}
+
+/** analytics.oem_receipt_void (0084) — issued -> void, one-way, reason
+ * mandatory (DB-enforced). There is no "undo void" — a mistaken void must be
+ * followed by a fresh issueReceipt (optionally chained via reissuedFrom). */
+export interface VoidReceiptInput {
+  receiptId: string;
+  reason: string;
 }

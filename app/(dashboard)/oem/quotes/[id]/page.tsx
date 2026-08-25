@@ -1,5 +1,5 @@
 import { Lock } from "lucide-react";
-import { getOemProvinces, getQuote, getQuoteItems, getSellerProfile } from "@/lib/actions/oem";
+import { getOemProvinces, getQuote, getQuoteItems, getReceipts, getSellerProfile } from "@/lib/actions/oem";
 import { getDevRole } from "@/lib/dev/context";
 import { EMPTY_SELLER_PROFILE } from "@/lib/oem/sellerProfile";
 import type { OemDepositMode } from "@/lib/oem/types";
@@ -24,9 +24,9 @@ export default async function OemQuoteDetailPage({ params }: { params: Promise<{
 
   const { id } = await params;
 
-  let quoteResult, itemsResult, provincesResult, sellerResult;
+  let quoteResult, itemsResult, provincesResult, sellerResult, receiptsResult;
   try {
-    [quoteResult, itemsResult, provincesResult, sellerResult] = await Promise.all([
+    [quoteResult, itemsResult, provincesResult, sellerResult, receiptsResult] = await Promise.all([
       getQuote(id),
       getQuoteItems(id),
       getOemProvinces(),
@@ -34,12 +34,19 @@ export default async function OemQuoteDetailPage({ params }: { params: Promise<{
       // (breakdown requires sellerVatRegistered=true — same rule the RPC
       // itself enforces, see setQuoteVatMode's comment).
       getSellerProfile(),
+      // 0084: every receipt for this DEAL (whole renegotiation chain, not
+      // just this row's own quote_id — see getReceipts' comment).
+      getReceipts(id),
     ]);
   } catch (err) {
     return <ErrorState message={err instanceof Error ? err.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"} />;
   }
   if (!quoteResult.ok) return <ErrorState message={quoteResult.error} />;
   if (!itemsResult.ok) return <ErrorState message={itemsResult.error} />;
+  // Degrade, don't block the whole quote page over the receipt list — same
+  // posture as provinces/seller profile below.
+  if (!receiptsResult.ok) console.error("getReceipts failed:", receiptsResult.error);
+  const receipts = receiptsResult.ok ? receiptsResult.data : [];
   // Degrade, don't block the whole quote page over the province dropdown —
   // BillingDialog falls back to a free-text field when this is empty (see
   // its own comment).
@@ -75,6 +82,7 @@ export default async function OemQuoteDetailPage({ params }: { params: Promise<{
       provinces={provinces}
       sellerProfile={sellerProfile}
       parentDeposit={parentDeposit}
+      receipts={receipts}
     />
   );
 }

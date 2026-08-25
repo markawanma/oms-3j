@@ -3,11 +3,19 @@
 // RenegotiateDialog — QuoteDetailClient's "ลูกค้าต่อราคา" action (T6v2).
 // Calls oem_quote_renegotiate (0075): copies the quoted items verbatim into a
 // NEW quote row with a different discount, marks the original 'superseded'.
-// Only shown for a 'quoted', not-yet-expired quote (page-level gate; the RPC
-// re-checks both server-side).
+// Shown for a 'quoted' (not-yet-expired) OR 'won' quote (0085 opened 'won'
+// too, at the owner's explicit request — see QuoteDetailClient's
+// canRenegotiate comment); the RPC re-checks both server-side.
+//
+// 0085: renegotiating a 'won' deal that already has money collected can push
+// outstandingThb NEGATIVE (grand_total drops below what was already
+// received) — the DB deliberately does NOT block this (0084 header §3, "ต่อ
+// ได้ แต่ขึ้นคำเตือนตัวใหญ่ ไม่ block"), so `hasReceivedPayment` renders that
+// warning here, right before the confirm button, not just on the page behind it.
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { AlertTriangle } from "lucide-react";
 import { renegotiateQuote } from "@/lib/actions/oem";
 import type { OemQuoteRow } from "@/lib/oem/types";
 import { formatTHB } from "@/lib/format";
@@ -15,7 +23,15 @@ import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
 
-export function RenegotiateDialog({ quote, onClose }: { quote: OemQuoteRow; onClose: () => void }) {
+export function RenegotiateDialog({
+  quote,
+  hasReceivedPayment = false,
+  onClose,
+}: {
+  quote: OemQuoteRow;
+  hasReceivedPayment?: boolean;
+  onClose: () => void;
+}) {
   const router = useRouter();
   const toast = useToast();
   const [discountThb, setDiscountThb] = useState(String(quote.discountThb || 0));
@@ -44,6 +60,16 @@ export function RenegotiateDialog({ quote, onClose }: { quote: OemQuoteRow; onCl
         ใบเดิม ({quote.quoteNo}) จะถูกทำเครื่องหมายว่า &quot;ถูกแทนที่&quot; และออกใบใหม่แทน — รายการ/ราคาต่อชิ้นยังคงเดิม เปลี่ยนได้เฉพาะส่วนลด
       </p>
       <p className="mt-1 text-xs text-zinc-400">ยอดก่อนส่วนลดเดิม {formatTHB(quote.quoteTotal ?? 0)}</p>
+
+      {hasReceivedPayment && (
+        <div className="mt-3 flex items-start gap-2 rounded-md border-2 border-amber-400 bg-amber-50 px-3 py-2.5">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" aria-hidden="true" />
+          <p className="text-xs text-amber-800">
+            ใบนี้รับเงินไปแล้ว {formatTHB(quote.paidThb ?? 0)} — ถ้ายอดสุทธิใหม่ต่ำกว่ายอดที่รับไปแล้ว ยอดคงค้างจะติดลบ (ร้านต้องคืนเงินลูกค้า) ระบบไม่มีขั้นตอน
+            คืนเงิน/ใบลดหนี้อัตโนมัติ ต้องจัดการเองนอกระบบ
+          </p>
+        </div>
+      )}
 
       <label htmlFor="oem-renegotiate-discount" className="mt-3 block text-sm font-medium text-zinc-700">
         ส่วนลดใหม่ (บาท)
