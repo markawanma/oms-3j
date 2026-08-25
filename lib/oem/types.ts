@@ -417,6 +417,42 @@ export interface SetQuoteStatusInput {
   lostTo?: string | null;
 }
 
+// ============================================================================
+// Deposit (0081: analytics.oem_quote.deposit_mode/deposit_input +
+// analytics.oem_quote_set_deposit). Only 'draft'/'quoted' quotes accept a
+// write here — the RPC rejects every other status (won/lost/rejected/
+// expired/superseded), same reasoning as vat_mode below: those are closed
+// documents, no retroactive money edits.
+// ============================================================================
+
+export type OemDepositMode = "pct" | "thb";
+
+export interface SetQuoteDepositInput {
+  quoteId: string;
+  /** null clears the deposit entirely (oem_quote_set_deposit's p_mode=null
+   * branch) — input is ignored/must be null in that case. */
+  mode: OemDepositMode | null;
+  /** 'pct': a FRACTION 0-1 (0.5 = 50%) — the caller (DepositDialog) is
+   * responsible for dividing the 0-100 the user typed by 100 before this is
+   * built; nothing in this action layer/UI may let a user type 0.5 directly.
+   * 'thb': a THB amount, > 0, must not exceed the quote's current
+   * grandTotal (also re-checked server-side, the real gate). */
+  input: number | null;
+}
+
+// ============================================================================
+// VAT display mode (0082: analytics.oem_quote.vat_mode/vat_rate +
+// analytics.oem_quote_set_vat_mode). grandTotal never changes with this —
+// display only. Only 'draft'/'quoted' quotes accept a write; 'breakdown' is
+// additionally rejected server-side when the shop hasn't ticked
+// sellerVatRegistered yet (see SellerProfile.vatRegistered).
+// ============================================================================
+
+export interface SetQuoteVatModeInput {
+  quoteId: string;
+  mode: "included" | "breakdown";
+}
+
 /** oem_quote_renegotiate (0075) — issues a NEW quote row (new quote_no) with
  * a different discount, copying the original's items verbatim (no
  * recompute — the customer was quoted at the rates live on the original
@@ -516,8 +552,61 @@ export interface OemQuoteRow {
   parentQuoteNo: string | null;
   rootQuoteId: string | null;
   customerId: string | null;
-  /** Display-only — no VAT arithmetic anywhere in this app yet. */
-  vatMode: "add_7" | "included" | "none";
+  /** 0082: 'included' (default — document writes one line: "ราคารวม VAT
+   * แล้ว") or 'breakdown' (document splits into pre-VAT price / VAT / net).
+   * grandTotal is identical either way — this only controls how the print
+   * page presents it. Write via setQuoteVatMode (draft/quoted only;
+   * 'breakdown' additionally requires the shop to have
+   * sellerVatRegistered=true). NOTE: this migration NARROWED the DB
+   * constraint from 3 values ('add_7'/'included'/'none', 0075, never
+   * wired to any arithmetic) down to these 2 — 'add_7'/'none' are no
+   * longer legal values anywhere, DB or app. */
+  vatMode: "included" | "breakdown";
+  /** 0082: snapshot of the VAT rate this quote was priced/issued under
+   * (e.g. 0.07 = 7%) — NOT a live constant. Re-derive every "7%" label from
+   * this field (fmtPct(vatRate)), never hardcode "7%" in a component: an
+   * old quote issued under a different rate must keep printing that rate
+   * verbatim, forever, even after the country's VAT rate changes and new
+   * quotes start at a new default. */
+  vatRate: number;
+  /** 0082: grandTotal computed backward through (1 + vatRate), rounded once
+   * — see v_oem_quote's header comment for why this must never be
+   * recomputed client-side (independent rounding of base and amount can
+   * disagree with grandTotal by 1 satang). null only when grandTotal is
+   * null (never priced yet). */
+  vatBaseThb: number | null;
+  /** 0082: grandTotal - vatBaseThb (the REMAINDER, not a second independent
+   * round) — vatBaseThb + vatAmountThb === grandTotal exactly, always. Read
+   * this directly; do not derive vatAmountThb = round(vatBaseThb * vatRate)
+   * yourself, it can be off by 1 satang from grandTotal. */
+  vatAmountThb: number | null;
+  /** 0081: RAW user input, not a computed amount — 'pct': fraction 0-1
+   * (0.5 = 50%). 'thb': a flat THB amount. null = this quote has no deposit
+   * configured. Write via setQuoteDeposit (draft/quoted only). */
+  depositMode: OemDepositMode | null;
+  depositInput: number | null;
+  /** 0081: computed server-side from depositMode/depositInput against the
+   * CURRENT grandTotal (v_oem_quote) — null when depositMode is null OR
+   * grandTotal is null. Never recompute this client-side (see
+   * balanceThb's comment — grandTotal can change on renegotiate, and this
+   * number must always match what the view says NOW, not what it said when
+   * the deposit was set). */
+  depositAmountThb: number | null;
+  /** 0081: depositMode/depositInput normalized to a fraction 0-1 either way
+   * ('pct' passes depositInput through; 'thb' divides by grandTotal) — the
+   * number to feed fmtPct() for a "มัดจำ 50%"-style label regardless of
+   * which mode the user chose. null under the same conditions as
+   * depositAmountThb. */
+  depositPctEffective: number | null;
+  /** 0081: grandTotal - depositAmountThb. DELIBERATELY not clamped to 0 —
+   * can go NEGATIVE if the deposit was set as a flat THB amount and the
+   * quote was later renegotiated down below that amount (oem_quote_renegotiate
+   * clamps depositInput down to the new grandTotal when it can, but a
+   * quote edited via oem_quote_save on a draft is NOT re-clamped — see
+   * 0081's column comment). Any UI showing this MUST warn when < 0, never
+   * silently floor it at 0. null under the same conditions as
+   * depositAmountThb. */
+  balanceThb: number | null;
   itemCount: number;
   // ---- 0077 additions (v_oem_quote LEFT JOIN analytics.oem_customer) ----
   // Populated only after setQuoteBilling has been called on this quote at

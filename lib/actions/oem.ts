@@ -42,7 +42,9 @@ import type {
   SaveMetalPriceInput,
   SaveQuoteInput,
   SetQuoteBillingInput,
+  SetQuoteDepositInput,
   SetQuoteStatusInput,
+  SetQuoteVatModeInput,
   UpsertOemRateInput,
   UpsertOemSettingInput,
 } from "@/lib/oem/types";
@@ -889,7 +891,21 @@ function mapQuoteRow(r: Record<string, unknown>): OemQuoteRow {
     parentQuoteNo: (r.parent_quote_no as string | null) ?? null,
     rootQuoteId: (r.root_quote_id as string | null) ?? null,
     customerId: (r.customer_id as string | null) ?? null,
+    // 0082: constraint narrowed to 2 values ('included'/'breakdown') — the
+    // ?? fallback below only ever protects against a pre-0075 null, same as
+    // before, never against a legal-but-unrecognized 3rd value anymore.
     vatMode: (r.vat_mode as OemQuoteRow["vatMode"]) ?? "included",
+    vatRate: r.vat_rate == null ? 0.07 : Number(r.vat_rate),
+    vatBaseThb: r.vat_base_thb == null ? null : Number(r.vat_base_thb),
+    vatAmountThb: r.vat_amount_thb == null ? null : Number(r.vat_amount_thb),
+    // 0081: deposit_mode/deposit_input are the RAW inputs the owner typed —
+    // deposit_amount_thb/deposit_pct_effective/balance_thb are computed
+    // fresh by v_oem_quote every read (never re-derive them here).
+    depositMode: (r.deposit_mode as OemQuoteRow["depositMode"]) ?? null,
+    depositInput: r.deposit_input == null ? null : Number(r.deposit_input),
+    depositAmountThb: r.deposit_amount_thb == null ? null : Number(r.deposit_amount_thb),
+    depositPctEffective: r.deposit_pct_effective == null ? null : Number(r.deposit_pct_effective),
+    balanceThb: r.balance_thb == null ? null : Number(r.balance_thb),
     itemCount: r.item_count == null ? 0 : Number(r.item_count),
     // 0077: appended columns, LEFT JOINed off oem_customer — all null until
     // setQuoteBilling has been called once for this quote.
@@ -903,8 +919,11 @@ function mapQuoteRow(r: Record<string, unknown>): OemQuoteRow {
   };
 }
 
+// 0081/0082: appended at the end, past bill_address — matches v_oem_quote's
+// own append-only column order (42P16: view select lists can't be reordered
+// without a drop/recreate, so both migrations added their new columns last).
 const QUOTE_COLUMNS =
-  "id, quote_no, customer_name, customer_contact, input, calc, cost_piece, price_per_piece, nre_cost, nre_price, pieces_subtotal, quote_total, margin_actual_pct, margin_charged_pct, q_run, flask_count, plating_batch_count, status, approval_note, approved_by, quote_valid_until, lost_reason, lost_to, is_expired, days_left, is_expired_th, days_left_th, created_at, updated_at, discount_thb, discount_reason, grand_total, margin_after_discount_pct, parent_quote_id, parent_quote_no, root_quote_id, customer_id, vat_mode, item_count, bill_legal_name, bill_tax_id, bill_phone, bill_contact_channel, bill_address";
+  "id, quote_no, customer_name, customer_contact, input, calc, cost_piece, price_per_piece, nre_cost, nre_price, pieces_subtotal, quote_total, margin_actual_pct, margin_charged_pct, q_run, flask_count, plating_batch_count, status, approval_note, approved_by, quote_valid_until, lost_reason, lost_to, is_expired, days_left, is_expired_th, days_left_th, created_at, updated_at, discount_thb, discount_reason, grand_total, margin_after_discount_pct, parent_quote_id, parent_quote_no, root_quote_id, customer_id, vat_mode, item_count, bill_legal_name, bill_tax_id, bill_phone, bill_contact_channel, bill_address, deposit_mode, deposit_input, deposit_amount_thb, deposit_pct_effective, balance_thb, vat_rate, vat_base_thb, vat_amount_thb";
 
 function mapQuoteItemRow(r: Record<string, unknown>): OemQuoteItemRow {
   return {
@@ -1146,6 +1165,117 @@ export async function setQuoteStatus(input: SetQuoteStatusInput): Promise<Action
   } catch (err) {
     console.error("setQuoteStatus failed", err);
     return { ok: false, error: "เปลี่ยนสถานะใบเสนอราคาไม่สำเร็จ ลองใหม่อีกครั้ง" };
+  }
+}
+
+// ============================================================================
+// Deposit (0081) — oem_quote_set_deposit RPC. Same gate pattern as
+// setQuoteStatus above: server-side is the real enforcement (draft/quoted
+// only, thb amount not exceeding grandTotal) — this layer only adds
+// belt-and-braces so a bad request doesn't even leave the browser, same
+// posture as every other write in this file (see the module header).
+// ============================================================================
+
+export async function setQuoteDeposit(input: SetQuoteDepositInput): Promise<ActionResult> {
+  const gateErr = requireOwnerAdmin();
+  if (gateErr) return gateErr;
+
+  if (!input?.quoteId) return { ok: false, error: "ไม่พบใบเสนอราคา" };
+
+  // p_mode=null clears the deposit — oem_quote_set_deposit's own branch,
+  // p_input is ignored server-side either way, sent as null here too so the
+  // RPC call shape stays honest about what "clear" means.
+  if (input.mode === null) {
+    try {
+      const shopId = getDevShopId();
+      const supabase = getServiceClient();
+      const { error } = await supabase.schema(SCHEMA).rpc("oem_quote_set_deposit", {
+        p_shop_id: shopId,
+        p_quote_id: input.quoteId,
+        p_mode: null,
+        p_input: null,
+      });
+      if (error) {
+        if ((error as { code?: string }).code === "22023") return { ok: false, error: error.message };
+        throw error;
+      }
+      revalidateOemPaths();
+      return { ok: true, data: undefined };
+    } catch (err) {
+      console.error("setQuoteDeposit (clear) failed", err);
+      return { ok: false, error: "ล้างมัดจำไม่สำเร็จ ลองใหม่อีกครั้ง" };
+    }
+  }
+
+  if (input.mode !== "pct" && input.mode !== "thb") {
+    return { ok: false, error: "โหมดมัดจำต้องเป็นเปอร์เซ็นต์หรือจำนวนเงิน" };
+  }
+  const value = toNum(input.input);
+  if (value === null || value <= 0) return { ok: false, error: "จำนวนมัดจำต้องมากกว่า 0" };
+  // 0081: pct mode is a FRACTION 0-1 here (the DepositDialog caller already
+  // divided the 0-100 the user typed by 100) — this mirrors
+  // oem_quote_set_deposit's own p_input <= 1 check for pct, catching a
+  // caller bug (e.g. forgetting to divide) before it round-trips to Postgres.
+  if (input.mode === "pct" && value > 1) {
+    return { ok: false, error: "สัดส่วนมัดจำต้องไม่เกิน 100%" };
+  }
+
+  try {
+    const shopId = getDevShopId();
+    const supabase = getServiceClient();
+    const { error } = await supabase.schema(SCHEMA).rpc("oem_quote_set_deposit", {
+      p_shop_id: shopId,
+      p_quote_id: input.quoteId,
+      p_mode: input.mode,
+      p_input: value,
+    });
+    if (error) {
+      // 22023 covers the RPC's own "แก้ได้เฉพาะ draft/quoted" gate + the
+      // "มัดจำเกินยอดรวม" gate — both are controlled Thai messages, safe verbatim.
+      if ((error as { code?: string }).code === "22023") return { ok: false, error: error.message };
+      throw error;
+    }
+    revalidateOemPaths();
+    return { ok: true, data: undefined };
+  } catch (err) {
+    console.error("setQuoteDeposit failed", err);
+    return { ok: false, error: "บันทึกมัดจำไม่สำเร็จ ลองใหม่อีกครั้ง" };
+  }
+}
+
+// ============================================================================
+// VAT display mode (0082) — oem_quote_set_vat_mode RPC. 'breakdown' is
+// rejected server-side (22023) when the shop hasn't ticked
+// sellerVatRegistered — surfaced verbatim below, same as every other
+// controlled Thai validation message in this file.
+// ============================================================================
+
+export async function setQuoteVatMode(input: SetQuoteVatModeInput): Promise<ActionResult> {
+  const gateErr = requireOwnerAdmin();
+  if (gateErr) return gateErr;
+
+  if (!input?.quoteId) return { ok: false, error: "ไม่พบใบเสนอราคา" };
+  if (input.mode !== "included" && input.mode !== "breakdown") {
+    return { ok: false, error: "รูปแบบภาษีไม่ถูกต้อง" };
+  }
+
+  try {
+    const shopId = getDevShopId();
+    const supabase = getServiceClient();
+    const { error } = await supabase.schema(SCHEMA).rpc("oem_quote_set_vat_mode", {
+      p_shop_id: shopId,
+      p_quote_id: input.quoteId,
+      p_mode: input.mode,
+    });
+    if (error) {
+      if ((error as { code?: string }).code === "22023") return { ok: false, error: error.message };
+      throw error;
+    }
+    revalidateOemPaths();
+    return { ok: true, data: undefined };
+  } catch (err) {
+    console.error("setQuoteVatMode failed", err);
+    return { ok: false, error: "เปลี่ยนรูปแบบภาษีไม่สำเร็จ ลองใหม่อีกครั้ง" };
   }
 }
 

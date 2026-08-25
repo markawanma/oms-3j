@@ -13,8 +13,9 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, ChevronDown, ChevronUp, Pencil, Printer } from "lucide-react";
 import { setQuoteStatus } from "@/lib/actions/oem";
-import type { OemProvinceOption, OemQuoteItemRow, OemQuoteRow } from "@/lib/oem/types";
+import type { OemDepositMode, OemProvinceOption, OemQuoteItemRow, OemQuoteRow } from "@/lib/oem/types";
 import { OEM_BAR_SIZE_LABEL_TH, OEM_METAL_LABEL_TH, OEM_QUOTE_STATUS_LABEL_TH } from "@/lib/oem/types";
+import type { SellerProfile } from "@/lib/oem/sellerProfile";
 import { formatBangkokTime, formatTHB } from "@/lib/format";
 import { formatThaiDateOnly } from "@/lib/tiktok/format";
 import { fmtPct, formatOemAddressLines } from "@/lib/oem/display";
@@ -27,6 +28,26 @@ import { OemCalcBreakdown } from "./OemCalcBreakdown";
 import { LostQuoteDialog } from "./LostQuoteDialog";
 import { RenegotiateDialog } from "./RenegotiateDialog";
 import { BillingDialog } from "./BillingDialog";
+import { DepositDialog } from "./DepositDialog";
+import { VatModeDialog } from "./VatModeDialog";
+
+/** RAW deposit fields (mode + input, never the computed amount) of the
+ * quote's parent, when it has one — used only to detect the 0081 renegotiate
+ * clamp (see this file's depositChangedFromParent). null when this quote has
+ * no parent, or the parent failed to load. */
+export interface ParentDepositInfo {
+  mode: OemDepositMode | null;
+  input: number | null;
+}
+
+/** "มัดจำ 50%" / "มัดจำ ฿5,000" / "ไม่มีมัดจำ" — formats a RAW deposit
+ * mode+input pair (never a computed amount) for the renegotiate-clamp
+ * warning banner. Safe to call with either this quote's own fields or the
+ * parent's — both are plain stored values, not money derived here. */
+function depositInputLabel(mode: OemDepositMode | null, input: number | null): string {
+  if (mode == null || input == null) return "ไม่มีมัดจำ";
+  return mode === "pct" ? `มัดจำ ${fmtPct(input)}` : `มัดจำ ${formatTHB(input)}`;
+}
 
 const STATUS_TONE: Record<OemQuoteRow["status"], BadgeTone> = {
   draft: "slate",
@@ -42,16 +63,22 @@ export function QuoteDetailClient({
   quote,
   items,
   provinces,
+  sellerProfile,
+  parentDeposit,
 }: {
   quote: OemQuoteRow;
   items: OemQuoteItemRow[];
   provinces: OemProvinceOption[];
+  sellerProfile: SellerProfile;
+  parentDeposit: ParentDepositInfo | null;
 }) {
   const router = useRouter();
   const toast = useToast();
   const [lostOpen, setLostOpen] = useState(false);
   const [renegotiateOpen, setRenegotiateOpen] = useState(false);
   const [billingOpen, setBillingOpen] = useState(false);
+  const [depositOpen, setDepositOpen] = useState(false);
+  const [vatModeOpen, setVatModeOpen] = useState(false);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [wonPending, startWon] = useTransition();
 
@@ -95,6 +122,19 @@ export function QuoteDetailClient({
   // printable (with a watermark, handled on the print page itself).
   const canOpenPrint = quote.status !== "draft";
   const billAddressLines = formatOemAddressLines(quote.billAddress);
+  // 0081/0082: oem_quote_set_deposit / oem_quote_set_vat_mode both hard-gate
+  // status IN ('draft','quoted') server-side — mirror that here so these two
+  // buttons never open a dialog that can only ever fail with a Thai error.
+  const canEditFinancials = quote.status === "draft" || quote.status === "quoted";
+  // 0081 §6: oem_quote_renegotiate clamps (or clears) a THB-mode deposit
+  // down when the new grand_total can't cover the parent's deposit_input —
+  // silently, with no warning channel back through the RPC. Detect it here
+  // by comparing this quote's RAW deposit fields against its parent's (both
+  // raw stored values, never a computed amount — see ParentDepositInfo).
+  const depositChangedFromParent =
+    !!quote.parentQuoteId &&
+    parentDeposit != null &&
+    (parentDeposit.mode !== quote.depositMode || parentDeposit.input !== quote.depositInput);
 
   return (
     <div className="space-y-4">
@@ -331,6 +371,83 @@ export function QuoteDetailClient({
             </div>
           )}
         </dl>
+
+        {/* 0082: VAT display mode — grandTotal above never changes with this,
+            said explicitly so the owner doesn't worry a click here moves the
+            price (see VatModeDialog). */}
+        <div className="mt-3 border-t border-zinc-200 pt-3">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs font-semibold text-zinc-600">
+              ภาษีมูลค่าเพิ่ม: {quote.vatMode === "breakdown" ? `แยกแสดง (VAT ${fmtPct(quote.vatRate)})` : "รวมในราคาเดียว"}
+            </p>
+            {canEditFinancials && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="border border-zinc-300"
+                onClick={() => setVatModeOpen(true)}
+              >
+                <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
+                เปลี่ยน
+              </Button>
+            )}
+          </div>
+          {quote.vatMode === "breakdown" && quote.vatBaseThb != null && quote.vatAmountThb != null && (
+            <dl className="mt-1.5 space-y-0.5 text-xs text-zinc-500">
+              <div className="flex justify-between">
+                <dt>ราคาก่อน VAT</dt>
+                <dd className="tabular-nums">{formatTHB(quote.vatBaseThb)}</dd>
+              </div>
+              <div className="flex justify-between">
+                <dt>VAT {fmtPct(quote.vatRate)}</dt>
+                <dd className="tabular-nums">{formatTHB(quote.vatAmountThb)}</dd>
+              </div>
+            </dl>
+          )}
+          <p className="mt-1 text-[11px] text-zinc-400">เปลี่ยนโหมดนี้ไม่กระทบยอดที่ลูกค้าจ่าย แค่เปลี่ยนวิธีแสดงในเอกสาร</p>
+        </div>
+
+        {/* 0081: มัดจำ — depositAmountThb/balanceThb read STRAIGHT off the
+            view (v_oem_quote), never computed here (see this file's header
+            + depositInputLabel). */}
+        <div className="mt-3 border-t border-zinc-200 pt-3">
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs font-semibold text-zinc-600">มัดจำ</p>
+            {canEditFinancials && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="border border-zinc-300"
+                onClick={() => setDepositOpen(true)}
+              >
+                <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
+                {quote.depositMode ? "แก้ไข" : "ตั้งมัดจำ"}
+              </Button>
+            )}
+          </div>
+          {quote.depositMode && quote.depositAmountThb != null && quote.balanceThb != null ? (
+            <p className="mt-1 text-sm text-zinc-800">
+              มัดจำ {quote.depositPctEffective != null ? fmtPct(quote.depositPctEffective) : "—"} = {formatTHB(quote.depositAmountThb)} ·
+              คงเหลือ{" "}
+              <span className={quote.balanceThb < 0 ? "font-semibold text-red-600" : ""}>{formatTHB(quote.balanceThb)}</span>
+            </p>
+          ) : (
+            <p className="mt-1 text-xs text-zinc-400">ยังไม่ได้ตั้งมัดจำสำหรับใบนี้</p>
+          )}
+          {quote.balanceThb != null && quote.balanceThb < 0 && (
+            <p className="mt-1.5 rounded-md bg-red-50 px-2.5 py-1.5 text-xs text-red-700">
+              ยอดคงเหลือติดลบ — มัดจำที่ตั้งไว้ (เป็นจำนวนเงิน) มากกว่ายอดสุทธิปัจจุบันแล้ว ตรวจสอบ/แก้ไขมัดจำก่อนส่งเอกสารให้ลูกค้า
+            </p>
+          )}
+          {depositChangedFromParent && (
+            <p className="mt-1.5 rounded-md bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800">
+              มัดจำของใบนี้ถูกปรับจากใบเดิมอัตโนมัติตอนต่อราคา (ใบเดิม {depositInputLabel(parentDeposit!.mode, parentDeposit!.input)} → ใบนี้{" "}
+              {depositInputLabel(quote.depositMode, quote.depositInput)}) เพราะยอดใหม่เปลี่ยนไป — ตรวจสอบก่อนแจ้งลูกค้า
+            </p>
+          )}
+        </div>
       </section>
 
       {(quote.status === "quoted" || canRenegotiate) && (
@@ -373,6 +490,29 @@ export function QuoteDetailClient({
           onClose={() => setBillingOpen(false)}
           onSaved={() => {
             setBillingOpen(false);
+            router.refresh();
+          }}
+        />
+      )}
+
+      {depositOpen && (
+        <DepositDialog
+          quote={quote}
+          onClose={() => setDepositOpen(false)}
+          onSaved={() => {
+            setDepositOpen(false);
+            router.refresh();
+          }}
+        />
+      )}
+
+      {vatModeOpen && (
+        <VatModeDialog
+          quote={quote}
+          sellerProfile={sellerProfile}
+          onClose={() => setVatModeOpen(false)}
+          onSaved={() => {
+            setVatModeOpen(false);
             router.refresh();
           }}
         />

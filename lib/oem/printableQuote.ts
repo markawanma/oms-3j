@@ -116,6 +116,33 @@ export interface PrintableQuote {
    * "0078 NARROW EXCEPTION" note — never any other field off calc). */
   silverPriceAsOf: string | null;
   silverPriceCapturedAt: string | null;
+  /** 0082: 'included' (one line, "ราคารวม VAT แล้ว") or 'breakdown' (splits
+   * into pre-VAT price / VAT / net) — grandTotal above is IDENTICAL either
+   * way, this only controls which block PrintQuoteClient renders. */
+  vatMode: "included" | "breakdown";
+  /** 0082: snapshot rate this quote was issued under (e.g. 0.07) — derive
+   * every "7%" label from this, never hardcode it (see OemQuoteRow.vatRate's
+   * comment: an old quote must keep printing the rate it was issued at). */
+  vatRate: number;
+  /** 0082: pre-VAT price, computed server-side (v_oem_quote) off grandTotal
+   * — null only when grandTotal itself is null. Print-only when
+   * vatMode='breakdown'; not a cost figure (see this file's header — this is
+   * the customer-facing pre-tax PRICE, unrelated to costPiece/cost_piece). */
+  vatBaseThb: number | null;
+  /** 0082: grandTotal - vatBaseThb (the remainder, not independently
+   * rounded — see v_oem_quote's header for why that distinction matters). */
+  vatAmountThb: number | null;
+  /** 0081: computed deposit amount (v_oem_quote's deposit_amount_thb) — null
+   * when this quote has no deposit configured. Print-only, never re-derive
+   * from a percentage client-side (see OemQuoteRow.depositAmountThb). */
+  depositAmountThb: number | null;
+  /** 0081: deposit as a 0-1 fraction regardless of how it was entered (pct
+   * or thb) — feed straight into fmtPct() for the "มัดจำ 50%" label. */
+  depositPctEffective: number | null;
+  /** 0081: grandTotal - depositAmountThb, NOT clamped to 0 — PrintQuoteClient
+   * must show this AS-IS (including negative) with a visible warning, never
+   * floor it at 0 (see that component's rendering of this field). */
+  balanceThb: number | null;
 }
 
 function toPrintableQuoteItem(row: OemQuoteItemRow): PrintableQuoteItem {
@@ -174,5 +201,12 @@ export function toPrintableQuote(quote: OemQuoteRow, items: OemQuoteItemRow[]): 
     items: items.map(toPrintableQuoteItem),
     silverPriceAsOf: barSnapshot?.asOfDate ?? null,
     silverPriceCapturedAt: barSnapshot?.capturedAt ?? null,
+    vatMode: quote.vatMode,
+    vatRate: quote.vatRate,
+    vatBaseThb: quote.vatBaseThb,
+    vatAmountThb: quote.vatAmountThb,
+    depositAmountThb: quote.depositAmountThb,
+    depositPctEffective: quote.depositPctEffective,
+    balanceThb: quote.balanceThb,
   };
 }

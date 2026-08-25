@@ -67,7 +67,7 @@ import type { PrintableQuote } from "@/lib/oem/printableQuote";
 import { OEM_METAL_LABEL_TH } from "@/lib/oem/types";
 import type { SellerProfile } from "@/lib/oem/sellerProfile";
 import { missingSellerFields, previewSellerProfile } from "@/lib/oem/sellerProfile";
-import { formatOemAddressLines } from "@/lib/oem/display";
+import { fmtPct, formatOemAddressLines } from "@/lib/oem/display";
 import { formatBangkokTimeOnly, formatTHB } from "@/lib/format";
 import { formatThaiDateOnly } from "@/lib/tiktok/format";
 import { Button } from "@/components/ui/Button";
@@ -337,7 +337,11 @@ export function PrintQuoteClient({ quote, sellerProfile }: { quote: PrintableQuo
           </tbody>
         </table>
 
-        {/* totals — every figure read straight off `quote`, nothing summed here */}
+        {/* totals — every figure read straight off `quote`, nothing summed here.
+            0082: VAT breakdown gated on effectiveSeller.vatRegistered (same
+            live gate the "included" one-liner below always used) — if a shop
+            somehow reprints after un-registering, this app still refuses to
+            print VAT arithmetic, same posture as before this migration. */}
         <div className="mt-3 flex justify-end">
           <dl className="w-64 space-y-1 text-sm">
             <div className="flex justify-between">
@@ -360,6 +364,18 @@ export function PrintQuoteClient({ quote, sellerProfile }: { quote: PrintableQuo
                 <dd className="tabular-nums">-{formatTHB(quote.discountThb)}</dd>
               </div>
             )}
+            {effectiveSeller.vatRegistered && quote.vatMode === "breakdown" && quote.vatBaseThb != null && quote.vatAmountThb != null && (
+              <>
+                <div className="flex justify-between text-zinc-600">
+                  <dt>ราคาก่อนภาษีมูลค่าเพิ่ม</dt>
+                  <dd className="tabular-nums">{formatTHB(quote.vatBaseThb)}</dd>
+                </div>
+                <div className="flex justify-between text-zinc-600">
+                  <dt>ภาษีมูลค่าเพิ่ม {fmtPct(quote.vatRate)}</dt>
+                  <dd className="tabular-nums">{formatTHB(quote.vatAmountThb)}</dd>
+                </div>
+              </>
+            )}
             <div className="flex justify-between border-t-2 border-zinc-800 pt-1.5 text-base font-bold">
               <dt className="text-zinc-900">ยอดสุทธิ</dt>
               <dd className="tabular-nums text-zinc-900">
@@ -370,8 +386,35 @@ export function PrintQuoteClient({ quote, sellerProfile }: { quote: PrintableQuo
         </div>
 
         {/* VAT disclosure — legally load-bearing, gated on effectiveSeller.vatRegistered.
-            When false: print NOTHING about VAT (not registered yet = illegal to claim). */}
-        {effectiveSeller.vatRegistered && <p className="mt-2 text-right text-xs text-zinc-500">ราคารวมภาษีมูลค่าเพิ่มแล้ว</p>}
+            When false: print NOTHING about VAT (not registered yet = illegal to claim).
+            0082: 'included' keeps the pre-existing one-liner; 'breakdown' already
+            printed its own base/amount rows above, nothing more to say here. */}
+        {effectiveSeller.vatRegistered && quote.vatMode === "included" && (
+          <p className="mt-2 text-right text-xs text-zinc-500">ราคารวมภาษีมูลค่าเพิ่มแล้ว</p>
+        )}
+
+        {/* 0081: มัดจำ/คงเหลือ — printed only when this quote actually has a
+            deposit configured (depositAmountThb/balanceThb both non-null).
+            balanceThb is shown AS-IS, including negative — never floored to
+            0, with a visible warning, matching QuoteDetailClient's own rule
+            (see PrintableQuote.balanceThb's comment). */}
+        {quote.depositAmountThb != null && quote.balanceThb != null && (
+          <div className="mt-2 flex justify-end">
+            <dl className="w-64 space-y-1 border-t border-dashed border-zinc-300 pt-2 text-xs">
+              <div className="flex justify-between text-zinc-600">
+                <dt>มัดจำ{quote.depositPctEffective != null ? ` ${fmtPct(quote.depositPctEffective)}` : ""}</dt>
+                <dd className="tabular-nums">{formatTHB(quote.depositAmountThb)}</dd>
+              </div>
+              <div className="flex justify-between font-semibold">
+                <dt className={quote.balanceThb < 0 ? "text-red-700" : "text-zinc-700"}>คงเหลือชำระ</dt>
+                <dd className={`tabular-nums ${quote.balanceThb < 0 ? "text-red-700" : "text-zinc-800"}`}>{formatTHB(quote.balanceThb)}</dd>
+              </div>
+              {quote.balanceThb < 0 && (
+                <p className="pt-0.5 text-right text-[10px] font-normal text-red-600">* ยอดคงเหลือติดลบ — ตรวจสอบมัดจำก่อนส่งเอกสารนี้ให้ลูกค้า</p>
+              )}
+            </dl>
+          </div>
+        )}
 
         {effectiveSeller.terms.length > 0 && (
           <div className="mt-6 border-t border-zinc-200 pt-3">
