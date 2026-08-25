@@ -11,13 +11,13 @@
 import { Fragment, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, ChevronDown, ChevronUp } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronUp, Pencil, Printer } from "lucide-react";
 import { setQuoteStatus } from "@/lib/actions/oem";
 import type { OemQuoteItemRow, OemQuoteRow } from "@/lib/oem/types";
 import { OEM_METAL_LABEL_TH, OEM_QUOTE_STATUS_LABEL_TH } from "@/lib/oem/types";
 import { formatBangkokTime, formatTHB } from "@/lib/format";
 import { formatThaiDateOnly } from "@/lib/tiktok/format";
-import { fmtPct } from "@/lib/oem/display";
+import { fmtPct, formatOemAddressLines } from "@/lib/oem/display";
 import { Badge } from "@/components/ui/Badge";
 import type { BadgeTone } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -25,6 +25,7 @@ import { useToast } from "@/components/ui/Toast";
 import { OemCalcBreakdown } from "./OemCalcBreakdown";
 import { LostQuoteDialog } from "./LostQuoteDialog";
 import { RenegotiateDialog } from "./RenegotiateDialog";
+import { BillingDialog } from "./BillingDialog";
 
 const STATUS_TONE: Record<OemQuoteRow["status"], BadgeTone> = {
   draft: "slate",
@@ -41,6 +42,7 @@ export function QuoteDetailClient({ quote, items }: { quote: OemQuoteRow; items:
   const toast = useToast();
   const [lostOpen, setLostOpen] = useState(false);
   const [renegotiateOpen, setRenegotiateOpen] = useState(false);
+  const [billingOpen, setBillingOpen] = useState(false);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [wonPending, startWon] = useTransition();
 
@@ -51,6 +53,13 @@ export function QuoteDetailClient({ quote, items }: { quote: OemQuoteRow; items:
       else next.add(id);
       return next;
     });
+  }
+
+  function openPrintTab() {
+    // window.open (not <Link target="_blank">) so this stays a plain
+    // <button> — nesting an interactive <button> inside an <a> is invalid
+    // HTML and breaks screen-reader navigation.
+    window.open(`/oem/quotes/${quote.id}/print`, "_blank", "noopener,noreferrer");
   }
 
   function markWon() {
@@ -66,6 +75,17 @@ export function QuoteDetailClient({ quote, items }: { quote: OemQuoteRow; items:
   }
 
   const canRenegotiate = quote.status === "quoted" && !quote.isExpired;
+  // oem_quote_set_billing (0075 §7) hard-gates status IN ('quoted','won')
+  // server-side — mirror that here so the edit button never opens a dialog
+  // that can only ever fail. Draft quotes haven't been sent to a customer
+  // yet, and every other status (lost/rejected/expired/superseded) is
+  // already closed — nothing left to bill.
+  const canEditBilling = quote.status === "quoted" || quote.status === "won";
+  // Print/PDF: owner's own rule — nothing below "quoted" has been shown to
+  // a customer yet, so there is nothing worth printing. superseded IS
+  // printable (with a watermark, handled on the print page itself).
+  const canOpenPrint = quote.status !== "draft";
+  const billAddressLines = formatOemAddressLines(quote.billAddress);
 
   return (
     <div className="space-y-4">
@@ -74,10 +94,18 @@ export function QuoteDetailClient({ quote, items }: { quote: OemQuoteRow; items:
           <ArrowLeft className="h-3.5 w-3.5" aria-hidden="true" />
           กลับไปทะเบียนใบเสนอราคา
         </Link>
-        <div className="mt-1 flex flex-wrap items-center gap-2">
-          <h1 className="text-lg font-bold text-zinc-900">{quote.quoteNo}</h1>
-          <Badge tone={STATUS_TONE[quote.status]}>{OEM_QUOTE_STATUS_LABEL_TH[quote.status]}</Badge>
-          {quote.isExpired && <Badge tone="red">หมดอายุแล้ว</Badge>}
+        <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="text-lg font-bold text-zinc-900">{quote.quoteNo}</h1>
+            <Badge tone={STATUS_TONE[quote.status]}>{OEM_QUOTE_STATUS_LABEL_TH[quote.status]}</Badge>
+            {quote.isExpired && <Badge tone="red">หมดอายุแล้ว</Badge>}
+          </div>
+          {canOpenPrint && (
+            <Button type="button" variant="secondary" size="sm" onClick={openPrintTab}>
+              <Printer className="h-3.5 w-3.5" aria-hidden="true" />
+              พิมพ์ / บันทึก PDF
+            </Button>
+          )}
         </div>
         <p className="mt-0.5 text-xs text-zinc-400">
           ใช้เรตต้นทุน ณ วันที่ {formatThaiDateOnly(quote.createdAt.slice(0, 10))} · บันทึกเมื่อ {formatBangkokTime(quote.createdAt)}
@@ -124,6 +152,59 @@ export function QuoteDetailClient({ quote, items }: { quote: OemQuoteRow; items:
           <p className="mt-2 rounded-md bg-red-50 px-2.5 py-1.5 text-xs text-red-700">
             แพ้งาน: {quote.lostReason}
             {quote.lostTo && ` · ได้ไปที่ ${quote.lostTo}`}
+          </p>
+        )}
+      </section>
+
+      <section className="rounded-lg border border-zinc-200 bg-white p-3.5 shadow-sm">
+        <div className="flex items-start justify-between gap-2">
+          <h2 className="text-sm font-bold text-zinc-800">ข้อมูลออกบิล</h2>
+          {canEditBilling && (
+            <Button type="button" variant="ghost" size="sm" className="border border-zinc-300" onClick={() => setBillingOpen(true)}>
+              <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
+              {quote.billLegalName ? "แก้ไข" : "กรอกข้อมูล"}
+            </Button>
+          )}
+        </div>
+        {quote.billLegalName ? (
+          <dl className="mt-2 grid grid-cols-1 gap-x-4 gap-y-1.5 text-sm sm:grid-cols-2">
+            <div>
+              <dt className="text-xs text-zinc-500">ชื่อออกบิล</dt>
+              <dd className="text-zinc-800">{quote.billLegalName}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-zinc-500">เลขประจำตัวผู้เสียภาษี</dt>
+              <dd className="tabular-nums text-zinc-800">{quote.billTaxId || "— (บุคคลธรรมดา)"}</dd>
+            </div>
+            {(quote.billPhone || quote.billContactChannel) && (
+              <div>
+                <dt className="text-xs text-zinc-500">ติดต่อ</dt>
+                <dd className="text-zinc-800">{[quote.billPhone, quote.billContactChannel].filter(Boolean).join(" · ")}</dd>
+              </div>
+            )}
+            {billAddressLines.length > 0 && (
+              <div>
+                <dt className="text-xs text-zinc-500">ที่อยู่</dt>
+                <dd className="text-zinc-800">
+                  {billAddressLines.map((line, i) => (
+                    <span key={i} className="block">
+                      {line}
+                    </span>
+                  ))}
+                </dd>
+              </div>
+            )}
+          </dl>
+        ) : (
+          <p className="mt-2 text-sm text-zinc-500">
+            ยังไม่ได้กรอกข้อมูลออกบิล — ใบพิมพ์จะใช้ชื่อ/ช่องทางติดต่อจาก &quot;ลูกค้า&quot; ด้านบนแทนไปก่อน
+          </p>
+        )}
+        {!canEditBilling && (
+          <p className="mt-2 text-xs text-zinc-400">
+            {quote.status === "draft"
+              ? "กรอกข้อมูลออกบิลได้หลังออกใบเสนอราคาแล้ว (สถานะ \"เสนอราคาแล้ว\" ขึ้นไป)"
+              : "ใบนี้ปิดแล้ว แก้ไขข้อมูลออกบิลไม่ได้"}
           </p>
         )}
       </section>
@@ -268,6 +349,17 @@ export function QuoteDetailClient({ quote, items }: { quote: OemQuoteRow; items:
       )}
 
       {renegotiateOpen && <RenegotiateDialog quote={quote} onClose={() => setRenegotiateOpen(false)} />}
+
+      {billingOpen && (
+        <BillingDialog
+          quote={quote}
+          onClose={() => setBillingOpen(false)}
+          onSaved={() => {
+            setBillingOpen(false);
+            router.refresh();
+          }}
+        />
+      )}
     </div>
   );
 }

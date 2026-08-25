@@ -4,7 +4,7 @@
 // comment for why that rule matters.
 
 import { OEM_METAL_LABEL_TH } from "./types";
-import type { OemInputUnit, OemMetal, OemScopeKind } from "./types";
+import type { OemCustomerAddress, OemInputUnit, OemMetal, OemScopeKind } from "./types";
 
 // ============================================================================
 // group_code ordering (rate intake page) — matches the production sequence
@@ -129,4 +129,68 @@ export function roundTo(n: number, dp: number): number {
 export function fmtPct(n: number | null, dp = 1): string {
   if (n == null) return "—";
   return `${roundTo(n * 100, dp)}%`;
+}
+
+// ============================================================================
+// Billing (0077: analytics.oem_customer, read via v_oem_quote's bill_*
+// columns). oem_quote_set_billing (0075) stores p_customer->'address' as
+// jsonb with ZERO shape validation server-side — whatever the caller sent is
+// stored verbatim (see 0075 §7). Today the only caller is this app's own
+// BillingDialog (which always sends OemCustomerAddress-shaped keys), but any
+// future caller, a manual DB edit, or a pre-existing malformed row must not
+// be able to crash a page that reads it back. parseBillAddress is the one
+// place that defensively narrows `unknown` jsonb into OemCustomerAddress|
+// null — never throws, silently drops anything that doesn't look right.
+// ============================================================================
+
+/** Narrow an unknown jsonb value into OemCustomerAddress, or null if it
+ * isn't a plain object / has no usable string fields. Unknown extra keys are
+ * ignored; non-string values for a known key are treated as absent (not
+ * coerced, not thrown). */
+export function parseBillAddress(raw: unknown): OemCustomerAddress | null {
+  if (raw == null || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const r = raw as Record<string, unknown>;
+  const pick = (key: string): string | null => {
+    const v = r[key];
+    return typeof v === "string" && v.trim() ? v.trim() : null;
+  };
+  const addr: OemCustomerAddress = {
+    line1: pick("line1"),
+    line2: pick("line2"),
+    subdistrict: pick("subdistrict"),
+    district: pick("district"),
+    province: pick("province"),
+    postalCode: pick("postalCode"),
+  };
+  const hasAnyField = Object.values(addr).some((v) => v != null);
+  return hasAnyField ? addr : null;
+}
+
+/** OemCustomerAddress -> printable lines, Thai postal-address convention
+ * (line1/line2 free text, then "ต./อ./จ. + รหัสไปรษณีย์" on one line). Skips
+ * empty lines entirely rather than printing blank rows. */
+export function formatOemAddressLines(addr: OemCustomerAddress | null): string[] {
+  if (!addr) return [];
+  const lines: string[] = [];
+  if (addr.line1) lines.push(addr.line1);
+  if (addr.line2) lines.push(addr.line2);
+  const locality = [
+    addr.subdistrict ? `ต.${addr.subdistrict}` : null,
+    addr.district ? `อ.${addr.district}` : null,
+    addr.province ? `จ.${addr.province}` : null,
+    addr.postalCode ?? null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  if (locality) lines.push(locality);
+  return lines;
+}
+
+/** Thai tax id: exactly 13 digits, or empty (a person, not a registered
+ * business, has none — that's valid, not an error). Used by both
+ * BillingDialog (client) and setQuoteBilling (server) so the rule can never
+ * drift between the two. */
+export function isValidThaiTaxId(taxId: string): boolean {
+  const t = taxId.trim();
+  return t === "" || /^\d{13}$/.test(t);
 }

@@ -202,7 +202,7 @@ export function DashboardShell({
 
   return (
     <div className="flex min-h-screen flex-col">
-      <header className="sticky top-0 z-30 border-b border-zinc-200 bg-white">
+      <header className="sticky top-0 z-30 border-b border-zinc-200 bg-white print:hidden">
         <div className="flex items-center justify-between gap-2 px-4 py-3">
           <div className="flex items-center gap-2">
             <button
@@ -241,11 +241,11 @@ export function DashboardShell({
       </header>
 
       <div className="flex flex-1">
-        <aside className="sticky top-16 hidden h-[calc(100vh-4rem)] w-56 shrink-0 overflow-y-auto border-r border-zinc-200 bg-white md:block">
+        <aside className="sticky top-16 hidden h-[calc(100vh-4rem)] w-56 shrink-0 overflow-y-auto border-r border-zinc-200 bg-white md:block print:hidden">
           <NavList pathname={pathname} />
         </aside>
 
-        <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-4">{children}</main>
+        <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-4 print:max-w-none print:p-0">{children}</main>
       </div>
 
       {drawerOpen && (

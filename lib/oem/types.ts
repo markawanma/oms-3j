@@ -401,6 +401,19 @@ export interface OemQuoteRow {
   /** Display-only — no VAT arithmetic anywhere in this app yet. */
   vatMode: "add_7" | "included" | "none";
   itemCount: number;
+  // ---- 0077 additions (v_oem_quote LEFT JOIN analytics.oem_customer) ----
+  // Populated only after setQuoteBilling has been called on this quote at
+  // least once (customer_id set). null on every quote that hasn't been
+  // billed yet — NOT an error, just "not filled in".
+  billLegalName: string | null;
+  billTaxId: string | null;
+  billPhone: string | null;
+  billContactChannel: string | null;
+  /** Parsed defensively from oem_customer.address (jsonb, never shape-
+   * validated by the RPC that writes it — see lib/oem/display.ts's
+   * parseBillAddress). null if never set OR if the stored jsonb doesn't
+   * look like an OemCustomerAddress at all. */
+  billAddress: OemCustomerAddress | null;
 }
 
 /** analytics.oem_quote_item / v_oem_quote_item (0075) — one priced line per

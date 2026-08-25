@@ -43,6 +43,7 @@ import type {
   UpsertOemRateInput,
   UpsertOemSettingInput,
 } from "@/lib/oem/types";
+import { isValidThaiTaxId, parseBillAddress } from "@/lib/oem/display";
 
 const SCHEMA = "analytics";
 // T4-T6 routes (all `dynamic = "force-dynamic"`, so this is belt-and-braces
@@ -613,11 +614,20 @@ function mapQuoteRow(r: Record<string, unknown>): OemQuoteRow {
     customerId: (r.customer_id as string | null) ?? null,
     vatMode: (r.vat_mode as OemQuoteRow["vatMode"]) ?? "included",
     itemCount: r.item_count == null ? 0 : Number(r.item_count),
+    // 0077: appended columns, LEFT JOINed off oem_customer — all null until
+    // setQuoteBilling has been called once for this quote.
+    billLegalName: (r.bill_legal_name as string | null) ?? null,
+    billTaxId: (r.bill_tax_id as string | null) ?? null,
+    billPhone: (r.bill_phone as string | null) ?? null,
+    billContactChannel: (r.bill_contact_channel as string | null) ?? null,
+    // bill_address is jsonb the RPC never shape-validates (0075 §7) — parse
+    // defensively, never trust it matches OemCustomerAddress.
+    billAddress: parseBillAddress(r.bill_address),
   };
 }
 
 const QUOTE_COLUMNS =
-  "id, quote_no, customer_name, customer_contact, input, calc, cost_piece, price_per_piece, nre_cost, nre_price, pieces_subtotal, quote_total, margin_actual_pct, margin_charged_pct, q_run, flask_count, plating_batch_count, status, approval_note, approved_by, quote_valid_until, lost_reason, lost_to, is_expired, days_left, created_at, updated_at, discount_thb, discount_reason, grand_total, margin_after_discount_pct, parent_quote_id, parent_quote_no, root_quote_id, customer_id, vat_mode, item_count";
+  "id, quote_no, customer_name, customer_contact, input, calc, cost_piece, price_per_piece, nre_cost, nre_price, pieces_subtotal, quote_total, margin_actual_pct, margin_charged_pct, q_run, flask_count, plating_batch_count, status, approval_note, approved_by, quote_valid_until, lost_reason, lost_to, is_expired, days_left, created_at, updated_at, discount_thb, discount_reason, grand_total, margin_after_discount_pct, parent_quote_id, parent_quote_no, root_quote_id, customer_id, vat_mode, item_count, bill_legal_name, bill_tax_id, bill_phone, bill_contact_channel, bill_address";
 
 function mapQuoteItemRow(r: Record<string, unknown>): OemQuoteItemRow {
   return {
@@ -734,6 +744,13 @@ export async function setQuoteBilling(input: SetQuoteBillingInput): Promise<Acti
   if (!input?.quoteId) return { ok: false, error: "ไม่พบใบเสนอราคา" };
   const legalName = input.legalName?.trim();
   if (!legalName) return { ok: false, error: "ต้องกรอกชื่อนิติบุคคล/ชื่อออกบิล" };
+  // oem_quote_set_billing (0075) does NOT validate tax_id format itself
+  // (stores whatever btrim() leaves) — this is the only gate. Client also
+  // checks this before submit (BillingDialog), but that is UX-only; this is
+  // the real one.
+  if (input.taxId && !isValidThaiTaxId(input.taxId)) {
+    return { ok: false, error: "เลขประจำตัวผู้เสียภาษีต้องเป็นตัวเลข 13 หลัก (หรือเว้นว่างไว้ถ้าเป็นบุคคลธรรมดา)" };
+  }
 
   try {
     const shopId = getDevShopId();
