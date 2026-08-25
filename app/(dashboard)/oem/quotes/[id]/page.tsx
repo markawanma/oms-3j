@@ -1,5 +1,5 @@
 import { Lock } from "lucide-react";
-import { getQuote } from "@/lib/actions/oem";
+import { getQuote, getQuoteItems } from "@/lib/actions/oem";
 import { getDevRole } from "@/lib/dev/context";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -22,13 +22,14 @@ export default async function OemQuoteDetailPage({ params }: { params: Promise<{
 
   const { id } = await params;
 
-  let quoteResult;
+  let quoteResult, itemsResult;
   try {
-    quoteResult = await getQuote(id);
+    [quoteResult, itemsResult] = await Promise.all([getQuote(id), getQuoteItems(id)]);
   } catch (err) {
     return <ErrorState message={err instanceof Error ? err.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"} />;
   }
   if (!quoteResult.ok) return <ErrorState message={quoteResult.error} />;
+  if (!itemsResult.ok) return <ErrorState message={itemsResult.error} />;
 
-  return <QuoteDetailClient quote={quoteResult.data} />;
+  return <QuoteDetailClient quote={quoteResult.data} items={itemsResult.data} />;
 }

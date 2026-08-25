@@ -1,24 +1,30 @@
 "use client";
 
-// QuoteDetailClient — /oem/quotes/[id] (T6): view a saved quote's snapshot
-// (`calc` = oem_price_calc's return AT THE TIME it was quoted — reprint-safe
-// even if today's rates have since changed) + won/lost actions.
+// QuoteDetailClient — /oem/quotes/[id] (T6v2): a saved quote's item table
+// (each row's `calc` = oem_price_calc's return AT THE TIME it was quoted —
+// reprint-safe even if today's rates have since changed), discount/grand
+// total, renegotiate action, and won/lost actions. Reads v_oem_quote_item
+// (via getQuoteItems, fetched server-side by the page) instead of a single
+// quote.input/calc — every quote (pre-0075 and v2) has at least one item
+// thanks to 0075's backfill.
 
-import { useState, useTransition } from "react";
+import { Fragment, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronUp } from "lucide-react";
 import { setQuoteStatus } from "@/lib/actions/oem";
-import type { OemQuoteRow } from "@/lib/oem/types";
+import type { OemQuoteItemRow, OemQuoteRow } from "@/lib/oem/types";
 import { OEM_METAL_LABEL_TH, OEM_QUOTE_STATUS_LABEL_TH } from "@/lib/oem/types";
-import { formatBangkokTime } from "@/lib/format";
+import { formatBangkokTime, formatTHB } from "@/lib/format";
 import { formatThaiDateOnly } from "@/lib/tiktok/format";
+import { fmtPct } from "@/lib/oem/display";
 import { Badge } from "@/components/ui/Badge";
 import type { BadgeTone } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
 import { OemCalcBreakdown } from "./OemCalcBreakdown";
 import { LostQuoteDialog } from "./LostQuoteDialog";
+import { RenegotiateDialog } from "./RenegotiateDialog";
 
 const STATUS_TONE: Record<OemQuoteRow["status"], BadgeTone> = {
   draft: "slate",
@@ -27,13 +33,25 @@ const STATUS_TONE: Record<OemQuoteRow["status"], BadgeTone> = {
   lost: "red",
   expired: "orange",
   rejected: "slate",
+  superseded: "slate",
 };
 
-export function QuoteDetailClient({ quote }: { quote: OemQuoteRow }) {
+export function QuoteDetailClient({ quote, items }: { quote: OemQuoteRow; items: OemQuoteItemRow[] }) {
   const router = useRouter();
   const toast = useToast();
   const [lostOpen, setLostOpen] = useState(false);
+  const [renegotiateOpen, setRenegotiateOpen] = useState(false);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
   const [wonPending, startWon] = useTransition();
+
+  function toggleExpand(id: string) {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
 
   function markWon() {
     startWon(async () => {
@@ -46,6 +64,8 @@ export function QuoteDetailClient({ quote }: { quote: OemQuoteRow }) {
       router.refresh();
     });
   }
+
+  const canRenegotiate = quote.status === "quoted" && !quote.isExpired;
 
   return (
     <div className="space-y-4">
@@ -62,10 +82,21 @@ export function QuoteDetailClient({ quote }: { quote: OemQuoteRow }) {
         <p className="mt-0.5 text-xs text-zinc-400">
           ใช้เรตต้นทุน ณ วันที่ {formatThaiDateOnly(quote.createdAt.slice(0, 10))} · บันทึกเมื่อ {formatBangkokTime(quote.createdAt)}
         </p>
+        {quote.status === "superseded" && (
+          <p className="mt-1 text-xs text-zinc-500">ใบนี้ถูกแทนที่ด้วยใบใหม่ (ลูกค้าต่อราคา) — ราคาที่ยืนอยู่คือใบใหม่ ไม่ใช่ใบนี้</p>
+        )}
+        {quote.parentQuoteNo && quote.parentQuoteId && (
+          <p className="mt-1 text-xs text-zinc-500">
+            ต่อราคาจากใบ{" "}
+            <Link href={`/oem/quotes/${quote.parentQuoteId}`} className="font-medium text-primary-700 hover:underline">
+              {quote.parentQuoteNo}
+            </Link>
+          </p>
+        )}
       </div>
 
       <section className="rounded-lg border border-zinc-200 bg-white p-3.5 shadow-sm">
-        <h2 className="text-sm font-bold text-zinc-800">ลูกค้า &amp; งาน</h2>
+        <h2 className="text-sm font-bold text-zinc-800">ลูกค้า</h2>
         <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm sm:grid-cols-3">
           <div>
             <dt className="text-xs text-zinc-500">ลูกค้า</dt>
@@ -76,20 +107,8 @@ export function QuoteDetailClient({ quote }: { quote: OemQuoteRow }) {
             <dd className="text-zinc-800">{quote.customerContact || "—"}</dd>
           </div>
           <div>
-            <dt className="text-xs text-zinc-500">วัสดุ</dt>
-            <dd className="text-zinc-800">{OEM_METAL_LABEL_TH[quote.input.metal]}</dd>
-          </div>
-          <div>
-            <dt className="text-xs text-zinc-500">ประเภทชิ้นงาน</dt>
-            <dd className="text-zinc-800">{quote.input.itemKind}</dd>
-          </div>
-          <div>
-            <dt className="text-xs text-zinc-500">น้ำหนัก/ชิ้น</dt>
-            <dd className="text-zinc-800">{quote.input.weightG} กรัม</dd>
-          </div>
-          <div>
-            <dt className="text-xs text-zinc-500">จำนวน</dt>
-            <dd className="text-zinc-800">{quote.input.qty} ชิ้น</dd>
+            <dt className="text-xs text-zinc-500">จำนวนรายการ</dt>
+            <dd className="text-zinc-800">{quote.itemCount || items.length} รายการ</dd>
           </div>
         </dl>
         {quote.quoteValidUntil && (
@@ -109,16 +128,128 @@ export function QuoteDetailClient({ quote }: { quote: OemQuoteRow }) {
         )}
       </section>
 
-      <OemCalcBreakdown calc={quote.calc} metal={quote.input.metal} />
+      <section className="rounded-lg border border-zinc-200 bg-white shadow-sm">
+        <div className="p-3.5">
+          <h2 className="text-sm font-bold text-zinc-800">รายการ ({items.length})</h2>
+          <p className="mt-0.5 text-xs text-zinc-400">แตะแถวเพื่อดูรายละเอียดต้นทุน/margin ของรายการนั้น</p>
+        </div>
+        {items.length === 0 ? (
+          <p className="px-3.5 pb-3.5 text-sm text-zinc-500">ไม่พบรายการในใบเสนอราคานี้</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[680px] text-left text-sm">
+              <thead>
+                <tr className="border-y border-zinc-200 text-xs font-semibold text-zinc-500">
+                  <th scope="col" className="py-2 pl-3.5 pr-2">
+                    #
+                  </th>
+                  <th scope="col" className="py-2 pr-2">
+                    รายการ
+                  </th>
+                  <th scope="col" className="py-2 pr-2">
+                    วัสดุ
+                  </th>
+                  <th scope="col" className="py-2 pr-2 text-right">
+                    จำนวน
+                  </th>
+                  <th scope="col" className="py-2 pr-2 text-right">
+                    ราคา/ชิ้น
+                  </th>
+                  <th scope="col" className="py-2 pr-2 text-right">
+                    รวม
+                  </th>
+                  <th scope="col" className="py-2 pr-3.5 text-right">
+                    margin
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((it) => {
+                  const expanded = expandedIds.has(it.id);
+                  return (
+                    <Fragment key={it.id}>
+                      <tr
+                        className="cursor-pointer border-b border-zinc-100 last:border-0 hover:bg-zinc-50"
+                        onClick={() => toggleExpand(it.id)}
+                        aria-expanded={expanded}
+                      >
+                        <td className="py-2 pl-3.5 pr-2 text-zinc-500">
+                          <span className="inline-flex items-center gap-1">
+                            {expanded ? (
+                              <ChevronUp className="h-3.5 w-3.5 text-zinc-400" aria-hidden="true" />
+                            ) : (
+                              <ChevronDown className="h-3.5 w-3.5 text-zinc-400" aria-hidden="true" />
+                            )}
+                            {it.seq}
+                          </span>
+                        </td>
+                        <td className="py-2 pr-2 text-zinc-800">{it.productNameSnapshot || it.input.itemKind}</td>
+                        <td className="py-2 pr-2 text-zinc-600">{OEM_METAL_LABEL_TH[it.input.metal]}</td>
+                        <td className="py-2 pr-2 text-right tabular-nums text-zinc-700">{it.qty}</td>
+                        <td className="py-2 pr-2 text-right tabular-nums text-zinc-700">{it.pricePerPiece != null ? formatTHB(it.pricePerPiece) : "—"}</td>
+                        <td className="py-2 pr-2 text-right tabular-nums text-zinc-800">{it.itemTotal != null ? formatTHB(it.itemTotal) : "—"}</td>
+                        <td className="py-2 pr-3.5 text-right tabular-nums text-zinc-700">{fmtPct(it.marginChargedPct)}</td>
+                      </tr>
+                      {expanded && (
+                        <tr className="border-b border-zinc-100 bg-zinc-50/60 last:border-0">
+                          <td colSpan={7} className="p-3">
+                            <OemCalcBreakdown calc={it.calc} metal={it.input.metal} />
+                          </td>
+                        </tr>
+                      )}
+                    </Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
 
-      {quote.status === "quoted" && (
-        <div className="flex gap-2">
-          <Button type="button" variant="secondary" className="flex-1" loading={wonPending} onClick={markWon}>
-            ปิดงาน (ชนะ)
-          </Button>
-          <Button type="button" variant="danger" className="flex-1" onClick={() => setLostOpen(true)}>
-            แพ้งาน
-          </Button>
+      <section className="rounded-lg border border-zinc-200 bg-white p-3.5 shadow-sm">
+        <dl className="space-y-1 text-sm">
+          <div className="flex justify-between">
+            <dt className="text-zinc-600">ยอดรวมก่อนส่วนลด</dt>
+            <dd className="tabular-nums text-zinc-800">{quote.quoteTotal != null ? formatTHB(quote.quoteTotal) : "—"}</dd>
+          </div>
+          {quote.discountThb > 0 && (
+            <div className="flex justify-between text-red-600">
+              <dt>ส่วนลด{quote.discountReason ? ` (${quote.discountReason})` : ""}</dt>
+              <dd className="tabular-nums">-{formatTHB(quote.discountThb)}</dd>
+            </div>
+          )}
+          <div className="flex justify-between border-t border-zinc-200 pt-1.5 text-base font-bold">
+            <dt className="text-zinc-800">ยอดสุทธิ</dt>
+            <dd className="tabular-nums text-primary-700">
+              {quote.grandTotal != null ? formatTHB(quote.grandTotal) : quote.quoteTotal != null ? formatTHB(quote.quoteTotal) : "—"}
+            </dd>
+          </div>
+          {quote.marginAfterDiscountPct != null && (
+            <div className="flex justify-between text-xs text-zinc-500">
+              <dt>margin หลังหักส่วนลด</dt>
+              <dd className="tabular-nums">{fmtPct(quote.marginAfterDiscountPct)}</dd>
+            </div>
+          )}
+        </dl>
+      </section>
+
+      {(quote.status === "quoted" || canRenegotiate) && (
+        <div className="flex flex-wrap gap-2">
+          {quote.status === "quoted" && (
+            <>
+              <Button type="button" variant="secondary" className="flex-1" loading={wonPending} onClick={markWon}>
+                ปิดงาน (ชนะ)
+              </Button>
+              <Button type="button" variant="danger" className="flex-1" onClick={() => setLostOpen(true)}>
+                แพ้งาน
+              </Button>
+            </>
+          )}
+          {canRenegotiate && (
+            <Button type="button" variant="ghost" className="flex-1 border border-zinc-300" onClick={() => setRenegotiateOpen(true)}>
+              ลูกค้าต่อราคา
+            </Button>
+          )}
         </div>
       )}
 
@@ -132,6 +263,8 @@ export function QuoteDetailClient({ quote }: { quote: OemQuoteRow }) {
           }}
         />
       )}
+
+      {renegotiateOpen && <RenegotiateDialog quote={quote} onClose={() => setRenegotiateOpen(false)} />}
     </div>
   );
 }

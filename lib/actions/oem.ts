@@ -28,13 +28,16 @@ import type {
   OemPriceBreakdown,
   OemPriceCalcInput,
   OemPriceCalcResult,
+  OemQuoteItemRow,
   OemQuoteRow,
   OemQuoteStatus,
   OemRateStatusRow,
   OemReadiness,
   OemSettingData,
+  RenegotiateQuoteInput,
   SaveMetalPriceInput,
   SaveQuoteInput,
+  SetQuoteBillingInput,
   SetQuoteStatusInput,
   UpsertOemRateInput,
   UpsertOemSettingInput,
@@ -538,8 +541,11 @@ function mapQuoteRow(r: Record<string, unknown>): OemQuoteRow {
     quoteNo: String(r.quote_no),
     customerName: (r.customer_name as string | null) ?? null,
     customerContact: (r.customer_contact as string | null) ?? null,
-    input: r.input as OemPriceCalcInput,
-    calc: fromCalcResult(r.calc as Record<string, unknown>),
+    // 0075: null on every v2-saved (multi-item) quote — only the two
+    // pre-0075 rows still carry a header input/calc. See getQuoteItems for
+    // the per-item shape every quote (old and new) has via the backfill.
+    input: r.input == null ? null : (r.input as OemPriceCalcInput),
+    calc: r.calc == null ? null : fromCalcResult(r.calc as Record<string, unknown>),
     costPiece: r.cost_piece == null ? null : Number(r.cost_piece),
     pricePerPiece: r.price_per_piece == null ? null : Number(r.price_per_piece),
     nreCost: r.nre_cost == null ? null : Number(r.nre_cost),
@@ -561,30 +567,83 @@ function mapQuoteRow(r: Record<string, unknown>): OemQuoteRow {
     daysLeft: r.days_left == null ? null : Number(r.days_left),
     createdAt: String(r.created_at),
     updatedAt: String(r.updated_at),
+    discountThb: r.discount_thb == null ? 0 : Number(r.discount_thb),
+    discountReason: (r.discount_reason as string | null) ?? null,
+    grandTotal: r.grand_total == null ? null : Number(r.grand_total),
+    marginAfterDiscountPct: r.margin_after_discount_pct == null ? null : Number(r.margin_after_discount_pct),
+    parentQuoteId: (r.parent_quote_id as string | null) ?? null,
+    parentQuoteNo: (r.parent_quote_no as string | null) ?? null,
+    rootQuoteId: (r.root_quote_id as string | null) ?? null,
+    customerId: (r.customer_id as string | null) ?? null,
+    vatMode: (r.vat_mode as OemQuoteRow["vatMode"]) ?? "included",
+    itemCount: r.item_count == null ? 0 : Number(r.item_count),
   };
 }
 
 const QUOTE_COLUMNS =
-  "id, quote_no, customer_name, customer_contact, input, calc, cost_piece, price_per_piece, nre_cost, nre_price, pieces_subtotal, quote_total, margin_actual_pct, margin_charged_pct, q_run, flask_count, plating_batch_count, status, approval_note, approved_by, quote_valid_until, lost_reason, lost_to, is_expired, days_left, created_at, updated_at";
+  "id, quote_no, customer_name, customer_contact, input, calc, cost_piece, price_per_piece, nre_cost, nre_price, pieces_subtotal, quote_total, margin_actual_pct, margin_charged_pct, q_run, flask_count, plating_batch_count, status, approval_note, approved_by, quote_valid_until, lost_reason, lost_to, is_expired, days_left, created_at, updated_at, discount_thb, discount_reason, grand_total, margin_after_discount_pct, parent_quote_id, parent_quote_no, root_quote_id, customer_id, vat_mode, item_count";
+
+function mapQuoteItemRow(r: Record<string, unknown>): OemQuoteItemRow {
+  return {
+    id: String(r.id),
+    shopId: String(r.shop_id),
+    quoteId: String(r.quote_id),
+    quoteNo: String(r.quote_no),
+    seq: Number(r.seq),
+    productId: (r.product_id as string | null) ?? null,
+    skuSnapshot: (r.sku_snapshot as string | null) ?? null,
+    productNameSnapshot: (r.product_name_snapshot as string | null) ?? null,
+    input: r.input as OemPriceCalcInput,
+    calc: fromCalcResult(r.calc as Record<string, unknown>),
+    qty: Number(r.qty),
+    costPiece: r.cost_piece == null ? null : Number(r.cost_piece),
+    pricePerPiece: r.price_per_piece == null ? null : Number(r.price_per_piece),
+    itemTotal: r.item_total == null ? null : Number(r.item_total),
+    qRun: r.q_run == null ? null : Number(r.q_run),
+    flaskCount: r.flask_count == null ? null : Number(r.flask_count),
+    platingBatchCount: r.plating_batch_count == null ? null : Number(r.plating_batch_count),
+    marginChargedPct: r.margin_charged_pct == null ? null : Number(r.margin_charged_pct),
+    createdAt: String(r.created_at),
+    updatedAt: String(r.updated_at),
+  };
+}
+
+const QUOTE_ITEM_COLUMNS =
+  "id, shop_id, quote_id, seq, product_id, sku_snapshot, product_name_snapshot, input, calc, qty, cost_piece, price_per_piece, item_total, q_run, flask_count, plating_batch_count, margin_charged_pct, created_at, updated_at, quote_no";
 
 export async function saveQuote(input: SaveQuoteInput): Promise<ActionResult<{ quoteId: string }>> {
   const gateErr = requireOwnerAdmin();
   if (gateErr) return gateErr;
 
-  if (!input?.input) return { ok: false, error: "ไม่พบข้อมูลงานที่จะคำนวณราคา" };
+  if (!input?.items?.length) return { ok: false, error: "ต้องมีอย่างน้อย 1 รายการ" };
+  for (const item of input.items) {
+    if (!item?.input) return { ok: false, error: "มีบางรายการยังไม่มีข้อมูลงานที่จะคำนวณราคา" };
+  }
+  const discountThb = toNum(input.discountThb) ?? 0;
+  if (discountThb < 0) return { ok: false, error: "ส่วนลดต้องไม่ติดลบ" };
 
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();
 
+    const pItems = input.items.map((item) => {
+      const obj: Record<string, unknown> = { input: toCalcInputPayload(item.input) };
+      if (item.productId) obj.product_id = item.productId;
+      if (item.skuSnapshot?.trim()) obj.sku_snapshot = item.skuSnapshot.trim();
+      if (item.productNameSnapshot?.trim()) obj.product_name_snapshot = item.productNameSnapshot.trim();
+      return obj;
+    });
+
     const { data, error } = await supabase.schema(SCHEMA).rpc("oem_quote_save", {
       p_shop_id: shopId,
-      p_input: toCalcInputPayload(input.input),
+      p_items: pItems,
       p_quote_id: input.quoteId || null,
       p_status: input.status || "draft",
       p_approval_note: input.approvalNote?.trim() || null,
       p_customer_name: input.customerName?.trim() || null,
       p_customer_contact: input.customerContact?.trim() || null,
+      p_discount_thb: discountThb,
+      p_discount_reason: input.discountReason?.trim() || null,
     });
     if (error) {
       // 22023 = our own controlled Thai validation messages (floor/margin/
@@ -598,6 +657,99 @@ export async function saveQuote(input: SaveQuoteInput): Promise<ActionResult<{ q
   } catch (err) {
     console.error("saveQuote failed", err);
     return { ok: false, error: "บันทึกใบเสนอราคาไม่สำเร็จ ลองใหม่อีกครั้ง" };
+  }
+}
+
+export async function renegotiateQuote(input: RenegotiateQuoteInput): Promise<ActionResult<{ quoteId: string }>> {
+  const gateErr = requireOwnerAdmin();
+  if (gateErr) return gateErr;
+
+  if (!input?.quoteId) return { ok: false, error: "ไม่พบใบเสนอราคา" };
+  const discount = toNum(input.newDiscountThb);
+  if (discount === null || discount < 0) return { ok: false, error: "ส่วนลดใหม่ต้องเป็นตัวเลขตั้งแต่ 0 ขึ้นไป" };
+
+  try {
+    const shopId = getDevShopId();
+    const supabase = getServiceClient();
+
+    const { data, error } = await supabase.schema(SCHEMA).rpc("oem_quote_renegotiate", {
+      p_shop_id: shopId,
+      p_quote_id: input.quoteId,
+      p_new_discount_thb: discount,
+      p_reason: input.reason?.trim() || null,
+    });
+    if (error) {
+      if ((error as { code?: string }).code === "22023") return { ok: false, error: error.message };
+      throw error;
+    }
+
+    revalidateOemPaths();
+    return { ok: true, data: { quoteId: String(data) } };
+  } catch (err) {
+    console.error("renegotiateQuote failed", err);
+    return { ok: false, error: "ต่อราคาไม่สำเร็จ ลองใหม่อีกครั้ง" };
+  }
+}
+
+export async function setQuoteBilling(input: SetQuoteBillingInput): Promise<ActionResult<{ customerId: string }>> {
+  const gateErr = requireOwnerAdmin();
+  if (gateErr) return gateErr;
+
+  if (!input?.quoteId) return { ok: false, error: "ไม่พบใบเสนอราคา" };
+  const legalName = input.legalName?.trim();
+  if (!legalName) return { ok: false, error: "ต้องกรอกชื่อนิติบุคคล/ชื่อออกบิล" };
+
+  try {
+    const shopId = getDevShopId();
+    const supabase = getServiceClient();
+
+    const { data, error } = await supabase.schema(SCHEMA).rpc("oem_quote_set_billing", {
+      p_shop_id: shopId,
+      p_quote_id: input.quoteId,
+      p_customer: {
+        legal_name: legalName,
+        tax_id: input.taxId?.trim() || null,
+        phone: input.phone?.trim() || null,
+        contact_channel: input.contactChannel?.trim() || null,
+        address: input.address ?? null,
+      },
+    });
+    if (error) {
+      if ((error as { code?: string }).code === "22023") return { ok: false, error: error.message };
+      throw error;
+    }
+
+    revalidateOemPaths();
+    return { ok: true, data: { customerId: String(data) } };
+  } catch (err) {
+    console.error("setQuoteBilling failed", err);
+    return { ok: false, error: "บันทึกข้อมูลออกบิลไม่สำเร็จ ลองใหม่อีกครั้ง" };
+  }
+}
+
+export async function getQuoteItems(quoteId: string): Promise<ActionResult<OemQuoteItemRow[]>> {
+  const gateErr = requireOwnerAdmin();
+  if (gateErr) return gateErr;
+
+  if (!quoteId) return { ok: false, error: "ไม่พบใบเสนอราคา" };
+
+  try {
+    const shopId = getDevShopId();
+    const supabase = getServiceClient();
+
+    const { data, error } = await supabase
+      .schema(SCHEMA)
+      .from("v_oem_quote_item")
+      .select(QUOTE_ITEM_COLUMNS)
+      .eq("shop_id", shopId)
+      .eq("quote_id", quoteId)
+      .order("seq", { ascending: true });
+    if (error) throw error;
+
+    return { ok: true, data: ((data ?? []) as Record<string, unknown>[]).map(mapQuoteItemRow) };
+  } catch (err) {
+    console.error("getQuoteItems failed", err);
+    return { ok: false, error: "โหลดรายการในใบเสนอราคาไม่สำเร็จ ลองใหม่อีกครั้ง" };
   }
 }
 

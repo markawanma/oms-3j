@@ -250,23 +250,44 @@ export interface OemPriceCalcResult {
 }
 
 // ============================================================================
-// Quotes (oem_quote / v_oem_quote)
+// Quotes (oem_quote / v_oem_quote) — v2 (0075): multi-item quotes, discount
+// gated on margin_after_discount_pct, renegotiation, B2B billing. input/calc
+// on the HEADER are now null for every quote saved through oem_quote_save v2
+// (the per-item calc lives on oem_quote_item/v_oem_quote_item instead); they
+// stay non-null only on the two rows that predate this migration and were
+// backfilled a single item each — see 0075's header comment.
 // ============================================================================
 
-export type OemQuoteStatus = "draft" | "quoted" | "won" | "lost" | "expired" | "rejected";
+export type OemQuoteStatus = "draft" | "quoted" | "won" | "lost" | "expired" | "rejected" | "superseded";
+
+/** One line of p_items for oem_quote_save (0075, 9-arg). `input` is the exact
+ * oem_price_calc payload (unchanged, same as pre-v2 SaveQuoteInput.input).
+ * product_id/sku_snapshot/product_name_snapshot are plumbing for a future SKU
+ * picker (T-next) — this phase never sets them (no SKU picker/PDF this
+ * round, see QuoteCalculatorClient header comment). */
+export interface OemQuoteItemInput {
+  input: OemPriceCalcInput;
+  productId?: string | null;
+  skuSnapshot?: string | null;
+  productNameSnapshot?: string | null;
+}
 
 export interface SaveQuoteInput {
-  input: OemPriceCalcInput;
+  items: OemQuoteItemInput[];
   quoteId?: string | null;
   status?: "draft" | "quoted";
-  /** required when the calc's margin is below marginFloorPct (§3.1 <20%) —
-   * a free-text reason, not a permission check (this app has one write-tier
-   * today; see 0062 header comment). */
+  /** required when the calc's margin (any item) OR margin_after_discount_pct
+   * is below marginFloorPct — a free-text reason, not a permission check
+   * (this app has one write-tier today; see 0062 header comment). */
   approvalNote?: string | null;
   /** 0064: oem_quote_save's p_customer_name/p_customer_contact — added by the
    * frontend phase to close a gap (columns existed, no write path). */
   customerName?: string | null;
   customerContact?: string | null;
+  /** 0075: flat THB discount off quote_total, gated against
+   * margin_after_discount_pct server-side. Defaults to 0 when omitted. */
+  discountThb?: number | null;
+  discountReason?: string | null;
 }
 
 export interface SetQuoteStatusInput {
@@ -276,13 +297,49 @@ export interface SetQuoteStatusInput {
   lostTo?: string | null;
 }
 
+/** oem_quote_renegotiate (0075) — issues a NEW quote row (new quote_no) with
+ * a different discount, copying the original's items verbatim (no
+ * recompute — the customer was quoted at the rates live on the original
+ * date). The old row becomes 'superseded'. Only valid on a 'quoted', not-yet-
+ * expired quote. */
+export interface RenegotiateQuoteInput {
+  quoteId: string;
+  newDiscountThb: number;
+  reason?: string | null;
+}
+
+export interface OemCustomerAddress {
+  line1?: string | null;
+  line2?: string | null;
+  subdistrict?: string | null;
+  district?: string | null;
+  province?: string | null;
+  postalCode?: string | null;
+}
+
+/** oem_quote_set_billing (0075) — upserts the ONE analytics.oem_customer row
+ * this quote is billed to. Only valid on a 'quoted' or 'won' quote. Not wired
+ * to any UI yet this phase (see QuoteDetailClient) — plumbing for the tax
+ * invoice phase. */
+export interface SetQuoteBillingInput {
+  quoteId: string;
+  legalName: string;
+  taxId?: string | null;
+  phone?: string | null;
+  contactChannel?: string | null;
+  address?: OemCustomerAddress | null;
+}
+
 export interface OemQuoteRow {
   id: string;
   quoteNo: string;
   customerName: string | null;
   customerContact: string | null;
-  input: OemPriceCalcInput;
-  calc: OemPriceCalcResult;
+  /** null for every v2-saved quote (multi-item) — see per-item calc in
+   * OemQuoteItemRow via getQuoteItems/v_oem_quote_item instead. Non-null only
+   * on the two pre-0075 rows that were never re-saved. */
+  input: OemPriceCalcInput | null;
+  calc: OemPriceCalcResult | null;
   costPiece: number | null;
   pricePerPiece: number | null;
   nreCost: number | null;
@@ -291,7 +348,8 @@ export interface OemQuoteRow {
   quoteTotal: number | null;
   /** blended margin over the whole job (display-only, see OemPriceBreakdown). */
   marginActualPct: number | null;
-  /** 0063: margin rate actually charged — what the floor gate judged. */
+  /** 0063: margin rate actually charged — the MIN across items for a v2 quote
+   * (what the single-item hard-floor gate judged). */
   marginChargedPct: number | null;
   qRun: number | null;
   flaskCount: number | null;
@@ -304,6 +362,53 @@ export interface OemQuoteRow {
   lostTo: string | null;
   isExpired: boolean;
   daysLeft: number | null;
+  createdAt: string;
+  updatedAt: string;
+  // ---- 0075 additions ----
+  /** Flat THB discount off quoteTotal. */
+  discountThb: number;
+  discountReason: string | null;
+  /** quoteTotal - discountThb — what the customer actually owes. */
+  grandTotal: number | null;
+  /** Aggregate margin across all items AFTER discountThb, gold pass-through
+   * excluded — the number the discount hard-floor gate actually judges (NOT
+   * marginActualPct/marginChargedPct). */
+  marginAfterDiscountPct: number | null;
+  /** Set only when this quote was produced by oem_quote_renegotiate. */
+  parentQuoteId: string | null;
+  parentQuoteNo: string | null;
+  rootQuoteId: string | null;
+  customerId: string | null;
+  /** Display-only — no VAT arithmetic anywhere in this app yet. */
+  vatMode: "add_7" | "included" | "none";
+  itemCount: number;
+}
+
+/** analytics.oem_quote_item / v_oem_quote_item (0075) — one priced line per
+ * quote. `input`/`calc` are the EXACT oem_price_calc payload/result for this
+ * line (same contract oem_quote.input/calc used pre-v2), so a saved quote
+ * reprints at the rates that were live when quoted. */
+export interface OemQuoteItemRow {
+  id: string;
+  shopId: string;
+  quoteId: string;
+  quoteNo: string;
+  seq: number;
+  productId: string | null;
+  skuSnapshot: string | null;
+  productNameSnapshot: string | null;
+  input: OemPriceCalcInput;
+  calc: OemPriceCalcResult;
+  qty: number;
+  costPiece: number | null;
+  pricePerPiece: number | null;
+  /** qty * pricePerPiece for this line only — excludes NRE (rolls up onto
+   * the quote header instead, summed across items). */
+  itemTotal: number | null;
+  qRun: number | null;
+  flaskCount: number | null;
+  platingBatchCount: number | null;
+  marginChargedPct: number | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -321,4 +426,5 @@ export const OEM_QUOTE_STATUS_LABEL_TH: Record<OemQuoteStatus, string> = {
   lost: "แพ้งาน",
   expired: "หมดอายุ",
   rejected: "ปฏิเสธ",
+  superseded: "ถูกแทนที่",
 };
