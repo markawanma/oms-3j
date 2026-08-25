@@ -154,7 +154,7 @@ export function QuotesPageClient({ quotes }: { quotes: OemQuoteRow[] }) {
                     <Badge tone={STATUS_TONE[q.status]}>{OEM_QUOTE_STATUS_LABEL_TH[q.status]}</Badge>
                   </td>
                   <td className="py-2 pr-3 whitespace-nowrap">
-                    <DaysLeftCell daysLeft={q.daysLeft} isExpired={q.isExpired} />
+                    <DaysLeftCell daysLeft={q.daysLeftTh} isExpired={q.isExpiredTh} />
                   </td>
                   <td className="py-2 pr-3.5">
                     {q.status === "quoted" && (

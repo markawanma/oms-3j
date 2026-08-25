@@ -16,15 +16,43 @@
 // warning copy in QuoteResultPanel, which never disables the submit button
 // off this number, only off each item's own (already-gated) floors.
 
-import type { OemMetal, OemPriceCalcInput, OemPriceCalcResult } from "./types";
+import type { OemBarSize, OemMetal, OemPriceCalcInput, OemPriceCalcResult } from "./types";
 
-export const OEM_DEFAULT_PURITY: Record<OemMetal, string> = { silver: "0.925", gold: "", brass: "1" };
+export const OEM_DEFAULT_PURITY: Record<OemMetal, string> = { silver: "0.925", gold: "", brass: "1", silver999: "" };
+
+// ============================================================================
+// เงินแท่ง 99.99% SKU auto-switch (0078, โจทย์ข้อ 3 ของ Luke) — เลือก SKU กลุ่ม
+// เงินแท่ง → สลับ metal/barSize ให้อัตโนมัติ (ยังแก้เองได้เสมอ ไม่ใช่ล็อก) เก็บ
+// เป็น table เดียว ไม่ใช่ if-chain เพื่อให้ "S-1A ไม่ auto" อ่านง่าย: มันแค่ไม่มี
+// ในตารางนี้ — ไม่ใช่ special-case ที่ต้อง maintain แยก.
+// ============================================================================
+export const OEM_BAR_SKU_SIZE_MAP: Record<string, OemBarSize> = {
+  "S-0.5bath": "0_5_baht",
+  "S-1bath": "1_baht",
+  "S-3bath": "3_baht",
+  "S-5bath": "5_baht",
+  "S-10bath": "10_baht",
+  "S-1kg.": "1_kg",
+  // วัดอรุณ 1 บาท — เจ้าของยืนยันราคาเดียวกับแท่งปกติ (มติข้อ 3 ใน design)
+  "WA-1B": "1_baht",
+  "Silver999-1-Baht": "1_baht",
+  "Silver999-1Baht": "1_baht",
+  // "S-1A" ("ค่าเริ่มต้น") ตั้งใจไม่อยู่ในตารางนี้ — ขนาดไม่ชัด เดาแล้วผิดคือ
+  // เสนอราคาผิด ให้ผู้ใช้เลือกเอง ไม่ auto-switch
+};
+
+/** null = ไม่รู้จัก SKU นี้ (ไม่ auto-switch) — รวมถึง "S-1A" โดยตั้งใจ. */
+export function barSizeForSku(sku: string | null | undefined): OemBarSize | null {
+  if (!sku) return null;
+  return OEM_BAR_SKU_SIZE_MAP[sku] ?? null;
+}
 
 export interface JobForm {
   metal: OemMetal;
   purity: string;
   itemKind: string;
   weightG: string;
+  /** shared by both modes — "จำนวน (ชิ้น)" for production, "จำนวน (แท่ง)" for silver999. */
   qty: string;
   polishTier: string;
   hasGems: boolean;
@@ -34,10 +62,18 @@ export interface JobForm {
   platingType: string;
   isNewDesign: boolean;
   marginPct: string;
+  /** 0078, metal='silver999' only — dropdown, never free-typed (see OEM_BAR_SIZE_LABEL_TH). */
+  barSize: OemBarSize | "";
+  /** 0078, metal='silver999' only — บาท/ชิ้น, optional (empty = ไม่คิด). */
+  engraveImageThb: string;
+  /** 0078, metal='silver999' only — บาท/ชิ้น, optional (empty = ไม่คิด). */
+  engraveTextThb: string;
   /** SKU picker (analytics.v_dim_product) — label/traceability only, never
    * fed into buildJobInput()/OemPriceCalcInput below: silver_weight_g is
    * null on every SKU today, so there is nothing safe to prefill from a
-   * selection. Null = "ไม่ผูก SKU" (default), a free-text/new-design job. */
+   * selection. Null = "ไม่ผูก SKU" (default), a free-text/new-design job.
+   * EXCEPTION (0078): selecting a เงินแท่ง SKU (see barSizeForSku) DOES set
+   * metal+barSize — the one deliberate, visible auto-switch in this form. */
   productId: string | null;
   skuSnapshot: string | null;
   productNameSnapshot: string | null;
@@ -58,14 +94,44 @@ export function createJobForm(defaultMarginPct: number): JobForm {
     platingType: "",
     isNewDesign: true,
     marginPct: String(defaultMarginPct),
+    barSize: "",
+    engraveImageThb: "",
+    engraveTextThb: "",
     productId: null,
     skuSnapshot: null,
     productNameSnapshot: null,
   };
 }
 
-/** Same validation/shape rules the pre-v2 single-job form used — unchanged. */
+/** Same validation/shape rules the pre-v2 single-job form used, plus the
+ * 0078 silver999 branch (validates ONLY barSize+qty+engrave — none of the
+ * production fields apply, see D3 in design-oem-bar-quote.md). */
 export function buildJobInput(job: JobForm): OemPriceCalcInput | null {
+  if (job.metal === "silver999") {
+    if (!job.barSize) return null;
+    const qty = Number(job.qty);
+    if (!Number.isFinite(qty) || qty <= 0) return null;
+
+    let engraveImageThb: number | null = null;
+    if (job.engraveImageThb.trim()) {
+      engraveImageThb = Number(job.engraveImageThb);
+      if (!Number.isFinite(engraveImageThb) || engraveImageThb < 0) return null;
+    }
+    let engraveTextThb: number | null = null;
+    if (job.engraveTextThb.trim()) {
+      engraveTextThb = Number(job.engraveTextThb);
+      if (!Number.isFinite(engraveTextThb) || engraveTextThb < 0) return null;
+    }
+
+    return {
+      metal: "silver999",
+      barSize: job.barSize,
+      qty,
+      engraveImageThb,
+      engraveTextThb,
+    };
+  }
+
   if (!job.itemKind || !job.polishTier) return null;
   const qty = Number(job.qty);
   const weightG = Number(job.weightG);

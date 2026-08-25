@@ -20,6 +20,8 @@ import { getDevShopId, getDevRole } from "@/lib/dev/context";
 import type { ActionResult } from "@/lib/types";
 import type {
   DeleteOemRateInput,
+  OemBarBreakdown,
+  OemBarSize,
   OemBatchLine,
   OemFloors,
   OemLaborStep,
@@ -80,6 +82,25 @@ function toNum(v: number | string | null | undefined): number | null {
 // ============================================================================
 
 function toCalcInputPayload(input: OemPriceCalcInput): Record<string, unknown> {
+  // 0078: silver999 (เงินแท่ง) is a DELIBERATELY separate, minimal payload —
+  // D3 in design-oem-bar-quote.md is explicit that item_kind/polish_tier/
+  // weight_g/margin_pct/plating/gem must NOT be sent for this branch; the RPC
+  // reads bar_size/qty/engrave_*_thb ONLY and returns before touching any
+  // production validation. Sending the production keys anyway would be
+  // harmless server-side (the RPC ignores them for this branch) but would
+  // drift from the documented contract for no reason.
+  if (input.metal === "silver999") {
+    return {
+      metal: "silver999",
+      bar_size: input.barSize ?? null,
+      qty: input.qty,
+      engrave_image_thb: input.engraveImageThb ?? null,
+      engrave_text_thb: input.engraveTextThb ?? null,
+      // display-only on the way in (server ignores it and looks up TODAY,
+      // Asia/Bangkok, itself) — see OemPriceCalcInput.asOfDate's comment.
+      as_of_date: input.asOfDate ?? null,
+    };
+  }
   return {
     metal: input.metal,
     item_kind: input.itemKind,
@@ -94,6 +115,48 @@ function toCalcInputPayload(input: OemPriceCalcInput): Record<string, unknown> {
     as_of_date: input.asOfDate ?? null,
     // 0063: margin to CHARGE — omit to fall back to oem_setting.margin_target_pct.
     margin_pct: input.marginPct ?? null,
+  };
+}
+
+// ============================================================================
+// 0078: analytics.oem_quote_item.input / analytics.oem_quote.input store
+// EXACTLY toCalcInputPayload()'s output — i.e. snake_case (item_kind,
+// weight_g, bar_size, engrave_image_thb, …), NOT the camelCase
+// OemPriceCalcInput shape. Reading that raw jsonb back with a bare `as
+// OemPriceCalcInput` cast (as mapQuoteRow/mapQuoteItemRow did pre-0078) silently
+// produces `undefined` for every multi-word field (itemKind, weightG,
+// polishTier, barSize, …) — it only APPEARED to work because `metal` and
+// `purity` happen to be spelled the same in both cases. fromInputPayload is
+// the inverse of toCalcInputPayload; every read of a stored .input must go
+// through it from here on (fixes a pre-existing latent bug that 0078's
+// barSize/engrave fields would otherwise inherit — see printableQuote.ts's
+// itemKindFallback/weightG, which depended on the same broken cast).
+// ============================================================================
+function fromInputPayload(raw: Record<string, unknown>): OemPriceCalcInput {
+  const metal = raw.metal as OemPriceCalcInput["metal"];
+  if (metal === "silver999") {
+    return {
+      metal,
+      barSize: (raw.bar_size as OemBarSize | null | undefined) ?? null,
+      qty: Number(raw.qty ?? 0),
+      engraveImageThb: raw.engrave_image_thb == null ? null : Number(raw.engrave_image_thb),
+      engraveTextThb: raw.engrave_text_thb == null ? null : Number(raw.engrave_text_thb),
+      asOfDate: (raw.as_of_date as string | null | undefined) ?? null,
+    };
+  }
+  return {
+    metal,
+    itemKind: raw.item_kind == null ? undefined : String(raw.item_kind),
+    polishTier: raw.polish_tier == null ? undefined : String(raw.polish_tier),
+    qty: Number(raw.qty ?? 0),
+    weightG: raw.weight_g == null ? undefined : Number(raw.weight_g),
+    isNewDesign: raw.is_new_design == null ? true : Boolean(raw.is_new_design),
+    purity: raw.purity == null ? null : Number(raw.purity),
+    platingType: (raw.plating_type as string | null | undefined) ?? null,
+    gemTier: (raw.gem_tier as string | null | undefined) ?? null,
+    gemCount: raw.gem_count == null ? 0 : Number(raw.gem_count),
+    asOfDate: (raw.as_of_date as string | null | undefined) ?? null,
+    marginPct: raw.margin_pct == null ? null : Number(raw.margin_pct),
   };
 }
 
@@ -113,6 +176,25 @@ function fromCalcResult(raw: Record<string, unknown>): OemPriceCalcResult {
   const labor = (b.labor ?? {}) as Record<string, unknown>;
   const batch = (b.batch ?? {}) as Record<string, unknown>;
   const nre = (b.nre ?? {}) as Record<string, unknown>;
+  // 0078: non-null only when metal='silver999'. NEVER add kilo_buy/
+  // buy_per_baht here even if the RPC starts returning them by accident —
+  // this mapper is the last line before that number could reach a UI a
+  // customer sees (D3's "ห้ามเด็ดขาด" note).
+  const barRaw = b.bar as Record<string, unknown> | null | undefined;
+  const bar: OemBarBreakdown | null = barRaw
+    ? {
+        size: String(barRaw.size ?? "") as OemBarSize,
+        priceColumn: String(barRaw.price_column ?? ""),
+        barPricePerPiece: barRaw.bar_price_per_piece == null ? null : Number(barRaw.bar_price_per_piece),
+        engraveImageThb: barRaw.engrave_image_thb == null ? null : Number(barRaw.engrave_image_thb),
+        engraveTextThb: barRaw.engrave_text_thb == null ? null : Number(barRaw.engrave_text_thb),
+        marginPctEmbedded: barRaw.margin_pct_embedded == null ? null : Number(barRaw.margin_pct_embedded),
+        asOfDate: barRaw.as_of_date == null ? null : String(barRaw.as_of_date),
+        sheetTime: barRaw.sheet_time == null ? null : String(barRaw.sheet_time),
+        capturedAt: barRaw.captured_at == null ? null : String(barRaw.captured_at),
+        source: barRaw.source == null ? null : String(barRaw.source),
+      }
+    : null;
 
   const laborSteps: OemLaborStep[] = ((labor.steps as unknown[] | undefined) ?? []).map((s) => {
     const r = s as Record<string, unknown>;
@@ -151,6 +233,7 @@ function fromCalcResult(raw: Record<string, unknown>): OemPriceCalcResult {
       cost: Number(nre.cost ?? 0),
       price: Number(nre.price ?? 0),
     },
+    bar,
     costPiece: Number(b.cost_piece ?? 0),
     pricePerPiece: Number(b.price_per_piece ?? 0),
     quoteTotal: b.quote_total == null ? null : Number(b.quote_total),
@@ -163,6 +246,10 @@ function fromCalcResult(raw: Record<string, unknown>): OemPriceCalcResult {
   const fJob = (f.job_value ?? {}) as Record<string, unknown>;
   const fMetal = (f.metal_weight ?? {}) as Record<string, unknown>;
   const fMargin = (f.margin ?? {}) as Record<string, unknown>;
+  // 0078: present only when metal='silver999'. Read defensively (undefined
+  // on every pre-0078 saved quote — see D5's note that old quotes reprint
+  // fine without it) rather than assuming the key exists.
+  const fPriceFresh = f.price_fresh as Record<string, unknown> | undefined;
 
   const floors: OemFloors = {
     qty: { pass: fQty.pass == null ? null : Boolean(fQty.pass), moq: fQty.moq == null ? null : Number(fQty.moq), actual: Number(fQty.actual ?? 0) },
@@ -174,6 +261,13 @@ function fromCalcResult(raw: Record<string, unknown>): OemPriceCalcResult {
       blended: fMargin.blended == null ? null : Number(fMargin.blended),
       target: fMargin.target == null ? null : Number(fMargin.target),
     },
+    priceFresh: fPriceFresh
+      ? {
+          pass: Boolean(fPriceFresh.pass),
+          asOfDate: fPriceFresh.as_of_date == null ? null : String(fPriceFresh.as_of_date),
+          todayBkk: String(fPriceFresh.today_bkk ?? ""),
+        }
+      : undefined,
   };
 
   return {
@@ -351,7 +445,7 @@ export async function getOemSetting(): Promise<ActionResult<OemSettingData>> {
       .schema(SCHEMA)
       .from("oem_setting")
       .select(
-        "margin_target_pct, margin_discount_cap_pct, margin_floor_pct, margin_hard_floor_pct, nre_max_share_pct, min_job_value_thb, quote_valid_days_silver, quote_valid_days_gold, quote_valid_days_brass, formula_version"
+        "margin_target_pct, margin_discount_cap_pct, margin_floor_pct, margin_hard_floor_pct, nre_max_share_pct, min_job_value_thb, quote_valid_days_silver, quote_valid_days_gold, quote_valid_days_brass, bar_margin_pct, formula_version"
       )
       .eq("shop_id", shopId)
       .maybeSingle();
@@ -368,6 +462,11 @@ export async function getOemSetting(): Promise<ActionResult<OemSettingData>> {
       quoteValidDaysSilver: data ? Number(data.quote_valid_days_silver) : 30,
       quoteValidDaysGold: data ? Number(data.quote_valid_days_gold) : 7,
       quoteValidDaysBrass: data ? Number(data.quote_valid_days_brass) : 45,
+      // 0078: bar_margin_pct is new on oem_setting (default 0.19 at the DB
+      // column level too) — data?.bar_margin_pct is only ever null on a row
+      // written before 0078's ALTER TABLE, which the column default already
+      // backfills, so this branch is defensive-only, not an expected path.
+      barMarginPct: data && data.bar_margin_pct != null ? Number(data.bar_margin_pct) : 0.19,
       formulaVersion: data ? Number(data.formula_version) : 1,
     };
     return { ok: true, data: result };
@@ -390,6 +489,7 @@ export async function saveOemSetting(input: UpsertOemSettingInput): Promise<Acti
   const validSilver = toNum(input.quoteValidDaysSilver);
   const validGold = toNum(input.quoteValidDaysGold);
   const validBrass = toNum(input.quoteValidDaysBrass);
+  const barMarginPct = toNum(input.barMarginPct);
 
   for (const [label, v] of [
     ["margin เป้าหมาย", target],
@@ -404,6 +504,10 @@ export async function saveOemSetting(input: UpsertOemSettingInput): Promise<Acti
   if (validSilver != null && validSilver <= 0) return { ok: false, error: "อายุใบเสนอราคา (เงิน) ต้องมากกว่า 0 วัน" };
   if (validGold != null && validGold <= 0) return { ok: false, error: "อายุใบเสนอราคา (ทอง) ต้องมากกว่า 0 วัน" };
   if (validBrass != null && validBrass <= 0) return { ok: false, error: "อายุใบเสนอราคา (ทองเหลือง) ต้องมากกว่า 0 วัน" };
+  // 0078: same open-interval check the DB's check(bar_margin_pct > 0 and < 1) enforces.
+  if (barMarginPct != null && (barMarginPct <= 0 || barMarginPct >= 1)) {
+    return { ok: false, error: "margin แฝงเงินแท่ง ต้องอยู่ระหว่าง 0–100% (ไม่รวมขอบ)" };
+  }
 
   try {
     const shopId = getDevShopId();
@@ -422,6 +526,26 @@ export async function saveOemSetting(input: UpsertOemSettingInput): Promise<Acti
       p_quote_valid_days_brass: validBrass,
     });
     if (error) throw error;
+
+    // 0078 GAP (see final report to Tech Lead): analytics.oem_setting_upsert
+    // (0061) was never extended with a p_bar_margin_pct parameter — 0078 only
+    // ALTERs the column onto the table, it does not touch this RPC. Rather
+    // than block the settings UI on a migration this app isn't allowed to
+    // write (Han owns supabase/migrations/), bar_margin_pct is written with
+    // its own direct table upsert. This has the SAME real security gate as
+    // every RPC call in this file (requireOwnerAdmin() above — see this
+    // file's header: getServiceClient() bypasses RLS and short-circuits
+    // crm_require_owner_admin() inside every RPC here regardless, so a plain
+    // table write through the same service client is not a weaker gate than
+    // the RPC path). Every column has a table-level DEFAULT (0061 §"oem_setting"),
+    // so this upsert is safe even if no row exists yet for this shop.
+    if (barMarginPct != null) {
+      const { error: barErr } = await supabase
+        .schema(SCHEMA)
+        .from("oem_setting")
+        .upsert({ shop_id: shopId, bar_margin_pct: barMarginPct }, { onConflict: "shop_id" });
+      if (barErr) throw barErr;
+    }
 
     revalidateOemPaths();
     return { ok: true, data: undefined };
@@ -545,11 +669,26 @@ export async function calcPrice(input: OemPriceCalcInput): Promise<ActionResult<
   const gateErr = requireOwnerAdmin();
   if (gateErr) return gateErr;
 
-  if (!input?.metal || !input.itemKind?.trim() || !input.polishTier?.trim()) {
-    return { ok: false, error: "กรุณาเลือกวัสดุ / ประเภทงาน / ระดับความยากขัด" };
+  if (!input?.metal) return { ok: false, error: "กรุณาเลือกวัสดุ" };
+
+  if (input.metal === "silver999") {
+    if (!input.barSize) return { ok: false, error: "กรุณาเลือกขนาดแท่ง" };
+    if (!Number.isFinite(input.qty) || input.qty <= 0) return { ok: false, error: "จำนวนแท่งต้องมากกว่า 0" };
+    if (input.engraveImageThb != null && (!Number.isFinite(input.engraveImageThb) || input.engraveImageThb < 0)) {
+      return { ok: false, error: "ค่ายิงเลเซอร์รูปภาพต้องเป็นตัวเลขตั้งแต่ 0 ขึ้นไป" };
+    }
+    if (input.engraveTextThb != null && (!Number.isFinite(input.engraveTextThb) || input.engraveTextThb < 0)) {
+      return { ok: false, error: "ค่ายิงเลเซอร์ตัวอักษรต้องเป็นตัวเลขตั้งแต่ 0 ขึ้นไป" };
+    }
+  } else {
+    if (!input.itemKind?.trim() || !input.polishTier?.trim()) {
+      return { ok: false, error: "กรุณาเลือกวัสดุ / ประเภทงาน / ระดับความยากขัด" };
+    }
+    if (!Number.isFinite(input.qty) || input.qty <= 0) return { ok: false, error: "จำนวนชิ้นต้องมากกว่า 0" };
+    if (!Number.isFinite(input.weightG) || (input.weightG as number) <= 0) {
+      return { ok: false, error: "น้ำหนักต่อชิ้นต้องมากกว่า 0" };
+    }
   }
-  if (!Number.isFinite(input.qty) || input.qty <= 0) return { ok: false, error: "จำนวนชิ้นต้องมากกว่า 0" };
-  if (!Number.isFinite(input.weightG) || input.weightG <= 0) return { ok: false, error: "น้ำหนักต่อชิ้นต้องมากกว่า 0" };
 
   try {
     const shopId = getDevShopId();
@@ -581,7 +720,7 @@ function mapQuoteRow(r: Record<string, unknown>): OemQuoteRow {
     // 0075: null on every v2-saved (multi-item) quote — only the two
     // pre-0075 rows still carry a header input/calc. See getQuoteItems for
     // the per-item shape every quote (old and new) has via the backfill.
-    input: r.input == null ? null : (r.input as OemPriceCalcInput),
+    input: r.input == null ? null : fromInputPayload(r.input as Record<string, unknown>),
     calc: r.calc == null ? null : fromCalcResult(r.calc as Record<string, unknown>),
     costPiece: r.cost_piece == null ? null : Number(r.cost_piece),
     pricePerPiece: r.price_per_piece == null ? null : Number(r.price_per_piece),
@@ -602,6 +741,9 @@ function mapQuoteRow(r: Record<string, unknown>): OemQuoteRow {
     lostTo: (r.lost_to as string | null) ?? null,
     isExpired: Boolean(r.is_expired),
     daysLeft: r.days_left == null ? null : Number(r.days_left),
+    // 0078: Asia/Bangkok-compared — prefer these two everywhere in the UI.
+    isExpiredTh: Boolean(r.is_expired_th),
+    daysLeftTh: r.days_left_th == null ? null : Number(r.days_left_th),
     createdAt: String(r.created_at),
     updatedAt: String(r.updated_at),
     discountThb: r.discount_thb == null ? 0 : Number(r.discount_thb),
@@ -627,7 +769,7 @@ function mapQuoteRow(r: Record<string, unknown>): OemQuoteRow {
 }
 
 const QUOTE_COLUMNS =
-  "id, quote_no, customer_name, customer_contact, input, calc, cost_piece, price_per_piece, nre_cost, nre_price, pieces_subtotal, quote_total, margin_actual_pct, margin_charged_pct, q_run, flask_count, plating_batch_count, status, approval_note, approved_by, quote_valid_until, lost_reason, lost_to, is_expired, days_left, created_at, updated_at, discount_thb, discount_reason, grand_total, margin_after_discount_pct, parent_quote_id, parent_quote_no, root_quote_id, customer_id, vat_mode, item_count, bill_legal_name, bill_tax_id, bill_phone, bill_contact_channel, bill_address";
+  "id, quote_no, customer_name, customer_contact, input, calc, cost_piece, price_per_piece, nre_cost, nre_price, pieces_subtotal, quote_total, margin_actual_pct, margin_charged_pct, q_run, flask_count, plating_batch_count, status, approval_note, approved_by, quote_valid_until, lost_reason, lost_to, is_expired, days_left, is_expired_th, days_left_th, created_at, updated_at, discount_thb, discount_reason, grand_total, margin_after_discount_pct, parent_quote_id, parent_quote_no, root_quote_id, customer_id, vat_mode, item_count, bill_legal_name, bill_tax_id, bill_phone, bill_contact_channel, bill_address";
 
 function mapQuoteItemRow(r: Record<string, unknown>): OemQuoteItemRow {
   return {
@@ -639,7 +781,7 @@ function mapQuoteItemRow(r: Record<string, unknown>): OemQuoteItemRow {
     productId: (r.product_id as string | null) ?? null,
     skuSnapshot: (r.sku_snapshot as string | null) ?? null,
     productNameSnapshot: (r.product_name_snapshot as string | null) ?? null,
-    input: r.input as OemPriceCalcInput,
+    input: fromInputPayload(r.input as Record<string, unknown>),
     calc: fromCalcResult(r.calc as Record<string, unknown>),
     qty: Number(r.qty),
     costPiece: r.cost_piece == null ? null : Number(r.cost_piece),

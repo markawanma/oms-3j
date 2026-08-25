@@ -4,7 +4,7 @@
 // comment for why that rule matters.
 
 import { OEM_METAL_LABEL_TH } from "./types";
-import type { OemCustomerAddress, OemInputUnit, OemMetal, OemScopeKind } from "./types";
+import type { OemBarSize, OemCustomerAddress, OemInputUnit, OemMetal, OemScopeKind } from "./types";
 
 // ============================================================================
 // group_code ordering (rate intake page) — matches the production sequence
@@ -120,6 +120,21 @@ export const OEM_ITEM_KIND_OPTIONS = ITEM_KIND_ORDER;
 export const OEM_POLISH_TIER_OPTIONS = POLISH_TIER_ORDER;
 export const OEM_GEM_TIER_OPTIONS = GEM_TIER_ORDER;
 export const OEM_PLATING_OPTIONS = PLATING_ORDER;
+
+// ============================================================================
+// เงินแท่ง 99.99% (0078) — น้ำหนักเป็นข้อความประกอบ "ให้ดู" เท่านั้น ไม่ใช่
+// ช่องแก้ได้และไม่ใช่ตัวตั้งราคา (ราคาไม่ linear ตามน้ำหนัก — 1 บาท×10 ≠ 10 บาท
+// จริง ~6%) ค่าคงที่แข็ง ไม่คำนวณ (15.24 ก./บาททอง คือหน่วยชั่งมาตรฐานไทย) —
+// ดู design-oem-bar-quote.md ข้อ 2 ของโจทย์ Luke.
+// ============================================================================
+export const OEM_BAR_SIZE_WEIGHT_LABEL_TH: Record<OemBarSize, string> = {
+  "0_5_baht": "≈ 7.62 กรัม (15.24 ก./บาท × 0.5)",
+  "1_baht": "≈ 15.24 กรัม",
+  "3_baht": "≈ 45.72 กรัม (15.24 ก./บาท × 3)",
+  "5_baht": "≈ 76.2 กรัม (15.24 ก./บาท × 5)",
+  "10_baht": "≈ 152.4 กรัม (15.24 ก./บาท × 10)",
+  "1_kg": "1,000 กรัม (1 กิโลกรัม)",
+};
 
 export function roundTo(n: number, dp: number): number {
   const f = 10 ** dp;

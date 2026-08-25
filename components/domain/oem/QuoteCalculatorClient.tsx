@@ -21,9 +21,10 @@ import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
 import { calcPrice, getOemProducts, saveQuote } from "@/lib/actions/oem";
 import type { OemPriceCalcResult, OemProductOption, OemSettingData, SaveQuoteInput } from "@/lib/oem/types";
+import { OEM_BAR_SIZE_LABEL_TH } from "@/lib/oem/types";
 import { roundTo } from "@/lib/oem/display";
 import type { JobForm } from "@/lib/oem/quoteForm";
-import { OEM_DEFAULT_PURITY, buildJobInput, createJobForm } from "@/lib/oem/quoteForm";
+import { OEM_DEFAULT_PURITY, barSizeForSku, buildJobInput, createJobForm } from "@/lib/oem/quoteForm";
 import { useToast } from "@/components/ui/Toast";
 import { Button } from "@/components/ui/Button";
 import { QuoteJobItemCard } from "./QuoteJobItemCard";
@@ -120,23 +121,37 @@ export function QuoteCalculatorClient({ setting }: { setting: OemSettingData }) 
 
   /** Sets/clears an item's SKU label atomically (all 3 fields in one
    * update) — separate from updateItemField() so a selection never fires 3
-   * separate setState calls for fields that never feed buildJobInput(). */
+   * separate setState calls for fields that never feed buildJobInput().
+   *
+   * 0078: also the ONE deliberate auto-switch in this form — picking a
+   * เงินแท่ง SKU (see barSizeForSku's mapping table) sets metal='silver999'
+   * + the matching barSize. Never silent: the toast below says out loud
+   * what changed and that it's still editable — "S-1A" and any unknown SKU
+   * are simply absent from the table, so they fall through untouched. */
   function updateItemSku(key: string, product: OemProductOption | null) {
+    const barSize = barSizeForSku(product?.sku);
     setItems((prev) =>
-      prev.map((it) =>
-        it.key === key
-          ? {
-              ...it,
-              job: {
-                ...it.job,
-                productId: product?.productId ?? null,
-                skuSnapshot: product?.sku ?? null,
-                productNameSnapshot: product?.name ?? null,
-              },
-            }
-          : it
-      )
+      prev.map((it) => {
+        if (it.key !== key) return it;
+        const job: JobForm = {
+          ...it.job,
+          productId: product?.productId ?? null,
+          skuSnapshot: product?.sku ?? null,
+          productNameSnapshot: product?.name ?? null,
+        };
+        if (barSize) {
+          job.metal = "silver999";
+          job.barSize = barSize;
+        }
+        return { ...it, job };
+      })
     );
+    if (barSize && product) {
+      toast.push(
+        `สลับเป็นโหมด "เงินแท่ง 99.99% ขนาด ${OEM_BAR_SIZE_LABEL_TH[barSize]}" ให้อัตโนมัติจาก SKU ${product.sku} — แก้ไขเองได้ที่การ์ดรายการนี้`
+      );
+      setQuoteId(null); // auto-switch changes the priced input — same as any other field edit
+    }
   }
 
   // Snapshot of {key, input} per item, recomputed whenever any job field

@@ -29,6 +29,7 @@ export function OemPolicySection({ setting }: { setting: OemSettingData }) {
   const [validSilver, setValidSilver] = useState(String(setting.quoteValidDaysSilver));
   const [validGold, setValidGold] = useState(String(setting.quoteValidDaysGold));
   const [validBrass, setValidBrass] = useState(String(setting.quoteValidDaysBrass));
+  const [barMarginPct, setBarMarginPct] = useState(String(roundTo(setting.barMarginPct * 100, 2)));
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
 
@@ -56,10 +57,12 @@ export function OemPolicySection({ setting }: { setting: OemSettingData }) {
     const vs = Number(validSilver);
     const vg = Number(validGold);
     const vb = Number(validBrass);
+    const bm = Number(barMarginPct) / 100;
     if (!Number.isFinite(mj) || mj <= 0) return setError("มูลค่างานขั้นต่ำต้องมากกว่า 0");
     if (!Number.isFinite(vs) || vs <= 0) return setError("อายุใบเสนอราคา (เงิน) ต้องมากกว่า 0 วัน");
     if (!Number.isFinite(vg) || vg <= 0) return setError("อายุใบเสนอราคา (ทอง) ต้องมากกว่า 0 วัน");
     if (!Number.isFinite(vb) || vb <= 0) return setError("อายุใบเสนอราคา (ทองเหลือง) ต้องมากกว่า 0 วัน");
+    if (!Number.isFinite(bm) || bm <= 0 || bm >= 1) return setError("margin แฝงเงินแท่ง ต้องอยู่ระหว่าง 0–100% (ไม่รวมขอบ)");
 
     startTransition(async () => {
       const result = await saveOemSetting({
@@ -72,6 +75,7 @@ export function OemPolicySection({ setting }: { setting: OemSettingData }) {
         quoteValidDaysSilver: vs,
         quoteValidDaysGold: vg,
         quoteValidDaysBrass: vb,
+        barMarginPct: bm,
       });
       if (!result.ok) {
         setError(result.error);
@@ -133,6 +137,27 @@ export function OemPolicySection({ setting }: { setting: OemSettingData }) {
           ทองเหลือง
           <input type="number" inputMode="numeric" min={1} step="1" value={validBrass} onChange={(e) => setValidBrass(e.target.value)} className={inputCls} required />
         </label>
+      </div>
+
+      <div className="mt-4 border-t border-zinc-100 pt-3.5">
+        <label className={`${labelCls} max-w-[10rem]`}>
+          margin แฝงเงินแท่ง (%)
+          <input
+            type="number"
+            inputMode="decimal"
+            min={0}
+            max={99.99}
+            step="0.1"
+            value={barMarginPct}
+            onChange={(e) => setBarMarginPct(e.target.value)}
+            className={inputCls}
+            required
+          />
+        </label>
+        <p className="mt-1 text-xs text-zinc-500">
+          margin ที่บวกไว้ในราคาหน้าเว็บของเงินแท่งอยู่แล้ว (ไม่กระทบราคาที่ลูกค้าเห็น — ราคาแท่งมาจากหน้าเว็บเสมอ) ใช้แค่อนุมานต้นทุนย้อนกลับ
+          เพื่อให้ด่านตรวจส่วนลด/margin ขั้นต่ำทำงานกับรายการเงินแท่งได้เหมือนงานผลิตอื่น
+        </p>
       </div>
 
       {error && <p className="mt-3 text-xs text-red-600">{error}</p>}

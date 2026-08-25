@@ -14,7 +14,7 @@ import Link from "next/link";
 import { ArrowLeft, ChevronDown, ChevronUp, Pencil, Printer } from "lucide-react";
 import { setQuoteStatus } from "@/lib/actions/oem";
 import type { OemQuoteItemRow, OemQuoteRow } from "@/lib/oem/types";
-import { OEM_METAL_LABEL_TH, OEM_QUOTE_STATUS_LABEL_TH } from "@/lib/oem/types";
+import { OEM_BAR_SIZE_LABEL_TH, OEM_METAL_LABEL_TH, OEM_QUOTE_STATUS_LABEL_TH } from "@/lib/oem/types";
 import { formatBangkokTime, formatTHB } from "@/lib/format";
 import { formatThaiDateOnly } from "@/lib/tiktok/format";
 import { fmtPct, formatOemAddressLines } from "@/lib/oem/display";
@@ -22,6 +22,7 @@ import { Badge } from "@/components/ui/Badge";
 import type { BadgeTone } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
+import { OemBarCalcSummary } from "./OemBarCalcSummary";
 import { OemCalcBreakdown } from "./OemCalcBreakdown";
 import { LostQuoteDialog } from "./LostQuoteDialog";
 import { RenegotiateDialog } from "./RenegotiateDialog";
@@ -74,7 +75,7 @@ export function QuoteDetailClient({ quote, items }: { quote: OemQuoteRow; items:
     });
   }
 
-  const canRenegotiate = quote.status === "quoted" && !quote.isExpired;
+  const canRenegotiate = quote.status === "quoted" && !quote.isExpiredTh;
   // oem_quote_set_billing (0075 §7) hard-gates status IN ('quoted','won')
   // server-side — mirror that here so the edit button never opens a dialog
   // that can only ever fail. Draft quotes haven't been sent to a customer
@@ -98,7 +99,7 @@ export function QuoteDetailClient({ quote, items }: { quote: OemQuoteRow; items:
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-lg font-bold text-zinc-900">{quote.quoteNo}</h1>
             <Badge tone={STATUS_TONE[quote.status]}>{OEM_QUOTE_STATUS_LABEL_TH[quote.status]}</Badge>
-            {quote.isExpired && <Badge tone="red">หมดอายุแล้ว</Badge>}
+            {quote.isExpiredTh && <Badge tone="red">หมดอายุแล้ว</Badge>}
           </div>
           {canOpenPrint && (
             <Button type="button" variant="secondary" size="sm" onClick={openPrintTab}>
@@ -142,7 +143,7 @@ export function QuoteDetailClient({ quote, items }: { quote: OemQuoteRow; items:
         {quote.quoteValidUntil && (
           <p className="mt-2 text-xs text-zinc-500">
             ยืนราคาถึง {formatThaiDateOnly(quote.quoteValidUntil)}
-            {quote.daysLeft != null && !quote.isExpired && ` (เหลือ ${quote.daysLeft} วัน)`}
+            {quote.daysLeftTh != null && !quote.isExpiredTh && ` (เหลือ ${quote.daysLeftTh} วัน)`}
           </p>
         )}
         {quote.approvalNote && (
@@ -266,7 +267,10 @@ export function QuoteDetailClient({ quote, items }: { quote: OemQuoteRow; items:
                         </td>
                         <td className="py-2 pr-2 text-zinc-800">
                           {it.skuSnapshot && <span className="font-semibold">{it.skuSnapshot} · </span>}
-                          {it.productNameSnapshot || it.input.itemKind}
+                          {it.productNameSnapshot ||
+                            (it.input.metal === "silver999" && it.input.barSize
+                              ? `เงินแท่ง 99.99% ขนาด ${OEM_BAR_SIZE_LABEL_TH[it.input.barSize]}`
+                              : it.input.itemKind)}
                         </td>
                         <td className="py-2 pr-2 text-zinc-600">{OEM_METAL_LABEL_TH[it.input.metal]}</td>
                         <td className="py-2 pr-2 text-right tabular-nums text-zinc-700">{it.qty}</td>
@@ -277,7 +281,11 @@ export function QuoteDetailClient({ quote, items }: { quote: OemQuoteRow; items:
                       {expanded && (
                         <tr className="border-b border-zinc-100 bg-zinc-50/60 last:border-0">
                           <td colSpan={7} className="p-3">
-                            <OemCalcBreakdown calc={it.calc} metal={it.input.metal} />
+                            {it.input.metal === "silver999" ? (
+                              <OemBarCalcSummary calc={it.calc} />
+                            ) : (
+                              <OemCalcBreakdown calc={it.calc} metal={it.input.metal} />
+                            )}
                           </td>
                         </tr>
                       )}

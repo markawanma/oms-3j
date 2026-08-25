@@ -9,13 +9,26 @@
 // pricing formula.
 
 import { AlertTriangle, Loader2 } from "lucide-react";
-import type { OemSettingData } from "@/lib/oem/types";
+import type { OemBarSize, OemSettingData } from "@/lib/oem/types";
+import { OEM_BAR_SIZE_LABEL_TH } from "@/lib/oem/types";
 import { aggregateQuotePreview } from "@/lib/oem/quoteForm";
 import type { JobForm } from "@/lib/oem/quoteForm";
 import type { OemPriceCalcResult } from "@/lib/oem/types";
 import { fmtPct } from "@/lib/oem/display";
 import { formatTHB } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
+
+/** "ประเภทชิ้นงาน × N ชิ้น" for production, "เงินแท่ง ขนาด X × N แท่ง" for
+ * silver999 — QuoteJobItemCard's summaryLabel uses the same split, kept here
+ * as its own small helper since this panel's line is a shorter, single-line
+ * variant (no SKU prefix). */
+function lineItemLabel(job: JobForm): string {
+  if (job.metal === "silver999") {
+    const sizeLabel = job.barSize ? OEM_BAR_SIZE_LABEL_TH[job.barSize as OemBarSize] : "ยังไม่ระบุขนาด";
+    return `เงินแท่ง ${sizeLabel} × ${job.qty || "0"} แท่ง`;
+  }
+  return `${job.itemKind || "—"} × ${job.qty || "0"}`;
+}
 
 export interface QuoteResultItem {
   key: string;
@@ -77,9 +90,25 @@ export function QuoteResultPanel({
     discountNum
   );
 
+  // hard floor: unconditional, same as oem_quote_save's aggregate hard-floor
+  // check (0078 D4 §"hard floor aggregate ... ไม่แก้" — it's the last line of
+  // defense, deliberately with no exceptions).
   const discountBelowHardFloor = preview.marginAfterDiscountPct != null && preview.marginAfterDiscountPct < setting.marginHardFloorPct;
-  const discountBelowFloor = preview.marginAfterDiscountPct != null && preview.marginAfterDiscountPct < setting.marginFloorPct;
+  // floor (needs-a-reason tier): MUST require discountNum > 0, mirroring
+  // oem_quote_save's `p_discount_thb > 0 and v_margin_after_discount <
+  // margin_floor_pct` clause (0078 D4). Without this guard, a เงินแท่ง-only
+  // quote (embedded margin ~19%, always < the 20% default floor) would show
+  // "ต้องระบุเหตุผล" and block the issue button even with ZERO discount —
+  // the exact phantom-approval-note bug D4 exists to prevent, just moved to
+  // this preview instead of the DB. See design-oem-bar-quote.md D4 test (a):
+  // "ใบแท่งล้วน ไม่ลด → quoted ผ่าน โดยไม่ถูกบังคับใส่ note".
+  const discountBelowFloor =
+    discountNum > 0 && preview.marginAfterDiscountPct != null && preview.marginAfterDiscountPct < setting.marginFloorPct;
   const needsApprovalNote = anyNeedsNoteFromItem || discountBelowFloor;
+
+  // 0078: bar prices stand for TODAY only (quote_valid_days=0 server-side —
+  // D4), unlike the usual 7/30/45-day window for production metals.
+  const hasBarItem = items.some((i) => i.job.metal === "silver999");
 
   // 2+ items sharing the same plating type — production can share a plating
   // batch even though each item was priced independently (0075 design: "no
@@ -126,7 +155,7 @@ export function QuoteResultPanel({
               {items.map((it, idx) => (
                 <div key={it.key} className="flex justify-between gap-2 text-zinc-600">
                   <dt className="truncate">
-                    {idx + 1}. {it.job.itemKind || "—"} × {it.job.qty || "0"}
+                    {idx + 1}. {lineItemLabel(it.job)}
                   </dt>
                   <dd className="shrink-0 tabular-nums text-zinc-800">
                     {it.calc?.isComplete && it.calc.breakdown.quoteTotal != null
@@ -153,6 +182,12 @@ export function QuoteResultPanel({
               </div>
             </div>
           </div>
+
+          {hasBarItem && (
+            <p className="rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs text-amber-800">
+              ใบนี้มีรายการเงินแท่ง — ราคาเงินแท่งยืนเฉพาะวันนี้เท่านั้น (คนละอายุกับใบเสนอราคาส่วนงานผลิต)
+            </p>
+          )}
 
           <div className="rounded-lg border border-zinc-200 bg-white p-3.5 shadow-sm">
             <h3 className="text-xs font-bold uppercase tracking-wide text-zinc-500">ส่วนลด</h3>

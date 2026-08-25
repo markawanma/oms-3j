@@ -8,14 +8,17 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Check, Loader2 } from "lucide-react";
 import { saveMetalPrice } from "@/lib/actions/oem";
-import type { OemMetal, OemMetalPriceMap } from "@/lib/oem/types";
+import type { OemMetalPriceMap, OemProductionMetal } from "@/lib/oem/types";
 import { OEM_METAL_LABEL_TH } from "@/lib/oem/types";
 import { formatThaiDateOnly } from "@/lib/tiktok/format";
 import { useToast } from "@/components/ui/Toast";
 
-const METALS: OemMetal[] = ["silver", "gold", "brass"];
+// silver999 (เงินแท่ง) deliberately excluded — its price comes from
+// silver_price_daily (fixed sell price per size), not a per-gram spot rate
+// an admin types in here. See OemProductionMetal's comment in lib/oem/types.ts.
+const METALS: OemProductionMetal[] = ["silver", "gold", "brass"];
 
-function MetalPriceCell({ metal, current }: { metal: OemMetal; current: OemMetalPriceMap[OemMetal] }) {
+function MetalPriceCell({ metal, current }: { metal: OemProductionMetal; current: OemMetalPriceMap[OemProductionMetal] }) {
   const toast = useToast();
   const router = useRouter();
   const [value, setValue] = useState(current ? String(current.priceThbPerGram) : "");

@@ -29,6 +29,15 @@
 // number you need isn't there already, that's a sign it doesn't belong on
 // this document.
 //
+// 0078 (เงินแท่ง): barSizeLabel/barPricePerPiece/engraveImageThb/
+// engraveTextThb/silverPriceAsOf/silverPriceCapturedAt are new, deliberately
+// SAFE fields on PrintableQuote(Item) — see that file's "0078 NARROW
+// EXCEPTION" header note for exactly which 3 leaves of `calc` they're sourced
+// from and why. barPricePerPiece prints as its OWN line, separate from
+// engrave charges, ON PURPOSE: it must match the shop's public website price
+// for that size exactly, or a customer who checks will think engrave was
+// silently folded into the bar price.
+//
 // SECOND LAYER, NOT JUST THIS COMMENT: this component's prop type is
 // PrintableQuote (lib/oem/printableQuote.ts), not OemQuoteRow/OemQuoteItemRow
 // — that file is the actual enforcement, not this comment. A client
@@ -48,7 +57,7 @@ import type { PrintableQuote } from "@/lib/oem/printableQuote";
 import { OEM_METAL_LABEL_TH } from "@/lib/oem/types";
 import { SELLER_PROFILE, missingSellerFields } from "@/lib/oem/sellerProfile";
 import { formatOemAddressLines } from "@/lib/oem/display";
-import { formatTHB } from "@/lib/format";
+import { formatBangkokTimeOnly, formatTHB } from "@/lib/format";
 import { formatThaiDateOnly } from "@/lib/tiktok/format";
 import { Button } from "@/components/ui/Button";
 
@@ -190,6 +199,17 @@ export function PrintQuoteClient({ quote }: { quote: PrintableQuote }) {
           {customerContactLine && <p className="text-xs text-zinc-600">{customerContactLine}</p>}
         </div>
 
+        {/* 0078: silver bar price snapshot — only present when this quote
+            has at least one เงินแท่ง item. States the exact day/time the
+            bar price(s) below were locked to, and that the quote does not
+            stand past that day (bar quote_valid_days = 0, see D4). */}
+        {quote.silverPriceAsOf && (
+          <div className="mt-3 border-b border-dashed border-zinc-200 pb-3 text-xs text-zinc-600">
+            อ้างอิงราคาเงินแท่ง ณ {formatThaiDateOnly(quote.silverPriceAsOf)}
+            {quote.silverPriceCapturedAt && ` เวลา ${formatBangkokTimeOnly(quote.silverPriceCapturedAt)} น.`} — ใบเสนอราคานี้ยืนราคาเฉพาะวันดังกล่าว
+          </div>
+        )}
+
         {/* items */}
         <table className="oem-print-table mt-4 w-full border-collapse text-left text-xs">
           <thead>
@@ -223,10 +243,35 @@ export function PrintQuoteClient({ quote }: { quote: PrintableQuote }) {
                 <td className="py-1.5 pr-2 align-top text-zinc-600">{it.seq}</td>
                 <td className="py-1.5 pr-2 align-top text-zinc-800">
                   {it.skuSnapshot && <span className="font-semibold">{it.skuSnapshot} · </span>}
-                  {it.productNameSnapshot || it.itemKindFallback}
+                  {it.productNameSnapshot || it.barSizeLabel || it.itemKindFallback}
+                  {/* 0078: engrave charges print as their OWN sub-lines here —
+                      never folded into "ราคา/ชิ้น" — so the bar price stays
+                      checkable against the shop's own website 1:1. */}
+                  {(it.barPricePerPiece != null || it.engraveImageThb || it.engraveTextThb) && (
+                    <dl className="mt-0.5 space-y-0 text-[10px] font-normal text-zinc-500">
+                      {it.barPricePerPiece != null && (
+                        <div className="flex justify-between gap-2">
+                          <dt>ราคาเงินแท่ง</dt>
+                          <dd className="tabular-nums">{formatTHB(it.barPricePerPiece)}/แท่ง</dd>
+                        </div>
+                      )}
+                      {!!it.engraveImageThb && (
+                        <div className="flex justify-between gap-2">
+                          <dt>ค่ายิงเลเซอร์รูปภาพ</dt>
+                          <dd className="tabular-nums">{formatTHB(it.engraveImageThb)}/ชิ้น</dd>
+                        </div>
+                      )}
+                      {!!it.engraveTextThb && (
+                        <div className="flex justify-between gap-2">
+                          <dt>ค่ายิงเลเซอร์ตัวอักษร</dt>
+                          <dd className="tabular-nums">{formatTHB(it.engraveTextThb)}/ชิ้น</dd>
+                        </div>
+                      )}
+                    </dl>
+                  )}
                 </td>
                 <td className="py-1.5 pr-2 align-top text-zinc-600">{OEM_METAL_LABEL_TH[it.material]}</td>
-                <td className="py-1.5 pr-2 text-right align-top tabular-nums text-zinc-600">{it.weightG} ก.</td>
+                <td className="py-1.5 pr-2 text-right align-top tabular-nums text-zinc-600">{it.weightG != null ? `${it.weightG} ก.` : "-"}</td>
                 <td className="py-1.5 pr-2 text-right align-top tabular-nums text-zinc-600">{it.qty.toLocaleString("th-TH")}</td>
                 <td className="py-1.5 pr-2 text-right align-top tabular-nums text-zinc-800">
                   {it.pricePerPiece != null ? formatTHB(it.pricePerPiece) : "-"}

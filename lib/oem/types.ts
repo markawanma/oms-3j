@@ -12,7 +12,28 @@
 // lib/actions/oem.ts. The only implementation of §2.2's 6-line formula is
 // analytics.oem_price_calc (0062) — everything here is shape only.
 
-export type OemMetal = "silver" | "gold" | "brass";
+export type OemMetal = "silver" | "gold" | "brass" | "silver999";
+
+/** The 3 metals oem_metal_price (per-gram spot pricing) applies to —
+ * silver999 (เงินแท่ง) is explicitly EXCLUDED: bar prices come from
+ * analytics.silver_price_daily (a fixed sell price per size, not a per-gram
+ * rate an admin enters), so OemMetalPriceMap below must not gain a 4th key
+ * just because OemMetal did. See docs/3j-jewelry/analytics/design-oem-bar-quote.md D1. */
+export type OemProductionMetal = Exclude<OemMetal, "silver999">;
+
+/** เงินแท่ง 99.99% ขนาดที่ขายจริง — 0.5/1/3/5/10 บาท ใช้คอลัมน์
+ * bar_0_5_baht…bar_10_baht ของ silver_price_daily; 1_kg ใช้ kilo_sell_vat
+ * (ทั้งใบ VAT-inclusive ตามมติ) ไม่ใช่ kilo_sell — ห้าม "ปรับปรุง" ไปใช้ตัวนั้น. */
+export type OemBarSize = "0_5_baht" | "1_baht" | "3_baht" | "5_baht" | "10_baht" | "1_kg";
+
+export const OEM_BAR_SIZE_LABEL_TH: Record<OemBarSize, string> = {
+  "0_5_baht": "0.5 บาท",
+  "1_baht": "1 บาท",
+  "3_baht": "3 บาท",
+  "5_baht": "5 บาท",
+  "10_baht": "10 บาท",
+  "1_kg": "1 กิโลกรัม",
+};
 
 export type OemInputUnit =
   | "pieces_per_day"
@@ -104,6 +125,11 @@ export interface OemSettingData {
   quoteValidDaysSilver: number;
   quoteValidDaysGold: number;
   quoteValidDaysBrass: number;
+  /** 0078: margin แฝงอยู่ในราคาเว็บของเงินแท่งอยู่แล้ว (ไม่กระทบราคาที่ลูกค้าเห็น) —
+   * ใช้อนุมานต้นทุนย้อนกลับ (cost = price × (1 − barMarginPct)) เพื่อให้รายการ
+   * เงินแท่งไหลเข้าด่านส่วนลด/margin ขั้นต่ำแบบเดียวกับงานผลิต ไม่ใช่ตัวตั้งราคา —
+   * ดู D2 ใน design-oem-bar-quote.md. */
+  barMarginPct: number;
   formulaVersion: number;
 }
 
@@ -117,6 +143,7 @@ export interface UpsertOemSettingInput {
   quoteValidDaysSilver?: number | null;
   quoteValidDaysGold?: number | null;
   quoteValidDaysBrass?: number | null;
+  barMarginPct?: number | null;
 }
 
 // ============================================================================
@@ -150,8 +177,9 @@ export interface SaveMetalPriceInput {
 }
 
 /** Latest known price per metal (analytics.oem_metal_price, one row per
- * metal — the shop's current answer, not history). null = never set. */
-export type OemMetalPriceMap = Record<OemMetal, { priceThbPerGram: number; asOfDate: string; source: string } | null>;
+ * metal — the shop's current answer, not history). null = never set.
+ * OemProductionMetal (not OemMetal) — silver999 is never a key here. */
+export type OemMetalPriceMap = Record<OemProductionMetal, { priceThbPerGram: number; asOfDate: string; source: string } | null>;
 
 // ============================================================================
 // Price calc (oem_price_calc jsonb contract — mirrors the shape documented in
@@ -161,28 +189,44 @@ export type OemMetalPriceMap = Record<OemMetal, { priceThbPerGram: number; asOfD
 
 export interface OemPriceCalcInput {
   metal: OemMetal;
-  /** matches oem_rate_scope_option for flask_capacity_pieces, e.g. 'แหวน'. */
-  itemKind: string;
-  /** 'เรียบ' | 'ปานกลาง' | 'ละเอียด'. */
-  polishTier: string;
+  /** matches oem_rate_scope_option for flask_capacity_pieces, e.g. 'แหวน'.
+   * Required for silver/gold/brass; unused/absent for metal='silver999'
+   * (bar mode has no item_kind — see D3 in design-oem-bar-quote.md). */
+  itemKind?: string;
+  /** 'เรียบ' | 'ปานกลาง' | 'ละเอียด'. Unused for silver999. */
+  polishTier?: string;
+  /** pieces (production metals) or bars (silver999) — same field, different unit label in the UI. */
   qty: number;
-  /** net metal weight per piece, grams. */
-  weightG: number;
-  /** default true server-side if omitted (assume NRE applies unless told otherwise). */
+  /** net metal weight per piece, grams. Unused for silver999 — a bar's
+   * weight is implied by barSize (not linear across sizes), never entered. */
+  weightG?: number;
+  /** default true server-side if omitted (assume NRE applies unless told otherwise). Unused for silver999. */
   isNewDesign?: boolean;
-  /** required for gold (no safe default across K); silver/brass default. */
+  /** required for gold (no safe default across K); silver/brass default. Unused for silver999. */
   purity?: number | null;
-  /** 'ทอง' | 'โรเดียม' | 'พิงค์โกลด์'; omit/null = no plating. */
+  /** 'ทอง' | 'โรเดียม' | 'พิงค์โกลด์'; omit/null = no plating. Unused for silver999. */
   platingType?: string | null;
-  /** 'เล็ก' | 'กลาง' | 'ใหญ่'; omit/null = no gems. */
+  /** 'เล็ก' | 'กลาง' | 'ใหญ่'; omit/null = no gems. Unused for silver999. */
   gemTier?: string | null;
-  /** gems per piece; default 0. */
+  /** gems per piece; default 0. Unused for silver999. */
   gemCount?: number | null;
-  /** default current_date — pins metal price + rate lookups (reprint uses the saved quote's value). */
+  /** default current_date — pins metal price + rate lookups (reprint uses the saved quote's value).
+   * 0078: for silver999 this is CLIENT-SIDE DISPLAY ONLY (what price the user saw when they
+   * built the quote) — the server always looks up TODAY (Asia/Bangkok), never this value,
+   * so a client can't pin an old bar price. See D3. */
   asOfDate?: string | null;
   /** margin to CHARGE, fraction [0,1) — 0063: omit to use oem_setting.margin_target_pct.
-   * This is the number floors.margin judges (not the blended margin_actual_pct). */
+   * This is the number floors.margin judges (not the blended margin_actual_pct).
+   * Not applicable to silver999 — margin there is inferred from oem_setting.bar_margin_pct
+   * server-side and never accepted from the client (D2 §3 — accepting it would let a
+   * caller fake a margin to dodge the discount/floor gates). */
   marginPct?: number | null;
+  /** 0078 (silver999 only): 0.5/1/3/5/10 บาท / 1 กก. — required when metal='silver999'. */
+  barSize?: OemBarSize | null;
+  /** 0078 (silver999 only): ค่ายิงเลเซอร์รูปภาพ บาท/ชิ้น, optional, >= 0. */
+  engraveImageThb?: number | null;
+  /** 0078 (silver999 only): ค่ายิงเลเซอร์ตัวอักษร บาท/ชิ้น, optional, >= 0. */
+  engraveTextThb?: number | null;
 }
 
 export interface OemMissingRateEntry {
@@ -203,6 +247,29 @@ export interface OemBatchLine {
   capacity: number | null;
   count: number | null;
   cost: number | null;
+}
+
+/** 0078: breakdown.bar — present (non-null) only when metal='silver999'.
+ * The snapshot of what was actually charged for the bar itself, deliberately
+ * WITHOUT kilo_buy/buy_per_baht (buy-back price) anywhere — see D3's
+ * "ห้ามเด็ดขาด" note. marginPctEmbedded is report-only (never gates anything —
+ * see floors.margin.value staying null for bar items). */
+export interface OemBarBreakdown {
+  size: OemBarSize;
+  /** silver_price_daily column this size read from (e.g. 'bar_1_baht', 'kilo_sell_vat') — debug/audit only. */
+  priceColumn: string;
+  /** the bar's own sell price for this size, EXCLUDING engrave — same number checkable on the shop's own website. */
+  barPricePerPiece: number | null;
+  engraveImageThb: number | null;
+  engraveTextThb: number | null;
+  /** oem_setting.bar_margin_pct at calc time — report-only (see D2/D3, never gates a floor). */
+  marginPctEmbedded: number | null;
+  /** "today" (Asia/Bangkok) the server looked up — null when no row was found for today. */
+  asOfDate: string | null;
+  /** e.g. "13:02" — which scrape slot (09/13/20) this row came from, when known. */
+  sheetTime: string | null;
+  capturedAt: string | null;
+  source: string | null;
 }
 
 export interface OemPriceBreakdown {
@@ -231,6 +298,8 @@ export interface OemPriceBreakdown {
   labor: { perPiece: number; steps: OemLaborStep[] };
   batch: { perPiece: number; lines: OemBatchLine[] };
   nre: { cad: number | null; print3d: number | null; mold: number | null; cost: number; price: number };
+  /** 0078: non-null only when metal='silver999'. null for every production item. */
+  bar?: OemBarBreakdown | null;
   costPiece: number;
   pricePerPiece: number;
   /** null when is_complete=false — do not trust/display a partial total. */
@@ -257,6 +326,11 @@ export interface OemFloors {
    * bug — see 0063 header). `target` is oem_setting.margin_target_pct, for
    * showing "vs. your usual target" context. */
   margin: { state: OemMarginState; value: number | null; blended: number | null; target: number | null };
+  /** 0078: present only when metal='silver999' — "is today's bar price on file at
+   * all" (server always looks up TODAY, Asia/Bangkok, `=` only, no yesterday
+   * fallback). pass=false is what blocks quoted status for a bar item (see the
+   * missing[] entry with rate_key='silver_bar_price' for the reason to show). */
+  priceFresh?: { pass: boolean; asOfDate: string | null; todayBkk: string };
 }
 
 export interface OemPriceCalcResult {
@@ -379,8 +453,17 @@ export interface OemQuoteRow {
   quoteValidUntil: string | null;
   lostReason: string | null;
   lostTo: string | null;
+  /** UTC current_date comparison — kept for backward compat, but every UI in
+   * this app should read isExpiredTh/daysLeftTh instead (0078 D5). */
   isExpired: boolean;
   daysLeft: number | null;
+  /** 0078: same computation, compared against Asia/Bangkok "today" instead
+   * of UTC current_date — matters for the 00:00–07:00 ICT window every
+   * morning, and specifically for metal='silver999' items whose
+   * quote_valid_days=0 makes that window the whole difference between
+   * "expired" and "not". Prefer these two over isExpired/daysLeft everywhere. */
+  isExpiredTh: boolean;
+  daysLeftTh: number | null;
   createdAt: string;
   updatedAt: string;
   // ---- 0075 additions ----
@@ -449,6 +532,7 @@ export const OEM_METAL_LABEL_TH: Record<OemMetal, string> = {
   silver: "เงิน 925",
   gold: "ทอง",
   brass: "ทองเหลือง",
+  silver999: "เงินแท่ง 99.99%",
 };
 
 export const OEM_QUOTE_STATUS_LABEL_TH: Record<OemQuoteStatus, string> = {
