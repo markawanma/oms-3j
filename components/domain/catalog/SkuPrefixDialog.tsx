@@ -31,11 +31,17 @@ export function SkuPrefixDialog({
   onClose,
   existing,
   onSaved,
+  editing = null,
 }: {
   open: boolean;
   onClose: () => void;
   existing: SkuPrefixRow[];
   onSaved: () => void;
+  /** มีค่า = โหมดแก้ไข: prefill ทุกช่อง, prefix + ลักษณะงาน (work_type) ปิดแก้ไม่ได้
+   * (DB ล็อกทั้งคู่หลังสร้างแล้ว — prefix แก้ได้เฉพาะยังไม่มี SKU ออก, work_type
+   * แก้ไม่ได้เลย ดู upsertSkuPrefix comment), ไม่เรียก previewSkuSeed (ไม่มีเลข
+   * ตั้งต้นให้แนะนำใหม่ — RPC รับ seedLastNo null ตอนแก้แปลว่า "ไม่แตะตัวนับ"). */
+  editing?: SkuPrefixRow | null;
 }) {
   const toast = useToast();
   const [kindLabel, setKindLabel] = useState("");
@@ -93,6 +99,33 @@ export function SkuPrefixDialog({
     onClose();
   }
 
+  // Prefill on open in edit mode (create mode uses the blank defaults above
+  // + reset() on close, unchanged). Runs off `open` transitioning to true
+  // rather than `editing` alone, so re-opening to edit the SAME row again
+  // re-prefills correctly even though reset() already ran on the previous
+  // close. padTouched is marked true so the debounce effect below (which is
+  // skipped anyway in edit mode, see next effect) never overwrites the real
+  // pad_width with a preview suggestion.
+  useEffect(() => {
+    if (!open) return;
+    if (editing) {
+      setKindLabel(editing.kindLabel);
+      setWorkType(editing.workType);
+      setPrefix(editing.prefix);
+      setSeedInput("");
+      markSeedTouched(false);
+      setSuggestedSeed(null);
+      setPadInput(String(editing.padWidth));
+      markPadTouched(true);
+      setSuggestedPadWidth(null);
+      setPreviewError(null);
+      setSubmitError(null);
+    } else {
+      reset();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, editing]);
+
   // Debounced live preview whenever a syntactically-valid prefix is typed.
   // Two race conditions this guards against:
   //   1. Stale `seedTouched` closure — user types a seed by hand inside the
@@ -107,6 +140,9 @@ export function SkuPrefixDialog({
   //      it's no longer current.
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
+    // โหมดแก้ไข: prefix ล็อกอยู่แล้ว (ช่อง disabled) ไม่มีอะไรให้แนะนำเลขตั้งต้น
+    // ใหม่ — ข้ามทั้งบล็อกไปเลย ไม่เรียก previewSkuSeed
+    if (editing) return;
     if (!isValidSkuPrefix(prefix)) {
       setSuggestedSeed(null);
       setSuggestedPadWidth(null);
@@ -138,10 +174,12 @@ export function SkuPrefixDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [prefix]);
 
-  const overlap = findOverlappingPrefix(prefix, existing);
+  const overlap = findOverlappingPrefix(prefix, existing, editing?.id ?? null);
   const validPrefix = isValidSkuPrefix(prefix);
-  const finalSeed = seedInput.trim() !== "" ? Number(seedInput) : suggestedSeed;
-  const validSeed = finalSeed !== null && Number.isInteger(finalSeed) && finalSeed >= 0;
+  // โหมดแก้ไข: ไม่ส่ง seed เลย (RPC รับ null = ไม่แตะตัวนับ) — เลขตั้งต้นเดิม
+  // ตั้งไว้ตอนสร้างเท่านั้น, แก้ทีหลังไม่มีความหมาย (SKU ออกไปแล้วบางส่วน).
+  const finalSeed = editing ? null : seedInput.trim() !== "" ? Number(seedInput) : suggestedSeed;
+  const validSeed = editing ? true : finalSeed !== null && Number.isInteger(finalSeed) && finalSeed >= 0;
   const finalPad = padInput.trim() !== "" ? Number(padInput) : suggestedPadWidth;
   const validPad = finalPad !== null && Number.isInteger(finalPad) && finalPad >= 0 && finalPad <= 6;
   const canSubmit = kindLabel.trim() !== "" && validPrefix && validSeed && validPad && !submitting;
@@ -155,24 +193,32 @@ export function SkuPrefixDialog({
       : null;
 
   function submit() {
-    if (!canSubmit || finalSeed === null || finalPad === null) return;
+    if (!canSubmit || finalPad === null) return;
+    if (!editing && finalSeed === null) return; // create mode still requires a confirmed seed
     setSubmitError(null);
     setSubmitting(true);
-    upsertSkuPrefix({ kindLabel: kindLabel.trim(), workType, prefix, seedLastNo: finalSeed, padWidth: finalPad }).then((result) => {
+    upsertSkuPrefix({
+      id: editing?.id ?? undefined,
+      kindLabel: kindLabel.trim(),
+      workType,
+      prefix,
+      seedLastNo: finalSeed, // null in edit mode = "ไม่แตะตัวนับ"
+      padWidth: finalPad,
+    }).then((result) => {
       setSubmitting(false);
       if (!result.ok) {
         setSubmitError(result.error);
         toast.push(result.error, "error");
         return;
       }
-      toast.push(`บันทึก prefix ${prefix} แล้ว`);
+      toast.push(editing ? `แก้ไข prefix ${prefix} แล้ว` : `บันทึก prefix ${prefix} แล้ว`);
       onSaved();
       handleClose();
     });
   }
 
   return (
-    <Modal open={open} onClose={handleClose} title="เพิ่ม prefix">
+    <Modal open={open} onClose={handleClose} title={editing ? "แก้ไข prefix" : "เพิ่ม prefix"}>
       <label className={labelCls} htmlFor="sku-prefix-kind">
         ประเภทงาน
       </label>
@@ -188,18 +234,23 @@ export function SkuPrefixDialog({
       <span className={labelCls}>ลักษณะงาน</span>
       <div className="mt-1 flex gap-4">
         {(Object.keys(SKU_WORK_TYPE_LABEL_TH) as SkuWorkType[]).map((wt) => (
-          <label key={wt} className="flex min-h-11 items-center gap-2 text-sm text-zinc-800">
+          <label
+            key={wt}
+            className={`flex min-h-11 items-center gap-2 text-sm ${editing ? "text-zinc-400" : "text-zinc-800"}`}
+          >
             <input
               type="radio"
               name="sku-prefix-work-type"
               checked={workType === wt}
+              disabled={Boolean(editing)}
               onChange={() => setWorkType(wt)}
-              className="h-5 w-5"
+              className="h-5 w-5 disabled:cursor-not-allowed"
             />
             {SKU_WORK_TYPE_LABEL_TH[wt]}
           </label>
         ))}
       </div>
+      {editing && <p className="mt-1 text-xs text-zinc-400">แก้ไม่ได้หลังสร้างแล้ว — ถ้าผิดให้ลบแล้วสร้างใหม่</p>}
 
       <label className={labelCls} htmlFor="sku-prefix-prefix">
         prefix (A-Z ไม่เกิน 5 ตัว ปิดท้าย - ได้ เช่น RP หรือ B-)
@@ -208,10 +259,12 @@ export function SkuPrefixDialog({
         id="sku-prefix-prefix"
         type="text"
         value={prefix}
+        disabled={Boolean(editing)}
         onChange={(e) => setPrefix(sanitizeSkuPrefixInput(e.target.value))}
-        className={`${inputCls} uppercase`}
+        className={`${inputCls} uppercase disabled:bg-zinc-100 disabled:text-zinc-400`}
         placeholder="เช่น RP"
       />
+      {editing && <p className="mt-1 text-xs text-zinc-400">แก้ไม่ได้หลังสร้างแล้ว — ถ้าผิดให้ลบแล้วสร้างใหม่</p>}
       {overlap && (
         <p className="mt-1 rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-700">
           มี prefix &quot;{overlap.prefix}&quot; ({overlap.kindLabel} · {SKU_WORK_TYPE_LABEL_TH[overlap.workType]}) อยู่แล้ว —
@@ -219,30 +272,34 @@ export function SkuPrefixDialog({
         </p>
       )}
 
-      <label className={labelCls} htmlFor="sku-prefix-seed">
-        เลขตั้งต้น
-      </label>
-      <input
-        id="sku-prefix-seed"
-        type="number"
-        inputMode="numeric"
-        min={0}
-        step="1"
-        value={seedInput}
-        disabled={!validPrefix}
-        onChange={(e) => {
-          markSeedTouched(true);
-          setSeedInput(e.target.value);
-        }}
-        className={`${inputCls} disabled:bg-zinc-100 disabled:text-zinc-400`}
-        placeholder={validPrefix ? "0" : "กรอก prefix ก่อน"}
-      />
-      {previewLoading && <p className="mt-1 text-xs text-zinc-400">กำลังคำนวณเลขตั้งต้นแนะนำ...</p>}
-      {previewError && <p className="mt-1 text-xs text-red-600">{previewError}</p>}
-      {!previewLoading && !previewError && suggestedSeed !== null && (
-        <p className="mt-1 text-xs text-zinc-400">
-          เลขตั้งต้นแนะนำ: {suggestedSeed} (จาก SKU เดิมในระบบ) — แก้ได้ก่อนบันทึก
-        </p>
+      {!editing && (
+        <>
+          <label className={labelCls} htmlFor="sku-prefix-seed">
+            เลขตั้งต้น
+          </label>
+          <input
+            id="sku-prefix-seed"
+            type="number"
+            inputMode="numeric"
+            min={0}
+            step="1"
+            value={seedInput}
+            disabled={!validPrefix}
+            onChange={(e) => {
+              markSeedTouched(true);
+              setSeedInput(e.target.value);
+            }}
+            className={`${inputCls} disabled:bg-zinc-100 disabled:text-zinc-400`}
+            placeholder={validPrefix ? "0" : "กรอก prefix ก่อน"}
+          />
+          {previewLoading && <p className="mt-1 text-xs text-zinc-400">กำลังคำนวณเลขตั้งต้นแนะนำ...</p>}
+          {previewError && <p className="mt-1 text-xs text-red-600">{previewError}</p>}
+          {!previewLoading && !previewError && suggestedSeed !== null && (
+            <p className="mt-1 text-xs text-zinc-400">
+              เลขตั้งต้นแนะนำ: {suggestedSeed} (จาก SKU เดิมในระบบ) — แก้ได้ก่อนบันทึก
+            </p>
+          )}
+        </>
       )}
 
       <label className={labelCls} htmlFor="sku-prefix-pad">

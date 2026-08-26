@@ -52,7 +52,11 @@ export interface UpsertSkuPrefixInput {
   kindLabel: string;
   workType: SkuWorkType;
   prefix: string;
-  seedLastNo: number;
+  /** null = ไม่แตะตัวนับ (RPC's "don't touch the counter" signal) — only
+   * meaningful when `id` is set (edit mode). Create mode (id null/undefined)
+   * always sends a concrete confirmed int; the dialog enforces this before
+   * calling upsertSkuPrefix. */
+  seedLastNo: number | null;
   /** Sent to sku_prefix_upsert as `p_pad_width` (0091): null/undefined = ไม่
    * แก้ (insert path จะได้ 0 จาก DB default, update path คงค่าเดิม). The
    * dialog always sends an explicit int on create. */

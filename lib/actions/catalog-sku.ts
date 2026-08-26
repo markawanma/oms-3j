@@ -215,8 +215,16 @@ export async function upsertSkuPrefix(input: UpsertSkuPrefixInput): Promise<Acti
     return { ok: false, error: PREFIX_FORMAT_ERROR };
   }
   const seedLastNo = toInt(input.seedLastNo);
-  // 0 is a valid seed (next SKU will be prefix+1) — only reject null/negative.
-  if (seedLastNo === null || seedLastNo < 0) {
+  // Create (no id): 0 is a valid seed (next SKU will be prefix+1) — only
+  // reject null/negative, same as before. Edit (id set): null IS the valid
+  // signal for "ไม่แตะตัวนับ" (SkuPrefixDialog's edit mode never shows/sends a
+  // seed field at all) — only reject an explicit negative if one somehow
+  // arrives, never reject null there.
+  if (!input.id) {
+    if (seedLastNo === null || seedLastNo < 0) {
+      return { ok: false, error: "เลขตั้งต้นต้องเป็นจำนวนเต็มตั้งแต่ 0 ขึ้นไป" };
+    }
+  } else if (seedLastNo !== null && seedLastNo < 0) {
     return { ok: false, error: "เลขตั้งต้นต้องเป็นจำนวนเต็มตั้งแต่ 0 ขึ้นไป" };
   }
 
@@ -292,5 +300,44 @@ export async function createCatalogSku(input: CreateCatalogSkuInput): Promise<Ac
   } catch (err) {
     console.error("createCatalogSku failed", err instanceof Error ? err.message : err);
     return { ok: false, error: "สร้างสินค้าใหม่ไม่สำเร็จ ลองใหม่อีกครั้ง" };
+  }
+}
+
+// ============================================================================
+// ลบ prefix — analytics.sku_prefix_delete (Han, คู่ขนาน). ปฏิเสธ (22023, Thai
+// message ตรงๆ) ถ้ามี SKU ใช้ prefix นี้แล้ว — ไม่มี soft-delete/disable เหมือน
+// product_delete เพราะ prefix ที่ยังไม่เคยออก SKU ไม่มีอะไรให้รักษาไว้
+// (ต่างจาก deleteProduct ที่แนะนำ "ปิดการใช้งาน" แทน — ที่นี่ทางออกเดียวคือ
+// สร้าง prefix ใหม่ให้ถูกต้อง). เกิดจาก UAT จริง: work_type ล็อกแก้ไม่ได้
+// หลังสร้าง แต่เดิมไม่มีทางแก้กับดักตั้งใจผิด prefix ตั้งแต่ตัวแรกเลย.
+// ============================================================================
+
+export async function deleteSkuPrefix({ id }: { id: string }): Promise<ActionResult> {
+  const gateErr = requireOwnerAdmin();
+  if (gateErr) return gateErr;
+
+  const clean = id?.trim();
+  if (!clean) return { ok: false, error: "ไม่พบ prefix ที่จะลบ" };
+
+  try {
+    const shopId = getDevShopId();
+    const supabase = getServiceClient();
+
+    const { error } = await supabase.schema(SCHEMA).rpc("sku_prefix_delete", {
+      p_shop_id: shopId,
+      p_id: clean,
+    });
+    if (error) {
+      // 22023 = controlled Thai message from the RPC (e.g. "มี N SKU ใช้ prefix
+      // นี้แล้ว ลบไม่ได้") — same convention as upsertSkuPrefix above.
+      if ((error as { code?: string }).code === "22023") return { ok: false, error: error.message };
+      throw error;
+    }
+
+    revalidatePath("/catalog/sku-prefix");
+    return { ok: true, data: undefined };
+  } catch (err) {
+    console.error("deleteSkuPrefix failed", err instanceof Error ? err.message : err);
+    return { ok: false, error: "ลบ prefix ไม่สำเร็จ ลองใหม่อีกครั้ง" };
   }
 }
