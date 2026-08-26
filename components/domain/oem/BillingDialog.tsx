@@ -113,10 +113,13 @@ export function BillingDialog({
   const toast = useToast();
   const [legalName, setLegalName] = useState(quote.billLegalName ?? quote.customerName ?? "");
   const [taxId, setTaxId] = useState(quote.billTaxId ?? "");
-  // 0086: default "สำนักงานใหญ่" เมื่อยังไม่เคยกรอกไว้ — ครอบคลุม OEM ส่วนใหญ่
-  // ที่เป็นนิติบุคคลออกที่สำนักงานใหญ่ ยังแก้/ลบได้เสมอ (บุคคลธรรมดาไม่บังคับกรอก
-  // ก็ลบทิ้งได้). ค่าที่เคยบันทึกไว้แล้ว (quote.billBranchLabel) มาก่อนเสมอ.
-  const [branchLabel, setBranchLabel] = useState(quote.billBranchLabel ?? "สำนักงานใหญ่");
+  // 0086 (แก้ตาม security 0086/0087): default "สำนักงานใหญ่" เฉพาะตอนที่ผู้ซื้อ
+  // มีเลขผู้เสียภาษีอยู่แล้ว (นิติบุคคล) — บุคคลธรรมดา (ไม่มี taxId) เว้นว่างเสมอ
+  // ไม่งั้นคำว่า "สำนักงานใหญ่" จะติดไปกับชื่อคนธรรมดาบนเอกสารที่ไม่มีใครลบออก
+  // ก่อนบันทึก. ค่าที่เคยบันทึกไว้แล้ว (quote.billBranchLabel) มาก่อนเสมอ. ยังมี
+  // ด่านกันอีกชั้นตอน submit (confirm() ด้านล่าง) เผื่อผู้ใช้กรอก taxId ก่อนแล้ว
+  // ลบทิ้งทีหลัง — branchLabel จะไม่ถูกส่งค้างไปด้วย.
+  const [branchLabel, setBranchLabel] = useState(quote.billBranchLabel ?? (quote.billTaxId?.trim() ? "สำนักงานใหญ่" : ""));
   const [phone, setPhone] = useState(quote.billPhone ?? "");
   const [contactChannel, setContactChannel] = useState(quote.billContactChannel ?? "");
   const [line1, setLine1] = useState(quote.billAddress?.line1 ?? "");
@@ -188,7 +191,12 @@ export function BillingDialog({
         taxId: taxId.trim() || null,
         phone: phone.trim() || null,
         contactChannel: contactChannel.trim() || null,
-        branchLabel: branchLabel.trim() || null,
+        // 0086/security-fix: บังคับ null เมื่อไม่มี taxId เสมอ ไม่ว่า state
+        // ของช่อง branchLabel จะค้างค่าอะไรอยู่ก็ตาม (เช่น ผู้ใช้กรอก taxId
+        // ไว้ก่อนจน default โผล่ "สำนักงานใหญ่" แล้วลบ taxId ทิ้งทีหลัง โดยไม่
+        // ได้ลบช่องสาขาตาม) — กันคำว่า "สำนักงานใหญ่" หลุดติดชื่อบุคคลธรรมดา
+        // บนเอกสารที่พิมพ์แล้วแก้ย้อนหลังไม่ได้.
+        branchLabel: taxId.trim() ? branchLabel.trim() || null : null,
         address: {
           line1: line1.trim() || null,
           line2: line2.trim() || null,
@@ -269,8 +277,11 @@ export function BillingDialog({
       <input
         id="oem-bill-branch-label"
         type="text"
+        maxLength={60}
         value={branchLabel}
-        onChange={(e) => setBranchLabel(e.target.value)}
+        // 0087 ฝั่ง DB ตัดที่ 60 ตัวอักษร และปฏิเสธถ้ามีขึ้นบรรทัดใหม่/tab —
+        // สอดคล้องกันฝั่ง UI ที่นี่ (ตัดอักขระควบคุมทิ้งตั้งแต่พิมพ์/วาง)
+        onChange={(e) => setBranchLabel(e.target.value.replace(/[\r\n\t]/g, "").slice(0, 60))}
         onBlur={blur("branchLabel")}
         className={showError("branchLabel", branchLabelErr) ? inputErrorCls : inputCls}
         placeholder="เช่น สำนักงานใหญ่ หรือ สาขาที่ 1"

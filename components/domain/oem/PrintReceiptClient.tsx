@@ -40,13 +40,17 @@ export function PrintReceiptClient({ receipt }: { receipt: PrintableReceipt }) {
   const sellerAddressLines = receipt.seller.addressLines;
   const buyerAddressLines = formatOemAddressLines(receipt.buyerAddress);
   const sellerContactLine = receipt.seller.phone ?? "";
-  // หัวเอกสาร: เป็น "ใบกำกับภาษี" ได้ก็ต่อเมื่อผู้ซื้อมีเลขผู้เสียภาษีจริง
-  // (ป.รัษฎากร ม.86/4 บังคับว่าใบกำกับภาษีเต็มรูปต้องมีเลขผู้เสียภาษีของผู้ซื้อ)
-  // — seller ฝั่งนี้จด VAT แล้วเสมอ (oem_receipt_issue เองปฏิเสธออกใบถ้า
-  // seller_vat_registered ไม่ true, 0084 §งานหลัก) ดังนั้นท่อนแยก VAT
+  // หัวเอกสาร: เป็น "ใบกำกับภาษี" ได้ก็ต่อเมื่อผู้ซื้อมีครบทั้ง 3 อย่างตาม
+  // ป.รัษฎากร ม.86/4 (เลขผู้เสียภาษี + สาขา + ที่อยู่ของผู้ซื้อ) — security fix
+  // (0086/0087 ตรวจพบ): ใบที่ออกก่อนบังคับด่านสาขา (0086) มี buyerTaxId แต่ไม่มี
+  // buyerBranchLabel/ที่อยู่ ถ้าตัดสินจาก buyerTaxId ตัวเดียวจะพาดหัวว่าใบกำกับ
+  // ภาษีทั้งที่ข้อมูลไม่ครบองค์ประกอบตามกฎหมาย — fail-safe: ขาดอย่างใดอย่างหนึ่ง
+  // ตกกลับเป็น "ใบเสร็จรับเงิน" เฉยๆ เสมอ (ใบเสร็จธรรมดาที่ถูกต้อง ดีกว่าใบกำกับ
+  // ภาษีที่ไม่ครบ) — seller ฝั่งนี้จด VAT แล้วเสมอ (oem_receipt_issue เองปฏิเสธ
+  // ออกใบถ้า seller_vat_registered ไม่ true, 0084 §งานหลัก) ดังนั้นท่อนแยก VAT
   // (ก่อนภาษี/VAT/รวม) ด้านล่างต้องคงไว้เหมือนกันทั้งสองกรณี ไม่ผูกกับ
-  // เงื่อนไขนี้ — ต่างกันแค่พาดหัว/ประเภทเอกสารเท่านั้น
-  const isFullTaxInvoice = !!receipt.buyerTaxId;
+  // เงื่อนไขนี้ — ต่างกันแค่พาดหัว/ประเภทเอกสารเท่านั้น (ห้ามแตะท่อน VAT)
+  const isFullTaxInvoice = !!receipt.buyerTaxId && !!receipt.buyerBranchLabel && buyerAddressLines.length > 0;
   const documentTitleTh = isFullTaxInvoice ? "ใบเสร็จรับเงิน/ใบกำกับภาษี" : "ใบเสร็จรับเงิน";
   const documentTitleEn = isFullTaxInvoice ? "Receipt / Tax Invoice · ต้นฉบับ" : "Receipt · ต้นฉบับ";
 
