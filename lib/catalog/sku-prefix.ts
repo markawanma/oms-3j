@@ -34,6 +34,8 @@ export interface SkuPrefixRow {
   workType: SkuWorkType;
   prefix: string;
   lastNo: number | null;
+  /** จำนวนหลักที่เติมศูนย์ตอนสร้าง SKU ใหม่ (0 = ไม่เติม) — analytics.sku_prefix.pad_width, migration 0091. */
+  padWidth: number;
   createdAt: string;
 }
 
@@ -51,6 +53,10 @@ export interface UpsertSkuPrefixInput {
   workType: SkuWorkType;
   prefix: string;
   seedLastNo: number;
+  /** Sent to sku_prefix_upsert as `p_pad_width` (0091): null/undefined = ไม่
+   * แก้ (insert path จะได้ 0 จาก DB default, update path คงค่าเดิม). The
+   * dialog always sends an explicit int on create. */
+  padWidth?: number | null;
 }
 
 export interface CreateCatalogSkuInput {
@@ -88,6 +94,15 @@ function isStrictPrefixOf(a: string, b: string): boolean {
  * that overlaps with `candidate` in the "SKU numbers might collide" sense —
  * or null if none. Non-blocking warning only: the DB's unique(shop_id, sku)
  * on the actual SKU string is the real backstop (design doc §จุดเสี่ยง 2). */
+/** Zero-pads `n` to `padWidth` digits WITHOUT ever truncating — a number
+ * already at or past padWidth digits long is returned unchanged (`padStart`
+ * already has this property, but this wrapper makes the "no truncation"
+ * invariant explicit and testable: seed 99 + pad 2 → "100", not "10"). */
+export function formatPaddedNumber(n: number, padWidth: number): string {
+  const s = String(n);
+  return padWidth > s.length ? s.padStart(padWidth, "0") : s;
+}
+
 export function findOverlappingPrefix(
   candidate: string,
   existing: SkuPrefixRow[],

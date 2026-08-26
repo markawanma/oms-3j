@@ -46,6 +46,23 @@ function toInt(v: number | string | null | undefined): number | null {
   return Number.isFinite(n) && Number.isInteger(n) ? n : null;
 }
 
+// sku_prefix_preview_seed (0091) changed from `returns int` to `returns
+// table(suggested_seed int, suggested_pad_width int)` — supabase-js now
+// hands back an ARRAY of rows, not a bare number. Both callers below
+// (previewSkuSeed, listSkuPrefixes's lastNo fan-out) go through this one
+// parser so the "array might be null/empty" fallback lives in exactly one
+// place. Falls back to 0/0 — same "0 is a valid default" reasoning
+// previewSkuSeed already used for the seed half before this migration.
+function parsePreviewSeedRow(data: unknown): { suggestedSeed: number; suggestedPadWidth: number } {
+  const row = Array.isArray(data)
+    ? (data[0] as { suggested_seed?: number | string | null; suggested_pad_width?: number | string | null } | undefined)
+    : undefined;
+  return {
+    suggestedSeed: toInt(row?.suggested_seed ?? null) ?? 0,
+    suggestedPadWidth: toInt(row?.suggested_pad_width ?? null) ?? 0,
+  };
+}
+
 // ============================================================================
 // /catalog/sku-prefix — list. analytics.sku_counter is DELIBERATELY not
 // queried directly here — 0089_sku_prefix.sql's own comment says so
@@ -87,7 +104,7 @@ export async function listSkuPrefixes({ withLastNo = false }: { withLastNo?: boo
     const prefixRes = await supabase
       .schema(SCHEMA)
       .from("sku_prefix")
-      .select("id, kind_label, work_type, prefix, created_at")
+      .select("id, kind_label, work_type, prefix, pad_width, created_at")
       .eq("shop_id", shopId)
       .order("created_at", { ascending: true });
     if (prefixRes.error) throw prefixRes.error;
@@ -97,9 +114,14 @@ export async function listSkuPrefixes({ withLastNo = false }: { withLastNo?: boo
       kind_label: string;
       work_type: SkuWorkType;
       prefix: string;
+      pad_width: number | string | null;
       created_at: string;
     }[];
 
+    // sku_prefix_preview_seed now returns table(suggested_seed, suggested_pad_width)
+    // — an array of rows, see parsePreviewSeedRow above. Only suggested_seed is
+    // used here (for the "เลขสูงสุดใน catalog" display column); pad_width for
+    // the table's own column comes straight off sku_prefix, not this RPC.
     const lastNoResults = withLastNo
       ? await Promise.all(
           prefixRows.map((r) => supabase.schema(SCHEMA).rpc("sku_prefix_preview_seed", { p_shop_id: shopId, p_prefix: r.prefix }))
@@ -111,7 +133,8 @@ export async function listSkuPrefixes({ withLastNo = false }: { withLastNo?: boo
       kindLabel: r.kind_label,
       workType: r.work_type,
       prefix: r.prefix,
-      lastNo: lastNoResults ? (lastNoResults[i].error ? null : toInt(lastNoResults[i].data as number | string | null)) : null,
+      lastNo: lastNoResults ? (lastNoResults[i].error ? null : parsePreviewSeedRow(lastNoResults[i].data).suggestedSeed) : null,
+      padWidth: toInt(r.pad_width) ?? 0,
       createdAt: r.created_at,
     }));
 
@@ -126,7 +149,11 @@ export async function listSkuPrefixes({ withLastNo = false }: { withLastNo?: boo
 // เลขตั้งต้นแนะนำ — คนต้องยืนยัน/แก้ก่อนบันทึกเสมอ (design: "ระบบไม่เดาเงียบๆ")
 // ============================================================================
 
-export async function previewSkuSeed({ prefix }: { prefix: string }): Promise<ActionResult<{ suggestedSeed: number }>> {
+export async function previewSkuSeed({
+  prefix,
+}: {
+  prefix: string;
+}): Promise<ActionResult<{ suggestedSeed: number; suggestedPadWidth: number }>> {
   // Gated even though this only reads: previewSkuSeed exists to feed the
   // seed BEFORE upsertSkuPrefix (also gated below), so a staff user could
   // otherwise see a live preview for a save that will always be rejected —
@@ -156,8 +183,7 @@ export async function previewSkuSeed({ prefix }: { prefix: string }): Promise<Ac
     });
     if (error) throw error;
 
-    const suggested = toInt(data as number | string | null) ?? 0;
-    return { ok: true, data: { suggestedSeed: suggested } };
+    return { ok: true, data: parsePreviewSeedRow(data) };
   } catch (err) {
     console.error("previewSkuSeed failed", err instanceof Error ? err.message : err);
     return { ok: false, error: "คำนวณเลขตั้งต้นแนะนำไม่สำเร็จ ลองใหม่อีกครั้ง" };
@@ -205,6 +231,7 @@ export async function upsertSkuPrefix(input: UpsertSkuPrefixInput): Promise<Acti
       p_prefix: prefix,
       p_id: input.id ?? null,
       p_seed_last_no: seedLastNo,
+      p_pad_width: input.padWidth ?? null,
     });
     if (error) {
       // 22023 = controlled Thai validation message from the RPC (e.g. prefix

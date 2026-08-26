@@ -10,7 +10,13 @@
 import { useEffect, useRef, useState } from "react";
 import { upsertSkuPrefix, previewSkuSeed } from "@/lib/actions/catalog-sku";
 import type { SkuPrefixRow, SkuWorkType } from "@/lib/catalog/sku-prefix";
-import { SKU_WORK_TYPE_LABEL_TH, findOverlappingPrefix, isValidSkuPrefix, sanitizeSkuPrefixInput } from "@/lib/catalog/sku-prefix";
+import {
+  SKU_WORK_TYPE_LABEL_TH,
+  findOverlappingPrefix,
+  formatPaddedNumber,
+  isValidSkuPrefix,
+  sanitizeSkuPrefixInput,
+} from "@/lib/catalog/sku-prefix";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
@@ -45,6 +51,13 @@ export function SkuPrefixDialog({
   // the ref is never behind the state it mirrors.
   const seedTouchedRef = useRef(false);
   const [suggestedSeed, setSuggestedSeed] = useState<number | null>(null);
+  // จำนวนหลัก (เติมศูนย์) — same touched/ref/debounce pattern as the seed
+  // above, wired through the SAME preview request (previewSkuSeed now
+  // returns both suggested_seed and suggested_pad_width in one row).
+  const [padInput, setPadInput] = useState("");
+  const [padTouched, setPadTouched] = useState(false);
+  const padTouchedRef = useRef(false);
+  const [suggestedPadWidth, setSuggestedPadWidth] = useState<number | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -56,6 +69,11 @@ export function SkuPrefixDialog({
     setSeedTouched(touched);
   }
 
+  function markPadTouched(touched: boolean) {
+    padTouchedRef.current = touched;
+    setPadTouched(touched);
+  }
+
   function reset() {
     setKindLabel("");
     setWorkType("plain");
@@ -63,6 +81,9 @@ export function SkuPrefixDialog({
     setSeedInput("");
     markSeedTouched(false);
     setSuggestedSeed(null);
+    setPadInput("");
+    markPadTouched(false);
+    setSuggestedPadWidth(null);
     setPreviewError(null);
     setSubmitError(null);
   }
@@ -88,8 +109,10 @@ export function SkuPrefixDialog({
     if (debounceRef.current) clearTimeout(debounceRef.current);
     if (!isValidSkuPrefix(prefix)) {
       setSuggestedSeed(null);
+      setSuggestedPadWidth(null);
       setPreviewError(null);
       if (!seedTouchedRef.current) setSeedInput("");
+      if (!padTouchedRef.current) setPadInput("");
       return;
     }
     let cancelled = false;
@@ -105,6 +128,8 @@ export function SkuPrefixDialog({
       }
       setSuggestedSeed(result.data.suggestedSeed);
       if (!seedTouchedRef.current) setSeedInput(String(result.data.suggestedSeed));
+      setSuggestedPadWidth(result.data.suggestedPadWidth);
+      if (!padTouchedRef.current) setPadInput(String(result.data.suggestedPadWidth));
     }, PREVIEW_DEBOUNCE_MS);
     return () => {
       cancelled = true;
@@ -117,13 +142,23 @@ export function SkuPrefixDialog({
   const validPrefix = isValidSkuPrefix(prefix);
   const finalSeed = seedInput.trim() !== "" ? Number(seedInput) : suggestedSeed;
   const validSeed = finalSeed !== null && Number.isInteger(finalSeed) && finalSeed >= 0;
-  const canSubmit = kindLabel.trim() !== "" && validPrefix && validSeed && !submitting;
+  const finalPad = padInput.trim() !== "" ? Number(padInput) : suggestedPadWidth;
+  const validPad = finalPad !== null && Number.isInteger(finalPad) && finalPad >= 0 && finalPad <= 6;
+  const canSubmit = kindLabel.trim() !== "" && validPrefix && validSeed && validPad && !submitting;
+  // ตัวอย่าง SKU ตัวถัดไป — คำนวณสด ไม่ยิง DB, ใช้ formatPaddedNumber ตัวเดียวกับ
+  // ที่ backend คำนวณจริง (guard "ห้าม truncate" อยู่ในนั้นตัวเดียว) เพื่อให้ผู้ใช้
+  // เห็นผลก่อนกดบันทึก — นี่คือ "แสดงผล" ไม่ใช่เลขที่ผูกกับเงิน จึงไม่ขัดกฎ
+  // ห้ามคำนวณเลขเงินฝั่ง client
+  const nextSkuPreview =
+    validPrefix && validSeed && validPad && finalSeed !== null && finalPad !== null
+      ? `${prefix}${formatPaddedNumber(finalSeed + 1, finalPad)}`
+      : null;
 
   function submit() {
-    if (!canSubmit || finalSeed === null) return;
+    if (!canSubmit || finalSeed === null || finalPad === null) return;
     setSubmitError(null);
     setSubmitting(true);
-    upsertSkuPrefix({ kindLabel: kindLabel.trim(), workType, prefix, seedLastNo: finalSeed }).then((result) => {
+    upsertSkuPrefix({ kindLabel: kindLabel.trim(), workType, prefix, seedLastNo: finalSeed, padWidth: finalPad }).then((result) => {
       setSubmitting(false);
       if (!result.ok) {
         setSubmitError(result.error);
@@ -207,6 +242,40 @@ export function SkuPrefixDialog({
       {!previewLoading && !previewError && suggestedSeed !== null && (
         <p className="mt-1 text-xs text-zinc-400">
           เลขตั้งต้นแนะนำ: {suggestedSeed} (จาก SKU เดิมในระบบ) — แก้ได้ก่อนบันทึก
+        </p>
+      )}
+
+      <label className={labelCls} htmlFor="sku-prefix-pad">
+        จำนวนหลัก (เติมศูนย์)
+      </label>
+      <input
+        id="sku-prefix-pad"
+        type="number"
+        inputMode="numeric"
+        min={0}
+        max={6}
+        step="1"
+        value={padInput}
+        disabled={!validPrefix}
+        onChange={(e) => {
+          markPadTouched(true);
+          setPadInput(e.target.value);
+        }}
+        className={`${inputCls} disabled:bg-zinc-100 disabled:text-zinc-400`}
+        placeholder={validPrefix ? "0" : "กรอก prefix ก่อน"}
+      />
+      <p className="mt-1 text-xs text-zinc-400">0 = ไม่เติมศูนย์ (RP9964) · 2 = เติมเป็น 2 หลัก (B-08)</p>
+      {!previewLoading && !previewError && suggestedPadWidth !== null && (
+        <p className="mt-1 text-xs text-zinc-400">
+          จำนวนหลักแนะนำ: {suggestedPadWidth} (จาก SKU เดิมในระบบ) — แก้ได้ก่อนบันทึก
+        </p>
+      )}
+      {padInput.trim() !== "" && !validPad && (
+        <p className="mt-1 text-xs text-red-600">จำนวนหลักต้องเป็นจำนวนเต็ม 0-6</p>
+      )}
+      {nextSkuPreview && (
+        <p className="mt-1 rounded-md border border-zinc-200 bg-zinc-50 p-2 text-xs text-zinc-600">
+          SKU ตัวถัดไป: <span className="font-mono font-semibold text-zinc-900">{nextSkuPreview}</span>
         </p>
       )}
 

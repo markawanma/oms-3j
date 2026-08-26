@@ -64,6 +64,9 @@ export function SkuPrefixPageClient({ prefixes }: { prefixes: SkuPrefixRow[] }) 
                   prefix
                 </th>
                 <th scope="col" className="px-3 py-2 text-left font-semibold text-zinc-600">
+                  จำนวนหลัก
+                </th>
+                <th scope="col" className="px-3 py-2 text-left font-semibold text-zinc-600">
                   เลขสูงสุดใน catalog
                 </th>
               </tr>
@@ -74,6 +77,7 @@ export function SkuPrefixPageClient({ prefixes }: { prefixes: SkuPrefixRow[] }) 
                   <td className="px-3 py-2 text-zinc-800">{p.kindLabel}</td>
                   <td className="px-3 py-2 text-zinc-800">{SKU_WORK_TYPE_LABEL_TH[p.workType]}</td>
                   <td className="px-3 py-2 font-mono font-semibold text-zinc-900">{p.prefix}</td>
+                  <td className="px-3 py-2 tabular-nums text-zinc-600">{p.padWidth === 0 ? "ไม่เติม" : p.padWidth}</td>
                   <td className="px-3 py-2 tabular-nums text-zinc-600">{p.lastNo ?? "—"}</td>
                 </tr>
               ))}
