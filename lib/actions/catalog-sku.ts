@@ -5,33 +5,40 @@
 // analytics.sku_prefix / analytics.sku_counter / product_upsert (via
 // catalog_sku_create) — migration 0089, landing in parallel with this file.
 //
-// NOT gated behind requireOwnerAdmin() unlike lib/actions/catalog.ts and
-// lib/actions/oem.ts. Two reasons:
-//   1. The design brief frames /catalog/sku-prefix as a screen "พนักงาน
-//      หน้างาน" (frontline staff) fill in themselves — unlike the cost/
-//      margin catalog it sits next to, neither table here (sku_prefix,
-//      sku_counter) nor catalog_sku_create's output (product_id + a bare
-//      SKU string) carries any cost/margin/price figure.
-//   2. MEMORY "Role: สิทธิ์เดียว" — rules that must actually hold belong in
-//      the DB, not behind an app-level button. The RPCs are still specced
-//      as security-definer + crm_require_owner_admin (defense in depth for
-//      when real auth/RLS replaces the service-role client) — this file
-//      just doesn't ALSO duplicate that gate the way catalog.ts/oem.ts do,
-//      since here it would contradict the brief instead of reinforcing it.
-//   -> flagged back to Tech Lead in the handoff; trivial to add if wrong.
+// Every write here calls requireOwnerAdmin() (same pattern as
+// lib/actions/catalog.ts) — getServiceClient() uses the service role, which
+// BYPASSES RLS and short-circuits crm_require_owner_admin() inside the RPCs
+// (that DB-side check has zero effective layers under this client, it's NOT
+// defense-in-depth), so requireOwnerAdmin() below is the ONLY thing gating
+// writes in this app today. This matters concretely here: catalog_sku_create
+// accepts a p_attrs bag that can write unit_cost/labor_cost straight onto the
+// catalog row — the day the UI grows a cost-entry field, an ungated action
+// here becomes a live hole, not a theoretical one.
 //
-// The one place this domain DOES stay locked down: the "+ สินค้าใหม่" dialog
-// is only reachable from /oem/quote, which is already owner/admin-only at
-// the page level (unrelated to this file).
+// listSkuPrefixes (read-only) is NOT gated, matching getProducts in
+// catalog.ts — reads stay open to "พนักงานหน้างาน" (frontline staff), only
+// writes are locked down.
 
 import { revalidatePath } from "next/cache";
 import { getServiceClient } from "@/lib/supabase/server";
-import { getDevShopId } from "@/lib/dev/context";
+import { getDevShopId, getDevRole } from "@/lib/dev/context";
 import type { ActionResult } from "@/lib/types";
 import type { CreateCatalogSkuInput, SkuPrefixRow, SkuWorkType, UpsertSkuPrefixInput } from "@/lib/catalog/sku-prefix";
 import { isValidSkuPrefix } from "@/lib/catalog/sku-prefix";
 
 const SCHEMA = "analytics";
+
+// Shared between previewSkuSeed and upsertSkuPrefix — was two slightly
+// different strings that could drift apart; this is the fuller one (mentions
+// the optional trailing dash, which the DB check constraint also allows).
+const PREFIX_FORMAT_ERROR = "prefix ต้องเป็นตัวอักษร A-Z (พิมพ์ใหญ่) 1-5 ตัว ปิดท้ายด้วย - ได้หนึ่งตัว ไม่มีช่องว่าง";
+
+function requireOwnerAdmin(): ActionResult<never> | null {
+  if (getDevRole() === "staff") {
+    return { ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่แก้ไข prefix/สินค้าได้" };
+  }
+  return null;
+}
 
 function toInt(v: number | string | null | undefined): number | null {
   if (v === null || v === undefined || v === "") return null;
@@ -53,17 +60,26 @@ function toInt(v: number | string | null | undefined): number | null {
 // tables to service_role` has proven NOT to reliably cover later-created
 // tables in this project (see 0041's own note on the same gotcha).
 //
-// So "เลขล่าสุด" here is populated via sku_prefix_preview_seed instead — the
-// highest number actually found on an existing public.product.sku for that
-// prefix (same RPC previewSkuSeed calls, already granted to service_role,
-// reads public.product not sku_counter). This can read slightly LOWER than
-// the true sku_counter.last_no if a seed was set above any real SKU still
-// in use — acceptable for a display-only column; catalog_sku_create is the
-// only thing that must be exactly right, and it reads sku_counter from
-// inside its own security-definer body, not through this action.
+// So "เลขสูงสุดใน catalog" here is populated via sku_prefix_preview_seed
+// instead — the highest number actually found on an existing
+// public.product.sku for that prefix (same RPC previewSkuSeed calls, already
+// granted to service_role, reads public.product not sku_counter). This can
+// read HIGHER or LOWER than the true sku_counter.last_no — it's a SKU-table
+// scan, not the counter — acceptable for a display-only column;
+// catalog_sku_create is the only thing that must be exactly right, and it
+// reads sku_counter from inside its own security-definer body, not through
+// this action.
+//
+// `withLastNo` gates that N+1 preview fan-out: /catalog/sku-prefix's table
+// shows the column so it passes true; QuoteCalculatorClient's fetch (for
+// CreateSkuDialog's prefix picker) never reads lastNo at all, so it passes
+// false (the default) and skips N extra RPC round trips on every /oem/quote
+// page load.
 // ============================================================================
 
-export async function listSkuPrefixes(): Promise<ActionResult<SkuPrefixRow[]>> {
+export async function listSkuPrefixes({ withLastNo = false }: { withLastNo?: boolean } = {}): Promise<
+  ActionResult<SkuPrefixRow[]>
+> {
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();
@@ -84,16 +100,18 @@ export async function listSkuPrefixes(): Promise<ActionResult<SkuPrefixRow[]>> {
       created_at: string;
     }[];
 
-    const lastNoResults = await Promise.all(
-      prefixRows.map((r) => supabase.schema(SCHEMA).rpc("sku_prefix_preview_seed", { p_shop_id: shopId, p_prefix: r.prefix }))
-    );
+    const lastNoResults = withLastNo
+      ? await Promise.all(
+          prefixRows.map((r) => supabase.schema(SCHEMA).rpc("sku_prefix_preview_seed", { p_shop_id: shopId, p_prefix: r.prefix }))
+        )
+      : null;
 
     const rows: SkuPrefixRow[] = prefixRows.map((r, i) => ({
       id: r.id,
       kindLabel: r.kind_label,
       workType: r.work_type,
       prefix: r.prefix,
-      lastNo: lastNoResults[i].error ? null : toInt(lastNoResults[i].data as number | string | null),
+      lastNo: lastNoResults ? (lastNoResults[i].error ? null : toInt(lastNoResults[i].data as number | string | null)) : null,
       createdAt: r.created_at,
     }));
 
@@ -109,6 +127,13 @@ export async function listSkuPrefixes(): Promise<ActionResult<SkuPrefixRow[]>> {
 // ============================================================================
 
 export async function previewSkuSeed({ prefix }: { prefix: string }): Promise<ActionResult<{ suggestedSeed: number }>> {
+  // Gated even though this only reads: previewSkuSeed exists to feed the
+  // seed BEFORE upsertSkuPrefix (also gated below), so a staff user could
+  // otherwise see a live preview for a save that will always be rejected —
+  // confusing UI, no real access opened up.
+  const gateErr = requireOwnerAdmin();
+  if (gateErr) return gateErr;
+
   // 0089: the RPC rejects lowercase/whitespace/Thai OUTRIGHT (no silent
   // trim/uppercase on its side) — matched here rather than "fixing" the
   // input before validating, so this action never accepts something the RPC
@@ -118,7 +143,7 @@ export async function previewSkuSeed({ prefix }: { prefix: string }): Promise<Ac
   // other write action in this app does.
   const trimmed = prefix ?? "";
   if (!isValidSkuPrefix(trimmed)) {
-    return { ok: false, error: "prefix ต้องเป็นตัวอักษร A-Z (พิมพ์ใหญ่) 1-5 ตัว ไม่มีช่องว่าง" };
+    return { ok: false, error: PREFIX_FORMAT_ERROR };
   }
 
   try {
@@ -151,6 +176,9 @@ export async function previewSkuSeed({ prefix }: { prefix: string }): Promise<Ac
 // ทดสอบบน DB จริงแล้ว) — the edit path (p_id มีค่า) has DB-level tests but no
 // UI exercising it yet; test by hand before building an "แก้ไข" button.
 export async function upsertSkuPrefix(input: UpsertSkuPrefixInput): Promise<ActionResult<{ id: string }>> {
+  const gateErr = requireOwnerAdmin();
+  if (gateErr) return gateErr;
+
   const kindLabel = input.kindLabel?.trim();
   if (!kindLabel) return { ok: false, error: "กรุณากรอกประเภทงาน" };
   if (input.workType !== "plain" && input.workType !== "gem") {
@@ -158,7 +186,7 @@ export async function upsertSkuPrefix(input: UpsertSkuPrefixInput): Promise<Acti
   }
   const prefix = input.prefix ?? "";
   if (!isValidSkuPrefix(prefix)) {
-    return { ok: false, error: "prefix ต้องเป็นตัวอักษร A-Z (พิมพ์ใหญ่) 1-5 ตัว ปิดท้ายด้วย - ได้หนึ่งตัว ไม่มีช่องว่าง" };
+    return { ok: false, error: PREFIX_FORMAT_ERROR };
   }
   const seedLastNo = toInt(input.seedLastNo);
   // 0 is a valid seed (next SKU will be prefix+1) — only reject null/negative.
@@ -201,6 +229,9 @@ export async function upsertSkuPrefix(input: UpsertSkuPrefixInput): Promise<Acti
 // ============================================================================
 
 export async function createCatalogSku(input: CreateCatalogSkuInput): Promise<ActionResult<{ productId: string; sku: string }>> {
+  const gateErr = requireOwnerAdmin();
+  if (gateErr) return gateErr;
+
   const prefixId = input.prefixId?.trim();
   if (!prefixId) return { ok: false, error: "กรุณาเลือก prefix" };
   const name = input.name?.trim();

@@ -132,6 +132,9 @@ export function CreateSkuDialog({
             className={inputCls}
             placeholder="เช่น แหวนหัวใจฝังพลอย"
           />
+          <p className="mt-1 text-xs text-zinc-400">
+            กด &quot;สร้าง&quot; แล้วสินค้าจะถูกบันทึกเข้าคลังสินค้าทันที (แม้ยังไม่บันทึกใบเสนอราคา)
+          </p>
 
           {submitError && (
             <p role="alert" className="mt-3 rounded-md border border-red-200 bg-red-50 p-2 text-xs text-red-700">

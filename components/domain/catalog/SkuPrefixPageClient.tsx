@@ -64,7 +64,7 @@ export function SkuPrefixPageClient({ prefixes }: { prefixes: SkuPrefixRow[] }) 
                   prefix
                 </th>
                 <th scope="col" className="px-3 py-2 text-left font-semibold text-zinc-600">
-                  เลขล่าสุด
+                  เลขสูงสุดใน catalog
                 </th>
               </tr>
             </thead>

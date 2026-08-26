@@ -37,6 +37,13 @@ export function SkuPrefixDialog({
   const [prefix, setPrefix] = useState("");
   const [seedInput, setSeedInput] = useState("");
   const [seedTouched, setSeedTouched] = useState(false);
+  // Mirrors seedTouched for the async debounce callback below, which closes
+  // over whatever `seedTouched` was at the moment the timer was scheduled —
+  // by the time the RPC resolves 400ms later the user may have typed a seed
+  // in between, and that stale `false` would silently overwrite it. Every
+  // setSeedTouched call below has a matching seedTouchedRef.current write so
+  // the ref is never behind the state it mirrors.
+  const seedTouchedRef = useRef(false);
   const [suggestedSeed, setSuggestedSeed] = useState<number | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
@@ -44,12 +51,17 @@ export function SkuPrefixDialog({
   const [submitting, setSubmitting] = useState(false);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  function markSeedTouched(touched: boolean) {
+    seedTouchedRef.current = touched;
+    setSeedTouched(touched);
+  }
+
   function reset() {
     setKindLabel("");
     setWorkType("plain");
     setPrefix("");
     setSeedInput("");
-    setSeedTouched(false);
+    markSeedTouched(false);
     setSuggestedSeed(null);
     setPreviewError(null);
     setSubmitError(null);
@@ -61,27 +73,41 @@ export function SkuPrefixDialog({
   }
 
   // Debounced live preview whenever a syntactically-valid prefix is typed.
+  // Two race conditions this guards against:
+  //   1. Stale `seedTouched` closure — user types a seed by hand inside the
+  //      400ms debounce window, then the timer fires with the OLD (false)
+  //      value it closed over and silently overwrites what they typed.
+  //      Fixed by reading seedTouchedRef.current (always current) instead.
+  //   2. Out-of-order responses — user types "R" then "RP" quickly; the "R"
+  //      preview request can resolve AFTER the "RP" one and clobber it with
+  //      a stale suggestion. Fixed by the `cancelled` flag: cleanup (which
+  //      runs before every re-run, i.e. on every keystroke) marks the
+  //      in-flight request cancelled, and the callback bails after await if
+  //      it's no longer current.
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     if (!isValidSkuPrefix(prefix)) {
       setSuggestedSeed(null);
       setPreviewError(null);
-      if (!seedTouched) setSeedInput("");
+      if (!seedTouchedRef.current) setSeedInput("");
       return;
     }
+    let cancelled = false;
     debounceRef.current = setTimeout(async () => {
       setPreviewLoading(true);
       setPreviewError(null);
       const result = await previewSkuSeed({ prefix });
+      if (cancelled) return;
       setPreviewLoading(false);
       if (!result.ok) {
         setPreviewError(result.error);
         return;
       }
       setSuggestedSeed(result.data.suggestedSeed);
-      if (!seedTouched) setSeedInput(String(result.data.suggestedSeed));
+      if (!seedTouchedRef.current) setSeedInput(String(result.data.suggestedSeed));
     }, PREVIEW_DEBOUNCE_MS);
     return () => {
+      cancelled = true;
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -170,7 +196,7 @@ export function SkuPrefixDialog({
         value={seedInput}
         disabled={!validPrefix}
         onChange={(e) => {
-          setSeedTouched(true);
+          markSeedTouched(true);
           setSeedInput(e.target.value);
         }}
         className={`${inputCls} disabled:bg-zinc-100 disabled:text-zinc-400`}

@@ -17,14 +17,17 @@ export const SKU_WORK_TYPE_LABEL_TH: Record<SkuWorkType, string> = {
 };
 
 /** One row of the prefix config table — analytics.sku_prefix left-joined
- * for the "เลขล่าสุด" column — NOT read from analytics.sku_counter directly
- * (that table has no grant to any role except inside its own RPCs, same
- * posture as oem_doc_counter; see lib/actions/catalog-sku.ts's
+ * for the "เลขสูงสุดใน catalog" column — NOT read from analytics.sku_counter
+ * directly (that table has no grant to any role except inside its own RPCs,
+ * same posture as oem_doc_counter; see lib/actions/catalog-sku.ts's
  * listSkuPrefixes comment). Instead it's the highest number found on an
  * existing product SKU for that prefix (sku_prefix_preview_seed), which can
- * read slightly lower than the real counter but is always safe to show.
- * null only on an RPC error for that one row (read failure, not "unseeded"
- * — catalog_sku_create always seeds the real counter on first use). */
+ * read HIGHER or LOWER than the real counter (it's a SKU-table scan, not the
+ * counter itself) — display-only, never used to seed anything.
+ * null means either an RPC error for that one row, OR that the caller passed
+ * `withLastNo: false` and this column was never fetched (see
+ * listSkuPrefixes) — both render as "—" in the UI so the distinction doesn't
+ * matter to callers. */
 export interface SkuPrefixRow {
   id: string;
   kindLabel: string;
@@ -35,12 +38,14 @@ export interface SkuPrefixRow {
 }
 
 export interface UpsertSkuPrefixInput {
-  /** NOT sent to sku_prefix_upsert (0089's RPC has no id/row-identifier
-   * param — it resolves the target row from natural keys instead, see
-   * lib/actions/catalog-sku.ts's comment on upsertSkuPrefix). Kept here only
-   * so a future edit UI has somewhere to carry "which row is this" without
-   * widening the RPC contract; unused by the create-only flow this app
-   * ships today. */
+  /** Sent to sku_prefix_upsert as `p_id`: null = insert a new row (seed
+   * required), a value = update that row (kind_label is always editable;
+   * prefix is only editable while no SKU has been issued from it yet;
+   * work_type can never be changed after creation). See
+   * lib/actions/catalog-sku.ts's comment on upsertSkuPrefix for the full RPC
+   * contract. The dialog this app ships today (SkuPrefixDialog) only ever
+   * creates new rows (id left undefined → p_id null → insert path) — the
+   * edit path is wired end-to-end but has no "แก้ไข" button yet. */
   id?: string | null;
   kindLabel: string;
   workType: SkuWorkType;

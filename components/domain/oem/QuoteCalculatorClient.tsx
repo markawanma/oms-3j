@@ -173,6 +173,16 @@ export function QuoteCalculatorClient({ setting }: { setting: OemSettingData }) 
         return { ...it, job };
       })
     );
+    // CreateSkuDialog also routes through here (onCreated -> onSelectSku) —
+    // a SKU minted mid-session isn't in the once-fetched `products` list yet,
+    // so without this the picker "loses" it the moment the dialog closes
+    // (X un-selects, and re-opening the picker can't find it until a full
+    // page refresh re-runs getOemProducts). Dedupe by productId since this
+    // also runs for ordinary picker selections, where the product is already
+    // in the list.
+    if (product) {
+      setProducts((prev) => (prev.some((p) => p.productId === product.productId) ? prev : [...prev, product]));
+    }
     if (barSize && product) {
       toast.push(
         `สลับเป็นโหมด "เงินแท่ง 99.99% ขนาด ${OEM_BAR_SIZE_LABEL_TH[barSize]}" ให้อัตโนมัติจาก SKU ${product.sku} — แก้ไขเองได้ที่การ์ดรายการนี้`
