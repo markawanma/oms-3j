@@ -5,11 +5,13 @@
 // number shown comes from the calc the parent (QuoteCalculatorClient) already
 // fetched via calcPrice() — no arithmetic here.
 
-import { ChevronDown, ChevronUp, Loader2, Trash2, X } from "lucide-react";
+import { useState } from "react";
+import { ChevronDown, ChevronUp, Loader2, Plus, Trash2, X } from "lucide-react";
 import type { OemBarSize, OemMetal, OemPriceCalcResult, OemProductOption } from "@/lib/oem/types";
 import { OEM_BAR_SIZE_LABEL_TH, OEM_METAL_LABEL_TH } from "@/lib/oem/types";
 import type { JobForm } from "@/lib/oem/quoteForm";
 import { OEM_DEFAULT_PURITY } from "@/lib/oem/quoteForm";
+import type { SkuPrefixRow } from "@/lib/catalog/sku-prefix";
 import {
   OEM_BAR_SIZE_WEIGHT_LABEL_TH,
   OEM_GEM_TIER_OPTIONS,
@@ -20,6 +22,7 @@ import {
 import { formatTHB } from "@/lib/format";
 import { OemBarCalcSummary } from "./OemBarCalcSummary";
 import { OemCalcBreakdown } from "./OemCalcBreakdown";
+import { CreateSkuDialog } from "./CreateSkuDialog";
 
 const inputCls = "min-h-11 w-full rounded-md border border-zinc-300 px-2.5 text-sm text-zinc-900";
 const labelCls = "flex flex-col gap-1 text-xs font-semibold text-zinc-600";
@@ -36,6 +39,9 @@ function SkuPicker({
   products,
   productsLoading,
   productsError,
+  prefixes,
+  prefixesLoading,
+  prefixesError,
   onSelectSku,
 }: {
   index: number;
@@ -43,9 +49,13 @@ function SkuPicker({
   products: OemProductOption[];
   productsLoading: boolean;
   productsError: string | null;
+  prefixes: SkuPrefixRow[];
+  prefixesLoading: boolean;
+  prefixesError: string | null;
   onSelectSku: (product: OemProductOption | null) => void;
 }) {
   const listId = `oem-sku-options-${index}`;
+  const [createOpen, setCreateOpen] = useState(false);
 
   function handleSkuTextChange(text: string) {
     const match = products.find((p) => skuOptionLabel(p) === text);
@@ -54,7 +64,25 @@ function SkuPicker({
 
   return (
     <div className="border-b border-zinc-100 pb-3">
-      <span className="text-xs font-semibold text-zinc-600">ผูก SKU ที่มีอยู่แล้ว (ไม่บังคับ)</span>
+      <div className="flex items-center justify-between gap-2">
+        <span className="text-xs font-semibold text-zinc-600">ผูก SKU ที่มีอยู่แล้ว (ไม่บังคับ)</span>
+        <button
+          type="button"
+          onClick={() => setCreateOpen(true)}
+          className="flex shrink-0 items-center gap-1 rounded-md px-1.5 py-1 text-xs font-medium text-primary-600 hover:bg-primary-50"
+        >
+          <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+          สินค้าใหม่
+        </button>
+      </div>
+      <CreateSkuDialog
+        open={createOpen}
+        onClose={() => setCreateOpen(false)}
+        prefixes={prefixes}
+        prefixesLoading={prefixesLoading}
+        prefixesError={prefixesError}
+        onCreated={(product) => onSelectSku(product)}
+      />
       {job.productId ? (
         <div className="mt-1 flex min-h-11 items-center justify-between gap-2 rounded-md border border-zinc-300 bg-zinc-50 px-2.5 py-1.5">
           <span className="truncate text-sm text-zinc-800">
@@ -114,6 +142,9 @@ export function QuoteJobItemCard({
   products,
   productsLoading,
   productsError,
+  prefixes,
+  prefixesLoading,
+  prefixesError,
   onChange,
   onSelectSku,
   onRemove,
@@ -129,6 +160,9 @@ export function QuoteJobItemCard({
   products: OemProductOption[];
   productsLoading: boolean;
   productsError: string | null;
+  prefixes: SkuPrefixRow[];
+  prefixesLoading: boolean;
+  prefixesError: string | null;
   onChange: <K extends keyof JobForm>(key: K, value: JobForm[K]) => void;
   onSelectSku: (product: OemProductOption | null) => void;
   onRemove: () => void;
@@ -201,6 +235,9 @@ export function QuoteJobItemCard({
             products={products}
             productsLoading={productsLoading}
             productsError={productsError}
+            prefixes={prefixes}
+            prefixesLoading={prefixesLoading}
+            prefixesError={prefixesError}
             onSelectSku={onSelectSku}
           />
 

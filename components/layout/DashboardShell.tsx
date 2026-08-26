@@ -23,6 +23,7 @@ import {
   FileUp,
   Gauge,
   Gem,
+  Hash,
   LayoutDashboard,
   LineChart,
   Megaphone,
@@ -102,6 +103,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: "ต้นทุน & ตั้งค่า",
     items: [
       { href: "/catalog", label: "สินค้า / ต้นทุน", icon: Gem },
+      { href: "/catalog/sku-prefix", label: "ตั้งค่า Prefix SKU", icon: Hash },
       { href: "/settings", label: "ราคา & มาร์จิ้น", icon: Settings2 },
       { href: "/oem/rates", label: "ต้นทุน OEM", icon: Factory },
       { href: "/oem/quote", label: "คิดราคา OEM", icon: Calculator },

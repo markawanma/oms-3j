@@ -20,6 +20,8 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
 import { calcPrice, getOemProducts, saveQuote } from "@/lib/actions/oem";
+import { listSkuPrefixes } from "@/lib/actions/catalog-sku";
+import type { SkuPrefixRow } from "@/lib/catalog/sku-prefix";
 import type { OemPriceCalcResult, OemProductOption, OemSettingData, SaveQuoteInput } from "@/lib/oem/types";
 import { OEM_BAR_SIZE_LABEL_TH } from "@/lib/oem/types";
 import { roundTo } from "@/lib/oem/display";
@@ -84,6 +86,31 @@ export function QuoteCalculatorClient({ setting }: { setting: OemSettingData }) 
       }
       setProducts(result.data);
       setProductsLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Fetched once — shared across every card's "+ สินค้าใหม่" dialog
+  // (CreateSkuDialog), same pattern as `products` above.
+  const [prefixes, setPrefixes] = useState<SkuPrefixRow[]>([]);
+  const [prefixesLoading, setPrefixesLoading] = useState(true);
+  const [prefixesError, setPrefixesError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setPrefixesLoading(true);
+    setPrefixesError(null);
+    listSkuPrefixes().then((result) => {
+      if (cancelled) return;
+      if (!result.ok) {
+        setPrefixesError(result.error);
+        setPrefixesLoading(false);
+        return;
+      }
+      setPrefixes(result.data);
+      setPrefixesLoading(false);
     });
     return () => {
       cancelled = true;
@@ -305,6 +332,9 @@ export function QuoteCalculatorClient({ setting }: { setting: OemSettingData }) 
                   products={products}
                   productsLoading={productsLoading}
                   productsError={productsError}
+                  prefixes={prefixes}
+                  prefixesLoading={prefixesLoading}
+                  prefixesError={prefixesError}
                   onChange={(field, value) => updateItemField(it.key, field, value)}
                   onSelectSku={(product) => updateItemSku(it.key, product)}
                   onRemove={() => removeItem(it.key)}
