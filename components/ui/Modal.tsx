@@ -24,6 +24,19 @@ export function Modal({
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const previouslyFocused = useRef<HTMLElement | null>(null);
+  // Keep the latest onClose in a ref instead of an effect dependency.
+  // Callers commonly pass an inline/closure onClose (e.g. `onClose={handleClose}`
+  // declared in the component body) whose identity changes on every render.
+  // If `onClose` were in the deps array below, typing a single character into
+  // any input inside the dialog re-renders the parent -> new onClose identity
+  // -> this effect's cleanup fires (stealing focus back via
+  // `previouslyFocused.current?.focus()`) then the effect body fires again
+  // (moving focus to the panel) -> focus jumps out of the input after every
+  // keystroke. Do NOT add onClose back to the deps array.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  });
 
   useEffect(() => {
     if (!open) return;
@@ -31,14 +44,15 @@ export function Modal({
     panelRef.current?.focus();
 
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") onCloseRef.current();
     }
     document.addEventListener("keydown", onKeyDown);
     return () => {
       document.removeEventListener("keydown", onKeyDown);
       previouslyFocused.current?.focus();
     };
-  }, [open, onClose]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: see onCloseRef comment above
+  }, [open]);
 
   if (!open) return null;
 
