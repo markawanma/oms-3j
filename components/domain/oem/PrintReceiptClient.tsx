@@ -40,6 +40,15 @@ export function PrintReceiptClient({ receipt }: { receipt: PrintableReceipt }) {
   const sellerAddressLines = receipt.seller.addressLines;
   const buyerAddressLines = formatOemAddressLines(receipt.buyerAddress);
   const sellerContactLine = receipt.seller.phone ?? "";
+  // หัวเอกสาร: เป็น "ใบกำกับภาษี" ได้ก็ต่อเมื่อผู้ซื้อมีเลขผู้เสียภาษีจริง
+  // (ป.รัษฎากร ม.86/4 บังคับว่าใบกำกับภาษีเต็มรูปต้องมีเลขผู้เสียภาษีของผู้ซื้อ)
+  // — seller ฝั่งนี้จด VAT แล้วเสมอ (oem_receipt_issue เองปฏิเสธออกใบถ้า
+  // seller_vat_registered ไม่ true, 0084 §งานหลัก) ดังนั้นท่อนแยก VAT
+  // (ก่อนภาษี/VAT/รวม) ด้านล่างต้องคงไว้เหมือนกันทั้งสองกรณี ไม่ผูกกับ
+  // เงื่อนไขนี้ — ต่างกันแค่พาดหัว/ประเภทเอกสารเท่านั้น
+  const isFullTaxInvoice = !!receipt.buyerTaxId;
+  const documentTitleTh = isFullTaxInvoice ? "ใบเสร็จรับเงิน/ใบกำกับภาษี" : "ใบเสร็จรับเงิน";
+  const documentTitleEn = isFullTaxInvoice ? "Receipt / Tax Invoice · ต้นฉบับ" : "Receipt · ต้นฉบับ";
 
   return (
     <div className="mx-auto max-w-[210mm] pb-10">
@@ -56,8 +65,15 @@ export function PrintReceiptClient({ receipt }: { receipt: PrintableReceipt }) {
 
       {isVoid && (
         <div className="mb-3 rounded-md border-2 border-red-400 bg-red-50 px-3 py-2 text-center text-sm font-bold text-red-700">
-          ใบนี้ถูกยกเลิกแล้ว{receipt.voidedAt ? ` เมื่อ ${formatThaiDateOnly(receipt.voidedAt.slice(0, 10))}` : ""}
-          {receipt.voidReason ? ` — เหตุผล: ${receipt.voidReason}` : ""}
+          {/* "ใบนี้ถูกยกเลิกแล้ว" + วันที่ ต้องคงอยู่บนกระดาษ (จำเป็นทางเอกสาร)
+              แต่เหตุผลเป็นข้อความอิสระที่พนักงานพิมพ์เอง (เช่น "คิดต้นทุนผิด
+              ลืมบวกค่าแฟลสก์") — ใช้ตรวจสอบภายในเท่านั้น ห้ามติดไปบนกระดาษที่
+              ส่งลูกค้า (บทเรียนเดิม: เคยหลุดมาแล้วกับข้อความ "ตรวจสอบมัดจำก่อน
+              ส่งเอกสารนี้ให้ลูกค้า" — ดู oem-quote-invariants §8) */}
+          <span>
+            ใบนี้ถูกยกเลิกแล้ว{receipt.voidedAt ? ` เมื่อ ${formatThaiDateOnly(receipt.voidedAt.slice(0, 10))}` : ""}
+          </span>
+          {receipt.voidReason && <span className="print:hidden"> — เหตุผล (ดูจอเท่านั้น): {receipt.voidReason}</span>}
         </div>
       )}
 
@@ -86,8 +102,8 @@ export function PrintReceiptClient({ receipt }: { receipt: PrintableReceipt }) {
             </div>
           </div>
           <div className="shrink-0 text-right">
-            <h1 className="text-xl font-bold text-zinc-900">ใบเสร็จรับเงิน/ใบกำกับภาษี</h1>
-            <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">Receipt / Tax Invoice · ต้นฉบับ</p>
+            <h1 className="text-xl font-bold text-zinc-900">{documentTitleTh}</h1>
+            <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">{documentTitleEn}</p>
             <p className="mt-2 text-sm font-semibold text-zinc-800">เลขที่ {receipt.receiptNo}</p>
             <p className="text-xs text-zinc-600">วันที่ออก {formatThaiDateOnly(receipt.issueDate.slice(0, 10))}</p>
             {receipt.receivedDate !== receipt.issueDate && (

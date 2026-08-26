@@ -492,7 +492,12 @@ export function QuoteDetailClient({
         </div>
       </section>
 
-      <ReceiptSection quote={quote} receipts={receipts} onChanged={() => router.refresh()} />
+      <ReceiptSection
+        quote={quote}
+        receipts={receipts}
+        onChanged={() => router.refresh()}
+        onGoToBilling={() => setBillingOpen(true)}
+      />
 
       {(quote.status === "quoted" || canRenegotiate) && (
         <div className="flex flex-wrap gap-2">

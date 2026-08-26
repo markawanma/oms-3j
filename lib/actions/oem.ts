@@ -922,6 +922,11 @@ function mapQuoteRow(r: Record<string, unknown>): OemQuoteRow {
     // bill_address is jsonb the RPC never shape-validates (0075 §7) — parse
     // defensively, never trust it matches OemCustomerAddress.
     billAddress: parseBillAddress(r.bill_address),
+    // 0086: NOT read from this row — v_oem_quote doesn't expose branch_label
+    // (see OemQuoteRow.billBranchLabel's comment). attachBillBranchLabels()
+    // fills this in after mapQuoteRow runs; default null here just keeps the
+    // type honest for any caller that skips that step.
+    billBranchLabel: null,
     // 0084: deal-level payment aggregates, computed fresh every read by
     // v_oem_quote (never re-derive these — see OemQuoteRow's own comment).
     paidThb: r.paid_thb == null ? null : Number(r.paid_thb),
@@ -1077,6 +1082,15 @@ export async function setQuoteBilling(input: SetQuoteBillingInput): Promise<Acti
   if (!hasAnyContact(input.phone, input.contactChannel)) {
     return { ok: false, error: "ต้องกรอกเบอร์โทร หรือช่องทางติดต่ออื่น (เช่น LINE ID) อย่างน้อย 1 อย่าง" };
   }
+  // 0086: branch_label is conditionally mandatory — only when this buyer has
+  // a taxId (= นิติบุคคล = full tax invoice under ป.รัษฎากร ม.86/4 needs the
+  // buyer's branch too). A private individual (no taxId) can leave it blank,
+  // same as taxId itself. This mirrors oem_receipt_issue's own gate (0086 §1)
+  // so the error surfaces here, at billing-save time, instead of only at
+  // receipt-issue time — but that RPC gate is still the real one; this is UX.
+  if (input.taxId?.trim() && !input.branchLabel?.trim()) {
+    return { ok: false, error: "ผู้ซื้อมีเลขผู้เสียภาษี (นิติบุคคล) ต้องกรอกสาขา (เช่น สำนักงานใหญ่) ก่อนบันทึก" };
+  }
   // oem_quote_set_billing (0075) does NOT validate tax_id format itself
   // (stores whatever btrim() leaves) — this is the only gate. Client also
   // checks this before submit (BillingDialog), but that is UX-only; this is
@@ -1098,6 +1112,8 @@ export async function setQuoteBilling(input: SetQuoteBillingInput): Promise<Acti
         phone: input.phone?.trim() || null,
         contact_channel: input.contactChannel?.trim() || null,
         address: input.address ?? null,
+        // 0086: new key in the same jsonb object — see SetQuoteBillingInput's comment.
+        branch_label: input.branchLabel?.trim() || null,
       },
     });
     if (error) {
@@ -1293,6 +1309,33 @@ export async function setQuoteVatMode(input: SetQuoteVatModeInput): Promise<Acti
   }
 }
 
+/** 0086: v_oem_quote (0077) never got a bill_branch_label column — that
+ * migration deliberately left the view alone (see its header, "ไม่แตะ
+ * v_oem_quote เลย") and only added the source column on analytics.oem_customer
+ * + wired it through oem_quote_set_billing/oem_receipt_issue. So this queries
+ * oem_customer directly for the distinct customer_ids in the batch and merges
+ * billBranchLabel onto each row after mapQuoteRow — same table, same RLS tier
+ * (owner/admin select, 0075 §2) the view's own bill_* LEFT JOIN already reads
+ * from, just fetched as a second round-trip instead of through the view.
+ * Degrades to null (never throws) on failure so this side-fetch can never
+ * break loading the quote page itself. */
+async function attachBillBranchLabels(
+  rows: OemQuoteRow[],
+  shopId: string,
+  supabase: ReturnType<typeof getServiceClient>
+): Promise<OemQuoteRow[]> {
+  const customerIds = Array.from(new Set(rows.map((r) => r.customerId).filter((id): id is string => !!id)));
+  if (customerIds.length === 0) return rows;
+
+  const { data, error } = await supabase.schema(SCHEMA).from("oem_customer").select("id, branch_label").eq("shop_id", shopId).in("id", customerIds);
+  if (error) {
+    console.error("attachBillBranchLabels failed", error);
+    return rows;
+  }
+  const byId = new Map(((data ?? []) as { id: string; branch_label: string | null }[]).map((c) => [c.id, c.branch_label ?? null]));
+  return rows.map((r) => (r.customerId ? { ...r, billBranchLabel: byId.get(r.customerId) ?? null } : r));
+}
+
 export async function getQuotes(status?: OemQuoteStatus): Promise<ActionResult<OemQuoteRow[]>> {
   const gateErr = requireOwnerAdmin();
   if (gateErr) return gateErr;
@@ -1306,7 +1349,8 @@ export async function getQuotes(status?: OemQuoteStatus): Promise<ActionResult<O
     const { data, error } = await query.order("created_at", { ascending: false });
     if (error) throw error;
 
-    return { ok: true, data: ((data ?? []) as Record<string, unknown>[]).map(mapQuoteRow) };
+    const rows = ((data ?? []) as Record<string, unknown>[]).map(mapQuoteRow);
+    return { ok: true, data: await attachBillBranchLabels(rows, shopId, supabase) };
   } catch (err) {
     console.error("getQuotes failed", err);
     return { ok: false, error: "โหลดรายการใบเสนอราคาไม่สำเร็จ ลองใหม่อีกครั้ง" };
@@ -1333,7 +1377,8 @@ export async function getQuote(quoteId: string): Promise<ActionResult<OemQuoteRo
     if (error) throw error;
     if (!data) return { ok: false, error: "ไม่พบใบเสนอราคานี้" };
 
-    return { ok: true, data: mapQuoteRow(data as Record<string, unknown>) };
+    const [row] = await attachBillBranchLabels([mapQuoteRow(data as Record<string, unknown>)], shopId, supabase);
+    return { ok: true, data: row };
   } catch (err) {
     console.error("getQuote failed", err);
     return { ok: false, error: "โหลดใบเสนอราคาไม่สำเร็จ ลองใหม่อีกครั้ง" };

@@ -22,7 +22,12 @@
 //   so the two pairs can't independently drift.
 //   OPTIONAL — taxId (a private individual has none — but leaving it blank
 //   means no tax invoice can be issued to this customer later, warned
-//   inline), address line 2.
+//   inline), address line 2. branchLabel (0086) follows taxId: mandatory
+//   ONLY when taxId is filled (a registered company must print its branch on
+//   a full tax invoice, ป.รัษฎากร ม.86/4 — a private individual has neither),
+//   defaults to "สำนักงานใหญ่" when unset — same mandatory/optional split
+//   enforced again server-side in setQuoteBilling AND, as the real gate, in
+//   oem_receipt_issue itself at the moment of issuing (0086 §1).
 // Per-field validation fires on blur (not one lump error on submit) and the
 // save button stays disabled until every mandatory field is valid. The
 // SAME rule is enforced again in setQuoteBilling (lib/actions/oem.ts) —
@@ -108,6 +113,10 @@ export function BillingDialog({
   const toast = useToast();
   const [legalName, setLegalName] = useState(quote.billLegalName ?? quote.customerName ?? "");
   const [taxId, setTaxId] = useState(quote.billTaxId ?? "");
+  // 0086: default "สำนักงานใหญ่" เมื่อยังไม่เคยกรอกไว้ — ครอบคลุม OEM ส่วนใหญ่
+  // ที่เป็นนิติบุคคลออกที่สำนักงานใหญ่ ยังแก้/ลบได้เสมอ (บุคคลธรรมดาไม่บังคับกรอก
+  // ก็ลบทิ้งได้). ค่าที่เคยบันทึกไว้แล้ว (quote.billBranchLabel) มาก่อนเสมอ.
+  const [branchLabel, setBranchLabel] = useState(quote.billBranchLabel ?? "สำนักงานใหญ่");
   const [phone, setPhone] = useState(quote.billPhone ?? "");
   const [contactChannel, setContactChannel] = useState(quote.billContactChannel ?? "");
   const [line1, setLine1] = useState(quote.billAddress?.line1 ?? "");
@@ -141,6 +150,11 @@ export function BillingDialog({
   const contactOk = hasAnyContact(phone, contactChannel);
   const contactErr = contactOk ? null : "กรุณากรอกเบอร์โทร หรือช่องทางติดต่ออื่น (เช่น LINE ID) อย่างน้อย 1 อย่าง";
   const taxIdValid = isValidThaiTaxId(taxId);
+  // 0086: บังคับกรอกสาขาเฉพาะเมื่อมีเลขผู้เสียภาษี (นิติบุคคล) — บุคคลธรรมดา
+  // ไม่บังคับ เหมือนกฎเดียวกับ oem_receipt_issue (ด่านจริงอยู่ที่ RPC/setQuoteBilling
+  // server-side; ตัวนี้คือ UX เท่านั้น — ดู SetQuoteBillingInput.branchLabel).
+  const branchLabelRequired = !!taxId.trim();
+  const branchLabelErr = branchLabelRequired && !branchLabel.trim() ? "ผู้ซื้อมีเลขผู้เสียภาษี ต้องกรอกสาขา (เช่น สำนักงานใหญ่)" : null;
 
   const canSubmit =
     !legalNameErr &&
@@ -149,6 +163,7 @@ export function BillingDialog({
     !districtErr &&
     !provinceErr &&
     !postalCodeErr &&
+    !branchLabelErr &&
     contactOk &&
     taxIdValid;
 
@@ -163,6 +178,7 @@ export function BillingDialog({
       province: true,
       postalCode: true,
       contact: true,
+      branchLabel: true,
     });
     if (!canSubmit) return;
     startTransition(async () => {
@@ -172,6 +188,7 @@ export function BillingDialog({
         taxId: taxId.trim() || null,
         phone: phone.trim() || null,
         contactChannel: contactChannel.trim() || null,
+        branchLabel: branchLabel.trim() || null,
         address: {
           line1: line1.trim() || null,
           line2: line2.trim() || null,
@@ -244,6 +261,27 @@ export function BillingDialog({
             ถ้าไม่กรอก จะออกใบกำกับภาษีให้ลูกค้ารายนี้ทีหลังไม่ได้
           </p>
         )
+      )}
+
+      <FieldLabel htmlFor="oem-bill-branch-label" required={branchLabelRequired} optional={!branchLabelRequired}>
+        สำนักงานใหญ่/สาขา
+      </FieldLabel>
+      <input
+        id="oem-bill-branch-label"
+        type="text"
+        value={branchLabel}
+        onChange={(e) => setBranchLabel(e.target.value)}
+        onBlur={blur("branchLabel")}
+        className={showError("branchLabel", branchLabelErr) ? inputErrorCls : inputCls}
+        placeholder="เช่น สำนักงานใหญ่ หรือ สาขาที่ 1"
+        aria-required={branchLabelRequired}
+        aria-invalid={!!showError("branchLabel", branchLabelErr)}
+        aria-describedby={showError("branchLabel", branchLabelErr) ? "oem-bill-branch-label-error" : undefined}
+      />
+      {showError("branchLabel", branchLabelErr) && (
+        <p id="oem-bill-branch-label-error" className="mt-1 text-xs text-red-600">
+          {branchLabelErr}
+        </p>
       )}
 
       <p className="mt-3 block text-sm font-medium text-zinc-700">

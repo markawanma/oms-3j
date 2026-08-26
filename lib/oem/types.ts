@@ -492,6 +492,12 @@ export interface SetQuoteBillingInput {
   phone?: string | null;
   contactChannel?: string | null;
   address?: OemCustomerAddress | null;
+  /** 0086: สำนักงานใหญ่/สาขาที่ ... ของผู้ซื้อ — key ใหม่ใน p_customer jsonb
+   * เดิม (ไม่ใช่ parameter ใหม่ของ RPC, ดู 0086 หัวไฟล์) OPTIONAL ที่ layer นี้
+   * เหมือน taxId แต่ setQuoteBilling (lib/actions/oem.ts) บังคับกรอกเมื่อ taxId
+   * มีค่า — ตัวด่านจริงสุดท้ายคือ oem_receipt_issue เอง (ปฏิเสธออกใบถ้าผู้ซื้อมี
+   * tax_id แต่ไม่มี branch_label). */
+  branchLabel?: string | null;
 }
 
 export interface OemQuoteRow {
@@ -621,6 +627,12 @@ export interface OemQuoteRow {
    * parseBillAddress). null if never set OR if the stored jsonb doesn't
    * look like an OemCustomerAddress at all. */
   billAddress: OemCustomerAddress | null;
+  /** 0086: สาขาผู้ซื้อ (สำนักงานใหญ่/สาขาที่ ...) — บังคับกรอกเมื่อ billTaxId
+   * มีค่า (นิติบุคคล) ก่อนออกใบกำกับภาษีเต็มรูปได้ (ดู oem_receipt_issue §0086).
+   * NOTE: v_oem_quote (0077) ไม่ได้ expose คอลัมน์นี้ (0086 จงใจไม่แตะ view นั้น
+   * — ดู migration header) ฟิลด์นี้จึงถูกเติมเข้ามาทีหลังจาก analytics.oem_customer
+   * โดยตรงใน getQuote/getQuotes (attachBillBranchLabels), ไม่ใช่จาก QUOTE_COLUMNS. */
+  billBranchLabel: string | null;
   // ---- 0084 additions (v_oem_quote appended past vat_amount_thb — §7 of
   // design-oem-payment-invoice.md) — computed FRESH every read at DEAL level
   // (sum across the whole root_quote_id chain, not just this row's own

@@ -29,10 +29,15 @@ export function ReceiptSection({
   quote,
   receipts,
   onChanged,
+  onGoToBilling,
 }: {
   quote: OemQuoteRow;
   receipts: OemReceiptRow[];
   onChanged: () => void;
+  /** 0086: opens QuoteDetailClient's BillingDialog — ReceiptIssueDialog's
+   * incomplete-tax-info warning links here so the owner can jump straight to
+   * fixing it instead of hunting for the "กรอกข้อมูล" button themselves. */
+  onGoToBilling: () => void;
 }) {
   const [issueOpen, setIssueOpen] = useState(false);
   const [voidTarget, setVoidTarget] = useState<OemReceiptRow | null>(null);
@@ -168,7 +173,20 @@ export function ReceiptSection({
         )}
       </div>
 
-      {issueOpen && <ReceiptIssueDialog quote={quote} onClose={() => setIssueOpen(false)} onSaved={() => { setIssueOpen(false); onChanged(); }} />}
+      {issueOpen && (
+        <ReceiptIssueDialog
+          quote={quote}
+          onClose={() => setIssueOpen(false)}
+          onSaved={() => {
+            setIssueOpen(false);
+            onChanged();
+          }}
+          onGoToBilling={() => {
+            setIssueOpen(false);
+            onGoToBilling();
+          }}
+        />
+      )}
       {voidTarget && (
         <VoidReceiptDialog
           receipt={voidTarget}
