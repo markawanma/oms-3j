@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ขายคืนเงินแท่ง 3J — Mockup</title>
+<style>
+  :root{
+    --brand-red:#A2191D;
+    --brand-red-dark:#7d1316;
+    --gray-dark:#343434;
+    --gray-light:#F5F1EC;
+    --bg:#ffffff;
+    --text:#222222;
+    --text-soft:#5c5c5c;
+    --border:#e6e1da;
+    --card-bg:#ffffff;
+    --warn-bg:#FFF6D9;
+    --warn-border:#E8B923;
+    --ok-bg:#F3F7F1;
+  }
+  *{box-sizing:border-box;}
+  html{scroll-behavior:smooth;}
+  body{
+    margin:0;
+    font-family:"Noto Sans Thai","Segoe UI",system-ui,-apple-system,sans-serif;
+    background:var(--bg);
+    color:var(--text);
+    line-height:1.65;
+    padding-bottom:76px; /* space for sticky CTA */
+  }
+
+  /* ---------- disclaimer ribbon ---------- */
+  .mock-ribbon{
+    background:#111;
+    color:#fff;
+    text-align:center;
+    font-size:0.8rem;
+    padding:8px 12px;
+    letter-spacing:0.02em;
+  }
+  .mock-ribbon strong{color:#ffd24d;}
+
+  .wrap{max-width:720px;margin:0 auto;padding:0 18px;}
+
+  /* ---------- topbar ---------- */
+  .topbar{
+    display:flex;align-items:center;justify-content:center;gap:8px;
+    padding:14px 16px;border-bottom:1px solid var(--border);
+  }
+  .topbar .ring{
+    width:26px;height:26px;border-radius:50%;
+    border:3px solid var(--brand-red);border-top-color:transparent;
+    transform:rotate(-45deg);
+  }
+  .topbar .brand{font-weight:700;letter-spacing:0.04em;font-size:1rem;}
+
+  /* ---------- hero ---------- */
+  .hero{
+    background:linear-gradient(160deg,#fff 0%,var(--gray-light) 100%);
+    padding:28px 0 24px;
+    border-bottom:1px solid var(--border);
+  }
+  .badge{
+    display:inline-block;background:var(--brand-red);color:#fff;
+    font-size:0.72rem;font-weight:600;padding:4px 12px;border-radius:999px;
+    letter-spacing:0.03em;margin-bottom:14px;
+  }
+  .hero h1{
+    margin:0 0 12px;font-size:1.55rem;line-height:1.35;color:var(--text);
+  }
+  .hero p.sub{
+    margin:0 0 20px;color:var(--text-soft);font-size:0.98rem;
+  }
+  .cta-primary{
+    display:block;width:100%;text-align:center;
+    background:var(--brand-red);color:#fff;font-weight:700;
+    padding:15px 18px;border-radius:10px;text-decoration:none;
+    font-size:1.02rem;box-shadow:0 6px 16px rgba(162,25,29,0.25);
+    border:none;cursor:pointer;
+  }
+  .cta-primary:hover{background:var(--brand-red-dark);}
+  .cta-note{
+    text-align:center;font-size:0.82rem;color:var(--text-soft);
+    margin:10px 0 18px;
+  }
+  .trust-line{
+    display:flex;flex-wrap:wrap;gap:8px 14px;justify-content:center;
+    font-size:0.78rem;color:var(--gray-dark);
+    padding-top:14px;border-top:1px dashed var(--border);
+  }
+  .trust-line span{display:flex;align-items:center;gap:5px;}
+  .trust-line .dot{width:5px;height:5px;border-radius:50%;background:var(--brand-red);flex:none;}
+
+  /* ---------- section shell ---------- */
+  section{padding:30px 0;}
+  section.alt{background:var(--gray-light);}
+  .sec-head{margin-bottom:18px;}
+  .sec-head .eyebrow{
+    font-size:0.72rem;font-weight:700;color:var(--brand-red);
+    letter-spacing:0.06em;text-transform:uppercase;margin-bottom:6px;display:block;
+  }
+  .sec-head h2{margin:0 0 8px;font-size:1.25rem;color:var(--text);}
+  .sec-head p{margin:0;color:var(--text-soft);font-size:0.92rem;}
+
+  /* ---------- fear Q&A cards ---------- */
+  .qa-list{display:flex;flex-direction:column;gap:10px;}
+  .qa-card{
+    background:var(--card-bg);border:1px solid var(--border);
+    border-radius:12px;padding:14px 16px;
+  }
+  .qa-card .q{
+    display:flex;gap:10px;align-items:flex-start;font-weight:700;font-size:0.95rem;margin-bottom:6px;
+  }
+  .qa-card .q .num{
+    flex:none;width:24px;height:24px;border-radius:50%;
+    background:var(--brand-red);color:#fff;font-size:0.75rem;font-weight:700;
+    display:flex;align-items:center;justify-content:center;margin-top:1px;
+  }
+  .qa-card .a{font-size:0.9rem;color:var(--gray-dark);padding-left:34px;}
+  .qa-card .a.ok::before{content:"✓ ";color:#2e7d32;font-weight:700;}
+
+  .pending{
+    background:var(--warn-bg);
+    border:1.5px dashed var(--warn-border);
+    border-radius:8px;
+    padding:10px 12px;
+    font-size:0.85rem;
+    color:#6b5308;
+    margin-left:34px;
+  }
+  .pending .tag{
+    display:inline-block;font-weight:800;font-size:0.7rem;
+    background:var(--warn-border);color:#3d2e00;
+    padding:2px 8px;border-radius:999px;margin-bottom:6px;letter-spacing:0.03em;
+  }
+
+  /* ---------- steps ---------- */
+  .steps{position:relative;padding-left:6px;}
+  .step{
+    display:flex;gap:14px;position:relative;padding-bottom:22px;
+  }
+  .step:last-child{padding-bottom:0;}
+  .step::before{
+    content:"";position:absolute;left:15px;top:34px;bottom:0;
+    width:2px;background:var(--border);
+  }
+  .step:last-child::before{display:none;}
+  .step .num{
+    flex:none;width:32px;height:32px;border-radius:50%;
+    background:#fff;border:2.5px solid var(--brand-red);color:var(--brand-red);
+    font-weight:800;display:flex;align-items:center;justify-content:center;
+    font-size:0.95rem;z-index:1;
+  }
+  .step .body h3{margin:2px 0 4px;font-size:0.98rem;}
+  .step .body p{margin:0 0 6px;font-size:0.88rem;color:var(--text-soft);}
+
+  .callout{
+    background:var(--ok-bg);border:1.5px solid #cfe0c9;border-radius:10px;
+    padding:14px 16px;margin-top:6px;font-size:0.88rem;color:#2c4a26;
+  }
+  .callout strong{display:block;margin-bottom:4px;font-size:0.92rem;color:#1f3a1a;}
+
+  /* ---------- price ---------- */
+  .price-box p{font-size:0.92rem;margin:0 0 12px;}
+  .risk-warn{
+    background:var(--warn-bg);border:1.5px solid var(--warn-border);
+    border-radius:10px;padding:12px 14px;font-size:0.82rem;color:#5c4700;
+  }
+
+  /* ---------- why us ---------- */
+  .why-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px;}
+  .why-list li{
+    display:flex;gap:10px;align-items:flex-start;font-size:0.92rem;
+    background:#fff;border:1px solid var(--border);border-radius:10px;padding:12px 14px;
+  }
+  .why-list li .ic{flex:none;color:var(--brand-red);font-size:1.05rem;line-height:1.4;}
+
+  /* ---------- contact ---------- */
+  .contact-card{
+    background:#fff;border:1px solid var(--border);border-radius:14px;
+    padding:20px;
+  }
+  .contact-row{display:flex;gap:10px;margin-bottom:10px;font-size:0.9rem;}
+  .contact-row .ic{flex:none;width:20px;text-align:center;color:var(--brand-red);}
+  .cta-secondary{
+    display:block;text-align:center;border:1.5px solid var(--brand-red);
+    color:var(--brand-red);font-weight:700;padding:12px;border-radius:10px;
+    text-decoration:none;font-size:0.92rem;margin-top:14px;
+  }
+
+  /* ---------- sticky mobile CTA ---------- */
+  .sticky-cta{
+    position:fixed;left:0;right:0;bottom:0;
+    background:#fff;border-top:1px solid var(--border);
+    padding:10px 16px calc(10px + env(safe-area-inset-bottom));
+    box-shadow:0 -6px 16px rgba(0,0,0,0.08);
+    z-index:50;
+  }
+  .sticky-cta a{
+    display:block;text-align:center;background:var(--brand-red);color:#fff;
+    font-weight:700;padding:13px;border-radius:10px;text-decoration:none;font-size:0.95rem;
+  }
+
+  footer{
+    text-align:center;font-size:0.78rem;color:#999;padding:24px 18px 20px;
+  }
+
+  @media (min-width:640px){
+    .hero h1{font-size:1.9rem;}
+    .sec-head h2{font-size:1.45rem;}
+  }
+</style>
+</head>
+<body>
+
+<div class="mock-ribbon">⚠️ <strong>ภาพจำลอง ไม่ใช่หน้าเว็บจริง</strong> — ทำเพื่อให้เห็นภาพก่อนนำไปวางจริงใน Wix</div>
+
+<div class="topbar">
+  <div class="ring"></div>
+  <div class="brand">3J JEWELRY</div>
+</div>
+
+<!-- ============ HERO ============ -->
+<div class="hero">
+  <div class="wrap">
+    <span class="badge">ขายคืนเงินแท่ง 3J</span>
+    <h1>ขายคืนเงินแท่ง 3J — ตรวจสอบได้ทุกขั้นตอน ราคาเป็นธรรม</h1>
+    <p class="sub">ราคารับซื้อคืนอิงราคาเนื้อเงินตามตลาดจริง ล็อกราคา ณ วันที่คุณจัดส่งเงินแท่งมาถึงเรา — ราคาที่ตกลงกันตอนส่งของ คือราคาที่คุณจะได้รับจริง</p>
+    <a href="#" class="cta-primary">ทัก LINE ประเมินราคาก่อนส่ง</a>
+    <p class="cta-note">ทักคุยและส่งรูปให้เจ้าหน้าที่ประเมินราคาคร่าวๆ ก่อนได้ ไม่ต้องส่งของทันที</p>
+    <div class="trust-line">
+      <span><span class="dot"></span>ผลิตเงินแท่งเอง 30 ปี</span>
+      <span><span class="dot"></span>มีหน้าร้านจริงที่กรุงเทพฯ</span>
+      <span><span class="dot"></span>รับซื้อคืนเฉพาะแท่งของ 3J</span>
+    </div>
+  </div>
+</div>
+
+<!-- ============ BLOCK 2: สิ่งที่ต้องรู้ก่อนส่ง ============ -->
+<section id="know-first">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">อ่านก่อนตัดสินใจ</span>
+      <h2>สิ่งที่ต้องรู้ก่อนส่งเงินแท่งมาขาย</h2>
+      <p>ก่อนตัดสินใจส่งเงินแท่งมูลค่าสูงทางไปรษณีย์ เราอยากให้คุณรู้คำตอบของคำถามเหล่านี้ก่อน</p>
+    </div>
+
+    <div class="qa-list">
+
+      <div class="qa-card">
+        <div class="q"><span class="num">1</span>รับซื้อคืนเงินแท่งของร้านไหนบ้าง?</div>
+        <div class="a ok">3J รับซื้อคืนเฉพาะเงินแท่งที่จำหน่ายจากร้าน 3J เท่านั้น เพื่อยืนยันแหล่งที่มาและความบริสุทธิ์ของเนื้อเงินได้ตรงตามมาตรฐานที่เราผลิตเอง เงินแท่งจากผู้ผลิตหรือร้านอื่น ทางเรายังไม่รับซื้อคืนในขณะนี้</div>
+      </div>
+
+      <div class="qa-card">
+        <div class="q"><span class="num">2</span>เงินแท่งมีรอย ไม่มีกล่อง หรือใบรับรองหายแล้ว ยังรับซื้อคืนได้ไหม?</div>
+        <div class="pending">
+          <span class="tag">รอเจ้าของยืนยัน</span><br>
+          เงื่อนไขสภาพแท่งที่ยังรับซื้อคืนได้ — รอยขีดข่วนเล็กน้อยรับไหม / ไม่มีกล่องหรือใบรับรองแล้วรับซื้อคืนได้ไหม / ราคาต่างจากแท่งที่มีครบไหม
+        </div>
+      </div>
+
+      <div class="qa-card">
+        <div class="q"><span class="num">3</span>ต้องเตรียมเอกสารอะไรบ้าง?</div>
+        <div class="a ok">แนบใบรับรองความบริสุทธิ์และใบรับประกันที่มากับแท่ง (ถ้ายังมีอยู่) จะช่วยให้ตรวจสอบและประเมินราคาได้เร็วขึ้น</div>
+        <div class="pending" style="margin-top:8px;">
+          <span class="tag">รอเจ้าของยืนยัน</span><br>
+          ต้องแนบสำเนาบัตรประชาชนหรือเอกสารยืนยันตัวตนเพื่อรับโอนเงินไหม
+        </div>
+      </div>
+
+      <div class="qa-card">
+        <div class="q"><span class="num">4</span>ค่าส่งพัสดุ ใครเป็นคนออก?</div>
+        <div class="pending">
+          <span class="tag">รอเจ้าของยืนยัน</span><br>
+          ค่าส่งพัสดุขาไป (ลูกค้าส่งเงินแท่งมาขาย) ลูกค้าออกเองทั้งหมด หรือร้านช่วยออก/คืนค่าส่งบางส่วน
+        </div>
+      </div>
+
+      <div class="qa-card">
+        <div class="q"><span class="num">5</span>ถ้าเงินแท่งสูญหายหรือเสียหายระหว่างขนส่ง ใครรับผิดชอบ?</div>
+        <div class="pending">
+          <span class="tag">รอเจ้าของยืนยัน</span><br>
+          นโยบายกรณีพัสดุสูญหาย/เสียหายระหว่างทาง ร้านรับผิดชอบแค่ไหน แนะนำให้ส่งแบบลงทะเบียน/ซื้อประกันพัสดุไหม
+        </div>
+      </div>
+
+      <div class="qa-card">
+        <div class="q"><span class="num">6</span>ส่งไปแล้วกี่วันถึงจะได้เงิน?</div>
+        <div class="pending">
+          <span class="tag">รอเจ้าของยืนยัน</span><br>
+          ระยะเวลาโอนเงินหลังของถึงร้าน (นับเป็นวันทำการ/ชั่วโมง) — คำถามที่ลูกค้าถามมากที่สุด
+        </div>
+      </div>
+
+      <div class="qa-card">
+        <div class="q"><span class="num">7</span>ถ้าตกลงราคาที่เสนอไม่ได้ ของจะได้กลับคืนไหม ใครออกค่าส่งกลับ?</div>
+        <div class="pending">
+          <span class="tag">รอเจ้าของยืนยัน</span><br>
+          ถ้าลูกค้าไม่พอใจราคาที่ประเมินหลังของถึงร้าน ปฏิเสธไม่ขายได้ไหม ของส่งกลับใคร ใครออกค่าส่งกลับ
+        </div>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ============ BLOCK 3: ขั้นตอนการขายคืน ============ -->
+<section class="alt" id="steps">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">วิธีขายคืน</span>
+      <h2>ขั้นตอนการขายคืน</h2>
+    </div>
+
+    <div class="steps">
+      <div class="step">
+        <div class="num">1</div>
+        <div class="body">
+          <h3>ทัก LINE หรือโทร</h3>
+          <p>แจ้งขนาดและจำนวนเงินแท่งที่ต้องการขายคืน</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="num">2</div>
+        <div class="body">
+          <h3>ส่งรูป — เจ้าหน้าที่ประเมินราคาคร่าวๆ</h3>
+          <p>ถ่ายรูปเงินแท่ง (พร้อมใบรับรองถ้ามี) ส่งให้เจ้าหน้าที่ดูก่อนตัดสินใจส่งจริง</p>
+        </div>
+      </div>
+      <div class="step">
+        <div class="num">3</div>
+        <div class="body">
+          <h3>แพ็กเงินแท่ง ส่งพัสดุ แจ้งเลขพัสดุ</h3>
+          <p>แนบเอกสารตามที่แจ้งด้านบน ส่งพัสดุมาที่ร้าน แล้วแจ้งเลขพัสดุกลับทาง LINE</p>
+          <div class="pending">
+            <span class="tag">รอเจ้าของยืนยัน</span><br>
+            ผู้ส่งพัสดุออกค่าส่งเองหรือร้านช่วยออก — ควรระบุในขั้นตอนนี้ด้วย
+          </div>
+        </div>
+      </div>
+      <div class="step">
+        <div class="num">4</div>
+        <div class="body">
+          <h3>ของถึงร้าน ตรวจสอบ แล้วโอนเงิน</h3>
+          <p>เจ้าหน้าที่ตรวจสอบเงินแท่งและเอกสาร ยืนยันราคาตามวันที่จัดส่ง แล้วโอนเงินให้</p>
+          <div class="pending">
+            <span class="tag">รอเจ้าของยืนยัน</span><br>
+            ระยะเวลาการโอนเงินหลังตรวจสอบเสร็จ
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="callout">
+      <strong>📌 ราคาล็อกตั้งแต่วันที่คุณส่งพัสดุ</strong>
+      ราคาที่ใช้คำนวณคือราคาอ้างอิงเนื้อเงิน ณ วันที่คุณจัดส่งของ ไม่ใช่วันที่ของมาถึงร้านหรือวันที่ตรวจนับ — ต่อให้ราคาตลาดขยับระหว่างทาง ราคาที่ตกลงกันไว้ตอนส่งของคือราคาที่คุณจะได้รับจริง
+    </div>
+  </div>
+</section>
+
+<!-- ============ BLOCK 4: ราคาขายคืนคิดอย่างไร ============ -->
+<section id="price">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">ราคา</span>
+      <h2>ราคาขายคืนคิดอย่างไร</h2>
+    </div>
+    <div class="price-box">
+      <p>ราคารับซื้อคืนเงินแท่ง 3J อิงราคาเนื้อเงินตามตลาดจริง ณ วันที่คุณจัดส่งเงินแท่งมาขาย ราคาที่ได้รับขึ้นอยู่กับสภาวะตลาดในวันนั้น ไม่ใช่ตัวเลขคงที่ที่กำหนดไว้ล่วงหน้า เช่นเดียวกับราคาขายออกที่อิงราคาตลาดในลักษณะเดียวกัน</p>
+      <div class="risk-warn">
+        ⚠️ ราคาโลหะมีค่ามีความผันผวน อาจปรับขึ้นหรือลงได้ตามสภาวะตลาด 3J Jewelry เป็นผู้จำหน่ายสินค้าโลหะมีค่าเชิงกายภาพ ไม่ใช่ที่ปรึกษาการลงทุน และไม่รับประกันราคาหรือผลตอบแทนใดๆ ในอนาคต
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ BLOCK 5: ทำไมต้องขายคืนกับเรา ============ -->
+<section class="alt" id="why-us">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">สรุป</span>
+      <h2>ทำไมต้องขายคืนกับเรา</h2>
+    </div>
+    <ul class="why-list">
+      <li><span class="ic">🏭</span>ผลิตเงินแท่งเอง 30 ปี ยืนยันแหล่งที่มาของเนื้อเงินได้ตรงจากโรงงาน</li>
+      <li><span class="ic">🏬</span>มีหน้าร้านจริงที่กรุงเทพฯ ไม่ใช่แค่เพจออนไลน์</li>
+      <li><span class="ic">⚖️</span>ราคารับซื้อคืนอิงราคาเนื้อเงินตลาดจริง ไม่ใช่ราคาต่อรองหน้างาน</li>
+      <li><span class="ic">🔒</span>ล็อกราคา ณ วันที่คุณจัดส่ง ไม่ใช่วันที่เราตรวจนับ</li>
+      <li><span class="ic">✅</span>รับซื้อคืนเฉพาะแท่งของ 3J เพื่อรักษามาตรฐานการตรวจสอบและความเป็นธรรมกับลูกค้าทุกคนเท่ากัน</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ============ BLOCK 6: ติดต่อ ============ -->
+<section id="contact">
+  <div class="wrap">
+    <div class="sec-head">
+      <span class="eyebrow">ติดต่อ</span>
+      <h2>ติดต่อขายคืนเงินแท่ง</h2>
+    </div>
+    <div class="contact-card">
+      <div class="contact-row"><span class="ic">📍</span><span>112/203 บางขุนเทียน จอมทอง กทม. 10150</span></div>
+      <div class="contact-row"><span class="ic">📞</span><span>095-553-6479</span></div>
+      <div class="contact-row">
+        <span class="ic">🕒</span>
+        <span class="pending" style="margin-left:0;display:inline-block;">
+          <span class="tag">รอเจ้าของยืนยัน</span><br>
+          วัน-เวลาที่หน้าร้านเปิดรับขายคืนเงินแท่ง
+        </span>
+      </div>
+      <a href="#" class="cta-primary">ทัก LINE ประเมินราคาก่อนส่ง</a>
+      <a href="tel:0955536479" class="cta-secondary">โทร 095-553-6479</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  Mockup โดยทีม ux-ui · 3J Jewelry · ไฟล์นี้ไม่ใช่หน้าเว็บจริง เปิดดูภาพรวมก่อนนำ copy ไปวางใน Wix
+</footer>
+
+<!-- ============ STICKY MOBILE CTA ============ -->
+<div class="sticky-cta">
+  <a href="#">ทัก LINE ประเมินราคาก่อนส่ง</a>
+</div>
+
+</body>
+</html>
