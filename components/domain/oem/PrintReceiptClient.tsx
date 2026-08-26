@@ -53,6 +53,11 @@ export function PrintReceiptClient({ receipt }: { receipt: PrintableReceipt }) {
   const isFullTaxInvoice = !!receipt.buyerTaxId && !!receipt.buyerBranchLabel && buyerAddressLines.length > 0;
   const documentTitleTh = isFullTaxInvoice ? "ใบเสร็จรับเงิน/ใบกำกับภาษี" : "ใบเสร็จรับเงิน";
   const documentTitleEn = isFullTaxInvoice ? "Receipt / Tax Invoice · ต้นฉบับ" : "Receipt · ต้นฉบับ";
+  // downgrade เงียบ = อันตราย: ถ้าผู้ซื้อมีเลขผู้เสียภาษีแต่ใบนี้ตกกลับเป็น
+  // ใบเสร็จธรรมดา (ขาดสาขา/ที่อยู่) ต้องมีสัญญาณให้พนักงานเห็นก่อนกดพิมพ์ส่งลูกค้า
+  // มิฉะนั้นลูกค้าจะได้ใบที่เอาไปเคลม input VAT ไม่ได้โดยไม่มีใครเตือน — ข้อความนี้
+  // พูดกับพนักงานเท่านั้น ต้อง print:hidden เสมอ (ดู oem-quote-invariants §8)
+  const isSilentDowngrade = !isFullTaxInvoice && !!receipt.buyerTaxId;
 
   return (
     <div className="mx-auto max-w-[210mm] pb-10">
@@ -117,12 +122,32 @@ export function PrintReceiptClient({ receipt }: { receipt: PrintableReceipt }) {
           </div>
         </div>
 
+        {/* on-screen-only notice — never printed. เลขผู้เสียภาษี/สาขาของผู้ซื้อ
+            เป็นองค์ประกอบของใบกำกับภาษี (ม.86/4) เท่านั้น พิมพ์ลงกระดาษไม่ได้
+            เมื่อพาดหัวไม่ได้เป็นใบกำกับภาษี — เตือนพนักงานตรงนี้แทน เพราะถ้าเงียบ
+            เจ้าของร้านอาจกดพิมพ์ส่งลูกค้าโดยไม่รู้ว่าใบนี้เคลม VAT ไม่ได้ */}
+        {isSilentDowngrade && (
+          <div className="mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800 print:hidden">
+            ผู้ซื้อมีเลขผู้เสียภาษี แต่ข้อมูลไม่ครบ (ขาดสาขา และ/หรือ ที่อยู่ผู้ซื้อ) ใบนี้จึงออกเป็น
+            &quot;ใบเสร็จรับเงิน&quot; ธรรมดา — ลูกค้าเอาไปเคลมภาษีซื้อ (input VAT) ไม่ได้
+            ถ้าลูกค้าต้องการใบกำกับภาษี ให้ยกเลิกใบนี้แล้วออกใหม่หลังกรอกข้อมูลผู้ซื้อให้ครบ
+          </div>
+        )}
+
         {/* buyer */}
         <div className="mt-4 border-b border-zinc-200 pb-4">
           <p className="text-xs font-bold uppercase tracking-wide text-zinc-500">ได้รับเงินจาก</p>
           <p className="mt-1 text-sm font-semibold text-zinc-900">{receipt.buyerLegalName}</p>
-          {receipt.buyerTaxId && <p className="text-xs text-zinc-600">เลขประจำตัวผู้เสียภาษี {receipt.buyerTaxId}</p>}
-          {receipt.buyerBranchLabel && <p className="text-xs text-zinc-600">{receipt.buyerBranchLabel}</p>}
+          {/* เลขผู้เสียภาษี + สาขาของผู้ซื้อ = องค์ประกอบของใบกำกับภาษีเท่านั้น
+              (ป.รัษฎากร ม.86/4) — ผูกกับ isFullTaxInvoice เสมอ ห้ามแยกผูกกับ
+              receipt.buyerTaxId/receipt.buyerBranchLabel ตรงๆ มิฉะนั้นใบที่ถูก
+              ตกชั้นเป็นใบเสร็จธรรมดาจะยังมีชิ้นส่วนใบกำกับภาษีติดอยู่บนกระดาษ
+              (ที่อยู่ผู้ซื้อไม่เกี่ยว — ใบเสร็จธรรมดาก็มีที่อยู่ผู้รับเงินได้ปกติ
+              จึงพิมพ์ buyerAddressLines ต่อไปเสมอไม่ว่ากรณีไหน) */}
+          {isFullTaxInvoice && receipt.buyerTaxId && (
+            <p className="text-xs text-zinc-600">เลขประจำตัวผู้เสียภาษี {receipt.buyerTaxId}</p>
+          )}
+          {isFullTaxInvoice && receipt.buyerBranchLabel && <p className="text-xs text-zinc-600">{receipt.buyerBranchLabel}</p>}
           {buyerAddressLines.map((line, i) => (
             <p key={i} className="text-xs text-zinc-600">
               {line}
