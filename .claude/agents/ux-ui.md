@@ -2,6 +2,9 @@
 name: ux-ui
 description: ออกแบบ UX/UI ก่อนลงมือเขียน — user flow, information architecture, wireframe, interaction, design system, empty/loading/error state. Use PROACTIVELY ก่อน frontend-dev implement ฝั่ง UI ใหม่
 tools: Read, Grep, Glob, Write, Edit
+skills:
+  - 3j-brand-and-market
+  - oem-quote-invariants
 model: sonnet
 ---
 

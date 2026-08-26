@@ -4,7 +4,7 @@
 // comment for why that rule matters.
 
 import { OEM_METAL_LABEL_TH } from "./types";
-import type { OemInputUnit, OemMetal, OemScopeKind } from "./types";
+import type { OemBarSize, OemCustomerAddress, OemInputUnit, OemMetal, OemScopeKind } from "./types";
 
 // ============================================================================
 // group_code ordering (rate intake page) — matches the production sequence
@@ -121,6 +121,21 @@ export const OEM_POLISH_TIER_OPTIONS = POLISH_TIER_ORDER;
 export const OEM_GEM_TIER_OPTIONS = GEM_TIER_ORDER;
 export const OEM_PLATING_OPTIONS = PLATING_ORDER;
 
+// ============================================================================
+// เงินแท่ง 99.99% (0078) — น้ำหนักเป็นข้อความประกอบ "ให้ดู" เท่านั้น ไม่ใช่
+// ช่องแก้ได้และไม่ใช่ตัวตั้งราคา (ราคาไม่ linear ตามน้ำหนัก — 1 บาท×10 ≠ 10 บาท
+// จริง ~6%) ค่าคงที่แข็ง ไม่คำนวณ (15.24 ก./บาททอง คือหน่วยชั่งมาตรฐานไทย) —
+// ดู design-oem-bar-quote.md ข้อ 2 ของโจทย์ Luke.
+// ============================================================================
+export const OEM_BAR_SIZE_WEIGHT_LABEL_TH: Record<OemBarSize, string> = {
+  "0_5_baht": "≈ 7.62 กรัม (15.24 ก./บาท × 0.5)",
+  "1_baht": "≈ 15.24 กรัม",
+  "3_baht": "≈ 45.72 กรัม (15.24 ก./บาท × 3)",
+  "5_baht": "≈ 76.2 กรัม (15.24 ก./บาท × 5)",
+  "10_baht": "≈ 152.4 กรัม (15.24 ก./บาท × 10)",
+  "1_kg": "1,000 กรัม (1 กิโลกรัม)",
+};
+
 export function roundTo(n: number, dp: number): number {
   const f = 10 ** dp;
   return Math.round(n * f) / f;
@@ -129,4 +144,82 @@ export function roundTo(n: number, dp: number): number {
 export function fmtPct(n: number | null, dp = 1): string {
   if (n == null) return "—";
   return `${roundTo(n * 100, dp)}%`;
+}
+
+// ============================================================================
+// Billing (0077: analytics.oem_customer, read via v_oem_quote's bill_*
+// columns). oem_quote_set_billing (0075) stores p_customer->'address' as
+// jsonb with ZERO shape validation server-side — whatever the caller sent is
+// stored verbatim (see 0075 §7). Today the only caller is this app's own
+// BillingDialog (which always sends OemCustomerAddress-shaped keys), but any
+// future caller, a manual DB edit, or a pre-existing malformed row must not
+// be able to crash a page that reads it back. parseBillAddress is the one
+// place that defensively narrows `unknown` jsonb into OemCustomerAddress|
+// null — never throws, silently drops anything that doesn't look right.
+// ============================================================================
+
+/** Narrow an unknown jsonb value into OemCustomerAddress, or null if it
+ * isn't a plain object / has no usable string fields. Unknown extra keys are
+ * ignored; non-string values for a known key are treated as absent (not
+ * coerced, not thrown). */
+export function parseBillAddress(raw: unknown): OemCustomerAddress | null {
+  if (raw == null || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const r = raw as Record<string, unknown>;
+  const pick = (key: string): string | null => {
+    const v = r[key];
+    return typeof v === "string" && v.trim() ? v.trim() : null;
+  };
+  const addr: OemCustomerAddress = {
+    line1: pick("line1"),
+    line2: pick("line2"),
+    subdistrict: pick("subdistrict"),
+    district: pick("district"),
+    province: pick("province"),
+    provinceCode: pick("provinceCode"),
+    postalCode: pick("postalCode"),
+  };
+  const hasAnyField = Object.values(addr).some((v) => v != null);
+  return hasAnyField ? addr : null;
+}
+
+/** OemCustomerAddress -> printable lines, Thai postal-address convention
+ * (line1/line2 free text, then "ต./อ./จ. + รหัสไปรษณีย์" on one line). Skips
+ * empty lines entirely rather than printing blank rows. */
+export function formatOemAddressLines(addr: OemCustomerAddress | null): string[] {
+  if (!addr) return [];
+  const lines: string[] = [];
+  if (addr.line1) lines.push(addr.line1);
+  if (addr.line2) lines.push(addr.line2);
+  const locality = [
+    addr.subdistrict ? `ต.${addr.subdistrict}` : null,
+    addr.district ? `อ.${addr.district}` : null,
+    addr.province ? `จ.${addr.province}` : null,
+    addr.postalCode ?? null,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  if (locality) lines.push(locality);
+  return lines;
+}
+
+/** Thai tax id: exactly 13 digits, or empty (a person, not a registered
+ * business, has none — that's valid, not an error). Used by both
+ * BillingDialog (client) and setQuoteBilling (server) so the rule can never
+ * drift between the two. */
+export function isValidThaiTaxId(taxId: string): boolean {
+  const t = taxId.trim();
+  return t === "" || /^\d{13}$/.test(t);
+}
+
+/** phone-OR-alternate-contact: true if at least one of the two carries real
+ * text. 2026-08 UAT: some OEM customers (and the shop itself) only ever
+ * communicate over LINE, no phone on file — a bare "phone required" rule
+ * blocked real customers. Same shape used for two DIFFERENT pairs, kept as
+ * one implementation so neither can drift from the other:
+ *   - the CUSTOMER's billing contact (BillingDialog client validation +
+ *     setQuoteBilling server validation, phone vs. contactChannel/LINE)
+ *   - the SHOP's own seller profile (missingSellerFields, phone vs. line)
+ */
+export function hasAnyContact(a: string | null | undefined, b: string | null | undefined): boolean {
+  return !!a?.trim() || !!b?.trim();
 }

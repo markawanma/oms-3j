@@ -2,6 +2,8 @@
 name: cfo
 description: ตัดสินใจการเงินของร้านออนไลน์ — margin/pricing, unit economics ต่อช่องทาง, ค่าคอมมิชชั่น marketplace, COD/cash flow, การอนุมัติงบ/ลงทุน. ใช้เมื่อโจทย์กระทบกำไร เงินสด หรือราคา ไม่ใช่แค่ feature
 tools: Read, Grep, Glob
+skills:
+  - 3j-brand-and-market
 model: fable
 ---
 

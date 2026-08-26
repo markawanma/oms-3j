@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Calculator, ClipboardList, Coins } from "lucide-react";
+import { Calculator, ClipboardList, Coins, Receipt } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 // Sticky sub-nav for the OEM pricing module — mirrors CrmSubNav/MarketingSubNav
@@ -11,6 +11,7 @@ const TABS: { href: string; label: string; icon: LucideIcon }[] = [
   { href: "/oem/rates", label: "ต้นทุน", icon: Coins },
   { href: "/oem/quote", label: "คิดราคา", icon: Calculator },
   { href: "/oem/quotes", label: "ใบเสนอราคา", icon: ClipboardList },
+  { href: "/oem/receipts", label: "ใบเสร็จ", icon: Receipt },
 ];
 
 export function OemSubNav() {

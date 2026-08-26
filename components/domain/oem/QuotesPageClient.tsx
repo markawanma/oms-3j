@@ -10,7 +10,7 @@ import Link from "next/link";
 import { ClipboardList, Search } from "lucide-react";
 import { setQuoteStatus } from "@/lib/actions/oem";
 import type { OemQuoteRow, OemQuoteStatus } from "@/lib/oem/types";
-import { OEM_METAL_LABEL_TH, OEM_QUOTE_STATUS_LABEL_TH } from "@/lib/oem/types";
+import { OEM_QUOTE_STATUS_LABEL_TH } from "@/lib/oem/types";
 import { fmtPct } from "@/lib/oem/display";
 import { formatTHB } from "@/lib/format";
 import { Badge } from "@/components/ui/Badge";
@@ -27,6 +27,7 @@ const STATUS_TONE: Record<OemQuoteStatus, BadgeTone> = {
   lost: "red",
   expired: "orange",
   rejected: "slate",
+  superseded: "slate",
 };
 
 const FILTER_TABS: { value: OemQuoteStatus | "all"; label: string }[] = [
@@ -36,6 +37,7 @@ const FILTER_TABS: { value: OemQuoteStatus | "all"; label: string }[] = [
   { value: "won", label: "ปิดงาน" },
   { value: "lost", label: "แพ้งาน" },
   { value: "expired", label: "หมดอายุ" },
+  { value: "superseded", label: "ถูกแทนที่" },
 ];
 
 function DaysLeftCell({ daysLeft, isExpired }: { daysLeft: number | null; isExpired: boolean }) {
@@ -116,14 +118,14 @@ export function QuotesPageClient({ quotes }: { quotes: OemQuoteRow[] }) {
         />
       ) : (
         <div className="overflow-x-auto rounded-lg border border-zinc-200 bg-white shadow-sm">
-          <table className="w-full min-w-[820px] text-left text-sm">
+          <table className="w-full min-w-[860px] text-left text-sm">
             <thead>
               <tr className="border-b border-zinc-200 text-xs font-semibold text-zinc-500">
                 <th scope="col" className="py-2 pl-3.5 pr-3">เลขที่</th>
                 <th scope="col" className="py-2 pr-3">ลูกค้า</th>
-                <th scope="col" className="py-2 pr-3">วัสดุ</th>
-                <th scope="col" className="py-2 pr-3 text-right">จำนวน</th>
+                <th scope="col" className="py-2 pr-3 text-right">รายการ</th>
                 <th scope="col" className="py-2 pr-3 text-right">ยอดรวม</th>
+                <th scope="col" className="py-2 pr-3 text-right">ส่วนลด</th>
                 <th scope="col" className="py-2 pr-3 text-right">margin</th>
                 <th scope="col" className="py-2 pr-3">สถานะ</th>
                 <th scope="col" className="py-2 pr-3">เหลือ</th>
@@ -132,22 +134,27 @@ export function QuotesPageClient({ quotes }: { quotes: OemQuoteRow[] }) {
             </thead>
             <tbody>
               {visible.map((q) => (
-                <tr key={q.id} className="border-b border-zinc-100 last:border-0 hover:bg-zinc-50">
+                <tr
+                  key={q.id}
+                  className={`border-b border-zinc-100 last:border-0 hover:bg-zinc-50 ${q.status === "superseded" ? "opacity-50" : ""}`}
+                >
                   <td className="py-2 pl-3.5 pr-3 font-medium text-zinc-800">
                     <Link href={`/oem/quotes/${q.id}`} className="text-primary-700 hover:underline">
                       {q.quoteNo}
                     </Link>
                   </td>
                   <td className="py-2 pr-3 text-zinc-700">{q.customerName || "—"}</td>
-                  <td className="py-2 pr-3 text-zinc-600">{OEM_METAL_LABEL_TH[q.input.metal]}</td>
-                  <td className="py-2 pr-3 text-right tabular-nums text-zinc-700">{q.input.qty}</td>
-                  <td className="py-2 pr-3 text-right tabular-nums text-zinc-800">{q.quoteTotal != null ? formatTHB(q.quoteTotal) : "—"}</td>
+                  <td className="py-2 pr-3 text-right tabular-nums text-zinc-700">{q.itemCount || 1}</td>
+                  <td className="py-2 pr-3 text-right tabular-nums text-zinc-800">
+                    {q.grandTotal != null ? formatTHB(q.grandTotal) : q.quoteTotal != null ? formatTHB(q.quoteTotal) : "—"}
+                  </td>
+                  <td className="py-2 pr-3 text-right tabular-nums text-zinc-600">{q.discountThb > 0 ? formatTHB(q.discountThb) : "—"}</td>
                   <td className="py-2 pr-3 text-right tabular-nums text-zinc-700">{fmtPct(q.marginChargedPct)}</td>
                   <td className="py-2 pr-3">
                     <Badge tone={STATUS_TONE[q.status]}>{OEM_QUOTE_STATUS_LABEL_TH[q.status]}</Badge>
                   </td>
                   <td className="py-2 pr-3 whitespace-nowrap">
-                    <DaysLeftCell daysLeft={q.daysLeft} isExpired={q.isExpired} />
+                    <DaysLeftCell daysLeft={q.daysLeftTh} isExpired={q.isExpiredTh} />
                   </td>
                   <td className="py-2 pr-3.5">
                     {q.status === "quoted" && (

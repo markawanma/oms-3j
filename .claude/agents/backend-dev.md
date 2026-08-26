@@ -1,7 +1,11 @@
 ---
 name: backend-dev
 description: เขียน backend code — API, business logic, database schema, migration ตาม design ที่กำหนด. ใช้เมื่อต้อง implement ฝั่ง server
-tools: Read, Grep, Glob, Bash, Write, Edit
+tools: Read, Grep, Glob, Bash, Write, Edit, Skill
+skills:
+  - 3j-migration-traps
+  - supabase-migrate
+  - oem-quote-invariants
 model: sonnet
 ---
 

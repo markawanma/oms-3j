@@ -1,73 +1,46 @@
 "use client";
 
-// QuoteCalculatorClient — /oem/quote (T5). Left: job form. Right: live price
-// preview (debounced calcPrice call, 300ms) + save actions. This file owns
-// form state and orchestration only — every displayed number comes from
-// analytics.oem_price_calc via calcPrice()/saveQuote(); no arithmetic here.
+// QuoteCalculatorClient — /oem/quote (T5v2). Left: N job items, each
+// collapsible (QuoteJobItemCard). Right: whole-quote summary + discount +
+// save actions (QuoteResultPanel). This file owns form/orchestration state
+// only — every displayed price/margin number comes from
+// analytics.oem_price_calc via calcPrice()/saveQuote(); no arithmetic here
+// (QuoteResultPanel's aggregate preview sums already-computed numbers only,
+// see lib/oem/quoteForm.ts).
+//
+// SKU picker (T-next): products are fetched once on mount via
+// getOemProducts() and handed down to every QuoteJobItemCard. Selecting a
+// SKU only sets productId/skuSnapshot/productNameSnapshot on that item's
+// JobForm — it is deliberately excluded from buildJobInput()'s
+// OemPriceCalcInput (see quoteForm.ts), so changing/clearing a SKU never
+// touches itemSnapshots and therefore never re-triggers the debounced
+// calcPrice() call below.
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { calcPrice, saveQuote } from "@/lib/actions/oem";
-import type { OemMetal, OemPriceCalcInput, OemPriceCalcResult, OemSettingData } from "@/lib/oem/types";
-import { OEM_METAL_LABEL_TH } from "@/lib/oem/types";
-import { OEM_GEM_TIER_OPTIONS, OEM_ITEM_KIND_OPTIONS, OEM_PLATING_OPTIONS, OEM_POLISH_TIER_OPTIONS, roundTo } from "@/lib/oem/display";
+import { Plus } from "lucide-react";
+import { calcPrice, getOemProducts, saveQuote } from "@/lib/actions/oem";
+import type { OemPriceCalcResult, OemProductOption, OemSettingData, SaveQuoteInput } from "@/lib/oem/types";
+import { OEM_BAR_SIZE_LABEL_TH } from "@/lib/oem/types";
+import { roundTo } from "@/lib/oem/display";
+import type { JobForm } from "@/lib/oem/quoteForm";
+import { OEM_DEFAULT_PURITY, barSizeForSku, buildJobInput, createJobForm } from "@/lib/oem/quoteForm";
 import { useToast } from "@/components/ui/Toast";
+import { Button } from "@/components/ui/Button";
+import { QuoteJobItemCard } from "./QuoteJobItemCard";
 import { QuoteResultPanel } from "./QuoteResultPanel";
 
-const DEFAULT_PURITY: Record<OemMetal, string> = { silver: "0.925", gold: "", brass: "1" };
-
-interface JobForm {
-  metal: OemMetal;
-  purity: string;
-  itemKind: string;
-  weightG: string;
-  qty: string;
-  polishTier: string;
-  hasGems: boolean;
-  gemTier: string;
-  gemCount: string;
-  hasPlating: boolean;
-  platingType: string;
-  isNewDesign: boolean;
-  marginPct: string;
+function genKey(): string {
+  return typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : Math.random().toString(36).slice(2);
 }
 
-function buildInput(job: JobForm): OemPriceCalcInput | null {
-  if (!job.itemKind || !job.polishTier) return null;
-  const qty = Number(job.qty);
-  const weightG = Number(job.weightG);
-  if (!Number.isFinite(qty) || qty <= 0) return null;
-  if (!Number.isFinite(weightG) || weightG <= 0) return null;
-  if (job.metal === "gold" && !job.purity.trim()) return null;
-
-  let purity: number | null = null;
-  if (job.purity.trim()) {
-    purity = Number(job.purity);
-    if (!Number.isFinite(purity) || purity <= 0 || purity > 1) return null;
-  }
-
-  let marginPct: number | null = null;
-  if (job.marginPct.trim()) {
-    marginPct = Number(job.marginPct) / 100;
-    if (!Number.isFinite(marginPct) || marginPct < 0 || marginPct >= 1) return null;
-  }
-
-  if (job.hasGems && (!job.gemTier || !job.gemCount || Number(job.gemCount) <= 0)) return null;
-  if (job.hasPlating && !job.platingType) return null;
-
-  return {
-    metal: job.metal,
-    itemKind: job.itemKind,
-    polishTier: job.polishTier,
-    qty,
-    weightG,
-    isNewDesign: job.isNewDesign,
-    purity,
-    platingType: job.hasPlating ? job.platingType : null,
-    gemTier: job.hasGems ? job.gemTier : null,
-    gemCount: job.hasGems ? Number(job.gemCount) : 0,
-    marginPct,
-  };
+interface ItemState {
+  key: string;
+  job: JobForm;
+  collapsed: boolean;
+  calc: OemPriceCalcResult | null;
+  calcLoading: boolean;
+  calcError: string | null;
 }
 
 const inputCls = "min-h-11 w-full rounded-md border border-zinc-300 px-2.5 text-sm text-zinc-900";
@@ -77,78 +50,177 @@ export function QuoteCalculatorClient({ setting }: { setting: OemSettingData }) 
   const router = useRouter();
   const toast = useToast();
 
+  const defaultMarginPct = roundTo(setting.marginTargetPct * 100, 2);
+
   const [customerName, setCustomerName] = useState("");
   const [customerContact, setCustomerContact] = useState("");
-  const [job, setJob] = useState<JobForm>({
-    metal: "silver",
-    purity: DEFAULT_PURITY.silver,
-    itemKind: "",
-    weightG: "",
-    qty: "",
-    polishTier: "",
-    hasGems: false,
-    gemTier: "",
-    gemCount: "",
-    hasPlating: false,
-    platingType: "",
-    isNewDesign: true,
-    marginPct: String(roundTo(setting.marginTargetPct * 100, 2)),
-  });
-
-  const [calc, setCalc] = useState<OemPriceCalcResult | null>(null);
-  const [calcLoading, setCalcLoading] = useState(false);
-  const [calcError, setCalcError] = useState<string | null>(null);
+  const [items, setItems] = useState<ItemState[]>(() => [
+    { key: genKey(), job: createJobForm(defaultMarginPct), collapsed: false, calc: null, calcLoading: false, calcError: null },
+  ]);
+  const [discountThb, setDiscountThb] = useState("0");
+  const [discountReason, setDiscountReason] = useState("");
   const [approvalNote, setApprovalNote] = useState("");
   const [saveError, setSaveError] = useState<string | null>(null);
   const [quoteId, setQuoteId] = useState<string | null>(null);
   const [savingDraft, startDraft] = useTransition();
   const [savingQuote, startQuote] = useTransition();
 
-  const input = useMemo(() => buildInput(job), [job]);
+  // Fetched once — shared read-only list across every QuoteJobItemCard's SKU
+  // picker (no per-item fetch, no dependency on which item is open).
+  const [products, setProducts] = useState<OemProductOption[]>([]);
+  const [productsLoading, setProductsLoading] = useState(true);
+  const [productsError, setProductsError] = useState<string | null>(null);
 
-  function updateJob<K extends keyof JobForm>(key: K, value: JobForm[K]) {
-    setJob((prev) => {
-      const next = { ...prev, [key]: value };
-      if (key === "metal") next.purity = DEFAULT_PURITY[value as OemMetal];
-      return next;
-    });
-    setQuoteId(null); // editing the job starts a fresh (unsaved) quote
-  }
-
-  // Debounced live preview — 300ms, cancels the previous timer on every change.
   useEffect(() => {
-    if (!input) {
-      setCalc(null);
-      setCalcError(null);
-      setCalcLoading(false);
-      return;
-    }
-    setCalcLoading(true);
-    const timer = setTimeout(async () => {
-      const result = await calcPrice(input);
-      setCalcLoading(false);
+    let cancelled = false;
+    setProductsLoading(true);
+    setProductsError(null);
+    getOemProducts().then((result) => {
+      if (cancelled) return;
       if (!result.ok) {
-        setCalcError(result.error);
-        setCalc(null);
+        setProductsError(result.error);
+        setProductsLoading(false);
         return;
       }
-      setCalcError(null);
-      setCalc(result.data);
+      setProducts(result.data);
+      setProductsLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  function addItem() {
+    setItems((prev) => [
+      ...prev,
+      { key: genKey(), job: createJobForm(defaultMarginPct), collapsed: false, calc: null, calcLoading: false, calcError: null },
+    ]);
+    setQuoteId(null);
+  }
+
+  function removeItem(key: string) {
+    setItems((prev) => (prev.length <= 1 ? prev : prev.filter((it) => it.key !== key)));
+    setQuoteId(null);
+  }
+
+  function toggleCollapse(key: string) {
+    setItems((prev) => prev.map((it) => (it.key === key ? { ...it, collapsed: !it.collapsed } : it)));
+  }
+
+  function updateItemField<K extends keyof JobForm>(key: string, field: K, value: JobForm[K]) {
+    setItems((prev) =>
+      prev.map((it) => {
+        if (it.key !== key) return it;
+        const nextJob = { ...it.job, [field]: value };
+        if (field === "metal") nextJob.purity = OEM_DEFAULT_PURITY[value as JobForm["metal"]];
+        return { ...it, job: nextJob };
+      })
+    );
+    setQuoteId(null); // editing any item starts a fresh (unsaved) quote
+  }
+
+  /** Sets/clears an item's SKU label atomically (all 3 fields in one
+   * update) — separate from updateItemField() so a selection never fires 3
+   * separate setState calls for fields that never feed buildJobInput().
+   *
+   * 0078: also the ONE deliberate auto-switch in this form — picking a
+   * เงินแท่ง SKU (see barSizeForSku's mapping table) sets metal='silver999'
+   * + the matching barSize. Never silent: the toast below says out loud
+   * what changed and that it's still editable — "S-1A" and any unknown SKU
+   * are simply absent from the table, so they fall through untouched. */
+  function updateItemSku(key: string, product: OemProductOption | null) {
+    const barSize = barSizeForSku(product?.sku);
+    setItems((prev) =>
+      prev.map((it) => {
+        if (it.key !== key) return it;
+        const job: JobForm = {
+          ...it.job,
+          productId: product?.productId ?? null,
+          skuSnapshot: product?.sku ?? null,
+          productNameSnapshot: product?.name ?? null,
+        };
+        if (barSize) {
+          job.metal = "silver999";
+          job.barSize = barSize;
+        }
+        return { ...it, job };
+      })
+    );
+    if (barSize && product) {
+      toast.push(
+        `สลับเป็นโหมด "เงินแท่ง 99.99% ขนาด ${OEM_BAR_SIZE_LABEL_TH[barSize]}" ให้อัตโนมัติจาก SKU ${product.sku} — แก้ไขเองได้ที่การ์ดรายการนี้`
+      );
+      setQuoteId(null); // auto-switch changes the priced input — same as any other field edit
+    }
+  }
+
+  // Snapshot of {key, input} per item, recomputed whenever any job field
+  // changes — keyed (not index-based) so an add/remove mid-debounce can't
+  // misalign a stale result onto the wrong item.
+  const itemSnapshots = useMemo(() => items.map((it) => ({ key: it.key, input: buildJobInput(it.job) })), [items]);
+  const allInputsValid = itemSnapshots.every((s) => s.input != null);
+
+  // Debounced live preview — 300ms, cancels the previous timer on every
+  // change. Recomputes every item with a valid input in parallel.
+  useEffect(() => {
+    const withInput = itemSnapshots.filter((s) => s.input != null);
+    if (withInput.length === 0) {
+      setItems((prev) => prev.map((it) => ({ ...it, calc: null, calcLoading: false, calcError: null })));
+      return;
+    }
+
+    setItems((prev) =>
+      prev.map((it) => {
+        const snap = itemSnapshots.find((s) => s.key === it.key);
+        return snap?.input ? { ...it, calcLoading: true } : { ...it, calc: null, calcLoading: false, calcError: null };
+      })
+    );
+
+    const timer = setTimeout(async () => {
+      const results = await Promise.all(
+        withInput.map(async (s) => ({ key: s.key, result: await calcPrice(s.input!) }))
+      );
+      setItems((prev) =>
+        prev.map((it) => {
+          const r = results.find((x) => x.key === it.key);
+          if (!r) return it; // this item had no valid input — already cleared above
+          if (!r.result.ok) return { ...it, calc: null, calcLoading: false, calcError: r.result.error };
+          return { ...it, calc: r.result.data, calcLoading: false, calcError: null };
+        })
+      );
     }, 300);
     return () => clearTimeout(timer);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(input)]);
+  }, [JSON.stringify(itemSnapshots)]);
+
+  function buildPayloadItems(): SaveQuoteInput["items"] | null {
+    const payload: SaveQuoteInput["items"] = [];
+    for (const snap of itemSnapshots) {
+      if (!snap.input) return null;
+      const it = items.find((x) => x.key === snap.key);
+      payload.push({
+        input: snap.input,
+        productId: it?.job.productId ?? null,
+        skuSnapshot: it?.job.skuSnapshot ?? null,
+        productNameSnapshot: it?.job.productNameSnapshot ?? null,
+      });
+    }
+    return payload;
+  }
 
   function handleSaveDraft() {
-    if (!input) return;
+    const payloadItems = buildPayloadItems();
+    if (!payloadItems) return;
     setSaveError(null);
     startDraft(async () => {
       const result = await saveQuote({
-        input,
+        items: payloadItems,
         quoteId,
         status: "draft",
         customerName: customerName.trim() || null,
         customerContact: customerContact.trim() || null,
+        discountThb: Number(discountThb) || 0,
+        discountReason: discountReason.trim() || null,
       });
       if (!result.ok) {
         setSaveError(result.error);
@@ -162,16 +234,19 @@ export function QuoteCalculatorClient({ setting }: { setting: OemSettingData }) 
   }
 
   function handleIssueQuote() {
-    if (!input) return;
+    const payloadItems = buildPayloadItems();
+    if (!payloadItems) return;
     setSaveError(null);
     startQuote(async () => {
       const result = await saveQuote({
-        input,
+        items: payloadItems,
         quoteId,
         status: "quoted",
         approvalNote: approvalNote.trim() || null,
         customerName: customerName.trim() || null,
         customerContact: customerContact.trim() || null,
+        discountThb: Number(discountThb) || 0,
+        discountReason: discountReason.trim() || null,
       });
       if (!result.ok) {
         setSaveError(result.error);
@@ -187,11 +262,11 @@ export function QuoteCalculatorClient({ setting }: { setting: OemSettingData }) 
     <div className="space-y-4">
       <div>
         <h1 className="text-lg font-bold text-zinc-900">คิดราคางาน OEM</h1>
-        <p className="mt-0.5 text-sm text-zinc-500">ราคาคำนวณสดจากต้นทุนที่กรอกไว้ที่หน้า &quot;ต้นทุน&quot;</p>
+        <p className="mt-0.5 text-sm text-zinc-500">ราคาคำนวณสดจากต้นทุนที่กรอกไว้ที่หน้า &quot;ต้นทุน&quot; — ใส่ได้หลายรายการต่อ 1 ใบเสนอราคา</p>
       </div>
 
       <div className="grid gap-4 md:grid-cols-[1fr_380px] md:items-start">
-        {/* left: form */}
+        {/* left: customer + N job items */}
         <div className="space-y-4">
           <section className="rounded-lg border border-zinc-200 bg-white p-3.5 shadow-sm">
             <h2 className="text-sm font-bold text-zinc-800">ลูกค้า</h2>
@@ -207,167 +282,55 @@ export function QuoteCalculatorClient({ setting }: { setting: OemSettingData }) 
             </div>
           </section>
 
-          <section className="rounded-lg border border-zinc-200 bg-white p-3.5 shadow-sm">
-            <h2 className="text-sm font-bold text-zinc-800">รายละเอียดงาน</h2>
-            <div className="mt-2.5 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
-              <label className={labelCls}>
-                วัสดุ
-                <select value={job.metal} onChange={(e) => updateJob("metal", e.target.value as OemMetal)} className={inputCls}>
-                  {(Object.keys(OEM_METAL_LABEL_TH) as OemMetal[]).map((m) => (
-                    <option key={m} value={m}>
-                      {OEM_METAL_LABEL_TH[m]}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className={labelCls}>
-                ความบริสุทธิ์ {job.metal === "gold" && <span className="text-red-600">*บังคับกรอก</span>}
-                <input
-                  type="number"
-                  inputMode="decimal"
-                  min={0}
-                  max={1}
-                  step="0.0001"
-                  value={job.purity}
-                  onChange={(e) => updateJob("purity", e.target.value)}
-                  className={inputCls}
-                  placeholder={job.metal === "gold" ? "เช่น 0.9167 (23K)" : DEFAULT_PURITY[job.metal]}
+          <section className="space-y-2.5">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-bold text-zinc-800">รายการงาน ({items.length})</h2>
+              <Button type="button" variant="secondary" size="sm" onClick={addItem}>
+                <Plus className="h-4 w-4" aria-hidden="true" />
+                เพิ่มรายการ
+              </Button>
+            </div>
+
+            <div className="space-y-2.5">
+              {items.map((it, idx) => (
+                <QuoteJobItemCard
+                  key={it.key}
+                  index={idx}
+                  job={it.job}
+                  collapsed={it.collapsed}
+                  canRemove={items.length > 1}
+                  calc={it.calc}
+                  calcLoading={it.calcLoading}
+                  calcError={it.calcError}
+                  products={products}
+                  productsLoading={productsLoading}
+                  productsError={productsError}
+                  onChange={(field, value) => updateItemField(it.key, field, value)}
+                  onSelectSku={(product) => updateItemSku(it.key, product)}
+                  onRemove={() => removeItem(it.key)}
+                  onToggleCollapse={() => toggleCollapse(it.key)}
                 />
-              </label>
-              <label className={labelCls}>
-                ประเภทชิ้นงาน
-                <select value={job.itemKind} onChange={(e) => updateJob("itemKind", e.target.value)} className={inputCls}>
-                  <option value="">— เลือก —</option>
-                  {OEM_ITEM_KIND_OPTIONS.map((k) => (
-                    <option key={k} value={k}>
-                      {k}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className={labelCls}>
-                ระดับความยากขัด
-                <select value={job.polishTier} onChange={(e) => updateJob("polishTier", e.target.value)} className={inputCls}>
-                  <option value="">— เลือก —</option>
-                  {OEM_POLISH_TIER_OPTIONS.map((t) => (
-                    <option key={t} value={t}>
-                      {t}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className={labelCls}>
-                น้ำหนัก/ชิ้น (กรัม)
-                <input type="number" inputMode="decimal" min={0} step="0.01" value={job.weightG} onChange={(e) => updateJob("weightG", e.target.value)} className={inputCls} />
-              </label>
-              <label className={labelCls}>
-                จำนวน (ชิ้น)
-                <input type="number" inputMode="numeric" min={1} step="1" value={job.qty} onChange={(e) => updateJob("qty", e.target.value)} className={inputCls} />
-              </label>
+              ))}
             </div>
-
-            <div className="mt-3 flex items-center gap-2">
-              <input
-                id="oem-new-design"
-                type="checkbox"
-                checked={job.isNewDesign}
-                onChange={(e) => updateJob("isNewDesign", e.target.checked)}
-                className="h-5 w-5 rounded border-zinc-300"
-              />
-              <label htmlFor="oem-new-design" className="text-sm text-zinc-700">
-                แบบใหม่ (มี NRE: CAD/ปริ้น 3D/ก้อนยาง) — ปิดถ้าใช้แบบเดิมของร้าน
-              </label>
-            </div>
-          </section>
-
-          <section className="rounded-lg border border-zinc-200 bg-white p-3.5 shadow-sm">
-            <div className="flex items-center gap-2">
-              <input
-                id="oem-has-gems"
-                type="checkbox"
-                checked={job.hasGems}
-                onChange={(e) => updateJob("hasGems", e.target.checked)}
-                className="h-5 w-5 rounded border-zinc-300"
-              />
-              <label htmlFor="oem-has-gems" className="text-sm font-bold text-zinc-800">
-                มีฝังพลอย
-              </label>
-            </div>
-            {job.hasGems && (
-              <div className="mt-2.5 grid grid-cols-2 gap-2.5">
-                <label className={labelCls}>
-                  ขนาดเม็ด
-                  <select value={job.gemTier} onChange={(e) => updateJob("gemTier", e.target.value)} className={inputCls}>
-                    <option value="">— เลือก —</option>
-                    {OEM_GEM_TIER_OPTIONS.map((t) => (
-                      <option key={t} value={t}>
-                        {t}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                <label className={labelCls}>
-                  จำนวนเม็ด/ชิ้น
-                  <input type="number" inputMode="numeric" min={1} step="1" value={job.gemCount} onChange={(e) => updateJob("gemCount", e.target.value)} className={inputCls} />
-                </label>
-              </div>
-            )}
-          </section>
-
-          <section className="rounded-lg border border-zinc-200 bg-white p-3.5 shadow-sm">
-            <div className="flex items-center gap-2">
-              <input
-                id="oem-has-plating"
-                type="checkbox"
-                checked={job.hasPlating}
-                onChange={(e) => updateJob("hasPlating", e.target.checked)}
-                className="h-5 w-5 rounded border-zinc-300"
-              />
-              <label htmlFor="oem-has-plating" className="text-sm font-bold text-zinc-800">
-                มีชุบผิว
-              </label>
-            </div>
-            {job.hasPlating && (
-              <label className={`${labelCls} mt-2.5 max-w-xs`}>
-                ชุบอะไร
-                <select value={job.platingType} onChange={(e) => updateJob("platingType", e.target.value)} className={inputCls}>
-                  <option value="">— เลือก —</option>
-                  {OEM_PLATING_OPTIONS.map((p) => (
-                    <option key={p} value={p}>
-                      {p}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            )}
-          </section>
-
-          <section className="rounded-lg border border-zinc-200 bg-white p-3.5 shadow-sm">
-            <h2 className="text-sm font-bold text-zinc-800">margin ที่จะคิด</h2>
-            <p className="mt-0.5 text-xs text-zinc-500">
-              ค่าเริ่มต้นมาจากเป้าหมายที่ตั้งไว้ ({roundTo(setting.marginTargetPct * 100, 1)}%) — ปรับลดเพื่อเจรจาราคาได้ แต่ต่ำกว่า floor ต้องระบุเหตุผล
-            </p>
-            <label className={`${labelCls} mt-2.5 max-w-[10rem]`}>
-              margin (%)
-              <input type="number" inputMode="decimal" min={0} max={99.99} step="0.5" value={job.marginPct} onChange={(e) => updateJob("marginPct", e.target.value)} className={inputCls} />
-            </label>
           </section>
         </div>
 
-        {/* right: result (desktop sticky, mobile stacked below) */}
+        {/* right: whole-quote result (desktop sticky, mobile stacked below) */}
         <div className="md:sticky md:top-[7.5rem]">
           <QuoteResultPanel
-            calc={calc}
-            calcLoading={calcLoading}
-            calcError={calcError}
-            metal={job.metal}
+            items={items.map((it) => ({ key: it.key, job: it.job, calc: it.calc, calcLoading: it.calcLoading, calcError: it.calcError }))}
+            setting={setting}
+            allInputsValid={allInputsValid}
+            discountThb={discountThb}
+            onDiscountThbChange={setDiscountThb}
+            discountReason={discountReason}
+            onDiscountReasonChange={setDiscountReason}
             approvalNote={approvalNote}
             onApprovalNoteChange={setApprovalNote}
             onSaveDraft={handleSaveDraft}
             onIssueQuote={handleIssueQuote}
             savingDraft={savingDraft}
             savingQuote={savingQuote}
-            canBuildInput={input != null}
             saveError={saveError}
           />
         </div>

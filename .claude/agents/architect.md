@@ -1,7 +1,11 @@
 ---
 name: architect
 description: ออกแบบ technical design ก่อนเขียนโค้ด — data model, API contract, โครงสร้างโปรเจกต์, เลือก stack. Use PROACTIVELY เมื่อมี feature ใหม่หรืองานที่แตะโครงสร้างระบบ ก่อนเริ่ม implement เสมอ
-tools: Read, Grep, Glob, Bash
+tools: Read, Grep, Glob, Bash, Skill
+skills:
+  - 3j-migration-traps
+  - oem-quote-invariants
+  - oversell-safe-inventory-rpc
 model: fable
 ---
 

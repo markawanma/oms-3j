@@ -279,12 +279,12 @@
   ];
 
   var LINE_LABEL = { fashion: "แฟชั่น", auspicious: "มงคล", bullion: "เงินแท่ง" };
-  var LINE_OA_ID = "@3jsilver"; // basic ID — โปรดตรวจสอบ format จริงกับ LINE OA Manager ก่อนใช้งานจริง
+  // LINE OA short link (lin.ee) — ทุกปุ่มพาไปหน้าเพิ่มเพื่อน/แชทเดียวกัน
+  // หมายเหตุ: lin.ee ไม่รองรับ prefill ข้อความ ลูกค้าต้องพิมพ์ชื่อสินค้าเอง
+  var LINE_URL = "https://lin.ee/OOpBqt1";
 
   function buildLineUrl(product) {
-    var text = "สนใจ " + product.name + " (รหัส " + product.sku + ")";
-    // deep link รูปแบบ chat พร้อมข้อความตั้งต้น — ทดสอบบนมือถือที่ติดตั้ง LINE แล้วเท่านั้น
-    return "https://line.me/R/oa/message/" + encodeURIComponent(LINE_OA_ID) + "?text=" + encodeURIComponent(text);
+    return LINE_URL;
   }
 
   function formatPrice(price) {

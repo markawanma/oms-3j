@@ -6,3 +6,4 @@ out/
 .env.test
 *.tsbuildinfo
 .DS_Store
+logs/

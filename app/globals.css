@@ -29,3 +29,28 @@
     display: none;
   }
 }
+
+/* ============================================================================
+ * Print stylesheet — OEM quote print/PDF page
+ * (app/(dashboard)/oem/quotes/[id]/print). Kept out of @layer so it always
+ * wins the cascade regardless of utility ordering. Chrome hide/show (sidebar,
+ * nav, buttons) is handled inline via Tailwind's built-in `print:` variant
+ * (print:hidden / hidden print:block) on the elements themselves — this
+ * block only holds rules Tailwind utilities can't express: the physical
+ * page size/margin and table pagination behaviour.
+ * ========================================================================= */
+@page {
+  size: A4;
+  margin: 12mm;
+}
+
+@media print {
+  /* Long item tables: repeat the header row on every printed page instead of
+     only the first, and never split a single row across a page break. */
+  .oem-print-table thead {
+    display: table-header-group;
+  }
+  .oem-print-table tr {
+    break-inside: avoid;
+  }
+}

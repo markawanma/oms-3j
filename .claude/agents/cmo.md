@@ -1,7 +1,9 @@
 ---
 name: cmo
 description: ตัดสินใจการตลาด/growth ของร้านออนไลน์ — live selling strategy, channel mix, แคมเปญ/โปรโมชัน, brand positioning, customer acquisition/retention. ใช้เมื่อโจทย์กระทบยอดขาย การเข้าถึงลูกค้า หรือการเติบโต ไม่ใช่แค่ feature
-tools: Read, Grep, Glob
+tools: Read, Grep, Glob, WebSearch, WebFetch, Skill
+skills:
+  - 3j-brand-and-market
 model: fable
 ---
 

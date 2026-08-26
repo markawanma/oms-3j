@@ -1,7 +1,9 @@
 ---
 name: red-team
 description: โจมตีระบบเชิงรุกแบบ attacker จริง — พยายาม bypass auth/RLS, ยิง race ให้ oversell, forged webhook, business-logic abuse, chain ช่องโหว่เป็น exploit จริง. ใช้หลัง security-auditor ตรวจเชิงรับเสร็จ เพื่อพิสูจน์ว่าระบบทนการโจมตีจริงไหม
-tools: Read, Grep, Glob, Bash
+tools: Read, Grep, Glob, Bash, Skill
+skills:
+  - oem-quote-invariants
 model: opus
 ---
 

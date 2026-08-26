@@ -8,14 +8,17 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Check, Loader2 } from "lucide-react";
 import { saveMetalPrice } from "@/lib/actions/oem";
-import type { OemMetal, OemMetalPriceMap } from "@/lib/oem/types";
+import type { OemMetalPriceMap, OemProductionMetal } from "@/lib/oem/types";
 import { OEM_METAL_LABEL_TH } from "@/lib/oem/types";
 import { formatThaiDateOnly } from "@/lib/tiktok/format";
 import { useToast } from "@/components/ui/Toast";
 
-const METALS: OemMetal[] = ["silver", "gold", "brass"];
+// silver999 (เงินแท่ง) deliberately excluded — its price comes from
+// silver_price_daily (fixed sell price per size), not a per-gram spot rate
+// an admin types in here. See OemProductionMetal's comment in lib/oem/types.ts.
+const METALS: OemProductionMetal[] = ["silver", "gold", "brass"];
 
-function MetalPriceCell({ metal, current }: { metal: OemMetal; current: OemMetalPriceMap[OemMetal] }) {
+function MetalPriceCell({ metal, current }: { metal: OemProductionMetal; current: OemMetalPriceMap[OemProductionMetal] }) {
   const toast = useToast();
   const router = useRouter();
   const [value, setValue] = useState(current ? String(current.priceThbPerGram) : "");
@@ -72,7 +75,7 @@ function MetalPriceCell({ metal, current }: { metal: OemMetal; current: OemMetal
           placeholder="ยังไม่ตั้งราคา"
           className="min-h-11 w-full rounded-md border border-zinc-300 px-2.5 text-sm text-zinc-900 tabular-nums placeholder:text-zinc-400"
         />
-        <span className="shrink-0 text-xs text-zinc-500">บาท/ก.</span>
+        <span className="shrink-0 text-xs text-zinc-500">บาท/กรัม</span>
         {saving && <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-zinc-400" aria-hidden="true" />}
         {!saving && justSaved && <Check className="h-3.5 w-3.5 shrink-0 text-green-600" aria-hidden="true" />}
       </div>

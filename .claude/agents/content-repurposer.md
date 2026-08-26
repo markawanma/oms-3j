@@ -1,7 +1,9 @@
 ---
 name: content-repurposer
 description: แตกวัตถุดิบชิ้นเดียว (สัมภาษณ์หมอ/ช่าง, live clip, บทความ, transcript) เป็น content หลายชิ้นข้ามช่องทาง — คลิปสั้น 8-12 ชิ้น + caption + โพสต์ FB + Q&A. ใช้เมื่อมี footage/transcript ยาวแล้วอยากได้ output จำนวนมากจากมันครั้งเดียว
-tools: Read, Grep, Glob, Write, Edit
+tools: Read, Grep, Glob, Write, Edit, WebSearch, WebFetch, Skill
+skills:
+  - 3j-brand-and-market
 model: sonnet
 ---
 

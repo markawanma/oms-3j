@@ -1,7 +1,9 @@
 ---
 name: sre
 description: ตามล่า bug/incident ใน production — root-cause analysis, อ่าน log/metric, reproduce, hotfix, postmortem. ใช้เมื่อระบบที่รันอยู่จริงมีอาการผิดปกติ/พัง/ช้า หรือหลัง deploy แล้วต้องเฝ้าระวัง
-tools: Read, Grep, Glob, Bash, Edit
+tools: Read, Grep, Glob, Bash, Edit, Skill
+skills:
+  - 3j-migration-traps
 model: opus
 ---
 
