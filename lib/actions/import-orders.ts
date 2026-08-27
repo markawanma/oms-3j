@@ -21,6 +21,7 @@ import {
   type ParsedOrderReport,
   type ShapeIssue,
 } from "@/lib/import/order-report";
+import { LINE_ITEM_SOURCE_TYPE } from "@/lib/actions/import-line-items";
 
 const SCHEMA = "analytics";
 const SOURCE_TYPE = "excel_order_report" as const;
@@ -362,6 +363,20 @@ export async function commitOrderImport(formData: FormData): Promise<ActionResul
 
 // ============================================================================
 // getImportBatches — history table for /crm/import.
+//
+// Covers BOTH file kinds now (order-report + line-item report) — originally
+// this only queried source_type=SOURCE_TYPE (order-report), which silently
+// hid every line-item batch from the history table even though those rows
+// were staged/transformed successfully (bug found 27 ส.ค.: owner uploaded
+// both files, only one showed up in history). sourceType is now returned on
+// each row so the UI can label the two kinds distinctly.
+//
+// Error counting per batch lives in TWO different staging tables depending
+// on source_type — stg_order_import (order-report) vs stg_order_line_import
+// (line-item report, added in 0041). They don't share a schema (line-item
+// staging has no error_code column, only error_detail), so this queries each
+// table separately and merges by batch_id rather than trying to force one
+// shared query. Both use the same "import_status = 'error'" convention.
 // ============================================================================
 
 export interface ImportBatchRow {
@@ -373,9 +388,11 @@ export interface ImportBatchRow {
   errorCount: number;
   status: "loaded" | "merged" | "transformed" | "failed";
   importedAt: string;
+  sourceType: typeof SOURCE_TYPE | typeof LINE_ITEM_SOURCE_TYPE;
 }
 
 const BATCH_STATUSES = ["loaded", "merged", "transformed", "failed"] as const;
+const BATCH_SOURCE_TYPES = [SOURCE_TYPE, LINE_ITEM_SOURCE_TYPE] as const;
 
 export async function getImportBatches(): Promise<ActionResult<ImportBatchRow[]>> {
   const gateErr = requireOwnerAdmin();
@@ -388,24 +405,39 @@ export async function getImportBatches(): Promise<ActionResult<ImportBatchRow[]>
     const { data: batches, error: batchesErr } = await supabase
       .schema(SCHEMA)
       .from("stg_import_batch")
-      .select("id, file_name, period_hint, row_count_parsed, row_count_loaded, status, imported_at")
+      .select("id, file_name, period_hint, row_count_parsed, row_count_loaded, status, imported_at, source_type")
       .eq("shop_id", shopId)
-      .eq("source_type", SOURCE_TYPE)
+      .in("source_type", BATCH_SOURCE_TYPES)
       .order("imported_at", { ascending: false });
     if (batchesErr) throw batchesErr;
 
     // Error counts computed client-side per batch — row volume here is
     // hundreds, not worth a second RPC/view for this page (design §3.2).
-    const { data: errorRows, error: errorRowsErr } = await supabase
-      .schema(SCHEMA)
-      .from("stg_order_import")
-      .select("batch_id")
-      .eq("shop_id", shopId)
-      .eq("import_status", "error");
-    if (errorRowsErr) throw errorRowsErr;
+    // Two separate queries (order-report rows vs line-item rows) merged into
+    // one map, since the two staging tables never share a batch_id.
+    const [{ data: orderErrorRows, error: orderErrorErr }, { data: lineErrorRows, error: lineErrorErr }] =
+      await Promise.all([
+        supabase
+          .schema(SCHEMA)
+          .from("stg_order_import")
+          .select("batch_id")
+          .eq("shop_id", shopId)
+          .eq("import_status", "error"),
+        supabase
+          .schema(SCHEMA)
+          .from("stg_order_line_import")
+          .select("batch_id")
+          .eq("shop_id", shopId)
+          .eq("import_status", "error"),
+      ]);
+    if (orderErrorErr) throw orderErrorErr;
+    if (lineErrorErr) throw lineErrorErr;
 
     const errorCountByBatch = new Map<string, number>();
-    for (const r of (errorRows ?? []) as { batch_id: string }[]) {
+    for (const r of [
+      ...((orderErrorRows ?? []) as { batch_id: string }[]),
+      ...((lineErrorRows ?? []) as { batch_id: string }[]),
+    ]) {
       errorCountByBatch.set(r.batch_id, (errorCountByBatch.get(r.batch_id) ?? 0) + 1);
     }
 
@@ -418,6 +450,7 @@ export async function getImportBatches(): Promise<ActionResult<ImportBatchRow[]>
         row_count_loaded: number | null;
         status: string;
         imported_at: string;
+        source_type: string;
       }[]
     ).map((b) => ({
       batchId: b.id,
@@ -430,6 +463,11 @@ export async function getImportBatches(): Promise<ActionResult<ImportBatchRow[]>
         ? (b.status as ImportBatchRow["status"])
         : "loaded",
       importedAt: b.imported_at,
+      // Defensive fallback: any source_type outside the two known kinds (in
+      // practice, unreachable — the .in() filter above already restricts the
+      // query) is treated as order-report rather than throwing, so a future
+      // 3rd source_type can't crash this whole history table.
+      sourceType: b.source_type === LINE_ITEM_SOURCE_TYPE ? LINE_ITEM_SOURCE_TYPE : SOURCE_TYPE,
     }));
 
     return { ok: true, data: rows };

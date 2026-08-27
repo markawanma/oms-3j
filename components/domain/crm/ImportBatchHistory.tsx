@@ -1,16 +1,20 @@
 "use client";
 
 // ImportBatchHistory — /crm/import (design §3.3): history table of
-// stg_import_batch rows for source_type='excel_order_report'. Delete is only
-// offered for 'failed'/'loaded' batches — 'transformed' batches are wired
-// into fact_order already and deleteStuckBatch() itself refuses those
-// server-side too (belt + suspenders, see §3.2).
+// stg_import_batch rows, BOTH source types (order-report + line-item report
+// — see getImportBatches() header comment for the 27 ส.ค. bug this fixes).
+// Delete is only offered for 'failed'/'loaded' batches — 'transformed'
+// batches are wired into fact_order/fact_order_item already and
+// deleteStuckBatch() itself refuses those server-side too (belt + suspenders,
+// see §3.2).
 
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, Trash2 } from "lucide-react";
 import { deleteStuckBatch, type ImportBatchRow } from "@/lib/actions/import-orders";
+import { LINE_ITEM_SOURCE_TYPE } from "@/lib/actions/import-line-items";
+import { KIND_LABEL, KIND_BADGE_TONE, type FileKind } from "@/components/domain/crm/OrderImportClient";
 import { Badge, type BadgeTone } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
@@ -31,6 +35,10 @@ const STATUS_TONE: Record<ImportBatchRow["status"], BadgeTone> = {
   transformed: "green",
   failed: "red",
 };
+
+function sourceTypeToKind(sourceType: ImportBatchRow["sourceType"]): FileKind {
+  return sourceType === LINE_ITEM_SOURCE_TYPE ? "line_item" : "order";
+}
 
 export function ImportBatchHistory({ initialRows }: { initialRows: ImportBatchRow[] }) {
   const router = useRouter();
@@ -57,6 +65,7 @@ export function ImportBatchHistory({ initialRows }: { initialRows: ImportBatchRo
         <thead>
           <tr className="border-b border-zinc-200 bg-zinc-50 text-zinc-500">
             <th className="px-3 py-2">ไฟล์</th>
+            <th className="px-3 py-2">ประเภทไฟล์</th>
             <th className="px-3 py-2">เดือน</th>
             <th className="px-3 py-2 text-right">อ่านได้ → โหลด</th>
             <th className="px-3 py-2 text-right">error</th>
@@ -68,10 +77,21 @@ export function ImportBatchHistory({ initialRows }: { initialRows: ImportBatchRo
         <tbody>
           {rows.map((r) => {
             const canDelete = r.status === "failed" || r.status === "loaded";
+            const kind = sourceTypeToKind(r.sourceType);
+            // /crm/import-errors (v_import_error_summary) only ever reads
+            // analytics.stg_order_import — it doesn't join
+            // stg_order_line_import (no error_code column there either), so
+            // a line-item batch's errors would never actually show up on
+            // that page. Rather than link somewhere that silently shows
+            // nothing for this row, keep the count visible but not a link.
+            const errorLinkSupported = kind === "order";
             return (
               <tr key={r.batchId} className="border-b border-zinc-100 last:border-0 align-top">
                 <td className="px-3 py-2 font-medium text-zinc-700">
                   <p className="max-w-[200px] truncate">{r.fileName ?? "(ไม่ทราบชื่อไฟล์)"}</p>
+                </td>
+                <td className="px-3 py-2">
+                  <Badge tone={KIND_BADGE_TONE[kind]}>{KIND_LABEL[kind]}</Badge>
                 </td>
                 <td className="px-3 py-2 text-zinc-600">{formatPeriodHint(r.periodHint)}</td>
                 <td className="px-3 py-2 text-right tabular-nums text-zinc-600">
@@ -79,13 +99,23 @@ export function ImportBatchHistory({ initialRows }: { initialRows: ImportBatchRo
                 </td>
                 <td className="px-3 py-2 text-right tabular-nums">
                   {r.errorCount > 0 ? (
-                    <Link
-                      href="/crm/import-errors"
-                      className="inline-flex items-center gap-1 font-semibold text-red-600 hover:underline"
-                    >
-                      <AlertTriangle className="h-3 w-3" aria-hidden="true" />
-                      {formatCount(r.errorCount)}
-                    </Link>
+                    errorLinkSupported ? (
+                      <Link
+                        href="/crm/import-errors"
+                        className="inline-flex items-center gap-1 font-semibold text-red-600 hover:underline"
+                      >
+                        <AlertTriangle className="h-3 w-3" aria-hidden="true" />
+                        {formatCount(r.errorCount)}
+                      </Link>
+                    ) : (
+                      <span
+                        className="inline-flex items-center gap-1 font-semibold text-red-600"
+                        title="ดูรายละเอียด error ของไฟล์สินค้าในออเดอร์ยังไม่รองรับในหน้า import-errors"
+                      >
+                        <AlertTriangle className="h-3 w-3" aria-hidden="true" />
+                        {formatCount(r.errorCount)}
+                      </span>
+                    )
                   ) : (
                     <span className="text-zinc-400">0</span>
                   )}

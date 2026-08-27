@@ -53,7 +53,10 @@ import { useToast } from "@/components/ui/Toast";
 import { formatCount } from "@/lib/tiktok/format";
 import { formatPeriodHint, formatDateRange, validateXlsxFile } from "@/lib/crm/import-client";
 
-type FileKind = "order" | "line_item";
+// Exported so ImportBatchHistory.tsx can render the exact same
+// label+tone for "ประเภทไฟล์" as this preview badge, instead of a second
+// hand-copied string that can drift out of sync with this one.
+export type FileKind = "order" | "line_item";
 
 /** One detected+previewed file. `kind: null` means neither parser accepted
  * the shape — genuinely not a recognized report. When both parsers reject
@@ -92,9 +95,17 @@ type Phase =
 const ORDER_PROFIT_NOTE = "กำไรเป็นค่าประเมิน จนกว่าจะผูกรายการสินค้า";
 const LINE_PROFIT_NOTE = "กำไรจะอัปเดตเป็นค่าจริงสำหรับออเดอร์ที่จับคู่รายการสินค้าได้";
 
-const KIND_LABEL: Record<FileKind, string> = {
+export const KIND_LABEL: Record<FileKind, string> = {
   order: "รายงานยอดขาย",
   line_item: "สินค้าในออเดอร์",
+};
+
+/** Badge tone used for each file kind — kept next to KIND_LABEL so the two
+ * preview cards (below) and ImportBatchHistory.tsx's history table always
+ * render the same badge for the same kind. */
+export const KIND_BADGE_TONE: Record<FileKind, "blue" | "indigo"> = {
+  order: "blue",
+  line_item: "indigo",
 };
 
 function toFormData(file: File): FormData {

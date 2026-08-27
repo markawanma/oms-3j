@@ -32,7 +32,10 @@ import {
 } from "@/lib/import/order-line-report";
 
 const SCHEMA = "analytics";
-const SOURCE_TYPE = "excel_line_item_report" as const;
+// Exported so import-orders.ts's getImportBatches() can query both source
+// types from one place instead of hardcoding this literal a second time.
+export const LINE_ITEM_SOURCE_TYPE = "excel_line_item_report" as const;
+const SOURCE_TYPE = LINE_ITEM_SOURCE_TYPE;
 
 const MAX_FILE_BYTES = 4 * 1024 * 1024; // matches next.config.mjs serverActions.bodySizeLimit
 const MAX_FILE_MB = 4;
