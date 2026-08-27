@@ -45,12 +45,20 @@
 -- discontinues a product with NO clean active twin (not a dirty/clean pair,
 -- just an end-of-life SKU), the old behavior gave product_id = null ->
 -- unit_cost = null -> that line contributes $0 COGS -> profit is overstated,
--- silently, and still stamped profit_status = 'actual'. This is safe
--- specifically because it runs after tier 3: if tier 3 (which searches
--- ACTIVE products only) already proved no active product normalizes to this
--- SKU, then an exact hit on an inactive product cannot be the closed half of
--- a dirty/clean pair -- tier 3 would have caught the clean twin first, every
--- time. It can only be a genuine discontinued SKU with no replacement.
+-- silently, and still stamped profit_status = 'actual'.
+--
+-- ⚠️ CORRECTION (security review, 27 ส.ค.): an earlier draft of this comment
+-- claimed tier 2' is safe because "tier 3 already proved no active product
+-- normalizes to this SKU". That claim is FALSE and must not be repeated.
+-- Tier 3 is wrapped in three guards (norm <> '', stripped_len <= 2, norm has
+-- a letter) and is SKIPPED entirely when any fails -- e.g. `กรอบสมเด็จ`
+-- (norm = ''), `ทองจีน-ลายจีน53` (norm = '53', no letter). Tier 3 can also
+-- run and return cnt > 1, which proves ambiguity, not absence. In all those
+-- cases tier 2' still runs having proved NOTHING, so a closed duplicate CAN
+-- be revived here. 0095 fixes this by tracking whether tier 3 actually ran
+-- and returned zero (v_tier3_conclusive) before trusting tier 2'.
+-- Until then tier 2' is a deliberate trade: a wrong-but-costed match is less
+-- damaging than a silent $0 COGS, and every tier 2' hit writes a breadcrumb.
 --
 -- Fix 3 (problem 3) -- error_detail must never be silent for a true unknown.
 -- When v_product_id is still null after every tier, error_detail is now
@@ -204,12 +212,13 @@ begin
 
         if v_product_id is null then
           -- 0094 tier 2': exact (non-normalized) match against an INACTIVE
-          -- product, only reached when tier 1 and tier 3 both found
-          -- nothing. Safe here specifically because tier 3 already proved no
-          -- ACTIVE product normalizes to this SKU -- a dirty/clean pair would
-          -- always have been caught by tier 3 first, so an exact inactive
-          -- hit at this point can only be a genuine discontinued SKU with no
-          -- replacement. See header comment.
+          -- product, reached when tier 1 found nothing AND tier 3 either
+          -- found nothing or was skipped by its guards.
+          -- ⚠️ NOT proven safe -- see the CORRECTION block in the header:
+          -- tier 3 is skipped for Thai-only / no-letter / long-prefix SKUs,
+          -- so a closed duplicate can be revived here. Deliberate trade for
+          -- now (costed-but-possibly-wrong beats silent $0 COGS) and every
+          -- hit leaves a breadcrumb in error_detail. 0095 closes it.
           select sub.product_id, sub.effective_unit_cost, sub.category, sub.cnt
             into v_product_id, v_unit_cost, v_category, v_match_count
             from (
