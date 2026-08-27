@@ -94,7 +94,15 @@ export function toIntOrNull(value: unknown): number | null {
 
 export function toTextOrNull(value: unknown): string | null {
   if (value === null || value === undefined) return null;
-  const s = String(value).trim();
+  // เจ้าของยืนยัน 28 ส.ค. 69: หน้างาน copy ชื่อลูกค้าจาก LINE ไปวางใน Shipnity
+  // แล้วช่องว่างติดมาเป็น "&nbsp;" (ตัวอักษรจริงในไฟล์ ไม่ใช่ HTML) หรือ U+00A0
+  // — จะเกิดซ้ำทุกเดือน ถ้าไม่ล้างตรงนี้ ชื่อเดียวกันแบบมี/ไม่มีขยะจะถูกนับเป็น
+  // ลูกค้าคนละคนตอน identity matching (เจอจริง 25 ราย ล้าง DB ย้อนหลังแล้ว)
+  const s = String(value)
+    .replace(/&nbsp;/g, " ")
+    .replace(/ /g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
   return s === "" ? null : s;
 }
 
