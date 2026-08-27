@@ -1,0 +1,113 @@
+// lib/labels/match.test.ts — coverage for the "เคสห้ามผ่าน" list in
+// docs/3j-jewelry/analytics/design-label-upload.md (province-matching part —
+// case 7, idempotent apply, is SQL-level and tested via do-block by the
+// owner at apply time, per the migration's header comment).
+import { describe, expect, it } from "vitest";
+import { matchProvince } from "./match";
+
+describe("matchProvince", () => {
+  // เคสห้ามผ่าน #1: ลาดกระบัง ต้องไม่ match เป็น กระบี่
+  it("does not mistake ลาดกระบัง (Bangkok district) for กระบี่ (Krabi province)", () => {
+    const text = "แขวงคลองสองต้นนุ่น เขตลาดกระบัง จังหวัดกรุงเทพมหานคร 10520";
+    const result = matchProvince(text);
+    expect(result.status).toBe("matched");
+    expect(result.provinceCode).toBe("TH-10");
+    expect(result.candidates.map((c) => c.code)).not.toContain("TH-81"); // กระบี่
+  });
+
+  it("still resolves ลาดกระบัง correctly with a tone-mark-bearing variant nearby", () => {
+    // Same district name, but the text also carries a tone mark elsewhere
+    // (Mai Ek on "ต้น") to prove folding doesn't break the surrounding match.
+    const text = "แขวงคลองสองต้นนุ่น , เขตลาดกระบัง , จังหวัดกรุงเทพมหานคร 10520";
+    const result = matchProvince(text);
+    expect(result.status).toBe("matched");
+    expect(result.provinceCode).toBe("TH-10");
+  });
+
+  // เคสห้ามผ่าน #2: ที่อยู่ผู้ส่ง (กทม.+10150) ต้องถูกตัด — ต่างจังหวัดไม่กลายเป็น
+  // TH-10 แต่ลูกค้ากรุงเทพจริง (zipcode อื่น) ต้องยังได้ TH-10
+  it("strips the sender's own Bangkok address, so an upcountry customer is not misread as Bangkok", () => {
+    const text = [
+      "จาก: 3J Jewelry บางขุนเทียน จอมทอง กรุงเทพมหานคร 10150",
+      "ถึง: ลูกค้า อำเภอเมือง จังหวัดขอนแก่น 40000",
+    ].join("\n");
+    const result = matchProvince(text);
+    expect(result.status).toBe("matched");
+    expect(result.provinceCode).toBe("TH-40"); // ขอนแก่น
+  });
+
+  it("still resolves a real Bangkok customer (different zipcode from the sender) to TH-10", () => {
+    const text = [
+      "จาก: 3J Jewelry บางขุนเทียน จอมทอง กรุงเทพมหานคร 10150",
+      "ถึง: ลูกค้า เขตบางนา จังหวัดกรุงเทพมหานคร 10260",
+    ].join("\n");
+    const result = matchProvince(text);
+    expect(result.status).toBe("matched");
+    expect(result.provinceCode).toBe("TH-10");
+  });
+
+  // เคสห้ามผ่าน #3 (ฝั่ง "ต้องไม่พัง"): ใบสระหาย (PUA) ต้อง match ได้
+  it("matches a PUA-font label missing สระอุ (กรงเทพมหานคร instead of กรุงเทพมหานคร)", () => {
+    const text = "เขตบางแค , กรงเทพมหานคร 10160";
+    const result = matchProvince(text);
+    expect(result.status).toBe("matched");
+    expect(result.provinceCode).toBe("TH-10");
+  });
+
+  // เคสห้ามผ่าน #6: zipcode เดี่ยวห้ามชี้จังหวัด
+  it("does not resolve a province from a lone zipcode with no province name nearby", () => {
+    const text = "ที่อยู่ไม่ระบุจังหวัด รหัสไปรษณีย์ 40000";
+    const result = matchProvince(text);
+    expect(result.status).toBe("needs_review");
+    expect(result.provinceCode).toBeNull();
+    expect(result.candidates).toHaveLength(0);
+  });
+
+  // เคสห้ามผ่าน #5: สองจังหวัด candidate → needs_review พร้อม candidates ทั้งคู่
+  it("returns needs_review with both candidates when two provinces are co-located with zipcodes", () => {
+    const text = "สาขา 1 จังหวัดเชียงใหม่ 50000 และสาขา 2 จังหวัดเชียงราย 57000";
+    const result = matchProvince(text);
+    expect(result.status).toBe("needs_review");
+    expect(result.provinceCode).toBeNull();
+    const codes = result.candidates.map((c) => c.code).sort();
+    expect(codes).toEqual(["TH-50", "TH-57"]);
+  });
+
+  // เคสห้ามผ่าน: จังหวัดสะกดอังกฤษ (alias) ต้อง match ได้
+  it("matches an English alias spelling co-located with a zipcode", () => {
+    const text = "Customer address, Chiang Mai 50200, Thailand";
+    const result = matchProvince(text);
+    expect(result.status).toBe("matched");
+    expect(result.provinceCode).toBe("TH-50");
+  });
+
+  it("does not resolve any province from empty/whitespace text", () => {
+    const result = matchProvince("   \n  ");
+    expect(result.status).toBe("needs_review");
+    expect(result.candidates).toHaveLength(0);
+  });
+
+  it("does not co-locate a province with a zipcode that is far away in the text (> 80 chars)", () => {
+    const filler = "x".repeat(120);
+    const text = `จังหวัดเชียงใหม่ ${filler} 50000`;
+    const result = matchProvince(text);
+    expect(result.status).toBe("needs_review");
+    expect(result.candidates).toHaveLength(0);
+  });
+});
+
+// regression 28 ส.ค. 69: เลข 5 หลักกลางเลขพัสดุ/Order ID ห้ามถูกนับเป็น zipcode
+// (ใบจริงหน้า 8 ของ ใบออเดอร์18.pdf — zip จริงคือ 24190 ฉะเชิงเทรา)
+it("does not treat digit runs inside tracking numbers as zipcodes", () => {
+  const page =
+    // ระยะห่างระหว่างที่อยู่ผู้ส่ง (กทม.) กับ zip ผู้รับ ต้องสมจริง (>80 ตัวอักษร
+    // เหมือนใบจริงที่มีบรรทัดเวียดนาม+เลขพัสดุซ้ำคั่นกลาง) ไม่งั้นเทสต์นี้วัดผิดเรื่อง
+    "อบต.หนองไม้แก่น 49 ม.3 JTTH203641111214 จาก 3J 112 ถ.เอกชัย แขวงบางขุนเทียน เขตจอมทอง, กรุงเทพมหานคร " +
+    "Order ID: 585606536284767936 21-08-2026 Estimated Date: nguoi mua khong can phai tra chuyen phat nhanh COD DROP-OFF " +
+    "JTTH203641111214 JTTH203641111214 JTTH203641111214 JTTH203641111214 " +
+    "24190 สุนันทา NDD 19-08-2026 Shipping Date: 015A แปลงยาว , ฉะเชิงเทรา 727";
+  const r = matchProvince(page);
+  expect(r.status).toBe("matched");
+  expect(r.provinceCode).toBe("TH-24");
+  expect(r.zipcode).toBe("24190");
+});

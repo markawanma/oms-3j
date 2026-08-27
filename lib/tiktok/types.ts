@@ -9,6 +9,7 @@
 // therefore the UI) stay the same.
 
 import type { ChannelCode } from "@/lib/types";
+import type { LabelParseSummary } from "@/lib/labels/types";
 
 // ============================================================================
 // Sales (real data — lib/actions/tiktok-sales.ts)
@@ -171,39 +172,26 @@ export interface CopilotRecommendation {
 }
 
 // ============================================================================
-// Upload labels (UI-only in Phase 1 — no backend, state simulated client-side)
+// Upload labels (REAL flow — lib/actions/labels.ts, contract types in
+// lib/labels/types.ts. lib/actions/labels.ts is a STUB until
+// feat/label-upload-backend merges; UploadQueueItem below is UI-only queue
+// state, not part of that contract.)
 // ============================================================================
 
-export type UploadItemStatus = "done" | "parsing" | "failed";
+export type UploadItemStatus = "preparing" | "uploading" | "parsing" | "done" | "failed";
 
 export interface UploadQueueItem {
   id: string;
   fileName: string;
-  /** e.g. "18 หน้า · 4.2MB" or "กำลังอ่าน… หน้า 22/30". */
+  /** e.g. "4.2MB · กำลังอัปโหลด…" or "18 หน้า · เสร็จแล้ว". */
   metaText: string;
   status: UploadItemStatus;
-  progressPct?: number;
   errorText?: string;
-}
-
-export interface UploadBatchSummary {
-  success: number;
-  needsReview: number;
-  duplicate: number;
-  failed: number;
-}
-
-export type UploadReviewIssueType = "address_unclear" | "sku_unknown" | "recipient_name_error";
-
-export interface UploadReviewRow {
-  id: string;
-  externalOrderId: string;
-  issueType: UploadReviewIssueType;
-  issueBadgeLabel: string;
-}
-
-export interface UploadBatchState {
-  queue: UploadQueueItem[];
-  summary: UploadBatchSummary;
-  reviewQueue: UploadReviewRow[];
+  /** Set once createLabelUpload() resolves — needed to call parseLabelFile(). */
+  fileId?: string;
+  /** True when createLabelUpload() reported this exact file (by sha256) was
+   * already uploaded before — the PUT step was skipped. */
+  alreadyExists?: boolean;
+  /** Set once parseLabelFile() resolves successfully. */
+  summary?: LabelParseSummary;
 }

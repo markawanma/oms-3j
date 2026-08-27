@@ -1,119 +1,75 @@
-"use client";
-
-import { useState } from "react";
 import { Badge } from "@/components/ui/Badge";
 import type { BadgeTone } from "@/components/ui/Badge";
-import { Button } from "@/components/ui/Button";
-import type { UploadReviewRow } from "@/lib/tiktok/types";
+import type { LabelReviewRow } from "@/lib/labels/types";
 
-// amber = "ต้องตรวจสอบ" (not red — this is uncertain data, not an error;
-// design §3: "ไม่ใช่ red เพราะไม่ใช่ error"). sku_unknown reuses the same
-// "not-yet-classified" meaning as `slate` elsewhere in this module.
-const ISSUE_BADGE_TONE: Record<UploadReviewRow["issueType"], BadgeTone> = {
-  address_unclear: "amber",
-  sku_unknown: "slate",
-  recipient_name_error: "amber",
+// P1 review is READ-ONLY (design §5/§8, backend/§ "ให้เจ้าของเคาะ" — the
+// province-picker UI for `conflict`/`needs_review` rows is explicitly P2's
+// job, not P1's). This intentionally replaced the old editable
+// address/sku/name-fixing form that used to live here — that form matched a
+// different UploadReviewRow shape (address_unclear/sku_unknown/
+// recipient_name_error) from the pre-real-backend mock, which no longer
+// applies now that "review" means "province match was ambiguous", not "a
+// field on the order needs a human edit".
+const STATUS_TONE: Record<LabelReviewRow["status"], BadgeTone> = {
+  needs_review: "amber",
+  conflict: "red",
+  order_not_found: "amber",
+  undetected: "slate",
+  parse_failed: "red",
 };
 
-const ADDRESS_TYPE_OPTIONS = ["บ้าน", "คอนโด", "ที่ทำงาน"];
-const PROVINCE_OPTIONS = ["กรุงเทพมหานคร", "นนทบุรี", "ชลบุรี"];
-const SKU_ALIAS_OPTIONS = ["จี้ปี่เซียะ 13มม (SE-piu13)", "สร้อยเงินดิสโก้ (NC20-21)", "ต่างหูเงิน (ER-01)"];
+const STATUS_LABEL: Record<LabelReviewRow["status"], string> = {
+  needs_review: "รอตรวจ (จังหวัดไม่ชัด)",
+  conflict: "ขัดแย้งกับข้อมูลเดิม",
+  order_not_found: "หาออเดอร์ไม่เจอ",
+  undetected: "รูปแบบไม่รู้จัก",
+  parse_failed: "อ่านหน้าไม่ได้",
+};
 
-function ReviewQueueRowItem({ row, onConfirm }: { row: UploadReviewRow; onConfirm: (id: string) => void }) {
-  const [addressType, setAddressType] = useState(ADDRESS_TYPE_OPTIONS[0]);
-  const [province, setProvince] = useState(PROVINCE_OPTIONS[0]);
-  const [skuAlias, setSkuAlias] = useState("");
-  const [recipientName, setRecipientName] = useState("");
-
-  return (
-    <div className="flex flex-col gap-2.5 rounded-lg border border-zinc-200 bg-white p-3 shadow-sm" role="listitem">
-      <div className="flex flex-wrap items-center gap-2">
-        <span className="text-sm font-bold text-zinc-800 tabular-nums">{row.externalOrderId}</span>
-        <Badge tone={ISSUE_BADGE_TONE[row.issueType]}>{row.issueBadgeLabel}</Badge>
-      </div>
-
-      {row.issueType === "address_unclear" && (
-        <div className="flex flex-wrap gap-2">
-          <label className="flex min-w-[130px] flex-1 flex-col gap-1 text-xs font-semibold text-zinc-600">
-            ประเภทที่อยู่
-            <select
-              value={addressType}
-              onChange={(e) => setAddressType(e.target.value)}
-              className="min-h-11 rounded-md border border-zinc-300 px-2 text-sm text-zinc-800"
-            >
-              {ADDRESS_TYPE_OPTIONS.map((o) => (
-                <option key={o}>{o}</option>
-              ))}
-            </select>
-          </label>
-          <label className="flex min-w-[130px] flex-1 flex-col gap-1 text-xs font-semibold text-zinc-600">
-            จังหวัด
-            <select
-              value={province}
-              onChange={(e) => setProvince(e.target.value)}
-              className="min-h-11 rounded-md border border-zinc-300 px-2 text-sm text-zinc-800"
-            >
-              {PROVINCE_OPTIONS.map((o) => (
-                <option key={o}>{o}</option>
-              ))}
-            </select>
-          </label>
-        </div>
-      )}
-
-      {row.issueType === "sku_unknown" && (
-        <label className="flex flex-col gap-1 text-xs font-semibold text-zinc-600">
-          จับคู่สินค้า (sku alias)
-          <select
-            value={skuAlias}
-            onChange={(e) => setSkuAlias(e.target.value)}
-            className="min-h-11 rounded-md border border-zinc-300 px-2 text-sm text-zinc-800"
-          >
-            <option value="">— เลือกสินค้า —</option>
-            {SKU_ALIAS_OPTIONS.map((o) => (
-              <option key={o}>{o}</option>
-            ))}
-          </select>
-        </label>
-      )}
-
-      {row.issueType === "recipient_name_error" && (
-        <label className="flex flex-col gap-1 text-xs font-semibold text-zinc-600">
-          ชื่อผู้รับ (แก้ให้ถูก)
-          <input
-            type="text"
-            value={recipientName}
-            onChange={(e) => setRecipientName(e.target.value)}
-            placeholder="พิมพ์ชื่อที่ถูกต้อง"
-            className="min-h-11 rounded-md border border-zinc-300 px-2.5 text-sm text-zinc-800"
-          />
-        </label>
-      )}
-
-      <div className="flex justify-end gap-2">
-        <Button variant="primary" size="sm" onClick={() => onConfirm(row.id)}>
-          ยืนยัน
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-// NOTE (a11y debt): design §6 asks for a real `<table>` for the review
-// queue so screen readers get column headers. The approved mockup itself
-// renders these as cards (`.rrow` divs) with a different field set per
-// issueType (address needs 2 selects, sku needs 1, name needs a text
-// input) — a literal <table> with heterogeneous per-row inputs would need
-// awkward colspan gymnastics. Kept as a labeled list of cards to match the
-// approved visual design; flagged for a follow-up a11y pass rather than
-// silently diverging without a note.
-export function ReviewQueueList({ rows, onConfirm }: { rows: UploadReviewRow[]; onConfirm: (id: string) => void }) {
+export function ReviewQueueList({ rows }: { rows: LabelReviewRow[] }) {
   if (rows.length === 0) return null;
   return (
-    <div className="flex flex-col gap-2.5" role="list" aria-label="รายการรอตรวจสอบ">
-      {rows.map((row) => (
-        <ReviewQueueRowItem key={row.id} row={row} onConfirm={onConfirm} />
-      ))}
+    <div className="overflow-x-auto rounded-lg border border-zinc-200 bg-white shadow-sm">
+      <table className="w-full min-w-[560px] text-left text-sm">
+        <caption className="sr-only">รายการรอตรวจสอบ — อ่านอย่างเดียว เลือกจังหวัดเองได้ในเฟสถัดไป</caption>
+        <thead className="border-b border-zinc-200 bg-zinc-50 text-xs font-bold tracking-wide text-zinc-500 uppercase">
+          <tr>
+            <th scope="col" className="px-3 py-2 tabular-nums">
+              หน้า
+            </th>
+            <th scope="col" className="px-3 py-2">
+              เลขพัสดุ
+            </th>
+            <th scope="col" className="px-3 py-2">
+              รหัสไปรษณีย์
+            </th>
+            <th scope="col" className="px-3 py-2">
+              สถานะ
+            </th>
+            <th scope="col" className="px-3 py-2">
+              จังหวัดที่เป็นไปได้
+            </th>
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-zinc-100">
+          {rows.map((row) => (
+            <tr key={row.pageId}>
+              <td className="px-3 py-2 tabular-nums text-zinc-600">{row.pageNo}</td>
+              <td className="px-3 py-2 font-mono text-xs text-zinc-700">{row.trackingNo ?? "—"}</td>
+              <td className="px-3 py-2 tabular-nums text-zinc-600">{row.zipcode ?? "—"}</td>
+              <td className="px-3 py-2">
+                <Badge tone={STATUS_TONE[row.status]}>{STATUS_LABEL[row.status]}</Badge>
+              </td>
+              <td className="px-3 py-2 text-zinc-600">
+                {row.candidates.length > 0 ? row.candidates.map((c) => c.nameTh).join(", ") : "—"}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      <p className="border-t border-zinc-200 px-3 py-2 text-xs text-zinc-400">
+        อ่านอย่างเดียวในเฟสนี้ — เลือกจังหวัดเองรายแถวได้ในเฟสถัดไป
+      </p>
     </div>
   );
 }
