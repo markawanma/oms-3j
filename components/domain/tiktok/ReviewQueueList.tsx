@@ -10,7 +10,11 @@ import type { LabelReviewRow } from "@/lib/labels/types";
 // recipient_name_error) from the pre-real-backend mock, which no longer
 // applies now that "review" means "province match was ambiguous", not "a
 // field on the order needs a human edit".
-const STATUS_TONE: Record<LabelReviewRow["status"], BadgeTone> = {
+// Exported (not just module-local) so components/domain/tiktok/
+// PendingReviewQueue.tsx — a different table showing the same LabelReviewRow
+// shape plus a file-name column — stays in sync with this one instead of
+// drifting with its own copy of the status->label/tone mapping.
+export const REVIEW_STATUS_TONE: Record<LabelReviewRow["status"], BadgeTone> = {
   needs_review: "amber",
   conflict: "red",
   order_not_found: "amber",
@@ -25,6 +29,17 @@ const STATUS_LABEL: Record<LabelReviewRow["status"], string> = {
   undetected: "รูปแบบไม่รู้จัก",
   parse_failed: "อ่านหน้าไม่ได้",
 };
+
+// UAT 29 ส.ค. 69: 'undetected' ที่มี reason='packing_slip_only' คือหน้า
+// "ใบสรุปสินค้า" ท้ายออเดอร์ของ TikTok (ไม่มีเลขพัสดุ/ที่อยู่ให้จับคู่ได้ —
+// ดู lib/labels/formats/tiktok.ts looksLikePackingSlipOnly()) — ไม่ใช่ปัญหา
+// ที่ต้องแก้ ข้อความจึงต้องบอกตรงว่า "ไม่ใช่ใบปะหน้า" ไม่ใช่ "อ่านไม่ได้"
+export function reviewRowStatusLabel(row: LabelReviewRow): string {
+  if (row.status === "undetected" && row.reason === "packing_slip_only") {
+    return "ไม่ใช่ใบปะหน้า (หน้าใบสรุปสินค้า) — ไม่ต้องตรวจ";
+  }
+  return STATUS_LABEL[row.status];
+}
 
 export function ReviewQueueList({ rows }: { rows: LabelReviewRow[] }) {
   if (rows.length === 0) return null;
@@ -58,7 +73,7 @@ export function ReviewQueueList({ rows }: { rows: LabelReviewRow[] }) {
               <td className="px-3 py-2 font-mono text-xs text-zinc-700">{row.trackingNo ?? "—"}</td>
               <td className="px-3 py-2 tabular-nums text-zinc-600">{row.zipcode ?? "—"}</td>
               <td className="px-3 py-2">
-                <Badge tone={STATUS_TONE[row.status]}>{STATUS_LABEL[row.status]}</Badge>
+                <Badge tone={REVIEW_STATUS_TONE[row.status]}>{reviewRowStatusLabel(row)}</Badge>
               </td>
               <td className="px-3 py-2 text-zinc-600">
                 {row.candidates.length > 0 ? row.candidates.map((c) => c.nameTh).join(", ") : "—"}

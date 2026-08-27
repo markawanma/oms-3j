@@ -48,3 +48,31 @@ export const tiktokFormat: LabelFormat = {
     return { trackingNo: null, ambiguous: unique.length > 1 };
   },
 };
+
+// UAT 29 ส.ค. 69: TikTok's "Shipping label+Packing slip" PDF prints a
+// SEPARATE trailing page per order that is the packing slip only (product
+// name/SKU/qty table) — no tracking number, no address, nothing this module
+// or match.ts could ever resolve. detect() correctly returns false for these
+// (no JTTH\d{10,}), which lands them at match_status='undetected' — but that
+// status reads to the owner as "we couldn't figure out what this page is,"
+// which is misleading: we know exactly what it is, it's just not a label.
+// Confirmed against all 14 real 'undetected' pages in the 954-page UAT
+// corpus: every single one carries all three of these TikTok-specific
+// packing-slip markers and none carry a tracking number.
+// looksLikePackingSlipOnly() lets the caller (lib/actions/labels.ts) store a
+// `reason` in match_detail distinguishing "this is a real page, just not a
+// label" from "we genuinely don't recognize this" — read-only classification
+// hint, does NOT change match_status itself (no DB/schema change needed:
+// match_detail is jsonb, already used for {candidates}).
+const PACKING_SLIP_ORDER_ID_MARKER = "Order ID:";
+const PACKING_SLIP_QTY_TOTAL_MARKER = "Qty Total:";
+const PACKING_SLIP_TABLE_HEADER_MARKER = "Product Name SKU Seller SKU Qty";
+
+export function looksLikePackingSlipOnly(pageText: string): boolean {
+  return (
+    !new RegExp(TRACKING_PATTERN).test(pageText) &&
+    pageText.includes(PACKING_SLIP_ORDER_ID_MARKER) &&
+    pageText.includes(PACKING_SLIP_QTY_TOTAL_MARKER) &&
+    pageText.includes(PACKING_SLIP_TABLE_HEADER_MARKER)
+  );
+}

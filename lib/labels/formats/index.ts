@@ -1,9 +1,10 @@
 // lib/labels/formats/index.ts — parser registry (design §6). Adding a new
 // marketplace format = add one file here + one line in LABEL_FORMATS, no
 // other file needs to change.
-import { tiktokFormat, type LabelFormat } from "./tiktok";
+import { tiktokFormat, looksLikePackingSlipOnly, type LabelFormat } from "./tiktok";
 
 export type { LabelFormat, LabelExtractResult } from "./tiktok";
+export { looksLikePackingSlipOnly };
 
 // P1 scope: TikTok only (design §6 — "P1 ทำ TikTok ตัวเดียว", 96% of the
 // backlog). Shopee is P2.

@@ -30,6 +30,13 @@ export type LabelReviewRow = {
   zipcode: string | null;
   status: "needs_review" | "conflict" | "order_not_found" | "undetected" | "parse_failed";
   candidates: { code: string; nameTh: string }[];
+  /** Set only when status === 'undetected' AND we recognize this specific
+   * page shape as a known non-label page (e.g. TikTok's trailing
+   * packing-slip-only page — see lib/labels/formats/tiktok.ts
+   * looksLikePackingSlipOnly()) — lets the UI say "this page just isn't a
+   * label, nothing to do" instead of "unrecognized format, needs a fix."
+   * undefined = no known reason (genuinely unrecognized page). */
+  reason?: "packing_slip_only";
 };
 
 export type CreateLabelUploadResult = {
@@ -46,4 +53,13 @@ export type LabelFileListItem = {
   pageCount: number | null;
   status: "uploaded" | "parsed" | "parse_failed" | "purged";
   uploadedAt: string;
+};
+
+// getPendingLabelReviews() — คิวรอตรวจ "ทั้งร้าน" อ่านจาก DB ตรง (ไม่ใช่ state
+// ของรอบอัปโหลดล่าสุดเหมือน LabelParseSummary.reviewRows) ต้องมีชื่อไฟล์ติดมา
+// ด้วยเพราะคิวนี้รวมได้หลายไฟล์พร้อมกัน — ไม่งั้นไม่รู้ว่าหน้าไหนมาจากไฟล์ไหน
+// (design brief บั๊ก 2, 29 ส.ค. 69).
+export type PendingLabelReviewRow = LabelReviewRow & {
+  fileId: string;
+  fileName: string;
 };

@@ -55,7 +55,35 @@ export type ProvinceMatchResult = {
 // design §4 rule 1: tone marks (MAI EK..YAMAKKAN, THANTHAKHAT, NIKHAHIT) +
 // above/below vowels (SARA A..PHINTHU) — the exact codepoint ranges a
 // PUA-substituted font tends to drop from extracted text.
-const FOLD_STRIP_RANGE = /[ัิ-ฺ็-๎]/g;
+//
+// UAT 29 ส.ค. 69 (126/954 หน้าตกคิว needs_review ทั้งที่ตาเห็นจังหวัด+
+// zipcode ครบ): "drop" ไม่ใช่พฤติกรรมเดียวที่เกิด — บางฟอนต์ที่ใช้พิมพ์ใบปะหน้า
+// เหล่านี้ "แทน" ตัวรวบ/วรรณยุกต์ด้วยโค้ดพอยต์ใน Private Use Area
+// (U+E000-U+F8FF) แทนที่จะตัดทิ้งเฉยๆ หรือใช้โค้ดพอยต์ไทยจริง ผลคือ folded
+// haystack มีอักขระ "แทรก" เกินมา 1 ตัวเทียบกับ folded reference (ที่ตัดจริง)
+// การเทียบ substring แบบเป๊ะ (rule 2) จึงพังแม้ folding ฝั่ง reference ถูกแล้ว
+//
+// ยืนยันด้วยสคริปต์ชั่วคราวที่ไล่ทั้ง 954 หน้าจริงจาก Storage (โหลด+extract+
+// scan โค้ดพอยต์ในโปรแกรมเดียวจบ — ไม่ผ่านสายตา/terminal copy ซึ่งเป็นกับดัก
+// ที่ทำให้รอบแรกดูเหมือนตัวอักษรปกติ): เจอ **เฉพาะ 5 โค้ดพอยต์** ในย่านนี้
+// ทั้งไฟล์ทั้งหมด คือ U+F70A U+F70B U+F70C U+F70D U+F70E (รวมกัน 7,589 ครั้ง
+// ใน 954 หน้า) ทุกครั้งอยู่แทรกกลางพยัญชนะไทยในตำแหน่งที่ควรเป็นสระ/วรรณยุกต์
+// พอดี (เช่น "ขอนแก" + U+F70A + "น" แทน "ขอนแก่น") ไม่เคยเจอเป็นตัวอักษรฐาน
+// เดี่ยวๆ ที่มีความหมายเอง — ปลอดภัยที่จะ strip เหมือนกลุ่มโค้ดพอยต์ไทยจริงด้านบน
+const FOLD_STRIP_CODEPOINT_RANGES: [number, number][] = [
+  [0x0e31, 0x0e31],
+  [0x0e34, 0x0e3a],
+  [0x0e47, 0x0e4e],
+  [0xf70a, 0xf70e],
+];
+const FOLD_STRIP_RANGE = new RegExp(
+  "[" +
+    FOLD_STRIP_CODEPOINT_RANGES.map(
+      ([lo, hi]) => String.fromCharCode(lo) + "-" + String.fromCharCode(hi)
+    ).join("") +
+    "]",
+  "g"
+);
 
 // design §4 rule 3.
 const CO_LOCATE_MAX_DISTANCE = 80;
@@ -88,8 +116,29 @@ const ZIPCODE_RE = /(?<!\d)\d{5}(?!\d)/g;
 // stated test case) to keep the blast radius minimal.
 const PROVINCE_MARKER_WORD = /จังหวัด/g;
 
+// Some PDF fonts emit the LEGACY decomposed order for SARA AM (U+0E33,
+// the vowel in words like "kamphaeng"/"lampang") as NIKHAHIT (U+0E4D)
+// followed by SARA AA (U+0E32), instead of the single precomposed codepoint
+// the reference province names use (verified: thai-provinces.json uses
+// U+0E33 throughout, never the decomposed pair). Left un-normalized, folding
+// strips the NIKHAHIT (it's inside the tone-mark/vowel range stripped
+// above) and leaves a bare SARA AA behind -- a correctly-spelled province
+// name one character short of the reference's folded form, so it silently
+// fails to match. Confirmed via the same live-corpus diagnostic as the PUA
+// fix above: after that fix, 18 of the remaining 20 needs_review pages hit
+// exactly this pattern (KAMPHAENG PHET / LAMPANG). Normalize BEFORE
+// stripping, so the strip step never sees the decomposed form.
+const NIKHAHIT_SARA_AA = new RegExp(
+  String.fromCharCode(0x0e4d) + String.fromCharCode(0x0e32),
+  "g"
+);
+const SARA_AM = String.fromCharCode(0x0e33);
+
 function foldThai(text: string): string {
-  return text.replace(PROVINCE_MARKER_WORD, " ").replace(FOLD_STRIP_RANGE, "");
+  return text
+    .replace(PROVINCE_MARKER_WORD, " ")
+    .replace(NIKHAHIT_SARA_AA, SARA_AM)
+    .replace(FOLD_STRIP_RANGE, "");
 }
 
 interface ProvinceEntry {

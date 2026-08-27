@@ -15,6 +15,7 @@ import { UploadQueueList } from "./UploadQueueList";
 import { BatchSummaryCard } from "./BatchSummaryCard";
 import { ReviewQueueList } from "./ReviewQueueList";
 import { LabelFileHistory } from "./LabelFileHistory";
+import { PendingReviewQueue } from "./PendingReviewQueue";
 
 interface RejectedFile {
   id: string;
@@ -56,6 +57,10 @@ export function UploadPageClient() {
   const toast = useToast();
   const [queue, setQueue] = useState<UploadQueueItem[]>([]);
   const [rejected, setRejected] = useState<RejectedFile[]>([]);
+  // Bumped after every successful parse so <PendingReviewQueue /> (bug 2 fix
+  // — the durable, shop-wide review queue read from stg_label_page) reloads
+  // right away instead of only after the owner leaves and returns to this page.
+  const [reviewRefreshSignal, setReviewRefreshSignal] = useState(0);
 
   // File objects never go into React state (large binary blobs, and we only
   // ever need them keyed by item id for processing/retry) — kept in a ref map instead.
@@ -118,6 +123,7 @@ export function UploadPageClient() {
           metaText: `${summary.pageCount} หน้า · เสร็จแล้ว`,
           summary,
         });
+        setReviewRefreshSignal((n) => n + 1);
         toast.push(`อ่าน ${file.name} เสร็จแล้ว — เติมจังหวัด ${summary.applied} ออเดอร์`);
       } catch (err) {
         const msg = messageFromError(err, "เกิดข้อผิดพลาดไม่ทราบสาเหตุ");
@@ -242,6 +248,8 @@ export function UploadPageClient() {
       {!hasAnyActivity && (
         <EmptyState icon={UploadCloud} title="ยังไม่มีไฟล์วันนี้" description="ลากไฟล์ใบปะหน้ามาวาง หรือกดเลือกไฟล์ด้านบน" />
       )}
+
+      <PendingReviewQueue refreshSignal={reviewRefreshSignal} />
 
       <LabelFileHistory />
     </div>

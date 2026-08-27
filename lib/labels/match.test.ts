@@ -133,3 +133,42 @@ it("excludes sender Bangkok via address markers when the label has no sender zip
   expect(r.status).toBe("matched");
   expect(r.provinceCode).toBe("TH-24");
 });
+
+// UAT 29 ส.ค. 69 (real page: Aug12_2026.pdf, tracking JTTH202760754976,
+// ขอนแก่น) — 126/954 real pages fell into needs_review with candidates=[]
+// despite the province name being spelled correctly. Root cause: this font
+// substitutes U+F70A-U+F70E (Private Use Area) for the tone mark instead of
+// dropping it or using the real Unicode codepoint, so the folded haystack had
+// ONE EXTRA character the folded reference name didn't. Codepoint built via
+// String.fromCodePoint (not pasted directly) — per this file's own lesson,
+// copying this exact character through a terminal silently drops it, which
+// is exactly how the bug hid from a first manual repro attempt.
+it("folds a PUA glyph (U+F70A) some label fonts substitute for a tone mark, so ขอนแก่น still matches", () => {
+  const puaTonemark = String.fromCodePoint(0xf70a);
+  // Mirrors the real page's shape: a district-prefixed mention that must NOT
+  // match (no boundary before it — "เมือง" + name, like the ลาดกระบัง case)
+  // followed by the real standalone occurrence next to the zipcode.
+  const text = "เมือง" + "ขอนแก" + puaTonemark + "น , " + "ขอนแก" + puaTonemark + "น 40000";
+  const r = matchProvince(text);
+  expect(r.status).toBe("matched");
+  expect(r.provinceCode).toBe("TH-40");
+  expect(r.zipcode).toBe("40000");
+});
+
+// UAT 29 ส.ค. 69 (real pages: Aug12_2026.pdf p22/p23, กำแพงเพชร/ลำปาง — 18 of
+// the 20 needs_review pages remaining after the PUA fix above). Root cause:
+// this font emits the LEGACY decomposed encoding of สระอำ — NIKHAHIT (U+0E4D)
+// followed by SARA AA (U+0E32) — instead of the precomposed U+0E33 the
+// reference province names use (thai-provinces.json confirmed to use U+0E33
+// throughout). Un-normalized, folding stripped the NIKHAHIT (it's a
+// tone-mark-range codepoint) and left a bare SARA AA, one character short of
+// the reference's folded form. Codepoints built via String.fromCharCode, not
+// pasted, same reason as the test above.
+it("normalizes the legacy decomposed สระอำ (NIKHAHIT+SARA AA) so กำแพงเพชร still matches", () => {
+  const decomposedSaraAm = String.fromCharCode(0x0e4d) + String.fromCharCode(0x0e32);
+  const text = "62150 " + "ก" + decomposedSaraAm + "แพงเพชร";
+  const r = matchProvince(text);
+  expect(r.status).toBe("matched");
+  expect(r.provinceCode).toBe("TH-62");
+  expect(r.zipcode).toBe("62150");
+});

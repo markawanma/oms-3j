@@ -27,15 +27,21 @@ import { createHash } from "node:crypto";
 import { getServiceClient } from "@/lib/supabase/server";
 import { getDevShopId, getDevRole } from "@/lib/dev/context";
 import type { ActionResult } from "@/lib/types";
+import { fetchAllRows } from "@/lib/supabase/query-limits";
 import {
   MAX_LABEL_FILE_BYTES,
   MAX_LABEL_PAGES,
   SHA256_HEX_PATTERN,
   SHIPPING_LABELS_BUCKET,
 } from "@/lib/labels/constants";
-import type { CreateLabelUploadResult, LabelParseSummary, LabelReviewRow } from "@/lib/labels/types";
+import type {
+  CreateLabelUploadResult,
+  LabelParseSummary,
+  LabelReviewRow,
+  PendingLabelReviewRow,
+} from "@/lib/labels/types";
 import { looksLikePdf, openPdf, extractPageTexts, PdfExtractError } from "@/lib/labels/pdf";
-import { detectFormat } from "@/lib/labels/formats";
+import { detectFormat, looksLikePackingSlipOnly } from "@/lib/labels/formats";
 import { matchProvince, type ProvinceCandidate } from "@/lib/labels/match";
 
 const SCHEMA = "analytics";
@@ -280,6 +286,12 @@ interface PageClassification {
   provinceCode: string | null;
   candidates: ProvinceCandidate[];
   status: "matched" | "needs_review" | "order_not_found" | "undetected" | "parse_failed";
+  /** UAT 29 ส.ค. 69: 'undetected' pages are not automatically a problem — a
+   * known subset (TikTok's trailing packing-slip-only page) is a real,
+   * expected non-label page. Recorded into match_detail (jsonb, no schema
+   * change) so getPendingLabelReviews()/the review-queue UI can say "not a
+   * label" instead of "unrecognized format." undefined = no known reason. */
+  reason?: "packing_slip_only";
 }
 
 /** Pure per-page classification — no DB access (the order-not-found
@@ -300,7 +312,11 @@ function classifyPage(pageNo: number, pageText: string): PageClassification {
 
   const format = detectFormat(pageText);
   if (!format) {
-    return { ...base, status: "undetected" };
+    return {
+      ...base,
+      status: "undetected",
+      reason: looksLikePackingSlipOnly(pageText) ? "packing_slip_only" : undefined,
+    };
   }
 
   const extract = format.extract(pageText);
@@ -489,8 +505,9 @@ export async function parseLabelFile(fileId: string): Promise<ActionResult<Label
       province_code: p.provinceCode,
       match_status: p.status,
       // PDPA (design §7, ข้อบังคับ): candidates only ({code,nameTh}[]) — never
-      // raw page text / name / phone / full address.
-      match_detail: { candidates: p.candidates },
+      // raw page text / name / phone / full address. `reason` is a fixed
+      // enum-like classification hint (see PageClassification), also PDPA-safe.
+      match_detail: { candidates: p.candidates, reason: p.reason },
     }));
     for (const chunk of chunkArray(insertRows, PAGE_INSERT_CHUNK_SIZE)) {
       const { error: insPagesErr } = await supabase.schema(SCHEMA).from("stg_label_page").insert(chunk);
@@ -538,7 +555,7 @@ export async function parseLabelFile(fileId: string): Promise<ActionResult<Label
       tracking_no: string | null;
       zipcode: string | null;
       match_status: string;
-      match_detail: { candidates?: ProvinceCandidate[] } | null;
+      match_detail: { candidates?: ProvinceCandidate[]; reason?: "packing_slip_only" } | null;
     };
 
     const rows = (finalPages ?? []) as FinalPageRow[];
@@ -579,6 +596,7 @@ export async function parseLabelFile(fileId: string): Promise<ActionResult<Label
           zipcode: r.zipcode,
           status: r.match_status as LabelReviewRow["status"],
           candidates: r.match_detail?.candidates ?? [],
+          reason: r.match_detail?.reason,
         });
       }
     }
@@ -665,5 +683,106 @@ export async function getLabelFiles(): Promise<ActionResult<LabelFileRow[]>> {
   } catch (err) {
     console.error("getLabelFiles failed", err);
     return { ok: false, error: "โหลดประวัติไฟล์ไม่สำเร็จ ลองใหม่อีกครั้ง" };
+  }
+}
+
+// ============================================================================
+// getPendingLabelReviews — bug 2 (UAT 29 ส.ค. 69): "ขึ้นว่ารอคนตรวจ แต่พอกดไป
+// หน้าอื่นแล้วกลับมา ส่วนที่รอคนตรวจหายไป" — LabelParseSummary.reviewRows only
+// ever lived in UploadPageClient's React state for the upload round that just
+// ran; the queue itself lives durably in analytics.stg_label_page regardless.
+// This reads that DB state directly — "ทั้งร้าน" across every file, not just
+// the last upload — so the review queue survives navigation/refresh.
+// ============================================================================
+
+const PENDING_REVIEW_STATUSES = ["needs_review", "conflict", "order_not_found", "undetected"] as const;
+const PENDING_REVIEW_FILE_LOOKUP_CHUNK_SIZE = 200;
+
+interface PendingReviewPageRow {
+  id: string;
+  label_file_id: string;
+  page_no: number;
+  tracking_no: string | null;
+  zipcode: string | null;
+  match_status: string;
+  match_detail: { candidates?: ProvinceCandidate[]; reason?: "packing_slip_only" } | null;
+}
+
+export async function getPendingLabelReviews(): Promise<ActionResult<PendingLabelReviewRow[]>> {
+  const gateErr = requireOwnerAdmin();
+  if (gateErr) return gateErr;
+
+  try {
+    const shopId = getDevShopId();
+    const supabase = getServiceClient();
+
+    // fetchAllRows() pages past PostgREST's max-rows cap — see
+    // lib/supabase/query-limits.ts. Ordered by `id` (unique per row) as
+    // required for correct paging; display order (by file, then page) is
+    // applied client-side below once every row is in hand.
+    const pageResult = await fetchAllRows<PendingReviewPageRow>((from, to) =>
+      supabase
+        .schema(SCHEMA)
+        .from("stg_label_page")
+        .select("id, label_file_id, page_no, tracking_no, zipcode, match_status, match_detail", { count: "exact" })
+        .eq("shop_id", shopId)
+        .in("match_status", PENDING_REVIEW_STATUSES)
+        .order("id", { ascending: true })
+        .range(from, to)
+    );
+    if (pageResult.truncated) {
+      // Not expected at this app's volume (see MAX_UNBOUNDED_ROWS comment)
+      // but fail loudly rather than silently show a partial queue.
+      console.error("getPendingLabelReviews: row cap hit, queue truncated", {
+        rows: pageResult.rows.length,
+        totalCount: pageResult.totalCount,
+      });
+      return {
+        ok: false,
+        error: `คิวรอตรวจมีมากกว่าที่ระบบแสดงได้ตอนนี้ (${pageResult.totalCount} หน้า) — แจ้งทีมเทคนิค`,
+      };
+    }
+
+    const fileIds = [...new Set(pageResult.rows.map((r) => r.label_file_id))];
+    const fileNameById = new Map<string, string>();
+    for (let i = 0; i < fileIds.length; i += PENDING_REVIEW_FILE_LOOKUP_CHUNK_SIZE) {
+      const chunk = fileIds.slice(i, i + PENDING_REVIEW_FILE_LOOKUP_CHUNK_SIZE);
+      const { data, error } = await supabase
+        .schema(SCHEMA)
+        .from("label_file")
+        .select("id, file_name")
+        .eq("shop_id", shopId)
+        .in("id", chunk);
+      if (error) throw error;
+      for (const f of (data ?? []) as { id: string; file_name: string }[]) fileNameById.set(f.id, f.file_name);
+    }
+
+    const rows: PendingLabelReviewRow[] = pageResult.rows.map((r) => ({
+      pageId: r.id,
+      fileId: r.label_file_id,
+      // A row whose label_file was deleted out from under it shouldn't ever
+      // happen (FK is ON DELETE CASCADE — see 0097) but fail safe with a
+      // visible placeholder rather than crashing the whole queue render.
+      fileName: fileNameById.get(r.label_file_id) ?? "(ไม่พบชื่อไฟล์)",
+      pageNo: r.page_no,
+      trackingNo: r.tracking_no,
+      zipcode: r.zipcode,
+      status: r.match_status as LabelReviewRow["status"],
+      candidates: r.match_detail?.candidates ?? [],
+      reason: r.match_detail?.reason,
+    }));
+
+    // Display order: group by file (newest-looking name sort is meaningless
+    // here — group by fileId for stability, then page number ascending)
+    // rather than the DB's arbitrary id order.
+    rows.sort((a, b) => {
+      if (a.fileName !== b.fileName) return a.fileName < b.fileName ? -1 : 1;
+      return a.pageNo - b.pageNo;
+    });
+
+    return { ok: true, data: rows };
+  } catch (err) {
+    console.error("getPendingLabelReviews failed", err);
+    return { ok: false, error: "โหลดคิวรอตรวจไม่สำเร็จ ลองใหม่อีกครั้ง" };
   }
 }
