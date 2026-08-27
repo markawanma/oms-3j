@@ -49,6 +49,11 @@
 - งานที่ output เยอะ (รัน test ทั้ง suite, อ่าน log, scan repo) → delegate ให้ subagent เสมอ
   เพื่อไม่ให้ context หลักเต็มด้วย noise ให้ subagent สรุปเฉพาะที่สำคัญกลับมา
 - งานอิสระต่อกัน → spawn subagents แบบ parallel ในครั้งเดียว
+- 🔴 **spawn agent แก้โค้ดพร้อมกันหลายตัว = ต้องใช้ `isolation: "worktree"` เสมอ**
+  (บทเรียน 27 ส.ค. 69: ส่ง backend-dev + frontend-dev ทำงานคนละ branch พร้อมกันใน
+  working directory เดียวกัน ตัวหนึ่ง `git checkout` สลับ branch ขณะอีกตัวยังไม่ commit
+  รอบนั้นรอดเพราะบังเอิญไม่ชนไฟล์กัน — ถ้าชนคือเสียงานจริง)
+  agent ที่อ่านอย่างเดียว (security/review/docs) ไม่ต้องใช้ worktree
 - เรียกตรงได้ เช่น "ให้ code-reviewer ตรวจ diff ล่าสุด"
 
 ## วินัยการเขียน brief (บทเรียน 26 ส.ค. 69 — security ตีกลับ 2 รอบ ต้นเหตุคือ brief ทั้งคู่)
