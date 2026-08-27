@@ -53,7 +53,10 @@ import { useToast } from "@/components/ui/Toast";
 import { formatCount } from "@/lib/tiktok/format";
 import { formatPeriodHint, formatDateRange, validateXlsxFile } from "@/lib/crm/import-client";
 
-type FileKind = "order" | "line_item";
+// Exported so ImportBatchHistory.tsx can render the exact same
+// label+tone for "ประเภทไฟล์" as this preview badge, instead of a second
+// hand-copied string that can drift out of sync with this one.
+export type FileKind = "order" | "line_item";
 
 /** One detected+previewed file. `kind: null` means neither parser accepted
  * the shape — genuinely not a recognized report. When both parsers reject
@@ -92,9 +95,17 @@ type Phase =
 const ORDER_PROFIT_NOTE = "กำไรเป็นค่าประเมิน จนกว่าจะผูกรายการสินค้า";
 const LINE_PROFIT_NOTE = "กำไรจะอัปเดตเป็นค่าจริงสำหรับออเดอร์ที่จับคู่รายการสินค้าได้";
 
-const KIND_LABEL: Record<FileKind, string> = {
+export const KIND_LABEL: Record<FileKind, string> = {
   order: "รายงานยอดขาย",
   line_item: "สินค้าในออเดอร์",
+};
+
+/** Badge tone used for each file kind — kept next to KIND_LABEL so the two
+ * preview cards (below) and ImportBatchHistory.tsx's history table always
+ * render the same badge for the same kind. */
+export const KIND_BADGE_TONE: Record<FileKind, "blue" | "indigo"> = {
+  order: "blue",
+  line_item: "indigo",
 };
 
 function toFormData(file: File): FormData {
@@ -353,8 +364,7 @@ export function OrderImportClient() {
     router.refresh();
   }
 
-  async function handleFilesSelected(fileList: FileList) {
-    const files = Array.from(fileList);
+  async function handleFilesSelected(files: File[]) {
     const valid: File[] = [];
     const invalidMsgs: string[] = [];
     for (const f of files) {
@@ -369,10 +379,14 @@ export function OrderImportClient() {
   }
 
   function handleInputChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const fileList = e.target.files;
-    e.target.value = "";
-    if (!fileList || fileList.length === 0) return;
-    void handleFilesSelected(fileList);
+    // ⚠️ ต้อง Array.from() ก่อน e.target.value = "" เสมอ — input.files คืน live
+    // FileList ตัวเดิมทุกครั้ง การล้าง value จะล้าง FileList ตัวนั้นทิ้งไปด้วย
+    // (พิสูจน์บน Chrome จริง: หลัง value="" แล้ว length กลายเป็น 0) ถ้าอ่านทีหลัง
+    // จะได้ 0 เสมอ แล้ว return ออกเงียบๆ = เลือกไฟล์แล้วไม่มีอะไรเกิดขึ้น
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = ""; // ให้เลือกไฟล์ชื่อเดิมซ้ำได้
+    if (files.length === 0) return;
+    void handleFilesSelected(files);
   }
 
   const dropzoneDisabled = phase.kind === "previewing_single" || phase.kind === "previewing_multi";

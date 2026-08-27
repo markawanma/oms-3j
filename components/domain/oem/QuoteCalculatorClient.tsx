@@ -20,6 +20,8 @@ import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Plus } from "lucide-react";
 import { calcPrice, getOemProducts, saveQuote } from "@/lib/actions/oem";
+import { listSkuPrefixes } from "@/lib/actions/catalog-sku";
+import type { SkuPrefixRow } from "@/lib/catalog/sku-prefix";
 import type { OemPriceCalcResult, OemProductOption, OemSettingData, SaveQuoteInput } from "@/lib/oem/types";
 import { OEM_BAR_SIZE_LABEL_TH } from "@/lib/oem/types";
 import { roundTo } from "@/lib/oem/display";
@@ -90,6 +92,31 @@ export function QuoteCalculatorClient({ setting }: { setting: OemSettingData }) 
     };
   }, []);
 
+  // Fetched once — shared across every card's "+ สินค้าใหม่" dialog
+  // (CreateSkuDialog), same pattern as `products` above.
+  const [prefixes, setPrefixes] = useState<SkuPrefixRow[]>([]);
+  const [prefixesLoading, setPrefixesLoading] = useState(true);
+  const [prefixesError, setPrefixesError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setPrefixesLoading(true);
+    setPrefixesError(null);
+    listSkuPrefixes().then((result) => {
+      if (cancelled) return;
+      if (!result.ok) {
+        setPrefixesError(result.error);
+        setPrefixesLoading(false);
+        return;
+      }
+      setPrefixes(result.data);
+      setPrefixesLoading(false);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   function addItem() {
     setItems((prev) => [
       ...prev,
@@ -146,6 +173,16 @@ export function QuoteCalculatorClient({ setting }: { setting: OemSettingData }) 
         return { ...it, job };
       })
     );
+    // CreateSkuDialog also routes through here (onCreated -> onSelectSku) —
+    // a SKU minted mid-session isn't in the once-fetched `products` list yet,
+    // so without this the picker "loses" it the moment the dialog closes
+    // (X un-selects, and re-opening the picker can't find it until a full
+    // page refresh re-runs getOemProducts). Dedupe by productId since this
+    // also runs for ordinary picker selections, where the product is already
+    // in the list.
+    if (product) {
+      setProducts((prev) => (prev.some((p) => p.productId === product.productId) ? prev : [...prev, product]));
+    }
     if (barSize && product) {
       toast.push(
         `สลับเป็นโหมด "เงินแท่ง 99.99% ขนาด ${OEM_BAR_SIZE_LABEL_TH[barSize]}" ให้อัตโนมัติจาก SKU ${product.sku} — แก้ไขเองได้ที่การ์ดรายการนี้`
@@ -305,6 +342,9 @@ export function QuoteCalculatorClient({ setting }: { setting: OemSettingData }) 
                   products={products}
                   productsLoading={productsLoading}
                   productsError={productsError}
+                  prefixes={prefixes}
+                  prefixesLoading={prefixesLoading}
+                  prefixesError={prefixesError}
                   onChange={(field, value) => updateItemField(it.key, field, value)}
                   onSelectSku={(product) => updateItemSku(it.key, product)}
                   onRemove={() => removeItem(it.key)}
