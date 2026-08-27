@@ -53,11 +53,19 @@ export function ImportBatchHistory({ initialRows }: { initialRows: ImportBatchRo
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
   // Warnings modal: lazy-loaded per batch on click, cached by batchId so
-  // reopening the same row's modal doesn't refetch. `null` in the cache means
-  // "fetch attempted and failed" (distinct from "not yet attempted").
+  // reopening the same row's modal doesn't refetch. QA round 1: a failed
+  // fetch used to be cached as `null` too ("fetch attempted and failed"),
+  // which meant `warningsCache[batchId] !== undefined` counted as a cache
+  // hit forever — no amount of closing/reopening the modal ever refetched,
+  // the "ลองปิดแล้วเปิดใหม่" message was a lie. Fix: only SUCCESSFUL fetches
+  // go in the cache now (type narrowed to drop `| null`) — a failure leaves
+  // the key absent so the next attempt genuinely refetches. `failedBatchId`
+  // tracks "the fetch for this currently-open batch just failed" so the
+  // modal can render the error state without needing a fake cache entry.
   const [openBatch, setOpenBatch] = useState<{ batchId: string; fileName: string | null } | null>(null);
-  const [warningsCache, setWarningsCache] = useState<Record<string, LineImportWarningsResult | null>>({});
+  const [warningsCache, setWarningsCache] = useState<Record<string, LineImportWarningsResult>>({});
   const [warningsLoadingId, setWarningsLoadingId] = useState<string | null>(null);
+  const [failedBatchId, setFailedBatchId] = useState<string | null>(null);
 
   async function handleDelete(batchId: string) {
     setDeletingId(batchId);
@@ -74,16 +82,24 @@ export function ImportBatchHistory({ initialRows }: { initialRows: ImportBatchRo
 
   async function openWarnings(batchId: string, fileName: string | null) {
     setOpenBatch({ batchId, fileName });
-    if (warningsCache[batchId] !== undefined) return; // cached (incl. a prior failure)
+    setFailedBatchId((cur) => (cur === batchId ? null : cur)); // clear a stale failure before retrying
+    if (warningsCache[batchId] !== undefined) return; // cache hit — only ever a PAST SUCCESS now
     setWarningsLoadingId(batchId);
     const res = await getLineImportWarnings(batchId);
     setWarningsLoadingId((cur) => (cur === batchId ? null : cur));
-    setWarningsCache((prev) => ({ ...prev, [batchId]: res.ok ? res.data : null }));
-    if (!res.ok) toast.push(res.error, "error");
+    if (res.ok) {
+      setWarningsCache((prev) => ({ ...prev, [batchId]: res.data }));
+    } else {
+      // Do NOT cache the failure — leaving the key absent is what makes the
+      // retry button below (and simply reopening the modal) actually refetch.
+      setFailedBatchId(batchId);
+      toast.push(res.error, "error");
+    }
   }
 
   const openWarningsData = openBatch ? warningsCache[openBatch.batchId] : undefined;
   const openWarningsLoading = openBatch != null && warningsLoadingId === openBatch.batchId;
+  const openWarningsFailed = openBatch != null && failedBatchId === openBatch.batchId;
 
   return (
     <div className="overflow-x-auto rounded-lg border border-zinc-200 bg-white">
@@ -195,8 +211,18 @@ export function ImportBatchHistory({ initialRows }: { initialRows: ImportBatchRo
         {openWarningsLoading && (
           <p className="flex items-center justify-center gap-2 py-8 text-sm text-zinc-500">กำลังโหลด…</p>
         )}
-        {!openWarningsLoading && openWarningsData === null && (
-          <p className="py-4 text-sm text-red-700">โหลดรายการคำเตือนไม่สำเร็จ ลองปิดแล้วเปิดใหม่อีกครั้ง</p>
+        {!openWarningsLoading && openWarningsFailed && (
+          <div className="flex flex-col items-start gap-2 py-4">
+            <p className="text-sm text-red-700">โหลดรายการคำเตือนไม่สำเร็จ</p>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => void openWarnings(openBatch.batchId, openBatch.fileName)}
+            >
+              ลองอีกครั้ง
+            </Button>
+          </div>
         )}
         {!openWarningsLoading && openWarningsData && openWarningsData.rows.length === 0 && (
           <p className="py-4 text-sm text-zinc-500">ไม่มีคำเตือนสำหรับไฟล์นี้แล้ว</p>

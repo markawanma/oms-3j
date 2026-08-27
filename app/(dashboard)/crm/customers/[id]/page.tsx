@@ -115,7 +115,16 @@ export default async function CrmCustomerDetailPage({ params }: { params: Promis
         <StatCard
           label="กำไรสะสม"
           value={formatTHBCompact(c.profitSumEstimated)}
-          sub="ประมาณการ 20% — ยังไม่มีต้นทุนจริง"
+          // QA round 1: was hardcoded "ประมาณการ 20% — ยังไม่มีต้นทุนจริง",
+          // which claims EVERY order behind this sum lacks real cost data —
+          // false since 0095 (an order can be 'estimated' with real cost but
+          // an unproven SKU match). This page doesn't fetch a per-customer
+          // actual/estimated order-count split (unlike CrmOverviewData.totals
+          // on /crm/overview), so it can't give the precise mixed-case note
+          // that page does without a DB/view change — out of scope here.
+          // Kept honest instead: no "20%" number, no "ยังไม่มีต้นทุนจริง"
+          // claim, just "not yet confirmed" (true either way).
+          sub="ประมาณการ — บางส่วนยังไม่ยืนยันต้นทุน"
         />
       </div>
 

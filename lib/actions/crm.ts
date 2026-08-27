@@ -115,11 +115,15 @@ export interface CrmOverviewData {
     customers: number;
     /** SUM of v_fact_order.profit for every order in range — REAL profit
      * (profit_status='actual') for orders a line-item import (0041) has
-     * processed, still a 20%-of-revenue ESTIMATE (profit_status='estimated')
-     * for the rest. This is a MIXED sum, not purely one or the other — use
+     * processed cleanly, an ESTIMATE (profit_status='estimated') for the
+     * rest. "estimated" is not always a flat 20%-of-revenue guess as of
+     * 0095 — it also covers orders with real line-item cost that 0095
+     * couldn't conclusively trust (unknown SKU, or an unproven tier-2'
+     * match) — see lib/crm/orders.ts PROFIT_STATUS_LABEL_TH comment. This
+     * is a MIXED sum, not purely one or the other — use
      * profitActualOrders/profitEstimatedOrders below to render an accurate
      * label (e.g. "กำไรจริง X ออเดอร์ + ประมาณการ Y ออเดอร์"), do not caption
-     * this whole number as either "จริง" or "ประมาณการ 20%" alone. */
+     * this whole number as either "จริง" or "ประมาณการ" alone. */
     profitSum: number;
     /** Order count with profit_status='actual' inside the requested range. */
     profitActualOrders: number;
@@ -456,8 +460,9 @@ export interface CrmOrderRow {
   channelCode: string;
   channelName: string;
   revenue: number;
-  /** ESTIMATE ONLY (see CrmOverviewData.totals.profitSumEstimated doc above)
-   * — profitStatus tells you so, UI must render the "ประมาณการ 20%" label. */
+  /** ESTIMATE ONLY when profitStatus='estimated' (see profitSum doc above
+   * and lib/crm/orders.ts PROFIT_STATUS_LABEL_TH) — UI must render the
+   * "ประมาณการ" label, not treat this as confirmed profit. */
   profit: number | null;
   profitStatus: string;
   provinceCode: string;

@@ -1,15 +1,10 @@
 import { ClipboardList } from "lucide-react";
 import type { CrmCustomerOrderRow } from "@/lib/actions/crm";
 import type { CrmChannelOption, CrmProvinceOption } from "@/lib/crm/order-override";
+import { PROFIT_STATUS_LABEL_TH } from "@/lib/crm/orders";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { OrderOverrideForm } from "@/components/domain/crm/OrderOverrideForm";
 import { formatThaiDateOnly, formatTHBCompact } from "@/lib/tiktok/format";
-
-const PROFIT_STATUS_LABEL_TH: Record<string, string> = {
-  missing: "ไม่มีข้อมูล",
-  estimated: "ประมาณการ 20%",
-  actual: "ต้นทุนจริง",
-};
 
 /**
  * `canEdit`/`channels`/`provinces` are only needed to render the

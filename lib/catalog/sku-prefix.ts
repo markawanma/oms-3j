@@ -9,6 +9,22 @@
 // this domain is deliberately NOT gated to owner/admin — see
 // lib/actions/catalog-sku.ts's header comment for the full reasoning.
 
+// Postgres errcodes the SKU-prefix/catalog RPCs raise with a controlled,
+// already-Thai `sqlerrm` that is SAFE to show verbatim on screen (no
+// internals leak) — every action in lib/actions/catalog-sku.ts that calls
+// one of these RPCs must check this set, not just '22023', before falling
+// back to a generic "ลองใหม่อีกครั้ง". Single source of truth so the 3
+// actions (upsertSkuPrefix / createCatalogSku / deleteSkuPrefix) can't drift
+// out of sync with which codes each RPC actually raises (QA round 1 caught
+// 40001 and 23505 both being silently swallowed into the generic message).
+//   22023 (invalid_parameter_value) — validation messages, all 3 RPCs
+//     (sku_prefix_upsert, sku_prefix_delete, catalog_sku_create), 0089-0096.
+//   23505 (unique_violation) — "prefix/kind_label+work_type ถูกใช้แล้ว",
+//     raised by sku_prefix_upsert since 0091, never surfaced until now.
+//   40001 (serialization_failure) — "ตัวนับ SKU ถูกลบ/แก้พร้อมกันระหว่างออก
+//     เลข — ลองใหม่อีกครั้ง", raised by catalog_sku_create, new in 0096.
+export const SKU_CONTROLLED_ERROR_CODES = new Set(["22023", "23505", "40001"]);
+
 export type SkuWorkType = "plain" | "gem";
 
 export const SKU_WORK_TYPE_LABEL_TH: Record<SkuWorkType, string> = {

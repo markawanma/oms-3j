@@ -17,3 +17,25 @@ export const CRM_ORDER_SORT_OPTIONS: { value: CrmOrderSortKey; label: string }[]
 export function isValidCrmOrderSortKey(v: string): v is CrmOrderSortKey {
   return CRM_ORDER_SORT_OPTIONS.some((o) => o.value === v);
 }
+
+// profit_status label — shared by OrdersPageClient AND CustomerOrderHistory
+// (was declared twice, identically, until QA round 1 caught it drifting).
+//
+// "estimated" covers TWO different DB-side reasons as of migration 0095
+// (analytics.transform_pending_order_lines), and the label must be honest
+// for both:
+//   1. No line-item at all yet — profit is a flat 20%-of-revenue guess
+//      (the original meaning, pre-0095).
+//   2. Line-items DO exist with real cost, but at least one of: an unknown
+//      SKU (counted as cost 0), or a tier-2' match to an inactive product
+//      that tier 3 could NOT conclusively prove has no active twin
+//      (v_weak_order) — see 0095 fix 1/2 header comment.
+// Case 2 is NOT a 20% guess — it has a real (if unproven) cost behind it.
+// A label saying "20%" on a case-2 order overstates how uncertain the
+// number is and contradicts 0095's whole point ("กำไรต้องไม่โกหก"), so the
+// "20%" qualifier was dropped — "ประมาณการ" alone is accurate for both.
+export const PROFIT_STATUS_LABEL_TH: Record<string, string> = {
+  missing: "ไม่มีข้อมูล",
+  estimated: "ประมาณการ",
+  actual: "ต้นทุนจริง",
+};
