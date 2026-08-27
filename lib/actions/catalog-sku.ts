@@ -277,6 +277,18 @@ export async function createCatalogSku(input: CreateCatalogSkuInput): Promise<Ac
   const name = input.name?.trim();
   if (!name) return { ok: false, error: "กรุณากรอกชื่อสินค้า" };
 
+  // ค่าที่ดึงมาจาก item ในใบตอนสร้าง SKU ใหม่ (Phase 1b) — เฉพาะตอนสร้างครั้ง
+  // เดียวเท่านั้น, ผ่าน p_attrs whitelist ของ catalog_sku_create (0096: category /
+  // cost_type / unit_cost / silver_weight_g / silver_purity / labor_cost /
+  // list_price / barcode / supplier / note — ส่ง key นอกนี้โดน 22023 ตรงๆ). ตัด
+  // undefined/null ออกก่อนส่ง ไม่ใช่ค่าว่างที่ถูก coerce เป็น 0 — CreateSkuDialog
+  // เป็นคนกรองมาแล้วว่าใบมีค่าจริง ที่นี่แค่ประกอบ payload ไม่ตัดสินใจอะไรเพิ่ม.
+  // ไม่มี unit_cost/list_price โดยเจตนา (ดูคอมเมนต์ CreateCatalogSkuInput).
+  const attrs: Record<string, number | string> = {};
+  if (input.seedWeightG != null) attrs.silver_weight_g = input.seedWeightG;
+  if (input.seedPurity != null) attrs.silver_purity = input.seedPurity;
+  if (input.seedCategory) attrs.category = input.seedCategory;
+
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();
@@ -285,7 +297,7 @@ export async function createCatalogSku(input: CreateCatalogSkuInput): Promise<Ac
       p_shop_id: shopId,
       p_prefix_id: prefixId,
       p_name: name,
-      p_attrs: {},
+      p_attrs: attrs,
     });
     if (error) {
       // 22023 covers both "ไม่มี config" (shouldn't reach here — dialog hides

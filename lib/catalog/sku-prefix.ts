@@ -82,6 +82,19 @@ export interface UpsertSkuPrefixInput {
 export interface CreateCatalogSkuInput {
   prefixId: string;
   name: string;
+  /** ค่าที่ดึงมาจาก item ในใบเสนอราคาตอนกด "+ สินค้าใหม่" (Phase 1b,
+   * docs/3j-jewelry/oem/design-email-sku-phase1.md) — ใส่ได้เฉพาะตอน "สร้าง
+   * ใหม่ครั้งเดียว" เท่านั้น. แก้ตัวเลขในใบทีหลัง หรือผูก SKU ที่มีอยู่แล้วเข้ากับ
+   * item ไม่มีทางเดินผ่านช่องนี้เลย (createCatalogSku ถูกเรียกจาก CreateSkuDialog
+   * เท่านั้น — dialog นั้นสร้าง SKU ใหม่อย่างเดียว ไม่มี path แก้ไข SKU เดิม) —
+   * เขียนกลับ catalog ไม่ได้ในทางอื่น. ทุกช่อง optional — ผู้เรียก
+   * (CreateSkuDialog) ต้องกรองมาแล้วว่าใบมีค่าจริง ห้ามส่ง 0/"" แทนค่าว่าง. ไม่มี
+   * seedUnitCost/seedListPrice โดยเจตนา — ราคาที่กรอกในใบเป็นราคาของดีลนั้น (มี
+   * margin/NRE/ส่วนลดผสมอยู่) ไม่ใช่ต้นทุนมาตรฐานของสินค้า ส่งไปคือทำ catalog
+   * เพี้ยน (คำสั่งเจ้าของชัดเจน). */
+  seedWeightG?: number | null;
+  seedPurity?: number | null;
+  seedCategory?: string | null;
 }
 
 /** Filters free-typed prefix input down to what the DB will accept

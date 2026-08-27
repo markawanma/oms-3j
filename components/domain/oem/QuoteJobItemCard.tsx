@@ -62,6 +62,27 @@ function SkuPicker({
     if (match) onSelectSku(match);
   }
 
+  // Phase 1b: ดึงน้ำหนัก/ความบริสุทธิ์/ประเภทจาก item ปัจจุบันไปตั้งต้น SKU ใหม่
+  // (คำสั่งเจ้าของ 27 ส.ค. — "ดึงเลย" แต่ "ห้ามเขียนกลับ catalog" ในทางอื่น).
+  // isBar (เงินแท่ง 999) ไม่มี weightG/itemKind ที่เป็นความหมายเดียวกันเลย
+  // (ใช้ barSize/qty คนละ field) จึงไม่ส่งอะไรจากโหมดนั้น. silver_weight_g/
+  // silver_purity เป็นคอลัมน์เดียวที่ catalog มี ตั้งชื่อไว้สำหรับเงินโดยเฉพาะ —
+  // ทองคำ/ทองเหลืองมี job.weightG/job.purity ในฟอร์มเหมือนกัน แต่คำสั่งเจ้าของ
+  // ("วัสดุที่ไม่ใช่เงิน ต้องไม่ถูกยัดมั่ว") บอกให้กันไว้ก่อน ไม่เดาว่าคอลัมน์นี้ตั้งใจ
+  // ให้ใช้ข้ามวัสดุหรือเปล่า — ส่งเฉพาะ metal === "silver" เท่านั้น. เช็ค .trim()
+  // ก่อนเสมอ กัน Number("") === 0 หลุดมาเป็น "0 ก." แทนค่าว่างจริง.
+  const isBar = job.metal === "silver999";
+  const isSilver = job.metal === "silver";
+  const weightNum = Number(job.weightG);
+  const seedWeightG =
+    isSilver && !isBar && job.weightG.trim() !== "" && Number.isFinite(weightNum) && weightNum > 0 ? weightNum : null;
+  const purityNum = Number(job.purity);
+  const seedPurity =
+    isSilver && !isBar && job.purity.trim() !== "" && Number.isFinite(purityNum) && purityNum > 0 && purityNum <= 1
+      ? purityNum
+      : null;
+  const seedCategory = !isBar && job.itemKind ? job.itemKind : null;
+
   return (
     <div className="border-b border-zinc-100 pb-3">
       <div className="flex items-center justify-between gap-2">
@@ -81,6 +102,7 @@ function SkuPicker({
         prefixes={prefixes}
         prefixesLoading={prefixesLoading}
         prefixesError={prefixesError}
+        seed={{ weightG: seedWeightG, purity: seedPurity, category: seedCategory }}
         onCreated={(product) => onSelectSku(product)}
       />
       {job.productId ? (
