@@ -4,6 +4,7 @@ description: เขียนและรัน test — unit test, edge case, in
 tools: Read, Grep, Glob, Bash, Write, Edit, Skill
 skills:
   - oem-quote-invariants
+  - 3j-qa-regression-map
 model: sonnet
 ---
 
