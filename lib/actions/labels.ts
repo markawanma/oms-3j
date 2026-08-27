@@ -92,7 +92,12 @@ export async function createLabelUpload(
   const gateErr = requireOwnerAdmin();
   if (gateErr) return gateErr;
 
-  const fileName = (input?.fileName ?? "").trim();
+  // security 2a (Medium #5): ตัด control chars + RTL/LTR override (U+202E ทำชื่อ
+  // บนจอกลับด้าน หลอกพนักงานได้) + จำกัด 255 ตัวอักษรกัน row bloat
+  const fileName = (input?.fileName ?? "")
+    .trim()
+    .replace(/[\u0000-\u001F\u200E\u200F\u202A-\u202E]/g, "")
+    .slice(0, 255);
   const fileSize = Number(input?.fileSize);
   const sha256 = (input?.sha256 ?? "").trim().toLowerCase();
 
@@ -120,7 +125,7 @@ export async function createLabelUpload(
     const { data: existing, error: existingErr } = await supabase
       .schema(SCHEMA)
       .from("label_file")
-      .select("id, status")
+      .select("id, status, storage_path")
       .eq("shop_id", shopId)
       .eq("file_sha256", sha256)
       .maybeSingle();
@@ -132,7 +137,30 @@ export async function createLabelUpload(
     // URL rather than pointing the UI at bytes that no longer exist. Not an
     // explicit design case — flagged in the handoff report.
     if (existing && existing.status !== "purged") {
-      return { ok: true, data: { fileId: String(existing.id), uploadUrl: null, alreadyExists: true } };
+      // security 2a (Medium #3): แถว DB มี ≠ bytes ขึ้น storage แล้วจริง — ถ้า PUT
+      // รอบก่อนล้ม (เน็ตหลุด/ปิดแท็บ) การตอบ alreadyExists จะพาไฟล์นั้นติดตาย
+      // ถาวร (parse หา object ไม่เจอ -> parse_failed -> วนซ้ำ) จึงเช็คว่า object
+      // มีจริงก่อน ถ้าไม่มีให้ออก signed URL ใหม่บน path เดิมแทน
+      const existingPath = String(existing.storage_path ?? "");
+      const dirEnd = existingPath.lastIndexOf("/");
+      const { data: found } = await supabase.storage
+        .from(SHIPPING_LABELS_BUCKET)
+        .list(existingPath.slice(0, dirEnd), { search: existingPath.slice(dirEnd + 1), limit: 1 });
+      if (found && found.length > 0) {
+        return { ok: true, data: { fileId: String(existing.id), uploadUrl: null, alreadyExists: true } };
+      }
+      const { data: reSigned, error: reSignErr } = await supabase.storage
+        .from(SHIPPING_LABELS_BUCKET)
+        .createSignedUploadUrl(existingPath);
+      if (reSignErr || !reSigned) throw reSignErr ?? new Error("createSignedUploadUrl returned no data");
+      const { error: reviveErr } = await supabase
+        .schema(SCHEMA)
+        .from("label_file")
+        .update({ status: "uploaded", file_name: fileName, file_size_bytes: fileSize, updated_at: new Date().toISOString() })
+        .eq("id", existing.id)
+        .eq("shop_id", shopId);
+      if (reviveErr) throw reviveErr;
+      return { ok: true, data: { fileId: String(existing.id), uploadUrl: reSigned.signedUrl, alreadyExists: false } };
     }
 
     const path = `${shopId}/${bangkokYearMonth()}/${sha256}.pdf`;
@@ -329,9 +357,20 @@ export async function parseLabelFile(fileId: string): Promise<ActionResult<Label
     if (downloadErr || !blob) {
       throw downloadErr ?? new Error("storage download returned no data");
     }
+
+    // security 2a (High #1): เพดานขนาดต้องวัดจาก bytes จริงใน storage ฝั่ง server
+    // — ตัวเลขตอน createLabelUpload มาจาก client ล้วนๆ เชื่อไม่ได้ และต้องเช็ค
+    // ก่อน arrayBuffer() ไม่งั้นไฟล์ 2GB ถูกดูดเข้า heap ก่อนถึงด่าน
+    // object ที่ผิดกติกา = ลบทิ้งทันที ไม่ปล่อยขยะค้างในบัคเก็ต
+    if (blob.size > MAX_LABEL_FILE_BYTES) {
+      await supabase.storage.from(SHIPPING_LABELS_BUCKET).remove([file.storage_path]);
+      await markFileParseFailed(supabase, cleanFileId, shopId);
+      return { ok: false, error: "ไฟล์จริงในระบบใหญ่เกิน 20MB — อัปโหลดใหม่" };
+    }
     const bytes = new Uint8Array(await blob.arrayBuffer());
 
     if (!looksLikePdf(bytes)) {
+      await supabase.storage.from(SHIPPING_LABELS_BUCKET).remove([file.storage_path]);
       await markFileParseFailed(supabase, cleanFileId, shopId);
       return { ok: false, error: "ไฟล์นี้ไม่ใช่ PDF จริง (magic bytes ไม่ตรง) — อัปโหลดใหม่" };
     }
@@ -341,6 +380,8 @@ export async function parseLabelFile(fileId: string): Promise<ActionResult<Label
     // storage before trusting it as this file's identity.
     const actualSha256 = createHash("sha256").update(bytes).digest("hex");
     if (actualSha256 !== file.file_sha256) {
+      // security 2a (High #1): ของปลอมต้องถูกเก็บกวาด ไม่ใช่แค่ mark แล้วปล่อยค้าง
+      await supabase.storage.from(SHIPPING_LABELS_BUCKET).remove([file.storage_path]);
       await markFileParseFailed(supabase, cleanFileId, shopId);
       return { ok: false, error: "ไฟล์ในระบบเก็บข้อมูลไม่ตรงกับ sha256 ที่บันทึกไว้ — อัปโหลดใหม่" };
     }
@@ -402,10 +443,29 @@ export async function parseLabelFile(fileId: string): Promise<ActionResult<Label
     // could leave stale rows beyond the new page count. Not a single atomic
     // DB transaction — same sequential-steps trade-off as
     // lib/actions/import-orders.ts's commitOrderImport).
-    const { error: delErr } = await supabase.schema(SCHEMA).from("stg_label_page").delete().eq("label_file_id", cleanFileId);
+    // security 2a (Medium #4): แถวที่ apply แล้วถือหลักฐาน revert
+    // (fact_order_ids + applied_prev_code) — "อ่านใหม่" ห้ามลบทิ้ง ลบเฉพาะแถว
+    // ที่ยังไม่ apply แล้ว insert เฉพาะหน้า่ที่ไม่ชนหน้า applied เดิม
+    const { data: appliedRows, error: appliedErr } = await supabase
+      .schema(SCHEMA)
+      .from("stg_label_page")
+      .select("page_no")
+      .eq("label_file_id", cleanFileId)
+      .eq("shop_id", shopId)
+      .not("applied_at", "is", null);
+    if (appliedErr) throw appliedErr;
+    const appliedPageNos = new Set(((appliedRows ?? []) as { page_no: number }[]).map((r) => r.page_no));
+
+    const { error: delErr } = await supabase
+      .schema(SCHEMA)
+      .from("stg_label_page")
+      .delete()
+      .eq("label_file_id", cleanFileId)
+      .eq("shop_id", shopId)
+      .is("applied_at", null);
     if (delErr) throw delErr;
 
-    const insertRows = finalRows.map((p) => ({
+    const insertRows = finalRows.filter((p) => !appliedPageNos.has(p.pageNo)).map((p) => ({
       label_file_id: cleanFileId,
       shop_id: shopId,
       page_no: p.pageNo,
@@ -454,6 +514,7 @@ export async function parseLabelFile(fileId: string): Promise<ActionResult<Label
       .from("stg_label_page")
       .select("id, page_no, tracking_no, zipcode, match_status, match_detail")
       .eq("label_file_id", cleanFileId)
+      .eq("shop_id", shopId)
       .order("page_no", { ascending: true });
     if (finalErr) throw finalErr;
 
