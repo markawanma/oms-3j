@@ -21,7 +21,7 @@ import {
   type ParsedOrderReport,
   type ShapeIssue,
 } from "@/lib/import/order-report";
-import { LINE_ITEM_SOURCE_TYPE } from "@/lib/actions/import-line-items";
+import { LINE_ITEM_SOURCE_TYPE } from "@/lib/import/source-types";
 
 const SCHEMA = "analytics";
 const SOURCE_TYPE = "excel_order_report" as const;

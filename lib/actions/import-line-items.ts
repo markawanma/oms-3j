@@ -30,11 +30,12 @@ import {
   type LineReportShapeIssue,
   type ParsedLineReport,
 } from "@/lib/import/order-line-report";
+import {
+  LINE_ITEM_SOURCE_TYPE,
+  WARNING_KIND_PREFIX,
+} from "@/lib/import/source-types";
 
 const SCHEMA = "analytics";
-// Exported so import-orders.ts's getImportBatches() can query both source
-// types from one place instead of hardcoding this literal a second time.
-export const LINE_ITEM_SOURCE_TYPE = "excel_line_item_report" as const;
 const SOURCE_TYPE = LINE_ITEM_SOURCE_TYPE;
 
 const MAX_FILE_BYTES = 4 * 1024 * 1024; // matches next.config.mjs serverActions.bodySizeLimit
@@ -515,21 +516,3 @@ export async function getLineImportWarnings(batchId: string): Promise<ActionResu
   }
 }
 
-// error_detail prefixes written by analytics.transform_pending_order_lines
-// (migration 0094) for 'transformed' rows — exported so the UI can classify
-// warnings by prefix match without re-deriving/duplicating the proc's exact
-// wording. If the proc's Thai wording ever changes, this is the one place to
-// update; a row whose error_detail doesn't start with any of these falls into
-// an "other" bucket in the UI instead of crashing or being silently dropped.
-export const WARNING_KIND_PREFIX = {
-  // v_unit_cost stayed null through every tier — cost counted as 0. The one
-  // that matters most: profit on this order is overstated right now.
-  unknown_sku: "ไม่พบสินค้าในระบบ",
-  // 0094 tier 3: matched an ACTIVE product after stripping a 1-2 char leading
-  // junk prefix (e.g. a stray Thai IME mark) off sku_raw. Cost is real, but
-  // the source file's SKU column is probably typo'd — worth fixing upstream.
-  stripped_prefix_match: "จับคู่ด้วยรหัสที่ตัดอักขระนำหน้า",
-  // 0094 tier 2': matched an INACTIVE (discontinued) product by exact sku.
-  // Cost is that product's last known cost, not necessarily current.
-  inactive_match: "จับคู่กับสินค้าที่ปิดการขาย",
-} as const;

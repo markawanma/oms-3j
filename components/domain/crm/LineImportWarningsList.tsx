@@ -20,7 +20,8 @@
 
 import { useState } from "react";
 import { AlertTriangle, ChevronDown, ChevronUp } from "lucide-react";
-import { WARNING_KIND_PREFIX, type LineImportWarningRow } from "@/lib/actions/import-line-items";
+import { type LineImportWarningRow } from "@/lib/actions/import-line-items";
+import { WARNING_KIND_PREFIX } from "@/lib/import/source-types";
 import { formatCount } from "@/lib/tiktok/format";
 
 type WarningKind = keyof typeof WARNING_KIND_PREFIX | "other";

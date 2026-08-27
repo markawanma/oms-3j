@@ -14,10 +14,10 @@ import { useRouter } from "next/navigation";
 import { AlertTriangle, Eye, Trash2 } from "lucide-react";
 import { deleteStuckBatch, type ImportBatchRow } from "@/lib/actions/import-orders";
 import {
-  LINE_ITEM_SOURCE_TYPE,
   getLineImportWarnings,
   type LineImportWarningsResult,
 } from "@/lib/actions/import-line-items";
+import { LINE_ITEM_SOURCE_TYPE } from "@/lib/import/source-types";
 import { KIND_LABEL, KIND_BADGE_TONE, type FileKind } from "@/components/domain/crm/OrderImportClient";
 import { LineImportWarningsList } from "@/components/domain/crm/LineImportWarningsList";
 import { Badge, type BadgeTone } from "@/components/ui/Badge";
