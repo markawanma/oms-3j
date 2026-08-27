@@ -47,16 +47,17 @@ description: >-
 
 ## ⛔ ด่านที่ต้องผ่านก่อนเรียก UAT ทุกครั้ง
 
-** ต้องผ่าน —  ไม่พอ**
+**`npx next build` ต้องผ่าน — `tsc --noEmit` ไม่พอ**
 (บทเรียน 27 ส.ค. 69: tsc ผ่านสะอาด แต่เจ้าของเปิดหน้าเว็บแล้วเจอ Build Error
 ทันที เพราะ Next.js มีกฎของตัวเองที่ TypeScript ไม่รู้จัก)
 
-กฎของ Next.js ที่ tsc จับไม่ได้ — ต้องเช็คด้วยตา/สแกนเอง:
-- ไฟล์  **export ได้เฉพาะ async function** —  /
-  class / enum ทำให้ build ล้ม (type export ไม่นับ ถูกลบตอน compile)
-  ค่าคงที่ที่ต้องแชร์ให้ย้ายไปไฟล์ธรรมดา เช่น - สแกนให้ถูก: เช็ค**บรรทัดแรก**ของไฟล์ ไม่ใช่ grep ทั้งไฟล์ (ไฟล์ที่แค่เอ่ยถึง
-   ในคอมเมนต์จะติดมาด้วยเป็น false positive)
--  component ห้าม import server-only module ทางอ้อม
+กฎของ Next.js ที่ tsc จับไม่ได้ — ต้องสแกนเอง:
+- ไฟล์ `"use server"` **export ได้เฉพาะ async function** — `export const` /
+  class / enum / default ทำให้ build ล้ม (type export ไม่นับ ถูกลบตอน compile)
+  ค่าคงที่ที่ต้องแชร์ให้ย้ายไปไฟล์ธรรมดา เช่น `lib/import/source-types.ts`
+- สแกนให้ถูก: เช็ค **บรรทัดแรก** ของไฟล์ ไม่ใช่ grep ทั้งไฟล์ — ไฟล์ที่แค่เอ่ยถึง
+  คำนี้ในคอมเมนต์จะติดมาด้วยเป็น false positive (พลาดมาแล้วรอบแรก)
+- `"use client"` component ห้าม import server-only module ทางอ้อม
 - async component ใน client boundary / metadata export ผิดที่
 
 ## วิธีทำงานของ QA ในโปรเจกต์นี้
