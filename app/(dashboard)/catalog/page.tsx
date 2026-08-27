@@ -3,6 +3,7 @@ import { getProducts, getShopSetting, getSkuOrderAlerts } from "@/lib/actions/ca
 import { getDevRole } from "@/lib/dev/context";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { TruncatedDataNotice } from "@/components/ui/TruncatedDataNotice";
 import { ProductsPageClient } from "@/components/domain/catalog/ProductsPageClient";
 
 export const dynamic = "force-dynamic"; // catalog + spot price change on save
@@ -39,10 +40,18 @@ export default async function CatalogPage() {
   const alerts = alertsResult.ok ? alertsResult.data : [];
 
   return (
-    <ProductsPageClient
-      products={productsResult.data}
-      silverSpot={settingResult.data.silverSpotThbPerGram}
-      alerts={alerts}
-    />
+    <>
+      {productsResult.data.truncated && (
+        <TruncatedDataNotice
+          totalCount={productsResult.data.totalCount}
+          shownCount={productsResult.data.rows.length}
+        />
+      )}
+      <ProductsPageClient
+        products={productsResult.data.rows}
+        silverSpot={settingResult.data.silverSpotThbPerGram}
+        alerts={alerts}
+      />
+    </>
   );
 }

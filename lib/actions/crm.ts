@@ -30,6 +30,7 @@ import type { ActionResult } from "@/lib/types";
 import { RFM_SEGMENTS, type RfmSegment, type ValueTier } from "@/lib/crm/segments";
 import type { CrmChannelOption, CrmProvinceOption, OrderOverrideInput } from "@/lib/crm/order-override";
 import type { CrmMergeCandidateRow, MergeCandidateSide, MergeConfidence } from "@/lib/crm/merge";
+import { fetchAllRows } from "@/lib/supabase/query-limits";
 
 const SCHEMA = "analytics";
 
@@ -379,35 +380,64 @@ export interface CrmCustomerListRow {
   province: string | null;
 }
 
-export async function getCrmCustomers(): Promise<ActionResult<CrmCustomerListRow[]>> {
+export interface GetCrmCustomersResult {
+  rows: CrmCustomerListRow[];
+  /** True customer count for this shop (`count: "exact"` on v_customer_master
+   * — the row source `rows` is built from). See lib/supabase/query-limits.ts. */
+  totalCount: number;
+  /** true when either v_customer_master OR v_rfm_segment (the segment/
+   * value-tier lookup) was capped at MAX_UNBOUNDED_ROWS — a truncated
+   * v_rfm_segment alone would silently mislabel real customers as
+   * segment='no_orders' rather than just omit rows, so it counts as
+   * truncated too, not only a master-row shortfall. */
+  truncated: boolean;
+}
+
+export async function getCrmCustomers(): Promise<ActionResult<GetCrmCustomersResult>> {
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();
 
-    const [masterRes, segmentRes] = await Promise.all([
-      supabase
-        .schema(SCHEMA)
-        .from("v_customer_master")
-        .select("customer_id, display_name, order_count, revenue_sum, last_order_at, latest_province_name")
-        .eq("shop_id", shopId),
-      supabase
-        .schema(SCHEMA)
-        .from("v_rfm_segment")
-        .select("customer_id, segment, value_tier")
-        .eq("shop_id", shopId),
+    // fetchAllRows() pages past PostgREST's max-rows cap (this shop already
+    // has 2,653+ customers, module header comment above) — see
+    // lib/supabase/query-limits.ts for why a single .range() call can't do
+    // this alone. .order("customer_id") is the deterministic tiebreaker
+    // fetchAllRows() needs for correct paging (customer_id is v_customer_master
+    // / v_rfm_segment's own primary key — unique per row, unlike display_name
+    // or segment); the customer-facing sort ("most-recently-active first")
+    // happens client-side below, AFTER every row is in hand.
+    const [masterResult, segmentResult] = await Promise.all([
+      fetchAllRows((from, to) =>
+        supabase
+          .schema(SCHEMA)
+          .from("v_customer_master")
+          .select("customer_id, display_name, order_count, revenue_sum, last_order_at, latest_province_name", {
+            count: "exact",
+          })
+          .eq("shop_id", shopId)
+          .order("customer_id", { ascending: true })
+          .range(from, to)
+      ),
+      fetchAllRows((from, to) =>
+        supabase
+          .schema(SCHEMA)
+          .from("v_rfm_segment")
+          .select("customer_id, segment, value_tier", { count: "exact" })
+          .eq("shop_id", shopId)
+          .order("customer_id", { ascending: true })
+          .range(from, to)
+      ),
     ]);
-    if (masterRes.error) throw masterRes.error;
-    if (segmentRes.error) throw segmentRes.error;
 
     const segmentMap = new Map<string, RfmSegment>();
     const valueTierMap = new Map<string, ValueTier | null>();
-    for (const row of (segmentRes.data ?? []) as { customer_id: string; segment: string; value_tier: string | null }[]) {
+    for (const row of segmentResult.rows as { customer_id: string; segment: string; value_tier: string | null }[]) {
       segmentMap.set(row.customer_id, row.segment as RfmSegment);
       valueTierMap.set(row.customer_id, (row.value_tier as ValueTier | null) ?? null);
     }
 
     const rows: CrmCustomerListRow[] = (
-      (masterRes.data ?? []) as {
+      masterResult.rows as {
         customer_id: string;
         display_name: string | null;
         order_count: number;
@@ -429,7 +459,11 @@ export async function getCrmCustomers(): Promise<ActionResult<CrmCustomerListRow
       // Most-recently-active first; customers with no orders (null last_order_at) sort last.
       .sort((a, b) => (b.lastOrderAt ?? "").localeCompare(a.lastOrderAt ?? ""));
 
-    return { ok: true, data: rows };
+    // A truncated segment lookup mislabels real customers as "no_orders"
+    // rather than just omitting rows — counts as truncated too, not only a
+    // master-row shortfall.
+    const truncated = masterResult.truncated || segmentResult.truncated;
+    return { ok: true, data: { rows, totalCount: masterResult.totalCount, truncated } };
   } catch (err) {
     console.error("getCrmCustomers failed", err);
     return { ok: false, error: "โหลดรายชื่อลูกค้าไม่สำเร็จ ลองใหม่อีกครั้ง" };
@@ -443,9 +477,19 @@ export async function getCrmCustomers(): Promise<ActionResult<CrmCustomerListRow
 // aggregation) and customer/channel/province are resolved via batched lookups
 // (dim_customer/dim_channel/dim_geo fetched once, mapped in JS) — same
 // "no N+1" pattern getCrmCustomerDetail uses for a single customer's orders,
-// just applied across the whole shop. 334 rows (design DoD) is well within
-// what a single unpaginated fetch + client-side filter can handle, same
-// reasoning as CustomersPageClient's header comment.
+// just applied across the whole shop.
+//
+// ROW CAP (fixed 2026-08-27): the "334 rows fits in one fetch" assumption
+// above was true at design time but stale — the shop has grown past
+// PostgREST's implicit 1000-row cap (analytics.fact_order has 5,777+ rows
+// today). An unpaginated `.select()` with no `.range()` was silently
+// truncated to exactly 1,000 rows with NO error, so an unfiltered page load
+// showed "1,000 ออเดอร์ · ฿486,459" when the true 13–27 ส.ค. window was 1,003
+// orders / ฿495,882.22 — ฿9,423 of real revenue missing with nothing telling
+// the owner. Fixed via lib/supabase/query-limits.ts's MAX_UNBOUNDED_ROWS
+// pattern: `count: "exact"` + `.range()` instead of an implicit/no limit, and
+// `truncated`/`totalCount` on the result so the UI can never show a partial
+// list as if it were complete again.
 // ============================================================================
 
 export interface CrmOrderRow {
@@ -483,7 +527,18 @@ export interface GetCrmOrdersParams {
   to?: string | null;
 }
 
-export async function getCrmOrders(params?: GetCrmOrdersParams): Promise<ActionResult<CrmOrderRow[]>> {
+export interface GetCrmOrdersResult {
+  rows: CrmOrderRow[];
+  /** True count from the DB for the same filtered query (`count: "exact"`) —
+   * always trustworthy even when `rows.length` was capped at
+   * MAX_UNBOUNDED_ROWS. See lib/supabase/query-limits.ts. */
+  totalCount: number;
+  /** true when totalCount > rows.length — UI MUST show this instead of
+   * quietly rendering a partial list/sum as if it were complete. */
+  truncated: boolean;
+}
+
+export async function getCrmOrders(params?: GetCrmOrdersParams): Promise<ActionResult<GetCrmOrdersResult>> {
   let from = params?.from && isValidDateStr(params.from) ? params.from : null;
   let to = params?.to && isValidDateStr(params.to) ? params.to : null;
   if (from && to && from > to) {
@@ -496,20 +551,32 @@ export async function getCrmOrders(params?: GetCrmOrdersParams): Promise<ActionR
     const shopId = getDevShopId();
     const supabase = getServiceClient();
 
-    let factQuery = supabase
-      .schema(SCHEMA)
-      .from("v_fact_order")
-      .select(
-        "id, source_order_no, order_date, customer_id, channel_id, revenue, profit, profit_status, province_code, tracking_no, item_count, is_edited"
-      )
-      .eq("shop_id", shopId)
-      .order("order_date", { ascending: false });
-    if (from) factQuery = factQuery.gte("order_date", from);
-    if (to) factQuery = factQuery.lte("order_date", to);
-    const { data: factData, error: factErr } = await factQuery;
-    if (factErr) throw factErr;
+    // fetchAllRows() pages past PostgREST's max-rows cap — see
+    // lib/supabase/query-limits.ts header for the 2026-08-27 incident this
+    // fixed (a bare .range(0, MAX_UNBOUNDED_ROWS-1) call does NOT get more
+    // than one page's worth of rows back, ever). .order("id") is the
+    // deterministic tiebreaker paging needs: many orders share the same
+    // order_date, and without a unique-per-row column last in the ORDER BY,
+    // Postgres can return tied rows in a different order on each `.range()`
+    // call — this is the SECOND bug that hit this page for real (same
+    // filters, reloaded twice, returned ฿486,459 then ฿492,132).
+    const factResult = await fetchAllRows((pageFrom, pageTo) => {
+      let q = supabase
+        .schema(SCHEMA)
+        .from("v_fact_order")
+        .select(
+          "id, source_order_no, order_date, customer_id, channel_id, revenue, profit, profit_status, province_code, tracking_no, item_count, is_edited",
+          { count: "exact" }
+        )
+        .eq("shop_id", shopId)
+        .order("order_date", { ascending: false })
+        .order("id", { ascending: false });
+      if (from) q = q.gte("order_date", from);
+      if (to) q = q.lte("order_date", to);
+      return q.range(pageFrom, pageTo);
+    });
 
-    const factRows = (factData ?? []) as {
+    const factRows = factResult.rows as {
       id: string;
       source_order_no: string;
       order_date: string;
@@ -590,7 +657,7 @@ export async function getCrmOrders(params?: GetCrmOrdersParams): Promise<ActionR
       };
     });
 
-    return { ok: true, data: rows };
+    return { ok: true, data: { rows, totalCount: factResult.totalCount, truncated: factResult.truncated } };
   } catch (err) {
     console.error("getCrmOrders failed", err);
     return { ok: false, error: "โหลดรายการออเดอร์ไม่สำเร็จ ลองใหม่อีกครั้ง" };

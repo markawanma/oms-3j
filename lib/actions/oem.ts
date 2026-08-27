@@ -56,6 +56,7 @@ import type {
 } from "@/lib/oem/types";
 import { hasAnyContact, isValidThaiTaxId, parseBillAddress } from "@/lib/oem/display";
 import type { SellerProfile } from "@/lib/oem/sellerProfile";
+import { fetchAllRows } from "@/lib/supabase/query-limits";
 
 const SCHEMA = "analytics";
 // T4-T6 routes (all `dynamic = "force-dynamic"`, so this is belt-and-braces
@@ -1336,7 +1337,16 @@ async function attachBillBranchLabels(
   return rows.map((r) => (r.customerId ? { ...r, billBranchLabel: byId.get(r.customerId) ?? null } : r));
 }
 
-export async function getQuotes(status?: OemQuoteStatus): Promise<ActionResult<OemQuoteRow[]>> {
+export interface GetQuotesResult {
+  rows: OemQuoteRow[];
+  /** True count from the DB for this same filtered query (`count: "exact"`)
+   * — trustworthy even when `rows.length` was capped at MAX_UNBOUNDED_ROWS.
+   * See lib/supabase/query-limits.ts. */
+  totalCount: number;
+  truncated: boolean;
+}
+
+export async function getQuotes(status?: OemQuoteStatus): Promise<ActionResult<GetQuotesResult>> {
   const gateErr = requireOwnerAdmin();
   if (gateErr) return gateErr;
 
@@ -1344,13 +1354,20 @@ export async function getQuotes(status?: OemQuoteStatus): Promise<ActionResult<O
     const shopId = getDevShopId();
     const supabase = getServiceClient();
 
-    let query = supabase.schema(SCHEMA).from("v_oem_quote").select(QUOTE_COLUMNS).eq("shop_id", shopId);
-    if (status) query = query.eq("status", status);
-    const { data, error } = await query.order("created_at", { ascending: false });
-    if (error) throw error;
+    // fetchAllRows() pages past PostgREST's max-rows cap — see
+    // lib/supabase/query-limits.ts (this is a growing document registry,
+    // same risk class as the /crm/orders row cap it fixed). created_at can
+    // tie (bulk operations, same millisecond), so `.order("id")` last is the
+    // deterministic tiebreaker paging needs.
+    const quoteResult = await fetchAllRows((pageFrom, pageTo) => {
+      let q = supabase.schema(SCHEMA).from("v_oem_quote").select(QUOTE_COLUMNS, { count: "exact" }).eq("shop_id", shopId);
+      if (status) q = q.eq("status", status);
+      return q.order("created_at", { ascending: false }).order("id", { ascending: false }).range(pageFrom, pageTo);
+    });
 
-    const rows = ((data ?? []) as Record<string, unknown>[]).map(mapQuoteRow);
-    return { ok: true, data: await attachBillBranchLabels(rows, shopId, supabase) };
+    const rows = (quoteResult.rows as Record<string, unknown>[]).map(mapQuoteRow);
+    const withBranchLabels = await attachBillBranchLabels(rows, shopId, supabase);
+    return { ok: true, data: { rows: withBranchLabels, totalCount: quoteResult.totalCount, truncated: quoteResult.truncated } };
   } catch (err) {
     console.error("getQuotes failed", err);
     return { ok: false, error: "โหลดรายการใบเสนอราคาไม่สำเร็จ ลองใหม่อีกครั้ง" };
@@ -1581,10 +1598,21 @@ async function resolveDealQuoteIds(
   return ids.length > 0 ? ids : [quoteId];
 }
 
+export interface GetReceiptsResult {
+  rows: OemReceiptRow[];
+  /** True count from the DB for this same filtered query (`count: "exact"`)
+   * — trustworthy even when `rows.length` was capped at MAX_UNBOUNDED_ROWS.
+   * See lib/supabase/query-limits.ts. Receipts are immutable tax
+   * documents (oem-quote-invariants §7) — a silently truncated registry is
+   * worse here than almost anywhere else in the app. */
+  totalCount: number;
+  truncated: boolean;
+}
+
 /** All receipts for a shop, optionally scoped to one job/deal (every
  * quote_id in that deal's renegotiation chain — see resolveDealQuoteIds).
  * Pass no quoteId for /oem/receipts' shop-wide registry. */
-export async function getReceipts(quoteId?: string): Promise<ActionResult<OemReceiptRow[]>> {
+export async function getReceipts(quoteId?: string): Promise<ActionResult<GetReceiptsResult>> {
   const gateErr = requireOwnerAdmin();
   if (gateErr) return gateErr;
 
@@ -1592,16 +1620,25 @@ export async function getReceipts(quoteId?: string): Promise<ActionResult<OemRec
     const shopId = getDevShopId();
     const supabase = getServiceClient();
 
-    let query = supabase.schema(SCHEMA).from("v_oem_receipt").select(RECEIPT_COLUMNS).eq("shop_id", shopId);
+    let dealIds: string[] | null = null;
     if (quoteId) {
-      const dealIds = await resolveDealQuoteIds(supabase, shopId, quoteId);
-      if (dealIds.length === 0) return { ok: true, data: [] };
-      query = query.in("quote_id", dealIds);
+      dealIds = await resolveDealQuoteIds(supabase, shopId, quoteId);
+      if (dealIds.length === 0) return { ok: true, data: { rows: [], totalCount: 0, truncated: false } };
     }
-    const { data, error } = await query.order("created_at", { ascending: false });
-    if (error) throw error;
 
-    return { ok: true, data: ((data ?? []) as Record<string, unknown>[]).map(mapReceiptRow) };
+    // fetchAllRows() pages past PostgREST's max-rows cap — see
+    // lib/supabase/query-limits.ts (same risk class as the /crm/orders row
+    // cap it fixed; this table is a legal tax-document registry).
+    // created_at can tie, so `.order("id")` last is the deterministic
+    // tiebreaker paging needs.
+    const receiptResult = await fetchAllRows((pageFrom, pageTo) => {
+      let q = supabase.schema(SCHEMA).from("v_oem_receipt").select(RECEIPT_COLUMNS, { count: "exact" }).eq("shop_id", shopId);
+      if (dealIds) q = q.in("quote_id", dealIds);
+      return q.order("created_at", { ascending: false }).order("id", { ascending: false }).range(pageFrom, pageTo);
+    });
+
+    const rows = (receiptResult.rows as Record<string, unknown>[]).map(mapReceiptRow);
+    return { ok: true, data: { rows, totalCount: receiptResult.totalCount, truncated: receiptResult.truncated } };
   } catch (err) {
     console.error("getReceipts failed:", err instanceof Error ? err.message : String(err));
     return { ok: false, error: "โหลดรายการใบเสร็จไม่สำเร็จ ลองใหม่อีกครั้ง" };

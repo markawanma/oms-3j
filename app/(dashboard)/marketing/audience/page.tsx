@@ -3,6 +3,7 @@ import { getAudience } from "@/lib/actions/marketing";
 import { getDevRole } from "@/lib/dev/context";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { TruncatedDataNotice } from "@/components/ui/TruncatedDataNotice";
 import { AudiencePageClient } from "@/components/domain/marketing/AudiencePageClient";
 
 export const dynamic = "force-dynamic";
@@ -29,5 +30,12 @@ export default async function MarketingAudiencePage() {
 
   if (!result.ok) return <ErrorState message={result.error} />;
 
-  return <AudiencePageClient rows={result.data} />;
+  return (
+    <>
+      {result.data.truncated && (
+        <TruncatedDataNotice totalCount={result.data.totalCount} shownCount={result.data.rows.length} />
+      )}
+      <AudiencePageClient rows={result.data.rows} />
+    </>
+  );
 }

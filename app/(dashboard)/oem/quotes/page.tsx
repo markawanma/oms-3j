@@ -3,6 +3,7 @@ import { getQuotes } from "@/lib/actions/oem";
 import { getDevRole } from "@/lib/dev/context";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { TruncatedDataNotice } from "@/components/ui/TruncatedDataNotice";
 import { QuotesPageClient } from "@/components/domain/oem/QuotesPageClient";
 
 export const dynamic = "force-dynamic";
@@ -28,5 +29,12 @@ export default async function OemQuotesPage() {
   }
   if (!quotesResult.ok) return <ErrorState message={quotesResult.error} />;
 
-  return <QuotesPageClient quotes={quotesResult.data} />;
+  return (
+    <>
+      {quotesResult.data.truncated && (
+        <TruncatedDataNotice totalCount={quotesResult.data.totalCount} shownCount={quotesResult.data.rows.length} />
+      )}
+      <QuotesPageClient quotes={quotesResult.data.rows} />
+    </>
+  );
 }

@@ -1,6 +1,7 @@
 import { getCrmCustomers } from "@/lib/actions/crm";
 import { CustomersPageClient } from "@/components/domain/crm/CustomersPageClient";
 import { ErrorState } from "@/components/ui/ErrorState";
+import { TruncatedDataNotice } from "@/components/ui/TruncatedDataNotice";
 
 export const dynamic = "force-dynamic"; // customer list changes as orders import — never cache
 
@@ -26,5 +27,12 @@ export default async function CrmCustomersPage({
     return <ErrorState message={result.error} />;
   }
 
-  return <CustomersPageClient rows={result.data} initialSegment={segment} />;
+  return (
+    <>
+      {result.data.truncated && (
+        <TruncatedDataNotice totalCount={result.data.totalCount} shownCount={result.data.rows.length} />
+      )}
+      <CustomersPageClient rows={result.data.rows} initialSegment={segment} />
+    </>
+  );
 }
