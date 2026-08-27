@@ -386,6 +386,14 @@ export interface ImportBatchRow {
   rowCountParsed: number | null;
   rowCountLoaded: number | null;
   errorCount: number;
+  /** Count of line-item rows that landed as import_status='transformed' WITH
+   * a non-null error_detail — i.e. the row IS in fact_order_item and DID
+   * count toward cogs/profit, but via an unknown-SKU/fuzzy/inactive-product
+   * match (see lib/actions/import-line-items.ts WARNING_KIND_PREFIX). Always
+   * 0 for order-report batches (that staging table has no such state). Same
+   * client-side-aggregation trade-off as errorCount above (row volume here is
+   * hundreds, not worth a second RPC/view for this page). */
+  warningCount: number;
   status: "loaded" | "merged" | "transformed" | "failed";
   importedAt: string;
   sourceType: typeof SOURCE_TYPE | typeof LINE_ITEM_SOURCE_TYPE;
@@ -415,23 +423,35 @@ export async function getImportBatches(): Promise<ActionResult<ImportBatchRow[]>
     // hundreds, not worth a second RPC/view for this page (design §3.2).
     // Two separate queries (order-report rows vs line-item rows) merged into
     // one map, since the two staging tables never share a batch_id.
-    const [{ data: orderErrorRows, error: orderErrorErr }, { data: lineErrorRows, error: lineErrorErr }] =
-      await Promise.all([
-        supabase
-          .schema(SCHEMA)
-          .from("stg_order_import")
-          .select("batch_id")
-          .eq("shop_id", shopId)
-          .eq("import_status", "error"),
-        supabase
-          .schema(SCHEMA)
-          .from("stg_order_line_import")
-          .select("batch_id")
-          .eq("shop_id", shopId)
-          .eq("import_status", "error"),
-      ]);
+    const [
+      { data: orderErrorRows, error: orderErrorErr },
+      { data: lineErrorRows, error: lineErrorErr },
+      { data: lineWarningRows, error: lineWarningErr },
+    ] = await Promise.all([
+      supabase
+        .schema(SCHEMA)
+        .from("stg_order_import")
+        .select("batch_id")
+        .eq("shop_id", shopId)
+        .eq("import_status", "error"),
+      supabase
+        .schema(SCHEMA)
+        .from("stg_order_line_import")
+        .select("batch_id")
+        .eq("shop_id", shopId)
+        .eq("import_status", "error"),
+      // 'transformed' rows with a breadcrumb — see ImportBatchRow.warningCount.
+      supabase
+        .schema(SCHEMA)
+        .from("stg_order_line_import")
+        .select("batch_id")
+        .eq("shop_id", shopId)
+        .eq("import_status", "transformed")
+        .not("error_detail", "is", null),
+    ]);
     if (orderErrorErr) throw orderErrorErr;
     if (lineErrorErr) throw lineErrorErr;
+    if (lineWarningErr) throw lineWarningErr;
 
     const errorCountByBatch = new Map<string, number>();
     for (const r of [
@@ -439,6 +459,11 @@ export async function getImportBatches(): Promise<ActionResult<ImportBatchRow[]>
       ...((lineErrorRows ?? []) as { batch_id: string }[]),
     ]) {
       errorCountByBatch.set(r.batch_id, (errorCountByBatch.get(r.batch_id) ?? 0) + 1);
+    }
+
+    const warningCountByBatch = new Map<string, number>();
+    for (const r of (lineWarningRows ?? []) as { batch_id: string }[]) {
+      warningCountByBatch.set(r.batch_id, (warningCountByBatch.get(r.batch_id) ?? 0) + 1);
     }
 
     const rows: ImportBatchRow[] = (
@@ -459,6 +484,7 @@ export async function getImportBatches(): Promise<ActionResult<ImportBatchRow[]>
       rowCountParsed: b.row_count_parsed,
       rowCountLoaded: b.row_count_loaded,
       errorCount: errorCountByBatch.get(b.id) ?? 0,
+      warningCount: warningCountByBatch.get(b.id) ?? 0,
       status: (BATCH_STATUSES as readonly string[]).includes(b.status)
         ? (b.status as ImportBatchRow["status"])
         : "loaded",

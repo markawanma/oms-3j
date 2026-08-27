@@ -413,3 +413,123 @@ export async function commitLineImport(formData: FormData): Promise<ActionResult
     };
   }
 }
+
+// ============================================================================
+// getLineImportWarnings — surfaces the error_detail breadcrumbs that
+// analytics.transform_pending_order_lines (0093/0094) writes on 'transformed'
+// rows. Those rows are NOT failures (import_status stays 'transformed', the
+// row IS in fact_order_item, cogs/profit ARE computed) — but the cost used
+// was either 0 (SKU truly unknown) or a fuzzy/stale match, so the owner needs
+// to see exactly which order/SKU before trusting the profit number. Before
+// this action, that breadcrumb only existed as free text in the DB — nothing
+// in the app ever selected it.
+// ============================================================================
+
+export interface LineImportWarningRow {
+  sourceOrderNo: string;
+  skuRaw: string;
+  productNameRaw: string | null;
+  qty: number | null;
+  errorDetail: string;
+}
+
+export interface LineImportWarningsResult {
+  batchId: string;
+  /** Up to WARNING_ROW_LIMIT rows, oldest source_order_no first. */
+  rows: LineImportWarningRow[];
+  /** True count from the DB (via a separate count-only query) — always
+   * trustworthy even when `rows.length` was capped. See WARNING_ROW_LIMIT. */
+  totalCount: number;
+}
+
+// PostgREST hard-caps any single `select` at 1000 rows regardless of an
+// explicit .limit() below that — lib/actions/crm.ts hit exactly this bug
+// (getCrmCustomerDimensions header comment: two capped selects silently
+// under-counted ~3k customers to ~333). We avoid ever needing more than one
+// page by (a) running a separate `count: "exact", head: true` query for the
+// TRUE total first, and (b) capping the data query at this same limit so we
+// never rely on getting more than one page back. If totalCount > rows.length,
+// the UI must say so out loud ("แสดง N จากทั้งหมด M") instead of quietly
+// showing a partial list as if it were complete.
+const WARNING_ROW_LIMIT = 1000;
+
+export async function getLineImportWarnings(batchId: string): Promise<ActionResult<LineImportWarningsResult>> {
+  const gateErr = requireOwnerAdmin();
+  if (gateErr) return gateErr;
+  if (!batchId) return { ok: false, error: "ไม่พบ batch ที่ต้องการดูคำเตือน" };
+
+  try {
+    const shopId = getDevShopId();
+    const supabase = getServiceClient();
+
+    const [{ count, error: countErr }, { data, error: dataErr }] = await Promise.all([
+      supabase
+        .schema(SCHEMA)
+        .from("stg_order_line_import")
+        .select("id", { count: "exact", head: true })
+        .eq("shop_id", shopId)
+        .eq("batch_id", batchId)
+        .eq("import_status", "transformed")
+        .not("error_detail", "is", null),
+      supabase
+        .schema(SCHEMA)
+        .from("stg_order_line_import")
+        .select("source_order_no, sku_raw, product_name_raw, qty, error_detail")
+        .eq("shop_id", shopId)
+        .eq("batch_id", batchId)
+        .eq("import_status", "transformed")
+        .not("error_detail", "is", null)
+        .order("source_order_no", { ascending: true })
+        .order("line_no", { ascending: true })
+        .limit(WARNING_ROW_LIMIT),
+    ]);
+    if (countErr) throw countErr;
+    if (dataErr) throw dataErr;
+
+    const rows: LineImportWarningRow[] = (
+      (data ?? []) as {
+        source_order_no: string | null;
+        sku_raw: string | null;
+        product_name_raw: string | null;
+        qty: number | null;
+        error_detail: string | null;
+      }[]
+    )
+      // sku_raw/source_order_no are not-null by the proc's own gating (blank-sku
+      // and null-order rows never reach 'transformed' with an error_detail
+      // written by the match tiers) — filtered defensively rather than assumed,
+      // so a future proc change can't silently crash this mapping.
+      .filter((r) => r.source_order_no !== null && r.sku_raw !== null && r.error_detail !== null)
+      .map((r) => ({
+        sourceOrderNo: r.source_order_no as string,
+        skuRaw: r.sku_raw as string,
+        productNameRaw: r.product_name_raw,
+        qty: r.qty,
+        errorDetail: r.error_detail as string,
+      }));
+
+    return { ok: true, data: { batchId, rows, totalCount: count ?? rows.length } };
+  } catch (err) {
+    console.error("getLineImportWarnings failed", err);
+    return { ok: false, error: "โหลดรายการคำเตือนไม่สำเร็จ ลองใหม่อีกครั้ง" };
+  }
+}
+
+// error_detail prefixes written by analytics.transform_pending_order_lines
+// (migration 0094) for 'transformed' rows — exported so the UI can classify
+// warnings by prefix match without re-deriving/duplicating the proc's exact
+// wording. If the proc's Thai wording ever changes, this is the one place to
+// update; a row whose error_detail doesn't start with any of these falls into
+// an "other" bucket in the UI instead of crashing or being silently dropped.
+export const WARNING_KIND_PREFIX = {
+  // v_unit_cost stayed null through every tier — cost counted as 0. The one
+  // that matters most: profit on this order is overstated right now.
+  unknown_sku: "ไม่พบสินค้าในระบบ",
+  // 0094 tier 3: matched an ACTIVE product after stripping a 1-2 char leading
+  // junk prefix (e.g. a stray Thai IME mark) off sku_raw. Cost is real, but
+  // the source file's SKU column is probably typo'd — worth fixing upstream.
+  stripped_prefix_match: "จับคู่ด้วยรหัสที่ตัดอักขระนำหน้า",
+  // 0094 tier 2': matched an INACTIVE (discontinued) product by exact sku.
+  // Cost is that product's last known cost, not necessarily current.
+  inactive_match: "จับคู่กับสินค้าที่ปิดการขาย",
+} as const;

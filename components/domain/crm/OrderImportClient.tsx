@@ -43,13 +43,16 @@ import {
 import {
   commitLineImport,
   previewLineImport,
+  getLineImportWarnings,
   type LineImportCommitResult,
   type LineImportPreview,
+  type LineImportWarningsResult,
 } from "@/lib/actions/import-line-items";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { useToast } from "@/components/ui/Toast";
+import { LineImportWarningsList } from "@/components/domain/crm/LineImportWarningsList";
 import { formatCount } from "@/lib/tiktok/format";
 import { formatPeriodHint, formatDateRange, validateXlsxFile } from "@/lib/crm/import-client";
 
@@ -78,6 +81,11 @@ interface CommitItem {
   orderResult?: ImportCommitResult;
   lineResult?: LineImportCommitResult;
   errorMessage?: string;
+  /** Fetched separately after a successful line_item commit (see
+   * fetchWarningsFor below) — undefined while loading/not yet attempted,
+   * null if the fetch itself failed (non-fatal: the import already
+   * succeeded, this is just "couldn't load the detail list"). */
+  warnings?: LineImportWarningsResult | null;
 }
 
 type Phase =
@@ -177,7 +185,17 @@ function CommitResultSummary({ result }: { result: ImportCommitResult }) {
   );
 }
 
-function LineCommitResultSummary({ result }: { result: LineImportCommitResult }) {
+function LineCommitResultSummary({
+  result,
+  warnings,
+  warningsLoading,
+}: {
+  result: LineImportCommitResult;
+  /** undefined = not yet fetched, null = fetch failed, object = loaded (see
+   * OrderImportClient's fetchWarningsFor). */
+  warnings?: LineImportWarningsResult | null;
+  warningsLoading?: boolean;
+}) {
   return (
     <>
       <div className="flex flex-wrap gap-3">
@@ -199,6 +217,22 @@ function LineCommitResultSummary({ result }: { result: LineImportCommitResult })
           <AlertTriangle className="h-4 w-4" aria-hidden="true" />
           ดูรายการที่ไม่ผ่าน ({formatCount(result.errored)})
         </Link>
+      )}
+
+      {warningsLoading && (
+        <p className="flex items-center gap-1.5 text-xs text-zinc-500">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+          กำลังโหลดรายละเอียดคำเตือน…
+        </p>
+      )}
+      {warnings === null && !warningsLoading && (
+        <p className="text-xs text-zinc-500">โหลดรายละเอียดคำเตือนไม่สำเร็จ — ดูย้อนหลังได้จากตารางประวัติด้านล่าง</p>
+      )}
+      {warnings && !warningsLoading && warnings.rows.length === 0 && (
+        <p className="text-xs text-green-700">ไม่มีคำเตือน — ทุกแถวจับคู่กับสินค้าที่มีต้นทุนได้ตรง</p>
+      )}
+      {warnings && !warningsLoading && warnings.rows.length > 0 && (
+        <LineImportWarningsList rows={warnings.rows} totalCount={warnings.totalCount} />
       )}
     </>
   );
@@ -291,6 +325,24 @@ export function OrderImportClient() {
     setPhase({ kind: "preview_multi", items });
   }
 
+  // Fetches the "SKU not found / fuzzy match" breadcrumbs for a just-committed
+  // line-item batch and attaches them to the done_single phase — fired
+  // without blocking the commit's own success UI (the import already
+  // succeeded regardless of whether this list loads). Guards against stale
+  // writes: if the phase has since moved on (user clicked "นำเข้าไฟล์ถัดไป",
+  // or committed a different file) this becomes a no-op instead of clobbering
+  // whatever's on screen now.
+  async function fetchAndAttachWarnings(batchId: string) {
+    const res = await getLineImportWarnings(batchId);
+    setPhase((prev) => {
+      if (prev.kind !== "done_single" || prev.item.kind !== "line_item" || prev.item.lineResult?.batchId !== batchId) {
+        return prev;
+      }
+      return { kind: "done_single", item: { ...prev.item, warnings: res.ok ? res.data : null } };
+    });
+    if (!res.ok) console.error("fetchAndAttachWarnings failed", res.error);
+  }
+
   async function commitSingle(item: PreviewItem) {
     if (!item.kind) return; // guard: confirm button is never shown for kind===null
     setPhase({ kind: "committing_single" });
@@ -311,8 +363,12 @@ export function OrderImportClient() {
           toast.push(result.error, "error");
           return;
         }
-        setPhase({ kind: "done_single", item: { file: item.file, kind: "line_item", status: "done", lineResult: result.data } });
+        setPhase({
+          kind: "done_single",
+          item: { file: item.file, kind: "line_item", status: "done", lineResult: result.data, warnings: undefined },
+        });
         toast.push(`นำเข้าสำเร็จ — แปลงสำเร็จ ${result.data.transformed} รายการสินค้า`);
+        void fetchAndAttachWarnings(result.data.batchId);
       }
       router.refresh();
     } catch (err) {
@@ -475,7 +531,11 @@ export function OrderImportClient() {
           {phase.item.kind === "order" && phase.item.orderResult ? (
             <CommitResultSummary result={phase.item.orderResult} />
           ) : phase.item.lineResult ? (
-            <LineCommitResultSummary result={phase.item.lineResult} />
+            <LineCommitResultSummary
+              result={phase.item.lineResult}
+              warnings={phase.item.warnings}
+              warningsLoading={phase.item.warnings === undefined}
+            />
           ) : null}
           <p className="text-xs text-zinc-500">{phase.item.kind === "order" ? ORDER_PROFIT_NOTE : LINE_PROFIT_NOTE}</p>
           <div className="flex justify-end">
