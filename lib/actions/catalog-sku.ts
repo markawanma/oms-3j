@@ -24,7 +24,7 @@ import { getServiceClient } from "@/lib/supabase/server";
 import { getDevShopId, getDevRole } from "@/lib/dev/context";
 import type { ActionResult } from "@/lib/types";
 import type { CreateCatalogSkuInput, SkuPrefixRow, SkuWorkType, UpsertSkuPrefixInput } from "@/lib/catalog/sku-prefix";
-import { isValidSkuPrefix, SKU_CONTROLLED_ERROR_CODES } from "@/lib/catalog/sku-prefix";
+import { humanizeSkuRpcError, isValidSkuPrefix, SKU_CONTROLLED_ERROR_CODES } from "@/lib/catalog/sku-prefix";
 
 const SCHEMA = "analytics";
 
@@ -249,7 +249,7 @@ export async function upsertSkuPrefix(input: UpsertSkuPrefixInput): Promise<Acti
       // below). See SKU_CONTROLLED_ERROR_CODES for the full set + why each
       // is safe to show verbatim.
       if (SKU_CONTROLLED_ERROR_CODES.has((error as { code?: string }).code ?? "")) {
-        return { ok: false, error: error.message };
+        return { ok: false, error: humanizeSkuRpcError(error.message) };
       }
       throw error;
     }
@@ -296,7 +296,7 @@ export async function createCatalogSku(input: CreateCatalogSkuInput): Promise<Ac
       // SKU_CONTROLLED_ERROR_CODES for the full set + why each is safe to
       // show verbatim.
       if (SKU_CONTROLLED_ERROR_CODES.has((error as { code?: string }).code ?? "")) {
-        return { ok: false, error: error.message };
+        return { ok: false, error: humanizeSkuRpcError(error.message) };
       }
       throw error;
     }
@@ -348,7 +348,7 @@ export async function deleteSkuPrefix({ id }: { id: string }): Promise<ActionRes
       // 1 asked for this explicitly) — harmless if unused, and future-proof
       // if the RPC ever grows a unique-violation path.
       if (SKU_CONTROLLED_ERROR_CODES.has((error as { code?: string }).code ?? "")) {
-        return { ok: false, error: error.message };
+        return { ok: false, error: humanizeSkuRpcError(error.message) };
       }
       throw error;
     }

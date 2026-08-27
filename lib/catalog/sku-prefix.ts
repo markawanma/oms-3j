@@ -137,3 +137,23 @@ export function findOverlappingPrefix(
   }
   return null;
 }
+
+// ข้อความ raise จาก RPC ขึ้นต้นด้วยชื่อฟังก์ชันเสมอ (เช่น
+// "sku_prefix_delete: prefix RP มี SKU ใช้งานแล้ว 1 รายการ — ลบไม่ได้")
+// ชื่อฟังก์ชันมีไว้ให้ dev ไล่ต้นตอใน log ไม่ใช่ให้หน้างานอ่าน — UAT 27 ส.ค.
+// เจ้าของเห็นแล้วสะดุด ตัดออกก่อนแสดงบนจอ แต่คง message เดิมไว้ครบทุกตัวอักษร
+// ตัดเฉพาะชื่อที่รู้จัก 4 ตัวนี้ ไม่ใช่ regex กว้างๆ ที่อาจกินเนื้อความจริง
+const SKU_RPC_NAMES = [
+  "sku_prefix_preview_seed",
+  "sku_prefix_upsert",
+  "sku_prefix_delete",
+  "catalog_sku_create",
+] as const;
+
+export function humanizeSkuRpcError(message: string): string {
+  for (const name of SKU_RPC_NAMES) {
+    const prefix = name + ": ";
+    if (message.startsWith(prefix)) return message.slice(prefix.length);
+  }
+  return message;
+}
