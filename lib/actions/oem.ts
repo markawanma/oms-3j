@@ -1328,12 +1328,27 @@ async function attachBillBranchLabels(
   const customerIds = Array.from(new Set(rows.map((r) => r.customerId).filter((id): id is string => !!id)));
   if (customerIds.length === 0) return rows;
 
-  const { data, error } = await supabase.schema(SCHEMA).from("oem_customer").select("id, branch_label").eq("shop_id", shopId).in("id", customerIds);
-  if (error) {
-    console.error("attachBillBranchLabels failed", error);
-    return rows;
+  // QA round 2: chunk the id list (same reason as ID_CHUNK_SIZE in crm.ts —
+  // a long `.in()` id list rides in the URL and can blow the ~16K header
+  // cap). Before fetchAllRows, getQuotes was accidentally capped at 1,000
+  // rows so this list could never get long; pagination removed that cap.
+  const CHUNK = 200;
+  const byId = new Map<string, string | null>();
+  for (let i = 0; i < customerIds.length; i += CHUNK) {
+    const { data, error } = await supabase
+      .schema(SCHEMA)
+      .from("oem_customer")
+      .select("id, branch_label")
+      .eq("shop_id", shopId)
+      .in("id", customerIds.slice(i, i + CHUNK));
+    if (error) {
+      console.error("attachBillBranchLabels failed", error);
+      return rows;
+    }
+    for (const c of (data ?? []) as { id: string; branch_label: string | null }[]) {
+      byId.set(c.id, c.branch_label ?? null);
+    }
   }
-  const byId = new Map(((data ?? []) as { id: string; branch_label: string | null }[]).map((c) => [c.id, c.branch_label ?? null]));
   return rows.map((r) => (r.customerId ? { ...r, billBranchLabel: byId.get(r.customerId) ?? null } : r));
 }
 

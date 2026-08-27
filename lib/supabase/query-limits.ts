@@ -136,6 +136,17 @@ export async function fetchAllRows<T>(fetchPage: (from: number, to: number) => P
 
     const page = data ?? [];
     if (count !== null) totalCount = count;
+    // QA round 2 (harness-proven): a caller that forgets `{ count: "exact" }`
+    // gets `count: null` every page — totalCount stays 0, the
+    // `rows.length >= totalCount` break fires right after page 1, and the
+    // caller silently gets ONE page with truncated:false. That is exactly the
+    // ฿9,423 bug this helper exists to kill, reintroduced with zero signal.
+    // Fail loudly instead: this is a programming error, not a data condition.
+    if (count === null) {
+      throw new Error(
+        "fetchAllRows: fetchPage must select with { count: \"exact\" } — got count:null, cannot page safely"
+      );
+    }
     if (pageSize === null) pageSize = page.length; // the server's real max-rows, whatever it actually is
 
     rows.push(...page);
