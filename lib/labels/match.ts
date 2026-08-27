@@ -95,7 +95,18 @@ function foldThai(text: string): string {
 interface ProvinceEntry {
   code: string;
   nameTh: string;
-  namesFolded: string[];
+  namesFolded: { folded: string; re: RegExp }[];
+}
+
+// UAT 28 ส.ค. 69 (ใบจริง 954 หน้า): ตัว extract ข้อความจาก PDF แทรกช่องว่าง
+// กลางคำแบบสุ่ม ("กรุงเทพมหานค ร", "สราษฎร ธาน") — การเทียบ token เป๊ะๆ จึง
+// หาไม่เจอเลย 142/144 หน้าที่ตกคิว ทางแก้: ยอมให้มี whitespace แทรกได้ไม่เกิน
+// 2 ตัวระหว่างตัวอักษรของชื่อ (\s{0,2}) โดยยังคง boundary check สองข้างบน
+// ข้อความจริง — เคส ลาดกระบัง->กระบี่ ยังถูกกันด้วย boundary เหมือนเดิม และ
+// ต่อให้หลุดก็แค่กลายเป็น 2 candidates -> needs_review ไม่มีทางเขียนผิด
+function buildNameRegex(folded: string): RegExp {
+  const escaped = [...folded].map((ch) => ch.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+  return new RegExp(escaped.join("\\s{0,2}"), "g");
 }
 
 function buildProvinceIndex(): ProvinceEntry[] {
@@ -106,7 +117,9 @@ function buildProvinceIndex(): ProvinceEntry[] {
     );
     // fold + dedupe (some aliases may fold to the same string as another, or
     // to the same string as th/en_official — no point scanning twice).
-    const namesFolded = [...new Set(names.map((n) => foldThai(n)).filter((n) => n.length > 0))];
+    const namesFolded = [...new Set(names.map((n) => foldThai(n)).filter((n) => n.length > 0))].map(
+      (folded) => ({ folded, re: buildNameRegex(folded) })
+    );
     return { code: p.iso, nameTh: p.th, namesFolded };
   });
 }
@@ -118,23 +131,20 @@ function isBoundaryChar(ch: string | undefined): boolean {
   return ch === undefined || /[\s,0-9]/.test(ch);
 }
 
-/** All start indices where `needle` appears as a boundary-anchored token
- * inside `haystack` (both already folded). Overlapping occurrences allowed —
- * cheap and correct for our short province-name needles. */
-function findBoundedOccurrences(haystack: string, needle: string): number[] {
-  if (!needle) return [];
-  const out: number[] = [];
-  let from = 0;
-  for (;;) {
-    const idx = haystack.indexOf(needle, from);
-    if (idx === -1) break;
+/** ทุกตำแหน่งที่ชื่อ (regex ทนช่องว่างกลางคำ) โผล่แบบมี boundary สองข้าง
+ * บน haystack ที่ fold แล้ว — คืนทั้ง index และความยาวจริงของ match
+ * (ความยาวไม่คงที่อีกต่อไป เพราะอาจมี whitespace แทรก) */
+function findBoundedOccurrences(haystack: string, re: RegExp): { index: number; length: number }[] {
+  const out: { index: number; length: number }[] = [];
+  re.lastIndex = 0;
+  for (const m of haystack.matchAll(re)) {
+    const idx = m.index ?? 0;
     const before = idx > 0 ? haystack[idx - 1] : undefined;
-    const afterIdx = idx + needle.length;
+    const afterIdx = idx + m[0].length;
     const after = afterIdx < haystack.length ? haystack[afterIdx] : undefined;
     if (isBoundaryChar(before) && isBoundaryChar(after)) {
-      out.push(idx);
+      out.push({ index: idx, length: m[0].length });
     }
-    from = idx + 1;
   }
   return out;
 }
@@ -176,32 +186,73 @@ export function matchProvince(pageText: string): ProvinceMatchResult {
     text: m[0],
   }));
 
-  // rule 4: find + exclude exactly ONE occurrence of the sender's own
-  // province name that is co-located with the sender's own zipcode.
+  // rule 4: ตัดที่อยู่ผู้ส่ง — สองกลไก:
+  // (ก) occurrence ของจังหวัดร้านที่ co-locate กับ zipcode ร้าน (10150) — ของเดิม
+  // (ข) UAT 28 ส.ค.: ใบจริงจำนวนมากไม่พิมพ์ zipcode ผู้ส่งเลย -> ใช้จุดสังเกต
+  //     ที่อยู่ร้าน (จอมทอง/บางขุนเทียน/เอกชัย) แทน: occurrence ของจังหวัดร้าน
+  //     ที่อยู่ห่างจาก marker ≤60 ตัวอักษร = ที่อยู่ผู้ส่ง ตัดทิ้ง (ตัดได้หลาย
+  //     occurrence — ลูกค้าที่อยู่จอมทองจริงจะโดนตัดแล้วตกคิว review ซึ่ง
+  //     ปลอดภัยกว่าปล่อยเดา)
   const senderProvince = PROVINCE_BY_CODE.get(SENDER_FINGERPRINT.provinceCode);
-  let excluded: { nameFolded: string; index: number } | null = null;
+  const excludedSpans: { index: number; length: number }[] = [];
   if (senderProvince) {
-    outer: for (const nameFolded of senderProvince.namesFolded) {
-      for (const idx of findBoundedOccurrences(folded, nameFolded)) {
-        const { coLocated } = isCoLocatedWithZip(idx, nameFolded.length, zips, SENDER_FINGERPRINT.zipcode);
-        if (coLocated) {
-          excluded = { nameFolded, index: idx };
-          break outer;
-        }
+    const markerSpans: { index: number; length: number }[] = [];
+    for (const marker of SENDER_FINGERPRINT.addressMarkers) {
+      // marker เป็น "จุดสังเกตระยะ" ไม่ใช่การอ้างตัวตนจังหวัด จึงไม่บังคับ
+      // boundary — บนใบจริงคำพวกนี้ติดกับคำหน้าเสมอ ("เขตจอมทอง",
+      // "แขวงบางขุนเทียน") ถ้าบังคับ boundary จะหาไม่เจอเลยสักตัว
+      const re = buildNameRegex(foldThai(marker));
+      re.lastIndex = 0;
+      for (const m of folded.matchAll(re)) {
+        markerSpans.push({ index: m.index ?? 0, length: m[0].length });
       }
     }
+    // ตัด "หนึ่งเดียว" ที่เหมือนผู้ส่งที่สุด (design: exactly ONE) — ให้คะแนน
+    // ด้วยระยะทาง: ใกล้ zip ผู้ส่ง (10150) หรือใกล้ marker ที่อยู่ร้าน โดย
+    // marker ต้องใกล้กว่า zip ลูกค้า (กันเคสชื่อจังหวัดลูกค้าบังเอิญอยู่ใกล้
+    // marker มากกว่า zip ตัวเอง) — ตัดเกิน 1 = ลูกค้ากรุงเทพจริงโดนกลืน
+    // (บั๊กที่เจอตอนเขียนเทสต์)
+    const minDist = (occ: { index: number; length: number }, spans: { index: number; length: number }[]) =>
+      spans.reduce(
+        (best, sp) =>
+          Math.min(best, spanDistance(occ.index, occ.index + occ.length, sp.index, sp.index + sp.length)),
+        Number.POSITIVE_INFINITY
+      );
+    const senderZipSpans = zips
+      .filter((z) => z.text === SENDER_FINGERPRINT.zipcode)
+      .map((z) => ({ index: z.index, length: z.text.length }));
+    const customerZipSpans = zips
+      .filter((z) => z.text !== SENDER_FINGERPRINT.zipcode)
+      .map((z) => ({ index: z.index, length: z.text.length }));
+
+    let best: { occ: { index: number; length: number }; score: number } | null = null;
+    for (const nf of senderProvince.namesFolded) {
+      for (const occ of findBoundedOccurrences(folded, nf.re)) {
+        const dSenderZip = minDist(occ, senderZipSpans);
+        const dMarker = minDist(occ, markerSpans);
+        const dCustomerZip = minDist(occ, customerZipSpans);
+        const eligible =
+          dSenderZip <= CO_LOCATE_MAX_DISTANCE || (dMarker <= 60 && dMarker < dCustomerZip);
+        if (!eligible) continue;
+        const score = Math.min(dSenderZip, dMarker);
+        if (!best || score < best.score) best = { occ, score };
+      }
+    }
+    if (best) excludedSpans.push(best.occ);
   }
+  const isExcluded = (occ: { index: number; length: number }) =>
+    excludedSpans.some((e) => e.index === occ.index && e.length === occ.length);
 
   const candidateCodes = new Set<string>();
   const candidateZipByCode = new Map<string, string>();
 
   for (const province of PROVINCE_INDEX) {
-    for (const nameFolded of province.namesFolded) {
-      for (const idx of findBoundedOccurrences(folded, nameFolded)) {
-        if (excluded && excluded.nameFolded === nameFolded && excluded.index === idx) {
-          continue; // the one sender occurrence — not a candidate
+    for (const nf of province.namesFolded) {
+      for (const occ of findBoundedOccurrences(folded, nf.re)) {
+        if (isExcluded(occ)) {
+          continue; // ที่อยู่ผู้ส่ง — ไม่ใช่ candidate
         }
-        const { coLocated, zip } = isCoLocatedWithZip(idx, nameFolded.length, zips);
+        const { coLocated, zip } = isCoLocatedWithZip(occ.index, occ.length, zips);
         if (coLocated) {
           candidateCodes.add(province.code);
           if (!candidateZipByCode.has(province.code) && zip) {

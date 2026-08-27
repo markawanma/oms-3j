@@ -111,3 +111,25 @@ it("does not treat digit runs inside tracking numbers as zipcodes", () => {
   expect(r.provinceCode).toBe("TH-24");
   expect(r.zipcode).toBe("24190");
 });
+
+// UAT 28 ส.ค. 69: extract แทรกช่องว่างกลางคำ + ใบไม่มี zipcode ผู้ส่ง
+it("matches when the province name has extraction-inserted spaces (สราษฎร ธาน)", () => {
+  const text =
+    "52/35 หมู่ 1 ตำบลขุนทะเล อำเภอเมือง เมองสราษฎรธานี , สราษฎร ธานี 84000 " +
+    "จาก 3J jewelry 112/203 ถนนเอกชัย เขตจอมทอง แขวงบางขุนเทียน , เขตจอมทอง , กรงเทพมหานค ร";
+  const r = matchProvince(text);
+  expect(r.status).toBe("matched");
+  expect(r.provinceCode).toBe("TH-84");
+  expect(r.zipcode).toBe("84000");
+});
+
+it("excludes sender Bangkok via address markers when the label has no sender zipcode", () => {
+  const text =
+    "จาก 3J jewelry 112 ถ.เอกชัย แขวงบางขุนเทียน เขตจอมทอง , เขตจอมทอง , กรงเทพมหานค ร " +
+    "ถึง ลูกค้า Order ID: 585607399613499101 JTTH203142711914 JTTH203142711914 JTTH203142711914 " +
+    "JTTH203142711914 JTTH203142711914 nguoi mua khong can phai tra chuyen phat nhanh DROP-OFF " +
+    "24190 สุนันทา แปลงยาว , ฉะเชิงเทรา";
+  const r = matchProvince(text);
+  expect(r.status).toBe("matched");
+  expect(r.provinceCode).toBe("TH-24");
+});

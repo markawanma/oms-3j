@@ -92,17 +92,20 @@ export async function createLabelUpload(
   const gateErr = requireOwnerAdmin();
   if (gateErr) return gateErr;
 
-  // security 2a (Medium #5): ตัด control chars + RTL/LTR override (U+202E ทำชื่อ
-  // บนจอกลับด้าน หลอกพนักงานได้) + จำกัด 255 ตัวอักษรกัน row bloat
-  const fileName = (input?.fileName ?? "")
+  // security 2a (Medium #5 + re-check): ตัด control chars + bidi ทุกชุด (รวม
+  // isolate ยุคใหม่ U+2066-2069 ที่สปูฟชื่อได้เหมือน U+202E) + zero-width ·
+  // เช็ค .pdf จาก "ชื่อเต็มก่อนตัด" (ชื่อยาว 300 ตัวที่เป็น PDF จริงต้องไม่โดน
+  // ปฏิเสธด้วยข้อความโกหก) · ตัด 255 แบบ code point ไม่ผ่ากลาง surrogate
+  // (อีโมจิครึ่งตัวทำ Postgres ตีกลับเป็น 500)
+  const rawName = (input?.fileName ?? "")
     .trim()
-    .replace(/[\u0000-\u001F\u200E\u200F\u202A-\u202E]/g, "")
-    .slice(0, 255);
+    .replace(/[\u0000-\u001F\u007F\u200B-\u200F\u202A-\u202E\u2066-\u2069]/g, "");
+  const fileName = [...rawName].slice(0, 255).join("");
   const fileSize = Number(input?.fileSize);
   const sha256 = (input?.sha256 ?? "").trim().toLowerCase();
 
   if (!fileName) return { ok: false, error: "ไม่พบชื่อไฟล์" };
-  if (!fileName.toLowerCase().endsWith(".pdf")) {
+  if (!rawName.toLowerCase().endsWith(".pdf")) {
     return { ok: false, error: "รองรับเฉพาะไฟล์ .pdf เท่านั้น (เฟสนี้ยังไม่รองรับรูปถ่าย/JPG/PNG)" };
   }
   if (!Number.isFinite(fileSize) || fileSize <= 0) {
@@ -143,10 +146,13 @@ export async function createLabelUpload(
       // มีจริงก่อน ถ้าไม่มีให้ออก signed URL ใหม่บน path เดิมแทน
       const existingPath = String(existing.storage_path ?? "");
       const dirEnd = existingPath.lastIndexOf("/");
-      const { data: found } = await supabase.storage
+      const { data: found, error: listErr } = await supabase.storage
         .from(SHIPPING_LABELS_BUCKET)
         .list(existingPath.slice(0, dirEnd), { search: existingPath.slice(dirEnd + 1), limit: 1 });
-      if (found && found.length > 0) {
+      // security re-check: ตรวจไม่ได้ (list error) = ถือว่า object มีไว้ก่อน —
+      // fail ไปทางที่ไม่ถอยสถานะงานที่เสร็จแล้ว (network blip ห้ามลดชั้นไฟล์
+      // parsed กลับเป็น uploaded) ผู้ใช้แค่กดใหม่
+      if (listErr || (found && found.length > 0)) {
         return { ok: true, data: { fileId: String(existing.id), uploadUrl: null, alreadyExists: true } };
       }
       const { data: reSigned, error: reSignErr } = await supabase.storage
@@ -156,7 +162,15 @@ export async function createLabelUpload(
       const { error: reviveErr } = await supabase
         .schema(SCHEMA)
         .from("label_file")
-        .update({ status: "uploaded", file_name: fileName, file_size_bytes: fileSize, updated_at: new Date().toISOString() })
+        .update({
+          status: "uploaded",
+          file_name: fileName,
+          file_size_bytes: fileSize,
+          page_count: null,
+          parsed_at: null,
+          parser_version: null,
+          updated_at: new Date().toISOString(),
+        })
         .eq("id", existing.id)
         .eq("shop_id", shopId);
       if (reviveErr) throw reviveErr;
