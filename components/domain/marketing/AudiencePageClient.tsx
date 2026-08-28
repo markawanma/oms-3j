@@ -7,9 +7,18 @@
 
 import { useMemo, useState } from "react";
 import { Download, Users } from "lucide-react";
-import type { AudienceRow } from "@/lib/marketing/types";
-import { AUDIENCE_SEGMENTS, audienceSegmentLabel } from "@/lib/marketing/types";
+import type { AudienceRow, ProductAffinity } from "@/lib/marketing/types";
+import { AUDIENCE_AFFINITY_LABEL_TH, AUDIENCE_SEGMENTS, audienceSegmentLabel } from "@/lib/marketing/types";
 import { EmptyState } from "@/components/ui/EmptyState";
+
+/** ตัวกรองสายสินค้า (0099) — CMO ยืนยันสองกลุ่มทับกันแค่ 2.7% ยิงคอนเทนต์
+ * ผิดฝั่ง = เผาเงิน "all" = ไม่กรอง */
+const AFFINITY_FILTERS = ["all", "jewelry_only", "bar_only", "both"] as const;
+type AffinityFilter = (typeof AFFINITY_FILTERS)[number];
+
+function affinityFilterLabel(f: AffinityFilter): string {
+  return f === "all" ? "ทั้งหมด" : AUDIENCE_AFFINITY_LABEL_TH[f as ProductAffinity];
+}
 
 function fmtBaht(n: number): string {
   return `฿${Math.round(n).toLocaleString("en-US")}`;
@@ -49,6 +58,7 @@ function downloadCsv(rows: AudienceRow[], segment: string) {
 
 export function AudiencePageClient({ rows }: { rows: AudienceRow[] }) {
   const [segment, setSegment] = useState<string>("all");
+  const [affinity, setAffinity] = useState<AffinityFilter>("all");
 
   // counts per segment (present in the data), preserving canonical order
   const counts = useMemo(() => {
@@ -58,8 +68,11 @@ export function AudiencePageClient({ rows }: { rows: AudienceRow[] }) {
   }, [rows]);
 
   const filtered = useMemo(
-    () => (segment === "all" ? rows : rows.filter((r) => r.segment === segment)),
-    [rows, segment]
+    () =>
+      rows
+        .filter((r) => segment === "all" || r.segment === segment)
+        .filter((r) => affinity === "all" || r.affinity === affinity),
+    [rows, segment, affinity]
   );
 
   const totalRevenue = useMemo(() => filtered.reduce((s, r) => s + r.revenueSum, 0), [filtered]);
@@ -93,6 +106,24 @@ export function AudiencePageClient({ rows }: { rows: AudienceRow[] }) {
               }`}
             >
               {s === "all" ? "ทั้งหมด" : audienceSegmentLabel(s)} <span className={active ? "opacity-80" : "text-zinc-400"}>{n}</span>
+            </button>
+          );
+        })}
+      </div>
+
+      <div className="flex flex-wrap gap-1.5">
+        {AFFINITY_FILTERS.map((f) => {
+          const active = affinity === f;
+          return (
+            <button
+              key={f}
+              type="button"
+              onClick={() => setAffinity(f)}
+              className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
+                active ? "bg-zinc-800 text-white" : "bg-white text-zinc-500 border border-zinc-200 hover:bg-zinc-50"
+              }`}
+            >
+              {affinityFilterLabel(f)}
             </button>
           );
         })}
