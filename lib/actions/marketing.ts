@@ -353,7 +353,7 @@ export async function getAudience(segment?: string): Promise<ActionResult<GetAud
         .schema(SCHEMA)
         .from("v_audience")
         .select(
-          "customer_id, display_name, segment, order_count, revenue_sum, recency_days, first_order_at, last_order_at, channel_code, channel_name, province_code, province_name_th",
+          "customer_id, display_name, segment, order_count, revenue_sum, recency_days, first_order_at, last_order_at, channel_code, channel_name, province_code, province_name_th, bought_bar, bought_jewelry, bar_revenue, jewelry_revenue, affinity, bar_order_count, jewelry_order_count",
           { count: "exact" }
         )
         .eq("shop_id", shopId);
@@ -375,6 +375,13 @@ export async function getAudience(segment?: string): Promise<ActionResult<GetAud
         channel_name: string | null;
         province_code: string | null;
         province_name_th: string | null;
+        bought_bar: boolean;
+        bought_jewelry: boolean;
+        bar_revenue: number;
+        jewelry_revenue: number;
+        affinity: AudienceRow["affinity"];
+        bar_order_count: number;
+        jewelry_order_count: number;
       }[]
     ).map((r) => ({
       customerId: r.customer_id,
@@ -389,6 +396,13 @@ export async function getAudience(segment?: string): Promise<ActionResult<GetAud
       channelName: r.channel_name,
       provinceCode: r.province_code,
       provinceNameTh: r.province_name_th,
+      boughtBar: Boolean(r.bought_bar),
+      boughtJewelry: Boolean(r.bought_jewelry),
+      barRevenue: Number(r.bar_revenue) || 0,
+      jewelryRevenue: Number(r.jewelry_revenue) || 0,
+      affinity: r.affinity ?? "unknown",
+      barOrderCount: Number(r.bar_order_count) || 0,
+      jewelryOrderCount: Number(r.jewelry_order_count) || 0,
     }));
 
     return { ok: true, data: { rows, totalCount: audienceResult.totalCount, truncated: audienceResult.truncated } };

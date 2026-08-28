@@ -139,7 +139,27 @@ export interface AudienceRow {
   channelName: string | null;
   provinceCode: string | null;
   provinceNameTh: string | null;
+  /** เงินแท่ง vs เครื่องประดับ (analytics.v_customer_affinity, 0099) — สอง
+   * กลุ่มลูกค้าทับกันแค่ 2.7% ยิงคอนเทนต์ผิดฝั่ง = เผาเงิน */
+  boughtBar: boolean;
+  boughtJewelry: boolean;
+  barRevenue: number;
+  jewelryRevenue: number;
+  affinity: ProductAffinity;
+  barOrderCount: number;
+  jewelryOrderCount: number;
 }
+
+/** 'unknown' = ไม่เคยซื้อฝั่งไหนที่ระบุได้เลย (ซื้อแต่ค่าส่ง/กล่อง/น้ำยา/SKU ที่
+ * ยัง match ไม่ได้ หรือไม่มีออเดอร์เลย) — ไม่ใช่ error, เป็นค่าที่ตั้งใจให้เกิด */
+export type ProductAffinity = "bar_only" | "jewelry_only" | "both" | "unknown";
+
+export const AUDIENCE_AFFINITY_LABEL_TH: Record<ProductAffinity, string> = {
+  bar_only: "เงินแท่งเท่านั้น",
+  jewelry_only: "เครื่องประดับเท่านั้น",
+  both: "ซื้อทั้งสองอย่าง",
+  unknown: "ไม่ระบุ",
+};
 
 /** Segment display order + labels (RFM). `at_risk` is future — appears once
  * the dataset spans >90 days; today the shop has 0 (data is ~1 month old). */
