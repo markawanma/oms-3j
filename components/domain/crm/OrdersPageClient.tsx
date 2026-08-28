@@ -4,16 +4,10 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import { ClipboardList, Search } from "lucide-react";
 import type { CrmOrderRow } from "@/lib/actions/crm";
-import { CRM_ORDER_SORT_OPTIONS, isValidCrmOrderSortKey, type CrmOrderSortKey } from "@/lib/crm/orders";
+import { CRM_ORDER_SORT_OPTIONS, isValidCrmOrderSortKey, PROFIT_STATUS_LABEL_TH, type CrmOrderSortKey } from "@/lib/crm/orders";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { CrmDateRangeFilter } from "./CrmDateRangeFilter";
 import { formatCount, formatTHBCompact, formatThaiDateOnly } from "@/lib/tiktok/format";
-
-const PROFIT_STATUS_LABEL_TH: Record<string, string> = {
-  missing: "ไม่มีข้อมูล",
-  estimated: "ประมาณการ 20%",
-  actual: "ต้นทุนจริง",
-};
 
 /** Client-side search + channel filter + sort over the full order list —
  * same "334 rows fits fine in the browser" reasoning as CustomersPageClient

@@ -46,7 +46,7 @@ export default async function OemQuoteDetailPage({ params }: { params: Promise<{
   // Degrade, don't block the whole quote page over the receipt list — same
   // posture as provinces/seller profile below.
   if (!receiptsResult.ok) console.error("getReceipts failed:", receiptsResult.error);
-  const receipts = receiptsResult.ok ? receiptsResult.data : [];
+  const receipts = receiptsResult.ok ? receiptsResult.data.rows : [];
   // Degrade, don't block the whole quote page over the province dropdown —
   // BillingDialog falls back to a free-text field when this is empty (see
   // its own comment).

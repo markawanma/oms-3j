@@ -1,6 +1,7 @@
 import { getCrmOrders } from "@/lib/actions/crm";
 import { OrdersPageClient } from "@/components/domain/crm/OrdersPageClient";
 import { ErrorState } from "@/components/ui/ErrorState";
+import { TruncatedDataNotice } from "@/components/ui/TruncatedDataNotice";
 
 export const dynamic = "force-dynamic"; // orders change as imports land — never cache
 
@@ -37,7 +38,7 @@ export default async function CrmOrdersPage({
     return <ErrorState message={result.error} />;
   }
 
-  const rows = result.data;
+  const { rows, totalCount, truncated } = result.data;
 
   let minOrderDate: string | null = null;
   let maxOrderDate: string | null = null;
@@ -49,13 +50,16 @@ export default async function CrmOrdersPage({
   const isFiltered = Boolean(fromParam || toParam);
 
   return (
-    <OrdersPageClient
-      rows={rows}
-      requestedFrom={fromParam ?? null}
-      requestedTo={toParam ?? null}
-      minOrderDate={minOrderDate}
-      maxOrderDate={maxOrderDate}
-      isFiltered={isFiltered}
-    />
+    <>
+      {truncated && <TruncatedDataNotice totalCount={totalCount} shownCount={rows.length} />}
+      <OrdersPageClient
+        rows={rows}
+        requestedFrom={fromParam ?? null}
+        requestedTo={toParam ?? null}
+        minOrderDate={minOrderDate}
+        maxOrderDate={maxOrderDate}
+        isFiltered={isFiltered}
+      />
+    </>
   );
 }

@@ -24,7 +24,7 @@ import { getServiceClient } from "@/lib/supabase/server";
 import { getDevShopId, getDevRole } from "@/lib/dev/context";
 import type { ActionResult } from "@/lib/types";
 import type { CreateCatalogSkuInput, SkuPrefixRow, SkuWorkType, UpsertSkuPrefixInput } from "@/lib/catalog/sku-prefix";
-import { isValidSkuPrefix } from "@/lib/catalog/sku-prefix";
+import { humanizeSkuRpcError, isValidSkuPrefix, SKU_CONTROLLED_ERROR_CODES } from "@/lib/catalog/sku-prefix";
 
 const SCHEMA = "analytics";
 
@@ -242,10 +242,15 @@ export async function upsertSkuPrefix(input: UpsertSkuPrefixInput): Promise<Acti
       p_pad_width: input.padWidth ?? null,
     });
     if (error) {
-      // 22023 = controlled Thai validation message from the RPC (e.g. prefix
-      // already used, kind+work_type already used) — same convention as
-      // saveRate/upsertProduct/saveQuote in the sibling actions files.
-      if ((error as { code?: string }).code === "22023") return { ok: false, error: error.message };
+      // 22023 = controlled Thai validation message from the RPC (e.g.
+      // required field missing). 23505 = "prefix/kind_label+work_type ถูกใช้
+      // ในร้านนี้แล้ว" (unique_violation, raised since 0091 — QA round 1
+      // caught this being silently swallowed into the generic message
+      // below). See SKU_CONTROLLED_ERROR_CODES for the full set + why each
+      // is safe to show verbatim.
+      if (SKU_CONTROLLED_ERROR_CODES.has((error as { code?: string }).code ?? "")) {
+        return { ok: false, error: humanizeSkuRpcError(error.message) };
+      }
       throw error;
     }
 
@@ -272,6 +277,18 @@ export async function createCatalogSku(input: CreateCatalogSkuInput): Promise<Ac
   const name = input.name?.trim();
   if (!name) return { ok: false, error: "กรุณากรอกชื่อสินค้า" };
 
+  // ค่าที่ดึงมาจาก item ในใบตอนสร้าง SKU ใหม่ (Phase 1b) — เฉพาะตอนสร้างครั้ง
+  // เดียวเท่านั้น, ผ่าน p_attrs whitelist ของ catalog_sku_create (0096: category /
+  // cost_type / unit_cost / silver_weight_g / silver_purity / labor_cost /
+  // list_price / barcode / supplier / note — ส่ง key นอกนี้โดน 22023 ตรงๆ). ตัด
+  // undefined/null ออกก่อนส่ง ไม่ใช่ค่าว่างที่ถูก coerce เป็น 0 — CreateSkuDialog
+  // เป็นคนกรองมาแล้วว่าใบมีค่าจริง ที่นี่แค่ประกอบ payload ไม่ตัดสินใจอะไรเพิ่ม.
+  // ไม่มี unit_cost/list_price โดยเจตนา (ดูคอมเมนต์ CreateCatalogSkuInput).
+  const attrs: Record<string, number | string> = {};
+  if (input.seedWeightG != null) attrs.silver_weight_g = input.seedWeightG;
+  if (input.seedPurity != null) attrs.silver_purity = input.seedPurity;
+  if (input.seedCategory) attrs.category = input.seedCategory;
+
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();
@@ -280,12 +297,19 @@ export async function createCatalogSku(input: CreateCatalogSkuInput): Promise<Ac
       p_shop_id: shopId,
       p_prefix_id: prefixId,
       p_name: name,
-      p_attrs: {},
+      p_attrs: attrs,
     });
     if (error) {
       // 22023 covers both "ไม่มี config" (shouldn't reach here — dialog hides
-      // the form in that case, see CreateSkuDialog) and "ชนเกิน 20 รอบ".
-      if ((error as { code?: string }).code === "22023") return { ok: false, error: error.message };
+      // the form in that case, see CreateSkuDialog) and "ชนเกิน 20 รอบ". 40001
+      // = "ตัวนับ SKU ถูกลบ/แก้พร้อมกันระหว่างออกเลข — ลองใหม่อีกครั้ง"
+      // (serialization_failure, new in 0096 — QA round 1 caught this being
+      // silently swallowed into the generic message below). See
+      // SKU_CONTROLLED_ERROR_CODES for the full set + why each is safe to
+      // show verbatim.
+      if (SKU_CONTROLLED_ERROR_CODES.has((error as { code?: string }).code ?? "")) {
+        return { ok: false, error: humanizeSkuRpcError(error.message) };
+      }
       throw error;
     }
 
@@ -330,7 +354,14 @@ export async function deleteSkuPrefix({ id }: { id: string }): Promise<ActionRes
     if (error) {
       // 22023 = controlled Thai message from the RPC (e.g. "มี N SKU ใช้ prefix
       // นี้แล้ว ลบไม่ได้") — same convention as upsertSkuPrefix above.
-      if ((error as { code?: string }).code === "22023") return { ok: false, error: error.message };
+      // sku_prefix_delete doesn't raise 23505/40001 today, but this action
+      // checks the full SKU_CONTROLLED_ERROR_CODES set anyway for
+      // consistency with the other two RPCs on this same domain (QA round
+      // 1 asked for this explicitly) — harmless if unused, and future-proof
+      // if the RPC ever grows a unique-violation path.
+      if (SKU_CONTROLLED_ERROR_CODES.has((error as { code?: string }).code ?? "")) {
+        return { ok: false, error: humanizeSkuRpcError(error.message) };
+      }
       throw error;
     }
 

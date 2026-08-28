@@ -40,6 +40,7 @@ import type {
 import type { ArtifactStatus, CampaignBoardStep } from "@/lib/marketing/campaign-types";
 import { ARTIFACT_STATUSES } from "@/lib/marketing/campaign-types";
 import { CAMPAIGN_BOARD_SELECT, mapCampaignBoardRow } from "@/lib/marketing/campaign-board-mapper";
+import { fetchAllRows } from "@/lib/supabase/query-limits";
 
 const SCHEMA = "analytics";
 
@@ -321,7 +322,19 @@ export async function getMarketingReco(): Promise<ActionResult<MktRecoRow[]>> {
 // even without raw PII.
 // ============================================================================
 
-export async function getAudience(segment?: string): Promise<ActionResult<AudienceRow[]>> {
+export interface GetAudienceResult {
+  rows: AudienceRow[];
+  /** True count from the DB for this same filtered query (`count: "exact"`)
+   * — trustworthy even when `rows.length` was capped at MAX_UNBOUNDED_ROWS.
+   * See lib/supabase/query-limits.ts. Matters here more than most lists:
+   * this feeds LINE broadcast targeting — a silently truncated audience
+   * means a real segment of customers (e.g. win-back at_risk) never gets the
+   * broadcast at all, with nothing telling the owner. */
+  totalCount: number;
+  truncated: boolean;
+}
+
+export async function getAudience(segment?: string): Promise<ActionResult<GetAudienceResult>> {
   const gateErr = requireOwnerAdmin();
   if (gateErr) return gateErr;
 
@@ -329,21 +342,27 @@ export async function getAudience(segment?: string): Promise<ActionResult<Audien
     const shopId = getDevShopId();
     const supabase = getServiceClient();
 
-    let query = supabase
-      .schema(SCHEMA)
-      .from("v_audience")
-      .select(
-        "customer_id, display_name, segment, order_count, revenue_sum, recency_days, first_order_at, last_order_at, channel_code, channel_name, province_code, province_name_th"
-      )
-      .eq("shop_id", shopId);
-
-    if (segment && segment !== "all") query = query.eq("segment", segment);
-
-    const { data, error } = await query.order("revenue_sum", { ascending: false });
-    if (error) throw error;
+    // fetchAllRows() pages past PostgREST's max-rows cap — see
+    // lib/supabase/query-limits.ts (this shop already has 2,653+ customers,
+    // well past that cap for an unfiltered audience). revenue_sum ties on
+    // every zero-revenue customer, so `.order("customer_id")` last is the
+    // deterministic tiebreaker paging needs — without it, two page fetches
+    // of the same query can come back with different row sets.
+    const audienceResult = await fetchAllRows((pageFrom, pageTo) => {
+      let q = supabase
+        .schema(SCHEMA)
+        .from("v_audience")
+        .select(
+          "customer_id, display_name, segment, order_count, revenue_sum, recency_days, first_order_at, last_order_at, channel_code, channel_name, province_code, province_name_th",
+          { count: "exact" }
+        )
+        .eq("shop_id", shopId);
+      if (segment && segment !== "all") q = q.eq("segment", segment);
+      return q.order("revenue_sum", { ascending: false }).order("customer_id", { ascending: true }).range(pageFrom, pageTo);
+    });
 
     const rows: AudienceRow[] = (
-      (data ?? []) as {
+      audienceResult.rows as {
         customer_id: string;
         display_name: string;
         segment: string;
@@ -372,7 +391,7 @@ export async function getAudience(segment?: string): Promise<ActionResult<Audien
       provinceNameTh: r.province_name_th,
     }));
 
-    return { ok: true, data: rows };
+    return { ok: true, data: { rows, totalCount: audienceResult.totalCount, truncated: audienceResult.truncated } };
   } catch (err) {
     console.error("getAudience failed", err);
     return { ok: false, error: "โหลดรายชื่อกลุ่มลูกค้าไม่สำเร็จ ลองใหม่อีกครั้ง" };

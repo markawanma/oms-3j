@@ -3,6 +3,7 @@ import { getReceipts } from "@/lib/actions/oem";
 import { getDevRole } from "@/lib/dev/context";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
+import { TruncatedDataNotice } from "@/components/ui/TruncatedDataNotice";
 import { ReceiptsPageClient } from "@/components/domain/oem/ReceiptsPageClient";
 
 export const dynamic = "force-dynamic";
@@ -31,5 +32,12 @@ export default async function OemReceiptsPage() {
   }
   if (!receiptsResult.ok) return <ErrorState message={receiptsResult.error} />;
 
-  return <ReceiptsPageClient receipts={receiptsResult.data} />;
+  return (
+    <>
+      {receiptsResult.data.truncated && (
+        <TruncatedDataNotice totalCount={receiptsResult.data.totalCount} shownCount={receiptsResult.data.rows.length} />
+      )}
+      <ReceiptsPageClient receipts={receiptsResult.data.rows} />
+    </>
+  );
 }

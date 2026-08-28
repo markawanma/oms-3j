@@ -11,12 +11,18 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, Trash2 } from "lucide-react";
+import { AlertTriangle, Eye, Trash2 } from "lucide-react";
 import { deleteStuckBatch, type ImportBatchRow } from "@/lib/actions/import-orders";
-import { LINE_ITEM_SOURCE_TYPE } from "@/lib/actions/import-line-items";
+import {
+  getLineImportWarnings,
+  type LineImportWarningsResult,
+} from "@/lib/actions/import-line-items";
+import { LINE_ITEM_SOURCE_TYPE } from "@/lib/import/source-types";
 import { KIND_LABEL, KIND_BADGE_TONE, type FileKind } from "@/components/domain/crm/OrderImportClient";
+import { LineImportWarningsList } from "@/components/domain/crm/LineImportWarningsList";
 import { Badge, type BadgeTone } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
 import { formatBangkokTime } from "@/lib/format";
 import { formatCount } from "@/lib/tiktok/format";
@@ -46,6 +52,21 @@ export function ImportBatchHistory({ initialRows }: { initialRows: ImportBatchRo
   const [rows, setRows] = useState(initialRows);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
+  // Warnings modal: lazy-loaded per batch on click, cached by batchId so
+  // reopening the same row's modal doesn't refetch. QA round 1: a failed
+  // fetch used to be cached as `null` too ("fetch attempted and failed"),
+  // which meant `warningsCache[batchId] !== undefined` counted as a cache
+  // hit forever — no amount of closing/reopening the modal ever refetched,
+  // the "ลองปิดแล้วเปิดใหม่" message was a lie. Fix: only SUCCESSFUL fetches
+  // go in the cache now (type narrowed to drop `| null`) — a failure leaves
+  // the key absent so the next attempt genuinely refetches. `failedBatchId`
+  // tracks "the fetch for this currently-open batch just failed" so the
+  // modal can render the error state without needing a fake cache entry.
+  const [openBatch, setOpenBatch] = useState<{ batchId: string; fileName: string | null } | null>(null);
+  const [warningsCache, setWarningsCache] = useState<Record<string, LineImportWarningsResult>>({});
+  const [warningsLoadingId, setWarningsLoadingId] = useState<string | null>(null);
+  const [failedBatchId, setFailedBatchId] = useState<string | null>(null);
+
   async function handleDelete(batchId: string) {
     setDeletingId(batchId);
     const result = await deleteStuckBatch(batchId);
@@ -59,9 +80,30 @@ export function ImportBatchHistory({ initialRows }: { initialRows: ImportBatchRo
     router.refresh();
   }
 
+  async function openWarnings(batchId: string, fileName: string | null) {
+    setOpenBatch({ batchId, fileName });
+    setFailedBatchId((cur) => (cur === batchId ? null : cur)); // clear a stale failure before retrying
+    if (warningsCache[batchId] !== undefined) return; // cache hit — only ever a PAST SUCCESS now
+    setWarningsLoadingId(batchId);
+    const res = await getLineImportWarnings(batchId);
+    setWarningsLoadingId((cur) => (cur === batchId ? null : cur));
+    if (res.ok) {
+      setWarningsCache((prev) => ({ ...prev, [batchId]: res.data }));
+    } else {
+      // Do NOT cache the failure — leaving the key absent is what makes the
+      // retry button below (and simply reopening the modal) actually refetch.
+      setFailedBatchId(batchId);
+      toast.push(res.error, "error");
+    }
+  }
+
+  const openWarningsData = openBatch ? warningsCache[openBatch.batchId] : undefined;
+  const openWarningsLoading = openBatch != null && warningsLoadingId === openBatch.batchId;
+  const openWarningsFailed = openBatch != null && failedBatchId === openBatch.batchId;
+
   return (
     <div className="overflow-x-auto rounded-lg border border-zinc-200 bg-white">
-      <table className="w-full min-w-[640px] text-left text-xs">
+      <table className="w-full min-w-[700px] text-left text-xs">
         <thead>
           <tr className="border-b border-zinc-200 bg-zinc-50 text-zinc-500">
             <th className="px-3 py-2">ไฟล์</th>
@@ -69,6 +111,7 @@ export function ImportBatchHistory({ initialRows }: { initialRows: ImportBatchRo
             <th className="px-3 py-2">เดือน</th>
             <th className="px-3 py-2 text-right">อ่านได้ → โหลด</th>
             <th className="px-3 py-2 text-right">error</th>
+            <th className="px-3 py-2 text-right">คำเตือน</th>
             <th className="px-3 py-2">สถานะ</th>
             <th className="px-3 py-2">นำเข้าเมื่อ</th>
             <th className="px-3 py-2" />
@@ -120,6 +163,22 @@ export function ImportBatchHistory({ initialRows }: { initialRows: ImportBatchRo
                     <span className="text-zinc-400">0</span>
                   )}
                 </td>
+                <td className="px-3 py-2 text-right tabular-nums">
+                  {kind !== "line_item" ? (
+                    <span className="text-zinc-300">—</span>
+                  ) : r.warningCount > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => void openWarnings(r.batchId, r.fileName)}
+                      className="inline-flex items-center gap-1 font-semibold text-amber-700 hover:underline"
+                    >
+                      <Eye className="h-3 w-3" aria-hidden="true" />
+                      {formatCount(r.warningCount)}
+                    </button>
+                  ) : (
+                    <span className="text-zinc-400">0</span>
+                  )}
+                </td>
                 <td className="px-3 py-2">
                   <Badge tone={STATUS_TONE[r.status]}>{STATUS_LABEL_TH[r.status]}</Badge>
                 </td>
@@ -143,6 +202,35 @@ export function ImportBatchHistory({ initialRows }: { initialRows: ImportBatchRo
           })}
         </tbody>
       </table>
+
+      <Modal
+        open={openBatch != null}
+        onClose={() => setOpenBatch(null)}
+        title={`คำเตือนการนำเข้า — ${openBatch?.fileName ?? "(ไม่ทราบชื่อไฟล์)"}`}
+      >
+        {openWarningsLoading && (
+          <p className="flex items-center justify-center gap-2 py-8 text-sm text-zinc-500">กำลังโหลด…</p>
+        )}
+        {!openWarningsLoading && openWarningsFailed && (
+          <div className="flex flex-col items-start gap-2 py-4">
+            <p className="text-sm text-red-700">โหลดรายการคำเตือนไม่สำเร็จ</p>
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              onClick={() => void openWarnings(openBatch.batchId, openBatch.fileName)}
+            >
+              ลองอีกครั้ง
+            </Button>
+          </div>
+        )}
+        {!openWarningsLoading && openWarningsData && openWarningsData.rows.length === 0 && (
+          <p className="py-4 text-sm text-zinc-500">ไม่มีคำเตือนสำหรับไฟล์นี้แล้ว</p>
+        )}
+        {!openWarningsLoading && openWarningsData && openWarningsData.rows.length > 0 && (
+          <LineImportWarningsList rows={openWarningsData.rows} totalCount={openWarningsData.totalCount} />
+        )}
+      </Modal>
     </div>
   );
 }

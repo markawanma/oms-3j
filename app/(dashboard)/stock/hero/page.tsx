@@ -33,5 +33,5 @@ export default async function StockHeroPage() {
   if (!heroResult.ok) return <ErrorState message={heroResult.error} />;
   if (!productsResult.ok) return <ErrorState message={productsResult.error} />;
 
-  return <HeroStockClient rows={heroResult.data} products={productsResult.data} />;
+  return <HeroStockClient rows={heroResult.data} products={productsResult.data.rows} />;
 }

@@ -146,9 +146,17 @@ export default async function CrmOverviewPage({
 
   // profit is a real SUM either way (from v_fact_order.profit); only the
   // LABEL changes depending on how many of this range's orders still lack a
-  // line-item import (profit_status='estimated') — see CrmOverviewData.
+  // CONFIRMED cost (profit_status='estimated') — see CrmOverviewData.
   // totals doc comment in lib/actions/crm.ts for why this can't be captioned
-  // as purely "จริง" or purely "ประมาณการ 20%" in the mixed case.
+  // as purely "จริง" or purely "ประมาณการ" in the mixed case.
+  //
+  // QA round 1 caught the old wording here claiming "estimated" always means
+  // "20% ของรายได้, ยังไม่มีต้นทุนจริง" — false since migration 0095: an
+  // order can be 'estimated' while carrying REAL per-SKU cost, just an
+  // unproven SKU match (unknown SKU, or an inactive-product match tier 3
+  // couldn't rule out a live twin for). Wording below no longer claims a
+  // flat 20% or "no cost data" — only "ยังไม่ยืนยัน" (not yet confirmed),
+  // which is true for both underlying cases.
   const { profitActualOrders, profitEstimatedOrders } = totals;
   let profitLabel: string;
   let profitNote: string;
@@ -156,11 +164,11 @@ export default async function CrmOverviewPage({
     profitLabel = " (กำไรจริงทุกออเดอร์)";
     profitNote = `คำนวณจากต้นทุนจริงต่อ SKU ครบทั้ง ${formatCount(profitActualOrders)} ออเดอร์ในช่วงนี้`;
   } else if (profitActualOrders === 0) {
-    profitLabel = " (ประมาณการ 20%)";
-    profitNote = "ยังไม่มีต้นทุนจริงต่อ SKU สำหรับออเดอร์ในช่วงนี้ — ตัวเลขนี้คือ 20% ของรายได้ ไม่ใช่กำไรจริง";
+    profitLabel = " (ประมาณการ)";
+    profitNote = "ทุกออเดอร์ในช่วงนี้ยังไม่ยืนยันต้นทุน (ไม่มีข้อมูลต้นทุน หรือจับคู่ SKU ไม่ชัวร์) — ตัวเลขนี้เป็นค่าประมาณ ไม่ใช่กำไรจริง";
   } else {
     profitLabel = "";
-    profitNote = `กำไรจริง ${formatCount(profitActualOrders)} ออเดอร์ (มีต้นทุนจริงต่อ SKU) + ประมาณการ 20% อีก ${formatCount(profitEstimatedOrders)} ออเดอร์ที่ยังไม่มีต้นทุนจริง`;
+    profitNote = `กำไรจริง ${formatCount(profitActualOrders)} ออเดอร์ (มีต้นทุนจริงต่อ SKU ยืนยันแล้ว) + ประมาณการอีก ${formatCount(profitEstimatedOrders)} ออเดอร์ (ยังไม่ยืนยันต้นทุน)`;
   }
 
   return (

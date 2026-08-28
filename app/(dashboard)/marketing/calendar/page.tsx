@@ -8,7 +8,7 @@ import { CampaignCalendar } from "@/components/domain/marketing/CampaignCalendar
 import { CalendarPageTabs } from "@/components/domain/marketing/CalendarPageTabs";
 import { MonthCalendar } from "@/components/domain/marketing/MonthCalendar";
 import type { DayDots } from "@/components/domain/marketing/MonthCalendar";
-import { DayAgenda } from "@/components/domain/marketing/DayAgenda";
+import { MonthTimeline } from "@/components/domain/marketing/MonthTimeline";
 import { AddPlanForm } from "@/components/domain/marketing/AddPlanForm";
 import { effectiveDateBangkok } from "@/lib/tiktok/format";
 
@@ -41,11 +41,13 @@ function monthRangeOf(dateStr: string): { from: string; to: string; year: number
 }
 
 // /marketing/calendar — 2 tabs (design phase-content-calendar-design.md §6):
-// "แผนงาน" (default, day-agenda view of analytics.v_campaign_board via M2's
-// getCalendarTasks) and "เทศกาลทั้งปี" (the original 0034 CampaignCalendar,
-// untouched — long-range festival look-ahead, a different data source and a
-// different question than "what do I do today"). Owner/admin only, same gate
-// as before this change.
+// "แผนงาน" (default: month grid + whole-month timeline, both reading
+// analytics.v_campaign_board via M2's getCalendarTasks — one fetch, two
+// views of the same month so the grid's "zoom in to one day" and the
+// timeline's "scroll the whole month" never disagree) and "เทศกาลทั้งปี"
+// (the original 0034 CampaignCalendar, untouched — long-range festival
+// look-ahead, a different data source and a different question than "what
+// do I do today"). Owner/admin only, same gate as before this change.
 export default async function MarketingCalendarPage({
   searchParams,
 }: {
@@ -131,7 +133,7 @@ export default async function MarketingCalendarPage({
 
       <MonthCalendar year={year} month={month} selectedDate={selectedDate} today={today} dots={dots} />
 
-      <DayAgenda tasks={tasksResult.data} selectedDate={selectedDate} today={today} />
+      <MonthTimeline tasks={tasksResult.data} selectedDate={selectedDate} today={today} />
 
       {/* Mobile-only floating trigger — stays reachable while the agenda
           list scrolls long (UX doc mobile rule); header button above covers

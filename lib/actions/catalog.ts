@@ -14,6 +14,7 @@ import { revalidatePath } from "next/cache";
 import { getServiceClient } from "@/lib/supabase/server";
 import { getDevShopId, getDevRole } from "@/lib/dev/context";
 import type { ActionResult } from "@/lib/types";
+import { fetchAllRows } from "@/lib/supabase/query-limits";
 import type {
   BlendedMarginSuggestion,
   CostType,
@@ -48,32 +49,66 @@ function toNum(v: number | string | null | undefined): number | null {
 // expose them) so the edit form can round-trip every field.
 // ============================================================================
 
-export async function getProducts(): Promise<ActionResult<ProductRow[]>> {
+export interface GetProductsResult {
+  rows: ProductRow[];
+  /** True SKU count for this shop (`count: "exact"` on v_dim_product — the
+   * row source `rows` is built from). See lib/supabase/query-limits.ts.
+   * IMPORT_MAX_ROWS below already allows importing up to 2,000 SKUs in one
+   * go, well past PostgREST's implicit 1000-row cap, so this catalog is
+   * expected to legitimately cross that cap. */
+  totalCount: number;
+  /** true when either v_dim_product OR public.product (the raw barcode/
+   * supplier/note lookup) was capped — a truncated raw lookup alone would
+   * silently blank those 3 fields on real SKUs rather than just omit rows,
+   * so it counts as truncated too, not only a row-count shortfall. */
+  truncated: boolean;
+}
+
+export async function getProducts(): Promise<ActionResult<GetProductsResult>> {
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();
 
-    const [dimRes, rawRes] = await Promise.all([
-      supabase
-        .schema(SCHEMA)
-        .from("v_dim_product")
-        .select(
-          "product_id, sku, name, category, cost_type, manual_unit_cost, silver_weight_g, silver_purity, labor_cost, list_price, effective_unit_cost, margin_pct, is_active"
-        )
-        .eq("shop_id", shopId),
+    // fetchAllRows() pages past PostgREST's max-rows cap — see
+    // lib/supabase/query-limits.ts for the incident this pattern fixed.
+    // Neither query had an ORDER BY before this fix (rows were sorted
+    // client-side only, after the fetch) — for paging to be correct that's
+    // not enough, Postgres needs a deterministic ORDER BY to hand back
+    // consistent pages across separate `.range()` calls, so both now order
+    // by their own unique key (product_id / id) at the DB level; the
+    // "active first, then by SKU" display sort still happens in JS below,
+    // unchanged, once every row is in hand.
+    const [dimResult, rawResult] = await Promise.all([
+      fetchAllRows((from, to) =>
+        supabase
+          .schema(SCHEMA)
+          .from("v_dim_product")
+          .select(
+            "product_id, sku, name, category, cost_type, manual_unit_cost, silver_weight_g, silver_purity, labor_cost, list_price, effective_unit_cost, margin_pct, is_active",
+            { count: "exact" }
+          )
+          .eq("shop_id", shopId)
+          .order("product_id", { ascending: true })
+          .range(from, to)
+      ),
       // public.product is the DEFAULT schema (no .schema()) — raw editable cols
-      supabase.from("product").select("id, barcode, supplier, note").eq("shop_id", shopId),
+      fetchAllRows((from, to) =>
+        supabase
+          .from("product")
+          .select("id, barcode, supplier, note", { count: "exact" })
+          .eq("shop_id", shopId)
+          .order("id", { ascending: true })
+          .range(from, to)
+      ),
     ]);
-    if (dimRes.error) throw dimRes.error;
-    if (rawRes.error) throw rawRes.error;
 
     const rawMap = new Map<string, { barcode: string | null; supplier: string | null; note: string | null }>();
-    for (const r of (rawRes.data ?? []) as { id: string; barcode: string | null; supplier: string | null; note: string | null }[]) {
+    for (const r of rawResult.rows as { id: string; barcode: string | null; supplier: string | null; note: string | null }[]) {
       rawMap.set(r.id, { barcode: r.barcode, supplier: r.supplier, note: r.note });
     }
 
     const rows: ProductRow[] = (
-      (dimRes.data ?? []) as {
+      dimResult.rows as {
         product_id: string;
         sku: string;
         name: string;
@@ -112,7 +147,9 @@ export async function getProducts(): Promise<ActionResult<ProductRow[]>> {
 
     // active first, then by SKU
     rows.sort((a, b) => Number(b.isActive) - Number(a.isActive) || a.sku.localeCompare(b.sku));
-    return { ok: true, data: rows };
+
+    const truncated = dimResult.truncated || rawResult.truncated;
+    return { ok: true, data: { rows, totalCount: dimResult.totalCount, truncated } };
   } catch (err) {
     console.error("getProducts failed", err);
     return { ok: false, error: "โหลดรายการสินค้าไม่สำเร็จ ลองใหม่อีกครั้ง" };

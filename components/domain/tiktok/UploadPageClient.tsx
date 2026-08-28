@@ -1,27 +1,21 @@
 "use client";
 
-import { useCallback, useState } from "react";
-import { AlertTriangle, PartyPopper, UploadCloud } from "lucide-react";
-import { Button } from "@/components/ui/Button";
+import { useCallback, useRef, useState } from "react";
+import { UploadCloud } from "lucide-react";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorBanner } from "@/components/ui/ErrorState";
-import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
-import type { UploadBatchSummary, UploadQueueItem, UploadReviewRow } from "@/lib/tiktok/types";
-import {
-  ACCEPTED_EXTENSIONS,
-  MAX_FILE_SIZE_BYTES,
-  buildInitialQueue,
-  buildMockResult,
-  formatFileSize,
-  mergeBatchSummary,
-  shouldMockFail,
-} from "@/lib/tiktok/upload-simulation";
+import { createLabelUpload, parseLabelFile } from "@/lib/actions/labels";
+import type { LabelParseSummary } from "@/lib/labels/types";
+import { ACCEPTED_EXTENSIONS, MAX_FILE_SIZE_BYTES, formatFileSize } from "@/lib/labels/constants-ui";
+import { sha256Hex } from "@/lib/labels/sha256-client";
+import type { UploadQueueItem } from "@/lib/tiktok/types";
 import { UploadDropzone } from "./UploadDropzone";
 import { UploadQueueList } from "./UploadQueueList";
-import { UploadQueueSkeleton } from "./UploadQueueSkeleton";
 import { BatchSummaryCard } from "./BatchSummaryCard";
 import { ReviewQueueList } from "./ReviewQueueList";
+import { LabelFileHistory } from "./LabelFileHistory";
+import { PendingReviewQueue } from "./PendingReviewQueue";
 
 interface RejectedFile {
   id: string;
@@ -29,146 +23,191 @@ interface RejectedFile {
   reason: string;
 }
 
-let rejectedIdCounter = 0;
-function nextRejectedId(): string {
-  rejectedIdCounter += 1;
-  return `rejected-${rejectedIdCounter}`;
+let idCounter = 0;
+function nextId(prefix: string): string {
+  idCounter += 1;
+  return `${prefix}-${idCounter}-${Date.now()}`;
+}
+
+function messageFromError(err: unknown, fallback: string): string {
+  if (err instanceof Error && err.message) return err.message;
+  return fallback;
 }
 
 /**
- * UploadPageClient — Phase 1 has NO real parser/backend yet (design §8 open
- * question #1 is still unresolved: OCR/LLM-vision vs. template+regex, which
- * changes the whole latency model). Every state transition here is
- * simulated client-side (lib/tiktok/upload-simulation.ts) — the mandatory
- * "ระบบอ่านไฟล์ยังไม่เปิดใช้งาน (จำลอง)" notice below is the single highest-
- * risk mitigation the design doc calls out (§ ความเสี่ยง: "ต้อง label ชัด...
- * กันลากไฟล์จริงแล้วคิดว่าบันทึกแล้ว").
+ * UploadPageClient — /tiktok/upload, REAL flow (docs/3j-jewelry/analytics/
+ * design-label-upload.md §3/§8). Per file: validate → sha256 (crypto.subtle)
+ * → createLabelUpload() → PUT to signed Storage URL (skipped when the file
+ * already exists by hash) → parseLabelFile() → per-file summary + read-only
+ * review table.
+ *
+ * lib/actions/labels.ts is still a STUB on this branch (throws — backend
+ * lands on feat/label-upload-backend and gets merged separately) — every
+ * action call below is wrapped in try/catch so that throw surfaces as the
+ * exact same "failed" queue state + retry button a real network/server
+ * error would, with no special-casing. There is deliberately no "(จำลอง)"
+ * banner here anymore (design §8: no half-real/half-fake state) — a failed
+ * item because the backend isn't wired yet is an honest error, not a mock.
+ *
+ * Files queue and process ONE AT A TIME (never parallel — design brief
+ * "คิวไล่ทีละไฟล์ ไม่ยิง parse พร้อมกันหมด"), via pendingRef/processingRef
+ * below rather than Promise.all.
  */
 export function UploadPageClient() {
   const toast = useToast();
   const [queue, setQueue] = useState<UploadQueueItem[]>([]);
   const [rejected, setRejected] = useState<RejectedFile[]>([]);
-  const [summary, setSummary] = useState<UploadBatchSummary | null>(null);
-  const [reviewQueue, setReviewQueue] = useState<UploadReviewRow[]>([]);
-  const [validating, setValidating] = useState(false);
-  const [confirmAllOpen, setConfirmAllOpen] = useState(false);
+  // Bumped after every successful parse so <PendingReviewQueue /> (bug 2 fix
+  // — the durable, shop-wide review queue read from stg_label_page) reloads
+  // right away instead of only after the owner leaves and returns to this page.
+  const [reviewRefreshSignal, setReviewRefreshSignal] = useState(0);
 
-  const animateItem = useCallback((id: string, willFail: boolean, delayOffset: number, onSettle?: () => void) => {
-    const steps = [30, 65, 100];
-    steps.forEach((pct, i) => {
-      window.setTimeout(
-        () => {
-          setQueue((prev) =>
-            prev.map((item): UploadQueueItem => {
-              if (item.id !== id) return item;
-              if (pct < 100) {
-                return { ...item, status: "parsing", progressPct: pct, metaText: `กำลังอ่าน… ${pct}%` };
-              }
-              if (willFail) {
-                return {
-                  ...item,
-                  status: "failed",
-                  progressPct: undefined,
-                  metaText: "อ่านไม่ออก — ภาพเบลอเกินไป (จำลอง)",
-                  errorText: "อ่านไม่ออก — ภาพเบลอเกินไป (จำลอง)",
-                };
-              }
-              return { ...item, status: "done", progressPct: undefined, metaText: "อ่านสำเร็จ (จำลอง)" };
-            })
-          );
-          if (pct === 100) onSettle?.();
-        },
-        delayOffset + i * 350
-      );
-    });
+  // File objects never go into React state (large binary blobs, and we only
+  // ever need them keyed by item id for processing/retry) — kept in a ref map instead.
+  const fileMapRef = useRef<Map<string, File>>(new Map());
+  const pendingRef = useRef<string[]>([]);
+  const processingRef = useRef(false);
+
+  const updateItem = useCallback((id: string, patch: Partial<UploadQueueItem>) => {
+    setQueue((prev) => prev.map((item) => (item.id === id ? { ...item, ...patch } : item)));
   }, []);
 
+  const processOneFile = useCallback(
+    async (id: string, file: File) => {
+      try {
+        updateItem(id, { status: "preparing", metaText: `${formatFileSize(file.size)} · กำลังคำนวณ hash…`, errorText: undefined });
+        const sha256 = await sha256Hex(file);
+
+        const createResult = await createLabelUpload({ fileName: file.name, fileSize: file.size, sha256 });
+        if (!createResult.ok) {
+          updateItem(id, { status: "failed", errorText: createResult.error, metaText: createResult.error });
+          return;
+        }
+        const { fileId, uploadUrl, alreadyExists } = createResult.data;
+        updateItem(id, { fileId, alreadyExists });
+
+        if (alreadyExists) {
+          toast.push(`${file.name} — ไฟล์นี้เคยอัปแล้ว อ่านซ้ำจากไฟล์เดิม`);
+          updateItem(id, { metaText: "ไฟล์นี้เคยอัปแล้ว — อ่านซ้ำจากไฟล์เดิม" });
+        } else if (uploadUrl) {
+          updateItem(id, { status: "uploading", metaText: `${formatFileSize(file.size)} · กำลังอัปโหลด…` });
+          const putRes = await fetch(uploadUrl, {
+            method: "PUT",
+            body: file,
+            headers: { "Content-Type": "application/pdf" },
+          });
+          if (!putRes.ok) {
+            const msg = `อัปโหลดไม่สำเร็จ (HTTP ${putRes.status})`;
+            updateItem(id, { status: "failed", errorText: msg, metaText: msg });
+            return;
+          }
+        } else {
+          // Contract says uploadUrl is only null when alreadyExists is true
+          // (lib/labels/types.ts) — defend against a backend bug rather than
+          // silently trying to parse a file that was never uploaded.
+          const msg = "ระบบไม่ได้ส่งลิงก์อัปโหลดกลับมา";
+          updateItem(id, { status: "failed", errorText: msg, metaText: msg });
+          return;
+        }
+
+        updateItem(id, { status: "parsing", metaText: "กำลังอ่านไฟล์…" });
+        const parseResult = await parseLabelFile(fileId);
+        if (!parseResult.ok) {
+          updateItem(id, { status: "failed", errorText: parseResult.error, metaText: parseResult.error });
+          return;
+        }
+
+        const summary: LabelParseSummary = parseResult.data;
+        updateItem(id, {
+          status: "done",
+          metaText: `${summary.pageCount} หน้า · เสร็จแล้ว`,
+          summary,
+        });
+        setReviewRefreshSignal((n) => n + 1);
+        toast.push(`อ่าน ${file.name} เสร็จแล้ว — เติมจังหวัด ${summary.applied} ออเดอร์`);
+      } catch (err) {
+        const msg = messageFromError(err, "เกิดข้อผิดพลาดไม่ทราบสาเหตุ");
+        updateItem(id, { status: "failed", errorText: msg, metaText: msg });
+      }
+    },
+    [toast, updateItem]
+  );
+
+  const drainQueue = useCallback(async () => {
+    if (processingRef.current) return;
+    processingRef.current = true;
+    try {
+      while (pendingRef.current.length > 0) {
+        const id = pendingRef.current.shift();
+        if (!id) continue;
+        const file = fileMapRef.current.get(id);
+        if (!file) continue;
+        await processOneFile(id, file);
+      }
+    } finally {
+      processingRef.current = false;
+    }
+  }, [processOneFile]);
+
   const handleFilesSelected = useCallback(
-    (fileList: FileList) => {
-      const files = Array.from(fileList);
-      const accepted: File[] = [];
+    (files: File[]) => {
+      const accepted: { item: UploadQueueItem; file: File }[] = [];
       const newRejections: RejectedFile[] = [];
 
       for (const file of files) {
         const ext = file.name.split(".").pop()?.toLowerCase() ?? "";
         if (!ACCEPTED_EXTENSIONS.includes(ext)) {
-          newRejections.push({ id: nextRejectedId(), name: file.name, reason: "ชนิดไฟล์ไม่รองรับ (รับ PDF/JPG/PNG เท่านั้น)" });
+          newRejections.push({ id: nextId("rejected"), name: file.name, reason: "ชนิดไฟล์ไม่รองรับ (รับ PDF เท่านั้น)" });
           continue;
         }
         if (file.size > MAX_FILE_SIZE_BYTES) {
-          newRejections.push({ id: nextRejectedId(), name: file.name, reason: `ไฟล์ใหญ่เกิน 20MB (${formatFileSize(file.size)})` });
+          newRejections.push({ id: nextId("rejected"), name: file.name, reason: `ไฟล์ใหญ่เกิน 20MB (${formatFileSize(file.size)})` });
           continue;
         }
-        accepted.push(file);
+        const id = nextId("upload-item");
+        accepted.push({
+          item: { id, fileName: file.name, metaText: `${formatFileSize(file.size)} · รอคิว…`, status: "preparing" },
+          file,
+        });
       }
 
       // Client-side type/size validation is instant — rejects surface right
-      // away, never waiting on the (simulated) "queued" round-trip below
-      // (design §3: "reject เร็ว ไม่รอ round-trip").
+      // away, never waiting on the (queued) upload round-trip below.
       if (newRejections.length > 0) {
         setRejected((prev) => [...prev, ...newRejections]);
       }
       if (accepted.length === 0) return;
 
-      setValidating(true);
-      window.setTimeout(() => {
-        setValidating(false);
-        const newItems = buildInitialQueue(accepted);
-        setQueue((prev) => [...prev, ...newItems]);
-
-        newItems.forEach((item, i) => animateItem(item.id, shouldMockFail(i), i * 250));
-
-        const totalDurationMs = newItems.length * 250 + 3 * 350 + 150;
-        window.setTimeout(() => {
-          const outcomes = newItems.map((_, i): "failed" | "done" => (shouldMockFail(i) ? "failed" : "done"));
-          const batchResult = buildMockResult(outcomes);
-          setSummary((prev) => mergeBatchSummary(prev, batchResult.summary));
-          setReviewQueue((prev) => [...prev, ...batchResult.reviewQueue]);
-          toast.push(`ประมวลผล ${newItems.length} ไฟล์เสร็จแล้ว (จำลอง)`);
-        }, totalDurationMs);
-      }, 300);
+      for (const { item, file } of accepted) {
+        fileMapRef.current.set(item.id, file);
+      }
+      setQueue((prev) => [...prev, ...accepted.map((a) => a.item)]);
+      pendingRef.current.push(...accepted.map((a) => a.item.id));
+      void drainQueue();
     },
-    [animateItem, toast]
+    [drainQueue]
   );
 
   const handleRetryItem = useCallback(
     (id: string) => {
-      setQueue((prev) =>
-        prev.map((item): UploadQueueItem =>
-          item.id === id ? { ...item, status: "parsing", progressPct: 0, metaText: "กำลังอ่านใหม่…" } : item
-        )
-      );
-      animateItem(id, false, 0, () => {
-        setSummary((prev) => (prev ? { ...prev, failed: Math.max(prev.failed - 1, 0), success: prev.success + 1 } : prev));
-        toast.push("อัปโหลดใหม่สำเร็จ (จำลอง)");
-      });
+      const file = fileMapRef.current.get(id);
+      if (!file) return;
+      // Re-run the ENTIRE pipeline from scratch (hash → create → upload →
+      // parse) — never reuse the previous attempt's fileId/summary as a
+      // shortcut ("จำบั๊ก cache-null": a failed retry must hit the network for
+      // real, not silently resolve from stale state).
+      updateItem(id, { status: "preparing", errorText: undefined, summary: undefined, metaText: `${formatFileSize(file.size)} · รอคิว…` });
+      pendingRef.current.push(id);
+      void drainQueue();
     },
-    [animateItem, toast]
+    [drainQueue, updateItem]
   );
-
-  const handleConfirmRow = useCallback(
-    (id: string) => {
-      setReviewQueue((prev) => prev.filter((r) => r.id !== id));
-      toast.push("ยืนยันแถวเรียบร้อย (จำลอง)");
-    },
-    [toast]
-  );
-
-  const handleConfirmAll = useCallback(() => {
-    setReviewQueue([]);
-    setConfirmAllOpen(false);
-    toast.push("ยืนยันรายการที่เหลือทั้งหมดแล้ว (จำลอง)");
-  }, [toast]);
 
   const hasAnyActivity = queue.length > 0 || rejected.length > 0;
+  const doneItems = queue.filter((item) => item.status === "done" && item.summary);
 
   return (
     <div className="space-y-4">
-      <p className="flex items-center gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
-        <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-        ระบบอ่านไฟล์ยังไม่เปิดใช้งาน (จำลอง) — ไฟล์ที่ลากมาจะไม่ถูกอัปโหลด/บันทึกจริง หน้านี้ใช้ดู UI เท่านั้น
-      </p>
-
       <UploadDropzone onFilesSelected={handleFilesSelected} />
 
       {rejected.length > 0 && (
@@ -183,65 +222,36 @@ export function UploadPageClient() {
         </div>
       )}
 
-      {validating && <UploadQueueSkeleton />}
-
-      {!validating && queue.length > 0 && (
+      {queue.length > 0 && (
         <section aria-label="คิวอัปโหลด">
           <p className="mb-2 text-xs font-bold tracking-wide text-zinc-400 uppercase">ไฟล์ในคิว</p>
           <UploadQueueList items={queue} onRetry={handleRetryItem} />
         </section>
       )}
 
-      {summary && (
-        <section aria-label="สรุปผลอัปโหลด">
-          <p className="mb-2 text-xs font-bold tracking-wide text-zinc-400 uppercase">สรุปรอบนี้</p>
-          <BatchSummaryCard summary={summary} />
-        </section>
-      )}
+      {doneItems.map((item) => {
+        const summary = item.summary as LabelParseSummary;
+        return (
+          <section key={item.id} aria-label={`สรุปผลอ่านไฟล์ ${item.fileName}`} className="space-y-2">
+            <p className="text-xs font-bold tracking-wide text-zinc-400 uppercase">สรุป — {item.fileName}</p>
+            <BatchSummaryCard summary={summary} />
+            {summary.reviewRows.length > 0 && (
+              <>
+                <p className="mt-1 text-xs font-bold tracking-wide text-zinc-400 uppercase">รอตรวจสอบ ({summary.reviewRows.length})</p>
+                <ReviewQueueList rows={summary.reviewRows} />
+              </>
+            )}
+          </section>
+        );
+      })}
 
-      {reviewQueue.length > 0 && (
-        <section aria-label="รายการรอตรวจสอบ">
-          <p className="mb-2 text-xs font-bold tracking-wide text-zinc-400 uppercase">รอตรวจสอบก่อนบันทึก</p>
-          <ReviewQueueList rows={reviewQueue} onConfirm={handleConfirmRow} />
-          <p className="mt-3 text-center text-xs text-zinc-500">
-            เหลือรอตรวจสอบ <span className="font-bold text-zinc-700">{reviewQueue.length}</span> รายการ
-          </p>
-          <Button variant="primary" className="mt-2 w-full" onClick={() => setConfirmAllOpen(true)}>
-            ยืนยันทั้งหมดที่เหลือ
-          </Button>
-        </section>
-      )}
-
-      {summary && reviewQueue.length === 0 && (
-        <p className="flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-green-300 bg-green-50 px-4 py-3 text-center text-sm text-green-800">
-          <PartyPopper className="h-4 w-4 shrink-0" aria-hidden="true" />
-          ตรวจสอบครบแล้ว — บันทึกออเดอร์เรียบร้อย (จำลอง)
-        </p>
-      )}
-
-      {!hasAnyActivity && !validating && (
+      {!hasAnyActivity && (
         <EmptyState icon={UploadCloud} title="ยังไม่มีไฟล์วันนี้" description="ลากไฟล์ใบปะหน้ามาวาง หรือกดเลือกไฟล์ด้านบน" />
       )}
 
-      <Modal open={confirmAllOpen} onClose={() => setConfirmAllOpen(false)} title="ยืนยันทั้งหมดที่เหลือ?">
-        <p className="text-sm text-zinc-600">
-          จะยืนยัน {reviewQueue.length} รายการที่เหลือทั้งหมดโดยไม่แก้ไขทีละแถว — ตรวจสอบแล้วว่าข้อมูลถูกต้องก่อนกดยืนยัน
-          (การกระทำนี้เป็นการจำลอง ไม่มีข้อมูลถูกบันทึกจริง)
-        </p>
-        <div className="mt-4 flex gap-2">
-          <Button variant="secondary" className="flex-1" onClick={() => setConfirmAllOpen(false)}>
-            ยกเลิก
-          </Button>
-          <Button variant="primary" className="flex-1" onClick={handleConfirmAll}>
-            ยืนยันทั้งหมด
-          </Button>
-        </div>
-      </Modal>
+      <PendingReviewQueue refreshSignal={reviewRefreshSignal} />
 
-      <p className="border-t border-zinc-200 pt-3 text-xs leading-relaxed text-zinc-400">
-        <span className="font-medium text-zinc-500">อัปโหลดใบปะหน้า</span> — หน้านี้จำลอง state ทั้งหมด (MOCK, ยังไม่ต่อ parser
-        จริง) · ไฟล์พัง (parse fail) แยกจาก &quot;รอ review&quot; · ที่อยู่/SKU ไม่ชัด = amber/slate ไม่ใช่แดง
-      </p>
+      <LabelFileHistory />
     </div>
   );
 }
