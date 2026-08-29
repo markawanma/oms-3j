@@ -1,0 +1,5 @@
+# สำรองราคา OEM (USD) จากเว็บ 3jthailand.com ก่อนล้างราคาออกจากหน้าร้าน 28 ส.ค. 2569
+# เหตุผล: เจ้าของสั่งให้ OEM แสดงเป็น "ติดต่อขอใบเสนอราคา" แทนราคาสาธารณะ
+#         (ตรงกับกฎแบรนด์: OEM ห้ามมีราคาสาธารณะ)
+# กู้คืน: ยิงกลับผ่าน POST /stores/v1/bulk/products/update  {ids, set:{price}}
+# คอลัมน์: product_id <TAB> name <TAB> price_usd <TAB> currency
