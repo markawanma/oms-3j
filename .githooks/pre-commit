@@ -1,0 +1,26 @@
+#!/bin/sh
+# pre-commit — บังคับวินัย INDEX ของ docs/3j-jewelry โดยกลไก ไม่พึ่งคนสังเกต
+# ข้ามได้เมื่อจำเป็นจริง: SKIP_DOC_INDEX=1 git commit ...
+[ "$SKIP_DOC_INDEX" = "1" ] && exit 0
+
+# 1) เพิ่ม/ลบ/ย้ายไฟล์ในโฟลเดอร์ active แต่ไม่ได้แตะ INDEX.md ในคอมมิตเดียวกัน → บล็อก
+structural=$(git diff --cached --name-status \
+  | awk '$1 ~ /^(A|D|R)/ { print $2; if ($3 != "") print $3 }' \
+  | grep -E '^docs/3j-jewelry/(marketing|web|content|_archive)/' \
+  | grep -v 'INDEX\.md' || true)
+
+if [ -n "$structural" ]; then
+  if ! git diff --cached --name-only | grep -q '^docs/3j-jewelry/INDEX\.md$'; then
+    echo "🔴 คอมมิตนี้เพิ่ม/ลบ/ย้ายไฟล์ใน docs/3j-jewelry แต่ไม่ได้อัปเดต INDEX.md:"
+    echo "$structural" | sed 's/^/   - /'
+    echo "→ อัปเดต docs/3j-jewelry/INDEX.md แล้ว git add มาด้วย (หรือ SKIP_DOC_INDEX=1 ถ้าจงใจ)"
+    exit 1
+  fi
+fi
+
+# 2) ถ้าคอมมิตแตะ docs/3j-jewelry — รัน checker เต็ม (เร็ว <1 วิ)
+if git diff --cached --name-only | grep -q '^docs/3j-jewelry/'; then
+  node scripts/doc-index-check.mjs || exit 1
+fi
+
+exit 0

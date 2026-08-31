@@ -55,7 +55,7 @@
 ### ⚠️ เก่ากว่า — ใช้เฉพาะอ้างประวัติ อย่าใช้วางแผน
 `HANDOFF-wix.md` (ข้อมูล API ผิดหลายจุด — เคยพาพลาดมาแล้ว) · `audit-silver-pages.md` ·
 `content-plan-silver-bar.md` · `silver-bar-copy-batch1.md` (paste ไปแล้วบางส่วน) ·
-`price-system-analysis.md` · `sell-back-page-redesign.md` · `shop-route-design.md` ·
+`price-system-analysis.md` · `sell-back-page-redesign.md` (+ mockup ใน `mockups/`) · `shop-route-design.md` ·
 `tech-design-silver-bar.md` · `velo-fixed/SETUP.md`
 
 ## 📝 content/ — คลัง content กลาง
@@ -64,6 +64,7 @@
 | `3j-educational-series.md` | ✅ 22 หัวข้อ เขียนสคริปต์แล้ว 2 — **ยังไม่มีใครใช้ · CEO สั่ง: ใช้ให้หมดก่อนผลิตใหม่** |
 | `3j-jewelry-clip-ideas.md` · `3j-educational-week1-scripts.md` · `3j-scripts-batch2.md` · `3j-week1-content.md` | ✅ วัตถุดิบพร้อมใช้ — เช็คทับซ้อนกับ educational series ก่อนสั่งเขียนใหม่ |
 | `3j-content-master.md` | โครงกลาง — เช็ควันที่ก่อนอ้าง |
+| `srt/` (7 ไฟล์) | ✅ ซับไตเติลคลิปพร้อมใช้ — 925/การ์เนต/CZ/เงินดำ/ดูแลเงิน/โรสควอตซ์/ขายส่ง |
 
 ## 📁 โฟลเดอร์อื่น (สถานะระดับโฟลเดอร์)
 | โฟลเดอร์ | คือ | หมายเหตุ |
@@ -81,3 +82,10 @@
 | `winback-scripts.md` | ฟันธงตัวเลขรับซื้อคืนสาธารณะ + นิยาม audience ถูกแทน — แทนที่โดย `plan-sep69-revised.md` + `content-winback-set1.md` |
 | `3j-month1-calendar.md` | ระบุไลฟ์ 3 ครั้ง/สัปดาห์ — ผิด (จริงคือทุกคืน) |
 | `competitor-and-trend-research.md` | ว่างเปล่า (เขียนก่อนมี web tool) — แทนที่โดย `market-research-raw.md` |
+
+## 🤖 กลไกบังคับวินัย (ไม่พึ่งคนสังเกต — ติดตั้ง 29 ส.ค. 69)
+| ชั้น | กลไก | จับอะไร |
+|---|---|---|
+| ตอน commit | `.githooks/pre-commit` (เปิดด้วย `git config core.hooksPath .githooks` — ทำครั้งเดียวต่อเครื่อง) | เพิ่ม/ลบ/ย้ายไฟล์โดยไม่อัปเดต INDEX → **บล็อก** · ข้ามได้ด้วย `SKIP_DOC_INDEX=1` |
+| ตอน agent อ่านไฟล์ | `.claude/settings.json` → `scripts/hooks/warn-archive-read.mjs` | อ่านไฟล์ใน `_archive/` → เตือนอัตโนมัติทั้งผู้ใช้และ model |
+| รายสัปดาห์ | `node scripts/doc-index-check.mjs` (บรรทัด "สุขภาพคลังเอกสาร" ใน Weekly Brief) | ไฟล์หลุด INDEX · INDEX ชี้ไฟล์ที่ไม่มีจริง |

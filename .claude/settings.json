@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node scripts/hooks/warn-archive-read.mjs",
+            "timeout": 10,
+            "statusMessage": "ตรวจว่าไฟล์ที่อ่านถูก archive ไหม"
+          }
+        ]
+      }
+    ]
+  }
+}
