@@ -36,7 +36,12 @@ with (security_invoker = true) as
 select
   s.shop_id,
   s.as_of_date,
-  s.sell_per_baht,
+  -- sell_per_baht deliberately NOT selected. Dropping only the derived
+  -- spread_per_baht column would have been theatre: any reader holding both
+  -- sell_per_baht and buy_per_baht can subtract them and get the same 30.
+  -- Removing the input, not just the output, is what actually closes it.
+  -- Nothing reads it — grepped components/ lib/ app/: zero hits (only
+  -- migrations and the capture script, which WRITES to the base table).
   s.buy_per_baht,
   s.bar_1_baht,
   s.bar_10_baht,
@@ -59,7 +64,8 @@ window
 
 comment on view analytics.v_silver_price_trend is
   'แนวโน้มราคาเงินรายวัน — คิด % จาก buy_per_baht (ราคาเนื้อเงินล้วน) เพราะเป็นชุดเดียวที่นิยามตรงกันทุกแหล่งข้อมูล. '
-  'ไม่มีคอลัมน์ spread_per_baht (ถอดออก 0103): sell_per_baht ลบ buy_per_baht ของแถว source=sheet เท่ากับ 30 เป๊ะ ซึ่งคือส่วนต่างรับซื้อคืนภายในที่ห้ามเปิดเผยเด็ดขาด — ดู 🔴 INTERNAL comment บน silver_price_daily.sell_per_baht.';
+  'ถอดออก 0103 ทั้ง spread_per_baht และ sell_per_baht: ผลลบของสองค่านั้นในแถว source=sheet เท่ากับ 30 เป๊ะ ซึ่งคือส่วนต่างรับซื้อคืนภายในที่ห้ามเปิดเผยเด็ดขาด. '
+  'ลบเฉพาะคอลัมน์ผลลัพธ์ไม่พอ ต้องถอดตัวตั้งออกด้วย ไม่งั้นคนอ่าน view ก็ลบเลขเองได้ — ดู 🔴 INTERNAL comment บน silver_price_daily.sell_per_baht.';
 
 -- View grants don't survive drop+create (unlike a bare create-or-replace,
 -- this literally is a new relation as far as pg_class is concerned) —
