@@ -28,8 +28,13 @@
 import { createClient } from "@supabase/supabase-js";
 import { createHash } from "node:crypto";
 
-const SHEET_URL =
-  "https://docs.google.com/spreadsheets/d/e/2PACX-1vRXbHasns4u6S9CWICbGDL2Rnj5fRAiYYwxBhYgjP_jYwY6Ccoqhdz5mQgPlC2DjzrCW4tyh1TIhTZg/pub?output=csv";
+// อ่านจาก .env.local (SILVER_SHEET_CSV_URL) — จงใจไม่ hardcode ใน repo:
+// repo เคยเป็น public และ URL นี้เปิดถึงต้นทุนภายในตรงๆ (ดู pricing-disclosure-policy)
+const SHEET_URL = process.env.SILVER_SHEET_CSV_URL;
+if (!SHEET_URL) {
+  console.error("❌ ไม่พบ SILVER_SHEET_CSV_URL ใน .env.local — เพิ่มบรรทัด SILVER_SHEET_CSV_URL=<ลิงก์ CSV ของชีตราคา> ก่อนรัน");
+  process.exit(1);
+}
 
 function env(name) {
   const v = process.env[name];

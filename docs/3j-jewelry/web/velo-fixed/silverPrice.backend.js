@@ -17,7 +17,7 @@
 import { fetch } from 'wix-fetch';
 import wixData from 'wix-data';
 
-const SHEET_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRXbHasns4u6S9CWICbGDL2Rnj5fRAiYYwxBhYgjP_jYwY6Ccoqhdz5mQgPlC2DjzrCW4tyh1TIhTZg/pub?output=csv";
+const SHEET_URL = "<SILVER_SHEET_CSV_URL — ดูใน .env.local ห้ามใส่ URL จริงลง repo>";
 const SNAPSHOT_COLLECTION = "PriceSnapshots";
 const SNAPSHOT_ID = "latest";
 
