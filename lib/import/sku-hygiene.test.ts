@@ -90,6 +90,47 @@ describe("analyzeSku — must catch", () => {
     expect(cleanSku(text)).toBe("NC20A");
   });
 
+  it("⑩b RLO (U+202E) bidi override is caught as zero_width, amber severity, and stripped", () => {
+    // Security audit fix (0901): U+202E flips display direction of
+    // everything after it — the SKU can visually read "NC20-A1" while its
+    // real character sequence differs, so copy-pasting it elsewhere (e.g.
+    // Shipnity search) silently fails to match.
+    const text = "NC20‮-A1";
+    const issues = analyzeSku(text);
+    expect(issues).toEqual([{ kind: "zero_width", position: 5, codepoint: "U+202E", charName: expect.any(String) }]);
+    expect(findingSeverity(issues)).toBe("amber");
+    expect(cleanSku(text)).toBe("NC20-A1");
+  });
+
+  it("⑩c other bidi/invisible-format characters are all caught as zero_width", () => {
+    const cases: [string, string][] = [
+      ["‭", "U+202D"], // LRO
+      ["‪", "U+202A"], // LRE
+      ["‫", "U+202B"], // RLE
+      ["‬", "U+202C"], // PDF
+      ["⁦", "U+2066"], // LRI
+      ["⁧", "U+2067"], // RLI
+      ["⁨", "U+2068"], // FSI
+      ["⁩", "U+2069"], // PDI
+      ["؜", "U+061C"], // ALM
+      ["‎", "U+200E"], // LRM
+      ["‏", "U+200F"], // RLM
+      ["­", "U+00AD"], // soft hyphen
+      ["͏", "U+034F"], // CGJ
+      ["᠎", "U+180E"], // Mongolian vowel separator
+      ["⁠", "U+2060"], // word joiner
+      ["￹", "U+FFF9"], // interlinear annotation anchor
+      ["￺", "U+FFFA"], // interlinear annotation separator
+      ["￻", "U+FFFB"], // interlinear annotation terminator
+    ];
+    for (const [ch, codepoint] of cases) {
+      const text = `NC20${ch}A`;
+      const issues = analyzeSku(text);
+      expect(issues, codepoint).toEqual([{ kind: "zero_width", position: 5, codepoint, charName: expect.any(String) }]);
+      expect(cleanSku(text), codepoint).toBe("NC20A");
+    }
+  });
+
   it("⑩ multiple issues in one SKU: every position correct, cleanSku strips all of them", () => {
     // 1:BOM(odd-space) 2:orphan-mark(prev=BOM, not consonant) 3:N 4:C
     // 5:zero-width 6:2 7:0 8:NBSP 9:- 10:A 11:trailing space (edge_space)

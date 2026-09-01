@@ -27,7 +27,7 @@ import {
   type ExistingFactOrderForDiff,
   type OrderImportDiff,
 } from "@/lib/import/order-diff";
-import { LINE_ITEM_SOURCE_TYPE } from "@/lib/import/source-types";
+import { isPostgrestInSafe, LINE_ITEM_SOURCE_TYPE } from "@/lib/import/source-types";
 
 const SCHEMA = "analytics";
 const SOURCE_TYPE = "excel_order_report" as const;
@@ -164,7 +164,17 @@ export async function previewOrderImport(formData: FormData): Promise<ActionResu
         diff = null;
       } else {
         const existingByOrderNo = new Map<string, ExistingFactOrderForDiff>();
-        for (const chunk of chunkArray(distinctOrderNos, DEDUP_CHECK_CHUNK_SIZE)) {
+        // isPostgrestInSafe (security audit fix, 0901): a source_order_no
+        // containing a literal `"` (or `\`) would break out of postgrest-js's
+        // .in() quoting (see source-types.ts comment) and could match rows it
+        // shouldn't. Skip those in the QUERY only — distinctOrderNos itself
+        // stays untouched, so an order number that can't be safely checked
+        // simply never gets an existingByOrderNo entry and buildOrderImportDiff
+        // (below) classifies it as newOrderCount — "couldn't verify" reads as
+        // "no existing counterpart", the same conservative default used for
+        // orphanOrderCount/unknownSkus in import-line-items.ts.
+        const safeOrderNos = distinctOrderNos.filter(isPostgrestInSafe);
+        for (const chunk of chunkArray(safeOrderNos, DEDUP_CHECK_CHUNK_SIZE)) {
           const { data, error } = await supabase
             .schema(SCHEMA)
             .from("fact_order")

@@ -47,3 +47,22 @@ export const WARNING_KIND_PREFIX = {
 // there typechecks fine but breaks the Next.js build silently past
 // typecheck (27 ส.ค. 69 lesson).
 export const ORPHAN_WAIT_DAYS = 7;
+
+// Security audit fix (0901): @supabase/postgrest-js's .in() filter quotes a
+// value in `"..."` whenever it contains a delimiter char ([,()]) but does
+// NOT escape a literal `"` inside that value (node_modules/@supabase/
+// postgrest-js/dist/index.cjs:1690) — an Excel cell like `A","B` breaks out
+// of the quoted token and is parsed as TWO separate values, so a .in() list
+// built from raw spreadsheet text can silently match more/fewer rows than
+// the caller intended. Tenant isolation is NOT at risk (shop_id is always a
+// separate bound param via .eq(), never folded into the .in() list), but any
+// "is this value known?" check downstream of a raw-text .in() can be wrong.
+//
+// Filter every value through this BEFORE it reaches .in() — never sanitize
+// or escape the string; a value this rejects must be treated as "could not
+// be checked", which the caller maps to the same conservative bucket a
+// genuinely-unmatched value would land in (orphan/unknown), never silently
+// dropped. See lib/actions/import-line-items.ts / import-orders.ts.
+export function isPostgrestInSafe(v: string): boolean {
+  return !/["\\]/.test(v);
+}

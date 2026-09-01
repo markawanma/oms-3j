@@ -6,19 +6,28 @@
 // scripts/capture-silver-price-sheet.mjs / scripts/scrape-silver-price.mjs
 // running as a scheduled task (service-role client, outside this app).
 //
-// No owner/admin gate here (unlike lib/actions/catalog.ts's cost/margin
-// writes): the internal columns shown on this page (silver_value_per_baht,
-// block_fee_1, shopee_1) are pricing-desk numbers already visible to anyone
-// who can log into this internal dashboard — same read-open posture as
-// listSkuPrefixes in lib/actions/catalog-sku.ts. If a stricter role model
-// ships later, revisit this alongside that file.
+// Owner/admin gate (security audit fix, 0901): the internal columns
+// returned here (silver_value_per_baht, block_fee_1, shopee_1) are cost
+// numbers, same class as lib/actions/catalog.ts's cost/margin fields and
+// lib/actions/oem.ts's rate data — every other action in this app that
+// touches cost/margin gates on requireOwnerAdmin(), this one was the sole
+// exception. The comment this replaced claimed the same posture as
+// listSkuPrefixes in lib/actions/catalog-sku.ts; that was wrong —
+// listSkuPrefixes returns only SKU prefix codes, never a cost figure.
 
 import { getServiceClient } from "@/lib/supabase/server";
-import { getDevShopId } from "@/lib/dev/context";
+import { getDevShopId, getDevRole } from "@/lib/dev/context";
 import type { ActionResult } from "@/lib/types";
 import type { SilverPriceHistoryRow } from "@/lib/catalog/silver-price-history";
 
 const SCHEMA = "analytics";
+
+function requireOwnerAdmin(): ActionResult<never> | null {
+  if (getDevRole() === "staff") {
+    return { ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่ดูประวัติราคาเนื้อเงินได้" };
+  }
+  return null;
+}
 
 // 90 days is a fixed, bounded window (per brief: "จำกัด 90 วันล่าสุดพอ ไม่ต้อง
 // unbounded") — no lib/supabase/query-limits.ts fetchAllRows() needed. Even
@@ -33,6 +42,9 @@ function toNum(v: number | string | null): number | null {
 }
 
 export async function getSilverPriceHistory(): Promise<ActionResult<SilverPriceHistoryRow[]>> {
+  const gateErr = requireOwnerAdmin();
+  if (gateErr) return gateErr;
+
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();

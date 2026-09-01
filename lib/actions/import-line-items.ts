@@ -31,6 +31,7 @@ import {
   type ParsedLineReport,
 } from "@/lib/import/order-line-report";
 import {
+  isPostgrestInSafe,
   LINE_ITEM_SOURCE_TYPE,
   ORPHAN_WAIT_DAYS,
   WARNING_KIND_PREFIX,
@@ -215,7 +216,15 @@ export async function previewLineImport(formData: FormData): Promise<ActionResul
       );
       if (orderNos.length > 0) {
         const matchedOrders = new Set<string>();
-        for (const chunk of chunkArray(orderNos, CHECK_CHUNK_SIZE)) {
+        // isPostgrestInSafe: values with a literal `"` (or `\`) would break
+        // out of postgrest-js's .in() quoting and get parsed as extra
+        // values (see source-types.ts comment). Skip those in the QUERY —
+        // never in the orphanOrderCount math below, which still divides by
+        // the FULL orderNos.length. A value that's filtered out never lands
+        // in matchedOrders either, so it falls through as "not matched" =
+        // orphan, the safe default when a check can't be trusted.
+        const safeOrderNos = orderNos.filter(isPostgrestInSafe);
+        for (const chunk of chunkArray(safeOrderNos, CHECK_CHUNK_SIZE)) {
           const { data, error } = await supabase
             .schema(SCHEMA)
             .from("fact_order")
@@ -233,7 +242,12 @@ export async function previewLineImport(formData: FormData): Promise<ActionResul
       const skus = Array.from(new Set(parsed.rows.map((r) => r.sku_raw).filter((v): v is string => v !== null)));
       if (skus.length > 0) {
         const knownSkus = new Set<string>();
-        for (const chunk of chunkArray(skus, CHECK_CHUNK_SIZE)) {
+        // Same isPostgrestInSafe fail-safe as orderNos above: a SKU that
+        // can't be safely sent to .in() never reaches knownSkus, so it falls
+        // into unknownSkus below — "couldn't verify" reads as "unknown", not
+        // silently dropped from either list.
+        const safeSkus = skus.filter(isPostgrestInSafe);
+        for (const chunk of chunkArray(safeSkus, CHECK_CHUNK_SIZE)) {
           // public.product is the DEFAULT schema (no .schema() call) — same
           // convention as lib/actions/catalog.ts.
           const { data, error } = await supabase
@@ -253,8 +267,14 @@ export async function previewLineImport(formData: FormData): Promise<ActionResul
         const capped = rawFindings.slice(0, DIRTY_SKU_LIMIT);
         const cleanedToCheck = Array.from(new Set(capped.map((f) => f.cleanedSku).filter((s) => s !== "")));
         const existsInCatalog = new Set<string>();
-        if (cleanedToCheck.length > 0) {
-          for (const chunk of chunkArray(cleanedToCheck, CHECK_CHUNK_SIZE)) {
+        // Same isPostgrestInSafe fail-safe: a cleaned SKU that can't be
+        // safely queried just never enters existsInCatalog, so
+        // cleanedExistsInCatalog below reads false for it — "assume it
+        // doesn't exist yet" is the conservative default (never claim a
+        // false match).
+        const safeCleanedToCheck = cleanedToCheck.filter(isPostgrestInSafe);
+        if (safeCleanedToCheck.length > 0) {
+          for (const chunk of chunkArray(safeCleanedToCheck, CHECK_CHUNK_SIZE)) {
             const { data, error } = await supabase
               .from("product")
               .select("sku")
