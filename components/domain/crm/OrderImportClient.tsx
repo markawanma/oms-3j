@@ -53,6 +53,7 @@ import { Button } from "@/components/ui/Button";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { useToast } from "@/components/ui/Toast";
 import { LineImportWarningsList } from "@/components/domain/crm/LineImportWarningsList";
+import { SkuHygieneList } from "@/components/domain/crm/SkuHygieneList";
 import { formatCount } from "@/lib/tiktok/format";
 import { formatPeriodHint, formatDateRange, validateXlsxFile } from "@/lib/crm/import-client";
 
@@ -728,6 +729,8 @@ function LineSinglePreviewCard({
               </ul>
             </div>
           )}
+
+          <SkuHygieneList findings={preview.dirtySkus} totalCount={preview.dirtySkuTotalCount} />
         </>
       )}
 
@@ -827,6 +830,17 @@ function MultiPreviewTable({
                   <td className="px-2 py-1.5 font-medium text-zinc-700">
                     <p className="truncate max-w-[200px]">{it.file.name}</p>
                     {note && <p className="mt-0.5 text-[0.68rem] font-normal text-zinc-400">{note}</p>}
+                    {it.linePreview && it.linePreview.dirtySkuTotalCount > 0 && (
+                      <span
+                        className={`mt-1 inline-flex items-center rounded-full px-1.5 py-0.5 text-[0.65rem] font-semibold ${
+                          it.linePreview.dirtySkus.some((f) => f.severity === "amber")
+                            ? "bg-amber-100 text-amber-800"
+                            : "bg-zinc-200 text-zinc-700"
+                        }`}
+                      >
+                        SKU สกปรก {formatCount(it.linePreview.dirtySkuTotalCount)}
+                      </span>
+                    )}
                   </td>
                   <td className="px-2 py-1.5 text-zinc-600">{it.kind ? KIND_LABEL[it.kind] : "ไม่ทราบ"}</td>
                   <td className="px-2 py-1.5 text-right tabular-nums text-zinc-600">

@@ -127,6 +127,14 @@ const CHAR_NAMES: Readonly<Record<number, string>> = {
   0x202f: "ช่องว่างแคบไม่ตัดคำ",
   0x205f: "ช่องว่างคณิตศาสตร์ขนาดกลาง",
   0x3000: "ช่องว่างเต็มความกว้าง (ideographic space)",
+  // Plain whitespace — only ever reported as edge_space, but it still needs a
+  // name here or charNameOf() falls through to the "อักขระควบคุม/PUA จากฟอนต์"
+  // wording, which told the owner a leading ordinary space was a font control
+  // character. Wrong label on the one issue type they're most likely to hit.
+  0x0020: "ช่องว่างธรรมดา",
+  0x0009: "แท็บ (tab)",
+  0x000a: "ขึ้นบรรทัดใหม่",
+  0x000d: "ขึ้นบรรทัดใหม่ (CR)",
 };
 
 function formatCodepoint(cp: number): string {
