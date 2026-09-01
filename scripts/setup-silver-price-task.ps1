@@ -1,57 +1,67 @@
 # scripts/setup-silver-price-task.ps1
 #
-# Registers a Windows Scheduled Task that captures the daily silver price
-# from 3jthailand.com/silver-price into Supabase.
+# Registers the Windows Scheduled Task that captures silver prices from the
+# Google Sheet (CSV, no browser) into Supabase, with Playwright fallback.
 #
 # ASCII ONLY. Do NOT put Thai text in this file: Windows PowerShell 5.1 reads
 # .ps1 as ANSI unless the file has a UTF-8 BOM, so Thai characters become
-# mojibake and the parser dies on unterminated strings. (Same trap as the
-# .bat files - learned twice now, 2026-08-25.)
+# mojibake and the parser dies on unterminated strings. (Learned twice,
+# 2026-08-25.)
 #
-# Run once:
+# Run once (re-run replaces the task):
 #   powershell -ExecutionPolicy Bypass -File scripts\setup-silver-price-task.ps1
 #
-# Three runs per day, not one:
-#   09:00 = the main run the owner asked for
-#   13:00 = fallback if the PC was off / network failed at 09:00
-#   20:00 = last chance, just before the nightly live starts
-# The scraper upserts by date, so later runs overwrite the same row rather
-# than adding duplicates. Miss all three and that day has no price at all -
-# the site only ever shows the CURRENT price, there is no history to backfill.
+# SCHEDULE (owner decided 2026-09-01, replaces the old daily 09/13/20):
+#   Mon-Fri : 09:00, 13:00, 17:00, 21:00   <- owner's every-4h plan
+#   Mon-Fri : 23:55 end-of-day sweep       <- Tech Lead amendment: the sheet
+#             was updated at 22:04 (Aug 31) and 23:43 (Aug 24), both AFTER a
+#             21:00 cutoff and right in the nightly live window (20:00-23:00).
+#             Without this round those price changes are lost forever (the
+#             sheet only shows the CURRENT price, no history).
+#   Sat     : 09:00 single run             <- captures the price standing at
+#             the weekly market close (US close ~04:00-05:00 Thai, Sat).
+#   Sun     : nothing                      <- world market closed, sheet
+#             cannot meaningfully change (owner: market closed Sat morning
+#             through Monday morning).
 #
-# LIMITATION: this runs on THIS PC only. If the machine is off all day, that
-# day is lost. StartWhenAvailable makes it run as soon as the PC wakes, which
-# helps but does not fully solve it. Moving this to the cloud needs somewhere
-# that can run a real browser (the page needs JavaScript before prices exist).
+# Re-running the capture when the price has NOT changed inserts nothing
+# (sheet_row_hash dedup in capture-silver-price-sheet.mjs), so extra rounds
+# cost ~1 second of CPU and zero rows.
+#
+# LIMITATION (unchanged): runs on THIS PC only. If the machine is off or
+# offline at a trigger time, that round is skipped; StartWhenAvailable runs
+# it as soon as the PC wakes. Cloud migration is a future phase (now easy,
+# since the capture is plain CSV fetch - no browser needed).
 
 $ErrorActionPreference = "Stop"
 
 $repo     = Split-Path -Parent $PSScriptRoot
 $node     = "C:\Program Files\nodejs\node.exe"
-$script   = Join-Path $repo "scripts\scrape-silver-price.mjs"
+$script   = Join-Path $repo "scripts\capture-silver-price-sheet.mjs"
 $envFile  = Join-Path $repo ".env.local"
 $logDir   = Join-Path $repo "logs"
 $taskName = "3J Silver Price Daily"
 
 if (-not (Test-Path $node))    { throw "node.exe not found at $node" }
-if (-not (Test-Path $script))  { throw "scraper not found at $script" }
+if (-not (Test-Path $script))  { throw "capture script not found at $script" }
 if (-not (Test-Path $envFile)) { throw ".env.local not found at $envFile" }
 if (-not (Test-Path $logDir))  { New-Item -ItemType Directory -Path $logDir | Out-Null }
 
-# Calls a .bat wrapper instead of building the command line here. Passing a
-# quoted node path AND a >> redirect through cmd.exe /c "..." trips cmd's
-# nested-quote rules: the task exits with code 1 before writing any log, which
-# looks like the scraper failed when in fact it never started. The .bat does
-# its own redirect, so nothing needs quoting at this layer.
-$logFile = Join-Path $logDir "silver-price.log"
+# .bat wrapper does its own redirect - see run-silver-price.bat header for
+# why the command line cannot be built here (cmd nested-quote rules).
 $runner  = Join-Path $repo "scripts\run-silver-price.bat"
 if (-not (Test-Path $runner)) { throw "runner not found at $runner" }
 $action  = New-ScheduledTaskAction -Execute $runner -WorkingDirectory $repo
 
+$weekdays = @("Monday","Tuesday","Wednesday","Thursday","Friday")
+
 $triggers = @(
-  (New-ScheduledTaskTrigger -Daily -At 09:00),
-  (New-ScheduledTaskTrigger -Daily -At 13:00),
-  (New-ScheduledTaskTrigger -Daily -At 20:00)
+  (New-ScheduledTaskTrigger -Weekly -DaysOfWeek $weekdays -At 09:00),
+  (New-ScheduledTaskTrigger -Weekly -DaysOfWeek $weekdays -At 13:00),
+  (New-ScheduledTaskTrigger -Weekly -DaysOfWeek $weekdays -At 17:00),
+  (New-ScheduledTaskTrigger -Weekly -DaysOfWeek $weekdays -At 21:00),
+  (New-ScheduledTaskTrigger -Weekly -DaysOfWeek $weekdays -At 23:55),
+  (New-ScheduledTaskTrigger -Weekly -DaysOfWeek Saturday  -At 09:00)
 )
 
 $settings = New-ScheduledTaskSettingsSet `
@@ -62,12 +72,14 @@ $settings = New-ScheduledTaskSettingsSet `
   -MultipleInstances IgnoreNew
 
 Register-ScheduledTask -TaskName $taskName -Action $action -Trigger $triggers `
-  -Settings $settings -Description "Capture daily silver price from 3jthailand.com into Supabase" -Force | Out-Null
+  -Settings $settings -Description "Capture silver prices (Google Sheet CSV) into Supabase - Mon-Fri 09/13/17/21/23:55, Sat 09:00" -Force | Out-Null
 
 Write-Output ""
 Write-Output "  Registered task: $taskName"
-Write-Output "  Runs at        : 09:00 / 13:00 / 20:00 every day"
-Write-Output "  Log file       : $logFile"
+Write-Output "  Mon-Fri        : 09:00 / 13:00 / 17:00 / 21:00 / 23:55"
+Write-Output "  Saturday       : 09:00 (weekly close sweep)"
+Write-Output "  Sunday         : off (market closed)"
+Write-Output "  Log file       : $logDir\silver-price.log"
 Write-Output ""
 Write-Output "  Run now    : Start-ScheduledTask -TaskName '$taskName'"
 Write-Output "  Check state: Get-ScheduledTaskInfo -TaskName '$taskName'"
