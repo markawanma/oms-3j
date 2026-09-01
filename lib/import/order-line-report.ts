@@ -43,6 +43,14 @@ export interface StgOrderLineInsertRow {
   product_name_raw: string | null;
   unit_price: number | null;
   qty: number | null;
+  /** Raw, unnormalized text of the SKU cell (column 0) — preserves stray
+   * Thai marks / invisible Unicode characters that toTextOrNull() (used for
+   * sku_raw above) strips via its nbsp/whitespace-collapse + trim (design:
+   * SKU-hygiene preview check). ONLY for hygiene analysis at preview time —
+   * must NEVER reach the DB. See lib/actions/import-line-items.ts's
+   * payloadRows, which lists staging-table fields explicitly and does not
+   * include this one; do not add it there. */
+  sku_cell_text: string | null;
 }
 
 export type LineReportShapeIssue =
@@ -110,6 +118,18 @@ function validateShape(headerRow: unknown[], dataRows: unknown[][]): LineReportS
   }
 
   return issues;
+}
+
+/** Coerces a raw cell value to text WITHOUT any of toTextOrNull's cleanup
+ * (no &nbsp;/whitespace normalization, no trim) — the whole point is to keep
+ * whatever stray characters the cell actually contains, for sku-hygiene
+ * analysis. A non-string cell (e.g. Excel auto-typed the SKU column as a
+ * number) is stringified as-is; that path never contains dirty characters,
+ * so String() is safe here. */
+function toRawCellText(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  const s = String(value);
+  return s === "" ? null : s;
 }
 
 function buildRaw(headerRow: unknown[], cells: unknown[]): Record<string, unknown> {
@@ -199,6 +219,7 @@ export function parseOrderLineReportXlsx(buf: Buffer): ParsedLineReport {
     const raw = buildRaw(headerRow, cells);
     const sourceOrderNo = toTextOrNull(cells[4]);
     const skuRaw = toTextOrNull(cells[0]);
+    const skuCellText = toRawCellText(cells[0]);
     const productNameRaw = toTextOrNull(cells[1]);
     const unitPrice = toNumberOrNull(cells[2]);
     const qty = toIntOrNull(cells[3]);
@@ -220,6 +241,7 @@ export function parseOrderLineReportXlsx(buf: Buffer): ParsedLineReport {
       source_order_no: sourceOrderNo,
       line_no: lineNo,
       sku_raw: skuRaw,
+      sku_cell_text: skuCellText,
       product_name_raw: productNameRaw,
       unit_price: unitPrice,
       qty,

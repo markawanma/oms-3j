@@ -34,6 +34,7 @@ import {
   LINE_ITEM_SOURCE_TYPE,
   WARNING_KIND_PREFIX,
 } from "@/lib/import/source-types";
+import { analyzeSku, cleanSku, findingSeverity, type SkuHygieneFinding } from "@/lib/import/sku-hygiene";
 
 const SCHEMA = "analytics";
 const SOURCE_TYPE = LINE_ITEM_SOURCE_TYPE;
@@ -42,6 +43,10 @@ const MAX_FILE_BYTES = 4 * 1024 * 1024; // matches next.config.mjs serverActions
 const MAX_FILE_MB = 4;
 const CHECK_CHUNK_SIZE = 200;
 const STAGING_UPSERT_CHUNK_SIZE = 200;
+// Same cap pattern as WARNING_ROW_LIMIT below (getLineImportWarnings) — the
+// preview must never claim completeness on a partial list, so dirtySkuTotalCount
+// always carries the true count regardless of how many findings are returned.
+const DIRTY_SKU_LIMIT = 200;
 
 function requireOwnerAdmin(): ActionResult<never> | null {
   if (getDevRole() === "staff") {
@@ -54,6 +59,38 @@ function chunkArray<T>(arr: T[], size: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
   return out;
+}
+
+/** Groups raw SKU-cell text (one per row, from StgOrderLineInsertRow.sku_cell_text)
+ * into hygiene findings, exact-match on the raw text — two differently-dirty
+ * variants of what's "logically" the same SKU show as separate findings,
+ * each with its own rowCount. Clean text (analyzeSku returns []) produces no
+ * finding at all, so a SKU that's simply duplicated across many rows (e.g.
+ * a parent SKU with option variants) never shows up here — see design brief
+ * "ห้ามดู duplication เลยแม้แต่นิดเดียว". cleanedExistsInCatalog is left for
+ * the caller to fill in (this function has no DB access). Amber findings
+ * sort first (more actionable than zinc, which is auto-cleaned downstream
+ * anyway), then by rowCount descending within each severity bucket — a
+ * judgment call, not specified in the design brief. */
+function buildDirtySkuFindings(cellTexts: (string | null)[]): Omit<SkuHygieneFinding, "cleanedExistsInCatalog">[] {
+  const counts = new Map<string, number>();
+  for (const t of cellTexts) {
+    if (t === null || t === "") continue;
+    counts.set(t, (counts.get(t) ?? 0) + 1);
+  }
+
+  const findings: Omit<SkuHygieneFinding, "cleanedExistsInCatalog">[] = [];
+  for (const [rawSku, rowCount] of counts) {
+    const issues = analyzeSku(rawSku);
+    if (issues.length === 0) continue;
+    findings.push({ rawSku, cleanedSku: cleanSku(rawSku), issues, severity: findingSeverity(issues), rowCount });
+  }
+
+  findings.sort((a, b) => {
+    if (a.severity !== b.severity) return a.severity === "amber" ? -1 : 1;
+    return b.rowCount - a.rowCount;
+  });
+  return findings;
 }
 
 /** Thai text for one shape issue — UI-facing strings stay here, structured
@@ -120,6 +157,17 @@ export interface LineImportPreview {
   orphanOrderCount: number;
   /** distinct sku_raw not found in public.product for this shop. */
   unknownSkus: string[];
+  /** SKU cells whose raw text contains invisible/orphan Unicode characters
+   * (design: SKU-hygiene preview check) — grouped by exact raw text, capped
+   * at DIRTY_SKU_LIMIT (200), sorted amber-severity first then by rowCount
+   * descending. Always [] when shapeIssues is non-empty (same convention as
+   * unknownSkus/orphanOrderCount above — checking against garbage positions
+   * is wasted work). Purely advisory: nothing here ever blocks commit. */
+  dirtySkus: SkuHygieneFinding[];
+  /** True count of distinct dirty raw-SKU-text findings, even when dirtySkus
+   * was capped — same "never claim completeness on a partial list" contract
+   * as getLineImportWarnings' totalCount below. */
+  dirtySkuTotalCount: number;
   shapeIssues: string[];
   periodHint: string | null;
   periodMin: string | null;
@@ -152,6 +200,8 @@ export async function previewLineImport(formData: FormData): Promise<ActionResul
 
     let orphanOrderCount = 0;
     let unknownSkus: string[] = [];
+    let dirtySkus: SkuHygieneFinding[] = [];
+    let dirtySkuTotalCount = 0;
 
     // Only worth hitting the DB when the shape is trustworthy — a
     // shape-broken file gets blocked in the UI regardless (commit rejects
@@ -194,6 +244,26 @@ export async function previewLineImport(formData: FormData): Promise<ActionResul
         }
         unknownSkus = skus.filter((s) => !knownSkus.has(s)).sort();
       }
+
+      const rawFindings = buildDirtySkuFindings(parsed.rows.map((r) => r.sku_cell_text));
+      dirtySkuTotalCount = rawFindings.length;
+      if (rawFindings.length > 0) {
+        const capped = rawFindings.slice(0, DIRTY_SKU_LIMIT);
+        const cleanedToCheck = Array.from(new Set(capped.map((f) => f.cleanedSku).filter((s) => s !== "")));
+        const existsInCatalog = new Set<string>();
+        if (cleanedToCheck.length > 0) {
+          for (const chunk of chunkArray(cleanedToCheck, CHECK_CHUNK_SIZE)) {
+            const { data, error } = await supabase
+              .from("product")
+              .select("sku")
+              .eq("shop_id", shopId)
+              .in("sku", chunk);
+            if (error) throw error;
+            for (const row of (data ?? []) as { sku: string }[]) existsInCatalog.add(row.sku);
+          }
+        }
+        dirtySkus = capped.map((f) => ({ ...f, cleanedExistsInCatalog: existsInCatalog.has(f.cleanedSku) }));
+      }
     }
 
     const preview: LineImportPreview = {
@@ -204,6 +274,8 @@ export async function previewLineImport(formData: FormData): Promise<ActionResul
       blankSkuCount: parsed.blankSkuCount,
       orphanOrderCount,
       unknownSkus,
+      dirtySkus,
+      dirtySkuTotalCount,
       shapeIssues: parsed.shapeIssues.map(shapeIssueToThaiMessage),
       periodHint: parsed.periodHint,
       periodMin: parsed.periodMin,

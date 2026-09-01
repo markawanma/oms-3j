@@ -16,7 +16,7 @@
 //    June 2026 file does).
 
 import { beforeAll, describe, expect, it } from "vitest";
-import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import * as XLSX from "xlsx";
 import { ImportParseError, parseOrderLineReportXlsx, type ParsedLineReport } from "./order-line-report";
 
@@ -28,11 +28,39 @@ const FIXTURE_DIR =
   process.env.SHIPNITY_FIXTURE_DIR ??
   "C:\\Users\\Markawan's NoteBook\\OneDrive\\Desktop\\Marketing\\3J sale data\\Shipnity";
 
-const HAS_FIXTURES = existsSync(FIXTURE_DIR);
+// The baseline is these 8 files specifically — the totals below (5,732 rows /
+// 196 SKU / 109 blank) are only meaningful against exactly this set. Naming
+// them beats readdir-globbing the directory for two reasons that both bit us:
+// (a) the owner reorganises this Desktop folder as new exports arrive — on
+//     2026-09-01 the single Aug file was gone, replaced by ~25 part-of-month
+//     exports in an Aug2026/ subfolder, and the group went red (4 failures)
+//     even though nothing in the parser had changed;
+// (b) a glob would silently absorb any stray .xlsx dropped in the folder,
+//     which would break the totals the same way but look like a real
+//     regression.
+// A missing file must SKIP, not FAIL: this data is the owner's private sales
+// export (real customer PII), it can never live in the repo, so its absence is
+// a normal state of the world — not a defect in the code under test.
+const BASELINE_FILES = [
+  "Shipnity Jan_2026.xlsx",
+  "Shipnity Feb_2026.xlsx",
+  "Shipnity Mar_2026.xlsx",
+  "Shipnity Apr_2026.xlsx",
+  "Shipnity May_2026.xlsx",
+  "Shipnity Jun_2026.xlsx",
+  "Shipnity July_2026.xlsx",
+  "Shipnity Aug_2026.xlsx",
+];
+
+const MISSING_FIXTURES = existsSync(FIXTURE_DIR)
+  ? BASELINE_FILES.filter((f) => !existsSync(`${FIXTURE_DIR}\\${f}`))
+  : BASELINE_FILES;
+const HAS_FIXTURES = MISSING_FIXTURES.length === 0;
 if (!HAS_FIXTURES) {
   console.warn(
-    `[order-line-report.test.ts] Shipnity fixture dir not found at "${FIXTURE_DIR}" — skipping regression test. ` +
-      `Set SHIPNITY_FIXTURE_DIR to run it.`
+    `[order-line-report.test.ts] Shipnity baseline fixtures incomplete in "${FIXTURE_DIR}" — skipping regression test. ` +
+      `Missing ${MISSING_FIXTURES.length}/${BASELINE_FILES.length}: ${MISSING_FIXTURES.join(", ")}. ` +
+      `Set SHIPNITY_FIXTURE_DIR to point at a directory holding all ${BASELINE_FILES.length} files to run it.`
   );
 }
 
@@ -40,8 +68,7 @@ describe.skipIf(!HAS_FIXTURES)("parseOrderLineReportXlsx — Shipnity Jan-Aug 20
   let parsedByFile: { file: string; parsed: ParsedLineReport }[];
 
   beforeAll(() => {
-    const files = readdirSync(FIXTURE_DIR).filter((f) => f.toLowerCase().endsWith(".xlsx"));
-    parsedByFile = files.map((file) => {
+    parsedByFile = BASELINE_FILES.map((file) => {
       const buf = readFileSync(`${FIXTURE_DIR}\\${file}`);
       return { file, parsed: parseOrderLineReportXlsx(buf) };
     });
