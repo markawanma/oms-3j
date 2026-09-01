@@ -1,5 +1,8 @@
+import { Lock } from "lucide-react";
 import { getSilverPriceHistory } from "@/lib/actions/silver-price-history";
+import { getDevRole } from "@/lib/dev/context";
 import { ErrorState } from "@/components/ui/ErrorState";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { SilverPriceHistorySection } from "@/components/domain/catalog/SilverPriceHistorySection";
 
 export const dynamic = "force-dynamic"; // price history grows every capture — never cache
@@ -9,9 +12,23 @@ export const dynamic = "force-dynamic"; // price history grows every capture —
 // โครงสร้างมาเก็บประวัติราคาเนื้อเงิน ให้เห็นใน localhost ไว้แถวๆ สินค้าของ
 // ร้าน" ⇒ อยู่ใต้ /catalog (เหมือน /catalog/sku-prefix).
 //
-// ไม่มี owner/admin gate (ต่างจาก /catalog หลัก): หน้านี้ read-only ล้วน ไม่มี
-// ปุ่มแก้ต้นทุน/margin ใดๆ — ดูเหตุผลเต็มใน lib/actions/silver-price-history.ts
+// Owner/admin gate (security audit fix, 0901): คอลัมน์ที่หน้านี้โชว์
+// (silver_value_per_baht, block_fee_1, shopee_1) คือตัวเลขต้นทุน เดิมคอมเมนต์
+// ตรงนี้เขียนว่า "ไม่มี owner/admin gate" — ผิด และช่องนี้ถูกอุดแล้วทั้งที่ page
+// (EmptyState ด้านล่าง เหมือน /catalog, /oem/rates) และที่ action จริง
+// (lib/actions/silver-price-history.ts — ด่านตัวจริง เพราะ action id หลุดไปกับ
+// client bundle เรียกตรงได้ไม่ว่า page จะ render อะไร)
 export default async function SilverPriceHistoryPage() {
+  if (getDevRole() === "staff") {
+    return (
+      <EmptyState
+        icon={Lock}
+        title="หน้านี้จำกัดสิทธิ์"
+        description="เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่ดูประวัติราคาเนื้อเงินได้"
+      />
+    );
+  }
+
   let result;
   try {
     result = await getSilverPriceHistory();

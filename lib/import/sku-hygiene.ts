@@ -109,6 +109,31 @@ const CHAR_NAMES: Readonly<Record<number, string>> = {
   0x200b: "ช่องว่างศูนย์ความกว้าง (zero-width space)",
   0x200c: "ตัวเชื่อมศูนย์ความกว้างแบบไม่เชื่อม (ZWNJ)",
   0x200d: "ตัวเชื่อมศูนย์ความกว้างแบบเชื่อม (ZWJ)",
+  // Bidi control chars (security audit fix, 0901): these override/embed/
+  // isolate the RENDERING DIRECTION of everything after them, not just one
+  // character — the dangerous ones, since a SKU can visually read as
+  // "NC20-A1" while its actual character order is reversed, so a copy-paste
+  // into Shipnity search silently fails to match.
+  0x202a: "ฝังทิศซ้ายไปขวา (LRE)",
+  0x202b: "ฝังทิศขวาไปซ้าย (RLE)",
+  0x202c: "ยกเลิกการฝัง/สลับทิศ (PDF)",
+  0x202d: "สลับทิศซ้ายไปขวา (LRO) — ทำให้ SKU แสดงผิดลำดับ",
+  0x202e: "สลับทิศขวาไปซ้าย (RLO) — ทำให้ SKU แสดงผิดลำดับ",
+  0x2066: "แยกทิศซ้ายไปขวา (LRI)",
+  0x2067: "แยกทิศขวาไปซ้าย (RLI)",
+  0x2068: "แยกทิศอัตโนมัติ (FSI)",
+  0x2069: "ปิดการแยกทิศ (PDI)",
+  0x061c: "เครื่องหมายทิศอักษรอาหรับ (ALM)",
+  0x200e: "เครื่องหมายทิศซ้ายไปขวา (LRM)",
+  0x200f: "เครื่องหมายทิศขวาไปซ้าย (RLM)",
+  // Other invisible/format chars that can hide inside a SKU cell
+  0x00ad: "ยัติภังค์อ่อน (soft hyphen)",
+  0x034f: "ตัวเชื่อมอักษรผสาน (CGJ)",
+  0x180e: "ตัวแยกสระมองโกล (MVS)",
+  0x2060: "ตัวเชื่อมคำ (word joiner)",
+  0xfff9: "จุดยึดคำอธิบายแทรกบรรทัด",
+  0xfffa: "ตัวคั่นคำอธิบายแทรกบรรทัด",
+  0xfffb: "ตัวปิดคำอธิบายแทรกบรรทัด",
   // NBSP / BOM / other known "odd" spaces
   0x00a0: "ช่องว่างไม่ตัดคำ (NBSP)",
   0xfeff: "เครื่องหมายลำดับไบต์ (BOM)",
@@ -164,8 +189,27 @@ function isThaiMark(cp: number): boolean {
   return cp === 0x0e31 || (cp >= 0x0e33 && cp <= 0x0e3a) || (cp >= 0x0e47 && cp <= 0x0e4e);
 }
 
+/** Zero-width AND bidi-control code points — anything that either takes zero
+ * rendered width or changes the display direction of surrounding text
+ * without leaving a visible trace (security audit fix, 0901: U+202A-202E/
+ * U+2066-2069/U+061C/U+200E-200F are the bidi-override family; a single
+ * U+202E (RLO) in a SKU makes it DISPLAY reversed while the underlying
+ * string is untouched, so what the owner reads and what's actually stored
+ * diverge — worse than a plain zero-width space because it's actively
+ * misleading, not just invisible). All reported as kind "zero_width"
+ * (already amber-severity) — no new SkuCharIssueKind needed. */
 function isZeroWidth(cp: number): boolean {
-  return cp === 0x200b || cp === 0x200c || cp === 0x200d;
+  if (cp === 0x200b || cp === 0x200c || cp === 0x200d) return true; // ZWSP/ZWNJ/ZWJ
+  if (cp === 0x200e || cp === 0x200f) return true; // LRM/RLM
+  if (cp >= 0x202a && cp <= 0x202e) return true; // LRE/RLE/PDF/LRO/RLO
+  if (cp >= 0x2066 && cp <= 0x2069) return true; // LRI/RLI/FSI/PDI
+  if (cp === 0x061c) return true; // Arabic Letter Mark
+  if (cp === 0x00ad) return true; // soft hyphen
+  if (cp === 0x034f) return true; // combining grapheme joiner
+  if (cp === 0x180e) return true; // Mongolian vowel separator
+  if (cp === 0x2060) return true; // word joiner
+  if (cp >= 0xfff9 && cp <= 0xfffb) return true; // interlinear annotation chars
+  return false;
 }
 
 function isPua(cp: number): boolean {
