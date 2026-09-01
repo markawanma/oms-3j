@@ -53,9 +53,11 @@ export function WeekdayChart({ points }: { points: WeekdayPoint[] }) {
             return (
               <g key={p.dow}>
                 <rect x={x} y={y} width={barWidth} height={barH} rx={4} fill="#a2191d">
-                  <title>
-                    {p.label} · {formatCount(p.orders)} ออเดอร์{p.revenue !== null ? ` · ${formatTHBCompact(p.revenue)}` : ""}
-                  </title>
+                  {/* single template-string child — see DonutChart for why an
+                      expression list silently renders an empty <title>. */}
+                  <title>{`${p.label} · ${formatCount(p.orders)} ออเดอร์${
+                    p.revenue !== null ? ` · ${formatTHBCompact(p.revenue)}` : ""
+                  }`}</title>
                 </rect>
                 <text x={x + barWidth / 2} y={H - 8} textAnchor="middle" fontSize={11} fill="#71717a">
                   {p.label}

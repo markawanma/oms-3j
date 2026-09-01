@@ -56,9 +56,12 @@ export function DonutChart({
                   strokeDasharray={`${Math.max(dash - 1, 0)} ${circumference - Math.max(dash - 1, 0)}`}
                   strokeDashoffset={-offset}
                 >
-                  <title>
-                    {s.label} · {formatValue(s.value)} · {Math.round(frac * 100)}%
-                  </title>
+                  {/* single template-string child, never a JSX expression list:
+                      React 19 renders <title> through its document-metadata
+                      path and DROPS array children entirely (server emitted
+                      `<title></title>` + an error on every render) — so every
+                      chart tooltip on this page was silently empty. */}
+                  <title>{`${s.label} · ${formatValue(s.value)} · ${Math.round(frac * 100)}%`}</title>
                 </circle>
               );
               offset += dash;

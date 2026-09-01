@@ -78,10 +78,11 @@ export function SalesTrendChart({ points, granularity }: { points: SalesPeriodPo
             return (
               <g key={p.period}>
                 <rect x={x} y={y} width={barWidth} height={barH} rx={4} fill="#4f46e5">
-                  <title>
-                    {formatMonthShort(p.period)} · {formatVal(v)}
-                    {mode !== "orders" ? ` · ${formatCount(p.orders)} ออเดอร์` : ` · AOV ${formatTHBCompact(p.aov)}`}
-                  </title>
+                  {/* single template-string child — see DonutChart for why an
+                      expression list renders an empty <title>. */}
+                  <title>{`${formatMonthShort(p.period)} · ${formatVal(v)}${
+                    mode !== "orders" ? ` · ${formatCount(p.orders)} ออเดอร์` : ` · AOV ${formatTHBCompact(p.aov)}`
+                  }`}</title>
                 </rect>
                 <text x={x + barWidth / 2} y={y - 6} textAnchor="middle" fontSize={10} fontWeight={700} fill="#475569">
                   {formatVal(v)}

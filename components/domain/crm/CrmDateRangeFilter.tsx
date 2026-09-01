@@ -129,6 +129,15 @@ export function CrmDateRangeFilter({
         >
           7 วันล่าสุด
         </button>
+        {/* Matches /dashboard's landing default, so "back to the default view"
+            is one click instead of two date pickers. */}
+        <button
+          type="button"
+          onClick={() => navigate(addDaysISO(today, -29), today)}
+          className="min-h-11 rounded-full border border-zinc-300 px-3 text-sm font-semibold text-zinc-600 hover:border-primary-600 hover:text-primary-700"
+        >
+          30 วันล่าสุด
+        </button>
         <button
           type="button"
           onClick={() => navigate(firstDayOfThisMonthISO(), today)}

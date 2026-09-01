@@ -68,8 +68,17 @@ function mixToSlices(mix: MixSlice[]) {
   return mix.map((m) => ({ label: m.label, value: m.revenue, color: BUCKET_COLOR[m.bucket] ?? BUCKET_COLOR.other }));
 }
 
-function firstDayOfThisMonthBangkokISO(): string {
-  return `${effectiveDateBangkok(new Date().toISOString()).slice(0, 7)}-01`;
+// Rolling 30-day window ending today (Bangkok), used as the landing default.
+// NOT month-to-date: on the 1st of a month that window is a single day, so the
+// owner opened /dashboard on 1 ก.ย. and every KPI read ฿0 with no hint that the
+// range — not the data — was the reason. A rolling window always spans real
+// selling days while still capping the daily trend chart at 30 bars (an
+// all-time default would blow it up to hundreds). The "เดือนนี้" preset button
+// still gives the month-to-date view in one click.
+function last30DaysFromBangkokISO(): string {
+  const d = new Date(`${effectiveDateBangkok(new Date().toISOString())}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() - 29);
+  return d.toISOString().slice(0, 10);
 }
 
 // /dashboard — Home overview (docs/3j-jewelry/analytics/phase-dashboard-charts-
@@ -85,9 +94,8 @@ export default async function DashboardPage({
   searchParams: Promise<{ from?: string; to?: string; channel?: string }>;
 }) {
   const sp = await searchParams;
-  // Default = this month-to-date (Bangkok), never all-time — an all-time
-  // default would blow the daily trend chart up to hundreds of bars.
-  const from = sp.from ?? firstDayOfThisMonthBangkokISO();
+  // Default = rolling last 30 days (Bangkok) — see last30DaysFromBangkokISO.
+  const from = sp.from ?? last30DaysFromBangkokISO();
   const to = sp.to ?? effectiveDateBangkok(new Date().toISOString());
   const channel = sp.channel ?? null;
 

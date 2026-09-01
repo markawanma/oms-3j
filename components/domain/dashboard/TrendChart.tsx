@@ -91,10 +91,11 @@ export function TrendChart({ points }: { points: TrendPoint[] }) {
             return (
               <g key={p.date}>
                 <rect x={x} y={y} width={barWidth} height={barH} rx={3} fill="#a2191d">
-                  <title>
-                    {formatDate(p.date)} · {formatVal(v)}
-                    {mode !== "orders" && p.aov !== null ? ` · AOV ${formatTHBCompact(p.aov)}` : ` · ${formatCount(p.orders)} ออเดอร์`}
-                  </title>
+                  {/* single template-string child — see DonutChart for why an
+                      expression list silently renders an empty <title>. */}
+                  <title>{`${formatDate(p.date)} · ${formatVal(v)}${
+                    mode !== "orders" && p.aov !== null ? ` · AOV ${formatTHBCompact(p.aov)}` : ` · ${formatCount(p.orders)} ออเดอร์`
+                  }`}</title>
                 </rect>
                 {showTick && (
                   <text x={x + barWidth / 2} y={H - 10} textAnchor="middle" fontSize={10} fill="#94a3b8">

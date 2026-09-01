@@ -65,10 +65,11 @@ export function ChannelMixChart({ points }: { points: SalesPeriodPoint[] }) {
                       rx={2}
                       fill={CHANNEL_COLOR_HEX[c.channelCode] ?? "#94a3b8"}
                     >
-                      <title>
-                        {formatMonthShort(p.period)} · {CHANNEL_LABEL_TH[c.channelCode] ?? c.channelCode} ·{" "}
-                        {Math.round(frac * 100)}% · {formatTHBCompact(c.sales)}
-                      </title>
+                      {/* single template-string child — see DonutChart for why
+                          an expression list renders an empty <title>. */}
+                      <title>{`${formatMonthShort(p.period)} · ${
+                        CHANNEL_LABEL_TH[c.channelCode] ?? c.channelCode
+                      } · ${Math.round(frac * 100)}% · ${formatTHBCompact(c.sales)}`}</title>
                     </rect>
                   );
                 })}
