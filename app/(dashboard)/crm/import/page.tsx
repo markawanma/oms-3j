@@ -1,10 +1,12 @@
 import { Lock } from "lucide-react";
 import { getImportBatches } from "@/lib/actions/import-orders";
+import { getOrphanBacklog, type OrphanBacklog } from "@/lib/actions/import-line-items";
 import { getDevRole } from "@/lib/dev/context";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { OrderImportClient } from "@/components/domain/crm/OrderImportClient";
 import { ImportBatchHistory } from "@/components/domain/crm/ImportBatchHistory";
+import { OrphanBacklogPanel } from "@/components/domain/crm/OrphanBacklogPanel";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +36,24 @@ export default async function CrmImportPage() {
     return <ErrorState message={result.error} />;
   }
 
+  // Feature B (orphan backlog) — fail-soft on purpose (task brief): a
+  // problem here must never take down the rest of the page, which is why
+  // this is a separate try/catch from getImportBatches above (that one DOES
+  // fail the whole page — different contract, existing behavior, not
+  // touched). A failed/thrown fetch just leaves orphanBacklog null, and
+  // OrphanBacklogPanel simply isn't rendered below.
+  let orphanBacklog: OrphanBacklog | null = null;
+  try {
+    const orphanResult = await getOrphanBacklog();
+    if (orphanResult.ok) {
+      orphanBacklog = orphanResult.data;
+    } else {
+      console.error("CrmImportPage: getOrphanBacklog returned error", orphanResult.error);
+    }
+  } catch (err) {
+    console.error("CrmImportPage: getOrphanBacklog threw", err);
+  }
+
   return (
     <div className="space-y-5">
       <div>
@@ -45,6 +65,8 @@ export default async function CrmImportPage() {
       </div>
 
       <OrderImportClient />
+
+      {orphanBacklog && <OrphanBacklogPanel backlog={orphanBacklog} />}
 
       <div>
         <h2 className="mb-2 text-sm font-bold text-zinc-800">ประวัติการนำเข้า</h2>

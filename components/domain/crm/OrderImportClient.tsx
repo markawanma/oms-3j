@@ -33,13 +33,14 @@
 import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { AlertTriangle, CheckCircle2, Loader2, UploadCloud, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, ChevronDown, ChevronUp, Loader2, UploadCloud, XCircle } from "lucide-react";
 import {
   commitOrderImport,
   previewOrderImport,
   type ImportCommitResult,
   type ImportPreview,
 } from "@/lib/actions/import-orders";
+import type { OrderImportDiff } from "@/lib/import/order-diff";
 import {
   commitLineImport,
   previewLineImport,
@@ -54,7 +55,8 @@ import { ErrorState } from "@/components/ui/ErrorState";
 import { useToast } from "@/components/ui/Toast";
 import { LineImportWarningsList } from "@/components/domain/crm/LineImportWarningsList";
 import { SkuHygieneList } from "@/components/domain/crm/SkuHygieneList";
-import { formatCount } from "@/lib/tiktok/format";
+import { formatCount, formatTHBCompact } from "@/lib/tiktok/format";
+import { formatTHB } from "@/lib/format";
 import { formatPeriodHint, formatDateRange, validateXlsxFile } from "@/lib/crm/import-client";
 
 // Exported so ImportBatchHistory.tsx can render the exact same
@@ -566,6 +568,110 @@ export function OrderImportClient() {
   );
 }
 
+// OrderDiffBlock — Feature A (diff-before-commit). Replaces the old
+// `updateExistingCount` line (removed from the backend — it counted rows in
+// analytics.stg_order_import, a staging table that can outgrow fact_order by
+// up to 215 orders, see lib/import/order-diff.ts header). Renders the 4-row
+// diff summary from the task brief: 🟢 new / 🟡 unchanged / 🔴 mismatch
+// (collapsed by default, "กางดูรายการ") / ⚪ rows with no order number.
+//
+// `diff === null` means the file's shape was fine but it had more than
+// DIFF_ORDER_CAP (5,000) distinct orders — never means "zero of everything",
+// so this renders an explanation instead of a misleading blank/zero state
+// (task brief: "ไม่ใช่แสดงศูนย์"). The confirm button is never gated on
+// anything here — this block is purely informational either way.
+function OrderDiffBlock({ diff, skippedCount }: { diff: OrderImportDiff | null; skippedCount: number }) {
+  const [mismatchExpanded, setMismatchExpanded] = useState(false);
+
+  return (
+    <div className="flex flex-col gap-2">
+      {diff === null ? (
+        <div className="rounded-md border border-zinc-200 bg-zinc-50 p-3 text-xs text-zinc-600">
+          ไฟล์นี้มีมากกว่า 5,000 ออเดอร์ — ไม่สามารถตรวจสอบยอดซ้ำ/ยอดไม่ตรงล่วงหน้าได้ (ยังนำเข้าได้ตามปกติ)
+        </div>
+      ) : (
+        <>
+          <div className="rounded-md border border-green-200 bg-green-50 p-3 text-xs text-green-800">
+            <p className="font-semibold">
+              🟢 ใหม่ จะเพิ่มเข้าระบบ {formatCount(diff.newOrderCount)} ใบ · +{formatTHBCompact(diff.newRevenueTotal)}
+            </p>
+          </div>
+
+          <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+            <p className="font-semibold">🟡 มีอยู่แล้ว ยอดเท่าเดิม {formatCount(diff.overwriteSameCount)} ใบ</p>
+          </div>
+
+          {diff.mismatchCount > 0 && (
+            <div className="rounded-md border border-red-200 bg-red-50 p-3 text-xs text-red-800">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="flex items-center gap-1.5 font-semibold">
+                  <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                  🔴 มีอยู่แล้ว แต่ยอดไม่ตรง {formatCount(diff.mismatchCount)} ใบ
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setMismatchExpanded((v) => !v)}
+                  className="flex min-h-9 items-center gap-1 text-xs font-semibold text-red-900 underline underline-offset-2"
+                >
+                  {mismatchExpanded ? (
+                    <>
+                      <ChevronUp className="h-3.5 w-3.5" aria-hidden="true" />
+                      ย่อรายการ
+                    </>
+                  ) : (
+                    <>
+                      <ChevronDown className="h-3.5 w-3.5" aria-hidden="true" />
+                      กางดูรายการ
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {mismatchExpanded && (
+                <>
+                  <ul className="mt-2 space-y-1.5">
+                    {diff.mismatches.map((m) => (
+                      <li key={m.sourceOrderNo} className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
+                        <span className="font-medium">
+                          ออเดอร์ {m.sourceOrderNo}
+                          {m.profitStatus === "estimated" && (
+                            <span className="ml-1.5 inline-block rounded-full bg-red-100 px-1.5 py-0.5 text-[0.65rem] font-semibold text-red-700">
+                              กำไรยังเป็นค่าประเมิน
+                            </span>
+                          )}
+                        </span>
+                        <span className="shrink-0 tabular-nums">
+                          เดิม {formatTHB(m.oldRevenue)} → ใหม่ {formatTHB(m.newRevenue)}
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                  {diff.mismatchListCapped && (
+                    <p className="mt-2 text-[0.7rem] text-red-700">
+                      แสดง {formatCount(diff.mismatches.length)} จาก {formatCount(diff.mismatchCount)} รายการ
+                    </p>
+                  )}
+                  <p className="mt-2 text-[0.7rem] text-red-700">
+                    การทับจะคำนวณกำไรใหม่ (ยอดขาย − ต้นทุน) — กำไรย้อนหลังของใบเหล่านี้จะเปลี่ยน
+                  </p>
+                </>
+              )}
+            </div>
+          )}
+
+          {diff.dateMismatchCount > 0 && (
+            <p className="text-xs text-amber-700">
+              ⚠️ วันที่ออเดอร์ไม่ตรงกับที่บันทึกไว้ {formatCount(diff.dateMismatchCount)} ใบ — ยอดอาจย้ายเดือน
+            </p>
+          )}
+        </>
+      )}
+
+      {skippedCount > 0 && <p className="text-xs text-zinc-500">⚪ ไม่มีเลขออเดอร์ {formatCount(skippedCount)} แถว</p>}
+    </div>
+  );
+}
+
 function OrderSinglePreviewCard({
   preview,
   onConfirm,
@@ -621,12 +727,13 @@ function OrderSinglePreviewCard({
         </div>
       )}
 
-      {!blocked && !duplicate && (preview.crossesMonth || preview.dateWarningCount > 0 || preview.updateExistingCount > 0) && (
+      {!blocked && !duplicate && <OrderDiffBlock diff={preview.diff} skippedCount={preview.skippedCount} />}
+
+      {!blocked && !duplicate && (preview.crossesMonth || preview.dateWarningCount > 0) && (
         <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
           <ul className="list-inside list-disc space-y-0.5">
             {preview.crossesMonth && <li>ไฟล์นี้ข้อมูลคร่อมเดือน — ตรวจช่วงวันที่ก่อนยืนยัน</li>}
             {preview.dateWarningCount > 0 && <li>{formatCount(preview.dateWarningCount)} แถวมีวันที่อ่านไม่ได้ (จะข้ามแถวนั้น)</li>}
-            {preview.updateExistingCount > 0 && <li>จะอัปเดตทับ {formatCount(preview.updateExistingCount)} ออเดอร์เดิม</li>}
           </ul>
         </div>
       )}
@@ -830,6 +937,13 @@ function MultiPreviewTable({
                   <td className="px-2 py-1.5 font-medium text-zinc-700">
                     <p className="truncate max-w-[200px]">{it.file.name}</p>
                     {note && <p className="mt-0.5 text-[0.68rem] font-normal text-zinc-400">{note}</p>}
+                    {it.orderPreview?.diff && (
+                      <p className="mt-0.5 text-[0.68rem] font-normal text-zinc-400">
+                        ใหม่ {formatCount(it.orderPreview.diff.newOrderCount)} · ทับ{" "}
+                        {formatCount(it.orderPreview.diff.overwriteSameCount)} · ยอดไม่ตรง{" "}
+                        {formatCount(it.orderPreview.diff.mismatchCount)}
+                      </p>
+                    )}
                     {it.linePreview && it.linePreview.dirtySkuTotalCount > 0 && (
                       <span
                         className={`mt-1 inline-flex items-center rounded-full px-1.5 py-0.5 text-[0.65rem] font-semibold ${

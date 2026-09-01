@@ -32,8 +32,10 @@ import {
 } from "@/lib/import/order-line-report";
 import {
   LINE_ITEM_SOURCE_TYPE,
+  ORPHAN_WAIT_DAYS,
   WARNING_KIND_PREFIX,
 } from "@/lib/import/source-types";
+import { classifyOrphanRows, type OrphanOrderGroup } from "@/lib/import/orphan-backlog";
 import { analyzeSku, cleanSku, findingSeverity, type SkuHygieneFinding } from "@/lib/import/sku-hygiene";
 
 const SCHEMA = "analytics";
@@ -585,6 +587,148 @@ export async function getLineImportWarnings(batchId: string): Promise<ActionResu
   } catch (err) {
     console.error("getLineImportWarnings failed", err);
     return { ok: false, error: "โหลดรายการคำเตือนไม่สำเร็จ ลองใหม่อีกครั้ง" };
+  }
+}
+
+// ============================================================================
+// getOrphanBacklog — Feature B (task brief "แยก orphan ตามอายุ"). Groups
+// analytics.stg_order_line_import rows stuck at import_status='orphan' (a
+// source_order_no with no matching fact_order yet — see the "Dependency
+// note" header comment above) by source_order_no, ages each group by the
+// EARLIEST stg_import_batch.imported_at among its rows, and splits at
+// ORPHAN_WAIT_DAYS into "waiting" (still worth waiting for the order-report
+// file) vs "no_source" (old enough to flag for investigation).
+//
+// 🔴 STRICTLY READ-ONLY — never UPDATE/DELETE stg_order_line_import or
+// stg_import_batch here. The existing retry pipeline
+// (analytics.transform_pending_order_lines, 0041 phase 1) already
+// re-classifies an 'orphan' row automatically the next time ANY batch
+// touching its source_order_no is transformed — e.g. once the matching
+// order-report file lands. This action only REPORTS on that state; it must
+// never write to it, or a future edit here could silently break that
+// self-healing behavior.
+//
+// batch_id -> stg_import_batch(imported_at) is a plain FK embed (0041:38-40
+// declares `batch_id uuid not null references analytics.stg_import_batch
+// (id)`) — no new migration/RPC/view needed (zero-migration constraint).
+// ============================================================================
+
+// OrphanOrderGroup itself is defined in lib/import/orphan-backlog.ts (the
+// pure grouping module) and re-exported here — type-only re-export, so it
+// doesn't count against the "only async functions" rule for "use server"
+// files (same reasoning as the interfaces declared directly in this file).
+export type { OrphanOrderGroup };
+
+export interface OrphanBacklog {
+  waiting: OrphanOrderGroup[];
+  noSource: OrphanOrderGroup[];
+  /** True distinct-order count — never truncated by the ORPHAN_GROUP_CAP
+   * (lib/import/orphan-backlog.ts), same "never claim completeness on a
+   * partial list" contract as getLineImportWarnings.totalCount above. */
+  totalOrderCount: number;
+  /** True row count (analytics.stg_order_line_import rows with
+   * import_status='orphan'), from a separate exact count-only query — not
+   * derived from the (possibly capped) detail fetch used to build groups. */
+  totalLineCount: number;
+  /** true when (waiting.length + noSource.length) was capped at
+   * ORPHAN_GROUP_CAP (50, combined) — totalOrderCount/totalLineCount stay
+   * the TRUE counts regardless. When capped, the oldest (most urgent)
+   * groups are kept, sorted by ageDays descending before the cut. */
+  listCapped: boolean;
+}
+
+// Real backlog at design time is 8 rows / 6 orders (task brief) — this is a
+// generous ceiling against the PostgREST 1000-row hard cap on any single
+// select (see getLineImportWarnings' header comment above, which documents a
+// real bug this repo already hit from exactly that trap) so group-building
+// never silently under-counts in normal operation. totalLineCount itself
+// comes from a separate exact count-only query below regardless, so even if
+// this fetch limit is ever undersized, the true row count stays trustworthy
+// — only the per-order grouping (and therefore totalOrderCount / the
+// waiting+noSource lists) would be affected, and that's logged loudly rather
+// than silently wrong (see the length check below).
+const ORPHAN_ROW_FETCH_LIMIT = 5000;
+
+interface OrphanRowFromDb {
+  source_order_no: string | null;
+  // PostgREST embeds a to-one FK relation as an object; supabase-js's
+  // untyped client (no generated Database types in this project — same as
+  // every other query in this file) can't prove that at compile time, so
+  // this is typed defensively as either shape and narrowed below.
+  stg_import_batch: { imported_at: string } | { imported_at: string }[] | null;
+}
+
+export async function getOrphanBacklog(): Promise<ActionResult<OrphanBacklog>> {
+  const gateErr = requireOwnerAdmin();
+  if (gateErr) return gateErr;
+
+  try {
+    const shopId = getDevShopId();
+    const supabase = getServiceClient();
+
+    const [{ count: totalLineCount, error: countErr }, { data, error: dataErr }] = await Promise.all([
+      supabase
+        .schema(SCHEMA)
+        .from("stg_order_line_import")
+        .select("id", { count: "exact", head: true })
+        .eq("shop_id", shopId)
+        .eq("import_status", "orphan"),
+      supabase
+        .schema(SCHEMA)
+        .from("stg_order_line_import")
+        .select("source_order_no, stg_import_batch(imported_at)")
+        .eq("shop_id", shopId)
+        .eq("import_status", "orphan")
+        .limit(ORPHAN_ROW_FETCH_LIMIT),
+    ]);
+    if (countErr) throw countErr;
+    if (dataErr) throw dataErr;
+
+    const rows = (data ?? []) as unknown as OrphanRowFromDb[];
+    if (rows.length < (totalLineCount ?? 0)) {
+      // See ORPHAN_ROW_FETCH_LIMIT comment above — should never trip in
+      // practice; logged loudly instead of silently under-grouping.
+      console.error(
+        `getOrphanBacklog: fetched ${rows.length} orphan rows but exact count is ${totalLineCount} — ` +
+          `ORPHAN_ROW_FETCH_LIMIT (${ORPHAN_ROW_FETCH_LIMIT}) may need raising.`
+      );
+    }
+
+    // Flatten to the pure module's input shape, dropping rows that fail the
+    // two defensive checks below — grouping/aging/capping itself is entirely
+    // lib/import/orphan-backlog.ts's job (unit-tested there in isolation).
+    const flatRows: { sourceOrderNo: string; importedAt: string }[] = [];
+    for (const row of rows) {
+      const orderNo = row.source_order_no;
+      // Defensive: transform_pending_order_lines never marks a null-order_no
+      // row 'orphan' (phase 1 sends those to 'error' instead — 0041:204-214)
+      // — a null here would mean an assumption about that proc broke.
+      if (orderNo === null) continue;
+
+      const rel = row.stg_import_batch;
+      const importedAt = Array.isArray(rel) ? rel[0]?.imported_at : rel?.imported_at;
+      // Defensive: batch_id is NOT NULL + FK'd, so this should always
+      // resolve — skip rather than crash the whole action if it somehow doesn't.
+      if (!importedAt) continue;
+
+      flatRows.push({ sourceOrderNo: orderNo, importedAt });
+    }
+
+    const { waiting, noSource, totalOrderCount, listCapped } = classifyOrphanRows(flatRows, ORPHAN_WAIT_DAYS);
+
+    return {
+      ok: true,
+      data: {
+        waiting,
+        noSource,
+        totalOrderCount,
+        totalLineCount: totalLineCount ?? rows.length,
+        listCapped,
+      },
+    };
+  } catch (err) {
+    console.error("getOrphanBacklog failed", err);
+    return { ok: false, error: "โหลดรายการออเดอร์รอจับคู่ไม่สำเร็จ ลองใหม่อีกครั้ง" };
   }
 }
 

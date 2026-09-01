@@ -21,6 +21,12 @@ import {
   type ParsedOrderReport,
   type ShapeIssue,
 } from "@/lib/import/order-report";
+import {
+  buildOrderImportDiff,
+  DIFF_ORDER_CAP,
+  type ExistingFactOrderForDiff,
+  type OrderImportDiff,
+} from "@/lib/import/order-diff";
 import { LINE_ITEM_SOURCE_TYPE } from "@/lib/import/source-types";
 
 const SCHEMA = "analytics";
@@ -112,7 +118,11 @@ export interface ImportPreview {
   crossesMonth: boolean;
   dateWarningCount: number;
   duplicateFile: { batchId: string; importedAt: string; status: string } | null;
-  updateExistingCount: number;
+  /** null when shapeIssues.length > 0 OR distinct orders in the file exceed
+   * DIFF_ORDER_CAP (lib/import/order-diff.ts) — same "shape-broken file gets
+   * blocked in the UI regardless" reasoning the old updateExistingCount check
+   * used, plus a cap so a huge file can't blow up the fact_order lookup. */
+  diff: OrderImportDiff | null;
 }
 
 export async function previewOrderImport(formData: FormData): Promise<ActionResult<ImportPreview>> {
@@ -136,21 +146,46 @@ export async function previewOrderImport(formData: FormData): Promise<ActionResu
       .maybeSingle();
     if (dupErr) throw dupErr;
 
-    // Only worth checking dedup collisions when the shape is trustworthy and
-    // there's something to check — a shape-broken file gets blocked in the UI
-    // regardless, and hitting the DB with a huge/garbage key list is wasted.
-    let updateExistingCount = 0;
-    if (parsed.shapeIssues.length === 0 && parsed.rows.length > 0) {
-      const dedupKeys = parsed.rows.map((r) => `E:${r.source_order_no}`);
-      for (const chunk of chunkArray(dedupKeys, DEDUP_CHECK_CHUNK_SIZE)) {
-        const { data, error } = await supabase
-          .schema(SCHEMA)
-          .from("stg_order_import")
-          .select("dedup_key")
-          .eq("shop_id", shopId)
-          .in("dedup_key", chunk);
-        if (error) throw error;
-        updateExistingCount += (data ?? []).length;
+    // Feature A (diff-before-commit): only worth building when the shape is
+    // trustworthy — a shape-broken file gets blocked in the UI regardless, so
+    // hitting the DB with a huge/garbage order-no list is wasted. Compares
+    // against analytics.fact_order DIRECTLY (the actual source of truth for
+    // "does this order already exist") — replaces the old updateExistingCount
+    // check, which counted rows in analytics.stg_order_import (a staging
+    // table that can outgrow fact_order: measured gap 6,237 staging vs 6,022
+    // fact_order — up to 215 orders overcounted).
+    let diff: OrderImportDiff | null = null;
+    if (parsed.shapeIssues.length === 0) {
+      const distinctOrderNos = Array.from(
+        new Set(parsed.rows.map((r) => r.source_order_no).filter((v): v is string => v !== null))
+      );
+
+      if (distinctOrderNos.length > DIFF_ORDER_CAP) {
+        diff = null;
+      } else {
+        const existingByOrderNo = new Map<string, ExistingFactOrderForDiff>();
+        for (const chunk of chunkArray(distinctOrderNos, DEDUP_CHECK_CHUNK_SIZE)) {
+          const { data, error } = await supabase
+            .schema(SCHEMA)
+            .from("fact_order")
+            .select("source_order_no, revenue, profit_status, order_date")
+            .eq("shop_id", shopId)
+            .in("source_order_no", chunk);
+          if (error) throw error;
+          for (const r of (data ?? []) as {
+            source_order_no: string;
+            revenue: number | null;
+            profit_status: string;
+            order_date: string | null;
+          }[]) {
+            existingByOrderNo.set(r.source_order_no, {
+              revenue: r.revenue,
+              profitStatus: r.profit_status,
+              orderDate: r.order_date,
+            });
+          }
+        }
+        diff = buildOrderImportDiff(parsed.rows, existingByOrderNo);
       }
     }
 
@@ -169,7 +204,7 @@ export async function previewOrderImport(formData: FormData): Promise<ActionResu
       duplicateFile: dupBatch
         ? { batchId: dupBatch.id as string, importedAt: dupBatch.imported_at as string, status: dupBatch.status as string }
         : null,
-      updateExistingCount,
+      diff,
     };
     return { ok: true, data: preview };
   } catch (err) {

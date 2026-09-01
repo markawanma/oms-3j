@@ -34,3 +34,16 @@ export const WARNING_KIND_PREFIX = {
   // Cost is that product's last known cost, not necessarily current.
   inactive_match: "จับคู่กับสินค้าที่ปิดการขาย",
 } as const;
+
+// Feature B (orphan backlog, task brief "แยก orphan ตามอายุ") — age threshold
+// in days that splits analytics.stg_order_line_import rows stuck at
+// import_status='orphan' into "waiting" (still worth waiting for the
+// matching order-report file) vs "no_source" (old enough the owner should
+// investigate). Boundary is inclusive on the no_source side: exactly
+// ORPHAN_WAIT_DAYS days old = no_source. Lives here (not
+// lib/actions/import-line-items.ts, which owns getOrphanBacklog) for the
+// same "use server" build restriction documented above — only async
+// functions may be exported from a "use server" file; a plain `export const`
+// there typechecks fine but breaks the Next.js build silently past
+// typecheck (27 ส.ค. 69 lesson).
+export const ORPHAN_WAIT_DAYS = 7;
