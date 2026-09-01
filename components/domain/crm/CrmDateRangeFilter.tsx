@@ -57,9 +57,12 @@ export function CrmDateRangeFilter({
   /** When set, the "ทั้งหมด" button navigates to this explicit range
    * (min–max) instead of clearing from/to entirely. CRM's own default is
    * already all-time when the URL has no from/to, so clearing works there;
-   * /dashboard defaults to "this month" instead, so its "ทั้งหมด" needs an
-   * explicit min–max push or it would just land back on this month. Omitted
-   * (null) preserves the original CRM behavior exactly. */
+   * /dashboard defaults to a bounded window (rolling 30 days), not all-time,
+   * so clearing from/to there would land back on that window instead of "all"
+   * — hence the explicit min–max push. Phrased against "bounded vs all-time"
+   * rather than the specific default, so changing that default doesn't
+   * silently make this comment wrong again. Omitted (null) preserves the
+   * original CRM behavior exactly. */
   allRange?: { from: string; to: string } | null;
 }) {
   const router = useRouter();
@@ -78,8 +81,8 @@ export function CrmDateRangeFilter({
     // "ทั้งหมด" clears the date range but keeps the active channel filter
     // (resetting both would be a surprising side effect of a date-only button)
     // — unless the caller passed an explicit allRange (e.g. /dashboard, whose
-    // default is "this month", not all-time; clearing there would just land
-    // back on this month, not "all"), in which case push that range instead.
+    // default is a bounded window, not all-time; clearing there would just
+    // land back on that window, not "all"), in which case push that range.
     const params = new URLSearchParams();
     if (allRange) {
       params.set("from", allRange.from);
@@ -114,7 +117,9 @@ export function CrmDateRangeFilter({
           className="min-h-11 rounded-md border border-zinc-300 px-2.5 text-sm text-zinc-900"
         />
       </label>
-      <div className="ml-auto flex gap-1.5">
+      {/* flex-wrap: 4 presets overflow a 360px viewport otherwise — the parent
+          wraps but that doesn't let these wrap among themselves. */}
+      <div className="ml-auto flex flex-wrap gap-1.5">
         <button
           type="button"
           onClick={navigateAll}

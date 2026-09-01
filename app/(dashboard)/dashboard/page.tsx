@@ -117,6 +117,20 @@ export default async function DashboardPage({
   const effFrom = d.scope.requestedFrom ?? from;
   const effTo = d.scope.requestedTo ?? to;
 
+  // "ว่างเพราะช่วงวันที่" ≠ "ไม่มีข้อมูล" — without this the page renders ฿0
+  // across every card with nothing saying why, which is exactly how the owner
+  // read a 1-day default range as a broken dashboard (1 ก.ย. 69). Changing the
+  // default only moved that cliff; the "เดือนนี้" preset and any month where
+  // the sales import is behind still land on it, so the explanation has to be
+  // on the page itself, not in the default.
+  // Role-independent by construction: staff get kpi = null (money is gated at
+  // the RPC), so fall back to a pure range-vs-data-window overlap test rather
+  // than leaving staff with the same unexplained blank.
+  const rangeHasNoOrders = d.kpi
+    ? d.kpi.orders === 0
+    : (d.scope.maxOrderDate !== null && effFrom > d.scope.maxOrderDate) ||
+      (d.scope.minOrderDate !== null && effTo < d.scope.minOrderDate);
+
   const today = new Date().toLocaleDateString("th-TH", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
   const hasAction = d.action.oversold > 0 || d.action.lowStock > 0;
 
@@ -200,6 +214,18 @@ export default async function DashboardPage({
       ) : (
         <p className="rounded-lg border border-dashed border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-500">
           ✓ ไม่มีงานค้างเร่งด่วน (ออเดอร์ของไม่พอ / SKU ใกล้หมด)
+        </p>
+      )}
+
+      {/* Empty-range explainer — see rangeHasNoOrders. Names the range that
+          came back empty AND the newest order we do hold, so the next click is
+          obvious instead of guesswork. */}
+      {rangeHasNoOrders && (
+        <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          ไม่มีออเดอร์ในช่วง {formatThaiDateOnly(effFrom)} – {formatThaiDateOnly(effTo)}
+          {d.scope.maxOrderDate
+            ? ` · ออเดอร์ล่าสุดในระบบคือ ${formatThaiDateOnly(d.scope.maxOrderDate)} — กดปุ่ม “ทั้งหมด” เพื่อดูทั้งช่วงที่มีข้อมูล`
+            : " · ยังไม่มีออเดอร์ในระบบเลย — นำเข้าไฟล์ยอดขายที่หน้า “นำเข้าออเดอร์” ก่อน"}
         </p>
       )}
 
