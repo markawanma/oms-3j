@@ -147,7 +147,10 @@ export function ProductForm({
           supplier: supplier.trim() || null,
           note: note.trim() || null,
           isActive,
+          // both null: a SKU created seconds ago cannot have images yet —
+          // ProductImageSection starts empty and fills in as uploads land
           primaryImagePath: null,
+          primaryImageSmPath: null,
         };
         toast.push(`เพิ่ม SKU ${sku.trim()} แล้ว — เพิ่มรูปได้เลย`);
         router.refresh();

@@ -186,16 +186,11 @@ export function ProductsPageClient({
               </thead>
               <tbody>
                 {visible.map((p) => {
-                  // ⚠️ primaryImagePath is the MD variant path (lib/catalog/
-                  // types.ts's doc comment on ProductRow) — getProducts()
-                  // (lib/actions/catalog.ts, out of scope for this round)
-                  // only selects product_image.storage_path, not
-                  // variant_sm_path, so there is no SM path to use here for
-                  // a proper 40×40 thumbnail. Using the MD path works but
-                  // ships a larger-than-necessary image per row across up
-                  // to 303 rows; flagging as a decision beyond this round's
-                  // scope rather than editing the restricted actions file.
-                  const thumbUrl = publicImageUrl(p.primaryImagePath);
+                  // SM variant (480px cap) on purpose — this is a 40×40 box,
+                  // and md across 303 rows would download full-size pictures
+                  // to paint thumbnails. Falls back to md only if a row
+                  // somehow lacks the sm path, so the cell never goes blank.
+                  const thumbUrl = publicImageUrl(p.primaryImageSmPath ?? p.primaryImagePath);
                   return (
                   <tr key={p.productId} className={`border-b border-zinc-100 last:border-0 ${p.isActive ? "" : "opacity-55"}`}>
                     <td className="py-2 pr-3">

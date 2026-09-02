@@ -112,7 +112,7 @@ export async function getProducts(): Promise<ActionResult<GetProductsResult>> {
       fetchAllRows((from, to) =>
         supabase
           .from("product_image")
-          .select("product_id, storage_path", { count: "exact" })
+          .select("product_id, storage_path, variant_sm_path", { count: "exact" })
           .eq("shop_id", shopId)
           .order("product_id", { ascending: true })
           .order("sort_order", { ascending: true })
@@ -127,9 +127,20 @@ export async function getProducts(): Promise<ActionResult<GetProductsResult>> {
       rawMap.set(r.id, { barcode: r.barcode, supplier: r.supplier, note: r.note });
     }
 
-    const primaryImageMap = new Map<string, string>();
-    for (const r of imageResult.rows as { product_id: string; storage_path: string }[]) {
-      if (!primaryImageMap.has(r.product_id)) primaryImageMap.set(r.product_id, r.storage_path);
+    // Keep BOTH variants for the primary image. The 303-row table renders a
+    // 40x40 thumbnail per row — serving the md variant (1200px cap) there
+    // would download ~303 full-size images to paint 40px boxes. sm (480px cap)
+    // is what that column is for; md stays available for anything that needs
+    // the real picture (quote print, email, line sheet).
+    const primaryImageMap = new Map<string, { md: string; sm: string }>();
+    for (const r of imageResult.rows as {
+      product_id: string;
+      storage_path: string;
+      variant_sm_path: string;
+    }[]) {
+      if (!primaryImageMap.has(r.product_id)) {
+        primaryImageMap.set(r.product_id, { md: r.storage_path, sm: r.variant_sm_path });
+      }
     }
 
     const rows: ProductRow[] = (
@@ -167,7 +178,8 @@ export async function getProducts(): Promise<ActionResult<GetProductsResult>> {
         supplier: raw?.supplier ?? null,
         note: raw?.note ?? null,
         isActive: Boolean(r.is_active),
-        primaryImagePath: primaryImageMap.get(r.product_id) ?? null,
+        primaryImagePath: primaryImageMap.get(r.product_id)?.md ?? null,
+        primaryImageSmPath: primaryImageMap.get(r.product_id)?.sm ?? null,
       };
     });
 

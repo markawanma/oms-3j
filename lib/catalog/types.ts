@@ -38,6 +38,12 @@ export interface ProductRow {
    * lib/catalog/image-constants.ts's publicImageUrl() to render it (single
    * source of truth for that URL shape, see that function's doc comment). */
   primaryImagePath: string | null;
+  /** Same image as primaryImagePath, sm variant (480px cap). Use THIS for the
+   * catalog table's 40x40 thumbnail: at 303 rows, serving md there downloads
+   * ~303 full-size pictures to paint 40px boxes. md stays the right choice
+   * wherever the picture is actually looked at (quote print, email, line
+   * sheet). Raw storage path, NOT a URL — pass through publicImageUrl(). */
+  primaryImageSmPath: string | null;
 }
 
 export interface UpsertProductInput {
