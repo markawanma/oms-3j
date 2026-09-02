@@ -1,17 +1,32 @@
 /**
  * backend/silverPrice.js  (Wix Velo backend web module)
  *
- * แก้ปัญหา "0 บาท" นอกเวลาทำการ:
- *   - เดิม: ถ้า Google Sheet คืนค่าว่าง/0 → cleanNumber() คืน "0" → หน้าเว็บโชว์ 0 บาทตรงๆ
- *   - ใหม่: เพิ่ม snapshot fallback ผ่าน Wix Data collection "PriceSnapshots"
- *     - fetch ได้ราคาที่ valid (ช่องหลัก > 0) -> ใช้ราคาสด + เขียนทับ snapshot
- *     - fetch ได้ราคาที่ไม่ valid (0/ว่าง) หรือ fetch พังทั้งก้อน -> อ่าน snapshot ล่าสุดมาคืนแทน + flag stale:true
- *     - ไม่มี snapshot เลย (ครั้งแรกสุดที่ deploy ก่อนเคยมีราคาสด) -> คืน { empty:true } ให้ frontend โชว์ข้อความติดต่อ LINE แทน 0 บาท
+ * เหตุการณ์ 2 ก.ย. 69: หน้า 3jthailand.com/silver-price โชว์ "0 บาท" ทุกช่อง จริง (ลูกค้าเห็น)
  *
- * กติกาเหล็กที่ยึดตาม:
- *   - ไม่แตะ Google Sheet, ไม่แก้ index rows/columns เดิม (rows[3..7][7]/[10], rows[63..65])
- *   - parseCSV / cleanNumber / findRow / getNumber เหมือนเดิมทุกตัวอักษร (ยกเว้นเพิ่ม export ภายในไฟล์เท่านั้น ไม่กระทบ behavior)
- *   - ตอน Sheet ปกติ ต้องคืนค่าเป๊ะเหมือนโค้ดเดิม (ฟิลด์ครบ ค่าตรงกัน) — เพิ่มแค่ stale/fetchedAt/empty เป็น field เสริม
+ * สาเหตุ: แท็บที่เผยแพร่เปลี่ยนจาก "5%" (แท็บต้นทุน/กำไร ของภายในร้าน) -> "Web Price"
+ * (ตั้งใจเปลี่ยน เพราะแท็บ "5%" มีต้นทุน+กำไรของร้าน ห้ามเผยแพร่เด็ดขาด เคยหลุดขึ้น repo สาธารณะมาแล้ว
+ * ครั้งหนึ่ง — ⚠️ ห้ามแก้กลับไปเผยแพร่แท็บ "5%" เด็ดขาด ไม่ว่าจะด้วยเหตุผลอะไร)
+ *
+ * แท็บ "Web Price" มีแค่ 11 แถว x 7 คอลัมน์ (แท็บ "5%" มี 60+ แถว) — โค้ดเวอร์ชันก่อนหน้านี้อ่านด้วย
+ * index ตายตัวที่ผูกกับโครง "5%" (rows[63]/rows[64]/rows[65], rows[3..7][7]/[10]) พอสลับแท็บ
+ * ตำแหน่งพวกนั้นกลายเป็น undefined -> cleanNumber(undefined) คืน "0" -> เว็บโชว์ 0 ทั้งกระดานเงียบๆ
+ * โดยไม่มี error ให้เห็นที่ไหนเลย (นี่คือสาเหตุจริงที่แก้ในรอบนี้ — ไม่ใช่ snapshot/fetch พัง)
+ *
+ * แก้โดยเปลี่ยนมาอ่านด้วย "label" (ข้อความในเซลล์) แทน index ตายตัว — ทนต่อการสลับแท็บ/เพิ่มคอลัมน์/
+ * สลับลำดับแถวในอนาคต ตราบใดที่ label (ข้อความ) ยังเหมือนเดิม ถ้าหา label ไม่เจอในชีต จะ
+ * console.error บอกชื่อ label ที่หาไม่เจอ (เวอร์ชันก่อนเงียบแล้วคืน 0 — ไม่มีใครรู้ว่าพังจนลูกค้าทักมา)
+ *
+ * ฟีเจอร์ snapshot fallback (จาก fix ก่อนหน้า 6 ส.ค. 69) ยังคงอยู่ครบ ไม่แตะ:
+ *   - fetch ได้ราคาที่ valid (ช่องหลัก > 0) -> ใช้ราคาสด + เขียนทับ snapshot
+ *   - fetch ได้ราคาที่ไม่ valid (0/ว่าง) หรือ fetch พังทั้งก้อน -> อ่าน snapshot ล่าสุดมาคืนแทน + stale:true
+ *   - ไม่มี snapshot เลย -> คืน { empty:true } ให้ frontend โชว์ข้อความติดต่อ LINE แทน 0 บาท
+ *
+ * field ที่ return ออกไปห้ามเปลี่ยนชื่อ/ตัดออกแม้แต่ตัวเดียว — หน้าเว็บ (silverPrice.page.js) ผูกอยู่ตรงๆ
+ * ค่าที่คืนยังเป็น string ที่ตัดจุลภาคออกแล้วเหมือนเดิม (เช่น "67900")
+ *
+ * parseCSV/extractPrices/isValid/cleanNumber ถูก export เพิ่มจากเดิม (นอกเหนือ getSheetPrice) เพื่อให้
+ * unit test เรียกตรงได้โดยไม่ต้อง mock fetch/wix-data — ไม่กระทบพฤติกรรมฝั่ง Wix เพราะไฟล์นี้เป็น
+ * backend module ธรรมดา (ไม่ใช่ .web.js) export เพิ่มไม่ได้ทำให้กลายเป็น public web method
  */
 
 import { fetch } from 'wix-fetch';
@@ -21,74 +36,174 @@ const SHEET_URL = "<SILVER_SHEET_CSV_URL — ดูใน .env.local ห้า�
 const SNAPSHOT_COLLECTION = "PriceSnapshots";
 const SNAPSHOT_ID = "latest";
 
-// ---------- Logic เดิม (ห้ามแก้ — ผูกกับโครงสร้าง Sheet จริง) ----------
+// เซลล์ที่เป็น "ตัวเลขราคาล้วน" หลังตัด comma คั่นหลักพัน (รองรับทศนิยมเผื่ออนาคต) — ใช้คัดเซลล์ราคา
+// ออกจากเซลล์ label/วันที่ ("2-Sep-2026")/เวลา ("14:30") ซึ่งมีตัวอักษรหรือ : / - ปนอยู่เสมอ ไม่ match ที่นี่
+const NUMERIC_CELL = /^[\d,]+(\.\d+)?$/;
 
-function parseCSV(text) {
-    return text.split("\n").map(row => row.match(/(".*?"|[^",\s]+)(?=\s*,|\s*$)/g)?.map(cell => cell.replace(/"/g, "")) || []);
+// ---------- CSV parsing ----------
+
+/**
+ * แปลง 1 บรรทัด CSV เป็น array ของเซลล์ — เขียนใหม่แทน regex เดี่ยวเดิม
+ * (`(".*?"|[^",\s]+)(?=\s*,|\s*$)`) เพราะตัวเดิมพังกับเซลล์ที่ไม่ได้ครอบ quote แต่มีช่องว่างในข้อความ
+ * (พบจริงตอนแก้บั๊กนี้: cell "ขายออก รวม VAT" -> เหลือแค่ "VAT", cell "0.5 บาท"/"1 บาท"/... -> เหลือแค่
+ * "บาท" ตัวเดียวกันหมดทุกขนาด ทำให้แยกขนาดไม่ออกเลย) parser ใหม่นี้เป็น CSV parser มาตรฐาน
+ * (รองรับ quote และ escaped-quote "") ไม่ผูกกับ format ของแท็บไหนทั้งสิ้น
+ */
+function parseCSVLine(line) {
+    const cells = [];
+    let cur = "";
+    let inQuotes = false;
+    for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (inQuotes) {
+            if (ch === '"') {
+                if (line[i + 1] === '"') {
+                    cur += '"';
+                    i++; // escaped quote ("") ภายในเซลล์ที่ครอบด้วย quote
+                } else {
+                    inQuotes = false;
+                }
+            } else {
+                cur += ch;
+            }
+        } else if (ch === '"') {
+            inQuotes = true;
+        } else if (ch === ',') {
+            cells.push(cur.trim());
+            cur = "";
+        } else {
+            cur += ch;
+        }
+    }
+    cells.push(cur.trim());
+    return cells;
 }
 
-function cleanNumber(val) {
+export function parseCSV(text) {
+    return String(text ?? "").split(/\r\n|\n|\r/).map(parseCSVLine);
+}
+
+export function cleanNumber(val) {
     if (!val) return "0";
     return val.replace(/,/g, "");
 }
 
-function findRow(rows, keyword) {
-    return rows.find(r => r.join("").includes(keyword));
-}
+// ---------- อ่านค่าด้วย label (แทน index ตายตัวของเดิม) ----------
 
-function getNumber(row) {
-    if (!row) return "0";
-    if (row[2] && /^[\d,]+$/.test(row[2])) {
-        return cleanNumber(row[2]);
-    }
-    const num = row.find(c => /^[\d,]+$/.test(c));
-    return num ? cleanNumber(num) : "0";
+function rowHasExactCell(row, label) {
+    return row.some(cell => cell === label);
 }
-
-// ---------- ส่วนที่เพิ่มใหม่ ----------
 
 /**
- * ดึงราคาทั้งหมดจาก rows ที่ parse แล้ว — เนื้อหาเดิมทุกฟิลด์ + เพิ่ม buyPerBaht
- *
- * แยกออกมาเป็นฟังก์ชันย่อยจาก getSheetPrice() เดิม เพื่อให้ isValid()/snapshot
- * เรียกใช้ซ้ำได้โดยไม่ต้อง fetch ใหม่ — ไม่กระทบผลลัพธ์ที่ frontend เห็น
+ * ไล่หาตัวเลขในแถว โดยเริ่มมองหลังตำแหน่ง label เท่านั้น (ไม่มองย้อนไปก่อน label) — กันปัญหาถ้ามีคอลัมน์
+ * อื่น (เช่น เลขลำดับแถว) อยู่ก่อนหน้า label ในแถวเดียวกันแล้วดันถูกหยิบผิดตัวไปเป็นราคา
+ * คืน array ตามลำดับที่เจอ ยาวสุด maxCount ตัว — ไม่ครบก็คืนเท่าที่มี (caller ตัดสินเองว่าจะ fallback ยังไง)
+ * คืน null ถ้าไม่พบ label นี้ในแถวนี้เลย
  */
-function extractPrices(rows) {
-    return {
-        sell1kg: getNumber(rows[63]) || getNumber(findRow(rows, "ขายออก 1 กิโล")),
-        sellVat1kg: getNumber(rows[64]) || getNumber(findRow(rows, "Vat")),
-        buy1kg: getNumber(rows[65]) || getNumber(findRow(rows, "ซื้อเข้า")),
-        sellHalfBaht: cleanNumber(rows[3]?.[7]),
-        sellOneBaht: cleanNumber(rows[4]?.[7]),
-        sellThreeBaht: cleanNumber(rows[5]?.[7]),
-        sellFiveBaht: cleanNumber(rows[6]?.[7]),
-        sellTenBaht: cleanNumber(rows[7]?.[7]),
-        buyHalfBaht: cleanNumber(rows[3]?.[10]),
-        buyOneBaht: cleanNumber(rows[4]?.[10]),
-        buyThreeBaht: cleanNumber(rows[5]?.[10]),
-        buyFiveBaht: cleanNumber(rows[6]?.[10]),
-        buyTenBaht: cleanNumber(rows[7]?.[10]),
+function numbersAfterLabel(row, label, maxCount) {
+    const idx = row.indexOf(label);
+    if (idx === -1) return null;
+    const found = [];
+    for (let i = idx + 1; i < row.length && found.length < maxCount; i++) {
+        if (NUMERIC_CELL.test(row[i])) found.push(row[i]);
+    }
+    return found;
+}
 
-        // --- BUG FIX: buyPerBaht ---
-        // เดิม frontend เรียก price.buyPerBaht แต่ backend ไม่เคย return field นี้ -> undefined -> "0 บาท" ตลอดเวลา (ไม่ใช่แค่นอกเวลาทำการ)
-        // สมมติฐาน: "ราคารับซื้อคืนต่อบาท" ที่หน้าเว็บโชว์เป็นตัวเลขเดี่ยว (ไม่ใช่ตาราง) น่าจะหมายถึงราคารับซื้อคืนของขนาด "1 บาท" ซึ่งตรงกับ buyOneBaht (rows[4][10]) อยู่แล้ว
-        // จึงตั้งค่า buyPerBaht = buyOneBaht ไปก่อน เพื่อไม่ให้ "0 บาท" ค้าง — ไม่ได้เดา index ใหม่จาก Sheet
-        // [รอเจ้าของยืนยัน]: ถ้า element #buyPerBaht บนหน้าเว็บจริงๆ ควรโชว์เลขอื่น (เช่น ราคาต่อบาททองรวม VAT, หรือคอลัมน์อื่นใน Sheet) แจ้งกลับมาแล้วแก้บรรทัดนี้จุดเดียว
-        buyPerBaht: cleanNumber(rows[4]?.[10]),
+/**
+ * หาค่าตัวเลขตัวแรกหลัง label เดียว ไล่ทีละแถวในชีต — ใช้กับ label ที่มีค่าเดียวต่อชีต เช่น
+ * "ขายออก"/"ซื้อเข้า"/"ขายออก รวม VAT" ในแถวราคากิโล และ "ซื้อเข้า" ในแถว buyPerBaht
+ * rowFilter ใช้จำกัดว่าต้องเป็นแถวแบบไหน (เช่น ต้องมี/ไม่มี label อื่นร่วมด้วยในแถวเดียวกัน) เพื่อแยก
+ * แถวราคากิโล ("ขายออก" + "ซื้อเข้า" อยู่คู่กัน) ออกจากแถว buyPerBaht ("ซื้อเข้า" อยู่ตัวเดียว)
+ */
+function valueAfterLabelInSheet(rows, label, rowFilter, labelForLog) {
+    const candidateRows = rows.filter(rowFilter);
+    for (const row of candidateRows) {
+        const nums = numbersAfterLabel(row, label, 1);
+        if (nums && nums.length > 0) return cleanNumber(nums[0]);
+    }
+    console.error(
+        `[silverPrice] ไม่พบค่าของ label "${labelForLog || label}" ใน Web Price sheet — ` +
+        `เช็คว่าข้อความ label ในชีตเปลี่ยนไปหรือยัง (index ตายตัวเดิมเคยพังเพราะเหตุนี้มาแล้วครั้งหนึ่ง)`
+    );
+    return "0";
+}
+
+/**
+ * แถวราคาต่อขนาด ("0.5 บาท"/"1 บาท"/"3 บาท"/"5 บาท"/"10 บาท") — เทียบ label แบบตรงตัวเป๊ะ (===) เท่านั้น
+ * ห้ามใช้ includes/startsWith เด็ดขาด เพราะ "1 บาท" เป็น substring ของ "10 บาท" ตรงๆ (และของ "0.5 บาท"
+ * ถ้าเทียบแบบหลวม) — ใช้ includes จะทำให้ "1 บาท" ไปหยิบค่าของแถว "10 บาท" หรือ "0.5 บาท" แทน
+ * ตัวเลขตัวแรกหลัง label = ราคาขาย · ตัวที่สอง = ราคาซื้อ (ชีตยังไม่มีคอลัมน์ซื้อ -> ไม่มีตัวที่สอง -> "0")
+ */
+function sizeSellBuy(rows, label) {
+    const row = rows.find(r => rowHasExactCell(r, label));
+    if (!row) {
+        console.error(`[silverPrice] ไม่พบแถวขนาด "${label}" ใน Web Price sheet`);
+        return { sell: "0", buy: "0" };
+    }
+    const nums = numbersAfterLabel(row, label, 2) || [];
+    if (nums.length === 0) {
+        console.error(`[silverPrice] แถวขนาด "${label}" ไม่มีตัวเลขราคาขายถัดจาก label`);
+    }
+    return {
+        sell: nums[0] ? cleanNumber(nums[0]) : "0",
+        buy: nums[1] ? cleanNumber(nums[1]) : "0",
+    };
+}
+
+// ---------- ดึงราคาทั้งหมด ----------
+
+/**
+ * ดึงราคาทั้งหมดจาก rows ที่ parse แล้ว — คืน field set เดิมทุกตัว (ห้ามเปลี่ยนชื่อ/ตัดออก)
+ * แยกออกมาเป็นฟังก์ชันย่อยจาก getSheetPrice() เพื่อให้ isValid()/snapshot/test เรียกใช้ซ้ำได้
+ */
+export function extractPrices(rows) {
+    const half = sizeSellBuy(rows, "0.5 บาท");
+    const one = sizeSellBuy(rows, "1 บาท");
+    const three = sizeSellBuy(rows, "3 บาท");
+    const five = sizeSellBuy(rows, "5 บาท");
+    const ten = sizeSellBuy(rows, "10 บาท");
+
+    // แถวราคากิโล = แถวที่มีทั้ง "ขายออก" และ "ซื้อเข้า" อยู่ด้วยกัน — แยกจากแถว buyPerBaht ที่มีแค่ "ซื้อเข้า"
+    const isKiloRow = r => rowHasExactCell(r, "ขายออก") && rowHasExactCell(r, "ซื้อเข้า");
+    const sell1kg = valueAfterLabelInSheet(rows, "ขายออก", isKiloRow, "ขายออก (ราคากิโล)");
+    const buy1kg = valueAfterLabelInSheet(rows, "ซื้อเข้า", isKiloRow, "ซื้อเข้า (ราคากิโล)");
+    const sellVat1kg = valueAfterLabelInSheet(rows, "ขายออก รวม VAT", isKiloRow, "ขายออก รวม VAT (ราคากิโล)");
+
+    // buyPerBaht = แถวที่มี "ซื้อเข้า" แต่ไม่มี "ขายออก" ร่วมด้วย (แยกจากแถวราคากิโลด้านบน)
+    const isBuyPerBahtRow = r => rowHasExactCell(r, "ซื้อเข้า") && !rowHasExactCell(r, "ขายออก");
+    const buyPerBaht = valueAfterLabelInSheet(rows, "ซื้อเข้า", isBuyPerBahtRow, "ซื้อเข้า (ราคาต่อบาท)");
+
+    return {
+        sell1kg,
+        sellVat1kg,
+        buy1kg,
+        sellHalfBaht: half.sell,
+        sellOneBaht: one.sell,
+        sellThreeBaht: three.sell,
+        sellFiveBaht: five.sell,
+        sellTenBaht: ten.sell,
+        buyHalfBaht: half.buy,
+        buyOneBaht: one.buy,
+        buyThreeBaht: three.buy,
+        buyFiveBaht: five.buy,
+        buyTenBaht: ten.buy,
+        buyPerBaht,
 
         // field ซ้ำชุดที่ 2 (ค่าเดียวกัน) — คงไว้ตามเดิมเพราะหน้าเว็บมี element 2 ชุด (#xxx + #xxx1)
-        // known issue (ไม่แก้ในรอบนี้): เป็น redundant data ที่ควร refactor รวมเป็นชุดเดียวแล้วให้ frontend set 2 element จาก field เดียว
-        sellHalfBaht1: cleanNumber(rows[3]?.[7]),
-        sellOneBaht1: cleanNumber(rows[4]?.[7]),
-        sellThreeBaht1: cleanNumber(rows[5]?.[7]),
-        sellFiveBaht1: cleanNumber(rows[6]?.[7]),
-        sellTenBaht1: cleanNumber(rows[7]?.[7]),
-        buyHalfBaht1: cleanNumber(rows[3]?.[10]),
-        buyOneBaht1: cleanNumber(rows[4]?.[10]),
-        buyThreeBaht1: cleanNumber(rows[5]?.[10]),
-        buyFiveBaht1: cleanNumber(rows[6]?.[10]),
-        buyTenBaht1: cleanNumber(rows[7]?.[10]),
-        buyPerBaht1: cleanNumber(rows[4]?.[10]),
+        // known issue (ไม่แก้ในรอบนี้): เป็น redundant data ที่ควร refactor รวมเป็นชุดเดียวแล้วให้ frontend
+        // set 2 element จาก field เดียว — คงพฤติกรรมเดิมไว้ตามที่สั่ง ไม่ตัดทิ้งเพื่อไม่ให้หน้าเว็บพัง
+        sellHalfBaht1: half.sell,
+        sellOneBaht1: one.sell,
+        sellThreeBaht1: three.sell,
+        sellFiveBaht1: five.sell,
+        sellTenBaht1: ten.sell,
+        buyHalfBaht1: half.buy,
+        buyOneBaht1: one.buy,
+        buyThreeBaht1: three.buy,
+        buyFiveBaht1: five.buy,
+        buyTenBaht1: ten.buy,
+        buyPerBaht1: buyPerBaht,
     };
 }
 
@@ -96,7 +211,7 @@ function extractPrices(rows) {
  * ราคา "valid" ต้องมีช่องหลักเป็นเลข > 0 อย่างน้อย sell1kg และ sellOneBaht
  * (สองช่องนี้เป็นราคาที่เจ้าของกรอก/สูตรคำนวณก่อน — ถ้า 0 แปลว่า Sheet ยังไม่ update จริง)
  */
-function isValid(d) {
+export function isValid(d) {
     return Number(d.sell1kg) > 0 && Number(d.sellOneBaht) > 0;
 }
 
@@ -151,7 +266,7 @@ export async function getSheetPrice() {
             return { ...data, stale: false, empty: false, fetchedAt: new Date() };
         }
 
-        // ราคาสด invalid (0/ว่าง เช่น ตอนตี 4 เจ้าของยังไม่กรอก) -> ใช้ snapshot แทน
+        // ราคาสด invalid (0/ว่าง เช่น ตอนตี 4 เจ้าของยังไม่กรอก หรือหา label ไม่เจอ) -> ใช้ snapshot แทน
         return await readSnapshot();
     } catch (err) {
         // fetch ทั้งก้อนพัง (เน็ตหลุด/Sheet unpublish ชั่วคราว ฯลฯ) -> ใช้ snapshot แทนเช่นกัน
