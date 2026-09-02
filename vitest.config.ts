@@ -19,7 +19,7 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    include: ["packages/**/*.test.ts", "supabase/tests/**/*.test.ts", "lib/**/*.test.ts"],
+    include: ["packages/**/*.test.ts", "supabase/tests/**/*.test.ts", "lib/**/*.test.ts", "scripts/**/*.test.mjs"],
     testTimeout: 30_000, // integration tests hit a real local Postgres — CI/cold cache can be slow
     hookTimeout: 30_000,
     // IMPORTANT: supabase/tests/* are integration tests sharing ONE stateful local

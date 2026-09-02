@@ -8,32 +8,67 @@
 // อ่านตารางนั้นอยู่).
 //
 // ทำไมไม่ต้องเปิดเบราว์เซอร์ (ต่างจาก scrape-silver-price.mjs): ตัวนี้อ่าน
-// จาก Google Sheet โดยตรง (CSV publish endpoint) ซึ่งเป็น plain text ไม่ใช่
-// หน้าเว็บ Wix ที่ render ด้วย JS — fetch ธรรมดาพอ
+// จาก Google Sheets API v4 โดยตรง (JSON REST) ซึ่งไม่ต้อง render JS เหมือน
+// หน้าเว็บ Wix — fetch ธรรมดาพอ
 //
-// 🔴 SHEET_URL นี้เข้าถึงต้นทุนภายในได้ (ราคาเนื้อเงิน/ค่าบล๊อค/margin %) —
-// ใช้ได้เฉพาะในสคริปต์ server-side นี้เท่านั้น ห้ามให้หลุดไปฝั่ง client/เว็บ
+// 🔴 2026-09-02 (feat/sheets-api-auth): เปลี่ยนจากลิงก์ "เผยแพร่สู่เว็บ"
+// (public CSV publish endpoint) มาเป็น Google Sheets API v4 +
+// service account (JWT bearer, scope readonly) เพราะลิงก์เผยแพร่แบบเดิม
+// เปิดให้ใครก็ได้ที่มี URL ดาวน์โหลดทั้งแท็บ (ไม่ใช่แค่ราคาที่ขึ้นเว็บ) —
+// ยืนยันแล้วว่า URL เดิมเคยหลุดขึ้น repo สาธารณะ ⇒ ถือว่ารั่วถาวรแล้ว
+// (ดู pricing-disclosure-policy memory + brief งานนี้)
+// ไม่มี fallback ไปลิงก์สาธารณะอีกต่อไป — ขาด credential = สคริปต์หยุดทำงาน
+// ทันที ไม่ใช่ปิดช่องโหว่แล้วเปิดใหม่โดยไม่ตั้งใจ
 //
 // วิธีอ่าน mapping: ใช้ text anchor หา header row ก่อน (ไม่ผูก index ตรงๆ)
 // แล้วอ่านค่าจากตำแหน่งคอลัมน์ที่หาเจอจริงในแถวนั้น + แถวถัดไป — กันปัญหา
 // คอลัมน์เยื้อง/ลำดับสลับที่เกิดขึ้นจริงในชีตนี้ (ดู docs/3j-jewelry/web/
-// velo-fixed/silverPrice.backend.js กับดักเดิม + brief งานนี้)
+// velo-fixed/silverPrice.backend.js กับดักเดิม + brief งานนี้) — ยกไปอยู่ที่
+// scripts/lib/silver-sheet-parse.mjs (pure, unit-tested แยกจากไฟล์นี้)
 //
 // Usage:
 //   node --env-file=.env.local scripts/capture-silver-price-sheet.mjs [--commit]
 //     --commit  เขียนลง DB จริง (ไม่ใส่ = dry-run พิมพ์ค่าที่อ่านได้เฉยๆ)
 //
-// Env: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, DEV_SHOP_ID
+// Env (ทั้งหมดจำเป็น แม้จะเป็น dry-run เพราะต้องใช้ดึงราคาจากชีต):
+//   GOOGLE_SERVICE_ACCOUNT_KEY_FILE  path ไปไฟล์ .json ของ service account
+//                                    (อยู่นอก repo — ห้ามยัดคีย์ลง env ตรงๆ
+//                                    เพราะเป็น multi-line ป้องกัน escape พัง)
+//   SILVER_SHEET_ID                  spreadsheet id
+//   SILVER_SHEET_RANGE               เช่น 'ราคา'!A1:Z80
+// Env (จำเป็นเฉพาะตอน --commit): SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, DEV_SHOP_ID
+//
+// 🔴 ห้าม log: private key · access token · spreadsheet id — ข้อความ error
+// ทุกจุดด้านล่างอ้างชื่อ env var เท่านั้น ไม่พิมพ์ค่าจริง
+// ข้อยกเว้นเดียว: client_email พิมพ์ได้เฉพาะใน error 403 (ดูเหตุผลตรงจุดนั้น) —
+// มันคือ "ชื่อผู้ใช้" ของ service account สิ่งที่เป็นความลับจริงคือ private key
 
 import { createClient } from "@supabase/supabase-js";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { extractServiceAccountFields, buildJwtClaimSet, signJwt } from "./lib/google-sheets-auth.mjs";
+import { parseSheet } from "./lib/silver-sheet-parse.mjs";
 
-// อ่านจาก .env.local (SILVER_SHEET_CSV_URL) — จงใจไม่ hardcode ใน repo:
-// repo เคยเป็น public และ URL นี้เปิดถึงต้นทุนภายในตรงๆ (ดู pricing-disclosure-policy)
-const SHEET_URL = process.env.SILVER_SHEET_CSV_URL;
-if (!SHEET_URL) {
-  console.error("❌ ไม่พบ SILVER_SHEET_CSV_URL ใน .env.local — เพิ่มบรรทัด SILVER_SHEET_CSV_URL=<ลิงก์ CSV ของชีตราคา> ก่อนรัน");
-  process.exit(1);
+const SHEETS_READONLY_SCOPE = "https://www.googleapis.com/auth/spreadsheets.readonly";
+
+// ---- required env (checked immediately, before any network/file I/O, so a
+// missing var fails fast with a list of exactly what's missing) ----
+const REQUIRED_ENV = ["GOOGLE_SERVICE_ACCOUNT_KEY_FILE", "SILVER_SHEET_ID", "SILVER_SHEET_RANGE"];
+const missingEnv = REQUIRED_ENV.filter((name) => !process.env[name] || !process.env[name].trim());
+const hasRequiredEnv = missingEnv.length === 0;
+// process.exitCode (never process.exit()) everywhere in this file: no
+// fetch() has happened yet at THIS point so process.exit() would be safe
+// here, but every path below performs a fetch(), and Node 24 on Windows has
+// a reproducible crash (`Assertion failed: !(handle->flags &
+// UV_HANDLE_CLOSING)`, libuv src/win/async.c) when process.exit() runs
+// shortly after any fetch() in the same process — confirmed via isolated
+// repro during this change. process.exitCode + letting the module finish
+// naturally avoids it everywhere (here, the cross-check failure below, and
+// main().catch() at the bottom) without special-casing "did we fetch yet".
+if (!hasRequiredEnv) {
+  console.error(`❌ ไม่พบ environment variable ต่อไปนี้ใน .env.local: ${missingEnv.join(", ")}`);
+  console.error("   ดูตัวอย่างที่ต้องตั้งใน .env.local.example (หัวข้อ Silver price — Google Sheets API)");
+  process.exitCode = 1;
 }
 
 function env(name) {
@@ -42,320 +77,112 @@ function env(name) {
   return v;
 }
 
-// ============================================================================
-// CSV parsing — RFC4180-ish (handles quoted fields with embedded commas, e.g.
-// "71,556.91"). The old Velo regex parser (silverPrice.backend.js) does NOT
-// handle this correctly and was a known trap — write a real state machine
-// instead of reusing it.
-// ============================================================================
-function parseCsv(text) {
-  const rows = [];
-  let row = [];
-  let field = "";
-  let inQuotes = false;
-  const s = text.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-
-  for (let i = 0; i < s.length; i++) {
-    const c = s[i];
-    if (inQuotes) {
-      if (c === '"') {
-        if (s[i + 1] === '"') {
-          field += '"';
-          i++;
-        } else {
-          inQuotes = false;
-        }
-      } else {
-        field += c;
-      }
-      continue;
-    }
-    if (c === '"') {
-      inQuotes = true;
-    } else if (c === ",") {
-      row.push(field);
-      field = "";
-    } else if (c === "\n") {
-      row.push(field);
-      rows.push(row);
-      row = [];
-      field = "";
-    } else {
-      field += c;
-    }
+/** Reads + validates the service-account key file. Every failure mode gets
+ * its own Thai message per brief (missing env handled above already; this
+ * covers: file not found/unreadable, not valid JSON, valid JSON but missing
+ * required fields). Never includes the key file's contents in the message. */
+function loadServiceAccountKey(keyFilePath) {
+  let raw;
+  try {
+    raw = readFileSync(keyFilePath, "utf8");
+  } catch (err) {
+    throw new Error(
+      `อ่านไฟล์ service account key ไม่ได้ตาม path ที่ตั้งไว้ใน GOOGLE_SERVICE_ACCOUNT_KEY_FILE (${err.code ?? err.name}) — ตรวจว่าไฟล์มีอยู่จริงและมีสิทธิ์อ่าน`
+    );
   }
-  // last field/row (file may or may not end with a trailing newline)
-  if (field !== "" || row.length > 0) {
-    row.push(field);
-    rows.push(row);
+  let json;
+  try {
+    json = JSON.parse(raw);
+  } catch {
+    throw new Error(
+      "ไฟล์ที่ GOOGLE_SERVICE_ACCOUNT_KEY_FILE ชี้ไปอ่านได้แต่ไม่ใช่ JSON ที่ถูกต้อง — ตรวจว่าดาวน์โหลดไฟล์ service account key JSON มาแบบไม่เพี้ยน/ไม่ถูกตัดครึ่ง"
+    );
   }
-  return rows;
+  return extractServiceAccountFields(json); // throws Thai-message errors on missing fields (see google-sheets-auth.mjs)
 }
 
-/** Strict cell -> number: strips thousands separators, requires the WHOLE
- * (trimmed) cell to be numeric — no free-form regex extraction from mixed
- * text (that's how the old scraper avoided grabbing the wrong number out of
- * a label cell). Returns null for empty/non-numeric/<=0 cells. */
-function cellToNumber(cell) {
-  if (cell === undefined || cell === null) return null;
-  const trimmed = String(cell).trim().replace(/,/g, "");
-  if (trimmed === "" || trimmed === "#N/A") return null;
-  if (!/^-?\d+(\.\d+)?$/.test(trimmed)) return null;
-  const n = Number(trimmed);
-  return Number.isFinite(n) && n > 0 ? n : null;
+/** JWT-bearer token exchange (RFC 7523) — builds + signs the assertion, then
+ * POSTs it to Google's token endpoint. Returns an access_token string. */
+async function getAccessToken({ clientEmail, privateKey, tokenUri }) {
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const claimSet = buildJwtClaimSet({ clientEmail, scope: SHEETS_READONLY_SCOPE, tokenUri, nowSeconds });
+
+  let assertion;
+  try {
+    assertion = signJwt(claimSet, privateKey);
+  } catch {
+    throw new Error(
+      "เซ็น JWT ด้วย private key ในไฟล์ key ไม่สำเร็จ — ตรวจว่าฟิลด์ private_key ในไฟล์ JSON เป็น PEM ที่ถูกต้องครบ (ขึ้นต้น -----BEGIN PRIVATE KEY-----) ไม่ได้ถูกตัด/แก้ไขระหว่างทาง"
+    );
+  }
+
+  const body = new URLSearchParams({
+    grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+    assertion,
+  });
+
+  let res;
+  try {
+    res = await fetch(tokenUri, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: body.toString(),
+    });
+  } catch (err) {
+    throw new Error(`เชื่อมต่อ Google token endpoint ไม่สำเร็จ (${err.message}) — ตรวจการเชื่อมต่อเน็ตเวิร์กของเครื่องนี้`);
+  }
+
+  const json = await res.json().catch(() => null);
+  if (!res.ok) {
+    const reason = json?.error_description || json?.error || `HTTP ${res.status}`;
+    throw new Error(
+      `ขอ access token จาก Google ไม่สำเร็จ (${reason}) — สาเหตุที่เป็นไปได้: key ถูก revoke/ลบไปแล้ว, หรือเวลาของเครื่องนี้ (system clock) คลาดเกิน 5 นาที (JWT หมดอายุทันทีถ้าเวลาไม่ตรง) — ตรวจสองอย่างนี้ก่อน`
+    );
+  }
+  if (!json?.access_token) {
+    throw new Error("Google ตอบกลับ HTTP 200 แต่ไม่มี access_token ในผลลัพธ์ — โครงสร้าง response ของ Google อาจเปลี่ยน ต้องดู log ละเอียดเพิ่ม");
+  }
+  return json.access_token;
 }
 
-/** First row index (top to bottom) whose cells jointly contain every string
- * in `mustInclude` — anchor by text, never by hardcoded row index. */
-function findAnchorRow(rows, mustInclude) {
-  for (let i = 0; i < rows.length; i++) {
-    const joined = rows[i].join("|");
-    if (mustInclude.every((s) => joined.includes(s))) return i;
+/** Calls spreadsheets.values.get. Returns `values` (string[][], same shape
+ * parseSheet() already expects). 403/404/400 each get a distinct, actionable
+ * Thai message per brief — none of them print the spreadsheet id itself. */
+async function fetchSheetValues({ accessToken, spreadsheetId, range, clientEmail }) {
+  const url = `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}/values/${encodeURIComponent(range)}`;
+  let res;
+  try {
+    res = await fetch(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+  } catch (err) {
+    throw new Error(`เชื่อมต่อ Google Sheets API ไม่สำเร็จ (${err.message}) — ตรวจการเชื่อมต่อเน็ตเวิร์กของเครื่องนี้`);
   }
-  return -1;
-}
-
-/** Column index of a cell that, trimmed, equals `label` exactly — used once
- * we already know which row is the header, to disambiguate near-duplicate
- * labels (e.g. "ซื้อคืน kg" vs "ราคาซื้อคืน" both contain "ซื้อคืน"). */
-function findColumnExact(row, label) {
-  return row.findIndex((c) => (c ?? "").trim() === label);
-}
-
-const EN_MONTHS = [
-  "jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec",
-];
-
-/** "31-Aug-2026" -> "2026-08-31". Sheet uses AD (Christian) year directly —
- * unlike the website scraper's Thai-language date, no Buddhist-year offset
- * here. Returns null (never guesses) if the format doesn't match. */
-function parseSheetDate(text) {
-  const m = String(text ?? "").trim().match(/^(\d{1,2})-([A-Za-z]{3})-(\d{4})$/);
-  if (!m) return null;
-  const day = Number(m[1]);
-  const monthIdx = EN_MONTHS.indexOf(m[2].toLowerCase());
-  const year = Number(m[3]);
-  if (monthIdx < 0 || !Number.isFinite(day) || !Number.isFinite(year)) return null;
-  return `${year}-${String(monthIdx + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
-}
-
-// ============================================================================
-// Main parse: anchor-based extraction + mandatory cross-checks.
-// Returns { data, problems, warnings } — data is only meaningful when
-// problems.length === 0 (caller must abort on any problem, per brief).
-// ============================================================================
-function parseSheet(rows) {
-  const problems = [];
-  const warnings = [];
-  const data = {};
-
-  // ---- Top summary block: USD/kg, USD/THB, THB/kg, ต่อบาท, ค่าบล๊อค kg ----
-  const topHeaderIdx = findAnchorRow(rows, ["USD/THB", "ต่อบาท", "THB/kg"]);
-  if (topHeaderIdx === -1 || !rows[topHeaderIdx + 1]) {
-    problems.push("หา header แถวสรุปบนสุด (USD/THB · ต่อบาท · THB/kg) ไม่เจอ — โครงสร้างชีตอาจเปลี่ยน");
-  } else {
-    const headerRow = rows[topHeaderIdx];
-    const valueRow = rows[topHeaderIdx + 1];
-    const topFields = [
-      ["Priece USD/kg", "usd_per_kg"],
-      ["USD/THB", "usd_thb"],
-      ["THB/kg", "thb_per_kg"],
-      ["ต่อบาท", "silver_value_per_baht"],
-      ["ค่าบล๊อค kg", "block_fee_kg"],
-    ];
-    for (const [label, key] of topFields) {
-      const colIdx = findColumnExact(headerRow, label);
-      if (colIdx === -1) {
-        problems.push(`หาคอลัมน์หัวตาราง "${label}" ไม่เจอในแถวสรุปบนสุด`);
-        continue;
-      }
-      const v = cellToNumber(valueRow[colIdx]);
-      if (v === null) {
-        problems.push(`ค่า "${label}" ในแถวสรุปบนสุดอ่านไม่ได้/ไม่เป็นตัวเลขบวก (แถว ${topHeaderIdx + 2}, คอลัมน์ ${colIdx + 1})`);
-        continue;
-      }
-      data[key] = v;
+  if (!res.ok) {
+    const errJson = await res.json().catch(() => null);
+    if (res.status === 403) {
+      throw new Error(
+        // client_email ถูกพิมพ์ออกมาตรงนี้โดยตั้งใจ (Tech Lead ตัดสิน 1 ก.ย. 69):
+        // มันเป็น "ชื่อผู้ใช้" ของ service account ไม่ใช่ความลับ — สิ่งที่ให้สิทธิ์
+        // เข้าถึงคือ private key ในไฟล์ ไม่ใช่อีเมลนี้ และนี่คือ error เดียวที่คน
+        // ตั้งค่าต้องอ่านตอนติดตั้ง การให้เขาไปเปิดไฟล์ JSON หาเองเพิ่มขั้นตอน
+        // โดยไม่ได้ปลอดภัยขึ้นจริง. ส่วน private key / access token ยังห้ามพิมพ์เด็ดขาด
+        `Google Sheets API ตอบ 403 (permission denied) — ยังไม่ได้แชร์ Google Sheet ให้ service account\n` +
+          `  ให้ไปที่ Google Sheet กดปุ่ม Share แล้วเพิ่มอีเมลนี้เป็น Viewer:\n` +
+          `    ${clientEmail}\n` +
+          `  (Viewer พอ เพราะ scope ขอแค่ readonly)`
+      );
     }
+    if (res.status === 404) {
+      throw new Error("Google Sheets API ตอบ 404 (not found) — ตรวจค่า SILVER_SHEET_ID ใน .env.local ว่าถูกต้องและสเปรดชีตยังไม่ถูกลบ/ย้าย");
+    }
+    if (res.status === 400) {
+      throw new Error(
+        `Google Sheets API ตอบ 400 (bad request${errJson?.error?.message ? `: ${errJson.error.message}` : ""}) — ตรวจรูปแบบ SILVER_SHEET_RANGE ใน .env.local (เช่น 'ราคา'!A1:Z80) ว่าชื่อชีต/ช่วงเซลล์ถูกต้อง`
+      );
+    }
+    throw new Error(`Google Sheets API ตอบ HTTP ${res.status}${errJson?.error?.status ? ` (${errJson.error.status})` : ""} — ลองใหม่อีกครั้ง ถ้ายังไม่หายให้ตรวจ Google Cloud status/quota`);
   }
-
-  // ---- Per-size block: 0.5/1/3/5/10 บาท ----
-  const sizeHeaderIdx = findAnchorRow(rows, ["ราคาเนื้อเงิน", "ราคาค่าบล๊อค", "ซื้อคืน"]);
-  const sizeSuffixes = [
-    ["0.5", "0_5"],
-    ["1", "1"],
-    ["3", "3"],
-    ["5", "5"],
-    ["10", "10"],
-  ];
-  const silverContentBySize = {}; // internal — used only for cross-checks below
-  let asOfDateRaw = null;
-
-  if (sizeHeaderIdx === -1) {
-    problems.push('หา header แถวตารางราคาต่อขนาด ("ราคาเนื้อเงิน"/"ราคาค่าบล๊อค"/"ซื้อคืน") ไม่เจอ');
-  } else {
-    const headerRow = rows[sizeHeaderIdx];
-    const colSilver = findColumnExact(headerRow, "ราคาเนื้อเงิน");
-    const colBlockFee = findColumnExact(headerRow, "ราคาค่าบล๊อค");
-    const colMargin = findColumnExact(headerRow, "11%");
-    const colTotal = findColumnExact(headerRow, "Total");
-    const colShopee = findColumnExact(headerRow, "Shopee");
-    const colBuy = findColumnExact(headerRow, "ราคาซื้อคืน");
-    const requiredCols = { colSilver, colBlockFee, colMargin, colTotal, colShopee, colBuy };
-    const missingCols = Object.entries(requiredCols)
-      .filter(([, v]) => v === -1)
-      .map(([k]) => k);
-    if (missingCols.length > 0) {
-      problems.push(`หาคอลัมน์ในตารางราคาต่อขนาดไม่ครบ: ${missingCols.join(", ")}`);
-    } else {
-      // as-of date sits right before "ราคาเนื้อเงิน" in the same header row
-      // (real layout observed: col0=blank/weight-label-elsewhere, col1=date,
-      // col2="ราคาเนื้อเงิน"). Best-effort only — used solely for the legacy
-      // silver_price_daily upsert, never for silver_price_history.
-      if (colSilver > 0) asOfDateRaw = headerRow[colSilver - 1];
-
-      for (let i = 0; i < sizeSuffixes.length; i++) {
-        const [label, suffix] = sizeSuffixes[i];
-        const rowIdx = sizeHeaderIdx + 1 + i;
-        const row = rows[rowIdx];
-        const rowLabel = row?.[0]?.trim();
-        if (!row || rowLabel !== label) {
-          problems.push(
-            `แถวขนาด ${label} บาท ไม่ตรงตามที่คาด (แถว ${rowIdx + 1} มี label="${rowLabel ?? "(ไม่มีแถว)"}") — mapping อาจเลื่อน`
-          );
-          continue;
-        }
-        const silverVal = cellToNumber(row[colSilver]);
-        const blockFee = cellToNumber(row[colBlockFee]);
-        const marginComp = cellToNumber(row[colMargin]);
-        const sell = cellToNumber(row[colTotal]);
-        const shopeeVal = cellToNumber(row[colShopee]);
-        const buy = cellToNumber(row[colBuy]);
-
-        if (silverVal === null || sell === null || buy === null) {
-          problems.push(`ขนาด ${label} บาท: อ่านค่าหลัก (ราคาเนื้อเงิน/Total/ราคาซื้อคืน) ไม่ได้ครบ`);
-          continue;
-        }
-        silverContentBySize[suffix] = { weight: Number(label), value: silverVal };
-        data[`sell_${suffix}`] = sell;
-        data[`buy_${suffix}`] = buy;
-        data[`block_fee_${suffix}`] = blockFee;
-        data[`margin_component_${suffix}`] = marginComp;
-        data[`shopee_${suffix}`] = shopeeVal;
-      }
-    }
-  }
-
-  // ---- กิโลกรัม: ขายออก / ขายออก Vat / ซื้อเข้า ----
-  const kiloSpecs = [
-    { re: /ขายออก(?!.*Vat).*กิโล/i, key: "kilo_sell", label: "ขายออก 1 กิโล" },
-    { re: /ขายออก.*Vat.*กิโล/i, key: "kilo_sell_vat", label: "ขายออก Vat 1 กิโล" },
-    { re: /ซื้อเข้า.*กิโล/i, key: "kilo_buy", label: "ซื้อเข้า 1 กิโล" },
-  ];
-  for (const spec of kiloSpecs) {
-    const rowIdx = rows.findIndex((r) => r.some((cell) => spec.re.test(cell ?? "")));
-    if (rowIdx === -1) {
-      problems.push(`หาแถว "${spec.label}" ไม่เจอ`);
-      continue;
-    }
-    const row = rows[rowIdx];
-    const labelIdx = row.findIndex((cell) => spec.re.test(cell ?? ""));
-    let v = null;
-    for (let c = labelIdx + 1; c < row.length; c++) {
-      v = cellToNumber(row[c]);
-      if (v !== null) break;
-    }
-    if (v === null) {
-      problems.push(`แถว "${spec.label}" (แถว ${rowIdx + 1}) หาค่าตัวเลขไม่เจอ`);
-      continue;
-    }
-    data[spec.key] = v;
-  }
-
-  // ---- sheet_time: best-effort, legacy-table field only, never blocks ----
-  let sheetTime = null;
-  outer: for (const r of rows) {
-    for (const cell of r) {
-      if (/^\d{1,2}:\d{2}$/.test((cell ?? "").trim())) {
-        sheetTime = cell.trim();
-        break outer;
-      }
-    }
-  }
-
-  const asOfDate = parseSheetDate(asOfDateRaw);
-  if (asOfDateRaw && !asOfDate) {
-    warnings.push(`แปลงวันที่ "${asOfDateRaw}" ไม่ได้ — จะข้าม upsert ตาราง silver_price_daily เดิม (silver_price_history ยังบันทึกได้ปกติ)`);
-  }
-
-  // ============================================================================
-  // Mandatory cross-checks (per brief) — ANY failure aborts the whole run,
-  // no partial/suspect insert.
-  // ============================================================================
-  if (problems.length === 0) {
-    // 1) doubling: เนื้อเงิน 0.5 บาท × 2 = เนื้อเงิน 1 บาท
-    const c05 = silverContentBySize["0_5"];
-    const c1 = silverContentBySize["1"];
-    if (c05 && c1) {
-      const expected = c05.value * 2;
-      if (Math.abs(expected - c1.value) / c1.value > 0.01) {
-        problems.push(`Cross-check ล้ม: เนื้อเงิน 0.5 บาท×2 (${expected}) ไม่ตรงกับเนื้อเงิน 1 บาท (${c1.value})`);
-      }
-    }
-
-    // 2) buy-back เป็นเส้นตรงกับน้ำหนัก: buy_X ≈ silverContent_X - 30*weight
-    for (const [suffix, entry] of Object.entries(silverContentBySize)) {
-      const buy = data[`buy_${suffix}`];
-      if (buy === undefined) continue;
-      const expectedBuy = entry.value - 30 * entry.weight;
-      const tolerance = Math.max(1, Math.abs(expectedBuy) * 0.02);
-      if (Math.abs(buy - expectedBuy) > tolerance) {
-        problems.push(
-          `Cross-check ล้ม: ขนาด ${entry.weight} บาท ราคาซื้อคืน ${buy} ห่างจากที่คาด ${expectedBuy.toFixed(2)} (เนื้อเงิน - 30×น้ำหนัก) เกิน tolerance — น่าจะอ่านผิดคอลัมน์/แถว`
-        );
-      }
-    }
-
-    // 3) silver_value_per_baht (แถวสรุปบนสุด) ต้องตรงกับเนื้อเงินขนาด 1 บาท
-    if (data.silver_value_per_baht !== undefined && c1) {
-      if (Math.abs(data.silver_value_per_baht - c1.value) / c1.value > 0.01) {
-        problems.push(
-          `Cross-check ล้ม: silver_value_per_baht (${data.silver_value_per_baht}) ไม่ตรงกับเนื้อเงินขนาด 1 บาท (${c1.value})`
-        );
-      }
-    }
-
-    // 4) sell >= buy ทุกขนาด + กิโล (ซ้ำกับ DB constraint แต่เช็คก่อน insert ให้ error ชัดเจนกว่า)
-    for (const [, suffix] of sizeSuffixes) {
-      const sell = data[`sell_${suffix}`];
-      const buy = data[`buy_${suffix}`];
-      if (sell !== undefined && buy !== undefined && sell < buy) {
-        problems.push(`Cross-check ล้ม: ขนาด ${suffix} บาท ขายออก (${sell}) ถูกกว่าซื้อเข้า (${buy}) — น่าจะอ่านสลับคอลัมน์`);
-      }
-    }
-    if (data.kilo_sell !== undefined && data.kilo_buy !== undefined && data.kilo_sell < data.kilo_buy) {
-      problems.push(`Cross-check ล้ม: กิโลขายออก (${data.kilo_sell}) ถูกกว่าซื้อเข้า (${data.kilo_buy})`);
-    }
-
-    // 5) กิโลขาย VAT ≈ กิโลขาย × 1.07
-    if (data.kilo_sell !== undefined && data.kilo_sell_vat !== undefined) {
-      const expectedVat = data.kilo_sell * 1.07;
-      if (Math.abs(data.kilo_sell_vat - expectedVat) / expectedVat > 0.01) {
-        problems.push(
-          `Cross-check ล้ม: กิโลขาย VAT (${data.kilo_sell_vat}) ไม่ตรงกับกิโลขาย×1.07 (${expectedVat.toFixed(2)})`
-        );
-      }
-    }
-
-    // 6) ราคาขายต้องเรียงเพิ่มตามขนาด (0.5 < 1 < 3 < 5 < 10)
-    const sellSeries = sizeSuffixes.map(([, suffix]) => data[`sell_${suffix}`]);
-    for (let i = 1; i < sellSeries.length; i++) {
-      if (sellSeries[i - 1] !== undefined && sellSeries[i] !== undefined && sellSeries[i] <= sellSeries[i - 1]) {
-        problems.push(`Cross-check ล้ม: ราคาขายไม่เรียงเพิ่มตามขนาด (${sizeSuffixes[i - 1][0]} บาท=${sellSeries[i - 1]}, ${sizeSuffixes[i][0]} บาท=${sellSeries[i]})`);
-      }
-    }
-  }
-
-  return { data, problems, warnings, asOfDate, asOfDateRaw, sheetTime };
+  const json = await res.json();
+  return json.values ?? [];
 }
 
 // ============================================================================
@@ -365,15 +192,16 @@ async function main() {
   const args = process.argv.slice(2);
   const commit = args.includes("--commit");
 
-  const res = await fetch(SHEET_URL);
-  if (!res.ok) {
-    console.error(`❌ ดึง Google Sheet ไม่สำเร็จ: HTTP ${res.status}`);
-    process.exit(1);
-  }
-  const text = await res.text();
-  const rows = parseCsv(text);
+  const serviceAccount = loadServiceAccountKey(env("GOOGLE_SERVICE_ACCOUNT_KEY_FILE"));
+  const accessToken = await getAccessToken(serviceAccount);
+  const values = await fetchSheetValues({
+    accessToken,
+    spreadsheetId: env("SILVER_SHEET_ID"),
+    range: env("SILVER_SHEET_RANGE"),
+    clientEmail: serviceAccount.clientEmail,
+  });
 
-  const { data, problems, warnings, asOfDate, asOfDateRaw, sheetTime } = parseSheet(rows);
+  const { data, problems, warnings, asOfDate, asOfDateRaw, sheetTime } = parseSheet(values);
 
   console.log("อ่านได้จาก Google Sheet:");
   console.log(`  วันที่บนชีต : ${asOfDateRaw ?? "(หาไม่เจอ)"} -> ${asOfDate ?? "(แปลงไม่ได้)"}  เวลา: ${sheetTime ?? "-"}`);
@@ -393,7 +221,8 @@ async function main() {
   if (problems.length > 0) {
     console.error("\n❌ ไม่บันทึกอะไรลง DB เพราะ cross-check ล้มเหลว:");
     for (const p of problems) console.error(`   - ${p}`);
-    process.exit(1);
+    process.exitCode = 1; // see the note near REQUIRED_ENV re: process.exit() after fetch() crashing on Node 24/Windows
+    return;
   }
 
   console.log("\n✅ cross-check ผ่านทุกข้อ");
@@ -456,7 +285,13 @@ async function main() {
   }
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+if (hasRequiredEnv) {
+  main().catch((err) => {
+    // ห้ามพิมพ์ error object ทั้งก้อน — ของเดิม (ก่อน 2026-09-02) พิมพ์ err ทั้งก้อน
+    // ซึ่ง err.cause ของ fetch อาจพ่วง URL/host ออกมาได้ พิมพ์แค่ name+message พอ
+    console.error(`${err.name}: ${err.message}`);
+    process.exitCode = 1; // see the note near REQUIRED_ENV re: process.exit() after fetch() crashing on Node 24/Windows
+  });
+}
+// (no `else`: missing-env case above already set process.exitCode = 1 and
+// there's nothing left to run, so the module just finishes naturally.)

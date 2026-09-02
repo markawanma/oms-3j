@@ -7,3 +7,10 @@ out/
 *.tsbuildinfo
 .DS_Store
 logs/
+
+# Google service-account key files — must live outside the repo
+# (GOOGLE_SERVICE_ACCOUNT_KEY_FILE in .env.local points to the real path).
+# These patterns are a safety net in case one is ever dropped in by mistake.
+*-service-account*.json
+gcp-*.json
+*.serviceaccount.json
