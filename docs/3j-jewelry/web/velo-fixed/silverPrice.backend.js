@@ -193,6 +193,12 @@ export function extractPrices(rows) {
         // field ซ้ำชุดที่ 2 (ค่าเดียวกัน) — คงไว้ตามเดิมเพราะหน้าเว็บมี element 2 ชุด (#xxx + #xxx1)
         // known issue (ไม่แก้ในรอบนี้): เป็น redundant data ที่ควร refactor รวมเป็นชุดเดียวแล้วให้ frontend
         // set 2 element จาก field เดียว — คงพฤติกรรมเดิมไว้ตามที่สั่ง ไม่ตัดทิ้งเพื่อไม่ให้หน้าเว็บพัง
+        // ราคากิโลชุดที่ 2 — โค้ดที่รันอยู่บน Wix จริงคืน 3 ตัวนี้ด้วย (ตรวจจากไฟล์ที่
+        // เจ้าของ paste มา 2 ก.ย. 69). ถ้าไม่คืน element ชุด #xxx1 บนหน้าเว็บจะได้
+        // undefined แทนตัวเลข — พังกว่าเดิมที่อย่างน้อยยังโชว์ 0
+        sell1kg1: sell1kg,
+        sellVat1kg1: sellVat1kg,
+        buy1kg1: buy1kg,
         sellHalfBaht1: half.sell,
         sellOneBaht1: one.sell,
         sellThreeBaht1: three.sell,
@@ -238,14 +244,39 @@ async function saveSnapshot(data) {
  * อ่าน snapshot ล่าสุด — ใช้ตอนราคาสด invalid หรือ fetch fail
  * คืน { empty: true } ถ้าไม่เคยมี snapshot เลย (deploy ใหม่ครั้งแรกและดันเจอนอกเวลาทำการพอดี)
  */
+/**
+ * ทุกช่องราคาเป็น "0" — ใช้เป็นฐานของ return ตอนไม่มีอะไรให้แสดงจริงๆ
+ *
+ * ทำไมต้องมี: โค้ดที่รันอยู่บน Wix ตอนนี้คืน "ทุกช่องเสมอ" (เป็น "0" เมื่ออ่านไม่ได้)
+ * ⇒ หน้าเว็บเขียนแบบพึ่งพาว่าช่องมีอยู่จริง ถ้าเราคืน { empty:true } เปล่าๆ
+ * หน้าเว็บจะได้ undefined แล้วโชว์คำว่า "undefined บาท" ซึ่งแย่กว่าโชว์ 0
+ * (เจอตอนเทียบกับโค้ดจริงที่เจ้าของ paste มา 2 ก.ย. 69)
+ */
+function zeroPrices() {
+    const keys = [
+        "sell1kg", "sellVat1kg", "buy1kg",
+        "sellHalfBaht", "sellOneBaht", "sellThreeBaht", "sellFiveBaht", "sellTenBaht",
+        "buyHalfBaht", "buyOneBaht", "buyThreeBaht", "buyFiveBaht", "buyTenBaht",
+        "buyPerBaht",
+    ];
+    const out = {};
+    for (const k of keys) {
+        out[k] = "0";
+        out[`${k}1`] = "0";
+    }
+    return out;
+}
+
 async function readSnapshot() {
     try {
         const r = await wixData.get(SNAPSHOT_COLLECTION, SNAPSHOT_ID, { suppressAuth: true });
-        if (!r) return { empty: true, stale: true };
-        return { ...JSON.parse(r.payload), stale: true, empty: false, fetchedAt: r.fetchedAt };
+        if (!r) return { ...zeroPrices(), empty: true, stale: true };
+        return { ...zeroPrices(), ...JSON.parse(r.payload), stale: true, empty: false, fetchedAt: r.fetchedAt };
     } catch (err) {
+        // ครอบคลุมกรณี collection "PriceSnapshots" ยังไม่ถูกสร้างบน Wix ด้วย —
+        // ไม่ควรทำให้หน้าเว็บพัง แค่ไม่มีของสำรองให้ใช้
         console.error("[silverPrice] readSnapshot failed:", err);
-        return { empty: true, stale: true };
+        return { ...zeroPrices(), empty: true, stale: true };
     }
 }
 
