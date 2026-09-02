@@ -5,7 +5,7 @@
 // doesn't provide (vitest.config.ts) — that half is exercised manually by
 // frontend-dev once the upload UI exists, per the design brief.
 import { describe, expect, it } from "vitest";
-import { calcTargetDimensions, isHeicFile, QUALITY_STEPS } from "./image-client";
+import { calcTargetDimensions, isHeicFile, isSourceTooLarge, MAX_SOURCE_BYTES, QUALITY_STEPS } from "./image-client";
 import { MD_MAX_PX, SM_MAX_PX } from "./image-constants";
 
 describe("calcTargetDimensions", () => {
@@ -67,6 +67,24 @@ describe("isHeicFile", () => {
 
   it("does not flag a file with no type and an unrelated extension", () => {
     expect(isHeicFile({ type: "", name: "photo.png" })).toBe(false);
+  });
+});
+
+describe("isSourceTooLarge", () => {
+  it("accepts a typical camera JPEG well under the ceiling", () => {
+    expect(isSourceTooLarge(8 * 1024 * 1024)).toBe(false);
+  });
+
+  it("accepts a file exactly at the ceiling (boundary is exclusive)", () => {
+    expect(isSourceTooLarge(MAX_SOURCE_BYTES)).toBe(false);
+  });
+
+  it("rejects a file one byte over the ceiling", () => {
+    expect(isSourceTooLarge(MAX_SOURCE_BYTES + 1)).toBe(true);
+  });
+
+  it("rejects a pathological 200MB source (L4, security audit 2026-09-02)", () => {
+    expect(isSourceTooLarge(200 * 1024 * 1024)).toBe(true);
   });
 });
 

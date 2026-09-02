@@ -42,9 +42,10 @@ import {
   HeicNotSupportedError,
   ImageDecodeError,
   ImageTooLargeError,
+  SourceImageTooLargeError,
   resizeProductImage,
 } from "@/lib/catalog/image-client";
-import { MAX_IMAGES_PER_SKU, publicImageUrl } from "@/lib/catalog/image-constants";
+import { MAX_IMAGES_PER_SKU } from "@/lib/catalog/image-constants";
 import type { ProductImageRow, ProductRow } from "@/lib/catalog/types";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorBanner } from "@/components/ui/ErrorState";
@@ -188,6 +189,12 @@ export function ProductImageSection({
         );
       } else if (err instanceof ImageDecodeError) {
         finishPendingWithProblem(item.id, "error", "เปิดไฟล์รูปนี้ไม่ได้ (ไฟล์เสียหรือไม่ใช่รูปภาพ) — ลองไฟล์อื่น");
+      } else if (err instanceof SourceImageTooLargeError) {
+        finishPendingWithProblem(
+          item.id,
+          "error",
+          `ไฟล์ต้นฉบับใหญ่เกินไป (${(err.bytes / 1024 / 1024).toFixed(0)}MB) — ลองเลือกไฟล์ที่เล็กกว่านี้ หรือลดความละเอียดกล้องก่อนถ่าย`
+        );
       } else {
         console.error("ProductImageSection: resizeProductImage failed", err);
         finishPendingWithProblem(item.id, "error", "ย่อรูปไม่สำเร็จ ลองใหม่อีกครั้ง");
@@ -211,8 +218,8 @@ export function ProductImageSection({
       {
         id: result.data.imageId,
         productId,
-        storagePath: result.data.mdPath,
-        variantSmPath: result.data.smPath,
+        mdUrl: result.data.mdUrl,
+        smUrl: result.data.smUrl,
         sortOrder: prev.length,
         width: variants.md.width,
         height: variants.md.height,
@@ -222,7 +229,7 @@ export function ProductImageSection({
     ]);
     removePending(item.id);
     bumpBatchDone();
-    router.refresh(); // keeps the 303-row table's thumbnail column + primaryImagePath in sync
+    router.refresh(); // keeps the 303-row table's thumbnail column + primaryImageUrl in sync
   }
 
   function pump() {
@@ -444,7 +451,7 @@ function ImageCell({
   onMoveRight: () => void;
   onDelete: () => void;
 }) {
-  const url = publicImageUrl(img.variantSmPath);
+  const url = img.smUrl; // already-signed URL (getProductImages/uploadProductImage) — nothing to construct here
   return (
     <div className="relative aspect-square overflow-hidden rounded-md border border-zinc-200 bg-zinc-100">
       {url ? (

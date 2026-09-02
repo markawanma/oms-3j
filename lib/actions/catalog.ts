@@ -16,6 +16,7 @@ import { getDevShopId, getDevRole } from "@/lib/dev/context";
 import type { ActionResult } from "@/lib/types";
 import { fetchAllRows } from "@/lib/supabase/query-limits";
 import { BUCKET as PRODUCT_IMAGES_BUCKET } from "@/lib/catalog/image-constants";
+import { signImagePaths } from "@/lib/catalog/image-signing";
 import type {
   BlendedMarginSuggestion,
   CostType,
@@ -143,6 +144,14 @@ export async function getProducts(): Promise<ActionResult<GetProductsResult>> {
       }
     }
 
+    // Batch-sign every primary-image path in ONE Storage call (private
+    // bucket, 0105_product_images_private.sql) — up to ~303 SKUs x 2
+    // variants = ~606 paths. MUST NOT loop createSignedUrl() per row here
+    // (security audit 2026-09-02, H2/C1 follow-up): that would be up to 606
+    // sequential Storage round trips on every /catalog load.
+    const primaryPathsToSign = Array.from(primaryImageMap.values()).flatMap((v) => [v.md, v.sm]);
+    const signedByPath = await signImagePaths(supabase, primaryPathsToSign);
+
     const rows: ProductRow[] = (
       dimResult.rows as {
         product_id: string;
@@ -161,6 +170,7 @@ export async function getProducts(): Promise<ActionResult<GetProductsResult>> {
       }[]
     ).map((r) => {
       const raw = rawMap.get(r.product_id);
+      const primary = primaryImageMap.get(r.product_id);
       return {
         productId: r.product_id,
         sku: r.sku,
@@ -178,8 +188,8 @@ export async function getProducts(): Promise<ActionResult<GetProductsResult>> {
         supplier: raw?.supplier ?? null,
         note: raw?.note ?? null,
         isActive: Boolean(r.is_active),
-        primaryImagePath: primaryImageMap.get(r.product_id)?.md ?? null,
-        primaryImageSmPath: primaryImageMap.get(r.product_id)?.sm ?? null,
+        primaryImageUrl: primary ? signedByPath.get(primary.md) ?? null : null,
+        primaryImageSmUrl: primary ? signedByPath.get(primary.sm) ?? null : null,
       };
     });
 
