@@ -32,6 +32,12 @@ export interface ProductRow {
   supplier: string | null;
   note: string | null;
   isActive: boolean;
+  /** storage_path (md variant) of the primary image — the product_image row
+   * with the lowest (sort_order, created_at, id) for this product, or null
+   * if the SKU has no images yet. Raw storage path, NOT a URL — pass through
+   * lib/catalog/image-constants.ts's publicImageUrl() to render it (single
+   * source of truth for that URL shape, see that function's doc comment). */
+  primaryImagePath: string | null;
 }
 
 export interface UpsertProductInput {
@@ -120,6 +126,32 @@ export interface ProductImportSummary {
   deleted: number;
   error: number;
   results: ProductImportResultRow[];
+}
+
+// ============================================================================
+// SKU product images (0104_product_images.sql) — public.product_image, up to
+// MAX_IMAGES_PER_SKU rows per product (lib/catalog/image-constants.ts).
+// Written/read by lib/actions/catalog-images.ts.
+// ============================================================================
+
+export interface ProductImageRow {
+  id: string;
+  productId: string;
+  /** 'md' variant storage path (long edge <= MD_MAX_PX) — raw path, not a
+   * URL; pass through publicImageUrl() (image-constants.ts) to render. */
+  storagePath: string;
+  /** 'sm' variant storage path (long edge <= SM_MAX_PX). */
+  variantSmPath: string;
+  /** Manual display-order override — the primary image is the row with the
+   * lowest (sortOrder, createdAt, id), no separate is_primary flag exists. */
+  sortOrder: number;
+  /** Server-derived from the uploaded JPEG's own bytes — null if the parse
+   * failed (informational metadata only, never a hard requirement). */
+  width: number | null;
+  height: number | null;
+  /** Byte size of the md file as received server-side. */
+  bytes: number | null;
+  createdAt: string;
 }
 
 /** analytics.v_sku_order_alert — a SKU that was ordered while inactive, or has
