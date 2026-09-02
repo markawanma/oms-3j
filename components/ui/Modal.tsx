@@ -16,11 +16,24 @@ export function Modal({
   onClose,
   title,
   children,
+  confirmBeforeClose,
 }: {
   open: boolean;
   onClose: () => void;
   title: string;
   children: ReactNode;
+  /**
+   * Optional guard invoked right before ESC / backdrop-click / the X button
+   * would close the dialog (NOT invoked when a caller inside `children`
+   * calls its own `onDone`/`onClose` prop directly — that path is assumed
+   * intentional, e.g. "save succeeded, now close"). Return `true` to let the
+   * close proceed as normal, `false` to block it — typical use is running
+   * your own `window.confirm()` inside and returning its result (added for
+   * the SKU product-image upload flow: don't drop an in-flight upload from
+   * an accidental ESC/backdrop click). Omitted = always closes immediately,
+   * i.e. every existing call site keeps its old behavior unchanged.
+   */
+  confirmBeforeClose?: () => boolean;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const previouslyFocused = useRef<HTMLElement | null>(null);
@@ -32,11 +45,20 @@ export function Modal({
   // -> this effect's cleanup fires (stealing focus back via
   // `previouslyFocused.current?.focus()`) then the effect body fires again
   // (moving focus to the panel) -> focus jumps out of the input after every
-  // keystroke. Do NOT add onClose back to the deps array.
+  // keystroke. Do NOT add onClose back to the deps array. Same reasoning
+  // applies to confirmBeforeClose below.
   const onCloseRef = useRef(onClose);
+  const confirmBeforeCloseRef = useRef(confirmBeforeClose);
   useEffect(() => {
     onCloseRef.current = onClose;
+    confirmBeforeCloseRef.current = confirmBeforeClose;
   });
+
+  function requestClose() {
+    const guard = confirmBeforeCloseRef.current;
+    if (guard && !guard()) return;
+    onCloseRef.current();
+  }
 
   useEffect(() => {
     if (!open) return;
@@ -44,7 +66,7 @@ export function Modal({
     panelRef.current?.focus();
 
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") onCloseRef.current();
+      if (e.key === "Escape") requestClose();
     }
     document.addEventListener("keydown", onKeyDown);
     return () => {
@@ -58,7 +80,7 @@ export function Modal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center md:items-center" role="presentation">
-      <div className="absolute inset-0 bg-zinc-900/40" onClick={onClose} aria-hidden="true" />
+      <div className="absolute inset-0 bg-zinc-900/40" onClick={requestClose} aria-hidden="true" />
       <div
         ref={panelRef}
         role="dialog"
@@ -72,7 +94,7 @@ export function Modal({
             {title}
           </h2>
           <button
-            onClick={onClose}
+            onClick={requestClose}
             aria-label="ปิด"
             className="flex h-11 w-11 items-center justify-center rounded-md text-zinc-500 hover:bg-zinc-100"
           >
