@@ -69,13 +69,11 @@ update storage.buckets
 -- code path through this function — a consistent acquisition order across
 -- every call is what makes this safe from self-deadlock.
 --
--- 1200 rows/shop: with MAX_IMAGES_PER_SKU=8 that's headroom for 150 SKUs'
--- worth of completely full galleries — comfortably above this shop's real
--- SKU count today (303, mostly with zero images right now). At the ceiling
--- (1200 rows x 2 variants x up to 1MB) worst case is ~2.4GB, which still
--- needs a paid Supabase tier but is a deliberate, tunable ceiling instead of
--- "unlimited". If the real number ever needs to move, change the constant
--- below, not the locking mechanism.
+-- The budget is expressed in BYTES, not row count — full rationale sits with
+-- the check itself inside the function. Short version: bytes are what the
+-- quota actually measures, and a row cap generous enough for this shop's real
+-- catalogue (303 SKUs) is simultaneously generous enough to blow the quota.
+-- If the number ever needs to move, change the constant, not the locking.
 --
 -- Function signature is UNCHANGED (still `returns trigger`, no arguments) —
 -- `create or replace` replaces the SAME function object in place (skill
@@ -103,7 +101,7 @@ set search_path = public, pg_temp
 as $$
 declare
   v_product_count int;
-  v_shop_count int;
+  v_shop_bytes bigint;
 begin
   -- Per-product lock + cap — unchanged from 0104.
   perform pg_advisory_xact_lock(hashtextextended(new.product_id::text, 0));
@@ -117,15 +115,35 @@ begin
       using errcode = 'P0001';
   end if;
 
-  -- Shop-level lock + cap (H2, new in 0105).
+  -- Shop-level lock + budget (H2, new in 0105).
+  --
+  -- Budgeted in BYTES, not rows. Rows are the wrong unit: the thing that runs
+  -- out is storage quota, and a row can hold anything from a 30KB product
+  -- shot to a 1MB max-size upload — a row cap that leaves room for real use
+  -- necessarily leaves room for ~30x that in bytes.
+  --
+  -- Why the original row cap was wrong in both directions: 1200 rows was
+  -- BELOW legitimate need (303 SKUs x up to 8 images = 2,424 rows; even at
+  -- the owner's stated ~5 images/SKU that's 1,515) so it would have blocked
+  -- the shop partway through filling its own catalog — while still allowing
+  -- 2.4GB of abuse against a 1GB free tier.
+  --
+  -- 600MB of md bytes: sm runs ~1/3 of md (measured: 101KB md / 36KB sm on a
+  -- real 1200x900 upload), so this ceiling is ~810MB on disk — under the 1GB
+  -- free tier with room for the other bucket. At realistic sizes that is
+  -- ~6,000 images, far past 303 SKUs x 8; at max size it stops at 600, which
+  -- is where a quota-burn attempt dies. `bytes` is the server-measured md
+  -- length (never client-declared, never a parse result), so it is always
+  -- present — coalesce is belt-and-braces, not a real branch.
   perform pg_advisory_xact_lock(hashtextextended(new.shop_id::text, 1));
 
-  select count(*) into v_shop_count
+  select coalesce(sum(bytes), 0) into v_shop_bytes
     from public.product_image
    where shop_id = new.shop_id;
 
-  if v_shop_count >= 1200 then
-    raise exception 'product_image: shop % already has % images across all SKUs (max 1200)', new.shop_id, v_shop_count
+  if v_shop_bytes + coalesce(new.bytes, 0) > 600 * 1024 * 1024 then
+    raise exception 'product_image: shop % image storage budget reached (% bytes used, limit %)',
+      new.shop_id, v_shop_bytes, 600 * 1024 * 1024
       using errcode = 'P0003';
   end if;
 
