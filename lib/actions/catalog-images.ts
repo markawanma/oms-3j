@@ -33,6 +33,7 @@ import { getDevShopId, getDevRole } from "@/lib/dev/context";
 import type { ActionResult } from "@/lib/types";
 import { BUCKET, MAX_BYTES, MAX_IMAGES_PER_SKU } from "@/lib/catalog/image-constants";
 import { extractJpegDimensions, looksLikeJpeg } from "@/lib/catalog/image-server";
+import { signImagePaths } from "@/lib/catalog/image-signing";
 import type { ProductImageRow } from "@/lib/catalog/types";
 
 const JPEG_CONTENT_TYPE = "image/jpeg";
@@ -81,23 +82,32 @@ export async function getProductImages(productId: string): Promise<ActionResult<
       .order("id", { ascending: true });
     if (error) throw error;
 
-    const rows: ProductImageRow[] = (
-      (data ?? []) as {
-        id: string;
-        product_id: string;
-        storage_path: string;
-        variant_sm_path: string;
-        sort_order: number;
-        width: number | null;
-        height: number | null;
-        bytes: number | null;
-        created_at: string;
-      }[]
-    ).map((r) => ({
+    const imageRows = (data ?? []) as {
+      id: string;
+      product_id: string;
+      storage_path: string;
+      variant_sm_path: string;
+      sort_order: number;
+      width: number | null;
+      height: number | null;
+      bytes: number | null;
+      created_at: string;
+    }[];
+
+    // Batch-sign ALL paths for this product in ONE Storage call (private
+    // bucket, 0105) — at most 16 paths even at the 8-image ceiling, but the
+    // discipline is the same as getProducts()'s 303-row case: never loop a
+    // per-row signing call.
+    const signedByPath = await signImagePaths(
+      supabase,
+      imageRows.flatMap((r) => [r.storage_path, r.variant_sm_path])
+    );
+
+    const rows: ProductImageRow[] = imageRows.map((r) => ({
       id: r.id,
       productId: r.product_id,
-      storagePath: r.storage_path,
-      variantSmPath: r.variant_sm_path,
+      mdUrl: signedByPath.get(r.storage_path) ?? null,
+      smUrl: signedByPath.get(r.variant_sm_path) ?? null,
       sortOrder: r.sort_order,
       width: r.width,
       height: r.height,
@@ -125,8 +135,13 @@ export async function getProductImages(productId: string): Promise<ActionResult<
 
 export interface UploadProductImageResult {
   imageId: string;
-  mdPath: string;
-  smPath: string;
+  /** SIGNED URL (1hr TTL) for the md variant, ready to render — null only
+   * if signing failed right after a successful upload (never blocks the
+   * upload itself; the row exists either way, a later getProductImages()
+   * call will re-sign it). Bucket is PRIVATE (0105), so a raw path is not
+   * useful to the caller anymore. */
+  mdUrl: string | null;
+  smUrl: string | null;
 }
 
 export async function uploadProductImage(fd: FormData): Promise<ActionResult<UploadProductImageResult>> {
@@ -192,18 +207,32 @@ export async function uploadProductImage(fd: FormData): Promise<ActionResult<Upl
 
     // uuid ล้วนที่ server สร้างเอง — SKU (มีอักขระไทย/อักขระซ่อน) ต้องไม่เข้าใกล้
     // ชื่อไฟล์เด็ดขาด (บทเรียนจริง — เพิ่งแก้ปัญหานี้ไปทั้งวัน).
+    //
+    // product.id (from the DB read above), NOT the raw `productId` request
+    // field — M2 fix (security audit 2026-09-02). Both hold the same value
+    // whenever this line is reached (the query above matched on exact
+    // equality), but product.id is the DB-verified/canonicalized form; using
+    // it here means the storage path is never built from an unvalidated
+    // client string, even though today's uuid column type already rejects
+    // the `/`/`..` path-traversal payloads that would matter ("accidentally
+    // safe" is not the same as "designed safe").
     const imageId = randomUUID();
-    const mdPath = `${shopId}/${productId}/${imageId}_md.jpg`;
-    const smPath = `${shopId}/${productId}/${imageId}_sm.jpg`;
+    const mdPath = `${shopId}/${product.id}/${imageId}_md.jpg`;
+    const smPath = `${shopId}/${product.id}/${imageId}_sm.jpg`;
 
+    // cacheControl "60" (seconds) — M1 fix: the default is 3600s, which
+    // means deleteProductImage()'s storage removal wouldn't actually stop
+    // the CDN serving the old bytes for up to an hour. 60s bounds that
+    // window without meaningfully hurting cache hit rate for a gallery that
+    // rarely repaints within a minute.
     const { error: mdUploadErr } = await supabase.storage
       .from(BUCKET)
-      .upload(mdPath, mdBytes, { contentType: JPEG_CONTENT_TYPE, upsert: false });
+      .upload(mdPath, mdBytes, { contentType: JPEG_CONTENT_TYPE, upsert: false, cacheControl: "60" });
     if (mdUploadErr) throw mdUploadErr;
 
     const { error: smUploadErr } = await supabase.storage
       .from(BUCKET)
-      .upload(smPath, smBytes, { contentType: JPEG_CONTENT_TYPE, upsert: false });
+      .upload(smPath, smBytes, { contentType: JPEG_CONTENT_TYPE, upsert: false, cacheControl: "60" });
     if (smUploadErr) {
       // Roll back the md object we just uploaded — don't leave an orphan
       // file in storage with no DB row pointing to it.
@@ -228,9 +257,10 @@ export async function uploadProductImage(fd: FormData): Promise<ActionResult<Upl
       .select("id")
       .single();
     if (insertErr) {
-      // Roll back both storage objects — insert failed, most likely the
-      // DB-level 8-image cap trigger firing on a race with a concurrent
-      // upload for this same SKU (P0001).
+      // Roll back both storage objects — insert failed, most likely one of
+      // the DB-level cap triggers (0104/0105) firing on a race with a
+      // concurrent upload (P0001 = this SKU's 8-image cap; P0003 = this
+      // shop's 1200-image-total cap, 0105).
       await supabase.storage
         .from(BUCKET)
         .remove([mdPath, smPath])
@@ -239,11 +269,25 @@ export async function uploadProductImage(fd: FormData): Promise<ActionResult<Upl
       if (code === "P0001") {
         return { ok: false, error: `สินค้านี้มีรูปครบ ${MAX_IMAGES_PER_SKU} รูปแล้ว — ลบรูปเก่าก่อนอัปโหลดเพิ่ม` };
       }
+      if (code === "P0003") {
+        return { ok: false, error: "พื้นที่รูปสินค้าของร้านเต็มแล้ว — ลบรูปเก่าที่ไม่ใช้แล้วก่อนอัปโหลดเพิ่ม" };
+      }
       throw insertErr;
     }
 
+    // Signed URLs for the row just inserted — lets the caller render the
+    // new image immediately without a round trip through getProductImages().
+    // Never blocks a successful upload: a signing failure here just means
+    // mdUrl/smUrl come back null (row still exists, re-signed correctly on
+    // the next read). One batch call for both paths (same discipline as
+    // getProductImages/getProducts — never loop signing calls, even when
+    // there are only 2 paths here).
+    const signedByPath = await signImagePaths(supabase, [mdPath, smPath]);
+    const mdUrl = signedByPath.get(mdPath) ?? null;
+    const smUrl = signedByPath.get(smPath) ?? null;
+
     revalidateCatalogPaths();
-    return { ok: true, data: { imageId: String(inserted.id), mdPath, smPath } };
+    return { ok: true, data: { imageId: String(inserted.id), mdUrl, smUrl } };
   } catch (err) {
     console.error("uploadProductImage failed", err);
     return { ok: false, error: "อัปโหลดรูปไม่สำเร็จ ลองใหม่อีกครั้ง" };

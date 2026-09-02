@@ -43,6 +43,36 @@ export class ImageDecodeError extends Error {
   }
 }
 
+/** Thrown when the SOURCE file (before any resize) exceeds MAX_SOURCE_BYTES
+ * — see that constant's comment for why this check exists and runs BEFORE
+ * createImageBitmap(). Distinct from ImageTooLargeError, which fires AFTER
+ * a resize+encode attempt still doesn't fit MAX_BYTES (the OUTPUT ceiling);
+ * this one guards the INPUT and never even attempts a decode. */
+export class SourceImageTooLargeError extends Error {
+  constructor(public readonly bytes: number) {
+    super("SOURCE_IMAGE_TOO_LARGE");
+    this.name = "SourceImageTooLargeError";
+  }
+}
+
+/** Hard ceiling on the SOURCE file handed to createImageBitmap(), independent
+ * of MAX_BYTES (the per-variant OUTPUT ceiling checked after encoding). A
+ * raw 100-200MB photo/screen-recording frame picked on a low-end phone can
+ * hang or crash the tab attempting to decode it before the resize step ever
+ * gets a chance to shrink it down — security audit finding L4 (2026-09-02).
+ * ~30MB is generous headroom over any real camera JPEG (even modern 50MP
+ * phone photos land well under 15MB) while still catching the pathological
+ * case (wrong file picked, a RAW/HEIC-adjacent format, a misclick on a video
+ * frame export, etc). */
+export const MAX_SOURCE_BYTES = 30 * 1024 * 1024; // ~30MB
+
+/** Pure — exported so the guard's boundary behavior is unit-testable without
+ * needing a real File/browser (resizeImageVariant itself can't run under
+ * Vitest's node environment, see this file's header comment). */
+export function isSourceTooLarge(bytes: number): boolean {
+  return bytes > MAX_SOURCE_BYTES;
+}
+
 const HEIC_MIME_TYPES = new Set(["image/heic", "image/heif"]);
 const HEIC_EXTENSIONS = [".heic", ".heif"];
 
@@ -120,9 +150,12 @@ async function encodeAtQuality(
  * `maxPx` on the long edge and MAX_BYTES total bytes, stepping quality down
  * through QUALITY_STEPS before giving up.
  *
- * Throws HeicNotSupportedError before touching canvas at all if the file
- * looks like HEIC/HEIF. Throws ImageDecodeError if createImageBitmap can't
- * decode the file (corrupt image / genuinely unsupported format). Throws
+ * Throws SourceImageTooLargeError immediately (before touching HEIC
+ * detection or canvas at all) if the SOURCE file exceeds MAX_SOURCE_BYTES —
+ * see that constant's comment (L4, security audit 2026-09-02). Throws
+ * HeicNotSupportedError before touching canvas at all if the file looks
+ * like HEIC/HEIF. Throws ImageDecodeError if createImageBitmap can't decode
+ * the file (corrupt image / genuinely unsupported format). Throws
  * ImageTooLargeError if every quality step still exceeds MAX_BYTES at this
  * resolution — per the Tech Lead decision above, that's the point where the
  * system has legitimately tried and the caller should surface a clear error
@@ -131,6 +164,7 @@ async function encodeAtQuality(
  * anyway).
  */
 export async function resizeImageVariant(file: File, maxPx: number): Promise<ResizedImage> {
+  if (isSourceTooLarge(file.size)) throw new SourceImageTooLargeError(file.size);
   if (isHeicFile(file)) throw new HeicNotSupportedError();
 
   let bitmap: ImageBitmap;

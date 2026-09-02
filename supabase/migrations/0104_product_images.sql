@@ -6,10 +6,20 @@
 -- lib/catalog/image-constants.ts for the same constant + the handoff report
 -- for why these two numbers are allowed to differ).
 --
--- ⚠️ PREPARED, NOT APPLIED — this file is written to be reviewed and applied
--- by the owner (supabase-migrate skill: pre-check -> apply_migration ->
--- self-verify -> get_advisors). Do not run this against a live project as
--- part of writing it.
+-- ✅ APPLIED — this migration is live on the project (confirmed in
+-- supabase_migrations.schema_migrations during the 2026-09-02 security
+-- audit). It was originally written to be reviewed and applied via the
+-- supabase-migrate skill (pre-check -> apply_migration -> self-verify ->
+-- get_advisors) before landing — documenting that flow here for whoever
+-- writes the NEXT migration that touches this table, not as a live status
+-- flag for this file anymore (an earlier version of this comment said
+-- "PREPARED, NOT APPLIED" after the file had already been applied — fixed,
+-- L1 finding in the same audit).
+--
+-- ⚠️ SUPERSEDED IN PART by 0105_product_images_private.sql: the bucket
+-- created public below was flipped to `public = false` in 0105 (critical
+-- security fix — see that file's header). Everything else on this page
+-- (table/trigger/RLS) is unchanged and still accurate.
 --
 -- ============================================================================
 -- Why NOT public.product.image_url / 0009_public_catalog.sql
@@ -69,6 +79,11 @@
 -- policies (0097 header comment). `public = true` below only affects READS
 -- (the `/storage/v1/object/public/...` endpoint bypasses RLS for GET on a
 -- public bucket) — it grants no write access to anyone.
+-- ⚠️ `public = true` was flipped to `false` by 0105_product_images_private.sql
+-- (critical security fix — see that file's header). Reads now go through
+-- signed URLs (lib/catalog/image-signing.ts) instead of the public read
+-- endpoint this paragraph describes; the WRITE-side reasoning above is
+-- unaffected and still accurate.
 --
 -- ============================================================================
 -- RLS on public.product_image — enable, ZERO policies (service-role only)

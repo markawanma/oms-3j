@@ -11,7 +11,6 @@ import { AlertTriangle, Gem, ImageOff, Pencil, PlusCircle, Trash2, Upload } from
 import type { ProductRow, SkuOrderAlert } from "@/lib/catalog/types";
 import { COST_TYPE_LABEL_TH } from "@/lib/catalog/types";
 import { deleteProduct } from "@/lib/actions/catalog";
-import { publicImageUrl } from "@/lib/catalog/image-constants";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
@@ -189,8 +188,10 @@ export function ProductsPageClient({
                   // SM variant (480px cap) on purpose — this is a 40×40 box,
                   // and md across 303 rows would download full-size pictures
                   // to paint thumbnails. Falls back to md only if a row
-                  // somehow lacks the sm path, so the cell never goes blank.
-                  const thumbUrl = publicImageUrl(p.primaryImageSmPath ?? p.primaryImagePath);
+                  // somehow lacks the sm URL, so the cell never goes blank.
+                  // Both are already-signed URLs from getProducts() (private
+                  // bucket, 0105) — nothing to construct client-side anymore.
+                  const thumbUrl = p.primaryImageSmUrl ?? p.primaryImageUrl;
                   return (
                   <tr key={p.productId} className={`border-b border-zinc-100 last:border-0 ${p.isActive ? "" : "opacity-55"}`}>
                     <td className="py-2 pr-3">

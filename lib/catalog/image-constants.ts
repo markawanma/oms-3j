@@ -32,22 +32,14 @@ export const MAX_BYTES = 1_048_576; // 1MB
 
 export const BUCKET = "product-images";
 
-/**
- * Builds the public URL for an uploaded image path. Single source of truth
- * for this construction — design §7: "ใบเสนอราคา/อีเมล/line sheet จะใช้ตัว
- * เดียวกัน อย่าให้แต่ละที่ประกอบ URL เอง". Deliberately uses the NEXT_PUBLIC_
- * env var (not the server-only SUPABASE_URL) so this same function works
- * from both server code (quote/email rendering) and client components
- * (catalog gallery `<img src>`) without needing two versions.
- *
- * Returns null (never throws) when there's no path or the env var is
- * missing — callers should treat that as "no image", not a hard error; a
- * misconfigured env shouldn't crash a page that just wants to render a
- * product card.
- */
-export function publicImageUrl(path: string | null | undefined): string | null {
-  if (!path) return null;
-  const base = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  if (!base) return null;
-  return `${base.replace(/\/+$/, "")}/storage/v1/object/public/${BUCKET}/${path}`;
-}
+// publicImageUrl() used to live here (built a `/storage/v1/object/public/...`
+// URL directly from a raw storage path). Removed in the 2026-09-02 security
+// fix (supabase/migrations/0105_product_images_private.sql): the bucket is
+// now PRIVATE, so that URL shape 404s for every path — keeping the function
+// around would have been dead code that actively lies to the next reader.
+// Rendering a product image now goes through a SIGNED URL, produced
+// server-side by lib/catalog/image-signing.ts and returned directly from
+// the read actions (getProducts/getProductImages in lib/actions/catalog*.ts)
+// — callers render `row.mdUrl`/`row.smUrl`/`row.primaryImageUrl` etc.
+// straight from those results, they never construct a URL from a path
+// themselves anymore.

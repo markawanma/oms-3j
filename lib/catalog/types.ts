@@ -32,18 +32,20 @@ export interface ProductRow {
   supplier: string | null;
   note: string | null;
   isActive: boolean;
-  /** storage_path (md variant) of the primary image — the product_image row
-   * with the lowest (sort_order, created_at, id) for this product, or null
-   * if the SKU has no images yet. Raw storage path, NOT a URL — pass through
-   * lib/catalog/image-constants.ts's publicImageUrl() to render it (single
-   * source of truth for that URL shape, see that function's doc comment). */
-  primaryImagePath: string | null;
-  /** Same image as primaryImagePath, sm variant (480px cap). Use THIS for the
-   * catalog table's 40x40 thumbnail: at 303 rows, serving md there downloads
-   * ~303 full-size pictures to paint 40px boxes. md stays the right choice
-   * wherever the picture is actually looked at (quote print, email, line
-   * sheet). Raw storage path, NOT a URL — pass through publicImageUrl(). */
-  primaryImageSmPath: string | null;
+  /** SIGNED URL (1hr TTL, lib/catalog/image-signing.ts) for the md variant of
+   * the primary image — the product_image row with the lowest (sort_order,
+   * created_at, id) for this product — or null if the SKU has no images yet
+   * OR signing failed (never a hard error, see getProducts()). Render this
+   * directly as `<img src>`; there is nothing left to construct client-side
+   * — the bucket is PRIVATE (supabase/migrations/
+   * 0105_product_images_private.sql), a raw storage path is not fetchable. */
+  primaryImageUrl: string | null;
+  /** Same image as primaryImageUrl, sm variant (480px cap), also a signed
+   * URL. Use THIS for the catalog table's 40x40 thumbnail: at 303 rows,
+   * serving md there downloads ~303 full-size pictures to paint 40px boxes.
+   * md stays the right choice wherever the picture is actually looked at
+   * (quote print, email, line sheet). */
+  primaryImageSmUrl: string | null;
 }
 
 export interface UpsertProductInput {
@@ -143,11 +145,15 @@ export interface ProductImportSummary {
 export interface ProductImageRow {
   id: string;
   productId: string;
-  /** 'md' variant storage path (long edge <= MD_MAX_PX) — raw path, not a
-   * URL; pass through publicImageUrl() (image-constants.ts) to render. */
-  storagePath: string;
-  /** 'sm' variant storage path (long edge <= SM_MAX_PX). */
-  variantSmPath: string;
+  /** SIGNED URL (1hr TTL, lib/catalog/image-signing.ts) for the 'md' variant
+   * (long edge <= MD_MAX_PX) — render directly, e.g. `<img src={mdUrl}>`.
+   * null only when signing failed server-side (never a hard error — see
+   * getProductImages()); the bucket is PRIVATE (supabase/migrations/
+   * 0105_product_images_private.sql) so a raw storage path is not
+   * fetchable on its own anymore. */
+  mdUrl: string | null;
+  /** Same image as mdUrl, 'sm' variant (long edge <= SM_MAX_PX). */
+  smUrl: string | null;
   /** Manual display-order override — the primary image is the row with the
    * lowest (sortOrder, createdAt, id), no separate is_primary flag exists. */
   sortOrder: number;
