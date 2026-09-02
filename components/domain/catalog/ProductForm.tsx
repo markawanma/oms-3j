@@ -17,6 +17,7 @@ import {
 } from "@/lib/catalog/types";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
+import { ProductImageSection } from "./ProductImageSection";
 
 function fmtBaht(n: number): string {
   return `฿${n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -26,12 +27,29 @@ export function ProductForm({
   initial,
   silverSpot,
   onDone,
+  onCreated,
+  onImagesBusyChange,
 }: {
   /** present = edit (SKU locked), absent = create. */
   initial?: ProductRow;
   /** current shop silver spot (THB/g) for the spot-mode preview; null if unset. */
   silverSpot: number | null;
   onDone: () => void;
+  /**
+   * Fired right after a CREATE succeeds (never after an edit-save) with a
+   * synthesized row for the just-created SKU. Tech Lead decision (feat/sku-
+   * product-images design brief): creating a SKU must NOT close the modal —
+   * there'd be no chance to add photos without hunting the new row back
+   * down in a 303-row table. The parent is expected to fold this into
+   * whatever it's passing as `initial` (e.g. via a `setEditing` call), which
+   * flips this same form into edit mode (SKU field locks, title becomes
+   * "แก้ไข XXX", the image section unlocks) WITHOUT unmounting it.
+   */
+  onCreated?: (product: ProductRow) => void;
+  /** Bubbles the image section's "has in-flight work" flag up so the parent
+   * can guard the modal's close (ESC/backdrop/Cancel) while an upload is
+   * still running. */
+  onImagesBusyChange?: (busy: boolean) => void;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -101,7 +119,46 @@ export function ProductForm({
         toast.push(result.error, "error");
         return;
       }
-      toast.push(isEdit ? "บันทึกการแก้ไขแล้ว" : `เพิ่ม SKU ${sku.trim()} แล้ว`);
+
+      if (!isEdit) {
+        // CREATE succeeded — stay open (see onCreated prop doc comment
+        // above for why) instead of the old router.refresh()+onDone().
+        // Synthesized row: upsertProduct only returns { productId }, not a
+        // full v_dim_product read-back, so this is built from the form's
+        // own fields + the client-side cost/margin preview (same estimate
+        // already shown above — "DB is source of truth on save", this is
+        // just enough to unlock ProductImageSection and drive the modal
+        // title reactively; the very next router.refresh() below replaces
+        // it with real server data once the parent's list re-fetches).
+        const created: ProductRow = {
+          productId: result.data.productId,
+          sku: sku.trim(),
+          name: name.trim(),
+          category: category.trim() || null,
+          costType,
+          manualUnitCost: costType === "fixed" && unitCost.trim() ? Number(unitCost) : null,
+          silverWeightG: weight.trim() ? Number(weight) : null,
+          silverPurity: purity.trim() ? Number(purity) : null,
+          laborCost: labor.trim() ? Number(labor) : null,
+          listPrice: listPrice.trim() ? Number(listPrice) : null,
+          effectiveUnitCost: preview.cost,
+          marginPct: preview.margin,
+          barcode: barcode.trim() || null,
+          supplier: supplier.trim() || null,
+          note: note.trim() || null,
+          isActive,
+          // both null: a SKU created seconds ago cannot have images yet —
+          // ProductImageSection starts empty and fills in as uploads land
+          primaryImagePath: null,
+          primaryImageSmPath: null,
+        };
+        toast.push(`เพิ่ม SKU ${sku.trim()} แล้ว — เพิ่มรูปได้เลย`);
+        router.refresh();
+        onCreated?.(created);
+        return;
+      }
+
+      toast.push("บันทึกการแก้ไขแล้ว");
       router.refresh();
       onDone();
     });
@@ -277,6 +334,8 @@ export function ProductForm({
         <input type="checkbox" checked={isActive} onChange={(e) => setIsActive(e.target.checked)} />
         เปิดใช้งาน <span className="text-xs text-zinc-400">(ปิด = ซ่อน/พักไว้ ไม่ลบ — ใช้กับสินค้าตามฤดูกาล)</span>
       </label>
+
+      <ProductImageSection product={initial} onBusyChange={onImagesBusyChange} />
 
       {error && <p className="text-xs text-red-600">{error}</p>}
 

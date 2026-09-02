@@ -7,10 +7,11 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, Gem, Pencil, PlusCircle, Trash2, Upload } from "lucide-react";
+import { AlertTriangle, Gem, ImageOff, Pencil, PlusCircle, Trash2, Upload } from "lucide-react";
 import type { ProductRow, SkuOrderAlert } from "@/lib/catalog/types";
 import { COST_TYPE_LABEL_TH } from "@/lib/catalog/types";
 import { deleteProduct } from "@/lib/actions/catalog";
+import { publicImageUrl } from "@/lib/catalog/image-constants";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
@@ -48,6 +49,11 @@ export function ProductsPageClient({
   const [deleting, setDeleting] = useState<ProductRow | undefined>(undefined);
   const [onlyActive, setOnlyActive] = useState(false);
   const [deletePending, startDelete] = useTransition();
+  // Whether ProductImageSection (inside the ProductForm modal below) has an
+  // in-flight resize/upload/reorder/delete right now — guards the modal
+  // against ESC/backdrop/Cancel dropping unfinished work (design brief §
+  // "กัน modal ปิดกลางคันขณะอัปโหลด").
+  const [imagesBusy, setImagesBusy] = useState(false);
 
   function openCreate() {
     setEditing(undefined);
@@ -60,6 +66,19 @@ export function ProductsPageClient({
   function close() {
     setModalOpen(false);
     setEditing(undefined);
+    setImagesBusy(false);
+  }
+  /** Guard used both by <Modal confirmBeforeClose> (ESC/backdrop/X) and by
+   * ProductForm's own Cancel/"save while an upload is running" paths (see
+   * the productModalOnDone wrapper below) — one place decides whether it's
+   * safe to close right now. */
+  function confirmCloseWhileImagesBusy(): boolean {
+    if (!imagesBusy) return true;
+    return window.confirm("กำลังอัปโหลดรูปอยู่ — ปิดตอนนี้รูปที่ยังอัปโหลดไม่เสร็จจะถูกยกเลิก ต้องการปิดหรือไม่?");
+  }
+  function productModalOnDone() {
+    if (!confirmCloseWhileImagesBusy()) return;
+    close();
   }
 
   function confirmDelete() {
@@ -153,6 +172,9 @@ export function ProductsPageClient({
             <table className="w-full min-w-[680px] text-left text-sm">
               <thead>
                 <tr className="border-b border-zinc-200 text-xs font-semibold text-zinc-500">
+                  <th scope="col" className="py-2 pr-3">
+                    <span className="sr-only">รูป</span>
+                  </th>
                   <th scope="col" className="py-2 pr-3">SKU</th>
                   <th scope="col" className="py-2 pr-3">ชื่อ / หมวด</th>
                   <th scope="col" className="py-2 pr-3">โหมด</th>
@@ -163,8 +185,38 @@ export function ProductsPageClient({
                 </tr>
               </thead>
               <tbody>
-                {visible.map((p) => (
+                {visible.map((p) => {
+                  // SM variant (480px cap) on purpose — this is a 40×40 box,
+                  // and md across 303 rows would download full-size pictures
+                  // to paint thumbnails. Falls back to md only if a row
+                  // somehow lacks the sm path, so the cell never goes blank.
+                  const thumbUrl = publicImageUrl(p.primaryImageSmPath ?? p.primaryImagePath);
+                  return (
                   <tr key={p.productId} className={`border-b border-zinc-100 last:border-0 ${p.isActive ? "" : "opacity-55"}`}>
+                    <td className="py-2 pr-3">
+                      <button
+                        type="button"
+                        onClick={() => openEdit(p)}
+                        aria-label={`แก้ไข ${p.sku} (คลิกรูป)`}
+                        className="block h-10 w-10 shrink-0 overflow-hidden rounded-md bg-zinc-100"
+                      >
+                        {thumbUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element -- remote Supabase Storage image; next/image would burn the Vercel image-optimizer quota across up to 303 rows
+                          <img
+                            src={thumbUrl}
+                            alt=""
+                            width={40}
+                            height={40}
+                            loading="lazy"
+                            className="h-10 w-10 object-cover"
+                          />
+                        ) : (
+                          <span className="flex h-10 w-10 items-center justify-center text-zinc-300">
+                            <ImageOff className="h-4 w-4" aria-hidden="true" />
+                          </span>
+                        )}
+                      </button>
+                    </td>
                     <td className="py-2 pr-3 font-mono text-xs text-zinc-700">
                       {p.sku}
                       {!p.isActive && <span className="ml-1 text-[0.65rem] text-zinc-400">(ปิด)</span>}
@@ -200,15 +252,27 @@ export function ProductsPageClient({
                       </div>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           </div>
         </div>
       )}
 
-      <Modal open={modalOpen} onClose={close} title={editing ? `แก้ไข ${editing.sku}` : "เพิ่ม SKU ใหม่"}>
-        <ProductForm initial={editing} silverSpot={silverSpot} onDone={close} />
+      <Modal
+        open={modalOpen}
+        onClose={close}
+        title={editing ? `แก้ไข ${editing.sku}` : "เพิ่ม SKU ใหม่"}
+        confirmBeforeClose={confirmCloseWhileImagesBusy}
+      >
+        <ProductForm
+          initial={editing}
+          silverSpot={silverSpot}
+          onDone={productModalOnDone}
+          onCreated={(created) => setEditing(created)}
+          onImagesBusyChange={setImagesBusy}
+        />
       </Modal>
 
       <Modal open={importOpen} onClose={() => setImportOpen(false)} title="นำเข้าสินค้าจากไฟล์ CSV">

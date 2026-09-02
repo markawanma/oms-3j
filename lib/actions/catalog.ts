@@ -15,6 +15,7 @@ import { getServiceClient } from "@/lib/supabase/server";
 import { getDevShopId, getDevRole } from "@/lib/dev/context";
 import type { ActionResult } from "@/lib/types";
 import { fetchAllRows } from "@/lib/supabase/query-limits";
+import { BUCKET as PRODUCT_IMAGES_BUCKET } from "@/lib/catalog/image-constants";
 import type {
   BlendedMarginSuggestion,
   CostType,
@@ -78,7 +79,7 @@ export async function getProducts(): Promise<ActionResult<GetProductsResult>> {
     // by their own unique key (product_id / id) at the DB level; the
     // "active first, then by SKU" display sort still happens in JS below,
     // unchanged, once every row is in hand.
-    const [dimResult, rawResult] = await Promise.all([
+    const [dimResult, rawResult, imageResult] = await Promise.all([
       fetchAllRows((from, to) =>
         supabase
           .schema(SCHEMA)
@@ -100,11 +101,46 @@ export async function getProducts(): Promise<ActionResult<GetProductsResult>> {
           .order("id", { ascending: true })
           .range(from, to)
       ),
+      // public.product_image (0104) — every image row for this shop, ordered
+      // so the FIRST row seen per product_id while scanning below is exactly
+      // that product's primary image (lowest sort_order/created_at/id — see
+      // ProductImageRow's doc comment, no separate is_primary column
+      // exists). Same fetchAllRows()+truncation discipline as the two
+      // queries above (skill instruction: "รูปหายเงียบเมื่อเกิน row cap" —
+      // at up to 8 images x 303 SKUs this stays far under
+      // MAX_UNBOUNDED_ROWS, but the pattern is applied uniformly anyway).
+      fetchAllRows((from, to) =>
+        supabase
+          .from("product_image")
+          .select("product_id, storage_path, variant_sm_path", { count: "exact" })
+          .eq("shop_id", shopId)
+          .order("product_id", { ascending: true })
+          .order("sort_order", { ascending: true })
+          .order("created_at", { ascending: true })
+          .order("id", { ascending: true })
+          .range(from, to)
+      ),
     ]);
 
     const rawMap = new Map<string, { barcode: string | null; supplier: string | null; note: string | null }>();
     for (const r of rawResult.rows as { id: string; barcode: string | null; supplier: string | null; note: string | null }[]) {
       rawMap.set(r.id, { barcode: r.barcode, supplier: r.supplier, note: r.note });
+    }
+
+    // Keep BOTH variants for the primary image. The 303-row table renders a
+    // 40x40 thumbnail per row — serving the md variant (1200px cap) there
+    // would download ~303 full-size images to paint 40px boxes. sm (480px cap)
+    // is what that column is for; md stays available for anything that needs
+    // the real picture (quote print, email, line sheet).
+    const primaryImageMap = new Map<string, { md: string; sm: string }>();
+    for (const r of imageResult.rows as {
+      product_id: string;
+      storage_path: string;
+      variant_sm_path: string;
+    }[]) {
+      if (!primaryImageMap.has(r.product_id)) {
+        primaryImageMap.set(r.product_id, { md: r.storage_path, sm: r.variant_sm_path });
+      }
     }
 
     const rows: ProductRow[] = (
@@ -142,13 +178,15 @@ export async function getProducts(): Promise<ActionResult<GetProductsResult>> {
         supplier: raw?.supplier ?? null,
         note: raw?.note ?? null,
         isActive: Boolean(r.is_active),
+        primaryImagePath: primaryImageMap.get(r.product_id)?.md ?? null,
+        primaryImageSmPath: primaryImageMap.get(r.product_id)?.sm ?? null,
       };
     });
 
     // active first, then by SKU
     rows.sort((a, b) => Number(b.isActive) - Number(a.isActive) || a.sku.localeCompare(b.sku));
 
-    const truncated = dimResult.truncated || rawResult.truncated;
+    const truncated = dimResult.truncated || rawResult.truncated || imageResult.truncated;
     return { ok: true, data: { rows, totalCount: dimResult.totalCount, truncated } };
   } catch (err) {
     console.error("getProducts failed", err);
@@ -288,6 +326,13 @@ export async function importProducts(
 // /catalog — delete one SKU (analytics.product_delete, 0031). Hard delete only
 // when the SKU has no order/stock references; the RPC raises a Thai P0001
 // message otherwise, which we surface verbatim (owner-facing, safe).
+//
+// 0104 note: public.product_image has ON DELETE CASCADE from product, so the
+// DB rows disappear automatically — but the underlying storage objects don't
+// (storage has no FK to Postgres rows). Image paths must be read BEFORE the
+// RPC runs (they're unreachable via product_id afterward) and the storage
+// objects removed AFTER the RPC succeeds, or a blocked delete (P0001/P0002)
+// would delete files for a SKU whose row is still there.
 // ============================================================================
 
 export async function deleteProduct(sku: string): Promise<ActionResult> {
@@ -301,6 +346,28 @@ export async function deleteProduct(sku: string): Promise<ActionResult> {
     const shopId = getDevShopId();
     const supabase = getServiceClient();
 
+    const { data: productRow, error: productErr } = await supabase
+      .from("product")
+      .select("id")
+      .eq("shop_id", shopId)
+      .eq("sku", clean)
+      .maybeSingle();
+    if (productErr) throw productErr;
+
+    let imagePaths: string[] = [];
+    if (productRow) {
+      const { data: images, error: imagesErr } = await supabase
+        .from("product_image")
+        .select("storage_path, variant_sm_path")
+        .eq("shop_id", shopId)
+        .eq("product_id", productRow.id);
+      if (imagesErr) throw imagesErr;
+      imagePaths = ((images ?? []) as { storage_path: string; variant_sm_path: string }[]).flatMap((r) => [
+        r.storage_path,
+        r.variant_sm_path,
+      ]);
+    }
+
     const { error } = await supabase.schema(SCHEMA).rpc("product_delete", {
       p_shop_id: shopId,
       p_sku: clean,
@@ -308,11 +375,27 @@ export async function deleteProduct(sku: string): Promise<ActionResult> {
     if (error) {
       // P0001 = "has order/stock links, disable instead"; P0002 = not found.
       // Both are our own controlled Thai messages — safe to show the owner.
+      // Neither path deletes the product row, so imagePaths (if any) must
+      // stay untouched — falls through to the catch-free return below.
       const code = (error as { code?: string }).code;
       if (code === "P0001" || code === "P0002") {
         return { ok: false, error: error.message };
       }
       throw error;
+    }
+
+    if (imagePaths.length > 0) {
+      const { error: removeErr } = await supabase.storage.from(PRODUCT_IMAGES_BUCKET).remove(imagePaths);
+      if (removeErr) {
+        // The product row (and its product_image rows, via cascade) is
+        // already gone — a storage cleanup failure here is a leaked-file
+        // problem, not a correctness problem. Log loudly, don't fail the
+        // whole delete over it.
+        console.error("deleteProduct: product row deleted but storage cleanup failed", removeErr, {
+          sku: clean,
+          imagePaths,
+        });
+      }
     }
 
     revalidatePath("/catalog");
