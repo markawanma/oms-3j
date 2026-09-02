@@ -10,12 +10,14 @@
 
 /** Hard server-side ceiling per SKU, enforced by both
  * lib/actions/catalog-images.ts (app-layer count check) AND a DB trigger
- * (supabase/migrations/0104, defense against a concurrent-upload race).
- * NOTE: the owner's stated UI target is "<=5 รูป/SKU" (fewer shown at once)
- * — 8 is deliberately higher headroom for the hard ceiling, not a
- * contradiction of that UI number. Flagged in the handoff report in case
- * this reflects a documentation drift rather than an intentional gap. */
-export const MAX_IMAGES_PER_SKU = 8;
+ * (product_image_enforce_cap, defense against a concurrent-upload race).
+ *
+ * 🔴 THIS NUMBER LIVES IN TWO PLACES. Changing it here is half the job — the
+ * trigger has its own literal. Ship a migration in the same change, or the
+ * app and the database will disagree: the form will happily offer a slot the
+ * database then refuses, and the user sees an error with no way to act on it.
+ * Last moved 2026-09-02 (8 -> 4, owner's call) via 0106_product_image_cap_4. */
+export const MAX_IMAGES_PER_SKU = 4;
 
 /** Long-edge cap, in pixels, for the "md" variant — used for print/email
  * (quotes, line sheets) where a larger image is worth the extra bytes. */

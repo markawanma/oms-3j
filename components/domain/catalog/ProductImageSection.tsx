@@ -9,7 +9,7 @@
 //
 // Reordering uses ‹ › buttons, not drag-and-drop — this repo has no dnd
 // library, the modal is often viewed at 360px where drag targets are easy
-// to miss, and the hard ceiling is only 8 images (MAX_IMAGES_PER_SKU), so a
+// to miss, and the hard ceiling is only 4 images (MAX_IMAGES_PER_SKU), so a
 // few button taps reach any position. Deleting an uploaded image has no
 // confirm step (Tech Lead decision: unlike deleting a whole SKU, a freshly
 // uploaded image carries no historical profit data to protect).

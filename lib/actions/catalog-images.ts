@@ -397,7 +397,7 @@ export async function reorderProductImages(
     // supabase-js has no single-call "bulk update, different value per row"
     // — sequential updates, same trade-off documented in
     // lib/actions/labels.ts (no multi-statement transaction primitive here).
-    // N is capped at MAX_IMAGES_PER_SKU (8), so this is cheap; a failure
+    // N is capped at MAX_IMAGES_PER_SKU (4), so this is cheap; a failure
     // partway through leaves a partial reorder rather than rolling back —
     // acceptable for a display-order field with no financial/legal weight,
     // unlike the oem-quote-invariants domain.
