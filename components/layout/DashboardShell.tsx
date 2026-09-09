@@ -61,7 +61,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: "หน้าร้าน",
     items: [
       { href: "/dashboard", label: "แดชบอร์ด", icon: LayoutDashboard },
-      { href: "/", label: "ออเดอร์", icon: ClipboardList },
+      { href: "/orders", label: "ออเดอร์", icon: ClipboardList },
       { href: "/stock", label: "สต็อก", icon: Boxes },
       { href: "/stock/hero", label: "จอสต็อก Hero", icon: Gauge },
       { href: "/orders/oversold", label: "คิวของไม่พอ", icon: PackageX },
