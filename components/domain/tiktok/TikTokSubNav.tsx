@@ -2,14 +2,21 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, Coins, Tags, Target } from "lucide-react";
+import { BarChart3, Tags } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
+// 10 ก.ย. 69: ตัด 2 แท็บออกพร้อมกับที่ซ่อน/ลบในเมนูหลัก (DashboardShell.tsx)
+//   "Ad Copilot" -> /tiktok/copilot ถูก **ลบทิ้งจริง** เพราะเป็นของจำลอง
+//      (อ่านจาก lib/tiktok/mock-actions.ts + เก็บผลใน localStorage ไม่ใช่ DB)
+//      ตัวจริงคือ /marketing/copilot ซึ่งดึงข้อมูลจริง 7 แหล่ง
+//   "ยอดขาย"    -> /tiktok/sales ยังอยู่แต่ซ่อนจากเมนู เพราะอ่าน public.orders
+//      ซึ่งมี 0 แถว (ยอดขายจริงอยู่ analytics.fact_order) — /dashboard ตอบ
+//      คำถามเดียวกันครบกว่า
+// ⚠️ ลิงก์พวกนี้เป็น string ล้วน tsc จับไม่ได้ถ้าปลายทางหาย — ถ้าจะเพิ่ม
+//    แท็บกลับมา ต้องเช็คว่าไฟล์ page.tsx ปลายทางมีอยู่จริงด้วยตาเอง
 const TABS: { href: string; label: string; icon: LucideIcon }[] = [
   { href: "/tiktok/dashboard", label: "แดชบอร์ด", icon: BarChart3 },
-  { href: "/tiktok/copilot", label: "Ad Copilot", icon: Target },
   { href: "/tiktok/upload", label: "อัปโหลด", icon: Tags },
-  { href: "/tiktok/sales", label: "ยอดขาย", icon: Coins },
 ];
 
 /** Sticky sub-nav tab bar for the TikTok Ops module (design §2/§4). Emoji
