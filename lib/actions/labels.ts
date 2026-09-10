@@ -28,6 +28,7 @@ import { getServiceClient } from "@/lib/supabase/server";
 import { getDevShopId, getDevRole } from "@/lib/dev/context";
 import type { ActionResult } from "@/lib/types";
 import { fetchAllRows } from "@/lib/supabase/query-limits";
+import { isPostgrestInSafe } from "@/lib/import/source-types";
 import {
   MAX_LABEL_FILE_BYTES,
   MAX_LABEL_PAGES,
@@ -646,9 +647,18 @@ export interface LabelFileRow {
   pageCount: number | null;
   status: "uploaded" | "parsed" | "parse_failed" | "purged";
   uploadedAt: string;
+  // "อ่านใหม่" hint (task brief 4 ก.ย. 69) — see comment block below
+  // getLabelFiles() for how these are computed and why they can be null.
+  orderNotFoundCount: number | null;
+  rematchableCount: number | null;
 }
 
 const LABEL_FILE_STATUSES = ["uploaded", "parsed", "parse_failed", "purged"] as const;
+
+interface OrderNotFoundPageRow {
+  label_file_id: string;
+  tracking_no: string | null;
+}
 
 export async function getLabelFiles(): Promise<ActionResult<LabelFileRow[]>> {
   const gateErr = requireOwnerAdmin();
@@ -667,7 +677,7 @@ export async function getLabelFiles(): Promise<ActionResult<LabelFileRow[]>> {
       .limit(50);
     if (error) throw error;
 
-    const rows: LabelFileRow[] = (
+    const baseRows = (
       (data ?? []) as { id: string; file_name: string; page_count: number | null; status: string; uploaded_at: string }[]
     ).map((r) => ({
       id: r.id,
@@ -677,6 +687,91 @@ export async function getLabelFiles(): Promise<ActionResult<LabelFileRow[]>> {
         ? (r.status as LabelFileRow["status"])
         : "uploaded",
       uploadedAt: r.uploaded_at,
+    }));
+
+    // "อ่านใหม่" hint (task brief 4 ก.ย. 69, §2 "กดแล้วได้อะไร") — per file:
+    // how many pages are stuck at order_not_found, and of those, how many
+    // now have a matching fact_order row (i.e. worth clicking "อ่านใหม่" for).
+    // Deliberately best-effort and separate from the file-list query above:
+    // this is read-only, nice-to-have context on top of a list that must
+    // always render — any failure here degrades BOTH counts to null on
+    // EVERY file rather than failing getLabelFiles() (and the whole history
+    // table) outright.
+    const orderNotFoundCountByFile = new Map<string, number>();
+    const rematchableCountByFile = new Map<string, number>();
+    let countsAvailable = true;
+
+    if (baseRows.length > 0) {
+      try {
+        // label_file.id values are our own just-read UUID primary keys, not
+        // user-controlled text — safe to .in() directly (isPostgrestInSafe
+        // below guards the untrusted value: tracking_no lifted off a PDF).
+        const fileIds = baseRows.map((r) => r.id);
+
+        const pageResult = await fetchAllRows<OrderNotFoundPageRow>((from, to) =>
+          supabase
+            .schema(SCHEMA)
+            .from("stg_label_page")
+            .select("label_file_id, tracking_no", { count: "exact" })
+            .eq("shop_id", shopId)
+            .eq("match_status", "order_not_found")
+            .in("label_file_id", fileIds)
+            .order("id", { ascending: true })
+            .range(from, to)
+        );
+        if (pageResult.truncated) {
+          // Same rule as everywhere else fetchAllRows() is used in this app
+          // (see lib/supabase/query-limits.ts header, the ฿9,423 incident):
+          // never show a count we know is incomplete — treat as "couldn't
+          // check" and let the catch below null out both counts.
+          throw new Error("getLabelFiles: order_not_found page read truncated, cannot count reliably");
+        }
+
+        for (const p of pageResult.rows) {
+          orderNotFoundCountByFile.set(p.label_file_id, (orderNotFoundCountByFile.get(p.label_file_id) ?? 0) + 1);
+        }
+
+        // security 0901 (isPostgrestInSafe, lib/import/source-types.ts):
+        // tracking_no came off a PDF the owner uploaded — untrusted text.
+        // postgrest-js's .in() does not escape a literal `"`, so a
+        // crafted/corrupted value could otherwise widen or narrow the match
+        // silently. A value that fails the check is dropped from the lookup
+        // set entirely — never guessed, never counted as rematchable (but
+        // its page still counts toward orderNotFoundCount above, which is
+        // already locked in and unaffected by this filter).
+        const trackingToCheck = [
+          ...new Set(
+            pageResult.rows.map((p) => p.tracking_no).filter((t): t is string => !!t && isPostgrestInSafe(t))
+          ),
+        ];
+
+        const foundTracking = new Set<string>();
+        for (const chunk of chunkArray(trackingToCheck, TRACKING_LOOKUP_CHUNK_SIZE)) {
+          const { data: foundRows, error: lookupErr } = await supabase
+            .schema(SCHEMA)
+            .from("fact_order")
+            .select("tracking_no")
+            .eq("shop_id", shopId)
+            .in("tracking_no", chunk);
+          if (lookupErr) throw lookupErr;
+          for (const r of (foundRows ?? []) as { tracking_no: string }[]) foundTracking.add(r.tracking_no);
+        }
+
+        for (const p of pageResult.rows) {
+          if (p.tracking_no && isPostgrestInSafe(p.tracking_no) && foundTracking.has(p.tracking_no)) {
+            rematchableCountByFile.set(p.label_file_id, (rematchableCountByFile.get(p.label_file_id) ?? 0) + 1);
+          }
+        }
+      } catch (countErr) {
+        console.error("getLabelFiles: order_not_found/rematchable count failed, degrading to null", countErr);
+        countsAvailable = false;
+      }
+    }
+
+    const rows: LabelFileRow[] = baseRows.map((r) => ({
+      ...r,
+      orderNotFoundCount: countsAvailable ? orderNotFoundCountByFile.get(r.id) ?? 0 : null,
+      rematchableCount: countsAvailable ? rematchableCountByFile.get(r.id) ?? 0 : null,
     }));
 
     return { ok: true, data: rows };

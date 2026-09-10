@@ -53,6 +53,11 @@ export type LabelFileListItem = {
   pageCount: number | null;
   status: "uploaded" | "parsed" | "parse_failed" | "purged";
   uploadedAt: string;
+  // ปุ่ม "อ่านใหม่" (task brief 4 ก.ย. 69) — บอกว่ากดแล้วคุ้มไหม ไม่ใช่แค่ทำได้ไหม
+  // null = คำนวณไม่ได้ (ส่วนนี้ล้มเหลวแบบ best-effort) → UI ต้องไม่แสดงบรรทัดคำใบ้เลย
+  // ไม่ใช่เดาว่าเป็น 0 — ดูคอมเมนต์ getLabelFiles() ใน lib/actions/labels.ts
+  orderNotFoundCount: number | null; // จำนวนหน้า match_status = 'order_not_found' ของไฟล์นี้
+  rematchableCount: number | null; // ในนั้น กี่หน้าที่ tracking_no เจอใน fact_order แล้วตอนนี้ (คุ้มกดอ่านใหม่)
 };
 
 // getPendingLabelReviews() — คิวรอตรวจ "ทั้งร้าน" อ่านจาก DB ตรง (ไม่ใช่ state

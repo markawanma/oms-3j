@@ -251,7 +251,10 @@ export function UploadPageClient() {
 
       <PendingReviewQueue refreshSignal={reviewRefreshSignal} />
 
-      <LabelFileHistory />
+      {/* "อ่านใหม่" ต่อไฟล์ (task brief 4 ก.ย. 69) — onReparsed bump signal
+          เดียวกับตอนไฟล์ใหม่ parse เสร็จ เพราะ parseLabelFile() ที่ปุ่มนี้เรียก
+          อาจเปลี่ยนคิวรอตรวจ (stg_label_page) ของไฟล์นั้นเหมือนกัน */}
+      <LabelFileHistory onReparsed={() => setReviewRefreshSignal((n) => n + 1)} />
     </div>
   );
 }
