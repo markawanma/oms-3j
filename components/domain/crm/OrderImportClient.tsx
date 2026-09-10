@@ -89,6 +89,19 @@ interface CommitItem {
    * null if the fetch itself failed (non-fatal: the import already
    * succeeded, this is just "couldn't load the detail list"). */
   warnings?: LineImportWarningsResult | null;
+  /** Snapshot of this file's preview-time orphan/period signals, carried
+   * forward from PreviewItem so the post-commit summary (OrphanCommitNotice)
+   * can explain WHICH orders and WHAT date range are stuck orphan, without
+   * adding a new backend field to LineImportCommitResult (design brief 4 ก.ย.
+   * 69: reuse what preview already computed instead of duplicating it
+   * server-side). Only ever set for kind === "line_item". orphanOrderCount
+   * here is the PREVIEW-TIME estimate (checked against fact_order right
+   * before this file was committed, not re-verified after) — accurate in the
+   * overwhelming common case since nothing else changes fact_order between
+   * preview and commit in a normal single-owner flow. This is a UI hint, not
+   * a number written anywhere, so "off by a little" in a rare race is an
+   * accepted trade-off. */
+  orphanContext?: { orphanOrderCount: number; periodMin: string | null; periodMax: string | null };
 }
 
 type Phase =
@@ -188,12 +201,51 @@ function CommitResultSummary({ result }: { result: ImportCommitResult }) {
   );
 }
 
+/** Post-commit "why are there orphan rows, and what does it mean for the
+ * dashboard" explainer — Point 3 of the 4 ก.ย. 69 warning brief (the incident:
+ * owner uploaded 2 line-item-only files, both showed "success", but 238 rows
+ * / 209 orders silently landed as orphan and September sales never appeared
+ * on the dashboard — nobody found out until Tech Lead dug into the DB).
+ * Shared by the single-file and multi-file done screens so the wording never
+ * drifts between them. orderCount/period come from CommitItem.orphanContext
+ * (preview-time snapshot, see its comment) — falls back to the row count
+ * ("รายการ") when no snapshot is available rather than showing nothing, and
+ * omits the period clause entirely when it's missing rather than guessing. */
+function OrphanCommitNotice({
+  rowCount,
+  orderCount,
+  periodMin,
+  periodMax,
+}: {
+  rowCount: number;
+  orderCount?: number;
+  periodMin: string | null;
+  periodMax: string | null;
+}) {
+  const countLabel = orderCount && orderCount > 0 ? `${formatCount(orderCount)} ออเดอร์` : `${formatCount(rowCount)} รายการ`;
+  const periodLabel = periodMin && periodMax ? formatDateRange(periodMin, periodMax) : null;
+  return (
+    <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+      <p className="flex items-center gap-1.5 font-semibold">
+        <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
+        {countLabel}ยังรอไฟล์ออเดอร์{periodLabel ? `ของช่วง ${periodLabel}` : ""}
+      </p>
+      <p className="mt-1">
+        ยอดขายช่วงนี้จะยังไม่ขึ้นแดชบอร์ดจนกว่าไฟล์ออเดอร์จะถูกนำเข้า — จับคู่และคำนวณกำไรให้อัตโนมัติทันทีที่นำเข้าไฟล์ออเดอร์ของช่วงนี้แล้ว
+      </p>
+    </div>
+  );
+}
+
 function LineCommitResultSummary({
   result,
+  orphanContext,
   warnings,
   warningsLoading,
 }: {
   result: LineImportCommitResult;
+  /** Preview-time snapshot for this file — see CommitItem.orphanContext. */
+  orphanContext?: { orphanOrderCount: number; periodMin: string | null; periodMax: string | null };
   /** undefined = not yet fetched, null = fetch failed, object = loaded (see
    * OrderImportClient's fetchWarningsFor). */
   warnings?: LineImportWarningsResult | null;
@@ -208,9 +260,12 @@ function LineCommitResultSummary({
         <StatBox label="SKU ไม่รู้จัก" value={result.unknown} tone="danger" />
       </div>
       {result.orphan > 0 && (
-        <p className="text-xs text-amber-700">
-          {formatCount(result.orphan)} รายการยังรอออเดอร์ — จะจับคู่และคำนวณกำไรอัตโนมัติเมื่อนำเข้ารายงานยอดขายของออเดอร์นั้นแล้ว
-        </p>
+        <OrphanCommitNotice
+          rowCount={result.orphan}
+          orderCount={orphanContext?.orphanOrderCount}
+          periodMin={orphanContext?.periodMin ?? null}
+          periodMax={orphanContext?.periodMax ?? null}
+        />
       )}
       {result.errored > 0 && (
         <Link
@@ -368,7 +423,20 @@ export function OrderImportClient() {
         }
         setPhase({
           kind: "done_single",
-          item: { file: item.file, kind: "line_item", status: "done", lineResult: result.data, warnings: undefined },
+          item: {
+            file: item.file,
+            kind: "line_item",
+            status: "done",
+            lineResult: result.data,
+            warnings: undefined,
+            orphanContext: item.linePreview
+              ? {
+                  orphanOrderCount: item.linePreview.orphanOrderCount,
+                  periodMin: item.linePreview.periodMin,
+                  periodMax: item.linePreview.periodMax,
+                }
+              : undefined,
+          },
         });
         toast.push(`นำเข้าสำเร็จ — แปลงสำเร็จ ${result.data.transformed} รายการสินค้า`);
         void fetchAndAttachWarnings(result.data.batchId);
@@ -382,7 +450,15 @@ export function OrderImportClient() {
   }
 
   async function commitMulti(previewItems: PreviewItem[]) {
-    let items: CommitItem[] = previewItems.map((p) => ({ file: p.file, kind: p.kind as FileKind, status: "pending" }));
+    let items: CommitItem[] = previewItems.map((p) => ({
+      file: p.file,
+      kind: p.kind as FileKind,
+      status: "pending",
+      orphanContext:
+        p.kind === "line_item" && p.linePreview
+          ? { orphanOrderCount: p.linePreview.orphanOrderCount, periodMin: p.linePreview.periodMin, periodMax: p.linePreview.periodMax }
+          : undefined,
+    }));
     setPhase({ kind: "committing_multi", items });
     // Sequential on purpose (design D3) — transform_pending_orders /
     // transform_pending_order_lines are per-row server-side loops, running
@@ -536,6 +612,7 @@ export function OrderImportClient() {
           ) : phase.item.lineResult ? (
             <LineCommitResultSummary
               result={phase.item.lineResult}
+              orphanContext={phase.item.orphanContext}
               warnings={phase.item.warnings}
               warningsLoading={phase.item.warnings === undefined}
             />
@@ -811,6 +888,16 @@ function LineSinglePreviewCard({
               <p className="mt-1">
                 ไม่บล็อกการนำเข้า — รายการเหล่านี้จะจับคู่และคำนวณกำไรอัตโนมัติในภายหลัง เมื่อนำเข้ารายงานยอดขาย (order-level) ของออเดอร์นั้นแล้ว
               </p>
+              {/* Point 2 of the 4 ก.ย. 69 warning brief — abbreviated version of
+                  the multi-file "missing order file" box below: this file alone
+                  is a line-item report, so connect the technical "orphan" status
+                  to the concrete business impact (dashboard) + remind what an
+                  order file looks like, in case the owner meant to select one
+                  alongside this file and simply forgot. */}
+              <p className="mt-1 font-semibold">
+                ระหว่างนี้ยอดขายของออเดอร์กลุ่มนี้จะยังไม่ขึ้นแดชบอร์ด — ถ้ายังไม่ได้เลือกไฟล์ออเดอร์ไปด้วย (คอลัมน์แรกเป็น &quot;เลขที่ออเดอร์&quot;)
+                อย่าลืมนำเข้าตามมาทีหลัง
+              </p>
             </div>
           )}
 
@@ -895,6 +982,39 @@ const PREVIEW_STATUS_LABEL: Record<PreviewItem["status"], { label: string; tone:
   preview_error: { label: "อ่านไม่สำเร็จ", tone: "bg-red-100 text-red-800" },
 };
 
+/** Point 1 of the 4 ก.ย. 69 warning brief — detects the exact shape of the
+ * incident: every file the owner is about to import is a line-item report
+ * ("สินค้าในออเดอร์"), none is an order-level report, so the line items have
+ * nothing to attach to and September's sales silently never reached the
+ * dashboard until Tech Lead dug into the DB directly.
+ *
+ * Gated on orphanOrderTotal > 0 (not on file kind alone) so this does NOT
+ * fire for the equally routine case of uploading a SKU-only file AFTER its
+ * matching order-level file was already imported in an earlier action — in
+ * that case every order already exists in fact_order, orphanOrderCount is 0,
+ * and the claim "ยอดขายจะยังไม่ขึ้นแดชบอร์ด" would simply be false. A mixed
+ * batch (order file + SKU file selected together, the normal/intended flow)
+ * never triggers this either, since `eligible.some(kind === "order")` short-
+ * circuits first. See this file's delivery notes for the trade-off if a
+ * stricter "always warn when there's zero order file, regardless of orphan
+ * count" behavior is wanted instead. */
+function summarizeMissingOrderFile(items: PreviewItem[]): { orphanOrderTotal: number } | null {
+  const eligible = items.filter((it) => it.status === "ok");
+  if (eligible.length === 0) return null;
+  if (eligible.some((it) => it.kind === "order")) return null;
+
+  let orphanOrderTotal = 0;
+  let hasLineItem = false;
+  for (const it of eligible) {
+    if (it.kind === "line_item" && it.linePreview) {
+      hasLineItem = true;
+      orphanOrderTotal += it.linePreview.orphanOrderCount;
+    }
+  }
+  if (!hasLineItem || orphanOrderTotal === 0) return null;
+  return { orphanOrderTotal };
+}
+
 function MultiPreviewTable({
   items,
   onConfirm,
@@ -905,6 +1025,7 @@ function MultiPreviewTable({
   onReset: () => void;
 }) {
   const eligibleCount = items.filter((it) => it.status === "ok").length;
+  const missingOrderFile = summarizeMissingOrderFile(items);
 
   return (
     <div className="flex flex-col gap-3 rounded-lg border border-zinc-200 bg-white p-4">
@@ -972,6 +1093,22 @@ function MultiPreviewTable({
           </tbody>
         </table>
       </div>
+
+      {missingOrderFile && (
+        <div className="rounded-md border border-amber-300 bg-amber-50 p-3">
+          <p className="flex items-center gap-1.5 text-sm font-semibold text-amber-900">
+            <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
+            ไฟล์ที่เลือกเป็น &quot;{KIND_LABEL.line_item}&quot; ทั้งหมด ยังไม่มีไฟล์ออเดอร์
+          </p>
+          <p className="mt-1.5 text-xs text-amber-800">
+            นำเข้าตอนนี้ได้ แต่ <span className="font-semibold">ยอดขายจะยังไม่ขึ้นแดชบอร์ด</span> เพราะรายการสินค้าจะไม่มีออเดอร์ให้ผูก — ตอนนี้มี{" "}
+            {formatCount(missingOrderFile.orphanOrderTotal)} ออเดอร์ในไฟล์ที่ยังไม่มีในระบบ
+          </p>
+          <p className="mt-1 text-xs text-amber-700">
+            ไฟล์ออเดอร์คือไฟล์ที่คอลัมน์แรกเป็น &quot;เลขที่ออเดอร์&quot; (ไฟล์ &quot;{KIND_LABEL.line_item}&quot; คอลัมน์แรกเป็น &quot;รหัสสินค้า&quot;)
+          </p>
+        </div>
+      )}
 
       <div className="flex flex-wrap justify-end gap-2 pt-1">
         <Button type="button" variant="secondary" onClick={onReset}>
@@ -1045,6 +1182,18 @@ function MultiDoneSummary({ items }: { items: CommitItem[] }) {
   const failedFiles = items.filter((it) => it.status === "error");
   const hasLineItemFile = items.some((it) => it.kind === "line_item");
 
+  // Aggregate orphanContext across every successfully-committed line_item
+  // file for the post-commit OrphanCommitNotice (Point 3) — a multi-file
+  // batch can mix several line-item files with different periods, so this
+  // sums the order counts and merges the date ranges (earliest min, latest
+  // max) rather than just showing the last file's numbers.
+  const orphanLineItems = items.filter((it) => it.status === "done" && it.kind === "line_item" && (it.lineResult?.orphan ?? 0) > 0);
+  const aggOrphanOrderCount = orphanLineItems.reduce((sum, it) => sum + (it.orphanContext?.orphanOrderCount ?? 0), 0);
+  const orphanPeriodMins = orphanLineItems.map((it) => it.orphanContext?.periodMin).filter((v): v is string => !!v);
+  const orphanPeriodMaxs = orphanLineItems.map((it) => it.orphanContext?.periodMax).filter((v): v is string => !!v);
+  const aggPeriodMin = orphanPeriodMins.length > 0 ? orphanPeriodMins.reduce((a, b) => (a < b ? a : b)) : null;
+  const aggPeriodMax = orphanPeriodMaxs.length > 0 ? orphanPeriodMaxs.reduce((a, b) => (a > b ? a : b)) : null;
+
   return (
     <>
       <div className="flex flex-wrap gap-3">
@@ -1058,6 +1207,9 @@ function MultiDoneSummary({ items }: { items: CommitItem[] }) {
           </>
         )}
       </div>
+      {totals.orphan > 0 && (
+        <OrphanCommitNotice rowCount={totals.orphan} orderCount={aggOrphanOrderCount} periodMin={aggPeriodMin} periodMax={aggPeriodMax} />
+      )}
       {failedFiles.length > 0 && (
         <div className="rounded-md border border-red-200 bg-red-50 p-2.5">
           <p className="text-xs font-semibold text-red-800">ไฟล์ที่นำเข้าไม่สำเร็จ ({failedFiles.length})</p>
