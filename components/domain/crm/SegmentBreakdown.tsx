@@ -59,7 +59,7 @@ export function SegmentBreakdown({
       <p className="mt-3 text-[0.68rem] text-zinc-400">
         เกณฑ์คงที่ (ไม่ใช่สัดส่วนสัมพัทธ์) — {SEGMENT_LABEL_TH.at_risk}: เงียบเกิน 90 วัน
       </p>
-      {rangeNote && <p className="mt-1 text-[0.68rem] text-zinc-400">{rangeNote}</p>}
+      {rangeNote && <p className="mt-1 text-xs font-medium text-zinc-600">{rangeNote}</p>}
     </div>
   );
 }
