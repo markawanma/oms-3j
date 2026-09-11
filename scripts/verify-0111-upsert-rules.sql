@@ -373,15 +373,18 @@ begin
   select transformed_count, errored_count into v_run_transformed, v_run_errored
     from analytics.transform_pending_orders(v_shop_id, v_batch_id);
 
-  v_log := v_log || format(E'run: transformed=%s errored=%s (expect transformed=9, errored=0)\n', v_run_transformed, v_run_errored);
+  -- 10 stg rows above: T1 T2 T3 T4a T4b T5a T5b T6 T7 T7b (first draft said 9 —
+  -- the dry run on 11 ก.ย. 69 returned transformed=10 with every behavioral
+  -- check green, so the expectation was the bug, not the migration).
+  v_log := v_log || format(E'run: transformed=%s errored=%s (expect transformed=10, errored=0)\n', v_run_transformed, v_run_errored);
 
   if v_run_errored is distinct from 0 then
     v_fail_count := v_fail_count + 1;
     v_log := v_log || format(E'FAIL run: %s row(s) errored -- see stg_order_import.error_detail for this batch\n', v_run_errored);
   end if;
-  if v_run_transformed is distinct from 9 then
+  if v_run_transformed is distinct from 10 then
     v_fail_count := v_fail_count + 1;
-    v_log := v_log || format(E'FAIL run: transformed_count=%s, expected 9 (one per fixture) -- a fixture failed to insert/match\n', v_run_transformed);
+    v_log := v_log || format(E'FAIL run: transformed_count=%s, expected 10 (one per fixture) -- a fixture failed to insert/match\n', v_run_transformed);
   end if;
 
   -- --------------------------------------------------------------------
