@@ -14,8 +14,8 @@
 --      shipping label in Shipnity — before that it exports '-'. Re-importing
 --      an older/earlier-exported file after tracking numbers exist wipes
 --      them back to '-'. This has already happened once in production
---      (9 ก.ย. 69); 222 rows in fact_order currently hold the literal
---      string '-' in tracking_no as a result.
+--      (9 ก.ย. 69); a few hundred rows in fact_order still hold the literal
+--      string '-' in tracking_no as a result (exact count + safety cap in §3).
 --
 -- Owner's rule (10 ก.ย. 69): "ไม่มีข้อมูล" ห้ามทับ "มีข้อมูล" — a blank/
 -- placeholder value coming in from a new import must never overwrite a real
@@ -25,8 +25,8 @@
 -- data with blanks, not about freezing fields once set.
 --
 -- 🔴 revenue, discount, profit_status, profit, cogs are explicitly OUT OF
--- SCOPE and their update-clause lines are byte-for-byte unchanged from the
--- live function (see scripts/verify-0111-upsert-rules.sql's DDL replay,
+-- SCOPE and their update-clause expressions are byte-for-byte unchanged from
+-- the live function (see scripts/verify-0111-upsert-rules.sql's DDL replay,
 -- which must match this file's DDL exactly, and in turn must match the
 -- source-of-truth dump this migration was written against). Only line-break
 -- placement around them changed for diff readability — no expression text
@@ -273,7 +273,12 @@ begin
   get diagnostics v_n = row_count;
   raise notice '0111 backfill: cleared % placeholder tracking_no row(s)', v_n;
   if v_n > 1000 then
-    raise exception '0111 backfill matched % rows, expected ~200 -- aborting so nothing in this migration is committed', v_n;
+    -- Relies on the whole file running in ONE transaction (apply_migration /
+    -- db push do that). A runner that autocommits statement-by-statement
+    -- would roll back only this block — the two replaced functions would
+    -- already be committed, which is still the safe direction (fixed
+    -- function, no backfill).
+    raise exception '0111 backfill matched % rows, expected ~200 -- aborting the enclosing transaction', v_n;
   end if;
 end $$;
 

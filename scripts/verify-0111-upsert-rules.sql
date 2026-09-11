@@ -17,11 +17,12 @@
 -- a direct statement inside PL/pgSQL. The DDL below must stay byte-identical
 -- to supabase/migrations/0111_import_upsert_no_blank_overwrite.sql — if you
 -- edit the migration, copy the change here too or this rehearsal stops
--- proving what actually ships. (The backfill UPDATE at the migration's tail
--- is deliberately NOT replayed here — this file has nothing to backfill
--- against beyond its own fixtures, and re-running it against real data
--- inside a script meant to be run repeatedly during review would just be
--- redundant work inside a transaction that's rolled back anyway.)
+-- proving what actually ships. (The backfill at the migration's tail is
+-- deliberately NOT replayed here — it WOULD touch the ~200 real '-' rows in
+-- this shop, and a script meant to be re-run repeatedly during review has
+-- no business row-locking real orders every time for a result that is
+-- rolled back anyway. The row count it will hit is checked with a read-only
+-- query right before apply_migration instead — see the 11 ก.ย. 69 review.)
 --
 -- shop_id = 'a7c850ee-6776-4c3e-ba72-ba9e8caba2b7' (3J Jewelry — the only
 -- shop_id used anywhere in this project, confirmed via
@@ -31,7 +32,7 @@
 -- 'VERIFY-0111-<tag>-<random uuid>' so it can never collide with a real
 -- order (dedup_key uniqueness is shop-wide, not per-batch — see
 -- 0011_analytics_staging.sql's uq_stg_order_import_shop_dedup_key). "Already
--- has real data" states (T1/T2/T3/T4/T5/T7) are seeded with a direct INSERT
+-- has real data" states (T1/T2/T3/T4/T5/T7/T9/T10/T11/T12) are seeded with a direct INSERT
 -- into fact_order — bypassing the function under test on purpose, since
 -- that's how a row that was ALREADY correctly enriched (e.g. by label
 -- upload, 0097/0098) looks before a second import file touches it. Every
@@ -229,6 +230,8 @@ declare
   -- first draft never exercised (empty-string tracking, '-' discount_code,
   -- carrier/bank on the conflict path, empty-string tags_raw).
   v_no_t9 text; v_no_t10 text; v_no_t11 text; v_no_t12 text;
+  -- (T8 has no fixture -- it is the name of the post-cleanup snapshot check
+  -- at STEP 8.)
 
   v_row analytics.fact_order%rowtype;
   v_ts1 timestamptz := '2026-08-01 10:00:00+07'; v_ts3 timestamptz := '2026-08-01 11:00:00+07';
