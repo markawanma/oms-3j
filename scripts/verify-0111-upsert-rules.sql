@@ -53,7 +53,7 @@ returns text
 language sql
 immutable
 strict
-set search_path = pg_temp
+set search_path = pg_catalog, pg_temp
 as $$
   select nullif(nullif(btrim(p), ''), '-')
 $$;
@@ -225,6 +225,10 @@ declare
   v_no_t5a text; v_no_t5b text;
   v_no_t6 text;
   v_no_t7 text; v_no_t7b text;
+  -- T9–T12 added 11 ก.ย. 69 after QA review: the four blank-vs-real cases the
+  -- first draft never exercised (empty-string tracking, '-' discount_code,
+  -- carrier/bank on the conflict path, empty-string tags_raw).
+  v_no_t9 text; v_no_t10 text; v_no_t11 text; v_no_t12 text;
 
   v_row analytics.fact_order%rowtype;
   v_ts1 timestamptz := '2026-08-01 10:00:00+07'; v_ts3 timestamptz := '2026-08-01 11:00:00+07';
@@ -242,6 +246,8 @@ begin
   v_no_t5a := v_run_tag || '-T5A'; v_no_t5b := v_run_tag || '-T5B';
   v_no_t6  := v_run_tag || '-T6';
   v_no_t7  := v_run_tag || '-T7';  v_no_t7b := v_run_tag || '-T7B';
+  v_no_t9  := v_run_tag || '-T9';  v_no_t10 := v_run_tag || '-T10';
+  v_no_t11 := v_run_tag || '-T11'; v_no_t12 := v_run_tag || '-T12';
 
   -- --------------------------------------------------------------------
   -- fixture ingredients
@@ -367,24 +373,58 @@ begin
   insert into analytics.stg_order_import (batch_id, shop_id, raw, source_kind, source_order_no, channel_raw, province_raw, order_created_at, shipping_cost_shop, revenue, discount_total)
   values (v_batch_id, v_shop_id, '{}'::jsonb, 'excel', v_no_t7b, v_channel_alias, v_geo_alias_a, now(), null, 100, 0);
 
+  -- T9: real tracking_no + file sends '' (empty string, NOT '-') -> must NOT
+  -- overwrite. T1 only ever walked the '-' branch of import_text_or_null();
+  -- this walks the nullif(btrim(p), '') branch.
+  insert into analytics.fact_order (shop_id, source_order_no, channel_id, order_date, province_code, tracking_no, revenue, discount, profit_status)
+  values (v_shop_id, v_no_t9, v_channel_id, current_date, v_province_a, 'TRACK-REAL-T9', 100, 0, 'estimated');
+  insert into analytics.stg_order_import (batch_id, shop_id, raw, source_kind, source_order_no, channel_raw, province_raw, tracking_no, order_created_at, revenue, discount_total)
+  values (v_batch_id, v_shop_id, '{}'::jsonb, 'excel', v_no_t9, v_channel_alias, v_geo_alias_a, '', now(), 100, 0);
+
+  -- T10: real discount_code + file sends '-' -> must NOT overwrite. Note the
+  -- '-' -> null normalization for this column is PRE-EXISTING code
+  -- (v_discount_code := nullif(nullif(btrim(...), ''), '-')), 0111 only adds
+  -- the coalesce on the conflict path — this proves the two compose.
+  insert into analytics.fact_order (shop_id, source_order_no, channel_id, order_date, province_code, discount_code, revenue, discount, profit_status)
+  values (v_shop_id, v_no_t10, v_channel_id, current_date, v_province_a, 'SAVE10', 100, 0, 'estimated');
+  insert into analytics.stg_order_import (batch_id, shop_id, raw, source_kind, source_order_no, channel_raw, province_raw, discount_code, order_created_at, revenue, discount_total)
+  values (v_batch_id, v_shop_id, '{}'::jsonb, 'excel', v_no_t10, v_channel_alias, v_geo_alias_a, '-', now(), 100, 0);
+
+  -- T11: real carrier_code + bank, file sends '-' for both -> must NOT
+  -- overwrite (the conflict-path mirror of T6, which only proves the insert
+  -- path writes NULL).
+  insert into analytics.fact_order (shop_id, source_order_no, channel_id, order_date, province_code, carrier_code, bank, revenue, discount, profit_status)
+  values (v_shop_id, v_no_t11, v_channel_id, current_date, v_province_a, 'Kerry', 'SCB', 100, 0, 'estimated');
+  insert into analytics.stg_order_import (batch_id, shop_id, raw, source_kind, source_order_no, channel_raw, province_raw, carrier_raw, bank_raw, order_created_at, revenue, discount_total)
+  values (v_batch_id, v_shop_id, '{}'::jsonb, 'excel', v_no_t11, v_channel_alias, v_geo_alias_a, '-', '-', now(), 100, 0);
+
+  -- T12: real tags + file sends tags_raw = '' (empty string, NOT null) ->
+  -- must NOT overwrite. T5a only covers the IS NULL branch; the function
+  -- has a separate trim(tags_raw) = '' branch.
+  insert into analytics.fact_order (shop_id, source_order_no, channel_id, order_date, province_code, tags, revenue, discount, profit_status)
+  values (v_shop_id, v_no_t12, v_channel_id, current_date, v_province_a, array['seed-tag'], 100, 0, 'estimated');
+  insert into analytics.stg_order_import (batch_id, shop_id, raw, source_kind, source_order_no, channel_raw, province_raw, tags_raw, order_created_at, revenue, discount_total)
+  values (v_batch_id, v_shop_id, '{}'::jsonb, 'excel', v_no_t12, v_channel_alias, v_geo_alias_a, '', now(), 100, 0);
+
   -- --------------------------------------------------------------------
   -- STEP 3: one call processes every fixture row in the shared batch.
   -- --------------------------------------------------------------------
   select transformed_count, errored_count into v_run_transformed, v_run_errored
     from analytics.transform_pending_orders(v_shop_id, v_batch_id);
 
-  -- 10 stg rows above: T1 T2 T3 T4a T4b T5a T5b T6 T7 T7b (first draft said 9 —
-  -- the dry run on 11 ก.ย. 69 returned transformed=10 with every behavioral
-  -- check green, so the expectation was the bug, not the migration).
-  v_log := v_log || format(E'run: transformed=%s errored=%s (expect transformed=10, errored=0)\n', v_run_transformed, v_run_errored);
+  -- 14 stg rows above: T1 T2 T3 T4a T4b T5a T5b T6 T7 T7b T9 T10 T11 T12
+  -- (first draft said 9 for 10 rows — the dry run on 11 ก.ย. 69 returned
+  -- transformed=10 with every behavioral check green, so the expectation was
+  -- the bug, not the migration; T9–T12 were added after QA review).
+  v_log := v_log || format(E'run: transformed=%s errored=%s (expect transformed=14, errored=0)\n', v_run_transformed, v_run_errored);
 
   if v_run_errored is distinct from 0 then
     v_fail_count := v_fail_count + 1;
     v_log := v_log || format(E'FAIL run: %s row(s) errored -- see stg_order_import.error_detail for this batch\n', v_run_errored);
   end if;
-  if v_run_transformed is distinct from 10 then
+  if v_run_transformed is distinct from 14 then
     v_fail_count := v_fail_count + 1;
-    v_log := v_log || format(E'FAIL run: transformed_count=%s, expected 10 (one per fixture) -- a fixture failed to insert/match\n', v_run_transformed);
+    v_log := v_log || format(E'FAIL run: transformed_count=%s, expected 14 (one per fixture) -- a fixture failed to insert/match\n', v_run_transformed);
   end if;
 
   -- --------------------------------------------------------------------
@@ -509,10 +549,58 @@ begin
   end if;
 
   -- --------------------------------------------------------------------
+  -- T9: real tracking_no must survive an empty-string ('') re-import.
+  -- --------------------------------------------------------------------
+  select * into v_row from analytics.fact_order where shop_id = v_shop_id and source_order_no = v_no_t9;
+  if v_row.tracking_no is distinct from 'TRACK-REAL-T9' then
+    v_fail_count := v_fail_count + 1;
+    v_log := v_log || format(E'FAIL T9: tracking_no=%s (want TRACK-REAL-T9 -- empty string must not overwrite)\n', v_row.tracking_no);
+  else
+    v_log := v_log || E'OK   T9: real tracking_no survived an empty-string ('''') re-import\n';
+  end if;
+
+  -- --------------------------------------------------------------------
+  -- T10: real discount_code must survive a '-' re-import.
+  -- --------------------------------------------------------------------
+  select * into v_row from analytics.fact_order where shop_id = v_shop_id and source_order_no = v_no_t10;
+  if v_row.discount_code is distinct from 'SAVE10' then
+    v_fail_count := v_fail_count + 1;
+    v_log := v_log || format(E'FAIL T10: discount_code=%s (want SAVE10 -- ''-'' must not overwrite)\n', v_row.discount_code);
+  else
+    v_log := v_log || E'OK   T10: real discount_code survived a ''-'' re-import\n';
+  end if;
+
+  -- --------------------------------------------------------------------
+  -- T11: real carrier_code + bank must survive a '-' re-import (conflict path).
+  -- --------------------------------------------------------------------
+  select * into v_row from analytics.fact_order where shop_id = v_shop_id and source_order_no = v_no_t11;
+  if v_row.carrier_code is distinct from 'Kerry' or v_row.bank is distinct from 'SCB' then
+    v_fail_count := v_fail_count + 1;
+    v_log := v_log || format(E'FAIL T11: carrier_code=%s bank=%s (want Kerry / SCB -- ''-'' must not overwrite on the conflict path)\n', v_row.carrier_code, v_row.bank);
+  else
+    v_log := v_log || E'OK   T11: real carrier_code + bank survived a ''-'' re-import on the conflict path\n';
+  end if;
+
+  -- --------------------------------------------------------------------
+  -- T12: real tags must survive an empty-string tags_raw re-import.
+  -- --------------------------------------------------------------------
+  select * into v_row from analytics.fact_order where shop_id = v_shop_id and source_order_no = v_no_t12;
+  if v_row.tags is distinct from array['seed-tag'] then
+    v_fail_count := v_fail_count + 1;
+    v_log := v_log || format(E'FAIL T12: tags=%s (want {seed-tag} -- empty tags_raw must not overwrite)\n', v_row.tags);
+  else
+    v_log := v_log || E'OK   T12: real tags survived an empty-string tags_raw re-import\n';
+  end if;
+
+  -- --------------------------------------------------------------------
   -- STEP 8: delete every fixture this script created, then re-snapshot and
-  -- assert it matches T0 exactly -- proves no fixture leaked and, more
-  -- importantly, that none of the calls above touched any row outside this
-  -- run's own fixtures.
+  -- assert it matches T0 exactly -- proves no fixture leaked and no money
+  -- aggregate (count/revenue/discount/cogs/profit) drifted. It does NOT
+  -- prove that no other row was touched at all: updated_at / is_new_customer
+  -- / tracking_no are not in the tuple. In practice nothing else moves here
+  -- because every fixture has customer_id = null, so the trailing
+  -- recompute_is_new_customer() call has nothing to recompute (0045:46-57
+  -- guards with `is distinct from`) -- but that is reasoning, not this check.
   -- --------------------------------------------------------------------
   delete from analytics.fact_order where shop_id = v_shop_id and source_order_no like v_run_tag || '-%';
   delete from analytics.stg_order_import where batch_id = v_batch_id;
@@ -531,7 +619,7 @@ begin
     v_fail_count := v_fail_count + 1;
     v_log := v_log || E'FAIL T8: post-cleanup snapshot does NOT match T0 -- either a fixture leaked or the run touched an unrelated real order. STOP -- do not ship this migration.\n';
   else
-    v_log := v_log || E'OK   T8: post-cleanup snapshot matches T0 exactly -- no fixture leaked, no real order was touched\n';
+    v_log := v_log || E'OK   T8: post-cleanup snapshot matches T0 exactly -- no fixture leaked, no money aggregate drifted\n';
   end if;
 
   -- --------------------------------------------------------------------

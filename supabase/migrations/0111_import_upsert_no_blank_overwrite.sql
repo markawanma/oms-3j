@@ -84,7 +84,7 @@ returns text
 language sql
 immutable
 strict
-set search_path = pg_temp
+set search_path = pg_catalog, pg_temp
 as $$
   select nullif(nullif(btrim(p), ''), '-')
 $$;
@@ -244,16 +244,37 @@ revoke execute on function analytics.transform_pending_orders(uuid, uuid) from p
 grant execute on function analytics.transform_pending_orders(uuid, uuid) to service_role;
 
 -- ============================================================================
--- 3. Backfill — the 222 fact_order rows that already hold the literal '-'
---    from a pre-fix import are real "not yet known" placeholders, same as
---    what the new insert-side helper now prevents going forward. Cleaning
---    them to NULL here matches the new convention and stops them showing up
---    as fake tracking numbers on the /orders and /tiktok pages. Scoped to
---    the exact placeholder string only — never touches a row with a real
---    tracking number, and is naturally idempotent (0 rows match on a
---    second run).
+-- 3. Backfill — the fact_order rows that already hold the literal '-' (or an
+--    empty string) from a pre-fix import are real "not yet known"
+--    placeholders, same as what the new insert-side helper now prevents going
+--    forward. Cleaning them to NULL matches the new convention and stops them
+--    showing up as fake tracking numbers on the /orders and /tiktok pages.
+--    It also closes a latent trap (security review 11 ก.ย. 69):
+--    idx_fact_order_shop_tracking is NOT unique and label_apply_matched
+--    (0097) updates set-based on fo.tracking_no = page.tracking_no, so a
+--    label page that ever parsed to '-' would have stamped its province onto
+--    every '-' row at once.
+--
+--    Row-count cap: this is the one statement in the file that permanently
+--    edits real rows on the table carrying revenue, and the verify script
+--    deliberately does not rehearse it — so it refuses to run if it would
+--    touch far more rows than the ~202 counted live on 11 ก.ย. 69 (222 on
+--    10 ก.ย. before the last label print). Never touches a row with a real
+--    tracking number; idempotent (0 rows on a second run).
 -- ============================================================================
 
-update analytics.fact_order set tracking_no = null where tracking_no = '-';
+do $$
+declare
+  v_n int;
+begin
+  update analytics.fact_order
+     set tracking_no = null
+   where btrim(tracking_no) in ('-', '');
+  get diagnostics v_n = row_count;
+  raise notice '0111 backfill: cleared % placeholder tracking_no row(s)', v_n;
+  if v_n > 1000 then
+    raise exception '0111 backfill matched % rows, expected ~200 -- aborting so nothing in this migration is committed', v_n;
+  end if;
+end $$;
 
 notify pgrst, 'reload schema';
