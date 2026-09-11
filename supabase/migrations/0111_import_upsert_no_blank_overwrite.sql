@@ -32,12 +32,12 @@
 -- placement around them changed for diff readability — no expression text
 -- was touched.
 --
--- ⚠️ PREPARED, NOT APPLIED — written for Tech Lead to review and apply via
--- the Supabase MCP (supabase-migrate skill: pre-check -> apply_migration ->
--- self-verify -> get_advisors). Do not run this against a live project as
--- part of writing it. scripts/verify-0111-upsert-rules.sql rehearses this
--- exact DDL (replay + do-block + forced rollback) and should be run FIRST,
--- as a read-only proof, before apply_migration touches the live function.
+-- ✅ APPLIED 11 ก.ย. 69 via apply_migration (supabase-migrate skill:
+-- pre-check -> dry-run x2 -> apply_migration -> post-apply checks ->
+-- get_advisors). Review trail: security GO (Mace) · QA (R2, T9–T12 added)
+-- · code-review GO (C-3PO). scripts/verify-0111-upsert-rules.sql rehearses
+-- this exact DDL (replay + do-block + forced rollback) — it was run twice
+-- against the live project BEFORE apply (16/16) and stays runnable after.
 --
 -- Written against analytics.transform_pending_orders(uuid,uuid) as it
 -- existed live on the DB on 10 ก.ย. 69 (pulled via
