@@ -236,6 +236,15 @@ export interface ImportCommitResult {
   inserted: number;
   transformed: number;
   errored: number;
+  /** Cancel-detection Phase 1 (0114): rows in THIS batch that transform_
+   * pending_orders skipped because their source_order_no has an active
+   * tombstone (analytics.fact_order_deleted, restored_at is null) — the
+   * owner deliberately deleted this order before, and this file tried to
+   * bring it back. Not counted in `transformed` or `errored` (it's neither
+   * a success nor a failure, a distinct outcome) — additive field, existing
+   * callers reading only batchId/inserted/transformed/errored are
+   * unaffected. UI surfaces this as "ข้าม N ใบที่เคยลบ" per design §5. */
+  tombstoned: number;
 }
 
 export async function commitOrderImport(formData: FormData): Promise<ActionResult<ImportCommitResult>> {
@@ -374,6 +383,27 @@ export async function commitOrderImport(formData: FormData): Promise<ActionResul
       .eq("id", batchId);
     if (updStatusErr) throw updStatusErr;
 
+    // 7. cancel-detection Phase 1 (0114): count rows this batch's transform
+    // skipped as tombstoned (order re-appeared after a deliberate delete).
+    // transform_pending_orders' own RETURNS TABLE shape is untouched (still
+    // just transformed_count/errored_count) — tombstoned isn't a success or
+    // a failure, so it's counted separately here rather than overloading
+    // either existing number. Best-effort: a failure here must not fail the
+    // whole import (the transform itself already committed successfully).
+    let tombstonedCount = 0;
+    try {
+      const { count, error: tombstonedErr } = await supabase
+        .schema(SCHEMA)
+        .from("stg_order_import")
+        .select("id", { count: "exact", head: true })
+        .eq("batch_id", batchId)
+        .eq("import_status", "tombstoned");
+      if (tombstonedErr) throw tombstonedErr;
+      tombstonedCount = count ?? 0;
+    } catch (tombstonedCountErr) {
+      console.error("commitOrderImport: failed to count tombstoned rows", tombstonedCountErr);
+    }
+
     revalidatePath("/crm/import");
     revalidatePath("/crm/overview");
     revalidatePath("/crm/orders");
@@ -388,6 +418,7 @@ export async function commitOrderImport(formData: FormData): Promise<ActionResul
         inserted: upsertedCount,
         transformed: Number(result.transformed_count) || 0,
         errored: Number(result.errored_count) || 0,
+        tombstoned: tombstonedCount,
       },
     };
   } catch (err) {
