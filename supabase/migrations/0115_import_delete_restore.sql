@@ -223,10 +223,11 @@ begin
   end loop;
 
   -- physical delete — cascades fact_order_item / dim_address /
-  -- crm_order_override (all ON DELETE CASCADE per 0010/0021), and
-  -- ON DELETE SET NULLs stg_order_import.fact_order_id (already tombstoned
-  -- above) and, transitively via fact_order_item's own cascade,
-  -- stg_order_line_import.fact_order_item_id (already marked orphan above).
+  -- crm_order_override (all ON DELETE CASCADE per 0010/0021 — see the
+  -- v_cascade_fk_count guard above), and ON DELETE SET NULLs stg_order_
+  -- import.fact_order_id (already tombstoned above) and, transitively via
+  -- fact_order_item's own cascade, stg_order_line_import.fact_order_item_id
+  -- (already marked tombstoned above, not 'orphan' — QA gate 12 ก.ย. 69).
   delete from analytics.fact_order where id = any (v_deleted_ids) and shop_id = p_shop_id;
 
   -- recompute is_new_customer (shop-wide, set-based, only writes rows whose

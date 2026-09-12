@@ -792,10 +792,11 @@ begin
   end loop;
 
   -- physical delete — cascades fact_order_item / dim_address /
-  -- crm_order_override (all ON DELETE CASCADE per 0010/0021), and
-  -- ON DELETE SET NULLs stg_order_import.fact_order_id (already tombstoned
-  -- above) and, transitively via fact_order_item's own cascade,
-  -- stg_order_line_import.fact_order_item_id (already marked orphan above).
+  -- crm_order_override (all ON DELETE CASCADE per 0010/0021 — see the
+  -- v_cascade_fk_count guard above), and ON DELETE SET NULLs stg_order_
+  -- import.fact_order_id (already tombstoned above) and, transitively via
+  -- fact_order_item's own cascade, stg_order_line_import.fact_order_item_id
+  -- (already marked tombstoned above, not 'orphan' — QA gate 12 ก.ย. 69).
   delete from analytics.fact_order where id = any (v_deleted_ids) and shop_id = p_shop_id;
 
   -- recompute is_new_customer (shop-wide, set-based, only writes rows whose
@@ -1338,10 +1339,12 @@ declare
   v_batch_newer uuid; v_batch_notdone uuid; v_batch_cap uuid;
 
   v_stg_old_id uuid; -- ZZ150's staging row (batch_old) — reused by re-transform test
+  v_stg_line_zz150_id uuid; -- ZZ150's line-item staging row (batch_old) — QA item 4 assertions
 
   v_id_zz150 uuid; v_id_zz155 uuid; v_id_zz160 uuid; v_id_zz165 uuid; v_id_zz170 uuid;
   v_id_zz050 uuid; v_id_zz250 uuid; v_id_zz190 uuid;
   v_item_id uuid;
+  v_addr_id uuid; -- C-1: dim_address fixture for ZZ150
 
   v_other_shop_id uuid;
 
@@ -1349,6 +1352,7 @@ declare
   v_missing_json jsonb;
   v_delete_result jsonb;
   v_restore_result jsonb;
+  v_deleted_id_zz150 uuid; -- fact_order_deleted.id for ZZ150 — captured once, reused by the duplicate-ids test and the real restore
 
   v_before_ts timestamptz;
   v_new_cust_count int;
@@ -1358,6 +1362,22 @@ declare
 
   v_row analytics.fact_order%rowtype;
   v_fake_phone text := '0891234567';
+
+  -- QA item 4 (orphan-backlog line-item tombstone assertions).
+  v_orphan_count_before int; v_orphan_count_after int;
+  v_batch_line_reimport uuid;
+  v_stg_line_reimport_id uuid;
+  v_tpol_transformed int; v_tpol_orphan int; v_tpol_skipped int; v_tpol_unknown int; v_tpol_errored int;
+
+  -- Extra tests: restore-vs-live-conflict + duplicate ids + cross-shop id +
+  -- existing-but-invalid id + merged-customer walk.
+  v_deleted_id_zz400 uuid;
+  v_id_zz400_live uuid;
+  v_cust_a_id uuid; v_cust_b_id uuid;
+  v_batch_merge uuid;
+  v_id_zz750 uuid;
+  v_deleted_id_zz750 uuid;
+  v_restored_zz750_customer_id uuid;
 begin
   -- run as service_role, matching how the app actually calls these RPCs.
   perform set_config('request.jwt.claims', '{"role":"service_role"}', true);
@@ -1447,12 +1467,20 @@ begin
   insert into analytics.crm_order_override (fact_order_id, shop_id, overrides, reason)
   values (v_id_zz150, v_shop_id, jsonb_build_object('tags', jsonb_build_array('verify-fixture')), v_tag || ' override');
 
+  -- C-1 (security review 12 ก.ย. 69): dim_address fixture — proves the
+  -- snapshot/restore now covers this table too (before this fix, this row
+  -- would cascade away on delete and never come back).
+  insert into analytics.dim_address (shop_id, fact_order_id, raw_address)
+  values (v_shop_id, v_id_zz150, v_tag || ' 123 verify fixture address')
+  returning id into v_addr_id;
+
   insert into analytics.stg_order_import (batch_id, shop_id, raw, source_kind, source_order_no, channel_raw, phone_raw, order_created_at, revenue, discount_total, import_status, fact_order_id)
   values (v_batch_old, v_shop_id, '{}'::jsonb, 'excel', 'ZZ150', v_chan_a_alias, v_fake_phone, '2026-01-01 09:00:00+07', 250.00, 0, 'transformed', v_id_zz150)
   returning id into v_stg_old_id;
 
   insert into analytics.stg_order_line_import (batch_id, shop_id, source_order_no, line_no, sku_raw, product_name_raw, qty, raw, import_status, fact_order_item_id)
-  values (v_batch_old, v_shop_id, 'ZZ150', 1, v_tag || '-SKU', 'verify fixture item', 1, '{}'::jsonb, 'transformed', v_item_id);
+  values (v_batch_old, v_shop_id, 'ZZ150', 1, v_tag || '-SKU', 'verify fixture item', 1, '{}'::jsonb, 'transformed', v_item_id)
+  returning id into v_stg_line_zz150_id;
 
   -- 8 "must NOT delete" fixtures --------------------------------------------
 
@@ -1520,6 +1548,21 @@ begin
     v_log := v_log || E'OK   G686-analog: ZZ150 found in candidates\n';
   end if;
 
+  -- H-3 (security review 12 ก.ย. 69): ZZ190 (num=190, date 2026-01-12,
+  -- channel A) is ALSO a genuine candidate against batch_main's F (lo=100
+  -- hi=200, dlo=01-10 dhi=01-15) — it was fixtured below purely as "the
+  -- valid id" for the invalid-id-mixed-in test, but it independently
+  -- satisfies C1-C8 same as ZZ150 does, so it must show up here too. The
+  -- original verify script asserted candidate_count=1 (ZZ150 only), which
+  -- was simply wrong — it would have FAILed this rehearsal against a
+  -- correct 0113 implementation.
+  if v_candidates_result is null or not (v_id_zz190 = any (v_candidates_result)) then
+    v_fail_count := v_fail_count + 1;
+    v_log := v_log || E'FAIL H-3: ZZ190 not found in candidates (it is a genuine candidate, not just an invalid-id-test fixture)\n';
+  else
+    v_log := v_log || E'OK   H-3: ZZ190 found in candidates\n';
+  end if;
+
   if v_candidates_result is not null and (
        v_id_zz155 = any (v_candidates_result) or v_id_zz160 = any (v_candidates_result)
        or v_id_zz165 = any (v_candidates_result) or v_id_zz170 = any (v_candidates_result)
@@ -1570,11 +1613,16 @@ begin
   if (v_missing_json ->> 'ok')::boolean is not true then
     v_fail_count := v_fail_count + 1;
     v_log := v_log || format(E'FAIL import_missing_orders(batch_main): ok=false, blocked_reason=%s\n', v_missing_json ->> 'blocked_reason');
-  elsif (v_missing_json ->> 'candidate_count')::int <> 1 then
+  elsif (v_missing_json ->> 'candidate_count')::int <> 2 then
+    -- H-3 fix: 2 (ZZ150 + ZZ190), not 1 — see STEP 3's H-3 comment above.
     v_fail_count := v_fail_count + 1;
-    v_log := v_log || format(E'FAIL import_missing_orders(batch_main): candidate_count=%s, want 1\n', v_missing_json ->> 'candidate_count');
+    v_log := v_log || format(E'FAIL import_missing_orders(batch_main): candidate_count=%s, want 2 (ZZ150 + ZZ190)\n', v_missing_json ->> 'candidate_count');
+  elsif not (v_missing_json -> 'candidates' @> jsonb_build_array(jsonb_build_object('fact_order_id', v_id_zz150)))
+     or not (v_missing_json -> 'candidates' @> jsonb_build_array(jsonb_build_object('fact_order_id', v_id_zz190))) then
+    v_fail_count := v_fail_count + 1;
+    v_log := v_log || format(E'FAIL import_missing_orders(batch_main): candidates array missing ZZ150 or ZZ190: %s\n', v_missing_json -> 'candidates');
   else
-    v_log := v_log || E'OK   import_missing_orders(batch_main): ok=true, candidate_count=1 (ZZ150 only)\n';
+    v_log := v_log || E'OK   import_missing_orders(batch_main): ok=true, candidate_count=2 (ZZ150 + ZZ190), both present in candidates[]\n';
   end if;
 
   -- cap test: batch_cap must be blocked with too_many but STILL return the
@@ -1615,11 +1663,56 @@ begin
     v_log := v_log || E'FAIL invalid-id: ZZ190 got deleted despite the whole call being expected to abort\n';
   end if;
 
+  -- QA (12 ก.ย. 69, "เล็ก"): same all-or-nothing check, but the invalid id
+  -- is a REAL, EXISTING fact_order that simply fails a candidate rule (ZZ155
+  -- fails C4 — date outside range) rather than a literally nonexistent uuid.
+  -- Proves the `x not in (select fact_order_id from candidates)` guard in
+  -- import_delete_orders catches "exists but not a valid candidate", not
+  -- just "does not exist at all".
+  select coalesce(sum(revenue), 0) into v_revenue_before from analytics.fact_order where shop_id = v_shop_id;
+  begin
+    perform analytics.import_delete_orders(v_shop_id, v_batch_main, array[v_id_zz190, v_id_zz155], v_tag || ' existing-invalid-id test');
+    v_fail_count := v_fail_count + 1;
+    v_log := v_log || E'FAIL existing-invalid-id: call mixing ZZ190 (valid) with ZZ155 (real order, fails C4) did not raise\n';
+  exception when others then
+    v_log := v_log || E'OK   existing-invalid-id: call raised as expected\n';
+  end;
+  select coalesce(sum(revenue), 0) into v_revenue_after from analytics.fact_order where shop_id = v_shop_id;
+  if v_revenue_before is distinct from v_revenue_after
+     or not exists (select 1 from analytics.fact_order where id = v_id_zz190 and shop_id = v_shop_id)
+     or not exists (select 1 from analytics.fact_order where id = v_id_zz155 and shop_id = v_shop_id) then
+    v_fail_count := v_fail_count + 1;
+    v_log := v_log || E'FAIL existing-invalid-id: something got deleted despite the whole call being expected to abort\n';
+  else
+    v_log := v_log || E'OK   existing-invalid-id: nothing deleted, both ZZ190 and ZZ155 still live\n';
+  end if;
+
+  -- M-3(a) (security review 12 ก.ย. 69): a fact_order id that belongs to a
+  -- DIFFERENT shop, passed directly (not mixed with a valid id) — must raise
+  -- the same way (C1 excludes it from candidates for v_shop_id entirely).
+  begin
+    perform analytics.import_delete_orders(v_shop_id, v_batch_main, array[v_id_zz165], v_tag || ' cross-shop test');
+    v_fail_count := v_fail_count + 1;
+    v_log := v_log || E'FAIL cross-shop: deleting another shop''s order id did not raise\n';
+  exception when others then
+    v_log := v_log || E'OK   cross-shop: deleting another shop''s order id raised as expected\n';
+  end;
+  if not exists (select 1 from analytics.fact_order where id = v_id_zz165 and shop_id = v_other_shop_id) then
+    v_fail_count := v_fail_count + 1;
+    v_log := v_log || E'FAIL cross-shop: ZZ165 (other shop) got deleted despite belonging to a different shop_id\n';
+  else
+    v_log := v_log || E'OK   cross-shop: ZZ165 (other shop) untouched\n';
+  end if;
+
   -- ==========================================================================
   -- STEP 6: real delete of ZZ150 -- snapshot correctness + side effects.
   -- ==========================================================================
   select coalesce(sum(revenue), 0) into v_revenue_before from analytics.fact_order where shop_id = v_shop_id;
   select analytics.dashboard_summary(v_shop_id, '2000-01-01'::date, '2035-12-31'::date, null, true) into v_dash_before;
+  -- QA item 4(a): orphan-backlog row count for this shop BEFORE the delete
+  -- (should not grow once ZZ150's line is deleted — it goes to 'tombstoned', not 'orphan').
+  select count(*) into v_orphan_count_before
+    from analytics.stg_order_line_import where shop_id = v_shop_id and import_status = 'orphan';
 
   select analytics.import_delete_orders(v_shop_id, v_batch_main, array[v_id_zz150], v_tag || ' delete test') into v_delete_result;
 
@@ -1638,13 +1731,37 @@ begin
     v_fail_count := v_fail_count + 1; v_log := v_log || E'FAIL delete: fact_order_item for ZZ150 still exists (cascade did not fire)\n';
   else v_log := v_log || E'OK   delete: fact_order_item for ZZ150 cascaded away\n'; end if;
 
+  -- C-1: dim_address cascades away the same as fact_order_item.
+  if exists (select 1 from analytics.dim_address where fact_order_id = v_id_zz150) then
+    v_fail_count := v_fail_count + 1; v_log := v_log || E'FAIL delete (C-1): dim_address for ZZ150 still exists (cascade did not fire)\n';
+  else v_log := v_log || E'OK   delete (C-1): dim_address for ZZ150 cascaded away\n'; end if;
+
   if exists (select 1 from analytics.stg_order_import where id = v_stg_old_id and import_status = 'tombstoned') then
     v_log := v_log || E'OK   delete: stg_order_import row for ZZ150 marked tombstoned\n';
   else
     v_fail_count := v_fail_count + 1; v_log := v_log || E'FAIL delete: stg_order_import row for ZZ150 is not tombstoned\n';
   end if;
 
-  if not exists (select 1 from analytics.fact_order_deleted where fact_order_id = v_id_zz150 and restored_at is null) then
+  -- QA item 4(b): the already-linked line-item row for ZZ150 must go to
+  -- 'tombstoned', not 'orphan'.
+  if exists (select 1 from analytics.stg_order_line_import where id = v_stg_line_zz150_id and import_status = 'tombstoned' and fact_order_item_id is null) then
+    v_log := v_log || E'OK   delete (QA 4b): stg_order_line_import row for ZZ150 marked tombstoned, fact_order_item_id cleared\n';
+  else
+    v_fail_count := v_fail_count + 1; v_log := v_log || E'FAIL delete (QA 4b): stg_order_line_import row for ZZ150 is not tombstoned (cascade SET NULL + status flip did not both happen)\n';
+  end if;
+
+  -- QA item 4(a): orphan-backlog row count must NOT have grown from this delete.
+  select count(*) into v_orphan_count_after
+    from analytics.stg_order_line_import where shop_id = v_shop_id and import_status = 'orphan';
+  if v_orphan_count_after <> v_orphan_count_before then
+    v_fail_count := v_fail_count + 1;
+    v_log := v_log || format(E'FAIL delete (QA 4a): orphan row count changed %s -> %s -- deleting an order must not create new ''orphan'' rows\n', v_orphan_count_before, v_orphan_count_after);
+  else
+    v_log := v_log || format(E'OK   delete (QA 4a): orphan row count unchanged (%s)\n', v_orphan_count_after);
+  end if;
+
+  select id into v_deleted_id_zz150 from analytics.fact_order_deleted where fact_order_id = v_id_zz150 and restored_at is null;
+  if v_deleted_id_zz150 is null then
     v_fail_count := v_fail_count + 1; v_log := v_log || E'FAIL delete: no active fact_order_deleted row for ZZ150\n';
   else
     v_log := v_log || E'OK   delete: fact_order_deleted row created for ZZ150\n';
@@ -1698,9 +1815,64 @@ begin
   end if;
 
   -- ==========================================================================
+  -- STEP 7b: QA item 4(c) — a line-item FILE re-imported for ZZ150 while
+  -- still tombstoned must land the new staging row on 'tombstoned', not
+  -- 'orphan' (transform_pending_order_lines' own tombstone check).
+  -- ==========================================================================
+  insert into analytics.stg_import_batch (shop_id, source_type, file_name, file_hash, status, imported_at)
+  values (v_shop_id, 'excel_line_item_report', v_tag || '-line-reimport.xlsx', v_tag || '-line-reimport', 'loaded', now())
+  returning id into v_batch_line_reimport;
+
+  insert into analytics.stg_order_line_import (batch_id, shop_id, source_order_no, line_no, sku_raw, product_name_raw, qty, raw, import_status)
+  values (v_batch_line_reimport, v_shop_id, 'ZZ150', 2, v_tag || '-SKU2', 'verify fixture re-import item', 1, '{}'::jsonb, 'pending')
+  returning id into v_stg_line_reimport_id;
+
+  select transformed_count, orphan_count, skipped_blank_count, unknown_sku_count, errored_count
+    into v_tpol_transformed, v_tpol_orphan, v_tpol_skipped, v_tpol_unknown, v_tpol_errored
+    from analytics.transform_pending_order_lines(v_shop_id, v_batch_line_reimport);
+
+  if v_tpol_orphan <> 0 then
+    v_fail_count := v_fail_count + 1;
+    v_log := v_log || format(E'FAIL QA 4c: transform_pending_order_lines reported orphan_count=%s, want 0 (the tombstone check must short-circuit before the orphan branch)\n', v_tpol_orphan);
+  else
+    v_log := v_log || E'OK   QA 4c: transform_pending_order_lines reported orphan_count=0\n';
+  end if;
+
+  if exists (
+    select 1 from analytics.stg_order_line_import
+    where id = v_stg_line_reimport_id and import_status = 'tombstoned' and fact_order_item_id is null
+  ) then
+    v_log := v_log || E'OK   QA 4c: re-imported line for ZZ150 landed on tombstoned, not orphan\n';
+  else
+    v_fail_count := v_fail_count + 1;
+    v_log := v_log || E'FAIL QA 4c: re-imported line for ZZ150 did not land on tombstoned\n';
+  end if;
+
+  -- ==========================================================================
+  -- STEP 7c: QA — duplicate id within a single import_restore_orders call
+  -- must raise the whole call, leaving ZZ150 still deleted (the FOR UPDATE +
+  -- restored_at is null guard on the second occurrence of the same id is
+  -- what should trip this — proving that guard, not just uniqueness of
+  -- p_deleted_ids, is what the function relies on).
+  -- ==========================================================================
+  begin
+    perform analytics.import_restore_orders(v_shop_id, array[v_deleted_id_zz150, v_deleted_id_zz150]);
+    v_fail_count := v_fail_count + 1;
+    v_log := v_log || E'FAIL duplicate-ids: restore call with the same deleted-id twice did not raise\n';
+  exception when others then
+    v_log := v_log || E'OK   duplicate-ids: restore call with the same deleted-id twice raised as expected\n';
+  end;
+  if exists (select 1 from analytics.fact_order where id = v_id_zz150) then
+    v_fail_count := v_fail_count + 1;
+    v_log := v_log || E'FAIL duplicate-ids: ZZ150 got restored despite the whole call being expected to abort (savepoint rollback on raise did not undo the first iteration)\n';
+  else
+    v_log := v_log || E'OK   duplicate-ids: ZZ150 still not restored (raise rolled back the first iteration''s work too)\n';
+  end if;
+
+  -- ==========================================================================
   -- STEP 8: restore -- id/items/links/revenue all come back.
   -- ==========================================================================
-  select analytics.import_restore_orders(v_shop_id, array[(select id from analytics.fact_order_deleted where fact_order_id = v_id_zz150 and restored_at is null)])
+  select analytics.import_restore_orders(v_shop_id, array[v_deleted_id_zz150])
     into v_restore_result;
 
   if (v_restore_result ->> 'restored_count')::int <> 1 or (v_restore_result ->> 'restored_revenue_thb')::numeric is distinct from 250.00 then
@@ -1740,6 +1912,122 @@ begin
     v_log := v_log || E'OK   restore: sum(revenue) back to exactly the pre-delete amount\n';
   end if;
 
+  -- C-1: dim_address restored with the same content.
+  if not exists (select 1 from analytics.dim_address where id = v_addr_id and fact_order_id = v_id_zz150 and raw_address = v_tag || ' 123 verify fixture address') then
+    v_fail_count := v_fail_count + 1; v_log := v_log || E'FAIL restore (C-1): dim_address for ZZ150 did not come back\n';
+  else v_log := v_log || E'OK   restore (C-1): dim_address for ZZ150 came back with original id + content\n'; end if;
+
+  -- M-3(ง): crm_order_override restored too (existing fixture, was never
+  -- explicitly asserted before this pass — only blindly cleaned up).
+  if not exists (select 1 from analytics.crm_order_override where fact_order_id = v_id_zz150 and reason = v_tag || ' override') then
+    v_fail_count := v_fail_count + 1; v_log := v_log || E'FAIL restore (M-3): crm_order_override for ZZ150 did not come back\n';
+  else v_log := v_log || E'OK   restore (M-3): crm_order_override for ZZ150 came back\n'; end if;
+
+  -- QA item 2 (import_restore_orders fix): the stray line row re-imported
+  -- WHILE ZZ150 was tombstoned (STEP 7b, fact_order_item_id still null) has
+  -- no entry in stg_line_links and so is untouched by the loop above — it
+  -- must instead have been reset to 'pending' so the next transform run
+  -- picks it up against the now-restored fact_order.
+  if not exists (select 1 from analytics.stg_order_line_import where id = v_stg_line_reimport_id and import_status = 'pending' and fact_order_item_id is null) then
+    v_fail_count := v_fail_count + 1; v_log := v_log || E'FAIL restore (QA item 2): stray re-imported line for ZZ150 was not reset to pending\n';
+  else v_log := v_log || E'OK   restore (QA item 2): stray re-imported line for ZZ150 reset to pending\n'; end if;
+
+  -- ==========================================================================
+  -- STEP 8b: restore-vs-live-conflict — a deleted-order record whose
+  -- source_order_no now has a LIVE fact_order (Shipnity number reuse) must
+  -- raise and touch NEITHER row. Inserted directly into fact_order_deleted
+  -- (not via a full delete cycle) because the live-conflict check fires
+  -- BEFORE order_row is ever populated via jsonb_populate_record — order_row
+  -- only needs to satisfy the column's own NOT NULL, it is never actually
+  -- parsed as a fact_order shape on this path, so a minimal '{}'::jsonb is
+  -- sufficient and accurately exercises exactly the code path being tested.
+  -- ==========================================================================
+  insert into analytics.fact_order (shop_id, source_order_no, channel_id, order_date, revenue)
+  values (v_shop_id, 'ZZ400', v_chan_a_id, '2026-01-12', 999.00)
+  returning id into v_id_zz400_live;
+
+  insert into analytics.fact_order_deleted (
+    shop_id, fact_order_id, source_order_no, channel_id, order_date, revenue, customer_id,
+    order_row, item_rows, address_rows, override_row, stg_order_import_ids, stg_line_links,
+    evidence, reason
+  ) values (
+    v_shop_id, gen_random_uuid(), 'ZZ400', v_chan_a_id, '2026-01-12', 100.00, null,
+    '{}'::jsonb, '[]'::jsonb, '[]'::jsonb, null, '{}', '[]'::jsonb,
+    '{}'::jsonb, v_tag || ' restore-conflict fixture'
+  ) returning id into v_deleted_id_zz400;
+
+  begin
+    perform analytics.import_restore_orders(v_shop_id, array[v_deleted_id_zz400]);
+    v_fail_count := v_fail_count + 1;
+    v_log := v_log || E'FAIL restore-conflict: restoring over a live same-source_order_no order did not raise\n';
+  exception when others then
+    v_log := v_log || E'OK   restore-conflict: restoring over a live same-source_order_no order raised as expected\n';
+  end;
+  if not exists (select 1 from analytics.fact_order where id = v_id_zz400_live and revenue = 999.00) then
+    v_fail_count := v_fail_count + 1;
+    v_log := v_log || E'FAIL restore-conflict: the LIVE ZZ400 order was touched despite the call being expected to abort\n';
+  else
+    v_log := v_log || E'OK   restore-conflict: the LIVE ZZ400 order (revenue=999.00) is untouched\n';
+  end if;
+  if not exists (select 1 from analytics.fact_order_deleted where id = v_deleted_id_zz400 and restored_at is null) then
+    v_fail_count := v_fail_count + 1;
+    v_log := v_log || E'FAIL restore-conflict: the fake deleted-ZZ400 record got marked restored despite the call being expected to abort\n';
+  else
+    v_log := v_log || E'OK   restore-conflict: the fake deleted-ZZ400 record is still unrestored\n';
+  end if;
+
+  -- ==========================================================================
+  -- STEP 8c: merged-customer walk — restoring an order whose snapshot
+  -- customer_id has since been merged into another customer must land on
+  -- the CURRENT (merged-into) customer, not resurrect a reference to the
+  -- now-soft-retired one. Goes through the REAL import_delete_orders (not a
+  -- hand-crafted fact_order_deleted row) specifically so order_row is a
+  -- genuine to_jsonb(fact_order) snapshot — this path DOES reach jsonb_
+  -- populate_record + a real INSERT, so it needs every NOT NULL column to
+  -- be real, not the '{}'::jsonb shortcut STEP 8b used.
+  --
+  -- Isolated batch (v_batch_merge, its own ZZ700/ZZ800 F range) so this
+  -- fixture's own candidate does not add a 3rd row to batch_main's already-
+  -- asserted candidate_count=2 (ZZ150 + ZZ190) above.
+  -- ==========================================================================
+  insert into analytics.dim_customer (shop_id, display_name) values (v_shop_id, v_tag || ' merge-source') returning id into v_cust_a_id;
+  insert into analytics.dim_customer (shop_id, display_name) values (v_shop_id, v_tag || ' merge-target') returning id into v_cust_b_id;
+
+  insert into analytics.stg_import_batch (shop_id, source_type, file_name, file_hash, status, imported_at)
+  values (v_shop_id, 'excel_order_report', v_tag || '-merge.xlsx', v_tag || '-merge', 'transformed', now())
+  returning id into v_batch_merge;
+
+  insert into analytics.stg_order_import (batch_id, shop_id, raw, source_kind, source_order_no, channel_raw, order_created_at, revenue, discount_total, import_status)
+  values
+    (v_batch_merge, v_shop_id, '{}'::jsonb, 'excel', 'ZZ700', v_chan_a_alias, '2026-04-01 09:00:00+07', 100, 0, 'transformed'),
+    (v_batch_merge, v_shop_id, '{}'::jsonb, 'excel', 'ZZ800', v_chan_a_alias, '2026-04-10 09:00:00+07', 100, 0, 'transformed');
+  insert into analytics.fact_order (shop_id, source_order_no, channel_id, order_date, revenue)
+  values
+    (v_shop_id, 'ZZ700', v_chan_a_id, '2026-04-01', 100),
+    (v_shop_id, 'ZZ800', v_chan_a_id, '2026-04-10', 100);
+
+  insert into analytics.fact_order (shop_id, source_order_no, channel_id, order_date, revenue, customer_id)
+  values (v_shop_id, 'ZZ750', v_chan_a_id, '2026-04-05', 321.00, v_cust_a_id)
+  returning id into v_id_zz750;
+
+  select analytics.import_delete_orders(v_shop_id, v_batch_merge, array[v_id_zz750], v_tag || ' merge test delete') into v_delete_result;
+  select id into v_deleted_id_zz750 from analytics.fact_order_deleted where fact_order_id = v_id_zz750 and restored_at is null;
+
+  -- merge AFTER delete, matching the real-world ordering the design brief
+  -- flags as risk (§10 "แก้วันที่ออเดอร์ใน Shipnity" sibling risk: customer
+  -- data can change while an order sits tombstoned).
+  update analytics.dim_customer set merged_into_id = v_cust_b_id where id = v_cust_a_id;
+
+  perform analytics.import_restore_orders(v_shop_id, array[v_deleted_id_zz750]);
+
+  select customer_id into v_restored_zz750_customer_id from analytics.fact_order where id = v_id_zz750;
+  if v_restored_zz750_customer_id is distinct from v_cust_b_id then
+    v_fail_count := v_fail_count + 1;
+    v_log := v_log || format(E'FAIL merged-customer: restored ZZ750.customer_id=%s, want the merge target %s\n', v_restored_zz750_customer_id, v_cust_b_id);
+  else
+    v_log := v_log || E'OK   merged-customer: restored ZZ750 landed on the CURRENT (merged-into) customer\n';
+  end if;
+
   -- ==========================================================================
   -- STEP 9: cleanup every fixture this script created, then re-snapshot.
   -- ==========================================================================
@@ -1750,7 +2038,13 @@ begin
   delete from analytics.stg_order_line_import where shop_id = v_shop_id and source_order_no = 'ZZ150';
   delete from analytics.stg_order_import where shop_id = v_shop_id and source_order_no like 'ZZ%';
   delete from analytics.fact_order_deleted where shop_id = v_shop_id and source_order_no like 'ZZ%';
-  delete from analytics.stg_import_batch where id in (v_batch_old, v_batch_main, v_batch_error, v_batch_wrongsrc, v_batch_newer, v_batch_notdone, v_batch_cap);
+  delete from analytics.stg_import_batch where id in (v_batch_old, v_batch_main, v_batch_error, v_batch_wrongsrc, v_batch_newer, v_batch_notdone, v_batch_cap, v_batch_merge, v_batch_line_reimport);
+  -- STEP 8b/8c fixtures: dim_customer rows are not touched by the ZZ%
+  -- wildcard deletes above (source_order_no lives on fact_order, not
+  -- dim_customer) and are not part of the T0/T8 golden snapshot either —
+  -- must be cleaned up explicitly or they leak into the real shop's
+  -- customer list permanently.
+  delete from analytics.dim_customer where id in (v_cust_a_id, v_cust_b_id);
   delete from public.shop where id = v_other_shop_id;
 
   select count(*), coalesce(sum(revenue), 0), coalesce(sum(discount), 0), coalesce(sum(cogs), 0), coalesce(sum(profit), 0)
