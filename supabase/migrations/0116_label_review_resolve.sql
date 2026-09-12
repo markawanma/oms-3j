@@ -293,21 +293,43 @@ create table if not exists analytics.label_text_rule (
   kind text not null check (kind in ('strip_codepoint', 'alias')),
   -- PDPA guard (owner 11 ก.ย.): a taught snippet must be short and
   -- non-numeric-ish enough that it can never itself carry a tracking
-  -- number/phone/zip run. M3 fix (12 ก.ย. 69, security): originally only
-  -- blocked runs of >=3 consecutive digits — a 1-2 digit number (a soi/lane
-  -- number, e.g. "ซอย 12") still slipped through, and no legitimate place
-  -- name ever needs ANY digit (Thai numerals ๐-๙ included — a snippet using
-  -- Thai digits would sail straight past a plain `\d` check, which only
-  -- matches ASCII 0-9). Tightened to a POSITIVE allow-list instead of a
-  -- digit-run block: length <=25 AND every character is a Unicode letter or
-  -- whitespace, full stop — this is now a strict superset of the old rule
-  -- (blocks every digit of every script, plus punctuation) with no loss of
-  -- any legitimate place-name pattern. Enforced here as a real CHECK
+  -- number/phone/zip run. M3 fix (12 ก.ย. 69, security), history of 2
+  -- attempts before landing here — both caught in dry-run against the live
+  -- DB before either shipped:
+  --
+  -- Attempt 1 (digit-run block): only blocked runs of >=3 consecutive ASCII
+  -- digits — "ซอย 12" (1-2 digits) and any Thai-numeral snippet sailed
+  -- straight through (plain `\d` is ASCII-only).
+  --
+  -- Attempt 2 (positive allow-list, `[[:alpha:][:space:]]+`, later widened
+  -- with explicit Thai combining-mark ranges to fix 'ใกล้วัดใหญ่' being
+  -- rejected): worked in isolated testing, but `[[:alpha:]]` in Postgres is
+  -- LOCALE-DEPENDENT (bound to the database's lc_ctype) — a CHECK constraint
+  -- that's supposed to hold true forever must never depend on a session/db
+  -- setting that can differ across environments or change over time. Not
+  -- acceptable for a permanent constraint even though it happened to work
+  -- against this specific DB's current locale.
+  --
+  -- Final approach — DENY-list, no locale-dependent classes except
+  -- [:digit:]/[:punct:] used only as an EXTRA belt-and-suspenders catch-all
+  -- (the explicit ranges above them are what actually carries the
+  -- guarantee, locale-independent either way since they're literal
+  -- codepoint/character ranges, not POSIX classes): reject ANY digit of any
+  -- script (ASCII, Thai ๐-๙, full-width０-９, plus whatever [:digit:] catches
+  -- on top of those) and ANY punctuation (blocks "บ้าน-เลข" style
+  -- injection). Letters, spaces, and Thai combining marks (tone marks +
+  -- above/below vowels) are simply never in the deny-list, so they pass
+  -- through untouched regardless of locale. Enforced here as a real CHECK
   -- (backstop) in addition to the RPC-level pre-validation in
   -- label_resolve_page (friendlier error message there — same rule, kept in
   -- sync manually, same duplication-risk note as the reason-code CHECKs).
   pattern text not null check (
-    length(pattern) > 0 and length(pattern) <= 25 and pattern ~ '^[[:alpha:][:space:]]+$'
+    length(pattern) > 0 and length(pattern) <= 25
+    and pattern !~ '[0-9]'       -- ASCII digits
+    and pattern !~ '[๐-๙]'       -- Thai digits (U+0E50-U+0E59)
+    and pattern !~ '[０-９]'     -- full-width digits (U+FF10-U+FF19)
+    and pattern !~ '[[:digit:]]' -- any other script's digits the locale recognizes
+    and pattern !~ '[[:punct:]]' -- punctuation (hyphens, slashes, etc.)
   ),
   province_code text not null references analytics.dim_geo (province_code),
   active boolean not null default false,
@@ -676,11 +698,20 @@ begin
     v_pattern := btrim(p_taught_snippet);
     if v_pattern = '' then
       v_pattern := null; -- caller sent whitespace-only — treat as "no snippet"
-    -- M3: kept in sync with label_text_rule.pattern's CHECK above — letters
-    -- + whitespace only (any script), length <=25. No digit of any kind.
-    elsif length(v_pattern) > 25 or v_pattern !~ '^[[:alpha:][:space:]]+$' then
+    -- M3: kept in sync with label_text_rule.pattern's CHECK above — deny-list
+    -- (no ASCII/Thai/full-width/locale-digit, no punctuation), NOT a
+    -- `[[:alpha:]]`-based allow-list, because that class is locale-dependent
+    -- (see that CHECK's comment for the full history — 2 earlier attempts
+    -- caught in dry-run 12 ก.ย. 69 against the live DB).
+    elsif length(v_pattern) > 25
+       or v_pattern ~ '[0-9]'
+       or v_pattern ~ '[๐-๙]'
+       or v_pattern ~ '[０-９]'
+       or v_pattern ~ '[[:digit:]]'
+       or v_pattern ~ '[[:punct:]]'
+    then
       raise exception
-        'label_resolve_page: taught snippet invalid — must be <=25 chars, letters/spaces only, no digits of any kind (got % chars)',
+        'label_resolve_page: taught snippet invalid — must be <=25 chars, no digits (any script), no punctuation (got % chars)',
         length(v_pattern);
     end if;
   end if;
@@ -697,9 +728,15 @@ begin
        for update of fo
     ) locked;
   if v_fact_order_ids is null or array_length(v_fact_order_ids, 1) = 0 then
+    -- L6 fix (12 ก.ย. 69, security): don't put the real tracking number in
+    -- the exception message — it propagates up through the RPC error and
+    -- into resolveLabelPage's `console.error("resolveLabelPage failed",
+    -- err)` (lib/actions/labels.ts), which on Vercel lands in plaintext
+    -- server logs. page_id is enough to look the tracking number up
+    -- server-side (stg_label_page) if actually needed for debugging.
     raise exception
-      'label_resolve_page: no orders found with tracking number % yet — import the order first',
-      v_page.tracking_no;
+      'label_resolve_page: no orders found for this page''s tracking number yet (page %) — import the order first',
+      p_page_id;
   end if;
 
   foreach v_fact_order_id in array v_fact_order_ids loop

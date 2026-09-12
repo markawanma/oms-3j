@@ -9,8 +9,11 @@
 -- not exist beforehand). Safe to re-run any number of times afterward: every
 -- fixture row it creates lives only inside the transaction it's rolled back
 -- with, and it never touches any real shop/order/page (2 throwaway shops
--- named `__verify_0116_shop_a__` / `__verify_0116_shop_b__`, deleted by T12
--- before the forced rollback anyway).
+-- named `__verify_0116_shop_a__` / `__verify_0116_shop_b__` — NOT deleted
+-- before rollback, see T12's header: analytics.crm_audit_log is append-only,
+-- trigger 0022 blocks DELETE even via cascade from a shop delete, a real
+-- fact this script discovered against the live DB on 12 ก.ย. 69 — the
+-- rollback at the very end is the only cleanup, and it's enough).
 --
 -- Read the result from the RAISE's error message (v_log), not from any
 -- table — DB state never changes regardless of pass/fail.
@@ -534,17 +537,122 @@ begin
   end;
 
   -- ==========================================================================
-  -- T12: snapshot count/revenue ท้ายสุด = T0 (ลบ fixture ทั้งหมดแล้วเทียบ) —
-  -- รันเป็นลำดับสุดท้ายเสมอ เพราะลบ fixture ทิ้งทั้งหมด
+  -- T16c/T16d (M3, security-verified against live DB PG 17.6 en_US.UTF-8,
+  -- 12 ก.ย. 69): real Thai place names carrying tone marks/combining
+  -- characters must be ACCEPTED by the deny-list. 'ใกล้วัดใหญ่' above
+  -- (T16a/b) already exercises ้/ั/่ — these two add more real-shape
+  -- coverage (เชียงใหม่/ภูเก็ต), the exact words security confirmed pass.
   -- ==========================================================================
   begin
-    delete from public.shop where id in (v_shop_a, v_shop_b); -- cascade ลบ fact_order/stg_label_page/label_file/crm_audit_log/crm_order_override ที่ผูกกับ 2 ร้านนี้ทั้งหมด
+    insert into analytics.stg_label_page (label_file_id, shop_id, page_no, match_status, tracking_no, province_code, match_detail)
+    values (v_label_file, v_shop_a, 12, 'needs_review', '__V0116_TRACK_T16C__', v_province_x, '{}'::jsonb);
+    insert into analytics.fact_order (shop_id, source_order_no, channel_id, order_date, tracking_no, province_code, revenue)
+    values (v_shop_a, '__V0116_O_T16C__', v_channel_id, v_bkk_date, '__V0116_TRACK_T16C__', 'TH-XX', 400);
 
+    perform analytics.label_resolve_page(
+      v_shop_a,
+      (select id from analytics.stg_label_page where label_file_id = v_label_file and page_no = 12),
+      v_province_x, null, null, 'เชียงใหม่' -- มีวรรณยุกต์ ่ (mai ek, U+0E48) บน ห่
+    );
+    select evidence_count into v_evidence
+      from analytics.label_text_rule where shop_id = v_shop_a and kind = 'alias' and pattern = 'เชียงใหม่';
+    if v_evidence = 1 then
+      v_log := v_log || 'T16c: OK - ''เชียงใหม่'' (วรรณยุกต์ ่) ผ่าน' || E'\n';
+    else
+      v_log := v_log || 'T16c: FAIL - ''เชียงใหม่'' ถูกปฏิเสธหรือไม่ถูกเก็บ (evidence=' || coalesce(v_evidence::text, '<null>') || ')' || E'\n';
+    end if;
+  exception when others then
+    v_log := v_log || 'T16c: FAIL - เกิด error ไม่คาดคิด: ' || sqlerrm || E'\n';
+  end;
+
+  begin
+    insert into analytics.stg_label_page (label_file_id, shop_id, page_no, match_status, tracking_no, province_code, match_detail)
+    values (v_label_file, v_shop_a, 13, 'needs_review', '__V0116_TRACK_T16D__', v_province_x, '{}'::jsonb);
+    insert into analytics.fact_order (shop_id, source_order_no, channel_id, order_date, tracking_no, province_code, revenue)
+    values (v_shop_a, '__V0116_O_T16D__', v_channel_id, v_bkk_date, '__V0116_TRACK_T16D__', 'TH-XX', 400);
+
+    perform analytics.label_resolve_page(
+      v_shop_a,
+      (select id from analytics.stg_label_page where label_file_id = v_label_file and page_no = 13),
+      v_province_x, null, null, 'ภูเก็ต' -- มี ็ (mai taikhu, U+0E47) บน เก็
+    );
+    select evidence_count into v_evidence
+      from analytics.label_text_rule where shop_id = v_shop_a and kind = 'alias' and pattern = 'ภูเก็ต';
+    if v_evidence = 1 then
+      v_log := v_log || 'T16d: OK - ''ภูเก็ต'' (mai taikhu ็) ผ่าน' || E'\n';
+    else
+      v_log := v_log || 'T16d: FAIL - ''ภูเก็ต'' ถูกปฏิเสธหรือไม่ถูกเก็บ (evidence=' || coalesce(v_evidence::text, '<null>') || ')' || E'\n';
+    end if;
+  exception when others then
+    v_log := v_log || 'T16d: FAIL - เกิด error ไม่คาดคิด: ' || sqlerrm || E'\n';
+  end;
+
+  -- T16e/T16f/T16g: negative — Thai digits, ASCII digit+space, and
+  -- punctuation must STILL be rejected under the final deny-list rule
+  -- (security-verified against live DB, 12 ก.ย. 69). No fact_order fixture
+  -- needed for any of these — the snippet check runs BEFORE the order
+  -- lookup inside label_resolve_page, so rejection happens either way.
+  begin
+    insert into analytics.stg_label_page (label_file_id, shop_id, page_no, match_status, tracking_no, province_code, match_detail)
+    values (v_label_file, v_shop_a, 14, 'needs_review', '__V0116_TRACK_T16E__', v_province_x, '{}'::jsonb);
+    perform analytics.label_resolve_page(
+      v_shop_a,
+      (select id from analytics.stg_label_page where label_file_id = v_label_file and page_no = 14),
+      v_province_x, null, null, 'ซอย๑๒' -- เลขไทย ๑๒ (U+0E51 U+0E52)
+    );
+    v_log := v_log || 'T16e: FAIL - ''ซอย๑๒'' (เลขไทย) ผ่านทั้งที่ควรถูกปฏิเสธ' || E'\n';
+  exception when others then
+    v_log := v_log || 'T16e: OK - ''ซอย๑๒'' (เลขไทย) ถูกปฏิเสธ (' || sqlerrm || ')' || E'\n';
+  end;
+
+  begin
+    insert into analytics.stg_label_page (label_file_id, shop_id, page_no, match_status, tracking_no, province_code, match_detail)
+    values (v_label_file, v_shop_a, 15, 'needs_review', '__V0116_TRACK_T16F__', v_province_x, '{}'::jsonb);
+    perform analytics.label_resolve_page(
+      v_shop_a,
+      (select id from analytics.stg_label_page where label_file_id = v_label_file and page_no = 15),
+      v_province_x, null, null, 'ซอย 12' -- เลขอารบิกมีช่องว่างคั่น
+    );
+    v_log := v_log || 'T16f: FAIL - ''ซอย 12'' (เลขอารบิก) ผ่านทั้งที่ควรถูกปฏิเสธ' || E'\n';
+  exception when others then
+    v_log := v_log || 'T16f: OK - ''ซอย 12'' (เลขอารบิก) ถูกปฏิเสธ (' || sqlerrm || ')' || E'\n';
+  end;
+
+  begin
+    insert into analytics.stg_label_page (label_file_id, shop_id, page_no, match_status, tracking_no, province_code, match_detail)
+    values (v_label_file, v_shop_a, 16, 'needs_review', '__V0116_TRACK_T16G__', v_province_x, '{}'::jsonb);
+    perform analytics.label_resolve_page(
+      v_shop_a,
+      (select id from analytics.stg_label_page where label_file_id = v_label_file and page_no = 16),
+      v_province_x, null, null, 'บ้าน-เลข' -- เครื่องหมายขีด (punctuation) — [[:punct:]]
+    );
+    v_log := v_log || 'T16g: FAIL - ''บ้าน-เลข'' (punctuation) ผ่านทั้งที่ควรถูกปฏิเสธ' || E'\n';
+  exception when others then
+    v_log := v_log || 'T16g: OK - ''บ้าน-เลข'' (punctuation) ถูกปฏิเสธ (' || sqlerrm || ')' || E'\n';
+  end;
+
+  -- ==========================================================================
+  -- T12: snapshot count/revenue ของร้านจริง (exclude v_shop_a/v_shop_b) ก่อน
+  -- กับหลัง ต้องเท่ากันเป๊ะ — รันเป็นลำดับสุดท้ายเสมอ
+  --
+  -- 🔴 bug fix (dry-run 12 ก.ย. 69): เดิมพยายาม `delete from public.shop
+  -- where id in (...)` เพื่อลบ fixture ก่อนเทียบ — ล้มเพราะ analytics.
+  -- crm_audit_log เป็น append-only (trigger 0022 บล็อก DELETE ตรงๆ และ
+  -- cascade delete ก็โดนบล็อกเหมือนกัน) เท่ากับเป็น fact ใหม่ที่ไม่เคยรู้มา
+  -- ก่อน: **ลบ shop ที่เคยมี audit log ไม่ได้เลยไม่ว่ากรณีไหน** (ถูกต้องตาม
+  -- เจตนาออกแบบ 0021/0022 — audit ต้องคงอยู่ถาวร แต่แปลว่า verify script
+  -- แบบเดิมใช้ไม่ได้กับ trigger นี้) ไม่ต้องลบอะไรเลย — ทั้ง transaction
+  -- rollback อยู่แล้วจาก raise exception ท้ายสุด แค่เทียบยอด "ร้านจริง"
+  -- (ไม่รวม 2 ร้านทดสอบ) ก่อน/หลังว่าไม่ขยับ ก็พิสูจน์ได้เหมือนกันว่า fixture
+  -- ทั้งหมดไม่รั่วไปกระทบข้อมูลจริง.
+  -- ==========================================================================
+  begin
     select count(*), coalesce(sum(revenue), 0) into v_final_count, v_final_revenue
-      from analytics.fact_order;
+      from analytics.fact_order
+     where shop_id not in (v_shop_a, v_shop_b);
 
     if v_final_count = v_t0_count and v_final_revenue = v_t0_revenue then
-      v_log := v_log || format('T12: OK - นับ/ยอดรวมกลับเท่า T0 พอดี (count=%s, revenue=%s)', v_final_count, v_final_revenue) || E'\n';
+      v_log := v_log || format('T12: OK - นับ/ยอดรวมของร้านจริง (ไม่รวม fixture) เท่า T0 พอดี (count=%s, revenue=%s)', v_final_count, v_final_revenue) || E'\n';
     else
       v_log := v_log || format(
         'T12: FAIL - T0 count=%s revenue=%s แต่ตอนนี้ count=%s revenue=%s',
@@ -552,7 +660,7 @@ begin
       ) || E'\n';
     end if;
   exception when others then
-    v_log := v_log || 'T12: FAIL - เกิด error ไม่คาดคิดตอนลบ fixture/เทียบยอด: ' || sqlerrm || E'\n';
+    v_log := v_log || 'T12: FAIL - เกิด error ไม่คาดคิดตอนเทียบยอด: ' || sqlerrm || E'\n';
   end;
 
   raise exception '%', v_log; -- บังคับ rollback ทั้งหมด (trap #11) — DB ไม่ขยับเลย
