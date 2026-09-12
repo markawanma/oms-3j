@@ -2,11 +2,32 @@
 -- Cancel-detection Phase 1 (design: Yoda, 11 ก.ย. 69) — wires the tombstone
 -- check into analytics.transform_pending_orders, per design §5.
 --
--- Body is BYTE-IDENTICAL to supabase/migrations/0111_import_upsert_no_blank_
--- overwrite.sql's CREATE OR REPLACE FUNCTION statement (the live definition
--- as of 11 ก.ย. 69 — same "why on top of 0111, not from scratch" reasoning
--- 0045/0111 themselves used) except exactly TWO insertions, both marked
--- "-- 0114:" below:
+-- ⚠️ UPDATE 12 ก.ย. 69: this body is NO LONGER byte-identical to 0111 — it
+-- now has THREE insertions (was two), marked "-- 0114:" below. The third is
+-- NOT a cancel-detection change: it is cross-branch coordination requested
+-- by the coordinator for feature/label-review-resolve's migration 0116
+-- (analytics.fact_order.province_source text, 'import'|'label'|'manual' —
+-- which layer last wrote province_code). Without it, a plain re-import
+-- overwriting a REAL province_code -> REAL province_code (e.g. a LINE OA
+-- order re-synced) would leave province_source stuck at 'manual' from an
+-- earlier label-review correction, silently disabling that feature's own
+-- revert button for an order this function never actually left alone.
+--
+-- 🔴 APPLY-ORDER DEPENDENCY (breaks the usual "lower number applies first"
+-- assumption): migration 0116 on feature/label-review-resolve — a DIFFERENT
+-- branch — must be applied BEFORE this migration (and therefore before
+-- 0112-0115 too), because 0116 is what creates the province_source column
+-- this file's ON CONFLICT clause now writes to. If 0112-0115 are applied
+-- before 0116 exists on the target database, this CREATE OR REPLACE will
+-- fail at apply time with "column province_source does not exist" (not a
+-- silent bug — it fails loudly). Tech Lead: confirm 0116 is committed on
+-- the live DB before applying this file.
+--
+-- Body is otherwise BYTE-IDENTICAL to supabase/migrations/0111_import_
+-- upsert_no_blank_overwrite.sql's CREATE OR REPLACE FUNCTION statement (the
+-- live definition as of 11 ก.ย. 69 — same "why on top of 0111, not from
+-- scratch" reasoning 0045/0111 themselves used) except the three insertions
+-- below:
 --   1. Per-row, before any channel/customer resolution: if source_order_no
 --      has an active (not-yet-restored) tombstone in fact_order_deleted,
 --      mark the staging row 'tombstoned' (not 'transformed'), leave
@@ -20,6 +41,18 @@
 --      the same shop run concurrently and interleave in a way neither
 --      function's own logic accounts for. Held for the whole transaction,
 --      released automatically at commit/rollback.
+--   3. In the ON CONFLICT DO UPDATE SET clause (12 ก.ย. 69, see APPLY-ORDER
+--      note above): `province_source = case when excluded.province_code =
+--      'TH-XX' then analytics.fact_order.province_source else 'import' end`
+--      — same "TH-XX means we didn't actually learn a province this time"
+--      guard province_code's own case expression already uses, applied to
+--      the new column: a real re-derived province resets the source flag
+--      to 'import' (this function's own provenance); a TH-XX (couldn't
+--      resolve) re-import leaves whatever province_source was already
+--      there (so a prior 'label' or 'manual' correction is not clobbered by
+--      a re-import that didn't actually re-derive anything). INSERT side
+--      needs no change — the column defaults to 'import' (0116), which is
+--      correct for a brand-new row.
 --
 -- signature unchanged (still (uuid, uuid)) -> plain `create or replace` is
 -- correct (3j-migration-traps #1); grants do NOT survive `create or
@@ -28,8 +61,9 @@
 -- ⚠️ DO NOT APPLY — file only, per task instructions. Tech Lead applies via
 -- MCP AFTER 0112 (needs the 'tombstoned' enum value already committed —
 -- 3j-migration-traps: ALTER TYPE ... ADD VALUE and its first use cannot be
--- in the same transaction) and 0113 (no hard dependency, but read-before-
--- delete is the intended rollout order).
+-- in the same transaction), 0113 (no hard dependency, but read-before-
+-- delete is the intended rollout order), AND feature/label-review-resolve's
+-- 0116 (hard dependency — see APPLY-ORDER note above).
 
 CREATE OR REPLACE FUNCTION analytics.transform_pending_orders(p_shop_id uuid, p_batch_id uuid)
  RETURNS TABLE(transformed_count integer, errored_count integer)
@@ -152,6 +186,8 @@ begin
         customer_id = coalesce(excluded.customer_id, analytics.fact_order.customer_id), channel_id = excluded.channel_id, order_date = excluded.order_date,
         paid_at = coalesce(excluded.paid_at, analytics.fact_order.paid_at), printed_at = coalesce(excluded.printed_at, analytics.fact_order.printed_at),
         province_code = case when excluded.province_code = 'TH-XX' then analytics.fact_order.province_code else excluded.province_code end,
+        -- 0114: province_source (0116, feature/label-review-resolve) — see header point 3.
+        province_source = case when excluded.province_code = 'TH-XX' then analytics.fact_order.province_source else 'import' end,
         carrier_code = coalesce(excluded.carrier_code, analytics.fact_order.carrier_code), tracking_no = coalesce(excluded.tracking_no, analytics.fact_order.tracking_no), item_count = coalesce(excluded.item_count, analytics.fact_order.item_count),
         revenue = excluded.revenue, discount = excluded.discount,
         shipping_fee_customer = coalesce(excluded.shipping_fee_customer, analytics.fact_order.shipping_fee_customer),

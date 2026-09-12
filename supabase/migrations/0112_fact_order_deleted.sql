@@ -53,9 +53,31 @@ create table analytics.fact_order_deleted (
   -- full snapshots — restore reconstructs the row via
   -- jsonb_populate_record(null::analytics.fact_order, order_row), so this
   -- must be to_jsonb() of the WHOLE fact_order row, not a hand-picked subset.
+  --
+  -- ⚠️ FOR WHOEVER ADDS A COLUMN TO analytics.fact_order (or dim_address /
+  -- fact_order_item / crm_order_override — same shape applies to item_rows/
+  -- address_rows/override_row below) LATER: jsonb_populate_record() sets a
+  -- key that's MISSING from the jsonb to NULL — it does NOT fall back to
+  -- that column's table DEFAULT. An order_row snapshot captured before your
+  -- new column existed has no key for it at all. If the new column is
+  -- `not null` without a default (or has a check that rejects null), restore
+  -- of any order deleted before your migration will fail with a not-null/
+  -- check violation the moment someone clicks "กู้คืน" on it — and it will
+  -- look like restore itself is broken, not your migration. Either give the
+  -- new column a real default, or add an explicit backfill for existing
+  -- fact_order_deleted.order_row (and the sibling *_rows columns) in the
+  -- same migration that adds it.
   order_row jsonb not null,
   item_rows jsonb not null default '[]'::jsonb,
   override_row jsonb,
+  -- security review C-1 (12 ก.ย. 69): analytics.dim_address also ON DELETE
+  -- CASCADEs from fact_order_id (0010:441) and was NOT being snapshotted —
+  -- deleting an order with a saved shipping address silently threw the
+  -- address away forever, and restore could never bring it back. Same
+  -- "to_jsonb() of the whole row, restore via jsonb_populate_record" shape
+  -- as item_rows. Default '[]' because most historical fact_order rows
+  -- predate dim_address parsing and have zero rows here, same as item_rows.
+  address_rows jsonb not null default '[]'::jsonb,
 
   -- staging lineage, captured BEFORE the delete severs it (fact_order's
   -- delete cascades to fact_order_item, which ON DELETE SET NULLs
@@ -118,5 +140,45 @@ create policy owner_admin_select on analytics.fact_order_deleted
       where user_id = auth.uid() and role in ('owner', 'admin')
     )
   );
+
+-- Table-level grants — RLS policies alone do nothing without these (the
+-- policy filters ROWS, the grant is what lets the role touch the table at
+-- all). Missed in the original draft of this migration; found by security
+-- review 12 ก.ย. 69 by diffing against the sibling table this one's RLS
+-- shape was copied from (analytics.crm_order_override, 0021): authenticated
+-- SELECT (the owner_admin_select policy above still restricts which rows),
+-- service_role ALL (every write here goes through 0115's SECURITY DEFINER
+-- RPCs, which run as the function owner and so do not strictly need this
+-- table grant themselves — but getDeletedOrders (lib/actions/import-
+-- missing-orders.ts) reads this table directly via getServiceClient(),
+-- which needs it). Without the authenticated grant, getDeletedOrders would
+-- 42501 the moment a real (non-service-role) session ever queries this
+-- table directly instead of through the service client.
+grant select on analytics.fact_order_deleted to authenticated;
+grant all on analytics.fact_order_deleted to service_role;
+
+-- ============================================================================
+-- 4. analytics.stg_import_batch.row_count_skipped (H-2, security review
+--    12 ก.ย. 69) — "staging ≠ file": lib/import/order-report.ts (390-393)
+--    filters out every row with a blank source_order_no BEFORE it ever
+--    reaches analytics.stg_order_import (kept only in skippedRowNos for the
+--    UI's own display). The missing-orders detection rule (0113's P1-P4)
+--    only ever looks at stg_order_import rows — it has no way to see that
+--    the source file actually had MORE rows than what landed in staging.
+--    A real order sitting on one of those blank-order-no rows (a genuine
+--    parse casualty, not a cancellation) would then be indistinguishable
+--    from "missing from the file" and could be offered up for deletion.
+--
+--    This column records how many rows a batch's file had that never made
+--    it into staging at all; 0113 adds a hard block on it being > 0 (see
+--    that migration for the P-check). Not backfillable for already-loaded
+--    batches (the skip count was never persisted before this column
+--    existed) — defaults to 0, which is the historically-accurate "unknown,
+--    assume none" value for old rows and the correct value for a batch that
+--    genuinely skipped nothing.
+-- ============================================================================
+
+alter table analytics.stg_import_batch
+  add column if not exists row_count_skipped int not null default 0;
 
 notify pgrst, 'reload schema';

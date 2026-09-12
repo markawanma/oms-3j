@@ -18,6 +18,8 @@ export type MissingOrdersBlockedReason =
   | "batch_not_transformed"
   | "batch_has_unresolved_rows"
   | "unparseable_order_no"
+  | "channels_unresolved"
+  | "file_rows_skipped"
   | "too_many";
 
 export interface MissingOrdersGroup {
@@ -41,6 +43,12 @@ export interface MissingOrdersEvidence {
   fileOrderCount: number;
   groups: MissingOrdersGroup[];
   channels: MissingOrdersChannel[];
+  /** H-2 (security review 12 ก.ย. 69): rows the source file had that never
+   * reached staging at all (blank source_order_no — see order-report.ts).
+   * > 0 means this batch is ALSO blocked with blocked_reason=
+   * 'file_rows_skipped' — surfaced here too so the UI can show the count
+   * even outside the blocked state. */
+  skippedRows: number;
 }
 
 export interface MissingOrderCandidate {
