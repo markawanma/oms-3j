@@ -26,14 +26,15 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, CheckCircle2, Loader2, Trash2, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Info, Loader2, Trash2, XCircle } from "lucide-react";
 import { deleteMissingOrders } from "@/lib/actions/import-missing-orders";
-import type {
-  MissingOrderCandidate,
-  MissingOrdersBlockedReason,
-  MissingOrdersEvidence,
-  MissingOrdersGroup,
-  MissingOrdersResult,
+import {
+  isMissingOrdersWriteDisabledError,
+  type MissingOrderCandidate,
+  type MissingOrdersBlockedReason,
+  type MissingOrdersEvidence,
+  type MissingOrdersGroup,
+  type MissingOrdersResult,
 } from "@/lib/import/missing-orders-types";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
@@ -49,13 +50,30 @@ import { formatDateRange } from "@/lib/crm/import-client";
 // ("This constant is display-only here ... the DB is the one enforcing it").
 const DELETE_IDS_MAX = 200;
 
-const BLOCKED_REASON_LABEL: Record<MissingOrdersBlockedReason, string> = {
-  shop_or_source_mismatch: "ไฟล์นี้ไม่ใช่รายงานยอดขายที่ตรวจออเดอร์ที่หายไปได้",
-  batch_not_transformed: "ไฟล์นี้ยังนำเข้าไม่เสร็จ — ตรวจได้หลังนำเข้าสำเร็จเท่านั้น",
-  batch_has_unresolved_rows: "ไฟล์นี้มีแถวที่ยังไม่ผ่านการนำเข้า (ค้าง/error) — แก้ไขให้ครบก่อนแล้วตรวจใหม่",
-  unparseable_order_no: "มีเลขที่ออเดอร์ในไฟล์ที่ระบบอ่านรูปแบบไม่ได้ — ตรวจสอบไฟล์ก่อน",
-  too_many: "ไฟล์นี้ต่างจากระบบมากผิดปกติ ตรวจโหมด export ก่อน",
-};
+// file_rows_skipped needs the live skippedRows count interpolated (N แถว) —
+// everything else is a static message, so this is a function, not a plain
+// Record lookup, to keep the one dynamic case from forcing an awkward
+// string-template split at every call site.
+function blockedReasonMessage(reason: MissingOrdersBlockedReason, evidence: MissingOrdersEvidence): string {
+  switch (reason) {
+    case "shop_or_source_mismatch":
+      return "ไฟล์นี้ไม่ใช่รายงานยอดขายที่ตรวจออเดอร์ที่หายไปได้";
+    case "batch_not_transformed":
+      return "ไฟล์นี้ยังนำเข้าไม่เสร็จ — ตรวจได้หลังนำเข้าสำเร็จเท่านั้น";
+    case "batch_has_unresolved_rows":
+      return "ไฟล์นี้มีแถวที่ยังไม่ผ่านการนำเข้า (ค้าง/error) — แก้ไขให้ครบก่อนแล้วตรวจใหม่";
+    case "unparseable_order_no":
+      return "มีเลขที่ออเดอร์ในไฟล์ที่ระบบอ่านรูปแบบไม่ได้ — ตรวจสอบไฟล์ก่อน";
+    case "channels_unresolved":
+      return "ไฟล์นี้มีช่องทางที่ระบบยังไม่รู้จัก — แก้ alias ช่องทางก่อน";
+    case "file_rows_skipped":
+      return `ไฟล์นี้มี ${formatCount(evidence.skippedRows)} แถวที่เลขออเดอร์ว่าง ระบบข้ามไปตอนนำเข้า จึงตัดสินไม่ได้ว่าอะไรหายจริง — ตรวจไฟล์ต้นฉบับก่อน`;
+    case "too_many":
+      return "ไฟล์นี้ต่างจากระบบมากผิดปกติ ตรวจโหมด export ก่อน";
+    default:
+      return "ตรวจออเดอร์ที่หายไปไม่ได้";
+  }
+}
 
 function formatGroupRange(g: MissingOrdersGroup): string {
   return `${g.prefix}${g.lo}–${g.prefix}${g.hi}`;
@@ -86,6 +104,8 @@ function EvidenceBar({ evidence, monotonicWarnings }: { evidence: MissingOrdersE
         {evidence.channels.length > 0 && <> · ช่องทาง {evidence.channels.map((c) => c.name).join(", ")}</>}
         {" · "}
         {formatCount(evidence.fileOrderCount)} ใบในไฟล์
+        {" · "}
+        ข้ามแถวเลขออเดอร์ว่าง {formatCount(evidence.skippedRows)} แถว
       </p>
       {monotonicWarnings > 0 && (
         <p className="mt-1.5 flex items-center gap-1.5 font-medium text-amber-700">
@@ -121,6 +141,16 @@ export function MissingOrdersPanel({
   const [reason, setReason] = useState("");
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  // C-2 write switch (lib/actions/import-missing-orders.ts) — there is no
+  // status action to check this BEFORE the user clicks (see delivery notes:
+  // "อยากได้ getMissingOrdersWriteStatus() ไหม"), so this can only ever be
+  // learned reactively, after a failed attempt. Once learned true for this
+  // panel instance it's kept true for the rest of its lifetime (deliberately
+  // NOT reset by the "new fetch" effect below — MISSING_ORDERS_WRITE_ENABLED
+  // is a server-wide env var, not something that flips per-batch), so a
+  // second attempt on a different batch in the same session doesn't have to
+  // fail again just to relearn the same fact.
+  const [writeDisabled, setWriteDisabled] = useState(false);
 
   // Fresh successful fetch -> reset all local delete bookkeeping and
   // default-select every candidate ("ตาราง checkbox ติ๊กทั้งหมด default").
@@ -159,7 +189,7 @@ export function MissingOrdersPanel({
             <XCircle className="h-4 w-4 shrink-0" aria-hidden="true" />
             ตรวจออเดอร์ที่หายไปไม่ได้
           </p>
-          <p className="mt-1 text-xs text-red-700">{BLOCKED_REASON_LABEL[result.blockedReason]}</p>
+          <p className="mt-1 text-xs text-red-700">{blockedReasonMessage(result.blockedReason, result.evidence)}</p>
         </div>
       </div>
     );
@@ -215,6 +245,16 @@ export function MissingOrdersPanel({
     const res = await deleteMissingOrders(batchId, Array.from(selected), cleanReason);
     setDeleting(false);
     if (!res.ok) {
+      if (isMissingOrdersWriteDisabledError(res.error)) {
+        // Graceful, not an error: the import/detection still worked fine,
+        // this server just has deletes turned off on purpose (pending Auth
+        // A2). No red banner/toast — the persistent info box below the
+        // evidence bar (writeDisabled) carries this message instead, and it
+        // closes the modal since retrying won't succeed this session.
+        setWriteDisabled(true);
+        setConfirmOpen(false);
+        return;
+      }
       setDeleteError(res.error);
       toast.push(res.error, "error");
       return;
@@ -236,6 +276,13 @@ export function MissingOrdersPanel({
   return (
     <div className="flex flex-col gap-3 rounded-lg border border-zinc-200 bg-white p-4">
       <EvidenceBar evidence={result.evidence} monotonicWarnings={result.monotonicWarnings} />
+
+      {writeDisabled && (
+        <div className="flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 p-2.5 text-xs text-blue-800">
+          <Info className="h-4 w-4 shrink-0" aria-hidden="true" />
+          ปุ่มลบปิดอยู่บนเซิร์ฟเวอร์นี้ (รอ Auth A2) — รายการตรวจพบยังดูได้
+        </div>
+      )}
 
       {lastDeleted && (
         <div className="flex items-center gap-1.5 rounded-md border border-green-200 bg-green-50 p-2.5 text-xs text-green-800">
@@ -315,7 +362,8 @@ export function MissingOrdersPanel({
           type="button"
           variant="danger"
           size="sm"
-          disabled={selected.size === 0 || overCap}
+          disabled={selected.size === 0 || overCap || writeDisabled}
+          title={writeDisabled ? "ปุ่มลบปิดอยู่บนเซิร์ฟเวอร์นี้ (รอ Auth A2)" : undefined}
           onClick={() => setConfirmOpen(true)}
         >
           <Trash2 className="h-4 w-4" aria-hidden="true" />
@@ -365,7 +413,7 @@ export function MissingOrdersPanel({
               variant="danger"
               onClick={() => void handleConfirmDelete()}
               loading={deleting}
-              disabled={!reason.trim() || selected.size === 0 || overCap}
+              disabled={!reason.trim() || selected.size === 0 || overCap || writeDisabled}
             >
               ยืนยันลบ {formatCount(selectedCandidates.length)} ใบ
             </Button>
