@@ -2060,14 +2060,29 @@ begin
     v_fail_count := v_fail_count + 1; v_log := v_log || E'FAIL restore (M-3): crm_order_override for ZZ150 did not come back\n';
   else v_log := v_log || E'OK   restore (M-3): crm_order_override for ZZ150 came back\n'; end if;
 
-  -- QA item 2 (import_restore_orders fix): the stray line row re-imported
-  -- WHILE ZZ150 was tombstoned (STEP 7b, fact_order_item_id still null) has
-  -- no entry in stg_line_links and so is untouched by the loop above — it
-  -- must instead have been reset to 'pending' so the next transform run
-  -- picks it up against the now-restored fact_order.
-  if not exists (select 1 from analytics.stg_order_line_import where id = v_stg_line_reimport_id and import_status = 'pending' and fact_order_item_id is null) then
-    v_fail_count := v_fail_count + 1; v_log := v_log || E'FAIL restore (QA item 2): stray re-imported line for ZZ150 was not reset to pending\n';
-  else v_log := v_log || E'OK   restore (QA item 2): stray re-imported line for ZZ150 reset to pending\n'; end if;
+  -- QA item 2 + M-a fix (import_restore_orders): the stray line row
+  -- re-imported WHILE ZZ150 was tombstoned (STEP 7b, fact_order_item_id
+  -- still null) has no entry in stg_line_links and so is untouched by the
+  -- loop above — it must instead have been reset to 'orphan' (NOT
+  -- 'pending' — M-a, 12 ก.ย. 69: nothing re-transforms an arbitrary old
+  -- batch on a schedule, so 'pending' would sit invisible forever; 'orphan'
+  -- both self-heals on the next re-transform of its OWN batch and surfaces
+  -- in the backlog UI right now) with error_detail explaining why.
+  if not exists (
+    select 1 from analytics.stg_order_line_import
+    where id = v_stg_line_reimport_id and import_status = 'orphan' and fact_order_item_id is null
+      and error_detail = 'order restored — line needs re-transform'
+  ) then
+    v_fail_count := v_fail_count + 1; v_log := v_log || E'FAIL restore (QA item 2/M-a): stray re-imported line for ZZ150 was not reset to orphan with the expected error_detail\n';
+  else v_log := v_log || E'OK   restore (QA item 2/M-a): stray re-imported line for ZZ150 reset to orphan\n'; end if;
+
+  -- M-a follow-up: now that ZZ150's tombstone is closed (restored_at set
+  -- above), v_orphan_line_backlog's NOT EXISTS exclusion no longer applies
+  -- to this source_order_no — the row must actually be visible in the
+  -- backlog the owner sees, not just correctly stamped internally.
+  if not exists (select 1 from analytics.v_orphan_line_backlog where id = v_stg_line_reimport_id) then
+    v_fail_count := v_fail_count + 1; v_log := v_log || E'FAIL restore (M-a): stray re-imported line for ZZ150 did not appear in v_orphan_line_backlog after restore\n';
+  else v_log := v_log || E'OK   restore (M-a): stray re-imported line for ZZ150 now visible in v_orphan_line_backlog\n'; end if;
 
   -- ==========================================================================
   -- STEP 8b: restore-vs-live-conflict — a deleted-order record whose
