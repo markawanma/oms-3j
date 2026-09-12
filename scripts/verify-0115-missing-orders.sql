@@ -1416,7 +1416,16 @@ declare
   v_revenue_before numeric; v_revenue_after numeric;
   v_dash_before jsonb; v_dash_after jsonb;
 
-  v_row analytics.fact_order%rowtype;
+  -- dry-run caught 22P02 here (12 ก.ย. 69): this was declared %rowtype
+  -- against the WRONG table — used below only via select * into v_row from
+  -- analytics.stg_order_import (STEP 7's re-transform check), reading
+  -- v_row.import_status / v_row.fact_order_id, both stg_order_import
+  -- columns (fact_order has neither). PL/pgSQL's `select * into` assigns
+  -- positionally by column ORDER, not by name — fact_order%rowtype's first
+  -- few columns happen to include a uuid, and stg_order_import's `raw
+  -- jsonb` column (default '{}') landed on it, so this failed at EXECUTE
+  -- time as "invalid input syntax for type uuid: {}", not at CREATE time.
+  v_row analytics.stg_order_import%rowtype;
   v_fake_phone text := '0891234567';
 
   -- QA item 4 (orphan-backlog line-item tombstone assertions).
