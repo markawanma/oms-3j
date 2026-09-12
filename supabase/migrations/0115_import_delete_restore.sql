@@ -683,4 +683,65 @@ $function$;
 revoke execute on function analytics.transform_pending_order_lines(uuid, uuid) from public, anon, authenticated;
 grant execute on function analytics.transform_pending_order_lines(uuid, uuid) to service_role;
 
+-- ============================================================================
+-- 4. analytics.v_orphan_line_backlog — QA gate item 3 (12 ก.ย. 69), defense
+--    in depth for getOrphanBacklog (lib/actions/import-line-items.ts).
+--
+--    Sections 0-3 above stop NEW 'orphan' rows from being created for a
+--    deleted order's line items (delete-time flip to 'tombstoned', and now
+--    transform_pending_order_lines checking the tombstone before falling
+--    back to 'orphan' on re-import). This view is the belt-and-suspenders
+--    layer for whatever that misses — e.g. a line row that was ALREADY
+--    sitting at 'orphan' (fact_order_item_id null, never linked) from BEFORE
+--    its order was ever created+deleted; nothing above ever touches that
+--    row's status, since import_delete_orders only flips rows it is
+--    actively un-linking (fact_order_item_id is not null) and transform
+--    only runs when something re-imports that specific batch. Filtering by
+--    source_order_no here (not import_status alone) catches that row
+--    regardless of how it got into 'orphan' or whether anything ever
+--    re-processes it again.
+--
+--    getOrphanBacklog previously queried analytics.stg_order_line_import
+--    directly over PostgREST with a plain import_status='orphan' filter —
+--    per this codebase's own rule ("ห้ามดึงทั้งตารางมากรองฝั่ง TS"), the
+--    NOT EXISTS exclusion belongs in the DB, not fetched-then-filtered in
+--    TypeScript. A view (not an RPC) is the right shape here: this is a
+--    plain filtered SELECT with no side effects and no owner-admin business
+--    logic beyond what RLS on the underlying tables already provides —
+--    exactly what analytics.v_silver_price_public_14d (0102) and this
+--    schema's other views already use `security_invoker = true` for.
+--
+--    Columns are flattened (source_order_no + imported_at, no nested FK
+--    embed) — getOrphanBacklog no longer needs to defensively unwrap
+--    PostgREST's array-or-object embed shape for stg_import_batch.
+-- ============================================================================
+
+create or replace view analytics.v_orphan_line_backlog
+  with (security_invoker = true) as
+select
+  sli.id,
+  sli.shop_id,
+  sli.source_order_no,
+  sib.imported_at
+from analytics.stg_order_line_import sli
+join analytics.stg_import_batch sib on sib.id = sli.batch_id
+where sli.import_status = 'orphan'
+  and not exists (
+    select 1 from analytics.fact_order_deleted fod
+    where fod.shop_id = sli.shop_id
+      and fod.source_order_no = sli.source_order_no
+      and fod.restored_at is null
+  );
+
+comment on view analytics.v_orphan_line_backlog is
+  'getOrphanBacklog''s source — analytics.stg_order_line_import rows stuck at import_status=''orphan'', EXCLUDING any whose source_order_no belongs to a currently-tombstoned (deliberately deleted, not-yet-restored) order. See migration 0115 section 4 for why this exclusion lives here and not in TypeScript.';
+
+-- security_invoker=true means RLS on the underlying tables (stg_order_line_
+-- import/stg_import_batch's existing owner_admin_select policies,
+-- fact_order_deleted's from 0112) still applies to whichever role queries
+-- this view — the grant below only decides WHO may query it at all, same
+-- "policy filters rows, grant allows the table/view" split as every other
+-- grant in this migration.
+grant select on analytics.v_orphan_line_backlog to authenticated, service_role;
+
 notify pgrst, 'reload schema';
