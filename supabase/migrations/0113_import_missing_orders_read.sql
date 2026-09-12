@@ -51,7 +51,11 @@ as $$
 $$;
 
 revoke execute on function analytics.import_order_no_parts(text) from public, anon, authenticated;
-grant execute on function analytics.import_order_no_parts(text) to service_role, authenticated;
+-- H-1 (security review 12 ก.ย. 69): service_role only — this helper is only
+-- ever called from inside other SECURITY DEFINER functions (all of which
+-- run as service_role via getServiceClient()); no server action calls it
+-- directly over PostgREST, so authenticated execute was unnecessary surface.
+grant execute on function analytics.import_order_no_parts(text) to service_role;
 
 -- ============================================================================
 -- 2. analytics.import_missing_orders_candidates — design §3's C1-C8, P1-P4.
@@ -110,6 +114,7 @@ declare
   v_batch record;
   v_unparsed_count int;
   v_pending_error_count int;
+  v_resolved_channels uuid[];
 begin
   perform analytics.crm_require_owner_admin(p_shop_id);
 
@@ -165,6 +170,27 @@ begin
       using errcode = 'P0001', detail = 'unparseable_order_no';
   end if;
 
+  -- M-1 (security review 12 ก.ย. 69): if F's channel set cannot be resolved
+  -- at all (every row's channel_raw fails the dim_channel_alias lookup, or
+  -- the batch has zero transformed|tombstoned rows), C5 below used to read
+  -- `fm.file_channels is null or ...` — "cannot compute this rule" silently
+  -- became "pass everything", which is backwards for a safety gate. In
+  -- practice this should never fire for a real batch: transform_pending_
+  -- orders itself requires the same alias match (case-insensitively) before
+  -- a row can reach 'transformed', so every transformed row already proves
+  -- its channel_raw resolves. This is defense-in-depth, same posture as
+  -- P1-P4 above, not a rule expected to trip on real data.
+  select array_agg(distinct dca.channel_id) filter (where dca.channel_id is not null)
+    into v_resolved_channels
+    from analytics.stg_order_import s
+    left join analytics.dim_channel_alias dca on lower(dca.alias_raw) = lower(trim(coalesce(s.channel_raw, '')))
+    where s.shop_id = p_shop_id and s.batch_id = p_batch_id
+      and s.source_kind = 'excel' and s.import_status in ('transformed', 'tombstoned');
+  if v_resolved_channels is null then
+    raise exception 'import_missing_orders_candidates: blocked'
+      using errcode = 'P0001', detail = 'channels_unresolved';
+  end if;
+
   -- F (this batch's transformed|tombstoned excel rows), grouped by prefix,
   -- plus the file's global channel set / printed_at / paid_at ranges
   -- (channel resolved via dim_channel_alias, same lookup transform_pending_
@@ -212,7 +238,7 @@ begin
     and not exists (select 1 from f_rows f2 where f2.source_order_no = fo.source_order_no) -- C2
     and p2.num > fg.lo and p2.num < fg.hi                                             -- C3 (strict)
     and fo.order_date between fg.dlo and fg.dhi                                       -- C4
-    and (fm.file_channels is null or fo.channel_id = any (fm.file_channels))          -- C5
+    and fo.channel_id = any (fm.file_channels)                                        -- C5 (M-1: fm.file_channels is guaranteed non-null past the channels_unresolved check above)
     and (fo.printed_at is null or fm.printed_lo is null or fo.printed_at between fm.printed_lo and fm.printed_hi) -- C6a
     and (fo.paid_at is null or fm.paid_lo is null or fo.paid_at between fm.paid_lo and fm.paid_hi)                -- C6b
     and not exists (                                                                   -- C7
@@ -230,7 +256,10 @@ end;
 $$;
 
 revoke execute on function analytics.import_missing_orders_candidates(uuid, uuid) from public, anon, authenticated;
-grant execute on function analytics.import_missing_orders_candidates(uuid, uuid) to authenticated, service_role;
+-- H-1: service_role only — called only from import_missing_orders below and
+-- from 0115's import_delete_orders/import_restore_orders, both of which run
+-- as service_role; no server action calls this one directly.
+grant execute on function analytics.import_missing_orders_candidates(uuid, uuid) to service_role;
 
 -- ============================================================================
 -- 3. analytics.import_missing_orders — read RPC for the UI panel. Wraps #2,
@@ -293,12 +322,17 @@ begin
     from analytics.import_missing_orders_candidates(p_shop_id, p_batch_id) c
     left join analytics.dim_channel dc on dc.id = c.channel_id
     left join analytics.dim_customer dcu on dcu.id = c.customer_id
-    left join analytics.stg_order_import ls on ls.shop_id = p_shop_id and ls.source_order_no = c.source_order_no
+    -- Low (security review 12 ก.ย. 69): scope to source_kind='excel' — this
+    -- is presentation-only ("last seen in file X"), but a PDF-sourced
+    -- stg_order_import row (source_kind<>'excel') sharing the same
+    -- source_order_no should never be attributed as the last-seen EXCEL
+    -- file.
+    left join analytics.stg_order_import ls on ls.shop_id = p_shop_id and ls.source_order_no = c.source_order_no and ls.source_kind = 'excel'
     left join analytics.stg_import_batch lb on lb.id = ls.batch_id;
   exception
     when others then
       get stacked diagnostics v_detail = pg_exception_detail;
-      if v_detail in ('shop_or_source_mismatch', 'batch_not_transformed', 'batch_has_unresolved_rows', 'unparseable_order_no') then
+      if v_detail in ('shop_or_source_mismatch', 'batch_not_transformed', 'batch_has_unresolved_rows', 'unparseable_order_no', 'channels_unresolved') then
         v_blocked_reason := v_detail;
       else
         raise; -- unexpected error, do not swallow
@@ -395,6 +429,8 @@ end;
 $$;
 
 revoke execute on function analytics.import_missing_orders(uuid, uuid) from public, anon, authenticated;
-grant execute on function analytics.import_missing_orders(uuid, uuid) to authenticated, service_role;
+-- H-1: service_role only — getMissingOrders (lib/actions/import-missing-
+-- orders.ts) always calls this via getServiceClient(), never a user session.
+grant execute on function analytics.import_missing_orders(uuid, uuid) to service_role;
 
 notify pgrst, 'reload schema';

@@ -18,6 +18,7 @@ export type MissingOrdersBlockedReason =
   | "batch_not_transformed"
   | "batch_has_unresolved_rows"
   | "unparseable_order_no"
+  | "channels_unresolved"
   | "too_many";
 
 export interface MissingOrdersGroup {
