@@ -1380,6 +1380,7 @@ declare
 
   v_stg_old_id uuid; -- ZZ150's staging row (batch_old) — reused by re-transform test
   v_stg_line_zz150_id uuid; -- ZZ150's line-item staging row (batch_old) — QA item 4 assertions
+  v_stg_line_zz150_orphan_id uuid; -- M-b(3): pre-existing 'orphan' line for ZZ150, never linked
 
   v_id_zz150 uuid; v_id_zz155 uuid; v_id_zz160 uuid; v_id_zz165 uuid; v_id_zz170 uuid;
   v_id_zz050 uuid; v_id_zz250 uuid; v_id_zz190 uuid;
@@ -1415,6 +1416,8 @@ declare
   v_id_zz400_live uuid;
   v_cust_a_id uuid; v_cust_b_id uuid;
   v_batch_merge uuid;
+  v_batch_skipped uuid; -- M-b(1): row_count_skipped=1 gate
+  v_batch_badchannel uuid; -- M-b(2): channels_unresolved gate
   v_id_zz750 uuid;
   v_deleted_id_zz750 uuid;
   v_restored_zz750_customer_id uuid;
@@ -1521,6 +1524,20 @@ begin
   insert into analytics.stg_order_line_import (batch_id, shop_id, source_order_no, line_no, sku_raw, product_name_raw, qty, raw, import_status, fact_order_item_id)
   values (v_batch_old, v_shop_id, 'ZZ150', 1, v_tag || '-SKU', 'verify fixture item', 1, '{}'::jsonb, 'transformed', v_item_id)
   returning id into v_stg_line_zz150_id;
+
+  -- M-b(3) fixture (security review 12 ก.ย. 69): a line row ALREADY sitting
+  -- at 'orphan' (never linked, fact_order_item_id null) BEFORE ZZ150 is ever
+  -- deleted — simulates "line arrived before the matching order-report file
+  -- import_delete_orders' own status flip never touches this (it only
+  -- re-flips rows it is actively un-linking, fact_order_item_id is not
+  -- null), so this row is the one that actually exercises v_orphan_line_
+  -- backlog's NOT EXISTS tombstone-exclusion clause after ZZ150 is deleted
+  -- below — without that clause this row alone would still show up in the
+  -- backlog as an "unexplained" orphan even though its order is a known,
+  -- deliberate cancellation.
+  insert into analytics.stg_order_line_import (batch_id, shop_id, source_order_no, line_no, sku_raw, product_name_raw, qty, raw, import_status, error_detail)
+  values (v_batch_old, v_shop_id, 'ZZ150', 3, v_tag || '-SKU3', 'verify fixture pre-existing orphan item', 1, '{}'::jsonb, 'orphan', 'no fact_order for source_order_no: ZZ150 (pre-existing orphan fixture)')
+  returning id into v_stg_line_zz150_orphan_id;
 
   -- 8 "must NOT delete" fixtures --------------------------------------------
 
@@ -1644,6 +1661,71 @@ begin
     v_log := v_log || E'FAIL P3: batch with an error row did not raise\n';
   exception when others then
     v_log := v_log || E'OK   P3: batch with an error row raised as expected\n';
+  end;
+
+  -- M-b(1) (security review 12 ก.ย. 69): H-2's file_rows_skipped gate —
+  -- isolated batch (own ZZ900 number, not part of batch_main's F) with
+  -- row_count_skipped=1. Must raise, THEN reset row_count_skipped to 0 and
+  -- prove the SAME batch no longer raises — ties the block causally to that
+  -- one column instead of some other coincidental fixture problem.
+  insert into analytics.stg_import_batch (shop_id, source_type, file_name, file_hash, status, imported_at, row_count_skipped)
+  values (v_shop_id, 'excel_order_report', v_tag || '-skipped.xlsx', v_tag || '-skipped', 'transformed', now(), 1)
+  returning id into v_batch_skipped;
+  insert into analytics.stg_order_import (batch_id, shop_id, raw, source_kind, source_order_no, channel_raw, order_created_at, revenue, discount_total, import_status)
+  values (v_batch_skipped, v_shop_id, '{}'::jsonb, 'excel', 'ZZ900', v_chan_a_alias, '2026-05-01 09:00:00+07', 100, 0, 'transformed');
+
+  begin
+    perform 1 from analytics.import_missing_orders_candidates(v_shop_id, v_batch_skipped);
+    v_fail_count := v_fail_count + 1;
+    v_log := v_log || E'FAIL M-b(1): batch with row_count_skipped=1 did not raise\n';
+  exception when others then
+    if sqlstate = 'P0001' then
+      v_log := v_log || E'OK   M-b(1): batch with row_count_skipped=1 raised as expected\n';
+    else
+      v_fail_count := v_fail_count + 1;
+      v_log := v_log || format(E'FAIL M-b(1): raised but unexpected sqlstate=%s sqlerrm=%s\n', sqlstate, sqlerrm);
+    end if;
+  end;
+
+  update analytics.stg_import_batch set row_count_skipped = 0 where id = v_batch_skipped;
+  begin
+    perform 1 from analytics.import_missing_orders_candidates(v_shop_id, v_batch_skipped);
+    v_log := v_log || E'OK   M-b(1) reset: row_count_skipped=0 no longer raises\n';
+  exception when others then
+    v_fail_count := v_fail_count + 1;
+    v_log := v_log || format(E'FAIL M-b(1) reset: still raised after resetting row_count_skipped to 0 -- sqlerrm=%s\n', sqlerrm);
+  end;
+
+  -- M-b(2): M-1's channels_unresolved gate — isolated batch (own ZZ910
+  -- number) whose sole row's channel_raw matches no dim_channel_alias at
+  -- all. Must raise, then reset channel_raw to a resolvable alias and prove
+  -- the SAME batch no longer raises.
+  insert into analytics.stg_import_batch (shop_id, source_type, file_name, file_hash, status, imported_at)
+  values (v_shop_id, 'excel_order_report', v_tag || '-badchannel.xlsx', v_tag || '-badchannel', 'transformed', now())
+  returning id into v_batch_badchannel;
+  insert into analytics.stg_order_import (batch_id, shop_id, raw, source_kind, source_order_no, channel_raw, order_created_at, revenue, discount_total, import_status)
+  values (v_batch_badchannel, v_shop_id, '{}'::jsonb, 'excel', 'ZZ910', v_tag || '-nonexistent-channel', '2026-05-02 09:00:00+07', 100, 0, 'transformed');
+
+  begin
+    perform 1 from analytics.import_missing_orders_candidates(v_shop_id, v_batch_badchannel);
+    v_fail_count := v_fail_count + 1;
+    v_log := v_log || E'FAIL M-b(2): batch with unresolvable channel_raw did not raise\n';
+  exception when others then
+    if sqlstate = 'P0001' then
+      v_log := v_log || E'OK   M-b(2): batch with unresolvable channel_raw raised as expected\n';
+    else
+      v_fail_count := v_fail_count + 1;
+      v_log := v_log || format(E'FAIL M-b(2): raised but unexpected sqlstate=%s sqlerrm=%s\n', sqlstate, sqlerrm);
+    end if;
+  end;
+
+  update analytics.stg_order_import set channel_raw = v_chan_a_alias where batch_id = v_batch_badchannel;
+  begin
+    perform 1 from analytics.import_missing_orders_candidates(v_shop_id, v_batch_badchannel);
+    v_log := v_log || E'OK   M-b(2) reset: resolvable channel_raw no longer raises\n';
+  exception when others then
+    v_fail_count := v_fail_count + 1;
+    v_log := v_log || format(E'FAIL M-b(2) reset: still raised after fixing channel_raw -- sqlerrm=%s\n', sqlerrm);
   end;
 
   -- ==========================================================================
@@ -1888,6 +1970,21 @@ begin
     v_log := v_log || E'FAIL QA 4c: re-imported line for ZZ150 did not land on tombstoned\n';
   end if;
 
+  -- M-b(3) (security review 12 ก.ย. 69): v_orphan_line_backlog must NOT
+  -- contain ANY ZZ150 row here — not the STEP 7b re-import row (already
+  -- 'tombstoned', excluded by the view's own import_status='orphan' filter
+  -- alone) but specifically the STEP 2 fixture that was ALREADY 'orphan'
+  -- BEFORE the delete and whose status the delete never touched
+  -- (v_stg_line_zz150_orphan_id) — this is the one row that actually proves
+  -- the view's NOT EXISTS tombstone-exclusion clause does something, as
+  -- opposed to the import_status filter alone happening to hide everything.
+  if exists (select 1 from analytics.v_orphan_line_backlog where shop_id = v_shop_id and source_order_no = 'ZZ150') then
+    v_fail_count := v_fail_count + 1;
+    v_log := v_log || E'FAIL M-b(3): v_orphan_line_backlog still has a ZZ150 row after delete -- the tombstone-exclusion NOT EXISTS clause did not fire\n';
+  else
+    v_log := v_log || E'OK   M-b(3): v_orphan_line_backlog has no ZZ150 rows after delete (pre-existing orphan fixture correctly excluded)\n';
+  end if;
+
   -- ==========================================================================
   -- STEP 7c: QA — duplicate id within a single import_restore_orders call
   -- must raise the whole call, leaving ZZ150 still deleted (the FOR UPDATE +
@@ -2078,7 +2175,7 @@ begin
   delete from analytics.stg_order_line_import where shop_id = v_shop_id and source_order_no = 'ZZ150';
   delete from analytics.stg_order_import where shop_id = v_shop_id and source_order_no like 'ZZ%';
   delete from analytics.fact_order_deleted where shop_id = v_shop_id and source_order_no like 'ZZ%';
-  delete from analytics.stg_import_batch where id in (v_batch_old, v_batch_main, v_batch_error, v_batch_wrongsrc, v_batch_newer, v_batch_notdone, v_batch_cap, v_batch_merge, v_batch_line_reimport);
+  delete from analytics.stg_import_batch where id in (v_batch_old, v_batch_main, v_batch_error, v_batch_wrongsrc, v_batch_newer, v_batch_notdone, v_batch_cap, v_batch_merge, v_batch_line_reimport, v_batch_skipped, v_batch_badchannel);
   -- STEP 8b/8c fixtures: dim_customer rows are not touched by the ZZ%
   -- wildcard deletes above (source_order_no lives on fact_order, not
   -- dim_customer) and are not part of the T0/T8 golden snapshot either —
