@@ -1,90 +1,57 @@
-import { Badge } from "@/components/ui/Badge";
-import type { BadgeTone } from "@/components/ui/Badge";
+"use client";
+
+import { useEffect, useState } from "react";
 import type { LabelReviewRow } from "@/lib/labels/types";
+import type { CrmProvinceOption } from "@/lib/crm/order-override";
+import { LabelReviewQueueRow } from "./LabelReviewQueueRow";
 
-// P1 review is READ-ONLY (design §5/§8, backend/§ "ให้เจ้าของเคาะ" — the
-// province-picker UI for `conflict`/`needs_review` rows is explicitly P2's
-// job, not P1's). This intentionally replaced the old editable
-// address/sku/name-fixing form that used to live here — that form matched a
-// different UploadReviewRow shape (address_unclear/sku_unknown/
-// recipient_name_error) from the pre-real-backend mock, which no longer
-// applies now that "review" means "province match was ambiguous", not "a
-// field on the order needs a human edit".
-// Exported (not just module-local) so components/domain/tiktok/
-// PendingReviewQueue.tsx — a different table showing the same LabelReviewRow
-// shape plus a file-name column — stays in sync with this one instead of
-// drifting with its own copy of the status->label/tone mapping.
-export const REVIEW_STATUS_TONE: Record<LabelReviewRow["status"], BadgeTone> = {
-  needs_review: "amber",
-  conflict: "red",
-  order_not_found: "amber",
-  undetected: "slate",
-  parse_failed: "red",
-};
+/**
+ * ReviewQueueList — แถวรอตรวจของ "รอบอัปโหลดนี้" (LabelParseSummary.reviewRows,
+ * แสดงใต้สรุปผลอ่านไฟล์ใน UploadPageClient ทันทีหลัง parse เสร็จ). ต่างจาก
+ * PendingReviewQueue (คิวทั้งร้านอ่านจาก DB ตรง) ตรงที่ชุดนี้เป็น state ของรอบ
+ * อัปโหลดรอบเดียว — ไม่มี fileId/fileName/orderSources ติดมาด้วย (ดู
+ * LabelReviewRow ใน lib/labels/types.ts) เพราะเรียกไม่มี fileId/fileName/
+ * orderSources ก็เดาที่มาออเดอร์เองไม่ได้ — LabelReviewQueueRow เลย fetch
+ * orderSources เองต่อแถว (prop orderSources ไม่ส่งมา = undefined).
+ *
+ * Phase A (owner 11 ก.ย. 69): เดิมเป็นตาราง "อ่านอย่างเดียว" — ตอนนี้กดได้
+ * เหมือน PendingReviewQueue ทุกอย่าง (คนละที่มาข้อมูล คนละ action call แต่ผล
+ * ลัพธ์บนจอต้องเหมือนกัน — ใช้ LabelReviewQueueRow ตัวเดียวกัน). แถวที่ resolve/
+ * ignore แล้วหายจาก list นี้ทันที (local state, ไม่ใช่ prop เดิมที่ parent ไม่รู้
+ * ว่าเปลี่ยน) — ไฟล์นี้ไม่ได้ sync กลับไป UploadPageClient เพราะ
+ * `summary.reviewRows` ของรอบอัปโหลดนั้นไม่มีผลต่อ flow อื่นอีกแล้วหลัง resolve
+ * (PendingReviewQueue คือ source of truth ถาวร ไม่ใช่ตัวนี้).
+ */
+export function ReviewQueueList({
+  rows,
+  provinces,
+  canEdit,
+}: {
+  rows: LabelReviewRow[];
+  provinces: CrmProvinceOption[];
+  canEdit: boolean;
+}) {
+  const [localRows, setLocalRows] = useState(rows);
 
-const STATUS_LABEL: Record<LabelReviewRow["status"], string> = {
-  needs_review: "รอตรวจ (จังหวัดไม่ชัด)",
-  conflict: "ขัดแย้งกับข้อมูลเดิม",
-  order_not_found: "หาออเดอร์ไม่เจอ",
-  undetected: "รูปแบบไม่รู้จัก",
-  parse_failed: "อ่านหน้าไม่ได้",
-};
+  // sync เมื่อ parent ส่ง rows ชุดใหม่มาจริง (เช่น item อื่นเพิ่งอัปโหลดเสร็จ) —
+  // identity ของ rows คงที่ตลอดอายุ item เดียวกัน เทียบด้วย reference พอ
+  useEffect(() => {
+    setLocalRows(rows);
+  }, [rows]);
 
-// UAT 29 ส.ค. 69: 'undetected' ที่มี reason='packing_slip_only' คือหน้า
-// "ใบสรุปสินค้า" ท้ายออเดอร์ของ TikTok (ไม่มีเลขพัสดุ/ที่อยู่ให้จับคู่ได้ —
-// ดู lib/labels/formats/tiktok.ts looksLikePackingSlipOnly()) — ไม่ใช่ปัญหา
-// ที่ต้องแก้ ข้อความจึงต้องบอกตรงว่า "ไม่ใช่ใบปะหน้า" ไม่ใช่ "อ่านไม่ได้"
-export function reviewRowStatusLabel(row: LabelReviewRow): string {
-  if (row.status === "undetected" && row.reason === "packing_slip_only") {
-    return "ไม่ใช่ใบปะหน้า (หน้าใบสรุปสินค้า) — ไม่ต้องตรวจ";
-  }
-  return STATUS_LABEL[row.status];
-}
+  if (localRows.length === 0) return null;
 
-export function ReviewQueueList({ rows }: { rows: LabelReviewRow[] }) {
-  if (rows.length === 0) return null;
   return (
-    <div className="overflow-x-auto rounded-lg border border-zinc-200 bg-white shadow-sm">
-      <table className="w-full min-w-[560px] text-left text-sm">
-        <caption className="sr-only">รายการรอตรวจสอบ — อ่านอย่างเดียว เลือกจังหวัดเองได้ในเฟสถัดไป</caption>
-        <thead className="border-b border-zinc-200 bg-zinc-50 text-xs font-bold tracking-wide text-zinc-500 uppercase">
-          <tr>
-            <th scope="col" className="px-3 py-2 tabular-nums">
-              หน้า
-            </th>
-            <th scope="col" className="px-3 py-2">
-              เลขพัสดุ
-            </th>
-            <th scope="col" className="px-3 py-2">
-              รหัสไปรษณีย์
-            </th>
-            <th scope="col" className="px-3 py-2">
-              สถานะ
-            </th>
-            <th scope="col" className="px-3 py-2">
-              จังหวัดที่เป็นไปได้
-            </th>
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-zinc-100">
-          {rows.map((row) => (
-            <tr key={row.pageId}>
-              <td className="px-3 py-2 tabular-nums text-zinc-600">{row.pageNo}</td>
-              <td className="px-3 py-2 font-mono text-xs text-zinc-700">{row.trackingNo ?? "—"}</td>
-              <td className="px-3 py-2 tabular-nums text-zinc-600">{row.zipcode ?? "—"}</td>
-              <td className="px-3 py-2">
-                <Badge tone={REVIEW_STATUS_TONE[row.status]}>{reviewRowStatusLabel(row)}</Badge>
-              </td>
-              <td className="px-3 py-2 text-zinc-600">
-                {row.candidates.length > 0 ? row.candidates.map((c) => c.nameTh).join(", ") : "—"}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-      <p className="border-t border-zinc-200 px-3 py-2 text-xs text-zinc-400">
-        อ่านอย่างเดียวในเฟสนี้ — เลือกจังหวัดเองรายแถวได้ในเฟสถัดไป
-      </p>
+    <div className="flex flex-col gap-2" role="list">
+      {localRows.map((row) => (
+        <LabelReviewQueueRow
+          key={row.pageId}
+          row={row}
+          provinces={provinces}
+          canEdit={canEdit}
+          onResolved={(pageId) => setLocalRows((prev) => prev.filter((r) => r.pageId !== pageId))}
+        />
+      ))}
     </div>
   );
 }
