@@ -53,6 +53,20 @@ create table analytics.fact_order_deleted (
   -- full snapshots — restore reconstructs the row via
   -- jsonb_populate_record(null::analytics.fact_order, order_row), so this
   -- must be to_jsonb() of the WHOLE fact_order row, not a hand-picked subset.
+  --
+  -- ⚠️ FOR WHOEVER ADDS A COLUMN TO analytics.fact_order (or dim_address /
+  -- fact_order_item / crm_order_override — same shape applies to item_rows/
+  -- address_rows/override_row below) LATER: jsonb_populate_record() sets a
+  -- key that's MISSING from the jsonb to NULL — it does NOT fall back to
+  -- that column's table DEFAULT. An order_row snapshot captured before your
+  -- new column existed has no key for it at all. If the new column is
+  -- `not null` without a default (or has a check that rejects null), restore
+  -- of any order deleted before your migration will fail with a not-null/
+  -- check violation the moment someone clicks "กู้คืน" on it — and it will
+  -- look like restore itself is broken, not your migration. Either give the
+  -- new column a real default, or add an explicit backfill for existing
+  -- fact_order_deleted.order_row (and the sibling *_rows columns) in the
+  -- same migration that adds it.
   order_row jsonb not null,
   item_rows jsonb not null default '[]'::jsonb,
   override_row jsonb,
