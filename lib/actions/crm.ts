@@ -1376,6 +1376,25 @@ async function assertOrderInShop(
 export async function crmSetOrderOverride(
   factOrderId: string,
   customerId: string,
+  // 🔴 C2 fix (12 ก.ย. 69, security): province_code is REMOVED from
+  // analytics.crm_set_order_override's write whitelist (migration 0116,
+  // owner 11 ก.ย. decision #4 — province is now edited exclusively via
+  // label_set_order_province/label_resolve_page, which write the raw
+  // fact_order.province_code directly). The line that used to forward
+  // overrides.province_code into the RPC payload is gone below — that's the
+  // actual fix (every save would otherwise be rejected by the RPC, "ฟอร์ม
+  // พังทั้งฟอร์ม").
+  //
+  // ⚠️ Deliberately did NOT narrow this parameter's type to
+  // Omit<OrderOverrideInput, "province_code"> as originally asked — tried
+  // it, and it breaks typecheck on components/domain/crm/OrderOverrideForm.tsx
+  // (excess-property-check on its object-literal call site, which still
+  // includes `province_code: provinceCode`) — that file is explicitly NOT
+  // mine to touch in this pass (frontend-dev's removal lives in a separate,
+  // unmerged branch). Narrowing the type belongs in the SAME change that
+  // removes the field from the form, not here — flagging back per brief
+  // ("ถ้าข้อไหนขัดกับ design ... บอกทันที") rather than silently breaking
+  // typecheck or silently touching a file I was told to leave alone.
   overrides: OrderOverrideInput,
   reason: string
 ): Promise<ActionResult> {
@@ -1395,9 +1414,10 @@ export async function crmSetOrderOverride(
   // override some other edit set on a previous save. The caller (
   // OrderOverrideForm) is responsible for re-sending every field it wants to
   // KEEP overridden, not just the one the user changed this time.
+  // province_code deliberately NOT forwarded here (see param comment above)
+  // — the RPC would reject the whole call if it were, breaking every save.
   const payload: Record<string, unknown> = {};
   if (overrides.channel_id !== undefined) payload.channel_id = overrides.channel_id;
-  if (overrides.province_code !== undefined) payload.province_code = overrides.province_code;
   if (overrides.revenue !== undefined) payload.revenue = overrides.revenue;
   if (overrides.discount !== undefined) payload.discount = overrides.discount;
   if (overrides.order_date !== undefined) payload.order_date = overrides.order_date;
