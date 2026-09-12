@@ -143,4 +143,28 @@ create policy owner_admin_select on analytics.fact_order_deleted
 grant select on analytics.fact_order_deleted to authenticated;
 grant all on analytics.fact_order_deleted to service_role;
 
+-- ============================================================================
+-- 4. analytics.stg_import_batch.row_count_skipped (H-2, security review
+--    12 ก.ย. 69) — "staging ≠ file": lib/import/order-report.ts (390-393)
+--    filters out every row with a blank source_order_no BEFORE it ever
+--    reaches analytics.stg_order_import (kept only in skippedRowNos for the
+--    UI's own display). The missing-orders detection rule (0113's P1-P4)
+--    only ever looks at stg_order_import rows — it has no way to see that
+--    the source file actually had MORE rows than what landed in staging.
+--    A real order sitting on one of those blank-order-no rows (a genuine
+--    parse casualty, not a cancellation) would then be indistinguishable
+--    from "missing from the file" and could be offered up for deletion.
+--
+--    This column records how many rows a batch's file had that never made
+--    it into staging at all; 0113 adds a hard block on it being > 0 (see
+--    that migration for the P-check). Not backfillable for already-loaded
+--    batches (the skip count was never persisted before this column
+--    existed) — defaults to 0, which is the historically-accurate "unknown,
+--    assume none" value for old rows and the correct value for a batch that
+--    genuinely skipped nothing.
+-- ============================================================================
+
+alter table analytics.stg_import_batch
+  add column if not exists row_count_skipped int not null default 0;
+
 notify pgrst, 'reload schema';

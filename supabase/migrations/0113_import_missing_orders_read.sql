@@ -125,7 +125,7 @@ begin
   -- P1: batch belongs to this shop and is an order-report batch (excel_
   -- order_report) — a line-item batch or another shop's batch id has no F
   -- to compute this rule from at all.
-  select b.id, b.shop_id, b.source_type, b.status, b.imported_at, b.file_name
+  select b.id, b.shop_id, b.source_type, b.status, b.imported_at, b.file_name, b.row_count_skipped
     into v_batch
     from analytics.stg_import_batch b
     where b.id = p_batch_id;
@@ -154,6 +154,18 @@ begin
   if v_pending_error_count > 0 then
     raise exception 'import_missing_orders_candidates: blocked'
       using errcode = 'P0001', detail = 'batch_has_unresolved_rows';
+  end if;
+
+  -- H-2 (security review 12 ก.ย. 69) "staging ≠ file": lib/import/order-
+  -- report.ts drops every row with a blank source_order_no before it ever
+  -- reaches stg_order_import (order-orders.ts persists the count as
+  -- row_count_skipped, 0112). A genuine order sitting on one of those
+  -- dropped rows is invisible to F/S below and would be indistinguishable
+  -- from an actually-cancelled order — refuse to run detection on a batch
+  -- this function cannot fully account for.
+  if coalesce(v_batch.row_count_skipped, 0) > 0 then
+    raise exception 'import_missing_orders_candidates: blocked'
+      using errcode = 'P0001', detail = 'file_rows_skipped';
   end if;
 
   -- P4: every row must parse (A3 format) — LEFT JOIN LATERAL so a NULL
@@ -297,7 +309,7 @@ begin
     raise exception 'import_missing_orders: p_shop_id and p_batch_id are required';
   end if;
 
-  select b.id, b.file_name, b.imported_at into v_batch
+  select b.id, b.file_name, b.imported_at, b.row_count_skipped into v_batch
     from analytics.stg_import_batch b
     where b.id = p_batch_id and b.shop_id = p_shop_id;
 
@@ -332,7 +344,7 @@ begin
   exception
     when others then
       get stacked diagnostics v_detail = pg_exception_detail;
-      if v_detail in ('shop_or_source_mismatch', 'batch_not_transformed', 'batch_has_unresolved_rows', 'unparseable_order_no', 'channels_unresolved') then
+      if v_detail in ('shop_or_source_mismatch', 'batch_not_transformed', 'batch_has_unresolved_rows', 'unparseable_order_no', 'channels_unresolved', 'file_rows_skipped') then
         v_blocked_reason := v_detail;
       else
         raise; -- unexpected error, do not swallow
@@ -418,7 +430,10 @@ begin
       'imported_at', v_batch.imported_at,
       'file_order_count', v_file_order_count,
       'groups', v_groups,
-      'channels', v_channels
+      'channels', v_channels,
+      -- H-2: always surfaced (not just when blocked) so the UI can show
+      -- "N แถวถูกข้ามตอนนำเข้า" context even on an otherwise-ok result.
+      'skipped_rows', coalesce(v_batch.row_count_skipped, 0)
     ),
     'monotonic_warnings', v_monotonic_warnings,
     'candidate_count', v_candidate_count,

@@ -318,6 +318,13 @@ export async function commitOrderImport(formData: FormData): Promise<ActionResul
         file_hash: parsed.fileHash,
         period_hint: parsed.periodHint,
         row_count_parsed: parsed.rowCountParsed,
+        // H-2 (security review 12 ก.ย. 69): persist how many parsed rows
+        // never made it into staging (blank source_order_no — see
+        // order-report.ts's skippedRowNos) so 0113's missing-orders
+        // detection can refuse to run on a batch it can't fully account
+        // for, instead of silently treating a parse casualty as a
+        // cancellation candidate.
+        row_count_skipped: parsed.skippedRowNos.length,
         status: "loaded",
       })
       .select("id")
@@ -396,6 +403,7 @@ export async function commitOrderImport(formData: FormData): Promise<ActionResul
         .schema(SCHEMA)
         .from("stg_order_import")
         .select("id", { count: "exact", head: true })
+        .eq("shop_id", shopId)
         .eq("batch_id", batchId)
         .eq("import_status", "tombstoned");
       if (tombstonedErr) throw tombstonedErr;

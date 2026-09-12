@@ -108,6 +108,7 @@ function mapMissingOrdersResult(raw: Record<string, unknown>): MissingOrdersResu
       fileOrderCount: Number(evidence.file_order_count) || 0,
       groups: ((evidence.groups ?? []) as Record<string, unknown>[]).map(mapGroup),
       channels: ((evidence.channels ?? []) as Record<string, unknown>[]).map(mapChannel),
+      skippedRows: Number(evidence.skipped_rows) || 0,
     },
     monotonicWarnings: Number(raw.monotonic_warnings) || 0,
     candidateCount: Number(raw.candidate_count) || 0,
