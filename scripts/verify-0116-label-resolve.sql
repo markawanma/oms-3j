@@ -26,12 +26,14 @@ declare
   v_shop_a uuid;
   v_shop_b uuid;
   v_channel_id uuid;
+  v_bkk_date date; -- L3: Thai business day, not UTC current_date (3j-migration-traps #6)
   v_province_x text; -- real province #1 (not TH-XX)
   v_province_y text; -- real province #2 (not TH-XX, != v_province_x)
 
   v_order1 uuid;      -- T1-T4 fixture (single order, no shared tracking)
   v_order4a uuid;
   v_order4b uuid;     -- T8-T10 fixture (2 orders sharing one tracking_no)
+  v_order_t9c uuid;   -- T9c: label_apply_matched real-write path (H1)
 
   v_label_file uuid;
   v_page1 uuid;        -- T5: resolve-twice
@@ -42,6 +44,7 @@ declare
   v_page7 uuid;        -- T11: ignore
   v_page8 uuid;        -- T14: null-tracking resolve
   v_page9 uuid;        -- T15: zero-match resolve
+  v_page_t9c uuid;     -- T9c: label_apply_matched real-write path (H1)
 
   v_audit_t3b_id uuid;
   v_applied_orders int;
@@ -52,6 +55,8 @@ declare
   v_src4a text;
   v_status text;
   v_evidence int;
+  v_prov_t9c text;
+  v_src_t9c text;
 
   v_t0_count bigint;
   v_t0_revenue numeric;
@@ -70,6 +75,17 @@ begin
     raise exception 'verify-0116: no analytics.dim_channel rows exist — cannot build test fixtures';
   end if;
 
+  -- L3 fix (12 ก.ย. 69, QA): fixtures used bare current_date (UTC) — wrong
+  -- between 00:00-07:00 Thai time (skill 3j-migration-traps #6). Use the
+  -- Thai business day everywhere instead, and assert dim_date actually
+  -- covers it (it's seeded 2019-01-01..2035-12-31 per 0010, so this should
+  -- never fail in practice — but fail loudly instead of a cryptic FK
+  -- violation on the fact_order inserts below if it ever doesn't).
+  v_bkk_date := (now() at time zone 'Asia/Bangkok')::date;
+  if not exists (select 1 from analytics.dim_date where date_key = v_bkk_date) then
+    raise exception 'verify-0116: analytics.dim_date has no row for today (BKK) = % — cannot build test fixtures', v_bkk_date;
+  end if;
+
   select province_code into v_province_x
     from analytics.dim_geo where province_code <> 'TH-XX' order by province_code limit 1;
   select province_code into v_province_y
@@ -86,14 +102,14 @@ begin
   -- ==========================================================================
 
   insert into analytics.fact_order (shop_id, source_order_no, channel_id, order_date, province_code, revenue)
-  values (v_shop_a, '__V0116_O1__', v_channel_id, current_date, v_province_x, 1000)
+  values (v_shop_a, '__V0116_O1__', v_channel_id, v_bkk_date, v_province_x, 1000)
   returning id into v_order1;
 
   insert into analytics.fact_order (shop_id, source_order_no, channel_id, order_date, tracking_no, province_code, revenue)
-  values (v_shop_a, '__V0116_O4A__', v_channel_id, current_date, '__V0116_TRACK_MULTI__', 'TH-XX', 500)
+  values (v_shop_a, '__V0116_O4A__', v_channel_id, v_bkk_date, '__V0116_TRACK_MULTI__', 'TH-XX', 500)
   returning id into v_order4a;
   insert into analytics.fact_order (shop_id, source_order_no, channel_id, order_date, tracking_no, province_code, revenue)
-  values (v_shop_a, '__V0116_O4B__', v_channel_id, current_date, '__V0116_TRACK_MULTI__', 'TH-XX', 500)
+  values (v_shop_a, '__V0116_O4B__', v_channel_id, v_bkk_date, '__V0116_TRACK_MULTI__', 'TH-XX', 500)
   returning id into v_order4b;
 
   insert into analytics.label_file (shop_id, storage_path, file_name, file_sha256, file_size_bytes, status)
@@ -108,7 +124,7 @@ begin
   values (v_label_file, v_shop_a, 3, 'needs_review', '__V0116_TRACK_T7__', v_province_x, '{}'::jsonb)
   returning id into v_page3;
   insert into analytics.fact_order (shop_id, source_order_no, channel_id, order_date, tracking_no, province_code, revenue)
-  values (v_shop_a, '__V0116_O_T7__', v_channel_id, current_date, '__V0116_TRACK_T7__', 'TH-XX', 300);
+  values (v_shop_a, '__V0116_O_T7__', v_channel_id, v_bkk_date, '__V0116_TRACK_T7__', 'TH-XX', 300);
 
   insert into analytics.stg_label_page (label_file_id, shop_id, page_no, match_status, tracking_no, province_code, match_detail)
   values (v_label_file, v_shop_a, 4, 'needs_review', '__V0116_TRACK_MULTI__', v_province_x, '{}'::jsonb)
@@ -208,7 +224,7 @@ begin
     -- ต้องผูก tracking ให้ page1 ก่อน แล้วสร้างออเดอร์รองรับ
     update analytics.stg_label_page set tracking_no = '__V0116_TRACK_T5__' where id = v_page1;
     insert into analytics.fact_order (shop_id, source_order_no, channel_id, order_date, tracking_no, province_code, revenue)
-    values (v_shop_a, '__V0116_O_T5__', v_channel_id, current_date, '__V0116_TRACK_T5__', 'TH-XX', 200);
+    values (v_shop_a, '__V0116_O_T5__', v_channel_id, v_bkk_date, '__V0116_TRACK_T5__', 'TH-XX', 200);
 
     perform analytics.label_resolve_page(v_shop_a, v_page1, v_province_x, null, null, null);
     select match_status into v_status from analytics.stg_label_page where id = v_page1;
@@ -328,6 +344,40 @@ begin
   end;
 
   -- ==========================================================================
+  -- T9c (H1 fix, 12 ก.ย. 69): label_apply_matched's SUCCESSFUL WRITE path
+  -- (order genuinely TH-XX, gets written) must stamp province_source='label'.
+  -- T9a hits conflict, T9b hits skip — neither ever exercised the real write
+  -- branch, so H1's fix (adding `province_source = 'label',` to the UPDATE)
+  -- had zero coverage before this case.
+  -- ==========================================================================
+  begin
+    insert into analytics.fact_order (shop_id, source_order_no, channel_id, order_date, tracking_no, province_code, revenue)
+    values (v_shop_a, '__V0116_O_T9C__', v_channel_id, v_bkk_date, '__V0116_TRACK_T9C__', 'TH-XX', 600)
+    returning id into v_order_t9c;
+
+    insert into analytics.stg_label_page (label_file_id, shop_id, page_no, match_status, tracking_no, province_code, match_detail)
+    values (v_label_file, v_shop_a, 11, 'matched', '__V0116_TRACK_T9C__', v_province_y, '{}'::jsonb)
+    returning id into v_page_t9c;
+
+    -- this call also reprocesses page6 (still 'matched', applied_at null
+    -- since T9b's skip path never sets it — see 0097) harmlessly re-skipping
+    -- it again, so don't assert an exact `applied` count here, only that
+    -- OUR order actually got written.
+    perform analytics.label_apply_matched(v_shop_a, v_label_file);
+
+    select province_code, province_source into v_prov_t9c, v_src_t9c from analytics.fact_order where id = v_order_t9c;
+    select match_status into v_status from analytics.stg_label_page where id = v_page_t9c;
+
+    if v_prov_t9c = v_province_y and v_src_t9c = 'label' and v_status = 'matched' then
+      v_log := v_log || 'T9c: OK - label_apply_matched เขียนจังหวัดจริง + stamp province_source=''label''' || E'\n';
+    else
+      v_log := v_log || format('T9c: FAIL - province=%s province_source=%s page_status=%s', v_prov_t9c, v_src_t9c, v_status) || E'\n';
+    end if;
+  exception when others then
+    v_log := v_log || 'T9c: FAIL - เกิด error ไม่คาดคิด: ' || sqlerrm || E'\n';
+  end;
+
+  -- ==========================================================================
   -- T10 (เคสต้องไม่พัง): revert คืน prev + status กลับ
   -- ==========================================================================
   begin
@@ -399,12 +449,49 @@ begin
     v_log := v_log || 'T15: OK - resolve page ที่ยังไม่พบออเดอร์ถูกปฏิเสธ (' || sqlerrm || ')' || E'\n';
   end;
 
+  -- ==========================================================================
+  -- T17-T20 (QA, 12 ก.ย. 69): cross-shop สำหรับ RPC ที่ยังไม่เคยทดสอบข้าม shop —
+  -- ทุกตัวส่ง v_shop_b (ไม่ใช่เจ้าของจริง) พร้อม page/order ของ v_shop_a จริง.
+  -- ปลอดภัยที่จะใช้ fixture ที่ "ใช้ไปแล้ว" ได้ (page1=manual_applied จาก T5,
+  -- page7=ignored จาก T11, page4=needs_review จาก T10's revert, order1=มีอยู่
+  -- แน่นอน) เพราะทุกฟังก์ชันเช็ค shop_id ตอน SELECT...FOR UPDATE ตัวแรกสุด
+  -- ก่อนเช็ค match_status เสมอ — shop ผิดต้องโดนปฏิเสธไม่ว่า record จะอยู่ใน
+  -- สถานะไหนก็ตาม (สถานะไม่ควรมีผลต่อผลลัพธ์ของ guard นี้เลย).
+  -- ==========================================================================
+  begin
+    perform analytics.label_resolve_page(v_shop_b, v_page1, v_province_x, 'other', null, null);
+    v_log := v_log || 'T17: FAIL - resolve_page ข้าม shop ผ่านทั้งที่ควรถูกปฏิเสธ' || E'\n';
+  exception when others then
+    v_log := v_log || 'T17: OK - resolve_page ข้าม shop ถูกปฏิเสธ (' || sqlerrm || ')' || E'\n';
+  end;
+
+  begin
+    perform analytics.label_ignore_page(v_shop_b, v_page7, null, null);
+    v_log := v_log || 'T18: FAIL - ignore_page ข้าม shop ผ่านทั้งที่ควรถูกปฏิเสธ' || E'\n';
+  exception when others then
+    v_log := v_log || 'T18: OK - ignore_page ข้าม shop ถูกปฏิเสธ (' || sqlerrm || ')' || E'\n';
+  end;
+
+  begin
+    perform analytics.label_revert_page(v_shop_b, v_page4);
+    v_log := v_log || 'T19: FAIL - revert_page ข้าม shop ผ่านทั้งที่ควรถูกปฏิเสธ' || E'\n';
+  exception when others then
+    v_log := v_log || 'T19: OK - revert_page ข้าม shop ถูกปฏิเสธ (' || sqlerrm || ')' || E'\n';
+  end;
+
+  begin
+    perform analytics.label_revert_order_province(v_shop_b, v_order1);
+    v_log := v_log || 'T20: FAIL - revert_order_province ข้าม shop ผ่านทั้งที่ควรถูกปฏิเสธ' || E'\n';
+  exception when others then
+    v_log := v_log || 'T20: OK - revert_order_province ข้าม shop ถูกปฏิเสธ (' || sqlerrm || ')' || E'\n';
+  end;
+
   -- T16 (เพิ่มเติม): resolve พร้อม taught snippet ที่ถูกรูปแบบ -> เก็บลง
   -- label_text_rule (evidence_count=1) แล้ว resolve อีกครั้งด้วย snippet+จังหวัด
   -- เดิม (คนละ page/tracking) -> evidence_count เพิ่มเป็น 2 แทนการสร้างแถวใหม่
   begin
     insert into analytics.fact_order (shop_id, source_order_no, channel_id, order_date, tracking_no, province_code, revenue)
-    values (v_shop_a, '__V0116_O_T16__', v_channel_id, current_date, '__V0116_TRACK_NOORDER__', 'TH-XX', 400);
+    values (v_shop_a, '__V0116_O_T16__', v_channel_id, v_bkk_date, '__V0116_TRACK_NOORDER__', 'TH-XX', 400);
 
     perform analytics.label_resolve_page(v_shop_a, v_page9, v_province_x, null, null, 'ใกล้วัดใหญ่');
 
@@ -425,7 +512,7 @@ begin
     insert into analytics.stg_label_page (label_file_id, shop_id, page_no, match_status, tracking_no, province_code, match_detail)
     values (v_label_file, v_shop_a, 10, 'needs_review', '__V0116_TRACK_T16B__', v_province_x, '{}'::jsonb);
     insert into analytics.fact_order (shop_id, source_order_no, channel_id, order_date, tracking_no, province_code, revenue)
-    values (v_shop_a, '__V0116_O_T16B__', v_channel_id, current_date, '__V0116_TRACK_T16B__', 'TH-XX', 400);
+    values (v_shop_a, '__V0116_O_T16B__', v_channel_id, v_bkk_date, '__V0116_TRACK_T16B__', 'TH-XX', 400);
 
     perform analytics.label_resolve_page(
       v_shop_a,

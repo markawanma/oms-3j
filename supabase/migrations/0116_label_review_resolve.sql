@@ -185,6 +185,13 @@ comment on column analytics.fact_order.province_source is
 -- but got skipped_has_province never actually wrote anything, so its
 -- fact_order_ids — if populated at all in that edge case — must not be
 -- reclassified).
+--
+-- Expected effect on the live DB (Tech Lead, 12 ก.ย. 69, verified against
+-- the count of applied stg_label_page rows): 286 fact_order rows relabeled
+-- 'import' -> 'label'. If a real apply produces a materially different
+-- number, stop and ask before proceeding — that means the assumption this
+-- backfill's guard is built on (every applied fact_order_ids entry is
+-- currently still 'import') doesn't hold.
 update analytics.fact_order fo
    set province_source = 'label'
   from (
