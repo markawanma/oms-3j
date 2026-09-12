@@ -8,6 +8,34 @@
 -- in its own migration ahead of anything that references 'tombstoned'.
 --
 -- ⚠️ DO NOT APPLY — file only, per task instructions. Tech Lead applies via MCP.
+--
+-- ============================================================================
+-- 🔴🔴🔴 MANDATORY DEPLOY ORDER (security review, M-c, 12 ก.ย. 69) 🔴🔴🔴
+--
+--   0116 (feature/label-review-resolve)  →  0112  →  0113  →  0114  →  0115
+--   →  THEN deploy the app code (this branch's lib/actions/lib/import
+--      changes, including the row_count_skipped write in import-orders.ts).
+--
+-- Reversing "0116 before 0112-0115" breaks the usual "lower number applies
+-- first" assumption — 0114 (later in this same sequence) writes to
+-- analytics.fact_order.province_source, a column ONLY 0116 creates. Applying
+-- 0112-0115 before 0116 fails loudly at apply time on 0114 ("column
+-- province_source does not exist") — not silently, but still blocks the
+-- whole rollout.
+--
+-- Deploying the APP CODE before its matching migration breaks a working
+-- feature that predates this one:
+--   - Code before 0112: commitOrderImport (lib/actions/import-orders.ts)
+--     writes `row_count_skipped` on every batch insert — if that column
+--     doesn't exist yet, EVERY order import fails outright (not a cancel-
+--     detection-only regression, the whole existing import feature breaks).
+--   - Code before 0115: getOrphanBacklog (lib/actions/import-line-items.ts)
+--     reads analytics.v_orphan_line_backlog — if that view doesn't exist
+--     yet, the existing orphan-backlog panel 500s.
+--
+-- See lib/actions/import-orders.ts's own copy of this note near the
+-- row_count_skipped write, and 0114's header for the 0116 dependency detail.
+-- ============================================================================
 
 -- ============================================================================
 -- 1. New import_status value: 'tombstoned' — a stg_order_import row whose
