@@ -49,12 +49,15 @@ import {
   type LineImportPreview,
   type LineImportWarningsResult,
 } from "@/lib/actions/import-line-items";
+import { getMissingOrders } from "@/lib/actions/import-missing-orders";
+import type { MissingOrdersResult } from "@/lib/import/missing-orders-types";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { useToast } from "@/components/ui/Toast";
 import { LineImportWarningsList } from "@/components/domain/crm/LineImportWarningsList";
 import { SkuHygieneList } from "@/components/domain/crm/SkuHygieneList";
+import { MissingOrdersPanel } from "@/components/domain/crm/MissingOrdersPanel";
 import { formatCount, formatTHBCompact } from "@/lib/tiktok/format";
 import { formatTHB } from "@/lib/format";
 import { formatPeriodHint, formatDateRange, validateXlsxFile } from "@/lib/crm/import-client";
@@ -89,6 +92,14 @@ interface CommitItem {
    * null if the fetch itself failed (non-fatal: the import already
    * succeeded, this is just "couldn't load the detail list"). */
   warnings?: LineImportWarningsResult | null;
+  /** Cancel-detection Phase 1 (design §6) — fetched separately after a
+   * successful ORDER commit only (mirrors `warnings` above, same
+   * undefined/null/object contract). Never fetched for line_item commits
+   * (missing-order detection only makes sense against an order-report
+   * batch) or for the multi-file flow (matches the existing precedent: the
+   * line-item `warnings` fetch above is ALSO single-file-only — see
+   * commitMulti, which never calls fetchAndAttachWarnings either). */
+  missing?: MissingOrdersResult | null;
   /** Snapshot of this file's preview-time orphan/period signals, carried
    * forward from PreviewItem so the post-commit summary (OrphanCommitNotice)
    * can explain WHICH orders and WHAT date range are stuck orphan, without
@@ -180,6 +191,29 @@ function StatBox({ label, value, tone }: { label: string; value: number; tone: "
   );
 }
 
+/** Cancel-detection Phase 1 (design §5) — this batch's transform skipped N
+ * rows because they carry an ACTIVE tombstone (owner deliberately deleted
+ * that order number before, via MissingOrdersPanel, and this file tried to
+ * bring it back). Not an error — just needs the owner's attention: either
+ * the order legitimately came back (restore it) or the file is stale. Links
+ * to the in-page deleted-orders history (id="deleted-orders-history",
+ * app/(dashboard)/crm/import/page.tsx) rather than a separate route, per
+ * design §6 "ใน /crm/import ไม่เพิ่มหน้า". */
+function TombstonedNotice({ count }: { count: number }) {
+  if (count === 0) return null;
+  return (
+    <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+      <p className="flex items-center gap-1.5 font-semibold">
+        <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
+        ข้าม {formatCount(count)} ใบที่เคยลบไว้ — ถ้าออเดอร์กลับมาจริงให้กู้คืน
+      </p>
+      <a href="#deleted-orders-history" className="mt-1 inline-block font-medium underline underline-offset-2">
+        ไปที่ประวัติการลบ
+      </a>
+    </div>
+  );
+}
+
 function CommitResultSummary({ result }: { result: ImportCommitResult }) {
   return (
     <>
@@ -197,6 +231,7 @@ function CommitResultSummary({ result }: { result: ImportCommitResult }) {
           ดูรายการที่ไม่ผ่าน ({formatCount(result.errored)})
         </Link>
       )}
+      <TombstonedNotice count={result.tombstoned} />
     </>
   );
 }
@@ -401,6 +436,23 @@ export function OrderImportClient() {
     if (!res.ok) console.error("fetchAndAttachWarnings failed", res.error);
   }
 
+  // Cancel-detection Phase 1 (design §6) — same fire-and-attach pattern as
+  // fetchAndAttachWarnings above, checked against a just-committed ORDER
+  // batch only. Fail-soft by construction: getMissingOrders never throws
+  // (ActionResult), a failure here just leaves `missing: null` and
+  // MissingOrdersPanel renders an inline ErrorBanner instead of taking the
+  // whole done_single screen down.
+  async function fetchAndAttachMissingOrders(batchId: string) {
+    const res = await getMissingOrders(batchId);
+    setPhase((prev) => {
+      if (prev.kind !== "done_single" || prev.item.kind !== "order" || prev.item.orderResult?.batchId !== batchId) {
+        return prev;
+      }
+      return { kind: "done_single", item: { ...prev.item, missing: res.ok ? res.data : null } };
+    });
+    if (!res.ok) console.error("fetchAndAttachMissingOrders failed", res.error);
+  }
+
   async function commitSingle(item: PreviewItem) {
     if (!item.kind) return; // guard: confirm button is never shown for kind===null
     setPhase({ kind: "committing_single" });
@@ -412,8 +464,12 @@ export function OrderImportClient() {
           toast.push(result.error, "error");
           return;
         }
-        setPhase({ kind: "done_single", item: { file: item.file, kind: "order", status: "done", orderResult: result.data } });
+        setPhase({
+          kind: "done_single",
+          item: { file: item.file, kind: "order", status: "done", orderResult: result.data, missing: undefined },
+        });
         toast.push(`นำเข้าสำเร็จ — แปลงสำเร็จ ${result.data.transformed} รายการ`);
+        void fetchAndAttachMissingOrders(result.data.batchId);
       } else {
         const result = await commitLineImport(toFormData(item.file));
         if (!result.ok) {
@@ -608,7 +664,14 @@ export function OrderImportClient() {
       {phase.kind === "done_single" && (
         <div className="flex flex-col gap-3 rounded-lg border border-zinc-200 bg-white p-4">
           {phase.item.kind === "order" && phase.item.orderResult ? (
-            <CommitResultSummary result={phase.item.orderResult} />
+            <>
+              <CommitResultSummary result={phase.item.orderResult} />
+              <MissingOrdersPanel
+                batchId={phase.item.orderResult.batchId}
+                result={phase.item.missing}
+                onRetry={() => void fetchAndAttachMissingOrders(phase.item.orderResult!.batchId)}
+              />
+            </>
           ) : phase.item.lineResult ? (
             <LineCommitResultSummary
               result={phase.item.lineResult}
@@ -1175,9 +1238,12 @@ function MultiDoneSummary({ items }: { items: CommitItem[] }) {
         acc.skippedBlank += it.lineResult.skippedBlank;
         acc.unknown += it.lineResult.unknown;
       }
+      if (it.orderResult) {
+        acc.tombstoned += it.orderResult.tombstoned;
+      }
       return acc;
     },
-    { inserted: 0, transformed: 0, errored: 0, orphan: 0, skippedBlank: 0, unknown: 0 }
+    { inserted: 0, transformed: 0, errored: 0, orphan: 0, skippedBlank: 0, unknown: 0, tombstoned: 0 }
   );
   const failedFiles = items.filter((it) => it.status === "error");
   const hasLineItemFile = items.some((it) => it.kind === "line_item");
@@ -1210,6 +1276,7 @@ function MultiDoneSummary({ items }: { items: CommitItem[] }) {
       {totals.orphan > 0 && (
         <OrphanCommitNotice rowCount={totals.orphan} orderCount={aggOrphanOrderCount} periodMin={aggPeriodMin} periodMax={aggPeriodMax} />
       )}
+      <TombstonedNotice count={totals.tombstoned} />
       {failedFiles.length > 0 && (
         <div className="rounded-md border border-red-200 bg-red-50 p-2.5">
           <p className="text-xs font-semibold text-red-800">ไฟล์ที่นำเข้าไม่สำเร็จ ({failedFiles.length})</p>
