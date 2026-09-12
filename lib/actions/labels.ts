@@ -47,7 +47,7 @@ import {
   type PendingLabelReviewRow,
   type ResolveLabelPageResult,
 } from "@/lib/labels/types";
-import { looksLikePdf, openPdf, extractPageTexts, PdfExtractError } from "@/lib/labels/pdf";
+import { looksLikePdf, openPdf, extractPageTexts, extractSinglePageText, PdfExtractError } from "@/lib/labels/pdf";
 import { detectFormat, looksLikePackingSlipOnly } from "@/lib/labels/formats";
 import { matchProvince, type ProvinceCandidate } from "@/lib/labels/match";
 
@@ -86,6 +86,19 @@ function bangkokYearMonth(d: Date = new Date()): string {
 
 function revalidateLabelPaths(): void {
   revalidatePath("/tiktok/upload");
+}
+
+// L8 fix (12 ก.ย. 69, QA): setOrderProvince/revertOrderProvince/
+// resolveLabelPage/revertLabelPage all write analytics.fact_order.province_code
+// directly (not just stg_label_page) — /crm/orders and /crm/customers/[id]
+// both render that value (via v_fact_order), so a stale cache there would
+// show the old province right after a successful edit until some OTHER
+// action happened to revalidate those routes. ignoreLabelPage does NOT call
+// this — it never touches fact_order, only revalidateLabelPaths() applies.
+function revalidateProvinceChangePaths(): void {
+  revalidateLabelPaths();
+  revalidatePath("/crm/orders");
+  revalidatePath("/crm/customers");
 }
 
 // ============================================================================
@@ -1035,13 +1048,20 @@ function findAnyZipcode(text: string): { index: number; length: number } | null 
   return m ? { index: m.index, length: m[0].length } : null;
 }
 
-/** PDPA (owner 11 ก.ย., decision #2ข): mask any run of >=9 consecutive
- * digits (tracking numbers, phone numbers) inside a snippet that is about
- * to be sent to the browser — this is the ONLY processing step between raw
- * extracted PDF text and the response; nothing upstream of this ever writes
- * the snippet to a table or a log line. */
+/** PDPA (owner 11 ก.ย., decision #2ข): mask any run of >=9 digits (tracking
+ * numbers, phone numbers) inside a snippet that is about to be sent to the
+ * browser — this is the ONLY processing step between raw extracted PDF text
+ * and the response; nothing upstream of this ever writes the snippet to a
+ * table or a log line.
+ *
+ * M4 fix (12 ก.ย. 69, security): the original `/\d{9,}/g` only caught a
+ * literal unbroken run of digits — a phone number printed with separators
+ * ("081-234-5678", "081 234 5678") sailed straight through unmasked, since
+ * each hyphen/space-separated GROUP is only 3-4 digits on its own. Matches a
+ * digit optionally followed by one space/hyphen, repeated >=9 times, so
+ * "081-234-5678" (10 digits across 3 groups) is caught as one run. */
 function maskLongDigitRuns(text: string): string {
-  return text.replace(/\d{9,}/g, (run) => "•".repeat(run.length));
+  return text.replace(/(?:\d[\s-]?){9,}/g, (run) => "•".repeat(run.length));
 }
 
 interface OrderRefRow {
@@ -1194,7 +1214,7 @@ export async function setOrderProvince(
     });
     if (error) throw error;
 
-    revalidateLabelPaths();
+    revalidateProvinceChangePaths();
     return { ok: true, data: undefined };
   } catch (err) {
     // RPC raises a specific Thai/English message (e.g. "reason code is
@@ -1226,7 +1246,7 @@ export async function revertOrderProvince(factOrderId: string): Promise<ActionRe
     });
     if (error) throw error;
 
-    revalidateLabelPaths();
+    revalidateProvinceChangePaths();
     return { ok: true, data: undefined };
   } catch (err) {
     console.error("revertOrderProvince failed", err);
@@ -1275,7 +1295,7 @@ export async function resolveLabelPage(input: ResolveLabelPageInput): Promise<Ac
 
     const row = (Array.isArray(data) ? data[0] : data) as { applied_orders?: number } | null;
 
-    revalidateLabelPaths();
+    revalidateProvinceChangePaths();
     return { ok: true, data: { appliedOrders: Number(row?.applied_orders) || 0 } };
   } catch (err) {
     console.error("resolveLabelPage failed", err);
@@ -1334,7 +1354,7 @@ export async function revertLabelPage(pageId: string): Promise<ActionResult> {
     });
     if (error) throw error;
 
-    revalidateLabelPaths();
+    revalidateProvinceChangePaths();
     return { ok: true, data: undefined };
   } catch (err) {
     console.error("revertLabelPage failed", err);
@@ -1434,26 +1454,41 @@ export async function getLabelPageSnippet(pageId: string): Promise<ActionResult<
       .download(found.storagePath);
     if (downloadErr || !blob) throw downloadErr ?? new Error("storage download returned no data");
 
+    // M2 fix (12 ก.ย. 69, security): same guard as parseLabelFile (line ~402
+    // at the time of this fix) — check the byte size BEFORE arrayBuffer()
+    // pulls the whole blob into heap. Storage should never actually hand
+    // back something over MAX_LABEL_FILE_BYTES (0098's bucket-level limit),
+    // but that's an external contract, not something this function should
+    // trust blindly for a "just show me a snippet" click.
+    if (blob.size > MAX_LABEL_FILE_BYTES) {
+      return { ok: false, error: "ไฟล์จริงในระบบใหญ่เกิน 20MB — ดูข้อความไม่ได้ แจ้งทีมเทคนิค" };
+    }
+
     const bytes = new Uint8Array(await blob.arrayBuffer());
     if (!looksLikePdf(bytes)) {
       return { ok: false, error: "ไฟล์นี้ไม่ใช่ PDF ที่อ่านได้แล้ว — อัปโหลดใหม่" };
     }
 
-    let pageTexts: string[];
+    let text: string;
     try {
       const pdf = await openPdf(bytes);
-      pageTexts = await extractPageTexts(pdf);
+      // M2 fix (12 ก.ย. 69, security perf): extract ONLY this page, not the
+      // whole document — see extractSinglePageText's header comment
+      // (lib/labels/pdf.ts) for why extractPageTexts() here would redo work
+      // for every other page on a file up to MAX_LABEL_PAGES=300 long, on
+      // every single "ดูข้อความ" click.
+      text = await extractSinglePageText(pdf, found.page.page_no);
     } catch (extractErr) {
-      // PdfExtractError (or anything else openPdf/extractPageTexts throws) is
-      // not a hard-fail case here — the file opened fine at the original
-      // parse, this is just a best-effort re-read. Logging the error OBJECT
-      // is fine (stack trace / message only, never page content) — the PDPA
-      // "ไม่เก็บ ไม่ log" rule is about the extracted TEXT, not this.
+      // PdfExtractError (or anything else openPdf/extractSinglePageText
+      // throws) is not a hard-fail case here — the file opened fine at the
+      // original parse, this is just a best-effort re-read. Logging the
+      // error OBJECT is fine (stack trace / message only, never page
+      // content) — the PDPA "ไม่เก็บ ไม่ log" rule is about the extracted
+      // TEXT, not this.
       console.error("getLabelPageSnippet: re-extract failed, degrading to no snippet", extractErr);
       return { ok: true, data: { snippet: null, zipcodeFound: false } };
     }
 
-    const text = pageTexts[found.page.page_no - 1] ?? "";
     if (!text.trim()) {
       return { ok: true, data: { snippet: null, zipcodeFound: false } };
     }
