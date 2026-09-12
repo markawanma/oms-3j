@@ -402,6 +402,23 @@ begin
         where id = (v_link.value ->> 'stg_order_line_import_id')::uuid and shop_id = p_shop_id;
     end loop;
 
+    -- QA gate (12 ก.ย. 69): stg_line_links (above) only covers line rows
+    -- that were ALREADY linked to a fact_order_item at delete time. A line
+    -- report re-imported WHILE this order was tombstoned lands at
+    -- import_status='tombstoned' with fact_order_item_id still null (see
+    -- transform_pending_order_lines below) — those rows have no entry in
+    -- stg_line_links at all, so the loop above never touches them and they
+    -- would stay stuck at 'tombstoned' forever even after the order comes
+    -- back. Reset them to 'pending' so the next transform_pending_order_
+    -- lines run (whenever that next runs — not triggered from here, matching
+    -- this codebase's existing pattern of transform being a separate,
+    -- explicitly-invoked step) picks them up normally against the
+    -- now-restored fact_order.
+    update analytics.stg_order_line_import
+      set import_status = 'pending', error_detail = null
+      where shop_id = p_shop_id and source_order_no = v_del.source_order_no
+        and import_status = 'tombstoned' and fact_order_item_id is null;
+
     update analytics.fact_order_deleted
       set restored_at = now(), restored_by = auth.uid()
       where id = v_del.id;
@@ -442,5 +459,228 @@ $$;
 revoke execute on function analytics.import_restore_orders(uuid, uuid[]) from public, anon, authenticated;
 -- H-1: same reasoning as import_delete_orders above.
 grant execute on function analytics.import_restore_orders(uuid, uuid[]) to service_role;
+
+-- ============================================================================
+-- 3. analytics.transform_pending_order_lines — tombstone-aware (QA gate,
+--    12 ก.ย. 69, task brief item 2). Body is byte-identical to the LIVE
+--    definition on the DB as of 12 ก.ย. 69 (pulled via pg_get_functiondef,
+--    saved at .../scratchpad/transform_pending_order_lines_live.sql — NOT
+--    copied from 0041/0094/0109 in this repo, per that file's own warning)
+--    except ONE insertion, marked "-- QA gate 12 ก.ย. 69:" below, inside the
+--    phase 1 "no matching fact_order" branch.
+--
+--    Case 2 from the task brief ("re-import ไฟล์รายการสินค้าหลังลบ"): before
+--    this fix, a line-item file re-imported for a since-deleted order's
+--    source_order_no landed on 'orphan' via the plain "not found" path below
+--    — indistinguishable from a genuine "line arrived before its order
+--    report" gap, so it re-polluted getOrphanBacklog exactly the way
+--    import_delete_orders' own line-status fix (section 0/1 above) was
+--    already fixing for the "line was already linked at delete time" case.
+--    This closes the other half: lines that only ever show up AFTER the
+--    order was deleted.
+--
+--    Signature/return shape unchanged ((uuid, uuid) -> TABLE(transformed_
+--    count, orphan_count, skipped_blank_count, unknown_sku_count, errored_
+--    count)) -> plain `create or replace` is correct (3j-migration-traps
+--    #1); grants do not survive replace on Supabase -> explicit revoke+
+--    grant below (#2).
+-- ============================================================================
+
+CREATE OR REPLACE FUNCTION analytics.transform_pending_order_lines(p_shop_id uuid, p_batch_id uuid)
+ RETURNS TABLE(transformed_count integer, orphan_count integer, skipped_blank_count integer, unknown_sku_count integer, errored_count integer)
+ LANGUAGE plpgsql
+ SECURITY DEFINER
+ SET search_path TO 'public', 'analytics', 'extensions', 'pg_temp'
+AS $function$
+declare
+  v_row analytics.stg_order_line_import%rowtype;
+  v_item analytics.stg_order_line_import%rowtype;
+  v_fo record;
+  v_product_id uuid;
+  v_unit_cost numeric(12, 2);
+  v_category text;
+  v_sku_norm text;
+  v_stripped_len int;
+  v_stripped text;
+  v_match_count int;
+  v_match_note text;
+  v_tier3_conclusive boolean;
+  v_weak_order boolean;
+  v_new_item_id uuid;
+  v_cogs numeric(12, 2);
+  v_transformed int := 0;
+  v_orphan int := 0;
+  v_skipped_blank int := 0;
+  v_unknown int := 0;
+  v_errored int := 0;
+begin
+  if p_shop_id is null or p_batch_id is null then
+    raise exception 'transform_pending_order_lines: p_shop_id and p_batch_id are required';
+  end if;
+
+  for v_row in
+    select * from analytics.stg_order_line_import
+    where shop_id = p_shop_id and batch_id = p_batch_id and import_status in ('pending', 'orphan', 'error')
+    order by source_order_no, line_no
+  loop
+    begin
+      if v_row.sku_raw is null then
+        update analytics.stg_order_line_import set import_status = 'skipped_blank', error_detail = null where id = v_row.id;
+        v_skipped_blank := v_skipped_blank + 1;
+        continue;
+      end if;
+      if v_row.source_order_no is null then
+        update analytics.stg_order_line_import set import_status = 'error', error_detail = 'source_order_no is null on a non-blank SKU row' where id = v_row.id;
+        v_errored := v_errored + 1;
+        continue;
+      end if;
+      perform 1 from analytics.fact_order fo where fo.shop_id = p_shop_id and fo.source_order_no = v_row.source_order_no;
+      if not found then
+        -- QA gate 12 ก.ย. 69: an order with no LIVE fact_order might still
+        -- be a deliberately-deleted one, not a genuine orphan (line arrived
+        -- before its order report). Check the tombstone BEFORE falling
+        -- through to 'orphan' — same precedence 0114 already uses on the
+        -- order-header side. Does not increment v_orphan (this is not a
+        -- data-quality gap to wait out; it's an expected, permanent state
+        -- until/unless the order is restored) and does not overwrite
+        -- fact_order_item_id (nothing to link — 'not found' means it was
+        -- already null or is being re-set null on a fresh row).
+        if exists (
+          select 1 from analytics.fact_order_deleted fod
+          where fod.shop_id = p_shop_id and fod.source_order_no = v_row.source_order_no and fod.restored_at is null
+        ) then
+          update analytics.stg_order_line_import set import_status = 'tombstoned', error_detail = 'order deleted (tombstone)' where id = v_row.id;
+          continue;
+        end if;
+        update analytics.stg_order_line_import set import_status = 'orphan', error_detail = 'no fact_order for source_order_no: ' || v_row.source_order_no where id = v_row.id;
+        v_orphan := v_orphan + 1;
+        continue;
+      end if;
+      -- 0109: a matching fact_order exists. Promote this row back to
+      -- 'pending' if it is currently stuck at 'orphan' or 'error' so phase 2
+      -- below (and any subsequent call) can pick it up. Rows already
+      -- 'pending' (the normal happy path -- freshly inserted, order already
+      -- existed) are left alone by the `is distinct from` guard: no
+      -- redundant UPDATE, no behavior change on the path that already
+      -- worked.
+      if v_row.import_status is distinct from 'pending' then
+        update analytics.stg_order_line_import
+           set import_status = 'pending', error_detail = null
+         where id = v_row.id;
+      end if;
+    exception when others then
+      update analytics.stg_order_line_import set import_status = 'error', error_detail = sqlerrm where id = v_row.id;
+      v_errored := v_errored + 1;
+    end;
+  end loop;
+
+  for v_fo in
+    select distinct fo.id as fact_order_id, fo.source_order_no
+    from analytics.stg_order_line_import s
+    join analytics.fact_order fo on fo.shop_id = p_shop_id and fo.source_order_no = s.source_order_no
+    where s.shop_id = p_shop_id and s.batch_id = p_batch_id and s.import_status = 'pending' and s.sku_raw is not null
+  loop
+    delete from analytics.fact_order_item where fact_order_id = v_fo.fact_order_id;
+    v_cogs := 0;
+    v_weak_order := false;
+    for v_item in
+      select * from analytics.stg_order_line_import s
+      where s.shop_id = p_shop_id and s.source_order_no = v_fo.source_order_no and s.sku_raw is not null and s.import_status <> 'skipped_blank'
+      order by s.line_no
+    loop
+      begin
+        v_product_id := null; v_unit_cost := null; v_category := null; v_match_note := null; v_match_count := null;
+        v_tier3_conclusive := false;
+
+        select vp.product_id, vp.effective_unit_cost, vp.category
+          into v_product_id, v_unit_cost, v_category
+          from analytics.v_dim_product vp
+          where vp.shop_id = p_shop_id and vp.is_active and vp.sku = v_item.sku_raw;
+
+        if v_product_id is null then
+          v_sku_norm := regexp_replace(v_item.sku_raw, '^[^A-Za-z0-9]+', '');
+          v_stripped_len := length(v_item.sku_raw) - length(v_sku_norm);
+          v_stripped := left(v_item.sku_raw, v_stripped_len);
+
+          if v_sku_norm <> '' and v_stripped_len <= 2 and v_sku_norm ~ '[A-Za-z]'
+             and (v_stripped_len = 0 or v_stripped !~ '[[:alpha:]]') then
+            select sub.product_id, sub.effective_unit_cost, sub.category, sub.cnt
+              into v_product_id, v_unit_cost, v_category, v_match_count
+              from (
+                select vp.product_id, vp.effective_unit_cost, vp.category,
+                       count(*) over () as cnt
+                  from analytics.v_dim_product vp
+                  where vp.shop_id = p_shop_id and vp.is_active
+                    and regexp_replace(vp.sku, '^[^A-Za-z0-9]+', '') = v_sku_norm
+                  limit 1
+              ) sub;
+
+            if v_match_count = 1 then
+              v_match_note := 'จับคู่ด้วยรหัสที่ตัดอักขระนำหน้า: ' || v_item.sku_raw || ' -> ' || v_sku_norm;
+            else
+              if coalesce(v_match_count, 0) = 0 then
+                v_tier3_conclusive := true;
+              end if;
+              v_product_id := null; v_unit_cost := null; v_category := null;
+            end if;
+          end if;
+        end if;
+
+        if v_product_id is null then
+          select sub.product_id, sub.effective_unit_cost, sub.category, sub.cnt
+            into v_product_id, v_unit_cost, v_category, v_match_count
+            from (
+              select vp.product_id, vp.effective_unit_cost, vp.category,
+                     count(*) over () as cnt
+                from analytics.v_dim_product vp
+                where vp.shop_id = p_shop_id and not vp.is_active and vp.sku = v_item.sku_raw
+                limit 1
+            ) sub;
+
+          if v_match_count = 1 then
+            if v_tier3_conclusive then
+              v_match_note := 'จับคู่กับสินค้าที่ปิดการขาย (ใช้ต้นทุนเดิม): ' || v_item.sku_raw;
+            else
+              v_match_note := 'จับคู่กับสินค้าที่ปิดการขาย (ใช้ต้นทุนเดิม) — ยังพิสูจน์ไม่ได้ว่าไม่มีคู่แฝดที่ยังขายอยู่ — ต้องตรวจมือ: ' || v_item.sku_raw;
+              v_weak_order := true;
+            end if;
+          else
+            v_product_id := null; v_unit_cost := null; v_category := null;
+          end if;
+        end if;
+
+        if v_product_id is null then
+          v_unknown := v_unknown + 1;
+          v_weak_order := true;
+          v_match_note := 'ไม่พบสินค้าในระบบ ต้นทุนถูกนับเป็น 0: ' || v_item.sku_raw;
+        end if;
+        if v_category = 'เงินแท่ง' then
+          v_unit_cost := round(coalesce(v_item.unit_price, 0) / 1.2, 2);
+        end if;
+        insert into analytics.fact_order_item (shop_id, fact_order_id, product_id, sku_snapshot, product_name_snapshot, qty, unit_price, unit_cost_snapshot)
+        values (p_shop_id, v_fo.fact_order_id, v_product_id, v_item.sku_raw, v_item.product_name_raw, coalesce(v_item.qty, 1), coalesce(v_item.unit_price, 0), v_unit_cost)
+        returning id into v_new_item_id;
+        update analytics.stg_order_line_import set fact_order_item_id = v_new_item_id, import_status = 'transformed', error_detail = v_match_note where id = v_item.id;
+        v_transformed := v_transformed + 1;
+        v_cogs := v_cogs + coalesce(v_item.qty, 1) * coalesce(v_unit_cost, 0);
+      exception when others then
+        update analytics.stg_order_line_import set import_status = 'error', error_detail = sqlerrm where id = v_item.id;
+        v_errored := v_errored + 1;
+        v_weak_order := true;
+      end;
+    end loop;
+    update analytics.fact_order
+       set cogs = v_cogs,
+           profit = round(revenue - v_cogs, 2),
+           profit_status = case when v_weak_order then 'estimated' else 'actual' end::analytics.profit_status_t
+     where id = v_fo.fact_order_id;
+  end loop;
+
+  return query select v_transformed, v_orphan, v_skipped_blank, v_unknown, v_errored;
+end;
+$function$;
+
+revoke execute on function analytics.transform_pending_order_lines(uuid, uuid) from public, anon, authenticated;
+grant execute on function analytics.transform_pending_order_lines(uuid, uuid) to service_role;
 
 notify pgrst, 'reload schema';
