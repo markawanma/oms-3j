@@ -10,6 +10,37 @@
 -- MCP after 0112/0113/0114.
 
 -- ============================================================================
+-- 0. Extend analytics.stg_order_line_import.import_status's CHECK to allow
+--    'tombstoned' — QA gate (12 ก.ย. 69, cancel-detection review).
+--
+--    This table's import_status is TEXT + CHECK (0041:47-49), NOT the
+--    analytics.import_status_t ENUM that 0112 added 'tombstoned' to. That
+--    enum backs stg_order_import — the ORDER-header staging table — a
+--    DIFFERENT table that happens to share status vocabulary by convention
+--    only. This ALTER is the line-item table's own, separate extension; it
+--    is a plain CHECK swap (not `alter type ... add value`), so unlike
+--    0112's enum change it is safe to use in the SAME transaction as the
+--    functions below that start writing 'tombstoned' into this column.
+--
+--    Why this was needed: before this fix, import_delete_orders marked a
+--    deleted order's line items 'orphan' (identical to a genuine "line
+--    arrived before its matching order-report file" gap). getOrphanBacklog
+--    (lib/actions/import-line-items.ts) reads import_status='orphan'
+--    directly, so every deliberate cancel surfaced in the orphan-backlog UI
+--    as unexplained missing data the owner was expected to go "investigate"
+--    — exactly the outcome the whole cancel-detection feature exists to
+--    prevent. 'tombstoned' gives deleted-order line items their own status,
+--    same distinction 0112/0114 already draw on the order-header side.
+-- ============================================================================
+
+alter table analytics.stg_order_line_import
+  drop constraint stg_order_line_import_import_status_check;
+
+alter table analytics.stg_order_line_import
+  add constraint stg_order_line_import_import_status_check
+  check (import_status in ('pending', 'transformed', 'orphan', 'skipped_blank', 'sku_unmapped', 'error', 'tombstoned'));
+
+-- ============================================================================
 -- 1. analytics.import_delete_orders(shop, batch, ids, reason)
 --
 --    All-or-nothing: any id outside the freshly-recomputed candidate set, or
@@ -44,6 +75,7 @@ declare
   v_deleted_ids uuid[] := '{}';
   v_deleted_revenue numeric := 0;
   v_deleted_count int := 0;
+  v_cascade_fk_count int;
 begin
   perform analytics.crm_require_owner_admin(p_shop_id);
 
@@ -61,11 +93,32 @@ begin
     raise exception 'import_delete_orders: reason is required';
   end if;
 
+  -- security review C-1 guard (12 ก.ย. 69): the snapshot below covers
+  -- exactly 3 ON DELETE CASCADE foreign keys into analytics.fact_order
+  -- (dim_address, fact_order_item, crm_order_override — confirmed against
+  -- pg_constraint on the live DB 12 ก.ย. 69). If that count ever changes —
+  -- someone adds a new table cascading off fact_order and forgets this
+  -- function exists — this raises loudly instead of silently deleting rows
+  -- restore can never bring back. Runs on every call, not just once, so it
+  -- stays correct even if this function is never touched again.
+  select count(*) into v_cascade_fk_count
+    from pg_constraint c
+    where c.contype = 'f' and c.confdeltype = 'c'
+      and c.confrelid = 'analytics.fact_order'::regclass;
+  if v_cascade_fk_count <> 3 then
+    raise exception 'import_delete_orders: expected exactly 3 ON DELETE CASCADE foreign keys into analytics.fact_order (dim_address, fact_order_item, crm_order_override) but found % — the snapshot/restore logic in this function does not necessarily cover all cascading tables anymore; refusing to delete anything until this is reconciled',
+      v_cascade_fk_count;
+  end if;
+
   -- serialize against a concurrent import for the same shop (0114 takes the
   -- same advisory-lock key) — closes the race design §5 point 2 flags.
   perform pg_advisory_xact_lock(hashtext('analytics.fact_order:' || p_shop_id::text));
 
-  select b.file_name into v_batch_file_name from analytics.stg_import_batch b where b.id = p_batch_id;
+  -- M-2 (security review 12 ก.ย. 69): scope to this shop too — a batch id
+  -- collision across shops is not possible (uuid pk) but an unscoped select
+  -- here is inconsistent with every other lookup in this function and was
+  -- flagged on review; costs nothing to add.
+  select b.file_name into v_batch_file_name from analytics.stg_import_batch b where b.id = p_batch_id and b.shop_id = p_shop_id;
 
   -- re-derive the candidate set NOW (not trusting anything the caller sent
   -- except p_ids) — this call also re-runs P1-P4 and raises if the batch is
@@ -104,7 +157,7 @@ begin
   loop
     insert into analytics.fact_order_deleted (
       shop_id, fact_order_id, source_order_no, channel_id, order_date, revenue, customer_id,
-      order_row, item_rows, override_row, stg_order_import_ids, stg_line_links,
+      order_row, item_rows, address_rows, override_row, stg_order_import_ids, stg_line_links,
       detected_by_batch_id, detected_by_file_name, evidence, reason, deleted_by
     )
     select
@@ -112,6 +165,13 @@ begin
       to_jsonb(fo),
       coalesce(
         (select jsonb_agg(to_jsonb(foi) order by foi.id) from analytics.fact_order_item foi where foi.fact_order_id = fo.id),
+        '[]'::jsonb
+      ),
+      -- C-1: dim_address also ON DELETE CASCADEs off fact_order_id (0010:441)
+      -- and must be snapshotted the same way fact_order_item is, or restore
+      -- silently loses the shipping address forever.
+      coalesce(
+        (select jsonb_agg(to_jsonb(da) order by da.id) from analytics.dim_address da where da.fact_order_id = fo.id and da.shop_id = p_shop_id),
         '[]'::jsonb
       ),
       (select to_jsonb(co) from analytics.crm_order_override co where co.fact_order_id = fo.id),
@@ -142,8 +202,19 @@ begin
       set import_status = 'tombstoned'
       where shop_id = p_shop_id and fact_order_id = v_c.fact_order_id;
 
+    -- QA gate (12 ก.ย. 69): 'tombstoned', not 'orphan' — see the migration
+    -- header (section 0) for why conflating the two broke getOrphanBacklog.
+    -- Condition unchanged from before (fact_order_item_id is not null: only
+    -- rows this delete is actively un-linking) — a stray 'pending'/'error'/
+    -- already-'orphan' row for this source_order_no from some OTHER batch is
+    -- deliberately left alone here (its own status still means whatever it
+    -- meant); getOrphanBacklog's own added filter (lib/import/orphan-
+    -- backlog scope, item 3 of this gate) is what hides ALL orphan rows for
+    -- a tombstoned source_order_no from the UI regardless of how they got
+    -- there — that is the single place this whole class of row is excluded,
+    -- so this UPDATE does not need to chase every possible prior status.
     update analytics.stg_order_line_import
-      set import_status = 'orphan'
+      set import_status = 'tombstoned'
       where shop_id = p_shop_id and source_order_no = v_c.source_order_no and fact_order_item_id is not null;
 
     v_deleted_ids := array_append(v_deleted_ids, v_c.fact_order_id);
@@ -191,7 +262,14 @@ end;
 $$;
 
 revoke execute on function analytics.import_delete_orders(uuid, uuid, uuid[], text) from public, anon, authenticated;
-grant execute on function analytics.import_delete_orders(uuid, uuid, uuid[], text) to authenticated, service_role;
+-- H-1 (security review 12 ก.ย. 69): service_role ONLY — this RPC is never
+-- called via a user session (lib/actions/import-missing-orders.ts always
+-- uses getServiceClient()); granting authenticated execute let a logged-in
+-- user call this permanently-deleting RPC directly over PostgREST, bypassing
+-- the app-layer requireOwnerAdmin() gate entirely (crm_require_owner_admin
+-- inside the function is defense-in-depth, not meant to be the only gate).
+-- Matches 0111/0114's own pattern.
+grant execute on function analytics.import_delete_orders(uuid, uuid, uuid[], text) to service_role;
 
 -- ============================================================================
 -- 2. analytics.import_restore_orders(shop, deleted_ids)
@@ -225,6 +303,7 @@ declare
   v_del analytics.fact_order_deleted%rowtype;
   v_fo analytics.fact_order%rowtype;
   v_item record;
+  v_addr record;
   v_link record;
   v_resolved_customer_id uuid;
   v_conflict_id uuid;
@@ -279,6 +358,24 @@ begin
     v_fo := jsonb_populate_record(null::analytics.fact_order, v_del.order_row);
     v_fo.customer_id := v_resolved_customer_id;
     insert into analytics.fact_order select (v_fo).*;
+
+    -- C-1 (security review 12 ก.ย. 69): restore dim_address rows before
+    -- items, same insertion-order reasoning the design already used for
+    -- fact_order-before-fact_order_item (fact_order_id must exist first —
+    -- dim_address.fact_order_id has no NOT NULL but IS the FK the restored
+    -- addresses need to point at). Restored with the SAME id the row had at
+    -- delete time (jsonb_populate_record carries `id` through, exactly like
+    -- v_fo/v_item above) — not re-derived from customer_id, so this does
+    -- NOT walk merged_into_id the way fact_order.customer_id does above; a
+    -- restored address can reference a since-merged (soft-retired)
+    -- dim_customer row, same as it would have before the delete. That is a
+    -- pre-existing property of dim_address, not something this restore path
+    -- changes.
+    for v_addr in select * from jsonb_array_elements(v_del.address_rows)
+    loop
+      insert into analytics.dim_address
+      select (jsonb_populate_record(null::analytics.dim_address, v_addr.value)).*;
+    end loop;
 
     for v_item in select * from jsonb_array_elements(v_del.item_rows)
     loop
@@ -343,6 +440,7 @@ end;
 $$;
 
 revoke execute on function analytics.import_restore_orders(uuid, uuid[]) from public, anon, authenticated;
-grant execute on function analytics.import_restore_orders(uuid, uuid[]) to authenticated, service_role;
+-- H-1: same reasoning as import_delete_orders above.
+grant execute on function analytics.import_restore_orders(uuid, uuid[]) to service_role;
 
 notify pgrst, 'reload schema';

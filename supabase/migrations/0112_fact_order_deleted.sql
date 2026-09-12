@@ -56,6 +56,14 @@ create table analytics.fact_order_deleted (
   order_row jsonb not null,
   item_rows jsonb not null default '[]'::jsonb,
   override_row jsonb,
+  -- security review C-1 (12 ก.ย. 69): analytics.dim_address also ON DELETE
+  -- CASCADEs from fact_order_id (0010:441) and was NOT being snapshotted —
+  -- deleting an order with a saved shipping address silently threw the
+  -- address away forever, and restore could never bring it back. Same
+  -- "to_jsonb() of the whole row, restore via jsonb_populate_record" shape
+  -- as item_rows. Default '[]' because most historical fact_order rows
+  -- predate dim_address parsing and have zero rows here, same as item_rows.
+  address_rows jsonb not null default '[]'::jsonb,
 
   -- staging lineage, captured BEFORE the delete severs it (fact_order's
   -- delete cascades to fact_order_item, which ON DELETE SET NULLs
@@ -118,5 +126,21 @@ create policy owner_admin_select on analytics.fact_order_deleted
       where user_id = auth.uid() and role in ('owner', 'admin')
     )
   );
+
+-- Table-level grants — RLS policies alone do nothing without these (the
+-- policy filters ROWS, the grant is what lets the role touch the table at
+-- all). Missed in the original draft of this migration; found by security
+-- review 12 ก.ย. 69 by diffing against the sibling table this one's RLS
+-- shape was copied from (analytics.crm_order_override, 0021): authenticated
+-- SELECT (the owner_admin_select policy above still restricts which rows),
+-- service_role ALL (every write here goes through 0115's SECURITY DEFINER
+-- RPCs, which run as the function owner and so do not strictly need this
+-- table grant themselves — but getDeletedOrders (lib/actions/import-
+-- missing-orders.ts) reads this table directly via getServiceClient(),
+-- which needs it). Without the authenticated grant, getDeletedOrders would
+-- 42501 the moment a real (non-service-role) session ever queries this
+-- table directly instead of through the service client.
+grant select on analytics.fact_order_deleted to authenticated;
+grant all on analytics.fact_order_deleted to service_role;
 
 notify pgrst, 'reload schema';
