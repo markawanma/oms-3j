@@ -482,6 +482,15 @@ begin
     v_log := v_log || 'T19: OK - revert_page ข้าม shop ถูกปฏิเสธ (' || sqlerrm || ')' || E'\n';
   end;
 
+  -- T20 note (confirmed against live dry-run, 12 ก.ย. 69): this guard trips
+  -- at the crm_audit_log LOOKUP inside label_revert_order_province (`where
+  -- shop_id = p_shop_id and ... entity_id = p_fact_order_id` finds zero rows
+  -- when shop_id is wrong, since order1's real audit rows were all logged
+  -- under v_shop_a — see 0116's label_revert_order_province), which raises
+  -- "no province_set history for order %" — NOT at a direct "wrong shop"
+  -- check on fact_order itself the way label_write_province's guard reads.
+  -- Different code path, same correct outcome (rejected) — worth noting so
+  -- nobody reads "OK" here and assumes the error message says "wrong shop".
   begin
     perform analytics.label_revert_order_province(v_shop_b, v_order1);
     v_log := v_log || 'T20: FAIL - revert_order_province ข้าม shop ผ่านทั้งที่ควรถูกปฏิเสธ' || E'\n';
