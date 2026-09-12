@@ -49,6 +49,29 @@ function requireOwnerAdmin(): ActionResult<never> | null {
   return null;
 }
 
+// C-2 (security review 12 ก.ย. 69): production is intentionally open to the
+// public (accepted risk, see memory/prod-exposure-accepted-risk — a Vercel
+// Hobby plan can't gate the deployment itself) and requireOwnerAdmin() above
+// reads a build-time env var (getDevRole()), NOT a real auth session — there
+// is no per-user login yet (pending Auth A2). analytics.crm_require_owner_
+// admin() inside the RPCs is also effectively a no-op under service_role,
+// which is what getServiceClient() always uses here. That stack of "gates"
+// adds up to zero real access control on two RPCs that PERMANENTLY delete
+// revenue-bearing rows. This flag is the actual gate until Auth A2 ships a
+// real session check: unset (or any value other than "1") keeps both write
+// paths refusing to run. getMissingOrders/getDeletedOrders (read-only) are
+// deliberately NOT gated by this — they carry the same exposure risk every
+// other read action in this app already has, accepted separately.
+function requireMissingOrdersWriteEnabled(): ActionResult<never> | null {
+  if (process.env.MISSING_ORDERS_WRITE_ENABLED !== "1") {
+    return {
+      ok: false,
+      error: "ระบบลบ/กู้คืนออเดอร์ยังปิดอยู่ (เปิดได้หลัง Auth A2 หรือเจ้าของสั่งเปิด)",
+    };
+  }
+  return null;
+}
+
 function revalidateOrderAffectedPaths(): void {
   revalidatePath("/crm/import");
   revalidatePath("/crm/overview");
@@ -158,6 +181,9 @@ export async function deleteMissingOrders(
   ids: string[],
   reason: string
 ): Promise<ActionResult<DeleteMissingOrdersResult>> {
+  const writeGateErr = requireMissingOrdersWriteEnabled();
+  if (writeGateErr) return writeGateErr;
+
   const gateErr = requireOwnerAdmin();
   if (gateErr) return gateErr;
 
@@ -277,6 +303,9 @@ export async function getDeletedOrders(): Promise<ActionResult<DeletedOrderRow[]
 // ============================================================================
 
 export async function restoreDeletedOrders(ids: string[]): Promise<ActionResult<RestoreDeletedOrdersResult>> {
+  const writeGateErr = requireMissingOrdersWriteEnabled();
+  if (writeGateErr) return writeGateErr;
+
   const gateErr = requireOwnerAdmin();
   if (gateErr) return gateErr;
 
