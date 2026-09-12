@@ -45,6 +45,7 @@ import {
   type LabelReviewRow,
   type OrderSourceRef,
   type PendingLabelReviewRow,
+  type ProvinceAuditEntry,
   type ResolveLabelPageResult,
 } from "@/lib/labels/types";
 import { looksLikePdf, openPdf, extractPageTexts, extractSinglePageText, PdfExtractError } from "@/lib/labels/pdf";
@@ -1070,13 +1071,21 @@ interface OrderRefRow {
   tracking_no: string | null;
   province_code: string;
   province_source: "import" | "label" | "manual";
+  channel_id: string;
+  order_date: string;
 }
 
 /** Shared by getPendingLabelReviews (above) in spirit but kept separate here
  * (different caller shape: an arbitrary order id list, not "every tracking_no
  * in today's review queue") — batch-looks-up "the latest stg_order_import
  * row per fact_order_id" + the import batch's file_name for a set of orders
- * already known to exist. Owner 11 ก.ย., decision #3. */
+ * already known to exist. Owner 11 ก.ย., decision #3.
+ *
+ * frontend-dev request (12 ก.ย. 69): also attaches channelName (dim_channel
+ * — global reference data, no shop_id column, same as getCrmEditOptions in
+ * lib/actions/crm.ts) and lastProvinceAudit (most recent crm_audit_log
+ * province_set/province_revert row per order) — see OrderSourceRef's field
+ * comments in lib/labels/types.ts for why these are findOrdersByTracking-only. */
 async function attachOrderSources(
   supabase: ReturnType<typeof getServiceClient>,
   shopId: string,
@@ -1115,6 +1124,53 @@ async function attachOrderSources(
     for (const b of (data ?? []) as { id: string; file_name: string | null }[]) fileNameByBatchId.set(b.id, b.file_name);
   }
 
+  // channel name — dim_channel is global reference data (no shop_id column,
+  // same reasoning as getCrmEditOptions in lib/actions/crm.ts), small table,
+  // one query regardless of how many distinct channels this order set uses.
+  const channelIds = [...new Set(orders.map((o) => o.channel_id))];
+  const channelNameById = new Map<string, string>();
+  for (const chunk of chunkArray(channelIds, PENDING_REVIEW_FILE_LOOKUP_CHUNK_SIZE)) {
+    const { data, error } = await supabase.schema(SCHEMA).from("dim_channel").select("id, name").in("id", chunk);
+    if (error) throw error;
+    for (const c of (data ?? []) as { id: string; name: string }[]) channelNameById.set(c.id, c.name);
+  }
+
+  // latest province_set/province_revert audit row per order — order by
+  // created_at desc then keep the first-seen (= latest) per entity_id, same
+  // "page past the DB, reduce client-side" pattern as latestImportByOrderId
+  // above (fine at this call's scale: findOrdersByTracking caps each side of
+  // its search at 20 rows, never the unbounded-queue volumes fetchAllRows()
+  // exists for).
+  interface ProvinceAuditRow {
+    entity_id: string | null;
+    action: string;
+    before: unknown;
+    after: unknown;
+    created_at: string;
+  }
+  const lastProvinceAuditByOrderId = new Map<string, ProvinceAuditEntry>();
+  for (const chunk of chunkArray(orderIds, PENDING_REVIEW_FILE_LOOKUP_CHUNK_SIZE)) {
+    const { data, error } = await supabase
+      .schema(SCHEMA)
+      .from("crm_audit_log")
+      .select("entity_id, action, before, after, created_at")
+      .eq("shop_id", shopId)
+      .eq("entity_type", "fact_order")
+      .in("entity_id", chunk)
+      .in("action", ["province_set", "province_revert"])
+      .order("created_at", { ascending: false });
+    if (error) throw error;
+    for (const r of (data ?? []) as ProvinceAuditRow[]) {
+      if (!r.entity_id || lastProvinceAuditByOrderId.has(r.entity_id)) continue;
+      lastProvinceAuditByOrderId.set(r.entity_id, {
+        action: r.action as "province_set" | "province_revert",
+        before: r.before,
+        after: r.after,
+        at: r.created_at,
+      });
+    }
+  }
+
   return orders.map((o) => {
     const imp = latestImportByOrderId.get(o.id);
     return {
@@ -1125,6 +1181,9 @@ async function attachOrderSources(
       provinceSource: o.province_source,
       importFileName: imp ? (fileNameByBatchId.get(imp.batchId) ?? null) : null,
       sourceRowNo: imp ? imp.sourceRowNo : null,
+      orderDate: o.order_date,
+      channelName: channelNameById.get(o.channel_id) ?? null,
+      lastProvinceAudit: lastProvinceAuditByOrderId.get(o.id) ?? null,
     };
   });
 }
@@ -1152,14 +1211,14 @@ export async function findOrdersByTracking(query: string): Promise<ActionResult<
       supabase
         .schema(SCHEMA)
         .from("fact_order")
-        .select("id, source_order_no, tracking_no, province_code, province_source")
+        .select("id, source_order_no, tracking_no, province_code, province_source, channel_id, order_date")
         .eq("shop_id", shopId)
         .eq("tracking_no", clean)
         .limit(20),
       supabase
         .schema(SCHEMA)
         .from("fact_order")
-        .select("id, source_order_no, tracking_no, province_code, province_source")
+        .select("id, source_order_no, tracking_no, province_code, province_source, channel_id, order_date")
         .eq("shop_id", shopId)
         .eq("source_order_no", clean)
         .limit(20),
