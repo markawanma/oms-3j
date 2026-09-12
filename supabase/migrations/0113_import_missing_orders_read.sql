@@ -115,6 +115,7 @@ declare
   v_unparsed_count int;
   v_pending_error_count int;
   v_resolved_channels uuid[];
+  v_f_row_count int;
 begin
   perform analytics.crm_require_owner_admin(p_shop_id);
 
@@ -192,12 +193,23 @@ begin
   -- a row can reach 'transformed', so every transformed row already proves
   -- its channel_raw resolves. This is defense-in-depth, same posture as
   -- P1-P4 above, not a rule expected to trip on real data.
-  select array_agg(distinct dca.channel_id) filter (where dca.channel_id is not null)
-    into v_resolved_channels
+  --
+  -- Low (security review 12 ก.ย. 69): count(*) alongside the channel
+  -- array so "zero F rows at all" can raise its own distinct detail
+  -- ('empty_batch') instead of being lumped into 'channels_unresolved' —
+  -- an empty batch and a batch whose rows all fail channel resolution are
+  -- different failure modes with different fixes, worth telling apart in
+  -- the blocked_reason the UI shows the owner.
+  select array_agg(distinct dca.channel_id) filter (where dca.channel_id is not null), count(*)
+    into v_resolved_channels, v_f_row_count
     from analytics.stg_order_import s
     left join analytics.dim_channel_alias dca on lower(dca.alias_raw) = lower(trim(coalesce(s.channel_raw, '')))
     where s.shop_id = p_shop_id and s.batch_id = p_batch_id
       and s.source_kind = 'excel' and s.import_status in ('transformed', 'tombstoned');
+  if v_f_row_count = 0 then
+    raise exception 'import_missing_orders_candidates: blocked'
+      using errcode = 'P0001', detail = 'empty_batch';
+  end if;
   if v_resolved_channels is null then
     raise exception 'import_missing_orders_candidates: blocked'
       using errcode = 'P0001', detail = 'channels_unresolved';
@@ -344,7 +356,7 @@ begin
   exception
     when others then
       get stacked diagnostics v_detail = pg_exception_detail;
-      if v_detail in ('shop_or_source_mismatch', 'batch_not_transformed', 'batch_has_unresolved_rows', 'unparseable_order_no', 'channels_unresolved', 'file_rows_skipped') then
+      if v_detail in ('shop_or_source_mismatch', 'batch_not_transformed', 'batch_has_unresolved_rows', 'unparseable_order_no', 'channels_unresolved', 'file_rows_skipped', 'empty_batch') then
         v_blocked_reason := v_detail;
       else
         raise; -- unexpected error, do not swallow
