@@ -1444,9 +1444,12 @@ export async function getLabelPageSnippet(pageId: string): Promise<ActionResult<
       const pdf = await openPdf(bytes);
       pageTexts = await extractPageTexts(pdf);
     } catch (extractErr) {
-      // PdfExtractError ก็ได้เหมือนกัน — ไม่ใช่ error ที่ต้องแจ้งผู้ใช้แบบ hard
-      // fail (ไฟล์เปิดได้ตอน parse ครั้งแรกแล้ว แค่ตอนนี้อ่านซ้ำไม่ได้)
-      void (extractErr instanceof PdfExtractError);
+      // PdfExtractError (or anything else openPdf/extractPageTexts throws) is
+      // not a hard-fail case here — the file opened fine at the original
+      // parse, this is just a best-effort re-read. Logging the error OBJECT
+      // is fine (stack trace / message only, never page content) — the PDPA
+      // "ไม่เก็บ ไม่ log" rule is about the extracted TEXT, not this.
+      console.error("getLabelPageSnippet: re-extract failed, degrading to no snippet", extractErr);
       return { ok: true, data: { snippet: null, zipcodeFound: false } };
     }
 
