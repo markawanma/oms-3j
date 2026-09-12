@@ -31,6 +31,7 @@ import type {
   MissingOrdersChannel,
   MissingOrdersGroup,
   MissingOrdersResult,
+  MissingOrdersWriteStatus,
   RestoreDeletedOrdersResult,
 } from "@/lib/import/missing-orders-types";
 
@@ -166,6 +167,25 @@ export async function getMissingOrders(batchId: string): Promise<ActionResult<Mi
     console.error("getMissingOrders failed", err);
     return { ok: false, error: "ตรวจออเดอร์ที่หายไปไม่สำเร็จ ลองใหม่อีกครั้ง" };
   }
+}
+
+// ============================================================================
+// getMissingOrdersWriteStatus — frontend request (12 ก.ย. 69), backs
+// MissingOrdersPanel's own disabled state. Read-only, no DB round-trip at
+// all — lets the UI disable the delete/restore buttons from mount instead
+// of discovering the gate is closed only after a user clicks and gets back
+// deleteMissingOrders/restoreDeletedOrders' Thai error string. Calls
+// requireMissingOrdersWriteEnabled() itself (not a second copy of the env
+// check) so this can never drift from the real gate those two actions use.
+// The Thai error string on an actual write attempt is still the real
+// enforcement — this action is a convenience for the UI, not a second gate.
+// ============================================================================
+
+export async function getMissingOrdersWriteStatus(): Promise<ActionResult<MissingOrdersWriteStatus>> {
+  const gateErr = requireOwnerAdmin();
+  if (gateErr) return gateErr;
+
+  return { ok: true, data: { enabled: requireMissingOrdersWriteEnabled() === null } };
 }
 
 // ============================================================================

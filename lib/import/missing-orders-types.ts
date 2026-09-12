@@ -91,6 +91,15 @@ export interface RestoreDeletedOrdersResult {
   restoredIds: string[];
 }
 
+/** C-2 (security review 12 ก.ย. 69) — frontend-requested read of the
+ * MISSING_ORDERS_WRITE_ENABLED env gate, so the UI can disable the delete/
+ * restore buttons from mount instead of relying on string-matching the
+ * error message deleteMissingOrders/restoreDeletedOrders return when the
+ * gate is closed. */
+export interface MissingOrdersWriteStatus {
+  enabled: boolean;
+}
+
 /** One row of analytics.fact_order_deleted, shaped for DeletedOrdersHistory
  * (frontend-dev, later phase) — NOT the full snapshot (order_row/item_rows/
  * evidence stay server-side only, never sent to the client: they exist for
