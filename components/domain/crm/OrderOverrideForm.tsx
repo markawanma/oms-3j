@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { Pencil, RotateCcw } from "lucide-react";
 import { crmClearOrderOverride, crmSetOrderOverride } from "@/lib/actions/crm";
 import type { CrmCustomerOrderRow } from "@/lib/actions/crm";
@@ -10,7 +11,7 @@ import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 
 /**
- * Edit button + modal for one order row (channel/province/revenue/discount/
+ * Edit button + modal for one order row (channel/revenue/discount/
  * order_date/bank/tags), plus — when the row is already edited — a "revert"
  * action. Owner/admin only (`canEdit`, decided server-side in page.tsx via
  * getDevRole()); crmSetOrderOverride/crmClearOrderOverride re-check the same
@@ -23,12 +24,24 @@ import { Modal } from "@/components/ui/Modal";
  * current effective value. On save this form sends the full 7-field object
  * back (not just the one field the user touched) so a previous override on
  * some other field is never silently dropped.
+ *
+ * province_code — REMOVED from this form (owner 11 ก.ย. 69, "ถอดเลย" —
+ * design-label-teach-loop-yoda-11sep.md §4: two sources of truth for the
+ * same order's province, this override layer + the raw fact_order.
+ * province_code that ProvinceFixPanel/label resolve now write directly,
+ * could silently disagree). The field is intentionally still sent in the
+ * payload below as `order.provinceCode` UNCHANGED (not user-editable) —
+ * omitting the key entirely would let this REPLACE-not-merge RPC silently
+ * clear any pre-existing province override the next time someone edits any
+ * OTHER field on this order. Editing province now happens exclusively at
+ * /tiktok/upload → ProvinceFixPanel (writes the raw column directly, no
+ * override layer involved).
  */
 export function OrderOverrideForm({
   order,
   customerId,
   channels,
-  provinces,
+  provinces: _provinces,
   canEdit,
 }: {
   order: CrmCustomerOrderRow;
@@ -40,7 +53,6 @@ export function OrderOverrideForm({
   const router = useRouter();
   const [open, setOpen] = useState(false);
   const [channelId, setChannelId] = useState(order.channelId);
-  const [provinceCode, setProvinceCode] = useState(order.provinceCode);
   const [revenue, setRevenue] = useState(String(order.revenue));
   const [discount, setDiscount] = useState(String(order.discount));
   const [orderDate, setOrderDate] = useState(order.orderDate);
@@ -55,7 +67,6 @@ export function OrderOverrideForm({
 
   function openModal() {
     setChannelId(order.channelId);
-    setProvinceCode(order.provinceCode);
     setRevenue(String(order.revenue));
     setDiscount(String(order.discount));
     setOrderDate(order.orderDate);
@@ -92,7 +103,11 @@ export function OrderOverrideForm({
         customerId,
         {
           channel_id: channelId,
-          province_code: provinceCode,
+          // ไม่ใช่ user-editable ในฟอร์มนี้อีกต่อไป — ส่งค่าปัจจุบันกลับไปเฉยๆ
+          // (pass-through) กัน RPC's replace-whole-blob semantics เคลียร์
+          // province override เดิมทิ้งทุกครั้งที่แก้ field อื่น (ดูคอมเมนต์
+          // หัวไฟล์). แก้จังหวัดจริงย้ายไป /tiktok/upload → แผงแก้จังหวัดแล้ว
+          province_code: order.provinceCode,
           revenue: revenueNum,
           discount: discountNum,
           order_date: orderDate,
@@ -174,20 +189,13 @@ export function OrderOverrideForm({
               ))}
             </select>
           </label>
-          <label className="flex flex-col gap-1">
-            <span className="text-xs font-medium text-zinc-600">จังหวัด</span>
-            <select
-              value={provinceCode}
-              onChange={(e) => setProvinceCode(e.target.value)}
-              className="min-h-11 rounded-md border border-zinc-300 px-2.5 text-sm text-zinc-900"
-            >
-              {provinces.map((p) => (
-                <option key={p.code} value={p.code}>
-                  {p.nameTh}
-                </option>
-              ))}
-            </select>
-          </label>
+          <p className="rounded-md bg-zinc-50 px-2.5 py-2 text-xs text-zinc-500">
+            แก้จังหวัดได้ที่{" "}
+            <Link href="/tiktok/upload" className="font-medium text-primary-700 underline underline-offset-2">
+              /tiktok/upload → แผงแก้จังหวัด
+            </Link>{" "}
+            (ค้นด้วยเลขพัสดุ/เลขที่ออเดอร์)
+          </p>
           <div className="grid grid-cols-2 gap-3">
             <label className="flex flex-col gap-1">
               <span className="text-xs font-medium text-zinc-600">ยอดขาย (บาท)</span>
@@ -250,7 +258,7 @@ export function OrderOverrideForm({
               value={reason}
               onChange={(e) => setReason(e.target.value)}
               rows={2}
-              placeholder="เช่น ลูกค้าแจ้งที่อยู่ผิด แก้จังหวัดตามที่จัดส่งจริง"
+              placeholder="เช่น พนักงานกรอกยอดขายผิด แก้ตามใบเสร็จจริง"
               className="rounded-md border border-zinc-300 px-2.5 py-2 text-sm text-zinc-900 placeholder:text-zinc-400"
             />
           </label>
