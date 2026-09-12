@@ -81,17 +81,30 @@
 do $$
 declare
   v_conname text;
+  v_match_count int;
 begin
   -- dynamic lookup instead of assuming Postgres's default auto-generated
   -- constraint name (`<table>_<col>_check`) — this table has TWO check
   -- constraints (page_no > 0, match_status in (...)), so the ILIKE narrows
   -- to the one that actually mentions match_status; safe to re-run (2nd run
   -- finds+drops+recreates the identical new definition, a no-op net effect).
-  select conname into v_conname
+  select count(*) into v_match_count
     from pg_constraint
    where conrelid = 'analytics.stg_label_page'::regclass
      and contype = 'c'
      and pg_get_constraintdef(oid) ilike '%match_status%';
+  if v_match_count > 1 then
+    -- L2: don't silently pick one out of several matches — abort loudly.
+    raise exception 'stg_label_page: % check constraints matched %%match_status%% — refusing to guess, fix manually', v_match_count;
+  end if;
+
+  select conname into v_conname
+    from pg_constraint
+   where conrelid = 'analytics.stg_label_page'::regclass
+     and contype = 'c'
+     and pg_get_constraintdef(oid) ilike '%match_status%'
+   order by conname
+   limit 1;
   if v_conname is not null then
     execute format('alter table analytics.stg_label_page drop constraint %I', v_conname);
   end if;
@@ -183,16 +196,45 @@ update analytics.fact_order fo
 -- ============================================================================
 -- 3. crm_audit_log.action — add province_set / province_revert
 -- ============================================================================
+-- 🔴 security fix (C1, 12 ก.ย. 69): the first cut of this constraint copied
+-- 0021's check list verbatim and MISSED 'customer_merge'/'merge_dismiss' —
+-- added later by 0023, a DIFFERENT migration that touched the SAME object.
+-- crm_audit_log already had 72 real 'customer_merge' rows on the live DB —
+-- the old version of this ALTER would have FAILED validation on apply (or,
+-- if it had somehow succeeded, silently broken the merge-customers feature
+-- for every call after). Confirmed against the live table's current
+-- constraint (Tech Lead, 12 ก.ย.) — full 9-value list carried forward below.
+--
+-- LESSON (write it down so it doesn't repeat): when re-issuing a CHECK/
+-- constraint on an existing object, copy the list from the LATEST migration
+-- that touched that object, never from the migration that originally
+-- created it — `grep -rl` the object name across supabase/migrations/ and
+-- read the newest match, or better, pull the live definition via
+-- pg_get_constraintdef()/pg_get_functiondef() before writing the replacement
+-- (see H1's label_apply_matched below for that exact technique).
 
 do $$
 declare
   v_conname text;
+  v_match_count int;
 begin
-  select conname into v_conname
+  select count(*) into v_match_count
     from pg_constraint
    where conrelid = 'analytics.crm_audit_log'::regclass
      and contype = 'c'
      and pg_get_constraintdef(oid) ilike '%action%';
+  if v_match_count > 1 then
+    -- L2: ambiguous match = don't guess which one to drop — abort loudly.
+    raise exception 'crm_audit_log: % check constraints matched %%action%% — refusing to guess, fix manually', v_match_count;
+  end if;
+
+  select conname into v_conname
+    from pg_constraint
+   where conrelid = 'analytics.crm_audit_log'::regclass
+     and contype = 'c'
+     and pg_get_constraintdef(oid) ilike '%action%'
+   order by conname
+   limit 1;
   if v_conname is not null then
     execute format('alter table analytics.crm_audit_log drop constraint %I', v_conname);
   end if;
@@ -202,8 +244,12 @@ alter table analytics.crm_audit_log
   add constraint crm_audit_log_action_check
   check (
     action in (
+      -- 0021 (original 7):
       'order_override_set', 'order_override_clear', 'customer_edit',
       'pii_edit', 'note_add', 'note_edit', 'note_delete',
+      -- 0023 (customer merge, +2 — the values this file's first cut missed):
+      'customer_merge', 'merge_dismiss',
+      -- this migration (+2):
       'province_set', 'province_revert'
     )
   );
