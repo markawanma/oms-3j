@@ -90,6 +90,26 @@ export interface RestoreDeletedOrdersResult {
   restoredIds: string[];
 }
 
+// C-2 (security review 12 ก.ย. 69, lib/actions/import-missing-orders.ts's
+// requireMissingOrdersWriteEnabled) — deleteMissingOrders/restoreDeletedOrders
+// return this EXACT ActionResult error string when MISSING_ORDERS_WRITE_
+// ENABLED != "1". There is no dedicated status action (no
+// getMissingOrdersWriteStatus()) the UI can call ahead of time to know the
+// switch is off before the user even clicks delete/restore — see this
+// project's frontend delivery notes (12 ก.ย. 69) for that ask. Until one
+// exists, string-matching this prefix is the ONLY way the UI can tell
+// "write disabled on purpose" apart from a genuine failure, so it can show
+// an info box instead of a scary red error. Fragile by construction: if the
+// wording of requireMissingOrdersWriteEnabled()'s error ever changes without
+// updating this constant too, this stops matching and the UI just falls
+// back to treating it as a normal error (worse UX, still safe — no
+// silent data risk either way).
+export const MISSING_ORDERS_WRITE_DISABLED_PREFIX = "ระบบลบ/กู้คืนออเดอร์ยังปิดอยู่";
+
+export function isMissingOrdersWriteDisabledError(error: string): boolean {
+  return error.startsWith(MISSING_ORDERS_WRITE_DISABLED_PREFIX);
+}
+
 /** One row of analytics.fact_order_deleted, shaped for DeletedOrdersHistory
  * (frontend-dev, later phase) — NOT the full snapshot (order_row/item_rows/
  * evidence stay server-side only, never sent to the client: they exist for
