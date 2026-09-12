@@ -276,11 +276,21 @@ create table if not exists analytics.label_text_rule (
   kind text not null check (kind in ('strip_codepoint', 'alias')),
   -- PDPA guard (owner 11 ก.ย.): a taught snippet must be short and
   -- non-numeric-ish enough that it can never itself carry a tracking
-  -- number/phone/zip run — length <=25 AND no run of 3+ consecutive digits.
-  -- Enforced here as a real CHECK (backstop) in addition to the RPC-level
-  -- pre-validation in label_resolve_page (friendlier error message there).
+  -- number/phone/zip run. M3 fix (12 ก.ย. 69, security): originally only
+  -- blocked runs of >=3 consecutive digits — a 1-2 digit number (a soi/lane
+  -- number, e.g. "ซอย 12") still slipped through, and no legitimate place
+  -- name ever needs ANY digit (Thai numerals ๐-๙ included — a snippet using
+  -- Thai digits would sail straight past a plain `\d` check, which only
+  -- matches ASCII 0-9). Tightened to a POSITIVE allow-list instead of a
+  -- digit-run block: length <=25 AND every character is a Unicode letter or
+  -- whitespace, full stop — this is now a strict superset of the old rule
+  -- (blocks every digit of every script, plus punctuation) with no loss of
+  -- any legitimate place-name pattern. Enforced here as a real CHECK
+  -- (backstop) in addition to the RPC-level pre-validation in
+  -- label_resolve_page (friendlier error message there — same rule, kept in
+  -- sync manually, same duplication-risk note as the reason-code CHECKs).
   pattern text not null check (
-    length(pattern) > 0 and length(pattern) <= 25 and pattern !~ '\d{3,}'
+    length(pattern) > 0 and length(pattern) <= 25 and pattern ~ '^[[:alpha:][:space:]]+$'
   ),
   province_code text not null references analytics.dim_geo (province_code),
   active boolean not null default false,
@@ -370,6 +380,14 @@ begin
     'no_data_yet', 'unreadable', 'wrong_label', 'customer_moved', 'other'
   ) then
     raise exception 'label_write_province: invalid reason code %', p_reason;
+  end if;
+  -- M1 fix (12 ก.ย. 69): p_note lands in crm_audit_log.after, an
+  -- append-only table (no update/delete path — see 0021 §2.3) — an
+  -- unbounded note would be permanent, unremovable bloat on a table that
+  -- already carries PII in other rows (pii_edit). Cap it here so a bad
+  -- caller/copy-paste accident can't write an essay into forever-storage.
+  if p_note is not null and length(p_note) > 500 then
+    raise exception 'label_write_province: p_note too long (% chars, max 500)', length(p_note);
   end if;
 
   select fo.province_code, fo.province_source into v_before_code, v_before_source
@@ -641,9 +659,11 @@ begin
     v_pattern := btrim(p_taught_snippet);
     if v_pattern = '' then
       v_pattern := null; -- caller sent whitespace-only — treat as "no snippet"
-    elsif length(v_pattern) > 25 or v_pattern ~ '\d{3,}' then
+    -- M3: kept in sync with label_text_rule.pattern's CHECK above — letters
+    -- + whitespace only (any script), length <=25. No digit of any kind.
+    elsif length(v_pattern) > 25 or v_pattern !~ '^[[:alpha:][:space:]]+$' then
       raise exception
-        'label_resolve_page: taught snippet invalid — must be <=25 chars with no run of 3+ digits (got % chars)',
+        'label_resolve_page: taught snippet invalid — must be <=25 chars, letters/spaces only, no digits of any kind (got % chars)',
         length(v_pattern);
     end if;
   end if;
@@ -735,6 +755,12 @@ begin
     'no_data_yet', 'unreadable', 'wrong_label', 'customer_moved', 'other'
   ) then
     raise exception 'label_ignore_page: invalid reason code %', p_reason;
+  end if;
+  -- M1 fix (12 ก.ย. 69): p_note here lands in stg_label_page.applied_note
+  -- (not audit_log, but still no user-facing edit/delete path in this
+  -- phase) — same cap as label_write_province for the same reason.
+  if p_note is not null and length(p_note) > 500 then
+    raise exception 'label_ignore_page: p_note too long (% chars, max 500)', length(p_note);
   end if;
 
   select * into v_page
@@ -860,7 +886,10 @@ grant execute on function analytics.label_revert_page(uuid, uuid) to service_rol
 --    crm_order_override where overrides ? 'province_code'; ถ้ามี ให้ย้ายค่า
 --    เข้า raw fact_order.province_code (เฉพาะแถวที่ raw = TH-XX) พร้อม audit
 --    province_set source 'crm_override_migrated' แล้วลบ key ออกจาก jsonb —
---    ทำใน migration เดียวกัน")
+--    ทำใน migration เดียวกัน") — L4 fix (12 ก.ย.): the actual `reason` value
+--    written below is 'other' (one of the 5 fixed codes), not the literal
+--    string 'crm_override_migrated' this quote names — the specific label
+--    moved into `note` instead, see the INSERT below for why.
 --
 --    ⚠️ NOT wrapped in a forced-rollback do-block like verify script's other
 --    cases — this IS the real, intended, permanent effect of this migration
@@ -895,7 +924,19 @@ begin
      where ov.overrides ? 'province_code'
      for update of ov
   loop
-    if v_row.raw_province = 'TH-XX' and (v_row.overrides ->> 'province_code') is not null then
+    -- L5 fix (12 ก.ย. 69): the OLD crm_set_order_override never validated a
+    -- province_code VALUE against analytics.dim_geo (jsonb has no FK) — only
+    -- that the KEY was in the whitelist — so a malformed/stale value is
+    -- theoretically possible even though live data has 0 such rows today
+    -- (Tech Lead, 12 ก.ย.). Checking it here, BEFORE the write, means a bad
+    -- value is treated the same as any other "can't safely migrate" case
+    -- (falls to the else branch, dropped not applied) instead of hitting
+    -- fact_order.province_code's FK mid-loop and aborting the WHOLE
+    -- migration over one bad row.
+    if v_row.raw_province = 'TH-XX'
+       and (v_row.overrides ->> 'province_code') is not null
+       and exists (select 1 from analytics.dim_geo g where g.province_code = v_row.overrides ->> 'province_code')
+    then
       -- same structural guard as label_apply_matched: only ever write over
       -- the blank sentinel, never a real value — belt-and-suspenders on top
       -- of the `raw_province = 'TH-XX'` filter already in the cursor query.
@@ -914,19 +955,29 @@ begin
           jsonb_build_object('province_code', 'TH-XX', 'province_source', 'import'),
           jsonb_build_object(
             'province_code', v_row.overrides ->> 'province_code', 'province_source', 'manual',
-            'reason', 'crm_override_migrated',
-            'note', 'ย้ายจาก crm_order_override ตอนถอด province_code ออกจาก whitelist (0116)'
+            -- L4 fix (12 ก.ย. 69): 'crm_override_migrated' is NOT one of the
+            -- 5 fixed reason codes the CHECK/RPCs enforce elsewhere in this
+            -- file (this INSERT is a raw jsonb write inside a migration
+            -- do-block, so nothing stops it from drifting off that set —
+            -- but drifting off it defeats the whole point of having a fixed
+            -- set the UI renders as a closed dropdown). Use 'other' + put
+            -- the specific explanation in note instead, so every province
+            -- audit row in this table always has a reason from the same
+            -- closed set, no exceptions.
+            'reason', 'other',
+            'note', 'ย้ายจาก crm_order_override ตอนถอด province_code ออกจาก whitelist (0116, ค่าเดิมของ reason ก่อนแก้ตาม L4 = crm_override_migrated)'
           )
         );
         v_migrated := v_migrated + 1;
       end if;
     else
-      -- raw already carries a real (non-TH-XX) province that disagrees with
-      -- (or duplicates) the override — the override is simply dropped, not
-      -- applied. Its prior existence is still visible via the
-      -- order_override_set audit row written when it was originally set
-      -- (0021) — nothing is silently erased from history, it just stops
-      -- being an active override going forward.
+      -- One of: raw already carries a real (non-TH-XX) province that
+      -- disagrees with (or duplicates) the override, OR (L5) the override's
+      -- province_code value isn't a real analytics.dim_geo row — either way
+      -- the override is simply dropped, not applied. Its prior existence is
+      -- still visible via the order_override_set audit row written when it
+      -- was originally set (0021) — nothing is silently erased from
+      -- history, it just stops being an active override going forward.
       v_dropped := v_dropped + 1;
     end if;
 
