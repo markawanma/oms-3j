@@ -39,17 +39,21 @@
 --    carrying a province_code key is resolved BEFORE the whitelist closes
 --    the door on it (see §7 below for the exact rule + why it is NOT wrapped
 --    in the verify script's forced-rollback do-block).
+-- 8) (added 12 ก.ย. 69, H1) analytics.label_apply_matched (0097, the
+--    auto/bulk apply path) now also stamps province_source='label'.
 --
 -- Touches: analytics.stg_label_page (alter) · analytics.fact_order (alter +
--- data write via new RPCs and §7's one-time migration) · analytics.crm_audit_log
--- (alter check constraint) · analytics.label_text_rule (new) ·
--- analytics.crm_order_override (data migration only, §7) ·
--- analytics.crm_set_order_override (replace).
+-- data write via new RPCs, §7's one-time migration, and §9's
+-- label_apply_matched) · analytics.crm_audit_log (alter check constraint) ·
+-- analytics.label_text_rule (new) · analytics.crm_order_override (data
+-- migration only, §7) · analytics.crm_set_order_override (replace) ·
+-- analytics.label_apply_matched (replace, §9).
 --
 -- 3j-migration-traps checklist:
---  - crm_set_order_override signature unchanged (uuid, jsonb, text) -> plain
---    `create or replace` is correct (trap #1). All 7 new/replaced functions
---    below get explicit revoke+grant regardless (trap #2).
+--  - crm_set_order_override / label_apply_matched signatures unchanged ->
+--    plain `create or replace` is correct for both (trap #1). All 9 new/
+--    replaced functions in this file get explicit revoke+grant regardless
+--    (trap #2).
 --  - No view touched (trap #3 n/a).
 --  - Every text param that becomes a jsonb value or gets compared is a plain
 --    string, not client-supplied numeric -> no new NaN surface (trap #4).
@@ -485,9 +489,19 @@ grant execute on function analytics.label_revert_province_audit(uuid, uuid, uuid
 
 -- ============================================================================
 -- 6. Public RPCs — every one: crm_require_owner_admin first, revoke from
---    public/anon/authenticated then grant to authenticated + service_role
---    (RPC does its own membership check in-body; app currently calls as
---    service_role which short-circuits that check — see 0021 header).
+--    public/anon/authenticated then grant to service_role ONLY (H3, 12 ก.ย.
+--    69 security review — one decision applied to every write RPC in this
+--    file, including label_apply_matched in §9 and crm_set_order_override in
+--    §8): this app has no real end-user auth yet and calls every RPC through
+--    the service client (lib/supabase/server.ts) exclusively — an
+--    `authenticated` grant on a WRITE RPC was dead privilege surface that
+--    only mattered the day real auth ships, and until then it's one more
+--    role that can be handed a leaked/misused anon-tier JWT and still call a
+--    province-writing RPC directly via PostgREST. crm_require_owner_admin's
+--    service_role short-circuit (0021) means the app's actual authorization
+--    story doesn't change. READ-only grants (analytics.label_text_rule
+--    SELECT in §4, and every plain `grant select on <table>` elsewhere in
+--    this schema) are unaffected — this narrowing is write-RPCs only.
 -- ============================================================================
 
 -- --------------------------------------------------------------------------
@@ -513,7 +527,7 @@ end;
 $$;
 
 revoke execute on function analytics.label_set_order_province(uuid, uuid, text, text, text) from public, anon, authenticated;
-grant execute on function analytics.label_set_order_province(uuid, uuid, text, text, text) to authenticated, service_role;
+grant execute on function analytics.label_set_order_province(uuid, uuid, text, text, text) to service_role;
 
 -- --------------------------------------------------------------------------
 -- label_revert_order_province — undoes the MOST RECENT province_set audit
@@ -555,7 +569,7 @@ end;
 $$;
 
 revoke execute on function analytics.label_revert_order_province(uuid, uuid) from public, anon, authenticated;
-grant execute on function analytics.label_revert_order_province(uuid, uuid) to authenticated, service_role;
+grant execute on function analytics.label_revert_order_province(uuid, uuid) to service_role;
 
 -- --------------------------------------------------------------------------
 -- label_resolve_page — the review-queue "กดได้" action. Finds every
@@ -682,7 +696,7 @@ end;
 $$;
 
 revoke execute on function analytics.label_resolve_page(uuid, uuid, text, text, text, text) from public, anon, authenticated;
-grant execute on function analytics.label_resolve_page(uuid, uuid, text, text, text, text) to authenticated, service_role;
+grant execute on function analytics.label_resolve_page(uuid, uuid, text, text, text, text) to service_role;
 
 -- --------------------------------------------------------------------------
 -- label_ignore_page — "ไม่ใช่ใบปะหน้า" / not worth resolving. Never touches
@@ -739,7 +753,7 @@ end;
 $$;
 
 revoke execute on function analytics.label_ignore_page(uuid, uuid, text, text) from public, anon, authenticated;
-grant execute on function analytics.label_ignore_page(uuid, uuid, text, text) to authenticated, service_role;
+grant execute on function analytics.label_ignore_page(uuid, uuid, text, text) to service_role;
 
 -- --------------------------------------------------------------------------
 -- label_revert_page — undoes a label_resolve_page call: for every order in
@@ -817,7 +831,7 @@ end;
 $$;
 
 revoke execute on function analytics.label_revert_page(uuid, uuid) from public, anon, authenticated;
-grant execute on function analytics.label_revert_page(uuid, uuid) to authenticated, service_role;
+grant execute on function analytics.label_revert_page(uuid, uuid) to service_role;
 
 -- ============================================================================
 -- 7. crm_order_override — data migration (owner 11 ก.ย., decision #4:
@@ -980,6 +994,129 @@ end;
 $$;
 
 revoke execute on function analytics.crm_set_order_override(uuid, jsonb, text) from public, anon, authenticated;
-grant execute on function analytics.crm_set_order_override(uuid, jsonb, text) to authenticated, service_role;
+grant execute on function analytics.crm_set_order_override(uuid, jsonb, text) to service_role;
+
+-- ============================================================================
+-- 9. label_apply_matched — stamp province_source='label' (H1, 12 ก.ย. 69)
+-- ============================================================================
+-- Without this, every auto-applied province (the label_apply_matched path,
+-- 0097 — the bulk/unsupervised path that runs on every upload/re-parse)
+-- stays tagged province_source='import' by the column's DEFAULT (§2 above),
+-- indistinguishable from an order whose province has NEVER been verified by
+-- anything. That directly breaks the "ทุกแถวต้องบอกที่มา" requirement this
+-- whole migration exists for (design decision #3) and the teach-loop's
+-- future ability to tell "never checked" apart from "label already said
+-- this and it was TH-XX -> real."
+--
+-- Body below is BYTE-IDENTICAL to the live analytics.label_apply_matched(uuid,
+-- uuid) on the DB (pulled via pg_get_functiondef by Tech Lead, 12 ก.ย. 69 —
+-- md5 8841871c0b43471d35fa63ebc4c26c66; source kept at
+-- scratchpad/label_apply_matched_live.sql) EXCEPT for exactly one added line
+-- in the UPDATE (`province_source = 'label',`) — everything else, including
+-- comments/whitespace inside the function body, is untouched on purpose so a
+-- future diff against the live definition only ever shows that one line.
+-- Trap #1 n/a (signature unchanged, (uuid, uuid)) -> plain `create or
+-- replace` is correct. Trap #2: re-grant below, narrowed to service_role
+-- only (this write RPC follows the same H3 policy as the other write RPCs
+-- in this file — the app only ever calls it via the service client, and
+-- crm_require_owner_admin's service_role short-circuit means an
+-- `authenticated` grant here was never actually needed).
+create or replace function analytics.label_apply_matched(p_shop_id uuid, p_file_id uuid)
+ returns table(applied integer, skipped_has_province integer, conflict_cnt integer)
+ language plpgsql
+ security definer
+ set search_path to 'public', 'analytics', 'extensions', 'pg_temp'
+as $function$
+declare
+  v_page          record;
+  v_applied       int := 0;
+  v_skipped       int := 0;
+  v_conflict      int := 0;
+  v_updated_ids   uuid[];
+  v_has_conflict  boolean;
+  v_has_any_order boolean;
+begin
+  if p_shop_id is null or p_file_id is null then
+    raise exception 'label_apply_matched: p_shop_id and p_file_id are required';
+  end if;
+
+  perform analytics.crm_require_owner_admin(p_shop_id);
+
+  if not exists (
+    select 1 from analytics.label_file lf
+     where lf.id = p_file_id and lf.shop_id = p_shop_id
+  ) then
+    raise exception 'label_apply_matched: label file not found for this shop' using errcode = '22023';
+  end if;
+
+  for v_page in
+    select slp.id, slp.tracking_no, slp.province_code
+      from analytics.stg_label_page slp
+     where slp.label_file_id = p_file_id
+       and slp.shop_id = p_shop_id
+       and slp.match_status = 'matched'
+       and slp.applied_at is null
+       and slp.tracking_no is not null
+       and slp.province_code is not null
+     order by slp.page_no
+     for update
+  loop
+    v_has_any_order := exists (
+      select 1 from analytics.fact_order fo
+       where fo.shop_id = p_shop_id and fo.tracking_no = v_page.tracking_no
+    );
+
+    if not v_has_any_order then
+      update analytics.stg_label_page set match_status = 'order_not_found' where id = v_page.id;
+      continue;
+    end if;
+
+    v_has_conflict := exists (
+      select 1 from analytics.fact_order fo
+       where fo.shop_id = p_shop_id
+         and fo.tracking_no = v_page.tracking_no
+         and fo.province_code <> 'TH-XX'
+         and fo.province_code <> v_page.province_code
+    );
+
+    if v_has_conflict then
+      update analytics.stg_label_page set match_status = 'conflict' where id = v_page.id;
+      v_conflict := v_conflict + 1;
+      continue;
+    end if;
+
+    with updated as (
+      update analytics.fact_order as fo
+         set province_code = v_page.province_code,
+             province_source = 'label',
+             updated_at = now()
+       where fo.shop_id = p_shop_id
+         and fo.tracking_no = v_page.tracking_no
+         and fo.province_code = 'TH-XX'
+      returning fo.id
+    )
+    select array_agg(id) into v_updated_ids from updated;
+
+    if v_updated_ids is not null and array_length(v_updated_ids, 1) > 0 then
+      update analytics.stg_label_page
+         set applied_at = now(),
+             applied_prev_code = 'TH-XX',
+             fact_order_ids = v_updated_ids
+       where id = v_page.id;
+      v_applied := v_applied + 1;
+    else
+      v_skipped := v_skipped + 1;
+    end if;
+  end loop;
+
+  applied := v_applied;
+  skipped_has_province := v_skipped;
+  conflict_cnt := v_conflict;
+  return next;
+end;
+$function$;
+
+revoke execute on function analytics.label_apply_matched(uuid, uuid) from public, anon, authenticated;
+grant execute on function analytics.label_apply_matched(uuid, uuid) to service_role;
 
 notify pgrst, 'reload schema';
