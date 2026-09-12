@@ -17,6 +17,7 @@ import { BatchSummaryCard } from "./BatchSummaryCard";
 import { ReviewQueueList } from "./ReviewQueueList";
 import { LabelFileHistory } from "./LabelFileHistory";
 import { PendingReviewQueue } from "./PendingReviewQueue";
+import { ProvinceFixPanel } from "./ProvinceFixPanel";
 
 interface RejectedFile {
   id: string;
@@ -260,6 +261,8 @@ export function UploadPageClient({
       )}
 
       <PendingReviewQueue refreshSignal={reviewRefreshSignal} provinces={provinces} canEdit={canEdit} />
+
+      <ProvinceFixPanel provinces={provinces} canEdit={canEdit} />
 
       {/* "อ่านใหม่" ต่อไฟล์ (task brief 4 ก.ย. 69) — onReparsed bump signal
           เดียวกับตอนไฟล์ใหม่ parse เสร็จ เพราะ parseLabelFile() ที่ปุ่มนี้เรียก
