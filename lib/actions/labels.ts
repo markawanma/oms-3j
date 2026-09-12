@@ -35,11 +35,17 @@ import {
   SHA256_HEX_PATTERN,
   SHIPPING_LABELS_BUCKET,
 } from "@/lib/labels/constants";
-import type {
-  CreateLabelUploadResult,
-  LabelParseSummary,
-  LabelReviewRow,
-  PendingLabelReviewRow,
+import {
+  LABEL_REASON_CODES,
+  type CreateLabelUploadResult,
+  type LabelParseSummary,
+  type LabelPageSnippetResult,
+  type LabelPageViewUrlResult,
+  type LabelReasonCode,
+  type LabelReviewRow,
+  type OrderSourceRef,
+  type PendingLabelReviewRow,
+  type ResolveLabelPageResult,
 } from "@/lib/labels/types";
 import { looksLikePdf, openPdf, extractPageTexts, PdfExtractError } from "@/lib/labels/pdf";
 import { detectFormat, looksLikePackingSlipOnly } from "@/lib/labels/formats";
@@ -852,6 +858,106 @@ export async function getPendingLabelReviews(): Promise<ActionResult<PendingLabe
       for (const f of (data ?? []) as { id: string; file_name: string }[]) fileNameById.set(f.id, f.file_name);
     }
 
+    // Owner 11 ก.ย. 69, decision #3 ("ทุกแถวต้องบอกที่มาให้เจ้าของเปิดอ่านเองได้"):
+    // ฝั่งออเดอร์ (stg_import_batch.file_name + stg_order_import.source_row_no ของ
+    // แถวล่าสุดที่ fact_order_id ชี้มา) ต่อจากฝั่งใบปะหน้าที่มีอยู่แล้วด้านบน. เฉพาะ
+    // หน้าที่มี trackingNo เท่านั้นที่พอจะหาออเดอร์ได้ — best-effort เหมือน
+    // getLabelFiles' rematchableCount ข้างบน: ล้มเหลว = orderSources ว่างเปล่า
+    // ทุกแถว ไม่ใช่ทำให้ทั้งคิวโหลดไม่ขึ้น.
+    const orderSourcesByTracking = new Map<string, OrderSourceRef[]>();
+    try {
+      const trackingNos = [
+        ...new Set(
+          pageResult.rows.map((r) => r.tracking_no).filter((t): t is string => !!t && isPostgrestInSafe(t))
+        ),
+      ];
+
+      interface FactOrderByTrackingRow {
+        id: string;
+        source_order_no: string;
+        tracking_no: string | null;
+        province_code: string;
+        province_source: "import" | "label" | "manual";
+      }
+      const ordersByTracking = new Map<string, FactOrderByTrackingRow[]>();
+      for (const chunk of chunkArray(trackingNos, TRACKING_LOOKUP_CHUNK_SIZE)) {
+        const { data, error } = await supabase
+          .schema(SCHEMA)
+          .from("fact_order")
+          .select("id, source_order_no, tracking_no, province_code, province_source")
+          .eq("shop_id", shopId)
+          .in("tracking_no", chunk);
+        if (error) throw error;
+        for (const o of (data ?? []) as FactOrderByTrackingRow[]) {
+          if (!o.tracking_no) continue;
+          const arr = ordersByTracking.get(o.tracking_no) ?? [];
+          arr.push(o);
+          ordersByTracking.set(o.tracking_no, arr);
+        }
+      }
+
+      const allOrderIds = [...ordersByTracking.values()].flat().map((o) => o.id);
+
+      interface StgOrderImportSourceRow {
+        fact_order_id: string | null;
+        batch_id: string;
+        source_row_no: number | null;
+        created_at: string;
+      }
+      // "แถวล่าสุดที่ fact_order_id ชี้มา" — sort ฝั่ง DB ด้วย created_at desc
+      // แล้วเก็บแค่ตัวแรกที่เจอต่อ fact_order_id (first-seen = ล่าสุด)
+      const latestImportByOrderId = new Map<string, { batchId: string; sourceRowNo: number | null }>();
+      for (const chunk of chunkArray(allOrderIds, PENDING_REVIEW_FILE_LOOKUP_CHUNK_SIZE)) {
+        const { data, error } = await supabase
+          .schema(SCHEMA)
+          .from("stg_order_import")
+          .select("fact_order_id, batch_id, source_row_no, created_at")
+          .eq("shop_id", shopId)
+          .in("fact_order_id", chunk)
+          .order("created_at", { ascending: false });
+        if (error) throw error;
+        for (const r of (data ?? []) as StgOrderImportSourceRow[]) {
+          if (!r.fact_order_id || latestImportByOrderId.has(r.fact_order_id)) continue;
+          latestImportByOrderId.set(r.fact_order_id, { batchId: r.batch_id, sourceRowNo: r.source_row_no });
+        }
+      }
+
+      const batchIds = [...new Set([...latestImportByOrderId.values()].map((v) => v.batchId))];
+      const fileNameByBatchId = new Map<string, string | null>();
+      for (const chunk of chunkArray(batchIds, PENDING_REVIEW_FILE_LOOKUP_CHUNK_SIZE)) {
+        const { data, error } = await supabase
+          .schema(SCHEMA)
+          .from("stg_import_batch")
+          .select("id, file_name")
+          .in("id", chunk);
+        if (error) throw error;
+        for (const b of (data ?? []) as { id: string; file_name: string | null }[]) {
+          fileNameByBatchId.set(b.id, b.file_name);
+        }
+      }
+
+      for (const [trackingNo, orders] of ordersByTracking) {
+        orderSourcesByTracking.set(
+          trackingNo,
+          orders.map((o) => {
+            const imp = latestImportByOrderId.get(o.id);
+            return {
+              factOrderId: o.id,
+              sourceOrderNo: o.source_order_no,
+              trackingNo: o.tracking_no,
+              provinceCode: o.province_code,
+              provinceSource: o.province_source,
+              importFileName: imp ? (fileNameByBatchId.get(imp.batchId) ?? null) : null,
+              sourceRowNo: imp ? imp.sourceRowNo : null,
+            };
+          })
+        );
+      }
+    } catch (orderSourceErr) {
+      console.error("getPendingLabelReviews: order-side source lookup failed, degrading to empty", orderSourceErr);
+      orderSourcesByTracking.clear();
+    }
+
     const rows: PendingLabelReviewRow[] = pageResult.rows.map((r) => ({
       pageId: r.id,
       fileId: r.label_file_id,
@@ -865,6 +971,7 @@ export async function getPendingLabelReviews(): Promise<ActionResult<PendingLabe
       status: r.match_status as LabelReviewRow["status"],
       candidates: r.match_detail?.candidates ?? [],
       reason: r.match_detail?.reason,
+      orderSources: r.tracking_no ? (orderSourcesByTracking.get(r.tracking_no) ?? []) : [],
     }));
 
     // Display order: group by file (newest-looking name sort is meaningless
@@ -879,5 +986,501 @@ export async function getPendingLabelReviews(): Promise<ActionResult<PendingLabe
   } catch (err) {
     console.error("getPendingLabelReviews failed", err);
     return { ok: false, error: "โหลดคิวรอตรวจไม่สำเร็จ ลองใหม่อีกครั้ง" };
+  }
+}
+
+// ============================================================================
+// Phase A — คิวกดได้ + แก้/ย้อนจังหวัด + เก็บการสอน (design scratchpad
+// design-label-teach-loop-yoda-11sep.md §5 A, owner decisions 11 ก.ย. 69,
+// migration 0116_label_review_resolve.sql). Full contract for frontend-dev:
+// see lib/actions/labels.contract.md.
+//
+// Every export below: requireOwnerAdmin() first · every user-typed string
+// that reaches a PostgREST filter goes through isPostgrestInSafe() first ·
+// every reason code is validated against LABEL_REASON_CODES here (mirrors
+// the CHECK constraints + RPC-level checks in 0116 — defense in depth, not
+// the only gate) · no numeric business logic computed client-side, every
+// write goes through the 0116 RPCs and reads back only what they wrote.
+// ============================================================================
+
+const SNIPPET_CONTEXT_CHARS = 80; // owner 11 ก.ย.: "±80 ตัวอักษรรอบ zipcode"
+const LABEL_PAGE_VIEW_URL_TTL_SECONDS = 60; // owner 11 ก.ย.: "signed URL 60 วิ"
+const FIND_ORDER_QUERY_MAX_LENGTH = 100;
+
+function isValidReasonCode(v: unknown): v is LabelReasonCode {
+  return typeof v === "string" && (LABEL_REASON_CODES as readonly string[]).includes(v);
+}
+
+/** Same 5-digit-isolated convention as lib/labels/match.ts's ZIPCODE_RE
+ * (not imported from there — that module folds Thai text first, which this
+ * function's plain-digit search doesn't need). Returns the index of the
+ * FIRST occurrence that exactly equals `zipcode`, or -1 if not found (e.g.
+ * the PDF's extracted text shifted since the original parse). */
+function findStoredZipcodeIndex(text: string, zipcode: string | null): number {
+  if (!zipcode) return -1;
+  const re = /(?<!\d)\d{5}(?!\d)/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    if (m[0] === zipcode) return m.index;
+  }
+  return -1;
+}
+
+/** Fallback when the stored zipcode can't be relocated — first isolated
+ * 5-digit run on the page, whatever it is. Still far more useful to the
+ * owner than an empty snippet, and still PDPA-safe (a zipcode alone is not
+ * PII, same reasoning as design §7 / lib/labels/match.ts header). */
+function findAnyZipcode(text: string): { index: number; length: number } | null {
+  const m = /(?<!\d)\d{5}(?!\d)/.exec(text);
+  return m ? { index: m.index, length: m[0].length } : null;
+}
+
+/** PDPA (owner 11 ก.ย., decision #2ข): mask any run of >=9 consecutive
+ * digits (tracking numbers, phone numbers) inside a snippet that is about
+ * to be sent to the browser — this is the ONLY processing step between raw
+ * extracted PDF text and the response; nothing upstream of this ever writes
+ * the snippet to a table or a log line. */
+function maskLongDigitRuns(text: string): string {
+  return text.replace(/\d{9,}/g, (run) => "•".repeat(run.length));
+}
+
+interface OrderRefRow {
+  id: string;
+  source_order_no: string;
+  tracking_no: string | null;
+  province_code: string;
+  province_source: "import" | "label" | "manual";
+}
+
+/** Shared by getPendingLabelReviews (above) in spirit but kept separate here
+ * (different caller shape: an arbitrary order id list, not "every tracking_no
+ * in today's review queue") — batch-looks-up "the latest stg_order_import
+ * row per fact_order_id" + the import batch's file_name for a set of orders
+ * already known to exist. Owner 11 ก.ย., decision #3. */
+async function attachOrderSources(
+  supabase: ReturnType<typeof getServiceClient>,
+  shopId: string,
+  orders: OrderRefRow[]
+): Promise<OrderSourceRef[]> {
+  if (orders.length === 0) return [];
+
+  interface StgOrderImportSourceRow {
+    fact_order_id: string | null;
+    batch_id: string;
+    source_row_no: number | null;
+    created_at: string;
+  }
+  const orderIds = orders.map((o) => o.id);
+  const latestImportByOrderId = new Map<string, { batchId: string; sourceRowNo: number | null }>();
+  for (const chunk of chunkArray(orderIds, PENDING_REVIEW_FILE_LOOKUP_CHUNK_SIZE)) {
+    const { data, error } = await supabase
+      .schema(SCHEMA)
+      .from("stg_order_import")
+      .select("fact_order_id, batch_id, source_row_no, created_at")
+      .eq("shop_id", shopId)
+      .in("fact_order_id", chunk)
+      .order("created_at", { ascending: false });
+    if (error) throw error;
+    for (const r of (data ?? []) as StgOrderImportSourceRow[]) {
+      if (!r.fact_order_id || latestImportByOrderId.has(r.fact_order_id)) continue;
+      latestImportByOrderId.set(r.fact_order_id, { batchId: r.batch_id, sourceRowNo: r.source_row_no });
+    }
+  }
+
+  const batchIds = [...new Set([...latestImportByOrderId.values()].map((v) => v.batchId))];
+  const fileNameByBatchId = new Map<string, string | null>();
+  for (const chunk of chunkArray(batchIds, PENDING_REVIEW_FILE_LOOKUP_CHUNK_SIZE)) {
+    const { data, error } = await supabase.schema(SCHEMA).from("stg_import_batch").select("id, file_name").in("id", chunk);
+    if (error) throw error;
+    for (const b of (data ?? []) as { id: string; file_name: string | null }[]) fileNameByBatchId.set(b.id, b.file_name);
+  }
+
+  return orders.map((o) => {
+    const imp = latestImportByOrderId.get(o.id);
+    return {
+      factOrderId: o.id,
+      sourceOrderNo: o.source_order_no,
+      trackingNo: o.tracking_no,
+      provinceCode: o.province_code,
+      provinceSource: o.province_source,
+      importFileName: imp ? (fileNameByBatchId.get(imp.batchId) ?? null) : null,
+      sourceRowNo: imp ? imp.sourceRowNo : null,
+    };
+  });
+}
+
+// ----------------------------------------------------------------------------
+// findOrdersByTracking — ค้นเลขพัสดุ/เลขที่ออเดอร์ (ProvinceFixPanel, /tiktok/upload)
+// ----------------------------------------------------------------------------
+
+export async function findOrdersByTracking(query: string): Promise<ActionResult<OrderSourceRef[]>> {
+  const gateErr = requireOwnerAdmin();
+  if (gateErr) return gateErr;
+
+  const clean = (query ?? "").trim();
+  if (!clean) return { ok: false, error: "กรอกเลขพัสดุหรือเลขที่ออเดอร์ก่อนค้นหา" };
+  if (clean.length > FIND_ORDER_QUERY_MAX_LENGTH) return { ok: false, error: "คำค้นยาวเกินไป" };
+  // security 0901 (isPostgrestInSafe) — คำค้นพิมพ์เอง เชื่อไม่ได้ ต่อให้ใช้แค่
+  // .eq() (ไม่ใช่ .in()) ก็เช็คไว้เผื่ออนาคตขยายเป็นค้นหลายคำ
+  if (!isPostgrestInSafe(clean)) return { ok: false, error: "คำค้นมีอักขระที่ไม่รองรับ" };
+
+  try {
+    const shopId = getDevShopId();
+    const supabase = getServiceClient();
+
+    const [byTracking, byOrderNo] = await Promise.all([
+      supabase
+        .schema(SCHEMA)
+        .from("fact_order")
+        .select("id, source_order_no, tracking_no, province_code, province_source")
+        .eq("shop_id", shopId)
+        .eq("tracking_no", clean)
+        .limit(20),
+      supabase
+        .schema(SCHEMA)
+        .from("fact_order")
+        .select("id, source_order_no, tracking_no, province_code, province_source")
+        .eq("shop_id", shopId)
+        .eq("source_order_no", clean)
+        .limit(20),
+    ]);
+    if (byTracking.error) throw byTracking.error;
+    if (byOrderNo.error) throw byOrderNo.error;
+
+    const byId = new Map<string, OrderRefRow>();
+    for (const o of [...((byTracking.data ?? []) as OrderRefRow[]), ...((byOrderNo.data ?? []) as OrderRefRow[])]) {
+      byId.set(o.id, o);
+    }
+    const orders = [...byId.values()];
+    if (orders.length === 0) return { ok: true, data: [] };
+
+    const result = await attachOrderSources(supabase, shopId, orders);
+    return { ok: true, data: result };
+  } catch (err) {
+    console.error("findOrdersByTracking failed", err);
+    return { ok: false, error: "ค้นหาออเดอร์ไม่สำเร็จ ลองใหม่อีกครั้ง" };
+  }
+}
+
+// ----------------------------------------------------------------------------
+// setOrderProvince / revertOrderProvince — แก้/ย้อนจังหวัดตรงจากออเดอร์ (ไม่ผูก
+// กับ stg_label_page ใดๆ) — RPC label_set_order_province / label_revert_order_province.
+// ----------------------------------------------------------------------------
+
+export async function setOrderProvince(
+  factOrderId: string,
+  provinceCode: string,
+  reason?: LabelReasonCode | null,
+  note?: string | null
+): Promise<ActionResult> {
+  const gateErr = requireOwnerAdmin();
+  if (gateErr) return gateErr;
+
+  const cleanOrderId = (factOrderId ?? "").trim();
+  const cleanProvince = (provinceCode ?? "").trim();
+  if (!cleanOrderId || !cleanProvince) return { ok: false, error: "ไม่พบรหัสออเดอร์หรือจังหวัด" };
+  if (reason != null && !isValidReasonCode(reason)) return { ok: false, error: "รหัสเหตุผลไม่ถูกต้อง" };
+
+  try {
+    const shopId = getDevShopId();
+    const supabase = getServiceClient();
+
+    const { error } = await supabase.schema(SCHEMA).rpc("label_set_order_province", {
+      p_shop_id: shopId,
+      p_fact_order_id: cleanOrderId,
+      p_province_code: cleanProvince,
+      p_reason: reason ?? null,
+      p_note: note?.trim() ? note.trim() : null,
+    });
+    if (error) throw error;
+
+    revalidateLabelPaths();
+    return { ok: true, data: undefined };
+  } catch (err) {
+    // RPC raises a specific Thai/English message (e.g. "reason code is
+    // required to overwrite it") but this action deliberately returns a
+    // generic message, same convention as crmSetOrderOverride/every other
+    // write action in this app — see contract doc for the guard list so the
+    // UI can pre-validate (e.g. require a reason client-side once it knows
+    // the order's current province isn't TH-XX) instead of round-tripping
+    // to discover it.
+    console.error("setOrderProvince failed", err);
+    return { ok: false, error: "ตั้งค่าจังหวัดไม่สำเร็จ ลองใหม่อีกครั้ง" };
+  }
+}
+
+export async function revertOrderProvince(factOrderId: string): Promise<ActionResult> {
+  const gateErr = requireOwnerAdmin();
+  if (gateErr) return gateErr;
+
+  const cleanOrderId = (factOrderId ?? "").trim();
+  if (!cleanOrderId) return { ok: false, error: "ไม่พบรหัสออเดอร์" };
+
+  try {
+    const shopId = getDevShopId();
+    const supabase = getServiceClient();
+
+    const { error } = await supabase.schema(SCHEMA).rpc("label_revert_order_province", {
+      p_shop_id: shopId,
+      p_fact_order_id: cleanOrderId,
+    });
+    if (error) throw error;
+
+    revalidateLabelPaths();
+    return { ok: true, data: undefined };
+  } catch (err) {
+    console.error("revertOrderProvince failed", err);
+    return { ok: false, error: "ย้อนค่าจังหวัดไม่สำเร็จ ลองใหม่อีกครั้ง" };
+  }
+}
+
+// ----------------------------------------------------------------------------
+// resolveLabelPage / ignoreLabelPage / revertLabelPage — การกระทำในคิวรอตรวจ
+// ----------------------------------------------------------------------------
+
+export interface ResolveLabelPageInput {
+  pageId: string;
+  provinceCode: string;
+  reason?: LabelReasonCode | null;
+  note?: string | null;
+  /** owner 11 ก.ย., decision #2(ข้อความที่เขาชี้ว่า "จังหวัดอยู่ตรงนี้") —
+   * optional. RPC ปฏิเสธทั้งคำสั่ง (province ก็ไม่ถูกตั้งด้วย) ถ้ารูปแบบไม่ผ่าน
+   * (>25 ตัวอักษร หรือมีเลข >=3 หลักติดกัน) — validate ฝั่ง UI ก่อนส่งได้ แต่
+   * DB คือด่านจริง. */
+  taughtSnippet?: string | null;
+}
+
+export async function resolveLabelPage(input: ResolveLabelPageInput): Promise<ActionResult<ResolveLabelPageResult>> {
+  const gateErr = requireOwnerAdmin();
+  if (gateErr) return gateErr;
+
+  const cleanPageId = (input?.pageId ?? "").trim();
+  const cleanProvince = (input?.provinceCode ?? "").trim();
+  if (!cleanPageId || !cleanProvince) return { ok: false, error: "ไม่พบหน้าหรือจังหวัดที่จะตั้งค่า" };
+  if (input.reason != null && !isValidReasonCode(input.reason)) return { ok: false, error: "รหัสเหตุผลไม่ถูกต้อง" };
+
+  try {
+    const shopId = getDevShopId();
+    const supabase = getServiceClient();
+
+    const { data, error } = await supabase.schema(SCHEMA).rpc("label_resolve_page", {
+      p_shop_id: shopId,
+      p_page_id: cleanPageId,
+      p_province_code: cleanProvince,
+      p_reason: input.reason ?? null,
+      p_note: input.note?.trim() ? input.note.trim() : null,
+      p_taught_snippet: input.taughtSnippet?.trim() ? input.taughtSnippet.trim() : null,
+    });
+    if (error) throw error;
+
+    const row = (Array.isArray(data) ? data[0] : data) as { applied_orders?: number } | null;
+
+    revalidateLabelPaths();
+    return { ok: true, data: { appliedOrders: Number(row?.applied_orders) || 0 } };
+  } catch (err) {
+    console.error("resolveLabelPage failed", err);
+    return { ok: false, error: "ยืนยันจังหวัดไม่สำเร็จ ลองใหม่อีกครั้ง" };
+  }
+}
+
+export interface IgnoreLabelPageInput {
+  pageId: string;
+  reason?: LabelReasonCode | null;
+  note?: string | null;
+}
+
+export async function ignoreLabelPage(input: IgnoreLabelPageInput): Promise<ActionResult> {
+  const gateErr = requireOwnerAdmin();
+  if (gateErr) return gateErr;
+
+  const cleanPageId = (input?.pageId ?? "").trim();
+  if (!cleanPageId) return { ok: false, error: "ไม่พบหน้าที่จะข้าม" };
+  if (input.reason != null && !isValidReasonCode(input.reason)) return { ok: false, error: "รหัสเหตุผลไม่ถูกต้อง" };
+
+  try {
+    const shopId = getDevShopId();
+    const supabase = getServiceClient();
+
+    const { error } = await supabase.schema(SCHEMA).rpc("label_ignore_page", {
+      p_shop_id: shopId,
+      p_page_id: cleanPageId,
+      p_reason: input.reason ?? null,
+      p_note: input.note?.trim() ? input.note.trim() : null,
+    });
+    if (error) throw error;
+
+    revalidateLabelPaths();
+    return { ok: true, data: undefined };
+  } catch (err) {
+    console.error("ignoreLabelPage failed", err);
+    return { ok: false, error: "ทำเครื่องหมาย 'ไม่ใช่ใบปะหน้า' ไม่สำเร็จ ลองใหม่อีกครั้ง" };
+  }
+}
+
+export async function revertLabelPage(pageId: string): Promise<ActionResult> {
+  const gateErr = requireOwnerAdmin();
+  if (gateErr) return gateErr;
+
+  const cleanPageId = (pageId ?? "").trim();
+  if (!cleanPageId) return { ok: false, error: "ไม่พบหน้าที่จะย้อน" };
+
+  try {
+    const shopId = getDevShopId();
+    const supabase = getServiceClient();
+
+    const { error } = await supabase.schema(SCHEMA).rpc("label_revert_page", {
+      p_shop_id: shopId,
+      p_page_id: cleanPageId,
+    });
+    if (error) throw error;
+
+    revalidateLabelPaths();
+    return { ok: true, data: undefined };
+  } catch (err) {
+    console.error("revertLabelPage failed", err);
+    return { ok: false, error: "ย้อนค่าหน้านี้ไม่สำเร็จ ลองใหม่อีกครั้ง" };
+  }
+}
+
+// ----------------------------------------------------------------------------
+// getLabelPageViewUrl / getLabelPageSnippet — "เข้ามาช่วยดูหน่อย" (owner 11 ก.ย.,
+// decision #2) — signed URL ไปดูใบจริง + ข้อความรอบ zipcode สดจาก PDF
+// ----------------------------------------------------------------------------
+
+interface LabelPageLookup {
+  page_no: number;
+  zipcode: string | null;
+  label_file_id: string;
+}
+
+/** Shared page+file lookup (tenant-scoped, purged-file guard) for the two
+ * functions below — both need "this page's file, still readable." */
+async function loadPageAndFile(
+  supabase: ReturnType<typeof getServiceClient>,
+  shopId: string,
+  pageId: string
+): Promise<
+  | { ok: true; page: LabelPageLookup; storagePath: string }
+  | { ok: false; error: string }
+> {
+  const { data: page, error: pageErr } = await supabase
+    .schema(SCHEMA)
+    .from("stg_label_page")
+    .select("page_no, zipcode, label_file_id")
+    .eq("id", pageId)
+    .eq("shop_id", shopId)
+    .maybeSingle();
+  if (pageErr) throw pageErr;
+  if (!page) return { ok: false, error: "ไม่พบหน้านี้ในร้าน" };
+
+  const { data: file, error: fileErr } = await supabase
+    .schema(SCHEMA)
+    .from("label_file")
+    .select("storage_path, status")
+    .eq("id", (page as LabelPageLookup).label_file_id)
+    .eq("shop_id", shopId)
+    .maybeSingle();
+  if (fileErr) throw fileErr;
+  if (!file) return { ok: false, error: "ไม่พบไฟล์ต้นทางของหน้านี้" };
+  if (file.status === "purged") {
+    return { ok: false, error: "ไฟล์นี้ถูกลบตามนโยบายเก็บข้อมูลแล้ว — เปิดดูไม่ได้อีก" };
+  }
+
+  return { ok: true, page: page as LabelPageLookup, storagePath: file.storage_path as string };
+}
+
+export async function getLabelPageViewUrl(pageId: string): Promise<ActionResult<LabelPageViewUrlResult>> {
+  const gateErr = requireOwnerAdmin();
+  if (gateErr) return gateErr;
+
+  const cleanPageId = (pageId ?? "").trim();
+  if (!cleanPageId) return { ok: false, error: "ไม่พบหน้าที่จะดู" };
+
+  try {
+    const shopId = getDevShopId();
+    const supabase = getServiceClient();
+
+    const found = await loadPageAndFile(supabase, shopId, cleanPageId);
+    if (!found.ok) return found;
+
+    const { data: signed, error: signErr } = await supabase.storage
+      .from(SHIPPING_LABELS_BUCKET)
+      .createSignedUrl(found.storagePath, LABEL_PAGE_VIEW_URL_TTL_SECONDS);
+    if (signErr || !signed?.signedUrl) throw signErr ?? new Error("createSignedUrl returned no data");
+
+    return { ok: true, data: { url: `${signed.signedUrl}#page=${found.page.page_no}` } };
+  } catch (err) {
+    console.error("getLabelPageViewUrl failed", err);
+    return { ok: false, error: "สร้างลิงก์ดูใบไม่สำเร็จ ลองใหม่อีกครั้ง" };
+  }
+}
+
+export async function getLabelPageSnippet(pageId: string): Promise<ActionResult<LabelPageSnippetResult>> {
+  const gateErr = requireOwnerAdmin();
+  if (gateErr) return gateErr;
+
+  const cleanPageId = (pageId ?? "").trim();
+  if (!cleanPageId) return { ok: false, error: "ไม่พบหน้าที่จะดู" };
+
+  try {
+    const shopId = getDevShopId();
+    const supabase = getServiceClient();
+
+    const found = await loadPageAndFile(supabase, shopId, cleanPageId);
+    if (!found.ok) return found;
+
+    const { data: blob, error: downloadErr } = await supabase.storage
+      .from(SHIPPING_LABELS_BUCKET)
+      .download(found.storagePath);
+    if (downloadErr || !blob) throw downloadErr ?? new Error("storage download returned no data");
+
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    if (!looksLikePdf(bytes)) {
+      return { ok: false, error: "ไฟล์นี้ไม่ใช่ PDF ที่อ่านได้แล้ว — อัปโหลดใหม่" };
+    }
+
+    let pageTexts: string[];
+    try {
+      const pdf = await openPdf(bytes);
+      pageTexts = await extractPageTexts(pdf);
+    } catch (extractErr) {
+      // PdfExtractError ก็ได้เหมือนกัน — ไม่ใช่ error ที่ต้องแจ้งผู้ใช้แบบ hard
+      // fail (ไฟล์เปิดได้ตอน parse ครั้งแรกแล้ว แค่ตอนนี้อ่านซ้ำไม่ได้)
+      void (extractErr instanceof PdfExtractError);
+      return { ok: true, data: { snippet: null, zipcodeFound: false } };
+    }
+
+    const text = pageTexts[found.page.page_no - 1] ?? "";
+    if (!text.trim()) {
+      return { ok: true, data: { snippet: null, zipcodeFound: false } };
+    }
+
+    let idx = findStoredZipcodeIndex(text, found.page.zipcode);
+    const zipcodeFound = idx >= 0;
+    let matchLen = found.page.zipcode?.length ?? 5;
+    if (idx < 0) {
+      const fallback = findAnyZipcode(text);
+      if (fallback) {
+        idx = fallback.index;
+        matchLen = fallback.length;
+      }
+    }
+
+    if (idx < 0) {
+      return { ok: true, data: { snippet: null, zipcodeFound: false } };
+    }
+
+    const start = Math.max(0, idx - SNIPPET_CONTEXT_CHARS);
+    const end = Math.min(text.length, idx + matchLen + SNIPPET_CONTEXT_CHARS);
+    const snippet = maskLongDigitRuns(text.slice(start, end));
+
+    // PDPA (owner 11 ก.ย., decision #2ข: "ไม่เก็บ ไม่ log") — ไม่มี insert/
+    // update ใดๆ ในฟังก์ชันนี้เลย และห้าม console.log/console.error ตัวแปร
+    // snippet/text ที่ไหนในไฟล์นี้ทั้งไฟล์ ไม่ว่ากรณีใด — เฉพาะ err (Error
+    // object จาก Supabase/Node) เท่านั้นที่ log ได้ ด้านล่าง
+    return { ok: true, data: { snippet, zipcodeFound } };
+  } catch (err) {
+    console.error("getLabelPageSnippet failed", err);
+    return { ok: false, error: "ดูข้อความหน้านี้ไม่สำเร็จ ลองใหม่อีกครั้ง" };
   }
 }
