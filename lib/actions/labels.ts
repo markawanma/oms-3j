@@ -1060,7 +1060,15 @@ function findAnyZipcode(text: string): { index: number; length: number } | null 
  * ("081-234-5678", "081 234 5678") sailed straight through unmasked, since
  * each hyphen/space-separated GROUP is only 3-4 digits on its own. Matches a
  * digit optionally followed by one space/hyphen, repeated >=9 times, so
- * "081-234-5678" (10 digits across 3 groups) is caught as one run. */
+ * "081-234-5678" (10 digits across 3 groups) is caught as one run.
+ *
+ * M5 note (12 ก.ย. 69, security): this can now also swallow a zipcode that
+ * sits right next to a phone/tracking number ("0812345678 10240" is ONE
+ * run under the rule above) — that's intentional/safe here (over-masking is
+ * the safe failure direction), the caller (getLabelPageSnippet) is
+ * responsible for splicing the real zipcode characters back in afterward
+ * since it knows the zipcode's own known-safe span; this function stays a
+ * dumb, maximally-conservative masker with no zipcode-awareness of its own. */
 function maskLongDigitRuns(text: string): string {
   return text.replace(/(?:\d[\s-]?){9,}/g, (run) => "•".repeat(run.length));
 }
@@ -1569,7 +1577,25 @@ export async function getLabelPageSnippet(pageId: string): Promise<ActionResult<
 
     const start = Math.max(0, idx - SNIPPET_CONTEXT_CHARS);
     const end = Math.min(text.length, idx + matchLen + SNIPPET_CONTEXT_CHARS);
-    const snippet = maskLongDigitRuns(text.slice(start, end));
+    const rawSnippet = text.slice(start, end);
+    const maskedSnippet = maskLongDigitRuns(rawSnippet);
+
+    // M5 fix (12 ก.ย. 69, security): the zipcode itself is the whole reason
+    // this snippet exists (it's what the owner needs to visually verify) and
+    // is NOT PII on its own (design §7 / lib/labels/match.ts header — same
+    // reasoning zipcode is stored in stg_label_page.zipcode unmasked
+    // already). But when it sits directly next to a phone/tracking number
+    // with only a space between them ("0812345678 10240"), maskLongDigitRuns'
+    // `/(?:\d[\s-]?){9,}/g` run can swallow BOTH — the owner would see
+    // "••••••••••• •••••" with the one number they actually need to read
+    // blacked out too. maskLongDigitRuns() preserves string length (masks
+    // 1:1 with "•"), so the zipcode's own span — idx/matchLen, already known
+    // relative to `text` — maps to the SAME offsets in maskedSnippet as in
+    // rawSnippet; splice the real characters back in at that span,
+    // regardless of whether the mask ate into it.
+    const zipStart = idx - start;
+    const zipEnd = zipStart + matchLen;
+    const snippet = maskedSnippet.slice(0, zipStart) + rawSnippet.slice(zipStart, zipEnd) + maskedSnippet.slice(zipEnd);
 
     // PDPA (owner 11 ก.ย., decision #2ข: "ไม่เก็บ ไม่ log") — ไม่มี insert/
     // update ใดๆ ในฟังก์ชันนี้เลย และห้าม console.log/console.error ตัวแปร
