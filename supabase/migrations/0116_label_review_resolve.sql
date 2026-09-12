@@ -678,10 +678,21 @@ begin
          applied_by = auth.uid(),
          applied_at = now(),
          fact_order_ids = v_fact_order_ids,
-         -- stash the pre-resolve status so label_revert_page can restore it
-         -- exactly, rather than guessing a generic fallback.
-         match_detail = coalesce(match_detail, '{}'::jsonb) || jsonb_build_object('prev_status', v_page.match_status)
-   where id = p_page_id;
+         -- H4 fix (12 ก.ย. 69): stash BOTH the pre-resolve status AND the
+         -- pre-resolve province_code so label_revert_page can restore the
+         -- page to its exact prior state, not just its status. Without
+         -- prev_province_code, revert used to null out province_code
+         -- unconditionally — for a page that started 'conflict' (which DOES
+         -- carry the parser's real candidate province_code, set at parse
+         -- time), that destroyed the parser's answer permanently: a
+         -- reverted conflict page could never auto-apply again on a later
+         -- re-parse (label_apply_matched requires province_code is not
+         -- null), it would just sit there with a real tracking match and no
+         -- province forever until someone resolved it by hand again.
+         match_detail = coalesce(match_detail, '{}'::jsonb)
+           || jsonb_build_object('prev_status', v_page.match_status, 'prev_province_code', v_page.province_code)
+   where id = p_page_id
+     and shop_id = p_shop_id; -- L1: defense in depth (already scoped by the earlier SELECT ... FOR UPDATE)
 
   if v_pattern is not null then
     insert into analytics.label_text_rule (shop_id, kind, pattern, province_code, active, evidence_count, note)
@@ -748,7 +759,8 @@ begin
          applied_by = auth.uid(),
          applied_at = now(),
          match_detail = coalesce(match_detail, '{}'::jsonb) || jsonb_build_object('prev_status', v_page.match_status)
-   where id = p_page_id;
+   where id = p_page_id
+     and shop_id = p_shop_id; -- L1: defense in depth (already scoped by the earlier SELECT ... FOR UPDATE)
 end;
 $$;
 
@@ -777,6 +789,7 @@ as $$
 declare
   v_page analytics.stg_label_page%rowtype;
   v_prev_status text;
+  v_prev_province_code text;
   v_fact_order_id uuid;
   v_audit_id uuid;
 begin
@@ -795,6 +808,13 @@ begin
   end if;
 
   v_prev_status := coalesce(v_page.match_detail ->> 'prev_status', 'needs_review');
+  -- H4 fix (12 ก.ย. 69): restore the parser's own province_code from before
+  -- resolve, not null — null used to permanently destroy a 'conflict' page's
+  -- real candidate answer (see label_resolve_page's stash comment above for
+  -- why that broke future auto-apply). Legitimately null when the page never
+  -- had a parser-matched province to begin with (e.g. started as
+  -- 'order_not_found'/'undetected'/'parse_failed').
+  v_prev_province_code := v_page.match_detail ->> 'prev_province_code';
 
   if v_page.fact_order_ids is not null then
     foreach v_fact_order_id in array v_page.fact_order_ids loop
@@ -818,15 +838,16 @@ begin
 
   update analytics.stg_label_page
      set match_status = v_prev_status,
-         province_code = null,
+         province_code = v_prev_province_code,
          applied_source = null,
          applied_reason = null,
          applied_note = null,
          applied_by = null,
          applied_at = null,
          fact_order_ids = null,
-         match_detail = (coalesce(match_detail, '{}'::jsonb) - 'prev_status')
-   where id = p_page_id;
+         match_detail = (coalesce(match_detail, '{}'::jsonb) - 'prev_status' - 'prev_province_code')
+   where id = p_page_id
+     and shop_id = p_shop_id; -- L1: defense in depth (already scoped by the earlier SELECT ... FOR UPDATE)
 end;
 $$;
 
