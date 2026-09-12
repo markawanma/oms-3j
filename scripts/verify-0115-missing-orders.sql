@@ -241,21 +241,35 @@ begin
     where s.shop_id = p_shop_id and s.batch_id = p_batch_id
       and s.source_kind = 'excel' and s.import_status in ('transformed', 'tombstoned')
   ),
+  -- 🔴 dry-run caught 42702 here (supabase-migrate skill gotcha #2): this
+  -- function's own `returns table (... order_date date, channel_id uuid,
+  -- ..., prefix text, num integer, ...)` creates OUT-parameter variables
+  -- with those exact names, in scope for every statement in this function
+  -- body. f_rows' own columns (prefix/num/order_date/channel_id/printed_at/
+  -- paid_at) are NOT ambiguous inside f_rows itself (built from real table
+  -- aliases), but referencing them UNQUALIFIED from f_groups/f_meta below
+  -- is ambiguous between "the f_rows column" and "the OUT variable" —
+  -- Postgres can't tell which one you mean and refuses to guess. Every
+  -- column below MUST stay qualified with the `fr` alias, including
+  -- printed_at/paid_at which don't collide with an OUT name (no OUT
+  -- parameter by those names) — qualified anyway so a future edit can't
+  -- silently drop the alias on the ones that DO matter and reintroduce this
+  -- error. Do not "clean up" these aliases.
   f_groups as (
-    select prefix, min(num) as lo, max(num) as hi,
-           min(order_date) as dlo, max(order_date) as dhi
-    from f_rows
-    group by prefix
+    select fr.prefix, min(fr.num) as lo, max(fr.num) as hi,
+           min(fr.order_date) as dlo, max(fr.order_date) as dhi
+    from f_rows fr
+    group by fr.prefix
   ),
   f_meta as (
     select
       count(*)::integer as file_order_count,
-      array_agg(distinct channel_id) filter (where channel_id is not null) as file_channels,
-      min(printed_at) filter (where printed_at is not null) as printed_lo,
-      max(printed_at) filter (where printed_at is not null) as printed_hi,
-      min(paid_at) filter (where paid_at is not null) as paid_lo,
-      max(paid_at) filter (where paid_at is not null) as paid_hi
-    from f_rows
+      array_agg(distinct fr.channel_id) filter (where fr.channel_id is not null) as file_channels,
+      min(fr.printed_at) filter (where fr.printed_at is not null) as printed_lo,
+      max(fr.printed_at) filter (where fr.printed_at is not null) as printed_hi,
+      min(fr.paid_at) filter (where fr.paid_at is not null) as paid_lo,
+      max(fr.paid_at) filter (where fr.paid_at is not null) as paid_hi
+    from f_rows fr
   )
   select
     fo.id, fo.source_order_no, fo.order_date, fo.channel_id, fo.revenue, fo.customer_id, fo.tracking_no,
@@ -467,6 +481,7 @@ revoke execute on function analytics.import_missing_orders(uuid, uuid) from publ
 -- H-1: service_role only — getMissingOrders (lib/actions/import-missing-
 -- orders.ts) always calls this via getServiceClient(), never a user session.
 grant execute on function analytics.import_missing_orders(uuid, uuid) to service_role;
+
 
 CREATE OR REPLACE FUNCTION analytics.transform_pending_orders(p_shop_id uuid, p_batch_id uuid)
  RETURNS TABLE(transformed_count integer, errored_count integer)
