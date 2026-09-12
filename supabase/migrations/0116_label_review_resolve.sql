@@ -13,6 +13,16 @@
 -- deliberate exception to "test before touching real data" (see its header)
 -- since it is itself the real, permanent correction — not a test of one.
 --
+-- 🔴 APPLY ORDER (H2, 12 ก.ย. 69 security review): this file (0116) MUST be
+-- applied BEFORE migrations 0112-0115 (cancel-detection branch), which
+-- rewrite analytics.transform_pending_orders entirely and are being given a
+-- line that reads province_source (`province_source = case when
+-- excluded.province_code = 'TH-XX' then analytics.fact_order.province_source
+-- else 'import' end`) — that line only makes sense if the province_source
+-- column already exists (§2 below creates it). This file does NOT patch
+-- transform_pending_orders itself — the "import re-import respects manual
+-- edits" fix (H2) is being done there instead, in 0114, not duplicated here.
+--
 -- ============================================================================
 -- What this file does
 -- ============================================================================
