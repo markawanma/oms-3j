@@ -24,8 +24,21 @@
 -- channel_raw='Tiktok' rows, not real out-of-order numbering -- hence P5 is
 -- WARN, not a hard block (see import_missing_orders below).
 --
--- ⚠️ DO NOT APPLY — file only, per task instructions. Tech Lead applies via MCP.
-
+-- ✅ APPLIED 12 ก.ย. 69 via MCP apply_migration (version 20260912144344).
+--
+-- 🔴 Review-process note: security review, QA, and code-review ALL passed
+-- this file 3 separate times before it went anywhere near a real database —
+-- none of them caught that f_groups/f_meta (the CTEs just above the final
+-- SELECT) referenced f_rows columns unqualified against a `returns table`
+-- whose OUT-parameter names (prefix, num, order_date, channel_id) collide
+-- with them. That failure mode (42702 ambiguous column) only manifests at
+-- CALL time, not at CREATE time — a plain read of the SQL looks completely
+-- correct, and it IS correct SQL, just ambiguous once Postgres has real OUT
+-- variables in scope. Tech Lead's dry-run (apply inside a transaction,
+-- rollback, never touching real data) caught it in one run. See the fix
+-- itself (search "gotcha #2" below) and the corresponding entry added to
+-- .claude/skills/3j-migration-traps/SKILL.md the same day.
+--
 -- ============================================================================
 -- 1. analytics.import_order_no_parts — split a Shipnity order number into
 --    (prefix, num) per the proven format ^[A-Z]*[0-9]+$ (A3, 6,510/6,510).

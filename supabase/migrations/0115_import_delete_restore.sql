@@ -6,8 +6,16 @@
 -- sends except the ids to act on — a delete/restore call can never select a
 -- looser rule than what the read RPC showed the owner on screen.
 --
--- ⚠️ DO NOT APPLY — file only, per task instructions. Tech Lead applies via
--- MCP after 0112/0113/0114.
+-- ✅ APPLIED 12 ก.ย. 69 via MCP apply_migration (version 20260912144600),
+-- after 0116/0112/0113/0114 per the deploy order in 0112's header. md5 of
+-- the live transform_pending_order_lines body post-apply:
+-- a8f39184507fc850ba287e44f7ffa55b (same "diff against live before editing"
+-- reasoning as 0114's own md5 note). Post-apply: get_advisors clean (no new
+-- warnings), grants confirmed (anon/authenticated=false, service_role=true
+-- on all 7 functions across 0113-0115), smoke-tested against a real batch
+-- (Data_Order_08-09-2026.xlsx — found the expected 3 candidates
+-- G601/G605/G620, ฿880). Pre-apply rehearsal: scripts/verify-0115-missing-
+-- orders.sql, 53 checks, run before any of 0112-0115 applied.
 
 -- ============================================================================
 -- 0. Extend analytics.stg_order_line_import.import_status's CHECK to allow

@@ -58,12 +58,14 @@
 -- correct (3j-migration-traps #1); grants do NOT survive `create or
 -- replace` on Supabase -> explicit revoke+grant below (#2).
 --
--- ⚠️ DO NOT APPLY — file only, per task instructions. Tech Lead applies via
--- MCP AFTER 0112 (needs the 'tombstoned' enum value already committed —
--- 3j-migration-traps: ALTER TYPE ... ADD VALUE and its first use cannot be
--- in the same transaction), 0113 (no hard dependency, but read-before-
--- delete is the intended rollout order), AND feature/label-review-resolve's
--- 0116 (hard dependency — see APPLY-ORDER note above).
+-- ✅ APPLIED 12 ก.ย. 69 via MCP apply_migration (version 20260912144432),
+-- after 0116 (feature/label-review-resolve) and 0112/0113 per the deploy
+-- order above. md5 of the live transform_pending_orders body post-apply:
+-- cf477b2203d9727d27ed9b9acfcf4dca — recorded so a future edit to this
+-- function can diff-against-live first, same "confirm the object you're
+-- about to replace is still the version you think it is" habit
+-- supabase-migrate's own pre-check step uses. Pre-apply rehearsal + post-
+-- apply verify: see scripts/verify-0115-missing-orders.sql's header.
 
 CREATE OR REPLACE FUNCTION analytics.transform_pending_orders(p_shop_id uuid, p_batch_id uuid)
  RETURNS TABLE(transformed_count integer, errored_count integer)
