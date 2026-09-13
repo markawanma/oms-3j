@@ -283,10 +283,7 @@ export async function deleteMissingOrders(
     // non-Postgrest failure, e.g. network), not the answer for every cause.
     const fallback =
       "ลบออเดอร์ไม่สำเร็จ — รายการที่เลือกอาจไม่ตรงกับที่ระบบตรวจล่าสุดแล้ว (มีการนำเข้าไฟล์ใหม่ระหว่างนี้) ลองกดตรวจซ้ำแล้วลองใหม่";
-    return {
-      ok: false,
-      error: err instanceof Error ? mapMissingOrdersRpcError(err.message, fallback) : fallback,
-    };
+    return { ok: false, error: mapMissingOrdersRpcError(err, fallback) };
   }
 }
 
@@ -402,9 +399,6 @@ export async function restoreDeletedOrders(ids: string[]): Promise<ActionResult<
     // non-Postgrest failure, e.g. network), not the answer for every cause.
     const fallback =
       "กู้คืนออเดอร์ไม่สำเร็จ — อาจมีออเดอร์เลขที่เดียวกันถูกสร้างขึ้นใหม่แล้วหลังจากลบ (เช่น Shipnity ใช้เลขซ้ำ) ตรวจสอบก่อนลองใหม่";
-    return {
-      ok: false,
-      error: err instanceof Error ? mapMissingOrdersRpcError(err.message, fallback) : fallback,
-    };
+    return { ok: false, error: mapMissingOrdersRpcError(err, fallback) };
   }
 }

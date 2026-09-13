@@ -124,25 +124,22 @@ export function isMissingOrdersWriteDisabledError(error: string): boolean {
 // runtime values (%-formatted ids/counts) interpolated into it, so no fixed
 // string ever equals the whole message.
 //
-// Deliberately NOT exhaustive — three 0115 preconditions are intentionally
-// left unmapped and fall through to the caller's own `fallback` text:
-// `reason is required` and `cannot delete/restore more than 200` are already
-// caught by this app's OWN pre-RPC validation (deleteMissingOrders/
-// restoreDeletedOrders check those before ever calling the RPC), so hitting
-// them FROM the RPC is not a real user path; `expected ON DELETE CASCADE...`
-// is an internal schema-drift invariant, not something a Thai copy sentence
-// should try to explain to a shop owner.
+// Deliberately NOT exhaustive — the remaining preconditions 0115 can raise
+// are intentionally left unmapped and fall through to the caller's own
+// `fallback` text: `reason is required` and `cannot delete/restore more than
+// 200` are already caught by this app's OWN pre-RPC validation
+// (deleteMissingOrders/restoreDeletedOrders check those before ever calling
+// the RPC), so hitting them FROM the RPC is not a real user path; `expected
+// ON DELETE CASCADE...` (and the basic required-field guards at the top of
+// each function) are internal schema/programmer-error invariants, not
+// something a Thai copy sentence should try to explain to a shop owner.
 //
-// Deviation from brief: the brief specified a single-arg signature
-// (message: string) => string. deleteMissingOrders and restoreDeletedOrders
-// each already have their OWN distinct generic fallback message (batch may
-// have moved on vs. Shipnity reused the number) that has nothing to do with
-// substring-matching here — hardcoding one generic string inside this module
-// would have meant picking one of the two, or losing the other's wording.
-// Taking the fallback as a second argument keeps each call site's existing
-// generic copy exactly as-is for the unmatched case. Flagged for Tech Lead —
-// straightforward to collapse back to a 1-arg signature if this reasoning is
-// wrong.
+// Takes `fallback` as a second argument (not baked into this module as one
+// generic string) for the same reason friendlyError(err, fallback) does in
+// lib/actions/calendar.ts:52 — deleteMissingOrders and restoreDeletedOrders
+// each already have their own distinct generic message for the unmatched
+// case (batch may have moved on vs. Shipnity reused the number), and this
+// keeps both call sites' existing copy exactly as-is.
 const MISSING_ORDERS_RPC_ERROR_MAP: ReadonlyArray<readonly [needle: string, thai: string]> = [
   // restoreDeletedOrders — import_restore_orders (0115)
   [
@@ -164,7 +161,19 @@ const MISSING_ORDERS_RPC_ERROR_MAP: ReadonlyArray<readonly [needle: string, thai
   ],
 ];
 
-export function mapMissingOrdersRpcError(message: string, fallback: string): string {
+// C-3PO (code review 13 ก.ย. 69, blocker) — takes `unknown`, NOT `Error`.
+// supabase-js's `.rpc()` here is never chained with `.throwOnError()`, so the
+// `error` these call sites `throw` is postgrest-js's raw parsed-JSON object
+// (`JSON.parse(body)` in PostgrestBuilder.processResponse — a PostgrestError
+// class instance is ONLY constructed when `shouldThrowOnError` is true,
+// which this codebase never sets). An earlier version of this function
+// required `err instanceof Error` at the call site before ever reaching
+// here — for the one error shape these RPCs actually throw, that check is
+// always false, so every substring match above was dead code (confirmed
+// against postgrest-js 2.112.3's source, not just inferred).
+export function mapMissingOrdersRpcError(err: unknown, fallback: string): string {
+  const raw = err instanceof Error ? err.message : (err as { message?: unknown } | null)?.message;
+  const message = typeof raw === "string" ? raw : "";
   for (const [needle, thai] of MISSING_ORDERS_RPC_ERROR_MAP) {
     if (message.includes(needle)) return thai;
   }
