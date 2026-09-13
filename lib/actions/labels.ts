@@ -952,6 +952,7 @@ export async function getPendingLabelReviews(): Promise<ActionResult<PendingLabe
           .schema(SCHEMA)
           .from("stg_import_batch")
           .select("id, file_name")
+          .eq("shop_id", shopId) // Mace L2 (13 ก.ย. 69, security) — tenant scope, defense in depth
           .in("id", chunk);
         if (error) throw error;
         for (const b of (data ?? []) as { id: string; file_name: string | null }[]) {
@@ -1156,7 +1157,16 @@ async function attachOrderSources(
   const batchIds = [...new Set([...latestImportByOrderId.values()].map((v) => v.batchId))];
   const fileNameByBatchId = new Map<string, string | null>();
   for (const chunk of chunkArray(batchIds, PENDING_REVIEW_FILE_LOOKUP_CHUNK_SIZE)) {
-    const { data, error } = await supabase.schema(SCHEMA).from("stg_import_batch").select("id, file_name").in("id", chunk);
+    // Mace L2 (13 ก.ย. 69, security) — tenant scope, defense in depth (batchIds
+    // here are already derived from this shop's own stg_order_import rows, so
+    // this isn't reachable with a cross-tenant id today, but every other query
+    // in this file scopes by shop_id and this one shouldn't be the exception).
+    const { data, error } = await supabase
+      .schema(SCHEMA)
+      .from("stg_import_batch")
+      .select("id, file_name")
+      .eq("shop_id", shopId)
+      .in("id", chunk);
     if (error) throw error;
     for (const b of (data ?? []) as { id: string; file_name: string | null }[]) fileNameByBatchId.set(b.id, b.file_name);
   }
