@@ -11,8 +11,8 @@
 // RestoreOrderButton.tsx ("use client") — see that file's header for why
 // this had to be a separate file rather than inline here.
 
-import { Inbox } from "lucide-react";
-import { getDeletedOrders } from "@/lib/actions/import-missing-orders";
+import { Info, Inbox } from "lucide-react";
+import { getDeletedOrders, getMissingOrdersWriteStatus } from "@/lib/actions/import-missing-orders";
 import { RestoreOrderButton } from "@/components/domain/crm/RestoreOrderButton";
 import { Badge } from "@/components/ui/Badge";
 import { ErrorBanner } from "@/components/ui/ErrorState";
@@ -22,14 +22,22 @@ import { formatCount, formatThaiDateOnly } from "@/lib/tiktok/format";
 
 export async function DeletedOrdersHistory() {
   let rows;
+  // Optimistic default (true) if the status fetch itself fails/errors — the
+  // real gate is still enforced server-side inside restoreDeletedOrders
+  // regardless (RestoreOrderButton's isMissingOrdersWriteDisabledError
+  // fallback still catches a real attempt either way), this default only
+  // affects whether the button is disabled proactively or reactively.
+  let writeEnabled = true;
   try {
-    const res = await getDeletedOrders();
-    if (!res.ok) {
-      return <ErrorBanner message={res.error} />;
+    const [ordersRes, statusRes] = await Promise.all([getDeletedOrders(), getMissingOrdersWriteStatus()]);
+    if (!ordersRes.ok) {
+      return <ErrorBanner message={ordersRes.error} />;
     }
-    rows = res.data;
+    rows = ordersRes.data;
+    if (statusRes.ok) writeEnabled = statusRes.data.enabled;
+    else console.error("DeletedOrdersHistory: getMissingOrdersWriteStatus failed", statusRes.error);
   } catch (err) {
-    console.error("DeletedOrdersHistory: getDeletedOrders threw", err);
+    console.error("DeletedOrdersHistory: getDeletedOrders/getMissingOrdersWriteStatus threw", err);
     return <ErrorBanner message="โหลดประวัติออเดอร์ที่ลบไม่สำเร็จ ลองรีเฟรชหน้าอีกครั้ง" />;
   }
 
@@ -44,6 +52,12 @@ export async function DeletedOrdersHistory() {
 
   return (
     <div className="overflow-x-auto rounded-lg border border-zinc-200 bg-white">
+      {!writeEnabled && (
+        <p className="flex items-center gap-1.5 border-b border-blue-100 bg-blue-50 px-3 py-2 text-xs text-blue-800">
+          <Info className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          ยังไม่เปิดใช้การลบ/กู้คืนบนระบบนี้
+        </p>
+      )}
       <table className="w-full min-w-[860px] text-left text-xs">
         <thead>
           <tr className="border-b border-zinc-200 bg-zinc-50 text-zinc-500">
@@ -79,7 +93,7 @@ export async function DeletedOrdersHistory() {
               <td className="px-3 py-2">
                 {r.restoredAt ? <Badge tone="green">กู้คืนแล้ว</Badge> : <Badge tone="red">ลบแล้ว</Badge>}
               </td>
-              <td className="px-3 py-2">{!r.restoredAt && <RestoreOrderButton row={r} />}</td>
+              <td className="px-3 py-2">{!r.restoredAt && <RestoreOrderButton row={r} writeEnabled={writeEnabled} />}</td>
             </tr>
           ))}
         </tbody>

@@ -21,19 +21,28 @@ import { ErrorBanner } from "@/components/ui/ErrorState";
 import { useToast } from "@/components/ui/Toast";
 import { formatTHB } from "@/lib/format";
 
-export function RestoreOrderButton({ row }: { row: DeletedOrderRow }) {
+export function RestoreOrderButton({
+  row,
+  writeEnabled,
+}: {
+  row: DeletedOrderRow;
+  /** Proactive read from getMissingOrdersWriteStatus(), fetched ONCE by the
+   * parent Server Component (DeletedOrdersHistory) and shared across every
+   * row's button — this is what makes the button disabled from first paint
+   * instead of only after a failed click, and it's consistent across all
+   * rows at once (no more "each button discovers independently"). */
+  writeEnabled: boolean;
+}) {
   const router = useRouter();
   const toast = useToast();
   const [open, setOpen] = useState(false);
   const [restoring, setRestoring] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Same C-2 write-switch caveat as MissingOrdersPanel.tsx (see that file's
-  // comment): no status action exists to know ahead of time, so this is
-  // learned reactively per-button on first failed attempt and then kept
-  // disabled for the rest of this button's lifetime. Each row's button
-  // discovers this independently (no shared state lifted across rows) —
-  // an accepted trade-off given time constraints, not a correctness issue.
-  const [writeDisabled, setWriteDisabled] = useState(false);
+  // Seeded from the proactive `writeEnabled` prop; isMissingOrdersWriteDisabledError
+  // below is still a REACTIVE fallback for the narrow race where the parent's
+  // status fetch said "enabled" (or failed and defaulted to that) but the
+  // gate had actually flipped/was off by the time this restore call landed.
+  const [writeDisabled, setWriteDisabled] = useState(!writeEnabled);
 
   async function handleRestore() {
     setRestoring(true);
@@ -61,7 +70,7 @@ export function RestoreOrderButton({ row }: { row: DeletedOrderRow }) {
         variant="secondary"
         size="sm"
         disabled={writeDisabled}
-        title={writeDisabled ? "ปุ่มกู้คืนปิดอยู่บนเซิร์ฟเวอร์นี้ (รอ Auth A2)" : undefined}
+        title={writeDisabled ? "ยังไม่เปิดใช้การลบ/กู้คืนบนระบบนี้" : undefined}
         onClick={() => setOpen(true)}
       >
         <RotateCcw className="h-3.5 w-3.5" aria-hidden="true" />
@@ -80,7 +89,7 @@ export function RestoreOrderButton({ row }: { row: DeletedOrderRow }) {
           {writeDisabled && (
             <div className="flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 p-2.5 text-xs text-blue-800">
               <Info className="h-4 w-4 shrink-0" aria-hidden="true" />
-              ปุ่มกู้คืนปิดอยู่บนเซิร์ฟเวอร์นี้ (รอ Auth A2)
+              ยังไม่เปิดใช้การลบ/กู้คืนบนระบบนี้
             </div>
           )}
           {error && <ErrorBanner message={error} />}
