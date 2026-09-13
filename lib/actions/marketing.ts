@@ -41,6 +41,7 @@ import type { ArtifactStatus, CampaignBoardStep } from "@/lib/marketing/campaign
 import { ARTIFACT_STATUSES } from "@/lib/marketing/campaign-types";
 import { CAMPAIGN_BOARD_SELECT, mapCampaignBoardRow } from "@/lib/marketing/campaign-board-mapper";
 import { fetchAllRows } from "@/lib/supabase/query-limits";
+import { readErrorCode, readErrorMessage } from "@/lib/supabase/postgrest-error";
 
 const SCHEMA = "analytics";
 
@@ -774,9 +775,9 @@ export async function setCampaignArtifactStatus(
     // rule 1 (silver_bar + discount) is raised with SQLSTATE 22023 — match the
     // code first (stable), fall back to the message text only if the code
     // didn't propagate, so re-wording the SQL exception can't break this.
-    const code = (err as { code?: string })?.code;
+    const code = readErrorCode(err);
     const msg =
-      code === "22023" || (err instanceof Error && err.message.includes("silver_bar"))
+      code === "22023" || readErrorMessage(err).includes("silver_bar")
         ? "สินค้าเงินแท่งห้ามมีส่วนลด (กันเก็งกำไรราคา)"
         : "อัปเดตสถานะไม่สำเร็จ ลองใหม่อีกครั้ง";
     return { ok: false, error: msg };
