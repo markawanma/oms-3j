@@ -1,18 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Eye, ScrollText } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import type { BadgeTone } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
-import {
-  findOrdersByTracking,
-  getLabelPageSnippet,
-  getLabelPageViewUrl,
-  ignoreLabelPage,
-  resolveLabelPage,
-} from "@/lib/actions/labels";
+import { getLabelPageSnippet, getLabelPageViewUrl, ignoreLabelPage, resolveLabelPage } from "@/lib/actions/labels";
 import type { LabelReasonCode, LabelReviewRow, OrderSourceRef } from "@/lib/labels/types";
 import { NOTE_MAX_LENGTH } from "@/lib/labels/constants";
 import type { CrmProvinceOption } from "@/lib/crm/order-override";
@@ -63,18 +57,15 @@ function messageFromError(err: unknown, fallback: string): string {
 
 export interface LabelReviewQueueRowProps {
   row: LabelReviewRow;
-  /** โชว์เฉพาะเมื่อคิวรวมหลายไฟล์ (PendingReviewQueue) — component นี้เป็น
-   * renderer เดียวที่ใช้จริงตอนนี้ (QA-1, 13 ก.ย. 69) แต่ prop ยัง optional
-   * ไว้เผื่อมีจุดเรียกใหม่ในอนาคตที่ไม่มี fileName ให้ส่ง (ดู orderSources ด้านล่าง
-   * สำหรับกรณีเดียวกัน). */
+  /** โชว์เฉพาะเมื่อคิวรวมหลายไฟล์ (PendingReviewQueue) — renderer เดียวที่ใช้
+   * จริงตอนนี้ (QA-1, 13 ก.ย. 69). */
   fileName?: string;
-  /** PendingReviewQueue ได้ค่านี้มาจาก getPendingLabelReviews() อยู่แล้ว (อาจเป็น
-   * [] จริงๆ ก็ได้ — ไม่ใช่ "ยังไม่รู้"). ปล่อย undefined ไว้ = component นี้ไปค้น
-   * เองผ่าน findOrdersByTracking() ด้านล่าง (decision #3: "ทุกแถวต้องบอกที่มา
-   * ให้เปิดอ่านเองได้") — ไม่มี caller ที่ยังใช้งานจริงส่ง undefined ตอนนี้ (จุดเดิม
-   * ที่เคยไม่ส่งมาคือ ReviewQueueList.tsx ซึ่งถูกลบไปพร้อม QA-1) แต่ path นี้ยัง
-   * มีประโยชน์เป็น fallback ที่ถูกต้องถ้ามี caller ใหม่ไม่มี orderSources ติดมา. */
-  orderSources?: OrderSourceRef[];
+  /** PendingReviewQueue ได้ค่านี้มาจาก getPendingLabelReviews() อยู่แล้วเสมอ
+   * (อาจเป็น [] จริงๆ ก็ได้ — ไม่ใช่ "ยังไม่รู้") — required เพราะเป็น renderer
+   * เดียวที่เหลือ (QA-1 ลบ ReviewQueueList.tsx ซึ่งเป็น caller เดิมที่เคยไม่มีค่า
+   * นี้ติดมาไปแล้ว, code-review nit C-3PO 13 ก.ย. 69: ลบ lazy-fetch fallback
+   * ที่ไม่มี caller เหลือออกไปด้วย แทนที่จะเก็บ dead path ไว้). */
+  orderSources: OrderSourceRef[];
   provinces: CrmProvinceOption[];
   canEdit: boolean;
   onResolved: (pageId: string) => void;
@@ -83,16 +74,12 @@ export interface LabelReviewQueueRowProps {
 export function LabelReviewQueueRow({
   row,
   fileName,
-  orderSources: orderSourcesProp,
+  orderSources,
   provinces,
   canEdit,
   onResolved,
 }: LabelReviewQueueRowProps) {
   const toast = useToast();
-
-  const [sources, setSources] = useState<OrderSourceRef[] | null>(orderSourcesProp ?? null);
-  const [sourcesError, setSourcesError] = useState<string | null>(null);
-  const sourcesLoading = orderSourcesProp === undefined && sources === null && !sourcesError;
 
   const [selectedProvince, setSelectedProvince] = useState(row.candidates.length === 1 ? row.candidates[0].code : "");
   const [reason, setReason] = useState<LabelReasonCode | "">("");
@@ -106,39 +93,9 @@ export function LabelReviewQueueRow({
   const [submitting, setSubmitting] = useState<"resolve" | "ignore" | "keep" | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
 
-  // Lazy-fetch order sources only when the parent didn't already supply them
-  // (see orderSources prop doc above — no current caller leaves this
-  // undefined, kept as a defensive fallback). Skipped entirely for pages with
-  // no trackingNo (nothing to look up). retryTick
-  // lets the "ลองใหม่" button below re-run this without needing row.pageId
-  // to change.
-  const [retryTick, setRetryTick] = useState(0);
-  useEffect(() => {
-    if (orderSourcesProp !== undefined) return;
-    if (!row.trackingNo) {
-      setSources([]);
-      return;
-    }
-    let cancelled = false;
-    setSourcesError(null);
-    findOrdersByTracking(row.trackingNo)
-      .then((result) => {
-        if (cancelled) return;
-        if (result.ok) setSources(result.data);
-        else setSourcesError(result.error);
-      })
-      .catch((err) => {
-        if (!cancelled) setSourcesError(messageFromError(err, "ค้นหาออเดอร์ไม่สำเร็จ"));
-      });
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- pageId/trackingNo identify this row; retryTick is a manual re-run trigger only
-  }, [row.pageId, retryTick]);
-
-  const reasonRequired = (sources ?? []).some((o) => isRealProvinceCode(o.provinceCode));
-  const noOrderFound = sources !== null && sources.length === 0 && !!row.trackingNo;
-  const canResolve = canEdit && submitting === null && !!row.trackingNo && sources !== null && sources.length > 0;
+  const reasonRequired = orderSources.some((o) => isRealProvinceCode(o.provinceCode));
+  const noOrderFound = orderSources.length === 0 && !!row.trackingNo;
+  const canResolve = canEdit && submitting === null && !!row.trackingNo && orderSources.length > 0;
 
   async function handleViewLabel() {
     setActionError(null);
@@ -245,7 +202,7 @@ export function LabelReviewQueueRow({
 
   const labelSuggestedProvince = row.candidates.length > 0 ? row.candidates[0] : null;
   const orderCurrentProvinceName =
-    sources && sources.length > 0 ? provinceNameByCode(provinces, sources[0].provinceCode) : null;
+    orderSources.length > 0 ? provinceNameByCode(provinces, orderSources[0].provinceCode) : null;
 
   return (
     <div className="rounded-lg border border-zinc-200 bg-white p-3 shadow-sm" role="listitem">
@@ -260,31 +217,17 @@ export function LabelReviewQueueRow({
         <Badge tone={REVIEW_STATUS_TONE[row.status]}>{reviewRowStatusLabel(row)}</Badge>
       </div>
 
-      {/* ที่มาฝั่งออเดอร์ — decision #3: ทุกแถวเปิดอ่านที่มาเองได้ */}
+      {/* ที่มาฝั่งออเดอร์ — decision #3: ทุกแถวเปิดอ่านที่มาเองได้. parent
+          (PendingReviewQueue) ดึง orderSources มาให้แล้วเสมอ — ไม่มี loading/
+          error state ของตัวเองอีกต่อไป (code-review nit C-3PO, 13 ก.ย. 69:
+          lazy-fetch fallback ถูกลบไปพร้อม prop ที่ทำให้ required แล้ว). */}
       <div className="mt-2 text-xs text-zinc-500">
-        {sourcesLoading && "กำลังค้นออเดอร์ที่ตรงเลขพัสดุนี้…"}
-        {sourcesError && (
-          <span className="text-red-600">
-            {sourcesError}{" "}
-            <button
-              type="button"
-              className="underline underline-offset-2"
-              onClick={() => {
-                setSourcesError(null);
-                setSources(null);
-                setRetryTick((n) => n + 1);
-              }}
-            >
-              ลองใหม่
-            </button>
-          </span>
-        )}
-        {!sourcesLoading && !sourcesError && noOrderFound && (
+        {noOrderFound && (
           <span className="text-amber-700">ยังไม่พบออเดอร์ที่ตรงเลขพัสดุนี้ในระบบ — นำเข้าออเดอร์ก่อนจึงยืนยันจังหวัดได้</span>
         )}
-        {!sourcesLoading && !sourcesError && sources && sources.length > 0 && (
+        {orderSources.length > 0 && (
           <ul className="space-y-0.5">
-            {sources.map((o) => (
+            {orderSources.map((o) => (
               <li key={o.factOrderId}>{orderSourceLine(o, provinces)}</li>
             ))}
           </ul>
