@@ -35,14 +35,25 @@
 //     (design decision, 11 ก.ย. 69) — a shop owner who doesn't notice this
 //     and clicks delete without reviewing the list deletes everything shown.
 //   - DeletedOrdersHistory renders `reason` as free-text with no sanitation
-//     beyond what the delete form itself enforces — fine today (owner/admin-
-//     only, single internal user), but this becomes a real concern once
-//     Auth A2 opens this page to more than one trusted person.
-//   - Committing multiple files in one session (OrderImportClient) does not
-//     re-run missing-orders detection against the newly committed batch —
-//     the panel only ever targets `latestOrderBatchId` from whatever
-//     ImportBatchHistory last fetched, so a same-session multi-file commit
-//     can leave the panel pointed at a batch that's no longer the latest.
+//     beyond what the delete form itself enforces — NOT an XSS risk (React
+//     escapes it like any other text child), the real concern is that it's
+//     visible to anyone who can load this page, fine today (owner/admin-
+//     only, single internal user) but not once Auth A2 opens this page to
+//     more than one trusted person.
+//   - ImportBatchHistory.tsx only fetches `missingResult` when the "ตรวจ
+//     ออเดอร์ที่หายไป" button is clicked (fetchMissing inside
+//     toggleMissingPanel) — it does NOT refetch just because
+//     `latestOrderBatchId` changes under an already-open panel (e.g. a new
+//     batch becomes the latest transformed order batch while the panel is
+//     open). MissingOrdersPanel would then be passed a new `batchId` prop
+//     while still displaying `missingResult` computed for the OLD batch —
+//     stale/confusing display, not a data-safety issue: deleteMissingOrders
+//     re-derives the candidate set server-side for whatever `batchId` it
+//     actually receives, so a delete against a stale-looking list still only
+//     ever matches real candidates of the (new) batch id sent, or gets
+//     rejected outright (surfaced via mapMissingOrdersRpcError's "not in the
+//     current candidate set" case, added 13 ก.ย. 69) if the ids no longer
+//     line up.
 //   - ImportBatchHistory does not surface skipped/tombstoned row counts
 //     anywhere in its table — a batch that fed into a later delete has no
 //     visible trace of that in the history view itself (only in
