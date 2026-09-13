@@ -25,10 +25,10 @@ import {
 import { ProvinceSelect } from "./ProvinceSelect";
 import { LabelReasonSelect } from "./LabelReasonSelect";
 
-// Exported so PendingReviewQueue.tsx (and this file's own render below) share
-// ONE status->tone/label mapping instead of two copies drifting apart —
-// moved here (was in ReviewQueueList.tsx) now that both queue UIs render
-// through this shared row component.
+// Exported so PendingReviewQueue.tsx shares ONE status->tone/label mapping
+// instead of two copies drifting apart (was in the now-deleted
+// ReviewQueueList.tsx before QA-1's fix, 13 ก.ย. 69 — see UploadPageClient.tsx
+// for why that component was removed rather than kept as a second renderer).
 export const REVIEW_STATUS_TONE: Record<LabelReviewRow["status"], BadgeTone> = {
   needs_review: "amber",
   conflict: "red",
@@ -62,14 +62,17 @@ function messageFromError(err: unknown, fallback: string): string {
 
 export interface LabelReviewQueueRowProps {
   row: LabelReviewRow;
-  /** โชว์เฉพาะเมื่อคิวรวมหลายไฟล์ (PendingReviewQueue) — ตอนอยู่ใต้หัวข้อ
-   * "สรุป — {fileName}" ของ ReviewQueueList ไม่ต้องส่งมา (ซ้ำซ้อน). */
+  /** โชว์เฉพาะเมื่อคิวรวมหลายไฟล์ (PendingReviewQueue) — component นี้เป็น
+   * renderer เดียวที่ใช้จริงตอนนี้ (QA-1, 13 ก.ย. 69) แต่ prop ยัง optional
+   * ไว้เผื่อมีจุดเรียกใหม่ในอนาคตที่ไม่มี fileName ให้ส่ง (ดู orderSources ด้านล่าง
+   * สำหรับกรณีเดียวกัน). */
   fileName?: string;
-  /** PendingReviewQueue ได้ค่านี้มาจาก getPendingLabelReviews() อยู่แล้ว
-   * (อาจเป็น [] จริงๆ ก็ได้ — ไม่ใช่ "ยังไม่รู้"). ReviewQueueList (แถวสดหลัง
-   * อัปโหลด) ไม่มีค่านี้ติดมา — ส่ง undefined แล้ว component นี้ไปค้นเองผ่าน
-   * findOrdersByTracking() (decision #3: "ทุกแถวต้องบอกที่มาให้เปิดอ่านเองได้"
-   * ใช้ได้กับทุกที่ที่มี trackingNo ไม่ใช่แค่ ProvinceFixPanel). */
+  /** PendingReviewQueue ได้ค่านี้มาจาก getPendingLabelReviews() อยู่แล้ว (อาจเป็น
+   * [] จริงๆ ก็ได้ — ไม่ใช่ "ยังไม่รู้"). ปล่อย undefined ไว้ = component นี้ไปค้น
+   * เองผ่าน findOrdersByTracking() ด้านล่าง (decision #3: "ทุกแถวต้องบอกที่มา
+   * ให้เปิดอ่านเองได้") — ไม่มี caller ที่ยังใช้งานจริงส่ง undefined ตอนนี้ (จุดเดิม
+   * ที่เคยไม่ส่งมาคือ ReviewQueueList.tsx ซึ่งถูกลบไปพร้อม QA-1) แต่ path นี้ยัง
+   * มีประโยชน์เป็น fallback ที่ถูกต้องถ้ามี caller ใหม่ไม่มี orderSources ติดมา. */
   orderSources?: OrderSourceRef[];
   provinces: CrmProvinceOption[];
   canEdit: boolean;
@@ -103,8 +106,9 @@ export function LabelReviewQueueRow({
   const [actionError, setActionError] = useState<string | null>(null);
 
   // Lazy-fetch order sources only when the parent didn't already supply them
-  // (ReviewQueueList's fresh post-upload rows — see prop doc above). Skipped
-  // entirely for pages with no trackingNo (nothing to look up). retryTick
+  // (see orderSources prop doc above — no current caller leaves this
+  // undefined, kept as a defensive fallback). Skipped entirely for pages with
+  // no trackingNo (nothing to look up). retryTick
   // lets the "ลองใหม่" button below re-run this without needing row.pageId
   // to change.
   const [retryTick, setRetryTick] = useState(0);

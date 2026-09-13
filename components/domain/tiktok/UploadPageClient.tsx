@@ -14,10 +14,14 @@ import type { CrmProvinceOption } from "@/lib/crm/order-override";
 import { UploadDropzone } from "./UploadDropzone";
 import { UploadQueueList } from "./UploadQueueList";
 import { BatchSummaryCard } from "./BatchSummaryCard";
-import { ReviewQueueList } from "./ReviewQueueList";
 import { LabelFileHistory } from "./LabelFileHistory";
 import { PendingReviewQueue } from "./PendingReviewQueue";
 import { ProvinceFixPanel } from "./ProvinceFixPanel";
+
+// QA-1 fix (13 ก.ย. 69, R2-D2): "รอตรวจสอบ (N)" ที่นี่ใช้เป็น anchor เดียวไป
+// PendingReviewQueue ด้านล่าง — งานจัดการจริงเกิดที่นั่นที่เดียว (ดูเหตุผลเต็มที่
+// จุด render ด้านล่าง).
+const PENDING_REVIEW_QUEUE_ANCHOR_ID = "pending-review-queue";
 
 interface RejectedFile {
   id: string;
@@ -246,11 +250,30 @@ export function UploadPageClient({
           <section key={item.id} aria-label={`สรุปผลอ่านไฟล์ ${item.fileName}`} className="space-y-2">
             <p className="text-xs font-bold tracking-wide text-zinc-400 uppercase">สรุป — {item.fileName}</p>
             <BatchSummaryCard summary={summary} />
+            {/* QA-1 fix (13 ก.ย. 69, R2-D2): เดิม section นี้ render
+                <ReviewQueueList> ที่มีปุ่มยืนยัน/ข้ามกดได้ตรงนี้ "ด้วย" — ขณะที่
+                bump reviewRefreshSignal ด้านล่าง (handleFilesSelected → parse
+                สำเร็จ) ทำให้ <PendingReviewQueue> โหลดหน้าเดียวกันจาก DB มา
+                render อีกชุด (คนละ state, คนละ component instance) กลายเป็น
+                "แถวรอตรวจ" 1 หน้าโผล่กดได้ 2 ที่พร้อมกัน — กดยืนยันที่นี่แล้ว
+                สำเนาใน PendingReviewQueue ยังค้างอยู่จนกว่าจะโหลดใหม่ กดซ้ำที่
+                สำเนานั้นเจอ error จาก RPC ("already resolved") ที่ดูเหมือนระบบพัง
+                ทั้งที่จริงสำเร็จไปแล้ว.
+
+                แก้ทางแคบสุด (ตามที่ QA เสนอ แทนที่จะทำ shared state ข้าม
+                component คนละ data source กัน — ของเดิมเป็น state คนละก้อน
+                จริง: rows ที่นี่มาจาก LabelParseSummary ของรอบอัปโหลดนี้ ส่วน
+                PendingReviewQueue query จาก stg_label_page ตรง ผูก callback
+                ร่วมกันเสี่ยง sync ผิดจังหวะมากกว่าคุ้ม): ที่นี่เหลือแค่ตัวเลข +
+                ลิงก์ไปที่เดียวที่กดได้จริงคือ PendingReviewQueue ด้านล่าง —
+                ReviewQueueList.tsx (ปุ่มกดตรงนี้) ถูกลบออกทั้งไฟล์ */}
             {summary.reviewRows.length > 0 && (
-              <>
-                <p className="mt-1 text-xs font-bold tracking-wide text-zinc-400 uppercase">รอตรวจสอบ ({summary.reviewRows.length})</p>
-                <ReviewQueueList rows={summary.reviewRows} provinces={provinces} canEdit={canEdit} />
-              </>
+              <p className="mt-1 text-xs text-zinc-500">
+                รอตรวจสอบ {summary.reviewRows.length} หน้า —{" "}
+                <a href={`#${PENDING_REVIEW_QUEUE_ANCHOR_ID}`} className="font-medium text-primary-700 underline underline-offset-2">
+                  จัดการในคิวรวมด้านล่าง
+                </a>
+              </p>
             )}
           </section>
         );
@@ -260,7 +283,9 @@ export function UploadPageClient({
         <EmptyState icon={UploadCloud} title="ยังไม่มีไฟล์วันนี้" description="ลากไฟล์ใบปะหน้ามาวาง หรือกดเลือกไฟล์ด้านบน" />
       )}
 
-      <PendingReviewQueue refreshSignal={reviewRefreshSignal} provinces={provinces} canEdit={canEdit} />
+      <div id={PENDING_REVIEW_QUEUE_ANCHOR_ID}>
+        <PendingReviewQueue refreshSignal={reviewRefreshSignal} provinces={provinces} canEdit={canEdit} />
+      </div>
 
       <ProvinceFixPanel provinces={provinces} canEdit={canEdit} />
 
