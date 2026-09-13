@@ -18,6 +18,35 @@
 // restore path) — every export here revalidates the same page set
 // commitOrderImport does, since a delete/restore changes the same
 // aggregates a fresh import would.
+//
+// Known debt (tracked here, not in a separate doc — see docs/3j-jewelry/
+// INDEX.md, checked 13 ก.ย. 69: no dedicated cancel-detection design/debt
+// file exists yet for this to live in):
+//   - deleted_by/restored_by (fact_order_deleted) are always null in
+//     practice — both columns are set via auth.uid(), but every call here
+//     goes through the service-role client (no JWT session), so auth.uid()
+//     resolves to null until Auth A2 ships real per-user sessions.
+//   - The write gate (requireMissingOrdersWriteEnabled, above) is a single
+//     TypeScript `if` on an env var — no DB-level enforcement backs it.
+//     Mace (security review 12 ก.ย. 69) proposed a follow-up migration
+//     (0117, analytics.crm_feature_flag) so the real gate can live in the DB
+//     once the owner is ready to open this up — not built yet.
+//   - MissingOrdersPanel defaults every candidate to selected/ticked on load
+//     (design decision, 11 ก.ย. 69) — a shop owner who doesn't notice this
+//     and clicks delete without reviewing the list deletes everything shown.
+//   - DeletedOrdersHistory renders `reason` as free-text with no sanitation
+//     beyond what the delete form itself enforces — fine today (owner/admin-
+//     only, single internal user), but this becomes a real concern once
+//     Auth A2 opens this page to more than one trusted person.
+//   - Committing multiple files in one session (OrderImportClient) does not
+//     re-run missing-orders detection against the newly committed batch —
+//     the panel only ever targets `latestOrderBatchId` from whatever
+//     ImportBatchHistory last fetched, so a same-session multi-file commit
+//     can leave the panel pointed at a batch that's no longer the latest.
+//   - ImportBatchHistory does not surface skipped/tombstoned row counts
+//     anywhere in its table — a batch that fed into a later delete has no
+//     visible trace of that in the history view itself (only in
+//     DeletedOrdersHistory, a separate table).
 
 import { revalidatePath } from "next/cache";
 import { getServiceClient } from "@/lib/supabase/server";
