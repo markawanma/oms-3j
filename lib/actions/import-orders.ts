@@ -324,6 +324,16 @@ export async function commitOrderImport(formData: FormData): Promise<ActionResul
         // detection can refuse to run on a batch it can't fully account
         // for, instead of silently treating a parse casualty as a
         // cancellation candidate.
+        //
+        // 🔴 DEPLOY ORDER (M-c, 12 ก.ย. 69): this column is added by
+        // migration 0112 — deploying THIS CODE before 0112 is applied makes
+        // EVERY order import fail outright (not just a cancel-detection
+        // regression: the whole existing import feature breaks, since this
+        // insert is unconditional on every batch). Full required order is
+        // 0116 (a different branch, feature/label-review-resolve) → 0112 →
+        // 0113 → 0114 → 0115 → THEN this code. See 0112's own header for
+        // the full explanation (including why 0116 comes first, reversing
+        // the usual "lower migration number first" assumption).
         row_count_skipped: parsed.skippedRowNos.length,
         status: "loaded",
       })

@@ -115,6 +115,7 @@ declare
   v_unparsed_count int;
   v_pending_error_count int;
   v_resolved_channels uuid[];
+  v_f_row_count int;
 begin
   perform analytics.crm_require_owner_admin(p_shop_id);
 
@@ -192,12 +193,23 @@ begin
   -- a row can reach 'transformed', so every transformed row already proves
   -- its channel_raw resolves. This is defense-in-depth, same posture as
   -- P1-P4 above, not a rule expected to trip on real data.
-  select array_agg(distinct dca.channel_id) filter (where dca.channel_id is not null)
-    into v_resolved_channels
+  --
+  -- Low (security review 12 ก.ย. 69): count(*) alongside the channel
+  -- array so "zero F rows at all" can raise its own distinct detail
+  -- ('empty_batch') instead of being lumped into 'channels_unresolved' —
+  -- an empty batch and a batch whose rows all fail channel resolution are
+  -- different failure modes with different fixes, worth telling apart in
+  -- the blocked_reason the UI shows the owner.
+  select array_agg(distinct dca.channel_id) filter (where dca.channel_id is not null), count(*)
+    into v_resolved_channels, v_f_row_count
     from analytics.stg_order_import s
     left join analytics.dim_channel_alias dca on lower(dca.alias_raw) = lower(trim(coalesce(s.channel_raw, '')))
     where s.shop_id = p_shop_id and s.batch_id = p_batch_id
       and s.source_kind = 'excel' and s.import_status in ('transformed', 'tombstoned');
+  if v_f_row_count = 0 then
+    raise exception 'import_missing_orders_candidates: blocked'
+      using errcode = 'P0001', detail = 'empty_batch';
+  end if;
   if v_resolved_channels is null then
     raise exception 'import_missing_orders_candidates: blocked'
       using errcode = 'P0001', detail = 'channels_unresolved';
@@ -221,21 +233,35 @@ begin
     where s.shop_id = p_shop_id and s.batch_id = p_batch_id
       and s.source_kind = 'excel' and s.import_status in ('transformed', 'tombstoned')
   ),
+  -- 🔴 dry-run caught 42702 here (supabase-migrate skill gotcha #2): this
+  -- function's own `returns table (... order_date date, channel_id uuid,
+  -- ..., prefix text, num integer, ...)` creates OUT-parameter variables
+  -- with those exact names, in scope for every statement in this function
+  -- body. f_rows' own columns (prefix/num/order_date/channel_id/printed_at/
+  -- paid_at) are NOT ambiguous inside f_rows itself (built from real table
+  -- aliases), but referencing them UNQUALIFIED from f_groups/f_meta below
+  -- is ambiguous between "the f_rows column" and "the OUT variable" —
+  -- Postgres can't tell which one you mean and refuses to guess. Every
+  -- column below MUST stay qualified with the `fr` alias, including
+  -- printed_at/paid_at which don't collide with an OUT name (no OUT
+  -- parameter by those names) — qualified anyway so a future edit can't
+  -- silently drop the alias on the ones that DO matter and reintroduce this
+  -- error. Do not "clean up" these aliases.
   f_groups as (
-    select prefix, min(num) as lo, max(num) as hi,
-           min(order_date) as dlo, max(order_date) as dhi
-    from f_rows
-    group by prefix
+    select fr.prefix, min(fr.num) as lo, max(fr.num) as hi,
+           min(fr.order_date) as dlo, max(fr.order_date) as dhi
+    from f_rows fr
+    group by fr.prefix
   ),
   f_meta as (
     select
       count(*)::integer as file_order_count,
-      array_agg(distinct channel_id) filter (where channel_id is not null) as file_channels,
-      min(printed_at) filter (where printed_at is not null) as printed_lo,
-      max(printed_at) filter (where printed_at is not null) as printed_hi,
-      min(paid_at) filter (where paid_at is not null) as paid_lo,
-      max(paid_at) filter (where paid_at is not null) as paid_hi
-    from f_rows
+      array_agg(distinct fr.channel_id) filter (where fr.channel_id is not null) as file_channels,
+      min(fr.printed_at) filter (where fr.printed_at is not null) as printed_lo,
+      max(fr.printed_at) filter (where fr.printed_at is not null) as printed_hi,
+      min(fr.paid_at) filter (where fr.paid_at is not null) as paid_lo,
+      max(fr.paid_at) filter (where fr.paid_at is not null) as paid_hi
+    from f_rows fr
   )
   select
     fo.id, fo.source_order_no, fo.order_date, fo.channel_id, fo.revenue, fo.customer_id, fo.tracking_no,
@@ -344,7 +370,7 @@ begin
   exception
     when others then
       get stacked diagnostics v_detail = pg_exception_detail;
-      if v_detail in ('shop_or_source_mismatch', 'batch_not_transformed', 'batch_has_unresolved_rows', 'unparseable_order_no', 'channels_unresolved', 'file_rows_skipped') then
+      if v_detail in ('shop_or_source_mismatch', 'batch_not_transformed', 'batch_has_unresolved_rows', 'unparseable_order_no', 'channels_unresolved', 'file_rows_skipped', 'empty_batch') then
         v_blocked_reason := v_detail;
       else
         raise; -- unexpected error, do not swallow

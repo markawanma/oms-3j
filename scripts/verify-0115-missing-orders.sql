@@ -123,6 +123,7 @@ declare
   v_unparsed_count int;
   v_pending_error_count int;
   v_resolved_channels uuid[];
+  v_f_row_count int;
 begin
   perform analytics.crm_require_owner_admin(p_shop_id);
 
@@ -200,12 +201,23 @@ begin
   -- a row can reach 'transformed', so every transformed row already proves
   -- its channel_raw resolves. This is defense-in-depth, same posture as
   -- P1-P4 above, not a rule expected to trip on real data.
-  select array_agg(distinct dca.channel_id) filter (where dca.channel_id is not null)
-    into v_resolved_channels
+  --
+  -- Low (security review 12 ก.ย. 69): count(*) alongside the channel
+  -- array so "zero F rows at all" can raise its own distinct detail
+  -- ('empty_batch') instead of being lumped into 'channels_unresolved' —
+  -- an empty batch and a batch whose rows all fail channel resolution are
+  -- different failure modes with different fixes, worth telling apart in
+  -- the blocked_reason the UI shows the owner.
+  select array_agg(distinct dca.channel_id) filter (where dca.channel_id is not null), count(*)
+    into v_resolved_channels, v_f_row_count
     from analytics.stg_order_import s
     left join analytics.dim_channel_alias dca on lower(dca.alias_raw) = lower(trim(coalesce(s.channel_raw, '')))
     where s.shop_id = p_shop_id and s.batch_id = p_batch_id
       and s.source_kind = 'excel' and s.import_status in ('transformed', 'tombstoned');
+  if v_f_row_count = 0 then
+    raise exception 'import_missing_orders_candidates: blocked'
+      using errcode = 'P0001', detail = 'empty_batch';
+  end if;
   if v_resolved_channels is null then
     raise exception 'import_missing_orders_candidates: blocked'
       using errcode = 'P0001', detail = 'channels_unresolved';
@@ -229,21 +241,35 @@ begin
     where s.shop_id = p_shop_id and s.batch_id = p_batch_id
       and s.source_kind = 'excel' and s.import_status in ('transformed', 'tombstoned')
   ),
+  -- 🔴 dry-run caught 42702 here (supabase-migrate skill gotcha #2): this
+  -- function's own `returns table (... order_date date, channel_id uuid,
+  -- ..., prefix text, num integer, ...)` creates OUT-parameter variables
+  -- with those exact names, in scope for every statement in this function
+  -- body. f_rows' own columns (prefix/num/order_date/channel_id/printed_at/
+  -- paid_at) are NOT ambiguous inside f_rows itself (built from real table
+  -- aliases), but referencing them UNQUALIFIED from f_groups/f_meta below
+  -- is ambiguous between "the f_rows column" and "the OUT variable" —
+  -- Postgres can't tell which one you mean and refuses to guess. Every
+  -- column below MUST stay qualified with the `fr` alias, including
+  -- printed_at/paid_at which don't collide with an OUT name (no OUT
+  -- parameter by those names) — qualified anyway so a future edit can't
+  -- silently drop the alias on the ones that DO matter and reintroduce this
+  -- error. Do not "clean up" these aliases.
   f_groups as (
-    select prefix, min(num) as lo, max(num) as hi,
-           min(order_date) as dlo, max(order_date) as dhi
-    from f_rows
-    group by prefix
+    select fr.prefix, min(fr.num) as lo, max(fr.num) as hi,
+           min(fr.order_date) as dlo, max(fr.order_date) as dhi
+    from f_rows fr
+    group by fr.prefix
   ),
   f_meta as (
     select
       count(*)::integer as file_order_count,
-      array_agg(distinct channel_id) filter (where channel_id is not null) as file_channels,
-      min(printed_at) filter (where printed_at is not null) as printed_lo,
-      max(printed_at) filter (where printed_at is not null) as printed_hi,
-      min(paid_at) filter (where paid_at is not null) as paid_lo,
-      max(paid_at) filter (where paid_at is not null) as paid_hi
-    from f_rows
+      array_agg(distinct fr.channel_id) filter (where fr.channel_id is not null) as file_channels,
+      min(fr.printed_at) filter (where fr.printed_at is not null) as printed_lo,
+      max(fr.printed_at) filter (where fr.printed_at is not null) as printed_hi,
+      min(fr.paid_at) filter (where fr.paid_at is not null) as paid_lo,
+      max(fr.paid_at) filter (where fr.paid_at is not null) as paid_hi
+    from f_rows fr
   )
   select
     fo.id, fo.source_order_no, fo.order_date, fo.channel_id, fo.revenue, fo.customer_id, fo.tracking_no,
@@ -352,7 +378,7 @@ begin
   exception
     when others then
       get stacked diagnostics v_detail = pg_exception_detail;
-      if v_detail in ('shop_or_source_mismatch', 'batch_not_transformed', 'batch_has_unresolved_rows', 'unparseable_order_no', 'channels_unresolved', 'file_rows_skipped') then
+      if v_detail in ('shop_or_source_mismatch', 'batch_not_transformed', 'batch_has_unresolved_rows', 'unparseable_order_no', 'channels_unresolved', 'file_rows_skipped', 'empty_batch') then
         v_blocked_reason := v_detail;
       else
         raise; -- unexpected error, do not swallow
@@ -455,6 +481,7 @@ revoke execute on function analytics.import_missing_orders(uuid, uuid) from publ
 -- H-1: service_role only — getMissingOrders (lib/actions/import-missing-
 -- orders.ts) always calls this via getServiceClient(), never a user session.
 grant execute on function analytics.import_missing_orders(uuid, uuid) to service_role;
+
 
 CREATE OR REPLACE FUNCTION analytics.transform_pending_orders(p_shop_id uuid, p_batch_id uuid)
  RETURNS TABLE(transformed_count integer, errored_count integer)
@@ -603,7 +630,7 @@ $function$;
 revoke execute on function analytics.transform_pending_orders(uuid, uuid) from public, anon, authenticated;
 grant execute on function analytics.transform_pending_orders(uuid, uuid) to service_role;
 alter table analytics.stg_order_line_import
-  drop constraint stg_order_line_import_import_status_check;
+  drop constraint if exists stg_order_line_import_import_status_check;
 
 alter table analytics.stg_order_line_import
   add constraint stg_order_line_import_import_status_check
@@ -644,7 +671,7 @@ declare
   v_deleted_ids uuid[] := '{}';
   v_deleted_revenue numeric := 0;
   v_deleted_count int := 0;
-  v_cascade_fk_count int;
+  v_cascade_tables text[];
 begin
   perform analytics.crm_require_owner_admin(p_shop_id);
 
@@ -662,21 +689,30 @@ begin
     raise exception 'import_delete_orders: reason is required';
   end if;
 
-  -- security review C-1 guard (12 ก.ย. 69): the snapshot below covers
-  -- exactly 3 ON DELETE CASCADE foreign keys into analytics.fact_order
-  -- (dim_address, fact_order_item, crm_order_override — confirmed against
-  -- pg_constraint on the live DB 12 ก.ย. 69). If that count ever changes —
-  -- someone adds a new table cascading off fact_order and forgets this
-  -- function exists — this raises loudly instead of silently deleting rows
-  -- restore can never bring back. Runs on every call, not just once, so it
-  -- stays correct even if this function is never touched again.
-  select count(*) into v_cascade_fk_count
+  -- security review C-1 guard (12 ก.ย. 69, tightened Low-priority follow-up
+  -- same day): the snapshot below covers exactly 3 tables whose ON DELETE
+  -- CASCADE points at analytics.fact_order (dim_address, fact_order_item,
+  -- crm_order_override — confirmed against pg_constraint on the live DB).
+  -- Compares the actual TABLE NAMES, not just a count of 3 — a plain count
+  -- would stay "3" and pass silently even if one of these three lost its
+  -- cascade FK while an unrelated 4th table gained one, which is exactly
+  -- the kind of change this guard exists to catch. Schema-qualified via an
+  -- explicit pg_namespace join (not ::regclass::text, which renders
+  -- unqualified for anything already resolvable through search_path —
+  -- 'analytics' is in this function's own search_path, so that shortcut
+  -- would have silently produced bare table names here). Runs on every
+  -- call, not just once, so it stays correct even if this function is
+  -- never touched again.
+  select coalesce(array_agg(n.nspname || '.' || cl.relname order by n.nspname, cl.relname), '{}')
+    into v_cascade_tables
     from pg_constraint c
+    join pg_class cl on cl.oid = c.conrelid
+    join pg_namespace n on n.oid = cl.relnamespace
     where c.contype = 'f' and c.confdeltype = 'c'
       and c.confrelid = 'analytics.fact_order'::regclass;
-  if v_cascade_fk_count <> 3 then
-    raise exception 'import_delete_orders: expected exactly 3 ON DELETE CASCADE foreign keys into analytics.fact_order (dim_address, fact_order_item, crm_order_override) but found % — the snapshot/restore logic in this function does not necessarily cover all cascading tables anymore; refusing to delete anything until this is reconciled',
-      v_cascade_fk_count;
+  if v_cascade_tables is distinct from array['analytics.crm_order_override', 'analytics.dim_address', 'analytics.fact_order_item'] then
+    raise exception 'import_delete_orders: expected ON DELETE CASCADE foreign keys into analytics.fact_order from exactly {analytics.crm_order_override, analytics.dim_address, analytics.fact_order_item} but found {%} — the snapshot/restore logic in this function does not necessarily cover all cascading tables anymore; refusing to delete anything until this is reconciled',
+      array_to_string(v_cascade_tables, ', ');
   end if;
 
   -- serialize against a concurrent import for the same shop (0114 takes the
@@ -793,7 +829,7 @@ begin
 
   -- physical delete — cascades fact_order_item / dim_address /
   -- crm_order_override (all ON DELETE CASCADE per 0010/0021 — see the
-  -- v_cascade_fk_count guard above), and ON DELETE SET NULLs stg_order_
+  -- v_cascade_tables guard above), and ON DELETE SET NULLs stg_order_
   -- import.fact_order_id (already tombstoned above) and, transitively via
   -- fact_order_item's own cascade, stg_order_line_import.fact_order_item_id
   -- (already marked tombstoned above, not 'orphan' — QA gate 12 ก.ย. 69).
@@ -972,20 +1008,38 @@ begin
         where id = (v_link.value ->> 'stg_order_line_import_id')::uuid and shop_id = p_shop_id;
     end loop;
 
-    -- QA gate (12 ก.ย. 69): stg_line_links (above) only covers line rows
-    -- that were ALREADY linked to a fact_order_item at delete time. A line
-    -- report re-imported WHILE this order was tombstoned lands at
-    -- import_status='tombstoned' with fact_order_item_id still null (see
-    -- transform_pending_order_lines below) — those rows have no entry in
-    -- stg_line_links at all, so the loop above never touches them and they
-    -- would stay stuck at 'tombstoned' forever even after the order comes
-    -- back. Reset them to 'pending' so the next transform_pending_order_
-    -- lines run (whenever that next runs — not triggered from here, matching
-    -- this codebase's existing pattern of transform being a separate,
-    -- explicitly-invoked step) picks them up normally against the
-    -- now-restored fact_order.
+    -- QA gate (12 ก.ย. 69) + security fix M-a (12 ก.ย. 69): stg_line_links
+    -- (above) only covers line rows that were ALREADY linked to a
+    -- fact_order_item at delete time. A line report re-imported WHILE this
+    -- order was tombstoned lands at import_status='tombstoned' with
+    -- fact_order_item_id still null (see transform_pending_order_lines
+    -- below) — those rows have no entry in stg_line_links at all, so the
+    -- loop above never touches them.
+    --
+    -- 🔴 M-a: 'pending' was the WRONG target status here. transform_
+    -- pending_order_lines only ever re-scans rows scoped to a SPECIFIC
+    -- batch_id it was called with (`where ... batch_id = p_batch_id and
+    -- import_status in ('pending','orphan','error')`) — nothing in this
+    -- codebase re-transforms an arbitrary old batch on a schedule, and
+    -- analytics.v_orphan_line_backlog only surfaces 'orphan' rows. A row
+    -- left at 'pending' is therefore invisible to BOTH the retry path and
+    -- the backlog UI: it would sit there silently forever, and the
+    -- restored order would carry an understated cogs/overstated profit with
+    -- no signal to the owner that an item is missing.
+    --
+    -- 'orphan' fixes both: transform_pending_order_lines' phase 1 already
+    -- treats 'orphan' the same as 'pending' (same `in (...)` list) so it
+    -- still self-heals the next time ITS OWN batch is re-transformed, AND
+    -- it shows up in v_orphan_line_backlog / getOrphanBacklog as soon as
+    -- this transaction commits — correctly, since that view excludes by
+    -- "active (restored_at is null) tombstone for this source_order_no",
+    -- and this same function sets restored_at on that tombstone a few lines
+    -- below (statement order within the transaction doesn't matter here:
+    -- both changes land together atomically at commit, so any reader after
+    -- this function returns sees the row as both 'orphan' AND no-longer-
+    -- excluded, never one without the other).
     update analytics.stg_order_line_import
-      set import_status = 'pending', error_detail = null
+      set import_status = 'orphan', error_detail = 'order restored — line needs re-transform'
       where shop_id = p_shop_id and source_order_no = v_del.source_order_no
         and import_status = 'tombstoned' and fact_order_item_id is null;
 
@@ -1315,6 +1369,7 @@ comment on view analytics.v_orphan_line_backlog is
 grant select on analytics.v_orphan_line_backlog to authenticated, service_role;
 
 
+
 -- ============================================================================
 -- STEP 1: single do-block — fixtures, every required assertion, forced
 -- rollback. See scripts/verify-0111-upsert-rules.sql for the pattern this
@@ -1340,6 +1395,7 @@ declare
 
   v_stg_old_id uuid; -- ZZ150's staging row (batch_old) — reused by re-transform test
   v_stg_line_zz150_id uuid; -- ZZ150's line-item staging row (batch_old) — QA item 4 assertions
+  v_stg_line_zz150_orphan_id uuid; -- M-b(3): pre-existing 'orphan' line for ZZ150, never linked
 
   v_id_zz150 uuid; v_id_zz155 uuid; v_id_zz160 uuid; v_id_zz165 uuid; v_id_zz170 uuid;
   v_id_zz050 uuid; v_id_zz250 uuid; v_id_zz190 uuid;
@@ -1360,7 +1416,16 @@ declare
   v_revenue_before numeric; v_revenue_after numeric;
   v_dash_before jsonb; v_dash_after jsonb;
 
-  v_row analytics.fact_order%rowtype;
+  -- dry-run caught 22P02 here (12 ก.ย. 69): this was declared %rowtype
+  -- against the WRONG table — used below only via select * into v_row from
+  -- analytics.stg_order_import (STEP 7's re-transform check), reading
+  -- v_row.import_status / v_row.fact_order_id, both stg_order_import
+  -- columns (fact_order has neither). PL/pgSQL's `select * into` assigns
+  -- positionally by column ORDER, not by name — fact_order%rowtype's first
+  -- few columns happen to include a uuid, and stg_order_import's `raw
+  -- jsonb` column (default '{}') landed on it, so this failed at EXECUTE
+  -- time as "invalid input syntax for type uuid: {}", not at CREATE time.
+  v_row analytics.stg_order_import%rowtype;
   v_fake_phone text := '0891234567';
 
   -- QA item 4 (orphan-backlog line-item tombstone assertions).
@@ -1375,6 +1440,8 @@ declare
   v_id_zz400_live uuid;
   v_cust_a_id uuid; v_cust_b_id uuid;
   v_batch_merge uuid;
+  v_batch_skipped uuid; -- M-b(1): row_count_skipped=1 gate
+  v_batch_badchannel uuid; -- M-b(2): channels_unresolved gate
   v_id_zz750 uuid;
   v_deleted_id_zz750 uuid;
   v_restored_zz750_customer_id uuid;
@@ -1481,6 +1548,20 @@ begin
   insert into analytics.stg_order_line_import (batch_id, shop_id, source_order_no, line_no, sku_raw, product_name_raw, qty, raw, import_status, fact_order_item_id)
   values (v_batch_old, v_shop_id, 'ZZ150', 1, v_tag || '-SKU', 'verify fixture item', 1, '{}'::jsonb, 'transformed', v_item_id)
   returning id into v_stg_line_zz150_id;
+
+  -- M-b(3) fixture (security review 12 ก.ย. 69): a line row ALREADY sitting
+  -- at 'orphan' (never linked, fact_order_item_id null) BEFORE ZZ150 is ever
+  -- deleted — simulates "line arrived before the matching order-report file
+  -- import_delete_orders' own status flip never touches this (it only
+  -- re-flips rows it is actively un-linking, fact_order_item_id is not
+  -- null), so this row is the one that actually exercises v_orphan_line_
+  -- backlog's NOT EXISTS tombstone-exclusion clause after ZZ150 is deleted
+  -- below — without that clause this row alone would still show up in the
+  -- backlog as an "unexplained" orphan even though its order is a known,
+  -- deliberate cancellation.
+  insert into analytics.stg_order_line_import (batch_id, shop_id, source_order_no, line_no, sku_raw, product_name_raw, qty, raw, import_status, error_detail)
+  values (v_batch_old, v_shop_id, 'ZZ150', 3, v_tag || '-SKU3', 'verify fixture pre-existing orphan item', 1, '{}'::jsonb, 'orphan', 'no fact_order for source_order_no: ZZ150 (pre-existing orphan fixture)')
+  returning id into v_stg_line_zz150_orphan_id;
 
   -- 8 "must NOT delete" fixtures --------------------------------------------
 
@@ -1604,6 +1685,71 @@ begin
     v_log := v_log || E'FAIL P3: batch with an error row did not raise\n';
   exception when others then
     v_log := v_log || E'OK   P3: batch with an error row raised as expected\n';
+  end;
+
+  -- M-b(1) (security review 12 ก.ย. 69): H-2's file_rows_skipped gate —
+  -- isolated batch (own ZZ900 number, not part of batch_main's F) with
+  -- row_count_skipped=1. Must raise, THEN reset row_count_skipped to 0 and
+  -- prove the SAME batch no longer raises — ties the block causally to that
+  -- one column instead of some other coincidental fixture problem.
+  insert into analytics.stg_import_batch (shop_id, source_type, file_name, file_hash, status, imported_at, row_count_skipped)
+  values (v_shop_id, 'excel_order_report', v_tag || '-skipped.xlsx', v_tag || '-skipped', 'transformed', now(), 1)
+  returning id into v_batch_skipped;
+  insert into analytics.stg_order_import (batch_id, shop_id, raw, source_kind, source_order_no, channel_raw, order_created_at, revenue, discount_total, import_status)
+  values (v_batch_skipped, v_shop_id, '{}'::jsonb, 'excel', 'ZZ900', v_chan_a_alias, '2026-05-01 09:00:00+07', 100, 0, 'transformed');
+
+  begin
+    perform 1 from analytics.import_missing_orders_candidates(v_shop_id, v_batch_skipped);
+    v_fail_count := v_fail_count + 1;
+    v_log := v_log || E'FAIL M-b(1): batch with row_count_skipped=1 did not raise\n';
+  exception when others then
+    if sqlstate = 'P0001' then
+      v_log := v_log || E'OK   M-b(1): batch with row_count_skipped=1 raised as expected\n';
+    else
+      v_fail_count := v_fail_count + 1;
+      v_log := v_log || format(E'FAIL M-b(1): raised but unexpected sqlstate=%s sqlerrm=%s\n', sqlstate, sqlerrm);
+    end if;
+  end;
+
+  update analytics.stg_import_batch set row_count_skipped = 0 where id = v_batch_skipped;
+  begin
+    perform 1 from analytics.import_missing_orders_candidates(v_shop_id, v_batch_skipped);
+    v_log := v_log || E'OK   M-b(1) reset: row_count_skipped=0 no longer raises\n';
+  exception when others then
+    v_fail_count := v_fail_count + 1;
+    v_log := v_log || format(E'FAIL M-b(1) reset: still raised after resetting row_count_skipped to 0 -- sqlerrm=%s\n', sqlerrm);
+  end;
+
+  -- M-b(2): M-1's channels_unresolved gate — isolated batch (own ZZ910
+  -- number) whose sole row's channel_raw matches no dim_channel_alias at
+  -- all. Must raise, then reset channel_raw to a resolvable alias and prove
+  -- the SAME batch no longer raises.
+  insert into analytics.stg_import_batch (shop_id, source_type, file_name, file_hash, status, imported_at)
+  values (v_shop_id, 'excel_order_report', v_tag || '-badchannel.xlsx', v_tag || '-badchannel', 'transformed', now())
+  returning id into v_batch_badchannel;
+  insert into analytics.stg_order_import (batch_id, shop_id, raw, source_kind, source_order_no, channel_raw, order_created_at, revenue, discount_total, import_status)
+  values (v_batch_badchannel, v_shop_id, '{}'::jsonb, 'excel', 'ZZ910', v_tag || '-nonexistent-channel', '2026-05-02 09:00:00+07', 100, 0, 'transformed');
+
+  begin
+    perform 1 from analytics.import_missing_orders_candidates(v_shop_id, v_batch_badchannel);
+    v_fail_count := v_fail_count + 1;
+    v_log := v_log || E'FAIL M-b(2): batch with unresolvable channel_raw did not raise\n';
+  exception when others then
+    if sqlstate = 'P0001' then
+      v_log := v_log || E'OK   M-b(2): batch with unresolvable channel_raw raised as expected\n';
+    else
+      v_fail_count := v_fail_count + 1;
+      v_log := v_log || format(E'FAIL M-b(2): raised but unexpected sqlstate=%s sqlerrm=%s\n', sqlstate, sqlerrm);
+    end if;
+  end;
+
+  update analytics.stg_order_import set channel_raw = v_chan_a_alias where batch_id = v_batch_badchannel;
+  begin
+    perform 1 from analytics.import_missing_orders_candidates(v_shop_id, v_batch_badchannel);
+    v_log := v_log || E'OK   M-b(2) reset: resolvable channel_raw no longer raises\n';
+  exception when others then
+    v_fail_count := v_fail_count + 1;
+    v_log := v_log || format(E'FAIL M-b(2) reset: still raised after fixing channel_raw -- sqlerrm=%s\n', sqlerrm);
   end;
 
   -- ==========================================================================
@@ -1848,6 +1994,21 @@ begin
     v_log := v_log || E'FAIL QA 4c: re-imported line for ZZ150 did not land on tombstoned\n';
   end if;
 
+  -- M-b(3) (security review 12 ก.ย. 69): v_orphan_line_backlog must NOT
+  -- contain ANY ZZ150 row here — not the STEP 7b re-import row (already
+  -- 'tombstoned', excluded by the view's own import_status='orphan' filter
+  -- alone) but specifically the STEP 2 fixture that was ALREADY 'orphan'
+  -- BEFORE the delete and whose status the delete never touched
+  -- (v_stg_line_zz150_orphan_id) — this is the one row that actually proves
+  -- the view's NOT EXISTS tombstone-exclusion clause does something, as
+  -- opposed to the import_status filter alone happening to hide everything.
+  if exists (select 1 from analytics.v_orphan_line_backlog where shop_id = v_shop_id and source_order_no = 'ZZ150') then
+    v_fail_count := v_fail_count + 1;
+    v_log := v_log || E'FAIL M-b(3): v_orphan_line_backlog still has a ZZ150 row after delete -- the tombstone-exclusion NOT EXISTS clause did not fire\n';
+  else
+    v_log := v_log || E'OK   M-b(3): v_orphan_line_backlog has no ZZ150 rows after delete (pre-existing orphan fixture correctly excluded)\n';
+  end if;
+
   -- ==========================================================================
   -- STEP 7c: QA — duplicate id within a single import_restore_orders call
   -- must raise the whole call, leaving ZZ150 still deleted (the FOR UPDATE +
@@ -1923,14 +2084,29 @@ begin
     v_fail_count := v_fail_count + 1; v_log := v_log || E'FAIL restore (M-3): crm_order_override for ZZ150 did not come back\n';
   else v_log := v_log || E'OK   restore (M-3): crm_order_override for ZZ150 came back\n'; end if;
 
-  -- QA item 2 (import_restore_orders fix): the stray line row re-imported
-  -- WHILE ZZ150 was tombstoned (STEP 7b, fact_order_item_id still null) has
-  -- no entry in stg_line_links and so is untouched by the loop above — it
-  -- must instead have been reset to 'pending' so the next transform run
-  -- picks it up against the now-restored fact_order.
-  if not exists (select 1 from analytics.stg_order_line_import where id = v_stg_line_reimport_id and import_status = 'pending' and fact_order_item_id is null) then
-    v_fail_count := v_fail_count + 1; v_log := v_log || E'FAIL restore (QA item 2): stray re-imported line for ZZ150 was not reset to pending\n';
-  else v_log := v_log || E'OK   restore (QA item 2): stray re-imported line for ZZ150 reset to pending\n'; end if;
+  -- QA item 2 + M-a fix (import_restore_orders): the stray line row
+  -- re-imported WHILE ZZ150 was tombstoned (STEP 7b, fact_order_item_id
+  -- still null) has no entry in stg_line_links and so is untouched by the
+  -- loop above — it must instead have been reset to 'orphan' (NOT
+  -- 'pending' — M-a, 12 ก.ย. 69: nothing re-transforms an arbitrary old
+  -- batch on a schedule, so 'pending' would sit invisible forever; 'orphan'
+  -- both self-heals on the next re-transform of its OWN batch and surfaces
+  -- in the backlog UI right now) with error_detail explaining why.
+  if not exists (
+    select 1 from analytics.stg_order_line_import
+    where id = v_stg_line_reimport_id and import_status = 'orphan' and fact_order_item_id is null
+      and error_detail = 'order restored — line needs re-transform'
+  ) then
+    v_fail_count := v_fail_count + 1; v_log := v_log || E'FAIL restore (QA item 2/M-a): stray re-imported line for ZZ150 was not reset to orphan with the expected error_detail\n';
+  else v_log := v_log || E'OK   restore (QA item 2/M-a): stray re-imported line for ZZ150 reset to orphan\n'; end if;
+
+  -- M-a follow-up: now that ZZ150's tombstone is closed (restored_at set
+  -- above), v_orphan_line_backlog's NOT EXISTS exclusion no longer applies
+  -- to this source_order_no — the row must actually be visible in the
+  -- backlog the owner sees, not just correctly stamped internally.
+  if not exists (select 1 from analytics.v_orphan_line_backlog where id = v_stg_line_reimport_id) then
+    v_fail_count := v_fail_count + 1; v_log := v_log || E'FAIL restore (M-a): stray re-imported line for ZZ150 did not appear in v_orphan_line_backlog after restore\n';
+  else v_log := v_log || E'OK   restore (M-a): stray re-imported line for ZZ150 now visible in v_orphan_line_backlog\n'; end if;
 
   -- ==========================================================================
   -- STEP 8b: restore-vs-live-conflict — a deleted-order record whose
@@ -2038,7 +2214,7 @@ begin
   delete from analytics.stg_order_line_import where shop_id = v_shop_id and source_order_no = 'ZZ150';
   delete from analytics.stg_order_import where shop_id = v_shop_id and source_order_no like 'ZZ%';
   delete from analytics.fact_order_deleted where shop_id = v_shop_id and source_order_no like 'ZZ%';
-  delete from analytics.stg_import_batch where id in (v_batch_old, v_batch_main, v_batch_error, v_batch_wrongsrc, v_batch_newer, v_batch_notdone, v_batch_cap, v_batch_merge, v_batch_line_reimport);
+  delete from analytics.stg_import_batch where id in (v_batch_old, v_batch_main, v_batch_error, v_batch_wrongsrc, v_batch_newer, v_batch_notdone, v_batch_cap, v_batch_merge, v_batch_line_reimport, v_batch_skipped, v_batch_badchannel);
   -- STEP 8b/8c fixtures: dim_customer rows are not touched by the ZZ%
   -- wildcard deletes above (source_order_no lives on fact_order, not
   -- dim_customer) and are not part of the T0/T8 golden snapshot either —

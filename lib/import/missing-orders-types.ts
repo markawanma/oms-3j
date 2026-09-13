@@ -20,6 +20,7 @@ export type MissingOrdersBlockedReason =
   | "unparseable_order_no"
   | "channels_unresolved"
   | "file_rows_skipped"
+  | "empty_batch"
   | "too_many";
 
 export interface MissingOrdersGroup {
@@ -93,21 +94,28 @@ export interface RestoreDeletedOrdersResult {
 // C-2 (security review 12 ก.ย. 69, lib/actions/import-missing-orders.ts's
 // requireMissingOrdersWriteEnabled) — deleteMissingOrders/restoreDeletedOrders
 // return this EXACT ActionResult error string when MISSING_ORDERS_WRITE_
-// ENABLED != "1". There is no dedicated status action (no
-// getMissingOrdersWriteStatus()) the UI can call ahead of time to know the
-// switch is off before the user even clicks delete/restore — see this
-// project's frontend delivery notes (12 ก.ย. 69) for that ask. Until one
-// exists, string-matching this prefix is the ONLY way the UI can tell
-// "write disabled on purpose" apart from a genuine failure, so it can show
-// an info box instead of a scary red error. Fragile by construction: if the
-// wording of requireMissingOrdersWriteEnabled()'s error ever changes without
-// updating this constant too, this stops matching and the UI just falls
-// back to treating it as a normal error (worse UX, still safe — no
-// silent data risk either way).
+// ENABLED != "1". getMissingOrdersWriteStatus() (below, 9d658b1) is now the
+// PRIMARY way the UI knows this ahead of time — this string-match stays as a
+// FALLBACK for the narrow race where the status was fetched as "enabled" but
+// flips to disabled before the delete/restore call actually lands (or the
+// status fetch itself failed and the button wasn't proactively disabled).
+// Fragile by construction: if requireMissingOrdersWriteEnabled()'s wording
+// ever changes without updating this constant too, this fallback silently
+// stops matching (falls back to a normal red error — worse UX, still safe,
+// no silent data risk either way).
 export const MISSING_ORDERS_WRITE_DISABLED_PREFIX = "ระบบลบ/กู้คืนออเดอร์ยังปิดอยู่";
 
 export function isMissingOrdersWriteDisabledError(error: string): boolean {
   return error.startsWith(MISSING_ORDERS_WRITE_DISABLED_PREFIX);
+}
+
+/** C-2 (security review 12 ก.ย. 69) — frontend-requested read of the
+ * MISSING_ORDERS_WRITE_ENABLED env gate, so the UI can disable the delete/
+ * restore buttons from mount instead of relying on string-matching the
+ * error message deleteMissingOrders/restoreDeletedOrders return when the
+ * gate is closed. */
+export interface MissingOrdersWriteStatus {
+  enabled: boolean;
 }
 
 /** One row of analytics.fact_order_deleted, shaped for DeletedOrdersHistory

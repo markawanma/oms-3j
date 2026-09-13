@@ -33,8 +33,13 @@
 --    same distinction 0112/0114 already draw on the order-header side.
 -- ============================================================================
 
+-- Low (security review 12 ก.ย. 69): `if exists` — makes this block safe to
+-- replay against a DB where the constraint was already dropped by a prior
+-- (partial/retried) run, matching this file's own idempotency posture
+-- elsewhere (`add value if not exists` in 0112, `add column if not exists`
+-- also in 0112).
 alter table analytics.stg_order_line_import
-  drop constraint stg_order_line_import_import_status_check;
+  drop constraint if exists stg_order_line_import_import_status_check;
 
 alter table analytics.stg_order_line_import
   add constraint stg_order_line_import_import_status_check
@@ -75,7 +80,7 @@ declare
   v_deleted_ids uuid[] := '{}';
   v_deleted_revenue numeric := 0;
   v_deleted_count int := 0;
-  v_cascade_fk_count int;
+  v_cascade_tables text[];
 begin
   perform analytics.crm_require_owner_admin(p_shop_id);
 
@@ -93,21 +98,30 @@ begin
     raise exception 'import_delete_orders: reason is required';
   end if;
 
-  -- security review C-1 guard (12 ก.ย. 69): the snapshot below covers
-  -- exactly 3 ON DELETE CASCADE foreign keys into analytics.fact_order
-  -- (dim_address, fact_order_item, crm_order_override — confirmed against
-  -- pg_constraint on the live DB 12 ก.ย. 69). If that count ever changes —
-  -- someone adds a new table cascading off fact_order and forgets this
-  -- function exists — this raises loudly instead of silently deleting rows
-  -- restore can never bring back. Runs on every call, not just once, so it
-  -- stays correct even if this function is never touched again.
-  select count(*) into v_cascade_fk_count
+  -- security review C-1 guard (12 ก.ย. 69, tightened Low-priority follow-up
+  -- same day): the snapshot below covers exactly 3 tables whose ON DELETE
+  -- CASCADE points at analytics.fact_order (dim_address, fact_order_item,
+  -- crm_order_override — confirmed against pg_constraint on the live DB).
+  -- Compares the actual TABLE NAMES, not just a count of 3 — a plain count
+  -- would stay "3" and pass silently even if one of these three lost its
+  -- cascade FK while an unrelated 4th table gained one, which is exactly
+  -- the kind of change this guard exists to catch. Schema-qualified via an
+  -- explicit pg_namespace join (not ::regclass::text, which renders
+  -- unqualified for anything already resolvable through search_path —
+  -- 'analytics' is in this function's own search_path, so that shortcut
+  -- would have silently produced bare table names here). Runs on every
+  -- call, not just once, so it stays correct even if this function is
+  -- never touched again.
+  select coalesce(array_agg(n.nspname || '.' || cl.relname order by n.nspname, cl.relname), '{}')
+    into v_cascade_tables
     from pg_constraint c
+    join pg_class cl on cl.oid = c.conrelid
+    join pg_namespace n on n.oid = cl.relnamespace
     where c.contype = 'f' and c.confdeltype = 'c'
       and c.confrelid = 'analytics.fact_order'::regclass;
-  if v_cascade_fk_count <> 3 then
-    raise exception 'import_delete_orders: expected exactly 3 ON DELETE CASCADE foreign keys into analytics.fact_order (dim_address, fact_order_item, crm_order_override) but found % — the snapshot/restore logic in this function does not necessarily cover all cascading tables anymore; refusing to delete anything until this is reconciled',
-      v_cascade_fk_count;
+  if v_cascade_tables is distinct from array['analytics.crm_order_override', 'analytics.dim_address', 'analytics.fact_order_item'] then
+    raise exception 'import_delete_orders: expected ON DELETE CASCADE foreign keys into analytics.fact_order from exactly {analytics.crm_order_override, analytics.dim_address, analytics.fact_order_item} but found {%} — the snapshot/restore logic in this function does not necessarily cover all cascading tables anymore; refusing to delete anything until this is reconciled',
+      array_to_string(v_cascade_tables, ', ');
   end if;
 
   -- serialize against a concurrent import for the same shop (0114 takes the
@@ -224,7 +238,7 @@ begin
 
   -- physical delete — cascades fact_order_item / dim_address /
   -- crm_order_override (all ON DELETE CASCADE per 0010/0021 — see the
-  -- v_cascade_fk_count guard above), and ON DELETE SET NULLs stg_order_
+  -- v_cascade_tables guard above), and ON DELETE SET NULLs stg_order_
   -- import.fact_order_id (already tombstoned above) and, transitively via
   -- fact_order_item's own cascade, stg_order_line_import.fact_order_item_id
   -- (already marked tombstoned above, not 'orphan' — QA gate 12 ก.ย. 69).
@@ -403,20 +417,38 @@ begin
         where id = (v_link.value ->> 'stg_order_line_import_id')::uuid and shop_id = p_shop_id;
     end loop;
 
-    -- QA gate (12 ก.ย. 69): stg_line_links (above) only covers line rows
-    -- that were ALREADY linked to a fact_order_item at delete time. A line
-    -- report re-imported WHILE this order was tombstoned lands at
-    -- import_status='tombstoned' with fact_order_item_id still null (see
-    -- transform_pending_order_lines below) — those rows have no entry in
-    -- stg_line_links at all, so the loop above never touches them and they
-    -- would stay stuck at 'tombstoned' forever even after the order comes
-    -- back. Reset them to 'pending' so the next transform_pending_order_
-    -- lines run (whenever that next runs — not triggered from here, matching
-    -- this codebase's existing pattern of transform being a separate,
-    -- explicitly-invoked step) picks them up normally against the
-    -- now-restored fact_order.
+    -- QA gate (12 ก.ย. 69) + security fix M-a (12 ก.ย. 69): stg_line_links
+    -- (above) only covers line rows that were ALREADY linked to a
+    -- fact_order_item at delete time. A line report re-imported WHILE this
+    -- order was tombstoned lands at import_status='tombstoned' with
+    -- fact_order_item_id still null (see transform_pending_order_lines
+    -- below) — those rows have no entry in stg_line_links at all, so the
+    -- loop above never touches them.
+    --
+    -- 🔴 M-a: 'pending' was the WRONG target status here. transform_
+    -- pending_order_lines only ever re-scans rows scoped to a SPECIFIC
+    -- batch_id it was called with (`where ... batch_id = p_batch_id and
+    -- import_status in ('pending','orphan','error')`) — nothing in this
+    -- codebase re-transforms an arbitrary old batch on a schedule, and
+    -- analytics.v_orphan_line_backlog only surfaces 'orphan' rows. A row
+    -- left at 'pending' is therefore invisible to BOTH the retry path and
+    -- the backlog UI: it would sit there silently forever, and the
+    -- restored order would carry an understated cogs/overstated profit with
+    -- no signal to the owner that an item is missing.
+    --
+    -- 'orphan' fixes both: transform_pending_order_lines' phase 1 already
+    -- treats 'orphan' the same as 'pending' (same `in (...)` list) so it
+    -- still self-heals the next time ITS OWN batch is re-transformed, AND
+    -- it shows up in v_orphan_line_backlog / getOrphanBacklog as soon as
+    -- this transaction commits — correctly, since that view excludes by
+    -- "active (restored_at is null) tombstone for this source_order_no",
+    -- and this same function sets restored_at on that tombstone a few lines
+    -- below (statement order within the transaction doesn't matter here:
+    -- both changes land together atomically at commit, so any reader after
+    -- this function returns sees the row as both 'orphan' AND no-longer-
+    -- excluded, never one without the other).
     update analytics.stg_order_line_import
-      set import_status = 'pending', error_detail = null
+      set import_status = 'orphan', error_detail = 'order restored — line needs re-transform'
       where shop_id = p_shop_id and source_order_no = v_del.source_order_no
         and import_status = 'tombstoned' and fact_order_item_id is null;
 
