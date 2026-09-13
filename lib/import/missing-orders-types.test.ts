@@ -15,7 +15,11 @@
 // `default`), cross-checked against the type's own doc comment.
 
 import { describe, expect, it } from "vitest";
-import { isMissingOrdersWriteDisabledError, MISSING_ORDERS_WRITE_DISABLED_PREFIX } from "./missing-orders-types";
+import {
+  isMissingOrdersWriteDisabledError,
+  mapMissingOrdersRpcError,
+  MISSING_ORDERS_WRITE_DISABLED_PREFIX,
+} from "./missing-orders-types";
 
 // Hardcoded, byte-for-byte copy of the error string
 // lib/actions/import-missing-orders.ts's requireMissingOrdersWriteEnabled()
@@ -73,5 +77,85 @@ describe("isMissingOrdersWriteDisabledError — must not break / must not false-
     // this must be false — guards against a future edit silently shortening
     // the constant without anyone noticing the fallback got looser.
     expect(isMissingOrdersWriteDisabledError(truncated)).toBe(false);
+  });
+});
+
+// Backend-dev (Han Solo), 13 ก.ย. 69 — QA-1 fix. Message literals below are
+// full, realistically-interpolated copies of the `raise exception` text in
+// supabase/migrations/0115_import_delete_restore.sql (analytics.
+// import_delete_orders / analytics.import_restore_orders), NOT just the
+// bare needle substrings — the whole point is proving the match survives the
+// function-name prefix and the %-formatted runtime values around it.
+const FALLBACK = "ข้อความกลางเดิม (ตัวอย่างในเทสต์)";
+
+describe("mapMissingOrdersRpcError — must map to specific Thai copy", () => {
+  it("import_restore_orders: already restored / belongs to another shop", () => {
+    const msg =
+      "import_restore_orders: deleted-order record 11111111-1111-1111-1111-111111111111 not found " +
+      "(already restored, or belongs to another shop) — refusing the whole request, nothing was restored";
+    expect(mapMissingOrdersRpcError(msg, FALLBACK)).toBe(
+      "กู้คืนไปแล้ว (อาจกดจากอีกแท็บ) — รีเฟรชหน้าแล้วดูรายการใหม่"
+    );
+  });
+
+  it("import_restore_orders: live order already exists for source_order_no (Shipnity reuse)", () => {
+    const msg =
+      "import_restore_orders: a live order already exists for source_order_no ORD-123 " +
+      "(id 22222222-2222-2222-2222-222222222222) — Shipnity may have reused this number for a new sale; " +
+      "refusing the whole request, nothing was restored";
+    expect(mapMissingOrdersRpcError(msg, FALLBACK)).toBe(
+      "มีออเดอร์เลขเดียวกันถูกสร้างใหม่แล้ว (Shipnity ใช้เลขซ้ำ) — กู้คืนไม่ได้ ตรวจในระบบขายก่อน"
+    );
+  });
+
+  it("import_delete_orders: requested id(s) not in the current candidate set", () => {
+    const msg =
+      "import_delete_orders: 2 of the requested id(s) are not in the current candidate set " +
+      "(e.g. 33333333-3333-3333-3333-333333333333) — refusing the whole request, nothing was deleted";
+    expect(mapMissingOrdersRpcError(msg, FALLBACK)).toBe(
+      "รายการที่เลือกบางใบไม่อยู่ในชุดใบหายแล้ว (อาจมีไฟล์ใหม่มาระหว่างนี้) — โหลดรายการใหม่แล้วเลือกอีกครั้ง"
+    );
+  });
+
+  it("import_delete_orders: candidate count exceeds the safety cap", () => {
+    const msg =
+      "import_delete_orders: 25 candidates exceeds the safety cap of 20 for this batch " +
+      "(file_order_count=100) — investigate before bulk-deleting, nothing was deleted";
+    expect(mapMissingOrdersRpcError(msg, FALLBACK)).toBe(
+      "ใบหายเกินเพดานความปลอดภัยของไฟล์นี้ — ตรวจไฟล์ต้นทางก่อน ระบบไม่ลบอะไร"
+    );
+  });
+});
+
+describe("mapMissingOrdersRpcError — must fall back, not invent copy", () => {
+  it("empty string -> fallback", () => {
+    expect(mapMissingOrdersRpcError("", FALLBACK)).toBe(FALLBACK);
+  });
+
+  it("unrelated/network error -> fallback", () => {
+    expect(mapMissingOrdersRpcError("fetch failed", FALLBACK)).toBe(FALLBACK);
+  });
+
+  it("import_delete_orders: reason is required -> fallback (already caught pre-RPC by this app)", () => {
+    expect(mapMissingOrdersRpcError("import_delete_orders: reason is required", FALLBACK)).toBe(FALLBACK);
+  });
+
+  it("import_restore_orders: cannot restore more than 200 -> fallback (already caught pre-RPC by this app)", () => {
+    const msg = "import_restore_orders: cannot restore more than 200 orders in one call (got 250)";
+    expect(mapMissingOrdersRpcError(msg, FALLBACK)).toBe(FALLBACK);
+  });
+
+  it("import_delete_orders: ON DELETE CASCADE invariant guard -> fallback (internal, not user-actionable copy)", () => {
+    const msg =
+      "import_delete_orders: expected ON DELETE CASCADE foreign keys into analytics.fact_order from exactly " +
+      "{analytics.crm_order_override, analytics.dim_address, analytics.fact_order_item} but found " +
+      "{analytics.dim_address, analytics.fact_order_item} — the snapshot/restore logic in this function does " +
+      "not necessarily cover all cascading tables anymore; refusing to delete anything until this is reconciled";
+    expect(mapMissingOrdersRpcError(msg, FALLBACK)).toBe(FALLBACK);
+  });
+
+  it("different fallback per call site is honored verbatim (no hardcoded generic inside the helper)", () => {
+    expect(mapMissingOrdersRpcError("some other unmapped message", "fallback A")).toBe("fallback A");
+    expect(mapMissingOrdersRpcError("some other unmapped message", "fallback B")).toBe("fallback B");
   });
 });

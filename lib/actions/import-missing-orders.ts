@@ -23,16 +23,17 @@ import { revalidatePath } from "next/cache";
 import { getServiceClient } from "@/lib/supabase/server";
 import { getDevShopId, getDevRole } from "@/lib/dev/context";
 import type { ActionResult } from "@/lib/types";
-import type {
-  DeleteMissingOrdersResult,
-  DeletedOrderRow,
-  MissingOrderCandidate,
-  MissingOrdersBlockedReason,
-  MissingOrdersChannel,
-  MissingOrdersGroup,
-  MissingOrdersResult,
-  MissingOrdersWriteStatus,
-  RestoreDeletedOrdersResult,
+import {
+  mapMissingOrdersRpcError,
+  type DeleteMissingOrdersResult,
+  type DeletedOrderRow,
+  type MissingOrderCandidate,
+  type MissingOrdersBlockedReason,
+  type MissingOrdersChannel,
+  type MissingOrdersGroup,
+  type MissingOrdersResult,
+  type MissingOrdersWriteStatus,
+  type RestoreDeletedOrdersResult,
 } from "@/lib/import/missing-orders-types";
 
 const SCHEMA = "analytics";
@@ -244,9 +245,15 @@ export async function deleteMissingOrders(
     };
   } catch (err) {
     console.error("deleteMissingOrders failed", err);
+    // QA-1 (13 ก.ย. 69): substring-match import_delete_orders' distinct raise
+    // messages (0115) into their own actionable Thai copy — this generic
+    // sentence is now only the fallback for an UNMATCHED RPC message (or a
+    // non-Postgrest failure, e.g. network), not the answer for every cause.
+    const fallback =
+      "ลบออเดอร์ไม่สำเร็จ — รายการที่เลือกอาจไม่ตรงกับที่ระบบตรวจล่าสุดแล้ว (มีการนำเข้าไฟล์ใหม่ระหว่างนี้) ลองกดตรวจซ้ำแล้วลองใหม่";
     return {
       ok: false,
-      error: "ลบออเดอร์ไม่สำเร็จ — รายการที่เลือกอาจไม่ตรงกับที่ระบบตรวจล่าสุดแล้ว (มีการนำเข้าไฟล์ใหม่ระหว่างนี้) ลองกดตรวจซ้ำแล้วลองใหม่",
+      error: err instanceof Error ? mapMissingOrdersRpcError(err.message, fallback) : fallback,
     };
   }
 }
@@ -357,10 +364,15 @@ export async function restoreDeletedOrders(ids: string[]): Promise<ActionResult<
     };
   } catch (err) {
     console.error("restoreDeletedOrders failed", err);
+    // QA-1 (13 ก.ย. 69): substring-match import_restore_orders' distinct raise
+    // messages (0115) into their own actionable Thai copy — this generic
+    // sentence is now only the fallback for an UNMATCHED RPC message (or a
+    // non-Postgrest failure, e.g. network), not the answer for every cause.
+    const fallback =
+      "กู้คืนออเดอร์ไม่สำเร็จ — อาจมีออเดอร์เลขที่เดียวกันถูกสร้างขึ้นใหม่แล้วหลังจากลบ (เช่น Shipnity ใช้เลขซ้ำ) ตรวจสอบก่อนลองใหม่";
     return {
       ok: false,
-      error:
-        "กู้คืนออเดอร์ไม่สำเร็จ — อาจมีออเดอร์เลขที่เดียวกันถูกสร้างขึ้นใหม่แล้วหลังจากลบ (เช่น Shipnity ใช้เลขซ้ำ) ตรวจสอบก่อนลองใหม่",
+      error: err instanceof Error ? mapMissingOrdersRpcError(err.message, fallback) : fallback,
     };
   }
 }
