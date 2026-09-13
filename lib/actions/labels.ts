@@ -89,17 +89,26 @@ function revalidateLabelPaths(): void {
   revalidatePath("/tiktok/upload");
 }
 
-// L8 fix (12 ก.ย. 69, QA): setOrderProvince/revertOrderProvince/
-// resolveLabelPage/revertLabelPage all write analytics.fact_order.province_code
-// directly (not just stg_label_page) — /crm/orders and /crm/customers/[id]
-// both render that value (via v_fact_order), so a stale cache there would
-// show the old province right after a successful edit until some OTHER
-// action happened to revalidate those routes. ignoreLabelPage does NOT call
-// this — it never touches fact_order, only revalidateLabelPaths() applies.
+// L8 fix (12 ก.ย. 69, QA), widened by QA-3 (13 ก.ย. 69): setOrderProvince/
+// revertOrderProvince/resolveLabelPage/revertLabelPage all write
+// analytics.fact_order.province_code directly (not just stg_label_page) — a
+// stale cache on any page that renders province would show the old value
+// right after a successful edit until some OTHER action happened to
+// revalidate that route. QA-3 found the original list incomplete: it covered
+// /crm/orders + /crm/customers (list pages) but not the customer DETAIL page
+// (dynamic route, own revalidatePath call — a list-path revalidate does NOT
+// cover a `[id]` dynamic segment), nor /crm/overview (province breakdown
+// widgets) or /tiktok/dashboard (province_source ends up in its channel/
+// province mix once TikTok live orders get relabeled here). ignoreLabelPage
+// does NOT call this — it never touches fact_order, only
+// revalidateLabelPaths() applies.
 function revalidateProvinceChangePaths(): void {
   revalidateLabelPaths();
   revalidatePath("/crm/orders");
   revalidatePath("/crm/customers");
+  revalidatePath("/crm/customers/[id]", "page");
+  revalidatePath("/crm/overview");
+  revalidatePath("/tiktok/dashboard");
 }
 
 // ============================================================================
