@@ -2,6 +2,24 @@
 -- Rehearsal + proof for 0113/0114/0115 (cancel-detection Phase 1) BEFORE
 -- Tech Lead applies them for real via apply_migration.
 --
+-- ✅ RAN FOR REAL against the live project 12 ก.ย. 69 — pre-apply: 53/53
+-- checks passed (2 real bugs caught and fixed first: 0113's 42702 OUT-column
+-- ambiguity, this script's own 22P02 v_row rowtype mismatch — see 0113's
+-- header and this file's git history for both). Then 0113/0114/0115 were
+-- applied for real (versions 20260912144344/144432/144600), and this same
+-- script's assertions were re-verified post-apply. get_advisors clean.
+--
+-- STEP 0's DDL replay below stays valid to re-run even now that 0113-0115
+-- are live: almost every statement in it is `create or replace function` /
+-- `create or replace view` (idempotent — replaying the exact live
+-- definition is a no-op). The one non-idempotent-looking exception is
+-- 0115 section 0's `alter table ... drop constraint / add constraint`
+-- (extending stg_order_line_import.import_status to allow 'tombstoned') —
+-- already written `drop constraint IF EXISTS` for exactly this reason, so
+-- re-running it against a DB where that constraint already has the new
+-- shape is also a no-op, not an error. Safe to run again as a regression
+-- check after any FUTURE edit to these functions.
+--
 -- ASSUMES 0112 is ALREADY APPLIED to the live DB (the 'tombstoned' enum
 -- value and analytics.fact_order_deleted table already exist and are
 -- committed) — per 3j-migration-traps, `alter type ... add value` cannot be

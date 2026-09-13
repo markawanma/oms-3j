@@ -7,7 +7,14 @@
 -- cannot be used inside the same transaction that adds it, so it must live
 -- in its own migration ahead of anything that references 'tombstoned'.
 --
--- ⚠️ DO NOT APPLY — file only, per task instructions. Tech Lead applies via MCP.
+-- ✅ APPLIED 12 ก.ย. 69 via MCP apply_migration (version 20260912142035),
+-- after 0116 (feature/label-review-resolve) per the mandatory deploy order
+-- below. Pre-apply rehearsal: scripts/verify-0115-missing-orders.sql,
+-- 53 checks, run against the live project before any of 0112-0115 applied.
+-- Post-apply: get_advisors clean (no new warnings), grants confirmed
+-- (anon/authenticated=false, service_role=true on all 7 functions across
+-- 0113-0115), smoke-tested against a real batch (Data_Order_08-09-2026.xlsx,
+-- found the expected 3 candidates G601/G605/G620, ฿880).
 --
 -- ============================================================================
 -- 🔴🔴🔴 MANDATORY DEPLOY ORDER (security review, M-c, 12 ก.ย. 69) 🔴🔴🔴
