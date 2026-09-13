@@ -21,6 +21,11 @@
 -- Run via Supabase MCP execute_sql (NOT apply_migration — this is a read/
 -- verify script, not DDL, per supabase-migrate skill's "execute_sql is for
 -- reads/verification" note).
+--
+-- ✅ RUN RECORD: executed against the live DB on 12 ก.ย. 69, immediately
+-- after 0116_label_review_resolve.sql was applied (version 20260912141741)
+-- — 30/30 checks (T1-T20 incl. sub-cases) passed. Comment-only update; the
+-- do-block below is byte-identical to what actually ran.
 
 do $$
 declare

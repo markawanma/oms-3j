@@ -3,15 +3,19 @@
 -- (design: scratchpad design-label-teach-loop-yoda-11sep.md §5 A, owner
 -- decisions 11 ก.ย. 69 — verbatim quoted inline below at each decision point).
 --
--- ⚠️ DO NOT APPLY — file only, per task instructions. Tech Lead applies via
--- MCP (supabase-migrate skill: pre-check -> apply_migration -> verify ->
--- get_advisors). scripts/verify-0116-label-resolve.sql calls the new RPCs
--- this file creates, so it can only run AFTER this file is applied — it
+-- ✅ APPLIED 12 ก.ย. 69 via MCP (supabase-migrate skill: pre-check ->
+-- apply_migration -> verify -> get_advisors), version 20260912141741 — a row
+-- for it exists in supabase_migrations.schema_migrations already.
+-- scripts/verify-0116-label-resolve.sql ran against the live DB after apply:
+-- 30/30 checks passed (see that script's own header for the run record). It
 -- rehearses every guard below against throwaway fixture data inside a
--- do-block + forced rollback (trap #11), so it never touches real rows
--- regardless of pass/fail. This file's own §7 data migration is a separate,
+-- do-block + forced rollback (trap #11), so it never touched real rows
+-- regardless of pass/fail. This file's own §7 data migration was a separate,
 -- deliberate exception to "test before touching real data" (see its header)
 -- since it is itself the real, permanent correction — not a test of one.
+--
+-- Header text below (comment only — SQL body is byte-identical to what was
+-- applied) is kept as the historical design record.
 --
 -- 🔴 APPLY ORDER (H2, 12 ก.ย. 69 security review): this file (0116) MUST be
 -- applied BEFORE migrations 0112-0115 (cancel-detection branch), which
