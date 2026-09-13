@@ -146,3 +146,20 @@ type IgnoreLabelPageInput = { pageId: string; reason?: LabelReasonCode | null; n
 - `label_text_rule` (เก็บการสอน) เขียนอย่างเดียว ไม่มี UI แสดงผลในเฟสนี้ — `active` เป็น `false` เสมอ ยังไม่มีผลต่อการ parse จริง
 - `setOrderProvince`/`resolveLabelPage` ไม่คืน error message เฉพาะเจาะจง (เช่น "ต้องมี reason") — คืนข้อความทั่วไปเสมอ
   ต้อง guard ด้วย logic ฝั่ง UI ตามข้อ 2/4 ด้านบนแทน
+- **Mace L3** — `getLabelPageViewUrl`'s signed URL เซ็น**ทั้งไฟล์** PDF แล้วต่อ `#page=N` ต่อท้าย — `#page=N` เป็นแค่ URL
+  fragment (บอก browser/native PDF viewer ว่า "เลื่อนไปหน้านี้ให้") ไม่ใช่ส่วนหนึ่งของ signature ตัว URL เอง เจ้าของ/แอดมิน
+  ที่มี URL นี้ (อายุ 60 วิ) เปิดดูได้ **ทุกหน้าในไฟล์** ไม่ใช่แค่หน้าที่ query มา — ยอมรับได้ในเฟสนี้เพราะคนกลุ่มเดียวกัน
+  (owner/admin) ที่เห็น URL ก็มีสิทธิ์เห็นทุกหน้าของไฟล์นั้นอยู่แล้วผ่าน `/tiktok/upload` เอง ไม่ใช่การรั่วข้าม role/tenant
+- **Mace L5** — ปุ่ม "ดูใบ"/"ดูข้อความที่อ่านได้" (`LabelReviewQueueRow.tsx`) ไม่ `disabled={!canEdit}` เหมือนปุ่ม
+  ยืนยัน/ข้าม/ฟอร์มอื่นในแถวเดียวกัน — staff (canEdit=false) กดได้ในหน้าจอ แต่ `getLabelPageViewUrl`/
+  `getLabelPageSnippet` เรียก `requireOwnerAdmin()` เหมือนกันทุก action อื่น จึงโดนปฏิเสธที่ server เสมอ (fail-soft, ไม่ใช่
+  security hole) — เป็น UX debt (ปุ่มโชว์ทั้งที่กดแล้วไม่มีทางสำเร็จ) ไม่ใช่ช่องโหว่สิทธิ์
+- **Mace L6** — `revertLabelPage()` (ย้อนหน้าที่ resolve แล้วกลับสู่คิว — ข้อ 6) ยังไม่มี UI เรียกที่ไหนในเฟสนี้
+  (`ProvinceFixPanel`'s "ย้อนกลับ" เรียก `revertOrderProvince` คนละ RPC คนละ scope — ย้อนแค่ออเดอร์เดียว ไม่ได้คืนสถานะ
+  หน้าใน `stg_label_page` กลับเป็น `needs_review`) → หน้าที่ resolve ผิดแล้วไปแก้จังหวัดกลับผ่าน ProvinceFixPanel จะค้าง
+  สถานะ `manual_applied` อยู่ (ดู "ไม่มี action list" ข้อแรกด้านบน — จุดเดียวกัน ต้องทำคู่กัน)
+- `applied_by` เป็น `null` เสมอตอนนี้ (RPC เขียน `auth.uid()` แต่ dev context ยังไม่มี Supabase Auth session จริง —
+  รอ Auth A2) — เหมือน `uploaded_by`/`imported_by`/`actor` ทุกคอลัมน์ที่ผูก `auth.uid()` ในระบบนี้
+- LINE OA re-import ยังทับ `province_source='manual'` ได้ (0114's "import re-import respects manual edits" fix
+  ครอบ path หลักของ TikTok/Excel import ที่ผ่าน `transform_pending_orders` — ยังไม่ยืนยันครอบ LINE OA channel ด้วย)
+  — แก้ manual แล้วรอบถัดไปที่ import LINE OA ทับเข้ามาอาจเขียนทับเงียบๆ โดยไม่มี audit
