@@ -27,7 +27,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, CheckCircle2, Info, Loader2, Trash2, XCircle } from "lucide-react";
-import { deleteMissingOrders } from "@/lib/actions/import-missing-orders";
+import { deleteMissingOrders, getMissingOrdersWriteStatus } from "@/lib/actions/import-missing-orders";
 import {
   isMissingOrdersWriteDisabledError,
   type MissingOrderCandidate,
@@ -68,6 +68,8 @@ function blockedReasonMessage(reason: MissingOrdersBlockedReason, evidence: Miss
       return "ไฟล์นี้มีช่องทางที่ระบบยังไม่รู้จัก — แก้ alias ช่องทางก่อน";
     case "file_rows_skipped":
       return `ไฟล์นี้มี ${formatCount(evidence.skippedRows)} แถวที่เลขออเดอร์ว่าง ระบบข้ามไปตอนนำเข้า จึงตัดสินไม่ได้ว่าอะไรหายจริง — ตรวจไฟล์ต้นฉบับก่อน`;
+    case "empty_batch":
+      return "ไฟล์นี้ไม่มีแถวที่นำเข้าสำเร็จเลย (0 แถว) — ไม่มีอะไรให้ตรวจ เปิดไฟล์ต้นฉบับดูว่ามีข้อมูลจริงไหมก่อนอัปโหลดใหม่";
     case "too_many":
       return "ไฟล์นี้ต่างจากระบบมากผิดปกติ ตรวจโหมด export ก่อน";
     default:
@@ -141,16 +143,35 @@ export function MissingOrdersPanel({
   const [reason, setReason] = useState("");
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
-  // C-2 write switch (lib/actions/import-missing-orders.ts) — there is no
-  // status action to check this BEFORE the user clicks (see delivery notes:
-  // "อยากได้ getMissingOrdersWriteStatus() ไหม"), so this can only ever be
-  // learned reactively, after a failed attempt. Once learned true for this
-  // panel instance it's kept true for the rest of its lifetime (deliberately
-  // NOT reset by the "new fetch" effect below — MISSING_ORDERS_WRITE_ENABLED
-  // is a server-wide env var, not something that flips per-batch), so a
-  // second attempt on a different batch in the same session doesn't have to
-  // fail again just to relearn the same fact.
+  // C-2 write switch (lib/actions/import-missing-orders.ts). Two paths set
+  // this, in order of preference:
+  //   1. PROACTIVE — getMissingOrdersWriteStatus() fetched once on mount
+  //      below (12 ก.ย. 69, Han added this on request). Cheap: the action
+  //      itself is a plain env-var read with no DB round-trip.
+  //   2. REACTIVE fallback — isMissingOrdersWriteDisabledError() on an
+  //      actual deleteMissingOrders failure (handleConfirmDelete below),
+  //      for the narrow race where the status fetch said "enabled" (or
+  //      failed and defaulted to that) but the gate flipped/was already off
+  //      by the time the real write landed.
+  // Once learned true for this panel instance it's kept true for the rest
+  // of its lifetime (MISSING_ORDERS_WRITE_ENABLED is a server-wide env var,
+  // not something that flips per-batch) — a second attempt on a different
+  // batch in the same session doesn't have to relearn the same fact.
   const [writeDisabled, setWriteDisabled] = useState(false);
+
+  // Proactive check — fires once per mount, independent of `result` (this is
+  // a system-wide flag, not tied to any one batch). Fail-soft: a thrown/!ok
+  // response just leaves writeDisabled at its current value (optimistically
+  // "enabled") — the reactive fallback above still catches a real attempt.
+  useEffect(() => {
+    let cancelled = false;
+    void getMissingOrdersWriteStatus().then((res) => {
+      if (!cancelled && res.ok && !res.data.enabled) setWriteDisabled(true);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Fresh successful fetch -> reset all local delete bookkeeping and
   // default-select every candidate ("ตาราง checkbox ติ๊กทั้งหมด default").
@@ -280,7 +301,7 @@ export function MissingOrdersPanel({
       {writeDisabled && (
         <div className="flex items-center gap-1.5 rounded-md border border-blue-200 bg-blue-50 p-2.5 text-xs text-blue-800">
           <Info className="h-4 w-4 shrink-0" aria-hidden="true" />
-          ปุ่มลบปิดอยู่บนเซิร์ฟเวอร์นี้ (รอ Auth A2) — รายการตรวจพบยังดูได้
+          ยังไม่เปิดใช้การลบ/กู้คืนบนระบบนี้ — รายการตรวจพบยังดูได้ตามปกติ
         </div>
       )}
 
@@ -363,7 +384,7 @@ export function MissingOrdersPanel({
           variant="danger"
           size="sm"
           disabled={selected.size === 0 || overCap || writeDisabled}
-          title={writeDisabled ? "ปุ่มลบปิดอยู่บนเซิร์ฟเวอร์นี้ (รอ Auth A2)" : undefined}
+          title={writeDisabled ? "ยังไม่เปิดใช้การลบ/กู้คืนบนระบบนี้" : undefined}
           onClick={() => setConfirmOpen(true)}
         >
           <Trash2 className="h-4 w-4" aria-hidden="true" />
