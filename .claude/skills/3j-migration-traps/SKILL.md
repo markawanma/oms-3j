@@ -176,6 +176,16 @@ end; $$;
 
 ---
 
+## 12. `plpgsql` ที่ `returns table` — ชื่อคอลัมน์ชนกับ OUT variable = 42702 **ตอนเรียก** ไม่ใช่ตอน create
+
+`returns table (col1 ..., col2 ...)` ทำให้ `col1`/`col2` กลายเป็นตัวแปรที่มองเห็นได้ทั้งฟังก์ชัน
+ถ้า CTE/subquery ข้างในอ้างคอลัมน์ชื่อเดียวกันแบบไม่ qualify alias ตาราง → ambiguous
+SQL ยังถูกไวยากรณ์ทุกอย่าง ผ่าน static review ได้สบาย เพราะ error โผล่แค่ตอน Postgres วางแผน query จริง
+(**12 ก.ย. 69**: security + QA + code-review ผ่านทั้ง 3 รอบ แต่ dry-run จับได้ 2 บั๊กใน 2 นาที)
+→ **dry-run ใน transaction ที่ rollback ก่อน apply เสมอ** อย่าเชื่อว่า review ตาเปล่าครบแล้ว
+
+---
+
 ## เช็คลิสต์ก่อนบอกว่า migration เสร็จ
 
 - [ ] เปลี่ยน arg list ไหม → drop signature เดิมแล้วหรือยัง
@@ -189,3 +199,4 @@ end; $$;
 - [ ] คอมเมนต์หัวไฟล์บอก **ทำไม** ไม่ใช่แค่ทำอะไร
 - [ ] apply แล้วบันทึกประวัติ migration หรือยัง
 - [ ] ทดสอบแตะตัวนับ/เอกสารทางกฎหมายไหม → ใช้ do-block + raise บังคับ rollback แล้วตรวจ state ซ้ำ
+- [ ] `returns table` ไหม → ชื่อคอลัมน์ใน CTE/subquery qualify alias ครบทุกจุดหรือยัง (ข้อ 12) · dry-run ใน transaction rollback ก่อน apply จริงเสมอ อย่าพึ่ง static review อย่างเดียว
