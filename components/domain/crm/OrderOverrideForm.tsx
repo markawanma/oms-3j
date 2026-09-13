@@ -21,7 +21,7 @@ import { Modal } from "@/components/ui/Modal";
  * whole overrides jsonb blob on every call (not a merge, see migration 0021
  * §7 comment). `order` here is already the OVERRIDE-AWARE row (v_fact_order
  * coalesces override -> raw), so every field below is prefilled with the
- * current effective value. On save this form sends the full 7-field object
+ * current effective value. On save this form sends the full 6-field object
  * back (not just the one field the user touched) so a previous override on
  * some other field is never silently dropped.
  *
@@ -29,13 +29,14 @@ import { Modal } from "@/components/ui/Modal";
  * design-label-teach-loop-yoda-11sep.md §4: two sources of truth for the
  * same order's province, this override layer + the raw fact_order.
  * province_code that ProvinceFixPanel/label resolve now write directly,
- * could silently disagree). The field is intentionally still sent in the
- * payload below as `order.provinceCode` UNCHANGED (not user-editable) —
- * omitting the key entirely would let this REPLACE-not-merge RPC silently
- * clear any pre-existing province override the next time someone edits any
- * OTHER field on this order. Editing province now happens exclusively at
- * /tiktok/upload → ProvinceFixPanel (writes the raw column directly, no
- * override layer involved).
+ * could silently disagree). Not just dropped from this form's UI — migration
+ * 0116 also removed `province_code` from `OrderOverrideInput` and from the
+ * RPC's write whitelist entirely, and backfilled any pre-existing override
+ * value into the raw fact_order.province_code column. So there is no
+ * pass-through to send here anymore: the overrides jsonb blob never carries
+ * province at all post-0116, REPLACE-not-merge semantics or not. Editing
+ * province now happens exclusively at /tiktok/upload → ProvinceFixPanel
+ * (writes the raw column directly, no override layer involved).
  */
 export function OrderOverrideForm({
   order,
@@ -103,11 +104,9 @@ export function OrderOverrideForm({
         customerId,
         {
           channel_id: channelId,
-          // ไม่ใช่ user-editable ในฟอร์มนี้อีกต่อไป — ส่งค่าปัจจุบันกลับไปเฉยๆ
-          // (pass-through) กัน RPC's replace-whole-blob semantics เคลียร์
-          // province override เดิมทิ้งทุกครั้งที่แก้ field อื่น (ดูคอมเมนต์
+          // province_code ไม่มีในทั้ง OrderOverrideInput และ RPC whitelist
+          // อีกแล้ว (migration 0116) — ไม่ต้อง pass-through ค่านี้ (ดูคอมเมนต์
           // หัวไฟล์). แก้จังหวัดจริงย้ายไป /tiktok/upload → แผงแก้จังหวัดแล้ว
-          province_code: order.provinceCode,
           revenue: revenueNum,
           discount: discountNum,
           order_date: orderDate,
