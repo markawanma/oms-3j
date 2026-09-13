@@ -54,8 +54,11 @@ function requireOwnerAdmin(): ActionResult<never> | null {
 // C-2 (security review 12 ก.ย. 69): production is intentionally open to the
 // public (accepted risk, see memory/prod-exposure-accepted-risk — a Vercel
 // Hobby plan can't gate the deployment itself) and requireOwnerAdmin() above
-// reads a build-time env var (getDevRole()), NOT a real auth session — there
-// is no per-user login yet (pending Auth A2). analytics.crm_require_owner_
+// reads an env var (getDevRole()), NOT a real auth session — there is no
+// per-user login yet (pending Auth A2). (L-2, security review 12 ก.ย. 69:
+// this env var is read at runtime, not baked in at build time — but on
+// Vercel, changing its value still needs a redeploy to take effect, so it is
+// not an instant kill switch either way.) analytics.crm_require_owner_
 // admin() inside the RPCs is also effectively a no-op under service_role,
 // which is what getServiceClient() always uses here. That stack of "gates"
 // adds up to zero real access control on two RPCs that PERMANENTLY delete
