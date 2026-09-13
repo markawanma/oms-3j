@@ -45,7 +45,6 @@ import {
   type LabelReviewRow,
   type OrderSourceRef,
   type PendingLabelReviewRow,
-  type ProvinceAuditEntry,
   type ResolveLabelPageResult,
 } from "@/lib/labels/types";
 import { looksLikePdf, openPdf, extractPageTexts, extractSinglePageText, PdfExtractError } from "@/lib/labels/pdf";
@@ -1100,9 +1099,11 @@ interface OrderRefRow {
  *
  * frontend-dev request (12 ก.ย. 69): also attaches channelName (dim_channel
  * — global reference data, no shop_id column, same as getCrmEditOptions in
- * lib/actions/crm.ts) and lastProvinceAudit (most recent crm_audit_log
- * province_set/province_revert row per order) — see OrderSourceRef's field
- * comments in lib/labels/types.ts for why these are findOrdersByTracking-only. */
+ * lib/actions/crm.ts) and hasRevertableHistory (Mace M1, 13 ก.ย. 69 — whether
+ * ANY province_set/province_revert crm_audit_log row exists per order,
+ * reduced to a boolean here so the raw before/after jsonb never leaves this
+ * function) — see OrderSourceRef's field comments in lib/labels/types.ts for
+ * why these are findOrdersByTracking-only. */
 async function attachOrderSources(
   supabase: ReturnType<typeof getServiceClient>,
   shopId: string,
@@ -1152,39 +1153,27 @@ async function attachOrderSources(
     for (const c of (data ?? []) as { id: string; name: string }[]) channelNameById.set(c.id, c.name);
   }
 
-  // latest province_set/province_revert audit row per order — order by
-  // created_at desc then keep the first-seen (= latest) per entity_id, same
-  // "page past the DB, reduce client-side" pattern as latestImportByOrderId
-  // above (fine at this call's scale: findOrdersByTracking caps each side of
-  // its search at 20 rows, never the unbounded-queue volumes fetchAllRows()
-  // exists for).
-  interface ProvinceAuditRow {
-    entity_id: string | null;
-    action: string;
-    before: unknown;
-    after: unknown;
-    created_at: string;
-  }
-  const lastProvinceAuditByOrderId = new Map<string, ProvinceAuditEntry>();
+  // Mace M1 (13 ก.ย. 69, security): only need EXISTENCE of a province_set/
+  // province_revert audit row per order, not its content — select just
+  // entity_id (no before/after/action) so the raw jsonb audit payload never
+  // even leaves the database into this function's memory, let alone the
+  // client (was: lastProvinceAuditByOrderId<ProvinceAuditEntry> carrying
+  // before/after all the way to OrderSourceRef — removed). No .order()/
+  // dedupe-to-latest needed either since existence, not recency, is what
+  // hasRevertableHistory means here.
+  const orderIdsWithProvinceAudit = new Set<string>();
   for (const chunk of chunkArray(orderIds, PENDING_REVIEW_FILE_LOOKUP_CHUNK_SIZE)) {
     const { data, error } = await supabase
       .schema(SCHEMA)
       .from("crm_audit_log")
-      .select("entity_id, action, before, after, created_at")
+      .select("entity_id")
       .eq("shop_id", shopId)
       .eq("entity_type", "fact_order")
       .in("entity_id", chunk)
-      .in("action", ["province_set", "province_revert"])
-      .order("created_at", { ascending: false });
+      .in("action", ["province_set", "province_revert"]);
     if (error) throw error;
-    for (const r of (data ?? []) as ProvinceAuditRow[]) {
-      if (!r.entity_id || lastProvinceAuditByOrderId.has(r.entity_id)) continue;
-      lastProvinceAuditByOrderId.set(r.entity_id, {
-        action: r.action as "province_set" | "province_revert",
-        before: r.before,
-        after: r.after,
-        at: r.created_at,
-      });
+    for (const r of (data ?? []) as { entity_id: string | null }[]) {
+      if (r.entity_id) orderIdsWithProvinceAudit.add(r.entity_id);
     }
   }
 
@@ -1200,7 +1189,7 @@ async function attachOrderSources(
       sourceRowNo: imp ? imp.sourceRowNo : null,
       orderDate: o.order_date,
       channelName: channelNameById.get(o.channel_id) ?? null,
-      lastProvinceAudit: lastProvinceAuditByOrderId.get(o.id) ?? null,
+      hasRevertableHistory: orderIdsWithProvinceAudit.has(o.id),
     };
   });
 }

@@ -27,15 +27,11 @@ migration `supabase/migrations/0116_label_review_resolve.sql` · types ทั้
     sourceRowNo: number | null;     // stg_order_import.source_row_no ของแถวเดียวกัน
     orderDate?: string;              // "YYYY-MM-DD" — เฉพาะจาก findOrdersByTracking (ไม่มีใน getPendingLabelReviews)
     channelName?: string | null;     // dim_channel.name — เฉพาะจาก findOrdersByTracking
-    lastProvinceAudit?: {            // แถว crm_audit_log ล่าสุดของ province_set/province_revert — null ถ้ายังไม่เคยแก้เลย
-      action: "province_set" | "province_revert";
-      before: unknown;   // jsonb ดิบจาก RPC — { province_code, province_source, ... }
-      after: unknown;
-      at: string;         // created_at
-    } | null;
+    hasRevertableHistory?: boolean;  // true = มีแถว crm_audit_log ของ province_set/province_revert อยู่จริง — เฉพาะจาก findOrdersByTracking
   }
   ```
-- `orderDate`/`channelName`/`lastProvinceAudit` มีเฉพาะผลจาก `findOrdersByTracking` เท่านั้น — `getPendingLabelReviews().orderSources` ไม่มี 3 ฟิลด์นี้ (จะเป็น `undefined`) เพราะเป็นคนละ query กัน ใช้ `lastProvinceAudit !== null` ตัดสินว่าจะโชว์ปุ่ม "ย้อนกลับ" ไหม แทน heuristic `provinceSource !== 'import'` เดิม (แม่นกว่า — order ที่ import มาแล้วมีคนแก้มือทีหลังแล้วค่อยกลับไปเหมือนเดิมโดยบังเอิญ ก็ยังมีประวัติให้ย้อนจริง)
+- `orderDate`/`channelName`/`hasRevertableHistory` มีเฉพาะผลจาก `findOrdersByTracking` เท่านั้น — `getPendingLabelReviews().orderSources` ไม่มี 3 ฟิลด์นี้ (จะเป็น `undefined`, ให้ปฏิบัติเหมือน `false`/ไม่แสดง) เพราะเป็นคนละ query กัน
+- **Mace M1 fix (13 ก.ย. 69, security)**: `hasRevertableHistory` แทนที่ `lastProvinceAudit` เดิม (เคยส่ง `before`/`after` jsonb ดิบของ audit row มาให้ UI ตรงๆ — ไม่ควรหลุดถึง client เพราะเป็น internal change-log payload ไม่ใช่ค่าที่ UI ต้องโชว์) ใช้ตัดสินว่าจะโชว์ปุ่ม "ย้อนกลับ" ไหม แทน heuristic `provinceSource !== 'import'` เดิมที่ผิด (label_apply_matched เติมจังหวัดอัตโนมัติด้วย `province_source='label'` โดยไม่เขียน audit เลย — ปุ่มเคยโผล่ให้กดแล้ว raise ทุกครั้ง) `revertOrderProvince` (ข้อ 3) ยังเป็นด่านจริงเสมอ — flag นี้แค่ตัดเคส "ไม่มีประวัติเลย" ออกไปก่อนถึงจอ ไม่ได้การันตีว่ากดแล้วสำเร็จ 100%
 - ใช้ผลลัพธ์นี้แสดง "ที่มา" ของออเดอร์ก่อนให้เจ้าของกดแก้จังหวัด (owner 11 ก.ย. decision #3)
 
 ## 2. `setOrderProvince(factOrderId, provinceCode, reason?, note?): Promise<ActionResult>`

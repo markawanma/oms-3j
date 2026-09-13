@@ -21,18 +21,17 @@ function messageFromError(err: unknown, fallback: string): string {
 /**
  * ProvinceFixRow — หนึ่งออเดอร์ในผลค้นหาของ ProvinceFixPanel ด้านล่าง
  *
- * ⚠️ Contract gap (flagged, ไม่ได้เดาเติม): backend brief ข้อ 2 อยากได้คอลัมน์
- * "วันที่ · ช่องทาง" และ "แก้ล่าสุด (audit)" ด้วย — แต่ `OrderSourceRef`
- * (lib/labels/types.ts, สัญญาจาก findOrdersByTracking) ไม่มีทั้งสองอย่างนี้
- * (มีแค่ factOrderId/sourceOrderNo/trackingNo/provinceCode/provinceSource/
- * importFileName/sourceRowNo) และไม่มี action ไหนคืน audit trail ของการแก้
- * province เป็นรายการให้ query ต่อ — จึงข้ามสองส่วนนี้ไปทั้งคู่แทนที่จะเดาว่า
- * ควรมาจากไหน (อาจเป็นคนละ tenant/join กับที่ actions อื่นกรองไว้แล้ว)
- *
- * "ย้อนกลับ" ก็ไม่มีวิธีเช็คล่วงหน้าว่ามีประวัติให้ย้อนจริงไหม (revertOrderProvince
- * คืน error ทั่วไปถ้าไม่มี) — ใช้ heuristic แสดงปุ่มเมื่อ provinceSource !==
- * 'import' (แปลว่าเคยถูกแก้มาจาก label/manual แล้วอย่างน้อยหนึ่งครั้ง) แล้วให้
- * RPC เป็นด่านจริงถ้ากดแล้วไม่มีประวัติจริง (error fail-soft ต่อแถว).
+ * "วันที่ · ช่องทาง" (Mace L7, owner requirement) และปุ่ม "ย้อนกลับ" (Mace M1,
+ * 13 ก.ย. 69, security) — orderDate/channelName/hasRevertableHistory มาจาก
+ * findOrdersByTracking() ตรงๆ แล้ว (ดู field comments ใน OrderSourceRef,
+ * lib/labels/types.ts). ปุ่ม "ย้อนกลับ" เคยใช้ heuristic
+ * `provinceSource !== 'import'` ซึ่งผิด: label_apply_matched เติม
+ * province_code อัตโนมัติด้วย province_source='label' โดยไม่เขียน audit row
+ * เลย — ออเดอร์กลุ่มนี้เจอปุ่ม "ย้อนกลับ" ทั้งที่กดแล้ว raise ทุกครั้ง (ไม่มี
+ * ประวัติให้ย้อนจริง) ตอนนี้อิงจาก hasRevertableHistory (คำนวณฝั่ง server จาก
+ * การมีอยู่จริงของ crm_audit_log แถว province_set/province_revert — undefined
+ * ถือเป็น false). revertOrderProvince ยังเป็นด่านจริงเสมอ (RPC ปฏิเสธเพิ่มเติม
+ * ถ้าจังหวัดปัจจุบันเปลี่ยนไปจาก audit row นั้นแล้ว — ดู 0116 comment).
  */
 function ProvinceFixRow({
   order,
@@ -56,7 +55,7 @@ function ProvinceFixRow({
   const [error, setError] = useState<string | null>(null);
 
   const reasonRequired = isRealProvinceCode(order.provinceCode);
-  const canRevert = order.provinceSource !== "import";
+  const canRevert = order.hasRevertableHistory ?? false;
 
   // resync เมื่อ onChanged() ด้านล่างค้นใหม่แล้วได้ order.provinceCode สดกลับมา
   // (setState ตอน useState init ทำงานแค่ mount ครั้งแรก — ไม่งั้น dropdown จะค้าง
