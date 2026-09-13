@@ -6,6 +6,15 @@
 
 import type { CrmProvinceOption } from "@/lib/crm/order-override";
 import type { OrderSourceRef } from "@/lib/labels/types";
+// Relative import (not "@/...") on purpose — this is a VALUE import (not
+// `import type`), and vitest.config.ts has no "@/" runtime alias configured
+// (only tsconfig.json's `paths`, which Next's bundler honors but plain
+// Vitest does not) — every other value import reachable from a vitest test
+// in this repo already uses relative paths for the same reason (e.g.
+// lib/labels/match.ts). A "@/..." VALUE import here would build fine under
+// `next build` but fail this file's own vitest suite with "Failed to load
+// url @/lib/tiktok/format".
+import { formatThaiDateOnly } from "../tiktok/format";
 
 // QA-2 fix (13 ก.ย. 69, R2-D2): the comment above USED to claim this mirrors
 // supabase/migrations/0116_label_review_resolve.sql's p_taught_snippet check
@@ -64,6 +73,22 @@ export function validateTaughtSnippet(value: string): string | null {
     return "ห้ามมีตัวเลขหรือเครื่องหมาย ใส่แค่คำ เช่น ลาดกระบัง";
   }
   return null;
+}
+
+/** "วันที่ · ช่องทาง" หนึ่งบรรทัด — Mace L7 (owner requirement, 13 ก.ย. 69):
+ * ProvinceFixPanel ต้องโชว์ค่านี้ต่อผลค้นหา backend ส่ง orderDate/channelName
+ * มาแล้ว (findOrdersByTracking-only, ดู OrderSourceRef field comments ใน
+ * lib/labels/types.ts) — รวมกัน + จัดรูปแบบวันที่ไทยที่นี่แทนที่จะซ้ำ logic
+ * ใน component เอง. formatThaiDateOnly มาจาก lib/tiktok/format.ts (ใช้ซ้ำ
+ * ของเดิม ไม่ทำ Intl.DateTimeFormat อีกชุด). ใช้ Pick แทน OrderSourceRef
+ * เต็มตัวเพื่อให้ helper นี้เรียกได้จากที่อื่นที่มีแค่สองฟิลด์นี้ด้วย. */
+export function orderDateChannelLine(o: Pick<OrderSourceRef, "orderDate" | "channelName">): string {
+  const dateLabel = o.orderDate ? formatThaiDateOnly(o.orderDate) : null;
+  const channelLabel = o.channelName ?? null;
+  if (dateLabel && channelLabel) return `${dateLabel} · ${channelLabel}`;
+  if (dateLabel) return dateLabel;
+  if (channelLabel) return channelLabel;
+  return "—";
 }
 
 export const PROVINCE_SOURCE_LABEL: Record<OrderSourceRef["provinceSource"], string> = {

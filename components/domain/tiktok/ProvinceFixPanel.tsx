@@ -10,7 +10,7 @@ import { useToast } from "@/components/ui/Toast";
 import { findOrdersByTracking, revertOrderProvince, setOrderProvince } from "@/lib/actions/labels";
 import type { LabelReasonCode, OrderSourceRef } from "@/lib/labels/types";
 import type { CrmProvinceOption } from "@/lib/crm/order-override";
-import { PROVINCE_SOURCE_LABEL, isRealProvinceCode, provinceNameByCode } from "@/lib/labels/ui-format";
+import { PROVINCE_SOURCE_LABEL, isRealProvinceCode, orderDateChannelLine, provinceNameByCode } from "@/lib/labels/ui-format";
 import { ProvinceSelect } from "./ProvinceSelect";
 import { LabelReasonSelect } from "./LabelReasonSelect";
 
@@ -127,6 +127,7 @@ function ProvinceFixRow({
         <div className="min-w-0">
           <p className="text-sm font-semibold text-zinc-800">ออเดอร์ {order.sourceOrderNo}</p>
           <p className="font-mono text-xs text-zinc-500">{order.trackingNo ?? "ไม่มีเลขพัสดุ"}</p>
+          <p className="text-xs text-zinc-400">{orderDateChannelLine(order)}</p>
         </div>
         <p className="text-xs text-zinc-500">
           จังหวัดปัจจุบัน: <span className="font-medium text-zinc-700">{provinceNameByCode(provinces, order.provinceCode)}</span>{" "}

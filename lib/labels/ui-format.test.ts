@@ -22,6 +22,7 @@ import { describe, expect, it } from "vitest";
 import {
   TAUGHT_SNIPPET_MAX_LENGTH,
   isRealProvinceCode,
+  orderDateChannelLine,
   orderSourceLine,
   provinceNameByCode,
   validateTaughtSnippet,
@@ -191,5 +192,21 @@ describe("orderSourceLine", () => {
     const line = orderSourceLine({ ...base, sourceRowNo: null }, PROVINCES);
     expect(line).toContain("shipnity-sep.xlsx");
     expect(line).not.toContain("แถว null");
+  });
+});
+
+describe("orderDateChannelLine (Mace L7)", () => {
+  it("joins date + channel with a middle dot when both are present", () => {
+    expect(orderDateChannelLine({ orderDate: "2026-09-10", channelName: "TikTok Live" })).toBe("10 ก.ย. 2569 · TikTok Live");
+  });
+  it("shows just the date when channelName is null", () => {
+    expect(orderDateChannelLine({ orderDate: "2026-09-10", channelName: null })).toBe("10 ก.ย. 2569");
+  });
+  it("shows just the channel when orderDate is undefined", () => {
+    expect(orderDateChannelLine({ orderDate: undefined, channelName: "LINE OA" })).toBe("LINE OA");
+  });
+  it("renders — when neither field is available (e.g. getPendingLabelReviews' orderSources)", () => {
+    expect(orderDateChannelLine({})).toBe("—");
+    expect(orderDateChannelLine({ orderDate: undefined, channelName: null })).toBe("—");
   });
 });
