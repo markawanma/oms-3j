@@ -57,3 +57,42 @@ export async function extractPageTexts(pdf: PdfDocument): Promise<string[]> {
   const { text } = await extractText(pdf, { mergePages: false });
   return text;
 }
+
+/**
+ * M2 fix (12 ก.ย. 69, security perf): extracts text for exactly ONE page —
+ * used by getLabelPageSnippet (lib/actions/labels.ts), which only ever needs
+ * ±80 characters around one page's zipcode. extractPageTexts() above walks
+ * EVERY page of the document (unpdf's extractText with mergePages:false
+ * still processes the whole thing); for a 300-page file (MAX_LABEL_PAGES)
+ * that's ~300x more work than needed for a single "help me read this one
+ * page" click, and repeated clicks across a review queue compound it.
+ *
+ * `pdf` (the PDFDocumentProxy from getDocumentProxy/openPdf) is the real
+ * pdfjs-dist object underneath unpdf's thin wrapper — unpdf doesn't hide
+ * pdfjs's native API, it just bundles/configures it for serverless — so
+ * `.getPage()` is safe to call directly here rather than going through
+ * unpdf's own (whole-document-only) extractText() helper.
+ *
+ * Joins text items the same way pdfjs's own text-layer rendering does
+ * (respecting `hasEOL` for line breaks) — not byte-for-byte identical to
+ * whatever internal joining unpdf's extractText() does for the SAME page,
+ * but close enough that this is safe for a human-facing "does this word
+ * roughly match" snippet. It is NOT used for anything that decides
+ * match_status/province — that still goes exclusively through
+ * extractPageTexts() inside parseLabelFile, unchanged.
+ */
+export async function extractSinglePageText(pdf: PdfDocument, pageNo: number): Promise<string> {
+  if (!Number.isInteger(pageNo) || pageNo < 1 || pageNo > pdf.numPages) {
+    throw new PdfExtractError(`extractSinglePageText: page ${pageNo} out of range (1-${pdf.numPages})`);
+  }
+  const page = await pdf.getPage(pageNo);
+  const content = await page.getTextContent();
+  let text = "";
+  for (const item of content.items) {
+    if ("str" in item) {
+      text += item.str;
+      if (item.hasEOL) text += "\n";
+    }
+  }
+  return text;
+}

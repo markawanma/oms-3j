@@ -127,6 +127,27 @@ export type PendingLabelReviewRow = LabelReviewRow & {
 // stg_import_batch.file_name + stg_order_import.source_row_no ของแถวล่าสุดที่
 // fact_order_id ชี้มา"). importFileName/sourceRowNo เป็น null เมื่อออเดอร์นี้ไม่มี
 // แถว stg_order_import ผูกอยู่เลย (เช่น มาจากที่อื่นที่ไม่ใช่ Excel import ปกติ).
+// frontend-dev request (12 ก.ย. 69, ProvinceFixPanel UI on
+// feature/label-review-resolve-ui): orderDate/channelName/lastProvinceAudit
+// are populated by findOrdersByTracking() ONLY — getPendingLabelReviews()
+// has its own separate order-lookup (a different query shape, keyed by
+// tracking_no across many review-queue rows at once) and does not populate
+// them, so they're optional here rather than widening that other call
+// site's work for fields its current UI doesn't ask for. A consumer of
+// PendingLabelReviewRow.orderSources must treat these as always absent.
+export type ProvinceAuditEntry = {
+  action: "province_set" | "province_revert";
+  /** analytics.crm_audit_log.before/after — raw jsonb snapshot, shape owned
+   * by whichever RPC wrote it (label_write_province / _revert_province_audit
+   * in migration 0116) — e.g. `{ province_code, province_source, reason?,
+   * note?, page_id? }`. Left as `unknown`, not re-declared here, so this
+   * type file doesn't silently drift out of sync with the RPCs' actual
+   * jsonb shape (see 3j-migration-traps: single source of truth). */
+  before: unknown;
+  after: unknown;
+  at: string;
+};
+
 export type OrderSourceRef = {
   factOrderId: string;
   sourceOrderNo: string;
@@ -135,6 +156,18 @@ export type OrderSourceRef = {
   provinceSource: "import" | "label" | "manual";
   importFileName: string | null;
   sourceRowNo: number | null;
+  /** "YYYY-MM-DD" — findOrdersByTracking() only, see note above. */
+  orderDate?: string;
+  /** analytics.dim_channel.name — findOrdersByTracking() only. null if the
+   * order's channel_id doesn't resolve to a channel row (shouldn't happen,
+   * fact_order.channel_id is NOT NULL + FK'd, but defensive). */
+  channelName?: string | null;
+  /** Most recent province_set/province_revert audit row for this order, or
+   * null if none exists yet (e.g. province still 'TH-XX', never touched by
+   * a human or label_apply_matched) — findOrdersByTracking() only. Lets the
+   * UI show a real "ย้อนกลับ" button only when there is real history to
+   * revert, instead of guessing from provinceSource !== 'import'. */
+  lastProvinceAudit?: ProvinceAuditEntry | null;
 };
 
 // getLabelPageViewUrl() — owner 11 ก.ย., decision #2(ก): signed URL 60 วิ +

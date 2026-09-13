@@ -45,9 +45,10 @@ import {
   type LabelReviewRow,
   type OrderSourceRef,
   type PendingLabelReviewRow,
+  type ProvinceAuditEntry,
   type ResolveLabelPageResult,
 } from "@/lib/labels/types";
-import { looksLikePdf, openPdf, extractPageTexts, PdfExtractError } from "@/lib/labels/pdf";
+import { looksLikePdf, openPdf, extractPageTexts, extractSinglePageText, PdfExtractError } from "@/lib/labels/pdf";
 import { detectFormat, looksLikePackingSlipOnly } from "@/lib/labels/formats";
 import { matchProvince, type ProvinceCandidate } from "@/lib/labels/match";
 
@@ -86,6 +87,19 @@ function bangkokYearMonth(d: Date = new Date()): string {
 
 function revalidateLabelPaths(): void {
   revalidatePath("/tiktok/upload");
+}
+
+// L8 fix (12 ก.ย. 69, QA): setOrderProvince/revertOrderProvince/
+// resolveLabelPage/revertLabelPage all write analytics.fact_order.province_code
+// directly (not just stg_label_page) — /crm/orders and /crm/customers/[id]
+// both render that value (via v_fact_order), so a stale cache there would
+// show the old province right after a successful edit until some OTHER
+// action happened to revalidate those routes. ignoreLabelPage does NOT call
+// this — it never touches fact_order, only revalidateLabelPaths() applies.
+function revalidateProvinceChangePaths(): void {
+  revalidateLabelPaths();
+  revalidatePath("/crm/orders");
+  revalidatePath("/crm/customers");
 }
 
 // ============================================================================
@@ -1035,13 +1049,28 @@ function findAnyZipcode(text: string): { index: number; length: number } | null 
   return m ? { index: m.index, length: m[0].length } : null;
 }
 
-/** PDPA (owner 11 ก.ย., decision #2ข): mask any run of >=9 consecutive
- * digits (tracking numbers, phone numbers) inside a snippet that is about
- * to be sent to the browser — this is the ONLY processing step between raw
- * extracted PDF text and the response; nothing upstream of this ever writes
- * the snippet to a table or a log line. */
+/** PDPA (owner 11 ก.ย., decision #2ข): mask any run of >=9 digits (tracking
+ * numbers, phone numbers) inside a snippet that is about to be sent to the
+ * browser — this is the ONLY processing step between raw extracted PDF text
+ * and the response; nothing upstream of this ever writes the snippet to a
+ * table or a log line.
+ *
+ * M4 fix (12 ก.ย. 69, security): the original `/\d{9,}/g` only caught a
+ * literal unbroken run of digits — a phone number printed with separators
+ * ("081-234-5678", "081 234 5678") sailed straight through unmasked, since
+ * each hyphen/space-separated GROUP is only 3-4 digits on its own. Matches a
+ * digit optionally followed by one space/hyphen, repeated >=9 times, so
+ * "081-234-5678" (10 digits across 3 groups) is caught as one run.
+ *
+ * M5 note (12 ก.ย. 69, security): this can now also swallow a zipcode that
+ * sits right next to a phone/tracking number ("0812345678 10240" is ONE
+ * run under the rule above) — that's intentional/safe here (over-masking is
+ * the safe failure direction), the caller (getLabelPageSnippet) is
+ * responsible for splicing the real zipcode characters back in afterward
+ * since it knows the zipcode's own known-safe span; this function stays a
+ * dumb, maximally-conservative masker with no zipcode-awareness of its own. */
 function maskLongDigitRuns(text: string): string {
-  return text.replace(/\d{9,}/g, (run) => "•".repeat(run.length));
+  return text.replace(/(?:\d[\s-]?){9,}/g, (run) => "•".repeat(run.length));
 }
 
 interface OrderRefRow {
@@ -1050,13 +1079,21 @@ interface OrderRefRow {
   tracking_no: string | null;
   province_code: string;
   province_source: "import" | "label" | "manual";
+  channel_id: string;
+  order_date: string;
 }
 
 /** Shared by getPendingLabelReviews (above) in spirit but kept separate here
  * (different caller shape: an arbitrary order id list, not "every tracking_no
  * in today's review queue") — batch-looks-up "the latest stg_order_import
  * row per fact_order_id" + the import batch's file_name for a set of orders
- * already known to exist. Owner 11 ก.ย., decision #3. */
+ * already known to exist. Owner 11 ก.ย., decision #3.
+ *
+ * frontend-dev request (12 ก.ย. 69): also attaches channelName (dim_channel
+ * — global reference data, no shop_id column, same as getCrmEditOptions in
+ * lib/actions/crm.ts) and lastProvinceAudit (most recent crm_audit_log
+ * province_set/province_revert row per order) — see OrderSourceRef's field
+ * comments in lib/labels/types.ts for why these are findOrdersByTracking-only. */
 async function attachOrderSources(
   supabase: ReturnType<typeof getServiceClient>,
   shopId: string,
@@ -1095,6 +1132,53 @@ async function attachOrderSources(
     for (const b of (data ?? []) as { id: string; file_name: string | null }[]) fileNameByBatchId.set(b.id, b.file_name);
   }
 
+  // channel name — dim_channel is global reference data (no shop_id column,
+  // same reasoning as getCrmEditOptions in lib/actions/crm.ts), small table,
+  // one query regardless of how many distinct channels this order set uses.
+  const channelIds = [...new Set(orders.map((o) => o.channel_id))];
+  const channelNameById = new Map<string, string>();
+  for (const chunk of chunkArray(channelIds, PENDING_REVIEW_FILE_LOOKUP_CHUNK_SIZE)) {
+    const { data, error } = await supabase.schema(SCHEMA).from("dim_channel").select("id, name").in("id", chunk);
+    if (error) throw error;
+    for (const c of (data ?? []) as { id: string; name: string }[]) channelNameById.set(c.id, c.name);
+  }
+
+  // latest province_set/province_revert audit row per order — order by
+  // created_at desc then keep the first-seen (= latest) per entity_id, same
+  // "page past the DB, reduce client-side" pattern as latestImportByOrderId
+  // above (fine at this call's scale: findOrdersByTracking caps each side of
+  // its search at 20 rows, never the unbounded-queue volumes fetchAllRows()
+  // exists for).
+  interface ProvinceAuditRow {
+    entity_id: string | null;
+    action: string;
+    before: unknown;
+    after: unknown;
+    created_at: string;
+  }
+  const lastProvinceAuditByOrderId = new Map<string, ProvinceAuditEntry>();
+  for (const chunk of chunkArray(orderIds, PENDING_REVIEW_FILE_LOOKUP_CHUNK_SIZE)) {
+    const { data, error } = await supabase
+      .schema(SCHEMA)
+      .from("crm_audit_log")
+      .select("entity_id, action, before, after, created_at")
+      .eq("shop_id", shopId)
+      .eq("entity_type", "fact_order")
+      .in("entity_id", chunk)
+      .in("action", ["province_set", "province_revert"])
+      .order("created_at", { ascending: false });
+    if (error) throw error;
+    for (const r of (data ?? []) as ProvinceAuditRow[]) {
+      if (!r.entity_id || lastProvinceAuditByOrderId.has(r.entity_id)) continue;
+      lastProvinceAuditByOrderId.set(r.entity_id, {
+        action: r.action as "province_set" | "province_revert",
+        before: r.before,
+        after: r.after,
+        at: r.created_at,
+      });
+    }
+  }
+
   return orders.map((o) => {
     const imp = latestImportByOrderId.get(o.id);
     return {
@@ -1105,6 +1189,9 @@ async function attachOrderSources(
       provinceSource: o.province_source,
       importFileName: imp ? (fileNameByBatchId.get(imp.batchId) ?? null) : null,
       sourceRowNo: imp ? imp.sourceRowNo : null,
+      orderDate: o.order_date,
+      channelName: channelNameById.get(o.channel_id) ?? null,
+      lastProvinceAudit: lastProvinceAuditByOrderId.get(o.id) ?? null,
     };
   });
 }
@@ -1132,14 +1219,14 @@ export async function findOrdersByTracking(query: string): Promise<ActionResult<
       supabase
         .schema(SCHEMA)
         .from("fact_order")
-        .select("id, source_order_no, tracking_no, province_code, province_source")
+        .select("id, source_order_no, tracking_no, province_code, province_source, channel_id, order_date")
         .eq("shop_id", shopId)
         .eq("tracking_no", clean)
         .limit(20),
       supabase
         .schema(SCHEMA)
         .from("fact_order")
-        .select("id, source_order_no, tracking_no, province_code, province_source")
+        .select("id, source_order_no, tracking_no, province_code, province_source, channel_id, order_date")
         .eq("shop_id", shopId)
         .eq("source_order_no", clean)
         .limit(20),
@@ -1194,7 +1281,7 @@ export async function setOrderProvince(
     });
     if (error) throw error;
 
-    revalidateLabelPaths();
+    revalidateProvinceChangePaths();
     return { ok: true, data: undefined };
   } catch (err) {
     // RPC raises a specific Thai/English message (e.g. "reason code is
@@ -1226,7 +1313,7 @@ export async function revertOrderProvince(factOrderId: string): Promise<ActionRe
     });
     if (error) throw error;
 
-    revalidateLabelPaths();
+    revalidateProvinceChangePaths();
     return { ok: true, data: undefined };
   } catch (err) {
     console.error("revertOrderProvince failed", err);
@@ -1275,7 +1362,7 @@ export async function resolveLabelPage(input: ResolveLabelPageInput): Promise<Ac
 
     const row = (Array.isArray(data) ? data[0] : data) as { applied_orders?: number } | null;
 
-    revalidateLabelPaths();
+    revalidateProvinceChangePaths();
     return { ok: true, data: { appliedOrders: Number(row?.applied_orders) || 0 } };
   } catch (err) {
     console.error("resolveLabelPage failed", err);
@@ -1334,7 +1421,7 @@ export async function revertLabelPage(pageId: string): Promise<ActionResult> {
     });
     if (error) throw error;
 
-    revalidateLabelPaths();
+    revalidateProvinceChangePaths();
     return { ok: true, data: undefined };
   } catch (err) {
     console.error("revertLabelPage failed", err);
@@ -1434,26 +1521,41 @@ export async function getLabelPageSnippet(pageId: string): Promise<ActionResult<
       .download(found.storagePath);
     if (downloadErr || !blob) throw downloadErr ?? new Error("storage download returned no data");
 
+    // M2 fix (12 ก.ย. 69, security): same guard as parseLabelFile (line ~402
+    // at the time of this fix) — check the byte size BEFORE arrayBuffer()
+    // pulls the whole blob into heap. Storage should never actually hand
+    // back something over MAX_LABEL_FILE_BYTES (0098's bucket-level limit),
+    // but that's an external contract, not something this function should
+    // trust blindly for a "just show me a snippet" click.
+    if (blob.size > MAX_LABEL_FILE_BYTES) {
+      return { ok: false, error: "ไฟล์จริงในระบบใหญ่เกิน 20MB — ดูข้อความไม่ได้ แจ้งทีมเทคนิค" };
+    }
+
     const bytes = new Uint8Array(await blob.arrayBuffer());
     if (!looksLikePdf(bytes)) {
       return { ok: false, error: "ไฟล์นี้ไม่ใช่ PDF ที่อ่านได้แล้ว — อัปโหลดใหม่" };
     }
 
-    let pageTexts: string[];
+    let text: string;
     try {
       const pdf = await openPdf(bytes);
-      pageTexts = await extractPageTexts(pdf);
+      // M2 fix (12 ก.ย. 69, security perf): extract ONLY this page, not the
+      // whole document — see extractSinglePageText's header comment
+      // (lib/labels/pdf.ts) for why extractPageTexts() here would redo work
+      // for every other page on a file up to MAX_LABEL_PAGES=300 long, on
+      // every single "ดูข้อความ" click.
+      text = await extractSinglePageText(pdf, found.page.page_no);
     } catch (extractErr) {
-      // PdfExtractError (or anything else openPdf/extractPageTexts throws) is
-      // not a hard-fail case here — the file opened fine at the original
-      // parse, this is just a best-effort re-read. Logging the error OBJECT
-      // is fine (stack trace / message only, never page content) — the PDPA
-      // "ไม่เก็บ ไม่ log" rule is about the extracted TEXT, not this.
+      // PdfExtractError (or anything else openPdf/extractSinglePageText
+      // throws) is not a hard-fail case here — the file opened fine at the
+      // original parse, this is just a best-effort re-read. Logging the
+      // error OBJECT is fine (stack trace / message only, never page
+      // content) — the PDPA "ไม่เก็บ ไม่ log" rule is about the extracted
+      // TEXT, not this.
       console.error("getLabelPageSnippet: re-extract failed, degrading to no snippet", extractErr);
       return { ok: true, data: { snippet: null, zipcodeFound: false } };
     }
 
-    const text = pageTexts[found.page.page_no - 1] ?? "";
     if (!text.trim()) {
       return { ok: true, data: { snippet: null, zipcodeFound: false } };
     }
@@ -1475,7 +1577,25 @@ export async function getLabelPageSnippet(pageId: string): Promise<ActionResult<
 
     const start = Math.max(0, idx - SNIPPET_CONTEXT_CHARS);
     const end = Math.min(text.length, idx + matchLen + SNIPPET_CONTEXT_CHARS);
-    const snippet = maskLongDigitRuns(text.slice(start, end));
+    const rawSnippet = text.slice(start, end);
+    const maskedSnippet = maskLongDigitRuns(rawSnippet);
+
+    // M5 fix (12 ก.ย. 69, security): the zipcode itself is the whole reason
+    // this snippet exists (it's what the owner needs to visually verify) and
+    // is NOT PII on its own (design §7 / lib/labels/match.ts header — same
+    // reasoning zipcode is stored in stg_label_page.zipcode unmasked
+    // already). But when it sits directly next to a phone/tracking number
+    // with only a space between them ("0812345678 10240"), maskLongDigitRuns'
+    // `/(?:\d[\s-]?){9,}/g` run can swallow BOTH — the owner would see
+    // "••••••••••• •••••" with the one number they actually need to read
+    // blacked out too. maskLongDigitRuns() preserves string length (masks
+    // 1:1 with "•"), so the zipcode's own span — idx/matchLen, already known
+    // relative to `text` — maps to the SAME offsets in maskedSnippet as in
+    // rawSnippet; splice the real characters back in at that span,
+    // regardless of whether the mask ate into it.
+    const zipStart = idx - start;
+    const zipEnd = zipStart + matchLen;
+    const snippet = maskedSnippet.slice(0, zipStart) + rawSnippet.slice(zipStart, zipEnd) + maskedSnippet.slice(zipEnd);
 
     // PDPA (owner 11 ก.ย., decision #2ข: "ไม่เก็บ ไม่ log") — ไม่มี insert/
     // update ใดๆ ในฟังก์ชันนี้เลย และห้าม console.log/console.error ตัวแปร

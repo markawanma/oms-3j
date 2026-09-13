@@ -13,6 +13,16 @@
 -- deliberate exception to "test before touching real data" (see its header)
 -- since it is itself the real, permanent correction — not a test of one.
 --
+-- 🔴 APPLY ORDER (H2, 12 ก.ย. 69 security review): this file (0116) MUST be
+-- applied BEFORE migrations 0112-0115 (cancel-detection branch), which
+-- rewrite analytics.transform_pending_orders entirely and are being given a
+-- line that reads province_source (`province_source = case when
+-- excluded.province_code = 'TH-XX' then analytics.fact_order.province_source
+-- else 'import' end`) — that line only makes sense if the province_source
+-- column already exists (§2 below creates it). This file does NOT patch
+-- transform_pending_orders itself — the "import re-import respects manual
+-- edits" fix (H2) is being done there instead, in 0114, not duplicated here.
+--
 -- ============================================================================
 -- What this file does
 -- ============================================================================
@@ -39,17 +49,21 @@
 --    carrying a province_code key is resolved BEFORE the whitelist closes
 --    the door on it (see §7 below for the exact rule + why it is NOT wrapped
 --    in the verify script's forced-rollback do-block).
+-- 8) (added 12 ก.ย. 69, H1) analytics.label_apply_matched (0097, the
+--    auto/bulk apply path) now also stamps province_source='label'.
 --
 -- Touches: analytics.stg_label_page (alter) · analytics.fact_order (alter +
--- data write via new RPCs and §7's one-time migration) · analytics.crm_audit_log
--- (alter check constraint) · analytics.label_text_rule (new) ·
--- analytics.crm_order_override (data migration only, §7) ·
--- analytics.crm_set_order_override (replace).
+-- data write via new RPCs, §7's one-time migration, and §9's
+-- label_apply_matched) · analytics.crm_audit_log (alter check constraint) ·
+-- analytics.label_text_rule (new) · analytics.crm_order_override (data
+-- migration only, §7) · analytics.crm_set_order_override (replace) ·
+-- analytics.label_apply_matched (replace, §9).
 --
 -- 3j-migration-traps checklist:
---  - crm_set_order_override signature unchanged (uuid, jsonb, text) -> plain
---    `create or replace` is correct (trap #1). All 7 new/replaced functions
---    below get explicit revoke+grant regardless (trap #2).
+--  - crm_set_order_override / label_apply_matched signatures unchanged ->
+--    plain `create or replace` is correct for both (trap #1). All 9 new/
+--    replaced functions in this file get explicit revoke+grant regardless
+--    (trap #2).
 --  - No view touched (trap #3 n/a).
 --  - Every text param that becomes a jsonb value or gets compared is a plain
 --    string, not client-supplied numeric -> no new NaN surface (trap #4).
@@ -81,17 +95,30 @@
 do $$
 declare
   v_conname text;
+  v_match_count int;
 begin
   -- dynamic lookup instead of assuming Postgres's default auto-generated
   -- constraint name (`<table>_<col>_check`) — this table has TWO check
   -- constraints (page_no > 0, match_status in (...)), so the ILIKE narrows
   -- to the one that actually mentions match_status; safe to re-run (2nd run
   -- finds+drops+recreates the identical new definition, a no-op net effect).
-  select conname into v_conname
+  select count(*) into v_match_count
     from pg_constraint
    where conrelid = 'analytics.stg_label_page'::regclass
      and contype = 'c'
      and pg_get_constraintdef(oid) ilike '%match_status%';
+  if v_match_count > 1 then
+    -- L2: don't silently pick one out of several matches — abort loudly.
+    raise exception 'stg_label_page: % check constraints matched %%match_status%% — refusing to guess, fix manually', v_match_count;
+  end if;
+
+  select conname into v_conname
+    from pg_constraint
+   where conrelid = 'analytics.stg_label_page'::regclass
+     and contype = 'c'
+     and pg_get_constraintdef(oid) ilike '%match_status%'
+   order by conname
+   limit 1;
   if v_conname is not null then
     execute format('alter table analytics.stg_label_page drop constraint %I', v_conname);
   end if;
@@ -168,6 +195,13 @@ comment on column analytics.fact_order.province_source is
 -- but got skipped_has_province never actually wrote anything, so its
 -- fact_order_ids — if populated at all in that edge case — must not be
 -- reclassified).
+--
+-- Expected effect on the live DB (Tech Lead, 12 ก.ย. 69, verified against
+-- the count of applied stg_label_page rows): 286 fact_order rows relabeled
+-- 'import' -> 'label'. If a real apply produces a materially different
+-- number, stop and ask before proceeding — that means the assumption this
+-- backfill's guard is built on (every applied fact_order_ids entry is
+-- currently still 'import') doesn't hold.
 update analytics.fact_order fo
    set province_source = 'label'
   from (
@@ -183,16 +217,45 @@ update analytics.fact_order fo
 -- ============================================================================
 -- 3. crm_audit_log.action — add province_set / province_revert
 -- ============================================================================
+-- 🔴 security fix (C1, 12 ก.ย. 69): the first cut of this constraint copied
+-- 0021's check list verbatim and MISSED 'customer_merge'/'merge_dismiss' —
+-- added later by 0023, a DIFFERENT migration that touched the SAME object.
+-- crm_audit_log already had 72 real 'customer_merge' rows on the live DB —
+-- the old version of this ALTER would have FAILED validation on apply (or,
+-- if it had somehow succeeded, silently broken the merge-customers feature
+-- for every call after). Confirmed against the live table's current
+-- constraint (Tech Lead, 12 ก.ย.) — full 9-value list carried forward below.
+--
+-- LESSON (write it down so it doesn't repeat): when re-issuing a CHECK/
+-- constraint on an existing object, copy the list from the LATEST migration
+-- that touched that object, never from the migration that originally
+-- created it — `grep -rl` the object name across supabase/migrations/ and
+-- read the newest match, or better, pull the live definition via
+-- pg_get_constraintdef()/pg_get_functiondef() before writing the replacement
+-- (see H1's label_apply_matched below for that exact technique).
 
 do $$
 declare
   v_conname text;
+  v_match_count int;
 begin
-  select conname into v_conname
+  select count(*) into v_match_count
     from pg_constraint
    where conrelid = 'analytics.crm_audit_log'::regclass
      and contype = 'c'
      and pg_get_constraintdef(oid) ilike '%action%';
+  if v_match_count > 1 then
+    -- L2: ambiguous match = don't guess which one to drop — abort loudly.
+    raise exception 'crm_audit_log: % check constraints matched %%action%% — refusing to guess, fix manually', v_match_count;
+  end if;
+
+  select conname into v_conname
+    from pg_constraint
+   where conrelid = 'analytics.crm_audit_log'::regclass
+     and contype = 'c'
+     and pg_get_constraintdef(oid) ilike '%action%'
+   order by conname
+   limit 1;
   if v_conname is not null then
     execute format('alter table analytics.crm_audit_log drop constraint %I', v_conname);
   end if;
@@ -202,8 +265,12 @@ alter table analytics.crm_audit_log
   add constraint crm_audit_log_action_check
   check (
     action in (
+      -- 0021 (original 7):
       'order_override_set', 'order_override_clear', 'customer_edit',
       'pii_edit', 'note_add', 'note_edit', 'note_delete',
+      -- 0023 (customer merge, +2 — the values this file's first cut missed):
+      'customer_merge', 'merge_dismiss',
+      -- this migration (+2):
       'province_set', 'province_revert'
     )
   );
@@ -226,11 +293,43 @@ create table if not exists analytics.label_text_rule (
   kind text not null check (kind in ('strip_codepoint', 'alias')),
   -- PDPA guard (owner 11 ก.ย.): a taught snippet must be short and
   -- non-numeric-ish enough that it can never itself carry a tracking
-  -- number/phone/zip run — length <=25 AND no run of 3+ consecutive digits.
-  -- Enforced here as a real CHECK (backstop) in addition to the RPC-level
-  -- pre-validation in label_resolve_page (friendlier error message there).
+  -- number/phone/zip run. M3 fix (12 ก.ย. 69, security), history of 2
+  -- attempts before landing here — both caught in dry-run against the live
+  -- DB before either shipped:
+  --
+  -- Attempt 1 (digit-run block): only blocked runs of >=3 consecutive ASCII
+  -- digits — "ซอย 12" (1-2 digits) and any Thai-numeral snippet sailed
+  -- straight through (plain `\d` is ASCII-only).
+  --
+  -- Attempt 2 (positive allow-list, `[[:alpha:][:space:]]+`, later widened
+  -- with explicit Thai combining-mark ranges to fix 'ใกล้วัดใหญ่' being
+  -- rejected): worked in isolated testing, but `[[:alpha:]]` in Postgres is
+  -- LOCALE-DEPENDENT (bound to the database's lc_ctype) — a CHECK constraint
+  -- that's supposed to hold true forever must never depend on a session/db
+  -- setting that can differ across environments or change over time. Not
+  -- acceptable for a permanent constraint even though it happened to work
+  -- against this specific DB's current locale.
+  --
+  -- Final approach — DENY-list, no locale-dependent classes except
+  -- [:digit:]/[:punct:] used only as an EXTRA belt-and-suspenders catch-all
+  -- (the explicit ranges above them are what actually carries the
+  -- guarantee, locale-independent either way since they're literal
+  -- codepoint/character ranges, not POSIX classes): reject ANY digit of any
+  -- script (ASCII, Thai ๐-๙, full-width０-９, plus whatever [:digit:] catches
+  -- on top of those) and ANY punctuation (blocks "บ้าน-เลข" style
+  -- injection). Letters, spaces, and Thai combining marks (tone marks +
+  -- above/below vowels) are simply never in the deny-list, so they pass
+  -- through untouched regardless of locale. Enforced here as a real CHECK
+  -- (backstop) in addition to the RPC-level pre-validation in
+  -- label_resolve_page (friendlier error message there — same rule, kept in
+  -- sync manually, same duplication-risk note as the reason-code CHECKs).
   pattern text not null check (
-    length(pattern) > 0 and length(pattern) <= 25 and pattern !~ '\d{3,}'
+    length(pattern) > 0 and length(pattern) <= 25
+    and pattern !~ '[0-9]'       -- ASCII digits
+    and pattern !~ '[๐-๙]'       -- Thai digits (U+0E50-U+0E59)
+    and pattern !~ '[０-９]'     -- full-width digits (U+FF10-U+FF19)
+    and pattern !~ '[[:digit:]]' -- any other script's digits the locale recognizes
+    and pattern !~ '[[:punct:]]' -- punctuation (hyphens, slashes, etc.)
   ),
   province_code text not null references analytics.dim_geo (province_code),
   active boolean not null default false,
@@ -320,6 +419,14 @@ begin
     'no_data_yet', 'unreadable', 'wrong_label', 'customer_moved', 'other'
   ) then
     raise exception 'label_write_province: invalid reason code %', p_reason;
+  end if;
+  -- M1 fix (12 ก.ย. 69): p_note lands in crm_audit_log.after, an
+  -- append-only table (no update/delete path — see 0021 §2.3) — an
+  -- unbounded note would be permanent, unremovable bloat on a table that
+  -- already carries PII in other rows (pii_edit). Cap it here so a bad
+  -- caller/copy-paste accident can't write an essay into forever-storage.
+  if p_note is not null and length(p_note) > 500 then
+    raise exception 'label_write_province: p_note too long (% chars, max 500)', length(p_note);
   end if;
 
   select fo.province_code, fo.province_source into v_before_code, v_before_source
@@ -439,9 +546,19 @@ grant execute on function analytics.label_revert_province_audit(uuid, uuid, uuid
 
 -- ============================================================================
 -- 6. Public RPCs — every one: crm_require_owner_admin first, revoke from
---    public/anon/authenticated then grant to authenticated + service_role
---    (RPC does its own membership check in-body; app currently calls as
---    service_role which short-circuits that check — see 0021 header).
+--    public/anon/authenticated then grant to service_role ONLY (H3, 12 ก.ย.
+--    69 security review — one decision applied to every write RPC in this
+--    file, including label_apply_matched in §9 and crm_set_order_override in
+--    §8): this app has no real end-user auth yet and calls every RPC through
+--    the service client (lib/supabase/server.ts) exclusively — an
+--    `authenticated` grant on a WRITE RPC was dead privilege surface that
+--    only mattered the day real auth ships, and until then it's one more
+--    role that can be handed a leaked/misused anon-tier JWT and still call a
+--    province-writing RPC directly via PostgREST. crm_require_owner_admin's
+--    service_role short-circuit (0021) means the app's actual authorization
+--    story doesn't change. READ-only grants (analytics.label_text_rule
+--    SELECT in §4, and every plain `grant select on <table>` elsewhere in
+--    this schema) are unaffected — this narrowing is write-RPCs only.
 -- ============================================================================
 
 -- --------------------------------------------------------------------------
@@ -467,7 +584,7 @@ end;
 $$;
 
 revoke execute on function analytics.label_set_order_province(uuid, uuid, text, text, text) from public, anon, authenticated;
-grant execute on function analytics.label_set_order_province(uuid, uuid, text, text, text) to authenticated, service_role;
+grant execute on function analytics.label_set_order_province(uuid, uuid, text, text, text) to service_role;
 
 -- --------------------------------------------------------------------------
 -- label_revert_order_province — undoes the MOST RECENT province_set audit
@@ -509,7 +626,7 @@ end;
 $$;
 
 revoke execute on function analytics.label_revert_order_province(uuid, uuid) from public, anon, authenticated;
-grant execute on function analytics.label_revert_order_province(uuid, uuid) to authenticated, service_role;
+grant execute on function analytics.label_revert_order_province(uuid, uuid) to service_role;
 
 -- --------------------------------------------------------------------------
 -- label_resolve_page — the review-queue "กดได้" action. Finds every
@@ -581,9 +698,20 @@ begin
     v_pattern := btrim(p_taught_snippet);
     if v_pattern = '' then
       v_pattern := null; -- caller sent whitespace-only — treat as "no snippet"
-    elsif length(v_pattern) > 25 or v_pattern ~ '\d{3,}' then
+    -- M3: kept in sync with label_text_rule.pattern's CHECK above — deny-list
+    -- (no ASCII/Thai/full-width/locale-digit, no punctuation), NOT a
+    -- `[[:alpha:]]`-based allow-list, because that class is locale-dependent
+    -- (see that CHECK's comment for the full history — 2 earlier attempts
+    -- caught in dry-run 12 ก.ย. 69 against the live DB).
+    elsif length(v_pattern) > 25
+       or v_pattern ~ '[0-9]'
+       or v_pattern ~ '[๐-๙]'
+       or v_pattern ~ '[０-９]'
+       or v_pattern ~ '[[:digit:]]'
+       or v_pattern ~ '[[:punct:]]'
+    then
       raise exception
-        'label_resolve_page: taught snippet invalid — must be <=25 chars with no run of 3+ digits (got % chars)',
+        'label_resolve_page: taught snippet invalid — must be <=25 chars, no digits (any script), no punctuation (got % chars)',
         length(v_pattern);
     end if;
   end if;
@@ -600,9 +728,15 @@ begin
        for update of fo
     ) locked;
   if v_fact_order_ids is null or array_length(v_fact_order_ids, 1) = 0 then
+    -- L6 fix (12 ก.ย. 69, security): don't put the real tracking number in
+    -- the exception message — it propagates up through the RPC error and
+    -- into resolveLabelPage's `console.error("resolveLabelPage failed",
+    -- err)` (lib/actions/labels.ts), which on Vercel lands in plaintext
+    -- server logs. page_id is enough to look the tracking number up
+    -- server-side (stg_label_page) if actually needed for debugging.
     raise exception
-      'label_resolve_page: no orders found with tracking number % yet — import the order first',
-      v_page.tracking_no;
+      'label_resolve_page: no orders found for this page''s tracking number yet (page %) — import the order first',
+      p_page_id;
   end if;
 
   foreach v_fact_order_id in array v_fact_order_ids loop
@@ -618,10 +752,21 @@ begin
          applied_by = auth.uid(),
          applied_at = now(),
          fact_order_ids = v_fact_order_ids,
-         -- stash the pre-resolve status so label_revert_page can restore it
-         -- exactly, rather than guessing a generic fallback.
-         match_detail = coalesce(match_detail, '{}'::jsonb) || jsonb_build_object('prev_status', v_page.match_status)
-   where id = p_page_id;
+         -- H4 fix (12 ก.ย. 69): stash BOTH the pre-resolve status AND the
+         -- pre-resolve province_code so label_revert_page can restore the
+         -- page to its exact prior state, not just its status. Without
+         -- prev_province_code, revert used to null out province_code
+         -- unconditionally — for a page that started 'conflict' (which DOES
+         -- carry the parser's real candidate province_code, set at parse
+         -- time), that destroyed the parser's answer permanently: a
+         -- reverted conflict page could never auto-apply again on a later
+         -- re-parse (label_apply_matched requires province_code is not
+         -- null), it would just sit there with a real tracking match and no
+         -- province forever until someone resolved it by hand again.
+         match_detail = coalesce(match_detail, '{}'::jsonb)
+           || jsonb_build_object('prev_status', v_page.match_status, 'prev_province_code', v_page.province_code)
+   where id = p_page_id
+     and shop_id = p_shop_id; -- L1: defense in depth (already scoped by the earlier SELECT ... FOR UPDATE)
 
   if v_pattern is not null then
     insert into analytics.label_text_rule (shop_id, kind, pattern, province_code, active, evidence_count, note)
@@ -636,7 +781,7 @@ end;
 $$;
 
 revoke execute on function analytics.label_resolve_page(uuid, uuid, text, text, text, text) from public, anon, authenticated;
-grant execute on function analytics.label_resolve_page(uuid, uuid, text, text, text, text) to authenticated, service_role;
+grant execute on function analytics.label_resolve_page(uuid, uuid, text, text, text, text) to service_role;
 
 -- --------------------------------------------------------------------------
 -- label_ignore_page — "ไม่ใช่ใบปะหน้า" / not worth resolving. Never touches
@@ -665,6 +810,12 @@ begin
   ) then
     raise exception 'label_ignore_page: invalid reason code %', p_reason;
   end if;
+  -- M1 fix (12 ก.ย. 69): p_note here lands in stg_label_page.applied_note
+  -- (not audit_log, but still no user-facing edit/delete path in this
+  -- phase) — same cap as label_write_province for the same reason.
+  if p_note is not null and length(p_note) > 500 then
+    raise exception 'label_ignore_page: p_note too long (% chars, max 500)', length(p_note);
+  end if;
 
   select * into v_page
     from analytics.stg_label_page
@@ -688,12 +839,13 @@ begin
          applied_by = auth.uid(),
          applied_at = now(),
          match_detail = coalesce(match_detail, '{}'::jsonb) || jsonb_build_object('prev_status', v_page.match_status)
-   where id = p_page_id;
+   where id = p_page_id
+     and shop_id = p_shop_id; -- L1: defense in depth (already scoped by the earlier SELECT ... FOR UPDATE)
 end;
 $$;
 
 revoke execute on function analytics.label_ignore_page(uuid, uuid, text, text) from public, anon, authenticated;
-grant execute on function analytics.label_ignore_page(uuid, uuid, text, text) to authenticated, service_role;
+grant execute on function analytics.label_ignore_page(uuid, uuid, text, text) to service_role;
 
 -- --------------------------------------------------------------------------
 -- label_revert_page — undoes a label_resolve_page call: for every order in
@@ -717,6 +869,7 @@ as $$
 declare
   v_page analytics.stg_label_page%rowtype;
   v_prev_status text;
+  v_prev_province_code text;
   v_fact_order_id uuid;
   v_audit_id uuid;
 begin
@@ -735,6 +888,13 @@ begin
   end if;
 
   v_prev_status := coalesce(v_page.match_detail ->> 'prev_status', 'needs_review');
+  -- H4 fix (12 ก.ย. 69): restore the parser's own province_code from before
+  -- resolve, not null — null used to permanently destroy a 'conflict' page's
+  -- real candidate answer (see label_resolve_page's stash comment above for
+  -- why that broke future auto-apply). Legitimately null when the page never
+  -- had a parser-matched province to begin with (e.g. started as
+  -- 'order_not_found'/'undetected'/'parse_failed').
+  v_prev_province_code := v_page.match_detail ->> 'prev_province_code';
 
   if v_page.fact_order_ids is not null then
     foreach v_fact_order_id in array v_page.fact_order_ids loop
@@ -758,20 +918,21 @@ begin
 
   update analytics.stg_label_page
      set match_status = v_prev_status,
-         province_code = null,
+         province_code = v_prev_province_code,
          applied_source = null,
          applied_reason = null,
          applied_note = null,
          applied_by = null,
          applied_at = null,
          fact_order_ids = null,
-         match_detail = (coalesce(match_detail, '{}'::jsonb) - 'prev_status')
-   where id = p_page_id;
+         match_detail = (coalesce(match_detail, '{}'::jsonb) - 'prev_status' - 'prev_province_code')
+   where id = p_page_id
+     and shop_id = p_shop_id; -- L1: defense in depth (already scoped by the earlier SELECT ... FOR UPDATE)
 end;
 $$;
 
 revoke execute on function analytics.label_revert_page(uuid, uuid) from public, anon, authenticated;
-grant execute on function analytics.label_revert_page(uuid, uuid) to authenticated, service_role;
+grant execute on function analytics.label_revert_page(uuid, uuid) to service_role;
 
 -- ============================================================================
 -- 7. crm_order_override — data migration (owner 11 ก.ย., decision #4:
@@ -779,7 +940,10 @@ grant execute on function analytics.label_revert_page(uuid, uuid) to authenticat
 --    crm_order_override where overrides ? 'province_code'; ถ้ามี ให้ย้ายค่า
 --    เข้า raw fact_order.province_code (เฉพาะแถวที่ raw = TH-XX) พร้อม audit
 --    province_set source 'crm_override_migrated' แล้วลบ key ออกจาก jsonb —
---    ทำใน migration เดียวกัน")
+--    ทำใน migration เดียวกัน") — L4 fix (12 ก.ย.): the actual `reason` value
+--    written below is 'other' (one of the 5 fixed codes), not the literal
+--    string 'crm_override_migrated' this quote names — the specific label
+--    moved into `note` instead, see the INSERT below for why.
 --
 --    ⚠️ NOT wrapped in a forced-rollback do-block like verify script's other
 --    cases — this IS the real, intended, permanent effect of this migration
@@ -814,7 +978,19 @@ begin
      where ov.overrides ? 'province_code'
      for update of ov
   loop
-    if v_row.raw_province = 'TH-XX' and (v_row.overrides ->> 'province_code') is not null then
+    -- L5 fix (12 ก.ย. 69): the OLD crm_set_order_override never validated a
+    -- province_code VALUE against analytics.dim_geo (jsonb has no FK) — only
+    -- that the KEY was in the whitelist — so a malformed/stale value is
+    -- theoretically possible even though live data has 0 such rows today
+    -- (Tech Lead, 12 ก.ย.). Checking it here, BEFORE the write, means a bad
+    -- value is treated the same as any other "can't safely migrate" case
+    -- (falls to the else branch, dropped not applied) instead of hitting
+    -- fact_order.province_code's FK mid-loop and aborting the WHOLE
+    -- migration over one bad row.
+    if v_row.raw_province = 'TH-XX'
+       and (v_row.overrides ->> 'province_code') is not null
+       and exists (select 1 from analytics.dim_geo g where g.province_code = v_row.overrides ->> 'province_code')
+    then
       -- same structural guard as label_apply_matched: only ever write over
       -- the blank sentinel, never a real value — belt-and-suspenders on top
       -- of the `raw_province = 'TH-XX'` filter already in the cursor query.
@@ -833,19 +1009,29 @@ begin
           jsonb_build_object('province_code', 'TH-XX', 'province_source', 'import'),
           jsonb_build_object(
             'province_code', v_row.overrides ->> 'province_code', 'province_source', 'manual',
-            'reason', 'crm_override_migrated',
-            'note', 'ย้ายจาก crm_order_override ตอนถอด province_code ออกจาก whitelist (0116)'
+            -- L4 fix (12 ก.ย. 69): 'crm_override_migrated' is NOT one of the
+            -- 5 fixed reason codes the CHECK/RPCs enforce elsewhere in this
+            -- file (this INSERT is a raw jsonb write inside a migration
+            -- do-block, so nothing stops it from drifting off that set —
+            -- but drifting off it defeats the whole point of having a fixed
+            -- set the UI renders as a closed dropdown). Use 'other' + put
+            -- the specific explanation in note instead, so every province
+            -- audit row in this table always has a reason from the same
+            -- closed set, no exceptions.
+            'reason', 'other',
+            'note', 'ย้ายจาก crm_order_override ตอนถอด province_code ออกจาก whitelist (0116, ค่าเดิมของ reason ก่อนแก้ตาม L4 = crm_override_migrated)'
           )
         );
         v_migrated := v_migrated + 1;
       end if;
     else
-      -- raw already carries a real (non-TH-XX) province that disagrees with
-      -- (or duplicates) the override — the override is simply dropped, not
-      -- applied. Its prior existence is still visible via the
-      -- order_override_set audit row written when it was originally set
-      -- (0021) — nothing is silently erased from history, it just stops
-      -- being an active override going forward.
+      -- One of: raw already carries a real (non-TH-XX) province that
+      -- disagrees with (or duplicates) the override, OR (L5) the override's
+      -- province_code value isn't a real analytics.dim_geo row — either way
+      -- the override is simply dropped, not applied. Its prior existence is
+      -- still visible via the order_override_set audit row written when it
+      -- was originally set (0021) — nothing is silently erased from
+      -- history, it just stops being an active override going forward.
       v_dropped := v_dropped + 1;
     end if;
 
@@ -934,6 +1120,129 @@ end;
 $$;
 
 revoke execute on function analytics.crm_set_order_override(uuid, jsonb, text) from public, anon, authenticated;
-grant execute on function analytics.crm_set_order_override(uuid, jsonb, text) to authenticated, service_role;
+grant execute on function analytics.crm_set_order_override(uuid, jsonb, text) to service_role;
+
+-- ============================================================================
+-- 9. label_apply_matched — stamp province_source='label' (H1, 12 ก.ย. 69)
+-- ============================================================================
+-- Without this, every auto-applied province (the label_apply_matched path,
+-- 0097 — the bulk/unsupervised path that runs on every upload/re-parse)
+-- stays tagged province_source='import' by the column's DEFAULT (§2 above),
+-- indistinguishable from an order whose province has NEVER been verified by
+-- anything. That directly breaks the "ทุกแถวต้องบอกที่มา" requirement this
+-- whole migration exists for (design decision #3) and the teach-loop's
+-- future ability to tell "never checked" apart from "label already said
+-- this and it was TH-XX -> real."
+--
+-- Body below is BYTE-IDENTICAL to the live analytics.label_apply_matched(uuid,
+-- uuid) on the DB (pulled via pg_get_functiondef by Tech Lead, 12 ก.ย. 69 —
+-- md5 8841871c0b43471d35fa63ebc4c26c66; source kept at
+-- scratchpad/label_apply_matched_live.sql) EXCEPT for exactly one added line
+-- in the UPDATE (`province_source = 'label',`) — everything else, including
+-- comments/whitespace inside the function body, is untouched on purpose so a
+-- future diff against the live definition only ever shows that one line.
+-- Trap #1 n/a (signature unchanged, (uuid, uuid)) -> plain `create or
+-- replace` is correct. Trap #2: re-grant below, narrowed to service_role
+-- only (this write RPC follows the same H3 policy as the other write RPCs
+-- in this file — the app only ever calls it via the service client, and
+-- crm_require_owner_admin's service_role short-circuit means an
+-- `authenticated` grant here was never actually needed).
+create or replace function analytics.label_apply_matched(p_shop_id uuid, p_file_id uuid)
+ returns table(applied integer, skipped_has_province integer, conflict_cnt integer)
+ language plpgsql
+ security definer
+ set search_path to 'public', 'analytics', 'extensions', 'pg_temp'
+as $function$
+declare
+  v_page          record;
+  v_applied       int := 0;
+  v_skipped       int := 0;
+  v_conflict      int := 0;
+  v_updated_ids   uuid[];
+  v_has_conflict  boolean;
+  v_has_any_order boolean;
+begin
+  if p_shop_id is null or p_file_id is null then
+    raise exception 'label_apply_matched: p_shop_id and p_file_id are required';
+  end if;
+
+  perform analytics.crm_require_owner_admin(p_shop_id);
+
+  if not exists (
+    select 1 from analytics.label_file lf
+     where lf.id = p_file_id and lf.shop_id = p_shop_id
+  ) then
+    raise exception 'label_apply_matched: label file not found for this shop' using errcode = '22023';
+  end if;
+
+  for v_page in
+    select slp.id, slp.tracking_no, slp.province_code
+      from analytics.stg_label_page slp
+     where slp.label_file_id = p_file_id
+       and slp.shop_id = p_shop_id
+       and slp.match_status = 'matched'
+       and slp.applied_at is null
+       and slp.tracking_no is not null
+       and slp.province_code is not null
+     order by slp.page_no
+     for update
+  loop
+    v_has_any_order := exists (
+      select 1 from analytics.fact_order fo
+       where fo.shop_id = p_shop_id and fo.tracking_no = v_page.tracking_no
+    );
+
+    if not v_has_any_order then
+      update analytics.stg_label_page set match_status = 'order_not_found' where id = v_page.id;
+      continue;
+    end if;
+
+    v_has_conflict := exists (
+      select 1 from analytics.fact_order fo
+       where fo.shop_id = p_shop_id
+         and fo.tracking_no = v_page.tracking_no
+         and fo.province_code <> 'TH-XX'
+         and fo.province_code <> v_page.province_code
+    );
+
+    if v_has_conflict then
+      update analytics.stg_label_page set match_status = 'conflict' where id = v_page.id;
+      v_conflict := v_conflict + 1;
+      continue;
+    end if;
+
+    with updated as (
+      update analytics.fact_order as fo
+         set province_code = v_page.province_code,
+             province_source = 'label',
+             updated_at = now()
+       where fo.shop_id = p_shop_id
+         and fo.tracking_no = v_page.tracking_no
+         and fo.province_code = 'TH-XX'
+      returning fo.id
+    )
+    select array_agg(id) into v_updated_ids from updated;
+
+    if v_updated_ids is not null and array_length(v_updated_ids, 1) > 0 then
+      update analytics.stg_label_page
+         set applied_at = now(),
+             applied_prev_code = 'TH-XX',
+             fact_order_ids = v_updated_ids
+       where id = v_page.id;
+      v_applied := v_applied + 1;
+    else
+      v_skipped := v_skipped + 1;
+    end if;
+  end loop;
+
+  applied := v_applied;
+  skipped_has_province := v_skipped;
+  conflict_cnt := v_conflict;
+  return next;
+end;
+$function$;
+
+revoke execute on function analytics.label_apply_matched(uuid, uuid) from public, anon, authenticated;
+grant execute on function analytics.label_apply_matched(uuid, uuid) to service_role;
 
 notify pgrst, 'reload schema';

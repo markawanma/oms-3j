@@ -25,8 +25,17 @@ migration `supabase/migrations/0116_label_review_resolve.sql` · types ทั้
     provinceSource: "import" | "label" | "manual";
     importFileName: string | null;  // stg_import_batch.file_name ของแถวนำเข้าล่าสุด — null ถ้าไม่มี
     sourceRowNo: number | null;     // stg_order_import.source_row_no ของแถวเดียวกัน
+    orderDate?: string;              // "YYYY-MM-DD" — เฉพาะจาก findOrdersByTracking (ไม่มีใน getPendingLabelReviews)
+    channelName?: string | null;     // dim_channel.name — เฉพาะจาก findOrdersByTracking
+    lastProvinceAudit?: {            // แถว crm_audit_log ล่าสุดของ province_set/province_revert — null ถ้ายังไม่เคยแก้เลย
+      action: "province_set" | "province_revert";
+      before: unknown;   // jsonb ดิบจาก RPC — { province_code, province_source, ... }
+      after: unknown;
+      at: string;         // created_at
+    } | null;
   }
   ```
+- `orderDate`/`channelName`/`lastProvinceAudit` มีเฉพาะผลจาก `findOrdersByTracking` เท่านั้น — `getPendingLabelReviews().orderSources` ไม่มี 3 ฟิลด์นี้ (จะเป็น `undefined`) เพราะเป็นคนละ query กัน ใช้ `lastProvinceAudit !== null` ตัดสินว่าจะโชว์ปุ่ม "ย้อนกลับ" ไหม แทน heuristic `provinceSource !== 'import'` เดิม (แม่นกว่า — order ที่ import มาแล้วมีคนแก้มือทีหลังแล้วค่อยกลับไปเหมือนเดิมโดยบังเอิญ ก็ยังมีประวัติให้ย้อนจริง)
 - ใช้ผลลัพธ์นี้แสดง "ที่มา" ของออเดอร์ก่อนให้เจ้าของกดแก้จังหวัด (owner 11 ก.ย. decision #3)
 
 ## 2. `setOrderProvince(factOrderId, provinceCode, reason?, note?): Promise<ActionResult>`
