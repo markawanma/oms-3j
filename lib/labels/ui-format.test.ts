@@ -60,6 +60,22 @@ describe("validateTaughtSnippet", () => {
     expect(validateTaughtSnippet("เชียงใหม่ ตัวเมือง")).toBeNull();
   });
 
+  // code-review nit (C-3PO, 13 ก.ย. 69): TAUGHT_SNIPPET_DENY_RE is a
+  // Unicode-property superset of the DB deny-list (\p{Nd}/\p{P}/\p{S}) —
+  // these three characters are genuinely common in Thai addresses/place
+  // names and must NOT get caught by that superset, or the regex would be
+  // too tight (rejecting things the DB allows), not just "safely stricter."
+  it("accepts Thai punctuation-look-alike characters that are NOT Unicode Punctuation/Symbol", () => {
+    // ฯ (PAIYANNOI, U+0E2F) — looks like an abbreviation dot but its Unicode
+    // category is Lo (Letter, Other), not P.
+    expect(validateTaughtSnippet("กรุงเทพฯ")).toBeNull();
+    // ๆ (MAIYAMOK, U+0E46, category Lm "Letter, Modifier" — repetition
+    // mark) + ่ (MAI EK tone mark, U+0E48, category Mn "Mark, Nonspacing")
+    // — neither is P/S/Nd.
+    expect(validateTaughtSnippet("ต่างๆ")).toBeNull();
+    expect(validateTaughtSnippet("ใกล้วัดใหญ่")).toBeNull();
+  });
+
   it("rejects when longer than TAUGHT_SNIPPET_MAX_LENGTH (25)", () => {
     const tooLong = "ก".repeat(TAUGHT_SNIPPET_MAX_LENGTH + 1);
     expect(validateTaughtSnippet(tooLong)).not.toBeNull();
