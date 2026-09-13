@@ -27,11 +27,11 @@ migration `supabase/migrations/0116_label_review_resolve.sql` · types ทั้
     sourceRowNo: number | null;     // stg_order_import.source_row_no ของแถวเดียวกัน
     orderDate?: string;              // "YYYY-MM-DD" — เฉพาะจาก findOrdersByTracking (ไม่มีใน getPendingLabelReviews)
     channelName?: string | null;     // dim_channel.name — เฉพาะจาก findOrdersByTracking
-    hasRevertableHistory?: boolean;  // true = มีแถว crm_audit_log ของ province_set/province_revert อยู่จริง — เฉพาะจาก findOrdersByTracking
+    hasRevertableHistory?: boolean;  // true = กด "ย้อนกลับ" แล้วจะสำเร็จจริง (mirror RPC predicate) — เฉพาะจาก findOrdersByTracking
   }
   ```
 - `orderDate`/`channelName`/`hasRevertableHistory` มีเฉพาะผลจาก `findOrdersByTracking` เท่านั้น — `getPendingLabelReviews().orderSources` ไม่มี 3 ฟิลด์นี้ (จะเป็น `undefined`, ให้ปฏิบัติเหมือน `false`/ไม่แสดง) เพราะเป็นคนละ query กัน
-- **Mace M1 fix (13 ก.ย. 69, security)**: `hasRevertableHistory` แทนที่ `lastProvinceAudit` เดิม (เคยส่ง `before`/`after` jsonb ดิบของ audit row มาให้ UI ตรงๆ — ไม่ควรหลุดถึง client เพราะเป็น internal change-log payload ไม่ใช่ค่าที่ UI ต้องโชว์) ใช้ตัดสินว่าจะโชว์ปุ่ม "ย้อนกลับ" ไหม แทน heuristic `provinceSource !== 'import'` เดิมที่ผิด (label_apply_matched เติมจังหวัดอัตโนมัติด้วย `province_source='label'` โดยไม่เขียน audit เลย — ปุ่มเคยโผล่ให้กดแล้ว raise ทุกครั้ง) `revertOrderProvince` (ข้อ 3) ยังเป็นด่านจริงเสมอ — flag นี้แค่ตัดเคส "ไม่มีประวัติเลย" ออกไปก่อนถึงจอ ไม่ได้การันตีว่ากดแล้วสำเร็จ 100%
+- **Mace M1 fix (13 ก.ย. 69, security), แก้ตาม code-review (C-3PO, 13 ก.ย. 69)**: `hasRevertableHistory` แทนที่ `lastProvinceAudit` เดิม (เคยส่ง `before`/`after` jsonb ดิบของ audit row มาให้ UI ตรงๆ — ไม่ควรหลุดถึง client) และ mirror predicate ของ `label_revert_order_province` (0116) **เป๊ะ** ตั้งแต่ 13 ก.ย. 69: true ก็ต่อเมื่อ (1) มีแถว `crm_audit_log` ที่ `action='province_set'` ล่าสุดของออเดอร์นี้ และ (2) `after->>'province_code'` ของแถวนั้นตรงกับ `provinceCode` ปัจจุบัน — ไม่ใช่แค่ "มีประวัติอยู่จริง" เฉยๆ (เวอร์ชันแรกใช้ existence เท่านั้น ทำให้ false positive 3 ทาง: หลังย้อนสำเร็จไปแล้ว 1 ครั้ง / จังหวัดถูกเปลี่ยนทางอื่นทีหลัง / นับ `province_revert` ที่ RPC ไม่เคยใช้ตัดสิน) `revertOrderProvince` (ข้อ 3) ยังเป็นด่านจริงเสมอ (race ระหว่างอ่านค่านี้กับกดจริงยังเกิดได้) — flag นี้คือ "ทำนาย" ผลของ RPC ฝั่ง UI ไม่ใช่ตัวแทนด่านนั้น
 - ใช้ผลลัพธ์นี้แสดง "ที่มา" ของออเดอร์ก่อนให้เจ้าของกดแก้จังหวัด (owner 11 ก.ย. decision #3)
 
 ## 2. `setOrderProvince(factOrderId, provinceCode, reason?, note?): Promise<ActionResult>`
@@ -163,11 +163,6 @@ type IgnoreLabelPageInput = { pageId: string; reason?: LabelReasonCode | null; n
 - LINE OA re-import ยังทับ `province_source='manual'` ได้ (0114's "import re-import respects manual edits" fix
   ครอบ path หลักของ TikTok/Excel import ที่ผ่าน `transform_pending_orders` — ยังไม่ยืนยันครอบ LINE OA channel ด้วย)
   — แก้ manual แล้วรอบถัดไปที่ import LINE OA ทับเข้ามาอาจเขียนทับเงียบๆ โดยไม่มี audit
-- **หมายเหตุจาก M1 fix (13 ก.ย. 69, frontend-dev, ไม่ใช่ finding ที่ brief สั่ง — พบระหว่างทำแล้วบันทึกไว้ตรงๆ)**:
-  `hasRevertableHistory` ใช้ "มี audit row ของ province_set/province_revert อยู่จริงไหม" (existence) ตามที่ contract
-  เดิมกำหนด — **ไม่ได้** เช็คว่าแถวล่าสุดเป็น `province_set` เท่านั้น ผลคือ: ออเดอร์ที่เพิ่งกด "ย้อนกลับ" สำเร็จไปแล้ว
-  1 ครั้ง จะยังเห็นปุ่ม "ย้อนกลับ" โผล่ซ้ำได้อีก (เพราะยังมี audit row อยู่จริง) กดซ้ำแล้ว RPC ปฏิเสธด้วย "revert
-  refused" (จังหวัดปัจจุบันไม่ตรงกับ `after` ของ audit row ที่จะย้อนอีกแล้ว) — fail-soft เหมือนเคสอื่น ไม่มีข้อมูลเสีย
-  แค่ปุ่มโชว์ผิดจังหวะเป็นครั้งที่ 2 เท่านั้น (แก้ M1 หลักแล้ว: เคส label_apply_matched ที่ไม่มี audit เลยหายไปแน่นอน)
-  ถ้าอยากปิดเคสนี้ด้วยต้องเช็ค "แถวล่าสุดคือ action='province_set'" แทน existence เฉยๆ — ยังไม่ทำเพราะ contract
-  เดิมกำหนด existence ไว้ชัดเจนแล้ว ไม่อยากเปลี่ยน semantics โดยไม่ถาม
+- ~~`hasRevertableHistory` เคยใช้ existence-only (เจอ false positive 3 ทางหลังย้อนสำเร็จ/จังหวัดเปลี่ยนทางอื่น/นับ
+  province_revert ผิด)~~ — **ปิดแล้ว 13 ก.ย. 69**: mirror predicate ของ `label_revert_order_province` เป๊ะแล้ว (ดู §1
+  ด้านบน) `revertOrderProvince` ยังเป็นด่านจริงกรณี race (อ่านค่านี้กับกดจริงคนละจังหวะ)
