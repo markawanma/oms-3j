@@ -163,3 +163,11 @@ type IgnoreLabelPageInput = { pageId: string; reason?: LabelReasonCode | null; n
 - LINE OA re-import ยังทับ `province_source='manual'` ได้ (0114's "import re-import respects manual edits" fix
   ครอบ path หลักของ TikTok/Excel import ที่ผ่าน `transform_pending_orders` — ยังไม่ยืนยันครอบ LINE OA channel ด้วย)
   — แก้ manual แล้วรอบถัดไปที่ import LINE OA ทับเข้ามาอาจเขียนทับเงียบๆ โดยไม่มี audit
+- **หมายเหตุจาก M1 fix (13 ก.ย. 69, frontend-dev, ไม่ใช่ finding ที่ brief สั่ง — พบระหว่างทำแล้วบันทึกไว้ตรงๆ)**:
+  `hasRevertableHistory` ใช้ "มี audit row ของ province_set/province_revert อยู่จริงไหม" (existence) ตามที่ contract
+  เดิมกำหนด — **ไม่ได้** เช็คว่าแถวล่าสุดเป็น `province_set` เท่านั้น ผลคือ: ออเดอร์ที่เพิ่งกด "ย้อนกลับ" สำเร็จไปแล้ว
+  1 ครั้ง จะยังเห็นปุ่ม "ย้อนกลับ" โผล่ซ้ำได้อีก (เพราะยังมี audit row อยู่จริง) กดซ้ำแล้ว RPC ปฏิเสธด้วย "revert
+  refused" (จังหวัดปัจจุบันไม่ตรงกับ `after` ของ audit row ที่จะย้อนอีกแล้ว) — fail-soft เหมือนเคสอื่น ไม่มีข้อมูลเสีย
+  แค่ปุ่มโชว์ผิดจังหวะเป็นครั้งที่ 2 เท่านั้น (แก้ M1 หลักแล้ว: เคส label_apply_matched ที่ไม่มี audit เลยหายไปแน่นอน)
+  ถ้าอยากปิดเคสนี้ด้วยต้องเช็ค "แถวล่าสุดคือ action='province_set'" แทน existence เฉยๆ — ยังไม่ทำเพราะ contract
+  เดิมกำหนด existence ไว้ชัดเจนแล้ว ไม่อยากเปลี่ยน semantics โดยไม่ถาม
