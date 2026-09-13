@@ -82,6 +82,7 @@ detect จาก pattern เลขพัสดุ (`JTTH\d{10,}` vs `TH\d{12}[A-
 ## 8. เปลี่ยนผ่านจาก simulation
 
 - types ใน `lib/tiktok/types.ts` + component tree (`UploadDropzone`/`UploadQueueList`/`BatchSummaryCard`/`ReviewQueueList`) **คงไว้ทั้งหมด** — ขยาย `UploadReviewRow` แบบ additive (pageId, candidates, trackingNo)
+  (⚠️ อัปเดต 13 ก.ย. 69: `ReviewQueueList` ถูกยุบเข้า `PendingReviewQueue` แล้ว — QA-1 fix, feature/label-review-resolve-ui, แก้ปัญหาแถวรอตรวจโชว์ซ้ำ 2 ที่หลัง parse)
 - `UploadPageClient` แทน setTimeout chain ด้วย flow จริง (validate → sha256 ด้วย `crypto.subtle` → signed URL → PUT → parse action) โครง JSX/state เดิมใช้ต่อ
 - `upload-simulation.ts` **ลบทั้งไฟล์** (util ที่ยังใช้ย้ายไป `lib/labels/constants.ts`, `ACCEPTED_EXTENSIONS` → `["pdf"]`)
 - แบนเนอร์ "(จำลอง)" ทุกจุด**ต้องหายใน commit เดียวกับที่ต่อ backend จริง** — ห้ามมีสถานะครึ่งจริงครึ่งหลอก
