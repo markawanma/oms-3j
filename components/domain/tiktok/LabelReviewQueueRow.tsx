@@ -14,6 +14,7 @@ import {
   resolveLabelPage,
 } from "@/lib/actions/labels";
 import type { LabelReasonCode, LabelReviewRow, OrderSourceRef } from "@/lib/labels/types";
+import { NOTE_MAX_LENGTH } from "@/lib/labels/constants";
 import type { CrmProvinceOption } from "@/lib/crm/order-override";
 import {
   TAUGHT_SNIPPET_MAX_LENGTH,
@@ -361,6 +362,7 @@ export function LabelReviewQueueRow({
         value={note}
         onChange={(e) => setNote(e.target.value)}
         disabled={!canEdit}
+        maxLength={NOTE_MAX_LENGTH}
         placeholder="หมายเหตุเพิ่มเติม (ไม่บังคับ)"
         className="mt-2 min-h-11 w-full rounded-md border border-zinc-300 px-2.5 text-sm text-zinc-900 placeholder:text-zinc-400 disabled:bg-zinc-50"
       />

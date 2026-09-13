@@ -8,6 +8,7 @@ import { ErrorBanner } from "@/components/ui/ErrorState";
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
 import { findOrdersByTracking, revertOrderProvince, setOrderProvince } from "@/lib/actions/labels";
+import { NOTE_MAX_LENGTH } from "@/lib/labels/constants";
 import type { LabelReasonCode, OrderSourceRef } from "@/lib/labels/types";
 import type { CrmProvinceOption } from "@/lib/crm/order-override";
 import { PROVINCE_SOURCE_LABEL, isRealProvinceCode, orderDateChannelLine, provinceNameByCode } from "@/lib/labels/ui-format";
@@ -162,6 +163,7 @@ function ProvinceFixRow({
         value={note}
         onChange={(e) => setNote(e.target.value)}
         disabled={!canEdit}
+        maxLength={NOTE_MAX_LENGTH}
         placeholder="หมายเหตุเพิ่มเติม (ไม่บังคับ)"
         className="mt-2 min-h-11 w-full rounded-md border border-zinc-300 px-2.5 text-sm text-zinc-900 placeholder:text-zinc-400 disabled:bg-zinc-50"
       />

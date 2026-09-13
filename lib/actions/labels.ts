@@ -32,6 +32,7 @@ import { isPostgrestInSafe } from "@/lib/import/source-types";
 import {
   MAX_LABEL_FILE_BYTES,
   MAX_LABEL_PAGES,
+  NOTE_MAX_LENGTH,
   SHA256_HEX_PATTERN,
   SHIPPING_LABELS_BUCKET,
 } from "@/lib/labels/constants";
@@ -1033,6 +1034,24 @@ function isValidReasonCode(v: unknown): v is LabelReasonCode {
   return typeof v === "string" && (LABEL_REASON_CODES as readonly string[]).includes(v);
 }
 
+// Mace L1 fix (13 ก.ย. 69, security): `note` had a DB-side ceiling already
+// (label_write_province / label_ignore_page both raise on length(p_note) >
+// 500, see 0116's "M1 fix" comments) but nothing checked it before that —
+// every call site here sends `note?.trim() ? note.trim() : null`, so a
+// >500-char note round-tripped to the RPC, raised a raw Postgres exception,
+// and surfaced to the owner as this action's generic catch-all message
+// ("ตั้งค่าจังหวัดไม่สำเร็จ ลองใหม่อีกครั้ง") instead of a real reason. Checked
+// on the TRIMMED value to match exactly what gets sent to the RPC (not the
+// raw textarea value, which may be longer if it's all leading/trailing
+// whitespace — that case should not error). NOTE_MAX_LENGTH is the same
+// constant the UI's `maxLength` attribute uses, not a re-hardcoded 500.
+function noteTooLongError(note: string | null | undefined): ActionResult<never> | null {
+  if (typeof note === "string" && note.trim().length > NOTE_MAX_LENGTH) {
+    return { ok: false, error: `หมายเหตุยาวเกิน ${NOTE_MAX_LENGTH} ตัวอักษร` };
+  }
+  return null;
+}
+
 /** Same 5-digit-isolated convention as lib/labels/match.ts's ZIPCODE_RE
  * (not imported from there — that module folds Thai text first, which this
  * function's plain-digit search doesn't need). Returns the index of the
@@ -1265,6 +1284,8 @@ export async function setOrderProvince(
   const cleanProvince = (provinceCode ?? "").trim();
   if (!cleanOrderId || !cleanProvince) return { ok: false, error: "ไม่พบรหัสออเดอร์หรือจังหวัด" };
   if (reason != null && !isValidReasonCode(reason)) return { ok: false, error: "รหัสเหตุผลไม่ถูกต้อง" };
+  const noteErr = noteTooLongError(note);
+  if (noteErr) return noteErr;
 
   try {
     const shopId = getDevShopId();
@@ -1343,6 +1364,8 @@ export async function resolveLabelPage(input: ResolveLabelPageInput): Promise<Ac
   const cleanProvince = (input?.provinceCode ?? "").trim();
   if (!cleanPageId || !cleanProvince) return { ok: false, error: "ไม่พบหน้าหรือจังหวัดที่จะตั้งค่า" };
   if (input.reason != null && !isValidReasonCode(input.reason)) return { ok: false, error: "รหัสเหตุผลไม่ถูกต้อง" };
+  const noteErr = noteTooLongError(input.note);
+  if (noteErr) return noteErr;
 
   try {
     const shopId = getDevShopId();
@@ -1381,6 +1404,8 @@ export async function ignoreLabelPage(input: IgnoreLabelPageInput): Promise<Acti
   const cleanPageId = (input?.pageId ?? "").trim();
   if (!cleanPageId) return { ok: false, error: "ไม่พบหน้าที่จะข้าม" };
   if (input.reason != null && !isValidReasonCode(input.reason)) return { ok: false, error: "รหัสเหตุผลไม่ถูกต้อง" };
+  const noteErr = noteTooLongError(input.note);
+  if (noteErr) return noteErr;
 
   try {
     const shopId = getDevShopId();
