@@ -78,6 +78,14 @@ describe("mapCalendarRpcError — maps known 22023 messages to Thai copy", () =>
     });
     expect(mapCalendarRpcError(err, FALLBACK)).toBe(TH_CLIP_BRIEF);
   });
+
+  it("checks 'can be deleted' before 'clip_brief' when a message contains both needles — pins the if/else-if order", () => {
+    const err = {
+      code: "22023",
+      message: "clip_brief steps can be deleted only when manually-created",
+    };
+    expect(mapCalendarRpcError(err, FALLBACK)).toBe(TH_TEMPLATE_STEP);
+  });
 });
 
 describe("mapCalendarRpcError — falls through to fallback (must not over-match)", () => {
@@ -97,6 +105,13 @@ describe("mapCalendarRpcError — falls through to fallback (must not over-match
 
   it("does NOT map 22023 with no message at all", () => {
     const err = { code: "22023" };
+    expect(mapCalendarRpcError(err, FALLBACK)).toBe(FALLBACK);
+  });
+
+  it("does NOT map a matching message with no code at all — code gate decides, not message text", () => {
+    const err = new Error(
+      "campaign_delete_step: only manually-created steps can be deleted (this step came from a template plan)"
+    );
     expect(mapCalendarRpcError(err, FALLBACK)).toBe(FALLBACK);
   });
 

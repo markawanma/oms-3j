@@ -6,10 +6,8 @@
 // exports from those, so a plain function like this can't live there and
 // still be unit-testable directly.
 
-// Relative import (not the repo's usual "@/lib/..." alias): vitest.config.ts
-// has no "@" alias configured (only tsconfig.json does, which Next.js reads
-// directly but Vitest does not) — a relative import lets this file's test
-// run under plain Vitest without touching the shared test config.
+// relative import — vitest.config.ts has no "@" alias (same as other lib
+// modules with tests)
 import { readErrorCode, readErrorMessage } from "../supabase/postgrest-error";
 
 /** Maps a Postgres error to a Thai message, preferring the stable SQLSTATE

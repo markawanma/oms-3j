@@ -362,7 +362,7 @@ export async function toggleClipShot(artifactId: string, shotId: string, done: b
 
 /** R8 — delete a mistyped task. Guarded server-side to manual-trigger
  * campaigns only; template-plan steps raise 22023, mapped to a Thai message
- * above. */
+ * by lib/marketing/calendar-errors.ts. */
 export async function deleteTask(stepId: string): Promise<ActionResult> {
   const gateErr = requireOwnerAdmin();
   if (gateErr) return gateErr;

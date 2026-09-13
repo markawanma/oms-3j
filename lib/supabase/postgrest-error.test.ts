@@ -41,6 +41,11 @@ describe("readErrorMessage", () => {
     expect(readErrorMessage({ message: 123 })).toBe("");
   });
 
+  it("returns '' when message is present but not a string, even on a real Error instance (code-reviewer nit: instanceof shortcut used to skip this check)", () => {
+    const err = Object.assign(new Error("x"), { message: 123 });
+    expect(readErrorMessage(err)).toBe("");
+  });
+
   it("returns '' for an empty object", () => {
     expect(readErrorMessage({})).toBe("");
   });
