@@ -149,20 +149,25 @@ export type OrderSourceRef = {
    * order's channel_id doesn't resolve to a channel row (shouldn't happen,
    * fact_order.channel_id is NOT NULL + FK'd, but defensive). */
   channelName?: string | null;
-  /** true when a province_set/province_revert crm_audit_log row exists for
-   * this order — findOrdersByTracking() only, undefined elsewhere (treat as
-   * false). Mace M1 fix (13 ก.ย. 69, security): the previous UI heuristic
-   * (`provinceSource !== 'import'`) was wrong — label_apply_matched fills
-   * province_code with province_source='label' WITHOUT writing an audit row
-   * at all, so an order auto-filled that way showed a "ย้อนกลับ" button that
-   * raised every single time it was clicked. This flag is a plain boolean —
-   * NOT the raw crm_audit_log.before/after jsonb (that must never reach the
-   * client, see oem-quote-invariants-style reasoning: it's an internal
-   * change-log payload, not a value the UI needs to render) — computed
-   * server-side in lib/actions/labels.ts's attachOrderSources(). The RPC
-   * (label_revert_order_province) remains the real gate either way: it also
-   * refuses if the order's province changed again since that audit row (see
-   * its comment) — this flag only rules out the "no history at all" case. */
+  /** true iff clicking "ย้อนกลับ" (revertOrderProvince) would actually
+   * succeed right now — findOrdersByTracking() only, undefined elsewhere
+   * (treat as false). Mace M1 fix (13 ก.ย. 69, security), REVISED after
+   * code-review (C-3PO, 13 ก.ย. 69 — an earlier version of this flag used
+   * mere existence of a province_set/province_revert row, which mismatched
+   * the RPC and left 3 false-positive cases): mirrors
+   * analytics.label_revert_order_province's own predicate EXACTLY (0116,
+   * ~line 598-626 + ~line 478-542) — (1) a crm_audit_log row with
+   * action='province_set' exists for this order (most recent one, by
+   * created_at) AND (2) that row's `after->>'province_code'` still equals
+   * this order's CURRENT provinceCode (i.e. nothing changed the province
+   * again since). Both conditions computed server-side in
+   * lib/actions/labels.ts's attachOrderSources() — only the boolean result
+   * crosses into this type, never the raw crm_audit_log.before/after jsonb
+   * (that must never reach the client — internal change-log payload, not a
+   * value the UI needs to render). The RPC remains the real gate regardless
+   * (race condition between this read and the click is still possible) —
+   * this flag is a UI-only prediction of what the RPC will decide, not a
+   * substitute for its own check. */
   hasRevertableHistory?: boolean;
 };
 

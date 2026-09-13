@@ -1119,8 +1119,10 @@ interface OrderRefRow {
  *
  * frontend-dev request (12 ก.ย. 69): also attaches channelName (dim_channel
  * — global reference data, no shop_id column, same as getCrmEditOptions in
- * lib/actions/crm.ts) and hasRevertableHistory (Mace M1, 13 ก.ย. 69 — whether
- * ANY province_set/province_revert crm_audit_log row exists per order,
+ * lib/actions/crm.ts) and hasRevertableHistory (Mace M1, 13 ก.ย. 69, revised
+ * after code-review 13 ก.ย. 69 — mirrors label_revert_order_province's own
+ * predicate exactly: latest province_set audit row exists AND its
+ * after.province_code still matches the order's current province_code;
  * reduced to a boolean here so the raw before/after jsonb never leaves this
  * function) — see OrderSourceRef's field comments in lib/labels/types.ts for
  * why these are findOrdersByTracking-only. */
@@ -1182,27 +1184,55 @@ async function attachOrderSources(
     for (const c of (data ?? []) as { id: string; name: string }[]) channelNameById.set(c.id, c.name);
   }
 
-  // Mace M1 (13 ก.ย. 69, security): only need EXISTENCE of a province_set/
-  // province_revert audit row per order, not its content — select just
-  // entity_id (no before/after/action) so the raw jsonb audit payload never
-  // even leaves the database into this function's memory, let alone the
-  // client (was: lastProvinceAuditByOrderId<ProvinceAuditEntry> carrying
-  // before/after all the way to OrderSourceRef — removed). No .order()/
-  // dedupe-to-latest needed either since existence, not recency, is what
-  // hasRevertableHistory means here.
-  const orderIdsWithProvinceAudit = new Set<string>();
+  // Mace M1 (13 ก.ย. 69, security), REVISED after code-review (C-3PO, 13 ก.ย.
+  // 69): an earlier version of this block only checked EXISTENCE of a
+  // province_set/province_revert row, which does not match what
+  // label_revert_order_province actually does and produced 3 false
+  // positives (button shows, RPC refuses): (1) right after a successful
+  // revert (the audit trail still exists), (2) the order's province was
+  // changed again by some other action since that province_set row, (3)
+  // counting province_revert rows at all — the RPC never looks at them.
+  //
+  // Real predicate, mirrored exactly from 0116:
+  //   label_revert_order_province (~line 598-626) picks the MOST RECENT
+  //   crm_audit_log row with action='province_set' for this order (NOT
+  //   province_revert), then
+  //   label_revert_province_audit (~line 478-542) raises unless the order's
+  //   CURRENT province_code still equals that row's after->>'province_code'.
+  // So hasRevertableHistory = (a province_set row exists) AND (its
+  // after.province_code === this order's current province_code).
+  //
+  // Selects `after` (jsonb) and extracts just `.province_code` in JS rather
+  // than a PostgREST `after->>province_code` computed-column selector — same
+  // end result (the full jsonb object is discarded at the end of this loop;
+  // only the extracted string ever lives past it, and even that never
+  // reaches OrderSourceRef/the client) but doesn't depend on arrow-operator
+  // select-string syntax working the same way across supabase-js versions.
+  // Filtered to action='province_set' only (was both actions) and ordered by
+  // created_at desc so first-seen per entity_id = latest — still ONE query
+  // per chunk (no N+1), same "let the DB sort, dedupe client-side" pattern
+  // as latestImportByOrderId above. If an order's true latest province_set
+  // row ever fell outside a fetched page (not reachable at this call's
+  // current <=20-row scale), the map simply has no entry for it ->
+  // hasRevertableHistory resolves to false — fail-safe, never fail-open.
+  const latestProvinceSetCodeByOrderId = new Map<string, string | null>();
   for (const chunk of chunkArray(orderIds, PENDING_REVIEW_FILE_LOOKUP_CHUNK_SIZE)) {
     const { data, error } = await supabase
       .schema(SCHEMA)
       .from("crm_audit_log")
-      .select("entity_id")
+      .select("entity_id, after")
       .eq("shop_id", shopId)
       .eq("entity_type", "fact_order")
       .in("entity_id", chunk)
-      .in("action", ["province_set", "province_revert"]);
+      .eq("action", "province_set")
+      .order("created_at", { ascending: false });
     if (error) throw error;
-    for (const r of (data ?? []) as { entity_id: string | null }[]) {
-      if (r.entity_id) orderIdsWithProvinceAudit.add(r.entity_id);
+    for (const r of (data ?? []) as { entity_id: string | null; after: unknown }[]) {
+      if (!r.entity_id || latestProvinceSetCodeByOrderId.has(r.entity_id)) continue;
+      const after = r.after as Record<string, unknown> | null;
+      const afterProvinceCode =
+        after && typeof after === "object" && typeof after.province_code === "string" ? after.province_code : null;
+      latestProvinceSetCodeByOrderId.set(r.entity_id, afterProvinceCode);
     }
   }
 
@@ -1218,7 +1248,9 @@ async function attachOrderSources(
       sourceRowNo: imp ? imp.sourceRowNo : null,
       orderDate: o.order_date,
       channelName: channelNameById.get(o.channel_id) ?? null,
-      hasRevertableHistory: orderIdsWithProvinceAudit.has(o.id),
+      // undefined (no row) !== o.province_code (a string) -> false, same as
+      // an explicit `has()` check would give — fail-safe by construction.
+      hasRevertableHistory: latestProvinceSetCodeByOrderId.get(o.id) === o.province_code,
     };
   });
 }
