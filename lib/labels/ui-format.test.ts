@@ -5,15 +5,19 @@
 // Focus: validateTaughtSnippet() is documented (file header, and the
 // contract lib/actions/labels.contract.md §4) as mirroring
 // supabase/migrations/0116_label_review_resolve.sql's p_taught_snippet
-// CHECK "EXACTLY". It does NOT — the migration's own comment trail (search
+// CHECK. Originally it did NOT — the migration's own comment trail (search
 // "Attempt 1 (digit-run block)") shows the DB gate was hardened from a
 // >=3-consecutive-digit block to a full deny-list (ANY digit of ANY script,
-// ANY punctuation) during the M3 security fix, but ui-format.ts's
-// TAUGHT_SNIPPET_DIGIT_RUN_RE (`/\d{3,}/`) was never updated to match. The
-// tests below reproduce the ACTUAL DB regex (copied verbatim from the
-// migration's `label_text_rule.pattern` CHECK / label_resolve_page's
-// pre-check, lines ~299-333 and ~700-716) so the mismatch is provable
-// without touching a live DB.
+// ANY punctuation) during the M3 security fix, but ui-format.ts's old
+// TAUGHT_SNIPPET_DIGIT_RUN_RE (`/\d{3,}/`) was never updated to match — this
+// file originally proved that desync with a failing-oracle test below.
+//
+// QA-2 fix (13 ก.ย. 69): ui-format.ts now uses TAUGHT_SNIPPET_DENY_RE, a
+// Unicode-property-based SUPERSET of the DB's deny-list (see that const's
+// comment for why it's a superset, not a byte-exact port — JS has no
+// [:punct:]/[:digit:] POSIX classes to copy 1:1). The "desync" describe block
+// below is flipped to "parity": it now asserts the client REJECTS everything
+// the DB rejects, instead of documenting that it didn't.
 import { describe, expect, it } from "vitest";
 import {
   TAUGHT_SNIPPET_MAX_LENGTH,
@@ -70,40 +74,65 @@ describe("validateTaughtSnippet", () => {
   });
 
   // ---------------------------------------------------------------------
-  // 🔴 Desync proof — inputs the CLIENT accepts (validateTaughtSnippet
-  // returns null, i.e. "safe to submit") that the REAL DB gate rejects
-  // outright. Per contract §4, a rejected taughtSnippet fails the WHOLE
-  // resolveLabelPage call — province included, not just the snippet — so
-  // each case below is a click that visibly succeeds past client
-  // validation, then fails end-to-end with a generic error, for a value
-  // that looks perfectly reasonable to type into "จังหวัดอยู่ตรงข้อความนี้".
+  // ✅ Parity proof (QA-2 fix, 13 ก.ย. 69) — these inputs used to slip past
+  // validateTaughtSnippet() as "safe to submit" while the REAL DB gate
+  // rejected them outright (see git history for the original failing-oracle
+  // version of this block). Per contract §4, a rejected taughtSnippet fails
+  // the WHOLE resolveLabelPage call — province included, not just the
+  // snippet — so this parity is what stops a click that looks like it
+  // succeeded from silently failing end-to-end.
   // ---------------------------------------------------------------------
-  describe("desync with the actual DB deny-list (0116)", () => {
-    const shouldHaveBeenCaughtButIsnt = [
+  describe("parity with the actual DB deny-list (0116)", () => {
+    const previouslyDesynced = [
       // 1-2 ASCII digits — very common in Thai address fragments (soi/moo
       // numbers), explicitly called out in the migration's own "Attempt 1"
-      // postmortem as insufficient, yet this is exactly what the client
-      // still implements.
+      // postmortem as insufficient.
       "ซอย 12",
       "หมู่ 5",
-      // A single Thai-script digit — JS's `\d` is ASCII-only, so
-      // TAUGHT_SNIPPET_DIGIT_RUN_RE never even sees this as a digit run of
-      // any length, let alone >=3. The DB rejects it unconditionally.
+      // A single Thai-script digit — JS's old `\d`-based check was
+      // ASCII-only, so this never registered as a digit run of any length.
       "หมู่ที่ ๕",
       // ASCII punctuation with zero digits — common in Thai address
-      // abbreviations (ต./อ./จ.) and never checked client-side at all.
+      // abbreviations (ต./อ./จ.), previously never checked client-side.
       "จ.เชียงใหม่",
       "ต.บางนา/เขตบางนา",
     ];
 
-    it.each(shouldHaveBeenCaughtButIsnt)(
-      "client says %j is fine, but the DB gate would reject it (round-trip fails after a false 'valid')",
+    it.each(previouslyDesynced)(
+      "client and DB now agree %j must be rejected",
       (input) => {
         const clientVerdict = validateTaughtSnippet(input);
-        expect(clientVerdict).toBeNull(); // client: "safe to submit"
-        expect(dbWouldReject(input)).toBe(true); // DB: rejects the whole resolve call
+        expect(clientVerdict).not.toBeNull(); // client now rejects too
+        expect(dbWouldReject(input)).toBe(true); // DB still rejects (unchanged)
       }
     );
+  });
+
+  // General parity sweep — client must reject (superset is fine) at least
+  // every input the DB oracle rejects, across inputs beyond the 5 specific
+  // historical cases above. Guards against a future edit to
+  // TAUGHT_SNIPPET_DENY_RE narrowing it back below the DB's deny-list.
+  describe("general parity — client never accepts what the DB would reject", () => {
+    const mixedInputs = [
+      "เชียงใหม่",
+      "ซอย 12",
+      "หมู่ที่ ๕",
+      "จ.เชียงใหม่",
+      "ต.บางนา/เขตบางนา",
+      "ใกล้วัดใหญ่",
+      "บ้านเลขที่",
+      "０９",
+      "๐๑๒",
+      "ตัวเมือง ขอนแก่น",
+      "$100",
+      "test@example",
+    ];
+
+    it.each(mixedInputs)("%j: client-rejects >= db-rejects", (input) => {
+      const clientRejects = validateTaughtSnippet(input) !== null;
+      const dbRejects = dbWouldReject(input);
+      if (dbRejects) expect(clientRejects).toBe(true);
+    });
   });
 });
 

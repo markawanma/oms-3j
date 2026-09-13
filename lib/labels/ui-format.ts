@@ -7,13 +7,39 @@
 import type { CrmProvinceOption } from "@/lib/crm/order-override";
 import type { OrderSourceRef } from "@/lib/labels/types";
 
-// Mirrors supabase/migrations/0116_label_review_resolve.sql's PDPA shape
-// check for p_taught_snippet EXACTLY: `length(pattern) <= 25 and pattern !~
-// '\d{3,}'`. Client-side pre-check only — the DB call is still the real
-// gate (contract §4: a snippet that fails this rejects the WHOLE resolve
-// call, province included, not just the snippet).
+// QA-2 fix (13 ก.ย. 69, R2-D2): the comment above USED to claim this mirrors
+// supabase/migrations/0116_label_review_resolve.sql's p_taught_snippet check
+// "EXACTLY" via a >=3-consecutive-ASCII-digit block — that was never true
+// after the M3 security fix (12 ก.ย. 69) hardened the DB side to a full
+// deny-list. See lib/labels/ui-format.test.ts's "parity with the actual DB
+// deny-list" describe block for the proof this now closes.
+//
+// Real DB rule (0116 label_text_rule.pattern CHECK, ~line 328-333, and
+// label_resolve_page's pre-check, ~line 707-712 — kept in sync manually
+// between those two, same duplication-risk note as the reason-code CHECKs):
+// length 1-25, reject ANY digit of ANY script (ASCII, Thai ๐-๙, full-width
+// ０-９, plus whatever [:digit:] catches on top — locale-dependent so the
+// DB doesn't rely on it alone) AND reject ANY [:punct:] (ASCII punctuation
+// in this DB's locale).
+//
+// TAUGHT_SNIPPET_DENY_RE below is a client-side SUPERSET of that, not a
+// byte-exact port (JS regex has no [:punct:]/[:digit:] POSIX classes tied to
+// a Postgres locale to copy 1:1) — brief's rule: "client ปฏิเสธมากกว่า DB
+// ปลอดภัยกว่า แต่ห้ามหลวมกว่า":
+//   - \p{Nd} (Unicode "decimal digit") is a strict superset of the DB's four
+//     digit checks combined — it already contains ASCII 0-9, Thai ๐-๙, and
+//     full-width０-９, so one Unicode property class covers all of them plus
+//     any other script's decimal digits, matching the DB's own "any other
+//     script's digits the locale recognizes" catch-all.
+//   - \p{P} (Unicode punctuation) ALONE is not enough — several ASCII
+//     POSIX-punct characters ($ + < = > ^ ` | ~) are Unicode Symbol (S), not
+//     Punctuation (P). \p{P} + \p{S} together is a strict superset of ASCII
+//     [:punct:], so nothing the DB denies can slip past this.
+// Net effect: this may reject a small set of symbols (e.g. ฿, ™) that the
+// DB's ASCII-only [:punct:] would technically allow — acceptable per brief,
+// never the other direction.
 export const TAUGHT_SNIPPET_MAX_LENGTH = 25;
-export const TAUGHT_SNIPPET_DIGIT_RUN_RE = /\d{3,}/;
+export const TAUGHT_SNIPPET_DENY_RE = /[\p{Nd}\p{P}\p{S}]/u;
 
 export const UNKNOWN_PROVINCE_CODE = "TH-XX";
 
@@ -34,8 +60,8 @@ export function validateTaughtSnippet(value: string): string | null {
   if (trimmed.length > TAUGHT_SNIPPET_MAX_LENGTH) {
     return `ข้อความสอนยาวเกิน ${TAUGHT_SNIPPET_MAX_LENGTH} ตัวอักษร`;
   }
-  if (TAUGHT_SNIPPET_DIGIT_RUN_RE.test(trimmed)) {
-    return "ข้อความสอนมีตัวเลขติดกันตั้งแต่ 3 หลัก — ระบบจะปฏิเสธ (กันเลขพัสดุ/เบอร์โทรหลุด)";
+  if (TAUGHT_SNIPPET_DENY_RE.test(trimmed)) {
+    return "ห้ามมีตัวเลขหรือเครื่องหมาย ใส่แค่คำ เช่น ลาดกระบัง";
   }
   return null;
 }
