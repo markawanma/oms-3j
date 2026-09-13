@@ -8,7 +8,7 @@
 // deleteStuckBatch() itself refuses those server-side too (belt + suspenders,
 // see §3.2).
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, ChevronDown, ChevronUp, Eye, Search, Trash2 } from "lucide-react";
@@ -54,6 +54,23 @@ export function ImportBatchHistory({ initialRows }: { initialRows: ImportBatchRo
   const toast = useToast();
   const [rows, setRows] = useState(initialRows);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  // QA-2 (QA report 13 ก.ย. 69): `rows` was initialized from `initialRows`
+  // once and then only ever patched locally (handleDelete's optimistic
+  // filter below) — a router.refresh() triggered from ANYWHERE ELSE
+  // (MissingOrdersPanel's delete, RestoreOrderButton's restore, a new import
+  // landing in another tab) re-renders this server component's parent with
+  // a fresh `initialRows` array, but useState ignores prop changes after
+  // mount, so this table would keep showing the stale list until a full page
+  // navigation. Sync explicitly whenever the parent actually hands us a new
+  // array (reference changes only on a real refetch, not on every unrelated
+  // client re-render) — this can only overwrite `rows` with server-fresh
+  // data, so it never fights the optimistic filter in handleDelete (that
+  // filter's own row is already gone from the next `initialRows` too, once
+  // the in-flight revalidatePath/router.refresh() lands).
+  useEffect(() => {
+    setRows(initialRows);
+  }, [initialRows]);
 
   // Warnings modal: lazy-loaded per batch on click, cached by batchId so
   // reopening the same row's modal doesn't refetch. QA round 1: a failed
