@@ -34,6 +34,13 @@
 // caught and mapped to Thai copy by mapMissingOrdersRpcError the same way
 // every other RPC precondition already is.
 //
+// 14 ก.ย. 69 — "ตรวจออเดอร์ที่หายไป" widened from "latest transformed order
+// batch only" to ANY transformed order batch (prod incident G601/G605/
+// G620, ฿880 — owner later confirmed all 3 cancelled with Shipnity, see
+// DeletedOrdersHistory's own reason text; the button had vanished from that
+// batch before confirmation finished). Purely a UI-reachability fix — state/
+// fetch details live in ImportBatchHistory.tsx's own comments, not here.
+//
 // This module permanently deletes revenue-bearing rows (with a snapshot +
 // restore path) — every export here revalidates the same page set
 // commitOrderImport does, since a delete/restore changes the same
@@ -57,20 +64,6 @@
 //     visible to anyone who can load this page, fine today (owner/admin-
 //     only, single internal user) but not once Auth A2 opens this page to
 //     more than one trusted person.
-//   - ImportBatchHistory.tsx only fetches `missingResult` when the "ตรวจ
-//     ออเดอร์ที่หายไป" button is clicked (fetchMissing inside
-//     toggleMissingPanel) — it does NOT refetch just because
-//     `latestOrderBatchId` changes under an already-open panel (e.g. a new
-//     batch becomes the latest transformed order batch while the panel is
-//     open). MissingOrdersPanel would then be passed a new `batchId` prop
-//     while still displaying `missingResult` computed for the OLD batch —
-//     stale/confusing display, not a data-safety issue: deleteMissingOrders
-//     re-derives the candidate set server-side for whatever `batchId` it
-//     actually receives, so a delete against a stale-looking list still only
-//     ever matches real candidates of the (new) batch id sent, or gets
-//     rejected outright (surfaced via mapMissingOrdersRpcError's "not in the
-//     current candidate set" case, added 13 ก.ย. 69) if the ids no longer
-//     line up.
 //   - ImportBatchHistory does not surface skipped/tombstoned row counts
 //     anywhere in its table — a batch that fed into a later delete has no
 //     visible trace of that in the history view itself (only in
