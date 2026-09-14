@@ -146,27 +146,31 @@ export function MissingOrdersPanel({
   // C-2 write switch (lib/actions/import-missing-orders.ts). Two paths set
   // this, in order of preference:
   //   1. PROACTIVE — getMissingOrdersWriteStatus() fetched once on mount
-  //      below (12 ก.ย. 69, Han added this on request). Cheap: the action
-  //      itself is a plain env-var read with no DB round-trip.
+  //      below (12 ก.ย. 69, Han added this on request; DB round-trip since
+  //      0117, analytics.crm_feature_flag — was a plain env-var read
+  //      before).
   //   2. REACTIVE fallback — isMissingOrdersWriteDisabledError() on an
   //      actual deleteMissingOrders failure (handleConfirmDelete below),
-  //      for the narrow race where the status fetch said "enabled" (or
-  //      failed and defaulted to that) but the gate flipped/was already off
-  //      by the time the real write landed.
-  // Once learned true for this panel instance it's kept true for the rest
-  // of its lifetime (MISSING_ORDERS_WRITE_ENABLED is a server-wide env var,
-  // not something that flips per-batch) — a second attempt on a different
-  // batch in the same session doesn't have to relearn the same fact.
+  //      for the narrow race where the status fetch said "enabled" but the
+  //      gate flipped/was already off by the time the real write landed.
+  // Fires once on mount only ([] deps below) — this is a per-shop DB row
+  // (analytics.crm_feature_flag), not something this panel polls for
+  // mid-session; a second attempt on a different batch in the same session
+  // doesn't re-fetch, it just reuses what mount already learned.
   const [writeDisabled, setWriteDisabled] = useState(false);
 
   // Proactive check — fires once per mount, independent of `result` (this is
-  // a system-wide flag, not tied to any one batch). Fail-soft: a thrown/!ok
-  // response just leaves writeDisabled at its current value (optimistically
-  // "enabled") — the reactive fallback above still catches a real attempt.
+  // a per-shop flag, not tied to any one batch). M-2 (security review 14
+  // ก.ย. 69, post-0117): fail-CLOSED — a thrown/!ok response now disables
+  // the button too, same as an explicit enabled:false. A broken status
+  // check must never render identically to a genuinely open gate; the
+  // reactive fallback above is the safety net for the OPPOSITE race (status
+  // said enabled but the real call lands after the gate closed), not for
+  // covering a failed status read with an optimistic "enabled".
   useEffect(() => {
     let cancelled = false;
     void getMissingOrdersWriteStatus().then((res) => {
-      if (!cancelled && res.ok && !res.data.enabled) setWriteDisabled(true);
+      if (!cancelled) setWriteDisabled(!res.ok || !res.data.enabled);
     });
     return () => {
       cancelled = true;

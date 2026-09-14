@@ -206,10 +206,17 @@ export function mapMissingOrdersRpcError(err: unknown, fallback: string): string
   // 0117 write-gate check FIRST, via `details` (not `message`) — an Error
   // instance never carries this field (matches the `raw`/`message`
   // extraction above's own `err instanceof Error` split), only the plain
-  // postgrest-js error object shape does.
+  // postgrest-js error object shape does. L-2 (security review 14 ก.ย. 69):
+  // EXACT match (trimmed), not substring — `detail` is a fixed machine
+  // token this function itself controls end-to-end (the RPC only ever sets
+  // it to exactly 'write_gate_closed', nothing else), so unlike the
+  // `message` needle map below (matching runtime-interpolated prose it does
+  // NOT control the exact shape of) there is no reason to accept a
+  // decorated/prefixed value here — that would only widen what counts as
+  // "gate closed" without a corresponding real case that produces it.
   const rawDetails = err instanceof Error ? undefined : (err as { details?: unknown } | null)?.details;
-  const details = typeof rawDetails === "string" ? rawDetails : "";
-  if (details.includes(MISSING_ORDERS_WRITE_GATE_CLOSED_DETAIL)) {
+  const details = typeof rawDetails === "string" ? rawDetails.trim() : "";
+  if (details === MISSING_ORDERS_WRITE_GATE_CLOSED_DETAIL) {
     return MISSING_ORDERS_WRITE_GATE_CLOSED_THAI;
   }
 

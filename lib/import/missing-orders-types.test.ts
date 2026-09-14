@@ -127,8 +127,19 @@ describe("mapMissingOrdersRpcError — 0117 write gate (checked via `details`, n
     expect(isMissingOrdersWriteDisabledError(thai)).toBe(true);
   });
 
-  it("`details` is checked via substring (.includes), same discipline as the `message` needle map", () => {
+  it("`details` is checked via EXACT match (trimmed), NOT substring — L-2 (security review 14 ก.ย. 69)", () => {
+    // Deliberately the OPPOSITE of the old assumption: `detail` is a fixed
+    // token this function's own RPC sets end-to-end, so a decorated/
+    // prefixed/suffixed value is not a real case — it must fall through,
+    // not match. Only the message-substring map below (MISSING_ORDERS_RPC_
+    // ERROR_MAP) has a reason to tolerate runtime-interpolated surrounding
+    // text; `detail` does not.
     const err = pgErrorWithDetail("import_delete_orders: write gate closed for this shop", "some-prefix:write_gate_closed:v2");
+    expect(mapMissingOrdersRpcError(err, FALLBACK)).toBe(FALLBACK);
+  });
+
+  it("`details` with surrounding whitespace still matches (trimmed exact match)", () => {
+    const err = pgErrorWithDetail("import_delete_orders: write gate closed for this shop", "  write_gate_closed  ");
     expect(mapMissingOrdersRpcError(err, FALLBACK)).toBe(`${MISSING_ORDERS_WRITE_DISABLED_PREFIX} ติดต่อผู้ดูแลเพื่อเปิด`);
   });
 
