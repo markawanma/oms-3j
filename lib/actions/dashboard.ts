@@ -27,6 +27,9 @@ import type {
   NewReturning,
   SalesByChannel,
   TrendPoint,
+  TrendProductRow,
+  TrendSplitRow,
+  TrendSplits,
   WeekdayPoint,
 } from "@/lib/dashboard/types";
 
@@ -87,6 +90,33 @@ function validateRange(params: GetDashboardParams): ValidatedRange | null {
   }
   const channel = params.channel?.trim() || null;
   return { from, to, channel };
+}
+
+// 0119 — trend_split mapping helpers. Tolerant to a missing `trend_split`
+// key entirely (raw.trend_split ?? {}, each sub-array ?? []): the app can
+// deploy ahead of the 0119 migration being applied (this file is committed
+// as a separate PR from the DB change per the Tech Lead's usual apply
+// sequencing), and an older dashboard_charts simply won't have this key yet
+// — falling back to [] renders an empty split rather than a 500.
+function mapTrendSplitRows(
+  rows: { date: string; key: string; orders: number; revenue: number | null }[] | undefined
+): TrendSplitRow[] {
+  return (rows ?? []).map((r) => ({
+    date: r.date,
+    key: r.key,
+    orders: Number(r.orders) || 0,
+    revenue: r.revenue === null || r.revenue === undefined ? null : Number(r.revenue),
+  }));
+}
+
+function mapTrendProductRows(
+  rows: { date: string; key: string; value: number }[] | undefined
+): TrendProductRow[] {
+  return (rows ?? []).map((r) => ({
+    date: r.date,
+    key: r.key,
+    value: Number(r.value) || 0,
+  }));
 }
 
 function mapScope(raw: {
@@ -188,12 +218,13 @@ export async function getDashboard(params: GetDashboardParams): Promise<ActionRe
 }
 
 // getDashboardCharts — analytics.dashboard_charts (0044, range/channel-scoped
-// since 0054). Separate RPC from dashboard_summary (loaded in parallel via
-// Promise.all in page.tsx) so the chart payload doesn't bloat the KPI-row
-// round trip. Same p_include_money gate as getDashboard: money sections
-// (topSku/productMix/aovByChannel/salesByChannel, and salesTrend/weekday's
-// revenue|aov fields) come back []/null from the RPC itself for staff —
-// never stripped client-side.
+// since 0054, trend_split + sales_trend.ordersWithoutItems added in 0119).
+// Separate RPC from dashboard_summary (loaded in parallel via Promise.all in
+// page.tsx) so the chart payload doesn't bloat the KPI-row round trip. Same
+// p_include_money gate as getDashboard: money sections (topSku/productMix/
+// aovByChannel/salesByChannel, salesTrend/weekday's revenue|aov fields, and
+// trendSplit.{firstRepeat,rfm}'s revenue field / trendSplit.product) come
+// back []/null from the RPC itself for staff — never stripped client-side.
 export async function getDashboardCharts(params: GetDashboardParams): Promise<ActionResult<DashboardCharts>> {
   const range = validateRange(params);
   if (!range) {
@@ -232,7 +263,13 @@ export async function getDashboardCharts(params: GetDashboardParams): Promise<Ac
         aov: number;
       }[];
       new_returning?: { new: number; returning: number; unknown: number };
-      sales_trend?: { date: string; revenue: number | null; orders: number; aov: number | null }[];
+      sales_trend?: {
+        date: string;
+        revenue: number | null;
+        orders: number;
+        orders_without_items?: number;
+        aov: number | null;
+      }[];
       weekday?: { dow: number; label: string; orders: number; revenue: number | null }[];
       sales_by_channel?: {
         channel_code: string;
@@ -241,6 +278,13 @@ export async function getDashboardCharts(params: GetDashboardParams): Promise<Ac
         orders: number;
         share_pct: number;
       }[];
+      // 0119 — optional: absent entirely when the RPC in the DB predates
+      // this migration (see mapTrendSplitRows/mapTrendProductRows above).
+      trend_split?: {
+        first_repeat?: { date: string; key: string; orders: number; revenue: number | null }[];
+        rfm?: { date: string; key: string; orders: number; revenue: number | null }[];
+        product?: { date: string; key: string; value: number }[];
+      };
     };
 
     const coverage: ChartCoverage = {
@@ -282,6 +326,7 @@ export async function getDashboardCharts(params: GetDashboardParams): Promise<Ac
       date: p.date,
       revenue: p.revenue === null || p.revenue === undefined ? null : Number(p.revenue),
       orders: Number(p.orders) || 0,
+      ordersWithoutItems: Number(p.orders_without_items) || 0,
       aov: p.aov === null || p.aov === undefined ? null : Number(p.aov),
     }));
 
@@ -300,6 +345,12 @@ export async function getDashboardCharts(params: GetDashboardParams): Promise<Ac
       sharePct: Number(r.share_pct) || 0,
     }));
 
+    const trendSplit: TrendSplits = {
+      firstRepeat: mapTrendSplitRows(raw.trend_split?.first_repeat),
+      rfm: mapTrendSplitRows(raw.trend_split?.rfm),
+      product: mapTrendProductRows(raw.trend_split?.product),
+    };
+
     const result: DashboardCharts = {
       coverage,
       topSku,
@@ -309,6 +360,7 @@ export async function getDashboardCharts(params: GetDashboardParams): Promise<Ac
       salesTrend,
       weekday,
       salesByChannel,
+      trendSplit,
     };
 
     return { ok: true, data: result };

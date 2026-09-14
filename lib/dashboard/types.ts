@@ -65,11 +65,13 @@ export interface DashboardData {
 }
 
 // ============================================================================
-// Dashboard charts — analytics.dashboard_charts (0044), see
+// Dashboard charts — analytics.dashboard_charts (0044, trend_split +
+// sales_trend.ordersWithoutItems added 0119), see
 // docs/3j-jewelry/analytics/phase-dashboard-charts-design.md §1b/§5.
-// Money-bearing sections (topSku/productMix/aovByChannel, and
-// salesTrend/weekday's revenue|aov fields) come back null/[] for staff — same
-// SQL-level money gate as DashboardData.kpi, never a UI-only hide.
+// Money-bearing sections (topSku/productMix/aovByChannel, salesTrend/
+// weekday's revenue|aov fields, and trendSplit.{firstRepeat,rfm}'s revenue /
+// trendSplit.product) come back null/[] for staff — same SQL-level money
+// gate as DashboardData.kpi, never a UI-only hide.
 // ============================================================================
 
 /** One day of the sales trend, zero-filled across the selected [from,to] range (0054 — was a fixed 30-day window pre-0054). revenue/aov are null for staff. */
@@ -77,7 +79,43 @@ export interface TrendPoint {
   date: string;
   revenue: number | null;
   orders: number;
+  /** Count(*) filter (where not has_items) for the day — NOT money-gated, same treatment as `orders` (0119). */
+  ordersWithoutItems: number;
   aov: number | null;
+}
+
+/** Raw grouping key inside a trend_split row — one of first_repeat's
+ * {unknown|first|repeat}, rfm's v_rfm_segment.segment values (+unknown), or
+ * product's product_mix bucket values (silver_bar/art_toy/other/jewelry).
+ * Kept as a plain string (not a union) same as MixSlice.bucket — the label/
+ * color mapping per dimension lives client-side, not in this type. */
+export type TrendSplitKey = string;
+
+/** One (date, key) breakdown row for the first_repeat or rfm trend splits
+ * (0119). NOT zero-filled — a (date,key) combination with zero orders is
+ * simply absent from the array, unlike the parent TrendPoint series. revenue
+ * is null for staff (same money-gate contract as TrendPoint.revenue). */
+export interface TrendSplitRow {
+  date: string;
+  key: TrendSplitKey;
+  orders: number;
+  revenue: number | null;
+}
+
+/** One (date, key) breakdown row for the product trend split (0119). */
+export interface TrendProductRow {
+  date: string;
+  key: TrendSplitKey;
+  value: number;
+}
+
+/** Three ways to split each day's sales_trend bar (0119) — the UI renders one
+ * dimension at a time via a toggle. Not zero-filled (see TrendSplitRow). */
+export interface TrendSplits {
+  firstRepeat: TrendSplitRow[];
+  rfm: TrendSplitRow[];
+  /** [] for staff (same money gate as productMix). */
+  product: TrendProductRow[];
 }
 
 /** Generic horizontal-bar row — used by both Top SKU and AOV-by-channel. */
@@ -145,4 +183,6 @@ export interface DashboardCharts {
   weekday: WeekdayPoint[];
   /** [] for staff */
   salesByChannel: SalesByChannel[];
+  /** 0119 — daily sales_trend split 3 ways (first/repeat, RFM segment, product bucket). */
+  trendSplit: TrendSplits;
 }
