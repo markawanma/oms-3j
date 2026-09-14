@@ -23,7 +23,11 @@ const SPLIT_MODE_LABEL: Record<SplitMode, string> = {
   none: "ไม่แบ่ง",
   firstRepeat: "ซื้อครั้งแรก/ซื้อซ้ำ",
   rfm: "กลุ่มลูกค้า RFM (วันนี้)",
-  product: "ประเภทสินค้า",
+  // "(เฉพาะยอดขาย)" lives in the label itself, not a title= tooltip on the
+  // <option> — most browsers don't render title on disabled <option>s, so a
+  // tooltip-only reason left users staring at a grayed-out choice with no
+  // explanation (see the disabled attribute below).
+  product: "ประเภทสินค้า (เฉพาะยอดขาย)",
 };
 
 interface SplitAgg {
@@ -42,7 +46,16 @@ function aggregateSplitRows(rows: TrendSplitRow[], useOrders: boolean): SplitAgg
   const totals = new Map<string, number>();
   for (const r of rows) {
     const v = useOrders ? r.orders : (r.revenue ?? 0);
-    if (v <= 0) continue; // a 0-value row would render nothing anyway
+    // <=0 skips both zero (renders nothing anyway) AND negative. Orders/
+    // revenue are additive counts/sums from the RPC and are not expected to
+    // go negative — if that ever changes (e.g. a refund modeled as negative
+    // revenue), a negative segment silently dropped here would break the
+    // "Σ segments == that day's single-color bar" invariant (design
+    // guarantee, see migration 0119 header) without any error. Not guarded
+    // against on purpose — no such case exists in the data today, and
+    // guessing at handling for one that doesn't exist yet is worse than
+    // leaving this documented and revisiting when it actually happens.
+    if (v <= 0) continue;
     const dayMap = byDate.get(r.date) ?? new Map<string, number>();
     dayMap.set(r.key, (dayMap.get(r.key) ?? 0) + v);
     byDate.set(r.date, dayMap);
@@ -58,6 +71,8 @@ function aggregateProductRows(rows: TrendProductRow[]): SplitAgg {
   const byDate = new Map<string, Map<string, number>>();
   const totals = new Map<string, number>();
   for (const r of rows) {
+    // Same non-guard as aggregateSplitRows above — line-item revenue isn't
+    // expected to go negative either; documented, not defended against.
     if (r.value <= 0) continue;
     const dayMap = byDate.get(r.date) ?? new Map<string, number>();
     dayMap.set(r.key, (dayMap.get(r.key) ?? 0) + r.value);
@@ -225,11 +240,7 @@ export function TrendChart({
                   {firstRepeatAvailable && <option value="firstRepeat">{SPLIT_MODE_LABEL.firstRepeat}</option>}
                   {rfmAvailable && <option value="rfm">{SPLIT_MODE_LABEL.rfm}</option>}
                   {productAvailable && (
-                    <option
-                      value="product"
-                      disabled={mode === "orders"}
-                      title={mode === "orders" ? "แบ่งตามสินค้าได้เฉพาะยอดขาย — ออเดอร์เดียวมีได้หลายประเภท" : undefined}
-                    >
+                    <option value="product" disabled={mode === "orders"}>
                       {SPLIT_MODE_LABEL.product}
                     </option>
                   )}
@@ -320,9 +331,28 @@ export function TrendChart({
                 return [seg];
               });
               const dayTotal = bottom; // == this day's single-color bar value, exactly (customer splits) — see aggregateSplitRows.
+              const revenue = p.revenue ?? 0; // used by both the product-mode hit rect below and the ghost bar's height.
 
               return (
                 <g key={p.date}>
+                  {splitMode === "product" && (
+                    // Invisible hit rect, drawn FIRST (under everything) and
+                    // spanning the full plot height — the ghost bar below is
+                    // fill="none", so under the default `pointer-events:
+                    // visiblePainted` its transparent interior is NOT a hit
+                    // target, only its 1px dashed stroke is. That left the
+                    // day-summary tooltip (มูลค่าสินค้า/ยอดขาย/ออเดอร์/ไม่มี
+                    // ข้อมูลสินค้า) reachable only by hovering exactly on the
+                    // dashed line. This rect carries that <title> instead;
+                    // segment rects below are painted on top of it, so
+                    // hovering a segment still shows its own tooltip as
+                    // normal (topmost element wins where they overlap).
+                    <rect x={x} y={padTop} width={barWidth} height={plotH} fill="transparent">
+                      <title>{`${formatDate(p.date)} · มูลค่าสินค้า ${formatTHBCompact(dayTotal)} · ยอดขาย ${formatTHBCompact(
+                        revenue
+                      )} · ${formatCount(p.orders)} ออเดอร์ (${formatCount(p.ordersWithoutItems)} ไม่มีข้อมูลสินค้า)`}</title>
+                    </rect>
+                  )}
                   {segs.map((seg) => {
                     const hPx = Math.max((plotH * seg.value) / max, 1);
                     const yTop = H - padBottom - (plotH * (seg.bottom + seg.value)) / max;
@@ -338,18 +368,12 @@ export function TrendChart({
                   })}
                   {splitMode === "product" &&
                     (() => {
-                      const revenue = p.revenue ?? 0;
                       const ghostH = Math.max((plotH * revenue) / max, revenue > 0 ? 1 : 0);
                       const ghostY = H - padBottom - ghostH;
-                      return (
-                        // ghost bar — สูงเท่ายอดขายจริงของวันนั้น วาดหลัง stack เสมอ
-                        // (วันที่ไม่มีข้อมูลสินค้าเลยจะเหลือแค่กรอบ ไม่ใช่หายไป).
-                        <rect x={x} y={ghostY} width={barWidth} height={ghostH} fill="none" stroke="#d4d4d8" strokeDasharray="3 2">
-                          <title>{`${formatDate(p.date)} · มูลค่าสินค้า ${formatTHBCompact(dayTotal)} · ยอดขาย ${formatTHBCompact(
-                            revenue
-                          )} · ${formatCount(p.orders)} ออเดอร์ (${formatCount(p.ordersWithoutItems)} ไม่มีข้อมูลสินค้า)`}</title>
-                        </rect>
-                      );
+                      // ghost bar — สูงเท่ายอดขายจริงของวันนั้น วาดหลัง stack เสมอ
+                      // (วันที่ไม่มีข้อมูลสินค้าเลยจะเหลือแค่กรอบ ไม่ใช่หายไป). ไม่มี
+                      // <title> ของตัวเอง — ใช้ hit rect ด้านบนแทน (ดูคอมเมนต์นั้น).
+                      return <rect x={x} y={ghostY} width={barWidth} height={ghostH} fill="none" stroke="#d4d4d8" strokeDasharray="3 2" />;
                     })()}
                   {showTick && (
                     <text x={x + barWidth / 2} y={H - 10} textAnchor="middle" fontSize={10} fill="#94a3b8">
