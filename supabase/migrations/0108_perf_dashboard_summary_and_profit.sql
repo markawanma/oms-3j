@@ -1,4 +1,10 @@
 -- 0108_perf_dashboard_summary_and_profit.sql
+-- ✅ APPLIED 4 ก.ย. 69 (version 20260904084431) — ไฟล์ถูกเก็บเข้า main 14 ก.ย. 69
+--    หลังค้างอยู่บน branch feature/dashboard-perf
+-- 🔴 ไฟล์นี้คือนิยามล่าสุดของ analytics.v_fact_order ไม่ใช่ 0028 — ตอนที่ไฟล์นี้ยัง
+--    ไม่อยู่ใน main มีคนอ่าน repo แล้วสรุปว่า 0028 คือตัวล่าสุดจริง (security review
+--    12 ก.ย. 69) ใครแก้ view นี้โดยลอกจาก 0028 จะลบงาน perf ของ 0108 ทิ้งเงียบๆ
+--    ⇒ แก้ครั้งหน้าให้ลอกจาก pg_get_viewdef สดจาก DB เสมอ
 -- Perf fix (architect-approved design, Tech Lead handoff 2026-09-04),
 -- second of two root causes behind the measured 279ms / 56,136 buffers on
 -- /dashboard (shop a7c850ee-6776-4c3e-ba72-ba9e8caba2b7):

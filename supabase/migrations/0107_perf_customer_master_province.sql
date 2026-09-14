@@ -1,4 +1,6 @@
 -- 0107_perf_customer_master_province.sql
+-- ✅ APPLIED 4 ก.ย. 69 (version 20260904084307) — ไฟล์ถูกเก็บเข้า main 14 ก.ย. 69
+--    หลังค้างอยู่บน branch feature/dashboard-perf ทำให้ main เคยกระโดด 0106 -> 0110
 -- Perf fix (architect-approved design, Tech Lead handoff 2026-09-04):
 --
 -- analytics.v_customer_master's `lp` LEFT JOIN LATERAL scanned

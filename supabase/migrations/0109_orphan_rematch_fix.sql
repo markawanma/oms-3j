@@ -1,4 +1,11 @@
 -- 0109_orphan_rematch_fix.sql
+-- ✅ APPLIED 4 ก.ย. 69 (version 20260904101452) — ไฟล์ถูกเก็บเข้า main 14 ก.ย. 69
+--    หลังค้างอยู่บน branch fix/orphan-rematch
+-- ⚠️ 0115 (12 ก.ย. 69) create or replace ฟังก์ชันตัวเดียวกันนี้ทับไปแล้ว โดยลอก
+--    นิยามสดจาก pg_get_functiondef จึงพา logic ของ 0109 ติดไปครบ (ยืนยันกับ DB
+--    จริงแล้ว 14 ก.ย. 69: ทั้ง orphan scan และ reset-to-pending ยังอยู่)
+--    ⇒ ห้ามรัน 0109 ซ้ำเดี่ยวๆ บน DB ที่มี 0115 แล้ว จะย้อนฟังก์ชันกลับไปเป็น
+--    เวอร์ชันที่ไม่มี tombstone check ของระบบตรวจจับใบยกเลิก
 -- Bug: /crm/import promises "จะจับคู่และคำนวณกำไรให้อัตโนมัติเมื่อนำเข้ารายงาน
 -- ยอดขายของออเดอร์นั้นแล้ว" -- that has never been true. Phase 1 of
 -- analytics.transform_pending_order_lines (0095 body, verified byte-identical
