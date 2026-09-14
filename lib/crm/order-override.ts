@@ -9,11 +9,15 @@
  * crm_set_order_override (`v_whitelist`) exactly — any other key raises
  * server-side. Every field is optional: callers (crmSetOrderOverride) send
  * only the keys the user actually changed, never the whole object.
+ *
+ * `province_code` REMOVED (migration 0116, owner 11 ก.ย. 69 decision #4) —
+ * province is no longer part of this override jsonb blob at all; it's edited
+ * exclusively via setOrderProvince/resolveLabelPage, which write the raw
+ * fact_order.province_code column directly. The RPC's v_whitelist no longer
+ * accepts this key (it would raise "not in the override whitelist").
  */
 export interface OrderOverrideInput {
   channel_id?: string;
-  /** analytics.dim_geo.province_code, e.g. "TH-10". */
-  province_code?: string;
   revenue?: number;
   discount?: number;
   /** "YYYY-MM-DD" (date, not timestamp). */

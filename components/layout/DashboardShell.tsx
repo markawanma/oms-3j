@@ -56,26 +56,31 @@ interface NavGroup {
   items: NavItem[];
 }
 
+// 🔴 เมนูซ่อน (เจ้าของสั่ง 10 ก.ย. 69 หลังรีวิวว่าหน้าไหน "เกินจำเป็น")
+// หน้าเหล่านี้ยังอยู่ครบและเข้าถึงได้ด้วยการพิมพ์ URL ตรง — ซ่อนเพราะตารางที่
+// มันอ่านยังว่างอยู่จริง เปิดไปเจอหน้าเปล่าทุกครั้ง ทำให้เมนูหลอกตาว่ามีของ:
+//   /orders + /orders/oversold  -> public.orders = 0 แถว (ยอดขายจริงอยู่
+//                                  analytics.fact_order เข้ามาทางไฟล์ Shipnity)
+//   /stock                      -> public.central_stock = 2 แถว
+//   /stock/hero                 -> analytics.hero_watch = 0 แถว
+//   /live                       -> public.live_session = 1 แถว
+//   /tiktok/sales               -> อ่าน public.orders เช่นกัน = 0 แถว
+//                                  (/dashboard ตอบคำถามเดียวกันครบกว่าอยู่แล้ว)
+// เอากลับมาเมื่อระบบเริ่มเขียนออเดอร์เข้า public.orders ตรงๆ แทนการ import:
+// แค่ย้ายบรรทัดกลับเข้า items ไม่ต้องแก้อย่างอื่น
 const NAV_GROUPS: NavGroup[] = [
   {
     label: "หน้าร้าน",
     items: [
       { href: "/dashboard", label: "แดชบอร์ด", icon: LayoutDashboard },
-      { href: "/", label: "ออเดอร์", icon: ClipboardList },
-      { href: "/stock", label: "สต็อก", icon: Boxes },
-      { href: "/stock/hero", label: "จอสต็อก Hero", icon: Gauge },
-      { href: "/orders/oversold", label: "คิวของไม่พอ", icon: PackageX },
       { href: "/products/new", label: "เพิ่มสินค้า", icon: PlusCircle },
-      { href: "/live", label: "ไลฟ์", icon: Radio },
     ],
   },
   {
     label: "TikTok Ops",
     items: [
       { href: "/tiktok/dashboard", label: "แดชบอร์ด TikTok", icon: BarChart3 },
-      { href: "/tiktok/sales", label: "ยอดขาย", icon: Coins },
       { href: "/tiktok/upload", label: "อัปโหลด", icon: Tags },
-      { href: "/tiktok/copilot", label: "Ad Copilot TikTok", icon: Target },
     ],
   },
   {

@@ -54,7 +54,7 @@ export function OrphanBacklogPanel({ backlog }: { backlog: OrphanBacklog }) {
         <div className="rounded-lg border border-amber-200 bg-amber-50 p-3.5">
           <h3 className="flex items-center gap-1.5 text-sm font-bold text-amber-900">
             <Clock className="h-4 w-4 shrink-0" aria-hidden="true" />
-            รอออเดอร์ ({formatCount(backlog.waiting.length)})
+            รอออเดอร์ {backlog.listCapped ? `(แสดง ${formatCount(backlog.waiting.length)} รายการแรก)` : `(${formatCount(backlog.waiting.length)})`}
           </h3>
           <p className="mt-1 text-xs text-amber-800">
             ยังไม่พบรายงานยอดขายของออเดอร์เหล่านี้ — จะจับคู่และคำนวณกำไรให้อัตโนมัติเมื่อนำเข้ารายงานยอดขายของออเดอร์นั้นแล้ว
@@ -67,7 +67,7 @@ export function OrphanBacklogPanel({ backlog }: { backlog: OrphanBacklog }) {
         <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3.5">
           <h3 className="flex items-center gap-1.5 text-sm font-bold text-zinc-800">
             <Search className="h-4 w-4 shrink-0" aria-hidden="true" />
-            ไม่มีออเดอร์ต้นทาง ({formatCount(backlog.noSource.length)})
+            ไม่มีออเดอร์ต้นทาง {backlog.listCapped ? `(แสดง ${formatCount(backlog.noSource.length)} รายการแรก)` : `(${formatCount(backlog.noSource.length)})`}
           </h3>
           <p className="mt-1 text-xs text-zinc-600">
             เกิน 7 วันแล้วยังไม่พบรายงานยอดขายของออเดอร์เหล่านี้ — น่าจะถูกยกเลิกใน Shipnity เอาเลขไปเช็คได้ ·
@@ -79,8 +79,8 @@ export function OrphanBacklogPanel({ backlog }: { backlog: OrphanBacklog }) {
 
       {backlog.listCapped && (
         <p className="text-xs text-zinc-500">
-          แสดง {formatCount(shownCount)} จากทั้งหมด {formatCount(backlog.totalOrderCount)} ออเดอร์ (
-          {formatCount(backlog.totalLineCount)} แถว)
+          รวมออเดอร์ที่ยังไม่มีรายงานยอดขายทั้งหมด <strong>{formatCount(backlog.totalOrderCount)} ออเดอร์</strong> (
+          {formatCount(backlog.totalLineCount)} แถว) — สองกล่องด้านบนแสดงตัวอย่าง {formatCount(shownCount)} รายการแรกเท่านั้น
         </p>
       )}
     </div>

@@ -39,7 +39,7 @@
 | Sales | Button, ErrorState, Skeleton | SalesKpiRow, SalesTrendChart, ChannelMixChart, DateRangeFilter, SalesScopeNote, SalesPageClient | server→client refetch |
 | Dashboard | Badge, EmptyState, ErrorBanner, Skeleton | KpiCard (coveragePct บังคับ), DataQualityBanner (ปิดไม่ได้), BreakdownTabs, DashboardKpiSkeleton | server fixture→client tabs |
 | Copilot | Badge, Button, Modal (pattern AdjustStockSheet) | CopilotCard, CopilotSection, CopilotOverviewCard, CopilotCardSkeleton | client |
-| Upload | Button, Badge, EmptyState, Toast, Modal | UploadDropzone, UploadQueueList/Item, BatchSummaryCard, ReviewQueueList/Row, UploadQueueSkeleton | client (จำลอง state) |
+| Upload | Button, Badge, EmptyState, Toast, Modal | UploadDropzone, UploadQueueList/Item, BatchSummaryCard, ~~ReviewQueueList~~/Row (ReviewQueueList ยุบเข้า PendingReviewQueue 13 ก.ย. 69), UploadQueueSkeleton | client (จำลอง state) |
 | Layout | — | TikTokSubNav (client usePathname) | server+client |
 
 Chart = hand-rolled SVG React (~80 บรรทัด/ตัว) ไม่ลง recharts (เลี่ยง +100KB เพื่อ 2 กราฟ)

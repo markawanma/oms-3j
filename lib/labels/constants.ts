@@ -43,3 +43,13 @@ export const SENDER_FINGERPRINT = {
 // uploaded label PDFs for 180 days after parse, then purge (P1/P2: manual
 // "ล้างไฟล์เก่า" button, not a cron job — see design §7).
 export const RETENTION_DAYS = 180;
+
+// Mace L1 fix (13 ก.ย. 69, security): the free-text `note` field on
+// setOrderProvince/resolveLabelPage/ignoreLabelPage/revertLabelPage's UI had
+// no length ceiling anywhere — client input, TS type, or server action. 500
+// is generous for a genuine "หมายเหตุเพิ่มเติม" one-liner while still bounded
+// (this ends up in crm_audit_log's before/after jsonb, which other admin
+// screens read back). Shared here (imported by both the `maxLength` input
+// attribute and lib/actions/labels.ts's server-side guard) so client and
+// server can't drift to two different numbers.
+export const NOTE_MAX_LENGTH = 500;
