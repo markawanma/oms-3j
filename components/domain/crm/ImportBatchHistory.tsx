@@ -8,18 +8,21 @@
 // deleteStuckBatch() itself refuses those server-side too (belt + suspenders,
 // see §3.2).
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, Eye, Trash2 } from "lucide-react";
+import { AlertTriangle, ChevronDown, ChevronUp, Eye, Search, Trash2 } from "lucide-react";
 import { deleteStuckBatch, type ImportBatchRow } from "@/lib/actions/import-orders";
 import {
   getLineImportWarnings,
   type LineImportWarningsResult,
 } from "@/lib/actions/import-line-items";
+import { getMissingOrders } from "@/lib/actions/import-missing-orders";
+import type { MissingOrdersResult } from "@/lib/import/missing-orders-types";
 import { LINE_ITEM_SOURCE_TYPE } from "@/lib/import/source-types";
 import { KIND_LABEL, KIND_BADGE_TONE, type FileKind } from "@/components/domain/crm/OrderImportClient";
 import { LineImportWarningsList } from "@/components/domain/crm/LineImportWarningsList";
+import { MissingOrdersPanel } from "@/components/domain/crm/MissingOrdersPanel";
 import { Badge, type BadgeTone } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
@@ -51,6 +54,23 @@ export function ImportBatchHistory({ initialRows }: { initialRows: ImportBatchRo
   const toast = useToast();
   const [rows, setRows] = useState(initialRows);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  // QA-2 (QA report 13 ก.ย. 69): `rows` was initialized from `initialRows`
+  // once and then only ever patched locally (handleDelete's optimistic
+  // filter below) — a router.refresh() triggered from ANYWHERE ELSE
+  // (MissingOrdersPanel's delete, RestoreOrderButton's restore, a new import
+  // landing in another tab) re-renders this server component's parent with
+  // a fresh `initialRows` array, but useState ignores prop changes after
+  // mount, so this table would keep showing the stale list until a full page
+  // navigation. Sync explicitly whenever the parent actually hands us a new
+  // array (reference changes only on a real refetch, not on every unrelated
+  // client re-render) — this can only overwrite `rows` with server-fresh
+  // data, so it never fights the optimistic filter in handleDelete (that
+  // filter's own row is already gone from the next `initialRows` too, once
+  // the in-flight revalidatePath/router.refresh() lands).
+  useEffect(() => {
+    setRows(initialRows);
+  }, [initialRows]);
 
   // Warnings modal: lazy-loaded per batch on click, cached by batchId so
   // reopening the same row's modal doesn't refetch. QA round 1: a failed
@@ -101,9 +121,40 @@ export function ImportBatchHistory({ initialRows }: { initialRows: ImportBatchRo
   const openWarningsLoading = openBatch != null && warningsLoadingId === openBatch.batchId;
   const openWarningsFailed = openBatch != null && failedBatchId === openBatch.batchId;
 
+  // Cancel-detection Phase 1 (design §6) — "ตรวจออเดอร์ที่หายไป" toggle for
+  // the LATEST transformed order batch only (see latestOrderBatchId below).
+  // `missingResult` follows MissingOrdersPanel's own contract (undefined =
+  // loading, null = fetch failed, object = loaded) — fetched on-demand on
+  // first open, not eagerly for every row (this history table can hold many
+  // batches; only the one row that ever shows the button can trigger a
+  // fetch, and only when clicked).
+  const [missingOpen, setMissingOpen] = useState(false);
+  const [missingResult, setMissingResult] = useState<MissingOrdersResult | null | undefined>(undefined);
+
+  async function fetchMissing(batchId: string) {
+    setMissingResult(undefined);
+    const res = await getMissingOrders(batchId);
+    setMissingResult(res.ok ? res.data : null);
+    if (!res.ok) console.error("ImportBatchHistory: getMissingOrders failed", res.error);
+  }
+
+  function toggleMissingPanel(batchId: string) {
+    if (missingOpen) {
+      setMissingOpen(false);
+      return;
+    }
+    setMissingOpen(true);
+    void fetchMissing(batchId);
+  }
+
+  // rows is already ordered newest-first (getImportBatches: `.order("imported_at", { ascending: false })`)
+  // — the first order-kind, transformed row IS the latest one.
+  const latestOrderBatchId = rows.find((r) => sourceTypeToKind(r.sourceType) === "order" && r.status === "transformed")?.batchId ?? null;
+
   return (
-    <div className="overflow-x-auto rounded-lg border border-zinc-200 bg-white">
-      <table className="w-full min-w-[700px] text-left text-xs">
+    <div className="flex flex-col gap-3">
+      <div className="overflow-x-auto rounded-lg border border-zinc-200 bg-white">
+        <table className="w-full min-w-[700px] text-left text-xs">
         <thead>
           <tr className="border-b border-zinc-200 bg-zinc-50 text-zinc-500">
             <th className="px-3 py-2">ไฟล์</th>
@@ -184,18 +235,31 @@ export function ImportBatchHistory({ initialRows }: { initialRows: ImportBatchRo
                 </td>
                 <td className="px-3 py-2 whitespace-nowrap text-zinc-500">{formatBangkokTime(r.importedAt)}</td>
                 <td className="px-3 py-2">
-                  {canDelete && (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      loading={deletingId === r.batchId}
-                      onClick={() => void handleDelete(r.batchId)}
-                      aria-label={`ลบ batch ${r.fileName ?? r.batchId}`}
-                    >
-                      <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
-                    </Button>
-                  )}
+                  <div className="flex items-center gap-1.5">
+                    {r.batchId === latestOrderBatchId && (
+                      <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        onClick={() => toggleMissingPanel(r.batchId)}
+                      >
+                        {missingOpen ? <ChevronUp className="h-3.5 w-3.5" aria-hidden="true" /> : <Search className="h-3.5 w-3.5" aria-hidden="true" />}
+                        ตรวจออเดอร์ที่หายไป
+                      </Button>
+                    )}
+                    {canDelete && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        loading={deletingId === r.batchId}
+                        onClick={() => void handleDelete(r.batchId)}
+                        aria-label={`ลบ batch ${r.fileName ?? r.batchId}`}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+                      </Button>
+                    )}
+                  </div>
                 </td>
               </tr>
             );
@@ -230,7 +294,16 @@ export function ImportBatchHistory({ initialRows }: { initialRows: ImportBatchRo
         {!openWarningsLoading && openWarningsData && openWarningsData.rows.length > 0 && (
           <LineImportWarningsList rows={openWarningsData.rows} totalCount={openWarningsData.totalCount} />
         )}
-      </Modal>
+        </Modal>
+      </div>
+
+      {missingOpen && latestOrderBatchId && (
+        <MissingOrdersPanel
+          batchId={latestOrderBatchId}
+          result={missingResult}
+          onRetry={() => void fetchMissing(latestOrderBatchId)}
+        />
+      )}
     </div>
   );
 }

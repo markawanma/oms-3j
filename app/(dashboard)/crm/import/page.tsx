@@ -7,6 +7,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { OrderImportClient } from "@/components/domain/crm/OrderImportClient";
 import { ImportBatchHistory } from "@/components/domain/crm/ImportBatchHistory";
 import { OrphanBacklogPanel } from "@/components/domain/crm/OrphanBacklogPanel";
+import { DeletedOrdersHistory } from "@/components/domain/crm/DeletedOrdersHistory";
 
 export const dynamic = "force-dynamic";
 
@@ -75,6 +76,18 @@ export default async function CrmImportPage() {
         ) : (
           <ImportBatchHistory initialRows={result.data} />
         )}
+      </div>
+
+      {/* Cancel-detection Phase 1 (design §6) — DeletedOrdersHistory never
+          throws (see its own file header), so rendering it directly here IS
+          the fail-soft handling: a data-load failure inside it just renders
+          an inline ErrorBanner, the rest of this page (uploader + history
+          above) stays fully usable either way. id= is the anchor target for
+          "ไปที่ประวัติการลบ" links in OrderImportClient/ImportBatchHistory's
+          TombstonedNotice. */}
+      <div id="deleted-orders-history">
+        <h2 className="mb-2 text-sm font-bold text-zinc-800">ประวัติการลบออเดอร์</h2>
+        <DeletedOrdersHistory />
       </div>
     </div>
   );
