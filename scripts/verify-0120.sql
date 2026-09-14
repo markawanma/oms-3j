@@ -316,14 +316,12 @@ begin
       ),
       cust as (
         select
-          customer_id,
-          max(first_dt) as first_dt,
-          max(first_channel_id) as first_channel_id,
+          customer_id, first_dt, first_channel_id,
           bool_or(order_date > first_dt and order_date <= first_dt + 7)  as repeat_7,
           bool_or(order_date > first_dt and order_date <= first_dt + 14) as repeat_14,
           bool_or(order_date > first_dt and order_date <= first_dt + 30) as repeat_30
         from orders
-        group by customer_id
+        group by customer_id, first_dt, first_channel_id
       ),
       cohort_base as (
         select

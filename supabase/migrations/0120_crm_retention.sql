@@ -24,6 +24,23 @@
 --      used for the 6-day median reported to the owner, so this file's
 --      repeat-rate numbers won't contradict that baseline.
 --
+-- 🔴 Dry-run bug (caught on a real DB, 14 ก.ย. 69, invisible to static
+-- review): the `cust` CTE in Part D originally used `max(first_dt)` /
+-- `max(first_channel_id)` to collapse `orders`' window-function output down
+-- to one row per customer. `first_channel_id` is `uuid` — Postgres has NO
+-- `max(uuid)`/`min(uuid)` aggregate (42883, raised at CALL time since this
+-- is a plain SQL statement, not caught by CREATE FUNCTION's parse). Fixed by
+-- grouping BY `first_dt`/`first_channel_id` instead of aggregating them —
+-- they're already constant per customer_id partition (window function
+-- output), so GROUP BY collapses the rows for free with no aggregate call
+-- needed at all. General rule for next time: to collapse a column that's
+-- already constant within a group, GROUP BY it — never wrap it in
+-- max()/min(), which silently doesn't exist for uuid (and isn't guaranteed
+-- to exist for every future column type either). Verified after the fix on
+-- a real DB (rolled back): 49ms, as_of = 2026-09-14, immature weeks
+-- correctly withhold a rate, baseline = 2,576 new customers / 29.9% repeat
+-- within 30 days (line_oa 31.6% · tiktok 28.6% · facebook 20.0%).
+--
 -- ⚠️ DO NOT APPLY — file only, per this task's brief. Tech Lead dry-runs via
 -- scripts/verify-0120.sql (self-cleaning do-block, forced rollback) and
 -- applies via MCP apply_migration after review.
@@ -319,17 +336,21 @@ begin
   ),
   cust as (
     -- first_dt/first_channel_id are constant per customer_id partition
-    -- already (window function output) — any aggregate collapses the
-    -- per-order rows to one row per customer without changing the value.
+    -- already (window function output), so they're grouped, NOT aggregated
+    -- with max()/min() — first_channel_id is uuid, and Postgres has no
+    -- max(uuid)/min(uuid) (42883 at call time, not at CREATE FUNCTION time,
+    -- since this is a plain SQL statement, not a static type error — caught
+    -- by dry-run 14 ก.ย. 69, invisible to static review). The general rule:
+    -- to collapse a value that's already constant per group, GROUP BY it,
+    -- never aggregate it — max()/min() only work on orderable types anyway
+    -- and silently exclude uuid.
     select
-      customer_id,
-      max(first_dt) as first_dt,
-      max(first_channel_id) as first_channel_id,
+      customer_id, first_dt, first_channel_id,
       bool_or(order_date > first_dt and order_date <= first_dt + 7)  as repeat_7,
       bool_or(order_date > first_dt and order_date <= first_dt + 14) as repeat_14,
       bool_or(order_date > first_dt and order_date <= first_dt + 30) as repeat_30
     from orders
-    group by customer_id
+    group by customer_id, first_dt, first_channel_id
   ),
   cohort_base as (
     select
