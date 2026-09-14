@@ -92,13 +92,30 @@ begin;
 -- "มติ C-2") — this migration is the switch that mandate is conditioned on,
 -- not the UI change itself (that's a separate, TS-only follow-up).
 --
--- ⚠️ PREPARED, NOT APPLIED — this file is written to be reviewed and applied
--- by the owner via the Supabase MCP (supabase-migrate skill: pre-check →
--- apply_migration → self-verify → get_advisors). Do not run this against a
--- live project as part of writing it. Rehearsal: scripts/verify-0117-
--- write-gate.sql (dry-run in a transaction that always rolls back, per
--- 3j-migration-traps #11 — this touches analytics.fact_order for real,
--- if only inside a transaction that never commits).
+-- ✅ APPLIED 14 ก.ย. 69 via MCP (version อยู่ใน supabase_migrations แล้ว) —
+-- ทดสอบบน DB จริงผ่าน 10 ข้อ รวมเคสปิดสวิตช์กลางคันแล้วปฏิเสธทันที. Rehearsal
+-- used before apply: scripts/verify-0117-write-gate.sql (dry-run in a
+-- transaction that always rolls back, per 3j-migration-traps #11 — this
+-- touches analytics.fact_order for real, if only inside a transaction that
+-- never commits).
+--
+-- 🔴 H-1 (Mace, security review 14 ก.ย. 69): this flag is a MOMENTARY
+-- switch, not a setting — do NOT leave it enabled=true overnight/unattended
+-- until Auth A2 ships real per-user sessions. Until then, "owner/admin" on
+-- the write path is still just an env var (getDevRole() — see
+-- lib/actions/import-missing-orders.ts's own C-2 comment), not a login, so
+-- this DB flag is the only thing actually closing the door when nobody is
+-- watching. Turn it on immediately before the specific delete/restore is
+-- needed, then turn it back off right after — copy-paste for either
+-- direction:
+--   -- open (per shop):
+--   insert into analytics.crm_feature_flag (shop_id, flag, enabled)
+--   values ('<shop_id>', 'missing_orders_write', true)
+--   on conflict (shop_id, flag) do update set enabled = true, updated_at = now();
+--   -- close (per shop):
+--   update analytics.crm_feature_flag set enabled = false, updated_at = now()
+--   where shop_id = '<shop_id>' and flag = 'missing_orders_write';
+-- No migration, no redeploy, no MCP round-trip needed for either direction.
 --
 -- Why a DB table, not just "check env var inside the RPC": production
 -- (oms-3j.vercel.app) has no login and is intentionally open to the public
@@ -118,26 +135,25 @@ begin;
 -- between a mistake/compromised key and permanently deleting revenue rows.
 --
 -- No row = closed (fail closed, not fail open) — deliberately NOT seeding
--- any row for any shop here. Opening the gate for 3J Jewelry's real shop_id
--- is a separate, explicit statement the owner runs after reviewing this
--- migration, not something this file does on its behalf:
---   insert into analytics.crm_feature_flag (shop_id, flag, enabled)
---   values ('<shop_id>', 'missing_orders_write', true)
---   on conflict (shop_id, flag) do update set enabled = true, updated_at = now();
--- and closing it again is the same statement with enabled = false — no
--- migration, no redeploy, no MCP round-trip needed for either direction
--- once this table exists.
+-- any row for any shop here at apply time. Opening the gate for a real
+-- shop_id is the separate, explicit statement in H-1 above, run by the
+-- owner only right when a specific delete/restore is needed.
 --
 -- Table is schema-generic on purpose (flag text, not a boolean column named
 -- for this one feature) — analytics.crm_feature_flag is meant to be reused
 -- for the next "DB kill switch" this project needs, not re-built per
--- feature. RLS: owner/admin of the shop can SELECT their own shop's flags
--- (so a future "show switch status" UI never needs the service-role
--- client just to read this) — no INSERT/UPDATE/DELETE policy for
--- authenticated at all, matching this project's existing pattern of no
--- table-level RLS write policy for CRM writes (0021 §7's own note): writes
--- to this table happen from the SQL editor / MCP by the owner directly
--- (service_role), never from the app.
+-- feature. RLS: owner/admin of the shop can SELECT their own shop's flags —
+-- unused by the app TODAY (lib/actions/import-missing-orders.ts's
+-- getMissingOrdersWriteStatus() still reads via getServiceClient(),
+-- service_role, same as every other action in this file, because there is
+-- no per-user JWT session yet, pending Auth A2), but in place now so a
+-- future "show switch status" UI, once real sessions exist, CAN read this
+-- table directly under the caller's own session instead of needing to
+-- round-trip through a service-role server action. No INSERT/UPDATE/DELETE
+-- policy for authenticated at all, matching this project's existing
+-- pattern of no table-level RLS write policy for CRM writes (0021 §7's own
+-- note): writes to this table happen from the SQL editor / MCP by the
+-- owner directly (service_role), never from the app.
 -- ============================================================================
 
 create table if not exists analytics.crm_feature_flag (
