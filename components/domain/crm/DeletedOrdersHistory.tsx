@@ -22,12 +22,17 @@ import { formatCount, formatThaiDateOnly } from "@/lib/tiktok/format";
 
 export async function DeletedOrdersHistory() {
   let rows;
-  // Optimistic default (true) if the status fetch itself fails/errors — the
-  // real gate is still enforced server-side inside restoreDeletedOrders
-  // regardless (RestoreOrderButton's isMissingOrdersWriteDisabledError
-  // fallback still catches a real attempt either way), this default only
-  // affects whether the button is disabled proactively or reactively.
-  let writeEnabled = true;
+  // M-2 (security review 14 ก.ย. 69, post-0117): fail-CLOSED default if the
+  // status fetch itself fails/errors — a DB read failure must never be
+  // displayed as "enabled" (a broken status check looking identical to a
+  // normal open gate is worse than an honest "we don't know, so disabled").
+  // The real gate is still enforced server-side inside restoreDeletedOrders
+  // regardless either way (RestoreOrderButton's isMissingOrdersWriteDisabledError
+  // fallback still catches a real attempt) — this default only decides
+  // whether the button starts disabled proactively or discovers it
+  // reactively; trade-off accepted: a DB hiccup shows a greyed-out button
+  // until refresh, not a live one.
+  let writeEnabled = false;
   try {
     const [ordersRes, statusRes] = await Promise.all([getDeletedOrders(), getMissingOrdersWriteStatus()]);
     if (!ordersRes.ok) {

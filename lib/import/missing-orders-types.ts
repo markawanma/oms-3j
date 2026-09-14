@@ -91,19 +91,28 @@ export interface RestoreDeletedOrdersResult {
   restoredIds: string[];
 }
 
-// C-2 (security review 12 ก.ย. 69, lib/actions/import-missing-orders.ts's
-// requireMissingOrdersWriteEnabled) — deleteMissingOrders/restoreDeletedOrders
-// return this EXACT ActionResult error string when MISSING_ORDERS_WRITE_
-// ENABLED != "1". getMissingOrdersWriteStatus() (below, 9d658b1) is now the
-// PRIMARY way the UI knows this ahead of time — this string-match stays as a
-// FALLBACK for the narrow race where the status was fetched as "enabled" but
-// flips to disabled before the delete/restore call actually lands (or the
-// status fetch itself failed and the button wasn't proactively disabled).
-// Fragile by construction: if requireMissingOrdersWriteEnabled()'s wording
-// ever changes without updating this constant too, this fallback silently
-// stops matching (falls back to a normal red error — worse UX, still safe,
-// no silent data risk either way).
-export const MISSING_ORDERS_WRITE_DISABLED_PREFIX = "ระบบลบ/กู้คืนออเดอร์ยังปิดอยู่";
+// 0117 (DB write-gate kill switch, analytics.crm_feature_flag) —
+// deleteMissingOrders/restoreDeletedOrders' underlying RPCs (analytics.
+// import_delete_orders / import_restore_orders) now raise a `write_gate_
+// closed` DETAIL when the shop's flag row is missing/false; mapMissing
+// OrdersRpcError below composes that into the exact Thai string starting
+// with this prefix. getMissingOrdersWriteStatus() (reads the same flag row
+// directly) is the PRIMARY way the UI knows this ahead of time — this
+// string-match stays as a REACTIVE FALLBACK for the narrow race where the
+// status was fetched as "enabled" but the flag flipped to disabled before
+// the delete/restore call actually landed (or the status fetch itself
+// failed and the button wasn't proactively disabled).
+//
+// Pre-0117 history: this used to be a byte-for-byte copy of a TS-side env-
+// var gate's wording (lib/actions/import-missing-orders.ts's
+// requireMissingOrdersWriteEnabled(), removed this migration — the DB flag
+// is now the only gate, per security's standing condition that opening the
+// delete button required a DB-level kill switch first). Kept as a SEPARATE
+// literal from mapMissingOrdersRpcError's composed string (not re-derived
+// from it) so a future edit to either side can't silently drift the two
+// apart without a test catching it — same reasoning as before, just a new
+// producer.
+export const MISSING_ORDERS_WRITE_DISABLED_PREFIX = "ระบบลบ/กู้คืนถูกปิดอยู่";
 
 export function isMissingOrdersWriteDisabledError(error: string): boolean {
   return error.startsWith(MISSING_ORDERS_WRITE_DISABLED_PREFIX);
@@ -161,6 +170,25 @@ const MISSING_ORDERS_RPC_ERROR_MAP: ReadonlyArray<readonly [needle: string, thai
   ],
 ];
 
+// 0117 — the DB write-gate's own rejection, raised by analytics.import_
+// delete_orders / import_restore_orders as `using errcode = 'P0001', detail
+// = 'write_gate_closed'` (supabase/migrations/0117_missing_orders_write_
+// flag.sql), checked against the error's `details` field (postgrest-js's
+// JSON shape, plural — see pgError() in this module's test file), NOT the
+// `message` substring map below. Deliberately a separate, stable token
+// instead of one more row in MISSING_ORDERS_RPC_ERROR_MAP: `message` is
+// free-form human prose (%-formatted, can be reworded without thinking
+// about this classifier) while `detail` is the machine-readable contract
+// between the RPC and this function — same reasoning oem-quote-invariants
+// gives for preferring errcode over message text elsewhere in this project.
+// Composed (not hardcoded) from MISSING_ORDERS_WRITE_DISABLED_PREFIX so
+// isMissingOrdersWriteDisabledError()'s startsWith check — the REACTIVE
+// fallback MissingOrdersPanel/RestoreOrderButton use when a flag flips
+// closed mid-session — keeps matching this path without those components
+// needing any change.
+const MISSING_ORDERS_WRITE_GATE_CLOSED_DETAIL = "write_gate_closed";
+const MISSING_ORDERS_WRITE_GATE_CLOSED_THAI = `${MISSING_ORDERS_WRITE_DISABLED_PREFIX} ติดต่อผู้ดูแลเพื่อเปิด`;
+
 // C-3PO (code review 13 ก.ย. 69, blocker) — takes `unknown`, NOT `Error`.
 // supabase-js's `.rpc()` here is never chained with `.throwOnError()`, so the
 // `error` these call sites `throw` is postgrest-js's raw parsed-JSON object
@@ -174,17 +202,37 @@ const MISSING_ORDERS_RPC_ERROR_MAP: ReadonlyArray<readonly [needle: string, thai
 export function mapMissingOrdersRpcError(err: unknown, fallback: string): string {
   const raw = err instanceof Error ? err.message : (err as { message?: unknown } | null)?.message;
   const message = typeof raw === "string" ? raw : "";
+
+  // 0117 write-gate check FIRST, via `details` (not `message`) — an Error
+  // instance never carries this field (matches the `raw`/`message`
+  // extraction above's own `err instanceof Error` split), only the plain
+  // postgrest-js error object shape does. L-2 (security review 14 ก.ย. 69):
+  // EXACT match (trimmed), not substring — `detail` is a fixed machine
+  // token this function itself controls end-to-end (the RPC only ever sets
+  // it to exactly 'write_gate_closed', nothing else), so unlike the
+  // `message` needle map below (matching runtime-interpolated prose it does
+  // NOT control the exact shape of) there is no reason to accept a
+  // decorated/prefixed value here — that would only widen what counts as
+  // "gate closed" without a corresponding real case that produces it.
+  const rawDetails = err instanceof Error ? undefined : (err as { details?: unknown } | null)?.details;
+  const details = typeof rawDetails === "string" ? rawDetails.trim() : "";
+  if (details === MISSING_ORDERS_WRITE_GATE_CLOSED_DETAIL) {
+    return MISSING_ORDERS_WRITE_GATE_CLOSED_THAI;
+  }
+
   for (const [needle, thai] of MISSING_ORDERS_RPC_ERROR_MAP) {
     if (message.includes(needle)) return thai;
   }
   return fallback;
 }
 
-/** C-2 (security review 12 ก.ย. 69) — frontend-requested read of the
- * MISSING_ORDERS_WRITE_ENABLED env gate, so the UI can disable the delete/
- * restore buttons from mount instead of relying on string-matching the
- * error message deleteMissingOrders/restoreDeletedOrders return when the
- * gate is closed. */
+/** C-2 (security review 12 ก.ย. 69) — frontend-requested read of the write
+ * gate's current state, so the UI can disable the delete/restore buttons
+ * from mount instead of relying on string-matching the error message
+ * deleteMissingOrders/restoreDeletedOrders return when the gate is closed.
+ * 0117: backed by a DB row (analytics.crm_feature_flag) now, not an env
+ * var — shape is unchanged so getMissingOrdersWriteStatus()'s callers
+ * (MissingOrdersPanel/DeletedOrdersHistory) needed no edits. */
 export interface MissingOrdersWriteStatus {
   enabled: boolean;
 }
