@@ -4,7 +4,8 @@
 // cancel-detection panel on /crm/import (design: Yoda, 11 ก.ย. 69 —
 // "ตรวจจับ + ลบออเดอร์ที่ถูกยกเลิก"). Wraps
 // supabase/migrations/0113_import_missing_orders_read.sql (read) and
-// supabase/migrations/0115_import_delete_restore.sql (write).
+// supabase/migrations/0115_import_delete_restore.sql (write, gated by
+// supabase/migrations/0117_missing_orders_write_flag.sql — see below).
 //
 // Same auth model as lib/actions/import-orders.ts: getServiceClient() uses
 // the service role (BYPASSES RLS) — requireOwnerAdmin() below is the only
@@ -13,6 +14,25 @@
 // reasoning as every other CRM write RPC in this project) — this file's own
 // gate exists so a disabled/staff session never even reaches the network
 // call, not because the DB gate is trusted alone.
+//
+// 0117 (owner mandate "เปิดปุ่มลบได้เลย", mission brief "มติ C-2", 14 ก.ย. 69)
+// — the write gate used to be a single TypeScript `if` here on
+// process.env.MISSING_ORDERS_WRITE_ENABLED (removed this migration). That
+// had two real problems on this project's actual deployment (production has
+// no login, oms-3j.vercel.app is intentionally open to the public — see
+// memory/prod-exposure-accepted-risk): (1) Vercel needs a REDEPLOY for an
+// env var change to take effect, not a real kill switch mid-incident; (2)
+// it lived in TypeScript, so it did nothing against a caller who already
+// holds the service_role key and calls the RPC directly over PostgREST/
+// psql, bypassing this file (and its env check) entirely. The DB is now
+// the ONLY real gate: analytics.import_delete_orders/import_restore_orders
+// themselves raise (detail='write_gate_closed') when analytics.
+// crm_feature_flag has no enabled row for (shop_id, 'missing_orders_write')
+// — see 0117's own header for the full reasoning. This file's
+// deleteMissingOrders/restoreDeletedOrders below no longer pre-check
+// anything write-gate-related before calling the RPC; the DB raise is
+// caught and mapped to Thai copy by mapMissingOrdersRpcError the same way
+// every other RPC precondition already is.
 //
 // This module permanently deletes revenue-bearing rows (with a snapshot +
 // restore path) — every export here revalidates the same page set
@@ -25,12 +45,9 @@
 //   - deleted_by/restored_by (fact_order_deleted) are always null in
 //     practice — both columns are set via auth.uid(), but every call here
 //     goes through the service-role client (no JWT session), so auth.uid()
-//     resolves to null until Auth A2 ships real per-user sessions.
-//   - The write gate (requireMissingOrdersWriteEnabled, above) is a single
-//     TypeScript `if` on an env var — no DB-level enforcement backs it.
-//     Mace (security review 12 ก.ย. 69) proposed a follow-up migration
-//     (0117, analytics.crm_feature_flag) so the real gate can live in the DB
-//     once the owner is ready to open this up — not built yet.
+//     resolves to null until Auth A2 ships real per-user sessions. The
+//     0117 write gate does NOT depend on auth.uid() either (it keys off
+//     shop_id alone) — it does not need real sessions to be a real gate.
 //   - MissingOrdersPanel defaults every candidate to selected/ticked on load
 //     (design decision, 11 ก.ย. 69) — a shop owner who doesn't notice this
 //     and clicks delete without reviewing the list deletes everything shown.
@@ -91,31 +108,29 @@ function requireOwnerAdmin(): ActionResult<never> | null {
   return null;
 }
 
-// C-2 (security review 12 ก.ย. 69): production is intentionally open to the
-// public (accepted risk, see memory/prod-exposure-accepted-risk — a Vercel
-// Hobby plan can't gate the deployment itself) and requireOwnerAdmin() above
-// reads an env var (getDevRole()), NOT a real auth session — there is no
-// per-user login yet (pending Auth A2). (L-2, security review 12 ก.ย. 69:
-// this env var is read at runtime, not baked in at build time — but on
-// Vercel, changing its value still needs a redeploy to take effect, so it is
-// not an instant kill switch either way.) analytics.crm_require_owner_
-// admin() inside the RPCs is also effectively a no-op under service_role,
-// which is what getServiceClient() always uses here. That stack of "gates"
-// adds up to zero real access control on two RPCs that PERMANENTLY delete
-// revenue-bearing rows. This flag is the actual gate until Auth A2 ships a
-// real session check: unset (or any value other than "1") keeps both write
-// paths refusing to run. getMissingOrders/getDeletedOrders (read-only) are
-// deliberately NOT gated by this — they carry the same exposure risk every
-// other read action in this app already has, accepted separately.
-function requireMissingOrdersWriteEnabled(): ActionResult<never> | null {
-  if (process.env.MISSING_ORDERS_WRITE_ENABLED !== "1") {
-    return {
-      ok: false,
-      error: "ระบบลบ/กู้คืนออเดอร์ยังปิดอยู่ (เปิดได้หลัง Auth A2 หรือเจ้าของสั่งเปิด)",
-    };
-  }
-  return null;
-}
+// C-2 (security review 12 ก.ย. 69, updated 0117 14 ก.ย. 69): production is
+// intentionally open to the public (accepted risk, see memory/prod-
+// exposure-accepted-risk — a Vercel Hobby plan can't gate the deployment
+// itself) and requireOwnerAdmin() above reads an env var (getDevRole()),
+// NOT a real auth session — there is no per-user login yet (pending Auth
+// A2). analytics.crm_require_owner_admin() inside the RPCs is also
+// effectively a no-op under service_role, which is what getServiceClient()
+// always uses here — so requireOwnerAdmin() above is still the only thing
+// standing between "staff" (env-configured, not a real role) and every
+// action in this file, read or write. getMissingOrders/getDeletedOrders
+// (read-only) accept that exposure — same as every other read action in
+// this app, accepted separately.
+//
+// deleteMissingOrders/restoreDeletedOrders (the two actions that actually
+// delete/restore revenue rows) used to ALSO gate on a second, TypeScript-
+// only check here (requireMissingOrdersWriteEnabled(), an env var). Removed
+// 0117: that check was redeployment-dependent on Vercel and did nothing
+// against a caller holding the service_role key who calls the RPC directly
+// (bypassing this file). The real, DB-level gate — analytics.
+// crm_feature_flag, enforced INSIDE analytics.import_delete_orders/
+// import_restore_orders themselves — is what those two actions rely on now;
+// see this file's header and 0117's own migration header for the full
+// reasoning.
 
 function revalidateOrderAffectedPaths(): void {
   revalidatePath("/crm/import");
@@ -214,22 +229,52 @@ export async function getMissingOrders(batchId: string): Promise<ActionResult<Mi
 }
 
 // ============================================================================
-// getMissingOrdersWriteStatus — frontend request (12 ก.ย. 69), backs
-// MissingOrdersPanel's own disabled state. Read-only, no DB round-trip at
-// all — lets the UI disable the delete/restore buttons from mount instead
+// getMissingOrdersWriteStatus — frontend request (12 ก.ย. 69, DB-backed
+// since 0117), backs MissingOrdersPanel/RestoreOrderButton's own disabled
+// state — lets the UI disable the delete/restore buttons from mount instead
 // of discovering the gate is closed only after a user clicks and gets back
-// deleteMissingOrders/restoreDeletedOrders' Thai error string. Calls
-// requireMissingOrdersWriteEnabled() itself (not a second copy of the env
-// check) so this can never drift from the real gate those two actions use.
-// The Thai error string on an actual write attempt is still the real
-// enforcement — this action is a convenience for the UI, not a second gate.
+// deleteMissingOrders/restoreDeletedOrders' Thai error string. Reads
+// analytics.crm_feature_flag directly (a plain scoped SELECT, same shape as
+// getDeletedOrders below — no RPC needed, RLS/grants on the table itself
+// are enough) for THIS shop's 'missing_orders_write' row — no row (or
+// row.enabled = false) means enabled: false, matching how the RPCs
+// themselves treat a missing row (analytics.import_delete_orders/import_
+// restore_orders `coalesce(..., false)`, 0117). This can never drift from
+// the real gate those two actions hit, by construction: it is reading the
+// exact same table the RPCs check, not a second copy of the rule.
+//
+// A DB read failure here returns ok:false — deliberately NOT ok:true with
+// enabled:false (a read error is not the same fact as "confirmed closed").
+// Both call sites already treat a !ok response as fail-soft/optimistic
+// ("enabled", i.e. don't proactively disable the button) — see
+// MissingOrdersPanel's and DeletedOrdersHistory's own comments — because
+// the real enforcement is server-side inside the RPCs regardless; this
+// action only decides whether the button starts disabled or discovers it
+// reactively on an actual attempt.
 // ============================================================================
 
 export async function getMissingOrdersWriteStatus(): Promise<ActionResult<MissingOrdersWriteStatus>> {
   const gateErr = requireOwnerAdmin();
   if (gateErr) return gateErr;
 
-  return { ok: true, data: { enabled: requireMissingOrdersWriteEnabled() === null } };
+  try {
+    const shopId = getDevShopId();
+    const supabase = getServiceClient();
+
+    const { data, error } = await supabase
+      .schema(SCHEMA)
+      .from("crm_feature_flag")
+      .select("enabled")
+      .eq("shop_id", shopId)
+      .eq("flag", "missing_orders_write")
+      .maybeSingle();
+    if (error) throw error;
+
+    return { ok: true, data: { enabled: Boolean(data?.enabled) } };
+  } catch (err) {
+    console.error("getMissingOrdersWriteStatus failed", err);
+    return { ok: false, error: "ตรวจสถานะสวิตช์ลบ/กู้คืนไม่สำเร็จ" };
+  }
 }
 
 // ============================================================================
@@ -245,9 +290,10 @@ export async function deleteMissingOrders(
   ids: string[],
   reason: string
 ): Promise<ActionResult<DeleteMissingOrdersResult>> {
-  const writeGateErr = requireMissingOrdersWriteEnabled();
-  if (writeGateErr) return writeGateErr;
-
+  // 0117: no more TS-side write-gate pre-check here — analytics.
+  // import_delete_orders itself raises (detail='write_gate_closed') when
+  // the DB flag is closed, caught below and mapped to Thai copy by
+  // mapMissingOrdersRpcError, same as every other RPC precondition.
   const gateErr = requireOwnerAdmin();
   if (gateErr) return gateErr;
 
@@ -370,9 +416,10 @@ export async function getDeletedOrders(): Promise<ActionResult<DeletedOrderRow[]
 // ============================================================================
 
 export async function restoreDeletedOrders(ids: string[]): Promise<ActionResult<RestoreDeletedOrdersResult>> {
-  const writeGateErr = requireMissingOrdersWriteEnabled();
-  if (writeGateErr) return writeGateErr;
-
+  // 0117: no more TS-side write-gate pre-check here — analytics.
+  // import_restore_orders itself raises (detail='write_gate_closed') when
+  // the DB flag is closed, caught below and mapped to Thai copy by
+  // mapMissingOrdersRpcError, same as every other RPC precondition.
   const gateErr = requireOwnerAdmin();
   if (gateErr) return gateErr;
 

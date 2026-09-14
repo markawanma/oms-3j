@@ -4,7 +4,14 @@
 // (cancel-detection Phase 1). Written by QA (R2-D2), 13 ก.ย. 69, per task
 // brief step 5 — "isMissingOrdersWriteDisabledError() string-match ตรงกับ
 // ข้อความจริงของ requireMissingOrdersWriteEnabled() ใน backend — จุดนี้ Luke
-// เตือนเองว่าเปราะ".
+// เตือนเองว่าเปราะ". Extended 14 ก.ย. 69 (0117, backend-dev/Han Solo): the
+// write gate moved from a TypeScript env-var check (requireMissingOrders
+// WriteEnabled, deleted) to a DB flag enforced inside the RPCs themselves
+// (analytics.crm_feature_flag) — the "backend message" this file used to
+// hardcode a separate copy of no longer exists anywhere; the real producer
+// of a write-gate-closed error the UI sees is now mapMissingOrdersRpcError's
+// own `write_gate_closed`-detail branch, tested directly below instead of
+// via a second hand-typed literal.
 //
 // NOT covered here (documented gap, see final QA report): blockedReasonMessage()
 // in components/domain/crm/MissingOrdersPanel.tsx is a module-private function
@@ -21,30 +28,16 @@ import {
   MISSING_ORDERS_WRITE_DISABLED_PREFIX,
 } from "./missing-orders-types";
 
-// Hardcoded, byte-for-byte copy of the error string
-// lib/actions/import-missing-orders.ts's requireMissingOrdersWriteEnabled()
-// actually returns (see that file, line ~70). This is intentionally a
-// SEPARATE literal from MISSING_ORDERS_WRITE_DISABLED_PREFIX (not imported
-// from the action, since "use server" files can only export async
-// functions — see that file's own header) — the whole point of this test is
-// to catch the two ever drifting apart from each other independently.
-const REAL_BACKEND_WRITE_DISABLED_MESSAGE =
-  "ระบบลบ/กู้คืนออเดอร์ยังปิดอยู่ (เปิดได้หลัง Auth A2 หรือเจ้าของสั่งเปิด)";
-
 describe("isMissingOrdersWriteDisabledError — must catch", () => {
-  it("matches the real backend message verbatim", () => {
-    expect(isMissingOrdersWriteDisabledError(REAL_BACKEND_WRITE_DISABLED_MESSAGE)).toBe(true);
-  });
-
   it("matches the prefix constant alone (exact)", () => {
     expect(isMissingOrdersWriteDisabledError(MISSING_ORDERS_WRITE_DISABLED_PREFIX)).toBe(true);
   });
 
-  it("still matches if the backend appends a different parenthetical later", () => {
-    // startsWith, not exact-equals — the parenthetical explanation is allowed
-    // to change wording without breaking this fallback, only the leading
-    // Thai sentence is load-bearing.
-    expect(isMissingOrdersWriteDisabledError("ระบบลบ/กู้คืนออเดอร์ยังปิดอยู่ (เหตุผลใหม่)")).toBe(true);
+  it("still matches if the suffix wording changes later", () => {
+    // startsWith, not exact-equals — the trailing explanation is allowed to
+    // change wording without breaking this fallback, only the leading Thai
+    // sentence is load-bearing.
+    expect(isMissingOrdersWriteDisabledError(`${MISSING_ORDERS_WRITE_DISABLED_PREFIX} (เหตุผลใหม่)`)).toBe(true);
   });
 });
 
@@ -101,7 +94,68 @@ function pgError(message: string): { code: string; details: null; hint: null; me
   return { code: "P0001", details: null, hint: null, message };
 }
 
+// 0117 — analytics.import_delete_orders/import_restore_orders' write-gate
+// rejection carries the classifier in `detail` (SQL `using detail =
+// 'write_gate_closed'`), NOT baked into `message` text like every other row
+// in MISSING_ORDERS_RPC_ERROR_MAP — postgrest-js surfaces that as `.details`
+// (plural), matching pgError()'s own field name above.
+function pgErrorWithDetail(message: string, details: string): { code: string; details: string; hint: null; message: string } {
+  return { code: "P0001", details, hint: null, message };
+}
+
 const FALLBACK = "ข้อความกลางเดิม (ตัวอย่างในเทสต์)";
+
+describe("mapMissingOrdersRpcError — 0117 write gate (checked via `details`, not `message`)", () => {
+  it("import_delete_orders: write_gate_closed detail -> the write-gate-closed Thai copy", () => {
+    const err = pgErrorWithDetail("import_delete_orders: write gate closed for this shop", "write_gate_closed");
+    expect(mapMissingOrdersRpcError(err, FALLBACK)).toBe(`${MISSING_ORDERS_WRITE_DISABLED_PREFIX} ติดต่อผู้ดูแลเพื่อเปิด`);
+  });
+
+  it("import_restore_orders: write_gate_closed detail -> the SAME write-gate-closed Thai copy", () => {
+    const err = pgErrorWithDetail("import_restore_orders: write gate closed for this shop", "write_gate_closed");
+    expect(mapMissingOrdersRpcError(err, FALLBACK)).toBe(`${MISSING_ORDERS_WRITE_DISABLED_PREFIX} ติดต่อผู้ดูแลเพื่อเปิด`);
+  });
+
+  it("integration: the composed write-gate Thai copy IS recognized by isMissingOrdersWriteDisabledError", () => {
+    // Proves the REACTIVE fallback in MissingOrdersPanel/RestoreOrderButton
+    // (isMissingOrdersWriteDisabledError on an actual failed delete/restore)
+    // still fires for this new DB-raised case, without either component
+    // needing to change — the whole point of composing this string from
+    // MISSING_ORDERS_WRITE_DISABLED_PREFIX instead of a fresh literal.
+    const err = pgErrorWithDetail("import_delete_orders: write gate closed for this shop", "write_gate_closed");
+    const thai = mapMissingOrdersRpcError(err, FALLBACK);
+    expect(isMissingOrdersWriteDisabledError(thai)).toBe(true);
+  });
+
+  it("`details` is checked via substring (.includes), same discipline as the `message` needle map", () => {
+    const err = pgErrorWithDetail("import_delete_orders: write gate closed for this shop", "some-prefix:write_gate_closed:v2");
+    expect(mapMissingOrdersRpcError(err, FALLBACK)).toBe(`${MISSING_ORDERS_WRITE_DISABLED_PREFIX} ติดต่อผู้ดูแลเพื่อเปิด`);
+  });
+
+  it("takes precedence over a message-substring match if (hypothetically) both were present", () => {
+    const err = pgErrorWithDetail(
+      "import_delete_orders: 1 of the requested id(s) are not in the current candidate set (e.g. x) — refusing the whole request, nothing was deleted",
+      "write_gate_closed"
+    );
+    expect(mapMissingOrdersRpcError(err, FALLBACK)).toBe(`${MISSING_ORDERS_WRITE_DISABLED_PREFIX} ติดต่อผู้ดูแลเพื่อเปิด`);
+  });
+
+  it("details null (the normal pgError() shape) -> falls through to the message map/fallback, unaffected", () => {
+    const err = pgError("import_delete_orders: reason is required");
+    expect(mapMissingOrdersRpcError(err, FALLBACK)).toBe(FALLBACK);
+  });
+
+  it("details present but not the write-gate token -> falls through, does not false-positive", () => {
+    const err = pgErrorWithDetail("import_delete_orders: blocked", "shop_or_source_mismatch");
+    expect(mapMissingOrdersRpcError(err, FALLBACK)).toBe(FALLBACK);
+  });
+
+  it("a real Error instance never carries `.details` -> falls through safely, does not throw", () => {
+    const err = new Error("import_delete_orders: write gate closed for this shop");
+    expect(() => mapMissingOrdersRpcError(err, FALLBACK)).not.toThrow();
+    expect(mapMissingOrdersRpcError(err, FALLBACK)).toBe(FALLBACK);
+  });
+});
 
 describe("mapMissingOrdersRpcError — must map to specific Thai copy", () => {
   it("import_restore_orders: already restored / belongs to another shop", () => {
