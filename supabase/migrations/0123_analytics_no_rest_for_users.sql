@@ -2,14 +2,18 @@
 -- 2026-09-16, H2b). See docs/3j-jewelry/analytics/phase-auth-pii-hardening-design.md
 -- and the owner decision log, 16 ก.ย. 69.
 --
--- ⚠️ MUST be applied in the SAME deploy window as, and immediately AFTER,
--- 0122_shop_member_select_only.sql — see that file's header for the full
+-- ⚠️ MUST be applied in the SAME deploy window as, immediately AFTER
+-- 0122_shop_member_select_only.sql, and immediately BEFORE
+-- 0124_public_no_rest_for_users.sql — full order: 0122 -> 0123 -> 0124,
+-- never split, never out of order. See 0122's header for the full
 -- reasoning. Short version: 0122 fixes shop_member's self-referencing RLS
 -- policy (42P17 infinite recursion), which today accidentally blocks EVERY
 -- analytics.* read too (their policies also subquery shop_member, which was
 -- unconditionally erroring). Apply 0122 without this file and analytics
 -- reads start SUCCEEDING for any approved user's JWT — never apply one
--- without the other, same deploy.
+-- without the other, same deploy. (0124 closes the identical hole in the
+-- `public` schema, which needs its own file because `public` also has
+-- anon-reachable objects, unlike `analytics`.)
 --
 -- Confirmed 2026-09-16 via a real authenticated user's JWT against
 -- PostgREST: `analytics` is in the exposed-schemas list (anon gets
@@ -23,15 +27,45 @@
 -- schema. REST access to analytics.* for anon/authenticated was never
 -- something the app itself needed; it was simply left open by Supabase's
 -- default grants and never revoked.
+--
+-- M-1 follow-up (security round 2, 2026-09-16): the original version of
+-- this file revoked table/function access but missed two things that would
+-- have silently re-opened the hole — sequences (irrelevant for reading
+-- rows today, but harmless to close and cheap insurance against a future
+-- `nextval()`-exposing view) and, more importantly, the DEFAULT privilege
+-- 0018_analytics_grants.sql set: `alter default privileges in schema
+-- analytics grant select on tables to authenticated;` (0018:26, no `for
+-- role` clause — applies to whatever role ran that ALTER, which on this
+-- project's migration history is `postgres`). Without reversing that
+-- default too, the NEXT `create table`/`create view` in `analytics` would
+-- auto-grant `authenticated` SELECT again, undoing this file the moment
+-- anyone ships a new analytics object.
 
 revoke usage on schema analytics from anon, authenticated;
 revoke all on all tables in schema analytics from anon, authenticated;
+revoke all on all sequences in schema analytics from anon, authenticated;
 revoke all on all functions in schema analytics from anon, authenticated;
+
+-- Stop FUTURE analytics.* tables/views from auto-granting `authenticated`
+-- SELECT the way 0018_analytics_grants.sql set up (0018:26). `for role
+-- postgres` because that's the role 0018's ALTER ran as on this project —
+-- verify against pg_default_acl (dry-run query below) before applying; if
+-- the defacl owner differs, adjust this clause to match BEFORE running.
+alter default privileges for role postgres in schema analytics revoke select on tables from authenticated;
 
 -- ============================================================================
 -- VERIFICATION — do NOT run the curl commands or the do-block below as part
 -- of applying this migration. They're here for whoever runs this for real.
 -- ============================================================================
+--
+-- 0. BEFORE applying, confirm which role's defaults actually hold the
+--    analytics/authenticated SELECT grant (adjust the `for role` clause
+--    above if it's not `postgres`):
+--      select defaclnamespace::regnamespace as schema,
+--             (select rolname from pg_roles where oid = defaclrole) as owner_role,
+--             defaclobjtype, defaclacl
+--      from pg_default_acl
+--      where defaclnamespace = 'analytics'::regnamespace;
 --
 -- 1. After 0122 + 0123 both land, confirm from OUTSIDE the DB with a real
 --    authenticated user's JWT (Tech Lead runs these two, not this file):
@@ -70,6 +104,22 @@ revoke all on all functions in schema analytics from anon, authenticated;
 --     v_log := v_log || 'T2 zero table/view grants remain for anon+authenticated: OK' || E'\n';
 --   else
 --     v_log := v_log || format('T2 FAIL — %s grant(s) remain', v_grant_count) || E'\n';
+--   end if;
+--
+--   -- T3 (M-1): future tables must NOT auto-grant authenticated SELECT —
+--   -- create a throwaway table inside this transaction (rolled back by the
+--   -- final raise below, never committed) and check its ACL directly.
+--   create temp table if not exists dryrun_0123_future_object (id int);
+--   -- temp tables aren't affected by schema-level default privileges the
+--   -- same way, so check pg_default_acl directly instead of a real object:
+--   select count(*) into v_grant_count
+--   from pg_default_acl
+--   where defaclnamespace = 'analytics'::regnamespace
+--     and defaclacl::text ilike '%authenticated=r%';
+--   if v_grant_count = 0 then
+--     v_log := v_log || 'T3 no default SELECT-for-authenticated ACL remains on analytics: OK' || E'\n';
+--   else
+--     v_log := v_log || format('T3 FAIL — %s default ACL(s) still grant authenticated SELECT', v_grant_count) || E'\n';
 --   end if;
 --
 --   raise exception '%', v_log;

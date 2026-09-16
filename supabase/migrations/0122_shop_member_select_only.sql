@@ -2,9 +2,14 @@
 -- H2). See docs/3j-jewelry/analytics/phase-auth-pii-hardening-design.md and
 -- the owner decision log, 16 ก.ย. 69.
 --
--- ⚠️ MUST be applied together with 0123_analytics_no_rest_for_users.sql, in
--- THIS order (0122 then 0123), in the SAME deploy window — never apply 0122
--- alone. Reasoning: shop_member's existing `tenant_isolation` policy
+-- ⚠️ MUST be applied together with 0123_analytics_no_rest_for_users.sql AND
+-- 0124_public_no_rest_for_users.sql, in THIS order (0122 -> 0123 -> 0124),
+-- in the SAME deploy window — never apply 0122 alone, never out of order.
+-- 0124's header has the `public`-schema half of this same story (the RLS
+-- policies in public.* subquery shop_member exactly like analytics.* does,
+-- so this fix also flips public.product/order/etc from "broken" to
+-- "readable by an approved JWT" without 0124). Reasoning: shop_member's
+-- existing `tenant_isolation` policy
 -- (0002_rls.sql) is SELF-referencing —
 --   using (shop_id in (select shop_id from shop_member where user_id = auth.uid()))
 -- — applied ON shop_member itself, which Postgres detects as infinite
