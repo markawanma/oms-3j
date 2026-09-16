@@ -24,6 +24,7 @@
 |---|---|
 | `ai-marketing-os-decision-31aug.md` | 🔝 มติ C-level + แผน 90 วัน — **ทิศทางใหญ่สุดตอนนี้** |
 | `weekly-brief/` | Weekly Marketing Brief ทุกจันทร์ (scheduled task `weekly-marketing-brief`) — แม่แบบ `TEMPLATE.md` · ฉบับรายสัปดาห์ตั้งชื่อตามวันที่ (ฉบับแรก `2026-09-11.md`, CMO กำหนดแม่แบบ · #2 `2026-09-16.md` สัปดาห์ 7–13 ก.ย. — ใช้กฎ live-SKU ครั้งแรก) · ข้อเสนอลง `analytics.recommendation_log` |
+| `content-calendar/` | ปฏิทินโพสต์รายเดือนแบบชุนหลี (เจ้าของสั่ง 16 ก.ย. 69) — แม่แบบ `TEMPLATE.md` (ต้นฉบับ = md ใน repo, artifact = หน้าอ่าน) · ฉบับรายเดือนตั้งชื่อ ปี-เดือน — ฉบับแรก `2026-10.md` (ร่าง 3 · เคาะ Lean · ลง campaign board แล้ว migration 0120 · รอเจ้าของยืนยัน §6d) · ทุกโพสต์ผูก `campaign_step.id` = execution log |
 | `audit-and-replan-28aug.md` | โครง 3 เสา + บัญชีทรัพย์สิน content (CMO+Bail) — รวมมติ IG ที่เจ้าของกลับ |
 | `plan-sep69-revised.md` | แผน ก.ย. ฉบับปรับหลังมีป้ายลูกค้า — win-back 411 |
 | `pricing-disclosure-policy.md` | กติกาเปิดราคา — **อ่านก่อนเขียนอะไรที่มีตัวเลขเสมอ** |
