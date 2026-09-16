@@ -36,6 +36,7 @@ import {
   Tags,
   Target,
   Ticket,
+  UserCog,
   Users,
   Users2,
   Wallet,
@@ -136,14 +137,22 @@ function activeNavHref(pathname: string, hrefs: string[]): string | null {
   return best;
 }
 
-function NavList({ pathname, onNavigate }: { pathname: string; onNavigate?: () => void }) {
+function NavList({
+  groups,
+  pathname,
+  onNavigate,
+}: {
+  groups: NavGroup[];
+  pathname: string;
+  onNavigate?: () => void;
+}) {
   const activeHref = activeNavHref(
     pathname,
-    NAV_GROUPS.flatMap((g) => g.items.map((i) => i.href))
+    groups.flatMap((g) => g.items.map((i) => i.href))
   );
   return (
     <nav aria-label="เมนูหลัก" className="flex flex-col gap-4 p-3">
-      {NAV_GROUPS.map((group) => (
+      {groups.map((group) => (
         <div key={group.label}>
           <p className="px-2 pb-1 text-[0.68rem] font-bold uppercase tracking-wider text-zinc-400">{group.label}</p>
           <div className="flex flex-col gap-0.5">
@@ -176,6 +185,7 @@ function NavList({ pathname, onNavigate }: { pathname: string; onNavigate?: () =
 export function DashboardShell({
   children,
   userEmail = null,
+  role = null,
 }: {
   children: ReactNode;
   /** Phase A1 (auth infra, additive) — set only when a real Supabase Auth
@@ -183,9 +193,22 @@ export function DashboardShell({
    * under the current DEV_ROLE flow (no session cookie), which hides the
    * sign-out button so it doesn't show up with nothing to sign out of. */
   userEmail?: string | null;
+  /** A2-lite (register/approve, 16 ก.ย. 69) — from getMembership(), same
+   * null-under-DEV_ROLE-flow behavior as userEmail above. UI-only gate: only
+   * controls whether the "สมาชิก" nav item renders, the real gate is on the
+   * server actions in lib/actions/members.ts. */
+  role?: "owner" | "admin" | "staff" | null;
 }) {
   const pathname = usePathname() ?? "";
   const [drawerOpen, setDrawerOpen] = useState(false);
+
+  const navGroups: NavGroup[] =
+    role === "owner"
+      ? [
+          ...NAV_GROUPS,
+          { label: "ทีม", items: [{ href: "/settings/members", label: "สมาชิก", icon: UserCog }] },
+        ]
+      : NAV_GROUPS;
 
   // Close the drawer on route change (link click already does this via
   // onNavigate, but this also covers back/forward navigation).
@@ -250,7 +273,7 @@ export function DashboardShell({
 
       <div className="flex flex-1">
         <aside className="sticky top-16 hidden h-[calc(100vh-4rem)] w-56 shrink-0 overflow-y-auto border-r border-zinc-200 bg-white md:block print:hidden">
-          <NavList pathname={pathname} />
+          <NavList groups={navGroups} pathname={pathname} />
         </aside>
 
         <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-4 print:max-w-none print:p-0">{children}</main>
@@ -276,7 +299,7 @@ export function DashboardShell({
                 <X className="h-5 w-5" aria-hidden="true" />
               </button>
             </div>
-            <NavList pathname={pathname} onNavigate={() => setDrawerOpen(false)} />
+            <NavList groups={navGroups} pathname={pathname} onNavigate={() => setDrawerOpen(false)} />
           </div>
         </div>
       )}
