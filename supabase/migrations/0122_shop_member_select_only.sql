@@ -1,4 +1,5 @@
 -- 0122_shop_member_select_only.sql — A2-lite (security review 2026-09-16,
+-- ✅ APPLIED 16 ก.ย. 69 via MCP apply_migration version 20260916145243 · verify หลัง apply: policy shop_member เหลือ tenant_isolation_select:SELECT ตัวเดียว · user PATCH role ตัวเอง → 403
 -- H2). See docs/3j-jewelry/analytics/phase-auth-pii-hardening-design.md and
 -- the owner decision log, 16 ก.ย. 69.
 --
