@@ -1,9 +1,18 @@
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 
+// Repo root, no trailing slash — mirrors tsconfig.json's "@/*" -> "./*" path
+// mapping. Next's bundler resolves "@/..." via that tsconfig entry; Vitest
+// runs outside Next's bundler, so it needs the equivalent Vite alias or any
+// test file (or module a test file transitively imports) that uses "@/..."
+// fails to resolve at collection time (2026-09-16, hit by lib/auth/session.ts
+// importing "@/lib/supabase/server").
+const rootDir = fileURLToPath(new URL(".", import.meta.url)).replace(/[\\/]+$/, "");
+
 export default defineConfig({
   resolve: {
     alias: {
+      "@": rootDir,
       // "server-only"'s default export condition throws unconditionally
       // (guards against accidental client-bundle imports); Next.js only
       // avoids that by resolving the package's "react-server" export
