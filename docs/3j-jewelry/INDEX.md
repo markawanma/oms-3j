@@ -23,7 +23,7 @@
 | ไฟล์ | คือ |
 |---|---|
 | `ai-marketing-os-decision-31aug.md` | 🔝 มติ C-level + แผน 90 วัน — **ทิศทางใหญ่สุดตอนนี้** |
-| `weekly-brief/` | Weekly Marketing Brief ทุกจันทร์ (scheduled task `weekly-marketing-brief`) — แม่แบบ `TEMPLATE.md` · ฉบับรายสัปดาห์ตั้งชื่อตามวันที่ (ฉบับแรก `2026-09-11.md`, CMO กำหนดแม่แบบ) · ข้อเสนอลง `analytics.recommendation_log` |
+| `weekly-brief/` | Weekly Marketing Brief ทุกจันทร์ (scheduled task `weekly-marketing-brief`) — แม่แบบ `TEMPLATE.md` · ฉบับรายสัปดาห์ตั้งชื่อตามวันที่ (ฉบับแรก `2026-09-11.md`, CMO กำหนดแม่แบบ · #2 `2026-09-16.md` สัปดาห์ 7–13 ก.ย. — ใช้กฎ live-SKU ครั้งแรก) · ข้อเสนอลง `analytics.recommendation_log` |
 | `audit-and-replan-28aug.md` | โครง 3 เสา + บัญชีทรัพย์สิน content (CMO+Bail) — รวมมติ IG ที่เจ้าของกลับ |
 | `plan-sep69-revised.md` | แผน ก.ย. ฉบับปรับหลังมีป้ายลูกค้า — win-back 411 |
 | `pricing-disclosure-policy.md` | กติกาเปิดราคา — **อ่านก่อนเขียนอะไรที่มีตัวเลขเสมอ** |
