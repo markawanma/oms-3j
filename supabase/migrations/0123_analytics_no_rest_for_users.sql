@@ -1,0 +1,76 @@
+-- 0123_analytics_no_rest_for_users.sql — A2-lite (security review
+-- 2026-09-16, H2b). See docs/3j-jewelry/analytics/phase-auth-pii-hardening-design.md
+-- and the owner decision log, 16 ก.ย. 69.
+--
+-- ⚠️ MUST be applied in the SAME deploy window as, and immediately AFTER,
+-- 0122_shop_member_select_only.sql — see that file's header for the full
+-- reasoning. Short version: 0122 fixes shop_member's self-referencing RLS
+-- policy (42P17 infinite recursion), which today accidentally blocks EVERY
+-- analytics.* read too (their policies also subquery shop_member, which was
+-- unconditionally erroring). Apply 0122 without this file and analytics
+-- reads start SUCCEEDING for any approved user's JWT — never apply one
+-- without the other, same deploy.
+--
+-- Confirmed 2026-09-16 via a real authenticated user's JWT against
+-- PostgREST: `analytics` is in the exposed-schemas list (anon gets
+-- "permission denied for schema analytics" — reachable, just no USAGE grant
+-- yet — not "schema does not exist") and `authenticated` holds SELECT on 91
+-- objects in that schema, including analytics.v_dim_product
+-- (unit_cost/manual_unit_cost/margin_pct per SKU) and analytics.fact_order
+-- (revenue/profit per order). Grepped this codebase (2026-09-16) — every
+-- reader of analytics.* goes through getServiceClient() (lib/actions/*.ts);
+-- nothing uses getUserClient() or a bare anon-key client against that
+-- schema. REST access to analytics.* for anon/authenticated was never
+-- something the app itself needed; it was simply left open by Supabase's
+-- default grants and never revoked.
+
+revoke usage on schema analytics from anon, authenticated;
+revoke all on all tables in schema analytics from anon, authenticated;
+revoke all on all functions in schema analytics from anon, authenticated;
+
+-- ============================================================================
+-- VERIFICATION — do NOT run the curl commands or the do-block below as part
+-- of applying this migration. They're here for whoever runs this for real.
+-- ============================================================================
+--
+-- 1. After 0122 + 0123 both land, confirm from OUTSIDE the DB with a real
+--    authenticated user's JWT (Tech Lead runs these two, not this file):
+--
+--   curl -s -o /dev/null -w '%{http_code}\n' \
+--     'https://<project-ref>.supabase.co/rest/v1/fact_order?select=*&limit=1' \
+--     -H 'apikey: <anon key>' -H 'Authorization: Bearer <authenticated JWT>' \
+--     -H 'Accept-Profile: analytics'
+--   # expect 401 or 403/"permission denied" — NOT 200 with rows.
+--
+--   curl -s -o /dev/null -w '%{http_code}\n' \
+--     'https://<project-ref>.supabase.co/rest/v1/v_dim_product?select=unit_cost&limit=1' \
+--     -H 'apikey: <anon key>' -H 'Authorization: Bearer <authenticated JWT>' \
+--     -H 'Accept-Profile: analytics'
+--   # expect 401 or 403/"permission denied" — NOT 200 with rows.
+--
+-- 2. In-DB dry-run (do-block + raise, 3j-migration-traps skill #11 — rolls
+--    back automatically, never commits anything):
+-- do $$
+-- declare
+--   v_log text := E'\n=== 0123 dry-run ===\n';
+--   v_has_usage boolean;
+--   v_grant_count int;
+-- begin
+--   select has_schema_privilege('authenticated', 'analytics', 'usage') into v_has_usage;
+--   if not v_has_usage then
+--     v_log := v_log || 'T1 authenticated has no USAGE on analytics: OK' || E'\n';
+--   else
+--     v_log := v_log || 'T1 FAIL — authenticated still has USAGE on analytics' || E'\n';
+--   end if;
+--
+--   select count(*) into v_grant_count
+--   from information_schema.role_table_grants
+--   where table_schema = 'analytics' and grantee in ('anon', 'authenticated');
+--   if v_grant_count = 0 then
+--     v_log := v_log || 'T2 zero table/view grants remain for anon+authenticated: OK' || E'\n';
+--   else
+--     v_log := v_log || format('T2 FAIL — %s grant(s) remain', v_grant_count) || E'\n';
+--   end if;
+--
+--   raise exception '%', v_log;
+-- end $$;

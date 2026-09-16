@@ -43,7 +43,7 @@ function chainable(result: { data?: unknown; error?: unknown; count?: number | n
     select: vi.fn(() => builder),
     eq: vi.fn(() => builder),
     delete: vi.fn(() => builder),
-    upsert: vi.fn(() => promise),
+    insert: vi.fn(() => promise),
     maybeSingle: vi.fn(() => promise),
     then: promise.then.bind(promise),
     catch: promise.catch.bind(promise),
@@ -90,20 +90,50 @@ describe("approveMember — must reject", () => {
 
     expect(result).toEqual({ ok: false, error: "role ไม่ถูกต้อง" });
   });
-});
 
-describe("approveMember — must NOT break", () => {
-  it("correct code (case-insensitive) + existing auth user upserts and succeeds", async () => {
+  it("M1 — user already has a shop_member row (e.g. owner) is never upserted over", async () => {
     const { approveMember } = await import("./members");
     const targetId = "22222222-2222-2222-2222-222222222abc"; // -> "222ABC"
 
     getUserByIdMock.mockResolvedValue({ data: { user: { id: targetId } }, error: null });
-    fromMock.mockReturnValueOnce(chainable({ data: null, error: null })); // upsert
+    fromMock.mockReturnValueOnce(chainable({ data: { user_id: targetId }, error: null })); // existing-member check: found
+
+    const result = await approveMember({ userId: targetId, role: "staff", code: "222ABC" });
+
+    expect(result).toEqual({ ok: false, error: "ผู้ใช้นี้เป็นสมาชิกอยู่แล้ว" });
+    expect(fromMock).toHaveBeenCalledTimes(1); // insert must never be reached
+  });
+
+  it("M1 — concurrent approval race (unique violation on insert) reports the same error, not a generic failure", async () => {
+    const { approveMember } = await import("./members");
+    const targetId = "22222222-2222-2222-2222-222222222abc"; // -> "222ABC"
+
+    getUserByIdMock.mockResolvedValue({ data: { user: { id: targetId } }, error: null });
+    fromMock
+      .mockReturnValueOnce(chainable({ data: null, error: null })) // existing-member check: not found (yet)
+      .mockReturnValueOnce(chainable({ data: null, error: { code: "23505", message: "duplicate key" } })); // insert loses the race
+
+    const result = await approveMember({ userId: targetId, role: "staff", code: "222ABC" });
+
+    expect(result).toEqual({ ok: false, error: "ผู้ใช้นี้เป็นสมาชิกอยู่แล้ว" });
+  });
+});
+
+describe("approveMember — must NOT break", () => {
+  it("correct code (case-insensitive) + existing auth user + not-yet-a-member inserts and succeeds", async () => {
+    const { approveMember } = await import("./members");
+    const targetId = "22222222-2222-2222-2222-222222222abc"; // -> "222ABC"
+
+    getUserByIdMock.mockResolvedValue({ data: { user: { id: targetId } }, error: null });
+    fromMock
+      .mockReturnValueOnce(chainable({ data: null, error: null })) // existing-member check: not found
+      .mockReturnValueOnce(chainable({ data: null, error: null })); // insert
 
     const result = await approveMember({ userId: targetId, role: "staff", code: "222abc" }); // lowercase on purpose
 
     expect(result).toEqual({ ok: true });
     expect(getUserByIdMock).toHaveBeenCalledWith(targetId);
+    expect(fromMock).toHaveBeenCalledTimes(2);
   });
 });
 

@@ -44,6 +44,20 @@ function isApiPath(pathname: string): boolean {
   return pathname.startsWith("/api/");
 }
 
+/** Copies every cookie set on `source` (the refreshed-session response from
+ * supabase.auth.getUser()'s setAll callback below) onto `target` before it
+ * goes out. Security review 2026-09-16 (M3): NextResponse.redirect()/
+ * NextResponse.json() build a brand-new response object — any Set-Cookie
+ * Supabase just queued on `response` (a refreshed/rotated session token) is
+ * NOT carried over automatically. Skipping this drops the refreshed cookie
+ * on every redirect this file issues, silently shortening (or breaking)
+ * the user's session on exactly the requests where middleware had to do
+ * the most work. */
+function withCookiesFrom(source: NextResponse, target: NextResponse): NextResponse {
+  source.cookies.getAll().forEach((c) => target.cookies.set(c));
+  return target;
+}
+
 /** api/* callers get a JSON 401 instead of a redirect they can't follow
  * usefully (no browser navigation to honor a 302 with). Today the only
  * route under /api/ that reaches this file at all is /api/webhooks/* — and
@@ -54,26 +68,37 @@ function isApiPath(pathname: string): boolean {
  * needs this behavior on day one, not as a follow-up bug once someone
  * notices the browser silently "failed" to follow a JSON redirect.
  */
-function denyOrRedirect(request: NextRequest, target: URL): NextResponse {
+function denyOrRedirect(request: NextRequest, target: URL, source: NextResponse): NextResponse {
   if (isApiPath(request.nextUrl.pathname)) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    return withCookiesFrom(source, NextResponse.json({ error: "unauthorized" }, { status: 401 }));
   }
-  return NextResponse.redirect(target);
+  return withCookiesFrom(source, NextResponse.redirect(target));
 }
 
 export async function middleware(request: NextRequest) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const gateOn = process.env.AUTH_GATE === "on";
 
   // Anon key isn't provisioned in every environment yet — skip refresh (and,
   // by extension, the entire gate below) rather than throw on every
-  // request. A missing anon key with AUTH_GATE=on would otherwise 500 every
-  // page; falling through to NextResponse.next() here is a deliberate
-  // fail-open ONLY for "auth isn't configured at all" (matches A1), not for
-  // "auth is configured but the user isn't logged in" (that's the gate
-  // below, which fails closed).
+  // request. A missing anon key is a deliberate fail-OPEN for "auth isn't
+  // configured at all" (matches A1) ONLY while AUTH_GATE is off — that's
+  // the pre-A2-lite behavior every dev/preview environment relies on today.
+  //
+  // Security review 2026-09-16 (H1): once someone has explicitly turned
+  // AUTH_GATE=on, a missing url/anonKey must NOT silently fall through to
+  // "every page open to everyone" — that combination means "operator
+  // intended a hard gate but the deploy is broken," and serving every
+  // gated page unauthenticated in that state is worse than a visible
+  // outage. Fail closed with 503 instead; fixing the env vars is the only
+  // way out (same as any other genuine misconfiguration).
   if (!url || !anonKey) {
-    return NextResponse.next();
+    if (!gateOn) return NextResponse.next();
+    // No dedicated error page to redirect to here (that would need the same
+    // Supabase client this branch exists because we don't have) — a flat
+    // JSON 503 for both page and API requests is the honest answer.
+    return NextResponse.json({ error: "auth misconfigured" }, { status: 503 });
   }
 
   let response = NextResponse.next({ request });
@@ -95,7 +120,6 @@ export async function middleware(request: NextRequest) {
     data: { user },
   } = await supabase.auth.getUser();
 
-  const gateOn = process.env.AUTH_GATE === "on";
   if (!gateOn) {
     // A1 behavior, unchanged: refresh only, never branch on the result.
     return response;
@@ -110,7 +134,7 @@ export async function middleware(request: NextRequest) {
     const next = sanitizeNextParam(pathname + request.nextUrl.search);
     const loginUrl = new URL("/login", request.url);
     loginUrl.searchParams.set("next", next);
-    return denyOrRedirect(request, loginUrl);
+    return denyOrRedirect(request, loginUrl, response);
   }
 
   // Has a session — resolve membership with a fresh, per-request
@@ -140,13 +164,13 @@ export async function middleware(request: NextRequest) {
 
   // (c) session + member.
   if (hasMembership) {
-    if (isAuthEntry) return NextResponse.redirect(new URL("/dashboard", request.url));
+    if (isAuthEntry) return withCookiesFrom(response, NextResponse.redirect(new URL("/dashboard", request.url)));
     return response;
   }
 
   // (b) session, no member.
   if (pathname === "/pending") return response;
-  return denyOrRedirect(request, new URL("/pending", request.url));
+  return denyOrRedirect(request, new URL("/pending", request.url), response);
 }
 
 export const config = {
@@ -162,8 +186,26 @@ export const config = {
   // /login — so it's no longer in this list. /register and /pending were
   // never excluded (they didn't exist in A1); they fall through to the
   // catch-all below same as every other page, which is what lets rule (b)
-  // and the reverse "already authenticated" redirects apply to them.
+  // and the reverse "already authenticated" redirects apply to them. (These
+  // three ARE anchored already: AUTH_ENTRY_PATHS.has(pathname) above is an
+  // exact Set lookup, not a prefix/regex match, so there is no
+  // "/loginx"-style bypass to guard against for them — see
+  // lib/auth/exempt-path.ts's header for why the THREE below need the
+  // explicit anchor instead.)
+  //
+  // Security review 2026-09-16 (H3): each alternative below is anchored
+  // with `(?:/|$)` — a bare prefix like `shop` would ALSO match
+  // "/shopee-import" (Next's negative-lookahead matcher only requires the
+  // alternative to match a PREFIX of the remaining path, not the whole
+  // segment), silently exempting a route that was never meant to bypass the
+  // gate. `(?:/|$)` forces the match to end exactly at "shop" or continue
+  // with a "/" — i.e. only "/shop" and "/shop/...". Keep this regex and
+  // lib/auth/exempt-path.ts's isExemptPath() in sync by hand — Next.js's
+  // `matcher` must be a statically-analyzable literal (no imported
+  // constant/template literal allowed), so the two can't share one source
+  // of truth; lib/auth/exempt-path.test.ts is what actually proves they
+  // agree.
   matcher: [
-    "/((?!_next/static|_next/image|favicon\\.ico|api/webhooks|shop|stock/hero|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
+    "/((?!_next/static|_next/image|favicon\\.ico|api/webhooks(?:/|$)|shop(?:/|$)|stock/hero(?:/|$)|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
   ],
 };

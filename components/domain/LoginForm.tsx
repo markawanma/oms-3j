@@ -39,7 +39,7 @@ export function LoginForm({
     setError(null);
     setSubmitting(true);
 
-    const result = await signInWithPassword({ email, password });
+    const result = await signInWithPassword({ email, password, next });
     // On success the server action redirect()s (throws NEXT_REDIRECT before
     // returning) — this line only runs when sign-in actually failed.
     setSubmitting(false);

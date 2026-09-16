@@ -11,6 +11,7 @@
 // actions) — a deliberately small, auditable surface for the one place role
 // actually has to be enforced for real in this phase.
 import "server-only";
+import { createHash, createHmac } from "node:crypto";
 import { getServiceClient, getUserClient } from "@/lib/supabase/server";
 
 export type ShopRole = "owner" | "admin" | "staff";
@@ -84,13 +85,63 @@ export async function requireOwnerSession(): Promise<OwnerSession> {
 }
 
 /**
+ * Second layer of defense for every MUTATION in lib/actions/catalog.ts
+ * (security review 2026-09-16, C1). C1(a) already stops /stock/hero from
+ * pulling those actions into its bundle in the first place — this is the
+ * belt-and-suspenders check so a future page/route that legitimately does
+ * import catalog.ts (or any other server action file that starts calling
+ * this) can't reach a write with no session, even if it forgets to check
+ * getDevRole() itself.
+ *
+ * AUTH_GATE !== "on" -> no-op (matches every other A1 page/action: this
+ * phase does not change behavior for the current dev/DEV_ROLE flow at all).
+ * AUTH_GATE === "on" -> throws unless there's a real Supabase Auth session.
+ * Deliberately does NOT check shop_member here (unlike requireOwnerSession)
+ * — role/membership stays whatever lib/dev/context.ts's requireOwnerAdmin()
+ * already gates in that file; this only closes the "no session at all"
+ * gap, same fail-closed shape as middleware.ts.
+ */
+export async function requireSessionIfGateOn(): Promise<void> {
+  if (process.env.AUTH_GATE !== "on") return;
+  const user = await getSessionUser();
+  if (!user) throw new Error("ไม่ได้เข้าสู่ระบบ");
+}
+
+/**
+ * SIGNUP_CODE_SECRET if set; otherwise sha256(SUPABASE_SERVICE_ROLE_KEY) as
+ * a fallback so this still works in an environment that never set the
+ * dedicated secret (dev/preview). Never returns the raw service-role key
+ * itself as the HMAC key — only its hash — so a leaked verify code can't be
+ * worked backwards toward the service key. server-only module, never
+ * imported client-side (see file header).
+ */
+function signupCodeSecret(): string {
+  const explicit = process.env.SIGNUP_CODE_SECRET;
+  if (explicit) return explicit;
+  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY ?? "";
+  return createHash("sha256").update(serviceKey).digest("hex");
+}
+
+/**
  * 6-char uppercase code the owner reads back from the pending user
  * out-of-band (e.g. asked over LINE/phone: "โค้ดยืนยันของคุณคืออะไร") before
- * approving them. Not a secret in itself — the owner can already see the
- * full pending list via listPendingUsers() — it's a low-friction "is this
- * really the person who signed up, not someone else's email" check that
- * costs nothing to implement as a pure derivation of the user id.
+ * approving them.
+ *
+ * Security review 2026-09-16 (M4): this USED to be `userId.slice(-6)` — a
+ * literal substring of the id, so anyone who ever saw a user's id (e.g. in
+ * a URL, a log line, or Supabase Auth's dashboard) could derive their
+ * "verify code" without ever talking to them, defeating the whole point of
+ * an out-of-band check. Now HMAC-SHA256(userId, secret) truncated to 6 hex
+ * chars — deterministic per userId (same input always reproduces the same
+ * code, so the owner and the pending user always see the same 6 characters)
+ * but not derivable from the id alone without the server-side secret.
+ * lib/actions/members.ts's PendingUser type no longer ships this value to
+ * the owner's browser either (M4) — approveMember() recomputes it
+ * server-side from userId, so reading it off the /settings/members screen
+ * is no longer possible; the owner must actually get it from the pending
+ * user.
  */
 export function verifyCodeFor(userId: string): string {
-  return userId.slice(-6).toUpperCase();
+  const digest = createHmac("sha256", signupCodeSecret()).update(userId).digest("hex");
+  return digest.slice(0, 6).toUpperCase();
 }

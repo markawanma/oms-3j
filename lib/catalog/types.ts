@@ -48,6 +48,21 @@ export interface ProductRow {
   primaryImageSmUrl: string | null;
 }
 
+/** Minimal product shape for pickers on routes that must NOT pull in cost/
+ * margin data — currently /stock/hero (security A2-lite C1: that route is
+ * exempt from the auth gate as a public wall-display screen with "no money/
+ * PII" per middleware.ts's exempt-route comment, so whatever it sends to the
+ * client is visible to anyone with the URL, no session required). Composed
+ * field-by-field from public.product in lib/actions/hero-stock.ts — NOT a
+ * subset produced by spreading ProductRow, so a future cost/margin field
+ * added to ProductRow can never leak here silently. */
+export interface ProductPickerOption {
+  productId: string;
+  sku: string;
+  name: string;
+  isActive: boolean;
+}
+
 export interface UpsertProductInput {
   sku: string;
   name: string;

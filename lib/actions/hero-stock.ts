@@ -13,6 +13,7 @@ import { getServiceClient } from "@/lib/supabase/server";
 import { getDevShopId, getDevRole } from "@/lib/dev/context";
 import type { ActionResult } from "@/lib/types";
 import type { HeroStockRow } from "@/lib/stock/types";
+import type { ProductPickerOption } from "@/lib/catalog/types";
 
 const SCHEMA = "analytics";
 const PAGE_PATH = "/stock/hero";
@@ -86,6 +87,51 @@ export async function getHeroStock(): Promise<ActionResult<HeroStockRow[]>> {
   } catch (err) {
     console.error("getHeroStock failed", err);
     return { ok: false, error: "โหลดข้อมูลจอสต็อก Hero SKU ไม่สำเร็จ ลองใหม่อีกครั้ง" };
+  }
+}
+
+// ============================================================================
+// read — SKU picker for the "add hero watch" form. Deliberately separate
+// from lib/actions/catalog.ts's getProducts(): that file is a single "use
+// server" module that also exports upsertProduct/deleteProduct/
+// importProducts/upsertShopSetting, and /stock/hero is exempt from the
+// AUTH_GATE middleware (public wall-display screen — see middleware.ts's
+// exempt-route comment). Importing catalog.ts from the hero page would pull
+// those write actions (and their cost/margin data) into the client bundle
+// for an unauthenticated route (security review 2026-09-16, C1). Selects
+// straight from public.product — sku/name/is_active only, no cost/price
+// columns at all, so there is nothing money-sensitive to leak even before
+// considering who can reach it.
+// ============================================================================
+
+export async function getProductPickerOptions(): Promise<ActionResult<ProductPickerOption[]>> {
+  const gateErr = requireOwnerAdmin();
+  if (gateErr) return gateErr;
+
+  try {
+    const shopId = getDevShopId();
+    const supabase = getServiceClient();
+
+    const { data, error } = await supabase
+      .from("product")
+      .select("id, sku, name, is_active")
+      .eq("shop_id", shopId)
+      .order("sku", { ascending: true });
+    if (error) throw error;
+
+    const rows: ProductPickerOption[] = (
+      (data ?? []) as { id: string; sku: string; name: string; is_active: boolean }[]
+    ).map((r) => ({
+      productId: r.id,
+      sku: r.sku,
+      name: r.name,
+      isActive: Boolean(r.is_active),
+    }));
+
+    return { ok: true, data: rows };
+  } catch (err) {
+    console.error("getProductPickerOptions failed", err);
+    return { ok: false, error: "โหลดรายการสินค้าไม่สำเร็จ ลองใหม่อีกครั้ง" };
   }
 }
 

@@ -20,7 +20,13 @@ import { revalidatePath } from "next/cache";
 import { getServiceClient } from "@/lib/supabase/server";
 import { requireOwnerSession, verifyCodeFor, type ShopRole } from "@/lib/auth/session";
 
-export type PendingUser = { id: string; email: string; createdAt: string; verifyCode: string };
+// Security review 2026-09-16 (M4): deliberately does NOT carry a verifyCode
+// field — shipping the code to the owner's own browser here would let
+// anyone who can view /settings/members read it straight off the page,
+// defeating the point of an out-of-band check (owner must get it FROM the
+// pending user, e.g. over LINE). approveMember() recomputes the expected
+// code itself from userId via lib/auth/session.ts's verifyCodeFor().
+export type PendingUser = { id: string; email: string; createdAt: string };
 export type Member = { userId: string; email: string; role: "owner" | "admin" | "staff"; createdAt: string };
 export type ActionResult = { ok: true } | { ok: false; error: string };
 
@@ -72,7 +78,7 @@ export async function listPendingUsers(): Promise<PendingUser[]> {
 
   return allUsers
     .filter((u) => !memberIds.has(u.id))
-    .map((u) => ({ id: u.id, email: u.email, createdAt: u.createdAt, verifyCode: verifyCodeFor(u.id) }))
+    .map((u) => ({ id: u.id, email: u.email, createdAt: u.createdAt }))
     .sort(byCreatedAtDesc);
 }
 
@@ -133,11 +139,39 @@ export async function approveMember(input: {
     return { ok: false, error: "ไม่พบบัญชีผู้ใช้นี้ใน Supabase Auth" };
   }
 
-  const { error } = await supabase
+  // Security review 2026-09-16 (M1): this MUST be insert-only, never upsert.
+  // "Approve a pending signup" is only meaningful for someone who isn't a
+  // member yet — an upsert on (shop_id, user_id) would silently overwrite
+  // an EXISTING row's role (most dangerously: downgrading an owner to
+  // admin/staff) for anyone who already has a shop_member row, since
+  // nothing above checks that. Explicit pre-check first so the error
+  // message is clean; the insert's own unique-violation catch below is the
+  // race-safe backstop if two approvals for the same user land at once.
+  const { data: existing, error: existingErr } = await supabase
     .from("shop_member")
-    .upsert({ shop_id: shopId, user_id: userId, role: input.role }, { onConflict: "shop_id,user_id" });
+    .select("user_id")
+    .eq("shop_id", shopId)
+    .eq("user_id", userId)
+    .maybeSingle();
+  if (existingErr) {
+    console.error("approveMember: existing-member lookup failed", existingErr);
+    return { ok: false, error: "ตรวจสอบไม่สำเร็จ ลองใหม่อีกครั้ง" };
+  }
+  if (existing) {
+    return { ok: false, error: "ผู้ใช้นี้เป็นสมาชิกอยู่แล้ว" };
+  }
+
+  const { error } = await supabase.from("shop_member").insert({ shop_id: shopId, user_id: userId, role: input.role });
   if (error) {
-    console.error("approveMember: upsert failed", error);
+    // 23505 = unique_violation on (shop_id, user_id) — someone else's
+    // concurrent approveMember() call for the same user won the race
+    // between our existence check and this insert. Same "already a member"
+    // outcome as the pre-check above, not a generic failure.
+    const code = (error as { code?: string }).code;
+    if (code === "23505") {
+      return { ok: false, error: "ผู้ใช้นี้เป็นสมาชิกอยู่แล้ว" };
+    }
+    console.error("approveMember: insert failed", error);
     return { ok: false, error: "บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง" };
   }
 
