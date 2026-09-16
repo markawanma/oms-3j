@@ -9,7 +9,7 @@ const ROOT = "docs/3j-jewelry";
 const ACTIVE_DIRS = ["marketing", "web", "content"]; // โฟลเดอร์ที่ INDEX ลิสต์รายไฟล์
 // ระบุใน INDEX ระดับโฟลเดอร์แล้ว — สำรอง/โค้ด/ไฟล์ที่งอกทุกสัปดาห์ (weekly-brief: 1 ไฟล์/จันทร์
 // ลิสต์รายไฟล์ใน INDEX จะบวมโดยไม่มีใครได้ประโยชน์ INDEX ชี้แม่แบบ + กติกาตั้งชื่อพอ)
-const SKIP_SUBDIRS = new Set(["backups", "velo-fixed", "mockups", "srt", "weekly-brief"]);
+const SKIP_SUBDIRS = new Set(["backups", "velo-fixed", "mockups", "srt", "weekly-brief", "content-calendar"]);
 
 const problems = [];
 let index;
