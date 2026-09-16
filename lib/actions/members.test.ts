@@ -18,7 +18,11 @@ const fromMock = vi.fn();
 
 vi.mock("@/lib/auth/session", () => ({
   requireOwnerSession: () => requireOwnerSessionMock(),
-  verifyCodeFor: (userId: string) => userId.slice(-6).toUpperCase(),
+  // Constant, not derived from userId — the real verifyCodeFor() (HMAC-based,
+  // lib/auth/session.ts) dropped the old slice(-6)-of-userId formula this
+  // mock used to mirror, so mirroring it here would silently test a formula
+  // the app no longer uses.
+  verifyCodeFor: () => "ABC123",
 }));
 
 vi.mock("@/lib/supabase/server", () => ({
@@ -63,7 +67,7 @@ beforeEach(() => {
 describe("approveMember — must reject", () => {
   it("wrong verify code, never touches Supabase", async () => {
     const { approveMember } = await import("./members");
-    const targetId = "22222222-2222-2222-2222-222222222abc"; // verifyCodeFor -> "222ABC"
+    const targetId = "22222222-2222-2222-2222-222222222abc"; // verifyCodeFor mock always returns "ABC123"
 
     const result = await approveMember({ userId: targetId, role: "staff", code: "000000" });
 
@@ -74,9 +78,9 @@ describe("approveMember — must reject", () => {
 
   it("code check is case-insensitive on the RIGHT code but still rejects a near-miss", async () => {
     const { approveMember } = await import("./members");
-    const targetId = "22222222-2222-2222-2222-222222222abc"; // -> "222ABC"
+    const targetId = "22222222-2222-2222-2222-222222222abc"; // mock code is always "ABC123"
 
-    const result = await approveMember({ userId: targetId, role: "staff", code: "222ABD" }); // one char off
+    const result = await approveMember({ userId: targetId, role: "staff", code: "ABC124" }); // one char off
 
     expect(result).toEqual({ ok: false, error: "รหัสยืนยันไม่ตรง" });
   });
@@ -86,19 +90,19 @@ describe("approveMember — must reject", () => {
     const targetId = "22222222-2222-2222-2222-222222222abc";
 
     // @ts-expect-error deliberately invalid role for the test
-    const result = await approveMember({ userId: targetId, role: "owner", code: "222ABC" });
+    const result = await approveMember({ userId: targetId, role: "owner", code: "ABC123" });
 
     expect(result).toEqual({ ok: false, error: "role ไม่ถูกต้อง" });
   });
 
   it("M1 — user already has a shop_member row (e.g. owner) is never upserted over", async () => {
     const { approveMember } = await import("./members");
-    const targetId = "22222222-2222-2222-2222-222222222abc"; // -> "222ABC"
+    const targetId = "22222222-2222-2222-2222-222222222abc"; // mock code is always "ABC123"
 
     getUserByIdMock.mockResolvedValue({ data: { user: { id: targetId } }, error: null });
     fromMock.mockReturnValueOnce(chainable({ data: { user_id: targetId }, error: null })); // existing-member check: found
 
-    const result = await approveMember({ userId: targetId, role: "staff", code: "222ABC" });
+    const result = await approveMember({ userId: targetId, role: "staff", code: "ABC123" });
 
     expect(result).toEqual({ ok: false, error: "ผู้ใช้นี้เป็นสมาชิกอยู่แล้ว" });
     expect(fromMock).toHaveBeenCalledTimes(1); // insert must never be reached
@@ -106,14 +110,14 @@ describe("approveMember — must reject", () => {
 
   it("M1 — concurrent approval race (unique violation on insert) reports the same error, not a generic failure", async () => {
     const { approveMember } = await import("./members");
-    const targetId = "22222222-2222-2222-2222-222222222abc"; // -> "222ABC"
+    const targetId = "22222222-2222-2222-2222-222222222abc"; // mock code is always "ABC123"
 
     getUserByIdMock.mockResolvedValue({ data: { user: { id: targetId } }, error: null });
     fromMock
       .mockReturnValueOnce(chainable({ data: null, error: null })) // existing-member check: not found (yet)
       .mockReturnValueOnce(chainable({ data: null, error: { code: "23505", message: "duplicate key" } })); // insert loses the race
 
-    const result = await approveMember({ userId: targetId, role: "staff", code: "222ABC" });
+    const result = await approveMember({ userId: targetId, role: "staff", code: "ABC123" });
 
     expect(result).toEqual({ ok: false, error: "ผู้ใช้นี้เป็นสมาชิกอยู่แล้ว" });
   });
@@ -122,14 +126,14 @@ describe("approveMember — must reject", () => {
 describe("approveMember — must NOT break", () => {
   it("correct code (case-insensitive) + existing auth user + not-yet-a-member inserts and succeeds", async () => {
     const { approveMember } = await import("./members");
-    const targetId = "22222222-2222-2222-2222-222222222abc"; // -> "222ABC"
+    const targetId = "22222222-2222-2222-2222-222222222abc"; // mock code is always "ABC123"
 
     getUserByIdMock.mockResolvedValue({ data: { user: { id: targetId } }, error: null });
     fromMock
       .mockReturnValueOnce(chainable({ data: null, error: null })) // existing-member check: not found
       .mockReturnValueOnce(chainable({ data: null, error: null })); // insert
 
-    const result = await approveMember({ userId: targetId, role: "staff", code: "222abc" }); // lowercase on purpose
+    const result = await approveMember({ userId: targetId, role: "staff", code: "abc123" }); // lowercase on purpose
 
     expect(result).toEqual({ ok: true });
     expect(getUserByIdMock).toHaveBeenCalledWith(targetId);

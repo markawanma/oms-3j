@@ -3,8 +3,9 @@
 // components/domain/RegisterForm.tsx — A2-lite (register → pending →
 // owner-approves). See app/(auth)/register/actions.ts for the server-side
 // contract (registerAction). Self-service signup: new accounts land in
-// "pending" (app/(auth)/pending/page.tsx) until an owner approves them from
-// /settings/members using the 6-char verify code shown there.
+// "pending" (app/(auth)/pending/page.tsx), which shows the new user their
+// own 6-char verify code — they relay it to the owner out-of-band (e.g.
+// LINE), and the owner enters it at /settings/members to approve them.
 import { useState } from "react";
 import type { FormEvent } from "react";
 import Link from "next/link";
@@ -43,7 +44,7 @@ export function RegisterForm() {
       // success — Next.js implements that by throwing NEXT_REDIRECT, which
       // must be allowed to propagate up to the framework, not swallowed as
       // an app error here.
-      if (err instanceof Error && err.message === "NEXT_REDIRECT") throw err;
+      if ((err as { digest?: string }).digest?.startsWith("NEXT_REDIRECT")) throw err;
       setSubmitting(false);
       setError("เกิดข้อผิดพลาดที่ไม่คาดคิด — ลองใหม่อีกครั้ง");
       return;

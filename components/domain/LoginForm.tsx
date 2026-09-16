@@ -10,24 +10,16 @@ import { Button } from "@/components/ui/Button";
 import { ErrorBanner } from "@/components/ui/ErrorState";
 import { signInWithPassword } from "@/app/(auth)/login/actions";
 
-export interface AuthProvider {
-  id: string;
-  label: string;
-}
-
 export function LoginForm({
   next,
-  providers = [],
 }: {
   /** Post-login redirect target, from the page's `?next=` search param.
-   * Carried through as a hidden form field; signInWithPassword()
-   * (app/(auth)/login/actions.ts) sanitizes it via sanitizeNextParam() and
-   * redirects there — falls back to /dashboard if unsafe or empty. */
+   * Passed straight through to signInWithPassword() (app/(auth)/login/
+   * actions.ts), which sanitizes it via sanitizeNextParam() and redirects
+   * there — falls back to /dashboard if unsafe or empty. Submit reads this
+   * from component state/closure (handleSubmit below), not FormData, so
+   * there is no hidden `next` input on the form. */
   next?: string;
-  /** Slot for future OAuth providers (e.g. Google). Empty by default — no
-   * divider/buttons render until this is non-empty, so today's login form
-   * is visually unchanged. */
-  providers?: AuthProvider[];
 }) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -49,8 +41,6 @@ export function LoginForm({
   return (
     <form onSubmit={handleSubmit} className="space-y-4 rounded-lg border border-zinc-200 bg-white p-4">
       {error && <ErrorBanner message={error} />}
-
-      {next && <input type="hidden" name="next" value={next} />}
 
       <div>
         <label htmlFor="email" className="block text-sm font-medium text-zinc-700">
@@ -93,23 +83,6 @@ export function LoginForm({
           สมัครสมาชิก
         </Link>
       </p>
-
-      {providers.length > 0 && (
-        <>
-          <div className="flex items-center gap-2 text-xs text-zinc-400" role="separator">
-            <span className="h-px flex-1 bg-zinc-200" />
-            หรือ
-            <span className="h-px flex-1 bg-zinc-200" />
-          </div>
-          <div className="flex flex-col gap-2">
-            {providers.map((p) => (
-              <Button key={p.id} type="button" variant="secondary" className="w-full">
-                {p.label}
-              </Button>
-            ))}
-          </div>
-        </>
-      )}
     </form>
   );
 }

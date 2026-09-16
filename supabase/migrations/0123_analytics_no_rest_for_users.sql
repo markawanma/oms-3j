@@ -1,7 +1,7 @@
 -- 0123_analytics_no_rest_for_users.sql — A2-lite (security review
--- ✅ APPLIED 16 ก.ย. 69 via MCP apply_migration version 20260916145306 · verify หลัง apply: grants anon/authenticated บน analytics = 0 · has_schema_privilege(authenticated,analytics,USAGE)=false · defacl tables analytics = service_role เท่านั้น · curl user→fact_order/v_dim_product = 403
 -- 2026-09-16, H2b). See docs/3j-jewelry/analytics/phase-auth-pii-hardening-design.md
 -- and the owner decision log, 16 ก.ย. 69.
+-- ✅ APPLIED 16 ก.ย. 69 via MCP apply_migration version 20260916145306 · verify หลัง apply: grants anon/authenticated บน analytics = 0 · has_schema_privilege(authenticated,analytics,USAGE)=false · defacl tables analytics = service_role เท่านั้น · curl user→fact_order/v_dim_product = 403
 --
 -- ⚠️ MUST be applied in the SAME deploy window as, immediately AFTER
 -- 0122_shop_member_select_only.sql, and immediately BEFORE

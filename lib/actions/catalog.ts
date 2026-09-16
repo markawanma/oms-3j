@@ -13,7 +13,7 @@
 import { revalidatePath } from "next/cache";
 import { getServiceClient } from "@/lib/supabase/server";
 import { getDevShopId, getDevRole } from "@/lib/dev/context";
-import { requireSessionIfGateOn } from "@/lib/auth/session";
+import { requireWriteAccess } from "@/lib/auth/action-guard";
 import type { ActionResult } from "@/lib/types";
 import { fetchAllRows } from "@/lib/supabase/query-limits";
 import { BUCKET as PRODUCT_IMAGES_BUCKET } from "@/lib/catalog/image-constants";
@@ -40,22 +40,12 @@ function requireOwnerAdmin(): ActionResult<never> | null {
   return null;
 }
 
-/** Every WRITE export below (upsert/delete/import) calls this FIRST — not
- * the read exports (getProducts/getSkuOrderAlerts/getShopSetting/
- * getBlendedMarginSuggestion). Combines both auth layers active in this
- * app right now: requireSessionIfGateOn() (real Supabase Auth session, only
- * enforced once AUTH_GATE=on — see lib/auth/session.ts) then requireOwnerAdmin()
- * (the DEV_ROLE check that has gated every write since before A2-lite).
- * Security review 2026-09-16, C1(b): defense-in-depth alongside C1(a), which
- * stops /stock/hero from ever bundling these actions in the first place. */
-async function requireWriteAccess(): Promise<ActionResult<never> | null> {
-  try {
-    await requireSessionIfGateOn();
-  } catch {
-    return { ok: false, error: "ต้องเข้าสู่ระบบก่อน" };
-  }
-  return requireOwnerAdmin();
-}
+// Every WRITE export below (upsert/delete/import) calls
+// requireWriteAccess(requireOwnerAdmin) FIRST — not the read exports
+// (getProducts/getSkuOrderAlerts/getShopSetting/getBlendedMarginSuggestion).
+// Security review 2026-09-16, C1(b): defense-in-depth alongside C1(a), which
+// stops /stock/hero from ever bundling these actions in the first place.
+// See lib/auth/action-guard.ts for the shared session+DEV_ROLE combo.
 
 function toNum(v: number | string | null | undefined): number | null {
   if (v === null || v === undefined || v === "") return null;
@@ -227,7 +217,7 @@ export async function getProducts(): Promise<ActionResult<GetProductsResult>> {
 // ============================================================================
 
 export async function upsertProduct(input: UpsertProductInput): Promise<ActionResult<{ productId: string }>> {
-  const gateErr = await requireWriteAccess();
+  const gateErr = await requireWriteAccess(requireOwnerAdmin);
   if (gateErr) return gateErr;
 
   const sku = input.sku?.trim();
@@ -299,7 +289,7 @@ const IMPORT_MAX_ROWS = 2000;
 export async function importProducts(
   rows: ProductImportRow[]
 ): Promise<ActionResult<ProductImportSummary>> {
-  const gateErr = await requireWriteAccess();
+  const gateErr = await requireWriteAccess(requireOwnerAdmin);
   if (gateErr) return gateErr;
 
   if (!Array.isArray(rows) || rows.length === 0) {
@@ -364,7 +354,7 @@ export async function importProducts(
 // ============================================================================
 
 export async function deleteProduct(sku: string): Promise<ActionResult> {
-  const gateErr = await requireWriteAccess();
+  const gateErr = await requireWriteAccess(requireOwnerAdmin);
   if (gateErr) return gateErr;
 
   const clean = sku?.trim();
@@ -543,7 +533,7 @@ export async function getBlendedMarginSuggestion(): Promise<ActionResult<Blended
 }
 
 export async function upsertShopSetting(input: UpsertShopSettingInput): Promise<ActionResult> {
-  const gateErr = await requireWriteAccess();
+  const gateErr = await requireWriteAccess(requireOwnerAdmin);
   if (gateErr) return gateErr;
 
   const spot = toNum(input.silverSpotThbPerGram);

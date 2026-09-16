@@ -11,7 +11,7 @@
 import { revalidatePath } from "next/cache";
 import { getServiceClient } from "@/lib/supabase/server";
 import { getDevShopId, getDevRole } from "@/lib/dev/context";
-import { requireSessionIfGateOn } from "@/lib/auth/session";
+import { requireWriteAccess } from "@/lib/auth/action-guard";
 import type { ActionResult } from "@/lib/types";
 import type { HeroStockRow } from "@/lib/stock/types";
 import type { ProductPickerOption } from "@/lib/catalog/types";
@@ -26,21 +26,12 @@ function requireOwnerAdmin(): ActionResult<never> | null {
   return null;
 }
 
-/** Security review 2026-09-16 (H4): addHeroWatch/removeHeroWatch are real
- * mutations, and /stock/hero is exempt from middleware.ts's AUTH_GATE
- * (public wall-display screen — no browser session check runs for that
- * route at all). requireOwnerAdmin() alone is just a TypeScript `if` on
- * DEV_ROLE, not a real session check. Same requireWriteAccess() shape as
- * lib/actions/catalog.ts: requireSessionIfGateOn() first (real Supabase
- * Auth session, only enforced once AUTH_GATE=on), then requireOwnerAdmin(). */
-async function requireWriteAccess(): Promise<ActionResult<never> | null> {
-  try {
-    await requireSessionIfGateOn();
-  } catch {
-    return { ok: false, error: "ต้องเข้าสู่ระบบก่อน" };
-  }
-  return requireOwnerAdmin();
-}
+// Security review 2026-09-16 (H4): addHeroWatch/removeHeroWatch are real
+// mutations, and /stock/hero is exempt from middleware.ts's AUTH_GATE
+// (public wall-display screen — no browser session check runs for that
+// route at all). requireOwnerAdmin() alone is just a TypeScript `if` on
+// DEV_ROLE, not a real session check — requireWriteAccess(requireOwnerAdmin)
+// below (lib/auth/action-guard.ts) adds requireSessionIfGateOn() first.
 
 // ============================================================================
 // read — analytics.v_hero_stock, ordered worst-first (out > low > available
@@ -163,7 +154,7 @@ export async function addHeroWatch(
   lowStockThreshold: number,
   note?: string | null
 ): Promise<ActionResult> {
-  const gateErr = await requireWriteAccess();
+  const gateErr = await requireWriteAccess(requireOwnerAdmin);
   if (gateErr) return gateErr;
 
   const cleanProductId = productId?.trim();
@@ -206,7 +197,7 @@ export async function addHeroWatch(
 }
 
 export async function removeHeroWatch(productId: string): Promise<ActionResult> {
-  const gateErr = await requireWriteAccess();
+  const gateErr = await requireWriteAccess(requireOwnerAdmin);
   if (gateErr) return gateErr;
 
   const cleanProductId = productId?.trim();

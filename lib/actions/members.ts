@@ -28,7 +28,7 @@ import { requireOwnerSession, verifyCodeFor, type ShopRole } from "@/lib/auth/se
 // code itself from userId via lib/auth/session.ts's verifyCodeFor().
 export type PendingUser = { id: string; email: string; createdAt: string };
 export type Member = { userId: string; email: string; role: "owner" | "admin" | "staff"; createdAt: string };
-export type ActionResult = { ok: true } | { ok: false; error: string };
+export type MemberActionResult = { ok: true } | { ok: false; error: string };
 
 const MEMBERS_PATH = "/settings/members";
 
@@ -114,7 +114,7 @@ export async function approveMember(input: {
   userId: string;
   role: "admin" | "staff";
   code: string;
-}): Promise<ActionResult> {
+}): Promise<MemberActionResult> {
   const { shopId } = await requireOwnerSession();
 
   const userId = (input.userId ?? "").trim();
@@ -179,7 +179,7 @@ export async function approveMember(input: {
   return { ok: true };
 }
 
-export async function removeMember(userId: string): Promise<ActionResult> {
+export async function removeMember(userId: string): Promise<MemberActionResult> {
   const { userId: ownerId, shopId } = await requireOwnerSession();
 
   const target = (userId ?? "").trim();

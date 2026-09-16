@@ -1,7 +1,7 @@
 -- 0124_public_no_rest_for_users.sql — A2-lite (security review 2026-09-16,
--- ✅ APPLIED 16 ก.ย. 69 via MCP apply_migration version 20260916145354 · verify หลัง apply: grants anon/authenticated บน public = 0 · defacl(postgres) tables public = postgres+service_role · curl user→product(unit_cost)/shop_member = 403 · shop_catalog ยังไม่มี (0009 ไม่เคย apply) grant ข้ามตาม do-block
 -- H5). See docs/3j-jewelry/analytics/phase-auth-pii-hardening-design.md and
 -- the owner decision log, 16 ก.ย. 69.
+-- ✅ APPLIED 16 ก.ย. 69 via MCP apply_migration version 20260916145354 · verify หลัง apply: grants anon/authenticated บน public = 0 · defacl(postgres) tables public = postgres+service_role · curl user→product(unit_cost)/shop_member = 403 · shop_catalog ยังไม่มี (0009 ไม่เคย apply) grant ข้ามตาม do-block
 --
 -- ⚠️ MUST be applied in the SAME deploy window as, and immediately AFTER,
 -- 0122_shop_member_select_only.sql then 0123_analytics_no_rest_for_users.sql
@@ -55,14 +55,14 @@ revoke all on all sequences in schema public from anon, authenticated;
 -- with an `all tables` grant.
 -- 16 ก.ย. 69: public.shop_catalog ยังไม่มีจริง (0009 ไม่เคย apply — placeholder shop_id) ⇒ grant แบบมีเงื่อนไข
 -- ตอน apply 0009 ในอนาคต ไฟล์นั้นต้อง grant select ให้ anon/authenticated เอง (default privileges ถูกปิดแล้วที่นี่)
-do $
+do $$
 begin
   if to_regclass('public.shop_catalog') is not null then
     grant select on public.shop_catalog to anon, authenticated;
   else
     raise notice '0124: public.shop_catalog not present (0009 not applied) — grant skipped';
   end if;
-end $;
+end $$;
 
 -- Supabase's project-setup migrations run `alter default privileges` as the
 -- `postgres` role, which is why fresh tables in `public` silently inherit a
