@@ -20,10 +20,9 @@ export function LoginForm({
   providers = [],
 }: {
   /** Post-login redirect target, from the page's `?next=` search param.
-   * Carried through as a hidden form field for when signInWithPassword()
-   * (app/(auth)/login/actions.ts) is wired to read + honor it — today that
-   * action always redirects to /dashboard regardless of this value.
-   * ⚠️ Confirm with backend-dev before relying on `next` actually working. */
+   * Carried through as a hidden form field; signInWithPassword()
+   * (app/(auth)/login/actions.ts) sanitizes it via sanitizeNextParam() and
+   * redirects there — falls back to /dashboard if unsafe or empty. */
   next?: string;
   /** Slot for future OAuth providers (e.g. Google). Empty by default — no
    * divider/buttons render until this is non-empty, so today's login form
