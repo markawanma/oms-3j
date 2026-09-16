@@ -11,8 +11,10 @@
 import { revalidatePath } from "next/cache";
 import { getServiceClient } from "@/lib/supabase/server";
 import { getDevShopId, getDevRole } from "@/lib/dev/context";
+import { requireWriteAccess } from "@/lib/auth/action-guard";
 import type { ActionResult } from "@/lib/types";
 import type { HeroStockRow } from "@/lib/stock/types";
+import type { ProductPickerOption } from "@/lib/catalog/types";
 
 const SCHEMA = "analytics";
 const PAGE_PATH = "/stock/hero";
@@ -23,6 +25,13 @@ function requireOwnerAdmin(): ActionResult<never> | null {
   }
   return null;
 }
+
+// Security review 2026-09-16 (H4): addHeroWatch/removeHeroWatch are real
+// mutations, and /stock/hero is exempt from middleware.ts's AUTH_GATE
+// (public wall-display screen — no browser session check runs for that
+// route at all). requireOwnerAdmin() alone is just a TypeScript `if` on
+// DEV_ROLE, not a real session check — requireWriteAccess(requireOwnerAdmin)
+// below (lib/auth/action-guard.ts) adds requireSessionIfGateOn() first.
 
 // ============================================================================
 // read — analytics.v_hero_stock, ordered worst-first (out > low > available
@@ -90,6 +99,51 @@ export async function getHeroStock(): Promise<ActionResult<HeroStockRow[]>> {
 }
 
 // ============================================================================
+// read — SKU picker for the "add hero watch" form. Deliberately separate
+// from lib/actions/catalog.ts's getProducts(): that file is a single "use
+// server" module that also exports upsertProduct/deleteProduct/
+// importProducts/upsertShopSetting, and /stock/hero is exempt from the
+// AUTH_GATE middleware (public wall-display screen — see middleware.ts's
+// exempt-route comment). Importing catalog.ts from the hero page would pull
+// those write actions (and their cost/margin data) into the client bundle
+// for an unauthenticated route (security review 2026-09-16, C1). Selects
+// straight from public.product — sku/name/is_active only, no cost/price
+// columns at all, so there is nothing money-sensitive to leak even before
+// considering who can reach it.
+// ============================================================================
+
+export async function getProductPickerOptions(): Promise<ActionResult<ProductPickerOption[]>> {
+  const gateErr = requireOwnerAdmin();
+  if (gateErr) return gateErr;
+
+  try {
+    const shopId = getDevShopId();
+    const supabase = getServiceClient();
+
+    const { data, error } = await supabase
+      .from("product")
+      .select("id, sku, name, is_active")
+      .eq("shop_id", shopId)
+      .order("sku", { ascending: true });
+    if (error) throw error;
+
+    const rows: ProductPickerOption[] = (
+      (data ?? []) as { id: string; sku: string; name: string; is_active: boolean }[]
+    ).map((r) => ({
+      productId: r.id,
+      sku: r.sku,
+      name: r.name,
+      isActive: Boolean(r.is_active),
+    }));
+
+    return { ok: true, data: rows };
+  } catch (err) {
+    console.error("getProductPickerOptions failed", err);
+    return { ok: false, error: "โหลดรายการสินค้าไม่สำเร็จ ลองใหม่อีกครั้ง" };
+  }
+}
+
+// ============================================================================
 // write — analytics.hero_watch_add / hero_watch_remove (0037 §3). add is an
 // upsert (same product re-added = update threshold/note), matching the RPC's
 // ON CONFLICT DO UPDATE.
@@ -100,7 +154,7 @@ export async function addHeroWatch(
   lowStockThreshold: number,
   note?: string | null
 ): Promise<ActionResult> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireWriteAccess(requireOwnerAdmin);
   if (gateErr) return gateErr;
 
   const cleanProductId = productId?.trim();
@@ -143,7 +197,7 @@ export async function addHeroWatch(
 }
 
 export async function removeHeroWatch(productId: string): Promise<ActionResult> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireWriteAccess(requireOwnerAdmin);
   if (gateErr) return gateErr;
 
   const cleanProductId = productId?.trim();

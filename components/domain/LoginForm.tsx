@@ -1,14 +1,26 @@
 "use client";
 
-// components/domain/LoginForm.tsx — Phase A1 (auth infra, additive). See
+// components/domain/LoginForm.tsx — Phase A1 (auth infra, additive) +
+// A2-lite (register/approve, 16 ก.ย. 69). See
 // docs/3j-jewelry/analytics/phase-auth-pii-hardening-design.md §A.1/§A.3.
 import { useState } from "react";
 import type { FormEvent } from "react";
+import Link from "next/link";
 import { Button } from "@/components/ui/Button";
 import { ErrorBanner } from "@/components/ui/ErrorState";
 import { signInWithPassword } from "@/app/(auth)/login/actions";
 
-export function LoginForm() {
+export function LoginForm({
+  next,
+}: {
+  /** Post-login redirect target, from the page's `?next=` search param.
+   * Passed straight through to signInWithPassword() (app/(auth)/login/
+   * actions.ts), which sanitizes it via sanitizeNextParam() and redirects
+   * there — falls back to /dashboard if unsafe or empty. Submit reads this
+   * from component state/closure (handleSubmit below), not FormData, so
+   * there is no hidden `next` input on the form. */
+  next?: string;
+}) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -19,7 +31,7 @@ export function LoginForm() {
     setError(null);
     setSubmitting(true);
 
-    const result = await signInWithPassword({ email, password });
+    const result = await signInWithPassword({ email, password, next });
     // On success the server action redirect()s (throws NEXT_REDIRECT before
     // returning) — this line only runs when sign-in actually failed.
     setSubmitting(false);
@@ -64,6 +76,13 @@ export function LoginForm() {
       <Button type="submit" variant="primary" loading={submitting} className="w-full">
         เข้าสู่ระบบ
       </Button>
+
+      <p className="text-center text-sm text-zinc-500">
+        ยังไม่มีบัญชี?{" "}
+        <Link href="/register" className="font-medium text-primary-700 hover:underline">
+          สมัครสมาชิก
+        </Link>
+      </p>
     </form>
   );
 }

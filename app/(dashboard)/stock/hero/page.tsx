@@ -1,6 +1,5 @@
 import { Lock } from "lucide-react";
-import { getHeroStock } from "@/lib/actions/hero-stock";
-import { getProducts } from "@/lib/actions/catalog";
+import { getHeroStock, getProductPickerOptions } from "@/lib/actions/hero-stock";
 import { getDevRole } from "@/lib/dev/context";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -10,8 +9,10 @@ export const dynamic = "force-dynamic"; // live counter — must never serve a c
 
 // /stock/hero — Hero-SKU live stock counter (ops-plan-99 §1). Owner/admin
 // only: same reasoning as /catalog — the SKU list here doubles as the
-// picker source (getProducts), and deciding which SKUs to push live is a
-// business call, not a staff one.
+// picker source (getProductPickerOptions, lib/actions/hero-stock.ts — NOT
+// lib/actions/catalog.ts's getProducts(); see that function's doc comment
+// for why this route can't import catalog.ts at all), and deciding which
+// SKUs to push live is a business call, not a staff one.
 export default async function StockHeroPage() {
   if (getDevRole() === "staff") {
     return (
@@ -25,7 +26,7 @@ export default async function StockHeroPage() {
 
   let heroResult, productsResult;
   try {
-    [heroResult, productsResult] = await Promise.all([getHeroStock(), getProducts()]);
+    [heroResult, productsResult] = await Promise.all([getHeroStock(), getProductPickerOptions()]);
   } catch (err) {
     return <ErrorState message={err instanceof Error ? err.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"} />;
   }
@@ -33,5 +34,5 @@ export default async function StockHeroPage() {
   if (!heroResult.ok) return <ErrorState message={heroResult.error} />;
   if (!productsResult.ok) return <ErrorState message={productsResult.error} />;
 
-  return <HeroStockClient rows={heroResult.data} products={productsResult.data.rows} />;
+  return <HeroStockClient rows={heroResult.data} products={productsResult.data} />;
 }
