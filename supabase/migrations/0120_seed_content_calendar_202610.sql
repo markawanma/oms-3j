@@ -1,4 +1,4 @@
--- 0120_seed_content_calendar_202610.sql
+-- 0120_seed_content_calendar_202610.sql — ✅ APPLIED 16 ก.ย. 69 via MCP version 20260916092640 (dry-run rollback ผ่านก่อน apply: 26 step / 26 artifact / 2 gate)
 -- Seeds ร่าง 1 ของปฏิทินโพสต์ ต.ค. 69 ลง campaign board ตาม:
 --   docs/3j-jewelry/marketing/content-calendar/2026-10.md  (§5 ทุกแถว + 3 แคมเปญท้ายไฟล์)
 --   docs/3j-jewelry/marketing/content-calendar/TEMPLATE.md (§กติกา — ทุกโพสต์แคมเปญผูก campaign_step.id)

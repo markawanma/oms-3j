@@ -16,7 +16,7 @@
 -- Additive only: create table/function/view ใหม่ล้วน ไม่แก้ไฟล์/ตาราง/ฟังก์ชันเดิม
 -- ที่มีอยู่แล้วแม้แต่บรรทัดเดียว.
 --
--- ✅ APPLIED 16 ก.ย. 69 ผ่าน MCP apply_migration (Tech Lead) · dry-run หลัง apply: T1 ข้ามเที่ยงคืน=4ชม ✓ · T2 upsert ซ้ำไม่เพิ่มแถว ✓
+-- ✅ APPLIED 16 ก.ย. 69 ผ่าน MCP apply_migration (Tech Lead) version 20260916125009 (schema_migrations มีแถวแล้ว) · code-review PASS w/ fixes → view recreate (rename started_time_th/ended_time_th) + guard ย้ายขึ้น apply เพิ่มผ่าน execute_sql · dry-run หลัง apply: T1 ข้ามเที่ยงคืน=4ชม ✓ · T2 upsert ซ้ำไม่เพิ่มแถว ✓
 -- · T3 peak null ✓ · T4 คืนว่าง=0 ไม่ null ✓ (25 ธ.ค. 68) · T4b คืนจริง 15 ก.ย. 52 ใบ ฿24,336 live-SKU 44 ✓ · T5 overload=1 ✓ · T6 >12ชม. ข้อความไทย ✓ · T7 non-owner: **ยังทดสอบไม่ได้** (shop_member มีแค่ owner) — guard เดียวกับ write-RPC อื่น (0021) · advisors: ไม่มี finding ใหม่
 
 -- ============================================================================
@@ -78,6 +78,7 @@ create trigger trg_live_session_log_updated_at
 -- explicit กันอนาคตมีคน grant select ให้ role อื่นแล้วลืมเช็ค policy).
 alter table analytics.live_session_log enable row level security;
 
+drop policy if exists tenant_isolation_select on analytics.live_session_log;
 create policy tenant_isolation_select on analytics.live_session_log
   for select
   to authenticated, service_role
@@ -112,12 +113,13 @@ declare
   v_id uuid;
 begin
   if p_shop is null or p_live_date is null or p_start is null or p_end is null then
-    raise exception 'live_session_upsert: p_shop, p_live_date, p_start and p_end are required';
+    raise exception 'live_session_upsert: ต้องระบุ shop, วันที่ไลฟ์, เวลาเริ่ม และเวลาเลิก';
   end if;
+  perform analytics.crm_require_owner_admin(p_shop);  -- ด่านสิทธิ์ก่อน validate อื่น (code-review: กัน probe)
   if p_peak is not null and p_peak < 0 then
-    raise exception 'live_session_upsert: p_peak must be >= 0';
+    raise exception 'live_session_upsert: viewer สูงสุดต้องไม่ติดลบ';
   end if;
-  if p_note is not null and length(p_note) > 500 then
+  if p_note is not null and length(btrim(p_note)) > 500 then
     raise exception 'live_session_upsert: p_note ยาวเกิน 500 ตัวอักษร';
   end if;
   -- เช็คซ้ำกับ CHECK ของตาราง (live_session_log_source_check) โดยตั้งใจ —
@@ -132,7 +134,6 @@ begin
     raise exception 'live_session_upsert: เวลาเริ่มกับเวลาเลิกไลฟ์ห้ามเท่ากัน';
   end if;
 
-  perform analytics.crm_require_owner_admin(p_shop);
 
   -- เขตเวลาไทย (3j-migration-traps #6): date+time ต่อกันได้ naive timestamp
   -- ก่อน แล้วค่อย "at time zone 'Asia/Bangkok'" แปลงเป็น timestamptz (UTC
@@ -187,7 +188,8 @@ grant execute on function analytics.live_session_upsert(uuid, date, time, time, 
 -- เป็นยอดที่มาจากไลฟ์ล้วนๆ (security review H3).
 -- ============================================================================
 
-create or replace view analytics.v_live_night
+drop view if exists analytics.v_live_night;  -- rename คอลัมน์ต้อง drop (create or replace เปลี่ยนชื่อคอลัมน์ไม่ได้)
+create view analytics.v_live_night
   with (security_invoker = true) as
 with ls_calc as (
   select
@@ -197,14 +199,14 @@ with ls_calc as (
     ls.ended_at,
     ls.peak_viewers,
     ls.note,
-    round(extract(epoch from (ls.ended_at - ls.started_at)) / 3600.0, 2)::numeric(4, 2) as live_hours
+    round(extract(epoch from (ls.ended_at - ls.started_at)) / 3600.0, 2)::numeric(6, 2) as live_hours  -- (6,2) เผื่อถ้าวันหนึ่งขยาย max_len เกิน 12 ชม.
   from analytics.live_session_log ls
 )
 select
   lc.shop_id,
   lc.live_date,
-  to_char(lc.started_at at time zone 'Asia/Bangkok', 'HH24:MI') as started_at,
-  to_char(lc.ended_at at time zone 'Asia/Bangkok', 'HH24:MI') as ended_at,
+  to_char(lc.started_at at time zone 'Asia/Bangkok', 'HH24:MI') as started_time_th,
+  to_char(lc.ended_at at time zone 'Asia/Bangkok', 'HH24:MI') as ended_time_th,
   lc.live_hours,
   lc.peak_viewers,
   lc.note,
@@ -279,7 +281,8 @@ comment on view analytics.v_live_night is
   'สรุปผลไลฟ์รายคืน 1 แถว/คืนที่มี log ใน live_session_log — คอลัมน์ day_* คือยอด/ออเดอร์ '
   'ของ "ทั้งวัน" (order_date = live_date) ทุกช่องทาง ไม่ใช่แค่ที่เกิดในหน้าต่างไลฟ์จริง '
   '(paid_at อยู่ในหน้าต่างไลฟ์แค่ ~75% ตามข้อมูลที่ทีมยืนยันไว้) ห้ามตีความ day_* เป็น '
-  '"ยอดจากไลฟ์" เป๊ะๆ — ใช้เป็นตัวเทียบยอดวันที่มีไลฟ์ vs ไม่มีไลฟ์เท่านั้น';
+  '"ยอดจากไลฟ์" เป๊ะๆ — ใช้เป็นตัวเทียบยอดวันที่มีไลฟ์ vs ไม่มีไลฟ์เท่านั้น · ไลฟ์ข้ามเที่ยงคืน: ออเดอร์หลัง 00:00 '
+  'มี order_date = live_date+1 จึงไม่ถูกนับใน day_* ของคืนนั้น (ไลฟ์ปกติ 20–23 น. ไม่กระทบ)';
 
 grant select on analytics.v_live_night to authenticated, service_role;
 
@@ -316,7 +319,7 @@ begin
   -- same as every other RPC test in this repo's verify scripts.
   perform set_config('request.jwt.claims', '{"role":"service_role"}', true);
 
-  select id into v_shop_id from public.shop limit 1;
+  v_shop_id := 'a7c850ee-6776-4c3e-ba72-ba9e8caba2b7'::uuid;  -- shop 3J (code-review: ห้าม limit 1 ไม่มี order by)
   if v_shop_id is null then
     raise exception '0121 dry-run: ไม่มี public.shop ให้ทดสอบ — ตรวจ seed ก่อน';
   end if;
