@@ -19,6 +19,7 @@ import type { ActionResult } from "@/lib/types";
 import { fetchAllRows } from "@/lib/supabase/query-limits";
 import { BUCKET as PRODUCT_IMAGES_BUCKET } from "@/lib/catalog/image-constants";
 import { signImagePaths } from "@/lib/catalog/image-signing";
+import { silverSpotValidationError } from "@/lib/catalog/types";
 import type {
   BlendedMarginSuggestion,
   CostType,
@@ -541,7 +542,11 @@ export async function upsertShopSetting(input: UpsertShopSettingInput): Promise<
   const margin = toNum(input.blendedMarginPct);
   const adShare = toNum(input.targetAdGpShare);
 
-  if (spot != null && spot < 0) return { ok: false, error: "ราคาเงินสปอตต้องเป็นค่าตั้งแต่ 0 ขึ้นไป" };
+  // ด่านจริงอยู่ที่ RPC shop_setting_upsert (0125) — เช็คนี้ (shared กับ
+  // SettingsForm.tsx ฝั่ง client) แค่ให้ error message ไวตั้งแต่ action ไม่ต้อง
+  // รอ round-trip DB.
+  const spotError = silverSpotValidationError(spot);
+  if (spotError) return { ok: false, error: spotError };
   if (margin != null && (margin <= 0 || margin >= 1)) {
     return { ok: false, error: "มาร์จิ้นเฉลี่ยต้องอยู่ระหว่าง 0–100% (ไม่รวมขอบ)" };
   }

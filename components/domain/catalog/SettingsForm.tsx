@@ -9,6 +9,7 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { upsertShopSetting } from "@/lib/actions/catalog";
+import { silverSpotValidationError } from "@/lib/catalog/types";
 import type { BlendedMarginSuggestion, ShopSettingData } from "@/lib/catalog/types";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
@@ -57,9 +58,8 @@ export function SettingsForm({
     if (!Number.isFinite(m) || m <= 0 || m >= 1) return setError("มาร์จิ้นเฉลี่ยต้องอยู่ระหว่าง 0–100% (ไม่รวมขอบ)");
     if (!Number.isFinite(s) || s <= 0 || s > 1) return setError("สัดส่วนแอด/กำไรต้องอยู่ระหว่าง 0–100%");
     const spotNum = spot.trim() ? Number(spot) : null;
-    if (spotNum != null && (!Number.isFinite(spotNum) || spotNum < 0)) {
-      return setError("ราคาเงินสปอตต้องเป็นค่าตั้งแต่ 0 ขึ้นไป");
-    }
+    const spotError = silverSpotValidationError(spotNum);
+    if (spotError) return setError(spotError);
 
     startTransition(async () => {
       const result = await upsertShopSetting({
@@ -86,26 +86,38 @@ export function SettingsForm({
       <section className="rounded-lg border border-zinc-200 bg-white p-3.5 shadow-sm">
         <h2 className="text-sm font-bold text-zinc-800">ราคาเงินสปอต</h2>
         <p className="mt-0.5 text-xs text-zinc-500">
-          ใช้คำนวณต้นทุน SKU แบบอิงราคาเงิน (เงินแท่ง) = น้ำหนัก × ราคานี้ × ความบริสุทธิ์ + ค่ากำเหน็จ
+          ใช้คำนวณต้นทุน SKU แบบอิงราคาเงิน (น้ำหนัก × ราคาเงินวันนี้ × ความบริสุทธิ์ + ค่ากำเหน็จ) — ใช้ได้ทั้งเงินแท่งและเครื่องเงิน 925
         </p>
+        {setting.silverSpotUpdatedAt ? (
+          <p className="mt-2 text-xs font-medium text-primary-700">
+            อัปเดตอัตโนมัติจากชีต ล่าสุด{" "}
+            {new Date(setting.silverSpotUpdatedAt).toLocaleString("th-TH", { dateStyle: "medium", timeStyle: "short" })}
+            {setting.silverSpotThbPerGram != null && (
+              <> · ฿{setting.silverSpotThbPerGram.toFixed(2)}/ก.</>
+            )}
+          </p>
+        ) : (
+          <p className="mt-2 text-xs text-amber-600">ยังไม่เคยมีการ sync จากชีต — กรอกมือด้านล่างไปพลางก่อนได้</p>
+        )}
         <label className={`${labelCls} mt-3 max-w-[16rem]`}>
-          ราคาเงิน (บาท/กรัม)
+          ราคาเงิน (บาท/กรัม) — กรอกมือเฉพาะกรณีฉุกเฉิน
           <input
             type="number"
             inputMode="decimal"
-            min={0}
+            min={5}
+            max={500}
             step="0.0001"
             value={spot}
             onChange={(e) => setSpot(e.target.value)}
-            placeholder="เช่น 28.50"
+            placeholder="เช่น 67.70"
             className={inputCls}
           />
         </label>
-        {setting.silverSpotUpdatedAt && (
-          <p className="mt-1.5 text-xs text-zinc-400">
-            อัปเดตล่าสุด {new Date(setting.silverSpotUpdatedAt).toLocaleString("th-TH", { dateStyle: "medium", timeStyle: "short" })}
-          </p>
-        )}
+        <p className="mt-1.5 text-xs text-amber-600">
+          ⚠️ ต่อ<strong>กรัม</strong> ไม่ใช่ต่อบาท (1 บาท = 15.244 กรัม, ช่วงที่รับ 5–500 บาท/กรัม) — กรอกราคาต่อบาทตรงนี้ทำให้ต้นทุน
+          SKU โหมด &ldquo;อิงราคาเงิน&rdquo; เกินจริง ~15 เท่า ค่าที่กรอกจะเขียนทับใบเสนอราคา OEM ของวันนี้ด้วย
+          และชนะราคาจากชีตจนกว่าจะถึงวันถัดไป
+        </p>
       </section>
 
       {/* blended margin */}
