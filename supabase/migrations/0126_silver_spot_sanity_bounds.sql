@@ -10,6 +10,14 @@
 --       กรอกมือ ไม่ต้องรอ capture รอบถัดไป
 --   M1  trigger (ฝั่งชีต) ทับราคาที่กรอกมือ (manual, จาก H2(ก)) ของวันเดียวกัน
 --       ได้เงียบๆ — capture รอบถัดไปในวันนั้นจะเขียนทับค่าที่เจ้าของเพิ่งแก้มือ
+--       [แก้เพิ่มหลัง dry-run 17 ก.ย. 69: ดีไซน์แรกกัน "ทับเงียบๆ" ไว้แค่ที่
+--       oem_metal_price (WHERE บน DO UPDATE) — dry-run เคส B พบว่า shop_setting
+--       ไม่มีคอลัมน์ source เลยโดน sheet ทับต่อไปตามปกติ (manual 70 -> sheet
+--       capture วันเดียวกัน -> shop_setting กลายเป็น 65.5996 ทั้งที่
+--       oem_metal_price ยังเป็น 70) เปิดช่องที่ H2(ก) ตั้งใจปิดกลับมาทันที —
+--       Tech Lead ตัดสิน: กติกาต้องเป็น "manual ชนะทั้งวัน ทั้ง 2 ตาราง" ไม่ใช่
+--       แค่ oem_metal_price — แก้ด้วยการเช็คก่อนเขียนอะไรทั้งสิ้นว่าวันนี้มี
+--       manual entry อยู่แล้วไหม ถ้ามีไม่แตะทั้งสองตารางเลย]
 --   M2  floor ของ validator ทุกชั้น (types.ts / catalog.ts / RPC เดิม) อนุญาต 0
 --       — ราคาเงินสปอตจริงไม่มีทางเป็น 0 ได้ (สินค้ามีมูลค่าเสมอ)
 --
@@ -25,8 +33,8 @@
 -- เวอร์ชันปัดสำหรับ "แสดงผล" ให้ลูกค้าดูเท่านั้น ไม่ใช่ค่าที่ใช้คำนวณ).
 --
 -- ============================================================================
--- 1. Trigger — เพิ่ม sanity bound (H1) + เขียน oem_metal_price แบบ "manual
---    ชนะทั้งวัน" (M1) + shop_setting.updated_at ตามด้วย (M1).
+-- 1. Trigger — เพิ่ม sanity bound (H1) + "manual ชนะทั้งวัน ทั้ง 2 ตาราง" (M1,
+--    ตัดสินหลัง dry-run 17 ก.ย. 69) + shop_setting.updated_at ตามด้วย (M1).
 -- ============================================================================
 
 create or replace function analytics.silver_spot_sync_from_history()
@@ -37,8 +45,31 @@ create or replace function analytics.silver_spot_sync_from_history()
 as $$
 declare
   v_per_gram numeric;
+  v_as_of_date date;
+  v_manual_exists boolean;
 begin
   if new.silver_value_per_baht is null then
+    return new;
+  end if;
+
+  v_as_of_date := (new.captured_at at time zone 'Asia/Bangkok')::date;
+
+  -- M1: "manual ชนะทั้งวัน ทั้ง 2 ตาราง" — ถ้าเจ้าของกรอกมือให้วันนี้แล้ว
+  -- (ผ่าน shop_setting_upsert, H2(ก) ข้างล่าง, เขียน oem_metal_price
+  -- source='manual') ห้าม capture จากชีตรอบถัดไปในวันเดียวกันแตะทั้ง
+  -- shop_setting และ oem_metal_price เลย เช็คตรงนี้ก่อนเขียนอะไรทั้งสิ้น —
+  -- ตั้งใจไม่มีทางออกอัตโนมัติให้ชีต "กลับมาชนะ" ในวันเดียวกัน (เจ้าของกรอก
+  -- ผิดตอนเช้าแล้วอยากให้ชีตทับตอนบ่าย -> ให้กรอกมือแก้ใหม่ ไม่ต้องรอชีต —
+  -- Tech Lead ยืนยัน 17 ก.ย. 69) ข้ามวันแล้ว as_of_date เปลี่ยน เงื่อนไขนี้
+  -- เป็น false เองโดยธรรมชาติ ไม่ต้องมี cron ไปเคลียร์อะไร.
+  select exists (
+    select 1 from analytics.oem_metal_price
+    where shop_id = new.shop_id and metal = 'silver' and as_of_date = v_as_of_date and source = 'manual'
+  ) into v_manual_exists;
+
+  if v_manual_exists then
+    raise notice 'silver_spot_sync_from_history: shop_id=% มี manual entry ของวัน % อยู่แล้ว — ข้าม sync ทั้ง shop_setting และ oem_metal_price (manual ชนะทั้งวัน)',
+      new.shop_id, v_as_of_date;
     return new;
   end if;
 
@@ -65,30 +96,27 @@ begin
     set silver_spot_thb_per_gram = v_per_gram,
         silver_spot_updated_at   = new.captured_at,
         updated_at               = now()          -- M1: touch the row-level timestamp too
-    -- กัน capture เก่ากว่ามาถึงทีหลัง (retry/backfill/manual insert ย้อนหลัง)
-    -- ทับราคาสดล่าสุดด้วยราคาเก่ากว่า (ไม่ใช่เรื่อง manual/sheet — เรื่อง
-    -- ลำดับเวลาของ capture เอง — shop_setting ไม่มีคอลัมน์ source แยกแบบ
-    -- oem_metal_price จึงกันได้แค่ระดับนี้).
+    -- กัน capture เก่ากว่ามาถึงทีหลัง (retry/backfill ย้อนหลัง) ทับราคาสด
+    -- ล่าสุดด้วยราคาเก่ากว่า — เรื่องลำดับเวลาของ capture เอง ไม่เกี่ยวกับ
+    -- manual/sheet (การกัน manual ทำไปแล้วข้างบนก่อนถึงบรรทัดนี้).
     where ss.silver_spot_updated_at is null or new.captured_at >= ss.silver_spot_updated_at;
 
-  -- oem_metal_price: M1 — "manual ชนะทั้งวัน" ถ้าเจ้าของเพิ่งกรอกมือให้วันนี้
-  -- ผ่าน shop_setting_upsert (H2(ก) ข้างล่าง, source='manual') ห้าม capture
-  -- จากชีตรอบถัดไปในวันเดียวกันทับเงียบๆ — WHERE กันไว้ที่ DO UPDATE (แถวแรก
-  -- ของวันที่ยังไม่มี conflict ยัง insert ได้ปกติ, WHERE มีผลเฉพาะตอนชนกัน).
-  -- updated_by ถูกล้างกลับเป็น null ตอน sheet เขียนทับ (เจ้าของไม่ได้เป็นคน
-  -- ยืนยันราคาที่มาจากชีตอัตโนมัติ).
   insert into analytics.oem_metal_price as omp (
     shop_id, metal, as_of_date, price_thb_per_gram, source, updated_by, updated_at
   )
   values (
-    new.shop_id, 'silver', (new.captured_at at time zone 'Asia/Bangkok')::date,
+    new.shop_id, 'silver', v_as_of_date,
     v_per_gram, 'sheet', null, now()
   )
   on conflict (shop_id, metal, as_of_date) do update
     set price_thb_per_gram = v_per_gram,
         source             = 'sheet',
-        updated_by         = null,
+        updated_by         = null,  -- เจ้าของไม่ได้เป็นคนยืนยันราคาจากชีต
         updated_at         = now()
+    -- belt-and-braces: ด่านหลักคือ v_manual_exists ข้างบนแล้ว (กันไปตั้งแต่
+    -- ก่อน insert ก้อนนี้) WHERE นี้เผื่อ race หายาก (สอง capture/manual
+    -- เขียนพร้อมกันข้าม transaction ระหว่างที่ select exists ข้างบนอ่านไป
+    -- แล้วแต่ยังไม่ถึงบรรทัดนี้) ไม่มีต้นทุนเพิ่มที่ต้องเสีย จึงเก็บไว้.
     where omp.source <> 'manual';
 
   return new;
@@ -199,6 +227,11 @@ notify pgrst, 'reload schema';
 -- ก่อน-หลังไม่ขยับ). หมายเหตุ: insert silver_price_history ต้องใส่
 -- sheet_row_hash (not null, unique ต่อ shop) ตัวอย่าง (แทน <SHOP_ID>):
 --
+-- ลำดับเคสตั้งใจ C -> A -> B (ไม่ใช่ C -> B -> A): A ต้องรันตอนที่ยังไม่มี
+-- manual entry ของวันนี้เลย ไม่งั้น manual-guard (M1) จะกันไปก่อนถึง H1 bound
+-- check จริง แล้วเคส A จะ "ผ่าน" ด้วยเหตุผลผิด (ดักที่ manual-guard ไม่ใช่
+-- H1) — เรียง B ไว้ท้ายสุดเพราะมันสร้าง manual entry ค้างไว้.
+--
 -- do $$
 -- declare
 --   v_log text := E'\n=== ผลทดสอบ 0126 ===\n';
@@ -206,6 +239,8 @@ notify pgrst, 'reload schema';
 --   v_today date := (now() at time zone 'Asia/Bangkok')::date;
 --   v_oem numeric;
 --   v_ss numeric;
+--   v_ss_before numeric;
+--   v_oem_before numeric;
 -- begin
 --   perform set_config('request.jwt.claims', '{"role":"service_role"}', true);
 --
@@ -217,31 +252,38 @@ notify pgrst, 'reload schema';
 --     v_log := v_log || 'C spot=0: OK ปฏิเสธ\n';
 --   end;
 --
---   -- (ข) manual 70 แล้ว sheet capture เข้าวันเดียวกัน -> oem_metal_price
---   -- ต้องคง 70 (M1 "manual ชนะทั้งวัน") ส่วน shop_setting จะเปลี่ยนตามชีต
---   -- (พฤติกรรมเดิม ไม่ใช่สิ่งที่เคสนี้ทดสอบ)
---   perform analytics.shop_setting_upsert(v_shop_id, 70, null, null);
---   insert into analytics.silver_price_history (shop_id, sheet_row_hash, silver_value_per_baht, captured_at)
---   values (v_shop_id, 'dry-run-0126-b-' || gen_random_uuid()::text, 1000, now()); -- -> 65.5876/ก. ถ้า sync ได้
---   select price_thb_per_gram into v_oem from analytics.oem_metal_price
---     where shop_id = v_shop_id and metal = 'silver' and as_of_date = v_today;
---   if v_oem = 70 then
---     v_log := v_log || 'B manual ชนะ: OK (ยังเป็น 70)\n';
---   else
---     v_log := v_log || format('B manual ชนะ: FAIL (ได้ %s)\n', v_oem);
---   end if;
---
 --   -- (ก) silver_value_per_baht = 152,440 -> ~10,000/ก. นอกช่วง 5-500 ต้อง
---   -- ไม่ sync เลย (ทั้ง shop_setting และ oem_metal_price ต้องไม่ขยับจากค่า
---   -- ก่อนหน้า — เทียบกับ v_oem/v_ss ที่จับไว้ก่อนบรรทัดนี้)
---   select silver_spot_thb_per_gram into v_ss from analytics.shop_setting where shop_id = v_shop_id;
+--   -- ไม่ sync เลย (รันก่อนเคส B ตั้งใจ — ตอนนี้ยังไม่มี manual entry ของ
+--   -- วันนี้ ดังนั้นถ้า state ไม่ขยับ แปลว่า H1 bound check เป็นคนกันจริง
+--   -- ไม่ใช่ manual-guard บังเอิญกันแทน) ทั้ง shop_setting และ oem_metal_price
+--   -- ต้องไม่ขยับจากค่าก่อนหน้า.
+--   select silver_spot_thb_per_gram into v_ss_before from analytics.shop_setting where shop_id = v_shop_id;
+--   select price_thb_per_gram into v_oem_before from analytics.oem_metal_price
+--     where shop_id = v_shop_id and metal = 'silver' and as_of_date = v_today;
 --   insert into analytics.silver_price_history (shop_id, sheet_row_hash, silver_value_per_baht, captured_at)
 --   values (v_shop_id, 'dry-run-0126-a-' || gen_random_uuid()::text, 152440, now());
---   perform 1 from analytics.shop_setting where shop_id = v_shop_id and silver_spot_thb_per_gram = v_ss;
---   if found then
---     v_log := v_log || 'A นอกช่วง 5-500: OK (shop_setting ไม่ขยับ, ดู server log หา WARNING คู่กัน)\n';
+--   select silver_spot_thb_per_gram into v_ss from analytics.shop_setting where shop_id = v_shop_id;
+--   select price_thb_per_gram into v_oem from analytics.oem_metal_price
+--     where shop_id = v_shop_id and metal = 'silver' and as_of_date = v_today;
+--   if v_ss is not distinct from v_ss_before and v_oem is not distinct from v_oem_before then
+--     v_log := v_log || 'A นอกช่วง 5-500: OK (shop_setting/oem_metal_price ไม่ขยับ, ดู server log หา WARNING คู่กัน)\n';
 --   else
---     v_log := v_log || 'A นอกช่วง 5-500: FAIL (shop_setting ขยับทั้งที่ไม่ควร sync)\n';
+--     v_log := v_log || format('A นอกช่วง 5-500: FAIL (shop_setting %s->%s, oem_metal_price %s->%s)\n', v_ss_before, v_ss, v_oem_before, v_oem);
+--   end if;
+--
+--   -- (ข) manual 70 แล้ว sheet capture เข้าวันเดียวกัน -> "manual ชนะทั้งวัน
+--   -- ทั้ง 2 ตาราง" (M1 หลัง dry-run 17 ก.ย. 69) ทั้ง oem_metal_price และ
+--   -- shop_setting ต้องคง 70 (ไม่ใช่แค่ oem_metal_price เหมือนดีไซน์แรก)
+--   perform analytics.shop_setting_upsert(v_shop_id, 70, null, null);
+--   insert into analytics.silver_price_history (shop_id, sheet_row_hash, silver_value_per_baht, captured_at)
+--   values (v_shop_id, 'dry-run-0126-b-' || gen_random_uuid()::text, 1000, now()); -- -> 65.5996/ก. ถ้า sync ได้ (ไม่ควร sync)
+--   select price_thb_per_gram into v_oem from analytics.oem_metal_price
+--     where shop_id = v_shop_id and metal = 'silver' and as_of_date = v_today;
+--   select silver_spot_thb_per_gram into v_ss from analytics.shop_setting where shop_id = v_shop_id;
+--   if v_oem = 70 and v_ss = 70 then
+--     v_log := v_log || 'B manual ชนะทั้ง 2 ตาราง: OK (oem_metal_price=70, shop_setting=70)\n';
+--   else
+--     v_log := v_log || format('B manual ชนะทั้ง 2 ตาราง: FAIL (oem_metal_price=%s, shop_setting=%s)\n', v_oem, v_ss);
 --   end if;
 --
 --   raise exception '%', v_log; -- บังคับ rollback ทั้งก้อน — DB ไม่ขยับจริง

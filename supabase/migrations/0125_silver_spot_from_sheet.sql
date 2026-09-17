@@ -1,4 +1,6 @@
 -- 0125_silver_spot_from_sheet.sql
+-- ✅ APPLIED 17 ก.ย. 69 via MCP (version 20260917071155) — security review
+-- found H1/H2(ก)/M1/M2 gaps after apply, closed in 0126 (NOT applied yet).
 -- Fixes analytics.shop_setting.silver_spot_thb_per_gram = 1,097 (hand-keyed
 -- 26 ส.ค. 69) — that value is the sheet's PER-BAHT price (1 บาท = 15.244 ก.),
 -- not per-gram, so v_dim_product's spot-mode cost calc (0028: weight_g ×
