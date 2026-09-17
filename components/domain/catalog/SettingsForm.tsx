@@ -6,10 +6,10 @@
 // gross-profit). Shows the resulting break-even / target ROAS live so the
 // owner sees the effect of the numbers they type before saving.
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { upsertShopSetting } from "@/lib/actions/catalog";
-import { silverSpotValidationError } from "@/lib/catalog/types";
+import { silverSpotValidationError, spotChanged } from "@/lib/catalog/types";
 import type { BlendedMarginSuggestion, ShopSettingData } from "@/lib/catalog/types";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
@@ -29,7 +29,26 @@ export function SettingsForm({
   const router = useRouter();
   const toast = useToast();
 
-  const [spot, setSpot] = useState(setting.silverSpotThbPerGram != null ? String(setting.silverSpotThbPerGram) : "");
+  // B1 fix (0127 code review): keep the value this form was PREFILLED with
+  // separately from what the owner types, so submit can tell "resubmitted
+  // unchanged" apart from "actually edited" — see spotChanged() below.
+  const initialSpot = setting.silverSpotThbPerGram;
+  const [spot, setSpot] = useState(initialSpot != null ? String(initialSpot) : "");
+
+  // code-reviewer round 2: useState above only seeds `spot` on MOUNT — if
+  // this page stays open in a tab while the sheet auto-syncs a new price in
+  // the background (or another tab/action calls router.refresh() and this
+  // Server Component re-fetches `setting`), the local `spot` state never
+  // picks up the new value on its own. Without this, a stale tab could
+  // resubmit an old spot value that NOW differs from the DB's current one —
+  // spotChanged() would see it as a real edit and write a manual entry the
+  // owner never intended. Same pattern as MetalPriceSection.tsx's `current`
+  // resync effect.
+  useEffect(() => {
+    setSpot(setting.silverSpotThbPerGram != null ? String(setting.silverSpotThbPerGram) : "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [setting.silverSpotThbPerGram, setting.silverSpotUpdatedAt]);
+
   // margin/adShare edited as whole-number percents for a friendlier UX.
   const [marginPct, setMarginPct] = useState(String(roundTo(setting.blendedMarginPct * 100, 2)));
   const [adSharePct, setAdSharePct] = useState(String(roundTo(setting.targetAdGpShare * 100, 2)));
@@ -62,8 +81,15 @@ export function SettingsForm({
     if (spotError) return setError(spotError);
 
     startTransition(async () => {
+      // B1 fix: only send the spot value when it actually changed from what
+      // the form was prefilled with — sending it unconditionally (the old
+      // behavior) re-submits the current value on every save, which made
+      // shop_setting_upsert (0126) treat a margin-only edit as a manual spot
+      // entry and silently lock the day's sheet sync out of both tables. The
+      // RPC (0127) re-checks this itself server-side too — this is just the
+      // common case not round-tripping a no-op write.
       const result = await upsertShopSetting({
-        silverSpotThbPerGram: spotNum,
+        silverSpotThbPerGram: spotChanged(spotNum, initialSpot) ? spotNum : null,
         blendedMarginPct: m,
         targetAdGpShare: s,
       });
@@ -90,7 +116,11 @@ export function SettingsForm({
         </p>
         {setting.silverSpotUpdatedAt ? (
           <p className="mt-2 text-xs font-medium text-primary-700">
-            อัปเดตอัตโนมัติจากชีต ล่าสุด{" "}
+            {/* S3 fix (0127 code review): was "อัปเดตอัตโนมัติจากชีต" — but a
+                manual entry ALSO stamps this timestamp (0127's
+                shop_setting_upsert), so that label lied right after a manual
+                save. "ราคาล่าสุด" is true regardless of source. */}
+            ราคาล่าสุด{" "}
             {new Date(setting.silverSpotUpdatedAt).toLocaleString("th-TH", { dateStyle: "medium", timeStyle: "short" })}
             {setting.silverSpotThbPerGram != null && (
               <> · ฿{setting.silverSpotThbPerGram.toFixed(2)}/ก.</>
@@ -99,6 +129,13 @@ export function SettingsForm({
         ) : (
           <p className="mt-2 text-xs text-amber-600">ยังไม่เคยมีการ sync จากชีต — กรอกมือด้านล่างไปพลางก่อนได้</p>
         )}
+        <p className="mt-1 text-xs text-zinc-500">
+          ค่านี้ sync จากชีตราคาร้านอัตโนมัติ (÷15.244) — กรอกเองเฉพาะเมื่อชีตล่ม แล้วชีตจะไม่ทับค่าที่กรอกในวันนั้น
+          {" "}ถ้าต้องการล็อกราคาไว้ที่ค่าปัจจุบันโดยไม่แก้เลข ให้กรอกที่หน้า{" "}
+          <a href="/oem/rates" className="underline hover:text-zinc-700">
+            /oem/rates
+          </a>
+        </p>
         <label className={`${labelCls} mt-3 max-w-[16rem]`}>
           ราคาเงิน (บาท/กรัม) — กรอกมือเฉพาะกรณีฉุกเฉิน
           <input
