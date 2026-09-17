@@ -102,18 +102,20 @@ async function requireOwnerAdmin(): Promise<ActionResult<never> | null> {
   return null;
 }
 
-// C-2 (security review 12 ก.ย. 69, updated 0117 14 ก.ย. 69): production is
-// intentionally open to the public (accepted risk, see memory/prod-
-// exposure-accepted-risk — a Vercel Hobby plan can't gate the deployment
-// itself) and requireOwnerAdmin() above reads an env var (getDevRole()),
-// NOT a real auth session — there is no per-user login yet (pending Auth
-// A2). analytics.crm_require_owner_admin() inside the RPCs is also
-// effectively a no-op under service_role, which is what getServiceClient()
-// always uses here — so requireOwnerAdmin() above is still the only thing
-// standing between "staff" (env-configured, not a real role) and every
-// action in this file, read or write. getMissingOrders/getDeletedOrders
-// (read-only) accept that exposure — same as every other read action in
-// this app, accepted separately.
+// C-2 (security review 12 ก.ย. 69 · 0117 14 ก.ย. 69 · **แก้ 17 ก.ย. 69**):
+// ย่อหน้านี้เคยเขียนว่า production เปิดสาธารณะและ requireOwnerAdmin() อ่าน
+// env var (getDevRole()) ไม่ใช่ session จริง — **ทั้งสองข้อไม่จริงแล้ว** และ
+// การปล่อยไว้อันตรายกว่าไม่เขียน เพราะทำให้คนอ่านรอบหน้าประเมินความเสี่ยงต่ำ
+// หรือสูงเกินจริง:
+//   • A2-lite (16 ก.ย.) ใส่ด่าน login จริง และ 17 ก.ย. เปิด AUTH_GATE=on บน
+//     production ⇒ ไม่ได้เปิดสาธารณะอีกแล้ว (ดู memory/prod-exposure-accepted-risk
+//     ที่ปิดประเด็นนี้ไปแล้ว)
+//   • requireOwnerAdmin() ข้างบนเรียก getEffectiveRole() ซึ่งอ่าน
+//     shop_member.role จาก session จริง · DEV_ROLE ไม่มีอำนาจเมื่อ gate เปิด
+// สิ่งที่ยัง **ไม่** เปลี่ยน: analytics.crm_require_owner_admin() ใน RPC ยัง
+// short-circuit ให้ service_role ซึ่งเป็น client ที่ไฟล์นี้ใช้เสมอ ⇒
+// requireOwnerAdmin() ฝั่ง TS ยังเป็นด่านเดียวที่กั้นจริงอยู่ดี และ
+// getMissingOrders/getDeletedOrders (อ่านอย่างเดียว) ยังกั้นด้วยด่านเดียวกัน
 //
 // deleteMissingOrders/restoreDeletedOrders (the two actions that actually
 // delete/restore revenue rows) used to ALSO gate on a second, TypeScript-
