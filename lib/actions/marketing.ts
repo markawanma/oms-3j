@@ -42,6 +42,7 @@ import type { ArtifactStatus, CampaignBoardStep } from "@/lib/marketing/campaign
 import { ARTIFACT_STATUSES } from "@/lib/marketing/campaign-types";
 import { CAMPAIGN_BOARD_SELECT, mapCampaignBoardRow } from "@/lib/marketing/campaign-board-mapper";
 import { fetchAllRows } from "@/lib/supabase/query-limits";
+import { readErrorCode, readErrorMessage } from "@/lib/supabase/postgrest-error";
 
 const SCHEMA = "analytics";
 
@@ -775,12 +776,19 @@ export async function setCampaignArtifactStatus(
     // rule 1 (silver_bar + discount) is raised with SQLSTATE 22023 — match the
     // code first (stable), fall back to the message text only if the code
     // didn't propagate, so re-wording the SQL exception can't break this.
-    const code = (err as { code?: string })?.code;
-    const msg =
-      code === "22023" || (err instanceof Error && err.message.includes("silver_bar"))
-        ? "สินค้าเงินแท่งห้ามมีส่วนลด (กันเก็งกำไรราคา)"
-        : "อัปเดตสถานะไม่สำเร็จ ลองใหม่อีกครั้ง";
-    return { ok: false, error: msg };
+    // Message fallback requires BOTH "silver_bar" and "discount_pct" (the
+    // exact wording in 0049:455 / 0057:575) — "silver_bar" alone is also a
+    // valid audience_segment/step-kind value that can legitimately appear in
+    // an unrelated error (constraint/column/RLS), which would otherwise show
+    // this rule's message for a completely different failure.
+    const code = readErrorCode(err);
+    const msg = readErrorMessage(err);
+    const isSilverBarDiscountError =
+      code === "22023" || (msg.includes("silver_bar") && msg.includes("discount_pct"));
+    const errorMsg = isSilverBarDiscountError
+      ? "สินค้าเงินแท่งห้ามมีส่วนลด (กันเก็งกำไรราคา)"
+      : "อัปเดตสถานะไม่สำเร็จ ลองใหม่อีกครั้ง";
+    return { ok: false, error: errorMsg };
   }
 }
 

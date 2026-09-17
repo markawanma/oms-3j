@@ -21,6 +21,7 @@ import type { ActionResult } from "@/lib/types";
 import type { CampaignBoardStep } from "@/lib/marketing/campaign-types";
 import { CAMPAIGN_BOARD_SELECT, mapCampaignBoardRow } from "@/lib/marketing/campaign-board-mapper";
 import { isValidClipBrief, type ClipBrief } from "@/lib/marketing/clip-brief";
+import { mapCalendarRpcError } from "@/lib/marketing/calendar-errors";
 
 const SCHEMA = "analytics";
 
@@ -46,28 +47,6 @@ async function requireOwnerAdmin(): Promise<ActionResult<never> | null> {
     return { ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่ใช้งานส่วนการตลาดได้" };
   }
   return null;
-}
-
-/** Maps a Postgres error to a Thai message, preferring the stable SQLSTATE
- * over message text (RPC wording can change without notice — 22023 can't). */
-function friendlyError(err: unknown, fallback: string): string {
-  const code = (err as { code?: string })?.code;
-  if (code === "22023") {
-    const msg = err instanceof Error ? err.message : "";
-    // Match the stable half of the sentence: 0058 reworded "tasks" -> "steps"
-    // when delete became a per-step decision, and an exact-phrase match here
-    // silently fell through to the generic error.
-    if (msg.includes("can be deleted")) {
-      return "ลบไม่ได้ — งานนี้มาจากแผนสำเร็จรูป (template) ลบได้เฉพาะงานที่เพิ่มเอง";
-    }
-    if (msg.includes("was edited by a human")) {
-      return "แก้ไม่ได้ — มีคนแก้เนื้อหานี้ไปแล้ว AI จะไม่เขียนทับ";
-    }
-    if (msg.includes("clip_brief")) {
-      return "รูปแบบ clip brief ไม่ถูกต้อง";
-    }
-  }
-  return fallback;
 }
 
 // ============================================================================
@@ -216,7 +195,7 @@ export async function createTaskFromReco(input: CreateTaskFromRecoInput): Promis
     return { ok: true, data: data as string };
   } catch (err) {
     console.error("createTaskFromReco failed", err);
-    return { ok: false, error: friendlyError(err, "สร้างแผนจากแม่แบบไม่สำเร็จ ลองใหม่อีกครั้ง") };
+    return { ok: false, error: mapCalendarRpcError(err, "สร้างแผนจากแม่แบบไม่สำเร็จ ลองใหม่อีกครั้ง") };
   }
 }
 
@@ -266,7 +245,7 @@ export async function createManualTask(input: CreateManualTaskInput): Promise<Ac
     return { ok: true, data: data as string };
   } catch (err) {
     console.error("createManualTask failed", err);
-    return { ok: false, error: friendlyError(err, "เพิ่มงานไม่สำเร็จ ลองใหม่อีกครั้ง") };
+    return { ok: false, error: mapCalendarRpcError(err, "เพิ่มงานไม่สำเร็จ ลองใหม่อีกครั้ง") };
   }
 }
 
@@ -316,7 +295,7 @@ export async function rescheduleTask(
     return { ok: true, data: undefined };
   } catch (err) {
     console.error("rescheduleTask failed", err);
-    return { ok: false, error: friendlyError(err, "เลื่อนวันไม่สำเร็จ ลองใหม่อีกครั้ง") };
+    return { ok: false, error: mapCalendarRpcError(err, "เลื่อนวันไม่สำเร็จ ลองใหม่อีกครั้ง") };
   }
 }
 
@@ -352,7 +331,7 @@ export async function setArtifactContent(
     return { ok: true, data: undefined };
   } catch (err) {
     console.error("setArtifactContent failed", err);
-    return { ok: false, error: friendlyError(err, "บันทึกเนื้อหาไม่สำเร็จ ลองใหม่อีกครั้ง") };
+    return { ok: false, error: mapCalendarRpcError(err, "บันทึกเนื้อหาไม่สำเร็จ ลองใหม่อีกครั้ง") };
   }
 }
 
@@ -378,13 +357,13 @@ export async function toggleClipShot(artifactId: string, shotId: string, done: b
     return { ok: true, data: undefined };
   } catch (err) {
     console.error("toggleClipShot failed", err);
-    return { ok: false, error: friendlyError(err, "ติ๊กช็อตไม่สำเร็จ ลองใหม่อีกครั้ง") };
+    return { ok: false, error: mapCalendarRpcError(err, "ติ๊กช็อตไม่สำเร็จ ลองใหม่อีกครั้ง") };
   }
 }
 
 /** R8 — delete a mistyped task. Guarded server-side to manual-trigger
  * campaigns only; template-plan steps raise 22023, mapped to a Thai message
- * above. */
+ * by lib/marketing/calendar-errors.ts. */
 export async function deleteTask(stepId: string): Promise<ActionResult> {
   const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
@@ -402,6 +381,6 @@ export async function deleteTask(stepId: string): Promise<ActionResult> {
     return { ok: true, data: undefined };
   } catch (err) {
     console.error("deleteTask failed", err);
-    return { ok: false, error: friendlyError(err, "ลบงานไม่สำเร็จ ลองใหม่อีกครั้ง") };
+    return { ok: false, error: mapCalendarRpcError(err, "ลบงานไม่สำเร็จ ลองใหม่อีกครั้ง") };
   }
 }
