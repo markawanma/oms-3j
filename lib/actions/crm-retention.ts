@@ -23,12 +23,14 @@
 // handed money to anyone if DEV_ROLE were ever set. It is await-ed, so the
 // role must be resolved BEFORE the two RPCs are issued.
 //
-// Does NOT touch lib/actions/crm.ts or any dashboard component — both are
-// being edited concurrently by other work per this task's brief.
+// ไฟล์นี้ไม่แตะ lib/actions/crm.ts และ dashboard component ใดๆ เลย —
+// เดิมเพราะงานคู่ขนานตอน 14 ก.ย. ตอนนี้งานนั้นจบแล้ว แต่ขอบเขตนี้ยังถือต่อ
+// เพราะ retention เป็น read layer แยก ไม่มีเหตุต้องแก้ของกลาง
 
 import { getServiceClient } from "@/lib/supabase/server";
 import { getDevShopId } from "@/lib/dev/context";
 import { getEffectiveRole } from "@/lib/auth/role";
+import { RECENCY_BUCKETS } from "@/lib/crm/retention";
 import type { ActionResult } from "@/lib/types";
 import type {
   CrmRetentionData,
@@ -98,13 +100,21 @@ interface CohortRaw {
 }
 
 function mapLadder(raw: LadderRaw): RecencyLadder {
-  const cells: RecencyLadderCell[] = (raw.cells ?? []).map((c) => ({
-    bucket: c.bucket,
-    reachable: Boolean(c.reachable),
-    affinity: c.affinity ?? "unknown",
-    customers: Number(c.customers) || 0,
-    revenue: c.revenue === null || c.revenue === undefined ? null : Number(c.revenue),
-  }));
+  // filter ก่อน map (code-review N1): SQL คืน bucket = null ได้ถ้า
+  // rfm.recency_days เป็น null — วันนี้เกิดยาก (base กรอง order_count > 0) แต่
+  // ถ้าเกิด UI จะไป lookup RECENCY_BUCKET_LABEL_TH[null] ได้ undefined แล้ว
+  // **แถวหายเงียบ** โดยไม่มีใครรู้ว่าข้อมูลขาด — พังแบบเดียวกับที่
+  // lib/crm/segments.ts บันทึกไว้เอง (dashboard เคย render raw key เพราะ
+  // label map ขาด) ตัดทิ้งที่นี่ถูกกว่าไปตามหาทีหลัง
+  const cells: RecencyLadderCell[] = (raw.cells ?? [])
+    .filter((c) => RECENCY_BUCKETS.includes(c.bucket))
+    .map((c) => ({
+      bucket: c.bucket,
+      reachable: Boolean(c.reachable),
+      affinity: c.affinity ?? "unknown",
+      customers: Number(c.customers) || 0,
+      revenue: c.revenue === null || c.revenue === undefined ? null : Number(c.revenue),
+    }));
   return {
     asOf: raw.as_of,
     maxOrderDate: raw.max_order_date,
@@ -156,7 +166,16 @@ export async function getCrmRetention(): Promise<ActionResult<CrmRetentionData>>
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();
-    const includeMoney = (await getEffectiveRole()) !== "staff";
+    // แยกสองด่านออกจากกันตั้งแต่ต้น (security review M2): วันนี้ค่าเท่ากัน
+    // แต่คนละเหตุผล — "เห็นตัวเลขเงิน" กับ "ดึงรายชื่อลูกค้า (PII) ออกไป"
+    // มัดไว้ใน boolean ตัวเดียวแล้ววันที่เจ้าของบอกว่า "แอดมินดูเงินได้ แต่
+    // ห้ามดึงเบอร์" จะแก้ไม่ได้โดยไม่พังอีกฝั่ง
+    // ⚠️ canPullList เดินทางไปฝั่ง client = ผู้ใช้แก้ค่าเองได้ ⇒ ใช้ซ่อนปุ่ม
+    // เท่านั้น **ห้ามเป็นด่าน** — action "ดึงรายชื่อ" ที่จะมาทีหลังต้องเช็ค
+    // role ในตัวมันเองซ้ำเสมอ
+    const role = await getEffectiveRole();
+    const includeMoney = role !== "staff";
+    const canPullList = role !== "staff";
 
     // p_weeks left at the RPC's own default (26) — no UI control for it yet
     // (frontend-dev's page can pass one through later if the owner wants a
@@ -178,7 +197,7 @@ export async function getCrmRetention(): Promise<ActionResult<CrmRetentionData>>
 
     return {
       ok: true,
-      data: { ladder, cohort, canPullList: includeMoney },
+      data: { ladder, cohort, canPullList },
     };
   } catch (err) {
     console.error("getCrmRetention failed", err);

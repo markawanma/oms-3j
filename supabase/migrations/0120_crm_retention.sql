@@ -50,9 +50,13 @@
 -- correctly withhold a rate, baseline = 2,576 new customers / 29.9% repeat
 -- within 30 days (line_oa 31.6% · tiktok 28.6% · facebook 20.0%).
 --
--- ⚠️ DO NOT APPLY — file only, per this task's brief. Tech Lead dry-runs via
--- scripts/verify-0120.sql (self-cleaning do-block, forced rollback) and
--- applies via MCP apply_migration after review.
+-- ลำดับที่ทำจริง (แก้ 17 ก.ย. 69 — เดิมบรรทัดนี้เขียนว่า "DO NOT APPLY"
+-- ซึ่งขัดกับหัวไฟล์บรรทัดบนที่บอกว่า apply แล้ว คนอ่านรอบหน้าจะตอบไม่ได้ว่า
+-- ไฟล์นี้ลง DB หรือยัง = คำถามที่ทีมนี้เคยจ่ายแพงที่สุด ดู 0107-0109):
+--   dry-run ด้วย scripts/verify-0120.sql (do-block + forced rollback)
+--   → apply ผ่าน MCP apply_migration 14 ก.ย. 69
+--   → บันทึกใน supabase_migrations.schema_migrations version 20260914104229
+--     (ยืนยันด้วย list_migrations แล้ว 17 ก.ย. — ไม่ใช่ execute_sql ที่ไม่เขียนประวัติ)
 --
 -- ============================================================================
 -- Part A — analytics.dim_channel.is_contactable
@@ -169,6 +173,18 @@ left join reach rc on rc.customer_id = cm.customer_id;
 -- (0107's own confirmed note), so this line is a no-op in practice today —
 -- kept explicit so this migration is self-sufficient if ever replayed
 -- against a DB state where it isn't.
+--
+-- 🔴 17 ก.ย. 69 (security review): `authenticated` ตรงนี้คือสิ่งที่
+-- 0123_analytics_no_rest_for_users ปิดไปแล้ว (16 ก.ย.) และ v_audience ถือ
+-- PII (display_name) + THB (revenue_sum/bar_revenue/jewelry_revenue)
+-- **ของจริงบน production ไม่รั่ว** — ตรวจ 17 ก.ย. แล้วได้
+-- has_table_privilege('authenticated','analytics.v_audience','select') = false
+-- และ has_schema_privilege('authenticated','analytics','usage') = false
+-- เพราะ 0123 ลงหลังไฟล์นี้ 2 วัน
+-- ความเสี่ยงที่เหลือคือ **replay**: rebuild staging/`db reset` จะรันบรรทัดนี้
+-- อีกครั้ง ⇒ ปิดด้วย 0130_v_audience_revoke_authenticated.sql ที่ต่อท้าย
+-- ลำดับ migration (ไม่แก้บรรทัดนี้ เพราะไฟล์ที่ apply แล้วต้องตรงกับสิ่งที่
+-- รันจริง — ดู skill supabase-migrate "never rewrite applied history")
 grant select on analytics.v_audience to authenticated, service_role;
 
 -- ============================================================================

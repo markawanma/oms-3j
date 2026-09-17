@@ -50,6 +50,13 @@
 --
 -- After this reports all-OK, apply 0120 for real via `apply_migration`, then
 -- run `get_advisors(type: "security")` per the supabase-migrate skill.
+--
+-- ⚠️ 17 ก.ย. 69 — 0120 apply ไปแล้ว 14 ก.ย. (version 20260914104229)
+-- สคริปต์นี้จึงรันได้ **ก่อน apply เท่านั้น** ถ้าหยิบมารันวันนี้เพื่อเช็คสุขภาพ
+-- ด่าน B0 จะ fail โดยออกแบบ เพราะมันคาดว่า analytics.v_audience ยังมี 20
+-- คอลัมน์ (ของจริงมี 22 แล้ว — `reachable` + `recency_bucket` ที่ migration
+-- นี้เพิ่มเอง) **ไม่ใช่บั๊ก อย่าไปแก้ของที่ไม่พัง**
+-- ไฟล์นี้เก็บไว้เป็นหลักฐานการ dry-run ไม่ใช่เครื่องมือ health check
 
 do $$
 declare
