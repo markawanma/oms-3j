@@ -12,7 +12,8 @@
 
 import { revalidatePath } from "next/cache";
 import { getServiceClient } from "@/lib/supabase/server";
-import { getDevShopId, getDevRole } from "@/lib/dev/context";
+import { getDevShopId } from "@/lib/dev/context";
+import { getEffectiveRole } from "@/lib/auth/role";
 import { requireWriteAccess } from "@/lib/auth/action-guard";
 import type { ActionResult } from "@/lib/types";
 import { fetchAllRows } from "@/lib/supabase/query-limits";
@@ -33,8 +34,8 @@ import type {
 
 const SCHEMA = "analytics";
 
-function requireOwnerAdmin(): ActionResult<never> | null {
-  if (getDevRole() === "staff") {
+async function requireOwnerAdmin(): Promise<ActionResult<never> | null> {
+  if ((await getEffectiveRole()) === "staff") {
     return { ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่แก้ไขสินค้า/ต้นทุนได้" };
   }
   return null;

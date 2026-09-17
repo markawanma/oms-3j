@@ -13,7 +13,8 @@
 
 import { revalidatePath } from "next/cache";
 import { getServiceClient } from "@/lib/supabase/server";
-import { getDevShopId, getDevRole } from "@/lib/dev/context";
+import { getDevShopId } from "@/lib/dev/context";
+import { getEffectiveRole } from "@/lib/auth/role";
 import type { ActionResult } from "@/lib/types";
 import {
   ImportParseError,
@@ -37,8 +38,8 @@ const MAX_FILE_MB = 4;
 const DEDUP_CHECK_CHUNK_SIZE = 200;
 const STAGING_UPSERT_CHUNK_SIZE = 200;
 
-function requireOwnerAdmin(): ActionResult<never> | null {
-  if (getDevRole() === "staff") {
+async function requireOwnerAdmin(): Promise<ActionResult<never> | null> {
+  if ((await getEffectiveRole()) === "staff") {
     return { ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่นำเข้ารายงานยอดขายได้" };
   }
   return null;
@@ -126,7 +127,7 @@ export interface ImportPreview {
 }
 
 export async function previewOrderImport(formData: FormData): Promise<ActionResult<ImportPreview>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   const parseResult = await readAndParseFile(formData);
@@ -248,7 +249,7 @@ export interface ImportCommitResult {
 }
 
 export async function commitOrderImport(formData: FormData): Promise<ActionResult<ImportCommitResult>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   const parseResult = await readAndParseFile(formData);
@@ -497,7 +498,7 @@ const BATCH_STATUSES = ["loaded", "merged", "transformed", "failed"] as const;
 const BATCH_SOURCE_TYPES = [SOURCE_TYPE, LINE_ITEM_SOURCE_TYPE] as const;
 
 export async function getImportBatches(): Promise<ActionResult<ImportBatchRow[]>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   try {
@@ -603,7 +604,7 @@ export async function getImportBatches(): Promise<ActionResult<ImportBatchRow[]>
 // ============================================================================
 
 export async function deleteStuckBatch(batchId: string): Promise<ActionResult<null>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   const cleanId = batchId?.trim();

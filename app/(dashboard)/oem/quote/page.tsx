@@ -1,6 +1,6 @@
 import { Lock } from "lucide-react";
 import { getOemSetting } from "@/lib/actions/oem";
-import { getDevRole } from "@/lib/dev/context";
+import { getEffectiveRole } from "@/lib/auth/role";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { QuoteCalculatorClient } from "@/components/domain/oem/QuoteCalculatorClient";
@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
 // /oem/quote — OEM price calculator (T5). Owner/admin only, same reasoning
 // as /oem/rates (cost/margin breakdown is shown live on this page).
 export default async function OemQuotePage() {
-  if (getDevRole() === "staff") {
+  if ((await getEffectiveRole()) === "staff") {
     return (
       <EmptyState
         icon={Lock}

@@ -10,7 +10,8 @@
 
 import { revalidatePath } from "next/cache";
 import { getServiceClient } from "@/lib/supabase/server";
-import { getDevShopId, getDevRole } from "@/lib/dev/context";
+import { getDevShopId } from "@/lib/dev/context";
+import { getEffectiveRole } from "@/lib/auth/role";
 import { requireWriteAccess } from "@/lib/auth/action-guard";
 import type { ActionResult } from "@/lib/types";
 import type { HeroStockRow } from "@/lib/stock/types";
@@ -19,8 +20,8 @@ import type { ProductPickerOption } from "@/lib/catalog/types";
 const SCHEMA = "analytics";
 const PAGE_PATH = "/stock/hero";
 
-function requireOwnerAdmin(): ActionResult<never> | null {
-  if (getDevRole() === "staff") {
+async function requireOwnerAdmin(): Promise<ActionResult<never> | null> {
+  if ((await getEffectiveRole()) === "staff") {
     return { ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่ดูจอสต็อก Hero SKU ได้" };
   }
   return null;
@@ -33,6 +34,17 @@ function requireOwnerAdmin(): ActionResult<never> | null {
 // DEV_ROLE, not a real session check — requireWriteAccess(requireOwnerAdmin)
 // below (lib/auth/action-guard.ts) adds requireSessionIfGateOn() first.
 
+// Security review 2026-09-17 (H1): getHeroStock/getProductPickerOptions are
+// deliberately NOT gated by requireOwnerAdmin — /stock/hero is a public,
+// unauthenticated wall-display screen by design (no login at all, see the
+// AUTH_GATE-exempt note above), and getEffectiveRole() now returns 'staff'
+// for every unauthenticated request once AUTH_GATE=on. Gating these two
+// reads would make the live-stock screen show "จำกัดสิทธิ์" for its only
+// real audience. Confirmed safe to leave open: both selects are sku/name/
+// is_active/qty columns only (analytics.v_hero_stock, public.product) — no
+// cost, price, or PII anywhere in either query. Mutations stay fully gated
+// below via requireWriteAccess(requireOwnerAdmin).
+
 // ============================================================================
 // read — analytics.v_hero_stock, ordered worst-first (out > low > available
 // asc) so the SKU closest to selling out is always the first card the host
@@ -40,9 +52,6 @@ function requireOwnerAdmin(): ActionResult<never> | null {
 // ============================================================================
 
 export async function getHeroStock(): Promise<ActionResult<HeroStockRow[]>> {
-  const gateErr = requireOwnerAdmin();
-  if (gateErr) return gateErr;
-
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();
@@ -113,9 +122,6 @@ export async function getHeroStock(): Promise<ActionResult<HeroStockRow[]>> {
 // ============================================================================
 
 export async function getProductPickerOptions(): Promise<ActionResult<ProductPickerOption[]>> {
-  const gateErr = requireOwnerAdmin();
-  if (gateErr) return gateErr;
-
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();

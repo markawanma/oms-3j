@@ -1,6 +1,6 @@
 import { Lock } from "lucide-react";
 import { getShopSetting, getBlendedMarginSuggestion } from "@/lib/actions/catalog";
-import { getDevRole } from "@/lib/dev/context";
+import { getEffectiveRole } from "@/lib/auth/role";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { SettingsForm } from "@/components/domain/catalog/SettingsForm";
@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 // margin.md §3.2). Owner/admin only — these numbers drive profit/ROAS/reco
 // across the whole app.
 export default async function SettingsPage() {
-  if (getDevRole() === "staff") {
+  if ((await getEffectiveRole()) === "staff") {
     return (
       <EmptyState
         icon={Lock}

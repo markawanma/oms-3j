@@ -1,6 +1,6 @@
 import { Lock } from "lucide-react";
 import { getQuotes } from "@/lib/actions/oem";
-import { getDevRole } from "@/lib/dev/context";
+import { getEffectiveRole } from "@/lib/auth/role";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { TruncatedDataNotice } from "@/components/ui/TruncatedDataNotice";
@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 // /oem/quotes — OEM quote registry (T6). Owner/admin only, same reasoning as
 // /oem/rates and /oem/quote.
 export default async function OemQuotesPage() {
-  if (getDevRole() === "staff") {
+  if ((await getEffectiveRole()) === "staff") {
     return (
       <EmptyState
         icon={Lock}

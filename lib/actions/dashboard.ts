@@ -14,7 +14,8 @@
 
 import { getServiceClient } from "@/lib/supabase/server";
 import { formatCount, formatTHBCompact } from "@/lib/tiktok/format";
-import { getDevShopId, getDevRole } from "@/lib/dev/context";
+import { getDevShopId } from "@/lib/dev/context";
+import { getEffectiveRole } from "@/lib/auth/role";
 import type { ActionResult } from "@/lib/types";
 import type {
   ChartCoverage,
@@ -145,7 +146,7 @@ export async function getDashboard(params: GetDashboardParams): Promise<ActionRe
 
   try {
     const shopId = getDevShopId();
-    const includeMoney = getDevRole() !== "staff";
+    const includeMoney = (await getEffectiveRole()) !== "staff";
     const supabase = getServiceClient();
 
     const { data, error } = await supabase.schema(SCHEMA).rpc("dashboard_summary", {
@@ -233,7 +234,7 @@ export async function getDashboardCharts(params: GetDashboardParams): Promise<Ac
 
   try {
     const shopId = getDevShopId();
-    const includeMoney = getDevRole() !== "staff";
+    const includeMoney = (await getEffectiveRole()) !== "staff";
     const supabase = getServiceClient();
 
     const { data, error } = await supabase.schema(SCHEMA).rpc("dashboard_charts", {

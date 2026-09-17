@@ -13,18 +13,23 @@ import type { ActionResult } from "@/lib/types";
  * Combines both auth layers active in this app right now:
  * requireSessionIfGateOn() (real Supabase Auth session, only enforced once
  * AUTH_GATE=on — see lib/auth/session.ts) then a caller-supplied
- * owner/admin check (the DEV_ROLE gate). getServiceClient() bypasses RLS
- * and short-circuits crm_require_owner_admin() inside the RPCs, so this
- * combo is the ONLY thing gating writes in this app today — every WRITE
- * server action must call this first, passing its own requireOwnerAdmin.
+ * owner/admin check (the real-session-aware role gate — lib/auth/role.ts's
+ * getEffectiveRole()). getServiceClient() bypasses RLS and short-circuits
+ * crm_require_owner_admin() inside the RPCs, so this combo is the ONLY
+ * thing gating writes in this app today — every WRITE server action must
+ * call this first, passing its own requireOwnerAdmin.
+ *
+ * requireOwnerAdmin may be sync or async (17 ก.ย. 69: callers now check
+ * `await getEffectiveRole()`, which hits the DB for shop_member — so this
+ * must await whatever the caller returns, not assume it's synchronous).
  */
 export async function requireWriteAccess(
-  requireOwnerAdmin: () => ActionResult<never> | null,
+  requireOwnerAdmin: () => ActionResult<never> | null | Promise<ActionResult<never> | null>,
 ): Promise<ActionResult<never> | null> {
   try {
     await requireSessionIfGateOn();
   } catch {
     return { ok: false, error: "ต้องเข้าสู่ระบบก่อน" };
   }
-  return requireOwnerAdmin();
+  return await requireOwnerAdmin();
 }

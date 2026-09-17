@@ -13,6 +13,7 @@
 import "server-only";
 import { createHash, createHmac } from "node:crypto";
 import { getServiceClient, getUserClient } from "@/lib/supabase/server";
+import { getDevShopId } from "@/lib/dev/context";
 
 export type ShopRole = "owner" | "admin" | "staff";
 
@@ -46,9 +47,17 @@ export async function getSessionUser(): Promise<SessionUser | null> {
  * bypasses-RLS-but-filters-explicitly pattern as every lib/actions/*.ts read
  * (see lib/supabase/server.ts's header). This app is single-shop (design
  * §A.5 / scripts/provision-member.mjs resolves "the" shop as the oldest
- * row), so a user has at most one membership row; `.maybeSingle()` reflects
- * that — if it ever throws PGRST116 (>1 row), that is a real data-integrity
- * bug worth surfacing, not something to silently .limit(1) away.
+ * row), so a user has at most one membership row FOR THIS SHOP; `.maybeSingle()`
+ * reflects that — if it ever throws PGRST116 (>1 row), that is a real
+ * data-integrity bug worth surfacing, not something to silently .limit(1)
+ * away.
+ *
+ * Security review 2026-09-17 (M1): `.eq("shop_id", getDevShopId())` — a user
+ * with a shop_member row for a DIFFERENT shop (future multi-shop data, a
+ * stale row, anything) must never be treated as a member of THIS shop just
+ * because their user_id happens to match. Belt-and-suspenders alongside
+ * getServiceClient() bypassing RLS: without this filter, that other shop's
+ * role would flow straight into getEffectiveRole().
  */
 export async function getMembership(userId: string): Promise<SessionMembership | null> {
   const supabase = getServiceClient();
@@ -56,6 +65,7 @@ export async function getMembership(userId: string): Promise<SessionMembership |
     .from("shop_member")
     .select("shop_id, role")
     .eq("user_id", userId)
+    .eq("shop_id", getDevShopId())
     .maybeSingle();
   if (error || !data) return null;
   return { shopId: data.shop_id as string, role: data.role as ShopRole };

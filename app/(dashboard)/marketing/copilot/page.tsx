@@ -2,7 +2,7 @@ import { Lock } from "lucide-react";
 import { getCampaignBoard, getChannelRoas, getMarketingReco } from "@/lib/actions/marketing";
 import { getCampaignTemplates } from "@/lib/actions/calendar";
 import { getShopSetting } from "@/lib/actions/catalog";
-import { getDevRole } from "@/lib/dev/context";
+import { getEffectiveRole } from "@/lib/auth/role";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { CampaignBoard } from "@/components/domain/marketing/CampaignBoard";
@@ -15,7 +15,7 @@ export const dynamic = "force-dynamic"; // recommendations recompute live from m
 // owner/admin only, same gate + same reasoning as /marketing/ad-spend's page
 // header comment (not silently-empty: a staff visitor gets told plainly).
 export default async function MarketingCopilotPage() {
-  if (getDevRole() === "staff") {
+  if ((await getEffectiveRole()) === "staff") {
     return (
       <EmptyState
         icon={Lock}

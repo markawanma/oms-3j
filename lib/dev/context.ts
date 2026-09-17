@@ -43,6 +43,17 @@ export type DevRole = "owner" | "admin" | "staff";
  * replaces it — same seam contract as getDevShopId() above. Defaults to
  * "staff" (fail closed) if DEV_ROLE is unset or invalid, so a forgotten env
  * var hides PII instead of leaking it.
+ *
+ * FALLBACK ONLY (17 ก.ย. 69): now that A2-lite gives real requests a real
+ * Supabase Auth session, nothing outside lib/auth/role.ts should call this
+ * directly anymore. Every page/action must call
+ * `await getEffectiveRole()` (lib/auth/role.ts) instead — it uses the
+ * session's real shop_member.role when a session exists, and only falls
+ * back to THIS function (DEV_ROLE) when there is no session at all
+ * (AUTH_GATE=off, local dev, one-off scripts). Calling getDevRole() directly
+ * from a page/action would let DEV_ROLE override a real logged-in user's
+ * role, which is exactly the prod bug this fallback contract exists to
+ * prevent.
  */
 export function getDevRole(): DevRole {
   const role = (process.env.DEV_ROLE ?? "staff").trim().toLowerCase();

@@ -16,14 +16,15 @@
 // listSkuPrefixes returns only SKU prefix codes, never a cost figure.
 
 import { getServiceClient } from "@/lib/supabase/server";
-import { getDevShopId, getDevRole } from "@/lib/dev/context";
+import { getDevShopId } from "@/lib/dev/context";
+import { getEffectiveRole } from "@/lib/auth/role";
 import type { ActionResult } from "@/lib/types";
 import type { SilverPriceHistoryRow } from "@/lib/catalog/silver-price-history";
 
 const SCHEMA = "analytics";
 
-function requireOwnerAdmin(): ActionResult<never> | null {
-  if (getDevRole() === "staff") {
+async function requireOwnerAdmin(): Promise<ActionResult<never> | null> {
+  if ((await getEffectiveRole()) === "staff") {
     return { ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่ดูประวัติราคาเนื้อเงินได้" };
   }
   return null;
@@ -42,7 +43,7 @@ function toNum(v: number | string | null): number | null {
 }
 
 export async function getSilverPriceHistory(): Promise<ActionResult<SilverPriceHistoryRow[]>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   try {
