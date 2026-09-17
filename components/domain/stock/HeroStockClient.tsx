@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, Gauge, Pencil, PlusCircle, RefreshCw, Trash2 } from "lucide-react";
-import type { ProductRow } from "@/lib/catalog/types";
+import type { ProductPickerOption } from "@/lib/catalog/types";
 import type { HeroStockRow } from "@/lib/stock/types";
 import { removeHeroWatch } from "@/lib/actions/hero-stock";
 import { Badge } from "@/components/ui/Badge";
@@ -52,7 +52,7 @@ function fmtTime(d: Date): string {
   return d.toLocaleTimeString("th-TH", { hour12: false });
 }
 
-export function HeroStockClient({ rows, products }: { rows: HeroStockRow[]; products: ProductRow[] }) {
+export function HeroStockClient({ rows, products }: { rows: HeroStockRow[]; products: ProductPickerOption[] }) {
   const router = useRouter();
   const toast = useToast();
 

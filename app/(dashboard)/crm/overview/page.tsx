@@ -1,13 +1,12 @@
 import Link from "next/link";
 import { LineChart, CalendarX } from "lucide-react";
 import { getCrmOverview, getCrmCustomerDimensions } from "@/lib/actions/crm";
-import type { CrmCustomerDimensions } from "@/lib/actions/crm";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { StatCard } from "@/components/domain/crm/StatCard";
 import { SegmentBreakdown } from "@/components/domain/crm/SegmentBreakdown";
 import { SegmentLegend } from "@/components/domain/crm/SegmentLegend";
-import { CustomerDimensionsPanel } from "@/components/domain/crm/CustomerDimensionsPanel";
+import { CustomerDimensionsPanel, type CrmCustomerDimensionsScoped } from "@/components/domain/crm/CustomerDimensionsPanel";
 import { ChannelPerfTable } from "@/components/domain/crm/ChannelPerfTable";
 import { CrmDateRangeFilter } from "@/components/domain/crm/CrmDateRangeFilter";
 import { CrmChannelFilter } from "@/components/domain/crm/CrmChannelFilter";
@@ -33,36 +32,28 @@ export default async function CrmOverviewPage({
 }) {
   const { from: fromParam, to: toParam, channel: channelParam } = await searchParams;
 
-  // getCrmCustomerDimensions() runs alongside getCrmOverview() (allSettled,
-  // not a plain Promise.all) so a failure there — throw or !ok — can never
-  // take down the whole page: it only means the province/channel section
-  // below doesn't render, same "non-blocking" contract as the handoff notes
-  // on other optional sections (e.g. profit-estimate note above).
-  const [overviewSettled, dimsSettled] = await Promise.allSettled([
-    getCrmOverview({ from: fromParam, to: toParam, channelCode: channelParam }),
-    getCrmCustomerDimensions(),
-  ]);
-
-  if (overviewSettled.status === "rejected") {
-    // getDevShopId() throws when DEV_SHOP_ID isn't configured.
-    const err = overviewSettled.reason;
+  // getCrmOverview() must resolve FIRST — it's the one that validates
+  // from/to/channel (malformed/unknown values silently drop to "no bound" /
+  // "every channel", see its own header comment). getCrmCustomerDimensions()
+  // then runs AFTER, fed scope.requestedFrom/To/ChannelCode (the VALIDATED
+  // values), not the raw searchParams. Running both in parallel off the raw
+  // params was tried first and rejected: a bad ?channel= would make the KPIs
+  // above fall back to "every channel" while this box's "range" bucket came
+  // back empty for a channel code that matches nothing — two boxes on one
+  // page disagreeing about what's being filtered. One extra sequential
+  // round-trip is a fair trade for both boxes reading off the same validated
+  // scope.
+  let result: Awaited<ReturnType<typeof getCrmOverview>>;
+  try {
+    result = await getCrmOverview({ from: fromParam, to: toParam, channelCode: channelParam });
+  } catch (err) {
+    // getDevShopId() throws when DEV_SHOP_ID isn't configured — same
+    // defensive catch the old Promise.allSettled call used to provide.
     return <ErrorState message={err instanceof Error ? err.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"} />;
   }
-  const result = overviewSettled.value;
 
   if (!result.ok) {
     return <ErrorState message={result.error} />;
-  }
-
-  let dims: CrmCustomerDimensions = {};
-  if (dimsSettled.status === "fulfilled") {
-    if (dimsSettled.value.ok) {
-      dims = dimsSettled.value.data;
-    } else {
-      console.error("getCrmCustomerDimensions failed on /crm/overview:", dimsSettled.value.error);
-    }
-  } else {
-    console.error("getCrmCustomerDimensions threw on /crm/overview:", dimsSettled.reason);
   }
 
   const { totals, segmentCounts, channelPerf, scope } = result.data;
@@ -144,6 +135,49 @@ export default async function CrmOverviewPage({
     );
   }
 
+  // Whether a real from/to/channel filter is actually applied — based on
+  // the VALIDATED scope fields (not the raw searchParams), so a stale/bad
+  // ?channel= that got silently dropped above doesn't register as "filter
+  // active" here either (see the getCrmOverview call's comment). Gates the
+  // "ตามตัวกรองด้านบน" toggle in CustomerDimensionsPanel: with no filter
+  // applied, "range" would be identical to "all", so offering the toggle
+  // would be a confusing no-op.
+  const filterActive = scope.requestedFrom !== null || scope.requestedTo !== null || scope.requestedChannelCode !== null;
+
+  // getCrmCustomerDimensions() runs AFTER getCrmOverview (sequential, see
+  // above) and is wrapped in its own try/catch so a failure here — throw or
+  // !ok — can never take down the whole page: it only means the
+  // province/channel section below doesn't render, same "non-blocking"
+  // contract the rest of this page uses for optional sections. Skipped
+  // entirely on the two empty-state returns above since the panel never
+  // renders there anyway — no point spending the round-trip.
+  let dims: CrmCustomerDimensionsScoped | null = null;
+  try {
+    const dimsResult = await getCrmCustomerDimensions({
+      from: scope.requestedFrom,
+      to: scope.requestedTo,
+      channelCode: scope.requestedChannelCode,
+    });
+    if (dimsResult.ok) {
+      dims = dimsResult.data;
+    } else {
+      console.error("getCrmCustomerDimensions failed on /crm/overview:", dimsResult.error);
+    }
+  } catch (err) {
+    console.error("getCrmCustomerDimensions threw on /crm/overview:", err);
+  }
+
+  // "all" mode's label is the shop's full min–max, all-time — unaffected by
+  // any filter. "range" mode's label mirrors effectiveFrom/effectiveTo above
+  // (same fallback-to-full-range-when-unset behavior as the top-of-page
+  // filter) plus the resolved channel name, since dims' "range" bucket is
+  // computed against those exact params.
+  const dimsAllLabel = `${formatThaiDateOnly(scope.minOrderDate)} – ${formatThaiDateOnly(scope.maxOrderDate ?? scope.minOrderDate)}`;
+  const dimsRangeLabel = `${formatThaiDateOnly(effectiveFrom)} – ${formatThaiDateOnly(effectiveTo)}`;
+  const rangeChannelName = scope.requestedChannelCode
+    ? scope.channels.find((c) => c.code === scope.requestedChannelCode)?.name ?? scope.requestedChannelCode
+    : "ทุกช่องทาง";
+
   // profit is a real SUM either way (from v_fact_order.profit); only the
   // LABEL changes depending on how many of this range's orders still lack a
   // CONFIRMED cost (profit_status='estimated') — see CrmOverviewData.
@@ -189,7 +223,15 @@ export default async function CrmOverviewPage({
 
       <SegmentBreakdown counts={segmentCounts} rangeNote="กลุ่ม RFM = สถานะ ณ ปัจจุบันของลูกค้าที่ซื้อในช่วงนี้" />
       <SegmentLegend />
-      {Object.keys(dims).length > 0 && <CustomerDimensionsPanel data={dims} />}
+      {dims !== null && dims.all && (
+        <CustomerDimensionsPanel
+          data={dims}
+          filterActive={filterActive}
+          allLabel={dimsAllLabel}
+          rangeLabel={dimsRangeLabel}
+          rangeChannelName={rangeChannelName}
+        />
+      )}
       <ChannelPerfTable rows={channelPerf} />
     </div>
   );

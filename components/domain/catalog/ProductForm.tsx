@@ -186,7 +186,7 @@ export function ProductForm({
             value={category}
             onChange={(e) => setCategory(e.target.value)}
             list="catalog-categories"
-            placeholder="เช่น แหวน"
+            placeholder="เช่น สร้อยคอ"
             className={inputCls}
           />
           <datalist id="catalog-categories">
@@ -194,6 +194,14 @@ export function ProductForm({
               <option key={c} value={c} />
             ))}
           </datalist>
+          {/* หมวดตัดสินว่าสินค้าไปอยู่แท่งไหนใน "สัดส่วนตามสินค้า" บนแดชบอร์ด
+              (ตรรกะใน analytics.dashboard_charts) — ที่สะกดไม่ตรงสตริงพิเศษ
+              จะถูกนับเป็นเครื่องเงิน 925 หมด เขียนเตือนไว้เพราะคนกรอกมองไม่เห็น
+              ผลข้างเคียงนี้เลยถ้าไม่บอก */}
+          <span className="mt-1 block text-[0.7rem] font-normal text-zinc-500">
+            มีผลต่อกราฟสัดส่วนสินค้า — <strong className="font-semibold">กล่อง/บรรจุภัณฑ์ · น้ำยาล้างเงิน · ทองจีน</strong>{" "}
+            จะไม่ถูกนับเป็นเครื่องเงิน 925 · พิมพ์หมวดใหม่เองได้ถ้าไม่มีในรายการ
+          </span>
         </label>
       </div>
 
@@ -211,7 +219,7 @@ export function ProductForm({
           </label>
           <label className="flex items-center gap-1.5">
             <input type="radio" checked={costType === "spot"} onChange={() => setCostType("spot")} />
-            อิงราคาเงิน (เงินแท่ง)
+            อิงราคาเงิน (น้ำหนัก × ราคาเงินวันนี้ × ความบริสุทธิ์ + ค่ากำเหน็จ)
           </label>
         </div>
 
@@ -258,7 +266,7 @@ export function ProductForm({
               />
             </label>
             <label className={labelCls}>
-              ค่ากำเหน็จ
+              ค่ากำเหน็จ (บาท/ชิ้น)
               <input
                 type="number"
                 inputMode="decimal"

@@ -191,3 +191,82 @@ select status, return_message, start_time from cron.job_run_details
 
 ## F. ข้อเสนอ verify เพิ่ม (review)
 - **red-team (Vader) pressure-test RLS rewrite ก่อน A2 deploy** — จุดพังเงียบ (query ว่างไม่ error) อันตรายสุด; ให้ลอง cross-shop / staff escalation / direct-RPC bypass บน policy ใหม่
+
+---
+
+## G. Runbook — A2-lite (ด่าน login) — devops (Lando) · 2026-09-16
+
+> ขอบเขตนี้ **ไม่ใช่ A2 เต็ม** ใน §A/§C ข้างบน (ยังไม่ swap seam เป็น `lib/auth/context.ts`, ยังไม่ลบ `lib/dev/context.ts`, ยังไม่ rewrite 76 policy, ทุกหน้ายังอ่าน service client + `DEV_ROLE`) — เป็นด่าน**login เฉพาะหน้า**ที่เจ้าของเคาะ 16 ก.ย. 69 เพื่อปิดช่อง `oms-3j.vercel.app` เปิดสาธารณะ (ดู memory `prod-exposure-accepted-risk`) ก่อน A2 เต็มจะเสร็จ — สลับปิด**พฤติกรรม middleware** ได้ด้วย env ตัวเดียว (ส่วน DB hardening 0122–0124 ด้านล่างไม่ผูกกับ flag นี้ และไม่ถอย)
+
+### G.1 ภาพรวม (10 บรรทัด)
+
+Backend/frontend กำลัง implement ใน worktree แยก: middleware อ่าน `AUTH_GATE` — `on` เท่านั้นที่เปิดด่าน ค่าอื่น/ไม่ตั้ง = ปิด (**fail-open โดยตั้งใจ** เพราะโปรดักชันวันนี้ไม่มี auth user เลย ปิดพลาดปลอดภัยกว่าเปิดพลาด) เมื่อเปิด: ไม่มี session → เด้ง `/login`; มี session แต่ไม่มีแถวใน `shop_member` → เด้ง `/pending` (โชว์รหัสยืนยัน **6 ตัวอักษร hex (0-9, A-F) จาก HMAC** ให้พนักงานบอกเจ้าของ — เห็นได้เฉพาะฝั่งพนักงานหน้า `/pending` เท่านั้น) พนักงานใหม่สมัครเองที่ `/register` เจ้าของอนุมัติที่ `/settings/members` โดยกรอกรหัส 6 ตัวอักษรที่พนักงานเห็นหน้า `/pending` เจ้าของ**เลือกปิด** "Confirm email" ของ Supabase Auth (ทีมแนะนำเปิด — มติเจ้าของ 16 ก.ย. 69 เพราะช่องโหว่ปิดด้วยรหัส 6 หลักแทนอยู่แล้ว: คนสุ่มสมัครเข้ามาได้ แต่ **เข้าระบบจริงไม่ได้จนกว่าเจ้าของกรอกรหัสอนุมัติ**) DB schema (`shop_member`) มีอยู่แล้วตั้งแต่ 0002 · เพิ่มเติมรอบนี้: migration 0122–0124 ปิดช่อง REST ตรง (ดู G.4 ก่อนขั้นเปิด flag) — rollback ของ flag เองยังปิด = ปิด middleware เท่านั้น ไม่แตะ DB สิ่งที่**ไม่เปลี่ยน**: ทุกหน้ายังอ่านผ่าน service client + `DEV_ROLE` เหมือนเดิม ⇒ ใครก็ตามที่เจ้าของอนุมัติเข้าระบบได้ (ผ่าน login gate) จะยังเห็นทุกอย่างรวมต้นทุน/PII เหมือนวันนี้ทุกประการ — ด่านนี้กันแค่ "คนแปลกหน้าที่ไม่มีบัญชี" ไม่กันสิทธิ์ระหว่างพนักงานด้วยกันเอง (นั่นคือ A2 เต็ม)
+
+### G.2 ตาราง env
+
+| ชื่อ | ที่ตั้ง | ค่า / ที่มา | ใครใส่ |
+|---|---|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` | Vercel (Production env) + `.env.local` | Supabase dashboard → Project Settings → API → Project URL (ค่าเดียวกับ `SUPABASE_URL` ที่มีอยู่แล้ว) | devops ใส่บน Vercel · แต่ละคนใส่เองใน `.env.local` |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Vercel (Production env) + `.env.local` | Supabase dashboard → Project Settings → API → มี **legacy anon key** และ **publishable key** อยู่แล้วสองแบบ — ใช้ตัวที่ label ว่า `anon` `public` (ไม่ใช่ `service_role`) **ห้ามใส่ค่าจริงลงเอกสาร/commit** | devops ใส่บน Vercel · แต่ละคนใส่เองใน `.env.local` |
+| `AUTH_GATE` | Vercel (Production env) เท่านั้น | `on` = เปิดด่าน · ไม่ตั้ง/ค่าอื่น = ปิด (fail-open) | devops — **ตั้งเป็นขั้นตอนสุดท้าย (bootstrap ข้อ 6) เท่านั้น ห้ามตั้งพร้อม deploy ข้อ 1** |
+| `SIGNUP_CODE_SECRET` | Vercel (**ทุก environment**) — optional | ใช้เข้ารหัส HMAC สร้างรหัสยืนยัน 6 ตัวอักษร — ถ้าไม่ตั้ง fallback ใช้ service key แทน | devops — **ถ้าตั้งต้องตั้งค่าเดียวกันทุก environment (Production/Preview/Development) ไม่งั้นรหัสที่คำนวณแต่ละฝั่งไม่ตรงกัน พนักงานยืนยันไม่ผ่าน** |
+
+ตัวที่มีอยู่แล้วไม่ต้องเพิ่ม: `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` (ใช้โดย `provision-member.mjs` และทุก server action วันนี้อยู่แล้ว)
+
+### G.3 Checklist Supabase Auth settings (dashboard → Authentication)
+
+- [ ] Site URL = `https://oms-3j.vercel.app`
+- [ ] Redirect URLs มี `https://oms-3j.vercel.app/**` และ `http://localhost:3000/**`
+- [ ] Email signup = **ON**
+- [ ] Confirm email = **OFF** (มติเจ้าของ 16 ก.ย. 69 — บันทึกไว้ที่นี่ ไม่ใช่แค่ในแชท)
+- [ ] Minimum password length = **8**
+- [ ] Anonymous sign-ins = **OFF**
+- [ ] Rate limit signup — ตรวจว่าเป็นค่า default ของ Supabase (ไม่ได้ถูกปรับสูง/ต่ำผิดปกติจากงานอื่น)
+
+### G.4 Bootstrap — ลำดับห้ามสลับ (กันล็อกตัวเอง)
+
+| # | งาน | ใครทำ | วิธีตรวจว่าผ่าน |
+|---|---|---|---|
+| 1 | Merge branch backend/frontend เข้า main + deploy ขึ้น Vercel **โดยยังไม่ตั้ง `AUTH_GATE`** | Tech Lead (merge) + devops (deploy) | เว็บ prod ใช้งานได้ปกติเหมือนก่อน merge ทุกหน้า — เพราะ flag ยังไม่ตั้ง = fail-open; เปิด `/login`, `/register`, `/pending` แบบ incognito ต้องเข้าได้ (ยังไม่ต้อง auth ทำงานจริง แค่หน้าต้องไม่ 404/500) |
+| 2 | ใส่ `NEXT_PUBLIC_SUPABASE_ANON_KEY` + `NEXT_PUBLIC_SUPABASE_URL` บน Vercel (Production) + redeploy | devops | `vercel env ls` เห็นทั้งสองตัวใน Production · หน้า `/login` ยิง `signInWithPassword` แล้วได้ error ที่มาจาก Supabase จริง (เช่น "Invalid login credentials") ไม่ใช่ error "supabaseUrl is required" |
+| 3 | สร้าง auth user ของเจ้าของ — Supabase dashboard → Authentication → Users → Add user (auto-confirm) | เจ้าของ หรือ Tech Lead ผ่าน admin API | user โผล่ในลิสต์ Users พร้อม email ที่ถูกต้อง, `email_confirmed_at` ไม่ null |
+| 4 | `node --env-file=.env.local scripts/provision-member.mjs <email เจ้าของ> owner` | Tech Lead (มี `.env.local` ชี้ project เดียวกับ prod — โปรเจกต์นี้ dev/prod ใช้ Supabase project เดียวกัน) | เห็น log `✓ provisioned <email> as owner on shop "..."` · ตรวจซ้ำด้วย query `select * from shop_member where user_id = '<uid จากข้อ 3>'` ต้องเจอ 1 แถว role=owner |
+| 5 | เจ้าของทดสอบ `/login` (ล็อกอินด้วยบัญชีข้อ 3) และ `/settings/members` บน prod **ขณะ gate ยังปิด** | เจ้าของ (กด), devops คอยดู log Vercel | ล็อกอินสำเร็จ, เห็นหน้า `/settings/members` ไม่ error; **ถ้าพัง ให้หยุดที่นี่** — อย่าไปข้อ 6 |
+| 5.5 | ยืนยัน migration `0122_shop_member_select_only` / `0123_analytics_no_rest_for_users` / `0124_public_no_rest_for_users` apply แล้ว | devops | ✅ **ทำแล้ว 16 ก.ย. 69** — `list_migrations` เห็นทั้ง 3 ฉบับ (version 20260916145243/…145306/…145354); user login ยิง REST ไป `fact_order` / `v_dim_product(unit_cost)` / `product(unit_cost)` / `shop_member` (นอกแถวตัวเอง) ต้องได้ 403 ทั้งหมด |
+| 6 | ตั้ง `AUTH_GATE=on` บน Vercel (Production) + redeploy | devops | deploy สำเร็จ (build เขียว) |
+| 7 | ทดสอบ incognito 3 เคส: (ก) ไม่ล็อกอิน เข้า `/dashboard` ต้องเด้ง `/login` (ข) ล็อกอินด้วยบัญชีเจ้าของ (ข้อ 3) ต้องเข้า `/dashboard` ได้ปกติ (ค) สมัครบัญชีใหม่ผ่าน `/register` ต้องเด้งไป `/pending` พร้อมเห็นรหัส 6 หลัก **ไม่ใช่** เด้งวนกลับ `/login` | devops + เจ้าของ | ครบ 3 เคสตามที่คาด — เคส (ค) สำคัญสุด เพราะถ้า `/register`/`/pending` ไม่อยู่ใน matcher exemption ของ middleware จะเกิด redirect loop (ดู G.7 ข้อ 1) |
+
+**Rollback**: ลบ/แก้ `AUTH_GATE` บน Vercel ให้ไม่ใช่ `on` (เช่นลบ env ทิ้ง) + redeploy — กลับเป็น fail-open ทันที ใช้เวลา < 2 นาที (เวลา build+deploy ของ Vercel) rollback นี้คืนได้เฉพาะพฤติกรรม middleware — **ฝั่ง DB (0122–0124) ไม่ย้อนและไม่ควรย้อน** (เป็นการปิดช่องที่ควรปิดอยู่แล้วไม่ว่า gate จะเปิดหรือปิด) ถ้าจำเป็นจริงต้องเขียน migration ใหม่เท่านั้น ห้ามแก้ย้อนประวัติ เงื่อนไขที่ควร rollback: ข้อ 7 เคสไหนก็ตามไม่ผ่าน, หรือเจ้าของ/พนักงานล็อกอินไม่ได้หลังเปิดจริง
+
+### G.5 Runbook รับ/ถอดพนักงาน (หลังเปิด gate)
+
+**รับพนักงานใหม่**
+1. พนักงานสมัครเองที่ `/register` (email + password ≥ 8 ตัว)
+2. ระบบพาไป `/pending` — พนักงานเห็นรหัสยืนยัน **6 ตัวอักษร (hex, 0-9/A-F)** บอกรหัสนี้กับเจ้าของ (โทร/แชท — คนละช่องกับที่สมัคร กันคนแอบสมัครแทน)
+3. เจ้าของเข้า `/settings/members` กรอกรหัส 6 ตัวอักษร → อนุมัติ (สร้างแถว `shop_member`)
+4. พนักงาน refresh `/pending` หรือ login ใหม่ → เข้าใช้งานได้
+
+**ถอดพนักงาน**
+- `/settings/members` มีปุ่มถอดสมาชิกแล้ว (ship แล้ว) — กันลบตัวเอง/owner คนสุดท้ายในระบบ ใช้ปุ่มนี้เป็นทางหลัก
+- ปิดบัญชีถาวร (ลาออก): กดปุ่มถอดข้างบน **แล้วเพิ่ม** ลบ/แบน auth user ที่ dashboard → Authentication → Users ด้วย ไม่งั้นบัญชียังสมัครกลับเข้า `/pending` ได้เรื่อยๆ (ไม่มีสิทธิ์ก็จริง แต่รกลิสต์รออนุมัติ)
+
+**ลืมรหัสผ่าน**: ยังไม่มีหน้า self-service (debt) — ทำผ่าน Supabase dashboard → Authentication → Users → เลือก user → Reset password ชั่วคราว
+
+### G.6 Debt list
+
+- ไม่มีหน้า "ลืมรหัสผ่าน" — ทำผ่าน dashboard เท่านั้น
+- middleware ยิง query `shop_member` ทุก request ไม่มี cache — เลือก fail-closed ชนะ latency ตั้งใจ แต่เป็น debt ด้าน performance ที่ควรกลับมาแก้
+- `/stock/hero` ยังเปิดสต็อก/รายชื่อ SKU ให้คนไม่ login เห็นได้ (ดีไซน์ตั้งใจ เพื่อโชว์จอไลฟ์) — ควรใส่ token/สิทธิ์จำกัดในเฟสถัดไป
+- `requireSessionIfGateOn` เช็คแค่ "มี session" ไม่เช็คว่าอนุมัติหรือ role อะไร — role ยังมาจาก env จนกว่า A2 เต็ม
+- เลข migration ชนกับ `0120_crm_retention` (branch `feature/crm-retention` apply ไปแล้วแต่ยังไม่ merge) — ต้อง rename เลขตอน merge กันซ้ำ
+- SMTP built-in ของ Supabase จำกัด **2 อีเมล/ชั่วโมง** — วันนี้ไม่กระทบเพราะ Confirm email ปิด (ไม่ส่งเมลตอนสมัคร) แต่ถ้าอนาคตเปิดฟีเจอร์ "ลืมรหัสผ่าน" แบบ self-service หรือเปิด Confirm email กลับ ต้องมี custom SMTP ก่อน ไม่งั้นพนักงาน >2 คน/ชม. จะรอเมลไม่ได้
+- ทุกหน้ายังอ่านผ่าน service client + `DEV_ROLE` — ด่าน login รอบนี้ไม่ได้แบ่งสิทธิ์ staff/owner จริง (คนละเรื่องกับ A2 เต็มใน §A/§C) ห้ามสื่อสารกับผู้ใช้ว่า "role ป้องกันข้อมูลแล้ว"
+- rollback ปิด gate ได้ แต่บัญชีที่สมัครผ่าน `/register` ระหว่างเปิด gate จะยังอยู่ใน `auth.users` (และอาจมี `shop_member` ถ้าอนุมัติไปแล้ว) — ไม่ auto-cleanup ตอน rollback ต้องเก็บกวาดเอง
+
+### G.7 ห้ามเปิด `AUTH_GATE=on` ถ้า…
+
+1. Bootstrap ข้อ 4 (provision เจ้าของเป็น `owner`) ยังไม่ผ่านการตรวจซ้ำด้วย query — เพราะถ้าเปิด gate แล้วเจ้าของไม่มีแถวใน `shop_member` เจ้าของจะตกไป `/pending` และ**ไม่มีใครอนุมัติได้** (ต้องมี owner อยู่ก่อนแล้วถึงจะอนุมัติคนต่อไปได้) — ล็อกตัวเองออกจากระบบทั้งระบบ กู้คืนได้ทางเดียวคือ rollback flag แล้วกลับไปทำข้อ 4 ใหม่
+2. `NEXT_PUBLIC_SUPABASE_ANON_KEY` ยังไม่ยืนยันว่าตั้งถูกบน Vercel Production (ไม่ใช่แค่ local) — ไม่งั้น `/login` จะพังทันทีที่ gate บังคับทุกคนผ่านมันหรือ `/register`/`/pending` ที่ backend/frontend ยังไม่ยืนยันว่าอยู่ใน matcher exemption ของ middleware — ทดสอบ bootstrap ข้อ 7 เคส (ค) ให้ผ่านก่อนเสมอ ไม่ใช่แค่เคส (ก)/(ข) ไม่งั้นพนักงานสมัครใหม่จะเจอ redirect loop และเจ้าของจะเจอ report "เข้าเว็บไม่ได้" เป็นชุดหลังเปิด gate
+3. Bootstrap ข้อ 5 (เจ้าของทดสอบ `/login`/`/settings/members` ขณะ gate ปิด) ยังไม่ผ่าน — ยิ่งพังตอนนี้ (gate ปิด, service client ยังทำงานปกติ) ยิ่งง่ายต่อการแก้กว่าไปเจอตอน gate เปิดแล้วทุกคนเข้าไม่ได้
+
+**หมายเหตุจาก devops**: ข้อ G.7.2 ส่วน matcher exemption ของ `/register`/`/pending` เป็นสิ่งที่ผมตรวจโค้ดจริงไม่ได้ (อยู่ใน worktree ที่ backend/frontend กำลังทำ ไม่ได้ merge เข้ามาตอนเขียน runbook นี้) — เทียบกับ `middleware.ts` ที่มีอยู่วันนี้ (A1, ดู G.1) matcher exempt แค่ `/login`, `/shop`, `/api/webhooks`, `/stock/hero`, static/`_next` เท่านั้น **ยังไม่มี** `/register`/`/pending` — ถ้าโค้ดใหม่ไม่เพิ่มสองเส้นทางนี้เข้า matcher (หรือเทียบเท่า) การสมัครพนักงานใหม่จะวนลูปตั้งแต่ deploy แรก ขอให้ Tech Lead ให้ code-reviewer ตรวจจุดนี้ชัดๆ ก่อน merge ไม่ใช่ปล่อยให้ bootstrap ข้อ 7 เป็นด่านแรกที่เจอ

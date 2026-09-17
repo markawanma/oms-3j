@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { getCrmCustomerAudit, getCrmCustomerDetail, getCrmCustomerNotes, getCrmEditOptions } from "@/lib/actions/crm";
-import { getDevRole } from "@/lib/dev/context";
+import { getEffectiveRole } from "@/lib/auth/role";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { SegmentBadge } from "@/components/domain/crm/SegmentBadge";
 import { StatCard } from "@/components/domain/crm/StatCard";
@@ -60,11 +60,11 @@ export default async function CrmCustomerDetailPage({ params }: { params: Promis
     : null;
 
   // canWrite = same owner/admin gate the write actions below re-check
-  // server-side (getDevRole() !== "staff") — decided here once so every
+  // server-side ((await getEffectiveRole()) !== "staff") — decided here once so every
   // section below just reads a boolean instead of importing getDevRole
   // itself. Audit is fetched conditionally: getCrmCustomerAudit() would
   // return an error for staff anyway, so skip the round-trip entirely.
-  const canWrite = getDevRole() !== "staff";
+  const canWrite = (await getEffectiveRole()) !== "staff";
 
   const [notesResult, auditResult, editOptionsResult] = await Promise.all([
     getCrmCustomerNotes(id),

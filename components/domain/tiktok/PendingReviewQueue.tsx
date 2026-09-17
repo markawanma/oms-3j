@@ -2,13 +2,13 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { ListChecks } from "lucide-react";
-import { Badge } from "@/components/ui/Badge";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorBanner } from "@/components/ui/ErrorState";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { getPendingLabelReviews } from "@/lib/actions/labels";
 import type { PendingLabelReviewRow } from "@/lib/labels/types";
-import { REVIEW_STATUS_TONE, reviewRowStatusLabel } from "./ReviewQueueList";
+import type { CrmProvinceOption } from "@/lib/crm/order-override";
+import { LabelReviewQueueRow } from "./LabelReviewQueueRow";
 
 /**
  * PendingReviewQueue — bug 2 fix (UAT 29 ส.ค. 69): "ขึ้นว่ารอคนตรวจ แต่พอกดไป
@@ -20,8 +20,22 @@ import { REVIEW_STATUS_TONE, reviewRowStatusLabel } from "./ReviewQueueList";
  * navigating away and back. Independent loading/error/empty state from the
  * upload queue above it, same pattern as LabelFileHistory — a failed load
  * here must never block uploading new files.
+ *
+ * Phase A (design-label-teach-loop-yoda-11sep.md §5 A, owner decisions
+ * 11 ก.ย. 69): each row is now interactive (LabelReviewQueueRow) — resolve/
+ * ignore a page right here instead of "อ่านอย่างเดียว". A resolved/ignored
+ * row is removed from local state immediately (onResolved below) rather
+ * than waiting on a full reload, so the queue visibly shrinks per action.
  */
-export function PendingReviewQueue({ refreshSignal }: { refreshSignal?: number } = {}) {
+export function PendingReviewQueue({
+  refreshSignal,
+  provinces,
+  canEdit,
+}: {
+  refreshSignal?: number;
+  provinces: CrmProvinceOption[];
+  canEdit: boolean;
+}) {
   const [rows, setRows] = useState<PendingLabelReviewRow[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -51,6 +65,10 @@ export function PendingReviewQueue({ refreshSignal }: { refreshSignal?: number }
     void load();
   }, [load, refreshSignal]);
 
+  const handleResolved = useCallback((pageId: string) => {
+    setRows((prev) => (prev ? prev.filter((r) => r.pageId !== pageId) : prev));
+  }, []);
+
   return (
     <section aria-label="คิวรอตรวจสอบ (ทุกไฟล์)">
       <p className="mb-2 text-xs font-bold tracking-wide text-zinc-400 uppercase">
@@ -78,55 +96,18 @@ export function PendingReviewQueue({ refreshSignal }: { refreshSignal?: number }
       )}
 
       {!loading && !error && rows && rows.length > 0 && (
-        <div className="overflow-x-auto rounded-lg border border-zinc-200 bg-white shadow-sm">
-          <table className="w-full min-w-[680px] text-left text-sm">
-            <caption className="sr-only">
-              คิวรอตรวจสอบทุกไฟล์ — อ่านจากฐานข้อมูลตรง อยู่ครบแม้ออกจากหน้านี้แล้วกลับมา
-            </caption>
-            <thead className="border-b border-zinc-200 bg-zinc-50 text-xs font-bold tracking-wide text-zinc-500 uppercase">
-              <tr>
-                <th scope="col" className="px-3 py-2">
-                  ไฟล์
-                </th>
-                <th scope="col" className="px-3 py-2 tabular-nums">
-                  หน้า
-                </th>
-                <th scope="col" className="px-3 py-2">
-                  เลขพัสดุ
-                </th>
-                <th scope="col" className="px-3 py-2">
-                  รหัสไปรษณีย์
-                </th>
-                <th scope="col" className="px-3 py-2">
-                  สถานะ
-                </th>
-                <th scope="col" className="px-3 py-2">
-                  จังหวัดที่เป็นไปได้
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-zinc-100">
-              {rows.map((row) => (
-                <tr key={row.pageId}>
-                  <td className="max-w-[220px] truncate px-3 py-2 text-zinc-700" title={row.fileName}>
-                    {row.fileName}
-                  </td>
-                  <td className="px-3 py-2 tabular-nums text-zinc-600">{row.pageNo}</td>
-                  <td className="px-3 py-2 font-mono text-xs text-zinc-700">{row.trackingNo ?? "—"}</td>
-                  <td className="px-3 py-2 tabular-nums text-zinc-600">{row.zipcode ?? "—"}</td>
-                  <td className="px-3 py-2">
-                    <Badge tone={REVIEW_STATUS_TONE[row.status]}>{reviewRowStatusLabel(row)}</Badge>
-                  </td>
-                  <td className="px-3 py-2 text-zinc-600">
-                    {row.candidates.length > 0 ? row.candidates.map((c) => c.nameTh).join(", ") : "—"}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          <p className="border-t border-zinc-200 px-3 py-2 text-xs text-zinc-400">
-            อ่านอย่างเดียวในเฟสนี้ — เลือกจังหวัดเองรายแถวได้ในเฟสถัดไป
-          </p>
+        <div className="flex flex-col gap-2" role="list">
+          {rows.map((row) => (
+            <LabelReviewQueueRow
+              key={row.pageId}
+              row={row}
+              fileName={row.fileName}
+              orderSources={row.orderSources}
+              provinces={provinces}
+              canEdit={canEdit}
+              onResolved={handleResolved}
+            />
+          ))}
         </div>
       )}
     </section>

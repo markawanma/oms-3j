@@ -1,22 +1,23 @@
 import { Lock } from "lucide-react";
 import { getImportBatches } from "@/lib/actions/import-orders";
 import { getOrphanBacklog, type OrphanBacklog } from "@/lib/actions/import-line-items";
-import { getDevRole } from "@/lib/dev/context";
+import { getEffectiveRole } from "@/lib/auth/role";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { OrderImportClient } from "@/components/domain/crm/OrderImportClient";
 import { ImportBatchHistory } from "@/components/domain/crm/ImportBatchHistory";
 import { OrphanBacklogPanel } from "@/components/domain/crm/OrphanBacklogPanel";
+import { DeletedOrdersHistory } from "@/components/domain/crm/DeletedOrdersHistory";
 
 export const dynamic = "force-dynamic";
 
 // /crm/import (docs/3j-jewelry/analytics/phase-import-ui-design.md §3.3, D6):
 // upload -> preview -> confirm the monthly sales report (all channels in one
 // file, see D6 note below) that feeds fact_order/dim_customer. Owner/admin
-// only (D5) — same getDevRole() app-level gate as every other CRM page,
+// only (D5) — same getEffectiveRole() app-level gate as every other CRM page,
 // staff see an EmptyState instead of the form (not just a disabled button).
 export default async function CrmImportPage() {
-  if (getDevRole() === "staff") {
+  if ((await getEffectiveRole()) === "staff") {
     return (
       <EmptyState
         icon={Lock}
@@ -75,6 +76,18 @@ export default async function CrmImportPage() {
         ) : (
           <ImportBatchHistory initialRows={result.data} />
         )}
+      </div>
+
+      {/* Cancel-detection Phase 1 (design §6) — DeletedOrdersHistory never
+          throws (see its own file header), so rendering it directly here IS
+          the fail-soft handling: a data-load failure inside it just renders
+          an inline ErrorBanner, the rest of this page (uploader + history
+          above) stays fully usable either way. id= is the anchor target for
+          "ไปที่ประวัติการลบ" links in OrderImportClient/ImportBatchHistory's
+          TombstonedNotice. */}
+      <div id="deleted-orders-history">
+        <h2 className="mb-2 text-sm font-bold text-zinc-800">ประวัติการลบออเดอร์</h2>
+        <DeletedOrdersHistory />
       </div>
     </div>
   );

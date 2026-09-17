@@ -6,7 +6,7 @@
 // this component filters + exports client-side.
 
 import { useMemo, useState } from "react";
-import { Download, Users } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronsUpDown, Download, Users } from "lucide-react";
 import type { AudienceRow, ProductAffinity } from "@/lib/marketing/types";
 import { AUDIENCE_AFFINITY_LABEL_TH, AUDIENCE_SEGMENTS, audienceSegmentLabel } from "@/lib/marketing/types";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -22,6 +22,76 @@ function affinityFilterLabel(f: AffinityFilter): string {
 
 function fmtBaht(n: number): string {
   return `฿${Math.round(n).toLocaleString("en-US")}`;
+}
+
+/** คอลัมน์ที่กดเรียงได้ — เพิ่มคอลัมน์ใหม่ในอนาคตแค่เพิ่มใน union + SORT_COLUMNS */
+type SortKey = "orderCount" | "revenueSum" | "recencyDays";
+
+interface SortState {
+  key: SortKey;
+  /** ทิศเรียงของ "ค่าตัวเลขดิบ" ของคอลัมน์นั้น: 1 = น้อย→มาก, -1 = มาก→น้อย
+   * (ไม่ใช่ทิศของ "ความน่าสนใจ" — ดู initialDir ของ recencyDays ด้านล่าง) */
+  dir: 1 | -1;
+}
+
+/** ทิศที่กดครั้งแรก (สลับคอลัมน์) ของแต่ละคอลัมน์ — ออเดอร์/ยอดซื้อ มาก→น้อยคือคน
+ * น่าสนใจสุดก่อน (dir -1) ส่วนซื้อล่าสุด "คนน่าสนใจสุด" คือเพิ่งซื้อ = recencyDays
+ * น้อยสุดก่อน (dir 1) — เลขคนละความหมายกับสองคอลัมน์แรก ตั้งใจ ไม่ใช่พิมพ์ผิด */
+const SORT_COLUMNS: { key: SortKey; label: string; initialDir: 1 | -1 }[] = [
+  { key: "orderCount", label: "ออเดอร์", initialDir: -1 },
+  { key: "revenueSum", label: "ยอดซื้อ", initialDir: -1 },
+  { key: "recencyDays", label: "ซื้อล่าสุด", initialDir: 1 },
+];
+
+/** เปรียบเทียบสองแถวตาม sort ปัจจุบัน
+ *
+ * recencyDays ต้องเช็ค lastOrderAt ก่อนเชื่อค่าตัวเลข: ฝั่ง server
+ * (lib/actions/marketing.ts) ใช้ `Number(r.recency_days) || 0` แปลง
+ * recency_days ที่เป็น null (ลูกค้าที่ order_count=0 ไม่เคยมี last_order_at —
+ * ดู supabase/migrations/0120_crm_retention.sql B3) ให้กลายเป็น 0 ซึ่งหน้าตา
+ * เหมือน "ซื้อวันนี้" ทั้งที่จริงคือ "ไม่เคยซื้อเลย" ถ้าไม่กันจุดนี้ คนกลุ่มนี้จะ
+ * ลอยขึ้นหัวตารางตอนเรียง "ใหม่→เก่า" — ใช้ lastOrderAt เป็นตัวเช็คแทนเพราะ
+ * เป็น null คู่กับ recency_days เสมอ (เงื่อนไขเดียวกันจาก view) */
+function compareAudienceRows(a: AudienceRow, b: AudienceRow, sort: SortState): number {
+  if (sort.key === "recencyDays") {
+    const aMissing = a.lastOrderAt == null;
+    const bMissing = b.lastOrderAt == null;
+    if (aMissing !== bMissing) return aMissing ? 1 : -1; // ไม่มีข้อมูลจริง -> ท้ายตารางเสมอ ทั้งสองทิศ
+    if (!aMissing && !bMissing) {
+      const diff = (a.recencyDays - b.recencyDays) * sort.dir;
+      if (diff !== 0) return diff;
+    }
+    return a.customerId.localeCompare(b.customerId); // ลำดับรองคงที่ กันสลับไปมาทุก render
+  }
+  const diff = (a[sort.key] - b[sort.key]) * sort.dir;
+  if (diff !== 0) return diff;
+  return a.customerId.localeCompare(b.customerId);
+}
+
+function SortHeaderButton({
+  label,
+  active,
+  dir,
+  onClick,
+}: {
+  label: string;
+  active: boolean;
+  dir: 1 | -1;
+  onClick: () => void;
+}) {
+  const Icon = active ? (dir === -1 ? ArrowDown : ArrowUp) : ChevronsUpDown;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`-mx-1 inline-flex items-center gap-1 rounded px-1 py-0.5 hover:bg-zinc-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-primary-600 ${
+        active ? "text-zinc-800" : "text-zinc-500"
+      }`}
+    >
+      {label}
+      <Icon className={`h-3 w-3 shrink-0 ${active ? "text-zinc-700" : "text-zinc-300"}`} aria-hidden="true" />
+    </button>
+  );
 }
 
 /** CSV-escape one field (quote if it contains comma/quote/newline). */
@@ -59,6 +129,16 @@ function downloadCsv(rows: AudienceRow[], segment: string) {
 export function AudiencePageClient({ rows }: { rows: AudienceRow[] }) {
   const [segment, setSegment] = useState<string>("all");
   const [affinity, setAffinity] = useState<AffinityFilter>("all");
+  // ค่าเริ่มต้น: ยอดซื้อ มาก→น้อย (คนที่น่าสนใจที่สุดขึ้นก่อน) — เปลี่ยน filter ไม่รีเซ็ตค่านี้
+  const [sort, setSort] = useState<SortState>({ key: "revenueSum", dir: -1 });
+
+  function handleSort(key: SortKey) {
+    setSort((prev) => {
+      if (prev.key === key) return { key, dir: (prev.dir * -1) as 1 | -1 }; // กดซ้ำคอลัมน์เดิม -> สลับทิศ
+      const col = SORT_COLUMNS.find((c) => c.key === key)!;
+      return { key, dir: col.initialDir }; // สลับคอลัมน์ -> เริ่มที่ทิศ "น่าสนใจสุดก่อน" ของคอลัมน์นั้น
+    });
+  }
 
   // counts per segment (present in the data), preserving canonical order
   const counts = useMemo(() => {
@@ -76,6 +156,9 @@ export function AudiencePageClient({ rows }: { rows: AudienceRow[] }) {
   );
 
   const totalRevenue = useMemo(() => filtered.reduce((s, r) => s + r.revenueSum, 0), [filtered]);
+
+  // ลำดับที่เห็นบนตาราง + ที่ export CSV ต้องตรงกัน — ทั้งคู่อ่านจาก sorted
+  const sorted = useMemo(() => [...filtered].sort((a, b) => compareAudienceRows(a, b, sort)), [filtered, sort]);
 
   const segmentTabs = ["all", ...AUDIENCE_SEGMENTS.filter((s) => counts.has(s))];
 
@@ -137,12 +220,12 @@ export function AudiencePageClient({ rows }: { rows: AudienceRow[] }) {
           </p>
           <button
             type="button"
-            onClick={() => downloadCsv(filtered, segment)}
-            disabled={filtered.length === 0}
+            onClick={() => downloadCsv(sorted, segment)}
+            disabled={sorted.length === 0}
             className="inline-flex items-center gap-1.5 rounded-md border border-zinc-300 px-2.5 py-1.5 text-xs font-medium text-zinc-700 hover:bg-zinc-50 disabled:opacity-50"
           >
             <Download className="h-3.5 w-3.5" aria-hidden="true" />
-            ดาวน์โหลด CSV ({filtered.length})
+            ดาวน์โหลด CSV ({sorted.length})
           </button>
         </div>
 
@@ -154,13 +237,24 @@ export function AudiencePageClient({ rows }: { rows: AudienceRow[] }) {
                 <th className="py-2 pr-3">กลุ่ม</th>
                 <th className="py-2 pr-3">ช่องทาง</th>
                 <th className="py-2 pr-3">จังหวัด</th>
-                <th className="py-2 pr-3 text-right">ออเดอร์</th>
-                <th className="py-2 pr-3 text-right">ยอดซื้อ</th>
-                <th className="py-2 text-right">ซื้อล่าสุด</th>
+                {SORT_COLUMNS.map((col, i) => (
+                  <th
+                    key={col.key}
+                    className={`py-2 text-right ${i < SORT_COLUMNS.length - 1 ? "pr-3" : ""}`}
+                    aria-sort={sort.key === col.key ? (sort.dir === 1 ? "ascending" : "descending") : "none"}
+                  >
+                    <SortHeaderButton
+                      label={col.label}
+                      active={sort.key === col.key}
+                      dir={sort.key === col.key ? sort.dir : col.initialDir}
+                      onClick={() => handleSort(col.key)}
+                    />
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
-              {filtered.map((r) => (
+              {sorted.map((r) => (
                 <tr key={r.customerId} className="border-b border-zinc-100 last:border-0">
                   <td className="py-2 pr-3 font-medium text-zinc-800">{r.displayName}</td>
                   <td className="py-2 pr-3 text-zinc-500">{audienceSegmentLabel(r.segment)}</td>

@@ -17,6 +17,20 @@ export const SEGMENT_LABEL_TH: Record<RfmSegment, string> = {
   no_orders: "ยังไม่มีออเดอร์",
 };
 
+// Short labels for compact contexts (dashboard RFM card counts, /dashboard
+// trend-split legend + select — 0119) where SEGMENT_LABEL_TH's longer
+// descriptive text ("เสี่ยงหาย (เงียบ >90 วัน)") doesn't fit. Replaces the
+// dashboard page's old local `RFM_LABEL` map, which was missing `standard`
+// (bug: the RFM card rendered the raw key "standard" for that segment).
+export const SEGMENT_LABEL_SHORT_TH: Record<RfmSegment, string> = {
+  champion: "ชั้นดี",
+  loyal: "ประจำ",
+  new: "ใหม่",
+  standard: "ทั่วไป",
+  at_risk: "เสี่ยงหาย",
+  no_orders: "ยังไม่ซื้อ",
+};
+
 export const SEGMENT_DESC_TH: Record<RfmSegment, string> = {
   champion: "ซื้อใน 30 วัน · ≥4 ออเดอร์ · ยอด >฿1,500 — รักษาไว้/upsell",
   loyal: "ซื้อซ้ำ ≥2 ออเดอร์ ใน 90 วัน — ดันให้ขึ้นชั้นดี",

@@ -93,6 +93,32 @@ export function CrmDateRangeFilter({
     router.push(qs ? `${basePath}?${qs}` : basePath);
   }, [router, basePath, channelCode, allRange]);
 
+  // เจ้าของแจ้ง 10 ก.ย. 69 ว่า "ปุ่ม 7/30 วันกดไม่ได้" — ตรวจแล้วปุ่มทำงานถูก
+  // ทุกอย่าง (URL เปลี่ยน ตัวเลขเปลี่ยนจริง) ปัญหาคือ**กดปุ่มที่ดูอยู่แล้ว**
+  // ซึ่ง router.push ไป URL เดิม = no-op หน้าไม่ขยับ ดูเหมือนปุ่มเสีย
+  // และก่อนหน้านี้ไม่มีการแสดงสถานะ "เลือกอยู่" เลยสักนิด (กรอบแดงที่เห็นใน
+  // ภาพคือ focus ring หลังคลิก ไม่ใช่ active state) จึงไม่มีทางรู้ได้ว่า
+  // ปุ่มไหนคือช่วงที่กำลังดู
+  //
+  // เทียบด้วยสตริง "YYYY-MM-DD" ตรงๆ ได้ เพราะทั้ง from/to ที่รับเข้ามาและค่า
+  // ที่ปุ่มจะ push ผลิตจาก helper ชุดเดียวกัน (bangkokTodayISO/addDaysISO)
+  // รูปแบบเดียวกันเสมอ — ไม่ต้องแปลงเป็น Date ให้เสี่ยงเรื่อง timezone
+  const sevenFrom = addDaysISO(today, -6);
+  const thirtyFrom = addDaysISO(today, -29);
+  const monthFrom = firstDayOfThisMonthISO();
+  // "ทั้งหมด" active เมื่อดูช่วงเต็มของข้อมูลอยู่ — ฝั่งที่ส่ง allRange มา
+  // (เช่น /dashboard) เทียบกับ allRange, ฝั่งที่ไม่ส่งมาเทียบกับ minDate/maxDate
+  // ซึ่งเป็นค่า default ที่ page ใส่ให้เมื่อ URL ไม่มี from/to
+  const allFrom = allRange?.from ?? minDate;
+  const allTo = allRange?.to ?? maxDate;
+  const presets = [
+    { label: "ทั้งหมด", onClick: navigateAll, active: allFrom !== null && from === allFrom && to === allTo },
+    { label: "7 วันล่าสุด", onClick: () => navigate(sevenFrom, today), active: from === sevenFrom && to === today },
+    // ตรงกับ default ของ /dashboard — กลับมาหน้าเริ่มต้นด้วยคลิกเดียว
+    { label: "30 วันล่าสุด", onClick: () => navigate(thirtyFrom, today), active: from === thirtyFrom && to === today },
+    { label: "เดือนนี้", onClick: () => navigate(monthFrom, today), active: from === monthFrom && to === today },
+  ];
+
   return (
     <div className="flex flex-wrap items-end gap-2" role="group" aria-label="ช่วงวันที่">
       <label className="flex flex-col gap-1 text-xs font-semibold text-zinc-600">
@@ -120,36 +146,23 @@ export function CrmDateRangeFilter({
       {/* flex-wrap: 4 presets overflow a 360px viewport otherwise — the parent
           wraps but that doesn't let these wrap among themselves. */}
       <div className="ml-auto flex flex-wrap gap-1.5">
-        <button
-          type="button"
-          onClick={navigateAll}
-          className="min-h-11 rounded-full border border-zinc-300 px-3 text-sm font-semibold text-zinc-600 hover:border-primary-600 hover:text-primary-700"
-        >
-          ทั้งหมด
-        </button>
-        <button
-          type="button"
-          onClick={() => navigate(addDaysISO(today, -6), today)}
-          className="min-h-11 rounded-full border border-zinc-300 px-3 text-sm font-semibold text-zinc-600 hover:border-primary-600 hover:text-primary-700"
-        >
-          7 วันล่าสุด
-        </button>
-        {/* Matches /dashboard's landing default, so "back to the default view"
-            is one click instead of two date pickers. */}
-        <button
-          type="button"
-          onClick={() => navigate(addDaysISO(today, -29), today)}
-          className="min-h-11 rounded-full border border-zinc-300 px-3 text-sm font-semibold text-zinc-600 hover:border-primary-600 hover:text-primary-700"
-        >
-          30 วันล่าสุด
-        </button>
-        <button
-          type="button"
-          onClick={() => navigate(firstDayOfThisMonthISO(), today)}
-          className="min-h-11 rounded-full border border-zinc-300 px-3 text-sm font-semibold text-zinc-600 hover:border-primary-600 hover:text-primary-700"
-        >
-          เดือนนี้
-        </button>
+        {presets.map((p) => (
+          <button
+            key={p.label}
+            type="button"
+            onClick={p.onClick}
+            disabled={p.active}
+            aria-current={p.active ? "true" : undefined}
+            title={p.active ? "ดูช่วงนี้อยู่แล้ว" : undefined}
+            className={
+              p.active
+                ? "min-h-11 cursor-default rounded-full border border-primary-600 bg-primary-50 px-3 text-sm font-bold text-primary-700"
+                : "min-h-11 rounded-full border border-zinc-300 px-3 text-sm font-semibold text-zinc-600 hover:border-primary-600 hover:text-primary-700"
+            }
+          >
+            {p.active ? `✓ ${p.label}` : p.label}
+          </button>
+        ))}
       </div>
     </div>
   );
