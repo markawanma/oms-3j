@@ -1,6 +1,6 @@
 import { Lock } from "lucide-react";
 import { getSilverPriceHistory } from "@/lib/actions/silver-price-history";
-import { getDevRole } from "@/lib/dev/context";
+import { getEffectiveRole } from "@/lib/auth/role";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { SilverPriceHistorySection } from "@/components/domain/catalog/SilverPriceHistorySection";
@@ -19,7 +19,7 @@ export const dynamic = "force-dynamic"; // price history grows every capture —
 // (lib/actions/silver-price-history.ts — ด่านตัวจริง เพราะ action id หลุดไปกับ
 // client bundle เรียกตรงได้ไม่ว่า page จะ render อะไร)
 export default async function SilverPriceHistoryPage() {
-  if (getDevRole() === "staff") {
+  if ((await getEffectiveRole()) === "staff") {
     return (
       <EmptyState
         icon={Lock}

@@ -7,7 +7,7 @@
 
 import { useMemo, useState, useTransition } from "react";
 import type { FormEvent } from "react";
-import type { ProductRow } from "@/lib/catalog/types";
+import type { ProductPickerOption } from "@/lib/catalog/types";
 import type { HeroStockRow } from "@/lib/stock/types";
 import { addHeroWatch } from "@/lib/actions/hero-stock";
 import { Button } from "@/components/ui/Button";
@@ -20,7 +20,7 @@ export function HeroWatchForm({
   onDone,
   onCancel,
 }: {
-  products: ProductRow[];
+  products: ProductPickerOption[];
   existingRows: HeroStockRow[];
   initialProductId?: string;
   onDone: () => void;

@@ -1,6 +1,6 @@
 import { Lock } from "lucide-react";
 import { getQuote, getQuoteItems, getSellerProfile } from "@/lib/actions/oem";
-import { getDevRole } from "@/lib/dev/context";
+import { getEffectiveRole } from "@/lib/auth/role";
 import { toPrintableQuote } from "@/lib/oem/printableQuote";
 import { EMPTY_SELLER_PROFILE } from "@/lib/oem/sellerProfile";
 import { ErrorState } from "@/components/ui/ErrorState";
@@ -24,7 +24,7 @@ export const dynamic = "force-dynamic";
 // narrows full DB rows down to the print-safe shape — do not pass
 // quoteResult.data / itemsResult.data to PrintQuoteClient directly.
 export default async function OemQuotePrintPage({ params }: { params: Promise<{ id: string }> }) {
-  if (getDevRole() === "staff") {
+  if ((await getEffectiveRole()) === "staff") {
     return (
       <EmptyState
         icon={Lock}

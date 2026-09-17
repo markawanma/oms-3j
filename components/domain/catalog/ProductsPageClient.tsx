@@ -141,7 +141,7 @@ export function ProductsPageClient({
 
       {silverSpot == null && (
         <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
-          ยังไม่ได้ตั้งราคาเงินสปอต — SKU แบบอิงราคาเงิน (เงินแท่ง) จะยังคำนวณต้นทุนไม่ได้ ตั้งที่หน้า “ราคา &amp; มาร์จิ้น”
+          ยังไม่ได้ตั้งราคาเงินสปอต — SKU แบบอิงราคาเงิน (น้ำหนัก × ราคาเงิน × ความบริสุทธิ์) จะยังคำนวณต้นทุนไม่ได้ ตั้งที่หน้า “ราคา &amp; มาร์จิ้น”
         </p>
       )}
 

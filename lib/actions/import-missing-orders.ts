@@ -78,7 +78,8 @@
 
 import { revalidatePath } from "next/cache";
 import { getServiceClient } from "@/lib/supabase/server";
-import { getDevShopId, getDevRole } from "@/lib/dev/context";
+import { getDevShopId } from "@/lib/dev/context";
+import { getEffectiveRole } from "@/lib/auth/role";
 import type { ActionResult } from "@/lib/types";
 import {
   mapMissingOrdersRpcError,
@@ -101,8 +102,8 @@ const SCHEMA = "analytics";
 // (e.g. "เลือกได้สูงสุด N รายการ" copy) — the DB is the one enforcing it.
 const DELETE_IDS_MAX = 200;
 
-function requireOwnerAdmin(): ActionResult<never> | null {
-  if (getDevRole() === "staff") {
+async function requireOwnerAdmin(): Promise<ActionResult<never> | null> {
+  if ((await getEffectiveRole()) === "staff") {
     return { ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่ตรวจ/ลบ/กู้คืนออเดอร์ที่หายไปได้" };
   }
   return null;
@@ -206,7 +207,7 @@ function mapMissingOrdersResult(raw: Record<string, unknown>): MissingOrdersResu
 // ============================================================================
 
 export async function getMissingOrders(batchId: string): Promise<ActionResult<MissingOrdersResult>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   const cleanBatchId = batchId?.trim();
@@ -254,7 +255,7 @@ export async function getMissingOrders(batchId: string): Promise<ActionResult<Mi
 // ============================================================================
 
 export async function getMissingOrdersWriteStatus(): Promise<ActionResult<MissingOrdersWriteStatus>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   try {
@@ -294,7 +295,7 @@ export async function deleteMissingOrders(
   // import_delete_orders itself raises (detail='write_gate_closed') when
   // the DB flag is closed, caught below and mapped to Thai copy by
   // mapMissingOrdersRpcError, same as every other RPC precondition.
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   const cleanBatchId = batchId?.trim();
@@ -356,7 +357,7 @@ export async function deleteMissingOrders(
 const DELETED_ORDERS_HISTORY_LIMIT = 50;
 
 export async function getDeletedOrders(): Promise<ActionResult<DeletedOrderRow[]>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   try {
@@ -420,7 +421,7 @@ export async function restoreDeletedOrders(ids: string[]): Promise<ActionResult<
   // import_restore_orders itself raises (detail='write_gate_closed') when
   // the DB flag is closed, caught below and mapped to Thai copy by
   // mapMissingOrdersRpcError, same as every other RPC precondition.
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   const cleanIds = Array.from(new Set((ids ?? []).map((id) => id?.trim()).filter((id): id is string => Boolean(id))));
