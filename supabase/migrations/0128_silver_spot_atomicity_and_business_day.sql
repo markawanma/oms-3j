@@ -1,7 +1,10 @@
 -- 0128_silver_spot_atomicity_and_business_day.sql
--- ⚠️ NOT applied yet — Tech Lead dry-runs + applies separately via MCP
--- (supabase-migrate skill; 3j-migration-traps ข้อ 11: do-block + raise
--- บังคับ rollback, ตรวจ state ก่อน-หลังไม่ขยับ).
+-- ✅ APPLIED 17 ก.ย. 69 via MCP (version 20260917081220) — dry-run ผ่านครบ
+-- D1a/D1b / D2 / E1 / E1b (70.00004 ไม่นับเปลี่ยน) / D3 / D4a-c / E3+E4
+-- (as_of=วันไทย, shop_setting mirror=68) / E2 (ค่าเท่าเดิมผ่าน /oem/rates
+-- ยังได้ manual) / E5 (2 วันก่อน → oem ของวันนั้น 65.5996/sheet, วันนี้ไม่ขยับ)
+-- / D5 — รวม function-count check (3 signature เดิม ไม่มี overload หลุด) —
+-- rollback สะอาด ไม่มี state ค้าง.
 --
 -- code-reviewer ROUND 2 on 0127 (B1/S1/S3 confirmed closed — still Request
 -- Changes). 0127 is already applied to prod; its DDL is frozen (only a
