@@ -22,7 +22,8 @@
 
 import { revalidatePath } from "next/cache";
 import { getServiceClient } from "@/lib/supabase/server";
-import { getDevShopId, getDevRole } from "@/lib/dev/context";
+import { getDevShopId } from "@/lib/dev/context";
+import { getEffectiveRole } from "@/lib/auth/role";
 import type { ActionResult } from "@/lib/types";
 import {
   ImportParseError,
@@ -51,8 +52,8 @@ const STAGING_UPSERT_CHUNK_SIZE = 200;
 // always carries the true count regardless of how many findings are returned.
 const DIRTY_SKU_LIMIT = 200;
 
-function requireOwnerAdmin(): ActionResult<never> | null {
-  if (getDevRole() === "staff") {
+async function requireOwnerAdmin(): Promise<ActionResult<never> | null> {
+  if ((await getEffectiveRole()) === "staff") {
     return { ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่นำเข้ารายงานสินค้าในออเดอร์ได้" };
   }
   return null;
@@ -181,7 +182,7 @@ export interface LineImportPreview {
 }
 
 export async function previewLineImport(formData: FormData): Promise<ActionResult<LineImportPreview>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   const parseResult = await readAndParseFile(formData);
@@ -333,7 +334,7 @@ export interface LineImportCommitResult {
 }
 
 export async function commitLineImport(formData: FormData): Promise<ActionResult<LineImportCommitResult>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   const parseResult = await readAndParseFile(formData);
@@ -549,7 +550,7 @@ export interface LineImportWarningsResult {
 const WARNING_ROW_LIMIT = 1000;
 
 export async function getLineImportWarnings(batchId: string): Promise<ActionResult<LineImportWarningsResult>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
   if (!batchId) return { ok: false, error: "ไม่พบ batch ที่ต้องการดูคำเตือน" };
 
@@ -621,16 +622,23 @@ export async function getLineImportWarnings(batchId: string): Promise<ActionResu
 //
 // 🔴 STRICTLY READ-ONLY — never UPDATE/DELETE stg_order_line_import or
 // stg_import_batch here. The existing retry pipeline
-// (analytics.transform_pending_order_lines, 0041 phase 1) already
-// re-classifies an 'orphan' row automatically the next time ANY batch
-// touching its source_order_no is transformed — e.g. once the matching
-// order-report file lands. This action only REPORTS on that state; it must
-// never write to it, or a future edit here could silently break that
-// self-healing behavior.
+// (analytics.transform_pending_order_lines, 0041 phase 1, tombstone-aware
+// as of 0115) already re-classifies an 'orphan' row automatically the next
+// time ANY batch touching its source_order_no is transformed — e.g. once
+// the matching order-report file lands. This action only REPORTS on that
+// state; it must never write to it, or a future edit here could silently
+// break that self-healing behavior.
 //
-// batch_id -> stg_import_batch(imported_at) is a plain FK embed (0041:38-40
-// declares `batch_id uuid not null references analytics.stg_import_batch
-// (id)`) — no new migration/RPC/view needed (zero-migration constraint).
+// QA gate (12 ก.ย. 69, cancel-detection): reads analytics.
+// v_orphan_line_backlog (0115 section 4), NOT stg_order_line_import
+// directly — the view already excludes any row whose source_order_no
+// belongs to a currently-tombstoned (deliberately deleted, not restored)
+// order, so a cancelled order's stray line-item rows never show up here as
+// "unexplained missing data" regardless of how they ended up at 'orphan'.
+// The exclusion is a NOT EXISTS in the view, not a fetched-then-filtered
+// pass in TypeScript — this repo's own rule against pulling a whole table
+// to filter client-side. The view also flattens the batch_id -> stg_import_
+// batch(imported_at) FK embed into a plain `imported_at` column.
 // ============================================================================
 
 // OrphanOrderGroup itself is defined in lib/import/orphan-backlog.ts (the
@@ -646,9 +654,10 @@ export interface OrphanBacklog {
    * (lib/import/orphan-backlog.ts), same "never claim completeness on a
    * partial list" contract as getLineImportWarnings.totalCount above. */
   totalOrderCount: number;
-  /** True row count (analytics.stg_order_line_import rows with
-   * import_status='orphan'), from a separate exact count-only query — not
-   * derived from the (possibly capped) detail fetch used to build groups. */
+  /** True row count (analytics.v_orphan_line_backlog rows — import_status=
+   * 'orphan' AND not excluded by the tombstoned-source_order_no filter),
+   * from a separate exact count-only query — not derived from the (possibly
+   * capped) detail fetch used to build groups. */
   totalLineCount: number;
   /** true when (waiting.length + noSource.length) was capped at
    * ORPHAN_GROUP_CAP (50, combined) — totalOrderCount/totalLineCount stay
@@ -671,34 +680,33 @@ const ORPHAN_ROW_FETCH_LIMIT = 5000;
 
 interface OrphanRowFromDb {
   source_order_no: string | null;
-  // PostgREST embeds a to-one FK relation as an object; supabase-js's
-  // untyped client (no generated Database types in this project — same as
-  // every other query in this file) can't prove that at compile time, so
-  // this is typed defensively as either shape and narrowed below.
-  stg_import_batch: { imported_at: string } | { imported_at: string }[] | null;
+  // analytics.v_orphan_line_backlog (0115 section 4) exposes imported_at as
+  // a plain column, not a nested FK embed — no array-or-object ambiguity to
+  // narrow here, unlike a raw PostgREST embed.
+  imported_at: string | null;
 }
 
 export async function getOrphanBacklog(): Promise<ActionResult<OrphanBacklog>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();
 
+    // QA gate (12 ก.ย. 69): reads analytics.v_orphan_line_backlog, not
+    // stg_order_line_import directly — see this function's header comment.
     const [{ count: totalLineCount, error: countErr }, { data, error: dataErr }] = await Promise.all([
       supabase
         .schema(SCHEMA)
-        .from("stg_order_line_import")
+        .from("v_orphan_line_backlog")
         .select("id", { count: "exact", head: true })
-        .eq("shop_id", shopId)
-        .eq("import_status", "orphan"),
+        .eq("shop_id", shopId),
       supabase
         .schema(SCHEMA)
-        .from("stg_order_line_import")
-        .select("source_order_no, stg_import_batch(imported_at)")
+        .from("v_orphan_line_backlog")
+        .select("source_order_no, imported_at")
         .eq("shop_id", shopId)
-        .eq("import_status", "orphan")
         .limit(ORPHAN_ROW_FETCH_LIMIT),
     ]);
     if (countErr) throw countErr;
@@ -725,10 +733,10 @@ export async function getOrphanBacklog(): Promise<ActionResult<OrphanBacklog>> {
       // — a null here would mean an assumption about that proc broke.
       if (orderNo === null) continue;
 
-      const rel = row.stg_import_batch;
-      const importedAt = Array.isArray(rel) ? rel[0]?.imported_at : rel?.imported_at;
-      // Defensive: batch_id is NOT NULL + FK'd, so this should always
-      // resolve — skip rather than crash the whole action if it somehow doesn't.
+      const importedAt = row.imported_at;
+      // Defensive: batch_id is NOT NULL + FK'd (the view's own join), so
+      // this should always resolve — skip rather than crash the whole
+      // action if it somehow doesn't.
       if (!importedAt) continue;
 
       flatRows.push({ sourceOrderNo: orderNo, importedAt });

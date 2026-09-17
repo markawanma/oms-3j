@@ -29,7 +29,8 @@
 import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
 import { getServiceClient } from "@/lib/supabase/server";
-import { getDevShopId, getDevRole } from "@/lib/dev/context";
+import { getDevShopId } from "@/lib/dev/context";
+import { getEffectiveRole } from "@/lib/auth/role";
 import type { ActionResult } from "@/lib/types";
 import { BUCKET, MAX_BYTES, MAX_IMAGES_PER_SKU } from "@/lib/catalog/image-constants";
 import { extractJpegDimensions, looksLikeJpeg } from "@/lib/catalog/image-server";
@@ -38,8 +39,8 @@ import type { ProductImageRow } from "@/lib/catalog/types";
 
 const JPEG_CONTENT_TYPE = "image/jpeg";
 
-function requireOwnerAdmin(): ActionResult<never> | null {
-  if (getDevRole() === "staff") {
+async function requireOwnerAdmin(): Promise<ActionResult<never> | null> {
+  if ((await getEffectiveRole()) === "staff") {
     return { ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่จัดการรูปสินค้าได้" };
   }
   return null;
@@ -145,7 +146,7 @@ export interface UploadProductImageResult {
 }
 
 export async function uploadProductImage(fd: FormData): Promise<ActionResult<UploadProductImageResult>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   const productId = String(fd.get("productId") ?? "").trim();
@@ -306,7 +307,7 @@ export async function uploadProductImage(fd: FormData): Promise<ActionResult<Upl
 // ============================================================================
 
 export async function deleteProductImage(imageId: string): Promise<ActionResult<null>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   const cleanId = (imageId ?? "").trim();
@@ -361,7 +362,7 @@ export async function reorderProductImages(
   productId: string,
   imageIds: string[]
 ): Promise<ActionResult<null>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   const cleanProductId = (productId ?? "").trim();

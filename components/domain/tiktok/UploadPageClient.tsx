@@ -10,12 +10,18 @@ import type { LabelParseSummary } from "@/lib/labels/types";
 import { ACCEPTED_EXTENSIONS, MAX_FILE_SIZE_BYTES, formatFileSize } from "@/lib/labels/constants-ui";
 import { sha256Hex } from "@/lib/labels/sha256-client";
 import type { UploadQueueItem } from "@/lib/tiktok/types";
+import type { CrmProvinceOption } from "@/lib/crm/order-override";
 import { UploadDropzone } from "./UploadDropzone";
 import { UploadQueueList } from "./UploadQueueList";
 import { BatchSummaryCard } from "./BatchSummaryCard";
-import { ReviewQueueList } from "./ReviewQueueList";
 import { LabelFileHistory } from "./LabelFileHistory";
 import { PendingReviewQueue } from "./PendingReviewQueue";
+import { ProvinceFixPanel } from "./ProvinceFixPanel";
+
+// QA-1 fix (13 ก.ย. 69, R2-D2): "รอตรวจสอบ (N)" ที่นี่ใช้เป็น anchor เดียวไป
+// PendingReviewQueue ด้านล่าง — งานจัดการจริงเกิดที่นั่นที่เดียว (ดูเหตุผลเต็มที่
+// จุด render ด้านล่าง).
+const PENDING_REVIEW_QUEUE_ANCHOR_ID = "pending-review-queue";
 
 interface RejectedFile {
   id: string;
@@ -38,22 +44,31 @@ function messageFromError(err: unknown, fallback: string): string {
  * UploadPageClient — /tiktok/upload, REAL flow (docs/3j-jewelry/analytics/
  * design-label-upload.md §3/§8). Per file: validate → sha256 (crypto.subtle)
  * → createLabelUpload() → PUT to signed Storage URL (skipped when the file
- * already exists by hash) → parseLabelFile() → per-file summary + read-only
- * review table.
+ * already exists by hash) → parseLabelFile() → per-file summary + an
+ * interactive review queue (Phase A, design-label-teach-loop-yoda-11sep.md
+ * §5 A — resolve/ignore a page right there, not read-only anymore).
  *
- * lib/actions/labels.ts is still a STUB on this branch (throws — backend
- * lands on feat/label-upload-backend and gets merged separately) — every
- * action call below is wrapped in try/catch so that throw surfaces as the
- * exact same "failed" queue state + retry button a real network/server
- * error would, with no special-casing. There is deliberately no "(จำลอง)"
- * banner here anymore (design §8: no half-real/half-fake state) — a failed
- * item because the backend isn't wired yet is an honest error, not a mock.
+ * Every action call below is wrapped in try/catch so a thrown error surfaces
+ * as the same "failed" queue state + retry button a real network/server
+ * error would, with no special-casing.
  *
  * Files queue and process ONE AT A TIME (never parallel — design brief
  * "คิวไล่ทีละไฟล์ ไม่ยิง parse พร้อมกันหมด"), via pendingRef/processingRef
  * below rather than Promise.all.
+ *
+ * provinces/canEdit: fetched server-side in page.tsx (getCrmEditOptions() +
+ * getDevRole(), same pattern as app/(dashboard)/crm/customers/[id]/page.tsx)
+ * and threaded down to every Phase A interactive piece below (queue rows +
+ * ProvinceFixPanel) — avoids each one re-fetching the same 77-province
+ * reference list independently.
  */
-export function UploadPageClient() {
+export function UploadPageClient({
+  provinces,
+  canEdit,
+}: {
+  provinces: CrmProvinceOption[];
+  canEdit: boolean;
+}) {
   const toast = useToast();
   const [queue, setQueue] = useState<UploadQueueItem[]>([]);
   const [rejected, setRejected] = useState<RejectedFile[]>([]);
@@ -235,11 +250,30 @@ export function UploadPageClient() {
           <section key={item.id} aria-label={`สรุปผลอ่านไฟล์ ${item.fileName}`} className="space-y-2">
             <p className="text-xs font-bold tracking-wide text-zinc-400 uppercase">สรุป — {item.fileName}</p>
             <BatchSummaryCard summary={summary} />
+            {/* QA-1 fix (13 ก.ย. 69, R2-D2): เดิม section นี้ render
+                <ReviewQueueList> ที่มีปุ่มยืนยัน/ข้ามกดได้ตรงนี้ "ด้วย" — ขณะที่
+                bump reviewRefreshSignal ด้านล่าง (handleFilesSelected → parse
+                สำเร็จ) ทำให้ <PendingReviewQueue> โหลดหน้าเดียวกันจาก DB มา
+                render อีกชุด (คนละ state, คนละ component instance) กลายเป็น
+                "แถวรอตรวจ" 1 หน้าโผล่กดได้ 2 ที่พร้อมกัน — กดยืนยันที่นี่แล้ว
+                สำเนาใน PendingReviewQueue ยังค้างอยู่จนกว่าจะโหลดใหม่ กดซ้ำที่
+                สำเนานั้นเจอ error จาก RPC ("already resolved") ที่ดูเหมือนระบบพัง
+                ทั้งที่จริงสำเร็จไปแล้ว.
+
+                แก้ทางแคบสุด (ตามที่ QA เสนอ แทนที่จะทำ shared state ข้าม
+                component คนละ data source กัน — ของเดิมเป็น state คนละก้อน
+                จริง: rows ที่นี่มาจาก LabelParseSummary ของรอบอัปโหลดนี้ ส่วน
+                PendingReviewQueue query จาก stg_label_page ตรง ผูก callback
+                ร่วมกันเสี่ยง sync ผิดจังหวะมากกว่าคุ้ม): ที่นี่เหลือแค่ตัวเลข +
+                ลิงก์ไปที่เดียวที่กดได้จริงคือ PendingReviewQueue ด้านล่าง —
+                ReviewQueueList.tsx (ปุ่มกดตรงนี้) ถูกลบออกทั้งไฟล์ */}
             {summary.reviewRows.length > 0 && (
-              <>
-                <p className="mt-1 text-xs font-bold tracking-wide text-zinc-400 uppercase">รอตรวจสอบ ({summary.reviewRows.length})</p>
-                <ReviewQueueList rows={summary.reviewRows} />
-              </>
+              <p className="mt-1 text-xs text-zinc-500">
+                รอตรวจสอบ {summary.reviewRows.length} หน้า —{" "}
+                <a href={`#${PENDING_REVIEW_QUEUE_ANCHOR_ID}`} className="font-medium text-primary-700 underline underline-offset-2">
+                  จัดการในคิวรวมด้านล่าง
+                </a>
+              </p>
             )}
           </section>
         );
@@ -249,9 +283,16 @@ export function UploadPageClient() {
         <EmptyState icon={UploadCloud} title="ยังไม่มีไฟล์วันนี้" description="ลากไฟล์ใบปะหน้ามาวาง หรือกดเลือกไฟล์ด้านบน" />
       )}
 
-      <PendingReviewQueue refreshSignal={reviewRefreshSignal} />
+      <div id={PENDING_REVIEW_QUEUE_ANCHOR_ID}>
+        <PendingReviewQueue refreshSignal={reviewRefreshSignal} provinces={provinces} canEdit={canEdit} />
+      </div>
 
-      <LabelFileHistory />
+      <ProvinceFixPanel provinces={provinces} canEdit={canEdit} />
+
+      {/* "อ่านใหม่" ต่อไฟล์ (task brief 4 ก.ย. 69) — onReparsed bump signal
+          เดียวกับตอนไฟล์ใหม่ parse เสร็จ เพราะ parseLabelFile() ที่ปุ่มนี้เรียก
+          อาจเปลี่ยนคิวรอตรวจ (stg_label_page) ของไฟล์นั้นเหมือนกัน */}
+      <LabelFileHistory onReparsed={() => setReviewRefreshSignal((n) => n + 1)} />
     </div>
   );
 }

@@ -1,34 +1,23 @@
-import { listOrders, getPrioritySummary } from "@/lib/actions/orders";
-import { OrderDashboardClient } from "@/components/domain/OrderDashboardClient";
-import { ErrorState } from "@/components/ui/ErrorState";
+import { redirect } from "next/navigation";
 
-export const dynamic = "force-dynamic"; // always fresh — order queue changes constantly
-
-export default async function DashboardPage() {
-  let ordersResult;
-  let summaryResult;
-  try {
-    [ordersResult, summaryResult] = await Promise.all([
-      listOrders({ channel: "all", status: "all", search: "", cursor: null }),
-      getPrioritySummary(),
-    ]);
-  } catch (err) {
-    // getDevShopId() throws when DEV_SHOP_ID isn't configured — surface it
-    // as a clear setup error rather than a generic 500.
-    return (
-      <ErrorState message={err instanceof Error ? err.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"} />
-    );
-  }
-
-  if (!ordersResult.ok) {
-    return <ErrorState message={ordersResult.error} />;
-  }
-
-  return (
-    <OrderDashboardClient
-      initialOrders={ordersResult.data.rows}
-      initialCursor={ordersResult.data.nextCursor}
-      initialSummary={summaryResult.ok ? summaryResult.data : { newCount: 0, oversoldCount: 0, toShipCount: 0 }}
-    />
-  );
+// Home ("/") sends the owner straight to /dashboard (เจ้าของสั่ง 10 ก.ย. 69:
+// "อยากให้หน้า home เป็นหน้า dashboard แทนหน้าตอนนี้ที่เป็นออเดอร์ ไม่ได้ใช้").
+//
+// Why a redirect instead of moving the dashboard's code here: /dashboard is
+// referenced in five places that would all have to move in lockstep —
+// revalidatePath("/dashboard") in import-orders.ts + import-line-items.ts,
+// the post-login redirect in (auth)/login/actions.ts, and TWO basePath props
+// the date/channel filters use to rebuild their query-string URLs. Getting
+// any one of those wrong breaks silently (a filter that navigates to the
+// wrong route, or an import that no longer refreshes the numbers it just
+// changed). A redirect keeps /dashboard as the single canonical URL and
+// touches none of them.
+//
+// The order queue that used to live here moved to /orders — it reads
+// public.orders, which is still empty (all real sales land in
+// analytics.fact_order via the Shipnity import), so it renders a blank list
+// today. Kept rather than deleted: it is the OMS side of the app and will
+// have data once orders are written directly instead of imported.
+export default function HomePage() {
+  redirect("/dashboard");
 }

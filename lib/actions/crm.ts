@@ -25,7 +25,8 @@
 
 import { revalidatePath } from "next/cache";
 import { getServiceClient } from "@/lib/supabase/server";
-import { getDevShopId, getDevRole } from "@/lib/dev/context";
+import { getDevShopId } from "@/lib/dev/context";
+import { getEffectiveRole } from "@/lib/auth/role";
 import type { ActionResult } from "@/lib/types";
 import { RFM_SEGMENTS, type RfmSegment, type ValueTier } from "@/lib/crm/segments";
 import type { CrmChannelOption, CrmProvinceOption, OrderOverrideInput } from "@/lib/crm/order-override";
@@ -337,21 +338,70 @@ export interface CrmDimensionBucket {
  * absent when that group has zero customers. */
 export type CrmCustomerDimensions = Record<string, CrmDimensionBucket>;
 
+export interface GetCrmCustomerDimensionsParams {
+  /** "YYYY-MM-DD", inclusive — same silent-fallback validation contract as
+   * getCrmOverview's from/to (malformed/invalid value drops to "no bound",
+   * never 500s). Only changes WHO counts toward the `range` mode below —
+   * `all` is completely unaffected regardless of what's passed here (see
+   * migration 0110's header for why). */
+  from?: string | null;
+  to?: string | null;
+  /** analytics.dim_channel.code. Expected to be the SAME already-validated
+   * value getCrmOverview's `scope.requestedChannelCode` returned (the page's
+   * one filter bar drives both panels) — this function does not re-fetch
+   * dim_channel to re-validate it, so an unrecognized code here simply
+   * yields zero `range` members for every group (not an error, and NOT the
+   * "falls back to every channel" behavior getCrmOverview has), rather than
+   * silently matching a different channel. Only affects `range`, never
+   * `all`. */
+  channelCode?: string | null;
+}
+
 /** Province/channel histograms per RFM group for /crm/overview's charts +
- * segment multi-select. Aggregated ENTIRELY in SQL (analytics.
- * crm_customer_dimensions, migration 0056) and returned as one jsonb value —
- * the earlier two-.select()-and-merge-in-JS version silently under-counted
- * because PostgREST caps each select at 1000 rows (~3k customers → the two
- * capped sets intersected to ~333). Money-free (counts only). */
-export async function getCrmCustomerDimensions(): Promise<ActionResult<CrmCustomerDimensions>> {
+ * segment multi-select, in TWO modes returned side by side:
+ *   - `all`: every customer this shop has ever had — completely unaffected
+ *     by `from`/`to`/`channelCode` (the "ทั้งหมด" toggle).
+ *   - `range`: only customers with >=1 order inside [from,to] + channelCode
+ *     (the "ตามตัวกรองด้านบน" toggle) — same order-level channel match
+ *     crm_overview_summary/0043 already uses for its own p_channel_code.
+ * In BOTH modes, each counted customer's province / first-touch channel /
+ * RFM segment is their CURRENT (as-of-today) value, never recomputed for
+ * the window — the filter only changes WHO counts, never WHAT a counted
+ * customer's attributes are (architect's ruling; see migration 0110's
+ * header for the single-scan SQL that keeps this true by construction).
+ * Aggregated ENTIRELY in SQL (analytics.crm_customer_dimensions, migration
+ * 0110, superseding 0056's 1-arg version) in one scan and returned as one
+ * jsonb value — the original two-.select()-and-merge-in-JS version silently
+ * under-counted because PostgREST caps each select at 1000 rows (~3k
+ * customers → the two capped sets intersected to ~333). Money-free (counts
+ * only). */
+export async function getCrmCustomerDimensions(
+  params?: GetCrmCustomerDimensionsParams
+): Promise<ActionResult<{ all: CrmCustomerDimensions; range: CrmCustomerDimensions }>> {
+  const from = params?.from && isValidDateStr(params.from) ? params.from : null;
+  const to = params?.to && isValidDateStr(params.to) ? params.to : null;
+  const channelCode = params?.channelCode?.trim() || null;
+
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();
 
-    const { data, error } = await supabase.schema(SCHEMA).rpc("crm_customer_dimensions", { p_shop_id: shopId });
+    const { data, error } = await supabase.schema(SCHEMA).rpc("crm_customer_dimensions", {
+      p_shop_id: shopId,
+      p_from: from,
+      p_to: to,
+      p_channel_code: channelCode,
+    });
     if (error) throw error;
 
-    return { ok: true, data: (data ?? {}) as CrmCustomerDimensions };
+    const result = (data ?? {}) as { all?: CrmCustomerDimensions; range?: CrmCustomerDimensions };
+    return {
+      ok: true,
+      data: {
+        all: result.all ?? {},
+        range: result.range ?? {},
+      },
+    };
   } catch (err) {
     console.error("getCrmCustomerDimensions failed", err);
     return { ok: false, error: "โหลดข้อมูลมิติลูกค้าไม่สำเร็จ ลองใหม่อีกครั้ง" };
@@ -757,7 +807,7 @@ export async function getCrmCustomerDetail(customerId: string): Promise<ActionRe
     if (masterErr) throw masterErr;
     if (!master) return { ok: false, error: "ไม่พบลูกค้ารายนี้" };
 
-    const wantsPii = getDevRole() !== "staff";
+    const wantsPii = (await getEffectiveRole()) !== "staff";
 
     const [segmentRes, ltvRes, ordersRes, identitiesRes, channelsRes, geoRes, piiRes] = await Promise.all([
       supabase
@@ -949,7 +999,7 @@ export async function crmEditCustomerName(customerId: string, displayName: strin
 
   // note/name edits are open to owner+admin (matches crm_require_owner_admin
   // in migration 0021 — only "staff" is blocked).
-  if (getDevRole() === "staff") {
+  if ((await getEffectiveRole()) === "staff") {
     return { ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่แก้ไขได้" };
   }
 
@@ -993,7 +1043,7 @@ export async function crmEditPii(customerId: string, input: CrmEditPiiInput): Pr
   // PII is owner/admin only per design §2.7 — same gate crm_require_owner_admin
   // enforces server-side; getDevRole() has no separate "admin can't touch PII"
   // tier, so this is identical to the name/note gate above.
-  if (getDevRole() === "staff") {
+  if ((await getEffectiveRole()) === "staff") {
     return { ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่แก้ไขข้อมูลส่วนบุคคลได้" };
   }
 
@@ -1074,7 +1124,7 @@ export async function crmAddNote(customerId: string, body: string): Promise<Acti
   if (!customerId) return { ok: false, error: "ไม่พบรหัสลูกค้า" };
   const text = body.trim();
   if (!text) return { ok: false, error: "กรุณากรอกข้อความโน้ต" };
-  if (getDevRole() === "staff") {
+  if ((await getEffectiveRole()) === "staff") {
     return { ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่เพิ่มโน้ตได้" };
   }
 
@@ -1124,7 +1174,7 @@ export async function crmEditNote(noteId: string, customerId: string, body: stri
   if (!noteId || !customerId) return { ok: false, error: "ไม่พบรหัสโน้ตหรือลูกค้า" };
   const text = body.trim();
   if (!text) return { ok: false, error: "กรุณากรอกข้อความโน้ต" };
-  if (getDevRole() === "staff") {
+  if ((await getEffectiveRole()) === "staff") {
     return { ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่แก้โน้ตได้" };
   }
 
@@ -1148,7 +1198,7 @@ export async function crmEditNote(noteId: string, customerId: string, body: stri
 
 export async function crmDeleteNote(noteId: string, customerId: string): Promise<ActionResult> {
   if (!noteId || !customerId) return { ok: false, error: "ไม่พบรหัสโน้ตหรือลูกค้า" };
-  if (getDevRole() === "staff") {
+  if ((await getEffectiveRole()) === "staff") {
     return { ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่ลบโน้ตได้" };
   }
 
@@ -1193,7 +1243,7 @@ export interface CrmAuditRow {
  * the next chunk). */
 export async function getCrmCustomerAudit(customerId: string): Promise<ActionResult<CrmAuditRow[]>> {
   if (!customerId) return { ok: false, error: "ไม่พบรหัสลูกค้า" };
-  if (getDevRole() === "staff") {
+  if ((await getEffectiveRole()) === "staff") {
     return { ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่ดูประวัติการแก้ไขได้" };
   }
 
@@ -1327,6 +1377,14 @@ async function assertOrderInShop(
 export async function crmSetOrderOverride(
   factOrderId: string,
   customerId: string,
+  // 🔴 C2 fix (12 ก.ย. 69, security): province_code is REMOVED from
+  // analytics.crm_set_order_override's write whitelist (migration 0116,
+  // owner 11 ก.ย. decision #4 — province is now edited exclusively via
+  // setOrderProvince/resolveLabelPage, which write the raw
+  // fact_order.province_code directly). `OrderOverrideInput` (lib/crm/
+  // order-override.ts) no longer declares this field at all — narrowed in
+  // the same change that removed the field from OrderOverrideForm.tsx (13
+  // ก.ย. 69), once the UI and RPC branches merged.
   overrides: OrderOverrideInput,
   reason: string
 ): Promise<ActionResult> {
@@ -1335,7 +1393,7 @@ export async function crmSetOrderOverride(
   // Order edits are owner/admin only (matches crm_require_owner_admin in
   // migration 0021 — only "staff" is blocked), same gate as every other
   // write action in this file.
-  if (getDevRole() === "staff") {
+  if ((await getEffectiveRole()) === "staff") {
     return { ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่แก้ไขออเดอร์ได้" };
   }
 
@@ -1346,9 +1404,10 @@ export async function crmSetOrderOverride(
   // override some other edit set on a previous save. The caller (
   // OrderOverrideForm) is responsible for re-sending every field it wants to
   // KEEP overridden, not just the one the user changed this time.
+  // province_code is no longer a field on OrderOverrideInput at all (see
+  // param comment above) — nothing to strip here anymore.
   const payload: Record<string, unknown> = {};
   if (overrides.channel_id !== undefined) payload.channel_id = overrides.channel_id;
-  if (overrides.province_code !== undefined) payload.province_code = overrides.province_code;
   if (overrides.revenue !== undefined) payload.revenue = overrides.revenue;
   if (overrides.discount !== undefined) payload.discount = overrides.discount;
   if (overrides.order_date !== undefined) payload.order_date = overrides.order_date;
@@ -1383,7 +1442,7 @@ export async function crmSetOrderOverride(
 
 export async function crmClearOrderOverride(factOrderId: string, customerId: string): Promise<ActionResult> {
   if (!factOrderId || !customerId) return { ok: false, error: "ไม่พบรหัสออเดอร์หรือลูกค้า" };
-  if (getDevRole() === "staff") {
+  if ((await getEffectiveRole()) === "staff") {
     return { ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่คืนค่าออเดอร์ได้" };
   }
 
@@ -1481,7 +1540,7 @@ function rowToSide(row: Record<string, unknown>, prefix: "customer_a" | "custome
  * returns an empty list rather than an error, same "quietly hide, don't
  * scare with a permission error" pattern used elsewhere for role-gated UI. */
 export async function getCrmMergeCandidates(): Promise<ActionResult<CrmMergeCandidateRow[]>> {
-  if (getDevRole() === "staff") {
+  if ((await getEffectiveRole()) === "staff") {
     return { ok: true, data: [] };
   }
 
@@ -1520,7 +1579,7 @@ export async function crmMergeCustomer(survivorId: string, victimId: string): Pr
   // also verifies both customers belong to p_shop_id (tenant guard lives
   // server-side in crm_merge_customer per the handoff note), so p_shop_id
   // MUST come from getDevShopId() here, never from a client-supplied value.
-  if (getDevRole() === "staff") {
+  if ((await getEffectiveRole()) === "staff") {
     return { ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่รวมลูกค้าได้" };
   }
 
@@ -1545,7 +1604,7 @@ export async function crmMergeCustomer(survivorId: string, victimId: string): Pr
 
 export async function crmDismissMergeCandidate(customerAId: string, customerBId: string): Promise<ActionResult> {
   if (!customerAId || !customerBId) return { ok: false, error: "ไม่พบรหัสลูกค้า" };
-  if (getDevRole() === "staff") {
+  if ((await getEffectiveRole()) === "staff") {
     return { ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่ทำเครื่องหมายได้" };
   }
 

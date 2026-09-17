@@ -15,7 +15,8 @@
 
 import { revalidatePath } from "next/cache";
 import { getServiceClient } from "@/lib/supabase/server";
-import { getDevShopId, getDevRole } from "@/lib/dev/context";
+import { getDevShopId } from "@/lib/dev/context";
+import { getEffectiveRole } from "@/lib/auth/role";
 import type { ActionResult } from "@/lib/types";
 import type { CampaignBoardStep } from "@/lib/marketing/campaign-types";
 import { CAMPAIGN_BOARD_SELECT, mapCampaignBoardRow } from "@/lib/marketing/campaign-board-mapper";
@@ -41,8 +42,8 @@ function isValidTimeStr(s: string): boolean {
 
 // Not exported from marketing.ts (module-private there) — same gate, copied
 // rather than imported so this file has no dependency on that one.
-function requireOwnerAdmin(): ActionResult<never> | null {
-  if (getDevRole() === "staff") {
+async function requireOwnerAdmin(): Promise<ActionResult<never> | null> {
+  if ((await getEffectiveRole()) === "staff") {
     return { ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่ใช้งานส่วนการตลาดได้" };
   }
   return null;
@@ -62,7 +63,7 @@ export interface CampaignTemplateRow {
 /** Agenda/date-strip/month-overlay all read this — whole month in one call,
  * grouped per-day client-side (design §4: "ไม่ต้องมี view นับวัน"). */
 export async function getCalendarTasks(from: string, to: string): Promise<ActionResult<CampaignBoardStep[]>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   if (!isValidDateStr(from) || !isValidDateStr(to)) {
@@ -95,7 +96,7 @@ export async function getCalendarTasks(from: string, to: string): Promise<Action
  * content_body + clip_brief + provenance, gates). Not found -> data: null,
  * the page 404s on that. */
 export async function getCalendarTask(stepId: string): Promise<ActionResult<CampaignBoardStep | null>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   if (!stepId) return { ok: false, error: "ไม่พบรหัสงาน" };
@@ -124,7 +125,7 @@ export async function getCalendarTask(stepId: string): Promise<ActionResult<Camp
  * the "เลือกวันเริ่ม" dialog vs. plain "รับทราบ" (design §4/§6). Global
  * reference data — no shop_id filter. */
 export async function getCampaignTemplates(): Promise<ActionResult<CampaignTemplateRow[]>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   try {
@@ -167,7 +168,7 @@ export interface CreateTaskFromRecoInput {
  * existing campaign id rather than duplicating a five-step plan, so this is
  * safe to retry from the client. */
 export async function createTaskFromReco(input: CreateTaskFromRecoInput): Promise<ActionResult<string>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   const templateCode = input.templateCode?.trim();
@@ -212,7 +213,7 @@ export interface CreateManualTaskInput {
 
 /** R2 — "เพิ่มแผนเอง". Returns the new step_id. */
 export async function createManualTask(input: CreateManualTaskInput): Promise<ActionResult<string>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   const title = input.title?.trim();
@@ -267,7 +268,7 @@ export async function rescheduleTask(
   newDate: string,
   opts?: RescheduleTaskOpts
 ): Promise<ActionResult> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   if (!stepId) return { ok: false, error: "ไม่พบรหัสงาน" };
@@ -309,7 +310,7 @@ export async function setArtifactContent(
   artifactId: string,
   input: SetArtifactContentInput
 ): Promise<ActionResult> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   if (!artifactId) return { ok: false, error: "ไม่พบรายการ content" };
@@ -337,7 +338,7 @@ export async function setArtifactContent(
 /** R6 — tick one shot without overwriting the whole clip_brief blob (safe
  * against two quick taps racing each other). */
 export async function toggleClipShot(artifactId: string, shotId: string, done: boolean): Promise<ActionResult> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   if (!artifactId) return { ok: false, error: "ไม่พบรายการ content" };
@@ -364,7 +365,7 @@ export async function toggleClipShot(artifactId: string, shotId: string, done: b
  * campaigns only; template-plan steps raise 22023, mapped to a Thai message
  * by lib/marketing/calendar-errors.ts. */
 export async function deleteTask(stepId: string): Promise<ActionResult> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   if (!stepId) return { ok: false, error: "ไม่พบรหัสงาน" };

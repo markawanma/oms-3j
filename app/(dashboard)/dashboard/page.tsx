@@ -26,6 +26,8 @@ import { WeekdayChart } from "@/components/domain/dashboard/WeekdayChart";
 import { CrmDateRangeFilter } from "@/components/domain/crm/CrmDateRangeFilter";
 import { CrmChannelFilter } from "@/components/domain/crm/CrmChannelFilter";
 import { CHANNEL_COLOR } from "@/lib/dashboard/channel-colors";
+import { BUCKET_COLOR } from "@/lib/dashboard/split-colors";
+import { SEGMENT_LABEL_SHORT_TH, type RfmSegment } from "@/lib/crm/segments";
 import { formatTHBCompact, formatCount, formatThaiDateOnly, effectiveDateBangkok } from "@/lib/tiktok/format";
 import type { BadgeTone } from "@/components/ui/Badge";
 
@@ -40,17 +42,6 @@ function recoTone(severity: string): BadgeTone {
   if (severity === "medium") return "amber";
   return "slate";
 }
-
-const RFM_LABEL: Record<string, string> = { champion: "ชั้นดี", loyal: "ประจำ", new: "ใหม่", at_risk: "เสี่ยงหาย" };
-
-// Product-mix bucket colors (design §8 copy note: line-item revenue ≠ order
-// revenue — these buckets are "มูลค่าสินค้า", never labeled "ยอดขาย").
-const BUCKET_COLOR: Record<string, string> = {
-  silver_bar: "#a2191d", // primary-600
-  jewelry: "#d97706", // amber-600
-  art_toy: "#7c3aed", // violet-600
-  other: "#a1a1aa", // zinc-400
-};
 
 // The % is period-scoped (how many of THIS period's orders carry line items);
 // the date range is the global line-item data-availability window (why recent
@@ -257,7 +248,7 @@ export default async function DashboardPage({
           that without a separate gate here. */}
       {charts ? (
         <section className="space-y-2.5">
-          <TrendChart points={charts.salesTrend} />
+          <TrendChart points={charts.salesTrend} splits={charts.trendSplit} coverageNote={coverageNote(charts.coverage)} />
 
           <div className="grid grid-cols-1 gap-2.5 lg:grid-cols-2">
             <div>
@@ -352,7 +343,7 @@ export default async function DashboardPage({
                 ) : (
                   Object.entries(d.rfm).map(([seg, n]) => (
                     <span key={seg} className="text-zinc-600">
-                      {RFM_LABEL[seg] ?? seg} <span className="font-bold text-zinc-900">{n}</span>
+                      {SEGMENT_LABEL_SHORT_TH[seg as RfmSegment] ?? seg} <span className="font-bold text-zinc-900">{n}</span>
                     </span>
                   ))
                 )}

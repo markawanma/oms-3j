@@ -48,6 +48,21 @@ export interface ProductRow {
   primaryImageSmUrl: string | null;
 }
 
+/** Minimal product shape for pickers on routes that must NOT pull in cost/
+ * margin data — currently /stock/hero (security A2-lite C1: that route is
+ * exempt from the auth gate as a public wall-display screen with "no money/
+ * PII" per middleware.ts's exempt-route comment, so whatever it sends to the
+ * client is visible to anyone with the URL, no session required). Composed
+ * field-by-field from public.product in lib/actions/hero-stock.ts — NOT a
+ * subset produced by spreading ProductRow, so a future cost/margin field
+ * added to ProductRow can never leak here silently. */
+export interface ProductPickerOption {
+  productId: string;
+  sku: string;
+  name: string;
+  isActive: boolean;
+}
+
 export interface UpsertProductInput {
   sku: string;
   name: string;
@@ -183,14 +198,48 @@ export const COST_TYPE_LABEL_TH: Record<CostType, string> = {
 };
 
 /** Suggested categories (free text still allowed via the datalist). */
+/** Suggested categories (free text still allowed via the datalist).
+ *
+ * 🔴 หมวดไม่ใช่แค่ป้ายจัดกลุ่ม — มันตัดสินว่าสินค้าไปอยู่แท่งไหนใน "สัดส่วน
+ * ตามสินค้า" บนแดชบอร์ด ตรรกะอยู่ใน analytics.dashboard_charts (0054):
+ *     'เงินแท่ง'                                   -> silver_bar
+ *     'Art Toy เงิน'                               -> art_toy
+ *     'ทองจีน' | 'น้ำยาล้างเงิน' | 'กล่อง/บรรจุภัณฑ์'  -> other
+ *     null                                         -> other
+ *     ทุกอย่างที่เหลือ                                -> jewelry (เครื่องเงิน 925)
+ * ⇒ กล่อง/น้ำยา/ทองจีน ที่สะกดไม่ตรงสตริงพวกนี้ จะถูกนับเป็นเครื่องเงิน 925
+ *   ทำให้กราฟสัดส่วนสินค้าเพี้ยน สะกดต้องตรงเป๊ะ
+ *
+ * รายการนี้อัปเดต 10 ก.ย. 69 ให้ตรงกับหมวดที่ใช้จริงในฐานข้อมูล (21 หมวด,
+ * 303 SKU) — ของเดิมมีแค่ 8 หมวดและ **ไม่มีสักตัวที่ตรงกับ 4 สตริงพิเศษ
+ * ข้างบนเลย** นอกจาก 'เงินแท่ง' คนกรอกจึงไม่มีทางเลือกให้ถูกจาก dropdown
+ * ต้องเดาพิมพ์เอง (เจ้าของเจอเองตอนเพิ่ม SKU กล่อง BoxRR)
+ *
+ * เรียงตามกลุ่มเพื่อให้หาเจอเร็ว ไม่ได้เรียงตามความถี่ — ตัวที่ใช้บ่อยสุด
+ * (สร้อยคอ 184 SKU) อยู่บนสุดของกลุ่มแรกอยู่แล้ว */
 export const CATEGORY_OPTIONS = [
-  "แหวน",
+  // — เครื่องประดับ (นับเป็น jewelry / เครื่องเงิน 925) —
   "สร้อยคอ",
+  "สร้อยข้อมือ/กำไล",
   "สร้อยข้อมือ",
-  "กำไล",
-  "จี้",
+  "สร้อยข้อเท้า",
+  "แหวน",
   "ต่างหู",
+  "จี้",
+  "จี้อักษรมงคล",
+  "จี้ปี่เซียะ",
+  "เครื่องรางมงคล",
+  // — ขายตามน้ำหนัก (ยังนับเป็น jewelry) —
+  "Live (ตามกรัม)",
+  "จี้/โซ่ (ตามกรัม)",
+  // — ไม่ใช่เครื่องเงิน 925: แยกแท่งของตัวเองบนแดชบอร์ด —
   "เงินแท่ง",
+  "Art Toy เงิน",
+  // — ของใช้/บรรจุภัณฑ์: ตกแท่ง "อื่นๆ" ห้ามให้ปนกับเครื่องเงิน —
+  "กล่อง/บรรจุภัณฑ์",
+  "น้ำยาล้างเงิน",
+  "ทองจีน",
+  "น้ำหอม",
   "อื่นๆ",
 ] as const;
 
@@ -209,4 +258,76 @@ export function computeEffectiveCost(
   if (silverWeightG == null || silverSpot == null) return null;
   const raw = silverWeightG * silverSpot * (silverPurity ?? 0.925) + (laborCost ?? 0);
   return Math.round(raw * 100) / 100;
+}
+
+// ============================================================================
+// Silver spot price (shop_setting.silver_spot_thb_per_gram, 0028/0125) —
+// per-GRAM price of 999 silver, synced automatically from the shop's sheet
+// (analytics.silver_price_history via a DB trigger, 0125). Shared validation
+// between the /settings client form and the upsertShopSetting server action
+// so both reject the same "กรอกราคาต่อบาทผิดหน่วย" mistake that caused the
+// ฿1,097 bug (26 ส.ค. 69 — see 0125's migration header for the full story).
+// ============================================================================
+
+/** 1 บาท (Thai baht-weight unit) = this many grams — the constant the whole
+ * repo uses for silver/gold weight conversion (see 0125's migration header
+ * for the grep that confirmed this is the only such constant in the codebase;
+ * lib/oem/display.ts uses the rounded 15.24 for display text only). */
+export const GRAMS_PER_BAHT_WEIGHT = 15.244;
+
+/** No real per-gram silver/gold spot price gets anywhere near this — a price
+ * this high is almost certainly the PER-BAHT sheet figure (~1,000+) typed
+ * into the per-GRAM field by mistake (that mistake is exactly the ฿1,097 bug
+ * this constant exists to catch). Mirrors the DB-level gate in
+ * shop_setting_upsert AND the sync trigger silver_spot_sync_from_history
+ * (0126 — both use the SAME 5/500 bounds, change together) — those are the
+ * layers that are ALWAYS enforced (see memory "role-single-level"); this
+ * constant just lets the client fail fast with the same message instead of
+ * waiting on a round trip. */
+export const MAX_SILVER_SPOT_THB_PER_GRAM = 500;
+
+/** 0125 security review (H1/M2, 0126): no real per-gram silver/gold spot
+ * price has ever been this low — a price below this is sheet/unit noise
+ * (e.g. a stray near-zero cell), not a real quote. Also closes the "0 is
+ * technically >= 0" hole the original 0125 bound left open (0 isn't a valid
+ * price for anything with value). */
+export const MIN_SILVER_SPOT_THB_PER_GRAM = 5;
+
+/** Returns a Thai error message when `spot` is not a valid per-gram silver
+ * price, or null when it's valid (including null itself — "not provided" is
+ * always valid, callers that require a value check that separately). */
+export function silverSpotValidationError(spot: number | null): string | null {
+  if (spot == null) return null;
+  if (!(spot >= MIN_SILVER_SPOT_THB_PER_GRAM && spot <= MAX_SILVER_SPOT_THB_PER_GRAM)) {
+    return `ราคาเงินสปอตต้องอยู่ระหว่าง ${MIN_SILVER_SPOT_THB_PER_GRAM}–${MAX_SILVER_SPOT_THB_PER_GRAM} บาท/กรัม (ต่อกรัม ไม่ใช่ต่อบาท — 1 บาท = ${GRAMS_PER_BAHT_WEIGHT} กรัม)`;
+  }
+  return null;
+}
+
+/** True when `next` is an actual edit of `prev` — false for "same value,
+ * floating-point noise aside" and for "cleared back to empty" (clearing the
+ * field is never treated as a manual value — see upsertShopSetting/RPC,
+ * which coalesces null into "leave the existing value alone", so there is no
+ * client-reachable way to blank silverSpotThbPerGram once it's set).
+ *
+ * Why this exists (0127 code review, B1): SettingsForm.tsx prefills the spot
+ * input with the shop's current silverSpotThbPerGram and resubmits it on
+ * EVERY save — including a save that only changed the margin field. Before
+ * this check, that resubmit reached analytics.shop_setting_upsert with a
+ * non-null value every time, and the RPC (0126) treated "a value is present"
+ * as "the owner typed this", writing a manual oem_metal_price row that
+ * silently locked BOTH shop_setting and oem_metal_price out of the day's
+ * sheet sync (see silver_spot_sync_from_history's manual-guard, 0125/0126).
+ *
+ * This is a CONVENIENCE check only — it cuts how often a no-op write reaches
+ * the RPC, not the actual gate. The real gate is server-side, in
+ * shop_setting_upsert itself (0127), which re-derives "did this actually
+ * change" from the row's current value rather than trusting the caller —
+ * required because the RPC can't assume every caller ran this helper first
+ * (memory "role-single-level": a rule that must hold goes in the DB, not the
+ * button). */
+export function spotChanged(next: number | null, prev: number | null): boolean {
+  if (next == null) return false;
+  if (prev == null) return true;
+  return Math.abs(next - prev) > 1e-9;
 }

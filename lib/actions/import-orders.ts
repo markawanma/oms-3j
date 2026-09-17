@@ -13,7 +13,8 @@
 
 import { revalidatePath } from "next/cache";
 import { getServiceClient } from "@/lib/supabase/server";
-import { getDevShopId, getDevRole } from "@/lib/dev/context";
+import { getDevShopId } from "@/lib/dev/context";
+import { getEffectiveRole } from "@/lib/auth/role";
 import type { ActionResult } from "@/lib/types";
 import {
   ImportParseError,
@@ -37,8 +38,8 @@ const MAX_FILE_MB = 4;
 const DEDUP_CHECK_CHUNK_SIZE = 200;
 const STAGING_UPSERT_CHUNK_SIZE = 200;
 
-function requireOwnerAdmin(): ActionResult<never> | null {
-  if (getDevRole() === "staff") {
+async function requireOwnerAdmin(): Promise<ActionResult<never> | null> {
+  if ((await getEffectiveRole()) === "staff") {
     return { ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่นำเข้ารายงานยอดขายได้" };
   }
   return null;
@@ -126,7 +127,7 @@ export interface ImportPreview {
 }
 
 export async function previewOrderImport(formData: FormData): Promise<ActionResult<ImportPreview>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   const parseResult = await readAndParseFile(formData);
@@ -236,10 +237,19 @@ export interface ImportCommitResult {
   inserted: number;
   transformed: number;
   errored: number;
+  /** Cancel-detection Phase 1 (0114): rows in THIS batch that transform_
+   * pending_orders skipped because their source_order_no has an active
+   * tombstone (analytics.fact_order_deleted, restored_at is null) — the
+   * owner deliberately deleted this order before, and this file tried to
+   * bring it back. Not counted in `transformed` or `errored` (it's neither
+   * a success nor a failure, a distinct outcome) — additive field, existing
+   * callers reading only batchId/inserted/transformed/errored are
+   * unaffected. UI surfaces this as "ข้าม N ใบที่เคยลบ" per design §5. */
+  tombstoned: number;
 }
 
 export async function commitOrderImport(formData: FormData): Promise<ActionResult<ImportCommitResult>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   const parseResult = await readAndParseFile(formData);
@@ -309,6 +319,23 @@ export async function commitOrderImport(formData: FormData): Promise<ActionResul
         file_hash: parsed.fileHash,
         period_hint: parsed.periodHint,
         row_count_parsed: parsed.rowCountParsed,
+        // H-2 (security review 12 ก.ย. 69): persist how many parsed rows
+        // never made it into staging (blank source_order_no — see
+        // order-report.ts's skippedRowNos) so 0113's missing-orders
+        // detection can refuse to run on a batch it can't fully account
+        // for, instead of silently treating a parse casualty as a
+        // cancellation candidate.
+        //
+        // 🔴 DEPLOY ORDER (M-c, 12 ก.ย. 69): this column is added by
+        // migration 0112 — deploying THIS CODE before 0112 is applied makes
+        // EVERY order import fail outright (not just a cancel-detection
+        // regression: the whole existing import feature breaks, since this
+        // insert is unconditional on every batch). Full required order is
+        // 0116 (a different branch, feature/label-review-resolve) → 0112 →
+        // 0113 → 0114 → 0115 → THEN this code. See 0112's own header for
+        // the full explanation (including why 0116 comes first, reversing
+        // the usual "lower migration number first" assumption).
+        row_count_skipped: parsed.skippedRowNos.length,
         status: "loaded",
       })
       .select("id")
@@ -374,6 +401,28 @@ export async function commitOrderImport(formData: FormData): Promise<ActionResul
       .eq("id", batchId);
     if (updStatusErr) throw updStatusErr;
 
+    // 7. cancel-detection Phase 1 (0114): count rows this batch's transform
+    // skipped as tombstoned (order re-appeared after a deliberate delete).
+    // transform_pending_orders' own RETURNS TABLE shape is untouched (still
+    // just transformed_count/errored_count) — tombstoned isn't a success or
+    // a failure, so it's counted separately here rather than overloading
+    // either existing number. Best-effort: a failure here must not fail the
+    // whole import (the transform itself already committed successfully).
+    let tombstonedCount = 0;
+    try {
+      const { count, error: tombstonedErr } = await supabase
+        .schema(SCHEMA)
+        .from("stg_order_import")
+        .select("id", { count: "exact", head: true })
+        .eq("shop_id", shopId)
+        .eq("batch_id", batchId)
+        .eq("import_status", "tombstoned");
+      if (tombstonedErr) throw tombstonedErr;
+      tombstonedCount = count ?? 0;
+    } catch (tombstonedCountErr) {
+      console.error("commitOrderImport: failed to count tombstoned rows", tombstonedCountErr);
+    }
+
     revalidatePath("/crm/import");
     revalidatePath("/crm/overview");
     revalidatePath("/crm/orders");
@@ -388,6 +437,7 @@ export async function commitOrderImport(formData: FormData): Promise<ActionResul
         inserted: upsertedCount,
         transformed: Number(result.transformed_count) || 0,
         errored: Number(result.errored_count) || 0,
+        tombstoned: tombstonedCount,
       },
     };
   } catch (err) {
@@ -448,7 +498,7 @@ const BATCH_STATUSES = ["loaded", "merged", "transformed", "failed"] as const;
 const BATCH_SOURCE_TYPES = [SOURCE_TYPE, LINE_ITEM_SOURCE_TYPE] as const;
 
 export async function getImportBatches(): Promise<ActionResult<ImportBatchRow[]>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   try {
@@ -554,7 +604,7 @@ export async function getImportBatches(): Promise<ActionResult<ImportBatchRow[]>
 // ============================================================================
 
 export async function deleteStuckBatch(batchId: string): Promise<ActionResult<null>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   const cleanId = batchId?.trim();

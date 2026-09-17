@@ -1,0 +1,143 @@
+-- 0124_public_no_rest_for_users.sql — A2-lite (security review 2026-09-16,
+-- H5). See docs/3j-jewelry/analytics/phase-auth-pii-hardening-design.md and
+-- the owner decision log, 16 ก.ย. 69.
+-- ✅ APPLIED 16 ก.ย. 69 via MCP apply_migration version 20260916145354 · verify หลัง apply: grants anon/authenticated บน public = 0 · defacl(postgres) tables public = postgres+service_role · curl user→product(unit_cost)/shop_member = 403 · shop_catalog ยังไม่มี (0009 ไม่เคย apply) grant ข้ามตาม do-block
+--
+-- ⚠️ MUST be applied in the SAME deploy window as, and immediately AFTER,
+-- 0122_shop_member_select_only.sql then 0123_analytics_no_rest_for_users.sql
+-- — apply order is 0122 -> 0123 -> 0124, never split, never out of order.
+-- Reasoning: 0122 fixes shop_member's self-referencing RLS policy (42P17
+-- infinite recursion). Every RLS policy in the `public` schema (0002_rls.sql)
+-- ALSO subqueries shop_member the same way `analytics`'s policies do — so
+-- the instant 0122 lands, every public.* policy that was unconditionally
+-- erroring starts resolving too. Supabase grants `authenticated` SELECT on
+-- public-schema tables by default (same class of default grant that made
+-- 0123 necessary for `analytics`), so without this file an approved user's
+-- JWT would be able to read `public.product.unit_cost`,
+-- `public.order`/`order_item` (customer PII, order totals), and
+-- `public.central_stock` directly over PostgREST the moment 0122 is live —
+-- a NEW, real leak, not the accidental-block 0122/0123 fixed.
+--
+-- Grepped this codebase (2026-09-16, security review brief) for every
+-- consumer of an anon/user-session Supabase client against `public`:
+--   - lib/supabase/public.ts's getPublicClient() (anon key) is used
+--     EXCLUSIVELY by lib/actions/shop-catalog.ts, which queries ONLY
+--     public.shop_catalog (the view 0009_public_catalog.sql already built
+--     and granted `select` to anon+authenticated specifically as the public
+--     storefront's security boundary — see that file's header).
+--   - lib/supabase/server.ts's getUserClient() (used by
+--     app/(auth)/login/actions.ts, app/(auth)/register/actions.ts,
+--     lib/actions/auth.ts, lib/auth/session.ts) is ONLY ever called for
+--     Supabase Auth methods (signInWithPassword/signUp/getUser/signOut) —
+--     never `.from(...)` against any table.
+--   - No "use client" component anywhere under app/ imports
+--     @supabase/supabase-js or reads NEXT_PUBLIC_SUPABASE_* directly.
+-- Conclusion: public.shop_catalog is the ONLY public-schema object any
+-- anon/authenticated-role caller needs. Everything else in this schema
+-- should never have been reachable via REST for those roles in the first
+-- place — RLS (0002) was supposed to be the backstop, but default-deny-by-
+-- privilege is strictly safer than default-deny-by-policy-that-turned-out-
+-- to-be-broken (which is exactly what happened here).
+--
+-- ⚠️ Does NOT touch schema `public`'s FUNCTIONS/RPCs (e.g. auth_shop_ids(),
+-- reserve_stock/commit_stock/release_stock/adjust_stock) — those are
+-- SECURITY DEFINER, already individually revoked+re-granted per
+-- 3j-migration-traps skill #2/supabase-migrate skill gotcha #1, and several
+-- are load-bearing for legitimate authenticated-role RPC calls. Revoking
+-- table/sequence access does not affect function EXECUTE privileges.
+
+revoke all on all tables in schema public from anon, authenticated;
+revoke all on all sequences in schema public from anon, authenticated;
+
+-- Grant back ONLY what the public storefront genuinely needs. If a future
+-- change needs a second public-schema object reachable by anon/authenticated,
+-- add it here explicitly, by name, with a one-line reason — never re-widen
+-- with an `all tables` grant.
+-- 16 ก.ย. 69: public.shop_catalog ยังไม่มีจริง (0009 ไม่เคย apply — placeholder shop_id) ⇒ grant แบบมีเงื่อนไข
+-- ตอน apply 0009 ในอนาคต ไฟล์นั้นต้อง grant select ให้ anon/authenticated เอง (default privileges ถูกปิดแล้วที่นี่)
+do $$
+begin
+  if to_regclass('public.shop_catalog') is not null then
+    grant select on public.shop_catalog to anon, authenticated;
+  else
+    raise notice '0124: public.shop_catalog not present (0009 not applied) — grant skipped';
+  end if;
+end $$;
+
+-- Supabase's project-setup migrations run `alter default privileges` as the
+-- `postgres` role, which is why fresh tables in `public` silently inherit a
+-- SELECT grant for `authenticated` (the same mechanism 0018_analytics_grants.sql
+-- deliberately USES for schema `analytics`, §"future objects... inherit the
+-- same grants" — here we want the opposite default for `public`). Without
+-- this, the very next `create table` in `public` re-opens this hole.
+alter default privileges for role postgres in schema public revoke all on tables from anon, authenticated;
+
+-- ============================================================================
+-- VERIFICATION — do NOT run any of this as part of applying the migration.
+-- ============================================================================
+--
+-- 0. BEFORE applying, confirm where the default ACL actually lives (the
+--    `alter default privileges` above assumes role `postgres` — if this
+--    query shows a different defacl owner, adjust the `for role` clause to
+--    match before applying):
+--      select defaclnamespace::regnamespace as schema,
+--             (select rolname from pg_roles where oid = defaclrole) as owner_role,
+--             defaclobjtype, defaclacl
+--      from pg_default_acl
+--      where defaclnamespace = 'public'::regnamespace;
+--
+-- 1. AFTER applying 0122 + 0123 + 0124, confirm from OUTSIDE the DB with a
+--    real approved user's JWT (Tech Lead runs these four, not this file):
+--
+--   curl -s -o /dev/null -w '%{http_code}\n' \
+--     'https://<project-ref>.supabase.co/rest/v1/fact_order?select=*&limit=1' \
+--     -H 'apikey: <anon key>' -H 'Authorization: Bearer <authenticated JWT>' \
+--     -H 'Accept-Profile: analytics'
+--   # expect 401/403 — NOT 200 with rows.
+--
+--   curl -s -o /dev/null -w '%{http_code}\n' \
+--     'https://<project-ref>.supabase.co/rest/v1/v_dim_product?select=unit_cost&limit=1' \
+--     -H 'apikey: <anon key>' -H 'Authorization: Bearer <authenticated JWT>' \
+--     -H 'Accept-Profile: analytics'
+--   # expect 401/403 — NOT 200 with rows.
+--
+--   curl -s -o /dev/null -w '%{http_code}\n' \
+--     'https://<project-ref>.supabase.co/rest/v1/product?select=unit_cost&limit=1' \
+--     -H 'apikey: <anon key>' -H 'Authorization: Bearer <authenticated JWT>'
+--   # expect 401/403 — NOT 200 with rows.
+--
+--   curl -s -o /dev/null -w '%{http_code}\n' \
+--     'https://<project-ref>.supabase.co/rest/v1/shop_catalog?select=*&limit=1' \
+--     -H 'apikey: <anon key>'
+--   # expect 200 with rows — the public storefront must keep working.
+--
+-- 2. In-DB dry-run (do-block + raise, 3j-migration-traps skill #11 — rolls
+--    back automatically, never commits):
+-- do $$
+-- declare
+--   v_log text := E'\n=== 0124 dry-run ===\n';
+--   v_grant_count int;
+--   v_catalog_grant_count int;
+-- begin
+--   select count(*) into v_grant_count
+--   from information_schema.role_table_grants
+--   where table_schema = 'public' and grantee in ('anon', 'authenticated')
+--     and table_name <> 'shop_catalog';
+--   if v_grant_count = 0 then
+--     v_log := v_log || 'T1 zero non-shop_catalog grants remain for anon+authenticated: OK' || E'\n';
+--   else
+--     v_log := v_log || format('T1 FAIL — %s grant(s) remain outside shop_catalog', v_grant_count) || E'\n';
+--   end if;
+--
+--   select count(*) into v_catalog_grant_count
+--   from information_schema.role_table_grants
+--   where table_schema = 'public' and table_name = 'shop_catalog'
+--     and grantee in ('anon', 'authenticated') and privilege_type = 'SELECT';
+--   if v_catalog_grant_count = 2 then
+--     v_log := v_log || 'T2 shop_catalog SELECT still granted to both anon and authenticated: OK' || E'\n';
+--   else
+--     v_log := v_log || format('T2 FAIL — expected 2 shop_catalog grants, got %s', v_catalog_grant_count) || E'\n';
+--   end if;
+--
+--   raise exception '%', v_log;
+-- end $$;

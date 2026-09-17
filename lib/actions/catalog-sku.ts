@@ -21,7 +21,8 @@
 
 import { revalidatePath } from "next/cache";
 import { getServiceClient } from "@/lib/supabase/server";
-import { getDevShopId, getDevRole } from "@/lib/dev/context";
+import { getDevShopId } from "@/lib/dev/context";
+import { getEffectiveRole } from "@/lib/auth/role";
 import type { ActionResult } from "@/lib/types";
 import type { CreateCatalogSkuInput, SkuPrefixRow, SkuWorkType, UpsertSkuPrefixInput } from "@/lib/catalog/sku-prefix";
 import { humanizeSkuRpcError, isValidSkuPrefix, SKU_CONTROLLED_ERROR_CODES } from "@/lib/catalog/sku-prefix";
@@ -33,8 +34,8 @@ const SCHEMA = "analytics";
 // the optional trailing dash, which the DB check constraint also allows).
 const PREFIX_FORMAT_ERROR = "prefix ต้องเป็นตัวอักษร A-Z (พิมพ์ใหญ่) 1-5 ตัว ปิดท้ายด้วย - ได้หนึ่งตัว ไม่มีช่องว่าง";
 
-function requireOwnerAdmin(): ActionResult<never> | null {
-  if (getDevRole() === "staff") {
+async function requireOwnerAdmin(): Promise<ActionResult<never> | null> {
+  if ((await getEffectiveRole()) === "staff") {
     return { ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่แก้ไข prefix/สินค้าได้" };
   }
   return null;
@@ -158,7 +159,7 @@ export async function previewSkuSeed({
   // seed BEFORE upsertSkuPrefix (also gated below), so a staff user could
   // otherwise see a live preview for a save that will always be rejected —
   // confusing UI, no real access opened up.
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   // 0089: the RPC rejects lowercase/whitespace/Thai OUTRIGHT (no silent
@@ -202,7 +203,7 @@ export async function previewSkuSeed({
 // ทดสอบบน DB จริงแล้ว) — the edit path (p_id มีค่า) has DB-level tests but no
 // UI exercising it yet; test by hand before building an "แก้ไข" button.
 export async function upsertSkuPrefix(input: UpsertSkuPrefixInput): Promise<ActionResult<{ id: string }>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   const kindLabel = input.kindLabel?.trim();
@@ -269,7 +270,7 @@ export async function upsertSkuPrefix(input: UpsertSkuPrefixInput): Promise<Acti
 // ============================================================================
 
 export async function createCatalogSku(input: CreateCatalogSkuInput): Promise<ActionResult<{ productId: string; sku: string }>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   const prefixId = input.prefixId?.trim();
@@ -337,7 +338,7 @@ export async function createCatalogSku(input: CreateCatalogSkuInput): Promise<Ac
 // ============================================================================
 
 export async function deleteSkuPrefix({ id }: { id: string }): Promise<ActionResult> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   const clean = id?.trim();

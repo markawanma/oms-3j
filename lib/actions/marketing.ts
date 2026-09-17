@@ -21,7 +21,8 @@
 
 import { revalidatePath } from "next/cache";
 import { getServiceClient } from "@/lib/supabase/server";
-import { getDevShopId, getDevRole } from "@/lib/dev/context";
+import { getDevShopId } from "@/lib/dev/context";
+import { getEffectiveRole } from "@/lib/auth/role";
 import type { ActionResult } from "@/lib/types";
 import type {
   AddPromoAttributionInput,
@@ -52,8 +53,8 @@ function isValidDateStr(s: string): boolean {
   return !Number.isNaN(d.getTime());
 }
 
-function requireOwnerAdmin(): ActionResult<never> | null {
-  if (getDevRole() === "staff") {
+async function requireOwnerAdmin(): Promise<ActionResult<never> | null> {
+  if ((await getEffectiveRole()) === "staff") {
     return { ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่ใช้งานส่วนการตลาดได้" };
   }
   return null;
@@ -178,7 +179,7 @@ export async function getAdSpendWeekly(): Promise<ActionResult<MktAdSpendWeeklyR
 export async function upsertAdSpend(
   input: UpsertAdSpendInput
 ): Promise<ActionResult<{ daysWritten: number; amountPerDay: number }>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   if (!input.channelId) return { ok: false, error: "กรุณาเลือกช่องทาง" };
@@ -244,7 +245,7 @@ export async function upsertAdSpend(
 // ============================================================================
 
 export async function getMarketingReco(): Promise<ActionResult<MktRecoRow[]>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   try {
@@ -336,7 +337,7 @@ export interface GetAudienceResult {
 }
 
 export async function getAudience(segment?: string): Promise<ActionResult<GetAudienceResult>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   try {
@@ -422,7 +423,7 @@ export async function getAudience(segment?: string): Promise<ActionResult<GetAud
 // ============================================================================
 
 export async function getCampaignCalendar(): Promise<ActionResult<CampaignEvent[]>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   try {
@@ -494,7 +495,7 @@ export async function getPromoAttribution(): Promise<
     auto: PromoAttributionAuto[];
   }>
 > {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   try {
@@ -613,7 +614,7 @@ export async function getPromoAttribution(): Promise<
 }
 
 export async function addPromoAttribution(input: AddPromoAttributionInput): Promise<ActionResult<string>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   const code = input.code.trim();
@@ -649,7 +650,7 @@ export async function addPromoAttribution(input: AddPromoAttributionInput): Prom
 }
 
 export async function deletePromoAttribution(id: string): Promise<ActionResult> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   if (!id) return { ok: false, error: "ไม่พบรายการที่จะลบ" };
@@ -673,7 +674,7 @@ export async function deletePromoAttribution(id: string): Promise<ActionResult> 
 }
 
 export async function decideReco(input: DecideRecoInput): Promise<ActionResult> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   if (!input.recoKey) return { ok: false, error: "ไม่พบรหัสคำแนะนำ" };
@@ -723,7 +724,7 @@ export async function decideReco(input: DecideRecoInput): Promise<ActionResult> 
 // ============================================================================
 
 export async function getCampaignBoard(): Promise<ActionResult<CampaignBoardStep[]>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   try {
@@ -752,7 +753,7 @@ export async function setCampaignArtifactStatus(
   artifactId: string,
   status: ArtifactStatus
 ): Promise<ActionResult> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   if (!artifactId) return { ok: false, error: "ไม่พบรายการ content" };
@@ -792,7 +793,7 @@ export async function setCampaignArtifactStatus(
 }
 
 export async function passCampaignGate(stepId: string, gateKind: string): Promise<ActionResult> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   if (!stepId || !gateKind) return { ok: false, error: "ไม่พบเงื่อนไขที่จะผ่าน" };
