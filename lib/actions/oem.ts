@@ -58,6 +58,10 @@ import type {
 import { hasAnyContact, isValidThaiTaxId, parseBillAddress } from "@/lib/oem/display";
 import type { SellerProfile } from "@/lib/oem/sellerProfile";
 import { fetchAllRows } from "@/lib/supabase/query-limits";
+// S1 fix (0127 code review): saveMetalPrice's silver check must match the
+// RPC's 5–500 bound (analytics.oem_metal_price_set, 0127) — reuse the single
+// source of truth instead of a second copy of the magic numbers.
+import { silverSpotValidationError } from "@/lib/catalog/types";
 
 const SCHEMA = "analytics";
 // T4-T6 routes (all `dynamic = "force-dynamic"`, so this is belt-and-braces
@@ -709,9 +713,19 @@ export async function saveMetalPrice(input: SaveMetalPriceInput): Promise<Action
   if (gateErr) return gateErr;
 
   const price = toNum(input.priceThbPerGram);
-  if (price === null || price <= 0) return { ok: false, error: "ราคาโลหะต่อกรัมต้องมากกว่า 0" };
+  if (price === null) return { ok: false, error: "ราคาโลหะต่อกรัมต้องระบุ" };
   if (!input.metal || !["silver", "gold", "brass"].includes(input.metal)) {
     return { ok: false, error: "วัสดุไม่ถูกต้อง" };
+  }
+  // S1 fix: ด่านจริงอยู่ที่ RPC oem_metal_price_set (0127) — เช็คนี้แค่ให้
+  // error message ไวตั้งแต่ action ไม่ต้องรอ round-trip DB. silver ใช้ bound
+  // 5–500 เดียวกับ shop_setting_upsert/trigger; โลหะอื่นคง > 0 เดิม (ราคาทอง/
+  // ทองเหลืองต่อกรัมจริงอยู่นอกช่วงนั้นตามปกติ).
+  if (input.metal === "silver") {
+    const spotError = silverSpotValidationError(price);
+    if (spotError) return { ok: false, error: spotError };
+  } else if (!(price > 0)) {
+    return { ok: false, error: "ราคาโลหะต่อกรัมต้องมากกว่า 0" };
   }
 
   try {

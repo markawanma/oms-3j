@@ -303,3 +303,31 @@ export function silverSpotValidationError(spot: number | null): string | null {
   }
   return null;
 }
+
+/** True when `next` is an actual edit of `prev` — false for "same value,
+ * floating-point noise aside" and for "cleared back to empty" (clearing the
+ * field is never treated as a manual value — see upsertShopSetting/RPC,
+ * which coalesces null into "leave the existing value alone", so there is no
+ * client-reachable way to blank silverSpotThbPerGram once it's set).
+ *
+ * Why this exists (0127 code review, B1): SettingsForm.tsx prefills the spot
+ * input with the shop's current silverSpotThbPerGram and resubmits it on
+ * EVERY save — including a save that only changed the margin field. Before
+ * this check, that resubmit reached analytics.shop_setting_upsert with a
+ * non-null value every time, and the RPC (0126) treated "a value is present"
+ * as "the owner typed this", writing a manual oem_metal_price row that
+ * silently locked BOTH shop_setting and oem_metal_price out of the day's
+ * sheet sync (see silver_spot_sync_from_history's manual-guard, 0125/0126).
+ *
+ * This is a CONVENIENCE check only — it cuts how often a no-op write reaches
+ * the RPC, not the actual gate. The real gate is server-side, in
+ * shop_setting_upsert itself (0127), which re-derives "did this actually
+ * change" from the row's current value rather than trusting the caller —
+ * required because the RPC can't assume every caller ran this helper first
+ * (memory "role-single-level": a rule that must hold goes in the DB, not the
+ * button). */
+export function spotChanged(next: number | null, prev: number | null): boolean {
+  if (next == null) return false;
+  if (prev == null) return true;
+  return Math.abs(next - prev) > 1e-9;
+}

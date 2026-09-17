@@ -13,6 +13,7 @@ import {
   MAX_SILVER_SPOT_THB_PER_GRAM,
   MIN_SILVER_SPOT_THB_PER_GRAM,
   silverSpotValidationError,
+  spotChanged,
 } from "./types";
 
 describe("silverSpotValidationError", () => {
@@ -69,5 +70,40 @@ describe("silverSpotValidationError", () => {
   it("error message names the correct conversion constant", () => {
     const err = silverSpotValidationError(600);
     expect(err).toContain(String(GRAMS_PER_BAHT_WEIGHT));
+  });
+});
+
+// 0127 code review (B1): SettingsForm.tsx prefills the spot input with the
+// shop's current value and resubmits it on every save, including a
+// margin-only edit — spotChanged() is what lets the form tell "resubmitted
+// unchanged" apart from "actually edited" so it doesn't send a value that
+// would make shop_setting_upsert treat a no-op as a manual entry.
+describe("spotChanged", () => {
+  it("is false when both are null (never synced, never touched)", () => {
+    expect(spotChanged(null, null)).toBe(false);
+  });
+
+  it("is false when the field is cleared back to empty (next=null), regardless of prev", () => {
+    expect(spotChanged(null, 67.7)).toBe(false);
+  });
+
+  it("is true the first time a value is entered (prev was null)", () => {
+    expect(spotChanged(67.7, null)).toBe(true);
+  });
+
+  it("is false when resubmitting the exact prefilled value — the B1 bug case", () => {
+    expect(spotChanged(67.6988, 67.6988)).toBe(false);
+  });
+
+  it("is false for float noise within 1e-9 of the previous value", () => {
+    expect(spotChanged(67.6988000001, 67.6988)).toBe(false);
+  });
+
+  it("is true for a real edit, even a small one", () => {
+    expect(spotChanged(67.7, 67.6988)).toBe(true);
+  });
+
+  it("is true for a large edit (e.g. emergency manual override)", () => {
+    expect(spotChanged(70, 65.5996)).toBe(true);
   });
 });
