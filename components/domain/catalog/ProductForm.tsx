@@ -219,7 +219,7 @@ export function ProductForm({
           </label>
           <label className="flex items-center gap-1.5">
             <input type="radio" checked={costType === "spot"} onChange={() => setCostType("spot")} />
-            อิงราคาเงิน (เงินแท่ง)
+            อิงราคาเงิน (น้ำหนัก × ราคาเงินวันนี้ × ความบริสุทธิ์ + ค่ากำเหน็จ)
           </label>
         </div>
 
@@ -266,7 +266,7 @@ export function ProductForm({
               />
             </label>
             <label className={labelCls}>
-              ค่ากำเหน็จ
+              ค่ากำเหน็จ (บาท/ชิ้น)
               <input
                 type="number"
                 inputMode="decimal"

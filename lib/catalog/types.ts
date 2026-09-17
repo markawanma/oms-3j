@@ -259,3 +259,38 @@ export function computeEffectiveCost(
   const raw = silverWeightG * silverSpot * (silverPurity ?? 0.925) + (laborCost ?? 0);
   return Math.round(raw * 100) / 100;
 }
+
+// ============================================================================
+// Silver spot price (shop_setting.silver_spot_thb_per_gram, 0028/0125) —
+// per-GRAM price of 999 silver, synced automatically from the shop's sheet
+// (analytics.silver_price_history via a DB trigger, 0125). Shared validation
+// between the /settings client form and the upsertShopSetting server action
+// so both reject the same "กรอกราคาต่อบาทผิดหน่วย" mistake that caused the
+// ฿1,097 bug (26 ส.ค. 69 — see 0125's migration header for the full story).
+// ============================================================================
+
+/** 1 บาท (Thai baht-weight unit) = this many grams — the constant the whole
+ * repo uses for silver/gold weight conversion (see 0125's migration header
+ * for the grep that confirmed this is the only such constant in the codebase;
+ * lib/oem/display.ts uses the rounded 15.24 for display text only). */
+export const GRAMS_PER_BAHT_WEIGHT = 15.244;
+
+/** No real per-gram silver/gold spot price gets anywhere near this — a price
+ * this high is almost certainly the PER-BAHT sheet figure (~1,000+) typed
+ * into the per-GRAM field by mistake (that mistake is exactly the ฿1,097 bug
+ * this constant exists to catch). Mirrors the DB-level gate in
+ * shop_setting_upsert (0125) — that RPC is the layer that's ALWAYS enforced
+ * (see memory "role-single-level"); this constant just lets the client fail
+ * fast with the same message instead of waiting on a round trip. */
+export const MAX_SILVER_SPOT_THB_PER_GRAM = 500;
+
+/** Returns a Thai error message when `spot` is not a valid per-gram silver
+ * price, or null when it's valid (including null itself — "not provided" is
+ * always valid, callers that require a value check that separately). */
+export function silverSpotValidationError(spot: number | null): string | null {
+  if (spot == null) return null;
+  if (!Number.isFinite(spot) || spot < 0 || spot > MAX_SILVER_SPOT_THB_PER_GRAM) {
+    return `ราคาเงินสปอตต้องอยู่ระหว่าง 0–${MAX_SILVER_SPOT_THB_PER_GRAM} บาท/กรัม (ต่อกรัม ไม่ใช่ต่อบาท — 1 บาท = ${GRAMS_PER_BAHT_WEIGHT} กรัม)`;
+  }
+  return null;
+}
