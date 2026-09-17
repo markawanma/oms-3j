@@ -279,18 +279,27 @@ export const GRAMS_PER_BAHT_WEIGHT = 15.244;
  * this high is almost certainly the PER-BAHT sheet figure (~1,000+) typed
  * into the per-GRAM field by mistake (that mistake is exactly the ฿1,097 bug
  * this constant exists to catch). Mirrors the DB-level gate in
- * shop_setting_upsert (0125) — that RPC is the layer that's ALWAYS enforced
- * (see memory "role-single-level"); this constant just lets the client fail
- * fast with the same message instead of waiting on a round trip. */
+ * shop_setting_upsert AND the sync trigger silver_spot_sync_from_history
+ * (0126 — both use the SAME 5/500 bounds, change together) — those are the
+ * layers that are ALWAYS enforced (see memory "role-single-level"); this
+ * constant just lets the client fail fast with the same message instead of
+ * waiting on a round trip. */
 export const MAX_SILVER_SPOT_THB_PER_GRAM = 500;
+
+/** 0125 security review (H1/M2, 0126): no real per-gram silver/gold spot
+ * price has ever been this low — a price below this is sheet/unit noise
+ * (e.g. a stray near-zero cell), not a real quote. Also closes the "0 is
+ * technically >= 0" hole the original 0125 bound left open (0 isn't a valid
+ * price for anything with value). */
+export const MIN_SILVER_SPOT_THB_PER_GRAM = 5;
 
 /** Returns a Thai error message when `spot` is not a valid per-gram silver
  * price, or null when it's valid (including null itself — "not provided" is
  * always valid, callers that require a value check that separately). */
 export function silverSpotValidationError(spot: number | null): string | null {
   if (spot == null) return null;
-  if (!Number.isFinite(spot) || spot < 0 || spot > MAX_SILVER_SPOT_THB_PER_GRAM) {
-    return `ราคาเงินสปอตต้องอยู่ระหว่าง 0–${MAX_SILVER_SPOT_THB_PER_GRAM} บาท/กรัม (ต่อกรัม ไม่ใช่ต่อบาท — 1 บาท = ${GRAMS_PER_BAHT_WEIGHT} กรัม)`;
+  if (!(spot >= MIN_SILVER_SPOT_THB_PER_GRAM && spot <= MAX_SILVER_SPOT_THB_PER_GRAM)) {
+    return `ราคาเงินสปอตต้องอยู่ระหว่าง ${MIN_SILVER_SPOT_THB_PER_GRAM}–${MAX_SILVER_SPOT_THB_PER_GRAM} บาท/กรัม (ต่อกรัม ไม่ใช่ต่อบาท — 1 บาท = ${GRAMS_PER_BAHT_WEIGHT} กรัม)`;
   }
   return null;
 }

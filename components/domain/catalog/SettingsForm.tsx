@@ -104,7 +104,7 @@ export function SettingsForm({
           <input
             type="number"
             inputMode="decimal"
-            min={0}
+            min={5}
             max={500}
             step="0.0001"
             value={spot}
@@ -114,8 +114,9 @@ export function SettingsForm({
           />
         </label>
         <p className="mt-1.5 text-xs text-amber-600">
-          ⚠️ ต่อ<strong>กรัม</strong> ไม่ใช่ต่อบาท (1 บาท = 15.244 กรัม) — กรอกราคาต่อบาทตรงนี้ทำให้ต้นทุน SKU
-          โหมด &ldquo;อิงราคาเงิน&rdquo; เกินจริง ~15 เท่า ค่าที่กรอกจะถูกอัปเดตอัตโนมัติทับที่ capture รอบถัดไปอยู่ดี
+          ⚠️ ต่อ<strong>กรัม</strong> ไม่ใช่ต่อบาท (1 บาท = 15.244 กรัม, ช่วงที่รับ 5–500 บาท/กรัม) — กรอกราคาต่อบาทตรงนี้ทำให้ต้นทุน
+          SKU โหมด &ldquo;อิงราคาเงิน&rdquo; เกินจริง ~15 เท่า ค่าที่กรอกจะเขียนทับใบเสนอราคา OEM ของวันนี้ด้วย
+          และชนะราคาจากชีตจนกว่าจะถึงวันถัดไป
         </p>
       </section>
 
