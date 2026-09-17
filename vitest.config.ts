@@ -24,6 +24,17 @@ export default defineConfig({
       // server-only modules (e.g. lib/import/order-report.ts) directly, same
       // as Next's server runtime does.
       "server-only": fileURLToPath(new URL("./node_modules/server-only/empty.js", import.meta.url)),
+      // The plain "react" package (18.3.1, our declared dependency) does NOT
+      // export `cache` — Next.js's App Router only gets `React.cache()` by
+      // aliasing "react" to its own vendored copy (next/dist/compiled/react)
+      // at build time, for every server component/module. Vitest runs
+      // outside Next's bundler and would otherwise resolve plain node_modules
+      // react, so `import { cache } from "react"` (lib/auth/role.ts, 17 ก.ย.
+      // 69) throws "cache is not a function" under test even though it works
+      // fine under `next build`/`next dev`. Same fix pattern as the
+      // "server-only" alias above — point at the same file Next's bundler
+      // would resolve to.
+      "react": fileURLToPath(new URL("./node_modules/next/dist/compiled/react/index.js", import.meta.url)),
     },
   },
   test: {

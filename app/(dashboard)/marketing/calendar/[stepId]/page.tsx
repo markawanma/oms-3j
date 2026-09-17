@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ArrowLeft, CalendarClock, CalendarX, Lock, Users } from "lucide-react";
 import { getCalendarTask } from "@/lib/actions/calendar";
-import { getDevRole } from "@/lib/dev/context";
+import { getEffectiveRole } from "@/lib/auth/role";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { Badge } from "@/components/ui/Badge";
@@ -40,7 +40,7 @@ const STATUS_TONE: Record<EffectiveStatus, BadgeTone> = {
 // would scroll-within-scroll on mobile, and a modal can't be deep-linked —
 // this route is meant to be shareable, e.g. to a copywriter).
 export default async function CalendarTaskDetailPage({ params }: { params: Promise<{ stepId: string }> }) {
-  if (getDevRole() === "staff") {
+  if ((await getEffectiveRole()) === "staff") {
     return (
       <EmptyState
         icon={Lock}

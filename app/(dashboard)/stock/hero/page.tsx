@@ -1,6 +1,6 @@
 import { Lock } from "lucide-react";
 import { getHeroStock, getProductPickerOptions } from "@/lib/actions/hero-stock";
-import { getDevRole } from "@/lib/dev/context";
+import { getEffectiveRole } from "@/lib/auth/role";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { HeroStockClient } from "@/components/domain/stock/HeroStockClient";
@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic"; // live counter — must never serve a c
 // for why this route can't import catalog.ts at all), and deciding which
 // SKUs to push live is a business call, not a staff one.
 export default async function StockHeroPage() {
-  if (getDevRole() === "staff") {
+  if ((await getEffectiveRole()) === "staff") {
     return (
       <EmptyState
         icon={Lock}

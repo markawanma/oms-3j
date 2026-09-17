@@ -1,6 +1,6 @@
 import { Lock } from "lucide-react";
 import { getReceipts } from "@/lib/actions/oem";
-import { getDevRole } from "@/lib/dev/context";
+import { getEffectiveRole } from "@/lib/auth/role";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { TruncatedDataNotice } from "@/components/ui/TruncatedDataNotice";
@@ -13,7 +13,7 @@ export const dynamic = "force-dynamic";
 // carry the BUYER's tax_id/address on top of everything the quote pages
 // already gate on.
 export default async function OemReceiptsPage() {
-  if (getDevRole() === "staff") {
+  if ((await getEffectiveRole()) === "staff") {
     return (
       <EmptyState
         icon={Lock}

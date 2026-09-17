@@ -1,7 +1,7 @@
 import { Lock } from "lucide-react";
 import { getAdSpendWeekly } from "@/lib/actions/marketing";
 import { getCrmEditOptions } from "@/lib/actions/crm";
-import { getDevRole } from "@/lib/dev/context";
+import { getEffectiveRole } from "@/lib/auth/role";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { AdSpendForm } from "@/components/domain/marketing/AdSpendForm";
@@ -17,7 +17,7 @@ export const dynamic = "force-dynamic"; // spend entries change whenever an owne
 // nothing to see, not shown what looks like a data-entry form with a broken
 // submit button.
 export default async function MarketingAdSpendPage() {
-  if (getDevRole() === "staff") {
+  if ((await getEffectiveRole()) === "staff") {
     return (
       <EmptyState
         icon={Lock}

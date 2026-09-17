@@ -14,7 +14,8 @@
 
 import { revalidatePath } from "next/cache";
 import { getServiceClient } from "@/lib/supabase/server";
-import { getDevShopId, getDevRole } from "@/lib/dev/context";
+import { getDevShopId } from "@/lib/dev/context";
+import { getEffectiveRole } from "@/lib/auth/role";
 import type { ActionResult } from "@/lib/types";
 import type { OversoldHoldRow, OversoldContactStatus, OversoldResolution, UpdateOversoldFollowupInput } from "@/lib/oversold/types";
 
@@ -23,8 +24,8 @@ const SCHEMA = "analytics";
 const CONTACT_STATUSES: OversoldContactStatus[] = ["pending", "contacted", "resolved"];
 const RESOLUTIONS: OversoldResolution[] = ["restock", "swap", "refund", "other"];
 
-function requireOwnerAdmin(): ActionResult<never> | null {
-  if (getDevRole() === "staff") {
+async function requireOwnerAdmin(): Promise<ActionResult<never> | null> {
+  if ((await getEffectiveRole()) === "staff") {
     return { ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่ใช้งานคิวของไม่พอได้" };
   }
   return null;
@@ -36,7 +37,7 @@ function requireOwnerAdmin(): ActionResult<never> | null {
 // ============================================================================
 
 export async function getOversoldQueue(): Promise<ActionResult<OversoldHoldRow[]>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   try {
@@ -105,7 +106,7 @@ export async function getOversoldQueue(): Promise<ActionResult<OversoldHoldRow[]
 // ============================================================================
 
 export async function updateOversoldFollowup(input: UpdateOversoldFollowupInput): Promise<ActionResult> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   if (!input.orderId) return { ok: false, error: "ไม่พบออเดอร์ที่จะบันทึก" };

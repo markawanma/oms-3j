@@ -10,7 +10,8 @@
 
 import { revalidatePath } from "next/cache";
 import { getServiceClient } from "@/lib/supabase/server";
-import { getDevShopId, getDevRole } from "@/lib/dev/context";
+import { getDevShopId } from "@/lib/dev/context";
+import { getEffectiveRole } from "@/lib/auth/role";
 import { requireWriteAccess } from "@/lib/auth/action-guard";
 import type { ActionResult } from "@/lib/types";
 import type { HeroStockRow } from "@/lib/stock/types";
@@ -19,8 +20,8 @@ import type { ProductPickerOption } from "@/lib/catalog/types";
 const SCHEMA = "analytics";
 const PAGE_PATH = "/stock/hero";
 
-function requireOwnerAdmin(): ActionResult<never> | null {
-  if (getDevRole() === "staff") {
+async function requireOwnerAdmin(): Promise<ActionResult<never> | null> {
+  if ((await getEffectiveRole()) === "staff") {
     return { ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่ดูจอสต็อก Hero SKU ได้" };
   }
   return null;
@@ -40,7 +41,7 @@ function requireOwnerAdmin(): ActionResult<never> | null {
 // ============================================================================
 
 export async function getHeroStock(): Promise<ActionResult<HeroStockRow[]>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   try {
@@ -113,7 +114,7 @@ export async function getHeroStock(): Promise<ActionResult<HeroStockRow[]>> {
 // ============================================================================
 
 export async function getProductPickerOptions(): Promise<ActionResult<ProductPickerOption[]>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   try {

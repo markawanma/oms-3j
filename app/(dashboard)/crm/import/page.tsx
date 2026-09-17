@@ -1,7 +1,7 @@
 import { Lock } from "lucide-react";
 import { getImportBatches } from "@/lib/actions/import-orders";
 import { getOrphanBacklog, type OrphanBacklog } from "@/lib/actions/import-line-items";
-import { getDevRole } from "@/lib/dev/context";
+import { getEffectiveRole } from "@/lib/auth/role";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { OrderImportClient } from "@/components/domain/crm/OrderImportClient";
@@ -14,10 +14,10 @@ export const dynamic = "force-dynamic";
 // /crm/import (docs/3j-jewelry/analytics/phase-import-ui-design.md §3.3, D6):
 // upload -> preview -> confirm the monthly sales report (all channels in one
 // file, see D6 note below) that feeds fact_order/dim_customer. Owner/admin
-// only (D5) — same getDevRole() app-level gate as every other CRM page,
+// only (D5) — same getEffectiveRole() app-level gate as every other CRM page,
 // staff see an EmptyState instead of the form (not just a disabled button).
 export default async function CrmImportPage() {
-  if (getDevRole() === "staff") {
+  if ((await getEffectiveRole()) === "staff") {
     return (
       <EmptyState
         icon={Lock}
