@@ -1,4 +1,5 @@
 -- 0126_silver_spot_sanity_bounds.sql
+-- ✅ APPLIED 17 ก.ย. 69 via MCP (version 20260917073609)
 -- Security review of 0125 (already applied) — NO-GO ชั่วคราว, ต้องแก้ก่อน merge:
 --
 --   H1  trigger silver_spot_sync_from_history sync ทุกค่าที่ silver_value_per_baht
