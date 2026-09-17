@@ -25,7 +25,8 @@
 import { revalidatePath } from "next/cache";
 import { createHash } from "node:crypto";
 import { getServiceClient } from "@/lib/supabase/server";
-import { getDevShopId, getDevRole } from "@/lib/dev/context";
+import { getDevShopId } from "@/lib/dev/context";
+import { getEffectiveRole } from "@/lib/auth/role";
 import type { ActionResult } from "@/lib/types";
 import { fetchAllRows } from "@/lib/supabase/query-limits";
 import { isPostgrestInSafe } from "@/lib/import/source-types";
@@ -57,8 +58,8 @@ const PARSER_VERSION = "labels-v1";
 const TRACKING_LOOKUP_CHUNK_SIZE = 200;
 const PAGE_INSERT_CHUNK_SIZE = 200;
 
-function requireOwnerAdmin(): ActionResult<never> | null {
-  if (getDevRole() === "staff") {
+async function requireOwnerAdmin(): Promise<ActionResult<never> | null> {
+  if ((await getEffectiveRole()) === "staff") {
     return { ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่จัดการใบปะหน้าพัสดุได้" };
   }
   return null;
@@ -125,7 +126,7 @@ export interface CreateLabelUploadInput {
 export async function createLabelUpload(
   input: CreateLabelUploadInput
 ): Promise<ActionResult<CreateLabelUploadResult>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   // security 2a (Medium #5 + re-check): ตัด control chars + bidi ทุกชุด (รวม
@@ -388,7 +389,7 @@ function classifyPage(pageNo: number, pageText: string): PageClassification {
 }
 
 export async function parseLabelFile(fileId: string): Promise<ActionResult<LabelParseSummary>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   const cleanFileId = (fileId ?? "").trim();
@@ -690,7 +691,7 @@ interface OrderNotFoundPageRow {
 }
 
 export async function getLabelFiles(): Promise<ActionResult<LabelFileRow[]>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   try {
@@ -833,7 +834,7 @@ interface PendingReviewPageRow {
 }
 
 export async function getPendingLabelReviews(): Promise<ActionResult<PendingLabelReviewRow[]>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   try {
@@ -1260,7 +1261,7 @@ async function attachOrderSources(
 // ----------------------------------------------------------------------------
 
 export async function findOrdersByTracking(query: string): Promise<ActionResult<OrderSourceRef[]>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   const clean = (query ?? "").trim();
@@ -1319,7 +1320,7 @@ export async function setOrderProvince(
   reason?: LabelReasonCode | null,
   note?: string | null
 ): Promise<ActionResult> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   const cleanOrderId = (factOrderId ?? "").trim();
@@ -1358,7 +1359,7 @@ export async function setOrderProvince(
 }
 
 export async function revertOrderProvince(factOrderId: string): Promise<ActionResult> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   const cleanOrderId = (factOrderId ?? "").trim();
@@ -1399,7 +1400,7 @@ export interface ResolveLabelPageInput {
 }
 
 export async function resolveLabelPage(input: ResolveLabelPageInput): Promise<ActionResult<ResolveLabelPageResult>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   const cleanPageId = (input?.pageId ?? "").trim();
@@ -1440,7 +1441,7 @@ export interface IgnoreLabelPageInput {
 }
 
 export async function ignoreLabelPage(input: IgnoreLabelPageInput): Promise<ActionResult> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   const cleanPageId = (input?.pageId ?? "").trim();
@@ -1470,7 +1471,7 @@ export async function ignoreLabelPage(input: IgnoreLabelPageInput): Promise<Acti
 }
 
 export async function revertLabelPage(pageId: string): Promise<ActionResult> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   const cleanPageId = (pageId ?? "").trim();
@@ -1542,7 +1543,7 @@ async function loadPageAndFile(
 }
 
 export async function getLabelPageViewUrl(pageId: string): Promise<ActionResult<LabelPageViewUrlResult>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   const cleanPageId = (pageId ?? "").trim();
@@ -1568,7 +1569,7 @@ export async function getLabelPageViewUrl(pageId: string): Promise<ActionResult<
 }
 
 export async function getLabelPageSnippet(pageId: string): Promise<ActionResult<LabelPageSnippetResult>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   const cleanPageId = (pageId ?? "").trim();

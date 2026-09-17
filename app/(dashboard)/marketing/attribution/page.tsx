@@ -1,7 +1,7 @@
 import { Lock } from "lucide-react";
 import { getPromoAttribution } from "@/lib/actions/marketing";
 import { getCrmEditOptions } from "@/lib/actions/crm";
-import { getDevRole } from "@/lib/dev/context";
+import { getEffectiveRole } from "@/lib/auth/role";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { PromoAttributionPageClient } from "@/components/domain/marketing/PromoAttributionPageClient";
@@ -18,7 +18,7 @@ export const dynamic = "force-dynamic";
 //     from re-importing the file.
 // Owner/admin only, same reasoning as /marketing/audience.
 export default async function MarketingAttributionPage() {
-  if (getDevRole() === "staff") {
+  if ((await getEffectiveRole()) === "staff") {
     return (
       <EmptyState
         icon={Lock}

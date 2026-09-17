@@ -12,6 +12,11 @@ import type { OemMetalPriceMap, OemProductionMetal } from "@/lib/oem/types";
 import { OEM_METAL_LABEL_TH } from "@/lib/oem/types";
 import { formatThaiDateOnly } from "@/lib/tiktok/format";
 import { useToast } from "@/components/ui/Toast";
+// S1 fix (0127 code review): silver shares the same 5–500 บาท/กรัม bound as
+// shop_setting_upsert/the sheet-sync trigger — reuse the single source of
+// truth in lib/catalog/types.ts instead of a second copy of the magic
+// numbers (must stay in sync across 4 layers now, see 0127's header).
+import { MAX_SILVER_SPOT_THB_PER_GRAM, MIN_SILVER_SPOT_THB_PER_GRAM, silverSpotValidationError } from "@/lib/catalog/types";
 
 // silver999 (เงินแท่ง) deliberately excluded — its price comes from
 // silver_price_daily (fixed sell price per size), not a per-gram spot rate
@@ -34,7 +39,17 @@ function MetalPriceCell({ metal, current }: { metal: OemProductionMetal; current
     const trimmed = value.trim();
     if (trimmed === "") return;
     const raw = Number(trimmed);
-    if (!Number.isFinite(raw) || raw <= 0) {
+    // S1 fix: silver goes through the same 5–500 bound (and NaN-safe check)
+    // as shop_setting_upsert/the RPC — other metals keep the plain >0 check
+    // (gold/brass legitimately price well outside that range).
+    if (metal === "silver") {
+      const err = silverSpotValidationError(raw);
+      if (err) {
+        toast.push(err, "error");
+        setValue(current ? String(current.priceThbPerGram) : "");
+        return;
+      }
+    } else if (!Number.isFinite(raw) || raw <= 0) {
       toast.push("ราคาต้องมากกว่า 0", "error");
       setValue(current ? String(current.priceThbPerGram) : "");
       return;
@@ -54,6 +69,8 @@ function MetalPriceCell({ metal, current }: { metal: OemProductionMetal; current
     router.refresh();
   }
 
+  const isSilver = metal === "silver";
+
   return (
     <div className="rounded-md border border-zinc-200 p-3">
       <p className="text-xs font-semibold text-zinc-600">{OEM_METAL_LABEL_TH[metal]}</p>
@@ -61,7 +78,8 @@ function MetalPriceCell({ metal, current }: { metal: OemProductionMetal; current
         <input
           type="number"
           inputMode="decimal"
-          min={0}
+          min={isSilver ? MIN_SILVER_SPOT_THB_PER_GRAM : 0}
+          max={isSilver ? MAX_SILVER_SPOT_THB_PER_GRAM : undefined}
           step="0.0001"
           value={value}
           onChange={(e) => setValue(e.target.value)}
@@ -80,6 +98,14 @@ function MetalPriceCell({ metal, current }: { metal: OemProductionMetal; current
         {!saving && justSaved && <Check className="h-3.5 w-3.5 shrink-0 text-green-600" aria-hidden="true" />}
       </div>
       {current && <p className="mt-1 text-[0.68rem] text-zinc-400">ณ {formatThaiDateOnly(current.asOfDate)}</p>}
+      {/* S1 note (0127 code review): only silver has a sheet auto-sync to
+          warn about (silver999 bars aside, gold/brass are always manual —
+          see METALS comment above) */}
+      {isSilver && (
+        <p className="mt-1 text-[0.68rem] text-amber-600">
+          กรอกที่นี่ = ราคาชนะทั้งวัน ชีตราคาเงินจะไม่ทับจนกว่าจะถึงวันถัดไป
+        </p>
+      )}
     </div>
   );
 }

@@ -16,7 +16,8 @@
 
 import { revalidatePath } from "next/cache";
 import { getServiceClient } from "@/lib/supabase/server";
-import { getDevShopId, getDevRole } from "@/lib/dev/context";
+import { getDevShopId } from "@/lib/dev/context";
+import { getEffectiveRole } from "@/lib/auth/role";
 import type { ActionResult } from "@/lib/types";
 import type {
   DeleteOemRateInput,
@@ -57,6 +58,10 @@ import type {
 import { hasAnyContact, isValidThaiTaxId, parseBillAddress } from "@/lib/oem/display";
 import type { SellerProfile } from "@/lib/oem/sellerProfile";
 import { fetchAllRows } from "@/lib/supabase/query-limits";
+// S1 fix (0127 code review): saveMetalPrice's silver check must match the
+// RPC's 5–500 bound (analytics.oem_metal_price_set, 0127) — reuse the single
+// source of truth instead of a second copy of the magic numbers.
+import { silverSpotValidationError } from "@/lib/catalog/types";
 
 const SCHEMA = "analytics";
 // T4-T6 routes (all `dynamic = "force-dynamic"`, so this is belt-and-braces
@@ -73,8 +78,8 @@ function revalidateOemPaths(): void {
 // calcPrice alone returns per-department labour rates, batch costs, NRE and
 // the margin actually charged, i.e. the entire cost structure this feature
 // exists to keep off competitors' desks (pricing-disclosure-policy.md §2.5).
-function requireOwnerAdmin(): ActionResult<never> | null {
-  if (getDevRole() === "staff") {
+async function requireOwnerAdmin(): Promise<ActionResult<never> | null> {
+  if ((await getEffectiveRole()) === "staff") {
     return { ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่ดูหรือแก้ต้นทุน/ราคางาน OEM ได้" };
   }
   return null;
@@ -298,7 +303,7 @@ function fromCalcResult(raw: Record<string, unknown>): OemPriceCalcResult {
 export async function getRateStatus(): Promise<
   ActionResult<{ rows: OemRateStatusRow[]; readiness: OemReadiness | null }>
 > {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   try {
@@ -379,7 +384,7 @@ export async function getRateStatus(): Promise<
 }
 
 export async function saveRate(input: UpsertOemRateInput): Promise<ActionResult> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   const rateKey = input.rateKey?.trim();
@@ -413,7 +418,7 @@ export async function saveRate(input: UpsertOemRateInput): Promise<ActionResult>
 }
 
 export async function deleteRate(input: DeleteOemRateInput): Promise<ActionResult> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   if (!input.rateKey?.trim() || !input.scope?.trim() || !input.effectiveFrom) {
@@ -445,7 +450,7 @@ export async function deleteRate(input: DeleteOemRateInput): Promise<ActionResul
 // ============================================================================
 
 export async function getOemSetting(): Promise<ActionResult<OemSettingData>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   try {
@@ -488,7 +493,7 @@ export async function getOemSetting(): Promise<ActionResult<OemSettingData>> {
 }
 
 export async function saveOemSetting(input: UpsertOemSettingInput): Promise<ActionResult> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   const target = toNum(input.marginTargetPct);
@@ -627,7 +632,7 @@ function toStringArray(raw: unknown): string[] {
 }
 
 export async function getSellerProfile(): Promise<ActionResult<SellerProfile>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   try {
@@ -675,7 +680,7 @@ export async function getSellerProfile(): Promise<ActionResult<SellerProfile>> {
 // ============================================================================
 
 export async function getOemProvinces(): Promise<ActionResult<OemProvinceOption[]>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   try {
@@ -704,13 +709,23 @@ export async function getOemProvinces(): Promise<ActionResult<OemProvinceOption[
 // ============================================================================
 
 export async function saveMetalPrice(input: SaveMetalPriceInput): Promise<ActionResult> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   const price = toNum(input.priceThbPerGram);
-  if (price === null || price <= 0) return { ok: false, error: "ราคาโลหะต่อกรัมต้องมากกว่า 0" };
+  if (price === null) return { ok: false, error: "ราคาโลหะต่อกรัมต้องระบุ" };
   if (!input.metal || !["silver", "gold", "brass"].includes(input.metal)) {
     return { ok: false, error: "วัสดุไม่ถูกต้อง" };
+  }
+  // S1 fix: ด่านจริงอยู่ที่ RPC oem_metal_price_set (0127) — เช็คนี้แค่ให้
+  // error message ไวตั้งแต่ action ไม่ต้องรอ round-trip DB. silver ใช้ bound
+  // 5–500 เดียวกับ shop_setting_upsert/trigger; โลหะอื่นคง > 0 เดิม (ราคาทอง/
+  // ทองเหลืองต่อกรัมจริงอยู่นอกช่วงนั้นตามปกติ).
+  if (input.metal === "silver") {
+    const spotError = silverSpotValidationError(price);
+    if (spotError) return { ok: false, error: spotError };
+  } else if (!(price > 0)) {
+    return { ok: false, error: "ราคาโลหะต่อกรัมต้องมากกว่า 0" };
   }
 
   try {
@@ -740,7 +755,7 @@ const OEM_METALS = ["silver", "gold", "brass"] as const;
  * currently on file" and by /oem/quote to warn before the calc RPC does.
  * Not a formula: straight column reads, latest as_of_date first. */
 export async function getMetalPrices(): Promise<ActionResult<OemMetalPriceMap>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   try {
@@ -777,7 +792,7 @@ export async function getMetalPrices(): Promise<ActionResult<OemMetalPriceMap>> 
 // ============================================================================
 
 export async function getOemProducts(): Promise<ActionResult<OemProductOption[]>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   try {
@@ -810,7 +825,7 @@ export async function getOemProducts(): Promise<ActionResult<OemProductOption[]>
 // ============================================================================
 
 export async function calcPrice(input: OemPriceCalcInput): Promise<ActionResult<OemPriceCalcResult>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   if (!input?.metal) return { ok: false, error: "กรุณาเลือกวัสดุ" };
@@ -974,7 +989,7 @@ const QUOTE_ITEM_COLUMNS =
   "id, shop_id, quote_id, seq, product_id, sku_snapshot, product_name_snapshot, input, calc, qty, cost_piece, price_per_piece, item_total, q_run, flask_count, plating_batch_count, margin_charged_pct, created_at, updated_at, quote_no";
 
 export async function saveQuote(input: SaveQuoteInput): Promise<ActionResult<{ quoteId: string }>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   if (!input?.items?.length) return { ok: false, error: "ต้องมีอย่างน้อย 1 รายการ" };
@@ -1023,7 +1038,7 @@ export async function saveQuote(input: SaveQuoteInput): Promise<ActionResult<{ q
 }
 
 export async function renegotiateQuote(input: RenegotiateQuoteInput): Promise<ActionResult<{ quoteId: string }>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   if (!input?.quoteId) return { ok: false, error: "ไม่พบใบเสนอราคา" };
@@ -1054,7 +1069,7 @@ export async function renegotiateQuote(input: RenegotiateQuoteInput): Promise<Ac
 }
 
 export async function setQuoteBilling(input: SetQuoteBillingInput): Promise<ActionResult<{ customerId: string }>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   if (!input?.quoteId) return { ok: false, error: "ไม่พบใบเสนอราคา" };
@@ -1131,7 +1146,7 @@ export async function setQuoteBilling(input: SetQuoteBillingInput): Promise<Acti
 }
 
 export async function getQuoteItems(quoteId: string): Promise<ActionResult<OemQuoteItemRow[]>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   if (!quoteId) return { ok: false, error: "ไม่พบใบเสนอราคา" };
@@ -1157,7 +1172,7 @@ export async function getQuoteItems(quoteId: string): Promise<ActionResult<OemQu
 }
 
 export async function setQuoteStatus(input: SetQuoteStatusInput): Promise<ActionResult> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   if (!input?.quoteId) return { ok: false, error: "ไม่พบใบเสนอราคา" };
@@ -1208,7 +1223,7 @@ export async function setQuoteStatus(input: SetQuoteStatusInput): Promise<Action
 // ============================================================================
 
 export async function setQuoteDeposit(input: SetQuoteDepositInput): Promise<ActionResult> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   if (!input?.quoteId) return { ok: false, error: "ไม่พบใบเสนอราคา" };
@@ -1282,7 +1297,7 @@ export async function setQuoteDeposit(input: SetQuoteDepositInput): Promise<Acti
 // ============================================================================
 
 export async function setQuoteVatMode(input: SetQuoteVatModeInput): Promise<ActionResult> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   if (!input?.quoteId) return { ok: false, error: "ไม่พบใบเสนอราคา" };
@@ -1362,7 +1377,7 @@ export interface GetQuotesResult {
 }
 
 export async function getQuotes(status?: OemQuoteStatus): Promise<ActionResult<GetQuotesResult>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   try {
@@ -1390,7 +1405,7 @@ export async function getQuotes(status?: OemQuoteStatus): Promise<ActionResult<G
 }
 
 export async function getQuote(quoteId: string): Promise<ActionResult<OemQuoteRow>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   if (!quoteId) return { ok: false, error: "ไม่พบใบเสนอราคา" };
@@ -1492,7 +1507,7 @@ const RECEIPT_COLUMNS =
   "id, shop_id, quote_id, receipt_no, kind, status, amount_thb, vat_rate, vat_base_thb, vat_amount_thb, received_date, issue_date, payment_method, payment_ref, description, seller_snapshot, buyer_legal_name, buyer_tax_id, buyer_branch_label, buyer_address, quote_no_snapshot, grand_total_snapshot, paid_before_thb, balance_after_thb, void_reason, voided_at, voided_by, reissued_from_receipt_id, created_by, created_at, quote_no, is_deal_active";
 
 export async function issueReceipt(input: IssueReceiptInput): Promise<ActionResult<{ receiptId: string }>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   if (!input?.quoteId) return { ok: false, error: "ไม่พบใบเสนอราคา" };
@@ -1545,7 +1560,7 @@ export async function issueReceipt(input: IssueReceiptInput): Promise<ActionResu
 }
 
 export async function voidReceipt(input: VoidReceiptInput): Promise<ActionResult> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   if (!input?.receiptId) return { ok: false, error: "ไม่พบใบเสร็จ" };
@@ -1628,7 +1643,7 @@ export interface GetReceiptsResult {
  * quote_id in that deal's renegotiation chain — see resolveDealQuoteIds).
  * Pass no quoteId for /oem/receipts' shop-wide registry. */
 export async function getReceipts(quoteId?: string): Promise<ActionResult<GetReceiptsResult>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   try {
@@ -1661,7 +1676,7 @@ export async function getReceipts(quoteId?: string): Promise<ActionResult<GetRec
 }
 
 export async function getReceipt(receiptId: string): Promise<ActionResult<OemReceiptRow>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   if (!receiptId) return { ok: false, error: "ไม่พบใบเสร็จ" };

@@ -1,6 +1,6 @@
 import { Lock } from "lucide-react";
 import { getReceipt } from "@/lib/actions/oem";
-import { getDevRole } from "@/lib/dev/context";
+import { getEffectiveRole } from "@/lib/auth/role";
 import { toPrintableReceipt } from "@/lib/oem/printableReceipt";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -20,7 +20,7 @@ export const dynamic = "force-dynamic";
 // at all unless seller/buyer info was complete AT ISSUE TIME — every receipt
 // that exists is, by construction, already printable.
 export default async function OemReceiptPrintPage({ params }: { params: Promise<{ id: string }> }) {
-  if (getDevRole() === "staff") {
+  if ((await getEffectiveRole()) === "staff") {
     return (
       <EmptyState
         icon={Lock}

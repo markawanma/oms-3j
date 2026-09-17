@@ -1,6 +1,6 @@
 import { Lock } from "lucide-react";
 import { getOversoldQueue } from "@/lib/actions/oversold";
-import { getDevRole } from "@/lib/dev/context";
+import { getEffectiveRole } from "@/lib/auth/role";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { OversoldQueueClient } from "@/components/domain/orders/OversoldQueueClient";
@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic"; // held orders + follow-up change on liv
 // buyer name/phone (order PII) for the whole point of contacting them, and
 // logging follow-up is an owner/admin action per the ops design.
 export default async function OversoldQueuePage() {
-  if (getDevRole() === "staff") {
+  if ((await getEffectiveRole()) === "staff") {
     return (
       <EmptyState
         icon={Lock}

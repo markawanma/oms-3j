@@ -1,0 +1,118 @@
+-- 0122_shop_member_select_only.sql — A2-lite (security review 2026-09-16,
+-- H2). See docs/3j-jewelry/analytics/phase-auth-pii-hardening-design.md and
+-- the owner decision log, 16 ก.ย. 69.
+-- ✅ APPLIED 16 ก.ย. 69 via MCP apply_migration version 20260916145243 · verify หลัง apply: policy shop_member เหลือ tenant_isolation_select:SELECT ตัวเดียว · user PATCH role ตัวเอง → 403
+--
+-- ⚠️ MUST be applied together with 0123_analytics_no_rest_for_users.sql AND
+-- 0124_public_no_rest_for_users.sql, in THIS order (0122 -> 0123 -> 0124),
+-- in the SAME deploy window — never apply 0122 alone, never out of order.
+-- 0124's header has the `public`-schema half of this same story (the RLS
+-- policies in public.* subquery shop_member exactly like analytics.* does,
+-- so this fix also flips public.product/order/etc from "broken" to
+-- "readable by an approved JWT" without 0124). Reasoning: shop_member's
+-- existing `tenant_isolation` policy
+-- (0002_rls.sql) is SELF-referencing —
+--   using (shop_id in (select shop_id from shop_member where user_id = auth.uid()))
+-- — applied ON shop_member itself, which Postgres detects as infinite
+-- recursion (42P17) and rejects on EVERY query against shop_member from a
+-- non-service-role caller. That bug has been "accidentally" protecting
+-- every OTHER table whose RLS policy also subqueries shop_member: confirmed
+-- 2026-09-16 with a real authenticated JWT that analytics.* reads (91
+-- objects granted to `authenticated`, including analytics.v_dim_product's
+-- unit_cost/margin_pct and analytics.fact_order's revenue/profit) currently
+-- ALL fail with the same 42P17 — nobody has been able to read cost/margin
+-- data through PostgREST today, but by accident, not by design. Fixing
+-- shop_member's recursion here WITHOUT ALSO revoking analytics schema
+-- access from anon/authenticated (0123) flips that overnight from "broken"
+-- to "an approved user reads fact_order/unit_cost directly over REST."
+--
+-- Fix: drop the recursive ALL-commands policy and replace it with a
+-- SELECT-only policy that checks the row's OWN user_id column directly — no
+-- subquery, no recursion. Also a tighter guarantee than before: "see only
+-- your own membership row," not "every member's row in every shop you
+-- belong to" (this app is single-shop anyway — lib/auth/session.ts's
+-- getMembership() doc comment). listMembers()/listPendingUsers()
+-- (lib/actions/members.ts) already read the full roster through the
+-- service-role client, which bypasses RLS entirely, so no UI depends on an
+-- authenticated user seeing other members' rows via RLS.
+--
+-- INSERT/UPDATE/DELETE get NO policy at all here — with RLS enabled and no
+-- policy for a command, that command is default-deny for every
+-- non-service-role caller. Confirmed by grep (2026-09-16, security review
+-- brief) that the only writers of shop_member in this codebase —
+-- lib/actions/members.ts (approveMember/removeMember), middleware.ts
+-- (membership check, read-only), and scripts/provision-member.mjs (first
+-- owner bootstrap) — all use getServiceClient() / a service-role key, which
+-- bypasses RLS entirely. Removing INSERT/UPDATE/DELETE policies here does
+-- not touch any real write path in the app.
+
+drop policy if exists tenant_isolation on public.shop_member;
+drop policy if exists tenant_isolation_select on public.shop_member;
+
+create policy tenant_isolation_select on public.shop_member
+  for select
+  to authenticated
+  using (user_id = auth.uid());
+
+-- ============================================================================
+-- DRY-RUN — do NOT apply this block. Verification only, for whoever runs
+-- this migration for real: paste the do-block below into the SQL editor
+-- AFTER applying the two statements above (still inside a transaction that
+-- gets rolled back automatically — 3j-migration-traps skill #11 — so
+-- nothing it inserts is ever committed). Confirms the fix works AND that it
+-- is no looser than intended.
+-- ============================================================================
+-- do $$
+-- declare
+--   v_log text := E'\n=== 0122 dry-run ===\n';
+--   v_shop_id uuid;
+--   v_owner_id uuid := gen_random_uuid();
+--   v_other_id uuid := gen_random_uuid();
+--   v_count int;
+-- begin
+--   insert into public.shop (id, name) values (gen_random_uuid(), 'dry-run shop 0122')
+--     returning id into v_shop_id;
+--   insert into public.shop_member (shop_id, user_id, role) values (v_shop_id, v_owner_id, 'owner');
+--   insert into public.shop_member (shop_id, user_id, role) values (v_shop_id, v_other_id, 'staff');
+--
+--   -- T1: authenticated user can SELECT their own row, no 42P17.
+--   perform set_config('request.jwt.claims', json_build_object('sub', v_owner_id::text, 'role', 'authenticated')::text, true);
+--   set local role authenticated;
+--   select count(*) into v_count from public.shop_member where user_id = v_owner_id;
+--   reset role;
+--   if v_count = 1 then
+--     v_log := v_log || 'T1 own row visible, no recursion error: OK' || E'\n';
+--   else
+--     v_log := v_log || format('T1 FAIL — expected 1 row, got %s', v_count) || E'\n';
+--   end if;
+--
+--   -- T2: authenticated user CANNOT see another member's row (tighter than
+--   -- the old shop-wide policy, on purpose).
+--   perform set_config('request.jwt.claims', json_build_object('sub', v_owner_id::text, 'role', 'authenticated')::text, true);
+--   set local role authenticated;
+--   select count(*) into v_count from public.shop_member where user_id = v_other_id;
+--   reset role;
+--   if v_count = 0 then
+--     v_log := v_log || 'T2 other member row hidden: OK' || E'\n';
+--   else
+--     v_log := v_log || format('T2 FAIL — expected 0 rows, got %s', v_count) || E'\n';
+--   end if;
+--
+--   -- T3: authenticated user CANNOT update their own role (no UPDATE
+--   -- policy = default-deny).
+--   begin
+--     perform set_config('request.jwt.claims', json_build_object('sub', v_owner_id::text, 'role', 'authenticated')::text, true);
+--     set local role authenticated;
+--     update public.shop_member set role = 'staff' where user_id = v_owner_id;
+--     reset role;
+--     v_log := v_log || 'T3 FAIL — self role UPDATE was NOT rejected' || E'\n';
+--   exception when insufficient_privilege then
+--     reset role;
+--     v_log := v_log || 'T3 self role UPDATE rejected: OK' || E'\n';
+--   end;
+--
+--   select count(*) into v_count from pg_policies where schemaname = 'public' and tablename = 'shop_member';
+--   v_log := v_log || format('policy count on shop_member: %s (expect 1)', v_count) || E'\n';
+--
+--   raise exception '%', v_log; -- force rollback — nothing above is ever committed
+-- end $$;

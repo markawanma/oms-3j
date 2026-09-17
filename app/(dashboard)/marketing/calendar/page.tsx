@@ -1,7 +1,7 @@
 import { Lock } from "lucide-react";
 import { getCampaignCalendar } from "@/lib/actions/marketing";
 import { getCalendarTasks } from "@/lib/actions/calendar";
-import { getDevRole } from "@/lib/dev/context";
+import { getEffectiveRole } from "@/lib/auth/role";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { CampaignCalendar } from "@/components/domain/marketing/CampaignCalendar";
@@ -53,7 +53,7 @@ export default async function MarketingCalendarPage({
 }: {
   searchParams: Promise<{ tab?: string; d?: string }>;
 }) {
-  if (getDevRole() === "staff") {
+  if ((await getEffectiveRole()) === "staff") {
     return (
       <EmptyState
         icon={Lock}

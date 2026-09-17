@@ -22,7 +22,8 @@
 
 import { revalidatePath } from "next/cache";
 import { getServiceClient } from "@/lib/supabase/server";
-import { getDevShopId, getDevRole } from "@/lib/dev/context";
+import { getDevShopId } from "@/lib/dev/context";
+import { getEffectiveRole } from "@/lib/auth/role";
 import type { ActionResult } from "@/lib/types";
 import {
   ImportParseError,
@@ -51,8 +52,8 @@ const STAGING_UPSERT_CHUNK_SIZE = 200;
 // always carries the true count regardless of how many findings are returned.
 const DIRTY_SKU_LIMIT = 200;
 
-function requireOwnerAdmin(): ActionResult<never> | null {
-  if (getDevRole() === "staff") {
+async function requireOwnerAdmin(): Promise<ActionResult<never> | null> {
+  if ((await getEffectiveRole()) === "staff") {
     return { ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่นำเข้ารายงานสินค้าในออเดอร์ได้" };
   }
   return null;
@@ -181,7 +182,7 @@ export interface LineImportPreview {
 }
 
 export async function previewLineImport(formData: FormData): Promise<ActionResult<LineImportPreview>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   const parseResult = await readAndParseFile(formData);
@@ -333,7 +334,7 @@ export interface LineImportCommitResult {
 }
 
 export async function commitLineImport(formData: FormData): Promise<ActionResult<LineImportCommitResult>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   const parseResult = await readAndParseFile(formData);
@@ -549,7 +550,7 @@ export interface LineImportWarningsResult {
 const WARNING_ROW_LIMIT = 1000;
 
 export async function getLineImportWarnings(batchId: string): Promise<ActionResult<LineImportWarningsResult>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
   if (!batchId) return { ok: false, error: "ไม่พบ batch ที่ต้องการดูคำเตือน" };
 
@@ -686,7 +687,7 @@ interface OrphanRowFromDb {
 }
 
 export async function getOrphanBacklog(): Promise<ActionResult<OrphanBacklog>> {
-  const gateErr = requireOwnerAdmin();
+  const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
   try {
