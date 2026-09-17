@@ -32,8 +32,16 @@
 --      guard only existed on shop_setting's WHERE clause (0126:102) —
 --      nothing stopped a backfill/retry insert into oem_metal_price from
 --      landing a stale row there even when shop_setting itself stayed
---      correct, and the manual pre-check (v_manual_exists) ran as a separate
---      statement from the two inserts, not atomically with them.
+--      correct. This file promotes that check to one up-front decision (see
+--      part 1 below), but the manual pre-check (v_manual_exists) still runs
+--      as a separate statement from the two inserts with nothing actually
+--      preventing two transactions from interleaving between them — 🔴
+--      code-reviewer round 2 caught that "single decision point" reads as
+--      atomic but isn't; see 0128, which adds a real per-shop
+--      pg_advisory_xact_lock shared by all three writers to close this for
+--      real (also fixes N3: this file's staleness check unconditionally
+--      compared against shop_setting's single "today" pointer even for a
+--      BACKDATED capture, which could wrongly drop a legitimate backfill).
 --   S3 SettingsForm.tsx:93 labelled the field "อัปเดตอัตโนมัติจากชีต" but
 --      silver_spot_updated_at got stamped now() on every manual save too
 --      (even a B1 no-op resubmit) — the label lied right after a manual

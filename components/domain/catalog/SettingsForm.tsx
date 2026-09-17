@@ -6,7 +6,7 @@
 // gross-profit). Shows the resulting break-even / target ROAS live so the
 // owner sees the effect of the numbers they type before saving.
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { upsertShopSetting } from "@/lib/actions/catalog";
 import { silverSpotValidationError, spotChanged } from "@/lib/catalog/types";
@@ -34,6 +34,21 @@ export function SettingsForm({
   // unchanged" apart from "actually edited" — see spotChanged() below.
   const initialSpot = setting.silverSpotThbPerGram;
   const [spot, setSpot] = useState(initialSpot != null ? String(initialSpot) : "");
+
+  // code-reviewer round 2: useState above only seeds `spot` on MOUNT — if
+  // this page stays open in a tab while the sheet auto-syncs a new price in
+  // the background (or another tab/action calls router.refresh() and this
+  // Server Component re-fetches `setting`), the local `spot` state never
+  // picks up the new value on its own. Without this, a stale tab could
+  // resubmit an old spot value that NOW differs from the DB's current one —
+  // spotChanged() would see it as a real edit and write a manual entry the
+  // owner never intended. Same pattern as MetalPriceSection.tsx's `current`
+  // resync effect.
+  useEffect(() => {
+    setSpot(setting.silverSpotThbPerGram != null ? String(setting.silverSpotThbPerGram) : "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [setting.silverSpotThbPerGram, setting.silverSpotUpdatedAt]);
+
   // margin/adShare edited as whole-number percents for a friendlier UX.
   const [marginPct, setMarginPct] = useState(String(roundTo(setting.blendedMarginPct * 100, 2)));
   const [adSharePct, setAdSharePct] = useState(String(roundTo(setting.targetAdGpShare * 100, 2)));
@@ -116,6 +131,10 @@ export function SettingsForm({
         )}
         <p className="mt-1 text-xs text-zinc-500">
           ค่านี้ sync จากชีตราคาร้านอัตโนมัติ (÷15.244) — กรอกเองเฉพาะเมื่อชีตล่ม แล้วชีตจะไม่ทับค่าที่กรอกในวันนั้น
+          {" "}ถ้าต้องการล็อกราคาไว้ที่ค่าปัจจุบันโดยไม่แก้เลข ให้กรอกที่หน้า{" "}
+          <a href="/oem/rates" className="underline hover:text-zinc-700">
+            /oem/rates
+          </a>
         </p>
         <label className={`${labelCls} mt-3 max-w-[16rem]`}>
           ราคาเงิน (บาท/กรัม) — กรอกมือเฉพาะกรณีฉุกเฉิน
