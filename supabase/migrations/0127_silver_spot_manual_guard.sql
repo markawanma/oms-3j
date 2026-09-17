@@ -1,7 +1,10 @@
 -- 0127_silver_spot_manual_guard.sql
--- ⚠️ NOT applied yet — Tech Lead dry-runs + applies separately via MCP
--- (supabase-migrate skill; 3j-migration-traps ข้อ 11: do-block + raise
--- บังคับ rollback, ตรวจ state ก่อน-หลังไม่ขยับ).
+-- ✅ APPLIED 17 ก.ย. 69 via MCP (version 20260917075555) — dry-run ผ่านครบ
+-- D1a/D1b (resubmit + margin-only ไม่ล็อก sync, ชีต 1000 -> 65.5996 ทั้ง 2
+-- ตาราง) / D2a/D2b (เปลี่ยนค่าจริงยังคงเขียน manual + ล็อกได้ปกติ) / D3
+-- (capture เก่ากว่าไม่แตะทั้ง 2 ตาราง) / D4a-d (silver=1097 ปฏิเสธ, silver=NaN
+-- ปฏิเสธ, gold=3200 ผ่าน, silver=68 ผ่าน) / D5 (นอกช่วง 5-500 ไม่ขยับ แม้มี
+-- manual entry อยู่แล้ว) — rollback สะอาด ไม่มี state ค้าง.
 --
 -- code-reviewer findings on 0125+0126 (silver spot sync), fixed here:
 --
