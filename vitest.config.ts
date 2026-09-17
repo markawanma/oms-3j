@@ -11,8 +11,13 @@ const rootDir = fileURLToPath(new URL(".", import.meta.url)).replace(/[\\/]+$/, 
 
 export default defineConfig({
   resolve: {
-    alias: {
-      "@": rootDir,
+    // Array form (not the plain-object shorthand) so the "react" entry can
+    // use an EXACT regex match (security review 2026-09-17, M2) — the object
+    // shorthand's prefix matching would also rewrite "react-dom", "react/
+    // jsx-runtime", "react-server-dom-*", etc. to the same single file,
+    // which is only correct for the bare "react" specifier itself.
+    alias: [
+      { find: "@", replacement: rootDir },
       // "server-only"'s default export condition throws unconditionally
       // (guards against accidental client-bundle imports); Next.js only
       // avoids that by resolving the package's "react-server" export
@@ -23,7 +28,10 @@ export default defineConfig({
       // so a bare specifier alias 404s) so lib/**/*.test.ts can import
       // server-only modules (e.g. lib/import/order-report.ts) directly, same
       // as Next's server runtime does.
-      "server-only": fileURLToPath(new URL("./node_modules/server-only/empty.js", import.meta.url)),
+      {
+        find: "server-only",
+        replacement: fileURLToPath(new URL("./node_modules/server-only/empty.js", import.meta.url)),
+      },
       // The plain "react" package (18.3.1, our declared dependency) does NOT
       // export `cache` — Next.js's App Router only gets `React.cache()` by
       // aliasing "react" to its own vendored copy (next/dist/compiled/react)
@@ -33,9 +41,13 @@ export default defineConfig({
       // 69) throws "cache is not a function" under test even though it works
       // fine under `next build`/`next dev`. Same fix pattern as the
       // "server-only" alias above — point at the same file Next's bundler
-      // would resolve to.
-      "react": fileURLToPath(new URL("./node_modules/next/dist/compiled/react/index.js", import.meta.url)),
-    },
+      // would resolve to. `find: /^react$/` (exact match only) so this never
+      // touches "react-dom" or "react/jsx-runtime" imports.
+      {
+        find: /^react$/,
+        replacement: fileURLToPath(new URL("./node_modules/next/dist/compiled/react/index.js", import.meta.url)),
+      },
+    ],
   },
   test: {
     environment: "node",

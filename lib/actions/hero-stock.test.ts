@@ -8,6 +8,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const requireSessionIfGateOnMock = vi.fn();
 const getEffectiveRoleMock = vi.fn();
 const rpcMock = vi.fn();
+const fromMock = vi.fn();
 
 vi.mock("@/lib/auth/session", () => ({
   requireSessionIfGateOn: () => requireSessionIfGateOnMock(),
@@ -23,9 +24,23 @@ vi.mock("@/lib/dev/context", () => ({
   getDevShopId: () => "shop-1",
 }));
 
+// Chainable .select()/.eq()/.order() stub that resolves like a real
+// supabase-js query builder (thenable) — used by getHeroStock's/
+// getProductPickerOptions' read queries (security review 2026-09-17, H1).
+function queryBuilder(result: { data: unknown[]; error: null }) {
+  const builder = {
+    select: () => builder,
+    eq: () => builder,
+    order: () => builder,
+    then: (resolve: (v: typeof result) => void) => resolve(result),
+  };
+  return builder;
+}
+
 vi.mock("@/lib/supabase/server", () => ({
   getServiceClient: () => ({
-    schema: () => ({ rpc: rpcMock }),
+    schema: () => ({ rpc: rpcMock, from: (table: string) => fromMock(table) }),
+    from: (table: string) => fromMock(table),
   }),
 }));
 
@@ -36,6 +51,7 @@ beforeEach(() => {
   getEffectiveRoleMock.mockResolvedValue("owner");
   requireSessionIfGateOnMock.mockResolvedValue(undefined); // AUTH_GATE off (or on + real session) — no-op
   rpcMock.mockResolvedValue({ data: null, error: null });
+  fromMock.mockImplementation(() => queryBuilder({ data: [], error: null }));
 });
 
 describe("addHeroWatch — session gate (H4)", () => {
@@ -67,6 +83,21 @@ describe("addHeroWatch — session gate (H4)", () => {
 
     expect(result).toEqual({ ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่ดูจอสต็อก Hero SKU ได้" });
     expect(rpcMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("getHeroStock / getProductPickerOptions — public reads, no role gate (H1)", () => {
+  it("staff role / no session at all — reads still succeed, no role/session check runs", async () => {
+    getEffectiveRoleMock.mockResolvedValue("staff");
+    const { getHeroStock, getProductPickerOptions } = await import("./hero-stock");
+
+    const heroResult = await getHeroStock();
+    const pickerResult = await getProductPickerOptions();
+
+    expect(heroResult).toEqual({ ok: true, data: [] });
+    expect(pickerResult).toEqual({ ok: true, data: [] });
+    expect(getEffectiveRoleMock).not.toHaveBeenCalled();
+    expect(requireSessionIfGateOnMock).not.toHaveBeenCalled();
   });
 });
 

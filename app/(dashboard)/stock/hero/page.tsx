@@ -1,29 +1,17 @@
-import { Lock } from "lucide-react";
 import { getHeroStock, getProductPickerOptions } from "@/lib/actions/hero-stock";
-import { getEffectiveRole } from "@/lib/auth/role";
 import { ErrorState } from "@/components/ui/ErrorState";
-import { EmptyState } from "@/components/ui/EmptyState";
 import { HeroStockClient } from "@/components/domain/stock/HeroStockClient";
 
 export const dynamic = "force-dynamic"; // live counter — must never serve a cached snapshot
 
-// /stock/hero — Hero-SKU live stock counter (ops-plan-99 §1). Owner/admin
-// only: same reasoning as /catalog — the SKU list here doubles as the
-// picker source (getProductPickerOptions, lib/actions/hero-stock.ts — NOT
-// lib/actions/catalog.ts's getProducts(); see that function's doc comment
-// for why this route can't import catalog.ts at all), and deciding which
-// SKUs to push live is a business call, not a staff one.
+// /stock/hero — Hero-SKU live stock counter (ops-plan-99 §1). Public,
+// unauthenticated wall-display screen by design (exempt from middleware.ts's
+// AUTH_GATE) — no role gate here. Security review 2026-09-17 (H1): reads
+// (getHeroStock/getProductPickerOptions) carry no cost/price/PII, so there is
+// nothing to protect by gating this page; gating it would break its only
+// real audience (the live-selling host's phone, never logged in). Mutations
+// (add/remove hero watch) stay fully gated in lib/actions/hero-stock.ts.
 export default async function StockHeroPage() {
-  if ((await getEffectiveRole()) === "staff") {
-    return (
-      <EmptyState
-        icon={Lock}
-        title="หน้านี้จำกัดสิทธิ์"
-        description="เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่ดูจอสต็อก Hero SKU ได้"
-      />
-    );
-  }
-
   let heroResult, productsResult;
   try {
     [heroResult, productsResult] = await Promise.all([getHeroStock(), getProductPickerOptions()]);
