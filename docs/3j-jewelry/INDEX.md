@@ -74,7 +74,7 @@
 | `analytics/` | design docs ของ 3J Insight ทุก phase | ✅ ใช้อ้าง design — ตัวเลขในนั้นคือ snapshot ห้ามใช้แทน query |
 | `design-system/` + `cad/` | ระบบออกแบบเครื่องประดับ (Sabé) | ✅ current |
 | `brand-ops/` | brand brief / NAP / prompt | ✅ current |
-| `oms/` · `ops-app/` · `oem/` · `design/` | design docs ตามระบบ | ✅ ใช้อ้าง design |
+| `oms/` · `ops-app/` · `oem/` · `design/` | design docs ตามระบบ — `oms/system-flow-2026-09.md` = วงจรระบบ + **มติเจ้าของ 17 ก.ย. 69** (สต็อก opt-in ต่อ SKU / live-SKU ไม่นับ / ขายดี qty+THB แยกช่องทาง / เตือน LINE / variant แม่-ลูกตาม TikTok) — ขัดกับ memory ให้ถือไฟล์นี้ | ✅ ใช้อ้าง design |
 | **`_archive/`** | **ไฟล์ที่ถูกแทนที่/ห้ามใช้** | ⛔ อ่านได้เพื่อประวัติเท่านั้น |
 
 ## ⛔ _archive/ — ย้ายมา 31 ส.ค. เพราะอะไร
