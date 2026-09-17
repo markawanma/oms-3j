@@ -6,8 +6,10 @@
 //   - OrderImportClient.tsx: auto, right after a successful order-report
 //     commit (fetch happens in the PARENT, pattern fetchWarningsFor — see
 //     that file's fetchAndAttachMissingOrders).
-//   - ImportBatchHistory.tsx: on-demand, "ตรวจออเดอร์ที่หายไป" button for the
-//     latest transformed order batch (fetch also happens in the parent).
+//   - ImportBatchHistory.tsx: on-demand, "ตรวจออเดอร์ที่หายไป" button on ANY
+//     transformed order batch row (fixed 14 ก.ย. 69 — used to be hardcoded to
+//     the latest transformed order batch only; fetch also happens in the
+//     parent, refetched whenever the target batchId changes).
 // This component is deliberately presentational for the FETCH (it never
 // calls getMissingOrders itself — `result` is a controlled prop: undefined =
 // loading, null = fetch failed, object = loaded) but owns the DELETE
