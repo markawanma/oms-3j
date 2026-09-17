@@ -75,6 +75,7 @@
 | `design-system/` + `cad/` | ระบบออกแบบเครื่องประดับ (Sabé) | ✅ current |
 | `brand-ops/` | brand brief / NAP / prompt | ✅ current |
 | `oms/` · `ops-app/` · `oem/` · `design/` | design docs ตามระบบ — `oms/system-flow-2026-09.md` = วงจรระบบ + **มติเจ้าของ 17 ก.ย. 69** (สต็อก opt-in ต่อ SKU / live-SKU ไม่นับ / ขายดี qty+THB แยกช่องทาง / เตือน LINE / variant แม่-ลูกตาม TikTok) — ขัดกับ memory ให้ถือไฟล์นี้ | ✅ ใช้อ้าง design |
+| `oms/design-production-order.md` | design ใบผลิตเข้าสต็อก (P1) 17 ก.ย. 69 — **ยังไม่ implement** ติด Q1 ที่เจ้าของต้องตอบ (ต้นทุนหลังผลิตล็อกหรือลอย) · มติ Tech Lead: ลำดับเป็น P1→P1.5→P2, track_stock คอลัมน์ย้ายมา P1 | ⏳ รอเจ้าของตอบ Q1 |
 | **`_archive/`** | **ไฟล์ที่ถูกแทนที่/ห้ามใช้** | ⛔ อ่านได้เพื่อประวัติเท่านั้น |
 
 ## ⛔ _archive/ — ย้ายมา 31 ส.ค. เพราะอะไร
