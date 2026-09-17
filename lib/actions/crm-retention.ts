@@ -8,19 +8,27 @@
 // getServiceClient() bypasses RLS and every call below is manually scoped
 // via the RPC's p_shop_id argument).
 //
-// Money gating: p_include_money = false for staff (getDevRole() === "staff")
-// — same reasoning as marketing.ts's requireOwnerAdmin() PII gate, but
-// staff still gets the full retention SHAPE (bucket/cohort counts), just no
-// THB figures, per the Tech Lead brief ("p_include_money = getDevRole() !==
-// 'staff'"). canPullList mirrors that same role check so the frontend can
+// Money gating: p_include_money = false for staff — same reasoning as
+// marketing.ts's requireOwnerAdmin() PII gate, but staff still gets the full
+// retention SHAPE (bucket/cohort counts), just no THB figures, per the Tech
+// Lead brief. canPullList mirrors that same role check so the frontend can
 // gate a future "pull audience list" action without re-deriving role
 // client-side.
+//
+// 17 ก.ย. 69 — role source changed while this branch sat unmerged: the brief
+// said getDevRole(), but A2-lite shipped getEffectiveRole() (lib/auth/role.ts)
+// and DEV_ROLE now has zero authority whenever AUTH_GATE=on. Keeping
+// getDevRole() here would have hidden every THB figure from the logged-in
+// owner on production (the exact bug lib/auth/role.ts's header describes) and
+// handed money to anyone if DEV_ROLE were ever set. It is await-ed, so the
+// role must be resolved BEFORE the two RPCs are issued.
 //
 // Does NOT touch lib/actions/crm.ts or any dashboard component — both are
 // being edited concurrently by other work per this task's brief.
 
 import { getServiceClient } from "@/lib/supabase/server";
-import { getDevShopId, getDevRole } from "@/lib/dev/context";
+import { getDevShopId } from "@/lib/dev/context";
+import { getEffectiveRole } from "@/lib/auth/role";
 import type { ActionResult } from "@/lib/types";
 import type {
   CrmRetentionData,
@@ -148,7 +156,7 @@ export async function getCrmRetention(): Promise<ActionResult<CrmRetentionData>>
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();
-    const includeMoney = getDevRole() !== "staff";
+    const includeMoney = (await getEffectiveRole()) !== "staff";
 
     // p_weeks left at the RPC's own default (26) — no UI control for it yet
     // (frontend-dev's page can pass one through later if the owner wants a

@@ -1,4 +1,13 @@
 -- 0120_crm_retention.sql
+--
+-- ⚠️ APPLIED 14 ก.ย. 69 (version 20260914104229). หมายเลข 0120 ชนกับ
+-- 0120_seed_content_calendar_202610.sql (version 20260916092640) เพราะสองงาน
+-- เดินคู่กันคนละ branch แล้วอีกฝั่ง merge เข้า main ก่อน ไฟล์นี้ค้างนอก main
+-- 3 วัน — ชื่อไฟล์ทั้งสองยังตรงกับชื่อใน migration history ของ DB เป๊ะ จึง
+-- **ไม่เปลี่ยนเลข** (เปลี่ยนแล้วไฟล์จะไม่ตรงกับ DB ซึ่งเป็นกับดักที่แพงกว่า
+-- ดู migrations-0107-0109-off-main) · ลำดับ apply จริง: ไฟล์นี้มาก่อน
+-- 0120_seed_content_calendar_202610 สองวัน
+--
 -- CRM retention data layer — 2 views the owner asked for before 14 ก.ย. 69:
 --   1. "recency ladder" — how many customers sit at each distance-since-
 --      last-order bucket, crossed with reachability + product affinity.
