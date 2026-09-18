@@ -1,7 +1,20 @@
 -- 0132_production_order_security_fixes.sql
--- ⛔ ยังไม่ apply — Tech Lead จะ dry-run (begin;…rollback; ในทรานแซคชันเดียวกับ
--- scripts/verify-0132.sql) แล้วค่อย apply จริงผ่าน MCP apply_migration เอง
--- (คำสั่งชัดเจนจากบรีฟ: "ห้าม apply เอง")
+-- ✅ APPLIED 18 ก.ย. 69 ผ่าน MCP apply_migration (name = 0132_production_order_security_fixes)
+--
+-- ลำดับที่ทำจริง: dry-run ใน begin;…rollback; (13 assertion ผ่าน) → apply →
+-- ตรวจหลัง apply: pg_proc เหลือฟังก์ชันละ 1 แถว · signature ใหม่ถูกต้อง ·
+-- anon=false authenticated=false service_role=true ทั้งคู่
+--
+-- 🔴 แก้เพิ่มจากฉบับที่ security review อ่าน (รับข้อเสนอของ reviewer 2 ข้อ):
+--   M-a: ด่านราคาเป็น **fail-closed** — ใบที่ใช้ราคาเงินจริงต้องส่ง
+--        p_expected_spot_thb_per_gram มาเสมอ (เดิม null = ไม่เทียบ ซึ่งทำให้
+--        ด่านถูกบังคับที่ UI เท่านั้น) · reviewer grep ยืนยันว่าไม่มี caller เก่า
+--        อยู่จริงในรีโป ⇒ ข้อกำหนด "caller เก่าต้องไม่พัง" ในโจทย์เดิมกำลัง
+--        ปกป้องสิ่งที่ไม่มีอยู่ แลกกับด่านที่ปิดไม่สนิท
+--   M-b: กันเคส product.cost_type ถูกพลิกเป็น spot คั่นกลาง (READ COMMITTED)
+--        แล้ว production_cost_calc ไปหยิบราคาสดเอง ⇒ ข้ามการเทียบ M1 และไม่สน
+--        ราคาเฉพาะใบ — raise แทนการเดาต่อ
+-- ทั้งสองข้อ dry-run ยืนยันแล้วว่าใบที่ทุกบรรทัดเป็น fixed ยังผ่านฉลุย (ห้ามพัง)
 --
 -- ปิด 3 finding จาก security review 18 ก.ย. 69 บนโมดูลใบผลิตเข้าสต็อก (P1b) —
 -- 💰 แตะต้นทุนที่ล็อกถาวร + สต็อก แต่ **ขอบเขตแคบ: แก้แค่ 2 RPC**
@@ -59,9 +72,11 @@ create or replace function analytics.production_order_done(
   -- ผลิตได้จริงต่อ SKU (ถ้าไม่ส่ง หรือ SKU ไม่อยู่ใน array นี้ ⇒ ใช้ qty_planned)
   p_items               jsonb default null,
   -- 0132 M1: ราคาเงินที่ client เห็นตอน preview (production_order_preview,
-  -- 0131 §11) — ถ้าส่งมาและไม่ตรงกับราคาที่ resolve ได้จริง ณ ตอนนี้ (v_spot
-  -- ด้านล่าง) ให้ raise แทนที่จะ stamp ต้นทุนที่เจ้าของไม่เคยเห็นแบบเงียบๆ
-  -- (security review 18 ก.ย., M1). null = ไม่เทียบ (caller เก่า/ที่อื่นไม่พัง)
+  -- 0131 §11) — ถ้าไม่ตรงกับราคาที่ resolve ได้จริง ณ ตอนนี้ (v_spot ด้านล่าง)
+  -- ให้ raise แทนที่จะ stamp ต้นทุนที่เจ้าของไม่เคยเห็นแบบเงียบๆ
+  -- 🔴 **fail-closed** (แก้รอบ 2 ตาม reviewer, M-a): ใบที่ใช้ราคาเงินจริง
+  -- (v_needs_spot) **ต้องส่ง arg นี้มาเสมอ** — null = raise ไม่ใช่ "ข้ามการเทียบ"
+  -- ใบที่ทุกบรรทัดเป็น fixed ไม่แตะเงื่อนไขนี้เลย (ผ่านฉลุยโดยไม่ต้องส่ง)
   p_expected_spot_thb_per_gram numeric default null,
   -- 0132 M4: coalesce(p_actor, auth.uid()) — auth.uid() เป็น null เสมอเพราะ
   -- เรียกผ่าน service client (security review 18 ก.ย., M4). null = พฤติกรรม
@@ -184,7 +199,23 @@ begin
   -- not(<=) กัน NaN/Infinity หลุดผ่าน (3j-migration-traps ข้อ 4) — ถ้า
   -- p_expected เป็น NaN, abs(...) เป็น NaN, 'NaN' <= 0.0001 เป็น false เสมอ ⇒
   -- not() เป็น true ⇒ raise ถูกต้อง (ไม่ใช่ปล่อยผ่านแบบเงียบๆ)
-  if v_needs_spot and p_expected_spot_thb_per_gram is not null then
+  -- 🔴 แก้ตาม security review รอบ 2 (M-a) — ด่านนี้ **fail-closed**
+  -- เดิมเขียนว่า "p_expected null = ไม่เทียบ กัน caller เก่าพัง" ซึ่งทำให้ด่าน M1
+  -- ถูกบังคับที่ UI เท่านั้น: ใครก็ตามที่เรียก RPC โดยไม่ส่ง arg นี้ (script, MCP,
+  -- หน้าใหม่ในอนาคต) จะ stamp ราคาที่เจ้าของไม่เคยเห็นได้เหมือน 0131 ทุกประการ
+  -- โดยไม่มีอะไรร้อง · reviewer grep แล้วยืนยันว่า **ไม่มี caller เก่าอยู่จริงเลย**
+  -- ในรีโปนี้ (call site เดียวคือ ProductionDoneDialog) ⇒ ข้อกำหนด "caller เก่า
+  -- ต้องไม่พัง" ในโจทย์เดิมกำลังปกป้องสิ่งที่ไม่มีอยู่ แลกกับด่านที่ปิดไม่สนิท
+  -- ⇒ ใบที่ใช้ราคาเงินจริง **ต้องส่งราคาที่หน้าจอเห็นมาเสมอ**
+  -- (ใบที่ทุกบรรทัดเป็น fixed ยังผ่านฉลุย เพราะทั้งก้อนอยู่ใต้ v_needs_spot)
+  if v_needs_spot then
+    if p_expected_spot_thb_per_gram is null then
+      raise exception 'production_order_done: ใบนี้ใช้ราคาเงินคำนวณต้นทุน ต้องส่งราคาที่หน้าจอเห็น (p_expected_spot_thb_per_gram) มาด้วยเสมอ — กดยืนยันจากหน้าใบผลิตเท่านั้น'
+        using errcode = '22023';
+    end if;
+    -- not(<=) กัน NaN/Infinity หลุดผ่าน (3j-migration-traps ข้อ 4) — ถ้า
+    -- p_expected เป็น NaN, abs(...) เป็น NaN, 'NaN' <= 0.0001 เป็น false เสมอ ⇒
+    -- not() เป็น true ⇒ raise ถูกต้อง (ไม่ใช่ปล่อยผ่านแบบเงียบๆ)
     if not (abs(v_spot - p_expected_spot_thb_per_gram) <= 0.0001) then
       raise exception 'production_order_done: ราคาเงินเปลี่ยนไประหว่างที่เปิดหน้าต่างนี้ค้างไว้ (ตอนเปิดหน้าต่างเห็นราคา % บาท/กรัม แต่ตอนนี้ระบบคำนวณได้ % บาท/กรัม) — ปิดหน้าต่างยืนยันนี้แล้วเปิดใบผลิตใหม่อีกครั้งเพื่อดูราคาล่าสุดก่อนยืนยัน', p_expected_spot_thb_per_gram, v_spot using errcode = '22023';
     end if;
@@ -226,6 +257,17 @@ begin
       raise exception 'production_order_done: SKU % เป็น SKU เฉพาะไลฟ์ (live*) ผลิตไม่ได้', v_product.sku using errcode = '22023';
     end if;
 
+    -- 🔴 security review รอบ 2 (M-b): ปิดช่องที่ M1 เอื้อมไม่ถึง
+    -- v_needs_spot ถูกคำนวณจาก statement ก่อนหน้า ส่วน v_product อ่านทีหลัง
+    -- (READ COMMITTED) ⇒ ถ้ามีใครพลิก product.cost_type จาก fixed เป็น spot
+    -- คั่นกลางพอดี จะได้ v_product.cost_type='spot' แต่ v_spot เป็น null แล้ว
+    -- production_cost_calc จะ **ไปหยิบราคาสดเอง** ซึ่ง (1) ข้ามการเทียบ M1 ทั้งดุ้น
+    -- และ (2) ส่ง override = null ⇒ ไม่สนราคาเฉพาะใบที่เจ้าของกรอกไว้
+    -- โอกาสเกิดต่ำมาก (ร้านเดียว ต้องแก้ catalog พร้อมกดผลิตเสร็จพอดี) แต่ผลคือ
+    -- ต้นทุนที่ล็อกถาวรผิดโดยไม่มีใครรู้ ⇒ ตัดจบด้วยการ raise ไม่ใช่เดาต่อ
+    if v_product.cost_type = 'spot' and v_spot is null then
+      raise exception 'production_order_done: SKU % ถูกเปลี่ยนเป็นโหมดราคาเงินระหว่างที่กำลังบันทึกใบนี้ — เปิดใบผลิตใหม่อีกครั้งเพื่อคำนวณต้นทุนใหม่', v_product.sku using errcode = '22023';
+    end if;
     v_calc := analytics.production_cost_calc(
       p_shop_id, v_product.id,
       case when v_product.cost_type = 'spot' then v_spot else null end
