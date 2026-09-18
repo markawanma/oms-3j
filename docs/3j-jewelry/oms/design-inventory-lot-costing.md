@@ -147,3 +147,47 @@ PO-0002 stamp `S-1bath` เป็น `fixed @1,713` เวลา 15:23 → migra
 | **D4** | `S-1A`, `WA-1B` เป็นเงินแท่งที่ควรเป็น spot เหมือน 6 ตัวไหม | — |
 | **D5** | `Silver999-1-Baht` 10 ชิ้น / `Silver999-1Baht` 4 ชิ้น (ก.ค.) ของจริงหรือ test | — |
 | **D6** | แท่ง 1 บาทหนักจริงกี่กรัม (15.2 หรือ 15.244) — ชีตคิดเนื้อเงินที่ ~15.2 ระบบตั้งไว้ 15.244×0.999 ต่างกัน 0.16% | ความแม่นของ lot cost |
+
+---
+
+## ผลรอบ 0135 (apply + merge แล้ว 18 ก.ย. 69) + หนี้ที่บล็อก wiring
+
+ปิด finding ของ security review บน P1.5 ครบ 6 ข้อ (H1 ตั้งเป็น-ไม่ใช่-บวก · M1 live guard สองฝั่ง ·
+M2 narrow exception · M3 last_error ที่คนอ่านรู้เรื่อง + `last_error_code` · M5 ใบที่ถูกลบคืนเสมอ ·
+F6 order by) — dry-run ผ่าน 31/31 ก่อน apply
+
+### 🔴 2 เรื่องที่ Tech Lead จับได้เพิ่มระหว่างตรวจ
+
+1. **ช่องล้างสต็อกเป็นศูนย์** — H1 เปลี่ยน `p_initial_qty` เป็น set-semantics แต่ default ยังเป็น `0`
+   ⇒ เรียกแบบ 3 args (รูปร่างธรรมชาติที่สุดของปุ่มสวิตช์) = "ตั้งสต็อกเป็น 0" ล้างของทิ้งเงียบๆ
+   **แก้แล้ว**: `default null` + แยกความหมาย null (ไม่แตะยอด) ออกจาก 0 (ตั้งเป็นศูนย์จริง)
+   ยืนยันบน prod ด้วย `pg_get_function_arguments` = `p_initial_qty integer DEFAULT NULL::integer`
+2. **ชุดทดสอบ `[H1-reserved]` ใช้ไม่ได้จริง** — `reserve_stock` มี FK ไป `public.orders` ⇒ ตก 23503
+   ก่อนถึงด่านที่ตั้งใจทดสอบ (agent ไม่มีสิทธิ์ต่อ DB เลยไม่เคยรันชุดทดสอบตัวเอง) **แก้เป็น**
+   ตั้ง `qty_reserved` ตรงๆ
+
+### 🔴 หนี้บังคับ — ต้องปิดใน 0137 **ก่อน** มี TypeScript เรียก RPC
+
+| # | เรื่อง | ทำไมต้องปิดก่อน |
+|---|---|---|
+| **H1** | `idem key` ของ `product_track_stock_set` ผูกกับ **ยอดเป้าหมาย** (`init:<product>:<since>:<target>`) แต่ `adjust_stock` จำ **delta** ⇒ (ก) ตั้งยอดเดิมซ้ำที่ delta บังเอิญเท่าเดิม = **no-op เงียบแต่ return ว่าสำเร็จ** ⇒ ระบบเชื่อว่ามีของที่ไม่มีจริง = **oversell** · (ข) ตั้ง target เดิมซ้ำที่ delta ต่าง = **23505 ถาวร** · (ค) ข้อความดิบหลุดถึงผู้ใช้ | เป็นทางไปถึง oversell จริง — ตอนนี้ปิดได้ฟรีเพราะยังไม่มีใครเรียก |
+| **M1** | **ABBA deadlock**: `product_track_stock_set` ล็อก `product → central_stock` ส่วน `production_order_done` แตะ `central_stock → product` | สอง session บน SKU เดียวกัน = 40P01 สุ่มตาย · แก้ด้วยการเติม `for update` ที่ `0132:246` |
+| **M2** | ไม่มี `p_actor` / ไม่เขียน `catalog_audit_log` ทั้งที่ตอนนี้แก้ยอดสต็อกได้อิสระ | ยอดเปลี่ยน 200 ชิ้นตอบไม่ได้ว่าใครทำ · เปลี่ยน arg list ⇒ ต้อง `drop function` + re-grant (กับดัก #1/#2) |
+| **M3** | `23514` อยู่ในลิสต์ที่ถูกกลืน — แต่มันคือ **CHECK ของ `central_stock` = wall #2 ของ oversell defense** | ถ้าดังแปลว่า guard ชั้นแรกถูกข้าม = ต้องหยุดให้คนมาดู ไม่ใช่เดินลูปต่อ |
+| **M4** | `P0001` คือ errcode default ของ `raise exception` ทุกตัวใน plpgsql ⇒ ตาข่ายกว้างเกินคำอธิบาย | วันหน้า error "ข้ามร้าน" จะถูกบันทึกเป็น "ของไม่พอ" แล้วเดินต่อเงียบ |
+
+### 🔴 ลำดับบังคับก่อนเปิดใช้จริง
+
+1. **0136** (advisory lock ของ `transform_pending_order_lines`) ต้อง apply **ก่อน** TypeScript ตัวแรก
+   ที่เรียก `stock_sync_sales` — ไม่งั้น re-import ระหว่าง sync จะคืนสต็อกทั้งก้อนชั่วคราว = หน้าต่าง oversell จริง
+2. **0137** ต้องปิด H1 เป็นอย่างน้อย
+3. ตอน wiring: **ชั้น TS ต้อง map ทุก sqlstate ที่ไม่ใช่ 22023 เป็นข้อความกลาง** (pattern เดียวกับ
+   `lib/production/types.ts`) — `raise;` ของ M2 ส่ง error ดิบถึง caller ตามดีไซน์
+4. ย้ายเช็ค `[LOCK-static]` จาก `verify-0135.sql` ไป `verify-0136.sql` (ตอนนี้จะ FAIL หลอกเพราะ
+   lock ย้ายไป 0136 แล้ว)
+
+### บทเรียนวิธีพิสูจน์ (สำคัญกว่าตัวบั๊ก)
+
+🔴 **md5 ของ `prosrc` พิสูจน์ค่า default ของพารามิเตอร์ไม่ได้** — default อยู่ที่ `pg_proc.proargdefaults`
+คนละที่กับ body ⇒ md5 ตรง 100% ยังเป็นไปได้ที่ prod มี `default 0`
+**ต้องเช็คด้วย `pg_get_function_arguments()` แยกเสมอ** เมื่อ migration แตะ default/signature
