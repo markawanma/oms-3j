@@ -28,6 +28,7 @@ import { revalidatePath } from "next/cache";
 import { getServiceClient } from "@/lib/supabase/server";
 import { getDevShopId } from "@/lib/dev/context";
 import { getEffectiveRole } from "@/lib/auth/role";
+import { getSessionUser } from "@/lib/auth/session";
 import type { ActionResult } from "@/lib/types";
 import type {
   DoneItemInput,
@@ -57,6 +58,21 @@ async function requireOwnerAdmin(): Promise<ActionResult<never> | null> {
     return { ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่ใช้งานใบผลิตเข้าสต็อกได้" };
   }
   return null;
+}
+
+/** 0132 M4 — actor สำหรับ audit trail (p_actor) ต้องมาจาก session ฝั่ง server
+ * เท่านั้น (getSessionUser()) ห้ามรับจาก client/form (security review 18 ก.ย.
+ * — ไม่งั้นกลายเป็นช่องปลอมตัว). ไม่ throw เอง: ถ้าอ่าน session ไม่ได้ (เช่น env
+ * ผิดปกติชั่วคราว — เทียบ H2 ใน lib/auth/role.ts) การเขียนใบผลิตยังต้องทำงาน
+ * ต่อได้ แค่ p_actor เป็น null ⇒ RPC coalesce กลับไปใช้ auth.uid() เหมือนก่อนมี
+ * arg นี้ (auth.uid() เป็น null เสมออยู่แล้วผ่าน service client — ดูหัวไฟล์) */
+async function getActorId(): Promise<string | null> {
+  try {
+    const user = await getSessionUser();
+    return user?.id ?? null;
+  } catch {
+    return null;
+  }
 }
 
 function revalidateProduction(id?: string) {
@@ -319,12 +335,18 @@ export async function saveProductionOrder(
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();
+    const actorId = await getActorId();
 
     const { data, error } = await supabase.schema(SCHEMA).rpc("production_order_save", {
       p_shop_id: shopId,
       p_id: input.id ?? null,
       p_note: input.note ?? null,
       p_spot_override_thb_per_gram: input.spotOverrideThbPerGram ?? null,
+      // 0132 M2 — default false = พฤติกรรมเดิมทุกประการ (ส่ง null = ไม่แตะ)
+      p_clear_note: input.clearNote ?? false,
+      p_clear_spot_override: input.clearSpotOverride ?? false,
+      // 0132 M4
+      p_actor: actorId,
     });
     if (error) throw error;
 
@@ -495,10 +517,18 @@ export async function previewProductionOrder(productionOrderId: string): Promise
 export async function doneProductionOrder(input: {
   productionOrderId: string;
   items: DoneItemInput[];
+  // 0132 M1 — ราคาเงินที่ client เห็นตอน preview (production_order_preview);
+  // ส่งกลับเข้า done เพื่อให้ DB เทียบกับราคาที่ resolve ได้จริง ณ ตอนกด
+  // ยืนยัน — กันต้นทุนที่ล็อกถาวรเงียบๆ ไม่ตรงกับที่เจ้าของเห็นก่อนกด (security
+  // review 18 ก.ย., M1). null/undefined = ไม่เทียบ (RPC ข้ามเงียบๆ)
+  expectedSpotThbPerGram?: number | null;
 }): Promise<ActionResult<ProductionOrderDoneResult>> {
   const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
   if (!input.productionOrderId) return { ok: false, error: "ไม่พบใบผลิตที่ต้องการ" };
+  if (input.expectedSpotThbPerGram != null && !Number.isFinite(input.expectedSpotThbPerGram)) {
+    return { ok: false, error: "ราคาเงินอ้างอิงที่ส่งมาไม่ถูกต้อง — ปิดหน้าต่างแล้วเปิดใหม่อีกครั้ง" };
+  }
 
   // security review 18 ก.ย. (M6) — payload นี้ไปกำหนดว่าของเข้าสต็อกกี่ชิ้นและ
   // ต้นทุนถูกล็อกเท่าไร (แก้ย้อนไม่ได้) จึงต้องกันให้ครบ 3 อย่างที่ DB กันให้ไม่ได้
@@ -528,11 +558,16 @@ export async function doneProductionOrder(input: {
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();
+    const actorId = await getActorId();
 
     const { data, error } = await supabase.schema(SCHEMA).rpc("production_order_done", {
       p_shop_id: shopId,
       p_production_order_id: input.productionOrderId,
       p_items: input.items.map((it) => ({ product_id: it.productId, qty_done: it.qtyDone })),
+      // 0132 M1
+      p_expected_spot_thb_per_gram: input.expectedSpotThbPerGram ?? null,
+      // 0132 M4
+      p_actor: actorId,
     });
     if (error) throw error;
 

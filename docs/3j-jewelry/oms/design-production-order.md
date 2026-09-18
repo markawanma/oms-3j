@@ -79,3 +79,38 @@ P1 เพิ่ม `product.track_stock` + `track_stock_since` และให�
 
 **P1a** backend — migration เดียว (schema + trigger + 8 RPC + 2 view + grants) → **dry-run ใน transaction rollback** → security → apply + merge
 **P1b** frontend — 3 หน้า + layout + nav + actions → QA ระดับ L (แตะ `product` + ledger) → UAT
+
+---
+
+## รอบ 0132 — ปิด 3 finding ของ security (apply แล้ว 18 ก.ย. 69)
+
+| finding | เดิม | แก้เป็น |
+|---|---|---|
+| **M1** ราคาเงินเลื่อนระหว่าง preview → done | done resolve ราคาใหม่คนละ transaction · `oem_metal_price` ของวันนี้ upsert ทับได้ระหว่างวัน ⇒ ต้นทุนที่ล็อกถาวรอาจไม่ใช่เลขที่เจ้าของเห็น | `p_expected_spot_thb_per_gram` — เทียบก่อน stamp ไม่ตรง = raise |
+| **M2** ลบ override/หมายเหตุไม่ได้ | `coalesce(new, old)` ⇒ null = ไม่แตะ แต่จอขึ้นว่าบันทึกสำเร็จ | `p_clear_note` / `p_clear_spot_override` |
+| **M4** ไม่รู้ว่าใครกด | เรียกผ่าน service client ⇒ `auth.uid()` = null เสมอ | `p_actor` จาก `getSessionUser()` **ฝั่ง server เท่านั้น** |
+
+### 🔴 มติ Tech Lead: ด่านราคาเป็น **fail-closed** (รับข้อเสนอ reviewer, M-a)
+
+โจทย์รอบแรกผมสั่งว่า "caller เก่าต้องไม่พัง" ⇒ `p_expected` เป็น null แปลว่า "ไม่เทียบ"
+reviewer แย้งว่า **ไม่มี caller เก่าอยู่จริงเลยในรีโป** (grep แล้ว call site เดียวคือ `ProductionDoneDialog`)
+⇒ ข้อกำหนดนั้นกำลังปกป้องสิ่งที่ไม่มีอยู่ แลกกับด่านที่บังคับได้แค่ที่ UI
+
+**ตัดสินใจ: ใบที่ใช้ราคาเงินจริง (`v_needs_spot`) ต้องส่ง `p_expected_spot_thb_per_gram` มาเสมอ — null = raise**
+ใบที่ทุกบรรทัดเป็น `fixed` ไม่แตะเงื่อนไขนี้เลย (dry-run ยืนยัน)
+⚠️ **ผลที่ตามมา**: ถ้าวันหน้ามี script/MCP/หน้าใหม่ที่เรียก `production_order_done` ต้องส่ง arg นี้ด้วยเสมอ ไม่ใช่ทางเลือก
+
+### 🔴 มติ: ปิดช่อง M-b ด้วย (race ของ `cost_type`)
+
+ถ้ามีใครพลิก `product.cost_type` จาก fixed เป็น spot คั่นกลางระหว่าง statement เช็ค `v_needs_spot`
+กับ statement อ่าน `v_product` (READ COMMITTED) ⇒ `v_spot` เป็น null แล้ว `production_cost_calc`
+จะ **ไปหยิบราคาสดเอง** ⇒ ข้ามการเทียบ M1 ทั้งดุ้น และไม่สนราคาเฉพาะใบที่เจ้าของกรอก
+⇒ เพิ่ม guard ใน `done`: `cost_type='spot'` แต่ `v_spot is null` = **raise ไม่ใช่เดาต่อ**
+
+### หนี้ที่ยังเหลือหลัง 0132 (จดไว้ อย่าให้หาย)
+
+1. **M4 ปิดแค่ 2 จุด** — `production_order_cancel` ยังไม่รู้ว่าใครยกเลิก (ตารางไม่มีคอลัมน์ `cancelled_by` ด้วยซ้ำ) · `item_set`/`item_remove` ไม่มี actor
+2. **M2 เปิดช่อง "แท็บเก่าลบค่าคนอื่น"** — ฟอร์มส่ง `clear=true` ทุกครั้งที่ช่องว่าง ⇒ แท็บที่เปิดค้างไว้ (ยังไม่เห็นหมายเหตุที่เพิ่งพิมพ์จากอีกแท็บ) กดบันทึกเพื่อแก้แค่ราคา จะลบหมายเหตุทิ้งไปด้วย · ร้านคนเดียว = เสี่ยงต่ำ แต่เป็นผลข้างเคียงจริงของ M2
+3. **`getActorId()` เรียก `getSessionUser()` ซ้ำ** ไม่ผ่าน `React.cache` เหมือน `getEffectiveRole` — +1 round-trip ต่อการเขียน
+4. **`/stock/hero` เป็นหน้าสาธารณะที่อ่าน `central_stock` ตัวเดียวกัน** — P1 บวกอย่างเดียว ⇒ ตัวเลขบนหน้านั้นจะสูงกว่าจริงเรื่อยๆ หลังเริ่มใช้ใบผลิต (หน้า `/stock` มีแถบเตือนแล้ว หน้า hero ยังไม่มี) — **เจ้าของต้องตัดสิน ไม่ใช่ทีม**
+5. `scripts/verify-0131.sql` ถูกแปะหัวว่า **SUPERSEDED — ห้ามรันซ้ำ** (มี signature เก่าอยู่ข้างใน จะสร้าง overload)

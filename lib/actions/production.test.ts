@@ -7,11 +7,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const getEffectiveRoleMock = vi.fn();
+const getSessionUserMock = vi.fn();
 const rpcMock = vi.fn();
 const fromMock = vi.fn();
 
 vi.mock("@/lib/auth/role", () => ({
   getEffectiveRole: () => getEffectiveRoleMock(),
+}));
+
+vi.mock("@/lib/auth/session", () => ({
+  getSessionUser: () => getSessionUserMock(),
 }));
 
 vi.mock("@/lib/dev/context", () => ({
@@ -43,9 +48,24 @@ vi.mock("@/lib/supabase/server", () => ({
 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
+// Minimal well-shaped RPC responses for tests that only care about *what
+// was sent to* rpcMock, not the mapped return value — avoids the
+// null-data-but-ok TypeError (and its noisy console.error) that a bare
+// `{ data: null, error: null }` default would otherwise trigger once the
+// action tries to destructure fields off it.
+const SAVE_RPC_OK = {
+  data: { id: "po-1", po_no: "PO-0001", status: "open", note: "test", spot_override_thb_per_gram: null, seq: 1, created_at: "2026-09-18T00:00:00Z" },
+  error: null,
+};
+const DONE_RPC_OK = {
+  data: { production_order_id: "po-1", po_no: "PO-0001", status: "done", already_done: false, items: [] },
+  error: null,
+};
+
 beforeEach(() => {
   vi.clearAllMocks();
   getEffectiveRoleMock.mockResolvedValue("owner");
+  getSessionUserMock.mockResolvedValue(null);
   rpcMock.mockResolvedValue({ data: null, error: null });
   fromMock.mockImplementation(() => queryBuilder({ data: [], error: null, count: 0 }));
 });
@@ -179,6 +199,71 @@ describe("saveProductionOrder", () => {
       expect(result.error).not.toContain("/oem/rates");
     }
   });
+
+  // 0132 M2 — p_clear_note/p_clear_spot_override must default to false (the
+  // pre-0132 coalesce(p_x, x) behavior) when the caller doesn't pass them, so
+  // every existing call site that doesn't know about "clear" keeps working.
+  it("defaults p_clear_note/p_clear_spot_override to false when not specified", async () => {
+    rpcMock.mockResolvedValue(SAVE_RPC_OK);
+    const { saveProductionOrder } = await import("./production");
+    await saveProductionOrder({ id: "po-1", note: "test" });
+    expect(rpcMock).toHaveBeenCalledWith(
+      "production_order_save",
+      expect.objectContaining({ p_clear_note: false, p_clear_spot_override: false })
+    );
+  });
+
+  // 0132 M2 — the actual fix: clearNote/clearSpotOverride true must reach the
+  // RPC as true (this is what lets the DB set the column to null instead of
+  // silently keeping the old value the way coalesce(p_x, x) did).
+  it("passes clearNote/clearSpotOverride through to p_clear_note/p_clear_spot_override", async () => {
+    rpcMock.mockResolvedValue(SAVE_RPC_OK);
+    const { saveProductionOrder } = await import("./production");
+    await saveProductionOrder({ id: "po-1", clearNote: true, clearSpotOverride: true });
+    expect(rpcMock).toHaveBeenCalledWith(
+      "production_order_save",
+      expect.objectContaining({ p_clear_note: true, p_clear_spot_override: true })
+    );
+  });
+
+  // 0132 M4 — p_actor must come from the REAL server session (getSessionUser),
+  // never from the input object — there is no "actor" field on
+  // SaveProductionOrderInput at all, so there is nothing for a caller to spoof.
+  it("passes the session user's id as p_actor when a session exists", async () => {
+    rpcMock.mockResolvedValue(SAVE_RPC_OK);
+    getSessionUserMock.mockResolvedValue({ id: "user-42", email: "owner@example.com" });
+    const { saveProductionOrder } = await import("./production");
+    await saveProductionOrder({ note: "test" });
+    expect(rpcMock).toHaveBeenCalledWith("production_order_save", expect.objectContaining({ p_actor: "user-42" }));
+  });
+
+  it("passes p_actor: null when there is no session (matches pre-0132 behavior via auth.uid())", async () => {
+    rpcMock.mockResolvedValue(SAVE_RPC_OK);
+    getSessionUserMock.mockResolvedValue(null);
+    const { saveProductionOrder } = await import("./production");
+    await saveProductionOrder({ note: "test" });
+    expect(rpcMock).toHaveBeenCalledWith("production_order_save", expect.objectContaining({ p_actor: null }));
+  });
+
+  it("passes p_actor: null (instead of throwing) if getSessionUser() itself throws", async () => {
+    getSessionUserMock.mockRejectedValue(new Error("Supabase Auth env not configured"));
+    rpcMock.mockResolvedValue({
+      data: {
+        id: "po-1",
+        po_no: "PO-0001",
+        status: "open",
+        note: "test",
+        spot_override_thb_per_gram: null,
+        seq: 1,
+        created_at: "2026-09-18T00:00:00Z",
+      },
+      error: null,
+    });
+    const { saveProductionOrder } = await import("./production");
+    const result = await saveProductionOrder({ note: "test" });
+    expect(result.ok).toBe(true);
+    expect(rpcMock).toHaveBeenCalledWith("production_order_save", expect.objectContaining({ p_actor: null }));
+  });
 });
 
 describe("doneProductionOrder", () => {
@@ -250,6 +335,70 @@ describe("doneProductionOrder", () => {
         items: [{ productId: "11111111-1111-4111-8111-111111111111", sku: "SKU-1", qtyDone: 5, unitCost: 123.45, prevCostType: "spot", prevUnitCost: 100 }],
       },
     });
+  });
+
+  // 0132 M1 — expectedSpotThbPerGram must reach the RPC verbatim (null when
+  // omitted, so old callers behave exactly like 0131), and be validated
+  // client-side just enough to reject non-finite garbage (NaN/Infinity)
+  // before it ever reaches the DB comparison.
+  it("passes expectedSpotThbPerGram through to p_expected_spot_thb_per_gram", async () => {
+    rpcMock.mockResolvedValue(DONE_RPC_OK);
+    const { doneProductionOrder } = await import("./production");
+    await doneProductionOrder({
+      productionOrderId: "po-1",
+      items: [{ productId: "11111111-1111-4111-8111-111111111111", qtyDone: 5 }],
+      expectedSpotThbPerGram: 70.25,
+    });
+    expect(rpcMock).toHaveBeenCalledWith(
+      "production_order_done",
+      expect.objectContaining({ p_expected_spot_thb_per_gram: 70.25 })
+    );
+  });
+
+  it("defaults p_expected_spot_thb_per_gram to null when expectedSpotThbPerGram is omitted", async () => {
+    rpcMock.mockResolvedValue(DONE_RPC_OK);
+    const { doneProductionOrder } = await import("./production");
+    await doneProductionOrder({
+      productionOrderId: "po-1",
+      items: [{ productId: "11111111-1111-4111-8111-111111111111", qtyDone: 5 }],
+    });
+    expect(rpcMock).toHaveBeenCalledWith(
+      "production_order_done",
+      expect.objectContaining({ p_expected_spot_thb_per_gram: null })
+    );
+  });
+
+  it("rejects a non-finite expectedSpotThbPerGram (NaN/Infinity) before calling the RPC", async () => {
+    const { doneProductionOrder } = await import("./production");
+    const result = await doneProductionOrder({
+      productionOrderId: "po-1",
+      items: [{ productId: "11111111-1111-4111-8111-111111111111", qtyDone: 5 }],
+      expectedSpotThbPerGram: Infinity,
+    });
+    expect(result.ok).toBe(false);
+    expect(rpcMock).not.toHaveBeenCalled();
+  });
+
+  // 0132 M4 — same actor plumbing as saveProductionOrder above.
+  it("passes the session user's id as p_actor when a session exists", async () => {
+    rpcMock.mockResolvedValue(DONE_RPC_OK);
+    getSessionUserMock.mockResolvedValue({ id: "user-42", email: "owner@example.com" });
+    const { doneProductionOrder } = await import("./production");
+    await doneProductionOrder({
+      productionOrderId: "po-1",
+      items: [{ productId: "11111111-1111-4111-8111-111111111111", qtyDone: 5 }],
+    });
+    expect(rpcMock).toHaveBeenCalledWith("production_order_done", expect.objectContaining({ p_actor: "user-42" }));
+  });
+
+  it("passes p_actor: null when there is no session", async () => {
+    rpcMock.mockResolvedValue(DONE_RPC_OK);
+    const { doneProductionOrder } = await import("./production");
+    await doneProductionOrder({
+      productionOrderId: "po-1",
+      items: [{ productId: "11111111-1111-4111-8111-111111111111", qtyDone: 5 }],
+    });
+    expect(rpcMock).toHaveBeenCalledWith("production_order_done", expect.objectContaining({ p_actor: null }));
   });
 });
 

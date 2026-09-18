@@ -1,3 +1,9 @@
+-- 🔴 SUPERSEDED BY 0132 — ห้ามรันไฟล์นี้ซ้ำ (แปะ 18 ก.ย. 69 ตาม security review)
+-- ไฟล์นี้มี create or replace ของ production_order_done/save ด้วย **signature เก่า**
+-- อยู่ข้างใน ถ้าหยิบมารันหลัง 0132 (หรือ copy บางท่อนไปรันมือโดยไม่มี raise ปิดท้าย)
+-- จะได้ overload 2 ตัวทันที แล้ว PostgREST อาจเลือกตัวเก่าแบบเงียบๆ
+-- เก็บไว้เป็นหลักฐานการ dry-run ของ 0131 เท่านั้น — ตัวที่ใช้ตรวจวันนี้คือ verify-0132.sql
+--
 -- scripts/verify-0131.sql
 --
 -- Self-contained verify script for supabase/migrations/0131_production_order.sql
