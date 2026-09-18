@@ -212,14 +212,34 @@ export function ProductForm({
 
       <fieldset className="rounded-md border border-zinc-200 p-2.5">
         <legend className="px-1 text-xs font-semibold text-zinc-600">โหมดต้นทุน</legend>
-        <div className="flex gap-4 pb-2 pt-1 text-sm">
-          <label className="flex items-center gap-1.5">
-            <input type="radio" checked={costType === "fixed"} onChange={() => setCostType("fixed")} />
-            ต้นทุนคงที่ (เครื่องประดับ)
+        <div className="flex flex-col gap-1.5 pb-2 pt-1 text-sm">
+          <label className="flex items-start gap-1.5">
+            <input
+              type="radio"
+              checked={costType === "fixed"}
+              onChange={() => setCostType("fixed")}
+              className="mt-1"
+            />
+            <span>
+              ใส่ต้นทุนเอง (ตัวเลขคงที่)
+              <span className="block text-xs font-normal text-zinc-500">
+                ต้องมาแก้เองทุกครั้งที่ต้นทุนเปลี่ยน
+              </span>
+            </span>
           </label>
-          <label className="flex items-center gap-1.5">
-            <input type="radio" checked={costType === "spot"} onChange={() => setCostType("spot")} />
-            อิงราคาเงิน (น้ำหนัก × ราคาเงินวันนี้ × ความบริสุทธิ์ + ค่ากำเหน็จ)
+          <label className="flex items-start gap-1.5">
+            <input
+              type="radio"
+              checked={costType === "spot"}
+              onChange={() => setCostType("spot")}
+              className="mt-1"
+            />
+            <span>
+              คำนวณจากน้ำหนักเงิน (ขยับตามราคาเงินเอง)
+              <span className="block text-xs font-normal text-zinc-500">
+                น้ำหนัก × ราคาเงินวันนั้น × ความบริสุทธิ์ + ค่าแรง — เลือกอันนี้ถ้ารู้น้ำหนักเป็นกรัม
+              </span>
+            </span>
           </label>
         </div>
 
@@ -238,7 +258,7 @@ export function ProductForm({
             />
           </label>
         ) : (
-          <div className="grid grid-cols-3 gap-2.5">
+          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
             <label className={labelCls}>
               น้ำหนักเงิน (ก.)
               <input
@@ -264,9 +284,12 @@ export function ProductForm({
                 placeholder="0.925"
                 className={inputCls}
               />
+              <span className="block pt-0.5 text-[11px] font-normal text-zinc-500">
+                เครื่องประดับ 925 = 0.925 · เงินแท่ง 999 = 0.999
+              </span>
             </label>
             <label className={labelCls}>
-              ค่ากำเหน็จ (บาท/ชิ้น)
+              ค่าแรง/ค่าบล็อก (บาท/ชิ้น)
               <input
                 type="number"
                 inputMode="decimal"
@@ -277,6 +300,9 @@ export function ProductForm({
                 placeholder="0.00"
                 className={inputCls}
               />
+              <span className="block pt-0.5 text-[11px] font-normal text-zinc-500">
+                ต้นทุนขึ้นรูปเท่านั้น — ห้ามใส่กำไรหรือ VAT
+              </span>
             </label>
           </div>
         )}
