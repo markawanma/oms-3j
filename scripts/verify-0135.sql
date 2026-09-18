@@ -530,16 +530,17 @@ begin
   v_log := v_log || format('[M1-static] live guard ฝั่ง sync (sku !~* ^live) มีอยู่จริง สองครั้ง (tgt+ap): %s' || E'\n',
     case when length(v_fndef) - length(replace(v_fndef, '!~* ''^live''', '')) >= length('!~* ''^live''') * 2 then 'OK' else 'FAIL' end);
 
-  select pg_get_functiondef('analytics.transform_pending_order_lines(uuid,uuid)'::regprocedure) into v_fndef;
-  v_log := v_log || format('[LOCK-static] transform_pending_order_lines ถือ advisory lock เดียวกับ stock_sync_sales: %s' || E'\n',
-    case when v_fndef like '%pg_advisory_xact_lock%analytics.fact_order:%' then 'OK' else 'FAIL' end);
+  -- [LOCK-static] ย้ายไป scripts/verify-0136.sql แล้ว (Tech Lead 19 ก.ย. 69)
+  -- advisory lock ของ transform_pending_order_lines ถูกแยกออกจาก 0135 ไป 0136
+  -- เพราะ dry-run รอบ 0135 ไม่ได้ครอบการ replace ฟังก์ชันนั้น ⇒ ถ้าเช็คค้างไว้ที่นี่
+  -- มันจะ FAIL หลอกจนกว่า 0136 จะลง แล้วคนที่มาดูทีหลังแยกไม่ออกว่า FAIL จริงหรือตกค้าง
 
   -----------------------------------------------------------------------
   -- สรุปเคสที่ครอบ: H1a/H1b-open/H1b-retarget/H1b-idempotent/H1-reserved/REOPEN (H1 + [D])
   --   LIVE-open-blocked/LIVE-close-always/LIVE2-sync-ignored (M1) ·
   --   T1/T2/T3/T4/T13/T5/T6 (เคสห้ามพัง) · T7a/T7b/T7c + T19 (M2/M3) ·
   --   M5a/M5b (M5) · T11a/T11b (adjust_stock เดิมไม่พัง) · T16/T17
-  --   (grant/RLS) · M2-static/F6-static/M5-static/M1-static/LOCK-static
+  --   (grant/RLS) · M2-static/F6-static/M5-static/M1-static
   --   (static source checks — ดูข้อจำกัดของ M2 dynamic ในหัวไฟล์)
   -----------------------------------------------------------------------
 
