@@ -66,8 +66,21 @@ function ProductionOrderMetaForm({ order }: { order: ProductionOrderRow }) {
       }
       spotOverrideThbPerGram = n;
     }
+    const trimmedNote = note.trim();
     setPending(true);
-    saveProductionOrder({ id: order.id, note: note.trim() || null, spotOverrideThbPerGram }).then((result) => {
+    saveProductionOrder({
+      id: order.id,
+      note: trimmedNote || null,
+      spotOverrideThbPerGram,
+      // 0132 M2 — this form only ever edits an existing order (order.id is
+      // always set here; creating a new order goes through
+      // ProductionOrderNewClient instead), so an empty field on submit is an
+      // intentional "clear this" — not "leave it alone" (the old coalesce(p_x,
+      // x) semantics made clearing impossible: the screen said "saved" but the
+      // old value silently stayed. security review 18 ก.ย., M2).
+      clearNote: trimmedNote === "",
+      clearSpotOverride: spotOverride.trim() === "",
+    }).then((result) => {
       setPending(false);
       if (!result.ok) {
         setError(result.error);
@@ -108,6 +121,7 @@ function ProductionOrderMetaForm({ order }: { order: ProductionOrderRow }) {
       />
       <p className="mt-1 text-xs text-zinc-400">
         ใช้เฉพาะใบนี้ — ถ้าราคาเงินวันนี้ยังไม่เข้าระบบ กรอกราคาที่ซื้อมาจริงตรงนี้แทนได้ (ไม่กระทบราคาใบเสนอราคา OEM)
+        ลบตัวเลขออกแล้วกดบันทึก = เลิกใช้ราคานี้ กลับไปใช้ราคาเงินของวันนี้อัตโนมัติ
       </p>
       {error && (
         <p role="alert" className="mt-2 text-xs text-red-600">

@@ -28,6 +28,20 @@ describe("humanizeProductionError", () => {
     expect(humanizeProductionError(err, "fallback")).toBe(err.message);
   });
 
+  // 0132 M1 — the "spot price moved between preview and done" raise already
+  // tells the user exactly what to do (close and reopen); it must NOT get
+  // caught by the NO_SPOT_PRICE_MARKER rewrite above (different Thai text —
+  // "ราคาเงินเปลี่ยนไป..." vs "ยังไม่มีราคาเงินของวันนี้"), so it should pass
+  // through unmodified like every other already-specific 0131/0132 message.
+  it("passes the 'spot price moved between preview and done' (0132 M1) message through as-is", () => {
+    const err = {
+      code: "22023",
+      message:
+        "production_order_done: ราคาเงินเปลี่ยนไประหว่างที่เปิดหน้าต่างนี้ค้างไว้ (ตอนเปิดหน้าต่างเห็นราคา 70 บาท/กรัม แต่ตอนนี้ระบบคำนวณได้ 71 บาท/กรัม) — ปิดหน้าต่างยืนยันนี้แล้วเปิดใบผลิตใหม่อีกครั้งเพื่อดูราคาล่าสุดก่อนยืนยัน",
+    };
+    expect(humanizeProductionError(err, "fallback")).toBe(err.message);
+  });
+
   it("falls back when there is no usable message at all", () => {
     expect(humanizeProductionError(null, "fallback")).toBe("fallback");
     expect(humanizeProductionError(undefined, "fallback")).toBe("fallback");

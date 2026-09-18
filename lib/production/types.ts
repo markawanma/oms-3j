@@ -109,6 +109,13 @@ export interface SaveProductionOrderInput {
   id?: string;
   note?: string | null;
   spotOverrideThbPerGram?: number | null;
+  /** 0132 M2 — true = ล้างหมายเหตุ/override ทิ้งจริง (เซ็ต null) แทนพฤติกรรม
+   * เดิมที่ "ส่ง null = ไม่แตะค่าเดิม" (analytics.production_order_save,
+   * coalesce(p_x, x)) ซึ่งทำให้ลบ override ที่ตั้งผิดไม่ได้แม้จอขึ้นว่าบันทึก
+   * สำเร็จ (security review 18 ก.ย., M2). มีผลเฉพาะตอนแก้ใบเดิม (มี `id`) —
+   * ตอนสร้างใบใหม่ RPC ไม่อ่าน flag นี้เลย ไม่ต้องส่ง. */
+  clearNote?: boolean;
+  clearSpotOverride?: boolean;
 }
 
 /** analytics.production_order_item_set */

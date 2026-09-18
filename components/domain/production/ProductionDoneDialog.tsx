@@ -13,6 +13,15 @@
 //
 // No client-side cost math anywhere below — unitCost/prevUnitCost/
 // spotPriceThbPerGram are all read straight off the RPC response.
+//
+// 🔴 0132 (security review 18 ก.ย., M1): preview and done are still two
+// separate transactions, and analytics.oem_metal_price for today CAN be
+// upserted over between them (0125-0128 pull from the sheet multiple times a
+// day) — so "ที่เห็นก่อนกด = ที่จะถูก stamp" is no longer just true by
+// construction, it's enforced server-side too: this dialog sends
+// preview.spotPriceThbPerGram back as expectedSpotThbPerGram, and
+// production_order_done raises (instead of silently stamping a different
+// price) if it doesn't match what it resolves at confirm time.
 
 import { useEffect, useState } from "react";
 import { useTransition } from "react";
@@ -113,6 +122,10 @@ export function ProductionDoneDialog({
       const result = await doneProductionOrder({
         productionOrderId: order.id,
         items: rows.map((r) => ({ productId: r.productId, qtyDone: parsedQty(r) ?? 0 })),
+        // 0132 M1 — ราคาที่ preview ตัวนี้เห็นจริงตอนเปิดหน้าต่าง ส่งกลับให้ DB
+        // เทียบกับราคาที่ resolve ได้จริง ณ ตอนกดยืนยัน (กันราคาเลื่อนระหว่างที่
+        // หน้าต่างนี้เปิดค้างไว้ — security review 18 ก.ย., M1)
+        expectedSpotThbPerGram: preview?.spotPriceThbPerGram ?? null,
       });
       if (!result.ok) {
         setSubmitError(result.error);
