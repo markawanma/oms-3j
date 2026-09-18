@@ -75,7 +75,8 @@
 | `design-system/` + `cad/` | ระบบออกแบบเครื่องประดับ (Sabé) | ✅ current |
 | `brand-ops/` | brand brief / NAP / prompt | ✅ current |
 | `oms/` · `ops-app/` · `oem/` · `design/` | design docs ตามระบบ — `oms/system-flow-2026-09.md` = วงจรระบบ + **มติเจ้าของ 17 ก.ย. 69** (สต็อก opt-in ต่อ SKU / live-SKU ไม่นับ / ขายดี qty+THB แยกช่องทาง / เตือน LINE / variant แม่-ลูกตาม TikTok) — ขัดกับ memory ให้ถือไฟล์นี้ | ✅ ใช้อ้าง design |
-| `oms/design-production-order.md` | design ใบผลิตเข้าสต็อก (P1) 17 ก.ย. 69 — **ยังไม่ implement** ติด Q1 ที่เจ้าของต้องตอบ (ต้นทุนหลังผลิตล็อกหรือลอย) · มติ Tech Lead: ลำดับเป็น P1→P1.5→P2, track_stock คอลัมน์ย้ายมา P1 | ⏳ รอเจ้าของตอบ Q1 |
+| `oms/design-production-order.md` | design ใบผลิตเข้าสต็อก — **P1 ทำเสร็จแล้ว** (0131+0132 apply+merge 18 ก.ย.) · Q1 เจ้าของตอบแล้ว "ล๊อค" 17 ก.ย. · §P1.5 = หักสต็อกจากยอดขาย (0133 apply+merge 18 ก.ย. ยังไม่ wiring) | ✅ ใช้อ้าง design |
+| `oms/design-inventory-lot-costing.md` | **ต้นทุนตามรอบผลิต (FIFO)** 18 ก.ย. 69 — เจ้าของสั่งเอง · 🔴 เจอว่ากำไรเงินแท่งคิดจาก "ราคาขาย÷1.2" มาตลอด ต้นทุนแคตตาล็อกไม่เคยถึงกำไรเลย · ลำดับ 0135→L1→L2→L3 | ⏳ รอเจ้าของตอบ D1/D2/D3 |
 | **`_archive/`** | **ไฟล์ที่ถูกแทนที่/ห้ามใช้** | ⛔ อ่านได้เพื่อประวัติเท่านั้น |
 
 ## ⛔ _archive/ — ย้ายมา 31 ส.ค. เพราะอะไร
