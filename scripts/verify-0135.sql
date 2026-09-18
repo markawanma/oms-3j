@@ -142,6 +142,28 @@ begin
     case when v_qty_on_hand = 12 and v_row_count = v_ledger_count_h1b and (v_res ->> 'delta_applied')::int = 0 then 'OK' else 'FAIL' end);
 
   -----------------------------------------------------------------------
+  -- 🔴 NULL≠0 (Tech Lead 18 ก.ย. 69): ไม่ส่ง p_initial_qty มา (null) ต้องแปลว่า
+  -- "เปิดธงอย่างเดียว ไม่แตะยอดสต็อก" ไม่ใช่ "ตั้งเป็น 0"
+  -- ถ้า default ยังเป็น 0 เหมือน 0133 พอ H1 เปลี่ยนเป็น set-semantics แล้ว
+  -- ปุ่มสวิตช์เปิด/ปิดธรรมดา (ที่ UI รอบหน้าจะทำ) จะล้างสต็อกที่มีอยู่ทิ้งเงียบๆ
+  -----------------------------------------------------------------------
+  v_res := analytics.product_track_stock_set(v_shop_id, v_p_h1a, true);
+  select qty_on_hand into v_qty_on_hand from public.central_stock where product_id = v_p_h1a;
+  select count(*) into v_row_count from public.stock_ledger where product_id = v_p_h1a;
+  v_log := v_log || format('[NULL-a] เปิดนับโดยไม่ส่งยอด: on_hand=%s (คาดยังคง 15 — ห้ามถูกล้างเป็น 0), ledger แถว=%s (คาด 0), delta_applied=%s (คาด 0), qty_target=%s (คาด null): %s' || E'
+',
+    v_qty_on_hand, v_row_count, v_res ->> 'delta_applied', coalesce(v_res ->> 'qty_target', 'null'),
+    case when v_qty_on_hand = 15 and v_row_count = 0 and (v_res ->> 'delta_applied')::int = 0 and (v_res ->> 'qty_target') is null then 'OK' else 'FAIL' end);
+
+  v_res := analytics.product_track_stock_set(v_shop_id, v_p_h1a, true, 0);
+  select qty_on_hand into v_qty_on_hand from public.central_stock where product_id = v_p_h1a;
+  select count(*) into v_row_count from public.stock_ledger where product_id = v_p_h1a;
+  v_log := v_log || format('[NULL-b] ส่ง 0 มาตรงๆ (เจตนาชัดว่าของหมด): on_hand=%s (คาด 0), ledger แถว=%s (คาด 1 — มีหลักฐาน), delta_applied=%s (คาด -15): %s' || E'
+',
+    v_qty_on_hand, v_row_count, v_res ->> 'delta_applied',
+    case when v_qty_on_hand = 0 and v_row_count = 1 and (v_res ->> 'delta_applied')::int = -15 then 'OK' else 'FAIL' end);
+
+  -----------------------------------------------------------------------
   -- H1-reserved: ตั้งเป้าต่ำกว่ายอดที่ถูกจองไว้ (reserve_stock) ⇒ adjust_stock
   -- raise P0001 ("would go negative or below reserved balance") ต้องถูกแปลง
   -- เป็น errcode 22023 + ข้อความอ่านรู้เรื่อง ไม่ใช่ raw Postgres message
@@ -149,12 +171,15 @@ begin
   -----------------------------------------------------------------------
   declare
     v_p_reserved uuid;
-    v_order_id   uuid := gen_random_uuid();
     v_errcode    text;
   begin
     v_p_reserved := analytics.product_upsert(v_shop_id, 'ZZ135-RESERVED', 'ทดสอบตั้งเป้าต่ำกว่ายอดจอง', null, 'fixed', 100, null, null, null, null, null, null, null, true);
     perform analytics.product_track_stock_set(v_shop_id, v_p_reserved, true, 10);
-    perform public.reserve_stock(v_shop_id, v_order_id, 'zz135-reserve-1', jsonb_build_array(jsonb_build_object('product_id', v_p_reserved, 'qty', 6)));
+    -- แก้ 18 ก.ย. (Tech Lead, dry-run จับ): reserve_stock มี FK ไปที่ public.orders
+    -- ⇒ เรียกด้วย order_id ลอยๆ จะตก 23503 ก่อนถึงด่านที่ตั้งใจทดสอบ
+    -- ด่านที่จะทดสอบคือ adjust_stock ห้ามตั้ง on_hand ต่ำกว่า qty_reserved
+    -- ⇒ ตั้ง qty_reserved ตรงๆ ได้ผลเท่ากัน โดยไม่ต้องมีใบสั่งซื้อจริง
+    update public.central_stock set qty_reserved = 6 where product_id = v_p_reserved;
 
     v_caught := false; v_errmsg := null; v_errcode := null;
     begin

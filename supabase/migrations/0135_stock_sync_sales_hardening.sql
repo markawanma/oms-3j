@@ -150,7 +150,9 @@ create or replace function analytics.product_track_stock_set(
   p_shop_id     uuid,
   p_product_id  uuid,
   p_enabled     boolean,
-  p_initial_qty int default 0
+  -- 🔴 default null ไม่ใช่ 0 — null = "ไม่ได้ส่งยอดมา ไม่ต้องแตะสต็อก",
+  -- 0 = "ตั้งเป็นศูนย์จริงๆ" (ดูเหตุผลเต็มในตัวฟังก์ชัน)
+  p_initial_qty int default null
 )
  returns jsonb
  language plpgsql
@@ -166,8 +168,8 @@ declare
   v_reserved    int;
   v_delta       int;
   v_idem_key    text;
-  v_was_enabled boolean;
   v_sqlstate    text;
+  v_was_enabled boolean;
 begin
   if p_shop_id is null or p_product_id is null then
     raise exception 'product_track_stock_set: p_shop_id and p_product_id are required' using errcode = '22023';
@@ -213,10 +215,16 @@ begin
   -- /products/new (insert central_stock ตรง) และ /stock's adjustStock ที่ใช้
   -- ความหมายนี้อยู่แล้วทั้งคู่ — SKU ที่มีของอยู่แล้ว 15 ชิ้น เปิดนับแล้วกรอก 15
   -- (ยอดที่นับได้จริง) ต้องยังเป็น 15 ไม่ใช่ 30
-  v_qty := coalesce(p_initial_qty, 0);
-  if not (v_qty >= 0 and v_qty <= 100000) then
+  -- 🔴 0135 (Tech Lead): null ≠ 0 — ต้องแยก "ไม่ได้ส่งยอดมา" ออกจาก "ส่งมาว่าศูนย์"
+  -- พอ H1 เปลี่ยนความหมายเป็น "ตั้งเป็น" แล้ว ถ้า default ยังเป็น 0 เหมือนเดิม
+  -- การเรียกแบบไม่ใส่ยอด (ปุ่มสวิตช์เปิด/ปิดธรรมดา ซึ่งเป็นสิ่งที่ UI รอบหน้าจะทำ)
+  -- จะกลายเป็น "ตั้งสต็อกเป็น 0" ⇒ ล้างของที่มีอยู่ทิ้งเงียบๆ
+  --   null  = เปิดธงอย่างเดียว ไม่แตะยอดสต็อกเลย
+  --   0     = ตั้งเป็นศูนย์จริงๆ (ของหมดแล้ว — เป็นเจตนาที่ชัดเจน)
+  if p_initial_qty is not null and not (p_initial_qty >= 0 and p_initial_qty <= 100000) then
     raise exception 'product_track_stock_set: p_initial_qty ต้องอยู่ระหว่าง 0-100000 (ได้ %)', p_initial_qty using errcode = '22023';
   end if;
+  v_qty := p_initial_qty;
 
   -- ห้ามเลื่อน track_stock_since ถ้าเคยเปิดมาก่อน (ปิดแล้วเปิดใหม่ก็ไม่เลื่อน) —
   -- คอลัมน์นี้กำหนดขอบเขตว่าออเดอร์วันไหนถูกนับเป็น target ใน stock_sync_sales
@@ -235,7 +243,8 @@ begin
   select qty_on_hand, qty_reserved into v_on_hand, v_reserved
     from public.central_stock where product_id = p_product_id for update;
 
-  v_delta := v_qty - coalesce(v_on_hand, 0);
+  -- null = ไม่ได้ส่งยอดมา ⇒ ไม่แตะสต็อกเลย (ดูหมายเหตุ null ≠ 0 ด้านบน)
+  v_delta := case when v_qty is null then 0 else v_qty - coalesce(v_on_hand, 0) end;
 
   if v_delta <> 0 then
     -- 0135 H1: idem key ต้องมี "ยอดเป้าหมาย" (v_qty) อยู่ในคีย์ ไม่ใช่แค่
@@ -469,220 +478,13 @@ revoke execute on function analytics.stock_sync_sales(uuid, text[]) from public,
 grant  execute on function analytics.stock_sync_sales(uuid, text[]) to service_role;
 
 -- ============================================================================
--- 3. analytics.transform_pending_order_lines — เพิ่ม advisory lock เท่านั้น
---    (ไม่เคยมีมาตั้งแต่ 0041 แม้ 0133's header comment จะอ้างว่า "ไม่มีทางวิ่ง
---    ซ้อนกับ import/ลบ/กู้คืน" ก็ตาม — ไม่จริง เพราะฟังก์ชันนี้ไม่ได้ถือ lock นี้)
---    body ที่เหลือคัดลอกเป๊ะจากนิยามล่าสุดใน repo (0115 §3, tombstone-aware —
---    ยืนยันแล้วว่าไม่มี migration ไหนแก้ทับอีกหลังจากนั้น) ไม่ได้ลอกจาก 0109
+-- ส่วน transform_pending_order_lines (advisory lock) ถูกแยกออกไป 0136
 -- ============================================================================
-
-create or replace function analytics.transform_pending_order_lines(p_shop_id uuid, p_batch_id uuid)
- returns table(transformed_count integer, orphan_count integer, skipped_blank_count integer, unknown_sku_count integer, errored_count integer)
- language plpgsql
- security definer
- set search_path to 'public', 'analytics', 'extensions', 'pg_temp'
-as $function$
-declare
-  v_row analytics.stg_order_line_import%rowtype;
-  v_item analytics.stg_order_line_import%rowtype;
-  v_fo record;
-  v_product_id uuid;
-  v_unit_cost numeric(12, 2);
-  v_category text;
-  v_sku_norm text;
-  v_stripped_len int;
-  v_stripped text;
-  v_match_count int;
-  v_match_note text;
-  v_tier3_conclusive boolean;
-  v_weak_order boolean;
-  v_new_item_id uuid;
-  v_cogs numeric(12, 2);
-  v_transformed int := 0;
-  v_orphan int := 0;
-  v_skipped_blank int := 0;
-  v_unknown int := 0;
-  v_errored int := 0;
-begin
-  if p_shop_id is null or p_batch_id is null then
-    raise exception 'transform_pending_order_lines: p_shop_id and p_batch_id are required';
-  end if;
-
-  -- 0135: same advisory-lock key as stock_sync_sales (0133) / import_delete_
-  -- orders + import_restore_orders (0115) — this function WRITES fact_order_
-  -- item.qty (the actual source of truth stock_sync_sales's target subquery
-  -- sums from), but had never taken this lock despite 0133's header comment
-  -- claiming it did. Locking here queues line-item import against concurrent
-  -- stock_sync_sales/import_delete_orders/import_restore_orders calls for the
-  -- same shop instead of letting them interleave (fact_order_item rows
-  -- disappearing/reappearing mid-reconcile). pg_advisory_xact_lock: the same
-  -- session re-acquiring the same key is a cheap no-op (not a deadlock); two
-  -- different sessions just queue, they don't lock each other out permanently.
-  perform pg_advisory_xact_lock(hashtext('analytics.fact_order:' || p_shop_id::text));
-
-  for v_row in
-    select * from analytics.stg_order_line_import
-    where shop_id = p_shop_id and batch_id = p_batch_id and import_status in ('pending', 'orphan', 'error')
-    order by source_order_no, line_no
-  loop
-    begin
-      if v_row.sku_raw is null then
-        update analytics.stg_order_line_import set import_status = 'skipped_blank', error_detail = null where id = v_row.id;
-        v_skipped_blank := v_skipped_blank + 1;
-        continue;
-      end if;
-      if v_row.source_order_no is null then
-        update analytics.stg_order_line_import set import_status = 'error', error_detail = 'source_order_no is null on a non-blank SKU row' where id = v_row.id;
-        v_errored := v_errored + 1;
-        continue;
-      end if;
-      perform 1 from analytics.fact_order fo where fo.shop_id = p_shop_id and fo.source_order_no = v_row.source_order_no;
-      if not found then
-        -- QA gate 12 ก.ย. 69: an order with no LIVE fact_order might still
-        -- be a deliberately-deleted one, not a genuine orphan (line arrived
-        -- before its order report). Check the tombstone BEFORE falling
-        -- through to 'orphan' — same precedence 0114 already uses on the
-        -- order-header side. Does not increment v_orphan (this is not a
-        -- data-quality gap to wait out; it's an expected, permanent state
-        -- until/unless the order is restored) and does not overwrite
-        -- fact_order_item_id (nothing to link — 'not found' means it was
-        -- already null or is being re-set null on a fresh row).
-        if exists (
-          select 1 from analytics.fact_order_deleted fod
-          where fod.shop_id = p_shop_id and fod.source_order_no = v_row.source_order_no and fod.restored_at is null
-        ) then
-          update analytics.stg_order_line_import set import_status = 'tombstoned', error_detail = 'order deleted (tombstone)' where id = v_row.id;
-          continue;
-        end if;
-        update analytics.stg_order_line_import set import_status = 'orphan', error_detail = 'no fact_order for source_order_no: ' || v_row.source_order_no where id = v_row.id;
-        v_orphan := v_orphan + 1;
-        continue;
-      end if;
-      -- 0109: a matching fact_order exists. Promote this row back to
-      -- 'pending' if it is currently stuck at 'orphan' or 'error' so phase 2
-      -- below (and any subsequent call) can pick it up. Rows already
-      -- 'pending' (the normal happy path -- freshly inserted, order already
-      -- existed) are left alone by the `is distinct from` guard: no
-      -- redundant UPDATE, no behavior change on the path that already
-      -- worked.
-      if v_row.import_status is distinct from 'pending' then
-        update analytics.stg_order_line_import
-           set import_status = 'pending', error_detail = null
-         where id = v_row.id;
-      end if;
-    exception when others then
-      update analytics.stg_order_line_import set import_status = 'error', error_detail = sqlerrm where id = v_row.id;
-      v_errored := v_errored + 1;
-    end;
-  end loop;
-
-  for v_fo in
-    select distinct fo.id as fact_order_id, fo.source_order_no
-    from analytics.stg_order_line_import s
-    join analytics.fact_order fo on fo.shop_id = p_shop_id and fo.source_order_no = s.source_order_no
-    where s.shop_id = p_shop_id and s.batch_id = p_batch_id and s.import_status = 'pending' and s.sku_raw is not null
-  loop
-    delete from analytics.fact_order_item where fact_order_id = v_fo.fact_order_id;
-    v_cogs := 0;
-    v_weak_order := false;
-    for v_item in
-      select * from analytics.stg_order_line_import s
-      where s.shop_id = p_shop_id and s.source_order_no = v_fo.source_order_no and s.sku_raw is not null and s.import_status <> 'skipped_blank'
-      order by s.line_no
-    loop
-      begin
-        v_product_id := null; v_unit_cost := null; v_category := null; v_match_note := null; v_match_count := null;
-        v_tier3_conclusive := false;
-
-        select vp.product_id, vp.effective_unit_cost, vp.category
-          into v_product_id, v_unit_cost, v_category
-          from analytics.v_dim_product vp
-          where vp.shop_id = p_shop_id and vp.is_active and vp.sku = v_item.sku_raw;
-
-        if v_product_id is null then
-          v_sku_norm := regexp_replace(v_item.sku_raw, '^[^A-Za-z0-9]+', '');
-          v_stripped_len := length(v_item.sku_raw) - length(v_sku_norm);
-          v_stripped := left(v_item.sku_raw, v_stripped_len);
-
-          if v_sku_norm <> '' and v_stripped_len <= 2 and v_sku_norm ~ '[A-Za-z]'
-             and (v_stripped_len = 0 or v_stripped !~ '[[:alpha:]]') then
-            select sub.product_id, sub.effective_unit_cost, sub.category, sub.cnt
-              into v_product_id, v_unit_cost, v_category, v_match_count
-              from (
-                select vp.product_id, vp.effective_unit_cost, vp.category,
-                       count(*) over () as cnt
-                  from analytics.v_dim_product vp
-                  where vp.shop_id = p_shop_id and vp.is_active
-                    and regexp_replace(vp.sku, '^[^A-Za-z0-9]+', '') = v_sku_norm
-                  limit 1
-              ) sub;
-
-            if v_match_count = 1 then
-              v_match_note := 'จับคู่ด้วยรหัสที่ตัดอักขระนำหน้า: ' || v_item.sku_raw || ' -> ' || v_sku_norm;
-            else
-              if coalesce(v_match_count, 0) = 0 then
-                v_tier3_conclusive := true;
-              end if;
-              v_product_id := null; v_unit_cost := null; v_category := null;
-            end if;
-          end if;
-        end if;
-
-        if v_product_id is null then
-          select sub.product_id, sub.effective_unit_cost, sub.category, sub.cnt
-            into v_product_id, v_unit_cost, v_category, v_match_count
-            from (
-              select vp.product_id, vp.effective_unit_cost, vp.category,
-                     count(*) over () as cnt
-                from analytics.v_dim_product vp
-                where vp.shop_id = p_shop_id and not vp.is_active and vp.sku = v_item.sku_raw
-                limit 1
-            ) sub;
-
-          if v_match_count = 1 then
-            if v_tier3_conclusive then
-              v_match_note := 'จับคู่กับสินค้าที่ปิดการขาย (ใช้ต้นทุนเดิม): ' || v_item.sku_raw;
-            else
-              v_match_note := 'จับคู่กับสินค้าที่ปิดการขาย (ใช้ต้นทุนเดิม) — ยังพิสูจน์ไม่ได้ว่าไม่มีคู่แฝดที่ยังขายอยู่ — ต้องตรวจมือ: ' || v_item.sku_raw;
-              v_weak_order := true;
-            end if;
-          else
-            v_product_id := null; v_unit_cost := null; v_category := null;
-          end if;
-        end if;
-
-        if v_product_id is null then
-          v_unknown := v_unknown + 1;
-          v_weak_order := true;
-          v_match_note := 'ไม่พบสินค้าในระบบ ต้นทุนถูกนับเป็น 0: ' || v_item.sku_raw;
-        end if;
-        if v_category = 'เงินแท่ง' then
-          v_unit_cost := round(coalesce(v_item.unit_price, 0) / 1.2, 2);
-        end if;
-        insert into analytics.fact_order_item (shop_id, fact_order_id, product_id, sku_snapshot, product_name_snapshot, qty, unit_price, unit_cost_snapshot)
-        values (p_shop_id, v_fo.fact_order_id, v_product_id, v_item.sku_raw, v_item.product_name_raw, coalesce(v_item.qty, 1), coalesce(v_item.unit_price, 0), v_unit_cost)
-        returning id into v_new_item_id;
-        update analytics.stg_order_line_import set fact_order_item_id = v_new_item_id, import_status = 'transformed', error_detail = v_match_note where id = v_item.id;
-        v_transformed := v_transformed + 1;
-        v_cogs := v_cogs + coalesce(v_item.qty, 1) * coalesce(v_unit_cost, 0);
-      exception when others then
-        update analytics.stg_order_line_import set import_status = 'error', error_detail = sqlerrm where id = v_item.id;
-        v_errored := v_errored + 1;
-        v_weak_order := true;
-      end;
-    end loop;
-    update analytics.fact_order
-       set cogs = v_cogs,
-           profit = round(revenue - v_cogs, 2),
-           profit_status = case when v_weak_order then 'estimated' else 'actual' end::analytics.profit_status_t
-     where id = v_fo.fact_order_id;
-  end loop;
-
-  return query select v_transformed, v_orphan, v_skipped_blank, v_unknown, v_errored;
-end;
-$function$;
-
-revoke execute on function analytics.transform_pending_order_lines(uuid, uuid) from public, anon, authenticated;
-grant execute on function analytics.transform_pending_order_lines(uuid, uuid) to service_role;
+-- เหตุผล (Tech Lead 18 ก.ย. 69): รอบ dry-run ของ 0135 ไม่ได้ครอบการ replace
+-- ฟังก์ชันนั้น และมันคือฟังก์ชันที่เจ้าของใช้จริงทุกครั้งที่นำเข้าไฟล์ยอดขาย
+-- ⇒ ห้ามลงของที่ยังไม่ได้ซ้อม แยกไป 0136 พร้อม dry-run ของตัวเอง
+-- ไม่เร่งด่วน: race ที่ lock นี้กัน เกิดได้ก็ต่อเมื่อ stock_sync_sales ถูกต่อ
+-- เข้า wiring แล้ว (L3) ซึ่งยังไม่เกิด ⇒ ปิดก่อน wiring ทัน
+-- 🔴 คอมเมนต์ใน 0133 ที่อ้างว่า lock กัน import ครบทุกทาง ยังไม่จริงจนกว่า 0136 จะลง
 
 notify pgrst, 'reload schema';
