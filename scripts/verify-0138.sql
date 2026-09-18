@@ -77,7 +77,16 @@ declare
   v_after_cost_type  text; v_after_unit_cost  numeric; v_after_track  boolean; v_after_since  date;
 
   v_lot_count   int;
-  v_lot         analytics.stock_lot%rowtype;
+  -- 🔴 ห้ามใช้ analytics.stock_lot%rowtype ที่นี่ — PL/pgSQL คอมไพล์ทั้งบล็อก
+  -- (รวม declare) ก่อนรัน — ตารางเพิ่งถูกสร้างใน Part 0 ตอนรัน
+  -- ⇒ 42P01 "relation does not exist" ตั้งแต่ยังไม่เริ่ม (dry-run จับได้ 19 ก.ย. 69)
+  v_lot_id            uuid;
+  v_lot_shop_id       uuid;
+  v_lot_source        text;
+  v_lot_unit_cost     numeric;
+  v_lot_qty_in        int;
+  v_lot_qty_remaining int;
+  v_lot_received_on   date;
   v_lot2_id     uuid;
 
   v_qty_on_hand int;
@@ -563,20 +572,20 @@ begin
   -----------------------------------------------------------------------
   insert into analytics.stock_lot (shop_id, product_id, source, unit_cost, qty_in, qty_remaining, received_on)
   values (gen_random_uuid(), v_p_raw, 'opening', 10, 5, 5, current_date)
-  returning * into v_lot;
+  returning id, shop_id into v_lot_id, v_lot_shop_id;
   v_log := v_log || format('[T6] insert shop_id มั่ว (gen_random_uuid) + product ของ v_shop ⇒ trigger เขียนทับเป็น shop_id จริง (ได้ %s คาด %s): %s\n',
-    v_lot.shop_id, v_shop, case when v_lot.shop_id = v_shop then 'OK' else 'FAIL' end);
+    v_lot_shop_id, v_shop, case when v_lot_shop_id = v_shop then 'OK' else 'FAIL' end);
 
   v_caught := false;
   begin
     insert into analytics.stock_lot_consumption (shop_id, source_order_no, product_id, lot_id, qty)
-    values (gen_random_uuid(), 'ZZ-ORDER-1', v_p_spot, v_lot.id, 1); -- v_lot เป็นของ v_p_raw ไม่ใช่ v_p_spot
+    values (gen_random_uuid(), 'ZZ-ORDER-1', v_p_spot, v_lot_id, 1); -- v_lot เป็นของ v_p_raw ไม่ใช่ v_p_spot
   exception when others then v_caught := true;
   end;
   v_log := v_log || format('[T7] stock_lot_consumption: product_id ไม่ตรงกับ lot จริง ถูกปฏิเสธ: %s\n', case when v_caught then 'OK' else 'FAIL' end);
 
   insert into analytics.stock_lot_consumption (shop_id, source_order_no, product_id, lot_id, qty)
-  values (gen_random_uuid(), 'ZZ-ORDER-2', v_p_raw, v_lot.id, 2)
+  values (gen_random_uuid(), 'ZZ-ORDER-2', v_p_raw, v_lot_id, 2)
   returning shop_id into v_lot2_id; -- reuse variable ชั่วคราวเพื่ออ่านค่ากลับ (uuid)
   v_log := v_log || format('[T8] stock_lot_consumption: product/lot ตรงกัน + shop_id มั่ว ⇒ trigger เขียนทับถูก (ได้ %s คาด %s): %s\n',
     v_lot2_id, v_shop, case when v_lot2_id = v_shop then 'OK' else 'FAIL' end);
@@ -654,11 +663,13 @@ begin
   v_log := v_log || format('[T10d] central_stock เข้าปกติ (ได้ %s คาด 5): %s\n', v_qty_on_hand, case when v_qty_on_hand = 5 then 'OK' else 'FAIL' end);
 
   select count(*) into v_lot_count from analytics.stock_lot where production_order_item_id = v_item_id_spot;
-  select * into v_lot from analytics.stock_lot where production_order_item_id = v_item_id_spot;
+  select source, unit_cost, qty_in, qty_remaining
+    into v_lot_source, v_lot_unit_cost, v_lot_qty_in, v_lot_qty_remaining
+    from analytics.stock_lot where production_order_item_id = v_item_id_spot;
   v_log := v_log || format('[T10e] lot ถูกสร้าง 1 แถว (ได้ %s), source=%s, qty_in=qty_remaining=%s/%s, unit_cost=%s (คาด 10*72*0.925+20=686.00): %s\n',
-    v_lot_count, v_lot.source, v_lot.qty_in, v_lot.qty_remaining, v_lot.unit_cost,
-    case when v_lot_count = 1 and v_lot.source = 'production' and v_lot.qty_in = 5 and v_lot.qty_remaining = 5
-      and v_lot.unit_cost = 686.00 then 'OK' else 'FAIL' end);
+    v_lot_count, v_lot_source, v_lot_qty_in, v_lot_qty_remaining, v_lot_unit_cost,
+    case when v_lot_count = 1 and v_lot_source = 'production' and v_lot_qty_in = 5 and v_lot_qty_remaining = 5
+      and v_lot_unit_cost = 686.00 then 'OK' else 'FAIL' end);
 
   -- T11: done ซ้ำ — idempotent, ไม่สร้าง lot ซ้ำ
   v_res := analytics.production_order_done(v_shop, v_order_id);
@@ -675,10 +686,33 @@ begin
   perform analytics.production_order_done(v_shop, v_order_id);
 
   select count(*) into v_lot_count from analytics.stock_lot where production_order_item_id = v_item_id_fixed;
-  select * into v_lot from analytics.stock_lot where production_order_item_id = v_item_id_fixed;
+  select source, unit_cost, qty_in, qty_remaining
+    into v_lot_source, v_lot_unit_cost, v_lot_qty_in, v_lot_qty_remaining
+    from analytics.stock_lot where production_order_item_id = v_item_id_fixed;
   v_log := v_log || format('[T12] fixed SKU ก็สร้าง lot เหมือนกัน (ได้ %s แถว, unit_cost=%s คาด 100, qty=%s คาด 3): %s\n',
-    v_lot_count, v_lot.unit_cost, v_lot.qty_in,
-    case when v_lot_count = 1 and v_lot.unit_cost = 100 and v_lot.qty_in = 3 then 'OK' else 'FAIL' end);
+    v_lot_count, v_lot_unit_cost, v_lot_qty_in,
+    case when v_lot_count = 1 and v_lot_unit_cost = 100 and v_lot_qty_in = 3 then 'OK' else 'FAIL' end);
+
+  -- 🔴 T12b (Tech Lead 19 ก.ย. 69): ด่านราคาเงิน fail-closed ของ 0132 ต้องยังทำงาน
+  -- 0138 คัดลอก production_order_done มาทั้งตัว (~260 บรรทัด) — grep เจอข้อความ
+  -- ของด่านอยู่จริง แต่ถ้า logic ถูกลอกเพี้ยนจะไม่มีใครรู้ ⇒ ต้องทดสอบพฤติกรรมจริง
+  -- เคส: SKU โหมดราคาเงิน แต่ไม่ส่งราคาที่หน้าจอเห็นมา ⇒ ต้อง raise 22023 ห้ามผลิตผ่าน
+  v_res := analytics.production_order_save(v_shop, null, 'T12b spot guard', null);
+  v_order_id := (v_res ->> 'id')::uuid;
+  perform analytics.production_order_item_set(v_shop, v_order_id, v_p_spot, 2);
+  v_caught := false; v_code := null; v_msg := null;
+  begin
+    perform analytics.production_order_done(v_shop, v_order_id);
+  exception when others then
+    v_caught := true; get stacked diagnostics v_code = returned_sqlstate, v_msg = message_text;
+  end;
+  select count(*) into v_lot_count from analytics.stock_lot sl
+    join analytics.production_order_item poi on poi.id = sl.production_order_item_id
+   where poi.production_order_id = v_order_id;
+  v_log := v_log || format('[T12b] 🔴 ด่านราคาเงินของ 0132 ยังปิดอยู่: ไม่ส่งราคาที่หน้าจอเห็น ⇒ raise=%s code=%s (คาด 22023), lot ที่ถูกสร้าง=%s (คาด 0): %s' || E'
+',
+    v_caught, coalesce(v_code,'(none)'), v_lot_count,
+    case when v_caught and v_code = '22023' and v_lot_count = 0 then 'OK' else 'FAIL — ด่านของ 0132 หายระหว่างคัดลอก' end);
 
   -- T13: static — cost-stamp เดิมถูกเอาออกจริง + lot insert อยู่จริง + for update 2 ครั้ง
   select pg_get_functiondef('analytics.production_order_done(uuid,uuid,jsonb,numeric,uuid)'::regprocedure) into v_def;
@@ -791,10 +825,12 @@ begin
   v_log := v_log || format('[T19b] shop_ok backfill: สร้าง opening lot %s แถว (คาด 1 — เฉพาะ bf_ok, ไม่ใช่ notrack/zero): %s\n',
     v_inserted_count, case when v_inserted_count = 1 then 'OK' else 'FAIL' end);
 
-  select * into v_lot from analytics.stock_lot where shop_id = v_shop_ok and source = 'opening' limit 1;
+  select unit_cost, qty_in, qty_remaining, received_on
+    into v_lot_unit_cost, v_lot_qty_in, v_lot_qty_remaining, v_lot_received_on
+    from analytics.stock_lot where shop_id = v_shop_ok and source = 'opening' limit 1;
   v_log := v_log || format('[T19c] opening lot ของ bf_ok: unit_cost=%s (คาด 55.00), qty_in=qty_remaining=%s (คาด 20), received_on=%s (คาด track_stock_since): %s\n',
-    v_lot.unit_cost, v_lot.qty_in, v_lot.received_on,
-    case when v_lot.unit_cost = 55.00 and v_lot.qty_in = 20 and v_lot.qty_remaining = 20 and v_lot.received_on = current_date - 5 then 'OK' else 'FAIL' end);
+    v_lot_unit_cost, v_lot_qty_in, v_lot_received_on,
+    case when v_lot_unit_cost = 55.00 and v_lot_qty_in = 20 and v_lot_qty_remaining = 20 and v_lot_received_on = current_date - 5 then 'OK' else 'FAIL' end);
 
   -- รัน insert เดิมซ้ำ (idempotency ของ backfill — not exists guard)
   insert into analytics.stock_lot (shop_id, product_id, source, unit_cost, qty_in, qty_remaining, received_on, note)
