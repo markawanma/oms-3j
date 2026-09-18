@@ -62,7 +62,7 @@ describe("requireOwnerAdmin gate — every action, staff rejected before any RPC
   it("setProductionOrderItem", async () => {
     getEffectiveRoleMock.mockResolvedValue("staff");
     const { setProductionOrderItem } = await import("./production");
-    const result = await setProductionOrderItem({ productionOrderId: "po-1", productId: "prod-1", qtyPlanned: 5 });
+    const result = await setProductionOrderItem({ productionOrderId: "po-1", productId: "11111111-1111-4111-8111-111111111111", qtyPlanned: 5 });
     expect(result.ok).toBe(false);
     expect(rpcMock).not.toHaveBeenCalled();
   });
@@ -70,7 +70,7 @@ describe("requireOwnerAdmin gate — every action, staff rejected before any RPC
   it("removeProductionOrderItem", async () => {
     getEffectiveRoleMock.mockResolvedValue("staff");
     const { removeProductionOrderItem } = await import("./production");
-    const result = await removeProductionOrderItem({ productionOrderId: "po-1", productId: "prod-1" });
+    const result = await removeProductionOrderItem({ productionOrderId: "po-1", productId: "11111111-1111-4111-8111-111111111111" });
     expect(result.ok).toBe(false);
     expect(rpcMock).not.toHaveBeenCalled();
   });
@@ -86,7 +86,7 @@ describe("requireOwnerAdmin gate — every action, staff rejected before any RPC
   it("doneProductionOrder", async () => {
     getEffectiveRoleMock.mockResolvedValue("staff");
     const { doneProductionOrder } = await import("./production");
-    const result = await doneProductionOrder({ productionOrderId: "po-1", items: [{ productId: "prod-1", qtyDone: 5 }] });
+    const result = await doneProductionOrder({ productionOrderId: "po-1", items: [{ productId: "11111111-1111-4111-8111-111111111111", qtyDone: 5 }] });
     expect(result.ok).toBe(false);
     expect(rpcMock).not.toHaveBeenCalled();
   });
@@ -184,14 +184,43 @@ describe("saveProductionOrder", () => {
 describe("doneProductionOrder", () => {
   it("rejects a negative qtyDone before calling the RPC", async () => {
     const { doneProductionOrder } = await import("./production");
-    const result = await doneProductionOrder({ productionOrderId: "po-1", items: [{ productId: "prod-1", qtyDone: -1 }] });
+    const result = await doneProductionOrder({ productionOrderId: "po-1", items: [{ productId: "11111111-1111-4111-8111-111111111111", qtyDone: -1 }] });
     expect(result.ok).toBe(false);
     expect(rpcMock).not.toHaveBeenCalled();
   });
 
   it("rejects a non-integer qtyDone before calling the RPC", async () => {
     const { doneProductionOrder } = await import("./production");
-    const result = await doneProductionOrder({ productionOrderId: "po-1", items: [{ productId: "prod-1", qtyDone: 1.5 }] });
+    const result = await doneProductionOrder({ productionOrderId: "po-1", items: [{ productId: "11111111-1111-4111-8111-111111111111", qtyDone: 1.5 }] });
+    expect(result.ok).toBe(false);
+    expect(rpcMock).not.toHaveBeenCalled();
+  });
+
+  // security review 18 ก.ย. (M6) — payload นี้กำหนดว่าของเข้าสต็อกกี่ชิ้นและต้นทุน
+  // ถูกล็อกเท่าไร (แก้ย้อนไม่ได้) ⇒ ต้องตกก่อนถึง DB ทั้ง 3 เคส
+  it("ปฏิเสธ items ว่าง — 0131 จะตีความว่าผลิตครบตามแผนทุกบรรทัด", async () => {
+    const { doneProductionOrder } = await import("./production");
+    const result = await doneProductionOrder({ productionOrderId: "po-1", items: [] });
+    expect(result.ok).toBe(false);
+    expect(rpcMock).not.toHaveBeenCalled();
+  });
+
+  it("ปฏิเสธ productId ที่ไม่ใช่ uuid ก่อนถึง DB (กัน 22P02 ที่เผย uuid ดิบบนจอ)", async () => {
+    const { doneProductionOrder } = await import("./production");
+    const result = await doneProductionOrder({ productionOrderId: "po-1", items: [{ productId: "prod-1", qtyDone: 1 }] });
+    expect(result.ok).toBe(false);
+    expect(rpcMock).not.toHaveBeenCalled();
+  });
+
+  it("ปฏิเสธ SKU ซ้ำในรายการเดียวกัน (subquery ใน 0131 จะคืนหลายแถว = 21000)", async () => {
+    const { doneProductionOrder } = await import("./production");
+    const result = await doneProductionOrder({
+      productionOrderId: "po-1",
+      items: [
+        { productId: "11111111-1111-4111-8111-111111111111", qtyDone: 1 },
+        { productId: "11111111-1111-4111-8111-111111111111", qtyDone: 2 },
+      ],
+    });
     expect(result.ok).toBe(false);
     expect(rpcMock).not.toHaveBeenCalled();
   });
@@ -204,13 +233,13 @@ describe("doneProductionOrder", () => {
         status: "done",
         already_done: false,
         items: [
-          { product_id: "prod-1", sku: "SKU-1", qty_done: 5, unit_cost: 123.45, prev_cost_type: "spot", prev_unit_cost: 100 },
+          { product_id: "11111111-1111-4111-8111-111111111111", sku: "SKU-1", qty_done: 5, unit_cost: 123.45, prev_cost_type: "spot", prev_unit_cost: 100 },
         ],
       },
       error: null,
     });
     const { doneProductionOrder } = await import("./production");
-    const result = await doneProductionOrder({ productionOrderId: "po-1", items: [{ productId: "prod-1", qtyDone: 5 }] });
+    const result = await doneProductionOrder({ productionOrderId: "po-1", items: [{ productId: "11111111-1111-4111-8111-111111111111", qtyDone: 5 }] });
     expect(result).toEqual({
       ok: true,
       data: {
@@ -218,7 +247,7 @@ describe("doneProductionOrder", () => {
         poNo: "PO-0001",
         status: "done",
         alreadyDone: false,
-        items: [{ productId: "prod-1", sku: "SKU-1", qtyDone: 5, unitCost: 123.45, prevCostType: "spot", prevUnitCost: 100 }],
+        items: [{ productId: "11111111-1111-4111-8111-111111111111", sku: "SKU-1", qtyDone: 5, unitCost: 123.45, prevCostType: "spot", prevUnitCost: 100 }],
       },
     });
   });
@@ -244,7 +273,7 @@ describe("getProductionSkuOptions", () => {
         range: () => builder,
         then: (resolve: (v: unknown) => void) =>
           resolve({
-            data: [{ product_id: "prod-1", sku: "R-0001", name: "แหวน", cost_type: "fixed" }],
+            data: [{ product_id: "11111111-1111-4111-8111-111111111111", sku: "R-0001", name: "แหวน", cost_type: "fixed" }],
             error: null,
             count: 1,
           }),
@@ -257,7 +286,7 @@ describe("getProductionSkuOptions", () => {
 
     expect(result).toEqual({
       ok: true,
-      data: [{ productId: "prod-1", sku: "R-0001", name: "แหวน", costType: "fixed" }],
+      data: [{ productId: "11111111-1111-4111-8111-111111111111", sku: "R-0001", name: "แหวน", costType: "fixed" }],
     });
     expect(eqMock).toHaveBeenCalledWith("is_active", true);
     expect(notMock).toHaveBeenCalledWith("sku", "ilike", "live%");

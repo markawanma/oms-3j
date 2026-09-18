@@ -14,7 +14,7 @@
 // ("ผลิตเข้าแล้ว N ชิ้น เมื่อ ...") — NEVER the word "คงเหลือ"/"สต็อกคงเหลือ",
 // which would be actively wrong right now (the number only ever goes up).
 
-import { readErrorMessage } from "@/lib/supabase/postgrest-error";
+import { readErrorCode, readErrorMessage } from "@/lib/supabase/postgrest-error";
 
 export type ProductionOrderStatus = "open" | "done" | "cancelled";
 
@@ -195,12 +195,22 @@ export interface ProductionOrderCancelResult {
 
 const NO_SPOT_PRICE_MARKER = "ยังไม่มีราคาเงินของวันนี้";
 
-/** Rewrites analytics.production_spot_resolve's "no price today, no
- * override" raise into the two concrete ways out; passes every other 0131
- * error message straight through (already Thai, already specific); falls
- * back to `fallback` only when there's no usable message at all (a thrown
- * value that isn't a PostgREST-shaped object — readErrorMessage returns ""). */
+/** แปล error ของ 0131 เป็นข้อความที่เจ้าของอ่านรู้เรื่อง
+ *
+ * 🔴 กรอง SQLSTATE ก่อนเสมอ (security review 18 ก.ย. M3): 0131 ติด
+ * `errcode = '22023'` ไว้กับ raise ทุกจุดที่ "ตั้งใจพูดกับผู้ใช้" (ไม่มีราคาเงิน
+ * วันนี้ · SKU ยังไม่กรอกน้ำหนัก/ต้นทุน · ใบปิดแล้ว · ใบว่าง · ผลิตได้ 0 ชิ้น)
+ * ⇒ code อื่นทั้งหมดคือของภายใน **ห้ามส่งออกหน้าจอ** เพราะจะเผยชื่อฟังก์ชัน/
+ * ชื่อตาราง/uuid/ตัวเลข ledger เช่น
+ *   22P02 invalid input syntax for type uuid: "…"
+ *   21000 more than one row returned by a subquery…
+ *   P0001 adjust_stock: idem_key po:… already used for product <uuid> …
+ * เป็นมาตรฐานเดียวกับ lib/actions/oem.ts ที่ปล่อยผ่านเฉพาะ 22023
+ *
+ * ปล่อยผ่าน = ข้อความไทยของ 0131 เอง (เฉพาะตัวไม่มีราคาเงินที่เขียนใหม่ให้บอก
+ * ทางออก 2 ทาง) · อย่างอื่นตกที่ `fallback` */
 export function humanizeProductionError(err: unknown, fallback: string): string {
+  if (readErrorCode(err) !== "22023") return fallback;
   const msg = readErrorMessage(err);
   if (!msg) return fallback;
   if (msg.includes(NO_SPOT_PRICE_MARKER)) {

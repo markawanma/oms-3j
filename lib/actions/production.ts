@@ -48,6 +48,10 @@ import { fetchAllRows } from "@/lib/supabase/query-limits";
 
 const SCHEMA = "analytics";
 
+/** กัน 22P02 จาก Postgres ก่อนถึง DB — ข้อความ error ของ 22P02 เผย uuid ดิบ
+ * และไม่ได้ติด errcode 22023 จึงจะตกเป็นข้อความกลางที่ผู้ใช้เดาสาเหตุไม่ออก */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 async function requireOwnerAdmin(): Promise<ActionResult<never> | null> {
   if ((await getEffectiveRole()) === "staff") {
     return { ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่ใช้งานใบผลิตเข้าสต็อกได้" };
@@ -496,8 +500,26 @@ export async function doneProductionOrder(input: {
   if (gateErr) return gateErr;
   if (!input.productionOrderId) return { ok: false, error: "ไม่พบใบผลิตที่ต้องการ" };
 
+  // security review 18 ก.ย. (M6) — payload นี้ไปกำหนดว่าของเข้าสต็อกกี่ชิ้นและ
+  // ต้นทุนถูกล็อกเท่าไร (แก้ย้อนไม่ได้) จึงต้องกันให้ครบ 3 อย่างที่ DB กันให้ไม่ได้
+  // อย่างสวยงาม:
+  //   • array ว่าง ⇒ 0131 ตีความว่า "ผลิตครบตามแผนทุกบรรทัด" ⇒ ถ้า payload ฝั่ง
+  //     client เพี้ยน จะได้ "ผลิตครบ" เงียบๆ แทนที่จะเป็น error
+  //   • product_id ซ้ำ ⇒ subquery ใน 0131 คืนหลายแถว ⇒ 21000 ทั้ง transaction ตก
+  //     (fail-closed ก็จริง แต่ข้อความอ่านไม่รู้เรื่อง)
+  //   • product_id ที่ไม่ใช่ uuid ⇒ 22P02
+  if (!Array.isArray(input.items) || input.items.length === 0) {
+    return { ok: false, error: "ไม่พบรายการที่จะบันทึก — ปิดหน้าต่างแล้วเปิดใหม่อีกครั้ง" };
+  }
+  const seenProductIds = new Set<string>();
   for (const it of input.items) {
-    if (!it.productId) return { ok: false, error: "ไม่พบ SKU ในรายการที่จะบันทึก" };
+    if (!it.productId || !UUID_RE.test(it.productId)) {
+      return { ok: false, error: "ไม่พบ SKU ในรายการที่จะบันทึก" };
+    }
+    if (seenProductIds.has(it.productId)) {
+      return { ok: false, error: "มี SKU ซ้ำในรายการ — ปิดหน้าต่างแล้วเปิดใหม่อีกครั้ง" };
+    }
+    seenProductIds.add(it.productId);
     if (!Number.isFinite(it.qtyDone) || !Number.isInteger(it.qtyDone) || it.qtyDone < 0 || it.qtyDone > 100000) {
       return { ok: false, error: "จำนวนที่ผลิตได้จริงต้องเป็นจำนวนเต็ม 0-100000" };
     }
