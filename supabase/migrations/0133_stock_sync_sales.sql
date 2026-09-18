@@ -1,107 +1,38 @@
 -- 0133_stock_sync_sales.sql
--- P1.5 (design: docs/3j-jewelry/oms/system-flow-2026-09.md §1 "ข้อเสนอ P1.5" +
--- docs/3j-jewelry/oms/design-production-order.md) — สต็อก opt-in ต่อ SKU +
--- reconcile ยอดขายจาก analytics.fact_order(_item) เข้า central_stock
+-- P1.5 — สต็อก opt-in ต่อ SKU + reconcile ยอดขายจาก analytics.fact_order(_item)
+-- เข้า public.central_stock
 --
--- ⚠️ SQL อย่างเดียว — ไม่แตะ TypeScript/หน้าเว็บ (wiring เป็นรอบถัดไป)
--- ⚠️ 💰 แตะ stock ledger — security ต้องผ่านก่อน merge (กติกา QA 27 ส.ค. 69)
--- ⚠️ ห้าม apply เอง — Tech Lead dry-run (scripts/verify-0133.sql, do-block +
---    raise บังคับ rollback) แล้ว apply ผ่าน MCP เท่านั้น (skill supabase-migrate)
+-- เหตุผลเต็ม + ทางเลือกที่ตกไป: docs/3j-jewelry/oms/design-production-order.md §P1.5
+-- ดีไซน์ต้นทาง: docs/3j-jewelry/oms/system-flow-2026-09.md §1
 --
--- ============================================================================
--- ทำไม "ตัดต่อ fact_order_item.id" และ "ตัดต่อ (order, sku)" ผิดทั้งคู่
--- ============================================================================
--- Re-import ไฟล์เดือนเดิม = ลบ fact_order_item ของออเดอร์นั้นทั้งก้อนแล้ว insert
--- ใหม่ (0041:249, 0093:121, 0094:160) ⇒ id เปลี่ยนทุกครั้ง — idem key ต่อ id จะเห็น
--- "รายการใหม่" ทุกรอบแล้วตัดซ้ำ และแม้ใช้ key ต่อ (order, sku) เฉยๆ ก็ยังพัง เพราะ
--- ลูกค้าสั่งเพิ่มบนใบเดิมข้ามวันได้ (memory: orders-accumulate-across-days) ⇒
--- จำนวนเปลี่ยนแต่ key เดิม ⇒ adjust_stock raise 23505 (signed-delta guard 0007)
+-- ทำไมต้อง reconcile ไม่ใช่ "ขายแล้วตัด":
+--   re-import ไฟล์เดือนเดิม = ลบ fact_order_item ทั้งก้อนแล้ว insert ใหม่ ⇒ id เปลี่ยนทุกรอบ
+--   ⇒ idem key ต่อ id จะตัดซ้ำทุกรอบ และ key ต่อ (order, sku) เฉยๆ ก็พัง เพราะ
+--   ลูกค้าสั่งเพิ่มบนใบเดิมข้ามวันได้ (memory: orders-accumulate-across-days)
+--   ✅ ทางที่ใช้: เก็บว่าตัดไปแล้วเท่าไร (stock_sale_applied) เทียบกับยอดที่
+--   ควรเป็นจริงตอนนี้ (target คำนวณสดทุกครั้ง) แล้วปรับแค่ delta = target − applied
+--   ⇒ re-import จำนวนเท่าเดิม = delta 0 = ไม่มี ledger row เพิ่ม (idempotent โดยธรรมชาติ)
+--   ⇒ ใบถูกลบ = target หาย ⇒ คืนสต็อกเอง ไม่ต้องแก้ 0115 เลย (0115 ลบจริง ไม่ใช่ธง)
 --
--- ทางที่ถูกต้องคือ "reconcile": เก็บว่าตัดไปแล้วเท่าไร (stock_sale_applied) แล้ว
--- เทียบกับยอดที่ควรจะเป็นจริงตอนนี้ (target, คำนวณสดจาก fact_order_item ทุกครั้ง)
--- delta = target − applied ⇒ ปรับสต็อกแค่ส่วนต่าง แล้วเลื่อน sync_seq ไปอีกขั้น
--- ⇒ idem key ของ adjust_stock (ซึ่งบังคับ "1 key ใช้ได้ครั้งเดียว" อยู่แล้ว) จึง
--- ได้ key ใหม่เสมอเมื่อมีการปรับจริง และ "ไม่ปรับ" (delta=0) ก็ไม่ต้องมี key เลย
--- ⇒ re-import จำนวนเท่าเดิมจึงไม่มี ledger row เพิ่ม (idempotent โดยธรรมชาติ)
+-- 3 จุดที่เบี่ยงจากถ้อยคำ design — มติ Tech Lead 18 ก.ย. 69 (เหตุผลเต็มใน design doc):
+--   [A] track_stock_since = coalesce(เดิม, วันนี้) ไม่ใช่ set ทับเป็นวันนี้เสมอ
+--       (set ทับ = ยอดที่ reconcile ไปแล้วหลุด scope ⇒ คืนสต็อกให้ของที่ขายไปแล้วจริง)
+--       + เปิดซ้ำพร้อมยอดตั้งต้น > 0 ถูกปฏิเสธด้วย 22023 ที่บอกทางออก (flow นับใหม่รอ P2/P3)
+--   [B] ฝั่ง applied ของ full outer join ต้องกรอง p.track_stock ด้วย
+--       (ไม่งั้น "กดปิดนับสต็อก" = คืนสต็อกที่ตัดไปแล้วคืนทั้งหมด — ปิดต้อง freeze ไม่ใช่ล้าง)
+--   [C] p_initial_qty = 0 ⇒ ข้าม adjust_stock (0007 ปฏิเสธ delta=0) แต่ยัง ensure แถว
+--       central_stock + เปิดธง — ไม่งั้น SKU ใหม่ที่ยังไม่มีของเลยจะเปิดนับไม่ได้
 --
--- ============================================================================
--- จุดที่ "ทำตามเป๊ะ" ตาม design/brief (อ้างอิงเลขข้อในบรีฟที่ได้รับ)
--- ============================================================================
---   1. advisory lock ใช้ key เดียวกับ 0114 (transform_pending_orders) /
---      0115 (import_delete_orders / import_restore_orders):
---      hashtext('analytics.fact_order:' || shop_id) — กันวิ่งซ้อนกับ
---      import/ลบ/กู้คืนของ shop เดียวกัน
---   2. full outer join ระหว่าง target กับ stock_sale_applied — ออเดอร์ที่หายไป
---      จาก fact_order (ลบ/ยกเลิกจริง — 0115 ลบแบบ physical delete) ⇒ ไม่มีแถวใน
---      target เลย ⇒ เห็นเป็น target 0 ⇒ คืนสต็อกอัตโนมัติ โดยไม่ต้องแตะ 0115 เลย
---   3. target กรอง order_date >= product.track_stock_since เสมอ — ไม่ตัดย้อนหลัง
---      ก่อนวันเปิดนับ (ยอดตั้งต้นที่กรอกตอนเปิดคือ "ของในมือวันนั้น" สะท้อนการขาย
---      ก่อนหน้าแล้ว)
---   4. ทุกคู่ (order, product) ห่อ begin/exception แยกกัน (pattern เดียวกับ 0041's
---      per-row try/catch) — ตัดไม่ได้ (สต็อกไม่พอ = errcode P0001 จาก 0007) ⇒
---      เก็บ last_error ไว้ที่แถวนั้น แล้ว "continue" ไปคู่ถัดไป ไม่ล้มทั้ง batch
---   5. product_track_stock_set ปฏิเสธ sku ~* '^live' — regex เดียวกับที่ 0121:258
---      และ 0131/0132 (production_order_done) ใช้อยู่แล้ว ไม่เขียนใหม่
---   6. ทุก RPC: security definer + set search_path (public, analytics,
---      extensions, pg_temp) + crm_require_owner_admin + revoke
---      public/anon/authenticated + grant service_role เท่านั้น + คืน jsonb
---      (ไม่ใช้ returns table — เลี่ยงกับดัก 42702 ข้อ 12 ของ skill
---      3j-migration-traps โดยสิ้นเชิง)
---   7. ปิดท้ายไฟล์ notify pgrst, 'reload schema'
+-- ข้อจำกัดที่รู้ตัว (หนี้ที่บันทึกไว้ — ต้องแก้ก่อนต่องานรอบถัดไป):
+--   1. เปิดนับวันไหน ออเดอร์วันเดียวกันที่ขายไปก่อนนับจะโดนหักซ้ำ (order_date เป็น date
+--      ไม่มีเวลา) ⇒ UI ต้องเขียนว่า "ให้นับก่อนเริ่มขายของวันนั้น"
+--   2. ปิดนับไว้นานแล้วเปิดใหม่ ⇒ ยอดขายช่วงที่ปิดจะถูกตัดรวดเดียวรอบเดียว
+--      ถ้าของไม่พอจะตกที่ last_error (fail closed เห็นได้) — ไม่เงียบแต่ต้องมี flow นับใหม่
+--   3. ผู้เรียกที่ส่ง p_source_order_nos แบบจำกัด ต้องใส่เลขใบที่ถูกลบเข้ามาด้วย
+--      ไม่งั้นสต็อกจะไม่ถูกคืน (deleteMissingOrders ต้องส่งเลขใบที่ลบมาด้วย หรือส่ง null)
 --
--- ============================================================================
--- 3 จุดที่ผมตัดสินใจเอง นอกเหนือคำสั่งในบรีฟ — มีเหตุผลรองรับ ไม่ใช่เดา
--- ============================================================================
---   [A] track_stock_since ใช้ coalesce(เดิม, วันนี้) ไม่ใช่ "set = วันนี้เสมอ"
---       ตามที่ system-flow §1 เขียนไว้ (ประโยคที่ไม่มี coalesce) เหตุผล: คอมเมนต์
---       บนคอลัมน์นี้เองที่ 0131 เขียนไว้แล้ว (บังคับใช้จริงบน prod) ระบุชัดว่า
---       "ห้ามถูกเลื่อนถ้าเคยเปิดแล้ว" เป็นกติกาของ "คอลัมน์" ไม่ใช่เฉพาะของ
---       production_order_done ตัวเดียว — ถ้า RPC นี้ set ทับเป็นวันนี้เสมอตอน
---       ปิดแล้วเปิดใหม่ (ปิด → เปิดใหม่ทีหลัง) จะทำให้ยอดที่เคย reconcile ไปแล้ว
---       ระหว่าง since เดิมกับวันนี้ "หลุด scope" ของ target ทันที (target กรอง
---       order_date >= since) แล้ว full outer join ข้อ 2 จะเห็นเป็น "target หาย"
---       เหมือนออเดอร์ถูกลบ ⇒ คืนสต็อกผิดๆ ให้ยอดที่ขายไปแล้วจริง — บั๊กเงียบที่
---       แก้คืนยากกว่าการยึดกติกาคอลัมน์เดิมมาก
---       ผลข้างเคียงที่รู้ตัว: ถ้าปิดแล้วเปิดใหม่โดยตั้งใจใส่ "ยอดตั้งต้นใหม่" (นับ
---       ของใหม่) ตัว idem key ('init:'||product||':'||since) จะซ้ำกับตอนเปิดครั้ง
---       แรก (เพราะ since ไม่ขยับ) — ถ้าใส่จำนวนต่างจากเดิม adjust_stock จะ
---       raise 23505 (idem key ซ้ำแต่ delta ไม่ตรง) ปฏิเสธการเรียกตรงๆ (ไม่เงียบ)
---       แทนที่จะยอมให้ทับเงียบๆ — ยังไม่มี UI ให้กดสถานการณ์นี้ในรอบนี้ (wiring
---       รอบหน้า) ธงไว้ให้ Tech Lead ตัดสินว่าต้องมี flow แยกสำหรับ "reset ยอดตั้ง
---       ต้นใหม่" หรือไม่ ก่อนต่อปุ่มจริงบน /catalog
---   [B] ฝั่ง applied ของ full outer join ต้อง join กับ product แล้วกรอง
---       p.track_stock ด้วย (ไม่ใช่กรองแค่ shop_id/source_order_no ตามที่ข้อความ
---       design พูดสั้นๆ) เหตุผล: ถ้าไม่กรอง เมื่อ SKU ถูกปิด track_stock (แต่เคย
---       มีประวัติ applied จากตอนเปิดอยู่) target ฝั่งนั้นจะหายไปทันที (target join
---       กรอง p.track_stock อยู่แล้ว) แต่ applied ฝั่งนั้นยังโผล่อยู่ ⇒ full outer
---       join เห็นเป็น "target หาย" เหมือนออเดอร์ถูกลบ ⇒ คืนสต็อกทั้งหมดที่เคยตัด
---       ไปทันทีที่กดปิด — ขัดกับกติกาที่บรีฟเขียนไว้ชัดว่า "ปิด ⇒ ห้ามล้าง ledger"
---       การกรอง p.track_stock ทั้งสองฝั่งทำให้ปิดแล้ว = ledger ของ SKU นั้นแข็ง
---       (frozen) ไม่ถูกแตะเลยจนกว่าจะเปิดใหม่ ตรงตามเจตนาบรีฟ
---   [C] p_initial_qty = 0 ⇒ ข้าม adjust_stock ไปเลย ไม่เรียก เหตุผล: adjust_stock
---       (0007) ปฏิเสธ p_qty_delta = 0 ด้วย "must be a non-zero integer" — ถ้าเรียก
---       ตรงตามข้อความ design ("adjust_stock(+p_initial_qty, ...)") ทื่อๆ ทุกครั้ง
---       SKU ใหม่ที่ยังไม่มีของในมือเลย (initial_qty=0 — เคสที่สมเหตุสมผลมากสำหรับ
---       "ของใหม่ที่ปักตะกร้าขายแยก SKU" ตามมติเจ้าของ) จะเปิด track_stock ไม่ได้
---       เลย ⇒ ข้าม adjust_stock เมื่อ 0 แต่ยัง ensure central_stock row +
---       set track_stock=true ตามปกติ (ยอดเริ่มที่ 0 อยู่แล้วโดย default ของตาราง)
---
--- ============================================================================
--- Checklist ตาม skill 3j-migration-traps (11 ข้อ) ที่เกี่ยวกับไฟล์นี้
--- ============================================================================
---   #1 signature ใหม่ทั้งคู่ (ไม่เคยมี function เดิมชื่อนี้มาก่อน) — create or
---      replace ตรงๆ ปลอดภัย ไม่มี overload ค้าง
---   #2 grant ไม่ติดมาเอง — revoke/grant explicit ครบทั้ง 2 ฟังก์ชันด้านล่าง
---   #4/#5 numeric ไม่มีในไฟล์นี้เลย (ใช้ int/text/boolean/date ล้วน) —
---      qty รับเป็น int ดักตั้งแต่ cast (NaN เข้าไม่ได้อยู่แล้ว)
---   #6 (UTC) — track_stock_since ทุกจุดใช้ (now() at time zone
---      'Asia/Bangkok')::date
---   #7 ไม่มี grant เหวี่ยงแหทั้ง schema
---   #10 apply ต้องผ่าน apply_migration (ไม่ใช่ execute_sql) — หน้าที่ Tech Lead
---   #11 ทดสอบใน scripts/verify-0133.sql ต้องเป็น do-block เดียว + raise
---      บังคับ rollback (แตะ stock ledger จริง) — ชอปที่ใช้เป็น shop/SKU สังเคราะห์
---      เท่านั้น
---   #12 คืน jsonb ไม่ใช้ returns table — ไม่มีความเสี่ยง column ชนกับ OUT var เลย
+-- ขอบเขต: SQL อย่างเดียว — wiring ฝั่ง TypeScript/หน้าเว็บเป็นรอบถัดไป
+-- ทดสอบ: scripts/verify-0133.sql (do-block + raise บังคับ rollback, 3j-migration-traps #11)
 
 -- ============================================================================
 -- 1. public.product.reorder_point — เพิ่มเฉยๆ ยังไม่มี logic (P3a §2 จะใช้)
@@ -230,6 +161,16 @@ begin
     raise exception 'product_track_stock_set: p_initial_qty ต้องอยู่ระหว่าง 0-100000 (ได้ %)', p_initial_qty using errcode = '22023';
   end if;
 
+  -- เคยเปิดนับมาก่อนแล้ว (track_stock_since ไม่ว่าง) = การ "เปิดซ้ำ" ไม่ใช่การตั้งยอดใหม่
+  -- ยอดคงเหลือเดิมยังอยู่ใน central_stock ครบ (ปิด = ไม่ล้าง ledger — ดู [B])
+  -- ถ้าปล่อยให้ใส่ยอดตั้งต้นซ้ำ จะไปชน idem key 'init:<product>:<since>' เดิม
+  -- ⇒ adjust_stock raise 23505 ข้อความอ่านไม่รู้เรื่อง หรือถ้าจำนวนเท่าเดิมก็เงียบ
+  -- ไม่บวกให้ (idempotent return) ทำให้เข้าใจผิดว่าตั้งยอดใหม่สำเร็จ
+  -- ⇒ ปฏิเสธตรงนี้ด้วยข้อความที่บอกทางออกจริง (Tech Lead 18 ก.ย. 69 — flow นับใหม่ รอ P2/P3)
+  if v_product.track_stock_since is not null and v_qty > 0 then
+    raise exception 'product_track_stock_set: SKU % เคยเปิดนับสต็อกมาก่อนแล้ว (ตั้งแต่ %) ยอดคงเหลือเดิมยังอยู่ครบ — เปิดใหม่ให้ใส่ยอดตั้งต้นเป็น 0 ถ้าต้องการแก้ยอดให้ตรงกับที่นับได้จริง ให้ใช้เมนูปรับยอดสต็อกแทน', v_product.sku, v_product.track_stock_since using errcode = '22023';
+  end if;
+
   -- ห้ามเลื่อน track_stock_since ถ้าเคยเปิดมาก่อน — กติกาของคอลัมน์นี้เอง
   -- (คอมเมนต์ที่ 0131 เขียนไว้แล้ว) ไม่ใช่แค่ของ production_order_done ตัวเดียว
   -- (ตัดสินใจเอง — ดูหัวไฟล์ [A])
@@ -301,7 +242,8 @@ begin
       coalesce(tgt.product_id, ap.product_id)           as product_id,
       coalesce(tgt.target_qty, 0)                       as target_qty,
       coalesce(ap.qty_applied, 0)                       as qty_applied,
-      coalesce(ap.sync_seq, 0)                          as sync_seq
+      coalesce(ap.sync_seq, 0)                          as sync_seq,
+      ap.last_error                                     as last_error
     from (
       -- target = ยอดที่ "ควรตัดไปแล้ว" ตอนนี้ ต่อ (ออเดอร์, สินค้า) — คำนวณสด
       -- ทุกครั้ง ไม่เก็บ snapshot inner join กับ product ทำให้ product_id ที่เป็น
@@ -322,7 +264,7 @@ begin
       -- p.track_stock ด้วย (ไม่ใช่กรองแค่ shop_id/source_order_no) เพื่อไม่ให้
       -- SKU ที่ถูกปิด track_stock ไปแล้วโผล่มาเป็น "target หาย" แล้วโดนคืนสต็อก
       -- ผิดๆ (ตัดสินใจเอง — ดูหัวไฟล์ [B])
-      select sa.source_order_no, sa.product_id, sa.qty_applied, sa.sync_seq
+      select sa.source_order_no, sa.product_id, sa.qty_applied, sa.sync_seq, sa.last_error
       from analytics.stock_sale_applied sa
       join public.product p on p.id = sa.product_id and p.shop_id = sa.shop_id
       where sa.shop_id = p_shop_id
@@ -334,6 +276,15 @@ begin
     v_delta := v_rec.target_qty - v_rec.qty_applied;
     if v_delta = 0 then
       -- idempotent: ไม่มีอะไรเปลี่ยน ไม่แตะ ledger เลย ไม่ต้องมี idem key ด้วยซ้ำ
+      -- แต่ถ้ารอบก่อนเคยพลาดไว้ (last_error ค้าง) แล้วรอบนี้ตรงกันแล้ว ต้องล้างข้อความทิ้ง
+      -- ไม่งั้นหน้าจอจะโชว์ "สต็อกไม่พอ" ค้างทั้งที่ไม่เหลือปัญหาแล้ว (Tech Lead 18 ก.ย. 69)
+      if v_rec.last_error is not null then
+        update analytics.stock_sale_applied
+           set last_error = null, updated_at = now()
+         where shop_id = p_shop_id
+           and source_order_no = v_rec.source_order_no
+           and product_id = v_rec.product_id;
+      end if;
       continue;
     end if;
 

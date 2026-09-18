@@ -310,7 +310,7 @@ begin
 
   -----------------------------------------------------------------------
   -- T14 ([A], ตัดสินใจเอง): เปิดใหม่หลังปิด (since ไม่ขยับ — coalesce เดิม) +
-  -- ใส่ยอดตั้งต้นต่างจากเดิม (999 แทน 20) ⇒ idem key ชนกับตอนเปิดครั้งแรก
+  -- ใส่ยอดตั้งต้น > 0 ⇒ โดนด่านใหม่ของ Tech Lead (22023 ข้อความอ่านรู้เรื่อง)
   -- (เพราะ since เดิม) ⇒ adjust_stock ปฏิเสธด้วย 23505 (ไม่เงียบ ไม่ทับ) —
   -- นี่คือ "รอยต่อที่รู้ตัว" ที่ผมธงไว้ในหัวไฟล์ 0133 [A] ให้ Tech Lead ตัดสินใจ
   -- ก่อนต่อ UI จริง
@@ -426,6 +426,21 @@ begin
   update public.product set reorder_point = 3 where id = v_p_a;
   select reorder_point into v_row_count from public.product where id = v_p_a;
   v_log := v_log || format('[T18b] reorder_point=3 บันทึกได้ปกติ (ได้ %s): %s' || E'\n', v_row_count, case when v_row_count = 3 then 'OK' else 'FAIL' end);
+
+  -----------------------------------------------------------------------
+  -- T19 (Tech Lead 18 ก.ย. 69): last_error ค้างต้องถูกล้างเมื่อ delta กลับเป็น 0
+  -- (O4/D ค้าง error จาก T7 — ลบใบทิ้ง ⇒ target 0, applied 0 ⇒ delta 0)
+  -- ถ้าไม่ล้าง หน้าจอจะโชว์ "สต็อกไม่พอ" ค้างถาวรทั้งที่ไม่เหลือปัญหาแล้ว
+  -----------------------------------------------------------------------
+  delete from analytics.fact_order where id = v_o4_id and shop_id = v_shop_id;
+  v_res := analytics.stock_sync_sales(v_shop_id, array['ZZ133-O4']);
+  select last_error into v_last_error from analytics.stock_sale_applied
+    where shop_id = v_shop_id and source_order_no = 'ZZ133-O4' and product_id = v_p_d;
+  select qty_on_hand into v_qty_on_hand from public.central_stock where product_id = v_p_d;
+  v_log := v_log || format('[T19] ลบใบที่เคยพลาด ⇒ delta=0: last_error=%s (คาด null), on_hand D=%s (คาดยังคง 1), returned=%s (คาด 0): %s' || E'
+',
+    coalesce(v_last_error, '(null)'), v_qty_on_hand, v_res ->> 'returned',
+    case when v_last_error is null and v_qty_on_hand = 1 and (v_res ->> 'returned')::int = 0 then 'OK' else 'FAIL' end);
 
   -----------------------------------------------------------------------
   -- สรุปเคสที่ครอบ (ตามบรีฟ + decision เพิ่มเอง — ดูหัวไฟล์ 0133 ด้วย):
