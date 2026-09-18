@@ -112,7 +112,7 @@ export function SettingsForm({
       <section className="rounded-lg border border-zinc-200 bg-white p-3.5 shadow-sm">
         <h2 className="text-sm font-bold text-zinc-800">ราคาเงินสปอต</h2>
         <p className="mt-0.5 text-xs text-zinc-500">
-          ใช้คำนวณต้นทุน SKU แบบอิงราคาเงิน (น้ำหนัก × ราคาเงินวันนี้ × ความบริสุทธิ์ + ค่ากำเหน็จ) — ใช้ได้ทั้งเงินแท่งและเครื่องเงิน 925
+          ใช้คำนวณต้นทุน SKU ที่ตั้งเป็นโหมด “คำนวณจากน้ำหนักเงิน” (น้ำหนัก × ราคาเงินวันนั้น × ความบริสุทธิ์ + ค่าแรง/ค่าบล็อก) — ใช้ได้ทั้งเงินแท่ง 999 และเครื่องเงิน 925
         </p>
         {setting.silverSpotUpdatedAt ? (
           <p className="mt-2 text-xs font-medium text-primary-700">
