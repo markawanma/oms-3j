@@ -23,6 +23,7 @@ import {
   FileUp,
   Gauge,
   Gem,
+  Hammer,
   Hash,
   LayoutDashboard,
   LineChart,
@@ -104,6 +105,10 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/marketing/attribution", label: "วัดผลโค้ด", icon: Ticket },
       { href: "/marketing/calendar", label: "ปฏิทินแคมเปญ", icon: CalendarDays },
     ],
+  },
+  {
+    label: "ผลิตเอง",
+    items: [{ href: "/production", label: "ใบผลิตเข้าสต็อก", icon: Hammer }],
   },
   {
     label: "ต้นทุน & ตั้งค่า",
