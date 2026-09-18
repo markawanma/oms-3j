@@ -580,8 +580,11 @@ export async function doneProductionOrder(input: {
     };
 
     revalidateProduction(input.productionOrderId);
-    // 0131 stamps cost + track_stock straight onto public.product — the SKU
-    // catalog screen must reflect the new locked-in cost immediately too.
+    // Post-0138: cost is no longer stamped back onto public.product (it now
+    // lives on analytics.stock_lot instead) — so /catalog has nothing that
+    // actually changes on done today. Keeping this revalidatePath anyway
+    // because done still writes track_stock/track_stock_since onto product,
+    // and 0139/0140 will make /catalog surface lot-based cost (lot_cost_avg).
     revalidatePath("/catalog");
     revalidatePath("/stock");
 
