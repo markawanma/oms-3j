@@ -135,13 +135,25 @@ export function HeroStockClient({ rows, products }: { rows: HeroStockRow[]; prod
             <Gauge className="h-5 w-5 text-primary-600" aria-hidden="true" />
             จอสต็อก Hero SKU
           </h1>
-          <p className="mt-0.5 text-sm text-zinc-500">เปิดข้างจอไลฟ์ — เช็คของเหลือแบบเรียลไทม์ กันขายเกินสต็อก</p>
+          {/* 18 ก.ย. 69 — เดิมเขียนว่า "กันขายเกินสต็อก" ซึ่งเลิกจริงตั้งแต่ใบผลิต
+              (P1) ขึ้น: central_stock บวกอย่างเดียว ยังไม่มีตัวหักขาออกจากยอดขาย
+              (P1.5) ⇒ ตัวเลขจะสูงกว่าจริงเรื่อยๆ · คำโฆษณาที่ระบบทำไม่ได้แล้ว
+              อันตรายกว่าไม่เขียน เพราะคนไลฟ์จะเชื่อแล้วขายเกิน */}
+          <p className="mt-0.5 text-sm text-zinc-500">เปิดข้างจอไลฟ์ — ดูว่า SKU ไหนเหลือน้อย จะได้เตรียมของทัน</p>
         </div>
         <Button type="button" variant="primary" size="sm" onClick={openAdd} className="shrink-0">
           <PlusCircle className="h-4 w-4" aria-hidden="true" />
           เพิ่ม SKU
         </Button>
       </div>
+
+      {/* 🔴 หน้านี้เป็นจอสาธารณะ (ยกเว้นจาก AUTH_GATE) ที่คนไลฟ์เปิดดูสดๆ —
+          ตราบใดที่ P1.5 ยังไม่มา ตัวเลขนี้ "บวกอย่างเดียว" ห้ามให้ใครยึดเป็น
+          ยอดคงเหลือจริง · ถอดแถบนี้ออกเมื่อ P1.5 (หักขาออกจากยอดขาย) ขึ้นแล้วเท่านั้น
+          ข้อความสั้นโดยตั้งใจ — จอนี้ถูกอ่านแบบเหลือบตาระหว่างไลฟ์ */}
+      <p className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900">
+        ⚠️ ตัวเลขนี้ <strong>ยังไม่หักของที่ขายไปแล้ว</strong> — ใช้ดูว่าอะไรใกล้หมด อย่ายึดเป็นยอดคงเหลือจริง
+      </p>
 
       {alertCount > 0 && (
         <div
@@ -183,7 +195,7 @@ export function HeroStockClient({ rows, products }: { rows: HeroStockRow[]; prod
         <EmptyState
           icon={Gauge}
           title="ยังไม่มี SKU ที่เฝ้าดู"
-          description="เพิ่ม SKU 3-5 ตัวที่จะดันในไลฟ์ครั้งนี้ เพื่อดูสต็อกเหลือแบบเรียลไทม์ระหว่างไลฟ์"
+          description="เพิ่ม SKU 3-5 ตัวที่จะดันในไลฟ์ครั้งนี้ จะได้เห็นว่าตัวไหนเริ่มเหลือน้อยระหว่างไลฟ์"
           action={
             <Button type="button" variant="primary" size="sm" onClick={openAdd}>
               <PlusCircle className="h-4 w-4" aria-hidden="true" />
