@@ -1,7 +1,23 @@
 -- 0131_production_order.sql
--- ⏳ NOT YET APPLIED — dry-run ผ่าน scripts/verify-0131.sql ก่อน apply จริง
--- (Tech Lead จะ apply ผ่าน MCP แล้วแก้บรรทัดนี้เป็น "✅ APPLIED" เอง — agent
--- ไม่มี Supabase MCP ในรอบนี้)
+-- ✅ APPLIED 18 ก.ย. 69 ผ่าน MCP apply_migration (name = 0131_production_order)
+--
+-- ลำดับที่ทำจริง:
+--   1. dry-run ใน `begin; … rollback;` — 10 assertion ผ่านครบ (PO-0001 · live-SKU
+--      ถูกปฏิเสธ · preview 400.49 ตรงสูตร 0028 · central_stock 0 แถวก่อน done แล้ว
+--      ensure ได้ · qty 10 + ledger 1 แถว · cost_type=fixed · track_stock_since=วันนี้ ·
+--      done ซ้ำคืนผลเดิมไม่เพิ่ม ledger · แก้/ยกเลิก/ลบใบที่ done แล้วถูกปฏิเสธ)
+--   2. apply จริง
+--   3. รัน assertion ชุดเดิม + เพิ่ม (override นอกช่วง · qty=0 · catalog_audit_log
+--      1 แถว · has_function_privilege anon/authenticated = false) กับ object ที่ลง
+--      จริงแล้ว ใน transaction ที่ rollback — ผ่านครบ
+--   4. get_advisors(security) — ไม่มี WARN ใหม่ · production_order_counter โผล่ใน
+--      INFO "RLS enabled no policy" ซึ่งตั้งใจ (sku_counter/oem_doc_counter อยู่ใน
+--      รายการเดียวกัน — เข้าถึงได้เฉพาะผ่าน security definer)
+--
+-- ⚠️ ข้อความที่ apply เข้า migration history = ไฟล์นี้ **ตัดบรรทัดคอมเมนต์ `--` ออก**
+-- (คำสั่งที่รันจริงเหมือนกันทุกตัว — ตรวจแล้วด้วยการนับ statement: function 11 ·
+-- table 3 · policy 2 · trigger 3 · view 2 · revoke 11 · grant execute 8 ·
+-- comment on 8 · raise exception 52 ตรงกันทั้งสองฝั่ง) ไฟล์นี้คือฉบับเต็มสำหรับคนอ่าน
 --
 -- P1a — ใบผลิตเข้าสต็อก (backend only). Design:
 --   docs/3j-jewelry/oms/design-production-order.md (แหล่งจริงของโครงสร้าง)
