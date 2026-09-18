@@ -132,7 +132,7 @@ export function ProductionDoneDialog({
         toast.push(result.error, "error");
         return;
       }
-      toast.push(`บันทึกผลิตเสร็จ ${result.data.poNo} แล้ว — ต้นทุนถูกล็อกและเข้าสต็อกแล้ว`);
+      toast.push(`บันทึกผลิตเสร็จ ${result.data.poNo} แล้ว — ของเข้าสต็อกและล็อกต้นทุนของรอบผลิตนี้แล้ว`);
       onDone();
     });
   }
@@ -140,8 +140,9 @@ export function ProductionDoneDialog({
   return (
     <Modal open onClose={onClose} title={`ยืนยันผลิตเสร็จ — ${order.poNo}`}>
       <p className="rounded-md bg-amber-50 px-2.5 py-2 text-xs text-amber-800">
-        กดยืนยันแล้วต้นทุนของแต่ละ SKU จะถูก <span className="font-semibold">ล็อก</span> ตามราคาเงินวันนี้ (ไม่ลอยตามราคาเงินอีกต่อไป)
+        กดยืนยันแล้วต้นทุนของ <span className="font-semibold">รอบผลิตนี้</span> จะถูกล็อกตามราคาเงินวันนี้
         และจำนวนที่ระบุจะถูกบวกเข้าสต็อกกลางทันที — แก้ไขไม่ได้ ต้องเปิดใบผลิตใหม่หากจำนวนผิด
+        ต้นทุนของ SKU ในแคตตาล็อกไม่เปลี่ยน (SKU ที่คิดตามราคาเงินยังขยับตามราคาเงินทุกวันเหมือนเดิม)
       </p>
 
       {previewLoading && <p className="mt-3 text-sm text-zinc-500">กำลังคำนวณต้นทุนตัวอย่าง...</p>}

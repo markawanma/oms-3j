@@ -45,7 +45,7 @@ export function ProductionListClient({ orders }: { orders: ProductionOrderRow[] 
         <div>
           <h1 className="text-lg font-bold text-zinc-900">ใบผลิตเข้าสต็อก</h1>
           <p className="mt-0.5 text-sm text-zinc-500">
-            บันทึกของที่ผลิตเองเข้าสต็อกกลาง — ต้นทุนจะถูกล็อกตามราคาเงินวันที่ผลิตเสร็จ
+            บันทึกของที่ผลิตเองเข้าสต็อกกลาง — ต้นทุนของแต่ละรอบผลิตถูกล็อกตามราคาเงินวันที่ผลิตเสร็จ
           </p>
         </div>
         <Link href="/production/new">
