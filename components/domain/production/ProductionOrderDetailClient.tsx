@@ -277,8 +277,14 @@ export function ProductionOrderDetailClient({
                           ) : (
                             "—"
                           )
+                        ) : item.currentCostType === "spot" ? (
+                          // security review M5: SKU โหมด spot — `product.unit_cost` ดิบ
+                          // เป็นเลข manual เก่าที่มักล้าสมัย/เป็น null และ **ไม่ตรงกับ
+                          // ที่ /catalog แสดง** (ที่นั่นคำนวณจากน้ำหนัก × ราคาเงิน)
+                          // ⇒ ห้ามโชว์ตัวเลขที่จะทำให้ตัดสินใจผิดว่าจะผลิตไหม
+                          <span className="text-zinc-400">คำนวณตอนกดผลิตเสร็จ</span>
                         ) : item.currentUnitCost != null ? (
-                          <span title="ต้นทุนอ้างอิงปัจจุบัน — ตัวที่จะล็อกจริงคำนวณตอนกดผลิตเสร็จ">
+                          <span title="ต้นทุนคงที่ที่ตั้งไว้ใน /catalog">
                             {formatTHB(item.currentUnitCost)}
                           </span>
                         ) : (
