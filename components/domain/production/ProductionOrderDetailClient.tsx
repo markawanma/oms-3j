@@ -229,7 +229,17 @@ export function ProductionOrderDetailClient({
                   <th scope="col" className="py-2 pl-3.5 pr-3">SKU</th>
                   <th scope="col" className="py-2 pr-3 text-right">แผนผลิต</th>
                   {!isOpen && <th scope="col" className="py-2 pr-3 text-right">ผลิตเข้าแล้ว</th>}
-                  <th scope="col" className="py-2 pr-3 text-right">ต้นทุน/ชิ้น</th>
+                  {/* ใบยัง open = ตัวเลขนี้คือต้นทุนปัจจุบันใน /catalog "อ้างอิง" เท่านั้น
+                      ยังไม่ใช่ค่าที่จะถูกล็อก (SKU โหมด spot จะคิดใหม่ตามราคาเงินตอนกด
+                      ผลิตเสร็จ) — หัวคอลัมน์เดิมเขียนว่า "ต้นทุน/ชิ้น" เฉยๆ ซึ่งชวนให้
+                      เข้าใจว่าเป็นค่าที่ล็อกแล้ว · ใบที่ปิดแล้วถึงจะเป็นค่าที่ stamp จริง */}
+                  <th scope="col" className="py-2 pr-3 text-right">
+                    {isOpen
+                      ? "ต้นทุนปัจจุบัน (อ้างอิง)"
+                      : order.status === "done"
+                        ? "ต้นทุนที่ล็อกไว้"
+                        : "ต้นทุน (ไม่ได้ผลิต)"}
+                  </th>
                   {isOpen && <th scope="col" className="py-2 pr-3.5" />}
                 </tr>
               </thead>
