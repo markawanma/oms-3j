@@ -4,9 +4,58 @@
 //
 // Column shapes copied 1:1 from supabase/migrations/0028_sku_cost_margin.sql
 // (public.product, analytics.v_dim_product, analytics.shop_setting,
-// analytics.v_blended_margin_suggestion).
+// analytics.v_blended_margin_suggestion) + 0141/0142_make_spec (public.
+// product.make_spec, analytics.product_make_spec_set/_clear) for the 3rd
+// cost mode below.
 
-export type CostType = "fixed" | "spot";
+import { readErrorCode, readErrorMessage } from "@/lib/supabase/postgrest-error";
+
+/** 0141: 3rd cost mode — "คำนวณจากสเปค" (docs/3j-jewelry/oms/design-own-
+ * production-costing.md). ตั้ง/ถอดผ่าน analytics.product_upsert ตรงๆ ไม่ได้
+ * เลย (0142 บล็อกไว้ตั้งใจ) — ดู upsertProduct() ใน lib/actions/catalog.ts
+ * สำหรับลำดับ RPC ที่ถูกต้อง. */
+export type CostType = "fixed" | "spot" | "spec";
+
+/** 0141: public.product.make_spec — เขียนได้ทาง
+ * analytics.product_make_spec_set เท่านั้น (whitelist 6 คีย์เอง ฝั่ง DB) เฟส
+ * แรกรองรับเฉพาะ metal='silver' (production_spot_resolve ไม่รองรับทอง/
+ * ทองเหลือง). ค่า itemKind/polishTier/platingType/gemTier ต้องตรงเป๊ะกับ
+ * scope ของเรตใน analytics.oem_cost_rate — ใช้ค่าเดียวกับฟอร์ม OEM
+ * (OEM_ITEM_KIND_OPTIONS ฯลฯ ใน lib/oem/display.ts) ไม่ใช่พิมพ์เอง. */
+export interface MakeSpec {
+  metal: "silver";
+  itemKind: string;
+  polishTier: string;
+  /** null = ไม่ชุบ. */
+  platingType: string | null;
+  /** null = ไม่มีพลอย (gemCount ต้องเป็น 0 คู่กันเสมอ). */
+  gemTier: string | null;
+  gemCount: number;
+}
+
+/** public.product.make_spec (jsonb, snake_case keys — written by
+ * analytics.product_make_spec_set, 0141) -> MakeSpec (camelCase). Defensive:
+ * returns null on anything that doesn't look like a real spec object rather
+ * than throwing — a read path must never 500 the whole page over one
+ * malformed row. Exported (not kept private in lib/actions/catalog.ts) so
+ * lib/actions/production.ts can reuse it for its own make_spec side-channel
+ * read (ProductionOrderItemRow.makeSpec) — a "use server" file may only
+ * export async functions, so this pure parser has to live here regardless. */
+export function parseMakeSpec(raw: unknown): MakeSpec | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as Record<string, unknown>;
+  const itemKind = typeof r.item_kind === "string" ? r.item_kind : null;
+  const polishTier = typeof r.polish_tier === "string" ? r.polish_tier : null;
+  if (!itemKind || !polishTier) return null;
+  return {
+    metal: "silver",
+    itemKind,
+    polishTier,
+    platingType: typeof r.plating_type === "string" && r.plating_type ? r.plating_type : null,
+    gemTier: typeof r.gem_tier === "string" && r.gem_tier ? r.gem_tier : null,
+    gemCount: typeof r.gem_count === "number" ? r.gem_count : Number(r.gem_count) || 0,
+  };
+}
 
 /** One row of the SKU catalog — v_dim_product (computed effective cost +
  * margin) merged with the editable raw columns from public.product that the
@@ -24,7 +73,14 @@ export interface ProductRow {
   silverPurity: number | null;
   laborCost: number | null;
   listPrice: number | null;
-  /** cost the DB actually uses (fixed => manual; spot => weight×spot×purity+labor). */
+  /** 0141: non-null only when costType='spec'. Raw public.product.make_spec —
+   * same side-channel pattern as barcode/supplier/note below (v_dim_product
+   * doesn't expose it). */
+  makeSpec: MakeSpec | null;
+  /** cost the DB actually uses (fixed => manual; spot => weight×spot×purity+labor;
+   * spec => NULL today — 0142 HIGH-3 known gap, v_dim_product intentionally not
+   * touched: analytics.production_cost_calc is the only place that computes a
+   * spec SKU's real cost, and only at production time, never here). */
   effectiveUnitCost: number | null;
   /** (listPrice − effectiveCost)/listPrice as a fraction 0..1, or null. */
   marginPct: number | null;
@@ -72,12 +128,16 @@ export interface UpsertProductInput {
   unitCost?: number | null;
   silverWeightG?: number | null;
   silverPurity?: number | null;
+  /** used when costType='fixed'|'spot' — spec mode ignores this (the server
+   * action sends null to product_upsert for spec, see catalog.ts). */
   laborCost?: number | null;
   listPrice?: number | null;
   barcode?: string | null;
   supplier?: string | null;
   note?: string | null;
   isActive: boolean;
+  /** required when costType='spec', ignored otherwise. */
+  makeSpec?: MakeSpec | null;
 }
 
 /** analytics.shop_setting + the two ROAS targets the view computes from it. */
@@ -195,6 +255,7 @@ export interface SkuOrderAlert {
 export const COST_TYPE_LABEL_TH: Record<CostType, string> = {
   fixed: "ต้นทุนคงที่",
   spot: "อิงราคาเงิน (spot)",
+  spec: "คำนวณจากสเปค",
 };
 
 /** Suggested categories (free text still allowed via the datalist). */
@@ -245,7 +306,15 @@ export const CATEGORY_OPTIONS = [
 
 /** Effective unit cost, mirroring v_dim_product's SQL — for the form's live
  * preview only (the DB is always the source of truth on save). Returns null
- * when a spot SKU has no weight or the shop has no silver spot price set yet. */
+ * when a spot SKU has no weight or the shop has no silver spot price set yet.
+ *
+ * 🔴 costType='spec' ALWAYS returns null — this is not a gap, it's the rule
+ * (oem-quote-invariants §2 "ห้ามคำนวณเลขเงินใน client"). Unlike the spot
+ * formula above (a 3-variable multiply the team already accepted as a client
+ * estimate), spec mode's real cost comes from analytics.oem_cost_calc (0140):
+ * dozens of rate lookups, batch/flask amortization, NRE — reimplementing
+ * that in TS would drift from the DB the moment either side changes. The
+ * ProductForm shows "คำนวณตอนสั่งผลิต" instead of a number for this mode. */
 export function computeEffectiveCost(
   costType: CostType,
   unitCost: number | null,
@@ -255,9 +324,22 @@ export function computeEffectiveCost(
   silverSpot: number | null
 ): number | null {
   if (costType === "fixed") return unitCost;
+  if (costType === "spec") return null;
   if (silverWeightG == null || silverSpot == null) return null;
   const raw = silverWeightG * silverSpot * (silverPurity ?? 0.925) + (laborCost ?? 0);
   return Math.round(raw * 100) / 100;
+}
+
+/** ปล่อยผ่านเฉพาะข้อความ errcode 22023 (raise ที่ตั้งใจพูดกับผู้ใช้ — ทุก raise
+ * ใน 0028/0031/0141/0142 ที่ผูกกับ input ของ owner ติด errcode นี้ไว้แล้ว)
+ * เหมือน humanizeProductionError ใน lib/production/types.ts — code อื่นเป็น
+ * ของภายใน (เช่น analytics.oem_cost_calc, 0140, ไม่ได้ tag errcode ตอน
+ * validate input พัง เพราะมันเป็น internal layer ไม่ใช่ RPC หน้าบ้าน) ห้าม
+ * หลุดออกจอ (จะเผยชื่อฟังก์ชัน/พารามิเตอร์ภายใน). */
+export function humanizeCatalogError(err: unknown, fallback: string): string {
+  if (readErrorCode(err) !== "22023") return fallback;
+  const msg = readErrorMessage(err);
+  return msg || fallback;
 }
 
 // ============================================================================

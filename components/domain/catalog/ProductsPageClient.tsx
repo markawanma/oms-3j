@@ -227,7 +227,9 @@ export function ProductsPageClient({
                       {p.category && <div className="text-xs text-zinc-400">{p.category}</div>}
                     </td>
                     <td className="py-2 pr-3">
-                      <Badge tone={p.costType === "spot" ? "cyan" : "slate"}>{COST_TYPE_LABEL_TH[p.costType]}</Badge>
+                      <Badge tone={p.costType === "spot" ? "cyan" : p.costType === "spec" ? "indigo" : "slate"}>
+                        {COST_TYPE_LABEL_TH[p.costType]}
+                      </Badge>
                     </td>
                     <td className="py-2 pr-3 text-right tabular-nums text-zinc-700">{fmtBaht(p.effectiveUnitCost)}</td>
                     <td className="py-2 pr-3 text-right tabular-nums text-zinc-700">{fmtBaht(p.listPrice)}</td>

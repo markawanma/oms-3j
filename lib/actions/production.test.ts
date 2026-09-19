@@ -31,6 +31,7 @@ function queryBuilder(result: { data: unknown; error: unknown; count?: number | 
   const builder: Record<string, unknown> = {
     select: () => builder,
     eq: () => builder,
+    in: () => builder,
     not: () => builder,
     order: () => builder,
     range: () => builder,
@@ -40,9 +41,15 @@ function queryBuilder(result: { data: unknown; error: unknown; count?: number | 
   return builder;
 }
 
+// 0141: getProductionOrder's make_spec/cost_calc side-channel reads call
+// supabase.from("product") DIRECTLY (public schema — no .schema() wrapper),
+// same as lib/actions/catalog.ts already does — so the mocked client needs a
+// top-level `from` too, not just the `.schema().from` every other read here
+// used pre-0141.
 vi.mock("@/lib/supabase/server", () => ({
   getServiceClient: () => ({
     schema: () => ({ rpc: rpcMock, from: (table: string) => fromMock(table) }),
+    from: (table: string) => fromMock(table),
   }),
 }));
 
@@ -332,7 +339,21 @@ describe("doneProductionOrder", () => {
         poNo: "PO-0001",
         status: "done",
         alreadyDone: false,
-        items: [{ productId: "11111111-1111-4111-8111-111111111111", sku: "SKU-1", qtyDone: 5, unitCost: 123.45, prevCostType: "spot", prevUnitCost: 100 }],
+        items: [
+          {
+            productId: "11111111-1111-4111-8111-111111111111",
+            sku: "SKU-1",
+            qtyDone: 5,
+            unitCost: 123.45,
+            prevCostType: "spot",
+            prevUnitCost: 100,
+            // 0141/0142: costCalc is null here because the mocked RPC response
+            // above doesn't include a `cost_calc` field on this item (it's a
+            // spot-mode line — the RPC itself always returns null for
+            // fixed/spot, see parseProductionSpecCostCalc's own null-input test).
+            costCalc: null,
+          },
+        ],
       },
     });
   });
@@ -399,6 +420,231 @@ describe("doneProductionOrder", () => {
       items: [{ productId: "11111111-1111-4111-8111-111111111111", qtyDone: 5 }],
     });
     expect(rpcMock).toHaveBeenCalledWith("production_order_done", expect.objectContaining({ p_actor: null }));
+  });
+});
+
+// 0141/0142 (task brief 2b) — production_order_preview now takes an optional
+// p_items override so a cost_type='spec' line's re-preview (after the user
+// edits a qty in ProductionDoneDialog) is costed with the SAME qty that
+// doneProductionOrder will stamp — "เคสห้ามผ่าน #3" hinges on both call
+// sites building p_items the exact same way.
+describe("previewProductionOrder", () => {
+  const PREVIEW_RPC_OK = {
+    data: { production_order_id: "po-1", po_no: "PO-0001", spot_price_thb_per_gram: 67.7, items: [] },
+    error: null,
+  };
+
+  it("sends p_items as null when items is omitted (unchanged pre-0141 behavior — every line costed at qty_planned)", async () => {
+    rpcMock.mockResolvedValue(PREVIEW_RPC_OK);
+    const { previewProductionOrder } = await import("./production");
+    await previewProductionOrder("po-1");
+    expect(rpcMock).toHaveBeenCalledWith("production_order_preview", expect.objectContaining({ p_items: null }));
+  });
+
+  it("sends p_items as null when items is an empty array", async () => {
+    rpcMock.mockResolvedValue(PREVIEW_RPC_OK);
+    const { previewProductionOrder } = await import("./production");
+    await previewProductionOrder("po-1", []);
+    expect(rpcMock).toHaveBeenCalledWith("production_order_preview", expect.objectContaining({ p_items: null }));
+  });
+
+  it("maps items to snake_case p_items when provided", async () => {
+    rpcMock.mockResolvedValue(PREVIEW_RPC_OK);
+    const { previewProductionOrder } = await import("./production");
+    await previewProductionOrder("po-1", [
+      { productId: "11111111-1111-4111-8111-111111111111", qtyDone: 3 },
+      { productId: "22222222-2222-4222-8222-222222222222", qtyDone: 0 },
+    ]);
+    expect(rpcMock).toHaveBeenCalledWith(
+      "production_order_preview",
+      expect.objectContaining({
+        p_items: [
+          { product_id: "11111111-1111-4111-8111-111111111111", qty_done: 3 },
+          { product_id: "22222222-2222-4222-8222-222222222222", qty_done: 0 },
+        ],
+      })
+    );
+  });
+
+  it("rejects a malformed items array (dup product_id) before calling the RPC", async () => {
+    const { previewProductionOrder } = await import("./production");
+    const result = await previewProductionOrder("po-1", [
+      { productId: "11111111-1111-4111-8111-111111111111", qtyDone: 3 },
+      { productId: "11111111-1111-4111-8111-111111111111", qtyDone: 5 },
+    ]);
+    expect(result.ok).toBe(false);
+    expect(rpcMock).not.toHaveBeenCalled();
+  });
+
+  it("maps the RPC's snake_case item fields (qty_used/is_new_design/cost_calc/skipped/nullable unit_cost) to camelCase", async () => {
+    rpcMock.mockResolvedValue({
+      data: {
+        production_order_id: "po-1",
+        po_no: "PO-0001",
+        spot_price_thb_per_gram: 67.7,
+        items: [
+          {
+            item_id: "item-1",
+            product_id: "11111111-1111-4111-8111-111111111111",
+            sku: "R-0099",
+            cost_type: "spec",
+            silver_weight_g: 3.5,
+            silver_purity: 0.925,
+            labor_cost: null,
+            spot_price_thb_per_gram: 67.7,
+            prev_cost_type: "spec",
+            prev_unit_cost: null,
+            unit_cost: 305.07,
+            qty_planned: 5,
+            qty_used: 5,
+            is_new_design: false,
+            cost_calc: { is_complete: true, metal_per_piece: 100, labor_per_piece: 150, batch_per_piece: 55.07, cost_piece: 305.07, unit_cost: 305.07, qty: 5 },
+          },
+          {
+            item_id: "item-2",
+            product_id: "22222222-2222-4222-8222-222222222222",
+            sku: "R-0100",
+            cost_type: "fixed",
+            silver_weight_g: null,
+            silver_purity: 0.925,
+            labor_cost: null,
+            spot_price_thb_per_gram: null,
+            prev_cost_type: "fixed",
+            prev_unit_cost: null,
+            unit_cost: null,
+            qty_planned: 2,
+            qty_used: 0,
+            is_new_design: false,
+            cost_calc: null,
+            skipped: true,
+          },
+        ],
+      },
+      error: null,
+    });
+    const { previewProductionOrder } = await import("./production");
+    const result = await previewProductionOrder("po-1");
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.items[0]).toMatchObject({ qtyUsed: 5, isNewDesign: false, skipped: false, unitCost: 305.07 });
+    expect(result.data.items[0].costCalc).toMatchObject({ isComplete: true, unitCost: 305.07, qty: 5 });
+    expect(result.data.items[1]).toMatchObject({ qtyUsed: 0, unitCost: null, costCalc: null, skipped: true });
+  });
+});
+
+// 0141: make_spec/is_new_design/cost_calc side-channel reads (neither view
+// exposes them — see the migration's own header for why they were left out
+// of v_production_order_item).
+describe("getProductionOrder — 0141 make_spec/cost_calc side-channel", () => {
+  it("attaches make_spec only to the cost_type='spec' item, and cost_calc/is_new_design per item", async () => {
+    fromMock.mockImplementation((table: string) => {
+      if (table === "v_production_order") {
+        return queryBuilder({
+          data: {
+            id: "po-1",
+            po_no: "PO-0001",
+            status: "done",
+            note: null,
+            spot_override_thb_per_gram: null,
+            done_at: "2026-09-19T00:00:00Z",
+            cancelled_at: null,
+            cancel_reason: null,
+            created_at: "2026-09-18T00:00:00Z",
+            updated_at: "2026-09-19T00:00:00Z",
+            item_count: 2,
+            qty_planned_total: 7,
+            qty_done_total: 7,
+          },
+          error: null,
+        });
+      }
+      if (table === "v_production_order_item") {
+        return queryBuilder({
+          data: [
+            {
+              id: "item-1",
+              production_order_id: "po-1",
+              po_no: "PO-0001",
+              order_status: "done",
+              product_id: "11111111-1111-4111-8111-111111111111",
+              sku: "R-0099",
+              product_name: "แหวนเงินแท้",
+              current_cost_type: "spec",
+              current_unit_cost: null,
+              qty_planned: 5,
+              qty_done: 5,
+              stamped_unit_cost: 305.07,
+              prev_cost_type: "spec",
+              prev_unit_cost: null,
+              created_at: "2026-09-18T00:00:00Z",
+              updated_at: "2026-09-19T00:00:00Z",
+            },
+            {
+              id: "item-2",
+              production_order_id: "po-1",
+              po_no: "PO-0001",
+              order_status: "done",
+              product_id: "22222222-2222-4222-8222-222222222222",
+              sku: "R-0100",
+              product_name: "จี้เงินแท้",
+              current_cost_type: "fixed",
+              current_unit_cost: 200,
+              qty_planned: 2,
+              qty_done: 2,
+              stamped_unit_cost: 200,
+              prev_cost_type: "fixed",
+              prev_unit_cost: 200,
+              created_at: "2026-09-18T00:00:00Z",
+              updated_at: "2026-09-19T00:00:00Z",
+            },
+          ],
+          error: null,
+        });
+      }
+      if (table === "product") {
+        return queryBuilder({
+          data: [
+            {
+              id: "11111111-1111-4111-8111-111111111111",
+              make_spec: { metal: "silver", item_kind: "แหวน", polish_tier: "ละเอียด", plating_type: null, gem_tier: null, gem_count: 0 },
+              silver_weight_g: 3.5,
+              silver_purity: 0.925,
+            },
+            { id: "22222222-2222-4222-8222-222222222222", make_spec: null, silver_weight_g: null, silver_purity: 0.925 },
+          ],
+          error: null,
+        });
+      }
+      if (table === "production_order_item") {
+        return queryBuilder({
+          data: [
+            {
+              id: "item-1",
+              is_new_design: false,
+              cost_calc: { is_complete: true, metal_per_piece: 100, labor_per_piece: 150, batch_per_piece: 55.07, cost_piece: 305.07, unit_cost: 305.07, qty: 5 },
+            },
+            { id: "item-2", is_new_design: false, cost_calc: null },
+          ],
+          error: null,
+        });
+      }
+      return queryBuilder({ data: [], error: null });
+    });
+
+    const { getProductionOrder } = await import("./production");
+    const result = await getProductionOrder("po-1");
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+
+    const spec = result.data.items.find((i) => i.sku === "R-0099");
+    expect(spec?.makeSpec).toEqual({ metal: "silver", itemKind: "แหวน", polishTier: "ละเอียด", platingType: null, gemTier: null, gemCount: 0 });
+    expect(spec?.costCalc).toMatchObject({ isComplete: true, unitCost: 305.07 });
+
+    const fixed = result.data.items.find((i) => i.sku === "R-0100");
+    // fixed-mode item must NOT get a make_spec even though it happens to
+    // share a product-table row shape — makeSpec is gated on currentCostType
+    expect(fixed?.makeSpec).toBeNull();
+    expect(fixed?.costCalc).toBeNull();
   });
 });
 

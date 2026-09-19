@@ -19,10 +19,11 @@ import type { ActionResult } from "@/lib/types";
 import { fetchAllRows } from "@/lib/supabase/query-limits";
 import { BUCKET as PRODUCT_IMAGES_BUCKET } from "@/lib/catalog/image-constants";
 import { signImagePaths } from "@/lib/catalog/image-signing";
-import { silverSpotValidationError } from "@/lib/catalog/types";
+import { humanizeCatalogError, parseMakeSpec, silverSpotValidationError } from "@/lib/catalog/types";
 import type {
   BlendedMarginSuggestion,
   CostType,
+  MakeSpec,
   ProductImportRow,
   ProductImportResultRow,
   ProductImportSummary,
@@ -104,10 +105,12 @@ export async function getProducts(): Promise<ActionResult<GetProductsResult>> {
           .range(from, to)
       ),
       // public.product is the DEFAULT schema (no .schema()) — raw editable cols
+      // + make_spec (0141 — v_dim_product doesn't expose it, same reason
+      // barcode/supplier/note need this side-channel query already).
       fetchAllRows((from, to) =>
         supabase
           .from("product")
-          .select("id, barcode, supplier, note", { count: "exact" })
+          .select("id, barcode, supplier, note, make_spec", { count: "exact" })
           .eq("shop_id", shopId)
           .order("id", { ascending: true })
           .range(from, to)
@@ -133,9 +136,18 @@ export async function getProducts(): Promise<ActionResult<GetProductsResult>> {
       ),
     ]);
 
-    const rawMap = new Map<string, { barcode: string | null; supplier: string | null; note: string | null }>();
-    for (const r of rawResult.rows as { id: string; barcode: string | null; supplier: string | null; note: string | null }[]) {
-      rawMap.set(r.id, { barcode: r.barcode, supplier: r.supplier, note: r.note });
+    const rawMap = new Map<
+      string,
+      { barcode: string | null; supplier: string | null; note: string | null; makeSpec: MakeSpec | null }
+    >();
+    for (const r of rawResult.rows as {
+      id: string;
+      barcode: string | null;
+      supplier: string | null;
+      note: string | null;
+      make_spec: unknown;
+    }[]) {
+      rawMap.set(r.id, { barcode: r.barcode, supplier: r.supplier, note: r.note, makeSpec: parseMakeSpec(r.make_spec) });
     }
 
     // Keep BOTH variants for the primary image. The 303-row table renders a
@@ -197,6 +209,7 @@ export async function getProducts(): Promise<ActionResult<GetProductsResult>> {
         barcode: raw?.barcode ?? null,
         supplier: raw?.supplier ?? null,
         note: raw?.note ?? null,
+        makeSpec: raw?.makeSpec ?? null,
         isActive: Boolean(r.is_active),
         primaryImageUrl: primary ? signedByPath.get(primary.md) ?? null : null,
         primaryImageSmUrl: primary ? signedByPath.get(primary.sm) ?? null : null,
@@ -226,7 +239,7 @@ export async function upsertProduct(input: UpsertProductInput): Promise<ActionRe
   const name = input.name?.trim();
   if (!sku) return { ok: false, error: "กรุณากรอก SKU" };
   if (!name) return { ok: false, error: "กรุณากรอกชื่อสินค้า" };
-  if (input.costType !== "fixed" && input.costType !== "spot") {
+  if (input.costType !== "fixed" && input.costType !== "spot" && input.costType !== "spec") {
     return { ok: false, error: "โหมดต้นทุนไม่ถูกต้อง" };
   }
 
@@ -238,6 +251,39 @@ export async function upsertProduct(input: UpsertProductInput): Promise<ActionRe
 
   if (input.costType === "spot" && (weight == null || weight <= 0)) {
     return { ok: false, error: "โหมดอิงราคาเงินต้องกรอกน้ำหนักเงิน (กรัม) มากกว่า 0" };
+  }
+  // 0141: spec mode ก็ต้องมีน้ำหนักเงินเหมือน spot (production_cost_calc branch
+  // 'spec' บังคับ silver_weight_g > 0 เช่นกัน — ตรวจตั้งแต่ action นี้แทนที่จะ
+  // ปล่อยให้ raise ตอนกดผลิตจริง)
+  let cleanSpec: {
+    metal: "silver";
+    item_kind: string;
+    polish_tier: string;
+    plating_type: string | null;
+    gem_tier: string | null;
+    gem_count: number;
+  } | null = null;
+  if (input.costType === "spec") {
+    if (weight == null || weight <= 0) {
+      return { ok: false, error: "โหมดคำนวณจากสเปคต้องกรอกน้ำหนักเงิน (กรัม) มากกว่า 0" };
+    }
+    const spec = input.makeSpec;
+    const itemKind = spec?.itemKind?.trim();
+    const polishTier = spec?.polishTier?.trim();
+    if (!itemKind) return { ok: false, error: "กรุณาเลือกชนิดงาน" };
+    if (!polishTier) return { ok: false, error: "กรุณาเลือกระดับงาน" };
+    const gemTier = spec?.gemTier?.trim() || null;
+    if (gemTier && (spec?.gemCount == null || !Number.isFinite(spec.gemCount) || spec.gemCount < 0)) {
+      return { ok: false, error: "เลือกขนาดพลอยแล้วต้องกรอกจำนวนเม็ดพลอย (ตั้งแต่ 0 ขึ้นไป)" };
+    }
+    cleanSpec = {
+      metal: "silver",
+      item_kind: itemKind,
+      polish_tier: polishTier,
+      plating_type: spec?.platingType?.trim() || null,
+      gem_tier: gemTier,
+      gem_count: gemTier ? Number(spec?.gemCount ?? 0) : 0,
+    };
   }
   if (input.costType === "fixed" && unitCost != null && unitCost < 0) {
     return { ok: false, error: "ต้นทุนต้องเป็นค่าตั้งแต่ 0 ขึ้นไป" };
@@ -253,16 +299,51 @@ export async function upsertProduct(input: UpsertProductInput): Promise<ActionRe
     const shopId = getDevShopId();
     const supabase = getServiceClient();
 
+    // 0141/0142: cost_type='spec' ตั้ง/ถอดผ่าน product_upsert ตรงๆ ไม่ได้เลย
+    // (0142 บล็อกไว้ตั้งใจ — ทั้งสองทิศทาง) ⇒ ต้องรู้สถานะปัจจุบันของ SKU นี้
+    // (ถ้ามี) ก่อนเลือกลำดับ RPC:
+    //   • ออกจาก spec (ปลายทาง fixed/spot, ของเดิมเป็น spec)
+    //       → product_make_spec_clear ก่อนเสมอ แล้วค่อย product_upsert
+    //   • เข้า/อยู่ spec ของ SKU ที่ "เพิ่งจะ" เป็น spec (ของเดิมไม่ใช่ spec —
+    //     รวม SKU ใหม่ที่ v_old.id ยังไม่มี)
+    //       → product_upsert ด้วย cost_type='fixed' ก่อน (bootstrap — 'spec'
+    //         ตรงๆ จะโดนด่าน "ยังไม่เคยตั้งสเปค" ของ product_upsert ตีกลับ)
+    //         แล้วค่อย product_make_spec_set
+    //   • อยู่ spec เดิม แก้สเปค/ฟิลด์อื่นต่อ (ของเดิมเป็น spec อยู่แล้ว)
+    //       → product_upsert ด้วย cost_type='spec' ได้ตรงๆ (make_spec มีอยู่
+    //         แล้ว ไม่ชนด่านไหน) แล้ว product_make_spec_set ทับสเปคใหม่เสมอ
+    const { data: existingRow, error: existingErr } = await supabase
+      .from("product")
+      .select("id, cost_type")
+      .eq("shop_id", shopId)
+      .eq("sku", sku)
+      .maybeSingle();
+    if (existingErr) throw existingErr;
+    const existingCostType = existingRow?.cost_type as CostType | undefined;
+    const wasSpec = existingCostType === "spec";
+
+    if (existingRow && wasSpec && input.costType !== "spec") {
+      const { error: clearErr } = await supabase.schema(SCHEMA).rpc("product_make_spec_clear", {
+        p_shop_id: shopId,
+        p_product_id: existingRow.id,
+      });
+      if (clearErr) throw clearErr;
+    }
+
+    const upsertCostType: CostType = input.costType === "spec" ? (wasSpec ? "spec" : "fixed") : input.costType;
+
     const { data, error } = await supabase.schema(SCHEMA).rpc("product_upsert", {
       p_shop_id: shopId,
       p_sku: sku,
       p_name: name,
       p_category: input.category?.trim() || null,
-      p_cost_type: input.costType,
-      p_unit_cost: input.costType === "fixed" ? unitCost : null,
+      p_cost_type: upsertCostType,
+      p_unit_cost: upsertCostType === "fixed" ? unitCost : null,
       p_silver_weight_g: weight,
       p_silver_purity: purity,
-      p_labor_cost: labor,
+      // spec mode ซ่อนช่องนี้ในฟอร์ม (ระบบคำนวณค่าแรงเองจากเรตโรงงาน) — ล้าง
+      // ค่าเก่าทิ้งกันตัวเลขค้างที่ไม่มีใครอ่านแล้วดูเหมือนยังมีผล
+      p_labor_cost: input.costType === "spec" ? null : labor,
       p_list_price: listPrice,
       p_barcode: input.barcode?.trim() || null,
       p_supplier: input.supplier?.trim() || null,
@@ -271,12 +352,23 @@ export async function upsertProduct(input: UpsertProductInput): Promise<ActionRe
     });
     if (error) throw error;
 
+    const productId = String(data);
+
+    if (input.costType === "spec" && cleanSpec) {
+      const { error: specErr } = await supabase.schema(SCHEMA).rpc("product_make_spec_set", {
+        p_shop_id: shopId,
+        p_product_id: productId,
+        p_make_spec: cleanSpec,
+      });
+      if (specErr) throw specErr;
+    }
+
     revalidatePath("/catalog");
     revalidatePath("/settings"); // blended-margin suggestion depends on products
-    return { ok: true, data: { productId: String(data) } };
+    return { ok: true, data: { productId } };
   } catch (err) {
     console.error("upsertProduct failed", err);
-    return { ok: false, error: "บันทึกสินค้าไม่สำเร็จ ลองใหม่อีกครั้ง" };
+    return { ok: false, error: humanizeCatalogError(err, "บันทึกสินค้าไม่สำเร็จ ลองใหม่อีกครั้ง") };
   }
 }
 
