@@ -113,6 +113,15 @@ try {
   console.error('🔴 ล้มเหลว — ถอยทั้งก้อนแล้ว ไม่มีอะไรถูกบันทึก');
   console.error(`   sqlstate : ${err.code ?? '-'}`);
   console.error(`   message  : ${err.message}`);
+  if (err.position) {
+    const NL = String.fromCharCode(10);
+    const off = Number(err.position) - 1;
+    const upto = sql.slice(0, off);
+    const line = upto.split(NL).length;
+    const col = off - upto.lastIndexOf(NL);
+    console.error(`   ตำแหน่ง  : บรรทัด ${line} คอลัมน์ ${col} (offset ${err.position})`);
+    console.error(`   รอบๆ     : ...${sql.slice(Math.max(0, off - 90), off + 60).split(NL).join('⏎')}...`);
+  }
   if (err.where) console.error(`   where    : ${err.where}`);
   if (err.detail) console.error(`   detail   : ${err.detail}`);
   if (err.hint) console.error(`   hint     : ${err.hint}`);
