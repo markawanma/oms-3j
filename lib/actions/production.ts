@@ -23,6 +23,16 @@
 // jsonb response, never recomputed here (oem-quote-invariants skill §2,
 // which applies to this module too even though it isn't OEM: 0131 borrows
 // the exact same v_dim_product cost formula).
+//
+// 🔴 KNOWN GAP (0141/0142, spec-cost-ui task brief §2a): there is NO RPC that
+// sets analytics.production_order_item.is_new_design yet —
+// production_order_item_set(uuid,uuid,uuid,int) doesn't take it, and 0141's
+// own header marks adding that RPC as deliberately deferred to this UI
+// phase. Per the brief's explicit instruction ("ถ้าไม่ได้ หยุดแล้วรายงานกลับ
+// อย่าเขียน UPDATE ตรงจาก TS") this file does NOT write is_new_design at all
+// — every line in this module is treated as "ผลิตซ้ำ" (no NRE/design charge)
+// until a dedicated RPC exists. See the Tech Lead delivery report for the
+// exact RPC shape requested.
 
 import { revalidatePath } from "next/cache";
 import { getServiceClient } from "@/lib/supabase/server";
@@ -30,6 +40,7 @@ import { getDevShopId } from "@/lib/dev/context";
 import { getEffectiveRole } from "@/lib/auth/role";
 import { getSessionUser } from "@/lib/auth/session";
 import type { ActionResult } from "@/lib/types";
+import { parseMakeSpec } from "@/lib/catalog/types";
 import type {
   DoneItemInput,
   ProductionCostType,
@@ -44,7 +55,12 @@ import type {
   ProductionSkuOption,
   SaveProductionOrderInput,
 } from "@/lib/production/types";
-import { humanizeProductionError, PRODUCTION_SPOT_OVERRIDE_MAX, PRODUCTION_SPOT_OVERRIDE_MIN } from "@/lib/production/types";
+import {
+  humanizeProductionError,
+  parseProductionSpecCostCalc,
+  PRODUCTION_SPOT_OVERRIDE_MAX,
+  PRODUCTION_SPOT_OVERRIDE_MIN,
+} from "@/lib/production/types";
 import { fetchAllRows } from "@/lib/supabase/query-limits";
 
 const SCHEMA = "analytics";
@@ -52,6 +68,26 @@ const SCHEMA = "analytics";
 /** กัน 22P02 จาก Postgres ก่อนถึง DB — ข้อความ error ของ 22P02 เผย uuid ดิบ
  * และไม่ได้ติด errcode 22023 จึงจะตกเป็นข้อความกลางที่ผู้ใช้เดาสาเหตุไม่ออก */
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** shared by previewProductionOrder/doneProductionOrder — both send a
+ * `{product_id, qty_done}[]` override array and both need the exact same
+ * defense against a malformed client payload (empty array, dup product_id,
+ * bad uuid/qty — see doneProductionOrder's existing comment for why each
+ * check exists; preview needs the same ones now that it can affect what
+ * gets costed, task brief 2b). Returns an error string, or null when valid. */
+function validateDoneItems(items: DoneItemInput[]): string | null {
+  if (!Array.isArray(items) || items.length === 0) return null; // empty = caller's choice to omit (preview defaults to qty_planned)
+  const seenProductIds = new Set<string>();
+  for (const it of items) {
+    if (!it.productId || !UUID_RE.test(it.productId)) return "ไม่พบ SKU ในรายการที่จะบันทึก";
+    if (seenProductIds.has(it.productId)) return "มี SKU ซ้ำในรายการ — ปิดหน้าต่างแล้วเปิดใหม่อีกครั้ง";
+    seenProductIds.add(it.productId);
+    if (!Number.isFinite(it.qtyDone) || !Number.isInteger(it.qtyDone) || it.qtyDone < 0 || it.qtyDone > 100000) {
+      return "จำนวนที่ผลิตได้จริงต้องเป็นจำนวนเต็ม 0-100000";
+    }
+  }
+  return null;
+}
 
 async function requireOwnerAdmin(): Promise<ActionResult<never> | null> {
   if ((await getEffectiveRole()) === "staff") {
@@ -194,6 +230,59 @@ export async function getProductionOrder(id: string): Promise<ActionResult<Produ
     if (itemsRes.error) throw itemsRes.error;
     if (!orderRes.data) return { ok: false, error: "ไม่พบใบผลิตนี้ในร้านนี้" };
 
+    // 0141: make_spec (public.product) + is_new_design/cost_calc
+    // (analytics.production_order_item) — neither view above exposes these
+    // (v_production_order_item wasn't widened in 0141/0142 on purpose, see
+    // that migration's header) so read them straight off the base tables,
+    // same side-channel pattern lib/actions/catalog.ts already uses for
+    // barcode/supplier/note. Both grant select to service_role already
+    // (0131 §15 / 0028) — no schema change needed for this read.
+    const productIds = Array.from(new Set((itemsRes.data ?? []).map((r) => (r as { product_id: string }).product_id)));
+    const itemIds = (itemsRes.data ?? []).map((r) => (r as { id: string }).id);
+    const [specRes, costCalcRes] = await Promise.all([
+      productIds.length > 0
+        ? supabase
+            .from("product")
+            .select("id, make_spec, silver_weight_g, silver_purity")
+            .eq("shop_id", shopId)
+            .in("id", productIds)
+        : Promise.resolve({
+            data: [] as { id: string; make_spec: unknown; silver_weight_g: number | null; silver_purity: number | null }[],
+            error: null,
+          }),
+      itemIds.length > 0
+        ? supabase
+            .schema(SCHEMA)
+            .from("production_order_item")
+            .select("id, is_new_design, cost_calc")
+            .eq("shop_id", shopId)
+            .in("id", itemIds)
+        : Promise.resolve({ data: [] as { id: string; is_new_design: boolean; cost_calc: unknown }[], error: null }),
+    ]);
+    if (specRes.error) throw specRes.error;
+    if (costCalcRes.error) throw costCalcRes.error;
+
+    const specByProductId = new Map<
+      string,
+      { makeSpec: unknown; silverWeightG: number | null; silverPurity: number | null }
+    >();
+    for (const r of (specRes.data ?? []) as {
+      id: string;
+      make_spec: unknown;
+      silver_weight_g: number | null;
+      silver_purity: number | null;
+    }[]) {
+      specByProductId.set(r.id, {
+        makeSpec: r.make_spec,
+        silverWeightG: r.silver_weight_g == null ? null : Number(r.silver_weight_g),
+        silverPurity: r.silver_purity == null ? null : Number(r.silver_purity),
+      });
+    }
+    const costCalcByItemId = new Map<string, { isNewDesign: boolean; costCalc: unknown }>();
+    for (const r of (costCalcRes.data ?? []) as { id: string; is_new_design: boolean; cost_calc: unknown }[]) {
+      costCalcByItemId.set(r.id, { isNewDesign: Boolean(r.is_new_design), costCalc: r.cost_calc });
+    }
+
     const o = orderRes.data as {
       id: string;
       po_no: string;
@@ -262,6 +351,11 @@ export async function getProductionOrder(id: string): Promise<ActionResult<Produ
       prevUnitCost: r.prev_unit_cost == null ? null : Number(r.prev_unit_cost),
       createdAt: r.created_at,
       updatedAt: r.updated_at,
+      makeSpec: r.current_cost_type === "spec" ? parseMakeSpec(specByProductId.get(r.product_id)?.makeSpec) : null,
+      currentSilverWeightG: specByProductId.get(r.product_id)?.silverWeightG ?? null,
+      currentSilverPurity: specByProductId.get(r.product_id)?.silverPurity ?? null,
+      isNewDesign: costCalcByItemId.get(r.id)?.isNewDesign ?? false,
+      costCalc: parseProductionSpecCostCalc(costCalcByItemId.get(r.id)?.costCalc),
     }));
 
     return { ok: true, data: { order, items } };
@@ -450,11 +544,25 @@ export async function removeProductionOrderItem(input: {
 /** analytics.production_order_preview — ONLY call while the order is
  * 'open' (the RPC raises otherwise, 0131 §11). Callers must check
  * order.status === 'open' before calling this — a closed order's numbers
- * live on ProductionOrderItemRow (stampedUnitCost/prevUnitCost) instead. */
-export async function previewProductionOrder(productionOrderId: string): Promise<ActionResult<ProductionOrderPreview>> {
+ * live on ProductionOrderItemRow (stampedUnitCost/prevUnitCost) instead.
+ *
+ * 0141/0142 (task brief 2b): `items` optionally overrides qty PER product_id
+ * the same way doneProductionOrder's `items` does — omit/empty = every line
+ * costed at qty_planned (unchanged pre-0141 behaviour). Pass the SAME array
+ * you're about to send to doneProductionOrder so the number shown = the
+ * number that gets stamped (cost_type='spec' cost depends on qty — batch/NRE
+ * amortize over it, unlike fixed/spot which are qty-independent). */
+export async function previewProductionOrder(
+  productionOrderId: string,
+  items?: DoneItemInput[]
+): Promise<ActionResult<ProductionOrderPreview>> {
   const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
   if (!productionOrderId) return { ok: false, error: "ไม่พบใบผลิตที่ต้องการ" };
+  if (items && items.length > 0) {
+    const itemsErr = validateDoneItems(items);
+    if (itemsErr) return { ok: false, error: itemsErr };
+  }
 
   try {
     const shopId = getDevShopId();
@@ -463,6 +571,7 @@ export async function previewProductionOrder(productionOrderId: string): Promise
     const { data, error } = await supabase.schema(SCHEMA).rpc("production_order_preview", {
       p_shop_id: shopId,
       p_production_order_id: productionOrderId,
+      p_items: items && items.length > 0 ? items.map((it) => ({ product_id: it.productId, qty_done: it.qtyDone })) : null,
     });
     if (error) throw error;
 
@@ -481,8 +590,12 @@ export async function previewProductionOrder(productionOrderId: string): Promise
         spot_price_thb_per_gram: number | null;
         prev_cost_type: ProductionCostType;
         prev_unit_cost: number | null;
-        unit_cost: number;
+        unit_cost: number | null;
         qty_planned: number;
+        qty_used: number;
+        is_new_design: boolean;
+        cost_calc: unknown;
+        skipped?: boolean;
       }[];
     };
 
@@ -503,8 +616,12 @@ export async function previewProductionOrder(productionOrderId: string): Promise
           spotPriceThbPerGram: it.spot_price_thb_per_gram == null ? null : Number(it.spot_price_thb_per_gram),
           prevCostType: it.prev_cost_type,
           prevUnitCost: it.prev_unit_cost == null ? null : Number(it.prev_unit_cost),
-          unitCost: Number(it.unit_cost),
+          unitCost: it.unit_cost == null ? null : Number(it.unit_cost),
           qtyPlanned: Number(it.qty_planned) || 0,
+          qtyUsed: Number(it.qty_used ?? it.qty_planned) || 0,
+          isNewDesign: Boolean(it.is_new_design),
+          costCalc: parseProductionSpecCostCalc(it.cost_calc),
+          skipped: Boolean(it.skipped),
         })),
       },
     };
@@ -541,19 +658,8 @@ export async function doneProductionOrder(input: {
   if (!Array.isArray(input.items) || input.items.length === 0) {
     return { ok: false, error: "ไม่พบรายการที่จะบันทึก — ปิดหน้าต่างแล้วเปิดใหม่อีกครั้ง" };
   }
-  const seenProductIds = new Set<string>();
-  for (const it of input.items) {
-    if (!it.productId || !UUID_RE.test(it.productId)) {
-      return { ok: false, error: "ไม่พบ SKU ในรายการที่จะบันทึก" };
-    }
-    if (seenProductIds.has(it.productId)) {
-      return { ok: false, error: "มี SKU ซ้ำในรายการ — ปิดหน้าต่างแล้วเปิดใหม่อีกครั้ง" };
-    }
-    seenProductIds.add(it.productId);
-    if (!Number.isFinite(it.qtyDone) || !Number.isInteger(it.qtyDone) || it.qtyDone < 0 || it.qtyDone > 100000) {
-      return { ok: false, error: "จำนวนที่ผลิตได้จริงต้องเป็นจำนวนเต็ม 0-100000" };
-    }
-  }
+  const itemsErr = validateDoneItems(input.items);
+  if (itemsErr) return { ok: false, error: itemsErr };
 
   try {
     const shopId = getDevShopId();
@@ -576,7 +682,15 @@ export async function doneProductionOrder(input: {
       po_no: string;
       status: ProductionOrderStatus;
       already_done: boolean;
-      items: { product_id: string; sku: string; qty_done: number | null; unit_cost: number | null; prev_cost_type: ProductionCostType | null; prev_unit_cost: number | null }[];
+      items: {
+        product_id: string;
+        sku: string;
+        qty_done: number | null;
+        unit_cost: number | null;
+        prev_cost_type: ProductionCostType | null;
+        prev_unit_cost: number | null;
+        cost_calc: unknown;
+      }[];
     };
 
     revalidateProduction(input.productionOrderId);
@@ -602,6 +716,7 @@ export async function doneProductionOrder(input: {
           unitCost: it.unit_cost == null ? null : Number(it.unit_cost),
           prevCostType: it.prev_cost_type,
           prevUnitCost: it.prev_unit_cost == null ? null : Number(it.prev_unit_cost),
+          costCalc: parseProductionSpecCostCalc(it.cost_calc),
         })),
       },
     };

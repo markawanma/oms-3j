@@ -9,9 +9,12 @@
 // mirror that fails fast, using the SAME 5/500 bounds).
 import { describe, expect, it } from "vitest";
 import {
+  computeEffectiveCost,
   GRAMS_PER_BAHT_WEIGHT,
+  humanizeCatalogError,
   MAX_SILVER_SPOT_THB_PER_GRAM,
   MIN_SILVER_SPOT_THB_PER_GRAM,
+  parseMakeSpec,
   silverSpotValidationError,
   spotChanged,
 } from "./types";
@@ -105,5 +108,120 @@ describe("spotChanged", () => {
 
   it("is true for a large edit (e.g. emergency manual override)", () => {
     expect(spotChanged(70, 65.5996)).toBe(true);
+  });
+});
+
+// 0141: 3rd cost mode "คำนวณจากสเปค" — computeEffectiveCost must NEVER
+// attempt the spec formula client-side (oem-quote-invariants §2: it's a
+// dozens-of-rates DB calculation, not a 3-variable multiply like spot).
+describe("computeEffectiveCost", () => {
+  it("returns unitCost unchanged for fixed mode", () => {
+    expect(computeEffectiveCost("fixed", 500, null, null, null, null)).toBe(500);
+  });
+
+  it("computes weight × spot × purity + labor for spot mode", () => {
+    expect(computeEffectiveCost("spot", null, 10, 0.925, 50, 67.7)).toBeCloseTo(10 * 67.7 * 0.925 + 50, 2);
+  });
+
+  it("returns null for spot mode with no silver spot price set", () => {
+    expect(computeEffectiveCost("spot", null, 10, 0.925, 50, null)).toBeNull();
+  });
+
+  it("returns null for spec mode always — even with weight+spot both present", () => {
+    expect(computeEffectiveCost("spec", null, 10, 0.925, null, 67.7)).toBeNull();
+  });
+
+  it("returns null for spec mode with everything null too (same result — not gated on missing data)", () => {
+    expect(computeEffectiveCost("spec", null, null, null, null, null)).toBeNull();
+  });
+});
+
+// ปล่อยผ่านเฉพาะ errcode 22023 (raise ที่ 0141/0142/0028/0031 ตั้งใจพูดกับ
+// ผู้ใช้) — code อื่นเป็นของภายใน (เช่น analytics.oem_cost_calc ไม่ tag
+// errcode ตอน validate input พัง) ห้ามหลุดออกจอ
+describe("humanizeCatalogError", () => {
+  it("passes through a 22023-coded message from product_make_spec_set", () => {
+    const err = { code: "22023", message: "product_make_spec_set: make_spec.item_kind is required" };
+    expect(humanizeCatalogError(err, "fallback")).toBe(err.message);
+  });
+
+  it("passes through the 0142 exit-guard message from product_upsert", () => {
+    const err = {
+      code: "22023",
+      message:
+        'product_upsert: SKU R-0099 อยู่โหมด "คำนวณจากสเปค" (spec) อยู่ — พลิกออกจากโหมดนี้ต้องผ่าน analytics.product_make_spec_clear เท่านั้น (กันต้นทุนพลิกเงียบโดยไม่ผ่าน audit log)',
+    };
+    expect(humanizeCatalogError(err, "fallback")).toBe(err.message);
+  });
+
+  it("falls back for an un-coded internal raise (e.g. oem_cost_calc's own validation, no errcode tag)", () => {
+    const err = { message: "oem_price_calc: p_input.gem_count > 0 requires p_input.gem_tier" };
+    expect(humanizeCatalogError(err, "fallback")).toBe("fallback");
+  });
+
+  it("falls back for a non-22023 code (e.g. 22P02, which leaks a raw uuid)", () => {
+    const err = { code: "22P02", message: 'invalid input syntax for type uuid: "nope"' };
+    expect(humanizeCatalogError(err, "fallback")).toBe("fallback");
+  });
+
+  it("falls back when there is no usable message at all", () => {
+    expect(humanizeCatalogError(null, "fallback")).toBe("fallback");
+    expect(humanizeCatalogError(undefined, "fallback")).toBe("fallback");
+    expect(humanizeCatalogError({}, "fallback")).toBe("fallback");
+  });
+});
+
+// public.product.make_spec (jsonb, snake_case — written by
+// analytics.product_make_spec_set) -> MakeSpec (camelCase). Defensive: a
+// malformed row must degrade to null, never throw (getProducts() maps 303
+// SKUs through this in one request).
+describe("parseMakeSpec", () => {
+  it("parses a full spec (all fields present)", () => {
+    const raw = {
+      metal: "silver",
+      item_kind: "แหวน",
+      polish_tier: "ละเอียด",
+      plating_type: "ทอง",
+      gem_tier: "เล็ก",
+      gem_count: 3,
+    };
+    expect(parseMakeSpec(raw)).toEqual({
+      metal: "silver",
+      itemKind: "แหวน",
+      polishTier: "ละเอียด",
+      platingType: "ทอง",
+      gemTier: "เล็ก",
+      gemCount: 3,
+    });
+  });
+
+  it("parses a minimal spec (no plating, no gems — both null/empty)", () => {
+    const raw = { metal: "silver", item_kind: "จี้", polish_tier: "เรียบ", plating_type: "", gem_tier: "", gem_count: 0 };
+    expect(parseMakeSpec(raw)).toEqual({
+      metal: "silver",
+      itemKind: "จี้",
+      polishTier: "เรียบ",
+      platingType: null,
+      gemTier: null,
+      gemCount: 0,
+    });
+  });
+
+  it("returns null for null input (fixed/spot SKUs — make_spec is null by nature)", () => {
+    expect(parseMakeSpec(null)).toBeNull();
+  });
+
+  it("returns null when item_kind is missing (malformed row — never guess)", () => {
+    expect(parseMakeSpec({ metal: "silver", polish_tier: "เรียบ" })).toBeNull();
+  });
+
+  it("returns null when polish_tier is missing", () => {
+    expect(parseMakeSpec({ metal: "silver", item_kind: "แหวน" })).toBeNull();
+  });
+
+  it("returns null for a non-object value (string/number/array)", () => {
+    expect(parseMakeSpec("not an object")).toBeNull();
+    expect(parseMakeSpec(42)).toBeNull();
+    expect(parseMakeSpec([])).toBeNull();
   });
 });

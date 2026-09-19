@@ -1,10 +1,14 @@
 "use client";
 
 // ProductForm — add/edit a SKU (docs/3j-jewelry/analytics/phase-c1-sku-cost-
-// margin.md §3.1). Rendered inside <Modal>. Two cost modes: 'fixed' (manual
-// unit cost) and 'spot' (weight × silver spot × purity + labor) — the fields
-// shown switch on the selected mode, and a live cost/margin preview mirrors
-// v_dim_product's SQL (client-side estimate only; DB is source of truth on save).
+// margin.md §3.1). Rendered inside <Modal>. Three cost modes: 'fixed' (manual
+// unit cost), 'spot' (weight × silver spot × purity + labor), and 'spec'
+// (0141/0142 — weight + item_kind/polish_tier/plating/gem, cost computed by
+// analytics.oem_cost_calc at production time, docs/3j-jewelry/oms/design-own-
+// production-costing.md) — the fields shown switch on the selected mode. The
+// live cost/margin preview mirrors v_dim_product's SQL for fixed/spot only
+// (client-side estimate; DB is source of truth on save) — spec mode shows no
+// number at all client-side, see computeEffectiveCost's doc comment for why.
 
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
@@ -15,6 +19,12 @@ import {
   type CostType,
   type ProductRow,
 } from "@/lib/catalog/types";
+import {
+  OEM_GEM_TIER_OPTIONS,
+  OEM_ITEM_KIND_OPTIONS,
+  OEM_PLATING_OPTIONS,
+  OEM_POLISH_TIER_OPTIONS,
+} from "@/lib/oem/display";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
 import { ProductImageSection } from "./ProductImageSection";
@@ -64,6 +74,15 @@ export function ProductForm({
   const [purity, setPurity] = useState(initial?.silverPurity != null ? String(initial.silverPurity) : "");
   const [labor, setLabor] = useState(initial?.laborCost != null ? String(initial.laborCost) : "");
   const [listPrice, setListPrice] = useState(initial?.listPrice != null ? String(initial.listPrice) : "");
+  // 0141: โหมด 'spec' เท่านั้น — ค่าต้องตรงเป๊ะกับ scope ของเรตในฐานข้อมูล
+  // (ใช้ตัวเลือกชุดเดียวกับฟอร์ม OEM lib/oem/display.ts ไม่พิมพ์เอง)
+  const [itemKind, setItemKind] = useState(initial?.makeSpec?.itemKind ?? "");
+  const [polishTier, setPolishTier] = useState(initial?.makeSpec?.polishTier ?? "");
+  const [platingType, setPlatingType] = useState(initial?.makeSpec?.platingType ?? "");
+  const [gemTier, setGemTier] = useState(initial?.makeSpec?.gemTier ?? "");
+  const [gemCount, setGemCount] = useState(
+    initial?.makeSpec?.gemTier && initial.makeSpec.gemCount != null ? String(initial.makeSpec.gemCount) : ""
+  );
   const [barcode, setBarcode] = useState(initial?.barcode ?? "");
   const [supplier, setSupplier] = useState(initial?.supplier ?? "");
   const [note, setNote] = useState(initial?.note ?? "");
@@ -85,6 +104,20 @@ export function ProductForm({
     return { cost, margin };
   }, [costType, unitCost, weight, purity, labor, silverSpot, listPrice]);
 
+  /** null เมื่อ costType !== 'spec' — ใช้ทั้งตอนส่ง payload และตอนประกอบ
+   * synthesized row (create path ด้านล่าง) ให้ตรงกันเป๊ะจุดเดียว. */
+  function buildMakeSpec(): ProductRow["makeSpec"] {
+    if (costType !== "spec") return null;
+    return {
+      metal: "silver",
+      itemKind,
+      polishTier,
+      platingType: platingType || null,
+      gemTier: gemTier || null,
+      gemCount: gemTier ? Number(gemCount) || 0 : 0,
+    };
+  }
+
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -97,6 +130,20 @@ export function ProductForm({
         return setError("โหมดอิงราคาเงินต้องกรอกน้ำหนักเงิน (กรัม) มากกว่า 0");
       }
     }
+    if (costType === "spec") {
+      const w = Number(weight);
+      if (!weight.trim() || !Number.isFinite(w) || w <= 0) {
+        return setError("โหมดคำนวณจากสเปคต้องกรอกน้ำหนักเงิน (กรัม) มากกว่า 0");
+      }
+      if (!itemKind) return setError("กรุณาเลือกชนิดงาน");
+      if (!polishTier) return setError("กรุณาเลือกระดับงาน");
+      if (gemTier) {
+        const g = Number(gemCount);
+        if (!gemCount.trim() || !Number.isFinite(g) || g < 0) {
+          return setError("เลือกขนาดพลอยแล้วต้องกรอกจำนวนเม็ดพลอย (ตั้งแต่ 0 ขึ้นไป)");
+        }
+      }
+    }
 
     startTransition(async () => {
       const result = await upsertProduct({
@@ -107,12 +154,13 @@ export function ProductForm({
         unitCost: costType === "fixed" && unitCost.trim() ? Number(unitCost) : null,
         silverWeightG: weight.trim() ? Number(weight) : null,
         silverPurity: purity.trim() ? Number(purity) : null,
-        laborCost: labor.trim() ? Number(labor) : null,
+        laborCost: costType === "spec" ? null : labor.trim() ? Number(labor) : null,
         listPrice: listPrice.trim() ? Number(listPrice) : null,
         barcode: barcode.trim() || null,
         supplier: supplier.trim() || null,
         note: note.trim() || null,
         isActive,
+        makeSpec: buildMakeSpec(),
       });
       if (!result.ok) {
         setError(result.error);
@@ -139,8 +187,9 @@ export function ProductForm({
           manualUnitCost: costType === "fixed" && unitCost.trim() ? Number(unitCost) : null,
           silverWeightG: weight.trim() ? Number(weight) : null,
           silverPurity: purity.trim() ? Number(purity) : null,
-          laborCost: labor.trim() ? Number(labor) : null,
+          laborCost: costType === "spec" ? null : labor.trim() ? Number(labor) : null,
           listPrice: listPrice.trim() ? Number(listPrice) : null,
+          makeSpec: buildMakeSpec(),
           effectiveUnitCost: preview.cost,
           marginPct: preview.margin,
           barcode: barcode.trim() || null,
@@ -241,6 +290,20 @@ export function ProductForm({
               </span>
             </span>
           </label>
+          <label className="flex items-start gap-1.5">
+            <input
+              type="radio"
+              checked={costType === "spec"}
+              onChange={() => setCostType("spec")}
+              className="mt-1"
+            />
+            <span>
+              คำนวณจากสเปค (กรอกครั้งเดียว ระบบคิดให้)
+              <span className="block text-xs font-normal text-zinc-500">
+                กรอกน้ำหนัก + ระดับงาน + พลอย + ชุบ แล้วระบบคำนวณต้นทุนจากค่าจริงของโรงงาน — ผลิตซ้ำไม่ต้องกรอกอีก
+              </span>
+            </span>
+          </label>
         </div>
 
         {costType === "fixed" ? (
@@ -257,7 +320,7 @@ export function ProductForm({
               className={inputCls}
             />
           </label>
-        ) : (
+        ) : costType === "spot" ? (
           <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-3">
             <label className={labelCls}>
               น้ำหนักเงิน (ก.)
@@ -305,8 +368,112 @@ export function ProductForm({
               </span>
             </label>
           </div>
+        ) : (
+          // 0141 spec mode — ไม่มีช่อง "ค่าแรง/ค่าบล็อก" ในโหมดนี้เลยตั้งใจ:
+          // ระบบคำนวณค่าแรงเองจากเรตโรงงาน (analytics.oem_cost_rate ผ่าน
+          // analytics.oem_cost_calc) — โชว์ช่องกรอกเพิ่มจะชวนให้เข้าใจผิดว่า
+          // ต้องกรอกอีกชั้น (ดู task brief เคสห้ามผ่าน #4 ก็ห้าม margin/ราคา
+          // ไม่ใช่ห้ามช่องนี้ แต่หลักการเดียวกัน: ซ่อนสิ่งที่ระบบคำนวณเองให้)
+          <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+            <label className={labelCls}>
+              น้ำหนักเงิน (ก.)
+              <input
+                type="number"
+                inputMode="decimal"
+                min={0}
+                step="0.001"
+                value={weight}
+                onChange={(e) => setWeight(e.target.value)}
+                className={inputCls}
+                required
+              />
+            </label>
+            <label className={labelCls}>
+              ความบริสุทธิ์
+              <input
+                type="number"
+                inputMode="decimal"
+                min={0}
+                max={1}
+                step="0.001"
+                value={purity}
+                onChange={(e) => setPurity(e.target.value)}
+                placeholder="0.925"
+                className={inputCls}
+              />
+              <span className="block pt-0.5 text-[11px] font-normal text-zinc-500">
+                เครื่องประดับ 925 = 0.925
+              </span>
+            </label>
+            <label className={labelCls}>
+              ชนิดงาน
+              <select value={itemKind} onChange={(e) => setItemKind(e.target.value)} className={inputCls} required>
+                <option value="">— เลือก —</option>
+                {OEM_ITEM_KIND_OPTIONS.map((k) => (
+                  <option key={k} value={k}>
+                    {k}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className={labelCls}>
+              ระดับงาน
+              <select value={polishTier} onChange={(e) => setPolishTier(e.target.value)} className={inputCls} required>
+                <option value="">— เลือก —</option>
+                {OEM_POLISH_TIER_OPTIONS.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className={labelCls}>
+              ชุบ
+              <select value={platingType} onChange={(e) => setPlatingType(e.target.value)} className={inputCls}>
+                <option value="">ไม่ชุบ</option>
+                {OEM_PLATING_OPTIONS.map((p) => (
+                  <option key={p} value={p}>
+                    {p}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className={labelCls}>
+              ขนาดพลอย
+              <select
+                value={gemTier}
+                onChange={(e) => {
+                  setGemTier(e.target.value);
+                  if (!e.target.value) setGemCount("");
+                }}
+                className={inputCls}
+              >
+                <option value="">ไม่มีพลอย</option>
+                {OEM_GEM_TIER_OPTIONS.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {gemTier && (
+              <label className={labelCls}>
+                จำนวนเม็ดพลอย
+                <input
+                  type="number"
+                  inputMode="numeric"
+                  min={0}
+                  step="1"
+                  value={gemCount}
+                  onChange={(e) => setGemCount(e.target.value)}
+                  className={inputCls}
+                  required
+                />
+              </label>
+            )}
+          </div>
         )}
-        {costType === "spot" && silverSpot == null && (
+        {(costType === "spot" || costType === "spec") && silverSpot == null && (
           <p className="pt-2 text-xs text-amber-600">
             ยังไม่ได้ตั้งราคาเงินสปอต — ตั้งที่หน้า “ราคา &amp; มาร์จิ้น” ก่อน ต้นทุนถึงจะคำนวณได้
           </p>
@@ -327,20 +494,28 @@ export function ProductForm({
         />
       </label>
 
-      {/* live preview */}
-      <div className="flex items-center justify-between rounded-md bg-zinc-50 px-3 py-2 text-sm">
-        <span className="text-zinc-500">ต้นทุนที่คำนวณ</span>
-        <span className="font-semibold text-zinc-800">{preview.cost == null ? "—" : fmtBaht(preview.cost)}</span>
-        <span className="text-zinc-300">·</span>
-        <span className="text-zinc-500">margin</span>
-        <span
-          className={`font-semibold ${
-            preview.margin == null ? "text-zinc-400" : preview.margin < 0.1 ? "text-red-600" : "text-zinc-800"
-          }`}
-        >
-          {preview.margin == null ? "—" : `${(preview.margin * 100).toFixed(1)}%`}
-        </span>
-      </div>
+      {/* live preview — spec mode ไม่มีเลขให้โชว์เลย (ห้ามคำนวณเลขเงินใน client,
+          oem-quote-invariants §2): ต้นทุนจริงมาจาก analytics.oem_cost_calc
+          (สิบกว่าเรต + batch amortization) เห็นได้ตอนสั่งผลิตเท่านั้น */}
+      {costType === "spec" ? (
+        <p className="rounded-md bg-zinc-50 px-3 py-2 text-xs text-zinc-500">
+          ต้นทุนโหมดนี้คำนวณตอนสั่งผลิต (ไม่ใช่ตอนบันทึก SKU) — ดูรายละเอียดที่หน้าใบผลิตเข้าสต็อกเมื่อสั่งผลิตจริง
+        </p>
+      ) : (
+        <div className="flex items-center justify-between rounded-md bg-zinc-50 px-3 py-2 text-sm">
+          <span className="text-zinc-500">ต้นทุนที่คำนวณ</span>
+          <span className="font-semibold text-zinc-800">{preview.cost == null ? "—" : fmtBaht(preview.cost)}</span>
+          <span className="text-zinc-300">·</span>
+          <span className="text-zinc-500">margin</span>
+          <span
+            className={`font-semibold ${
+              preview.margin == null ? "text-zinc-400" : preview.margin < 0.1 ? "text-red-600" : "text-zinc-800"
+            }`}
+          >
+            {preview.margin == null ? "—" : `${(preview.margin * 100).toFixed(1)}%`}
+          </span>
+        </div>
+      )}
 
       <details className="rounded-md border border-zinc-200 px-2.5 py-1.5">
         <summary className="min-h-9 cursor-pointer list-none py-1 text-xs font-semibold text-zinc-600">

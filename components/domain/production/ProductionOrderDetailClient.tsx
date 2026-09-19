@@ -10,13 +10,18 @@
 // 🔴 No "คงเหลือ"/"สต็อกคงเหลือ" wording anywhere in this file (P1b brief
 // item 1) — every quantity shown is a fact about THIS order only.
 
-import { useEffect, useState } from "react";
+import { Fragment, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Trash2 } from "lucide-react";
 import { removeProductionOrderItem, saveProductionOrder } from "@/lib/actions/production";
 import type { ProductionOrderItemRow, ProductionOrderRow, ProductionOrderStatus, ProductionSkuOption } from "@/lib/production/types";
-import { PRODUCTION_ORDER_STATUS_LABEL_TH, PRODUCTION_SPOT_OVERRIDE_MAX, PRODUCTION_SPOT_OVERRIDE_MIN } from "@/lib/production/types";
+import {
+  PRODUCTION_COST_TYPE_LABEL_TH,
+  PRODUCTION_ORDER_STATUS_LABEL_TH,
+  PRODUCTION_SPOT_OVERRIDE_MAX,
+  PRODUCTION_SPOT_OVERRIDE_MIN,
+} from "@/lib/production/types";
 import { formatBangkokTime, formatTHB } from "@/lib/format";
 import { Badge } from "@/components/ui/Badge";
 import type { BadgeTone } from "@/components/ui/Badge";
@@ -26,6 +31,7 @@ import { useToast } from "@/components/ui/Toast";
 import { ProductionAddItemForm } from "./ProductionAddItemForm";
 import { ProductionDoneDialog } from "./ProductionDoneDialog";
 import { ProductionCancelDialog } from "./ProductionCancelDialog";
+import { ProductionSpecCostCard } from "./ProductionSpecCostCard";
 
 const STATUS_TONE: Record<ProductionOrderStatus, BadgeTone> = {
   open: "blue",
@@ -243,6 +249,7 @@ export function ProductionOrderDetailClient({
                   <th scope="col" className="py-2 pl-3.5 pr-3">SKU</th>
                   <th scope="col" className="py-2 pr-3 text-right">แผนผลิต</th>
                   {!isOpen && <th scope="col" className="py-2 pr-3 text-right">ผลิตเข้าแล้ว</th>}
+                  <th scope="col" className="py-2 pr-3">โหมด</th>
                   {/* ใบยัง open = ตัวเลขนี้คือต้นทุนปัจจุบันใน /catalog "อ้างอิง" เท่านั้น
                       ยังไม่ใช่ค่าที่จะถูกล็อก (SKU โหมด spot จะคิดใหม่ตามราคาเงินตอนกด
                       ผลิตเสร็จ) — หัวคอลัมน์เดิมเขียนว่า "ต้นทุน/ชิ้น" เฉยๆ ซึ่งชวนให้
@@ -263,62 +270,85 @@ export function ProductionOrderDetailClient({
                     item.stampedUnitCost != null &&
                     item.prevUnitCost != null &&
                     Math.abs(item.stampedUnitCost - item.prevUnitCost) > 0.005;
+                  // ใบ done + บรรทัดโหมด spec = แสดงการ์ดสเปค/breakdown ที่ถูกล็อกไว้
+                  // จริง (item.costCalc คือ snapshot จาก production_order_item.cost_calc
+                  // — ไม่ใช่คำนวณสดอีกรอบ) task brief 2c ต้องเห็นที่มาแม้ย้อนดูทีหลัง
+                  const showSpecCard = order.status === "done" && item.currentCostType === "spec" && item.costCalc;
                   return (
-                    <tr key={item.id} className="border-b border-zinc-100 last:border-0">
-                      <td className="py-2 pl-3.5 pr-3">
-                        <span className="font-medium text-zinc-800">{item.sku}</span>{" "}
-                        <span className="text-zinc-500">· {item.productName}</span>
-                      </td>
-                      <td className="py-2 pr-3 text-right tabular-nums text-zinc-700">
-                        {item.qtyPlanned.toLocaleString("en-US")}
-                      </td>
-                      {!isOpen && (
-                        <td className="py-2 pr-3 text-right tabular-nums text-zinc-700">
-                          {item.qtyDone != null ? item.qtyDone.toLocaleString("en-US") : "—"}
+                    <Fragment key={item.id}>
+                      <tr className="border-b border-zinc-100 last:border-0">
+                        <td className="py-2 pl-3.5 pr-3">
+                          <span className="font-medium text-zinc-800">{item.sku}</span>{" "}
+                          <span className="text-zinc-500">· {item.productName}</span>
                         </td>
-                      )}
-                      <td className="py-2 pr-3 text-right tabular-nums text-zinc-700">
-                        {order.status === "done" ? (
-                          item.stampedUnitCost != null ? (
-                            costChanged && item.prevUnitCost != null ? (
-                              <>
-                                <span className="text-zinc-400 line-through">{formatTHB(item.prevUnitCost)}</span>{" "}
+                        <td className="py-2 pr-3 text-right tabular-nums text-zinc-700">
+                          {item.qtyPlanned.toLocaleString("en-US")}
+                        </td>
+                        {!isOpen && (
+                          <td className="py-2 pr-3 text-right tabular-nums text-zinc-700">
+                            {item.qtyDone != null ? item.qtyDone.toLocaleString("en-US") : "—"}
+                          </td>
+                        )}
+                        <td className="py-2 pr-3">
+                          <Badge tone={item.currentCostType === "spot" ? "cyan" : item.currentCostType === "spec" ? "indigo" : "slate"}>
+                            {PRODUCTION_COST_TYPE_LABEL_TH[item.currentCostType]}
+                          </Badge>
+                        </td>
+                        <td className="py-2 pr-3 text-right tabular-nums text-zinc-700">
+                          {order.status === "done" ? (
+                            item.stampedUnitCost != null ? (
+                              costChanged && item.prevUnitCost != null ? (
+                                <>
+                                  <span className="text-zinc-400 line-through">{formatTHB(item.prevUnitCost)}</span>{" "}
+                                  <span className="font-semibold text-zinc-800">{formatTHB(item.stampedUnitCost)}</span>
+                                </>
+                              ) : (
                                 <span className="font-semibold text-zinc-800">{formatTHB(item.stampedUnitCost)}</span>
-                              </>
+                              )
                             ) : (
-                              <span className="font-semibold text-zinc-800">{formatTHB(item.stampedUnitCost)}</span>
+                              "—"
                             )
+                          ) : item.currentCostType === "spot" || item.currentCostType === "spec" ? (
+                            // security review M5: SKU โหมด spot/spec — `product.unit_cost`
+                            // ดิบ เป็นเลข manual เก่าที่มักล้าสมัย/เป็น null และ **ไม่ตรงกับ
+                            // ที่ /catalog แสดง** (คำนวณจากน้ำหนัก × ราคาเงิน หรือจากสเปค)
+                            // ⇒ ห้ามโชว์ตัวเลขที่จะทำให้ตัดสินใจผิดว่าจะผลิตไหม
+                            <span className="text-zinc-400">คำนวณตอนกดผลิตเสร็จ</span>
+                          ) : item.currentUnitCost != null ? (
+                            <span title="ต้นทุนคงที่ที่ตั้งไว้ใน /catalog">
+                              {formatTHB(item.currentUnitCost)}
+                            </span>
                           ) : (
                             "—"
-                          )
-                        ) : item.currentCostType === "spot" ? (
-                          // security review M5: SKU โหมด spot — `product.unit_cost` ดิบ
-                          // เป็นเลข manual เก่าที่มักล้าสมัย/เป็น null และ **ไม่ตรงกับ
-                          // ที่ /catalog แสดง** (ที่นั่นคำนวณจากน้ำหนัก × ราคาเงิน)
-                          // ⇒ ห้ามโชว์ตัวเลขที่จะทำให้ตัดสินใจผิดว่าจะผลิตไหม
-                          <span className="text-zinc-400">คำนวณตอนกดผลิตเสร็จ</span>
-                        ) : item.currentUnitCost != null ? (
-                          <span title="ต้นทุนคงที่ที่ตั้งไว้ใน /catalog">
-                            {formatTHB(item.currentUnitCost)}
-                          </span>
-                        ) : (
-                          "—"
-                        )}
-                      </td>
-                      {isOpen && (
-                        <td className="py-2 pr-3.5 text-right">
-                          <button
-                            type="button"
-                            onClick={() => removeItem(item)}
-                            disabled={removingProductId === item.productId}
-                            aria-label={`ลบ ${item.sku}`}
-                            className="inline-flex h-9 w-9 items-center justify-center rounded-md text-zinc-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
-                          >
-                            <Trash2 className="h-4 w-4" aria-hidden="true" />
-                          </button>
+                          )}
                         </td>
+                        {isOpen && (
+                          <td className="py-2 pr-3.5 text-right">
+                            <button
+                              type="button"
+                              onClick={() => removeItem(item)}
+                              disabled={removingProductId === item.productId}
+                              aria-label={`ลบ ${item.sku}`}
+                              className="inline-flex h-9 w-9 items-center justify-center rounded-md text-zinc-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
+                            >
+                              <Trash2 className="h-4 w-4" aria-hidden="true" />
+                            </button>
+                          </td>
+                        )}
+                      </tr>
+                      {showSpecCard && (
+                        <tr className="border-b border-zinc-100 last:border-0">
+                          <td colSpan={5} className="px-3.5 pb-2.5">
+                            <ProductionSpecCostCard
+                              makeSpec={item.makeSpec}
+                              silverWeightG={item.currentSilverWeightG}
+                              silverPurity={item.currentSilverPurity}
+                              costCalc={item.costCalc!}
+                            />
+                          </td>
+                        </tr>
                       )}
-                    </tr>
+                    </Fragment>
                   );
                 })}
               </tbody>
