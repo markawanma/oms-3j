@@ -4,7 +4,7 @@
 -- ต้นทุนของโหมด cost_type='spec' — เติม branch 'spec' ให้ analytics.
 -- v_dim_product.unit_cost/effective_unit_cost/margin_pct)
 --
--- ตาม skill 3j-migration-traps ข้อ 11: do $$ ... $$ block เดียว จบด้วย
+-- ตาม skill 3j-migration-traps ข้อ 11: do dollar-quote ... dollar-quote block เดียว จบด้วย
 -- `raise exception` เสมอ ⇒ ทั้ง transaction rollback ไม่ว่าผลจะผ่าน/ไม่ผ่าน —
 -- อ่านผลจาก error message นี้. ใช้เป็นทั้ง dry-run (Part 0 ติดตั้ง DDL ของ 0143
 -- ทับของเดิมในทรานแซกชันนี้เอง — สมมติว่า 0131-0142 apply ไปแล้วจริงบน DB
@@ -139,7 +139,7 @@ begin
   select count(*) into v_real_spec_count from analytics.v_dim_product where cost_type = 'spec';
 
   -- Part 0 (DDL): apply 0143 verbatim — plain CREATE OR REPLACE VIEW ไม่มี
-  -- dollar-quoted body ให้ชนกับ $$ ของ do block นี้ จึงไม่ต้อง EXECUTE
+  -- dollar-quoted body ให้ชนกับ dollar-quote ของ do block นี้ จึงไม่ต้อง EXECUTE
   create or replace view analytics.v_dim_product
     with (security_invoker = true) as
   select
@@ -200,7 +200,9 @@ begin
     join analytics.production_order po on po.id = poi.production_order_id
     where poi.product_id = p.id
       and po.status = 'done'
-      and poi.cost_calc is not null
+      and jsonb_typeof(poi.cost_calc) = 'object'   -- 0143 fix: cost_calc ของรอบ
+    -- โหมด fixed/spot เป็น JSON null (jsonb_typeof='null') ไม่ใช่ SQL NULL
+    -- ⇒ "is not null" ตาบอด ปล่อยรอบโหมดเก่าหลุดมาเป็นต้นทุนสเปค (เจอจากรอบซ้อม T7b)
     order by po.done_at desc nulls last, poi.updated_at desc, poi.id desc
     limit 1
   ) spec_lot on true;

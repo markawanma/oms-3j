@@ -176,7 +176,9 @@ left join lateral (
     -- (cost_calc ไม่ null ได้ก็ต่อเมื่อ SKU เป็น cost_type='spec' ตอน done
     -- เท่านั้น — 0141) กัน "รอบผลิตเก่าจากโหมด fixed/spot ก่อนพลิกเป็น spec"
     -- หลุดมาเป็นต้นทุนแคตตาล็อกของสเปคปัจจุบัน
-    and poi.cost_calc is not null
+    and jsonb_typeof(poi.cost_calc) = 'object'   -- 0143 fix: cost_calc ของรอบ
+    -- โหมด fixed/spot เป็น JSON null (jsonb_typeof='null') ไม่ใช่ SQL NULL
+    -- ⇒ "is not null" ตาบอด ปล่อยรอบโหมดเก่าหลุดมาเป็นต้นทุนสเปค (เจอจากรอบซ้อม T7b)
   order by po.done_at desc nulls last, poi.updated_at desc, poi.id desc
   limit 1
 ) spec_lot on true;
