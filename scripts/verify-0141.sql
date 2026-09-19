@@ -91,6 +91,7 @@ declare
 
   v_lot_count int;
   v_stock_after int;
+  v_lot_unit_cost numeric;   -- stock_lot.unit_cost เป็น numeric(12,2) ห้ามอ่านลง int (ปัดเศษเงียบ)
   v_status_after text;
   v_poi_unit_cost numeric;
   v_poi_cost_calc jsonb;
@@ -1113,11 +1114,11 @@ begin
 
   select unit_cost, cost_calc into v_poi_unit_cost, v_poi_cost_calc
     from analytics.production_order_item where id = v_item_id_1;
-  select unit_cost into v_stock_after from analytics.stock_lot where production_order_item_id = v_item_id_1;
+  select unit_cost into v_lot_unit_cost from analytics.stock_lot where production_order_item_id = v_item_id_1;
   select status into v_status_after from analytics.production_order where id = v_order_id;
   v_log := v_log || format('[T19] done qty_done=3 (≠qty_planned=5): production_order_item.unit_cost=%s stock_lot.unit_cost=%s (ทั้งคู่คาด=%s ค่า qty=3 ไม่ใช่ %s ค่า qty=5), order status=%s (คาด done, ไม่ raise 23514 จาก prev_cost_type=spec): %s\n',
-    v_poi_unit_cost, v_stock_after, v_unit_b, v_unit_a, v_status_after,
-    case when v_poi_unit_cost = v_unit_b and v_stock_after = v_unit_b and v_status_after = 'done' then 'OK' else 'FAIL' end);
+    v_poi_unit_cost, v_lot_unit_cost, v_unit_b, v_unit_a, v_status_after,
+    case when v_poi_unit_cost = v_unit_b and v_lot_unit_cost = v_unit_b and v_status_after = 'done' then 'OK' else 'FAIL' end);
 
   -- T20: cost_calc snapshot ถูกเขียนจริง (มี breakdown เต็ม ไม่ใช่ null)
   v_log := v_log || format('[T20] production_order_item.cost_calc snapshot ถูกเขียน (is_complete=%s, unit_cost ใน snapshot=%s ตรงกับ unit_cost ของ item=%s): %s\n',
