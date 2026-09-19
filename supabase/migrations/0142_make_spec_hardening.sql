@@ -268,10 +268,17 @@ begin
 
   insert into public.product (
     shop_id, sku, name, category, cost_type, unit_cost, silver_weight_g,
-    silver_purity, labor_cost, list_price, barcode, supplier, note, is_active
+    silver_purity, labor_cost, list_price, barcode, supplier, note, is_active,
+    -- 0142: ต้องพา make_spec เดิมติดไปกับ "แถวที่เสนอจะแทรก" ด้วย เพราะ Postgres
+    -- ตรวจ CHECK กับแถวนั้นก่อนจะรู้ว่าชน unique แล้วไหลไป do update ⇒ ถ้าไม่พาไป
+    -- product_spec_requires_make_spec_check จะตีตกทุกครั้งที่ upsert SKU โหมด spec
+    -- (เจอจากรอบซ้อม 19 ก.ย. — 23514) · SKU ใหม่ v_old.make_spec เป็น null อยู่แล้ว
+    -- และ p_cost_type='spec' ถูกด่านด้านบนปฏิเสธไปก่อนแล้ว จึงไม่ชน CHECK
+    make_spec
   ) values (
     p_shop_id, btrim(p_sku), btrim(p_name), p_category, p_cost_type, p_unit_cost, p_silver_weight_g,
-    p_silver_purity, p_labor_cost, p_list_price, p_barcode, p_supplier, p_note, coalesce(p_is_active, true)
+    p_silver_purity, p_labor_cost, p_list_price, p_barcode, p_supplier, p_note, coalesce(p_is_active, true),
+    v_old.make_spec
   )
   on conflict (shop_id, sku) do update set
     name = excluded.name,

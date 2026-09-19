@@ -224,10 +224,14 @@ begin
 
       insert into public.product (
         shop_id, sku, name, category, cost_type, unit_cost, silver_weight_g,
-        silver_purity, labor_cost, list_price, barcode, supplier, note, is_active
+        silver_purity, labor_cost, list_price, barcode, supplier, note, is_active,
+        -- 0142: พา make_spec เดิมไปกับแถวที่เสนอด้วย (Postgres ตรวจ CHECK
+        -- กับแถวนั้นก่อนจะรู้ว่าชน unique) ไม่งั้น upsert SKU โหมด spec โดน 23514
+        make_spec
       ) values (
         p_shop_id, btrim(p_sku), btrim(p_name), p_category, p_cost_type, p_unit_cost, p_silver_weight_g,
-        p_silver_purity, p_labor_cost, p_list_price, p_barcode, p_supplier, p_note, coalesce(p_is_active, true)
+        p_silver_purity, p_labor_cost, p_list_price, p_barcode, p_supplier, p_note, coalesce(p_is_active, true),
+        v_old.make_spec
       )
       on conflict (shop_id, sku) do update set
         name = excluded.name,
