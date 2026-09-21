@@ -14,7 +14,7 @@ import { Fragment, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Trash2 } from "lucide-react";
-import { removeProductionOrderItem, saveProductionOrder } from "@/lib/actions/production";
+import { removeProductionOrderItem, saveProductionOrder, setProductionOrderItem } from "@/lib/actions/production";
 import type { ProductionOrderItemRow, ProductionOrderRow, ProductionOrderStatus, ProductionSkuOption } from "@/lib/production/types";
 import {
   PRODUCTION_COST_TYPE_LABEL_TH,
@@ -157,11 +157,41 @@ export function ProductionOrderDetailClient({
   const [doneDialogOpen, setDoneDialogOpen] = useState(false);
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
   const [removingProductId, setRemovingProductId] = useState<string | null>(null);
+  const [togglingNewDesignProductId, setTogglingNewDesignProductId] = useState<string | null>(null);
 
   const isOpen = order.status === "open";
 
   function refresh() {
     router.refresh();
+  }
+
+  // 0144 — ติ๊ก/ถอดติ๊ก "แบบใหม่" ของรายการที่มีอยู่แล้ว: บันทึกทันทีผ่าน RPC
+  // เดียวกับฟอร์มเพิ่มรายการ (qtyPlanned ส่งค่าเดิมของแถวนั้นกลับไป ไม่แตะ —
+  // upsert (production_order_id, product_id) จะแก้เฉพาะ is_new_design) แล้ว
+  // router.refresh() ให้ตาราง + การ์ด breakdown ที่ /production/[id] เห็นค่า
+  // ใหม่ทันที. ต่างจากฟอร์มเพิ่มรายการที่ไม่ส่ง `false` เลยเวลาไม่ติ๊ก (กันรีเซ็ต
+  // ค่าที่อาจมีอยู่ก่อนโดยไม่ตั้งใจ) — ที่นี่การกดคือการ "ตั้งใจสั่งค่านี้ตรงๆ"
+  // สำหรับ item ตัวเดียวที่รู้ id ชัดเจนอยู่แล้ว จึงส่ง true/false ตรงตัวได้ปลอดภัย
+  function toggleNewDesign(item: ProductionOrderItemRow, checked: boolean) {
+    setTogglingNewDesignProductId(item.productId);
+    setProductionOrderItem({
+      productionOrderId: order.id,
+      productId: item.productId,
+      qtyPlanned: item.qtyPlanned,
+      isNewDesign: checked,
+    }).then((result) => {
+      setTogglingNewDesignProductId(null);
+      if (!result.ok) {
+        toast.push(result.error, "error");
+        return;
+      }
+      toast.push(
+        checked
+          ? `ติ๊ก "แบบใหม่" ${item.sku} แล้ว — ค่าออกแบบจะถูกคิดตอนกดผลิตเสร็จ`
+          : `ถอดติ๊ก "แบบใหม่" ${item.sku} แล้ว`
+      );
+      refresh();
+    });
   }
 
   function removeItem(item: ProductionOrderItemRow) {
@@ -243,13 +273,19 @@ export function ProductionOrderDetailClient({
           </div>
         ) : (
           <div className="mt-2 overflow-x-auto rounded-lg border border-zinc-200 bg-white shadow-sm">
-            <table className="w-full min-w-[560px] text-left text-sm">
+            <table className="w-full min-w-[640px] text-left text-sm">
               <thead>
                 <tr className="border-b border-zinc-200 text-xs font-semibold text-zinc-500">
                   <th scope="col" className="py-2 pl-3.5 pr-3">SKU</th>
                   <th scope="col" className="py-2 pr-3 text-right">แผนผลิต</th>
                   {!isOpen && <th scope="col" className="py-2 pr-3 text-right">ผลิตเข้าแล้ว</th>}
                   <th scope="col" className="py-2 pr-3">โหมด</th>
+                  {/* หัวคอลัมน์สั้น + title เป็น tooltip ของคำอธิบายเต็ม (ต่างจาก
+                      ฟอร์มเพิ่มรายการที่มีแค่ 1 แถวเลยเขียนคำอธิบายเต็มใต้ช่องได้
+                      ตรงๆ — ตารางนี้มีหลายแถว ขึ้นซ้ำทุกแถวจะรก) */}
+                  <th scope="col" className="py-2 pr-3" title="ติ๊กเฉพาะรอบที่ออกแบบใหม่ — ผลิตซ้ำแบบเดิมไม่ต้องติ๊ก (มีผลเฉพาะโหมดคำนวณจากสเปค)">
+                    แบบใหม่
+                  </th>
                   {/* ใบยัง open = ตัวเลขนี้คือต้นทุนปัจจุบันใน /catalog "อ้างอิง" เท่านั้น
                       ยังไม่ใช่ค่าที่จะถูกล็อก (SKU โหมด spot จะคิดใหม่ตามราคาเงินตอนกด
                       ผลิตเสร็จ) — หัวคอลัมน์เดิมเขียนว่า "ต้นทุน/ชิ้น" เฉยๆ ซึ่งชวนให้
@@ -293,6 +329,34 @@ export function ProductionOrderDetailClient({
                           <Badge tone={item.currentCostType === "spot" ? "cyan" : item.currentCostType === "spec" ? "indigo" : "slate"}>
                             {PRODUCTION_COST_TYPE_LABEL_TH[item.currentCostType]}
                           </Badge>
+                        </td>
+                        <td className="py-2 pr-3">
+                          {item.currentCostType !== "spec" ? (
+                            // ค่าออกแบบมีผลเฉพาะโหมด spec (production_cost_calc
+                            // อ่าน is_new_design เฉพาะ branch 'spec') — ซ่อนช่องติ๊ก
+                            // ทิ้งไปเลยสำหรับ fixed/spot แทนโชว์แบบ disabled+หมายเหตุ
+                            // ต่อแถว เพราะตารางนี้มีหลายแถวพร้อมกัน "—" เทียบกับแถว
+                            // spec ข้างๆ ที่มีช่องติ๊กจริงชัดเจนกว่าอยู่แล้วว่าไม่มีผล
+                            <span className="text-zinc-300">—</span>
+                          ) : isOpen ? (
+                            <label className="inline-flex items-center gap-1.5">
+                              <input
+                                type="checkbox"
+                                checked={item.isNewDesign}
+                                disabled={togglingNewDesignProductId === item.productId}
+                                onChange={(e) => toggleNewDesign(item, e.target.checked)}
+                                aria-label={`แบบใหม่ (คิดค่าออกแบบ) ${item.sku}`}
+                                className="h-5 w-5 rounded border-zinc-300 disabled:opacity-50"
+                              />
+                              {togglingNewDesignProductId === item.productId && (
+                                <span className="text-xs text-zinc-400">กำลังบันทึก…</span>
+                              )}
+                            </label>
+                          ) : item.isNewDesign ? (
+                            <Badge tone="indigo">แบบใหม่</Badge>
+                          ) : (
+                            <span className="text-zinc-300">—</span>
+                          )}
                         </td>
                         <td className="py-2 pr-3 text-right tabular-nums text-zinc-700">
                           {order.status === "done" ? (
@@ -338,7 +402,11 @@ export function ProductionOrderDetailClient({
                       </tr>
                       {showSpecCard && (
                         <tr className="border-b border-zinc-100 last:border-0">
-                          <td colSpan={5} className="px-3.5 pb-2.5">
+                          {/* 6 คอลัมน์เสมอ: SKU, แผนผลิต, [ผลิตเข้าแล้ว|ลบ] (มีเสมอ
+                              1 ใน 2), โหมด, แบบใหม่, ต้นทุน — colSpan คงที่ได้เพราะ
+                              แถว spec card render เฉพาะ order.status==='done' ซึ่ง
+                              isOpen เป็น false เสมอ (คอลัมน์ "ลบ" ไม่โผล่ตอนนั้น) */}
+                          <td colSpan={6} className="px-3.5 pb-2.5">
                             <ProductionSpecCostCard
                               makeSpec={item.makeSpec}
                               silverWeightG={item.currentSilverWeightG}

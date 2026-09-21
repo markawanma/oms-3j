@@ -24,15 +24,13 @@
 // which applies to this module too even though it isn't OEM: 0131 borrows
 // the exact same v_dim_product cost formula).
 //
-// 🔴 KNOWN GAP (0141/0142, spec-cost-ui task brief §2a): there is NO RPC that
-// sets analytics.production_order_item.is_new_design yet —
-// production_order_item_set(uuid,uuid,uuid,int) doesn't take it, and 0141's
-// own header marks adding that RPC as deliberately deferred to this UI
-// phase. Per the brief's explicit instruction ("ถ้าไม่ได้ หยุดแล้วรายงานกลับ
-// อย่าเขียน UPDATE ตรงจาก TS") this file does NOT write is_new_design at all
-// — every line in this module is treated as "ผลิตซ้ำ" (no NRE/design charge)
-// until a dedicated RPC exists. See the Tech Lead delivery report for the
-// exact RPC shape requested.
+// 0144 (new-design-checkbox task): analytics.production_order_item_set now
+// takes an optional p_is_new_design (default null = "ไม่ได้ส่งมา ไม่แตะค่า
+// เดิม") — setProductionOrderItem below forwards `input.isNewDesign ?? null`
+// verbatim, never coercing undefined to false (that would silently reset an
+// existing item's flag on every qty-only edit — the exact footgun the RPC's
+// null-means-untouched design exists to prevent). Every write still goes
+// through this one RPC; nothing in this file issues a raw UPDATE.
 
 import { revalidatePath } from "next/cache";
 import { getServiceClient } from "@/lib/supabase/server";
@@ -478,6 +476,12 @@ export async function setProductionOrderItem(input: {
   productionOrderId: string;
   productId: string;
   qtyPlanned: number;
+  /** 0144 — undefined/omitted = "ไม่ได้ตั้งใจเปลี่ยน" ⇒ ส่ง null ต่อให้ RPC
+   * (คงค่าเดิมของแถวไว้ ทั้งตอน insert ใหม่ที่ default false ตามคอลัมน์ และตอน
+   * upsert รายการเดิม). ส่ง true/false ชัดเจนเฉพาะตอนผู้ใช้ตั้งใจติ๊ก/ถอดติ๊ก
+   * จริง — ห้าม caller ส่ง `false` เป็นค่าเริ่มต้นเงียบๆ (จะรีเซ็ตค่าที่ติ๊กไว้
+   * แล้วทุกครั้งที่แก้ qty ผ่าน RPC เดียวกันนี้ — เคสห้ามผ่าน #2 ของบรีฟ). */
+  isNewDesign?: boolean;
 }): Promise<ActionResult<ProductionOrderItemSetResult>> {
   const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
@@ -496,16 +500,24 @@ export async function setProductionOrderItem(input: {
       p_production_order_id: input.productionOrderId,
       p_product_id: input.productId,
       p_qty_planned: input.qtyPlanned,
+      p_is_new_design: input.isNewDesign ?? null,
     });
     if (error) throw error;
 
-    const row = data as { id: string; product_id: string; sku: string; name: string; qty_planned: number };
+    const row = data as { id: string; product_id: string; sku: string; name: string; qty_planned: number; is_new_design: boolean };
 
     revalidateProduction(input.productionOrderId);
 
     return {
       ok: true,
-      data: { id: row.id, productId: row.product_id, sku: row.sku, name: row.name, qtyPlanned: Number(row.qty_planned) || 0 },
+      data: {
+        id: row.id,
+        productId: row.product_id,
+        sku: row.sku,
+        name: row.name,
+        qtyPlanned: Number(row.qty_planned) || 0,
+        isNewDesign: Boolean(row.is_new_design),
+      },
     };
   } catch (err) {
     console.error("setProductionOrderItem failed", err);

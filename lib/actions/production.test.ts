@@ -273,6 +273,58 @@ describe("saveProductionOrder", () => {
   });
 });
 
+// 0144 — production_order_item_set gained p_is_new_design (default null =
+// "ไม่แตะค่าเดิม"). The critical invariant under test: setProductionOrderItem
+// must NEVER coerce an omitted isNewDesign to false — that would silently
+// reset an existing item's flag on every plain qty edit (task brief's เคส
+// ห้ามผ่าน #2).
+describe("setProductionOrderItem", () => {
+  const ITEM_SET_RPC_OK = {
+    data: { id: "item-1", product_id: "11111111-1111-4111-8111-111111111111", sku: "R-0099", name: "แหวนเงินแท้", qty_planned: 5, is_new_design: false },
+    error: null,
+  };
+
+  it("sends p_is_new_design as null when isNewDesign is omitted (does not touch the existing flag)", async () => {
+    rpcMock.mockResolvedValue(ITEM_SET_RPC_OK);
+    const { setProductionOrderItem } = await import("./production");
+    await setProductionOrderItem({ productionOrderId: "po-1", productId: "11111111-1111-4111-8111-111111111111", qtyPlanned: 5 });
+    expect(rpcMock).toHaveBeenCalledWith(
+      "production_order_item_set",
+      expect.objectContaining({ p_is_new_design: null })
+    );
+  });
+
+  it("sends p_is_new_design: true when isNewDesign is true", async () => {
+    rpcMock.mockResolvedValue({ ...ITEM_SET_RPC_OK, data: { ...ITEM_SET_RPC_OK.data, is_new_design: true } });
+    const { setProductionOrderItem } = await import("./production");
+    await setProductionOrderItem({ productionOrderId: "po-1", productId: "11111111-1111-4111-8111-111111111111", qtyPlanned: 5, isNewDesign: true });
+    expect(rpcMock).toHaveBeenCalledWith(
+      "production_order_item_set",
+      expect.objectContaining({ p_is_new_design: true })
+    );
+  });
+
+  it("sends p_is_new_design: false when isNewDesign is explicitly false (table checkbox un-tick — deliberate, not an omission)", async () => {
+    rpcMock.mockResolvedValue(ITEM_SET_RPC_OK);
+    const { setProductionOrderItem } = await import("./production");
+    await setProductionOrderItem({ productionOrderId: "po-1", productId: "11111111-1111-4111-8111-111111111111", qtyPlanned: 5, isNewDesign: false });
+    expect(rpcMock).toHaveBeenCalledWith(
+      "production_order_item_set",
+      expect.objectContaining({ p_is_new_design: false })
+    );
+  });
+
+  it("maps the RPC's is_new_design response field to camelCase isNewDesign", async () => {
+    rpcMock.mockResolvedValue({ ...ITEM_SET_RPC_OK, data: { ...ITEM_SET_RPC_OK.data, is_new_design: true } });
+    const { setProductionOrderItem } = await import("./production");
+    const result = await setProductionOrderItem({ productionOrderId: "po-1", productId: "11111111-1111-4111-8111-111111111111", qtyPlanned: 5, isNewDesign: true });
+    expect(result).toEqual({
+      ok: true,
+      data: { id: "item-1", productId: "11111111-1111-4111-8111-111111111111", sku: "R-0099", name: "แหวนเงินแท้", qtyPlanned: 5, isNewDesign: true },
+    });
+  });
+});
+
 describe("doneProductionOrder", () => {
   it("rejects a negative qtyDone before calling the RPC", async () => {
     const { doneProductionOrder } = await import("./production");
