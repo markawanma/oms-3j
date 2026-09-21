@@ -181,14 +181,11 @@ export interface ProductionOrderItemRow {
    * it does in ProductionDoneDialog's live preview. */
   currentSilverWeightG: number | null;
   currentSilverPurity: number | null;
-  /** 0141: analytics.production_order_item.is_new_design — DB column default
-   * false, and read-only from every TS path today: analytics.
-   * production_order_item_set(uuid,uuid,uuid,int) has no arg for it, and no
-   * other RPC sets it (0141's own header, "จุดที่ตัดสินใจเอง" §3, marks this
-   * as intentionally deferred to the UI phase that adds a real form for it —
-   * see lib/actions/production.ts's header for the KNOWN GAP note). Always
-   * false in this UI until that RPC exists — never write it via a raw
-   * UPDATE from TS (skill oem-quote-invariants + task brief's hard rule). */
+  /** 0141: analytics.production_order_item.is_new_design — DB column, default
+   * false. Writable since 0144 via analytics.production_order_item_set's
+   * p_is_new_design arg (setProductionOrderItem's isNewDesign input) — still
+   * never written via a raw UPDATE from TS (skill oem-quote-invariants + task
+   * brief's hard rule); every write goes through that RPC. */
   isNewDesign: boolean;
   /** 0141: analytics.production_order_item.cost_calc snapshot — non-null only
    * for a DONE order's cost_type='spec' line (written once by
@@ -248,6 +245,10 @@ export interface ProductionOrderItemSetResult {
   sku: string;
   name: string;
   qtyPlanned: number;
+  /** 0144: analytics.production_order_item.is_new_design as written by this
+   * call — echoes back whatever the RPC actually persisted (coalesce'd if
+   * p_is_new_design was null), not an echo of the request. */
+  isNewDesign: boolean;
 }
 
 /** analytics.production_order_preview — ONLY callable while status='open'

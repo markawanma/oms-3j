@@ -48,6 +48,9 @@ export function ProductionAddItemForm({
   const [selected, setSelected] = useState<{ productId: string; sku: string; name: string } | null>(null);
   const [text, setText] = useState("");
   const [qty, setQty] = useState("1");
+  // 0144 — checkbox ต่อการเพิ่ม 1 รายการ (ไม่ใช่ state ต่อ productId เหมือนใน
+  // ตาราง เพราะฟอร์มนี้ล้างค่าทิ้งทุกครั้งหลัง submit สำเร็จอยู่แล้ว)
+  const [isNewDesign, setIsNewDesign] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [createOpen, setCreateOpen] = useState(false);
@@ -78,11 +81,23 @@ export function ProductionAddItemForm({
     setText(value);
     const match = skuOptions.find((o) => optionLabel(o) === value);
     setSelected(match ? { productId: match.productId, sku: match.sku, name: match.name } : null);
+    // เปลี่ยน SKU ที่เลือก = เลิกติ๊ก กัน "แบบใหม่" ของ SKU ก่อนหน้าค้างข้ามไปติด
+    // SKU ใหม่โดยไม่มีใครตั้งใจ (ช่องนี้ซ่อน/โผล่ตาม cost_type ของ SKU ที่เลือก)
+    setIsNewDesign(false);
   }
 
   const qtyNum = Number(qty);
   const validQty = Number.isFinite(qtyNum) && Number.isInteger(qtyNum) && qtyNum > 0 && qtyNum <= 100000;
   const canSubmit = !!selected && validQty && !pending;
+
+  // 0144 — ค่าออกแบบมีผลเฉพาะโหมด spec (production_cost_calc branch 'spec'
+  // เท่านั้นที่อ่าน is_new_design — ดูหัว migration 0141) ⇒ ซ่อนช่องติ๊กทิ้งไป
+  // เลยสำหรับ fixed/spot แทนที่จะโชว์แบบ disabled+หมายเหตุ เพราะฟอร์มนี้เพิ่ม
+  // ทีละ 1 รายการ ผู้ใช้เพิ่งเลือก SKU เสร็จ ช่องที่กดไม่ได้ทันทีที่เห็นจะดูเหมือน
+  // บั๊กมากกว่าคำอธิบายจะช่วย (ตรงข้ามกับตารางที่เห็นหลายแถวพร้อมกัน ซึ่งใช้ "—"
+  // แทนแล้วเทียบกับแถวอื่นได้)
+  const selectedCostType = selected ? skuOptions.find((o) => o.productId === selected.productId)?.costType : undefined;
+  const showNewDesignCheckbox = selectedCostType === "spec";
 
   function submit() {
     if (!selected || !validQty) return;
@@ -92,6 +107,10 @@ export function ProductionAddItemForm({
         productionOrderId,
         productId: selected.productId,
         qtyPlanned: qtyNum,
+        // undefined (ไม่ส่งเลย) ตอนไม่ติ๊ก — ไม่ใช่ false — กันไม่ให้การกด
+        // "เพิ่มรายการ" ซ้ำ (อัปเดต qty ของ SKU ที่มีอยู่แล้ว) ไปรีเซ็ตค่า
+        // is_new_design ที่เคยติ๊กไว้จากตารางด้านบนทิ้งเงียบๆ (เคสห้ามผ่าน #2)
+        isNewDesign: isNewDesign ? true : undefined,
       });
       if (!result.ok) {
         setError(result.error);
@@ -102,6 +121,7 @@ export function ProductionAddItemForm({
       setSelected(null);
       setText("");
       setQty("1");
+      setIsNewDesign(false);
       onAdded();
     });
   }
@@ -174,6 +194,22 @@ export function ProductionAddItemForm({
           เพิ่มรายการ
         </Button>
       </div>
+
+      {showNewDesignCheckbox && (
+        <div className="mt-2 rounded-md border border-indigo-100 bg-indigo-50/50 p-2">
+          <label htmlFor="production-add-new-design" className="flex items-center gap-2 text-sm text-zinc-700">
+            <input
+              id="production-add-new-design"
+              type="checkbox"
+              checked={isNewDesign}
+              onChange={(e) => setIsNewDesign(e.target.checked)}
+              className="h-5 w-5 rounded border-zinc-300"
+            />
+            แบบใหม่ (คิดค่าออกแบบ)
+          </label>
+          <p className="mt-0.5 pl-7 text-xs text-zinc-500">ติ๊กเฉพาะรอบที่ออกแบบใหม่ — ผลิตซ้ำแบบเดิมไม่ต้องติ๊ก</p>
+        </div>
+      )}
 
       {!skuOptionsError && skuOptions.length === 0 && (
         <p className="mt-1 text-xs text-zinc-400">
