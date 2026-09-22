@@ -311,6 +311,71 @@ migration ทุกตัวหลัง 0123 (0131/0138/0140/0141/0143/0144/014
 (ลอกจากตัวอย่างในสกิลนี้) — backend-dev ไปเช็คของจริงแล้วไม่ทำตาม แล้วรายงานกลับ **ถูกต้อง**
 ⇒ ยืนยันกฎประจำทีม: **ของจริงบน DB ชนะบรีฟเสมอ ไม่ว่าบรีฟจะมาจากใคร**
 
+### 18.1 revoke สามชื่อไม่เท่ากัน ต้องทำครบทั้งสาม
+
+สิทธิ์ execute มาถึง anon/authenticated ได้ **2 ทางที่ revoke คนละคำสั่งกัน**:
+
+| ทาง | มาจากไหน | ถอนด้วย | **ไม่**ถูกถอนด้วย |
+|---|---|---|---|
+| PUBLIC | `CREATE FUNCTION` grant ให้ PUBLIC อัตโนมัติทุกครั้ง | `revoke ... from public` | `revoke ... from anon, authenticated` |
+| grant ตรง | มีคนเขียน `grant ... to authenticated` | `revoke ... from anon, authenticated` | `revoke ... from public` |
+
+⇒ `revoke ... from public, anon, authenticated;` **ทั้งสามชื่อเสมอ** ไม่มีข้อยกเว้น
+
+⚠️ `has_function_privilege` คืน true **ทั้งสองทาง** ⇒ ใช้ตรวจว่า "ปิดแล้ว" ได้ แต่บอกไม่ได้ว่า
+สิทธิ์มาจากทางไหน — ถ้าต้องรู้ให้ดู `proacl` ตรงๆ (`=X/postgres` คือ PUBLIC)
+
+### 18.2 `revoke ... on all functions` ของ 0123 ถูกกัดเซาะเงียบๆ จาก migration ที่มาทีหลัง
+
+0123 ได้ผลจริง แต่ `revoke ... on all functions` มีผลกับฟังก์ชัน **ณ วินาทีที่รัน** เท่านั้น
+⇒ ทุก `create or replace` หลังจากนั้นที่ re-grant ตาม boilerplate เก่า (ข้อ 2) เปิดกลับทีละตัว
+ตรวจ 22 ก.ย. 69 เจอ **9 ครั้งใน 3 วัน** — ทั้งหมดเกิด *หลัง* 0123:
+
+```
+0125:260 · 0126:215 · 0127:286 · 0128:319  ->  shop_setting_upsert
+0127:353 · 0128:420                        ->  oem_metal_price_set
+0141:985 · 0142:314                        ->  product_upsert
+0140:833                                   ->  oem_price_calc
+```
+
+บวกอีก 3 ตัวที่เป็นสิทธิ์ PUBLIC ติดมาจาก `CREATE FUNCTION` ซึ่ง 0123 ไม่เคยแตะ
+(`crm_audit_log_append_only`, `crm_feature_flag_touch`, `crm_overview_summary`)
+⇒ รวม 7 ตัว ถอนทั้งหมดใน **0147**
+
+🔴 **กับดักซ้อน — ของพวกนี้ไม่โผล่ใน `get_advisors` เลย**: พอสคีมาไม่อยู่ใน exposed API
+schema ของ PostgREST แล้ว linter จะข้ามไป (advisor เห็นแต่ฟังก์ชันใน `public`)
+⇒ **advisor สะอาดไม่ได้แปลว่าไม่มี grant ค้าง** อย่าใช้เป็นด่านเดียว
+
+### 18.3 ด่านที่ต้องรัน
+
+```
+node scripts/run-sql.mjs scripts/check-analytics-grants.sql
+```
+กวาดทั้งสคีมาด้วย `aclexplode` (**ไม่ผูกรายชื่อฟังก์ชัน** ⇒ ฟังก์ชันใหม่ถูกคุ้มครองเอง)
+รัน **หลัง apply migration ที่แตะฟังก์ชันใน analytics** และ 🔴 **หลัง rebuild/restore/branch DB
+ใหม่ทุกครั้ง** — replay migration ทั้งชุดคือจุดที่ grant เก่าฟื้นกลับมาได้
+
+### 18.4 ❌ event trigger ถอน grant อัตโนมัติ — ปฏิเสธแล้ว อย่าเสนอซ้ำ
+
+เสนอเมื่อ 22 ก.ย. 69 — **ปฏิเสธ** เพราะ: (1) Supabase ต้องเป็น `supabase_admin` ถึงจะ
+`create event trigger` ได้ `postgres` ทำไม่ได้เสถียร (2) ด่านที่ถอน grant เงียบๆ สร้างอาการ
+"โค้ดถูกแต่เรียกไม่ได้" = กับดักข้อ 2 กลับหัว หาสาเหตุยากกว่าเดิม (3) ไม่ปรากฏในประวัติ
+migration (ขัดข้อ 10)
+
+### 18.5 verify ของงาน grant — ห้ามจบที่ `has_function_privilege`
+
+การอ่าน ACL พิสูจน์แค่ว่า "ตัวเลขถูก" ไม่ได้พิสูจน์พฤติกรรม ต้องมีเคสที่ **จำลองวันที่กำแพง
+ชั้นนอกหลุด**: `grant usage on schema analytics to authenticated` กลับเข้าไปในทรานแซกชัน
+ทดสอบ → `set local role authenticated` → ยิงฟังก์ชันจริง → ต้องตกที่ `42501 permission
+denied for function` → `reset role` → `revoke usage` (ดู `scripts/verify-0147.sql` Part 4c)
+
+ส่ง `null` ทุกพารามิเตอร์ได้ปลอดภัยแม้กับ SECURITY DEFINER ที่เขียนข้อมูล เพราะ Postgres
+เช็ค EXECUTE **ก่อน** body รัน ⇒ ไม่มีทางเข้าไปถึงเนื้อฟังก์ชัน
+
+ทำนองเดียวกัน การพิสูจน์ว่า **trigger ไม่พังหลัง revoke** ต้องยิงจาก role ที่ไม่มี execute grant
+จริงๆ (revoke จาก `service_role` ชั่วคราวแล้ว `set local role service_role`) — รันเป็น `postgres`
+เฉยๆ พิสูจน์อะไรไม่ได้เพราะ owner มีสิทธิ์อยู่แล้ว
+
 ---
 
 ## 19. 🔴 `UPDATE` ใน migration ยิง trigger ของตารางนั้นด้วย — แม้ค่าจะไม่เปลี่ยน
