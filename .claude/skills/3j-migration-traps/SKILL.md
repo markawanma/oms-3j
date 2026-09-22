@@ -44,11 +44,16 @@ from pg_proc where pronamespace='analytics'::regnamespace and proname='ชื่
 อาการ: โค้ดถูกทุกอย่าง แต่ฝั่งแอปเรียกไม่ได้ ขึ้น permission denied
 
 ```sql
-revoke execute on function analytics.ชื่อ(args) from public, anon;
-grant  execute on function analytics.ชื่อ(args) to authenticated, service_role;
+revoke execute on function analytics.ชื่อ(args) from public, anon, authenticated;
+grant  execute on function analytics.ชื่อ(args) to service_role;
 ```
 
 ต้องทำ **ทุกฟังก์ชัน ทุกครั้ง** ที่แตะ — ไม่มีข้อยกเว้น
+
+🔴 **ตัวอย่างนี้เคยเขียนว่า `to authenticated, service_role` ซึ่งผิดตั้งแต่ 0123 — แก้แล้ว 22 ก.ย. 69**
+สคีมา `analytics` ปิด REST ให้ `anon`/`authenticated` ไปทั้งสคีมาแล้ว **ดูข้อ 18**
+และ `revoke ... from public` อย่างเดียวไม่พอบน Supabase เพราะ `anon`/`authenticated` ได้สิทธิ์
+**แยกจาก PUBLIC** ต้องระบุทั้งสามตัวเสมอ
 
 ---
 
@@ -205,6 +210,7 @@ SQL ยังถูกไวยากรณ์ทุกอย่าง ผ่า
 - [ ] มีลำดับ `$`+`$` ในคอมเมนต์ข้างใน do-block ไหม (ข้อ 15)
 - [ ] ชุดทดสอบใช้ตัวแปรซ้ำข้ามชนิดไหม — int รับ numeric = ปัดเศษเงียบ (ข้อ 16)
 - [ ] **มีเคส "ยิงฟังก์ชันใหม่ใส่ข้อมูลเก่าทุกโหมดที่มีจริง" หรือยัง** ไม่ใช่แค่ fixture ใหม่ (ข้อ 17)
+- [ ] มี `grant ... to authenticated` หรือ `anon` ในไฟล์ไหม → **ตีตกทันทีถ้าเป็นสคีมา `analytics`** (ข้อ 18) · ตัวอย่างเก่าในสกิลนี้เขียนไว้ผิด อย่าลอก
 
 ---
 
@@ -276,3 +282,68 @@ Postgres ประกอบแถวที่จะแทรกแล้ว **�
 
 **กฎ**: RPC/ฟังก์ชันใหม่ทุกตัว ต้องมีเคส **ยิงใส่ข้อมูลทุกโหมด/ทุกสถานะที่มีอยู่จริงบน prod**
 ไม่ใช่แค่ fixture ที่สร้างมาเพื่อทดสอบฟีเจอร์ใหม่
+
+---
+
+## 18. 🔴 `grant ... to authenticated` บนสคีมา `analytics` = เปิดรูที่ 0123 ปิดไปแล้ว
+
+`0122`→`0123`→`0124` (16 ก.ย. 69) **ปิด REST ของสคีมา `analytics` ทั้งสคีมา**
+ให้ `anon` และ `authenticated` รวมถึง revoke default privilege ไม่ให้ตารางใหม่ auto-grant
+พิสูจน์สดได้:
+
+```sql
+select has_schema_privilege('authenticated','analytics','usage');  -- false
+select has_schema_privilege('anon','analytics','usage');           -- false
+select has_schema_privilege('service_role','analytics','usage');   -- true
+```
+
+⇒ ตารางใหม่ในสคีมานี้ **grant ให้ `service_role` อย่างเดียว**
+migration ทุกตัวหลัง 0123 (0131/0138/0140/0141/0143/0144/0145/0146) ทำแบบนี้หมด
+
+🔴 **กับดักคือตัวอย่างเก่าในสกิลนี้เองและใน migration ก่อน 0123** ยังเขียน
+`grant ... to authenticated, service_role` อยู่ — **ลอกมาใช้ = เป็น grant ตัวเดียวในระบบที่เปิดรูกลับ**
+
+**หน้าเว็บอ่านข้อมูลยังไงถ้า `authenticated` เข้าไม่ได้**: อ่านฝั่ง server ด้วย service role
+ผ่าน server action / RPC `security definer` + `crm_require_owner_admin` — **ไม่ได้อ่านตรงผ่าน PostgREST**
+⇒ ถ้ารู้สึกว่า "ต้อง grant ให้ authenticated ไม่งั้น UI พัง" แปลว่ากำลังจะต่อผิดชั้น
+
+**เกิดจริง 22 ก.ย. 69**: Tech Lead เขียนบรีฟสั่งให้ grant ให้ `authenticated`
+(ลอกจากตัวอย่างในสกิลนี้) — backend-dev ไปเช็คของจริงแล้วไม่ทำตาม แล้วรายงานกลับ **ถูกต้อง**
+⇒ ยืนยันกฎประจำทีม: **ของจริงบน DB ชนะบรีฟเสมอ ไม่ว่าบรีฟจะมาจากใคร**
+
+---
+
+## 19. 🔴 `UPDATE` ใน migration ยิง trigger ของตารางนั้นด้วย — แม้ค่าจะไม่เปลี่ยน
+
+`set_updated_at()` แบบมาตรฐานเขียนว่า `new.updated_at = now()` **ไม่มีเงื่อนไข**
+⇒ แถวที่ `set x = null` ทับ `null` (ไม่เปลี่ยนอะไรเลย) **ก็ยังโดน** เพราะ BEFORE UPDATE ยิงตาม
+จำนวนแถวที่ `where` จับได้ ไม่ใช่ตามจำนวนแถวที่ค่าเปลี่ยนจริง
+
+**เกิดจริง 22 ก.ย. 69 — จับได้ที่ด่าน security ไม่ใช่ที่ชุดทดสอบ 24 เคส**
+`0145` backfill `campaign_step.goal_kpi_code` ด้วย
+`where goal_kpi_code is null and goal_kpi_code_source is null` — คอลัมน์เพิ่งถูก `add` ⇒
+**ตรงกับทุกแถว** ⇒ ยิง 55 แถว รวม 17 แถวที่ map ไม่ได้และตั้งใจให้เป็น null อยู่แล้ว
+ผล: `count(distinct updated_at)` ยุบจาก **7 → 1** ประวัติที่กระจายตั้งแต่ 15 ส.ค. ถึง 21 ก.ย. หายถาวร
+
+🔴 **สิ่งที่ทำให้มันอันตรายเป็นพิเศษ: ไม่มีใครเห็นตอนเกิด** — แอปไม่ได้อ่าน `updated_at` ตัวนี้
+ไม่มี error ไม่มีเทสต์ตก และไม่มีคอลัมน์สำรองให้กู้ ⇒ รู้ตัวอีกทีตอนที่อยากรู้ว่า "แถวนี้แก้เมื่อไหร่"
+
+### กฎ
+
+1. **ก่อนเขียน `UPDATE` ในmigration ให้ query `pg_trigger` ของตารางนั้นก่อนเสมอ**
+   ```sql
+   select tgname, pg_get_triggerdef(oid) from pg_trigger
+   where tgrelid = 'analytics.ชื่อตาราง'::regclass and not tgisinternal;
+   ```
+2. **แคบ `where` ให้เหลือเฉพาะแถวที่ค่าเปลี่ยนจริง** — อย่าพึ่ง `where col is null` ตอนที่
+   คอลัมน์เพิ่ง `add` เพราะมันคือ "ทุกแถว" เสมอ · ระบุเงื่อนไขฝั่งข้อมูลต้นทางด้วย
+   (เช่น `and step_kind in (...)` เฉพาะ kind ที่ map ได้)
+3. **backfill ของระบบไม่ใช่การแก้โดยคน** ⇒ ถ้ามีคอลัมน์บันทึกที่มาอยู่แล้ว
+   (เช่น `..._source = 'auto_step_kind'`) ให้ปิด trigger ระหว่าง backfill
+   `alter table X disable trigger ชื่อ;` … `enable trigger ชื่อ;` **ในทรานแซกชันเดียวกัน**
+   (ต้องเป็นเจ้าของตาราง — `postgres` เป็นเจ้าของอยู่แล้ว ล็อก ACCESS EXCLUSIVE ชั่วขณะ)
+4. **เทสต์ต้องล็อกไว้**: เก็บ `md5(string_agg(updated_at, '|' order by id))` ก่อน แล้ว assert เท่าเดิมหลัง
+   \+ assert `count(distinct updated_at)` เท่าเดิม
+
+**ญาติสนิทของข้อ 13** (ด่านตาบอด) แต่คนละหน้า: ข้อ 13 คือ *อ่าน* ค่าว่างผิดชนิด ·
+ข้อนี้คือ *เขียน* ทับของที่ไม่ได้ตั้งใจแตะ — ทั้งคู่เงียบเท่ากัน
