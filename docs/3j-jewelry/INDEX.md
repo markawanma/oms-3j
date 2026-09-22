@@ -72,6 +72,7 @@
 | โฟลเดอร์ | คือ | หมายเหตุ |
 |---|---|---|
 | `analytics/` | design docs ของ 3J Insight ทุก phase | ✅ ใช้อ้าง design — ตัวเลขในนั้นคือ snapshot ห้ามใช้แทน query |
+| `analytics/content-kpi-definition.md` | 🔝 **เอกสารชี้ขาดว่าวัดผล content ยังไง** (22 ก.ย. 69) — 4 ตัวเลขบนจอ · กติกา T+7/T+3 · **สิ่งที่วัดไม่ได้ถาวร** (CTR/ROAS/SKU lift/คอมเมนต์ถามซื้อ) · "บันทึก" คือสัญญาณดีสุดและ API ไม่ให้ · ตารางเห็นแบบนี้ทำแบบนี้ | ✅ current — **ใครจะเสนอ KPI ชุดใหม่ ต้องอ่านก่อนแล้วบอกว่าแทนที่ข้อไหน** |
 | `design-system/` + `cad/` | ระบบออกแบบเครื่องประดับ (Sabé) | ✅ current |
 | `brand-ops/` | brand brief / NAP / prompt | ✅ current |
 | `oms/` · `ops-app/` · `oem/` · `design/` | design docs ตามระบบ — `oms/system-flow-2026-09.md` = วงจรระบบ + **มติเจ้าของ 17 ก.ย. 69** (สต็อก opt-in ต่อ SKU / live-SKU ไม่นับ / ขายดี qty+THB แยกช่องทาง / เตือน LINE / variant แม่-ลูกตาม TikTok) — ขัดกับ memory ให้ถือไฟล์นี้ | ✅ ใช้อ้าง design |
