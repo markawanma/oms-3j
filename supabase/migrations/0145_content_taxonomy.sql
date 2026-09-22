@@ -19,18 +19,24 @@
 --    revoke ไว้ล่วงหน้าไม่ให้ตารางใหม่ auto-grant authenticated อีก (0123 M-1).
 --    migrations หลัง 0123 ทุกตัว (ตรวจแล้ว 0131/0138/0140/0141/0143/0144)
 --    grant ให้ service_role อย่างเดียว ไม่มี `to authenticated` แล้ว —
---    brief นี้/สกิล 3j-migration-traps อ้างแพตเทิร์นเก่าของ live_session_log
---    (0121, ก่อน 0123) ที่ grant ให้ authenticated ด้วย ถ้าทำตามนั้นตรงๆ
---    = เปิดรูที่ 0123 เพิ่งปิดกลับมาใหม่สำหรับอ็อบเจกต์ในไฟล์นี้. ไฟล์นี้จึง
---    grant table/view select ให้ service_role อย่างเดียว ตาม convention ล่าสุด
---    (RLS policy ยังเขียนไว้เผื่ออนาคต role มาจาก session เต็มรูปแบบแล้ว
---    analytics ถูกเปิด REST อีกครั้ง — แต่วันนี้ policy เป็นแค่ defense-in-depth
---    เพราะ GRANT/USAGE ระดับ schema ยังปิดอยู่).
+--    ยืนยันโดย security-auditor 22 ก.ย. 69 ด้วย (แก้ตัวอย่างในสกิล
+--    3j-migration-traps แล้ว + เพิ่มข้อ 18) ไฟล์นี้จึง grant table/view select
+--    ให้ service_role อย่างเดียว (RLS policy ยังเขียนไว้เผื่ออนาคต role มาจาก
+--    session เต็มรูปแบบแล้ว analytics ถูกเปิด REST อีกครั้ง — แต่วันนี้ policy
+--    เป็นแค่ defense-in-depth เพราะ GRANT/USAGE ระดับ schema ยังปิดอยู่).
 --
 -- 2. v_campaign_board ปัจจุบัน (query pg_get_viewdef สดวันนี้) มี reloption
 --    security_invoker=true และ 33 คอลัมน์ — ตรงกับที่บรีฟบอก (ยืนยันด้วย
 --    query จริง ไม่ได้ลอกจากไฟล์ 0060) จึงใช้ select list ที่ลอกจากนิยามสดนี้
 --    ต่อท้าย 3 คอลัมน์ตามบรีฟ.
+--
+-- 3. security round 1 (22 ก.ย. 69, H1): trg_campaign_step_updated_at ยิง
+--    `new.updated_at = now()` แบบไม่มีเงื่อนไขทุก UPDATE ที่ตรง where — backfill
+--    เดิมใช้ `where goal_kpi_code is null and goal_kpi_code_source is null`
+--    ซึ่งตรงกับ "ทุกแถว" เพราะคอลัมน์เพิ่ง add (3j-migration-traps #19) จะยุบ
+--    ประวัติ updated_at เดิม 7 ค่า (15 ส.ค.–21 ก.ย.) เหลือ 1 ถาวร แก้แล้วโดย
+--    แคบ where เหลือเฉพาะ step_kind 9 ตัวที่ map ได้จริง + ปิด/เปิด trigger
+--    คร่อม UPDATE เดียวกัน (ดู §3 ด้านล่าง).
 -- ============================================================================
 
 -- ============================================================================
@@ -65,16 +71,16 @@ create policy read_all on analytics.content_type
 
 grant select on analytics.content_type to service_role;
 
+-- do nothing on conflict (security M8, 22 ก.ย. 69): "ห้าม re-palette" ต้องจริง
+-- แม้ไฟล์นี้ถูกรันซ้ำ — do update จะทับสีที่เจ้าของแก้เองทิ้งทุกครั้งที่ apply
+-- ซ้ำ ขัดกับคอมเมนต์ตัวเองในไฟล์เดียวกัน. แก้สีในอนาคต = migration ใหม่.
 insert into analytics.content_type (code, label_th, color_hex, sort_order) values
   ('drive_live', 'พาเข้าไลฟ์', '#a2191d', 10),
   ('knowledge', 'ความรู้', '#1f3a5f', 20),
   ('craft', 'ช่าง/โรงงาน', '#6b4a2e', 30),
   ('customer', 'ลูกค้า/ความสัมพันธ์', '#4f7f6a', 40),
   ('announce', 'เทศกาล/ประกาศ', '#8a8f94', 50)
-on conflict (code) do update set
-  label_th = excluded.label_th,
-  color_hex = excluded.color_hex,
-  sort_order = excluded.sort_order;
+on conflict (code) do nothing;
 
 -- ============================================================================
 -- 2. analytics.campaign_step — เพิ่ม 3 คอลัมน์ nullable ล้วน (additive)
@@ -109,34 +115,45 @@ comment on column analytics.campaign_step.goal_kpi_code_source is
 
 -- ============================================================================
 -- 3. Backfill goal_kpi_code จาก step_kind เท่านั้น (structured, ไม่ parse
---    goal_kpi เดิม) — where guard กันทับค่าที่มีอยู่แล้ว (idempotent, และเผื่อ
---    อนาคตมี owner override ก่อน migration ถูกรันซ้ำ).
+--    goal_kpi เดิม) — where แคบเฉพาะ 9 step_kind ที่ map ได้จริงเท่านั้น
+--    (3j-migration-traps #19): ห้ามพึ่ง `goal_kpi_code is null` เป็นเงื่อนไข
+--    หลัก เพราะคอลัมน์เพิ่ง add ⇒ ตรงกับ "ทุกแถว" เสมอ รวม 17 แถวกำกวมที่
+--    ตั้งใจให้เป็น null อยู่แล้ว (set null->null ไม่เปลี่ยนค่าอะไรเลย แต่ยัง
+--    โดน trigger updated_at อยู่ดีถ้า where จับแถวนั้น).
+--
+--    ปิด/เปิด trigger คร่อม UPDATE เดียวกัน: backfill ของระบบไม่ใช่การแก้โดยคน
+--    และ goal_kpi_code_source='auto_step_kind' บันทึกที่มาไว้แล้ว จึงไม่ต้อง
+--    ยืม updated_at มาเล่าเรื่องซ้ำ — migration รันด้วย postgres (เจ้าของตาราง)
+--    ปิด/เปิดได้ ล็อก ACCESS EXCLUSIVE สั้นๆ ระหว่างนั้นเท่านั้น.
 -- ============================================================================
+
+alter table analytics.campaign_step disable trigger trg_campaign_step_updated_at;
 
 update analytics.campaign_step
 set
   goal_kpi_code = case step_kind
-    when 'pre_live_hook' then 'drive_live'
-    when 'teaser'        then 'drive_live'
-    when 'live_cta'      then 'drive_live'
-    when 'segment_offer' then 'drive_sku'
-    when 'last_call'     then 'drive_sku'
-    when 'main_day'      then 'drive_sku'
-    when 'post_sale'     then 'drive_sku'
+    when 'pre_live_hook'  then 'drive_live'
+    when 'teaser'         then 'drive_live'
+    when 'live_cta'       then 'drive_live'
+    when 'segment_offer'  then 'drive_sku'
+    when 'last_call'      then 'drive_sku'
+    when 'main_day'       then 'drive_sku'
+    when 'post_sale'      then 'drive_sku'
     when 'followup_nudge' then 'drive_sku'
-    when 'insert_card'   then 'collect_line'
-    else null
+    when 'insert_card'    then 'collect_line'
   end,
-  goal_kpi_code_source = case
-    when step_kind in (
-      'pre_live_hook', 'teaser', 'live_cta',
-      'segment_offer', 'last_call', 'main_day', 'post_sale', 'followup_nudge',
-      'insert_card'
-    ) then 'auto_step_kind'
-    else null
-  end
-where goal_kpi_code is null
-  and goal_kpi_code_source is null;
+  goal_kpi_code_source = 'auto_step_kind'
+where step_kind in (
+  'pre_live_hook', 'teaser', 'live_cta',
+  'segment_offer', 'last_call', 'main_day', 'post_sale', 'followup_nudge',
+  'insert_card'
+)
+-- idempotent guard: ไม่ทับ owner override ในอนาคตถ้าไฟล์นี้ถูกรันซ้ำ (ตอนนี้
+-- ยังไม่มีทางเกิดเพราะทุกแถวยังเป็น null ตอนสร้างคอลัมน์ — เผื่ออนาคต)
+and goal_kpi_code is null
+and goal_kpi_code_source is null;
+
+alter table analytics.campaign_step enable trigger trg_campaign_step_updated_at;
 
 -- ============================================================================
 -- 4. analytics.v_campaign_board — create or replace, ต่อท้าย 3 คอลัมน์ใหม่

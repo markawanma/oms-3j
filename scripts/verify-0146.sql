@@ -56,10 +56,28 @@ declare
   v_priv_auth   boolean;
   v_priv_svc    boolean;
   v_overload_count int;
-  v_grant_leak_count int;
+
+  -- M5/M6 (security round 1, 22 ก.ย. 69): role_table_grants เดิมมองไม่เห็น
+  -- grantee=PUBLIC และไม่นับ column-level grant ⇒ เปลี่ยนไปใช้
+  -- has_table_privilege + relacl ตรงๆ, และเพิ่มเช็ค schema usage (invariant
+  -- หลักของ 0123) แยกจาก verify-0145.sql เพื่อให้ไฟล์นี้ยืนยันตัวเองได้ถ้าถูก
+  -- รันแยกหลัง apply จริง
+  v_tbl  text;
+  v_role text;
+  v_priv text;
+  v_priv_leak_count  int := 0;
+  v_public_acl_count int;
+  v_su_authenticated boolean;
+  v_su_anon          boolean;
+  v_su_service_role  boolean;
 
   -- ---- group D: table constraints ----
   v_constraint_ok boolean;
+
+  -- ---- group E: M1 NaN (security round 1, 22 ก.ย. 69) ----
+  v_nan_check_pass boolean;
+  v_nan_lock_date  date := date '2020-06-05';
+  v_nan_ratio      numeric;
 begin
   perform set_config('request.jwt.claims', '{"role":"service_role"}', true);
   v_today := (now() at time zone 'Asia/Bangkok')::date;
@@ -245,16 +263,43 @@ begin
     v_log := v_log || format('T_overload: FAIL — พบ %s overload', v_overload_count) || E'\n';
   end if;
 
-  select count(*) into v_grant_leak_count
-  from information_schema.role_table_grants
-  where table_schema = 'analytics'
-    and table_name in ('live_night_snapshot', 'channel_follower_log', 'v_live_night_locked')
-    and grantee in ('anon', 'authenticated');
+  -- T_M5 (security round 1, 22 ก.ย. 69): role_table_grants เดิมมองไม่เห็น
+  -- grantee=PUBLIC และไม่นับ column-level grant ⇒ ใช้ has_table_privilege
+  -- ตรงๆ (ผล ACL ที่ resolve แล้วจริง) + เช็ค relacl ว่าไม่มี grantee ว่าง (=PUBLIC)
+  foreach v_tbl in array array['live_night_snapshot', 'channel_follower_log', 'v_live_night_locked'] loop
+    foreach v_role in array array['anon', 'authenticated'] loop
+      foreach v_priv in array array['select', 'insert', 'update', 'delete'] loop
+        if has_table_privilege(v_role, 'analytics.' || v_tbl, v_priv) then
+          v_priv_leak_count := v_priv_leak_count + 1;
+        end if;
+      end loop;
+    end loop;
+  end loop;
 
-  if v_grant_leak_count = 0 then
-    v_log := v_log || 'T_grant (live_night_snapshot/channel_follower_log/v_live_night_locked ไม่มี grant หลุดให้ anon/authenticated): PASS' || E'\n';
+  select count(*) into v_public_acl_count
+  from pg_class c
+  cross join lateral aclexplode(c.relacl) a
+  where c.relnamespace = 'analytics'::regnamespace
+    and c.relname in ('live_night_snapshot', 'channel_follower_log', 'v_live_night_locked')
+    and a.grantee = 0;  -- grantee=0 ใน aclexplode() คือ PUBLIC
+
+  if v_priv_leak_count = 0 and v_public_acl_count = 0 then
+    v_log := v_log || 'T_M5 (has_table_privilege: anon/authenticated ไม่มี select/insert/update/delete บน 3 อ็อบเจกต์ใหม่ + ไม่มี PUBLIC ใน relacl): PASS' || E'\n';
   else
-    v_log := v_log || format('T_grant: FAIL — พบ %s grant(s) หลุด', v_grant_leak_count) || E'\n';
+    v_log := v_log || format('T_M5: FAIL — priv_leak_count=%s public_acl_count=%s', v_priv_leak_count, v_public_acl_count) || E'\n';
+  end if;
+
+  -- T_M6 — invariant หลักที่กันทุกอย่างอยู่ (0123): authenticated/anon ต้องไม่มี
+  -- USAGE บนสคีมา analytics เลย (ซ้ำกับ verify-0145.sql โดยตั้งใจ — ให้ไฟล์นี้
+  -- ยืนยันตัวเองได้ถ้าถูกรันแยกหลัง apply จริง)
+  select has_schema_privilege('authenticated', 'analytics', 'usage') into v_su_authenticated;
+  select has_schema_privilege('anon', 'analytics', 'usage') into v_su_anon;
+  select has_schema_privilege('service_role', 'analytics', 'usage') into v_su_service_role;
+
+  if v_su_authenticated is false and v_su_anon is false and v_su_service_role is true then
+    v_log := v_log || 'T_M6 (has_schema_privilege: authenticated/anon=false, service_role=true บนสคีมา analytics): PASS' || E'\n';
+  else
+    v_log := v_log || format('T_M6: FAIL — authenticated=%s anon=%s service_role=%s', v_su_authenticated, v_su_anon, v_su_service_role) || E'\n';
   end if;
 
   -- --------------------------------------------------------------------
@@ -297,6 +342,41 @@ begin
   exception when others then
     v_log := v_log || format('T_constraints_good: FAIL — %s', sqlerrm) || E'\n';
   end;
+
+  -- --------------------------------------------------------------------
+  -- group E — T_M1 (security round 1, 22 ก.ย. 69, 3j-migration-traps #4):
+  -- CHECK เดิม `live_hours >= 0` ปล่อย NaN ผ่าน (NaN >= 0 = true ใน Postgres)
+  -- แก้เป็น bound บน 24 ชม. ทั้ง CHECK ของตารางและ view — เทสต์ทั้งสองชั้น
+  -- --------------------------------------------------------------------
+  v_nan_check_pass := true;
+  begin
+    insert into analytics.live_night_snapshot
+      (shop_id, live_date, age_days, day_orders, day_revenue, day_revenue_ex_bar, live_sku_orders, live_sku_revenue, live_hours)
+      values (v_shop_id, v_nan_lock_date, 3, 0, 0, 0, 0, 0, 'NaN'::numeric);
+    v_nan_check_pass := false; -- ไม่ควรถึงบรรทัดนี้
+  exception when check_violation then
+    null; -- ตามคาด
+  end;
+
+  if v_nan_check_pass then
+    v_log := v_log || 'T_M1a (live_night_snapshot CHECK ตีตก live_hours=NaN ที่ระดับตาราง): PASS' || E'\n';
+  else
+    v_log := v_log || 'T_M1a: FAIL — live_hours=NaN ถูก insert ผ่าน CHECK ทั้งที่ควรถูกปฏิเสธ' || E'\n';
+  end if;
+
+  -- ตารางบล็อก NaN ไปแล้วที่ CHECK ⇒ ทดสอบนิพจน์เดียวกับที่ v_live_night_locked
+  -- ใช้จริงในระดับ unit (คัดลอกเงื่อนไขมาตรงๆ) เพื่อพิสูจน์ชั้น view เองก็
+  -- null-safe อิสระจากตาราง (defense-in-depth เผื่อ CHECK ถูกผ่อนในอนาคต)
+  select case
+    when 'NaN'::numeric is null or not ('NaN'::numeric > 0 and 'NaN'::numeric <= 24) then null
+    else round(999::numeric / 'NaN'::numeric, 2)
+  end into v_nan_ratio;
+
+  if v_nan_ratio is null then
+    v_log := v_log || 'T_M1b (นิพจน์เดียวกับ v_live_night_locked: live_hours=NaN -> ratio ได้ null ไม่ใช่ NaN): PASS' || E'\n';
+  else
+    v_log := v_log || format('T_M1b: FAIL — ได้ %s แทนที่จะเป็น null', v_nan_ratio) || E'\n';
+  end if;
 
   raise exception '%', v_log;  -- บังคับ rollback ทั้งก้อน (3j-migration-traps #11) — DB ไม่ขยับจริง (รวมทั้ง pg_cron job ที่ถูก schedule ในทรานแซกชันเดียวกันถ้ารันต่อจากไฟล์ migration)
 end;

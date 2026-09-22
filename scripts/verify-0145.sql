@@ -4,9 +4,13 @@
 --
 -- วิธีรัน (ต้องรันหลัง DDL ของ 0145 มีอยู่จริงในทรานแซกชันเดียวกันหรือหลัง
 -- apply จริงแล้ว):
---   node scripts/run-sql.mjs supabase/migrations/0145_content_taxonomy.sql   (เตรียม schema ใน dry-run เดียวกันไม่ได้ ต้องต่อไฟล์)
---   หรือรันไฟล์รวม 0145+verify ในทรานแซกชันเดียว (ที่ backend-dev ใช้ตอนซ้อม)
---   หรือหลัง Tech Lead apply 0145 จริงแล้ว: node scripts/run-sql.mjs scripts/verify-0145.sql
+--   ต่อไฟล์ supabase/migrations/0145_content_taxonomy.sql + ไฟล์นี้เข้าด้วยกัน
+--   แล้วรันผ่าน node scripts/run-sql.mjs (dry-run เดียวกัน) — หรือหลัง Tech
+--   Lead apply 0145 จริงแล้ว: node scripts/run-sql.mjs scripts/verify-0145.sql
+--
+-- แก้รอบ 2 (22 ก.ย. 69, security round 1 CONDITIONAL GO): เพิ่ม T_H1 (บล็อก
+-- apply), T_M2/T_M5/T_M6/T_M8 ใหม่ + แก้ T_clip_brief (M7: นับรอบจริง +
+-- ตัวเลขถูกต้อง 16 ไม่ใช่ 65)
 --
 -- อ่านผลจาก NOTICE — บรรทัดรูปแบบ "ชื่อเทสต์: PASS/FAIL" ทุกข้อ
 -- นับ FAIL ด้วย: grep -o ': FAIL' (ไม่ grep คำว่า FAIL เฉยๆ)
@@ -17,8 +21,6 @@ declare
 
   -- ชนิดแยกตามความหมายเสมอ (3j-migration-traps #16) ห้ามใช้ซ้ำข้ามชนิด/ความหมาย
   v_col_count      int;
-  v_new_col_count  int;
-  v_mismatch_count int;
   v_board_rows     int;
   v_board_cols     text;
   v_expect_cols    text[];
@@ -33,9 +35,32 @@ declare
   v_ambiguous_total_count int;
   v_check_pass     boolean;
   v_clip_brief_row record;
+  v_clip_brief_iter_count int := 0;
   v_clip_brief_fail_count int := 0;
-  v_grant_leak_count int;
-  i int;
+
+  -- T_H1 (security H1, บล็อก apply) — updated_at ของ campaign_step ห้ามถูก
+  -- backfill ทุบ. baseline capture สดก่อน migration 22 ก.ย. 69.
+  v_updated_at_md5        text;
+  v_updated_at_md5_expect text := 'e7fb67243e5287fb53e304c72cdd22c6';
+  v_updated_at_distinct   int;
+
+  -- T_M2 — mapping ที่ backfill เขียนจริงต้องถูก ไม่ใช่แค่ฝั่ง null
+  v_mapped_total     int;
+  v_mapping_mismatch int;
+
+  -- T_M5/T_M6 — grant/schema privilege ตรวจแบบทนต่อ PUBLIC + column-level grant
+  -- (role_table_grants เดิมมองไม่เห็นทั้งสองอย่างนี้)
+  v_tbl  text;
+  v_role text;
+  v_priv text;
+  v_priv_leak_count  int := 0;
+  v_public_acl_count int;
+  v_su_authenticated boolean;
+  v_su_anon          boolean;
+  v_su_service_role  boolean;
+
+  -- T_M8 — re-seed ต้องไม่ทับสีที่เจ้าของแก้เอง (on conflict do nothing)
+  v_seed_color_after text;
 begin
   -- --------------------------------------------------------------------
   -- T1 — v_campaign_board: 33 คอลัมน์เดิม ชื่อ/ลำดับ/ชนิด เหมือนเดิมเป๊ะ
@@ -146,6 +171,28 @@ begin
   end if;
 
   -- --------------------------------------------------------------------
+  -- T_H1 🔴 (security round 1, บล็อก apply) — backfill ต้องไม่ทุบ updated_at
+  -- เดิมของ campaign_step. baseline: md5 + count(distinct) capture สดก่อน
+  -- migration วันที่ 22 ก.ย. 69 (มี trigger trg_campaign_step_updated_at ที่
+  -- set new.updated_at=now() แบบไม่มีเงื่อนไข — 3j-migration-traps #19)
+  -- --------------------------------------------------------------------
+  select md5(string_agg(updated_at::text, '|' order by id)) into v_updated_at_md5
+  from analytics.campaign_step;
+
+  if v_updated_at_md5 = v_updated_at_md5_expect then
+    v_log := v_log || 'T_H1_md5 (updated_at ของทั้ง 55 แถว ไม่ถูกแตะจาก backfill — md5 ตรง): PASS' || E'\n';
+  else
+    v_log := v_log || format('T_H1_md5: FAIL — md5 ได้ %s คาด %s', v_updated_at_md5, v_updated_at_md5_expect) || E'\n';
+  end if;
+
+  select count(distinct updated_at) into v_updated_at_distinct from analytics.campaign_step;
+  if v_updated_at_distinct = 7 then
+    v_log := v_log || 'T_H1_distinct (count(distinct updated_at) ยังเป็น 7 เท่าเดิม ไม่ยุบเหลือ 1): PASS' || E'\n';
+  else
+    v_log := v_log || format('T_H1_distinct: FAIL — ได้ %s ค่า distinct (คาด 7)', v_updated_at_distinct) || E'\n';
+  end if;
+
+  -- --------------------------------------------------------------------
   -- T5 — content_type.color_hex CHECK ตีตกค่าไม่ถูกต้องทุกเคส (ทำใน
   -- savepoint ย่อยแยกแต่ละเคส กันเคสหนึ่ง error แล้วพาทั้ง block ตาย)
   -- --------------------------------------------------------------------
@@ -194,6 +241,25 @@ begin
   end;
 
   -- --------------------------------------------------------------------
+  -- T_M2 — mapping ที่ backfill "เขียนจริง" ต้องถูก ไม่ใช่แค่ตรวจฝั่ง null
+  -- (T10 ด้านล่างตรวจแค่ 17 แถว ambiguous — เคสนี้ตรวจ 38 แถวที่ backfill
+  -- เขียนค่าจริง ถ้า mapping ผิดที่ไหนสักที่ T10 อย่างเดียวจะไม่จับ)
+  -- --------------------------------------------------------------------
+  select count(*) into v_mapped_total from analytics.campaign_step where goal_kpi_code is not null;
+
+  select count(*) into v_mapping_mismatch from analytics.campaign_step
+  where (step_kind in ('pre_live_hook', 'teaser', 'live_cta') and goal_kpi_code is distinct from 'drive_live')
+     or (step_kind in ('segment_offer', 'last_call', 'main_day', 'post_sale', 'followup_nudge') and goal_kpi_code is distinct from 'drive_sku')
+     or (step_kind = 'insert_card' and goal_kpi_code is distinct from 'collect_line')
+     or (step_kind in ('content_task', 'vip_private_access', 'reconnect') and goal_kpi_code is not null);
+
+  if v_mapped_total = 38 and v_mapping_mismatch = 0 then
+    v_log := v_log || 'T_M2 (goal_kpi_code ที่ backfill เขียนจริงถูก mapping ครบทุก step_kind, รวม 38 แถว): PASS' || E'\n';
+  else
+    v_log := v_log || format('T_M2: FAIL — mapped_total=%s (คาด 38) mismatch=%s (คาด 0)', v_mapped_total, v_mapping_mismatch) || E'\n';
+  end if;
+
+  -- --------------------------------------------------------------------
   -- T10 — goal_kpi_code ของ step_kind กำกวม (content_task/vip_private_access/
   -- reconnect) ต้องเป็น null ทุกแถว ไม่เดา
   -- --------------------------------------------------------------------
@@ -211,13 +277,16 @@ begin
   end if;
 
   -- --------------------------------------------------------------------
-  -- ห้ามพัง (A) — assert_clip_brief_valid ต้องยังผ่านกับ 65 artifact เดิม
-  -- ทุกแถวที่มี clip_brief (migration นี้ไม่แตะ step_artifact เลย แต่บรีฟสั่ง
-  -- ให้ทดสอบไว้ตรงๆ)
+  -- ห้ามพัง (A) — assert_clip_brief_valid ต้องยังผ่านกับ artifact เดิมทุกแถว
+  -- ที่มี clip_brief (migration นี้ไม่แตะ step_artifact เลย แต่บรีฟสั่งให้
+  -- ทดสอบไว้ตรงๆ). M7 (security 22 ก.ย. 69): ของจริงมี clip_brief 16 แถว
+  -- ไม่ใช่ 65 (65 คือ step_artifact ทั้งหมด — เลขผิดในบรีฟรอบแรก) + ต้อง assert
+  -- ว่าลูปวนจริง ไม่ใช่ผ่านเพราะไม่วนสักรอบ (0 rows ก็ v_fail_count=0 เหมือนกัน)
   -- --------------------------------------------------------------------
   for v_clip_brief_row in
     select id, clip_brief from analytics.step_artifact where clip_brief is not null
   loop
+    v_clip_brief_iter_count := v_clip_brief_iter_count + 1;
     begin
       perform analytics.assert_clip_brief_valid(v_clip_brief_row.clip_brief);
     exception when others then
@@ -225,26 +294,76 @@ begin
     end;
   end loop;
 
-  if v_clip_brief_fail_count = 0 then
-    v_log := v_log || 'T_clip_brief (assert_clip_brief_valid ผ่านทุกแถวที่มี clip_brief เดิม): PASS' || E'\n';
+  if v_clip_brief_iter_count = 16 and v_clip_brief_fail_count = 0 then
+    v_log := v_log || 'T_clip_brief (วนครบ 16 แถวที่มี clip_brief จริง, assert_clip_brief_valid ผ่านทุกแถว): PASS' || E'\n';
   else
-    v_log := v_log || format('T_clip_brief: FAIL — %s แถว fail', v_clip_brief_fail_count) || E'\n';
+    v_log := v_log || format('T_clip_brief: FAIL — วนไป %s แถว (คาด 16), fail=%s', v_clip_brief_iter_count, v_clip_brief_fail_count) || E'\n';
   end if;
 
   -- --------------------------------------------------------------------
-  -- ห้ามพัง (B) — grant model: content_type/v_campaign_board ต้องไม่มี
-  -- anon/authenticated หลุดเข้ามา (0123 ปิดไว้แล้ว ต้องไม่เปิดกลับ)
+  -- T_M8 — re-seed content_type (on conflict do nothing) ต้องไม่ทับสีที่
+  -- เจ้าของแก้เอง (ของเดิมใช้ do update ซึ่งขัดกับคอมเมนต์ "ห้าม re-palette")
   -- --------------------------------------------------------------------
-  select count(*) into v_grant_leak_count
-  from information_schema.role_table_grants
-  where table_schema = 'analytics'
-    and table_name in ('content_type', 'v_campaign_board')
-    and grantee in ('anon', 'authenticated');
+  update analytics.content_type set color_hex = '#000000' where code = 'drive_live';
 
-  if v_grant_leak_count = 0 then
-    v_log := v_log || 'T_grant (content_type/v_campaign_board ไม่มี grant หลุดให้ anon/authenticated): PASS' || E'\n';
+  insert into analytics.content_type (code, label_th, color_hex, sort_order) values
+    ('drive_live', 'พาเข้าไลฟ์', '#a2191d', 10),
+    ('knowledge', 'ความรู้', '#1f3a5f', 20),
+    ('craft', 'ช่าง/โรงงาน', '#6b4a2e', 30),
+    ('customer', 'ลูกค้า/ความสัมพันธ์', '#4f7f6a', 40),
+    ('announce', 'เทศกาล/ประกาศ', '#8a8f94', 50)
+  on conflict (code) do nothing;
+
+  select color_hex into v_seed_color_after from analytics.content_type where code = 'drive_live';
+
+  if v_seed_color_after = '#000000' then
+    v_log := v_log || 'T_M8 (รัน seed ซ้ำไม่ทับสีที่เจ้าของแก้เอง — on conflict do nothing ถูกต้อง): PASS' || E'\n';
   else
-    v_log := v_log || format('T_grant: FAIL — พบ %s grant(s) หลุด', v_grant_leak_count) || E'\n';
+    v_log := v_log || format('T_M8: FAIL — สีถูกทับกลับเป็น %s', v_seed_color_after) || E'\n';
+  end if;
+
+  -- --------------------------------------------------------------------
+  -- ห้ามพัง (B) / T_M5 — grant model: content_type/v_campaign_board ต้องไม่มี
+  -- anon/authenticated เข้าถึงได้เลยไม่ว่าทางไหน. M5 (security 22 ก.ย. 69):
+  -- information_schema.role_table_grants เดิมมองไม่เห็น grantee=PUBLIC และ
+  -- ไม่นับ column-level grant ⇒ เปลี่ยนไปใช้ has_table_privilege ตรงๆ (เช็คผล
+  -- ACL ที่ resolve แล้วจริง) + เช็ค relacl ว่าไม่มี grantee ว่าง (=PUBLIC)
+  -- --------------------------------------------------------------------
+  foreach v_tbl in array array['content_type', 'v_campaign_board'] loop
+    foreach v_role in array array['anon', 'authenticated'] loop
+      foreach v_priv in array array['select', 'insert', 'update', 'delete'] loop
+        if has_table_privilege(v_role, 'analytics.' || v_tbl, v_priv) then
+          v_priv_leak_count := v_priv_leak_count + 1;
+        end if;
+      end loop;
+    end loop;
+  end loop;
+
+  select count(*) into v_public_acl_count
+  from pg_class c
+  cross join lateral aclexplode(c.relacl) a
+  where c.relnamespace = 'analytics'::regnamespace
+    and c.relname in ('content_type', 'v_campaign_board')
+    and a.grantee = 0;  -- grantee=0 ใน aclexplode() คือ PUBLIC
+
+  if v_priv_leak_count = 0 and v_public_acl_count = 0 then
+    v_log := v_log || 'T_M5 (has_table_privilege: anon/authenticated ไม่มี select/insert/update/delete บน content_type/v_campaign_board + ไม่มี PUBLIC ใน relacl): PASS' || E'\n';
+  else
+    v_log := v_log || format('T_M5: FAIL — priv_leak_count=%s public_acl_count=%s', v_priv_leak_count, v_public_acl_count) || E'\n';
+  end if;
+
+  -- --------------------------------------------------------------------
+  -- T_M6 — invariant หลักที่กันทุกอย่างอยู่ (0123): authenticated/anon ต้องไม่มี
+  -- USAGE บนสคีมา analytics เลย ถ้าวันหนึ่งมีใครเปิดกลับ เทสต์นี้ต้องกรีดร้อง
+  -- --------------------------------------------------------------------
+  select has_schema_privilege('authenticated', 'analytics', 'usage') into v_su_authenticated;
+  select has_schema_privilege('anon', 'analytics', 'usage') into v_su_anon;
+  select has_schema_privilege('service_role', 'analytics', 'usage') into v_su_service_role;
+
+  if v_su_authenticated is false and v_su_anon is false and v_su_service_role is true then
+    v_log := v_log || 'T_M6 (has_schema_privilege: authenticated/anon=false, service_role=true บนสคีมา analytics): PASS' || E'\n';
+  else
+    v_log := v_log || format('T_M6: FAIL — authenticated=%s anon=%s service_role=%s', v_su_authenticated, v_su_anon, v_su_service_role) || E'\n';
   end if;
 
   -- clean up test-only content_type rows ถ้ามีหลงเหลือ (กัน error ระหว่างทาง)

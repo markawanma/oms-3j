@@ -7,14 +7,13 @@
 -- Additive only — ไม่แตะ analytics.v_live_night/live_session_log ที่มีอยู่แล้ว.
 --
 -- ============================================================================
--- 🔴 ของจริงชนะบรีฟ — 2 จุดที่ต่างจากที่บรีฟสมมติ (ยืนยันด้วย query จริงวันนี้):
+-- 🔴 ของจริงชนะบรีฟ — จุดที่ต่างจากที่บรีฟสมมติ (ยืนยันด้วย query จริงวันนี้):
 --
 -- 1. Grant model: เหมือน 0145 — schema analytics ปิด REST ให้ anon/authenticated
 --    ทั้งหมดตั้งแต่ 0123 (16 ก.ย. 69) และ default privilege ก็ถูก revoke ไว้แล้ว
 --    ไฟล์นี้จึง grant select/execute ให้ service_role เท่านั้น ตาม convention
---    ของทุก migration หลัง 0123 (ตรวจแล้ว: 0131/0138/0140/0141/0143/0144 ไม่มี
---    `to authenticated` เหลืออยู่เลย) — บรีฟ/สกิลอ้างแพตเทิร์นเก่าของ 0121
---    (ก่อน 0123) ซึ่งจะเปิดรูที่ 0123 เพิ่งปิดกลับมาใหม่ถ้าทำตามตรงๆ.
+--    ของทุก migration หลัง 0123 — ยืนยันโดย security-auditor 22 ก.ย. 69 ด้วย
+--    (แก้ตัวอย่างในสกิล 3j-migration-traps แล้ว + เพิ่มข้อ 18).
 --
 -- 2. live_hours "เป็น null ได้" ตามบรีฟ — ตรวจ analytics.live_session_log (0121)
 --    แล้วพบว่า started_at/ended_at เป็น `not null` ทั้งคู่ ⇒ ทุกแถวที่มีอยู่จริง
@@ -27,6 +26,16 @@
 --    ทดสอบ peak_viewers เป็นหลักเพราะเป็นเคสที่เกิดได้จริงวันนี้ — รายงานเคส
 --    live_hours null ไว้ในสรุปว่าทดสอบผ่าน "expression-level" เท่านั้น ไม่มี
 --    เคสจริงในข้อมูลปัจจุบันให้พิสูจน์ end-to-end.
+--
+-- 3. security round 1 (22 ก.ย. 69, M1 — 3j-migration-traps #4): CHECK เดิม
+--    `live_hours >= 0` ปล่อย 'NaN'::numeric ผ่าน (NaN ถือว่ามากกว่าทุกค่าใน
+--    Postgres ⇒ NaN >= 0 = true) และ view เดิมเช็คแค่ `not (live_hours > 0)`
+--    ซึ่งก็ปล่อย NaN ไหลไปหารต่อเหมือนกัน (NaN > 0 = true ⇒ not(...) = false
+--    ⇒ ไม่เข้าสาขา null ⇒ day_revenue / NaN = NaN หลุดออกไป). วันนี้ไปไม่ถึง
+--    ผ่าน capture() เพราะ live_session_log กัน NaN ไว้ที่ CHECK ของตัวเอง
+--    (started_at/ended_at เป็น timestamptz ไม่มีทาง NaN) แต่ตาราง/view ของ
+--    ไฟล์นี้เขียนตรงได้โดยไม่ผ่าน capture() แก้เป็น bound บน 24 ชม. ทั้ง CHECK
+--    และ view ตาม 3j-migration-traps #4 (not(between) ฆ่า NaN ให้ฟรี).
 -- ============================================================================
 
 -- ============================================================================
@@ -52,7 +61,10 @@ create table if not exists analytics.live_night_snapshot (
   day_revenue_ex_bar numeric(14, 2) not null check (day_revenue_ex_bar >= 0),
   live_sku_orders    int not null check (live_sku_orders >= 0),
   live_sku_revenue   numeric(14, 2) not null check (live_sku_revenue >= 0),
-  live_hours         numeric(6, 2) check (live_hours is null or live_hours >= 0),
+  -- bound บน 24 ชม. (ไม่ใช่แค่ >= 0) ตั้งใจ — 3j-migration-traps #4: NaN ถือว่า
+  -- มากกว่าทุกค่าใน Postgres ⇒ 'NaN' >= 0 ผ่าน CHECK เดิม แต่ (x > 0 and x <= 24)
+  -- ฆ่า NaN ให้ฟรี (NaN <= 24 เป็น false เสมอ) — เห็นจริงจาก security 22 ก.ย. 69
+  live_hours         numeric(6, 2) check (live_hours is null or (live_hours > 0 and live_hours <= 24)),
   peak_viewers       int check (peak_viewers is null or peak_viewers >= 0),
   captured_at        timestamptz not null default now(),
   primary key (shop_id, live_date, age_days)
@@ -175,10 +187,12 @@ select distinct on (s.shop_id, s.live_date)
   s.live_hours,
   s.peak_viewers,
   s.captured_at,
-  -- not(> 0) กัน null และ 0 พร้อมกัน (3j-migration-traps #4/#13) — คำนวณไม่ได้
-  -- ต้องได้ null ไม่ใช่ 0 และห้าม division by zero
+  -- not(between 0 exclusive และ 24) กัน null/0/NaN พร้อมกัน (3j-migration-traps
+  -- #4/#13, แก้ตาม security M1 22 ก.ย. 69 — ของเดิมเช็คแค่ not(x>0) ซึ่งปล่อย
+  -- NaN ไหลผ่านไปหารต่อ เพราะ NaN>0 เป็น true ใน Postgres) — คำนวณไม่ได้ต้องได้
+  -- null ไม่ใช่ 0 และห้าม division by zero/NaN
   case
-    when s.live_hours is null or not (s.live_hours > 0) then null
+    when s.live_hours is null or not (s.live_hours > 0 and s.live_hours <= 24) then null
     else round(s.day_revenue / s.live_hours, 2)
   end as day_revenue_per_live_hour_locked
 from analytics.live_night_snapshot s
