@@ -3,6 +3,14 @@
 // MetalPriceSection — /oem/rates: ราคาโลหะ 3 ชนิด (บาท/กรัม), แยกจาก
 // oem_cost_rate (ไม่มี effective-dated scope เดียวกัน — append-only ตามวัน,
 // oem_price_calc อ่านค่าล่าสุด ณ as_of_date). เซฟทีละช่องตอน blur เหมือน RateCell.
+//
+// `todayBkk` (H1 fix, security round 2): "YYYY-MM-DD" for Asia/Bangkok
+// "today", computed by the Server Component at app/(dashboard)/oem/rates/
+// page.tsx and threaded down through RatesPageClient — NEVER computed here
+// with `new Date()`. A browser's local clock/timezone is untrustworthy, and
+// the DB gate this feature feeds (analytics.production_spot_resolve, 0131)
+// decides "today" with `(now() at time zone 'Asia/Bangkok')::date` — the
+// client must agree with THAT definition, not its own idea of the date.
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
@@ -23,7 +31,17 @@ import { MAX_SILVER_SPOT_THB_PER_GRAM, MIN_SILVER_SPOT_THB_PER_GRAM, silverSpotV
 // an admin types in here. See OemProductionMetal's comment in lib/oem/types.ts.
 const METALS: OemProductionMetal[] = ["silver", "gold", "brass"];
 
-function MetalPriceCell({ metal, current }: { metal: OemProductionMetal; current: OemMetalPriceMap[OemProductionMetal] }) {
+function MetalPriceCell({
+  metal,
+  current,
+  todayBkk,
+}: {
+  metal: OemProductionMetal;
+  current: OemMetalPriceMap[OemProductionMetal];
+  /** "YYYY-MM-DD", Asia/Bangkok, computed SERVER-SIDE (page.tsx) — never
+   * `new Date()` on the client. See MetalPriceSection's header comment. */
+  todayBkk: string;
+}) {
   const toast = useToast();
   const router = useRouter();
   const [value, setValue] = useState(current ? String(current.priceThbPerGram) : "");
@@ -72,6 +90,13 @@ function MetalPriceCell({ metal, current }: { metal: OemProductionMetal; current
 
   const isSilver = metal === "silver";
 
+  // H1 fix (security round 2): whether the price on file is NOT today's.
+  // `todayBkk` is server-computed (see the prop comment above + page.tsx) —
+  // comparing against it (not a client Date) is what makes this trustworthy.
+  // Only meaningful for silver (the only metal with a same-day sheet sync to
+  // warn about — see the isSilver block below), harmless to compute for all.
+  const isStale = !!current && current.asOfDate !== todayBkk;
+
   // S1 fix (originally 0129 code review round 3, adapted here — see this
   // PR's task brief §1c for the deviation below): /settings used to tell
   // the owner "retype the same number here to lock it in", but commit()
@@ -101,27 +126,71 @@ function MetalPriceCell({ metal, current }: { metal: OemProductionMetal; current
   // "ราคานี้" (this price); `value` is the price the owner is actually
   // looking at, `current` is whatever the server said as of the last
   // render.
+  //
+  // H1 fix (security round 2, DB-confirmed): this button previously let a
+  // stale price (e.g. yesterday's, before today's sheet sync has landed)
+  // become TODAY's manual price completely silently — no wording anywhere
+  // said "yesterday". That's a real gap this feature exists to close
+  // (production_spot_resolve, 0131, refuses to fall back to yesterday's
+  // price on its own — this button must not become a side-door around that
+  // by disguising a carry-forward as a fresh entry). The "sheet is down, use
+  // the old price for now" use case is legitimate and stays allowed — the
+  // fix is disclosure (a visible warning + an explicit confirm), not a
+  // block. Only fires the confirm when the owner is about to send the SAME
+  // number that's already on file as a STALE day — typing a genuinely new
+  // number is always the owner's clear intent and must not be interrupted.
   async function lockCurrentPrice() {
     if (!current) return;
     const trimmed = value.trim();
     const raw = trimmed === "" ? current.priceThbPerGram : Number(trimmed);
-    // Must clear the same 5–500 bound as commit()/the RPC before it's sent —
-    // a value that slipped into the DB before 0127's bound existed (or any
-    // other invalid typed-but-not-yet-committed number) must fail here, not
-    // surface as the RPC's generic "บันทึกราคาโลหะไม่สำเร็จ" with no reason.
-    const err = silverSpotValidationError(raw);
+    // L2 fix: branch validation by metal the same way commit() does
+    // (lines ~46-57) instead of always calling silverSpotValidationError
+    // unconditionally. The button only renders for isSilver today, so the
+    // else-branch is currently unreachable — this just keeps
+    // lockCurrentPrice() correct on its own if the button is ever
+    // reused/moved for gold/brass, instead of silently applying silver's
+    // 5–500 bound to metals that legitimately price outside it.
+    let err: string | null;
+    if (metal === "silver") {
+      err = silverSpotValidationError(raw);
+    } else if (!Number.isFinite(raw) || raw <= 0) {
+      err = "ราคาต้องมากกว่า 0";
+    } else {
+      err = null;
+    }
     if (err) {
       toast.push(err, "error");
       return;
     }
+
+    // carryingStaleForward: the price on file is from a DIFFERENT day AND
+    // the owner isn't typing a new number — they're about to carry an old
+    // price forward as today's. Confirm explicitly before doing that.
+    const carryingStaleForward = isStale && Math.abs(raw - current.priceThbPerGram) < 1e-9;
+    if (carryingStaleForward) {
+      const proceed = window.confirm(
+        `ราคานี้เป็นของวันที่ ${formatThaiDateOnly(current.asOfDate)} (฿${current.priceThbPerGram} บาท/กรัม)\n\n` +
+          `กดตกลง = ใช้เป็นราคาของวันนี้ · ชีตราคาเงินจะไม่ทับอีกทั้งวัน · ค่านี้จะไปเป็นต้นทุน SKU และต้นทุนใบผลิตของทั้งร้านในวันนี้ด้วย`
+      );
+      if (!proceed) return; // ยกเลิก — เงียบๆ ไม่ toast
+    }
+
     setLocking(true);
     const result = await saveMetalPrice({ metal, priceThbPerGram: raw });
     setLocking(false);
     if (!result.ok) {
       toast.push(result.error, "error");
+      // L1 fix: revert like commit() does (lines ~50/55/65) — without this,
+      // a rejected lock left the input showing the number the owner just
+      // tried to send, indistinguishable from a successful save.
+      setValue(current ? String(current.priceThbPerGram) : "");
       return;
     }
-    toast.push("ล็อกแล้ว ชีตจะไม่ทับวันนี้");
+    toast.push(
+      carryingStaleForward
+        ? `ล็อกราคาวันที่ ${formatThaiDateOnly(current.asOfDate)} ให้เป็นราคาวันนี้แล้ว ชีตจะไม่ทับวันนี้`
+        : "ล็อกแล้ว ชีตจะไม่ทับวันนี้"
+    );
     router.refresh();
   }
 
@@ -161,6 +230,13 @@ function MetalPriceCell({ metal, current }: { metal: OemProductionMetal; current
             กรอกที่นี่ = ราคาชนะทั้งวัน ชีตราคาเงินจะไม่ทับจนกว่าจะถึงวันถัดไป
             ค่านี้จะไปเป็นราคาเงินสปอตของทั้งร้าน (ต้นทุน SKU/dashboard) ด้วย
           </p>
+          {/* H1 fix: current && isStale (not the bare `isStale` boolean) so
+              TS narrows `current` to non-null for the .asOfDate read below. */}
+          {current && isStale && (
+            <p className="mt-1 text-[0.68rem] font-medium text-amber-700">
+              ⚠️ ราคาที่แสดงเป็นของวันที่ {formatThaiDateOnly(current.asOfDate)} — ยังไม่มีราคาของวันนี้
+            </p>
+          )}
           {current && (
             <button
               type="button"
@@ -177,7 +253,7 @@ function MetalPriceCell({ metal, current }: { metal: OemProductionMetal; current
   );
 }
 
-export function MetalPriceSection({ prices }: { prices: OemMetalPriceMap }) {
+export function MetalPriceSection({ prices, todayBkk }: { prices: OemMetalPriceMap; todayBkk: string }) {
   return (
     <section id="oem-metal-price" className="rounded-lg border border-zinc-200 bg-white p-3.5 shadow-sm">
       <h2 className="text-sm font-bold text-zinc-800">ราคาโลหะ (บาท/กรัม)</h2>
@@ -186,7 +262,7 @@ export function MetalPriceSection({ prices }: { prices: OemMetalPriceMap }) {
       </p>
       <div className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-3">
         {METALS.map((m) => (
-          <MetalPriceCell key={m} metal={m} current={prices[m]} />
+          <MetalPriceCell key={m} metal={m} current={prices[m]} todayBkk={todayBkk} />
         ))}
       </div>
     </section>

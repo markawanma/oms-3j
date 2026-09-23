@@ -740,11 +740,19 @@ export async function saveMetalPrice(input: SaveMetalPriceInput): Promise<Action
     // (analytics.oem_metal_price_set, 0129 raises if source != 'manual'
     // tries to clobber today's manual row). This just stops the client from
     // being ABLE to ask for a different source in the first place.
+    //
+    // H2 fix (security round 2): p_as_of is omitted entirely (was
+    // `input.asOfDate || undefined`, and SaveMetalPriceInput no longer even
+    // has that field — see its comment in lib/oem/types.ts). Unlike
+    // p_source, there was NO gate anywhere — app or DB — stopping a
+    // hand-built payload from overwriting a past day's price row or planting
+    // a future-dated one. Omitting p_as_of lets oem_metal_price_set resolve
+    // "today" itself (Asia/Bangkok), the only value this action should ever
+    // be able to cause.
     const { error } = await supabase.schema(SCHEMA).rpc("oem_metal_price_set", {
       p_shop_id: shopId,
       p_metal: input.metal,
       p_price: price,
-      p_as_of: input.asOfDate || undefined,
       p_source: "manual",
     });
     if (error) throw error;

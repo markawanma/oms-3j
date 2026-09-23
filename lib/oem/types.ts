@@ -204,10 +204,22 @@ export interface OemProductOption {
 // to clobber today's manual row) — dropping this field just stops a caller
 // (today or future) from being able to ask for a different source at all;
 // lib/actions/oem.ts hardcodes "manual" server-side instead.
+//
+// H2 fix (security round 2): `asOfDate` was dropped for the SAME reason,
+// except it was worse than `source` — `source` at least had a DB-side gate
+// (0129's manual-guard); `asOfDate` had NONE, anywhere, app or DB. Since
+// saveMetalPrice is a server action (a real POST endpoint any owner/admin
+// session can call directly with a hand-built payload, not just through this
+// UI — see requireOwnerAdmin's comment in lib/actions/oem.ts), a caller that
+// could set an arbitrary p_as_of could silently overwrite a PAST day's price
+// row (no audit table to recover it from) or plant a FUTURE-dated row that
+// getMetalPrices() — ordered by as_of_date desc with no upper bound — would
+// then hand back as `current` forever. lib/actions/oem.ts no longer accepts
+// an as-of date at all; the RPC always resolves it server-side (today,
+// Asia/Bangkok) same as it already does when this field is omitted.
 export interface SaveMetalPriceInput {
   metal: OemMetal;
   priceThbPerGram: number;
-  asOfDate?: string | null;
 }
 
 /** Latest known price per metal (analytics.oem_metal_price, one row per

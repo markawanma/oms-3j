@@ -67,6 +67,7 @@ export function RatesPageClient({
   metalPrices,
   sellerProfile,
   sellerLoadError,
+  todayBkk,
 }: {
   rows: OemRateStatusRow[];
   readiness: OemReadiness | null;
@@ -74,6 +75,9 @@ export function RatesPageClient({
   metalPrices: OemMetalPriceMap;
   sellerProfile: SellerProfile;
   sellerLoadError?: string | null;
+  /** "YYYY-MM-DD", Asia/Bangkok, computed server-side by page.tsx — see
+   * MetalPriceSection's header comment; just prop-wired through here. */
+  todayBkk: string;
 }) {
   const groupsByCode = useMemo(() => {
     const groups = groupRows(rows);
@@ -177,7 +181,7 @@ export function RatesPageClient({
         );
       })}
 
-      <MetalPriceSection prices={metalPrices} />
+      <MetalPriceSection prices={metalPrices} todayBkk={todayBkk} />
       <OemPolicySection setting={setting} />
     </div>
   );

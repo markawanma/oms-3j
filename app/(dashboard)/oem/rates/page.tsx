@@ -57,6 +57,21 @@ export default async function OemRatesPage() {
     );
   }
 
+  // H1 fix (security round 2): "today" for the ล็อกราคานี้ไว้วันนี้ button's
+  // staleness check MUST be computed here (Server Component, runs on the
+  // server) — never `new Date()` client-side, whose local clock/timezone
+  // can't be trusted. Matches the DB's own definition of "today"
+  // (analytics.production_spot_resolve, 0131: `(now() at time zone
+  // 'Asia/Bangkok')::date`) exactly, in the same "YYYY-MM-DD" shape as
+  // oem_metal_price.as_of_date, so a plain string compare on the client
+  // (MetalPriceSection's `isStale`) is safe.
+  const todayBkk = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Bangkok",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
+
   return (
     <RatesPageClient
       rows={statusResult.data.rows}
@@ -65,6 +80,7 @@ export default async function OemRatesPage() {
       metalPrices={metalResult.data}
       sellerProfile={sellerResult.ok ? sellerResult.data : EMPTY_SELLER_PROFILE}
       sellerLoadError={sellerResult.ok ? null : sellerResult.error}
+      todayBkk={todayBkk}
     />
   );
 }
