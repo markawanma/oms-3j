@@ -273,8 +273,7 @@ async function main() {
 }
 
 main().catch((err) => {
-  // ห้ามพิมพ์ error object ทั้งก้อน — err.cause ของ fetch พ่วง URL/host ของ
-  // ปลายทางออกมาด้วย (ดูเหตุผลเต็มที่ scripts/lib/format-error.mjs)
+  // อย่าเปลี่ยนกลับเป็น console.error(err) — เหตุผลอยู่ที่ scripts/lib/format-error.mjs
   console.error(formatError(err));
   process.exit(1);
 });
