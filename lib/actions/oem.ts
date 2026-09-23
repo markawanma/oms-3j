@@ -732,12 +732,20 @@ export async function saveMetalPrice(input: SaveMetalPriceInput): Promise<Action
     const shopId = getDevShopId();
     const supabase = getServiceClient();
 
+    // S2 — surface reduction, not a hole being plugged: p_source is
+    // hardcoded "manual" server-side. The one caller of saveMetalPrice
+    // (MetalPriceSection.tsx, an admin typing/clicking at /oem/rates) never
+    // sends anything else, and the real gate against a non-manual source
+    // overwriting a manual entry for the same day already lives in the DB
+    // (analytics.oem_metal_price_set, 0129 raises if source != 'manual'
+    // tries to clobber today's manual row). This just stops the client from
+    // being ABLE to ask for a different source in the first place.
     const { error } = await supabase.schema(SCHEMA).rpc("oem_metal_price_set", {
       p_shop_id: shopId,
       p_metal: input.metal,
       p_price: price,
       p_as_of: input.asOfDate || undefined,
-      p_source: input.source || "manual",
+      p_source: "manual",
     });
     if (error) throw error;
 

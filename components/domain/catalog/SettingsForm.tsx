@@ -29,9 +29,13 @@ export function SettingsForm({
   const router = useRouter();
   const toast = useToast();
 
-  // B1 fix (0127 code review): keep the value this form was PREFILLED with
-  // separately from what the owner types, so submit can tell "resubmitted
-  // unchanged" apart from "actually edited" — see spotChanged() below.
+  // B1 fix (0127 code review): keep the CURRENT value from the server
+  // separate from what the owner is typing, so submit can tell "resubmitted
+  // unchanged" apart from "actually edited" — see spotChanged() below. Not
+  // just a mount-time prefill snapshot (Nit fix): the resync useEffect right
+  // below keeps this synced to the server's latest value on every re-render
+  // (e.g. after router.refresh()), so `initialSpot` on any given render is
+  // genuinely "the current server value", not stale.
   const initialSpot = setting.silverSpotThbPerGram;
   const [spot, setSpot] = useState(initialSpot != null ? String(initialSpot) : "");
 
@@ -131,7 +135,13 @@ export function SettingsForm({
         )}
         <p className="mt-1 text-xs text-zinc-500">
           ค่านี้ sync จากชีตราคาร้านอัตโนมัติ (÷15.244) — กรอกเองเฉพาะเมื่อชีตล่ม แล้วชีตจะไม่ทับค่าที่กรอกในวันนั้น
-          {" "}ถ้าต้องการล็อกราคาไว้ที่ค่าปัจจุบันโดยไม่แก้เลข ให้กรอกที่หน้า{" "}
+          {/* S1 fix: retyping the same number into the field below no
+              longer "counts" as a change on this page — spotChanged() (see
+              handleSubmit) skips sending it, so this form can never lock the
+              price by resubmitting it here. The button at /oem/rates calls
+              saveMetalPrice directly and deliberately bypasses that dedupe
+              check — see MetalPriceSection.tsx's lockCurrentPrice comment. */}
+          {" "}ถ้าต้องการล็อกราคาไว้ที่ค่าปัจจุบันโดยไม่แก้เลข ให้กดปุ่ม &ldquo;ล็อกราคานี้ไว้วันนี้&rdquo; ที่หน้า{" "}
           <a href="/oem/rates" className="underline hover:text-zinc-700">
             /oem/rates
           </a>

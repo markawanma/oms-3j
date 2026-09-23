@@ -196,11 +196,18 @@ export interface OemProductOption {
 // Metal price (oem_metal_price)
 // ============================================================================
 
+// S2 — surface reduction, not a hole being plugged: `source` used to be a
+// client-settable field here, threaded straight through to
+// analytics.oem_metal_price_set's p_source (lib/actions/oem.ts). The real
+// gate against a non-manual source overwriting a manual entry for the same
+// day already lives in the DB (0129 raises when a non-'manual' source tries
+// to clobber today's manual row) — dropping this field just stops a caller
+// (today or future) from being able to ask for a different source at all;
+// lib/actions/oem.ts hardcodes "manual" server-side instead.
 export interface SaveMetalPriceInput {
   metal: OemMetal;
   priceThbPerGram: number;
   asOfDate?: string | null;
-  source?: "manual" | "feed" | "sheet";
 }
 
 /** Latest known price per metal (analytics.oem_metal_price, one row per

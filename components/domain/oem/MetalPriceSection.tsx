@@ -29,6 +29,7 @@ function MetalPriceCell({ metal, current }: { metal: OemProductionMetal; current
   const [value, setValue] = useState(current ? String(current.priceThbPerGram) : "");
   const [saving, setSaving] = useState(false);
   const [justSaved, setJustSaved] = useState(false);
+  const [locking, setLocking] = useState(false);
 
   useEffect(() => {
     setValue(current ? String(current.priceThbPerGram) : "");
@@ -71,6 +72,59 @@ function MetalPriceCell({ metal, current }: { metal: OemProductionMetal; current
 
   const isSilver = metal === "silver";
 
+  // S1 fix (originally 0129 code review round 3, adapted here — see this
+  // PR's task brief §1c for the deviation below): /settings used to tell
+  // the owner "retype the same number here to lock it in", but commit()
+  // above early-returns silently (line ~57) when the typed value already
+  // equals `current`. That dedupe guard exists to skip a redundant network
+  // call on every unrelated blur — it was never meant to block intentional
+  // locking — so "retype the same number" silently did nothing. This button
+  // calls saveMetalPrice bypassing that guard ON PURPOSE: creating a fresh
+  // manual oem_metal_price row for TODAY is the entire point (it's what
+  // makes the 0129 manual-guard inside oem_metal_price_set refuse the next
+  // sheet sync for the rest of the day).
+  //
+  // Deviation from the original fix (explicit Tech Lead instruction, this
+  // PR): the original read `current.priceThbPerGram` — the last value the
+  // SERVER confirmed. That has a race: type a NEW number, then click this
+  // button before onBlur's commit() round-trips — this handler could still
+  // fire with the STALE `current` and overwrite the owner's fresh edit with
+  // the OLD price. The only guard against that was `disabled={saving}`,
+  // which depends on React having already re-rendered with saving=true
+  // before the click handler runs — a render-timing assumption, not an
+  // invariant.
+  //
+  // Reading `value` (what's actually showing in the input right now)
+  // instead means the worst case becomes writing the SAME number twice in a
+  // row — an upsert on the same (shop, metal, today) row, a harmless no-op —
+  // never clobbering a newer number with an older one. The button says
+  // "ราคานี้" (this price); `value` is the price the owner is actually
+  // looking at, `current` is whatever the server said as of the last
+  // render.
+  async function lockCurrentPrice() {
+    if (!current) return;
+    const trimmed = value.trim();
+    const raw = trimmed === "" ? current.priceThbPerGram : Number(trimmed);
+    // Must clear the same 5–500 bound as commit()/the RPC before it's sent —
+    // a value that slipped into the DB before 0127's bound existed (or any
+    // other invalid typed-but-not-yet-committed number) must fail here, not
+    // surface as the RPC's generic "บันทึกราคาโลหะไม่สำเร็จ" with no reason.
+    const err = silverSpotValidationError(raw);
+    if (err) {
+      toast.push(err, "error");
+      return;
+    }
+    setLocking(true);
+    const result = await saveMetalPrice({ metal, priceThbPerGram: raw });
+    setLocking(false);
+    if (!result.ok) {
+      toast.push(result.error, "error");
+      return;
+    }
+    toast.push("ล็อกแล้ว ชีตจะไม่ทับวันนี้");
+    router.refresh();
+  }
+
   return (
     <div className="rounded-md border border-zinc-200 p-3">
       <p className="text-xs font-semibold text-zinc-600">{OEM_METAL_LABEL_TH[metal]}</p>
@@ -102,9 +156,22 @@ function MetalPriceCell({ metal, current }: { metal: OemProductionMetal; current
           warn about (silver999 bars aside, gold/brass are always manual —
           see METALS comment above) */}
       {isSilver && (
-        <p className="mt-1 text-[0.68rem] text-amber-600">
-          กรอกที่นี่ = ราคาชนะทั้งวัน ชีตราคาเงินจะไม่ทับจนกว่าจะถึงวันถัดไป
-        </p>
+        <>
+          <p className="mt-1 text-[0.68rem] text-amber-600">
+            กรอกที่นี่ = ราคาชนะทั้งวัน ชีตราคาเงินจะไม่ทับจนกว่าจะถึงวันถัดไป
+            ค่านี้จะไปเป็นราคาเงินสปอตของทั้งร้าน (ต้นทุน SKU/dashboard) ด้วย
+          </p>
+          {current && (
+            <button
+              type="button"
+              onClick={lockCurrentPrice}
+              disabled={locking || saving}
+              className="mt-1.5 text-[0.68rem] font-medium text-primary-700 hover:underline disabled:opacity-50"
+            >
+              {locking ? "กำลังล็อก..." : "ล็อกราคานี้ไว้วันนี้"}
+            </button>
+          )}
+        </>
       )}
     </div>
   );
