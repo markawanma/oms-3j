@@ -29,6 +29,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { basename } from "node:path";
 import { createClient } from "@supabase/supabase-js";
 import * as XLSX from "xlsx";
+import { formatError } from "./lib/format-error.mjs";
 
 const STAGING_INSERT_CHUNK_SIZE = 200;
 
@@ -323,6 +324,8 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error("Fatal error:", err);
+  // ห้ามพิมพ์ error object ทั้งก้อน — err.cause ของ fetch พ่วง URL/host ของ
+  // ปลายทางออกมาด้วย (ดูเหตุผลเต็มที่ scripts/lib/format-error.mjs)
+  console.error(`Fatal error: ${formatError(err)}`);
   process.exit(1);
 });

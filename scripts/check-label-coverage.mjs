@@ -23,6 +23,7 @@
 import { existsSync, readFileSync } from "node:fs";
 import { createClient } from "@supabase/supabase-js";
 import { extractText, getDocumentProxy } from "unpdf";
+import { formatError } from "./lib/format-error.mjs";
 
 const UNKNOWN_PROVINCE = "TH-XX";
 const CHUNK = 200;
@@ -105,6 +106,8 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error(err);
+  // ห้ามพิมพ์ error object ทั้งก้อน — err.cause ของ fetch พ่วง URL/host ของ
+  // ปลายทางออกมาด้วย (ดูเหตุผลเต็มที่ scripts/lib/format-error.mjs)
+  console.error(formatError(err));
   process.exit(1);
 });

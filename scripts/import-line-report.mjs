@@ -19,6 +19,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { basename } from "node:path";
 import { createClient } from "@supabase/supabase-js";
 import * as XLSX from "xlsx";
+import { formatError } from "./lib/format-error.mjs";
 
 const CHUNK = 200;
 // 20-col line-item report: 0 รหัสสินค้า | 1 สินค้า | 2 ราคา | 3 จำนวน | 4 เลขที่ออเดอร์ ...
@@ -93,4 +94,6 @@ async function main() {
   console.log(`unknown_sku:  ${r.unknown_sku_count}`);
   console.log(`errored:      ${r.errored_count}`);
 }
-main().catch((e) => { console.error("Fatal:", e); process.exit(1); });
+// ห้ามพิมพ์ error object ทั้งก้อน — err.cause ของ fetch พ่วง URL/host ของ
+// ปลายทางออกมาด้วย (ดูเหตุผลเต็มที่ scripts/lib/format-error.mjs)
+main().catch((e) => { console.error(`Fatal: ${formatError(e)}`); process.exit(1); });
