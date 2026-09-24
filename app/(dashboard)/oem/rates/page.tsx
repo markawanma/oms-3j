@@ -2,6 +2,7 @@ import { Lock, PackageSearch } from "lucide-react";
 import { getMetalPrices, getOemSetting, getRateStatus, getSellerProfile } from "@/lib/actions/oem";
 import { getEffectiveRole } from "@/lib/auth/role";
 import { EMPTY_SELLER_PROFILE } from "@/lib/oem/sellerProfile";
+import { effectiveDateBangkok } from "@/lib/tiktok/format";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { RatesPageClient } from "@/components/domain/oem/RatesPageClient";
@@ -57,20 +58,11 @@ export default async function OemRatesPage() {
     );
   }
 
-  // H1 fix (security round 2): "today" for the ล็อกราคานี้ไว้วันนี้ button's
-  // staleness check MUST be computed here (Server Component, runs on the
-  // server) — never `new Date()` client-side, whose local clock/timezone
-  // can't be trusted. Matches the DB's own definition of "today"
-  // (analytics.production_spot_resolve, 0131: `(now() at time zone
-  // 'Asia/Bangkok')::date`) exactly, in the same "YYYY-MM-DD" shape as
-  // oem_metal_price.as_of_date, so a plain string compare on the client
-  // (MetalPriceSection's `isStale`) is safe.
-  const todayBkk = new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Bangkok",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date());
+  // H1: today (Asia/Bangkok) for the stale-price warning label only — the
+  // lock button's actual confirm decision re-fetches this live server-side
+  // instead of trusting this render-time snapshot (see getSilverPriceFreshness,
+  // M2, in lib/actions/oem.ts).
+  const todayBkk = effectiveDateBangkok(new Date().toISOString());
 
   return (
     <RatesPageClient

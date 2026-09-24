@@ -75,8 +75,8 @@ export function RatesPageClient({
   metalPrices: OemMetalPriceMap;
   sellerProfile: SellerProfile;
   sellerLoadError?: string | null;
-  /** "YYYY-MM-DD", Asia/Bangkok, computed server-side by page.tsx — see
-   * MetalPriceSection's header comment; just prop-wired through here. */
+  /** Asia/Bangkok "today" for the stale-price label — prop-wired through to
+   * MetalPriceSection; see getSilverPriceFreshness (M2) for the live gate. */
   todayBkk: string;
 }) {
   const groupsByCode = useMemo(() => {
