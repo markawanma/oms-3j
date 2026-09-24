@@ -37,7 +37,17 @@
 // สิ่งที่ยอมให้ออก log: name · message (ผ่าน redact+clamp) · code (SQLSTATE) ·
 // cause.code · hint       สิ่งที่ไม่ยอม: cause.message · stack · details · object ดิบ
 
-const MAX_LEN = 300;
+/**
+ * เพดานความยาวของ log บรรทัดเดียว — export ไว้ให้ test ผูกกับค่าจริง ไม่ใช่
+ * ตัวเลขที่ก๊อปมาเขียนซ้ำ (ของเดิม assert < 400 เลยไม่จับว่า hint ทะลุเพดาน)
+ *
+ * 500 ไม่ใช่ 300: ข้อความติดตั้งที่เขียนมือใน capture-silver-price-sheet.mjs
+ * ตัวยาวสุด (403 permission denied, :169-173) ยาว 253 ตัวอักษรหลังยุบบรรทัด
+ * = กินงบไปแล้ว 84% ถ้าโดนตัด ท่อนที่บอกว่าต้องไปกด Share ให้ service account
+ * ตัวไหนจะหายพอดี — ยังสั้นกว่า message ของ Playwright (~2,000) ที่เป็นเหตุผล
+ * จริงที่ต้อง clamp อยู่มาก
+ */
+export const MAX_LEN = 500;
 
 /** อ่าน string property แบบไม่ยอมให้ getter/Proxy ที่ throw ฆ่าทั้งฟังก์ชัน */
 function readString(obj, key) {
@@ -59,8 +69,16 @@ function readString(obj, key) {
  */
 function redact(text) {
   return text
-    .replace(/https?:\/\/\S+/gi, "<url>")
-    .replace(/\b[a-z0-9-]+\.supabase\.(?:co|in|net)\b/gi, "<supabase-host>")
+    // scheme อะไรก็ได้ ไม่ใช่แค่ http(s) — `postgresql://user:pw@host/db` พก
+    // รหัสผ่าน DB และ `wss://host?apikey=...` พก key มาใน query string ซึ่ง
+    // แย่กว่า host ที่อุดไปแล้ว (ไม่ชน path ของ Windows เพราะ `C:\` ไม่มี `//`)
+    .replace(/[a-z][a-z0-9+.-]*:\/\/\S+/gi, "<url>")
+    // URL ที่ไม่มี scheme — path ของ Google Sheets API มี spreadsheet id อยู่
+    // ข้างใน ซึ่ง capture-silver-price-sheet.mjs:41 ระบุเองว่าห้าม log
+    .replace(/\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}\/\S*/gi, "<url>")
+    // `[a-z]{2,}` ไม่ใช่ `(?:co|in|net)` — ของเดิม `.supabase.com` รอด เพราะ
+    // "co" ตามด้วย "m" ไม่ใช่ขอบคำ ⇒ pooler.supabase.com + api.supabase.com หลุด
+    .replace(/\b[a-z0-9-]+(?:\.[a-z0-9-]+)*\.supabase\.[a-z]{2,}\b/gi, "<supabase-host>")
     .replace(/\s+/g, " ")
     .trim();
 }
@@ -70,19 +88,35 @@ function clamp(text) {
 }
 
 /**
+ * postgrest-js **ไม่แนบ `cause`** มากับ error ของมัน — dist/index.cjs:423-431
+ * คืนแค่ `{message, details, hint, code}` สาเหตุจริงไปอยู่ใน `details` ซึ่ง
+ * ทั้งก้อนพิมพ์ไม่ได้ (มี host + stack) ⇒ ต้องแกะเฉพาะโทเคนรหัสออกมา ไม่งั้น
+ * `err.cause` จะเป็น dead code ตรงจุดที่ตั้งใจให้มันช่วยพอดี
+ *
+ * anchor กับรูปแบบที่ postgrest ประกอบเอง (`Caused by: ... (CODE)` ปิดท้าย
+ * บรรทัด) และยอมรับแค่ `[A-Z][A-Z0-9_]` ⇒ ชื่อโฮสต์ (มีจุด+ตัวเล็ก) และ
+ * `Failing row contains (...)` แมตช์ไม่ได้โดยรูปแบบ ไม่ใช่โดยบังเอิญ
+ */
+const CAUSE_CODE_IN_DETAILS = /^Caused by: [^\n]*\(([A-Z][A-Z0-9_]{1,40})\)$/m;
+
+/**
  * cause.code (ENOTFOUND · ECONNREFUSED · UND_ERR_CONNECT_TIMEOUT ·
  * CERT_HAS_EXPIRED) เป็น enum สั้นๆ ไม่มี host/port — ต่างจาก cause.message
- * และ cause.stack ที่ยังห้ามแตะ ไม่มีบรรทัดนี้ log จะบอกได้แค่ "fetch failed"
+ * และ cause.stack ที่ยังห้ามแตะ ไม่มีค่านี้ log จะบอกได้แค่ "fetch failed"
  * เฉยๆ ซึ่งแยกไม่ออกว่า DNS ตาย / ต่อไม่ติด / timeout / cert หมดอายุ
  */
 function readCauseCode(err) {
   try {
-    const cause = err.cause;
-    if (cause !== null && typeof cause === "object") return readString(cause, "code");
+    const cause = err.cause; // ทางนี้ใช้ได้เฉพาะ error ที่มาจาก fetch() ดิบ
+    if (cause !== null && typeof cause === "object") {
+      const direct = readString(cause, "code");
+      if (direct) return direct;
+    }
   } catch {
     /* getter ที่ throw */
   }
-  return null;
+  const details = readString(err, "details"); // ทางของ postgrest-js
+  return details ? (CAUSE_CODE_IN_DETAILS.exec(details)?.[1] ?? null) : null;
 }
 
 function isErrorInstance(err) {
@@ -104,8 +138,13 @@ function typeLabel(err) {
 
 /**
  * @param {unknown} err  อะไรก็ได้ที่ถูก throw ขึ้นมา
- * @returns {string} ข้อความบรรทัดเดียว ไม่มี stack/cause.message/details
- *   และกลบ URL/Supabase host ที่อาจปนมาใน message — ฟังก์ชันนี้ไม่ throw
+ * @returns {string} ข้อความบรรทัดเดียว ไม่เกิน MAX_LEN ไม่มี
+ *   stack/cause.message/details และกลบ URL/Supabase host ที่ปนมาใน message
+ *   แบบ **best-effort (denylist)** — ฟังก์ชันนี้ไม่ throw
+ *
+ * ⚠️ `redact()` เป็นตาข่าย ไม่ใช่ด่าน อย่าเอา formatError ไปใช้เป็น sanitizer
+ * ของข้อมูลที่ไม่น่าเชื่อถือ — มันกันรูปแบบที่เรารู้ว่ามีจริงในสคริปต์ชุดนี้
+ * (URL ทุก scheme · host ของ Supabase · URL ที่ไม่มี scheme) ไม่ได้กันทุกอย่าง
  */
 export function formatError(err) {
   try {
@@ -116,7 +155,7 @@ export function formatError(err) {
       const name = readString(err, "name") ?? (isErrorInstance(err) ? "Error" : null);
       const hint = readString(err, "hint");
 
-      const body = message ? clamp(redact(message)) : null;
+      const body = message ? redact(message) : null;
       const causeCode = readCauseCode(err);
       // `code` ชนะ `name`: PostgrestError/AuthError ของ supabase-js extends
       // Error แต่ยังต้องเห็น SQLSTATE — เช็ค instanceof ก่อนจะกิน code หาย
@@ -125,11 +164,24 @@ export function formatError(err) {
 
       // ไม่ prefix ซ้ำเวลา message ขึ้นต้นด้วย head อยู่แล้ว (SystemError ของ
       // Node: code "ENOENT" + message "ENOENT: no such file or directory ...")
-      if (head && body) return body.startsWith(head) ? `${body}${tail}` : `${head}: ${body}${tail}`;
-      if (body) return `${body}${tail}`;
-      if (code) return `error code ${code}${tail}`;
-      if (name) return `${name} (ไม่มี message)${tail}`;
-      return `(error object ไม่มี message/code — ชนิด ${typeLabel(err)})`;
+      const line =
+        head && body
+          ? body.startsWith(head)
+            ? body
+            : `${head}: ${body}`
+          : body
+            ? body
+            : code
+              ? `error code ${code}`
+              : name
+                ? `${name} (ไม่มี message)`
+                : `(error object ไม่มี message/code — ชนิด ${typeLabel(err)})`;
+
+      // clamp ที่ทางออกเดียว ครอบ head+body+cause+hint พร้อมกัน — ของเดิม
+      // clamp เฉพาะ body ทำให้ hint ยาวๆ ทะลุเพดานได้ (hint ของ postgrest เอง
+      // ตอน AbortError + URL ยาว = 128 ตัวอักษร) สัญญา "มีขอบเขต" เลยไม่จริง
+      // redact ต้องทำไปแล้วก่อนถึงตรงนี้ ไม่งั้น host ต้นสตริงรอดการตัด
+      return clamp(`${line}${tail}`);
     }
 
     // primitive ที่ถูก throw (string/number/symbol/undefined) — String()

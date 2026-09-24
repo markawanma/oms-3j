@@ -13,9 +13,11 @@
 
 import { inspect } from "node:util";
 import { describe, expect, it } from "vitest";
-import { formatError } from "./format-error.mjs";
+import { formatError, MAX_LEN } from "./format-error.mjs";
 
 const FAKE_HOST = "udqmamplbymxnknkjnkz.supabase.co";
+// clamp ต่อท้ายด้วย "… (อีก N ตัวอักษร)" — เผื่อความยาวส่วนนั้นไว้
+const CLAMP_SUFFIX_MAX = 40;
 
 describe("formatError — Error instance", () => {
   it("คืน name + message", () => {
@@ -38,9 +40,11 @@ describe("formatError — Error instance", () => {
   });
 
   it("ไม่พ่วง stack ออกมา", () => {
-    const out = formatError(new Error("something broke"));
-    expect(out).not.toContain("at ");
-    expect(out).not.toContain(".mjs");
+    const err = new Error("something broke");
+    // assert กับ stack frame จริงของ error ตัวนี้ ไม่ใช่ proxy หลวมๆ อย่าง
+    // ".mjs" ซึ่งจะเขียวทั้งที่พังถ้า stack หลุดมาจาก .ts/.cjs/node:internal
+    const firstFrame = err.stack.split("\n")[1].trim();
+    expect(formatError(err)).not.toContain(firstFrame);
   });
 
   it("SystemError ของ Node ไม่ขึ้นต้นซ้ำ (ENOENT: ENOENT: ...)", () => {
@@ -88,17 +92,32 @@ describe("formatError — plain object (supabase-js ไม่คืน Error จ
     expect(out).not.toContain("a1b2c3");
   });
 
-  it("details ที่พ่วง cause+stack ของ fetch ต้องไม่หลุด (postgrest-js 2.112.3)", () => {
-    // รูปร่างจริงจาก dist/index.cjs:398-410 — cause ไม่ได้ถูกทิ้ง มันย้ายมาอยู่ใน details
+  it("details ที่พ่วง cause+stack ของ fetch ต้องไม่หลุด แต่ต้องแกะ cause code ออกมาได้", () => {
+    // รูปร่างจริงจาก dist/index.cjs:398-410 — cause ไม่ได้ถูกทิ้ง มันย้ายมาอยู่ใน
+    // details และ object ที่คืนกลับมา (dist/index.cjs:423-431) ไม่มี .cause เลย
+    // ⇒ ถ้าอ่านแต่ err.cause จะได้ "fetch failed" เปล่าๆ แยกสาเหตุไม่ออก
     const out = formatError({
       message: "TypeError: fetch failed",
       details: `TypeError: fetch failed\n\nCaused by: Error: getaddrinfo ENOTFOUND ${FAKE_HOST} (ENOTFOUND)\n    at GetAddrInfoReqWrap.onlookup (node:dns:118:26)`,
       hint: "",
       code: "",
     });
-    expect(out).toBe("TypeError: fetch failed");
+    expect(out).toBe("TypeError: fetch failed (cause ENOTFOUND)");
     expect(out).not.toContain(FAKE_HOST);
     expect(out).not.toContain("at GetAddrInfoReqWrap");
+  });
+
+  it("แกะ cause code จาก details ต้องไม่หยิบชื่อโฮสต์หรือค่าของแถวมาแทน", () => {
+    // `Failing row contains (...)` มีวงเล็บเหมือนกัน แต่ไม่ได้อยู่บรรทัด
+    // "Caused by:" และมีตัวพิมพ์เล็ก ⇒ แมตช์ไม่ได้โดยรูปแบบ ไม่ใช่โดยบังเอิญ
+    const out = formatError({
+      message: "null value in column violates not-null constraint",
+      details: "Failing row contains (1, สมชาย, 0812345678, TH-10)",
+      code: "23502",
+    });
+    expect(out).toBe("23502: null value in column violates not-null constraint");
+    expect(out).not.toContain("สมชาย");
+    expect(out).not.toContain("cause");
   });
 
   it("เอา hint มาด้วย (Postgres สร้างเอง ไม่เคยมีค่าของแถว) แต่ยังไม่เอา details", () => {
@@ -158,11 +177,58 @@ describe("formatError — message เป็นช่องที่ไม่ไ�
     // redact ต้องทำงานบนข้อความเต็มก่อน clamp ไม่งั้น host ที่อยู่ต้นสตริงรอด
     expect(out).not.toContain(FAKE_HOST);
     expect(out).toContain("<supabase-host>");
-    expect(out.length).toBeLessThan(400);
+    expect(out.length).toBeLessThanOrEqual(MAX_LEN + CLAMP_SUFFIX_MAX);
+  });
+
+  it("ทุก field ยาวสุดพร้อมกัน (message + hint + cause) ยังไม่ทะลุเพดาน", () => {
+    // ของเดิม clamp เฉพาะ body ⇒ hint ยาวๆ ทะลุออกไปได้ทั้งเส้น
+    const out = formatError({
+      message: "m".repeat(1000),
+      hint: "h".repeat(1500),
+      code: "42501",
+      details: "Caused by: Error: boom (ECONNREFUSED)",
+    });
+    expect(out.length).toBeLessThanOrEqual(MAX_LEN + CLAMP_SUFFIX_MAX);
   });
 
   it("ผลลัพธ์เป็นบรรทัดเดียวเสมอ", () => {
     expect(formatError({ message: "a\nb\r\nc", code: "X" })).toBe("X: a b c");
+  });
+});
+
+describe("formatError — redact ต้องครอบ scheme/host ที่ไม่ใช่ https ด้วย", () => {
+  it("postgresql:// พก password ของ DB มาด้วย", () => {
+    const out = formatError(
+      new Error("connect failed: postgresql://postgres:SuperSecretPw@db.example.com:5432/postgres"),
+    );
+    expect(out).not.toContain("SuperSecretPw");
+    expect(out).toContain("<url>");
+  });
+
+  it("wss:// พก apikey มาใน query string", () => {
+    const out = formatError(new Error("realtime closed wss://ref.supabase.co/realtime/v1?apikey=eyJhbGciOi"));
+    expect(out).not.toContain("eyJhbGciOi");
+  });
+
+  it(".supabase.com (pooler / api) ต้องโดนด้วย ไม่ใช่แค่ .co", () => {
+    const out = formatError(new Error("getaddrinfo ENOTFOUND aws-1-ap-southeast-1.pooler.supabase.com"));
+    expect(out).not.toContain("pooler.supabase.com");
+    expect(out).toContain("<supabase-host>");
+  });
+
+  it("URL ที่ไม่มี scheme — path ของ Sheets API มี spreadsheet id อยู่ข้างใน", () => {
+    const out = formatError(new Error("GET sheets.googleapis.com/v4/spreadsheets/1AbCdEfSecretId/values failed"));
+    expect(out).not.toContain("1AbCdEfSecretId");
+    expect(out).toContain("<url>");
+  });
+
+  it("ไม่กินข้อความปกติของ Postgres ทิ้ง", () => {
+    const out = formatError({
+      message: 'Could not find the function analytics.transform_pending_orders in the schema cache',
+      code: "PGRST202",
+    });
+    expect(out).toContain("analytics.transform_pending_orders");
+    expect(out).not.toContain("<url>");
   });
 });
 
