@@ -1,6 +1,7 @@
 import { Lock } from "lucide-react";
 import { getCampaignCalendar } from "@/lib/actions/marketing";
 import { getCalendarTasks } from "@/lib/actions/calendar";
+import { getContentTypes } from "@/lib/actions/content";
 import { getEffectiveRole } from "@/lib/auth/role";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -91,8 +92,13 @@ export default async function MarketingCalendarPage({
   const { from, to, year, month } = monthRangeOf(selectedDate);
 
   let tasksResult;
+  let contentTypesResult;
   try {
-    tasksResult = await getCalendarTasks(from, to);
+    // Independent of the plan/artifacts fetch on purpose (content_type is a
+    // small global reference table, design doc §1.5's "คนละ query กัน"
+    // principle) — a failure here degrades to "no chips shown", never to a
+    // broken calendar.
+    [tasksResult, contentTypesResult] = await Promise.all([getCalendarTasks(from, to), getContentTypes()]);
   } catch (err) {
     return (
       <div className="space-y-4">
@@ -133,7 +139,12 @@ export default async function MarketingCalendarPage({
 
       <MonthCalendar year={year} month={month} selectedDate={selectedDate} today={today} dots={dots} />
 
-      <MonthTimeline tasks={tasksResult.data} selectedDate={selectedDate} today={today} />
+      <MonthTimeline
+        tasks={tasksResult.data}
+        selectedDate={selectedDate}
+        today={today}
+        contentTypes={contentTypesResult.ok ? contentTypesResult.data : []}
+      />
 
       {/* Mobile-only floating trigger — stays reachable while the agenda
           list scrolls long (UX doc mobile rule); header button above covers
