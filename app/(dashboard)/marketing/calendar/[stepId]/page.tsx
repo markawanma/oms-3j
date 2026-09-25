@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowLeft, CalendarClock, CalendarX, Lock, Users } from "lucide-react";
 import { getCalendarTask } from "@/lib/actions/calendar";
+import { getContentPostsByArtifactIds, getContentTypes } from "@/lib/actions/content";
 import { getEffectiveRole } from "@/lib/auth/role";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
@@ -8,6 +9,8 @@ import { Badge } from "@/components/ui/Badge";
 import type { BadgeTone } from "@/components/ui/Badge";
 import { ArtifactEditor } from "@/components/domain/marketing/ArtifactEditor";
 import { ClipBriefPanel } from "@/components/domain/marketing/ClipBriefPanel";
+import { ContentPostLinkForm } from "@/components/domain/marketing/ContentPostLinkForm";
+import { StepContentTypeSelector } from "@/components/domain/marketing/StepContentTypeSelector";
 import { TaskGateSection } from "@/components/domain/marketing/TaskGateSection";
 import { TaskDateActions } from "@/components/domain/marketing/TaskDateActions";
 import {
@@ -17,6 +20,7 @@ import {
 } from "@/lib/marketing/campaign-types";
 import type { EffectiveStatus } from "@/lib/marketing/campaign-types";
 import { isClipArtifactType } from "@/lib/marketing/clip-brief";
+import { isPostableArtifactType } from "@/lib/marketing/content-types";
 import { formatThaiDateOnly } from "@/lib/tiktok/format";
 
 export const dynamic = "force-dynamic";
@@ -53,8 +57,12 @@ export default async function CalendarTaskDetailPage({ params }: { params: Promi
   const { stepId } = await params;
 
   let result;
+  let contentTypesResult;
   try {
-    result = await getCalendarTask(stepId);
+    // Independent of each other (design §1.5's "คนละ query กัน" principle)
+    // — content_type is small global reference data, a failure there must
+    // never take down the task detail page itself.
+    [result, contentTypesResult] = await Promise.all([getCalendarTask(stepId), getContentTypes()]);
   } catch (err) {
     return <ErrorState message={err instanceof Error ? err.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"} />;
   }
@@ -64,6 +72,7 @@ export default async function CalendarTaskDetailPage({ params }: { params: Promi
   }
 
   const step = result.data;
+  const contentTypes = contentTypesResult.ok ? contentTypesResult.data : [];
 
   // Design §4: "งานที่ไม่มีอยู่จริง = 404 → 'ไม่พบงานนี้ อาจถูกลบไปแล้ว' +
   // ปุ่มกลับปฏิทิน ไม่ใช่ EmptyState มาตรฐาน" — reusing EmptyState with that
@@ -91,6 +100,18 @@ export default async function CalendarTaskDetailPage({ params }: { params: Promi
 
   const title = step.stepTitle ?? STEP_KIND_LABEL[step.stepKind] ?? step.stepKind;
   const backHref = step.resolvedStart ? `/marketing/calendar?d=${step.resolvedStart}` : "/marketing/calendar";
+
+  // Which artifacts already have a linked content_post (design §2.1(a)) —
+  // deliberately a separate query from getCalendarTask/v_campaign_board
+  // (step-grained, not artifact-grained) so this page's data sources stay
+  // independent. A failure here just falls back to "no linked post known
+  // yet" for every artifact (ContentPostLinkForm shows its dashed "add"
+  // state) rather than breaking the whole page — content_post_upsert is an
+  // upsert, so re-submitting the same URL is harmless even in that case.
+  const postableArtifactIds = step.artifacts.filter((a) => isPostableArtifactType(a.artifactType)).map((a) => a.id);
+  const linkedPostsResult =
+    postableArtifactIds.length > 0 ? await getContentPostsByArtifactIds(postableArtifactIds) : null;
+  const linkedPostsByArtifact = linkedPostsResult?.ok ? linkedPostsResult.data : {};
 
   return (
     <div className="space-y-4">
@@ -131,6 +152,14 @@ export default async function CalendarTaskDetailPage({ params }: { params: Promi
           {step.channel && <span>ช่องทาง: {step.channel}</span>}
         </div>
 
+        {/* design §3.2: [stepId] header is one of the 3 spots the content
+            type shows, and the only one where it's also settable (via
+            0150's campaign_step_set_content_type). No "เดาจากชนิดงาน"
+            badge here — unlike goal_kpi_code, content_type_code has no
+            auto-backfill path (0145 never wrote it), so every value here
+            was always a deliberate human choice through this selector. */}
+        <StepContentTypeSelector stepId={step.stepId} current={step.contentTypeCode} contentTypes={contentTypes} />
+
         {step.goalKpi && <p className="text-xs leading-relaxed text-zinc-500">🎯 {step.goalKpi}</p>}
 
         {step.stepBlockedReason && step.effectiveStatus !== "blocked" && (
@@ -153,6 +182,18 @@ export default async function CalendarTaskDetailPage({ params }: { params: Promi
               <div key={a.id} className="space-y-2">
                 <ArtifactEditor artifact={a} />
                 {isClipArtifactType(a.artifactType) && <ClipBriefPanel artifactId={a.id} clipBrief={a.clipBrief} />}
+                {/* design §2.1(a): only artifact types with a real public
+                    URL get a link form (short_form_clip/live_highlight_clip/
+                    fb_post) — broadcast_script_line/dm_script_1to1/
+                    parcel_card have nothing to link. */}
+                {isPostableArtifactType(a.artifactType) && (
+                  <ContentPostLinkForm
+                    artifactId={a.id}
+                    contentTypeDefault={step.contentTypeCode}
+                    existingPost={linkedPostsByArtifact[a.id] ?? null}
+                    contentTypes={contentTypes}
+                  />
+                )}
               </div>
             ))}
           </div>

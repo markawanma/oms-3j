@@ -2,11 +2,11 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { CalendarDays, Megaphone, Ticket, Users2, Wallet } from "lucide-react";
+import { CalendarDays, ClipboardList, Megaphone, Ticket, Users2, Wallet } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 // Keep in sync with the "การตลาด" group in
-// components/layout/DashboardShell.tsx (NAV_GROUPS) — same 5 routes, same
+// components/layout/DashboardShell.tsx (NAV_GROUPS) — same 6 routes, same
 // labels/icons. Was previously only 2 tabs, which orphaned the audience/
 // attribution/calendar pages (sub-nav showed neither their tab nor any
 // highlight, so they looked broken from inside the module).
@@ -16,6 +16,13 @@ const TABS: { href: string; label: string; icon: LucideIcon }[] = [
   { href: "/marketing/audience", label: "กลุ่มลูกค้า", icon: Users2 },
   { href: "/marketing/attribution", label: "วัดผลโค้ด", icon: Ticket },
   { href: "/marketing/calendar", label: "ปฏิทินแคมเปญ", icon: CalendarDays },
+  // design doc ux-content-measurement.md §1.1: separate route (not a
+  // calendar tab), short label "อ่านยอด" — but explicitly NOT meant to be
+  // the primary way in late at night (§1.1: "sub-nav ไม่ใช่ทางเข้าหลักที่
+  // ควรพึ่ง") — this tab exists so the page is reachable/discoverable at
+  // all; §7 Q2 (bookmark vs. dashboard card as the real primary entry) is
+  // still open with the owner.
+  { href: "/marketing/content/entry", label: "อ่านยอด", icon: ClipboardList },
 ];
 
 /** Sticky sub-nav tab bar for the Marketing module — mirrors CrmSubNav
