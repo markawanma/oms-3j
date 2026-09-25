@@ -12,8 +12,11 @@ import type { ArtifactStatus, CampaignArtifact, CampaignBoardStep } from "@/lib/
  * with the view's SELECT list (0057 §5.4). Nested artifact fields
  * (clip_brief, generated_by, ...) live inside the `artifacts` jsonb column
  * already, so they don't need their own entry here. */
+// content_type_code appended (0145 — the column has existed on
+// v_campaign_board since that migration, this select list just hadn't
+// picked it up yet). Explicit list, not `select *` — do not change that.
 export const CAMPAIGN_BOARD_SELECT =
-  "step_id, campaign_id, campaign_name, campaign_type, trigger_kind, anchor_date, seq, step_kind, resolved_start, resolved_end, days_until, audience_segment, audience_live_count, channel, goal_kpi, step_status, step_blocked_reason, artifacts, art_total, art_done, gates, effective_status, step_title, source_reco_key, start_time, step_origin";
+  "step_id, campaign_id, campaign_name, campaign_type, trigger_kind, anchor_date, seq, step_kind, resolved_start, resolved_end, days_until, audience_segment, audience_live_count, channel, goal_kpi, step_status, step_blocked_reason, artifacts, art_total, art_done, gates, effective_status, step_title, source_reco_key, start_time, step_origin, content_type_code";
 
 function mapArtifact(a: Record<string, unknown>): CampaignArtifact {
   return {
@@ -75,5 +78,6 @@ export function mapCampaignBoardRow(r: Record<string, unknown>): CampaignBoardSt
     sourceRecoKey: (r.source_reco_key as string) ?? null,
     startTime: (r.start_time as string) ?? null,
     stepOrigin: (r.step_origin as CampaignBoardStep["stepOrigin"]) ?? "manual",
+    contentTypeCode: (r.content_type_code as string) ?? null,
   };
 }

@@ -17,6 +17,7 @@
 import { useEffect, useRef } from "react";
 import { CalendarDays } from "lucide-react";
 import type { CampaignBoardStep } from "@/lib/marketing/campaign-types";
+import type { ContentTypeRow } from "@/lib/marketing/content-types";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { AgendaTaskCard } from "@/components/domain/marketing/AgendaTaskCard";
 import { AddPlanForm } from "@/components/domain/marketing/AddPlanForm";
@@ -59,12 +60,15 @@ export function MonthTimeline({
   tasks,
   selectedDate,
   today,
+  contentTypes = [],
 }: {
   /** Whole month's rows (one getCalendarTasks call, same as before) —
    * grouped by resolvedStart here instead of filtered down to one day. */
   tasks: CampaignBoardStep[];
   selectedDate: string;
   today: string;
+  /** Passed straight through to AgendaTaskCard (design doc §3.2). */
+  contentTypes?: ContentTypeRow[];
 }) {
   const groupRefs = useRef<Map<string, HTMLLIElement>>(new Map());
 
@@ -164,7 +168,7 @@ export function MonthTimeline({
               </div>
               <ul className="space-y-2">
                 {dayTasks.map((t) => (
-                  <AgendaTaskCard key={t.stepId} step={t} dimmed={isPast && !isToday} />
+                  <AgendaTaskCard key={t.stepId} step={t} dimmed={isPast && !isToday} contentTypes={contentTypes} />
                 ))}
               </ul>
             </li>

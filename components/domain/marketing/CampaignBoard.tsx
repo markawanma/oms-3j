@@ -22,11 +22,13 @@ import {
   STEP_KIND_LABEL,
 } from "@/lib/marketing/campaign-types";
 import type { CampaignBoardStep, EffectiveStatus } from "@/lib/marketing/campaign-types";
+import type { ContentTypeRow } from "@/lib/marketing/content-types";
 import { Badge } from "@/components/ui/Badge";
 import type { BadgeTone } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
 import { CopilotSection } from "@/components/domain/tiktok/CopilotSection";
+import { ContentTypeChip, ContentTypeLegend } from "@/components/domain/marketing/ContentTypeChip";
 import { formatThaiDateOnly } from "@/lib/tiktok/format";
 
 const STATUS_TONE: Record<EffectiveStatus, BadgeTone> = {
@@ -53,6 +55,7 @@ function StepCard({
   onPassGate,
   onToggleContentOpen,
   onCopyContent,
+  contentTypes = [],
 }: {
   step: CampaignBoardStep;
   busyIds: Set<string>;
@@ -61,7 +64,9 @@ function StepCard({
   onPassGate: (stepId: string, gateKind: string) => void;
   onToggleContentOpen: (artifactId: string) => void;
   onCopyContent: (text: string) => void;
+  contentTypes?: ContentTypeRow[];
 }) {
+  const contentType = step.contentTypeCode ? contentTypes.find((ct) => ct.code === step.contentTypeCode) : undefined;
   const dimmed = step.effectiveStatus === "waiting_data" || step.effectiveStatus === "done";
 
   return (
@@ -91,6 +96,12 @@ function StepCard({
         </div>
         <Badge tone={STATUS_TONE[step.effectiveStatus]}>{EFFECTIVE_STATUS_LABEL[step.effectiveStatus]}</Badge>
       </div>
+
+      {/* Own line, separate from the status Badge — same reasoning as
+          AgendaTaskCard (design §3.1/§3.2): shape, not color, is what keeps
+          "content category" legible from "status" even when a content
+          type's hex collides with a status tone. */}
+      {contentType && <ContentTypeChip contentType={contentType} />}
 
       {step.goalKpi && <p className="text-xs leading-relaxed text-zinc-500">🎯 {step.goalKpi}</p>}
 
@@ -211,7 +222,13 @@ function StepCard({
   );
 }
 
-export function CampaignBoard({ initialSteps }: { initialSteps: CampaignBoardStep[] }) {
+export function CampaignBoard({
+  initialSteps,
+  contentTypes = [],
+}: {
+  initialSteps: CampaignBoardStep[];
+  contentTypes?: ContentTypeRow[];
+}) {
   const toast = useToast();
   // design §4 "CampaignBoard เดิม" row: standalone owner-added tasks
   // (campaign_type='content_task', 0057) live in v_campaign_board too now
@@ -312,6 +329,7 @@ export function CampaignBoard({ initialSteps }: { initialSteps: CampaignBoardSte
     onPassGate: handlePassGate,
     onToggleContentOpen: handleToggleContentOpen,
     onCopyContent: handleCopyContent,
+    contentTypes,
   };
 
   return (
@@ -320,6 +338,9 @@ export function CampaignBoard({ initialSteps }: { initialSteps: CampaignBoardSte
         <h2 className="text-base font-bold text-zinc-900">แคมเปญ (ตามแผน)</h2>
         <p className="text-xs text-zinc-500">{campaignName} · ติ๊ก content ที่ทำเสร็จได้เลย</p>
       </div>
+
+      {/* design §3.3: explain the 5 colors once here rather than per-card. */}
+      <ContentTypeLegend contentTypes={contentTypes} />
 
       <CopilotSection title="ต้องทำเร็วๆ นี้" count={upcoming.length}>
         {upcoming.length === 0 ? (

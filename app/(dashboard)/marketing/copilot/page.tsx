@@ -1,6 +1,7 @@
 import { Lock } from "lucide-react";
 import { getCampaignBoard, getChannelRoas, getMarketingReco } from "@/lib/actions/marketing";
 import { getCampaignTemplates } from "@/lib/actions/calendar";
+import { getContentTypes } from "@/lib/actions/content";
 import { getShopSetting } from "@/lib/actions/catalog";
 import { getEffectiveRole } from "@/lib/auth/role";
 import { ErrorState } from "@/components/ui/ErrorState";
@@ -25,9 +26,9 @@ export default async function MarketingCopilotPage() {
     );
   }
 
-  let recoResult, roasResult, settingResult, boardResult, templatesResult;
+  let recoResult, roasResult, settingResult, boardResult, templatesResult, contentTypesResult;
   try {
-    [recoResult, roasResult, settingResult, boardResult, templatesResult] = await Promise.all([
+    [recoResult, roasResult, settingResult, boardResult, templatesResult, contentTypesResult] = await Promise.all([
       getMarketingReco(),
       getChannelRoas(),
       getShopSetting(),
@@ -38,6 +39,13 @@ export default async function MarketingCopilotPage() {
       // comes back [].
       getCampaignTemplates().catch((err) => {
         console.error("getCampaignTemplates failed (non-blocking)", err);
+        return { ok: true as const, data: [] };
+      }),
+      // Same non-blocking shape — content_type is reference data for
+      // CampaignBoard's chips (ux-content-measurement.md §3), never worth
+      // failing the whole board over.
+      getContentTypes().catch((err) => {
+        console.error("getContentTypes failed (non-blocking)", err);
         return { ok: true as const, data: [] };
       }),
     ]);
@@ -61,7 +69,9 @@ export default async function MarketingCopilotPage() {
         </p>
       </div>
 
-      {boardResult?.ok && <CampaignBoard initialSteps={boardResult.data} />}
+      {boardResult?.ok && (
+        <CampaignBoard initialSteps={boardResult.data} contentTypes={contentTypesResult.ok ? contentTypesResult.data : []} />
+      )}
       <RecoList initialRows={recoResult.data} templates={templates} />
       <ChannelRoasFilter rows={roasResult.data} blendedMarginPct={settingResult.data.blendedMarginPct} />
     </div>

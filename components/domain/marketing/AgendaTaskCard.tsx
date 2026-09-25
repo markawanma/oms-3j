@@ -17,8 +17,10 @@ import {
   STEP_KIND_LABEL,
 } from "@/lib/marketing/campaign-types";
 import type { CampaignBoardStep, EffectiveStatus } from "@/lib/marketing/campaign-types";
+import type { ContentTypeRow } from "@/lib/marketing/content-types";
 import { Badge } from "@/components/ui/Badge";
 import type { BadgeTone } from "@/components/ui/Badge";
+import { ContentTypeChip } from "@/components/domain/marketing/ContentTypeChip";
 
 // Date-only, UTC — same convention as MonthCalendar/page.tsx for
 // resolvedStart/resolvedEnd (plain "YYYY-MM-DD", no time component).
@@ -39,6 +41,7 @@ const STATUS_TONE: Record<EffectiveStatus, BadgeTone> = {
 export function AgendaTaskCard({
   step,
   dimmed = false,
+  contentTypes = [],
 }: {
   step: CampaignBoardStep;
   /** Month timeline dims rows on days already past (not today) so the eye
@@ -47,8 +50,15 @@ export function AgendaTaskCard({
    * fully legible if the owner is deliberately scrolled back to review a
    * past day. */
   dimmed?: boolean;
+  /** analytics.content_type reference rows, for resolving step.contentTypeCode
+   * -> {labelTh, colorHex} (design doc §3.2). Optional/defaulted so any
+   * caller that hasn't started fetching content types yet still compiles
+   * and just never shows the chip, rather than being forced to thread it
+   * through immediately everywhere. */
+  contentTypes?: ContentTypeRow[];
 }) {
   const title = step.stepTitle ?? STEP_KIND_LABEL[step.stepKind] ?? step.stepKind;
+  const contentType = step.contentTypeCode ? contentTypes.find((ct) => ct.code === step.contentTypeCode) : undefined;
   // "ยังไม่ผ่าน" = anything short of passed (pending or explicitly blocked);
   // "na" gates never applied to this step, not worth surfacing.
   const pendingGates = step.gates.filter((g) => g.status !== "passed" && g.status !== "na");
@@ -91,6 +101,18 @@ export function AgendaTaskCard({
           </div>
           <Badge tone={STATUS_TONE[step.effectiveStatus]}>{EFFECTIVE_STATUS_LABEL[step.effectiveStatus]}</Badge>
         </div>
+
+        {/* Own line, separate from the status Badge above (design §3.2/§3.1
+            — Badge = status vocabulary (solid fill), ContentTypeChip =
+            content category vocabulary (outline+dot only), never mixed on
+            the same row so the shape difference stays the only thing
+            carrying meaning when a content type's color collides with a
+            status tone). */}
+        {contentType && (
+          <div className="mt-1">
+            <ContentTypeChip contentType={contentType} />
+          </div>
+        )}
 
         {(step.channel || step.audienceSegment || step.artTotal > 0) && (
           <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-500">

@@ -98,6 +98,11 @@ export interface CampaignBoardStep {
    * server-side already) — surfaced here so the UI can disable the delete
    * button instead of letting the owner hit an error. */
   stepOrigin: "template" | "manual";
+  /** campaign_step.content_type_code (0145, column existed but had no
+   * writer until 0150's campaign_step_set_content_type) — null = not
+   * tagged yet. Render via ContentTypeChip, outline+dot only (design doc
+   * ux-content-measurement.md §3.1), never solid fill. */
+  contentTypeCode: string | null;
 }
 
 // ---- Thai labels ----------------------------------------------------------
