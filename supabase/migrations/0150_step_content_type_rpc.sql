@@ -49,6 +49,21 @@
 --    กับ "step เป็นของร้านอื่น" รวมเป็นข้อความเดียวกัน (ตามแพตเทิร์น
 --    content_post_set_status) ด้วยเหตุผลเดียวกัน — ไม่บอกฝั่งเรียกว่า step id
 --    นั้นมีอยู่จริงแต่อยู่ร้านอื่น.
+--
+-- 🔴 แก้รอบ security review (25 ก.ย. 69):
+--
+-- L1 (Tech Lead ชี้ขาด, รับ): content_type_code ที่ is_active=false ยังแท็กได้
+--    เดิม — 0145 ใส่ is_active มาเพื่อ "ปลดระวางประเภท" โดยเฉพาะ ⇒ ตอนนี้เช็ค
+--    `and is_active`. trade-off ที่รับแล้ว: step ที่แท็กด้วย code ที่ถูกปลด
+--    ระวางภายหลัง จะ "เซฟทับด้วย code เดิมซ้ำ" ไม่ได้อีก (แต่ค่าเดิมในแถวยังอยู่
+--    ไม่หาย เปลี่ยนไปแท็กประเภทอื่นที่ยัง active แทนได้).
+--
+-- L2 (security เสนอ): select ... for update เดิมไม่มี shop_id ในเงื่อนไข ⇒ ล็อก
+--    แถวของร้านอื่นทิ้งไว้จนจบ transaction ก่อนจะค่อยปฏิเสธ เปิดช่อง timing
+--    probe (ยิง step ของร้านอื่นที่กำลังถูกล็อกจากคำขออื่นพร้อมกัน = ค้างรอ
+--    ต่างจากยิง id ที่ไม่มีจริงเลย = ตอบทันที) ⇒ ย้าย shop_id เข้าเงื่อนไข WHERE
+--    ของ select ... for update ตรงๆ ใช้ `perform 1 ... if not found` แทนการ
+--    เก็บ shop_id มาเทียบทีหลัง — ตัด v_actual_shop_id ออกทั้งตัว.
 -- ============================================================================
 
 drop function if exists analytics.campaign_step_set_content_type(uuid, uuid, text);
@@ -62,8 +77,6 @@ create function analytics.campaign_step_set_content_type(
   security definer
   set search_path = public, pg_temp
 as $$
-declare
-  v_actual_shop_id uuid;
 begin
   if p_shop_id is null or p_step_id is null then
     raise exception 'campaign_step_set_content_type: p_shop_id, p_step_id เป็นค่าจำเป็น';
@@ -71,20 +84,24 @@ begin
 
   perform analytics.crm_require_owner_admin(p_shop_id);  -- ด่านสิทธิ์ก่อน validate อื่น (กัน probe)
 
-  -- ล็อกแถวเป้าหมาย + อ่าน shop_id จริงของ step (ก่อนเชื่อค่าที่ผู้เรียกส่งมา)
-  select cs.shop_id into v_actual_shop_id
-  from analytics.campaign_step cs
-  where cs.id = p_step_id
+  -- ล็อกเฉพาะแถวที่ shop_id ตรงตั้งแต่ WHERE (L2, security 25 ก.ย. 69) — ถ้า
+  -- select ก่อนไม่กรอง shop_id แล้วค่อยเทียบทีหลัง จะล็อกแถวของร้านอื่นทิ้งไว้
+  -- จนจบ transaction ก่อนปฏิเสธ เปิดช่อง timing probe (step ร้านอื่นที่กำลังถูก
+  -- ล็อกจากคำขอพร้อมกัน = ค้างรอ ต่างจาก step ที่ไม่มีจริงเลย = ตอบทันที)
+  perform 1 from analytics.campaign_step cs
+  where cs.id = p_step_id and cs.shop_id = p_shop_id
   for update;
 
-  if v_actual_shop_id is null or v_actual_shop_id <> p_shop_id then
+  if not found then
     raise exception 'campaign_step_set_content_type: ไม่พบ step % ในร้านนี้', p_step_id using errcode = '22023';
   end if;
 
+  -- L1 (Tech Lead ชี้ขาด, 25 ก.ย. 69): code ที่ is_active=false ปลดระวางแล้ว
+  -- ห้ามแท็กเพิ่ม (แถวที่แท็กไว้อยู่แล้วด้วย code นั้นก่อนปลดระวางยังอยู่ ไม่หาย)
   if p_content_type_code is not null and not exists (
-    select 1 from analytics.content_type where code = p_content_type_code
+    select 1 from analytics.content_type where code = p_content_type_code and is_active
   ) then
-    raise exception 'campaign_step_set_content_type: content_type_code ไม่ถูกต้อง: %', p_content_type_code using errcode = '22023';
+    raise exception 'campaign_step_set_content_type: content_type_code ไม่ถูกต้องหรือถูกปลดระวางแล้ว: %', p_content_type_code using errcode = '22023';
   end if;
 
   -- 🔴 null ที่นี่แปลว่า "ล้างค่า" จริง — ต่างจากแพตเทิร์น null-preserving ของ
@@ -103,8 +120,9 @@ comment on function analytics.campaign_step_set_content_type(uuid, uuid, text) i
   '0145 แต่ไม่เคยมี RPC เขียน — 0150 ปิดช่องนี้). p_content_type_code = null คือ ''ล้างค่า'' จริง '
   '(ต่างจาก null-preserving ของ content_post_upsert โดยตั้งใจ — ผู้ใช้ต้องถอนป้ายออกได้). '
   'ไม่มี default พารามิเตอร์ตัวไหนเลย — บังคับผู้เรียกส่งค่าที่ตั้งใจทุกครั้ง กันเผลอ. '
-  'updated_at ของ campaign_step ขยับตามปกติทุกครั้งที่เรียก (ไม่ปิด trigger — เป็นการแก้โดยคน '
-  'ทีละ step ไม่ใช่ backfill กวาดหลายแถว, ต่างจาก 0145).';
+  'code ที่ content_type.is_active=false ถูกปฏิเสธ (L1) — ปลดระวางแล้วแท็กเพิ่มไม่ได้, ค่าเดิมที่แท็ก '
+  'ไว้ก่อนปลดระวางไม่ถูกลบ. updated_at ของ campaign_step ขยับตามปกติทุกครั้งที่เรียก (ไม่ปิด trigger — '
+  'เป็นการแก้โดยคนทีละ step ไม่ใช่ backfill กวาดหลายแถว, ต่างจาก 0145).';
 
 revoke execute on function analytics.campaign_step_set_content_type(uuid, uuid, text)
   from public, anon, authenticated;
