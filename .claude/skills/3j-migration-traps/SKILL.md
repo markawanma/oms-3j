@@ -211,6 +211,9 @@ SQL ยังถูกไวยากรณ์ทุกอย่าง ผ่า
 - [ ] ชุดทดสอบใช้ตัวแปรซ้ำข้ามชนิดไหม — int รับ numeric = ปัดเศษเงียบ (ข้อ 16)
 - [ ] **มีเคส "ยิงฟังก์ชันใหม่ใส่ข้อมูลเก่าทุกโหมดที่มีจริง" หรือยัง** ไม่ใช่แค่ fixture ใหม่ (ข้อ 17)
 - [ ] มี `grant ... to authenticated` หรือ `anon` ในไฟล์ไหม → **ตีตกทันทีถ้าเป็นสคีมา `analytics`** (ข้อ 18) · ตัวอย่างเก่าในสกิลนี้เขียนไว้ผิด อย่าลอก
+- [ ] มี `UPDATE` ในไฟล์ไหม → query `pg_trigger` ของตารางนั้นแล้วหรือยัง · `where` แคบพอที่จะไม่โดนแถวที่ค่าไม่เปลี่ยนไหม (ข้อ 19)
+- [ ] ไฟล์เป็น **LF** หรือยัง · จะ replay/rebuild บน Windows ไหม → นับ `\r` ด้วย `tr -dc '\r' | wc -c` ก่อนรัน (ข้อ 20)
+- [ ] apply แล้ว → ไฟล์ขึ้นรีโปจริงหรือยัง (`git log --oneline -- supabase/migrations/<ไฟล์>`) · เทียบ md5 ไม่ตรง ให้เช็ค `\r` + ลำดับ replay ก่อนสรุปว่าไฟล์ผิด (ข้อ 21)
 
 ---
 
@@ -347,3 +350,117 @@ migration ทุกตัวหลัง 0123 (0131/0138/0140/0141/0143/0144/014
 
 **ญาติสนิทของข้อ 13** (ด่านตาบอด) แต่คนละหน้า: ข้อ 13 คือ *อ่าน* ค่าว่างผิดชนิด ·
 ข้อนี้คือ *เขียน* ทับของที่ไม่ได้ตั้งใจแตะ — ทั้งคู่เงียบเท่ากัน
+
+---
+
+## 20. 🔴 CRLF ทำให้ replay ได้ฟังก์ชัน "เหมือนแต่ไม่เท่า" ของบน prod
+
+**เกิดจริง 23 ก.ย. 69 ตอนกู้ไฟล์ 0129 — เกือบสรุปผิดว่า "ไฟล์ที่กู้มาไม่ตรงกับ prod"**
+
+Git for Windows ตั้ง `core.autocrlf=true` มาจาก system config (`C:/Program Files/Git/etc/gitconfig`)
+และรีโปนี้**ไม่มี `.gitattributes`** ⇒ **blob เก็บ LF แต่เช็คเอาต์ออกมาเป็น CRLF**
+
+ไฟล์ `.sql` ที่มี body ฟังก์ชันอยู่ระหว่าง `$$...$$` จะได้ `\r` ติดเข้าไป **ในตัว source ของฟังก์ชัน**
+ไม่ใช่แค่ whitespace ของไฟล์ — Postgres เก็บ body เป็นสตริงดิบ `\r` จึงกลายเป็นส่วนหนึ่งของฟังก์ชันถาวร
+⇒ ฟังก์ชันรันได้เหมือนเดิมทุกบรรทัด แต่ `pg_get_functiondef` ไม่ตรง ⇒ **เทียบ md5 แล้วไม่ตรงทั้งที่ตรรกะไม่ได้ต่างกันเลย**
+
+พิสูจน์จริงกับ `0134_silver_bar_cost_from_kilo_price.sql`:
+
+```bash
+# blob ใน git = LF ล้วน · working tree = CRLF
+git show HEAD:supabase/migrations/0134_silver_bar_cost_from_kilo_price.sql | tr -dc '\r' | wc -c   # 0
+tr -dc '\r' < supabase/migrations/0134_silver_bar_cost_from_kilo_price.sql | wc -c                 # 184
+```
+
+replay ด้วยไฟล์จาก working tree (มี `\r` 184 ตัว) → `md5(pg_get_functiondef)` **ไม่ตรง**
+`sed 's/\r$//'` ก่อนแล้ว replay → **ตรงทันที** (`a14175ef8776133aaf6353eba2e1bf37`)
+
+🔴 **`scripts/run-sql.mjs` ไม่ normalize ให้** — มันอ่านไฟล์ดิบ (`readFileSync(path,'utf8')`) แล้วส่งเข้า DB ตรงๆ
+⇒ กับดักนี้โดนทุกครั้งที่รันไฟล์จาก working tree บนเครื่อง Windows
+
+⚠️ **`grep -c $'\r'` ตรวจเรื่องนี้ไม่ได้** — msys grep กิน CR ท้ายบรรทัดไปเอง คืน `0` ทั้งที่มี `\r` จริง
+ใช้ `tr -dc '\r' | wc -c` เท่านั้น
+
+### กฎ
+
+1. **migration ที่เขียนใหม่ ให้เป็น LF เสมอ**
+2. **rebuild / replay ทั้งชุดบน Windows ต้องแปลงเป็น LF ก่อนทุกไฟล์** —
+   `sed 's/\r$//' <file> > <tmp>` แล้วรัน `<tmp>` · หรือดึงจาก blob ตรงๆ ด้วย
+   `git show <ref>:<path>` ซึ่งเป็น LF อยู่แล้วเพราะไม่ผ่าน working tree
+3. **md5 ไม่ตรง อย่าเพิ่งสรุปว่าไฟล์ผิด** — นับ `\r` ก่อนเสมอ (อีกสาเหตุหนึ่งอยู่ที่ข้อ 21: ลำดับ replay)
+
+**เสนอให้พิจารณา — ยังไม่ได้ทำ ต้องให้เจ้าของ/Tech Lead ตัดสินเพราะกระทบ working tree ของทุกคนและทุก worktree**:
+เพิ่ม `.gitattributes` บรรทัด `*.sql text eol=lf` ⇒ ปิดกับดักที่ต้นทาง แทนที่จะต้องจำแปลงเองทุกครั้ง
+
+---
+
+## 21. กู้ไฟล์ migration ที่หายจากรีโปได้จาก DB เอง + วิธีพิสูจน์ว่าไฟล์ตรงกับ prod จริง
+
+**เกิดจริง: `0129_oem_metal_price_set_manual_guard` apply ลง prod ตั้งแต่ 17 ก.ย. 69
+(version `20260917082918`) แต่ไฟล์ไม่เคยเข้ารีโปเลย — รู้ตัวอีกที 23 ก.ย.**
+(บทเรียนเดียวกับ 0107-0109 ที่ค้างนอก main แต่หนักกว่า เพราะรอบนั้นไฟล์แค่ค้าง รอบนี้หายสนิท)
+
+`supabase_migrations.schema_migrations.statements` เก็บ **SQL เต็มที่ถูกส่งเข้า DB ตอน apply จริง**
+⇒ ไฟล์หายก็กู้คืนได้ และเป็นแหล่งที่ **ตรงกับ prod ที่สุด — ดีกว่า draft ที่ยังเหลือในรีโป**
+
+```sql
+select version, name, array_to_string(statements, E';\n') as sql
+from supabase_migrations.schema_migrations
+where version = '20260917082918';
+```
+
+ของ 0129: draft ที่คนเขียนไว้ (commit `c07d07a` บรานช์ที่ไม่เคย push) ยาว **31,490 ตัวอักษร**
+แต่ตอน apply จริงย่อคอมเมนต์ลงเหลือ **7,737** — body ที่อยู่บน prod ตรงกับ**ฉบับย่อ** ไม่ใช่ draft
+⇒ หยิบ draft มาใช้แทน = ได้ฟังก์ชัน "เหมือนแต่ไม่เท่า" อีกทาง (ญาติของข้อ 20 คนละต้นเหตุ)
+
+### วิธีพิสูจน์ว่าไฟล์ที่กู้มา replay แล้วได้ของเท่าเดิม
+
+ในทรานแซกชันเดียวกัน: เก็บ `md5(pg_get_functiondef(oid))` ก่อน → รันไฟล์ → เก็บอีกรอบ → เทียบ → **rollback**
+\+ **นับจำนวน signature ก่อน/หลังด้วย** เพื่อจับ overload หลุด (ข้อ 1)
+
+```sql
+begin;
+
+create temp table _fn_before as
+select p.oid::regprocedure::text as sig, md5(pg_get_functiondef(p.oid)) as h
+from pg_proc p
+where p.pronamespace = 'analytics'::regnamespace
+  and p.proname in ('oem_metal_price_set', 'silver_spot_sync_from_history');
+
+-- ...รันเนื้อไฟล์ migration ตรงนี้...
+
+select b.sig,
+       b.h = md5(pg_get_functiondef(p.oid)) as ตรงกัน
+from _fn_before b
+left join pg_proc p on p.oid::regprocedure::text = b.sig;
+
+select count(*) from _fn_before;   -- เทียบกับ count เดิม: เกิน = overload หลุด · ขาด = signature เปลี่ยน
+
+rollback;
+```
+
+ใช้ `node scripts/run-sql.mjs <file.sql>` **ไม่ใส่ `--commit`** ก็ได้ผลเดียวกัน (โหมดซ้อม ROLLBACK เสมอ)
+— แต่ต้องระวังเรื่อง `\r` ตามข้อ 20 ก่อน
+
+### ⚠️ ไม่ตรงด้วยไฟล์เดียว ไม่ได้แปลว่าไฟล์ผิด
+
+ถ้าฟังก์ชันถูก `replace` ทับอีกรอบใน migration ที่ลงทีหลัง **ต้อง replay ตามลำดับจริงถึงจะตรง**
+
+| ฟังก์ชัน | replay `0129` เดี่ยว | replay `0129` → `0134` |
+|---|---|---|
+| `oem_metal_price_set(uuid,text,numeric,date,text)` | ✅ ตรง (`860364d9…`) | ✅ ตรง |
+| `silver_spot_sync_from_history()` | ❗ **ไม่ตรง** | ✅ ตรงเป๊ะ (`a14175ef…`) |
+
+เพราะ `0134` (18 ก.ย.) replace `silver_spot_sync_from_history` ทับหลัง `0129`
+⇒ ของที่อยู่บน prod ตอนนี้เป็นของ `0134` ไม่ใช่ของ `0129`
+**ก่อนจะสรุปว่าไฟล์ที่กู้มาผิด ให้ไล่หาก่อนว่ามี migration ตัวไหนแตะฟังก์ชันนั้นทีหลังบ้าง**
+
+### กฎ
+
+1. **apply เสร็จ ตรวจทันทีว่าไฟล์ขึ้นรีโปแล้วจริง** — `git log --oneline -- supabase/migrations/<ไฟล์>`
+   (ต่อจากข้อ 10 ที่พูดถึงประวัติฝั่ง DB · ข้อนี้คือฝั่งรีโป)
+2. **ไฟล์ที่กู้ย้อนหลัง ต้องบอกไว้ในหัวไฟล์ว่า "APPLIED แล้ว ห้าม apply ซ้ำ" + version ที่ลง**
+   ไม่งั้นรอบหน้ามีคนหยิบไปรันจริง
+3. **จงใจเขียนไฟล์ที่กู้ให้ต่างจากของที่ apply ไป ต้องเขียนเหตุผลไว้ตรงนั้น** — 0129 แก้บรรทัด
+   `grant ... to authenticated, service_role` เหลือ `to service_role` (ข้อ 18) เพื่อให้ปลายทางของ
+   replay ถูกโดยไม่ต้องรอ 0147 ⇒ ต้องระบุไว้ ไม่งั้นรอบหน้าคนเทียบ md5 แล้วงงว่าทำไมไม่ตรง
