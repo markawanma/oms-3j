@@ -25,6 +25,7 @@
 | `ai-marketing-os-decision-31aug.md` | 🔝 มติ C-level + แผน 90 วัน — **ทิศทางใหญ่สุดตอนนี้** |
 | `weekly-brief/` | Weekly Marketing Brief ทุกจันทร์ (scheduled task `weekly-marketing-brief`) — แม่แบบ `TEMPLATE.md` · ฉบับรายสัปดาห์ตั้งชื่อตามวันที่ (ฉบับแรก `2026-09-11.md`, CMO กำหนดแม่แบบ · #2 `2026-09-16.md` สัปดาห์ 7–13 ก.ย. — ใช้กฎ live-SKU ครั้งแรก) · ข้อเสนอลง `analytics.recommendation_log` |
 | `content-calendar/` | ปฏิทินโพสต์รายเดือนแบบชุนหลี (เจ้าของสั่ง 16 ก.ย. 69) — แม่แบบ `TEMPLATE.md` (ต้นฉบับ = md ใน repo, artifact = หน้าอ่าน) · ฉบับรายเดือนตั้งชื่อ ปี-เดือน — ฉบับแรก `2026-10.md` (ร่าง 3 · เคาะ Lean · ลง campaign board แล้ว migration 0120 · รอเจ้าของยืนยัน §6d) · ทุกโพสต์ผูก `campaign_step.id` = execution log |
+| `trend-radar/` | เรดาร์ข่าว/เทรนรายวัน (scheduled task `daily-trend-radar` ทุกวัน 07:30) — ไฟล์ละวัน ตั้งชื่อตามวันที่ · **วัตถุดิบที่ผ่าน 3 ด่านแล้ว ให้เจ้าของ/CMO หยิบเข้าปฏิทินเอง** 🔴 ระบบไม่แทรกปฏิทินเอง · วันไหนไม่มีอะไรใหม่ให้เขียนว่าไม่มี ห้ามปั้นให้ครบ |
 | `audit-and-replan-28aug.md` | โครง 3 เสา + บัญชีทรัพย์สิน content (CMO+Bail) — รวมมติ IG ที่เจ้าของกลับ |
 | `plan-sep69-revised.md` | แผน ก.ย. ฉบับปรับหลังมีป้ายลูกค้า — win-back 411 |
 | `pricing-disclosure-policy.md` | กติกาเปิดราคา — **อ่านก่อนเขียนอะไรที่มีตัวเลขเสมอ** |
@@ -73,6 +74,7 @@
 |---|---|---|
 | `analytics/` | design docs ของ 3J Insight ทุก phase | ✅ ใช้อ้าง design — ตัวเลขในนั้นคือ snapshot ห้ามใช้แทน query |
 | `analytics/content-kpi-definition.md` | 🔝 **เอกสารชี้ขาดว่าวัดผล content ยังไง** (22 ก.ย. 69) — 4 ตัวเลขบนจอ · กติกา T+7/T+3 · **สิ่งที่วัดไม่ได้ถาวร** (CTR/ROAS/SKU lift/คอมเมนต์ถามซื้อ) · "บันทึก" คือสัญญาณดีสุดและ API ไม่ให้ · ตารางเห็นแบบนี้ทำแบบนี้ | ✅ current — **ใครจะเสนอ KPI ชุดใหม่ ต้องอ่านก่อนแล้วบอกว่าแทนที่ข้อไหน** |
+| `analytics/ux-content-measurement.md` | UX design ชั้นวัดผล content (25 ก.ย. 69, Padmé) — คิวกรอกตัวเลข mobile-first (`/marketing/content/entry`) + ช่องวางลิงก์โพสต์ + สีประเภท (outline+dot กันชนสี primary) — **หน้าสรุปผลเลื่อนออกจากรอบนี้** (เหตุผล+เกณฑ์กลับมาทำใน §4) · `content_type_code` ของ `campaign_step` ยังไม่มี RPC เขียน (§0.3) | 🆕 design เท่านั้น ยังไม่ implement |
 | `design-system/` + `cad/` | ระบบออกแบบเครื่องประดับ (Sabé) | ✅ current |
 | `brand-ops/` | brand brief / NAP / prompt | ✅ current |
 | `oms/` · `ops-app/` · `oem/` · `design/` | design docs ตามระบบ — `oms/system-flow-2026-09.md` = วงจรระบบ + **มติเจ้าของ 17 ก.ย. 69** (สต็อก opt-in ต่อ SKU / live-SKU ไม่นับ / ขายดี qty+THB แยกช่องทาง / เตือน LINE / variant แม่-ลูกตาม TikTok) — ขัดกับ memory ให้ถือไฟล์นี้ | ✅ ใช้อ้าง design |
