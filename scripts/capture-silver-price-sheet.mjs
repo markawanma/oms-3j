@@ -48,6 +48,7 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { extractServiceAccountFields, buildJwtClaimSet, signJwt } from "./lib/google-sheets-auth.mjs";
 import { parseSheet } from "./lib/silver-sheet-parse.mjs";
+import { formatError } from "./lib/format-error.mjs";
 
 const SHEETS_READONLY_SCOPE = "https://www.googleapis.com/auth/spreadsheets.readonly";
 
@@ -288,8 +289,10 @@ async function main() {
 if (hasRequiredEnv) {
   main().catch((err) => {
     // ห้ามพิมพ์ error object ทั้งก้อน — ของเดิม (ก่อน 2026-09-02) พิมพ์ err ทั้งก้อน
-    // ซึ่ง err.cause ของ fetch อาจพ่วง URL/host ออกมาได้ พิมพ์แค่ name+message พอ
-    console.error(`${err.name}: ${err.message}`);
+    // ซึ่ง err.cause ของ fetch อาจพ่วง URL/host ออกมาได้ ย้ายมาใช้ helper กลาง
+    // 23 ก.ย. 69 ตอนไล่แก้สคริปต์ตัวอื่นให้ตรงกันทั้งชุด — helper กันเคส error
+    // ที่เป็น plain object ของ supabase-js ด้วย (err.name จะเป็น undefined)
+    console.error(formatError(err));
     process.exitCode = 1; // see the note near REQUIRED_ENV re: process.exit() after fetch() crashing on Node 24/Windows
   });
 }
