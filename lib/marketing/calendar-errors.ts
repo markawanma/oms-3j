@@ -28,6 +28,13 @@ export function mapCalendarRpcError(err: unknown, fallback: string): string {
     if (msg.includes("clip_brief")) {
       return "รูปแบบ clip brief ไม่ถูกต้อง";
     }
+    // campaign_step_set_content_type (0150)
+    if (msg.includes("content_type_code ไม่ถูกต้อง")) {
+      return "ประเภทเนื้อหาที่เลือกไม่ถูกต้อง ลองเลือกใหม่";
+    }
+    if (msg.includes("ไม่พบ step")) {
+      return "ไม่พบงานนี้ อาจถูกลบไปแล้ว";
+    }
   }
   return fallback;
 }

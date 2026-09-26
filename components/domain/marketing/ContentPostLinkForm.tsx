@@ -137,12 +137,22 @@ export function ContentPostLinkForm({
 
   function handleSaveType() {
     if (!existingPost) return;
+    // H3 fix (26 ก.ย. 69): never let this fire with an empty selection —
+    // same rule as StepContentTypeSelector's Rule 1 (see that file's
+    // header). The edit-mode <select> below no longer offers an "ไม่ระบุ"
+    // option and the "บันทึก" button is disabled while editTypeValue is
+    // empty, so this is belt-and-suspenders, not the only gate.
+    if (!editTypeValue) {
+      toast.push("กรุณาเลือกประเภทก่อนบันทึก", "error");
+      return;
+    }
     startEditTransition(async () => {
       const result = await updateContentPostType(existingPost.id, {
         platform: existingPost.platform,
         postUrl: existingPost.postUrl,
         postedAt: existingPost.postedAt,
-        contentTypeCode: editTypeValue || null,
+        externalId: existingPost.externalId,
+        contentTypeCode: editTypeValue,
       });
       if (!result.ok) {
         toast.push(result.error, "error");
@@ -200,19 +210,55 @@ export function ContentPostLinkForm({
 
         {editingType && (
           <div className="mt-2 flex flex-wrap items-center gap-2">
+            {/* H3 fix (26 ก.ย. 69, security ตรวจย้อนหลัง): NO "ไม่ระบุ" option
+                here, unlike the create form below (§2.4) where it's correct.
+                updateContentPostType's write is null-preserving (0148 §H3) —
+                picking "ไม่ระบุ" here looked like "clear this post's type"
+                but silently no-op'd and kept the old value: toast said
+                "บันทึกประเภทแล้ว", refresh showed the same chip, no error,
+                no explanation. If this post has never had a type set,
+                editTypeValue starts at "" and matches nothing below — the
+                select shows no option highlighted, which is fine: "บันทึก"
+                stays disabled until the owner actually picks a real type
+                (same gate as StepContentTypeSelector's Rule 1). Actually
+                clearing a type for real needs its own explicit action with
+                a confirm step — same shape as StepContentTypeSelector's
+                "ล้างประเภท" — not built here; don't add "ไม่ระบุ" back as a
+                shortcut for it. */}
             <select
               value={editTypeValue}
               onChange={(e) => setEditTypeValue(e.target.value)}
               className="min-h-9 rounded-md border border-zinc-300 bg-white px-2 text-xs focus:border-primary-500 focus:outline-none"
             >
-              <option value="">ไม่ระบุ</option>
+              {/* 🔴 N2 fix (26 ก.ย. 69): a `disabled` placeholder, NOT "no
+                  empty option at all". Removing it outright (the first H3
+                  attempt) dead-ended every post that has no type yet:
+                  editTypeValue starts at "" (line ~206), nothing matched,
+                  so React fell back to rendering option[0] — "พาเข้าไลฟ์",
+                  the type this shop uses most — as the visible selection
+                  while state stayed "". Picking the option already shown
+                  fires no `change`, so the disabled "บันทึก" never woke up
+                  and there was no way out except selecting some other type
+                  and switching back. The comment there even asserted "the
+                  select shows no option highlighted, which is fine" — that
+                  assertion was the bug.
+                  `disabled` keeps H3 closed (can't select back into "" ⇒
+                  can't send null ⇒ can't hit 0148's null-preserving no-op)
+                  while value="" still MATCHES this option, so an untyped
+                  post shows this placeholder instead of a wrong type. */}
+              <option value="" disabled>
+                — เลือกประเภท —
+              </option>
               {contentTypes.map((ct) => (
                 <option key={ct.code} value={ct.code}>
                   {ct.labelTh}
                 </option>
               ))}
             </select>
-            <Button size="sm" loading={editPending} onClick={handleSaveType}>
+            {!editTypeValue && (
+              <span className="text-[0.7rem] text-zinc-500">เลือกประเภทก่อนจึงจะกดบันทึกได้</span>
+            )}
+            <Button size="sm" loading={editPending} disabled={!editTypeValue} onClick={handleSaveType}>
               บันทึก
             </Button>
             <Button size="sm" variant="ghost" onClick={() => setEditingType(false)}>

@@ -44,11 +44,27 @@ export default async function ContentEntryPage() {
   const todayTh = effectiveDateBangkok(new Date().toISOString());
 
   // Independent fetches on purpose (design §1.5's error row): a failure in
-  // the read-queue must never block the "+ เพิ่มโพสต์ใหม่วันนี้" widget —
-  // Promise.all still runs both concurrently, each action's own try/catch
-  // turns a thrown error into {ok:false} rather than rejecting the promise,
-  // so one failing never drops the other.
-  const [queueResult, typesResult] = await Promise.all([getContentEntryQueue(), getContentTypes()]);
+  // the read-queue must never block the "+ เพิ่มโพสต์ใหม่วันนี้" widget.
+  //
+  // 🔴 M4 fix (26 ก.ย. 69): the line this replaced claimed "each action's
+  // own try/catch turns a thrown error into {ok:false} rather than
+  // rejecting" — NOT true. Both actions call requireOwnerAdmin() ->
+  // getEffectiveRole() BEFORE their `try {`, so a session/cookie failure
+  // rejects. And unlike the two calendar pages, this call sits outside any
+  // try/catch at all (the one above closed already), so a rejection here
+  // hits Next's error boundary and takes the whole page — including the
+  // "+ เพิ่มโพสต์ใหม่วันนี้" widget the comment says must survive. Catch
+  // BOTH so the page degrades the way it claims to.
+  const [queueResult, typesResult] = await Promise.all([
+    getContentEntryQueue().catch((err) => {
+      console.error("getContentEntryQueue failed (non-blocking)", err);
+      return { ok: false as const, error: "โหลดคิวอ่านยอดไม่สำเร็จ" };
+    }),
+    getContentTypes().catch((err) => {
+      console.error("getContentTypes failed (non-blocking)", err);
+      return { ok: false as const, error: "โหลดประเภทเนื้อหาไม่สำเร็จ" };
+    }),
+  ]);
 
   return (
     <div className="space-y-4">

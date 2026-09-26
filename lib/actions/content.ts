@@ -62,7 +62,11 @@ export async function getContentTypes(): Promise<ActionResult<ContentTypeRow[]>>
       code: String(r.code),
       labelTh: String(r.label_th),
       colorHex: String(r.color_hex),
-      sortOrder: Number(r.sort_order) || 100,
+      // M5 fix (26 ก.ย. 69): `Number(r.sort_order) || 100` turned a real
+      // sort_order of 0 into 100 — `0 || 100` is `100` in JS, `||` doesn't
+      // distinguish "falsy number" from "missing". Only null/undefined
+      // should fall back to the 100 default.
+      sortOrder: r.sort_order == null ? 100 : Number(r.sort_order),
     }));
     return { ok: true, data: rows };
   } catch (err) {
@@ -76,11 +80,22 @@ export async function getContentTypes(): Promise<ActionResult<ContentTypeRow[]>>
 // ============================================================================
 
 /** /marketing/content/entry's queue of (ข) — posts whose age today falls in
- * the T+1/T+3/T+7 read window and don't have real numbers yet. Enriches with
- * content_post.caption_snapshot (design §1.3 mockup shows a one-line
- * caption preview) — the view itself (0149) doesn't select that column, so
- * this is a second plain read against content_post (granted select to
- * service_role, 0148), not a new RPC or a schema change. */
+ * the T+1/T+3/T+7 read window and don't have real numbers yet.
+ *
+ * 🔴 M3 fix (26 ก.ย. 69, security ตรวจย้อนหลัง): this used to run a SECOND
+ * query against content_post to backfill caption_snapshot (the view, 0149,
+ * doesn't select that column) — but nothing in this app ever writes a
+ * caption. ContentPostLinkForm (content_post's only writer) has no caption
+ * input and never sends `caption` to upsertContentPost, so caption_snapshot
+ * is null on every row, always — that second query was a guaranteed-empty
+ * round trip on every single page load, worst on mobile/night, exactly the
+ * situation this design otherwise goes out of its way to protect (see the
+ * localStorage-draft file header). ContentMetricCard's `row.captionSnapshot
+ * && <p>...` was consequently dead code — always false.
+ *
+ * Re-add the content_post lookup (join on post_id, select caption_snapshot)
+ * the day a real caption-capture path exists; ContentMetricCard already
+ * renders it whenever it's non-null, so no UI change needed then. */
 export async function getContentEntryQueue(): Promise<ActionResult<ContentEntryQueueRow[]>> {
   const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
@@ -100,20 +115,6 @@ export async function getContentEntryQueue(): Promise<ActionResult<ContentEntryQ
     if (error) throw error;
 
     const rows = (data ?? []) as Record<string, unknown>[];
-    const postIds = rows.map((r) => String(r.post_id));
-
-    let captionByPost = new Map<string, string | null>();
-    if (postIds.length > 0) {
-      const { data: postRows, error: postErr } = await supabase
-        .schema(SCHEMA)
-        .from("content_post")
-        .select("id, caption_snapshot")
-        .in("id", postIds);
-      if (postErr) throw postErr;
-      captionByPost = new Map(
-        ((postRows ?? []) as Record<string, unknown>[]).map((p) => [String(p.id), (p.caption_snapshot as string | null) ?? null])
-      );
-    }
 
     const mapped: ContentEntryQueueRow[] = rows.map((r) => ({
       postId: String(r.post_id),
@@ -126,7 +127,7 @@ export async function getContentEntryQueue(): Promise<ActionResult<ContentEntryQ
       contentTypeCode: (r.content_type_code as string | null) ?? null,
       ageDaysToday: Number(r.age_days_today),
       readRound: Number(r.read_round) as 1 | 2 | 3,
-      captionSnapshot: captionByPost.get(String(r.post_id)) ?? null,
+      captionSnapshot: null,
     }));
 
     return { ok: true, data: mapped };
@@ -252,11 +253,52 @@ export async function upsertContentPost(input: UpsertContentPostInput): Promise<
  * field is read-only once a post exists (changing it would create a new
  * content_post row under a different external_id, orphaning the old row's
  * metric history). This is the same RPC as create, called with the existing
- * platform/postUrl/postedAt unchanged. */
+ * platform/postUrl/postedAt unchanged.
+ *
+ * 🔴 H2 fix (26 ก.ย. 69, security ตรวจย้อนหลัง): `postId` is accepted but
+ * NEVER used below to identify the row — content_post_upsert (0148) has no
+ * by-post_id path, it re-derives the row from (shop_id, platform,
+ * deriveExternalId(postUrl)) exactly like the create path does. That's
+ * harmless today because ContentPostLinkForm is content_post's only
+ * writer, so postUrl's derived external_id always matches the row on
+ * screen. It stops being harmless the day a second writer exists — 0148's
+ * own header names `source='tiktok_api'` (planned P3) as one, where
+ * external_id is a video id, NOT a normalized URL. If this ever runs
+ * against a row a different writer created under an external_id that
+ * doesn't round-trip through deriveExternalId(postUrl), upserting by
+ * (shop_id, platform, external_id) would silently INSERT a second row
+ * instead of updating the one the owner is looking at — same post, two
+ * rows, metric history split across them, and the queue re-lists it as new.
+ *
+ * `externalId` (the value actually read back from DB when this row was
+ * loaded — ContentPostSummary.externalId) is the assert that catches that
+ * drift: if re-deriving it from postUrl right now disagrees, this is not
+ * the row we think it is, and we refuse instead of upserting blind.
+ *
+ * Real fix, needed before P3 ships source='tiktok_api': a
+ * content_post_update_type(p_post_id, p_content_type_code) RPC that updates
+ * by primary key. Until that exists, this assert is the only thing standing
+ * between "แก้ประเภท" and a silent duplicate row. */
 export async function updateContentPostType(
   postId: string,
-  input: { platform: ContentPlatform; postUrl: string; postedAt: string; contentTypeCode: string | null }
+  input: { platform: ContentPlatform; postUrl: string; postedAt: string; contentTypeCode: string | null; externalId: string }
 ): Promise<ActionResult<string>> {
+  if (deriveExternalId(input.postUrl) !== input.externalId) {
+    console.error("updateContentPostType: externalId mismatch — refusing to upsert blind", {
+      postId,
+      postUrl: input.postUrl,
+      expectedExternalId: input.externalId,
+    });
+    return {
+      ok: false,
+      // ไม่ใช่ error ที่ผู้ใช้แก้เองได้ — ถ้า external_id ในฐานข้อมูลไม่
+      // round-trip กับ post_url (แถวที่เขียนตรงด้วย service_role หรือแถวจาก
+      // source อื่นในอนาคต เช่น tiktok_api ที่ external_id = video id)
+      // การรีเฟรชจะวนไม่จบ ต้องมีคนไปแก้ที่ข้อมูล
+      error: "ข้อมูลโพสต์นี้ไม่ตรงกับที่บันทึกไว้ในระบบ แก้เองไม่ได้ — แจ้งผู้ดูแลระบบ",
+    };
+  }
+
   return upsertContentPost({
     platform: input.platform,
     postUrl: input.postUrl,

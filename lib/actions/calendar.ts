@@ -361,6 +361,49 @@ export async function toggleClipShot(artifactId: string, shotId: string, done: b
   }
 }
 
+/** R9 — analytics.campaign_step_set_content_type (0150, security GO
+ * 25 ก.ย. 69). Closes the gap 0145 left open: the column existed on
+ * campaign_step since then, but nothing could write it.
+ *
+ * 🔴 UNLIKE every other write in this file, `contentTypeCode` has NO
+ * "leave untouched" meaning — the RPC's own p_content_type_code has no
+ * default and null means "clear the tag" (0150's header comment explains
+ * why: content_post_upsert's null-preserving pattern would make the tag
+ * impossible to ever clear again once set). That means the CALLER must
+ * always pass an intentional value:
+ *   - owner picked a type in the dropdown -> pass that code
+ *   - owner tapped "ล้างประเภท" (with its own confirm step in the UI) ->
+ *     pass null on purpose
+ *   - dropdown still on its placeholder / nothing selected -> DO NOT CALL
+ *     this action at all (there is no safe "no-op" value to send — sending
+ *     null here would silently wipe an existing tag)
+ * StepContentTypeSelector.tsx is the only caller today and follows this
+ * exactly; do not add a generic "save whole form" helper that could call
+ * this with an untouched-field default of null. */
+export async function setStepContentType(stepId: string, contentTypeCode: string | null): Promise<ActionResult> {
+  const gateErr = await requireOwnerAdmin();
+  if (gateErr) return gateErr;
+
+  if (!stepId) return { ok: false, error: "ไม่พบรหัสงาน" };
+
+  try {
+    const shopId = getDevShopId();
+    const supabase = getServiceClient();
+    const { error } = await supabase.schema(SCHEMA).rpc("campaign_step_set_content_type", {
+      p_shop_id: shopId,
+      p_step_id: stepId,
+      p_content_type_code: contentTypeCode,
+    });
+    if (error) throw error;
+
+    revalidatePath("/marketing/calendar");
+    return { ok: true, data: undefined };
+  } catch (err) {
+    console.error("setStepContentType failed", err);
+    return { ok: false, error: mapCalendarRpcError(err, "ตั้งประเภทเนื้อหาไม่สำเร็จ ลองใหม่อีกครั้ง") };
+  }
+}
+
 /** R8 — delete a mistyped task. Guarded server-side to manual-trigger
  * campaigns only; template-plan steps raise 22023, mapped to a Thai message
  * by lib/marketing/calendar-errors.ts. */
