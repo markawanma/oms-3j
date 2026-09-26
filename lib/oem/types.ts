@@ -196,11 +196,12 @@ export interface OemProductOption {
 // Metal price (oem_metal_price)
 // ============================================================================
 
+// S2/H2: `source`/`asOfDate` were both dropped from this input — see
+// saveMetalPrice()'s comment in lib/actions/oem.ts for why (surface
+// reduction for `source`, a genuinely unguarded write path for `asOfDate`).
 export interface SaveMetalPriceInput {
   metal: OemMetal;
   priceThbPerGram: number;
-  asOfDate?: string | null;
-  source?: "manual" | "feed" | "sheet";
 }
 
 /** Latest known price per metal (analytics.oem_metal_price, one row per

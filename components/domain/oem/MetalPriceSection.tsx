@@ -7,7 +7,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Check, Loader2 } from "lucide-react";
-import { saveMetalPrice } from "@/lib/actions/oem";
+import { getSilverPriceFreshness, saveMetalPrice } from "@/lib/actions/oem";
 import type { OemMetalPriceMap, OemProductionMetal } from "@/lib/oem/types";
 import { OEM_METAL_LABEL_TH } from "@/lib/oem/types";
 import { formatThaiDateOnly } from "@/lib/tiktok/format";
@@ -23,35 +23,51 @@ import { MAX_SILVER_SPOT_THB_PER_GRAM, MIN_SILVER_SPOT_THB_PER_GRAM, silverSpotV
 // an admin types in here. See OemProductionMetal's comment in lib/oem/types.ts.
 const METALS: OemProductionMetal[] = ["silver", "gold", "brass"];
 
-function MetalPriceCell({ metal, current }: { metal: OemProductionMetal; current: OemMetalPriceMap[OemProductionMetal] }) {
+/** Client-side mirror of oem_metal_price_set's real bound (0127) — fails
+ * fast with a specific message instead of round-tripping the RPC. Silver:
+ * 5–500; other metals: plain > 0 (gold/brass legitimately price outside
+ * that range). Shared by commit() and lockCurrentPrice() below. */
+function metalValidationError(metal: OemProductionMetal, raw: number): string | null {
+  if (metal === "silver") return silverSpotValidationError(raw);
+  if (!Number.isFinite(raw) || raw <= 0) return "ราคาต้องมากกว่า 0";
+  return null;
+}
+
+function MetalPriceCell({
+  metal,
+  current,
+  todayBkk,
+}: {
+  metal: OemProductionMetal;
+  current: OemMetalPriceMap[OemProductionMetal];
+  /** Asia/Bangkok "today" for the warning label only — the lock gate
+   * re-fetches live instead (see getSilverPriceFreshness, M2). */
+  todayBkk: string;
+}) {
   const toast = useToast();
   const router = useRouter();
   const [value, setValue] = useState(current ? String(current.priceThbPerGram) : "");
   const [saving, setSaving] = useState(false);
   const [justSaved, setJustSaved] = useState(false);
+  const [locking, setLocking] = useState(false);
 
   useEffect(() => {
     setValue(current ? String(current.priceThbPerGram) : "");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [current?.priceThbPerGram, current?.asOfDate]);
 
+  function resetValue() {
+    setValue(current ? String(current.priceThbPerGram) : "");
+  }
+
   async function commit() {
     const trimmed = value.trim();
     if (trimmed === "") return;
     const raw = Number(trimmed);
-    // S1 fix: silver goes through the same 5–500 bound (and NaN-safe check)
-    // as shop_setting_upsert/the RPC — other metals keep the plain >0 check
-    // (gold/brass legitimately price well outside that range).
-    if (metal === "silver") {
-      const err = silverSpotValidationError(raw);
-      if (err) {
-        toast.push(err, "error");
-        setValue(current ? String(current.priceThbPerGram) : "");
-        return;
-      }
-    } else if (!Number.isFinite(raw) || raw <= 0) {
-      toast.push("ราคาต้องมากกว่า 0", "error");
-      setValue(current ? String(current.priceThbPerGram) : "");
+    const err = metalValidationError(metal, raw);
+    if (err) {
+      toast.push(err, "error");
+      resetValue();
       return;
     }
     if (current && Math.abs(raw - current.priceThbPerGram) < 1e-9) return;
@@ -61,7 +77,7 @@ function MetalPriceCell({ metal, current }: { metal: OemProductionMetal; current
     setSaving(false);
     if (!result.ok) {
       toast.push(result.error, "error");
-      setValue(current ? String(current.priceThbPerGram) : "");
+      resetValue();
       return;
     }
     setJustSaved(true);
@@ -70,6 +86,75 @@ function MetalPriceCell({ metal, current }: { metal: OemProductionMetal; current
   }
 
   const isSilver = metal === "silver";
+
+  // H1: warning-label only — todayBkk is a render-time prop and can lag; the
+  // live confirm gate below re-fetches instead (getSilverPriceFreshness, M2).
+  const isStale = !!current && current.asOfDate !== todayBkk;
+
+  // S1: the dedupe guard above exists to skip a redundant network call on
+  // blur, not to block intentional locking — this button bypasses it on
+  // purpose. Writing a fresh manual row for TODAY is the whole point (see
+  // oem_metal_price_set's 0129 manual-guard).
+  //
+  // Reads `value` (the input's live state), not `current` (server-confirmed):
+  // clicking this button always blurs the input first, so if the price was
+  // just edited, commit() is already mid-save when this fires — every time,
+  // not a rare race. Worst case with `value`: writing the same number twice
+  // (harmless upsert), never an older number over a newer one.
+  //
+  // H1: a stale price (e.g. yesterday's) could otherwise become today's
+  // manual price with nothing anywhere saying "yesterday". "Sheet is down,
+  // carry the old price forward" stays allowed — the fix below is
+  // disclosure (warning + confirm), not a block. See getSilverPriceFreshness
+  // (M2) for why the confirm decision re-fetches instead of trusting props.
+  async function lockCurrentPrice() {
+    if (!current) return;
+    const trimmed = value.trim();
+    const raw = trimmed === "" ? current.priceThbPerGram : Number(trimmed);
+    const err = metalValidationError(metal, raw);
+    if (err) {
+      toast.push(err, "error");
+      return;
+    }
+
+    setLocking(true);
+
+    const freshness = await getSilverPriceFreshness();
+    if (!freshness.ok) {
+      setLocking(false);
+      toast.push(freshness.error, "error");
+      return;
+    }
+
+    const carryingStaleForward =
+      freshness.data.silverAsOf !== freshness.data.todayBkk && Math.abs(raw - current.priceThbPerGram) < 1e-9;
+    if (carryingStaleForward) {
+      const proceed = window.confirm(
+        `ราคานี้เป็นของวันที่ ${formatThaiDateOnly(current.asOfDate)} (${current.priceThbPerGram} บาท/กรัม)\n\n` +
+          `กดตกลง = ใช้เป็นราคาของวันนี้ · ชีตราคาเงินจะไม่ทับอีกทั้งวัน`
+      );
+      if (!proceed) {
+        setLocking(false);
+        return; // ยกเลิก — เงียบๆ ไม่ toast
+      }
+    }
+
+    const result = await saveMetalPrice({ metal, priceThbPerGram: raw });
+    setLocking(false);
+    if (!result.ok) {
+      toast.push(result.error, "error");
+      resetValue();
+      return;
+    }
+    setJustSaved(true);
+    setTimeout(() => setJustSaved(false), 1500);
+    toast.push(
+      carryingStaleForward
+        ? `ล็อกราคาวันที่ ${formatThaiDateOnly(current.asOfDate)} ให้เป็นราคาวันนี้แล้ว ชีตจะไม่ทับวันนี้`
+        : "ล็อกแล้ว ชีตจะไม่ทับวันนี้"
+    );
+    router.refresh();
+  }
 
   return (
     <div className="rounded-md border border-zinc-200 p-3">
@@ -102,15 +187,33 @@ function MetalPriceCell({ metal, current }: { metal: OemProductionMetal; current
           warn about (silver999 bars aside, gold/brass are always manual —
           see METALS comment above) */}
       {isSilver && (
-        <p className="mt-1 text-[0.68rem] text-amber-600">
-          กรอกที่นี่ = ราคาชนะทั้งวัน ชีตราคาเงินจะไม่ทับจนกว่าจะถึงวันถัดไป
-        </p>
+        <>
+          <p className="mt-1 text-[0.68rem] text-amber-600">
+            กรอกที่นี่ = ราคาชนะทั้งวัน ชีตราคาเงินจะไม่ทับจนกว่าจะถึงวันถัดไป
+            ค่านี้จะไปเป็นราคาเงินสปอตของทั้งร้าน (ต้นทุน SKU/dashboard) ด้วย
+          </p>
+          {current && isStale && (
+            <p className="mt-1 text-[0.68rem] font-medium text-amber-700">
+              ⚠️ ราคาที่แสดงเป็นของวันที่ {formatThaiDateOnly(current.asOfDate)} — ยังไม่มีราคาของวันนี้
+            </p>
+          )}
+          {current && (
+            <button
+              type="button"
+              onClick={lockCurrentPrice}
+              disabled={locking || saving}
+              className="mt-1.5 text-xs font-medium text-primary-700 hover:underline disabled:opacity-50"
+            >
+              {locking ? "กำลังล็อก..." : "ล็อกราคานี้ไว้วันนี้"}
+            </button>
+          )}
+        </>
       )}
     </div>
   );
 }
 
-export function MetalPriceSection({ prices }: { prices: OemMetalPriceMap }) {
+export function MetalPriceSection({ prices, todayBkk }: { prices: OemMetalPriceMap; todayBkk: string }) {
   return (
     <section id="oem-metal-price" className="rounded-lg border border-zinc-200 bg-white p-3.5 shadow-sm">
       <h2 className="text-sm font-bold text-zinc-800">ราคาโลหะ (บาท/กรัม)</h2>
@@ -119,7 +222,7 @@ export function MetalPriceSection({ prices }: { prices: OemMetalPriceMap }) {
       </p>
       <div className="mt-3 grid grid-cols-1 gap-2.5 sm:grid-cols-3">
         {METALS.map((m) => (
-          <MetalPriceCell key={m} metal={m} current={prices[m]} />
+          <MetalPriceCell key={m} metal={m} current={prices[m]} todayBkk={todayBkk} />
         ))}
       </div>
     </section>

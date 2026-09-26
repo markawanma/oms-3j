@@ -19,6 +19,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { basename } from "node:path";
 import { createClient } from "@supabase/supabase-js";
 import * as XLSX from "xlsx";
+import { formatError } from "./lib/format-error.mjs";
 
 const CHUNK = 200;
 // 20-col line-item report: 0 รหัสสินค้า | 1 สินค้า | 2 ราคา | 3 จำนวน | 4 เลขที่ออเดอร์ ...
@@ -49,7 +50,7 @@ async function main() {
   const { data: batch, error: bErr } = await db.schema("analytics").from("stg_import_batch")
     .insert({ shop_id: shopId, source_type: "excel_line_item_report", file_name: basename(filePath), file_hash: fileHash, row_count_parsed: data.length, status: "loaded" })
     .select("id").single();
-  if (bErr) { if (bErr.code === "23505") { console.log("ไฟล์นี้ import แล้ว (file_hash ซ้ำ). ไม่ทำอะไร."); process.exit(0); } console.error("batch insert failed:", bErr); process.exit(1); }
+  if (bErr) { if (bErr.code === "23505") { console.log("ไฟล์นี้ import แล้ว (file_hash ซ้ำ). ไม่ทำอะไร."); process.exit(0); } console.error(`batch insert failed: ${formatError(bErr)}`); process.exit(1); }
   const batchId = batch.id;
   console.log(`Created batch ${batchId}`);
 
@@ -75,14 +76,14 @@ async function main() {
     const chunk = mapped.slice(i, i + CHUNK);
     const { error, count } = await db.schema("analytics").from("stg_order_line_import")
       .upsert(chunk, { onConflict: "shop_id,source_order_no,line_no", count: "exact" });
-    if (error) { console.error(`upsert [${i}..${i + chunk.length}) failed:`, error); process.exit(1); }
+    if (error) { console.error(`upsert [${i}..${i + chunk.length}) failed: ${formatError(error)}`); process.exit(1); }
     inserted += count ?? chunk.length;
   }
   console.log(`Upserted ${inserted} line rows (skipped ${data.length - mapped.length} w/o order_no).`);
   await db.schema("analytics").from("stg_import_batch").update({ row_count_loaded: inserted }).eq("id", batchId);
 
   const { data: tr, error: tErr } = await db.schema("analytics").rpc("transform_pending_order_lines", { p_shop_id: shopId, p_batch_id: batchId });
-  if (tErr) { console.error("transform_pending_order_lines failed:", tErr); process.exit(1); }
+  if (tErr) { console.error(`transform_pending_order_lines failed: ${formatError(tErr)}`); process.exit(1); }
   await db.schema("analytics").from("stg_import_batch").update({ status: "transformed" }).eq("id", batchId);
   const r = tr?.[0] ?? {};
   console.log("---");
@@ -93,4 +94,5 @@ async function main() {
   console.log(`unknown_sku:  ${r.unknown_sku_count}`);
   console.log(`errored:      ${r.errored_count}`);
 }
-main().catch((e) => { console.error("Fatal:", e); process.exit(1); });
+// อย่าเปลี่ยนกลับเป็น console.error(e) — เหตุผลอยู่ที่ scripts/lib/format-error.mjs
+main().catch((e) => { console.error(`Fatal: ${formatError(e)}`); process.exit(1); });

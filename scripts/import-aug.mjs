@@ -29,6 +29,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { basename } from "node:path";
 import { createClient } from "@supabase/supabase-js";
 import * as XLSX from "xlsx";
+import { formatError } from "./lib/format-error.mjs";
 
 const STAGING_INSERT_CHUNK_SIZE = 200;
 
@@ -220,7 +221,10 @@ async function main() {
       console.log(`ไฟล์นี้ import แล้ว (file_hash already recorded for this shop). Nothing to do.`);
       process.exit(0);
     }
-    console.error("Failed to insert stg_import_batch:", batchErr);
+    // formatError ไม่ใช่แค่ความสวยงาม — error ของ postgrest-js พก `details` ที่
+    // พ่วง cause+stack (= Supabase host) และ DETAIL ของ Postgres (= แถวลูกค้า)
+    // มาด้วย ส่ง object ทั้งก้อนเข้า console.error = util.inspect พิมพ์หมด
+    console.error(`Failed to insert stg_import_batch: ${formatError(batchErr)}`);
     process.exit(1);
   }
   const batchId = batch.id;
@@ -266,7 +270,7 @@ async function main() {
       .from("stg_order_import")
       .upsert(chunk, { onConflict: "shop_id,dedup_key", count: "exact" });
     if (insertErr) {
-      console.error(`Failed upserting stg_order_import rows [${i}..${i + chunk.length}):`, insertErr);
+      console.error(`Failed upserting stg_order_import rows [${i}..${i + chunk.length}): ${formatError(insertErr)}`);
       process.exit(1);
     }
     insertedCount += count ?? chunk.length;
@@ -285,7 +289,7 @@ async function main() {
     .rpc("transform_pending_orders", { p_shop_id: shopId, p_batch_id: batchId });
 
   if (transformErr) {
-    console.error("transform_pending_orders failed:", transformErr);
+    console.error(`transform_pending_orders failed: ${formatError(transformErr)}`);
     process.exit(1);
   }
   const { transformed_count: transformed, errored_count: errored } = transformResult[0] ?? {
@@ -305,7 +309,7 @@ async function main() {
     .select("*", { count: "exact", head: true })
     .eq("shop_id", shopId);
   if (countErr) {
-    console.warn("Could not fetch fact_order total count:", countErr);
+    console.warn(`Could not fetch fact_order total count: ${formatError(countErr)}`);
   }
 
   console.log("---");
@@ -323,6 +327,7 @@ async function main() {
 }
 
 main().catch((err) => {
-  console.error("Fatal error:", err);
+  // อย่าเปลี่ยนกลับเป็น console.error(err) — เหตุผลอยู่ที่ scripts/lib/format-error.mjs
+  console.error(`Fatal error: ${formatError(err)}`);
   process.exit(1);
 });
