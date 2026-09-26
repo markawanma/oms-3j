@@ -30,6 +30,19 @@
 // Instagram, LINE OA, or garbage that doesn't even parse as a URL) is
 // returned completely unchanged, with zero network calls — this module
 // only ever tightens TikTok handling, never touches other platforms.
+//
+// 🔴 L4 (security รอบ 2, 26 ก.ย. 69): resolveShortLink() below depends on
+// `redirect: "manual"` actually handing back a 3xx response with a readable
+// `Location` header — that is Node's `undici` fetch behavior specifically.
+// On the Edge runtime, `fetch()`'s "manual" redirect mode returns an
+// **opaqueredirect** response instead (status 0, no headers readable at
+// all, by the Fetch spec's CORS-derived design) — every `response.status`
+// check and `response.headers.get("location")` call below would silently
+// see nothing usable, and this module would reject every short link with
+// TIKTOK_SHORT_LINK_UNRESOLVED_ERROR while every existing mocked-fetch unit
+// test still passes (the mocks don't emulate opaqueredirect). If anyone
+// ever adds `export const runtime = "edge"` to a route that imports this
+// module: stop, this module needs the Node runtime, full stop.
 
 /** Result of canonicalizeTikTokLink(). Discriminated on `ok` so a caller
  * can't read `.url` off a rejected result or `.error` off an accepted one
@@ -77,9 +90,20 @@ export const TIKTOK_SHORT_LINK_UNRESOLVED_ERROR =
  * `URL.hostname` is already lowercased and IDNA/IPv4-literal-normalized by
  * the WHATWG URL parser, so this one check also rejects every IP-literal
  * encoding (dotted-decimal, hex, octal, decimal) and bracketed IPv6 —
- * none of those strings can end in ".tiktok.com". */
+ * none of those strings can end in ".tiktok.com".
+ *
+ * 🔴 M5 fix (security รอบ 2, 26 ก.ย. 69): strip exactly ONE trailing dot
+ * before comparing — DNS allows a trailing "." to mean "this is already a
+ * fully-qualified name" (e.g. "www.tiktok.com."), and the WHATWG URL parser
+ * preserves that dot in `.hostname` rather than stripping it. Without this,
+ * `endsWith(".tiktok.com")` is false for that exact string ⇒ it fell
+ * through to pass-through-unchanged (treated as "not TikTok at all") ⇒ a
+ * link pasted in FQDN form created a second, un-deduplicated content_post
+ * row for a clip already stored under the normal form. Stripping one
+ * trailing dot doesn't open any new SSRF surface: "evil.com." still doesn't
+ * end in ".tiktok.com" after the strip either. */
 function isTikTokHost(hostname: string): boolean {
-  const h = hostname.toLowerCase();
+  const h = hostname.toLowerCase().replace(/\.$/, "");
   return h === "tiktok.com" || h.endsWith(".tiktok.com");
 }
 
@@ -206,8 +230,20 @@ const MAX_REDIRECTS = 5;
 
 /** Total wall-clock budget for the WHOLE resolution (all hops combined),
  * not per-hop — a single AbortSignal.timeout() instance is created once per
- * call and reused across every fetch in the loop below. */
-const TOTAL_TIMEOUT_MS = 8000;
+ * call and reused across every fetch in the loop below.
+ *
+ * 🔴 M4 fix (security รอบ 2, 26 ก.ย. 69): was 8000 — cut in half now that
+ * M3 (below) removes the confirming second request on the common path, so
+ * 4s is no longer tighter than the old budget actually was in practice for
+ * a single-hop short link. The real reason to cut it: Vercel's function
+ * timeout is a hard wall — if this budget is close to (or over) it, a slow
+ * TikTok response means Vercel kills the whole request with a bare 504
+ * before this module's own `TIKTOK_SHORT_LINK_UNRESOLVED_ERROR` (or any
+ * Thai message at all) ever reaches the browser. See maxDuration on the two
+ * pages that call into this (app/(dashboard)/marketing/content/entry/page.tsx,
+ * app/(dashboard)/marketing/calendar/[stepId]/page.tsx) — this constant
+ * must stay comfortably under that. */
+const TOTAL_TIMEOUT_MS = 4000;
 
 function errorName(err: unknown): string {
   return err instanceof Error ? err.name : "unknown";
@@ -219,19 +255,40 @@ function errorName(err: unknown): string {
  * that points somewhere else is rejected before a second request is ever
  * sent — using `redirect: "manual"` (never "follow") is what makes that
  * possible; "follow" would send the request to the untrusted target before
- * this module ever gets a chance to look at it. */
+ * this module ever gets a chance to look at it.
+ *
+ * 🔴 L1 fix (security รอบ 2, 26 ก.ย. 69): also require a standard/implicit
+ * HTTPS port — a redirect to "https://vt.tiktok.com:8080/..." passed the
+ * old check (protocol+host only) and would have been followed to whatever
+ * is actually listening on that port on TikTok's infrastructure (or, if the
+ * host check itself were ever weakened, an attacker-chosen port on an
+ * attacker-chosen host). `u.port` is `""` for the default port (443, since
+ * `u.protocol` is already pinned to "https:") or the explicit string if one
+ * was given — anything other than "" or "443" is rejected. */
 function isSafeHopUrl(u: URL): boolean {
-  return u.protocol === "https:" && isTikTokHost(u.hostname);
+  return u.protocol === "https:" && isTikTokHost(u.hostname) && (u.port === "" || u.port === "443");
 }
+
+/** A realistic desktop browser User-Agent — L3 fix (security รอบ 2, 26 ก.ย.
+ * 69). Without an explicit one, undici sends its own default UA string,
+ * which is a much easier signal for bot-protection to key off of than a
+ * mainstream browser's — this single header is what most affects whether
+ * this feature actually works against TikTok's real infrastructure from a
+ * Vercel-hosted IP, as opposed to just passing this file's mocked-fetch
+ * unit tests. Kept as one shared constant, not per-request-randomized —
+ * rotating UAs to look "less botlike" is an arms race this module has no
+ * business entering; a stable, honest, current browser UA is the ask. */
+const SHORT_LINK_USER_AGENT =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
 /** Resolves a TikTok short link to its real destination and canonicalizes
  * that destination — network calls are HEAD-of-chain only: manual redirect
- * following, host+scheme validated before every hop, response body never
- * read (only `status` and the `location` header), no cookies sent, ≤8s
- * total across the whole chain, ≤5 redirects followed. */
+ * following, host+scheme+port validated before every hop, response body
+ * never read (only `status` and the `location` header), no cookies sent,
+ * ≤4s total across the whole chain, ≤5 redirects followed. */
 async function resolveShortLink(startUrl: string): Promise<CanonicalizeTikTokLinkResult> {
   // One signal for the entire chain — reusing it across every fetch() call
-  // below is what makes the 8s budget a TOTAL budget, not 8s per hop.
+  // below is what makes the 4s budget a TOTAL budget, not 4s per hop.
   const signal = AbortSignal.timeout(TOTAL_TIMEOUT_MS);
 
   let current: URL;
@@ -269,6 +326,7 @@ async function resolveShortLink(startUrl: string): Promise<CanonicalizeTikTokLin
         redirect: "manual",
         credentials: "omit",
         signal,
+        headers: { "user-agent": SHORT_LINK_USER_AGENT },
       });
     } catch (err) {
       // Network error, DNS failure, or the shared AbortSignal firing
@@ -283,8 +341,17 @@ async function resolveShortLink(startUrl: string): Promise<CanonicalizeTikTokLin
 
     // Never read the body — we only ever need `status` and the `location`
     // header. Release the underlying connection immediately either way.
+    //
+    // 🔴 L2 fix (security รอบ 2, 26 ก.ย. 69): `try/catch` alone only catches
+    // a SYNCHRONOUS throw from the `.cancel()` call itself — `.cancel()`
+    // returns a Promise, so a REJECTION from it was an unhandled promise
+    // rejection this catch never saw (Node logs those and, depending on
+    // version/flags, can crash the process). `.catch()` on the promise is
+    // what actually swallows the async failure path; the outer try/catch
+    // stays as defense against a synchronous throw from the property
+    // access itself.
     try {
-      void response.body?.cancel();
+      response.body?.cancel().catch(() => {});
     } catch {
       // best-effort cleanup only
     }
@@ -317,6 +384,27 @@ async function resolveShortLink(startUrl: string): Promise<CanonicalizeTikTokLin
           host: current.hostname,
         });
         return { ok: false, error: TIKTOK_SHORT_LINK_UNRESOLVED_ERROR };
+      }
+
+      // 🔴 M3 fix (security รอบ 2, 26 ก.ย. 69): if this Location header
+      // already points at a safe hop whose PATH is unambiguously a video/
+      // photo page, return right now instead of following up with a whole
+      // second GET request just to confirm the response is 2xx. That
+      // confirming request never taught this function anything new — the
+      // body was never read either way (only `status`), and a video/photo
+      // path shape from a `Location` header is exactly as trustworthy as
+      // the same path pasted directly (classifyTikTokPath() is the same
+      // function either way) — it's also the single highest-risk request
+      // in the whole chain for a 403 from bot protection, since it's a GET
+      // against www.tiktok.com's actual page rendering path rather than a
+      // redirect-only endpoint. Intentionally scoped to video/photo only
+      // (not live/profile/other) — those still fall through to the normal
+      // fetch-and-classify path below, unchanged from before this fix.
+      if (isSafeHopUrl(next)) {
+        const earlyClassification = classifyTikTokPath(next.pathname);
+        if (earlyClassification.kind === "video" || earlyClassification.kind === "photo") {
+          return resultFromClassification(earlyClassification);
+        }
       }
 
       redirectsFollowed += 1;

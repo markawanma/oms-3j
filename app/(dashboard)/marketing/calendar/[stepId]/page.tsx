@@ -24,6 +24,12 @@ import { isPostableArtifactType } from "@/lib/marketing/content-types";
 import { formatThaiDateOnly } from "@/lib/tiktok/format";
 
 export const dynamic = "force-dynamic";
+// 🔴 M4 fix (26 ก.ย. 69, security รอบ 2): this page also renders
+// ContentPostLinkForm (§2.1(a), in-plan) — same reasoning as
+// app/(dashboard)/marketing/content/entry/page.tsx's identical export, see
+// that file's comment. Keep comfortably above tiktok-link.ts's
+// TOTAL_TIMEOUT_MS.
+export const maxDuration = 20;
 
 // Duplicated (not imported) from CampaignBoard.tsx / AgendaTaskCard.tsx on
 // purpose — same convention already established there: this is a

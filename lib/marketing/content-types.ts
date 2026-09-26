@@ -151,3 +151,55 @@ export function deriveExternalId(url: string): string {
     return trimmed;
   }
 }
+
+// ---- content_post_upsert RPC param builder ----------------------------
+
+/** Exact shape of analytics.content_post_upsert's (0148 §3) positional
+ * params — kept here (not inline in lib/actions/content.ts) so it's a pure,
+ * directly unit-testable function. QA's mutation test (26 ก.ย. 69, security
+ * รอบ 2) swapped `p_post_url: canonicalPostUrl` back to the raw pasted
+ * `postUrl` inside upsertContentPost and got 554/0 unchanged — the exact
+ * substitution the whole canonicalization feature exists to make had zero
+ * test coverage because it lived inline in a "use server" module that can't
+ * be called directly from a unit test (no real Supabase client to mock).
+ * Extracting the decision logic here closes that gap — see
+ * content-types.test.ts's "buildContentPostUpsertParams" suite. */
+export interface ContentPostUpsertRpcParams {
+  p_shop_id: string;
+  p_platform: ContentPlatform;
+  p_external_id: string;
+  p_post_url: string;
+  p_posted_at: string;
+  p_content_type_code: string | null;
+  p_artifact_id: string | null;
+  p_caption: string | null;
+}
+
+/** Pure — decides exactly what goes into content_post_upsert's params, given
+ * the ALREADY-canonicalized URL (never the raw pasted string — the caller,
+ * upsertContentPost, must run canonicalizeTikTokLink() first and pass its
+ * `.url` here). Both p_post_url and the external_id derived from it use
+ * `canonicalPostUrl`, never `rawPostUrl` — that equality is the exact thing
+ * under test. */
+export function buildContentPostUpsertParams(
+  shopId: string,
+  canonicalPostUrl: string,
+  input: {
+    platform: ContentPlatform;
+    postedAt: string;
+    contentTypeCode?: string | null;
+    artifactId?: string | null;
+    caption?: string | null;
+  }
+): ContentPostUpsertRpcParams {
+  return {
+    p_shop_id: shopId,
+    p_platform: input.platform,
+    p_external_id: deriveExternalId(canonicalPostUrl),
+    p_post_url: canonicalPostUrl,
+    p_posted_at: input.postedAt,
+    p_content_type_code: input.contentTypeCode || null,
+    p_artifact_id: input.artifactId || null,
+    p_caption: input.caption?.trim() || null,
+  };
+}

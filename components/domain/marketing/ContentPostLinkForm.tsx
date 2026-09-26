@@ -147,13 +147,10 @@ export function ContentPostLinkForm({
       return;
     }
     startEditTransition(async () => {
-      const result = await updateContentPostType(existingPost.id, {
-        platform: existingPost.platform,
-        postUrl: existingPost.postUrl,
-        postedAt: existingPost.postedAt,
-        externalId: existingPost.externalId,
-        contentTypeCode: editTypeValue,
-      });
+      // 0151 fix (26 ก.ย. 69, security รอบ 2, H1): updateContentPostType now
+      // updates content_post by primary key — it no longer needs (or
+      // accepts) platform/postUrl/postedAt/externalId at all.
+      const result = await updateContentPostType(existingPost.id, editTypeValue);
       if (!result.ok) {
         toast.push(result.error, "error");
         return;
@@ -210,21 +207,27 @@ export function ContentPostLinkForm({
 
         {editingType && (
           <div className="mt-2 flex flex-wrap items-center gap-2">
-            {/* H3 fix (26 ก.ย. 69, security ตรวจย้อนหลัง): NO "ไม่ระบุ" option
-                here, unlike the create form below (§2.4) where it's correct.
-                updateContentPostType's write is null-preserving (0148 §H3) —
-                picking "ไม่ระบุ" here looked like "clear this post's type"
-                but silently no-op'd and kept the old value: toast said
-                "บันทึกประเภทแล้ว", refresh showed the same chip, no error,
-                no explanation. If this post has never had a type set,
-                editTypeValue starts at "" and matches nothing below — the
-                select shows no option highlighted, which is fine: "บันทึก"
-                stays disabled until the owner actually picks a real type
-                (same gate as StepContentTypeSelector's Rule 1). Actually
-                clearing a type for real needs its own explicit action with
-                a confirm step — same shape as StepContentTypeSelector's
-                "ล้างประเภท" — not built here; don't add "ไม่ระบุ" back as a
-                shortcut for it. */}
+            {/* H3 fix (26 ก.ย. 69, security ตรวจย้อนหลัง — comment updated
+                26 ก.ย. 69 after 0151/H1 replaced the write path below): NO
+                "ไม่ระบุ" option here, unlike the create form below (§2.4)
+                where it's correct. updateContentPostType now calls
+                content_post_update_type (0151), which RAISES on a null
+                content_type_code instead of silently keeping the old value
+                — but the UX reasoning for keeping this gate is unchanged:
+                the RPC call already never fires with an empty selection
+                (disabled `Button` below + this component's own guard in
+                handleSaveType), and there's still no confirm step for
+                "actually clear this post's type", so offering "ไม่ระบุ" here
+                would just be a control that either does nothing useful or
+                triggers a server error the owner didn't ask for. If this
+                post has never had a type set, editTypeValue starts at ""
+                and matches nothing below — the select shows no option
+                highlighted, which is fine: "บันทึก" stays disabled until the
+                owner actually picks a real type (same gate as
+                StepContentTypeSelector's Rule 1). Clearing a type for real
+                needs its own explicit action with a confirm step — same
+                shape as StepContentTypeSelector's "ล้างประเภท" — not built
+                here; don't add "ไม่ระบุ" back as a shortcut for it. */}
             <select
               value={editTypeValue}
               onChange={(e) => setEditTypeValue(e.target.value)}

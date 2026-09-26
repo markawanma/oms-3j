@@ -19,15 +19,20 @@ import { getEffectiveRole } from "@/lib/auth/role";
 import type { ActionResult } from "@/lib/types";
 import {
   PLATFORMS,
-  deriveExternalId,
+  buildContentPostUpsertParams,
   type ContentEntryQueueRow,
   type ContentPlatform,
   type ContentPostStatus,
   type ContentPostSummary,
   type ContentTypeRow,
 } from "@/lib/marketing/content-types";
-import { mapContentMetricRpcError, mapContentPostRpcError } from "@/lib/marketing/content-errors";
+import {
+  mapContentMetricRpcError,
+  mapContentPostRpcError,
+  mapContentPostUpdateTypeRpcError,
+} from "@/lib/marketing/content-errors";
 import { canonicalizeTikTokLink } from "@/lib/marketing/tiktok-link";
+import { readErrorCode, readErrorMessage, redactUrls } from "@/lib/supabase/postgrest-error";
 
 const SCHEMA = "analytics";
 
@@ -239,90 +244,96 @@ export async function upsertContentPost(input: UpsertContentPostInput): Promise<
   }
   const canonicalPostUrl = canonicalized.url;
 
-  const externalId = deriveExternalId(canonicalPostUrl);
-
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();
 
-    const { data, error } = await supabase.schema(SCHEMA).rpc("content_post_upsert", {
-      p_shop_id: shopId,
-      p_platform: input.platform,
-      p_external_id: externalId,
-      p_post_url: canonicalPostUrl,
-      p_posted_at: input.postedAt,
-      p_content_type_code: input.contentTypeCode || null,
-      p_artifact_id: input.artifactId || null,
-      p_caption: input.caption?.trim() || null,
-    });
+    // buildContentPostUpsertParams (lib/marketing/content-types.ts) is a
+    // pure function specifically so this exact substitution — canonicalized
+    // URL in, never the raw pasted one — has real unit test coverage. A
+    // mutation test that swapped this back to `postUrl` (26 ก.ย. 69,
+    // security รอบ 2) found ZERO tests catching it when this was inline here.
+    const rpcParams = buildContentPostUpsertParams(shopId, canonicalPostUrl, input);
+    const { data, error } = await supabase.schema(SCHEMA).rpc("content_post_upsert", rpcParams);
     if (error) throw error;
 
     revalidatePath("/marketing/content/entry");
     if (input.artifactId) revalidatePath("/marketing/calendar");
     return { ok: true, data: data as string };
   } catch (err) {
-    console.error("upsertContentPost failed", err);
+    // 🔴 M1 fix (26 ก.ย. 69, security รอบ 2): content_post_upsert's own
+    // raise messages interpolate p_post_url verbatim (0148 ~:320 "ได้รับ:
+    // %") — a raw console.error(err) here would echo the full pasted URL,
+    // including any tracking query string, into logs. FB/IG/LINE post_urls
+    // reach this RPC unmodified (only TikTok gets canonicalized before this
+    // call, see canonicalizeTikTokLink above) so that raw value CAN carry
+    // another platform's tracking/session identifiers. Log the SQLSTATE +
+    // a URL-redacted message instead of the raw error object.
+    console.error("upsertContentPost failed", {
+      code: readErrorCode(err),
+      message: redactUrls(readErrorMessage(err)),
+    });
     return { ok: false, error: mapContentPostRpcError(err, "บันทึกลิงก์ไม่สำเร็จ ลองใหม่อีกครั้ง") };
   }
 }
 
 /** Edit-after-save is deliberately narrow (design §2.3): only content_type_
- * code can change post-save (null-preserving, safe per 0148) — the URL
- * field is read-only once a post exists (changing it would create a new
- * content_post row under a different external_id, orphaning the old row's
- * metric history). This is the same RPC as create, called with the existing
- * platform/postUrl/postedAt unchanged.
+ * code can change post-save — the URL field is read-only once a post
+ * exists (changing it would create a new content_post row under a
+ * different external_id, orphaning the old row's metric history).
  *
- * 🔴 H2 fix (26 ก.ย. 69, security ตรวจย้อนหลัง): `postId` is accepted but
- * NEVER used below to identify the row — content_post_upsert (0148) has no
- * by-post_id path, it re-derives the row from (shop_id, platform,
- * deriveExternalId(postUrl)) exactly like the create path does. That's
- * harmless today because ContentPostLinkForm is content_post's only
- * writer, so postUrl's derived external_id always matches the row on
- * screen. It stops being harmless the day a second writer exists — 0148's
- * own header names `source='tiktok_api'` (planned P3) as one, where
- * external_id is a video id, NOT a normalized URL. If this ever runs
- * against a row a different writer created under an external_id that
- * doesn't round-trip through deriveExternalId(postUrl), upserting by
- * (shop_id, platform, external_id) would silently INSERT a second row
- * instead of updating the one the owner is looking at — same post, two
- * rows, metric history split across them, and the queue re-lists it as new.
+ * 🔴 H1 fix (26 ก.ย. 69, security รอบ 2): this used to route through
+ * upsertContentPost() — re-deriving external_id from postUrl and upserting
+ * on (shop_id, platform, external_id), the same conflict key
+ * content_post_upsert (0148) uses for CREATE, guarded by an assert that
+ * refused to proceed if re-deriving external_id from postUrl disagreed with
+ * the value read back from DB. That assert was NOT sufficient: security
+ * proved live that a post stored with external_id
+ * "https://www.tiktok.com/@x/video/999" but later re-shared/re-loaded as
+ * "https://tiktok.com/@x/video/999" (no www — a real way TikTok links get
+ * shared) passes the assert (both sides re-derive the SAME, already-drifted
+ * value) yet still doesn't match the row's TRUE external_id at the DB
+ * level's dedup key — content_post_upsert then silently INSERTs a second
+ * row instead of updating the one on screen. The security review that
+ * caught this called the assert "a plaster, not a cure".
  *
- * `externalId` (the value actually read back from DB when this row was
- * loaded — ContentPostSummary.externalId) is the assert that catches that
- * drift: if re-deriving it from postUrl right now disagrees, this is not
- * the row we think it is, and we refuse instead of upserting blind.
- *
- * Real fix, needed before P3 ships source='tiktok_api': a
- * content_post_update_type(p_post_id, p_content_type_code) RPC that updates
- * by primary key. Until that exists, this assert is the only thing standing
- * between "แก้ประเภท" and a silent duplicate row. */
-export async function updateContentPostType(
-  postId: string,
-  input: { platform: ContentPlatform; postUrl: string; postedAt: string; contentTypeCode: string | null; externalId: string }
-): Promise<ActionResult<string>> {
-  if (deriveExternalId(input.postUrl) !== input.externalId) {
-    console.error("updateContentPostType: externalId mismatch — refusing to upsert blind", {
-      postId,
-      postUrl: input.postUrl,
-      expectedExternalId: input.externalId,
-    });
-    return {
-      ok: false,
-      // ไม่ใช่ error ที่ผู้ใช้แก้เองได้ — ถ้า external_id ในฐานข้อมูลไม่
-      // round-trip กับ post_url (แถวที่เขียนตรงด้วย service_role หรือแถวจาก
-      // source อื่นในอนาคต เช่น tiktok_api ที่ external_id = video id)
-      // การรีเฟรชจะวนไม่จบ ต้องมีคนไปแก้ที่ข้อมูล
-      error: "ข้อมูลโพสต์นี้ไม่ตรงกับที่บันทึกไว้ในระบบ แก้เองไม่ได้ — แจ้งผู้ดูแลระบบ",
-    };
-  }
+ * The cure: analytics.content_post_update_type (0151) updates
+ * analytics.content_post by primary key (p_post_id) — it never reads or
+ * writes post_url/external_id at all, so post_url's canonical form (or lack
+ * of one, for FB/IG/LINE) is completely irrelevant to whether this finds
+ * the right row. This also means "แก้ประเภท" no longer makes a network call
+ * of any kind on the TikTok-canonicalization path — it never did on other
+ * platforms, but it used to on TikTok because upsertContentPost() called
+ * canonicalizeTikTokLink() unconditionally, even on an edit where the URL
+ * wasn't changing. */
+export async function updateContentPostType(postId: string, contentTypeCode: string): Promise<ActionResult> {
+  const gateErr = await requireOwnerAdmin();
+  if (gateErr) return gateErr;
 
-  return upsertContentPost({
-    platform: input.platform,
-    postUrl: input.postUrl,
-    postedAt: input.postedAt,
-    contentTypeCode: input.contentTypeCode,
-  });
+  if (!postId) return { ok: false, error: "ไม่พบโพสต์ที่จะแก้ประเภท" };
+  if (!contentTypeCode) return { ok: false, error: "กรุณาเลือกประเภทก่อนบันทึก" };
+
+  try {
+    const shopId = getDevShopId();
+    const supabase = getServiceClient();
+
+    const { error } = await supabase.schema(SCHEMA).rpc("content_post_update_type", {
+      p_shop_id: shopId,
+      p_post_id: postId,
+      p_content_type_code: contentTypeCode,
+    });
+    if (error) throw error;
+
+    revalidatePath("/marketing/content/entry");
+    revalidatePath("/marketing/calendar");
+    return { ok: true, data: undefined };
+  } catch (err) {
+    // No post_url/external_id anywhere in this RPC's params or raise
+    // messages — nothing here can echo a caller-supplied URL, so a raw
+    // console.error(err) carries none of upsertContentPost's M1 risk.
+    console.error("updateContentPostType failed", err);
+    return { ok: false, error: mapContentPostUpdateTypeRpcError(err, "แก้ประเภทไม่สำเร็จ ลองใหม่อีกครั้ง") };
+  }
 }
 
 // ============================================================================

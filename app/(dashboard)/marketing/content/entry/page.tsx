@@ -8,6 +8,17 @@ import { ContentEntryQueue } from "@/components/domain/marketing/ContentEntryQue
 import { effectiveDateBangkok } from "@/lib/tiktok/format";
 
 export const dynamic = "force-dynamic";
+// 🔴 M4 fix (26 ก.ย. 69, security รอบ 2): ContentPostLinkForm on this page
+// submits through upsertContentPost -> canonicalizeTikTokLink, which can
+// make up to ~4s of outbound network calls resolving a TikTok short link
+// (lib/marketing/tiktok-link.ts's TOTAL_TIMEOUT_MS). Vercel's DEFAULT
+// function timeout is well under what this needs once you add normal
+// request/DB overhead on top of that budget — without raising it, a slow
+// TikTok response gets killed by Vercel with a bare 504 before this app's
+// own Thai error message ever reaches the browser (the exact "จอกับระบบพูด
+// ไม่ตรงกัน" failure class this project treats as unacceptable). Keep this
+// comfortably above TOTAL_TIMEOUT_MS.
+export const maxDuration = 20;
 
 const HEADER_DATE_FMT = new Intl.DateTimeFormat("th-TH", {
   timeZone: "Asia/Bangkok",

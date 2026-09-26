@@ -14,7 +14,12 @@
 // (docs brief 26 ส.ค. rule: edge cases matter as much as the happy path).
 
 import { describe, expect, it } from "vitest";
-import { deriveExternalId, isPostableArtifactType, parseMetricFieldValue } from "./content-types";
+import {
+  buildContentPostUpsertParams,
+  deriveExternalId,
+  isPostableArtifactType,
+  parseMetricFieldValue,
+} from "./content-types";
 
 describe("parseMetricFieldValue — happy path", () => {
   it("parses a plain positive integer", () => {
@@ -170,6 +175,98 @@ describe("deriveExternalId — edge cases", () => {
   it("non-http(s) scheme still parses as a URL (this helper does not gate on scheme — " +
     "content_post_upsert's own http(s):// check, and upsertContentPost's client-side regex, are the real gate)", () => {
     expect(deriveExternalId("ftp://example.com/x/")).toBe("ftp://example.com/x");
+  });
+});
+
+// 🔴 QA mutation test (26 ก.ย. 69, security รอบ 2): swapping
+// `p_post_url: canonicalPostUrl` back to the raw pasted `postUrl` inside
+// upsertContentPost (lib/actions/content.ts) left 554/0 unchanged — the
+// exact substitution the whole TikTok-canonicalization feature exists to
+// make had ZERO test coverage, because it lived inline in a "use server"
+// module with no pure function boundary to test through. These tests are
+// what catches that mutation now.
+describe("buildContentPostUpsertParams — canonicalPostUrl, never rawPostUrl", () => {
+  it("p_post_url is the canonicalized URL passed in, not anything from `input`", () => {
+    const params = buildContentPostUpsertParams("shop-1", "https://www.tiktok.com/@x/video/1", {
+      platform: "tiktok",
+      postedAt: "2026-09-26T10:00:00+07:00",
+    });
+    expect(params.p_post_url).toBe("https://www.tiktok.com/@x/video/1");
+  });
+
+  it("p_external_id is derived from the CANONICAL url, not from any raw pasted form", () => {
+    // Simulates the exact incident: raw pasted "vt.tiktok.com/..." short
+    // link, already resolved to canonical form BEFORE this function runs
+    // (canonicalizeTikTokLink's job, not this function's) — this function
+    // must derive external_id from the canonical string it's given.
+    const canonical = "https://www.tiktok.com/@3jjewelry/video/7688660180707446023";
+    const params = buildContentPostUpsertParams("shop-1", canonical, {
+      platform: "tiktok",
+      postedAt: "2026-09-26T10:00:00+07:00",
+    });
+    expect(params.p_external_id).toBe(deriveExternalId(canonical));
+    expect(params.p_external_id).toBe("https://www.tiktok.com/@3jjewelry/video/7688660180707446023");
+  });
+
+  it("MUTATION GUARD: p_post_url and p_external_id must NOT be derived from a differently-shaped raw url", () => {
+    // If someone reintroduces the mutation (derives from a raw/pre-
+    // canonicalization url instead of the canonical one passed in), this
+    // fails — proving the params object is wired to `canonicalPostUrl`,
+    // not to some other value that merely happens to look similar.
+    const canonical = "https://www.tiktok.com/@x/video/1";
+    const differentlyShapedRaw = "https://tiktok.com/@x/video/1"; // no www — real drift case
+    const params = buildContentPostUpsertParams("shop-1", canonical, {
+      platform: "tiktok",
+      postedAt: "2026-09-26T10:00:00+07:00",
+    });
+    expect(params.p_post_url).not.toBe(differentlyShapedRaw);
+    expect(params.p_external_id).not.toBe(deriveExternalId(differentlyShapedRaw));
+  });
+
+  it("shopId, platform, and postedAt pass through untouched", () => {
+    const params = buildContentPostUpsertParams("shop-42", "https://www.facebook.com/3jjewelry/posts/1", {
+      platform: "facebook",
+      postedAt: "2026-09-20T08:00:00+07:00",
+    });
+    expect(params.p_shop_id).toBe("shop-42");
+    expect(params.p_platform).toBe("facebook");
+    expect(params.p_posted_at).toBe("2026-09-20T08:00:00+07:00");
+  });
+
+  it("optional fields default to null when omitted (not undefined — RPC param shape)", () => {
+    const params = buildContentPostUpsertParams("shop-1", "https://www.tiktok.com/@x/video/1", {
+      platform: "tiktok",
+      postedAt: "2026-09-26T10:00:00+07:00",
+    });
+    expect(params.p_content_type_code).toBeNull();
+    expect(params.p_artifact_id).toBeNull();
+    expect(params.p_caption).toBeNull();
+  });
+
+  it("optional fields carry through when provided, caption trimmed", () => {
+    const params = buildContentPostUpsertParams("shop-1", "https://www.tiktok.com/@x/video/1", {
+      platform: "tiktok",
+      postedAt: "2026-09-26T10:00:00+07:00",
+      contentTypeCode: "craft",
+      artifactId: "artifact-9",
+      caption: "  สวยมาก  ",
+    });
+    expect(params.p_content_type_code).toBe("craft");
+    expect(params.p_artifact_id).toBe("artifact-9");
+    expect(params.p_caption).toBe("สวยมาก");
+  });
+
+  it("empty-string content_type_code/artifact_id/caption normalize to null, not stored as ''", () => {
+    const params = buildContentPostUpsertParams("shop-1", "https://www.tiktok.com/@x/video/1", {
+      platform: "tiktok",
+      postedAt: "2026-09-26T10:00:00+07:00",
+      contentTypeCode: "",
+      artifactId: "",
+      caption: "   ",
+    });
+    expect(params.p_content_type_code).toBeNull();
+    expect(params.p_artifact_id).toBeNull();
+    expect(params.p_caption).toBeNull();
   });
 });
 

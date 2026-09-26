@@ -21,6 +21,7 @@
 // same constant.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { inspect } from "node:util";
 import { canonicalizeTikTokLink } from "./tiktok-link";
 import { deriveExternalId } from "./content-types";
 
@@ -149,6 +150,28 @@ describe("host matching — exact 'tiktok.com' or '.tiktok.com' suffix only (ห
     expect(result).toEqual({ ok: true, url });
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  // 🔴 M5 fix (security รอบ 2, 26 ก.ย. 69): the WHATWG URL parser preserves
+  // a trailing "." in hostname (confirmed: new URL("https://x.com./y").hostname
+  // === "x.com.") — endsWith(".tiktok.com") was false for that exact string,
+  // so this FQDN-form link fell through to "pass through unchanged" (i.e.
+  // treated as NOT TikTok at all) instead of being canonicalized, creating a
+  // second, un-deduplicated content_post row for a clip already stored
+  // under the normal form.
+  it("a trailing dot on an otherwise-canonical hostname (FQDN form) is still recognized as TikTok and canonicalized", async () => {
+    const fetchMock = stubFetchMustNotBeCalled();
+    const result = await canonicalizeTikTokLink("https://www.tiktok.com./@3jjewelry/video/123");
+    expect(result).toEqual({ ok: true, url: "https://www.tiktok.com/@3jjewelry/video/123" });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("a trailing dot on 'evil.com.' still does NOT open a new bypass — not treated as TikTok", async () => {
+    const fetchMock = stubFetchMustNotBeCalled();
+    const url = "https://evil.com./@user/video/123";
+    const result = await canonicalizeTikTokLink(url);
+    expect(result).toEqual({ ok: true, url });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
 });
 
 // ---- 2. Already video/photo path — local canonicalization, zero network ----
@@ -244,69 +267,78 @@ describe("direct paste of a live or profile link (not through a short link) — 
 // ---- 3. Short links — resolved via manual-redirect fetch ---------------
 
 describe("short links — resolved via redirect, then canonicalized (happy paths)", () => {
-  it("vt.tiktok.com resolves through ONE redirect to a video page", async () => {
+  // 🔴 M3 fix (security รอบ 2, 26 ก.ย. 69): once a redirect's Location header
+  // already points at an unambiguous video/photo path on a safe host, the
+  // implementation returns immediately instead of firing a SECOND request
+  // just to confirm 2xx — that confirming request never taught it anything
+  // new (body was never read either way) and was the single highest-risk
+  // request for a bot-protection 403 in the whole chain. These tests used
+  // to expect 2 fetches for a single-hop short link; now 1.
+  it("vt.tiktok.com resolves through ONE redirect to a video page — exactly ONE fetch, no confirming second request", async () => {
     const fetchMock = stubFetchSequence(
-      redirectResponse("https://www.tiktok.com/@3jjewelry/video/7688660180707446023", 301),
-      finalResponse(200)
+      redirectResponse("https://www.tiktok.com/@3jjewelry/video/7688660180707446023", 301)
     );
     const result = await canonicalizeTikTokLink("https://vt.tiktok.com/ZSbYUGv9e");
     expect(result).toEqual({ ok: true, url: "https://www.tiktok.com/@3jjewelry/video/7688660180707446023" });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("vm.tiktok.com short links are also resolved", async () => {
-    stubFetchSequence(redirectResponse("https://www.tiktok.com/@3jjewelry/video/999", 302), finalResponse(200));
+  it("vm.tiktok.com short links are also resolved, in exactly ONE fetch", async () => {
+    const fetchMock = stubFetchSequence(redirectResponse("https://www.tiktok.com/@3jjewelry/video/999", 302));
     const result = await canonicalizeTikTokLink("https://vm.tiktok.com/ZAbc123/");
     expect(result).toEqual({ ok: true, url: "https://www.tiktok.com/@3jjewelry/video/999" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("www.tiktok.com/t/<code> short links are resolved the same way", async () => {
-    stubFetchSequence(redirectResponse("https://www.tiktok.com/@3jjewelry/video/888", 302), finalResponse(200));
+  it("www.tiktok.com/t/<code> short links are resolved the same way, in exactly ONE fetch", async () => {
+    const fetchMock = stubFetchSequence(redirectResponse("https://www.tiktok.com/@3jjewelry/video/888", 302));
     const result = await canonicalizeTikTokLink("https://www.tiktok.com/t/ZQdAbCdEf/");
     expect(result).toEqual({ ok: true, url: "https://www.tiktok.com/@3jjewelry/video/888" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("a relative Location header resolves against the current URL's origin", async () => {
+  it("a relative Location header resolves against the current URL's origin, in exactly ONE fetch", async () => {
     const fetchMock = stubFetchSequence(
-      redirectResponse("/@3jjewelry/video/555", 302), // relative, no scheme/host
-      finalResponse(200)
+      redirectResponse("/@3jjewelry/video/555", 302) // relative, no scheme/host
     );
     const result = await canonicalizeTikTokLink("https://vt.tiktok.com/ZSrelative");
     expect(result).toEqual({ ok: true, url: "https://www.tiktok.com/@3jjewelry/video/555" });
-    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("fetch is called with redirect:'manual', credentials:'omit', and an AbortSignal (no cookies, no auto-follow)", async () => {
-    const fetchMock = stubFetchSequence(
-      redirectResponse("https://www.tiktok.com/@3jjewelry/video/1", 302),
-      finalResponse(200)
-    );
+  it("fetch is called with redirect:'manual', credentials:'omit', an AbortSignal, and a browser User-Agent (no cookies, no auto-follow, L3)", async () => {
+    const fetchMock = stubFetchSequence(redirectResponse("https://www.tiktok.com/@3jjewelry/video/1", 302));
     await canonicalizeTikTokLink("https://vt.tiktok.com/ZS1");
     const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(init.redirect).toBe("manual");
     expect(init.credentials).toBe("omit");
     expect(init.signal).toBeInstanceOf(AbortSignal);
+    const headers = init.headers as Record<string, string>;
+    expect(headers["user-agent"]).toMatch(/Mozilla/);
   });
 
-  it("the SAME AbortSignal instance is reused across every hop (total timeout, not per-hop)", async () => {
+  it("the SAME AbortSignal instance is reused across every hop that actually needs one (total timeout, not per-hop)", async () => {
+    // Needs a genuine multi-hop chain to test "reused across hops" now that
+    // a single-hop-to-video resolves in exactly 1 fetch (M3) — the first hop
+    // here is an opaque short-link-shaped path (not video/photo), so it
+    // still requires a second real fetch before landing on the video page.
     const fetchMock = stubFetchSequence(
-      redirectResponse("https://www.tiktok.com/@3jjewelry/video/1", 302),
-      finalResponse(200)
+      redirectResponse("https://www.tiktok.com/t/ZQintermediate", 302),
+      redirectResponse("https://www.tiktok.com/@3jjewelry/video/1", 302)
     );
-    await canonicalizeTikTokLink("https://vt.tiktok.com/ZS1");
+    const result = await canonicalizeTikTokLink("https://vt.tiktok.com/ZS1");
+    expect(result).toEqual({ ok: true, url: "https://www.tiktok.com/@3jjewelry/video/1" });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
     const signal0 = (fetchMock.mock.calls[0][1] as RequestInit).signal;
     const signal1 = (fetchMock.mock.calls[1][1] as RequestInit).signal;
     expect(signal0).toBe(signal1);
   });
-
 });
 
 describe("short links — the exact production incident (26 ก.ย. 69)", () => {
   it("vt.tiktok.com/ZSbYUGv9e (real short link) resolves to the real clip, matching the full link's canonical form", async () => {
-    stubFetchSequence(
-      redirectResponse("https://www.tiktok.com/@3jjewelry/video/7688660180707446023?checksum=abc", 301),
-      finalResponse(200)
-    );
+    // M3: lands on a video path -> short-circuited, no confirming 2nd fetch.
+    stubFetchSequence(redirectResponse("https://www.tiktok.com/@3jjewelry/video/7688660180707446023?checksum=abc", 301));
     const fromShortLink = await canonicalizeTikTokLink("https://vt.tiktok.com/ZSbYUGv9e");
     const fromFullLink = await canonicalizeTikTokLink(
       "https://www.tiktok.com/@3jjewelry/video/7688660180707446023"
@@ -315,6 +347,8 @@ describe("short links — the exact production incident (26 ก.ย. 69)", () =>
   });
 
   it("vt.tiktok.com/ZS9As5qtoAyuL-dgskp (real short link) resolves to /@3jjewelry/live and is rejected, not saved", async () => {
+    // /live is NOT video/photo -> M3's short-circuit does not apply here,
+    // still confirms via a second fetch — same as before this fix.
     stubFetchSequence(redirectResponse("https://www.tiktok.com/@3jjewelry/live", 301), finalResponse(200));
     const result = await canonicalizeTikTokLink("https://vt.tiktok.com/ZS9As5qtoAyuL-dgskp");
     expect(result).toEqual({ ok: false, error: TH_LIVE_LINK });
@@ -344,11 +378,20 @@ describe("short links resolving to a non-post destination (ห้ามผ่า
 // ---- SSRF guards on the redirect chain ----------------------------------
 
 describe("redirect-hop safety — SSRF guards (ห้ามผ่าน, ห้ามยิงต่อ)", () => {
+  // 🔴 security รอบ 2 (26 ก.ย. 69): every one of these used to assert ONLY
+  // `toHaveBeenCalledTimes(1)` — that catches an extra call, but NOT a call
+  // count that happens to stay the same while the actual URL fetched is
+  // wrong (e.g. a copy-paste bug that reused a stale variable and fetched
+  // the UNSAFE target instead of skipping it). Every test below now also
+  // asserts the one fetch that DOES happen used the original safe URL, not
+  // the rejected one — proving the unsafe target was never the target of
+  // any request, not just that the total count matched.
   it("a redirect to a non-tiktok.com host is rejected WITHOUT sending a request to it", async () => {
     const fetchMock = stubFetchSequence(redirectResponse("https://evil.com/steal-tokens", 302));
     const result = await canonicalizeTikTokLink("https://vt.tiktok.com/ZSabc");
     expect(result).toEqual({ ok: false, error: TH_SHORT_LINK_FAILED });
     expect(fetchMock).toHaveBeenCalledTimes(1); // never followed to evil.com
+    expect(fetchMock.mock.calls[0][0]).toBe("https://vt.tiktok.com/ZSabc");
   });
 
   it("a redirect downgrading to http:// (not https) is rejected", async () => {
@@ -356,6 +399,7 @@ describe("redirect-hop safety — SSRF guards (ห้ามผ่าน, ห้�
     const result = await canonicalizeTikTokLink("https://vt.tiktok.com/ZSabc");
     expect(result).toEqual({ ok: false, error: TH_SHORT_LINK_FAILED });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toBe("https://vt.tiktok.com/ZSabc");
   });
 
   it("a redirect to an IPv4 loopback literal (127.0.0.1) is rejected", async () => {
@@ -363,6 +407,7 @@ describe("redirect-hop safety — SSRF guards (ห้ามผ่าน, ห้�
     const result = await canonicalizeTikTokLink("https://vt.tiktok.com/ZSabc");
     expect(result).toEqual({ ok: false, error: TH_SHORT_LINK_FAILED });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toBe("https://vt.tiktok.com/ZSabc");
   });
 
   it("a redirect to the cloud metadata link-local address (169.254.169.254) is rejected", async () => {
@@ -370,6 +415,7 @@ describe("redirect-hop safety — SSRF guards (ห้ามผ่าน, ห้�
     const result = await canonicalizeTikTokLink("https://vt.tiktok.com/ZSabc");
     expect(result).toEqual({ ok: false, error: TH_SHORT_LINK_FAILED });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toBe("https://vt.tiktok.com/ZSabc");
   });
 
   it("a redirect to a named 'localhost' host is rejected", async () => {
@@ -377,6 +423,7 @@ describe("redirect-hop safety — SSRF guards (ห้ามผ่าน, ห้�
     const result = await canonicalizeTikTokLink("https://vt.tiktok.com/ZSabc");
     expect(result).toEqual({ ok: false, error: TH_SHORT_LINK_FAILED });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toBe("https://vt.tiktok.com/ZSabc");
   });
 
   it("a redirect to the IPv6 loopback literal (::1) is rejected", async () => {
@@ -384,12 +431,31 @@ describe("redirect-hop safety — SSRF guards (ห้ามผ่าน, ห้�
     const result = await canonicalizeTikTokLink("https://vt.tiktok.com/ZSabc");
     expect(result).toEqual({ ok: false, error: TH_SHORT_LINK_FAILED });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toBe("https://vt.tiktok.com/ZSabc");
   });
 
   it("a redirect to 'tiktok.com.evil.net' (substring, not a real subdomain) is rejected", async () => {
     const fetchMock = stubFetchSequence(redirectResponse("https://tiktok.com.evil.net/@user/video/1", 302));
     const result = await canonicalizeTikTokLink("https://vt.tiktok.com/ZSabc");
     expect(result).toEqual({ ok: false, error: TH_SHORT_LINK_FAILED });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toBe("https://vt.tiktok.com/ZSabc");
+  });
+
+  // 🔴 L1 fix (security รอบ 2, 26 ก.ย. 69): host+scheme alone let a redirect
+  // to a non-standard port on tiktok.com through.
+  it("a redirect to tiktok.com on a non-standard port is rejected", async () => {
+    const fetchMock = stubFetchSequence(redirectResponse("https://vt.tiktok.com:8080/@user/video/1", 302));
+    const result = await canonicalizeTikTokLink("https://vt.tiktok.com/ZSabc");
+    expect(result).toEqual({ ok: false, error: TH_SHORT_LINK_FAILED });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toBe("https://vt.tiktok.com/ZSabc");
+  });
+
+  it("a redirect to tiktok.com on the explicit standard port (:443) is still accepted (ห้ามพัง — boundary, not just the non-standard case)", async () => {
+    const fetchMock = stubFetchSequence(redirectResponse("https://www.tiktok.com:443/@3jjewelry/video/1", 302));
+    const result = await canonicalizeTikTokLink("https://vt.tiktok.com/ZSabc");
+    expect(result).toEqual({ ok: true, url: "https://www.tiktok.com/@3jjewelry/video/1" });
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
@@ -428,12 +494,13 @@ describe("redirect loop guard — max 5 hops (ห้ามผ่าน)", () => 
       redirectResponse("https://www.tiktok.com/hop2", 302),
       redirectResponse("https://www.tiktok.com/hop3", 302),
       redirectResponse("https://www.tiktok.com/hop4", 302),
-      redirectResponse("https://www.tiktok.com/@3jjewelry/video/321", 302), // 5th redirect lands here
-      finalResponse(200)
+      redirectResponse("https://www.tiktok.com/@3jjewelry/video/321", 302) // 5th redirect lands here — a
+      // video shape, so M3's short-circuit fires and there's no 6th
+      // confirming fetch (unlike before that fix).
     );
     const result = await canonicalizeTikTokLink("https://vt.tiktok.com/ZSabc");
     expect(result).toEqual({ ok: true, url: "https://www.tiktok.com/@3jjewelry/video/321" });
-    expect(fetchMock).toHaveBeenCalledTimes(6);
+    expect(fetchMock).toHaveBeenCalledTimes(5);
   });
 });
 
@@ -494,19 +561,38 @@ describe("network failures — reject with an actionable message, never silently
 // ---- response body is never read ---------------------------------------
 
 describe("response body is never read (ข้อบังคับเรื่อง network)", () => {
-  it("a full successful resolution (redirect + landing page) never calls .text()/.json() on either response", async () => {
-    // redirectResponse()/finalResponse() throw if .text()/.json() is ever
-    // called — this test passing at all (not throwing) IS the proof.
+  it("the M3 short-circuited path (redirect straight to a video page) never calls .text()/.json()", async () => {
+    // redirectResponse() throws if .text()/.json() is ever called — this
+    // test passing at all (not throwing) IS the proof. Only 1 response
+    // exists here on purpose: this path never fetches a 2nd time (M3).
+    stubFetchSequence(redirectResponse("https://www.tiktok.com/@3jjewelry/video/1", 302));
+    const result = await canonicalizeTikTokLink("https://vt.tiktok.com/ZSabc");
+    expect(result.ok).toBe(true);
+  });
+
+  it("the confirming-fetch path (redirect to a non-video page) also never calls .text()/.json() on either response", async () => {
+    // /live isn't video/photo -> M3's short-circuit doesn't apply -> a 2nd
+    // fetch DOES happen here, and its response must not be read either.
     stubFetchSequence(
-      redirectResponse("https://www.tiktok.com/@3jjewelry/video/1", 302),
+      redirectResponse("https://www.tiktok.com/@3jjewelry/live", 302),
       finalResponse(200)
     );
     const result = await canonicalizeTikTokLink("https://vt.tiktok.com/ZSabc");
-    expect(result.ok).toBe(true);
+    expect(result.ok).toBe(false);
   });
 });
 
 // ---- PII discipline in logs ----------------------------------------------
+
+// 🔴 M2 fix (security รอบ 2, 26 ก.ย. 69): `JSON.stringify` on an `Error`
+// ALWAYS produces `{}` — `message`/`stack` are non-enumerable own
+// properties, and `JSON.stringify` only serializes enumerable ones. The
+// original version of this test asserted on `JSON.stringify(consoleSpy.mock.
+// calls)` and passed even when a secret was sitting right inside an Error's
+// `.message` — proving nothing. `inspect(x, { depth: 8 })` from `node:util`
+// (same thing `console.error` itself uses internally) walks Error objects
+// properly, including non-enumerable message/stack — this is what an
+// actual log line would show.
 
 describe("logging never includes the full destination URL / query string (PII)", () => {
   it("a redirect Location carrying TikTok account identifiers never appears in any console.error call", async () => {
@@ -521,9 +607,24 @@ describe("logging never includes the full destination URL / query string (PII)",
     const result = await canonicalizeTikTokLink("https://vt.tiktok.com/ZSabc");
     expect(result).toEqual({ ok: false, error: TH_LIVE_LINK });
 
-    const serialized = JSON.stringify(consoleSpy.mock.calls);
+    const serialized = inspect(consoleSpy.mock.calls, { depth: 8 });
     expect(serialized).not.toContain("SECRET_SEC_USER_ID");
     expect(serialized).not.toContain("SECRET_SHARE_ID");
+  });
+
+  it("a fetch() TypeError whose own .message embeds the request URL (undici's real behavior) never appears in any console.error call", async () => {
+    // undici genuinely does this: `fetch failed` errors carry the request
+    // URL inside `.message` (or `.cause.message`) in real Node — not a
+    // hypothetical. If this module ever logged `err` (or `err.message`)
+    // directly instead of just `errorName(err)`, this secret would leak.
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    const secretUrl = "https://vt.tiktok.com/ZS?sec_user_id=SECRET_SEC_USER_ID";
+    stubFetchRejecting(new TypeError(`fetch failed: ${secretUrl}`));
+    const result = await canonicalizeTikTokLink(secretUrl);
+    expect(result).toEqual({ ok: false, error: TH_SHORT_LINK_FAILED });
+
+    const serialized = inspect(consoleSpy.mock.calls, { depth: 8 });
+    expect(serialized).not.toContain("SECRET_SEC_USER_ID");
   });
 });
 

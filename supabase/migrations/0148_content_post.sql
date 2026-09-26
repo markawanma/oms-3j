@@ -47,8 +47,11 @@
 --      แก้คอมเมนต์ให้ตรงความจริง (RPC เป็นเส้นทางที่ตั้งใจ ไม่ใช่ด่านที่บล็อกได้จริง).
 -- M5 — post_url ไม่ตรวจ scheme ⇒ javascript:/data: เข้า DB ได้ (วันนี้ยังไม่มีหน้าจอ
 --      แต่ P3 จะทำ <a href={post_url}>) ⇒ เพิ่ม CHECK ต้องขึ้นต้น http(s)://
---      (ไม่บังคับว่า url ต้องตรง platform — short link เช่น vt.tiktok.com เป็น
---      use case จริง).
+--      (ไม่บังคับว่า url ต้องตรง platform — post_url อาจมาจาก short link ของ
+--      แพลตฟอร์มอื่นที่ไม่ถูก normalize ก่อนเข้าที่นี่ เช่น fb.me/IG short link.
+--      🔴 แก้คอมเมนต์ 26 ก.ย. 69: เดิมยกตัวอย่าง vt.tiktok.com — ไม่จริงแล้ว
+--      TikTok ทุกลิงก์ (สั้น/ยาว) ถูก canonicalize เป็นรูปเต็มก่อนถึงชั้นนี้
+--      เสมอแล้ว ดู lib/marketing/tiktok-link.ts — SQL check เดิมไม่ได้แก้).
 -- ============================================================================
 --
 -- ============================================================================
@@ -102,8 +105,12 @@ create table analytics.content_post (
   constraint content_post_platform_check check (platform in ('tiktok', 'facebook', 'instagram', 'line_oa')),
   constraint content_post_external_id_len_check check (length(external_id) <= 500),
   constraint content_post_url_len_check check (length(post_url) <= 500),
-  -- M5: กัน javascript:/data: เข้า DB — ไม่บังคับ domain ให้ตรง platform (short
-  -- link เช่น vt.tiktok.com เป็น use case จริง) แค่ต้องเป็น http(s) เท่านั้น
+  -- M5: กัน javascript:/data: เข้า DB — ไม่บังคับ domain ให้ตรง platform (post_url
+  -- อาจมาจาก short link ของแพลตฟอร์มอื่นที่ไม่ถูก normalize ก่อนเข้าที่นี่)
+  -- แค่ต้องเป็น http(s) เท่านั้น. 🔴 คอมเมนต์แก้ 26 ก.ย. 69 — เดิมยกตัวอย่าง
+  -- "short link เช่น vt.tiktok.com เป็น use case จริง" ไม่จริงแล้ว (TikTok ทุก
+  -- ลิงก์ถูก canonicalize ก่อนถึงชั้นนี้แล้ว, lib/marketing/tiktok-link.ts) —
+  -- แก้เฉพาะคอมเมนต์ CHECK ข้างล่างไม่เปลี่ยน (ห้ามแก้ SQL ที่ apply ลง prod แล้ว)
   constraint content_post_url_scheme_check check (post_url ~* '^https?://'),
   constraint content_post_status_check check (status in ('active', 'deleted', 'private')),
   constraint content_post_shop_platform_external_uq unique (shop_id, platform, external_id)
@@ -315,7 +322,11 @@ begin
 
   -- 🔴 M5: กัน javascript:/data: เข้า DB (วันนี้ยังไม่มีหน้าจอ แต่ P3 จะทำ
   -- <a href={post_url}> แล้วไม่มีใครย้อนมาอ่าน migration นี้อีก) — ไม่บังคับว่า
-  -- domain ต้องตรง platform (short link เช่น vt.tiktok.com เป็น use case จริง)
+  -- domain ต้องตรง platform (post_url อาจมาจาก short link ของแพลตฟอร์มอื่นที่
+  -- ไม่ถูก normalize ก่อนเข้าที่นี่. 🔴 คอมเมนต์แก้ 26 ก.ย. 69 — เดิมยกตัวอย่าง
+  -- "short link เช่น vt.tiktok.com เป็น use case จริง" ไม่จริงแล้ว TikTok ทุก
+  -- ลิงก์ถูก canonicalize เป็นรูปเต็มก่อนเรียก RPC นี้เสมอแล้ว ดู
+  -- lib/marketing/tiktok-link.ts — เงื่อนไข SQL ด้านล่างไม่เปลี่ยน)
   if btrim(p_post_url) !~* '^https?://' then
     raise exception 'content_post_upsert: p_post_url ต้องขึ้นต้นด้วย http:// หรือ https:// (ได้รับ: %)', p_post_url using errcode = '22023';
   end if;

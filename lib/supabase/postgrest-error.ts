@@ -28,3 +28,24 @@ export function readErrorCode(err: unknown): string | undefined {
   const code = (err as { code?: unknown }).code;
   return typeof code === "string" ? code : undefined;
 }
+
+/** Masks every `scheme://...` URL substring in `text` down to a fixed
+ * placeholder — for logging a message that might echo caller-supplied input
+ * verbatim. Real incident this guards: a Postgres `raise` can interpolate a
+ * raw parameter straight into its message (e.g. content_post_upsert's own
+ * p_post_url check, supabase/migrations/0148_content_post.sql ~:320 "ได้รับ:
+ * %") — for platforms whose post_url isn't canonicalized before storage
+ * (Facebook/Instagram/LINE OA, see lib/marketing/tiktok-link.ts's header),
+ * that raw value can carry another platform's tracking/session query
+ * params. `console.error(err)` on the whole error object would print that
+ * straight into logs.
+ *
+ * Same masking rule as scripts/lib/format-error.mjs's redact() (full mask,
+ * not origin-only — a query string can carry an identifier and there's no
+ * reason to keep any part of it in a log line) — reimplemented here, not
+ * imported, because that file is plain Node/.mjs and can't be imported into
+ * this "use server"-adjacent module; keep both in sync if the masking rule
+ * ever changes. */
+export function redactUrls(text: string): string {
+  return text.replace(/[a-z][a-z0-9+.-]*:\/\/\S+/gi, "<url>");
+}
