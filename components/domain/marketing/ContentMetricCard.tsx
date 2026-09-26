@@ -2,12 +2,23 @@
 
 // ContentMetricCard — one post in the entry queue (§1.3): edit -> review ->
 // confirm. Per-card confirm-before-write, not batched (design §6 trade-off
-// 2): content_post_metric_upsert's data can't be un-typed or edited
-// afterward (0148 §H3/edit-after-save note in the doc), so a review step
-// that shows exactly what will be sent is cheap insurance against a typo
-// becoming permanent. On RPC failure the card stays in review mode with
-// the same values (design §1.3: "กลับไปโหมดทวน (ไม่ใช่โหมดกรอก) ค่าที่
-// พิมพ์ไม่หาย กดยืนยันซ้ำได้ทันที").
+// 2): a review step that shows exactly what will be sent is cheap insurance
+// against a typo becoming permanent. On RPC failure the card stays in
+// review mode with the same values (design §1.3: "กลับไปโหมดทวน (ไม่ใช่
+// โหมดกรอก) ค่าที่พิมพ์ไม่หาย กดยืนยันซ้ำได้ทันที").
+//
+// 🔴 Corrected 26 ก.ย. 69 (security ตรวจย้อนหลัง, H1): the line this replaced
+// claimed "content_post_metric_upsert's data can't be un-typed or edited
+// afterward" — that was WRONG. 0148 §H3 makes content_post_metric_upsert an
+// upsert on (post_id, captured_on): calling it again for the SAME post on
+// the SAME calendar day overwrites the row it just wrote, by design (0148's
+// own comment: built to let a same-day typo be corrected). The RPC never
+// closed that door — this file did, by giving the confirmed card no way
+// back into edit mode. See the "แก้เลขที่เพิ่งกรอก" button below for the fix.
+// It only reaches back into the SAME session, before the next refresh —
+// captured_on is always today's date server-side, so once the day turns
+// over (or the post drops out of v_content_entry_queue after its own
+// refresh) there is no screen left that can reach this row again.
 //
 // Numbers are never coalesced to 0 anywhere in this file — an untouched
 // field stays undefined all the way to the RPC call (content_post_metric_
@@ -40,6 +51,7 @@ export function ContentMetricCard({
   contentTypes,
   confirmed,
   onConfirmed,
+  onEditRequested,
 }: {
   row: ContentEntryQueueRow;
   shopId: string;
@@ -52,29 +64,83 @@ export function ContentMetricCard({
    * what was just typed, not from a re-query. */
   confirmed?: ConfirmedMetrics;
   onConfirmed: (postId: string, values: ConfirmedMetrics) => void;
+  /** H1 fix (26 ก.ย. 69): the only way back out of the confirmed/collapsed
+   * state — parent (ContentEntryQueue) drops this postId out of
+   * confirmedByPost, which makes `confirmed` undefined again on the next
+   * render and falls back to this component's own `mode`/`reviewValues`
+   * state (still alive, never reset by a confirm) so the review screen
+   * reappears pre-filled with what was just saved instead of a blank form. */
+  onEditRequested: (postId: string) => void;
 }) {
   const toast = useToast();
   const { draft, setField, clearDraft } = useContentEntryDraft(shopId, row.postId, todayTh);
   const [mode, setMode] = useState<"editing" | "reviewing">("editing");
   const [reviewValues, setReviewValues] = useState<ConfirmedMetrics>({});
   const [submitting, setSubmitting] = useState(false);
+  // QA-found bug fix (26 ก.ย. 69): parseMetricFieldValue returns null for an
+  // overflow/invalid field, but goToReview used to only check `typeof
+  // parsed === "number"` and silently drop anything else — same code path
+  // as an untouched field, so a fat-fingered 20-digit view count vanished
+  // with no error. Tracked here so the offending input(s) get a visible
+  // marker, cleared as soon as the owner edits that field again.
+  const [invalidFields, setInvalidFields] = useState<Set<MetricField>>(new Set());
 
   const contentType = row.contentTypeCode ? contentTypes.find((ct) => ct.code === row.contentTypeCode) : undefined;
 
   function handleFieldChange(field: MetricField, raw: string) {
     setField(field, raw.replace(/[^\d]/g, ""));
+    if (invalidFields.has(field)) {
+      setInvalidFields((prev) => {
+        const next = new Set(prev);
+        next.delete(field);
+        return next;
+      });
+    }
   }
 
   const hasAnyValue = METRIC_FIELD_ORDER.some((f) => (draft[f]?.trim() ?? "") !== "");
 
   function goToReview() {
     const values: ConfirmedMetrics = {};
+    const invalid = new Set<MetricField>();
     for (const f of METRIC_FIELD_ORDER) {
       const parsed = parseMetricFieldValue(draft[f]);
-      if (typeof parsed === "number") values[f] = parsed;
+      if (parsed === null) {
+        // Overflow (>Number.MAX_SAFE_INTEGER) — content-types.ts's own
+        // comment says "caller should treat null as invalid, block submit".
+        // Block here instead of silently treating it like an empty field.
+        invalid.add(f);
+      } else if (typeof parsed === "number") {
+        values[f] = parsed;
+      }
     }
+    if (invalid.size > 0) {
+      setInvalidFields(invalid);
+      toast.push(
+        `ตัวเลขช่อง ${Array.from(invalid)
+          .map((f) => METRIC_FIELD_LABEL[f])
+          .join(", ")} ยาวเกินไป ตรวจดูอีกครั้งก่อนบันทึก`,
+        "error"
+      );
+      return;
+    }
+    setInvalidFields(new Set());
     setReviewValues(values);
     setMode("reviewing");
+  }
+
+  function handleRequestEdit() {
+    if (!confirmed) return;
+    // Pre-fill both the review screen (reviewValues) and the underlying
+    // draft (so tapping "แก้ไข" afterward shows the old numbers instead of
+    // blank inputs — clearDraft() already wiped localStorage on confirm).
+    for (const f of METRIC_FIELD_ORDER) {
+      const v = confirmed[f];
+      if (typeof v === "number") setField(f, String(v));
+    }
+    setReviewValues(confirmed);
+    setMode("reviewing");
+    onEditRequested(row.postId);
   }
 
   function handleConfirm() {
@@ -112,13 +178,28 @@ export function ContentMetricCard({
     return (
       <div
         id={`content-metric-card-${row.postId}`}
-        className="flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 p-3 text-sm"
+        className="space-y-1 rounded-lg border border-green-200 bg-green-50 p-3 text-sm"
       >
-        <CheckCircle2 className="h-4 w-4 shrink-0 text-green-600" aria-hidden="true" />
-        <p className="min-w-0 truncate text-green-800">
-          <span className="font-semibold">บันทึกแล้ว</span>
-          {summaryParts.length > 0 && <span className="text-green-700"> — {summaryParts.join(" · ")}</span>}
-        </p>
+        <div className="flex items-center gap-2">
+          <CheckCircle2 className="h-4 w-4 shrink-0 text-green-600" aria-hidden="true" />
+          <p className="min-w-0 flex-1 truncate text-green-800">
+            <span className="font-semibold">บันทึกแล้ว</span>
+            {summaryParts.length > 0 && <span className="text-green-700"> — {summaryParts.join(" · ")}</span>}
+          </p>
+          <button
+            type="button"
+            onClick={handleRequestEdit}
+            className="min-h-8 shrink-0 text-xs font-semibold text-green-700 underline hover:text-green-900"
+          >
+            แก้เลขที่เพิ่งกรอก
+          </button>
+        </div>
+        {/* H1 fix: the limitation has to be on-screen, not just in a code
+            comment — captured_on is always "today" server-side, so this
+            path only works before the next page refresh. Once that happens
+            (or the day turns over) this post is gone from the queue for
+            good and no screen can reach it again. */}
+        <p className="pl-6 text-[0.7rem] text-green-700/70">แก้ได้เฉพาะตอนนี้ก่อนออกจากหน้านี้ — รีเฟรชหรือข้ามวันแล้วแก้ไม่ได้อีก</p>
       </div>
     );
   }
@@ -147,25 +228,41 @@ export function ContentMetricCard({
       {mode === "editing" ? (
         <>
           <div className="space-y-2">
-            {METRIC_FIELD_ORDER.map((field) => (
-              <div key={field} className="flex items-center gap-2">
-                <label htmlFor={`metric-${row.postId}-${field}`} className="w-24 shrink-0 text-xs font-medium text-zinc-600">
-                  {METRIC_FIELD_LABEL[field]}
-                </label>
-                <input
-                  id={`metric-${row.postId}-${field}`}
-                  type="text"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  autoComplete="off"
-                  value={draft[field] ?? ""}
-                  onChange={(e) => handleFieldChange(field, e.target.value)}
-                  placeholder="—"
-                  className="min-h-11 flex-1 rounded-md border border-zinc-300 px-3 text-sm focus:border-primary-500 focus:outline-none"
-                />
-                <span className="w-8 shrink-0 text-xs text-zinc-400">คน</span>
-              </div>
-            ))}
+            {METRIC_FIELD_ORDER.map((field) => {
+              const isInvalid = invalidFields.has(field);
+              return (
+                <div key={field}>
+                  <div className="flex items-center gap-2">
+                    <label htmlFor={`metric-${row.postId}-${field}`} className="w-24 shrink-0 text-xs font-medium text-zinc-600">
+                      {METRIC_FIELD_LABEL[field]}
+                    </label>
+                    <input
+                      id={`metric-${row.postId}-${field}`}
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      autoComplete="off"
+                      value={draft[field] ?? ""}
+                      onChange={(e) => handleFieldChange(field, e.target.value)}
+                      placeholder="—"
+                      aria-invalid={isInvalid || undefined}
+                      aria-describedby={isInvalid ? `metric-${row.postId}-${field}-error` : undefined}
+                      className={`min-h-11 flex-1 rounded-md border px-3 text-sm focus:outline-none ${
+                        isInvalid
+                          ? "border-red-400 focus:border-red-500"
+                          : "border-zinc-300 focus:border-primary-500"
+                      }`}
+                    />
+                    <span className="w-8 shrink-0 text-xs text-zinc-400">คน</span>
+                  </div>
+                  {isInvalid && (
+                    <p id={`metric-${row.postId}-${field}-error`} className="ml-[6.5rem] mt-0.5 text-[0.7rem] text-red-600">
+                      ตัวเลขยาวเกินไป
+                    </p>
+                  )}
+                </div>
+              );
+            })}
           </div>
           {METRIC_FIELD_HINT.save && (
             <p className="text-[0.7rem] text-zinc-400">📌 {METRIC_FIELD_LABEL.save}: {METRIC_FIELD_HINT.save}</p>
@@ -178,7 +275,13 @@ export function ContentMetricCard({
       ) : (
         <>
           <div className="space-y-1.5 rounded-md border border-zinc-100 bg-zinc-50/60 p-2.5">
-            <p className="text-xs font-semibold text-zinc-600">ทวนก่อนบันทึก — แก้ทีหลังไม่ได้</p>
+            {/* Was "แก้ทีหลังไม่ได้" — no longer strictly true (H1 fix adds
+                a same-day edit path) and this exact screen is also what
+                "แก้เลขที่เพิ่งกรอก" reopens into, so claiming "can't edit
+                later" right there would contradict the button the owner
+                just tapped. "ข้ามวันแล้วแก้ไม่ได้" states the real, narrower
+                limit without overclaiming either way. */}
+            <p className="text-xs font-semibold text-zinc-600">ทวนก่อนบันทึก — ข้ามวันแล้วแก้ไม่ได้</p>
             {METRIC_FIELD_ORDER.map((field) => (
               <div key={field} className="flex items-center justify-between text-sm">
                 <span className="text-zinc-500">{METRIC_FIELD_LABEL[field]}</span>

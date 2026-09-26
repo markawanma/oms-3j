@@ -62,6 +62,20 @@ export function ContentEntryQueue({
     }
   }
 
+  /** H1 fix (26 ก.ย. 69): "แก้เลขที่เพิ่งกรอก" on a confirmed card — drops
+   * this postId back out of confirmedByPost so ContentMetricCard falls
+   * through to its own (still-alive) mode/reviewValues state instead of the
+   * collapsed summary. Only usable this session, before the next refresh —
+   * see that component's file header for why. */
+  function handleEditRequested(postId: string) {
+    setConfirmedByPost((prev) => {
+      if (!(postId in prev)) return prev;
+      const next = { ...prev };
+      delete next[postId];
+      return next;
+    });
+  }
+
   return (
     <div className="space-y-3">
       <div>
@@ -90,6 +104,7 @@ export function ContentEntryQueue({
               contentTypes={contentTypes}
               confirmed={confirmedByPost[row.postId]}
               onConfirmed={handleConfirmed}
+              onEditRequested={handleEditRequested}
             />
           ))}
         </div>
