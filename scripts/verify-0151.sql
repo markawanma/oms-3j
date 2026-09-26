@@ -179,8 +179,16 @@ begin
     v_log := v_log || format('T2: FAIL — rounds=%s (ต้อง >= 5) mismatch=%s', v_loop_rounds, v_code_mismatch) || E'\n';
   end if;
 
-  if v_loop_rounds >= 5 and v_all_match_tx_now and v_tx_now is distinct from v_ts_baseline then
-    v_log := v_log || format('T5 (updated_at ขยับทุกครั้งที่เรียก RPC — เทียบเท่า now() ทุกรอบ และต่างจาก baseline ก่อนแก้, rounds=%s): PASS', v_loop_rounds) || E'\n';
+  -- 🔴 ของเดิมมี clause "v_tx_now is distinct from v_ts_baseline" ต่อท้าย ซึ่ง
+  -- เป็นจริงไม่ได้เลยโดยโครงสร้าง: fixture ถูก INSERT ในทรานแซกชันนี้ ⇒ updated_at
+  -- ตอนเกิด = now() = v_tx_now อยู่แล้ว (trap #22) และจะ "ดันให้เป็นอดีตก่อน"
+  -- ก็ไม่ได้ เพราะ trg_content_post_updated_at (BEFORE UPDATE, ยืนยันที่ T_trigger)
+  -- เขียนทับเป็น now() ทุกครั้ง ⇒ T5 FAIL เสมอ ทั้งที่ฟังก์ชันถูก (ลองมาแล้ว 26 ก.ย. 69)
+  -- สิ่งที่พิสูจน์ได้จริงในทรานแซกชันเดียวคือ "updated_at หลังเรียก = now() ทุกรอบ"
+  -- เท่านั้น — ส่วน "ขยับจากค่าเดิมจริงไหม" ต้องทดสอบข้ามทรานแซกชัน ซึ่งขัดกับกฎ
+  -- do-block+rollback (traps #11) ⇒ ยอมรับว่าไม่ครอบ และเขียนไว้ตรงนี้ว่าไม่ครอบ
+  if v_loop_rounds >= 5 and v_all_match_tx_now then
+    v_log := v_log || format('T5 (updated_at หลังเรียก RPC = now() ของทรานแซกชันนี้ทุกรอบ, rounds=%s — ไม่ครอบ "ขยับจากค่าเดิม" ดูเหตุผลเหนือ if): PASS', v_loop_rounds) || E'\n';
   else
     v_log := v_log || format('T5: FAIL — rounds=%s (ต้อง >= 5) all_match_tx_now=%s tx_now=%s baseline=%s', v_loop_rounds, v_all_match_tx_now, v_tx_now, v_ts_baseline) || E'\n';
   end if;
