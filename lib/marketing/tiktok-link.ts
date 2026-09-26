@@ -386,23 +386,39 @@ async function resolveShortLink(startUrl: string): Promise<CanonicalizeTikTokLin
         return { ok: false, error: TIKTOK_SHORT_LINK_UNRESOLVED_ERROR };
       }
 
-      // 🔴 M3 fix (security รอบ 2, 26 ก.ย. 69): if this Location header
-      // already points at a safe hop whose PATH is unambiguously a video/
-      // photo page, return right now instead of following up with a whole
-      // second GET request just to confirm the response is 2xx. That
-      // confirming request never taught this function anything new — the
-      // body was never read either way (only `status`), and a video/photo
-      // path shape from a `Location` header is exactly as trustworthy as
-      // the same path pasted directly (classifyTikTokPath() is the same
-      // function either way) — it's also the single highest-risk request
-      // in the whole chain for a 403 from bot protection, since it's a GET
-      // against www.tiktok.com's actual page rendering path rather than a
-      // redirect-only endpoint. Intentionally scoped to video/photo only
-      // (not live/profile/other) — those still fall through to the normal
-      // fetch-and-classify path below, unchanged from before this fix.
+      // 🔴 M3 fix (security รอบ 2, 26 ก.ย. 69) + M-a/M-b follow-up (security
+      // รอบ 3, 27 ก.ย. 69): if this Location header already points at a safe
+      // hop whose PATH shape is recognizable (video/photo/live/profile —
+      // anything classifyTikTokPath() doesn't bucket as "other"), decide
+      // right now instead of firing a whole second GET request just to
+      // confirm the response is 2xx.
+      //
+      // 🔴 This is an ACCEPTED RISK, not a claim that a Location-derived path
+      // is "just as trustworthy" as one the user pasted directly — it is
+      // NOT. We never send the confirming request, so we never verify the
+      // destination clip actually exists. A short link whose target was
+      // deleted between being shared and being pasted here can still return
+      // ok:true and get queued for T+1/T+3/T+7 reads that will never produce
+      // real numbers. We accept this because the confirming GET is the
+      // single highest-risk request in the whole chain for a 403 from bot
+      // protection (a GET against www.tiktok.com's actual page-rendering
+      // path, not a redirect-only endpoint) — trading "reject a small number
+      // of deleted-clip short links early" for "stop losing a much larger
+      // number of live/valid short links to bot-protection 403s on a request
+      // that reads nothing but a status code" is the deliberate trade here.
+      //
+      // Originally scoped to video/photo only (M3); widened to live/profile
+      // here (M-b) for the same reason and the same trade-off — a live/
+      // profile Location path is exactly as classifiable without a
+      // confirming GET as a video/photo one is, and leaving live/profile on
+      // the confirming-GET path meant THEY, not video/photo links, carried
+      // 100% of the 403 risk this fix exists to reduce. Only "other" (a path
+      // shape this module doesn't recognize at all) still falls through to
+      // the normal fetch-and-classify loop below — there's nothing to
+      // early-classify when the shape itself is unknown.
       if (isSafeHopUrl(next)) {
         const earlyClassification = classifyTikTokPath(next.pathname);
-        if (earlyClassification.kind === "video" || earlyClassification.kind === "photo") {
+        if (earlyClassification.kind !== "other") {
           return resultFromClassification(earlyClassification);
         }
       }

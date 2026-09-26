@@ -244,6 +244,7 @@ export async function upsertContentPost(input: UpsertContentPostInput): Promise<
   }
   const canonicalPostUrl = canonicalized.url;
 
+  let data: unknown;
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();
@@ -254,12 +255,9 @@ export async function upsertContentPost(input: UpsertContentPostInput): Promise<
     // mutation test that swapped this back to `postUrl` (26 ก.ย. 69,
     // security รอบ 2) found ZERO tests catching it when this was inline here.
     const rpcParams = buildContentPostUpsertParams(shopId, canonicalPostUrl, input);
-    const { data, error } = await supabase.schema(SCHEMA).rpc("content_post_upsert", rpcParams);
-    if (error) throw error;
-
-    revalidatePath("/marketing/content/entry");
-    if (input.artifactId) revalidatePath("/marketing/calendar");
-    return { ok: true, data: data as string };
+    const result = await supabase.schema(SCHEMA).rpc("content_post_upsert", rpcParams);
+    if (result.error) throw result.error;
+    data = result.data;
   } catch (err) {
     // 🔴 M1 fix (26 ก.ย. 69, security รอบ 2): content_post_upsert's own
     // raise messages interpolate p_post_url verbatim (0148 ~:320 "ได้รับ:
@@ -275,6 +273,15 @@ export async function upsertContentPost(input: UpsertContentPostInput): Promise<
     });
     return { ok: false, error: mapContentPostRpcError(err, "บันทึกลิงก์ไม่สำเร็จ ลองใหม่อีกครั้ง") };
   }
+
+  // 🔴 M-c fix (security รอบ 3, 27 ก.ย. 69): revalidatePath outside the try —
+  // the DB write above already committed by the time we get here. If
+  // revalidatePath itself throws, the old code would land in the catch
+  // above and tell the owner "บันทึกลิงก์ไม่สำเร็จ" even though the row was
+  // saved — a false failure that could prompt a duplicate submit.
+  revalidatePath("/marketing/content/entry");
+  if (input.artifactId) revalidatePath("/marketing/calendar");
+  return { ok: true, data: data as string };
 }
 
 /** Edit-after-save is deliberately narrow (design §2.3): only content_type_
@@ -323,17 +330,29 @@ export async function updateContentPostType(postId: string, contentTypeCode: str
       p_content_type_code: contentTypeCode,
     });
     if (error) throw error;
-
-    revalidatePath("/marketing/content/entry");
-    revalidatePath("/marketing/calendar");
-    return { ok: true, data: undefined };
   } catch (err) {
-    // No post_url/external_id anywhere in this RPC's params or raise
-    // messages — nothing here can echo a caller-supplied URL, so a raw
-    // console.error(err) carries none of upsertContentPost's M1 risk.
-    console.error("updateContentPostType failed", err);
+    // 🔴 Low fix (security รอบ 3, 27 ก.ย. 69): a comment here used to argue
+    // console.error(err) was safe because this RPC's own params/raise
+    // messages never carry a URL — true, but too narrow a reason to log the
+    // raw error object. The team's own logging rule (memory: "ห้าม log
+    // error ของ supabase ทั้งก้อน") isn't only about URLs — a Postgres
+    // error's `details` can embed host info and `hint`/stack-shaped fields
+    // vary by driver version, none of it something a Thai-facing action log
+    // needs verbatim. Use the same code+redacted-message pattern as
+    // upsertContentPost's M1 fix above for consistency, even though the URL
+    // risk specifically doesn't apply to this RPC.
+    console.error("updateContentPostType failed", {
+      code: readErrorCode(err),
+      message: redactUrls(readErrorMessage(err)),
+    });
     return { ok: false, error: mapContentPostUpdateTypeRpcError(err, "แก้ประเภทไม่สำเร็จ ลองใหม่อีกครั้ง") };
   }
+
+  // M-c fix (security รอบ 3, 27 ก.ย. 69) — see upsertContentPost's comment
+  // above for why this must live outside the try.
+  revalidatePath("/marketing/content/entry");
+  revalidatePath("/marketing/calendar");
+  return { ok: true, data: undefined };
 }
 
 // ============================================================================
@@ -370,11 +389,12 @@ export async function upsertContentMetric(input: UpsertContentMetricInput): Prom
     }
   }
 
+  let data: unknown;
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();
 
-    const { data, error } = await supabase.schema(SCHEMA).rpc("content_post_metric_upsert", {
+    const result = await supabase.schema(SCHEMA).rpc("content_post_metric_upsert", {
       p_shop_id: shopId,
       p_post_id: input.postId,
       p_view: input.view ?? null,
@@ -384,14 +404,17 @@ export async function upsertContentMetric(input: UpsertContentMetricInput): Prom
       p_share: input.share ?? null,
       p_source: "manual",
     });
-    if (error) throw error;
-
-    revalidatePath("/marketing/content/entry");
-    return { ok: true, data: data as string };
+    if (result.error) throw result.error;
+    data = result.data;
   } catch (err) {
     console.error("upsertContentMetric failed", err);
     return { ok: false, error: mapContentMetricRpcError(err, "บันทึกตัวเลขไม่สำเร็จ ลองใหม่อีกครั้ง") };
   }
+
+  // M-c fix (security รอบ 3, 27 ก.ย. 69, applied for consistency — see
+  // upsertContentPost's comment for why this must live outside the try).
+  revalidatePath("/marketing/content/entry");
+  return { ok: true, data: data as string };
 }
 
 // ============================================================================
@@ -412,12 +435,14 @@ export async function setContentPostStatus(postId: string, status: ContentPostSt
       p_status: status,
     });
     if (error) throw error;
-
-    revalidatePath("/marketing/content/entry");
-    revalidatePath("/marketing/calendar");
-    return { ok: true, data: undefined };
   } catch (err) {
     console.error("setContentPostStatus failed", err);
     return { ok: false, error: mapContentMetricRpcError(err, "เปลี่ยนสถานะโพสต์ไม่สำเร็จ ลองใหม่อีกครั้ง") };
   }
+
+  // M-c fix (security รอบ 3, 27 ก.ย. 69, applied for consistency — see
+  // upsertContentPost's comment for why this must live outside the try).
+  revalidatePath("/marketing/content/entry");
+  revalidatePath("/marketing/calendar");
+  return { ok: true, data: undefined };
 }

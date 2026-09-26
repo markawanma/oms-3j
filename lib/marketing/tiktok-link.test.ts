@@ -347,31 +347,59 @@ describe("short links — the exact production incident (26 ก.ย. 69)", () =>
   });
 
   it("vt.tiktok.com/ZS9As5qtoAyuL-dgskp (real short link) resolves to /@3jjewelry/live and is rejected, not saved", async () => {
-    // /live is NOT video/photo -> M3's short-circuit does not apply here,
-    // still confirms via a second fetch — same as before this fix.
-    stubFetchSequence(redirectResponse("https://www.tiktok.com/@3jjewelry/live", 301), finalResponse(200));
+    // M-b (security รอบ 3, 27 ก.ย. 69): /live is now early-classified same
+    // as video/photo -> rejected in ONE fetch, no confirming second request.
+    // The queued finalResponse(200) below is deliberately left unused (would
+    // only fire if the short-circuit regressed) — asserting the count below
+    // is what actually proves it never fires.
+    const fetchMock = stubFetchSequence(redirectResponse("https://www.tiktok.com/@3jjewelry/live", 301), finalResponse(200));
     const result = await canonicalizeTikTokLink("https://vt.tiktok.com/ZS9As5qtoAyuL-dgskp");
     expect(result).toEqual({ ok: false, error: TH_LIVE_LINK });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
 
 describe("short links resolving to a non-post destination (ห้ามผ่าน)", () => {
-  it("resolves to /@user/live -> rejected with the live-link message", async () => {
-    stubFetchSequence(redirectResponse("https://www.tiktok.com/@someuser/live", 302), finalResponse(200));
+  it("resolves to /@user/live -> rejected with the live-link message, in ONE fetch (M-b early-classify)", async () => {
+    const fetchMock = stubFetchSequence(redirectResponse("https://www.tiktok.com/@someuser/live", 302), finalResponse(200));
     const result = await canonicalizeTikTokLink("https://vt.tiktok.com/ZSabc");
     expect(result).toEqual({ ok: false, error: TH_LIVE_LINK });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("resolves to a bare profile page -> rejected with the profile-link message", async () => {
-    stubFetchSequence(redirectResponse("https://www.tiktok.com/@someuser", 302), finalResponse(200));
+  it("resolves to a bare profile page -> rejected with the profile-link message, in ONE fetch (M-b early-classify)", async () => {
+    const fetchMock = stubFetchSequence(redirectResponse("https://www.tiktok.com/@someuser", 302), finalResponse(200));
     const result = await canonicalizeTikTokLink("https://vt.tiktok.com/ZSabc");
     expect(result).toEqual({ ok: false, error: TH_PROFILE_LINK });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("resolves to some other unrecognized page -> rejected as unrecognized", async () => {
-    stubFetchSequence(redirectResponse("https://www.tiktok.com/search?q=x", 302), finalResponse(200));
+  it("resolves to some other unrecognized page -> falls through to the confirming fetch, then rejected as unrecognized", async () => {
+    // "other" is the one kind NOT early-classified (the path shape itself
+    // is unknown — there's nothing to decide without following further),
+    // so this is the one case in this describe block that still needs the
+    // second, confirming fetch.
+    const fetchMock = stubFetchSequence(redirectResponse("https://www.tiktok.com/search?q=x", 302), finalResponse(200));
     const result = await canonicalizeTikTokLink("https://vt.tiktok.com/ZSabc");
     expect(result).toEqual({ ok: false, error: TH_UNRECOGNIZED });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("short links — accepted risk: a Location-derived path is trusted WITHOUT confirming the destination exists (M-a, security รอบ 3)", () => {
+  it("Location header points at a video path that doesn't actually exist -> still ok:true, in ONE fetch (never confirmed, by design)", async () => {
+    // Deliberately locks in the accepted trade-off documented at the
+    // early-classify call site: we never send the confirming GET, so a
+    // deleted/nonexistent clip's short link is still accepted here and can
+    // end up stuck in the T+1/T+3/T+7 read queue with no real numbers ever
+    // obtainable — same failure mode the module's own header describes for
+    // ZS9As5qtoAyuL-dgskp, now also possible for a video-shaped path.
+    const fetchMock = stubFetchSequence(
+      redirectResponse("https://www.tiktok.com/@nobody_real/video/000000000000000000", 302)
+    );
+    const result = await canonicalizeTikTokLink("https://vt.tiktok.com/ZSdeleted");
+    expect(result).toEqual({ ok: true, url: "https://www.tiktok.com/@nobody_real/video/000000000000000000" });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
 
