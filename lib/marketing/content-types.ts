@@ -155,15 +155,21 @@ export function deriveExternalId(url: string): string {
 // ---- content_post_upsert RPC param builder ----------------------------
 
 /** Exact shape of analytics.content_post_upsert's (0148 §3) positional
- * params — kept here (not inline in lib/actions/content.ts) so it's a pure,
- * directly unit-testable function. QA's mutation test (26 ก.ย. 69, security
- * รอบ 2) swapped `p_post_url: canonicalPostUrl` back to the raw pasted
- * `postUrl` inside upsertContentPost and got 554/0 unchanged — the exact
- * substitution the whole canonicalization feature exists to make had zero
- * test coverage because it lived inline in a "use server" module that can't
- * be called directly from a unit test (no real Supabase client to mock).
- * Extracting the decision logic here closes that gap — see
- * content-types.test.ts's "buildContentPostUpsertParams" suite. */
+ * params — kept here (not inline in lib/actions/content.ts) as a pure,
+ * directly unit-testable function that doesn't need any Supabase client to
+ * exercise (see content-types.test.ts's "buildContentPostUpsertParams"
+ * suite). That suite only proves this function is internally consistent
+ * (it echoes back the `canonicalPostUrl` it's given) — it does NOT prove
+ * the call site (lib/actions/content.ts's upsertContentPost) actually
+ * passes the canonicalized URL here instead of the raw pasted one. QA's
+ * mutation test (26 ก.ย. 69, security รอบ 2) swapped the call site's
+ * argument back to raw `postUrl` and got 554/0 unchanged, because no test
+ * file imported lib/actions/content.ts at all — "use server" modules ARE
+ * directly unit-testable with a mocked Supabase client (see
+ * lib/actions/oem.test.ts / members.test.ts / production.test.ts /
+ * hero-stock.test.ts, all four do exactly this); nobody had written that
+ * test yet. lib/actions/content.test.ts (27 ก.ย. 69, security รอบ 3) closes
+ * that gap by asserting on the RPC params the real call site produces. */
 export interface ContentPostUpsertRpcParams {
   p_shop_id: string;
   p_platform: ContentPlatform;
