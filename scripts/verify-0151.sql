@@ -123,14 +123,17 @@ begin
   -- ใช้เป็นแค่พารามิเตอร์เรียก RPC เท่านั้น ไม่ต้องมี FK
   v_other_shop_id := gen_random_uuid();
 
+  -- updated_at ตั้งเองตรงนี้เป็นอดีต (30 วัน) เพราะ trg_content_post_updated_at
+  -- เป็น BEFORE UPDATE เท่านั้น (ยืนยันที่ T_trigger + query prod จริง) ไม่ยิงตอน
+  -- INSERT ⇒ ค่าที่ตั้งเองจะติดอยู่กับแถวจริงจนกว่า RPC จะเรียก UPDATE ทับ
   insert into analytics.content_post (
-    shop_id, platform, external_id, post_url, posted_at, posted_date_th, content_type_code, status
+    shop_id, platform, external_id, post_url, posted_at, posted_date_th, content_type_code, status, updated_at
   ) values (
     v_real_shop_id, 'tiktok',
     'https://www.tiktok.com/@__verify0151_test__/video/900000000000000001',
     'https://www.tiktok.com/@__verify0151_test__/video/900000000000000001',
     now() - interval '1 day', ((now() - interval '1 day') at time zone 'Asia/Bangkok')::date,
-    null, 'active'
+    null, 'active', now() - interval '30 days'
   )
   returning id, updated_at into v_fixture_post_id, v_ts_baseline;
 
@@ -179,16 +182,12 @@ begin
     v_log := v_log || format('T2: FAIL — rounds=%s (ต้อง >= 5) mismatch=%s', v_loop_rounds, v_code_mismatch) || E'\n';
   end if;
 
-  -- 🔴 ของเดิมมี clause "v_tx_now is distinct from v_ts_baseline" ต่อท้าย ซึ่ง
-  -- เป็นจริงไม่ได้เลยโดยโครงสร้าง: fixture ถูก INSERT ในทรานแซกชันนี้ ⇒ updated_at
-  -- ตอนเกิด = now() = v_tx_now อยู่แล้ว (trap #22) และจะ "ดันให้เป็นอดีตก่อน"
-  -- ก็ไม่ได้ เพราะ trg_content_post_updated_at (BEFORE UPDATE, ยืนยันที่ T_trigger)
-  -- เขียนทับเป็น now() ทุกครั้ง ⇒ T5 FAIL เสมอ ทั้งที่ฟังก์ชันถูก (ลองมาแล้ว 26 ก.ย. 69)
-  -- สิ่งที่พิสูจน์ได้จริงในทรานแซกชันเดียวคือ "updated_at หลังเรียก = now() ทุกรอบ"
-  -- เท่านั้น — ส่วน "ขยับจากค่าเดิมจริงไหม" ต้องทดสอบข้ามทรานแซกชัน ซึ่งขัดกับกฎ
-  -- do-block+rollback (traps #11) ⇒ ยอมรับว่าไม่ครอบ และเขียนไว้ตรงนี้ว่าไม่ครอบ
-  if v_loop_rounds >= 5 and v_all_match_tx_now then
-    v_log := v_log || format('T5 (updated_at หลังเรียก RPC = now() ของทรานแซกชันนี้ทุกรอบ, rounds=%s — ไม่ครอบ "ขยับจากค่าเดิม" ดูเหตุผลเหนือ if): PASS', v_loop_rounds) || E'\n';
+  -- baseline (v_ts_baseline) ถูกตั้งเป็นอดีต 30 วันตอน INSERT ข้างบน ⇒ ที่นี่
+  -- พิสูจน์ได้จริงทั้งสองอย่างในทรานแซกชันเดียว: (1) ค่าหลังเรียก = now() ของ
+  -- ทรานแซกชันนี้ทุกรอบ (2) ค่านั้นต่างจาก baseline จริง ไม่ใช่ผ่านเพราะ fixture
+  -- เกิดมาพร้อม now() อยู่แล้ว
+  if v_loop_rounds >= 5 and v_all_match_tx_now and v_tx_now is distinct from v_ts_baseline then
+    v_log := v_log || format('T5 (updated_at หลังเรียก RPC = now() ของทรานแซกชันนี้ทุกรอบ และขยับจาก baseline จริง, rounds=%s): PASS', v_loop_rounds) || E'\n';
   else
     v_log := v_log || format('T5: FAIL — rounds=%s (ต้อง >= 5) all_match_tx_now=%s tx_now=%s baseline=%s', v_loop_rounds, v_all_match_tx_now, v_tx_now, v_ts_baseline) || E'\n';
   end if;
