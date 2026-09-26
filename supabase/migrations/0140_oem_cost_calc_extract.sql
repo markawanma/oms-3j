@@ -894,6 +894,15 @@ begin
   if has_function_privilege('anon', 'analytics.oem_price_calc(uuid,jsonb)', 'execute') then
     raise exception 'GOLDEN REPLAY FAILED: oem_price_calc execute privilege leaked to anon';
   end if;
+  -- ⚠️ SUPERSEDED BY 0147 (22 ก.ย. 69) — ด่านนี้ล้าสมัยแล้ว ห้ามลอกไปใช้กับฟังก์ชันใหม่
+  -- 0147 ถอน execute ของ authenticated บน oem_price_calc ออก (พร้อมอีก 6 ตัว) เพราะ grant
+  -- นั้นไม่ใช่ defense-in-depth อย่างที่หัวไฟล์นี้บรรทัด 66-68 เข้าใจ — anon/authenticated
+  -- ไม่มี USAGE บนสคีมา analytics มาตั้งแต่ 0123 จึงเรียกไม่ได้อยู่แล้ว มันเพิ่มแต่พื้นผิว
+  -- 🔴 ผลตามมา: ถ้า replay ไฟล์นี้ซ้ำ "หลัง" 0147 ด่านข้างล่างจะ raise ทันทีและชี้ผิดทาง
+  --    (ข้อความบอกว่า "lost its grant after replace" ทั้งที่เป็นการถอนโดยตั้งใจ)
+  --    ตอน rebuild DB จากศูนย์ ให้ข้ามด่านนี้ แล้วยืนยันปลายทางด้วย
+  --    node scripts/run-sql.mjs scripts/check-analytics-grants.sql แทน
+  --    (ดู 3j-migration-traps ข้อ 18 · ไฟล์นี้ apply ไปแล้ว จึงแก้ได้แค่คอมเมนต์ ไม่แตะตรรกะ)
   if not has_function_privilege('authenticated', 'analytics.oem_price_calc(uuid,jsonb)', 'execute') then
     raise exception 'GOLDEN REPLAY FAILED: oem_price_calc lost its authenticated execute grant after replace (trap #2)';
   end if;
