@@ -26,7 +26,12 @@ export function mapContentPostRpcError(err: unknown, fallback: string): string {
       return "ลิงก์ยาวเกินไป (เกิน 500 ตัวอักษร)";
     }
     if (msg.includes("p_external_id") && msg.includes("ยาวเกิน")) {
-      return "ลิงก์นี้ยาวเกินไป ลองวางลิงก์แบบสั้น (share link) แทน";
+      // 26 ก.ย. 69: used to suggest "ลองวางลิงก์แบบสั้นแทน" — now WRONG advice.
+      // lib/marketing/tiktok-link.ts canonicalizes every TikTok link (short
+      // or long) down to the same fixed https://www.tiktok.com/@user/video/id
+      // shape before this RPC ever sees p_external_id, so a short link can't
+      // make this error go away — the actual fix is a bad/garbled URL.
+      return "ลิงก์นี้มีความยาวผิดปกติ (เกิน 500 ตัวอักษร) — ตรวจว่าไม่ได้วางลิงก์ผิดหรือมีอักขระซ้ำหลุดเข้ามา";
     }
     if (msg.includes("มีสถานะ") && msg.includes("อยู่แล้ว")) {
       return "ลิงก์นี้เคยถูกลบ/ตั้งเป็นส่วนตัวไว้ก่อนหน้านี้ — ต้องเปิดกลับมาใช้ก่อนถึงจะบันทึกทับได้";

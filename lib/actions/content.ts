@@ -27,6 +27,7 @@ import {
   type ContentTypeRow,
 } from "@/lib/marketing/content-types";
 import { mapContentMetricRpcError, mapContentPostRpcError } from "@/lib/marketing/content-errors";
+import { canonicalizeTikTokLink } from "@/lib/marketing/tiktok-link";
 
 const SCHEMA = "analytics";
 
@@ -192,9 +193,13 @@ export async function getContentPostsByArtifactIds(
 
 export interface UpsertContentPostInput {
   platform: ContentPlatform;
-  /** Full URL as pasted — stored verbatim in post_url. The dedup key
-   * (external_id) is derived from this via deriveExternalId(), not typed
-   * separately. */
+  /** URL as pasted by the owner. For TikTok links this is NOT stored
+   * verbatim — canonicalizeTikTokLink() (lib/marketing/tiktok-link.ts)
+   * normalizes it first (strips tracking query params, resolves short
+   * links, forces host to www.tiktok.com) and the canonical form is what
+   * actually gets written to post_url and fed into deriveExternalId() for
+   * the dedup key. Other platforms (Facebook/Instagram/LINE OA) pass
+   * through untouched and ARE stored verbatim. */
   postUrl: string;
   /** ISO datetime string. */
   postedAt: string;
@@ -221,7 +226,20 @@ export async function upsertContentPost(input: UpsertContentPostInput): Promise<
   }
   if (!input.postedAt) return { ok: false, error: "กรุณาระบุวันที่โพสต์" };
 
-  const externalId = deriveExternalId(postUrl);
+  // TikTok links arrive in several equivalent shapes (mobile share-sheet
+  // short link, full link with re-copy tracking params, different
+  // subdomains) — canonicalize to ONE shape before deriving the dedup key,
+  // or the same clip pasted two different ways becomes two content_post
+  // rows with the numbers split between them (real incident, 26 ก.ย. 69 —
+  // see lib/marketing/tiktok-link.ts's header). Non-TikTok links pass
+  // through unchanged with zero network calls.
+  const canonicalized = await canonicalizeTikTokLink(postUrl);
+  if (!canonicalized.ok) {
+    return { ok: false, error: canonicalized.error };
+  }
+  const canonicalPostUrl = canonicalized.url;
+
+  const externalId = deriveExternalId(canonicalPostUrl);
 
   try {
     const shopId = getDevShopId();
@@ -231,7 +249,7 @@ export async function upsertContentPost(input: UpsertContentPostInput): Promise<
       p_shop_id: shopId,
       p_platform: input.platform,
       p_external_id: externalId,
-      p_post_url: postUrl,
+      p_post_url: canonicalPostUrl,
       p_posted_at: input.postedAt,
       p_content_type_code: input.contentTypeCode || null,
       p_artifact_id: input.artifactId || null,
