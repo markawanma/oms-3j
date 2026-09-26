@@ -44,6 +44,16 @@ import { ContentTypeChip } from "@/components/domain/marketing/ContentTypeChip";
 
 export type ConfirmedMetrics = Partial<Record<MetricField, number>>;
 
+/** ทำไมช่องนี้ถึงถูกตีตก — มี 2 เหตุผลที่คนละเรื่องกัน และต้องพูดคนละอย่าง
+ * บนจอ ไม่งั้นข้อความใต้ช่องจะโกหก (เคส cleared ช่องว่างเปล่าอยู่แล้ว
+ * การบอกว่า "ตัวเลขยาวเกินไป" คือคนละเรื่องกับสิ่งที่เกิดขึ้นจริง) */
+type InvalidReason = "overflow" | "cleared";
+
+const INVALID_HINT: Record<InvalidReason, string> = {
+  overflow: "ตัวเลขยาวเกินไป",
+  cleared: "บันทึกไปแล้ว ลบให้ว่างไม่ได้",
+};
+
 export function ContentMetricCard({
   row,
   shopId,
@@ -83,7 +93,13 @@ export function ContentMetricCard({
   // as an untouched field, so a fat-fingered 20-digit view count vanished
   // with no error. Tracked here so the offending input(s) get a visible
   // marker, cleared as soon as the owner edits that field again.
-  const [invalidFields, setInvalidFields] = useState<Set<MetricField>>(new Set());
+  /** 🔴 เก็บ "เหตุผล" ไม่ใช่แค่ "ผิด" — มี 2 เหตุผลที่คนละเรื่องกันสิ้นเชิง
+   * (ตัวเลขยาวเกิน vs ลบช่องที่บันทึกไปแล้ว) ถ้าเก็บเป็น Set เฉยๆ ข้อความ
+   * ใต้ช่องจะ hard-code ได้ข้อความเดียว แล้วเคส N1 เจ้าของจะเห็น
+   * "ช่องว่างเปล่า + กรอบแดง + เขียนว่าตัวเลขยาวเกินไป" ซึ่งเป็นข้อความที่
+   * ผิด — และ aria-describedby ก็จะบอกเหตุผลผิดให้ screen reader ด้วย
+   * (toast พูดถูกแต่หายไปใน 3 วินาที ส่วน marker ที่ค้างบนจอพูดผิด) */
+  const [invalidFields, setInvalidFields] = useState<Map<MetricField, InvalidReason>>(new Map());
   /** 🔴 N1 (26 ก.ย. 69): fields this post ALREADY has stored in the DB,
    * captured when "แก้เลขที่เพิ่งกรอก" reopens a confirmed card.
    *
@@ -109,7 +125,7 @@ export function ContentMetricCard({
     setField(field, raw.replace(/[^\d]/g, ""));
     if (invalidFields.has(field)) {
       setInvalidFields((prev) => {
-        const next = new Set(prev);
+        const next = new Map(prev);
         next.delete(field);
         return next;
       });
@@ -120,14 +136,14 @@ export function ContentMetricCard({
 
   function goToReview() {
     const values: ConfirmedMetrics = {};
-    const invalid = new Set<MetricField>();
+    const invalid = new Map<MetricField, InvalidReason>();
     for (const f of METRIC_FIELD_ORDER) {
       const parsed = parseMetricFieldValue(draft[f]);
       if (parsed === null) {
         // Overflow (>Number.MAX_SAFE_INTEGER) — content-types.ts's own
         // comment says "caller should treat null as invalid, block submit".
         // Block here instead of silently treating it like an empty field.
-        invalid.add(f);
+        invalid.set(f, "overflow");
       } else if (typeof parsed === "number") {
         values[f] = parsed;
       }
@@ -135,7 +151,7 @@ export function ContentMetricCard({
     if (invalid.size > 0) {
       setInvalidFields(invalid);
       toast.push(
-        `ตัวเลขช่อง ${Array.from(invalid)
+        `ตัวเลขช่อง ${Array.from(invalid.keys())
           .map((f) => METRIC_FIELD_LABEL[f])
           .join(", ")} ยาวเกินไป ตรวจดูอีกครั้งก่อนบันทึก`,
         "error"
@@ -149,7 +165,7 @@ export function ContentMetricCard({
     // fine and is the whole point of this path.)
     const cleared = Array.from(savedFields).filter((f) => values[f] === undefined);
     if (cleared.length > 0) {
-      setInvalidFields(new Set(cleared));
+      setInvalidFields(new Map(cleared.map((f) => [f, "cleared" as const])));
       toast.push(
         `ช่อง ${cleared
           .map((f) => METRIC_FIELD_LABEL[f])
@@ -159,7 +175,7 @@ export function ContentMetricCard({
       return;
     }
 
-    setInvalidFields(new Set());
+    setInvalidFields(new Map());
     setReviewValues(values);
     setMode("reviewing");
   }
@@ -271,7 +287,8 @@ export function ContentMetricCard({
         <>
           <div className="space-y-2">
             {METRIC_FIELD_ORDER.map((field) => {
-              const isInvalid = invalidFields.has(field);
+              const invalidReason = invalidFields.get(field);
+              const isInvalid = invalidReason !== undefined;
               return (
                 <div key={field}>
                   <div className="flex items-center gap-2">
@@ -297,9 +314,9 @@ export function ContentMetricCard({
                     />
                     <span className="w-8 shrink-0 text-xs text-zinc-400">คน</span>
                   </div>
-                  {isInvalid && (
+                  {invalidReason && (
                     <p id={`metric-${row.postId}-${field}-error`} className="ml-[6.5rem] mt-0.5 text-[0.7rem] text-red-600">
-                      ตัวเลขยาวเกินไป
+                      {INVALID_HINT[invalidReason]}
                     </p>
                   )}
                 </div>
@@ -317,12 +334,11 @@ export function ContentMetricCard({
       ) : (
         <>
           <div className="space-y-1.5 rounded-md border border-zinc-100 bg-zinc-50/60 p-2.5">
-            {/* Was "แก้ทีหลังไม่ได้" — no longer strictly true (H1 fix adds
-                a same-day edit path) and this exact screen is also what
-                "แก้เลขที่เพิ่งกรอก" reopens into, so claiming "can't edit
-                later" right there would contradict the button the owner
-                just tapped. "ข้ามวันแล้วแก้ไม่ได้" states the real, narrower
-                limit without overclaiming either way. */}
+            {/* เคยเขียนว่า "แก้ทีหลังไม่ได้" (ไม่จริง — H1 เปิดทางแก้แล้ว)
+                แล้วเปลี่ยนเป็น "ข้ามวันแล้วแก้ไม่ได้" ซึ่ง**ก็ยังไม่จริง**
+                เพราะ 0149 เตะโพสต์ออกจากคิวทันทีที่มีตัวเลขในหน้าต่างอายุ
+                เดียวกัน ⇒ รีเฟรชก็จบแล้ว ไม่ต้องรอข้ามวัน
+                ฉบับปัจจุบันบอกขอบเขตจริง: แก้ได้แค่ก่อนรีเฟรชหน้านี้ */}
             {/* H1 (26 ก.ย. 69): เคยเขียนว่า "ข้ามวันแล้วแก้ไม่ได้" ซึ่งอ่านแล้ว
                 แปลว่าวันนี้ยังแก้ได้เรื่อยๆ — ไม่จริง พอมีตัวเลขจริงในหน้าต่าง
                 อายุเดียวกัน โพสต์หลุดจาก v_content_entry_queue ทันที (0149)
