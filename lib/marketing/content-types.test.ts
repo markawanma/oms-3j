@@ -87,13 +87,24 @@ describe("parseMetricFieldValue — edge cases the UI's onChange filter is the o
     expect(parseMetricFieldValue("999999999999999999999999999999")).toBeNull();
   });
 
-  it("⚠️ KNOWN GAP: an invalid/overflow field is indistinguishable from an untouched one to the caller " +
-    "(both parseMetricFieldValue calls that matter return non-number — the UI's goToReview() only checks " +
-    "typeof parsed === 'number' and silently drops the field with no error shown to the owner, see " +
-    "ContentMetricCard.tsx goToReview()). Documenting the actual return shape here so this doesn't regress " +
-    "further, not asserting it's the desired behavior.", () => {
-    expect(parseMetricFieldValue("999999999999999999999999999999")).toBe(parseMetricFieldValue("-5"));
-    expect(parseMetricFieldValue("999999999999999999999999999999")).not.toBe(parseMetricFieldValue(""));
+  // ✅ ปิดแล้ว 26 ก.ย. 69 — เคยเป็น "⚠️ KNOWN GAP" ที่ระบุว่า goToReview()
+  // เช็คแค่ `typeof parsed === "number"` แล้วทิ้งค่าที่ overflow เงียบๆ
+  // เหมือนช่องที่ไม่ได้กรอก ตอนนี้ caller แยก null (ไม่ถูกต้อง ⇒ บล็อก +
+  // บอกชื่อช่อง) ออกจาก undefined (ไม่ได้กรอก ⇒ ข้ามได้) แล้ว
+  //
+  // 🔴 สัญญาที่เทสต์นี้ล็อกไว้ให้ caller: ค่าที่ผิดต้องคืน **null** ส่วนช่อง
+  // ที่ไม่ได้กรอกต้องคืน **undefined** — ทั้งสองอย่างไม่ใช่ number เหมือนกัน
+  // ถ้าวันหนึ่งมีใครรวมสองกรณีนี้เป็นค่าเดียว caller จะแยกไม่ออกอีก แล้ว
+  // บั๊กเดิมจะกลับมาโดยไม่มีอะไรจับ
+  it("แยก 'ค่าผิด' (null) ออกจาก 'ไม่ได้กรอก' (undefined) ได้ — caller ต้องบล็อกเฉพาะ null", () => {
+    // ค่าผิดทุกแบบ -> null (ไม่ใช่ undefined)
+    expect(parseMetricFieldValue("999999999999999999999999999999")).toBeNull();
+    expect(parseMetricFieldValue("-5")).toBeNull();
+    // ไม่ได้กรอก -> undefined (ไม่ใช่ null)
+    expect(parseMetricFieldValue("")).toBeUndefined();
+    expect(parseMetricFieldValue(undefined)).toBeUndefined();
+    // และสองกรณีนี้ต้องไม่เท่ากัน ไม่งั้น caller แยกไม่ออก
+    expect(parseMetricFieldValue("-5")).not.toBe(parseMetricFieldValue(""));
   });
 });
 

@@ -230,12 +230,34 @@ export function ContentPostLinkForm({
               onChange={(e) => setEditTypeValue(e.target.value)}
               className="min-h-9 rounded-md border border-zinc-300 bg-white px-2 text-xs focus:border-primary-500 focus:outline-none"
             >
+              {/* 🔴 N2 fix (26 ก.ย. 69): a `disabled` placeholder, NOT "no
+                  empty option at all". Removing it outright (the first H3
+                  attempt) dead-ended every post that has no type yet:
+                  editTypeValue starts at "" (line ~206), nothing matched,
+                  so React fell back to rendering option[0] — "พาเข้าไลฟ์",
+                  the type this shop uses most — as the visible selection
+                  while state stayed "". Picking the option already shown
+                  fires no `change`, so the disabled "บันทึก" never woke up
+                  and there was no way out except selecting some other type
+                  and switching back. The comment there even asserted "the
+                  select shows no option highlighted, which is fine" — that
+                  assertion was the bug.
+                  `disabled` keeps H3 closed (can't select back into "" ⇒
+                  can't send null ⇒ can't hit 0148's null-preserving no-op)
+                  while value="" still MATCHES this option, so an untyped
+                  post shows this placeholder instead of a wrong type. */}
+              <option value="" disabled>
+                — เลือกประเภท —
+              </option>
               {contentTypes.map((ct) => (
                 <option key={ct.code} value={ct.code}>
                   {ct.labelTh}
                 </option>
               ))}
             </select>
+            {!editTypeValue && (
+              <span className="text-[0.7rem] text-zinc-500">เลือกประเภทก่อนจึงจะกดบันทึกได้</span>
+            )}
             <Button size="sm" loading={editPending} disabled={!editTypeValue} onClick={handleSaveType}>
               บันทึก
             </Button>

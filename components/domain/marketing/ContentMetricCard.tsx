@@ -84,6 +84,24 @@ export function ContentMetricCard({
   // with no error. Tracked here so the offending input(s) get a visible
   // marker, cleared as soon as the owner edits that field again.
   const [invalidFields, setInvalidFields] = useState<Set<MetricField>>(new Set());
+  /** 🔴 N1 (26 ก.ย. 69): fields this post ALREADY has stored in the DB,
+   * captured when "แก้เลขที่เพิ่งกรอก" reopens a confirmed card.
+   *
+   * content_post_metric_upsert (0148 §H1) merges null-preserving —
+   * `coalesce(p_like, existing.like_count)` — and upsertContentMetric sends
+   * `input.like ?? null` for an untouched field. That combination means a
+   * field the owner CLEARS on a re-edit is sent as null and the old number
+   * stays in the DB, while the review screen and the collapsed summary both
+   * show it as blank. The screen would say "ไม่ได้กรอก" and the measurement
+   * layer would still hold the typo — with a success toast on top. That is
+   * the same class of silent-wrong-number bug the edit button exists to
+   * fix, so the button must not be able to cause it.
+   *
+   * We can't send 0 instead (0 ≠ blank is a rule of this whole system), and
+   * clearing for real needs an RPC that distinguishes "not sent" from
+   * "clear this" — out of scope here. So: overwrite is allowed, clearing is
+   * refused, and the UI says so in words. */
+  const [savedFields, setSavedFields] = useState<Set<MetricField>>(new Set());
 
   const contentType = row.contentTypeCode ? contentTypes.find((ct) => ct.code === row.contentTypeCode) : undefined;
 
@@ -124,6 +142,23 @@ export function ContentMetricCard({
       );
       return;
     }
+    // 🔴 N1: a field already stored in the DB cannot be cleared from here —
+    // the RPC merges null-preserving, so sending blank leaves the old
+    // number in place while the screen shows it gone. Refuse loudly
+    // instead of confirming a lie. (Overwriting with a different number is
+    // fine and is the whole point of this path.)
+    const cleared = Array.from(savedFields).filter((f) => values[f] === undefined);
+    if (cleared.length > 0) {
+      setInvalidFields(new Set(cleared));
+      toast.push(
+        `ช่อง ${cleared
+          .map((f) => METRIC_FIELD_LABEL[f])
+          .join(", ")} บันทึกไปแล้ว — ลบให้ว่างไม่ได้ (ค่าเดิมจะยังอยู่) ใส่ตัวเลขที่ถูกต้องทับแทน`,
+        "error"
+      );
+      return;
+    }
+
     setInvalidFields(new Set());
     setReviewValues(values);
     setMode("reviewing");
@@ -134,10 +169,15 @@ export function ContentMetricCard({
     // Pre-fill both the review screen (reviewValues) and the underlying
     // draft (so tapping "แก้ไข" afterward shows the old numbers instead of
     // blank inputs — clearDraft() already wiped localStorage on confirm).
+    const saved = new Set<MetricField>();
     for (const f of METRIC_FIELD_ORDER) {
       const v = confirmed[f];
-      if (typeof v === "number") setField(f, String(v));
+      if (typeof v === "number") {
+        setField(f, String(v));
+        saved.add(f); // N1: already in the DB — can be overwritten, not cleared
+      }
     }
+    setSavedFields(saved);
     setReviewValues(confirmed);
     setMode("reviewing");
     onEditRequested(row.postId);
@@ -199,7 +239,9 @@ export function ContentMetricCard({
             path only works before the next page refresh. Once that happens
             (or the day turns over) this post is gone from the queue for
             good and no screen can reach it again. */}
-        <p className="pl-6 text-[0.7rem] text-green-700/70">แก้ได้เฉพาะตอนนี้ก่อนออกจากหน้านี้ — รีเฟรชหรือข้ามวันแล้วแก้ไม่ได้อีก</p>
+        <p className="pl-6 text-[0.7rem] text-green-700/70">
+          แก้ได้เฉพาะตอนนี้ก่อนออกจากหน้านี้ — ทับค่าเดิมได้ แต่ลบช่องให้ว่างไม่ได้
+        </p>
       </div>
     );
   }
@@ -281,7 +323,11 @@ export function ContentMetricCard({
                 later" right there would contradict the button the owner
                 just tapped. "ข้ามวันแล้วแก้ไม่ได้" states the real, narrower
                 limit without overclaiming either way. */}
-            <p className="text-xs font-semibold text-zinc-600">ทวนก่อนบันทึก — ข้ามวันแล้วแก้ไม่ได้</p>
+            {/* H1 (26 ก.ย. 69): เคยเขียนว่า "ข้ามวันแล้วแก้ไม่ได้" ซึ่งอ่านแล้ว
+                แปลว่าวันนี้ยังแก้ได้เรื่อยๆ — ไม่จริง พอมีตัวเลขจริงในหน้าต่าง
+                อายุเดียวกัน โพสต์หลุดจาก v_content_entry_queue ทันที (0149)
+                ⇒ รีเฟรชก็จบแล้ว ไม่ต้องรอข้ามวัน */}
+            <p className="text-xs font-semibold text-zinc-600">ทวนก่อนบันทึก — กดยืนยันแล้วแก้ได้แค่ก่อนรีเฟรชหน้านี้</p>
             {METRIC_FIELD_ORDER.map((field) => (
               <div key={field} className="flex items-center justify-between text-sm">
                 <span className="text-zinc-500">{METRIC_FIELD_LABEL[field]}</span>

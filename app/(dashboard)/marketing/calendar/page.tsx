@@ -98,7 +98,19 @@ export default async function MarketingCalendarPage({
     // small global reference table, design doc §1.5's "คนละ query กัน"
     // principle) — a failure here degrades to "no chips shown", never to a
     // broken calendar.
-    [tasksResult, contentTypesResult] = await Promise.all([getCalendarTasks(from, to), getContentTypes()]);
+    // M4 fix (26 ก.ย. 69): getContentTypes() calls requireOwnerAdmin() ->
+    // getEffectiveRole() OUTSIDE its own try/catch, so a session/cookie
+    // failure REJECTS instead of returning {ok:false} — which would take
+    // the whole calendar down, the exact opposite of what the comment
+    // above promises. Catch it here so the promise the comment describes
+    // is the one the code actually makes. Same shape as copilot/page.tsx.
+    [tasksResult, contentTypesResult] = await Promise.all([
+      getCalendarTasks(from, to),
+      getContentTypes().catch((err) => {
+        console.error("getContentTypes failed (non-blocking)", err);
+        return { ok: false as const, error: "โหลดประเภทเนื้อหาไม่สำเร็จ" };
+      }),
+    ]);
   } catch (err) {
     return (
       <div className="space-y-4">

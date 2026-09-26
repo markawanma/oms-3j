@@ -62,7 +62,17 @@ export default async function CalendarTaskDetailPage({ params }: { params: Promi
     // Independent of each other (design §1.5's "คนละ query กัน" principle)
     // — content_type is small global reference data, a failure there must
     // never take down the task detail page itself.
-    [result, contentTypesResult] = await Promise.all([getCalendarTask(stepId), getContentTypes()]);
+    // M4 fix (26 ก.ย. 69): same as calendar/page.tsx — getContentTypes()
+    // runs its role gate OUTSIDE its own try/catch, so it can reject, not
+    // just return {ok:false}. Without this the comment above is a promise
+    // the code doesn't keep.
+    [result, contentTypesResult] = await Promise.all([
+      getCalendarTask(stepId),
+      getContentTypes().catch((err) => {
+        console.error("getContentTypes failed (non-blocking)", err);
+        return { ok: false as const, error: "โหลดประเภทเนื้อหาไม่สำเร็จ" };
+      }),
+    ]);
   } catch (err) {
     return <ErrorState message={err instanceof Error ? err.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"} />;
   }
