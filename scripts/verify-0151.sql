@@ -32,6 +32,8 @@ declare
   v_sig_count        int;
   v_sig_args         text;
   v_defaults_count   int;
+  v_prosecdef        boolean;
+  v_search_path_pinned boolean;
 
   v_real_shop_id     uuid;
   v_other_shop_id    uuid;
@@ -78,17 +80,24 @@ begin
   perform set_config('request.jwt.claims', '{"role":"service_role"}', true);
 
   -- --------------------------------------------------------------------
-  -- T1 — signature เดียว ไม่เกิด overload + args ตรง + ไม่มี default เลย
+  -- T1 — signature เดียว ไม่เกิด overload + args ตรง + ไม่มี default เลย +
+  -- prosecdef=true (SECURITY DEFINER) + search_path ถูก pin (Low fix,
+  -- security รอบ 3, 27 ก.ย. 69) — เดิม T1 ไม่เช็คสองอย่างหลังนี้เลย
+  -- ⇒ create or replace ในอนาคตที่ลืม `set search_path` หรือลืม
+  -- `security definer` จะผ่าน T1 ไปได้สบายๆ โดยไม่มีใครจับ
   -- --------------------------------------------------------------------
-  select count(*), string_agg(pg_get_function_identity_arguments(oid), '; '), sum(pronargdefaults)
-  into v_sig_count, v_sig_args, v_defaults_count
+  select count(*), string_agg(pg_get_function_identity_arguments(oid), '; '), sum(pronargdefaults),
+         bool_and(prosecdef), bool_and(exists (select 1 from unnest(proconfig) c where c like 'search_path=%'))
+  into v_sig_count, v_sig_args, v_defaults_count, v_prosecdef, v_search_path_pinned
   from pg_proc
   where pronamespace = 'analytics'::regnamespace and proname = 'content_post_update_type';
 
-  if v_sig_count = 1 and v_sig_args = 'p_shop_id uuid, p_post_id uuid, p_content_type_code text' and v_defaults_count = 0 then
-    v_log := v_log || 'T1 (signature เดียว, args ตรง, ไม่มี default): PASS' || E'\n';
+  if v_sig_count = 1 and v_sig_args = 'p_shop_id uuid, p_post_id uuid, p_content_type_code text'
+     and v_defaults_count = 0 and v_prosecdef is true and v_search_path_pinned is true then
+    v_log := v_log || 'T1 (signature เดียว, args ตรง, ไม่มี default, prosecdef=true, search_path pinned): PASS' || E'\n';
   else
-    v_log := v_log || format('T1: FAIL — count=%s args=%s defaults=%s', v_sig_count, v_sig_args, v_defaults_count) || E'\n';
+    v_log := v_log || format('T1: FAIL — count=%s args=%s defaults=%s prosecdef=%s search_path_pinned=%s',
+      v_sig_count, v_sig_args, v_defaults_count, v_prosecdef, v_search_path_pinned) || E'\n';
   end if;
 
   -- --------------------------------------------------------------------
