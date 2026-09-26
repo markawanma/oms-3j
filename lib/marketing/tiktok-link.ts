@@ -167,6 +167,29 @@ function resultFromClassification(c: PathClassification): CanonicalizeTikTokLink
   return { ok: false, error: TIKTOK_UNRECOGNIZED_LINK_ERROR };
 }
 
+/** Parses a URL that is ALREADY the canonical output of canonicalizeTikTokLink
+ * (i.e. https://www.tiktok.com/@user/video|photo/<id>, no query/hash) back
+ * into its parts — used by callers that need the raw video/photo id AFTER
+ * canonicalization (lib/marketing/tiktok-post-date.ts's id-derived posted-at,
+ * lib/marketing/tiktok-oembed.ts's request-URL safety gate). Returns null for
+ * anything that isn't a safe (https + real tiktok.com host) video/photo URL —
+ * this is a defensive re-check, not a trust boundary of its own: every real
+ * caller only ever feeds this the `.url` a prior canonicalizeTikTokLink() call
+ * already accepted, never raw user input directly. */
+export function parseCanonicalTikTokPostUrl(url: string): { kind: "video" | "photo"; user: string; id: string } | null {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return null;
+  }
+  if (parsed.protocol !== "https:") return null;
+  if (!isTikTokHost(parsed.hostname)) return null;
+  const c = classifyTikTokPath(parsed.pathname);
+  if (c.kind === "video" || c.kind === "photo") return { kind: c.kind, user: c.user, id: c.id };
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // Public entry point
 // ---------------------------------------------------------------------------
@@ -278,7 +301,7 @@ function isSafeHopUrl(u: URL): boolean {
  * unit tests. Kept as one shared constant, not per-request-randomized —
  * rotating UAs to look "less botlike" is an arms race this module has no
  * business entering; a stable, honest, current browser UA is the ask. */
-const SHORT_LINK_USER_AGENT =
+export const SHORT_LINK_USER_AGENT =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
 
 /** Resolves a TikTok short link to its real destination and canonicalizes

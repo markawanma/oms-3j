@@ -31,7 +31,9 @@ import {
   mapContentPostRpcError,
   mapContentPostUpdateTypeRpcError,
 } from "@/lib/marketing/content-errors";
-import { canonicalizeTikTokLink } from "@/lib/marketing/tiktok-link";
+import { canonicalizeTikTokLink, parseCanonicalTikTokPostUrl } from "@/lib/marketing/tiktok-link";
+import { extractPostedAtFromTikTokVideoId } from "@/lib/marketing/tiktok-post-date";
+import { fetchTikTokOEmbed } from "@/lib/marketing/tiktok-oembed";
 import { readErrorCode, readErrorMessage, redactUrls } from "@/lib/supabase/postgrest-error";
 
 const SCHEMA = "analytics";
@@ -88,20 +90,19 @@ export async function getContentTypes(): Promise<ActionResult<ContentTypeRow[]>>
 /** /marketing/content/entry's queue of (ข) — posts whose age today falls in
  * the T+1/T+3/T+7 read window and don't have real numbers yet.
  *
- * 🔴 M3 fix (26 ก.ย. 69, security ตรวจย้อนหลัง): this used to run a SECOND
- * query against content_post to backfill caption_snapshot (the view, 0149,
- * doesn't select that column) — but nothing in this app ever writes a
- * caption. ContentPostLinkForm (content_post's only writer) has no caption
- * input and never sends `caption` to upsertContentPost, so caption_snapshot
- * is null on every row, always — that second query was a guaranteed-empty
- * round trip on every single page load, worst on mobile/night, exactly the
- * situation this design otherwise goes out of its way to protect (see the
- * localStorage-draft file header). ContentMetricCard's `row.captionSnapshot
- * && <p>...` was consequently dead code — always false.
- *
- * Re-add the content_post lookup (join on post_id, select caption_snapshot)
- * the day a real caption-capture path exists; ContentMetricCard already
- * renders it whenever it's non-null, so no UI change needed then. */
+ * 🔴 27 ก.ย. 69 (เจ้าของกลับมติ — TikTok oEmbed ดึงแคปชั่นได้แล้ว): re-adds the
+ * content_post lookup that the M3 fix (26 ก.ย. 69) deliberately removed as
+ * dead code — at the time, NOTHING wrote a caption (ContentPostLinkForm had
+ * no caption input at all), so backfilling caption_snapshot here was a
+ * guaranteed-empty round trip on every single page load. That's no longer
+ * true: upsertContentPost() now passes the caption TikTok's oEmbed endpoint
+ * returned (inspectContentLink, see below) through to
+ * content_post_upsert's p_caption, so real rows can have a real caption from
+ * today onward. Batched as ONE extra query (`.in("id", postIds)`), not one
+ * query per row — same shape as getContentPostsByArtifactIds below, not an
+ * N+1. ContentMetricCard's `row.captionSnapshot && <p>...` needed zero UI
+ * changes for this — it was already written to render this the day it
+ * stopped being always-null. */
 export async function getContentEntryQueue(): Promise<ActionResult<ContentEntryQueueRow[]>> {
   const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
@@ -122,6 +123,23 @@ export async function getContentEntryQueue(): Promise<ActionResult<ContentEntryQ
 
     const rows = (data ?? []) as Record<string, unknown>[];
 
+    // Batched caption backfill — one query for the whole page, keyed by
+    // post_id, never one query per row.
+    const postIds = rows.map((r) => String(r.post_id));
+    const captionByPostId = new Map<string, string | null>();
+    if (postIds.length > 0) {
+      const { data: captionRows, error: captionError } = await supabase
+        .schema(SCHEMA)
+        .from("content_post")
+        .select("id, caption_snapshot")
+        .eq("shop_id", shopId)
+        .in("id", postIds);
+      if (captionError) throw captionError;
+      for (const cr of (captionRows ?? []) as Record<string, unknown>[]) {
+        captionByPostId.set(String(cr.id), (cr.caption_snapshot as string | null) ?? null);
+      }
+    }
+
     const mapped: ContentEntryQueueRow[] = rows.map((r) => ({
       postId: String(r.post_id),
       shopId: String(r.shop_id),
@@ -133,7 +151,7 @@ export async function getContentEntryQueue(): Promise<ActionResult<ContentEntryQ
       contentTypeCode: (r.content_type_code as string | null) ?? null,
       ageDaysToday: Number(r.age_days_today),
       readRound: Number(r.read_round) as 1 | 2 | 3,
-      captionSnapshot: null,
+      captionSnapshot: captionByPostId.get(String(r.post_id)) ?? null,
     }));
 
     return { ok: true, data: mapped };
@@ -190,6 +208,92 @@ export async function getContentPostsByArtifactIds(
     console.error("getContentPostsByArtifactIds failed", err);
     return { ok: false, error: "โหลดลิงก์โพสต์ที่ผูกไว้ไม่สำเร็จ ลองใหม่อีกครั้ง" };
   }
+}
+
+// ============================================================================
+// Inspect — UX pre-fill via canonicalize + TikTok oEmbed (NO DB write)
+// ============================================================================
+
+export interface InspectContentLinkResult {
+  /** Same value ContentPostLinkForm's submit will end up sending as
+   * postUrl — showing it back lets the owner confirm "ใช่คลิปนี้ไหม" before
+   * saving anything. Re-canonicalizing this exact string at submit time
+   * costs zero network calls (canonicalizeTikTokLink's own round-trip
+   * guarantee — see tiktok-link.test.ts's "round-trip" describe block). */
+  canonicalUrl: string;
+  /** ISO datetime string decoded straight from the TikTok video/photo id, or
+   * null when the link isn't a TikTok post at all, or when decoding produced
+   * an implausible date (before 2016-09-01 or after now — see
+   * lib/marketing/tiktok-post-date.ts). Always editable/overridable by the
+   * owner — never treat this as authoritative. */
+  postedAt: string | null;
+  /** From TikTok's oEmbed `title` field, truncated to 500 chars. Null when
+   * the link isn't TikTok, or the oEmbed call failed for any reason — a
+   * caption is a confirmation aid, never a save-blocking gate. */
+  caption: string | null;
+  /** From TikTok's oEmbed `author_name` field. Same null-on-failure rule as
+   * caption. */
+  authorName: string | null;
+}
+
+/** ContentPostLinkForm calls this on blur/paste of the URL field — it is
+ * PURELY a UX aid (§ brief: "inspectContentLink เป็นแค่ UX ไม่ใช่ด่าน").
+ * upsertContentPost() still re-runs canonicalizeTikTokLink() itself on
+ * submit and is the only function that ever writes to the DB; nothing this
+ * action returns is trusted blindly at write time.
+ *
+ * 🔴 Gated the same as every other action in this file (`requireOwnerAdmin`)
+ * even though it never writes anything — it makes an outbound network call
+ * (oEmbed) on the caller's behalf, which is exactly the kind of action the
+ * brief says must not be open to just anyone who can reach the endpoint. */
+export async function inspectContentLink(url: string): Promise<ActionResult<InspectContentLinkResult>> {
+  const gateErr = await requireOwnerAdmin();
+  if (gateErr) return gateErr;
+
+  const trimmed = url?.trim();
+  if (!trimmed) return { ok: false, error: "กรุณาวางลิงก์โพสต์ก่อน" };
+  if (!/^https?:\/\//i.test(trimmed)) {
+    return { ok: false, error: "ลิงก์ต้องขึ้นต้นด้วย http:// หรือ https://" };
+  }
+
+  const canonicalized = await canonicalizeTikTokLink(trimmed);
+  if (!canonicalized.ok) {
+    return { ok: false, error: canonicalized.error };
+  }
+  const canonicalUrl = canonicalized.url;
+
+  const parsed = parseCanonicalTikTokPostUrl(canonicalUrl);
+  if (!parsed) {
+    // Not a TikTok video/photo link (Facebook/Instagram/LINE OA, or a TikTok
+    // shape this module doesn't classify as a post) — nothing to derive or
+    // fetch. Not an error: the owner still gets to save the link, just
+    // without any pre-fill.
+    return { ok: true, data: { canonicalUrl, postedAt: null, caption: null, authorName: null } };
+  }
+
+  const postedAt = extractPostedAtFromTikTokVideoId(parsed.id);
+
+  // fetchTikTokOEmbed() already never throws (every failure path returns
+  // `{ ok: false }` internally) — the try/catch here is defense in depth
+  // only, so a future change to that module can never turn a flaky TikTok
+  // response into a 500 for this action. Per the brief: oEmbed failing must
+  // never block anything, so any failure here just means null fields, never
+  // an early return with an error.
+  let caption: string | null = null;
+  let authorName: string | null = null;
+  try {
+    const oembed = await fetchTikTokOEmbed(canonicalUrl);
+    if (oembed.ok) {
+      caption = oembed.caption;
+      authorName = oembed.authorName;
+    }
+  } catch (err) {
+    console.error("inspectContentLink: fetchTikTokOEmbed threw unexpectedly", {
+      errorName: err instanceof Error ? err.name : "unknown",
+    });
+  }
+
+  return { ok: true, data: { canonicalUrl, postedAt, caption, authorName } };
 }
 
 // ============================================================================

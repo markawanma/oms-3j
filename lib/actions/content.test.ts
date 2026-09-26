@@ -22,7 +22,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const getEffectiveRoleMock = vi.fn();
 const rpcMock = vi.fn();
 const schemaMock = vi.fn();
+const fromMock = vi.fn();
 const canonicalizeTikTokLinkMock = vi.fn();
+const parseCanonicalTikTokPostUrlMock = vi.fn();
+const extractPostedAtFromTikTokVideoIdMock = vi.fn();
+const fetchTikTokOEmbedMock = vi.fn();
 
 vi.mock("@/lib/auth/role", () => ({
   getEffectiveRole: () => getEffectiveRoleMock(),
@@ -39,7 +43,7 @@ vi.mock("@/lib/supabase/server", () => ({
     // จะจับได้ที่นี่
     schema: (name: string) => {
       schemaMock(name);
-      return { rpc: rpcMock };
+      return { rpc: rpcMock, from: fromMock };
     },
   }),
 }));
@@ -48,6 +52,15 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
 vi.mock("@/lib/marketing/tiktok-link", () => ({
   canonicalizeTikTokLink: (url: string) => canonicalizeTikTokLinkMock(url),
+  parseCanonicalTikTokPostUrl: (url: string) => parseCanonicalTikTokPostUrlMock(url),
+}));
+
+vi.mock("@/lib/marketing/tiktok-post-date", () => ({
+  extractPostedAtFromTikTokVideoId: (id: string) => extractPostedAtFromTikTokVideoIdMock(id),
+}));
+
+vi.mock("@/lib/marketing/tiktok-oembed", () => ({
+  fetchTikTokOEmbed: (url: string) => fetchTikTokOEmbedMock(url),
 }));
 
 // ลิงก์สั้นที่ทำให้เกิดบั๊กจริง (26 ก.ย. 69, ดูหัวไฟล์ tiktok-link.ts) — ถ้า
@@ -55,11 +68,32 @@ vi.mock("@/lib/marketing/tiktok-link", () => ({
 const RAW_SHORT_LINK = "https://vt.tiktok.com/ZSbYUGv9e";
 const CANONICAL_URL = "https://www.tiktok.com/@3jjewelry_test/video/7000000000000000001";
 
+/** Builder for the fake `.from("content_post").select(...).eq(...).in(...)`
+ * chain getContentEntryQueue's caption backfill uses — every method except
+ * the terminal one just returns `this` so the chain can be any length, and
+ * the final resolved value is what a real supabase-js query awaits to. */
+function makeSelectChain(result: { data: unknown; error: unknown }) {
+  const chain: Record<string, unknown> = {};
+  const self = () => chain;
+  chain.select = vi.fn(self);
+  chain.eq = vi.fn(self);
+  chain.in = vi.fn(() => Promise.resolve(result));
+  chain.order = vi.fn(() => Promise.resolve(result));
+  return chain;
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   getEffectiveRoleMock.mockResolvedValue("owner");
   rpcMock.mockResolvedValue({ data: "post-id-1", error: null });
   canonicalizeTikTokLinkMock.mockResolvedValue({ ok: true, url: CANONICAL_URL });
+  parseCanonicalTikTokPostUrlMock.mockReturnValue({
+    kind: "video",
+    user: "@3jjewelry_test",
+    id: "7000000000000000001",
+  });
+  extractPostedAtFromTikTokVideoIdMock.mockReturnValue("2026-09-24T14:22:42.000Z");
+  fetchTikTokOEmbedMock.mockResolvedValue({ ok: true, caption: "แคปชั่นจริง", authorName: "3jjewelry" });
 });
 
 afterEach(() => {
@@ -222,5 +256,205 @@ describe("updateContentPostType — แก้ด้วย primary key ล้ว�
     const { updateContentPostType } = await import("./content");
     const result = await updateContentPostType("post-1", "bogus");
     expect(result).toEqual({ ok: false, error: "ประเภทเนื้อหาที่เลือกไม่ถูกต้อง ลองเลือกใหม่" });
+  });
+});
+
+// ============================================================================
+// inspectContentLink — 27 ก.ย. 69 (เจ้าของกลับมติ) — UX pre-fill, NO DB write
+// ============================================================================
+
+describe("inspectContentLink — gate + input validation ก่อนแตะ network เลย", () => {
+  it("rejects staff ก่อน canonicalize/oEmbed ทั้งคู่", async () => {
+    getEffectiveRoleMock.mockResolvedValue("staff");
+    const { inspectContentLink } = await import("./content");
+    const result = await inspectContentLink("https://vt.tiktok.com/ZSbYUGv9e");
+    expect(result.ok).toBe(false);
+    expect(canonicalizeTikTokLinkMock).not.toHaveBeenCalled();
+    expect(fetchTikTokOEmbedMock).not.toHaveBeenCalled();
+  });
+
+  it("ลิงก์ว่าง ⇒ ปฏิเสธก่อน canonicalize", async () => {
+    const { inspectContentLink } = await import("./content");
+    const result = await inspectContentLink("   ");
+    expect(result.ok).toBe(false);
+    expect(canonicalizeTikTokLinkMock).not.toHaveBeenCalled();
+  });
+
+  it("ลิงก์ไม่ขึ้นต้นด้วย http(s):// ⇒ ปฏิเสธก่อน canonicalize", async () => {
+    const { inspectContentLink } = await import("./content");
+    const result = await inspectContentLink("ftp://example.com/x");
+    expect(result.ok).toBe(false);
+    expect(canonicalizeTikTokLinkMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("inspectContentLink — canonicalize ปฏิเสธ ⇒ ส่ง error ต่อ ไม่แตะ oEmbed/date เลย", () => {
+  it("ลิงก์ไลฟ์ (canonicalize ปฏิเสธ) ⇒ คืน error เดียวกัน ไม่เรียก oEmbed/parseCanonical", async () => {
+    canonicalizeTikTokLinkMock.mockResolvedValue({
+      ok: false,
+      error: "ลิงก์นี้เป็นลิงก์ไลฟ์ ไม่ใช่โพสต์คลิป",
+    });
+    const { inspectContentLink } = await import("./content");
+    const result = await inspectContentLink("https://vt.tiktok.com/ZSlive");
+    expect(result).toEqual({ ok: false, error: "ลิงก์นี้เป็นลิงก์ไลฟ์ ไม่ใช่โพสต์คลิป" });
+    expect(fetchTikTokOEmbedMock).not.toHaveBeenCalled();
+    expect(extractPostedAtFromTikTokVideoIdMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("inspectContentLink — ลิงก์ที่ canonicalize ผ่านแต่ไม่ใช่โพสต์ TikTok (เช่น Facebook)", () => {
+  it("canonicalUrl ผ่านมา แต่ parseCanonicalTikTokPostUrl คืน null ⇒ postedAt/caption/authorName เป็น null ทั้งหมด ไม่เรียก oEmbed/date", async () => {
+    const facebookUrl = "https://www.facebook.com/3jjewelry/posts/123";
+    canonicalizeTikTokLinkMock.mockResolvedValue({ ok: true, url: facebookUrl });
+    parseCanonicalTikTokPostUrlMock.mockReturnValue(null);
+
+    const { inspectContentLink } = await import("./content");
+    const result = await inspectContentLink(facebookUrl);
+
+    expect(result).toEqual({
+      ok: true,
+      data: { canonicalUrl: facebookUrl, postedAt: null, caption: null, authorName: null },
+    });
+    expect(fetchTikTokOEmbedMock).not.toHaveBeenCalled();
+    expect(extractPostedAtFromTikTokVideoIdMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("inspectContentLink — ลิงก์ TikTok ที่เป็นโพสต์จริง — happy path", () => {
+  it("คืน canonicalUrl + postedAt (จาก video id) + caption/authorName (จาก oEmbed)", async () => {
+    const { inspectContentLink } = await import("./content");
+    const result = await inspectContentLink("https://vt.tiktok.com/ZSbYUGv9e");
+
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        canonicalUrl: CANONICAL_URL,
+        postedAt: "2026-09-24T14:22:42.000Z",
+        caption: "แคปชั่นจริง",
+        authorName: "3jjewelry",
+      },
+    });
+    expect(extractPostedAtFromTikTokVideoIdMock).toHaveBeenCalledWith("7000000000000000001");
+    expect(fetchTikTokOEmbedMock).toHaveBeenCalledWith(CANONICAL_URL);
+  });
+
+  it("🔴 id ให้เวลาเพี้ยน (ก่อน 2016 / อนาคต) ⇒ postedAt เป็น null แต่ยังคืน caption/authorName ตามปกติ (คนละด่านกัน)", async () => {
+    extractPostedAtFromTikTokVideoIdMock.mockReturnValue(null);
+    const { inspectContentLink } = await import("./content");
+    const result = await inspectContentLink("https://vt.tiktok.com/ZSbYUGv9e");
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.postedAt).toBeNull();
+      expect(result.data.caption).toBe("แคปชั่นจริง");
+    }
+  });
+
+  it("🔴 oEmbed ล้มเหลว ⇒ caption/authorName เป็น null แต่ยังคืน ok:true พร้อม postedAt (ห้ามบล็อกการบันทึก)", async () => {
+    fetchTikTokOEmbedMock.mockResolvedValue({ ok: false });
+    const { inspectContentLink } = await import("./content");
+    const result = await inspectContentLink("https://vt.tiktok.com/ZSbYUGv9e");
+
+    expect(result).toEqual({
+      ok: true,
+      data: {
+        canonicalUrl: CANONICAL_URL,
+        postedAt: "2026-09-24T14:22:42.000Z",
+        caption: null,
+        authorName: null,
+      },
+    });
+  });
+
+  it("🔴 fetchTikTokOEmbed ถ้า throw ขึ้นมาเอง (ผิดสัญญาของมัน) ก็ยังไม่ throw ออกจาก action — caption/authorName เป็น null", async () => {
+    fetchTikTokOEmbedMock.mockRejectedValue(new Error("unexpected"));
+    const { inspectContentLink } = await import("./content");
+    const result = await inspectContentLink("https://vt.tiktok.com/ZSbYUGv9e");
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.caption).toBeNull();
+      expect(result.data.authorName).toBeNull();
+      expect(result.data.postedAt).toBe("2026-09-24T14:22:42.000Z");
+    }
+  });
+});
+
+// ============================================================================
+// getContentEntryQueue — caption backfill (27 ก.ย. 69) — ต้อง batch เดียว
+// ============================================================================
+
+describe("getContentEntryQueue — caption backfill ต้อง batch เดียว (ไม่ใช่ N+1) และ map ให้ตรงแถว", () => {
+  it("join caption_snapshot กลับมาตาม post_id ที่ถูกต้อง ไม่ใช่ค่า null ตายตัวอีกต่อไป", async () => {
+    const queueChain = makeSelectChain({
+      data: [
+        {
+          post_id: "post-1",
+          shop_id: "shop-1",
+          platform: "tiktok",
+          external_id: "ext-1",
+          post_url: "https://www.tiktok.com/@x/video/1",
+          posted_at: "2026-09-24T14:22:42.000Z",
+          posted_date_th: "2026-09-24",
+          content_type_code: null,
+          age_days_today: 1,
+          read_round: 1,
+        },
+        {
+          post_id: "post-2",
+          shop_id: "shop-1",
+          platform: "tiktok",
+          external_id: "ext-2",
+          post_url: "https://www.tiktok.com/@x/video/2",
+          posted_at: "2026-09-23T14:22:42.000Z",
+          posted_date_th: "2026-09-23",
+          content_type_code: null,
+          age_days_today: 3,
+          read_round: 2,
+        },
+      ],
+      error: null,
+    });
+    const captionChain = makeSelectChain({
+      data: [
+        { id: "post-1", caption_snapshot: "แคปชั่นโพสต์ 1" },
+        { id: "post-2", caption_snapshot: null },
+      ],
+      error: null,
+    });
+
+    fromMock.mockImplementation((table: string) => {
+      if (table === "v_content_entry_queue") return queueChain;
+      if (table === "content_post") return captionChain;
+      throw new Error(`unexpected table: ${table}`);
+    });
+
+    const { getContentEntryQueue } = await import("./content");
+    const result = await getContentEntryQueue();
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.find((r) => r.postId === "post-1")?.captionSnapshot).toBe("แคปชั่นโพสต์ 1");
+      expect(result.data.find((r) => r.postId === "post-2")?.captionSnapshot).toBeNull();
+    }
+    // batch เดียว — .in() ถูกเรียกครั้งเดียวสำหรับ caption query ทั้งหน้า ไม่ใช่ต่อแถว
+    expect((captionChain.in as ReturnType<typeof vi.fn>)).toHaveBeenCalledTimes(1);
+    expect((captionChain.in as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith("id", ["post-1", "post-2"]);
+  });
+
+  it("คิวว่าง ⇒ ไม่เรียก caption query เลย (ไม่มี id ให้ .in() ก็ไม่ต้องยิง)", async () => {
+    const queueChain = makeSelectChain({ data: [], error: null });
+    const captionChain = makeSelectChain({ data: [], error: null });
+    fromMock.mockImplementation((table: string) => {
+      if (table === "v_content_entry_queue") return queueChain;
+      if (table === "content_post") return captionChain;
+      throw new Error(`unexpected table: ${table}`);
+    });
+
+    const { getContentEntryQueue } = await import("./content");
+    const result = await getContentEntryQueue();
+
+    expect(result).toEqual({ ok: true, data: [] });
+    expect((captionChain.in as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
   });
 });
