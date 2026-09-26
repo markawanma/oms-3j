@@ -2,6 +2,7 @@ import { Lock, PackageSearch } from "lucide-react";
 import { getMetalPrices, getOemSetting, getRateStatus, getSellerProfile } from "@/lib/actions/oem";
 import { getEffectiveRole } from "@/lib/auth/role";
 import { EMPTY_SELLER_PROFILE } from "@/lib/oem/sellerProfile";
+import { effectiveDateBangkok } from "@/lib/tiktok/format";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { RatesPageClient } from "@/components/domain/oem/RatesPageClient";
@@ -57,6 +58,12 @@ export default async function OemRatesPage() {
     );
   }
 
+  // H1: today (Asia/Bangkok) for the stale-price warning label only — the
+  // lock button's actual confirm decision re-fetches this live server-side
+  // instead of trusting this render-time snapshot (see getSilverPriceFreshness,
+  // M2, in lib/actions/oem.ts).
+  const todayBkk = effectiveDateBangkok(new Date().toISOString());
+
   return (
     <RatesPageClient
       rows={statusResult.data.rows}
@@ -65,6 +72,7 @@ export default async function OemRatesPage() {
       metalPrices={metalResult.data}
       sellerProfile={sellerResult.ok ? sellerResult.data : EMPTY_SELLER_PROFILE}
       sellerLoadError={sellerResult.ok ? null : sellerResult.error}
+      todayBkk={todayBkk}
     />
   );
 }

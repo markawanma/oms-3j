@@ -29,9 +29,11 @@ export function SettingsForm({
   const router = useRouter();
   const toast = useToast();
 
-  // B1 fix (0127 code review): keep the value this form was PREFILLED with
-  // separately from what the owner types, so submit can tell "resubmitted
-  // unchanged" apart from "actually edited" — see spotChanged() below.
+  // B1 fix (0127 code review): keep the CURRENT server value separate from
+  // what the owner is typing, so submit can tell "resubmitted unchanged"
+  // apart from "actually edited" — see spotChanged() below. Derived from
+  // props on every render, so it is never stale on its own; it is `spot`
+  // (the input's own state) that needs the resync effect below.
   const initialSpot = setting.silverSpotThbPerGram;
   const [spot, setSpot] = useState(initialSpot != null ? String(initialSpot) : "");
 
@@ -131,8 +133,10 @@ export function SettingsForm({
         )}
         <p className="mt-1 text-xs text-zinc-500">
           ค่านี้ sync จากชีตราคาร้านอัตโนมัติ (÷15.244) — กรอกเองเฉพาะเมื่อชีตล่ม แล้วชีตจะไม่ทับค่าที่กรอกในวันนั้น
-          {" "}ถ้าต้องการล็อกราคาไว้ที่ค่าปัจจุบันโดยไม่แก้เลข ให้กรอกที่หน้า{" "}
-          <a href="/oem/rates" className="underline hover:text-zinc-700">
+          {/* S1: retyping the same number here does nothing — spotChanged()
+              skips it — so locking has to happen at the /oem/rates button. */}
+          {" "}ถ้าต้องการล็อกราคาไว้ที่ค่าปัจจุบันโดยไม่แก้เลข ให้กดปุ่ม &ldquo;ล็อกราคานี้ไว้วันนี้&rdquo; ที่หน้า{" "}
+          <a href="/oem/rates#oem-metal-price" className="underline hover:text-zinc-700">
             /oem/rates
           </a>
         </p>

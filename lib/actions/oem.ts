@@ -62,6 +62,10 @@ import { fetchAllRows } from "@/lib/supabase/query-limits";
 // RPC's 5–500 bound (analytics.oem_metal_price_set, 0127) — reuse the single
 // source of truth instead of a second copy of the magic numbers.
 import { silverSpotValidationError } from "@/lib/catalog/types";
+// M2: the one helper this app already uses for "Asia/Bangkok calendar day"
+// (lib/tiktok/format.ts) — getSilverPriceFreshness below must not become a
+// 4th copy of the same Intl.DateTimeFormat call.
+import { effectiveDateBangkok } from "@/lib/tiktok/format";
 
 const SCHEMA = "analytics";
 // T4-T6 routes (all `dynamic = "force-dynamic"`, so this is belt-and-braces
@@ -732,12 +736,27 @@ export async function saveMetalPrice(input: SaveMetalPriceInput): Promise<Action
     const shopId = getDevShopId();
     const supabase = getServiceClient();
 
+    // S2 — surface reduction, not a hole being plugged: p_source is
+    // hardcoded "manual" server-side. The one caller of saveMetalPrice
+    // (MetalPriceSection.tsx, an admin typing/clicking at /oem/rates) never
+    // sends anything else, and the real gate against a non-manual source
+    // overwriting a manual entry for the same day already lives in the DB
+    // (analytics.oem_metal_price_set, 0129 raises if source != 'manual'
+    // tries to clobber today's manual row). This just stops the client from
+    // being ABLE to ask for a different source in the first place.
+    //
+    // H2: p_as_of is omitted entirely (was `input.asOfDate || undefined`,
+    // and SaveMetalPriceInput no longer has that field — see lib/oem/types.ts).
+    // Unlike p_source, there was NO gate anywhere — app or DB — stopping a
+    // hand-built payload from overwriting a past day's price row or planting
+    // a future-dated one. Omitting p_as_of lets oem_metal_price_set resolve
+    // "today" itself (Asia/Bangkok), the only value this action should ever
+    // be able to cause.
     const { error } = await supabase.schema(SCHEMA).rpc("oem_metal_price_set", {
       p_shop_id: shopId,
       p_metal: input.metal,
       p_price: price,
-      p_as_of: input.asOfDate || undefined,
-      p_source: input.source || "manual",
+      p_source: "manual",
     });
     if (error) throw error;
 
@@ -746,6 +765,47 @@ export async function saveMetalPrice(input: SaveMetalPriceInput): Promise<Action
   } catch (err) {
     console.error("saveMetalPrice failed", err);
     return { ok: false, error: "บันทึกราคาโลหะไม่สำเร็จ ลองใหม่อีกครั้ง" };
+  }
+}
+
+/** M2: live "is silver still priced for today?" check — fetched fresh at
+ * the moment MetalPriceSection.tsx's lockCurrentPrice() is about to decide
+ * whether to confirm a stale-price carry-forward. The page's `todayBkk` prop
+ * (and `current`) are just a load-time snapshot and can go wrong on their
+ * own if a tab sits open across midnight with nothing forcing a refresh —
+ * H1's whole point was distrusting a client-computed date; this closes the
+ * same gap in the gate itself, not just in the page's initial render. */
+export async function getSilverPriceFreshness(): Promise<
+  ActionResult<{ todayBkk: string; silverAsOf: string | null }>
+> {
+  const gateErr = await requireOwnerAdmin();
+  if (gateErr) return gateErr;
+
+  try {
+    const shopId = getDevShopId();
+    const supabase = getServiceClient();
+
+    const { data, error } = await supabase
+      .schema(SCHEMA)
+      .from("oem_metal_price")
+      .select("as_of_date")
+      .eq("shop_id", shopId)
+      .eq("metal", "silver")
+      .order("as_of_date", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (error) throw error;
+
+    return {
+      ok: true,
+      data: {
+        todayBkk: effectiveDateBangkok(new Date().toISOString()),
+        silverAsOf: (data as { as_of_date: string } | null)?.as_of_date ?? null,
+      },
+    };
+  } catch (err) {
+    console.error("getSilverPriceFreshness failed", err);
+    return { ok: false, error: "ตรวจสอบวันที่ของราคาเงินไม่สำเร็จ ลองใหม่อีกครั้ง" };
   }
 }
 
