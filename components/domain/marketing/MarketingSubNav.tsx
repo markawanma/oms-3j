@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { CalendarDays, ClipboardList, Megaphone, Ticket, Users2, Wallet } from "lucide-react";
+import { CalendarDays, ClipboardList, History, Megaphone, Ticket, Users2, Wallet } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 // Keep in sync with the "การตลาด" group in
@@ -23,6 +23,10 @@ const TABS: { href: string; label: string; icon: LucideIcon }[] = [
   // all; §7 Q2 (bookmark vs. dashboard card as the real primary entry) is
   // still open with the owner.
   { href: "/marketing/content/entry", label: "อ่านยอด", icon: ClipboardList },
+  // Tech Lead brief 27 ก.ย. 69: "ดูย้อนหลัง" — คลิปที่เคยกรอกยอดไปแล้ว
+  // (ฟอร์มที่ /content/entry ปิดตัวเองทันทีที่กรอกเสร็จ ไม่มีที่ไหนย้อนดูได้
+  // มาก่อนหน้านี้เลย). ตารางอ่านอย่างเดียว ไม่มี filter/search รอบนี้.
+  { href: "/marketing/content/history", label: "ประวัติ", icon: History },
 ];
 
 /** Sticky sub-nav tab bar for the Marketing module — mirrors CrmSubNav

@@ -65,6 +65,39 @@ export const READ_ROUND_LABEL: Record<1 | 2 | 3, string> = {
   3: "T+7 · อายุ 5-9 วัน",
 };
 
+// ---- /marketing/content/history (ดูย้อนหลัง) ---------------------------
+
+/** analytics.content_post_metric's latest row for one post (max captured_on
+ * — not specifically the T+7 snapshot v_content_post_t7 uses; "latest" here
+ * means whichever read round was entered most recently, any round). Every
+ * count field is independently nullable, same "null ≠ 0" rule as the DB
+ * column itself (0148's own comment) — a field being null here means that
+ * specific number was never entered on the latest row, not zero. */
+export interface ContentPostHistoryMetric {
+  capturedOn: string;
+  view: number | null;
+  like: number | null;
+  comment: number | null;
+  save: number | null;
+  share: number | null;
+}
+
+/** One row of /marketing/content/history's read-only table — every saved
+ * analytics.content_post (status='active'), newest posted_at first, plus
+ * whatever content_post_metric row is most recent for it, if any exists at
+ * all. `latestMetric: null` means the post has never had a single metric
+ * entered (getContentPostHistory in lib/actions/content.ts). */
+export interface ContentPostHistoryRow {
+  postId: string;
+  platform: ContentPlatform;
+  postUrl: string;
+  postedAt: string;
+  postedDateTh: string;
+  contentTypeCode: string | null;
+  captionSnapshot: string | null;
+  latestMetric: ContentPostHistoryMetric | null;
+}
+
 /** One row of analytics.content_post — used for the "already linked" state
  * of ContentPostLinkForm when rendered against a specific artifact. */
 export interface ContentPostSummary {

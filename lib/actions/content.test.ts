@@ -491,3 +491,192 @@ describe("getContentEntryQueue — caption backfill ต้อง batch เดี
     expect((captionChain.in as ReturnType<typeof vi.fn>)).not.toHaveBeenCalled();
   });
 });
+
+// ============================================================================
+// getContentPostHistory — /marketing/content/history (27 ก.ย. 69, ระดับ S)
+// ============================================================================
+
+/** Builder for a fake query chain terminating at a specific method — same
+ * "every non-terminal method returns `this`" shape as makeSelectChain
+ * above, generalized because getContentPostHistory's two queries end on
+ * DIFFERENT methods (content_post ends on `.limit()`, content_post_metric
+ * ends on `.order()`), unlike every existing caller of makeSelectChain. */
+function makeChain(result: { data: unknown; error: unknown }, terminalMethod: string) {
+  const chain: Record<string, unknown> = {};
+  const self = () => chain;
+  for (const m of ["select", "eq", "order", "in", "limit"]) {
+    chain[m] = m === terminalMethod ? vi.fn(() => Promise.resolve(result)) : vi.fn(self);
+  }
+  return chain;
+}
+
+describe("getContentPostHistory — scope, latest-metric-per-post, ไม่ N+1", () => {
+  it("rejects staff ก่อนเรียก query ใดๆ เลย", async () => {
+    getEffectiveRoleMock.mockResolvedValue("staff");
+    const { getContentPostHistory } = await import("./content");
+    const result = await getContentPostHistory();
+    expect(result.ok).toBe(false);
+    expect(fromMock).not.toHaveBeenCalled();
+  });
+
+  it("scope ด้วย shop_id + status=active, เรียง posted_at ใหม่ไปเก่า, จำกัด HISTORY_LIMIT", async () => {
+    const postChain = makeChain({ data: [], error: null }, "limit");
+    fromMock.mockImplementation((table: string) => {
+      if (table === "content_post") return postChain;
+      throw new Error(`unexpected table: ${table}`);
+    });
+
+    const { getContentPostHistory } = await import("./content");
+    const result = await getContentPostHistory();
+
+    expect(result).toEqual({ ok: true, data: [] });
+    expect(schemaMock).toHaveBeenCalledWith("analytics");
+    expect(postChain.eq).toHaveBeenNthCalledWith(1, "shop_id", "shop-1");
+    expect(postChain.eq).toHaveBeenNthCalledWith(2, "status", "active");
+    expect(postChain.order).toHaveBeenCalledWith("posted_at", { ascending: false });
+    expect(postChain.limit).toHaveBeenCalledWith(50);
+    // ไม่มีโพสต์เลย ⇒ ไม่มี post_id ให้ .in() ก็ไม่ต้องยิง metric query เลย
+    expect(fromMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("เลือก metric ล่าสุดถูกต้องเมื่อมีหลายรอบ (captured_on มากสุดต่อโพสต์ ไม่ใช่แถวแรกที่เจอ)", async () => {
+    const postChain = makeChain(
+      {
+        data: [
+          {
+            id: "post-a",
+            platform: "tiktok",
+            post_url: "https://www.tiktok.com/@x/video/1",
+            posted_at: "2026-09-20T10:00:00Z",
+            posted_date_th: "2026-09-20",
+            content_type_code: null,
+            caption_snapshot: null,
+          },
+          {
+            id: "post-b",
+            platform: "tiktok",
+            post_url: "https://www.tiktok.com/@x/video/2",
+            posted_at: "2026-09-19T10:00:00Z",
+            posted_date_th: "2026-09-19",
+            content_type_code: null,
+            caption_snapshot: null,
+          },
+        ],
+        error: null,
+      },
+      "limit"
+    );
+    // จำลองผลลัพธ์ที่ .order("captured_on", desc) จริงจะคืนมา — เรียงจาก
+    // captured_on มากสุดไปน้อยสุด "ข้ามโพสต์" (สลับกันเหมือนของจริง ไม่ใช่
+    // กลุ่มตาม post_id) เพื่อพิสูจน์ว่าตัวคัดใช้ "แถวแรกที่เจอต่อ post_id"
+    // ถูกต้อง ไม่ใช่บังเอิญถูกเพราะ mock data มากลุ่มเรียงสวยอยู่แล้ว
+    const metricChain = makeChain(
+      {
+        data: [
+          { post_id: "post-a", captured_on: "2026-09-26", view_count: 500, like_count: null, comment_count: null, save_count: null, share_count: null },
+          { post_id: "post-b", captured_on: "2026-09-25", view_count: 50, like_count: 5, comment_count: null, save_count: null, share_count: null },
+          { post_id: "post-a", captured_on: "2026-09-20", view_count: 100, like_count: null, comment_count: null, save_count: null, share_count: null },
+        ],
+        error: null,
+      },
+      "order"
+    );
+    fromMock.mockImplementation((table: string) => {
+      if (table === "content_post") return postChain;
+      if (table === "content_post_metric") return metricChain;
+      throw new Error(`unexpected table: ${table}`);
+    });
+
+    const { getContentPostHistory } = await import("./content");
+    const result = await getContentPostHistory();
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const postA = result.data.find((r) => r.postId === "post-a");
+    const postB = result.data.find((r) => r.postId === "post-b");
+    // post-a ต้องได้แถว captured_on=2026-09-26 (view=500) ไม่ใช่แถวเก่ากว่า
+    // (captured_on=2026-09-20, view=100) แม้จะมาทีหลังใน array ก็ตาม
+    expect(postA?.latestMetric).toEqual({
+      capturedOn: "2026-09-26",
+      view: 500,
+      like: null,
+      comment: null,
+      save: null,
+      share: null,
+    });
+    expect(postB?.latestMetric).toEqual({
+      capturedOn: "2026-09-25",
+      view: 50,
+      like: 5,
+      comment: null,
+      save: null,
+      share: null,
+    });
+  });
+
+  it("โพสต์ที่ไม่เคยมี metric เลย ⇒ latestMetric เป็น null ไม่ error", async () => {
+    const postChain = makeChain(
+      {
+        data: [
+          {
+            id: "post-no-metric",
+            platform: "facebook",
+            post_url: "https://www.facebook.com/x/posts/1",
+            posted_at: "2026-09-20T10:00:00Z",
+            posted_date_th: "2026-09-20",
+            content_type_code: "craft",
+            caption_snapshot: "แคปชั่น",
+          },
+        ],
+        error: null,
+      },
+      "limit"
+    );
+    const metricChain = makeChain({ data: [], error: null }, "order");
+    fromMock.mockImplementation((table: string) => {
+      if (table === "content_post") return postChain;
+      if (table === "content_post_metric") return metricChain;
+      throw new Error(`unexpected table: ${table}`);
+    });
+
+    const { getContentPostHistory } = await import("./content");
+    const result = await getContentPostHistory();
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data).toHaveLength(1);
+    expect(result.data[0].latestMetric).toBeNull();
+    expect(result.data[0].captionSnapshot).toBe("แคปชั่น");
+  });
+
+  it("ไม่ใช่ N+1 — หลายโพสต์ก็ยิง metric query แค่ครั้งเดียว แบบ batch เดียวกับ postIds ทั้งหมด", async () => {
+    const postChain = makeChain(
+      {
+        data: [
+          { id: "p1", platform: "tiktok", post_url: "https://www.tiktok.com/@x/video/1", posted_at: "2026-09-20T10:00:00Z", posted_date_th: "2026-09-20", content_type_code: null, caption_snapshot: null },
+          { id: "p2", platform: "tiktok", post_url: "https://www.tiktok.com/@x/video/2", posted_at: "2026-09-19T10:00:00Z", posted_date_th: "2026-09-19", content_type_code: null, caption_snapshot: null },
+          { id: "p3", platform: "tiktok", post_url: "https://www.tiktok.com/@x/video/3", posted_at: "2026-09-18T10:00:00Z", posted_date_th: "2026-09-18", content_type_code: null, caption_snapshot: null },
+        ],
+        error: null,
+      },
+      "limit"
+    );
+    const metricChain = makeChain({ data: [], error: null }, "order");
+    fromMock.mockImplementation((table: string) => {
+      if (table === "content_post") return postChain;
+      if (table === "content_post_metric") return metricChain;
+      throw new Error(`unexpected table: ${table}`);
+    });
+
+    const { getContentPostHistory } = await import("./content");
+    const result = await getContentPostHistory();
+
+    expect(result.ok).toBe(true);
+    // รวมทั้งหน้า: 1 query สำหรับโพสต์ + 1 query สำหรับ metric ทั้งหมด = 2
+    // ครั้ง ไม่ว่าจะมีกี่โพสต์ก็ตาม (ถ้าเป็น N+1 จะเห็น fromMock ถูกเรียก
+    // เพิ่มตามจำนวนโพสต์)
+    expect(fromMock).toHaveBeenCalledTimes(2);
+    expect((metricChain.in as ReturnType<typeof vi.fn>)).toHaveBeenCalledTimes(1);
+    expect((metricChain.in as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith("post_id", ["p1", "p2", "p3"]);
+  });
+});
