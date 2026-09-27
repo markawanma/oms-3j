@@ -86,6 +86,17 @@ function isSafeCanonicalTikTokUrl(url: string): boolean {
  * and the request host are ever logged; the response body is never logged
  * verbatim (see lib/supabase/postgrest-error.ts's redactUrls for the same
  * discipline applied to a different data source).
+ *
+ * ⚠️ `redirect: "error"` below (M-2, security รอบ 4) has NOT been verified
+ * against real TikTok traffic — this codebase's own hard rule is "ห้ามยิง
+ * TikTok จริงในเทสต์", so nobody has confirmed oEmbed for a real, valid
+ * canonical URL actually responds 200 directly rather than 3xx-redirecting
+ * first. **Must be checked on a preview deploy after this change ships**:
+ * if every caption starts coming back null in practice (not in tests) where
+ * it used to work, that's the signal TikTok redirects here for real — the
+ * fix then is `redirect: "manual"` plus walking each hop through the exact
+ * same `isSafeHopUrl` check tiktok-link.ts's resolveShortLink() already
+ * has, never silently reverting to `"follow"`.
  */
 export async function fetchTikTokOEmbed(canonicalUrl: string): Promise<TikTokOEmbedResult> {
   if (!isSafeCanonicalTikTokUrl(canonicalUrl)) {
@@ -99,14 +110,26 @@ export async function fetchTikTokOEmbed(canonicalUrl: string): Promise<TikTokOEm
   try {
     response = await fetch(oembedUrl, {
       method: "GET",
+      // 🔴 M-2 fix (security รอบ 4, 27 ก.ย. 69): no `redirect` option here
+      // used to mean fetch's default, `"follow"` — silently chasing a 3xx
+      // to wherever it points, including off tiktok.com or down to http://.
+      // tiktok-link.ts's resolveShortLink() states the exact same principle
+      // this violated: "follow would send the request to the untrusted
+      // target before this module ever gets a chance to look at it". oEmbed
+      // is documented to respond with JSON directly for a valid URL — a 3xx
+      // here is itself abnormal, so treat it as a hard failure rather than
+      // a hop to follow at all.
+      redirect: "error",
       credentials: "omit",
       signal: AbortSignal.timeout(OEMBED_TIMEOUT_MS),
       headers: { "user-agent": SHORT_LINK_USER_AGENT, accept: "application/json" },
     });
   } catch (err) {
-    // Network error / timeout — never log `err` itself (some fetch
-    // implementations embed the request URL, including query string, in the
-    // error message — same risk tiktok-link.ts's resolveShortLink documents).
+    // `redirect: "error"` makes fetch REJECT (not return a response) on a
+    // 3xx — that lands here, same as any other network failure. Never log
+    // `err` itself either way: some fetch implementations embed the request
+    // URL, including query string, in the error message — same risk
+    // tiktok-link.ts's resolveShortLink documents.
     console.error("fetchTikTokOEmbed: fetch failed", {
       host: "www.tiktok.com",
       errorName: err instanceof Error ? err.name : "unknown",

@@ -67,13 +67,17 @@ describe("fetchTikTokOEmbed — happy path", () => {
     });
   });
 
-  it("requests exactly https://www.tiktok.com/oembed?url=<encoded canonical url>, credentials omitted", async () => {
+  it("requests exactly https://www.tiktok.com/oembed?url=<encoded canonical url>, credentials omitted, no auto-follow redirects", async () => {
     const fetchMock = stubFetch(jsonResponse({ title: "x", author_name: "y" }));
     await fetchTikTokOEmbed(CANONICAL_URL);
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe(`https://www.tiktok.com/oembed?url=${encodeURIComponent(CANONICAL_URL)}`);
     expect(init.credentials).toBe("omit");
     expect(init.signal).toBeInstanceOf(AbortSignal);
+    // 🔴 M-2 fix (security รอบ 4, 27 ก.ย. 69) — default fetch behavior
+    // ("follow") would chase a 3xx anywhere, off tiktok.com or down to
+    // http://, before this module ever gets a chance to look at it.
+    expect(init.redirect).toBe("error");
   });
 });
 
