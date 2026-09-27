@@ -22,6 +22,8 @@ import {
   buildContentPostUpsertParams,
   type ContentEntryQueueRow,
   type ContentPlatform,
+  type ContentPostHistoryMetric,
+  type ContentPostHistoryRow,
   type ContentPostStatus,
   type ContentPostSummary,
   type ContentTypeRow,
@@ -219,6 +221,90 @@ export async function getContentPostsByArtifactIds(
   } catch (err) {
     console.error("getContentPostsByArtifactIds failed", err);
     return { ok: false, error: "โหลดลิงก์โพสต์ที่ผูกไว้ไม่สำเร็จ ลองใหม่อีกครั้ง" };
+  }
+}
+
+// ============================================================================
+// Read — /marketing/content/history (ดูย้อนหลังคลิปที่เคยกรอกยอดแล้ว)
+// ============================================================================
+
+// 🔴 Tech Lead brief 27 ก.ย. 69: ระดับงาน S "ง่ายๆ" — ไม่ทำ pagination รอบนี้
+// เพราะไม่มีข้อมูลจริงเกิน 50 แถวให้ทดสอบ (ตารางยังใหม่) การใส่ pagination
+// ตอนนี้คือแก้ปัญหาที่ยังไม่เกิด — เพิ่มทีหลังทันทีที่เจ้าของกรอกเกิน 50 คลิป
+const HISTORY_LIMIT = 50;
+
+/** /marketing/content/history's read-only lookback table — every saved post
+ * (status='active'), newest posted_at first, enriched with whichever
+ * content_post_metric row is most recent for it (any read round, not
+ * specifically the T+7 window v_content_post_t7 uses — "ตัวเลขล่าสุดที่กรอก
+ * ไม่ว่าจะเป็นรอบไหน" per the brief). Two queries total (posts, then all
+ * their metric rows in one `.in()` call) — never one query per post; same
+ * batching shape as getContentEntryQueue's caption backfill above. */
+export async function getContentPostHistory(): Promise<ActionResult<ContentPostHistoryRow[]>> {
+  const gateErr = await requireOwnerAdmin();
+  if (gateErr) return gateErr;
+
+  try {
+    const shopId = getDevShopId();
+    const supabase = getServiceClient();
+
+    const { data, error } = await supabase
+      .schema(SCHEMA)
+      .from("content_post")
+      .select("id, platform, post_url, posted_at, posted_date_th, content_type_code, caption_snapshot")
+      .eq("shop_id", shopId)
+      .eq("status", "active")
+      .order("posted_at", { ascending: false })
+      .limit(HISTORY_LIMIT);
+    if (error) throw error;
+
+    const rows = (data ?? []) as Record<string, unknown>[];
+    const postIds = rows.map((r) => String(r.id));
+
+    // Batched — ONE query for every metric row across every post on this
+    // page, ordered newest captured_on first. Iterating that single
+    // globally-sorted list and keeping only the FIRST row seen per post_id
+    // is therefore exactly that post's latest row — no per-post query, no
+    // N+1, regardless of how many posts are on the page.
+    const latestMetricByPostId = new Map<string, ContentPostHistoryMetric>();
+    if (postIds.length > 0) {
+      const { data: metricRows, error: metricError } = await supabase
+        .schema(SCHEMA)
+        .from("content_post_metric")
+        .select("post_id, captured_on, view_count, like_count, comment_count, save_count, share_count")
+        .in("post_id", postIds)
+        .order("captured_on", { ascending: false });
+      if (metricError) throw metricError;
+
+      for (const m of (metricRows ?? []) as Record<string, unknown>[]) {
+        const postId = String(m.post_id);
+        if (latestMetricByPostId.has(postId)) continue; // already holding this post's newest row
+        latestMetricByPostId.set(postId, {
+          capturedOn: String(m.captured_on),
+          view: (m.view_count as number | null) ?? null,
+          like: (m.like_count as number | null) ?? null,
+          comment: (m.comment_count as number | null) ?? null,
+          save: (m.save_count as number | null) ?? null,
+          share: (m.share_count as number | null) ?? null,
+        });
+      }
+    }
+
+    const mapped: ContentPostHistoryRow[] = rows.map((r) => ({
+      postId: String(r.id),
+      platform: r.platform as ContentPlatform,
+      postUrl: String(r.post_url),
+      postedAt: String(r.posted_at),
+      postedDateTh: String(r.posted_date_th),
+      contentTypeCode: (r.content_type_code as string | null) ?? null,
+      captionSnapshot: (r.caption_snapshot as string | null) ?? null,
+      latestMetric: latestMetricByPostId.get(String(r.id)) ?? null,
+    }));
+
+    return { ok: true, data: mapped };
+  } catch (err) {
+    console.error("getContentPostHistory failed", err);
+    return { ok: false, error: "โหลดประวัติโพสต์ไม่สำเร็จ ลองใหม่อีกครั้ง" };
   }
 }
 
