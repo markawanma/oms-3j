@@ -10,7 +10,7 @@
 // contract for every shape a catch block might actually see.
 
 import { describe, expect, it } from "vitest";
-import { readErrorCode, readErrorMessage } from "./postgrest-error";
+import { readErrorCode, readErrorMessage, redactUrls } from "./postgrest-error";
 
 describe("readErrorMessage", () => {
   it("reads message off a plain PostgREST-shaped error object", () => {
@@ -71,5 +71,50 @@ describe("readErrorCode", () => {
 
   it("returns undefined for a bare string (not a container object)", () => {
     expect(readErrorCode("str")).toBeUndefined();
+  });
+});
+
+// Low fix (security รอบ 3, 27 ก.ย. 69): redactUrls had zero test coverage
+// despite living right next to readErrorMessage/readErrorCode in this same
+// file's test suite — this is the module content.ts's M1 fix relies on to
+// keep a caller-supplied URL (which can carry another platform's
+// tracking/session query params, see redactUrls's own header comment) out
+// of logs.
+describe("redactUrls", () => {
+  it("masks a single scheme://... URL down to a fixed placeholder", () => {
+    expect(redactUrls("content_post_upsert: ได้รับ: https://example.com/x?utm=1")).toBe(
+      "content_post_upsert: ได้รับ: <url>"
+    );
+  });
+
+  it("masks multiple URLs on the same line, each one independently", () => {
+    const input = "เดิม https://a.example.com/1?x=1 ใหม่ https://b.example.com/2?y=2 ไม่ตรงกัน";
+    expect(redactUrls(input)).toBe("เดิม <url> ใหม่ <url> ไม่ตรงกัน");
+  });
+
+  it("masks a non-http(s) scheme too (the regex isn't hardcoded to http/https)", () => {
+    expect(redactUrls("ftp://files.example.com/secret.csv")).toBe("<url>");
+  });
+
+  it("a bare domain with no scheme is NOT masked (real behavior — the regex requires '://')", () => {
+    // This documents an actual gap, not an aspiration: a raw message like
+    // "ได้รับ: example.com/x?utm=1" (no scheme) passes through untouched.
+    // Every post_url this app ever stores is validated to start with
+    // http(s):// before it reaches storage (upsertContentPost's own check),
+    // so a scheme-less URL shouldn't occur in practice for THIS caller —
+    // but the function itself provides no guarantee for arbitrary input.
+    expect(redactUrls("ได้รับ: example.com/x?utm=1")).toBe("ได้รับ: example.com/x?utm=1");
+  });
+
+  it("plain text with a colon but no '://' is NOT masked (e.g. a time or a label)", () => {
+    expect(redactUrls("เวลา 20:00 น. status: failed")).toBe("เวลา 20:00 น. status: failed");
+  });
+
+  it("text with no URL-shaped substring at all passes through unchanged", () => {
+    expect(redactUrls("บันทึกลิงก์ไม่สำเร็จ ลองใหม่อีกครั้ง")).toBe("บันทึกลิงก์ไม่สำเร็จ ลองใหม่อีกครั้ง");
+  });
+
+  it("empty string stays empty", () => {
+    expect(redactUrls("")).toBe("");
   });
 });

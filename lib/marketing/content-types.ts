@@ -5,6 +5,8 @@
 // this implements). Pattern: same shape discipline as campaign-types.ts
 // (Thai label maps, enums mirroring DB CHECK constraints exactly).
 
+import { truncateUtf16Safe } from "./text-safe-truncate";
+
 /** Mirrors content_post.platform / content_post_metric CHECK constraints
  * (0148 §1). Keep in sync if a platform is ever added there. */
 export type ContentPlatform = "tiktok" | "facebook" | "instagram" | "line_oa";
@@ -150,4 +152,82 @@ export function deriveExternalId(url: string): string {
   } catch {
     return trimmed;
   }
+}
+
+// ---- content_post_upsert RPC param builder ----------------------------
+
+/** Exact shape of analytics.content_post_upsert's (0148 §3) positional
+ * params — kept here (not inline in lib/actions/content.ts) as a pure,
+ * directly unit-testable function that doesn't need any Supabase client to
+ * exercise (see content-types.test.ts's "buildContentPostUpsertParams"
+ * suite). That suite only proves this function is internally consistent
+ * (it echoes back the `canonicalPostUrl` it's given) — it does NOT prove
+ * the call site (lib/actions/content.ts's upsertContentPost) actually
+ * passes the canonicalized URL here instead of the raw pasted one. QA's
+ * mutation test (26 ก.ย. 69, security รอบ 2) swapped the call site's
+ * argument back to raw `postUrl` and got 554/0 unchanged, because no test
+ * file imported lib/actions/content.ts at all — "use server" modules ARE
+ * directly unit-testable with a mocked Supabase client (see
+ * lib/actions/oem.test.ts / members.test.ts / production.test.ts /
+ * hero-stock.test.ts, all four do exactly this); nobody had written that
+ * test yet. lib/actions/content.test.ts (27 ก.ย. 69, security รอบ 3) closes
+ * that gap by asserting on the RPC params the real call site produces. */
+export interface ContentPostUpsertRpcParams {
+  p_shop_id: string;
+  p_platform: ContentPlatform;
+  p_external_id: string;
+  p_post_url: string;
+  p_posted_at: string;
+  p_content_type_code: string | null;
+  p_artifact_id: string | null;
+  p_caption: string | null;
+}
+
+/** 🔴 L-1 fix (security รอบ 4, 27 ก.ย. 69): defensive server-side cap —
+ * `content_post.caption_snapshot` (0148) is plain `text`, NO length CHECK
+ * at the DB layer, and `caption` on UpsertContentPostInput is typed
+ * `string | null` but nothing at THIS layer enforced either the type or a
+ * length ceiling before this fix — a caller that isn't
+ * ContentPostLinkForm's oEmbed-fed path (a future integration, a bug
+ * upstream, anything) could hand this an arbitrarily large or
+ * non-string-shaped value and it would flow straight into the RPC call.
+ * 500 matches lib/marketing/tiktok-oembed.ts's own CAPTION_MAX_LEN — one
+ * number, same reasoning (mirrors this project's existing post_url/
+ * external_id caps), enforced at BOTH the point captions are produced
+ * (oEmbed) and the point they're written (here), independently. */
+const CAPTION_MAX_LEN = 500;
+
+/** Pure — decides exactly what goes into content_post_upsert's params, given
+ * the ALREADY-canonicalized URL (never the raw pasted string — the caller,
+ * upsertContentPost, must run canonicalizeTikTokLink() first and pass its
+ * `.url` here). Both p_post_url and the external_id derived from it use
+ * `canonicalPostUrl`, never `rawPostUrl` — that equality is the exact thing
+ * under test. */
+export function buildContentPostUpsertParams(
+  shopId: string,
+  canonicalPostUrl: string,
+  input: {
+    platform: ContentPlatform;
+    postedAt: string;
+    contentTypeCode?: string | null;
+    artifactId?: string | null;
+    caption?: string | null;
+  }
+): ContentPostUpsertRpcParams {
+  return {
+    p_shop_id: shopId,
+    p_platform: input.platform,
+    p_external_id: deriveExternalId(canonicalPostUrl),
+    p_post_url: canonicalPostUrl,
+    p_posted_at: input.postedAt,
+    p_content_type_code: input.contentTypeCode || null,
+    p_artifact_id: input.artifactId || null,
+    // L-1: `typeof` guard first — a non-string value (bad upstream caller,
+    // not something the current TS types should let happen but this is the
+    // actual runtime boundary) becomes null instead of crashing on
+    // `.trim()`; truncateUtf16Safe is the same surrogate-pair-safe cut
+    // tiktok-oembed.ts uses (M-3), so this layer can't reintroduce that bug
+    // even if a future caller's input skipped that module entirely.
+    p_caption: typeof input.caption === "string" ? truncateUtf16Safe(input.caption.trim(), CAPTION_MAX_LEN) || null : null,
+  };
 }

@@ -26,7 +26,12 @@ export function mapContentPostRpcError(err: unknown, fallback: string): string {
       return "ลิงก์ยาวเกินไป (เกิน 500 ตัวอักษร)";
     }
     if (msg.includes("p_external_id") && msg.includes("ยาวเกิน")) {
-      return "ลิงก์นี้ยาวเกินไป ลองวางลิงก์แบบสั้น (share link) แทน";
+      // 26 ก.ย. 69: used to suggest "ลองวางลิงก์แบบสั้นแทน" — now WRONG advice.
+      // lib/marketing/tiktok-link.ts canonicalizes every TikTok link (short
+      // or long) down to the same fixed https://www.tiktok.com/@user/video/id
+      // shape before this RPC ever sees p_external_id, so a short link can't
+      // make this error go away — the actual fix is a bad/garbled URL.
+      return "ลิงก์นี้มีความยาวผิดปกติ (เกิน 500 ตัวอักษร) — ตรวจว่าไม่ได้วางลิงก์ผิดหรือมีอักขระซ้ำหลุดเข้ามา";
     }
     if (msg.includes("มีสถานะ") && msg.includes("อยู่แล้ว")) {
       return "ลิงก์นี้เคยถูกลบ/ตั้งเป็นส่วนตัวไว้ก่อนหน้านี้ — ต้องเปิดกลับมาใช้ก่อนถึงจะบันทึกทับได้";
@@ -46,6 +51,33 @@ export function mapContentPostRpcError(err: unknown, fallback: string): string {
   }
   if (code === "23505") {
     return "ลิงก์นี้ถูกบันทึกไว้แล้วก่อนหน้านี้";
+  }
+  return fallback;
+}
+
+/** Maps analytics.content_post_update_type errors (0151) to Thai messages —
+ * the RPC that replaced routing "แก้ประเภท" back through
+ * content_post_upsert (removed 26 ก.ย. 69, security รอบ 2, H1). Separate
+ * from mapContentPostRpcError below on purpose: this RPC's raise messages
+ * all start with "content_post_update_type:", a disjoint set from
+ * content_post_upsert's "content_post_upsert:" messages, so there's no
+ * shared text to accidentally cross-match between the two mappers. */
+export function mapContentPostUpdateTypeRpcError(err: unknown, fallback: string): string {
+  const code = readErrorCode(err);
+  if (code === "22023") {
+    const msg = readErrorMessage(err);
+    if (msg.includes("content_type_code ไม่ถูกต้อง")) {
+      return "ประเภทเนื้อหาที่เลือกไม่ถูกต้อง ลองเลือกใหม่";
+    }
+    if (msg.includes("ห้ามเป็นค่าว่าง")) {
+      return "กรุณาเลือกประเภทก่อนบันทึก";
+    }
+    if (msg.includes("ไม่พบโพสต์")) {
+      return "ไม่พบโพสต์นี้ในร้าน — อาจถูกลบไปแล้ว";
+    }
+    if (msg.includes("มีสถานะ")) {
+      return "แก้ประเภทไม่ได้ — โพสต์นี้ไม่ได้อยู่ในสถานะใช้งานอยู่ (เปิดกลับก่อนจึงจะแก้ประเภทได้)";
+    }
   }
   return fallback;
 }

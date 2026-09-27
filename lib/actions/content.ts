@@ -19,16 +19,36 @@ import { getEffectiveRole } from "@/lib/auth/role";
 import type { ActionResult } from "@/lib/types";
 import {
   PLATFORMS,
-  deriveExternalId,
+  buildContentPostUpsertParams,
   type ContentEntryQueueRow,
   type ContentPlatform,
   type ContentPostStatus,
   type ContentPostSummary,
   type ContentTypeRow,
 } from "@/lib/marketing/content-types";
-import { mapContentMetricRpcError, mapContentPostRpcError } from "@/lib/marketing/content-errors";
+import {
+  mapContentMetricRpcError,
+  mapContentPostRpcError,
+  mapContentPostUpdateTypeRpcError,
+} from "@/lib/marketing/content-errors";
+import { canonicalizeTikTokLink, parseCanonicalTikTokPostUrl } from "@/lib/marketing/tiktok-link";
+import { extractPostedAtFromTikTokVideoId } from "@/lib/marketing/tiktok-post-date";
+import { fetchTikTokOEmbed } from "@/lib/marketing/tiktok-oembed";
+import { readErrorCode, readErrorMessage, redactUrls } from "@/lib/supabase/postgrest-error";
 
 const SCHEMA = "analytics";
+
+// 🔴 M-1 fix (security รอบ 4, 27 ก.ย. 69): defense-in-depth alongside the
+// normalizePath() linear-scan fix in tiktok-link.ts — even a fixed regex
+// has no business ever seeing a multi-kilobyte "URL" a real TikTok/Facebook/
+// Instagram/LINE share link could never legitimately be. Rejecting before
+// it ever reaches canonicalizeTikTokLink() (called from BOTH functions
+// below) shuts the door regardless of whether some other pathological input
+// shape is found later. A real TikTok/Facebook/Instagram post URL is well
+// under a few hundred characters; 2048 leaves generous headroom without
+// being a meaningful limit on anything legitimate.
+const MAX_RAW_POST_URL_LEN = 2048;
+const POST_URL_TOO_LONG_ERROR = "ลิงก์ยาวผิดปกติ — คัดลอกลิงก์จากหน้าคลิปมาวางใหม่";
 
 // Not exported / not imported from calendar.ts or marketing.ts (both
 // module-private there too) — same gate, copied rather than shared so this
@@ -82,20 +102,19 @@ export async function getContentTypes(): Promise<ActionResult<ContentTypeRow[]>>
 /** /marketing/content/entry's queue of (ข) — posts whose age today falls in
  * the T+1/T+3/T+7 read window and don't have real numbers yet.
  *
- * 🔴 M3 fix (26 ก.ย. 69, security ตรวจย้อนหลัง): this used to run a SECOND
- * query against content_post to backfill caption_snapshot (the view, 0149,
- * doesn't select that column) — but nothing in this app ever writes a
- * caption. ContentPostLinkForm (content_post's only writer) has no caption
- * input and never sends `caption` to upsertContentPost, so caption_snapshot
- * is null on every row, always — that second query was a guaranteed-empty
- * round trip on every single page load, worst on mobile/night, exactly the
- * situation this design otherwise goes out of its way to protect (see the
- * localStorage-draft file header). ContentMetricCard's `row.captionSnapshot
- * && <p>...` was consequently dead code — always false.
- *
- * Re-add the content_post lookup (join on post_id, select caption_snapshot)
- * the day a real caption-capture path exists; ContentMetricCard already
- * renders it whenever it's non-null, so no UI change needed then. */
+ * 🔴 27 ก.ย. 69 (เจ้าของกลับมติ — TikTok oEmbed ดึงแคปชั่นได้แล้ว): re-adds the
+ * content_post lookup that the M3 fix (26 ก.ย. 69) deliberately removed as
+ * dead code — at the time, NOTHING wrote a caption (ContentPostLinkForm had
+ * no caption input at all), so backfilling caption_snapshot here was a
+ * guaranteed-empty round trip on every single page load. That's no longer
+ * true: upsertContentPost() now passes the caption TikTok's oEmbed endpoint
+ * returned (inspectContentLink, see below) through to
+ * content_post_upsert's p_caption, so real rows can have a real caption from
+ * today onward. Batched as ONE extra query (`.in("id", postIds)`), not one
+ * query per row — same shape as getContentPostsByArtifactIds below, not an
+ * N+1. ContentMetricCard's `row.captionSnapshot && <p>...` needed zero UI
+ * changes for this — it was already written to render this the day it
+ * stopped being always-null. */
 export async function getContentEntryQueue(): Promise<ActionResult<ContentEntryQueueRow[]>> {
   const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
@@ -116,6 +135,23 @@ export async function getContentEntryQueue(): Promise<ActionResult<ContentEntryQ
 
     const rows = (data ?? []) as Record<string, unknown>[];
 
+    // Batched caption backfill — one query for the whole page, keyed by
+    // post_id, never one query per row.
+    const postIds = rows.map((r) => String(r.post_id));
+    const captionByPostId = new Map<string, string | null>();
+    if (postIds.length > 0) {
+      const { data: captionRows, error: captionError } = await supabase
+        .schema(SCHEMA)
+        .from("content_post")
+        .select("id, caption_snapshot")
+        .eq("shop_id", shopId)
+        .in("id", postIds);
+      if (captionError) throw captionError;
+      for (const cr of (captionRows ?? []) as Record<string, unknown>[]) {
+        captionByPostId.set(String(cr.id), (cr.caption_snapshot as string | null) ?? null);
+      }
+    }
+
     const mapped: ContentEntryQueueRow[] = rows.map((r) => ({
       postId: String(r.post_id),
       shopId: String(r.shop_id),
@@ -127,7 +163,7 @@ export async function getContentEntryQueue(): Promise<ActionResult<ContentEntryQ
       contentTypeCode: (r.content_type_code as string | null) ?? null,
       ageDaysToday: Number(r.age_days_today),
       readRound: Number(r.read_round) as 1 | 2 | 3,
-      captionSnapshot: null,
+      captionSnapshot: captionByPostId.get(String(r.post_id)) ?? null,
     }));
 
     return { ok: true, data: mapped };
@@ -187,14 +223,107 @@ export async function getContentPostsByArtifactIds(
 }
 
 // ============================================================================
+// Inspect — UX pre-fill via canonicalize + TikTok oEmbed (NO DB write)
+// ============================================================================
+
+export interface InspectContentLinkResult {
+  /** Same value ContentPostLinkForm's submit will end up sending as
+   * postUrl — showing it back lets the owner confirm "ใช่คลิปนี้ไหม" before
+   * saving anything. Re-canonicalizing this exact string at submit time
+   * costs zero network calls (canonicalizeTikTokLink's own round-trip
+   * guarantee — see tiktok-link.test.ts's "round-trip" describe block). */
+  canonicalUrl: string;
+  /** ISO datetime string decoded straight from the TikTok video/photo id, or
+   * null when the link isn't a TikTok post at all, or when decoding produced
+   * an implausible date (before 2016-09-01 or after now — see
+   * lib/marketing/tiktok-post-date.ts). Always editable/overridable by the
+   * owner — never treat this as authoritative. */
+  postedAt: string | null;
+  /** From TikTok's oEmbed `title` field, truncated to 500 chars. Null when
+   * the link isn't TikTok, or the oEmbed call failed for any reason — a
+   * caption is a confirmation aid, never a save-blocking gate. */
+  caption: string | null;
+  /** From TikTok's oEmbed `author_name` field. Same null-on-failure rule as
+   * caption. */
+  authorName: string | null;
+}
+
+/** ContentPostLinkForm calls this on blur/paste of the URL field — it is
+ * PURELY a UX aid (§ brief: "inspectContentLink เป็นแค่ UX ไม่ใช่ด่าน").
+ * upsertContentPost() still re-runs canonicalizeTikTokLink() itself on
+ * submit and is the only function that ever writes to the DB; nothing this
+ * action returns is trusted blindly at write time.
+ *
+ * 🔴 Gated the same as every other action in this file (`requireOwnerAdmin`)
+ * even though it never writes anything — it makes an outbound network call
+ * (oEmbed) on the caller's behalf, which is exactly the kind of action the
+ * brief says must not be open to just anyone who can reach the endpoint. */
+export async function inspectContentLink(url: string): Promise<ActionResult<InspectContentLinkResult>> {
+  const gateErr = await requireOwnerAdmin();
+  if (gateErr) return gateErr;
+
+  const trimmed = url?.trim();
+  if (!trimmed) return { ok: false, error: "กรุณาวางลิงก์โพสต์ก่อน" };
+  if (!/^https?:\/\//i.test(trimmed)) {
+    return { ok: false, error: "ลิงก์ต้องขึ้นต้นด้วย http:// หรือ https://" };
+  }
+  if (trimmed.length > MAX_RAW_POST_URL_LEN) {
+    return { ok: false, error: POST_URL_TOO_LONG_ERROR };
+  }
+
+  const canonicalized = await canonicalizeTikTokLink(trimmed);
+  if (!canonicalized.ok) {
+    return { ok: false, error: canonicalized.error };
+  }
+  const canonicalUrl = canonicalized.url;
+
+  const parsed = parseCanonicalTikTokPostUrl(canonicalUrl);
+  if (!parsed) {
+    // Not a TikTok video/photo link (Facebook/Instagram/LINE OA, or a TikTok
+    // shape this module doesn't classify as a post) — nothing to derive or
+    // fetch. Not an error: the owner still gets to save the link, just
+    // without any pre-fill.
+    return { ok: true, data: { canonicalUrl, postedAt: null, caption: null, authorName: null } };
+  }
+
+  const postedAt = extractPostedAtFromTikTokVideoId(parsed.id);
+
+  // fetchTikTokOEmbed() already never throws (every failure path returns
+  // `{ ok: false }` internally) — the try/catch here is defense in depth
+  // only, so a future change to that module can never turn a flaky TikTok
+  // response into a 500 for this action. Per the brief: oEmbed failing must
+  // never block anything, so any failure here just means null fields, never
+  // an early return with an error.
+  let caption: string | null = null;
+  let authorName: string | null = null;
+  try {
+    const oembed = await fetchTikTokOEmbed(canonicalUrl);
+    if (oembed.ok) {
+      caption = oembed.caption;
+      authorName = oembed.authorName;
+    }
+  } catch (err) {
+    console.error("inspectContentLink: fetchTikTokOEmbed threw unexpectedly", {
+      errorName: err instanceof Error ? err.name : "unknown",
+    });
+  }
+
+  return { ok: true, data: { canonicalUrl, postedAt, caption, authorName } };
+}
+
+// ============================================================================
 // Write — analytics.content_post_upsert (0148 §3)
 // ============================================================================
 
 export interface UpsertContentPostInput {
   platform: ContentPlatform;
-  /** Full URL as pasted — stored verbatim in post_url. The dedup key
-   * (external_id) is derived from this via deriveExternalId(), not typed
-   * separately. */
+  /** URL as pasted by the owner. For TikTok links this is NOT stored
+   * verbatim — canonicalizeTikTokLink() (lib/marketing/tiktok-link.ts)
+   * normalizes it first (strips tracking query params, resolves short
+   * links, forces host to www.tiktok.com) and the canonical form is what
+   * actually gets written to post_url and fed into deriveExternalId() for
+   * the dedup key. Other platforms (Facebook/Instagram/LINE OA) pass
+   * through untouched and ARE stored verbatim. */
   postUrl: string;
   /** ISO datetime string. */
   postedAt: string;
@@ -216,95 +345,136 @@ export async function upsertContentPost(input: UpsertContentPostInput): Promise<
   if (!/^https?:\/\//i.test(postUrl)) {
     return { ok: false, error: "ลิงก์ต้องขึ้นต้นด้วย http:// หรือ https://" };
   }
+  if (postUrl.length > MAX_RAW_POST_URL_LEN) {
+    return { ok: false, error: POST_URL_TOO_LONG_ERROR };
+  }
   if (!PLATFORMS.includes(input.platform)) {
     return { ok: false, error: "กรุณาเลือกแพลตฟอร์ม" };
   }
   if (!input.postedAt) return { ok: false, error: "กรุณาระบุวันที่โพสต์" };
 
-  const externalId = deriveExternalId(postUrl);
+  // TikTok links arrive in several equivalent shapes (mobile share-sheet
+  // short link, full link with re-copy tracking params, different
+  // subdomains) — canonicalize to ONE shape before deriving the dedup key,
+  // or the same clip pasted two different ways becomes two content_post
+  // rows with the numbers split between them (real incident, 26 ก.ย. 69 —
+  // see lib/marketing/tiktok-link.ts's header). Non-TikTok links pass
+  // through unchanged with zero network calls.
+  const canonicalized = await canonicalizeTikTokLink(postUrl);
+  if (!canonicalized.ok) {
+    return { ok: false, error: canonicalized.error };
+  }
+  const canonicalPostUrl = canonicalized.url;
+
+  let data: unknown;
+  try {
+    const shopId = getDevShopId();
+    const supabase = getServiceClient();
+
+    // buildContentPostUpsertParams (lib/marketing/content-types.ts) is a
+    // pure function specifically so this exact substitution — canonicalized
+    // URL in, never the raw pasted one — has real unit test coverage. A
+    // mutation test that swapped this back to `postUrl` (26 ก.ย. 69,
+    // security รอบ 2) found ZERO tests catching it when this was inline here.
+    const rpcParams = buildContentPostUpsertParams(shopId, canonicalPostUrl, input);
+    const result = await supabase.schema(SCHEMA).rpc("content_post_upsert", rpcParams);
+    if (result.error) throw result.error;
+    data = result.data;
+  } catch (err) {
+    // 🔴 M1 fix (26 ก.ย. 69, security รอบ 2): content_post_upsert's own
+    // raise messages interpolate p_post_url verbatim (0148 ~:320 "ได้รับ:
+    // %") — a raw console.error(err) here would echo the full pasted URL,
+    // including any tracking query string, into logs. FB/IG/LINE post_urls
+    // reach this RPC unmodified (only TikTok gets canonicalized before this
+    // call, see canonicalizeTikTokLink above) so that raw value CAN carry
+    // another platform's tracking/session identifiers. Log the SQLSTATE +
+    // a URL-redacted message instead of the raw error object.
+    console.error("upsertContentPost failed", {
+      code: readErrorCode(err),
+      message: redactUrls(readErrorMessage(err)),
+    });
+    return { ok: false, error: mapContentPostRpcError(err, "บันทึกลิงก์ไม่สำเร็จ ลองใหม่อีกครั้ง") };
+  }
+
+  // 🔴 M-c fix (security รอบ 3, 27 ก.ย. 69): revalidatePath outside the try —
+  // the DB write above already committed by the time we get here. If
+  // revalidatePath itself throws, the old code would land in the catch
+  // above and tell the owner "บันทึกลิงก์ไม่สำเร็จ" even though the row was
+  // saved — a false failure that could prompt a duplicate submit.
+  revalidatePath("/marketing/content/entry");
+  if (input.artifactId) revalidatePath("/marketing/calendar");
+  return { ok: true, data: data as string };
+}
+
+/** Edit-after-save is deliberately narrow (design §2.3): only content_type_
+ * code can change post-save — the URL field is read-only once a post
+ * exists (changing it would create a new content_post row under a
+ * different external_id, orphaning the old row's metric history).
+ *
+ * 🔴 H1 fix (26 ก.ย. 69, security รอบ 2): this used to route through
+ * upsertContentPost() — re-deriving external_id from postUrl and upserting
+ * on (shop_id, platform, external_id), the same conflict key
+ * content_post_upsert (0148) uses for CREATE, guarded by an assert that
+ * refused to proceed if re-deriving external_id from postUrl disagreed with
+ * the value read back from DB. That assert was NOT sufficient: security
+ * proved live that a post stored with external_id
+ * "https://www.tiktok.com/@x/video/999" but later re-shared/re-loaded as
+ * "https://tiktok.com/@x/video/999" (no www — a real way TikTok links get
+ * shared) passes the assert (both sides re-derive the SAME, already-drifted
+ * value) yet still doesn't match the row's TRUE external_id at the DB
+ * level's dedup key — content_post_upsert then silently INSERTs a second
+ * row instead of updating the one on screen. The security review that
+ * caught this called the assert "a plaster, not a cure".
+ *
+ * The cure: analytics.content_post_update_type (0151) updates
+ * analytics.content_post by primary key (p_post_id) — it never reads or
+ * writes post_url/external_id at all, so post_url's canonical form (or lack
+ * of one, for FB/IG/LINE) is completely irrelevant to whether this finds
+ * the right row. This also means "แก้ประเภท" no longer makes a network call
+ * of any kind on the TikTok-canonicalization path — it never did on other
+ * platforms, but it used to on TikTok because upsertContentPost() called
+ * canonicalizeTikTokLink() unconditionally, even on an edit where the URL
+ * wasn't changing. */
+export async function updateContentPostType(postId: string, contentTypeCode: string): Promise<ActionResult> {
+  const gateErr = await requireOwnerAdmin();
+  if (gateErr) return gateErr;
+
+  if (!postId) return { ok: false, error: "ไม่พบโพสต์ที่จะแก้ประเภท" };
+  if (!contentTypeCode) return { ok: false, error: "กรุณาเลือกประเภทก่อนบันทึก" };
 
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();
 
-    const { data, error } = await supabase.schema(SCHEMA).rpc("content_post_upsert", {
+    const { error } = await supabase.schema(SCHEMA).rpc("content_post_update_type", {
       p_shop_id: shopId,
-      p_platform: input.platform,
-      p_external_id: externalId,
-      p_post_url: postUrl,
-      p_posted_at: input.postedAt,
-      p_content_type_code: input.contentTypeCode || null,
-      p_artifact_id: input.artifactId || null,
-      p_caption: input.caption?.trim() || null,
+      p_post_id: postId,
+      p_content_type_code: contentTypeCode,
     });
     if (error) throw error;
-
-    revalidatePath("/marketing/content/entry");
-    if (input.artifactId) revalidatePath("/marketing/calendar");
-    return { ok: true, data: data as string };
   } catch (err) {
-    console.error("upsertContentPost failed", err);
-    return { ok: false, error: mapContentPostRpcError(err, "บันทึกลิงก์ไม่สำเร็จ ลองใหม่อีกครั้ง") };
-  }
-}
-
-/** Edit-after-save is deliberately narrow (design §2.3): only content_type_
- * code can change post-save (null-preserving, safe per 0148) — the URL
- * field is read-only once a post exists (changing it would create a new
- * content_post row under a different external_id, orphaning the old row's
- * metric history). This is the same RPC as create, called with the existing
- * platform/postUrl/postedAt unchanged.
- *
- * 🔴 H2 fix (26 ก.ย. 69, security ตรวจย้อนหลัง): `postId` is accepted but
- * NEVER used below to identify the row — content_post_upsert (0148) has no
- * by-post_id path, it re-derives the row from (shop_id, platform,
- * deriveExternalId(postUrl)) exactly like the create path does. That's
- * harmless today because ContentPostLinkForm is content_post's only
- * writer, so postUrl's derived external_id always matches the row on
- * screen. It stops being harmless the day a second writer exists — 0148's
- * own header names `source='tiktok_api'` (planned P3) as one, where
- * external_id is a video id, NOT a normalized URL. If this ever runs
- * against a row a different writer created under an external_id that
- * doesn't round-trip through deriveExternalId(postUrl), upserting by
- * (shop_id, platform, external_id) would silently INSERT a second row
- * instead of updating the one the owner is looking at — same post, two
- * rows, metric history split across them, and the queue re-lists it as new.
- *
- * `externalId` (the value actually read back from DB when this row was
- * loaded — ContentPostSummary.externalId) is the assert that catches that
- * drift: if re-deriving it from postUrl right now disagrees, this is not
- * the row we think it is, and we refuse instead of upserting blind.
- *
- * Real fix, needed before P3 ships source='tiktok_api': a
- * content_post_update_type(p_post_id, p_content_type_code) RPC that updates
- * by primary key. Until that exists, this assert is the only thing standing
- * between "แก้ประเภท" and a silent duplicate row. */
-export async function updateContentPostType(
-  postId: string,
-  input: { platform: ContentPlatform; postUrl: string; postedAt: string; contentTypeCode: string | null; externalId: string }
-): Promise<ActionResult<string>> {
-  if (deriveExternalId(input.postUrl) !== input.externalId) {
-    console.error("updateContentPostType: externalId mismatch — refusing to upsert blind", {
-      postId,
-      postUrl: input.postUrl,
-      expectedExternalId: input.externalId,
+    // 🔴 Low fix (security รอบ 3, 27 ก.ย. 69): a comment here used to argue
+    // console.error(err) was safe because this RPC's own params/raise
+    // messages never carry a URL — true, but too narrow a reason to log the
+    // raw error object. The team's own logging rule (memory: "ห้าม log
+    // error ของ supabase ทั้งก้อน") isn't only about URLs — a Postgres
+    // error's `details` can embed host info and `hint`/stack-shaped fields
+    // vary by driver version, none of it something a Thai-facing action log
+    // needs verbatim. Use the same code+redacted-message pattern as
+    // upsertContentPost's M1 fix above for consistency, even though the URL
+    // risk specifically doesn't apply to this RPC.
+    console.error("updateContentPostType failed", {
+      code: readErrorCode(err),
+      message: redactUrls(readErrorMessage(err)),
     });
-    return {
-      ok: false,
-      // ไม่ใช่ error ที่ผู้ใช้แก้เองได้ — ถ้า external_id ในฐานข้อมูลไม่
-      // round-trip กับ post_url (แถวที่เขียนตรงด้วย service_role หรือแถวจาก
-      // source อื่นในอนาคต เช่น tiktok_api ที่ external_id = video id)
-      // การรีเฟรชจะวนไม่จบ ต้องมีคนไปแก้ที่ข้อมูล
-      error: "ข้อมูลโพสต์นี้ไม่ตรงกับที่บันทึกไว้ในระบบ แก้เองไม่ได้ — แจ้งผู้ดูแลระบบ",
-    };
+    return { ok: false, error: mapContentPostUpdateTypeRpcError(err, "แก้ประเภทไม่สำเร็จ ลองใหม่อีกครั้ง") };
   }
 
-  return upsertContentPost({
-    platform: input.platform,
-    postUrl: input.postUrl,
-    postedAt: input.postedAt,
-    contentTypeCode: input.contentTypeCode,
-  });
+  // M-c fix (security รอบ 3, 27 ก.ย. 69) — see upsertContentPost's comment
+  // above for why this must live outside the try.
+  revalidatePath("/marketing/content/entry");
+  revalidatePath("/marketing/calendar");
+  return { ok: true, data: undefined };
 }
 
 // ============================================================================
@@ -341,11 +511,12 @@ export async function upsertContentMetric(input: UpsertContentMetricInput): Prom
     }
   }
 
+  let data: unknown;
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();
 
-    const { data, error } = await supabase.schema(SCHEMA).rpc("content_post_metric_upsert", {
+    const result = await supabase.schema(SCHEMA).rpc("content_post_metric_upsert", {
       p_shop_id: shopId,
       p_post_id: input.postId,
       p_view: input.view ?? null,
@@ -355,14 +526,17 @@ export async function upsertContentMetric(input: UpsertContentMetricInput): Prom
       p_share: input.share ?? null,
       p_source: "manual",
     });
-    if (error) throw error;
-
-    revalidatePath("/marketing/content/entry");
-    return { ok: true, data: data as string };
+    if (result.error) throw result.error;
+    data = result.data;
   } catch (err) {
     console.error("upsertContentMetric failed", err);
     return { ok: false, error: mapContentMetricRpcError(err, "บันทึกตัวเลขไม่สำเร็จ ลองใหม่อีกครั้ง") };
   }
+
+  // M-c fix (security รอบ 3, 27 ก.ย. 69, applied for consistency — see
+  // upsertContentPost's comment for why this must live outside the try).
+  revalidatePath("/marketing/content/entry");
+  return { ok: true, data: data as string };
 }
 
 // ============================================================================
@@ -383,12 +557,14 @@ export async function setContentPostStatus(postId: string, status: ContentPostSt
       p_status: status,
     });
     if (error) throw error;
-
-    revalidatePath("/marketing/content/entry");
-    revalidatePath("/marketing/calendar");
-    return { ok: true, data: undefined };
   } catch (err) {
     console.error("setContentPostStatus failed", err);
     return { ok: false, error: mapContentMetricRpcError(err, "เปลี่ยนสถานะโพสต์ไม่สำเร็จ ลองใหม่อีกครั้ง") };
   }
+
+  // M-c fix (security รอบ 3, 27 ก.ย. 69, applied for consistency — see
+  // upsertContentPost's comment for why this must live outside the try).
+  revalidatePath("/marketing/content/entry");
+  revalidatePath("/marketing/calendar");
+  return { ok: true, data: undefined };
 }
