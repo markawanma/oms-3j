@@ -130,9 +130,14 @@ export async function fetchTikTokOEmbed(canonicalUrl: string): Promise<TikTokOEm
     // `err` itself either way: some fetch implementations embed the request
     // URL, including query string, in the error message — same risk
     // tiktok-link.ts's resolveShortLink documents.
+    // security รอบ 5 (27 ก.ย. 69): ใส่ redirectBlocked แยกจาก errorName ทั่วไป
+    // เพราะ "TypeError" เพียวๆ แยกไม่ออกว่าเน็ตล่มจริง หรือ TikTok redirect
+    // แล้วเราตั้งใจปฏิเสธ (redirect: "error" ข้างบน) — undici ใส่ .cause ที่
+    // message ตรงตัวว่า "unexpected redirect" เสมอในเคสหลัง ไม่มี URL ปน
     console.error("fetchTikTokOEmbed: fetch failed", {
       host: "www.tiktok.com",
       errorName: err instanceof Error ? err.name : "unknown",
+      redirectBlocked: err instanceof Error && (err.cause as Error | undefined)?.message === "unexpected redirect",
     });
     return { ok: false };
   }

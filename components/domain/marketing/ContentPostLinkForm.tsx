@@ -172,7 +172,21 @@ export function ContentPostLinkForm({
     if (!trimmed || trimmed === lastInspectedUrlRef.current) return;
     lastInspectedUrlRef.current = trimmed;
     startInspectTransition(async () => {
-      const result = await inspectContentLink(trimmed);
+      // 🔴 N-1 fix (security รอบ 5, 27 ก.ย. 69): inspectContentLink() เองจับ
+      // error ครบแล้วและคืน {ok:false} เสมอ — แต่ถ้าการเรียก server action
+      // เองล้มระดับ transport (เน็ตมือถือหลุด, action id ใช้ไม่ได้หลัง
+      // deploy ใหม่) promise นี้ reject ตรงๆ และ React 19's async transition
+      // จะโยน error นั้นขึ้น error boundary — (dashboard) ไม่มี error.tsx
+      // ⇒ ทั้งหน้าพังเป็น "Application error" พร้อมข้อความที่เพิ่งพิมพ์หายหมด
+      // ทั้งที่ inspect เป็นแค่ UX เสริมที่ยิงอัตโนมัติตอน blur/paste เจ้าของ
+      // ไม่ได้ตั้งใจกดอะไรเลย ขัดกับกติกา "inspect ล้มเหลวห้ามบล็อกอะไร"
+      let result: Awaited<ReturnType<typeof inspectContentLink>>;
+      try {
+        result = await inspectContentLink(trimmed);
+      } catch {
+        if (lastInspectedUrlRef.current === trimmed) lastInspectedUrlRef.current = null;
+        return;
+      }
       if (!shouldApplyInspectResult(trimmed, postUrlRef.current)) return;
       if (!result.ok) {
         setInspectPreview(null);
