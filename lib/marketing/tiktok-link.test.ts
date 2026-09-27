@@ -688,3 +688,34 @@ describe("round-trip — updateContentPostType's drift assert must still hold on
     }
   });
 });
+
+// ---- 🔴 performance: normalizePath must be linear, not catastrophic-
+// ---- backtracking regex (ReDoS, security รอบ 4, M-1) --------------------
+
+describe("performance — a pathname with a huge run of slashes NOT at the very end must not hang (M-1, ReDoS)", () => {
+  // security รอบ 4 (27 ก.ย. 69) measured the OLD `pathname.replace(/\/+$/,
+  // "")` at 31s for an adversarial input this shape — confirmed independently
+  // here: the old regex is fine when the slashes truly ARE the last
+  // characters (the `+` matches once, greedily, done), but catastrophic when
+  // a single non-slash character follows a long slash run (backtracking one
+  // slash at a time trying to find a suffix that satisfies `$`). This
+  // matters now specifically because inspectContentLink fires this parsing
+  // path automatically on blur/paste — not just once at submit time.
+  it("100,000 slashes followed by a single character resolves in well under 1 second, with zero network calls", async () => {
+    const fetchMock = stubFetchMustNotBeCalled();
+    const adversarialUrl = "https://www.tiktok.com/" + "/".repeat(100_000) + "a";
+
+    const start = Date.now();
+    const result = await canonicalizeTikTokLink(adversarialUrl);
+    const elapsedMs = Date.now() - start;
+
+    // Generous ceiling (the fix resolves this in ~0ms locally; the old code
+    // took 3-31s depending on measurement) — 1000ms leaves headroom for slow
+    // CI runners while still failing hard if the regex regresses back in.
+    expect(elapsedMs).toBeLessThan(1000);
+    // Not a recognizable video/photo/live/profile shape -> rejected, not
+    // guessed at — same rule as any other unrecognized TikTok path shape.
+    expect(result.ok).toBe(false);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});

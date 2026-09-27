@@ -38,6 +38,18 @@ import { readErrorCode, readErrorMessage, redactUrls } from "@/lib/supabase/post
 
 const SCHEMA = "analytics";
 
+// 🔴 M-1 fix (security รอบ 4, 27 ก.ย. 69): defense-in-depth alongside the
+// normalizePath() linear-scan fix in tiktok-link.ts — even a fixed regex
+// has no business ever seeing a multi-kilobyte "URL" a real TikTok/Facebook/
+// Instagram/LINE share link could never legitimately be. Rejecting before
+// it ever reaches canonicalizeTikTokLink() (called from BOTH functions
+// below) shuts the door regardless of whether some other pathological input
+// shape is found later. A real TikTok/Facebook/Instagram post URL is well
+// under a few hundred characters; 2048 leaves generous headroom without
+// being a meaningful limit on anything legitimate.
+const MAX_RAW_POST_URL_LEN = 2048;
+const POST_URL_TOO_LONG_ERROR = "ลิงก์ยาวผิดปกติ — คัดลอกลิงก์จากหน้าคลิปมาวางใหม่";
+
 // Not exported / not imported from calendar.ts or marketing.ts (both
 // module-private there too) — same gate, copied rather than shared so this
 // file has no cross-module dependency, matching the existing convention.
@@ -255,6 +267,9 @@ export async function inspectContentLink(url: string): Promise<ActionResult<Insp
   if (!/^https?:\/\//i.test(trimmed)) {
     return { ok: false, error: "ลิงก์ต้องขึ้นต้นด้วย http:// หรือ https://" };
   }
+  if (trimmed.length > MAX_RAW_POST_URL_LEN) {
+    return { ok: false, error: POST_URL_TOO_LONG_ERROR };
+  }
 
   const canonicalized = await canonicalizeTikTokLink(trimmed);
   if (!canonicalized.ok) {
@@ -329,6 +344,9 @@ export async function upsertContentPost(input: UpsertContentPostInput): Promise<
   if (!postUrl) return { ok: false, error: "กรุณาวางลิงก์โพสต์ก่อนบันทึก" };
   if (!/^https?:\/\//i.test(postUrl)) {
     return { ok: false, error: "ลิงก์ต้องขึ้นต้นด้วย http:// หรือ https://" };
+  }
+  if (postUrl.length > MAX_RAW_POST_URL_LEN) {
+    return { ok: false, error: POST_URL_TOO_LONG_ERROR };
   }
   if (!PLATFORMS.includes(input.platform)) {
     return { ok: false, error: "กรุณาเลือกแพลตฟอร์ม" };

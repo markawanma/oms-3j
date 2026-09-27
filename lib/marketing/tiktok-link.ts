@@ -122,8 +122,18 @@ function isShortLinkUrl(u: URL): boolean {
   return false;
 }
 
+/** 🔴 M-1 fix (security รอบ 4, 27 ก.ย. 69): the old `pathname.replace(/\/+$/,
+ * "")` measured out at 100,000 trailing slashes -> 31 SECONDS — a ReDoS an
+ * attacker could trigger for free (this function runs on the fully-local
+ * path, no network, for EVERY tiktok.com-hosted input, including the ones
+ * `inspectContentLink` now fires automatically on blur/paste, not just on
+ * submit). A manual linear backward scan has no backtracking to exploit —
+ * it's a single pass, O(n) in the number of TRAILING slashes only, never
+ * O(n²) in the string length. */
 function normalizePath(pathname: string): string {
-  return pathname.replace(/\/+$/, "") || "/";
+  let end = pathname.length;
+  while (end > 0 && pathname.charCodeAt(end - 1) === 47 /* "/" */) end--;
+  return end === 0 ? "/" : pathname.slice(0, end);
 }
 
 const VIDEO_OR_PHOTO_PATH_RE = /^\/(@[A-Za-z0-9_.]+)\/(video|photo)\/(\d+)$/;

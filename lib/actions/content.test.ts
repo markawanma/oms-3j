@@ -191,6 +191,20 @@ describe("upsertContentPost — RPC params must use the canonicalized URL, never
     expect(canonicalizeTikTokLinkMock).not.toHaveBeenCalled();
     expect(rpcMock).not.toHaveBeenCalled();
   });
+
+  // 🔴 M-1 fix (security รอบ 4, 27 ก.ย. 69) — เพดานเดียวกับ inspectContentLink
+  it("ลิงก์ยาวเกิน 2048 ตัวอักษร ⇒ ปฏิเสธก่อน canonicalize เลย ไม่ยิง RPC", async () => {
+    const { upsertContentPost } = await import("./content");
+    const tooLong = "https://www.tiktok.com/@x/video/" + "1".repeat(2050);
+    const result = await upsertContentPost({
+      platform: "tiktok",
+      postUrl: tooLong,
+      postedAt: "2026-09-26T10:00:00+07:00",
+    });
+    expect(result).toEqual({ ok: false, error: "ลิงก์ยาวผิดปกติ — คัดลอกลิงก์จากหน้าคลิปมาวางใหม่" });
+    expect(canonicalizeTikTokLinkMock).not.toHaveBeenCalled();
+    expect(rpcMock).not.toHaveBeenCalled();
+  });
 });
 
 describe("updateContentPostType — แก้ด้วย primary key ล้วนๆ ไม่แตะ URL/network เลย", () => {
@@ -285,6 +299,25 @@ describe("inspectContentLink — gate + input validation ก่อนแตะ n
     const result = await inspectContentLink("ftp://example.com/x");
     expect(result.ok).toBe(false);
     expect(canonicalizeTikTokLinkMock).not.toHaveBeenCalled();
+  });
+
+  // 🔴 M-1 fix (security รอบ 4, 27 ก.ย. 69): defense-in-depth ก่อนถึง
+  // canonicalizeTikTokLink (ที่ตัวเองก็แก้ ReDoS ในชั้น normalizePath ไปแล้ว)
+  it("ลิงก์ยาวเกิน 2048 ตัวอักษร ⇒ ปฏิเสธก่อน canonicalize เลย ไม่ยิง network", async () => {
+    const { inspectContentLink } = await import("./content");
+    const tooLong = "https://www.tiktok.com/@x/video/" + "1".repeat(2050);
+    const result = await inspectContentLink(tooLong);
+    expect(result).toEqual({ ok: false, error: "ลิงก์ยาวผิดปกติ — คัดลอกลิงก์จากหน้าคลิปมาวางใหม่" });
+    expect(canonicalizeTikTokLinkMock).not.toHaveBeenCalled();
+  });
+
+  it("ลิงก์ยาวพอดี 2048 ตัวอักษร ⇒ ผ่านด่านนี้ไปได้ (boundary, ไม่ off-by-one)", async () => {
+    const { inspectContentLink } = await import("./content");
+    const prefix = "https://www.tiktok.com/@x/video/";
+    const exactly2048 = prefix + "1".repeat(2048 - prefix.length);
+    expect(exactly2048.length).toBe(2048);
+    await inspectContentLink(exactly2048);
+    expect(canonicalizeTikTokLinkMock).toHaveBeenCalledWith(exactly2048);
   });
 });
 
