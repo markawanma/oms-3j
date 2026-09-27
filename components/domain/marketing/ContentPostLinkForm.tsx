@@ -7,10 +7,21 @@
 // /marketing/content/entry with no `artifactId` (content_post_upsert's
 // p_artifact_id is nullable by design — see 0148's header comment).
 //
-// Deliberately does NOT fetch any preview/metadata from the pasted URL
-// (design §2.2: "เข้าข่าย 'ดึงข้อมูลอัตโนมัติจากลิงก์' ที่โจทย์ห้าม") —
-// confirmation that the right link was saved is a clickable
-// target="_blank" link to the URL just saved, nothing fetched from it.
+// 🔄 เจ้าของกลับมติ 27 ก.ย. 69 (design doc §2.2/§2.2b — see docs/3j-jewelry/
+// analytics/ux-content-measurement.md): this now DOES fetch a preview, but
+// only through channels TikTok itself opened up for exactly this purpose —
+// canonicalizeTikTokLink() (already run at submit time, see below) plus
+// lib/actions/content.ts's inspectContentLink(), which decodes the posted-
+// at timestamp straight from the TikTok video/photo id (no network) and
+// fetches caption/channel name via TikTok's public oEmbed endpoint. Fired
+// on blur or paste of the URL field ONLY (never on every keystroke) —
+// lib/actions/content.ts's own header explains why: this is PURELY a UX
+// aid, never a trust boundary. The real canonicalize-and-validate step
+// still runs server-side inside upsertContentPost() on submit, exactly as
+// before this change; nothing inspectContentLink() returns is trusted
+// blindly at write time. A failed inspect (not TikTok, oEmbed down, link
+// rejected) must never block filling in the form by hand — see
+// runInspect()'s comment below.
 //
 // Edit-after-save is narrow on purpose (design §2.3): only content_type_code
 // can change once a post exists. The URL field is read-only after the first
@@ -18,11 +29,12 @@
 // "editing" the URL would silently create a second post and orphan the
 // first one's metric history instead of fixing it in place.
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import type { FormEvent } from "react";
 import { useRouter } from "next/navigation";
-import { ExternalLink, Link2, Pencil } from "lucide-react";
-import { upsertContentPost, updateContentPostType } from "@/lib/actions/content";
+import { ExternalLink, Link2, Loader2, Pencil } from "lucide-react";
+import { inspectContentLink, upsertContentPost, updateContentPostType } from "@/lib/actions/content";
+import type { InspectContentLinkResult } from "@/lib/actions/content";
 import { PLATFORMS, PLATFORM_LABEL } from "@/lib/marketing/content-types";
 import type { ContentPlatform, ContentPostStatus, ContentPostSummary, ContentTypeRow } from "@/lib/marketing/content-types";
 import { CONTENT_POST_STATUS_LABEL } from "@/lib/marketing/content-types";
@@ -96,12 +108,67 @@ export function ContentPostLinkForm({
   const [editTypeValue, setEditTypeValue] = useState(existingPost?.contentTypeCode ?? "");
   const [pending, startTransition] = useTransition();
   const [editPending, startEditTransition] = useTransition();
+  const [inspectPending, startInspectTransition] = useTransition();
+  const [inspectPreview, setInspectPreview] = useState<InspectContentLinkResult | null>(null);
+
+  // Mirrors `postUrl` on every render so handleUrlPaste's deferred callback
+  // (below) can read the value AFTER the browser applies the paste, without
+  // closing over a stale value captured at the time the paste event fired —
+  // a plain closure over `postUrl` here would still see the pre-paste text.
+  const postUrlRef = useRef(postUrl);
+  postUrlRef.current = postUrl;
+
+  // Guards against re-inspecting a URL that hasn't changed — without this, a
+  // second blur on the SAME text (e.g. tabbing through the form, or
+  // clicking "บันทึก" which blurs the field first) would re-fetch and
+  // silently overwrite a posted-at time the owner had already corrected by
+  // hand after the first auto-fill. Only a genuinely NEW url re-triggers.
+  const lastInspectedUrlRef = useRef<string | null>(null);
 
   function reset() {
     setPlatform("tiktok");
     setPostUrl("");
     setContentTypeCode(contentTypeDefault ?? "");
     setPostedAtInput(nowBangkokInputValue());
+    setInspectPreview(null);
+    lastInspectedUrlRef.current = null;
+  }
+
+  /** ContentPostLinkForm's UX pre-fill (design §2.2 — see this file's header
+   * for the full context). Fired on blur/paste of the URL field only (never
+   * onChange) so it never fires more than once per pause in typing.
+   *
+   * 🔴 On failure — not a TikTok post, canonicalize rejects it (live/profile
+   * link), oEmbed down, network hiccup — this MUST NOT block anything: the
+   * owner can still type/paste the URL, pick a date by hand, and submit
+   * exactly as if this function didn't exist. No toast, no error state; the
+   * only visible effect of a failure is that no preview/pre-fill appears.
+   * The real rejection (e.g. "ลิงก์นี้เป็นลิงก์ไลฟ์") still surfaces at
+   * submit time via upsertContentPost's own canonicalize call — this
+   * function is not where that error belongs. */
+  function runInspect(urlToInspect: string) {
+    const trimmed = urlToInspect.trim();
+    if (!trimmed || trimmed === lastInspectedUrlRef.current) return;
+    lastInspectedUrlRef.current = trimmed;
+    startInspectTransition(async () => {
+      const result = await inspectContentLink(trimmed);
+      if (!result.ok) {
+        setInspectPreview(null);
+        return;
+      }
+      setInspectPreview(result.data);
+      // ผู้ใช้แก้วันที่ทับได้เสมอ — เติมให้ครั้งนี้เท่านั้น ไม่ล็อกช่อง
+      // (input ด้านล่างเป็น controlled ปกติ, onChange ของมันไม่ถูกแตะที่นี่)
+      if (result.data.postedAt) {
+        setPostedAtInput(isoToBangkokInputValue(result.data.postedAt));
+      }
+    });
+  }
+
+  function handleUrlPaste() {
+    // paste event ยิงก่อน browser จะใส่ค่าใหม่ลง input จริง — ต้องรอรอบ
+    // ถัดไป (setTimeout 0) แล้วอ่านจาก ref ไม่ใช่ปิด closure ทับ postUrl ตรงๆ
+    setTimeout(() => runInspect(postUrlRef.current), 0);
   }
 
   function handleSubmit(e: FormEvent) {
@@ -117,12 +184,17 @@ export function ContentPostLinkForm({
       return;
     }
     startTransition(async () => {
+      // inspectPreview.caption is only ever non-null when it matches the URL
+      // currently shown — the URL field's onChange clears inspectPreview on
+      // every edit (below), so there is no stale-caption-for-a-different-
+      // link case to guard against separately here.
       const result = await upsertContentPost({
         platform,
         postUrl: trimmedUrl,
         postedAt: iso,
         contentTypeCode: contentTypeCode || null,
         artifactId: artifactId || null,
+        caption: inspectPreview?.caption ?? null,
       });
       if (!result.ok) {
         toast.push(result.error, "error");
@@ -338,11 +410,37 @@ export function ContentPostLinkForm({
           inputMode="url"
           autoComplete="off"
           value={postUrl}
-          onChange={(e) => setPostUrl(e.target.value)}
+          onChange={(e) => {
+            setPostUrl(e.target.value);
+            // ล้าง preview ทันทีที่แก้ข้อความ — กันบรรทัดยืนยัน/แคปชั่นเก่า
+            // ค้างแสดงคู่กับลิงก์ใหม่ที่ยังไม่ได้ตรวจ
+            setInspectPreview(null);
+          }}
+          onBlur={() => runInspect(postUrl)}
+          onPaste={handleUrlPaste}
           placeholder="https://www.tiktok.com/@3jjewelry/video/..."
           required
           className="min-h-11 w-full rounded-md border border-zinc-300 px-3 text-sm focus:border-primary-500 focus:outline-none"
         />
+        {inspectPending && (
+          <p className="mt-1 flex items-center gap-1 text-xs text-zinc-400">
+            <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
+            กำลังตรวจลิงก์...
+          </p>
+        )}
+        {!inspectPending && inspectPreview && (inspectPreview.caption || inspectPreview.authorName) && (
+          <div className="mt-1.5 rounded-md border border-primary-100 bg-primary-50 p-2 text-xs">
+            <p className="font-medium text-primary-700">ใช่คลิปนี้ไหม?</p>
+            {inspectPreview.authorName && (
+              <p className="mt-0.5 text-zinc-600">ช่อง: {inspectPreview.authorName}</p>
+            )}
+            {inspectPreview.caption && (
+              <p className="mt-0.5 truncate text-zinc-600" title={inspectPreview.caption}>
+                {inspectPreview.caption}
+              </p>
+            )}
+          </div>
+        )}
       </div>
 
       <div>
