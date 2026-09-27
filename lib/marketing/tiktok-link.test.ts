@@ -22,7 +22,7 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { inspect } from "node:util";
-import { canonicalizeTikTokLink } from "./tiktok-link";
+import { canonicalizeTikTokLink, parseCanonicalTikTokPostUrl } from "./tiktok-link";
 import { deriveExternalId } from "./content-types";
 
 const TH_LIVE_LINK = "ลิงก์นี้เป็นลิงก์ไลฟ์ ไม่ใช่โพสต์คลิป — ระบบนี้เก็บได้เฉพาะคลิป (ยอดไลฟ์ดูที่หน้าไลฟ์)";
@@ -717,5 +717,68 @@ describe("performance — a pathname with a huge run of slashes NOT at the very 
     // guessed at — same rule as any other unrecognized TikTok path shape.
     expect(result.ok).toBe(false);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
+// ---- parseCanonicalTikTokPostUrl — L-2 (security รอบ 4, 27 ก.ย. 69) -----
+
+describe("parseCanonicalTikTokPostUrl — happy path", () => {
+  it("a real canonical video URL parses to its parts", () => {
+    expect(parseCanonicalTikTokPostUrl("https://www.tiktok.com/@3jjewelry/video/123")).toEqual({
+      kind: "video",
+      user: "@3jjewelry",
+      id: "123",
+    });
+  });
+
+  it("a real canonical photo URL parses to its parts", () => {
+    expect(parseCanonicalTikTokPostUrl("https://www.tiktok.com/@3jjewelry/photo/456")).toEqual({
+      kind: "photo",
+      user: "@3jjewelry",
+      id: "456",
+    });
+  });
+});
+
+describe("parseCanonicalTikTokPostUrl — 🔴 L-2: rejects anything that merely LOOKS canonical but carries extra baggage", () => {
+  it("userinfo (user:pass@) smuggled into an otherwise-canonical URL is rejected", () => {
+    expect(parseCanonicalTikTokPostUrl("https://user:pass@www.tiktok.com/@3jjewelry/video/123")).toBeNull();
+  });
+
+  it("a non-standard port on an otherwise-canonical URL is rejected", () => {
+    expect(parseCanonicalTikTokPostUrl("https://www.tiktok.com:8443/@3jjewelry/video/123")).toBeNull();
+  });
+
+  it("a query string surviving on an otherwise-canonical URL is rejected (canonicalize always strips it)", () => {
+    expect(parseCanonicalTikTokPostUrl("https://www.tiktok.com/@3jjewelry/video/123?foo=bar")).toBeNull();
+  });
+
+  it("a hash fragment surviving on an otherwise-canonical URL is rejected", () => {
+    expect(parseCanonicalTikTokPostUrl("https://www.tiktok.com/@3jjewelry/video/123#section")).toBeNull();
+  });
+
+  it("a trailing slash (not the exact canonical shape) is rejected — this function does NOT re-normalize, only validates", () => {
+    expect(parseCanonicalTikTokPostUrl("https://www.tiktok.com/@3jjewelry/video/123/")).toBeNull();
+  });
+
+  it("bare tiktok.com (no www — canonicalize always forces www) is rejected", () => {
+    expect(parseCanonicalTikTokPostUrl("https://tiktok.com/@3jjewelry/video/123")).toBeNull();
+  });
+
+  it("http:// (canonicalize always upgrades to https) is rejected", () => {
+    expect(parseCanonicalTikTokPostUrl("http://www.tiktok.com/@3jjewelry/video/123")).toBeNull();
+  });
+
+  it("a non-TikTok host is rejected", () => {
+    expect(parseCanonicalTikTokPostUrl("https://www.facebook.com/@3jjewelry/video/123")).toBeNull();
+  });
+
+  it("a live/profile link (not video/photo) is rejected", () => {
+    expect(parseCanonicalTikTokPostUrl("https://www.tiktok.com/@3jjewelry/live")).toBeNull();
+    expect(parseCanonicalTikTokPostUrl("https://www.tiktok.com/@3jjewelry")).toBeNull();
+  });
+
+  it("a string that isn't a parseable URL at all is rejected, not thrown", () => {
+    expect(parseCanonicalTikTokPostUrl("not a url at all")).toBeNull();
   });
 });

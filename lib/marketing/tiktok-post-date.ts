@@ -32,9 +32,13 @@ const TIKTOK_ID_EPOCH_FLOOR_SECONDS = Math.floor(new Date("2016-09-01T00:00:00Z"
  * Decodes a TikTok video/photo id's embedded unix timestamp into an ISO
  * datetime string, or null if the id doesn't decode to a plausible date.
  *
- * "Plausible" = strictly between the 2016-09-01 floor and `nowMs` inclusive
- * — anything outside that range is rejected, not clamped, per the brief's
- * own boundary rule (ห้ามเดาค่าที่ดูสมเหตุสมผล ต้องปล่อยว่างถ้าไม่ชัวร์).
+ * "Plausible" = inclusive on BOTH ends — a decoded value exactly equal to
+ * the 2016-09-01 floor or exactly equal to `nowMs` is accepted; anything
+ * strictly outside that closed range is rejected, never clamped into it,
+ * per the brief's own boundary rule (ห้ามเดาค่าที่ดูสมเหตุสมผล ต้องปล่อยว่าง
+ * ถ้าไม่ชัวร์). Both boundaries have their own explicit test coverage
+ * (tiktok-post-date.test.ts) precisely because "inclusive vs. exclusive" is
+ * the kind of off-by-one that's easy to get backwards silently.
  *
  * `nowMs` defaults to `Date.now()` and exists ONLY so tests can pin "now"
  * deterministically without `vi.useFakeTimers()` — every real caller should
@@ -46,6 +50,12 @@ const TIKTOK_ID_EPOCH_FLOOR_SECONDS = Math.floor(new Date("2016-09-01T00:00:00Z"
  */
 export function extractPostedAtFromTikTokVideoId(id: string, nowMs: number = Date.now()): string | null {
   if (!/^\d+$/.test(id)) return null;
+  // 🔴 L-3 fix (security รอบ 4, 27 ก.ย. 69): a real TikTok id is a 64-bit
+  // unsigned value, whose maximum (18446744073709551615) is 20 decimal
+  // digits — reject anything longer BEFORE it ever reaches BigInt(id).
+  // Today's real ids are 19 digits; 20 leaves headroom without accepting an
+  // arbitrarily long digit string some caller could hand this.
+  if (id.length > 20) return null;
 
   let raw: bigint;
   try {

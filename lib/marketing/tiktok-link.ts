@@ -185,7 +185,16 @@ function resultFromClassification(c: PathClassification): CanonicalizeTikTokLink
  * anything that isn't a safe (https + real tiktok.com host) video/photo URL —
  * this is a defensive re-check, not a trust boundary of its own: every real
  * caller only ever feeds this the `.url` a prior canonicalizeTikTokLink() call
- * already accepted, never raw user input directly. */
+ * already accepted, never raw user input directly.
+ *
+ * 🔴 L-2 fix (security รอบ 4, 27 ก.ย. 69): the host/protocol/path checks
+ * alone still accepted things that merely LOOK canonical but carry extra
+ * baggage a real canonicalizeTikTokLink() output never has — e.g.
+ * `https://user:pass@www.tiktok.com/@x/video/1`, `https://www.tiktok.com:8443/@x/video/1`,
+ * or a query/hash somehow surviving. Re-building the expected canonical
+ * string from the parts just extracted and requiring an EXACT match closes
+ * all of those at once, generically, instead of adding a one-off check per
+ * URL component. */
 export function parseCanonicalTikTokPostUrl(url: string): { kind: "video" | "photo"; user: string; id: string } | null {
   let parsed: URL;
   try {
@@ -196,8 +205,9 @@ export function parseCanonicalTikTokPostUrl(url: string): { kind: "video" | "pho
   if (parsed.protocol !== "https:") return null;
   if (!isTikTokHost(parsed.hostname)) return null;
   const c = classifyTikTokPath(parsed.pathname);
-  if (c.kind === "video" || c.kind === "photo") return { kind: c.kind, user: c.user, id: c.id };
-  return null;
+  if (c.kind !== "video" && c.kind !== "photo") return null;
+  if (url !== buildCanonicalUrl(c.user, c.kind, c.id)) return null;
+  return { kind: c.kind, user: c.user, id: c.id };
 }
 
 // ---------------------------------------------------------------------------

@@ -90,4 +90,22 @@ describe("extractPostedAtFromTikTokVideoId — malformed input never throws, alw
     const id = (hugeSeconds << 32n).toString();
     expect(extractPostedAtFromTikTokVideoId(id, FIXED_NOW_MS)).toBeNull();
   });
+
+  // 🔴 L-3 fix (security รอบ 4, 27 ก.ย. 69): reject overlong digit strings
+  // BEFORE they ever reach BigInt(id) — a real 64-bit unsigned id is at
+  // most 20 digits (18446744073709551615).
+  it("a digit string longer than 20 characters -> null, rejected before BigInt(id) ever runs", () => {
+    expect(extractPostedAtFromTikTokVideoId("1".repeat(21), FIXED_NOW_MS)).toBeNull();
+  });
+
+  it("a digit string of exactly 20 characters is NOT rejected by the length gate itself (boundary, not off-by-one) — still resolves via the normal decode/plausibility path", () => {
+    // 20 nines decodes to seconds=23283064365 -> the year 2707 — well within
+    // Number.MAX_SAFE_INTEGER (so that guard doesn't fire either), rejected
+    // by the ordinary "decoded date is in the future" plausibility check
+    // further down. Confirms the length gate passed this input through
+    // rather than being what rejected it.
+    const twentyDigits = "9".repeat(20);
+    expect(twentyDigits).toHaveLength(20);
+    expect(extractPostedAtFromTikTokVideoId(twentyDigits, FIXED_NOW_MS)).toBeNull();
+  });
 });
