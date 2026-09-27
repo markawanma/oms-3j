@@ -35,6 +35,7 @@ import { useRouter } from "next/navigation";
 import { ExternalLink, Link2, Loader2, Pencil } from "lucide-react";
 import { inspectContentLink, upsertContentPost, updateContentPostType } from "@/lib/actions/content";
 import type { InspectContentLinkResult } from "@/lib/actions/content";
+import { autoFilledDateMismatch, shouldApplyInspectResult } from "@/lib/marketing/content-post-inspect-guards";
 import { PLATFORMS, PLATFORM_LABEL } from "@/lib/marketing/content-types";
 import type { ContentPlatform, ContentPostStatus, ContentPostSummary, ContentTypeRow } from "@/lib/marketing/content-types";
 import { CONTENT_POST_STATUS_LABEL } from "@/lib/marketing/content-types";
@@ -125,6 +126,18 @@ export function ContentPostLinkForm({
   // hand after the first auto-fill. Only a genuinely NEW url re-triggers.
   const lastInspectedUrlRef = useRef<string | null>(null);
 
+  // 🔴 H-1 fix (security รอบ 4, 27 ก.ย. 69): which URL the "วันที่โพสต์"
+  // field's CURRENT value was auto-filled for — null means "not tied to any
+  // auto-fill" (owner typed it by hand, or auto-fill never fired).
+  // handleSubmit checks this against the URL actually being submitted
+  // (autoFilledDateMismatch, imported above) and BLOCKS if they differ —
+  // this is what closes the "edit URL from clip A to clip B, click บันทึก
+  // immediately, B silently gets saved with A's date" hole. See
+  // lib/marketing/content-post-inspect-guards.ts's header for the full bug
+  // writeup. Deliberately NOT cleared by the URL field's onChange below —
+  // clearing it there would make this exact mismatch impossible to detect.
+  const dateAutoFilledForRef = useRef<string | null>(null);
+
   function reset() {
     setPlatform("tiktok");
     setPostUrl("");
@@ -132,11 +145,19 @@ export function ContentPostLinkForm({
     setPostedAtInput(nowBangkokInputValue());
     setInspectPreview(null);
     lastInspectedUrlRef.current = null;
+    dateAutoFilledForRef.current = null;
   }
 
   /** ContentPostLinkForm's UX pre-fill (design §2.2 — see this file's header
    * for the full context). Fired on blur/paste of the URL field only (never
    * onChange) so it never fires more than once per pause in typing.
+   *
+   * 🔴 H-1 fix (security รอบ 4, 27 ก.ย. 69): the owner may have already
+   * edited the URL field again while THIS request was in flight —
+   * shouldApplyInspectResult() re-checks `trimmed` (what was requested)
+   * against `postUrlRef.current` (what's on screen right now) before
+   * touching any state. A mismatch discards the ENTIRE result (date AND
+   * caption/authorName) — never apply half of a stale answer.
    *
    * 🔴 On failure — not a TikTok post, canonicalize rejects it (live/profile
    * link), oEmbed down, network hiccup — this MUST NOT block anything: the
@@ -152,6 +173,7 @@ export function ContentPostLinkForm({
     lastInspectedUrlRef.current = trimmed;
     startInspectTransition(async () => {
       const result = await inspectContentLink(trimmed);
+      if (!shouldApplyInspectResult(trimmed, postUrlRef.current)) return;
       if (!result.ok) {
         setInspectPreview(null);
         return;
@@ -161,6 +183,7 @@ export function ContentPostLinkForm({
       // (input ด้านล่างเป็น controlled ปกติ, onChange ของมันไม่ถูกแตะที่นี่)
       if (result.data.postedAt) {
         setPostedAtInput(isoToBangkokInputValue(result.data.postedAt));
+        dateAutoFilledForRef.current = trimmed;
       }
     });
   }
@@ -181,6 +204,14 @@ export function ContentPostLinkForm({
     const iso = bangkokInputToIso(postedAtInput);
     if (!iso) {
       toast.push("รูปแบบวันที่ไม่ถูกต้อง", "error");
+      return;
+    }
+    // 🔴 H-1 fix (security รอบ 4, 27 ก.ย. 69): วันที่ในช่องอาจถูกเติมมาจาก
+    // ลิงก์คลิปอื่น (แก้ข้อความ URL หลัง auto-fill โดยไม่ได้ blur/paste ซ้ำ
+    // ให้ inspect ใหม่ทัน) — บล็อกแล้วให้ผู้ใช้ตรวจ/แก้วันที่เอง ดีกว่าปล่อย
+    // ให้บันทึกวันที่ของคลิปอื่นทับเข้าไปเงียบๆ
+    if (autoFilledDateMismatch(dateAutoFilledForRef.current, trimmedUrl)) {
+      toast.push("วันที่โพสต์นี้ถูกเติมมาจากลิงก์อื่น — ตรวจวันที่ให้ตรงกับลิงก์นี้ก่อนบันทึก", "error");
       return;
     }
     startTransition(async () => {
@@ -415,6 +446,13 @@ export function ContentPostLinkForm({
             // ล้าง preview ทันทีที่แก้ข้อความ — กันบรรทัดยืนยัน/แคปชั่นเก่า
             // ค้างแสดงคู่กับลิงก์ใหม่ที่ยังไม่ได้ตรวจ
             setInspectPreview(null);
+            // 🔴 H-1 fix: ล้าง lastInspectedUrlRef ด้วย (ไม่ใช่แค่ preview) —
+            // ข้อความเปลี่ยนแล้ว ของเดิมไม่ valid อีกต่อไป ให้ blur/paste
+            // ครั้งหน้า inspect ใหม่จริง ไม่ใช่ถูก guard ว่า "ยังเป็น url เดิม"
+            // 🔴 ตั้งใจ "ไม่" ล้าง dateAutoFilledForRef ที่นี่ — ต้องปล่อยให้
+            // ค้างชี้ไปที่ URL เก่า เพื่อให้ autoFilledDateMismatch ที่
+            // handleSubmit ตรวจพบความไม่ตรงกันได้ (ดูคอมเมนต์ตรง ref นั้น)
+            lastInspectedUrlRef.current = null;
           }}
           onBlur={() => runInspect(postUrl)}
           onPaste={handleUrlPaste}
@@ -451,7 +489,11 @@ export function ContentPostLinkForm({
           id={`cplf-postedat-${artifactId ?? "new"}`}
           type="datetime-local"
           value={postedAtInput}
-          onChange={(e) => setPostedAtInput(e.target.value)}
+          onChange={(e) => {
+            setPostedAtInput(e.target.value);
+            // ผู้ใช้แก้เอง — ไม่ผูกกับ auto-fill ของ url ไหนอีกต่อไป
+            dateAutoFilledForRef.current = null;
+          }}
           required
           className="min-h-11 w-full rounded-md border border-zinc-300 px-3 text-sm focus:border-primary-500 focus:outline-none"
         />
@@ -469,7 +511,10 @@ export function ContentPostLinkForm({
         >
           ยกเลิก
         </Button>
-        <Button type="submit" size="sm" loading={pending}>
+        {/* disabled ระหว่าง inspectPending ด้วย (security รอบ 4, M-related) —
+            กันกดบันทึกขณะกำลังรอผล inspect อยู่ ซึ่งเป็นช่วงที่ dateAutoFilledForRef
+            ยังไม่นิ่ง */}
+        <Button type="submit" size="sm" loading={pending} disabled={inspectPending}>
           บันทึก
         </Button>
       </div>
