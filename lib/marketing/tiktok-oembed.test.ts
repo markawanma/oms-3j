@@ -96,6 +96,24 @@ describe("fetchTikTokOEmbed — 🔴 caption too long is truncated, never reject
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.caption).toBe(exactTitle);
   });
+
+  // 🔴 M-3 fix (security รอบ 4, 27 ก.ย. 69) — integration-level proof that
+  // the surrogate-pair-safe truncateUtf16Safe (lib/marketing/text-safe-
+  // truncate.ts, unit-tested on its own) is actually WIRED IN here, not just
+  // correct in isolation.
+  it("a title with an emoji straddling the 500-char cut point never produces a lone surrogate", async () => {
+    const emoji = "\u{1F600}"; // 😀 — 2 UTF-16 code units
+    const title = "a".repeat(499) + emoji; // 501 code units total
+    stubFetch(jsonResponse({ title, author_name: null }));
+    const result = await fetchTikTokOEmbed(CANONICAL_URL);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      // Whole emoji dropped, never a half-emoji lone surrogate left dangling.
+      expect(result.caption).toBe("a".repeat(499));
+      const lastCode = result.caption?.charCodeAt((result.caption?.length ?? 1) - 1);
+      expect(lastCode).not.toBeGreaterThanOrEqual(0xd800);
+    }
+  });
 });
 
 describe("fetchTikTokOEmbed — 🔴 failures must never throw, and never block saving (caller contract)", () => {

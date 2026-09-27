@@ -25,6 +25,7 @@
 // `caption: null, authorName: null` and keep going.
 
 import { parseCanonicalTikTokPostUrl, SHORT_LINK_USER_AGENT } from "./tiktok-link";
+import { truncateUtf16Safe } from "./text-safe-truncate";
 
 /** Result of fetchTikTokOEmbed(). Deliberately has NO `error` field on the
  * failure branch — see the module header for why (nothing actionable to
@@ -49,8 +50,14 @@ const OEMBED_TIMEOUT_MS = 4000;
  * reasonable, consistent ceiling for a single line of free text. */
 const CAPTION_MAX_LEN = 500;
 
+/** 🔴 M-3 fix (security รอบ 4, 27 ก.ย. 69): the naive `raw.slice(0,
+ * CAPTION_MAX_LEN)` this used to be can cut a surrogate pair (emoji) in
+ * half, producing a malformed string that fails the WHOLE upsert when
+ * serialized — see lib/marketing/text-safe-truncate.ts's header for the
+ * full writeup. That directly broke this feature's own rule that oEmbed
+ * must never block saving. */
 function truncateCaption(raw: string): string {
-  return raw.length > CAPTION_MAX_LEN ? raw.slice(0, CAPTION_MAX_LEN) : raw;
+  return truncateUtf16Safe(raw, CAPTION_MAX_LEN);
 }
 
 /** True only when `oembedUrl` is a request this module is willing to send —

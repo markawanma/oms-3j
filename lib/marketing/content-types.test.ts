@@ -268,6 +268,40 @@ describe("buildContentPostUpsertParams — canonicalPostUrl, never rawPostUrl", 
     expect(params.p_artifact_id).toBeNull();
     expect(params.p_caption).toBeNull();
   });
+
+  // 🔴 L-1 fix (security รอบ 4, 27 ก.ย. 69): defense-in-depth at the point
+  // captions get WRITTEN, independent of tiktok-oembed.ts's own cap at the
+  // point they're PRODUCED — a future caller that skips oEmbed entirely
+  // must still be capped here.
+  it("caption longer than 500 chars is truncated to exactly 500", () => {
+    const params = buildContentPostUpsertParams("shop-1", "https://www.tiktok.com/@x/video/1", {
+      platform: "tiktok",
+      postedAt: "2026-09-26T10:00:00+07:00",
+      caption: "ก".repeat(600),
+    });
+    expect(params.p_caption).toHaveLength(500);
+  });
+
+  it("an emoji straddling the 500-char cut point never produces a lone surrogate (same M-3 fix, applied here too)", () => {
+    const emoji = "\u{1F600}";
+    const params = buildContentPostUpsertParams("shop-1", "https://www.tiktok.com/@x/video/1", {
+      platform: "tiktok",
+      postedAt: "2026-09-26T10:00:00+07:00",
+      caption: "a".repeat(499) + emoji,
+    });
+    expect(params.p_caption).toBe("a".repeat(499));
+  });
+
+  it("a non-string caption (defensive — future caller could send anything at runtime) becomes null, never throws", () => {
+    const params = buildContentPostUpsertParams("shop-1", "https://www.tiktok.com/@x/video/1", {
+      platform: "tiktok",
+      postedAt: "2026-09-26T10:00:00+07:00",
+      // @ts-expect-error — deliberately passing a wrong runtime type to prove
+      // the `typeof` guard, not the TS type, is what actually protects this.
+      caption: 12345,
+    });
+    expect(params.p_caption).toBeNull();
+  });
 });
 
 describe("isPostableArtifactType", () => {
