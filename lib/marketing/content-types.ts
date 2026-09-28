@@ -6,6 +6,7 @@
 // (Thai label maps, enums mirroring DB CHECK constraints exactly).
 
 import { truncateUtf16Safe } from "./text-safe-truncate";
+import type { ContentKpiState } from "./content-kpi";
 
 /** Mirrors content_post.platform / content_post_metric CHECK constraints
  * (0148 §1). Keep in sync if a platform is ever added there. */
@@ -96,6 +97,33 @@ export interface ContentPostHistoryRow {
   contentTypeCode: string | null;
   captionSnapshot: string | null;
   latestMetric: ContentPostHistoryMetric | null;
+}
+
+// ---- /marketing/content/history/[postId] (ดู KPI ของคลิป + suggestion) --
+
+/** Header/display fields for one post's KPI detail page — present
+ * regardless of which lib/marketing/content-kpi.ts ContentKpiState the post
+ * is currently in. Sourced from analytics.content_post directly (NOT
+ * v_content_post_t7 — that view doesn't select caption_snapshot at all, see
+ * 0149's column list), while every NUMBER on the page comes from
+ * v_content_post_t7 only (screen design §3.2: never "latest", always T+7). */
+export interface ContentPostKpiHeader {
+  postId: string;
+  platform: ContentPlatform;
+  postUrl: string;
+  postedAt: string;
+  postedDateTh: string;
+  contentTypeCode: string | null;
+  captionSnapshot: string | null;
+}
+
+/** getContentPostKpiDetail's success payload — `null` means "not found"
+ * (postId doesn't exist, isn't active, or wasn't even a valid UUID), same
+ * "ok:true, data:null, page checks !data" convention as
+ * lib/actions/calendar.ts's getCalendarTask. */
+export interface ContentPostKpiDetail {
+  header: ContentPostKpiHeader;
+  state: ContentKpiState;
 }
 
 /** One row of analytics.content_post — used for the "already linked" state

@@ -1,4 +1,5 @@
-import { ExternalLink } from "lucide-react";
+import Link from "next/link";
+import { BarChart3, ExternalLink } from "lucide-react";
 import type { ContentPostHistoryRow, ContentTypeRow } from "@/lib/marketing/content-types";
 import { PLATFORM_LABEL } from "@/lib/marketing/content-types";
 import { formatCount, formatThaiDateOnly } from "@/lib/tiktok/format";
@@ -44,6 +45,9 @@ export function ContentPostHistoryTable({
               </th>
               <th scope="col" className="py-2">
                 ตัวเลขล่าสุดที่กรอก
+              </th>
+              <th scope="col" className="py-2 pl-3 text-center">
+                ดู KPI
               </th>
             </tr>
           </thead>
@@ -95,6 +99,16 @@ export function ContentPostHistoryTable({
                     ) : (
                       <span className="text-xs text-zinc-400">ยังไม่มีตัวเลข</span>
                     )}
+                  </td>
+                  <td className="py-2 pl-3 text-center">
+                    <Link
+                      href={`/marketing/content/history/${row.postId}`}
+                      title="ดู KPI ของคลิปนี้"
+                      aria-label="ดู KPI ของคลิปนี้"
+                      className="inline-flex min-h-9 min-w-9 items-center justify-center rounded-md text-primary-700 hover:bg-primary-50 hover:text-primary-800"
+                    >
+                      <BarChart3 className="h-4 w-4" aria-hidden="true" />
+                    </Link>
                   </td>
                 </tr>
               );

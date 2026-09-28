@@ -24,6 +24,7 @@ import {
   type ContentPlatform,
   type ContentPostHistoryMetric,
   type ContentPostHistoryRow,
+  type ContentPostKpiDetail,
   type ContentPostStatus,
   type ContentPostSummary,
   type ContentTypeRow,
@@ -33,9 +34,17 @@ import {
   mapContentPostRpcError,
   mapContentPostUpdateTypeRpcError,
 } from "@/lib/marketing/content-errors";
+import {
+  addDaysToDateStr,
+  computeMean,
+  computeMedian,
+  determineContentKpiState,
+  type ClipT7Metrics,
+} from "@/lib/marketing/content-kpi";
 import { canonicalizeTikTokLink, parseCanonicalTikTokPostUrl } from "@/lib/marketing/tiktok-link";
 import { extractPostedAtFromTikTokVideoId } from "@/lib/marketing/tiktok-post-date";
 import { fetchTikTokOEmbed } from "@/lib/marketing/tiktok-oembed";
+import { effectiveDateBangkok } from "@/lib/tiktok/format";
 import { readErrorCode, readErrorMessage, redactUrls } from "@/lib/supabase/postgrest-error";
 
 const SCHEMA = "analytics";
@@ -305,6 +314,201 @@ export async function getContentPostHistory(): Promise<ActionResult<ContentPostH
   } catch (err) {
     console.error("getContentPostHistory failed", err);
     return { ok: false, error: "โหลดประวัติโพสต์ไม่สำเร็จ ลองใหม่อีกครั้ง" };
+  }
+}
+
+// ============================================================================
+// Read — /marketing/content/history/[postId] (ดู KPI ของคลิป + suggestion)
+// content-kpi-screen-design.md §9.2. All the DECIDING happens in
+// lib/marketing/content-kpi.ts's determineContentKpiState() (pure,
+// unit-tested) — this action does 100% of the fetching and 0% of the
+// judgment calls.
+// ============================================================================
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function isValidUuid(s: string): boolean {
+  return UUID_RE.test(s);
+}
+
+/** §4.1's "10 คลิปล่าสุดทั้งช่อง" comparison set size. Also doubles as the
+ * `count: "exact"` query whose count (unaffected by `.limit()` — PostgREST
+ * computes it over the full filtered set, see lib/supabase/query-limits.ts's
+ * header for the mechanics) IS the §4 state table row 4 gate — one query
+ * serves both jobs, no separate count-only round trip needed. */
+const COMPARISON_SET_SIZE = 10;
+
+/** Defensive cap on the channel-wide "format count/average + rolling-28-day
+ * baseline" fetch (query 4) — same reasoning as this file's own
+ * HISTORY_LIMIT above: at current posting cadence it would take years to
+ * accumulate this many valid-T7 posts channel-wide. 500 is comfortably
+ * under PostgREST's own 1000-row max-rows ceiling on this project (see
+ * lib/supabase/query-limits.ts's header — a `.limit()` below that ceiling
+ * completes in one request, no pagination needed). Revisit with
+ * fetchAllRows() if/when real data approaches this. */
+const FORMAT_BASELINE_QUERY_LIMIT = 500;
+
+const ROLLING_BASELINE_DAYS = 28;
+
+/** /marketing/content/history/[postId]'s full state — header + everything
+ * needed to render whichever of the 6 states in content-kpi-screen-design.md
+ * §4 this post is currently in. Exactly 4 independent Supabase queries
+ * (content_post header, this post's T+7 row, the 10-clip comparison set,
+ * the channel-wide format/baseline set) run in parallel — NONE of them are
+ * per-comparison-clip, so this stays O(1) regardless of how many clips
+ * exist to compare against (content-kpi.ts's own median/mean helpers do the
+ * arithmetic once each query's rows are in hand). */
+export async function getContentPostKpiDetail(postId: string): Promise<ActionResult<ContentPostKpiDetail | null>> {
+  const gateErr = await requireOwnerAdmin();
+  if (gateErr) return gateErr;
+
+  // Invalid shape can never match a real row — skip the round trip
+  // entirely and report the SAME "not found" shape the page already
+  // handles, rather than a separate error class the page would need a
+  // second branch for.
+  if (!postId || !isValidUuid(postId)) {
+    return { ok: true, data: null };
+  }
+
+  try {
+    const shopId = getDevShopId();
+    const supabase = getServiceClient();
+
+    const [postResult, targetT7Result, comparisonResult, formatWideResult] = await Promise.all([
+      supabase
+        .schema(SCHEMA)
+        .from("content_post")
+        .select("id, platform, post_url, posted_at, posted_date_th, content_type_code, caption_snapshot")
+        .eq("shop_id", shopId)
+        .eq("id", postId)
+        .eq("status", "active")
+        .maybeSingle(),
+      supabase
+        .schema(SCHEMA)
+        .from("v_content_post_t7")
+        .select(
+          "t7_view_count, t7_like_count, t7_comment_count, t7_save_count, t7_share_count, t7_captured_on, save_rate, share_rate, t7_unavailable_reason"
+        )
+        .eq("shop_id", shopId)
+        .eq("post_id", postId)
+        .maybeSingle(),
+      // Comparison set — active posts only. v_content_post_t7 (0149) has NO
+      // status filter of its own (it's a bare left join over all of
+      // content_post), so a deleted/private post would otherwise pollute
+      // the median a real, visible clip gets judged against.
+      supabase
+        .schema(SCHEMA)
+        .from("v_content_post_t7")
+        .select("t7_view_count, save_rate", { count: "exact" })
+        .eq("shop_id", shopId)
+        .eq("status", "active")
+        .is("t7_unavailable_reason", null)
+        .order("posted_at", { ascending: false })
+        .limit(COMPARISON_SET_SIZE),
+      // Channel-wide, all-time (no rolling window) — reused for BOTH the
+      // format count/average (§4 state table row 5's gate names no window)
+      // AND, filtered client-side by posted_date_th, the rolling-28-day
+      // baseline row 7 compares the format against (§11 decision #4). One
+      // fetch, two client-side filters — not two round trips for two
+      // overlapping row sets.
+      supabase
+        .schema(SCHEMA)
+        .from("v_content_post_t7")
+        .select("content_type_code, save_rate, posted_date_th")
+        .eq("shop_id", shopId)
+        .eq("status", "active")
+        .is("t7_unavailable_reason", null)
+        .order("posted_at", { ascending: false })
+        .limit(FORMAT_BASELINE_QUERY_LIMIT),
+    ]);
+
+    if (postResult.error) throw postResult.error;
+    if (!postResult.data) return { ok: true, data: null };
+    if (targetT7Result.error) throw targetT7Result.error;
+    if (comparisonResult.error) throw comparisonResult.error;
+    if (formatWideResult.error) throw formatWideResult.error;
+
+    const postRow = postResult.data as Record<string, unknown>;
+    const t7Row = targetT7Result.data as Record<string, unknown> | null;
+    if (!t7Row) {
+      // content_post row exists (checked above) but v_content_post_t7 has
+      // no matching row — shouldn't happen (that view is a left join FROM
+      // content_post, every post has exactly one row there). Fail toward an
+      // honest error, not a silently wrong render.
+      console.error("getContentPostKpiDetail: content_post row has no matching v_content_post_t7 row", { postId });
+      return { ok: false, error: "โหลดตัวเลข KPI ไม่สำเร็จ ลองใหม่อีกครั้ง" };
+    }
+
+    const todayDateTh = effectiveDateBangkok(new Date().toISOString());
+    const t7UnavailableReason = (t7Row.t7_unavailable_reason as string | null) ?? null;
+
+    const clip: ClipT7Metrics | null = t7UnavailableReason
+      ? null
+      : {
+          viewCount: (t7Row.t7_view_count as number | null) ?? null,
+          likeCount: (t7Row.t7_like_count as number | null) ?? null,
+          commentCount: (t7Row.t7_comment_count as number | null) ?? null,
+          saveCount: (t7Row.t7_save_count as number | null) ?? null,
+          shareCount: (t7Row.t7_share_count as number | null) ?? null,
+          saveRate: (t7Row.save_rate as number | null) ?? null,
+          shareRate: (t7Row.share_rate as number | null) ?? null,
+          capturedOn: (t7Row.t7_captured_on as string | null) ?? null,
+        };
+
+    const comparisonRows = (comparisonResult.data ?? []) as Record<string, unknown>[];
+    const comparisonViewMedian = computeMedian(
+      comparisonRows.map((r) => r.t7_view_count as number | null).filter((v): v is number => v !== null)
+    );
+    const comparisonSaveMedian = computeMedian(
+      comparisonRows.map((r) => r.save_rate as number | null).filter((v): v is number => v !== null)
+    );
+
+    const targetContentTypeCode = (postRow.content_type_code as string | null) ?? null;
+    const formatWideRows = (formatWideResult.data ?? []) as Record<string, unknown>[];
+    const formatRows = formatWideRows.filter((r) => (r.content_type_code as string | null) === targetContentTypeCode);
+    const formatCount = formatRows.length;
+    const formatMeanSaveRate = computeMean(
+      formatRows.map((r) => r.save_rate as number | null).filter((v): v is number => v !== null)
+    );
+
+    const baselineCutoff = addDaysToDateStr(todayDateTh, -ROLLING_BASELINE_DAYS);
+    const baselineMedianSaveRate = computeMedian(
+      formatWideRows
+        .filter((r) => (r.posted_date_th as string) >= baselineCutoff)
+        .map((r) => r.save_rate as number | null)
+        .filter((v): v is number => v !== null)
+    );
+
+    const state = determineContentKpiState({
+      t7UnavailableReason,
+      postedDateTh: String(postRow.posted_date_th),
+      todayDateTh,
+      clip,
+      globalCount: comparisonResult.count ?? 0,
+      comparisonViewMedian,
+      comparisonSaveMedian,
+      formatCount,
+      formatMeanSaveRate,
+      baselineMedianSaveRate,
+    });
+
+    return {
+      ok: true,
+      data: {
+        header: {
+          postId: String(postRow.id),
+          platform: postRow.platform as ContentPlatform,
+          postUrl: String(postRow.post_url),
+          postedAt: String(postRow.posted_at),
+          postedDateTh: String(postRow.posted_date_th),
+          contentTypeCode: targetContentTypeCode,
+          captionSnapshot: (postRow.caption_snapshot as string | null) ?? null,
+        },
+        state,
+      },
+    };
+  } catch (err) {
+    console.error("getContentPostKpiDetail failed", err);
+    return { ok: false, error: "โหลดข้อมูล KPI ไม่สำเร็จ ลองใหม่อีกครั้ง" };
   }
 }
 
