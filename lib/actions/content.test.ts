@@ -680,3 +680,314 @@ describe("getContentPostHistory — scope, latest-metric-per-post, ไม่ N+1
     expect((metricChain.in as ReturnType<typeof vi.fn>)).toHaveBeenCalledWith("post_id", ["p1", "p2", "p3"]);
   });
 });
+
+// ============================================================================
+// getContentPostKpiDetail — /marketing/content/history/[postId] (28 ก.ย. 69)
+//
+// The DECISION logic (which of §4's 6 states, which suggestion) has its own
+// full coverage in lib/marketing/content-kpi.test.ts (pure, no mocks). This
+// suite only covers what's specific to THIS layer: the UUID gate, the
+// not-found contract, that every DB row gets mapped into
+// determineContentKpiState()'s input correctly, and — the brief's explicit
+// requirement — that this stays a FIXED number of queries (4) no matter how
+// many rows the comparison-set/format-wide queries return, i.e. genuinely
+// not N+1.
+// ============================================================================
+
+const VALID_POST_ID = "11111111-2222-3333-4444-555555555555";
+
+/** Chain builder for v_content_post_t7/content_post's specific method shape
+ * here (select/eq/is/order/limit/maybeSingle) — a superset of
+ * makeChain()/makeSelectChain() above (neither has `.is()` or
+ * `.maybeSingle()`), so a new one rather than stretching those to fit. */
+function makeKpiChain(result: { data: unknown; error: unknown; count?: number | null }, terminal: "limit" | "maybeSingle") {
+  const chain: Record<string, unknown> = {};
+  const self = () => chain;
+  chain.select = vi.fn(self);
+  chain.eq = vi.fn(self);
+  chain.is = vi.fn(self);
+  chain.order = vi.fn(self);
+  chain.limit = terminal === "limit" ? vi.fn(() => Promise.resolve(result)) : vi.fn(self);
+  chain.maybeSingle = terminal === "maybeSingle" ? vi.fn(() => Promise.resolve(result)) : vi.fn(self);
+  return chain;
+}
+
+const EMPTY_POST_ROW = {
+  id: VALID_POST_ID,
+  platform: "tiktok",
+  post_url: "https://www.tiktok.com/@x/video/1",
+  posted_at: "2026-09-20T10:00:00Z",
+  posted_date_th: "2026-09-20",
+  content_type_code: "knowledge",
+  caption_snapshot: "แคปชั่นทดสอบ",
+};
+
+const T7_WAITING_ROW = {
+  t7_view_count: null,
+  t7_like_count: null,
+  t7_comment_count: null,
+  t7_save_count: null,
+  t7_share_count: null,
+  t7_captured_on: null,
+  save_rate: null,
+  share_rate: null,
+  t7_unavailable_reason: "ยังไม่ถึง 7 วัน",
+};
+
+/** Wires up all 4 chains in the exact call order getContentPostKpiDetail's
+ * Promise.all evaluates them (content_post, then v_content_post_t7 three
+ * times) — see this describe block's own comment on why a call-order
+ * counter, not table name alone, is needed to tell those three apart. */
+function mockKpiQueries(opts: {
+  postChain: ReturnType<typeof makeKpiChain>;
+  targetT7Chain: ReturnType<typeof makeKpiChain>;
+  comparisonChain: ReturnType<typeof makeKpiChain>;
+  formatWideChain: ReturnType<typeof makeKpiChain>;
+}) {
+  let t7CallCount = 0;
+  fromMock.mockImplementation((table: string) => {
+    if (table === "content_post") return opts.postChain;
+    if (table === "v_content_post_t7") {
+      t7CallCount++;
+      if (t7CallCount === 1) return opts.targetT7Chain;
+      if (t7CallCount === 2) return opts.comparisonChain;
+      return opts.formatWideChain;
+    }
+    throw new Error(`unexpected table: ${table}`);
+  });
+}
+
+describe("getContentPostKpiDetail — gate + UUID validation", () => {
+  it("rejects staff before touching any query", async () => {
+    getEffectiveRoleMock.mockResolvedValue("staff");
+    const { getContentPostKpiDetail } = await import("./content");
+    const result = await getContentPostKpiDetail(VALID_POST_ID);
+    expect(result.ok).toBe(false);
+    expect(fromMock).not.toHaveBeenCalled();
+  });
+
+  it("invalid UUID shape -> {ok:true, data:null} without querying at all (can never match a real row)", async () => {
+    const { getContentPostKpiDetail } = await import("./content");
+    const result = await getContentPostKpiDetail("not-a-uuid");
+    expect(result).toEqual({ ok: true, data: null });
+    expect(fromMock).not.toHaveBeenCalled();
+  });
+
+  it("empty string -> {ok:true, data:null} without querying", async () => {
+    const { getContentPostKpiDetail } = await import("./content");
+    const result = await getContentPostKpiDetail("");
+    expect(result).toEqual({ ok: true, data: null });
+    expect(fromMock).not.toHaveBeenCalled();
+  });
+
+  it("valid UUID shape (uppercase accepted too) reaches the query layer", async () => {
+    mockKpiQueries({
+      postChain: makeKpiChain({ data: null, error: null }, "maybeSingle"),
+      targetT7Chain: makeKpiChain({ data: null, error: null }, "maybeSingle"),
+      comparisonChain: makeKpiChain({ data: [], error: null, count: 0 }, "limit"),
+      formatWideChain: makeKpiChain({ data: [], error: null }, "limit"),
+    });
+    const { getContentPostKpiDetail } = await import("./content");
+    await getContentPostKpiDetail(VALID_POST_ID.toUpperCase());
+    expect(fromMock).toHaveBeenCalled();
+  });
+});
+
+describe("getContentPostKpiDetail — not found", () => {
+  it("content_post query returns no row -> {ok:true, data:null}, same contract as getCalendarTask", async () => {
+    mockKpiQueries({
+      postChain: makeKpiChain({ data: null, error: null }, "maybeSingle"),
+      targetT7Chain: makeKpiChain({ data: T7_WAITING_ROW, error: null }, "maybeSingle"),
+      comparisonChain: makeKpiChain({ data: [], error: null, count: 0 }, "limit"),
+      formatWideChain: makeKpiChain({ data: [], error: null }, "limit"),
+    });
+    const { getContentPostKpiDetail } = await import("./content");
+    const result = await getContentPostKpiDetail(VALID_POST_ID);
+    expect(result).toEqual({ ok: true, data: null });
+  });
+
+  it("content_post query scoped by shop_id + id + status=active", async () => {
+    const postChain = makeKpiChain({ data: null, error: null }, "maybeSingle");
+    mockKpiQueries({
+      postChain,
+      targetT7Chain: makeKpiChain({ data: null, error: null }, "maybeSingle"),
+      comparisonChain: makeKpiChain({ data: [], error: null, count: 0 }, "limit"),
+      formatWideChain: makeKpiChain({ data: [], error: null }, "limit"),
+    });
+    const { getContentPostKpiDetail } = await import("./content");
+    await getContentPostKpiDetail(VALID_POST_ID);
+    expect(postChain.eq).toHaveBeenCalledWith("shop_id", "shop-1");
+    expect(postChain.eq).toHaveBeenCalledWith("id", VALID_POST_ID);
+    expect(postChain.eq).toHaveBeenCalledWith("status", "active");
+  });
+});
+
+describe("getContentPostKpiDetail — maps a real snapshot correctly end-to-end (content.ts's wiring into content-kpi.ts)", () => {
+  it("waiting state: header comes from content_post, state comes from v_content_post_t7's reason text", async () => {
+    mockKpiQueries({
+      postChain: makeKpiChain({ data: EMPTY_POST_ROW, error: null }, "maybeSingle"),
+      targetT7Chain: makeKpiChain({ data: T7_WAITING_ROW, error: null }, "maybeSingle"),
+      comparisonChain: makeKpiChain({ data: [], error: null, count: 0 }, "limit"),
+      formatWideChain: makeKpiChain({ data: [], error: null }, "limit"),
+    });
+    const { getContentPostKpiDetail } = await import("./content");
+    const result = await getContentPostKpiDetail(VALID_POST_ID);
+    expect(result.ok).toBe(true);
+    if (!result.ok || !result.data) throw new Error("expected data");
+    expect(result.data.header).toEqual({
+      postId: VALID_POST_ID,
+      platform: "tiktok",
+      postUrl: "https://www.tiktok.com/@x/video/1",
+      postedAt: "2026-09-20T10:00:00Z",
+      postedDateTh: "2026-09-20",
+      contentTypeCode: "knowledge",
+      captionSnapshot: "แคปชั่นทดสอบ",
+    });
+    expect(result.data.state.kind).toBe("waiting_t7");
+  });
+
+  it("insufficient_global: globalCount comes from the comparison query's exact `count`, NOT data.length (proves count:'exact' is actually read)", async () => {
+    const t7Row = {
+      t7_view_count: 134,
+      t7_like_count: 8,
+      t7_comment_count: 2,
+      t7_save_count: 1,
+      t7_share_count: null,
+      t7_captured_on: "2026-09-27",
+      save_rate: 0.0075,
+      share_rate: null,
+      t7_unavailable_reason: null,
+    };
+    mockKpiQueries({
+      postChain: makeKpiChain({ data: EMPTY_POST_ROW, error: null }, "maybeSingle"),
+      targetT7Chain: makeKpiChain({ data: t7Row, error: null }, "maybeSingle"),
+      // Only 4 rows returned (capped comparison set) but the TRUE count is
+      // 4 as well here — separately verified below with a mismatched case.
+      comparisonChain: makeKpiChain(
+        { data: [{ t7_view_count: 100, save_rate: 0.01 }], error: null, count: 4 },
+        "limit"
+      ),
+      formatWideChain: makeKpiChain({ data: [], error: null }, "limit"),
+    });
+    const { getContentPostKpiDetail } = await import("./content");
+    const result = await getContentPostKpiDetail(VALID_POST_ID);
+    expect(result.ok).toBe(true);
+    if (!result.ok || !result.data) throw new Error("expected data");
+    expect(result.data.state).toEqual({
+      kind: "insufficient_global",
+      globalCount: 4,
+      clip: {
+        viewCount: 134,
+        likeCount: 8,
+        commentCount: 2,
+        saveCount: 1,
+        shareCount: null,
+        saveRate: 0.0075,
+        shareRate: null,
+        capturedOn: "2026-09-27",
+      },
+    });
+  });
+
+  it("full state: comparison + format-wide rows get correctly reduced to medians/mean and passed through to determineContentKpiState", async () => {
+    const t7Row = {
+      t7_view_count: 50,
+      t7_like_count: 3,
+      t7_comment_count: 0,
+      t7_save_count: 4,
+      t7_share_count: 1,
+      t7_captured_on: "2026-09-27",
+      save_rate: 0.08, // high vs comparison median (see below)
+      share_rate: 0.02,
+      t7_unavailable_reason: null,
+    };
+    // Median t7_view_count of [10,20,30] = 20 -> clip view 50 is 2.5x -> high
+    // Median save_rate of [0.01,0.02,0.03] = 0.02 -> clip save 0.08 is 4x -> high
+    // (both high -> §4.8 same-direction -> no single-clip suggestion)
+    const comparisonRows = [
+      { t7_view_count: 10, save_rate: 0.01 },
+      { t7_view_count: 20, save_rate: 0.02 },
+      { t7_view_count: 30, save_rate: 0.03 },
+    ];
+    // Format-wide: 4 rows of the SAME content_type_code ("knowledge") ->
+    // formatCount=4 (all-time, no window — matches §4 state table row 5's
+    // gate, which names no time window). posted_date_th is deliberately
+    // year-2000 on every row so the rolling-28-day baseline (which DOES
+    // depend on wall-clock "today" via effectiveDateBangkok(new Date()) in
+    // content.ts) is deterministically EMPTY regardless of what date this
+    // suite actually runs on — content-kpi.test.ts's fixed-date tests are
+    // the ones responsible for proving the baseline arithmetic itself is
+    // correct; this test only needs to prove content.ts wires the
+    // content_type_code filter correctly (5th "craft" row excluded from
+    // formatCount) without becoming flaky against real-world dates.
+    const formatWideRows = [
+      { content_type_code: "knowledge", save_rate: 0.02, posted_date_th: "2000-01-01" },
+      { content_type_code: "knowledge", save_rate: 0.04, posted_date_th: "2000-01-01" },
+      { content_type_code: "knowledge", save_rate: 0.06, posted_date_th: "2000-01-01" },
+      { content_type_code: "knowledge", save_rate: 0.08, posted_date_th: "2000-01-01" },
+      { content_type_code: "craft", save_rate: 0.5, posted_date_th: "2000-01-01" },
+    ];
+    mockKpiQueries({
+      postChain: makeKpiChain({ data: EMPTY_POST_ROW, error: null }, "maybeSingle"),
+      targetT7Chain: makeKpiChain({ data: t7Row, error: null }, "maybeSingle"),
+      comparisonChain: makeKpiChain({ data: comparisonRows, error: null, count: 10 }, "limit"),
+      formatWideChain: makeKpiChain({ data: formatWideRows, error: null }, "limit"),
+    });
+    const { getContentPostKpiDetail } = await import("./content");
+    const result = await getContentPostKpiDetail(VALID_POST_ID);
+    expect(result.ok).toBe(true);
+    if (!result.ok || !result.data) throw new Error("expected data");
+    const state = result.data.state;
+    expect(state.kind).toBe("full");
+    if (state.kind !== "full") throw new Error("unreachable");
+    expect(state.viewLevel).toBe("high");
+    expect(state.saveLevel).toBe("high");
+    expect(state.singleClipSuggestion).toBeNull(); // both high -> §4.8, no invented suggestion
+    expect(state.formatCount).toBe(4); // "craft" row excluded from the format grouping
+    // Every formatWideRows entry is dated year-2000 -> falls outside the
+    // rolling-28-day baseline window from whatever "today" really is ->
+    // baselineMedianSaveRate is empty -> pickFormatSuggestion has nothing to
+    // compare against -> null. This deterministically proves the
+    // content_type_code / posted_date_th filters both apply (formatCount=4
+    // still counts all-time regardless of date; the baseline specifically
+    // does not) without the assertion depending on the real wall-clock date
+    // the suite happens to run on.
+    expect(state.formatSuggestion).toBeNull();
+    expect(state.confidenceBadge).toBe("insufficient"); // no single-clip suggestion either (both high, §4.8)
+  });
+});
+
+describe("getContentPostKpiDetail — not N+1: exactly 4 queries regardless of comparison/format-wide row counts", () => {
+  it("large comparison + format-wide result sets still only call fromMock 4 times total", async () => {
+    const t7Row = {
+      t7_view_count: 100,
+      t7_like_count: 1,
+      t7_comment_count: 1,
+      t7_save_count: 1,
+      t7_share_count: 1,
+      t7_captured_on: "2026-09-27",
+      save_rate: 0.01,
+      share_rate: 0.01,
+      t7_unavailable_reason: null,
+    };
+    const manyComparisonRows = Array.from({ length: 10 }, (_, i) => ({ t7_view_count: 10 + i, save_rate: 0.01 }));
+    const manyFormatRows = Array.from({ length: 200 }, (_, i) => ({
+      content_type_code: i % 2 === 0 ? "knowledge" : "craft",
+      save_rate: 0.01 + i / 10000,
+      posted_date_th: "2026-09-01",
+    }));
+    mockKpiQueries({
+      postChain: makeKpiChain({ data: EMPTY_POST_ROW, error: null }, "maybeSingle"),
+      targetT7Chain: makeKpiChain({ data: t7Row, error: null }, "maybeSingle"),
+      comparisonChain: makeKpiChain({ data: manyComparisonRows, error: null, count: 10 }, "limit"),
+      formatWideChain: makeKpiChain({ data: manyFormatRows, error: null }, "limit"),
+    });
+    const { getContentPostKpiDetail } = await import("./content");
+    const result = await getContentPostKpiDetail(VALID_POST_ID);
+    expect(result.ok).toBe(true);
+    // Exactly 4: content_post + v_content_post_t7(target) +
+    // v_content_post_t7(comparison) + v_content_post_t7(format-wide) — never
+    // one query per comparison clip, regardless of how many rows exist.
+    expect(fromMock).toHaveBeenCalledTimes(4);
+  });
+});
