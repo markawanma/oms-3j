@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BarChart3, Tags } from "lucide-react";
+import { BarChart3, Radio, Tags } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 // 10 ก.ย. 69: ตัด 2 แท็บออกพร้อมกับที่ซ่อน/ลบในเมนูหลัก (DashboardShell.tsx)
@@ -16,6 +16,7 @@ import type { LucideIcon } from "lucide-react";
 //    แท็บกลับมา ต้องเช็คว่าไฟล์ page.tsx ปลายทางมีอยู่จริงด้วยตาเอง
 const TABS: { href: string; label: string; icon: LucideIcon }[] = [
   { href: "/tiktok/dashboard", label: "แดชบอร์ด", icon: BarChart3 },
+  { href: "/tiktok/live-log", label: "จดไลฟ์", icon: Radio },
   { href: "/tiktok/upload", label: "อัปโหลด", icon: Tags },
 ];
 

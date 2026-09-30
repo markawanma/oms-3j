@@ -82,6 +82,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: "TikTok Ops",
     items: [
       { href: "/tiktok/dashboard", label: "แดชบอร์ด TikTok", icon: BarChart3 },
+      { href: "/tiktok/live-log", label: "จดไลฟ์", icon: Radio },
       { href: "/tiktok/upload", label: "อัปโหลด", icon: Tags },
     ],
   },
