@@ -614,9 +614,18 @@ export async function parseLabelFile(fileId: string): Promise<ActionResult<Label
           break;
       }
       if (
+        // 4 ต.ค. 69: order_not_found ตัดออกจากที่นี่ด้วย — ไม่ใช่แค่จาก
+        // PENDING_REVIEW_STATUSES ด้านล่าง เหตุผลเดียวกัน (เจ้าของสั่งข้ามถาวร)
+        // ตัดสองจุดไม่พร้อมกันจะทำให้ "รอตรวจสอบ N หน้า" ที่ขึ้นทันทีหลังอัปโหลด
+        // (ใช้ reviewRows.length นี้) นับ order_not_found รวมอยู่ แต่พอกดลิงก์ไป
+        // คิวรอตรวจสอบด้านล่าง (PendingReviewQueue, กรองด้วย PENDING_REVIEW_
+        // STATUSES ที่ตัดไปแล้ว) กลับไม่เจอแถวพวกนั้น ตัวเลขหัวกับของจริงใน
+        // คิวจะไม่ตรงกัน — orderNotFound (ตัวนับแยกบรรทัดบนๆ) ยังคงนับอยู่
+        // เหมือนเดิม แค่ไม่ดันเข้า reviewRows เพราะการ์ดสรุป "หาออเดอร์ไม่เจอ"
+        // ใน BatchSummaryCard เป็นข้อมูลแจ้งเฉยๆ ไม่มีลิงก์ผูกไปคิวไหน
+        // ไม่เสี่ยงมั่วแบบเดียวกัน
         r.match_status === "needs_review" ||
         r.match_status === "conflict" ||
-        r.match_status === "order_not_found" ||
         r.match_status === "undetected" ||
         r.match_status === "parse_failed"
       ) {
