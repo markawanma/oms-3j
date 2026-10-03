@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { CalendarDays, ClipboardList, History, Megaphone, Ticket, Users2, Wallet } from "lucide-react";
+import { CalendarDays, ClipboardList, History, Megaphone, Ticket, TrendingUp, Users2, Wallet } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 // Keep in sync with the "การตลาด" group in
@@ -27,6 +27,10 @@ const TABS: { href: string; label: string; icon: LucideIcon }[] = [
   // (ฟอร์มที่ /content/entry ปิดตัวเองทันทีที่กรอกเสร็จ ไม่มีที่ไหนย้อนดูได้
   // มาก่อนหน้านี้เลย). ตารางอ่านอย่างเดียว ไม่มี filter/search รอบนี้.
   { href: "/marketing/content/history", label: "ประวัติ", icon: History },
+  // Tech Lead brief 4 ต.ค. 69: "เรดาร์เทรนด์" — อ่านไฟล์ trend-radar รายวัน
+  // จาก GitHub (lib/actions/trend-radar.ts) แล้วกด "เพิ่มเข้าปฏิทิน" ได้ตรง
+  // จากมุมที่สนใจ แทนต้องเปิดไฟล์แยกแล้วพิมพ์ใหม่.
+  { href: "/marketing/trend-radar", label: "เทรนด์", icon: TrendingUp },
 ];
 
 /** Sticky sub-nav tab bar for the Marketing module — mirrors CrmSubNav
