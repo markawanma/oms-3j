@@ -14,14 +14,27 @@
 // on every page load, so the owner always sees today's file without any
 // deploy in between.
 //
-// No auth token used — markawanma/oms-3j is a public repo, confirmed
-// reachable unauthenticated (both endpoints below tested working without a
-// token before this was written). 🔴 If the repo is ever made private (an
-// explicit decision only the owner makes — see memory note on GitHub repo
-// visibility), every fetch in this file starts returning 404 and this
-// feature goes dark; fixing that means adding a GITHUB_TOKEN env var and an
-// `authorization: Bearer` header to both requests below, not changing the
-// URLs themselves.
+// Auth token is OPTIONAL (backward-compatible): `GITHUB_TRENDRADAR_TOKEN`
+// (server-only env var, fine-grained PAT scoped to Contents:read on this one
+// repo) is read by githubHeaders() below and attached as `authorization:
+// Bearer <token>` when set. While the owner hasn't created that token yet
+// (repo still public), every request below runs exactly as before —
+// unauthenticated, same as when this file was first written. Once the repo
+// goes private, setting the env var in Vercel is the only step needed; no
+// URL changes required on that day.
+//
+// 🔴 Both GitHub endpoints below go through api.github.com, NOT
+// raw.githubusercontent.com — raw.githubusercontent.com is a separate CDN
+// domain that does not reliably serve private-repo content even with a
+// valid token (and Authorization headers sent to a CDN host carry their own
+// leak risk via redirects/caching). api.github.com's Contents API is
+// GitHub's officially documented way to fetch raw file content for BOTH
+// public and private repos — pass `ref=<branch>` and
+// `accept: application/vnd.github.raw+json` and the response body is the
+// file's raw text, not JSON. This repo used to call raw.githubusercontent.com
+// directly for the per-day file content (listing already used the Contents
+// API) — migrated here specifically so private-repo support doesn't require
+// a second channel change later.
 //
 // Gated with requireOwnerAdmin() like every other action in this app, even
 // though the underlying GitHub content is public — this repo's rule is "the
@@ -48,6 +61,28 @@ const GITHUB_FETCH_TIMEOUT_MS = 8000;
 
 const MIN_LIMIT = 1;
 const MAX_LIMIT = 20;
+
+/** Hard cap on how much of one day's file this module will read into memory
+ * — a 256 KiB markdown file is already absurdly large for this feature (real
+ * files are a few KB); anything bigger is either a mistake or someone having
+ * gained write access to the `trend-radar-feed` branch, not a legitimate
+ * daily digest. Shared with lib/marketing/trend-radar-parse.ts's own
+ * MAX_LINE_CHARS cap — this one bounds total file size, that one bounds a
+ * single line's length (prevents pathological-regex cost per line). */
+const MAX_FILE_CHARS = 256 * 1024;
+
+/** Builds the headers for every GitHub API request in this module.
+ * `GITHUB_TRENDRADAR_TOKEN` is read fresh on every call (not cached at
+ * module scope) so a token set after this module was first imported — e.g.
+ * hot-reload in dev, or a serverless cold-start that re-evaluates env vars —
+ * is always picked up. Never throws, never logs the token: the only consumer
+ * of the return value is `fetch`'s own `headers` option. */
+function githubHeaders(accept: string): HeadersInit {
+  const h: Record<string, string> = { accept, "x-github-api-version": "2022-11-28" };
+  const token = process.env.GITHUB_TRENDRADAR_TOKEN;
+  if (token) h.authorization = `Bearer ${token}`;
+  return h;
+}
 
 // Not exported from marketing.ts/calendar.ts (module-private there too) —
 // same gate, copied rather than imported so this file has no dependency on
@@ -99,7 +134,7 @@ export async function getTrendRadarFeed(limit = 5): Promise<ActionResult<TrendRa
       method: "GET",
       cache: "no-store", // brief: ต้องดึงสดทุกครั้งที่เปิดหน้า ห้ามให้ Next.js data cache จำคำตอบเก่าไว้
       signal: AbortSignal.timeout(GITHUB_FETCH_TIMEOUT_MS),
-      headers: { accept: "application/vnd.github+json" },
+      headers: githubHeaders("application/vnd.github+json"),
     });
   } catch (err) {
     console.error("getTrendRadarFeed: listing fetch failed", {
@@ -148,14 +183,36 @@ export async function getTrendRadarFeed(limit = 5): Promise<ActionResult<TrendRa
 
   const settled = await Promise.allSettled(
     fileNames.map(async (name) => {
-      const rawUrl = `https://raw.githubusercontent.com/${GITHUB_OWNER}/${GITHUB_REPO}/${GITHUB_BRANCH}/${GITHUB_DIR_PATH}/${name}`;
-      const response = await fetch(rawUrl, {
+      const contentUrl = `https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${GITHUB_DIR_PATH}/${name}?ref=${GITHUB_BRANCH}`;
+      const response = await fetch(contentUrl, {
         method: "GET",
         cache: "no-store",
         signal: AbortSignal.timeout(GITHUB_FETCH_TIMEOUT_MS),
+        // "raw+json" (not the listing's "vnd.github+json") makes the
+        // Contents API respond with the file's raw bytes as the body
+        // instead of a JSON envelope with base64 content — same endpoint
+        // shape as the listing request above, different `accept` only.
+        headers: githubHeaders("application/vnd.github.raw+json"),
       });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+      // Size guard BEFORE reading the body — `content-length` is untrusted
+      // (a misbehaving/compromised server could omit or lie about it) so
+      // this is a fast-path short-circuit only; the authoritative check is
+      // on `text.length` below regardless of what this says.
+      const contentLengthHeader = response.headers.get("content-length");
+      if (contentLengthHeader !== null) {
+        const contentLength = Number(contentLengthHeader);
+        if (Number.isFinite(contentLength) && contentLength > MAX_FILE_CHARS) {
+          throw new Error(`file too large (content-length ${contentLength} bytes)`);
+        }
+      }
+
       const text = await response.text();
+      if (text.length > MAX_FILE_CHARS) {
+        throw new Error(`file too large (${text.length} chars, content-length header absent or understated)`);
+      }
+
       const date = extractDateFromFilename(name);
       // Unreachable in practice — `fileNames` was already filtered above —
       // but typed as nullable so this still can't silently pass `null`
@@ -171,7 +228,7 @@ export async function getTrendRadarFeed(limit = 5): Promise<ActionResult<TrendRa
       days.push(result.value);
     } else {
       console.error("getTrendRadarFeed: one file's content fetch failed, skipping that day", {
-        host: "raw.githubusercontent.com",
+        host: "api.github.com",
         reason: result.reason instanceof Error ? result.reason.message : String(result.reason),
       });
     }

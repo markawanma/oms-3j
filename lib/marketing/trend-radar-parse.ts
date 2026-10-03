@@ -77,6 +77,21 @@ export interface TrendRadarDay {
   parseOk: boolean;
 }
 
+/** Hard cap on a single line's length before it's handed to any of this
+ * file's regexes (parseFieldBullet, extractFirstLinkUrl, extractConfidence,
+ * parseAngleTitleLine, the "## " heading check). The file is LLM-written
+ * daily and this module never controls its shape (see header) — a
+ * malformed or adversarial line with no closing `**`/`]`/`)` makes those
+ * regexes' lazy/greedy quantifiers backtrack across the whole remainder of
+ * the line before giving up, so per-line cost scales with that line's
+ * length with no upper bound today. Capping length bounds the per-line cost
+ * to a constant regardless of how long a line in the source file gets —
+ * defense in depth, not a claim that any specific regex here is provably
+ * exponential. Only affects the `lines` array used for structured parsing
+ * below — `rawMarkdown` itself is returned untouched in full either way, so
+ * the fallback-to-raw path (parseOk: false) never loses data to this. */
+const MAX_LINE_CHARS = 4000;
+
 const FILENAME_RE = /^(\d{4}-\d{2}-\d{2})\.md$/;
 
 /** `"2026-09-29.md"` -> `"2026-09-29"`, or null if the name isn't shaped like
@@ -228,7 +243,10 @@ function parsePendingQuestions(body: string[]): string[] {
  * nothing (or a wrong "nothing today" message).
  */
 export function parseTrendRadarDay(date: string, rawMarkdown: string): TrendRadarDay {
-  const lines = rawMarkdown.replace(/\r\n/g, "\n").split("\n");
+  const lines = rawMarkdown
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((line) => (line.length > MAX_LINE_CHARS ? line.slice(0, MAX_LINE_CHARS) : line));
   const sections = splitIntoSections(lines);
 
   const nothingSection = findSection(sections, "วันนี้ไม่มีอะไรใหม่");

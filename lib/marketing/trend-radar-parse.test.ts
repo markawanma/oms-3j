@@ -204,3 +204,54 @@ describe("parseTrendRadarDay — malformed/unexpected markdown must fall back, n
     expect(day.rawMarkdown).toBe(crlf);
   });
 });
+
+describe("parseTrendRadarDay — MAX_LINE_CHARS bounds per-line regex cost (Fix 3)", () => {
+  it("a field value far longer than 4000 chars still parses quickly and successfully", () => {
+    const hugeValue = "x".repeat(50_000);
+    const fixture = `## มุมที่หยิบไปทำได้เลย\n**1. ไอเดีย**\n- **ทำไมตอนนี้:** ${hugeValue}\n`;
+
+    const start = Date.now();
+    const day = parseTrendRadarDay("2026-10-04", fixture);
+    const elapsedMs = Date.now() - start;
+
+    expect(day.parseOk).toBe(true);
+    expect(day.angles).toHaveLength(1);
+    // Generous ceiling, not a precise perf budget — this test exists to
+    // catch an actual hang/regression, not to pin exact timing.
+    expect(elapsedMs).toBeLessThan(1000);
+  });
+
+  it("the oversized value is truncated before parsing, but rawMarkdown keeps the full line intact", () => {
+    const hugeValue = "y".repeat(50_000);
+    const fixture = `## มุมที่หยิบไปทำได้เลย\n**1. ไอเดีย**\n- **ทำไมตอนนี้:** ${hugeValue}\n`;
+    const day = parseTrendRadarDay("2026-10-04", fixture);
+
+    expect(day.angles).toHaveLength(1);
+    expect(day.angles[0].whyNow?.length).toBeLessThanOrEqual(4000);
+    // The fallback/display copy must never lose data to this cap — only the
+    // structured-field extraction is bounded.
+    expect(day.rawMarkdown).toBe(fixture);
+    expect(day.rawMarkdown.length).toBeGreaterThan(50_000);
+  });
+
+  it("a line with no closing '**' at all still returns quickly and is dropped as an unrecognized bullet, not thrown", () => {
+    const adversarial = "- **" + "a ".repeat(20_000); // deliberately never closes the bold marker
+    const fixture = `## มุมที่หยิบไปทำได้เลย\n**1. ไอเดีย**\n${adversarial}\n`;
+
+    const start = Date.now();
+    const day = parseTrendRadarDay("2026-10-04", fixture);
+    const elapsedMs = Date.now() - start;
+
+    expect(elapsedMs).toBeLessThan(1000);
+    expect(day.parseOk).toBe(true);
+    expect(day.angles).toHaveLength(1);
+  });
+
+  it("a line exactly at the cap (4000 chars) is untouched — boundary is 'over', not 'at'", () => {
+    const valueAt4000 = "z".repeat(4000 - "- **ทำไมตอนนี้:** ".length);
+    const fixture = `## มุมที่หยิบไปทำได้เลย\n**1. ไอเดีย**\n- **ทำไมตอนนี้:** ${valueAt4000}\n`;
+    const day = parseTrendRadarDay("2026-10-04", fixture);
+
+    expect(day.angles[0].whyNow).toBe(valueAt4000);
+  });
+});
