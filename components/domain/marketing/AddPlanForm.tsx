@@ -26,30 +26,62 @@ const ARTIFACT_TYPE_OPTIONS = ["short_form_clip", "broadcast_script_line", "fb_p
 export function AddPlanForm({
   defaultDate,
   variant = "button",
+  prefillTitle,
+  prefillArtifactType,
+  triggerLabel = "เพิ่มแผน",
 }: {
   /** Prefill for the date field — the currently-viewed agenda date (design:
-   * "default = วันที่กำลังดูอยู่"). */
+   * "default = วันที่กำลังดูอยู่"). Deliberately NOT derived from
+   * `prefillTitle`'s source even when that source is "เพิ่มเข้าปฏิทิน"
+   * from /marketing/trend-radar — a trend radar angle only says "ทำได้ใน
+   * 7 วัน", never a specific date, so guessing one here would be exactly
+   * the kind of invented-date mistake the repo's other gates exist to
+   * prevent. Caller always passes "today" for that entry point; the owner
+   * picks the real date themselves. */
   defaultDate: string;
   /** "button" = normal inline trigger (page header, empty-state action).
    * "fab" = fixed bottom-right circular button, mobile-only (md:hidden) —
    * stays reachable while the agenda list scrolls (UX doc mobile rule). */
   variant?: "button" | "fab";
+  /** Pre-fills the title field on open (and after a reopen) instead of
+   * starting blank — used by /marketing/trend-radar's "เพิ่มเข้าปฏิทิน"
+   * button so the owner doesn't retype the angle's name. Still fully
+   * editable; this is a starting value, not a locked one. */
+  prefillTitle?: string;
+  /** Pre-fills the artifact-type dropdown, IF the value is one of
+   * ARTIFACT_TYPE_OPTIONS below — an unrecognized value is silently
+   * ignored (falls back to "ไม่ระบุ") rather than crashing the <select>
+   * on an out-of-enum value. Callers must not guess a close-but-wrong
+   * mapping themselves; pass undefined when there's no real match. */
+  prefillArtifactType?: string;
+  /** Visible label + aria-label for the trigger button (variant="button"
+   * only — the fab variant never shows text, icon-only). Defaults to the
+   * original "เพิ่มแผน" so every existing call site renders unchanged. */
+  triggerLabel?: string;
 }) {
+  const initialArtifactType =
+    prefillArtifactType && (ARTIFACT_TYPE_OPTIONS as readonly string[]).includes(prefillArtifactType)
+      ? prefillArtifactType
+      : "";
+
   const [open, setOpen] = useState(false);
-  const [title, setTitle] = useState("");
+  const [title, setTitle] = useState(prefillTitle ?? "");
   const [date, setDate] = useState(defaultDate);
   const [startTime, setStartTime] = useState("");
-  const [artifactType, setArtifactType] = useState("");
+  const [artifactType, setArtifactType] = useState(initialArtifactType);
   const [titleError, setTitleError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const router = useRouter();
   const toast = useToast();
 
   function reset() {
-    setTitle("");
+    // Resets back to the PREFILL value, not blank — closing and reopening
+    // the sheet (without submitting) must not lose the trend-radar angle's
+    // title the owner came here to add.
+    setTitle(prefillTitle ?? "");
     setDate(defaultDate);
     setStartTime("");
-    setArtifactType("");
+    setArtifactType(initialArtifactType);
     setTitleError(null);
   }
 
@@ -90,7 +122,7 @@ export function AddPlanForm({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        aria-label="เพิ่มแผน"
+        aria-label={triggerLabel}
         className={
           variant === "fab"
             ? "fixed right-4 bottom-4 z-40 flex min-h-14 min-w-14 items-center justify-center rounded-full bg-primary-600 text-white shadow-lg hover:bg-primary-700 md:hidden"
@@ -98,7 +130,7 @@ export function AddPlanForm({
         }
       >
         <Plus className="h-5 w-5" aria-hidden="true" />
-        {variant === "button" && "เพิ่มแผน"}
+        {variant === "button" && triggerLabel}
       </button>
 
       {open && (
