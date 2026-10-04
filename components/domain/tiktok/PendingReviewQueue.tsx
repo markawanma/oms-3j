@@ -31,10 +31,20 @@ export function PendingReviewQueue({
   refreshSignal,
   provinces,
   canEdit,
+  onCountChange,
 }: {
   refreshSignal?: number;
   provinces: CrmProvinceOption[];
   canEdit: boolean;
+  /** Accordion badge hook (design doc §6.3) — the badge lives in the
+   * CollapsibleSection *header*, which stays rendered even when this
+   * component's own content area is `hidden`, so the count has to be lifted
+   * up to the parent instead of read off this component's own rows/loading
+   * state directly. Called once after every load() settles, success or
+   * error — never during the loading phase itself (parent treats "never
+   * called yet" as the loading state). `null` = error (fetch failed, count
+   * truly unknown) — the parent must not treat that as 0. */
+  onCountChange?: (count: number | null) => void;
 }) {
   const [rows, setRows] = useState<PendingLabelReviewRow[] | null>(null);
   const [loading, setLoading] = useState(true);
@@ -47,15 +57,18 @@ export function PendingReviewQueue({
       const result = await getPendingLabelReviews();
       if (result.ok) {
         setRows(result.data);
+        onCountChange?.(result.data.length);
       } else {
         setError(result.error);
+        onCountChange?.(null);
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : "โหลดคิวรอตรวจไม่สำเร็จ");
+      onCountChange?.(null);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [onCountChange]);
 
   // refreshSignal: bumped by UploadPageClient after each file finishes
   // parsing in the SAME session, so a page that just landed in the queue
