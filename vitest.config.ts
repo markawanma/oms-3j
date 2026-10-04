@@ -79,7 +79,21 @@ export default defineConfig({
         test: {
           name: "node",
           environment: "node",
-          include: ["packages/**/*.test.ts", "supabase/tests/**/*.test.ts", "lib/**/*.test.ts", "scripts/**/*.test.mjs"],
+          // "app/**/*.test.ts" added 4 ต.ค. 69 (gem-quiz backend) — the first
+          // Route Handler test in this repo (app/api/gem-quiz/submit/
+          // route.test.ts), co-located with the route it tests the same way
+          // lib/**/*.test.ts sits next to its source. Deliberately NOT
+          // "app/**/*.test.tsx" — that would collide with the "components"
+          // project's jsdom environment below for any future page-level
+          // React test; route handlers are plain functions, same "node"
+          // environment as everything else in this project.
+          include: [
+            "packages/**/*.test.ts",
+            "supabase/tests/**/*.test.ts",
+            "lib/**/*.test.ts",
+            "app/**/*.test.ts",
+            "scripts/**/*.test.mjs",
+          ],
           testTimeout: 30_000, // integration tests hit a real local Postgres — CI/cold cache can be slow
           hookTimeout: 30_000,
           // IMPORTANT: supabase/tests/* are integration tests sharing ONE stateful local
