@@ -31,10 +31,22 @@ export function PendingReviewQueue({
   refreshSignal,
   provinces,
   canEdit,
+  onCountChange,
 }: {
   refreshSignal?: number;
   provinces: CrmProvinceOption[];
   canEdit: boolean;
+  /** Accordion badge hook (design doc §6.3) — the badge lives in the
+   * CollapsibleSection *header*, which stays rendered even when this
+   * component's own content area is `hidden`, so the count has to be lifted
+   * up to the parent instead of read off this component's own rows/loading
+   * state directly. Called whenever the displayed count changes while not
+   * loading — after every load() settles (success or error), AND after a
+   * row is resolved/ignored locally (handleResolved) — never during the
+   * loading phase itself (parent treats "never called yet" as the loading
+   * state). `null` = error (fetch failed, count truly unknown) — the parent
+   * must not treat that as 0. */
+  onCountChange?: (count: number | null) => void;
 }) {
   const [rows, setRows] = useState<PendingLabelReviewRow[] | null>(null);
   const [loading, setLoading] = useState(true);
@@ -45,11 +57,8 @@ export function PendingReviewQueue({
     setError(null);
     try {
       const result = await getPendingLabelReviews();
-      if (result.ok) {
-        setRows(result.data);
-      } else {
-        setError(result.error);
-      }
+      if (result.ok) setRows(result.data);
+      else setError(result.error);
     } catch (err) {
       setError(err instanceof Error ? err.message : "โหลดคิวรอตรวจไม่สำเร็จ");
     } finally {
@@ -68,6 +77,22 @@ export function PendingReviewQueue({
   const handleResolved = useCallback((pageId: string) => {
     setRows((prev) => (prev ? prev.filter((r) => r.pageId !== pageId) : prev));
   }, []);
+
+  // Code review fix (4 ต.ค. 69): onCountChange used to fire only inside
+  // load() — so resolving/ignoring a row via handleResolved updated `rows`
+  // (the list on screen shrinks correctly) but never told the parent, and
+  // the accordion header's badge count went stale until the next full
+  // load(). Deriving it from `rows` itself here means every path that
+  // mutates `rows` (today: load() and handleResolved; any future one too)
+  // keeps the badge in sync automatically — one source of truth instead of
+  // a call to remember at each mutation site. Skipped while `loading` so a
+  // refetch-in-progress doesn't flash the badge to "unknown" between the
+  // old count and the new one (parent treats a skipped update as "keep
+  // showing the last count" — see design doc §7).
+  useEffect(() => {
+    if (loading) return;
+    onCountChange?.(error ? null : (rows?.length ?? null));
+  }, [loading, error, rows, onCountChange]);
 
   return (
     <section aria-label="คิวรอตรวจสอบ (ทุกไฟล์)">
