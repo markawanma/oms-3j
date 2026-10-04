@@ -32,8 +32,28 @@ function mapContentTypeCodeToArtifactType(_contentTypeCode: string | null): stri
   return undefined;
 }
 
+/**
+ * Security L2 fix: the owner shouldn't have to click (or hover, on a touch
+ * screen there's no hover at all) just to find out WHICH site "เปิดแหล่ง
+ * อ้างอิง" points to before deciding whether to trust it — these links come
+ * from an LLM-written daily file (see TrendRadarDay's header), so showing
+ * the real destination host next to the link text is a cheap, honest safety
+ * cue. Returns null (render nothing extra) for anything that isn't a plain
+ * http(s) URL — `javascript:`/`data:`/malformed strings included — rather
+ * than showing a misleading or empty hostname.
+ */
+function sourceHost(url: string): string | null {
+  try {
+    const u = new URL(url);
+    return u.protocol === "https:" || u.protocol === "http:" ? u.hostname : null;
+  } catch {
+    return null;
+  }
+}
+
 function AngleCard({ angle, contentTypes, defaultDate }: { angle: TrendAngle; contentTypes: ContentTypeRow[]; defaultDate: string }) {
   const matchedType = angle.contentTypeCode ? contentTypes.find((ct) => ct.code === angle.contentTypeCode) : undefined;
+  const sourceHostLabel = angle.sourceUrl ? sourceHost(angle.sourceUrl) : null;
 
   return (
     <div className="space-y-2 rounded-lg border border-zinc-200 bg-white p-3.5 shadow-sm">
@@ -66,6 +86,7 @@ function AngleCard({ angle, contentTypes, defaultDate }: { angle: TrendAngle; co
           >
             <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
             เปิดแหล่งอ้างอิง
+            {sourceHostLabel && <span className="font-normal text-zinc-400">({sourceHostLabel})</span>}
           </a>
         )}
         {angle.confidence && <span className="text-xs text-zinc-400">ความมั่นใจ: {angle.confidence}</span>}

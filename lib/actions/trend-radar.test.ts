@@ -17,29 +17,34 @@ vi.mock("@/lib/auth/role", () => ({
 const LISTING_URL =
   "https://api.github.com/repos/markawanma/oms-3j/contents/docs/3j-jewelry/marketing/trend-radar?ref=trend-radar-feed";
 
-function rawUrlFor(name: string): string {
-  return `https://raw.githubusercontent.com/markawanma/oms-3j/trend-radar-feed/docs/3j-jewelry/marketing/trend-radar/${name}`;
+// Fix 1 (private-repo support): per-day content now goes through the same
+// Contents API as the listing — api.github.com, NOT raw.githubusercontent.com
+// (that CDN domain doesn't reliably serve private repos even with a token).
+function contentUrlFor(name: string): string {
+  return `https://api.github.com/repos/markawanma/oms-3j/contents/docs/3j-jewelry/marketing/trend-radar/${name}?ref=trend-radar-feed`;
 }
 
 function listingItem(name: string, type: "file" | "dir" = "file") {
   return { name, type, path: `docs/3j-jewelry/marketing/trend-radar/${name}`, sha: "x", size: 1 };
 }
 
-function jsonResponse(body: unknown, status = 200): Response {
+function jsonResponse(body: unknown, status = 200, headers: Record<string, string> = {}): Response {
   return {
     ok: status >= 200 && status < 300,
     status,
     json: () => Promise.resolve(body),
     text: () => Promise.resolve(JSON.stringify(body)),
+    headers: new Headers(headers),
   } as unknown as Response;
 }
 
-function textResponse(body: string, status = 200): Response {
+function textResponse(body: string, status = 200, headers: Record<string, string> = {}): Response {
   return {
     ok: status >= 200 && status < 300,
     status,
     text: () => Promise.resolve(body),
     json: () => Promise.reject(new Error("not json")),
+    headers: new Headers(headers),
   } as unknown as Response;
 }
 
@@ -49,13 +54,21 @@ const NOTHING_NEW_MD = `# Trend Radar — test
 ไม่มีมุมไหนผ่านเกณฑ์วันนี้
 `;
 
+// Fix 1 — GITHUB_TRENDRADAR_TOKEN must never leak into the suite from
+// whatever shell ran `vitest`, and must be restored after, same save/restore
+// shape as lib/auth/role.test.ts's AUTH_GATE handling.
+const originalGithubToken = process.env.GITHUB_TRENDRADAR_TOKEN;
+
 beforeEach(() => {
   vi.clearAllMocks();
   getEffectiveRoleMock.mockResolvedValue("owner");
+  delete process.env.GITHUB_TRENDRADAR_TOKEN;
 });
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  if (originalGithubToken === undefined) delete process.env.GITHUB_TRENDRADAR_TOKEN;
+  else process.env.GITHUB_TRENDRADAR_TOKEN = originalGithubToken;
 });
 
 describe("getTrendRadarFeed — gate", () => {
@@ -101,8 +114,8 @@ describe("getTrendRadarFeed — happy path", () => {
           listingItem("subdir", "dir"), // a directory entry — must be filtered out too
         ]);
       }
-      if (url === rawUrlFor("2026-09-23.md")) return textResponse("## มุมที่หยิบไปทำได้เลย\n**1. ทดสอบ**\n- **ประเภท:** craft\n");
-      if (url === rawUrlFor("2026-09-27.md")) return textResponse(NOTHING_NEW_MD);
+      if (url === contentUrlFor("2026-09-23.md")) return textResponse("## มุมที่หยิบไปทำได้เลย\n**1. ทดสอบ**\n- **ประเภท:** craft\n");
+      if (url === contentUrlFor("2026-09-27.md")) return textResponse(NOTHING_NEW_MD);
       throw new Error("unexpected url " + url);
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -118,7 +131,7 @@ describe("getTrendRadarFeed — happy path", () => {
 
     // README.md and the directory entry must never have been fetched.
     const fetchedUrls = fetchMock.mock.calls.map((c) => c[0]);
-    expect(fetchedUrls).not.toContain(rawUrlFor("README.md"));
+    expect(fetchedUrls).not.toContain(contentUrlFor("README.md"));
     expect(fetchedUrls.some((u) => String(u).includes("subdir"))).toBe(false);
   });
 
@@ -155,8 +168,8 @@ describe("getTrendRadarFeed — partial content failures are tolerated", () => {
   it("one file's raw content fetch failing skips that day but still returns the rest", async () => {
     const fetchMock = vi.fn(async (url: string) => {
       if (url === LISTING_URL) return jsonResponse([listingItem("2026-09-27.md"), listingItem("2026-09-28.md")]);
-      if (url === rawUrlFor("2026-09-27.md")) return textResponse(NOTHING_NEW_MD);
-      if (url === rawUrlFor("2026-09-28.md")) return jsonResponse({}, 500); // .ok === false
+      if (url === contentUrlFor("2026-09-27.md")) return textResponse(NOTHING_NEW_MD);
+      if (url === contentUrlFor("2026-09-28.md")) return jsonResponse({}, 500); // .ok === false
       throw new Error("unexpected url " + url);
     });
     vi.stubGlobal("fetch", fetchMock);
@@ -187,6 +200,29 @@ describe("getTrendRadarFeed — partial content failures are tolerated", () => {
     if (result.ok) return;
     expect(typeof result.error).toBe("string");
     expect(result.error.length).toBeGreaterThan(0);
+  });
+
+  // Security re-check (4 ต.ค. 69, L1): a malformed GITHUB_TRENDRADAR_TOKEN
+  // (e.g. a trailing newline from a bad paste into Vercel) makes undici's
+  // real Headers constructor throw a TypeError whose .message embeds the
+  // raw header value. The per-file error log must never surface that
+  // .message for a plain Error — only for this module's own
+  // TrendRadarFetchError, whose text is always authored in trend-radar.ts
+  // itself. Using the REAL global Headers (not a mock) is the point here.
+  it("a header-validation TypeError's message (which can embed the token) never reaches console.error", async () => {
+    process.env.GITHUB_TRENDRADAR_TOKEN = "ghp_LEAKCANARY\nx";
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === LISTING_URL) return jsonResponse([listingItem("2026-09-27.md")]);
+      new Headers(init?.headers); // real validation -> throws TypeError embedding the header value
+      return textResponse(NOTHING_NEW_MD);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const { getTrendRadarFeed } = await import("./trend-radar");
+    await getTrendRadarFeed();
+
+    expect(JSON.stringify(consoleSpy.mock.calls)).not.toContain("LEAKCANARY");
   });
 });
 
@@ -270,5 +306,142 @@ describe("getTrendRadarFeed — every GitHub request is cache: 'no-store'", () =
 
     const [, init] = fetchMock.mock.calls[0];
     expect(init?.cache).toBe("no-store");
+  });
+});
+
+describe("getTrendRadarFeed — optional auth token (Fix 1, backward-compatible)", () => {
+  it("no GITHUB_TRENDRADAR_TOKEN set -> every request has no authorization header at all", async () => {
+    // beforeEach already deletes the env var, but this test asserts the
+    // behavior explicitly rather than relying on that as an implicit given —
+    // this is the exact "repo still public, owner hasn't made a token yet"
+    // state the fix must not break.
+    const fetchMock = vi.fn(async (url: string, _init?: RequestInit) => {
+      if (url === LISTING_URL) return jsonResponse([listingItem("2026-09-27.md")]);
+      if (url === contentUrlFor("2026-09-27.md")) return textResponse(NOTHING_NEW_MD);
+      throw new Error("unexpected url " + url);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { getTrendRadarFeed } = await import("./trend-radar");
+    const result = await getTrendRadarFeed();
+
+    expect(result.ok).toBe(true);
+    for (const call of fetchMock.mock.calls) {
+      const init = call[1];
+      const headers = new Headers(init?.headers);
+      expect(headers.has("authorization")).toBe(false);
+    }
+  });
+
+  it("GITHUB_TRENDRADAR_TOKEN set -> every GitHub request (listing AND per-file content) carries it as a Bearer header", async () => {
+    process.env.GITHUB_TRENDRADAR_TOKEN = "fake-fine-grained-pat-for-test-only";
+    const fetchMock = vi.fn(async (url: string, _init?: RequestInit) => {
+      if (url === LISTING_URL) return jsonResponse([listingItem("2026-09-27.md")]);
+      if (url === contentUrlFor("2026-09-27.md")) return textResponse(NOTHING_NEW_MD);
+      throw new Error("unexpected url " + url);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { getTrendRadarFeed } = await import("./trend-radar");
+    const result = await getTrendRadarFeed();
+
+    expect(result.ok).toBe(true);
+    expect(fetchMock.mock.calls).toHaveLength(2); // listing + 1 file — both must be checked, not just one
+    for (const call of fetchMock.mock.calls) {
+      const init = call[1];
+      const headers = new Headers(init?.headers);
+      expect(headers.get("authorization")).toBe("Bearer fake-fine-grained-pat-for-test-only");
+    }
+  });
+
+  it("the per-file content request's accept header asks for raw content via the Contents API, not the old raw.githubusercontent.com host", async () => {
+    const fetchMock = vi.fn(async (url: string, _init?: RequestInit) => {
+      if (url === LISTING_URL) return jsonResponse([listingItem("2026-09-27.md")]);
+      if (url === contentUrlFor("2026-09-27.md")) return textResponse(NOTHING_NEW_MD);
+      throw new Error("unexpected url " + url);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { getTrendRadarFeed } = await import("./trend-radar");
+    await getTrendRadarFeed();
+
+    const contentCall = fetchMock.mock.calls.find((c) => c[0] === contentUrlFor("2026-09-27.md"));
+    expect(contentCall).toBeDefined();
+    const headers = new Headers(contentCall?.[1]?.headers);
+    expect(headers.get("accept")).toBe("application/vnd.github.raw+json");
+    // The old channel must be fully gone, not just unused by accident.
+    expect(fetchMock.mock.calls.some((c) => String(c[0]).includes("raw.githubusercontent.com"))).toBe(false);
+  });
+});
+
+describe("getTrendRadarFeed — oversized file guard (Fix 2)", () => {
+  // Mirrors the private MAX_FILE_CHARS constant in trend-radar.ts — kept as
+  // a literal here rather than imported since the constant is intentionally
+  // not exported (no other module needs it).
+  const MAX_FILE_CHARS = 256 * 1024;
+
+  it("a content-length header reporting an oversized file skips that day WITHOUT needing to read an actually-huge body", async () => {
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url === LISTING_URL) return jsonResponse([listingItem("2026-09-27.md"), listingItem("2026-09-28.md")]);
+      if (url === contentUrlFor("2026-09-27.md")) return textResponse(NOTHING_NEW_MD);
+      if (url === contentUrlFor("2026-09-28.md")) {
+        // Body itself is tiny — only the header lies about size, proving the
+        // guard trips on content-length rather than silently passing because
+        // the mock body happens to be short.
+        return textResponse("tiny", 200, { "content-length": String(MAX_FILE_CHARS + 1) });
+      }
+      throw new Error("unexpected url " + url);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const { getTrendRadarFeed } = await import("./trend-radar");
+    const result = await getTrendRadarFeed();
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data).toHaveLength(1);
+    expect(result.data[0].date).toBe("2026-09-27");
+    expect(consoleSpy).toHaveBeenCalledWith(
+      "getTrendRadarFeed: one file's content fetch failed, skipping that day",
+      expect.objectContaining({ reason: expect.stringContaining("too large") })
+    );
+  });
+
+  it("an actually oversized body is rejected even when content-length is absent (header lying the other way / missing)", async () => {
+    const hugeBody = "a".repeat(MAX_FILE_CHARS + 1);
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url === LISTING_URL) return jsonResponse([listingItem("2026-09-27.md"), listingItem("2026-09-28.md")]);
+      if (url === contentUrlFor("2026-09-27.md")) return textResponse(NOTHING_NEW_MD);
+      if (url === contentUrlFor("2026-09-28.md")) return textResponse(hugeBody); // no content-length header at all
+      throw new Error("unexpected url " + url);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const { getTrendRadarFeed } = await import("./trend-radar");
+    const result = await getTrendRadarFeed();
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data).toHaveLength(1);
+    expect(result.data[0].date).toBe("2026-09-27");
+  });
+
+  it("a file right at the limit still renders (boundary is 'over', not 'at')", async () => {
+    const exactlyAtLimit = `## วันนี้ไม่มีอะไรใหม่\n` + "x".repeat(MAX_FILE_CHARS - 40);
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url === LISTING_URL) return jsonResponse([listingItem("2026-09-27.md")]);
+      if (url === contentUrlFor("2026-09-27.md")) return textResponse(exactlyAtLimit);
+      throw new Error("unexpected url " + url);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const { getTrendRadarFeed } = await import("./trend-radar");
+    const result = await getTrendRadarFeed();
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data).toHaveLength(1);
   });
 });
