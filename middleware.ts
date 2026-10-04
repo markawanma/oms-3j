@@ -178,7 +178,10 @@ export const config = {
   // /shop (public storefront, anon key + shop_catalog view already its own
   // security boundary), /api/webhooks/* (marketplace callers, no browser
   // session, auth = webhook signature), /stock/hero (public wall-display
-  // screen, no money/PII), /gem-quiz + /api/gem-quiz/* (public gem quiz via
+  // screen, no money/PII), /gem-quiz + /api/gem-quiz/submit — exact paths
+  // only, NOT their subtrees (security audit M3, 4 ต.ค. 69: a future route
+  // added under /api/gem-quiz/ must earn its own exemption explicitly; see
+  // lib/auth/exempt-path.ts) — public gem quiz via
   // QR on the thank-you card — docs/3j-jewelry/analytics/design-gem-quiz.md
   // §1.2/§8: no customer identity is ever collected here, auth = a signed
   // form token + honeypot + a DB-side circuit breaker checked inside
@@ -197,7 +200,7 @@ export const config = {
   // three ARE anchored already: AUTH_ENTRY_PATHS.has(pathname) above is an
   // exact Set lookup, not a prefix/regex match, so there is no
   // "/loginx"-style bypass to guard against for them — see
-  // lib/auth/exempt-path.ts's header for why the THREE below need the
+  // lib/auth/exempt-path.ts's header for why the FIVE below need the
   // explicit anchor instead.)
   //
   // Security review 2026-09-16 (H3): each alternative below is anchored

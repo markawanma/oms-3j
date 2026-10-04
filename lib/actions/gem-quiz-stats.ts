@@ -4,9 +4,14 @@
 // /marketing/gem-quiz (design doc §3.4/§7, ยังไม่ทำหน้า UI รอบนี้ — ไฟล์นี้
 // เป็น read action เตรียมไว้ให้ frontend-dev เรียกต่อ). Pattern เดียวกับ
 // lib/actions/content.ts: getServiceClient() + requireOwnerAdmin() ชั้นแอป
-// (RPC เองก็เรียก analytics.crm_require_owner_admin เป็นบรรทัดแรกด้วย — ชั้นนี้
-// เป็น defense-in-depth ซ้ำ ไม่ใช่ด่านเดียว) + ActionResult<T> + console.error
-// บน catch ทุกจุด.
+// + ActionResult<T> + console.error บน catch ทุกจุด.
+//
+// 🔴 RPC เรียก analytics.crm_require_owner_admin ด้วย แต่ (0154 F5 / migration
+// trap #18) ฟังก์ชันนั้น short-circuit ให้ auth.role()='service_role' ผ่าน
+// เสมอ — เราเรียกผ่าน getServiceClient() เสมอ ด่านฝั่ง RPC นี้จึงไม่เคยปฏิเสธ
+// อะไรจริงในทางปฏิบัติ ด่าน owner/admin ที่มีผลจริงคือ requireOwnerAdmin()
+// ด้านล่างนี้เพียงชั้นเดียว (ต่อจาก middleware ที่เช็ค session ไว้ชั้นนอกสุด)
+// ห้ามตัดออกโดยคิดว่า RPC จะกันแทนให้ได้
 import { getServiceClient } from "@/lib/supabase/server";
 import { getDevShopId } from "@/lib/dev/context";
 import { getEffectiveRole } from "@/lib/auth/role";
