@@ -4,7 +4,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { issueFormToken, verifyFormToken } from "./form-token";
 
-const SECRET = "test-secret-do-not-use-in-prod";
+// ≥32 chars (L4: getSecret() now rejects anything shorter as "unset")
+const SECRET = "test-secret-do-not-use-in-prod-0123456789";
 const ORIGINAL_SECRET = process.env.GEM_QUIZ_TOKEN_SECRET;
 
 beforeEach(() => {
@@ -30,6 +31,18 @@ describe("issueFormToken", () => {
   it("คืน null เมื่อ secret เป็น string ว่าง", () => {
     process.env.GEM_QUIZ_TOKEN_SECRET = "";
     expect(issueFormToken(1_000_000)).toBeNull();
+  });
+
+  it("คืน null เมื่อ secret สั้นกว่า 32 ตัวอักษร (L4 — ปฏิเสธเหมือนไม่ได้ตั้ง)", () => {
+    process.env.GEM_QUIZ_TOKEN_SECRET = "short-secret-31-chars-exactly!!";
+    expect(process.env.GEM_QUIZ_TOKEN_SECRET.length).toBe(32 - 1);
+    expect(issueFormToken(1_000_000)).toBeNull();
+  });
+
+  it("ยอมรับ secret ที่พอดี 32 ตัวอักษร (ขอบล่าง)", () => {
+    const exactly32 = "x".repeat(32);
+    process.env.GEM_QUIZ_TOKEN_SECRET = exactly32;
+    expect(issueFormToken(1_000_000)).not.toBeNull();
   });
 });
 
@@ -67,7 +80,8 @@ describe("verifyFormToken", () => {
 
   it("ลายเซ็นถูกเซ็นด้วย secret อื่น ⇒ reason:bad_signature", () => {
     const token = issueFormToken(ISSUED_AT)!;
-    process.env.GEM_QUIZ_TOKEN_SECRET = "a-different-secret";
+    // ≥32 chars ด้วย (L4) — ต้องการให้ reject ด้วย bad_signature ไม่ใช่ secret_unset
+    process.env.GEM_QUIZ_TOKEN_SECRET = "a-completely-different-secret-value";
     const result = verifyFormToken(token, ISSUED_AT + 5_000);
     expect(result).toEqual({ ok: false, reason: "bad_signature" });
   });

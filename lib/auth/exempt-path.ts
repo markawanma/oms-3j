@@ -18,13 +18,17 @@
 // lookup in middleware.ts), which has no prefix-match failure mode to
 // anchor against in the first place.
 //
-// gem-quiz(?:/|$) + api/gem-quiz(?:/|$) added for the public gem quiz (QR on
+// gem-quiz/?$ + api/gem-quiz/submit/?$ added for the public gem quiz (QR on
 // the thank-you card — docs/3j-jewelry/analytics/design-gem-quiz.md §8):
 // same anchoring reasoning as shop/stock/hero above, same R-10 look-alike
 // risk (/gem-quizzes, /gem-quiz-admin, /api/gem-quiz-x must stay gated — see
-// exempt-path.test.ts).
+// exempt-path.test.ts). Security audit M3 (4 ต.ค. 69): deliberately exempts
+// ONLY the exact page and exact submit endpoint, not the whole subtree —
+// `api/gem-quiz(?:/|$)` would have silently made any FUTURE route under
+// /api/gem-quiz/ (e.g. a stats/export endpoint) public with no test catching
+// it. A new route under this prefix must earn its own exemption explicitly.
 const EXEMPT_PATTERN =
-  /^(?:_next\/static|_next\/image|favicon\.ico|api\/webhooks(?:\/|$)|api\/gem-quiz(?:\/|$)|shop(?:\/|$)|gem-quiz(?:\/|$)|stock\/hero(?:\/|$)|.*\.(?:svg|png|jpg|jpeg|gif|webp|ico)$)/;
+  /^(?:_next\/static|_next\/image|favicon\.ico|api\/webhooks(?:\/|$)|api\/gem-quiz\/submit\/?$|shop(?:\/|$)|gem-quiz\/?$|stock\/hero(?:\/|$)|.*\.(?:svg|png|jpg|jpeg|gif|webp|ico)$)/;
 
 /** true if `pathname` bypasses the auth gate entirely (middleware.ts never
  * runs for it) — mirrors config.matcher's negative-lookahead exactly. */

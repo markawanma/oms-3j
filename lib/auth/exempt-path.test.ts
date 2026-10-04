@@ -15,8 +15,12 @@ describe("isExemptPath — must NOT exempt (prefix look-alikes)", () => {
     ["/api/webhooks-legacy", "same 'api/webhooks' prefix trap"],
     ["/gem-quizzes", "starts with 'gem-quiz' but is a different route (R-10)"],
     ["/gem-quiz-admin", "same 'gem-quiz' prefix trap (R-10)"],
+    ["/gem-quiz/admin", "subtree under /gem-quiz, not the exact page (M3)"],
     ["/api/gem-quiz-x", "starts with 'api/gem-quiz' but is a different route (R-10)"],
     ["/api/gem-quizzes", "same 'api/gem-quiz' prefix trap (R-10)"],
+    ["/api/gem-quiz", "only /submit under this prefix is exempt, not the bare prefix (M3)"],
+    ["/api/gem-quiz/stats", "a future route under this prefix must earn its own exemption (M3)"],
+    ["/api/gem-quiz/submit/extra", "subtree under /submit, not the exact endpoint (M3)"],
   ])("%s (%s)", (path) => {
     expect(isExemptPath(path)).toBe(false);
   });

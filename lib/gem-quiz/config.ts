@@ -32,32 +32,34 @@ export const GEM_QUIZ_SRC_VALUES: readonly GemQuizSrc[] = ["card", "share", "liv
 export interface GemQuizStoneConfig {
   code: string;
   labelTh: string;
-  /** cross-tab ภายในเท่านั้น (design §3.1) — ห้ามแสดงในหน้าสาธารณะที่ไหนเลย. */
-  priceGroup: 1 | 2;
   /** ตัดเสมอกันของ recommend.ts แบบ deterministic (design §4.4) — ต้องตรงกับ
    * sort_order ที่ seed ไว้ใน supabase/migrations/0154_gem_quiz.sql §1 เป๊ะ. */
   sortOrder: number;
+  // 🔴 ห้ามเพิ่ม priceGroup หรือข้อมูลราคา/กลุ่มราคาใดๆ ที่นี่ — ไฟล์นี้ import
+  // เข้า client component ได้ (GemQuizClient.tsx) ใครก็เปิด DevTools เห็น field
+  // นี้ได้ทันที ขัด design §3.1/§4.2 ตรงๆ (security audit 4 ต.ค. 69, finding M1)
+  // price_group มีแค่ฝั่ง DB (gem_quiz_stone table) สำหรับ cross-tab ภายในเท่านั้น
 }
 
 // 🔴 ต้องตรงกับ seed 12 แถวใน supabase/migrations/0154_gem_quiz.sql §1 ทุก
-// ตัวอักษร (code/priceGroup/sortOrder) — RPC analytics.gem_quiz_submit ปฏิเสธ
+// ตัวอักษร (code/sortOrder) — RPC analytics.gem_quiz_submit ปฏิเสธ
 // รหัสที่ไม่มีจริงใน DB อยู่แล้ว (defense-in-depth) แต่ถ้าสองที่นี้ไม่ตรงกัน
 // ผู้ใช้จะเจอ "รหัสพลอยไม่ถูกต้อง" ทั้งที่หน้าจอเลือกให้เอง — เปลี่ยนที่นี่ ต้อง
 // เปลี่ยน migration คู่กันเสมอ (ไม่มี single source of truth ข้าม TS/SQL ได้จริง
 // ตามที่ design doc §9 ยอมรับ trade-off ไว้).
 export const GEM_QUIZ_STONES: readonly GemQuizStoneConfig[] = [
-  { code: "blue_topaz", labelTh: "บลูโทพาส", priceGroup: 1, sortOrder: 10 },
-  { code: "amethyst", labelTh: "อเมทิส", priceGroup: 1, sortOrder: 20 },
-  { code: "peridot", labelTh: "เพอริดอท", priceGroup: 1, sortOrder: 30 },
-  { code: "citrine", labelTh: "ซิทริน", priceGroup: 1, sortOrder: 40 },
-  { code: "garnet", labelTh: "โกเมน", priceGroup: 1, sortOrder: 50 },
-  { code: "pearl", labelTh: "มุก", priceGroup: 2, sortOrder: 60 },
-  { code: "nil", labelTh: "นิล", priceGroup: 2, sortOrder: 70 },
-  { code: "ruby", labelTh: "ทับทิม", priceGroup: 2, sortOrder: 80 },
-  { code: "sapphire", labelTh: "ไพลิน", priceGroup: 2, sortOrder: 90 },
-  { code: "busarakham", labelTh: "บุษราคัม", priceGroup: 2, sortOrder: 100 },
-  { code: "iolite", labelTh: "ไอโอไลท์", priceGroup: 2, sortOrder: 110 },
-  { code: "kyanite", labelTh: "ไคยาไนท์", priceGroup: 2, sortOrder: 120 },
+  { code: "blue_topaz", labelTh: "บลูโทพาส", sortOrder: 10 },
+  { code: "amethyst", labelTh: "อเมทิส", sortOrder: 20 },
+  { code: "peridot", labelTh: "เพอริดอท", sortOrder: 30 },
+  { code: "citrine", labelTh: "ซิทริน", sortOrder: 40 },
+  { code: "garnet", labelTh: "โกเมน", sortOrder: 50 },
+  { code: "pearl", labelTh: "มุก", sortOrder: 60 },
+  { code: "nil", labelTh: "นิล", sortOrder: 70 },
+  { code: "ruby", labelTh: "ทับทิม", sortOrder: 80 },
+  { code: "sapphire", labelTh: "ไพลิน", sortOrder: 90 },
+  { code: "busarakham", labelTh: "บุษราคัม", sortOrder: 100 },
+  { code: "iolite", labelTh: "ไอโอไลท์", sortOrder: 110 },
+  { code: "kyanite", labelTh: "ไคยาไนท์", sortOrder: 120 },
 ];
 
 export const GEM_QUIZ_STONE_CODES: readonly string[] = GEM_QUIZ_STONES.map((s) => s.code);

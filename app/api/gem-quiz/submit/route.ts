@@ -146,7 +146,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (validated.kind === "version_mismatch") {
       return jsonError(validated.message, 409); // R-13 — ผู้ใช้ไม่ผิด ไม่บันทึก
     }
-    return jsonError(validated.message, 400);
+    // Security audit L5 (4 ต.ค. 69): validated.message (เช่น "answers มี key
+    // ไม่ถูกต้อง: xyz") บอก schema ภายในให้คนที่ probe endpoint นี้ตรงๆ โดยที่
+    // client ไม่ได้อ่าน body ของ response นี้อยู่แล้ว (ผลลัพธ์แสดงจากฝั่ง client
+    // ไปก่อนแล้ว) ไม่มีประโยชน์ที่ต้องรับความเสี่ยงนี้ — ตอบข้อความทั่วไปแทน
+    return jsonError("ข้อมูลไม่ถูกต้อง", 400);
   }
 
   // --- คำนวณ recommended ใหม่ฝั่ง server เสมอ — ไม่เชื่อค่าที่ client ส่งมา (R-8) ---
@@ -182,13 +186,11 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return jsonError("บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง", 500);
   }
 
-  // สำเร็จจริง — ตัดสินใจเองนอก design doc: ใช้ 204 เหมือนเคส honeypot/token
-  // เร็วเกิน โดยตั้งใจ (เอกสารบรีฟของ Tech Lead เขียนว่า "205" ซึ่งไม่ตรงกับ
-  // สถานะใดใน design §5.2 เลย — เข้าใจว่าเป็น typo ของ "204"). client ไม่อ่าน
-  // body ของเรสปอนส์นี้อยู่แล้ว (ผลลัพธ์แสดงจากการคำนวณฝั่ง client ไปก่อนแล้ว)
-  // และการให้ "สำเร็จจริง" กับ "honeypot โดนแบบเงียบ" ตอบเหมือนกันทุกประการ
-  // (204 ไม่มี body ทั้งคู่) เสริมเจตนาเดิมของ design: bot ไม่มีทางแยกออกว่า
-  // ถูกบันทึกจริงหรือถูกทิ้งเงียบๆ — ควรยืนยันกับ Tech Lead ว่า "205" ตั้งใจ
-  // หรือพิมพ์ผิดก่อน merge
+  // สำเร็จจริง — ใช้ 204 เหมือนเคส honeypot/token เร็วเกิน โดยตั้งใจ (ยืนยันกับ
+  // Tech Lead แล้ว 4 ต.ค. 69: brief เดิมเขียน "205" ซึ่งไม่ตรงกับสถานะใดใน
+  // design §5.2 — เป็น typo ของ "204" จริง). client ไม่อ่าน body ของเรสปอนส์นี้
+  // อยู่แล้ว (ผลลัพธ์แสดงจากการคำนวณฝั่ง client ไปก่อนแล้ว) และการให้ "สำเร็จจริง"
+  // กับ "honeypot โดนแบบเงียบ" ตอบเหมือนกันทุกประการ (204 ไม่มี body ทั้งคู่)
+  // เสริมเจตนาเดิมของ design: bot ไม่มีทางแยกออกว่าถูกบันทึกจริงหรือถูกทิ้งเงียบๆ
   return noContent(204);
 }

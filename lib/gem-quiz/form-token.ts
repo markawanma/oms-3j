@@ -28,9 +28,16 @@ export type TokenVerifyFailureReason =
 
 export type TokenVerifyResult = { ok: true } | { ok: false; reason: TokenVerifyFailureReason };
 
+// Security audit L4 (4 ต.ค. 69): ไม่บังคับความยาวขั้นต่ำมาก่อน — ตั้งเป็น "x"
+// ก็ผ่านและ HMAC ยัง sign/verify ได้ตามปกติ (สั้นแค่ไหนก็ไม่พังทางเทคนิค) แต่
+// secret สั้นเดารหัสผ่าน brute-force ได้ง่ายกว่าหลายระดับ ปฏิเสธว่า "ไม่ได้ตั้ง"
+// (fail closed เหมือนไม่มีค่าเลย) ถ้าสั้นกว่าที่แนะนำใน .env.local.example
+// (`openssl rand -hex 32` = 64 ตัวอักษร) ให้ปลอดภัยไว้ก่อน
+const MIN_SECRET_LENGTH = 32;
+
 function getSecret(): string | null {
-  const secret = process.env.GEM_QUIZ_TOKEN_SECRET;
-  if (!secret || secret.trim() === "") return null;
+  const secret = process.env.GEM_QUIZ_TOKEN_SECRET?.trim();
+  if (!secret || secret.length < MIN_SECRET_LENGTH) return null;
   return secret;
 }
 

@@ -173,6 +173,22 @@ describe("POST /api/gem-quiz/submit", () => {
       const res = await POST(req);
       expect(res.status).toBe(400);
     });
+
+    // QA เพิ่ม: body ที่เป็น valid JSON ตามสเปค JSON แต่ค่าชั้นบนสุดไม่ใช่ object
+    // เลย (ไม่ใช่แค่ array) — JSON.parse ผ่านได้เฉย ๆ, ด่านที่ต้องจับคือเช็ค
+    // typeof ถัดมา ไม่ใช่เช็ค JSON.parse throw/not-throw
+    it.each([
+      ["number เปล่า", "42"],
+      ["string เปล่า (แต่เป็น valid JSON เพราะมี quote)", '"hello"'],
+      ["boolean เปล่า", "true"],
+      ["null เปล่า", "null"],
+    ])("body เป็น valid JSON แต่ค่าชั้นบนสุดเป็น %s (ไม่ใช่ object) ⇒ 400", async (_label, rawBody) => {
+      const { POST } = await import("./route");
+      const req = makeRequest({ rawBody });
+      const res = await POST(req);
+      expect(res.status).toBe(400);
+      expect(rpcMock).not.toHaveBeenCalled();
+    });
   });
 
   describe("L3 honeypot + L2 token (R-4/R-5/R-9)", () => {

@@ -191,6 +191,26 @@ describe("validateGemQuizBody — R-7: answers", () => {
   });
 });
 
+describe("validateGemQuizBody — QA เพิ่ม: unicode lookalike ใน answers.value (ASCII-only regex ต้องกันได้จริง ไม่ใช่แค่ภาษาไทยปกติ)", () => {
+  it.each([
+    ["cyrillic homoglyph (а ไม่ใช่ a ละติน)", "аpt_a"],
+    ["fullwidth latin (ｏｐｔ＿ａ)", "ｏｐｔ＿ａ"],
+    ["zero-width space แอบแทรกกลางคำ", "op​t_a"],
+    ["เลขไทย ๑๒๓ (ไม่ใช่เลขอารบิก)", "๑๒๓"],
+    ["combining diacritic (opt_a + ́)", "opt_á"],
+    ["RTL override character", "opt_a‮"],
+    ["fullwidth digit (NFKC จะกลายเป็น 1 แต่เราไม่ normalize)", "１"],
+  ])("answers.value = %s ⇒ invalid (หลุด ASCII-only regex แน่นอน ไม่ว่าจะ normalize หรือไม่)", (_label, value) => {
+    const result = validateGemQuizBody(baseBody({ answers: { q_intent: value } }));
+    expect(result.ok).toBe(false);
+  });
+
+  it("answers key เป็น unicode lookalike (เช่น cyrillic 'q') ⇒ invalid เช่นกัน", () => {
+    const result = validateGemQuizBody(baseBody({ answers: { ["ѕ_intent"]: "opt_a" } }));
+    expect(result.ok).toBe(false);
+  });
+});
+
 describe("validateGemQuizBody — R-8: ฟิลด์เกินสัญญาถูกทิ้งเงียบๆ ไม่มีผล", () => {
   it("shop_id/recommended/created_at ที่ client แอบส่งมาไม่ปรากฏใน output เลย", () => {
     const result = validateGemQuizBody(
