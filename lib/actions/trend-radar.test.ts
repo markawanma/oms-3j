@@ -201,6 +201,29 @@ describe("getTrendRadarFeed — partial content failures are tolerated", () => {
     expect(typeof result.error).toBe("string");
     expect(result.error.length).toBeGreaterThan(0);
   });
+
+  // Security re-check (4 ต.ค. 69, L1): a malformed GITHUB_TRENDRADAR_TOKEN
+  // (e.g. a trailing newline from a bad paste into Vercel) makes undici's
+  // real Headers constructor throw a TypeError whose .message embeds the
+  // raw header value. The per-file error log must never surface that
+  // .message for a plain Error — only for this module's own
+  // TrendRadarFetchError, whose text is always authored in trend-radar.ts
+  // itself. Using the REAL global Headers (not a mock) is the point here.
+  it("a header-validation TypeError's message (which can embed the token) never reaches console.error", async () => {
+    process.env.GITHUB_TRENDRADAR_TOKEN = "ghp_LEAKCANARY\nx";
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === LISTING_URL) return jsonResponse([listingItem("2026-09-27.md")]);
+      new Headers(init?.headers); // real validation -> throws TypeError embedding the header value
+      return textResponse(NOTHING_NEW_MD);
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const { getTrendRadarFeed } = await import("./trend-radar");
+    await getTrendRadarFeed();
+
+    expect(JSON.stringify(consoleSpy.mock.calls)).not.toContain("LEAKCANARY");
+  });
 });
 
 describe("getTrendRadarFeed — listing failures never throw", () => {
