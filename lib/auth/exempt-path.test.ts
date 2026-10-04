@@ -13,6 +13,10 @@ describe("isExemptPath — must NOT exempt (prefix look-alikes)", () => {
     ["/stock/heroic-sales", "same 'stock/hero' prefix trap"],
     ["/api/webhooksx", "starts with 'api/webhooks' but is a different route"],
     ["/api/webhooks-legacy", "same 'api/webhooks' prefix trap"],
+    ["/gem-quizzes", "starts with 'gem-quiz' but is a different route (R-10)"],
+    ["/gem-quiz-admin", "same 'gem-quiz' prefix trap (R-10)"],
+    ["/api/gem-quiz-x", "starts with 'api/gem-quiz' but is a different route (R-10)"],
+    ["/api/gem-quizzes", "same 'api/gem-quiz' prefix trap (R-10)"],
   ])("%s (%s)", (path) => {
     expect(isExemptPath(path)).toBe(false);
   });
@@ -26,6 +30,9 @@ describe("isExemptPath — must exempt (the real routes + their subpaths)", () =
     "/stock/hero/",
     "/api/webhooks/tiktok",
     "/api/webhooks/shopee",
+    "/gem-quiz",
+    "/gem-quiz/",
+    "/api/gem-quiz/submit",
     "/_next/static/chunk.js",
     "/_next/image?url=x",
     "/favicon.ico",

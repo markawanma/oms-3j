@@ -17,8 +17,14 @@
 // exempted differently, via `AUTH_ENTRY_PATHS.has(pathname)` (an exact Set
 // lookup in middleware.ts), which has no prefix-match failure mode to
 // anchor against in the first place.
+//
+// gem-quiz(?:/|$) + api/gem-quiz(?:/|$) added for the public gem quiz (QR on
+// the thank-you card — docs/3j-jewelry/analytics/design-gem-quiz.md §8):
+// same anchoring reasoning as shop/stock/hero above, same R-10 look-alike
+// risk (/gem-quizzes, /gem-quiz-admin, /api/gem-quiz-x must stay gated — see
+// exempt-path.test.ts).
 const EXEMPT_PATTERN =
-  /^(?:_next\/static|_next\/image|favicon\.ico|api\/webhooks(?:\/|$)|shop(?:\/|$)|stock\/hero(?:\/|$)|.*\.(?:svg|png|jpg|jpeg|gif|webp|ico)$)/;
+  /^(?:_next\/static|_next\/image|favicon\.ico|api\/webhooks(?:\/|$)|api\/gem-quiz(?:\/|$)|shop(?:\/|$)|gem-quiz(?:\/|$)|stock\/hero(?:\/|$)|.*\.(?:svg|png|jpg|jpeg|gif|webp|ico)$)/;
 
 /** true if `pathname` bypasses the auth gate entirely (middleware.ts never
  * runs for it) — mirrors config.matcher's negative-lookahead exactly. */

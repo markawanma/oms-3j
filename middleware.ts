@@ -178,7 +178,14 @@ export const config = {
   // /shop (public storefront, anon key + shop_catalog view already its own
   // security boundary), /api/webhooks/* (marketplace callers, no browser
   // session, auth = webhook signature), /stock/hero (public wall-display
-  // screen, no money/PII), plus Next internals + static assets.
+  // screen, no money/PII), /gem-quiz + /api/gem-quiz/* (public gem quiz via
+  // QR on the thank-you card — docs/3j-jewelry/analytics/design-gem-quiz.md
+  // §1.2/§8: no customer identity is ever collected here, auth = a signed
+  // form token + honeypot + a DB-side circuit breaker checked inside
+  // app/api/gem-quiz/submit/route.ts and lib/gem-quiz/**, NOT a session —
+  // lib/gem-quiz/** and app/(quiz)/** must never import a "use server" file,
+  // see that design doc's §1.2 for why an exempt page importing one would
+  // bypass this very gate), plus Next internals + static assets.
   //
   // "login" was excluded here in A1 (gate never branched, so there was
   // nothing for middleware to do on the login page). A2-lite needs the gate
@@ -206,6 +213,6 @@ export const config = {
   // of truth; lib/auth/exempt-path.test.ts is what actually proves they
   // agree.
   matcher: [
-    "/((?!_next/static|_next/image|favicon\\.ico|api/webhooks(?:/|$)|shop(?:/|$)|stock/hero(?:/|$)|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
+    "/((?!_next/static|_next/image|favicon\\.ico|api/webhooks(?:/|$)|api/gem-quiz(?:/|$)|shop(?:/|$)|gem-quiz(?:/|$)|stock/hero(?:/|$)|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
   ],
 };
