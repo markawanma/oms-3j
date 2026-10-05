@@ -119,7 +119,7 @@ Branch: feature/gem-quiz-v2 แตกจาก feature/gem-quiz-ui (e645222) · 
 |---|---|
 | docs/3j-jewelry/analytics/gem-quiz-v2-handoff/** | สร้าง (สำเนาแพ็กเกจ) |
 | supabase/migrations/0157_gem_quiz_v2_five_stones.sql | สร้าง |
-| scripts/verify-0157.sql | สร้าง (7 inactive · ruby⇒22023 · v2 ครบ⇒insert · key ใหม่ถูก · md5 submit คงเดิม · overload=1 · R-11 42501) |
+| scripts/verify/verify-0157.sql | สร้าง (7 inactive · ruby⇒22023 · v2 ครบ⇒insert · key ใหม่ถูก · md5 submit คงเดิม · overload=1 · R-11 42501) |
 | lib/gem-quiz/config.ts, recommend.ts(+test) | เขียนใหม่ |
 | lib/gem-quiz/result.ts(+test) | สร้าง |
 | lib/gem-quiz/validate.ts(+test) | แก้ |
