@@ -5,15 +5,15 @@
 // 🔴 Products มีแค่ชื่อ (ไม่มีราคา — ยังไม่ผ่าน 3 ด่าน content) และไม่มีลิงก์
 // "ดูรายละเอียด" ไปไหน (mockup ต้นฉบับใช้ href="#" ซึ่งเป็น placeholder ไม่ใช่
 // ปลายทางจริง — ตัดออกแทนที่จะส่งลิงก์ที่ไปไหนไม่ได้จริงให้ผู้ใช้กด).
-// CTA ปลายทาง (O4 ของ design doc §9) ยังไม่เคาะ — ใช้ LINE OA เป็นปลายทาง
-// ชั่วคราวตาม precedent เดิมของไซต์ (เหมือน v1) จนกว่า Tech Lead/เจ้าของจะ
-// เคาะปลายทางจริง (ไม่บล็อกการ implement ตาม design doc §9).
+// CTA ปลายทาง (O4 ของ design doc §9) — เจ้าของเคาะแล้ว 5 ต.ค. 69 (หลังทดสอบจริง
+// บน production): LINE OA ID @3jjewelry ใช้ lin.ee shortlink ที่เจ้าของให้มาตรงๆ
+// (ของเดิม @3jsilver เป็น placeholder ผิดร้าน ไม่ใช่ความตั้งใจ).
 import { GemIcon } from "../_components/GemIcon";
 import { PrimaryButton } from "../_components/PrimaryButton";
 import { GEM_QUIZ_STONE_BY_CODE, type GemQuizStoneCode } from "@/lib/gem-quiz/config";
 import type { GemQuizResultView } from "@/lib/gem-quiz/result";
 
-const LINE_OA_URL = "https://line.me/R/ti/p/@3jsilver";
+const LINE_OA_URL = "https://lin.ee/PzIJl6j";
 
 // code review S5: code เป็น GemQuizStoneCode (literal union) อยู่แล้ว — TS
 // การันตีว่ามีจริงใน GEM_QUIZ_STONE_BY_CODE ไม่ต้อง throw/`!` เหมือนของเดิม
