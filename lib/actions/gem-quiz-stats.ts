@@ -1,8 +1,7 @@
 "use server";
 
 // lib/actions/gem-quiz-stats.ts — อ่านสถิติภายในของแบบทดสอบเลือกพลอย สำหรับ
-// /marketing/gem-quiz (design doc §3.4/§7, ยังไม่ทำหน้า UI รอบนี้ — ไฟล์นี้
-// เป็น read action เตรียมไว้ให้ frontend-dev เรียกต่อ). Pattern เดียวกับ
+// หน้า /marketing/gem-quiz (design doc §3.4/§7). Pattern เดียวกับ
 // lib/actions/content.ts: getServiceClient() + requireOwnerAdmin() ชั้นแอป
 // + ActionResult<T> + console.error บน catch ทุกจุด.
 //
@@ -228,11 +227,12 @@ function parseGemQuizStats(raw: unknown): GemQuizStats | null {
     bySrcLiked.push({ src, code, count });
   }
 
-  // v2 (0157) — field ใหม่ 🔴 ยังไม่ apply ขึ้น DB จริงตอนเขียนโค้ดนี้ (ยืนยัน
-  // กับ Tech Lead แล้ว) ดังนั้น raw.liked_first/raw.daily_breakdown จะเป็น
-  // `undefined` (ไม่ใช่ malformed) จนกว่า devops จะกด apply — แยกเคส "ไม่มี
-  // field เลย" (ยอมรับ ถือเป็น [] ชั่วคราว) ออกจากเคส "มี field แต่ shape ผิด"
-  // (แปลว่า RPC จริงเปลี่ยนไปโดยไม่ตรงสัญญา ต้อง return null เหมือนฟิลด์อื่น)
+  // v2 (0157) — field ใหม่: ตั้งใจเลี่ยน (treat undefined เป็น []) ไม่ตามเข้ม
+  // เหมือนฟิลด์อื่น เพราะลำดับ deploy ที่ถูกต้องคือ apply migration ก่อนแล้วค่อย
+  // deploy TS นี้ (design §6) แต่ถ้าใครสลับลำดับผิดโดยไม่ตั้งใจ parser ที่เข้ม
+  // เกินไปจะทำหน้าสถิติทั้งหน้า error แทนที่จะแค่ส่วนใหม่ว่างไปก่อน — แยกเคส
+  // "ไม่มี field เลย" (undefined, ยอมรับเป็น []) ออกจากเคส "มี field แต่ shape
+  // ผิด" (แปลว่า RPC จริงเปลี่ยนไปโดยไม่ตรงสัญญา ต้อง return null เหมือนฟิลด์อื่น)
   const likedFirstRaw = raw.liked_first;
   const likedFirst = likedFirstRaw === undefined ? [] : parseStoneCountSimpleArray(likedFirstRaw);
   if (!likedFirst) return null;

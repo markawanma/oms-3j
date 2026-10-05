@@ -22,6 +22,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import {
   GEM_QUIZ_QUESTIONS,
   GEM_QUIZ_SRC_VALUES,
+  GEM_QUIZ_STONE_BY_CODE,
   GEM_QUIZ_STONES,
   MAX_LIKED_STONES,
   MIN_LIKED_STONES,
@@ -196,6 +197,20 @@ export function GemQuizClient({ token }: { token: string | null }) {
     });
   }
 
+  // code review S4: mockup ต้นฉบับ (Quiz.dc.html:641-642, 704-705) สั่ง
+  // scrollTo({top:0}) ตอนแตะพลอยทางเลือกและตอนกด "กลับไปที่พลอยแนะนำอันดับ 1"
+  // — รอบพอร์ตแรกไม่ได้ทำ บนมือถือรายการทางเลือกอยู่กลางหน้าผลที่ยาวมาก แตะ
+  // แล้วเห็นแค่รายการสลับ ส่วน hero ที่เปลี่ยนอยู่นอกจอ ไม่รู้ว่าอะไรเปลี่ยน
+  function focusStone(code: string | null) {
+    setFocusStoneCode(code);
+    if (typeof window === "undefined") return;
+    // jsdom (vitest) ไม่มี window.matchMedia โดย default — กันไว้ไม่ใช้ง่ายๆ
+    // ว่า "มี window แปลว่ามี matchMedia เสมอ" (เจอ TypeError จริงตอนรันเทสต์)
+    const reduceMotion =
+      typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    window.scrollTo({ top: 0, behavior: reduceMotion ? "auto" : "smooth" });
+  }
+
   function restart() {
     submittedRef.current = false;
     setAnswers({});
@@ -218,7 +233,9 @@ export function GemQuizClient({ token }: { token: string | null }) {
       feeling: answers.feeling,
       likedStoneCodes: likedCodes,
     });
-    return GEM_QUIZ_STONES.find((s) => s.code === ranked[0].code)!.colors;
+    // code review S5: ranked[0].code เป็น GemQuizStoneCode อยู่แล้ว index
+    // ตรงๆ แทน .find()+`!`
+    return GEM_QUIZ_STONE_BY_CODE[ranked[0].code].colors;
   }, [answers.birth_day, answers.intention, answers.feeling, likedCodes]);
 
   const resultView = useMemo(() => {
@@ -291,8 +308,8 @@ export function GemQuizClient({ token }: { token: string | null }) {
       {screen === "result" && resultView && (
         <ResultScreen
           view={resultView}
-          onFocusAlternative={setFocusStoneCode}
-          onBackToTop={() => setFocusStoneCode(null)}
+          onFocusAlternative={focusStone}
+          onBackToTop={() => focusStone(null)}
           onRestart={restart}
         />
       )}

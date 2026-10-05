@@ -139,9 +139,19 @@ export const GEM_QUIZ_STONES = [
 
 export const GEM_QUIZ_STONE_CODES: readonly GemQuizStoneCode[] = GEM_QUIZ_STONES.map((s) => s.code);
 
+/** code review S5: หา stone object จาก code ที่เดิมกระจาย 5 ที่ (throw/`!`/
+ * fallback คนละแบบ) รวมเป็น lookup เดียว — type ปลอดภัยเพราะ key เป็น
+ * GemQuizStoneCode (ไม่ใช่ string ทั่วไป) ไม่ต้อง throw/`!` ที่เรียกใช้เลย
+ * ส่วนโค้ดที่ได้ code มาจากภายนอก (DB/URL) เป็น string ธรรมดา — ยังต้องเช็ค
+ * `in` หรือ optional ก่อนอยู่ดีตามจุดนั้นๆ นี่แก้แค่จุดที่โค้ดเรียกด้วย
+ * GemQuizStoneCode literal ที่รู้แน่นอนอยู่แล้วว่ามีจริง */
+export const GEM_QUIZ_STONE_BY_CODE: Readonly<Record<GemQuizStoneCode, (typeof GEM_QUIZ_STONES)[number]>> =
+  Object.fromEntries(GEM_QUIZ_STONES.map((s) => [s.code, s])) as Record<GemQuizStoneCode, (typeof GEM_QUIZ_STONES)[number]>;
+
 /** gemOrder ของแพ็กเกจ — ลำดับ ascending ใช้เป็นตัวตัดเสมอสุดท้ายใน
- * recommend.ts (ยิ่ง index น้อยยิ่งชนะเมื่อคะแนนเท่ากันทุกมิติก่อนหน้า). */
-export const GEM_QUIZ_GEM_ORDER: readonly GemQuizStoneCode[] = GEM_QUIZ_STONE_CODES;
+ * recommend.ts (ยิ่ง index น้อยยิ่งชนะเมื่อคะแนนเท่ากันทุกมิติก่อนหน้า) —
+ * recommend.ts ใช้ลำดับของ GEM_QUIZ_STONE_CODES array ตรงๆ (ไม่ได้อ่าน
+ * sortOrder field เลย — field นั้นเป็นแค่สำเนาข้อมูลที่ DB เก็บไว้แสดงผล). */
 
 /** Q4 "พลอยไหนดึงดูดคุณที่สุด" — เลือกได้ 1-3 ตัว เรียงตามอันดับที่แตะ (B1
  * กลับมติ 5 ต.ค. 69 — v9 ของ design doc: ไม่มี "ยังไม่มีในใจ" อีกแล้ว ต้อง
@@ -289,10 +299,10 @@ export const GEM_QUIZ_FEELINGS: Readonly<Record<GemQuizFeeling, readonly GemQuiz
  * (อันดับ 1 ที่แตะ) ให้คะแนนสูงสุด ยิ่งอันดับหลังยิ่งได้น้อย เกินอันดับ 3 = 0. */
 export const GEM_QUIZ_PREFERENCE_POINTS_BY_RANK: readonly number[] = [6, 4, 2];
 
-/** ลำดับตัดเสมอของ recommend.ts ตาม tieBreakOrder ของ quiz-config.json — เอกสาร
- * ไว้ให้ชัด comparator จริงอยู่ที่ recommend.ts (ลำดับนี้ไม่ได้ขับ logic โดยตรง
- * เพราะ comparator เขียนเป็น field access ตรงๆ ตามที่ oracle ของแพ็กเกจทำ). */
-export const GEM_QUIZ_TIE_BREAK_ORDER = ["intention", "feeling", "preference", "birth_day"] as const;
+// ลำดับตัดเสมอ (intention → feeling → preference → birth_day) ตาม
+// tieBreakOrder ของ quiz-config.json — comparator จริงอยู่ที่ recommend.ts
+// เขียนเป็น field access ตรงๆ ตามที่ oracle ของแพ็กเกจทำ ไม่มี export แยก
+// เพราะไม่มีที่อื่นอ่านค่านี้ (code review N1 — ของเดิมเป็น dead export)
 
 // ============================================================================
 // Result content — พอร์ตจาก renderVals() ของ Quiz.dc.html (ดู result.ts)

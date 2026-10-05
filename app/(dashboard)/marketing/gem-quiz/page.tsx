@@ -72,17 +72,10 @@ export default async function GemQuizStatsPage({
     return <ErrorState message={result.error} />;
   }
 
-  if (result.data.respondents === 0) {
-    return (
-      <div className="space-y-4">
-        <h1 className="text-lg font-bold text-zinc-900">สถิติแบบทดสอบเลือกพลอย</h1>
-        <EmptyState
-          title="ยังไม่มีคนทำแบบทดสอบในช่วงที่เลือก"
-          description="ลองขยายช่วงวันที่ หรือกลับมาดูใหม่หลังการ์ด QR ถูกส่งออกไป"
-        />
-      </div>
-    );
-  }
-
+  // code review S3: "0 คน" เคยตัดฟอร์มกรองวันที่ทิ้งทั้งหน้า (EmptyState
+  // แทนที่ทั้งหน้าแทนที่จะโผล่ใต้ฟอร์ม) ⇒ เจอหน้านี้แล้วขยายช่วงวันที่เองไม่ได้
+  // นอกจากพิมพ์ URL เอง (ตารางว่างตอน v2 เพิ่งขึ้น + default มองย้อน 30 วัน
+  // เป็นสถานการณ์ปกติ ไม่ใช่ edge case) ย้าย empty-state เข้าไปอยู่ใต้ฟอร์ม
+  // กรองใน GemQuizStats เอง
   return <GemQuizStats stats={result.data} filters={{ from, to, includeRetake }} />;
 }

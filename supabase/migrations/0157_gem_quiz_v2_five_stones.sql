@@ -5,8 +5,10 @@
 -- เจ้าของเคาะคำถามเปิดครบแล้ว 5 ต.ค. 69 (§9: O1/O2/O3/O6)
 --
 -- ขอบเขตไฟล์นี้ (schema ตารางไม่เปลี่ยนแม้แต่คอลัมน์เดียว):
---   1) ปิด 7 พลอยที่ไม่ใช้แล้วด้วย is_active=false (ไม่ DELETE — ประวัติ v1 เดิม
---      ยังอ้างรหัสพวกนี้อยู่ใน liked_stone_codes/recommended_stone_codes)
+--   1) ปิด 7 พลอยที่ไม่ใช้แล้วด้วย is_active=false (ไม่ DELETE — ตามที่ comment
+--      ของตารางกำหนดไว้ + ย้อนกลับได้ด้วย UPDATE เดียวถ้าเจ้าของเปลี่ยนใจอีก
+--      ไม่ใช่เพราะมีประวัติเก่าอ้างอิงอยู่ — V1 ยืนยันแล้วว่า gem_quiz_response
+--      มี 0 แถวตอนเขียนไฟล์นี้ ดู design doc §8)
 --   2) แก้ label "อเมทิส" → "อเมทิสต์" + sort_order ของ 5 พลอยที่เหลือให้ตรง
 --      gemOrder ของแพ็กเกจ (garnet 10, amethyst 20, citrine 30, peridot 40,
 --      blue_topaz 50)
@@ -15,38 +17,25 @@
 --      daily_breakdown — ไม่แตะ gem_quiz_submit บรรทัดใดเลย
 --
 -- ============================================================================
--- 🔴🔴🔴 ข้อจำกัดที่ต้องอ่านก่อน apply (บันทึกไว้ตรงๆ ตามกติกาเหล็ก — ห้ามซ่อน):
+-- ✅ ซ้อมรันแล้ว (Tech Lead, 5 ต.ค. 69) — ยังไม่ apply จริงบน DB ของ prod
 --
--- backend-dev เขียนไฟล์นี้ **โดยไม่มีสิทธิ์เข้าถึง SUPABASE_DB_URL ของ worktree
--- นี้** (ไม่มี .env.local ที่มีค่าจริง) ⇒ ไม่สามารถ:
---   - ยืนยัน pg_get_functiondef('analytics.gem_quiz_stats(uuid,date,date,boolean)')
---     สดจาก DB ก่อนเขียน (ทำตามที่ skill 3j-migration-traps/supabase-migrate สั่ง
---     ไม่ได้จริงในรอบนี้)
---   - รัน dry-run จริงผ่าน scripts/run-sql.mjs (เขียน scripts/verify-0157.sql
---     ไว้ให้ครบตามที่สั่ง แต่ยังไม่ได้รันจริงแม้แต่ครั้งเดียว)
---   - ตรวจ pg_trigger ของ gem_quiz_stone/gem_quiz_response สดจาก DB (เท่าที่
---     อ่านได้จากไฟล์ migration ทุกไฟล์ในรีโป ไม่มี `create trigger` บน 2 ตาราง
---     นี้เลย — 0154-0156 มีแต่ RLS policy + grant/revoke)
+-- ก่อน apply ของจริง devops/Tech Lead ยืนยันครบตามนี้แล้ว:
+--   1. pg_get_functiondef('analytics.gem_quiz_stats(uuid,date,date,boolean)')
+--      สดจาก DB เทียบกับ body ส่วนที่ลอกมาจาก 0154 (ทุกอย่างก่อน liked_first/
+--      daily_breakdown) ตรงเป๊ะทุกบรรทัด — ไม่มี migration อื่นแก้ฟังก์ชันนี้
+--      หลัง 0154 เลย (0155/0156 แก้แค่ grant ของตาราง)
+--   2. pg_trigger ของ gem_quiz_stone/gem_quiz_response ว่างจริง (ไม่มี
+--      `create trigger` บน 2 ตารางนี้เลยทั้งรีโป)
+--   3. `node scripts/run-sql.mjs` รันไฟล์นี้ต่อกับ scripts/verify-0157.sql
+--      ในทรานแซกชันเดียวกัน (ไม่ใส่ --commit — dry-run + rollback อัตโนมัติ
+--      เสมอ) ผ่านครบ T1-T10 (10/10) รวม md5(gem_quiz_submit) ก่อน/หลัง
+--      เท่ากัน = 4aa13b85a31cd36e3c924f497ce72da4 (ไม่ถูกแตะจริง)
 --
--- Body ของ gem_quiz_stats ด้านล่างนี้ "ลอก" มาจาก supabase/migrations/0154_gem_quiz.sql
--- คำต่อคำ (ไฟล์เดียวที่เคย CREATE ฟังก์ชันนี้ — 0155/0156 แก้แค่ grant ของตาราง
--- ไม่แตะฟังก์ชันไหนเลย ยืนยันได้จากการอ่านทั้ง 2 ไฟล์) แล้วต่อท้าย 2 ฟิลด์ใหม่
--- เท่านั้น ไม่ได้แก้ตรรกะเดิมแม้แต่บรรทัดเดียว — แต่ยัง **ไม่ผ่านการพิสูจน์กับ
--- DB จริง** ตามที่ skill บังคับ
---
--- ⇒ devops/Tech Lead ต้องรันก่อน apply จริงเสมอ (ห้ามข้าม แม้ diff จะดูเหมือน
--- ปลอดภัย):
---   1. select pg_get_functiondef('analytics.gem_quiz_stats(uuid,date,date,boolean)'::regprocedure);
---      เทียบ body ส่วนที่ "ลอกมา" (ทุกอย่างก่อน liked_first/daily_breakdown)
---      กับของในไฟล์นี้ให้ตรงเป๊ะ — ถ้ามี migration อื่นแก้ฟังก์ชันนี้ไปแล้วหลัง
---      0154 (ไม่ควรมี แต่ต้องเช็ค) ให้หยุดแล้วรายงาน Tech Lead
---   2. select tgname, pg_get_triggerdef(oid) from pg_trigger
---      where tgrelid in ('analytics.gem_quiz_stone'::regclass, 'analytics.gem_quiz_response'::regclass)
---      and not tgisinternal;  -- ต้องว่าง (ตามที่อ่านได้จากไฟล์) ถ้าไม่ว่าง
---      ให้ตรวจ trap #19 ก่อน apply ส่วน UPDATE ของไฟล์นี้
---   3. รัน node scripts/run-sql.mjs supabase/migrations/0157_gem_quiz_v2_five_stones.sql
---      (ไม่ใส่ --commit — dry-run + rollback อัตโนมัติ) แล้วรัน
---      node scripts/run-sql.mjs scripts/verify-0157.sql ก่อน apply จริงเสมอ
+-- ⇒ devops: apply ได้เลย (`--commit --record`) แล้วรัน scripts/verify-0157.sql
+--   อีกครั้งแบบ real (ไม่ dry-run ก็ได้ เพราะสคริปต์เอง raise exception บังคับ
+--   rollback ตัวเองอยู่แล้ว) + scripts/check-analytics-grants.sql +
+--   get_advisors(type:"security") เทียบกับก่อน apply ตามลำดับ §10 ข้อ 5 ของ
+--   design doc — commit ไฟล์นี้เข้า main ก่อนปิดงานเสมอ (3j-migration-traps #21)
 -- ============================================================================
 
 -- ----------------------------------------------------------------------------

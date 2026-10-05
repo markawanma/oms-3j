@@ -3,9 +3,9 @@
 // buildResultView() — พอร์ตจาก renderVals() ใน
 // docs/3j-jewelry/analytics/gem-quiz-v2-handoff/design/Quiz.dc.html (ส่วนที่
 // เกี่ยวกับหน้าผลลัพธ์, บรรทัด ~600-662) เป็น pure TS. ใช้ร่วมกันทั้ง client
-// (ResultScreen แสดงผลทันทีหลังตอบคำถามครบ — frontend-dev ต่อยอดจากนี้) และ
-// เป็นเอกสารอ้างอิงเดียวที่นิยาม "ผลลัพธ์หน้าจอ" ของฟีเจอร์นี้ (ไม่มี import
-// จาก "use server"/lib/actions — กฎ §1.2, ดู config.ts หัวไฟล์).
+// (ResultScreen แสดงผลทันทีหลังตอบคำถามครบ) และเป็นเอกสารอ้างอิงเดียวที่นิยาม
+// "ผลลัพธ์หน้าจอ" ของฟีเจอร์นี้ (ไม่มี import จาก "use server"/lib/actions —
+// กฎ §1.2, ดู config.ts หัวไฟล์).
 //
 // 🔴 V13 ของ design doc: ห้ามพอร์ต fallback `const ans = complete ? a : DEMO`
 // ของต้นฉบับ — ถ้าคำตอบไม่ครบ buildResultView() ต้อง throw ไม่ใช่โชว์ข้อมูล
@@ -25,7 +25,7 @@ import {
   GEM_QUIZ_PAIRS,
   GEM_QUIZ_QUESTIONS,
   GEM_QUIZ_RING_FINGER,
-  GEM_QUIZ_STONES,
+  GEM_QUIZ_STONE_BY_CODE,
   type GemQuizJewelryType,
   type GemQuizJewelryTypeConfig,
   type GemQuizPair,
@@ -102,8 +102,16 @@ export interface GemQuizResultView {
   disclaimer: string;
 }
 
+// code review S5: ใช้ GEM_QUIZ_STONE_BY_CODE (config.ts) แทน .find() ตรงๆ —
+// รับ string ธรรมดาเพราะ input มาจาก likedStoneCodes/recommended ที่ยัง
+// ไม่ narrow เป็น GemQuizStoneCode ตอน compile-time (ต่าง จาก Landing.tsx ที่
+// code เป็น literal รู้แน่นอนอยู่แล้ว) ยัง throw เหมือนเดิมถ้าไม่เจอจริง —
+// ต้องเช็ค hasOwnProperty ก่อน (security audit L1 เจอกับดักเดียวกันนี้ใน
+// recommend.ts มาแล้ว: code="constructor" คืน Object constructor function
+// แทน undefined ถ้า index ตรงๆ โดยไม่กัน)
 function getStoneConfig(code: string): GemQuizStoneConfig {
-  const stone = GEM_QUIZ_STONES.find((s) => s.code === code);
+  const table = GEM_QUIZ_STONE_BY_CODE as Readonly<Record<string, GemQuizStoneConfig>>;
+  const stone = Object.prototype.hasOwnProperty.call(table, code) ? table[code] : undefined;
   if (!stone) {
     throw new Error(`buildResultView: ไม่พบรหัสพลอย "${code}" ใน GEM_QUIZ_STONES`);
   }

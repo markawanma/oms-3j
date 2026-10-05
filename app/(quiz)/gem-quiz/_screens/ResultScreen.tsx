@@ -10,15 +10,15 @@
 // เคาะปลายทางจริง (ไม่บล็อกการ implement ตาม design doc §9).
 import { GemIcon } from "../_components/GemIcon";
 import { PrimaryButton } from "../_components/PrimaryButton";
-import { GEM_QUIZ_STONES, type GemQuizStoneCode, type GemQuizStoneConfig } from "@/lib/gem-quiz/config";
+import { GEM_QUIZ_STONE_BY_CODE, type GemQuizStoneCode } from "@/lib/gem-quiz/config";
 import type { GemQuizResultView } from "@/lib/gem-quiz/result";
 
 const LINE_OA_URL = "https://line.me/R/ti/p/@3jsilver";
 
-function getStone(code: GemQuizStoneCode): GemQuizStoneConfig {
-  const stone = GEM_QUIZ_STONES.find((s) => s.code === code);
-  if (!stone) throw new Error(`ResultScreen: ไม่พบรหัสพลอย "${code}"`);
-  return stone;
+// code review S5: code เป็น GemQuizStoneCode (literal union) อยู่แล้ว — TS
+// การันตีว่ามีจริงใน GEM_QUIZ_STONE_BY_CODE ไม่ต้อง throw/`!` เหมือนของเดิม
+function getStone(code: GemQuizStoneCode) {
+  return GEM_QUIZ_STONE_BY_CODE[code];
 }
 
 function InfoRow({ icon, label, value }: { icon: React.ReactNode; label: string; value: string }) {

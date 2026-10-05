@@ -2,11 +2,13 @@
 // "00 LANDING" (บรรทัด ~18-39).
 import { GemIcon } from "../_components/GemIcon";
 import { PrimaryButton } from "../_components/PrimaryButton";
-import { GEM_QUIZ_STONES } from "@/lib/gem-quiz/config";
+import { GEM_QUIZ_STONE_BY_CODE } from "@/lib/gem-quiz/config";
 
-const GARNET = GEM_QUIZ_STONES.find((s) => s.code === "garnet")!;
-const AMETHYST = GEM_QUIZ_STONES.find((s) => s.code === "amethyst")!;
-const BLUE_TOPAZ = GEM_QUIZ_STONES.find((s) => s.code === "blue_topaz")!;
+// code review S5: index ตรงๆ แทน .find()+`!` — "garnet" เป็น literal ที่ TS
+// รู้อยู่แล้วว่าเป็น key ของ GEM_QUIZ_STONE_BY_CODE ไม่ต้องพิสูจน์ runtime
+const GARNET = GEM_QUIZ_STONE_BY_CODE.garnet;
+const AMETHYST = GEM_QUIZ_STONE_BY_CODE.amethyst;
+const BLUE_TOPAZ = GEM_QUIZ_STONE_BY_CODE.blue_topaz;
 
 export function Landing({ onStart }: { onStart: () => void }) {
   return (
