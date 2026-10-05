@@ -25,7 +25,6 @@ import {
   GEM_QUIZ_STONE_BY_CODE,
   GEM_QUIZ_STONES,
   MAX_LIKED_STONES,
-  MIN_LIKED_STONES,
   QUIZ_VERSION,
   type GemQuizAnswers,
   type GemQuizSrc,
@@ -105,6 +104,10 @@ export function GemQuizClient({ token }: { token: string | null }) {
   const [screen, setScreen] = useState<Screen>("landing");
   const [answers, setAnswers] = useState<GemQuizAnswers>({});
   const [likedCodes, setLikedCodes] = useState<string[]>([]);
+  // กลับมติ 5 ต.ค. 69: true = แตะ "ยังไม่แน่ใจ แนะนำให้ฉัน" ที่ Q4 ไว้
+  // (exclusive กับ likedCodes — toggleLiked()/selectUnsurePreference() คุมให้
+  // ไม่ซ้อนกัน) ใช้คุมปุ่ม "ถัดไป" แทน MIN_LIKED_STONES ที่กลับเป็น 0 แล้ว
+  const [preferenceUnsure, setPreferenceUnsure] = useState(false);
   const [focusStoneCode, setFocusStoneCode] = useState<string | null>(null);
   const [honeypot, setHoneypot] = useState("");
 
@@ -190,11 +193,19 @@ export function GemQuizClient({ token }: { token: string | null }) {
   }
 
   function toggleLiked(code: string) {
+    // กลับมติ 5 ต.ค. 69: เลือกพลอยจริงต้องเคลียร์ "ยังไม่แน่ใจ" เสมอ (exclusive
+    // กัน — ดูคอมเมนต์หัวไฟล์ GemPicker.tsx)
+    setPreferenceUnsure(false);
     setLikedCodes((prev) => {
       if (prev.includes(code)) return prev.filter((c) => c !== code);
       if (prev.length >= MAX_LIKED_STONES) return prev;
       return [...prev, code];
     });
+  }
+
+  function selectUnsurePreference() {
+    setLikedCodes([]);
+    setPreferenceUnsure(true);
   }
 
   // code review S4: mockup ต้นฉบับ (Quiz.dc.html:641-642, 704-705) สั่ง
@@ -215,6 +226,7 @@ export function GemQuizClient({ token }: { token: string | null }) {
     submittedRef.current = false;
     setAnswers({});
     setLikedCodes([]);
+    setPreferenceUnsure(false);
     setFocusStoneCode(null);
     setScreen("landing");
   }
@@ -223,8 +235,10 @@ export function GemQuizClient({ token }: { token: string | null }) {
   // ต้องใช้ตอบครบแล้วก่อนจะมาถึงจอ loading ได้ (ปุ่ม "ถัดไป" ของทุกจอ disabled
   // จนกว่าจะตอบ). ไม่ throw เพราะไม่ได้เรียก buildResultView() (ซึ่งต้องการ
   // jewelryType ด้วย) — ใช้ rankGems() ตรงๆ (jewelry_type ไม่มีผลคะแนน).
+  // กลับมติ 5 ต.ค. 69: likedCodes=[] ("ยังไม่แน่ใจ") เป็นค่าสุดท้ายที่ถูกต้องได้
+  // แล้ว ไม่ใช่สัญญาณว่า "ยังตอบไม่ครบ" อีกต่อไป — เอาออกจากเงื่อนไข fallback
   const loadingHeroColors = useMemo(() => {
-    if (!answers.birth_day || !answers.intention || !answers.feeling || likedCodes.length === 0) {
+    if (!answers.birth_day || !answers.intention || !answers.feeling) {
       return GEM_QUIZ_STONES[0].colors;
     }
     const ranked = rankGems({
@@ -279,7 +293,8 @@ export function GemQuizClient({ token }: { token: string | null }) {
           stones={stoneOrder}
           selected={likedCodes}
           onToggle={toggleLiked}
-          min={MIN_LIKED_STONES}
+          isUnsure={preferenceUnsure}
+          onSelectUnsure={selectUnsurePreference}
           max={MAX_LIKED_STONES}
           onNext={goNext}
           onBack={goBack}

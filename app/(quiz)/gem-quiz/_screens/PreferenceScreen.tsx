@@ -9,7 +9,8 @@ export function PreferenceScreen({
   stones,
   selected,
   onToggle,
-  min,
+  isUnsure,
+  onSelectUnsure,
   max,
   onNext,
   onBack,
@@ -19,9 +20,12 @@ export function PreferenceScreen({
   stones: readonly GemQuizStoneConfig[];
   selected: readonly string[];
   onToggle: (code: string) => void;
-  /** MIN_LIKED_STONES ของ config.ts — จอนี้ไม่ validate เองเป็นด่านจริง (DB/
-   * validate.ts เป็นด่านจริง) แค่ปิดปุ่ม "ถัดไป" ให้ตรงกับ contract เดียวกัน */
-  min: number;
+  /** กลับมติ 5 ต.ค. 69: MIN_LIKED_STONES เป็น 0 แล้ว (รองรับ "ยังไม่แน่ใจ") —
+   * ด่านของจอนี้จึงไม่ใช่ "เลือกครบ min ตัว" อีกต่อไป แต่เป็น "ต้องเลือกพลอย
+   * อย่างน้อย 1 ตัว หรือกด 'ยังไม่แน่ใจ' อย่างใดอย่างหนึ่ง" (ด่านจริงยังอยู่ที่
+   * validate.ts/DB เหมือนเดิม จอนี้แค่ปิดปุ่ม "ถัดไป" ให้ตรงกับ UX ที่ตั้งใจ) */
+  isUnsure: boolean;
+  onSelectUnsure: () => void;
   max: number;
   onNext: () => void;
   onBack: () => void;
@@ -45,12 +49,19 @@ export function PreferenceScreen({
         </div>
 
         <div className="mt-4">
-          <GemPicker stones={stones} selected={selected} onToggle={onToggle} max={max} />
+          <GemPicker
+            stones={stones}
+            selected={selected}
+            onToggle={onToggle}
+            max={max}
+            isUnsure={isUnsure}
+            onSelectUnsure={onSelectUnsure}
+          />
         </div>
       </div>
 
       <div className="border-t border-[var(--gq-border-soft)] px-5 py-5">
-        <PrimaryButton onClick={onNext} disabled={selected.length < min} trailingArrow>
+        <PrimaryButton onClick={onNext} disabled={selected.length === 0 && !isUnsure} trailingArrow>
           ถัดไป
         </PrimaryButton>
       </div>

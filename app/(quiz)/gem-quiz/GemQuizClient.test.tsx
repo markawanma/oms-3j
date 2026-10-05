@@ -380,6 +380,51 @@ describe("GemQuizClient", () => {
     expect(body.liked).toEqual([GEM_QUIZ_STONES[0].code]);
   }, 10000);
 
+  // กลับมติ 5 ต.ค. 69: Q4 มีตัวเลือก "ยังไม่แน่ใจ แนะนำให้ฉัน" กลับมา —
+  // exclusive กับการเลือกพลอยจริง, ส่ง liked=[] ตอน submit
+  it("Q4: เลือก 'ยังไม่แน่ใจ แนะนำให้ฉัน' — ปุ่มถัดไป enabled, exclusive กับพลอยจริง, submit liked=[]", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const user = userEvent.setup();
+    renderQuiz();
+    await user.click(screen.getByRole("button", { name: "เริ่มทำแบบทดสอบ" }));
+    await user.click(screen.getByRole("button", { name: optionLabel("birth_day", "sun") }));
+    await user.click(screen.getByRole("button", { name: "ถัดไป" }));
+    await user.click(screen.getByRole("button", { name: optionLabel("intention", "career") }));
+    await user.click(screen.getByRole("button", { name: "ถัดไป" }));
+    await user.click(screen.getByRole("button", { name: optionLabel("feeling", "energy") }));
+    await user.click(screen.getByRole("button", { name: "ถัดไป" }));
+
+    expect(screen.getByRole("button", { name: "ถัดไป" })).toBeDisabled();
+    const unsureBtn = screen.getByRole("button", { name: /ยังไม่แน่ใจ/ });
+    await user.click(unsureBtn);
+    expect(unsureBtn).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "ถัดไป" })).toBeEnabled();
+
+    // เลือกพลอยจริงทีหลังต้องเคลียร์ "ยังไม่แน่ใจ" (exclusive กัน)
+    const stoneBtn = screen.getByRole("button", { name: new RegExp(GEM_QUIZ_STONES[0].nameEn) });
+    await user.click(stoneBtn);
+    expect(unsureBtn).toHaveAttribute("aria-pressed", "false");
+    expect(stoneBtn).toHaveAttribute("aria-pressed", "true");
+
+    // กดเลือกพลอยจริงอีกครั้งเพื่อยกเลิก แล้วกลับไปกด "ยังไม่แน่ใจ" เพื่อทดสอบ
+    // เส้นทาง submit liked=[]
+    await user.click(stoneBtn);
+    await user.click(unsureBtn);
+    expect(unsureBtn).toHaveAttribute("aria-pressed", "true");
+    expect(stoneBtn).toHaveAttribute("aria-pressed", "false");
+
+    await user.click(screen.getByRole("button", { name: "ถัดไป" }));
+    await user.click(screen.getByRole("button", { name: optionLabel("jewelry_type", "ring") }));
+    await user.click(screen.getByRole("button", { name: "ถัดไป" }));
+
+    await screen.findByRole("heading", { name: "ทำไมถึงเหมาะกับคุณวันนี้?" }, { timeout: RESULT_TIMEOUT });
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    expect(body.liked).toEqual([]);
+  }, 10000);
+
   it("รีเฟรชหน้ากลางคำถาม (remount ใหม่) — กลับไป landing เสมอ ไม่มี state persist ข้าม reload (ตามดีไซน์ ไม่เก็บ progress)", async () => {
     const user = userEvent.setup();
     const { unmount } = renderQuiz();

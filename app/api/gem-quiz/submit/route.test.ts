@@ -94,6 +94,21 @@ describe("POST /api/gem-quiz/submit", () => {
     expect((params.p_recommended_stone_codes as string[]).length).toBe(1);
   });
 
+  // กลับมติ 5 ต.ค. 69: liked=[] ("ยังไม่แน่ใจ แนะนำให้ฉัน" ที่ Q4) ต้องสำเร็จ
+  // ปกติ ไม่ใช่เคส 400 อีกต่อไป — ย้ายมาจาก describe("validate ไม่ผ่าน")
+  it("liked ว่างเปล่า ('ยังไม่แน่ใจ แนะนำให้ฉัน') ⇒ 204, ไม่ reject", async () => {
+    const { POST } = await import("./route");
+    const res = await POST(makeRequest({ body: validBody({ liked: [] }) }));
+    expect(res.status).toBe(204);
+    expect(rpcMock).toHaveBeenCalledTimes(1);
+    const [, params] = rpcMock.mock.calls[0] as [string, Record<string, unknown>];
+    expect(params.p_liked_stone_codes).toEqual([]);
+    // preference ไม่มีผลคะแนน แต่ recommend.ts ต้องยังคำนวณได้ปกติจาก
+    // birth_day/intention/feeling ล้วนๆ (ไม่ throw, คืนรหัสจริง 1 ตัว)
+    expect(Array.isArray(params.p_recommended_stone_codes)).toBe(true);
+    expect((params.p_recommended_stone_codes as string[]).length).toBe(1);
+  });
+
   it("R-8: client ส่ง recommended/shop_id มาเอง ⇒ ค่าที่ไปถึง RPC เป็นของ server เท่านั้น ไม่ใช่ของ client", async () => {
     const { POST } = await import("./route");
     const res = await POST(
@@ -238,13 +253,6 @@ describe("POST /api/gem-quiz/submit", () => {
     it("liked มี code พลอยที่ปิดแล้วใน v2 (ruby — เลิกใช้ตาม migration 0157) ⇒ 400", async () => {
       const { POST } = await import("./route");
       const res = await POST(makeRequest({ body: validBody({ liked: ["ruby"] }) }));
-      expect(res.status).toBe(400);
-      expect(rpcMock).not.toHaveBeenCalled();
-    });
-
-    it("liked ว่างเปล่า (v2: ไม่มี 'ยังไม่มีในใจ' อีกแล้ว ต้องเลือกอย่างน้อย 1) ⇒ 400", async () => {
-      const { POST } = await import("./route");
-      const res = await POST(makeRequest({ body: validBody({ liked: [] }) }));
       expect(res.status).toBe(400);
       expect(rpcMock).not.toHaveBeenCalled();
     });

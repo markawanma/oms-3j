@@ -1,10 +1,22 @@
 # Design: Gem Quiz v2 — reconcile แพ็กเกจ UI/UX ภายนอก กับ backend เดิม
 
-> ผู้ออกแบบ: architect (Yoda) · 5 ต.ค. 2569 · สถานะ: design เท่านั้น ยังไม่ implement ยังไม่ apply migration
+> ✅ **5 ต.ค. 69: ขึ้น production แล้ว** (merge main `85bbf85`, migration 0157 apply จริง, deploy ขึ้น `3jthailand.com/dailygemstonequiz` ผ่าน Wix redirect) ผ่าน security+QA+code review ครบ
+>
+> 🔁 **เจ้าของกลับมติ V9/B1 อีกครั้ง 5 ต.ค. 69 (หลังทดสอบจริงบนเว็บ)**: Q4 ต้องมีตัวเลือก
+> **"ยังไม่แน่ใจ แนะนำให้ฉัน"** กลับมาอีกครั้ง (คนละแบบกับ B1 เดิมของ v1 ที่เป็น "ไม่ตอบ
+> ก็ได้") — เป็นตัวเลือกที่ 6 ในลิสต์ Q4 ชัดเจนแบบเดียวกับที่ Q5 มีอยู่แล้ว เลือกแล้ว
+> `liked_stone_codes` ส่งเป็น `[]` (array ว่าง) ระบบคำนวณพลอยแนะนำจากวันเกิด/เป้าหมาย/
+> ความรู้สึกล้วนๆ (preference contribute 0 ทุกพลอยเท่ากัน ไม่กระทบธรรมชาติของ tie-break)
+> **เหตุผลเจ้าของ**: อยากเก็บข้อมูลว่าลูกค้ากลุ่มไหน "ไม่มีพลอยที่ชอบเป็นพิเศษ" แทนที่จะ
+> บังคับเลือกทั้งที่ไม่มีในใจจริงๆ — `MIN_LIKED_STONES` กลับเป็น **0** (จาก 1 ที่ V9 เคาะไว้)
+> **ผลกระทบ**: `config.ts`/`validate.ts`/`result.ts`(throw guard + prefNote)/`GemPicker.tsx`/
+> `PreferenceScreen.tsx`/`GemQuizClient.tsx`/`GemQuizStats.tsx` (คืน section "ยังไม่แน่ใจ"
+> ที่เพิ่งลบไปใน code review S5/N5 — field `liked_none` ฝั่ง DB ไม่เคยถูกแตะ ยังนับถูกต้องอยู่)
+>
+> ผู้ออกแบบ: architect (Yoda) · 5 ต.ค. 2569 · สถานะเดิม (ก่อน 2 ข้อข้างบน): design เท่านั้น ยังไม่ implement ยังไม่ apply migration
 > แทนที่บางส่วนของ design-gem-quiz.md (v1) — ยังมีผลเต็ม: §1 (F1-F14), §1.2, §2, §5 (anti-bot ทั้งหมด), §6 (QR)
 > ส่วนที่ถูกแทน: §3.1 seed 12 พลอย · §4.2 flow · §4.3 slot หน้าผล · §4.4 "ไม่ใช้ Q1 ในการคำนวณ" · §7 section หน้าสถิติ
 > แหล่งความจริงด้านเนื้อหา/UI/scoring = แพ็กเกจเจ้าของ (V1 spec ชนะเมื่อขัดกับ UI_UX_Flow)
-> 🔴 ขั้นแรกของ implement: copy แพ็กเกจเข้า docs/3j-jewelry/analytics/gem-quiz-v2-handoff/ (provenance + fixture ของ oracle test)
 
 ## 0. TL;DR
 - schema ตารางไม่เปลี่ยน · gem_quiz_submit ไม่แตะ (md5 4aa13b85… ต้องคงเดิม)

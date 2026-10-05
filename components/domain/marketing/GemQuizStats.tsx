@@ -294,11 +294,17 @@ export function GemQuizStats({
         {stats.respondents < MIN_RESPONDENTS_FOR_CONFIDENCE && <Badge tone="amber">ข้อมูลยังน้อย</Badge>}
       </div>
 
-      {/* likedNone (เดิมคือ "ยังไม่มีในใจ") ไม่มีทางเกิดใน v2 อีกต่อไป — validate.ts
-          บังคับเลือก 1-3 พลอยเสมอที่ Q4 (code review N5) ตัด UI ออก field ฝั่ง
-          DB/type ยังอยู่เผื่อย้อนอ่านข้อมูลเก่า */}
       <StoneCountList title="พลอยที่ชอบ (ทุกอันดับที่เลือก — Q4)" rows={stats.liked} denominator={stats.respondents} multiSelectNote />
       <StoneCountList title="พลอยที่ชอบอันดับ 1 (Q4)" rows={stats.likedFirst} denominator={likedFirstDenominator} />
+      {/* code review N5 ตัดอันนี้ออกตอน Q4 บังคับเลือก 1-3 (MIN_LIKED_STONES=1)
+          — กลับมติ 5 ต.ค. 69 คืน "ยังไม่แน่ใจ แนะนำให้ฉัน" กลับมาแล้ว field
+          ฝั่ง DB (liked_none) ไม่เคยถูกแตะเลยตลอด ยังนับถูกต้อง คืน UI กลับมา */}
+      {stats.likedNone > 0 && (
+        <p className="text-xs text-zinc-400">
+          "ยังไม่แน่ใจ แนะนำให้ฉัน": {stats.likedNone} คน (
+          {stats.respondents > 0 ? Math.round((stats.likedNone / stats.respondents) * 100) : 0}%)
+        </p>
+      )}
 
       <StoneCountList title="พลอยที่ระบบแนะนำ" rows={stats.recommended} denominator={stats.respondents} />
 

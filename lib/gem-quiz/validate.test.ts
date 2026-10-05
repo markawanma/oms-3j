@@ -100,16 +100,16 @@ describe("validateGemQuizBody — N-8: src แปลก coerce เป็น dire
   });
 });
 
-describe("validateGemQuizBody — R-6: liked (v2: บังคับ 1-3, ไม่มี 'ยังไม่มีในใจ' อีกแล้ว)", () => {
+describe("validateGemQuizBody — R-6: liked (v2: 0-3, กลับมติ 5 ต.ค. 69 — ดู design-gem-quiz-v2-reconcile.md)", () => {
   it("liked ไม่ใช่ array ⇒ invalid", () => {
     const result = validateGemQuizBody(baseBody({ liked: "garnet" }));
     expect(result.ok).toBe(false);
   });
 
-  it("liked ว่างเปล่า ⇒ invalid (v2 กลับมติ — v1 เดิมเคยอนุญาต)", () => {
+  it("liked ว่างเปล่า ⇒ valid ('ยังไม่แน่ใจ แนะนำให้ฉัน' ที่ Q4 — กลับมติอีกรอบ 5 ต.ค. 69)", () => {
     const result = validateGemQuizBody(baseBody({ liked: [] }));
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.kind).toBe("invalid");
+    expect(result.ok).toBe(true);
+    if (result.ok) expect(result.data.likedStoneCodes).toEqual([]);
   });
 
   it("liked เกิน 3 ตัว ⇒ invalid", () => {

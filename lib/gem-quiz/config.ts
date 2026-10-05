@@ -153,11 +153,13 @@ export const GEM_QUIZ_STONE_BY_CODE: Readonly<Record<GemQuizStoneCode, (typeof G
  * recommend.ts ใช้ลำดับของ GEM_QUIZ_STONE_CODES array ตรงๆ (ไม่ได้อ่าน
  * sortOrder field เลย — field นั้นเป็นแค่สำเนาข้อมูลที่ DB เก็บไว้แสดงผล). */
 
-/** Q4 "พลอยไหนดึงดูดคุณที่สุด" — เลือกได้ 1-3 ตัว เรียงตามอันดับที่แตะ (B1
- * กลับมติ 5 ต.ค. 69 — v9 ของ design doc: ไม่มี "ยังไม่มีในใจ" อีกแล้ว ต้อง
- * เลือกอย่างน้อย 1). */
+/** Q4 "พลอยไหนดึงดูดคุณที่สุด" — เลือกได้ 0-3 ตัว เรียงตามอันดับที่แตะ
+ * (B1 กลับมติอีกรอบ 5 ต.ค. 69 หลังทดสอบจริงบนเว็บ: ต้องมีตัวเลือก "ยังไม่แน่ใจ
+ * แนะนำให้ฉัน" แบบเดียวกับ Q5 — เลือกแล้วส่ง liked=[] ระบบคำนวณจากวันเกิด/
+ * เป้าหมาย/ความรู้สึกล้วนๆ MIN กลับเป็น 0 จาก 1 ที่เคาะไว้ตอนเช้า ดู
+ * design-gem-quiz-v2-reconcile.md หัวไฟล์). */
 export const MAX_LIKED_STONES = 3;
-export const MIN_LIKED_STONES = 1;
+export const MIN_LIKED_STONES = 0;
 
 export type GemQuizBirthDay = "sun" | "mon" | "tue" | "wed" | "thu" | "fri" | "sat";
 export type GemQuizIntention = "love" | "wealth" | "career" | "confidence" | "calm" | "renewal";

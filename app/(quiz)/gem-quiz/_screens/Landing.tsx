@@ -2,6 +2,7 @@
 // "00 LANDING" (บรรทัด ~18-39).
 import { GemIcon } from "../_components/GemIcon";
 import { PrimaryButton } from "../_components/PrimaryButton";
+import { Logo } from "@/components/brand/Logo";
 import { GEM_QUIZ_STONE_BY_CODE } from "@/lib/gem-quiz/config";
 
 // code review S5: index ตรงๆ แทน .find()+`!` — "garnet" เป็น literal ที่ TS
@@ -13,14 +14,12 @@ const BLUE_TOPAZ = GEM_QUIZ_STONE_BY_CODE.blue_topaz;
 export function Landing({ onStart }: { onStart: () => void }) {
   return (
     <div className="flex min-h-screen flex-col items-center px-6 pb-7 pt-11 text-center sm:min-h-[700px]">
-      <div className="motion-safe:animate-gq-fade-up flex flex-col items-center gap-2">
-        <svg width="40" height="40" viewBox="0 0 54 54" fill="none" aria-hidden="true">
-          <circle cx="27" cy="29" r="20" stroke="var(--gq-burgundy)" strokeWidth={3.5} />
-          <path d="M41 6l1.6 4.4L47 12l-4.4 1.6L41 18l-1.6-4.4L35 12l4.4-1.6z" fill="var(--gq-burgundy)" />
-        </svg>
-        <span className="pl-[0.42em] font-quiz-display text-sm font-semibold tracking-[0.42em] text-[var(--gq-burgundy-dark)]">
-          3J · JEWELRY
-        </span>
+      {/* เจ้าของสั่ง 5 ต.ค. 69: ใช้โลโก้จริง (components/brand/Logo.tsx — ใช้
+          ที่เดียวกับใบเสร็จ/ใบเสนอราคา OEM) แทนไอคอนวาดมือ+ตัวหนังสือของ mockup
+          ต้นฉบับ (circle+star SVG) ซึ่งเป็น placeholder ตามที่ CLAUDE.md ของ
+          แพ็กเกจระบุไว้แต่แรกว่าต้องเปลี่ยน */}
+      <div className="motion-safe:animate-gq-fade-up flex flex-col items-center">
+        <Logo className="h-12" />
       </div>
 
       {/* ช่องว่างชัดเจนก่อน <br/> (ไม่ใช่แค่ขึ้นบรรทัดใหม่ในซอร์ส) — ไม่งั้นชื่อ
@@ -42,14 +41,29 @@ export function Landing({ onStart }: { onStart: () => void }) {
           className="absolute bottom-[26px] left-1/2 h-[46px] w-[250px] -translate-x-1/2 rounded-full"
           style={{ background: "var(--gq-border-soft)" }}
         />
-        <div className="absolute bottom-10 left-1/2 -translate-x-[170px]" aria-hidden="true">
+        {/* บั๊กที่เจ้าของเจอ 5 ต.ค. 69 ("พลอยอยู่ไม่ตรง") มี 2 ชั้นซ้อนกัน:
+            1) ค่า offset เดิม (-170px / -86px) ไม่ตรงกับต้นฉบับ Quiz.dc.html
+               บรรทัด 30-32 (margin-left: -118px / 46px / -62px) — แก้กลับให้
+               ตรงต้นฉบับเป๊ะแล้ว (translateX ติดลบ = margin-left ติดลบ
+               ความหมายเดียวกัน: ระยะจากขอบซ้ายกล่องถึงกึ่งกลางจอ)
+            2) garnet ยังเหลื่อมอยู่ดีแม้แก้ข้อ 1 แล้ว เพราะ keyframe ของ
+               motion-safe:animate-gq-gem-in เซ็ต transform: scale(...) ตรงๆ
+               ซึ่ง "แทนที่" ทั้ง property transform ไม่ใช่ "บวกเพิ่ม" จาก
+               translateX ที่ utility class เซ็ตไว้ก่อน (ยืนยันจาก
+               getBoundingClientRect จริง: garnet เรนเดอร์ที่ offset 0 ไม่ใช่
+               -62px ที่สั่งไว้) ⇒ แยกชั้น: div นอกคุม position อย่างเดียว
+               (ไม่มี animation) ส่วน div ในคุม scale-in animation อย่างเดียว
+               (ไม่มี position) กัน transform สองตัวชนกันเอง */}
+        <div className="absolute bottom-10 left-1/2 -translate-x-[118px]" aria-hidden="true">
           <GemIcon colors={AMETHYST.colors} size={70} />
         </div>
         <div className="absolute bottom-10 left-1/2 translate-x-[46px]" aria-hidden="true">
           <GemIcon colors={BLUE_TOPAZ.colors} size={66} />
         </div>
-        <div className="motion-safe:animate-gq-gem-in absolute bottom-[46px] left-1/2 -translate-x-[86px]" aria-hidden="true">
-          <GemIcon colors={GARNET.colors} size={124} />
+        <div className="absolute bottom-[46px] left-1/2 -translate-x-[62px]" aria-hidden="true">
+          <div className="motion-safe:animate-gq-gem-in">
+            <GemIcon colors={GARNET.colors} size={124} />
+          </div>
         </div>
         <svg
           className="motion-safe:animate-gq-twinkle absolute left-[62px] top-[22px]"

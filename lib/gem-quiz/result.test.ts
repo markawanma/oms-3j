@@ -16,13 +16,32 @@ describe("buildResultView — ปฏิเสธคำตอบไม่คร�
     ).toThrow();
   });
 
-  it("likedStoneCodes ว่างเปล่า ⇒ throw", () => {
-    expect(() =>
-      buildResultView({
-        answers: { birthDay: "sun", intention: "career", feeling: "energy", jewelryType: "ring" },
-        likedStoneCodes: [],
-      })
-    ).toThrow();
+});
+
+// กลับมติ 5 ต.ค. 69: likedStoneCodes ว่างได้แล้ว ("ยังไม่แน่ใจ แนะนำให้ฉัน" ที่
+// Q4) ไม่ใช่เคสปฏิเสธอีกต่อไป — ดู design-gem-quiz-v2-reconcile.md หัวไฟล์
+describe("buildResultView — likedStoneCodes ว่าง (ยังไม่แน่ใจ แนะนำให้ฉัน)", () => {
+  const input = {
+    answers: { birthDay: "sun", intention: "career", feeling: "energy", jewelryType: "ring" },
+    likedStoneCodes: [],
+  };
+
+  it("ไม่ throw — คำนวณจากวันเกิด/เป้าหมาย/ความรู้สึกล้วนๆ", () => {
+    expect(() => buildResultView(input)).not.toThrow();
+  });
+
+  it("hero = garnet (ตรงกับ demo case ไม่มี preference)", () => {
+    expect(buildResultView(input).hero.stoneCode).toBe("garnet");
+  });
+
+  it("prefNote เป็นข้อความเคสที่ 4 (ไม่อ้างถึงพลอยที่ชอบที่ไม่มีอยู่)", () => {
+    expect(buildResultView(input).hero.prefNote).toBe(
+      "คุณให้ 3J เลือกพลอยให้ตามวันเกิด เป้าหมาย และความรู้สึกของคุณวันนี้"
+    );
+  });
+
+  it("likedLabels เป็น 'ให้ระบบแนะนำ' ไม่ใช่ string ว่าง", () => {
+    expect(buildResultView(input).hero.likedLabels).toBe("ให้ระบบแนะนำ");
   });
 });
 

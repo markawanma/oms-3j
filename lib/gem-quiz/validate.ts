@@ -8,10 +8,12 @@
 // ก่อนจะเรียกฟังก์ชันนี้แล้ว (design §2/§5.2) ไฟล์นี้ตรวจแค่ "shape ของคำตอบ"
 // ไม่มี import จาก "use server"/lib/actions (กฎ §1.2, ดู config.ts หัวไฟล์).
 //
-// v2 (5 ต.ค. 69, design doc §3.2 V9): liked เปลี่ยนจาก 0-3 (มี "ยังไม่มีในใจ")
-// เป็น 1-3 บังคับ (MIN_LIKED_STONES=1) + เพิ่มเช็คว่า answers มีครบทุก key ที่
-// GEM_QUIZ_QUESTIONS ต้องการ (birth_day/intention/feeling/jewelry_type) — ไม่ครบ
-// = reject (v1 เดิมยอม answers ว่างเปล่าได้เพราะคำถามยังเป็น placeholder).
+// v2 (5 ต.ค. 69, design doc §3.2 V9 → กลับมติอีกรอบวันเดียวกันหลังทดสอบจริง):
+// liked กลับมาเป็น 0-3 อีกครั้ง (MIN_LIKED_STONES=0) — Q4 มีตัวเลือก "ยังไม่แน่ใจ
+// แนะนำให้ฉัน" ส่ง liked=[] ได้ตามปกติ (ดู design-gem-quiz-v2-reconcile.md หัวไฟล์)
+// + เพิ่มเช็คว่า answers มีครบทุก key ที่ GEM_QUIZ_QUESTIONS ต้องการ (birth_day/
+// intention/feeling/jewelry_type) — ไม่ครบ = reject (v1 เดิมยอม answers ว่างเปล่า
+// ได้เพราะคำถามยังเป็น placeholder).
 import {
   GEM_QUIZ_QUESTIONS,
   GEM_QUIZ_SRC_VALUES,
@@ -69,7 +71,7 @@ export function validateGemQuizBody(raw: unknown): ValidateGemQuizResult {
   // --- src (N-8: ค่าแปลก ⇒ coerce เป็น direct ไม่ reject ทั้งคำขอ) ---
   const src: GemQuizSrc = isValidSrc(body.src) ? body.src : "direct";
 
-  // --- liked (R-6) — v2: บังคับ 1-3 ตัว ไม่มี "ยังไม่มีในใจ" อีกแล้ว (design §3.2 V9) ---
+  // --- liked (R-6) — v2: 0-3 ตัว, "ยังไม่แน่ใจ แนะนำให้ฉัน" ส่ง liked=[] ได้ (design §3.2 V9, กลับมติ) ---
   const rawLiked = body.liked;
   if (!Array.isArray(rawLiked)) {
     return { ok: false, kind: "invalid", message: "liked ต้องเป็น array" };

@@ -151,16 +151,14 @@ function findPair(pid: GemQuizStoneCode, others: readonly GemQuizStoneCode[]): G
 }
 
 /** ประกอบหน้าผลลัพธ์ทั้งหมด — ต้องเรียกเมื่อคำตอบครบเท่านั้น (ทุก key ใน
- * answers ไม่ว่าง + likedStoneCodes มีอย่างน้อย 1 ตัว) ไม่ครบ = throw (ห้าม
- * fallback เป็นค่าสมมติ — V13). */
+ * answers ไม่ว่าง) ไม่ครบ = throw (ห้าม fallback เป็นค่าสมมติ — V13).
+ * likedStoneCodes ว่างได้ตามปกติ (กลับมติ 5 ต.ค. 69 — "ยังไม่แน่ใจ แนะนำให้ฉัน"
+ * ที่ Q4 ส่ง liked=[] มา ไม่ใช่ error — ดู design-gem-quiz-v2-reconcile.md). */
 export function buildResultView(input: GemQuizResultInput): GemQuizResultView {
   const { answers, likedStoneCodes } = input;
 
   if (!answers.birthDay || !answers.intention || !answers.feeling || !answers.jewelryType) {
     throw new Error("buildResultView: answers ไม่ครบ (ต้องมี birthDay/intention/feeling/jewelryType ทั้งหมด)");
-  }
-  if (likedStoneCodes.length < 1) {
-    throw new Error("buildResultView: likedStoneCodes ต้องมีอย่างน้อย 1 ตัว");
   }
 
   const ranked = rankGems({
@@ -180,15 +178,22 @@ export function buildResultView(input: GemQuizResultInput): GemQuizResultView {
 
   const heroStone = getStoneConfig(pid);
 
-  const fav = likedStoneCodes[0] as GemQuizStoneCode;
-  const favStone = getStoneConfig(fav);
+  // กลับมติ 5 ต.ค. 69: likedStoneCodes ว่างได้แล้ว ("ยังไม่แน่ใจ แนะนำให้ฉัน")
+  // — ต้องมี prefNote เคสที่ 4 แยกจาก 3 เคสเดิม (fav เป็น rank1 / อยู่ใน top3 /
+  // ไม่อยู่ใน top3) ที่สมมติว่ามี fav เสมอ
   let prefNote: string;
-  if (fav === pid) {
-    prefNote = `และ ${heroStone.nameEn} ก็เป็นพลอยที่คุณเลือกเป็นอันดับแรกด้วย`;
-  } else if (top3.includes(fav)) {
-    prefNote = `คุณชอบ ${favStone.nameEn} เป็นพิเศษ และวันนี้ ${favStone.nameEn} ก็เป็นหนึ่งในตัวเลือกที่เหมาะกับคุณเช่นกัน`;
+  if (likedStoneCodes.length === 0) {
+    prefNote = `คุณให้ 3J เลือกพลอยให้ตามวันเกิด เป้าหมาย และความรู้สึกของคุณวันนี้`;
   } else {
-    prefNote = `คุณชอบ ${favStone.nameEn} เป็นพิเศษ — สามารถใส่คู่กับ ${heroStone.nameEn} ได้ตามสไตล์ที่คุณชอบ`;
+    const fav = likedStoneCodes[0] as GemQuizStoneCode;
+    const favStone = getStoneConfig(fav);
+    if (fav === pid) {
+      prefNote = `และ ${heroStone.nameEn} ก็เป็นพลอยที่คุณเลือกเป็นอันดับแรกด้วย`;
+    } else if (top3.includes(fav)) {
+      prefNote = `คุณชอบ ${favStone.nameEn} เป็นพิเศษ และวันนี้ ${favStone.nameEn} ก็เป็นหนึ่งในตัวเลือกที่เหมาะกับคุณเช่นกัน`;
+    } else {
+      prefNote = `คุณชอบ ${favStone.nameEn} เป็นพิเศษ — สามารถใส่คู่กับ ${heroStone.nameEn} ได้ตามสไตล์ที่คุณชอบ`;
+    }
   }
 
   const hero: GemQuizResultHero = {
@@ -204,7 +209,8 @@ export function buildResultView(input: GemQuizResultInput): GemQuizResultView {
     intentionLabel: getOptionLabel("intention", answers.intention),
     feelingLabel: getOptionLabel("feeling", answers.feeling),
     birthDayLabel: getOptionLabel("birth_day", answers.birthDay),
-    likedLabels: likedStoneCodes.map((code) => getStoneConfig(code).nameEn).join(", "),
+    likedLabels:
+      likedStoneCodes.length > 0 ? likedStoneCodes.map((code) => getStoneConfig(code).nameEn).join(", ") : "ให้ระบบแนะนำ",
     jewelryTypeChosenLabel: getOptionLabel("jewelry_type", answers.jewelryType),
   };
 
