@@ -14,3 +14,12 @@ logs/
 *-service-account*.json
 gcp-*.json
 *.serviceaccount.json
+
+# เครื่องมือ/ชั่วคราว — ไม่ใช่ของโปรเจกต์
+supabase/.temp/
+.claude/worktrees/
+
+# เรดาร์เทรนรายวัน: scheduled task `daily-trend-radar` เขียนลงดิสก์ทุกเช้า
+# ของจริงอยู่ branch `trend-radar-feed` (เว็บ /marketing/trend-radar ดึงจาก GitHub)
+# บน main ไม่ track — ไม่งั้นมีไฟล์ใหม่ค้างใน git status ทุกวันโดยไม่มีใคร commit
+docs/3j-jewelry/marketing/trend-radar/

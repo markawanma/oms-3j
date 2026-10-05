@@ -2,6 +2,7 @@
 // ใช้ 2 ที่: (1) git pre-commit hook  (2) Weekly Brief (บรรทัด "สุขภาพคลังเอกสาร")
 // กติกา: โฟลเดอร์ active (marketing/web/content) ทุกไฟล์ต้องถูกเอ่ยชื่อใน INDEX.md
 //        และทุกชื่อไฟล์ .md ที่ INDEX เอ่ยถึง ต้องมีอยู่จริง (active หรือ _archive)
+//        และทุก path/skill/migration ที่ READING-LISTS.md อ้าง ต้องมีอยู่จริง (ข้อ 3)
 import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 
@@ -47,6 +48,36 @@ const walk = (dir) => {
 walk(ROOT);
 for (const name of mentioned) {
   if (!allFiles.has(name)) problems.push(`INDEX เอ่ยถึงไฟล์ที่ไม่มีอยู่จริง: ${name}`);
+}
+
+// (3) READING-LISTS.md — ทุก path/skill/migration ที่อ้างต้องมีอยู่จริง (เพิ่ม 5 ต.ค. 69)
+//     ไฟล์นี้คือ "ทำเรื่องนี้อ่านไฟล์เหล่านี้พอ" ถ้า path ในนั้นเน่า agent จะกลับไปกวาดอ่านทั้งโฟลเดอร์
+const RL_PATH = join(ROOT, "READING-LISTS.md");
+if (existsSync(RL_PATH)) {
+  const rl = readFileSync(RL_PATH, "utf8");
+  const REPO_PREFIX = /^(docs|lib|app|components|scripts|supabase|public|\.claude|\.githooks)\//;
+  const migrationFiles = readdirSync("supabase/migrations");
+  const hasMigration = (num) => migrationFiles.some((f) => f.startsWith(num));
+  for (const line of rl.split(/\r?\n/)) {
+    const tokens = [...line.matchAll(/`([^`]+)`/g)].map((m) => m[1]);
+    if (/^- skill:/.test(line)) {
+      for (const t of tokens) if (!existsSync(join(".claude/skills", t, "SKILL.md"))) problems.push(`READING-LISTS อ้าง skill ที่ไม่มี: ${t}`);
+    } else if (/^- migrations:/.test(line)) {
+      for (const t of tokens) {
+        const m = t.match(/^(\d{4})(?:-(\d{4}))?/);
+        if (!m) { problems.push(`READING-LISTS migration token แปลก: ${t}`); continue; }
+        const full = /^\d{4}_/.test(t) ? t : null; // เช่น 0120_crm_retention (เลขซ้ำ)
+        if (full && !migrationFiles.some((f) => f.startsWith(full))) problems.push(`READING-LISTS อ้าง migration ที่ไม่มี: ${t}`);
+        if (!full) for (const n of [m[1], m[2]].filter(Boolean)) if (!hasMigration(n)) problems.push(`READING-LISTS อ้าง migration ที่ไม่มี: ${n} (ใน ${t})`);
+      }
+    } else {
+      for (const t of tokens) {
+        if (t === "middleware.ts" || REPO_PREFIX.test(t)) {
+          if (!existsSync(t.replace(/\/$/, ""))) problems.push(`READING-LISTS อ้าง path ที่ไม่มี: ${t}`);
+        }
+      }
+    }
+  }
 }
 
 if (problems.length) {

@@ -176,6 +176,9 @@ end; $$;
 
 หลังรันแล้ว **ตรวจซ้ำว่า state ไม่ขยับจริง** (นับแถว/ค่าตัวนับ เทียบก่อน-หลัง) อย่าเชื่อว่า rollback เอง
 
+ชุดทดสอบของแต่ละ migration เก็บที่ **`scripts/verify/verify-NNNN.sql`** (ย้ายจาก `scripts/` ตรงๆ 5 ต.ค. 69 —
+คอมเมนต์เก่าในไฟล์ migration ที่เขียน `scripts/verify-NNNN.sql` หมายถึงที่นี่) รันด้วย `node scripts/run-sql.mjs <ไฟล์>`
+
 หมายเหตุ: ถ้าฟังก์ชันที่ทดสอบเช็ค role ให้ใช้
 `perform set_config('request.jwt.claims', '{"role":"service_role"}', true);` ใน block (`true` = หมดอายุพร้อม transaction)
 
@@ -371,7 +374,7 @@ migration (ขัดข้อ 10)
 การอ่าน ACL พิสูจน์แค่ว่า "ตัวเลขถูก" ไม่ได้พิสูจน์พฤติกรรม ต้องมีเคสที่ **จำลองวันที่กำแพง
 ชั้นนอกหลุด**: `grant usage on schema analytics to authenticated` กลับเข้าไปในทรานแซกชัน
 ทดสอบ → `set local role authenticated` → ยิงฟังก์ชันจริง → ต้องตกที่ `42501 permission
-denied for function` → `reset role` → `revoke usage` (ดู `scripts/verify-0147.sql` Part 4c)
+denied for function` → `reset role` → `revoke usage` (ดู `scripts/verify/verify-0147.sql` Part 4c)
 
 ส่ง `null` ทุกพารามิเตอร์ได้ปลอดภัยแม้กับ SECURITY DEFINER ที่เขียนข้อมูล เพราะ Postgres
 เช็ค EXECUTE **ก่อน** body รัน ⇒ ไม่มีทางเข้าไปถึงเนื้อฟังก์ชัน
