@@ -22,6 +22,7 @@ import {
   type GemQuizStoneConfig,
 } from "@/lib/gem-quiz/config";
 import { recommendStoneCodes } from "@/lib/gem-quiz/recommend";
+import { getStoneColor } from "@/lib/gem-quiz/stone-colors";
 
 const LOCAL_STORAGE_DONE_KEY = `gemQuizDone:v${QUIZ_VERSION}`;
 
@@ -84,7 +85,21 @@ function buildShareUrl(): string {
 type StepKey = "liked" | (typeof GEM_QUIZ_QUESTIONS)[number]["code"] | "result";
 
 export function GemQuizClient({ token }: { token: string | null }) {
-  const shuffledStones = useState(() => shuffleStones(GEM_QUIZ_STONES))[0];
+  // ชื่อฟิลด์ยังเป็น "shuffledStones" แต่ค่าเริ่มต้นต้อง**ไม่สุ่ม** — ต้อง
+  // deterministic และตรงกับที่ server render ออกมาเป๊ะ (เรียง config ตรงๆ)
+  // เพราะ "use client" component ก็ยัง SSR ตอน request แรกอยู่ดี ถ้าสุ่มใน
+  // lazy initializer ของ useState แบบเดิม (Math.random() ตรงๆ) ฝั่ง server กับ
+  // ฝั่ง client จะได้ค่าคนละชุด ⇒ hydration mismatch ทันที (ยืนยันจริงตอน
+  // preview บน dev server 5 ต.ค. 69 — React เตือนตรงเป๊ะว่า "Math.random()
+  // which changes each time it's called") สุ่มจริงเกิดใน useEffect ด้านล่าง
+  // ซึ่งรันเฉพาะฝั่ง client หลัง hydrate เสร็จแล้วเท่านั้น (ค่าเริ่มต้นไม่สุ่ม
+  // ไม่ได้ขัด "สลับลำดับทุกครั้ง" ของ §4.2 — ผู้ใช้เห็นลำดับสุ่มแล้วตั้งแต่ก่อน
+  // จะอ่านตัวเลือกทัน เพราะ effect รันก่อน paint แรกที่มองเห็นได้)
+  const [shuffledStones, setShuffledStones] = useState<GemQuizStoneConfig[]>(() => [...GEM_QUIZ_STONES]);
+  useEffect(() => {
+    setShuffledStones(shuffleStones(GEM_QUIZ_STONES));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- สุ่มครั้งเดียวตอน mount ตั้งใจ ไม่ผูกกับ dep ไหน
+  }, []);
   const src = useState(() => readSrcFromLocation())[0];
   const isRetake = useState(() => readRetakeFlag())[0];
 
@@ -202,6 +217,11 @@ export function GemQuizClient({ token }: { token: string | null }) {
                   disabled={disabled}
                   onChange={() => toggleLiked(stone.code)}
                 />
+                <span
+                  className="mr-2 inline-block h-4 w-4 flex-none rounded-full border border-black/10"
+                  style={{ backgroundColor: getStoneColor(stone.code) }}
+                  aria-hidden="true"
+                />
                 {stone.labelTh}
               </label>
             );
@@ -273,9 +293,9 @@ export function GemQuizClient({ token }: { token: string | null }) {
   }
 
   // ---- ผลลัพธ์ (design §4.3) ----
-  const likedStoneLabels = likedCodes
-    .map((code) => GEM_QUIZ_STONES.find((s) => s.code === code)?.labelTh)
-    .filter((label): label is string => Boolean(label));
+  const likedStones = likedCodes
+    .map((code) => GEM_QUIZ_STONES.find((s) => s.code === code))
+    .filter((s): s is GemQuizStoneConfig => Boolean(s));
   const recommendedStones = recommendedStoneCodes
     .map((code) => GEM_QUIZ_STONES.find((s) => s.code === code))
     .filter((s): s is GemQuizStoneConfig => Boolean(s));
@@ -286,12 +306,16 @@ export function GemQuizClient({ token }: { token: string | null }) {
 
       <section className="mt-4">
         <h3 className="text-sm font-bold text-zinc-500">พลอยที่คุณชอบ</h3>
-        <p className="mt-1 text-base text-zinc-900">{likedStoneLabels.length > 0 ? likedStoneLabels.join(" · ") : "ยังไม่มีในใจ"}</p>
+        {likedStones.length > 0 ? (
+          <StoneChipList stones={likedStones} className="mt-1" />
+        ) : (
+          <p className="mt-1 text-base text-zinc-900">ยังไม่มีในใจ</p>
+        )}
       </section>
 
       <section className="mt-4">
         <h3 className="text-sm font-bold text-zinc-500">พลอยที่เข้ากับเรื่องที่คุณมองหา</h3>
-        <p className="mt-1 text-base font-semibold text-primary-700">{recommendedStones.map((s) => s.labelTh).join(" · ")}</p>
+        <StoneChipList stones={recommendedStones} className="mt-1" labelClassName="font-semibold text-primary-700" />
       </section>
 
       <section className="mt-4">
@@ -368,5 +392,32 @@ function StepProgress({ current, total }: { current: number; total: number }) {
     <p className="text-xs font-medium text-zinc-400" aria-live="polite">
       ขั้นที่ {current} จาก {total}
     </p>
+  );
+}
+
+/** แสดงรายชื่อพลอยพร้อมจุดสี (feedback จากเจ้าของ 5 ต.ค. 69: ตัวอักษรอย่างเดียว
+ * "กดดูไม่ออก" — ร้านยังไม่มีรูปถ่ายพลอยจริง ใช้จุดสีแทนไปก่อนตาม design §11 C2). */
+function StoneChipList({
+  stones,
+  className = "",
+  labelClassName = "text-zinc-900",
+}: {
+  stones: readonly GemQuizStoneConfig[];
+  className?: string;
+  labelClassName?: string;
+}) {
+  return (
+    <ul className={`flex flex-wrap gap-2 ${className}`}>
+      {stones.map((stone) => (
+        <li key={stone.code} className="flex items-center gap-1.5 rounded-full border border-zinc-200 bg-white px-2.5 py-1">
+          <span
+            className="h-3.5 w-3.5 flex-none rounded-full border border-black/10"
+            style={{ backgroundColor: getStoneColor(stone.code) }}
+            aria-hidden="true"
+          />
+          <span className={`text-sm ${labelClassName}`}>{stone.labelTh}</span>
+        </li>
+      ))}
+    </ul>
   );
 }
