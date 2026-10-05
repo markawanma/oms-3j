@@ -7,11 +7,17 @@
 // ไม่ตรวจ token/honeypot ที่นี่ — นั่นคือ L1-L3 ของ route.ts (ผ่าน form-token.ts)
 // ก่อนจะเรียกฟังก์ชันนี้แล้ว (design §2/§5.2) ไฟล์นี้ตรวจแค่ "shape ของคำตอบ"
 // ไม่มี import จาก "use server"/lib/actions (กฎ §1.2, ดู config.ts หัวไฟล์).
+//
+// v2 (5 ต.ค. 69, design doc §3.2 V9): liked เปลี่ยนจาก 0-3 (มี "ยังไม่มีในใจ")
+// เป็น 1-3 บังคับ (MIN_LIKED_STONES=1) + เพิ่มเช็คว่า answers มีครบทุก key ที่
+// GEM_QUIZ_QUESTIONS ต้องการ (birth_day/intention/feeling/jewelry_type) — ไม่ครบ
+// = reject (v1 เดิมยอม answers ว่างเปล่าได้เพราะคำถามยังเป็น placeholder).
 import {
   GEM_QUIZ_QUESTIONS,
   GEM_QUIZ_SRC_VALUES,
   GEM_QUIZ_STONE_CODES,
   MAX_LIKED_STONES,
+  MIN_LIKED_STONES,
   QUIZ_VERSION,
   type GemQuizSrc,
 } from "./config";
@@ -63,10 +69,13 @@ export function validateGemQuizBody(raw: unknown): ValidateGemQuizResult {
   // --- src (N-8: ค่าแปลก ⇒ coerce เป็น direct ไม่ reject ทั้งคำขอ) ---
   const src: GemQuizSrc = isValidSrc(body.src) ? body.src : "direct";
 
-  // --- liked (R-6) ---
+  // --- liked (R-6) — v2: บังคับ 1-3 ตัว ไม่มี "ยังไม่มีในใจ" อีกแล้ว (design §3.2 V9) ---
   const rawLiked = body.liked;
   if (!Array.isArray(rawLiked)) {
     return { ok: false, kind: "invalid", message: "liked ต้องเป็น array" };
+  }
+  if (rawLiked.length < MIN_LIKED_STONES) {
+    return { ok: false, kind: "invalid", message: `liked ต้องเลือกอย่างน้อย ${MIN_LIKED_STONES} ตัว` };
   }
   if (rawLiked.length > MAX_LIKED_STONES) {
     return { ok: false, kind: "invalid", message: `liked เลือกได้สูงสุด ${MAX_LIKED_STONES} ตัว` };
@@ -74,7 +83,7 @@ export function validateGemQuizBody(raw: unknown): ValidateGemQuizResult {
   const likedStoneCodes: string[] = [];
   const seenLiked = new Set<string>();
   for (const item of rawLiked) {
-    if (typeof item !== "string" || !GEM_QUIZ_STONE_CODES.includes(item)) {
+    if (typeof item !== "string" || !(GEM_QUIZ_STONE_CODES as readonly string[]).includes(item)) {
       return { ok: false, kind: "invalid", message: "liked มีรหัสพลอยที่ไม่รู้จัก" };
     }
     if (seenLiked.has(item)) {
@@ -108,6 +117,16 @@ export function validateGemQuizBody(raw: unknown): ValidateGemQuizResult {
       return { ok: false, kind: "invalid", message: `answers.${key} ไม่อยู่ในรายการตัวเลือกของคำถามนี้` };
     }
     answers[key] = value;
+  }
+
+  // --- v2: answers ต้องตอบครบทุกคำถามที่ GEM_QUIZ_QUESTIONS ต้องการ (design §3.2:
+  // "เพิ่มเช็คว่า answers ต้องมีครบทุก key ที่ GEM_QUIZ_QUESTIONS ต้องการ") —
+  // ไม่ครบ = reject เพราะ recommend.ts/result.ts คำนวณคะแนน/ประกอบผลลัพธ์จาก
+  // ทั้ง 4 มิติเสมอ ขาดมิติไหนไปคือ "ตอบไม่จบ" ไม่ใช่ "ตอบเฉยๆ" แบบ v1 เดิม ---
+  for (const question of GEM_QUIZ_QUESTIONS) {
+    if (!(question.code in answers)) {
+      return { ok: false, kind: "invalid", message: `answers ขาดคำถามที่จำเป็น: ${question.code}` };
+    }
   }
 
   // --- retake — boolean เท่านั้นถือเป็น true, อย่างอื่น (undefined/"true"/1) = false ---

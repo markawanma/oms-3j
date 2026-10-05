@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { CalendarDays, ClipboardList, History, Megaphone, Ticket, TrendingUp, Users2, Wallet } from "lucide-react";
+import { CalendarDays, ClipboardList, Gem, History, Megaphone, Ticket, TrendingUp, Users2, Wallet } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 // Keep in sync with the "การตลาด" group in
@@ -31,6 +31,10 @@ const TABS: { href: string; label: string; icon: LucideIcon }[] = [
   // จาก GitHub (lib/actions/trend-radar.ts) แล้วกด "เพิ่มเข้าปฏิทิน" ได้ตรง
   // จากมุมที่สนใจ แทนต้องเปิดไฟล์แยกแล้วพิมพ์ใหม่.
   { href: "/marketing/trend-radar", label: "เทรนด์", icon: TrendingUp },
+  // design doc docs/3j-jewelry/analytics/design-gem-quiz.md §7: สถิติภายใน
+  // ของแบบทดสอบเลือกพลอยที่แจกผ่าน QR บนการ์ดขอบคุณ (หน้าสาธารณะอยู่คนละ
+  // route group ที่ /gem-quiz ไม่ผ่านแท็บนี้).
+  { href: "/marketing/gem-quiz", label: "แบบทดสอบพลอย", icon: Gem },
 ];
 
 /** Sticky sub-nav tab bar for the Marketing module — mirrors CrmSubNav

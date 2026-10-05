@@ -1,0 +1,88 @@
+{
+  "version": "1.0",
+  "gems": {
+    "garnet":     { "name": "Garnet",     "th": "โกเมน",     "core": "POWER",     "keywords": "พลัง · ความมั่นใจ · แรงผลักดัน",            "meaning": "พลัง ความกล้า และแรงผลักดัน",              "mood": "แดงเข้ม · มั่นใจ",   "colors": { "base": "#A3192B", "light": "#E0566A", "dark": "#5C0A16" } },
+    "amethyst":   { "name": "Amethyst",   "th": "อเมทิสต์",   "core": "CALM",      "keywords": "ความสงบ · สมาธิ · ความชัดเจน",             "meaning": "ความสงบ สมาธิ และความสมดุล",               "mood": "ม่วง · สงบนิ่ง",     "colors": { "base": "#6E3FA6", "light": "#AE88E0", "dark": "#38195E" } },
+    "citrine":    { "name": "Citrine",    "th": "ซิทริน",     "core": "ABUNDANCE", "keywords": "โอกาส · ความสำเร็จ · พลังบวก",             "meaning": "โอกาส ความสำเร็จ และพลังบวก",              "mood": "เหลืองทอง · สดใส",   "colors": { "base": "#D99A2B", "light": "#F6CF6E", "dark": "#8C5A0E" } },
+    "peridot":    { "name": "Peridot",    "th": "เพอริดอท",   "core": "RENEWAL",   "keywords": "การเติบโต · การเริ่มต้นใหม่ · การเปลี่ยนแปลง", "meaning": "การเติบโต การเริ่มต้นใหม่ และการเปลี่ยนแปลง", "mood": "เขียวอ่อน · สดชื่น",  "colors": { "base": "#7DA331", "light": "#BCDB72", "dark": "#476515" } },
+    "blue_topaz": { "name": "Blue Topaz", "th": "บลูโทพาส",   "core": "CLARITY",   "keywords": "การสื่อสาร · ความชัดเจน · ความสงบ",          "meaning": "การสื่อสาร ความชัดเจน และการแสดงออก",       "mood": "ฟ้า · ใจเย็น",       "colors": { "base": "#2E86C6", "light": "#86C8EE", "dark": "#15527F" } }
+  },
+  "gemOrder": ["garnet", "amethyst", "citrine", "peridot", "blue_topaz"],
+  "questions": {
+    "q1_birth_day": {
+      "title": "คุณเกิดวันอะไร?",
+      "options": {
+        "sun": { "label": "อาทิตย์",  "score": { "garnet": 3, "citrine": 2 } },
+        "mon": { "label": "จันทร์",   "score": { "amethyst": 3, "blue_topaz": 2 } },
+        "tue": { "label": "อังคาร",   "score": { "garnet": 3, "peridot": 2 } },
+        "wed": { "label": "พุธ",      "score": { "blue_topaz": 3, "peridot": 2 } },
+        "thu": { "label": "พฤหัสบดี", "score": { "citrine": 3, "amethyst": 2 } },
+        "fri": { "label": "ศุกร์",    "score": { "peridot": 3, "blue_topaz": 2 } },
+        "sat": { "label": "เสาร์",    "score": { "amethyst": 3, "garnet": 2 } }
+      }
+    },
+    "q2_intention": {
+      "title": "วันนี้คุณอยากเสริมเรื่องอะไรเป็นพิเศษ?",
+      "points": { "primary": 8, "secondary": 5 },
+      "options": {
+        "love":       { "label": "ความรัก & เสน่ห์",                "primary": ["garnet", "peridot", "blue_topaz"], "secondary": ["amethyst"] },
+        "wealth":     { "label": "การเงิน & โอกาส",                 "primary": ["citrine", "garnet"],                "secondary": ["peridot"] },
+        "career":     { "label": "งาน & ความสำเร็จ",                "primary": ["garnet", "citrine"],                "secondary": ["blue_topaz"] },
+        "confidence": { "label": "ความมั่นใจ & พลังใจ",             "primary": ["garnet", "citrine"],                "secondary": ["peridot"] },
+        "calm":       { "label": "ความสงบ & การปกป้อง",             "primary": ["amethyst", "blue_topaz"],           "secondary": ["peridot"] },
+        "renewal":    { "label": "การเริ่มต้นใหม่ & การเปลี่ยนแปลง", "primary": ["peridot", "citrine"],                "secondary": ["garnet"] }
+      }
+    },
+    "q3_feeling": {
+      "title": "วันนี้คุณรู้สึกอย่างไรที่สุด?",
+      "points": { "match": 7 },
+      "options": {
+        "energy":  { "label": "อยากมีพลัง ไม่ท้อ",              "match": ["garnet", "citrine"] },
+        "calm":    { "label": "อยากใจนิ่ง ไม่วุ่นวาย",           "match": ["amethyst", "blue_topaz"] },
+        "clarity": { "label": "คิดเยอะ อยากได้ความชัดเจน",       "match": ["amethyst", "blue_topaz"] },
+        "renew":   { "label": "รู้สึกอยากเริ่มต้นใหม่",           "match": ["peridot", "citrine"] },
+        "open":    { "label": "อยากเปิดใจ มีความสัมพันธ์ที่ดี",    "match": ["peridot", "blue_topaz", "garnet"] },
+        "advance": { "label": "อยากก้าวหน้า คว้าโอกาส",          "match": ["citrine", "garnet", "peridot"] }
+      }
+    },
+    "q4_preference": {
+      "title": "พลอยไหนดึงดูดคุณที่สุด?",
+      "maxSelect": 3,
+      "pointsByRank": [6, 4, 2]
+    },
+    "q5_jewelry_type": {
+      "title": "วันนี้คุณอยากใส่แบบไหน?",
+      "affectsScore": false,
+      "options": {
+        "ring":     { "label": "แหวน",       "productTh": "แหวน",   "en": "Ring" },
+        "necklace": { "label": "สร้อย / จี้", "productTh": "จี้",     "en": "Pendant" },
+        "earring":  { "label": "ต่างหู",     "productTh": "ต่างหู", "en": "Earrings" },
+        "bracelet": { "label": "กำไล",       "productTh": "กำไล",   "en": "Bracelet" },
+        "unknown":  { "label": "ยังไม่แน่ใจ — แนะนำให้ฉัน" }
+      }
+    }
+  },
+  "tieBreakOrder": ["intention", "feeling", "preference", "birth_day"],
+  "defaultJewelry": { "garnet": "ring", "amethyst": "ring", "citrine": "ring", "peridot": "ring", "blue_topaz": "necklace" },
+  "ringFinger": {
+    "garnet":     { "placement": "แหวนที่นิ้วชี้",  "why": "การตัดสินใจ การนำทาง และการลงมือทำ" },
+    "amethyst":   { "placement": "แหวนที่นิ้วกลาง", "why": "ความมั่นคง ขอบเขต และความสมดุล" },
+    "citrine":    { "placement": "แหวนที่นิ้วชี้",  "why": "การเติบโต ทิศทาง และการขยายโอกาส" },
+    "peridot":    { "placement": "แหวนที่นิ้วนาง",  "why": "การเติบโตของตัวเอง การเริ่มต้นใหม่ และความสัมพันธ์" },
+    "blue_topaz": { "placement": "แหวนที่นิ้วก้อย", "why": "การสื่อสาร การแสดงออก และการเจรจา" }
+  },
+  "otherPlacement": {
+    "necklace": "สร้อยระดับอก ให้พลอยอยู่กลางลุค",
+    "earring": "ต่างหูทั้งสองข้าง ใกล้ใบหน้า",
+    "bracelet": "กำไลที่ข้อมือ"
+  },
+  "handNote": "ใส่ในมือที่คุณรู้สึกถนัดและสบายที่สุด",
+  "pairs": [
+    { "gems": ["garnet", "citrine"],     "title": "Power + Abundance",   "th": "พลัง + ความอุดมสมบูรณ์",        "fit": "งาน · ธุรกิจ · โอกาส · แรงจูงใจ" },
+    { "gems": ["amethyst", "blue_topaz"], "title": "Calm + Clarity",      "th": "ความสงบ + ความชัดเจน",          "fit": "โฟกัส · การสื่อสาร · การนำเสนอ · สมดุลทางอารมณ์" },
+    { "gems": ["peridot", "citrine"],    "title": "Renewal + Abundance", "th": "การเริ่มต้นใหม่ + ความอุดมสมบูรณ์", "fit": "เริ่มต้นใหม่ · เติบโตในงาน · โอกาสใหม่" },
+    { "gems": ["garnet", "peridot"],     "title": "Power + Renewal",     "th": "พลัง + การเริ่มต้นใหม่",          "fit": "เริ่มสิ่งใหม่ · เติบโต · ความมั่นใจ" },
+    { "gems": ["amethyst", "peridot"],   "title": "Calm + Renewal",      "th": "ความสงบ + การเริ่มต้นใหม่",        "fit": "รีเซ็ต · ปล่อยวาง · บทใหม่" }
+  ],
+  "disclaimer": "ผลลัพธ์นี้จัดทำขึ้นเพื่อความเชื่อส่วนบุคคล และใช้เป็นแนวทางในการเลือกเครื่องประดับเพื่อเสริมความมั่นใจเท่านั้น ความหมายของพลอยเป็นการตีความเชิงสัญลักษณ์ ไม่สามารถรับประกันผลลัพธ์หรือการเปลี่ยนแปลงที่เกิดขึ้นจริงได้"
+}

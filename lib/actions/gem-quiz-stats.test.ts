@@ -235,6 +235,66 @@ describe("getGemQuizStats — type guard ต้องคืน ok:false (ไม�
   });
 });
 
+describe("getGemQuizStats — v2 field ใหม่จาก migration 0157 (liked_first/daily_breakdown)", () => {
+  // 🔴 validStatsPayload() ด้านบนไม่มี liked_first/daily_breakdown เลย —
+  // จำลองสถานะ "0157 ยังไม่ apply ขึ้น DB จริง" (raw.liked_first/
+  // raw.daily_breakdown เป็น undefined ไม่ใช่ malformed) ต้อง parse สำเร็จ
+  // เป็น [] ชั่วคราว ไม่ใช่ปฏิเสธทั้งก้อนจนหน้าสถิติพังไปด้วย
+  it("ยังไม่มี field ใหม่เลย (ก่อน apply 0157) ⇒ ยัง ok:true, likedFirst/dailyBreakdown = []", async () => {
+    const { getGemQuizStats } = await import("./gem-quiz-stats");
+    const result = await getGemQuizStats(VALID_INPUT);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.likedFirst).toEqual([]);
+      expect(result.data.dailyBreakdown).toEqual([]);
+    }
+  });
+
+  it("มี field ใหม่ครบ shape ถูกต้อง (หลัง apply 0157) ⇒ parse สำเร็จ ค่าตรง", async () => {
+    const { getGemQuizStats } = await import("./gem-quiz-stats");
+    rpcMock.mockResolvedValue({
+      data: validStatsPayload({
+        liked_first: [{ code: "garnet", count: 4 }],
+        daily_breakdown: [{ date: "2026-10-01", dim: "intention", code: "career", count: 2 }],
+      }),
+      error: null,
+    });
+    const result = await getGemQuizStats(VALID_INPUT);
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.likedFirst).toEqual([{ code: "garnet", count: 4 }]);
+      expect(result.data.dailyBreakdown).toEqual([{ date: "2026-10-01", dim: "intention", code: "career", count: 2 }]);
+    }
+  });
+
+  it("liked_first มีแต่ shape ผิด (ไม่ใช่ undefined) ⇒ ok:false ไม่ throw", async () => {
+    const { getGemQuizStats } = await import("./gem-quiz-stats");
+    rpcMock.mockResolvedValue({
+      data: validStatsPayload({ liked_first: [{ code: "garnet" }] }), // ขาด count
+      error: null,
+    });
+    const result = await getGemQuizStats(VALID_INPUT);
+    expect(result.ok).toBe(false);
+  });
+
+  it("daily_breakdown มีแต่ shape ผิด (ขาด dim) ⇒ ok:false ไม่ throw", async () => {
+    const { getGemQuizStats } = await import("./gem-quiz-stats");
+    rpcMock.mockResolvedValue({
+      data: validStatsPayload({ daily_breakdown: [{ date: "2026-10-01", code: "career", count: 2 }] }),
+      error: null,
+    });
+    const result = await getGemQuizStats(VALID_INPUT);
+    expect(result.ok).toBe(false);
+  });
+
+  it("liked_first เป็น null (ไม่ใช่ undefined/array) ⇒ ok:false ไม่ throw", async () => {
+    const { getGemQuizStats } = await import("./gem-quiz-stats");
+    rpcMock.mockResolvedValue({ data: validStatsPayload({ liked_first: null }), error: null });
+    const result = await getGemQuizStats(VALID_INPUT);
+    expect(result.ok).toBe(false);
+  });
+});
+
 describe("getGemQuizStats — RPC error", () => {
   it("RPC คืน error ⇒ ok:false, ไม่ throw", async () => {
     const { getGemQuizStats } = await import("./gem-quiz-stats");
