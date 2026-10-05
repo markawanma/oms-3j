@@ -51,7 +51,8 @@
 - skill: `3j-content-orchestration` (โหลดก่อนสั่งทีม content เสมอ) · `3j-brand-and-market` · `3j-founder-brand` · `3j-seo-playbook`
 - docs: `docs/3j-jewelry/marketing/ai-marketing-os-decision-31aug.md` (ทิศทางใหญ่) · `docs/3j-jewelry/marketing/pricing-disclosure-policy.md` · `docs/3j-jewelry/analytics/content-kpi-definition.md` (ชี้ขาด KPI) · `docs/3j-jewelry/analytics/ux-content-measurement.md` · `docs/3j-jewelry/analytics/content-kpi-screen-design.md` · `docs/3j-jewelry/analytics/phase-campaign-playbook-design.md` · `docs/3j-jewelry/marketing/campaign-tracking-taxonomy-v2.md` · `docs/3j-jewelry/marketing/weekly-brief/` · `docs/3j-jewelry/marketing/content-calendar/` · `docs/3j-jewelry/content/`
 - migrations: `0027` · `0034-0036` · `0040` · `0049-0050` · `0053` · `0057-0060` (content calendar) · `0101` (recommendation log) · `0145` · `0148-0153` (content post/metric)
-- code: `app/(dashboard)/marketing/` · `lib/marketing/` · `components/domain/marketing/`
+- code: `app/(dashboard)/marketing/` · `lib/marketing/` (`clip-brief.ts` = สัญญา storyboard) · `components/domain/marketing/`
+- เขียนลงบอร์ดจากนอกแอป: RPC `campaign_step_set_content_type` (สีประเภท) · `campaign_ai_draft_artifact` (AI ร่าง → "รอตรวจ" ห้ามทับของที่คนแก้/อนุมัติแล้ว) · `campaign_set_artifact_content` (คนแก้) — เรียกผ่าน `scripts/run-sql.mjs` ภายใต้ `set local request.jwt.claim.role = 'service_role'` ซ้อม rollback ก่อนเสมอ
 - scheduled tasks (นอก repo `~/.claude/scheduled-tasks/`): `weekly-marketing-brief` · `daily-trend-radar`
 
 ## 8. Gem quiz (หน้าสาธารณะ /gem-quiz)
@@ -70,7 +71,7 @@
 ## 10. เขียน/รีวิว migration (ทุกหัวข้อ)
 - memory: `run-migrations-from-file` (🔴 ห้าม supabase db push) · `migrations-0107-0109-off-main` · `migration-file-lost-0129` · `migration-replay-crlf-trap`
 - skill: `3j-migration-traps` · `supabase-migrate`
-- code: `scripts/run-sql.mjs` · `scripts/verify/` · `supabase/migrations/`
+- code: `scripts/run-sql.mjs` (apply/dry-run) · `scripts/query-sql.mjs` (อ่านอย่างเดียว พิมพ์แถว — ใช้แทน Supabase MCP เมื่อไม่มี) · `scripts/verify/` · `supabase/migrations/`
 
 ## 11. ราคาเงิน · เว็บ 3jthailand.com (Wix)
 - memory: `silver-price-capture` · `3j-silver-bar-facts` · `silver-value-chain` · `silver-bar-demand-collapse` · `3j-website-seo-positioning`
