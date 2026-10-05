@@ -15,24 +15,30 @@
 // (.cjs ไม่ใช่ .mjs — "next/og" ไม่มี export subpath สำหรับ ESM resolution
 // ตรงๆ ใน package.json ของ next เจอ ERR_MODULE_NOT_FOUND ถ้าใช้ import)
 //
-// ขอบเขตตั้งใจ "ง่ายๆ ก่อน" ตามที่เจ้าของสั่ง 5 ต.ค. 69:
+// ขอบเขตตั้งใจ "ง่ายๆ ก่อน" ตามที่เจ้าของสั่ง 5 ต.ค. 69 + เพิ่มข้อความไทยตามที่
+// สั่งต่อมา:
 //   - พื้นหลังสีแบรนด์ #a2191d (เฉดเดียวกับทั้งเว็บ — ไม่ใช่ Burgundy ของ
 //     แพ็กเกจ ตาม O1 เดิม) ไล่เฉดเข้มที่มุมให้มีมิติเล็กน้อย
-//   - ข้อความภาษาอังกฤษล้วน (DAILY GEM QUIZ / 3J JEWELRY) — Satori (ตัว
-//     render JSX→SVG ของ ImageResponse) ต้องโหลดไฟล์ฟอนต์เองถึงจะวาดภาษาไทย
-//     ได้ถูกต้อง ไม่งั้นได้กล่องเปล่า (tofu) — รอบนี้เลี่ยงความเสี่ยงนั้นไปก่อน
-//     ถ้าอยากได้ข้อความไทย ("วันนี้คุณควรใส่พลอยอะไร?") ในรอบหน้า ต้องโหลด
-//     font file จริง (Noto Serif Thai ตัวเดียวกับที่หน้าเว็บใช้) ส่งเข้า
-//     ImageResponse's `fonts` option
+//   - ข้อความไทย ("วันนี้คุณควรใส่พลอยอะไร?") ต้องโหลด font file จริงเข้า
+//     ImageResponse's `fonts` option ก่อนถึงจะวาดถูก (Satori วาดได้แค่
+//     glyph ที่มีในไฟล์ฟอนต์ที่ส่งเข้าไป ไม่ใช้ฟอนต์ระบบ) — ใช้ Noto Serif
+//     Thai ตัวเดียวกับที่หน้าเว็บจริงใช้ (app/(quiz)/layout.tsx) น้ำหนัก 600
+//     ดาวน์โหลดมาเก็บไว้ที่ scripts/assets/NotoSerifThai-600.ttf แล้ว (ต้อง
+//     เป็น .ttf/.otf/.woff เท่านั้น — Satori ไม่รองรับ .woff2 ที่ Google
+//     Fonts เสิร์ฟให้เบราว์เซอร์ปกติ ต้องปลอม User-Agent เก่าตอนขอถึงจะได้
+//     ลิงก์ .ttf กลับมา: curl -A "<UA เก่า>" "fonts.googleapis.com/css?family=..."
+//     — ไฟล์ฟอนต์ commit เข้า repo ไว้แล้ว ไม่ต้องดาวน์โหลดซ้ำทุกครั้งที่รัน)
 //   - วงกลม enso + ประกายดาว วาดด้วย SVG ตรงๆ (ชุดเดียวกับโลโก้จริงที่ใช้ใน
 //     components/brand/Logo.tsx แต่ทำเป็น vector ง่ายๆ ไม่ใช้ไฟล์ภาพ raster
 //     ของโลโก้จริง เพราะ ImageResponse โหลดรูปจากดิสก์ตรงๆ ไม่ได้ง่ายเท่า inline SVG)
 //   - จุดสี 5 สีแทนพลอยทั้ง 5 ตัว (สีเดียวกับ GEM_QUIZ_STONES.colors.base)
-const { writeFileSync, mkdirSync } = require("node:fs");
+const { writeFileSync, mkdirSync, readFileSync } = require("node:fs");
 const { dirname, join } = require("node:path");
 const { ImageResponse } = require("next/og");
 
 const OUT_PATH = join(__dirname, "..", "public", "gem-quiz", "og.png");
+const THAI_FONT_PATH = join(__dirname, "assets", "NotoSerifThai-600.ttf");
+const thaiFontData = readFileSync(THAI_FONT_PATH);
 
 const BRAND_RED = "#a2191d";
 const BRAND_RED_DARK = "#650A0D";
@@ -94,7 +100,7 @@ const element = {
         type: "div",
         props: {
           style: {
-            fontSize: 96,
+            fontSize: 88,
             fontWeight: 600,
             color: "#FFFFFF",
             lineHeight: 1.05,
@@ -107,9 +113,22 @@ const element = {
         type: "div",
         props: {
           style: {
+            fontSize: 34,
+            fontWeight: 600,
+            color: IVORY,
+            marginTop: 20,
+            fontFamily: "Noto Serif Thai",
+          },
+          children: "วันนี้คุณควรใส่พลอยอะไร?",
+        },
+      },
+      {
+        type: "div",
+        props: {
+          style: {
             display: "flex",
             gap: 18,
-            marginTop: 36,
+            marginTop: 30,
           },
           children: GEM_COLORS.map((c) => ({
             type: "div",
@@ -130,7 +149,11 @@ const element = {
 };
 
 (async () => {
-  const res = new ImageResponse(element, { width: 1200, height: 630 });
+  const res = new ImageResponse(element, {
+    width: 1200,
+    height: 630,
+    fonts: [{ name: "Noto Serif Thai", data: thaiFontData, weight: 600, style: "normal" }],
+  });
   const buf = Buffer.from(await res.arrayBuffer());
   mkdirSync(dirname(OUT_PATH), { recursive: true });
   writeFileSync(OUT_PATH, buf);
