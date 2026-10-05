@@ -1,0 +1,48 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<title>05 Jewelry type</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600&family=IBM+Plex+Sans+Thai:wght@400;500;600&family=Noto+Serif+Thai:wght@500;600&display=swap">
+<style>
+body{margin:0;background:#FAF8F4}
+a{color:#8F1015}a:hover{color:#650A0D}
+button{font:inherit;cursor:pointer}
+button:disabled{cursor:default}
+button:focus-visible,a:focus-visible{outline:2px solid #8F1015;outline-offset:2px}
+.opt{transition:border-color .18s ease,background-color .18s ease,transform .18s ease}
+.opt:hover:not(:disabled){transform:scale(1.01)}
+.cta{transition:background-color .18s ease}
+.cta:hover:not(:disabled){background-color:#650A0D !important}
+.fade-up{animation:fadeUp .38s ease both}
+.gem-in{animation:gemIn .7s cubic-bezier(.2,.7,.2,1) both}
+.spin{animation:spin 2.4s linear infinite}
+.spin-rev{animation:spin 3.6s linear infinite reverse}
+.pulse{animation:pulse 1.4s ease-in-out infinite}
+.twinkle{animation:twinkle 1.8s ease-in-out infinite}
+@keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+@keyframes gemIn{from{opacity:0;transform:scale(.92)}to{opacity:1;transform:none}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes pulse{0%,100%{transform:scale(1)}50%{transform:scale(1.06)}}
+@keyframes twinkle{0%,100%{opacity:.25}50%{opacity:1}}
+@media (prefers-reduced-motion: reduce){*{animation:none !important;transition:none !important}}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; overflow: hidden; font-family: 'IBM Plex Sans Thai', sans-serif; color: #292929">
+<dc-import name="Quiz" screen="q5" demo="1" height="844" hint-size="390px,844px"></dc-import>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

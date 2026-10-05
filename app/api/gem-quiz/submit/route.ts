@@ -153,8 +153,16 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return jsonError("ข้อมูลไม่ถูกต้อง", 400);
   }
 
-  // --- คำนวณ recommended ใหม่ฝั่ง server เสมอ — ไม่เชื่อค่าที่ client ส่งมา (R-8) ---
-  const recommendedStoneCodes = recommendStoneCodes(validated.data.answers);
+  // --- คำนวณ recommended ใหม่ฝั่ง server เสมอ — ไม่เชื่อค่าที่ client ส่งมา (R-8)
+  // v2: scoring ใช้ทั้ง liked (preference, มีผลคะแนนแล้ว — design doc §4 V10) และ
+  // answers 4 มิติ (birth_day/intention/feeling) — jewelry_type ไม่มีผลคะแนน
+  // (affectsScore:false ในแพ็กเกจ) จึงไม่ส่งเข้า rankGems() ---
+  const recommendedStoneCodes = recommendStoneCodes({
+    birthDay: validated.data.answers.birth_day ?? "",
+    intention: validated.data.answers.intention ?? "",
+    feeling: validated.data.answers.feeling ?? "",
+    likedStoneCodes: validated.data.likedStoneCodes,
+  });
 
   try {
     const shopId = getDevShopId();

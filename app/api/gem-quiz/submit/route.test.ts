@@ -54,8 +54,8 @@ function validBody(overrides: Record<string, unknown> = {}): Record<string, unkn
     src: "card",
     token: "doesnt-matter-mocked",
     hp: "",
-    liked: ["blue_topaz"],
-    answers: { q_intent: "opt_a", q_birth_dow: "sun" },
+    liked: ["blue_topaz", "garnet"],
+    answers: { birth_day: "sun", intention: "career", feeling: "energy", jewelry_type: "ring" },
     retake: false,
     ...overrides,
   };
@@ -87,7 +87,7 @@ describe("POST /api/gem-quiz/submit", () => {
     expect(rpcName).toBe("gem_quiz_submit");
     expect(params.p_shop_id).toBe("11111111-1111-1111-1111-111111111111");
     expect(params.p_src).toBe("card");
-    expect(params.p_liked_stone_codes).toEqual(["blue_topaz"]);
+    expect(params.p_liked_stone_codes).toEqual(["blue_topaz", "garnet"]);
     // recommended ต้องมี 1 ตัว (B4) และเป็นรหัสจริง — คำนวณจริงโดย recommend.ts
     // ไม่ได้ mock (R-8: server คำนวณเอง ไม่เชื่อ client)
     expect(Array.isArray(params.p_recommended_stone_codes)).toBe(true);
@@ -122,7 +122,7 @@ describe("POST /api/gem-quiz/submit", () => {
       const { POST } = await import("./route");
       const bigAnswerValue = "a".repeat(3000); // เกิน 2KB แน่นอน แม้ answers.value นี้จะไม่ผ่าน regex ต่อก็ตาม — ต้องตก 413 ก่อนถึงขั้น validate เนื้อหา
       const req = makeRequest({
-        rawBody: JSON.stringify(validBody({ answers: { q_intent: bigAnswerValue } })),
+        rawBody: JSON.stringify(validBody({ answers: { intention: bigAnswerValue } })),
         headers: { "content-length": "10" }, // โกหก header ว่าเล็ก
       });
       const res = await POST(req);
@@ -231,6 +231,29 @@ describe("POST /api/gem-quiz/submit", () => {
     it("liked มีรหัสไม่จริง ⇒ 400", async () => {
       const { POST } = await import("./route");
       const res = await POST(makeRequest({ body: validBody({ liked: ["not_a_real_stone"] }) }));
+      expect(res.status).toBe(400);
+      expect(rpcMock).not.toHaveBeenCalled();
+    });
+
+    it("liked มี code พลอยที่ปิดแล้วใน v2 (ruby — เลิกใช้ตาม migration 0157) ⇒ 400", async () => {
+      const { POST } = await import("./route");
+      const res = await POST(makeRequest({ body: validBody({ liked: ["ruby"] }) }));
+      expect(res.status).toBe(400);
+      expect(rpcMock).not.toHaveBeenCalled();
+    });
+
+    it("liked ว่างเปล่า (v2: ไม่มี 'ยังไม่มีในใจ' อีกแล้ว ต้องเลือกอย่างน้อย 1) ⇒ 400", async () => {
+      const { POST } = await import("./route");
+      const res = await POST(makeRequest({ body: validBody({ liked: [] }) }));
+      expect(res.status).toBe(400);
+      expect(rpcMock).not.toHaveBeenCalled();
+    });
+
+    it("answers ไม่ครบ 4 คำถาม (ขาด jewelry_type) ⇒ 400", async () => {
+      const { POST } = await import("./route");
+      const res = await POST(
+        makeRequest({ body: validBody({ answers: { birth_day: "sun", intention: "career", feeling: "energy" } }) })
+      );
       expect(res.status).toBe(400);
       expect(rpcMock).not.toHaveBeenCalled();
     });

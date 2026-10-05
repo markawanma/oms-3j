@@ -1,0 +1,716 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<title>3J Daily Gem Quiz</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600&family=IBM+Plex+Sans+Thai:wght@400;500;600&family=Noto+Serif+Thai:wght@500;600&display=swap">
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div style="width: 390px; height: {{H}}; overflow: hidden; position: relative; background: #FFFFFF; font-family: 'IBM Plex Sans Thai', sans-serif; color: #292929; box-sizing: border-box">
+
+<!-- ============ 00 LANDING ============ -->
+<sc-if value="{{isLanding}}" hint-placeholder-val="{{true}}">
+<div class="fade-up" style="height: 100%; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; text-align: center; padding: 44px 24px 28px; background: #FAF8F4">
+  <div style="display: flex; flex-direction: column; align-items: center; gap: 8px">
+    <svg width="54" height="54" viewBox="0 0 54 54" fill="none" aria-hidden="true"><circle cx="27" cy="29" r="20" stroke="#8F1015" stroke-width="3.5"></circle><path d="M41 6l1.6 4.4L47 12l-4.4 1.6L41 18l-1.6-4.4L35 12l4.4-1.6z" fill="#8F1015"></path></svg>
+    <span style="font-family: 'Cormorant Garamond', serif; font-size: 14px; font-weight: 600; letter-spacing: 0.42em; color: #650A0D; padding-left: 0.42em">3J · JEWELRY</span>
+  </div>
+  <h1 style="margin: 30px 0 0; font-family: 'Cormorant Garamond', serif; font-weight: 500; font-size: 54px; line-height: 0.98; letter-spacing: 0.04em; color: #650A0D">DAILY<br>GEM QUIZ</h1>
+  <p style="margin: 18px 0 0; font-family: 'Noto Serif Thai', serif; font-size: 20px; font-weight: 500; color: #292929">วันนี้คุณควรใส่พลอยอะไร?</p>
+  <p style="margin: 8px 0 0; font-size: 14px; line-height: 1.6; color: #6F6A66; max-width: 290px">ค้นหาพลอยที่เหมาะกับคุณสำหรับวันนี้ จากวันเกิด เป้าหมาย ความรู้สึก และสไตล์ที่คุณชอบ</p>
+  <div style="flex: 1; min-height: 0; width: 100%; position: relative">
+    <div style="position: absolute; left: 50%; bottom: 26px; width: 250px; height: 46px; margin-left: -125px; border-radius: 50%; background: #EFE9E2"></div>
+    <div style="position: absolute; left: 50%; bottom: 40px; margin-left: -118px"><dc-import name="Gem" color="#6E3FA6" light="#AE88E0" dark="#38195E" size="70" hint-size="70px,70px"></dc-import></div>
+    <div style="position: absolute; left: 50%; bottom: 40px; margin-left: 46px"><dc-import name="Gem" color="#2E86C6" light="#86C8EE" dark="#15527F" size="66" hint-size="66px,66px"></dc-import></div>
+    <div class="gem-in" style="position: absolute; left: 50%; bottom: 46px; margin-left: -62px"><dc-import name="Gem" color="#A3192B" light="#E0566A" dark="#5C0A16" size="124" hint-size="124px,124px"></dc-import></div>
+    <svg class="twinkle" style="position: absolute; left: 62px; top: 22px" width="14" height="14" viewBox="0 0 24 24" fill="#8F1015" aria-hidden="true"><path d="M12 2l2 8 8 2-8 2-2 8-2-8-8-2 8-2z"></path></svg>
+    <svg class="twinkle" style="position: absolute; right: 70px; top: 52px; animation-delay: .6s" width="10" height="10" viewBox="0 0 24 24" fill="#C9A9AA" aria-hidden="true"><path d="M12 2l2 8 8 2-8 2-2 8-2-8-8-2 8-2z"></path></svg>
+  </div>
+  <p style="margin: 0 0 14px; font-size: 13px; color: #6F6A66">5 คำถาม · ใช้เวลาไม่ถึง 1 นาที</p>
+  <button type="button" class="cta" onClick="{{start}}" style="width: 100%; height: 56px; border: 0; border-radius: 28px; background: #8F1015; color: #FFFFFF; font-size: 17px; font-weight: 500; display: flex; align-items: center; justify-content: center; gap: 10px">เริ่มทำแบบทดสอบ <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"></path></svg></button>
+  <p style="margin: 16px 0 0; font-family: 'Cormorant Garamond', serif; font-style: italic; font-size: 16px; color: #8F1015">Your Gem. Your Intention. Your Day.</p>
+</div>
+</sc-if>
+
+<!-- ============ QUIZ SHELL (Q1–Q5) ============ -->
+<sc-if value="{{isQuiz}}" hint-placeholder-val="{{false}}">
+<div style="height: 100%; display: flex; flex-direction: column">
+  <div style="flex: none; padding: 12px 20px 0">
+    <div style="display: flex; align-items: center; justify-content: space-between; height: 44px">
+      <button type="button" aria-label="ย้อนกลับ" onClick="{{back}}" style="width: 44px; height: 44px; margin-left: -10px; display: flex; align-items: center; justify-content: center; border: 0; border-radius: 22px; background: transparent; color: #292929"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19 12H5M11 6l-6 6 6 6"></path></svg></button>
+      <span style="font-size: 13px; letter-spacing: 0.14em; color: #6F6A66">{{stepLabel}}</span>
+      <span style="width: 44px; margin-right: -4px; text-align: right; font-family: 'Cormorant Garamond', serif; font-size: 13px; font-weight: 600; letter-spacing: 0.2em; color: #8F1015">3J</span>
+    </div>
+    <div style="height: 3px; margin-top: 6px; border-radius: 3px; background: #EEEAE5; overflow: hidden">
+      <div style="height: 100%; width: {{progressW}}; border-radius: 3px; background: #8F1015; transition: width .35s ease"></div>
+    </div>
+  </div>
+
+  <div ref="{{setScroll}}" style="flex: 1; min-height: 0; overflow-y: auto; padding: 26px 20px 20px">
+
+    <!-- Q1 -->
+    <sc-if value="{{isQ1}}" hint-placeholder-val="{{false}}">
+    <div class="fade-up" style="display: flex; flex-direction: column; gap: 22px">
+      <div style="display: flex; flex-direction: column; gap: 6px; text-align: center">
+        <h1 style="margin: 0; font-family: 'Noto Serif Thai', serif; font-size: 25px; font-weight: 600; line-height: 1.35; color: #650A0D">คุณเกิดวันอะไร?</h1>
+        <p style="margin: 0; font-size: 14px; color: #6F6A66">เลือกวันเกิดของคุณ</p>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 10px">
+        <button type="button" class="opt" aria-pressed="{{d.sun.pressed}}" onClick="{{d.sun.pick}}" style="display: flex; align-items: center; gap: 14px; width: 100%; min-height: 54px; padding: 0 16px; border: 1px solid {{d.sun.bc}}; border-radius: 14px; background: {{d.sun.bg}}; color: {{d.sun.fg}}; font-size: 16px; text-align: left">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2.5v2.5M12 19v2.5M2.5 12H5M19 12h2.5M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8"></path></svg>
+          <span style="flex: 1">อาทิตย์</span>
+          <sc-if value="{{d.sun.on}}" hint-placeholder-val="{{false}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></sc-if>
+          <sc-if value="{{d.sun.off}}" hint-placeholder-val="{{true}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#B5ADA6" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg></sc-if>
+        </button>
+        <button type="button" class="opt" aria-pressed="{{d.mon.pressed}}" onClick="{{d.mon.pick}}" style="display: flex; align-items: center; gap: 14px; width: 100%; min-height: 54px; padding: 0 16px; border: 1px solid {{d.mon.bc}}; border-radius: 14px; background: {{d.mon.bg}}; color: {{d.mon.fg}}; font-size: 16px; text-align: left">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19.5 14.5A8 8 0 1 1 9.5 4.5a6.5 6.5 0 0 0 10 10z"></path></svg>
+          <span style="flex: 1">จันทร์</span>
+          <sc-if value="{{d.mon.on}}" hint-placeholder-val="{{false}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></sc-if>
+          <sc-if value="{{d.mon.off}}" hint-placeholder-val="{{true}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#B5ADA6" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg></sc-if>
+        </button>
+        <button type="button" class="opt" aria-pressed="{{d.tue.pressed}}" onClick="{{d.tue.pick}}" style="display: flex; align-items: center; gap: 14px; width: 100%; min-height: 54px; padding: 0 16px; border: 1px solid {{d.tue.bc}}; border-radius: 14px; background: {{d.tue.bg}}; color: {{d.tue.fg}}; font-size: 16px; text-align: left">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3c.8 3.6 5 5.6 5 10.2a5 5 0 0 1-10 0c0-2.4 1.4-4 2.5-5 .3 1.9 1.2 3 2.3 3.3C11 8.6 11.5 5.6 12 3z"></path></svg>
+          <span style="flex: 1">อังคาร</span>
+          <sc-if value="{{d.tue.on}}" hint-placeholder-val="{{false}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></sc-if>
+          <sc-if value="{{d.tue.off}}" hint-placeholder-val="{{true}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#B5ADA6" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg></sc-if>
+        </button>
+        <button type="button" class="opt" aria-pressed="{{d.wed.pressed}}" onClick="{{d.wed.pick}}" style="display: flex; align-items: center; gap: 14px; width: 100%; min-height: 54px; padding: 0 16px; border: 1px solid {{d.wed.bc}}; border-radius: 14px; background: {{d.wed.bg}}; color: {{d.wed.fg}}; font-size: 16px; text-align: left">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 19c0-8 6-14 15-14 0 9-6 15-14 15"></path><path d="M5 19l8-8"></path></svg>
+          <span style="flex: 1">พุธ</span>
+          <sc-if value="{{d.wed.on}}" hint-placeholder-val="{{false}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></sc-if>
+          <sc-if value="{{d.wed.off}}" hint-placeholder-val="{{true}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#B5ADA6" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg></sc-if>
+        </button>
+        <button type="button" class="opt" aria-pressed="{{d.thu.pressed}}" onClick="{{d.thu.pick}}" style="display: flex; align-items: center; gap: 14px; width: 100%; min-height: 54px; padding: 0 16px; border: 1px solid {{d.thu.bc}}; border-radius: 14px; background: {{d.thu.bg}}; color: {{d.thu.fg}}; font-size: 16px; text-align: left">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.8 7.2L21 12l-7.2 1.8L12 21l-1.8-7.2L3 12l7.2-1.8z"></path></svg>
+          <span style="flex: 1">พฤหัสบดี</span>
+          <sc-if value="{{d.thu.on}}" hint-placeholder-val="{{false}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></sc-if>
+          <sc-if value="{{d.thu.off}}" hint-placeholder-val="{{true}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#B5ADA6" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg></sc-if>
+        </button>
+        <button type="button" class="opt" aria-pressed="{{d.fri.pressed}}" onClick="{{d.fri.pick}}" style="display: flex; align-items: center; gap: 14px; width: 100%; min-height: 54px; padding: 0 16px; border: 1px solid {{d.fri.bc}}; border-radius: 14px; background: {{d.fri.bg}}; color: {{d.fri.fg}}; font-size: 16px; text-align: left">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"></path></svg>
+          <span style="flex: 1">ศุกร์</span>
+          <sc-if value="{{d.fri.on}}" hint-placeholder-val="{{false}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></sc-if>
+          <sc-if value="{{d.fri.off}}" hint-placeholder-val="{{true}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#B5ADA6" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg></sc-if>
+        </button>
+        <button type="button" class="opt" aria-pressed="{{d.sat.pressed}}" onClick="{{d.sat.pick}}" style="display: flex; align-items: center; gap: 14px; width: 100%; min-height: 54px; padding: 0 16px; border: 1px solid {{d.sat.bc}}; border-radius: 14px; background: {{d.sat.bg}}; color: {{d.sat.fg}}; font-size: 16px; text-align: left">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="5"></circle><ellipse cx="12" cy="12" rx="10.5" ry="3.6" transform="rotate(-22 12 12)"></ellipse></svg>
+          <span style="flex: 1">เสาร์</span>
+          <sc-if value="{{d.sat.on}}" hint-placeholder-val="{{false}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></sc-if>
+          <sc-if value="{{d.sat.off}}" hint-placeholder-val="{{true}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#B5ADA6" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg></sc-if>
+        </button>
+      </div>
+    </div>
+    </sc-if>
+
+    <!-- Q2 -->
+    <sc-if value="{{isQ2}}" hint-placeholder-val="{{false}}">
+    <div class="fade-up" style="display: flex; flex-direction: column; gap: 22px">
+      <div style="display: flex; flex-direction: column; gap: 6px; text-align: center">
+        <h1 style="margin: 0; font-family: 'Noto Serif Thai', serif; font-size: 25px; font-weight: 600; line-height: 1.35; color: #650A0D">วันนี้คุณอยากเสริม<br>เรื่องอะไรเป็นพิเศษ?</h1>
+        <p style="margin: 0; font-size: 14px; color: #6F6A66">เลือก 1 สิ่งที่คุณอยากโฟกัสที่สุดในวันนี้</p>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px">
+        <button type="button" class="opt" aria-pressed="{{i.love.pressed}}" onClick="{{i.love.pick}}" style="position: relative; min-height: 112px; padding: 16px 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; border: 1px solid {{i.love.bc}}; border-radius: 16px; background: {{i.love.bg}}; color: {{i.love.fg}}; font-size: 14px; line-height: 1.45; text-align: center">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"></path></svg>
+          <span>ความรัก<br>&amp; เสน่ห์</span>
+          <sc-if value="{{i.love.on}}" hint-placeholder-val="{{false}}"><span style="position: absolute; top: 8px; right: 8px; width: 20px; height: 20px; border-radius: 10px; background: #8F1015; color: #FFFFFF; display: flex; align-items: center; justify-content: center"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></span></sc-if>
+        </button>
+        <button type="button" class="opt" aria-pressed="{{i.wealth.pressed}}" onClick="{{i.wealth.pick}}" style="position: relative; min-height: 112px; padding: 16px 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; border: 1px solid {{i.wealth.bc}}; border-radius: 16px; background: {{i.wealth.bg}}; color: {{i.wealth.fg}}; font-size: 14px; line-height: 1.45; text-align: center">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="6" rx="7" ry="2.5"></ellipse><path d="M5 6v4c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5V6M5 10v4c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5v-4M5 14v4c0 1.4 3.1 2.5 7 2.5s7-1.1 7-2.5v-4"></path></svg>
+          <span>การเงิน<br>&amp; โอกาส</span>
+          <sc-if value="{{i.wealth.on}}" hint-placeholder-val="{{false}}"><span style="position: absolute; top: 8px; right: 8px; width: 20px; height: 20px; border-radius: 10px; background: #8F1015; color: #FFFFFF; display: flex; align-items: center; justify-content: center"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></span></sc-if>
+        </button>
+        <button type="button" class="opt" aria-pressed="{{i.career.pressed}}" onClick="{{i.career.pick}}" style="position: relative; min-height: 112px; padding: 16px 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; border: 1px solid {{i.career.bc}}; border-radius: 16px; background: {{i.career.bg}}; color: {{i.career.fg}}; font-size: 14px; line-height: 1.45; text-align: center">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 20h16"></path><rect x="5.5" y="12" width="3" height="5"></rect><rect x="10.5" y="8" width="3" height="9"></rect><rect x="15.5" y="4.5" width="3" height="12.5"></rect></svg>
+          <span>งาน<br>&amp; ความสำเร็จ</span>
+          <sc-if value="{{i.career.on}}" hint-placeholder-val="{{false}}"><span style="position: absolute; top: 8px; right: 8px; width: 20px; height: 20px; border-radius: 10px; background: #8F1015; color: #FFFFFF; display: flex; align-items: center; justify-content: center"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></span></sc-if>
+        </button>
+        <button type="button" class="opt" aria-pressed="{{i.confidence.pressed}}" onClick="{{i.confidence.pick}}" style="position: relative; min-height: 112px; padding: 16px 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; border: 1px solid {{i.confidence.bc}}; border-radius: 16px; background: {{i.confidence.bg}}; color: {{i.confidence.fg}}; font-size: 14px; line-height: 1.45; text-align: center">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="4"></circle><path d="M12 2.5v2.5M12 19v2.5M2.5 12H5M19 12h2.5M5.3 5.3l1.8 1.8M16.9 16.9l1.8 1.8M5.3 18.7l1.8-1.8M16.9 7.1l1.8-1.8"></path></svg>
+          <span>ความมั่นใจ<br>&amp; พลังใจ</span>
+          <sc-if value="{{i.confidence.on}}" hint-placeholder-val="{{false}}"><span style="position: absolute; top: 8px; right: 8px; width: 20px; height: 20px; border-radius: 10px; background: #8F1015; color: #FFFFFF; display: flex; align-items: center; justify-content: center"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></span></sc-if>
+        </button>
+        <button type="button" class="opt" aria-pressed="{{i.calm.pressed}}" onClick="{{i.calm.pick}}" style="position: relative; min-height: 112px; padding: 16px 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; border: 1px solid {{i.calm.bc}}; border-radius: 16px; background: {{i.calm.bg}}; color: {{i.calm.fg}}; font-size: 14px; line-height: 1.45; text-align: center">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6z"></path><path d="M12 9v5M9.5 11.5h5"></path></svg>
+          <span>ความสงบ<br>&amp; การปกป้อง</span>
+          <sc-if value="{{i.calm.on}}" hint-placeholder-val="{{false}}"><span style="position: absolute; top: 8px; right: 8px; width: 20px; height: 20px; border-radius: 10px; background: #8F1015; color: #FFFFFF; display: flex; align-items: center; justify-content: center"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></span></sc-if>
+        </button>
+        <button type="button" class="opt" aria-pressed="{{i.renewal.pressed}}" onClick="{{i.renewal.pick}}" style="position: relative; min-height: 112px; padding: 16px 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; border: 1px solid {{i.renewal.bc}}; border-radius: 16px; background: {{i.renewal.bg}}; color: {{i.renewal.fg}}; font-size: 14px; line-height: 1.45; text-align: center">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21v-9M12 12c0-4-3-6.5-7.5-6.5 0 4.3 3 6.5 7.5 6.5zM12 12c0-3.2 2.6-5.5 6.5-5.5 0 3.6-2.6 5.5-6.5 5.5z"></path></svg>
+          <span>การเริ่มต้นใหม่<br>&amp; การเปลี่ยนแปลง</span>
+          <sc-if value="{{i.renewal.on}}" hint-placeholder-val="{{false}}"><span style="position: absolute; top: 8px; right: 8px; width: 20px; height: 20px; border-radius: 10px; background: #8F1015; color: #FFFFFF; display: flex; align-items: center; justify-content: center"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></span></sc-if>
+        </button>
+      </div>
+    </div>
+    </sc-if>
+
+    <!-- Q3 -->
+    <sc-if value="{{isQ3}}" hint-placeholder-val="{{false}}">
+    <div class="fade-up" style="display: flex; flex-direction: column; gap: 22px">
+      <div style="display: flex; flex-direction: column; gap: 6px; text-align: center">
+        <h1 style="margin: 0; font-family: 'Noto Serif Thai', serif; font-size: 25px; font-weight: 600; line-height: 1.35; color: #650A0D">วันนี้คุณรู้สึกอย่างไรที่สุด?</h1>
+        <p style="margin: 0; font-size: 14px; color: #6F6A66">เลือกสิ่งที่ใกล้เคียงกับคุณที่สุด</p>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px">
+        <button type="button" class="opt" aria-pressed="{{f.energy.pressed}}" onClick="{{f.energy.pick}}" style="position: relative; min-height: 112px; padding: 16px 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; border: 1px solid {{f.energy.bc}}; border-radius: 16px; background: {{f.energy.bg}}; color: {{f.energy.fg}}; font-size: 14px; line-height: 1.45; text-align: center">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3c.8 3.6 5 5.6 5 10.2a5 5 0 0 1-10 0c0-2.4 1.4-4 2.5-5 .3 1.9 1.2 3 2.3 3.3C11 8.6 11.5 5.6 12 3z"></path></svg>
+          <span>อยากมีพลัง<br>ไม่ท้อ</span>
+          <sc-if value="{{f.energy.on}}" hint-placeholder-val="{{false}}"><span style="position: absolute; top: 8px; right: 8px; width: 20px; height: 20px; border-radius: 10px; background: #8F1015; color: #FFFFFF; display: flex; align-items: center; justify-content: center"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></span></sc-if>
+        </button>
+        <button type="button" class="opt" aria-pressed="{{f.calm.pressed}}" onClick="{{f.calm.pick}}" style="position: relative; min-height: 112px; padding: 16px 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; border: 1px solid {{f.calm.bc}}; border-radius: 16px; background: {{f.calm.bg}}; color: {{f.calm.fg}}; font-size: 14px; line-height: 1.45; text-align: center">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 9.5c3-2 6 2 9 0s6-2 9 0M3 14.5c3-2 6 2 9 0s6-2 9 0"></path></svg>
+          <span>อยากใจนิ่ง<br>ไม่วุ่นวาย</span>
+          <sc-if value="{{f.calm.on}}" hint-placeholder-val="{{false}}"><span style="position: absolute; top: 8px; right: 8px; width: 20px; height: 20px; border-radius: 10px; background: #8F1015; color: #FFFFFF; display: flex; align-items: center; justify-content: center"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></span></sc-if>
+        </button>
+        <button type="button" class="opt" aria-pressed="{{f.clarity.pressed}}" onClick="{{f.clarity.pick}}" style="position: relative; min-height: 112px; padding: 16px 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; border: 1px solid {{f.clarity.bc}}; border-radius: 16px; background: {{f.clarity.bg}}; color: {{f.clarity.fg}}; font-size: 14px; line-height: 1.45; text-align: center">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6z"></path><circle cx="12" cy="12" r="2.8"></circle></svg>
+          <span>คิดเยอะ<br>อยากได้ความชัดเจน</span>
+          <sc-if value="{{f.clarity.on}}" hint-placeholder-val="{{false}}"><span style="position: absolute; top: 8px; right: 8px; width: 20px; height: 20px; border-radius: 10px; background: #8F1015; color: #FFFFFF; display: flex; align-items: center; justify-content: center"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></span></sc-if>
+        </button>
+        <button type="button" class="opt" aria-pressed="{{f.renew.pressed}}" onClick="{{f.renew.pick}}" style="position: relative; min-height: 112px; padding: 16px 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; border: 1px solid {{f.renew.bc}}; border-radius: 16px; background: {{f.renew.bg}}; color: {{f.renew.fg}}; font-size: 14px; line-height: 1.45; text-align: center">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21v-9M12 12c0-4-3-6.5-7.5-6.5 0 4.3 3 6.5 7.5 6.5zM12 12c0-3.2 2.6-5.5 6.5-5.5 0 3.6-2.6 5.5-6.5 5.5z"></path></svg>
+          <span>รู้สึกอยาก<br>เริ่มต้นใหม่</span>
+          <sc-if value="{{f.renew.on}}" hint-placeholder-val="{{false}}"><span style="position: absolute; top: 8px; right: 8px; width: 20px; height: 20px; border-radius: 10px; background: #8F1015; color: #FFFFFF; display: flex; align-items: center; justify-content: center"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></span></sc-if>
+        </button>
+        <button type="button" class="opt" aria-pressed="{{f.open.pressed}}" onClick="{{f.open.pick}}" style="position: relative; min-height: 112px; padding: 16px 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; border: 1px solid {{f.open.bc}}; border-radius: 16px; background: {{f.open.bg}}; color: {{f.open.fg}}; font-size: 14px; line-height: 1.45; text-align: center">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18.5s-5.5-3.4-5.5-7.8a3.2 3.2 0 0 1 5.5-2.1 3.2 3.2 0 0 1 5.5 2.1"></path><path d="M15 20.5s-5-3.1-5-7a2.9 2.9 0 0 1 5-1.9 2.9 2.9 0 0 1 5 1.9c0 3.9-5 7-5 7z"></path></svg>
+          <span>อยากเปิดใจ<br>มีความสัมพันธ์ที่ดี</span>
+          <sc-if value="{{f.open.on}}" hint-placeholder-val="{{false}}"><span style="position: absolute; top: 8px; right: 8px; width: 20px; height: 20px; border-radius: 10px; background: #8F1015; color: #FFFFFF; display: flex; align-items: center; justify-content: center"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></span></sc-if>
+        </button>
+        <button type="button" class="opt" aria-pressed="{{f.advance.pressed}}" onClick="{{f.advance.pick}}" style="position: relative; min-height: 112px; padding: 16px 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; border: 1px solid {{f.advance.bc}}; border-radius: 16px; background: {{f.advance.bg}}; color: {{f.advance.fg}}; font-size: 14px; line-height: 1.45; text-align: center">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3.5 17.5l6-6 4 4 7-7.5"></path><path d="M14.5 8h6v6"></path></svg>
+          <span>อยากก้าวหน้า<br>คว้าโอกาส</span>
+          <sc-if value="{{f.advance.on}}" hint-placeholder-val="{{false}}"><span style="position: absolute; top: 8px; right: 8px; width: 20px; height: 20px; border-radius: 10px; background: #8F1015; color: #FFFFFF; display: flex; align-items: center; justify-content: center"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></span></sc-if>
+        </button>
+      </div>
+    </div>
+    </sc-if>
+
+    <!-- Q4 -->
+    <sc-if value="{{isQ4}}" hint-placeholder-val="{{false}}">
+    <div class="fade-up" style="display: flex; flex-direction: column; gap: 18px">
+      <div style="display: flex; flex-direction: column; gap: 6px; text-align: center">
+        <h1 style="margin: 0; font-family: 'Noto Serif Thai', serif; font-size: 25px; font-weight: 600; line-height: 1.35; color: #650A0D">พลอยไหนดึงดูดคุณที่สุด?</h1>
+        <p style="margin: 0; font-size: 14px; line-height: 1.55; color: #6F6A66">เลือกได้สูงสุด 3 พลอย เรียงตามลำดับที่ชอบ<br>เลือกตามความรู้สึกได้เลย ไม่มีคำตอบที่ถูกหรือผิด</p>
+      </div>
+      <p style="margin: 0; align-self: center; padding: 6px 14px; border-radius: 999px; background: {{q4.chipBg}}; color: {{q4.chipFg}}; font-size: 13px">{{q4.status}}</p>
+      <div style="display: flex; flex-direction: column; gap: 10px">
+        <sc-for list="{{gemsQ4}}" as="g" hint-placeholder-count="5">
+        <button type="button" class="opt" aria-pressed="{{g.pressed}}" disabled="{{g.dis}}" onClick="{{g.pick}}" style="display: flex; align-items: center; gap: 14px; width: 100%; min-height: 78px; padding: 10px 16px 10px 10px; border: 1px solid {{g.bc}}; border-radius: 16px; background: {{g.bg}}; opacity: {{g.op}}; color: #292929; text-align: left">
+          <span style="flex: none; width: 58px; height: 58px; border-radius: 12px; background: #FAF8F4; display: flex; align-items: center; justify-content: center"><dc-import name="Gem" color="{{g.c}}" light="{{g.l}}" dark="{{g.d}}" size="42" hint-size="42px,42px"></dc-import></span>
+          <span style="flex: 1; display: flex; flex-direction: column; gap: 3px">
+            <span style="font-size: 16px; font-weight: 500">{{g.name}} <span style="font-weight: 400; color: #6F6A66">· {{g.th}}</span></span>
+            <span style="display: flex; align-items: center; gap: 7px; font-size: 13px; color: #6F6A66"><span style="width: 8px; height: 8px; border-radius: 4px; background: {{g.c}}"></span>{{g.mood}}</span>
+          </span>
+          <sc-if value="{{g.on}}" hint-placeholder-val="{{false}}"><span style="flex: none; width: 30px; height: 30px; border-radius: 15px; background: #8F1015; color: #FFFFFF; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 600">{{g.rank}}</span></sc-if>
+          <sc-if value="{{g.off}}" hint-placeholder-val="{{true}}"><span style="flex: none; width: 28px; height: 28px; border-radius: 14px; border: 1px solid #D9D3CD"></span></sc-if>
+        </button>
+        </sc-for>
+      </div>
+    </div>
+    </sc-if>
+
+    <!-- Q5 -->
+    <sc-if value="{{isQ5}}" hint-placeholder-val="{{false}}">
+    <div class="fade-up" style="display: flex; flex-direction: column; gap: 22px">
+      <div style="display: flex; flex-direction: column; gap: 6px; text-align: center">
+        <h1 style="margin: 0; font-family: 'Noto Serif Thai', serif; font-size: 25px; font-weight: 600; line-height: 1.35; color: #650A0D">วันนี้คุณอยากใส่แบบไหน?</h1>
+        <p style="margin: 0; font-size: 14px; color: #6F6A66">เลือกประเภทเครื่องประดับที่คุณชอบ</p>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px">
+        <button type="button" class="opt" aria-pressed="{{t.ring.pressed}}" onClick="{{t.ring.pick}}" style="position: relative; min-height: 120px; padding: 16px 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; border: 1px solid {{t.ring.bc}}; border-radius: 16px; background: {{t.ring.bg}}; color: {{t.ring.fg}}; font-size: 15px; text-align: center">
+          <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="14.5" r="6"></circle><path d="M9.5 6.5L12 3.5l2.5 3L12 9z"></path></svg>
+          <span>แหวน</span>
+          <sc-if value="{{t.ring.on}}" hint-placeholder-val="{{false}}"><span style="position: absolute; top: 8px; right: 8px; width: 20px; height: 20px; border-radius: 10px; background: #8F1015; color: #FFFFFF; display: flex; align-items: center; justify-content: center"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></span></sc-if>
+        </button>
+        <button type="button" class="opt" aria-pressed="{{t.necklace.pressed}}" onClick="{{t.necklace.pick}}" style="position: relative; min-height: 120px; padding: 16px 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; border: 1px solid {{t.necklace.bc}}; border-radius: 16px; background: {{t.necklace.bg}}; color: {{t.necklace.fg}}; font-size: 15px; text-align: center">
+          <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3c0 6.5 3 9.5 7 9.5s7-3 7-9.5"></path><path d="M12 12.5l-2.4 3.3L12 20.5l2.4-4.7z"></path></svg>
+          <span>สร้อย / จี้</span>
+          <sc-if value="{{t.necklace.on}}" hint-placeholder-val="{{false}}"><span style="position: absolute; top: 8px; right: 8px; width: 20px; height: 20px; border-radius: 10px; background: #8F1015; color: #FFFFFF; display: flex; align-items: center; justify-content: center"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></span></sc-if>
+        </button>
+        <button type="button" class="opt" aria-pressed="{{t.earring.pressed}}" onClick="{{t.earring.pick}}" style="position: relative; min-height: 120px; padding: 16px 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; border: 1px solid {{t.earring.bc}}; border-radius: 16px; background: {{t.earring.bg}}; color: {{t.earring.fg}}; font-size: 15px; text-align: center">
+          <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="7.5" cy="4" r="1.4"></circle><path d="M7.5 5.4v3.6M7.5 9l-2.6 4L7.5 18l2.6-5z"></path><circle cx="16.5" cy="4" r="1.4"></circle><path d="M16.5 5.4v3.6M16.5 9l-2.6 4 2.6 5 2.6-5z"></path></svg>
+          <span>ต่างหู</span>
+          <sc-if value="{{t.earring.on}}" hint-placeholder-val="{{false}}"><span style="position: absolute; top: 8px; right: 8px; width: 20px; height: 20px; border-radius: 10px; background: #8F1015; color: #FFFFFF; display: flex; align-items: center; justify-content: center"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></span></sc-if>
+        </button>
+        <button type="button" class="opt" aria-pressed="{{t.bracelet.pressed}}" onClick="{{t.bracelet.pick}}" style="position: relative; min-height: 120px; padding: 16px 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; border: 1px solid {{t.bracelet.bc}}; border-radius: 16px; background: {{t.bracelet.bg}}; color: {{t.bracelet.fg}}; font-size: 15px; text-align: center">
+          <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><ellipse cx="12" cy="12" rx="9" ry="5"></ellipse><ellipse cx="12" cy="12" rx="6" ry="2.6"></ellipse><path d="M12 7l1 1-1 1-1-1z"></path></svg>
+          <span>กำไล</span>
+          <sc-if value="{{t.bracelet.on}}" hint-placeholder-val="{{false}}"><span style="position: absolute; top: 8px; right: 8px; width: 20px; height: 20px; border-radius: 10px; background: #8F1015; color: #FFFFFF; display: flex; align-items: center; justify-content: center"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg></span></sc-if>
+        </button>
+      </div>
+      <button type="button" class="opt" aria-pressed="{{t.unknown.pressed}}" onClick="{{t.unknown.pick}}" style="display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; min-height: 58px; padding: 0 16px; border: 1px solid {{t.unknown.bc}}; border-radius: 16px; background: {{t.unknown.bg}}; color: {{t.unknown.fg}}; font-size: 15px">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.8 7.2L21 12l-7.2 1.8L12 21l-1.8-7.2L3 12l7.2-1.8z"></path></svg>
+        ยังไม่แน่ใจ — แนะนำให้ฉัน
+      </button>
+    </div>
+    </sc-if>
+
+  </div>
+
+  <div style="flex: none; padding: 12px 20px 22px; border-top: 1px solid #F1EDE8; background: #FFFFFF">
+    <button type="button" class="cta" onClick="{{next}}" disabled="{{nextDisabled}}" style="width: 100%; height: 54px; border: 0; border-radius: 27px; background: {{nextBg}}; color: {{nextFg}}; font-size: 16px; font-weight: 500; display: flex; align-items: center; justify-content: center; gap: 10px">{{nextLabel}} <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"></path></svg></button>
+  </div>
+</div>
+</sc-if>
+
+<!-- ============ 06 LOADING ============ -->
+<sc-if value="{{isLoading}}" hint-placeholder-val="{{false}}">
+<div class="fade-up" style="height: 100%; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 26px; padding: 0 36px; text-align: center; background: #FFFFFF">
+  <div style="position: relative; width: 168px; height: 168px; display: flex; align-items: center; justify-content: center">
+    <div class="spin" style="position: absolute; inset: 0; border-radius: 50%; border: 1px solid #EEE7E1; border-top-color: #8F1015"></div>
+    <div class="spin-rev" style="position: absolute; inset: 18px; border-radius: 50%; border: 1px dashed #E3CFCF"></div>
+    <div class="pulse"><dc-import name="Gem" color="{{p.c}}" light="{{p.l}}" dark="{{p.d}}" size="74" hint-size="74px,74px"></dc-import></div>
+  </div>
+  <div style="display: flex; flex-direction: column; gap: 8px">
+    <span style="font-family: 'Cormorant Garamond', serif; font-size: 13px; font-weight: 600; letter-spacing: 0.4em; color: #8F1015">3J · JEWELRY</span>
+    <h1 style="margin: 0; font-family: 'Noto Serif Thai', serif; font-size: 22px; font-weight: 600; line-height: 1.4; color: #650A0D">กำลังค้นหาพลอย<br>ที่เหมาะกับคุณ…</h1>
+  </div>
+  <div style="display: flex; flex-direction: column; gap: 10px; align-items: flex-start; font-size: 14px; color: #6F6A66">
+    <span style="font-size: 12px; letter-spacing: 0.08em">วิเคราะห์จาก</span>
+    <span style="display: flex; align-items: center; gap: 10px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8F1015" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>วันเกิด</span>
+    <span style="display: flex; align-items: center; gap: 10px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8F1015" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>สิ่งที่คุณอยากเสริมวันนี้</span>
+    <span style="display: flex; align-items: center; gap: 10px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8F1015" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>ความรู้สึกของคุณ</span>
+    <span style="display: flex; align-items: center; gap: 10px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8F1015" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"></path></svg>พลอยที่คุณชอบ</span>
+    <span class="twinkle" style="display: flex; align-items: center; gap: 10px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8F1015" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="7"></circle></svg>สไตล์เครื่องประดับของคุณ</span>
+  </div>
+</div>
+</sc-if>
+
+<!-- ============ 07 RESULT ============ -->
+<sc-if value="{{isResult}}" hint-placeholder-val="{{false}}">
+<div ref="{{setScroll}}" style="height: 100%; overflow-y: auto; background: #FFFFFF">
+
+  <!-- Hero -->
+  <div class="fade-up" style="padding: 28px 24px 30px; display: flex; flex-direction: column; align-items: center; text-align: center; background: #FAF8F4">
+    <div style="width: 100%; display: flex; align-items: center; justify-content: space-between">
+      <button type="button" class="opt" onClick="{{restart}}" aria-label="เริ่มใหม่" style="width: 44px; height: 44px; margin-left: -10px; border: 0; border-radius: 22px; background: transparent; color: #292929; display: flex; align-items: center; justify-content: center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.4-5.7"></path><path d="M4 4.5v4h4"></path></svg></button>
+      <span style="font-family: 'Cormorant Garamond', serif; font-size: 13px; font-weight: 600; letter-spacing: 0.4em; color: #650A0D; padding-left: 0.4em">3J · JEWELRY</span>
+      <span style="width: 44px"></span>
+    </div>
+    <p style="margin: 14px 0 0; font-family: 'Cormorant Garamond', serif; font-size: 32px; font-weight: 500; line-height: 1.02; letter-spacing: 0.06em; color: #650A0D">{{r.heroA}}<br>{{r.heroB}}</p>
+    <p style="margin: 6px 0 0; font-size: 14px; color: #6F6A66">{{r.heroSub}}</p>
+    <div style="position: relative; width: 230px; height: 230px; margin: 14px 0 8px; display: flex; align-items: center; justify-content: center">
+      <div style="position: absolute; inset: 22px; border-radius: 50%; background: {{p.l}}; opacity: 0.18"></div>
+      <div style="position: absolute; inset: 0; border-radius: 50%; border: 1px solid #E5E1DC"></div>
+      <div class="gem-in" style="position: relative"><dc-import name="Gem" color="{{p.c}}" light="{{p.l}}" dark="{{p.d}}" size="150" hint-size="150px,150px"></dc-import></div>
+      <svg class="twinkle" style="position: absolute; left: 22px; top: 40px" width="14" height="14" viewBox="0 0 24 24" fill="#8F1015" aria-hidden="true"><path d="M12 2l2 8 8 2-8 2-2 8-2-8-8-2 8-2z"></path></svg>
+      <svg class="twinkle" style="position: absolute; right: 24px; bottom: 46px; animation-delay: .7s" width="10" height="10" viewBox="0 0 24 24" fill="#C9A9AA" aria-hidden="true"><path d="M12 2l2 8 8 2-8 2-2 8-2-8-8-2 8-2z"></path></svg>
+    </div>
+    <h1 style="margin: 0; font-family: 'Cormorant Garamond', serif; font-size: 46px; font-weight: 600; line-height: 1; letter-spacing: 0.08em; color: #650A0D">{{p.upper}}</h1>
+    <p style="margin: 6px 0 0; font-family: 'Noto Serif Thai', serif; font-size: 18px; color: #292929">{{p.th}}</p>
+    <span style="margin-top: 14px; padding: 6px 16px; border-radius: 999px; border: 1px solid #E3CFCF; background: #FFFFFF; font-size: 12px; font-weight: 600; letter-spacing: 0.24em; color: #8F1015">{{p.core}}</span>
+    <p style="margin: 12px 0 0; font-size: 15px; font-weight: 500; color: #8F1015">{{p.kw}}</p>
+    <div style="margin-top: 20px; padding: 18px 18px; border-radius: 16px; background: #FFFFFF; border: 1px solid #EEE7E1; display: flex; flex-direction: column; gap: 10px; font-size: 14px; line-height: 1.7; color: #292929; text-align: left">
+      <p style="margin: 0">วันนี้คุณเลือกโฟกัสเรื่อง <strong style="color: #650A0D; font-weight: 600">{{r.intentLabel}}</strong> และบอกเราว่า <strong style="color: #650A0D; font-weight: 600">“{{r.feelLabel}}”</strong></p>
+      <p style="margin: 0">{{r.line2}}</p>
+      <p style="margin: 0; font-size: 13px; color: #6F6A66">{{r.prefNote}}</p>
+    </div>
+    <sc-if value="{{r.isAlt}}" hint-placeholder-val="{{false}}">
+      <button type="button" class="opt" onClick="{{backToTop}}" style="margin-top: 14px; min-height: 44px; padding: 0 16px; border: 1px solid #E3CFCF; border-radius: 22px; background: #FFFFFF; color: #8F1015; font-size: 14px">← กลับไปที่พลอยแนะนำอันดับ 1</button>
+    </sc-if>
+    <p style="margin: 18px 0 0; font-size: 13px; color: #6F6A66">เลื่อนลงเพื่อดูคำแนะนำของคุณ ↓</p>
+  </div>
+
+  <!-- Why -->
+  <div style="padding: 32px 20px 8px; display: flex; flex-direction: column; gap: 16px">
+    <h2 style="margin: 0; text-align: center; font-family: 'Noto Serif Thai', serif; font-size: 21px; font-weight: 600; color: #650A0D">ทำไมถึงเหมาะกับคุณวันนี้?</h2>
+    <div style="border: 1px solid #EEE7E1; border-radius: 16px; padding: 4px 16px">
+      <div style="display: flex; align-items: center; gap: 14px; padding: 12px 0; border-bottom: 1px solid #F3EFEA">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#8F1015" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2"></rect><path d="M3.5 9.5h17M8 3v4M16 3v4"></path></svg>
+        <span style="display: flex; flex-direction: column; gap: 1px"><span style="font-size: 12px; color: #6F6A66">วันเกิดของคุณ</span><span style="font-size: 15px">วัน{{r.dayLabel}}</span></span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 14px; padding: 12px 0; border-bottom: 1px solid #F3EFEA">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#8F1015" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"></circle><circle cx="12" cy="12" r="4.5"></circle><circle cx="12" cy="12" r="1"></circle></svg>
+        <span style="display: flex; flex-direction: column; gap: 1px"><span style="font-size: 12px; color: #6F6A66">เป้าหมายวันนี้</span><span style="font-size: 15px">{{r.intentLabel}}</span></span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 14px; padding: 12px 0; border-bottom: 1px solid #F3EFEA">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#8F1015" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 19c0-8 6-14 15-14 0 9-6 15-14 15"></path><path d="M5 19l8-8"></path></svg>
+        <span style="display: flex; flex-direction: column; gap: 1px"><span style="font-size: 12px; color: #6F6A66">ความรู้สึกวันนี้</span><span style="font-size: 15px">{{r.feelLabel}}</span></span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 14px; padding: 12px 0; border-bottom: 1px solid #F3EFEA">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#8F1015" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3.5h12l3.5 5L12 20.5 2.5 8.5z"></path><path d="M2.5 8.5h19M9 3.5l3 5 3-5M12 8.5v12"></path></svg>
+        <span style="display: flex; flex-direction: column; gap: 1px"><span style="font-size: 12px; color: #6F6A66">พลอยที่คุณชอบ</span><span style="font-size: 15px">{{r.prefsLabel}}</span></span>
+      </div>
+      <div style="display: flex; align-items: center; gap: 14px; padding: 12px 0">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#8F1015" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="14.5" r="6"></circle><path d="M9.5 6.5L12 3.5l2.5 3L12 9z"></path></svg>
+        <span style="display: flex; flex-direction: column; gap: 1px"><span style="font-size: 12px; color: #6F6A66">สไตล์ที่คุณเลือก</span><span style="font-size: 15px">{{r.typeChosen}}</span></span>
+      </div>
+    </div>
+    <p style="margin: 0; padding: 0 4px; font-size: 14px; line-height: 1.7; color: #292929"><strong style="color: #650A0D; font-weight: 600">{{p.name}}</strong> เหมาะกับโจทย์ของคุณวันนี้ เพราะในเชิงสัญลักษณ์เชื่อมโยงกับ{{p.meaning}}</p>
+  </div>
+
+  <!-- Pairing -->
+  <div style="padding: 24px 20px 8px">
+    <div style="padding: 24px 18px; border-radius: 18px; background: #FBF2F2; display: flex; flex-direction: column; align-items: center; gap: 14px; text-align: center">
+      <span style="font-size: 12px; font-weight: 600; letter-spacing: 0.2em; color: #8F1015">TRY THIS COMBINATION</span>
+      <div style="display: flex; align-items: center; justify-content: center; gap: 18px">
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 6px; width: 104px">
+          <dc-import name="Gem" color="{{pairA.c}}" light="{{pairA.l}}" dark="{{pairA.d}}" size="64" hint-size="64px,64px"></dc-import>
+          <span style="font-size: 15px; font-weight: 500">{{pairA.name}}</span>
+          <span style="font-size: 12px; color: #6F6A66">{{pairA.th}}</span>
+        </div>
+        <span style="font-family: 'Cormorant Garamond', serif; font-size: 30px; color: #8F1015">+</span>
+        <div style="display: flex; flex-direction: column; align-items: center; gap: 6px; width: 104px">
+          <dc-import name="Gem" color="{{pairB.c}}" light="{{pairB.l}}" dark="{{pairB.d}}" size="64" hint-size="64px,64px"></dc-import>
+          <span style="font-size: 15px; font-weight: 500">{{pairB.name}}</span>
+          <span style="font-size: 12px; color: #6F6A66">{{pairB.th}}</span>
+        </div>
+      </div>
+      <p style="margin: 0; font-family: 'Cormorant Garamond', serif; font-size: 24px; font-weight: 600; color: #650A0D">{{pair.title}}</p>
+      <p style="margin: -8px 0 0; font-size: 13px; color: #6F6A66">{{pair.th}}</p>
+      <p style="margin: 0; font-size: 14px; color: #292929">เหมาะกับ: {{pair.fit}}</p>
+    </div>
+  </div>
+
+  <!-- Alternatives -->
+  <div style="padding: 28px 20px 8px; display: flex; flex-direction: column; gap: 14px">
+    <div style="text-align: center; display: flex; flex-direction: column; gap: 4px">
+      <h2 style="margin: 0; font-family: 'Noto Serif Thai', serif; font-size: 21px; font-weight: 600; color: #650A0D">ทางเลือกอื่นสำหรับคุณ</h2>
+      <p style="margin: 0; font-size: 13px; color: #6F6A66">แตะเพื่อดูคำแนะนำของพลอยนั้น</p>
+    </div>
+    <sc-for list="{{alts}}" as="g" hint-placeholder-count="2">
+    <button type="button" class="opt" onClick="{{g.pick}}" style="display: flex; align-items: center; gap: 14px; width: 100%; min-height: 84px; padding: 12px 14px 12px 10px; border: 1px solid #E5E1DC; border-radius: 16px; background: #FFFFFF; color: #292929; text-align: left">
+      <span style="flex: none; width: 60px; height: 60px; border-radius: 12px; background: #FAF8F4; display: flex; align-items: center; justify-content: center"><dc-import name="Gem" color="{{g.c}}" light="{{g.l}}" dark="{{g.d}}" size="44" hint-size="44px,44px"></dc-import></span>
+      <span style="flex: 1; display: flex; flex-direction: column; gap: 2px">
+        <span style="font-size: 11px; letter-spacing: 0.08em; color: #8F1015">{{g.label}}</span>
+        <span style="font-size: 16px; font-weight: 500">{{g.name}} <span style="font-weight: 400; color: #6F6A66">· {{g.th}}</span></span>
+        <span style="font-size: 13px; color: #6F6A66">{{g.kw}}</span>
+      </span>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#8F1015" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg>
+    </button>
+    </sc-for>
+  </div>
+
+  <!-- How to wear -->
+  <div style="padding: 28px 20px 8px; display: flex; flex-direction: column; gap: 14px">
+    <h2 style="margin: 0; text-align: center; font-family: 'Noto Serif Thai', serif; font-size: 21px; font-weight: 600; color: #650A0D">วันนี้ลองใส่แบบนี้</h2>
+    <div style="border: 1px solid #EEE7E1; border-radius: 16px; padding: 18px 16px; display: flex; flex-direction: column; gap: 16px">
+      <div style="display: flex; gap: 14px">
+        <span style="flex: none; width: 40px; height: 40px; border-radius: 20px; background: #FBF2F2; color: #8F1015; display: flex; align-items: center; justify-content: center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="14.5" r="6"></circle><path d="M9.5 6.5L12 3.5l2.5 3L12 9z"></path></svg></span>
+        <span style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 12px; color: #6F6A66">เครื่องประดับ · {{w.note}}</span><span style="font-size: 16px; font-weight: 500">{{w.title}}</span><span style="font-size: 13px; color: #6F6A66">{{w.titleTh}}</span></span>
+      </div>
+      <div style="display: flex; gap: 14px">
+        <span style="flex: none; width: 40px; height: 40px; border-radius: 20px; background: #FBF2F2; color: #8F1015; display: flex; align-items: center; justify-content: center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 13V6a1.5 1.5 0 0 1 3 0v6M11 11V4.5a1.5 1.5 0 0 1 3 0V11M14 11V6a1.5 1.5 0 0 1 3 0v7c0 4-2.5 7-6 7-2.5 0-4-1.2-5.5-3.5L3.8 13a1.5 1.5 0 0 1 2.5-1.6L8 13"></path></svg></span>
+        <span style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 12px; color: #6F6A66">ตำแหน่งที่แนะนำ</span><span style="font-size: 16px; font-weight: 500">{{w.place}}</span><span style="font-size: 13px; line-height: 1.6; color: #6F6A66">{{w.hand}}</span></span>
+      </div>
+      <div style="display: flex; gap: 14px">
+        <span style="flex: none; width: 40px; height: 40px; border-radius: 20px; background: #FBF2F2; color: #8F1015; display: flex; align-items: center; justify-content: center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l1.8 7.2L21 12l-7.2 1.8L12 21l-1.8-7.2L3 12l7.2-1.8z"></path></svg></span>
+        <span style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 12px; color: #6F6A66">ความหมาย</span><span style="font-size: 14px; line-height: 1.65">{{w.why}}</span></span>
+      </div>
+      <div style="display: flex; gap: 14px">
+        <span style="flex: none; width: 40px; height: 40px; border-radius: 20px; background: #FBF2F2; color: #8F1015; display: flex; align-items: center; justify-content: center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M19.5 14.5A8 8 0 1 1 9.5 4.5a6.5 6.5 0 0 0 10 10z"></path></svg></span>
+        <span style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 12px; color: #6F6A66">สไตล์การใส่</span><span style="font-size: 14px; line-height: 1.65">ใส่คู่กับเงิน 925 ให้ภาพรวมดูเรียบหรู และให้ {{p.name}} เป็นจุดเด่น</span></span>
+      </div>
+    </div>
+    <p style="margin: 0; font-size: 12px; line-height: 1.6; color: #736C67; text-align: center">คำแนะนำเหล่านี้เป็นแนวทางตามความเชื่อและสไตล์การสวมใส่</p>
+  </div>
+
+  <!-- Products -->
+  <div style="padding: 28px 20px 8px; display: flex; flex-direction: column; gap: 14px">
+    <div style="text-align: center; display: flex; flex-direction: column; gap: 4px">
+      <span style="font-family: 'Cormorant Garamond', serif; font-size: 22px; font-weight: 600; letter-spacing: 0.06em; color: #650A0D">JEWELRY FOR YOUR TODAY</span>
+      <span style="font-size: 13px; color: #6F6A66">เครื่องประดับ 3J ที่เข้ากับพลอยของคุณ</span>
+    </div>
+    <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px">
+      <sc-for list="{{products}}" as="pr" hint-placeholder-count="2">
+      <div style="border: 1px solid #EEE7E1; border-radius: 16px; overflow: hidden; display: flex; flex-direction: column">
+        <div style="height: 132px; background: #FAF8F4; display: flex; align-items: center; justify-content: center"><dc-import name="Gem" color="{{pr.c}}" light="{{pr.l}}" dark="{{pr.d}}" size="70" hint-size="70px,70px"></dc-import></div>
+        <div style="padding: 12px 12px 14px; display: flex; flex-direction: column; gap: 3px">
+          <span style="font-size: 14px; font-weight: 500">{{pr.en}}</span>
+          <span style="font-size: 13px; color: #6F6A66">{{pr.th}}</span>
+          <span style="margin-top: 4px; font-size: 14px; font-weight: 600; color: #8F1015">฿[ราคา]</span>
+          <a href="#" style="margin-top: 4px; font-size: 13px; text-decoration: none">ดูรายละเอียด →</a>
+        </div>
+      </div>
+      </sc-for>
+    </div>
+  </div>
+
+  <!-- CTA + disclaimer -->
+  <div style="padding: 24px 20px 32px; display: flex; flex-direction: column; gap: 10px">
+    <button type="button" class="cta" style="width: 100%; height: 56px; border: 0; border-radius: 28px; background: #8F1015; color: #FFFFFF; font-size: 16px; font-weight: 500; display: flex; align-items: center; justify-content: center; gap: 10px">ดูเครื่องประดับจากพลอยนี้ <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"></path></svg></button>
+    <button type="button" class="opt" onClick="{{restart}}" style="width: 100%; height: 50px; border: 1px solid #E5E1DC; border-radius: 25px; background: #FFFFFF; color: #292929; font-size: 15px">ทำแบบทดสอบใหม่</button>
+    <div style="margin-top: 18px; padding-top: 16px; border-top: 1px solid #F1EDE8">
+      <p style="margin: 0; font-size: 12px; line-height: 1.65; color: #736C67"><strong style="font-weight: 600">ข้อควรทราบ:</strong> ผลลัพธ์นี้จัดทำขึ้นเพื่อความเชื่อส่วนบุคคล และใช้เป็นแนวทางในการเลือกเครื่องประดับเพื่อเสริมความมั่นใจเท่านั้น ความหมายของพลอยเป็นการตีความเชิงสัญลักษณ์ ไม่สามารถรับประกันผลลัพธ์หรือการเปลี่ยนแปลงที่เกิดขึ้นจริงได้</p>
+    </div>
+  </div>
+</div>
+</sc-if>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"screen":{"editor":"enum","options":["landing","q1","q2","q3","q4","q5","loading","result"],"default":"landing"},"demo":{"editor":"boolean","default":false},"height":{"editor":"int","default":844,"min":600,"max":4000},"$preview":{"width":390,"height":844}}'>
+const IDS = ['garnet', 'amethyst', 'citrine', 'peridot', 'blue_topaz'];
+const GEMS = {
+  garnet: { id: 'garnet', name: 'Garnet', th: 'โกเมน', core: 'POWER', kw: 'พลัง · ความมั่นใจ · แรงผลักดัน', meaning: 'พลัง ความกล้า และแรงผลักดัน', mood: 'แดงเข้ม · มั่นใจ', c: '#A3192B', l: '#E0566A', d: '#5C0A16' },
+  amethyst: { id: 'amethyst', name: 'Amethyst', th: 'อเมทิสต์', core: 'CALM', kw: 'ความสงบ · สมาธิ · ความชัดเจน', meaning: 'ความสงบ สมาธิ และความสมดุล', mood: 'ม่วง · สงบนิ่ง', c: '#6E3FA6', l: '#AE88E0', d: '#38195E' },
+  citrine: { id: 'citrine', name: 'Citrine', th: 'ซิทริน', core: 'ABUNDANCE', kw: 'โอกาส · ความสำเร็จ · พลังบวก', meaning: 'โอกาส ความสำเร็จ และพลังบวก', mood: 'เหลืองทอง · สดใส', c: '#D99A2B', l: '#F6CF6E', d: '#8C5A0E' },
+  peridot: { id: 'peridot', name: 'Peridot', th: 'เพอริดอท', core: 'RENEWAL', kw: 'การเติบโต · การเริ่มต้นใหม่ · การเปลี่ยนแปลง', meaning: 'การเติบโต การเริ่มต้นใหม่ และการเปลี่ยนแปลง', mood: 'เขียวอ่อน · สดชื่น', c: '#7DA331', l: '#BCDB72', d: '#476515' },
+  blue_topaz: { id: 'blue_topaz', name: 'Blue Topaz', th: 'บลูโทพาส', core: 'CLARITY', kw: 'การสื่อสาร · ความชัดเจน · ความสงบ', meaning: 'การสื่อสาร ความชัดเจน และการแสดงออก', mood: 'ฟ้า · ใจเย็น', c: '#2E86C6', l: '#86C8EE', d: '#15527F' }
+};
+const DAYS = {
+  sun: { label: 'อาทิตย์', s: { garnet: 3, citrine: 2 } },
+  mon: { label: 'จันทร์', s: { amethyst: 3, blue_topaz: 2 } },
+  tue: { label: 'อังคาร', s: { garnet: 3, peridot: 2 } },
+  wed: { label: 'พุธ', s: { blue_topaz: 3, peridot: 2 } },
+  thu: { label: 'พฤหัสบดี', s: { citrine: 3, amethyst: 2 } },
+  fri: { label: 'ศุกร์', s: { peridot: 3, blue_topaz: 2 } },
+  sat: { label: 'เสาร์', s: { amethyst: 3, garnet: 2 } }
+};
+const INTENTS = {
+  love: { label: 'ความรัก & เสน่ห์', p: ['garnet', 'peridot', 'blue_topaz'], s: ['amethyst'] },
+  wealth: { label: 'การเงิน & โอกาส', p: ['citrine', 'garnet'], s: ['peridot'] },
+  career: { label: 'งาน & ความสำเร็จ', p: ['garnet', 'citrine'], s: ['blue_topaz'] },
+  confidence: { label: 'ความมั่นใจ & พลังใจ', p: ['garnet', 'citrine'], s: ['peridot'] },
+  calm: { label: 'ความสงบ & การปกป้อง', p: ['amethyst', 'blue_topaz'], s: ['peridot'] },
+  renewal: { label: 'การเริ่มต้นใหม่ & การเปลี่ยนแปลง', p: ['peridot', 'citrine'], s: ['garnet'] }
+};
+const FEELS = {
+  energy: { label: 'อยากมีพลัง ไม่ท้อ', m: ['garnet', 'citrine'] },
+  calm: { label: 'อยากใจนิ่ง ไม่วุ่นวาย', m: ['amethyst', 'blue_topaz'] },
+  clarity: { label: 'คิดเยอะ อยากได้ความชัดเจน', m: ['amethyst', 'blue_topaz'] },
+  renew: { label: 'รู้สึกอยากเริ่มต้นใหม่', m: ['peridot', 'citrine'] },
+  open: { label: 'อยากเปิดใจ มีความสัมพันธ์ที่ดี', m: ['peridot', 'blue_topaz', 'garnet'] },
+  advance: { label: 'อยากก้าวหน้า คว้าโอกาส', m: ['citrine', 'garnet', 'peridot'] }
+};
+const TYPES = {
+  ring: { label: 'แหวน', th: 'แหวน', en: 'Ring' },
+  necklace: { label: 'สร้อย / จี้', th: 'จี้', en: 'Pendant' },
+  earring: { label: 'ต่างหู', th: 'ต่างหู', en: 'Earrings' },
+  bracelet: { label: 'กำไล', th: 'กำไล', en: 'Bracelet' },
+  unknown: { label: 'ยังไม่แน่ใจ — ให้ 3J แนะนำ' }
+};
+const DEFAULT_TYPE = { garnet: 'ring', amethyst: 'ring', citrine: 'ring', peridot: 'ring', blue_topaz: 'necklace' };
+const FINGER = {
+  garnet: { f: 'แหวนที่นิ้วชี้', why: 'การตัดสินใจ การนำทาง และการลงมือทำ' },
+  amethyst: { f: 'แหวนที่นิ้วกลาง', why: 'ความมั่นคง ขอบเขต และความสมดุล' },
+  citrine: { f: 'แหวนที่นิ้วชี้', why: 'การเติบโต ทิศทาง และการขยายโอกาส' },
+  peridot: { f: 'แหวนที่นิ้วนาง', why: 'การเติบโตของตัวเอง การเริ่มต้นใหม่ และความสัมพันธ์' },
+  blue_topaz: { f: 'แหวนที่นิ้วก้อย', why: 'การสื่อสาร การแสดงออก และการเจรจา' }
+};
+const PLACE = {
+  necklace: 'สร้อยระดับอก ให้พลอยอยู่กลางลุค',
+  earring: 'ต่างหูทั้งสองข้าง ใกล้ใบหน้า',
+  bracelet: 'กำไลที่ข้อมือ'
+};
+const PAIRS = [
+  { a: 'garnet', b: 'citrine', title: 'Power + Abundance', th: 'พลัง + ความอุดมสมบูรณ์', fit: 'งาน · ธุรกิจ · โอกาส · แรงจูงใจ' },
+  { a: 'amethyst', b: 'blue_topaz', title: 'Calm + Clarity', th: 'ความสงบ + ความชัดเจน', fit: 'โฟกัส · การสื่อสาร · การนำเสนอ · สมดุลทางอารมณ์' },
+  { a: 'peridot', b: 'citrine', title: 'Renewal + Abundance', th: 'การเริ่มต้นใหม่ + ความอุดมสมบูรณ์', fit: 'เริ่มต้นใหม่ · เติบโตในงาน · โอกาสใหม่' },
+  { a: 'garnet', b: 'peridot', title: 'Power + Renewal', th: 'พลัง + การเริ่มต้นใหม่', fit: 'เริ่มสิ่งใหม่ · เติบโต · ความมั่นใจ' },
+  { a: 'amethyst', b: 'peridot', title: 'Calm + Renewal', th: 'ความสงบ + การเริ่มต้นใหม่', fit: 'รีเซ็ต · ปล่อยวาง · บทใหม่' }
+];
+const EMPTY = { day: null, intent: null, feel: null, prefs: [], type: null };
+const DEMO = { day: 'sun', intent: 'career', feel: 'energy', prefs: ['garnet', 'citrine', 'amethyst'], type: 'ring' };
+const ORDER = ['landing', 'q1', 'q2', 'q3', 'q4', 'q5', 'loading', 'result'];
+const KEY_BY_STEP = { q1: 'day', q2: 'intent', q3: 'feel', q5: 'type' };
+
+class Component extends DCLogic {
+  cur() {
+    const s = this.state || {};
+    if (s.a) return s.a;
+    const d = this.props.demo;
+    return (d && d !== 'false' && d !== '0') ? DEMO : EMPTY;
+  }
+  scr() {
+    const s = this.state || {};
+    return s.screen || this.props.screen || 'landing';
+  }
+  setA(patch) {
+    this.setState({ a: Object.assign({}, this.cur(), patch) });
+  }
+  go(screen) {
+    this.setState({ screen: screen });
+    if (this.scrollEl) this.scrollEl.scrollTop = 0;
+  }
+  toggleGem(id) {
+    const p = this.cur().prefs.slice();
+    const i = p.indexOf(id);
+    if (i >= 0) p.splice(i, 1);
+    else if (p.length < 3) p.push(id);
+    this.setA({ prefs: p });
+  }
+  componentWillUnmount() {
+    clearTimeout(this.timer);
+  }
+  rank(a) {
+    const rows = IDS.map((id, i) => {
+      const day = (DAYS[a.day] && DAYS[a.day].s[id]) || 0;
+      const it = INTENTS[a.intent];
+      const intent = it ? (it.p.indexOf(id) >= 0 ? 8 : it.s.indexOf(id) >= 0 ? 5 : 0) : 0;
+      const fe = FEELS[a.feel];
+      const feel = fe && fe.m.indexOf(id) >= 0 ? 7 : 0;
+      const pi = a.prefs.indexOf(id);
+      const pref = pi === 0 ? 6 : pi === 1 ? 4 : pi === 2 ? 2 : 0;
+      return { id, i, day, intent, feel, pref, total: day + intent + feel + pref };
+    });
+    rows.sort((x, y) => (y.total - x.total) || (y.intent - x.intent) || (y.feel - x.feel) || (y.pref - x.pref) || (y.day - x.day) || (x.i - y.i));
+    return rows;
+  }
+  renderVals() {
+    const s = this.state || {};
+    const screen = this.scr();
+    const a = this.cur();
+    if (!this.setScroll) this.setScroll = (el) => { this.scrollEl = el; };
+
+    const SEL = { bc: '#8F1015', bg: '#FBF2F2', fg: '#8F1015', on: true, off: false, pressed: 'true' };
+    const UNSEL = { bc: '#E5E1DC', bg: '#FFFFFF', fg: '#292929', on: false, off: true, pressed: 'false' };
+    const group = (key, ids) => {
+      const out = {};
+      ids.forEach((id) => {
+        out[id] = Object.assign({ pick: () => this.setA({ [key]: id }) }, a[key] === id ? SEL : UNSEL);
+      });
+      return out;
+    };
+
+    const stepIdx = ['q1', 'q2', 'q3', 'q4', 'q5'].indexOf(screen) + 1;
+    let ready = false;
+    if (screen === 'q4') ready = a.prefs.length > 0;
+    else if (KEY_BY_STEP[screen]) ready = !!a[KEY_BY_STEP[screen]];
+
+    const full = a.prefs.length >= 3;
+    const gemsQ4 = IDS.map((id) => {
+      const r = a.prefs.indexOf(id);
+      const on = r >= 0;
+      const dis = !on && full;
+      return Object.assign({}, GEMS[id], {
+        pick: () => this.toggleGem(id),
+        on: on, off: !on, pressed: on ? 'true' : 'false', dis: dis,
+        rank: String(r + 1),
+        bc: on ? '#8F1015' : '#E5E1DC',
+        bg: on ? '#FBF2F2' : '#FFFFFF',
+        op: dis ? '0.42' : '1'
+      });
+    });
+    const n = a.prefs.length;
+    const q4 = {
+      status: full ? 'ครบ 3 พลอยแล้ว — แตะพลอยที่เลือกเพื่อยกเลิก' : (n === 0 ? 'แตะเพื่อเลือก · อันดับ 1 คือพลอยที่ชอบที่สุด' : 'เลือกแล้ว ' + n + ' / 3'),
+      chipBg: full ? '#FBF2F2' : '#F6F3EF',
+      chipFg: full ? '#8F1015' : '#6F6A66'
+    };
+
+    // ---------- result ----------
+    const complete = a.day && a.intent && a.feel && a.prefs.length && a.type;
+    const ans = complete ? a : DEMO;
+    const ranked = this.rank(ans);
+    const top = ranked.slice(0, 3).map((x) => x.id);
+    const pid = top.indexOf(s.focus) >= 0 ? s.focus : top[0];
+    const isAlt = pid !== top[0];
+    const others = top.filter((x) => x !== pid);
+    const G = GEMS[pid];
+    const p = Object.assign({}, G, { upper: G.name.toUpperCase() });
+
+    const fav = ans.prefs[0];
+    let prefNote = '';
+    if (fav === pid) prefNote = 'และ ' + G.name + ' ก็เป็นพลอยที่คุณเลือกเป็นอันดับแรกด้วย';
+    else if (top.indexOf(fav) >= 0) prefNote = 'คุณชอบ ' + GEMS[fav].name + ' เป็นพิเศษ และวันนี้ ' + GEMS[fav].name + ' ก็เป็นหนึ่งในตัวเลือกที่เหมาะกับคุณเช่นกัน';
+    else prefNote = 'คุณชอบ ' + GEMS[fav].name + ' เป็นพิเศษ — สามารถใส่คู่กับ ' + G.name + ' ได้ตามสไตล์ที่คุณชอบ';
+
+    const r = {
+      isAlt: isAlt,
+      heroA: isAlt ? 'ANOTHER GEM' : 'YOUR GEM',
+      heroB: isAlt ? 'FOR TODAY' : 'FOR TODAY',
+      heroSub: isAlt ? 'พลอยทางเลือกสำหรับวันนี้' : 'พลอยประจำวันของคุณ',
+      intentLabel: INTENTS[ans.intent].label,
+      feelLabel: FEELS[ans.feel].label,
+      dayLabel: DAYS[ans.day].label,
+      prefsLabel: ans.prefs.map((id) => GEMS[id].name).join(', '),
+      typeChosen: TYPES[ans.type].label,
+      line2: isAlt
+        ? G.name + ' เป็นอีกหนึ่งตัวเลือกที่ 3J แนะนำ เพราะในเชิงสัญลักษณ์ ' + G.name + ' สื่อถึง' + G.meaning
+        : '3J จึงแนะนำ ' + G.name + ' เป็นพลอยประจำวันนี้ เพราะในเชิงสัญลักษณ์ ' + G.name + ' สื่อถึง' + G.meaning,
+      prefNote: prefNote
+    };
+
+    let pair = PAIRS.find((x) => (x.a === pid || x.b === pid) && (others.indexOf(x.a === pid ? x.b : x.a) >= 0));
+    if (!pair) pair = PAIRS.find((x) => x.a === pid || x.b === pid);
+    const pairA = GEMS[pid];
+    const pairB = GEMS[pair.a === pid ? pair.b : pair.a];
+
+    const alts = others.map((id) => Object.assign({}, GEMS[id], {
+      label: id === top[0] ? 'พลอยแนะนำอันดับ 1' : 'ทางเลือกที่ ' + top.indexOf(id),
+      pick: () => {
+        this.setState({ focus: id });
+        if (this.scrollEl && this.scrollEl.scrollTo) this.scrollEl.scrollTo({ top: 0, behavior: 'smooth' });
+      }
+    }));
+
+    const tId = ans.type === 'unknown' ? DEFAULT_TYPE[pid] : ans.type;
+    const T = TYPES[tId];
+    const w = {
+      note: ans.type === 'unknown' ? '3J เลือกให้ตามพลอย' : 'ตามที่คุณเลือก',
+      title: G.name + ' ' + T.en,
+      titleTh: T.th + G.th,
+      place: tId === 'ring' ? FINGER[pid].f : PLACE[tId],
+      hand: (tId === 'ring' || tId === 'bracelet') ? 'ใส่ในมือที่คุณรู้สึกถนัดและสบายที่สุด' : 'เลือกความยาวและขนาดที่ใส่สบายตลอดวัน',
+      why: tId === 'ring'
+        ? 'เป็น symbolic reminder ของ' + FINGER[pid].why
+        : 'ให้ ' + G.name + ' อยู่ใกล้ตัวตลอดวัน เป็น reminder ของ' + G.meaning
+    };
+    const products = [pid, others[0]].map((id) => Object.assign({}, GEMS[id], {
+      en: GEMS[id].name + ' ' + T.en,
+      th: T.th + GEMS[id].th
+    }));
+
+    return {
+      H: (Number(this.props.height) || 844) + 'px',
+      setScroll: this.setScroll,
+      isLanding: screen === 'landing',
+      isQuiz: stepIdx > 0,
+      isQ1: screen === 'q1', isQ2: screen === 'q2', isQ3: screen === 'q3', isQ4: screen === 'q4', isQ5: screen === 'q5',
+      isLoading: screen === 'loading',
+      isResult: screen === 'result',
+      stepLabel: '0' + Math.max(stepIdx, 1) + ' / 05',
+      progressW: (Math.max(stepIdx, 1) * 20) + '%',
+      start: () => this.setState({ screen: 'q1' }),
+      back: () => this.go(ORDER[Math.max(ORDER.indexOf(screen) - 1, 0)]),
+      next: () => {
+        if (!ready) return;
+        if (screen === 'q5') {
+          this.setState({ screen: 'loading', focus: null });
+          clearTimeout(this.timer);
+          this.timer = setTimeout(() => this.setState({ screen: 'result' }), 1500);
+        } else {
+          this.go(ORDER[ORDER.indexOf(screen) + 1]);
+        }
+      },
+      nextDisabled: !ready,
+      nextBg: ready ? '#8F1015' : '#ECE7E2',
+      nextFg: ready ? '#FFFFFF' : '#8E8782',
+      nextLabel: screen === 'q5' ? 'ดูผลลัพธ์ของฉัน' : 'ถัดไป',
+      d: group('day', ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']),
+      i: group('intent', ['love', 'wealth', 'career', 'confidence', 'calm', 'renewal']),
+      f: group('feel', ['energy', 'calm', 'clarity', 'renew', 'open', 'advance']),
+      t: group('type', ['ring', 'necklace', 'earring', 'bracelet', 'unknown']),
+      gemsQ4: gemsQ4,
+      q4: q4,
+      p: p,
+      r: r,
+      pair: pair,
+      pairA: pairA,
+      pairB: pairB,
+      alts: alts,
+      w: w,
+      products: products,
+      backToTop: () => {
+        this.setState({ focus: null });
+        if (this.scrollEl && this.scrollEl.scrollTo) this.scrollEl.scrollTo({ top: 0, behavior: 'smooth' });
+      },
+      restart: () => {
+        clearTimeout(this.timer);
+        this.setState({ screen: 'landing', a: EMPTY, focus: null });
+      }
+    };
+  }
+}
+</script>
+</body>
+</html>
