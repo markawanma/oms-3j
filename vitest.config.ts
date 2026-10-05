@@ -156,7 +156,24 @@ export default defineConfig({
         test: {
           name: "components",
           environment: "jsdom",
-          include: ["components/**/*.test.tsx"],
+          // "app/(quiz)/**/*.test.tsx" added 5 ต.ค. 69 (gem-quiz frontend) —
+          // GemQuizClient.tsx is the first React component that lives under
+          // app/ instead of components/ (design doc §8 puts it at
+          // app/(quiz)/gem-quiz/GemQuizClient.tsx, co-located with the page
+          // it belongs to, not under components/domain/**). Scoped to the
+          // "(quiz)" route group specifically (not a bare "app/**/*.test.tsx")
+          // so a future Route Handler test accidentally named *.test.tsx
+          // under app/api/** doesn't get pulled into this jsdom project by
+          // mistake — route handlers belong in the "node" project above.
+          // Parens in "(quiz)" are glob/extglob metacharacters to picomatch
+          // (the matcher vitest's file collector uses) — an unescaped
+          // "app/(quiz)/**/*.test.tsx" silently matches ZERO files (verified
+          // 5 ต.ค. 69: GemQuizClient.test.tsx did not run until this was
+          // fixed) instead of erroring, so a missing test here would have
+          // gone unnoticed. Bracket-escaping each paren (not backslash —
+          // picomatch's own escape char is inconsistent across its glob
+          // modes) sidesteps the extglob grouping entirely.
+          include: ["components/**/*.test.tsx", "app/[(]quiz[)]/**/*.test.tsx"],
         },
       },
     ],
