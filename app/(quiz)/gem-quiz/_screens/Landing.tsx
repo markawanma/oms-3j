@@ -1,0 +1,81 @@
+// Landing (S00) — จอเปิดแบบทดสอบ (design §5). พอร์ตจาก Quiz.dc.html
+// "00 LANDING" (บรรทัด ~18-39).
+import { GemIcon } from "../_components/GemIcon";
+import { PrimaryButton } from "../_components/PrimaryButton";
+import { GEM_QUIZ_STONES } from "@/lib/gem-quiz/config";
+
+const GARNET = GEM_QUIZ_STONES.find((s) => s.code === "garnet")!;
+const AMETHYST = GEM_QUIZ_STONES.find((s) => s.code === "amethyst")!;
+const BLUE_TOPAZ = GEM_QUIZ_STONES.find((s) => s.code === "blue_topaz")!;
+
+export function Landing({ onStart }: { onStart: () => void }) {
+  return (
+    <div className="flex min-h-screen flex-col items-center px-6 pb-7 pt-11 text-center sm:min-h-[700px]">
+      <div className="motion-safe:animate-gq-fade-up flex flex-col items-center gap-2">
+        <svg width="40" height="40" viewBox="0 0 54 54" fill="none" aria-hidden="true">
+          <circle cx="27" cy="29" r="20" stroke="var(--gq-burgundy)" strokeWidth={3.5} />
+          <path d="M41 6l1.6 4.4L47 12l-4.4 1.6L41 18l-1.6-4.4L35 12l4.4-1.6z" fill="var(--gq-burgundy)" />
+        </svg>
+        <span className="pl-[0.42em] font-quiz-display text-sm font-semibold tracking-[0.42em] text-[var(--gq-burgundy-dark)]">
+          3J · JEWELRY
+        </span>
+      </div>
+
+      {/* ช่องว่างชัดเจนก่อน <br/> (ไม่ใช่แค่ขึ้นบรรทัดใหม่ในซอร์ส) — ไม่งั้นชื่อ
+          ที่ screen reader อ่านจะกลายเป็น "DAILYGEM QUIZ" ไม่มีช่องว่างระหว่างคำ
+          (<br/> ไม่ถูกตีความเป็นช่องว่างใน accessible name computation) */}
+      <h1 className="mt-7 font-quiz-display text-[44px] font-medium leading-[0.98] tracking-[0.04em] text-[var(--gq-burgundy-dark)] sm:text-[54px]">
+        DAILY{" "}
+        <br />
+        GEM QUIZ
+      </h1>
+      <p className="mt-4 font-quiz-serif text-xl font-medium text-[var(--gq-text)]">วันนี้คุณควรใส่พลอยอะไร?</p>
+      <p className="mt-2 max-w-[290px] text-sm leading-[1.6] text-[var(--gq-text-muted)]">
+        ค้นหาพลอยที่เหมาะกับคุณสำหรับวันนี้ จากวันเกิด เป้าหมาย ความรู้สึก และสไตล์ที่คุณชอบ
+      </p>
+
+      <div className="relative min-h-0 w-full flex-1">
+        <div
+          aria-hidden="true"
+          className="absolute bottom-[26px] left-1/2 h-[46px] w-[250px] -translate-x-1/2 rounded-full"
+          style={{ background: "var(--gq-border-soft)" }}
+        />
+        <div className="absolute bottom-10 left-1/2 -translate-x-[170px]" aria-hidden="true">
+          <GemIcon colors={AMETHYST.colors} size={70} />
+        </div>
+        <div className="absolute bottom-10 left-1/2 translate-x-[46px]" aria-hidden="true">
+          <GemIcon colors={BLUE_TOPAZ.colors} size={66} />
+        </div>
+        <div className="motion-safe:animate-gq-gem-in absolute bottom-[46px] left-1/2 -translate-x-[86px]" aria-hidden="true">
+          <GemIcon colors={GARNET.colors} size={124} />
+        </div>
+        <svg
+          className="motion-safe:animate-gq-twinkle absolute left-[62px] top-[22px]"
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="var(--gq-burgundy)"
+          aria-hidden="true"
+        >
+          <path d="M12 2l2 8 8 2-8 2-2 8-2-8-8-2 8-2z" />
+        </svg>
+        <svg
+          className="motion-safe:animate-gq-twinkle absolute right-[70px] top-[52px] [animation-delay:.6s]"
+          width="10"
+          height="10"
+          viewBox="0 0 24 24"
+          fill="#C9A9AA"
+          aria-hidden="true"
+        >
+          <path d="M12 2l2 8 8 2-8 2-2 8-2-8-8-2 8-2z" />
+        </svg>
+      </div>
+
+      <p className="mb-3.5 text-[13px] text-[var(--gq-text-muted)]">5 คำถาม · ใช้เวลาไม่ถึง 1 นาที</p>
+      <PrimaryButton onClick={onStart} trailingArrow>
+        เริ่มทำแบบทดสอบ
+      </PrimaryButton>
+      <p className="mt-4 font-quiz-display text-base italic text-[var(--gq-burgundy)]">Your Gem. Your Intention. Your Day.</p>
+    </div>
+  );
+}

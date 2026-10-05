@@ -57,6 +57,26 @@ export interface GemQuizBySrcLikedRow {
   count: number;
 }
 
+// v2 (5 ต.ค. 69, design doc §3.4/§6 ของ design-gem-quiz-v2-reconcile.md) —
+// เพิ่มโดย migration 0157 ต่อท้าย RPC เดิม (signature ไม่เปลี่ยน):
+//   liked_first: [{code,count}] จาก liked_stone_codes[1] เท่านั้น (ไม่มี
+//     label_th/price_group ติดมาเหมือน liked/recommended — ชุด field ใหม่
+//     ที่ RPC คืนมาแบบย่อกว่า)
+//   daily_breakdown: [{date,dim,code,count}] วันไทย × dim ∈ (ทุก key ใน
+//     answers: birth_day/intention/feeling/jewelry_type, 'liked',
+//     'liked_first', 'recommended') เฉพาะ count>0
+export interface GemQuizStoneCountSimple {
+  code: string;
+  count: number;
+}
+
+export interface GemQuizDailyBreakdownRow {
+  date: string;
+  dim: string;
+  code: string;
+  count: number;
+}
+
 export interface GemQuizStats {
   respondents: number;
   bySrc: Record<GemQuizSrc, number>;
@@ -67,6 +87,8 @@ export interface GemQuizStats {
   crosstab: GemQuizCrosstabRow[];
   daily: GemQuizDailyRow[];
   bySrcLiked: GemQuizBySrcLikedRow[];
+  likedFirst: GemQuizStoneCountSimple[];
+  dailyBreakdown: GemQuizDailyBreakdownRow[];
 }
 
 const SRC_VALUES: readonly GemQuizSrc[] = ["card", "share", "live", "direct"];
@@ -99,6 +121,38 @@ function parseStoneCountArray(v: unknown): GemQuizStoneCount[] | null {
     const parsed = parseStoneCount(item);
     if (!parsed) return null;
     out.push(parsed);
+  }
+  return out;
+}
+
+function parseStoneCountSimple(v: unknown): GemQuizStoneCountSimple | null {
+  if (!isRecord(v)) return null;
+  const { code, count } = v;
+  if (typeof code !== "string" || typeof count !== "number") return null;
+  return { code, count };
+}
+
+function parseStoneCountSimpleArray(v: unknown): GemQuizStoneCountSimple[] | null {
+  if (!Array.isArray(v)) return null;
+  const out: GemQuizStoneCountSimple[] = [];
+  for (const item of v) {
+    const parsed = parseStoneCountSimple(item);
+    if (!parsed) return null;
+    out.push(parsed);
+  }
+  return out;
+}
+
+function parseDailyBreakdownArray(v: unknown): GemQuizDailyBreakdownRow[] | null {
+  if (!Array.isArray(v)) return null;
+  const out: GemQuizDailyBreakdownRow[] = [];
+  for (const item of v) {
+    if (!isRecord(item)) return null;
+    const { date, dim, code, count } = item;
+    if (typeof date !== "string" || typeof dim !== "string" || typeof code !== "string" || typeof count !== "number") {
+      return null;
+    }
+    out.push({ date, dim, code, count });
   }
   return out;
 }
@@ -174,6 +228,19 @@ function parseGemQuizStats(raw: unknown): GemQuizStats | null {
     bySrcLiked.push({ src, code, count });
   }
 
+  // v2 (0157) — field ใหม่ 🔴 ยังไม่ apply ขึ้น DB จริงตอนเขียนโค้ดนี้ (ยืนยัน
+  // กับ Tech Lead แล้ว) ดังนั้น raw.liked_first/raw.daily_breakdown จะเป็น
+  // `undefined` (ไม่ใช่ malformed) จนกว่า devops จะกด apply — แยกเคส "ไม่มี
+  // field เลย" (ยอมรับ ถือเป็น [] ชั่วคราว) ออกจากเคส "มี field แต่ shape ผิด"
+  // (แปลว่า RPC จริงเปลี่ยนไปโดยไม่ตรงสัญญา ต้อง return null เหมือนฟิลด์อื่น)
+  const likedFirstRaw = raw.liked_first;
+  const likedFirst = likedFirstRaw === undefined ? [] : parseStoneCountSimpleArray(likedFirstRaw);
+  if (!likedFirst) return null;
+
+  const dailyBreakdownRaw = raw.daily_breakdown;
+  const dailyBreakdown = dailyBreakdownRaw === undefined ? [] : parseDailyBreakdownArray(dailyBreakdownRaw);
+  if (!dailyBreakdown) return null;
+
   return {
     respondents,
     bySrc,
@@ -184,6 +251,8 @@ function parseGemQuizStats(raw: unknown): GemQuizStats | null {
     crosstab,
     daily,
     bySrcLiked,
+    likedFirst,
+    dailyBreakdown,
   };
 }
 

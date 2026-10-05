@@ -55,6 +55,30 @@ const config: Config = {
         // here would NOT pick up the self-hosted font (next/font renames the
         // injected @font-face internally).
         sans: ["var(--font-noto-sans-thai)", "system-ui", "sans-serif"],
+        // Gem Quiz v2 (app/(quiz)/**) — 3 self-hosted families declared in
+        // app/(quiz)/layout.tsx via next/font/google (same .variable pattern
+        // as above). Scoped under their own keys instead of overriding
+        // `sans` so the rest of the app is unaffected.
+        "quiz-display": ["var(--font-gem-quiz-display)", "serif"], // Cormorant Garamond — wordmark/hero numerals
+        "quiz-serif": ["var(--font-gem-quiz-serif)", "serif"], // Noto Serif Thai — Thai headings
+        "quiz-sans": ["var(--font-gem-quiz-sans)", "system-ui", "sans-serif"], // IBM Plex Sans Thai — body/UI
+      },
+      keyframes: {
+        // Entrance/ambient motion ported from the Quiz.dc.html mockup.
+        // Always used behind Tailwind's `motion-safe:` variant so
+        // `prefers-reduced-motion: reduce` disables them purely via CSS
+        // (design doc §5: "reduced-motion ผ่าน CSS ไม่ใช่ JS").
+        "gq-fade-up": { "0%": { opacity: "0", transform: "translateY(10px)" }, "100%": { opacity: "1", transform: "translateY(0)" } },
+        "gq-gem-in": { "0%": { opacity: "0", transform: "scale(0.85)" }, "100%": { opacity: "1", transform: "scale(1)" } },
+        "gq-twinkle": { "0%, 100%": { opacity: "0.25" }, "50%": { opacity: "1" } },
+        "gq-spin-rev": { "0%": { transform: "rotate(360deg)" }, "100%": { transform: "rotate(0deg)" } },
+      },
+      animation: {
+        "gq-fade-up": "gq-fade-up .45s ease-out both",
+        "gq-gem-in": "gq-gem-in .5s ease-out both",
+        "gq-twinkle": "gq-twinkle 1.8s ease-in-out infinite",
+        "gq-spin-slow": "spin 3.2s linear infinite",
+        "gq-spin-slow-rev": "gq-spin-rev 4s linear infinite",
       },
     },
   },

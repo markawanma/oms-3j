@@ -1,31 +1,39 @@
 "use client";
 
 // components/domain/marketing/GemQuizStats.tsx — หน้าสถิติภายใน /marketing/
-// gem-quiz (design doc §7, docs/3j-jewelry/analytics/design-gem-quiz.md).
-// Presentational เท่านั้น — ตัวเลขทุกตัวมาจาก analytics.gem_quiz_stats (RPC
-// รวมใน DB แล้ว, F14: PostgREST ตัด 1000 แถวเงียบ ห้ามดึงแถวดิบมารวมในนี้) ·
-// การคำนวณในไฟล์นี้มีแค่การจัดกลุ่ม/ปัดเศษเพื่อ "แสดงผล" (เช่น % ของ agreement,
-// รวม count ตาม price_group) ไม่ใช่การคิดตัวเลขทางธุรกิจใหม่.
+// gem-quiz. Presentational เท่านั้น — ตัวเลขทุกตัวมาจาก analytics.gem_quiz_stats
+// (RPC รวมใน DB แล้ว, F14: PostgREST ตัด 1000 แถวเงียบ ห้ามดึงแถวดิบมารวมในนี้)
+// การคำนวณในไฟล์นี้มีแค่การจัดกลุ่ม/ปัดเศษเพื่อ "แสดงผล" ไม่ใช่การคิดตัวเลข
+// ทางธุรกิจใหม่.
 //
-// 🔴 ตัวกรอง "แหล่งที่มา" (card/share/live/direct) ที่ design §7 ระบุไว้ **ไม่
-// ได้ทำในรอบนี้** — เช็คโค้ดจริงแล้ว lib/actions/gem-quiz-stats.ts's
-// GetGemQuizStatsInput และ RPC analytics.gem_quiz_stats (§3.4 ของ design)
-// ไม่มี parameter กรองตาม src เลย มีแค่ from/to/includeRetake จะกรองฝั่ง
-// client จาก respondents/bySrc/daily/agreement ที่เป็นผลรวมทั้งหมดไปแล้วจะทำ
-// ให้ตัวเลขที่ UI โชว์ "ไม่สมเหตุผลกับตัวกรองที่เลือก" (เช่น n ไม่ขยับตามตัว
-// กรอง) ซึ่งหลอกผู้ใช้มากกว่าการไม่มีตัวกรองเลย — จึงตัดออกและรายงานกลับ
-// (ต้องแก้ RPC ก่อนถึงจะเพิ่มตัวกรองนี้ได้จริง). ส่วนการ "แยก card vs share"
-// ที่ design ต้องการ (item 4) ยังทำได้เต็มที่ด้วย bySrc/bySrcLiked ที่ RPC
-// คืนมาอยู่แล้ว ไม่ต้องพึ่งตัวกรองนี้.
+// 🔴 ตัวกรอง "แหล่งที่มา" (card/share/live/direct) ที่ design v1 §7 ระบุไว้
+// **ไม่ได้ทำ** — เช็คโค้ดจริงแล้ว lib/actions/gem-quiz-stats.ts's
+// GetGemQuizStatsInput และ RPC analytics.gem_quiz_stats ไม่มี parameter กรอง
+// ตาม src เลย มีแค่ from/to/includeRetake จะกรองฝั่ง client จาก
+// respondents/bySrc/daily ที่เป็นผลรวมทั้งหมดไปแล้วจะทำให้ตัวเลขที่ UI โชว์
+// "ไม่สมเหตุผลกับตัวกรองที่เลือก" ซึ่งหลอกผู้ใช้มากกว่าการไม่มีตัวกรองเลย —
+// จึงตัดออกและรายงานกลับ (ต้องแก้ RPC ก่อนถึงจะเพิ่มตัวกรองนี้ได้จริง). ส่วน
+// การ "แยก card vs share" ยังทำได้เต็มที่ด้วย bySrc/bySrcLiked.
+//
+// v2 (5 ต.ค. 69, design doc §6 ของ design-gem-quiz-v2-reconcile.md — migration
+// 0157): เพิ่ม liked_first (พลอยที่ชอบ "อันดับ 1" แยกจากทุกอันดับที่เลือก),
+// daily_breakdown (ใช้ทำเทรนด์ Q2 รายวัน/รายสัปดาห์ + distribution ของ Q1/Q3/
+// Q5) · ลบ section "แยกตามกลุ่มราคา" และ "ระบบแนะนำตรงกับที่ชอบ (agreement)"
+// ออกจากหน้านี้ (ข้อมูล/ฟังก์ชันฝั่ง DB ไม่ได้ถูกแตะ แค่ไม่โชว์ใน UI แล้ว —
+// price_group อ้างอิงกลุ่มราคาที่ไม่มีความหมายกับพลอย 5 ตัวใหม่, agreement
+// เทียบกับ "ชอบ" ซึ่งตีความไม่ตรงกับคำถามธุรกิจของ v2 อีกต่อไป)
+// 🔴 migration 0157 ยังไม่ apply ขึ้น DB จริง — ก่อน apply ค่า likedFirst/
+// dailyBreakdown จะเป็น [] เสมอ (ดู lib/actions/gem-quiz-stats.ts หัวข้อ v2)
+// ดังนั้น section ใหม่ด้านล่างจะโชว์ "ยังไม่มีข้อมูล" จนกว่า devops จะ apply.
 import { useRouter } from "next/navigation";
 import { StatCard } from "@/components/ui/StatCard";
 import { Badge } from "@/components/ui/Badge";
 import { GEM_QUIZ_QUESTIONS, GEM_QUIZ_STONES } from "@/lib/gem-quiz/config";
 import type {
   GemQuizCrosstabRow,
+  GemQuizDailyBreakdownRow,
   GemQuizSrc,
   GemQuizStats as GemQuizStatsData,
-  GemQuizStoneCount,
 } from "@/lib/actions/gem-quiz-stats";
 
 const MIN_RESPONDENTS_FOR_CONFIDENCE = 30; // pattern เดียวกับ content-kpi-screen-design.md
@@ -76,7 +84,21 @@ function PercentBar({ label, count, denominator }: { label: string; count: numbe
   );
 }
 
-function StoneCountList({ title, rows, denominator, multiSelectNote }: { title: string; rows: GemQuizStoneCount[]; denominator: number; multiSelectNote?: boolean }) {
+// รับแค่ {code,count}[] (ไม่พึ่ง label_th ของ RPC อีกต่อไป) — resolve ชื่อผ่าน
+// stoneLabel()/optionLabel() เสมอ ใช้ร่วมกันได้ทั้ง liked/recommended (มี
+// label_th จาก RPC แต่ไม่ใช้) และ likedFirst (ไม่มี label_th เลยตาม shape
+// ของ 0157 — ดู lib/actions/gem-quiz-stats.ts)
+function StoneCountList({
+  title,
+  rows,
+  denominator,
+  multiSelectNote,
+}: {
+  title: string;
+  rows: { code: string; count: number }[];
+  denominator: number;
+  multiSelectNote?: boolean;
+}) {
   const sorted = [...rows].sort((a, b) => b.count - a.count);
   return (
     <section className="space-y-2.5 rounded-lg border border-zinc-200 bg-white p-3.5">
@@ -87,12 +109,33 @@ function StoneCountList({ title, rows, denominator, multiSelectNote }: { title: 
       ) : (
         <div className="space-y-2">
           {sorted.map((row) => (
-            <PercentBar key={row.code} label={row.labelTh} count={row.count} denominator={denominator} />
+            <PercentBar key={row.code} label={stoneLabel(row.code)} count={row.count} denominator={denominator} />
           ))}
         </div>
       )}
     </section>
   );
+}
+
+const THAI_WEEKDAY_LABELS = ["อาทิตย์", "จันทร์", "อังคาร", "พุธ", "พฤหัสบดี", "ศุกร์", "เสาร์"] as const;
+
+/** weekday ของวันที่ไทย (date เป็น YYYY-MM-DD วันธุรกิจไทยอยู่แล้วจาก RPC) —
+ * ใช้ตัวเดียวกับ O6/design doc §6: "weekday = new Date(date+"T00:00:00Z").
+ * getUTCDay()" เพื่อไม่ชน timezone shift จากการแปลงเป็น local time ของ
+ * เบราว์เซอร์ผู้ใช้ */
+function weekdayIndexOf(dateStr: string): number {
+  return new Date(`${dateStr}T00:00:00Z`).getUTCDay();
+}
+
+/** รวม count ของ daily_breakdown ตาม dim ที่กำหนด แยกตาม code — ไม่สนใจวันที่
+ * (ใช้ทำ distribution ของ Q1/Q3/Q5 แบบรวมทั้งช่วงที่เลือก) */
+function sumBreakdownByCode(rows: readonly GemQuizDailyBreakdownRow[], dim: string): { code: string; count: number }[] {
+  const totals = new Map<string, number>();
+  for (const row of rows) {
+    if (row.dim !== dim) continue;
+    totals.set(row.code, (totals.get(row.code) ?? 0) + row.count);
+  }
+  return [...totals.entries()].map(([code, count]) => ({ code, count }));
 }
 
 export function GemQuizStats({
@@ -111,9 +154,6 @@ export function GemQuizStats({
     router.push(`/marketing/gem-quiz?${params.toString()}`);
   }
 
-  const priceGroupTotals = { 1: 0, 2: 0 };
-  for (const row of stats.liked) priceGroupTotals[row.priceGroup] += row.count;
-
   const bySrcLikedByStone = new Map<string, { card: number; share: number }>();
   for (const row of stats.bySrcLiked) {
     if (row.src !== "card" && row.src !== "share") continue;
@@ -129,9 +169,27 @@ export function GemQuizStats({
     crosstabByQuestion.set(row.questionCode, list);
   }
 
-  const agreementPct = stats.agreement.eligible > 0 ? Math.round((stats.agreement.recommendedInLiked / stats.agreement.eligible) * 100) : null;
-
   const maxDaily = stats.daily.reduce((max, d) => Math.max(max, d.count), 0);
+
+  // --- v2: เทรนด์ Q2 (intention) รายวัน + รายวันในสัปดาห์ (O6: weekday = วันที่
+  // ลูกค้าทำแบบทดสอบจริง) + distribution ของ Q1(birth_day)/Q3(feeling)/
+  // Q5(jewelry_type) — ทั้งหมด derive จาก daily_breakdown ของ 0157 ล้วนๆ
+  // ไม่มี RPC/query เพิ่ม (ว่างเปล่า = [] ถ้า 0157 ยังไม่ apply, ดูหัวไฟล์) ---
+  const intentionRows = stats.dailyBreakdown.filter((r) => r.dim === "intention");
+  const intentionDates = [...new Set(intentionRows.map((r) => r.date))].sort();
+  const intentionOptions = GEM_QUIZ_QUESTIONS.find((q) => q.code === "intention")?.options ?? [];
+
+  const intentionByWeekday: number[][] = Array.from({ length: 7 }, () => intentionOptions.map(() => 0));
+  for (const row of intentionRows) {
+    const weekday = weekdayIndexOf(row.date);
+    const optIdx = intentionOptions.findIndex((o) => o.code === row.code);
+    if (optIdx >= 0) intentionByWeekday[weekday][optIdx] += row.count;
+  }
+
+  const likedFirstDenominator = stats.respondents; // 1 คนเลือกอันดับ 1 ได้แค่ตัวเดียว (ไม่ใช่ multi-select)
+  const birthDayDistribution = sumBreakdownByCode(stats.dailyBreakdown, "birth_day");
+  const feelingDistribution = sumBreakdownByCode(stats.dailyBreakdown, "feeling");
+  const jewelryTypeDistribution = sumBreakdownByCode(stats.dailyBreakdown, "jewelry_type");
 
   return (
     <div className="space-y-4">
@@ -183,20 +241,131 @@ export function GemQuizStats({
         {stats.respondents < MIN_RESPONDENTS_FOR_CONFIDENCE && <Badge tone="amber">ข้อมูลยังน้อย</Badge>}
       </div>
 
-      <StoneCountList title="พลอยที่ชอบ (Q1)" rows={stats.liked} denominator={stats.respondents} multiSelectNote />
+      <StoneCountList title="พลอยที่ชอบ (ทุกอันดับที่เลือก — Q4)" rows={stats.liked} denominator={stats.respondents} multiSelectNote />
+      <StoneCountList title="พลอยที่ชอบอันดับ 1 (Q4)" rows={stats.likedFirst} denominator={likedFirstDenominator} />
       {stats.likedNone > 0 && (
         <p className="text-xs text-zinc-400">
           "ยังไม่มีในใจ": {stats.likedNone} คน ({stats.respondents > 0 ? Math.round((stats.likedNone / stats.respondents) * 100) : 0}%)
         </p>
       )}
 
-      <section className="space-y-2.5 rounded-lg border border-zinc-200 bg-white p-3.5">
-        <h3 className="text-sm font-bold text-zinc-800">แยกตามกลุ่มราคา (Q1)</h3>
-        <PercentBar label="กลุ่ม 1" count={priceGroupTotals[1]} denominator={stats.respondents} />
-        <PercentBar label="กลุ่ม 2" count={priceGroupTotals[2]} denominator={stats.respondents} />
+      <StoneCountList title="พลอยที่ระบบแนะนำ" rows={stats.recommended} denominator={stats.respondents} />
+
+      <section className="space-y-3 rounded-lg border border-zinc-200 bg-white p-3.5">
+        <h3 className="text-sm font-bold text-zinc-800">การกระจายคำตอบ — วันเกิด (Q1)</h3>
+        {birthDayDistribution.length === 0 ? (
+          <p className="text-sm text-zinc-400">ยังไม่มีข้อมูล (รอ apply migration 0157)</p>
+        ) : (
+          <div className="space-y-2">
+            {[...birthDayDistribution]
+              .sort((a, b) => b.count - a.count)
+              .map((row) => (
+                <PercentBar key={row.code} label={optionLabel("birth_day", row.code)} count={row.count} denominator={stats.respondents} />
+              ))}
+          </div>
+        )}
       </section>
 
-      <StoneCountList title="พลอยที่ระบบแนะนำ" rows={stats.recommended} denominator={stats.respondents} />
+      <section className="space-y-3 rounded-lg border border-zinc-200 bg-white p-3.5">
+        <h3 className="text-sm font-bold text-zinc-800">การกระจายคำตอบ — ความรู้สึก (Q3)</h3>
+        {feelingDistribution.length === 0 ? (
+          <p className="text-sm text-zinc-400">ยังไม่มีข้อมูล (รอ apply migration 0157)</p>
+        ) : (
+          <div className="space-y-2">
+            {[...feelingDistribution]
+              .sort((a, b) => b.count - a.count)
+              .map((row) => (
+                <PercentBar key={row.code} label={optionLabel("feeling", row.code)} count={row.count} denominator={stats.respondents} />
+              ))}
+          </div>
+        )}
+      </section>
+
+      <section className="space-y-3 rounded-lg border border-zinc-200 bg-white p-3.5">
+        <h3 className="text-sm font-bold text-zinc-800">การกระจายคำตอบ — สไตล์เครื่องประดับ (Q5)</h3>
+        {jewelryTypeDistribution.length === 0 ? (
+          <p className="text-sm text-zinc-400">ยังไม่มีข้อมูล (รอ apply migration 0157)</p>
+        ) : (
+          <div className="space-y-2">
+            {[...jewelryTypeDistribution]
+              .sort((a, b) => b.count - a.count)
+              .map((row) => (
+                <PercentBar key={row.code} label={optionLabel("jewelry_type", row.code)} count={row.count} denominator={stats.respondents} />
+              ))}
+          </div>
+        )}
+      </section>
+
+      <section className="space-y-3 rounded-lg border border-zinc-200 bg-white p-3.5">
+        <h3 className="text-sm font-bold text-zinc-800">เทรนด์ Q2 (เป้าหมายวันนี้) รายวัน</h3>
+        {intentionDates.length === 0 ? (
+          <p className="text-sm text-zinc-400">ยังไม่มีข้อมูล (รอ apply migration 0157)</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs font-semibold text-zinc-500">
+                  <th className="py-1 pr-2">วันที่</th>
+                  {intentionOptions.map((opt) => (
+                    <th key={opt.code} className="whitespace-nowrap py-1 pr-3 text-right">
+                      {opt.labelTh}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {intentionDates.map((date) => (
+                  <tr key={date} className="border-t border-zinc-100">
+                    <td className="py-1.5 pr-2 tabular-nums text-zinc-700">{date}</td>
+                    {intentionOptions.map((opt) => {
+                      const count = intentionRows.find((r) => r.date === date && r.code === opt.code)?.count ?? 0;
+                      return (
+                        <td key={opt.code} className="py-1.5 pr-3 text-right tabular-nums text-zinc-700">
+                          {count}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      <section className="space-y-3 rounded-lg border border-zinc-200 bg-white p-3.5">
+        <h3 className="text-sm font-bold text-zinc-800">Q2 (เป้าหมายวันนี้) ตามวันในสัปดาห์ที่ทำแบบทดสอบ</h3>
+        {intentionDates.length === 0 ? (
+          <p className="text-sm text-zinc-400">ยังไม่มีข้อมูล (รอ apply migration 0157)</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs font-semibold text-zinc-500">
+                  <th className="py-1 pr-2">วัน</th>
+                  {intentionOptions.map((opt) => (
+                    <th key={opt.code} className="whitespace-nowrap py-1 pr-3 text-right">
+                      {opt.labelTh}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {THAI_WEEKDAY_LABELS.map((label, weekdayIdx) => (
+                  <tr key={label} className="border-t border-zinc-100">
+                    <td className="py-1.5 pr-2 text-zinc-700">{label}</td>
+                    {intentionOptions.map((opt, optIdx) => (
+                      <td key={opt.code} className="py-1.5 pr-3 text-right tabular-nums text-zinc-700">
+                        {intentionByWeekday[weekdayIdx][optIdx]}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
 
       <section className="space-y-2.5 rounded-lg border border-zinc-200 bg-white p-3.5">
         <h3 className="text-sm font-bold text-zinc-800">ผู้ซื้อแล้ว (การ์ด) เทียบ เพื่อนที่ถูกชวน (แชร์)</h3>
@@ -227,15 +396,6 @@ export function GemQuizStats({
         <p className="text-xs text-zinc-400">
           ทั้งหมด — การ์ด {stats.bySrc.card} · แชร์ {stats.bySrc.share} · ไลฟ์ {stats.bySrc.live} · เข้าตรง {stats.bySrc.direct}
         </p>
-      </section>
-
-      <section className="space-y-3 rounded-lg border border-zinc-200 bg-white p-3.5">
-        <h3 className="text-sm font-bold text-zinc-800">ระบบแนะนำตรงกับที่ชอบ</h3>
-        {agreementPct === null ? (
-          <p className="text-sm text-zinc-400">ยังไม่มีคนที่ตอบ Q1 ไว้ให้เทียบ</p>
-        ) : (
-          <PercentBar label="ตรงกับที่ชอบ" count={stats.agreement.recommendedInLiked} denominator={stats.agreement.eligible} />
-        )}
       </section>
 
       <section className="space-y-2.5 rounded-lg border border-zinc-200 bg-white p-3.5">

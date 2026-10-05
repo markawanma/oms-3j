@@ -1,42 +1,64 @@
 "use client";
 
 // app/(quiz)/gem-quiz/GemQuizClient.tsx — state machine ของแบบทดสอบเลือกพลอย
-// (design §4.2/§4.3). ไม่ import จาก "use server" หรือ lib/actions ใดๆ เลย
-// (กฎโครงสร้าง §1.2 — ดู lib/gem-quiz/config.ts หัวไฟล์) ทางเขียนข้อมูลทางเดียว
-// คือ fetch('/api/gem-quiz/submit') แบบ fire-and-forget ด้านล่าง
+// v2 (design doc §4.2/§5): landing → q1 birth_day → q2 intention → q3
+// feeling → q4 preferences(1-3) → q5 jewelry_type → loading(~1.5s) → result.
+// ตรรกะคำนวณทั้งหมดอยู่ที่ lib/gem-quiz/recommend.ts + result.ts แล้ว —
+// ไฟล์นี้ควบคุมแค่ "จอไหนแสดงอยู่" + เก็บคำตอบ + ยิง submit ครั้งเดียวต่อรอบ
 //
-// 🔴 เนื้อหาคำถาม/ตัวเลือก/ลักษณะพลอย/ความเชื่อยังเป็น placeholder ทั้งหมด
-// (รอทีม content ผ่าน 3 ด่านตาม 3j-content-orchestration — ดู config.ts และ
-// หมายเหตุที่ RESULT_PLACEHOLDER_COPY ด้านล่าง) ห้าม deploy ขึ้น prod ด้วย
-// เนื้อหานี้.
+// ไม่ import จาก "use server" หรือ lib/actions ใดๆ เลย (กฎโครงสร้าง §1.2 —
+// ดู lib/gem-quiz/config.ts หัวไฟล์) ทางเขียนข้อมูลทางเดียวคือ
+// fetch('/api/gem-quiz/submit') แบบ fire-and-forget ด้านล่าง
+//
+// 🔴 Hydration (บทเรียนรอบที่แล้ว, บังคับทุกจุด):
+//   - state เริ่มต้นต้อง deterministic ตรงกับ SSR เป๊ะ — ไม่มี useState(()=>
+//     random/shuffle(...)) เป็น lazy initializer ที่ไหนเลยในไฟล์นี้
+//   - localStorage/navigator/window/query string อ่านเฉพาะใน useEffect หรือ
+//     event handler เท่านั้น ไม่ใช่ตอน render
+//   - timer ของ LoadingScreen เริ่มใน useEffect + clear ใน cleanup
+//   - prefers-reduced-motion อยู่ที่ CSS (tailwind.config.ts's motion-safe:
+//     animation) ไม่ใช่ตรรกะ JS ที่นี่
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Button } from "@/components/ui/Button";
 import {
   GEM_QUIZ_QUESTIONS,
   GEM_QUIZ_SRC_VALUES,
   GEM_QUIZ_STONES,
   MAX_LIKED_STONES,
+  MIN_LIKED_STONES,
   QUIZ_VERSION,
   type GemQuizAnswers,
   type GemQuizSrc,
   type GemQuizStoneConfig,
 } from "@/lib/gem-quiz/config";
-import { recommendStoneCodes } from "@/lib/gem-quiz/recommend";
-import { getStoneColor } from "@/lib/gem-quiz/stone-colors";
+import { rankGems } from "@/lib/gem-quiz/recommend";
+import { buildResultView } from "@/lib/gem-quiz/result";
+import { Landing } from "./_screens/Landing";
+import { QuestionScreen } from "./_screens/QuestionScreen";
+import { PreferenceScreen } from "./_screens/PreferenceScreen";
+import { LoadingScreen } from "./_screens/LoadingScreen";
+import { ResultScreen } from "./_screens/ResultScreen";
 
 const LOCAL_STORAGE_DONE_KEY = `gemQuizDone:v${QUIZ_VERSION}`;
+const LOADING_DURATION_MS = 1500;
 
-// §4.3 slot 3/4/5: config.ts (ตามที่ backend ส่งมอบจริง) มีแค่ labelTh ของแต่
-// ละพลอย — ไม่มีฟิลด์ "ลักษณะพลอย" / "ตามความเชื่อที่คนไทยนิยม" / disclaimer
-// ให้ดึงเลย (ไม่ตรงกับที่ design §8 สมมติไว้ว่า "ดึงจาก config เท่านั้น"). แทน
-// ที่จะเขียนเนื้อหาเชิงข้อเท็จจริง/ความเชื่อขึ้นมาเอง (ขัดกฎ "ห้ามอนุมาน
-// ข้อเท็จจริงที่ไม่มี" และยังไม่ผ่าน 3 ด่าน content) จึงคงไว้เป็น placeholder
-// ที่มองเห็นชัดว่าเป็น placeholder — ดู README ส่วนท้าย GemQuizClient.test.tsx
-// และรายงานส่งมอบสำหรับรายละเอียดช่องว่างนี้.
-const CHARACTERISTIC_PLACEHOLDER = "[รอเนื้อหาจากทีม content ผ่าน 3 ด่าน — ยังไม่มีในระบบ]";
-const BELIEF_PLACEHOLDER = "[รอเนื้อหาจากทีม content ผ่าน 3 ด่าน — ยังไม่มีในระบบ]";
-const DISCLAIMER_PLACEHOLDER =
-  "[รอข้อความจริงจาก copywriter] ความเชื่อเป็นวัฒนธรรมที่เล่าต่อกันมา ไม่ใช่การรับรองผล";
+// จอ "liked" (Q4) ไม่มี key ใน answers (เก็บใน likedCodes แยก — design §3.1:
+// "answers รับแค่ string ต่อ key เท่านั้น array ใส่ไม่ได้") จึงแทรกเข้าไปใน
+// ลำดับจอด้วยมือ ไม่ derive จาก GEM_QUIZ_QUESTIONS ตรงๆ แบบ v1 เดิม
+const SCREENS = ["landing", "q1", "q2", "q3", "q4", "q5", "loading", "result"] as const;
+type Screen = (typeof SCREENS)[number];
+const TOTAL_QUESTIONS = 5;
+const QUESTION_NUMBER: Partial<Record<Screen, number>> = { q1: 1, q2: 2, q3: 3, q4: 4, q5: 5 };
+
+// ลำดับจริงของ GEM_QUIZ_QUESTIONS คือ [birth_day, intention, feeling,
+// jewelry_type] — คำถามของจอ q1/q2/q3/q5 ตามลำดับนี้เป๊ะ (ไม่ hardcode index
+// ตรงๆ เพื่อกันพังถ้าลำดับ config เปลี่ยน แต่ map ตาม code ที่รู้จักแน่นอน)
+const QUESTION_BY_CODE = Object.fromEntries(GEM_QUIZ_QUESTIONS.map((q) => [q.code, q]));
+const SCREEN_QUESTION_CODE: Partial<Record<Screen, string>> = {
+  q1: "birth_day",
+  q2: "intention",
+  q3: "feeling",
+  q5: "jewelry_type",
+};
 
 function shuffleStones(stones: readonly GemQuizStoneConfig[]): GemQuizStoneConfig[] {
   const arr = [...stones];
@@ -53,80 +75,72 @@ function readSrcFromLocation(): GemQuizSrc {
   return raw && (GEM_QUIZ_SRC_VALUES as readonly string[]).includes(raw) ? (raw as GemQuizSrc) : "direct";
 }
 
+/** อ่านธง "ทำแล้ว" ของรอบก่อนหน้า — เรียกสดๆ ตอนกำลังจะยิง submit เท่านั้น
+ * (ไม่ใช่ค่าที่ cache ไว้ตอน mount) เพราะถ้าผู้ใช้กด "ทำแบบทดสอบใหม่" ใน
+ * session เดียวกัน ธงอาจเพิ่งถูก set จากรอบก่อนไปแล้ว. */
 function readRetakeFlag(): boolean {
   try {
-    if (typeof window === "undefined") return false;
     return window.localStorage.getItem(LOCAL_STORAGE_DONE_KEY) === "1";
   } catch {
-    // in-app browser (LINE/TikTok) บล็อก localStorage ได้ — ไม่กระทบการทำแบบ
-    // ทดสอบ แค่เสีย signal ของ "คนเดิมทำซ้ำ" ไปบ้าง (N-2)
+    // in-app browser (LINE/TikTok) บล็อก localStorage ได้ — fail safe ไปทาง
+    // "ไม่ retake" ไม่ throw (N-2)
     return false;
   }
 }
 
 function markDone(): void {
   try {
-    if (typeof window === "undefined") return;
     window.localStorage.setItem(LOCAL_STORAGE_DONE_KEY, "1");
   } catch {
     // เช่นเดียวกับ readRetakeFlag — เงียบ ไม่กระทบผลลัพธ์ที่ผู้ใช้เห็นไปแล้ว
   }
 }
 
-function buildShareUrl(): string {
-  if (typeof window === "undefined") return "";
-  const url = new URL(window.location.href);
-  // ไม่แนบคำตอบใดๆใน URL (design §4.3 slot 6) — เปลี่ยนแค่ src เป็น "share"
-  url.search = "";
-  url.searchParams.set("src", "share");
-  return url.toString();
+function screenIndex(screen: Screen): number {
+  return SCREENS.indexOf(screen);
 }
 
-type StepKey = "liked" | (typeof GEM_QUIZ_QUESTIONS)[number]["code"] | "result";
-
 export function GemQuizClient({ token }: { token: string | null }) {
-  // ชื่อฟิลด์ยังเป็น "shuffledStones" แต่ค่าเริ่มต้นต้อง**ไม่สุ่ม** — ต้อง
-  // deterministic และตรงกับที่ server render ออกมาเป๊ะ (เรียง config ตรงๆ)
-  // เพราะ "use client" component ก็ยัง SSR ตอน request แรกอยู่ดี ถ้าสุ่มใน
-  // lazy initializer ของ useState แบบเดิม (Math.random() ตรงๆ) ฝั่ง server กับ
-  // ฝั่ง client จะได้ค่าคนละชุด ⇒ hydration mismatch ทันที (ยืนยันจริงตอน
-  // preview บน dev server 5 ต.ค. 69 — React เตือนตรงเป๊ะว่า "Math.random()
-  // which changes each time it's called") สุ่มจริงเกิดใน useEffect ด้านล่าง
-  // ซึ่งรันเฉพาะฝั่ง client หลัง hydrate เสร็จแล้วเท่านั้น (ค่าเริ่มต้นไม่สุ่ม
-  // ไม่ได้ขัด "สลับลำดับทุกครั้ง" ของ §4.2 — ผู้ใช้เห็นลำดับสุ่มแล้วตั้งแต่ก่อน
-  // จะอ่านตัวเลือกทัน เพราะ effect รันก่อน paint แรกที่มองเห็นได้)
-  const [shuffledStones, setShuffledStones] = useState<GemQuizStoneConfig[]>(() => [...GEM_QUIZ_STONES]);
-  useEffect(() => {
-    setShuffledStones(shuffleStones(GEM_QUIZ_STONES));
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- สุ่มครั้งเดียวตอน mount ตั้งใจ ไม่ผูกกับ dep ไหน
-  }, []);
-  const src = useState(() => readSrcFromLocation())[0];
-  const isRetake = useState(() => readRetakeFlag())[0];
-
-  const steps = useMemo<StepKey[]>(() => ["liked", ...GEM_QUIZ_QUESTIONS.map((q) => q.code), "result"], []);
-  const [stepIndex, setStepIndex] = useState(0);
-  const currentStep = steps[stepIndex];
-
-  const [likedCodes, setLikedCodes] = useState<string[]>([]);
+  const [screen, setScreen] = useState<Screen>("landing");
   const [answers, setAnswers] = useState<GemQuizAnswers>({});
+  const [likedCodes, setLikedCodes] = useState<string[]>([]);
+  const [focusStoneCode, setFocusStoneCode] = useState<string | null>(null);
   const [honeypot, setHoneypot] = useState("");
 
-  const [canUseShareApi, setCanUseShareApi] = useState(false);
-  const [copyState, setCopyState] = useState<"idle" | "copied" | "error">("idle");
-
-  const submittedRef = useRef(false);
-
+  // ลำดับที่แสดงของ Q4 — เริ่ม deterministic (ลำดับ config เป๊ะ, ไม่สุ่ม)
+  // แล้วค่อยสุ่มจริงใน useEffect หลัง mount เท่านั้น (ดูคำเตือนหัวไฟล์)
+  const [stoneOrder, setStoneOrder] = useState<GemQuizStoneConfig[]>(() => [...GEM_QUIZ_STONES]);
   useEffect(() => {
-    setCanUseShareApi(typeof navigator !== "undefined" && typeof navigator.share === "function");
+    setStoneOrder(shuffleStones(GEM_QUIZ_STONES));
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- สุ่มครั้งเดียวตอน mount ตั้งใจ
   }, []);
 
-  const recommendedStoneCodes = useMemo(() => recommendStoneCodes(answers), [answers]);
-
-  // Fire-and-forget submit — ยิงแค่ครั้งเดียวตอนมาถึงหน้าผลลัพธ์ (คุมด้วย
-  // submittedRef) ไม่ await ที่ตัว effect (ไม่บล็อก UI) และไม่แสดง error ใดๆ
-  // ให้ผู้ใช้เห็น ไม่ว่า request จะสำเร็จหรือล้มเหลว (N-4, design §2/§5.2).
+  const [src, setSrc] = useState<GemQuizSrc>("direct");
   useEffect(() => {
-    if (currentStep !== "result" || submittedRef.current) return;
+    setSrc(readSrcFromLocation());
+  }, []);
+
+  const submittedRef = useRef(false);
+  const loadingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // จอ loading auto-advance ไป result หลัง ~1.5s — ตั้ง/เคลียร์ timer เฉพาะใน
+  // useEffect (ไม่ใช่ JS ควบคุม motion — นั่นคือ CSS motion-safe: ของ
+  // tailwind.config.ts) cleanup ป้องกัน timer ค้างถ้า unmount ก่อนครบเวลา
+  useEffect(() => {
+    if (screen !== "loading") return;
+    loadingTimerRef.current = setTimeout(() => setScreen("result"), LOADING_DURATION_MS);
+    return () => {
+      if (loadingTimerRef.current) clearTimeout(loadingTimerRef.current);
+    };
+  }, [screen]);
+
+  // Submit ครั้งเดียวต่อรอบที่ทำจบ (design §5: "submit ครั้งเดียวต่อรอบที่ทำ
+  // จบ") — fire-and-forget, ไม่แสดง error ใดๆ ให้ผู้ใช้เห็นไม่ว่าสำเร็จหรือล้ม
+  // (ผลลัพธ์แสดงจากการคำนวณฝั่ง client ไปก่อนแล้ว). markDone() เฉพาะตอนได้
+  // 204 กลับมาเท่านั้น (ไม่ใช่ทุก response ที่ resolve — 400/403/503 ก็ resolve
+  // เหมือนกันแต่ไม่ใช่ "สำเร็จจริง").
+  useEffect(() => {
+    if (screen !== "result" || submittedRef.current) return;
     submittedRef.current = true;
 
     const body = {
@@ -136,7 +150,7 @@ export function GemQuizClient({ token }: { token: string | null }) {
       hp: honeypot,
       liked: likedCodes,
       answers,
-      retake: isRetake,
+      retake: readRetakeFlag(),
     };
 
     fetch("/api/gem-quiz/submit", {
@@ -144,19 +158,24 @@ export function GemQuizClient({ token }: { token: string | null }) {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     })
-      .then(() => markDone())
+      .then((res) => {
+        if (res.status === 204) markDone();
+      })
       .catch(() => {
-        // เงียบโดยตั้งใจ — ผลลัพธ์แสดงไปก่อนยิง request นี้แล้ว (N-4)
+        // เงียบโดยตั้งใจ (N-4)
       });
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- submittedRef กัน
-    // ไม่ให้ effect นี้ยิงซ้ำ ไม่ต้องตาม deps ที่เปลี่ยนหลัง submit ไปแล้ว
-  }, [currentStep]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- submittedRef กันยิงซ้ำ ไม่ต้องตาม deps ที่เปลี่ยนหลัง submit แล้ว
+  }, [screen]);
 
   function goNext() {
-    setStepIndex((i) => Math.min(i + 1, steps.length - 1));
+    setScreen((prev) => SCREENS[Math.min(screenIndex(prev) + 1, SCREENS.length - 1)]);
   }
   function goBack() {
-    setStepIndex((i) => Math.max(i - 1, 0));
+    setScreen((prev) => SCREENS[Math.max(screenIndex(prev) - 1, 0)]);
+  }
+
+  function selectAnswer(questionCode: string, optionCode: string) {
+    setAnswers((prev) => ({ ...prev, [questionCode]: optionCode }));
   }
 
   function toggleLiked(code: string) {
@@ -167,257 +186,106 @@ export function GemQuizClient({ token }: { token: string | null }) {
     });
   }
 
-  function handleShare() {
-    const shareUrl = buildShareUrl();
-    if (canUseShareApi) {
-      navigator.share({ url: shareUrl, title: "แบบทดสอบเลือกพลอย 3J Jewelry" }).catch(() => {
-        // ผู้ใช้กดยกเลิกกล่องแชร์ของระบบ — ไม่ต้องแจ้งอะไรเพิ่ม
-      });
+  function restart() {
+    submittedRef.current = false;
+    setAnswers({});
+    setLikedCodes([]);
+    setFocusStoneCode(null);
+    setScreen("landing");
+  }
+
+  // Preview สีพลอยบนจอ loading — คำนวณได้แล้วตอนนี้เพราะทุกคำตอบที่ rankGems
+  // ต้องใช้ตอบครบแล้วก่อนจะมาถึงจอ loading ได้ (ปุ่ม "ถัดไป" ของทุกจอ disabled
+  // จนกว่าจะตอบ). ไม่ throw เพราะไม่ได้เรียก buildResultView() (ซึ่งต้องการ
+  // jewelryType ด้วย) — ใช้ rankGems() ตรงๆ (jewelry_type ไม่มีผลคะแนน).
+  const loadingHeroColors = useMemo(() => {
+    if (!answers.birth_day || !answers.intention || !answers.feeling || likedCodes.length === 0) {
+      return GEM_QUIZ_STONES[0].colors;
     }
-  }
+    const ranked = rankGems({
+      birthDay: answers.birth_day,
+      intention: answers.intention,
+      feeling: answers.feeling,
+      likedStoneCodes: likedCodes,
+    });
+    return GEM_QUIZ_STONES.find((s) => s.code === ranked[0].code)!.colors;
+  }, [answers.birth_day, answers.intention, answers.feeling, likedCodes]);
 
-  async function handleCopyLink() {
-    const shareUrl = buildShareUrl();
-    try {
-      await navigator.clipboard.writeText(shareUrl);
-      setCopyState("copied");
-    } catch {
-      setCopyState("error");
-    }
-  }
+  const resultView = useMemo(() => {
+    if (screen !== "result") return null;
+    return buildResultView({
+      answers: {
+        birthDay: answers.birth_day ?? "",
+        intention: answers.intention ?? "",
+        feeling: answers.feeling ?? "",
+        jewelryType: answers.jewelry_type ?? "",
+      },
+      likedStoneCodes: likedCodes,
+      focusStoneCode,
+    });
+  }, [screen, answers, likedCodes, focusStoneCode]);
 
-  // ---- Q1: ชอบพลอยอะไร (design §4.2 ขั้น 1) ----
-  if (currentStep === "liked") {
-    return (
-      <div className="mx-auto max-w-md px-4 py-6">
-        <HoneypotField value={honeypot} onChange={setHoneypot} />
-        <StepProgress current={1} total={steps.length} />
-        <h2 className="mt-3 text-lg font-bold text-zinc-900">ชอบพลอยอะไร</h2>
-        <p className="mt-1 text-sm text-zinc-500">เลือกได้สูงสุด {MAX_LIKED_STONES} ตัว — เลือกตามใจชอบ ไม่มีคำตอบที่ถูกหรือผิด</p>
-
-        <fieldset className="mt-4 grid grid-cols-2 gap-2.5" aria-label="ตัวเลือกพลอยที่ชอบ">
-          {shuffledStones.map((stone) => {
-            const checked = likedCodes.includes(stone.code);
-            const disabled = !checked && likedCodes.length >= MAX_LIKED_STONES;
-            return (
-              <label
-                key={stone.code}
-                className={`flex min-h-11 cursor-pointer items-center justify-center rounded-md border px-3 py-3 text-center text-sm font-medium transition-colors ${
-                  checked
-                    ? "border-primary-600 bg-primary-50 text-primary-700"
-                    : disabled
-                      ? "cursor-not-allowed border-zinc-200 text-zinc-400"
-                      : "border-zinc-300 text-zinc-700 hover:border-primary-300"
-                }`}
-              >
-                <input
-                  type="checkbox"
-                  className="sr-only"
-                  checked={checked}
-                  disabled={disabled}
-                  onChange={() => toggleLiked(stone.code)}
-                />
-                <span
-                  className="mr-2 inline-block h-4 w-4 flex-none rounded-full border border-black/10"
-                  style={{ backgroundColor: getStoneColor(stone.code) }}
-                  aria-hidden="true"
-                />
-                {stone.labelTh}
-              </label>
-            );
-          })}
-        </fieldset>
-
-        <div className="mt-5 flex flex-col gap-2">
-          <Button onClick={goNext} disabled={likedCodes.length === 0}>
-            ถัดไป
-          </Button>
-          <Button
-            variant="secondary"
-            onClick={() => {
-              setLikedCodes([]);
-              goNext();
-            }}
-          >
-            ยังไม่มีในใจ
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
-  // ---- คำถามแนะนำ (design §4.2 ขั้น 2-3) ----
-  if (currentStep !== "result") {
-    const question = GEM_QUIZ_QUESTIONS.find((q) => q.code === currentStep);
-    if (!question) return null; // ไม่เกิดจริง — steps ผลิตจาก GEM_QUIZ_QUESTIONS เสมอ
-    const selected = answers[question.code];
-
-    return (
-      <div className="mx-auto max-w-md px-4 py-6">
-        <StepProgress current={stepIndex + 1} total={steps.length} />
-        <h2 className="mt-3 text-lg font-bold text-zinc-900">{question.labelTh}</h2>
-
-        <fieldset className="mt-4 flex flex-col gap-2" aria-label={question.labelTh}>
-          {question.options.map((option) => {
-            const checked = selected === option.code;
-            return (
-              <label
-                key={option.code}
-                className={`flex min-h-11 cursor-pointer items-center rounded-md border px-3.5 py-2.5 text-sm font-medium transition-colors ${
-                  checked ? "border-primary-600 bg-primary-50 text-primary-700" : "border-zinc-300 text-zinc-700 hover:border-primary-300"
-                }`}
-              >
-                <input
-                  type="radio"
-                  name={question.code}
-                  className="sr-only"
-                  checked={checked}
-                  onChange={() => setAnswers((prev) => ({ ...prev, [question.code]: option.code }))}
-                />
-                {option.labelTh}
-              </label>
-            );
-          })}
-        </fieldset>
-
-        <div className="mt-5 flex gap-2">
-          <Button variant="secondary" onClick={goBack}>
-            ย้อนกลับ
-          </Button>
-          <Button onClick={goNext} disabled={!selected} className="flex-1">
-            ถัดไป
-          </Button>
-        </div>
-      </div>
-    );
-  }
-
-  // ---- ผลลัพธ์ (design §4.3) ----
-  const likedStones = likedCodes
-    .map((code) => GEM_QUIZ_STONES.find((s) => s.code === code))
-    .filter((s): s is GemQuizStoneConfig => Boolean(s));
-  const recommendedStones = recommendedStoneCodes
-    .map((code) => GEM_QUIZ_STONES.find((s) => s.code === code))
-    .filter((s): s is GemQuizStoneConfig => Boolean(s));
+  const questionCode = SCREEN_QUESTION_CODE[screen];
+  const question = questionCode ? QUESTION_BY_CODE[questionCode] : undefined;
+  const currentQuestionNumber = QUESTION_NUMBER[screen];
 
   return (
-    <div className="mx-auto max-w-md px-4 py-6">
-      <h2 className="text-lg font-bold text-zinc-900">ผลลัพธ์ของคุณ</h2>
+    <>
+      {/* L3 honeypot (design §5.2) — mount ตลอดทุกจอ (ไม่ผูกกับจอใดจอหนึ่ง)
+          ซ่อนจากคนจริงด้วย CSS off-screen (ไม่ใช่ display:none ที่ bot บางตัว
+          รู้จักข้าม) + tabIndex=-1 + autoComplete=off + aria-hidden */}
+      <input
+        type="text"
+        name="hp"
+        value={honeypot}
+        onChange={(e) => setHoneypot(e.target.value)}
+        tabIndex={-1}
+        autoComplete="off"
+        aria-hidden="true"
+        className="absolute left-[-9999px] top-auto h-px w-px overflow-hidden"
+      />
 
-      <section className="mt-4">
-        <h3 className="text-sm font-bold text-zinc-500">พลอยที่คุณชอบ</h3>
-        {likedStones.length > 0 ? (
-          <StoneChipList stones={likedStones} className="mt-1" />
-        ) : (
-          <p className="mt-1 text-base text-zinc-900">ยังไม่มีในใจ</p>
-        )}
-      </section>
+      {screen === "landing" && <Landing onStart={goNext} />}
 
-      <section className="mt-4">
-        <h3 className="text-sm font-bold text-zinc-500">พลอยที่เข้ากับเรื่องที่คุณมองหา</h3>
-        <StoneChipList stones={recommendedStones} className="mt-1" labelClassName="font-semibold text-primary-700" />
-      </section>
+      {screen === "q4" && (
+        <PreferenceScreen
+          stones={stoneOrder}
+          selected={likedCodes}
+          onToggle={toggleLiked}
+          min={MIN_LIKED_STONES}
+          max={MAX_LIKED_STONES}
+          onNext={goNext}
+          onBack={goBack}
+          current={4}
+          total={TOTAL_QUESTIONS}
+        />
+      )}
 
-      <section className="mt-4">
-        <h3 className="text-sm font-bold text-zinc-500">ลักษณะพลอย</h3>
-        <p className="mt-1 text-sm text-zinc-700">{CHARACTERISTIC_PLACEHOLDER}</p>
-      </section>
+      {question && currentQuestionNumber !== undefined && (
+        <QuestionScreen
+          key={screen}
+          questionCode={question.code}
+          labelTh={question.labelTh}
+          options={question.options}
+          selected={answers[question.code]}
+          onSelect={(code) => selectAnswer(question.code, code)}
+          onNext={goNext}
+          onBack={goBack}
+          current={currentQuestionNumber}
+          total={TOTAL_QUESTIONS}
+        />
+      )}
 
-      <section className="mt-4">
-        <h3 className="text-sm font-bold text-zinc-500">ตามความเชื่อที่คนไทยนิยม</h3>
-        <p className="mt-1 text-sm text-zinc-700">{BELIEF_PLACEHOLDER}</p>
-      </section>
+      {screen === "loading" && <LoadingScreen heroColors={loadingHeroColors} />}
 
-      {/* disclaimer คงที่ render ทุกผลลัพธ์เสมอ (design §4.3 slot 5) */}
-      <p className="mt-4 rounded-md bg-zinc-50 px-3 py-2.5 text-xs text-zinc-500">{DISCLAIMER_PLACEHOLDER}</p>
-
-      <div className="mt-5 flex flex-col gap-2">
-        {/* C1 (design §11, ไม่บล็อก) — default ไป LINE OA ตามที่ footer เดิมของ
-            (public)/layout.tsx ใช้อยู่แล้ว ไม่ลิงก์ไป /shop (F13: แคตตาล็อก
-            เว็บคนละชุดกับของที่ขายในไลฟ์). */}
-        <a
-          href="https://line.me/R/ti/p/@3jsilver"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md bg-primary-600 px-4 text-base font-medium text-white transition-colors hover:bg-primary-700"
-        >
-          คุยกับเราทาง LINE
-        </a>
-
-        {canUseShareApi ? (
-          <Button variant="secondary" onClick={handleShare}>
-            ชวนเพื่อนมาทำ
-          </Button>
-        ) : (
-          <div className="flex flex-col gap-2">
-            <a
-              href={`https://social-plugins.line.me/lineit/share?url=${encodeURIComponent(buildShareUrl())}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex min-h-11 items-center justify-center gap-2 rounded-md border border-zinc-300 px-4 text-base font-medium text-zinc-700 transition-colors hover:bg-zinc-50"
-            >
-              แชร์ไปที่ LINE
-            </a>
-            <Button variant="secondary" onClick={handleCopyLink}>
-              {copyState === "copied" ? "คัดลอกลิงก์แล้ว" : copyState === "error" ? "คัดลอกไม่สำเร็จ ลองใหม่" : "คัดลอกลิงก์"}
-            </Button>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function HoneypotField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  // L3 honeypot (design §5.2) — ซ่อนจากคนจริงด้วย CSS off-screen (ไม่ใช่
-  // display:none/visibility:hidden ซึ่ง bot บางตัวรู้จักข้าม) + tabIndex=-1
-  // (ไม่หยุดที่ช่องนี้ตอนกด Tab) + autoComplete=off + aria-hidden (screen
-  // reader ไม่ประกาศ).
-  return (
-    <input
-      type="text"
-      name="hp"
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      tabIndex={-1}
-      autoComplete="off"
-      aria-hidden="true"
-      className="absolute left-[-9999px] top-auto h-px w-px overflow-hidden"
-    />
-  );
-}
-
-function StepProgress({ current, total }: { current: number; total: number }) {
-  return (
-    <p className="text-xs font-medium text-zinc-400" aria-live="polite">
-      ขั้นที่ {current} จาก {total}
-    </p>
-  );
-}
-
-/** แสดงรายชื่อพลอยพร้อมจุดสี (feedback จากเจ้าของ 5 ต.ค. 69: ตัวอักษรอย่างเดียว
- * "กดดูไม่ออก" — ร้านยังไม่มีรูปถ่ายพลอยจริง ใช้จุดสีแทนไปก่อนตาม design §11 C2). */
-function StoneChipList({
-  stones,
-  className = "",
-  labelClassName = "text-zinc-900",
-}: {
-  stones: readonly GemQuizStoneConfig[];
-  className?: string;
-  labelClassName?: string;
-}) {
-  return (
-    <ul className={`flex flex-wrap gap-2 ${className}`}>
-      {stones.map((stone) => (
-        <li key={stone.code} className="flex items-center gap-1.5 rounded-full border border-zinc-200 bg-white px-2.5 py-1">
-          <span
-            className="h-3.5 w-3.5 flex-none rounded-full border border-black/10"
-            style={{ backgroundColor: getStoneColor(stone.code) }}
-            aria-hidden="true"
-          />
-          <span className={`text-sm ${labelClassName}`}>{stone.labelTh}</span>
-        </li>
-      ))}
-    </ul>
+      {screen === "result" && resultView && (
+        <ResultScreen
+          view={resultView}
+          onFocusAlternative={setFocusStoneCode}
+          onBackToTop={() => setFocusStoneCode(null)}
+          onRestart={restart}
+        />
+      )}
+    </>
   );
 }

@@ -14,13 +14,18 @@ export const dynamic = "force-dynamic";
 // (LINE preview เวลาแชร์ลิงก์จะโชว์คำอธิบายระบบภายในร้านให้ลูกค้าเห็น) —
 // override ให้ครบที่นี่. robots noindex ตาม D3 (เฟสแรก แหล่งคนเข้าคือ QR
 // ไม่ใช่ search — ลด bot traffic ด้วย).
+// v2 (5 ต.ค. 69): อัปเดต title/description ให้ตรงกับแพ็กเกจ 5 พลอยใหม่ (design
+// doc §9 O2 — copy อนุมัติแล้ว) — เนื้อหาอื่นของไฟล์นี้ (force-dynamic, robots
+// noindex, og image path) ไม่แก้ตามขอบเขตงาน §7 ("แก้ metadata เท่านั้น")
 export const metadata: Metadata = {
-  title: "แบบทดสอบเลือกพลอย | 3J Jewelry",
-  description: "ทำแบบทดสอบสั้นๆ เพื่อดูว่าพลอยแบบไหนเข้ากับคุณ — ไม่เก็บข้อมูลส่วนตัว",
+  title: "Daily Gem Quiz — แบบทดสอบเลือกพลอยประจำวัน | 3J Jewelry",
+  description:
+    "ค้นหาพลอยที่เหมาะกับคุณสำหรับวันนี้ จากวันเกิด เป้าหมาย ความรู้สึก และสไตล์ที่คุณชอบ — 5 คำถาม ไม่ถึง 1 นาที ไม่เก็บข้อมูลส่วนตัว",
   robots: { index: false, follow: false },
   openGraph: {
-    title: "แบบทดสอบเลือกพลอย | 3J Jewelry",
-    description: "ทำแบบทดสอบสั้นๆ เพื่อดูว่าพลอยแบบไหนเข้ากับคุณ — ไม่เก็บข้อมูลส่วนตัว",
+    title: "Daily Gem Quiz — แบบทดสอบเลือกพลอยประจำวัน | 3J Jewelry",
+    description:
+      "ค้นหาพลอยที่เหมาะกับคุณสำหรับวันนี้ จากวันเกิด เป้าหมาย ความรู้สึก และสไตล์ที่คุณชอบ — 5 คำถาม ไม่ถึง 1 นาที ไม่เก็บข้อมูลส่วนตัว",
     // 🔴 static file เท่านั้น (public/gem-quiz/og.png) — ห้ามใช้ Next.js
     // convention `opengraph-image.tsx` ที่นี่ (code review ของ branch backend:
     // path นั้นไม่อยู่ใน exempt matcher ของ middleware.ts จะโดนเด้ง /login ตอน
