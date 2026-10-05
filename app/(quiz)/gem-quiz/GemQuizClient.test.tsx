@@ -285,4 +285,181 @@ describe("GemQuizClient", () => {
     expect(hp).toHaveAttribute("aria-hidden", "true");
     expect(hp).toHaveAttribute("tabindex", "-1");
   });
+
+  // --- QA เพิ่มเติม (R2-D2) — เคสที่ Tech Lead ยังไม่ได้กดเอง ---
+
+  it("ย้อนกลับ (ปุ่มในแอป) จาก Q3 กลับไป Q2 แล้ว Q1 — คำตอบที่เลือกไว้ต้องยังอยู่ ไม่ถูกเคลียร์", async () => {
+    const user = userEvent.setup();
+    renderQuiz();
+    await user.click(screen.getByRole("button", { name: "เริ่มทำแบบทดสอบ" }));
+
+    await user.click(screen.getByRole("button", { name: optionLabel("birth_day", "mon") }));
+    await user.click(screen.getByRole("button", { name: "ถัดไป" }));
+    await user.click(screen.getByRole("button", { name: optionLabel("intention", "wealth") }));
+    await user.click(screen.getByRole("button", { name: "ถัดไป" }));
+    // อยู่ที่ Q3 แล้ว ยังไม่เลือกอะไร
+    expect(screen.getByRole("heading", { name: question("feeling").labelTh })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "ย้อนกลับ" })); // Q3 -> Q2
+    expect(screen.getByRole("button", { name: optionLabel("intention", "wealth") })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+
+    await user.click(screen.getByRole("button", { name: "ย้อนกลับ" })); // Q2 -> Q1
+    expect(screen.getByRole("button", { name: optionLabel("birth_day", "mon") })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+
+    // เดินหน้าใหม่อีกครั้ง — ปุ่มถัดไปต้อง enabled ทันทีเพราะคำตอบเดิมยังอยู่ ไม่ต้องเลือกใหม่
+    await user.click(screen.getByRole("button", { name: "ถัดไป" })); // Q1 -> Q2
+    expect(screen.getByRole("button", { name: optionLabel("intention", "wealth") })).toHaveAttribute(
+      "aria-pressed",
+      "true"
+    );
+    expect(screen.getByRole("button", { name: "ถัดไป" })).toBeEnabled();
+  });
+
+  it("Q4: เลือก A,B,C แล้วยกเลิก A (toggle off) — B,C ต้องเลื่อนอันดับเป็น 1,2 ไม่ใช่ค้างที่ 2,3", async () => {
+    const user = userEvent.setup();
+    renderQuiz();
+    await user.click(screen.getByRole("button", { name: "เริ่มทำแบบทดสอบ" }));
+    await user.click(screen.getByRole("button", { name: optionLabel("birth_day", "sun") }));
+    await user.click(screen.getByRole("button", { name: "ถัดไป" }));
+    await user.click(screen.getByRole("button", { name: optionLabel("intention", "career") }));
+    await user.click(screen.getByRole("button", { name: "ถัดไป" }));
+    await user.click(screen.getByRole("button", { name: optionLabel("feeling", "energy") }));
+    await user.click(screen.getByRole("button", { name: "ถัดไป" }));
+
+    const [stoneA, stoneB, stoneC] = GEM_QUIZ_STONES.slice(0, 3);
+    await user.click(screen.getByRole("button", { name: new RegExp(stoneA.nameEn) }));
+    await user.click(screen.getByRole("button", { name: new RegExp(stoneB.nameEn) }));
+    await user.click(screen.getByRole("button", { name: new RegExp(stoneC.nameEn) }));
+
+    // ก่อนยกเลิก: A=1, B=2, C=3 (rank badge คือ aria-hidden span มีตัวเลข — เช็คผ่านข้อความในปุ่มทั้งก้อน)
+    expect(screen.getByRole("button", { name: new RegExp(stoneA.nameEn) }).textContent).toContain("1");
+    expect(screen.getByRole("button", { name: new RegExp(stoneB.nameEn) }).textContent).toContain("2");
+    expect(screen.getByRole("button", { name: new RegExp(stoneC.nameEn) }).textContent).toContain("3");
+
+    await user.click(screen.getByRole("button", { name: new RegExp(stoneA.nameEn) })); // toggle off A
+
+    expect(screen.getByRole("button", { name: new RegExp(stoneA.nameEn) })).toHaveAttribute("aria-pressed", "false");
+    // B ต้องเลื่อนมาเป็นอันดับ 1 (ไม่ใช่ค้างที่ 2) และ C ต้องเป็นอันดับ 2 (ไม่ใช่ค้างที่ 3)
+    expect(screen.getByRole("button", { name: new RegExp(stoneB.nameEn) }).textContent).toContain("1");
+    expect(screen.getByRole("button", { name: new RegExp(stoneB.nameEn) }).textContent).not.toContain("2");
+    expect(screen.getByRole("button", { name: new RegExp(stoneC.nameEn) }).textContent).toContain("2");
+    expect(screen.getByRole("button", { name: new RegExp(stoneC.nameEn) }).textContent).not.toContain("3");
+  });
+
+  it("Q4: เลือกพลอยแค่ 1 ตัว (ขั้นต่ำ MIN_LIKED_STONES=1) — ปุ่มถัดไปต้อง enabled และไปต่อได้ปกติ", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const user = userEvent.setup();
+    renderQuiz();
+    await user.click(screen.getByRole("button", { name: "เริ่มทำแบบทดสอบ" }));
+    await user.click(screen.getByRole("button", { name: optionLabel("birth_day", "sun") }));
+    await user.click(screen.getByRole("button", { name: "ถัดไป" }));
+    await user.click(screen.getByRole("button", { name: optionLabel("intention", "career") }));
+    await user.click(screen.getByRole("button", { name: "ถัดไป" }));
+    await user.click(screen.getByRole("button", { name: optionLabel("feeling", "energy") }));
+    await user.click(screen.getByRole("button", { name: "ถัดไป" }));
+
+    expect(screen.getByRole("button", { name: "ถัดไป" })).toBeDisabled();
+    await user.click(screen.getByRole("button", { name: new RegExp(GEM_QUIZ_STONES[0].nameEn) }));
+    expect(screen.getByRole("button", { name: "ถัดไป" })).toBeEnabled();
+
+    await user.click(screen.getByRole("button", { name: "ถัดไป" }));
+    await user.click(screen.getByRole("button", { name: optionLabel("jewelry_type", "ring") }));
+    await user.click(screen.getByRole("button", { name: "ถัดไป" }));
+
+    await screen.findByRole("heading", { name: "ทำไมถึงเหมาะกับคุณวันนี้?" }, { timeout: RESULT_TIMEOUT });
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    const body = JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
+    expect(body.liked).toEqual([GEM_QUIZ_STONES[0].code]);
+  }, 10000);
+
+  it("รีเฟรชหน้ากลางคำถาม (remount ใหม่) — กลับไป landing เสมอ ไม่มี state persist ข้าม reload (ตามดีไซน์ ไม่เก็บ progress)", async () => {
+    const user = userEvent.setup();
+    const { unmount } = renderQuiz();
+    await user.click(screen.getByRole("button", { name: "เริ่มทำแบบทดสอบ" }));
+    await user.click(screen.getByRole("button", { name: optionLabel("birth_day", "sun") }));
+    await user.click(screen.getByRole("button", { name: "ถัดไป" }));
+    expect(screen.getByRole("heading", { name: question("intention").labelTh })).toBeInTheDocument();
+
+    // จำลอง full page reload: unmount (ไม่มี sessionStorage/pushState เก็บ state อยู่ในโค้ดปัจจุบัน) แล้ว render ใหม่
+    unmount();
+    renderQuiz();
+    expect(screen.getByRole("heading", { name: /DAILY/ })).toBeInTheDocument();
+  });
+
+  it("เข้า /gem-quiz ซ้ำหลังทำสำเร็จไปแล้ว (localStorage มีธง gemQuizDone) — เริ่มที่ landing ปกติ ไม่ auto-redirect ไม่ถูกบล็อก", async () => {
+    window.localStorage.setItem(DONE_KEY, "1");
+    renderQuiz();
+    // ต้องเห็น landing ตามปกติ (ไม่ redirect ไปหน้าอื่น ไม่มีข้อความบล็อก "ทำไปแล้ว")
+    expect(screen.getByRole("heading", { name: /DAILY/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "เริ่มทำแบบทดสอบ" })).toBeEnabled();
+  });
+
+  it("ไม่มี history.pushState ระหว่างเปลี่ยนคำถาม — ปุ่มย้อนกลับของเบราว์เซอร์จะไม่ย้อนคำถามในแอป (behavior ที่ยังไม่ implement ตาม design doc O9 ไม่บล็อก prod) — ยืนยันว่าไม่ throw/ไม่พังถ้ามี popstate ลอยมาเฉยๆ ระหว่างทำแบบทดสอบ",
+    async () => {
+      const pushStateSpy = vi.spyOn(window.history, "pushState");
+      const user = userEvent.setup();
+      renderQuiz();
+      await user.click(screen.getByRole("button", { name: "เริ่มทำแบบทดสอบ" }));
+      await user.click(screen.getByRole("button", { name: optionLabel("birth_day", "sun") }));
+      await user.click(screen.getByRole("button", { name: "ถัดไป" }));
+
+      // ยืนยันข้อสังเกต: โค้ดปัจจุบันไม่เรียก pushState เลย -> ไม่มี history entry ต่อคำถาม
+      expect(pushStateSpy).not.toHaveBeenCalled();
+
+      // จำลอง popstate ลอยมา (เช่นผู้ใช้กดย้อนกลับเบราว์เซอร์จริง) — ต้องไม่ throw/ไม่พังหน้า
+      expect(() => window.dispatchEvent(new PopStateEvent("popstate"))).not.toThrow();
+      expect(screen.getByRole("heading", { name: question("intention").labelTh })).toBeInTheDocument();
+    }
+  );
+
+  it("Accessibility: Tab ไล่ทีละปุ่มได้ครบ Landing -> Q1 โดยไม่ใช้เมาส์เลย และกด Enter ทำงานเหมือนคลิก", async () => {
+    const user = userEvent.setup();
+    renderQuiz();
+
+    await user.tab(); // honeypot (tabIndex=-1 ต้องถูกข้าม) -> ปุ่มเริ่มทำแบบทดสอบ
+    expect(screen.getByRole("button", { name: "เริ่มทำแบบทดสอบ" })).toHaveFocus();
+    await user.keyboard("{Enter}");
+    expect(screen.getByRole("heading", { name: question("birth_day").labelTh })).toBeInTheDocument();
+
+    // ไล่ Tab จนถึงตัวเลือกแรกของ Q1 แล้วกด Space เพื่อเลือก (ปุ่มตัวแรกของจอคือ "ย้อนกลับ")
+    await user.tab(); // ปุ่มย้อนกลับ (header)
+    await user.tab(); // ตัวเลือกวันเกิดตัวแรก (sun)
+    const firstOption = screen.getByRole("button", { name: optionLabel("birth_day", "sun") });
+    expect(firstOption).toHaveFocus();
+    expect(firstOption).toHaveAttribute("aria-pressed", "false");
+
+    await user.keyboard(" ");
+    expect(firstOption).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "ถัดไป" })).toBeEnabled();
+  });
+
+  it("aria-pressed ของตัวเลือก Q2 (grid) สลับถูกต้องตาม state จริง ไม่ใช่แค่สายตา", async () => {
+    const user = userEvent.setup();
+    renderQuiz();
+    await user.click(screen.getByRole("button", { name: "เริ่มทำแบบทดสอบ" }));
+    await user.click(screen.getByRole("button", { name: optionLabel("birth_day", "sun") }));
+    await user.click(screen.getByRole("button", { name: "ถัดไป" }));
+
+    const loveBtn = screen.getByRole("button", { name: optionLabel("intention", "love") });
+    const wealthBtn = screen.getByRole("button", { name: optionLabel("intention", "wealth") });
+    expect(loveBtn).toHaveAttribute("aria-pressed", "false");
+    expect(wealthBtn).toHaveAttribute("aria-pressed", "false");
+
+    await user.click(loveBtn);
+    expect(loveBtn).toHaveAttribute("aria-pressed", "true");
+    expect(wealthBtn).toHaveAttribute("aria-pressed", "false");
+
+    // single-select: เลือกตัวอื่นแทน -> ตัวเดิมต้องกลับเป็น false (ไม่ใช่ multi-select ค้าง)
+    await user.click(wealthBtn);
+    expect(wealthBtn).toHaveAttribute("aria-pressed", "true");
+    expect(loveBtn).toHaveAttribute("aria-pressed", "false");
+  });
 });

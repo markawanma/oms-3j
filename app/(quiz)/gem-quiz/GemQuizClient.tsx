@@ -122,6 +122,12 @@ export function GemQuizClient({ token }: { token: string | null }) {
 
   const submittedRef = useRef(false);
   const loadingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // security audit M2 (5 ต.ค. 69): ต้องไม่ถูก reset ใน restart() ต่างจาก
+  // submittedRef — design §5 สั่ง "ref = localStorage OR ส่งแล้วในรอบนี้" แต่
+  // ของเดิมอ่านแค่ localStorage ซึ่งพังถ้า in-app browser (LINE/TikTok) บล็อก
+  // localStorage (คอมเมนต์ N-2) — กดรีสตาร์ตกี่รอบใน session เดียวกันก็ควร
+  // เป็น retake=true ตั้งแต่รอบที่ 2 แม้ localStorage จะอ่านไม่ได้เลย
+  const sentThisSessionRef = useRef(false);
 
   // จอ loading auto-advance ไป result หลัง ~1.5s — ตั้ง/เคลียร์ timer เฉพาะใน
   // useEffect (ไม่ใช่ JS ควบคุม motion — นั่นคือ CSS motion-safe: ของ
@@ -150,8 +156,12 @@ export function GemQuizClient({ token }: { token: string | null }) {
       hp: honeypot,
       liked: likedCodes,
       answers,
-      retake: readRetakeFlag(),
+      // M2: localStorage อย่างเดียวพังถ้า in-app browser บล็อกมัน — รอบที่ 2
+      // ขึ้นไปใน session เดียวกันนี้ต้องเป็น retake=true เสมอ ไม่ว่า
+      // localStorage จะอ่านได้หรือไม่
+      retake: readRetakeFlag() || sentThisSessionRef.current,
     };
+    sentThisSessionRef.current = true;
 
     fetch("/api/gem-quiz/submit", {
       method: "POST",

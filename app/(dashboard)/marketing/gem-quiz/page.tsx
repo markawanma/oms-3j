@@ -2,6 +2,7 @@ import { Lock } from "lucide-react";
 import { getGemQuizStats } from "@/lib/actions/gem-quiz-stats";
 import { getEffectiveRole } from "@/lib/auth/role";
 import { getDevShopId } from "@/lib/dev/context";
+import { readErrorCode } from "@/lib/supabase/postgrest-error";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { GemQuizStats } from "@/components/domain/marketing/GemQuizStats";
@@ -60,7 +61,10 @@ export default async function GemQuizStatsPage({
   const includeRetake = retakeParam === "1";
 
   const result = await getGemQuizStats({ from, to, includeRetake }).catch((err) => {
-    console.error("getGemQuizStats failed (page)", err);
+    // security audit L3 (5 ต.ค. 69): ห้าม log error ของ supabase ทั้งก้อน —
+    // details พ่วง host/stack, DETAIL พ่วง PII ได้ (memory:
+    // supabase-error-logging-trap) — log แค่ code
+    console.error("getGemQuizStats failed (page)", readErrorCode(err) ?? "unknown");
     return { ok: false as const, error: "โหลดสถิติไม่สำเร็จ ลองใหม่อีกครั้ง" };
   });
 

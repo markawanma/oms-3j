@@ -246,6 +246,12 @@ begin
                  (a.value #>> '{}') as code
           from scoped s4
           cross join lateral jsonb_each(s4.answers) a
+          -- security audit L2 (5 ต.ค. 69): answers เป็น jsonb generic ไม่ผูก
+          -- key ตายตัว (ยืนยันจริง: ยิง key "liked" เข้า RPC ตรงๆ DB รับ ไม่
+          -- ปฏิเสธ — ด่านเดียวที่กันคือ validate.ts ฝั่ง TS) ถ้าวันหน้ามีทาง
+          -- เขียนอื่นที่ไม่ผ่าน validate.ts ชื่อ dim จะชนกับ 3 ชื่อที่ derive
+          -- จากคอลัมน์ข้างล่าง กันไว้ตั้งแต่ตอนนี้เพราะยังไม่ apply จริง
+          where a.key not in ('liked', 'liked_first', 'recommended')
           union all
           select (s4.created_at at time zone 'Asia/Bangkok')::date as d,
                  'liked' as dim,

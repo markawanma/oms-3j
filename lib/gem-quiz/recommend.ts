@@ -51,15 +51,27 @@ export interface GemQuizScoreRow {
   total: number;
 }
 
+// security audit L1 (5 ต.ค. 69): TABLE[key] ด้วย key ที่มาจาก input ตรงๆ โดน
+// prototype pollution ได้ (เช่น key = "constructor" คืน Object constructor
+// function แทน undefined เพราะสืบทอดจาก Object.prototype) — ทำให้ comment เดิม
+// ที่บอกว่า "ไม่ throw ไม่ว่า input จะเป็นอะไร" ไม่จริง (เคยพิสูจน์แล้วว่า
+// intention="constructor" โยน TypeError จริง) validate.ts กันทางที่มาจาก
+// server ไว้แล้ว แต่ไฟล์นี้เรียกจาก client ตอน preview สดได้ตรงๆ ด้วย จึงต้อง
+// defensive เองให้ตรงกับ comment ที่ประกาศไว้
+function ownValue<T>(table: Readonly<Record<string, T>>, key: string): T | undefined {
+  return Object.prototype.hasOwnProperty.call(table, key) ? table[key] : undefined;
+}
+
 function scoreBirthDay(birthDay: string, code: GemQuizStoneCode): number {
-  const dayScores = (GEM_QUIZ_BIRTH_DAY_SCORES as Readonly<Record<string, Readonly<Partial<Record<GemQuizStoneCode, number>>>>>)[
+  const dayScores = ownValue(
+    GEM_QUIZ_BIRTH_DAY_SCORES as Readonly<Record<string, Readonly<Partial<Record<GemQuizStoneCode, number>>>>>,
     birthDay
-  ];
+  );
   return dayScores?.[code] ?? 0;
 }
 
 function scoreIntention(intention: string, code: GemQuizStoneCode): number {
-  const weights = (GEM_QUIZ_INTENTIONS as Readonly<Record<string, GemQuizIntentionWeights>>)[intention];
+  const weights = ownValue(GEM_QUIZ_INTENTIONS as Readonly<Record<string, GemQuizIntentionWeights>>, intention);
   if (!weights) return 0;
   if (weights.primary.includes(code)) return GEM_QUIZ_INTENTION_POINTS.primary;
   if (weights.secondary.includes(code)) return GEM_QUIZ_INTENTION_POINTS.secondary;
@@ -67,7 +79,7 @@ function scoreIntention(intention: string, code: GemQuizStoneCode): number {
 }
 
 function scoreFeeling(feeling: string, code: GemQuizStoneCode): number {
-  const matches = (GEM_QUIZ_FEELINGS as Readonly<Record<string, readonly GemQuizStoneCode[]>>)[feeling];
+  const matches = ownValue(GEM_QUIZ_FEELINGS as Readonly<Record<string, readonly GemQuizStoneCode[]>>, feeling);
   return matches && matches.includes(code) ? GEM_QUIZ_FEELING_MATCH_POINTS : 0;
 }
 
