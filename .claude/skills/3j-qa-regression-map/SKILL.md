@@ -60,6 +60,11 @@ description: >-
 - `"use client"` component ห้าม import server-only module ทางอ้อม
 - async component ใน client boundary / metadata export ผิดที่
 
+**ค่าภายนอกที่ผู้ใช้จะเห็น/กด ต้องมีที่มาทุกตัว** (เพิ่ม 5 ต.ค. 69 — `@3jsilver` ที่แต่งขึ้นผ่านทุกด่านถึง prod)
+grep diff หา `@[a-z0-9]` · `lin.ee` · `https?://` นอก domain ของเรา · เบอร์ · อีเมล · ชื่อร้าน · ราคาที่ hardcode →
+แต่ละตัวต้องชี้ได้ว่ามาจาก brief ข้อไหน/config ไหนที่เจ้าของยืนยัน · ชี้ไม่ได้ = **FAIL** · `TODO_OWNER_*` เหลือ = **FAIL**
+รายงานเป็นรายการ "ค่าภายนอก + สถานะยืนยัน" เสมอ แม้จะว่าง
+
 ## วิธีทำงานของ QA ในโปรเจกต์นี้
 
 - **ห้าม browser automation** — เบราว์เซอร์เครื่องนี้ไม่ render ในแท็บ hidden ใช้เวลาเปล่า
