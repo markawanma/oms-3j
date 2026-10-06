@@ -50,6 +50,26 @@
 --  X38 backfill seed เปลี่ยน                      → X38a-X38d (ด่าน scope) + proof ใน dry-run: fixture artifact ตัวที่ 2 + migration → raise
 --  X39 can_approve ตรง RPC (13 ชิ้นจริง + fixture) → X39a-X39c
 --
+--
+-- ============ รอบแก้ตาม security NO-GO + QA FAIL (7 ต.ค. 69) — id → ข้อที่ปิด (ทุก id มี mutant ที่ทำให้ล้มจริง ดูรายงานส่งมอบ) ============
+--  QA1a-b  QA-1 blocker: step ก่อน workflow แก้เนื้อหา/AI ร่าง/เพิ่ม hook "สำเร็จจริง" (K4a เปลี่ยนเป็นยิงทุก artifact จริง 27 ตัว + ต้องสำเร็จทุกครั้ง)
+--  (vn5)   verify-hole: helper "ต้องไม่พัง" นับเฉพาะสำเร็จ — error อะไรก็ FAIL (เดิมกลืน 22023 ของ blocker)
+--  H1a-i   SEC-H1 + QA-3: cancel(จาก approved/produced)→แก้เนื้อหา→restore ลง in_review · ผลตรวจ pending · approve ไม่ได้ · extract ทำงาน ·
+--          ต้องไม่พัง: cancel→restore ไม่แตะเนื้อหา อนุมัติซ้ำได้ · AI ร่าง → draft_pending_review
+--  H2a-j   SEC-H2: hook ของชิ้น approved เพิ่ม/แก้/ลบ/ย้ายไม่ได้ทุกทาง · link_reference ผ่าน · marker ใน hook นับ (blockers/view/extract/resolve)
+--  N1-N7   SEC-M2 + QA-2 + H2(3): ล้างผลตรวจครบ 3 ด่านรวม risk ทุกสถานะที่ยังไม่ approved+ (drafting/planned/cancelled · hook เพิ่ม/ลบ/แก้ text) ·
+--          label/hook_type ล้วนไม่ล้าง (K6c ปรับเป็น 3 ด่าน)
+--  M1a-d   SEC-M1: ลบชิ้นที่เคยอนุมัติไม่ได้ (แม้ย้อน/ยกเลิก · cascade ลบแคมเปญห่อ) · ชิ้นที่ไม่เคยอนุมัติลบได้
+--  M3a-c   SEC-M3: อักขระล่องหน 28 แบบ + วงเล็บเต็มความกว้าง/CJK · ต้องไม่พัง: [ต้องตรวจ] / emoji ZWJ ไม่ถูกจับ
+--  L2a-d   SEC-L2: resolve ผ่านเมื่อ ZWSP/SHY/วงเล็บเต็มความกว้างบังไว้ · emoji ZWJ ในข้อความเดียวกันไม่ถูกลอก (ไม่ strip ทั้งก้อน)
+--  L3a-c   SEC-L3: clip_brief แทนทีละ string leaf · marker คร่อม leaf ไม่นับ/ไม่แทน · key/โครง JSON เท่าเดิม · คำตอบมี " และ \ ถูก escape
+--  M4a-d   SEC-M4: fact_check passed ต้องมี sources (ใหม่หรือเดิม) · pending/blocked/na ไม่ต้อง · detail ไม่มี sources พกของเดิมไป
+--  L1a-e   SEC-L1: service_role ตั้ง GUC เองแล้ว DML ตรง 9 ทาง = 55000 · trigger ล้างผลตรวจ (artifact/hook) ไม่เชื่อ GUC ของ role นั้น · RPC ยังผ่าน
+--  L4a-f   SEC-L4: content_type บนชิ้น approved/produced/posted · INSERT artifact เข้าชิ้นที่ล็อก · ย้าย artifact เข้า/ออก · DELETE artifact ตรง
+--  C1-C3   Tech Lead: short_clip คู่ tiktok_live ✓ (live_cut ✗) · คลิปจริงไม่มีคู่ผิดตาราง
+--  CA1-CA3 QA notes: can_approve = false นอก in_review/ขณะ hold
+--  ⚠️ กับดักของเทสต์เอง: subselect ที่ไม่ผูกกับแถวนอกในนิพจน์เดียวกับ function ที่มี side effect ถูกประเมินก่อน (InitPlan) ⇒ "ทำแล้วตรวจ" ต้องแยกคำสั่ง
+--
 -- ถ้ามีร้านมากกว่า 1 ร้านใน public.shop ไฟล์นี้หยุด · ร้านที่ 2 สร้างเองในทรานแซกชัน
 
 -- ---------- helper (temp function — หายพร้อมทรานแซกชัน) ----------
@@ -180,17 +200,15 @@ create or replace function pg_temp.q_gate(p_shop uuid, p_step uuid, p_kind text,
   select format('select analytics.content_gate_record(%L::uuid,%L::uuid,%L,%L,%L,%L::jsonb)', p_shop, p_step, p_kind, p_status, p_role, p_detail::text)
 $q$;
 
--- "ต้องไม่พัง": OK เมื่อสำเร็จ หรือพังด้วยเหตุอื่นที่ไม่ใช่ guard ของ workflow ใหม่ (55000) — ใช้กับ RPC เดิมบน step ก่อน workflow
+-- "ต้องไม่พัง": ต้อง "สำเร็จจริง" เท่านั้น — error ใดๆ ก็ตาม (รวมกติกาเดิมของ RPC นั้น/22023/42501) = FAIL
+-- (รอบแก้ QA verify-hole: เดิมนับ error ที่ไม่ใช่ 55000 เป็น OK ⇒ blocker 22023 ของ step ก่อน workflow ถูกกลืนเงียบ)
 create or replace function pg_temp.vn5(p_sql text) returns text
  language plpgsql as $vn$
 begin
   execute p_sql;
   return 'OK';
 exception when others then
-  if sqlstate = '55000' then
-    return 'FAIL ถูก guard ของ workflow ใหม่บล็อก (55000) msg=' || left(sqlerrm, 120);
-  end if;
-  return 'OK (ตกด้วยกติกาเดิมของ RPC นั้น ไม่ใช่ guard: ' || sqlstate || ' ' || left(sqlerrm, 60) || ')';
+  return 'FAIL ควรสำเร็จแต่ตก sqlstate=' || sqlstate || ' msg=' || left(sqlerrm, 120);
 end $vn$;
 
 do $verify0159$
@@ -527,14 +545,14 @@ begin
     jsonb_build_object('segments', jsonb_build_array(jsonb_build_object('role', 'hook')),
       'shots', jsonb_build_array(jsonb_build_object('id', 's1', 'desc', 'เปิดคำถาม [ต้องยืนยัน: สีอะไรดี]'),
                                  jsonb_build_object('id', 's2', 'desc', 'โชว์ตรา'))));
-  v_log := v_log || pg_temp.vb('K6c', 'เนื้อหาเปลี่ยนจริงตอน in_review → fact/brand ตกเป็น pending (+ หมายเหตุ) · risk_owner คงค่า (K6)',
-    (select count(*) from analytics.step_gate where step_id = v_s1 and gate_kind in ('fact_check', 'brand_rule') and status = 'pending' and note like '%เนื้อหาเปลี่ยน%') = 2
-    and (select status from analytics.step_gate where step_id = v_s1 and gate_kind = 'risk_owner') = 'passed'
+  v_log := v_log || pg_temp.vb('K6c', 'เนื้อหาเปลี่ยนจริงตอน in_review → ผลตรวจครบ 3 ด่านตกเป็น pending (+ หมายเหตุ) รวม risk_owner (SEC-M2: ถ้อยคำเปลี่ยน เจ้าของต้องตอบซ้ำ)',
+    (select count(*) from analytics.step_gate where step_id = v_s1 and gate_kind in ('fact_check', 'brand_rule', 'risk_owner') and status = 'pending' and note like '%เนื้อหาเปลี่ยน%') = 3
     and (select count(*) from analytics.content_piece_event where step_id = v_s1 and event_kind = 'gate' and payload ->> 'reset' = 'true') = 1);
   v_log := v_log || pg_temp.vb('K6d', 'extract รันเอง: marker ใหม่ได้รายการค้าง 1 (สีอะไรดี)',
     (select count(*) from analytics.content_confirm_item where step_id = v_s1 and resolved_at is null and removed_at is null and question = 'สีอะไรดี') = 1);
   perform analytics.content_gate_record(v_shop, v_s1, 'fact_check', 'passed', 'owner');
   perform analytics.content_gate_record(v_shop, v_s1, 'brand_rule', 'passed', 'owner');
+  perform analytics.content_gate_record(v_shop, v_s1, 'risk_owner', 'passed', 'owner');
   -- จำลอง "extract ไม่เคยรัน" โดยถอดรายการออก → เหลือเฉพาะชั้น 2 (ข้อความจริง) ที่ต้องกัน
   update analytics.content_confirm_item set removed_at = now() where step_id = v_s1 and resolved_at is null and removed_at is null;
   v_log := v_log || pg_temp.vl('X5', 'รายการ [ต้องยืนยัน] ว่าง/ถอดแล้ว แต่ marker ยังอยู่ในข้อความ → approve 55000 (ชั้น 2 · ข้อบล็อกมีข้อเดียว)',
@@ -547,6 +565,7 @@ begin
       'shots', jsonb_build_array(jsonb_build_object('id', 's1', 'desc', 'เปิดคำถาม'), jsonb_build_object('id', 's2', 'desc', 'โชว์ตรา'))));
   perform analytics.content_gate_record(v_shop, v_s1, 'fact_check', 'passed', 'owner');
   perform analytics.content_gate_record(v_shop, v_s1, 'brand_rule', 'passed', 'owner');
+  perform analytics.content_gate_record(v_shop, v_s1, 'risk_owner', 'passed', 'owner');
   v_log := v_log || pg_temp.vb('X39d', 'ลบ marker ออกจากข้อความ + ผ่านด่านครบ → can_approve = true ตรง approve_blockers ว่าง',
     (select can_approve from analytics.v_content_piece where step_id = v_s1));
 
@@ -642,9 +661,9 @@ begin
   ----------------------------------------------------------------------------
   v_s2 := pg_temp.mk_step(v_shop, 'short_clip', 'tiktok', true);
   select a.id into v_a2 from analytics.step_artifact a where a.step_id = v_s2;
-  v_log := v_log || pg_temp.vb('K12w', 'mk_step ผ่าน RPC: in_review/active · [ต้องยืนยัน] ค้าง 3 รายการ (ในเนื้อหา/ใน brief ที่ escape แล้ว/สต็อก)',
+  v_log := v_log || pg_temp.vb('K12w', 'mk_step ผ่าน RPC: in_review/active · [ต้องยืนยัน] ค้าง 2 คำถาม (ราคา "925" ซ้ำในเนื้อหากับ brief = ข้อเดียว · สต็อก) — marker นับต่อ string leaf ที่ถอดรหัสแล้ว',
     pg_temp.st(v_s2) = 'in_review/active'
-    and (select count(*) from analytics.content_confirm_item where step_id = v_s2 and resolved_at is null and removed_at is null) = 3, pg_temp.st(v_s2));
+    and (select count(*) from analytics.content_confirm_item where step_id = v_s2 and resolved_at is null and removed_at is null) = 2, pg_temp.st(v_s2));
   v_log := v_log || pg_temp.vl('X26', 'campaign_set_artifact_status(approved/done/blocked) บน artifact ของ step ที่ in_review → 55000 (ข้าม 3 ด่านไม่ได้)',
     pg_temp.vx(format('select analytics.campaign_set_artifact_status(%L::uuid, ''approved'')', v_a2), array['55000'], 'workflow ใหม่')
     || pg_temp.vx(format('select analytics.campaign_set_artifact_status(%L::uuid, ''done'')', v_a2), array['55000'])
@@ -687,7 +706,7 @@ begin
   v_log := v_log || pg_temp.vb('K15b', 'แก้เนื้อหาตอน drafting: รายการเดิมที่ยังอยู่ไม่ถูก reset (id เดิม ยังค้าง) · รายการใหม่เข้ามา · ที่หายไป removed_at',
     (select resolved_at is null and removed_at is null from analytics.content_confirm_item where id = v_item)
     and (select count(*) from analytics.content_confirm_item where step_id = v_s2 and question = 'สีอะไร' and resolved_at is null and removed_at is null) = 1
-    and (select count(*) from analytics.content_confirm_item where step_id = v_s2 and question like 'ราคา%' and removed_at is not null and resolved_at is null) = 2
+    and (select count(*) from analytics.content_confirm_item where step_id = v_s2 and question like 'ราคา%' and removed_at is not null and resolved_at is null) = 1
     and (select count(*) from analytics.content_confirm_item where step_id = v_s2 and resolved_at is null and removed_at is null) = 2);
   perform analytics.content_piece_advance(v_shop, v_s2, 'in_review', 'owner');
 
@@ -930,17 +949,24 @@ begin
     pg_temp.vx(pg_temp.q_adv(v_shop, v_p2, 'planned', 'owner'), array['22023'], 'นอก workflow')
     || pg_temp.vx(pg_temp.q_gate(v_shop, v_p2, 'coo_stock_check', 'passed', 'owner'), array['22023'], 'ด่านต้องเป็น'));
   -- K4: RPC เดิมทำงานเหมือนเดิมบน step ก่อน workflow (trigger R4 ปล่อยเมื่อ piece_status null)
-  select string_agg(res, ' ') into v_txt from (
-    select pg_temp.vn5(format('select analytics.campaign_set_artifact_content(%L::uuid, %L)', a.id, 'verify legacy K4')) as res
-      from analytics.step_artifact a where a.step_id = v_p1
-    union all
-    select pg_temp.vn5(format('select analytics.campaign_set_artifact_status(%L::uuid, ''approved'')', a.id))
-      from analytics.step_artifact a where a.step_id = v_p1
-    union all
-    select pg_temp.vn5(format('select analytics.campaign_ai_draft_artifact(%L::uuid, ''x'', null, ''m'')', a.id))
-      from analytics.step_artifact a where a.step_id = v_p1) t;
-  v_log := v_log || pg_temp.vl('K4a', 'set_artifact_content / set_artifact_status(approved) / ai_draft บนทุก artifact ของ step หลาย artifact ก่อน workflow → ไม่ถูก guard บล็อก',
-    case when v_txt like '%FAIL%' then 'FAIL ' || v_txt else 'OK' end);
+  -- ทุก artifact ของ step ที่ piece_status ว่าง (ข้อมูลจริงทุกโหมด — ไม่ใช่แค่ step หลาย artifact ตัวเดียว) ต้อง "สำเร็จจริง" ทั้ง 3 RPC
+  -- ลำดับตามกติกาเดิมของ RPC: AI ร่างก่อน (เฉพาะ artifact ที่คนยังไม่เคยแก้ — กติกาเดิม: คนแก้แล้ว AI ทับไม่ได้ 22023) → คนแก้เนื้อหา → สถานะ approved
+  v_txt := ''; v_cnt_all := 0; v_cnt_ok := 0;
+  for r in
+    select x.id, x.human_edited, x.status, x.reviewed_at from analytics.step_artifact x join analytics.campaign_step st on st.id = x.step_id
+     where st.piece_status is null and coalesce(st.title, '') not like 'verify-0159%' order by x.id
+  loop
+    v_cnt_all := v_cnt_all + 1;
+    if not r.human_edited and r.status not in ('approved', 'done') and r.reviewed_at is null then   -- ตามกติกาเดิมของ ai_draft (H1/L7 ของ 0058)
+      v_cnt_ok := v_cnt_ok + 1;
+      v_txt := v_txt || pg_temp.vn5(format('select analytics.campaign_ai_draft_artifact(%L::uuid, ''x'', null, ''m'')', r.id)) || ' ';
+    end if;
+    v_txt := v_txt || pg_temp.vn5(format('select analytics.campaign_set_artifact_content(%L::uuid, %L)', r.id, 'verify legacy K4')) || ' ';
+    v_txt := v_txt || pg_temp.vn5(format('select analytics.campaign_set_artifact_status(%L::uuid, ''approved'')', r.id)) || ' ';
+  end loop;
+  v_log := v_log || pg_temp.vl('K4a', format('ai_draft (artifact ที่เดิมยังเปิดให้ AI ร่างได้ %s ตัว) · set_artifact_content · set_artifact_status(approved) บนทุก artifact ของ step ก่อน workflow (%s ตัว) → สำเร็จจริงทุกครั้ง (ไม่ใช่แค่ไม่ใช่ 55000 — QA-1 blocker คือ 22023 ที่เคยถูกกลืน)', v_cnt_ok, v_cnt_all),
+    case when v_cnt_all < 20 or v_cnt_ok < 1 then 'FAIL ข้อมูลทดสอบน้อยเกิน (artifact ' || v_cnt_all || ' · ยังไม่ถูกแก้ ' || v_cnt_ok || ')'
+         when v_txt like '%FAIL%' then 'FAIL ' || left(v_txt, 400) else 'OK' end);
   v_log := v_log || pg_temp.vb('K4a2', 'สถานะ artifact เดิมของ step ก่อน workflow ขยับได้ถึง approved ผ่านเส้นทางเดิม (พฤติกรรมเดิมไม่ถูกเปลี่ยน)',
     exists (select 1 from analytics.step_artifact where step_id = v_p1 and status = 'approved'), pg_temp.art_st(v_p1));
   select string_agg(res, ' ') into v_txt from (
@@ -978,14 +1004,13 @@ begin
   select p.step_id into v_p1 from analytics.v_content_piece p
    where p.piece_status = 'in_review' and p.drafted_by_ai and p.confirm_pending > 0 and p.step_id is distinct from v_p1 order by p.step_id limit 1;
   select a.id into v_id from analytics.step_artifact a where a.step_id = v_p1 limit 1;
-  perform analytics.content_gate_record(v_shop, v_p1, 'fact_check', 'passed', 'owner');
+  perform analytics.content_gate_record(v_shop, v_p1, 'fact_check', 'passed', 'owner', jsonb_build_object('sources', jsonb_build_array('https://example.com/k6f')));
   perform analytics.content_gate_record(v_shop, v_p1, 'brand_rule', 'passed', 'owner');
   perform analytics.content_gate_record(v_shop, v_p1, 'risk_owner', 'passed', 'owner');
   perform analytics.campaign_ai_draft_artifact(v_id, null,
     jsonb_set((select clip_brief from analytics.step_artifact where id = v_id), '{shots,0,desc}', to_jsonb('ปรับข้อความทดสอบ K6'::text)), 'verify-model');
-  v_log := v_log || pg_temp.vb('K6f', 'ai_draft บนชิ้นจริง in_review: เขียนได้ · fact/brand ตกเป็น pending · risk_owner ยัง passed · extract รันเอง (ยังมีรายการ)',
-    (select count(*) from analytics.step_gate where step_id = v_p1 and gate_kind in ('fact_check', 'brand_rule') and status = 'pending') = 2
-    and (select status from analytics.step_gate where step_id = v_p1 and gate_kind = 'risk_owner') = 'passed'
+  v_log := v_log || pg_temp.vb('K6f', 'ai_draft บนชิ้นจริง in_review: เขียนได้ · ผลตรวจ 3 ด่านตกเป็น pending (รวม risk_owner) · extract รันเอง (ยังมีรายการ)',
+    (select count(*) from analytics.step_gate where step_id = v_p1 and gate_kind in ('fact_check', 'brand_rule', 'risk_owner') and status = 'pending') = 3
     and (select clip_brief #>> '{shots,0,desc}' from analytics.step_artifact where id = v_id) = 'ปรับข้อความทดสอบ K6', pg_temp.st(v_p1));
 
   -- K17 (ข้อมูลจริง AI): cancel → restore → artifact กลับ draft_pending_review ตาม drafted_by_ai
@@ -1072,6 +1097,520 @@ begin
       and (select count(*) from analytics.content_piece_event where step_id = v_p2) = 0
       and (select count(*) from analytics.step_artifact where step_id = v_p2) = 0, v_r || ' events_before=' || v_n);
   end if;
+
+  ----------------------------------------------------------------------------
+  -- รอบแก้ตาม security NO-GO (H1 H2 M1-M4 L1-L4) + QA FAIL (QA-1 QA-2 QA-3 · verify-hole · can_approve) — 7 ต.ค. 69
+  -- แต่ละเคสมี mutant ที่ทำให้ล้มจริง (ดูรายงานส่งมอบ): ตัดบรรทัดด่านออก → ข้อ [id] ในรายการต้อง FAIL
+  -- รันในบล็อกย่อยของตัวเอง: error ที่ไม่ได้ดักไว้ = [FAIL] SEC ABORT แล้ว verify ที่เหลือยังรันต่อ
+  ----------------------------------------------------------------------------
+  declare
+    v_h       uuid;      -- ชิ้นหลัก
+    v_h2      uuid;
+    v_h3      uuid;
+    v_art     uuid;
+    v_art2    uuid;
+    v_ref_sig uuid;
+    v_ref_h   uuid;
+    v_hook_a  uuid;
+    v_item2   uuid;
+    v_nulls   uuid;      -- step นอก workflow (เส้นทางเดิม)
+    v_nulla   uuid;
+    v_line    uuid;      -- LINE ที่ posted
+    v_prod    uuid;      -- ig_fb_post ที่ produced
+    v_t       text;
+    v_t2      text;
+    v_fam     text := chr(128104) || chr(8205) || chr(128105) || chr(8205) || chr(128103);   -- emoji ครอบครัว (มี ZWJ)
+    v_cases   text[];
+    v_c       text;
+    v_i2      int;
+    v_ev0     bigint;
+    v_ev1     bigint;
+    v_b2      boolean;
+    v_b3      boolean;
+    v_brief   jsonb;
+  begin
+  begin
+    ----------------------------------------------------------------------------
+    -- QA-1 (blocker): step ก่อน workflow (piece_status null) แก้เนื้อหา/AI ร่าง/เพิ่ม hook ได้ — ต้อง "สำเร็จจริง" ไม่ใช่แค่ไม่ใช่ 55000
+    ----------------------------------------------------------------------------
+    v_nulls := analytics.campaign_create_task(v_shop, 'verify-0159 task QA-1 นอก workflow', v_today + 31, 'fb_post');
+    select a.id into v_nulla from analytics.step_artifact a where a.step_id = v_nulls;
+    -- ลำดับตามกติกาเดิม: AI ร่างก่อน (artifact ที่คนแก้แล้ว AI ทับไม่ได้ — 22023 เป็นกติกาเดิมของ RPC นั้น ไม่ใช่ guard ใหม่) แล้วคนแก้เนื้อหา
+    v_t := pg_temp.vok(format('select analytics.campaign_ai_draft_artifact(%L::uuid, %L, null, ''m'')', v_nulla, 'ร่างโดย AI รอบแรก'));
+    v_t2 := pg_temp.vok(format('select analytics.campaign_set_artifact_content(%L::uuid, %L)', v_nulla, 'แก้เนื้อหา step นอก workflow'));
+    v_r := pg_temp.vok(format('select analytics.content_hook_upsert(%L::uuid,%L::uuid,null,''hook นอก workflow'',''question'',null,''owner'',null)', v_shop, v_nulls));
+    v_log := v_log || pg_temp.vl('QA1a', 'step นอก workflow (piece_status null): campaign_ai_draft_artifact + campaign_set_artifact_content + content_hook_upsert สำเร็จจริงทั้ง 3',
+      v_t || v_t2 || v_r);
+    v_log := v_log || pg_temp.vb('QA1b', 'step นอก workflow: ไม่มี event/gate/confirm_item งอกจากการแก้เนื้อหา (ไม่ยุ่งกับของเดิม)',
+      (select count(*) from analytics.content_piece_event where step_id = v_nulls) = 0
+      and (select count(*) from analytics.step_gate where step_id = v_nulls) = 0
+      and (select count(*) from analytics.content_confirm_item where step_id = v_nulls) = 0);
+
+    ----------------------------------------------------------------------------
+    -- H1 + QA-3: ยกเลิก → แก้เนื้อหา → กู้คืน ต้องลง in_review + ผลตรวจเป็น pending + approve ไม่ได้ + extract ทำงาน
+    ----------------------------------------------------------------------------
+    v_h := pg_temp.mk_approved(v_shop, 'ig_fb_post', 'facebook', false);
+    select a.id into v_art from analytics.step_artifact a where a.step_id = v_h;
+    perform analytics.content_piece_advance(v_shop, v_h, 'cancelled', 'owner', 'ยกเลิกทดสอบ H1');
+    perform analytics.campaign_set_artifact_content(v_art, 'เนื้อหาใหม่หลังยกเลิก ราคาเปลี่ยนแล้ว [ต้องยืนยัน: ราคาใหม่]', null);
+    v_log := v_log || pg_temp.vb('H1a', 'แก้เนื้อหาขณะ cancelled (มาจาก approved) → ผลตรวจ fact/brand/risk ตกเป็น pending ครบ 3 ด่าน (SEC-M2 + QA-2)',
+      (select count(*) from analytics.step_gate where step_id = v_h and status = 'pending') = 3
+      and (select count(*) from analytics.content_piece_event where step_id = v_h and event_kind = 'gate' and payload ->> 'piece_status' = 'cancelled') = 1);
+    perform analytics.content_piece_advance(v_shop, v_h, 'restore', 'owner', 'กู้คืนทดสอบ H1');
+    v_log := v_log || pg_temp.vb('H1b', 'restore จาก cancelled(มาจาก approved) → ลง in_review/active ไม่ใช่ approved · artifact approved → draft (คนร่าง)',
+      pg_temp.st(v_h) = 'in_review/active' and pg_temp.art_st(v_h) = 'draft', pg_temp.st(v_h) || ' ' || pg_temp.art_st(v_h));
+    v_log := v_log || pg_temp.vb('H1c', 'event restore บันทึก cancel_from=approved + forced_review (ตามรอยได้ว่าถูกบังคับส่งตรวจ)',
+      (select payload ->> 'cancel_from' = 'approved' and (payload ->> 'forced_review')::boolean and to_status = 'in_review'
+         from analytics.content_piece_event where step_id = v_h and event_kind = 'restore' order by seq desc limit 1));
+    v_log := v_log || pg_temp.vl('H1d', 'approve ชิ้นที่ restore แล้วเนื้อหาเปลี่ยน → 55000 (ผลตรวจ pending + [ต้องยืนยัน] ค้าง) · can_approve = false',
+      pg_temp.vx(pg_temp.q_adv(v_shop, v_h, 'approved', 'owner'), array['55000'], 'ยังไม่ผ่าน')
+      || case when (select can_approve is false from analytics.v_content_piece where step_id = v_h) then 'OK can_approve=false' else 'FAIL can_approve' end);
+    v_log := v_log || pg_temp.vb('H1e', 'QA-3: restore รัน extract — marker ที่ใส่ตอน cancelled มีรายการให้ตอบ (confirm_pending = 1)',
+      (select confirm_pending = 1 and confirm_marker_in_text from analytics.v_content_piece where step_id = v_h));
+
+    -- ต้องไม่พัง: ยกเลิก → กู้คืนโดยไม่แตะเนื้อหา → in_review → เจ้าของอนุมัติใหม่ได้ (ผลตรวจเดิมยังใช้ได้ เพราะเนื้อหาไม่เปลี่ยน)
+    v_h2 := pg_temp.mk_approved(v_shop, 'ig_fb_post', 'facebook', false);
+    perform analytics.content_piece_advance(v_shop, v_h2, 'cancelled', 'owner', 'ยกเลิกทดสอบ H1 รอบสอง');
+    perform analytics.content_piece_advance(v_shop, v_h2, 'restore', 'owner', 'กู้คืนทดสอบ รอบสอง');
+    v_log := v_log || pg_temp.vb('H1f', 'ต้องไม่พัง: cancel→restore ไม่แตะเนื้อหา → in_review · ผลตรวจเดิมยัง passed 3 ด่าน · อนุมัติใหม่ได้ (คลิกเดียว)',
+      pg_temp.st(v_h2) = 'in_review/active'
+      and (select count(*) from analytics.step_gate where step_id = v_h2 and status = 'passed') = 3
+      and (select can_approve from analytics.v_content_piece where step_id = v_h2), pg_temp.st(v_h2));
+    v_r := pg_temp.vok(pg_temp.q_adv(v_shop, v_h2, 'approved', 'owner', null, 20));
+    v_log := v_log || pg_temp.vl('H1g', 'อนุมัติซ้ำหลัง restore ผ่าน → approved/active · artifact approved',
+      case when v_r <> 'OK' then v_r when pg_temp.st(v_h2) = 'approved/active' and pg_temp.art_st(v_h2) = 'approved' then 'OK' else 'FAIL ' || pg_temp.st(v_h2) end);
+
+    -- produced → cancel → restore ก็ต้องลง in_review (ไม่ใช่ produced) · AI ร่าง → artifact draft_pending_review
+    v_prod := pg_temp.mk_approved(v_shop, 'ig_fb_post', 'facebook', false);
+    perform analytics.content_piece_advance(v_shop, v_prod, 'produced', 'owner');
+    perform analytics.content_piece_advance(v_shop, v_prod, 'cancelled', 'owner', 'ยกเลิกหลังผลิต');
+    perform analytics.content_piece_advance(v_shop, v_prod, 'restore', 'owner', 'กู้หลังผลิต');
+    v_log := v_log || pg_temp.vb('H1h', 'restore จาก cancelled ที่มาจาก produced → in_review/active (ไม่ใช่ produced)', pg_temp.st(v_prod) = 'in_review/active', pg_temp.st(v_prod));
+    v_h3 := pg_temp.mk_step(v_shop, 'ig_fb_post', 'facebook', false, 'planned');
+    perform analytics.content_piece_advance(v_shop, v_h3, 'drafting', 'owner');
+    select a.id into v_art2 from analytics.step_artifact a where a.step_id = v_h3;
+    perform analytics.campaign_set_artifact_content(v_art2, 'ร่างโดย AI สำหรับ H1');
+    perform analytics.content_piece_advance(v_shop, v_h3, 'in_review', 'ai');
+    perform pg_temp.approve_ready(v_shop, v_h3);
+    perform analytics.content_piece_advance(v_shop, v_h3, 'approved', 'owner', null, 20);
+    perform analytics.content_piece_advance(v_shop, v_h3, 'cancelled', 'owner', 'ยกเลิก AI H1');
+    perform analytics.content_piece_advance(v_shop, v_h3, 'restore', 'owner', 'กู้ AI H1');
+    v_log := v_log || pg_temp.vb('H1i', 'ชิ้นที่ AI ร่าง: approved → cancel → restore → in_review · artifact = draft_pending_review (ตาม drafted_by_ai)',
+      pg_temp.st(v_h3) = 'in_review/active' and pg_temp.art_st(v_h3) = 'draft_pending_review', pg_temp.st(v_h3) || ' ' || pg_temp.art_st(v_h3));
+
+    ----------------------------------------------------------------------------
+    -- H2: hook ours ของชิ้นที่อนุมัติแล้วแก้ไม่ได้ (ทุกทาง) · marker ใน hook ถูกนับ · ต้องไม่พัง: ปกติก่อนอนุมัติ/link_reference
+    ----------------------------------------------------------------------------
+    v_h := pg_temp.mk_approved(v_shop, 'short_clip', 'tiktok', false);    -- มี hook A/B (human)
+    select h.id into v_hook_a from analytics.content_hook h where h.step_id = v_h and h.label = 'A';
+    v_log := v_log || pg_temp.vl('H2a', 'AI content_hook_upsert เพิ่ม hook ใหม่บนชิ้นที่ approved → 55000 (SEC-H2 PoC P2)',
+      pg_temp.vx(format('select analytics.content_hook_upsert(%L::uuid,%L::uuid,null,''AI hook หลังอนุมัติ'',''story'',null,''ai'',null)', v_shop, v_h), array['55000'], 'hook'));
+    v_log := v_log || pg_temp.vl('H2b', 'owner แทนที่ hook A (p_id) บนชิ้นที่ approved → 55000 (ไม่ว่าใครเรียก — ต้องส่งกลับก่อน)',
+      pg_temp.vx(format('select analytics.content_hook_upsert(%L::uuid,%L::uuid,''A'',''แก้ hook หลังอนุมัติ'',''question'',null,''owner'',%L::uuid)', v_shop, v_h, v_hook_a), array['55000'], 'hook'));
+    v_log := v_log || pg_temp.vl('H2c', 'DML ตรงบน hook ของชิ้น approved: แก้ text / แก้ hook_type / แก้ label / ลบ → 55000 ทุกแบบ',
+      pg_temp.vx(format('update analytics.content_hook set text = ''x'' where id = %L::uuid', v_hook_a), array['55000'])
+      || pg_temp.vx(format('update analytics.content_hook set hook_type = ''warning'' where id = %L::uuid', v_hook_a), array['55000'])
+      || pg_temp.vx(format('update analytics.content_hook set label = null where id = %L::uuid', v_hook_a), array['55000'])
+      || pg_temp.vx(format('delete from analytics.content_hook where id = %L::uuid', v_hook_a), array['55000']));
+    v_log := v_log || pg_temp.vl('H2d', 'INSERT hook ours ใหม่ผูกชิ้น approved ตรง → 55000 · ย้าย hook ของชิ้นอื่นเข้ามา → 55000',
+      pg_temp.vx(format('insert into analytics.content_hook (shop_id, text, hook_type, origin, step_id, generated_by) values (%L::uuid, ''แทรก'', ''story'', ''ours'', %L::uuid, ''ai'')', v_shop, v_h), array['55000'])
+      || pg_temp.vx(format('update analytics.content_hook set step_id = %L::uuid where step_id = %L::uuid', v_h, v_nulls), array['55000']));
+    -- ต้องไม่พัง: link_reference บนชิ้น approved ผ่าน (ไม่เปลี่ยนถ้อยคำ) · hook ของชิ้นอื่น (ไม่ approved) แก้ได้ปกติ
+    v_ref_sig := analytics.content_signal_capture(v_shop, 'reference_clip', 'verify H2 คลิปอ้างอิง', 'owner',
+                   p_url => 'https://www.tiktok.com/@h2ref/video/9990001', p_hook_text => 'hook ของเขา H2', p_hook_type => 'question', p_platform => 'tiktok');
+    select h.id into v_ref_h from analytics.content_hook h where h.source_signal_id = v_ref_sig and h.origin = 'reference';
+    v_r := pg_temp.vok(format('select analytics.content_hook_link_reference(%L::uuid,%L::uuid,%L::uuid,''owner'')', v_shop, v_hook_a, v_ref_h));
+    v_log := v_log || pg_temp.vl('H2e', 'ต้องไม่พัง: content_hook_link_reference บนชิ้น approved ผ่าน (derived_from ไม่ใช่ถ้อยคำ) · ผลตรวจ 3 ด่านยัง passed',
+      v_r || case when (select count(*) from analytics.step_gate where step_id = v_h and status = 'passed') = 3 then 'OK' else 'FAIL ผลตรวจถูกล้าง' end);
+    v_r := pg_temp.vok(pg_temp.q_adv(v_shop, v_h, 'in_review', 'owner', 'ส่งกลับแก้ hook'));
+    v_t := pg_temp.vok(format('select analytics.content_hook_upsert(%L::uuid,%L::uuid,''A'',''hook A แก้แล้ว'',''question'',null,''owner'',%L::uuid)', v_shop, v_h, v_hook_a));
+    v_log := v_log || pg_temp.vl('H2f', 'ต้องไม่พัง: ส่งกลับ in_review แล้วแก้ hook ได้ปกติ (owner) · ผลตรวจถูกล้าง 3 ด่านเพราะถ้อยคำเปลี่ยน',
+      v_r || v_t || case when (select count(*) from analytics.step_gate where step_id = v_h and status = 'pending') = 3
+                         and (select text from analytics.content_hook where id = v_hook_a) = 'hook A แก้แล้ว' then 'OK'
+                         else 'FAIL gates=' || (select string_agg(status, ',') from analytics.step_gate where step_id = v_h) end);
+    -- AI แก้ hook ที่ owner แก้ไว้แล้ว (generated_by=human) แม้ใส่ marker มา = ติดกติกา 0158 (42501) — ไม่ใช่ทางเลี่ยงด่าน marker
+    v_log := v_log || pg_temp.vl('H2g', 'ส่งกลับแล้ว AI แก้ hook A (owner แก้ไว้ → human) ใส่ [ต้องยืนยัน] → 42501 ตามกติกา 0158',
+      pg_temp.vx(format('select analytics.content_hook_upsert(%L::uuid,%L::uuid,''A'',%L,''question'',null,''ai'',%L::uuid)', v_shop, v_h, 'hook มี [ต้องยืนยัน: x]', v_hook_a), array['42501']));
+  exception when others then
+    v_log := v_log || format(E'[FAIL] QA1/H1/H2a-g ABORT sqlstate=%s msg=%s\n', sqlstate, left(sqlerrm, 300));
+  end;
+  begin
+    -- ใช้ชิ้นใหม่ที่ hook เป็นของ AI เพื่อทดสอบ marker ใน hook จริง
+    v_h := pg_temp.mk_step(v_shop, 'short_clip', 'tiktok', false);
+    select h.id into v_hook_a from analytics.content_hook h where h.step_id = v_h and h.label = 'A';
+    update analytics.content_hook set generated_by = 'ai' where id = v_hook_a;
+    perform analytics.content_hook_upsert(v_shop, v_h, 'A', 'hook มีจุดไม่แน่ใจ [ต้องยืนยัน: สีไหน] ในนี้', 'question', null, 'ai', v_hook_a);
+    v_log := v_log || pg_temp.vb('H2h', 'marker ใน hook (AI ใส่) → extract เห็น (confirm_pending=1) · view.confirm_marker_in_text · blockers มีข้อ "ค้างอยู่ในข้อความ"',
+      (select confirm_pending = 1 and confirm_marker_in_text and can_approve is false from analytics.v_content_piece where step_id = v_h)
+      and array_to_string(analytics.content_piece_approve_blockers(v_h), ' ') like '%ค้างอยู่ในข้อความ%');
+    -- ชั้น 2 ล้วน: ถอดรายการออก marker ใน hook ต้องยังบล็อก
+    update analytics.content_confirm_item set removed_at = now() where step_id = v_h and resolved_at is null and removed_at is null;
+    perform pg_temp.approve_ready(v_shop, v_h);
+    v_log := v_log || pg_temp.vl('H2i', 'รายการถอดหมดแต่ marker ยังอยู่ใน hook → approve 55000 (ชั้น 2 นับ hook · ข้อบล็อกมีข้อเดียว)',
+      pg_temp.vx(pg_temp.q_adv(v_shop, v_h, 'approved', 'owner'), array['55000'], 'ค้างอยู่ในข้อความ')
+      || case when cardinality(analytics.content_piece_approve_blockers(v_h)) = 1 then 'OK' else 'FAIL ข้อบล็อกไม่ใช่ 1 ข้อ' end);
+    perform analytics.content_confirm_extract(v_shop, v_h, 'system');
+    select i.id into v_item2 from analytics.content_confirm_item i where i.step_id = v_h and i.resolved_at is null and i.removed_at is null;
+    perform pg_temp.approve_ready(v_shop, v_h);   -- resolve ทุกรายการ (แทนใน hook) + 3 ด่านผ่าน
+    v_b2 := (select position('สีไหน' in text) = 0 and position('ต้องยืนยัน' in text) = 0 and generated_by = 'human' and text like 'hook มีจุดไม่แน่ใจ %' from analytics.content_hook where id = v_hook_a)
+            and (select count(*) from analytics.step_gate where step_id = v_h and status = 'passed') = 3
+            and (select can_approve from analytics.v_content_piece where step_id = v_h);
+    v_r := pg_temp.vok(pg_temp.q_adv(v_shop, v_h, 'approved', 'owner', null, 25));
+    v_log := v_log || pg_temp.vb('H2j', 'resolve แทน marker ใน hook ได้: hook.text มีคำตอบ ไม่มี marker · generated_by = human · ผลตรวจ 3 ด่านยัง passed (คำตอบเจ้าของไม่ล้าง) · can_approve · อนุมัติผ่าน',
+      v_b2 and v_r = 'OK', v_r || ' | ' || (select text from analytics.content_hook where id = v_hook_a));
+  exception when others then
+    v_log := v_log || format(E'[FAIL] H2h-j ABORT sqlstate=%s msg=%s\n', sqlstate, left(sqlerrm, 300));
+  end;
+  begin
+    -- เปลี่ยน label/hook_type ล้วนไม่ล้างผลตรวจ · เปลี่ยน text ล้าง · (ชิ้น in_review ที่ผ่านด่านครบ)
+    v_h := pg_temp.mk_step(v_shop, 'short_clip', 'tiktok', false);
+    perform pg_temp.approve_ready(v_shop, v_h);
+    select h.id into v_hook_a from analytics.content_hook h where h.step_id = v_h and h.label = 'A';
+    update analytics.content_hook set hook_type = 'warning' where id = v_hook_a;
+    v_log := v_log || pg_temp.vb('N1', 'เปลี่ยน hook_type ล้วน (ถ้อยคำเดิม) ไม่ล้างผลตรวจ — 3 ด่านยัง passed',
+      (select count(*) from analytics.step_gate where step_id = v_h and status = 'passed') = 3);
+    update analytics.content_hook set text = 'ถ้อยคำใหม่ของ hook A' where id = v_hook_a;
+    v_log := v_log || pg_temp.vb('N2', 'แก้ text ของ hook ที่ in_review → ผลตรวจครบ 3 ด่านตกเป็น pending (รวม risk_owner) + event gate reset',
+      (select count(*) from analytics.step_gate where step_id = v_h and status = 'pending') = 3
+      and (select count(*) from analytics.content_piece_event where step_id = v_h and event_kind = 'gate' and payload ->> 'reset' = 'true') = 1);
+    -- hook เพิ่ม/ลบ ที่ in_review ก็ล้าง
+    perform pg_temp.approve_ready(v_shop, v_h);
+    perform analytics.content_hook_upsert(v_shop, v_h, null, 'hook ที่ 3 ใหม่', 'story', null, 'owner', null);
+    v_log := v_log || pg_temp.vb('N3', 'เพิ่ม hook ใหม่ที่ in_review → ล้างผลตรวจ 3 ด่าน', (select count(*) from analytics.step_gate where step_id = v_h and status = 'pending') = 3);
+    perform pg_temp.approve_ready(v_shop, v_h);
+    delete from analytics.content_hook where step_id = v_h and label is null;
+    v_log := v_log || pg_temp.vb('N4', 'ลบ hook ที่ in_review → ล้างผลตรวจ 3 ด่าน', (select count(*) from analytics.step_gate where step_id = v_h and status = 'pending') = 3);
+  exception when others then
+    v_log := v_log || format(E'[FAIL] N1-4 ABORT sqlstate=%s msg=%s\n', sqlstate, left(sqlerrm, 300));
+  end;
+  begin
+    -- SEC-M2/QA-2: ทุกสถานะที่ยังไม่ approved+ — planned (ย้อนมา) · drafting · cancelled(hook)
+    v_h := pg_temp.mk_step(v_shop, 'ig_fb_post', 'facebook', false);
+    perform pg_temp.approve_ready(v_shop, v_h);
+    select a.id into v_art from analytics.step_artifact a where a.step_id = v_h;
+    perform analytics.content_piece_advance(v_shop, v_h, 'drafting', 'owner', 'ส่งกลับแก้');
+    perform analytics.campaign_set_artifact_content(v_art, 'แก้ตอน drafting');
+    v_log := v_log || pg_temp.vb('N5', 'แก้เนื้อหาตอน drafting (ย้อนมาจาก in_review) → ผลตรวจ 3 ด่านตกเป็น pending', (select count(*) from analytics.step_gate where step_id = v_h and status = 'pending') = 3);
+    perform pg_temp.approve_ready(v_shop, v_h);
+    perform analytics.content_piece_advance(v_shop, v_h, 'planned', 'owner');
+    perform analytics.campaign_set_artifact_content(v_art, 'แก้ตอน planned');
+    v_log := v_log || pg_temp.vb('N6', 'แก้เนื้อหาตอน planned → ผลตรวจ 3 ด่านตกเป็น pending (สถานะที่ไม่ใช่ drafting/in_review)', (select count(*) from analytics.step_gate where step_id = v_h and status = 'pending') = 3);
+    perform analytics.content_piece_advance(v_shop, v_h, 'drafting', 'owner');
+    perform pg_temp.approve_ready(v_shop, v_h);
+    perform analytics.content_piece_advance(v_shop, v_h, 'cancelled', 'owner', 'ยกเลิก N7');
+    perform analytics.content_hook_upsert(v_shop, v_h, null, 'hook ใหม่ตอน cancelled', 'story', null, 'owner', null);
+    v_log := v_log || pg_temp.vb('N7', 'เพิ่ม hook ตอน cancelled → ผลตรวจ 3 ด่านตกเป็น pending', (select count(*) from analytics.step_gate where step_id = v_h and status = 'pending') = 3);
+  exception when others then
+    v_log := v_log || format(E'[FAIL] N5-7 ABORT sqlstate=%s msg=%s\n', sqlstate, left(sqlerrm, 300));
+  end;
+
+  begin
+    ----------------------------------------------------------------------------
+    -- M1: ลบชิ้นที่ "เคยอนุมัติ" ไม่ได้ แม้ย้อน/ยกเลิกไปสถานะที่ลบได้แล้ว (ประวัติการอนุมัติต้องคงอยู่)
+    ----------------------------------------------------------------------------
+    v_h := pg_temp.mk_approved(v_shop, 'ig_fb_post', 'facebook', false);
+    perform analytics.content_piece_advance(v_shop, v_h, 'in_review', 'owner', 'ย้อน M1');
+    select count(*) into v_ev0 from analytics.content_piece_event where step_id = v_h;
+    v_log := v_log || pg_temp.vl('M1a', 'step ที่เคย approved แล้วย้อนเป็น in_review: campaign_delete_step → 55000 (PoC P3) · DELETE ตรง → 55000 · ลบแคมเปญห่อ (cascade) → 55000',
+      pg_temp.vx(format('select analytics.campaign_delete_step(%L::uuid)', v_h), array['55000'], 'เคยอนุมัติ')
+      || pg_temp.vx(format('delete from analytics.campaign_step where id = %L::uuid', v_h), array['55000'], 'เคยอนุมัติ')
+      || pg_temp.vx(format('delete from analytics.campaign where id = (select campaign_id from analytics.campaign_step where id = %L::uuid)', v_h), array['55000'], 'เคยอนุมัติ'));
+    select count(*) into v_ev1 from analytics.content_piece_event where step_id = v_h;
+    v_log := v_log || pg_temp.vb('M1b', 'ประวัติ event ของชิ้นที่ลบไม่ผ่านยังอยู่ครบ (มี event advance to approved)', v_ev0 = v_ev1 and v_ev1 >= 5
+      and exists (select 1 from analytics.content_piece_event where step_id = v_h and event_kind = 'advance' and to_status = 'approved'), v_ev0 || '/' || v_ev1);
+    perform analytics.content_piece_advance(v_shop, v_h, 'cancelled', 'owner', 'ยกเลิก M1');
+    v_log := v_log || pg_temp.vl('M1c', 'เคย approved แล้ว cancelled: ลบยังไม่ได้ (ยกเลิกคือจุดสุดท้าย)',
+      pg_temp.vx(format('select analytics.campaign_delete_step(%L::uuid)', v_h), array['55000'], 'เคยอนุมัติ'));
+    -- ต้องไม่พัง: ไม่เคยอนุมัติ ลบได้ (planned · cancelled จาก in_review)
+    v_h2 := pg_temp.mk_step(v_shop, 'ig_fb_post', 'facebook', false);
+    perform analytics.content_piece_advance(v_shop, v_h2, 'cancelled', 'owner', 'ยกเลิกก่อนเคยอนุมัติ');
+    v_h3 := pg_temp.mk_step(v_shop, 'ig_fb_post', 'facebook', false, 'planned');
+    v_r := pg_temp.vok(format('select analytics.campaign_delete_step(%L::uuid)', v_h2));
+    v_t := pg_temp.vok(format('select analytics.campaign_delete_step(%L::uuid)', v_h3));
+    v_log := v_log || pg_temp.vl('M1d', 'ต้องไม่พัง: ชิ้นที่ไม่เคยอนุมัติ (in_review→cancelled · planned) ลบได้ — event cascade ไปพร้อม step',
+      v_r || v_t || case when (select count(*) from analytics.content_piece_event where step_id in (v_h2, v_h3)) = 0
+                          and not exists (select 1 from analytics.campaign_step where id in (v_h2, v_h3)) then 'OK' else 'FAIL event/step ค้าง' end);
+    -- M1e: เส้นทาง cascade (ลบชิ้นคลิป in_review ที่มี hook + ผ่านด่านครบ / ลบแคมเปญห่อของคลิป planned ที่มี hook) ต้องไม่ชน FK ของ event ที่ trigger ฝั่ง hook เขียน
+    v_h2 := pg_temp.mk_step(v_shop, 'short_clip', 'tiktok', false);
+    perform pg_temp.approve_ready(v_shop, v_h2);
+    v_h3 := pg_temp.mk_step(v_shop, 'short_clip', 'tiktok', false, 'planned');
+    perform analytics.content_hook_upsert(v_shop, v_h3, 'A', 'hook ของคลิป planned', 'question', null, 'owner', null);
+    v_r := pg_temp.vok(format('select analytics.campaign_delete_step(%L::uuid)', v_h2));
+    v_t := pg_temp.vok(format('delete from analytics.campaign where id = (select campaign_id from analytics.campaign_step where id = %L::uuid)', v_h3));
+    v_log := v_log || pg_temp.vl('M1e', 'ต้องไม่พัง (cascade): ลบคลิป in_review ที่มี hook A/B + ผ่านด่านครบ · ลบแคมเปญห่อของคลิป planned ที่มี hook — สำเร็จ ไม่ชน FK · hook/event ไปพร้อม step',
+      v_r || v_t || case when not exists (select 1 from analytics.campaign_step where id in (v_h2, v_h3))
+                          and (select count(*) from analytics.content_hook where step_id in (v_h2, v_h3)) = 0
+                          and (select count(*) from analytics.content_piece_event where step_id in (v_h2, v_h3)) = 0 then 'OK' else 'FAIL ของค้าง' end);
+  exception when others then
+    v_log := v_log || format(E'[FAIL] M1 ABORT sqlstate=%s msg=%s\n', sqlstate, left(sqlerrm, 300));
+  end;
+
+  begin
+    ----------------------------------------------------------------------------
+    -- M3: marker หลุดด้วยอักขระล่องหน/วงเล็บเต็มความกว้าง (PoC P5) · ต้องไม่พัง: ข้อความปกติ/emoji ZWJ ไม่ถูกจับ
+    ----------------------------------------------------------------------------
+    v_cases := '{}';
+    foreach v_c in array array[173, 847, 1564, 4447, 4448, 6068, 6069, 6158, 8203, 8204, 8205, 8206, 8238, 8288, 8289, 8292, 8300, 12644, 65024, 65039,
+                               65279, 65440, 917536, 917631, 160, 8195, 12288, 9] :: text[] loop
+      v_cases := v_cases || case when analytics.content_marker_present('[ต้อง' || chr(v_c::int) || 'ยืนยัน: x]') then null else 'U+' || to_hex(v_c::int) end;
+    end loop;
+    v_cases := array_remove(v_cases, null);
+    v_log := v_log || pg_temp.vb('M3a', 'content_marker_present จับ marker ที่ถูกแทรกอักขระ 28 แบบกลางคำ (SHY CGJ ALM Hangul filler Khmer MVS ZW* bidi WJ invisible-op deprecated Hangul VS FEFF tag NBSP EM-space U+3000 tab)',
+      cardinality(v_cases) = 0, 'หลุด: ' || array_to_string(v_cases, ','));
+    v_log := v_log || pg_temp.vb('M3b', 'วงเล็บเต็มความกว้าง/CJK ［］ 【】 〔〕 〖〗 ถูกจับ (และสลับชนิดวงเล็บเปิด/ปิดก็จับ) · content_marker_questions ดึงคำถามได้',
+      analytics.content_marker_present(chr(65339) || 'ต้องยืนยัน: ราคา' || chr(65341))
+      and analytics.content_marker_present(chr(12304) || 'ต้องยืนยัน: x' || chr(12305))
+      and analytics.content_marker_present(chr(12308) || 'ต้องยืนยัน: x' || chr(12309))
+      and analytics.content_marker_present(chr(12310) || 'ต้อง ยืนยัน: x' || chr(12311))
+      and analytics.content_marker_present(chr(65339) || 'ต้องยืนยัน: x]')
+      and analytics.content_marker_questions(chr(65339) || 'ต้องยืนยัน: ราคา' || chr(65341)) = array['ราคา']);
+    v_log := v_log || pg_temp.vb('M3c', 'ต้องไม่พัง: ข้อความที่ไม่ใช่ marker ไม่ถูกจับ — [ต้องตรวจ] · ต้องยืนยัน ไม่มีวงเล็บ · (ต้องยืนยัน) · emoji ครอบครัว (ZWJ) · ข้อความไทยล้วน',
+      not analytics.content_marker_present('[ต้องตรวจ]') and not analytics.content_marker_present('ต้องยืนยัน ราคา')
+      and not analytics.content_marker_present('(ต้องยืนยัน: x)') and not analytics.content_marker_present('ครอบครัว ' || v_fam || ' สุขสันต์')
+      and not analytics.content_marker_present('สร้อยข้อมือเงินแท้ 925 ราคาสบายกระเป๋า'));
+
+    -- end-to-end: ZWSP/SHY ภายในคำถาม (PoC P6 · L2) → resolve ต้องผ่าน + marker หาย
+    v_h := pg_temp.mk_step(v_shop, 'ig_fb_post', 'facebook', false);
+    select a.id into v_art from analytics.step_artifact a where a.step_id = v_h;
+    perform analytics.campaign_set_artifact_content(v_art, 'สวัสดี [ต้องยืนยัน: ราคา' || chr(8203) || chr(173) || ' 1500] จบ');
+    select i.id into v_item2 from analytics.content_confirm_item i where i.step_id = v_h and i.resolved_at is null and i.removed_at is null;
+    v_log := v_log || pg_temp.vl('L2a', 'marker ที่มี ZWSP+SHY กลางคำถาม: extract ได้รายการ → resolve สำเร็จ (เดิม 55000 "หา marker ไม่เจอ" ค้างตลอด)',
+      case when v_item2 is null then 'FAIL ไม่มีรายการ'
+           else pg_temp.vok(format('select analytics.content_confirm_resolve(%L::uuid,%L::uuid,%L,''owner'')', v_shop, v_item2, '1,500 บาท')) end);
+    v_log := v_log || pg_temp.vb('L2b', 'หลัง resolve: เนื้อหา = "สวัสดี 1,500 บาท จบ" ไม่มี marker · รายการ resolved',
+      (select content_body = 'สวัสดี 1,500 บาท จบ' from analytics.step_artifact where id = v_art)
+      and not analytics.content_marker_present((select content_body from analytics.step_artifact where id = v_art))
+      and (select resolved_at is not null from analytics.content_confirm_item where id = v_item2), (select content_body from analytics.step_artifact where id = v_art));
+    -- วงเล็บเต็มความกว้างจริงในเนื้อหา: resolve ผ่าน (แทนบนข้อความที่ strip แล้ว)
+    perform analytics.campaign_set_artifact_content(v_art, 'โปร ' || chr(65339) || 'ต้องยืนยัน: ส่วนลด' || chr(65341) || ' วันนี้');
+    select i.id into v_item2 from analytics.content_confirm_item i where i.step_id = v_h and i.resolved_at is null and i.removed_at is null;
+    if v_item2 is null then
+      v_r := 'FAIL ไม่มีรายการ';
+    else
+      v_r := pg_temp.vok(format('select analytics.content_confirm_resolve(%L::uuid,%L::uuid,%L,''owner'')', v_shop, v_item2, '10 เปอร์เซ็นต์'));
+    end if;
+    v_log := v_log || pg_temp.vl('L2c', 'marker วงเล็บเต็มความกว้าง ［ต้องยืนยัน: ส่วนลด］ ในเนื้อหา: extract + resolve สำเร็จ · marker หาย',
+      v_r || case when not analytics.content_marker_present((select content_body from analytics.step_artifact where id = v_art))
+                       and (select content_body like '%10 เปอร์เซ็นต์%' from analytics.step_artifact where id = v_art) then 'OK'
+                  else 'FAIL ' || (select content_body from analytics.step_artifact where id = v_art) end);
+    -- ต้องไม่พัง: emoji ครอบครัว (ZWJ) ในข้อความที่ resolve ปกติ ต้องไม่ถูกลอก (ไม่ strip ทั้งก้อนทุกครั้ง)
+    perform analytics.campaign_set_artifact_content(v_art, 'ครอบครัว ' || v_fam || ' ขอบคุณ [ต้องยืนยัน: ราคา] นะ');
+    select i.id into v_item2 from analytics.content_confirm_item i where i.step_id = v_h and i.resolved_at is null and i.removed_at is null;
+    perform analytics.content_confirm_resolve(v_shop, v_item2, '999 บาท', 'owner');
+    v_log := v_log || pg_temp.vb('L2d', 'ต้องไม่พัง: resolve marker ปกติ — emoji ครอบครัว (ZWJ) ในข้อความเดียวกันอยู่ครบ ไม่ถูก strip',
+      (select position(v_fam in content_body) > 0 and content_body like '%999 บาท%' from analytics.step_artifact where id = v_art), (select content_body from analytics.step_artifact where id = v_art));
+  exception when others then
+    v_log := v_log || format(E'[FAIL] M3/L2 ABORT sqlstate=%s msg=%s\n', sqlstate, left(sqlerrm, 300));
+  end;
+
+  begin
+    ----------------------------------------------------------------------------
+    -- L3: resolve ใน clip_brief แทนเฉพาะ string leaf — marker คร่อม leaf/โครง JSON ไม่ถูกจับเป็นคำถามและไม่ถูกแทน · โครง JSON ไม่เพี้ยน
+    ----------------------------------------------------------------------------
+    v_h := pg_temp.mk_step(v_shop, 'short_clip', 'tiktok', false);
+    select a.id into v_art from analytics.step_artifact a where a.step_id = v_h;
+    perform analytics.campaign_set_artifact_content(v_art, null, jsonb_build_object(
+      'segments', jsonb_build_array(jsonb_build_object('role', 'hook')),
+      'shots', jsonb_build_array(jsonb_build_object('id', 's1', 'desc', 'ก [ต้องยืนยัน: ข'),
+                                 jsonb_build_object('id', 's2', 'desc', 'ค] ง [ต้องยืนยัน: ปกติ " \ ] จบ'))));
+    select count(*), min(i.question), min(i.id::text)::uuid into v_i2, v_t, v_item2
+      from analytics.content_confirm_item i where i.step_id = v_h and i.resolved_at is null and i.removed_at is null;
+    v_log := v_log || pg_temp.vb('L3a', 'marker เปิดใน leaf หนึ่งไป ] ใน leaf อื่น: ไม่เกิดเป็นคำถามที่มีโครง JSON ปน — ได้รายการเดียว (ที่ปิดครบใน leaf เดียว) และคำถามไม่มีเครื่องหมายคำพูดโครง',
+      v_i2 = 1 and v_t = 'ปกติ " \', 'items=' || v_i2 || ' q=' || coalesce(v_t, 'null'));
+    select a.clip_brief into v_brief from analytics.step_artifact a where a.id = v_art;
+    perform analytics.content_confirm_resolve(v_shop, v_item2, 'ตอบ "ใน quote" \ สำเร็จ', 'owner');
+    v_log := v_log || pg_temp.vb('L3b', 'resolve แทนเฉพาะ leaf s2 · leaf s1 (marker ไม่ปิด) ไม่ถูกแตะ · keys/โครงเท่าเดิม · assert_clip_brief_valid ผ่าน · คำตอบมี " และ \ ถูก escape เป็น JSON ที่ถูกต้อง',
+      (select clip_brief #>> '{shots,1,desc}' = 'ค] ง ตอบ "ใน quote" \ สำเร็จ จบ' and clip_brief #>> '{shots,0,desc}' = 'ก [ต้องยืนยัน: ข'
+          and (select array_agg(k order by k) from jsonb_object_keys(clip_brief) k) = (select array_agg(k order by k) from jsonb_object_keys(v_brief) k)
+          and jsonb_array_length(clip_brief -> 'shots') = 2
+          and (select array_agg(k order by k) from jsonb_object_keys(clip_brief -> 'shots' -> 0) k) = array['desc', 'id']
+          and (select array_agg(k order by k) from jsonb_object_keys(clip_brief -> 'shots' -> 1) k) = array['desc', 'id']
+         from analytics.step_artifact where id = v_art));
+    perform analytics.assert_clip_brief_valid(clip_brief) from analytics.step_artifact where id = v_art;
+    v_log := v_log || pg_temp.vl('L3c', 'marker ที่ไม่ปิด ] ใน leaf s1 ยังบล็อกอนุมัติ (ชั้น 2) — ปฏิเสธปลอดภัย ไม่แทนข้ามโครง',
+      (select pg_temp.vx(pg_temp.q_adv(v_shop, v_h, 'approved', 'owner'), array['55000'], 'ค้างอยู่ในข้อความ')));
+  exception when others then
+    v_log := v_log || format(E'[FAIL] L3 ABORT sqlstate=%s msg=%s\n', sqlstate, left(sqlerrm, 300));
+  end;
+
+  begin
+    ----------------------------------------------------------------------------
+    -- M4: fact_check = passed ต้องมี sources (ใหม่หรือเดิม)
+    ----------------------------------------------------------------------------
+    v_h := pg_temp.mk_step(v_shop, 'ig_fb_post', 'facebook', false);
+    v_log := v_log || pg_temp.vl('M4a', 'fact_check passed (owner) ไม่มี detail → 22023 · AI ก็เช่นกัน · sources [] → 22023 · sources null → 22023',
+      pg_temp.vx(pg_temp.q_gate(v_shop, v_h, 'fact_check', 'passed', 'owner'), array['22023'], 'แหล่งอ้างอิง')
+      || pg_temp.vx(pg_temp.q_gate(v_shop, v_h, 'fact_check', 'passed', 'ai'), array['22023'], 'แหล่งอ้างอิง')
+      || pg_temp.vx(pg_temp.q_gate(v_shop, v_h, 'fact_check', 'passed', 'owner', jsonb_build_object('sources', '[]'::jsonb)), array['22023'], 'แหล่งอ้างอิง')
+      || pg_temp.vx(pg_temp.q_gate(v_shop, v_h, 'fact_check', 'passed', 'owner', jsonb_build_object('flagged', jsonb_build_array('ข้อความ'))), array['22023'], 'แหล่งอ้างอิง'));
+    v_log := v_log || pg_temp.vb('M4b', 'ปฏิเสธแล้ว ไม่มีแถว gate งอก (ทรานแซกชันของ RPC ถอยหมด)', (select count(*) from analytics.step_gate where step_id = v_h) = 0);
+    v_log := v_log || pg_temp.vl('M4c', 'ต้องไม่พัง: pending/blocked/na ของ fact_check ไม่ต้องมี sources (na โดยเจ้าของ = ตัดสินว่าไม่เกี่ยวข้อง)',
+      pg_temp.vok(pg_temp.q_gate(v_shop, v_h, 'fact_check', 'pending', 'owner'))
+      || pg_temp.vok(pg_temp.q_gate(v_shop, v_h, 'fact_check', 'blocked', 'owner', jsonb_build_object('flagged', jsonb_build_array('ราคาไม่มีที่มา'))))
+      || pg_temp.vok(pg_temp.q_gate(v_shop, v_h, 'fact_check', 'na', 'owner')));
+    v_r := pg_temp.vok(pg_temp.q_gate(v_shop, v_h, 'fact_check', 'passed', 'owner', jsonb_build_object('sources', jsonb_build_array('https://example.com/m4'))))
+        || pg_temp.vok(pg_temp.q_gate(v_shop, v_h, 'fact_check', 'pending', 'owner'))
+        || pg_temp.vok(pg_temp.q_gate(v_shop, v_h, 'fact_check', 'passed', 'owner'))
+        || pg_temp.vok(pg_temp.q_gate(v_shop, v_h, 'fact_check', 'passed', 'owner', jsonb_build_object('flagged', jsonb_build_array('หมายเหตุใหม่'))));
+    v_log := v_log || pg_temp.vl('M4d', 'passed พร้อม sources ใหม่ผ่าน · แล้ว passed ซ้ำโดยไม่ส่ง detail ผ่าน (ใช้ของเดิม) · ส่ง detail ที่มีแต่ flagged → พก sources เดิมไป (หลักฐานไม่หาย)',
+      v_r || case when (select detail -> 'sources' = '["https://example.com/m4"]'::jsonb and detail -> 'flagged' = '["หมายเหตุใหม่"]'::jsonb
+                          from analytics.step_gate where step_id = v_h and gate_kind = 'fact_check') then 'OK'
+                  else 'FAIL detail=' || (select detail::text from analytics.step_gate where step_id = v_h and gate_kind = 'fact_check') end);
+  exception when others then
+    v_log := v_log || format(E'[FAIL] M4 ABORT sqlstate=%s msg=%s\n', sqlstate, left(sqlerrm, 300));
+  end;
+
+  begin
+    ----------------------------------------------------------------------------
+    -- L1: ตั้ง GUC c2.piece_rpc เองแล้ว DML ตรงจาก service_role ต้องยังโดน guard · RPC (role เจ้าของฟังก์ชัน) ยังผ่าน (ทุก flow ข้างบน)
+    ----------------------------------------------------------------------------
+    v_h := pg_temp.mk_approved(v_shop, 'short_clip', 'tiktok', false);
+    select a.id into v_art from analytics.step_artifact a where a.step_id = v_h;
+    select h.id into v_hook_a from analytics.content_hook h where h.step_id = v_h and h.label = 'A';
+    v_cases := '{}';
+    perform set_config('c2.piece_rpc', '1', true);
+    execute 'set local role service_role';
+    -- 1 piece_status ตรง
+    begin update analytics.campaign_step set piece_status = 'posted' where id = v_h; v_cases := v_cases || 'step.piece_status'::text;
+    exception when sqlstate '55000' then null; end;
+    -- 2 status ตรง
+    begin update analytics.campaign_step set status = 'done' where id = v_h; v_cases := v_cases || 'step.status'::text;
+    exception when sqlstate '55000' then null; end;
+    -- 3 artifact status ตรง
+    begin update analytics.step_artifact set status = 'blocked' where id = v_art; v_cases := v_cases || 'artifact.status'::text;
+    exception when sqlstate '55000' then null; end;
+    -- 4 artifact content ตรง
+    begin update analytics.step_artifact set content_body = 'แก้ตรง' where id = v_art; v_cases := v_cases || 'artifact.content'::text;
+    exception when sqlstate '55000' then null; end;
+    -- 5 artifact DELETE ตรง
+    begin delete from analytics.step_artifact where id = v_art; v_cases := v_cases || 'artifact.delete'::text;
+    exception when sqlstate '55000' then null; end;
+    -- 6 hook text ตรง
+    begin update analytics.content_hook set text = 'แก้ตรง' where id = v_hook_a; v_cases := v_cases || 'hook.text'::text;
+    exception when sqlstate '55000' then null; end;
+    -- 7 INSERT artifact เข้าชิ้น approved
+    begin insert into analytics.step_artifact (step_id, shop_id, artifact_type, owner_role, status) values (v_h, v_shop, 'fb_post', 'owner', 'todo'); v_cases := v_cases || 'artifact.insert'::text;
+    exception when sqlstate '55000' then null; end;
+    -- 8 content_type ตรง
+    begin update analytics.campaign_step set content_type_code = 'knowledge' where id = v_h; v_cases := v_cases || 'step.content_type'::text;
+    exception when sqlstate '55000' then null; end;
+    -- 9 ล้าง hold/blocked ตรง
+    begin update analytics.campaign_step set hold_reason = 'x' where id = v_h; v_cases := v_cases || 'step.hold_reason'::text;
+    exception when sqlstate '55000' then null; end;
+    execute 'reset role';
+    perform set_config('c2.piece_rpc', '', true);
+    v_log := v_log || pg_temp.vb('L1a', 'service_role ตั้ง GUC c2.piece_rpc=1 เอง แล้ว DML ตรง 9 ทาง (piece_status · status · artifact status/เนื้อหา/ลบ/เพิ่ม · hook text · content_type · hold_reason) → โดน 55000 ครบทุกทาง',
+      cardinality(v_cases) = 0, 'หลุด: ' || array_to_string(v_cases, ','));
+    v_log := v_log || pg_temp.vb('L1b', 'หลัง L1a ข้อมูลชิ้นไม่ขยับ (approved/active · artifact approved) · GUC ไม่ค้าง',
+      pg_temp.st(v_h) = 'approved/active' and pg_temp.art_st(v_h) = 'approved' and coalesce(current_setting('c2.piece_rpc', true), '') <> '1', pg_temp.st(v_h));
+    -- ต้องไม่พัง: ช่องทางที่ตั้งใจ (RPC) ยังข้าม guard ได้ตามปกติ — ส่งกลับ แก้ผ่าน resolve/hook upsert/set_plan/advance (ทดสอบโดยรวมแล้วใน flow ข้างบน) + ซ้ำแบบเจาะจง:
+    v_log := v_log || pg_temp.vl('L1c', 'ต้องไม่พัง: RPC (เจ้าของฟังก์ชัน ตั้ง GUC เอง) ยังทำงาน — ส่งกลับแล้ว advance/cancel/restore/set_plan ผ่านทั้งหมด',
+      pg_temp.vok(pg_temp.q_adv(v_shop, v_h, 'in_review', 'owner', 'ส่งกลับ L1'))
+      || pg_temp.vok(pg_temp.q_adv(v_shop, v_h, 'cancelled', 'owner', 'ยกเลิก L1'))
+      || pg_temp.vok(pg_temp.q_adv(v_shop, v_h, 'restore', 'owner', 'กู้ L1'))
+      || pg_temp.vok(pg_temp.q_plan(v_shop, v_h, jsonb_build_object('hypothesis', 'ตั้งสมมติฐาน L1'), 'owner')));
+    -- L1d/L1e: ทางล้างผลตรวจ (trigger ฝั่งเนื้อหา) ก็ต้องไม่ถูก GUC ที่ service_role ตั้งเองข้าม — ไม่งั้นตั้ง GUC แล้วแก้ข้อความ
+    -- ชิ้น in_review ที่ผ่านด่านครบ โดยผลตรวจไม่ตก (ด่านชั้นเนื้อหาที่ guard ฝั่งชิ้นที่ล็อกไม่ครอบ)
+    v_h2 := pg_temp.mk_step(v_shop, 'ig_fb_post', 'facebook', false);
+    perform pg_temp.approve_ready(v_shop, v_h2);
+    select a.id into v_art2 from analytics.step_artifact a where a.step_id = v_h2;
+    v_h3 := pg_temp.mk_step(v_shop, 'short_clip', 'tiktok', false);
+    perform pg_temp.approve_ready(v_shop, v_h3);
+    select h.id into v_hook_a from analytics.content_hook h where h.step_id = v_h3 and h.label = 'A';
+    perform set_config('c2.piece_rpc', '1', true);
+    execute 'set local role service_role';
+    update analytics.step_artifact set content_body = 'แก้ตรงโดยตั้ง GUC เอง' where id = v_art2;
+    update analytics.content_hook set text = 'แก้ hook ตรงโดยตั้ง GUC เอง' where id = v_hook_a;
+    execute 'reset role';
+    perform set_config('c2.piece_rpc', '', true);
+    v_log := v_log || pg_temp.vb('L1d', 'service_role ตั้ง GUC เองแล้วแก้เนื้อหา artifact ตรง (ชิ้น in_review) → ผลตรวจ 3 ด่านยังตกเป็น pending (trigger ฝั่ง artifact ไม่เชื่อ GUC ของ role นี้)',
+      (select count(*) from analytics.step_gate where step_id = v_h2 and status = 'pending') = 3);
+    v_log := v_log || pg_temp.vb('L1e', 'service_role ตั้ง GUC เองแล้วแก้ text ของ hook ตรง (ชิ้น in_review) → ผลตรวจ 3 ด่านยังตกเป็น pending (trigger ฝั่ง hook ไม่เชื่อ GUC ของ role นี้)',
+      (select count(*) from analytics.step_gate where step_id = v_h3 and status = 'pending') = 3);
+  exception when others then
+    execute 'reset role';
+    perform set_config('c2.piece_rpc', '', true);
+    v_log := v_log || format(E'[FAIL] L1 ABORT sqlstate=%s msg=%s\n', sqlstate, left(sqlerrm, 300));
+  end;
+
+  begin
+    ----------------------------------------------------------------------------
+    -- L4: เส้นทางเดิม — เปลี่ยน content_type / เพิ่มเอกสารเข้าชิ้น approved/produced/posted · ย้ายเอกสารเข้า/ออก workflow
+    ----------------------------------------------------------------------------
+    v_h := pg_temp.mk_approved(v_shop, 'ig_fb_post', 'facebook', false);                  -- approved
+    v_prod := pg_temp.mk_approved(v_shop, 'ig_fb_post', 'facebook', false);
+    perform analytics.content_piece_advance(v_shop, v_prod, 'produced', 'owner');          -- produced
+    v_line := pg_temp.mk_approved(v_shop, 'line_message', 'line_oa', false);
+    perform analytics.content_piece_advance(v_shop, v_line, 'posted', 'owner');            -- posted
+    v_log := v_log || pg_temp.vl('L4a', 'campaign_step_set_content_type บนชิ้น approved / produced / posted → 55000',
+      pg_temp.vx(format('select analytics.campaign_step_set_content_type(%L::uuid,%L::uuid,''knowledge'')', v_shop, v_h), array['55000'], 'ประเภท content')
+      || pg_temp.vx(format('select analytics.campaign_step_set_content_type(%L::uuid,%L::uuid,''knowledge'')', v_shop, v_prod), array['55000'], 'ประเภท content')
+      || pg_temp.vx(format('select analytics.campaign_step_set_content_type(%L::uuid,%L::uuid,''knowledge'')', v_shop, v_line), array['55000'], 'ประเภท content'));
+    v_log := v_log || pg_temp.vl('L4b', 'INSERT step_artifact เข้าชิ้น approved / produced / posted → 55000',
+      pg_temp.vx(format('insert into analytics.step_artifact (step_id, shop_id, artifact_type, owner_role, status) values (%L::uuid, %L::uuid, ''fb_post'', ''owner'', ''todo'')', v_h, v_shop), array['55000'], 'เพิ่มเอกสาร')
+      || pg_temp.vx(format('insert into analytics.step_artifact (step_id, shop_id, artifact_type, owner_role, status) values (%L::uuid, %L::uuid, ''fb_post'', ''owner'', ''todo'')', v_prod, v_shop), array['55000'], 'เพิ่มเอกสาร')
+      || pg_temp.vx(format('insert into analytics.step_artifact (step_id, shop_id, artifact_type, owner_role, status) values (%L::uuid, %L::uuid, ''fb_post'', ''owner'', ''todo'')', v_line, v_shop), array['55000'], 'เพิ่มเอกสาร'));
+    v_log := v_log || pg_temp.vb('L4c', 'ไม่มีเอกสารงอกในชิ้นที่ล็อก (ยังมี artifact เดียวต่อชิ้น)',
+      (select count(*) from analytics.step_artifact where step_id in (v_h, v_prod, v_line)) = 3);
+    -- ต้องไม่พัง: เปลี่ยน content_type บนชิ้นที่ยังไม่อนุมัติ + เพิ่มเอกสารเข้าชิ้น in_review/planned ผ่าน
+    v_h2 := pg_temp.mk_step(v_shop, 'ig_fb_post', 'facebook', false);
+    v_h3 := pg_temp.mk_step(v_shop, 'ig_fb_post', 'facebook', false, 'planned');
+    v_log := v_log || pg_temp.vl('L4d', 'ต้องไม่พัง: content_type บนชิ้น in_review/planned ตั้งได้ · เพิ่มเอกสารเข้าชิ้น in_review ได้',
+      pg_temp.vok(format('select analytics.campaign_step_set_content_type(%L::uuid,%L::uuid,''knowledge'')', v_shop, v_h2))
+      || pg_temp.vok(format('select analytics.campaign_step_set_content_type(%L::uuid,%L::uuid,''knowledge'')', v_shop, v_h3))
+      || pg_temp.vok(format('insert into analytics.step_artifact (step_id, shop_id, artifact_type, owner_role, status) values (%L::uuid, %L::uuid, ''teaser_image'', ''owner'', ''todo'')', v_h2, v_shop)));
+    -- (mutant 5) ย้าย artifact ออก/เข้า step ใน workflow
+    v_log := v_log || pg_temp.vl('L4e', 'ย้าย artifact ของชิ้นใน workflow ไปไว้ step นอก workflow → 55000 · ย้าย artifact ของ step นอก workflow เข้าชิ้นใน workflow → 55000',
+      pg_temp.vx(format('update analytics.step_artifact set step_id = %L::uuid where id = (select id from analytics.step_artifact where step_id = %L::uuid order by created_at limit 1)', v_nulls, v_h2), array['55000'], 'ย้ายเอกสาร')
+      || pg_temp.vx(format('update analytics.step_artifact set step_id = %L::uuid where id = %L::uuid', v_h2, v_nulla), array['55000'], 'ย้ายเอกสาร'));
+    -- (mutant 2) ลบ artifact ตรงของชิ้น approved
+    v_log := v_log || pg_temp.vl('L4f', 'DELETE step_artifact ตรง ของชิ้น approved → 55000 (branch DELETE ของ guard)',
+      pg_temp.vx(format('delete from analytics.step_artifact where step_id = %L::uuid', v_h), array['55000'], 'ลบเอกสาร'));
+  exception when others then
+    v_log := v_log || format(E'[FAIL] L4 ABORT sqlstate=%s msg=%s\n', sqlstate, left(sqlerrm, 300));
+  end;
+
+  begin
+    ----------------------------------------------------------------------------
+    -- Channel (Tech Lead): short_clip คู่ tiktok_live ยอมรับ · live_cut ยัง tiktok เท่านั้น · คลิปจริง 13 ชิ้นผ่านตารางโดยไม่ต้องแก้ channel
+    ----------------------------------------------------------------------------
+    v_log := v_log || pg_temp.vb('C1', 'kind↔channel: short_clip+tiktok_live ✓ · short_clip+tiktok ✓ · live_cut+tiktok_live ✗ · short_clip+line_oa ✗ · ig_fb_post+tiktok_live ✗',
+      analytics.content_piece_kind_channel_ok_('short_clip', 'tiktok_live') and analytics.content_piece_kind_channel_ok_('short_clip', 'tiktok')
+      and not analytics.content_piece_kind_channel_ok_('live_cut', 'tiktok_live') and not analytics.content_piece_kind_channel_ok_('short_clip', 'line_oa')
+      and not analytics.content_piece_kind_channel_ok_('ig_fb_post', 'tiktok_live'));
+    select count(*) filter (where not analytics.content_piece_kind_channel_ok_(s.piece_kind, s.channel)), count(*) filter (where s.piece_kind = 'short_clip' and s.channel = 'tiktok_live')
+      into v_n, v_n2
+      from analytics.campaign_step s where s.piece_status is not null and s.created_at < now() - interval '1 minute';
+    v_log := v_log || pg_temp.vb('C2', 'ชิ้นจริงหลัง backfill: ไม่มีคู่ kind↔channel ที่ผิดตาราง (เดิม 13 คลิป tiktok_live ไม่ตรง) · พบคลิป tiktok_live ' || v_n2 || ' ชิ้น',
+      v_n = 0, 'ผิดตาราง ' || v_n);
+    v_log := v_log || pg_temp.vl('C3', 'create short_clip + tiktok_live ผ่าน · create live_cut + tiktok_live → 22023 · set_plan เปลี่ยน channel เป็น line_oa บนคลิป → 22023',
+      pg_temp.vok(format('select analytics.content_piece_create(%L::uuid,''verify C3'',''short_clip'',''tiktok_live'',''jewelry_925'',''owner'')', v_shop))
+      || pg_temp.vx(format('select analytics.content_piece_create(%L::uuid,''verify C3b'',''live_cut'',''tiktok_live'',''jewelry_925'',''owner'')', v_shop), array['22023'], 'ใช้กับช่องทาง')
+      || pg_temp.vx(pg_temp.q_plan(v_shop, v_h3, jsonb_build_object('piece_kind', 'short_clip', 'channel', 'line_oa'), 'owner'), array['22023'], 'ใช้กับช่องทาง'));
+
+    ----------------------------------------------------------------------------
+    -- QA notes: can_approve เป็น false นอก in_review / ขณะ hold · true เมื่อพร้อมจริง
+    ----------------------------------------------------------------------------
+    select count(*) into v_n from analytics.v_content_piece where piece_status <> 'in_review' and can_approve;
+    v_log := v_log || pg_temp.vb('CA1', 'v_content_piece.can_approve = false ทุกแถวที่ไม่ใช่ in_review (idea/planned/drafting/approved/produced/posted/cancelled)', v_n = 0, 'ผิด ' || v_n);
+    v_h := pg_temp.mk_step(v_shop, 'ig_fb_post', 'facebook', false);
+    perform pg_temp.approve_ready(v_shop, v_h);
+    select can_approve into v_b2 from analytics.v_content_piece where step_id = v_h;
+    perform analytics.content_piece_advance(v_shop, v_h, 'hold', 'owner', 'รอข้อมูลเพิ่ม CA');
+    v_t := pg_temp.vx(pg_temp.q_adv(v_shop, v_h, 'approved', 'owner'), array['55000'], 'resume');
+    v_b3 := (select can_approve from analytics.v_content_piece where step_id = v_h);
+    perform analytics.content_piece_advance(v_shop, v_h, 'resume', 'owner');
+    v_log := v_log || pg_temp.vb('CA2', 'in_review พร้อมอนุมัติ → can_approve = true · เมื่อ hold → false (RPC ก็ปฏิเสธตอน hold) · resume → true',
+      v_b2 and v_t like 'OK%' and v_b3 is false and (select can_approve from analytics.v_content_piece where step_id = v_h),
+      format('ก่อน hold=%s · ระหว่าง hold=%s · RPC=%s', v_b2, v_b3, left(v_t, 30)));
+    v_log := v_log || pg_temp.vb('CA3', 'ชิ้น drafting/planned ที่ไม่มีข้อบล็อก (ผ่านด่านครบ) ก็ can_approve = false — ไม่เป็น true ผิดสถานะ',
+      not (select can_approve from analytics.v_content_piece where step_id = v_h3), pg_temp.st(v_h3));
+  exception when others then
+    v_log := v_log || format(E'[FAIL] C/CA ABORT sqlstate=%s msg=%s\n', sqlstate, left(sqlerrm, 300));
+  end;
+  exception when others then
+    v_log := v_log || format(E'[FAIL] SEC ABORT (บล็อกนอก) sqlstate=%s msg=%s\n', sqlstate, left(sqlerrm, 300));
+  end;
 
   ----------------------------------------------------------------------------
   -- X37: เรียกฟังก์ชันใหม่ทุกตัวจาก role authenticated (หลังจำลองกำแพงชั้นนอกหลุด — 3j-migration-traps 18.5)

@@ -19,36 +19,70 @@
 --   4. content_hook: ผ่อน CHECK ให้ reference ไม่ต้องมี hook_type · derived_from_hook_id · unique กันซ้ำ ·
 --      trigger mirror (signal.hook_text → hook origin=reference) · trigger กันลบสัญญาณที่มี hook ถอดโครงอ้างอิง
 --   5. ตารางใหม่: content_piece_event (append-only) · content_confirm_item
---   6. trigger ปิดเส้นทางเดิม (R4) 4 ตัว + trigger ล้างผลตรวจเมื่อเนื้อหาเปลี่ยน (ผ่าน GUC c2.piece_rpc)
+--   6. trigger ปิดเส้นทางเดิม (R4) 5 ตัว (artifact · step · step-delete · hook · INSERT artifact) + trigger ล้างผลตรวจเมื่อ
+--      เนื้อหา (artifact หรือ hook) เปลี่ยน (ผ่าน GUC c2.piece_rpc — ข้ามได้เฉพาะ role ภายในของ RPC · ดูข้อ P)
 --   7. RPC: content_piece_create · content_signal_pick · content_piece_set_plan · content_piece_advance (+ helper
 --      content_piece_transition_) · content_gate_record · content_confirm_extract (+ internal) · content_confirm_resolve ·
 --      content_hook_reference_upsert/_delete · content_hook_link_reference
 --   8. view v_content_piece (view ใหม่ตัวเดียว — ไม่แตะ view เดิมเลย · trap #3)
 --   9. backfill 26 step ต.ค. (do-block เดียว · ปิด trigger คร่อม · trap #19) + extract 13 ชิ้น + event create 26 แถว
 --
--- 🔴 ตัดสินใจเองนอก design (เหตุผลอยู่ที่จุดนั้น + สรุปส่งมอบ):
+-- 🔴 ตัดสินใจเองนอก design (เหตุผลอยู่ที่จุดนั้น + สรุปส่งมอบ) · รอบแก้ตาม security NO-GO + QA FAIL (7 ต.ค. 69) ระบุ [รอบแก้]:
 --   A  trigger กัน artifact (R4 ข้อ 1) ปล่อยให้ status ขยับภายในกลุ่ม todo/draft/draft_pending_review ได้
 --      (ไม่ใช่ "ทุก status change = raise" ตามตัวอักษร §12.5) เพราะ K6 บังคับให้ campaign_ai_draft_artifact
 --      ทำงานบน step drafting ซึ่ง artifact เป็น todo → draft_pending_review · ด่านจริงอยู่ที่ approved/done/blocked
 --      (เข้า/ออก) และ piece ที่ approved/produced/posted (ทุก status/เนื้อหา) — mutant "set approved ตรง" ยังล้ม
+--      [รอบแก้ L4] INSERT step_artifact เข้า step ที่ approved/produced/posted = 55000 · ย้าย artifact เข้า/ออก step ใน workflow = 55000
 --   B  ติ๊ก shot (campaign_toggle_clip_shot) ไม่นับเป็น "เนื้อหาเปลี่ยน": เทียบ clip_brief หลังตัด shots[].done ·
 --      K5 ให้ทำงานบน step approved ได้ (รอบถ่ายต้องติ๊กได้) และไม่ล้างผลตรวจ
---   C  ตรวจ marker ผ่าน helper เดียว content_marker_* (ตัด bidi/zero-width ก่อน · ยอมช่องว่างระหว่าง ต้อง/ยืนยัน ·
---      ยอม : หรือ ：) ใช้ร่วมกัน extract / approve ชั้น 2 / view ⇒ สูตรเดียว (X39 โดยโครงสร้าง) · กัน AI แทรกอักขระล่องหน
---   D  อนุมัติใช้ฟังก์ชันเดียว content_piece_approve_blockers() ทั้ง RPC และ view (can_approve = ไม่มีข้อบล็อก)
+--   C  ตรวจ marker ผ่าน helper เดียว content_marker_* ใช้ร่วมกัน extract / approve ชั้น 2 / view ⇒ สูตรเดียว (X39 โดยโครงสร้าง)
+--      content_marker_strip ตัดอักขระล่องหน (bidi · zero-width · soft hyphen · CGJ · variation selector · tag char ·
+--      Hangul filler) + แปลงวงเล็บเต็มความกว้าง/CJK ［］【】〔〕〖〗 เป็น [] ก่อนตรวจ (ไม่แก้ข้อความจริงที่เก็บ) · ยอมช่องว่างทุกชนิดระหว่าง
+--      ต้อง/ยืนยัน · ยอม : หรือ ：
+--      [รอบแก้ M3] ชุดอักขระขยายตาม PoC ของ security (SHY/CGJ/VS/tag char/วงเล็บเต็มความกว้าง) — ใช้ \uXXXX / \UXXXXXXXX (ARE ของ PG
+--      ใช้ได้จริง ตรวจบน PG 17 แล้ว) ไม่ใช้อักขระดิบในไฟล์
+--      [รอบแก้ H2/L3] marker นับจาก 3 แหล่ง: content_body · string leaf ของ clip_brief (ทีละ leaf — marker คร่อม key/โครง JSON
+--      ไม่ถูกนับเป็นคำถามเดียว) · text ของ hook ours ที่ผูกชิ้น
+--      [รอบแก้ L2] content_confirm_resolve แทนบนข้อความจริงก่อน · ถ้าคำถามนี้ยังเหลือ (อักขระล่องหน/วงเล็บเต็มความกว้าง) จึงแทนบน
+--      content_marker_strip(raw) (ไม่ strip ทั้งก้อนทุกครั้ง — กัน emoji ZWJ/VS16 ในข้อความที่ไม่เกี่ยวถูกลอก) ·
+--      [รอบแก้ L3] clip_brief แทนทีละ string leaf เท่านั้น (content_piece_brief_replace_) ไม่ regex ข้ามโครง JSON
+--   D  อนุมัติใช้ฟังก์ชันเดียว content_piece_approve_blockers() ทั้ง RPC และ view
+--      [รอบแก้ QA notes] v_content_piece.can_approve = (piece_status = 'in_review' และไม่ hold และไม่มีข้อบล็อก) — เดิมเป็น true ได้ในทุกสถานะ
 --   E  trigger guard step ครอบ INSERT (piece_status ใหม่ต้องมาจาก RPC) + hold_reason + artifact DELETE ของชิ้นที่อนุมัติแล้ว
+--      [รอบแก้ L4] guard step ปฏิเสธ content_type_code เปลี่ยนบนชิ้นที่ approved/produced/posted (campaign_step_set_content_type)
 --   F  content_piece_event.seq (identity) — now() คงที่ทั้งทรานแซกชัน เรียงด้วย created_at ไม่ได้ (trap #22)
 --      · trigger append-only ยอมลบเฉพาะตอน cascade จากการลบ step (ไม่งั้น campaign_delete_step ของ idea พัง)
+--      [รอบแก้ M1] guard ลบ step ปฏิเสธเมื่อ "เคยอนุมัติ" (มี event ที่ to_status เป็น approved/produced/posted — ไม่ใช่ดูแค่สถานะ
+--      ปัจจุบัน) ⇒ ย้อน/ยกเลิกแล้วลบเพื่อล้างประวัติการอนุมัติไม่ได้ · ชิ้นที่ไม่เคยอนุมัติ ลบได้เหมือนเดิม (cascade ลบ event create)
 --   G  gate_record: ai/system ตั้ง 'na' ไม่ได้ (42501) — "ไม่เกี่ยวข้อง" เป็นการตัดสิน ไม่ใช่ผลตรวจ
+--      [รอบแก้ M4] fact_check = passed ต้องมี detail.sources ≥ 1 ลิงก์ (ใหม่หรือเดิมที่เก็บไว้) ไม่งั้น 22023 · detail ที่ส่งมาไม่มี sources
+--      จะพก sources เดิมไปด้วย (ไม่ให้ผ่านแล้วหลักฐานหาย)
 --   H  approved → posted ข้าม produced: คลิป (short_clip/live_cut) ต้อง footage_status in (has_footage, shot) ·
 --      ig_fb_post ต้องไม่ใช่ needs_shoot · line/story ผ่านเสมอ (null ของคลิป = ยังไม่รู้ ⇒ ไม่ปล่อย)
---   I  kind↔channel ตรวจเฉพาะตอนสร้าง หรือเมื่อ set_plan แตะ piece_kind/channel (backfill 13 คลิปมี channel
---      'tiktok_live' คู่ short_clip ซึ่งไม่ตรงตาราง — ไม่ให้ทุก set_plan ล้มเพราะคู่เก่า · เจ้าของตั้ง channel ใหม่เอง)
+--   I  kind↔channel ตรวจเฉพาะตอนสร้าง หรือเมื่อ set_plan แตะ piece_kind/channel
+--      [รอบแก้ Tech Lead] ตารางยอมรับ short_clip คู่ tiktok_live ด้วย (เฉพาะ short_clip — live_cut ยัง tiktok เท่านั้น) เพราะ 13 คลิป ต.ค.
+--      ที่ backfill มี channel 'tiktok_live' อยู่แล้ว · ไม่เขียนทับ channel เดิม (เจ้าของไม่ต้องไล่แก้ 13 ชิ้น) · ช่องทางอื่นของคลิปยังไม่ผ่าน
 --   K  มติเจ้าของ 7 ต.ค. 69 (Q8 — เปลี่ยนจากสเปก §12.11): ยกเลิกชิ้น (advance cancelled) → สัญญาณที่ picked_step_id ชี้ชิ้นนี้
 --      กลับเป็น new + ล้าง picked_step_id ในทรานแซกชันเดียว (id เก็บใน payload.signal_ids ของ event cancel) · สัญญาณที่ถูกหยิบ
 --      ไปชิ้นอื่นแล้วไม่แตะ · restore ผูกสัญญาณเดิมกลับเฉพาะเมื่อยังว่าง (new + ไม่ผูกชิ้นไหน) ไม่งั้นกู้ชิ้นโดยไม่มีสัญญาณต้นทาง
 --      (ไม่ปฏิเสธการกู้ — สัญญาณ 1 ตัวไม่มีทางผูก 2 ชิ้น) · Q6/Q7/D9 ตามสเปกเดิม
 --   J  gate_record/confirm_resolve/set_plan ตั้งได้เฉพาะสถานะที่ตรรกะเปิดให้ (ดูเมธอด) ข้อความ 55000 บอกทางออก
+--   L  [รอบแก้ H1] restore จาก cancelled ที่ยกเลิกมาจาก approved/produced → ลง in_review เสมอ (artifact → draft_pending_review ถ้า AI ร่าง /
+--      draft ถ้าคน) ต้องอนุมัติใหม่ — เดิมกลับ approved ตรงๆ ⇒ ยกเลิก→แก้เนื้อหา→กู้คืน ได้ approved ทั้งที่เนื้อหาเปลี่ยน ·
+--      restore ทุกครั้งที่ลง drafting/in_review รัน extract ทันที (QA-3: marker ที่ใส่ตอน cancelled ต้องมีรายการให้ตอบ)
+--   M  [รอบแก้ H2] hook ours ที่ผูกชิ้นถูกคุมเหมือน artifact: trigger trg_content_hook_piece_guard (INSERT/UPDATE/DELETE) ปฏิเสธ
+--      เมื่อชิ้น approved/produced/posted และ text/hook_type/label/step เปลี่ยน (หรือเพิ่ม/ลบ) — content_hook_upsert (0158) ถูกกันโดยไม่ต้อง replace ·
+--      approve_blockers + extract + view นับ [ต้องยืนยัน] ใน hook ด้วย · resolve แทน marker ใน hook ได้ (generated_by → human)
+--   N  [รอบแก้ M2/QA-2] เนื้อหา (artifact หรือ hook) เปลี่ยนในทุกสถานะที่ยังไม่ approved/produced/posted (idea · planned · drafting ·
+--      in_review · cancelled) → ผลตรวจ fact_check · brand_rule · risk_owner ที่ passed/na ตกเป็น pending ทั้งสามด่าน (Tech Lead ตัดสิน: ด่านความเสี่ยง
+--      ขึ้นกับถ้อยคำ เจ้าของต้องตอบซ้ำ) · hook: นับเฉพาะเพิ่ม/ลบ/แก้ text/ย้าย step (เปลี่ยน label/hook_type ล้วนไม่ล้าง — ถ้อยคำเดิม)
+--      trigger ฝั่งเนื้อหาเป็น security invoker เรียก content_piece_invalidate_ (definer) — ให้เช็ค role ภายในได้ (ข้อ P)
+--   O  [รอบแก้ QA-1 blocker] ทุกจุดที่เทียบ piece_status ด้วย not in / <> จัดการ null แล้ว: step ก่อน workflow (piece_status null) แก้เนื้อหา/AI ร่างได้
+--      ตามเดิม (เดิม `null not in (...)` = null ⇒ ตกไป extract แล้ว 22023 ทุกครั้ง)
+--   P  [รอบแก้ L1] ข้าม guard ด้วย GUC c2.piece_rpc='1' ได้เฉพาะเมื่อ current_user ไม่ใช่ service_role/authenticated/anon (RPC definer รันเป็นเจ้าของฟังก์ชัน
+--      ⇒ ผ่าน · DML ตรงจาก service_role ที่ตั้ง GUC เองไม่ผ่าน) — ไม่ใช้ ENABLE ALWAYS · ⚠️ ผู้ถือ role เจ้าของฟังก์ชัน (postgres) ยังข้ามได้ (นอกขอบเขตที่กันได้)
+--   Q  ข้อจำกัดที่รู้ตัว (ไม่ได้ปิดในไฟล์นี้): TOCTOU ระหว่าง "อนุมัติ" กับ "แก้เนื้อหาผ่านเส้นทางเดิมพร้อมกัน" — trigger ฝั่งเนื้อหาไม่ล็อก step
+--      (ล็อกจะสลับลำดับกับ transition_ ⇒ deadlock) · ต้องเพิ่ม advisory lock ทั้งสองฝั่งถ้าจะปิด
 --
 -- Grant model (3j-migration-traps #18): ทุก object ใหม่ grant ให้ service_role อย่างเดียว · revoke ครบสามชื่อ
 -- (public/anon/authenticated) · ตาราง RLS on + tenant_isolation_select · เขียนผ่าน RPC security definer เท่านั้น
@@ -444,14 +478,23 @@ as $f$
   select regexp_replace(coalesce(p_text, ''), '([\\.^$|()\[\]{}*+?])', '\\\1', 'g')
 $f$;
 
--- ตัด bidi/zero-width ออกจากข้อความก่อนหา marker (กัน AI แทรกอักขระล่องหนกลาง "[ต้อง​ยืนยัน") — ไม่แก้ข้อความจริง
+-- ตัดอักขระล่องหน + ทำให้วงเล็บเป็นรูปมาตรฐาน "ก่อนหา marker" (กัน AI แทรกอักขระล่องหนกลาง "[ต้อง...ยืนยัน") — ไม่แก้ข้อความจริงที่เก็บ
+-- ชุดที่ตัด (เขียนเป็น escape ไม่ใช้อักขระดิบ): soft hyphen 00AD · CGJ 034F · ALM 061C · Hangul filler 115F 1160 3164 FFA0 ·
+-- Khmer inherent vowel 17B4-17B5 · Mongolian vowel sep 180E · zero-width/bidi 200B-200F 202A-202E · word joiner/invisible ops/
+-- deprecated format 2060-206F · variation selector FE00-FE0F · BOM FEFF · tag chars E0000-E007F · วงเล็บเต็มความกว้าง/CJK → [ ]
+-- (ช่องว่างหลายแบบ NBSP/U+3000/U+2003 — \s ของ PG จับได้เองตาม locale en_US.UTF-8 · ตรวจบน DB แล้ว)
+-- ⚠️ ใช้เพื่อ "ตรวจ/ดึงคำถาม" เท่านั้น — ถ้านำไปแทนข้อความที่เก็บจะลอก ZWJ/VS16 ของ emoji ด้วย (ดู content_confirm_resolve)
 create or replace function analytics.content_marker_strip(p_text text)
  returns text
  language sql
  immutable
  set search_path to 'public', 'pg_temp'
 as $f$
-  select regexp_replace(coalesce(p_text, ''), '[​-‏‪-‮⁠-⁤⁦-⁩﻿]', '', 'g')
+  select translate(
+           regexp_replace(coalesce(p_text, ''),
+             '[\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180E\u200B-\u200F\u202A-\u202E\u2060-\u206F\u3164\uFE00-\uFE0F\uFEFF\uFFA0\U000E0000-\U000E007F]',
+             '', 'g'),
+           '［【〔〖］】〕〗', '[[[[]]]]')
 $f$;
 
 -- มี marker [ต้องยืนยัน ไหม — "สูตรเดียว" ของ approve ชั้นสอง (ทนช่องว่างระหว่างคำ) · ไม่ต้องมี ] ปิด (ขึ้นต้นก็บล็อก)
@@ -477,6 +520,64 @@ as $f$
     from regexp_matches(analytics.content_marker_strip(p_text),
                         '\[\s*ต้อง\s*ยืนยัน\s*[:：]?\s*([^\]]*)\]', 'g') as m
   ) t
+$f$;
+
+-- string leaf ทุกตัวของ clip_brief (ค่าที่ถอดรหัสแล้ว · ไม่รวม key) — marker/คำถามต้องอยู่ภายใน leaf เดียว (ตัดสินใจ C/L3):
+-- เดิมค้นบน clip_brief::text ทั้งก้อน ⇒ [ต้องยืนยัน ที่เปิดใน leaf หนึ่งแล้วปิด ] ใน leaf อื่นให้ "คำถาม" ที่มีโครง JSON ปนอยู่
+-- และ resolve ต้องแทนข้ามโครง · strict: ไม่ให้ lax unwrap array ซ้ำ (ได้ leaf ซ้ำ)
+create or replace function analytics.content_piece_brief_strings_(p_brief jsonb)
+ returns setof text
+ language sql
+ stable
+ set search_path to 'public', 'pg_temp'
+as $f$
+  select x #>> '{}'
+    from jsonb_path_query(coalesce(p_brief, 'null'::jsonb), 'strict $.**') as x
+   where jsonb_typeof(x) = 'string'
+$f$;
+
+-- มี marker ในข้อความของ artifact (content_body + string leaf ของ clip_brief) ไหม — ใช้ร่วม approve_blockers / view
+create or replace function analytics.content_piece_text_has_marker_(p_body text, p_brief jsonb)
+ returns boolean
+ language sql
+ stable
+ set search_path to 'public', 'analytics', 'pg_temp'
+as $f$
+  select analytics.content_marker_present(p_body)
+      or exists (select 1 from analytics.content_piece_brief_strings_(p_brief) as s(v) where analytics.content_marker_present(s.v))
+$f$;
+
+-- แทน marker ของคำถามหนึ่งข้อใน clip_brief ทีละ string leaf (L3) — ไม่ regex ข้าม key/โครง JSON · key ไม่ถูกแตะ
+-- แทนบนข้อความจริงก่อน ถ้าคำถามนี้ยังเหลือ (อักขระล่องหน/วงเล็บเต็มความกว้างบังไว้) จึงแทนบน content_marker_strip(leaf) (L2)
+-- p_rep = replacement ของ regexp_replace (backslash เบิ้ลแล้ว) · to_jsonb ทำ escape ให้เอง ⇒ คำตอบที่มี " \ ไม่ทำโครงเพี้ยน
+create or replace function analytics.content_piece_brief_replace_(p_brief jsonb, p_pattern text, p_rep text, p_question text)
+ returns jsonb
+ language plpgsql
+ stable
+ set search_path to 'public', 'analytics', 'pg_temp'
+as $f$
+declare
+  v_s   text;
+  v_new text;
+begin
+  case jsonb_typeof(p_brief)
+    when 'object' then
+      return coalesce((select jsonb_object_agg(e.key, analytics.content_piece_brief_replace_(e.value, p_pattern, p_rep, p_question))
+                         from jsonb_each(p_brief) as e), '{}'::jsonb);
+    when 'array' then
+      return coalesce((select jsonb_agg(analytics.content_piece_brief_replace_(e.v, p_pattern, p_rep, p_question) order by e.o)
+                         from jsonb_array_elements(p_brief) with ordinality as e(v, o)), '[]'::jsonb);
+    when 'string' then
+      v_s := p_brief #>> '{}';
+      v_new := regexp_replace(v_s, p_pattern, p_rep, 'g');
+      if p_question = any (analytics.content_marker_questions(v_new)) then
+        v_new := regexp_replace(analytics.content_marker_strip(v_s), p_pattern, p_rep, 'g');
+      end if;
+      return case when v_new is not distinct from v_s then p_brief else to_jsonb(v_new) end;
+    else
+      return p_brief;
+  end case;
+end;
 $f$;
 
 -- เทียบเนื้อหาชิ้นงานโดยตัดสถานะติ๊ก shot (shots[].done) — ติ๊กรอบถ่ายไม่ใช่การแก้เนื้อหา (ตัดสินใจ B)
@@ -523,7 +624,9 @@ create or replace function analytics.content_piece_kind_channel_ok_(p_kind text,
 as $f$
   select case
     when p_kind is null or p_channel is null then true
-    when p_kind in ('short_clip', 'live_cut') then p_channel = 'tiktok'
+    -- short_clip คู่ tiktok_live ด้วย: 13 คลิป ต.ค. ที่ backfill มี channel นี้อยู่แล้ว (ตัดสินใจ I · Tech Lead) — live_cut ยัง tiktok อย่างเดียว
+    when p_kind = 'short_clip' then p_channel in ('tiktok', 'tiktok_live')
+    when p_kind = 'live_cut' then p_channel = 'tiktok'
     when p_kind = 'ig_fb_post' then p_channel in ('facebook', 'instagram')
     when p_kind = 'line_message' then p_channel = 'line_oa'
     when p_kind = 'story' then p_channel in ('instagram', 'facebook')
@@ -579,9 +682,11 @@ create trigger trg_content_piece_event_deny_truncate
   before truncate on analytics.content_piece_event
   for each statement execute function analytics.content_piece_event_append_only();
 
--- R4 ข้อ 1: step_artifact ของ step ใน workflow — เปลี่ยน status/เนื้อหา/ลบ ผ่านเส้นทางเดิมไม่ได้ตามตาราง
+-- R4 ข้อ 1: step_artifact ของ step ใน workflow — เปลี่ยน status/เนื้อหา/ลบ/เพิ่ม ผ่านเส้นทางเดิมไม่ได้ตามตาราง
 -- (ตัดสินใจ A: status ขยับภายใน todo/draft/draft_pending_review ได้ เพราะ K6 · เข้า/ออก approved/done/blocked = raise
---  · piece approved/produced/posted = ห้ามทุก status + ห้ามแก้เนื้อหา · ตัดสินใจ B: ติ๊ก shot ไม่นับเป็นเนื้อหา)
+--  · piece approved/produced/posted = ห้ามทุก status + ห้ามแก้เนื้อหา + ห้ามเพิ่มเอกสารใหม่เข้าชิ้น (L4) · ตัดสินใจ B: ติ๊ก shot ไม่นับเป็นเนื้อหา)
+-- null-safe (QA-1): v_piece null = step นอก workflow ⇒ ไม่ยุ่ง · `v_piece in (...)` กับ null ได้ null ⇒ if ไม่เข้า = ไม่ใช่ชิ้นที่ล็อก (ตั้งใจ)
+-- ข้าม guard ด้วย GUC ได้เฉพาะ role ภายในของ RPC (L1): service_role/authenticated/anon ตั้ง GUC เองแล้ว DML ตรง = ยังโดน guard
 create or replace function analytics.content_piece_guard_artifact()
  returns trigger
  language plpgsql
@@ -591,7 +696,8 @@ declare
   v_piece     text;
   v_piece_old text;
 begin
-  if coalesce(current_setting('c2.piece_rpc', true), '') = '1' then
+  if coalesce(current_setting('c2.piece_rpc', true), '') = '1'
+     and current_user not in ('service_role', 'authenticated', 'anon') then
     return case when tg_op = 'DELETE' then old else new end;
   end if;
 
@@ -601,6 +707,15 @@ begin
       raise exception 'ลบเอกสารของชิ้นงานที่อนุมัติแล้วไม่ได้ — ส่งกลับ (in_review) ก่อน' using errcode = '55000';
     end if;
     return old;
+  end if;
+
+  if tg_op = 'INSERT' then
+    -- L4: เอกสารใหม่ที่เสียบเข้าชิ้นที่อนุมัติแล้ว = เนื้อหาที่ไม่เคยผ่านด่าน (RPC ของ workflow ไม่เพิ่มเอกสารให้ชิ้นที่ approved+)
+    select s.piece_status into v_piece from analytics.campaign_step s where s.id = new.step_id;
+    if v_piece in ('approved', 'produced', 'posted') then
+      raise exception 'เพิ่มเอกสารเข้าชิ้นงานที่อนุมัติแล้วไม่ได้ — ส่งกลับ (in_review) ก่อน' using errcode = '55000';
+    end if;
+    return new;
   end if;
 
   select s.piece_status into v_piece from analytics.campaign_step s where s.id = new.step_id;
@@ -615,9 +730,10 @@ begin
   end if;
 
   if new.status is distinct from old.status then
+    -- coalesce: status ของ artifact เป็น NOT NULL แต่ `null not in (...)` จะเป็น null แล้วเงียบ — ตีเป็น true (= raise) กันไว้
     if v_piece in ('approved', 'produced', 'posted')
-       or new.status not in ('todo', 'draft', 'draft_pending_review')
-       or old.status not in ('todo', 'draft', 'draft_pending_review') then
+       or coalesce(new.status not in ('todo', 'draft', 'draft_pending_review'), true)
+       or coalesce(old.status not in ('todo', 'draft', 'draft_pending_review'), true) then
       raise exception 'ชิ้นงานนี้อยู่ใน workflow ใหม่ — เปลี่ยนสถานะผ่านหน้าชิ้นงาน (content_piece_advance) ไม่ใช่ผ่านเอกสาร'
         using errcode = '55000';
     end if;
@@ -634,14 +750,20 @@ $f$;
 
 drop trigger if exists trg_step_artifact_piece_guard on analytics.step_artifact;
 create trigger trg_step_artifact_piece_guard
-  before update or delete on analytics.step_artifact
+  before insert or update or delete on analytics.step_artifact
   for each row execute function analytics.content_piece_guard_artifact();
 
--- R4 ข้อ 2: เนื้อหาเปลี่ยนจริงขณะ drafting/in_review → ผลตรวจ fact/brand ตกเป็น pending (risk_owner ไม่ล้าง) + extract ใหม่
--- campaign_ai_draft_artifact / campaign_set_artifact_content ยังเป็นทางเขียนเนื้อหา (ไม่ replace — signature เดิมแอปเรียกอยู่)
+-- R4 ข้อ 2 (ตัดสินใจ N): เนื้อหา (artifact หรือ hook) เปลี่ยนจริงขณะชิ้นยังไม่ approved/produced/posted — idea · planned · drafting ·
+-- in_review · cancelled — ผลตรวจ fact/brand/risk ที่ passed/na ตกเป็น pending ทั้งสามด่าน + extract ใหม่ (drafting/in_review)
+-- campaign_ai_draft_artifact / campaign_set_artifact_content / content_hook_upsert ยังเป็นทางเขียนเนื้อหา (ไม่ replace — signature เดิมแอปเรียกอยู่)
 -- ⇒ ด่าน "ร่างใหม่แล้วผลตรวจเก่าต้องตก" ต้องอยู่ที่ตาราง · GUC '1' (confirm_resolve) = คำตอบเจ้าของ ไม่ใช่เนื้อหาใหม่จาก AI ⇒ ไม่ล้าง
-create or replace function analytics.content_piece_stale_after_artifact()
- returns trigger
+-- ต้องล้าง risk_owner ด้วย: ด่านความเสี่ยงขึ้นกับถ้อยคำ — คำตอบเก่าของเจ้าของไม่ครอบข้อความใหม่ (Tech Lead 7 ต.ค.)
+-- ตัวทำงานจริง = content_piece_invalidate_ (security definer — ต้องเขียน step_gate/event ที่ service_role เขียนตรงไม่ได้) ·
+-- trigger เป็น security invoker เพื่อให้ตรวจ current_user (L1) ได้ — trigger แบบ definer เห็น current_user เป็นเจ้าของฟังก์ชันเสมอ
+-- ไม่ล็อก step (ล็อกจะสลับลำดับกับ transition_ ที่ล็อก step ก่อน artifact ⇒ เสี่ยง deadlock) — ข้อจำกัด Q ในหัวไฟล์
+
+create or replace function analytics.content_piece_invalidate_(p_shop_id uuid, p_step_id uuid)
+ returns void
  language plpgsql
  security definer
  set search_path to 'public', 'analytics', 'extensions', 'pg_temp'
@@ -650,17 +772,10 @@ declare
   v_piece text;
   v_reset text[];
 begin
-  if coalesce(current_setting('c2.piece_rpc', true), '') = '1' then
-    return null;
-  end if;
-  -- campaign_ai_draft_artifact เขียนทั้งสองคอลัมน์เสมอ (coalesce) แม้ค่าเดิม — เทียบค่าจริงก่อน
-  if new.content_body is not distinct from old.content_body
-     and analytics.content_piece_brief_norm(new.clip_brief) is not distinct from analytics.content_piece_brief_norm(old.clip_brief) then
-    return null;
-  end if;
-  select s.piece_status into v_piece from analytics.campaign_step s where s.id = new.step_id;
-  if v_piece not in ('drafting', 'in_review') then
-    return null;
+  select s.piece_status into v_piece from analytics.campaign_step s where s.id = p_step_id and s.shop_id = p_shop_id;
+  -- step หายไปแล้ว (cascade ลบ) · นอก workflow (null) · หรือชิ้นที่ล็อกแล้ว (guard ปฏิเสธการแก้ก่อนถึงนี่) ⇒ ไม่มีอะไรต้องล้าง
+  if not found or v_piece is null or v_piece in ('approved', 'produced', 'posted') then
+    return;
   end if;
 
   with u as (
@@ -669,26 +784,134 @@ begin
            passed_by = null,
            passed_at = null,
            note = coalesce(g.note, '') || ' [เนื้อหาเปลี่ยน ' || to_char(now() at time zone 'Asia/Bangkok', 'DD/MM HH24:MI') || ']'
-     where g.step_id = new.step_id and g.gate_kind in ('fact_check', 'brand_rule') and g.status in ('passed', 'na')
+     where g.step_id = p_step_id and g.gate_kind in ('fact_check', 'brand_rule', 'risk_owner') and g.status in ('passed', 'na')
      returning g.gate_kind)
   select array_agg(u.gate_kind order by u.gate_kind) into v_reset from u;
 
   if v_reset is not null then
     insert into analytics.content_piece_event (shop_id, step_id, event_kind, reason, actor_role, actor_uid, payload)
-    values (new.shop_id, new.step_id, 'gate', 'เนื้อหาเปลี่ยน ผลตรวจเดิมตกเป็น pending', 'system', auth.uid(),
-            jsonb_build_object('reset', true, 'gate_kinds', to_jsonb(v_reset)));
+    values (p_shop_id, p_step_id, 'gate', 'เนื้อหาเปลี่ยน ผลตรวจเดิมตกเป็น pending', 'system', auth.uid(),
+            jsonb_build_object('reset', true, 'gate_kinds', to_jsonb(v_reset), 'piece_status', v_piece));
   end if;
-  perform analytics.content_confirm_extract_(new.shop_id, new.step_id, 'system');
+  if v_piece in ('drafting', 'in_review') then
+    perform analytics.content_confirm_extract_(p_shop_id, p_step_id, 'system');
+  end if;
+end;
+$f$;
+
+create or replace function analytics.content_piece_stale_after_artifact()
+ returns trigger
+ language plpgsql
+ set search_path to 'public', 'analytics', 'extensions', 'pg_temp'
+as $f$
+begin
+  if coalesce(current_setting('c2.piece_rpc', true), '') = '1'
+     and current_user not in ('service_role', 'authenticated', 'anon') then
+    return null;
+  end if;
+  -- campaign_ai_draft_artifact เขียนทั้งสองคอลัมน์เสมอ (coalesce) แม้ค่าเดิม — เทียบค่าจริงก่อน (ติ๊ก shot ไม่นับ — ตัดสินใจ B)
+  if tg_op = 'UPDATE' then
+    if new.content_body is not distinct from old.content_body
+       and analytics.content_piece_brief_norm(new.clip_brief) is not distinct from analytics.content_piece_brief_norm(old.clip_brief) then
+      return null;
+    end if;
+  elsif new.content_body is null and new.clip_brief is null then
+    return null;   -- INSERT เอกสารเปล่า (content_piece_create/set_plan) ไม่ใช่เนื้อหา
+  end if;
+  perform analytics.content_piece_invalidate_(new.shop_id, new.step_id);
   return null;
 end;
 $f$;
 
 drop trigger if exists trg_step_artifact_piece_stale on analytics.step_artifact;
 create trigger trg_step_artifact_piece_stale
-  after update of content_body, clip_brief on analytics.step_artifact
+  after insert or update of content_body, clip_brief on analytics.step_artifact
   for each row execute function analytics.content_piece_stale_after_artifact();
 
--- R4 ข้อ 3: ลบ step ที่อนุมัติ/ผลิต/โพสต์แล้วไม่ได้ (event/post จะหายตาม cascade) — ยกเลิกแทน
+-- R4 ข้อ 3 (H2/ตัดสินใจ M): hook ours ที่ผูกชิ้นงาน = เนื้อหาของชิ้น — ชิ้นที่ approved/produced/posted เพิ่ม/ลบ/แก้ text · hook_type · label ·
+-- ย้าย step ไม่ได้ (content_hook_upsert ของ 0158 เขียนแถวตรง ไม่มีด่านสถานะ ⇒ กันที่ตาราง ไม่ replace ฟังก์ชัน K10)
+-- link_reference (แก้ derived_from/source_signal) ผ่านได้เพราะไม่เปลี่ยนถ้อยคำ
+create or replace function analytics.content_piece_guard_hook()
+ returns trigger
+ language plpgsql
+ set search_path to 'public', 'analytics', 'pg_temp'
+as $f$
+declare
+  v_new     text;
+  v_old     text;
+  v_changed boolean;
+begin
+  if coalesce(current_setting('c2.piece_rpc', true), '') = '1'
+     and current_user not in ('service_role', 'authenticated', 'anon') then
+    return case when tg_op = 'DELETE' then old else new end;
+  end if;
+
+  if tg_op in ('INSERT', 'UPDATE') and new.origin = 'ours' and new.step_id is not null then
+    select s.piece_status into v_new from analytics.campaign_step s where s.id = new.step_id;
+  end if;
+  if tg_op in ('UPDATE', 'DELETE') and old.origin = 'ours' and old.step_id is not null then
+    select s.piece_status into v_old from analytics.campaign_step s where s.id = old.step_id;
+  end if;
+
+  if tg_op = 'UPDATE' then
+    v_changed := new.text is distinct from old.text or new.hook_type is distinct from old.hook_type
+                 or new.label is distinct from old.label or new.step_id is distinct from old.step_id
+                 or new.origin is distinct from old.origin;
+  else
+    v_changed := true;
+  end if;
+
+  if v_changed and (v_new in ('approved', 'produced', 'posted') or v_old in ('approved', 'produced', 'posted')) then
+    raise exception 'อนุมัติแล้ว ห้ามเพิ่ม/ลบ/แก้ hook ของชิ้นงาน — ส่งกลับ (in_review) ก่อน' using errcode = '55000';
+  end if;
+  return case when tg_op = 'DELETE' then old else new end;
+end;
+$f$;
+
+drop trigger if exists trg_content_hook_piece_guard on analytics.content_hook;
+create trigger trg_content_hook_piece_guard
+  before insert or update or delete on analytics.content_hook
+  for each row execute function analytics.content_piece_guard_hook();
+
+create or replace function analytics.content_piece_stale_after_hook()
+ returns trigger
+ language plpgsql
+ set search_path to 'public', 'analytics', 'extensions', 'pg_temp'
+as $f$
+begin
+  if coalesce(current_setting('c2.piece_rpc', true), '') = '1'
+     and current_user not in ('service_role', 'authenticated', 'anon') then
+    return null;
+  end if;
+  if tg_op = 'INSERT' then
+    if new.origin = 'ours' and new.step_id is not null then
+      perform analytics.content_piece_invalidate_(new.shop_id, new.step_id);
+    end if;
+  elsif tg_op = 'DELETE' then
+    -- cascade จากการลบ step: step หายแล้ว invalidate_ คืนทันที (ไม่ insert event ที่ FK ชี้ step ที่ไม่มี)
+    if old.origin = 'ours' and old.step_id is not null then
+      perform analytics.content_piece_invalidate_(old.shop_id, old.step_id);
+    end if;
+  elsif new.text is distinct from old.text or new.step_id is distinct from old.step_id then
+    -- เปลี่ยน label/hook_type ล้วน = ถ้อยคำเดิม ผลตรวจยังใช้ได้ (ตัดสินใจ N)
+    if new.origin = 'ours' and new.step_id is not null then
+      perform analytics.content_piece_invalidate_(new.shop_id, new.step_id);
+    end if;
+    if old.origin = 'ours' and old.step_id is not null and old.step_id is distinct from new.step_id then
+      perform analytics.content_piece_invalidate_(old.shop_id, old.step_id);
+    end if;
+  end if;
+  return null;
+end;
+$f$;
+
+drop trigger if exists trg_content_hook_piece_stale on analytics.content_hook;
+create trigger trg_content_hook_piece_stale
+  after insert or update or delete on analytics.content_hook
+  for each row execute function analytics.content_piece_stale_after_hook();
+
+-- R4 ข้อ 4 (M1/ตัดสินใจ F): ลบ step ที่อนุมัติ/ผลิต/โพสต์อยู่ — หรือ "เคยอนุมัติ" (มี event ที่ to_status เป็น approved/produced/posted)
+-- ไม่ได้: ย้อน/ยกเลิกแล้วลบจะล้างประวัติการอนุมัติ (event cascade) ได้ถ้าดูแค่สถานะปัจจุบัน — ยกเลิก (cancelled) แทน
 create or replace function analytics.content_piece_guard_step_delete()
  returns trigger
  language plpgsql
@@ -697,6 +920,10 @@ as $f$
 begin
   if old.piece_status in ('approved', 'produced', 'posted') then
     raise exception 'ลบชิ้นงานที่อนุมัติ/ผลิต/โพสต์แล้วไม่ได้ — ยกเลิก (cancelled) แทน' using errcode = '55000';
+  end if;
+  if exists (select 1 from analytics.content_piece_event e
+              where e.step_id = old.id and e.to_status in ('approved', 'produced', 'posted')) then
+    raise exception 'ลบชิ้นงานที่เคยอนุมัติไม่ได้ (ประวัติการอนุมัติต้องคงอยู่) — ยกเลิก (cancelled) แทน' using errcode = '55000';
   end if;
   return old;
 end;
@@ -707,15 +934,17 @@ create trigger trg_campaign_step_piece_guard
   before delete on analytics.campaign_step
   for each row execute function analytics.content_piece_guard_step_delete();
 
--- R4 ข้อ 4: piece_status/hold_reason เขียนได้ผ่าน RPC workflow เท่านั้น · status/blocked_reason ของ step ที่อยู่ใน workflow
+-- R4 ข้อ 5: piece_status/hold_reason เขียนได้ผ่าน RPC workflow เท่านั้น · status/blocked_reason ของ step ที่อยู่ใน workflow
 -- เป็น projection ห้ามแก้ตรง · INSERT ที่ส่ง piece_status มาก็ต้องผ่าน RPC (ตัดสินใจ E — กัน service_role เสกชิ้นที่ approved)
+-- L4: ชิ้น approved/produced/posted เปลี่ยน content_type_code ไม่ได้ (campaign_step_set_content_type เขียนคอลัมน์นี้ตรง)
 create or replace function analytics.content_piece_guard_step()
  returns trigger
  language plpgsql
  set search_path to 'public', 'analytics', 'pg_temp'
 as $f$
 begin
-  if coalesce(current_setting('c2.piece_rpc', true), '') = '1' then
+  if coalesce(current_setting('c2.piece_rpc', true), '') = '1'
+     and current_user not in ('service_role', 'authenticated', 'anon') then
     return new;
   end if;
   if tg_op = 'INSERT' then
@@ -733,6 +962,9 @@ begin
           or new.blocked_reason is distinct from old.blocked_reason) then
     raise exception 'status/hold_reason ของชิ้นงานใน workflow ใหม่เป็น projection — เปลี่ยนผ่าน content_piece_advance เท่านั้น'
       using errcode = '55000';
+  end if;
+  if old.piece_status in ('approved', 'produced', 'posted') and new.content_type_code is distinct from old.content_type_code then
+    raise exception 'ชิ้นงานที่อนุมัติแล้วเปลี่ยนประเภท content ไม่ได้ — ส่งกลับ (in_review) ก่อน' using errcode = '55000';
   end if;
   return new;
 end;
@@ -995,11 +1227,21 @@ begin
     raise exception 'content_confirm_extract: ชิ้นงานนี้อยู่นอก workflow ใหม่' using errcode = '22023';
   end if;
 
+  -- 3 แหล่ง (ตัดสินใจ C/M): เนื้อหา · string leaf ของ clip_brief (ทีละ leaf — marker คร่อมโครง JSON ไม่นับเป็นคำถาม) · text ของ hook ours
   select coalesce(array_agg(distinct t.q order by t.q), '{}'::text[]) into v_found
   from (
-    select unnest(analytics.content_marker_questions(a.content_body) || analytics.content_marker_questions(a.clip_brief::text)) as q
+    select unnest(analytics.content_marker_questions(a.content_body)) as q
       from analytics.step_artifact a
      where a.step_id = p_step_id and a.shop_id = p_shop_id
+    union all
+    select unnest(analytics.content_marker_questions(s.v)) as q
+      from analytics.step_artifact a
+      cross join lateral analytics.content_piece_brief_strings_(a.clip_brief) as s(v)
+     where a.step_id = p_step_id and a.shop_id = p_shop_id
+    union all
+    select unnest(analytics.content_marker_questions(h.text)) as q
+      from analytics.content_hook h
+     where h.step_id = p_step_id and h.shop_id = p_shop_id and h.origin = 'ours'
   ) t;
 
   foreach v_q in array v_found loop
@@ -1092,9 +1334,11 @@ begin
     v_out := v_out || format('มี [ต้องยืนยัน] ที่ยังไม่ตอบ %s รายการ', v_pending);
   end if;
   -- (3) ชั้นที่ DB พิสูจน์เอง: marker ยังอยู่ในข้อความจริง (ไม่พึ่งว่า extract เคยรันไหม)
+  -- (hook ours ของชิ้นนับด้วย — AI ใส่ marker ใน hook แล้วเลี่ยงด่านไม่ได้ · H2)
   if exists (select 1 from analytics.step_artifact a
-              where a.step_id = p_step_id
-                and (analytics.content_marker_present(a.content_body) or analytics.content_marker_present(a.clip_brief::text))) then
+              where a.step_id = p_step_id and analytics.content_piece_text_has_marker_(a.content_body, a.clip_brief))
+     or exists (select 1 from analytics.content_hook h
+                 where h.step_id = p_step_id and h.origin = 'ours' and analytics.content_marker_present(h.text)) then
     v_out := v_out || text 'ยังมี [ต้องยืนยัน] ค้างอยู่ในข้อความของชิ้นงาน';
   end if;
   -- (4) ชิ้นที่ backfill ยังไม่ติด kind อนุมัติไม่ได้ (ไม่รู้จะตรวจตามกติกาชนิดไหน)
@@ -1765,7 +2009,8 @@ begin
     raise exception 'content_piece_advance: ชิ้นงานนี้อยู่นอก workflow ใหม่ (ก่อน 1 ต.ค. หรือสร้างจากบอร์ดเดิม)' using errcode = '22023';
   end if;
   v_kind := v_s.piece_kind;
-  v_url_kind := v_kind in ('short_clip', 'live_cut', 'ig_fb_post');
+  -- coalesce: piece_kind null (backfill teaser/parcel) ทำให้ `in (...)` เป็น null ⇒ `not v_url_kind` ในด่านย้อน posted เป็น null แล้วไม่ raise
+  v_url_kind := coalesce(v_kind in ('short_clip', 'live_cut', 'ig_fb_post'), false);
   select case when c.anchor_date is null then null else c.anchor_date + v_s.offset_start_days end into v_resolved
     from analytics.campaign c where c.id = v_s.campaign_id;
 
@@ -1837,12 +2082,19 @@ begin
     v_event_kind := 'restore';
     v_new_piece := v_cancel_from;
     v_new_hold := null;
-    v_new_status := analytics.content_piece_project_(v_cancel_from);
     v_new_blocked := null;
-    if v_cancel_from = 'in_review' then
+    if v_cancel_from in ('approved', 'produced') then
+      -- H1 (security): เนื้อหา/hook แก้ได้ขณะ cancelled ⇒ กลับ approved ตรงๆ = อนุมัติข้อความที่ไม่เคยผ่านเจ้าของ
+      -- ⇒ ลง in_review เสมอ ต้องอนุมัติใหม่ (ด่านที่ล้างตอนเนื้อหาเปลี่ยนยังเป็น pending จริง) · artifact approved → draft/draft_pending_review
+      v_new_piece := 'in_review';
+      v_art_to := case when v_s.drafted_by_ai then 'draft_pending_review' else 'draft' end;
+      v_art_from := array['todo', 'draft', 'draft_pending_review', 'approved'];
+      v_payload := jsonb_build_object('cancel_from', v_cancel_from, 'forced_review', true);
+    elsif v_cancel_from = 'in_review' then
       v_art_to := case when v_s.drafted_by_ai then 'draft_pending_review' else 'draft' end;
       v_art_from := array['todo', 'draft', 'draft_pending_review'];
     end if;
+    v_new_status := analytics.content_piece_project_(v_new_piece);
 
   else
     -- ---------- ทางเดินหน้า/ย้อนตามตารางลำดับ ----------
@@ -2065,7 +2317,8 @@ begin
   returning id into v_event_id;
 
   -- ส่งตรวจแล้ว: รายการ [ต้องยืนยัน] ต้องครบตั้งแต่เข้าคิว (ไม่งั้น approve ชั้น 2 บล็อกโดยไม่มีรายการให้ตอบ)
-  if v_event_kind = 'advance' and p_to = 'in_review' then
+  -- restore ที่ลง drafting/in_review ก็ต้อง extract (QA-3): marker ที่ใส่ตอน cancelled ไม่งั้นไม่มีรายการให้ตอบ (ด่านชั้น 2 บล็อกเฉยๆ)
+  if (v_event_kind = 'advance' and p_to = 'in_review') or (v_event_kind = 'restore' and v_new_piece in ('drafting', 'in_review')) then
     perform analytics.content_confirm_extract_(p_shop_id, p_step_id, 'system');
   end if;
 
@@ -2124,6 +2377,7 @@ declare
   v_n       int;
   v_max     int;
   v_passed  int;
+  v_src     jsonb;
 begin
   if p_shop_id is null or p_step_id is null or p_gate_kind is null or p_status is null then
     raise exception 'content_gate_record: ต้องระบุร้าน ชิ้นงาน ด่าน และสถานะ' using errcode = '22023';
@@ -2232,6 +2486,23 @@ begin
       using errcode = '55000';
   end if;
 
+  -- M4: fact_check ผ่านได้ต้องมีแหล่งอ้างอิง ≥ 1 ลิงก์ (ที่ส่งมาใหม่ หรือที่เก็บไว้เดิม) — "ตรวจข้อเท็จจริงผ่าน" โดยไม่มีหลักฐานเลยไม่นับ
+  -- detail ที่ส่งมาแต่ไม่มี key sources = พก sources เดิมไปด้วย (on conflict เขียน detail ทั้งก้อน ไม่งั้นผ่านแล้วหลักฐานหาย)
+  -- ['sources' = []] ที่ส่งมาชัดๆ = ปฏิเสธ (ไม่ถอยไปใช้ของเดิม)
+  if p_gate_kind = 'fact_check' then
+    v_src := v_detail -> 'sources';
+    if v_src is null then
+      select g0.detail -> 'sources' into v_src from analytics.step_gate g0
+       where g0.step_id = p_step_id and g0.gate_kind = 'fact_check';
+      if v_detail is not null and v_src is not null then
+        v_detail := v_detail || jsonb_build_object('sources', v_src);
+      end if;
+    end if;
+    if p_status = 'passed' and (v_src is null or jsonb_typeof(v_src) <> 'array' or jsonb_array_length(v_src) = 0) then
+      raise exception 'content_gate_record: ด่าน fact_check ผ่านได้ต้องมีแหล่งอ้างอิงอย่างน้อย 1 ลิงก์ (detail.sources)' using errcode = '22023';
+    end if;
+  end if;
+
   insert into analytics.step_gate as g
     (step_id, shop_id, gate_kind, status, note, detail, checked_by_role, passed_by, passed_at)
   values
@@ -2259,8 +2530,13 @@ $f$;
 -- ============================================================================
 -- 17. content_confirm_resolve — เจ้าของตอบ [ต้องยืนยัน] 1 รายการ · แทนที่ marker ในข้อความจริง (ไม่ใช่แค่จดคำตอบ)
 --     เหตุผล: ด่าน approve ชั้น 2 ตรวจข้อความ ⇒ ตอบครั้งเดียวต้องผ่านได้ (ขัด "อนุมัติ 2-3 นาที/ชิ้น" ถ้าต้องไปแก้ storyboard เอง)
---     R21: clip_brief แทนผ่าน text แล้ว cast กลับ — ใช้ to_jsonb ตัด quote (escape ถูก jsonb) + assert_clip_brief_valid
---     UPDATE ยิง trg_step_artifact_updated_at (ถูกต้อง — คนแก้จริง) · ตั้ง GUC ผ่าน trigger R4 · ไม่ล้างผลตรวจ (คำตอบเจ้าของ ≠ เนื้อหาใหม่จาก AI)
+--     แทนใน 3 แหล่งเดียวกับที่ extract เห็น: content_body · string leaf ของ clip_brief · text ของ hook ours
+--     L2: แทนบนข้อความจริงก่อน — ถ้าคำถามข้อนี้ยังเหลือ (อักขระล่องหน/วงเล็บเต็มความกว้างบัง) จึงแทนบน content_marker_strip(ข้อความ)
+--         (ไม่ strip ทั้งก้อนทุกครั้ง: ลอก ZWJ/VS16 ของ emoji ในข้อความที่ไม่เกี่ยวด้วย) · ถ้ายังเหลืออยู่อีก extract จะเปิดรายการกลับ ⇒ ปฏิเสธทั้งก้อน
+--     L3: clip_brief แทนทีละ string leaf (content_piece_brief_replace_) — ไม่ regex ข้าม key/โครง JSON · to_jsonb escape คำตอบให้เอง
+--     hook: แทนแล้ว generated_by → human (เจ้าของแก้ ⇒ AI ทับไม่ได้ เหมือน content_hook_upsert) · ยาวเกิน 500 = 22023
+--     UPDATE ยิง trg_step_artifact_updated_at (ถูกต้อง — คนแก้จริง) · ตั้ง GUC ผ่าน trigger R4 (ข้ามได้เฉพาะ role ภายใน — L1) ·
+--     ไม่ล้างผลตรวจ (คำตอบเจ้าของ ≠ เนื้อหาใหม่จาก AI)
 --     ตอบได้เฉพาะ idea..in_review — อนุมัติแล้วห้ามแตะเนื้อหา (ส่งกลับก่อน)
 -- ============================================================================
 
@@ -2280,9 +2556,9 @@ declare
   v_piece     text;
   v_item      analytics.content_confirm_item%rowtype;
   v_pattern   text;
-  v_rep_body  text;
-  v_rep_json  text;
+  v_rep       text;
   v_art       record;
+  v_hook      record;
   v_new_body  text;
   v_new_brief jsonb;
   v_new_text  text;
@@ -2329,8 +2605,7 @@ begin
                        else replace(analytics.content_regex_escape(v_item.question), ' ', '\s+') end
                || '\s*\]';
   -- replacement ของ regexp_replace ตีความ \ เป็นอักขระพิเศษ ⇒ เบิ้ล backslash
-  v_rep_body := replace(v_answer, '\', '\\');
-  v_rep_json := replace(substr(to_jsonb(v_answer)::text, 2, length(to_jsonb(v_answer)::text) - 2), '\', '\\');
+  v_rep := replace(v_answer, '\', '\\');
 
   perform set_config('c2.piece_rpc', '1', true);
   for v_art in
@@ -2341,17 +2616,15 @@ begin
     v_new_brief := v_art.clip_brief;
     v_changed := false;
     if v_art.content_body is not null then
-      v_new_body := regexp_replace(v_art.content_body, v_pattern, v_rep_body, 'g');
+      v_new_body := regexp_replace(v_art.content_body, v_pattern, v_rep, 'g');
+      if v_item.question = any (analytics.content_marker_questions(v_new_body)) then
+        v_new_body := regexp_replace(analytics.content_marker_strip(v_art.content_body), v_pattern, v_rep, 'g');
+      end if;
       v_changed := v_new_body is distinct from v_art.content_body;
     end if;
     if v_art.clip_brief is not null then
-      v_new_text := regexp_replace(v_art.clip_brief::text, v_pattern, v_rep_json, 'g');
-      if v_new_text is distinct from v_art.clip_brief::text then
-        begin
-          v_new_brief := v_new_text::jsonb;
-        exception when others then
-          raise exception 'content_confirm_resolve: คำตอบนี้ทำให้ clip_brief เสียรูป (ลองตัดอักขระพิเศษออก)' using errcode = '22023';
-        end;
+      v_new_brief := analytics.content_piece_brief_replace_(v_art.clip_brief, v_pattern, v_rep, v_item.question);
+      if v_new_brief is distinct from v_art.clip_brief then
         perform analytics.assert_clip_brief_valid(v_new_brief);
         v_changed := true;
       end if;
@@ -2360,6 +2633,25 @@ begin
       update analytics.step_artifact
          set content_body = v_new_body, clip_brief = v_new_brief, human_edited = true, updated_by = auth.uid()
        where id = v_art.id;
+      v_replaced := v_replaced + 1;
+    end if;
+  end loop;
+
+  for v_hook in
+    select h.id, h.text from analytics.content_hook h
+     where h.step_id = v_step and h.shop_id = p_shop_id and h.origin = 'ours' order by h.id for update
+  loop
+    v_new_text := regexp_replace(v_hook.text, v_pattern, v_rep, 'g');
+    if v_item.question = any (analytics.content_marker_questions(v_new_text)) then
+      v_new_text := regexp_replace(analytics.content_marker_strip(v_hook.text), v_pattern, v_rep, 'g');
+    end if;
+    if v_new_text is distinct from v_hook.text then
+      if length(v_new_text) > 500 then
+        raise exception 'content_confirm_resolve: คำตอบนี้ทำให้ hook ยาวเกิน 500 ตัวอักษร (ตอบให้สั้นลง)' using errcode = '22023';
+      end if;
+      update analytics.content_hook
+         set text = v_new_text, generated_by = 'human', updated_by = auth.uid()
+       where id = v_hook.id;
       v_replaced := v_replaced + 1;
     end if;
   end loop;
@@ -2374,7 +2666,7 @@ begin
    where id = p_item_id;
   insert into analytics.content_piece_event (shop_id, step_id, event_kind, actor_role, actor_uid, payload)
   values (p_shop_id, v_step, 'confirm', 'owner', auth.uid(), jsonb_build_object('item_id', p_item_id, 'key', v_item.key));
-  -- จัดสถานะ key อื่นที่หาย/โผล่ใหม่ด้วย · ถ้า marker เดิมยังเหลือ (เว้นวรรค/อักขระต่างจนแทนไม่หมด) extract จะเปิดรายการกลับ ⇒ ปฏิเสธทั้งก้อน
+  -- จัดสถานะ key อื่นที่หาย/โผล่ใหม่ด้วย · ถ้า marker เดิมยังเหลือ (อักขระต่างจนแทนไม่หมด) extract จะเปิดรายการกลับ ⇒ ปฏิเสธทั้งก้อน
   perform analytics.content_confirm_extract_(p_shop_id, v_step, 'system');
   if (select i.resolved_at from analytics.content_confirm_item i where i.id = p_item_id) is null then
     raise exception 'content_confirm_resolve: ยังพบ marker เดิมหลงเหลือในข้อความ (แทนไม่หมด) — ยกเลิกการตอบ' using errcode = '55000';
@@ -2393,7 +2685,8 @@ $f$;
 --     ⚠️ ชื่อโฮสต์จริง (live_host.display_name) ไม่อยู่ใน view — เปิดเฉพาะ public_label
 --     ⚠️ R24: 'measured' อิง v_content_post_t7 ของโพสต์แรกที่ active เท่านั้น — ชิ้น ig_fb_post 2 โพสต์วัดผลแค่ใบแรก
 --        (ผลต่อโพสต์รายใบดูได้ครบจาก posts[] + v_content_post_t7)
---     can_approve = ไม่มีข้อบล็อกจาก content_piece_approve_blockers (ฟังก์ชันเดียวกับ RPC อนุมัติ) — ไม่รวมเช็คสถานะ/ role
+--     can_approve = อยู่ in_review + ไม่ hold + ไม่มีข้อบล็อกจาก content_piece_approve_blockers (ฟังก์ชันเดียวกับ RPC อนุมัติ) — ไม่รวมเช็ค role
+--        (รอบแก้ QA notes: เดิมเป็น true ได้ทุกสถานะ ⇒ UI ต้องจำเช็ค piece_status คู่ — ตอนนี้ view ตอบเองว่ากดอนุมัติได้จริงไหม)
 -- ============================================================================
 
 create or replace view analytics.v_content_piece
@@ -2432,7 +2725,8 @@ from (
     (coalesce(gt.passed_n, 0) = 3) as gates_passed,
     coalesce(cf.pending_n, 0) as confirm_pending,
     coalesce(mk.has_marker, false) as confirm_marker_in_text,
-    (cardinality(analytics.content_piece_approve_blockers(s.id)) = 0) as can_approve,
+    (s.piece_status = 'in_review' and s.hold_reason is null
+       and cardinality(analytics.content_piece_approve_blockers(s.id)) = 0) as can_approve,
     coalesce(po.posts, '[]'::jsonb) as posts,
     case when s.piece_kind in ('line_message', 'story') then ev.event_posted_on else po.posted_on_url end as posted_on,
     t7.t7_captured_on as t7_captured,
@@ -2474,7 +2768,9 @@ from (
     where i.step_id = s.id and i.resolved_at is null and i.removed_at is null
   ) cf on true
   left join lateral (
-    select bool_or(analytics.content_marker_present(x.content_body) or analytics.content_marker_present(x.clip_brief::text)) as has_marker
+    select (coalesce(bool_or(analytics.content_piece_text_has_marker_(x.content_body, x.clip_brief)), false)
+            or exists (select 1 from analytics.content_hook k2
+                        where k2.step_id = s.id and k2.origin = 'ours' and analytics.content_marker_present(k2.text))) as has_marker
     from analytics.step_artifact x where x.step_id = s.id
   ) mk on true
   left join lateral (
@@ -2502,7 +2798,7 @@ from (
 
 comment on view analytics.v_content_piece is
   '1 แถว/ชิ้นงานใน workflow ใหม่ (piece_status is not null) · effective_piece_status คำนวณสดจากวันไทย (measuring/measured/missed_measure/on_hold) · '
-  'can_approve = ไม่มีข้อบล็อกจาก content_piece_approve_blockers (ฟังก์ชันเดียวกับ RPC อนุมัติ) · expected_host_label = public_label เท่านั้น · '
+  'can_approve = in_review + ไม่ hold + ไม่มีข้อบล็อกจาก content_piece_approve_blockers (ฟังก์ชันเดียวกับ RPC อนุมัติ) · expected_host_label = public_label เท่านั้น · '
   'R24: measured อิงโพสต์แรกที่ active ของชิ้น (ig_fb_post 2 โพสต์วัดแค่ใบแรก)';
 
 -- ============================================================================
@@ -2851,7 +3147,8 @@ begin
     from unnest(array['trg_campaign_step_updated_at', 'trg_campaign_step_piece_status_guard', 'trg_campaign_step_piece_guard',
                       'trg_step_artifact_piece_guard', 'trg_step_artifact_piece_stale', 'trg_step_artifact_updated_at',
                       'trg_content_piece_event_append_only', 'trg_content_piece_event_deny_truncate',
-                      'trg_content_signal_hook_mirror', 'trg_content_signal_delete_guard']) as t(n)
+                      'trg_content_signal_hook_mirror', 'trg_content_signal_delete_guard',
+                      'trg_content_hook_piece_guard', 'trg_content_hook_piece_stale']) as t(n)
    where not exists (select 1 from pg_trigger g where g.tgname = t.n and not g.tgisinternal and g.tgenabled = 'O');
   if v_bad is not null then
     raise exception '0159 ด่านท้าย: trigger หาย/ถูกปิด: %', v_bad;
