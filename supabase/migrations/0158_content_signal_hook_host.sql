@@ -31,13 +31,16 @@
 -- ตัดสินใจเองนอก design (เหตุผลอยู่ที่จุดนั้นในไฟล์ + สรุปส่งมอบ):
 --   D-a  ไม่ทำ content_signal_pick ใน C1 — ต้องเขียน campaign_step.piece_status/piece_kind ซึ่งยังไม่มี
 --        จนกว่า C2 (design §7 วาง pick ไว้ C1 แต่ DDL ของ pick พึ่งคอลัมน์ C2) ⇒ ย้ายไป C2
---   D-b  actor_role ต่อ RPC: capture/hook_upsert = owner|ai|system · set_status/live_host_upsert =
---        owner|system (AI เสนอสัญญาณได้ แต่ตัดสิน "ไม่ใช้/เก็บไว้" และสร้างคนในระบบไม่ได้)
+--   D-b  actor_role ต่อ RPC: capture/hook_upsert = owner|ai|system · set_status/live_host_upsert/
+--        live_session_upsert = owner|system (AI เสนอสัญญาณได้ แต่ตัดสิน "ไม่ใช้/เก็บไว้" · สร้างคนในระบบ ·
+--        เขียนบันทึกหลังไลฟ์ ไม่ได้ — security S-M2)
 --   D-c  host_id ใน live_session_upsert: ค่า null ไม่ทับค่าเดิม (แนวเดียวกับ 0111 "ว่างห้ามทับ" —
 --        แอปเดิมไม่ส่ง p_host_id ต้องไม่ล้างโฮสต์ที่เจ้าของเลือกไว้) ⇒ ล้างโฮสต์ผ่าน RPC นี้ไม่ได้
 --   D-d  url_norm: ตัด scheme/www./m./fragment/trailing slash + เก็บ query เฉพาะ v · story_fbid ·
 --        fbid · id (ไม่ตัด query ทั้งก้อนอย่างที่ design เขียน — YouTube watch?v= กับ Facebook
 --        ?v=/?fbid= ใช้ query เป็นตัวระบุคลิป ตัดทิ้ง = ลิงก์คนละคลิปชนกันเป็น "ซ้ำ")
+--        + path ของ host tiktok.com เท่านั้นเป็นตัวเล็ก (handle ไม่สนตัวพิมพ์ · video id เป็นตัวเลข) —
+--        host อื่น (YouTube video id ฯลฯ) case-sensitive ห้ามแตะ
 --   D-e  live_host unique ทั้งชื่อและ public_label (ต่อร้าน · ไม่สนตัวพิมพ์) — ป้าย "โฮสต์ A" ซ้ำ
 --        บนจอ = อ่านผลผิดคน
 --   D-f  origin_post_id/origin_campaign_id = NO ACTION (ไม่ set null) เพราะ CHECK ของ insight
@@ -51,6 +54,19 @@
 -- ⇒ DB กัน "เส้นทาง AI" ได้ (agent ส่ง 'ai' เสมอ) แต่กันคนปลอมส่ง 'owner' ไม่ได้จนกว่า A2
 --
 -- ไฟล์นี้ idempotent — รันซ้ำได้ (ตรวจแล้วด้วยการรันซ้ำสองรอบติดกันในทรานแซกชันเดียว)
+--
+-- 🔴 ห้ามรันนอก `node scripts/run-sql.mjs` (ต้องรันทั้งไฟล์ใน transaction เดียว): ด่านท้ายไฟล์เทียบกับ snapshot ที่
+-- section 0 เก็บไว้ใน GUC ระดับทรานแซกชัน — วางทีละก้อนใน SQL editor (autocommit) แล้ว snapshot หาย ⇒ ด่านท้าย
+-- raise ทันที (ตั้งใจ: ไม่ปล่อยให้ "ไม่มีอะไรให้เทียบ" ผ่านเป็นเขียว)
+--
+-- แก้ตามผล security (CONDITIONAL GO) + QA (PASS with notes) 6 ต.ค. 69 รอบ 2:
+--   S-M1 ลิงก์: ห้าม userinfo/backslash/whitespace/control/<>" ในทั้ง URL · ตรวจ ≤500 ก่อน norm · ปฏิเสธแทนการตัด
+--        userinfo เงียบๆ (content_url_ok = ด่านเดียวที่ CHECK ตาราง · norm · capture เรียกร่วมกัน)
+--   S-M2 live_session_upsert รับ actor owner/system เท่านั้น (AI เขียนบันทึกหลังไลฟ์ไม่ได้) · source ของคำถาม = actor
+--   S-M3 content_hook_upsert: AI ทับ hook ที่ generated_by='human' ไม่ได้ (42501) · ป้ายซ้ำบน step เดียวต้องส่ง p_id
+--   S-L1 content_actor_assert: p_allowed null = ปฏิเสธ · S-L3 ด่านท้ายไฟล์ raise เมื่อ snapshot หาย
+--   QA   ยุบ whitespace ก่อน trim (tab/newline ล้วน = ว่าง) · path ของ tiktok.com เป็นตัวเล็ก · metrics_approx
+--        ต้องมีตัวเลขอย่างน้อยหนึ่งช่อง · notify pgrst ท้ายไฟล์
 
 -- ============================================================================
 -- 0. snapshot ก่อนแตะอะไร — ใช้เทียบตอนท้ายไฟล์ ("ของเดิมต้องไม่ขยับ")
@@ -161,6 +177,29 @@ comment on column analytics.live_session_log.host_id is
   'live_session_upsert ส่ง null = ไม่ทับค่าเดิม';
 
 -- ============================================================================
+-- 2b. content_url_ok — ด่านรูปแบบลิงก์ "ด่านเดียว" ที่ CHECK ของตาราง · content_url_norm · content_signal_capture
+--     เรียกร่วมกัน (กันแก้ regex ที่หนึ่งแล้วลืมอีกที่) — อยู่ก่อนตารางเพราะ CHECK อ้างถึง
+--     ผ่านเฉพาะ: scheme http/https · host = อักขระใดก็ได้ยกเว้น / ? # @ \ whitespace control ·
+--     ส่วนหลัง host (path/query/fragment) ห้าม \ < > " whitespace control · ยาวไม่เกิน 500
+--     🔴 ห้าม `@` ในส่วน host = ห้าม userinfo (https://good.com@evil.com/ ตัวอ่านคนเห็น good.com แต่ไปที่ evil.com) ·
+--        `@` ใน path/query ได้ (TikTok /@shop/video/123)
+--     ห้ามคืนค่าด้วยการ "ตัด" ส่วนที่ผิดทิ้ง — ผิด = ปฏิเสธทั้งลิงก์ · null = ไม่ผ่าน (ผู้เรียกใช้ is not true)
+--     length เช็คก่อน regex ใน CASE (regex ไม่ต้องกวาดสตริงยาวหลายแสนตัว)
+-- ============================================================================
+
+create or replace function analytics.content_url_ok(p_url text)
+ returns boolean
+ language sql
+ immutable
+ set search_path to 'public', 'pg_temp'
+as $f$
+  select case
+    when p_url is null or length(p_url) > 500 then false
+    else p_url ~* '^https?://[^/?#@\\[:space:][:cntrl:]]+([/?#][^\\<>"[:space:][:cntrl:]]*)?$'
+  end
+$f$;
+
+-- ============================================================================
 -- 3. analytics.content_signal — กล่องสัญญาณ (รวมคลิปอ้างอิง = kind reference_clip)
 --    ไม่เก็บ: screenshot · สคริปต์เต็ม · ชื่อคน/คอมเมนต์รายคน (brief v1 §2.1) — ไม่มีคอลัมน์ name/phone/email
 --    ตัวเลขยอดเป็น bigint ล้วน ⇒ NaN/Infinity เข้าคอลัมน์ไม่ได้ตั้งแต่ชนิดข้อมูล (trap #4 ไม่เกิดกับ
@@ -224,13 +263,14 @@ create table if not exists analytics.content_signal (
   constraint content_signal_url_pair_check
     check ((url is null) = (url_norm is null)),
   constraint content_signal_url_check
-    check (url is null or (url ~* '^https?://' and length(url) <= 500)),
+    check (url is null or analytics.content_url_ok(url)),
   constraint content_signal_url_norm_len_check
     check (url_norm is null or length(url_norm) <= 500),
+  -- `~ '\S'` = มีอักขระที่ไม่ใช่ whitespace อย่างน้อยหนึ่งตัว (btrim ตัดแค่ space ไม่ตัด tab/newline ⇒ length(btrim()) อย่างเดียวปล่อยผ่าน)
   constraint content_signal_summary_check
-    check (length(btrim(summary)) between 1 and 300),
+    check (length(summary) between 1 and 300 and summary ~ '\S'),
   constraint content_signal_hook_text_check
-    check (hook_text is null or length(btrim(hook_text)) between 1 and 500),
+    check (hook_text is null or (length(hook_text) between 1 and 500 and hook_text ~ '\S')),
   constraint content_signal_hook_type_check
     check (hook_type is null or hook_type in
       ('question', 'fact', 'warning', 'process', 'before_after', 'customer_voice', 'direct_live', 'story')),
@@ -263,6 +303,11 @@ create table if not exists analytics.content_signal (
     check (radar_angle_idx is null or (radar_angle_idx >= 0 and radar_angle_idx <= 20)),
   constraint content_signal_posted_before_seen_check
     check (posted_on is null or posted_on <= seen_on),
+  -- ธง "ตัวเลขจากค่าย่อ" ไร้ความหมายถ้าไม่มีตัวเลขสักช่อง (trap #14: RPC ส่งทุกช่องนี้ไปกับ insert เสมอ)
+  constraint content_signal_approx_needs_number_check
+    check (not metrics_approx
+       or account_followers is not null or views is not null or likes is not null
+       or comments is not null or saves is not null or shares is not null),
   -- ข้อกำหนดต่อ kind (design §5.1) — trap #14: RPC ส่งทุกคอลัมน์ที่ CHECK อ้างไปกับ insert เสมอ
   constraint content_signal_kind_requirements_check
     check ((kind <> 'reference_clip' or (url is not null and hook_text is not null))
@@ -328,7 +373,7 @@ create table if not exists analytics.content_hook (
   updated_by       uuid references auth.users (id) on delete set null,
   created_at       timestamptz not null default now(),
   updated_at       timestamptz not null default now(),
-  constraint content_hook_text_check check (length(btrim(text)) between 1 and 500),
+  constraint content_hook_text_check check (length(text) between 1 and 500 and text ~ '\S'),
   constraint content_hook_type_check
     check (hook_type is null or hook_type in
       ('question', 'fact', 'warning', 'process', 'before_after', 'customer_voice', 'direct_live', 'story')),
@@ -403,6 +448,11 @@ create or replace function analytics.content_actor_assert(
  set search_path to 'public', 'pg_temp'
 as $f$
 begin
+  -- p_allowed null ⇒ `p_role = any(null)` เป็น null ⇒ `not null` = null ⇒ ด่านไม่ raise (ผ่านเงียบ) — ปฏิเสธตรงนี้
+  -- ผู้เรียกที่ลืมส่งรายการ/ส่งตัวแปร null มาต้องล้ม ไม่ใช่เปิดให้ทุก role
+  if p_allowed is null then
+    raise exception '%: ไม่ได้ระบุรายการ actor_role ที่อนุญาต (p_allowed เป็น null)', p_fn using errcode = '22023';
+  end if;
   if p_role is null or not (p_role = any (array['owner', 'ai', 'system'])) then
     raise exception '%: actor_role ต้องเป็น owner, ai หรือ system เท่านั้น (ได้รับ %)', p_fn, coalesce(p_role, 'null')
       using errcode = '22023';
@@ -414,9 +464,10 @@ begin
 end;
 $f$;
 
--- ลิงก์ → รูป canonical สำหรับกันซ้ำ (D-d): host ตัวเล็ก · ตัด userinfo/พอร์ตมาตรฐาน/www./m. · ตัด scheme/
--- fragment/trailing slash · เก็บ query เฉพาะตัวระบุคลิป (v · story_fbid · fbid · id) เรียงตามชื่อ
--- คืน null เมื่อไม่ใช่ http(s) URL ที่มี host ถูกรูป — ผู้เรียกต้อง raise เอง (ไม่เดา)
+-- ลิงก์ → รูป canonical สำหรับกันซ้ำ (D-d): host ตัวเล็ก · ตัดพอร์ตมาตรฐาน/www./m. · ตัด scheme/
+-- fragment/trailing slash · เก็บ query เฉพาะตัวระบุคลิป (v · story_fbid · fbid · id) เรียงตามชื่อ ·
+-- path เป็นตัวเล็กเฉพาะ host tiktok.com (handle ไม่สนตัวพิมพ์ · video id เป็นตัวเลข — ห้ามทำกับ host อื่น)
+-- คืน null เมื่อไม่ผ่าน content_url_ok (รวม userinfo — ปฏิเสธ ไม่ตัดเงียบ) หรือ host ไม่ถูกรูป — ผู้เรียกต้อง raise เอง (ไม่เดา)
 -- ⚠️ ลิงก์ย่อ (vt.tiktok.com) กับลิงก์เต็มของคลิปเดียวกัน DB รวมให้ไม่ได้ — แอป canonicalize ก่อนส่ง (R16)
 create or replace function analytics.content_url_norm(p_url text)
  returns text
@@ -433,12 +484,15 @@ begin
   if p_url is null or btrim(p_url) = '' then
     return null;
   end if;
+  -- ด่านรูปแบบก่อน parse (userinfo/\/whitespace/control/<>"/ยาว >500 → null) — ไม่มีการตัดส่วนที่ผิดทิ้งแล้วไปต่อ
+  if not analytics.content_url_ok(btrim(p_url)) then
+    return null;
+  end if;
   v_m := regexp_match(btrim(p_url), '^https?://([^/?#]+)([^?#]*)(?:\?([^#]*))?(?:#.*)?$', 'i');
   if v_m is null then
     return null;
   end if;
   v_host := lower(v_m[1]);
-  v_host := regexp_replace(v_host, '^.*@', '');
   v_host := regexp_replace(v_host, ':(80|443)$', '');
   v_host := regexp_replace(v_host, '^(www|m)\.', '');
   if v_host !~ '^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+(:[0-9]{1,5})?$' then
@@ -446,6 +500,9 @@ begin
   end if;
   v_path := regexp_replace(coalesce(v_m[2], ''), '/{2,}', '/', 'g');
   v_path := regexp_replace(v_path, '/+$', '');
+  if v_host = 'tiktok.com' then
+    v_path := lower(v_path);
+  end if;
   select string_agg(lower(split_part(kv, '=', 1)) || '=' || substring(kv from position('=' in kv) + 1), '&'
                     order by lower(split_part(kv, '=', 1)))
     into v_kept
@@ -567,8 +624,9 @@ create or replace function analytics.content_signal_capture(
 as $f$
 declare
   v_today    date := (now() at time zone 'Asia/Bangkok')::date;
-  v_summary  text := regexp_replace(btrim(coalesce(p_summary, '')), '\s+', ' ', 'g');
-  v_hook     text := nullif(btrim(coalesce(p_hook_text, '')), '');
+  -- ยุบ whitespace (รวม tab/newline) ก่อนแล้วค่อย trim — ลำดับกลับกันทำให้ tab ล้วนกลายเป็น ' ' ที่ btrim ไม่เห็นว่าว่าง
+  v_summary  text := btrim(regexp_replace(coalesce(p_summary, ''), '\s+', ' ', 'g'));
+  v_hook     text := nullif(btrim(regexp_replace(coalesce(p_hook_text, ''), '\s+', ' ', 'g')), '');
   v_url      text := nullif(btrim(coalesce(p_url, '')), '');
   v_norm     text;
   v_seen     date;
@@ -606,6 +664,11 @@ begin
     raise exception 'content_signal_capture: ตัวเลขยอด/ผู้ติดตามต้องอยู่ระหว่าง 0 ถึง 10,000,000,000 (ไม่เห็นให้เว้นว่าง ห้ามใส่ 0)'
       using errcode = '22023';
   end if;
+  if coalesce(p_metrics_approx, false)
+     and p_account_followers is null and p_views is null and p_likes is null
+     and p_comments is null and p_saves is null and p_shares is null then
+    raise exception 'content_signal_capture: ติดธง "ตัวเลขประมาณ" แต่ไม่มีตัวเลขสักช่อง' using errcode = '22023';
+  end if;
   if p_duration_sec is not null and not (p_duration_sec >= 1 and p_duration_sec <= 36000) then
     raise exception 'content_signal_capture: duration_sec ต้องอยู่ระหว่าง 1 ถึง 36000' using errcode = '22023';
   end if;
@@ -621,10 +684,14 @@ begin
     raise exception 'content_signal_capture: metrics_seen_on อยู่ในอนาคต' using errcode = '22023';
   end if;
 
+  -- ความยาว/รูปแบบก่อน norm (ไม่ให้ norm ประมวลผลสตริงยาวหลายแสนตัว) · ผิด = ปฏิเสธทั้งลิงก์ ไม่ตัดแก้ให้
   if v_url is not null then
+    if length(v_url) > 500 or not analytics.content_url_ok(v_url) then
+      raise exception 'content_signal_capture: ลิงก์ไม่ถูกต้อง (ต้องเป็น http/https ยาวไม่เกิน 500 ไม่มี user@ ช่องว่าง \ < > ")' using errcode = '22023';
+    end if;
     v_norm := analytics.content_url_norm(v_url);
-    if v_norm is null or length(v_url) > 500 then
-      raise exception 'content_signal_capture: ลิงก์ไม่ถูกต้อง (ต้องเป็น http/https และยาวไม่เกิน 500)' using errcode = '22023';
+    if v_norm is null then
+      raise exception 'content_signal_capture: ลิงก์ไม่ถูกต้อง (โดเมนไม่ถูกรูป)' using errcode = '22023';
     end if;
   end if;
 
@@ -773,6 +840,10 @@ $f$;
 -- 10. content_hook_upsert — AI/เจ้าของเขียน hook ของ step (signature ของ campaign_ai_draft_artifact ไม่แตะ)
 --     กติกา A/B: คนละประเภท (ไม่นับ hook_type null ของ legacy) · ป้ายซ้ำใน step เดียวไม่ได้
 --     เพิ่ม p_shop_id นำหน้า (design §5.2 ไม่มี) ให้สอดคล้อง RPC อื่นและเช็คข้ามร้านได้
+--     🔴 แทนที่ hook เดิม = ต้องส่ง p_id เท่านั้น — ส่งป้ายที่ step นี้มีอยู่แล้วโดยไม่ส่ง p_id = 23505 ไม่ทับเงียบ
+--        (เดิม: ป้ายซ้ำ = แก้แถวเดิมเงียบๆ ⇒ AI ทับ hook ที่เจ้าของเลือกไว้โดยไม่รู้ตัว — security S-M3 / QA K9)
+--     🔴 AI แก้/ทับ hook ที่ generated_by='human' ไม่ได้ (42501) แม้ส่ง p_id ถูก — เจ้าของ/ระบบแก้ hook ของ AI ได้
+--        (แล้วแถวนั้นกลายเป็น human)
 -- ============================================================================
 
 create or replace function analytics.content_hook_upsert(
@@ -790,8 +861,10 @@ create or replace function analytics.content_hook_upsert(
  set search_path to 'public', 'analytics', 'extensions', 'pg_temp'
 as $f$
 declare
-  v_text        text := nullif(btrim(coalesce(p_text, '')), '');
+  v_text        text := nullif(btrim(regexp_replace(coalesce(p_text, ''), '\s+', ' ', 'g')), '');
   v_id          uuid;
+  v_gen         text;
+  v_exist       uuid;
   v_other_type  text;
 begin
   if p_shop_id is null or p_step_id is null then
@@ -823,14 +896,21 @@ begin
   end if;
 
   if p_id is not null then
-    select h.id into v_id from analytics.content_hook h
+    select h.id, h.generated_by into v_id, v_gen from analytics.content_hook h
      where h.id = p_id and h.shop_id = p_shop_id and h.step_id = p_step_id and h.origin = 'ours' for update;
     if not found then
       raise exception 'content_hook_upsert: ไม่พบ hook ของชิ้นงานนี้' using errcode = '22023';
     end if;
+    if p_actor_role = 'ai' and v_gen = 'human' then
+      raise exception 'content_hook_upsert: AI แก้/ทับ hook ที่คนเขียนหรือแก้ไว้ไม่ได้ (ต้องเจ้าของเป็นคนแก้)' using errcode = '42501';
+    end if;
   elsif p_label is not null then
-    select h.id into v_id from analytics.content_hook h
-     where h.step_id = p_step_id and h.label = p_label for update;
+    -- ไม่ส่ง p_id = สร้างแถวใหม่เท่านั้น — ป้ายนี้มีอยู่แล้ว ⇒ ปฏิเสธ (ผู้เรียกต้องเลือกแทนที่ด้วย p_id อย่างชัดแจ้ง)
+    select h.id into v_exist from analytics.content_hook h where h.step_id = p_step_id and h.label = p_label;
+    if v_exist is not null then
+      raise exception 'content_hook_upsert: ชิ้นงานนี้มี hook ป้าย % อยู่แล้ว — จะแทนที่ต้องส่ง p_id', p_label
+        using errcode = '23505', detail = v_exist::text;
+    end if;
   end if;
 
   if p_label is not null then
@@ -906,7 +986,8 @@ begin
     raise exception 'live_session_upsert: ต้องระบุ shop, วันที่ไลฟ์, เวลาเริ่ม และเวลาเลิก';
   end if;
   perform analytics.crm_require_owner_admin(p_shop);  -- ด่านสิทธิ์ก่อน validate อื่น (กัน probe)
-  perform analytics.content_actor_assert(p_actor_role, array['owner', 'ai', 'system'], 'live_session_upsert');
+  -- บันทึกหลังไลฟ์ = ข้อมูลของเจ้าของ — AI เขียนไม่ได้เลย (42501) · ด่านนี้อยู่ก่อน validate/เขียนอะไรทั้งสิ้น
+  perform analytics.content_actor_assert(p_actor_role, array['owner', 'system'], 'live_session_upsert');
   if p_peak is not null and p_peak < 0 then
     raise exception 'live_session_upsert: viewer สูงสุดต้องไม่ติดลบ';
   end if;
@@ -948,7 +1029,7 @@ begin
   -- ตรวจความยาวคำถามก่อนเขียนอะไรทั้งสิ้น (ไม่ truncate เงียบๆ)
   if p_questions is not null then
     foreach v_q_raw in array p_questions loop
-      v_q := regexp_replace(btrim(coalesce(v_q_raw, '')), '\s+', ' ', 'g');
+      v_q := btrim(regexp_replace(coalesce(v_q_raw, ''), '\s+', ' ', 'g'));
       if length(v_q) > 300 then
         raise exception 'live_session_upsert: คำถามไลฟ์ 1 ข้อต้องไม่เกิน 300 ตัวอักษร' using errcode = '22023';
       end if;
@@ -974,9 +1055,12 @@ begin
 
   -- คำถามซ้ำ → content_signal kind live_question (fact ชั้นเดียว · ไม่เก็บซ้ำใน note) · unique กันซ้ำตอน re-submit
   if p_questions is not null then
-    v_q_src := case when p_actor_role = 'system' then 'system' else 'owner' end;
+    -- source ตาม actor (ผ่านด่านข้างบนมาแล้ว = owner|system เท่านั้น ซึ่งเป็นค่าที่ source CHECK รับทั้งคู่) —
+    -- ไม่ hardcode 'owner' ให้ทุกคน: คำถามที่ระบบส่งต้องไม่ถูกจดว่าเจ้าของเห็นเอง
+    v_q_src := p_actor_role;
     foreach v_q_raw in array p_questions loop
-      v_q := nullif(regexp_replace(btrim(coalesce(v_q_raw, '')), '\s+', ' ', 'g'), '');
+      -- ว่างหลังยุบ whitespace = ข้ามข้อนั้น ไม่ให้ทั้งคืน rollback (CHECK summary ปฏิเสธ summary ว่าง)
+      v_q := nullif(btrim(regexp_replace(coalesce(v_q_raw, ''), '\s+', ' ', 'g')), '');
       if v_q is null then
         continue;
       end if;
@@ -1058,6 +1142,9 @@ grant  execute on function analytics.content_actor_assert(text, text[], text) to
 revoke execute on function analytics.content_url_norm(text) from public, anon, authenticated;
 grant  execute on function analytics.content_url_norm(text) to service_role;
 
+revoke execute on function analytics.content_url_ok(text) from public, anon, authenticated;
+grant  execute on function analytics.content_url_ok(text) to service_role;
+
 revoke execute on function analytics.live_host_upsert(uuid, text, text, boolean, uuid, text) from public, anon, authenticated;
 grant  execute on function analytics.live_host_upsert(uuid, text, text, boolean, uuid, text) to service_role;
 
@@ -1086,7 +1173,7 @@ grant  execute on function analytics.live_session_upsert(uuid, date, time, time,
 comment on function analytics.live_session_upsert(uuid, date, time, time, int, text, text, uuid, text[], text) is
   'v2 (0158): เพิ่ม p_host_id/p_questions/p_actor_role ท้ายสุด (default) — ทางเรียกเดิม 7 พารามิเตอร์ใช้ได้ · '
   'p_host_id null = ไม่ทับโฮสต์เดิม · p_questions → content_signal live_question (ห้ามใส่ชื่อ/เบอร์ลูกค้า) · '
-  'actor_role มาจากแอป ไม่ใช่ auth (R14)';
+  'actor_role owner|system เท่านั้น (AI = 42501) · มาจากแอป ไม่ใช่ auth (R14)';
 
 -- ============================================================================
 -- 14. backfill hook 26 แถวจาก step_artifact.clip_brief.hooks[] (design §5.2 · Δ3)
@@ -1129,7 +1216,8 @@ begin
       case when jsonb_typeof(a.clip_brief -> 'hooks') = 'array' then a.clip_brief -> 'hooks' else '[]'::jsonb end) as h(elem)
    where jsonb_typeof(h.elem) <> 'object'
       or jsonb_typeof(h.elem -> 'line') is distinct from 'string'
-      or length(btrim(h.elem ->> 'line')) not between 1 and 500;
+      or length(btrim(h.elem ->> 'line')) not between 1 and 500
+      or (h.elem ->> 'line') !~ '\S';
   if v_bad > 0 then
     raise exception '0158 backfill hook: พบ % hook ที่ไม่ใช่ object หรือไม่มีข้อความ line (1-500) — หยุด ไม่เดา', v_bad;
   end if;
@@ -1213,30 +1301,40 @@ do $c1final$
 declare
   v_now text;
   v_bad text;
+  v_k   text;
 begin
+  -- snapshot ต้องอยู่ครบ: set_config(..., true) หมดอายุพร้อมทรานแซกชัน · อ่านด้วย current_setting(..., true) แล้วเช็คเอง
+  -- (GUC แบบ custom ที่เคยตั้งแล้วหมดอายุจะกลับเป็น '' ไม่ใช่ null ⇒ เช็คทั้งสองแบบ) — ไม่งั้น "ไม่มีอะไรให้เทียบ"
+  -- จะผ่านเป็นเขียว หรือ error เป็น 42704 ที่ไม่บอกสาเหตุ
+  foreach v_k in array array['c1.snap_live', 'c1.snap_artifact', 'c1.snap_step', 'c1.snap_post', 'c1.snap_views', 'c1.snap_funcs'] loop
+    if coalesce(current_setting(v_k, true), '') = '' then
+      raise exception '0158 ด่านท้าย: ไม่พบ snapshot % — ไฟล์นี้ต้องรันทั้งไฟล์ในทรานแซกชันเดียวผ่าน scripts/run-sql.mjs เท่านั้น (อย่าวางทีละก้อน)', v_k;
+    end if;
+  end loop;
+
   select count(*)::text || ':' || md5(coalesce(string_agg(concat_ws('|', id, shop_id, live_date, started_at, ended_at,
            peak_viewers, note, source, created_by, updated_by, created_at, updated_at), E'\n' order by id), ''))
     into v_now from analytics.live_session_log;
-  if v_now is distinct from current_setting('c1.snap_live') then
-    raise exception '0158 ด่านท้าย: live_session_log เดิมเปลี่ยน (ก่อน % / หลัง %)', current_setting('c1.snap_live'), v_now;
+  if v_now is distinct from current_setting('c1.snap_live', true) then
+    raise exception '0158 ด่านท้าย: live_session_log เดิมเปลี่ยน (ก่อน % / หลัง %)', current_setting('c1.snap_live', true), v_now;
   end if;
 
   select count(*)::text || ':' || md5(coalesce(string_agg(concat_ws('|', id, step_id, status, content_body,
            clip_brief::text, updated_at), E'\n' order by id), ''))
     into v_now from analytics.step_artifact;
-  if v_now is distinct from current_setting('c1.snap_artifact') then
+  if v_now is distinct from current_setting('c1.snap_artifact', true) then
     raise exception '0158 ด่านท้าย: step_artifact เปลี่ยน (clip_brief ต้องไม่ถูกแตะ)';
   end if;
 
   select count(*)::text || ':' || md5(coalesce(string_agg(concat_ws('|', id, status, updated_at), E'\n' order by id), ''))
     into v_now from analytics.campaign_step;
-  if v_now is distinct from current_setting('c1.snap_step') then
+  if v_now is distinct from current_setting('c1.snap_step', true) then
     raise exception '0158 ด่านท้าย: campaign_step เปลี่ยน (status/updated_at ต้องไม่ขยับ)';
   end if;
 
   select count(*)::text || ':' || md5(coalesce(string_agg(concat_ws('|', id, status, updated_at), E'\n' order by id), ''))
     into v_now from analytics.content_post;
-  if v_now is distinct from current_setting('c1.snap_post') then
+  if v_now is distinct from current_setting('c1.snap_post', true) then
     raise exception '0158 ด่านท้าย: content_post เปลี่ยน';
   end if;
 
@@ -1245,7 +1343,7 @@ begin
     from pg_class c
    where c.relnamespace = 'analytics'::regnamespace and c.relkind = 'v'
      and c.relname not in ('v_content_signal', 'v_live_log_recent');
-  if v_now is distinct from current_setting('c1.snap_views') then
+  if v_now is distinct from current_setting('c1.snap_views', true) then
     raise exception '0158 ด่านท้าย: definition ของ view เดิมเปลี่ยน (trap #3 — ห้ามแตะ view เดิม)';
   end if;
 
@@ -1255,7 +1353,7 @@ begin
     from pg_proc p
    where p.pronamespace = 'analytics'::regnamespace and p.prokind = 'f'
      and p.proname !~ '^(content_signal_|content_hook_|content_actor_|content_url_|live_host_|live_session_upsert$)';
-  if v_now is distinct from current_setting('c1.snap_funcs') then
+  if v_now is distinct from current_setting('c1.snap_funcs', true) then
     raise exception '0158 ด่านท้าย: มีฟังก์ชันเดิมที่ไม่ใช่ของไฟล์นี้ถูกเปลี่ยน/เพิ่ม/หาย';
   end if;
 
@@ -1286,3 +1384,6 @@ begin
   raise notice '0158 ด่านท้าย: ผ่าน — ของเดิมไม่ขยับ · live_session_upsert 1 signature · grant สะอาด · RLS เปิด';
 end
 $c1final$;
+
+-- ให้ PostgREST รู้จักฟังก์ชัน/ตารางใหม่ทันที (แบบเดียวกับ 0150-0157) — ใน dry-run ที่ ROLLBACK ไม่ถูกส่งออกไป
+notify pgrst, 'reload schema';

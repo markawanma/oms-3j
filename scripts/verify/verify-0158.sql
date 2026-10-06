@@ -20,6 +20,14 @@
 -- ด่านนั้นอยู่ใน migration เอง (snapshot GUC c1.snap_* ก่อน แล้วเทียบตอนท้ายไฟล์ · raise ถ้าขยับ) ·
 -- ไฟล์นี้ตรวจแค่สภาพหลัง apply + พิมพ์ md5 ไว้เทียบมือ
 --
+-- รอบ 2 (6 ต.ค. 69 — แก้ตาม security/QA): เพิ่ม B3m-B3zh (ลิงก์อันตราย/whitespace/approx) · B9 (AI vs hook human) ·
+-- B10 (ด่าน p_id ทีละเงื่อนไข) · B11 (สัญญาณข้ามร้าน) · B12 (actor_assert null) · B13 (live_session_upsert AI/คำถาม) ·
+-- แก้ B2n/C5b/C5d ให้ตรงกติกา "แทนที่ต้องส่ง p_id" · B6d-f ยิงผ่าน RPC + เช็คว่าไม่มีแถวหลุด · C4f/C7c เทียบค่าจริง
+-- กับ snapshot ของ migration (ไม่มี snapshot = [SKIP] ไม่ใช่ OK)
+-- Mutant ที่เคยรอดและตอนนี้มี assertion จับ: (1) ถอด shop ออกจากเช็ค p_source_signal_id → B11b · (2) ถอด step_id/origin
+-- ออกจาก path ของ p_id → B10d / B10f (origin อย่างเดียว = equivalent เพราะ CHECK reference_scope — ดู B10h) · ถอด shop → B10a ·
+-- (3) คืนการตัด userinfo ใน norm → B3o/B3q · (4) เปลี่ยน source ของคำถาม → B13h/B13i
+--
 -- ถ้ามีร้านมากกว่า 1 ร้านใน public.shop ไฟล์นี้หยุด (ต้องการร้านเดียวเหมือน seed) — ร้านที่ 2 สร้างเองในทรานแซกชัน
 
 -- ---------- helper (temp function — หายพร้อมทรานแซกชัน) ----------
@@ -176,12 +184,15 @@ begin
      and p.proname ~ '^(content_signal_|content_hook_|content_actor_|content_url_|live_host_|live_session_upsert$)'
      and a.privilege_type = 'EXECUTE'
      and (a.grantee = 0 or a.grantee = 'anon'::regrole or a.grantee = 'authenticated'::regrole);
-  v_log := v_log || pg_temp.vb('A3', 'ไม่มี PUBLIC/anon/authenticated ถือ EXECUTE บนฟังก์ชันของ 0158 ทั้ง 7', v_bad is null, coalesce(v_bad, ''));
+  v_log := v_log || pg_temp.vb('A3', 'ไม่มี PUBLIC/anon/authenticated ถือ EXECUTE บนฟังก์ชันของ 0158 ทั้ง 8', v_bad is null, coalesce(v_bad, ''));
 
   v_log := v_log || pg_temp.vb('A3b', 'service_role มี EXECUTE ครบทุกฟังก์ชันของ 0158',
     (select bool_and(has_function_privilege('service_role', p.oid, 'execute')) from pg_proc p
       where p.pronamespace = 'analytics'::regnamespace
         and p.proname ~ '^(content_signal_|content_hook_|content_actor_|content_url_|live_host_|live_session_upsert$)'));
+  v_log := v_log || pg_temp.vb('A3c', 'ฟังก์ชันของ 0158 มี 8 ตัวพอดี (ตัวเลข "ทั้ง 8" ใน A3 มีที่มา)',
+    (select count(*) from pg_proc where pronamespace = 'analytics'::regnamespace
+        and proname ~ '^(content_signal_|content_hook_|content_actor_|content_url_|live_host_|live_session_upsert$)') = 8);
 
   -- case 7: signature เดียว
   select string_agg(proname || '=' || n, ', ') into v_bad from (
@@ -226,6 +237,7 @@ begin
       'select analytics.live_host_upsert(null::uuid, null::text, null::text)',
       'select analytics.live_session_upsert(null::uuid, null::date, null::time, null::time)',
       'select analytics.content_url_norm(''https://a.b'')',
+      'select analytics.content_url_ok(''https://a.b'')',
       'select analytics.content_actor_assert(''owner'')'
     ] loop
       v_log := v_log || pg_temp.vl('A6', v_role || ' → ' || left(v_stmt, 70), pg_temp.vx(v_stmt, array['42501']));
@@ -299,10 +311,20 @@ begin
   select o_id, o_res into v_id2, v_r from pg_temp.vid(format(
     'select analytics.content_hook_upsert(%L::uuid, %L::uuid, ''B'', ''เงินแท้ดูยังไง'', ''fact'')', v_shop, v_step2));
   v_log := v_log || pg_temp.vl('B2m', '[ต้องไม่พัง] hook B คนละประเภท → ผ่าน', v_r);
+  -- S-M3 (ข): ป้ายที่ step นี้มีอยู่แล้ว + ไม่ส่ง p_id = ปฏิเสธ 23505 (detail = id เดิม) · ข้อความเดิมต้องไม่ถูกทับ
+  v_log := v_log || pg_temp.vb('B2n', 'hook_upsert ป้าย B ซ้ำโดยไม่ส่ง p_id (owner) → 23505 + id เดิมใน detail · ไม่ทับ · ไม่เพิ่มแถว',
+    pg_temp.vx(format('select analytics.content_hook_upsert(%L::uuid, %L::uuid, ''B'', ''ทับเงียบ'', ''story'')', v_shop, v_step2), array['23505']) like 'OK%' || v_id2::text || '%'
+    and (select text from analytics.content_hook where id = v_id2) = 'เงินแท้ดูยังไง'
+    and (select count(*) from analytics.content_hook where step_id = v_step2 and label = 'B') = 1);
+  v_log := v_log || pg_temp.vl('B2n2', 'ป้ายซ้ำโดยไม่ส่ง p_id: actor=ai → 23505 (ไม่ทับเงียบ)',
+    pg_temp.vx(format('select analytics.content_hook_upsert(%L::uuid, %L::uuid, ''B'', ''ai ทับ'', ''story'', null, ''ai'')', v_shop, v_step2), array['23505']));
+  v_log := v_log || pg_temp.vl('B2n3', 'ป้ายซ้ำโดยไม่ส่ง p_id: actor=system → 23505',
+    pg_temp.vx(format('select analytics.content_hook_upsert(%L::uuid, %L::uuid, ''B'', ''sys ทับ'', ''story'', null, ''system'')', v_shop, v_step2), array['23505']));
   select o_id, o_res into v_first, v_r from pg_temp.vid(format(
-    'select analytics.content_hook_upsert(%L::uuid, %L::uuid, ''B'', ''เงินแท้ดูยังไง (แก้)'', ''story'')', v_shop, v_step2));
-  v_log := v_log || pg_temp.vb('B2n', 'hook_upsert ป้าย B ซ้ำ = แก้แถวเดิม ไม่เพิ่มแถว',
-    v_first = v_id2 and (select count(*) from analytics.content_hook where step_id = v_step2 and label = 'B') = 1);
+    'select analytics.content_hook_upsert(%L::uuid, %L::uuid, ''B'', ''เงินแท้ดูยังไง (แก้)'', ''story'', null, ''owner'', %L::uuid)', v_shop, v_step2, v_id2));
+  v_log := v_log || pg_temp.vb('B2n4', '[ต้องไม่พัง] ส่ง p_id ชัดๆ = แทนที่แถวเดิม (id เดิม · ไม่เพิ่มแถว · ข้อความใหม่)',
+    v_first = v_id2 and (select count(*) from analytics.content_hook where step_id = v_step2 and label = 'B') = 1
+    and (select text from analytics.content_hook where id = v_id2) = 'เงินแท้ดูยังไง (แก้)', v_r);
   v_log := v_log || pg_temp.vl('B2o', 'ป้าย A ซ้ำใน step เดียว (insert ตรง) → unique 23505',
     pg_temp.vx(format('insert into analytics.content_hook (shop_id, text, hook_type, origin, step_id, label, generated_by) values (%L, ''t'', ''warning'', ''ours'', %L, ''A'', ''human'')', v_shop, v_step2), array['23505']));
 
@@ -348,6 +370,246 @@ begin
   v_log := v_log || pg_temp.vl('B3l', 'ลิงก์คลิปเดียวกันแบบสั้น vs เต็ม (vt.tiktok.com) — DB รวมให้ไม่ได้ (แอป canonicalize ก่อน · R16) — แยกกันเป็น 2 แถวได้',
     case when analytics.content_url_norm('https://vt.tiktok.com/ZSabc/') is distinct from analytics.content_url_norm('https://www.tiktok.com/@a/video/1')
          then 'OK ยืนยันข้อจำกัด: norm ต่างกัน' else 'FAIL norm เท่ากัน?' end);
+
+  -- B-url-M1 (security S-M1): ลิงก์อันตรายต้องถูกปฏิเสธ "ทุกชั้นที่มี" — RPC 22023 · insert ตรง CHECK 23514 ·
+  -- content_url_ok/content_url_norm ตรงๆ (คืน false/null) · แต่ละชั้นมี assertion ของตัวเอง ⇒ ถอดชั้นไหนชั้นหนึ่งออก
+  -- ยังมี assertion ล้ม (mutant 3: ถอด/เปลี่ยนการจัดการ userinfo ใน norm)
+  -- รูปแบบ: ป้ายเคส|ลิงก์ (ลิงก์สร้างด้วย chr() เพื่อไม่ฝังตัวควบคุมดิบในไฟล์)
+  foreach v_stmt in array array[
+    'userinfo+pw|https://user:pw@www.tiktok.com/@shopx/video/7000000000000000501',
+    'userinfo-good-at-evil|https://www.tiktok.com@evil.example/@shopx/video/7000000000000000502',
+    'userinfo-only-user|https://user@tiktok.com/@shopx/video/7000000000000000503',
+    'backslash-host|https://tiktok.com\evil.example/x',
+    'backslash-path|https://tiktok.com/@shopx\video/7000000000000000504',
+    'space-in-path|https://tiktok.com/@shopx/video/7000000000000000505 x',
+    'tab-in-path|https://tiktok.com/@shopx/video/' || chr(9) || '7000000000000000506',
+    'newline-in-path|https://tiktok.com/@shopx/video/7000000000000000507' || chr(10) || 'x',
+    'cr-in-path|https://tiktok.com/@shopx/video/7000000000000000508' || chr(13),
+    'nul-ish-ctrl|https://tiktok.com/@shopx/video/' || chr(1) || '7000000000000000509',
+    'script-tag|https://tiktok.com/<script>alert(1)</script>',
+    'angle-in-query|https://tiktok.com/x?a=<b>',
+    'dquote-in-path|https://tiktok.com/x"onmouseover=alert(1)',
+    'too-long-501|https://a.example/' || repeat('x', 501 - 18)
+  ] loop
+    v_log := v_log || pg_temp.vl('B3m', 'RPC ปฏิเสธลิงก์อันตราย [' || split_part(v_stmt, '|', 1) || '] → 22023',
+      pg_temp.vx(format('select analytics.content_signal_capture(%L::uuid, ''reference_clip'', ''m1'', p_url => %L, p_hook_text => ''h'')',
+        v_shop, substring(v_stmt from position('|' in v_stmt) + 1)), array['22023']));
+    v_log := v_log || pg_temp.vl('B3n', 'insert ตรง (ข้าม RPC) ลิงก์อันตราย [' || split_part(v_stmt, '|', 1) || '] → CHECK 23514',
+      pg_temp.vx(format('insert into analytics.content_signal (shop_id, kind, source, seen_on, summary, url, url_norm, hook_text) values (%L, ''reference_clip'', ''owner'', current_date, ''m1'', %L, ''x.example/ok'', ''h'')',
+        v_shop, substring(v_stmt from position('|' in v_stmt) + 1)), array['23514']));
+    v_log := v_log || pg_temp.vb('B3o', 'content_url_ok = false และ content_url_norm = null [' || split_part(v_stmt, '|', 1) || ']',
+      analytics.content_url_ok(substring(v_stmt from position('|' in v_stmt) + 1)) is false
+      and analytics.content_url_norm(substring(v_stmt from position('|' in v_stmt) + 1)) is null);
+  end loop;
+  -- userinfo ต้องไม่ถูก "ตัดทิ้งแล้วชนกับลิงก์เดียวกันที่ไม่มี userinfo" (พฤติกรรมเดิมที่ security ตีตก)
+  v_log := v_log || pg_temp.vb('B3q', 'norm: https://user:pw@tiktok.com/@a/video/1 = null (ปฏิเสธ ไม่ตัดแล้วเท่ากับ tiktok.com/@a/video/1)',
+    analytics.content_url_norm('https://user:pw@tiktok.com/@a/video/1') is null
+    and analytics.content_url_norm('https://tiktok.com/@a/video/1') = 'tiktok.com/@a/video/1'
+    and analytics.content_url_norm('https://user@tiktok.com/@a/video/1') is distinct from analytics.content_url_norm('https://tiktok.com/@a/video/1'),
+    coalesce(analytics.content_url_norm('https://user:pw@tiktok.com/@a/video/1'), 'null'));
+  v_log := v_log || pg_temp.vl('B3q2', 'userinfo ที่ตามด้วยลิงก์ซ้ำของคลิปจริง → 22023 ไม่ใช่ 23505 (ไม่ถูกตัดแล้วจับว่าซ้ำ)',
+    pg_temp.vx(format('select analytics.content_signal_capture(%L::uuid, ''reference_clip'', ''x'', p_url => ''https://user:pw@www.tiktok.com/@shopx/video/7000000000000000001'', p_hook_text => ''h'')', v_shop), array['22023']));
+  -- ต้องไม่พัง: ลิงก์ที่ถูกต้องและหน้าตาใกล้เคียง
+  foreach v_stmt in array array[
+    'tiktok-@handle|https://www.tiktok.com/@shop.x_1/video/7000000000000000511',
+    'at-in-query|https://example.org/watch?v=ok&email=a@b.co',
+    'at-in-fragment|https://example.org/p#@frag',
+    'port|https://example.org:8443/p',
+    'query-direct|https://example.org?v=77',
+    'quote-in-path|https://example.org/it''s',
+    'exact-500|https://a.example/' || repeat('y', 500 - 18),
+    'http-upper|HTTP://Example.ORG/Path'
+  ] loop
+    v_log := v_log || pg_temp.vl('B3r', '[ต้องไม่พัง] ลิงก์ถูกต้อง [' || split_part(v_stmt, '|', 1) || '] ผ่านทั้ง RPC',
+      pg_temp.vok(format('select analytics.content_signal_capture(%L::uuid, ''reference_clip'', ''ok'', p_url => %L, p_hook_text => ''h'')',
+        v_shop, substring(v_stmt from position('|' in v_stmt) + 1))));
+  end loop;
+  v_log := v_log || pg_temp.vb('B3p', 'ไม่มีแถว content_signal ที่ url มี userinfo/ตัวควบคุม/ช่องว่าง/\<>" หลุดเข้าตาราง (นับทุกแถวที่เขียนมาถึงจุดนี้ รวมเคสต้องไม่พัง)',
+    not exists (select 1 from analytics.content_signal where url ~ '^https?://[^/?#]*@' or url ~ '[\\<>"[:cntrl:][:space:]]'));
+  v_log := v_log || pg_temp.vb('B3s', 'content_url_ok(null) = false · norm(null/ว่าง) = null (ผู้เรียก null ไม่ผ่านเงียบ)',
+    analytics.content_url_ok(null) is false and analytics.content_url_norm(null) is null and analytics.content_url_norm('   ') is null);
+  -- ตัวพิมพ์: เฉพาะ tiktok.com ที่ path เป็นตัวเล็ก · host อื่นห้ามแตะ (id ของ YouTube case-sensitive)
+  v_log := v_log || pg_temp.vb('B3t', 'norm: tiktok.com @ShopX = @shopx (handle ไม่สนตัวพิมพ์) แต่ m./www. ก็รวมด้วย',
+    analytics.content_url_norm('https://www.tiktok.com/@ShopX/video/1') = analytics.content_url_norm('https://m.tiktok.com/@shopx/VIDEO/1/')
+    and analytics.content_url_norm('https://www.tiktok.com/@ShopX/video/1') = 'tiktok.com/@shopx/video/1');
+  v_log := v_log || pg_temp.vb('B3u', 'norm: host อื่นไม่ lowercase path — youtu.be/AbC ≠ youtu.be/abc · vt.tiktok.com/ZSAbC ≠ /zsabc (ลิงก์สั้นเป็น case-sensitive)',
+    analytics.content_url_norm('https://youtu.be/AbC') <> analytics.content_url_norm('https://youtu.be/abc')
+    and analytics.content_url_norm('https://youtube.com/watch?v=abcDEF') <> analytics.content_url_norm('https://youtube.com/watch?v=ABCdef')
+    and analytics.content_url_norm('https://vt.tiktok.com/ZSAbC/') <> analytics.content_url_norm('https://vt.tiktok.com/ZSabc/'));
+  v_log := v_log || pg_temp.vl('B3v', 'capture: tiktok @ShopX ซ้ำกับ @shopx ที่บันทึกไว้ → 23505',
+    pg_temp.vx(format('select analytics.content_signal_capture(%L::uuid, ''reference_clip'', ''dup'', p_url => ''https://www.tiktok.com/@ShopX/video/7000000000000000001'', p_hook_text => ''h'')', v_shop), array['23505']));
+  -- service_role จริง (ไม่ใช่ postgres) ต้อง insert ตรงได้และ CHECK ที่เรียกฟังก์ชันไม่ตายด้วย permission
+  execute 'set local role service_role';
+  v_log := v_log || pg_temp.vl('B3w', '[ต้องไม่พัง] service_role insert ตรง ลิงก์ถูกต้อง → ผ่าน (CHECK เรียก content_url_ok ได้)',
+    pg_temp.vok(format('insert into analytics.content_signal (shop_id, kind, source, seen_on, summary, url, url_norm, hook_text) values (%L, ''reference_clip'', ''owner'', current_date, ''svc'', ''https://svc.example/ok'', ''svc.example/ok'', ''h'')', v_shop)));
+  v_log := v_log || pg_temp.vl('B3x', 'service_role insert ตรง ลิงก์มี userinfo → CHECK 23514 (ไม่ใช่ 42501)',
+    pg_temp.vx(format('insert into analytics.content_signal (shop_id, kind, source, seen_on, summary, url, url_norm, hook_text) values (%L, ''reference_clip'', ''owner'', current_date, ''svc2'', ''https://u@svc.example/ok'', ''svc.example/ok2'', ''h'')', v_shop), array['23514']));
+  execute 'reset role';
+
+  -- B-whitespace + approx (QA): ข้อความ whitespace ล้วนต้องไม่เข้าตาราง ไม่ว่าทางไหน
+  foreach v_stmt in array array['tab', 'newline', 'crlf-tab-mix'] loop
+    v_log := v_log || pg_temp.vl('B3y', 'RPC summary เป็น ' || v_stmt || ' ล้วน → 22023',
+      pg_temp.vx(format('select analytics.content_signal_capture(%L::uuid, ''craft_moment'', %L)', v_shop,
+        case v_stmt when 'tab' then chr(9) when 'newline' then chr(10) else chr(13) || chr(10) || chr(9) || ' ' end), array['22023']));
+    v_log := v_log || pg_temp.vl('B3z', 'insert ตรง summary เป็น ' || v_stmt || ' ล้วน → CHECK 23514',
+      pg_temp.vx(format('insert into analytics.content_signal (shop_id, kind, source, seen_on, summary) values (%L, ''craft_moment'', ''owner'', current_date, %L)', v_shop,
+        case v_stmt when 'tab' then chr(9) when 'newline' then chr(10) else chr(13) || chr(10) || chr(9) || ' ' end), array['23514']));
+  end loop;
+  v_log := v_log || pg_temp.vl('B3za', 'RPC reference_clip hook_text เป็น tab ล้วน → 22023 (hook ว่างใช้ถอดโครงไม่ได้)',
+    pg_temp.vx(format('select analytics.content_signal_capture(%L::uuid, ''reference_clip'', ''hk'', p_url => ''https://hk.example/1'', p_hook_text => %L)', v_shop, chr(9)), array['22023']));
+  v_log := v_log || pg_temp.vl('B3zb', 'insert ตรง hook_text เป็น tab ล้วน → CHECK 23514',
+    pg_temp.vx(format('insert into analytics.content_signal (shop_id, kind, source, seen_on, summary, url, url_norm, hook_text) values (%L, ''reference_clip'', ''owner'', current_date, ''hk2'', ''https://hk.example/2'', ''hk.example/2'', %L)', v_shop, chr(9)), array['23514']));
+  v_log := v_log || pg_temp.vl('B3zc', 'RPC hook_upsert ข้อความเป็น tab ล้วน → 22023',
+    pg_temp.vx(format('select analytics.content_hook_upsert(%L::uuid, %L::uuid, null, %L, ''fact'')', v_shop, v_step2, chr(9)), array['22023']));
+  v_log := v_log || pg_temp.vl('B3zd', 'insert ตรง content_hook.text เป็น tab ล้วน → CHECK 23514',
+    pg_temp.vx(format('insert into analytics.content_hook (shop_id, text, hook_type, origin, generated_by) values (%L, %L, ''fact'', ''reference'', ''human'')', v_shop, chr(9)), array['23514']));
+  v_log := v_log || pg_temp.vl('B3ze', 'metrics_approx=true แต่ไม่มีตัวเลขสักช่อง → RPC 22023',
+    pg_temp.vx(format('select analytics.content_signal_capture(%L::uuid, ''craft_moment'', ''approx'', p_metrics_approx => true)', v_shop), array['22023']));
+  v_log := v_log || pg_temp.vl('B3zf', 'metrics_approx=true แต่ไม่มีตัวเลขสักช่อง → insert ตรง CHECK 23514',
+    pg_temp.vx(format('insert into analytics.content_signal (shop_id, kind, source, seen_on, summary, metrics_approx) values (%L, ''craft_moment'', ''owner'', current_date, ''approx2'', true)', v_shop), array['23514']));
+  v_log := v_log || pg_temp.vl('B3zg', '[ต้องไม่พัง] metrics_approx=true + มีตัวเลขหนึ่งช่อง (likes=0 ก็นับ) → ผ่าน',
+    pg_temp.vok(format('select analytics.content_signal_capture(%L::uuid, ''craft_moment'', ''approx3'', p_metrics_approx => true, p_likes => 0)', v_shop)));
+  v_log := v_log || pg_temp.vl('B3zh', '[ต้องไม่พัง] metrics_approx=false ไม่มีตัวเลข → ผ่าน (default ของแอปเดิม)',
+    pg_temp.vok(format('select analytics.content_signal_capture(%L::uuid, ''craft_moment'', ''approx4'')', v_shop)));
+
+  -- B-M3 (security S-M3 ก): AI แก้/ทับ hook ที่ generated_by='human' ไม่ได้
+  select o_id, o_res into v_id, v_r from pg_temp.vid(format(
+    'select analytics.content_hook_upsert(%L::uuid, %L::uuid, null, ''hook ของเจ้าของ'', ''fact'', null, ''owner'')', v_shop, v_step2));
+  v_log := v_log || pg_temp.vl('B9a', 'owner เขียน hook (ไม่มีป้าย) บน step2 ไว้ให้ AI ลองทับ', v_r);
+  v_log := v_log || pg_temp.vb('B9b', 'hook ของ owner มี generated_by=human', (select generated_by from analytics.content_hook where id = v_id) = 'human');
+  v_log := v_log || pg_temp.vl('B9c', 'AI ส่ง p_id ของ hook human เพื่อทับ → 42501',
+    pg_temp.vx(format('select analytics.content_hook_upsert(%L::uuid, %L::uuid, null, ''ai ทับ hook เจ้าของ'', ''story'', null, ''ai'', %L::uuid)', v_shop, v_step2, v_id), array['42501']));
+  v_log := v_log || pg_temp.vb('B9d', 'hook human ไม่ถูกแตะหลัง AI พยายามทับ (ข้อความ/ประเภท/generated_by เดิม)',
+    (select text = 'hook ของเจ้าของ' and hook_type = 'fact' and generated_by = 'human' from analytics.content_hook where id = v_id));
+  select o_id, o_res into v_id2, v_r from pg_temp.vid(format(
+    'select analytics.content_hook_upsert(%L::uuid, %L::uuid, null, ''hook ที่ ai เขียน'', ''story'', null, ''ai'')', v_shop, v_step2));
+  v_log := v_log || pg_temp.vl('B9e', '[ต้องไม่พัง] AI เขียน hook ใหม่ได้ (generated_by=ai)', v_r);
+  v_log := v_log || pg_temp.vl('B9f', '[ต้องไม่พัง] AI แก้ hook ของ AI เองด้วย p_id ได้ และยังเป็น generated_by=ai', pg_temp.vok(format(
+    'select analytics.content_hook_upsert(%L::uuid, %L::uuid, null, ''ai แก้เอง'', ''story'', null, ''ai'', %L::uuid)', v_shop, v_step2, v_id2)));
+  v_log := v_log || pg_temp.vb('B9g', 'hook ของ AI หลังแก้: ข้อความใหม่ · generated_by ยัง ai',
+    (select text = 'ai แก้เอง' and generated_by = 'ai' from analytics.content_hook where id = v_id2));
+  v_log := v_log || pg_temp.vl('B9h', '[ต้องไม่พัง] owner แก้ hook ของ AI ด้วย p_id → ผ่านและกลายเป็น human', pg_temp.vok(format(
+    'select analytics.content_hook_upsert(%L::uuid, %L::uuid, null, ''owner รับไปแก้'', ''story'', null, ''owner'', %L::uuid)', v_shop, v_step2, v_id2)));
+  v_log := v_log || pg_temp.vb('B9i', 'หลัง owner แก้: generated_by = human',
+    (select generated_by from analytics.content_hook where id = v_id2) = 'human');
+  v_log := v_log || pg_temp.vl('B9j', 'AI ส่ง p_id ของ hook ที่ owner รับไปแก้แล้ว → 42501 (สถานะ human ไม่ถูก AI ย้อนกลับ)',
+    pg_temp.vx(format('select analytics.content_hook_upsert(%L::uuid, %L::uuid, null, ''ai ชิงกลับ'', ''story'', null, ''ai'', %L::uuid)', v_shop, v_step2, v_id2), array['42501']));
+  v_log := v_log || pg_temp.vl('B9k', '[ต้องไม่พัง] system แก้ hook human ด้วย p_id ได้ (ไม่ใช่เส้นทาง AI)', pg_temp.vok(format(
+    'select analytics.content_hook_upsert(%L::uuid, %L::uuid, null, ''system แก้'', ''story'', null, ''system'', %L::uuid)', v_shop, v_step2, v_id2)));
+
+  -- B-M3 (ข) บน hook legacy ที่ย้ายมาจริง: ป้าย A มีอยู่ ⇒ ไม่ส่ง p_id = ปฏิเสธ · hook legacy ไม่ถูกทับ
+  if v_step_leg is not null then
+    select h.id, h.text, h.hook_type_raw into v_id, v_stmt, v_col from analytics.content_hook h where h.step_id = v_step_leg and h.label = 'A';
+    v_log := v_log || pg_temp.vl('B9l', 'ป้าย A บน step legacy โดยไม่ส่ง p_id (owner) → 23505',
+      pg_temp.vx(format('select analytics.content_hook_upsert(%L::uuid, %L::uuid, ''A'', ''ทับ legacy'', ''question'')', v_shop, v_step_leg), array['23505']));
+    v_log := v_log || pg_temp.vl('B9m', 'ป้าย A บน step legacy โดยไม่ส่ง p_id (ai) → 23505',
+      pg_temp.vx(format('select analytics.content_hook_upsert(%L::uuid, %L::uuid, ''A'', ''ai ทับ legacy'', ''question'', null, ''ai'')', v_shop, v_step_leg), array['23505']));
+    v_log := v_log || pg_temp.vb('B9n', 'hook legacy ป้าย A ไม่ถูกทับ (ข้อความ + hook_type_raw + legacy_json_id เดิม)',
+      (select text = v_stmt and hook_type_raw is not distinct from v_col and legacy_json_id is not null
+         from analytics.content_hook where id = v_id));
+  end if;
+
+  -- B-M3 mutant 2: ด่านของ p_id (shop / step / origin) — แต่ละเงื่อนไขมี assertion ที่ล้มถ้าถูกถอดออก
+  --   (ก) hook ของร้านอื่นที่ชี้ step นี้ (ผูกด้วย insert ตรง ไม่มี FK คุม) — มีแต่เงื่อนไข shop เท่านั้นที่กัน
+  insert into analytics.content_hook (shop_id, text, hook_type, origin, step_id, generated_by)
+    values (v_shop2, 'hook ร้านอื่นบน step ร้านนี้', 'warning', 'ours', v_step, 'ai') returning id into v_id;
+  v_log := v_log || pg_temp.vl('B10a', 'p_id ของ hook ร้านอื่น (แต่ step เดียวกัน) → 22023 (ล้มถ้าถอด h.shop_id = p_shop_id)',
+    pg_temp.vx(format('select analytics.content_hook_upsert(%L::uuid, %L::uuid, null, ''เจาะข้ามร้าน'', ''fact'', null, ''owner'', %L::uuid)', v_shop, v_step, v_id), array['22023']));
+  v_log := v_log || pg_temp.vb('B10b', 'hook ร้านอื่นไม่ถูกแตะ', (select text = 'hook ร้านอื่นบน step ร้านนี้' and shop_id = v_shop2 from analytics.content_hook where id = v_id));
+  --   (ข) hook ของร้านเดียวกันแต่อยู่คนละ step — มีแต่เงื่อนไข step เท่านั้นที่กัน
+  select o_id, o_res into v_id, v_r from pg_temp.vid(format(
+    'select analytics.content_hook_upsert(%L::uuid, %L::uuid, null, ''hook ของ step อื่น'', ''fact'', null, ''ai'')', v_shop, v_step));
+  v_log := v_log || pg_temp.vl('B10c', 'สร้าง hook บน step หนึ่งไว้ให้ลองเจาะจาก step อื่น', v_r);
+  v_log := v_log || pg_temp.vl('B10d', 'p_id ของ hook บน step หนึ่ง แต่ส่ง p_step_id ของอีก step → 22023 (ล้มถ้าถอด h.step_id = p_step_id)',
+    pg_temp.vx(format('select analytics.content_hook_upsert(%L::uuid, %L::uuid, null, ''ย้าย step'', ''fact'', null, ''owner'', %L::uuid)', v_shop, v_step2, v_id), array['22023']));
+  v_log := v_log || pg_temp.vb('B10e', 'hook เดิมอยู่ step เดิม ข้อความเดิม', (select step_id = v_step and text = 'hook ของ step อื่น' from analytics.content_hook where id = v_id));
+  --   (ค) hook ของเขา (reference): CHECK บังคับ step_id null ⇒ เงื่อนไข step_id กันให้อยู่แล้ว · origin='ours' เป็นด่านซ้อน
+  --   (ถอด origin อย่างเดียวผล = เท่าเดิม — equivalent mutant เพราะ content_hook_reference_scope_check) · ถอดทั้ง step และ origin = assertion นี้ล้ม
+  insert into analytics.content_hook (shop_id, text, hook_type, origin, generated_by)
+    values (v_shop, 'hook ของเขา', 'story', 'reference', 'human') returning id into v_id;
+  v_log := v_log || pg_temp.vl('B10f', 'p_id ของ hook ฝั่ง reference (hook ของเขา) → 22023 (ล้มถ้าถอดทั้ง step และ origin)',
+    pg_temp.vx(format('select analytics.content_hook_upsert(%L::uuid, %L::uuid, null, ''เขียนทับของเขา'', ''fact'', null, ''owner'', %L::uuid)', v_shop, v_step2, v_id), array['22023']));
+  v_log := v_log || pg_temp.vb('B10g', 'hook reference ไม่ถูกแตะ', (select text = 'hook ของเขา' and origin = 'reference' and step_id is null from analytics.content_hook where id = v_id));
+  v_log := v_log || pg_temp.vb('B10h', 'ผูก hook reference เข้า step ไม่ได้แม้ insert ตรง (CHECK คือเหตุที่ origin ซ้อนกับ step)',
+    pg_temp.vx(format('update analytics.content_hook set step_id = %L where id = %L', v_step2, v_id), array['23514']) like 'OK%');
+
+  -- B-M3 mutant 1: p_source_signal_id ต้องเป็นสัญญาณของร้านเดียวกัน (ล้มถ้าถอดเงื่อนไข shop_id ออก)
+  select o_id, o_res into v_sig_id, v_r from pg_temp.vid(format(
+    'select analytics.content_signal_capture(%L::uuid, ''craft_moment'', ''สัญญาณร้านอื่น'')', v_shop2));
+  v_log := v_log || pg_temp.vl('B11a', 'สร้างสัญญาณของร้านอื่นไว้ให้ลองอ้าง', v_r);
+  select count(*) into v_n from analytics.content_hook where step_id = v_step2;
+  v_log := v_log || pg_temp.vl('B11b', 'hook_upsert อ้าง p_source_signal_id ของร้านอื่น → 22023 (ล้มถ้าถอด shop_id = p_shop_id ออกจากเช็คสัญญาณ)',
+    pg_temp.vx(format('select analytics.content_hook_upsert(%L::uuid, %L::uuid, null, ''อ้างสัญญาณข้ามร้าน'', ''fact'', %L::uuid)', v_shop, v_step2, v_sig_id), array['22023']));
+  v_log := v_log || pg_temp.vb('B11c', 'ไม่มี hook เกิดจากการอ้างสัญญาณข้ามร้าน',
+    (select count(*) from analytics.content_hook where step_id = v_step2) = v_n
+    and not exists (select 1 from analytics.content_hook where source_signal_id = v_sig_id));
+  select id into v_sig_id from analytics.content_signal where shop_id = v_shop and summary = 'ช่างขัดแหวนรุ่นใหม่' limit 1;
+  select o_id, o_res into v_id, v_r from pg_temp.vid(format(
+    'select analytics.content_hook_upsert(%L::uuid, %L::uuid, null, ''อ้างสัญญาณร้านเดียวกัน'', ''fact'', %L::uuid)', v_shop, v_step2, v_sig_id));
+  v_log := v_log || pg_temp.vl('B11d', '[ต้องไม่พัง] อ้างสัญญาณของร้านเดียวกัน → ผ่าน', v_r);
+  v_log := v_log || pg_temp.vb('B11e', 'source_signal_id ถูกเก็บตรง', (select source_signal_id from analytics.content_hook where id = v_id) = v_sig_id);
+  v_log := v_log || pg_temp.vl('B11f', 'อ้างสัญญาณที่ไม่มีอยู่จริง → 22023',
+    pg_temp.vx(format('select analytics.content_hook_upsert(%L::uuid, %L::uuid, null, ''x'', ''fact'', %L::uuid)', v_shop, v_step2, gen_random_uuid()), array['22023']));
+
+  -- B-L1: content_actor_assert (security S-L1)
+  v_log := v_log || pg_temp.vl('B12a', 'content_actor_assert p_allowed = null → 22023 (ไม่ผ่านเงียบ)',
+    pg_temp.vx('select analytics.content_actor_assert(''owner'', null::text[], ''t'')', array['22023']));
+  v_log := v_log || pg_temp.vl('B12b', 'content_actor_assert p_allowed = {} → 42501',
+    pg_temp.vx('select analytics.content_actor_assert(''owner'', array[]::text[], ''t'')', array['42501']));
+  v_log := v_log || pg_temp.vl('B12c', '[ต้องไม่พัง] content_actor_assert owner ใน {owner,system} → ผ่าน · default ใช้ได้',
+    pg_temp.vok('select analytics.content_actor_assert(''owner'', array[''owner'', ''system''], ''t''); select analytics.content_actor_assert(''ai'')'));
+  v_log := v_log || pg_temp.vl('B12d', 'content_actor_assert ai ใน {owner,system} → 42501',
+    pg_temp.vx('select analytics.content_actor_assert(''ai'', array[''owner'', ''system''], ''t'')', array['42501']));
+
+  -- B-M2 (security S-M2): live_session_upsert = owner/system เท่านั้น · source ของคำถามตาม actor
+  select count(*) into v_n from analytics.live_session_log;
+  select count(*) into v_n2 from analytics.content_signal where kind = 'live_question';
+  v_log := v_log || pg_temp.vl('B13a', 'live_session_upsert actor=ai (ไม่มีคำถาม) → 42501',
+    pg_temp.vx(format('select analytics.live_session_upsert(%L::uuid, date ''2020-03-01'', time ''20:00'', time ''23:00'', null, null, ''owner_chat'', null, null, ''ai'')', v_shop), array['42501']));
+  v_log := v_log || pg_temp.vl('B13b', 'live_session_upsert actor=ai + คำถาม → 42501',
+    pg_temp.vx(format('select analytics.live_session_upsert(%L::uuid, date ''2020-03-01'', time ''20:00'', time ''23:00'', null, null, ''owner_chat'', null, array[''คำถามจาก ai''], ''ai'')', v_shop), array['42501']));
+  v_log := v_log || pg_temp.vl('B13c', 'live_session_upsert actor=ai + โฮสต์ → 42501',
+    pg_temp.vx(format('select analytics.live_session_upsert(%L::uuid, date ''2020-03-01'', time ''20:00'', time ''23:00'', null, null, ''owner_chat'', %L::uuid, null, ''ai'')', v_shop, v_host_a), array['42501']));
+  v_log := v_log || pg_temp.vb('B13d', 'AI พยายามแล้ว: ไม่มีแถว log ใหม่ · ไม่มีสัญญาณ live_question ใหม่ · ไม่มีแถว 2020-03-01',
+    (select count(*) from analytics.live_session_log) = v_n
+    and (select count(*) from analytics.content_signal where kind = 'live_question') = v_n2
+    and not exists (select 1 from analytics.live_session_log where live_date = date '2020-03-01'));
+  -- AI ทับคืนที่เจ้าของบันทึกไว้แล้ว: ค่าเดิมต้องอยู่ครบ
+  select o_id, o_res into v_id, v_r from pg_temp.vid(format(
+    'select analytics.live_session_upsert(%L::uuid, date ''2020-03-02'', time ''20:00'', time ''23:00'', 111, ''บันทึกเจ้าของ'', ''admin_ui'', %L::uuid, null, ''owner'')', v_shop, v_host_a));
+  v_log := v_log || pg_temp.vl('B13e', '[ต้องไม่พัง] owner บันทึกคืนด้วยโฮสต์ → ผ่าน', v_r);
+  v_log := v_log || pg_temp.vl('B13f', 'AI พยายามทับคืนของ owner (เวลา/peak/note/โฮสต์) → 42501',
+    pg_temp.vx(format('select analytics.live_session_upsert(%L::uuid, date ''2020-03-02'', time ''19:00'', time ''21:00'', 999, ''ai ทับ'', ''owner_chat'', %L::uuid, null, ''ai'')', v_shop, v_host_b), array['42501']));
+  v_log := v_log || pg_temp.vb('B13g', 'คืนของ owner ไม่ถูก AI แตะ (peak=111 · note · โฮสต์ A · source)',
+    (select peak_viewers = 111 and note = 'บันทึกเจ้าของ' and host_id = v_host_a and source = 'admin_ui' from analytics.live_session_log where id = v_id));
+  -- source ของคำถามตาม actor (mutant 4: เปลี่ยน/ hardcode source ใน live_session_upsert ⇒ อย่างน้อยหนึ่งข้อล้ม)
+  perform analytics.live_session_upsert(v_shop, date '2020-03-03', time '20:00', time '23:00', null, null, 'owner_chat', null, array['คำถาม owner A', E'\tคำถาม owner B\n'], 'owner');
+  perform analytics.live_session_upsert(v_shop, date '2020-03-04', time '20:00', time '23:00', null, null, 'owner_chat', null, array['คำถาม system A'], 'system');
+  v_log := v_log || pg_temp.vb('B13h', 'คำถามที่ owner ส่ง: 2 แถว · source=owner · created_by_role=owner · summary ถูกยุบ/trim',
+    (select count(*) = 2 and bool_and(source = 'owner' and created_by_role = 'owner' and kind = 'live_question' and status = 'new'
+              and summary in ('คำถาม owner A', 'คำถาม owner B')) from analytics.content_signal where shop_id = v_shop and origin_live_date = date '2020-03-03'));
+  v_log := v_log || pg_temp.vb('B13i', 'คำถามที่ system ส่ง: source=system · created_by_role=system (ไม่ถูกจดเป็นเจ้าของเห็นเอง)',
+    (select count(*) = 1 and bool_and(source = 'system' and created_by_role = 'system') from analytics.content_signal where shop_id = v_shop and origin_live_date = date '2020-03-04'));
+  perform analytics.live_session_upsert(v_shop, date '2020-03-05', time '20:00', time '23:00', null, null, 'owner_chat', null, array['คำถาม default']);
+  v_log := v_log || pg_temp.vb('B13j', 'default actor (แอปเดิมไม่ส่ง p_actor_role) = owner → คำถามได้ source=owner · created_by_role=owner',
+    (select count(*) = 1 and bool_and(source = 'owner' and created_by_role = 'owner') from analytics.content_signal where shop_id = v_shop and origin_live_date = date '2020-03-05'));
+  -- QA-bug: คำถามเป็น tab/newline ล้วน = ข้าม ไม่ทำให้ทั้งคืน rollback
+  v_log := v_log || pg_temp.vl('B13k', '[ต้องไม่พัง] คำถามเป็น tab/newline/ช่องว่างล้วนปะปนข้อจริง → ผ่านและบันทึกคืนครบ (ข้อว่างถูกข้าม)',
+    pg_temp.vok(format('select analytics.live_session_upsert(%L::uuid, date ''2020-03-06'', time ''20:00'', time ''23:00'', 42, null, ''owner_chat'', null, array[%L, %L, %L, ''ข้อจริง''], ''owner'')',
+      v_shop, chr(9), chr(10), chr(13) || chr(9) || '  ')));
+  v_log := v_log || pg_temp.vb('B13l', 'คืน 2020-03-06 ถูกบันทึก (peak=42) และมีสัญญาณเฉพาะ "ข้อจริง" 1 ข้อ',
+    (select peak_viewers = 42 from analytics.live_session_log where shop_id = v_shop and live_date = date '2020-03-06')
+    and (select count(*) from analytics.content_signal where shop_id = v_shop and origin_live_date = date '2020-03-06') = 1
+    and exists (select 1 from analytics.content_signal where shop_id = v_shop and origin_live_date = date '2020-03-06' and summary = 'ข้อจริง'));
+  v_log := v_log || pg_temp.vl('B13m', '[ต้องไม่พัง] ส่งคำถามทุกข้อว่างล้วน → คืนบันทึกได้ ไม่มีสัญญาณ',
+    pg_temp.vok(format('select analytics.live_session_upsert(%L::uuid, date ''2020-03-07'', time ''20:00'', time ''23:00'', 7, null, ''owner_chat'', null, array[%L, %L], ''owner'')', v_shop, chr(9), chr(10))));
+  v_log := v_log || pg_temp.vb('B13n', 'คืน 2020-03-07: log มี · สัญญาณ 0',
+    exists (select 1 from analytics.live_session_log where shop_id = v_shop and live_date = date '2020-03-07')
+    and not exists (select 1 from analytics.content_signal where shop_id = v_shop and origin_live_date = date '2020-03-07'));
+  v_log := v_log || pg_temp.vl('B13o', 'คำถามยาวหลังยุบ >300 ยังปฏิเสธ 22023 · ขนาดพอดี 300 หลังยุบ whitespace ผ่าน', pg_temp.vx(format(
+    'select analytics.live_session_upsert(%L::uuid, date ''2020-03-08'', time ''20:00'', time ''23:00'', null, null, ''owner_chat'', null, array[%L], ''owner'')', v_shop, repeat('ก', 301)), array['22023']));
+  v_log := v_log || pg_temp.vl('B13p', '[ต้องไม่พัง] คำถามหลัง trim พอดี 300 (มี tab หัวท้าย) ผ่าน', pg_temp.vok(format(
+    'select analytics.live_session_upsert(%L::uuid, date ''2020-03-09'', time ''20:00'', time ''23:00'', null, null, ''owner_chat'', null, array[%L], ''owner'')', v_shop, chr(9) || repeat('ก', 300) || chr(10))));
 
   -- B-actor (case 4)
   foreach v_stmt in array array['assistant', 'host', 'OWNER', '', 'null'] loop
@@ -424,12 +686,28 @@ begin
         pg_temp.vok(format('select analytics.content_signal_capture(%L::uuid, ''craft_moment'', ''edge'', p_%s => %s)', v_shop, v_col, v_stmt)));
     end loop;
   end loop;
-  v_log := v_log || pg_temp.vl('B6d', '''NaN''::numeric → bigint พังที่ cast (ไม่ถึงคอลัมน์)',
-    pg_temp.vx('select ''NaN''::numeric::bigint', array['22003', '22P02', '0A000']));
-  v_log := v_log || pg_temp.vl('B6e', 'RPC p_views => ''NaN'' (text) → ตกที่ cast 22P02',
-    pg_temp.vx(format('select analytics.content_signal_capture(%L::uuid, ''craft_moment'', ''n'', p_views => ''NaN'')', v_shop), array['22P02', '22003']));
-  v_log := v_log || pg_temp.vl('B6f', 'RPC p_views => ''Infinity'' → ตกที่ cast',
-    pg_temp.vx(format('select analytics.content_signal_capture(%L::uuid, ''craft_moment'', ''n'', p_views => ''Infinity'')', v_shop), array['22P02', '22003']));
+  -- B6d: ยิงผ่าน RPC จริงด้วยค่าที่ PostgREST ส่งมาได้ (ส่ง JSON เป็นข้อความ/ตัวเลข → ผูกกับพารามิเตอร์ bigint) ·
+  -- ต้องถูกปฏิเสธ "และ" ไม่มีแถวใดหลุดเข้าตาราง (ไม่ใช่แค่เช็คว่า cast พัง) · ทุกช่องตัวเลขทั้ง 6
+  foreach v_col in array array['account_followers', 'views', 'likes', 'comments', 'saves', 'shares'] loop
+    foreach v_stmt in array array['''NaN''', '''Infinity''', '''-Infinity''', '''1e400''', '''9223372036854775808''', '''12abc''', '''1.5'''] loop
+      v_r := pg_temp.vx(format('select analytics.content_signal_capture(%L::uuid, ''craft_moment'', %L, p_%s => %s)',
+               v_shop, 'numprobe ' || v_col || ' ' || md5(v_stmt), v_col, v_stmt), array['22P02', '22003']);
+      v_log := v_log || pg_temp.vb('B6d', 'RPC p_' || v_col || ' => ' || v_stmt || ' → ถูกปฏิเสธ และไม่มีแถวหลุดเข้าตาราง',
+        v_r like 'OK%' and not exists (select 1 from analytics.content_signal where summary = 'numprobe ' || v_col || ' ' || md5(v_stmt)), v_r);
+    end loop;
+  end loop;
+  -- B6e: ส่งเป็นชนิด numeric จริง (NaN) — พารามิเตอร์เป็น bigint ⇒ numeric ผูกไม่ได้ (42883) หรือ cast พัง · ไม่มีแถวหลุด
+  v_r := pg_temp.vx(format('select analytics.content_signal_capture(%L::uuid, ''craft_moment'', ''numprobe typed'', p_views => ''NaN''::numeric)', v_shop),
+          array['42883', '22003', '0A000']);
+  v_log := v_log || pg_temp.vb('B6e', 'RPC p_views => NaN::numeric (ชนิด numeric จริง) → ถูกปฏิเสธ และไม่มีแถวหลุด',
+    v_r like 'OK%' and not exists (select 1 from analytics.content_signal where summary = 'numprobe typed'), v_r);
+  v_r := pg_temp.vx(format('select analytics.content_signal_capture(%L::uuid, ''craft_moment'', ''numprobe cast'', p_views => (''NaN''::numeric)::bigint)', v_shop),
+          array['22003', '0A000', '22P02']);
+  v_log := v_log || pg_temp.vb('B6f', 'RPC p_views => (NaN::numeric)::bigint → cast พัง ไม่ถึง RPC · ไม่มีแถวหลุด',
+    v_r like 'OK%' and not exists (select 1 from analytics.content_signal where summary = 'numprobe cast'), v_r);
+  v_log := v_log || pg_temp.vb('B6f2', 'ไม่มีแถว content_signal ใดที่ตัวเลขติดลบ/เกินเพดาน (ทุกแถวที่เขียนมาถึงจุดนี้)',
+    not exists (select 1 from analytics.content_signal where least(account_followers, views, likes, comments, saves, shares) < 0
+                   or greatest(account_followers, views, likes, comments, saves, shares) > 10000000000));
   v_log := v_log || pg_temp.vl('B6g', 'duration_sec=0 → 22023',
     pg_temp.vx(format('select analytics.content_signal_capture(%L::uuid, ''craft_moment'', ''n'', p_duration_sec => 0)', v_shop), array['22023']));
   v_log := v_log || pg_temp.vl('B6h', 'seen_on อนาคต → 22023',
@@ -602,8 +880,16 @@ begin
          coalesce(sum(case when jsonb_typeof(clip_brief -> 'hooks') = 'array' then jsonb_array_length(clip_brief -> 'hooks') end), 0)
     into v_n, v_n2 from analytics.step_artifact;
   v_log := v_log || pg_temp.vb('C4e', 'clip_brief jsonb เดิมยังมี hooks[] ครบ (UI เดิมอ่านได้ · migration ไม่ได้ลบ/แก้)', v_n2 = v_hook_exp, v_n || ' artifact / ' || v_n2 || ' hooks');
-  select md5(string_agg(id::text || clip_brief::text, '|' order by id)) into v_md_after from analytics.step_artifact;
-  v_log := v_log || pg_temp.vb('C4f', 'md5 step_artifact(id+clip_brief) ปัจจุบัน — เทียบมือกับก่อน apply (ด่านจริงอยู่ในไฟล์ migration)', true, v_md_after);
+  -- C4f: เทียบค่าจริงกับ snapshot ที่ migration เก็บไว้ก่อนแตะอะไร (GUC c1.snap_artifact — สูตรเดียวกับด่านท้ายไฟล์)
+  -- มีเฉพาะเมื่อรัน migration + ไฟล์นี้ในทรานแซกชันเดียว · รันหลัง apply แยกทรานแซกชัน = ไม่มี snapshot ⇒ SKIP (ไม่ใช่ OK)
+  select count(*)::text || ':' || md5(coalesce(string_agg(concat_ws('|', id, step_id, status, content_body, clip_brief::text, updated_at), E'\n' order by id), ''))
+    into v_md_after from analytics.step_artifact;
+  if coalesce(current_setting('c1.snap_artifact', true), '') <> '' then
+    v_log := v_log || pg_temp.vb('C4f', 'step_artifact (clip_brief/updated_at/ทุกคอลัมน์ที่ snapshot) = ค่าก่อน migration เป๊ะ',
+      v_md_after = current_setting('c1.snap_artifact', true), 'หลัง=' || v_md_after || ' ก่อน=' || current_setting('c1.snap_artifact', true));
+  else
+    v_log := v_log || E'[SKIP] C4f ไม่มี snapshot ก่อน migration (รันแยกทรานแซกชันหลัง apply) — เทียบไม่ได้ · หลังจริง=' || v_md_after || E'\n';
+  end if;
 
   -- hook_upsert บน step ทุกโหมดที่มีจริง (#17)
   select count(*) into v_n from analytics.campaign_step where shop_id = v_shop;
@@ -616,13 +902,16 @@ begin
   v_log := v_log || pg_temp.vb('C5a', 'hook_upsert (ไม่มีป้าย) ผ่านกับ campaign_step จริงทุกแถวทุกโหมด (มี/ไม่มี/หลาย artifact · template · task)', v_n2 = v_n, v_n2 || '/' || v_n);
   if v_step_leg is not null then
     select hook_type into v_b_type from analytics.content_hook where step_id = v_step_leg and label = 'B';
-    v_log := v_log || pg_temp.vl('C5b', 'step legacy: แก้ hook ป้าย A (ประเภท warning) ผ่าน', pg_temp.vok(format(
-      'select analytics.content_hook_upsert(%L::uuid, %L::uuid, ''A'', ''แก้ข้อความ'', ''warning'')', v_shop, v_step_leg)));
-    v_log := v_log || pg_temp.vb('C5c', 'แก้แล้ว legacy_json_id และ hook_type_raw เดิมยังอยู่',
-      (select legacy_json_id is not null and hook_type_raw is not null and hook_type = 'warning' and text = 'แก้ข้อความ'
+    select h.id into v_id from analytics.content_hook h where h.step_id = v_step_leg and h.label = 'A';
+    select h.id into v_id2 from analytics.content_hook h where h.step_id = v_step_leg and h.label = 'B';
+    -- แทนที่ hook เดิม = ต้องส่ง p_id (S-M3 ข) — ไม่ส่ง = 23505 (B9l/B9m) · ส่งแล้วต้องไม่พัง
+    v_log := v_log || pg_temp.vl('C5b', '[ต้องไม่พัง] step legacy: owner แก้ hook ป้าย A (ประเภท warning) ด้วย p_id → ผ่าน', pg_temp.vok(format(
+      'select analytics.content_hook_upsert(%L::uuid, %L::uuid, ''A'', ''แก้ข้อความ'', ''warning'', null, ''owner'', %L::uuid)', v_shop, v_step_leg, v_id)));
+    v_log := v_log || pg_temp.vb('C5c', 'แก้แล้ว id เดิม · legacy_json_id และ hook_type_raw เดิมยังอยู่',
+      (select legacy_json_id is not null and hook_type_raw is not null and hook_type = 'warning' and text = 'แก้ข้อความ' and id = v_id
          from analytics.content_hook where step_id = v_step_leg and label = 'A'));
-    v_log := v_log || pg_temp.vl('C5d', 'step legacy: ตั้ง B ประเภทเดียวกับ A (warning) → 22023', pg_temp.vx(format(
-      'select analytics.content_hook_upsert(%L::uuid, %L::uuid, ''B'', ''x'', ''warning'')', v_shop, v_step_leg), array['22023']));
+    v_log := v_log || pg_temp.vl('C5d', 'step legacy: ตั้ง B (ส่ง p_id ของ B) ประเภทเดียวกับ A (warning) → 22023', pg_temp.vx(format(
+      'select analytics.content_hook_upsert(%L::uuid, %L::uuid, ''B'', ''x'', ''warning'', null, ''owner'', %L::uuid)', v_shop, v_step_leg, v_id2), array['22023']));
   end if;
 
   -- capture ผูกโพสต์/แคมเปญจริงทุกแถว
@@ -651,7 +940,18 @@ begin
   select md5(string_agg(c.relname || '=' || pg_get_viewdef(c.oid), E'\n' order by c.relname)) into v_md_after
     from pg_class c where c.relnamespace = 'analytics'::regnamespace and c.relkind = 'v'
      and c.relname not in ('v_content_signal', 'v_live_log_recent');
-  v_log := v_log || pg_temp.vb('C7c', 'md5 definition ของ view เดิมทั้งหมด — เทียบมือก่อน/หลัง apply (ด่านจริงอยู่ใน migration)', true, v_md_after);
+  -- C7c: เทียบค่าจริงกับ snapshot ของ migration (สูตรเดียวกับด่านท้ายไฟล์) — ไม่มี snapshot = SKIP ไม่ใช่ OK
+  select count(*)::text || ':' || md5(coalesce(string_agg(c.relname || '=' || pg_get_viewdef(c.oid), E'\n' order by c.relname), ''))
+    into v_md_after
+    from pg_class c
+   where c.relnamespace = 'analytics'::regnamespace and c.relkind = 'v'
+     and c.relname not in ('v_content_signal', 'v_live_log_recent');
+  if coalesce(current_setting('c1.snap_views', true), '') <> '' then
+    v_log := v_log || pg_temp.vb('C7c', 'definition ของ view เดิมทั้งหมด = ค่าก่อน migration เป๊ะ',
+      v_md_after = current_setting('c1.snap_views', true), 'หลัง=' || v_md_after || ' ก่อน=' || current_setting('c1.snap_views', true));
+  else
+    v_log := v_log || E'[SKIP] C7c ไม่มี snapshot ก่อน migration (รันแยกทรานแซกชันหลัง apply) — เทียบไม่ได้ · หลังจริง=' || v_md_after || E'\n';
+  end if;
 
   -- v_content_signal: mass / unripe / save_rate
   perform analytics.content_signal_capture(v_shop, 'reference_clip', 'mass3', p_url => 'https://a.b/m3', p_hook_text => 'h',
