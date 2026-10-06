@@ -530,8 +530,8 @@ begin
 
   -- เปลี่ยน piece_kind ภายหลัง
   select pg_temp.mk_(v_shop, 'line_message', 'line_oa', null, 'planned') into v_s3;
-  v_r := pg_temp.q_ex(pg_temp.plan_(v_shop, v_s3, jsonb_build_object('piece_kind', 'story', 'channel', 'instagram')), array['22023']);
-  v_log := v_log || pg_temp.n_('E4a', 'เปลี่ยน line_message → story ด้วย set_plan ตรงๆ ถูกปฏิเสธ 22023 เพราะ line_audience="all" (ค่าอัตโนมัติ) ค้างอยู่ — ต้องส่ง line_audience:null มาด้วยเสมอ: ' || left(v_r, 110));
+  v_r := pg_temp.q_ok(pg_temp.plan_(v_shop, v_s3, jsonb_build_object('piece_kind', 'story', 'channel', 'instagram')));
+  v_log := v_log || pg_temp.l_('E4a', 'เปลี่ยน line_message → story ด้วย set_plan ตรงๆ (ไม่ส่ง line_audience) ผ่าน — 0159 รอบเก็บงาน ข้อ S ล้าง line_audience อัตโนมัติ (เดิมโดน 22023) · line_audience/reason เป็น null', v_r || case when (select line_audience is null and line_audience_reason is null from analytics.campaign_step where id = v_s3) then '' else ' FAIL line_audience ไม่ถูกล้าง' end);
   v_r := pg_temp.q_ok(pg_temp.plan_(v_shop, v_s3, jsonb_build_object('piece_kind', 'story', 'channel', 'instagram', 'line_audience', null)));
   select a.artifact_type into v_txt from analytics.step_artifact a where a.step_id = v_s3;
   v_log := v_log || pg_temp.n_('E4b', 'หลังเปลี่ยน kind เป็น story แล้ว (ส่ง line_audience:null) ผล=' || v_r || ' · artifact เดิมคงชนิด ' || coalesce(v_txt, 'null') || ' (ไม่เปลี่ยนตาม kind — เอกสารชนิด broadcast_script_line ใต้ชิ้น story)');
