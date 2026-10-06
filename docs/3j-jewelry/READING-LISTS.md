@@ -43,14 +43,14 @@
 ## 6. ไลฟ์ · dashboard ยอดขาย · ธีม UI
 - memory: `live-selling-rhythm` · `live-sku-identification` · `live-session-log` · `ui-theme-dashboard` (brand red มีแล้ว อย่า re-palette)
 - docs: `docs/3j-jewelry/analytics/phase-dashboard-charts-design.md` · `docs/3j-jewelry/analytics/sales-2026-h1-summary.md` (snapshot) · `docs/3j-jewelry/ops-app/3j-theme-spec.md` · `docs/3j-jewelry/design/ui-refresh-plan.md`
-- migrations: `0008` (live sessions) · `0039` · `0044` · `0051-0054` · `0070-0071` · `0119` · `0121` (live log) · `0146`
+- migrations: `0008` (live sessions) · `0039` · `0044` · `0051-0054` · `0070-0071` · `0119` · `0121` (live log) · `0146` · `0158` (live_host + host_id ใน live log · live_session_upsert v2)
 - code: `app/(dashboard)/dashboard/` · `app/(dashboard)/tiktok/` · `app/(dashboard)/live/` · `lib/dashboard/` · `lib/tiktok/` · `components/domain/dashboard/` · `components/brand/`
 
 ## 7. content · marketing · แคมเปญ · วัดผล content
 - memory: `business-portfolio` · `content-measurement-project` (🔴 88% ไม่มีชื่อลาย) · `content-calendar-chunli-style` · `campaign-playbook` · `platform-engagement-apis` · `ads-organic-only` · `3j-website-seo-positioning`
 - skill: `3j-content-orchestration` (โหลดก่อนสั่งทีม content เสมอ) · `3j-brand-and-market` · `3j-founder-brand` · `3j-seo-playbook`
 - docs: `docs/3j-jewelry/marketing/ai-marketing-os-decision-31aug.md` (ทิศทางใหญ่) · `docs/3j-jewelry/marketing/content-workflow-v1.md` (วงจร workflow 8 ขั้น + research/hook + MVP — อ่านก่อนออกแบบ/แก้หน้า marketing ใดๆ) · `docs/3j-jewelry/marketing/content-workflow-ui-brief.md` (ฉบับส่งออก UI ภายนอก) · `docs/3j-jewelry/marketing/content-ui-round2-request.md` (คำขอ UI รอบ 2) · `docs/3j-jewelry/analytics/design-content-workflow-schema-gap.md` (schema gap + phase 0160–0163) · `docs/3j-jewelry/marketing/pricing-disclosure-policy.md` · `docs/3j-jewelry/analytics/content-kpi-definition.md` (ชี้ขาด KPI) · `docs/3j-jewelry/analytics/ux-content-measurement.md` · `docs/3j-jewelry/analytics/content-kpi-screen-design.md` · `docs/3j-jewelry/analytics/phase-campaign-playbook-design.md` · `docs/3j-jewelry/marketing/campaign-tracking-taxonomy-v2.md` · `docs/3j-jewelry/marketing/weekly-brief/` · `docs/3j-jewelry/marketing/content-calendar/` · `docs/3j-jewelry/content/`
-- migrations: `0027` · `0034-0036` · `0040` · `0049-0050` · `0053` · `0057-0060` (content calendar) · `0101` (recommendation log) · `0145` · `0148-0153` (content post/metric)
+- migrations: `0027` · `0034-0036` · `0040` · `0049-0050` · `0053` · `0057-0060` (content calendar) · `0101` (recommendation log) · `0145` · `0148-0153` (content post/metric) · `0158` (content_signal · content_hook · live_host — C1 workflow ใหม่)
 - code: `app/(dashboard)/marketing/` · `lib/marketing/` (`clip-brief.ts` = สัญญา storyboard) · `components/domain/marketing/`
 - เขียนลงบอร์ดจากนอกแอป: RPC `campaign_step_set_content_type` (สีประเภท) · `campaign_ai_draft_artifact` (AI ร่าง → "รอตรวจ" ห้ามทับของที่คนแก้/อนุมัติแล้ว) · `campaign_set_artifact_content` (คนแก้) — เรียกผ่าน `scripts/run-sql.mjs` ภายใต้ `set local request.jwt.claim.role = 'service_role'` ซ้อม rollback ก่อนเสมอ
 - scheduled tasks (นอก repo `~/.claude/scheduled-tasks/`): `weekly-marketing-brief` · `daily-trend-radar`
