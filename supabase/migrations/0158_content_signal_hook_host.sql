@@ -1,7 +1,8 @@
 -- 0158_content_signal_hook_host.sql  (ก้อน C1 ของ workflow content/แคมเปญชุดใหม่)
 --
--- สถานะ: ⚠️ ยังไม่ apply — เขียนโดย backend-dev 6 ต.ค. 69 · dry-run แล้ว (ROLLBACK) ·
--- รอ security-auditor + qa-tester ก่อน Tech Lead สั่ง `--commit --record`
+-- สถานะ: ผ่าน security รอบ 2 (GO) + QA รอบ 2 + code review (6 ต.ค. 69) · apply ด้วย
+-- `node scripts/run-sql.mjs --commit --record` แล้วรัน scripts/check-analytics-grants.sql +
+-- scripts/verify/verify-0158.sql
 --
 -- Why: เจ้าของต้องการกล่องสัญญาณ (คลิปอ้างอิง/เทรนด์/คำถามไลฟ์/โมเมนต์ช่าง/บทเรียน) ที่ "คนหยิบ
 -- ไม่ใช่ AI ไหลเข้า" + คลัง hook ที่ rollup ต่อประเภทได้ + โฮสต์ไลฟ์เป็น entity (F5: +161% มาจาก
@@ -19,7 +20,7 @@
 --   5. live_session_upsert v2         — drop signature เดิมก่อน (trap #1) · เพิ่ม p_host_id /
 --                                       p_questions / p_actor_role ท้ายสุดเป็น default ⇒ แอปเดิมเรียกได้
 --   6. RPC: content_signal_capture · content_signal_set_status · content_hook_upsert ·
---           live_host_upsert (+ helper content_actor_assert · content_url_norm)
+--           live_host_upsert (+ helper content_url_ok · content_text_clean · content_actor_assert · content_url_norm)
 --   7. view ใหม่: v_content_signal · v_live_log_recent (ไม่แตะ view เดิมเลย — trap #3)
 --   8. backfill: hook 26 แถวจาก step_artifact.clip_brief.hooks[] (INSERT ตารางใหม่เท่านั้น —
 --      ไม่ UPDATE step_artifact ⇒ clip_brief jsonb เดิมไม่ถูกแตะ · trap #19 ไม่เกี่ยว)
@@ -59,20 +60,17 @@
 -- section 0 เก็บไว้ใน GUC ระดับทรานแซกชัน — วางทีละก้อนใน SQL editor (autocommit) แล้ว snapshot หาย ⇒ ด่านท้าย
 -- raise ทันที (ตั้งใจ: ไม่ปล่อยให้ "ไม่มีอะไรให้เทียบ" ผ่านเป็นเขียว)
 --
--- แก้ตามผล security (CONDITIONAL GO) + QA (PASS with notes) 6 ต.ค. 69 รอบ 2:
---   S-M1 ลิงก์: ห้าม userinfo/backslash/whitespace/control/<>" ในทั้ง URL · ตรวจ ≤500 ก่อน norm · ปฏิเสธแทนการตัด
---        userinfo เงียบๆ (content_url_ok = ด่านเดียวที่ CHECK ตาราง · norm · capture เรียกร่วมกัน)
---   S-M2 live_session_upsert รับ actor owner/system เท่านั้น (AI เขียนบันทึกหลังไลฟ์ไม่ได้) · source ของคำถาม = actor
---   S-M3 content_hook_upsert: AI ทับ hook ที่ generated_by='human' ไม่ได้ (42501) · ป้ายซ้ำบน step เดียวต้องส่ง p_id
---   S-L1 content_actor_assert: p_allowed null = ปฏิเสธ · S-L3 ด่านท้ายไฟล์ raise เมื่อ snapshot หาย
---   QA   ยุบ whitespace ก่อน trim (tab/newline ล้วน = ว่าง) · path ของ tiktok.com เป็นตัวเล็ก · metrics_approx
---        ต้องมีตัวเลขอย่างน้อยหนึ่งช่อง · notify pgrst ท้ายไฟล์
--- รอบ 3 (security GO + Low · QA PASS with notes):
---   L-a  comment on function content_url_ok (ใช้ใน CHECK — แก้แล้วต้องตรวจแถวเดิมซ้ำ · ห้าม drop cascade)
---   L-b  content_url_ok ปฏิเสธ bidi/zero-width · content_text_clean ลบชุดเดียวกันก่อนยุบ whitespace (summary · hook_text ·
---        hook · คำถามไลฟ์) ⇒ ข้อความที่เหลือว่าง = ถูกปฏิเสธ/ข้ามเหมือน whitespace ล้วน (ปิด QA Q11)
---   L-c  content_actor_assert กัน array ที่มี null ข้างใน · L-d ด่าน grant ท้ายไฟล์ coalesce(proacl, acldefault)
---   QA   norm: lowercase เฉพาะ segment @handle ของ tiktok.com — /t/<code> case-sensitive
+-- ทำไมด่านถึงเข้มเท่านี้ (ประวัติรอบแก้อยู่ใน git — ที่นี่เก็บเฉพาะเหตุผล):
+--   ลิงก์        : ตัวอ่านคนเห็นโดเมนหนึ่งแต่ไปอีกโดเมน (userinfo `good.com@evil.com` · RLO · ZWSP) ⇒ ปฏิเสธทั้งลิงก์
+--                  ไม่ตัดแก้เงียบๆ · content_url_ok เป็นด่านเดียวที่ CHECK ตาราง · norm · capture เรียกร่วมกัน
+--   ข้อความ      : ช่องที่ AI เขียนได้และขึ้นจอ (summary · hook · why_it_works · account · ชื่อ/ป้ายโฮสต์ ฯลฯ) ผ่าน
+--                  content_text_clean ทุกช่อง ⇒ ไม่มีอักขระล่องหน/กลับทิศ · ว่างหลังลบ = ถูกปฏิเสธหรือเป็น null
+--   สิทธิ์ AI    : AI เสนอสัญญาณ/hook ได้ แต่ตัดสินสถานะ · ทับ hook ที่คนเขียน · สร้างโฮสต์ · เขียนบันทึกไลฟ์ ไม่ได้ ·
+--                  ป้าย A/B ซ้ำต้องส่ง p_id (กันทับ hook ที่เจ้าของเลือกไว้โดยไม่รู้ตัว)
+--   ด่านท้ายไฟล์ : snapshot หาย = raise (ไม่ให้ "ไม่มีอะไรให้เทียบ" ผ่านเป็นเขียว) · ACL ใช้ coalesce(proacl, acldefault)
+--   view         : v_live_log_recent เปิดเฉพาะ public_label — ชื่อจริงโฮสต์ไม่อยู่ใน view ที่จอทั่วไปอ่าน (กันด้วยโครงสร้าง)
+--   norm         : lowercase เฉพาะ segment @handle ของ tiktok.com (/t/<code> และ id อื่น case-sensitive)
+--   content_url_ok ถูกใช้ใน CHECK ⇒ แก้ตัวฟังก์ชันแล้วต้องตรวจแถวเดิมซ้ำ · ห้าม drop ... cascade (CHECK หายเงียบ)
 
 -- ============================================================================
 -- 0. snapshot ก่อนแตะอะไร — ใช้เทียบตอนท้ายไฟล์ ("ของเดิมต้องไม่ขยับ")
@@ -565,8 +563,9 @@ create or replace function analytics.live_host_upsert(
  set search_path to 'public', 'analytics', 'extensions', 'pg_temp'
 as $f$
 declare
-  v_name   text := btrim(coalesce(p_display_name, ''));
-  v_label  text := btrim(coalesce(p_public_label, ''));
+  -- ชื่อ/ป้ายขึ้นจอ ⇒ ลบ bidi/zero-width + ยุบ whitespace (ZWSP ทำให้ "คนเดียวกัน" ซ้ำผ่านด่าน unique ได้ · RLO กลับทิศข้อความบนจอ)
+  v_name   text := analytics.content_text_clean(p_display_name);
+  v_label  text := analytics.content_text_clean(p_public_label);
   v_id     uuid;
   v_dup    uuid;
 begin
@@ -691,7 +690,7 @@ begin
     raise exception 'content_signal_capture: hook_text ยาวเกิน 500 ตัวอักษร' using errcode = '22023';
   end if;
 
-  -- ตัวเลข: not (between) ฆ่า null-ที่ไม่ใช่ค่าว่าง/ติดลบ/เกินเพดานพร้อมกัน (trap #4) · null = ไม่เห็น ผ่านได้
+  -- ตัวเลข: กันติดลบ/เกินเพดาน (bigint ไม่มี NaN ⇒ trap #4 ไม่เกิด · คงรูป not(between) เผื่อเปลี่ยนชนิด) · null = ไม่เห็น ผ่านได้
   if exists (
     select 1 from unnest(array[p_account_followers, p_views, p_likes, p_comments, p_saves, p_shares]) as n(x)
     where x is not null and not (x >= 0 and x <= 10000000000)
@@ -721,8 +720,12 @@ begin
 
   -- ความยาว/รูปแบบก่อน norm (ไม่ให้ norm ประมวลผลสตริงยาวหลายแสนตัว) · ผิด = ปฏิเสธทั้งลิงก์ ไม่ตัดแก้ให้
   if v_url is not null then
-    if length(v_url) > 500 or not analytics.content_url_ok(v_url) then
-      raise exception 'content_signal_capture: ลิงก์ไม่ถูกต้อง (ต้องเป็น http/https ยาวไม่เกิน 500 ไม่มี user@ ช่องว่าง \ < > ")' using errcode = '22023';
+    -- content_url_ok เช็คความยาวเองก่อน regex อยู่แล้ว ⇒ ไม่เช็คซ้ำ · แยกแค่ข้อความให้บอกว่า "ยาวเกิน"
+    if not analytics.content_url_ok(v_url) then
+      raise exception 'content_signal_capture: %',
+        case when length(v_url) > 500 then 'ลิงก์ยาวเกิน 500 ตัวอักษร'
+             else 'ลิงก์ไม่ถูกต้อง (ต้องเป็น http/https ไม่มี user@ ช่องว่าง \ < > ")' end
+        using errcode = '22023';
     end if;
     v_norm := analytics.content_url_norm(v_url);
     if v_norm is null then
@@ -777,11 +780,11 @@ begin
       created_by_role, created_by, updated_by
     ) values (
       p_shop_id, p_kind, p_source, v_seen, v_url, v_norm, v_summary, v_hook, p_hook_type,
-      lower(nullif(btrim(coalesce(p_platform, '')), '')), nullif(btrim(coalesce(p_account, '')), ''),
+      lower(nullif(analytics.content_text_clean(p_platform), '')), nullif(analytics.content_text_clean(p_account), ''),
       p_account_followers, p_views, p_likes, p_comments, p_saves, p_shares, coalesce(p_metrics_approx, false),
       p_metrics_seen_on, p_posted_on,
-      p_format, p_duration_sec, p_customer_group, nullif(btrim(coalesce(p_why_it_works, '')), ''), p_fit_3j,
-      nullif(btrim(coalesce(p_fit_rule_hit, '')), ''),
+      p_format, p_duration_sec, p_customer_group, nullif(analytics.content_text_clean(p_why_it_works), ''), p_fit_3j,
+      nullif(analytics.content_text_clean(p_fit_rule_hit), ''),
       p_origin_live_date, p_origin_post_id, p_origin_campaign_id, p_radar_date, p_radar_angle_idx, p_confidence,
       p_actor_role, auth.uid(), auth.uid()
     ) returning id into v_id;
@@ -818,7 +821,7 @@ create or replace function analytics.content_signal_set_status(
 as $f$
 declare
   v_today   date := (now() at time zone 'Asia/Bangkok')::date;
-  v_reason  text := nullif(btrim(coalesce(p_reason, '')), '');
+  v_reason  text := nullif(analytics.content_text_clean(p_reason), '');
   v_row     analytics.content_signal%rowtype;
 begin
   if p_shop_id is null or p_id is null then
@@ -939,19 +942,16 @@ begin
     if p_actor_role = 'ai' and v_gen = 'human' then
       raise exception 'content_hook_upsert: AI แก้/ทับ hook ที่คนเขียนหรือแก้ไว้ไม่ได้ (ต้องเจ้าของเป็นคนแก้)' using errcode = '42501';
     end if;
-  elsif p_label is not null then
-    -- ไม่ส่ง p_id = สร้างแถวใหม่เท่านั้น — ป้ายนี้มีอยู่แล้ว ⇒ ปฏิเสธ (ผู้เรียกต้องเลือกแทนที่ด้วย p_id อย่างชัดแจ้ง)
-    select h.id into v_exist from analytics.content_hook h where h.step_id = p_step_id and h.label = p_label;
-    if v_exist is not null then
-      raise exception 'content_hook_upsert: ชิ้นงานนี้มี hook ป้าย % อยู่แล้ว — จะแทนที่ต้องส่ง p_id', p_label
-        using errcode = '23505', detail = v_exist::text;
-    end if;
   end if;
 
   if p_label is not null then
-    if exists (select 1 from analytics.content_hook h
-                where h.step_id = p_step_id and h.label = p_label and h.id is distinct from v_id) then
-      raise exception 'content_hook_upsert: ชิ้นงานนี้มี hook ป้าย % อยู่แล้ว', p_label using errcode = '23505';
+    -- ป้ายซ้ำชั้นเดียว: แถวอื่นของ step นี้ถือป้ายนี้อยู่ (ไม่ส่ง p_id ⇒ v_id null ⇒ ทุกแถวนับเป็น "อื่น" = สร้างใหม่เท่านั้น
+    -- ผู้เรียกต้องเลือกแทนที่ด้วย p_id อย่างชัดแจ้ง) · detail = id ของแถวที่ชน
+    select h.id into v_exist from analytics.content_hook h
+     where h.step_id = p_step_id and h.label = p_label and h.id is distinct from v_id;
+    if v_exist is not null then
+      raise exception 'content_hook_upsert: ชิ้นงานนี้มี hook ป้าย % อยู่แล้ว — จะแทนที่ต้องส่ง p_id', p_label
+        using errcode = '23505', detail = v_exist::text;
     end if;
     select h.hook_type into v_other_type from analytics.content_hook h
      where h.step_id = p_step_id and h.label is not null and h.label <> p_label and h.hook_type is not null
@@ -1141,26 +1141,25 @@ select
 from analytics.content_signal s;
 
 -- คืนที่ค้าง 7 วัน (วันไทย วันนี้ย้อน 6 วัน) × ร้าน left join log — 1 แถว/ร้าน/วัน
+-- เปิดเฉพาะ host_public_label โดยตั้งใจ — ชื่อจริง (live_host.display_name) ไม่อยู่ใน view ที่ขึ้นจอ
 create or replace view analytics.v_live_log_recent
   with (security_invoker = true) as
 select
   sh.id as shop_id,
-  d.live_date,
+  g.ts::date as live_date,
   (l.id is not null) as logged,
   l.id as log_id,
   l.host_id,
-  h.display_name as host_display_name,
   h.public_label as host_public_label,
   l.peak_viewers,
   to_char(l.started_at at time zone 'Asia/Bangkok', 'HH24:MI') as started_time_th,
   to_char(l.ended_at at time zone 'Asia/Bangkok', 'HH24:MI') as ended_time_th
 from public.shop sh
-cross join lateral generate_series(
+cross join generate_series(
   ((now() at time zone 'Asia/Bangkok')::date - 6)::timestamp,
   (now() at time zone 'Asia/Bangkok')::date::timestamp,
   interval '1 day') as g(ts)
-cross join lateral (select g.ts::date as live_date) d
-left join analytics.live_session_log l on l.shop_id = sh.id and l.live_date = d.live_date
+left join analytics.live_session_log l on l.shop_id = sh.id and l.live_date = g.ts::date
 left join analytics.live_host h on h.id = l.host_id and h.shop_id = l.shop_id;
 
 revoke all on analytics.v_content_signal, analytics.v_live_log_recent from public, anon, authenticated;

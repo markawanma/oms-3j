@@ -584,6 +584,67 @@ begin
   v_log := v_log || pg_temp.vb('B14s', 'hook_text ที่เก็บ = ลบ bidi แล้ว (เปิดหัวคลิป) ไม่มีอักขระล่องหนเหลือ',
     (select hook_text from analytics.content_signal where id = v_id) = 'เปิดหัวคลิป');
 
+  -- B16 (code-review should-fix 1): ช่องข้อความอื่นที่ AI เขียนได้และขึ้นจอ ผ่าน content_text_clean เหมือน summary/hook
+  -- ตัวอักษรสร้างด้วย chr(): 8203=ZWSP · 8238=RLO · 8297=PDI · 65279=BOM
+  select o_id, o_res into v_id, v_r from pg_temp.vid(format(
+    'select analytics.content_signal_capture(%L::uuid, ''craft_moment'', ''b16 ช่อง free text'', p_platform => %L, p_account => %L, p_why_it_works => %L, p_fit_rule_hit => %L)',
+    v_shop, ' Tik' || chr(8203) || 'Tok ', 'ร้าน' || chr(8238) || 'ช่าง' || chr(8203) || ' x',
+    'เห็น' || chr(8238) || 'ผลงาน' || chr(8203) || chr(10) || 'จริง', 'กฎ' || chr(8203) || 'ข้อ 1' || chr(8297)));
+  v_log := v_log || pg_temp.vl('B16a', '[ต้องไม่พัง] capture: platform/account/why_it_works/fit_rule_hit ที่มี RLO/ZWSP ปนข้อความจริง → ผ่าน', v_r);
+  v_log := v_log || pg_temp.vb('B16b', 'ช่องเหล่านั้นถูกลบอักขระล่องหน/กลับทิศ + ยุบ whitespace (platform ตัวเล็ก)',
+    (select platform = 'tiktok' and account = 'ร้านช่าง x' and why_it_works = 'เห็นผลงาน จริง' and fit_rule_hit = 'กฎข้อ 1'
+       from analytics.content_signal where id = v_id),
+    coalesce((select concat_ws(' | ', platform, account, why_it_works, fit_rule_hit) from analytics.content_signal where id = v_id), 'null'));
+  v_log := v_log || pg_temp.vb('B16c', 'ไม่มีแถว content_signal ที่ช่อง platform/account/why_it_works/fit_rule_hit/status_reason มีอักขระ bidi/zero-width',
+    not exists (select 1 from analytics.content_signal
+                 where platform ~ v_cls or account ~ v_cls or why_it_works ~ v_cls or fit_rule_hit ~ v_cls or status_reason ~ v_cls));
+  -- ZWSP/RLO ล้วน = ว่างหลังลบ ⇒ null (ไม่เก็บสตริงว่างหน้าตาเหมือนมีค่า)
+  select o_id, o_res into v_id, v_r from pg_temp.vid(format(
+    'select analytics.content_signal_capture(%L::uuid, ''craft_moment'', ''b16 ช่องล่องหนล้วน'', p_platform => %L, p_account => %L, p_why_it_works => %L, p_fit_rule_hit => %L)',
+    v_shop, chr(8203), chr(8238) || chr(8297), chr(8203) || chr(9) || chr(8203), chr(65279)));
+  v_log := v_log || pg_temp.vl('B16d', '[ต้องไม่พัง] capture: ทุกช่องข้อความเป็น ZWSP/RLO ล้วน → ผ่าน', v_r);
+  v_log := v_log || pg_temp.vb('B16e', 'ช่องล่องหนล้วนทั้ง 4 = null (ไม่ใช่สตริงว่าง)',
+    (select platform is null and account is null and why_it_works is null and fit_rule_hit is null from analytics.content_signal where id = v_id));
+  -- status_reason ผ่าน set_status
+  v_log := v_log || pg_temp.vl('B16f', '[ต้องไม่พัง] set_status rejected: เหตุผลมี RLO/ZWSP ปนข้อความจริง → ผ่าน', pg_temp.vok(format(
+    'select analytics.content_signal_set_status(%L::uuid, %L::uuid, ''rejected'', %L)', v_shop, v_id, 'ซ้ำ' || chr(8238) || 'กับ' || chr(8203) || 'ของเดิม')));
+  v_log := v_log || pg_temp.vb('B16g', 'status_reason ที่เก็บ = ลบอักขระล่องหนแล้ว (ซ้ำกับของเดิม)',
+    (select status_reason from analytics.content_signal where id = v_id) = 'ซ้ำกับของเดิม',
+    coalesce((select status_reason from analytics.content_signal where id = v_id), 'null'));
+  v_log := v_log || pg_temp.vl('B16h', '[ต้องไม่พัง] set_status rejected: เหตุผลเป็น ZWSP ล้วน → ผ่าน', pg_temp.vok(format(
+    'select analytics.content_signal_set_status(%L::uuid, %L::uuid, ''rejected'', %L)', v_shop, v_id, chr(8203) || chr(8238))));
+  v_log := v_log || pg_temp.vb('B16i', 'เหตุผล ZWSP ล้วน → status_reason เป็น null',
+    (select status_reason is null and status = 'rejected' from analytics.content_signal where id = v_id));
+  -- ชื่อ/ป้ายโฮสต์ (ขึ้นจอ)
+  select o_id, o_res into v_id, v_r from pg_temp.vid(format(
+    'select analytics.live_host_upsert(%L::uuid, %L, %L)', v_shop, 'พี่' || chr(8203) || 'ฟ้า16' || chr(8238), 'ป้าย' || chr(8203) || ' 16' || chr(8297)));
+  v_log := v_log || pg_temp.vl('B16j', '[ต้องไม่พัง] live_host_upsert: ชื่อ/ป้ายมี ZWSP/RLO ปนข้อความจริง → ผ่าน', v_r);
+  v_log := v_log || pg_temp.vb('B16k', 'ชื่อ/ป้ายที่เก็บ = ลบอักขระล่องหนแล้ว (พี่ฟ้า16 / ป้าย 16)',
+    (select display_name = 'พี่ฟ้า16' and public_label = 'ป้าย 16' from analytics.live_host where id = v_id),
+    coalesce((select display_name || ' / ' || public_label from analytics.live_host where id = v_id), 'null'));
+  v_log := v_log || pg_temp.vb('B16l', 'ไม่มีแถว live_host ที่ display_name/public_label มี bidi/zero-width',
+    not exists (select 1 from analytics.live_host where display_name ~ v_cls or public_label ~ v_cls));
+  v_log := v_log || pg_temp.vl('B16m', 'ชื่อซ้ำที่ต่างกันแค่ ZWSP (หมี+ZWSP+เนย) → 23505 ไม่หลุดเป็นโฮสต์คนที่สอง',
+    pg_temp.vx(format('select analytics.live_host_upsert(%L::uuid, %L, ''ป้ายไม่ซ้ำ 16'')', v_shop, 'หมี' || chr(8203) || 'เนย'), array['23505']));
+  v_log := v_log || pg_temp.vl('B16n', 'ป้ายซ้ำที่ต่างกันแค่ RLO (โฮสต์ A + RLO) → 23505',
+    pg_temp.vx(format('select analytics.live_host_upsert(%L::uuid, ''ชื่อไม่ซ้ำ 16'', %L)', v_shop, 'โฮสต์ A' || chr(8238)), array['23505']));
+  v_log := v_log || pg_temp.vl('B16o1', 'ชื่อโฮสต์เป็น ZWSP ล้วน → 22023',
+    pg_temp.vx(format('select analytics.live_host_upsert(%L::uuid, %L, ''ป้ายเดียว 16'')', v_shop, chr(8203)), array['22023']));
+  v_log := v_log || pg_temp.vl('B16o2', 'ป้ายโฮสต์เป็น RLO ล้วน → 22023',
+    pg_temp.vx(format('select analytics.live_host_upsert(%L::uuid, ''ชื่อเดียว 16'', %L)', v_shop, chr(8238)), array['22023']));
+  -- v_live_log_recent: ไม่มีชื่อจริงในโครงสร้าง view
+  v_log := v_log || pg_temp.vb('B16p', 'v_live_log_recent มีเฉพาะ host_public_label — ไม่มีคอลัมน์ที่มาจาก display_name (กันชื่อจริงหลุดขึ้นจอด้วยโครงสร้าง)',
+    exists (select 1 from information_schema.columns where table_schema = 'analytics' and table_name = 'v_live_log_recent' and column_name = 'host_public_label')
+    and not exists (select 1 from information_schema.columns where table_schema = 'analytics' and table_name = 'v_live_log_recent'
+                     and (column_name ilike '%display%' or column_name ilike '%host_name%')));
+  -- ลิงก์ยาวเกิน (ตัดเช็คซ้ำแล้ว ข้อความต้องยังบอกว่ายาวเกิน · ลิงก์ผิดรูปแบบอื่นได้ข้อความทั่วไป)
+  v_r := pg_temp.vx(format('select analytics.content_signal_capture(%L::uuid, ''reference_clip'', ''b16 long'', p_url => %L, p_hook_text => ''h'')',
+    v_shop, 'https://a.example/' || repeat('x', 501 - 18)), array['22023']);
+  v_log := v_log || pg_temp.vb('B16q1', 'ลิงก์ 501 ตัวอักษร → 22023 ข้อความบอกว่า "ยาวเกิน"', v_r like 'OK 22023%ยาวเกิน%', v_r);
+  v_r := pg_temp.vx(format('select analytics.content_signal_capture(%L::uuid, ''reference_clip'', ''b16 bad'', p_url => %L, p_hook_text => ''h'')',
+    v_shop, 'https://user@a.example/x'), array['22023']);
+  v_log := v_log || pg_temp.vb('B16q2', 'ลิงก์ผิดรูปแบบ (มี user@) → 22023 ข้อความทั่วไป ไม่ใช่ "ยาวเกิน"', v_r like 'OK 22023%' and v_r not like '%ยาวเกิน%', v_r);
+
   -- B15 (security L-a): content_url_ok ถูกใช้ใน CHECK — pin ตัวฟังก์ชัน + ป้ายเตือน + ไม่มีแถวเก่าที่ไม่ผ่าน
   -- ⚠️ pin md5(prosrc): แก้ฟังก์ชันแล้วต้องอัปเดตค่านี้พร้อมตรวจแถวเดิมซ้ำ (drop/add constraint) · ไม่ตรงทั้งที่ไม่ได้แก้ ⇒ นับ \r ก่อน (trap #20)
   v_log := v_log || pg_temp.vb('B15a', 'md5(prosrc) ของ content_url_ok ตรงค่าที่ pin (แก้ฟังก์ชัน = ต้องมารู้ที่นี่ก่อน)',
