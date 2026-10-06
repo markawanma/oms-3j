@@ -36,9 +36,9 @@
 
 ## 5. CRM · ลูกค้า · retention · audience
 - memory: `crm-phase-b` · `customer-affinity-split` (affinity มีแล้ว อย่าสร้างใหม่) · `retention-baseline-and-reach` · `marketing-campaign-audience` · `wholesale-not-in-system`
-- docs: `docs/3j-jewelry/analytics/phase-b-crm-design.md` · `docs/3j-jewelry/analytics/phase-b3-design.md` · `docs/3j-jewelry/analytics/deploy-checklist-b1.md` · `docs/3j-jewelry/analytics/deploy-checklist-b2.md`
+- docs: `docs/3j-jewelry/analytics/phase-b-crm-design.md` · `docs/3j-jewelry/analytics/phase-b3-design.md` · `docs/3j-jewelry/analytics/deploy-checklist-b1.md` · `docs/3j-jewelry/analytics/deploy-checklist-b2.md`  · `docs/3j-jewelry/analytics/rfm-at-risk-and-new-cohort-2026-10-06.md` (T1 at_risk + T6 cohort freeze · snapshot 6 ต.ค. 69) · `docs/3j-jewelry/analytics/cohorts/new-freeze-2026-09-08.csv` · `docs/3j-jewelry/analytics/design-rfm-snapshot.md` (snapshot RFM รายสัปดาห์ — design, migration 0158/0159 ยังไม่เขียน)
 - migrations: `0020-0026` (CRM B1-B2 · merge · PII retention) · `0033` (v_audience) · `0043` · `0055-0056` · `0099-0100` (affinity) · `0110` · `0120_crm_retention` · `0130`
-- code: `app/(dashboard)/crm/` · `app/(dashboard)/marketing/audience/` · `lib/crm/` · `components/domain/crm/`
+- code: `app/(dashboard)/crm/` · `app/(dashboard)/marketing/audience/` · `lib/crm/` · `components/domain/crm/`  · `scripts/analysis/rfm-asof.sql` (RFM as-of รันซ้ำได้)
 
 ## 6. ไลฟ์ · dashboard ยอดขาย · ธีม UI
 - memory: `live-selling-rhythm` · `live-sku-identification` · `live-session-log` · `ui-theme-dashboard` (brand red มีแล้ว อย่า re-palette)
