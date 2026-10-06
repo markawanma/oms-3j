@@ -1,6 +1,7 @@
 # Design — snapshot RFM รายสัปดาห์ (คนเข้า/ออก at_risk + cohort freeze)
 
 > architect (Yoda) · 6 ต.ค. 69 · สถานะ: **design รอ Tech Lead/เจ้าของเคาะ** — ยังไม่มี migration
+> ✏️ **เลข migration (6 ต.ค. 69 Tech Lead)**: เลข 0158/0159 ในเอกสารนี้ **ถูกใช้ไปแล้ว** โดยงาน content workflow C1 (`0158_content_signal_hook_host`) — เมื่อเจ้าของเคาะ O1–O4 ให้ใช้เลขว่างถัดไปตอนสร้างไฟล์ (อ่าน 0158/0159 ด้านล่างเป็น "RFM-1/RFM-2")
 > ตอบ T1 (ทำไม at_risk โตทุกฉบับ) + T6 (cohort freeze) ที่ค้างใน Weekly Brief 4 ฉบับ
 > ตัวเลขในไฟล์นี้ = snapshot วันที่เขียน (query สด 6 ต.ค. 69) ห้ามใช้แทน query
 
