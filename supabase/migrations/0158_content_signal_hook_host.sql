@@ -39,7 +39,7 @@
 --   D-d  url_norm: ตัด scheme/www./m./fragment/trailing slash + เก็บ query เฉพาะ v · story_fbid ·
 --        fbid · id (ไม่ตัด query ทั้งก้อนอย่างที่ design เขียน — YouTube watch?v= กับ Facebook
 --        ?v=/?fbid= ใช้ query เป็นตัวระบุคลิป ตัดทิ้ง = ลิงก์คนละคลิปชนกันเป็น "ซ้ำ")
---        + path ของ host tiktok.com เท่านั้นเป็นตัวเล็ก (handle ไม่สนตัวพิมพ์ · video id เป็นตัวเลข) —
+--        + เฉพาะ segment handle (ขึ้นต้น @) ของ host tiktok.com เป็นตัวเล็ก — /t/<code> ลิงก์สั้น · video id ·
 --        host อื่น (YouTube video id ฯลฯ) case-sensitive ห้ามแตะ
 --   D-e  live_host unique ทั้งชื่อและ public_label (ต่อร้าน · ไม่สนตัวพิมพ์) — ป้าย "โฮสต์ A" ซ้ำ
 --        บนจอ = อ่านผลผิดคน
@@ -67,6 +67,12 @@
 --   S-L1 content_actor_assert: p_allowed null = ปฏิเสธ · S-L3 ด่านท้ายไฟล์ raise เมื่อ snapshot หาย
 --   QA   ยุบ whitespace ก่อน trim (tab/newline ล้วน = ว่าง) · path ของ tiktok.com เป็นตัวเล็ก · metrics_approx
 --        ต้องมีตัวเลขอย่างน้อยหนึ่งช่อง · notify pgrst ท้ายไฟล์
+-- รอบ 3 (security GO + Low · QA PASS with notes):
+--   L-a  comment on function content_url_ok (ใช้ใน CHECK — แก้แล้วต้องตรวจแถวเดิมซ้ำ · ห้าม drop cascade)
+--   L-b  content_url_ok ปฏิเสธ bidi/zero-width · content_text_clean ลบชุดเดียวกันก่อนยุบ whitespace (summary · hook_text ·
+--        hook · คำถามไลฟ์) ⇒ ข้อความที่เหลือว่าง = ถูกปฏิเสธ/ข้ามเหมือน whitespace ล้วน (ปิด QA Q11)
+--   L-c  content_actor_assert กัน array ที่มี null ข้างใน · L-d ด่าน grant ท้ายไฟล์ coalesce(proacl, acldefault)
+--   QA   norm: lowercase เฉพาะ segment @handle ของ tiktok.com — /t/<code> case-sensitive
 
 -- ============================================================================
 -- 0. snapshot ก่อนแตะอะไร — ใช้เทียบตอนท้ายไฟล์ ("ของเดิมต้องไม่ขยับ")
@@ -101,7 +107,7 @@ begin
              order by p.oid::regprocedure::text), ''))
     from pg_proc p
     where p.pronamespace = 'analytics'::regnamespace and p.prokind = 'f'
-      and p.proname !~ '^(content_signal_|content_hook_|content_actor_|content_url_|live_host_|live_session_upsert$)'), true);
+      and p.proname !~ '^(content_signal_|content_hook_|content_actor_|content_text_|content_url_|live_host_|live_session_upsert$)'), true);
 end
 $c1snap$;
 
@@ -185,6 +191,10 @@ comment on column analytics.live_session_log.host_id is
 --        `@` ใน path/query ได้ (TikTok /@shop/video/123)
 --     ห้ามคืนค่าด้วยการ "ตัด" ส่วนที่ผิดทิ้ง — ผิด = ปฏิเสธทั้งลิงก์ · null = ไม่ผ่าน (ผู้เรียกใช้ is not true)
 --     length เช็คก่อน regex ใน CASE (regex ไม่ต้องกวาดสตริงยาวหลายแสนตัว)
+--     🔴 ห้ามอักขระ bidi/zero-width ทั้ง URL (U+200B-200F · 202A-202E · 2060-2064 · 2066-2069 · FEFF) —
+--        RLO (U+202E) ทำให้ลิงก์ที่อ่านจากซ้ายไปขวาเห็นเป็นโดเมนอื่น · ZWSP ทำให้ลิงก์ "คนละอัน" หน้าตาเหมือนกัน
+--        (security L-b) · escape แบบ backslash-u ใน ARE ของ Postgres ใช้ได้จริง (พิสูจน์ด้วย dry-run บน UTF8 — ดู verify-0158 B14)
+--     ⚠️ ฟังก์ชันนี้ถูกใช้ใน CHECK content_signal_url_check — ดู comment on function ด้านล่าง
 -- ============================================================================
 
 create or replace function analytics.content_url_ok(p_url text)
@@ -195,9 +205,15 @@ create or replace function analytics.content_url_ok(p_url text)
 as $f$
   select case
     when p_url is null or length(p_url) > 500 then false
+    when p_url ~ '[\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]' then false
     else p_url ~* '^https?://[^/?#@\\[:space:][:cntrl:]]+([/?#][^\\<>"[:space:][:cntrl:]]*)?$'
   end
 $f$;
+
+-- CHECK เก็บแค่ "ชื่อฟังก์ชัน" ไม่ใช่ตัว regex ⇒ create or replace ที่แก้ตัวฟังก์ชันไม่ตรวจแถวเดิมซ้ำ (แถวเก่าอาจไม่ผ่านกติกาใหม่
+-- โดยไม่มีใครรู้) · drop function ... cascade จะลบ CHECK ทิ้งเงียบๆ
+comment on function analytics.content_url_ok(text) is
+  'ใช้ใน CHECK content_signal_url_check — แก้แล้วต้องตรวจแถวเดิมซ้ำ (drop/add constraint) · ห้าม drop ... cascade';
 
 -- ============================================================================
 -- 3. analytics.content_signal — กล่องสัญญาณ (รวมคลิปอ้างอิง = kind reference_clip)
@@ -437,6 +453,20 @@ grant select on analytics.live_host, analytics.content_signal, analytics.content
 -- 6. helper: actor_role + url_norm
 -- ============================================================================
 
+-- ข้อความจากผู้ใช้ (summary · hook · คำถามไลฟ์): ลบอักขระ bidi/zero-width ก่อน แล้วค่อยยุบ whitespace + trim
+-- (ลำดับสำคัญ: ZWSP ที่แทรกกลางช่องว่างต้องไม่กันการยุบ · ZWSP ล้วน = ว่างหลังลบ ⇒ ผู้เรียกจัดเป็น "ว่าง" เหมือน whitespace ล้วน)
+-- null → '' (ผู้เรียกใช้ nullif/length เอง) · ชุดอักขระต้องตรงกับ content_url_ok
+create or replace function analytics.content_text_clean(p_text text)
+ returns text
+ language sql
+ immutable
+ set search_path to 'public', 'pg_temp'
+as $f$
+  select btrim(regexp_replace(
+           regexp_replace(coalesce(p_text, ''), '[\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]', '', 'g'),
+           '\s+', ' ', 'g'))
+$f$;
+
 -- 🔴 role มาจากแอป ไม่ใช่ auth (R14) — ค่านอก owner/ai/system raise 22023 · ค่าที่รู้จักแต่ไม่อยู่ใน
 -- p_allowed raise 42501 (ข้อความไทย) — ใช้กันเส้นทาง AI ทำสิ่งที่ต้องเป็นเจ้าของ
 create or replace function analytics.content_actor_assert(
@@ -457,7 +487,8 @@ begin
     raise exception '%: actor_role ต้องเป็น owner, ai หรือ system เท่านั้น (ได้รับ %)', p_fn, coalesce(p_role, 'null')
       using errcode = '22023';
   end if;
-  if not (p_role = any (p_allowed)) then
+  -- coalesce: array ที่มี null ข้างใน (array['owner', null]) ทำให้ 'ai' = any(...) เป็น null ไม่ใช่ false ⇒ not null = null ⇒ ไม่ raise
+  if not coalesce(p_role = any (p_allowed), false) then
     raise exception '%: actor_role % ไม่มีสิทธิ์ทำรายการนี้ (อนุญาตเฉพาะ %)', p_fn, p_role, array_to_string(p_allowed, '/')
       using errcode = '42501';
   end if;
@@ -466,7 +497,7 @@ $f$;
 
 -- ลิงก์ → รูป canonical สำหรับกันซ้ำ (D-d): host ตัวเล็ก · ตัดพอร์ตมาตรฐาน/www./m. · ตัด scheme/
 -- fragment/trailing slash · เก็บ query เฉพาะตัวระบุคลิป (v · story_fbid · fbid · id) เรียงตามชื่อ ·
--- path เป็นตัวเล็กเฉพาะ host tiktok.com (handle ไม่สนตัวพิมพ์ · video id เป็นตัวเลข — ห้ามทำกับ host อื่น)
+-- segment handle (ขึ้นต้น @) เป็นตัวเล็กเฉพาะ host tiktok.com — /t/<code> · video id · host อื่นห้ามแตะ (case-sensitive)
 -- คืน null เมื่อไม่ผ่าน content_url_ok (รวม userinfo — ปฏิเสธ ไม่ตัดเงียบ) หรือ host ไม่ถูกรูป — ผู้เรียกต้อง raise เอง (ไม่เดา)
 -- ⚠️ ลิงก์ย่อ (vt.tiktok.com) กับลิงก์เต็มของคลิปเดียวกัน DB รวมให้ไม่ได้ — แอป canonicalize ก่อนส่ง (R16)
 create or replace function analytics.content_url_norm(p_url text)
@@ -500,8 +531,12 @@ begin
   end if;
   v_path := regexp_replace(coalesce(v_m[2], ''), '/{2,}', '/', 'g');
   v_path := regexp_replace(v_path, '/+$', '');
+  -- เฉพาะ segment ที่ขึ้นต้น @ (handle ไม่สนตัวพิมพ์) — /t/<code> ลิงก์สั้นและ video id เป็น case-sensitive ห้ามแตะ
   if v_host = 'tiktok.com' then
-    v_path := lower(v_path);
+    v_path := coalesce((
+      select string_agg(case when seg like '@%' then lower(seg) else seg end, '/' order by ord)
+        from unnest(string_to_array(v_path, '/')) with ordinality as s(seg, ord)
+    ), '');
   end if;
   select string_agg(lower(split_part(kv, '=', 1)) || '=' || substring(kv from position('=' in kv) + 1), '&'
                     order by lower(split_part(kv, '=', 1)))
@@ -624,9 +659,9 @@ create or replace function analytics.content_signal_capture(
 as $f$
 declare
   v_today    date := (now() at time zone 'Asia/Bangkok')::date;
-  -- ยุบ whitespace (รวม tab/newline) ก่อนแล้วค่อย trim — ลำดับกลับกันทำให้ tab ล้วนกลายเป็น ' ' ที่ btrim ไม่เห็นว่าว่าง
-  v_summary  text := btrim(regexp_replace(coalesce(p_summary, ''), '\s+', ' ', 'g'));
-  v_hook     text := nullif(btrim(regexp_replace(coalesce(p_hook_text, ''), '\s+', ' ', 'g')), '');
+  -- ลบ bidi/zero-width + ยุบ whitespace (รวม tab/newline) แล้วค่อย trim (content_text_clean) — ลำดับกลับกันทำให้ tab ล้วนกลายเป็น ' ' ที่ btrim ไม่เห็นว่าว่าง
+  v_summary  text := analytics.content_text_clean(p_summary);
+  v_hook     text := nullif(analytics.content_text_clean(p_hook_text), '');
   v_url      text := nullif(btrim(coalesce(p_url, '')), '');
   v_norm     text;
   v_seen     date;
@@ -861,7 +896,7 @@ create or replace function analytics.content_hook_upsert(
  set search_path to 'public', 'analytics', 'extensions', 'pg_temp'
 as $f$
 declare
-  v_text        text := nullif(btrim(regexp_replace(coalesce(p_text, ''), '\s+', ' ', 'g')), '');
+  v_text        text := nullif(analytics.content_text_clean(p_text), '');
   v_id          uuid;
   v_gen         text;
   v_exist       uuid;
@@ -1029,7 +1064,7 @@ begin
   -- ตรวจความยาวคำถามก่อนเขียนอะไรทั้งสิ้น (ไม่ truncate เงียบๆ)
   if p_questions is not null then
     foreach v_q_raw in array p_questions loop
-      v_q := btrim(regexp_replace(coalesce(v_q_raw, ''), '\s+', ' ', 'g'));
+      v_q := analytics.content_text_clean(v_q_raw);
       if length(v_q) > 300 then
         raise exception 'live_session_upsert: คำถามไลฟ์ 1 ข้อต้องไม่เกิน 300 ตัวอักษร' using errcode = '22023';
       end if;
@@ -1060,7 +1095,7 @@ begin
     v_q_src := p_actor_role;
     foreach v_q_raw in array p_questions loop
       -- ว่างหลังยุบ whitespace = ข้ามข้อนั้น ไม่ให้ทั้งคืน rollback (CHECK summary ปฏิเสธ summary ว่าง)
-      v_q := nullif(btrim(regexp_replace(coalesce(v_q_raw, ''), '\s+', ' ', 'g')), '');
+      v_q := nullif(analytics.content_text_clean(v_q_raw), '');
       if v_q is null then
         continue;
       end if;
@@ -1138,6 +1173,9 @@ grant select on analytics.v_content_signal, analytics.v_live_log_recent to servi
 
 revoke execute on function analytics.content_actor_assert(text, text[], text) from public, anon, authenticated;
 grant  execute on function analytics.content_actor_assert(text, text[], text) to service_role;
+
+revoke execute on function analytics.content_text_clean(text) from public, anon, authenticated;
+grant  execute on function analytics.content_text_clean(text) to service_role;
 
 revoke execute on function analytics.content_url_norm(text) from public, anon, authenticated;
 grant  execute on function analytics.content_url_norm(text) to service_role;
@@ -1352,7 +1390,7 @@ begin
     into v_now
     from pg_proc p
    where p.pronamespace = 'analytics'::regnamespace and p.prokind = 'f'
-     and p.proname !~ '^(content_signal_|content_hook_|content_actor_|content_url_|live_host_|live_session_upsert$)';
+     and p.proname !~ '^(content_signal_|content_hook_|content_actor_|content_text_|content_url_|live_host_|live_session_upsert$)';
   if v_now is distinct from current_setting('c1.snap_funcs', true) then
     raise exception '0158 ด่านท้าย: มีฟังก์ชันเดิมที่ไม่ใช่ของไฟล์นี้ถูกเปลี่ยน/เพิ่ม/หาย';
   end if;
@@ -1364,9 +1402,9 @@ begin
 
   -- trap #18: ฟังก์ชันของไฟล์นี้ต้องไม่มี PUBLIC/anon/authenticated ถือ EXECUTE
   select string_agg(p.oid::regprocedure::text, ', ') into v_bad
-    from pg_proc p cross join lateral aclexplode(p.proacl) a
+    from pg_proc p cross join lateral aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
    where p.pronamespace = 'analytics'::regnamespace
-     and p.proname ~ '^(content_signal_|content_hook_|content_actor_|content_url_|live_host_|live_session_upsert$)'
+     and p.proname ~ '^(content_signal_|content_hook_|content_actor_|content_text_|content_url_|live_host_|live_session_upsert$)'
      and a.privilege_type = 'EXECUTE'
      and (a.grantee = 0 or a.grantee = 'anon'::regrole or a.grantee = 'authenticated'::regrole);
   if v_bad is not null then

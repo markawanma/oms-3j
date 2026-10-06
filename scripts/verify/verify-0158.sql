@@ -129,6 +129,8 @@ declare
   v_ok         int;
   r            record;
   v_b_type     text;
+  v_cls        text;
+  v_txt        text;
 begin
   perform set_config('request.jwt.claims', '{"role":"service_role"}', true);
   perform set_config('request.jwt.claim.role', 'service_role', true);
@@ -179,25 +181,25 @@ begin
   v_log := v_log || pg_temp.vb('A2', 'ไม่มี PUBLIC/anon/authenticated ถือสิทธิ์บนตาราง/view ใหม่ทั้ง 5', v_bad is null, coalesce(v_bad, ''));
 
   select string_agg(p.oid::regprocedure::text, ', ') into v_bad
-    from pg_proc p cross join lateral aclexplode(p.proacl) a
+    from pg_proc p cross join lateral aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
    where p.pronamespace = 'analytics'::regnamespace
-     and p.proname ~ '^(content_signal_|content_hook_|content_actor_|content_url_|live_host_|live_session_upsert$)'
+     and p.proname ~ '^(content_signal_|content_hook_|content_actor_|content_text_|content_url_|live_host_|live_session_upsert$)'
      and a.privilege_type = 'EXECUTE'
      and (a.grantee = 0 or a.grantee = 'anon'::regrole or a.grantee = 'authenticated'::regrole);
-  v_log := v_log || pg_temp.vb('A3', 'ไม่มี PUBLIC/anon/authenticated ถือ EXECUTE บนฟังก์ชันของ 0158 ทั้ง 8', v_bad is null, coalesce(v_bad, ''));
+  v_log := v_log || pg_temp.vb('A3', 'ไม่มี PUBLIC/anon/authenticated ถือ EXECUTE บนฟังก์ชันของ 0158 ทั้ง 9', v_bad is null, coalesce(v_bad, ''));
 
   v_log := v_log || pg_temp.vb('A3b', 'service_role มี EXECUTE ครบทุกฟังก์ชันของ 0158',
     (select bool_and(has_function_privilege('service_role', p.oid, 'execute')) from pg_proc p
       where p.pronamespace = 'analytics'::regnamespace
-        and p.proname ~ '^(content_signal_|content_hook_|content_actor_|content_url_|live_host_|live_session_upsert$)'));
-  v_log := v_log || pg_temp.vb('A3c', 'ฟังก์ชันของ 0158 มี 8 ตัวพอดี (ตัวเลข "ทั้ง 8" ใน A3 มีที่มา)',
+        and p.proname ~ '^(content_signal_|content_hook_|content_actor_|content_text_|content_url_|live_host_|live_session_upsert$)'));
+  v_log := v_log || pg_temp.vb('A3c', 'ฟังก์ชันของ 0158 มี 9 ตัวพอดี (ตัวเลข "ทั้ง 9" ใน A3 มีที่มา)',
     (select count(*) from pg_proc where pronamespace = 'analytics'::regnamespace
-        and proname ~ '^(content_signal_|content_hook_|content_actor_|content_url_|live_host_|live_session_upsert$)') = 8);
+        and proname ~ '^(content_signal_|content_hook_|content_actor_|content_text_|content_url_|live_host_|live_session_upsert$)') = 9);
 
   -- case 7: signature เดียว
   select string_agg(proname || '=' || n, ', ') into v_bad from (
     select proname, count(*) n from pg_proc where pronamespace = 'analytics'::regnamespace
-       and proname ~ '^(content_signal_|content_hook_|content_actor_|content_url_|live_host_|live_session_upsert$)'
+       and proname ~ '^(content_signal_|content_hook_|content_actor_|content_text_|content_url_|live_host_|live_session_upsert$)'
      group by proname having count(*) <> 1) x;
   v_log := v_log || pg_temp.vb('A4', 'ทุกฟังก์ชันของ 0158 มี signature เดียว (ไม่มี overload ค้าง)', v_bad is null, coalesce(v_bad, ''));
   select pg_get_function_identity_arguments(oid) into v_sig from pg_proc
@@ -238,6 +240,7 @@ begin
       'select analytics.live_session_upsert(null::uuid, null::date, null::time, null::time)',
       'select analytics.content_url_norm(''https://a.b'')',
       'select analytics.content_url_ok(''https://a.b'')',
+      'select analytics.content_text_clean(''x'')',
       'select analytics.content_actor_assert(''owner'')'
     ] loop
       v_log := v_log || pg_temp.vl('A6', v_role || ' → ' || left(v_stmt, 70), pg_temp.vx(v_stmt, array['42501']));
@@ -430,8 +433,27 @@ begin
     analytics.content_url_ok(null) is false and analytics.content_url_norm(null) is null and analytics.content_url_norm('   ') is null);
   -- ตัวพิมพ์: เฉพาะ tiktok.com ที่ path เป็นตัวเล็ก · host อื่นห้ามแตะ (id ของ YouTube case-sensitive)
   v_log := v_log || pg_temp.vb('B3t', 'norm: tiktok.com @ShopX = @shopx (handle ไม่สนตัวพิมพ์) แต่ m./www. ก็รวมด้วย',
-    analytics.content_url_norm('https://www.tiktok.com/@ShopX/video/1') = analytics.content_url_norm('https://m.tiktok.com/@shopx/VIDEO/1/')
-    and analytics.content_url_norm('https://www.tiktok.com/@ShopX/video/1') = 'tiktok.com/@shopx/video/1');
+    analytics.content_url_norm('https://www.tiktok.com/@ShopX/video/1') = analytics.content_url_norm('https://m.tiktok.com/@shopx/video/1/')
+    and analytics.content_url_norm('https://www.tiktok.com/@ShopX/video/1') = 'tiktok.com/@shopx/video/1'
+    and analytics.content_url_norm('https://tiktok.com/@ShopX') = analytics.content_url_norm('https://www.tiktok.com/@shopx/'));
+  -- QA-bug (รอบ 3): lowercase เฉพาะ segment ที่ขึ้นต้น @ — /t/<code> · video id · segment อื่นห้ามแตะ
+  v_log := v_log || pg_temp.vb('B3t2', 'norm: tiktok.com /t/ZTabc ≠ /t/ZTABC (ลิงก์สั้น case-sensitive) และคงตัวพิมพ์เดิมใน norm',
+    analytics.content_url_norm('https://www.tiktok.com/t/ZTabc') <> analytics.content_url_norm('https://www.tiktok.com/t/ZTABC')
+    and analytics.content_url_norm('https://www.tiktok.com/t/ZTabc') = 'tiktok.com/t/ZTabc'
+    and analytics.content_url_norm('https://tiktok.com/@ShopX/t/ZTabc/') = 'tiktok.com/@shopx/t/ZTabc',
+    coalesce(analytics.content_url_norm('https://www.tiktok.com/t/ZTabc'), 'null'));
+  v_log := v_log || pg_temp.vb('B3t3', 'norm: segment ที่ไม่ขึ้นต้น @ ไม่ถูก lowercase (VIDEO ≠ video · ตัวพิมพ์ใน id คงเดิม) · @ ที่อยู่ท้าย segment ไม่นับเป็น handle',
+    analytics.content_url_norm('https://tiktok.com/@a/VIDEO/1') <> analytics.content_url_norm('https://tiktok.com/@a/video/1')
+    and analytics.content_url_norm('https://tiktok.com/@A/video/7000000000000000601') = 'tiktok.com/@a/video/7000000000000000601'
+    and analytics.content_url_norm('https://tiktok.com/Foo@Bar/x') = 'tiktok.com/Foo@Bar/x'
+    and analytics.content_url_norm('https://tiktok.com/') = 'tiktok.com'
+    and analytics.content_url_norm('https://tiktok.com') = 'tiktok.com');
+  v_log := v_log || pg_temp.vl('B3t4', '[ต้องไม่พัง] capture /t/ZTabc ผ่าน · /t/ZTABC (คนละลิงก์) ผ่าน ไม่ถูกมองว่าซ้ำ',
+    pg_temp.vok(format('select analytics.content_signal_capture(%L::uuid, ''reference_clip'', ''t1'', p_url => ''https://www.tiktok.com/t/ZTabc'', p_hook_text => ''h''); select analytics.content_signal_capture(%L::uuid, ''reference_clip'', ''t2'', p_url => ''https://www.tiktok.com/t/ZTABC'', p_hook_text => ''h'')', v_shop, v_shop)));
+  v_log := v_log || pg_temp.vl('B3t5', 'capture /t/ZTabc ซ้ำตัวพิมพ์เดิมเป๊ะ (คนละ host variant) → 23505',
+    pg_temp.vx(format('select analytics.content_signal_capture(%L::uuid, ''reference_clip'', ''t3'', p_url => ''https://m.tiktok.com/t/ZTabc/?x=1'', p_hook_text => ''h'')', v_shop), array['23505']));
+  v_log := v_log || pg_temp.vl('B3t6', 'capture @ShopX/video/N ซ้ำกับ @shopx/video/N (handle ต่างตัวพิมพ์) → 23505 (ยังรวมกันได้)',
+    pg_temp.vx(format('select analytics.content_signal_capture(%L::uuid, ''reference_clip'', ''t4'', p_url => ''https://www.tiktok.com/@SHOPX/video/7000000000000000002'', p_hook_text => ''h'')', v_shop), array['23505']));
   v_log := v_log || pg_temp.vb('B3u', 'norm: host อื่นไม่ lowercase path — youtu.be/AbC ≠ youtu.be/abc · vt.tiktok.com/ZSAbC ≠ /zsabc (ลิงก์สั้นเป็น case-sensitive)',
     analytics.content_url_norm('https://youtu.be/AbC') <> analytics.content_url_norm('https://youtu.be/abc')
     and analytics.content_url_norm('https://youtube.com/watch?v=abcDEF') <> analytics.content_url_norm('https://youtube.com/watch?v=ABCdef')
@@ -471,6 +493,110 @@ begin
     pg_temp.vok(format('select analytics.content_signal_capture(%L::uuid, ''craft_moment'', ''approx3'', p_metrics_approx => true, p_likes => 0)', v_shop)));
   v_log := v_log || pg_temp.vl('B3zh', '[ต้องไม่พัง] metrics_approx=false ไม่มีตัวเลข → ผ่าน (default ของแอปเดิม)',
     pg_temp.vok(format('select analytics.content_signal_capture(%L::uuid, ''craft_moment'', ''approx4'')', v_shop)));
+
+  -- B14 (security L-b + QA Q11): อักขระ bidi/zero-width — URL ปฏิเสธทุกชั้น · ข้อความลบก่อนยุบ whitespace
+  -- ตัวอักษรสร้างด้วย chr() (ไม่ฝังอักขระล่องหนดิบ/escape ในไฟล์): 8203=U+200B ZWSP · 8238=U+202E RLO · 65279=U+FEFF BOM ·
+  -- 8294=U+2066 LRI · 8288=U+2060 WJ · 8297=U+2069 PDI · 8207=U+200F RLM · 8234=U+202A LRE
+  foreach v_stmt in array array[
+    'zwsp-in-path|https://tiktok.com/@shopx/video/' || chr(8203) || '7000000000000000601',
+    'rlo-in-path|https://tiktok.com/@shopx/' || chr(8238) || 'video/7000000000000000602',
+    'rlo-in-query|https://tiktok.com/x?a=' || chr(8238) || 'b',
+    'bom-in-path|https://tiktok.com/@shopx/video/' || chr(65279) || '7000000000000000603',
+    'lri-in-path|https://tiktok.com/p' || chr(8294) || 'q',
+    'wj-in-host|https://tik' || chr(8288) || 'tok.com/@shopx/video/7000000000000000604',
+    'zwsp-in-host|https://tiktok' || chr(8203) || '.com/x',
+    'pdi-in-fragment|https://tiktok.com/x#' || chr(8297),
+    'rlm-trailing|https://tiktok.com/x' || chr(8207),
+    'lre-in-path|https://tiktok.com/x' || chr(8234) || 'y',
+    'zwsp-leading|' || chr(8203) || 'https://tiktok.com/x'
+  ] loop
+    v_log := v_log || pg_temp.vl('B14a', 'RPC ปฏิเสธลิงก์มี bidi/zero-width [' || split_part(v_stmt, '|', 1) || '] → 22023',
+      pg_temp.vx(format('select analytics.content_signal_capture(%L::uuid, ''reference_clip'', ''b14'', p_url => %L, p_hook_text => ''h'')',
+        v_shop, substring(v_stmt from position('|' in v_stmt) + 1)), array['22023']));
+    v_log := v_log || pg_temp.vl('B14b', 'insert ตรง (ข้าม RPC) ลิงก์มี bidi/zero-width [' || split_part(v_stmt, '|', 1) || '] → CHECK 23514',
+      pg_temp.vx(format('insert into analytics.content_signal (shop_id, kind, source, seen_on, summary, url, url_norm, hook_text) values (%L, ''reference_clip'', ''owner'', current_date, ''b14'', %L, ''x.example/ok'', ''h'')',
+        v_shop, substring(v_stmt from position('|' in v_stmt) + 1)), array['23514']));
+    v_log := v_log || pg_temp.vb('B14c', 'content_url_ok = false และ content_url_norm = null [' || split_part(v_stmt, '|', 1) || ']',
+      analytics.content_url_ok(substring(v_stmt from position('|' in v_stmt) + 1)) is false
+      and analytics.content_url_norm(substring(v_stmt from position('|' in v_stmt) + 1)) is null);
+  end loop;
+  -- ตัวเลือก "ต้องไม่พัง" ฝั่งใกล้เคียง: อักขระนอกชุดต้องไม่ถูกตีตก (hair space U+200A · hyphen U+2010 · ภาษาไทยใน query ถูก percent-encode)
+  -- (ไม่ทดสอบ U+200A hair space: ถูก [:space:] ของ locale จับอยู่แล้ว = ปฏิเสธโดยกติกาเดิม ไม่เกี่ยวกับชุด bidi)
+  v_log := v_log || pg_temp.vb('B14d', '[ต้องไม่พัง] content_url_ok: ลิงก์ปกติ / percent-encoded (%E2%80%8B เป็นตัวอักษร ไม่ใช่ ZWSP) ผ่าน · อักขระนอกชุด bidi (U+2010 hyphen · ไทย) ไม่ถูกจับผิด',
+    analytics.content_url_ok('https://tiktok.com/@shopx/video/7000000000000000605?q=%E2%80%8B')
+    and analytics.content_url_ok('https://tiktok.com/x' || chr(8208))
+    and analytics.content_url_ok('https://tiktok.com/' || chr(3585) || chr(3586)),
+    'hyphen=' || analytics.content_url_ok('https://tiktok.com/x' || chr(8208))::text);
+  -- ไม่มีแถว url ที่มี bidi/zero-width หลุดเข้าตาราง (ชุดอักขระสร้างจาก chr() เอง ไม่พึ่ง regex ของ migration)
+  v_cls := '[' || chr(8203) || '-' || chr(8207) || chr(8234) || '-' || chr(8238) || chr(8288) || '-' || chr(8292)
+           || chr(8294) || '-' || chr(8297) || chr(65279) || ']';
+  v_log := v_log || pg_temp.vb('B14e', 'ไม่มีแถว content_signal ที่ url มี bidi/zero-width หลุดเข้าตาราง',
+    not exists (select 1 from analytics.content_signal where url ~ v_cls));
+
+  -- ข้อความ: ZWSP/bidi ล้วน = ว่างหลังลบ ⇒ ปฏิเสธ/ข้ามเหมือน whitespace ล้วน
+  foreach v_stmt in array array[
+    'zwsp|' || chr(8203),
+    'rlo-pdi|' || chr(8238) || chr(8297),
+    'mixed-zw-ws|' || chr(8203) || chr(9) || chr(65279) || ' ' || chr(8288) || chr(10)
+  ] loop
+    v_txt := substring(v_stmt from position('|' in v_stmt) + 1);
+    v_log := v_log || pg_temp.vl('B14f', 'RPC summary เป็น bidi/zero-width ล้วน [' || split_part(v_stmt, '|', 1) || '] → 22023',
+      pg_temp.vx(format('select analytics.content_signal_capture(%L::uuid, ''craft_moment'', %L)', v_shop, v_txt), array['22023']));
+    v_log := v_log || pg_temp.vl('B14g', 'RPC reference_clip hook_text เป็น bidi/zero-width ล้วน [' || split_part(v_stmt, '|', 1) || '] → 22023',
+      pg_temp.vx(format('select analytics.content_signal_capture(%L::uuid, ''reference_clip'', ''hk14'', p_url => ''https://hk14.example/1'', p_hook_text => %L)', v_shop, v_txt), array['22023']));
+    v_log := v_log || pg_temp.vl('B14h', 'RPC hook_upsert ข้อความเป็น bidi/zero-width ล้วน [' || split_part(v_stmt, '|', 1) || '] → 22023',
+      pg_temp.vx(format('select analytics.content_hook_upsert(%L::uuid, %L::uuid, null, %L, ''fact'')', v_shop, v_step2, v_txt), array['22023']));
+    v_log := v_log || pg_temp.vl('B14i', 'RPC live_question: summary เป็น bidi/zero-width ล้วน (capture ตรง) [' || split_part(v_stmt, '|', 1) || '] → 22023',
+      pg_temp.vx(format('select analytics.content_signal_capture(%L::uuid, ''live_question'', %L, p_origin_live_date => date ''2020-05-01'')', v_shop, v_txt), array['22023']));
+  end loop;
+  -- คำถามไลฟ์ผ่าน live_session_upsert: ข้อที่ว่างหลังลบ = ข้าม (คืนยังบันทึกได้) · ข้อจริงถูกเก็บ
+  v_log := v_log || pg_temp.vl('B14j', '[ต้องไม่พัง] live_session_upsert: คำถาม ZWSP/RLO ล้วนปะปนข้อจริง → ผ่าน (ข้ามข้อล่องหน ไม่ทำให้ทั้งคืน rollback)',
+    pg_temp.vok(format('select analytics.live_session_upsert(%L::uuid, date ''2020-05-02'', time ''20:00'', time ''23:00'', 5, null, ''owner_chat'', null, array[%L, %L, ''ข้อจริง 14''], ''owner'')',
+      v_shop, chr(8203), chr(8238) || chr(8297))));
+  v_log := v_log || pg_temp.vb('B14k', 'คืน 2020-05-02: log มี · สัญญาณเฉพาะ "ข้อจริง 14" 1 ข้อ (ไม่มีแถว summary ล่องหน)',
+    exists (select 1 from analytics.live_session_log where shop_id = v_shop and live_date = date '2020-05-02')
+    and (select count(*) from analytics.content_signal where shop_id = v_shop and origin_live_date = date '2020-05-02') = 1
+    and exists (select 1 from analytics.content_signal where shop_id = v_shop and origin_live_date = date '2020-05-02' and summary = 'ข้อจริง 14'));
+  v_log := v_log || pg_temp.vl('B14l', '[ต้องไม่พัง] live_session_upsert: คำถามทุกข้อเป็น ZWSP ล้วน → คืนบันทึกได้ ไม่มีสัญญาณ',
+    pg_temp.vok(format('select analytics.live_session_upsert(%L::uuid, date ''2020-05-03'', time ''20:00'', time ''23:00'', 6, null, ''owner_chat'', null, array[%L], ''owner'')', v_shop, chr(8203))));
+  v_log := v_log || pg_temp.vb('B14m', 'คืน 2020-05-03: log มี · สัญญาณ 0',
+    exists (select 1 from analytics.live_session_log where shop_id = v_shop and live_date = date '2020-05-03')
+    and not exists (select 1 from analytics.content_signal where shop_id = v_shop and origin_live_date = date '2020-05-03'));
+  -- ลบแล้วยุบ: ZWSP ในข้อความไม่ทำให้ "ข้อความเดียวกัน" หลุดด่านซ้ำ · summary ที่เก็บต้องไม่มีอักขระล่องหน
+  select o_id, o_res into v_id, v_r from pg_temp.vid(format(
+    'select analytics.content_signal_capture(%L::uuid, ''live_question'', %L, p_origin_live_date => date ''2020-05-04'')',
+    v_shop, 'ราคา' || chr(8203) || 'เท่าไหร่' || chr(8238) || ' ' || chr(8203) || ' ครับ'));
+  v_log := v_log || pg_temp.vl('B14n', '[ต้องไม่พัง] capture live_question ที่มี ZWSP/RLO ปนกลางข้อความ → ผ่าน', v_r);
+  v_log := v_log || pg_temp.vb('B14o', 'summary ที่เก็บ = ข้อความที่ลบ bidi แล้วยุบ whitespace (ZWSP ที่แทรกกลางช่องว่างไม่กันการยุบ)',
+    (select summary from analytics.content_signal where id = v_id) = 'ราคาเท่าไหร่ ครับ',
+    coalesce((select summary from analytics.content_signal where id = v_id), 'null'));
+  v_log := v_log || pg_temp.vl('B14p', 'คำถามเดียวกันที่พิมพ์ต่างกันแค่ ZWSP (คืนเดียวกัน) → 23505 ไม่หลุดเป็นสองแถว',
+    pg_temp.vx(format('select analytics.content_signal_capture(%L::uuid, ''live_question'', %L, p_origin_live_date => date ''2020-05-04'')', v_shop, 'ราคาเท่า' || chr(8203) || 'ไหร่ ครับ'), array['23505']));
+  v_log := v_log || pg_temp.vb('B14q', 'content_text_clean: null → ว่าง · bidi ล้วน → ว่าง · ปกติคงเดิม · tab/newline ยุบ',
+    analytics.content_text_clean(null) = '' and analytics.content_text_clean(chr(8203) || chr(8238)) = ''
+    and analytics.content_text_clean('  a' || chr(8203) || chr(9) || 'b' || chr(10) || ' ') = 'a b'
+    and analytics.content_text_clean('ไทย ok') = 'ไทย ok');
+  -- hook_text ของ reference_clip ที่มี bidi ปนข้อความจริง: เก็บแบบลบแล้ว
+  select o_id, o_res into v_id, v_r from pg_temp.vid(format(
+    'select analytics.content_signal_capture(%L::uuid, ''reference_clip'', ''hk14ok'', p_url => ''https://hk14.example/ok'', p_hook_text => %L)',
+    v_shop, 'เปิด' || chr(8238) || 'หัว' || chr(8203) || 'คลิป'));
+  v_log := v_log || pg_temp.vl('B14r', '[ต้องไม่พัง] reference_clip hook_text ที่มี RLO/ZWSP ปนข้อความจริง → ผ่าน', v_r);
+  v_log := v_log || pg_temp.vb('B14s', 'hook_text ที่เก็บ = ลบ bidi แล้ว (เปิดหัวคลิป) ไม่มีอักขระล่องหนเหลือ',
+    (select hook_text from analytics.content_signal where id = v_id) = 'เปิดหัวคลิป');
+
+  -- B15 (security L-a): content_url_ok ถูกใช้ใน CHECK — pin ตัวฟังก์ชัน + ป้ายเตือน + ไม่มีแถวเก่าที่ไม่ผ่าน
+  -- ⚠️ pin md5(prosrc): แก้ฟังก์ชันแล้วต้องอัปเดตค่านี้พร้อมตรวจแถวเดิมซ้ำ (drop/add constraint) · ไม่ตรงทั้งที่ไม่ได้แก้ ⇒ นับ \r ก่อน (trap #20)
+  v_log := v_log || pg_temp.vb('B15a', 'md5(prosrc) ของ content_url_ok ตรงค่าที่ pin (แก้ฟังก์ชัน = ต้องมารู้ที่นี่ก่อน)',
+    (select md5(prosrc) from pg_proc where pronamespace = 'analytics'::regnamespace and proname = 'content_url_ok') = '8deca273d9ebdd5c826b902331b4c682',
+    coalesce((select md5(prosrc) from pg_proc where pronamespace = 'analytics'::regnamespace and proname = 'content_url_ok'), 'null'));
+  v_log := v_log || pg_temp.vb('B15b', 'content_url_ok มี comment เตือนว่าใช้ใน CHECK (ตรวจแถวเดิมซ้ำ · ห้าม drop cascade)',
+    coalesce(obj_description('analytics.content_url_ok(text)'::regprocedure, 'pg_proc'), '') like '%content_signal_url_check%'
+    and coalesce(obj_description('analytics.content_url_ok(text)'::regprocedure, 'pg_proc'), '') like '%drop%cascade%');
+  v_log := v_log || pg_temp.vb('B15c', 'ไม่มีแถว content_signal ที่ url ไม่ผ่าน content_url_ok (CHECK ไม่ถูกหลบ)',
+    (select count(*) from analytics.content_signal where url is not null and not analytics.content_url_ok(url)) = 0);
+  v_log := v_log || pg_temp.vb('B15d', 'CHECK content_signal_url_check ยังอยู่และอ้างฟังก์ชัน (ไม่ถูก cascade ทิ้ง)',
+    exists (select 1 from pg_constraint where conname = 'content_signal_url_check'
+              and conrelid = 'analytics.content_signal'::regclass and pg_get_constraintdef(oid) like '%content_url_ok%'));
 
   -- B-M3 (security S-M3 ก): AI แก้/ทับ hook ที่ generated_by='human' ไม่ได้
   select o_id, o_res into v_id, v_r from pg_temp.vid(format(
@@ -560,6 +686,17 @@ begin
     pg_temp.vok('select analytics.content_actor_assert(''owner'', array[''owner'', ''system''], ''t''); select analytics.content_actor_assert(''ai'')'));
   v_log := v_log || pg_temp.vl('B12d', 'content_actor_assert ai ใน {owner,system} → 42501',
     pg_temp.vx('select analytics.content_actor_assert(''ai'', array[''owner'', ''system''], ''t'')', array['42501']));
+  -- L-c: array ที่มี null ข้างใน — 'ai' = any(array['owner', null]) เป็น null (ไม่ใช่ false) ⇒ ต้องไม่ผ่านเงียบ
+  v_log := v_log || pg_temp.vl('B12e', 'content_actor_assert ai ใน {owner,null} → 42501 (array มี null ข้างในต้องไม่เปิดให้ role ที่ไม่อยู่ในรายการ)',
+    pg_temp.vx('select analytics.content_actor_assert(''ai'', array[''owner'', null], ''t'')', array['42501']));
+  v_log := v_log || pg_temp.vl('B12f', 'content_actor_assert system ใน {null,owner} (null นำหน้า) → 42501',
+    pg_temp.vx('select analytics.content_actor_assert(''system'', array[null, ''owner''], ''t'')', array['42501']));
+  v_log := v_log || pg_temp.vl('B12g', '[ต้องไม่พัง] content_actor_assert owner ใน {owner,null} → ผ่าน (มีชื่อในรายการจริง) · system ใน {null,system} → ผ่าน',
+    pg_temp.vok('select analytics.content_actor_assert(''owner'', array[''owner'', null], ''t''); select analytics.content_actor_assert(''system'', array[null, ''system''], ''t'')'));
+  v_log := v_log || pg_temp.vl('B12h', 'content_actor_assert {null} ล้วน → 42501',
+    pg_temp.vx('select analytics.content_actor_assert(''owner'', array[null]::text[], ''t'')', array['42501']));
+  v_log := v_log || pg_temp.vl('B12i', 'content_actor_assert role นอก 3 ค่า + {owner,null} → 22023 (ลำดับด่านไม่เปลี่ยน)',
+    pg_temp.vx('select analytics.content_actor_assert(''assistant'', array[''owner'', null], ''t'')', array['22023']));
 
   -- B-M2 (security S-M2): live_session_upsert = owner/system เท่านั้น · source ของคำถามตาม actor
   select count(*) into v_n from analytics.live_session_log;

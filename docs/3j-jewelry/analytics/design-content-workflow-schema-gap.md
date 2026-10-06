@@ -376,3 +376,15 @@ RPC `content_post_link_step(p_shop_id, p_post_id, p_step_id, p_hook_id, p_actor_
 | Q5 | เก็บ **แค่ลิงก์** · ตัวเลข วิว/ไลก์/คอมเมนต์ อยากให้ระบบ **บันทึกอัตโนมัติ** เป็นระยะ | ไฟล์คลิป = ลิงก์ text 1 คอลัมน์ · ยอดอัตโนมัติ: 🔴 **ห้ามทำด้วยการเปิดลิงก์/scraper** (ผิด ToS TikTok เสี่ยงแบนบัญชีหลัก) · ทางถูกคือ **TikTok Display API** (บัญชีตัวเอง ได้ วิว/ไลก์/คอมเมนต์/แชร์ — **ไม่ได้ "บันทึก"**) ⇒ ช่อง "บันทึก" ยังกรอกมือ · บล็อกที่: เว็บต้องมี Privacy Policy + ToS ก่อนส่งแอปรีวิว (ร่างค้างใน `docs/3j-jewelry/legal/`) = งาน P3 เดิม · schema รองรับแล้ว (`content_post_metric.source`) |
 
 **หมายเหตุ format clip (Q2)**: "AI ช่วยตัดจากฟุตเทจจริง" ≠ "AI สร้างวิดีโอ" ที่ CEO NO-GO ถาวร (31 ส.ค.) — ไม่ขัดมติ แต่ต้องบันทึกให้ชัดเมื่อออกแบบ · format clip น่าจะเป็นแม่แบบ storyboard ที่ใช้ซ้ำ (ใกล้ `campaign_template` เดิม) — ออกแบบแยกรอบหลังเฟส C2
+
+## 10. หนี้เทคนิคที่รับไว้ตอนทำ C1 (0158 · 6 ต.ค. 69)
+
+| # | หนี้ | ทำไมรับได้ตอนนี้ | ต้องปิดเมื่อไหร่ |
+|---|---|---|---|
+| D1 | FK ของ `content_hook.step_id` / `source_signal_id` และ `content_signal.origin_*` / `picked_step_id` เป็นคอลัมน์เดียว ไม่ใช่ composite `(shop_id, id)` — กันข้ามร้านได้เฉพาะใน RPC (security L2) | ร้านเดียว · ทุก RPC เรียกได้เฉพาะ `service_role` · RPC ตรวจ shop แล้ว (verify B10/B11) | ก่อนเปิดร้านที่ 2 · ต้องเพิ่ม `unique (shop_id, id)` ที่ `campaign_step` ก่อน |
+| D2 | `p_actor_role` มาจากแอป ไม่ใช่ auth — กันได้เฉพาะเส้นทาง AI (R14) | ตัวเรียกทุกตัวต้อง hardcode `p_actor_role` + `p_shop_id` ฝั่ง server · QA grep ตอนต่อ UI | Auth A2 |
+| D3 | `live_session_upsert` ล้างโฮสต์ผ่าน RPC ไม่ได้ (ส่ง null = ไม่ทับ) | แอปเดิมไม่ส่ง host ต้องไม่ล้างค่าที่เจ้าของเลือก | ถ้า UI รอบ 2 ต้องการปุ่ม "ไม่ระบุโฮสต์" → เพิ่มพารามิเตอร์ล้างแบบชัดเจน |
+| D4 | `youtu.be/ID` กับ `youtube.com/watch?v=ID` ไม่ถูกนับว่าซ้ำ | แอปต้อง canonicalize ลิงก์ก่อนส่ง | ตอนทำฟอร์มแปะลิงก์ (UI) |
+| D5 | error 22023 / 23505 / 23514 ใหม่ยังไม่ถูก map เป็นภาษาไทยใน `live-metrics-errors.ts` (ผู้ใช้เห็นข้อความ fallback) | แอปยังไม่ส่งพารามิเตอร์ใหม่ · error เดิมยัง map ได้ | พร้อม UI บันทึกหลังไลฟ์รุ่นใหม่ |
+| D6 | ด่านอักขระล่องหน (bidi/zero-width) อยู่ที่ RPC เท่านั้น — CHECK ของตารางยังไม่กัน · ช่องข้อความรอง (`why_it_works` · `account` · `note` · ชื่อ/ป้ายโฮสต์ ฯลฯ) ใช้แค่ `btrim` · ชุดอักขระยังไม่รวม U+061C · U+180E · U+00AD · U+FFF9–FFFB | เขียนได้เฉพาะผ่าน RPC ฝั่ง server · ช่องรองกรอกโดยเจ้าของเท่านั้น · React escape ตอนแสดง | ถ้าเปิดให้ AI เขียนช่องรอง หรือมีผู้ใช้คนที่ 2 |
+| D7 | verify-0158 B15a pin `md5(prosrc)` ของ `content_url_ok` — จะล้มถ้า replay ไฟล์แบบ CRLF | ไฟล์ใน repo เป็น LF · ข้อความ error ชี้ให้เช็ค `\r` ก่อน (migration trap #20) | เมื่อเคาะ `.gitattributes` `*.sql eol=lf` |

@@ -274,7 +274,7 @@ begin
   v_r := pg_temp.qa_try(format($s$select analytics.live_session_upsert(p_shop => %L::uuid, p_live_date => date '2019-06-10', p_start => '20:00', p_end => '23:00', p_questions => array[E'\u00a0', E'\u200b', E'\u3000'])$s$, v_shop));
   select count(*) into v_n from analytics.content_signal where shop_id = v_shop and origin_live_date = date '2019-06-10';
   v_log := v_log || pg_temp.qa_l('Q11', 'คำถามที่เป็นช่องว่างพิเศษ (NBSP / zero-width / ideographic) ไม่ถูกเก็บเป็นสัญญาณขยะ', v_r = 'OK' and v_n = 0,
-    'ผล=' || left(v_r, 60) || ' แถวสัญญาณ=' || v_n, 'NOTE');
+    'ผล=' || left(v_r, 60) || ' แถวสัญญาณ=' || v_n || ' (รอบ 3: content_text_clean ลบ bidi/zero-width ก่อนยุบ whitespace · NBSP/ideographic จับด้วย whitespace class ของ locale — ถ้า FAIL = ช่องกลับมา)');
 
   ------------------------------------------------------------------------------------------------
   -- U. content_url_norm + กันลิงก์ซ้ำ
@@ -289,7 +289,7 @@ begin
     and analytics.content_url_norm('https://tiktok.com/@shopx/video/7000000000000000001//#x') = v_s
     and analytics.content_url_norm('  https://m.tiktok.com/@shopx/video/7000000000000000001  ') = v_s);
   v_log := v_log || pg_temp.qa_l('U5', 'ตัวพิมพ์ใหญ่ใน path (@ShopX vs @shopx) ถือเป็นลิงก์เดียวกัน', analytics.content_url_norm('https://www.tiktok.com/@ShopX/video/7000000000000000001') = v_s,
-    'ได้ ' || analytics.content_url_norm('https://www.tiktok.com/@ShopX/video/7000000000000000001') || ' — คนละ url_norm ⇒ ลิงก์เดียวกันที่พิมพ์ handle ต่างตัวพิมพ์หลุดด่านซ้ำ (แอป canonicalizeTikTokLink ก็ไม่ lowercase handle)', 'NOTE');
+    'ได้ ' || analytics.content_url_norm('https://www.tiktok.com/@ShopX/video/7000000000000000001') || ' — norm ต้อง lowercase segment @handle ของ tiktok.com (รอบ 3: segment อื่น เช่น /t/<code> ไม่ถูก lowercase) ถ้าไม่เท่ากัน = handle ต่างตัวพิมพ์หลุดด่านซ้ำ');
   v_log := v_log || pg_temp.qa_l('U6', 'YouTube watch?v=A กับ v=B คนละคลิป (ไม่ชน)', analytics.content_url_norm('https://www.youtube.com/watch?v=AAAAAAAAAAA') <> analytics.content_url_norm('https://youtube.com/watch?v=BBBBBBBBBBB'));
   v_log := v_log || pg_temp.qa_l('U6b', 'YouTube A + &si=..&t=5 / ?V=A (key ตัวใหญ่) / m.youtube = A เดียวกัน',
     analytics.content_url_norm('https://www.youtube.com/watch?v=AAAAAAAAAAA&si=xyz&t=5') = analytics.content_url_norm('https://www.youtube.com/watch?v=AAAAAAAAAAA')
@@ -326,7 +326,7 @@ begin
   v_log := v_log || pg_temp.qa_l('U12', 'url ฝัง SQL: มีช่องว่าง → 22023 · ไม่มีช่องว่าง → เก็บเป็นข้อความเฉยๆ · ตารางไม่หายทั้งสองกรณี',
     pg_temp.qa_st(v_r) = '22023' and pg_temp.qa_st(v_r2) = 'OK' and to_regclass('analytics.content_signal') is not null, left(v_r, 40) || ' / ' || left(v_r2, 40));
   v_r := pg_temp.qa_cap(v_shop, 'reference_clip', 'url มี newline', format($e$p_url => %L, p_hook_text => 'h'$e$, 'https://qa-0158.invalid/a' || chr(10) || 'b'));
-  v_log := v_log || pg_temp.qa_l('U13', 'url มีตัวขึ้นบรรทัดใหม่/ตัวควบคุมถูกปฏิเสธ', pg_temp.qa_st(v_r) <> 'OK', 'ผ่านเข้าตาราง url แล้ว (url CHECK ตรวจแค่ ^https?://) — ถ้า UI/CSV แสดงดิบ อาจทำให้ลิงก์เพี้ยน', 'NOTE');
+  v_log := v_log || pg_temp.qa_l('U13', 'url มีตัวขึ้นบรรทัดใหม่/ตัวควบคุมถูกปฏิเสธ', pg_temp.qa_st(v_r) <> 'OK', 'ผ่านเข้าตารางทั้งที่ content_url_ok (ด่านเดียวของ RPC + CHECK content_signal_url_check) ต้องปฏิเสธ whitespace/ตัวควบคุมในลิงก์ — ถ้า UI/CSV แสดงดิบ ลิงก์จะเพี้ยน ผล=' || left(v_r, 60));
   -- dedupe ผ่าน capture
   v_r := pg_temp.qa_cap(v_shop, 'reference_clip', 'คลิป dedupe ต้นฉบับ', $e$p_url => 'https://www.tiktok.com/@shopx/video/7000000000000000099', p_hook_text => 'hook ต้นฉบับ'$e$);
   v_id := nullif(split_part(v_r, '|', 2), '')::uuid;
@@ -426,7 +426,7 @@ begin
   -- ข้อความที่เป็น tab/newline ล้วนในช่อง hook_text (btrim ตัดแค่ช่องว่าง)
   v_r := pg_temp.qa_cap(v_shop, 'reference_clip', 'hook เป็น tab ล้วน', $e$p_url => 'https://qa-0158.invalid/tabhook', p_hook_text => E'\t'$e$);
   v_log := v_log || pg_temp.qa_l('N12', 'reference_clip ที่ hook_text เป็น tab ล้วน ควรถูกปฏิเสธ (hook ว่าง = ใช้ถอดโครงไม่ได้)', pg_temp.qa_st(v_r) <> 'OK',
-    'DB รับ hook_text=tab 1 ตัว (CHECK length(btrim()) ผ่านเพราะ btrim ไม่ตัด tab) ผล=' || left(v_r, 50), 'NOTE');
+    'DB รับ hook_text ที่ว่างหลังยุบ whitespace/ลบ bidi (tab ล้วน) เข้าตาราง — RPC ต้อง 22023 (content_text_clean แล้ว nullif) และ CHECK ตารางต้องมี non-whitespace อย่างน้อยหนึ่งตัว ผล=' || left(v_r, 50));
 
   -- set_status
   v_id :=nullif(split_part(pg_temp.qa_cap(v_shop, 'craft_moment', 'status test', ''), '|', 2), '')::uuid;
