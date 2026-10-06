@@ -2,6 +2,7 @@
 
 > **6 ต.ค. 69** · เขียนโดย CMO (Leia) ตามคำสั่งเจ้าของ (verbatim ใน §0) · Tech Lead บันทึกลงไฟล์ (subagent เขียนไฟล์ไม่ได้รอบนี้)
 > นี่คือ **นิยามกระบวนการฉบับภายใน** (มีชื่อตาราง/ตัวเลขภายใน) — ฉบับที่ส่งออกไปให้ UI ข้างนอกคือ `content-workflow-ui-brief.md` (ตัดของภายในแล้ว)
+> 🔁 **แก้ 6 ต.ค. 69 (Tech Lead หลังรีวิวแพ็กเกจ UI รอบ 1)**: ลำดับจริงคือ **S6 อนุมัติก่อน S5 ถ่าย** (ถ่ายเฉพาะชิ้นที่อนุมัติแล้ว) · "โพสต์แล้ว" ต้องมีลิงก์เสมอ · หยิบสัญญาณได้ทุกเวลาแต่ลงปฏิทินต้องผ่าน S2 — ฉบับที่ชี้ขาดคือ `content-workflow-ui-brief.md` ฉบับ 1.1 §4 · เจ้าของกลับได้
 > ทุกข้อสังเกตติดป้าย [Fact] / [Observation] / [Hypothesis] · ค่าที่ต้องมาจากเจ้าของเขียน `[ต้องยืนยัน: …]`
 > ไฟล์ที่ยืนบน: `content-kpi-definition.md` (ชี้ขาด KPI — ไฟล์นี้ไม่แก้ KPI) · `content-calendar/TEMPLATE.md` · `weekly-brief/TEMPLATE.md` · `ai-marketing-os-decision-31aug.md` · memory `content-measurement-project` · `live-selling-rhythm` · `platform-engagement-apis` · skill `3j-brand-and-market`
 
