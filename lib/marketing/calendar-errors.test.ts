@@ -19,6 +19,18 @@ const TH_TEMPLATE_STEP =
 const TH_HUMAN_EDITED = "แก้ไม่ได้ — มีคนแก้เนื้อหานี้ไปแล้ว AI จะไม่เขียนทับ";
 const TH_CLIP_BRIEF = "รูปแบบ clip brief ไม่ถูกต้อง";
 
+describe("mapCalendarRpcError — 55000 (0159 piece workflow guard)", () => {
+  it("maps 55000 to the workflow-guard Thai copy regardless of message text", () => {
+    const msg = mapCalendarRpcError({ code: "55000", message: "อนุมัติแล้ว ห้ามแก้เนื้อหา" }, FALLBACK);
+    expect(msg).toContain("workflow ใหม่");
+    expect(mapCalendarRpcError({ code: "55000" }, FALLBACK)).toBe(msg);
+  });
+
+  it("does NOT map 55000-looking text without the code (code gate decides)", () => {
+    expect(mapCalendarRpcError(new Error("ชิ้นงานนี้อยู่ใน workflow ใหม่"), FALLBACK)).toBe(FALLBACK);
+  });
+});
+
 describe("mapCalendarRpcError — maps known 22023 messages to Thai copy", () => {
   it("maps the current (0058) 'can be deleted' wording (plain-object shape)", () => {
     const err = {

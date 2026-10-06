@@ -36,5 +36,10 @@ export function mapCalendarRpcError(err: unknown, fallback: string): string {
       return "ไม่พบงานนี้ อาจถูกลบไปแล้ว";
     }
   }
+  // 0159 (workflow ชิ้นงานใหม่): trigger ปิดเส้นทางเดิมกับ step ที่มี piece_status ตอบด้วย 55000
+  // (object_not_in_prerequisite_state) — แยกจาก 22023 ที่ข้อความด้านบนจับอยู่ · ตัดสินด้วยโค้ดอย่างเดียว
+  if (code === "55000") {
+    return "ชิ้นงานนี้อยู่ใน workflow ใหม่ — เปลี่ยนสถานะ/แก้เนื้อหาที่อนุมัติแล้ว/ลบ ต้องทำผ่านหน้าชิ้นงาน (ส่งกลับก่อนถ้าอนุมัติไปแล้ว)";
+  }
   return fallback;
 }
