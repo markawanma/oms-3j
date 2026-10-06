@@ -80,9 +80,34 @@
 --   O  [รอบแก้ QA-1 blocker] ทุกจุดที่เทียบ piece_status ด้วย not in / <> จัดการ null แล้ว: step ก่อน workflow (piece_status null) แก้เนื้อหา/AI ร่างได้
 --      ตามเดิม (เดิม `null not in (...)` = null ⇒ ตกไป extract แล้ว 22023 ทุกครั้ง)
 --   P  [รอบแก้ L1] ข้าม guard ด้วย GUC c2.piece_rpc='1' ได้เฉพาะเมื่อ current_user ไม่ใช่ service_role/authenticated/anon (RPC definer รันเป็นเจ้าของฟังก์ชัน
---      ⇒ ผ่าน · DML ตรงจาก service_role ที่ตั้ง GUC เองไม่ผ่าน) — ไม่ใช้ ENABLE ALWAYS · ⚠️ ผู้ถือ role เจ้าของฟังก์ชัน (postgres) ยังข้ามได้ (นอกขอบเขตที่กันได้)
---   Q  ข้อจำกัดที่รู้ตัว (ไม่ได้ปิดในไฟล์นี้): TOCTOU ระหว่าง "อนุมัติ" กับ "แก้เนื้อหาผ่านเส้นทางเดิมพร้อมกัน" — trigger ฝั่งเนื้อหาไม่ล็อก step
---      (ล็อกจะสลับลำดับกับ transition_ ⇒ deadlock) · ต้องเพิ่ม advisory lock ทั้งสองฝั่งถ้าจะปิด
+--      ⇒ ผ่าน · DML ตรงจาก service_role ที่ตั้ง GUC เองไม่ผ่าน) — ไม่ใช้ ENABLE ALWAYS
+--      ⚠️ ความเสี่ยงที่รับไว้ตรงๆ (รอบ 2 — security GO / QA N6f เรื่องเดียวกัน): service_role ที่รัน "SQL ดิบ" (ต้องมี credential DB ตรง)
+--      ตั้ง GUC แล้วเรียก RPC เดิมแบบ definer (เช่น campaign_set_artifact_content / campaign_set_artifact_status) ข้าม guard ได้ เพราะข้างใน RPC
+--      นั้นรันเป็น postgres (current_user ไม่ใช่ service_role) แล้วเห็น GUC ที่ตั้งไว้แล้ว · ผ่าน PostgREST ทำไม่ได้ (เรียก set_config ไม่ได้
+--      และ /rpc ถูกจำกัดที่ฟังก์ชันที่ grant ไว้) · ผู้ถือ credential DB ตรงคุมทุกอย่างอยู่แล้ว (ตั้ง role postgres เองได้) ⇒ guard นี้กัน "เส้นทางโค้ด/บอร์ดเดิม/AI
+--      ที่เรียกผ่าน PostgREST" ไม่ได้กัน operator ที่ถือ DB credential — ไม่ปิด เพราะไม่มีกลไกใน DB ที่แยกผู้ถือ credential ออกจากเจ้าของฟังก์ชันได้
+--   Q  ข้อจำกัดที่รู้ตัว (ไม่ได้ปิดด้วยล็อก): TOCTOU ระหว่าง "อนุมัติ" กับ "แก้เนื้อหาผ่านเส้นทางเดิมพร้อมกัน" — trigger ฝั่งเนื้อหาไม่ล็อก step
+--      (ล็อกจะสลับลำดับกับ transition_ ที่ล็อก step ก่อน artifact ⇒ deadlock) · advisory lock ไม่ช่วยทางฝั่ง artifact (ไม่มีจุดตั้งล็อกก่อนเขียนเนื้อหา)
+--      เหตุผลที่ปลอดภัยทั้งที่ไม่ล็อก (security รอบ 2 — fail-closed: พลาด = ถอย ไม่ใช่ผ่านเงียบ):
+--        · ทาง hook: content_hook_upsert ล็อก step `for update` ก่อนเขียน ⇒ ชน transition_ ตรงๆ (ใครมาก่อนได้ก่อน อีกฝั่งเห็นผลของอีกฝั่ง)
+--        · ทาง artifact: ถ้าแก้เนื้อหาแข่งกับอนุมัติ ผลมี 2 แบบเท่านั้น — (ก) deadlock-abort (ฝั่งใดฝั่งหนึ่งถูกฆ่า เนื้อหาไม่เข้าหรืออนุมัติไม่ผ่าน)
+--          หรือ (ข) การอนุมัติเห็นด่านเป็น pending ⇒ ตกที่ approve_blockers · เพราะ invalidate_ ซึ่ง trigger ฝั่งเนื้อหาเรียกทุกครั้งที่เนื้อหาเปลี่ยน
+--          insert แถว content_piece_event (FK → campaign_step: ขอ KEY SHARE ของแถว step ซึ่งชนกับ `for update` ของ transition_) ⇒ 2 ฝั่งต้องต่อคิวกันที่แถว step
+--        · ความปลอดภัยนี้พึ่ง 2 พฤติกรรมแฝง — 🔴 ใครแก้ 2 อย่างนี้ต้องทบทวนข้อ Q ใหม่ทั้งข้อ:
+--          (1) artifact ของชิ้น in_review อยู่ในกลุ่ม draft เสมอ (todo/draft/draft_pending_review — trigger guard ไม่ปล่อยให้ขยับออกกลุ่มนี้ผ่านเส้นทางเดิม)
+--          (2) invalidate_ insert แถว event ทุกครั้งที่ล้างด่านสำเร็จ (ถ้าวันหน้าเลิกเขียน event หรือย้ายไปเขียนทีหลังการล้างด่าน
+--              ช่องชน FK หายไปพร้อมกัน ⇒ การอนุมัติที่แข่งอยู่อาจเห็นด่านเก่าที่ยัง passed)
+--   R  [รอบ 2 · security Low M4 ปิดสนิท] ล้างผลตรวจ fact_check (invalidate_) ย้าย detail.sources → detail.stale_sources (ไม่ลบ — เห็นประวัติ) ทุกสถานะของแถว
+--      (passed/na ถูกรีเซ็ตเป็น pending พร้อมกัน · pending/blocked ที่มี sources ก็ย้ายด้วย ไม่งั้น AI กด passed ด้วยแหล่งของข้อความเก่าได้) ·
+--      content_gate_record อ่านเฉพาะ 'sources' (ไม่อ่าน stale_sources) และไม่รับ stale_sources เป็น key ขาเข้า ⇒ passed ซ้ำโดยไม่มีแหล่งใหม่ = 22023
+--   S  [รอบ 2 · QA note E4a] set_plan เปลี่ยน piece_kind: ออกจาก line_message → ล้าง line_audience/line_audience_reason อัตโนมัติ (ถ้าไม่ได้ส่งมาเอง) ·
+--      เปลี่ยนเป็น line_message → เติม line_audience='all' (ค่าเริ่มต้นตามมติ) ถ้ายังว่างและไม่ได้ส่งมาเอง · บันทึกใน event plan diff ·
+--      "segment" ตีความเป็นค่า line_audience='segment' ไม่ใช่คอลัมน์ audience_segment (เป็นของบอร์ดเดิม/CRM — ไม่ใช่ของ workflow ไม่ล้าง)
+--   T  [รอบ 2 · QA note E4b — ตั้งใจ ไม่แก้] เปลี่ยน piece_kind แล้ว artifact เดิมยังเป็นชนิดเดิม (เช่น kind story แต่เอกสาร broadcast_script_line) —
+--      set_plan ไม่แตะเอกสารที่มีอยู่แล้ว (เนื้อหา/ชนิดเป็นของที่เจ้าของร่างไว้) · UI 0160/รอบหน้าต้องเตือนตอนเปลี่ยน kind
+--   U  [รอบ 2 · security Info] v_content_piece แสดง artifact ตัวแรกตัวเดียว ⇒ ชิ้นใน workflow ต้องมี artifact ≤ 1 เสมอ: trigger guard INSERT ปฏิเสธเมื่อ
+--      step ที่ piece_status ไม่ว่างมี artifact อยู่แล้ว (55000 · ล็อก step `for update` ก่อนตรวจ กันสองคำสั่ง INSERT แข่งกัน) · ด่านท้ายไฟล์นับ = 0
+--      (เดิม L4 ปิดแค่ชิ้น approved/produced/posted — ชิ้น idea..in_review ยังเสียบเอกสารที่ 2 ตรงได้)
 --
 -- Grant model (3j-migration-traps #18): ทุก object ใหม่ grant ให้ service_role อย่างเดียว · revoke ครบสามชื่อ
 -- (public/anon/authenticated) · ตาราง RLS on + tenant_isolation_select · เขียนผ่าน RPC security definer เท่านั้น
@@ -715,6 +740,14 @@ begin
     if v_piece in ('approved', 'produced', 'posted') then
       raise exception 'เพิ่มเอกสารเข้าชิ้นงานที่อนุมัติแล้วไม่ได้ — ส่งกลับ (in_review) ก่อน' using errcode = '55000';
     end if;
+    -- U (security Info): v_content_piece แสดง artifact ตัวแรกตัวเดียว ⇒ ชิ้นใน workflow มีเอกสารได้ 1 ตัว (RPC ของ workflow สร้างตัวแรกเอง ·
+    -- ไม่มี RPC ที่เพิ่มตัวที่ 2) · ล็อก step ก่อนตรวจ: INSERT สองคำสั่งแข่งกันต้องต่อคิว (ลำดับ step → artifact เหมือน transition_ ⇒ ไม่เกิด deadlock)
+    if v_piece is not null then
+      perform 1 from analytics.campaign_step s where s.id = new.step_id for update;
+      if exists (select 1 from analytics.step_artifact a where a.step_id = new.step_id) then
+        raise exception 'ชิ้นงานใน workflow ใหม่มีเอกสารได้ 1 ตัว — แก้เนื้อหาที่เอกสารเดิมแทนการเพิ่มตัวใหม่' using errcode = '55000';
+      end if;
+    end if;
     return new;
   end if;
 
@@ -771,6 +804,7 @@ as $f$
 declare
   v_piece text;
   v_reset text[];
+  v_staled int;
 begin
   select s.piece_status into v_piece from analytics.campaign_step s where s.id = p_step_id and s.shop_id = p_shop_id;
   -- step หายไปแล้ว (cascade ลบ) · นอก workflow (null) · หรือชิ้นที่ล็อกแล้ว (guard ปฏิเสธการแก้ก่อนถึงนี่) ⇒ ไม่มีอะไรต้องล้าง
@@ -788,10 +822,24 @@ begin
      returning g.gate_kind)
   select array_agg(u.gate_kind order by u.gate_kind) into v_reset from u;
 
-  if v_reset is not null then
+  -- R (security Low M4): แหล่งอ้างอิงของ fact_check ผูกกับ "ข้อความเก่า" — ย้าย detail.sources → detail.stale_sources (ไม่ลบ เห็นประวัติ)
+  -- ทุกสถานะของแถว (ไม่ใช่เฉพาะที่เพิ่งรีเซ็ตจาก passed/na): แถว pending/blocked ที่มี sources อยู่ ถ้าทิ้งไว้ AI จะกด passed โดยไม่ส่ง detail
+  -- แล้ว content_gate_record พก sources เดิมไปผ่านด่าน M4 ได้ · content_gate_record อ่านเฉพาะ 'sources' ไม่อ่าน stale_sources
+  with u as (
+    update analytics.step_gate g
+       set detail = (g.detail - 'sources') || jsonb_build_object('stale_sources', g.detail -> 'sources')
+     where g.step_id = p_step_id and g.gate_kind = 'fact_check' and g.detail ? 'sources'
+     returning 1)
+  select count(*)::int into v_staled from u;
+
+  if v_reset is not null or v_staled > 0 then
     insert into analytics.content_piece_event (shop_id, step_id, event_kind, reason, actor_role, actor_uid, payload)
-    values (p_shop_id, p_step_id, 'gate', 'เนื้อหาเปลี่ยน ผลตรวจเดิมตกเป็น pending', 'system', auth.uid(),
-            jsonb_build_object('reset', true, 'gate_kinds', to_jsonb(v_reset), 'piece_status', v_piece));
+    values (p_shop_id, p_step_id, 'gate',
+            case when v_reset is not null then 'เนื้อหาเปลี่ยน ผลตรวจเดิมตกเป็น pending'
+                 else 'เนื้อหาเปลี่ยน แหล่งอ้างอิงเดิมของ fact_check ใช้ไม่ได้แล้ว (ย้ายเป็น stale_sources)' end,
+            'system', auth.uid(),
+            jsonb_build_object('reset', v_reset is not null, 'gate_kinds', coalesce(to_jsonb(v_reset), '[]'::jsonb),
+                               'sources_staled', v_staled > 0, 'piece_status', v_piece));
   end if;
   if v_piece in ('drafting', 'in_review') then
     perform analytics.content_confirm_extract_(p_shop_id, p_step_id, 'system');
@@ -1841,6 +1889,18 @@ begin
       v_n.content_type_code := v_ctype_new;
     end if;
   end loop;
+
+  -- S (QA E4a): เปลี่ยน piece_kind แล้ว line_audience ต้องตามชนิดใหม่ — ไม่ปล่อยให้ค่าอัตโนมัติของชนิดเดิม ('all' ที่ create เติมให้) ค้างจนชน 22023
+  -- เฉพาะตอนที่ piece_kind เปลี่ยนจริง และผู้เรียก "ไม่ได้ส่ง key นั้นมาเอง" (ส่งมาเอง = เจตนาชัด ไปตรวจตามกติกาปกติด้านล่าง) ·
+  -- ไม่แตะ audience_segment (คอลัมน์ของบอร์ดเดิม/CRM) · ผลเข้า event plan diff เอง เพราะ diff เทียบทั้งแถว
+  if v_n.piece_kind is distinct from v_s.piece_kind then
+    if v_n.piece_kind is distinct from 'line_message' then
+      if not ('line_audience' = any (v_keys)) then v_n.line_audience := null; end if;
+      if not ('line_audience_reason' = any (v_keys)) then v_n.line_audience_reason := null; end if;
+    elsif v_n.line_audience is null and not ('line_audience' = any (v_keys)) then
+      v_n.line_audience := 'all';
+    end if;
+  end if;
 
   -- ตรวจคู่ kind↔channel เฉพาะตอนที่ถูกแตะ (ตัดสินใจ I — คู่เก่าของ backfill ไม่ทำให้ทุก set_plan ล้ม)
   if ('piece_kind' = any (v_keys) or 'channel' = any (v_keys))
@@ -3140,6 +3200,14 @@ begin
    where c.relnamespace = 'analytics'::regnamespace and c.relname in ('content_piece_event', 'content_confirm_item') and not c.relrowsecurity;
   if v_bad is not null then
     raise exception '0159 ด่านท้าย: ตารางไม่ได้เปิด RLS: %', v_bad;
+  end if;
+
+  -- U: ชิ้นใน workflow มี artifact ≤ 1 เสมอ (v_content_piece แสดงตัวแรกตัวเดียว)
+  select count(*) into v_n from (
+    select s.id from analytics.campaign_step s join analytics.step_artifact a on a.step_id = s.id
+     where s.piece_status is not null group by s.id having count(*) > 1) x;
+  if v_n > 0 then
+    raise exception '0159 ด่านท้าย: มี % ชิ้นงานใน workflow ที่มี artifact มากกว่า 1 ตัว (v_content_piece แสดงตัวแรกตัวเดียว)', v_n;
   end if;
 
   -- trigger ทุกตัวต้องมีและเปิดอยู่ (backfill ปิด 2 ตัวคร่อม UPDATE — ต้องกลับมา enable ครบ)

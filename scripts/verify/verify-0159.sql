@@ -68,6 +68,17 @@
 --  L4a-f   SEC-L4: content_type บนชิ้น approved/produced/posted · INSERT artifact เข้าชิ้นที่ล็อก · ย้าย artifact เข้า/ออก · DELETE artifact ตรง
 --  C1-C3   Tech Lead: short_clip คู่ tiktok_live ✓ (live_cut ✗) · คลิปจริงไม่มีคู่ผิดตาราง
 --  CA1-CA3 QA notes: can_approve = false นอก in_review/ขณะ hold
+--
+-- ============ รอบ 2 (7 ต.ค. 69 หลัง security GO / QA PASS with notes) — id → ข้อที่ปิด ============
+--  R1a-g   ล้างผลตรวจ fact_check ย้าย sources → stale_sources (ไม่ลบ) · event sources_staled · passed ซ้ำโดยไม่มีแหล่งใหม่ = 22023 ทั้งเจ้าของ/AI ·
+--          stale_sources ปลอมเป็น key ขาเข้า = 22023 · gate_record ไม่มีทางอ่าน stale_sources · ต้องไม่พัง: แหล่งใหม่ผ่าน + อนุมัติครบวงจร
+--  R2a-c   fact_check ที่ pending/blocked ที่มี sources ก็ย้ายด้วย (สถานะไม่เปลี่ยน) · R3/R3b ทาง hook (invalidate_ เดียวกัน) · เปลี่ยนแค่ hook_type ไม่ย้าย · R4 key งอกเฉพาะ fact_check
+--  S0-S6   E4a: เปลี่ยน piece_kind แล้วล้าง/เติม line_audience อัตโนมัติ + บันทึกใน event plan diff · audience_segment ไม่ถูกแตะ ·
+--          ต้องไม่พัง: ส่ง line_audience เองพร้อมชนิดที่ไม่ใช่ line ยัง 22023 · kind ไม่เปลี่ยนไม่เติม all · ai ตั้ง kind ไม่ได้
+--  T1      E4b (ตั้งใจ): artifact เดิมคงชนิดเดิมหลังเปลี่ยน kind
+--  U1-U7   artifact ≤ 1 ต่อชิ้นใน workflow: INSERT ตัวที่ 2 ทุกสถานะ = 55000 (รวมภายใต้ role service_role จริง + GUC ตั้งเอง) · ต้องไม่พัง: ตัวแรกผ่าน · create/set_plan สร้างตัวแรกเอง ·
+--          step นอก workflow เสียบได้ตามเดิม (K4) · invariant เดียวกับด่านท้าย migration · L4d เปลี่ยนเป็น 55000 (เดิมคาดว่าเพิ่มเอกสารเข้า in_review ได้)
+--  X39c/d  เปลี่ยน: ผ่านด่านซ้ำหลังเนื้อหาเปลี่ยนต้องส่ง sources ใหม่ (เดิมผ่านโดยไม่ส่ง detail ได้ = ช่องที่ security Low ชี้)
 --  ⚠️ กับดักของเทสต์เอง: subselect ที่ไม่ผูกกับแถวนอกในนิพจน์เดียวกับ function ที่มี side effect ถูกประเมินก่อน (InitPlan) ⇒ "ทำแล้วตรวจ" ต้องแยกคำสั่ง
 --
 -- ถ้ามีร้านมากกว่า 1 ร้านใน public.shop ไฟล์นี้หยุด · ร้านที่ 2 สร้างเองในทรานแซกชัน
@@ -550,7 +561,8 @@ begin
     and (select count(*) from analytics.content_piece_event where step_id = v_s1 and event_kind = 'gate' and payload ->> 'reset' = 'true') = 1);
   v_log := v_log || pg_temp.vb('K6d', 'extract รันเอง: marker ใหม่ได้รายการค้าง 1 (สีอะไรดี)',
     (select count(*) from analytics.content_confirm_item where step_id = v_s1 and resolved_at is null and removed_at is null and question = 'สีอะไรดี') = 1);
-  perform analytics.content_gate_record(v_shop, v_s1, 'fact_check', 'passed', 'owner');
+  -- รอบ 2 (R): เนื้อหาเปลี่ยนแล้ว sources เดิมย้ายเป็น stale_sources ⇒ ผ่านซ้ำต้องส่งแหล่งอ้างอิงใหม่ (เดิมผ่านโดยไม่ส่ง detail ได้ = ช่องที่ security Low ชี้)
+  perform analytics.content_gate_record(v_shop, v_s1, 'fact_check', 'passed', 'owner', jsonb_build_object('sources', jsonb_build_array('https://example.com/x39')));
   perform analytics.content_gate_record(v_shop, v_s1, 'brand_rule', 'passed', 'owner');
   perform analytics.content_gate_record(v_shop, v_s1, 'risk_owner', 'passed', 'owner');
   -- จำลอง "extract ไม่เคยรัน" โดยถอดรายการออก → เหลือเฉพาะชั้น 2 (ข้อความจริง) ที่ต้องกัน
@@ -563,7 +575,8 @@ begin
   perform analytics.campaign_set_artifact_content(v_a1, null,
     jsonb_build_object('segments', jsonb_build_array(jsonb_build_object('role', 'hook')),
       'shots', jsonb_build_array(jsonb_build_object('id', 's1', 'desc', 'เปิดคำถาม'), jsonb_build_object('id', 's2', 'desc', 'โชว์ตรา'))));
-  perform analytics.content_gate_record(v_shop, v_s1, 'fact_check', 'passed', 'owner');
+  -- รอบ 2 (R): เนื้อหาเปลี่ยนแล้ว sources เดิมย้ายเป็น stale_sources ⇒ ผ่านซ้ำต้องส่งแหล่งอ้างอิงใหม่ (เดิมผ่านโดยไม่ส่ง detail ได้ = ช่องที่ security Low ชี้)
+  perform analytics.content_gate_record(v_shop, v_s1, 'fact_check', 'passed', 'owner', jsonb_build_object('sources', jsonb_build_array('https://example.com/x39')));
   perform analytics.content_gate_record(v_shop, v_s1, 'brand_rule', 'passed', 'owner');
   perform analytics.content_gate_record(v_shop, v_s1, 'risk_owner', 'passed', 'owner');
   v_log := v_log || pg_temp.vb('X39d', 'ลบ marker ออกจากข้อความ + ผ่านด่านครบ → can_approve = true ตรง approve_blockers ว่าง',
@@ -1555,10 +1568,12 @@ begin
     -- ต้องไม่พัง: เปลี่ยน content_type บนชิ้นที่ยังไม่อนุมัติ + เพิ่มเอกสารเข้าชิ้น in_review/planned ผ่าน
     v_h2 := pg_temp.mk_step(v_shop, 'ig_fb_post', 'facebook', false);
     v_h3 := pg_temp.mk_step(v_shop, 'ig_fb_post', 'facebook', false, 'planned');
-    v_log := v_log || pg_temp.vl('L4d', 'ต้องไม่พัง: content_type บนชิ้น in_review/planned ตั้งได้ · เพิ่มเอกสารเข้าชิ้น in_review ได้',
+    -- รอบ 2 (U): เดิมข้อนี้คาดว่า "เพิ่มเอกสารเข้าชิ้น in_review ได้" — เปลี่ยนตามมติ security Info (ชิ้นใน workflow มี artifact ได้ตัวเดียว
+    -- เพราะ v_content_piece แสดงตัวแรกตัวเดียว) ⇒ ตัวที่ 2 เข้าชิ้น in_review ต้อง 55000 · ฝั่ง "ต้องไม่พัง" ของ U อยู่ที่บล็อก U ด้านล่าง
+    v_log := v_log || pg_temp.vl('L4d', 'ต้องไม่พัง: content_type บนชิ้น in_review/planned ตั้งได้ · (รอบ 2 U) เพิ่มเอกสารตัวที่ 2 เข้าชิ้น in_review → 55000',
       pg_temp.vok(format('select analytics.campaign_step_set_content_type(%L::uuid,%L::uuid,''knowledge'')', v_shop, v_h2))
       || pg_temp.vok(format('select analytics.campaign_step_set_content_type(%L::uuid,%L::uuid,''knowledge'')', v_shop, v_h3))
-      || pg_temp.vok(format('insert into analytics.step_artifact (step_id, shop_id, artifact_type, owner_role, status) values (%L::uuid, %L::uuid, ''teaser_image'', ''owner'', ''todo'')', v_h2, v_shop)));
+      || pg_temp.vx(format('insert into analytics.step_artifact (step_id, shop_id, artifact_type, owner_role, status) values (%L::uuid, %L::uuid, ''teaser_image'', ''owner'', ''todo'')', v_h2, v_shop), array['55000'], 'ได้ 1 ตัว'));
     -- (mutant 5) ย้าย artifact ออก/เข้า step ใน workflow
     v_log := v_log || pg_temp.vl('L4e', 'ย้าย artifact ของชิ้นใน workflow ไปไว้ step นอก workflow → 55000 · ย้าย artifact ของ step นอก workflow เข้าชิ้นใน workflow → 55000',
       pg_temp.vx(format('update analytics.step_artifact set step_id = %L::uuid where id = (select id from analytics.step_artifact where step_id = %L::uuid order by created_at limit 1)', v_nulls, v_h2), array['55000'], 'ย้ายเอกสาร')
@@ -1607,6 +1622,191 @@ begin
       not (select can_approve from analytics.v_content_piece where step_id = v_h3), pg_temp.st(v_h3));
   exception when others then
     v_log := v_log || format(E'[FAIL] C/CA ABORT sqlstate=%s msg=%s\n', sqlstate, left(sqlerrm, 300));
+  end;
+  ----------------------------------------------------------------------------
+  -- รอบ 2 (7 ต.ค. 69 หลัง security GO / QA PASS with notes): R · S · T · U
+  ----------------------------------------------------------------------------
+  begin
+    declare
+      v_x   uuid;
+      v_x2  uuid;
+      v_x3  uuid;
+      v_xa  uuid;
+      v_xh  uuid;
+      v_d   jsonb;
+      v_st  text;
+      v_u1  text;
+      v_u2  text;
+      v_fid uuid;
+    begin
+      -- ---- R: ล้างผลตรวจ fact_check ย้าย sources → stale_sources ----
+      v_x := pg_temp.mk_step(v_shop, 'ig_fb_post', 'facebook', false);                       -- in_review
+      perform analytics.content_gate_record(v_shop, v_x, 'fact_check', 'passed', 'owner',
+        jsonb_build_object('sources', jsonb_build_array('https://example.com/old-a', 'https://example.com/old-b')));
+      perform analytics.content_gate_record(v_shop, v_x, 'brand_rule', 'passed', 'owner');
+      select a.id into v_xa from analytics.step_artifact a where a.step_id = v_x;
+      perform analytics.campaign_set_artifact_content(v_xa, 'ข้อความใหม่ R1', null);          -- เนื้อหาเปลี่ยน → invalidate_
+      select g.status, g.detail into v_st, v_d from analytics.step_gate g where g.step_id = v_x and g.gate_kind = 'fact_check';
+      v_log := v_log || pg_temp.vb('R1a', 'เนื้อหาเปลี่ยน → fact_check passed ตกเป็น pending · detail.sources หายไป · detail.stale_sources = ลิงก์เดิมครบ (ไม่ลบทิ้ง)',
+        v_st = 'pending' and not (v_d ? 'sources')
+        and v_d -> 'stale_sources' = '["https://example.com/old-a","https://example.com/old-b"]'::jsonb, coalesce(v_st, 'null') || ' ' || coalesce(v_d::text, 'null'));
+      v_log := v_log || pg_temp.vb('R1b', 'event gate ของการล้างมี payload.sources_staled = true · reset = true',
+        exists (select 1 from analytics.content_piece_event e where e.step_id = v_x and e.event_kind = 'gate'
+                  and e.payload ->> 'sources_staled' = 'true' and e.payload ->> 'reset' = 'true'));
+      v_log := v_log || pg_temp.vl('R1c', 'passed ซ้ำโดยไม่ส่ง detail (เจ้าของ · AI) → 22023 ไม่ถอยไปใช้ stale_sources · ส่ง detail ที่มีแต่ flagged → 22023 · sources [] → 22023',
+        pg_temp.vx(pg_temp.q_gate(v_shop, v_x, 'fact_check', 'passed', 'owner'), array['22023'], 'แหล่งอ้างอิง')
+        || pg_temp.vx(pg_temp.q_gate(v_shop, v_x, 'fact_check', 'passed', 'ai'), array['22023'], 'แหล่งอ้างอิง')
+        || pg_temp.vx(pg_temp.q_gate(v_shop, v_x, 'fact_check', 'passed', 'owner', jsonb_build_object('flagged', jsonb_build_array('ข้อความ'))), array['22023'], 'แหล่งอ้างอิง')
+        || pg_temp.vx(pg_temp.q_gate(v_shop, v_x, 'fact_check', 'passed', 'owner', jsonb_build_object('sources', '[]'::jsonb)), array['22023'], 'แหล่งอ้างอิง'));
+      v_log := v_log || pg_temp.vl('R1d', 'ส่ง stale_sources เข้ามาเป็น key ขาเข้า (ปลอมหลักฐานเก่า) → 22023 ไม่รับ key',
+        pg_temp.vx(pg_temp.q_gate(v_shop, v_x, 'fact_check', 'passed', 'owner', jsonb_build_object('stale_sources', jsonb_build_array('https://example.com/old-a'))), array['22023'], 'ไม่รับ key'));
+      v_log := v_log || pg_temp.vb('R1e', 'content_gate_record ไม่มีคำว่า stale_sources ใน body (ไม่มีทาง fallback ไปอ่านหลักฐานเก่า)',
+        (select pg_get_functiondef(p.oid) !~ 'stale_sources' from pg_proc p
+          where p.pronamespace = 'analytics'::regnamespace and p.proname = 'content_gate_record'));
+      v_log := v_log || pg_temp.vb('R1f', 'ปฏิเสธแล้วสถานะ fact_check ยัง pending (ไม่ขยับ)',
+        (select g.status from analytics.step_gate g where g.step_id = v_x and g.gate_kind = 'fact_check') = 'pending');
+      -- ต้องไม่พัง: หลักฐานใหม่ผ่านได้ · วงจรอนุมัติเต็มหลังเนื้อหาเปลี่ยนยังไปได้
+      v_r := pg_temp.vok(pg_temp.q_gate(v_shop, v_x, 'fact_check', 'passed', 'owner', jsonb_build_object('sources', jsonb_build_array('https://example.com/new-a'))));
+      perform pg_temp.approve_ready(v_shop, v_x);
+      v_r := v_r || pg_temp.vok(pg_temp.q_adv(v_shop, v_x, 'approved', 'owner', null, 30));
+      v_log := v_log || pg_temp.vl('R1g', 'ต้องไม่พัง: หลังเนื้อหาเปลี่ยน passed ด้วยแหล่งใหม่ผ่าน · detail.sources = ของใหม่ · อนุมัติผ่านครบวงจร',
+        v_r || case when pg_temp.st(v_x) = 'approved/active'
+                 and (select g.detail -> 'sources' from analytics.step_gate g where g.step_id = v_x and g.gate_kind = 'fact_check') = '["https://example.com/a"]'::jsonb
+                then 'OK' else 'FAIL ' || pg_temp.st(v_x) end);
+
+      -- แถว pending/blocked ที่มี sources ก็ต้องย้ายด้วย (ไม่งั้น passed โดยไม่ส่ง detail พก sources เก่าไปผ่าน M4 ได้)
+      v_x2 := pg_temp.mk_step(v_shop, 'ig_fb_post', 'facebook', false);
+      v_x3 := pg_temp.mk_step(v_shop, 'ig_fb_post', 'facebook', false);
+      perform analytics.content_gate_record(v_shop, v_x2, 'fact_check', 'pending', 'ai',
+        jsonb_build_object('sources', jsonb_build_array('https://example.com/p-old'), 'flagged', jsonb_build_array('ราคา')));
+      perform analytics.content_gate_record(v_shop, v_x3, 'fact_check', 'blocked', 'owner',
+        jsonb_build_object('sources', jsonb_build_array('https://example.com/b-old')));
+      select a.id into v_xa from analytics.step_artifact a where a.step_id = v_x2;
+      perform analytics.campaign_set_artifact_content(v_xa, 'ข้อความใหม่ R2', null);
+      select a.id into v_xa from analytics.step_artifact a where a.step_id = v_x3;
+      perform analytics.campaign_set_artifact_content(v_xa, 'ข้อความใหม่ R2b', null);
+      v_log := v_log || pg_temp.vb('R2a', 'fact_check ที่ pending (มี sources+flagged) → sources ย้ายเป็น stale_sources · flagged คงไว้ · สถานะยัง pending',
+        (select g.status = 'pending' and not (g.detail ? 'sources') and g.detail -> 'stale_sources' = '["https://example.com/p-old"]'::jsonb
+                and g.detail -> 'flagged' = '["ราคา"]'::jsonb
+           from analytics.step_gate g where g.step_id = v_x2 and g.gate_kind = 'fact_check'));
+      v_log := v_log || pg_temp.vb('R2b', 'fact_check ที่ blocked (มี sources) → sources ย้าย · สถานะยัง blocked (ไม่ถูกรีเซ็ตเป็น pending เพราะไม่ใช่ passed/na)',
+        (select g.status = 'blocked' and not (g.detail ? 'sources') and g.detail -> 'stale_sources' = '["https://example.com/b-old"]'::jsonb
+           from analytics.step_gate g where g.step_id = v_x3 and g.gate_kind = 'fact_check'));
+      v_log := v_log || pg_temp.vl('R2c', 'หลัง R2a/R2b กด passed โดยไม่ส่ง detail → 22023 (AI + เจ้าของ ทั้ง pending และ blocked)',
+        pg_temp.vx(pg_temp.q_gate(v_shop, v_x2, 'fact_check', 'passed', 'ai'), array['22023'], 'แหล่งอ้างอิง')
+        || pg_temp.vx(pg_temp.q_gate(v_shop, v_x2, 'fact_check', 'passed', 'owner'), array['22023'], 'แหล่งอ้างอิง')
+        || pg_temp.vx(pg_temp.q_gate(v_shop, v_x3, 'fact_check', 'passed', 'owner'), array['22023'], 'แหล่งอ้างอิง'));
+      -- ทาง hook (invalidate_ ตัวเดียวกัน): แก้ข้อความ hook → ย้าย sources
+      v_x2 := pg_temp.mk_step(v_shop, 'short_clip', 'tiktok', false);
+      perform analytics.content_gate_record(v_shop, v_x2, 'fact_check', 'passed', 'owner',
+        jsonb_build_object('sources', jsonb_build_array('https://example.com/h-old')));
+      select h.id into v_xh from analytics.content_hook h where h.step_id = v_x2 and h.label = 'A';
+      perform analytics.content_hook_upsert(v_shop, v_x2, 'A', 'hook ใหม่ R3 ที่ต่างจากเดิม', 'question', null, 'owner', v_xh);
+      v_log := v_log || pg_temp.vb('R3', 'แก้ text ของ hook (ทาง invalidate_ เดียวกัน) → fact_check pending + sources ย้ายเป็น stale_sources',
+        (select g.status = 'pending' and not (g.detail ? 'sources') and g.detail -> 'stale_sources' = '["https://example.com/h-old"]'::jsonb
+           from analytics.step_gate g where g.step_id = v_x2 and g.gate_kind = 'fact_check'));
+      -- ต้องไม่พัง: เปลี่ยน label/hook_type ล้วน (ถ้อยคำเดิม) ไม่ย้าย sources (ไม่ล้างผลตรวจ — ตัดสินใจ N)
+      perform analytics.content_gate_record(v_shop, v_x2, 'fact_check', 'passed', 'owner',
+        jsonb_build_object('sources', jsonb_build_array('https://example.com/h-new')));
+      perform analytics.content_hook_upsert(v_shop, v_x2, 'A', 'hook ใหม่ R3 ที่ต่างจากเดิม', 'warning', null, 'owner', v_xh);
+      v_log := v_log || pg_temp.vb('R3b', 'ต้องไม่พัง: เปลี่ยนเฉพาะ hook_type (ข้อความเดิม) → fact_check ยัง passed · sources ยังอยู่',
+        (select g.status = 'passed' and g.detail -> 'sources' = '["https://example.com/h-new"]'::jsonb and not (g.detail ? 'stale_sources')
+           from analytics.step_gate g where g.step_id = v_x2 and g.gate_kind = 'fact_check'));
+      -- ต้องไม่พัง: ด่าน brand_rule/risk_owner ไม่มี sources → รีเซ็ตเหมือนเดิม detail ไม่เพี้ยน (ไม่มี key stale_sources งอก)
+      select count(*) into v_n from analytics.step_gate g where g.step_id = v_x and g.gate_kind <> 'fact_check' and g.detail ? 'stale_sources';
+      v_log := v_log || pg_temp.vb('R4', 'stale_sources งอกเฉพาะ fact_check (brand_rule/risk_owner ไม่มี)', v_n = 0, v_n::text);
+
+      -- ---- S/T: set_plan เปลี่ยน piece_kind กับ line_audience ----
+      v_x := pg_temp.mk_step(v_shop, 'line_message', 'line_oa', false, 'planned');
+      v_log := v_log || pg_temp.vb('S0', 'ตั้งต้น: create line_message เติม line_audience = all อัตโนมัติ',
+        (select line_audience from analytics.campaign_step where id = v_x) = 'all');
+      v_log := v_log || pg_temp.vl('S1', 'owner เปลี่ยน line_message → story (+ channel instagram) โดยไม่ส่ง line_audience → สำเร็จ (เดิม 22023)',
+        pg_temp.vok(pg_temp.q_plan(v_shop, v_x, jsonb_build_object('piece_kind', 'story', 'channel', 'instagram'), 'owner')));
+      v_log := v_log || pg_temp.vb('S1b', 'line_audience ถูกล้างเป็น null อัตโนมัติ · event plan diff บันทึก line_audience all→null + piece_kind',
+        (select s.line_audience is null and s.line_audience_reason is null from analytics.campaign_step s where s.id = v_x)
+        and exists (select 1 from analytics.content_piece_event e where e.step_id = v_x and e.event_kind = 'plan'
+                      and e.payload -> 'changed' -> 'line_audience' = '{"from":"all","to":null}'::jsonb
+                      and e.payload -> 'changed' ? 'piece_kind'));
+      select a.artifact_type into v_txt from analytics.step_artifact a where a.step_id = v_x;
+      v_log := v_log || pg_temp.vb('T1', 'E4b (ตั้งใจ): เปลี่ยน kind เป็น story แล้ว artifact เดิมยังเป็น broadcast_script_line (set_plan ไม่แตะเอกสาร)',
+        v_txt = 'broadcast_script_line', coalesce(v_txt, 'null'));
+      v_r := pg_temp.vok(pg_temp.q_plan(v_shop, v_x, jsonb_build_object('piece_kind', 'line_message', 'channel', 'line_oa'), 'owner'));
+      v_log := v_log || pg_temp.vl('S2', 'เปลี่ยนกลับ story → line_message → เติม line_audience = all อัตโนมัติ',
+        v_r || case when (select line_audience from analytics.campaign_step where id = v_x) = 'all' then 'OK' else 'FAIL ไม่ได้ all' end);
+      -- segment: เหตุผล + audience_segment ถูกจัดการ · audience_segment (คอลัมน์ของบอร์ดเดิม) ต้องไม่ถูกล้าง
+      update analytics.campaign_step set audience_segment = 'champion' where id = v_x;
+      v_r := pg_temp.vok(pg_temp.q_plan(v_shop, v_x, jsonb_build_object('line_audience', 'segment', 'line_audience_reason', 'เชิญกลุ่มพิเศษ S3'), 'owner'));
+      v_r := v_r || pg_temp.vok(pg_temp.q_plan(v_shop, v_x, jsonb_build_object('piece_kind', 'ig_fb_post', 'channel', 'facebook'), 'owner'));
+      v_log := v_log || pg_temp.vl('S3', 'line_audience=segment + เหตุผล → เปลี่ยนเป็น ig_fb_post: ล้าง line_audience + เหตุผลอัตโนมัติ · audience_segment (บอร์ดเดิม) ไม่ถูกแตะ',
+        v_r || case when (select s.line_audience is null and s.line_audience_reason is null and s.audience_segment = 'champion'
+                            from analytics.campaign_step s where s.id = v_x) then 'OK' else 'FAIL' end);
+      -- ต้องไม่พัง
+      v_x2 := pg_temp.mk_step(v_shop, 'line_message', 'line_oa', false, 'planned');
+      v_log := v_log || pg_temp.vl('S4', 'ต้องไม่พัง: ส่ง line_audience เองพร้อมเปลี่ยนเป็นชนิดที่ไม่ใช่ line → ยัง 22023 (เจตนาขัดกันต้องถูกปฏิเสธ ไม่ถูกเงียบ) · line_audience:null มาด้วยก็ยังสำเร็จ',
+        pg_temp.vx(pg_temp.q_plan(v_shop, v_x2, jsonb_build_object('piece_kind', 'story', 'channel', 'instagram', 'line_audience', 'all'), 'owner'),
+                   array['22023'], 'line_audience ใช้ได้เฉพาะ')
+        || pg_temp.vok(pg_temp.q_plan(v_shop, v_x2, jsonb_build_object('piece_kind', 'story', 'channel', 'instagram', 'line_audience', null), 'owner')));
+      v_x3 := pg_temp.mk_step(v_shop, 'line_message', 'line_oa', false, 'planned');
+      perform analytics.content_piece_set_plan(v_shop, v_x3, jsonb_build_object('line_audience', null), 'owner');
+      perform analytics.content_piece_set_plan(v_shop, v_x3, jsonb_build_object('hypothesis', 'สมมติฐาน S5'), 'owner');
+      v_log := v_log || pg_temp.vb('S5', 'ต้องไม่พัง: kind ไม่เปลี่ยน (line_message) + line_audience ว่าง (ตั้งใจให้เจ้าของเลือก) → set_plan key อื่นไม่เติม all ให้',
+        (select line_audience from analytics.campaign_step where id = v_x3) is null);
+      v_log := v_log || pg_temp.vl('S6', 'ต้องไม่พัง: set_plan ชนิดเดิมซ้ำ (piece_kind เดิม) ไม่เปลี่ยนค่า line_audience · ai ยังตั้ง piece_kind ไม่ได้ (42501)',
+        pg_temp.vok(pg_temp.q_plan(v_shop, v_x2, jsonb_build_object('piece_kind', 'story'), 'owner'))
+        || pg_temp.vx(pg_temp.q_plan(v_shop, v_x2, jsonb_build_object('piece_kind', 'line_message'), 'ai'), array['42501'], null));
+
+      -- ---- U: ชิ้นใน workflow มี artifact ≤ 1 เสมอ ----
+      v_x  := analytics.content_piece_create(v_shop, 'verify U idea', 'ig_fb_post', 'facebook', 'jewelry_925', 'owner');           -- idea
+      v_x2 := pg_temp.mk_step(v_shop, 'ig_fb_post', 'facebook', false, 'planned');                                                   -- planned
+      v_x3 := pg_temp.mk_step(v_shop, 'ig_fb_post', 'facebook', false, 'planned');
+      perform analytics.content_piece_advance(v_shop, v_x3, 'drafting', 'owner');                                                     -- drafting
+      v_fid := pg_temp.mk_step(v_shop, 'ig_fb_post', 'facebook', false);                                                              -- in_review
+      v_xh := pg_temp.mk_step(v_shop, 'ig_fb_post', 'facebook', false);
+      perform analytics.content_piece_advance(v_shop, v_xh, 'cancelled', 'owner', 'ยกเลิก U');                                       -- cancelled
+      v_u1 := format('insert into analytics.step_artifact (step_id, shop_id, artifact_type, owner_role, status) values (%%L::uuid, %L::uuid, ''teaser_image'', ''owner'', ''todo'')', v_shop);
+      v_log := v_log || pg_temp.vl('U1', 'INSERT artifact ตัวที่ 2 เข้าชิ้น idea / planned / drafting / in_review / cancelled → 55000 ทุกสถานะ',
+        pg_temp.vx(format(v_u1, v_x), array['55000'], 'ได้ 1 ตัว') || pg_temp.vx(format(v_u1, v_x2), array['55000'], 'ได้ 1 ตัว')
+        || pg_temp.vx(format(v_u1, v_x3), array['55000'], 'ได้ 1 ตัว') || pg_temp.vx(format(v_u1, v_fid), array['55000'], 'ได้ 1 ตัว')
+        || pg_temp.vx(format(v_u1, v_xh), array['55000'], 'ได้ 1 ตัว'));
+      -- ภายใต้ role service_role จริง (trigger เป็น invoker + `for update` ที่ล็อก step ต้องมีสิทธิ์ UPDATE) · ตั้ง GUC เองก็ไม่ช่วย
+      perform set_config('c2.piece_rpc', '1', true);
+      execute 'set local role service_role';
+      v_r := pg_temp.vx(format(v_u1, v_fid), array['55000'], 'ได้ 1 ตัว');
+      execute 'reset role';
+      perform set_config('c2.piece_rpc', '', true);
+      v_log := v_log || pg_temp.vl('U2', 'role service_role (ตั้ง GUC เองด้วย) INSERT artifact ตัวที่ 2 เข้าชิ้น in_review → 55000 (สิทธิ์ล็อก step ใช้ได้จริง)', v_r);
+      v_log := v_log || pg_temp.vb('U3', 'ปฏิเสธแล้วไม่มีเอกสารงอก — ทุกชิ้นข้างบนยัง artifact เดียว',
+        (select count(*) from analytics.step_artifact where step_id in (v_x, v_x2, v_x3, v_fid, v_xh)) = 5);
+      -- ต้องไม่พัง: ตัวแรกของชิ้นที่ยังไม่มีเอกสาร (create ไม่ส่ง kind) เสียบได้ · ตัวที่สองไม่ได้ · set_plan ตั้ง kind แล้วสร้างตัวแรกเอง
+      v_x := analytics.content_piece_create(v_shop, 'verify U no-kind', null, null, 'jewelry_925', 'owner');
+      v_u2 := pg_temp.vok(format(v_u1, v_x))
+           || pg_temp.vx(format(v_u1, v_x), array['55000'], 'ได้ 1 ตัว');
+      v_log := v_log || pg_temp.vl('U4', 'ต้องไม่พัง: ชิ้นที่ยังไม่มีเอกสาร — INSERT ตัวแรกผ่าน · ตัวที่ 2 → 55000', v_u2);
+      v_x := analytics.content_piece_create(v_shop, 'verify U no-kind2', null, null, 'jewelry_925', 'owner');
+      perform analytics.content_piece_set_plan(v_shop, v_x, jsonb_build_object('piece_kind', 'ig_fb_post', 'channel', 'facebook'), 'owner');
+      v_x3 := analytics.content_piece_create(v_shop, 'verify U kind', 'short_clip', 'tiktok', 'jewelry_925', 'owner');
+      v_log := v_log || pg_temp.vb('U5', 'ต้องไม่พัง: set_plan ตั้ง piece_kind ครั้งแรกสร้างเอกสารตัวแรก (1 ตัว) · create พร้อม kind ได้ 1 ตัว',
+        (select count(*) from analytics.step_artifact where step_id = v_x) = 1
+        and (select count(*) from analytics.step_artifact where step_id = v_x3) = 1);
+      -- ต้องไม่พัง: step นอก workflow (piece_status null) เสียบเอกสารเพิ่มได้ตามเดิม (K4) — ใช้ step จริงที่ยังไม่มีเอกสาร
+      select s.id into v_x from analytics.campaign_step s
+       where s.piece_status is null and not exists (select 1 from analytics.step_artifact a where a.step_id = s.id) limit 1;
+      if v_x is null then
+        v_log := v_log || E'[SKIP] U6 ไม่มี step นอก workflow ที่ไม่มีเอกสารให้ใช้ทดสอบ\n';
+      else
+        v_log := v_log || pg_temp.vl('U6', 'ต้องไม่พัง: step นอก workflow (piece_status null — step จริงที่ยังไม่มีเอกสาร) INSERT artifact ได้ 2 ตัวตามเดิม (K4)',
+          pg_temp.vok(format(v_u1, v_x)) || pg_temp.vok(format(v_u1, v_x)));
+      end if;
+      select count(*) into v_n from (
+        select s.id from analytics.campaign_step s join analytics.step_artifact a on a.step_id = s.id
+         where s.piece_status is not null group by s.id having count(*) > 1) x;
+      v_log := v_log || pg_temp.vb('U7', 'invariant (ชุดเดียวกับด่านท้าย migration): ไม่มีชิ้นใน workflow ที่มี artifact > 1 ตัว หลังทุกเคสข้างบน', v_n = 0, v_n::text);
+      v_log := v_log || E'[SKIP] U8 INSERT 2 คำสั่งพร้อมกันคนละ connection (พิสูจน์การล็อก step) — do-block เดียวจำลองไม่ได้ (ทรานแซกชันเดียว) · ตรรกะ: ล็อก for update แล้วตรวจ exists ด้วย snapshot ใหม่ของคำสั่ง (READ COMMITTED)\n';
+    end;
+  exception when others then
+    execute 'reset role';
+    perform set_config('c2.piece_rpc', '', true);
+    v_log := v_log || format(E'[FAIL] R/S/U ABORT sqlstate=%s msg=%s\n', sqlstate, left(sqlerrm, 300));
   end;
   exception when others then
     v_log := v_log || format(E'[FAIL] SEC ABORT (บล็อกนอก) sqlstate=%s msg=%s\n', sqlstate, left(sqlerrm, 300));
