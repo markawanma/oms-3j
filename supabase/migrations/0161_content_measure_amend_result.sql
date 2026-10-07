@@ -14,6 +14,7 @@
 -- 🔴 มติเจ้าของ 7 ต.ค. 69 ที่ทับสเปกเดิม:
 --   Q9  ยอดจาก source='tiktok_api' ทับค่าที่แก้มือได้ ⇒ ไม่มีกลไก "คืนค่าที่คนล็อก" · แต่ต้องเก็บประวัติการทับ: trigger เขียนแถว amend_log
 --       (change_kind='api_override' · actor_role='system' · before → after) และถอดคอลัมน์ที่ถูกทับออกจาก amended_cols (ค่านั้นไม่ใช่ค่าที่คนยืนยันแล้ว)
+--       ⚠️ รอบแก้ M2: กติกาเดียวกันใช้กับทุกแหล่งที่ไม่ใช่ amend (change_kind='overwrite') — ดูหัวข้อ "แก้ตาม security" ด้านล่าง
 --   Q11 ไม่ผูกโฮสต์กับผลของโพสต์ ⇒ v_content_post_result / v_content_hook_type_rollup ไม่มี host_* และไม่ join live_session_log
 --   (Q10/Q12 เป็นของ 0162)
 --
@@ -21,7 +22,7 @@
 --   A  แทนที่ content_piece_enum_ok_ (helper ของ 0159 · signature เดิม · ไม่มี overload) เพียงตัวเดียว: เพิ่ม 'orders' ใน metric_code — ถ้าไม่ทำ CHECK
 --      รับ 'orders' แต่ content_piece_set_plan ปฏิเสธ 22023 ⇒ metric ใหม่ตั้งไม่ได้จริง · ฟังก์ชันนี้ไม่ถูก pin md5 ใน verify-0159/0160 (ตรวจแล้ว)
 --      และไม่มีฟังก์ชันอื่นของ 0148/0158/0159/0160 ถูกแตะ — ด่านท้ายไฟล์ยก content_piece_enum_ok_ ออกจาก snapshot แล้วเทียบที่เหลือทุกตัว
---   B  amend_log.change_kind ('amend' | 'api_override') — แยก "เจ้าของแก้" ออกจาก "API ทับ" ให้อ่านประวัติได้โดยไม่เดาจาก actor_role
+--   B  amend_log.change_kind ('amend' | 'api_override' | 'overwrite') — แยก "เจ้าของแก้" ออกจาก "API ทับ" และ "แหล่งอื่นทับ" ให้อ่านประวัติได้โดยไม่เดาจาก actor_role
 --   C  guard ตาราง content_post / content_post_metric ดักเพิ่ม INSERT ตรงจาก service_role/authenticated/anon ที่ตั้ง result_* / amended_cols —
 --      ไม่งั้นปลอมการยืนยันของเจ้าของหรือธง "แก้มือ" ได้ด้วย INSERT (สเปกกัน UPDATE อย่างเดียว) · DELETE ตรงถูกกัน ยกเว้นตอน cascade จากการลบโพสต์
 --   D  บทเรียนต่อโพสต์ (p_lesson) ≤ 300 ตัวอักษร (สเปก 500) — content_signal.summary จำกัด 1-300 · ถ้ารับ 500 แล้วส่งต่อสัญญาณจะล้มทีหลัง · คอลัมน์ result_lesson
@@ -31,6 +32,20 @@
 --   F  metric ออเดอร์: view v_content_order_daily อย่างเดียว (ไม่มี RPC) — นับ distinct ออเดอร์ต่อ (shop · order_date · channel · affinity) · affinity 'all' คือนับทุกออเดอร์
 --      'bar' / 'jewelry' = ออเดอร์ที่มีสินค้าฝั่งนั้นอย่างน้อย 1 รายการ (ตะกร้าผสมนับทั้งสองแถว ⇒ bar+jewelry อาจ > all) · ผ่าน v_product_affinity จุดเดียว (ไม่ hardcode category)
 --   G  1e3 ใน p_set ของ amend ถูก jsonb แปลงเป็น 1000 ตั้งแต่รับพารามิเตอร์ (แยกไม่ออกจาก 1000) ⇒ รับเป็น 1000 · 12.5 / 1.0 / -1 / "12" / true ถูกปฏิเสธ
+--
+-- 🔴 แก้ตาม security (CONDITIONAL GO) + QA รอบ 7 ต.ค. 69 — เหตุผลอยู่ที่จุดนั้น:
+--   H1 (HIGH-1) service_role ลบประวัติแก้ยอดได้ด้วยการลบโพสต์แม่ (cascade ปล่อยแถว log) ⇒ revoke delete/truncate บน content_post + content_post_metric จาก service_role
+--      (แอปไม่มีโค้ดลบตรง — ลบแบบนุ่มใช้ content_post_set_status · postgres/เจ้าของตารางยังลบ cascade ได้) · ตารางแม่ (public.shop · analytics.campaign · analytics.campaign_step) ถอนสิทธิ์ delete/truncate จาก service_role ด้วย (cascade ไม่เปิดช่องอ้อม — Tech Lead ตรวจแล้วว่าแอปลบผ่าน RPC definer เท่านั้น)
+--   M1 (MEDIUM-1) ชื่อแหล่ง 'tiktok_api' ใครเรียก content_post_metric_upsert ก็อ้างได้ (ยังไม่พิสูจน์ตัวตน) ⇒ ข้อความ log บอกตรงๆ ว่า "ผู้เรียกระบุ" · ปิดจริงเมื่อมีตัวพิสูจน์ตัวตน API (หนี้ D23)
+--   M2 (MEDIUM-2) ทางที่ไม่ใช่ amend (คิวกรอกยอด manual · backfill · tiktok_api) เปลี่ยนค่าคอลัมน์ที่มีธง amended_cols = เขียน log (api_override สำหรับ tiktok_api · overwrite สำหรับที่เหลือ)
+--      + ถอดธง · ไม่บล็อกการกรอก · แยก "ทางของ amend" ด้วย GUC ระดับทรานแซกชัน c4.amend_metric (amend ตั้งก่อน UPDATE แล้วล้างทันที) — ใช้แค่ "แยกที่มาของ log" ไม่ใช่ด่านความปลอดภัย
+--      (D18 ยังจริง: ด่านบล็อก service_role ใช้ current_user อย่างเดียว · GUC ปลอมไม่ช่วยให้ service_role ผ่านด่านนั้น) · เลือก GUC แทน captured_at เพราะ captured_at ในทรานแซกชันเดียวกับการสร้างแถวไม่เปลี่ยน (now() คงที่) ⇒ แยกไม่ได้และทดสอบไม่ได้
+--   M3 (MEDIUM-3) content_piece_event / content_confirm_item (0159) service_role เขียนตรงได้ = ปลอมประวัติ/คำตอบ ⇒ revoke insert/update/delete/truncate เหลือ SELECT (RPC ของ 0159/0160 เป็น definer — พิสูจน์ด้วย verify-0159/0160 ใต้ role service_role)
+--   L1 content_post_metric_amend รับ p_expected jsonb (ไม่บังคับ) — เทียบค่าปัจจุบันก่อนแก้ (55000 ถ้าเปลี่ยนไปแล้ว) · signature เปลี่ยน ⇒ drop เดิมก่อน create (trap #1)
+--   L2 key ที่ส่งค่าเท่าเดิมมา ไม่เข้า amended_cols (สม่ำเสมอกับ changed_cols ของ log — ธงตามเฉพาะค่าที่เปลี่ยนจริง)
+--   L3 content_post_verdict_confirm บังคับ p_expected_computed ไม่เป็น null (22023) · ป้ายที่ระบบยังไม่มี (computed_label null) ส่งเป็น 'none' — ไม่งั้นเจ้าของยืนยันโพสต์ฐาน<4 ไม่ได้เลย
+--   Q1 amend_log DELETE ปล่อยเมื่อร้านหายไปแล้ว (cascade จาก public.shop) — QA เจอว่าลบร้านที่มี log ไม่ได้
+--   ⚠️ ไม่มีเทสต์ครอบ: ถอด `for update` ของ amend / verdict (ต้องใช้ 2 connection พร้อมกัน — do-block เดียวจำลองไม่ได้)
 --
 -- Grant model (3j-migration-traps #18): ทุก object ใหม่ grant ให้ service_role อย่างเดียว · revoke ครบสามชื่อ (public/anon/authenticated)
 -- ⚠️ ห้ามมี `to authenticated` ในไฟล์นี้ (สคีมา analytics ปิด REST ของ anon/authenticated ทั้งสคีมา — 0123)
@@ -116,9 +131,9 @@ alter table analytics.content_post_metric add constraint content_post_metric_ame
   check (amended_cols <@ array['view_count', 'like_count', 'comment_count', 'save_count', 'share_count']::text[]);
 
 comment on column analytics.content_post_metric.amended_cols is
-  'คอลัมน์ที่เจ้าของยืนยันค่าด้วย content_post_metric_amend (ที่มาของค่า — ไม่ใช่ตัวล็อก) · แหล่ง tiktok_api ทับได้ (มติ Q9 7 ต.ค. 69) แต่ trigger '
-  'content_post_metric_guard บันทึกการทับลง content_post_metric_amend_log (change_kind=api_override) แล้วถอดคอลัมน์ที่ถูกทับออกจากรายการนี้ · '
-  'ล้างค่า (json null) ไม่ใส่ธง เพราะ null ไม่ใช่คำยืนยัน';
+  'คอลัมน์ที่เจ้าของยืนยันค่าด้วย content_post_metric_amend (ที่มาของค่า — ไม่ใช่ตัวล็อก) · ทางที่ไม่ใช่ amend (tiktok_api มติ Q9 7 ต.ค. 69 · manual · backfill) ทับได้ แต่ trigger '
+  'content_post_metric_guard บันทึกการทับลง content_post_metric_amend_log (api_override สำหรับ tiktok_api · overwrite สำหรับแหล่งอื่น) แล้วถอดคอลัมน์ที่ถูกทับออกจากรายการนี้ · '
+  'ล้างค่า (json null) หรือส่งค่าเท่าเดิม ไม่ใส่ธง เพราะ null ไม่ใช่คำยืนยัน และค่าเท่าเดิมไม่ใช่การแก้';
 
 -- ประวัติแก้ยอด (append-only) — before/after เก็บ 5 คอลัมน์เต็ม อ่านประวัติได้โดยไม่ต้องไล่ย้อน
 create table if not exists analytics.content_post_metric_amend_log (
@@ -141,21 +156,23 @@ create table if not exists analytics.content_post_metric_amend_log (
     check (cardinality(changed_cols) >= 1
        and changed_cols <@ array['view_count', 'like_count', 'comment_count', 'save_count', 'share_count']::text[]),
   constraint content_post_metric_amend_log_reason_check check (length(reason) between 3 and 500),
-  constraint content_post_metric_amend_log_kind_check check (change_kind in ('amend', 'api_override')),
+  constraint content_post_metric_amend_log_kind_check check (change_kind in ('amend', 'api_override', 'overwrite')),
   constraint content_post_metric_amend_log_actor_check check (actor_role in ('owner', 'system')),
   constraint content_post_metric_amend_log_kind_actor_check
-    check ((change_kind = 'amend' and actor_role = 'owner') or (change_kind = 'api_override' and actor_role = 'system'))
+    check ((change_kind = 'amend' and actor_role = 'owner') or (change_kind in ('api_override', 'overwrite') and actor_role = 'system'))
 );
 
 create index if not exists idx_content_post_metric_amend_log_post on analytics.content_post_metric_amend_log (post_id, created_at desc);
 create index if not exists idx_content_post_metric_amend_log_metric on analytics.content_post_metric_amend_log (metric_id);
 
 comment on table analytics.content_post_metric_amend_log is
-  'ประวัติแก้ยอดย้อนหลัง (append-only) — change_kind=amend: เจ้าของแก้ผ่าน content_post_metric_amend · api_override: ยอดจาก tiktok_api ทับค่าที่เจ้าของแก้มือ '
-  '(trigger เขียน · actor_role=system) · before/after = 5 คอลัมน์เต็ม · เขียนผ่าน RPC/trigger เท่านั้น (ไม่มี grant เขียนให้ role ใด)';
+  'ประวัติแก้ยอดย้อนหลัง (append-only) — change_kind=amend: เจ้าของแก้ผ่าน content_post_metric_amend · api_override: แหล่งที่ผู้เรียกระบุว่า tiktok_api (ยังไม่พิสูจน์ตัวตน) ทับค่าที่เจ้าของแก้มือ · '
+  'overwrite: แหล่งอื่น (manual/backfill/ฯลฯ ที่ไม่ใช่ amend) ทับค่าที่เจ้าของแก้มือ (trigger เขียน · actor_role=system) · '
+  'before/after = 5 คอลัมน์เต็ม · เขียนผ่าน RPC/trigger เท่านั้น (ไม่มี grant เขียนให้ role ใด)';
 
 -- append-only: ห้าม UPDATE/DELETE/TRUNCATE (42501) · ยกเว้น DELETE ตอน cascade (แถว metric หรือโพสต์แม่หายไปแล้ว) — แบบ content_piece_event ของ 0159
--- เช็คทั้งสองแม่ เพราะลำดับ cascade ของ FK สองเส้นไม่การันตี (ถ้าเช็คแค่ metric แล้ว FK post_id ยิงก่อน การลบโพสต์จะถูกขวางด้วย 42501 งงๆ)
+-- เช็คทั้งสามแม่ (metric · โพสต์ · ร้าน) เพราะลำดับ cascade ของ FK ไม่การันตี (ถ้าเช็คแค่ metric แล้ว FK post_id/shop_id ยิงก่อน การลบโพสต์/ร้านจะถูกขวางด้วย 42501 งงๆ)
+-- ร้าน (Q1): QA เจอว่าลบร้านที่มี log ไม่ได้ — ต้องปล่อยเมื่อร้านหายไปแล้ว · ไม่เปิดช่องลบ log ของร้านที่ยังอยู่ (ยังเป็น 42501)
 create or replace function analytics.content_post_metric_amend_log_append_only()
  returns trigger
  language plpgsql
@@ -164,7 +181,8 @@ as $f$
 begin
   if tg_op = 'DELETE' and tg_level = 'ROW' then
     if not exists (select 1 from analytics.content_post_metric m where m.id = old.metric_id)
-       or not exists (select 1 from analytics.content_post p where p.id = old.post_id) then
+       or not exists (select 1 from analytics.content_post p where p.id = old.post_id)
+       or not exists (select 1 from public.shop s where s.id = old.shop_id) then
       return old;
     end if;
   end if;
@@ -286,7 +304,8 @@ declare
   v_c      text;
 begin
   if tg_op = 'DELETE' then
-    -- ลบตรงโดย 3 role ไม่ผ่าน (ค่าผิดให้แก้ ไม่ใช่ลบ) · cascade จากการลบโพสต์ไม่โดน เพราะ RI trigger รันด้วยสิทธิ์เจ้าของตาราง (current_user = postgres) — พิสูจน์ใน verify Y10g (mutant ถอดเงื่อนไขนี้ก็ยังผ่าน)
+    -- ลบตรงโดย 3 role ไม่ผ่าน (ค่าผิดให้แก้ ไม่ใช่ลบ) · H1: ชั้นแรกคือ revoke delete จาก service_role (42501 ที่ระดับสิทธิ์) — ด่านนี้เป็นชั้นที่สอง (ถ้ามีคน grant กลับ)
+    -- cascade จากการลบโพสต์ (โดยเจ้าของตาราง) ไม่โดน เพราะ RI trigger รันด้วยสิทธิ์เจ้าของตาราง (current_user = postgres)
     if v_direct then
       raise exception 'ลบยอดไม่ได้ — ค่าผิดให้แก้ผ่าน content_post_metric_amend' using errcode = '55000';
     end if;
@@ -317,9 +336,12 @@ begin
     raise exception 'แก้ยอดต้องผ่าน content_post_metric_amend' using errcode = '55000';
   end if;
 
-  -- Q9: ยอดจาก tiktok_api ทับค่าที่เจ้าของแก้มือได้ — แต่ห้ามเงียบ: บันทึก before → after + ถอดธงของคอลัมน์ที่ถูกทับ
+  -- Q9 + M2: ทางที่ไม่ใช่ amend (tiktok_api · manual จากคิวกรอกยอด · backfill · SQL ของ Tech Lead) ทับค่าที่เจ้าของแก้มือได้ — แต่ห้ามเงียบ:
+  -- บันทึก before → after + ถอดธงของคอลัมน์ที่ถูกทับ · ไม่บล็อกการกรอก
   -- (เทียบเฉพาะคอลัมน์ใน old.amended_cols · ค่าเท่าเดิม = ไม่ทับ = ไม่ log · is distinct from → null-safe)
-  if new.source = 'tiktok_api' and cardinality(old.amended_cols) > 0 then
+  -- ทางของ amend แยกด้วย GUC c4.amend_metric = id แถวที่ amend กำลังเขียน (ตั้งแล้วล้างภายใน RPC เดียว) — amend คือการยืนยันค่าโดยเจ้าของ ไม่ใช่การทับ
+  if cardinality(old.amended_cols) > 0
+     and coalesce(current_setting('c4.amend_metric', true), '') is distinct from old.id::text then
     foreach v_c in array old.amended_cols loop
       if (case v_c
            when 'view_count' then new.view_count is distinct from old.view_count
@@ -344,7 +366,11 @@ begin
         jsonb_build_object('view_count', new.view_count, 'like_count', new.like_count, 'comment_count', new.comment_count,
                            'save_count', new.save_count, 'share_count', new.share_count),
         array(select c from unnest(v_over) as c order by c),
-        'ยอดจาก TikTok API ทับค่าที่เจ้าของแก้มือ (มติเจ้าของ 7 ต.ค. 69)', 'api_override', 'system', auth.uid());
+        -- M1: ชื่อแหล่งมาจากผู้เรียก (ใครเรียก content_post_metric_upsert ก็อ้าง 'tiktok_api' ได้) — log บอกตรงๆ ว่ายังไม่พิสูจน์ตัวตน
+        case when new.source = 'tiktok_api'
+             then 'แหล่งที่ผู้เรียกระบุว่า tiktok_api (ยังไม่พิสูจน์ตัวตน) ทับค่าที่เจ้าของแก้มือ (มติเจ้าของ 7 ต.ค. 69)'
+             else 'แหล่ง ' || new.source || ' (ไม่ใช่การแก้ผ่าน content_post_metric_amend) ทับค่าที่เจ้าของแก้มือ' end,
+        case when new.source = 'tiktok_api' then 'api_override' else 'overwrite' end, 'system', auth.uid());
     end if;
   end if;
 
@@ -391,13 +417,17 @@ create trigger trg_content_post_result_guard
 --    ไม่ทำ: เปลี่ยน captured_on · ลบแถว · แก้ age_days · ย้อนกรอกวันที่พลาด (C3-7: ตัวเลขใน Studio วันนี้ ≠ เมื่อ 3 วันก่อน = แต่ง snapshot)
 -- ============================================================================
 
+-- L1: เพิ่ม p_expected ⇒ signature เปลี่ยน — drop ตัวเดิม (6 arg) ก่อน create (trap #1) · grant ถูกตั้งใหม่ที่ §7 ตามชื่อฟังก์ชัน (trap #2)
+drop function if exists analytics.content_post_metric_amend(uuid, uuid, date, jsonb, text, text);
+
 create or replace function analytics.content_post_metric_amend(
   p_shop_id     uuid,
   p_post_id     uuid,
   p_captured_on date,
   p_set         jsonb,
   p_reason      text,
-  p_actor_role  text
+  p_actor_role  text,
+  p_expected    jsonb default null   -- L1: ค่าปัจจุบันที่ผู้แก้เห็นบนจอ (object ของ 5 key · number/json null) — ไม่ตรง = 55000 (กันทับค่าใหม่กว่าโดยไม่รู้ตัว)
 ) returns jsonb
  language plpgsql
  security definer
@@ -418,6 +448,7 @@ declare
   v_bad           text;
   v_cleared       text[] := '{}';
   v_set_nums      text[] := '{}';
+  v_set_changed   text[] := '{}';
   v_before        jsonb;
   v_after         jsonb;
   v_changed       jsonb := '{}'::jsonb;
@@ -464,6 +495,31 @@ begin
     end if;
   end loop;
 
+  -- L1: p_expected (ไม่บังคับ) — รูปเดียวกับ p_set · ต้องครอบทุก key ที่จะแก้ (กัน {} หรือ key ไม่ครบ หลบการเทียบ) · เทียบค่าจริงหลังล็อกแถวด้านล่าง
+  if p_expected is not null then
+    if jsonb_typeof(p_expected) is distinct from 'object' then
+      raise exception 'content_post_metric_amend: p_expected ต้องเป็น object ของค่าปัจจุบัน (หรือ null = ไม่เทียบ)' using errcode = '22023';
+    end if;
+    select string_agg(k.key, ', ' order by k.key) into v_bad
+      from jsonb_object_keys(p_expected) as k(key)
+     where not (k.key = any (c_cols));
+    if v_bad is not null then
+      raise exception 'content_post_metric_amend: p_expected มี key ไม่รู้จัก: %', v_bad using errcode = '22023';
+    end if;
+    for v_k, v_v in select e.key, e.value from jsonb_each(p_expected) as e loop
+      v_t := jsonb_typeof(v_v);
+      if not (v_t = 'null' or (v_t = 'number' and (v_v #>> '{}') ~ '^[0-9]{1,13}$')) then
+        raise exception 'content_post_metric_amend: p_expected.% ต้องเป็นจำนวนเต็มไม่ติดลบ หรือ null', v_k using errcode = '22023';
+      end if;
+    end loop;
+    select string_agg(k.key, ', ' order by k.key) into v_bad
+      from jsonb_object_keys(p_set) as k(key)
+     where not (p_expected ? k.key);
+    if v_bad is not null then
+      raise exception 'content_post_metric_amend: p_expected ต้องมีค่าปัจจุบันของทุก key ใน p_set (ขาด: %)', v_bad using errcode = '22023';
+    end if;
+  end if;
+
   v_reason := analytics.content_text_clean(p_reason);
   if v_reason is null or length(v_reason) < 3 or length(v_reason) > 500 then
     raise exception 'content_post_metric_amend: ต้องระบุเหตุผล 3-500 ตัวอักษร' using errcode = '22023';
@@ -500,6 +556,15 @@ begin
   -- ค่าหลังแก้ = ค่าเดิม ทับด้วย p_set (jsonb || ทับ key ซ้ำ · json null คงเป็น json null ⇒ ->> ได้ SQL NULL ตอนอ่านกลับ)
   v_before := jsonb_build_object('view_count', v_m.view_count, 'like_count', v_m.like_count, 'comment_count', v_m.comment_count,
                                  'save_count', v_m.save_count, 'share_count', v_m.share_count);
+  -- L1: เทียบค่าที่ผู้แก้เห็น กับค่าจริงตอนนี้ (แถวถูกล็อกแล้ว) — jsonb เทียบ number ตามค่า (1000 = 1000.0) · json null เทียบกับ SQL NULL ที่ build เป็น json null แล้ว
+  if p_expected is not null then
+    select string_agg(e.key, ', ' order by e.key) into v_bad
+      from jsonb_each(p_expected) as e
+     where (v_before -> e.key) is distinct from e.value;
+    if v_bad is not null then
+      raise exception 'content_post_metric_amend: ค่าเปลี่ยนไปแล้ว (%) — รีเฟรชก่อนแก้', v_bad using errcode = '55000';
+    end if;
+  end if;
   v_after := v_before || p_set;
   if num_nonnulls((v_after->>'view_count')::bigint, (v_after->>'like_count')::bigint, (v_after->>'comment_count')::bigint,
                   (v_after->>'save_count')::bigint, (v_after->>'share_count')::bigint) = 0 then
@@ -518,11 +583,15 @@ begin
   v_reg := analytics.content_post_metric_regression_(p_post_id, p_captured_on,
              (v_after->>'view_count')::bigint, (v_after->>'like_count')::bigint, (v_after->>'comment_count')::bigint,
              (v_after->>'save_count')::bigint, (v_after->>'share_count')::bigint);
-  -- amended_cols = (เดิม ∪ key ที่ตั้งเป็น number) − key ที่ล้าง
+  -- amended_cols = (เดิม ∪ key ที่ตั้งเป็น number "และค่าเปลี่ยนจริง") − key ที่ล้าง · L2: key ที่ส่งค่าเท่าเดิมไม่ใช่การแก้ ⇒ ไม่ใส่ธง (ตรงกับ changed_cols ของ log)
+  select coalesce(array_agg(c order by c), '{}'::text[]) into v_set_changed
+    from unnest(v_set_nums) as c where c = any (v_changed_cols);
   v_amended := coalesce((select array_agg(u.c order by u.c)
-                           from (select unnest(v_m.amended_cols) as c union select unnest(v_set_nums) as c) as u
+                           from (select unnest(v_m.amended_cols) as c union select unnest(v_set_changed) as c) as u
                           where not (u.c = any (v_cleared))), '{}'::text[]);
 
+  -- M2: บอก guard ว่าแถวนี้กำลังถูก amend (เจ้าของยืนยันค่า) ไม่ใช่ถูกทับ · ล้างทันทีหลัง UPDATE (ทรานแซกชันเดียวกันที่เรียกทางอื่นต่อไม่ติดสถานะนี้)
+  perform set_config('c4.amend_metric', v_m.id::text, true);
   update analytics.content_post_metric
      set view_count    = (v_after->>'view_count')::bigint,
          like_count    = (v_after->>'like_count')::bigint,
@@ -534,6 +603,7 @@ begin
          amended_cols  = v_amended,
          is_regression = v_reg
    where id = v_m.id;
+  perform set_config('c4.amend_metric', '', true);
 
   -- คิด is_regression ใหม่ให้แถววันหลังของโพสต์นี้ (ค่าฐานเปลี่ยนแล้ว) · UPDATE เฉพาะแถวที่ธงเปลี่ยนจริง (trap #19)
   for r in select m.id, m.captured_on, m.view_count, m.like_count, m.comment_count, m.save_count, m.share_count, m.is_regression
@@ -559,9 +629,9 @@ begin
 end;
 $f$;
 
-comment on function analytics.content_post_metric_amend(uuid, uuid, date, jsonb, text, text) is
+comment on function analytics.content_post_metric_amend(uuid, uuid, date, jsonb, text, text, jsonb) is
   'แก้ยอดย้อนหลังของแถวที่มีอยู่ (owner เท่านั้น · เหตุผล 3-500 · ไม่เกิน 30 วันไทย · ไม่ย้อนกรอกวันที่ไม่มีแถว) · p_set = object ของ view_count/like_count/comment_count/'
-  'save_count/share_count (number จำนวนเต็ม หรือ null เพื่อล้าง) · เขียน amend_log (before/after 5 คอลัมน์) + คิด is_regression ของแถววันหลังใหม่ · errcode 22023/42501/55000';
+  'save_count/share_count (number จำนวนเต็ม หรือ null เพื่อล้าง) · เขียน amend_log (before/after 5 คอลัมน์) + คิด is_regression ของแถววันหลังใหม่ · p_expected (ไม่บังคับ) = ค่าปัจจุบันที่ผู้แก้เห็น · ไม่ตรง = 55000 รีเฟรชก่อน · key ที่ค่าไม่เปลี่ยนไม่ใส่ธง amended_cols · errcode 22023/42501/55000';
 
 -- ============================================================================
 -- 5. content_post_verdict_confirm — เจ้าของยืนยันป้ายผลต่อโพสต์ + บทเรียน (owner เท่านั้น) · AI ห้ามยืนยันแทน
@@ -602,8 +672,10 @@ begin
   if p_label not in ('above', 'normal', 'below') then
     raise exception 'content_post_verdict_confirm: ป้ายต้องเป็น above / normal / below' using errcode = '22023';
   end if;
-  if p_expected_computed is not null and p_expected_computed not in ('above', 'normal', 'below') then
-    raise exception 'content_post_verdict_confirm: p_expected_computed ต้องเป็น above / normal / below (หรือ null = ไม่เทียบ)' using errcode = '22023';
+  -- L3: บังคับส่งป้ายที่ผู้ยืนยันเห็น (compare-and-set ห้ามข้ามด้วย null) · ระบบยังไม่มีป้ายคำนวณ (ฐาน<4 ฯลฯ) = 'none'
+  -- (parameter ยังมี default null เพื่อไม่เปลี่ยน signature — null ตกที่นี่เป็น 22023 ไม่ใช่ 42883)
+  if p_expected_computed is null or p_expected_computed not in ('above', 'normal', 'below', 'none') then
+    raise exception 'content_post_verdict_confirm: p_expected_computed ต้องเป็น above / normal / below / none (none = ระบบยังไม่มีป้ายคำนวณ) — ห้าม null' using errcode = '22023';
   end if;
 
   -- null / ว่าง = ไม่มีบทเรียน · ข้อความที่ AI เขียนได้ใช้ content_text_clean (บทเรียน C1)
@@ -633,7 +705,7 @@ begin
 
   -- compare-and-set: UI ส่งป้ายที่ระบบคำนวณซึ่งเจ้าของเห็นมา · ต่างจากปัจจุบัน (รวม null ↔ มีค่า) = ปฏิเสธ
   select r.computed_label into v_computed from analytics.v_content_post_result r where r.post_id = p_post_id;
-  if p_expected_computed is not null and v_computed is distinct from p_expected_computed then
+  if coalesce(v_computed, 'none') <> p_expected_computed then
     raise exception 'content_post_verdict_confirm: ป้ายที่ระบบคำนวณเปลี่ยนไปแล้ว (ตอนนี้ %) — รีเฟรชก่อนยืนยัน', coalesce(v_computed, 'ยังไม่มี') using errcode = '55000';
   end if;
 
@@ -664,7 +736,7 @@ $f$;
 
 comment on function analytics.content_post_verdict_confirm(uuid, uuid, text, text, text, text) is
   'เจ้าของยืนยันป้ายผลต่อโพสต์ (above/normal/below) + บทเรียน ≤300 ตัวอักษร (owner เท่านั้น) · ต้องมี snapshot T+7 · p_expected_computed = compare-and-set กับป้ายที่ระบบคำนวณ '
-  '(null = ไม่เทียบ) · บทเรียน → content_signal insight (ไม่สร้างซ้ำถ้าข้อความเดิม) · ยืนยันซ้ำทับ result_* ได้ (previous_* คืนค่าเก่า) · errcode 22023/42501/55000';
+  'บังคับส่ง (none = ระบบยังไม่มีป้าย · null = 22023) · บทเรียน → content_signal insight (ไม่สร้างซ้ำถ้าข้อความเดิม) · ยืนยันซ้ำทับ result_* ได้ (previous_* คืนค่าเก่า) · errcode 22023/42501/55000';
 
 -- ============================================================================
 -- 6. view — ใหม่ทั้งหมด · security_invoker · ไม่ replace view เดิม (0149/0160 คงเดิม · trap #3) · ไม่กรองร้าน (frontend .eq('shop_id'))
@@ -867,6 +939,19 @@ revoke all on analytics.v_content_post_missed_window, analytics.v_content_post_r
 grant select on analytics.v_content_post_missed_window, analytics.v_content_post_result, analytics.v_content_hook_type_rollup,
   analytics.v_content_order_daily to service_role;
 
+-- H1: service_role ลบโพสต์/ยอดตรงไม่ได้ — ไม่งั้นลบโพสต์แม่ = cascade พา metric + amend_log หาย (ล้างประวัติแก้ยอด)
+-- แอปไม่มีโค้ดลบตรงบนสองตารางนี้ (ตรวจ lib/ app/ scripts/ แล้ว) · ลบแบบนุ่ม = content_post_set_status (definer) · เจ้าของตาราง (postgres) ยังลบ/cascade ได้
+-- ไม่ revoke insert/update: content_post_upsert / content_post_metric_upsert เป็น definer อยู่แล้ว · ด่าน trigger ยังคุม INSERT/UPDATE ตรงจาก 3 role
+revoke delete, truncate on analytics.content_post, analytics.content_post_metric from service_role;
+
+-- M3 (ช่องเก่าของ 0159): service_role เขียนตรงลง event/ข้อความยืนยันได้ = ปลอมประวัติการเปลี่ยนสถานะ/คำตอบของเจ้าของ
+-- RPC ทั้งหมดของ 0159/0160 ที่เขียนสองตารางนี้เป็น security definer (รันเป็นเจ้าของตาราง) — พิสูจน์ด้วย verify-0159/0160 ใต้ role service_role
+revoke insert, update, delete, truncate on analytics.content_piece_event, analytics.content_confirm_item from service_role;
+
+-- H1 ส่วนที่เหลือ: ลบตารางแม่ก็ cascade พา metric/amend_log/event หายได้ (RI รันด้วยสิทธิ์เจ้าของตาราง) ⇒ ถอนสิทธิ์ลบ/truncate ของตารางแม่ทั้งสามจาก service_role
+-- Tech Lead ตรวจแล้ว: ไม่มีโค้ดใน lib/ app/ components/ scripts/ ลบสามตารางนี้ตรง · ทางลบของแอป = campaign_delete_step / content_piece_create / campaign_create_task (SECURITY DEFINER รันเป็นเจ้าของตาราง — ไม่ต้องมีสิทธิ์ของ service_role)
+revoke delete, truncate on public.shop, analytics.campaign, analytics.campaign_step from service_role;
+
 comment on view analytics.v_content_post_missed_window is
   'หน้า J "พลาดรอบไปแล้ว" — 1 แถว/โพสต์/หน้าต่างอ่านยอด (1=T+1..2, 2=T+3..4, 3=T+5..9) ที่ปิดแล้วและไม่มีตัวเลข · หน้าต่างเดียวกับ v_content_entry_queue · '
   'ไม่กรองร้าน (frontend .eq(shop_id)) · หน้าต่าง 3 พลาด = โพสต์ตกจากการเทียบถาวร ไม่แต่งค่าแทน';
@@ -1022,6 +1107,29 @@ begin
   if v_bad is not null then
     raise exception '0161 ด่านท้าย: service_role เขียนตรงลง amend_log ได้ (%) — ต้องมีแค่ SELECT', v_bad;
   end if;
+  -- H1/M3: สิทธิ์เขียนที่ถอดแล้วต้องไม่กลับมา (has_table_privilege นับสิทธิ์ที่สืบทอดทางสมาชิกภาพ role ด้วย)
+  select string_agg(x.rel || ':' || x.priv, ', ') into v_bad
+    from (values ('content_post', 'DELETE'), ('content_post', 'TRUNCATE'), ('content_post_metric', 'DELETE'), ('content_post_metric', 'TRUNCATE'),
+                 ('content_piece_event', 'INSERT'), ('content_piece_event', 'UPDATE'), ('content_piece_event', 'DELETE'), ('content_piece_event', 'TRUNCATE'),
+                 ('content_confirm_item', 'INSERT'), ('content_confirm_item', 'UPDATE'), ('content_confirm_item', 'DELETE'), ('content_confirm_item', 'TRUNCATE'),
+                 ('campaign', 'DELETE'), ('campaign', 'TRUNCATE'), ('campaign_step', 'DELETE'), ('campaign_step', 'TRUNCATE')) as x (rel, priv)
+   where has_table_privilege('service_role', ('analytics.' || x.rel)::regclass, x.priv);
+  if v_bad is not null then
+    raise exception '0161 ด่านท้าย: service_role ยังมีสิทธิ์เขียน/ลบตรงที่ต้องถอด (H1/M3): %', v_bad;
+  end if;
+  if has_table_privilege('service_role', 'public.shop'::regclass, 'DELETE') or has_table_privilege('service_role', 'public.shop'::regclass, 'TRUNCATE') then
+    raise exception '0161 ด่านท้าย: service_role ยังลบ/truncate public.shop ได้ (H1 — cascade พาประวัติแก้ยอดหาย)';
+  end if;
+  if not has_table_privilege('service_role', 'public.shop'::regclass, 'SELECT') or not has_table_privilege('service_role', 'analytics.campaign_step'::regclass, 'SELECT')
+     or not has_table_privilege('service_role', 'analytics.campaign'::regclass, 'SELECT') then
+    raise exception '0161 ด่านท้าย: service_role ต้องยังอ่าน shop / campaign / campaign_step ได้ (SELECT)';
+  end if;
+  if not has_table_privilege('service_role', 'analytics.content_piece_event'::regclass, 'SELECT')
+     or not has_table_privilege('service_role', 'analytics.content_confirm_item'::regclass, 'SELECT')
+     or not has_table_privilege('service_role', 'analytics.content_post'::regclass, 'SELECT')
+     or not has_table_privilege('service_role', 'analytics.content_post_metric'::regclass, 'SELECT') then
+    raise exception '0161 ด่านท้าย: service_role ต้องยังอ่านสี่ตารางนี้ได้ (SELECT)';
+  end if;
   select string_agg(c.relname, ', ') into v_bad
     from pg_class c
    where c.relnamespace = 'analytics'::regnamespace and c.relname = any (c_rel)
@@ -1051,7 +1159,7 @@ begin
   if v_bad is not null then
     raise exception '0161 ด่านท้าย: ฟังก์ชันมี current_date: %', v_bad;
   end if;
-  if pg_get_functiondef('analytics.content_post_metric_amend(uuid,uuid,date,jsonb,text,text)'::regprocedure) !~ 'Asia/Bangkok'
+  if pg_get_functiondef('analytics.content_post_metric_amend(uuid,uuid,date,jsonb,text,text,jsonb)'::regprocedure) !~ 'Asia/Bangkok'
      or pg_get_functiondef('analytics.content_post_verdict_confirm(uuid,uuid,text,text,text,text)'::regprocedure) !~ 'Asia/Bangkok' then
     raise exception '0161 ด่านท้าย: RPC ที่คิดวันต้องใช้ Asia/Bangkok';
   end if;

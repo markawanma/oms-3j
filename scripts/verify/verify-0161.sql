@@ -20,7 +20,7 @@
 --  Y5  ล้างครบ 5 ช่อง → Y5 · Y6 ค่าเท่าเดิม → Y6a-b · Y7 deleted/ร้านอื่น/สุ่ม → Y7a-c · reject แล้วไม่เขียนอะไร → Y7z · Y7y
 --  Y8  service_role update/delete/insert ตรงบน metric          → Y8a-i (+ ต้องไม่พัง Y8j-m: update raw/captured_at/source เฉยๆ · insert ตรงไม่มีธง)
 --  Y9→Q9 (มติ Q9 ทับสเปกเดิม) tiktok_api ทับค่าที่แก้มือ = ทับได้ + log api_override + ถอดธง → Q9a-k (ไม่ใช่ "ล็อก") · N4a บนแถวไม่เคย amend
---  Y10 amend_log update/delete/truncate/insert ตรง/CHECK       → Y10a-f2 · cascade ลบโพสต์ผ่านทั้งสอง guard → Y10g-h · ลบ metric ที่มี log → Q9j-k
+--  Y10 amend_log update/delete/truncate/insert ตรง/CHECK       → Y10a-f2 · cascade ลบโพสต์โดยเจ้าของผ่านทั้งสอง guard → Y10h2-h3 (service_role ลบไม่ได้ → Y10g) · ลบ metric ที่มี log → Q9j-k
 --  Y11 verdict_confirm ปฏิเสธ 12 แบบ + ไม่เขียนอะไร              → Y11a-l · Y11z
 --  Y12 service_role แก้/insert result_* · postgres ตั้ง override ขาด confirmed_at → Y12a-c · ต้องไม่พัง Y12d-e · CHECK อื่น → A6a-e
 --  Y23 RPC ใหม่ + helper + view + ตาราง จาก role authenticated (grant usage ชั่วคราว) → Y23a-c
@@ -37,6 +37,14 @@
 --  O   metric ออเดอร์: helper+CHECK รับ 'orders' · ค่าผิดยังถูกปฏิเสธ · set_plan ใช้จริง · view นับถูกตามช่องทาง/affinity/ตะกร้าผสม · ข้อมูลจริงนับครบ → O1-O9
 --  P   ข้อมูลจริงห้ามขยับ: แคมเปญ 10.10 (step a74aa1f1…)          → P1
 --  A   โครงสร้าง/สิทธิ์/overload/trigger/ไม่มีโฮสต์/CHECK           → A1-A6
+--  ── รอบแก้ตาม security (CONDITIONAL GO) + QA 7 ต.ค. 69 ──
+--  H1  service_role ลบโพสต์/ยอด/TRUNCATE ตรงไม่ได้ (42501) · ชั้นสอง trigger 55000 เมื่อ grant กลับ · postgres ยัง cascade ได้ · set_status (definer) ยังทำงาน → Y8g-g4 · Y10g-h5 (Y10g กลับด้านจากรอบก่อน)
+--  M1  ข้อความ log ของ tiktok_api บอกว่า "ผู้เรียกระบุ · ยังไม่พิสูจน์ตัวตน" → M2e
+--  M2  ทางที่ไม่ใช่ amend (manual · backfill · tiktok_api) ทับคอลัมน์ที่มีธง = log (overwrite / api_override) + ถอดธง · ไม่บล็อก · amend เองไม่ log · GUC ไม่ค้าง → M2a-h
+--  M3  service_role เขียน/ลบตรง content_piece_event + content_confirm_item ไม่ได้ · RPC definer ยังเขียนได้ → M3a-e (ครบทั้ง 0159/0160 อยู่ที่ verify-0159/0160/qa-0159-extra/qa-0160-round3 ที่ต้องรันต่อท้าย 0161)
+--  L1  amend p_expected: ตรง/เก่า/ไม่ครบ key/{}/ชนิดผิด/key เกิน/json null ≠ 0 → L1a-h · L2 key ค่าเท่าเดิมไม่ใส่ธง → L2a-c · L3 verdict p_expected_computed ห้าม null (none = ไม่มีป้าย) → Y11m-p
+--  Q1  ลบร้านที่มี amend_log ผ่าน (cascade) → Q1a-c · Z1-Z2 ตัวตรวจข้อความซ้ำเทียบข้อความ clean (ZWSP/ช่องว่างซ้อน) — mutant ของ security ข้อ 2
+--  ไม่มีเทสต์ครอบ: ถอด `for update` ของ amend / verdict_confirm — ต้องใช้ 2 connection พร้อมกัน do-block เดียวจำลองไม่ได้ (mutant ข้อ 3 ของ security)
 --  ไม่ครอบ (บอกตรงๆ): ท้ายไฟล์ [SKIP]
 --
 -- ============ mutant ที่ทำให้ verify ล้มจริง (ลองแล้ว 25 แบบ — V = verify จับ · G = ด่านท้ายไฟล์ migration จับก่อน) ============
@@ -47,7 +55,12 @@
 --  helper ใช้ <= แทน < → N5b/c/g/i V · missed ไม่ตรวจ num_nonnulls → N3b/f V · ถอดด่าน T+7 ของ confirm → Y11e V · ถอด where status ของ amend → Y7a V ·
 --  ถอด shop scope ของ amend → Y7b V · ถอด whitelist key → Y2d/e/p V · service_role ได้เขียน amend_log → G (+ A3c V) · CHECK/enum ไม่รับ orders → G (+ O1/O2 V)
 --  ⚠️ mutant ที่ "ไม่ล้าง" = เทียบเท่า: ถอดเงื่อนไข "โพสต์แม่หายแล้ว" ใน guard DELETE ของ metric — RI trigger รันด้วยสิทธิ์เจ้าของตาราง จึงไม่เคยเห็น current_user=service_role
---     (ตัดเงื่อนไขทิ้งแล้ว · Y10g พิสูจน์ว่า cascade ผ่าน) · mutant "where p.status='active' → true" ของผลต่อโพสต์ เคยหลุด → เพิ่ม N7s
+--     (ตัดเงื่อนไขทิ้งแล้ว · Y10h2 พิสูจน์ว่า cascade โดยเจ้าของผ่าน) · mutant "where p.status='active' → true" ของผลต่อโพสต์ เคยหลุด → เพิ่ม N7s
+--  รอบแก้ 7 ต.ค. (ลองเพิ่ม 12 แบบ — V = verify จับ · G = ด่านท้ายไฟล์ migration จับก่อน):
+--  Q9 ขยายเป็นทุก source ยกเว้น manual → M2b/M2c/M2d/M2f/M2g V · จำกัดแค่ tiktok_api (ของเดิม) → M2b/M2c/M2d/M2f/M2g V · จำกัด tiktok_api+manual (backfill หลุด) → M2d/M2f/M2g V ·
+--  guard ไม่แยกทางของ amend (ไม่เช็ค GUC) → N5h/N5k/N5l/M2f/L1h/L2c V · amend ไม่ล้าง GUC หลัง UPDATE → Q9d/e/h/i + M2a-g V · ตัวตรวจข้อความซ้ำเทียบ p_lesson ดิบ → Z1/Z2 V ·
+--  ถอด shop ออกจากเงื่อนไข cascade ของ amend_log → Q1b/Q1c V · ถอดการเทียบ p_expected → L1b/L1c/L1e-h V · amended_cols ใช้ key ทั้งหมดของ p_set แทนที่เปลี่ยนจริง → L2a V ·
+--  verdict ยอมรับ p_expected_computed null → Y11m V · ถอด revoke H1 หรือ M3 อย่างใดอย่างหนึ่ง → G · ถอด revoke ทั้งสองชุด + ปิดด่านท้าย → Y8g/Y8g3/Y8g4/Y10g/Y10h/M3a/M3b V
 
 -- ---------- helper (temp function — หายพร้อมทรานแซกชัน) ----------
 
@@ -140,12 +153,12 @@ begin
   return v_id;
 end $mm$;
 
-create or replace function pg_temp.q_amend(p_shop uuid, p_post uuid, p_cap text, p_set text, p_reason text, p_role text) returns text
+create or replace function pg_temp.q_amend(p_shop uuid, p_post uuid, p_cap text, p_set text, p_reason text, p_role text, p_exp text default null) returns text
  language sql as $q$
-  select format('select analytics.content_post_metric_amend(%L::uuid,%L::uuid,%L::date,%L::jsonb,%L,%L)', p_shop, p_post, p_cap, p_set, p_reason, p_role)
+  select format('select analytics.content_post_metric_amend(%L::uuid,%L::uuid,%L::date,%L::jsonb,%L,%L,%L::jsonb)', p_shop, p_post, p_cap, p_set, p_reason, p_role, p_exp)
 $q$;
 
-create or replace function pg_temp.q_verdict(p_shop uuid, p_post uuid, p_label text, p_lesson text, p_role text, p_exp text default null) returns text
+create or replace function pg_temp.q_verdict(p_shop uuid, p_post uuid, p_label text, p_lesson text, p_role text, p_exp text default 'normal') returns text
  language sql as $q$
   select format('select analytics.content_post_verdict_confirm(%L::uuid,%L::uuid,%L,%L,%L,%L)', p_shop, p_post, p_label, p_lesson, p_role, p_exp)
 $q$;
@@ -158,6 +171,12 @@ create or replace function pg_temp.msnap(p_post uuid) returns text
           from analytics.content_post_metric where post_id = p_post)
       || '/' || (select count(*) from analytics.content_post_metric_amend_log where post_id = p_post)
 $sn$;
+
+-- ป้ายที่ระบบคำนวณตอนนี้ ในรูปที่ p_expected_computed รับ (L3: ห้าม null · ไม่มีป้าย = 'none')
+create or replace function pg_temp.vcomp(p_post uuid) returns text
+ language sql as $vc$
+  select coalesce((select r.computed_label from analytics.v_content_post_result r where r.post_id = p_post), 'none')
+$vc$;
 
 create or replace function pg_temp.ext() returns text
  language sql as $ex$ select 'v161-' || substr(gen_random_uuid()::text, 1, 12) $ex$;
@@ -225,6 +244,8 @@ declare
   v_shopB   uuid;
   v_shopC   uuid;
   v_shopX   uuid;
+  v_shopD   uuid;
+  v_step2   uuid;
   v_n       bigint;
   v_n2      bigint;
   v_r       text;
@@ -488,7 +509,18 @@ begin
   v_log := v_log || pg_temp.vl('Y8d', 'service_role UPDATE amended_cols ตรง (ปลอมธงแก้มือ)', pg_temp.vr('service_role', format('update analytics.content_post_metric set amended_cols = %L::text[] where id = %L', '{like_count}', v_m1), array['55000']));
   v_log := v_log || pg_temp.vl('Y8e', 'service_role UPDATE captured_on ตรง', pg_temp.vr('service_role', format('update analytics.content_post_metric set captured_on = captured_on + 20 where id = %L', v_m1), array['55000']));
   v_log := v_log || pg_temp.vl('Y8f', 'service_role UPDATE ที่ล้างค่าเป็น null ตรง', pg_temp.vr('service_role', format('update analytics.content_post_metric set like_count = null where id = %L', v_m1), array['55000']));
-  v_log := v_log || pg_temp.vl('Y8g', 'service_role DELETE แถว metric ตรง', pg_temp.vr('service_role', format('delete from analytics.content_post_metric where id = %L', v_m1), array['55000']));
+  -- H1: ชั้นแรก = ไม่มีสิทธิ์ DELETE (42501) · ชั้นที่สอง = ด่าน trigger (55000) — พิสูจน์ชั้นที่สองด้วยการ grant กลับในทรานแซกชันทดสอบแล้ว revoke
+  v_log := v_log || pg_temp.vl('Y8g', 'service_role DELETE แถว metric ตรง (H1: revoke delete แล้ว → 42501)', pg_temp.vr('service_role', format('delete from analytics.content_post_metric where id = %L', v_m1), array['42501']));
+  grant delete on analytics.content_post_metric to service_role;
+  v_log := v_log || pg_temp.vl('Y8g2', 'ชั้นที่สอง: ถ้ามีคน grant delete กลับให้ service_role ด่าน trigger ยังกัน → 55000', pg_temp.vr('service_role', format('delete from analytics.content_post_metric where id = %L', v_m1), array['55000']));
+  revoke delete on analytics.content_post_metric from service_role;
+  v_log := v_log || pg_temp.vb('Y8g3', 'หลังเทสต์ชั้นที่สอง: service_role ไม่มี DELETE/TRUNCATE บน content_post + content_post_metric (revoke กลับแล้ว) · ยัง SELECT/INSERT/UPDATE ได้',
+    not has_table_privilege('service_role', 'analytics.content_post_metric', 'DELETE') and not has_table_privilege('service_role', 'analytics.content_post_metric', 'TRUNCATE')
+    and not has_table_privilege('service_role', 'analytics.content_post', 'DELETE') and not has_table_privilege('service_role', 'analytics.content_post', 'TRUNCATE')
+    and has_table_privilege('service_role', 'analytics.content_post_metric', 'SELECT') and has_table_privilege('service_role', 'analytics.content_post_metric', 'INSERT')
+    and has_table_privilege('service_role', 'analytics.content_post', 'UPDATE'));
+  v_log := v_log || pg_temp.vl('Y8g4', 'service_role TRUNCATE content_post / content_post_metric (H1) → 42501', pg_temp.vr('service_role', 'truncate analytics.content_post_metric', array['42501'])
+    || pg_temp.vr('service_role', 'truncate analytics.content_post cascade', array['42501']));
   v_log := v_log || pg_temp.vl('Y8h', 'service_role INSERT ที่ใส่ amended_cols (ปลอมธง)', pg_temp.vr('service_role',
     format('insert into analytics.content_post_metric (shop_id, post_id, captured_on, age_days, view_count, amended_cols) values (%L, %L, %L, 7, 1, %L::text[])', v_shopB, v_p1, v_d0 + 7, '{view_count}'), array['55000']));
   v_log := v_log || pg_temp.vb('Y8i', 'ทุกเคสข้างบนไม่เขียนอะไร (แถว metric + log ของ P1 เท่าเดิม)', pg_temp.msnap(v_p1) = v_s1, v_s1 || ' vs ' || pg_temp.msnap(v_p1));
@@ -523,10 +555,22 @@ begin
            v_shopB, v_m2, v_p1, v_d0 + 5, '{}', '{}', '{}', 'ทดสอบ', 'owner'), array['23514']));
   -- cascade: ลบโพสต์ P6 (มี log ของ G1) โดย service_role จริง ⇒ guard ของ metric (DELETE) + append-only ของ log ต้องปล่อยเพราะแม่หายไปแล้ว
   select count(*) into v_n from analytics.content_post_metric_amend_log where post_id = v_p6;
-  v_log := v_log || pg_temp.vl('Y10g', 'ต้องไม่พัง: service_role ลบโพสต์ที่มี metric + amend_log ได้ (cascade ผ่านทั้งสอง guard) — มี log ก่อนลบ ' || v_n,
-    pg_temp.vro('service_role', format('delete from analytics.content_post where id = %L', v_p6)));
+  -- H1 (กลับด้านจากรอบก่อน): service_role ลบโพสต์แม่ไม่ได้อีก (เดิม cascade พา log หาย = ล้างประวัติแก้ยอดได้) · เจ้าของตาราง (postgres) ยัง cascade ได้
+  v_log := v_log || pg_temp.vl('Y10g', 'H1: service_role ลบโพสต์ที่มี metric + amend_log → 42501 (ห้ามล้างประวัติผ่านการลบแม่) — มี log ก่อนลบ ' || v_n,
+    pg_temp.vr('service_role', format('delete from analytics.content_post where id = %L', v_p6), array['42501']));
   select (select count(*) from analytics.content_post_metric where post_id = v_p6) + (select count(*) from analytics.content_post_metric_amend_log where post_id = v_p6) into v_n2;
-  v_log := v_log || pg_temp.vb('Y10h', 'หลัง cascade: metric + log ของโพสต์นั้นเหลือ 0', v_n >= 1 and v_n2 = 0, 'log ก่อน ' || v_n || ' · เหลือ ' || v_n2);
+  v_log := v_log || pg_temp.vb('Y10h', 'หลังถูกปฏิเสธ: metric + log ของโพสต์ยังอยู่ครบ (ไม่หายสักแถว)', v_n >= 1 and v_n2 >= v_n + 1, 'log ก่อน ' || v_n || ' · metric+log ตอนนี้ ' || v_n2);
+  -- ต้องไม่พัง: postgres (เจ้าของ) ลบโพสต์ได้ + cascade ผ่านทั้ง guard ของ metric และ append-only ของ log (แม่หายแล้ว)
+  v_log := v_log || pg_temp.vl('Y10h2', 'ต้องไม่พัง: postgres (เจ้าของตาราง) ลบโพสต์ที่มี metric + amend_log ได้ — cascade ผ่านทั้งสอง guard',
+    pg_temp.vok(format('delete from analytics.content_post where id = %L', v_p6)));
+  select (select count(*) from analytics.content_post_metric where post_id = v_p6) + (select count(*) from analytics.content_post_metric_amend_log where post_id = v_p6) into v_n2;
+  v_log := v_log || pg_temp.vb('Y10h3', 'หลัง cascade โดยเจ้าของ: metric + log ของโพสต์นั้นเหลือ 0', v_n2 = 0, 'เหลือ ' || v_n2);
+  -- ต้องไม่พัง: เปลี่ยนสถานะแบบนุ่มผ่าน RPC เดิม (definer) ยังทำงาน — ทางลบ/ซ่อนโพสต์ที่แอปใช้จริง
+  v_pd := pg_temp.mkpost(v_shopB, 5);
+  v_log := v_log || pg_temp.vl('Y10h4', 'ต้องไม่พัง: service_role เรียก content_post_set_status (deleted แล้ว active) ผ่าน — RPC เป็น definer ไม่ต้องมีสิทธิ์ DELETE',
+    pg_temp.vro('service_role', format('select analytics.content_post_set_status(%L::uuid, %L::uuid, ''deleted'')', v_shopB, v_pd))
+    || pg_temp.vro('service_role', format('select analytics.content_post_set_status(%L::uuid, %L::uuid, ''active'')', v_shopB, v_pd)));
+  v_log := v_log || pg_temp.vb('Y10h5', 'หลัง set_status: โพสต์ยัง active ตามที่ตั้งกลับ (แถวไม่ถูกลบ)', (select status = 'active' from analytics.content_post where id = v_pd));
 
   ----------------------------------------------------------------------------
   -- Q9 (มติเจ้าของ 7 ต.ค. ทับสเปกเดิม Y9): tiktok_api ทับค่าที่แก้มือได้ · มี log api_override · ถอดธงของคอลัมน์ที่ถูกทับ · ไม่ใช่ "ล็อกไม่ให้ทับ"
@@ -578,6 +622,163 @@ begin
     pg_temp.vok(format('delete from analytics.content_post_metric where id = %L', (select id from analytics.content_post_metric where post_id = v_p3 limit 1))));
   select count(*) into v_n from analytics.content_post_metric_amend_log where post_id = v_p3;
   v_log := v_log || pg_temp.vb('Q9k', 'หลังลบ metric ของ P3: log ของ P3 หมดตามไปด้วย', v_n = 0, 'พบ ' || v_n);
+
+  ----------------------------------------------------------------------------
+  -- รอบแก้ security/QA (7 ต.ค. 69): M2 ทับค่าที่มีธงจากทางที่ไม่ใช่ amend · L1 p_expected · L2 ค่าเท่าเดิมไม่ใส่ธง · Q1 ลบร้าน · M3 revoke event/confirm_item
+  ----------------------------------------------------------------------------
+  -- M2: manual / backfill / tiktok_api ทับคอลัมน์ที่มีธง ⇒ log + ถอดธง ไม่บล็อก · amend เองไม่ log overwrite (GUC c4.amend_metric ถูกล้างหลังใช้)
+  v_pa := pg_temp.mkpost(v_shopB, 4);
+  v_id := analytics.content_post_metric_upsert(v_shopB, v_pa, 100, 10, null, 5, null, 'manual');
+  select captured_on into v_day from analytics.content_post_metric where id = v_id;
+  v_j := analytics.content_post_metric_amend(v_shopB, v_pa, v_day, '{"view_count": 120, "save_count": 20}', 'verify M2 ตั้งธง', 'owner');
+  v_log := v_log || pg_temp.vb('M2a', 'amend เองไม่เขียน overwrite/api_override: log 1 แถว kind amend · amended {save_count, view_count} · GUC c4.amend_metric ถูกล้างแล้ว',
+    (select count(*) from analytics.content_post_metric_amend_log where post_id = v_pa) = 1
+    and (select change_kind = 'amend' from analytics.content_post_metric_amend_log where post_id = v_pa)
+    and (select amended_cols = array['save_count', 'view_count'] from analytics.content_post_metric where id = v_id)
+    and coalesce(current_setting('c4.amend_metric', true), '') = '');
+  perform analytics.content_post_metric_upsert(v_shopB, v_pa, 150, null, null, null, null, 'manual');
+  select * into r from analytics.content_post_metric_amend_log where post_id = v_pa and change_kind = 'overwrite';
+  v_log := v_log || pg_temp.vb('M2b', 'manual (คิวกรอกยอด) ทับ view ที่มีธง 120 → 150: ทับได้ (ไม่บล็อก) · log overwrite 1 แถว (system · changed {view_count} · before 120 → after 150 · เหตุผลระบุแหล่ง manual) · ถอดธง view · save ยังมีธง',
+    r.id is not null and r.actor_role = 'system' and r.changed_cols = array['view_count'] and r.before -> 'view_count' = '120'::jsonb and r.after -> 'view_count' = '150'::jsonb
+    and position('manual' in r.reason) > 0 and r.metric_id = v_id and (select count(*) from jsonb_object_keys(r.after)) = 5
+    and (select view_count = 150 and amended_cols = array['save_count'] and source = 'manual' from analytics.content_post_metric where id = v_id), coalesce(r.reason, 'ไม่มี log'));
+  perform analytics.content_post_metric_upsert(v_shopB, v_pa, null, 11, null, null, null, 'manual');
+  perform analytics.content_post_metric_upsert(v_shopB, v_pa, null, null, null, 20, null, 'manual');
+  v_log := v_log || pg_temp.vb('M2c', 'คอลัมน์ที่ไม่มีธง (like 10 → 11) เปลี่ยน + ส่ง save ค่าเท่าเดิม (20 = 20) = ไม่ใช่การทับ: log ยัง 2 แถว (amend + overwrite) · ธง save คงอยู่',
+    (select count(*) from analytics.content_post_metric_amend_log where post_id = v_pa) = 2
+    and (select like_count = 11 and save_count = 20 and amended_cols = array['save_count'] from analytics.content_post_metric where id = v_id));
+  perform analytics.content_post_metric_upsert(v_shopB, v_pa, null, null, null, 9, null, 'backfill');
+  select * into r from analytics.content_post_metric_amend_log where post_id = v_pa and change_kind = 'overwrite' and changed_cols = array['save_count'];
+  v_log := v_log || pg_temp.vb('M2d', 'backfill ทับ save ที่มีธง 20 → 9: log overwrite (เหตุผลระบุ backfill · before 20 → after 9) · ถอดธง (amended ว่าง) · sources มี backfill — ไม่ใช่แค่ tiktok_api',
+    r.id is not null and position('backfill' in r.reason) > 0 and r.before -> 'save_count' = '20'::jsonb and r.after -> 'save_count' = '9'::jsonb
+    and (select save_count = 9 and amended_cols = '{}' and sources @> array['backfill'] from analytics.content_post_metric where id = v_id), coalesce(r.reason, 'ไม่มี log'));
+  v_j := analytics.content_post_metric_amend(v_shopB, v_pa, v_day, '{"view_count": 170}', 'verify M2 ตั้งธงใหม่', 'owner');
+  perform analytics.content_post_metric_upsert(v_shopB, v_pa, 180, null, null, null, null, 'tiktok_api');
+  select * into r from analytics.content_post_metric_amend_log where post_id = v_pa and change_kind = 'api_override';
+  v_log := v_log || pg_temp.vb('M2e', 'tiktok_api ทับ view ที่มีธง (170 → 180): kind api_override · ข้อความ log ระบุว่า "ผู้เรียกระบุ ... ยังไม่พิสูจน์ตัวตน" (M1) ไม่ยืนยันว่าเป็น TikTok จริง',
+    r.id is not null and position('ผู้เรียกระบุ' in r.reason) > 0 and position('ยังไม่พิสูจน์ตัวตน' in r.reason) > 0 and r.before -> 'view_count' = '170'::jsonb and r.after -> 'view_count' = '180'::jsonb,
+    coalesce(r.reason, 'ไม่มี log'));
+  v_j := analytics.content_post_metric_amend(v_shopB, v_pa, v_day, '{"view_count": 190}', 'verify M2 ตั้งธงอีกรอบ', 'owner');
+  v_j := analytics.content_post_metric_amend(v_shopB, v_pa, v_day, '{"view_count": 195}', 'verify M2 แก้ซ้ำคอลัมน์ที่มีธง', 'owner');
+  select count(*) into v_n from analytics.content_post_metric_amend_log where post_id = v_pa and change_kind = 'overwrite';
+  select count(*) into v_n2 from analytics.content_post_metric_amend_log where post_id = v_pa and change_kind = 'amend';
+  v_log := v_log || pg_temp.vb('M2f', 'amend แก้คอลัมน์ที่มีธงอยู่แล้ว (190 → 195) ไม่ใช่การทับ: overwrite ยัง 2 · api_override ยัง 1 · amend รวม 4',
+    v_n = 2 and v_n2 = 4 and (select count(*) from analytics.content_post_metric_amend_log where post_id = v_pa and change_kind = 'api_override') = 1, 'overwrite ' || v_n || ' · amend ' || v_n2);
+  perform analytics.content_post_metric_upsert(v_shopB, v_pa, 300, null, null, null, null, 'manual');
+  select count(*) into v_n from analytics.content_post_metric_amend_log where post_id = v_pa and change_kind = 'overwrite';
+  v_log := v_log || pg_temp.vb('M2g', 'manual ทับทันทีหลัง amend ในทรานแซกชันเดียวกัน = ยังถูก log (สถานะ amend ไม่ค้าง): overwrite เป็น 3 · ธงว่าง',
+    v_n = 3 and (select amended_cols = '{}' and view_count = 300 from analytics.content_post_metric where id = v_id), 'overwrite ' || v_n);
+  v_log := v_log || pg_temp.vb('M2h', 'log ทั้งหมดของโพสต์: before/after 5 คอลัมน์เต็ม · actor_role ตรงชนิด (amend=owner · api_override/overwrite=system)',
+    (select bool_and((select count(*) from jsonb_object_keys(l.before)) = 5 and (select count(*) from jsonb_object_keys(l.after)) = 5
+                      and ((l.change_kind = 'amend' and l.actor_role = 'owner') or (l.change_kind <> 'amend' and l.actor_role = 'system')))
+       from analytics.content_post_metric_amend_log l where l.post_id = v_pa));
+
+  -- L1: p_expected กันทับค่าใหม่กว่า · L2: key ที่ส่งค่าเท่าเดิมไม่เข้า amended_cols
+  v_pb := pg_temp.mkpost(v_shopB, 4);
+  v_id := analytics.content_post_metric_upsert(v_shopB, v_pb, 100, 10, null, 5, null, 'manual');
+  select captured_on into v_day from analytics.content_post_metric where id = v_id;
+  v_s1 := pg_temp.msnap(v_pb);
+  v_log := v_log || pg_temp.vl('L1a', 'p_expected ตรงกับค่าปัจจุบัน (view 100) ⇒ แก้ได้ (ต้องไม่พัง)',
+    pg_temp.vok(pg_temp.q_amend(v_shopB, v_pb, v_day::text, '{"view_count": 130}', 'verify L1 ตรง', 'owner', '{"view_count": 100}')));
+  v_s1 := pg_temp.msnap(v_pb);
+  v_log := v_log || pg_temp.vl('L1b', 'p_expected เก่า (view 100 แต่ตอนนี้ 130) → 55000 "ค่าเปลี่ยนไปแล้ว"',
+    pg_temp.vx(pg_temp.q_amend(v_shopB, v_pb, v_day::text, '{"view_count": 140}', 'verify L1 เก่า', 'owner', '{"view_count": 100}'), array['55000'], 'ค่าเปลี่ยนไปแล้ว'));
+  v_log := v_log || pg_temp.vl('L1c', 'p_expected ไม่ครบ key ของ p_set (ส่ง like แต่จะแก้ view) → 22023',
+    pg_temp.vx(pg_temp.q_amend(v_shopB, v_pb, v_day::text, '{"view_count": 140}', 'verify L1', 'owner', '{"like_count": 10}'), array['22023'], 'p_expected'));
+  v_log := v_log || pg_temp.vl('L1d', 'p_expected เป็น {} (หลบการเทียบ) → 22023',
+    pg_temp.vx(pg_temp.q_amend(v_shopB, v_pb, v_day::text, '{"view_count": 140}', 'verify L1', 'owner', '{}'), array['22023']));
+  v_log := v_log || pg_temp.vl('L1e', 'p_expected เป็น array / ข้อความ / key แปลก / ค่าข้อความ / ติดลบ → 22023 ทุกแบบ',
+    pg_temp.vx(pg_temp.q_amend(v_shopB, v_pb, v_day::text, '{"view_count": 140}', 'verify L1', 'owner', '[130]'), array['22023'])
+    || pg_temp.vx(pg_temp.q_amend(v_shopB, v_pb, v_day::text, '{"view_count": 140}', 'verify L1', 'owner', '"130"'), array['22023'])
+    || pg_temp.vx(pg_temp.q_amend(v_shopB, v_pb, v_day::text, '{"view_count": 140}', 'verify L1', 'owner', '{"view_count": 130, "nope": 1}'), array['22023'], 'nope')
+    || pg_temp.vx(pg_temp.q_amend(v_shopB, v_pb, v_day::text, '{"view_count": 140}', 'verify L1', 'owner', '{"view_count": "130"}'), array['22023'])
+    || pg_temp.vx(pg_temp.q_amend(v_shopB, v_pb, v_day::text, '{"view_count": 140}', 'verify L1', 'owner', '{"view_count": -1}'), array['22023']));
+  v_log := v_log || pg_temp.vl('L1f', 'key เกินใน p_expected ที่ค่าไม่ตรง (like จริง 10 ส่ง 999) → 55000 · ที่ตรง (like 10) → ผ่าน',
+    pg_temp.vx(pg_temp.q_amend(v_shopB, v_pb, v_day::text, '{"view_count": 140}', 'verify L1', 'owner', '{"view_count": 130, "like_count": 999}'), array['55000'], 'like_count')
+    || pg_temp.vok(pg_temp.q_amend(v_shopB, v_pb, v_day::text, '{"view_count": 140}', 'verify L1 key เกินตรง', 'owner', '{"view_count": 130, "like_count": 10}')));
+  v_log := v_log || pg_temp.vl('L1g', 'json null ใน p_expected ตรงกับ SQL NULL (comment ว่าง) ⇒ ผ่าน · 0 ไม่ใช่ null ⇒ 55000 (null ≠ 0) · null ขณะที่จริง 5 ⇒ 55000',
+    pg_temp.vok(pg_temp.q_amend(v_shopB, v_pb, v_day::text, '{"comment_count": 7}', 'verify L1 null ตรง', 'owner', '{"comment_count": null}'))
+    || pg_temp.vx(pg_temp.q_amend(v_shopB, v_pb, v_day::text, '{"comment_count": 8}', 'verify L1 0 ≠ null', 'owner', '{"comment_count": 0}'), array['55000'])
+    || pg_temp.vx(pg_temp.q_amend(v_shopB, v_pb, v_day::text, '{"save_count": 6}', 'verify L1 null ≠ 5', 'owner', '{"save_count": null}'), array['55000']));
+  select count(*) into v_n from analytics.content_post_metric_amend_log where post_id = v_pb;
+  v_log := v_log || pg_temp.vb('L1h', 'ที่ถูกปฏิเสธไม่เขียนอะไร: log ของโพสต์ = 3 แถว (L1a · L1f ตรง · L1g null ตรง) · view = 140 · comment = 7 · save ยัง 5',
+    v_n = 3 and (select view_count = 140 and comment_count = 7 and save_count = 5 from analytics.content_post_metric where id = v_id), 'log ' || v_n);
+  v_pc := pg_temp.mkpost(v_shopB, 4);
+  v_id := analytics.content_post_metric_upsert(v_shopB, v_pc, 50, 5, null, null, null, 'manual');
+  select captured_on into v_day from analytics.content_post_metric where id = v_id;
+  v_j := analytics.content_post_metric_amend(v_shopB, v_pc, v_day, '{"view_count": 50, "like_count": 6}', 'verify L2 view เท่าเดิม', 'owner');
+  v_log := v_log || pg_temp.vb('L2a', 'ส่ง view เท่าเดิม (50) + like เปลี่ยน (5 → 6): amended_cols = {like_count} เท่านั้น · changed_cols ของ log = {like_count} (สม่ำเสมอกัน)',
+    (select amended_cols = array['like_count'] from analytics.content_post_metric where id = v_id)
+    and (select changed_cols = array['like_count'] from analytics.content_post_metric_amend_log where id = (v_j ->> 'log_id')::uuid), (select array_to_string(amended_cols, ',') from analytics.content_post_metric where id = v_id));
+  v_j := analytics.content_post_metric_amend(v_shopB, v_pc, v_day, '{"view_count": 60, "like_count": 6}', 'verify L2 like เท่าเดิมที่มีธงแล้ว', 'owner');
+  v_log := v_log || pg_temp.vb('L2b', 'like เท่าเดิมที่มีธงอยู่แล้วคงธง + view เปลี่ยนได้ธงใหม่: {like_count, view_count}',
+    (select amended_cols = array['like_count', 'view_count'] from analytics.content_post_metric where id = v_id));
+  v_j := analytics.content_post_metric_amend(v_shopB, v_pc, v_day, '{"comment_count": null, "view_count": 61}', 'verify L2 ล้างช่องที่ว่างอยู่', 'owner');
+  v_log := v_log || pg_temp.vb('L2c', 'ล้าง comment ที่ว่างอยู่แล้ว (null → null) ไม่ใส่ธง · view เปลี่ยนคงธง',
+    (select amended_cols = array['like_count', 'view_count'] and comment_count is null from analytics.content_post_metric where id = v_id)
+    and (select changed_cols = array['view_count'] from analytics.content_post_metric_amend_log where id = (v_j ->> 'log_id')::uuid));
+
+  -- Q1: ลบร้านที่มี amend_log ต้องผ่าน (cascade จาก public.shop) · log ของร้านที่ยังอยู่ยังลบตรงไม่ได้ (Y10b)
+  insert into public.shop (name) values ('verify-0161 shop D (ลบทิ้งในเทสต์)') returning id into v_shopD;
+  v_pd := pg_temp.mkpost(v_shopD, 4);
+  v_id := analytics.content_post_metric_upsert(v_shopD, v_pd, 10, 1, null, null, null, 'manual');
+  select captured_on into v_day from analytics.content_post_metric where id = v_id;
+  v_j := analytics.content_post_metric_amend(v_shopD, v_pd, v_day, '{"view_count": 12}', 'verify Q1 มี log ก่อนลบร้าน', 'owner');
+  v_log := v_log || pg_temp.vb('Q1a', 'ตั้งต้น: ร้าน D มีโพสต์ 1 · metric 1 · amend_log 1',
+    (select count(*) from analytics.content_post where shop_id = v_shopD) = 1 and (select count(*) from analytics.content_post_metric where shop_id = v_shopD) = 1
+    and (select count(*) from analytics.content_post_metric_amend_log where shop_id = v_shopD) = 1);
+  v_log := v_log || pg_temp.vl('Q1b', 'ลบร้านที่มี amend_log ได้ (cascade ผ่านด่าน append-only เพราะร้านหายแล้ว) — ต้องไม่พัง',
+    pg_temp.vok(format('delete from public.shop where id = %L', v_shopD)));
+  v_log := v_log || pg_temp.vb('Q1c', 'หลังลบร้าน: โพสต์ · metric · log ของร้านนั้นเหลือ 0',
+    (select count(*) from analytics.content_post where shop_id = v_shopD) + (select count(*) from analytics.content_post_metric where shop_id = v_shopD)
+    + (select count(*) from analytics.content_post_metric_amend_log where shop_id = v_shopD) = 0);
+
+  -- M3: service_role เขียน/ลบตรงบน content_piece_event + content_confirm_item ไม่ได้ (เหลือ SELECT) · RPC definer ของ 0159/0160 ยังเขียนได้
+  v_log := v_log || pg_temp.vl('M3a', 'service_role INSERT/UPDATE/DELETE/TRUNCATE บน content_piece_event → 42501 ทั้งสี่',
+    pg_temp.vr('service_role', 'insert into analytics.content_piece_event default values', array['42501'])
+    || pg_temp.vr('service_role', 'update analytics.content_piece_event set shop_id = shop_id where false', array['42501'])
+    || pg_temp.vr('service_role', 'delete from analytics.content_piece_event where false', array['42501'])
+    || pg_temp.vr('service_role', 'truncate analytics.content_piece_event', array['42501']));
+  v_log := v_log || pg_temp.vl('M3b', 'service_role INSERT/UPDATE/DELETE/TRUNCATE บน content_confirm_item → 42501 ทั้งสี่',
+    pg_temp.vr('service_role', 'insert into analytics.content_confirm_item default values', array['42501'])
+    || pg_temp.vr('service_role', 'update analytics.content_confirm_item set shop_id = shop_id where false', array['42501'])
+    || pg_temp.vr('service_role', 'delete from analytics.content_confirm_item where false', array['42501'])
+    || pg_temp.vr('service_role', 'truncate analytics.content_confirm_item', array['42501']));
+  v_log := v_log || pg_temp.vl('M3c', 'ต้องไม่พัง: service_role SELECT สองตารางนี้ได้',
+    pg_temp.vro('service_role', 'select count(*) from analytics.content_piece_event') || pg_temp.vro('service_role', 'select count(*) from analytics.content_confirm_item'));
+  v_step := pg_temp.mk_step(v_shopB, 'short_clip', 'tiktok');
+  select count(*) into v_n from analytics.content_piece_event where step_id = v_step;
+  v_log := v_log || pg_temp.vl('M3d', 'ต้องไม่พัง: service_role เรียก content_gate_record (definer) เขียน gate + event ได้ — ชิ้น in_review',
+    pg_temp.vro('service_role', format('select analytics.content_gate_record(%L::uuid, %L::uuid, ''brand_rule'', ''passed'', ''owner'')', v_shopB, v_step)));
+  select count(*) into v_n2 from analytics.content_piece_event where step_id = v_step;
+  v_log := v_log || pg_temp.vb('M3e', 'หลัง RPC ใต้ service_role: event ของชิ้นเพิ่ม (RPC เขียนตารางที่ service_role เขียนตรงไม่ได้)', v_n2 > v_n, v_n || ' → ' || v_n2);
+
+  -- H1 ส่วนที่เหลือ: ตารางแม่ (shop · campaign · campaign_step) service_role ลบ/truncate ตรงไม่ได้ — ไม่งั้น cascade พา metric/amend_log/event หาย
+  v_log := v_log || pg_temp.vl('H1b', 'service_role DELETE ตรงบน public.shop (ร้านจริง = ไม่ลบ · ใช้ร้านทดสอบ B) / analytics.campaign / analytics.campaign_step → 42501 ทั้งสาม',
+    pg_temp.vr('service_role', format('delete from public.shop where id = %L', v_shopB), array['42501'])
+    || pg_temp.vr('service_role', 'delete from analytics.campaign where false', array['42501'])
+    || pg_temp.vr('service_role', 'delete from analytics.campaign_step where false', array['42501']));
+  v_log := v_log || pg_temp.vl('H1c', 'service_role TRUNCATE public.shop / analytics.campaign / analytics.campaign_step → 42501 ทั้งสาม',
+    pg_temp.vr('service_role', 'truncate public.shop cascade', array['42501'])
+    || pg_temp.vr('service_role', 'truncate analytics.campaign cascade', array['42501'])
+    || pg_temp.vr('service_role', 'truncate analytics.campaign_step cascade', array['42501']));
+  v_log := v_log || pg_temp.vb('H1d', 'ร้าน B ยังอยู่ครบ (ไม่ถูกลบจากเคสข้างบน) · service_role ยัง SELECT ทั้งสามตารางได้ · postgres (เจ้าของ) ยังมีสิทธิ์ลบ',
+    exists (select 1 from public.shop where id = v_shopB) and has_table_privilege('service_role', 'public.shop', 'SELECT')
+    and has_table_privilege('service_role', 'analytics.campaign', 'SELECT') and has_table_privilege('service_role', 'analytics.campaign_step', 'SELECT')
+    and has_table_privilege('postgres', 'public.shop', 'DELETE'));
+  -- ต้องไม่พัง: ทางลบ/สร้างของแอปเป็น SECURITY DEFINER — ใต้ role service_role จริงยังทำงาน (งานก่อน ต.ค. · ชิ้นที่ยังไม่อนุมัติ)
+  v_step2 := analytics.campaign_create_task(v_shopB, 'verify H1 งานก่อน ต.ค.', date '2026-09-20', 'fb_post', null, null, null);
+  v_log := v_log || pg_temp.vl('H1e', 'ต้องไม่พัง: campaign_delete_step (RPC) ใต้ service_role ลบงานก่อน ต.ค. ได้',
+    pg_temp.vro('service_role', format('select analytics.campaign_delete_step(%L::uuid)', v_step2)));
+  v_log := v_log || pg_temp.vb('H1f', 'หลัง RPC: งานก่อน ต.ค. ถูกลบจริง', not exists (select 1 from analytics.campaign_step where id = v_step2));
+  v_step2 := pg_temp.mk_step(v_shopB, 'short_clip', 'tiktok');
+  v_log := v_log || pg_temp.vl('H1g', 'ต้องไม่พัง: campaign_delete_step ใต้ service_role ลบชิ้นที่ยังไม่อนุมัติ (in_review) ได้ — cascade พา event/gate ของชิ้นไปได้เพราะเป็นเจ้าของตารางรัน',
+    pg_temp.vro('service_role', format('select analytics.campaign_delete_step(%L::uuid)', v_step2)));
+  v_log := v_log || pg_temp.vb('H1h', 'หลัง RPC: ชิ้น in_review หายพร้อม event ของมัน (0 แถว)',
+    not exists (select 1 from analytics.campaign_step where id = v_step2) and not exists (select 1 from analytics.content_piece_event where step_id = v_step2));
+  v_log := v_log || pg_temp.vl('H1i', 'ต้องไม่พัง: content_piece_create + campaign_create_task ใต้ service_role (definer — insert ลง campaign_step ยังผ่าน)',
+    pg_temp.vro('service_role', format('select analytics.content_piece_create(%L::uuid, %L, ''short_clip'', ''tiktok'', ''jewelry_925'', ''owner'', %L::date)', v_shopB, 'verify H1 สร้างชิ้น', v_today + 5))
+    || pg_temp.vro('service_role', format('select analytics.campaign_create_task(%L::uuid, %L, %L::date, ''fb_post'', null, null, null)', v_shopB, 'verify H1 task', v_today + 6)));
 
   ----------------------------------------------------------------------------
   -- N4: content_post_metric_upsert ทุกโหมดเดิมยังทำงานเหมือนเดิม (ครั้งแรก · ซ้ำวันเดียว null-preserving · regression H1) + pin md5
@@ -692,19 +893,47 @@ begin
   select * into r2 from analytics.content_signal where origin_post_id = v_posts[5] and kind = 'insight';
   v_log := v_log || pg_temp.vb('N7n', 'signal insight 1 แถว: source owner · created_by_role owner · confidence observation · seen_on วันไทย · ผูกโพสต์',
     v_n = 1 and r2.source = 'owner' and r2.created_by_role = 'owner' and r2.confidence = 'observation' and r2.seen_on = v_today and r2.summary = 'verify บทเรียน hook เปิดด้วยคำถาม', 'พบ ' || v_n);
-  v_j2 := analytics.content_post_verdict_confirm(v_shopC, v_posts[5], 'below', 'verify บทเรียน hook เปิดด้วยคำถาม', 'owner');
+  v_j2 := analytics.content_post_verdict_confirm(v_shopC, v_posts[5], 'below', 'verify บทเรียน hook เปิดด้วยคำถาม', 'owner', pg_temp.vcomp(v_posts[5]));
   select count(*) into v_n from analytics.content_signal where origin_post_id = v_posts[5] and kind = 'insight';
   v_log := v_log || pg_temp.vb('N7o', 'ยืนยันซ้ำข้อความเดิม = ไม่สร้าง signal ซ้ำ (ยัง 1) · คืน signal_id เดิม · signal_created false · previous_label below',
     v_n = 1 and (v_j2 ->> 'signal_created')::boolean is false and v_j2 ->> 'signal_id' = v_j ->> 'signal_id' and v_j2 ->> 'previous_label' = 'below', v_j2::text);
-  v_j2 := analytics.content_post_verdict_confirm(v_shopC, v_posts[5], 'above', 'verify บทเรียนข้อความใหม่', 'owner');
+  v_j2 := analytics.content_post_verdict_confirm(v_shopC, v_posts[5], 'above', 'verify บทเรียนข้อความใหม่', 'owner', pg_temp.vcomp(v_posts[5]));
   select count(*) into v_n from analytics.content_signal where origin_post_id = v_posts[5] and kind = 'insight';
   v_log := v_log || pg_temp.vb('N7p', 'ข้อความต่าง = signal ใหม่ (รวม 2) · เปลี่ยนใจ above · previous below · previous_lesson คืนข้อความเก่า',
     v_n = 2 and (v_j2 ->> 'signal_created')::boolean and v_j2 ->> 'previous_label' = 'below' and v_j2 ->> 'previous_lesson' = 'verify บทเรียน hook เปิดด้วยคำถาม'
     and (select effective_label = 'above' from analytics.v_content_post_result where post_id = v_posts[5]), v_j2::text);
-  v_j2 := analytics.content_post_verdict_confirm(v_shopC, v_posts[5], 'normal', null, 'owner');
+  v_j2 := analytics.content_post_verdict_confirm(v_shopC, v_posts[5], 'normal', null, 'owner', pg_temp.vcomp(v_posts[5]));
   select count(*) into v_n from analytics.content_signal where origin_post_id = v_posts[5] and kind = 'insight';
   v_log := v_log || pg_temp.vb('N7q', 'confirm ไม่มีบทเรียน: result_lesson เป็น null (ทับ) · ไม่สร้าง signal · signal_id null',
     (select result_lesson is null and result_label_override = 'normal' from analytics.content_post where id = v_posts[5]) and v_n = 2 and v_j2 ->> 'signal_id' is null and not (v_j2 ->> 'signal_created')::boolean, v_j2::text);
+
+  -- L3: p_expected_computed ห้าม null (compare-and-set ข้ามไม่ได้) · 'none' = ระบบยังไม่มีป้าย
+  v_s1 := (select count(*) || ':' || count(result_confirmed_at) from analytics.content_post where shop_id = v_shopC);
+  v_log := v_log || pg_temp.vl('Y11m', 'L3: p_expected_computed = null (หลบ compare-and-set) → 22023',
+    pg_temp.vx(format('select analytics.content_post_verdict_confirm(%L::uuid,%L::uuid,%L,null,%L,null)', v_shopC, v_posts[5], 'below', 'owner'), array['22023'], 'ห้าม null')
+    || pg_temp.vx(format('select analytics.content_post_verdict_confirm(%L::uuid,%L::uuid,%L,null,%L)', v_shopC, v_posts[5], 'below', 'owner'), array['22023'], 'ห้าม null'));
+  v_log := v_log || pg_temp.vl('Y11n', 'L3: expected none ขณะที่ระบบคำนวณเป็น normal (โพสต์ 5) → 55000 · expected normal ขณะที่ computed ไม่มี (โพสต์ 1) → 55000',
+    pg_temp.vx(pg_temp.q_verdict(v_shopC, v_posts[5], 'below', null, 'owner', 'none'), array['55000'], 'เปลี่ยนไปแล้ว')
+    || pg_temp.vx(pg_temp.q_verdict(v_shopC, v_posts[1], 'below', null, 'owner', 'normal'), array['55000'], 'เปลี่ยนไปแล้ว'));
+  v_log := v_log || pg_temp.vb('Y11o', 'ที่ถูกปฏิเสธไม่เขียนอะไร (จำนวนยืนยันของร้าน C เท่าเดิม)', (select count(*) || ':' || count(result_confirmed_at) from analytics.content_post where shop_id = v_shopC) = v_s1);
+  v_j := analytics.content_post_verdict_confirm(v_shopC, v_posts[1], 'normal', null, 'owner', 'none');
+  v_log := v_log || pg_temp.vb('Y11p', 'ต้องไม่พัง: โพสต์ที่ระบบยังไม่มีป้าย (ฐาน 0) ส่ง none ⇒ เจ้าของยืนยันได้ · computed_label ที่คืน = null · override ตั้งแล้ว',
+    v_j ->> 'computed_label' is null and (select result_label_override = 'normal' from analytics.content_post where id = v_posts[1]), v_j::text);
+  -- คืนสภาพ (postgres ผ่าน guard — ไม่ใช่ role ภายนอก) เพื่อไม่กวนเคสหลัง
+  update analytics.content_post set result_label_override = null, result_confirmed_at = null, result_confirmed_by_role = null, result_lesson = null where id = v_posts[1];
+
+  -- mutant 2 ของ security: ตัวตรวจข้อความซ้ำต้องเทียบ "ข้อความที่ clean แล้ว" ไม่ใช่ p_lesson ดิบ — ZWSP / ช่องว่างซ้อนต้องไม่ทำให้สร้างสัญญาณซ้ำ
+  select count(*) into v_n from analytics.content_signal where origin_post_id = v_posts[5] and kind = 'insight';
+  v_s2 := 'verify ZWSP' || chr(8203) || '  ซ้อน   ช่องว่าง';
+  v_j := analytics.content_post_verdict_confirm(v_shopC, v_posts[5], 'normal', v_s2, 'owner', pg_temp.vcomp(v_posts[5]));
+  v_j2 := analytics.content_post_verdict_confirm(v_shopC, v_posts[5], 'normal', v_s2, 'owner', pg_temp.vcomp(v_posts[5]));
+  v_log := v_log || pg_temp.vb('Z1', 'ยืนยัน 2 รอบด้วยบทเรียนเดียวกันที่มี ZWSP + ช่องว่างซ้อน: รอบแรกสร้างสัญญาณ · รอบสอง signal_created=false + signal_id เดิม',
+    (v_j ->> 'signal_created')::boolean and not (v_j2 ->> 'signal_created')::boolean and v_j2 ->> 'signal_id' = v_j ->> 'signal_id', v_j::text || ' / ' || v_j2::text);
+  v_j2 := analytics.content_post_verdict_confirm(v_shopC, v_posts[5], 'normal', 'verify ZWSP ซ้อน ช่องว่าง', 'owner', pg_temp.vcomp(v_posts[5]));
+  select count(*) into v_n2 from analytics.content_signal where origin_post_id = v_posts[5] and kind = 'insight';
+  v_log := v_log || pg_temp.vb('Z2', 'รอบสามส่งข้อความสะอาดที่ clean แล้วเท่ากับรอบแรก ⇒ ไม่สร้างซ้ำ · สัญญาณของโพสต์เพิ่มแค่ 1 · summary = ข้อความ clean (ไม่มี ZWSP/ช่องว่างซ้อน)',
+    not (v_j2 ->> 'signal_created')::boolean and v_n2 = v_n + 1
+    and exists (select 1 from analytics.content_signal s where s.id = (v_j ->> 'signal_id')::uuid and s.summary = 'verify ZWSP ซ้อน ช่องว่าง'), 'ก่อน ' || v_n || ' หลัง ' || v_n2);
 
 
   ----------------------------------------------------------------------------
@@ -771,7 +1000,7 @@ begin
   -- pieces_n นับ distinct ชิ้น: ผูกโพสต์ที่ 2 ของชิ้นเดียวกัน (ig_fb_post) ไม่ทำให้จำนวนชิ้นเพิ่ม — ใช้ชิ้น short_clip ที่มี 1 โพสต์ ⇒ ตรวจที่ posts_n = pieces_n
   v_log := v_log || pg_temp.vb('N6d', 'posts_n = pieces_n = 4 (ชิ้นละ 1 โพสต์) · count(distinct step_id) ไม่ใช่ count(*) ของ metric', r.posts_n = 4 and r.pieces_n = 4);
   -- เจ้าของยืนยันป้าย 1 โพสต์ ⇒ ป้ายนับใน rollup (effective_label ชนะป้ายคำนวณ) + signal ติดกลุ่มลูกค้าของชิ้น
-  v_j := analytics.content_post_verdict_confirm(v_shopC, v_posts[array_length(v_posts, 1)], 'above', 'verify บทเรียนชิ้นงาน', 'owner');
+  v_j := analytics.content_post_verdict_confirm(v_shopC, v_posts[array_length(v_posts, 1)], 'above', 'verify บทเรียนชิ้นงาน', 'owner', pg_temp.vcomp(v_posts[array_length(v_posts, 1)]));
   select * into r from analytics.v_content_hook_type_rollup where shop_id = v_shopC and hook_type = 'question';
   v_log := v_log || pg_temp.vb('N6e', 'หลังเจ้าของยืนยัน above 1 โพสต์: labeled_n = 4 (ทุกโพสต์มี effective_label) · above_n ≥ 1 · above+normal+below = labeled_n',
     r.labeled_n = 4 and r.above_n >= 1 and r.above_n + r.normal_n + r.below_n = r.labeled_n, concat_ws('|', r.labeled_n, r.above_n, r.normal_n, r.below_n));
@@ -914,7 +1143,7 @@ begin
   v_log := v_log || pg_temp.vb('Y23a', 'authenticated เรียก RPC 2 + helper 1 + อ่าน view 4 + ตาราง amend_log 1 → 42501 ครบ 8', v_n = 8 and v_n2 = 8 and v_bad is null, format('ทดสอบ %s · 42501 %s · ผิดปกติ: %s', v_n, v_n2, coalesce(v_bad, '-')));
   v_log := v_log || pg_temp.vb('Y23b', 'สิทธิ์ usage ของ authenticated บนสคีมากลับสู่เดิม (false) หลังทดสอบ', not has_schema_privilege('authenticated', 'analytics', 'usage'));
   v_log := v_log || pg_temp.vb('Y23c', 'anon ไม่มี usage และเรียก RPC ไม่ได้', not has_schema_privilege('anon', 'analytics', 'usage')
-    and not has_function_privilege('anon', 'analytics.content_post_metric_amend(uuid,uuid,date,jsonb,text,text)', 'execute')
+    and not has_function_privilege('anon', 'analytics.content_post_metric_amend(uuid,uuid,date,jsonb,text,text,jsonb)', 'execute')
     and not has_function_privilege('anon', 'analytics.content_post_verdict_confirm(uuid,uuid,text,text,text,text)', 'execute'));
 
   ----------------------------------------------------------------------------
@@ -984,7 +1213,7 @@ begin
   v_log := v_log || pg_temp.vb('N18b', 'ฟังก์ชันใหม่ไม่มี current_date', v_bad is null, coalesce(v_bad, '-'));
   v_log := v_log || pg_temp.vb('N18c', 'Asia/Bangkok ปรากฏใน view missed_window + RPC amend + RPC verdict_confirm',
     pg_get_viewdef('analytics.v_content_post_missed_window'::regclass) ~ 'Asia/Bangkok'
-    and pg_get_functiondef('analytics.content_post_metric_amend(uuid,uuid,date,jsonb,text,text)'::regprocedure) ~ 'Asia/Bangkok'
+    and pg_get_functiondef('analytics.content_post_metric_amend(uuid,uuid,date,jsonb,text,text,jsonb)'::regprocedure) ~ 'Asia/Bangkok'
     and pg_get_functiondef('analytics.content_post_verdict_confirm(uuid,uuid,text,text,text,text)'::regprocedure) ~ 'Asia/Bangkok');
 
   ----------------------------------------------------------------------------

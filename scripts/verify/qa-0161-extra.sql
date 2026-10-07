@@ -23,6 +23,14 @@ create or replace function pg_temp.sig(p_id text, p_val text) returns text
 create or replace function pg_temp.note(p_id text, p_val text) returns text
  language sql as $nt$ select '[NOTE] ' || p_id || ' ' || coalesce(p_val, '<null>') || E'\n' $nt$;
 
+-- ป้ายที่ระบบคำนวณตอนนี้ในรูปที่ p_expected_computed รับ (L3: ห้าม null · ยังไม่มีป้าย = 'none') — ก่อน 0161 view ยังไม่มี ⇒ คืน none (ไม่เคยถูกเรียกในโหมดนั้น)
+create or replace function pg_temp.vcomp(p_post uuid) returns text
+ language plpgsql as $vc$
+begin
+  if to_regclass('analytics.v_content_post_result') is null then return 'none'; end if;
+  return coalesce((select r.computed_label from analytics.v_content_post_result r where r.post_id = p_post), 'none');
+end $vc$;
+
 -- รัน SQL ที่คืนค่าเดียวภายใต้ role จริง · error → 'ERR:<sqlstate>:<msg>' · reset role ทุกทาง
 create or replace function pg_temp.vq(p_role text, p_sql text) returns text
  language plpgsql as $vq$
@@ -90,7 +98,7 @@ do $qa0161$
 declare
   v_log     text := E'\n=== qa-0161-extra ===\n';
   v_today   date := (now() at time zone 'Asia/Bangkok')::date;
-  v_has161  boolean := to_regprocedure('analytics.content_post_metric_amend(uuid,uuid,date,jsonb,text,text)') is not null;
+  v_has161  boolean := to_regprocedure('analytics.content_post_metric_amend(uuid,uuid,date,jsonb,text,text,jsonb)') is not null;
   v_shop    uuid;
   v_qa      uuid;
   v_qax     uuid;
@@ -335,12 +343,12 @@ begin
     v_t := pg_temp.vq('service_role', format('update analytics.content_post_metric set view_count = 1 where post_id = %L returning id::text', v_p4));
     v_log := v_log || pg_temp.vb('Q8', 'service_role UPDATE ตรงยอด → 55000', v_t like 'ERR:55000%', left(v_t, 100));
     v_t := pg_temp.vq('service_role', format('delete from analytics.content_post_metric where post_id = %L returning id::text', v_p4));
-    v_log := v_log || pg_temp.vb('Q9', 'service_role DELETE ตรง metric → 55000', v_t like 'ERR:55000%', left(v_t, 100));
+    v_log := v_log || pg_temp.vb('Q9', 'service_role DELETE ตรง metric → 42501 (H1: revoke delete)', v_t like 'ERR:42501%', left(v_t, 100));
 
     -- ==========================================================================
     -- X. ผลต่อโพสต์ (verdict) ต้องรอดจากเส้นทางเดิมของโพสต์: upsert ซ้ำ · set_status ซ่อน/เปิด
     -- ==========================================================================
-    v_t := pg_temp.vq('service_role', format('select analytics.content_post_verdict_confirm(%L::uuid, %L::uuid, ''above'', %L, ''owner'', null)::text', v_qa, v_p4, 'QA บทเรียนหลังยืนยัน'));
+    v_t := pg_temp.vq('service_role', format('select analytics.content_post_verdict_confirm(%L::uuid, %L::uuid, ''above'', %L, ''owner'', %L)::text', v_qa, v_p4, 'QA บทเรียนหลังยืนยัน', pg_temp.vcomp(v_p4)));
     v_log := v_log || pg_temp.vb('X1', 'verdict_confirm ภายใต้ service_role (T+7 มีแล้ว) ผ่าน · effective_label=above · label_source=owner', v_t not like 'ERR:%'
       and (select effective_label = 'above' and label_source = 'owner' from analytics.v_content_post_result where post_id = v_p4), left(v_t, 160));
     v_t := pg_temp.vq('service_role', format('select analytics.content_post_upsert(%L::uuid, ''tiktok'', %L, %L, now() - interval ''7 days'', null, null, %L)::text',
@@ -362,11 +370,11 @@ begin
     v_t := pg_temp.vq('service_role', format('select analytics.content_post_verdict_confirm(%L::uuid, %L::uuid, ''below'', null, ''ai'', null)::text', v_qa, v_p4));
     v_log := v_log || pg_temp.vb('X6', 'verdict_confirm ในนาม ai → 42501', v_t like 'ERR:42501%', left(v_t, 100));
     -- บทเรียนยาว: 300 ผ่าน / 301 ตก · ไทย+emoji นับเป็นตัวอักษร ไม่ใช่ byte
-    v_t := pg_temp.vq('service_role', format('select analytics.content_post_verdict_confirm(%L::uuid, %L::uuid, ''normal'', %L, ''owner'', null)::text', v_qa, v_p4, repeat('ก', 300)));
+    v_t := pg_temp.vq('service_role', format('select analytics.content_post_verdict_confirm(%L::uuid, %L::uuid, ''normal'', %L, ''owner'', %L)::text', v_qa, v_p4, repeat('ก', 300), pg_temp.vcomp(v_p4)));
     v_log := v_log || pg_temp.vb('X7', 'บทเรียนไทย 300 ตัวอักษร (900 byte) ผ่าน', v_t not like 'ERR:%', left(v_t, 100));
-    v_t := pg_temp.vq('service_role', format('select analytics.content_post_verdict_confirm(%L::uuid, %L::uuid, ''normal'', %L, ''owner'', null)::text', v_qa, v_p4, repeat('ก', 301)));
+    v_t := pg_temp.vq('service_role', format('select analytics.content_post_verdict_confirm(%L::uuid, %L::uuid, ''normal'', %L, ''owner'', %L)::text', v_qa, v_p4, repeat('ก', 301), pg_temp.vcomp(v_p4)));
     v_log := v_log || pg_temp.vb('X8', 'บทเรียน 301 ตัวอักษร → 22023', v_t like 'ERR:22023%', left(v_t, 100));
-    v_t := pg_temp.vq('service_role', format('select analytics.content_post_verdict_confirm(%L::uuid, %L::uuid, ''normal'', %L, ''owner'', null)::text', v_qa, v_p4, repeat('😀', 150)));
+    v_t := pg_temp.vq('service_role', format('select analytics.content_post_verdict_confirm(%L::uuid, %L::uuid, ''normal'', %L, ''owner'', %L)::text', v_qa, v_p4, repeat('😀', 150), pg_temp.vcomp(v_p4)));
     v_log := v_log || pg_temp.vb('X9', 'บทเรียน emoji 150 ตัว (surrogate/4-byte) ผ่าน · ไม่ล้มที่ content_signal', v_t not like 'ERR:%', left(v_t, 100));
     -- amend: input ประหลาดนอกชุดของ verify
     foreach v_t in array array['{"view_count": 99999999999999999999}', '{"view_count": 1000000000001}', '{"ยอดวิว": 5}', '{"view_count": {"a": 1}}', '{"view_count": [1]}', '{"view_count": 1, "save_count": "5"}',
