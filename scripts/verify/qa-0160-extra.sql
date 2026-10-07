@@ -539,7 +539,7 @@ begin
     perform analytics.campaign_set_artifact_content(v_art, 'เนื้อหารอบ 3', null);
     perform analytics.campaign_set_artifact_content(v_art, 'เนื้อหารอบ 4', null);
     select g.detail into rr from analytics.step_gate g where g.step_id = v_s4 and g.gate_kind = 'fact_check';
-    v_log := v_log || pg_temp.bb('E2f', 'แก้เนื้อหา 2 ครั้งติดหลังผ่านด่านด้วยแหล่งใหม่ → detail.sources หาย (ไม่มีแหล่งค้างให้ผ่านด่านได้) · stale_sources = แหล่งล่าสุดที่ถูกล้าง', not (rr.detail ? 'sources') and rr.detail -> 'stale_sources' = jsonb_build_array('https://example.com/new-source'), left(rr.detail::text, 140));
+    v_log := v_log || pg_temp.bb('E2f', 'แก้เนื้อหา 2 ครั้งติดหลังผ่านด่านด้วยแหล่งใหม่ → detail.sources หาย (ไม่มีแหล่งค้างให้ผ่านด่านได้) · stale_sources สะสม [old, new] (I-1 รอบ 3: ต่อท้ายไม่ทับ · เดิมคาดแค่ [new])', not (rr.detail ? 'sources') and rr.detail -> 'stale_sources' = jsonb_build_array('https://example.com/old-source', 'https://example.com/new-source'), left(rr.detail::text, 140));
     -- ≤ 1 artifact ต่อชิ้นใน workflow · step นอก workflow ยังเพิ่มได้ (ต้องไม่พัง)
     v_log := v_log || pg_temp.lg('E3a', 'เสียบ artifact ตัวที่ 2 ให้ชิ้นใน workflow ตรงๆ → 55000 (v_content_piece แสดงตัวแรกตัวเดียว)',
       pg_temp.qx_ex(format('insert into analytics.step_artifact (step_id, shop_id, artifact_type, owner_role) select step_id, shop_id, artifact_type, owner_role from analytics.step_artifact where step_id = %L::uuid', v_s4), array['55000']));
@@ -622,7 +622,7 @@ begin
     v_r := pg_temp.qx_ok(format('select analytics.content_piece_post(%L::uuid,%L::uuid,''tiktok'',%L,%L,now() - interval ''1 hour'',''owner'',null,null,null,%L)', v_shop, v_s2, c_tt || 'ic', c_tt || 'ic', repeat('ก', 200000)));
     select length(cp.caption_snapshot) into v_n from analytics.content_post cp where cp.external_id = c_tt || 'ic';
     v_log := v_log || case when v_r = 'OK' and v_n = 200000 then pg_temp.nn('I5', 'caption 200,000 ตัวอักษรผ่าน content_piece_post (ไม่มีเพดานฝั่ง DB — เพดานอยู่ที่ lib เท่านั้น CAPTION_MAX_LEN · ผู้เรียกที่ถือ service key ยัดได้ไม่จำกัด) — Low')
-      else pg_temp.bb('I5', 'caption ยาวมากถูกจำกัด', v_n <= 5000, v_r || ' len=' || coalesce(v_n::text, 'null')) end;
+      else pg_temp.bb('I5', 'caption ยาวมากถูกปฏิเสธ 22023 (S-L3 รอบ 3: เพดาน 2,200 ใน content_piece_post) · ไม่มีแถวค้าง', v_r like 'FAIL ควรสำเร็จแต่ตก sqlstate=22023%' and v_n is null, v_r || ' len=' || coalesce(v_n::text, 'null')) end;
     -- ขอบล่างวันโพสต์: -infinity / 1970 ผ่านไหม และผลต่อ view ทั้งชุด
     -- I6: ขอบล่างวันโพสต์ — ทดลองใน subtransaction แล้วถอยเอง (ไม่ให้แถว -infinity ค้างกวนส่วนอื่น) · อ่านทุกคอลัมน์ของทุก view (count(*) ไม่ประเมินคอลัมน์ที่ไม่ใช้)
     v_s3 := pg_temp.mkp(v_shop, 'short_clip', 'tiktok', 'produced');
@@ -760,7 +760,10 @@ begin
     select post_overdue_no_link into v_n from analytics.v_content_inbox_counts where shop_id = v_shop;
     select flag_no_link_overdue into v_b from analytics.v_content_piece_calendar where step_id = v_s3;
     v_p2 := analytics.content_post_upsert(v_shop, 'tiktok', c_tt || 'g6', c_tt || 'g6', now() - interval '1 hour');
+    -- [รอบ 3 · S-M3] ด่านตารางขวางการเขียน step_id ตรงแล้ว — setup สภาพไม่ปกติต้องตั้ง GUC ของ role ภายใน (รันเป็นเจ้าของตาราง ไม่ใช่ service_role)
+    perform set_config('c2.piece_rpc', '1', true);
     update analytics.content_post set step_id = v_s3 where id = v_p2;
+    perform set_config('c2.piece_rpc', '', true);
     select post_overdue_no_link into v_n2 from analytics.v_content_inbox_counts where shop_id = v_shop;
     select flag_no_link_overdue into v_b2 from analytics.v_content_piece_calendar where step_id = v_s3;
     v_log := v_log || pg_temp.bb('G6', 'produced เกินวัน: ก่อนมีโพสต์ธง=true/นับ · หลังมีโพสต์ active ผูกอยู่ ธงดับ + inbox.post_overdue_no_link ลด 1 (สูตรไม่นับชิ้นที่มีโพสต์ active)', v_b is true and coalesce(v_b2, true) is false and v_n2 = v_n - 1, format('flag %s→%s inbox %s→%s', v_b, v_b2, v_n, v_n2));

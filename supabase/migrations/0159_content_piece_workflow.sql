@@ -99,7 +99,10 @@
 --              ช่องชน FK หายไปพร้อมกัน ⇒ การอนุมัติที่แข่งอยู่อาจเห็นด่านเก่าที่ยัง passed)
 --   R  [รอบ 2 · security Low M4 ปิดสนิท] ล้างผลตรวจ fact_check (invalidate_) ย้าย detail.sources → detail.stale_sources (ไม่ลบ — เห็นประวัติ) ทุกสถานะของแถว
 --      (passed/na ถูกรีเซ็ตเป็น pending พร้อมกัน · pending/blocked ที่มี sources ก็ย้ายด้วย ไม่งั้น AI กด passed ด้วยแหล่งของข้อความเก่าได้) ·
---      content_gate_record อ่านเฉพาะ 'sources' (ไม่อ่าน stale_sources) และไม่รับ stale_sources เป็น key ขาเข้า ⇒ passed ซ้ำโดยไม่มีแหล่งใหม่ = 22023
+--      content_gate_record ไม่ใช้ stale_sources เป็นหลักฐานผ่านด่าน (v_src อ่านจาก 'sources' เท่านั้น) และไม่รับ stale_sources เป็น key ขาเข้า ⇒ passed ซ้ำโดยไม่มีแหล่งใหม่ = 22023
+--      [รอบ 3 · I-1] ประวัติต้องไม่หาย: (ก) content_gate_record ที่ส่ง detail ใหม่พก stale_sources เดิมไปด้วย (เดิม on conflict เขียนทับทั้งก้อน ประวัติหาย) —
+--      คัดลอกอย่างเดียว ไม่ใช้เป็นหลักฐาน (ข) invalidate_ รอบถัดไป "ต่อท้าย" stale_sources เดิมแทนทับ (เก็บ 100 ลิงก์ล่าสุด)
+--      [รอบ 3 · S-L1 ของ 0160] content_piece_transition_ ใส่ posted_before_approval: true ใน payload event post เมื่อ posted_at ของโพสต์ < เวลา event advance→approved ล่าสุด (ไม่บล็อก)
 --   S  [รอบ 2 · QA note E4a] set_plan เปลี่ยน piece_kind: ออกจาก line_message → ล้าง line_audience/line_audience_reason อัตโนมัติ (ถ้าไม่ได้ส่งมาเอง) ·
 --      เปลี่ยนเป็น line_message → เติม line_audience='all' (ค่าเริ่มต้นตามมติ) ถ้ายังว่างและไม่ได้ส่งมาเอง · บันทึกใน event plan diff ·
 --      "segment" ตีความเป็นค่า line_audience='segment' ไม่ใช่คอลัมน์ audience_segment (เป็นของบอร์ดเดิม/CRM — ไม่ใช่ของ workflow ไม่ล้าง)
@@ -825,9 +828,18 @@ begin
   -- R (security Low M4): แหล่งอ้างอิงของ fact_check ผูกกับ "ข้อความเก่า" — ย้าย detail.sources → detail.stale_sources (ไม่ลบ เห็นประวัติ)
   -- ทุกสถานะของแถว (ไม่ใช่เฉพาะที่เพิ่งรีเซ็ตจาก passed/na): แถว pending/blocked ที่มี sources อยู่ ถ้าทิ้งไว้ AI จะกด passed โดยไม่ส่ง detail
   -- แล้ว content_gate_record พก sources เดิมไปผ่านด่าน M4 ได้ · content_gate_record อ่านเฉพาะ 'sources' ไม่อ่าน stale_sources
+  -- I-1: สะสม ไม่ทับ — stale_sources เดิม (จากรอบก่อน) ต่อด้วย sources ที่เพิ่งหมดอายุ · เก็บ 100 ลิงก์ล่าสุด (กันโตไม่จำกัดเมื่อแก้เนื้อหาซ้ำๆ)
   with u as (
     update analytics.step_gate g
-       set detail = (g.detail - 'sources') || jsonb_build_object('stale_sources', g.detail -> 'sources')
+       set detail = (g.detail - 'sources') || jsonb_build_object('stale_sources', (
+             select coalesce(jsonb_agg(z.v order by z.ord), '[]'::jsonb)
+               from (select y.v, y.ord
+                       from (select e.value as v, e.ord
+                               from jsonb_array_elements(
+                                      case when jsonb_typeof(g.detail -> 'stale_sources') = 'array' then g.detail -> 'stale_sources' else '[]'::jsonb end
+                                      || case when jsonb_typeof(g.detail -> 'sources') = 'array' then g.detail -> 'sources' else '[]'::jsonb end
+                                    ) with ordinality as e(value, ord)) y
+                      order by y.ord desc limit 100) z))
      where g.step_id = p_step_id and g.gate_kind = 'fact_check' and g.detail ? 'sources'
      returning 1)
   select count(*)::int into v_staled from u;
@@ -2301,6 +2313,14 @@ begin
           raise exception 'content_piece_advance: ไม่พบโพสต์ที่ใช้งานอยู่และผูกกับชิ้นงานนี้' using errcode = '55000';
         end if;
         v_payload := jsonb_build_object('post_id', p_post_id);
+        -- S-L1 (0160): โพสต์ที่ posted_at ก่อนเวลาอนุมัติล่าสุด = ไม่บล็อก แต่ทำธงใน payload (เทียบ null = ไม่มี event อนุมัติ → ไม่ติดธง)
+        if exists (select 1 from analytics.content_post cp
+                    where cp.id = p_post_id
+                      and cp.posted_at < (select e.created_at from analytics.content_piece_event e
+                                           where e.step_id = p_step_id and e.event_kind = 'advance' and e.to_status = 'approved'
+                                           order by e.seq desc limit 1)) then
+          v_payload := v_payload || jsonb_build_object('posted_before_approval', true);
+        end if;
       else
         if p_post_id is not null then
           raise exception 'content_piece_advance: ชิ้นชนิด % ไม่มีลิงก์โพสต์ (ไม่สร้างแถว content_post)', v_kind using errcode = '22023';
@@ -2438,6 +2458,7 @@ declare
   v_max     int;
   v_passed  int;
   v_src     jsonb;
+  v_stale_old jsonb;
 begin
   if p_shop_id is null or p_step_id is null or p_gate_kind is null or p_status is null then
     raise exception 'content_gate_record: ต้องระบุร้าน ชิ้นงาน ด่าน และสถานะ' using errcode = '22023';
@@ -2556,6 +2577,16 @@ begin
        where g0.step_id = p_step_id and g0.gate_kind = 'fact_check';
       if v_detail is not null and v_src is not null then
         v_detail := v_detail || jsonb_build_object('sources', v_src);
+      end if;
+    end if;
+    -- I-1: detail ใหม่เขียนทับทั้งก้อน (on conflict ... coalesce(excluded.detail, g.detail)) ⇒ ประวัติแหล่งอ้างอิงเก่า (stale_sources) ต้องพกไปด้วย
+    -- ไม่งั้นส่ง detail ใหม่ครั้งเดียวประวัติหาย (ขัดข้อ R "ไม่ลบ เห็นประวัติ") · คัดลอกอย่างเดียว: ไม่ใช้เป็นหลักฐานผ่านด่าน M4 (v_src อ่านจาก sources เท่านั้น)
+    -- และไม่รับ stale_sources เป็น key ขาเข้า (ด่าน allowed-keys ด้านบน)
+    if v_detail is not null then
+      select g0.detail -> 'stale_sources' into v_stale_old from analytics.step_gate g0
+       where g0.step_id = p_step_id and g0.gate_kind = 'fact_check';
+      if jsonb_typeof(v_stale_old) = 'array' then
+        v_detail := v_detail || jsonb_build_object('stale_sources', v_stale_old);
       end if;
     end if;
     if p_status = 'passed' and (v_src is null or jsonb_typeof(v_src) <> 'array' or jsonb_array_length(v_src) = 0) then

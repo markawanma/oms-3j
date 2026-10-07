@@ -10,8 +10,16 @@
 -- ทำอะไร:
 --   1. helper: content_post_platform_ok_ (kind↔platform) · content_post_hook_check_ (hook ต้องเป็น ours ของ step นั้น — อ่านอย่างเดียว)
 --   2. RPC: content_piece_post · content_post_link_step · content_post_unlink_step · content_piece_defer (security definer · owner เท่านั้น)
+--   2b. trigger ด่านระดับตาราง content_post_guard_link (BEFORE INSERT/UPDATE บน content_post) — ผูก/ปลด step_id · hook_id ได้เฉพาะผ่าน RPC 3 ตัวข้างบน
 --   3. view (ใหม่ทั้งหมด · security_invoker · grant select service_role): v_content_piece_calendar · v_content_inbox_counts · v_line_quota_28d ·
 --      v_content_hook_library  — ไม่ replace view เดิม (trap #3) · ไม่มีชื่อจริงโฮสต์ในทุก view (expected_host_label = public_label เท่านั้น มาจาก v_content_piece)
+--
+-- 🔴 ถึงทีมหน้าจอ (frontend) — 2 ข้อที่ต้องทำตาม:
+--   1. view ทั้ง 4 ตัวของไฟล์นี้ (และ v_content_piece ของ 0159) "ไม่กรองร้านให้" — security_invoker + service_role ข้าม RLS ⇒ ทุก query ต้อง `.eq('shop_id', shopId)`
+--      เสมอ ไม่งั้นได้แถวของทุกร้านปนกัน (ตอนนี้มีร้านเดียว ผลเลยดูถูกต้อง — จะพังวันที่มีร้านที่สอง) · v_content_inbox_counts / v_line_quota_28d คืน 1 แถว/ร้าน
+--   2. map error จาก "รหัส (errcode)" ไม่ใช่ "ชื่อฟังก์ชัน/ข้อความ": 22023 = อินพุตผิด (บอกผู้ใช้ให้แก้ค่า) · 42501 = ไม่ใช่เจ้าของ ·
+--      55000 = สถานะ/การผูกไม่เอื้อ (ชิ้นยังไม่ approved · ผูกซ้ำ · โพสต์ผูกกับชิ้นอื่น/เอกสารของชิ้นอื่น · มี platform นั้นอยู่แล้ว · ชนกับคำสั่งอื่นพร้อมกัน — ลองใหม่) ·
+--      ข้อความภาษาไทยในแต่ละ raise เปลี่ยนได้ ห้าม match ข้อความ · ทุก RPC ในไฟล์นี้ rollback ทั้งก้อนเมื่อ raise (ไม่มี partial write)
 --
 -- 🔴 ตัดสินใจเองนอก design (เหตุผลอยู่ที่จุดนั้น + สรุปส่งมอบ):
 --   A  content_piece_post ห่อ content_post_upsert เดิม (ไม่แตะ — คิววางลิงก์ /marketing/content/entry ยังเรียกตรง) · ตรวจโพสต์เดิมที่ผูกชิ้นอื่น/ชิ้นนี้
@@ -33,6 +41,29 @@
 --   H  v_content_hook_library: สถิติต่อ hook_type นับเฉพาะ hook ours ที่ผูกโพสต์ active + มีผล T+7 (v_content_post_t7.t7_captured_on) · n = จำนวน "ชิ้น"
 --      (distinct step) ไม่ใช่จำนวนโพสต์ · n < 4 = 'ยังสรุปไม่ได้' (กฎ 4 ชิ้น — ค่าคงที่ที่เดียวใน view นี้) · แถว reference โชว์สถิติของ "ประเภทเดียวกันของเรา"
 --      เพื่อเทียบ แต่ไม่นับ reference เข้าสถิติ · ไม่มีคอลัมน์ account/ชื่อคน (สเปก §11.2 ข้อ 7)
+--
+-- 🔴 รอบแก้ตาม security (CONDITIONAL GO) + QA (PASS with notes) — 7 ต.ค. 69:
+--   S-M1 ผูกโพสต์แบบ "compare-and-set": update ... where step_id is null + found เช็ค ⇒ กดโพสต์ 2 ชิ้นพร้อมกันด้วยลิงก์เดียวกัน ตัวที่แพ้ = 55000 rollback ทั้งก้อน
+--        (รวมสถานะ posted) · ก่อนหน้านี้ UPDATE ไม่มี where step_id is null ⇒ ตัวที่มาทีหลังเขียนทับ step_id ของตัวแรกเงียบ ๆ
+--   S-M2 กติกา post กับ link_step ตรงกัน: โพสต์ที่มีอยู่แล้วและ artifact_id ไม่ใช่ null แต่ไม่ใช่เอกสารของชิ้นนี้ = 55000 ทั้งสองทาง ·
+--        🔴 ตัดสินใจกลับสเปกเดิม: content_post_unlink_step ล้าง artifact_id ด้วย (เดิมคงไว้) — ไม่งั้นโพสต์ที่เคยผูกผิดชิ้นจะผูกเข้าชิ้นที่ถูกไม่ได้อีกเลย
+--        (artifact_id ของชิ้นเดิมค้างอยู่ ⇒ ด่าน S-M2 ปฏิเสธทุกชิ้นอื่น) · ผูกใหม่ภายหลังเติม artifact_id ของชิ้นใหม่ให้เอง (link_step coalesce)
+--   S-M3 ด่านระดับตาราง (trigger content_post_guard_link · แพทเทิร์นเดียวกับ content_piece_guard_step ของ 0159): ข้ามเฉพาะเมื่อ GUC c2.piece_rpc='1'
+--        และ current_user ไม่ใช่ service_role/authenticated/anon (RPC definer รันเป็นเจ้าของฟังก์ชัน) ⇒ service_role เขียนตรงไม่ผ่าน:
+--        INSERT ที่มี step_id/hook_id · UPDATE ที่เปลี่ยน step_id/hook_id · UPDATE ที่เปลี่ยน artifact_id ของโพสต์ที่ผูก step แล้ว → 55000 ·
+--        RPC 3 ตัว (post/link/unlink) เปิด GUC ครอบ "เฉพาะคำสั่ง update content_post" แล้วปิดคืนทันที ·
+--        ต้องไม่พัง: content_post_upsert จากคิวเดิม (โพสต์นอกแผน · โพสต์ที่ผูก artifact เดิม · วางซ้ำค่าเดิม) ทำงานเหมือนเดิม (ไม่แตะ step_id/hook_id · artifact_id เปลี่ยนเฉพาะแถวที่ยังไม่ผูก step)
+--        🔴 ตัดสินใจเอง: ปล่อย UPDATE ที่เป็นการ "เคลียร์เป็น null โดย FK action" (on delete set null ของ step_id/hook_id/artifact_id — ลบ hook/เอกสาร
+--        ที่โพสต์ deleted ยังอ้างอยู่) ผ่านด้วย pg_trigger_depth() > 1 + เปลี่ยนได้เฉพาะเป็น null ไม่งั้น trigger ขวางการลบ hook/เอกสารเอง (55000 งงๆ) ·
+--        UPDATE ตรงจาก service_role อยู่ที่ depth 1 ⇒ ยังโดนด่านเต็ม
+--   S-L1 posted_at ก่อนเวลาอนุมัติ (event advance→approved ล่าสุด) ไม่บล็อก — ใส่ posted_before_approval: true ใน payload ของ event post (ทางผูกใบแรกผ่าน
+--        content_piece_transition_ ของ 0159 ซึ่งแก้ในไฟล์ 0159 เพื่อข้อนี้ · ใบที่ 2 ที่เขียน event ในไฟล์นี้ใช้สูตรเดียวกัน)
+--   S-L2 เปิดโพสต์ deleted/private กลับ active (content_post_set_status) ที่ยังผูกชิ้น: ถ้าชิ้นนั้นมีโพสต์ active platform เดียวกันอยู่แล้ว = 55000 (ใน trigger — เส้นทางไหนก็ผ่านด่านนี้)
+--   S-L3 caption เพดาน 2,200 ตัวอักษร (หลัง btrim) ใน content_piece_post เท่านั้น — ไม่ใส่ CHECK ที่ตาราง: content_post_upsert เดิมรับ caption ไม่จำกัด (QA D1 เคส 18 = 100,000) และ
+--        เปลี่ยนพฤติกรรมของคิวเดิมไม่ได้ ⇒ ผู้เรียกที่ถือ service key ตรง ๆ ยังยัดยาวได้ผ่านคิวเดิม (Low · รับไว้)
+--   QA-I6 posted_at ต้องอยู่ใน [2025-01-01 00:00 ไทย, now()+1 วัน] และจำกัด (ไม่ infinity/-infinity) — content_piece_post + content_post_link_step (ตรวจ posted_at ของโพสต์ที่จะผูก) ·
+--        เดิมค่า -infinity ทำให้ posted_date_th = -infinity แล้ว view ทั้งร้านอ่านไม่ได้ (22008) · ⚠️ content_post_upsert เดิม (คิววางลิงก์) ยังรับ -infinity ได้ (ไม่แตะ — QA D1 เคส 20 ล็อกพฤติกรรมเดิมไว้) ·
+--        link_step จึงเป็นด่านกันโพสต์ที่หลุดเข้ามาแบบนั้นไม่ให้ถูกผูกกับชิ้นงาน
 --
 -- Grant model (3j-migration-traps #18): ทุก object ใหม่ grant ให้ service_role อย่างเดียว · revoke ครบสามชื่อ (public/anon/authenticated)
 -- ⚠️ ห้ามมี `to authenticated` ในไฟล์นี้ (สคีมา analytics ปิด REST ของ anon/authenticated ทั้งสคีมา — 0123)
@@ -93,7 +124,7 @@ begin
              order by p.oid::regprocedure::text), ''))
     from pg_proc p
     where p.pronamespace = 'analytics'::regnamespace and p.prokind = 'f'
-      and p.proname !~ '^(content_piece_post$|content_piece_defer$|content_post_link_step$|content_post_unlink_step$|content_post_platform_ok_$|content_post_hook_check_$)'), true);
+      and p.proname !~ '^(content_piece_post$|content_piece_defer$|content_post_link_step$|content_post_unlink_step$|content_post_platform_ok_$|content_post_hook_check_$|content_post_guard_link$)'), true);
 end
 $c3snap$;
 
@@ -173,7 +204,10 @@ declare
   v_hook       uuid := p_hook_id;
   v_post       uuid;
   v_ex_step    uuid;
+  v_ex_art     uuid;
   v_was_posted boolean;
+  v_linked     boolean;
+  v_appr       timestamptz;
 begin
   if p_shop_id is null or p_step_id is null or p_platform is null or p_posted_at is null or v_ext = '' or v_url = '' then
     raise exception 'content_piece_post: ต้องระบุร้าน ชิ้นงาน platform external_id ลิงก์ และเวลาโพสต์' using errcode = '22023';
@@ -186,6 +220,16 @@ begin
   end if;
   if not analytics.content_url_ok(v_url) then
     raise exception 'content_piece_post: ลิงก์โพสต์ไม่ถูกต้อง (ต้องเป็น http/https ยาวไม่เกิน 500 ไม่มี user@ ช่องว่าง \ < > ")' using errcode = '22023';
+  end if;
+  -- QA-I6: ขอบวันโพสต์ — ปฏิเสธ ±infinity (posted_date_th = infinity ทำให้ view ทั้งร้านอ่านไม่ได้) · ก่อน 2025-01-01 (เวลาไทย) · อนาคตเกิน 1 วัน
+  -- (content_post_upsert เดิมปฏิเสธ > now() อยู่แล้ว — ขอบ +1 วันที่นี่คือด่านของตัวเองที่ไม่พึ่งฟังก์ชันเดิม)
+  if p_posted_at in ('infinity'::timestamptz, '-infinity'::timestamptz)
+     or p_posted_at < timestamptz '2025-01-01 00:00:00+07' or p_posted_at > now() + interval '1 day' then
+    raise exception 'content_piece_post: เวลาโพสต์อยู่นอกช่วงที่ยอมรับ (ต้องไม่ก่อน 2025-01-01 และไม่อยู่ในอนาคต)' using errcode = '22023';
+  end if;
+  -- S-L3: caption เพดาน 2,200 ตัวอักษร (เทียบหลัง btrim เหมือนที่ content_post_upsert เก็บ)
+  if p_caption is not null and length(btrim(p_caption)) > 2200 then
+    raise exception 'content_piece_post: caption ยาวเกิน 2,200 ตัวอักษร' using errcode = '22023';
   end if;
   -- hook: เลือกของเดิม หรือเขียน "อื่นๆ" อย่างใดอย่างหนึ่ง · ไม่เลือกเลย = ได้ (Q6: ไม่บังคับที่ DB)
   if p_hook_id is not null and (p_hook_other_text is not null or p_hook_other_type is not null) then
@@ -235,14 +279,24 @@ begin
       using errcode = '55000';
   end if;
 
+  select a.id into v_art from analytics.step_artifact a
+   where a.step_id = p_step_id and a.shop_id = p_shop_id order by a.created_at, a.id limit 1;
+
   -- โพสต์เดิม (shop+platform+external_id) ที่ผูกชิ้นอื่น/ชิ้นนี้อยู่ ต้องตกก่อน upsert — upsert จะทับ post_url/posted_at ของมัน
-  select cp.step_id into v_ex_step from analytics.content_post cp
+  select cp.step_id, cp.artifact_id into v_ex_step, v_ex_art from analytics.content_post cp
    where cp.shop_id = p_shop_id and cp.platform = p_platform and cp.external_id = v_ext for update;
-  if found and v_ex_step is not null then
-    if v_ex_step = p_step_id then
-      raise exception 'content_piece_post: โพสต์นี้ผูกกับชิ้นนี้อยู่แล้ว' using errcode = '55000';
+  if found then
+    if v_ex_step is not null then
+      if v_ex_step = p_step_id then
+        raise exception 'content_piece_post: โพสต์นี้ผูกกับชิ้นนี้อยู่แล้ว' using errcode = '55000';
+      end if;
+      raise exception 'content_piece_post: โพสต์นี้ผูกกับชิ้นงานอื่นอยู่ — ปลดผูก (content_post_unlink_step) ก่อน' using errcode = '55000';
     end if;
-    raise exception 'content_piece_post: โพสต์นี้ผูกกับชิ้นงานอื่นอยู่ — ปลดผูก (content_post_unlink_step) ก่อน' using errcode = '55000';
+    -- S-M2: กติกาเดียวกับ content_post_link_step — โพสต์เดิมที่ผูกเอกสารของชิ้นอื่นอยู่ (artifact_id ไม่ว่างและไม่ใช่ของชิ้นนี้) ผูกกับชิ้นนี้ไม่ได้
+    -- (ไม่ปล่อยให้ upsert ย้าย artifact_id ไปชิ้นนี้เงียบ ๆ)
+    if v_ex_art is not null and v_ex_art is distinct from v_art then
+      raise exception 'content_piece_post: โพสต์นี้ผูกกับเอกสารของชิ้นงานอื่นอยู่' using errcode = '55000';
+    end if;
   end if;
 
   if p_hook_id is not null then
@@ -259,19 +313,29 @@ begin
     end;
   end if;
 
-  select a.id into v_art from analytics.step_artifact a
-   where a.step_id = p_step_id and a.shop_id = p_shop_id order by a.created_at, a.id limit 1;
-
   -- ห่อฟังก์ชันเดิม (ไม่แตะ): validate ลิงก์/วันอนาคต/สถานะ deleted ตกที่นั่น · ทรานแซกชันเดียวกัน
   v_post := analytics.content_post_upsert(p_shop_id, p_platform, v_ext, v_url, p_posted_at, v_s.content_type_code, v_art, p_caption);
-  update analytics.content_post set step_id = p_step_id, hook_id = v_hook where id = v_post;
+
+  -- S-M1: compare-and-set — ผูกได้เฉพาะแถวที่ step_id ยังว่าง ณ ตอนเขียน · ถ้ามีอีกคำสั่งผูกโพสต์นี้ไปก่อน (กดโพสต์ 2 ชิ้นพร้อมกันด้วยลิงก์เดียวกัน
+  -- ทั้งที่ทั้งคู่ผ่านด่านด้านบนมาแล้ว) แถวนี้จะไม่ถูกเขียนทับ ⇒ raise ถอยทั้งก้อนรวมสถานะ posted · GUC เปิดเฉพาะคำสั่ง update นี้ (ผ่านด่านตาราง S-M3)
+  perform set_config('c2.piece_rpc', '1', true);
+  update analytics.content_post set step_id = p_step_id, hook_id = v_hook where id = v_post and step_id is null;
+  v_linked := found;
+  perform set_config('c2.piece_rpc', '', true);
+  if not v_linked then
+    raise exception 'content_piece_post: โพสต์นี้เพิ่งถูกผูกกับชิ้นงานอื่นโดยคำสั่งอื่น — ลองใหม่' using errcode = '55000';
+  end if;
 
   if not v_was_posted then
     perform analytics.content_piece_transition_(p_shop_id, p_step_id, 'posted', 'owner', null, null, v_post);
   else
+    -- S-L1: เวลาโพสต์ก่อนเวลาอนุมัติล่าสุด = ไม่บล็อก แต่ทำธงใน payload (ทางผูกใบแรกทำใน content_piece_transition_)
+    select e.created_at into v_appr from analytics.content_piece_event e
+     where e.step_id = p_step_id and e.event_kind = 'advance' and e.to_status = 'approved' order by e.seq desc limit 1;
     insert into analytics.content_piece_event (shop_id, step_id, event_kind, from_status, to_status, actor_role, actor_uid, payload)
     values (p_shop_id, p_step_id, 'post', 'posted', 'posted', 'owner', auth.uid(),
-            jsonb_build_object('post_id', v_post, 'additional', true, 'platform', p_platform));
+            jsonb_build_object('post_id', v_post, 'additional', true, 'platform', p_platform)
+            || case when p_posted_at < v_appr then jsonb_build_object('posted_before_approval', true) else '{}'::jsonb end);
   end if;
 
   return jsonb_build_object('post_id', v_post, 'step_id', p_step_id, 'piece_status', 'posted', 'hook_id', to_jsonb(v_hook),
@@ -300,6 +364,8 @@ declare
   v_p          analytics.content_post%rowtype;
   v_art        uuid;
   v_was_posted boolean;
+  v_linked     boolean;
+  v_appr       timestamptz;
 begin
   if p_shop_id is null or p_post_id is null or p_step_id is null then
     raise exception 'content_post_link_step: ต้องระบุร้าน โพสต์ และชิ้นงาน' using errcode = '22023';
@@ -325,6 +391,11 @@ begin
   if v_p.step_id is not null then
     raise exception 'content_post_link_step: โพสต์นี้ผูกกับชิ้นงาน% อยู่แล้ว — ปลดผูก (content_post_unlink_step) ก่อน',
       case when v_p.step_id = p_step_id then 'นี้' else 'อื่น' end using errcode = '55000';
+  end if;
+  -- QA-I6: โพสต์ที่ posted_at หลุดช่วง (±infinity · ก่อน 2025 · อนาคตเกิน 1 วัน — เข้ามาทางคิวเดิม) ผูกกับชิ้นงานไม่ได้ ไม่งั้น view ที่ join ชิ้นงานพังทั้งร้าน
+  if v_p.posted_at in ('infinity'::timestamptz, '-infinity'::timestamptz)
+     or v_p.posted_at < timestamptz '2025-01-01 00:00:00+07' or v_p.posted_at > now() + interval '1 day' then
+    raise exception 'content_post_link_step: เวลาโพสต์ของโพสต์นี้อยู่นอกช่วงที่ยอมรับ — แก้เวลาโพสต์ผ่านคิววางลิงก์ก่อนผูก' using errcode = '22023';
   end if;
   v_was_posted := v_s.piece_status = 'posted';
   -- C: posted + ig_fb_post = โพสต์ใบที่ 2 นอกแผน (กติกาเดียวกับ content_piece_post)
@@ -355,15 +426,26 @@ begin
     raise exception 'content_post_link_step: โพสต์นี้ผูกกับเอกสารของชิ้นงานอื่นอยู่' using errcode = '55000';
   end if;
 
+  -- แถวโพสต์ถูกล็อก (for update) ตั้งแต่ด้านบนและอ่าน step_id ซ้ำหลังล็อกแล้ว — "and step_id is null + found" เป็นเข็มขัดสองชั้นแบบเดียวกับ content_piece_post (S-M1)
+  perform set_config('c2.piece_rpc', '1', true);
   update analytics.content_post set step_id = p_step_id, hook_id = p_hook_id, artifact_id = coalesce(artifact_id, v_art)
-   where id = p_post_id;
+   where id = p_post_id and step_id is null;
+  v_linked := found;
+  perform set_config('c2.piece_rpc', '', true);
+  if not v_linked then
+    raise exception 'content_post_link_step: โพสต์นี้เพิ่งถูกผูกกับชิ้นงานอื่นโดยคำสั่งอื่น — ลองใหม่' using errcode = '55000';
+  end if;
 
   if not v_was_posted then
     perform analytics.content_piece_transition_(p_shop_id, p_step_id, 'posted', 'owner', null, null, p_post_id);
   else
+    -- S-L1: ธง posted_before_approval (ทางผูกใบแรกทำใน content_piece_transition_)
+    select e.created_at into v_appr from analytics.content_piece_event e
+     where e.step_id = p_step_id and e.event_kind = 'advance' and e.to_status = 'approved' order by e.seq desc limit 1;
     insert into analytics.content_piece_event (shop_id, step_id, event_kind, from_status, to_status, actor_role, actor_uid, payload)
     values (p_shop_id, p_step_id, 'post', 'posted', 'posted', 'owner', auth.uid(),
-            jsonb_build_object('post_id', p_post_id, 'additional', true, 'platform', v_p.platform, 'linked', true));
+            jsonb_build_object('post_id', p_post_id, 'additional', true, 'platform', v_p.platform, 'linked', true)
+            || case when v_p.posted_at < v_appr then jsonb_build_object('posted_before_approval', true) else '{}'::jsonb end);
   end if;
 
   return jsonb_build_object('post_id', p_post_id, 'step_id', p_step_id, 'piece_status', 'posted', 'hook_id', to_jsonb(p_hook_id),
@@ -372,7 +454,7 @@ end;
 $f$;
 
 -- ============================================================================
--- 4. content_post_unlink_step — ถอดโพสต์ออกจากชิ้นงาน (owner + เหตุผล) · โพสต์ไม่ถูกลบ (ยังอยู่คิวยอดในฐานะนอกแผน) · artifact_id คงไว้
+-- 4. content_post_unlink_step — ถอดโพสต์ออกจากชิ้นงาน (owner + เหตุผล) · โพสต์ไม่ถูกลบ (ยังอยู่คิวยอดในฐานะนอกแผน) · ล้าง step_id/hook_id/artifact_id
 --    ชิ้นที่ posted แล้วไม่เหลือโพสต์ active ⇒ ถอย posted→produced ด้วยเหตุผลเดียวกัน (event unpost)
 -- ============================================================================
 
@@ -419,7 +501,11 @@ begin
     raise exception 'content_post_unlink_step: โพสต์นี้เพิ่งถูกผูก/ปลดโดยคำสั่งอื่น — ลองใหม่' using errcode = '55000';
   end if;
 
-  update analytics.content_post set step_id = null, hook_id = null where id = p_post_id;
+  -- ล้าง artifact_id ด้วย (S-M2 · ตัดสินใจกลับสเปก): artifact_id ที่ค้างของชิ้นเดิมทำให้ด่าน "โพสต์ผูกเอกสารของชิ้นอื่น" ปฏิเสธการผูกเข้าชิ้นที่ถูกตลอดไป
+  -- ผูกใหม่ภายหลังเติม artifact_id ของชิ้นใหม่ให้เอง (link_step) · GUC เปิดเฉพาะคำสั่งนี้ (ผ่านด่านตาราง S-M3)
+  perform set_config('c2.piece_rpc', '1', true);
+  update analytics.content_post set step_id = null, hook_id = null, artifact_id = null where id = p_post_id;
+  perform set_config('c2.piece_rpc', '', true);
 
   select count(*)::int into v_remaining from analytics.content_post cp
    where cp.step_id = v_step and cp.shop_id = p_shop_id and cp.status = 'active';
@@ -438,6 +524,66 @@ begin
                             'remaining_active_posts', v_remaining);
 end;
 $f$;
+
+-- ============================================================================
+-- 4b. ด่านระดับตาราง content_post (S-M3 · S-L2) — service_role ข้าม RLS/RPC ได้เสมอ (rolbypassrls) ⇒ กฎ "ผูกโพสต์กับชิ้นงาน" ต้องมีที่ตารางด้วย
+--     แพทเทิร์นเดียวกับ content_piece_guard_step (0159): ข้ามได้เมื่อ GUC c2.piece_rpc='1' และ current_user ไม่ใช่ service_role/authenticated/anon
+--     (RPC security definer รันเป็นเจ้าของฟังก์ชัน ⇒ ผ่าน · service_role ที่ตั้ง GUC เองยังรัน current_user = service_role ⇒ ไม่ผ่าน)
+--     ห้าม (55000): INSERT ที่มี step_id/hook_id · UPDATE ที่เปลี่ยน step_id/hook_id · UPDATE ที่เปลี่ยน artifact_id ของโพสต์ที่ผูก step แล้ว
+--     ปล่อย: คิวเดิม (content_post_upsert) ที่ไม่แตะ step_id/hook_id · เปลี่ยน artifact_id ของโพสต์ที่ "ยังไม่ผูก step" (โพสต์นอกแผนผูกเอกสารทีหลัง) ·
+--            FK on delete set null ของ step_id/hook_id/artifact_id (pg_trigger_depth() > 1 และเปลี่ยนเป็น null อย่างเดียว — ไม่งั้นลบ hook/เอกสารไม่ได้)
+--     S-L2: เปิดโพสต์ที่ไม่ active กลับเป็น active ขณะที่ยังผูกชิ้นอยู่ ถ้าชิ้นนั้นมีโพสต์ active platform เดียวกันอยู่แล้ว = 55000 (เช็คก่อน GUC —
+--           เป็น invariant ของข้อมูล ไม่ใช่สิทธิ์: ไม่ว่าเส้นทางไหนก็ต้องไม่ให้ชิ้นมี 2 โพสต์ active บน platform เดียว)
+-- ============================================================================
+
+create or replace function analytics.content_post_guard_link()
+ returns trigger
+ language plpgsql
+ set search_path to 'public', 'analytics', 'pg_temp'
+as $f$
+begin
+  if tg_op = 'UPDATE' and new.status = 'active' and old.status is distinct from 'active' and new.step_id is not null
+     and exists (select 1 from analytics.content_post cp
+                  where cp.step_id = new.step_id and cp.shop_id = new.shop_id and cp.platform = new.platform
+                    and cp.status = 'active' and cp.id <> new.id) then
+    raise exception 'เปิดโพสต์กลับไม่ได้ — ชิ้นงานนี้มีโพสต์ % ที่ใช้งานอยู่แล้ว (1 platform ต่อชิ้น 1 โพสต์) · ปลดผูกใบนี้ก่อน (content_post_unlink_step)', new.platform
+      using errcode = '55000';
+  end if;
+
+  -- FK action (on delete set null): UPDATE ที่ซ้อนใน trigger ของ RI · เคลียร์เป็น null ได้อย่างเดียว ไม่เปลี่ยนค่าอื่น
+  if tg_op = 'UPDATE' and pg_trigger_depth() > 1 and new.status is not distinct from old.status
+     and (new.step_id is null or new.step_id is not distinct from old.step_id)
+     and (new.hook_id is null or new.hook_id is not distinct from old.hook_id)
+     and (new.artifact_id is null or new.artifact_id is not distinct from old.artifact_id) then
+    return new;
+  end if;
+
+  if coalesce(current_setting('c2.piece_rpc', true), '') = '1'
+     and current_user not in ('service_role', 'authenticated', 'anon') then
+    return new;
+  end if;
+
+  if tg_op = 'INSERT' then
+    if new.step_id is not null or new.hook_id is not null then
+      raise exception 'ผูกโพสต์กับชิ้นงาน/hook ต้องผ่าน content_piece_post หรือ content_post_link_step เท่านั้น (ห้ามเขียน step_id/hook_id ตรง)' using errcode = '55000';
+    end if;
+    return new;
+  end if;
+
+  if new.step_id is distinct from old.step_id or new.hook_id is distinct from old.hook_id then
+    raise exception 'ผูก/ปลด step_id หรือ hook_id ของโพสต์ต้องผ่าน content_piece_post · content_post_link_step · content_post_unlink_step เท่านั้น (ห้ามแก้ตรง)' using errcode = '55000';
+  end if;
+  if old.step_id is not null and new.artifact_id is distinct from old.artifact_id then
+    raise exception 'โพสต์ที่ผูกชิ้นงานแล้วเปลี่ยนเอกสาร (artifact_id) ไม่ได้ — ปลดผูก (content_post_unlink_step) ก่อน' using errcode = '55000';
+  end if;
+  return new;
+end;
+$f$;
+
+drop trigger if exists trg_content_post_link_guard on analytics.content_post;
+create trigger trg_content_post_link_guard
+  before insert or update on analytics.content_post
+  for each row execute function analytics.content_post_guard_link();
 
 -- ============================================================================
 -- 5. content_piece_defer — เลื่อนวันชิ้นที่วางแผนแล้ว (owner + เหตุผล) · piece_status ไม่เปลี่ยน (↷ ไม่ใช่สถานะ)
@@ -685,7 +831,7 @@ begin
     select p.oid::regprocedure::text as sig
       from pg_proc p
      where p.pronamespace = 'analytics'::regnamespace and p.prokind = 'f'
-       and p.proname ~ '^(content_piece_post$|content_piece_defer$|content_post_link_step$|content_post_unlink_step$|content_post_platform_ok_$|content_post_hook_check_$)'
+       and p.proname ~ '^(content_piece_post$|content_piece_defer$|content_post_link_step$|content_post_unlink_step$|content_post_platform_ok_$|content_post_hook_check_$|content_post_guard_link$)'
   loop
     execute format('revoke execute on function %s from public, anon, authenticated', r.sig);
     execute format('grant execute on function %s to service_role', r.sig);
@@ -711,7 +857,7 @@ declare
   v_now text;
   v_bad text;
   v_k   text;
-  c_fn  constant text := '^(content_piece_post$|content_piece_defer$|content_post_link_step$|content_post_unlink_step$|content_post_platform_ok_$|content_post_hook_check_$)';
+  c_fn  constant text := '^(content_piece_post$|content_piece_defer$|content_post_link_step$|content_post_unlink_step$|content_post_platform_ok_$|content_post_hook_check_$|content_post_guard_link$)';
 begin
   foreach v_k in array array['c3.snap_post', 'c3.snap_step', 'c3.snap_artifact', 'c3.snap_gate', 'c3.snap_hook', 'c3.snap_event',
                              'c3.snap_views', 'c3.snap_funcs'] loop
@@ -788,8 +934,16 @@ begin
     raise exception '0160 ด่านท้าย: ฟังก์ชันมี overload ค้าง — หยุดแล้วรายงาน: %', v_bad;
   end if;
   select count(*) into v_now from pg_proc p where p.pronamespace = 'analytics'::regnamespace and p.proname ~ c_fn;
-  if v_now::int <> 6 then
-    raise exception '0160 ด่านท้าย: คาดฟังก์ชันของไฟล์นี้ 6 ตัว พบ %', v_now;
+  if v_now::int <> 7 then
+    raise exception '0160 ด่านท้าย: คาดฟังก์ชันของไฟล์นี้ 7 ตัว (helper 2 + RPC 4 + trigger 1) พบ %', v_now;
+  end if;
+
+  -- S-M3: trigger ด่านตารางต้องมีและเปิดอยู่ (tgenabled = 'O') · ชี้ฟังก์ชันที่ถูกตัว · BEFORE ROW ครอบทั้ง INSERT และ UPDATE
+  if not exists (select 1 from pg_trigger t
+                  where t.tgrelid = 'analytics.content_post'::regclass and t.tgname = 'trg_content_post_link_guard' and not t.tgisinternal
+                    and t.tgenabled = 'O' and t.tgfoid = 'analytics.content_post_guard_link()'::regprocedure
+                    and (t.tgtype & 1) = 1 and (t.tgtype & 2) = 2 and (t.tgtype & 4) = 4 and (t.tgtype & 16) = 16) then
+    raise exception '0160 ด่านท้าย: trigger trg_content_post_link_guard ไม่ครบ (ต้อง BEFORE INSERT OR UPDATE FOR EACH ROW เปิดอยู่)';
   end if;
 
   -- trap #18: ไม่มี PUBLIC/anon/authenticated ถือ EXECUTE (coalesce proacl — default = PUBLIC execute)

@@ -22,6 +22,16 @@
 --  ต้องไม่พัง: content_post_upsert ตรง (คิววางลิงก์เดิม) ยังทำงาน · คิวยอดเห็นโพสต์นอกแผน → KQ1-KQ3 · posted_on · effective 'measuring' → B3
 --  ชุดอื่น: A (โครงสร้าง/สิทธิ์/overload/วันไทย/ไม่มีชื่อโฮสต์) · L (link/unlink) · D (defer) · V (view) · H (hook library + กฎ 4 ชิ้น) · X37 (authenticated)
 --
+-- ============ รอบแก้ตาม security (CONDITIONAL GO) + QA I6 (7 ต.ค. 69) — id → ข้อ · mutant ที่ทำให้ล้มจริง ============
+--  S-M1 CAS ผูกโพสต์ → S-M1a/b (จำลอง race ด้วย trigger ตัวแทรก) · mutant: ถอด "step_id is null" หรือ "if not v_linked" → S-M1a ล้ม
+--  S-M2 เอกสารของชิ้นอื่น + unlink ล้าง artifact_id → S-M2a-d · L3 · G9c · mutant: ลบด่านใน link / post / ไม่ล้างตอน unlink → ล้มทั้งสามแบบ
+--  S-M3 ด่านตาราง → A7 A8 G1-G7 KQ4 G9a-c F1 · mutant: ถอด INSERT / UPDATE step-hook / artifact / current_user / FK bypass / ไม่สร้าง trigger → ล้ม (ไม่สร้าง trigger = ล้มที่ด่านท้าย 0160)
+--  S-L1 posted_before_approval → S-L1a-c · S-L2 → S-L2a/b · S-L3 → S-L3 · QA-I6 → I6a-d (ทั้ง post และ link)
+--  mutant ที่ security บอกว่าจับไม่ได้: ลบด่าน artifact ไม่ตรงใน link → S-M2a/b/c · ลบด่าน hold → X31u (post) / L8 (link — ใช้ตัวนับ tuple เพราะ transition_ มีด่านเดียวกันซ้ำ) ·
+--      ลบด่าน 1 platform active → K14e L5 L6 L9
+--  X31u เดิมปลอม (md5 หลัง vx ถอย) → ตอนนี้นับ tuple ผ่าน pg_stat_xact (+ canary) · X31x เดิมปลอม (GUC คืนเพราะ subtransaction) → SKIP พร้อมเหตุผล + A8 static + G-guc1-3 (ทางสำเร็จ · mutant ไม่ปิด GUC → ล้ม)
+--  ⚠️ กฎเขียนเทสต์: ห้ามอ่านผลด้วย subselect ดิบในนิพจน์เดียวกับฟังก์ชันที่เขียนข้อมูล (เห็นแค่ snapshot ต้นคำสั่ง) — แยกเป็นคำสั่งถัดไป
+--
 -- ถ้ามีร้านมากกว่า 1 ร้านใน public.shop ไฟล์นี้หยุด · ร้านเพิ่ม (B/C/D) สร้างเองในทรานแซกชัน
 
 -- ---------- helper (temp function — หายพร้อมทรานแซกชัน) ----------
@@ -170,9 +180,86 @@ create or replace function pg_temp.snap() returns text
       || '/' || (select md5(coalesce(string_agg(concat_ws('|', id, piece_status, status), ',' order by id), '')) from analytics.campaign_step)
 $sn$;
 
+-- รัน p_sql ภายใต้ role จริง (set local role) แล้วคืนผลแบบ vx · reset role ทุกทาง (ทั้ง ok/ผิดพลาดเกินคาด)
+create or replace function pg_temp.vr(p_role text, p_sql text, p_expect text[], p_like text default null) returns text
+ language plpgsql as $vr$
+declare v_res text;
+begin
+  execute format('set local role %I', p_role);
+  v_res := pg_temp.vx(p_sql, p_expect, p_like);
+  execute 'reset role';
+  return v_res;
+exception when others then
+  execute 'reset role';
+  raise;
+end $vr$;
+
+-- แบบ "ต้องสำเร็จ" ใต้ role จริง (คืน 'OK' หรือ 'FAIL ...')
+create or replace function pg_temp.vro(p_role text, p_sql text) returns text
+ language plpgsql as $vro$
+declare v_res text;
+begin
+  execute format('set local role %I', p_role);
+  v_res := pg_temp.vok(p_sql);
+  execute 'reset role';
+  return v_res;
+exception when others then
+  execute 'reset role';
+  raise;
+end $vro$;
+
+-- ตัวนับ tuple ที่ "เขียน" (ins+upd+del) ของทุกตารางในสคีมา analytics ในทรานแซกชันนี้ — pg_stat_xact_user_tables นับ tuple ที่เขียนใน
+-- subtransaction ที่ถูก rollback ด้วย ⇒ พิสูจน์ได้ว่าคำสั่งที่ถูกปฏิเสธ "ไม่เคยเขียนอะไรเลย" (md5 ของข้อมูลก่อน/หลังพิสูจน์ไม่ได้ เพราะ vx ถอยให้เอง)
+create or replace function pg_temp.wr() returns text
+ language sql as $w$
+  select coalesce(string_agg(relname || '=' || (n_tup_ins + n_tup_upd + n_tup_del), ',' order by relname), '')
+    from pg_stat_xact_user_tables where schemaname = 'analytics'
+$w$;
+
+-- canary ของ wr(): insert ใน subtransaction ที่ rollback แล้วตัวนับของตารางนั้นต้องเพิ่ม (ไม่งั้น wr() ใช้พิสูจน์อะไรไม่ได้)
+create or replace function pg_temp.wr_canary() returns boolean
+ language plpgsql as $wc$
+declare v0 bigint; v1 bigint;
+begin
+  create temp table if not exists v160_canary (i int);
+  select coalesce(max(n_tup_ins), 0) into v0 from pg_stat_xact_user_tables where relname = 'v160_canary';
+  begin
+    insert into v160_canary values (1);
+    raise exception 'canary' using errcode = 'QA001';
+  exception when sqlstate 'QA001' then null;
+  end;
+  select coalesce(max(n_tup_ins), 0) into v1 from pg_stat_xact_user_tables where relname = 'v160_canary';
+  return v1 = v0 + 1;
+end $wc$;
+
+-- ตัวจำลอง "อีกคำสั่งที่ผูกโพสต์ไปก่อนแล้ว" (S-M1) — trigger ชื่อ trg_a_… เรียงก่อนด่านตาราง ตั้ง GUC แล้วเขียน step_id ให้แถวที่ external_id ตรง
+create or replace function pg_temp.inj_link() returns trigger
+ language plpgsql as $inj$
+begin
+  if new.external_id = coalesce(current_setting('v160.inj_ext', true), '-') then
+    perform set_config('c2.piece_rpc', '1', true);
+    new.step_id := current_setting('v160.inj_step')::uuid;
+  end if;
+  return new;
+end $inj$;
+
 do $verify0160$
 declare
   v_log     text := E'\n=== verify-0160 ===\n';
+  v_w0      text;
+  v_w1      text;
+  v_cok     boolean;
+  v_sa      uuid;
+  v_sb      uuid;
+  v_sc      uuid;
+  v_sd      uuid;
+  v_se      uuid;
+  v_sf      uuid;
+  v_art_b   uuid;
+  v_ext2    text;
+  v_post4   uuid;
+  v_post5   uuid;
+  v_post6   uuid;
   v_today   date := (now() at time zone 'Asia/Bangkok')::date;
   v_shop    uuid;
   v_shopB   uuid;
@@ -238,21 +325,21 @@ begin
   ----------------------------------------------------------------------------
   -- A. โครงสร้าง / สิทธิ์ / overload / วันไทย / ไม่มีชื่อโฮสต์
   ----------------------------------------------------------------------------
-  v_log := v_log || pg_temp.vb('A1', 'ฟังก์ชันของ 0160 มี 6 ตัว signature เดียวต่อชื่อ (trap #1)',
+  v_log := v_log || pg_temp.vb('A1', 'ฟังก์ชันของ 0160 มี 7 ตัว (helper 2 + RPC 4 + trigger 1) signature เดียวต่อชื่อ (trap #1)',
     (select count(*) from pg_proc where pronamespace = 'analytics'::regnamespace
-        and proname ~ '^(content_piece_post$|content_piece_defer$|content_post_link_step$|content_post_unlink_step$|content_post_platform_ok_$|content_post_hook_check_$)') = 6
+        and proname ~ '^(content_piece_post$|content_piece_defer$|content_post_link_step$|content_post_unlink_step$|content_post_platform_ok_$|content_post_hook_check_$|content_post_guard_link$)') = 7
     and (select count(distinct proname) from pg_proc where pronamespace = 'analytics'::regnamespace
-        and proname ~ '^(content_piece_post$|content_piece_defer$|content_post_link_step$|content_post_unlink_step$|content_post_platform_ok_$|content_post_hook_check_$)') = 6);
+        and proname ~ '^(content_piece_post$|content_piece_defer$|content_post_link_step$|content_post_unlink_step$|content_post_platform_ok_$|content_post_hook_check_$|content_post_guard_link$)') = 7);
   select string_agg(p.oid::regprocedure::text, ', ') into v_bad
     from pg_proc p cross join lateral aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
    where p.pronamespace = 'analytics'::regnamespace
-     and p.proname ~ '^(content_piece_post$|content_piece_defer$|content_post_link_step$|content_post_unlink_step$|content_post_platform_ok_$|content_post_hook_check_$)'
+     and p.proname ~ '^(content_piece_post$|content_piece_defer$|content_post_link_step$|content_post_unlink_step$|content_post_platform_ok_$|content_post_hook_check_$|content_post_guard_link$)'
      and a.privilege_type = 'EXECUTE' and (a.grantee = 0 or a.grantee = 'anon'::regrole or a.grantee = 'authenticated'::regrole);
   v_log := v_log || pg_temp.vb('A2', 'ไม่มี PUBLIC/anon/authenticated ถือ EXECUTE บนฟังก์ชันของ 0160', v_bad is null, coalesce(v_bad, ''));
-  v_log := v_log || pg_temp.vb('A2b', 'service_role มี EXECUTE ครบ 6 ตัว',
+  v_log := v_log || pg_temp.vb('A2b', 'service_role มี EXECUTE ครบ 7 ตัว',
     (select bool_and(has_function_privilege('service_role', p.oid, 'execute')) from pg_proc p
       where p.pronamespace = 'analytics'::regnamespace
-        and p.proname ~ '^(content_piece_post$|content_piece_defer$|content_post_link_step$|content_post_unlink_step$|content_post_platform_ok_$|content_post_hook_check_$)'));
+        and p.proname ~ '^(content_piece_post$|content_piece_defer$|content_post_link_step$|content_post_unlink_step$|content_post_platform_ok_$|content_post_hook_check_$|content_post_guard_link$)'));
   select string_agg(c.relname || ':' || case when a.grantee = 0 then 'PUBLIC' else a.grantee::regrole::text end, ', ') into v_bad
     from pg_class c cross join lateral aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) a
    where c.relnamespace = 'analytics'::regnamespace
@@ -314,6 +401,8 @@ begin
     select h.id into v_ref_h from analytics.content_hook h where h.source_signal_id = v_ref_sig and h.origin = 'reference';
     v_p3 := pg_temp.mk_ready(v_shop, 'short_clip', 'tiktok', 'approved');             -- approved + ยังไม่ยืนยันภาพ (ใช้ X31t)
     v_snap := pg_temp.snap();
+    v_cok := pg_temp.wr_canary();
+    v_w0 := pg_temp.wr();
     v_r := ''
       || pg_temp.vl('X31a', 'actor ai → 42501', pg_temp.vx(pg_temp.q_post(v_shop, v_p1, 'tiktok', pg_temp.ext(), pg_temp.url(), now() - interval '1 hour', 'ai'), array['42501'], 'ไม่มีสิทธิ์'))
       || pg_temp.vl('X31b', 'actor system → 42501', pg_temp.vx(pg_temp.q_post(v_shop, v_p1, 'tiktok', pg_temp.ext(), pg_temp.url(), now() - interval '1 hour', 'system'), array['42501'], 'ไม่มีสิทธิ์'))
@@ -347,14 +436,23 @@ begin
                                                               || pg_temp.vx('select analytics.content_piece_post(null,null,null,null,null,null,''owner'')', array['22023'], 'ต้องระบุ'))
       || pg_temp.vl('X31s', 'actor_role null / banana → 22023', pg_temp.vx(pg_temp.q_post(v_shop, v_p1, 'tiktok', pg_temp.ext(), pg_temp.url(), now() - interval '1 hour', null), array['22023'], 'actor_role')
                                                               || pg_temp.vx(pg_temp.q_post(v_shop, v_p1, 'tiktok', pg_temp.ext(), pg_temp.url(), now() - interval '1 hour', 'banana'), array['22023'], 'actor_role'));
-    -- ชิ้น approved ที่ยังไม่มีภาพ (คลิป footage null) → ข้าม produced ไม่ได้ · สร้าง hook อื่นแล้วล้มกลางทาง → hook ต้องถอยหมด (X31x)
-    v_r := v_r || pg_temp.vl('X31t', 'approved + คลิปยังไม่ยืนยันว่ามีภาพ (ข้าม produced) พร้อม hook อื่น → 55000 · hook อื่นที่สร้างกลางทางต้องถอยหมด',
-      pg_temp.vx(pg_temp.q_post(v_shop, v_p3, 'tiktok', pg_temp.ext(), pg_temp.url(), now() - interval '1 hour', 'owner', null, 'hook อื่น X31t', 'story'), array['55000'], 'ยังไม่ยืนยันว่ามีภาพ'));
+    v_w1 := pg_temp.wr();
     v_log := v_log || v_r;
-    v_log := v_log || pg_temp.vb('X31u', 'หลังชุดปฏิเสธ X31a-t ทั้งหมด (รวม hook อื่นที่ถูกสร้างแล้วล้มกลางทาง) แถวโพสต์/hook/event/step เท่าเดิมเป๊ะ — นับด้วย md5 ทั้งแถว',
-      v_snap = pg_temp.snap(), 'ก่อน=' || left(v_snap, 40) || ' หลัง=' || left(pg_temp.snap(), 40));
-    v_log := v_log || pg_temp.vb('X31x', 'GUC c2.piece_rpc ไม่ค้าง (ว่างหลัง RPC ล้มกลางทางหลังเปิด GUC สร้าง hook อื่น) — เคส service_role+GUC เอง = B6b',
-      coalesce(current_setting('c2.piece_rpc', true), '') <> '1', coalesce(current_setting('c2.piece_rpc', true), '(null)'));
+    -- [รอบ 3] X31u เดิมเทียบ md5 ข้อมูลก่อน/หลัง — "ปลอม": vx ถอย subtransaction ให้เอง ต่อให้ RPC เขียนแล้วค่อย raise ก็เท่าเดิมเสมอ
+    -- ตอนนี้นับ tuple ที่เขียนจริง (รวมที่ถูก rollback) ของทุกตารางใน analytics ⇒ ต้องเท่าเดิม = ทุกด่าน X31a-s ปฏิเสธ "ก่อน" เขียนอะไรเลย
+    v_log := v_log || pg_temp.vb('X31u', 'X31a-s (กลุ่มเคสปฏิเสธ 19 กลุ่ม) ไม่เขียน tuple เลยแม้ชั่วคราว: ตัวนับ ins/upd/del ของทุกตารางใน analytics ก่อน = หลัง (pg_stat_xact นับ subtransaction ที่ถอยด้วย) · canary ยืนยันว่าตัวนับเห็นการเขียนที่ถูก rollback',
+      v_cok is true and v_w0 = v_w1, 'canary=' || coalesce(v_cok::text, 'null') || case when v_w0 = v_w1 then ' ตัวนับเท่าเดิม' else ' ตัวนับขยับ: ' || left(v_w0, 80) || ' → ' || left(v_w1, 80) end);
+    v_log := v_log || pg_temp.vb('X31u2', 'ชั้นรอง: md5 แถวโพสต์/hook/event/step เท่าเดิมหลัง X31a-s (อ่อนกว่า X31u — vx ถอยให้เอง — เก็บไว้ดูผลสุดท้ายของข้อมูล)',
+      v_snap = pg_temp.snap());
+    -- ชิ้น approved ที่ยังไม่มีภาพ (คลิป footage null) → ข้าม produced ไม่ได้ — ด่านนี้อยู่ใน content_piece_transition_ (0159) หลังเขียน hook/โพสต์ไปแล้ว
+    -- ⇒ เคสเดียวที่ปฏิเสธ "หลังเขียน" (RPC ถอยทั้งก้อนด้วย atomicity ของ Postgres ไม่ใช่ด้วยลำดับการตรวจ) · hook อื่นที่สร้างกลางทางต้องไม่ค้าง
+    v_snap := pg_temp.snap();
+    v_log := v_log || pg_temp.vl('X31t', 'approved + คลิปยังไม่ยืนยันว่ามีภาพ (ข้าม produced) พร้อม hook อื่น → 55000 (ปฏิเสธใน transition_ หลังเขียน — ถอยทั้งก้อน)',
+      pg_temp.vx(pg_temp.q_post(v_shop, v_p3, 'tiktok', pg_temp.ext(), pg_temp.url(), now() - interval '1 hour', 'owner', null, 'hook อื่น X31t', 'story'), array['55000'], 'ยังไม่ยืนยันว่ามีภาพ'));
+    v_log := v_log || pg_temp.vb('X31t2', 'หลัง X31t: hook อื่นที่สร้างกลางทางไม่ค้าง · โพสต์ไม่ค้าง · event ไม่เพิ่ม (ผลสุดท้ายของข้อมูล — ชั้นรอง เพราะ vx ถอยให้)', v_snap = pg_temp.snap());
+    -- X31x เดิม (GUC ไม่ค้างหลัง RPC ล้ม) พิสูจน์ในไฟล์เดียวไม่ได้: GUC แบบ local ถูกคืนค่าเมื่อ subtransaction ถอย (รวมของ vx) ไม่ว่าโค้ดจะ reset เองหรือไม่ ·
+    -- ที่พิสูจน์ได้จริงและมี mutant ล้ม = (1) GUC ว่างหลัง "ทุกทางสำเร็จ" ของทั้ง 3 RPC (B6 · B8 · G-guc) (2) static: ช่วงที่ GUC เปิดครอบเฉพาะ update content_post คำสั่งเดียว (A8)
+    v_log := v_log || E'[SKIP] X31x (GUC ไม่ค้างหลัง RPC ที่ "ล้ม") — พิสูจน์ในทรานแซกชันเดียวไม่ได้ (GUC local ถูก subtransaction ของตัวทดสอบคืนให้เอง) · แทนด้วย B6/B8/G-guc (ทางสำเร็จ) + A8 (static)\n';
   exception when others then
     v_log := v_log || format(E'[FAIL] B-reject ABORT sqlstate=%s msg=%s\n', sqlstate, left(sqlerrm, 300));
   end;
@@ -540,13 +638,14 @@ begin
       || pg_temp.vx(pg_temp.q_unlink(v_shop, gen_random_uuid(), 'ปลดทดสอบ', 'owner'), array['22023'], 'ไม่พบโพสต์'));
     v_log := v_log || pg_temp.vb('X32h', 'ชุดปฏิเสธ unlink ไม่ทิ้งร่องรอย', v_snap = pg_temp.snap());
 
-    -- unlink สำเร็จ: posted → produced · โพสต์ไม่ถูกลบ · artifact_id คง · hook/step null · event unpost + reason
-    select artifact_id into v_art from analytics.content_post where id = v_post1;
+    -- unlink สำเร็จ: posted → produced · โพสต์ไม่ถูกลบ · artifact_id ถูกล้าง (S-M2 · ตัดสินใจกลับสเปก) · hook/step null · event unpost + reason
+    select artifact_id into v_art from analytics.content_post where id = v_post1;   -- ก่อน unlink ต้องมีค่า (เอกสารของชิ้น P2) ไม่งั้น L3 ไม่ได้พิสูจน์การล้าง
     v_j := analytics.content_post_unlink_step(v_shop, v_post1, '  ผูกผิดชิ้น  ', 'owner');
-    v_log := v_log || pg_temp.vb('L3', 'unlink ใบเดียวของชิ้น → ถอย posted→produced (artifact done→approved) · โพสต์ยังอยู่ active · step_id/hook_id null · artifact_id คงไว้',
+    v_log := v_log || pg_temp.vb('L3', 'unlink ใบเดียวของชิ้น → ถอย posted→produced (artifact done→approved) · โพสต์ยังอยู่ active · step_id/hook_id/artifact_id = null (S-M2: ล้างเอกสารด้วย)',
       pg_temp.st(v_p2) = 'produced/active'
       and (select string_agg(status, ',') from analytics.step_artifact where step_id = v_p2) = 'approved'
-      and (select step_id is null and hook_id is null and status = 'active' and artifact_id = v_art from analytics.content_post where id = v_post1)
+      and v_art is not null
+      and (select step_id is null and hook_id is null and status = 'active' and artifact_id is null from analytics.content_post where id = v_post1)
       and (v_j ->> 'remaining_active_posts')::int = 0, v_j::text);
     v_log := v_log || pg_temp.vb('L3b', 'event unpost: reason ถูก clean · from posted → to produced · อยู่ในคิวยอดเป็นโพสต์นอกแผนอีกครั้ง',
       exists (select 1 from analytics.content_piece_event e where e.step_id = v_p2 and e.event_kind = 'unpost' and e.reason = 'ผูกผิดชิ้น'
@@ -939,6 +1038,257 @@ begin
   end;
 
   ----------------------------------------------------------------------------
+  -- A (รอบ 3). โครงสร้างของด่านตาราง + ช่วง GUC (static)
+  ----------------------------------------------------------------------------
+  v_log := v_log || pg_temp.vb('A7', 'trigger trg_content_post_link_guard: BEFORE INSERT OR UPDATE FOR EACH ROW บน content_post · เปิดอยู่ · ชี้ content_post_guard_link()',
+    exists (select 1 from pg_trigger t where t.tgrelid = 'analytics.content_post'::regclass and t.tgname = 'trg_content_post_link_guard' and t.tgenabled = 'O'
+              and t.tgfoid = 'analytics.content_post_guard_link()'::regprocedure and (t.tgtype & 31) = 1 + 2 + 4 + 16));
+  v_log := v_log || pg_temp.vb('A8', 'static: ใน content_piece_post / content_post_link_step / content_post_unlink_step GUC เปิดครอบ "update content_post คำสั่งเดียว" แล้วปิดทันที (ช่วงละ 1 ที่) · ไม่มี raise ในช่วงที่เปิด',
+    (select bool_and((select count(*) from regexp_matches(regexp_replace(pg_get_functiondef(p.oid), '--[^\n]*', '', 'g'),
+        'set_config\(''c2\.piece_rpc'', ''1'', true\);\s*update analytics\.content_post[^;]*;\s*(v_linked := found;\s*)?perform set_config\(''c2\.piece_rpc'', '''', true\);', 'g')) = 1)
+       from pg_proc p where p.pronamespace = 'analytics'::regnamespace and p.proname in ('content_piece_post', 'content_post_link_step', 'content_post_unlink_step')));
+
+  ----------------------------------------------------------------------------
+  -- G. ด่านระดับตาราง (S-M3) ใต้ role service_role จริง + ต้องไม่พัง (คิวเดิม · RPC ใต้ service_role)
+  ----------------------------------------------------------------------------
+  begin
+    v_sa := pg_temp.mk_ready(v_shop, 'short_clip', 'tiktok');
+    v_sb := pg_temp.mk_ready(v_shop, 'short_clip', 'tiktok');
+    v_ext1 := pg_temp.ext();
+    v_j := analytics.content_piece_post(v_shop, v_sa, 'tiktok', v_ext1, pg_temp.url(v_ext1), now() - interval '1 hour', 'owner', pg_temp.hook_a(v_sa));
+    v_post1 := (v_j ->> 'post_id')::uuid;
+    v_post2 := analytics.content_post_upsert(v_shop, 'tiktok', pg_temp.ext(), pg_temp.url(), now() - interval '2 hours');
+    v_post3 := analytics.content_post_upsert(v_shop, 'tiktok', pg_temp.ext(), pg_temp.url(), now() - interval '2 hours');
+    select a.id into v_art_b from analytics.step_artifact a where a.step_id = v_sb;
+    select a.id into v_art from analytics.step_artifact a where a.step_id = v_sa;
+    v_snap := pg_temp.snap();
+    v_w0 := pg_temp.wr();
+    v_log := v_log || pg_temp.vl('G1', 'S-M3: service_role INSERT content_post ที่ใส่ step_id → 55000 · ใส่ hook_id → 55000',
+      pg_temp.vr('service_role', format('insert into analytics.content_post (shop_id, platform, external_id, post_url, posted_at, posted_date_th, step_id) values (%L::uuid, ''tiktok'', %L, %L, now(), %L::date, %L::uuid)',
+                 v_shop, pg_temp.ext(), pg_temp.url(), v_today, v_sb), array['55000'], 'ห้ามเขียน step_id/hook_id ตรง')
+      || pg_temp.vr('service_role', format('insert into analytics.content_post (shop_id, platform, external_id, post_url, posted_at, posted_date_th, hook_id) values (%L::uuid, ''tiktok'', %L, %L, now(), %L::date, %L::uuid)',
+                 v_shop, pg_temp.ext(), pg_temp.url(), v_today, pg_temp.hook_a(v_sb)), array['55000'], 'ห้ามเขียน step_id/hook_id ตรง'));
+    v_log := v_log || pg_temp.vl('G2', 'S-M3: service_role UPDATE step_id / hook_id ของโพสต์ที่ยังไม่ผูก → 55000',
+      pg_temp.vr('service_role', format('update analytics.content_post set step_id = %L::uuid where id = %L::uuid', v_sb, v_post2), array['55000'], 'ห้ามแก้ตรง')
+      || pg_temp.vr('service_role', format('update analytics.content_post set hook_id = %L::uuid where id = %L::uuid', pg_temp.hook_a(v_sb), v_post2), array['55000'], 'ห้ามแก้ตรง'));
+    v_log := v_log || pg_temp.vl('G3', 'S-M3: service_role UPDATE โพสต์ที่ผูก Sa: hook → B · hook → null · step → Sb · step → null ทุกแบบ 55000',
+      pg_temp.vr('service_role', format('update analytics.content_post set hook_id = %L::uuid where id = %L::uuid', (select h.id from analytics.content_hook h where h.step_id = v_sa and h.label = 'B'), v_post1), array['55000'], 'ห้ามแก้ตรง')
+      || pg_temp.vr('service_role', format('update analytics.content_post set hook_id = null where id = %L::uuid', v_post1), array['55000'], 'ห้ามแก้ตรง')
+      || pg_temp.vr('service_role', format('update analytics.content_post set step_id = %L::uuid where id = %L::uuid', v_sb, v_post1), array['55000'], 'ห้ามแก้ตรง')
+      || pg_temp.vr('service_role', format('update analytics.content_post set step_id = null where id = %L::uuid', v_post1), array['55000'], 'ห้ามแก้ตรง'));
+    v_log := v_log || pg_temp.vl('G4', 'S-M3 (QA note): service_role UPDATE artifact_id ของโพสต์ที่ผูก step → เอกสาร Sb / null = 55000',
+      pg_temp.vr('service_role', format('update analytics.content_post set artifact_id = %L::uuid where id = %L::uuid', v_art_b, v_post1), array['55000'], 'เปลี่ยนเอกสาร')
+      || pg_temp.vr('service_role', format('update analytics.content_post set artifact_id = null where id = %L::uuid', v_post1), array['55000'], 'เปลี่ยนเอกสาร'));
+    perform set_config('c2.piece_rpc', '1', true);
+    v_r := pg_temp.vr('service_role', format('update analytics.content_post set step_id = %L::uuid where id = %L::uuid', v_sb, v_post2), array['55000'], 'ห้ามแก้ตรง')
+        || pg_temp.vr('service_role', format('insert into analytics.content_post (shop_id, platform, external_id, post_url, posted_at, posted_date_th, step_id) values (%L::uuid, ''tiktok'', %L, %L, now(), %L::date, %L::uuid)',
+                 v_shop, pg_temp.ext(), pg_temp.url(), v_today, v_sb), array['55000'], 'ห้ามเขียน step_id/hook_id ตรง');
+    perform set_config('c2.piece_rpc', '', true);
+    v_log := v_log || pg_temp.vl('G5', 'S-M3: service_role ตั้ง GUC c2.piece_rpc=1 เองแล้วเขียน step_id (UPDATE · INSERT) → 55000 (GUC ข้ามได้เฉพาะ role ภายในของ RPC)', v_r);
+    v_w1 := pg_temp.wr();
+    v_log := v_log || pg_temp.vb('G6', 'ชุด G1-G5 ไม่เขียน tuple เลย (BEFORE ROW ปฏิเสธก่อนลงแถว) · ข้อมูลเท่าเดิม', v_w0 = v_w1 and v_snap = pg_temp.snap());
+    v_log := v_log || pg_temp.vl('G7', 'ต้องไม่พัง: service_role UPDATE post_url/caption/status ของโพสต์ที่ผูกแล้ว (private แล้ว active กลับ) · INSERT โพสต์นอกแผน · UPDATE artifact_id ของโพสต์ที่ยังไม่ผูก',
+      pg_temp.vro('service_role', format('update analytics.content_post set post_url = post_url || ''?g7=1'', caption_snapshot = ''แก้แคปชันตรง'' where id = %L::uuid', v_post1))
+      || pg_temp.vro('service_role', format('update analytics.content_post set status = ''private'' where id = %L::uuid', v_post1))
+      || pg_temp.vro('service_role', format('update analytics.content_post set status = ''active'' where id = %L::uuid', v_post1))
+      || pg_temp.vro('service_role', format('insert into analytics.content_post (shop_id, platform, external_id, post_url, posted_at, posted_date_th) values (%L::uuid, ''tiktok'', %L, %L, now(), %L::date)',
+                 v_shop, pg_temp.ext(), pg_temp.url(), v_today))
+      || pg_temp.vro('service_role', format('update analytics.content_post set artifact_id = %L::uuid where id = %L::uuid', v_art_b, v_post3)));
+    select cp.external_id, cp.post_url into v_ext2, v_txt from analytics.content_post cp where cp.id = v_post1;
+    -- (หมายเหตุ: subselect ดิบในนิพจน์เดียวกับฟังก์ชันที่เขียนข้อมูลเห็นแค่ snapshot ต้นคำสั่ง — แยกอ่านผลเป็นคำสั่งถัดไปเสมอ)
+    v_r :=       pg_temp.vok(format('select analytics.content_post_upsert(%L::uuid,''tiktok'',%L,%L,now() - interval ''1 hour'')', v_shop, v_ext2, v_txt))
+      || pg_temp.vok(format('select analytics.content_post_upsert(%L::uuid,''tiktok'',%L,%L,now() - interval ''1 hour'',null,%L::uuid)', v_shop, v_ext2, v_txt, v_art))
+      || pg_temp.vok(format('select analytics.content_post_upsert(%L::uuid,''tiktok'',%L,%L,now() - interval ''1 hour'',null,null,''แคปชันใหม่จากคิว'')', v_shop, v_ext2, v_txt))
+      || pg_temp.vx(format('select analytics.content_post_upsert(%L::uuid,''tiktok'',%L,%L,now() - interval ''1 hour'',null,%L::uuid)', v_shop, v_ext2, v_txt, v_art_b), array['55000'], 'เปลี่ยนเอกสาร');
+    v_log := v_log || pg_temp.vl('KQ4', 'ต้องไม่พัง (คิวเดิม content_post_upsert): วางซ้ำโพสต์ที่ผูก Sa — artifact null · artifact เดิม · แก้แคปชัน = OK · ย้ายไปเอกสาร Sb = 55000 · แล้ว step/hook/artifact ของโพสต์คงเดิม',
+      v_r || case when (select cp.step_id = v_sa and cp.hook_id = pg_temp.hook_a(v_sa) and cp.artifact_id = v_art and cp.caption_snapshot = 'แคปชันใหม่จากคิว' from analytics.content_post cp where cp.id = v_post1)
+              then 'OK' else 'FAIL คิวเดิมทำ step/hook/artifact ของโพสต์ที่ผูกเพี้ยน' end);
+    v_ext2 := pg_temp.ext();
+    v_log := v_log || pg_temp.vl('G9a', 'ต้องไม่พัง: content_piece_post ใต้ service_role → posted',
+      pg_temp.vro('service_role', format('select analytics.content_piece_post(%L::uuid,%L::uuid,''tiktok'',%L,%L,now() - interval ''30 minutes'',''owner'',%L::uuid)', v_shop, v_sb, v_ext2, pg_temp.url(v_ext2), pg_temp.hook_a(v_sb)))
+      || case when pg_temp.st(v_sb) = 'posted/done' then 'OK' else 'FAIL ' || pg_temp.st(v_sb) end);
+    v_log := v_log || pg_temp.vb('G-guc1', 'GUC c2.piece_rpc ว่างหลัง content_piece_post สำเร็จ', coalesce(current_setting('c2.piece_rpc', true), '') <> '1');
+    v_sc := pg_temp.mk_ready(v_shop, 'short_clip', 'tiktok');
+    v_post4 := analytics.content_post_upsert(v_shop, 'tiktok', pg_temp.ext(), pg_temp.url(), now() - interval '2 hours');
+    v_log := v_log || pg_temp.vl('G9b', 'ต้องไม่พัง: content_post_link_step ใต้ service_role (โพสต์นอกแผน → Sc) → posted',
+      pg_temp.vro('service_role', format('select analytics.content_post_link_step(%L::uuid,%L::uuid,%L::uuid,''owner'',%L::uuid)', v_shop, v_post4, v_sc, pg_temp.hook_a(v_sc)))
+      || case when pg_temp.st(v_sc) = 'posted/done' then 'OK' else 'FAIL ' || pg_temp.st(v_sc) end);
+    v_log := v_log || pg_temp.vb('G-guc2', 'GUC ว่างหลัง link_step สำเร็จ', coalesce(current_setting('c2.piece_rpc', true), '') <> '1');
+    v_r := pg_temp.vro('service_role', format('select analytics.content_post_unlink_step(%L::uuid,%L::uuid,''ปลดทดสอบ G9c'',''owner'')', v_shop, v_post4));
+    v_log := v_log || pg_temp.vl('G9c', 'ต้องไม่พัง: content_post_unlink_step ใต้ service_role → ถอย produced · artifact_id/step_id/hook_id = null',
+      v_r || case when pg_temp.st(v_sc) = 'produced/active'
+               and (select step_id is null and hook_id is null and artifact_id is null from analytics.content_post where id = v_post4) then 'OK' else 'FAIL ' || pg_temp.st(v_sc) end);
+    v_log := v_log || pg_temp.vb('G-guc3', 'GUC ว่างหลัง unlink_step สำเร็จ', coalesce(current_setting('c2.piece_rpc', true), '') <> '1');
+
+    -- FK action: ลบ hook ที่โพสต์ deleted ยังอ้างอยู่ ต้องไม่ถูกด่านตารางขวาง (on delete set null = UPDATE ซ้อน trigger depth 2)
+    v_sd := pg_temp.mk_ready(v_shop, 'short_clip', 'tiktok');
+    v_hookX := pg_temp.hook_a(v_sd);
+    v_j := analytics.content_piece_post(v_shop, v_sd, 'tiktok', pg_temp.ext(), pg_temp.url(), now() - interval '1 hour', 'owner', v_hookX);
+    v_post5 := (v_j ->> 'post_id')::uuid;
+    perform analytics.content_post_set_status(v_shop, v_post5, 'deleted');
+    perform analytics.content_piece_advance(v_shop, v_sd, 'produced', 'owner', 'ย้อนทดสอบ FK');
+    perform analytics.content_piece_advance(v_shop, v_sd, 'approved', 'owner', 'ย้อนทดสอบ FK');
+    perform analytics.content_piece_advance(v_shop, v_sd, 'in_review', 'owner', 'ย้อนทดสอบ FK');
+    v_r := pg_temp.vok(format('delete from analytics.content_hook where id = %L::uuid', v_hookX));
+    v_log := v_log || pg_temp.vl('F1', 'ต้องไม่พัง: ลบ hook ที่โพสต์ (deleted) ยังอ้างอยู่ → FK set null ผ่านด่านตาราง (depth>1) · post.hook_id = null · step_id ยังอยู่',
+      v_r || case when (select hook_id is null and step_id = v_sd from analytics.content_post where id = v_post5) then 'OK' else 'FAIL' end);
+  exception when others then
+    execute 'reset role';
+    v_log := v_log || format(E'[FAIL] G ABORT sqlstate=%s msg=%s\n', sqlstate, left(sqlerrm, 300));
+  end;
+
+  ----------------------------------------------------------------------------
+  -- S-L2: เปิดโพสต์ deleted กลับ active ซ้อน platform
+  ----------------------------------------------------------------------------
+  begin
+    v_ig := pg_temp.mk_ready(v_shop, 'ig_fb_post', 'facebook');
+    v_j := analytics.content_piece_post(v_shop, v_ig, 'facebook', pg_temp.ext(), 'https://www.facebook.com/verify160/posts/l2a', now() - interval '2 hours', 'owner');
+    v_post1 := (v_j ->> 'post_id')::uuid;
+    perform analytics.content_post_set_status(v_shop, v_post1, 'deleted');
+    v_post2 := analytics.content_post_upsert(v_shop, 'facebook', pg_temp.ext(), 'https://www.facebook.com/verify160/posts/l2b', now() - interval '2 hours');
+    perform analytics.content_post_link_step(v_shop, v_post2, v_ig, 'owner');
+    v_w0 := pg_temp.wr();
+    v_log := v_log || pg_temp.vl('S-L2a', 'เปิดโพสต์ facebook ที่ deleted (ยังผูก ig) กลับ active ขณะชิ้นมี facebook active ใบอื่น → 55000 (ทางเดิม set_status · และ service_role UPDATE ตรง)',
+      pg_temp.vx(format('select analytics.content_post_set_status(%L::uuid,%L::uuid,''active'')', v_shop, v_post1), array['55000'], 'เปิดโพสต์กลับไม่ได้')
+      || pg_temp.vr('service_role', format('update analytics.content_post set status = ''active'' where id = %L::uuid', v_post1), array['55000'], 'เปิดโพสต์กลับไม่ได้'));
+    perform analytics.content_post_unlink_step(v_shop, v_post2, 'ปลดเพื่อเปิดใบเดิม', 'owner');
+    v_log := v_log || pg_temp.vl('S-L2b', 'ต้องไม่พัง: ปลดใบที่ active ออกแล้วเปิดใบเดิมกลับ → OK · โพสต์ deleted ที่ไม่ผูกชิ้นเปิดกลับได้ · private→active ของโพสต์ผูกชิ้นที่ไม่ซ้ำได้',
+      pg_temp.vok(format('select analytics.content_post_set_status(%L::uuid,%L::uuid,''active'')', v_shop, v_post1))
+      || pg_temp.vok(format('select analytics.content_post_set_status(%L::uuid,%L::uuid,''deleted'')', v_shop, v_post2))
+      || pg_temp.vok(format('select analytics.content_post_set_status(%L::uuid,%L::uuid,''active'')', v_shop, v_post2)));
+  exception when others then
+    v_log := v_log || format(E'[FAIL] S-L2 ABORT sqlstate=%s msg=%s\n', sqlstate, left(sqlerrm, 300));
+  end;
+
+  ----------------------------------------------------------------------------
+  -- M. S-M1 (จำลอง race) · S-M2 (เอกสารของชิ้นอื่น) · ด่าน link ที่เดิมไม่มี mutant จับ (hold · 1 platform)
+  ----------------------------------------------------------------------------
+  begin
+    -- S-M1: ระหว่างที่ RPC อยู่ในทรานแซกชัน "อีกคำสั่ง" ผูกโพสต์นั้นกับชิ้น Sa ไปก่อน (trigger จำลองเขียน step_id ตอน upsert ทับแถวเดิม)
+    v_sa := pg_temp.mk_ready(v_shop, 'short_clip', 'tiktok');
+    v_sb := pg_temp.mk_ready(v_shop, 'short_clip', 'tiktok');
+    v_ext1 := pg_temp.ext();
+    v_post1 := analytics.content_post_upsert(v_shop, 'tiktok', v_ext1, pg_temp.url(v_ext1), now() - interval '3 hours');
+    perform set_config('v160.inj_ext', v_ext1, true);
+    perform set_config('v160.inj_step', v_sa::text, true);
+    create trigger trg_a_v160_inj before update on analytics.content_post for each row execute function pg_temp.inj_link();
+    v_r := pg_temp.vx(pg_temp.q_post(v_shop, v_sb, 'tiktok', v_ext1, pg_temp.url(v_ext1), now() - interval '1 hour', 'owner', pg_temp.hook_a(v_sb)), array['55000'], 'เพิ่งถูกผูก');
+    drop trigger trg_a_v160_inj on analytics.content_post;
+    perform set_config('v160.inj_ext', '', true);
+    perform set_config('c2.piece_rpc', '', true);
+    v_log := v_log || pg_temp.vl('S-M1a', 'โพสต์ถูกผูกไปก่อนโดยอีกคำสั่งระหว่างทาง → content_piece_post ปฏิเสธ 55000 "เพิ่งถูกผูก" (compare-and-set) ไม่เขียนทับ step_id ของคำสั่งแรก', v_r);
+    v_txt := pg_temp.st(v_sb);
+    v_r := pg_temp.vok(pg_temp.q_post(v_shop, v_sb, 'tiktok', v_ext1, pg_temp.url(v_ext1), now() - interval '1 hour', 'owner', pg_temp.hook_a(v_sb)));
+    v_log := v_log || pg_temp.vb('S-M1b', 'หลังปฏิเสธ: Sb ยัง produced/active (ไม่ posted) · ต้องไม่พัง: ไม่มีตัวแทรก → ผูก Sb ได้ปกติ (post.step_id = Sb)',
+      v_txt = 'produced/active' and v_r = 'OK' and (select step_id = v_sb from analytics.content_post where id = v_post1), v_txt || ' ' || v_r);
+
+    -- S-M2: โพสต์นอกแผนที่ผูกเอกสารของชิ้น Sb ไว้แล้ว (ผ่านคิวเดิม) ผูกกับชิ้นอื่นไม่ได้ทั้งสองทาง
+    v_sd := pg_temp.mk_ready(v_shop, 'short_clip', 'tiktok');
+    v_se := pg_temp.mk_ready(v_shop, 'short_clip', 'tiktok');
+    select a.id into v_art_b from analytics.step_artifact a where a.step_id = v_se;
+    v_ext2 := pg_temp.ext();
+    v_post2 := analytics.content_post_upsert(v_shop, 'tiktok', v_ext2, pg_temp.url(v_ext2), now() - interval '2 hours', null, v_art_b);
+    v_snap := pg_temp.snap();
+    v_log := v_log || pg_temp.vl('S-M2a', 'โพสต์ที่ผูกเอกสารของ Se: content_piece_post บน Sd (ext เดิม) → 55000 · content_post_link_step เข้า Sd → 55000 "เอกสารของชิ้นงานอื่น"',
+      pg_temp.vx(pg_temp.q_post(v_shop, v_sd, 'tiktok', v_ext2, pg_temp.url(v_ext2), now() - interval '1 hour', 'owner'), array['55000'], 'เอกสารของชิ้นงานอื่น')
+      || pg_temp.vx(pg_temp.q_link(v_shop, v_post2, v_sd, 'owner'), array['55000'], 'เอกสารของชิ้นงานอื่น'));
+    v_log := v_log || pg_temp.vb('S-M2b', 'หลังปฏิเสธ S-M2a ข้อมูลเท่าเดิม', v_snap = pg_temp.snap());
+    v_r := pg_temp.vok(pg_temp.q_link(v_shop, v_post2, v_se, 'owner'));
+    v_r := v_r || pg_temp.vok(pg_temp.q_unlink(v_shop, v_post2, 'ผูกผิดชิ้น S-M2', 'owner'));
+    v_r := v_r || case when (select artifact_id is null from analytics.content_post where id = v_post2) then 'OK' else 'FAIL artifact_id ไม่ถูกล้าง' end;
+    v_r := v_r || pg_temp.vok(pg_temp.q_link(v_shop, v_post2, v_sd, 'owner'));
+    v_r := v_r || case when (select artifact_id = (select a.id from analytics.step_artifact a where a.step_id = v_sd) from analytics.content_post where id = v_post2) then 'OK' else 'FAIL artifact_id ไม่ใช่ของ Sd' end;
+    v_log := v_log || pg_temp.vl('S-M2c', 'ต้องไม่พัง: ผูกกับชิ้นเจ้าของเอกสาร (Se) ได้ · แล้ว unlink → artifact_id ล้างเป็น null · ผูกเข้า Sd ได้ → artifact_id = เอกสารของ Sd (ตัดสินใจกลับสเปก: unlink ล้าง artifact_id)', v_r);
+    -- ต้องไม่พัง: โพสต์ที่ผูก artifact ของชิ้นนี้เองมาก่อน → content_piece_post บนชิ้นนี้ผ่าน
+    v_sf := pg_temp.mk_ready(v_shop, 'short_clip', 'tiktok');
+    v_ext2 := pg_temp.ext();
+    perform analytics.content_post_upsert(v_shop, 'tiktok', v_ext2, pg_temp.url(v_ext2), now() - interval '2 hours', null, (select a.id from analytics.step_artifact a where a.step_id = v_sf));
+    v_log := v_log || pg_temp.vl('S-M2d', 'ต้องไม่พัง: โพสต์ที่ผูกเอกสารของ Sf มาก่อน → content_piece_post บน Sf ผ่าน',
+      pg_temp.vok(pg_temp.q_post(v_shop, v_sf, 'tiktok', v_ext2, pg_temp.url(v_ext2), now() - interval '1 hour', 'owner')));
+
+    -- link: hold · 1 platform (เดิมไม่มีเทสต์ครอบ — security mutant)
+    v_se := pg_temp.mk_ready(v_shop, 'short_clip', 'tiktok');
+    perform analytics.content_piece_advance(v_shop, v_se, 'hold', 'owner', 'พัก link');
+    v_post3 := analytics.content_post_upsert(v_shop, 'tiktok', pg_temp.ext(), pg_temp.url(), now() - interval '2 hours');
+    -- ด่าน hold ใน link_step ต้องปฏิเสธ "ก่อนเขียน" — transition_ (0159) มีด่าน hold เดียวกันซ้ำ (ข้อความ/รหัสเหมือนกัน) ถ้าไม่นับ tuple จะแยก mutant ไม่ออก
+    v_w0 := pg_temp.wr();
+    v_r := pg_temp.vx(pg_temp.q_link(v_shop, v_post3, v_se, 'owner'), array['55000'], 'resume');
+    v_log := v_log || pg_temp.vl('L8', 'link_step เข้าชิ้นที่ hold อยู่ → 55000 "resume" · ไม่เขียน tuple เลย (ปฏิเสธก่อนเขียน ไม่ใช่ไปตกที่ transition_)',
+      v_r || case when v_w0 = pg_temp.wr() then 'OK' else 'FAIL เขียน tuple ก่อนถูกปฏิเสธ' end);
+    v_ig := pg_temp.mk_ready(v_shop, 'ig_fb_post', 'facebook');
+    perform analytics.content_piece_post(v_shop, v_ig, 'facebook', pg_temp.ext(), 'https://www.facebook.com/verify160/posts/l9a', now() - interval '2 hours', 'owner');
+    v_post4 := analytics.content_post_upsert(v_shop, 'facebook', pg_temp.ext(), 'https://www.facebook.com/verify160/posts/l9b', now() - interval '2 hours');
+    v_log := v_log || pg_temp.vl('L9', 'link_step โพสต์ facebook ใบที่ 2 เข้า ig_fb_post ที่มี facebook active แล้ว → 55000 "1 platform" · content_piece_post ซ้ำ platform → 55000 "1 platform"',
+      pg_temp.vx(pg_temp.q_link(v_shop, v_post4, v_ig, 'owner'), array['55000'], '1 platform')
+      || pg_temp.vx(pg_temp.q_post(v_shop, v_ig, 'facebook', pg_temp.ext(), 'https://www.facebook.com/verify160/posts/l9c', now() - interval '1 hour', 'owner'), array['55000'], '1 platform'));
+  exception when others then
+    drop trigger if exists trg_a_v160_inj on analytics.content_post;
+    v_log := v_log || format(E'[FAIL] M ABORT sqlstate=%s msg=%s\n', sqlstate, left(sqlerrm, 300));
+  end;
+
+  ----------------------------------------------------------------------------
+  -- I6 (ขอบ posted_at) · S-L3 (caption) · S-L1 (posted_before_approval)
+  ----------------------------------------------------------------------------
+  begin
+    v_sa := pg_temp.mk_ready(v_shop, 'short_clip', 'tiktok');
+    v_snap := pg_temp.snap();
+    v_w0 := pg_temp.wr();
+    v_log := v_log || pg_temp.vl('I6a', 'QA-I6: content_piece_post ปฏิเสธ posted_at = -infinity · infinity · 2024-12-31 23:59:59+07 · อนาคต 2 วัน → 22023 (ก่อนเขียนอะไร)',
+      pg_temp.vx(format('select analytics.content_piece_post(%L::uuid,%L::uuid,''tiktok'',%L,%L,''-infinity''::timestamptz,''owner'')', v_shop, v_sa, pg_temp.ext(), pg_temp.url()), array['22023'], 'นอกช่วง')
+      || pg_temp.vx(format('select analytics.content_piece_post(%L::uuid,%L::uuid,''tiktok'',%L,%L,''infinity''::timestamptz,''owner'')', v_shop, v_sa, pg_temp.ext(), pg_temp.url()), array['22023'], 'นอกช่วง')
+      || pg_temp.vx(format('select analytics.content_piece_post(%L::uuid,%L::uuid,''tiktok'',%L,%L,''2024-12-31 23:59:59+07''::timestamptz,''owner'')', v_shop, v_sa, pg_temp.ext(), pg_temp.url()), array['22023'], 'นอกช่วง')
+      || pg_temp.vx(pg_temp.q_post(v_shop, v_sa, 'tiktok', pg_temp.ext(), pg_temp.url(), now() + interval '2 days', 'owner'), array['22023'], 'นอกช่วง'));
+    v_log := v_log || pg_temp.vb('I6b', 'I6a ไม่เขียน tuple เลย', v_w0 = pg_temp.wr() and v_snap = pg_temp.snap());
+    -- link: โพสต์ที่หลุดเข้ามาทางคิวเดิมด้วยค่าเพี้ยน ผูกกับชิ้นงานไม่ได้ (ทำใน subtransaction แล้วถอย — แถว -infinity ทำ view อื่นพัง)
+    begin
+      v_post1 := analytics.content_post_upsert(v_shop, 'tiktok', pg_temp.ext(), pg_temp.url(), '-infinity'::timestamptz);
+      v_post2 := analytics.content_post_upsert(v_shop, 'tiktok', pg_temp.ext(), pg_temp.url(), '2024-12-31 23:59:59+07'::timestamptz);
+      v_log := v_log || pg_temp.vl('I6c', 'QA-I6: link_step โพสต์ที่ posted_at = -infinity / ก่อน 2025 → 22023',
+        pg_temp.vx(pg_temp.q_link(v_shop, v_post1, v_sa, 'owner'), array['22023'], 'นอกช่วง')
+        || pg_temp.vx(pg_temp.q_link(v_shop, v_post2, v_sa, 'owner'), array['22023'], 'นอกช่วง'));
+      raise exception 'rollback I6c' using errcode = 'QA001';
+    exception when sqlstate 'QA001' then null;
+    end;
+    v_log := v_log || pg_temp.vl('I6d', 'ต้องไม่พัง: ขอบล่าง 2025-01-01 00:00 ไทย พอดี → ผ่าน (posted)',
+      pg_temp.vok(format('select analytics.content_piece_post(%L::uuid,%L::uuid,''tiktok'',%L,%L,''2025-01-01 00:00:00+07''::timestamptz,''owner'')', v_shop, v_sa, pg_temp.ext(), pg_temp.url()))
+      || case when pg_temp.st(v_sa) = 'posted/done' then 'OK' else 'FAIL ' || pg_temp.st(v_sa) end);
+
+    -- S-L3
+    v_sb := pg_temp.mk_ready(v_shop, 'short_clip', 'tiktok');
+    v_log := v_log || pg_temp.vl('S-L3', 'caption 2,201 ตัวอักษร → 22023 · 2,200 + ช่องว่างท้าย (btrim แล้ว 2,200) → OK',
+      pg_temp.vx(format('select analytics.content_piece_post(%L::uuid,%L::uuid,''tiktok'',%L,%L,now() - interval ''1 hour'',''owner'',null,null,null,%L)', v_shop, v_sb, pg_temp.ext(), pg_temp.url(), repeat('ก', 2201)), array['22023'], 'caption')
+      || pg_temp.vok(format('select analytics.content_piece_post(%L::uuid,%L::uuid,''tiktok'',%L,%L,now() - interval ''1 hour'',''owner'',null,null,null,%L)', v_shop, v_sb, pg_temp.ext(), pg_temp.url(), repeat('ก', 2200) || repeat(' ', 50))));
+
+    -- S-L1: ใบแรก (ผ่าน transition_) · ใบที่ 2 (additional) · link ทั้งสองทาง — before = ธง true · เท่ากับเวลาอนุมัติ = ไม่มีธง
+    v_sc := pg_temp.mk_ready(v_shop, 'short_clip', 'tiktok');
+    v_sd := pg_temp.mk_ready(v_shop, 'short_clip', 'tiktok');
+    v_j := analytics.content_piece_post(v_shop, v_sc, 'tiktok', pg_temp.ext(), pg_temp.url(), now() - interval '1 day', 'owner');
+    v_j := analytics.content_piece_post(v_shop, v_sd, 'tiktok', pg_temp.ext(), pg_temp.url(), now(), 'owner');
+    v_log := v_log || pg_temp.vb('S-L1a', 'ใบแรก: posted_at ก่อนเวลาอนุมัติ → payload.posted_before_approval = true · posted_at = เวลาอนุมัติ → ไม่มี key นี้ (ไม่บล็อกทั้งสองกรณี)',
+      exists (select 1 from analytics.content_piece_event e where e.step_id = v_sc and e.event_kind = 'post' and e.payload ->> 'posted_before_approval' = 'true')
+      and not exists (select 1 from analytics.content_piece_event e where e.step_id = v_sd and e.event_kind = 'post' and e.payload ? 'posted_before_approval')
+      and pg_temp.st(v_sc) = 'posted/done' and pg_temp.st(v_sd) = 'posted/done');
+    v_ig := pg_temp.mk_ready(v_shop, 'ig_fb_post', 'facebook');
+    perform analytics.content_piece_post(v_shop, v_ig, 'facebook', pg_temp.ext(), 'https://www.facebook.com/verify160/posts/s1a', now(), 'owner');
+    perform analytics.content_piece_post(v_shop, v_ig, 'instagram', pg_temp.ext(), 'https://www.instagram.com/p/s1b/', now() - interval '2 days', 'owner');
+    v_post1 := analytics.content_post_upsert(v_shop, 'instagram', pg_temp.ext(), 'https://www.instagram.com/p/s1c/', now() - interval '1 day');
+    v_sf := pg_temp.mk_ready(v_shop, 'ig_fb_post', 'facebook');
+    v_post2 := analytics.content_post_upsert(v_shop, 'facebook', pg_temp.ext(), 'https://www.facebook.com/verify160/posts/s1d', now() - interval '3 days');
+    perform analytics.content_post_link_step(v_shop, v_post2, v_sf, 'owner');
+    v_log := v_log || pg_temp.vb('S-L1b', 'ใบที่ 2 (additional) ผ่าน content_piece_post: ก่อนอนุมัติ = ธง true · ใบแรกที่ posted_at = เวลาอนุมัติ ไม่มีธง',
+      (select count(*) from analytics.content_piece_event e where e.step_id = v_ig and e.event_kind = 'post' and e.payload ->> 'posted_before_approval' = 'true' and (e.payload ->> 'additional')::boolean) = 1
+      and (select count(*) from analytics.content_piece_event e where e.step_id = v_ig and e.event_kind = 'post' and not (e.payload ? 'posted_before_approval')) = 1);
+    v_se := pg_temp.mk_ready(v_shop, 'ig_fb_post', 'facebook');
+    perform analytics.content_piece_post(v_shop, v_se, 'facebook', pg_temp.ext(), 'https://www.facebook.com/verify160/posts/s1e', now(), 'owner');
+    perform analytics.content_post_link_step(v_shop, v_post1, v_se, 'owner');
+    v_log := v_log || pg_temp.vb('S-L1c', 'link_step: ใบแรก (ผ่าน transition_) posted_at ก่อนอนุมัติ = ธง true · additional ที่ link ทีหลัง (instagram เมื่อวาน) = ธง true + linked',
+      exists (select 1 from analytics.content_piece_event e where e.step_id = v_sf and e.event_kind = 'post' and e.payload ->> 'posted_before_approval' = 'true')
+      and exists (select 1 from analytics.content_piece_event e where e.step_id = v_se and e.event_kind = 'post' and e.payload ->> 'linked' = 'true' and e.payload ->> 'posted_before_approval' = 'true'));
+  exception when others then
+    v_log := v_log || format(E'[FAIL] I6/L1/L3 ABORT sqlstate=%s msg=%s\n', sqlstate, left(sqlerrm, 300));
+  end;
+
+  ----------------------------------------------------------------------------
   -- X37: เรียกฟังก์ชันของ 0160 ทุกตัวจาก role authenticated (หลังจำลองกำแพงชั้นนอกหลุด — 3j-migration-traps 18.5)
   ----------------------------------------------------------------------------
   execute 'grant usage on schema analytics to authenticated';
@@ -947,7 +1297,7 @@ begin
     select p.proname, (select string_agg('null::' || format_type(t, null), ', ' order by o) from unnest(p.proargtypes::oid[]) with ordinality as u(t, o)) as args
       from pg_proc p
      where p.pronamespace = 'analytics'::regnamespace and p.prokind = 'f'
-       and p.proname ~ '^(content_piece_post$|content_piece_defer$|content_post_link_step$|content_post_unlink_step$|content_post_platform_ok_$|content_post_hook_check_$)'
+       and p.proname ~ '^(content_piece_post$|content_piece_defer$|content_post_link_step$|content_post_unlink_step$|content_post_platform_ok_$|content_post_hook_check_$|content_post_guard_link$)'
      order by p.proname
   loop
     v_n := v_n + 1;
@@ -973,7 +1323,7 @@ begin
     execute 'reset role';
   end loop;
   execute 'revoke usage on schema analytics from authenticated';
-  v_log := v_log || pg_temp.vb('X37', 'role authenticated (แม้ได้ usage สคีมา) เรียกฟังก์ชัน 6 ตัว + อ่าน view 4 ตัวของ 0160 → 42501 ทั้งหมด', v_n = 10 and v_n2 = v_n,
+  v_log := v_log || pg_temp.vb('X37', 'role authenticated (แม้ได้ usage สคีมา) เรียกฟังก์ชัน 7 ตัว + อ่าน view 4 ตัวของ 0160 → 42501 ทั้งหมด', v_n = 11 and v_n2 = v_n,
     format('ทดสอบ %s · 42501 %s · ผิดปกติ: %s', v_n, v_n2, coalesce(v_bad, '-')));
   v_log := v_log || pg_temp.vb('X37b', 'สิทธิ์ usage ของ authenticated บนสคีมากลับสู่เดิม (false) หลังทดสอบ', not has_schema_privilege('authenticated', 'analytics', 'usage'));
 

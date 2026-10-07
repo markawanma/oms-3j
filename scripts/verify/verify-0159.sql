@@ -641,7 +641,11 @@ begin
                                           now() - interval '1 day', null, v_a1, 'verify');
   v_log := v_log || pg_temp.vl('K12q', 'helper posted ด้วยโพสต์ที่ยังไม่ผูก step (หรือผูก step อื่น) → 55000',
     pg_temp.vx(format('select analytics.content_piece_transition_(%L::uuid,%L::uuid,''posted'',''owner'',null,null,%L::uuid)', v_shop, v_s1, v_post), array['55000'], 'ผูกกับชิ้นงานนี้'));
+  -- [0160/S-M3] ด่านตาราง content_post_guard_link (มีเมื่อ apply 0160 แล้ว) ขวางการเขียน step_id/hook_id ตรง — ตั้ง GUC ครอบเฉพาะคำสั่งนี้
+  -- (รัน current_user = เจ้าของ ไม่ใช่ service_role จึงผ่าน) · กรณี DB ยังไม่มี 0160 GUC นี้ไม่มีผลอะไร ไฟล์นี้จึงรันได้ทั้งก่อน/หลัง 0160
+  perform set_config('c2.piece_rpc', '1', true);
   update analytics.content_post set step_id = v_s1, hook_id = v_hA where id = v_post;
+  perform set_config('c2.piece_rpc', '', true);
   v_log := v_log || pg_temp.vl('K12q2', 'helper: p_post_id ใช้กับ p_to ≠ posted → 22023',
     pg_temp.vx(format('select analytics.content_piece_transition_(%L::uuid,%L::uuid,''produced'',''owner'',null,null,%L::uuid)', v_shop, v_s1, v_post), array['22023']));
   v_j := analytics.content_piece_transition_(v_shop, v_s1, 'posted', 'owner', null, null, v_post);
@@ -1660,9 +1664,12 @@ begin
         || pg_temp.vx(pg_temp.q_gate(v_shop, v_x, 'fact_check', 'passed', 'owner', jsonb_build_object('sources', '[]'::jsonb)), array['22023'], 'แหล่งอ้างอิง'));
       v_log := v_log || pg_temp.vl('R1d', 'ส่ง stale_sources เข้ามาเป็น key ขาเข้า (ปลอมหลักฐานเก่า) → 22023 ไม่รับ key',
         pg_temp.vx(pg_temp.q_gate(v_shop, v_x, 'fact_check', 'passed', 'owner', jsonb_build_object('stale_sources', jsonb_build_array('https://example.com/old-a'))), array['22023'], 'ไม่รับ key'));
-      v_log := v_log || pg_temp.vb('R1e', 'content_gate_record ไม่มีคำว่า stale_sources ใน body (ไม่มีทาง fallback ไปอ่านหลักฐานเก่า)',
-        (select pg_get_functiondef(p.oid) !~ 'stale_sources' from pg_proc p
-          where p.pronamespace = 'analytics'::regnamespace and p.proname = 'content_gate_record'));
+      -- [รอบ 3 · I-1] เดิมห้ามมีคำว่า stale_sources ใน body เลย — ตอนนี้ต้องคัดลอกประวัติไปกับ detail ใหม่ จึงตรวจให้แคบลง:
+      -- หลักฐานผ่านด่าน (v_src) ต้องไม่ถูกตั้งจาก stale_sources ในคำสั่งเดียวกัน (ตัดคอมเมนต์ออกก่อนตรวจ) · พฤติกรรมจริงอยู่ที่ R1c / I1a-I1e
+      v_log := v_log || pg_temp.vb('R1e', 'content_gate_record: v_src (หลักฐานผ่านด่าน M4) ไม่เคยถูกตั้งจาก stale_sources — stale_sources ถูกคัดลอกอย่างเดียว (ไม่มีทาง fallback ไปอ่านหลักฐานเก่า)',
+        (select regexp_replace(pg_get_functiondef(p.oid), '--[^\n]*', '', 'g') !~ 'v_src[^;]*stale_sources'
+                and regexp_replace(pg_get_functiondef(p.oid), '--[^\n]*', '', 'g') ~ 'v_stale_old'
+           from pg_proc p where p.pronamespace = 'analytics'::regnamespace and p.proname = 'content_gate_record'));
       v_log := v_log || pg_temp.vb('R1f', 'ปฏิเสธแล้วสถานะ fact_check ยัง pending (ไม่ขยับ)',
         (select g.status from analytics.step_gate g where g.step_id = v_x and g.gate_kind = 'fact_check') = 'pending');
       -- ต้องไม่พัง: หลักฐานใหม่ผ่านได้ · วงจรอนุมัติเต็มหลังเนื้อหาเปลี่ยนยังไปได้
@@ -1710,11 +1717,50 @@ begin
         jsonb_build_object('sources', jsonb_build_array('https://example.com/h-new')));
       perform analytics.content_hook_upsert(v_shop, v_x2, 'A', 'hook ใหม่ R3 ที่ต่างจากเดิม', 'warning', null, 'owner', v_xh);
       v_log := v_log || pg_temp.vb('R3b', 'ต้องไม่พัง: เปลี่ยนเฉพาะ hook_type (ข้อความเดิม) → fact_check ยัง passed · sources ยังอยู่',
-        (select g.status = 'passed' and g.detail -> 'sources' = '["https://example.com/h-new"]'::jsonb and not (g.detail ? 'stale_sources')
+        (select g.status = 'passed' and g.detail -> 'sources' = '["https://example.com/h-new"]'::jsonb
+                and g.detail -> 'stale_sources' = '["https://example.com/h-old"]'::jsonb      -- I-1: ประวัติรอบก่อนพกไปกับ detail ใหม่ (เดิม not (? stale_sources))
            from analytics.step_gate g where g.step_id = v_x2 and g.gate_kind = 'fact_check'));
       -- ต้องไม่พัง: ด่าน brand_rule/risk_owner ไม่มี sources → รีเซ็ตเหมือนเดิม detail ไม่เพี้ยน (ไม่มี key stale_sources งอก)
       select count(*) into v_n from analytics.step_gate g where g.step_id = v_x and g.gate_kind <> 'fact_check' and g.detail ? 'stale_sources';
       v_log := v_log || pg_temp.vb('R4', 'stale_sources งอกเฉพาะ fact_check (brand_rule/risk_owner ไม่มี)', v_n = 0, v_n::text);
+
+      -- ---- I-1 (รอบ 3): ประวัติ stale_sources ต้องไม่หายเมื่อส่ง detail ใหม่ · invalidate_ รอบถัดไปต่อท้ายแทนทับ · เพดาน 100 ----
+      v_x := pg_temp.mk_step(v_shop, 'ig_fb_post', 'facebook', false);
+      perform analytics.content_gate_record(v_shop, v_x, 'fact_check', 'passed', 'owner',
+        jsonb_build_object('sources', jsonb_build_array('https://example.com/i1-s1')));
+      select a.id into v_xa from analytics.step_artifact a where a.step_id = v_x;
+      perform analytics.campaign_set_artifact_content(v_xa, 'ข้อความใหม่ I1 รอบ 1', null);
+      perform analytics.content_gate_record(v_shop, v_x, 'fact_check', 'passed', 'owner',
+        jsonb_build_object('sources', jsonb_build_array('https://example.com/i1-s2')));
+      select g.detail into v_d from analytics.step_gate g where g.step_id = v_x and g.gate_kind = 'fact_check';
+      v_log := v_log || pg_temp.vb('I1a', 'I-1: ส่ง detail ใหม่ (sources ใหม่) หลังเนื้อหาเปลี่ยน → sources = ของใหม่ · stale_sources = ประวัติรอบก่อนยังอยู่ (ไม่หาย)',
+        v_d -> 'sources' = '["https://example.com/i1-s2"]'::jsonb and v_d -> 'stale_sources' = '["https://example.com/i1-s1"]'::jsonb, coalesce(v_d::text, 'null'));
+      perform analytics.campaign_set_artifact_content(v_xa, 'ข้อความใหม่ I1 รอบ 2', null);
+      select g.detail into v_d from analytics.step_gate g where g.step_id = v_x and g.gate_kind = 'fact_check';
+      v_log := v_log || pg_temp.vb('I1b', 'I-1: เนื้อหาเปลี่ยนรอบที่ 2 → stale_sources สะสม [s1, s2] ตามลำดับ (ไม่ทับเหลือแค่ s2) · sources หาย',
+        not (v_d ? 'sources') and v_d -> 'stale_sources' = '["https://example.com/i1-s1","https://example.com/i1-s2"]'::jsonb, coalesce(v_d::text, 'null'));
+      perform analytics.content_gate_record(v_shop, v_x, 'fact_check', 'pending', 'ai', jsonb_build_object('flagged', jsonb_build_array('ราคา')));
+      select g.detail into v_d from analytics.step_gate g where g.step_id = v_x and g.gate_kind = 'fact_check';
+      v_log := v_log || pg_temp.vb('I1c', 'I-1: detail ใหม่ที่มีแต่ flagged (ไม่มี sources) → stale_sources ยังครบ [s1, s2] · flagged เก็บ',
+        v_d -> 'stale_sources' = '["https://example.com/i1-s1","https://example.com/i1-s2"]'::jsonb and v_d -> 'flagged' = '["ราคา"]'::jsonb, coalesce(v_d::text, 'null'));
+      v_log := v_log || pg_temp.vl('I1c2', 'I-1: มี stale_sources ค้างอยู่ก็ยังเป็นหลักฐานไม่ได้ — passed โดยไม่ส่ง sources → 22023 (ทั้ง detail ว่างและมีแต่ flagged)',
+        pg_temp.vx(pg_temp.q_gate(v_shop, v_x, 'fact_check', 'passed', 'owner'), array['22023'], 'แหล่งอ้างอิง')
+        || pg_temp.vx(pg_temp.q_gate(v_shop, v_x, 'fact_check', 'passed', 'owner', jsonb_build_object('flagged', jsonb_build_array('ราคา'))), array['22023'], 'แหล่งอ้างอิง'));
+      -- เพดาน: stale 99 + sources 3 = 102 → เหลือ 100 ล่าสุด (ตัด 2 ตัวเก่าสุด) · ลำดับ: เก่า → ใหม่
+      update analytics.step_gate
+         set detail = jsonb_build_object('stale_sources', (select jsonb_agg('https://example.com/old-' || i order by i) from generate_series(1, 99) i),
+                                         'sources', jsonb_build_array('https://example.com/n1', 'https://example.com/n2', 'https://example.com/n3'))
+       where step_id = v_x and gate_kind = 'fact_check';
+      perform analytics.campaign_set_artifact_content(v_xa, 'ข้อความใหม่ I1 รอบ 3', null);
+      select g.detail into v_d from analytics.step_gate g where g.step_id = v_x and g.gate_kind = 'fact_check';
+      v_log := v_log || pg_temp.vb('I1d', 'I-1: เพดาน 100 — stale 99 + sources 3 → เหลือ 100 · ตัวแรก = old-3 (ตัด old-1/old-2) · ตัวสุดท้าย = n3 · sources หาย',
+        jsonb_array_length(v_d -> 'stale_sources') = 100 and v_d -> 'stale_sources' ->> 0 = 'https://example.com/old-3'
+        and v_d -> 'stale_sources' ->> 99 = 'https://example.com/n3' and not (v_d ? 'sources'), coalesce(left(v_d::text, 120), 'null'));
+      -- ต้องไม่พัง: ผ่านด้วยแหล่งใหม่หลังประวัติยาว · ประวัติยังพกไปครบ 100
+      v_r := pg_temp.vok(pg_temp.q_gate(v_shop, v_x, 'fact_check', 'passed', 'owner', jsonb_build_object('sources', jsonb_build_array('https://example.com/i1-new'))));
+      select g.detail into v_d from analytics.step_gate g where g.step_id = v_x and g.gate_kind = 'fact_check';
+      v_log := v_log || pg_temp.vb('I1e', 'ต้องไม่พัง: หลังประวัติ 100 ลิงก์ ส่งแหล่งใหม่ผ่านได้ (OK) · sources = ของใหม่ · stale ยังครบ 100',
+        v_r = 'OK' and v_d -> 'sources' = '["https://example.com/i1-new"]'::jsonb and jsonb_array_length(v_d -> 'stale_sources') = 100, v_r);
 
       -- ---- S/T: set_plan เปลี่ยน piece_kind กับ line_audience ----
       v_x := pg_temp.mk_step(v_shop, 'line_message', 'line_oa', false, 'planned');
