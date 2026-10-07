@@ -16,6 +16,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildContentPostUpsertParams,
+  checkPostedAt,
   deriveExternalId,
   isPostableArtifactType,
   parseMetricFieldValue,
@@ -328,5 +329,36 @@ describe("isPostableArtifactType", () => {
 
   it("returns false for a completely unknown artifact_type string", () => {
     expect(isPostableArtifactType("some_future_artifact_type")).toBe(false);
+  });
+});
+
+describe("checkPostedAt — ขอบเขตเดียวกับด่าน DB 0160 (2025-01-01 00:00 ไทย .. now()+1 วัน)", () => {
+  const NOW = Date.parse("2026-10-07T12:00:00+07:00");
+
+  it.each([
+    ["-infinity", "-infinity"],
+    ["infinity", "infinity"],
+    ["abc", "abc"],
+    ["ค่าว่าง", ""],
+    ["ช่องว่างล้วน", "   "],
+    ["ปี 1990", "1990-01-01T00:00:00+07:00"],
+    ["ก่อนขอบล่าง 1 วินาที", "2024-12-31T23:59:59+07:00"],
+    ["เกินเพดาน 1 มิลลิวินาที", new Date(NOW + 24 * 60 * 60 * 1000 + 1).toISOString()],
+    ["อนาคต +2 วัน", "2026-10-09T12:00:00+07:00"],
+  ])("ปฏิเสธ %s", (_label, raw) => {
+    expect(checkPostedAt(raw, NOW)).toEqual({ ok: false });
+  });
+
+  it("ปฏิเสธค่าที่ไม่ใช่ string (null · undefined · number · object)", () => {
+    for (const raw of [null, undefined, 1760000000000, {}]) {
+      expect(checkPostedAt(raw, NOW)).toEqual({ ok: false });
+    }
+  });
+
+  it("ผ่าน: ขอบล่างพอดี · เมื่อวาน · เพดาน now+1 วันพอดี — คืน ISO UTC", () => {
+    expect(checkPostedAt("2025-01-01T00:00:00+07:00", NOW)).toEqual({ ok: true, iso: "2024-12-31T17:00:00.000Z" });
+    expect(checkPostedAt("2026-10-06T12:00:00+07:00", NOW)).toEqual({ ok: true, iso: "2026-10-06T05:00:00.000Z" });
+    const edge = new Date(NOW + 24 * 60 * 60 * 1000).toISOString();
+    expect(checkPostedAt(edge, NOW)).toEqual({ ok: true, iso: edge });
   });
 });

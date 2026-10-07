@@ -785,9 +785,12 @@ export async function setCampaignArtifactStatus(
     const msg = readErrorMessage(err);
     const isSilverBarDiscountError =
       code === "22023" || (msg.includes("silver_bar") && msg.includes("discount_pct"));
+    // 0159: step ที่อยู่ใน workflow ชิ้นงานใหม่ ปิดเส้นทางนี้ด้วย 55000 (ไม่ใช่ 22023 ข้างบน) — บอกทางไปหน้าชิ้นงาน
     const errorMsg = isSilverBarDiscountError
       ? "สินค้าเงินแท่งห้ามมีส่วนลด (กันเก็งกำไรราคา)"
-      : "อัปเดตสถานะไม่สำเร็จ ลองใหม่อีกครั้ง";
+      : code === "55000"
+        ? "ชิ้นงานนี้อยู่ใน workflow ใหม่ — เปลี่ยนสถานะผ่านหน้าชิ้นงาน (ต้องผ่านด่านตรวจและเจ้าของอนุมัติ)"
+        : "อัปเดตสถานะไม่สำเร็จ ลองใหม่อีกครั้ง";
     return { ok: false, error: errorMsg };
   }
 }

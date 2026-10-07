@@ -194,7 +194,9 @@ begin
         and p.proname ~ '^(content_signal_|content_hook_|content_actor_|content_text_|content_url_|live_host_|live_session_upsert$)'));
   v_log := v_log || pg_temp.vb('A3c', 'ฟังก์ชันของ 0158 มี 9 ตัวพอดี (ตัวเลข "ทั้ง 9" ใน A3 มีที่มา)',
     (select count(*) from pg_proc where pronamespace = 'analytics'::regnamespace
-        and proname ~ '^(content_signal_|content_hook_|content_actor_|content_text_|content_url_|live_host_|live_session_upsert$)') = 9);
+        and proname ~ '^(content_signal_|content_hook_|content_actor_|content_text_|content_url_|live_host_|live_session_upsert$)'
+        -- 0159 เพิ่มฟังก์ชันที่ชื่อขึ้นต้นเหมือนกัน (pick/delete_guard/hook_reference_/link_/mirror_) — ไม่นับเป็นของ 0158
+        and proname !~ '^(content_signal_pick$|content_signal_delete_guard$|content_hook_reference_|content_hook_link_|content_hook_mirror_)') = 9);
 
   -- case 7: signature เดียว
   select string_agg(proname || '=' || n, ', ') into v_bad from (
@@ -712,8 +714,14 @@ begin
   v_log := v_log || pg_temp.vb('B10e', 'hook เดิมอยู่ step เดิม ข้อความเดิม', (select step_id = v_step and text = 'hook ของ step อื่น' from analytics.content_hook where id = v_id));
   --   (ค) hook ของเขา (reference): CHECK บังคับ step_id null ⇒ เงื่อนไข step_id กันให้อยู่แล้ว · origin='ours' เป็นด่านซ้อน
   --   (ถอด origin อย่างเดียวผล = เท่าเดิม — equivalent mutant เพราะ content_hook_reference_scope_check) · ถอดทั้ง step และ origin = assertion นี้ล้ม
-  insert into analytics.content_hook (shop_id, text, hook_type, origin, generated_by)
-    values (v_shop, 'hook ของเขา', 'story', 'reference', 'human') returning id into v_id;
+  -- 0159 (D8 ทาง ข): hook reference ต้องมี source_signal_id (CHECK content_hook_reference_needs_signal_check) ⇒ สร้างสัญญาณต้นทางก่อน
+  -- (ไม่ใส่ hook_text ⇒ trigger mirror ของ 0159 ไม่สร้าง hook ซ้ำ) · ใช้ได้ทั้งก่อนและหลัง apply 0159
+  with s as (
+    insert into analytics.content_signal (shop_id, kind, source, seen_on, summary)
+    values (v_shop, 'craft_moment', 'owner', v_today, 'verify B10 ต้นทางของ hook reference') returning id)
+  insert into analytics.content_hook (shop_id, text, hook_type, origin, source_signal_id, generated_by)
+    select v_shop, 'hook ของเขา', 'story', 'reference', s.id, 'human' from s
+  returning id into v_id;
   v_log := v_log || pg_temp.vl('B10f', 'p_id ของ hook ฝั่ง reference (hook ของเขา) → 22023 (ล้มถ้าถอดทั้ง step และ origin)',
     pg_temp.vx(format('select analytics.content_hook_upsert(%L::uuid, %L::uuid, null, ''เขียนทับของเขา'', ''fact'', null, ''owner'', %L::uuid)', v_shop, v_step2, v_id), array['22023']));
   v_log := v_log || pg_temp.vb('B10g', 'hook reference ไม่ถูกแตะ', (select text = 'hook ของเขา' and origin = 'reference' and step_id is null from analytics.content_hook where id = v_id));
