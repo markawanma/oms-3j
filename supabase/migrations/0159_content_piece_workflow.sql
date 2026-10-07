@@ -1,8 +1,6 @@
 -- 0159_content_piece_workflow.sql  (ก้อน C2 ส่วนแรกของ workflow content/แคมเปญชุดใหม่ — piece workflow)
 --
 -- สถานะ: DRAFT ยังไม่ apply — ต้องผ่าน security (💰-class: สิทธิ์อนุมัติ + ปิดเส้นทางเดิม) + QA scope L ก่อน merge
--- 0160 (content_piece_post / content_post_link_step / unlink / defer / v_content_piece_calendar /
--- v_content_inbox_counts / v_line_quota_28d / v_content_hook_library) ยังไม่เขียน — ไฟล์นี้ไม่พึ่ง 0160
 --
 -- Why: ชิ้นงาน (piece) = analytics.campaign_step ที่มี piece_status (8 ค่า) · สถานะเก็บที่ step ไม่ใช่ artifact
 -- · การอนุมัติต้องผ่าน 3 ด่าน (fact_check/brand_rule/risk_owner) + ไม่มี [ต้องยืนยัน] ค้าง + เจ้าของเท่านั้น
@@ -62,11 +60,11 @@
 --   I  kind↔channel ตรวจเฉพาะตอนสร้าง หรือเมื่อ set_plan แตะ piece_kind/channel
 --      [รอบแก้ Tech Lead] ตารางยอมรับ short_clip คู่ tiktok_live ด้วย (เฉพาะ short_clip — live_cut ยัง tiktok เท่านั้น) เพราะ 13 คลิป ต.ค.
 --      ที่ backfill มี channel 'tiktok_live' อยู่แล้ว · ไม่เขียนทับ channel เดิม (เจ้าของไม่ต้องไล่แก้ 13 ชิ้น) · ช่องทางอื่นของคลิปยังไม่ผ่าน
+--   J  gate_record/confirm_resolve/set_plan ตั้งได้เฉพาะสถานะที่ตรรกะเปิดให้ (ดูเมธอด) ข้อความ 55000 บอกทางออก
 --   K  มติเจ้าของ 7 ต.ค. 69 (Q8 — เปลี่ยนจากสเปก §12.11): ยกเลิกชิ้น (advance cancelled) → สัญญาณที่ picked_step_id ชี้ชิ้นนี้
 --      กลับเป็น new + ล้าง picked_step_id ในทรานแซกชันเดียว (id เก็บใน payload.signal_ids ของ event cancel) · สัญญาณที่ถูกหยิบ
 --      ไปชิ้นอื่นแล้วไม่แตะ · restore ผูกสัญญาณเดิมกลับเฉพาะเมื่อยังว่าง (new + ไม่ผูกชิ้นไหน) ไม่งั้นกู้ชิ้นโดยไม่มีสัญญาณต้นทาง
 --      (ไม่ปฏิเสธการกู้ — สัญญาณ 1 ตัวไม่มีทางผูก 2 ชิ้น) · Q6/Q7/D9 ตามสเปกเดิม
---   J  gate_record/confirm_resolve/set_plan ตั้งได้เฉพาะสถานะที่ตรรกะเปิดให้ (ดูเมธอด) ข้อความ 55000 บอกทางออก
 --   L  [รอบแก้ H1] restore จาก cancelled ที่ยกเลิกมาจาก approved/produced → ลง in_review เสมอ (artifact → draft_pending_review ถ้า AI ร่าง /
 --      draft ถ้าคน) ต้องอนุมัติใหม่ — เดิมกลับ approved ตรงๆ ⇒ ยกเลิก→แก้เนื้อหา→กู้คืน ได้ approved ทั้งที่เนื้อหาเปลี่ยน ·
 --      restore ทุกครั้งที่ลง drafting/in_review รัน extract ทันที (QA-3: marker ที่ใส่ตอน cancelled ต้องมีรายการให้ตอบ)
@@ -844,6 +842,7 @@ begin
      returning 1)
   select count(*)::int into v_staled from u;
 
+  -- 🔴 insert นี้คือจุดชน FK ที่กันการอนุมัติแข่งกัน — ห้ามลบ ห้ามย้ายไปก่อน update step_gate (ดูข้อ Q ในหัวไฟล์)
   if v_reset is not null or v_staled > 0 then
     insert into analytics.content_piece_event (shop_id, step_id, event_kind, reason, actor_role, actor_uid, payload)
     values (p_shop_id, p_step_id, 'gate',
@@ -2048,6 +2047,7 @@ declare
   v_cancel_pl   jsonb;
   v_sig_ids     uuid[];
   v_event_id    uuid;
+  v_n           int;
 begin
   if p_shop_id is null or p_step_id is null or p_to is null then
     raise exception 'content_piece_advance: ต้องระบุร้าน ชิ้นงาน และสถานะปลายทาง' using errcode = '22023';
@@ -2362,8 +2362,17 @@ begin
            reviewed_at = case when v_art_review then now() else reviewed_at end,
            updated_by = auth.uid()
      where step_id = p_step_id and shop_id = p_shop_id and status = any (v_art_from);
+    get diagnostics v_n = row_count;
   end if;
   perform set_config('c2.piece_rpc', '', true);
+  -- 🔴 ด่านนี้ห้ามลบ (ข้อ Q ในหัวไฟล์): การเขียนแถว step_artifact ตรงนี้คือจุดชนล็อกที่กันอนุมัติแข่งกับการแก้เนื้อหา
+  -- ผ่านเส้นทางเดิม · ตอนอนุมัติ ถ้าชิ้นมี artifact แต่ update ไม่โดนสักแถว (ไม่อยู่ในกลุ่ม draft แล้ว) = สภาพที่
+  -- ไม่ควรเกิด ⇒ ถอยทั้งทรานแซกชัน ไม่ปล่อยให้ step เป็น approved ขณะเอกสารไม่ได้ approved ตาม
+  -- (ชิ้นที่ไม่มี artifact เลยไม่ถูกด่านนี้ — ไม่มีแถวให้ขยับ)
+  if v_art_review and v_n <> 1
+     and exists (select 1 from analytics.step_artifact a where a.step_id = p_step_id and a.shop_id = p_shop_id) then
+    raise exception 'content_piece_advance: อนุมัติไม่ได้ — เอกสารของชิ้นงานไม่อยู่ในสถานะร่าง' using errcode = '55000';
+  end if;
 
   -- มติเจ้าของ Q8 (7 ต.ค. 69): ยกเลิกชิ้น → สัญญาณต้นทางที่ "หยิบเป็นชิ้นนี้" กลับเป็น new อัตโนมัติ (ล้าง picked_step_id)
   -- เฉพาะสัญญาณที่ status='picked' และ picked_step_id = step นี้ — สัญญาณที่ถูกหยิบไปชิ้นอื่นแล้วไม่แตะ · บันทึก id ใน payload

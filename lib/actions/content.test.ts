@@ -210,7 +210,7 @@ describe("upsertContentPost — RPC params must use the canonicalized URL, never
 // QA I1/I2 (7 ต.ค. 69): คิวเดิมของ DB ไม่ตรวจขอบเขต posted_at — '-infinity'/1990 ทำ view พังทั้งร้าน
 // ⇒ ด่านชั้นแอปต้องตัดก่อนถึง RPC (ไม่ canonicalize ไม่ยิงเน็ตด้วย) และเคสวันปกติต้องไม่พัง
 describe("upsertContentPost — posted_at ต้อง parse ได้และอยู่ในช่วง 2025-01-01 ถึงพรุ่งนี้", () => {
-  const BAD = "วันที่โพสต์ไม่ถูกต้อง";
+  const BAD = "วันที่โพสต์ไม่ถูกต้อง — ต้องอยู่ระหว่าง 1 ม.ค. 2568 ถึงวันนี้";
   const rejects: Array<[string, string]> = [
     ["-infinity", "-infinity"],
     ["infinity", "infinity"],
@@ -301,6 +301,47 @@ describe("upsertContentPost — map error จาก RPC/trigger ของ 0160",
     const result = await upsertContentPost({ platform: "tiktok", postUrl: RAW_SHORT_LINK, postedAt: OK_DATE });
     expect(result).toEqual({ ok: false, error: "บันทึกลิงก์ไม่สำเร็จ ลองใหม่อีกครั้ง" });
     spy.mockRestore();
+  });
+});
+
+// S-L2 (0160 trigger content_post_guard_link): เปิดโพสต์ deleted/private กลับ active ขณะที่ชิ้นมีโพสต์ active
+// platform เดียวกันอยู่แล้ว = 55000 ⇒ ข้อความไทยตายตัว ไม่ส่ง message/detail ดิบถึง client
+describe("setContentPostStatus — map error 55000 จาก trigger S-L2", () => {
+  const RAW_LEAK = "https://www.tiktok.com/@secret/video/1?_t=SESSIONTOKEN ชื่อภายใน";
+
+  it("55000 ⇒ 'เปิดโพสต์นี้ไม่ได้ — ชิ้นงานมีโพสต์ช่องทางนี้อยู่แล้ว' และไม่รั่ว message ดิบ", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    rpcMock.mockResolvedValue({ data: null, error: { code: "55000", message: `ชิ้นมีโพสต์ active แล้ว ${RAW_LEAK}`, details: RAW_LEAK } });
+    const { setContentPostStatus } = await import("./content");
+    const result = await setContentPostStatus("post-1", "active");
+    expect(result).toEqual({ ok: false, error: "เปิดโพสต์นี้ไม่ได้ — ชิ้นงานมีโพสต์ช่องทางนี้อยู่แล้ว" });
+    expect(JSON.stringify(result)).not.toContain("SESSIONTOKEN");
+    expect(JSON.stringify(spy.mock.calls)).not.toContain("SESSIONTOKEN");
+    spy.mockRestore();
+  });
+
+  it("22023 เดิม (ไม่พบโพสต์) ⇒ ยังได้ข้อความเดิมของ metric mapper (ต้องไม่พัง)", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    rpcMock.mockResolvedValue({ data: null, error: { code: "22023", message: "content_post_set_status: ไม่พบโพสต์" } });
+    const { setContentPostStatus } = await import("./content");
+    const result = await setContentPostStatus("post-1", "deleted");
+    expect(result).toEqual({ ok: false, error: "ไม่พบโพสต์นี้ในร้าน — อาจถูกลบไปแล้ว" });
+    spy.mockRestore();
+  });
+
+  it("error อื่นที่ไม่รู้จัก ⇒ ตก fallback เดิม", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    rpcMock.mockResolvedValue({ data: null, error: { code: "XX000", message: "boom" } });
+    const { setContentPostStatus } = await import("./content");
+    const result = await setContentPostStatus("post-1", "active");
+    expect(result).toEqual({ ok: false, error: "เปลี่ยนสถานะโพสต์ไม่สำเร็จ ลองใหม่อีกครั้ง" });
+    spy.mockRestore();
+  });
+
+  it("สำเร็จ ⇒ ok:true (ไม่พัง)", async () => {
+    rpcMock.mockResolvedValue({ data: null, error: null });
+    const { setContentPostStatus } = await import("./content");
+    expect(await setContentPostStatus("post-1", "active")).toEqual({ ok: true, data: undefined });
   });
 });
 

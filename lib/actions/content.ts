@@ -21,6 +21,7 @@ import {
   PLATFORMS,
   buildContentPostUpsertParams,
   checkPostedAt,
+  POSTED_AT_INVALID_ERROR,
   type ContentEntryQueueRow,
   type ContentPlatform,
   type ContentPostHistoryMetric,
@@ -33,6 +34,7 @@ import {
 import {
   mapContentMetricRpcError,
   mapContentPostRpcError,
+  mapContentPostStatusRpcError,
   mapContentPostUpdateTypeRpcError,
 } from "@/lib/marketing/content-errors";
 import {
@@ -646,7 +648,7 @@ export async function upsertContentPost(input: UpsertContentPostInput): Promise<
   // QA I1/I2 (7 ต.ค. 69): คิวเดิมใน DB ไม่ตรวจขอบเขตวันที่ — '-infinity'/ปี 1990 ทำ view ที่คำนวณ
   // age_days ตก 22008 ทั้งร้าน ⇒ ตรวจที่นี่ก่อนถึง RPC และส่งค่า ISO ที่ parse แล้ว (ค่าที่ตรวจ = ค่าที่เขียน)
   const postedAtCheck = checkPostedAt(input.postedAt);
-  if (!postedAtCheck.ok) return { ok: false, error: "วันที่โพสต์ไม่ถูกต้อง" };
+  if (!postedAtCheck.ok) return { ok: false, error: POSTED_AT_INVALID_ERROR };
   const postedAtIso = postedAtCheck.iso;
 
   // TikTok links arrive in several equivalent shapes (mobile share-sheet
@@ -854,8 +856,12 @@ export async function setContentPostStatus(postId: string, status: ContentPostSt
     });
     if (error) throw error;
   } catch (err) {
-    console.error("setContentPostStatus failed", err);
-    return { ok: false, error: mapContentMetricRpcError(err, "เปลี่ยนสถานะโพสต์ไม่สำเร็จ ลองใหม่อีกครั้ง") };
+    // ไม่ log error ทั้งก้อน (memory supabase-error-logging-trap) — trigger 0160 อาจมีชื่อภายใน/URL ใน message/details
+    console.error("setContentPostStatus failed", {
+      code: readErrorCode(err),
+      message: redactUrls(readErrorMessage(err)),
+    });
+    return { ok: false, error: mapContentPostStatusRpcError(err, "เปลี่ยนสถานะโพสต์ไม่สำเร็จ ลองใหม่อีกครั้ง") };
   }
 
   // M-c fix (security รอบ 3, 27 ก.ย. 69, applied for consistency — see

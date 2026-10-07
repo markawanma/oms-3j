@@ -1911,6 +1911,48 @@ begin
     (v_j ->> 'problem') like '%สถานะนอกขอบเขต%', v_j::text);
 
   ----------------------------------------------------------------------------
+  -- W: ด่าน row_count ของ content_piece_transition_ ตอนอนุมัติ (ข้อ Q — จุดชนล็อกของ update step_artifact)
+  --    สภาพ "artifact ไม่อยู่ในกลุ่ม draft" เกิดไม่ได้ผ่านเส้นทางปกติ (trigger guard ปิดไว้) ⇒ จำลองด้วย GUC c2.piece_rpc=1
+  --    (ข้าม guard ได้เพราะที่นี่ current_user = postgres) แล้วคืนค่าทุกครั้ง · mutant: ถอดด่านออก → W1 ต้อง FAIL
+  ----------------------------------------------------------------------------
+  v_id := pg_temp.mk_step(v_shop, 'ig_fb_post', 'facebook', false);
+  perform pg_temp.approve_ready(v_shop, v_id);
+  select a.id into v_a2 from analytics.step_artifact a where a.step_id = v_id;
+  perform set_config('c2.piece_rpc', '1', true);
+  update analytics.step_artifact set status = 'blocked' where id = v_a2;
+  perform set_config('c2.piece_rpc', '', true);
+  v_log := v_log || pg_temp.vl('W1', 'artifact ของชิ้น in_review ถูกดันออกจากกลุ่ม draft (blocked) แล้วอนุมัติ → update artifact ได้ 0 แถว → 55000 (ไม่ปล่อย step approved ขณะเอกสารไม่ approved)',
+    pg_temp.vx(pg_temp.q_adv(v_shop, v_id, 'approved', 'owner', null, 30), array['55000'], 'ไม่อยู่ในสถานะร่าง'));
+  v_log := v_log || pg_temp.vb('W1b', 'หลังถูกปฏิเสธ: step ยัง in_review/active · artifact ยัง blocked (ไม่มีอะไรขยับครึ่งทาง)',
+    pg_temp.st(v_id) = 'in_review/active' and pg_temp.art_st(v_id) = 'blocked', pg_temp.st(v_id) || ' ' || pg_temp.art_st(v_id));
+  perform set_config('c2.piece_rpc', '1', true);
+  update analytics.step_artifact set status = 'draft' where id = v_a2;
+  perform set_config('c2.piece_rpc', '', true);
+  v_log := v_log || pg_temp.vl('W2', 'ต้องไม่พัง: คืน artifact เป็น draft แล้วอนุมัติผ่าน (update ได้ 1 แถว) → step approved · artifact approved',
+    pg_temp.vok(pg_temp.q_adv(v_shop, v_id, 'approved', 'owner', null, 30))
+    || case when pg_temp.st(v_id) = 'approved/active' and pg_temp.art_st(v_id) = 'approved' then '' else ' FAIL ' || pg_temp.st(v_id) || ' ' || pg_temp.art_st(v_id) end);
+  -- W3: ชิ้น in_review ที่ไม่มี artifact เลย (ลบแบบข้าม guard) ต้องไม่โดนด่านผิด — ไม่มีแถวให้ขยับ · พิสูจน์ใน sub-block ที่ rollback เอง
+  v_id2 := pg_temp.mk_step(v_shop, 'ig_fb_post', 'facebook', false);
+  perform pg_temp.approve_ready(v_shop, v_id2);
+  v_txt := null;
+  begin
+    perform set_config('c2.piece_rpc', '1', true);
+    delete from analytics.step_artifact where step_id = v_id2;
+    perform set_config('c2.piece_rpc', '', true);
+    begin
+      perform analytics.content_piece_advance(v_shop, v_id2, 'approved', 'owner', null, 30);
+      v_txt := 'OK ' || pg_temp.st(v_id2) || ' artifact=' || pg_temp.art_st(v_id2);
+    exception when others then
+      v_txt := 'FAIL sqlstate=' || sqlstate || ' msg=' || left(sqlerrm, 160);
+    end;
+    raise exception 'w3-rollback' using errcode = 'RB999';
+  exception when sqlstate 'RB999' then
+    null;   -- ย้อนการลบ artifact + การอนุมัติของ fixture ทิ้ง
+  end;
+  v_log := v_log || pg_temp.vl('W3', 'ต้องไม่พัง: ชิ้น in_review ที่ไม่มี artifact เลย อนุมัติได้ตามเดิม (v_n = 0 แต่ไม่มีเอกสารให้ขยับ ⇒ ไม่โดนด่าน)',
+    coalesce(v_txt, 'FAIL ไม่มีผล') || case when v_txt like 'OK approved/active artifact=' then '' else case when v_txt like 'OK%' then ' FAIL ไม่ใช่ approved/active' else '' end end);
+
+  ----------------------------------------------------------------------------
   -- ที่ไม่ครอบในไฟล์นี้ (บอกตรงๆ)
   ----------------------------------------------------------------------------
   v_log := v_log || E'[SKIP] X31 X32 X33 / K14 / K13 (v_line_quota_28d) / v_content_piece_calendar (K18 ส่วนปฏิทิน) = ของ 0160 (content_piece_post · link/unlink · defer · views)\n';

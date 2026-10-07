@@ -115,3 +115,15 @@ export function mapContentMetricRpcError(err: unknown, fallback: string): string
   }
   return fallback;
 }
+
+/** Maps analytics.content_post_set_status errors. Reuses the metric mapper for
+ * 22023 and adds 55000 from the 0160 table trigger (S-L2): reopening a
+ * deleted/private post that is still linked to a piece which already has an
+ * active post on the same platform. Fixed Thai text — raw DB message must
+ * never reach the client (it can carry URLs / internal names). */
+export function mapContentPostStatusRpcError(err: unknown, fallback: string): string {
+  if (readErrorCode(err) === "55000") {
+    return "เปิดโพสต์นี้ไม่ได้ — ชิ้นงานมีโพสต์ช่องทางนี้อยู่แล้ว";
+  }
+  return mapContentMetricRpcError(err, fallback);
+}

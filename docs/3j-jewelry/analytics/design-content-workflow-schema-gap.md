@@ -395,6 +395,9 @@ RPC `content_post_link_step(p_shop_id, p_post_id, p_step_id, p_hook_id, p_actor_
 | D12 | `content_confirm_item` ไม่เก็บ path ใน clip_brief — เจ้าของเห็นคำถามแต่ไม่รู้ว่าอยู่ segment ไหน | YAGNI · regex ชั้น 2 กันไม่ให้หลุดอยู่แล้ว | ถ้าเจ้าของบ่นตอน UAT → เพิ่ม `path text` + extract เดิน jsonb แทน regex บน text |
 | D13 | ด่านความเสี่ยง (risk_owner pending) ยังไม่สร้าง `recommendation_log` — inbox กอง 4 นับจาก `step_gate` ตรง | ไม่แตะ 0101 ใน C2 | C3 (`related_step_id` + `kind='risk_gate'`) |
 | D14 | trigger R4 ปล่อยผ่านด้วย GUC `c2.piece_rpc` — service_role ตั้งเองได้ = ข้ามได้ (R20) | กันเส้นทางโค้ด/บอร์ดเดิม ไม่ได้กันผู้ถือ service key (เหมือน D2) | A2 / เมื่อมี role จริง |
+| D15 | `v_content_piece` ช้า ~4ms/แถว (ครึ่งจาก `can_approve` เรียก `approve_blockers` ทุกแถว · ครึ่งจาก lateral `mk` สแกน marker ซ้ำ) · `v_content_piece_calendar` ใช้ `p.*` จึงคำนวณครบทุกคอลัมน์ — หลายร้อยชิ้นจะเป็นวินาที (code review C2) | ตอนนี้ 26 แถว ~100ms | frontend **ต้องกรองด้วย shop + ช่วงวัน/สถานะเสมอ** · ปรับ view เมื่อชิ้นงานเกิน ~200 |
+| D16 | โค้ดซ้ำที่ควรรวมเป็น helper ใน migration ถัดไป: เงื่อนไขข้าม guard (GUC + current_user) 6 ที่ · ขอบ posted_at 4 ที่ (รูปไม่เหมือนกัน) · ธง posted_before_approval 3 ที่ · `exception when others` reset GUC ที่ซ้ำซ้อนใน 0160 · `p.*` ใน view ปฏิทินไม่ตามคอลัมน์ใหม่ของ `v_content_piece` | พฤติกรรมถูกแล้ว (security GO) — เสี่ยงแค่ตอนมีคนเพิ่ม trigger/ด่านตัวที่ 7 แล้วลอกไปครึ่งเดียว | migration ถัดไปของสาย content |
+| D17 | `content_piece_backfill_scope_` ค้างใน DB ถาวรหลัง backfill (verify X38 ใช้) · โพสต์ที่ไม่ผูกชิ้นยังรับ posted_at แปลกได้ถ้าเขียนตรงจาก service_role (ทางแอปปิดแล้ว) | ไม่มีผลต่อผู้ใช้ | ลบ helper เมื่อไม่ต้อง replay verify · ตัดสินเรื่องโพสต์นอกแผนเมื่อทำ backfill ย้อนหลัง |
 
 ## 11. เคาะ D8 — ✅ **เจ้าของเคาะทาง (ข)** 6 ต.ค. 69: hook ทุกตัว (ของเขา+ของเรา) อยู่ `content_hook` ตารางเดียว
 

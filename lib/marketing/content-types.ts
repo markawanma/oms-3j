@@ -296,8 +296,14 @@ export function buildContentPostUpsertParams(
 /** ขอบล่างของ posted_at ที่ยอมรับ = 2025-01-01 00:00 เวลาไทย — ตรงกับด่านใน DB
  * (0160: content_piece_post · content_post_link_step · trigger content_post_guard_link) */
 export const POSTED_AT_MIN_MS = Date.parse("2025-01-01T00:00:00+07:00");
-/** เพดานอนาคต = now() + 1 วัน (เผื่อนาฬิกาเครื่องเหลื่อม) — เท่ากับด่านใน DB */
+/** เพดานอนาคตที่ฝั่งแอปยอมให้ส่ง = now() + 1 วัน (เผื่อนาฬิกาเครื่องเหลื่อม) — เท่ากับด่านของ RPC/trigger ใหม่ใน 0160
+ * (content_piece_post · content_post_link_step · content_post_guard_link) · ⚠️ คิวเดิม content_post_upsert (0148)
+ * ปฏิเสธเวลาในอนาคตทุกค่า (posted_at > now()) ⇒ ค่าในช่วง +1 วันที่เกิน now() ผ่านด่านนี้แล้วจะถูก DB ตีกลับ
+ * ด้วย 22023 'อยู่ในอนาคต' (map เป็นข้อความไทยที่ mapContentPostRpcError) */
 export const POSTED_AT_MAX_FUTURE_MS = 24 * 60 * 60 * 1000;
+
+/** ข้อความที่บอกช่วงที่ยอมรับ — ใช้ทุกที่ที่ checkPostedAt คืน ok:false */
+export const POSTED_AT_INVALID_ERROR = "วันที่โพสต์ไม่ถูกต้อง — ต้องอยู่ระหว่าง 1 ม.ค. 2568 ถึงวันนี้";
 
 export type PostedAtCheck = { ok: true; iso: string } | { ok: false };
 
