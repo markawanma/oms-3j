@@ -243,6 +243,14 @@ begin
   return new;
 end $inj$;
 
+-- ตัวจำลอง "trigger อื่นที่ซ้อนใน trigger" (F2 · security Info) — AFTER UPDATE บน parent แล้วเคลียร์ FK ของโพสต์ ทั้งที่ parent ยังอยู่ (depth 2 เหมือน RI แต่ไม่ใช่การลบ parent)
+create or replace function pg_temp.inj_clear() returns trigger
+ language plpgsql as $inj2$
+begin
+  execute format('update analytics.content_post set %I = null where %I = $1', tg_argv[0], tg_argv[0]) using new.id;
+  return null;
+end $inj2$;
+
 do $verify0160$
 declare
   v_log     text := E'\n=== verify-0160 ===\n';
@@ -1135,6 +1143,92 @@ begin
   exception when others then
     execute 'reset role';
     v_log := v_log || format(E'[FAIL] G ABORT sqlstate=%s msg=%s\n', sqlstate, left(sqlerrm, 300));
+  end;
+
+  ----------------------------------------------------------------------------
+  -- I2 (QA/security รอบ 3) · F2: posted_at ของโพสต์ที่ผูกชิ้นแล้ว ต้อง finite + อยู่ในช่วง ทุกทางเข้า · ทางลัด FK ต้องพิสูจน์ว่า parent ถูกลบจริง
+  --   mutant: ถอดบล็อก I2 ทั้งบล็อก → I2a/I2b ล้ม · ถอดเฉพาะ isfinite → I2a (-infinity/infinity) ล้ม แต่ I2a (1990) ยังผ่าน ·
+  --           ถอดเงื่อนไข not exists ของทางลัด → F2a/F2b/F2c ล้ม
+  ----------------------------------------------------------------------------
+  begin
+    v_sa := pg_temp.mk_ready(v_shop, 'short_clip', 'tiktok');
+    v_ext1 := pg_temp.ext();
+    v_j := analytics.content_piece_post(v_shop, v_sa, 'tiktok', v_ext1, pg_temp.url(v_ext1), now() - interval '2 hours', 'owner', pg_temp.hook_a(v_sa));
+    v_post1 := (v_j ->> 'post_id')::uuid;
+    v_snap := pg_temp.snap();
+    v_w0 := pg_temp.wr();
+    -- ทางคิวเดิม (content_post_upsert) ซ้ำโพสต์ที่ผูกแล้ว: ±infinity / ก่อน 2025 → ด่านตาราง 22023 (อนาคต +2 วัน คิวเดิมตัดเองด้วยข้อความของตัวเอง → เทสต์ที่ UPDATE ตรง)
+    -- (+infinity คิวเดิมตัดเองอยู่แล้วด้วย "อยู่ในอนาคต" 22023 — ไม่ใช่ช่อง · ครอบ infinity ที่ด่านตารางด้วย UPDATE ตรงใน I2b)
+    v_log := v_log || pg_temp.vl('I2a', 'QA-I2: วางซ้ำโพสต์ที่ผูกชิ้นผ่านคิวเดิมด้วย -infinity · 1990 → 22023 "เวลาโพสต์ต้องอยู่ในช่วง" · infinity → 22023 (คิวเดิมตัดเอง)',
+      pg_temp.vx(format('select analytics.content_post_upsert(%L::uuid,''tiktok'',%L,%L,''-infinity''::timestamptz)', v_shop, v_ext1, pg_temp.url(v_ext1)), array['22023'], 'เวลาโพสต์ต้องอยู่ในช่วง')
+      || pg_temp.vx(format('select analytics.content_post_upsert(%L::uuid,''tiktok'',%L,%L,''infinity''::timestamptz)', v_shop, v_ext1, pg_temp.url(v_ext1)), array['22023'], 'อยู่ในอนาคต')
+      || pg_temp.vx(format('select analytics.content_post_upsert(%L::uuid,''tiktok'',%L,%L,''1990-01-01 00:00:00+07''::timestamptz)', v_shop, v_ext1, pg_temp.url(v_ext1)), array['22023'], 'เวลาโพสต์ต้องอยู่ในช่วง'));
+    -- ทาง UPDATE ตรงใต้ service_role (rolbypassrls): 4 ค่า + ก่อนขอบล่าง 1 วินาที
+    v_log := v_log || pg_temp.vl('I2b', 'QA-I2: service_role UPDATE posted_at ของโพสต์ที่ผูกแล้วเป็น -infinity · infinity · 1990 · 2024-12-31 23:59:59+07 · อนาคต +2 วัน → 22023',
+      pg_temp.vr('service_role', format('update analytics.content_post set posted_at = ''-infinity''::timestamptz where id = %L::uuid', v_post1), array['22023'], 'เวลาโพสต์ต้องอยู่ในช่วง')
+      || pg_temp.vr('service_role', format('update analytics.content_post set posted_at = ''infinity''::timestamptz where id = %L::uuid', v_post1), array['22023'], 'เวลาโพสต์ต้องอยู่ในช่วง')
+      || pg_temp.vr('service_role', format('update analytics.content_post set posted_at = ''1990-01-01 00:00:00+07''::timestamptz where id = %L::uuid', v_post1), array['22023'], 'เวลาโพสต์ต้องอยู่ในช่วง')
+      || pg_temp.vr('service_role', format('update analytics.content_post set posted_at = ''2024-12-31 23:59:59+07''::timestamptz where id = %L::uuid', v_post1), array['22023'], 'เวลาโพสต์ต้องอยู่ในช่วง')
+      || pg_temp.vr('service_role', format('update analytics.content_post set posted_at = now() + interval ''2 days'' where id = %L::uuid', v_post1), array['22023'], 'เวลาโพสต์ต้องอยู่ในช่วง'));
+    v_log := v_log || pg_temp.vb('I2c', 'I2a/I2b ไม่เขียน tuple เลย · ข้อมูลเท่าเดิม · v_content_piece / v_content_piece_calendar / v_content_entry_queue / v_content_post_t7 ยังอ่านได้',
+      v_w0 = pg_temp.wr() and v_snap = pg_temp.snap()
+      and (select count(*) >= 0 from analytics.v_content_piece) and (select count(*) >= 0 from analytics.v_content_piece_calendar)
+      and (select count(*) >= 0 from analytics.v_content_entry_queue) and (select count(*) >= 0 from analytics.v_content_post_t7));
+    -- ต้องไม่พัง (KQ4 · D1 ข้อ 20 ของ QA): วันปกติผ่านทั้งคิวเดิมและ UPDATE ตรง · ขอบล่าง 2025-01-01 00:00 ไทยพอดี · +1 วันน้อยๆ (ยังอยู่ในช่วง) · UPDATE อื่นที่ไม่แตะ posted_at
+    v_r :=       pg_temp.vok(format('select analytics.content_post_upsert(%L::uuid,''tiktok'',%L,%L,now() - interval ''1 day'')', v_shop, v_ext1, pg_temp.url(v_ext1)))
+      || pg_temp.vro('service_role', format('update analytics.content_post set posted_at = ''2025-01-01 00:00:00+07''::timestamptz where id = %L::uuid', v_post1))
+      || pg_temp.vro('service_role', format('update analytics.content_post set posted_at = now() + interval ''12 hours'' where id = %L::uuid', v_post1))
+      || pg_temp.vro('service_role', format('update analytics.content_post set caption_snapshot = ''แก้แคปชัน I2d'' where id = %L::uuid', v_post1));
+    -- (อ่านผลเป็นคำสั่งถัดไป — subselect ในนิพจน์เดียวกับฟังก์ชันที่เขียนเห็นแค่ snapshot ต้นคำสั่ง)
+    v_log := v_log || pg_temp.vl('I2d', 'ต้องไม่พัง: โพสต์ที่ผูกแล้ว — คิวเดิมวันปกติ (เมื่อวาน) · UPDATE ตรงขอบล่าง 2025-01-01 00:00 ไทย · now()+12 ชม. · แก้ caption โดยไม่แตะ posted_at → OK · posted_at/step_id ตามที่ตั้ง',
+      v_r || case when (select cp.step_id = v_sa and cp.posted_at = now() + interval '12 hours' and cp.caption_snapshot = 'แก้แคปชัน I2d' from analytics.content_post cp where cp.id = v_post1) then 'OK' else 'FAIL posted_at/step_id/caption ไม่ตรงที่คาด' end);
+    -- โพสต์ที่ "ไม่ผูกชิ้น" ยังเป็นพฤติกรรมเดิมของคิว (ด่านนี้คุมเฉพาะโพสต์ที่ผูก — ชั้นแอปคุมโพสต์นอกแผน) · ทำใน subtransaction แล้วถอย
+    begin
+      v_log := v_log || pg_temp.vl('I2e', 'ต้องไม่พัง: โพสต์ที่ยังไม่ผูกชิ้น วางด้วยวันก่อน 2025 ผ่านคิวเดิม → OK (ด่านตารางคุมเฉพาะโพสต์ที่ผูก)',
+        pg_temp.vok(format('select analytics.content_post_upsert(%L::uuid,''tiktok'',%L,%L,''2024-06-01 00:00:00+07''::timestamptz)', v_shop, pg_temp.ext(), 'https://www.tiktok.com/@verify160/video/i2e')));
+      raise exception 'rollback I2e' using errcode = 'QA001';
+    exception when sqlstate 'QA001' then null;
+    end;
+
+    -- F2: ทางลัด depth>1 ต้องไม่ให้ trigger อื่นเคลียร์ FK ทั้งที่ parent ยังอยู่ (ทำใน subtransaction แล้วถอย — trigger ตัวแทนหายด้วย)
+    begin
+      create trigger trg_a_v160_clr_step after update on analytics.campaign_step for each row execute function pg_temp.inj_clear('step_id');
+      create trigger trg_a_v160_clr_hook after update on analytics.content_hook for each row execute function pg_temp.inj_clear('hook_id');
+      create trigger trg_a_v160_clr_art after update on analytics.step_artifact for each row execute function pg_temp.inj_clear('artifact_id');
+      v_log := v_log || pg_temp.vl('F2a', 'trigger ซ้อน (depth 2) เคลียร์ step_id ของโพสต์ที่ผูก ขณะ campaign_step ยังอยู่ → 55000 (ทางลัด FK ต้องพิสูจน์ว่า parent ถูกลบ)',
+        pg_temp.vx(format('update analytics.campaign_step set id = id where id = %L::uuid', v_sa), array['55000'], 'ห้ามแก้ตรง'));
+      v_log := v_log || pg_temp.vl('F2b', 'trigger ซ้อนเคลียร์ hook_id ของโพสต์ที่ผูก ขณะ content_hook ยังอยู่ → 55000',
+        pg_temp.vx(format('update analytics.content_hook set id = id where id = %L::uuid', pg_temp.hook_a(v_sa)), array['55000'], 'ห้ามแก้ตรง'));
+      -- artifact: ต้องมีโพสต์ที่ผูกเอกสาร — ผูกโพสต์ผ่าน content_piece_post ไม่ใส่ artifact (artifact_id ของโพสต์ที่ผูกแล้วเปลี่ยนไม่ได้) จึงใช้ชิ้นที่มีเอกสารจริงถ้ามี · ไม่มี = บันทึกว่าไม่ได้ครอบ
+      select cp.artifact_id into v_art_b from analytics.content_post cp where cp.id = v_post1;
+      if v_art_b is not null then
+        v_log := v_log || pg_temp.vl('F2c', 'trigger ซ้อนเคลียร์ artifact_id ของโพสต์ที่ผูก ขณะ step_artifact ยังอยู่ → 55000',
+          pg_temp.vx(format('update analytics.step_artifact set id = id where id = %L::uuid', v_art_b), array['55000'], 'ปลดผูก'));
+      else
+        v_log := v_log || E'[SKIP] F2c โพสต์ทดสอบไม่มี artifact_id (content_piece_post ไม่ได้ผูกเอกสาร) — ทางลัด artifact ครอบด้วย F2a/F2b รูปแบบเดียวกัน + F3 (ลบ parent จริง)\n';
+      end if;
+      raise exception 'rollback F2' using errcode = 'QA001';
+    exception when sqlstate 'QA001' then null;
+    end;
+
+    -- F3: ต้องไม่พัง — ลบ parent จริงที่เป็นเอกสาร (step_artifact) ของ "โพสต์นอกแผนที่ผูกเอกสารไว้" → FK set null (depth>1) ผ่านด่านตาราง · artifact_id = null · โพสต์ยังอยู่
+    --   (เอกสารของชิ้นที่อนุมัติแล้วลบไม่ได้โดย 0159 ⇒ ใช้ชิ้น in_review · โพสต์ที่ "ผูกชิ้นแล้ว" จึงไม่มีทางถูก FK เคลียร์ artifact_id/step_id ในทางจริง — เหลือ hook (F1))
+    --   [SKIP] ครอบ step_id/hook_id จากการลบ campaign_step ไม่ได้ในทรานแซกชันเดียว: ชิ้นที่เคยอนุมัติลบไม่ได้โดยตั้งใจ (ด่าน 0159) และถ้าปิดด่านชั่วคราว RI ตก 23503
+    --   เพราะแถวโพสต์ถูกสร้างในทรานแซกชันเดียวกัน (RI ตรวจ FK ซ้ำเมื่อแถวเดิมมี xmin = ทรานแซกชันปัจจุบัน — พฤติกรรมของ Postgres ไม่ใช่บั๊ก 0160)
+    begin
+      v_se := pg_temp.mk_step(v_shop, 'short_clip', 'tiktok');
+      select a.id into v_art_b from analytics.step_artifact a where a.step_id = v_se;
+      v_ext2 := pg_temp.ext();
+      v_post2 := analytics.content_post_upsert(v_shop, 'tiktok', v_ext2, pg_temp.url(v_ext2), now() - interval '2 hours', null, v_art_b);
+      v_r := pg_temp.vok(format('delete from analytics.step_artifact where id = %L::uuid', v_art_b));
+      v_log := v_log || pg_temp.vl('F3', 'ต้องไม่พัง (depth>1): ลบ step_artifact ที่โพสต์นอกแผนอ้างอยู่ → FK set null ผ่านด่านตาราง (parent ถูกลบจริง) · artifact_id = null · step_id ยัง null · โพสต์ยังอยู่',
+        v_r || case when (select cp.artifact_id is null and cp.step_id is null from analytics.content_post cp where cp.id = v_post2) then 'OK' else 'FAIL FK set null ไม่ทำงาน/ไม่พบโพสต์' end);
+      raise exception 'rollback F3' using errcode = 'QA001';
+    exception when sqlstate 'QA001' then null;
+    end;
+  exception when others then
+    execute 'reset role';
+    v_log := v_log || format(E'[FAIL] I2/F2 ABORT sqlstate=%s msg=%s\n', sqlstate, left(sqlerrm, 300));
   end;
 
   ----------------------------------------------------------------------------

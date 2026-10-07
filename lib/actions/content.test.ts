@@ -207,6 +207,103 @@ describe("upsertContentPost — RPC params must use the canonicalized URL, never
   });
 });
 
+// QA I1/I2 (7 ต.ค. 69): คิวเดิมของ DB ไม่ตรวจขอบเขต posted_at — '-infinity'/1990 ทำ view พังทั้งร้าน
+// ⇒ ด่านชั้นแอปต้องตัดก่อนถึง RPC (ไม่ canonicalize ไม่ยิงเน็ตด้วย) และเคสวันปกติต้องไม่พัง
+describe("upsertContentPost — posted_at ต้อง parse ได้และอยู่ในช่วง 2025-01-01 ถึงพรุ่งนี้", () => {
+  const BAD = "วันที่โพสต์ไม่ถูกต้อง";
+  const rejects: Array<[string, string]> = [
+    ["-infinity", "-infinity"],
+    ["infinity", "infinity"],
+    ["ข้อความที่ไม่ใช่วันที่", "abc"],
+    ["ปี 1990", "1990-01-01T00:00:00+07:00"],
+    ["ก่อนขอบล่าง 1 วินาที (2024-12-31 23:59:59 ไทย)", "2024-12-31T23:59:59+07:00"],
+    ["อนาคต +2 วัน", new Date(Date.now() + 2 * 24 * 60 * 60 * 1000).toISOString()],
+  ];
+
+  it.each(rejects)("ปฏิเสธ %s ⇒ ไม่แตะ canonicalize/RPC เลย", async (_label, postedAt) => {
+    const { upsertContentPost } = await import("./content");
+    const result = await upsertContentPost({ platform: "tiktok", postUrl: RAW_SHORT_LINK, postedAt });
+    expect(result).toEqual({ ok: false, error: BAD });
+    expect(canonicalizeTikTokLinkMock).not.toHaveBeenCalled();
+    expect(rpcMock).not.toHaveBeenCalled();
+  });
+
+  it("ค่าว่าง ⇒ ข้อความเดิม 'กรุณาระบุวันที่โพสต์' (ไม่ถูกกลบด้วยข้อความใหม่)", async () => {
+    const { upsertContentPost } = await import("./content");
+    const result = await upsertContentPost({ platform: "tiktok", postUrl: RAW_SHORT_LINK, postedAt: "" });
+    expect(result).toEqual({ ok: false, error: "กรุณาระบุวันที่โพสต์" });
+    expect(rpcMock).not.toHaveBeenCalled();
+  });
+
+  it("ต้องไม่พัง: วันปกติ (2 ชม. ก่อน) · ขอบล่าง 2025-01-01 00:00 ไทยพอดี · +12 ชม. ⇒ ผ่าน และส่ง ISO ที่ parse แล้วเข้า RPC", async () => {
+    const { upsertContentPost } = await import("./content");
+    const cases = [
+      new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+      "2025-01-01T00:00:00+07:00",
+      new Date(Date.now() + 12 * 60 * 60 * 1000).toISOString(),
+    ];
+    for (const postedAt of cases) {
+      rpcMock.mockClear();
+      const result = await upsertContentPost({ platform: "tiktok", postUrl: RAW_SHORT_LINK, postedAt });
+      expect(result.ok).toBe(true);
+      const [, params] = rpcMock.mock.calls[0] as [string, Record<string, unknown>];
+      expect(params.p_posted_at).toBe(new Date(postedAt).toISOString());
+    }
+  });
+
+  it("สตริงที่ไม่มี timezone ถูก normalize เป็น ISO UTC — ค่าที่ตรวจ = ค่าที่เขียน (ไม่ให้ Postgres ตีความเอง)", async () => {
+    const { upsertContentPost } = await import("./content");
+    const result = await upsertContentPost({ platform: "tiktok", postUrl: RAW_SHORT_LINK, postedAt: "2026-09-26T10:00" });
+    expect(result.ok).toBe(true);
+    const [, params] = rpcMock.mock.calls[0] as [string, Record<string, unknown>];
+    expect(params.p_posted_at).toBe(new Date("2026-09-26T10:00").toISOString());
+  });
+});
+
+// map error ของ content_post_upsert (0160): 55000 = โพสต์ผูกชิ้นงานแล้ว (ลองใหม่ไม่ช่วย) · 22023 จาก trigger
+// ข้อความต้องตายตัว — ห้ามส่ง message/detail ดิบของ DB ถึง client (memory supabase-error-logging-trap)
+describe("upsertContentPost — map error จาก RPC/trigger ของ 0160", () => {
+  const OK_DATE = "2026-09-26T10:00:00+07:00";
+  const RAW_LEAK = "https://www.tiktok.com/@secret/video/1?_t=SESSIONTOKEN ชื่อภายใน";
+
+  it("55000 ⇒ ข้อความไทยตายตัวบอกให้แก้ผ่านหน้าชิ้นงาน (ไม่ใช่ 'ลองใหม่') และไม่รั่ว message ดิบ", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    rpcMock.mockResolvedValue({ data: null, error: { code: "55000", message: `โพสต์นี้ผูกชิ้นงาน ${RAW_LEAK}`, details: RAW_LEAK } });
+    const { upsertContentPost } = await import("./content");
+    const result = await upsertContentPost({ platform: "tiktok", postUrl: RAW_SHORT_LINK, postedAt: OK_DATE });
+    expect(result).toEqual({ ok: false, error: "โพสต์นี้ผูกกับชิ้นงานแล้ว แก้การผูกผ่านหน้าชิ้นงาน" });
+    expect(JSON.stringify(result)).not.toContain("SESSIONTOKEN");
+    // log ก็ต้องไม่มี URL ดิบ (redactUrls) — ไม่ log error ทั้งก้อน
+    expect(JSON.stringify(spy.mock.calls)).not.toContain("SESSIONTOKEN");
+    spy.mockRestore();
+  });
+
+  it("22023 จาก trigger posted_at นอกช่วง ⇒ ข้อความไทยเฉพาะเรื่อง ไม่ตกไป fallback", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    rpcMock.mockResolvedValue({
+      data: null,
+      error: { code: "22023", message: "โพสต์ที่ผูกชิ้นงานแล้ว เวลาโพสต์ต้องอยู่ในช่วง 2025-01-01 ถึงวันนี้" },
+    });
+    const { upsertContentPost } = await import("./content");
+    const result = await upsertContentPost({ platform: "tiktok", postUrl: RAW_SHORT_LINK, postedAt: OK_DATE });
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.error).toContain("วันที่โพสต์ไม่ถูกต้อง");
+      expect(result.error).not.toContain("ลองใหม่");
+    }
+    spy.mockRestore();
+  });
+
+  it("error อื่นที่ไม่รู้จัก ⇒ ยังตก fallback เดิม 'บันทึกลิงก์ไม่สำเร็จ ลองใหม่อีกครั้ง' (ต้องไม่พัง)", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    rpcMock.mockResolvedValue({ data: null, error: { code: "XX000", message: "boom" } });
+    const { upsertContentPost } = await import("./content");
+    const result = await upsertContentPost({ platform: "tiktok", postUrl: RAW_SHORT_LINK, postedAt: OK_DATE });
+    expect(result).toEqual({ ok: false, error: "บันทึกลิงก์ไม่สำเร็จ ลองใหม่อีกครั้ง" });
+    spy.mockRestore();
+  });
+});
+
 describe("updateContentPostType — แก้ด้วย primary key ล้วนๆ ไม่แตะ URL/network เลย", () => {
   it("ส่งพารามิเตอร์เข้า RPC แค่ 3 ตัว — ไม่มี p_post_url หลุดเข้าไปเลย", async () => {
     const { updateContentPostType } = await import("./content");

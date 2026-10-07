@@ -292,3 +292,23 @@ export function buildContentPostUpsertParams(
     p_caption: typeof input.caption === "string" ? truncateUtf16Safe(input.caption.trim(), CAPTION_MAX_LEN) || null : null,
   };
 }
+
+/** ขอบล่างของ posted_at ที่ยอมรับ = 2025-01-01 00:00 เวลาไทย — ตรงกับด่านใน DB
+ * (0160: content_piece_post · content_post_link_step · trigger content_post_guard_link) */
+export const POSTED_AT_MIN_MS = Date.parse("2025-01-01T00:00:00+07:00");
+/** เพดานอนาคต = now() + 1 วัน (เผื่อนาฬิกาเครื่องเหลื่อม) — เท่ากับด่านใน DB */
+export const POSTED_AT_MAX_FUTURE_MS = 24 * 60 * 60 * 1000;
+
+export type PostedAtCheck = { ok: true; iso: string } | { ok: false };
+
+/** Pure — ตรวจ posted_at ก่อนส่งเข้า content_post_upsert (QA I1/I2, 7 ต.ค. 69).
+ * คิวเดิมของ DB (0148) ไม่ตรวจขอบเขต ⇒ '-infinity' / ปี 1990 เข้า content_post ได้ แล้ว view ที่
+ * คำนวณ age_days ตก 22008 ทั้งร้าน. คืน ISO (UTC) ที่ parse แล้ว เพื่อให้ค่าที่ตรวจ = ค่าที่เขียนจริง
+ * (ไม่ปล่อยสตริงดิบให้ Postgres ตีความต่างจาก JS เช่น "10/07/2026" หรือสตริงไม่มี timezone) */
+export function checkPostedAt(raw: unknown, nowMs: number = Date.now()): PostedAtCheck {
+  if (typeof raw !== "string" || raw.trim() === "") return { ok: false };
+  const ms = Date.parse(raw);
+  if (!Number.isFinite(ms)) return { ok: false };
+  if (ms < POSTED_AT_MIN_MS || ms > nowMs + POSTED_AT_MAX_FUTURE_MS) return { ok: false };
+  return { ok: true, iso: new Date(ms).toISOString() };
+}

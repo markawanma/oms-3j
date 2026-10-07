@@ -532,6 +532,7 @@ $f$;
 --     ห้าม (55000): INSERT ที่มี step_id/hook_id · UPDATE ที่เปลี่ยน step_id/hook_id · UPDATE ที่เปลี่ยน artifact_id ของโพสต์ที่ผูก step แล้ว
 --     ปล่อย: คิวเดิม (content_post_upsert) ที่ไม่แตะ step_id/hook_id · เปลี่ยน artifact_id ของโพสต์ที่ "ยังไม่ผูก step" (โพสต์นอกแผนผูกเอกสารทีหลัง) ·
 --            FK on delete set null ของ step_id/hook_id/artifact_id (pg_trigger_depth() > 1 และเปลี่ยนเป็น null อย่างเดียว — ไม่งั้นลบ hook/เอกสารไม่ได้)
+--     I2 (รอบ 3): INSERT/เปลี่ยน posted_at ของโพสต์ที่ผูกชิ้นแล้ว ต้อง finite และอยู่ใน [2025-01-01 ไทย, now()+1 วัน] → 22023 (ก่อนทางลัดทุกทาง) · ทางลัด FK set null ต้องพิสูจน์ว่า parent ถูกลบจริง
 --     S-L2: เปิดโพสต์ที่ไม่ active กลับเป็น active ขณะที่ยังผูกชิ้นอยู่ ถ้าชิ้นนั้นมีโพสต์ active platform เดียวกันอยู่แล้ว = 55000 (เช็คก่อน GUC —
 --           เป็น invariant ของข้อมูล ไม่ใช่สิทธิ์: ไม่ว่าเส้นทางไหนก็ต้องไม่ให้ชิ้นมี 2 โพสต์ active บน platform เดียว)
 -- ============================================================================
@@ -542,6 +543,17 @@ create or replace function analytics.content_post_guard_link()
  set search_path to 'public', 'analytics', 'pg_temp'
 as $f$
 begin
+  -- QA/security รอบ 3 · I2: โพสต์ที่ผูกชิ้นงานแล้ว posted_at ต้องอยู่ในช่วงเดียวกับที่ content_piece_post ตรวจ — บล็อกนี้อยู่บนสุด (ก่อนทางลัด depth>1 และ GUC)
+  --   เพราะคิวเดิม content_post_upsert ไม่ตรวจ ±infinity/ก่อน 2025 และเส้นทางไหนก็วางทับ posted_at ของโพสต์ที่ผูกแล้วได้ ⇒ view ที่ join ชิ้นงาน (age_days / posted_before_approval) ตก 22008 ทั้งร้าน
+  --   เช็คเฉพาะตอน INSERT หรือ posted_at เปลี่ยน (UPDATE อื่น เช่น FK set null / เปลี่ยน status ไม่โดน) · ช่วงเดียวกับ content_piece_post: [2025-01-01 00:00 ไทย, now()+1 วัน] และต้อง finite
+  if new.step_id is not null
+     and (tg_op = 'INSERT' or new.posted_at is distinct from old.posted_at)
+     and (not isfinite(new.posted_at)
+          or new.posted_at < timestamptz '2025-01-01 00:00:00+07'
+          or new.posted_at > now() + interval '1 day') then
+    raise exception 'โพสต์ที่ผูกชิ้นงานแล้ว เวลาโพสต์ต้องอยู่ในช่วง 2025-01-01 ถึงวันนี้' using errcode = '22023';
+  end if;
+
   if tg_op = 'UPDATE' and new.status = 'active' and old.status is distinct from 'active' and new.step_id is not null
      and exists (select 1 from analytics.content_post cp
                   where cp.step_id = new.step_id and cp.shop_id = new.shop_id and cp.platform = new.platform
@@ -550,11 +562,16 @@ begin
       using errcode = '55000';
   end if;
 
-  -- FK action (on delete set null): UPDATE ที่ซ้อนใน trigger ของ RI · เคลียร์เป็น null ได้อย่างเดียว ไม่เปลี่ยนค่าอื่น
+  -- FK action (on delete set null): UPDATE ที่ซ้อนใน trigger ของ RI · เคลียร์เป็น null ได้เฉพาะเมื่อ "พิสูจน์ได้ว่า parent ถูกลบจริงแล้ว"
+  --   (ไม่พึ่งว่า depth>1 มาจาก RI เท่านั้น — trigger อื่นในอนาคตที่ซ้อนกันก็เคลียร์ step_id/hook_id/artifact_id ของโพสต์ไม่ได้ถ้า parent ยังอยู่)
+  --   RI ของ on delete set null รันหลัง DELETE จบ ⇒ แถว parent ที่ถูกลบมองไม่เห็นแล้วใน snapshot ของ statement ถัดไป
   if tg_op = 'UPDATE' and pg_trigger_depth() > 1 and new.status is not distinct from old.status
-     and (new.step_id is null or new.step_id is not distinct from old.step_id)
-     and (new.hook_id is null or new.hook_id is not distinct from old.hook_id)
-     and (new.artifact_id is null or new.artifact_id is not distinct from old.artifact_id) then
+     and (new.step_id is not distinct from old.step_id
+          or (new.step_id is null and not exists (select 1 from analytics.campaign_step st where st.id = old.step_id)))
+     and (new.hook_id is not distinct from old.hook_id
+          or (new.hook_id is null and not exists (select 1 from analytics.content_hook hk where hk.id = old.hook_id)))
+     and (new.artifact_id is not distinct from old.artifact_id
+          or (new.artifact_id is null and not exists (select 1 from analytics.step_artifact sa where sa.id = old.artifact_id))) then
     return new;
   end if;
 

@@ -20,6 +20,7 @@ import type { ActionResult } from "@/lib/types";
 import {
   PLATFORMS,
   buildContentPostUpsertParams,
+  checkPostedAt,
   type ContentEntryQueueRow,
   type ContentPlatform,
   type ContentPostHistoryMetric,
@@ -642,6 +643,11 @@ export async function upsertContentPost(input: UpsertContentPostInput): Promise<
     return { ok: false, error: "กรุณาเลือกแพลตฟอร์ม" };
   }
   if (!input.postedAt) return { ok: false, error: "กรุณาระบุวันที่โพสต์" };
+  // QA I1/I2 (7 ต.ค. 69): คิวเดิมใน DB ไม่ตรวจขอบเขตวันที่ — '-infinity'/ปี 1990 ทำ view ที่คำนวณ
+  // age_days ตก 22008 ทั้งร้าน ⇒ ตรวจที่นี่ก่อนถึง RPC และส่งค่า ISO ที่ parse แล้ว (ค่าที่ตรวจ = ค่าที่เขียน)
+  const postedAtCheck = checkPostedAt(input.postedAt);
+  if (!postedAtCheck.ok) return { ok: false, error: "วันที่โพสต์ไม่ถูกต้อง" };
+  const postedAtIso = postedAtCheck.iso;
 
   // TikTok links arrive in several equivalent shapes (mobile share-sheet
   // short link, full link with re-copy tracking params, different
@@ -666,7 +672,7 @@ export async function upsertContentPost(input: UpsertContentPostInput): Promise<
     // URL in, never the raw pasted one — has real unit test coverage. A
     // mutation test that swapped this back to `postUrl` (26 ก.ย. 69,
     // security รอบ 2) found ZERO tests catching it when this was inline here.
-    const rpcParams = buildContentPostUpsertParams(shopId, canonicalPostUrl, input);
+    const rpcParams = buildContentPostUpsertParams(shopId, canonicalPostUrl, { ...input, postedAt: postedAtIso });
     const result = await supabase.schema(SCHEMA).rpc("content_post_upsert", rpcParams);
     if (result.error) throw result.error;
     data = result.data;

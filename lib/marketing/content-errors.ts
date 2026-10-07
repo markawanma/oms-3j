@@ -19,6 +19,10 @@ export function mapContentPostRpcError(err: unknown, fallback: string): string {
     if (msg.includes("ต้องขึ้นต้นด้วย http")) {
       return "ลิงก์ต้องขึ้นต้นด้วย http:// หรือ https:// — ลองวางลิงก์ใหม่อีกครั้ง";
     }
+    // 0160 trigger content_post_guard_link (QA I2): โพสต์ที่ผูกชิ้นงานแล้ว posted_at นอกช่วง 2025-01-01..วันนี้
+    if (msg.includes("เวลาโพสต์ต้องอยู่ในช่วง")) {
+      return "วันที่โพสต์ไม่ถูกต้อง — โพสต์ที่ผูกกับชิ้นงานแล้วต้องมีวันที่ตั้งแต่ 1 ม.ค. 2568 ถึงวันนี้";
+    }
     if (msg.includes("posted_at") && msg.includes("อยู่ในอนาคต")) {
       return "วันที่โพสต์อยู่ในอนาคต — แก้วันที่ให้ตรงกับตอนที่โพสต์จริงก่อนบันทึก";
     }
@@ -51,6 +55,11 @@ export function mapContentPostRpcError(err: unknown, fallback: string): string {
   }
   if (code === "23505") {
     return "ลิงก์นี้ถูกบันทึกไว้แล้วก่อนหน้านี้";
+  }
+  // 55000 (object_not_in_prerequisite_state) จาก trigger 0160: โพสต์นี้ผูกกับชิ้นงานแล้ว ลองใหม่ไม่ช่วย
+  // ข้อความตายตัว — ห้ามส่ง message ดิบของ DB ถึง client (มี URL/ชื่อภายใน)
+  if (code === "55000") {
+    return "โพสต์นี้ผูกกับชิ้นงานแล้ว แก้การผูกผ่านหน้าชิ้นงาน";
   }
   return fallback;
 }
