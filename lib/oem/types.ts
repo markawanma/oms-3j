@@ -255,6 +255,11 @@ export interface OemPriceCalcInput {
   engraveImageThb?: number | null;
   /** 0078 (silver999 only): ค่ายิงเลเซอร์ตัวอักษร บาท/ชิ้น, optional, >= 0. */
   engraveTextThb?: number | null;
+  /** 0163 (silver999 only): ราคาพิเศษต่อแท่ง (บาท, ไม่รวม engrave, VAT-inclusive เหมือนราคาเว็บ) —
+   * null/undefined = ใช้ราคาเว็บวันนี้ตามเดิม. ห้ามต่ำกว่าทุน (ตัดสินที่ DB เท่านั้น — client ไม่รู้ทุน). */
+  barPriceOverrideThb?: number | null;
+  /** 0163 (silver999 only): เหตุผลราคาพิเศษ — บังคับเมื่อมี barPriceOverrideThb, ห้ามส่งเมื่อไม่มีราคา. */
+  barPriceOverrideReason?: string | null;
 }
 
 export interface OemMissingRateEntry {
@@ -298,6 +303,11 @@ export interface OemBarBreakdown {
   sheetTime: string | null;
   capturedAt: string | null;
   source: string | null;
+  /** 0163: ราคาเว็บวันนั้น — มีเฉพาะเมื่อมี override (barPricePerPiece ในกรณีนั้นคือราคาที่คิดจริง = ราคาพิเศษ).
+   * หน้า admin เท่านั้น — ห้ามส่งเข้า PrintableQuote. */
+  webPricePerPiece?: number | null;
+  /** 0163: มีเฉพาะเมื่อผู้ขายกรอกราคาพิเศษ. ผู้กรอก/เวลา = oem_quote.updated_by/updated_at. */
+  override?: { thb: number; reason: string } | null;
 }
 
 export interface OemPriceBreakdown {
@@ -359,6 +369,9 @@ export interface OemFloors {
    * fallback). pass=false is what blocks quoted status for a bar item (see the
    * missing[] entry with rate_key='silver_bar_price' for the reason to show). */
   priceFresh?: { pass: boolean; asOfDate: string | null; todayBkk: string };
+  /** 0163: มีเฉพาะเมื่อมีราคาพิเศษ. pass=false = ต่ำกว่าทุน (preview ได้ แต่ออกใบไม่ได้ — oem_quote_save ปฏิเสธ)
+   * · pass=null = ตัดสินไม่ได้ (ไม่มีราคาเว็บ/ราคารับซื้อคืนวันนี้ — isComplete=false อยู่แล้ว). */
+  barPrice?: { applies: boolean; pass: boolean | null };
 }
 
 export interface OemPriceCalcResult {
@@ -409,6 +422,9 @@ export interface SaveQuoteInput {
    * margin_after_discount_pct server-side. Defaults to 0 when omitted. */
   discountThb?: number | null;
   discountReason?: string | null;
+  /** 0163: วันยืนราคา (YYYY-MM-DD) — ใช้เมื่อใบมีรายการเงินแท่งราคาพิเศษเท่านั้น
+   * (บังคับตอน quoted · ไม่เกินวันนี้+30 · DB ตรวจ). ไม่มีราคาพิเศษ = ห้ามส่ง (DB ปฏิเสธ). */
+  barValidUntil?: string | null;
 }
 
 export interface SetQuoteStatusInput {
@@ -486,6 +502,14 @@ export interface OemCustomerAddress {
  * this quote is billed to. Only valid on a 'quoted' or 'won' quote. Not wired
  * to any UI yet this phase (see QuoteDetailClient) — plumbing for the tax
  * invoice phase. */
+/** 0164: แก้ชื่อลูกค้า/ช่องทางติดต่อบนใบ (oem_quote.customer_name/customer_contact) — ทุกสถานะยกเว้น
+ * lost/rejected/superseded · ส่งว่าง = ล้างเป็น null (ไม่ใช่คงค่าเดิม) */
+export interface SetQuoteCustomerInput {
+  quoteId: string;
+  customerName?: string | null;
+  customerContact?: string | null;
+}
+
 export interface SetQuoteBillingInput {
   quoteId: string;
   legalName: string;

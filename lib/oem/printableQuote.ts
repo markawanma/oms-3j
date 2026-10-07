@@ -30,6 +30,9 @@
 // margin_charged_pct/margin_after_discount_pct/floors.margin, approvalNote,
 // lostReason/lostTo, qRun/flaskCount/platingBatchCount.
 //
+// 0163: toPrintableQuote อ่าน calc.breakdown.bar.override แค่ "มีหรือไม่" (boolean) เพื่อตัดประโยค
+// "ยืนราคาเฉพาะวันดังกล่าว" — ราคาเว็บ/เหตุผล/ทุนของราคาพิเศษไม่ผ่านขอบนี้ (PrintableQuote ไม่มี field รองรับ).
+//
 // 0078 NARROW EXCEPTION: toPrintableQuoteItem/toPrintableQuote below DO read
 // 3 specific leaves off OemQuoteItemRow.calc.breakdown.bar —
 // barPricePerPiece, asOfDate, capturedAt. This is deliberate, not a crack in
@@ -181,6 +184,10 @@ export function toPrintableQuote(quote: OemQuoteRow, items: OemQuoteItemRow[]): 
   // representative. null/null when the quote has no bar items at all.
   const barSnapshotItem = items.find((it) => it.calc?.breakdown?.bar);
   const barSnapshot = barSnapshotItem?.calc?.breakdown?.bar ?? null;
+  // 0163: ใบที่มีรายการราคาพิเศษ — ตัดประโยค "อ้างอิงราคาเงินแท่ง ณ ... ยืนราคาเฉพาะวันดังกล่าว"
+  // (ขัดกับวันยืนราคาที่ผู้ขายกรอก — เหลือแต่ "ยืนราคาถึง ...") · อ่านแค่ "มี override ไหม" (boolean)
+  // ไม่อ่าน thb/reason/ราคาเว็บ และไม่เพิ่ม field ใดใน PrintableQuote (ราคาเว็บ/เหตุผล/ทุน เห็นเฉพาะในระบบ)
+  const hasBarOverride = items.some((it) => it.calc?.breakdown?.bar?.override != null);
 
   return {
     id: quote.id,
@@ -203,8 +210,8 @@ export function toPrintableQuote(quote: OemQuoteRow, items: OemQuoteItemRow[]): 
     discountReason: quote.discountReason,
     grandTotal: quote.grandTotal,
     items: items.map(toPrintableQuoteItem),
-    silverPriceAsOf: barSnapshot?.asOfDate ?? null,
-    silverPriceCapturedAt: barSnapshot?.capturedAt ?? null,
+    silverPriceAsOf: hasBarOverride ? null : barSnapshot?.asOfDate ?? null,
+    silverPriceCapturedAt: hasBarOverride ? null : barSnapshot?.capturedAt ?? null,
     vatMode: quote.vatMode,
     vatRate: quote.vatRate,
     vatBaseThb: quote.vatBaseThb,

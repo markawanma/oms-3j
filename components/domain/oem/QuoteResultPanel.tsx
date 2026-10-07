@@ -11,7 +11,14 @@
 import { AlertTriangle, Loader2 } from "lucide-react";
 import type { OemBarSize, OemSettingData } from "@/lib/oem/types";
 import { OEM_BAR_SIZE_LABEL_TH } from "@/lib/oem/types";
-import { aggregateQuotePreview } from "@/lib/oem/quoteForm";
+import {
+  OEM_BAR_OVERRIDE_MAX_DAYS,
+  addDaysIso,
+  aggregateQuotePreview,
+  bangkokToday,
+  barValidUntilIssue,
+  jobHasBarOverride,
+} from "@/lib/oem/quoteForm";
 import type { JobForm } from "@/lib/oem/quoteForm";
 import type { OemPriceCalcResult } from "@/lib/oem/types";
 import { fmtPct } from "@/lib/oem/display";
@@ -48,6 +55,8 @@ export function QuoteResultPanel({
   onDiscountReasonChange,
   approvalNote,
   onApprovalNoteChange,
+  barValidUntil,
+  onBarValidUntilChange,
   onSaveDraft,
   onIssueQuote,
   savingDraft,
@@ -63,6 +72,9 @@ export function QuoteResultPanel({
   onDiscountReasonChange: (v: string) => void;
   approvalNote: string;
   onApprovalNoteChange: (v: string) => void;
+  /** 0163: วันยืนราคา (YYYY-MM-DD, "" = ยังไม่เลือก) — ใช้เมื่อมีรายการราคาพิเศษเท่านั้น */
+  barValidUntil: string;
+  onBarValidUntilChange: (v: string) => void;
   onSaveDraft: () => void;
   onIssueQuote: () => void;
   savingDraft: boolean;
@@ -102,13 +114,27 @@ export function QuoteResultPanel({
   // the exact phantom-approval-note bug D4 exists to prevent, just moved to
   // this preview instead of the DB. See design-oem-bar-quote.md D4 test (a):
   // "ใบแท่งล้วน ไม่ลด → quoted ผ่าน โดยไม่ถูกบังคับใส่ note".
+  //
+  // 0163: DB (0079-fix) ยังบังคับ approval_note เมื่อ "มีรายการที่ตรวจ margin รายชิ้นไม่ได้" (เงินแท่ง:
+  // floors.margin.value = null) และ margin รวม < floor แม้ไม่ลดราคา — ใบราคาพิเศษที่ margin บางแต่ไม่ต่ำกว่าทุน
+  // จึงต้องมีช่องเหตุผลให้กรอก ไม่งั้นกดออกใบแล้วชน error โดยไม่มีช่องให้แก้ (เดิมเงื่อนไขนี้มีแค่ discountNum > 0)
+  const hasUngatedItem = items.some((i) => i.calc?.isComplete && i.calc.floors.margin.value == null);
   const discountBelowFloor =
-    discountNum > 0 && preview.marginAfterDiscountPct != null && preview.marginAfterDiscountPct < setting.marginFloorPct;
+    (discountNum > 0 || hasUngatedItem) && preview.marginAfterDiscountPct != null && preview.marginAfterDiscountPct < setting.marginFloorPct;
   const needsApprovalNote = anyNeedsNoteFromItem || discountBelowFloor;
 
   // 0078: bar prices stand for TODAY only (quote_valid_days=0 server-side —
   // D4), unlike the usual 7/30/45-day window for production metals.
   const hasBarItem = items.some((i) => i.job.metal === "silver999");
+
+  // 0163: ราคาพิเศษ — ใบที่มีรายการแบบนี้ยืนราคาตามวันที่กรอก (ไม่เกิน 30 วัน) ไม่ใช่ "วันนี้เท่านั้น"
+  const hasOverride = items.some((i) => jobHasBarOverride(i.job));
+  const hasWebBarItem = items.some((i) => i.job.metal === "silver999" && !jobHasBarOverride(i.job));
+  const hasProductionItem = items.some((i) => i.job.metal !== "silver999");
+  // ต่ำกว่าทุน: ตัดสินที่ DB (floors.barPrice) — ที่นี่แค่ปิดปุ่ม · DB ปฏิเสธซ้ำตอน quoted
+  const belowCostIdx = items.findIndex((i) => i.calc?.floors.barPrice?.pass === false);
+  const barDateIssue = hasOverride ? barValidUntilIssue(barValidUntil) : null;
+  const todayBkk = hasOverride ? bangkokToday() : "";
 
   // 2+ items sharing the same plating type — production can share a plating
   // batch even though each item was priced independently (0075 design: "no
@@ -122,7 +148,14 @@ export function QuoteResultPanel({
   }
   const sharedPlating = [...platingCounts.entries()].some(([, n]) => n >= 2);
 
-  const canIssue = allInputsValid && allComplete && allFloorsPass && !anyHardBlocked && (!needsApprovalNote || approvalNote.trim().length > 0);
+  const canIssue =
+    allInputsValid &&
+    allComplete &&
+    allFloorsPass &&
+    !anyHardBlocked &&
+    belowCostIdx < 0 &&
+    !barDateIssue &&
+    (!needsApprovalNote || approvalNote.trim().length > 0);
 
   return (
     <div className="space-y-3">
@@ -183,9 +216,53 @@ export function QuoteResultPanel({
             </div>
           </div>
 
-          {hasBarItem && (
+          {hasWebBarItem && (
             <p className="rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-xs text-amber-800">
               ใบนี้มีรายการเงินแท่ง — ราคาเงินแท่งยืนเฉพาะวันนี้เท่านั้น (คนละอายุกับใบเสนอราคาส่วนงานผลิต)
+            </p>
+          )}
+
+          {hasOverride && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50/60 p-3.5 shadow-sm">
+              <h3 className="text-xs font-bold uppercase tracking-wide text-amber-800">ราคาพิเศษ — ยืนราคาถึง</h3>
+              <label className="mt-2 flex flex-col gap-1 text-xs font-semibold text-zinc-600" htmlFor="oem-bar-valid-until">
+                วันที่ยืนราคา (ไม่เกิน {OEM_BAR_OVERRIDE_MAX_DAYS} วันนับจากวันนี้)
+              </label>
+              <input
+                id="oem-bar-valid-until"
+                type="date"
+                min={todayBkk}
+                max={addDaysIso(todayBkk, OEM_BAR_OVERRIDE_MAX_DAYS)}
+                value={barValidUntil}
+                onChange={(e) => onBarValidUntilChange(e.target.value)}
+                className="mt-1 min-h-11 w-full rounded-md border border-zinc-300 px-2.5 text-sm text-zinc-900"
+              />
+              {barDateIssue && (
+                <p role="alert" className="mt-1.5 text-xs font-semibold text-amber-700">
+                  {barDateIssue}
+                </p>
+              )}
+              <p className="mt-1.5 text-[11px] text-zinc-500">
+                หน้าพิมพ์จะแสดง &quot;ยืนราคาถึง ...&quot; ตามวันนี้ · ราคาเว็บ เหตุผล และทุน เห็นเฉพาะในระบบ
+              </p>
+              {hasWebBarItem && (
+                <p className="mt-1.5 flex items-start gap-1.5 text-xs font-semibold text-amber-800">
+                  <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                  ใบนี้มีทั้งราคาพิเศษและแท่งราคาเว็บ — อายุใบ = สั้นที่สุดของทุกรายการ ทั้งใบจะยืนราคาถึงวันนี้เท่านั้น (แยกเป็น 2 ใบถ้าอยากให้ราคาพิเศษยืนตามวันที่กรอก)
+                </p>
+              )}
+              {hasProductionItem && (
+                <p className="mt-1.5 text-[11px] text-zinc-500">
+                  ใบนี้มีงานผลิตด้วย — อายุใบ = สั้นที่สุดระหว่างวันที่กรอกกับอายุงานผลิต
+                </p>
+              )}
+            </div>
+          )}
+
+          {belowCostIdx >= 0 && (
+            <p role="alert" className="flex items-start gap-1.5 rounded-md border border-red-300 bg-red-50 p-2.5 text-xs font-semibold text-red-700">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              รายการที่ {belowCostIdx + 1}: ราคาพิเศษต่ำกว่าทุน — ออกใบเสนอราคาไม่ได้ ไม่มีทางลัด (บันทึกเป็นร่างได้)
             </p>
           )}
 

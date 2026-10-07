@@ -48,6 +48,7 @@ import type {
   SaveMetalPriceInput,
   SaveQuoteInput,
   SetQuoteBillingInput,
+  SetQuoteCustomerInput,
   SetQuoteDepositInput,
   SetQuoteStatusInput,
   SetQuoteVatModeInput,
@@ -55,7 +56,7 @@ import type {
   UpsertOemSettingInput,
   VoidReceiptInput,
 } from "@/lib/oem/types";
-import { hasAnyContact, isValidThaiTaxId, parseBillAddress } from "@/lib/oem/display";
+import { customerTextIssue, hasAnyContact, isValidThaiTaxId, parseBillAddress } from "@/lib/oem/display";
 import type { SellerProfile } from "@/lib/oem/sellerProfile";
 import { fetchAllRows } from "@/lib/supabase/query-limits";
 // S1 fix (0127 code review): saveMetalPrice's silver check must match the
@@ -89,6 +90,23 @@ async function requireOwnerAdmin(): Promise<ActionResult<never> | null> {
   return null;
 }
 
+/** 0163: ด่านที่ขอบ action (ข้อมูลจาก client) — ตรวจแค่รูปร่าง/ช่วง ไม่ใช่ตัดสินราคา:
+ * "ต่ำกว่าทุนไหม" ตัดสินที่ DB เท่านั้น (client ไม่รู้ราคารับซื้อคืน และต้องไม่รู้) */
+function validateBarOverride(input: OemPriceCalcInput): string | null {
+  if (input.metal !== "silver999") return null;
+  const price = input.barPriceOverrideThb;
+  const reason = input.barPriceOverrideReason?.trim() ?? "";
+  if (price == null) {
+    return reason ? "มีเหตุผลราคาพิเศษแต่ยังไม่ได้กรอกราคาพิเศษ" : null;
+  }
+  if (!Number.isFinite(price) || price <= 0 || price > 1_000_000) {
+    return "ราคาพิเศษต้องเป็นตัวเลขมากกว่า 0 และไม่เกิน 1,000,000 บาท";
+  }
+  if (Math.round(price * 100) / 100 !== price) return "ราคาพิเศษใส่ทศนิยมได้ไม่เกิน 2 ตำแหน่ง";
+  if (!reason) return "ราคาพิเศษต้องระบุเหตุผล";
+  return null;
+}
+
 function toNum(v: number | string | null | undefined): number | null {
   if (v === null || v === undefined || v === "") return null;
   const n = Number(v);
@@ -119,6 +137,14 @@ function toCalcInputPayload(input: OemPriceCalcInput): Record<string, unknown> {
       // display-only on the way in (server ignores it and looks up TODAY,
       // Asia/Bangkok, itself) — see OemPriceCalcInput.asOfDate's comment.
       as_of_date: input.asOfDate ?? null,
+      // 0163: ราคาพิเศษ — ส่ง 2 key นี้ "เฉพาะเมื่อมีราคา" (reason ไม่ส่งถ้าราคายังว่าง:
+      // DB ปฏิเสธเหตุผลลอย) · ไม่มีการคิดเงินที่นี่ แค่ส่งค่าที่ผู้ใช้กรอกไปให้ DB ตัดสิน
+      ...(input.barPriceOverrideThb != null
+        ? {
+            bar_price_override_thb: input.barPriceOverrideThb,
+            bar_price_override_reason: input.barPriceOverrideReason ?? "",
+          }
+        : {}),
     };
   }
   return {
@@ -162,6 +188,9 @@ function fromInputPayload(raw: Record<string, unknown>): OemPriceCalcInput {
       engraveImageThb: raw.engrave_image_thb == null ? null : Number(raw.engrave_image_thb),
       engraveTextThb: raw.engrave_text_thb == null ? null : Number(raw.engrave_text_thb),
       asOfDate: (raw.as_of_date as string | null | undefined) ?? null,
+      // 0163: ถ้าไม่อ่านกลับ — เปิดร่าง/ใบที่เก็บไว้แล้วราคาพิเศษจะหายเงียบๆ กลับเป็นราคาเว็บ
+      barPriceOverrideThb: raw.bar_price_override_thb == null ? null : Number(raw.bar_price_override_thb),
+      barPriceOverrideReason: raw.bar_price_override_reason == null ? null : String(raw.bar_price_override_reason),
     };
   }
   return {
@@ -178,6 +207,14 @@ function fromInputPayload(raw: Record<string, unknown>): OemPriceCalcInput {
     asOfDate: (raw.as_of_date as string | null | undefined) ?? null,
     marginPct: raw.margin_pct == null ? null : Number(raw.margin_pct),
   };
+}
+
+function parseBarOverride(raw: unknown): { thb: number; reason: string } | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const thb = toNum(o.thb as number | string | null | undefined);
+  if (thb === null) return null;
+  return { thb, reason: String(o.reason ?? "") };
 }
 
 function fromCalcResult(raw: Record<string, unknown>): OemPriceCalcResult {
@@ -213,6 +250,9 @@ function fromCalcResult(raw: Record<string, unknown>): OemPriceCalcResult {
         sheetTime: barRaw.sheet_time == null ? null : String(barRaw.sheet_time),
         capturedAt: barRaw.captured_at == null ? null : String(barRaw.captured_at),
         source: barRaw.source == null ? null : String(barRaw.source),
+        // 0163: มีเฉพาะใบที่ใช้ราคาพิเศษ (jsonb byte-identical เมื่อไม่มี) — อ่านแบบ defensive
+        webPricePerPiece: barRaw.web_price_per_piece == null ? null : Number(barRaw.web_price_per_piece),
+        override: parseBarOverride(barRaw.override),
       }
     : null;
 
@@ -270,6 +310,8 @@ function fromCalcResult(raw: Record<string, unknown>): OemPriceCalcResult {
   // on every pre-0078 saved quote — see D5's note that old quotes reprint
   // fine without it) rather than assuming the key exists.
   const fPriceFresh = f.price_fresh as Record<string, unknown> | undefined;
+  // 0163: มีเฉพาะเมื่อมีราคาพิเศษ (pass: null = ตัดสินไม่ได้ ไม่ใช่ผ่าน)
+  const fBarPrice = f.bar_price as Record<string, unknown> | undefined;
 
   const floors: OemFloors = {
     qty: { pass: fQty.pass == null ? null : Boolean(fQty.pass), moq: fQty.moq == null ? null : Number(fQty.moq), actual: Number(fQty.actual ?? 0) },
@@ -287,6 +329,9 @@ function fromCalcResult(raw: Record<string, unknown>): OemPriceCalcResult {
           asOfDate: fPriceFresh.as_of_date == null ? null : String(fPriceFresh.as_of_date),
           todayBkk: String(fPriceFresh.today_bkk ?? ""),
         }
+      : undefined,
+    barPrice: fBarPrice
+      ? { applies: Boolean(fBarPrice.applies), pass: fBarPrice.pass == null ? null : Boolean(fBarPrice.pass) }
       : undefined,
   };
 
@@ -899,6 +944,8 @@ export async function calcPrice(input: OemPriceCalcInput): Promise<ActionResult<
     if (input.engraveTextThb != null && (!Number.isFinite(input.engraveTextThb) || input.engraveTextThb < 0)) {
       return { ok: false, error: "ค่ายิงเลเซอร์ตัวอักษรต้องเป็นตัวเลขตั้งแต่ 0 ขึ้นไป" };
     }
+    const overrideErr = validateBarOverride(input);
+    if (overrideErr) return { ok: false, error: overrideErr };
   } else {
     if (!input.itemKind?.trim() || !input.polishTier?.trim()) {
       return { ok: false, error: "กรุณาเลือกวัสดุ / ประเภทงาน / ระดับความยากขัด" };
@@ -1055,6 +1102,11 @@ export async function saveQuote(input: SaveQuoteInput): Promise<ActionResult<{ q
   if (!input?.items?.length) return { ok: false, error: "ต้องมีอย่างน้อย 1 รายการ" };
   for (const item of input.items) {
     if (!item?.input) return { ok: false, error: "มีบางรายการยังไม่มีข้อมูลงานที่จะคำนวณราคา" };
+    const overrideErr = validateBarOverride(item.input);
+    if (overrideErr) return { ok: false, error: overrideErr };
+  }
+  if (input.barValidUntil != null && input.barValidUntil !== "" && !/^\d{4}-\d{2}-\d{2}$/.test(input.barValidUntil)) {
+    return { ok: false, error: "วันยืนราคาไม่ถูกต้อง" };
   }
   const discountThb = toNum(input.discountThb) ?? 0;
   if (discountThb < 0) return { ok: false, error: "ส่วนลดต้องไม่ติดลบ" };
@@ -1081,6 +1133,8 @@ export async function saveQuote(input: SaveQuoteInput): Promise<ActionResult<{ q
       p_customer_contact: input.customerContact?.trim() || null,
       p_discount_thb: discountThb,
       p_discount_reason: input.discountReason?.trim() || null,
+      // 0163: ส่งเฉพาะเมื่อมีวัน — ไม่ส่ง = 10-arg ใช้ default null (พฤติกรรมเดิม)
+      ...(input.barValidUntil ? { p_bar_valid_until: input.barValidUntil } : {}),
     });
     if (error) {
       // 22023 = our own controlled Thai validation messages (floor/margin/
@@ -1125,6 +1179,44 @@ export async function renegotiateQuote(input: RenegotiateQuoteInput): Promise<Ac
   } catch (err) {
     console.error("renegotiateQuote failed", err);
     return { ok: false, error: "ต่อราคาไม่สำเร็จ ลองใหม่อีกครั้ง" };
+  }
+}
+
+// 0164: เติม/แก้ "ลูกค้า" (ชื่อ + ช่องทางติดต่อ) ของใบที่ออกแล้ว — oem_quote_save ตั้งได้ตอนบันทึกเท่านั้น
+// DB (oem_quote_set_customer) เป็นด่านจริง: ปฏิเสธใบ lost/rejected/superseded · ร้านอื่น · ยาว/อักขระต้องห้าม ·
+// แตะแค่ 2 คอลัมน์นี้ (+updated_*) ที่นี่ตรวจรูปร่างก่อนเพื่อให้ข้อความไทยชัด (UX) และไม่ยิง RPC เปล่า
+export async function setQuoteCustomer(input: SetQuoteCustomerInput): Promise<ActionResult<{ quoteId: string }>> {
+  const gateErr = await requireOwnerAdmin();
+  if (gateErr) return gateErr;
+
+  if (!input?.quoteId) return { ok: false, error: "ไม่พบใบเสนอราคา" };
+  const nameErr = customerTextIssue(input.customerName, "ชื่อลูกค้า");
+  if (nameErr) return { ok: false, error: nameErr };
+  const contactErr = customerTextIssue(input.customerContact, "ช่องทางติดต่อ");
+  if (contactErr) return { ok: false, error: contactErr };
+
+  try {
+    const shopId = getDevShopId();
+    const supabase = getServiceClient();
+
+    const { data, error } = await supabase.schema(SCHEMA).rpc("oem_quote_set_customer", {
+      p_shop_id: shopId,
+      p_quote_id: input.quoteId,
+      // ส่งค่า trim แล้ว หรือ null — DB ก็ btrim/nullif ซ้ำ (ว่าง = ล้างเป็น null)
+      p_customer_name: input.customerName?.trim() || null,
+      p_customer_contact: input.customerContact?.trim() || null,
+    });
+    if (error) {
+      // 22023 = ข้อความไทยของด่านเราเอง (ใบปิดแล้ว/ยาวเกิน/อักขระต้องห้าม) — แสดงตรงๆ ได้
+      if ((error as { code?: string }).code === "22023") return { ok: false, error: error.message };
+      throw error;
+    }
+
+    revalidateOemPaths();
+    return { ok: true, data: { quoteId: String(data) } };
+  } catch (err) {
+    console.error("setQuoteCustomer failed", err);
+    return { ok: false, error: "บันทึกข้อมูลลูกค้าไม่สำเร็จ ลองใหม่อีกครั้ง" };
   }
 }
 
