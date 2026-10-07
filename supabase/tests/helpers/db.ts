@@ -31,6 +31,10 @@
 //   SUPABASE_SERVICE_ROLE_KEY    service_role JWT (from `supabase status -o env`)
 //   SUPABASE_ANON_KEY            optional — only needed for the privilege
 //                                 regression guard test in stock-validation.test.ts
+//   TEST_DB_ADMIN_URL            owner-role connection string used ONLY to delete test shops in
+//                                 teardown — without it the whole suite is skipped (hasDbEnv)
+//   ALLOW_SHARED_DB_TEARDOWN=1   required when TEST_DB_ADMIN_URL host is not localhost/127.0.0.1
+//                                 (this project has a single shared DB — see .env.test.example)
 //
 // No secrets are hardcoded here (CLAUDE.md hard rule) — every credential comes
 // from process.env, and tests that need them skip loudly (not silently) via
@@ -52,9 +56,28 @@ function requireEnv(name: string): string {
   return value;
 }
 
-/** Guard used by every test file's `describe.skipIf(!hasDbEnv())` — see report for why we skip instead of fail. */
+/**
+ * Guard used by every test file's `describe.skipIf(!hasDbEnv())` — see report for why we skip instead of fail.
+ *
+ * ต้องมี TEST_DB_ADMIN_URL ด้วย: ชุดทดสอบนี้ลบร้านทดสอบผ่าน connection ของเจ้าของตาราง (0161 ถอน DELETE ของ
+ * service_role) ⇒ ถ้าขาดตัวนี้ seedTenant จะสร้างร้านแล้วลบไม่ได้ = ของค้างใน DB จริง → skip ทั้ง suite แทน throw
+ * (บอกเหตุผลทาง stderr ครั้งเดียว ไม่ใช่ skip เงียบ)
+ */
+let warnedMissingAdminUrl = false;
 export function hasDbEnv(): boolean {
-  return Boolean(process.env.SUPABASE_URL?.trim() && process.env.SUPABASE_SERVICE_ROLE_KEY?.trim());
+  const hasApi = Boolean(process.env.SUPABASE_URL?.trim() && process.env.SUPABASE_SERVICE_ROLE_KEY?.trim());
+  if (!hasApi) return false;
+  if (!process.env.TEST_DB_ADMIN_URL?.trim()) {
+    if (!warnedMissingAdminUrl) {
+      warnedMissingAdminUrl = true;
+      console.warn(
+        "[supabase/tests] ข้าม DB integration suite: ตั้ง SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY แล้วแต่ไม่มี TEST_DB_ADMIN_URL " +
+          "(ใช้ลบร้านทดสอบตอน teardown — ถ้าไม่มี ร้านทดสอบจะค้างใน DB) · ดู .env.test.example",
+      );
+    }
+    return false;
+  }
+  return true;
 }
 
 export function hasAnonEnv(): boolean {
@@ -346,6 +369,11 @@ const TEARDOWN_TABLES_IN_ORDER = [
   "shop_member",
 ] as const;
 
+// host ที่ถือว่าเป็นเครื่องตัวเอง (URL.hostname ของ IPv6 คงวงเล็บไว้)
+const LOCAL_DB_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+// ร้านทดสอบต้องเพิ่งถูกสร้าง — กันลบร้านเก่า/ร้านจริงที่ชื่อบังเอิญขึ้นต้นเหมือนกัน
+const TEST_SHOP_MAX_AGE_SQL = "interval '1 hour'";
+
 function requireAdminUrl(): string {
   const url = process.env.TEST_DB_ADMIN_URL;
   if (!url || url.trim() === "") {
@@ -356,6 +384,23 @@ function requireAdminUrl(): string {
         "(ดู .env.test.example) · ยังไม่ได้สร้างร้านทดสอบ จึงหยุดก่อนเพื่อไม่ให้มีของค้าง",
     );
   }
+  // ห้ามใส่ url ลงข้อความ error — มีรหัสผ่านอยู่ในนั้น
+  let host: string;
+  try {
+    host = new URL(url).hostname.toLowerCase();
+  } catch {
+    throw new Error(
+      "TEST_DB_ADMIN_URL ไม่ใช่ URL ที่อ่านได้ (postgresql://user:pass@host:port/db — รหัสผ่านที่มีอักขระพิเศษต้อง URL-encode) · " +
+        "ยังไม่ได้สร้างร้านทดสอบ จึงหยุดก่อน",
+    );
+  }
+  if (!LOCAL_DB_HOSTS.has(host) && process.env.ALLOW_SHARED_DB_TEARDOWN !== "1") {
+    throw new Error(
+      `TEST_DB_ADMIN_URL ชี้ host "${host}" ซึ่งไม่ใช่เครื่องตัวเอง (localhost / 127.0.0.1) — ชุดทดสอบนี้เขียน+ลบแถวจริง ` +
+        "ปฏิเสธเพื่อกันรันใส่ DB จริงโดยไม่ตั้งใจ · ถ้าตั้งใจใช้ DB ที่ใช้ร่วมกัน (โปรเจกต์นี้มี DB เดียว) ให้ตั้ง " +
+        "ALLOW_SHARED_DB_TEARDOWN=1 เองทุกครั้งที่รัน (อย่าใส่ในไฟล์) · ยังไม่ได้สร้างร้านทดสอบ จึงหยุดก่อน",
+    );
+  }
   return url;
 }
 
@@ -364,6 +409,18 @@ export async function cleanupTenant(_db: SupabaseClient, shopId: string): Promis
   try {
     await client.connect();
     await client.query("begin");
+    // 🔴 ตรวจร้านก่อนลบอะไรทั้งนั้น — เดิมวนลบตารางลูกตาม shop_id ก่อนแล้วค่อยเช็คชื่อตอนลบร้าน
+    // (ROLLBACK ช่วยไว้ได้ แต่ลำดับนั้นพึ่ง transaction อย่างเดียว) · for update = ไม่มีใครแก้/ลบร้านระหว่างลบ
+    const guard = await client.query(
+      `select id from public.shop where id = $1 and name like $2 and created_at > now() - ${TEST_SHOP_MAX_AGE_SQL} for update`,
+      [shopId, `${TEST_SHOP_NAME_PREFIX}%`],
+    );
+    if (guard.rowCount !== 1) {
+      throw new Error(
+        `ไม่พบร้านทดสอบที่ลบได้ — id ไม่มีอยู่ · ชื่อไม่ขึ้นต้นด้วย "${TEST_SHOP_NAME_PREFIX}" · หรือสร้างมานานกว่า 1 ชั่วโมง ` +
+          "(guard กันลบร้านจริง) · ยังไม่ได้ลบอะไร",
+      );
+    }
     for (const table of TEARDOWN_TABLES_IN_ORDER) {
       // ชื่อตารางมาจากค่าคงที่ข้างบน ไม่ใช่ input ภายนอก · shopId ส่งเป็น parameter เสมอ
       await client.query(`delete from public.${table} where shop_id = $1`, [shopId]);

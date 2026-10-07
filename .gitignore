@@ -23,3 +23,6 @@ supabase/.temp/
 # ของจริงอยู่ branch `trend-radar-feed` (เว็บ /marketing/trend-radar ดึงจาก GitHub)
 # บน main ไม่ track — ไม่งั้นมีไฟล์ใหม่ค้างใน git status ทุกวันโดยไม่มีใคร commit
 docs/3j-jewelry/marketing/trend-radar/
+
+# ไฟล์ env ของชุดทดสอบ DB (มี connection string/key) — แม่แบบคือ .env.test.example
+.env.test.local

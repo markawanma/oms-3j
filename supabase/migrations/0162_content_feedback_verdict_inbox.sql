@@ -22,9 +22,12 @@
 --   A  ขอบเขตนับออเดอร์เป็นคอลัมน์ของ campaign (metric_channel_code · metric_affinity · metric_date_from/to) — ช่วงวันขายของแคมเปญ ≠ ช่วงวันของ step
 --      (10.10: ขาย 7-10 ต.ค. แต่ step เดียวอยู่ 7 ต.ค.) ⇒ ไม่ตั้ง = ใช้ช่วง step · ไม่มี step = anchor_date วันเดียว · ตั้งได้เฉพาะเมื่อ metric_code = 'orders' (CHECK + RPC)
 --   B  ด่านคำตัดสิน (campaign_verdict_gate_ — helper ตัวเดียวที่ propose + confirm ใช้ร่วม): validated/invalidated บน save_rate/share_rate ต้องมี ≥ 4 ชิ้น (distinct step) ที่มี T+7 ·
---      บน orders ต้องตั้ง pass_threshold + pass_op ก่อน และรู้ช่วงวัน — ไม่บล็อกด้วย "ข้อมูลออเดอร์ยังไม่ถึงวันสุดท้าย" (ออเดอร์ 0 ในวันท้าย = ผลจริงของแคมเปญที่ล้มเหลว
---      ⇒ เดาจาก max(order_date) บล็อกผิด) · แต่ payload/view คืน orders_data_through + orders_data_covers_window ให้หน้าจอเตือน
+--      บน orders ต้องตั้ง pass_threshold + pass_op ก่อน · รู้ช่วงวัน · 🔴 และข้อมูลออเดอร์ของร้านต้องถึงวันสุดท้ายของช่วง (orders_data_covers_window = true — SEC-H1)
+--      (รอบแรกเคยไม่บล็อกด้วยเหตุผล "ออเดอร์ 0 ในวันท้ายคือผลจริง" — security ตีกลับ: ไฟล์ import รายเดือนยังไม่เข้า ยอด 0 ที่เห็นคือ "ยังไม่มีข้อมูล" ไม่ใช่ "ไม่มีใครซื้อ" ⇒ ฟันธงไม่ได้)
+--      data_through = วันล่าสุดที่ร้านมีออเดอร์ "ทุกช่องทาง" (ไม่กรองช่องทางที่แคมเปญนับ — ไฟล์ import เข้าทีเดียวทุกช่องทาง ช่องที่เงียบไม่ใช่เหตุให้ถือว่าข้อมูลไม่ถึง) ·
+--      ร้านที่ไม่มีออเดอร์เลย (null) = ไม่ครอบ · inconclusive/not_measured ยังเสนอ/ยืนยันได้เสมอ · แคมเปญที่ทุกชิ้นถูกยกเลิก (pieces_total > 0 และ posted+open = 0) ฟัน validated/invalidated ไม่ได้ (SEC-Low)
 --   C  campaign_verdict_confirm บังคับ p_expected_proposed ไม่เป็น null (22023) — รับ 'none' หรือ '' = "คาดว่าไม่มีข้อเสนอ" (สเปกใช้ '' · 0161 ใช้ 'none' ⇒ รับทั้งคู่ กัน form ส่งค่าว่าง)
+--      + (SEC-M1) p_expected_token บังคับไม่เป็น null — ดูข้อ Q
 --   D  p_lesson ของ confirm ≤ 300 ตัวอักษร (สเปก 500) — content_signal.summary จำกัด 1-300 · คอลัมน์ campaign.lesson ยัง CHECK ≤ 500 ตามสเปก (แบบเดียวกับ 0161 ข้อ D)
 --   E  ไม่ใช่ owner ทับของ owner ไม่ได้: propose โดย ai/system ทับข้อเสนอของ owner = 42501 · weekly_summary_upsert โดย ai/system ทับฉบับที่ owner เป็นคนเขียนล่าสุด = 42501 (ห้ามทับเงียบ)
 --   F  content_weekly_summary_upsert คืน jsonb {id, created, changed, revision} แทน uuid (สเปกเขียน uuid) — ให้ผู้เรียกเห็นว่า "สร้างใหม่ / ทับ / ไม่มีอะไรเปลี่ยน" · เพิ่มคอลัมน์ revision + updated_by_role ·
@@ -45,6 +48,28 @@
 --   N  ด่าน 4 ชิ้นนับ count(distinct step) ที่มี T+7 (KPI def = "ชิ้น" · สเปกเขียน "โพสต์") · ช่วงวัน step ใน v_campaign_summary = min(resolved_start) .. max(coalesce(resolved_end, resolved_start))
 --      (สเปกเขียน min/max resolved_start) · ผลต่อโพสต์ในแคมเปญนับเฉพาะชิ้น posted หรือแคมเปญเก่าที่ไม่มี piece_status
 --   O  ข้อเสนอ recommendation_respond หมดเวลา = ตอบได้ (สเปก 13.5: คำตอบจริงชนะค่าเริ่มต้น) — "ใช้ค่าเริ่มต้น" = view แสดง expired + default_action ไม่ใช่ RPC ปฏิเสธ/เขียนแทน
+--
+-- 🔴 รอบแก้ตาม security (CONDITIONAL GO — High 3) + QA (PASS with notes) 7 ต.ค. 69 — ตัดสินใจเองเพิ่ม:
+--   P  (SEC-H1) ดูข้อ B · v_campaign_summary.orders_data_through ไม่กรองช่องทางแล้ว
+--   Q  (SEC-M1) compare-and-set แบบ "token ของเนื้อหาที่เจ้าของเห็น" (md5 ของ jsonb array) แทน updated_at: (1) updated_at ไปพร้อมการแก้ที่ไม่เกี่ยว (บอร์ด/สถานะ) ⇒ ชนปลอม
+--      (2) timestamptz ที่ผ่าน JSON/JS Date เสียไมโครวินาที ⇒ ส่งกลับไม่ตรงเอง · token คำนวณฝั่ง DB อย่างเดียว (campaign_verdict_token_ / recommendation_token_) แสดงใน view
+--      (v_campaign_summary.verdict_token · v_recommendation_inbox.content_token) แล้วหน้าจอส่งกลับมา — เนื้อหาเปลี่ยนระหว่างอ่าน = 55000 "ข้อมูลเปลี่ยนแล้ว รีเฟรชก่อน"
+--      campaign_verdict_confirm: คง p_expected_proposed ไว้ (ข้อความอ่านง่าย) + เพิ่ม p_expected_token · recommendation_respond เพิ่ม p_expected_token · ทั้งคู่ null = 22023
+--      signature เปลี่ยน ⇒ drop signature เดิมก่อน create (trap #1) · re-grant ครบด้วยลูป §10
+--   R  (SEC-H2) recommendation_log.owner_response แยกจาก outcome_note: คำตอบของเจ้าของเขียนครั้งเดียวผ่าน recommendation_respond · outcome_note = ผลที่ทีมจดทีหลัง (แก้ได้)
+--      guard: ถ้า old.acted_by_role = 'owner' ห้ามแก้ owner_action/owner_response/acted_at/acted_by/acted_by_role ทุก role รวม postgres (แถวเก่าที่ acted_by_role ว่าง = ยังปิดตรงได้ เหมือน N16b)
+--      ⚠️ ข้อจำกัดที่รู้: postgres (MCP ของ Tech Lead) ตั้ง acted_by_role = 'owner' เองบนแถว pending ได้ — ปลอมว่าเจ้าของตอบได้ (D18: ไม่มี GUC แยก RPC กับ postgres)
+--   S  (SEC-M2) ai/system แก้ campaign_plan_set ไม่ได้เมื่อ วันนี้(ไทย) >= coalesce(metric_date_from, anchor_date) (ทั้งค่าเดิมและค่าใหม่ที่จะตั้ง — กันดึงเริ่มช่วงถอยหลังไปคลุมยอดที่เห็นแล้ว)
+--      หรือเมื่อมีข้อเสนอคำตัดสินแล้ว (result_verdict_proposed) · owner แก้ได้เหมือนเดิม · ทั้งสามเงื่อนไข = 42501
+--   T  (SEC-M3) content_bidi_present_ ขยายชุดอักขระ: Unicode Tag U+E0000-E007F · U+00AD · U+180E · U+2028/2029 · U+FFF9-FFFB · U+3164 · U+115F · control 01-08/0B/0C/0E-1F/7F (ZWJ/ZWNJ ยังผ่าน) ·
+--      ไม่ replace content_text_clean ของ 0158 (ด่านท้ายไฟล์ pin md5 ฟังก์ชันเดิมทุกตัว) ⇒ ข้อความสั้นของ RPC ในไฟล์นี้ผ่าน content_text_clean ตามเดิม "แล้วตรวจซ้ำด้วย content_bidi_present_" (ปฏิเสธ 22023
+--      ถ้าเหลืออักขระชุดใหม่) · ช่องของ 0158-0161 (content_signal/hook ฯลฯ) ยังใช้ content_text_clean เดิม = ยังไม่ครอบชุดใหม่ — รอเจ้าของ/Tech Lead ตัดสินว่าจะขยาย 0158 ไหม
+--   U  (QA-1) บรรทัดสรุป Weekly Brief เพดาน 1,000 ตัวอักษร (เดิม 300 — Brief #4 จริงยาว 613) · เนื้อหาเต็มเพดานเดิม 80,000
+--   V  (QA-4) campaign_verdict_confirm: p_lesson null = "ไม่ส่ง" คงบทเรียนเดิม · '' / ช่องว่างล้วน = ตั้งใจล้าง · ข้อความ = ตั้งใหม่ (ยืนยันซ้ำโดยไม่ส่งบทเรียนไม่ทับเป็นว่างอีก)
+--   W  (QA-5) recommendation_create คืน jsonb {id, created, conflict} แทน uuid: ชื่อซ้ำที่ยัง pending = คืน id เดิม created=false (ไม่ error 23505) · เนื้อหาต่างจากเดิม (detail/kind/เส้นตาย/ค่าเริ่มต้น/เวลา/ลิงก์)
+--      = conflict=true ไม่ทับเงียบ · แข่งกัน 2 คำสั่ง: insert ... on conflict do nothing ชน partial unique index แล้วอ่านแถวเดิมกลับ
+--   X  (SEC-Low) campaign.status ไม่มีค่า 'cancelled' (CHECK 0049: active/scheduled/blocked/waiting_data/done) ⇒ ตีความ "แคมเปญที่ยกเลิก" = ทุกชิ้นใน workflow ถูกยกเลิก (ดูข้อ B) และฟันได้แค่ inconclusive/not_measured
+--      (มติ Q12 ปิดได้ทุกเมื่อ ไม่ถูกทับ) · service_role/authenticated/anon ตั้ง campaign.status = 'done' ตรงไม่ได้ (guard — done ผ่าน campaign_verdict_confirm เท่านั้น)
 --
 -- ไม่มีเทสต์ครอบ (บอกตรงๆ — ดูท้าย verify-0162): ถอด `for update` ของ RPC (ต้องใช้ 2 connection) · TRUNCATE เมื่อมีคน grant กลับ (กันที่ชั้น GRANT เท่านั้น) · เวลาคร่อม 00:00-07:00 ไทยจริง
 --
@@ -118,7 +143,7 @@ begin
              order by p.oid::regprocedure::text), ''))
     from pg_proc p
     where p.pronamespace = 'analytics'::regnamespace and p.prokind = 'f'
-      and p.proname !~ '^(content_bidi_present_|campaign_open_pieces_|campaign_verdict_gate_|content_weekly_summary_guard|campaign_result_guard|recommendation_log_guard|campaign_plan_set|campaign_verdict_propose|campaign_verdict_confirm|recommendation_create|recommendation_respond|content_weekly_summary_upsert)$'), true);
+      and p.proname !~ '^(content_bidi_present_|campaign_open_pieces_|campaign_verdict_gate_|campaign_verdict_token_|recommendation_token_|content_weekly_summary_guard|campaign_result_guard|recommendation_log_guard|campaign_plan_set|campaign_verdict_propose|campaign_verdict_confirm|recommendation_create|recommendation_respond|content_weekly_summary_upsert)$'), true);
 end
 $c5snap$;
 
@@ -291,7 +316,7 @@ comment on column analytics.campaign.result_open_pieces is 'จำนวนช�
 -- ============================================================================
 -- 3. recommendation_log — คอลัมน์ใหม่ (ไม่แตะ v_recommendation_acceptance · ไม่แตะ CHECK source เดิม 3 ค่า)
 --    12 แถวเก่า = kind 'proposal' (ถูก: ทั้งหมดเป็นข้อเสนอ R1-R12) · created_by_role / acted_by_role เก่า = null (ไม่รู้ ไม่เดา)
---    คอลัมน์เดิมที่ใช้ต่อ: outcome_note = คำตอบ (Δ7) · acted_by = auth.uid() (null จนกว่า A2)
+--    คอลัมน์เดิมที่ใช้ต่อ: acted_by = auth.uid() (null จนกว่า A2) · คำตอบของเจ้าของ = owner_response (คอลัมน์ใหม่ SEC-H2) — outcome_note คงไว้เป็นผลที่ทีมจดทีหลัง (ไม่ใช่คำตอบ)
 -- ============================================================================
 
 alter table analytics.recommendation_log
@@ -301,8 +326,12 @@ alter table analytics.recommendation_log
   add column if not exists related_step_id uuid,
   add column if not exists summary_id      uuid,
   add column if not exists created_by_role text,
-  add column if not exists acted_by_role   text;
+  add column if not exists acted_by_role   text,
+  add column if not exists owner_response  text;   -- ข้อความตอบของเจ้าของ (SEC-H2) · แยกจาก outcome_note ที่ทีมจดผลทีหลัง
 
+alter table analytics.recommendation_log drop constraint if exists recommendation_log_owner_response_check;
+alter table analytics.recommendation_log add constraint recommendation_log_owner_response_check
+  check (owner_response is null or length(owner_response) between 1 and 1000);
 alter table analytics.recommendation_log drop constraint if exists recommendation_log_kind_check;
 alter table analytics.recommendation_log add constraint recommendation_log_kind_check
   check (kind in ('proposal', 'question'));   -- ไม่มี risk_gate: ด่านความเสี่ยงอ่านจาก step_gate ตรงใน v_recommendation_inbox (C3-2)
@@ -339,6 +368,9 @@ create unique index if not exists uq_recommendation_log_pending_title
 
 comment on column analytics.recommendation_log.kind is
   'proposal = ข้อเสนอให้ทำ · question = คำถามให้เจ้าของตัดสิน (ด่านความเสี่ยง/คำตัดสินแคมเปญอ่านจาก step_gate/campaign ใน v_recommendation_inbox ไม่ใช่แถวนี้)';
+comment on column analytics.recommendation_log.owner_response is
+  'ข้อความที่เจ้าของตอบ (เขียนครั้งเดียวโดย recommendation_respond พร้อม owner_action/acted_at/acted_by/acted_by_role) · เมื่อ acted_by_role = owner แก้ไม่ได้ทุก role รวม postgres · '
+  'ผลที่ทีมจดทีหลังอยู่ outcome_note (แก้ได้)';
 comment on column analytics.recommendation_log.respond_by is
   'เส้นตายตอบ (วันไทย) · null = ใช้กติกา 14 วันของ 0101 · หมดเวลา = effective_action expired ใน v_recommendation_inbox (ไม่ mutate แถว) · เจ้าของตอบช้าได้ (is_late)';
 comment on column analytics.recommendation_log.default_action is
@@ -350,14 +382,18 @@ comment on column analytics.recommendation_log.default_action is
 --    ชั้นแรกคือ GRANT (§8 ถอนสิทธิ์เขียนจาก service_role) — trigger คือชั้นที่สองเมื่อมีคน grant กลับ
 -- ============================================================================
 
--- อักขระควบคุมทิศทาง/ล่องหนที่ใช้ปลอมข้อความ (trojan-source) — ปฏิเสธ ไม่แก้เงียบ · ไม่รวม U+200C/200D (ZWNJ/ZWJ ใช้ต่อ emoji) — ตัดสินใจ H
+-- อักขระควบคุมทิศทาง/ล่องหน/ควบคุม ที่ใช้ปลอมข้อความ (trojan-source · ASCII smuggling ด้วย Unicode Tag) — ปฏิเสธ ไม่แก้เงียบ · ไม่รวม U+200C/200D (ZWNJ/ZWJ ใช้ต่อ emoji) — ตัดสินใจ H/T
+--   ชุดเดิม:  200B 200E 200F 061C 202A-202E 2060-2064 2066-2069 FEFF
+--   ชุดเพิ่ม (SEC-M3): Unicode Tag U+E0000-E007F · 00AD (soft hyphen) · 180E (Mongolian vowel separator) · 2028/2029 (line/paragraph separator) · FFF9-FFFB (interlinear annotation) ·
+--                     3164 + 115F (Hangul filler — แสดงเป็นช่องว่างกว้าง) · control 0001-0008 000B 000C 000E-001F 007F (เว้น tab 09 / LF 0A / CR 0D ที่ข้อความหลายบรรทัดต้องใช้)
+--   เขียนเป็น escape 4 หลักตายตัว (u + เลขฐานสิบหก 4 หลัก) ไม่ใช้รูป x + เลขฐานสิบหก — รูป x ใน regex ของ Postgres กินเลขฐานสิบหกกี่หลักก็ได้ ต่อกับอักขระถัดไปแล้วเพี้ยน · นอก BMP ใช้ U + 8 หลัก
 create or replace function analytics.content_bidi_present_(p_text text)
  returns boolean
  language sql
  immutable
  set search_path to 'public', 'pg_temp'
 as $f$
-  select coalesce(p_text, '') ~ '[\u200B\u200E\u200F\u061C\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]'
+  select coalesce(p_text, '') ~ '[\u200B\u200E\u200F\u061C\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF\U000E0000-\U000E007F\u00AD\u180E\u2028\u2029\uFFF9-\uFFFB\u3164\u115F\u0001-\u0008\u000B\u000C\u000E-\u001F\u007F]'
 $f$;
 
 -- trigger: content_weekly_summary — เขียนผ่าน content_weekly_summary_upsert เท่านั้น
@@ -392,6 +428,10 @@ create or replace function analytics.campaign_result_guard()
 as $f$
 begin
   if current_user in ('service_role', 'authenticated', 'anon') then
+    -- SEC-Low (ข้อ X): ปิดแคมเปญ (status → done) ผ่าน campaign_verdict_confirm เท่านั้น — เดิม service_role ตั้ง done ตรงได้โดยไม่มีคำตัดสิน/บทเรียน/จำนวนชิ้นค้าง
+    if new.status = 'done' and (tg_op = 'INSERT' or new.status is distinct from old.status) then
+      raise exception 'ปิดแคมเปญ (status done) ผ่าน campaign_verdict_confirm เท่านั้น' using errcode = '55000';
+    end if;
     if tg_op = 'INSERT' then
       if new.result_verdict is distinct from 'not_measured'
          or num_nonnulls(new.result_note, new.hypothesis, new.metric_code, new.baseline_value, new.baseline_spread, new.baseline_as_of,
@@ -444,6 +484,13 @@ begin
      and (new.title, new.detail, new.source, new.kind, new.shop_id) is distinct from (old.title, old.detail, old.source, old.kind, old.shop_id) then
     raise exception 'ข้อเสนอที่ตอบแล้วแก้เนื้อหาไม่ได้ (ประวัติการตัดสินของเจ้าของ)' using errcode = '55000';
   end if;
+  -- SEC-H2: "คำตอบของเจ้าของ" เองก็ต้องแก้ย้อนหลังไม่ได้ — ล็อกเมื่อ recommendation_respond เป็นคนเขียน (acted_by_role = owner) · ทุก role รวม postgres
+  -- แถวเก่าที่ปิดตรงก่อน 0162 (acted_by_role ว่าง) ไม่ติด — ยังปิด/แก้ได้แบบ N16b · outcome_note (ผลที่ทีมจดทีหลัง) ไม่อยู่ในรายการล็อก
+  if tg_op = 'UPDATE' and old.acted_by_role = 'owner'
+     and (new.owner_action, new.owner_response, new.acted_at, new.acted_by, new.acted_by_role)
+         is distinct from (old.owner_action, old.owner_response, old.acted_at, old.acted_by, old.acted_by_role) then
+    raise exception 'คำตอบของเจ้าของแก้ย้อนหลังไม่ได้ (owner_action / owner_response / acted_at / acted_by / acted_by_role) — จดผลทีหลังที่ outcome_note' using errcode = '55000';
+  end if;
   if tg_op = 'DELETE' then
     return old;
   end if;
@@ -478,7 +525,9 @@ $f$;
 -- ด่านเนื้อหาของคำตัดสิน (ตัดสินใจ B) — null = ผ่าน · ข้อความ = เหตุผลที่ตก (ผู้เรียก raise 55000) · ใช้ร่วมกันทั้ง propose และ confirm (owner ก็ฟันธงจากข้อมูลน้อยไม่ได้)
 --   ด่านใช้เฉพาะ validated/invalidated — inconclusive/not_measured เสนอ/ยืนยันได้เสมอ (ยอมรับว่ายังตัดสินไม่ได้)
 --   save_rate/share_rate: ≥ 4 ชิ้น (distinct step) ที่มี T+7 · นับเฉพาะชิ้น posted หรือแคมเปญเก่าที่ไม่มี piece_status (Q12: ชิ้นค้าง/ยกเลิกไม่นับในผล)
---   orders: ต้องตั้ง pass_threshold + pass_op และรู้ช่วงวัน (v_campaign_summary.orders_window_*) · metric อื่น/null (peak_viewers · line_reply_count · none · แคมเปญเก่า) = วัดนอกตารางนี้ ไม่เดา ไม่ติดด่าน
+--   orders: ต้องตั้ง pass_threshold + pass_op · รู้ช่วงวัน (v_campaign_summary.orders_window_*) · 🔴 ข้อมูลออเดอร์ของร้านต้องถึงวันสุดท้ายของช่วง (orders_data_covers_window — SEC-H1:
+--           ยอดวันท้ายที่ยังไม่เข้าไฟล์ import อ่านเป็น 0 แล้วถูกตีเป็น "แคมเปญล้มเหลว") · ร้านไม่มีออเดอร์เลย = ไม่ครอบ · metric อื่น/null (peak_viewers · line_reply_count · none · แคมเปญเก่า) = วัดนอกตารางนี้ ไม่เดา ไม่ติดด่าน
+--   ทุก metric: แคมเปญที่ทุกชิ้นใน workflow ถูกยกเลิก (มีชิ้น และไม่เหลือชิ้นที่ไม่ cancelled) ฟัน validated/invalidated ไม่ได้ (SEC-Low · ข้อ X) — inconclusive/not_measured ยังปิดได้ (Q12)
 create or replace function analytics.campaign_verdict_gate_(p_campaign_id uuid, p_verdict text)
  returns text
  language plpgsql
@@ -489,6 +538,7 @@ declare
   c_min_pieces constant int := 4;
   v_c   analytics.campaign%rowtype;
   v_n   int;
+  v_live int;
   v_win record;
 begin
   if p_campaign_id is null or p_verdict is null or p_verdict not in ('validated', 'invalidated') then
@@ -497,6 +547,14 @@ begin
   select * into v_c from analytics.campaign where id = p_campaign_id;
   if not found then
     return null;   -- ผู้เรียกล็อก/ตรวจแถวเองก่อนแล้ว
+  end if;
+
+  select count(*) filter (where s.piece_status is not null)::int,
+         count(*) filter (where s.piece_status is not null and s.piece_status <> 'cancelled')::int
+    into v_n, v_live
+    from analytics.campaign_step s where s.campaign_id = p_campaign_id;
+  if v_n > 0 and v_live = 0 then
+    return format('แคมเปญนี้ถูกยกเลิกทุกชิ้น (%s ชิ้น) — ฟัน validated/invalidated ไม่ได้ ปิดได้แค่ inconclusive/not_measured', v_n);
   end if;
 
   if v_c.metric_code in ('save_rate', 'share_rate') then
@@ -512,13 +570,50 @@ begin
     if v_c.pass_threshold is null or v_c.pass_op is null then
       return 'metric orders ยังไม่ได้ตั้งเกณฑ์ผ่าน (pass_threshold + pass_op) — ตั้งผ่าน campaign_plan_set ก่อนฟันธง validated/invalidated';
     end if;
-    select s.orders_window_from, s.orders_window_to into v_win from analytics.v_campaign_summary s where s.campaign_id = p_campaign_id;
+    select s.orders_window_from, s.orders_window_to, s.orders_data_through, s.orders_data_covers_window
+      into v_win from analytics.v_campaign_summary s where s.campaign_id = p_campaign_id;
     if v_win.orders_window_from is null or v_win.orders_window_to is null then
       return 'metric orders ยังไม่รู้ช่วงวันของแคมเปญ (ไม่มี metric_date_from/to · ไม่มี step · ไม่มี anchor_date) — ตั้งผ่าน campaign_plan_set ก่อน';
+    end if;
+    -- SEC-H1: null (ร้านไม่มีออเดอร์เลย) ก็ไม่ครอบ — coalesce เป็น false ชัดๆ ไม่พึ่งว่า "not null = false" ผ่านด่านเงียบ (trap #13)
+    if coalesce(v_win.orders_data_covers_window, false) is not true then
+      return format('ข้อมูลออเดอร์ของร้านยังไม่ถึงวันสุดท้ายของช่วง (ข้อมูลล่าสุด %s · ช่วงสิ้นสุด %s) — ยอดวันที่ยังไม่เข้าอ่านเป็น 0 ฟัน validated/invalidated ไม่ได้ · import ไฟล์ใหม่ก่อน หรือเสนอได้แค่ inconclusive/not_measured',
+                    coalesce(v_win.orders_data_through::text, 'ไม่มีข้อมูลเลย'), v_win.orders_window_to);
     end if;
   end if;
   return null;
 end;
+$f$;
+
+-- token ของ "เนื้อหาที่เจ้าของเห็น" (SEC-M1 · ข้อ Q) — md5 ของ jsonb array · คำนวณฝั่ง DB เท่านั้น แสดงใน view แล้วหน้าจอส่งกลับมาเทียบ
+--   campaign: ข้อเสนอ (verdict/note/เวลา/ใคร) + คำตัดสินที่ยืนยันแล้ว + แผน (สมมติฐาน/metric/ฐาน/เกณฑ์/ขอบเขต) — ไม่รวม status/updated_at (ขยับตามงานบอร์ดที่ไม่เกี่ยวกับสิ่งที่เจ้าของตัดสิน)
+--   เวลาแปลงเป็น epoch (numeric ไมโครวินาที) ไม่ใช้ ::text ของ timestamptz — ขึ้นกับ TimeZone ของ session ทำให้ view กับ RPC คำนวณต่างกันได้
+--   ไม่พบแถว = null (ผู้เรียกล็อกแถวก่อนแล้ว · view ใช้กับแถวที่มีอยู่)
+create or replace function analytics.campaign_verdict_token_(p_campaign_id uuid)
+ returns text
+ language sql
+ stable
+ set search_path to 'public', 'analytics', 'pg_temp'
+as $f$
+  select md5(jsonb_build_array(
+           c.result_verdict_proposed, c.result_proposed_note, extract(epoch from c.result_proposed_at), c.result_proposed_by_role,
+           c.result_verdict, c.result_note, extract(epoch from c.result_verdict_confirmed_at),
+           c.hypothesis, c.metric_code, c.baseline_value, c.baseline_spread, c.baseline_as_of, c.baseline_note, c.pass_threshold, c.pass_op,
+           c.metric_channel_code, c.metric_affinity, c.metric_date_from, c.metric_date_to)::text)
+    from analytics.campaign c where c.id = p_campaign_id
+$f$;
+
+-- token ของข้อเสนอ: เนื้อหาที่เจ้าของอ่านก่อนตอบ + สถานะตอบ — ไม่รวม outcome_note/updated_at (ทีมจดผลทีหลังได้โดยไม่ทำให้คำตอบที่กำลังกรอกชน)
+create or replace function analytics.recommendation_token_(p_id uuid)
+ returns text
+ language sql
+ stable
+ set search_path to 'public', 'analytics', 'pg_temp'
+as $f$
+  select md5(jsonb_build_array(
+           r.title, r.detail, r.kind, r.source, r.respond_by, r.default_action, r.effort_minutes_est,
+           r.related_campaign_id, r.related_step_id, r.summary_id, r.owner_action, extract(epoch from r.acted_at))::text)
+    from analytics.recommendation_log r where r.id = p_id
 $f$;
 
 -- ============================================================================
@@ -526,7 +621,8 @@ $f$;
 -- ============================================================================
 
 -- campaign_plan_set — สมมติฐาน + metric + ฐาน + เกณฑ์ + ขอบเขตนับออเดอร์ · json null = ล้าง (trap #13 ใช้ jsonb_typeof) · ค่าที่ไม่ส่ง key = คงเดิม
--- owner: ทุกสถานะที่ยังไม่ปิด · ai/system: เฉพาะแคมเปญที่ยังไม่มีชิ้น posted และไม่มีโพสต์ active (AI เสนอสมมติฐานก่อนเริ่ม — ไม่ย้ายเสาเกณฑ์หลังผลออก)
+-- owner: ทุกสถานะที่ยังไม่ปิด · ai/system: เฉพาะแคมเปญที่ "ยังไม่เริ่ม" — ไม่มีชิ้น posted · ไม่มีโพสต์ active · วันนี้(ไทย) < coalesce(metric_date_from, anchor_date) · ยังไม่มีข้อเสนอคำตัดสิน
+--   (AI เสนอสมมติฐานก่อนเริ่ม — ไม่ย้ายเสาเกณฑ์หลังเห็นยอด · SEC-M2 ข้อ S) · ตรวจทั้งค่าเดิมและค่า metric_date_from ใหม่ที่จะตั้ง (กันดึงเริ่มช่วงถอยหลังไปคลุมยอดที่เห็นแล้ว)
 -- ปิดแล้ว (เจ้าของยืนยันคำตัดสิน) = แก้ไม่ได้ทุก actor · ไม่มีประวัติ diff ระดับแคมเปญ (หนี้ D20 — updated_at พอรอบแรก)
 create or replace function analytics.campaign_plan_set(
   p_shop_id     uuid,
@@ -594,6 +690,15 @@ begin
                    where s.campaign_id = p_campaign_id and p.status = 'active')) then
     raise exception 'campaign_plan_set: แคมเปญนี้มีชิ้นที่โพสต์แล้ว — AI/ระบบย้ายเสาสมมติฐาน/เกณฑ์หลังผลออกไม่ได้ (เจ้าของเท่านั้น)' using errcode = '42501';
   end if;
+  -- SEC-M2: เริ่มแล้ว (วันไทย >= วันเริ่มช่วงนับ หรือ anchor) หรือมีข้อเสนอคำตัดสินแล้ว = ยอดอาจถูกเห็นแล้ว · coalesce(.., false): ไม่รู้วันเริ่ม = ยังไม่เริ่ม (ผ่าน)
+  if p_actor_role <> 'owner' then
+    if coalesce(v_today >= coalesce(v_c.metric_date_from, v_c.anchor_date), false) then
+      raise exception 'campaign_plan_set: แคมเปญเริ่มแล้ว (วันนี้ % ≥ วันเริ่ม %) — AI/ระบบแก้แผน/เกณฑ์หลังเริ่มไม่ได้ (เจ้าของเท่านั้น)', v_today, coalesce(v_c.metric_date_from, v_c.anchor_date) using errcode = '42501';
+    end if;
+    if v_c.result_verdict_proposed is not null then
+      raise exception 'campaign_plan_set: มีข้อเสนอคำตัดสินแล้ว (%) — AI/ระบบย้ายเกณฑ์หลังเห็นยอดไม่ได้ (เจ้าของเท่านั้น)', v_c.result_verdict_proposed using errcode = '42501';
+    end if;
+  end if;
 
   v_hyp := v_c.hypothesis; v_mcode := v_c.metric_code; v_bval := v_c.baseline_value; v_bas := v_c.baseline_as_of; v_bnote := v_c.baseline_note;
   v_thr := v_c.pass_threshold; v_op := v_c.pass_op; v_spread := v_c.baseline_spread; v_chan := v_c.metric_channel_code;
@@ -618,6 +723,9 @@ begin
         end if;
         if analytics.content_marker_present(v_txt) then
           raise exception 'campaign_plan_set: % มี [ต้องยืนยัน — ตอบให้ครบก่อนบันทึกเป็นแผน', v_k using errcode = '22023';
+        end if;
+        if analytics.content_bidi_present_(v_txt) then
+          raise exception 'campaign_plan_set: % มีอักขระล่องหน/ควบคุมที่ content_text_clean ไม่ลบ (Unicode Tag · soft hyphen · control ฯลฯ) — ลบออกก่อน', v_k using errcode = '22023';
         end if;
       else
         raise exception 'campaign_plan_set: % ต้องเป็นข้อความ (หรือ null เพื่อล้าง)', v_k using errcode = '22023';
@@ -718,6 +826,10 @@ begin
   if v_df is not null and (v_dt < v_df or v_dt - v_df > 366) then
     raise exception 'campaign_plan_set: ช่วงวัน metric ต้อง to >= from และไม่เกิน 366 วัน (ได้รับ % ถึง %)', v_df, v_dt using errcode = '22023';
   end if;
+  -- SEC-M2 (ค่าใหม่): AI/ระบบดึงวันเริ่มช่วงนับให้ถอยมาที่วันนี้หรือก่อนหน้า = เลือกช่วงหลังเห็นยอด
+  if p_actor_role <> 'owner' and coalesce(v_today >= coalesce(v_df, v_c.anchor_date), false) then
+    raise exception 'campaign_plan_set: AI/ระบบตั้งช่วงนับที่เริ่มวันนี้หรือก่อนหน้า (เริ่ม %) ไม่ได้ — ต้องเป็นวันในอนาคต (เจ้าของเท่านั้น)', coalesce(v_df, v_c.anchor_date) using errcode = '42501';
+  end if;
 
   if v_hyp is distinct from v_c.hypothesis then
     v_changed := v_changed || jsonb_build_object('hypothesis', jsonb_build_object('from', v_c.hypothesis, 'to', v_hyp));
@@ -804,6 +916,9 @@ begin
   if analytics.content_marker_present(v_note) then
     raise exception 'campaign_verdict_propose: หลักฐานมี [ต้องยืนยัน — ตอบให้ครบก่อนเสนอคำตัดสิน' using errcode = '22023';
   end if;
+  if analytics.content_bidi_present_(v_note) then
+    raise exception 'campaign_verdict_propose: หลักฐานมีอักขระล่องหน/ควบคุมที่ content_text_clean ไม่ลบ (Unicode Tag · soft hyphen · control ฯลฯ) — ลบออกก่อน' using errcode = '22023';
+  end if;
 
   select * into v_c from analytics.campaign where id = p_campaign_id and shop_id = p_shop_id for update;
   if not found then
@@ -835,6 +950,11 @@ $f$;
 -- campaign_verdict_confirm — เจ้าของยืนยันคำตัดสิน (owner เท่านั้น · AI ห้ามยืนยันแทน) · compare-and-set กับข้อเสนอที่เจ้าของเห็น (บังคับ ห้าม null)
 -- Q12: ปิดได้ทุกเมื่อ แม้มีชิ้นค้าง — ไม่ปฏิเสธ · บันทึกจำนวนชิ้นค้างลง campaign.result_open_pieces + คืนใน payload · ชิ้นค้างไม่นับในผล (ด่านเนื้อหานับเฉพาะ posted)
 -- ยืนยันซ้ำ/เปลี่ยนใจได้ (ทับ — previous_* คืนค่าเก่า) · proposed_* ไม่ล้าง (ประวัติว่า AI เสนออะไร) · status → done เฉพาะเมื่อยังไม่ done
+-- 🔴 SEC-M1 (ข้อ Q): compare-and-set 2 ชั้น ห้าม null ทั้งคู่ — p_expected_proposed (คำตัดสินที่เสนอ) + p_expected_token (= v_campaign_summary.verdict_token ที่เจ้าของเห็น ครอบทั้งข้อเสนอ/หลักฐาน/แผน/เกณฑ์)
+--   ไม่ตรง = 55000 "ข้อมูลเปลี่ยนแล้ว รีเฟรชก่อน" · ลำดับ: ตรวจ expected_proposed ก่อน (ข้อความบอกค่าปัจจุบัน) แล้วค่อย token
+-- 🔴 QA-4 (ข้อ V): p_lesson null = "ไม่ส่ง" คงบทเรียนเดิม · '' / ช่องว่าง/อักขระล่องหนล้วน = ตั้งใจล้าง · ข้อความ = ตั้งใหม่ (ไม่ทับบทเรียนเป็นว่างเพราะลืมส่ง)
+-- signature เปลี่ยน (เพิ่ม p_expected_token) ⇒ drop เดิมก่อน (trap #1) — ไฟล์นี้ยังไม่เคย apply แต่กันกรณีมีคนรันฉบับก่อนแก้ลง DB ใดๆ
+drop function if exists analytics.campaign_verdict_confirm(uuid, uuid, text, text, text, text, text);
 create or replace function analytics.campaign_verdict_confirm(
   p_shop_id           uuid,
   p_campaign_id       uuid,
@@ -842,7 +962,8 @@ create or replace function analytics.campaign_verdict_confirm(
   p_lesson            text,
   p_actor_role        text,
   p_note              text default null,
-  p_expected_proposed text default null
+  p_expected_proposed text default null,
+  p_expected_token    text default null
 ) returns jsonb
  language plpgsql
  security definer
@@ -851,7 +972,8 @@ as $f$
 declare
   c_lesson_max constant int := 300;   -- ตัดสินใจ D: = เพดาน content_signal.summary (สเปก 500 · ส่งต่อสัญญาณไม่ได้ถ้ายาวกว่านี้)
   v_today      date := (now() at time zone 'Asia/Bangkok')::date;
-  v_lesson     text;
+  v_lesson_sent boolean;
+  v_lesson_new text;
   v_note       text;
   v_c          analytics.campaign%rowtype;
   v_gate       text;
@@ -877,14 +999,23 @@ begin
     raise exception 'campaign_verdict_confirm: p_expected_proposed ต้องเป็นคำตัดสินที่เจ้าของเห็นบนจอ (validated/invalidated/inconclusive/not_measured) หรือ none (ไม่มีข้อเสนอ) — ห้าม null' using errcode = '22023';
   end if;
 
-  -- null / ว่าง = ไม่มี · ข้อความที่ AI เขียนได้ผ่าน content_text_clean (บทเรียน C1) · marker = 22023
-  v_lesson := nullif(analytics.content_text_clean(p_lesson), '');
-  if v_lesson is not null then
-    if length(v_lesson) > c_lesson_max then
-      raise exception 'campaign_verdict_confirm: บทเรียนยาวเกิน % ตัวอักษร (ได้รับ %)', c_lesson_max, length(v_lesson) using errcode = '22023';
+  -- SEC-M1: token ต้องเป็น md5 32 ตัวฐานสิบหก (รูปแบบเดียวกับที่ view ให้) — null/ค่าอื่นปฏิเสธชัดๆ ให้ error บอกเหตุถูก
+  if p_expected_token is null or p_expected_token !~ '^[0-9a-f]{32}$' then
+    raise exception 'campaign_verdict_confirm: p_expected_token ต้องเป็น verdict_token ที่หน้าจออ่านจาก v_campaign_summary (md5 32 ตัว) — ห้าม null/ค่าอื่น' using errcode = '22023';
+  end if;
+
+  -- บทเรียน: null = ไม่ส่ง (คงเดิม) · ส่งมาแล้วว่างหลัง clean = ล้าง · ข้อความผ่าน content_text_clean (บทเรียน C1) · marker/ล่องหน = 22023
+  v_lesson_sent := p_lesson is not null;
+  v_lesson_new := nullif(analytics.content_text_clean(p_lesson), '');
+  if v_lesson_new is not null then
+    if length(v_lesson_new) > c_lesson_max then
+      raise exception 'campaign_verdict_confirm: บทเรียนยาวเกิน % ตัวอักษร (ได้รับ %)', c_lesson_max, length(v_lesson_new) using errcode = '22023';
     end if;
-    if analytics.content_marker_present(v_lesson) then
+    if analytics.content_marker_present(v_lesson_new) then
       raise exception 'campaign_verdict_confirm: บทเรียนมี [ต้องยืนยัน — ตอบให้ครบก่อนบันทึก' using errcode = '22023';
+    end if;
+    if analytics.content_bidi_present_(v_lesson_new) then
+      raise exception 'campaign_verdict_confirm: บทเรียนมีอักขระล่องหน/ควบคุมที่ content_text_clean ไม่ลบ (Unicode Tag · soft hyphen · control ฯลฯ) — ลบออกก่อน' using errcode = '22023';
     end if;
   end if;
   v_note := nullif(analytics.content_text_clean(p_note), '');
@@ -894,6 +1025,9 @@ begin
     end if;
     if analytics.content_marker_present(v_note) then
       raise exception 'campaign_verdict_confirm: หมายเหตุมี [ต้องยืนยัน — ตอบให้ครบก่อนบันทึก' using errcode = '22023';
+    end if;
+    if analytics.content_bidi_present_(v_note) then
+      raise exception 'campaign_verdict_confirm: หมายเหตุมีอักขระล่องหน/ควบคุมที่ content_text_clean ไม่ลบ (Unicode Tag · soft hyphen · control ฯลฯ) — ลบออกก่อน' using errcode = '22023';
     end if;
   end if;
 
@@ -905,6 +1039,10 @@ begin
   v_expected := coalesce(nullif(p_expected_proposed, ''), 'none');
   if coalesce(v_c.result_verdict_proposed, 'none') <> v_expected then
     raise exception 'campaign_verdict_confirm: ข้อเสนอเปลี่ยนไปแล้ว (ตอนนี้ %) — รีเฟรชก่อนยืนยัน', coalesce(v_c.result_verdict_proposed, 'ไม่มีข้อเสนอ') using errcode = '55000';
+  end if;
+  -- แถวถูกล็อก (for update) แล้ว ⇒ token ที่คำนวณตรงนี้คือสถานะที่ UPDATE ด้านล่างจะทับจริง · is distinct from: token ฝั่ง DB null (ไม่ควรเกิด) = ไม่ตรง ไม่ใช่ผ่านเงียบ
+  if analytics.campaign_verdict_token_(p_campaign_id) is distinct from p_expected_token then
+    raise exception 'campaign_verdict_confirm: ข้อมูลแคมเปญเปลี่ยนแล้วระหว่างที่เปิดหน้า (ข้อเสนอ/หลักฐาน/แผน/เกณฑ์) — รีเฟรชก่อนยืนยัน' using errcode = '55000';
   end if;
   v_gate := analytics.campaign_verdict_gate_(p_campaign_id, p_verdict);
   if v_gate is not null then
@@ -920,21 +1058,22 @@ begin
          result_note = coalesce(v_note, result_note),
          result_verdict_confirmed_at = now(),
          result_verdict_confirmed_by_role = 'owner',
-         lesson = v_lesson,
+         lesson = case when v_lesson_sent then v_lesson_new else lesson end,
          result_open_pieces = v_open_n,
          status = case when status <> 'done' then 'done' else status end,
          updated_by = coalesce(auth.uid(), updated_by)
    where id = p_campaign_id;
 
   -- บทเรียน → สัญญาณ insight (ไม่สร้างซ้ำถ้ามีข้อความเดียวกันของแคมเปญนี้แล้ว)
-  if v_lesson is not null then
+  -- ส่งบทเรียนมาเท่านั้นถึงจะสร้างสัญญาณ (ไม่ส่ง = คงบทเรียนเดิม — สัญญาณของบทเรียนเดิมสร้างไปแล้วตอนที่ตั้ง)
+  if v_lesson_new is not null then
     select s.id into v_signal
       from analytics.content_signal s
-     where s.shop_id = p_shop_id and s.kind = 'insight' and s.origin_campaign_id = p_campaign_id and s.summary = v_lesson
+     where s.shop_id = p_shop_id and s.kind = 'insight' and s.origin_campaign_id = p_campaign_id and s.summary = v_lesson_new
      limit 1;
     if v_signal is null then
       v_signal := analytics.content_signal_capture(
-        p_shop_id => p_shop_id, p_kind => 'insight', p_summary => v_lesson, p_source => 'owner', p_seen_on => v_today,
+        p_shop_id => p_shop_id, p_kind => 'insight', p_summary => v_lesson_new, p_source => 'owner', p_seen_on => v_today,
         p_origin_campaign_id => p_campaign_id, p_confidence => 'observation', p_actor_role => 'owner');
       v_created := true;
     end if;
@@ -949,7 +1088,7 @@ begin
 
   return jsonb_build_object('campaign_id', p_campaign_id, 'verdict', p_verdict, 'proposed_was', v_c.result_verdict_proposed,
                             'previous_verdict', case when v_c.result_verdict_confirmed_at is not null then v_c.result_verdict end,
-                            'previous_lesson', v_c.lesson, 'status', 'done', 'signal_id', v_signal, 'signal_created', v_created,
+                            'previous_lesson', v_c.lesson, 'lesson_kept', not v_lesson_sent, 'status', 'done', 'signal_id', v_signal, 'signal_created', v_created,
                             'open_pieces', v_open_n, 'open_by_status', v_open -> 'by_status', 'excluded_from_result', v_open_n,
                             'orders', v_orders);
 end;
@@ -960,6 +1099,10 @@ $f$;
 --    หมดเวลา = view แสดง expired + default_action (ไม่ mutate แถว · หลัก 0101) · เจ้าของตอบช้าได้ — คำตอบจริงชนะค่าเริ่มต้น (is_late)
 -- ============================================================================
 
+-- 🔴 QA-5 (ข้อ W): คืน jsonb {id, created, conflict} (เดิม uuid) — ชื่อซ้ำที่ยัง pending ไม่ error 23505 อีก: คืน id เดิม created=false ·
+--   เนื้อหาต่างจากเดิม = conflict=true (ไม่ทับเงียบ ผู้เรียกตัดสินเองว่าจะตอบ/ปิดอันเดิมแล้วสร้างใหม่) · Brief รันซ้ำจึงไม่ล้มทั้งชุด
+-- return type เปลี่ยน ⇒ create or replace ทำไม่ได้ (42P13) ต้อง drop เดิมก่อน (trap #1) — ไฟล์นี้ยังไม่เคย apply แต่กันกรณีมีคนรันฉบับก่อนแก้ลง DB ใดๆ
+drop function if exists analytics.recommendation_create(uuid, text, text, text, text, text, integer, date, text, uuid, uuid, uuid);
 create or replace function analytics.recommendation_create(
   p_shop_id             uuid,
   p_title               text,
@@ -973,7 +1116,7 @@ create or replace function analytics.recommendation_create(
   p_related_campaign_id uuid default null,
   p_related_step_id     uuid default null,
   p_summary_id          uuid default null
-) returns uuid
+) returns jsonb
  language plpgsql
  security definer
  set search_path to 'public', 'analytics', 'extensions', 'pg_temp'
@@ -983,7 +1126,7 @@ declare
   v_title  text;
   v_detail text;
   v_def    text;
-  v_dup    uuid;
+  v_dup    analytics.recommendation_log%rowtype;
   v_step   analytics.campaign_step%rowtype;
   v_id     uuid;
 begin
@@ -1007,6 +1150,9 @@ begin
   if analytics.content_marker_present(v_title) then
     raise exception 'recommendation_create: หัวข้อมี [ต้องยืนยัน' using errcode = '22023';
   end if;
+  if analytics.content_bidi_present_(v_title) then
+    raise exception 'recommendation_create: หัวข้อมีอักขระล่องหน/ควบคุมที่ content_text_clean ไม่ลบ (Unicode Tag · soft hyphen · control ฯลฯ) — ลบออกก่อน' using errcode = '22023';
+  end if;
   -- รายละเอียดอาจหลายบรรทัด (content_text_clean ยุบ newline ทั้งหมด) ⇒ ไม่แก้ข้อความ ปฏิเสธอักขระ bidi/ล่องหนแทน (ตัดสินใจ H) · marker อนุญาต —
   -- คำถามถึงเจ้าของอาจอ้าง [ต้องยืนยัน] ของชิ้นงาน
   if analytics.content_bidi_present_(p_detail) then
@@ -1027,6 +1173,9 @@ begin
     v_def := analytics.content_text_clean(p_default_action);
     if length(v_def) < 1 or length(v_def) > 500 then
       raise exception 'recommendation_create: มีเส้นตายต้องบอกค่าเริ่มต้น (default_action 1-500 ตัวอักษร) — หมดเวลาแล้วถือว่าทำอะไร' using errcode = '22023';
+    end if;
+    if analytics.content_bidi_present_(v_def) then
+      raise exception 'recommendation_create: default_action มีอักขระล่องหน/ควบคุมที่ content_text_clean ไม่ลบ — ลบออกก่อน' using errcode = '22023';
     end if;
   elsif p_default_action is not null then
     raise exception 'recommendation_create: ส่ง default_action โดยไม่มี respond_by ไม่ได้ (ค่าเริ่มต้นไม่มีความหมายถ้าไม่มีเส้นตาย)' using errcode = '22023';
@@ -1053,33 +1202,52 @@ begin
     raise exception 'recommendation_create: ไม่พบสรุปสัปดาห์ที่อ้างถึงในร้านนี้' using errcode = '22023';
   end if;
 
-  -- กันซ้ำ: Brief รันซ้ำ / Tech Lead เรียกสองรอบ ไม่ได้แถวคู่ (index uq_recommendation_log_pending_title กันซ้ำอีกชั้นเมื่อสองคำสั่งแข่งกัน)
-  select r.id into v_dup from analytics.recommendation_log r
+  -- กันซ้ำ: Brief รันซ้ำ / Tech Lead เรียกสองรอบ ไม่ได้แถวคู่ — ซ้ำ = คืนแถวเดิม (created=false) ไม่ error · เนื้อหาต่าง = conflict=true ไม่ทับเงียบ
+  -- เทียบเฉพาะสิ่งที่ผู้เรียกส่งมา (detail/kind/effort/เส้นตาย/ค่าเริ่มต้น/ลิงก์) — ไม่เทียบ source/role/เวลา (Brief คนละรอบเขียนต่างกันได้โดยเนื้อหาเดียวกัน)
+  select r.* into v_dup from analytics.recommendation_log r
    where r.shop_id = p_shop_id and lower(btrim(r.title)) = lower(v_title) and r.owner_action = 'pending'
    limit 1;
-  if v_dup is not null then
-    raise exception 'recommendation_create: ข้อเสนอชื่อนี้ยังรอตอบอยู่ (id %) — ตอบ/ปิดอันเดิมก่อน หรือใช้ชื่อใหม่ถ้ายกระดับข้อเสนอ', v_dup using errcode = '23505';
+  if not found then
+    -- แข่งกัน 2 คำสั่งที่ผ่านการตรวจด้านบนพร้อมกัน: partial unique index ทำให้ตัวที่สองได้ 0 แถว (do nothing) แล้วอ่านแถวของตัวแรกกลับ — ไม่ต้องจับ 23505
+    insert into analytics.recommendation_log
+      (shop_id, source, title, detail, effort_minutes_est, related_campaign_id, kind, respond_by, default_action,
+       related_step_id, summary_id, created_by_role, created_by)
+    values
+      (p_shop_id, p_source, v_title, v_detail, p_effort_minutes_est, p_related_campaign_id, p_kind, p_respond_by, v_def,
+       p_related_step_id, p_summary_id, p_actor_role, auth.uid())
+    on conflict (shop_id, lower(btrim(title))) where owner_action = 'pending' do nothing
+    returning id into v_id;
+    if v_id is not null then
+      return jsonb_build_object('id', v_id, 'created', true, 'conflict', false);
+    end if;
+    select r.* into v_dup from analytics.recommendation_log r
+     where r.shop_id = p_shop_id and lower(btrim(r.title)) = lower(v_title) and r.owner_action = 'pending'
+     limit 1;
+    if not found then
+      raise exception 'recommendation_create: ชื่อซ้ำกับข้อเสนอที่ถูกตอบไปพร้อมกัน — ลองใหม่อีกครั้ง' using errcode = '40001';
+    end if;
   end if;
-
-  insert into analytics.recommendation_log
-    (shop_id, source, title, detail, effort_minutes_est, related_campaign_id, kind, respond_by, default_action,
-     related_step_id, summary_id, created_by_role, created_by)
-  values
-    (p_shop_id, p_source, v_title, v_detail, p_effort_minutes_est, p_related_campaign_id, p_kind, p_respond_by, v_def,
-     p_related_step_id, p_summary_id, p_actor_role, auth.uid())
-  returning id into v_id;
-  return v_id;
+  return jsonb_build_object('id', v_dup.id, 'created', false,
+    'conflict', (v_dup.detail, v_dup.kind, v_dup.effort_minutes_est, v_dup.respond_by, v_dup.default_action,
+                 v_dup.related_campaign_id, v_dup.related_step_id, v_dup.summary_id)
+                is distinct from
+                (v_detail, p_kind, p_effort_minutes_est, p_respond_by, v_def, p_related_campaign_id, p_related_step_id, p_summary_id));
 end;
 $f$;
 
 -- recommendation_respond — เจ้าของตอบ (owner เท่านั้น · AI ตอบแทนไม่ได้) · done / rejected เท่านั้น (expired = view คำนวณ ไม่เขียน)
--- compare-and-set ในตัว: แถวที่ไม่ใช่ pending ตอบซ้ำไม่ได้ (55000) · เขียน owner_action+acted_at+acted_by+acted_by_role+outcome_note ในคำสั่งเดียว
+-- compare-and-set 2 ชั้น: แถวที่ไม่ใช่ pending ตอบซ้ำไม่ได้ (55000) + SEC-M1 p_expected_token (= v_recommendation_inbox.content_token ที่เจ้าของอ่านก่อนตอบ) บังคับไม่ null —
+--   เนื้อหา/เส้นตาย/ค่าเริ่มต้น/ลิงก์ เปลี่ยนระหว่างอ่าน = 55000 "ข้อมูลเปลี่ยนแล้ว รีเฟรชก่อน" (กันตอบข้อเสนอที่ไม่ใช่ฉบับที่เห็น)
+-- SEC-H2: เขียน owner_action + acted_at + acted_by + acted_by_role + owner_response ในคำสั่งเดียว (outcome_note ไม่แตะ — ของทีมที่จดผลทีหลัง) แล้ว guard ล็อกทั้งชุดนี้ไม่ให้ใครแก้ย้อนหลัง
+-- signature เปลี่ยน (เพิ่ม p_expected_token) ⇒ drop เดิมก่อน (trap #1)
+drop function if exists analytics.recommendation_respond(uuid, uuid, text, text, text);
 create or replace function analytics.recommendation_respond(
-  p_shop_id    uuid,
-  p_id         uuid,
-  p_action     text,
-  p_response   text,
-  p_actor_role text
+  p_shop_id        uuid,
+  p_id             uuid,
+  p_action         text,
+  p_response       text,
+  p_actor_role     text,
+  p_expected_token text default null
 ) returns jsonb
  language plpgsql
  security definer
@@ -1102,6 +1270,9 @@ begin
   if p_action not in ('done', 'rejected') then
     raise exception 'recommendation_respond: คำตอบต้องเป็น done หรือ rejected (expired = ระบบคำนวณใน view ไม่ใช่คำตอบ · pending ไม่ใช่คำตอบ)' using errcode = '22023';
   end if;
+  if p_expected_token is null or p_expected_token !~ '^[0-9a-f]{32}$' then
+    raise exception 'recommendation_respond: p_expected_token ต้องเป็น content_token ที่หน้าจออ่านจาก v_recommendation_inbox (md5 32 ตัว) — ห้าม null/ค่าอื่น' using errcode = '22023';
+  end if;
   v_resp := nullif(analytics.content_text_clean(p_response), '');
   if v_resp is not null then
     if length(v_resp) > 1000 then
@@ -1109,6 +1280,9 @@ begin
     end if;
     if analytics.content_marker_present(v_resp) then
       raise exception 'recommendation_respond: คำตอบมี [ต้องยืนยัน — ตอบให้ครบก่อนบันทึก' using errcode = '22023';
+    end if;
+    if analytics.content_bidi_present_(v_resp) then
+      raise exception 'recommendation_respond: คำตอบมีอักขระล่องหน/ควบคุมที่ content_text_clean ไม่ลบ (Unicode Tag · soft hyphen · control ฯลฯ) — ลบออกก่อน' using errcode = '22023';
     end if;
   end if;
   if p_action = 'rejected' and (v_resp is null or length(v_resp) < 3) then
@@ -1122,12 +1296,16 @@ begin
   if v_r.owner_action <> 'pending' then
     raise exception 'recommendation_respond: ตอบแล้ว (% เมื่อ %)', v_r.owner_action, v_r.acted_at using errcode = '55000';
   end if;
+  -- แถวถูกล็อก (for update) แล้ว — token ที่คำนวณตรงนี้คือสถานะที่ UPDATE ด้านล่างจะทับจริง
+  if analytics.recommendation_token_(p_id) is distinct from p_expected_token then
+    raise exception 'recommendation_respond: ข้อมูลข้อเสนอเปลี่ยนแล้วระหว่างที่เปิดหน้า (เนื้อหา/เส้นตาย/ค่าเริ่มต้น) — รีเฟรชก่อนตอบ' using errcode = '55000';
+  end if;
 
   v_late := v_r.respond_by is not null and v_today > v_r.respond_by;
   v_expired := v_late or (v_r.respond_by is null and v_at - v_r.created_at > interval '14 days');
 
   update analytics.recommendation_log
-     set owner_action = p_action, acted_at = v_at, acted_by = auth.uid(), acted_by_role = 'owner', outcome_note = v_resp
+     set owner_action = p_action, acted_at = v_at, acted_by = auth.uid(), acted_by_role = 'owner', owner_response = v_resp
    where id = p_id;
 
   return jsonb_build_object('id', p_id, 'owner_action', p_action, 'acted_at', v_at, 'late', v_late, 'was_expired', v_expired,
@@ -1190,8 +1368,12 @@ begin
   end if;
   foreach v_line in array p_summary_lines loop
     v_line := analytics.content_text_clean(v_line);   -- element null → '' → ตกด่านความยาวด้านล่าง (ไม่ปล่อยบรรทัดว่าง)
-    if length(v_line) < 1 or length(v_line) > 300 then
-      raise exception 'content_weekly_summary_upsert: แต่ละบรรทัดสรุปต้องยาว 1-300 ตัวอักษรหลัง clean (ไม่ว่าง/ZWSP ล้วน)' using errcode = '22023';
+    -- QA-1 (ข้อ U): เพดาน 1,000 (เดิม 300 — Brief #4 จริงยาว 613 ตัวอักษร) · เนื้อหาเต็มยังเพดาน 80,000
+    if length(v_line) < 1 or length(v_line) > 1000 then
+      raise exception 'content_weekly_summary_upsert: แต่ละบรรทัดสรุปต้องยาว 1-1000 ตัวอักษรหลัง clean (ไม่ว่าง/ZWSP ล้วน)' using errcode = '22023';
+    end if;
+    if analytics.content_bidi_present_(v_line) then
+      raise exception 'content_weekly_summary_upsert: บรรทัดสรุปมีอักขระล่องหน/ควบคุมที่ content_text_clean ไม่ลบ (Unicode Tag · soft hyphen · control ฯลฯ) — ลบออกก่อน' using errcode = '22023';
     end if;
     v_lines := v_lines || v_line;
   end loop;
@@ -1239,7 +1421,9 @@ $f$;
 -- หน้า E รายการ+รายละเอียดแคมเปญ — 1 แถว/campaign ทุกแถว (รวมแคมเปญเก่า 12 แถวที่ pieces_total = 0)
 -- ชิ้นค้าง/ยกเลิกไม่นับในผล (Q12): ผลโพสต์นับเฉพาะชิ้น posted หรือแคมเปญเก่าที่ piece_status ว่าง
 -- orders_*: เฉพาะ metric_code = orders · ช่วงวัน = metric_date_from/to > ช่วงวันของ step (min start .. max end) > anchor_date วันเดียว · ไม่มีข้อมูลพอ = null (ไม่เดา)
---   orders_data_through = วันล่าสุดที่มีออเดอร์ของร้าน/ช่องทางนั้น (ออเดอร์เข้าจากไฟล์ import รายเดือน — ยอดวันท้ายอาจยังไม่เข้า) · orders_data_covers_window = through >= วันสุดท้ายของช่วง
+--   orders_data_through = วันล่าสุดที่ "ร้าน" มีออเดอร์ (ทุกช่องทาง — ออเดอร์เข้าจากไฟล์ import รายเดือนทีเดียวทุกช่องทาง ยอดวันท้ายอาจยังไม่เข้า) · orders_data_covers_window = through >= วันสุดท้ายของช่วง (null = ไม่ครอบ)
+--     🔴 ด่านคำตัดสิน (campaign_verdict_gate_) ใช้ covers_window จริง: validated/invalidated บน orders ต้อง true (SEC-H1)
+--   verdict_token = md5 ของเนื้อหาที่เจ้าของเห็น (ข้อเสนอ/หลักฐาน/แผน/เกณฑ์) — หน้าจอส่งกลับเป็น p_expected_token ของ campaign_verdict_confirm (SEC-M1)
 --   orders_threshold_met = ผลเทียบเกณฑ์ (>= / <=) เป็นคำใบ้ให้หน้าจอ ไม่ใช่คำตัดสิน
 create or replace view analytics.v_campaign_summary
   with (security_invoker = true) as
@@ -1249,6 +1433,7 @@ select
   c.metric_channel_code, c.metric_affinity, c.metric_date_from, c.metric_date_to,
   c.result_verdict, c.result_note, c.result_verdict_proposed, c.result_proposed_note, c.result_proposed_at, c.result_proposed_by_role,
   c.result_verdict_confirmed_at, c.lesson, c.result_open_pieces, c.created_at, c.updated_at,
+  analytics.campaign_verdict_token_(c.id) as verdict_token,
   (c.baseline_spread is not null and c.pass_threshold is not null and c.baseline_value is not null
      and abs(c.pass_threshold - c.baseline_value) < c.baseline_spread) as threshold_too_narrow,
   ps.pieces_total, ps.pieces_posted, ps.pieces_cancelled, ps.pieces_open, ps.pieces_in_progress,
@@ -1312,10 +1497,10 @@ left join lateral (
     and o.affinity = coalesce(c.metric_affinity, 'all')
 ) oa on true
 left join lateral (
+  -- SEC-H1: วันล่าสุดที่ "ร้าน" มีออเดอร์ — ไม่กรองช่องทางที่แคมเปญนับ (ไฟล์ import เข้าทีเดียวทุกช่องทาง · ช่องที่เงียบไม่ใช่เหตุให้ถือว่าข้อมูลยังไม่ถึง) · ร้านไม่มีออเดอร์เลย = null = ไม่ครอบ
   select max(o.order_date) as d
   from analytics.v_content_order_daily o
   where c.metric_code = 'orders' and o.shop_id = c.shop_id and o.affinity = 'all'
-    and (c.metric_channel_code is null or o.channel_code = c.metric_channel_code)
 ) od on true;
 
 -- inbox กอง 4 + หน้า K "ข้อเสนอในสรุปตอบได้" — union 3 แหล่ง ชนิดคอลัมน์ตรงกันทุกแขน · เรียง created_at desc
@@ -1354,7 +1539,9 @@ from (
              and (rl.acted_at at time zone 'Asia/Bangkok')::date > rl.respond_by, false) as is_late,
     rl.outcome_note,
     rl.acted_at,
-    'recommendation_respond'::text as respond_via
+    'recommendation_respond'::text as respond_via,
+    rl.owner_response,
+    analytics.recommendation_token_(rl.id) as content_token
   from analytics.recommendation_log rl
 
   union all
@@ -1380,7 +1567,9 @@ from (
     false,
     null::text,
     null::timestamptz,
-    'content_gate_record'::text
+    'content_gate_record'::text,
+    null::text,
+    null::text
   from analytics.step_gate g
   join analytics.campaign_step s on s.id = g.step_id
   where g.gate_kind = 'risk_owner' and g.status in ('pending', 'blocked') and s.piece_status in ('drafting', 'in_review')
@@ -1408,7 +1597,9 @@ from (
     false,
     null::text,
     null::timestamptz,
-    'campaign_verdict_confirm'::text
+    'campaign_verdict_confirm'::text,
+    null::text,
+    analytics.campaign_verdict_token_(c.id)
   from analytics.campaign c
   where c.result_verdict_proposed is not null and c.result_verdict_confirmed_at is null
 ) u
@@ -1427,7 +1618,7 @@ begin
     select p.oid::regprocedure::text as sig
       from pg_proc p
      where p.pronamespace = 'analytics'::regnamespace and p.prokind = 'f'
-       and p.proname ~ '^(content_bidi_present_|campaign_open_pieces_|campaign_verdict_gate_|content_weekly_summary_guard|campaign_result_guard|recommendation_log_guard|campaign_plan_set|campaign_verdict_propose|campaign_verdict_confirm|recommendation_create|recommendation_respond|content_weekly_summary_upsert)$'
+       and p.proname ~ '^(content_bidi_present_|campaign_open_pieces_|campaign_verdict_gate_|campaign_verdict_token_|recommendation_token_|content_weekly_summary_guard|campaign_result_guard|recommendation_log_guard|campaign_plan_set|campaign_verdict_propose|campaign_verdict_confirm|recommendation_create|recommendation_respond|content_weekly_summary_upsert)$'
   loop
     execute format('revoke execute on function %s from public, anon, authenticated', r.sig);
     execute format('grant execute on function %s to service_role', r.sig);
@@ -1445,7 +1636,9 @@ grant select on analytics.content_weekly_summary to service_role;
 -- recommendation_log = ประวัติการตัดสินของเจ้าของ (0101: ห้ามหายก่อนวัน 90) — เดิม service_role เขียน/ลบตรงได้ทั้งหมด ⇒ ถอน insert/update/delete/truncate
 -- ผู้เขียนที่เหลือ: RPC definer (recommendation_create / recommendation_respond) · postgres (MCP ของ Tech Lead) · RI SET NULL ตอนลบ step/summary/campaign (รันด้วยสิทธิ์เจ้าของตาราง)
 -- ตรวจแล้ว 7 ต.ค.: โค้ดแอป (lib/ app/ components/ scripts/ packages/) ไม่มีที่ไหนอ้าง recommendation_log
-revoke insert, update, delete, truncate on analytics.recommendation_log from service_role;
+-- SEC-Low: revoke all (ไม่ใช่แค่ insert/update/delete/truncate — REFERENCES/TRIGGER ก็ไม่ควรเหลือ) แล้วให้ select อย่างเดียว เหมือน content_weekly_summary
+revoke all on analytics.recommendation_log from public, anon, authenticated, service_role;
+grant select on analytics.recommendation_log to service_role;
 
 comment on view analytics.v_campaign_summary is
   'หน้า E — 1 แถว/แคมเปญ: แผน (hypothesis/metric/baseline/เกณฑ์) · ชิ้นงาน (total/posted/cancelled/open) · ผลโพสต์ (นับเฉพาะชิ้น posted หรือแคมเปญเก่า — ชิ้นค้างไม่นับ Q12) · '
@@ -1457,15 +1650,20 @@ comment on function analytics.campaign_plan_set(uuid, uuid, jsonb, text) is
   'ตั้งสมมติฐาน/metric/ฐาน/เกณฑ์/ขอบเขตนับออเดอร์ของแคมเปญ (json null = ล้าง · key ไม่ส่ง = คงเดิม) · owner ทุกสถานะที่ยังไม่ปิด · ai/system เฉพาะแคมเปญที่ยังไม่มีชิ้นโพสต์ · ปิดแล้วแก้ไม่ได้ · errcode 22023/42501/55000';
 comment on function analytics.campaign_verdict_propose(uuid, uuid, text, text, text) is
   'เสนอคำตัดสินแคมเปญ (ยังไม่ใช่คำตัดสิน) — ต้องมีหลักฐาน 3-1000 ตัวอักษร · validated/invalidated ติดด่านเนื้อหา (save/share ≥4 ชิ้นมี T+7 · orders ต้องตั้งเกณฑ์) · เสนอซ้ำทับได้ (previous_proposed คืนค่าเก่า) · AI ทับข้อเสนอของ owner ไม่ได้';
-comment on function analytics.campaign_verdict_confirm(uuid, uuid, text, text, text, text, text) is
-  'เจ้าของยืนยันคำตัดสิน (owner เท่านั้น) · p_expected_proposed บังคับ (none/ว่าง = ไม่มีข้อเสนอ · null = 22023) = compare-and-set · ปิดได้ทุกเมื่อแม้มีชิ้นค้าง (Q12): บันทึก open_pieces + ชิ้นค้างไม่นับในผล · '
-  'status → done · บทเรียน ≤300 → content_signal insight (ไม่สร้างซ้ำ) · ยืนยันซ้ำทับได้ (previous_* คืนค่าเก่า)';
+comment on function analytics.campaign_verdict_confirm(uuid, uuid, text, text, text, text, text, text) is
+  'เจ้าของยืนยันคำตัดสิน (owner เท่านั้น) · compare-and-set บังคับ 2 ชั้น: p_expected_proposed (none/ว่าง = ไม่มีข้อเสนอ) + p_expected_token (= v_campaign_summary.verdict_token) — null = 22023 · ไม่ตรง = 55000 รีเฟรชก่อน · '
+  'ปิดได้ทุกเมื่อแม้มีชิ้นค้าง (Q12): บันทึก open_pieces + ชิ้นค้างไม่นับในผล · status → done · บทเรียน ≤300 → content_signal insight (ไม่สร้างซ้ำ) · p_lesson null = คงบทเรียนเดิม / ว่าง = ล้าง · ยืนยันซ้ำทับได้ (previous_* คืนค่าเก่า)';
 comment on function analytics.recommendation_create(uuid, text, text, text, text, text, integer, date, text, uuid, uuid, uuid) is
-  'สร้างข้อเสนอ/คำถามถึงเจ้าของ — กันซ้ำชื่อที่ยังรอตอบ (23505) · เส้นตายต้องมี default_action · อ้างแคมเปญ/ชิ้น/สรุปสัปดาห์ต้องอยู่ร้านเดียวกัน · ชิ้นต้องอยู่ใน workflow ใหม่ · คืน uuid';
-comment on function analytics.recommendation_respond(uuid, uuid, text, text, text) is
-  'เจ้าของตอบ done/rejected (owner เท่านั้น · rejected ต้องมีเหตุผล) · ตอบซ้ำไม่ได้ (55000 = compare-and-set ในตัว) · ตอบช้ากว่า respond_by ได้ (late/was_expired ใน payload — คำตอบจริงชนะค่าเริ่มต้น)';
+  'สร้างข้อเสนอ/คำถามถึงเจ้าของ — คืน jsonb {id, created, conflict}: ชื่อซ้ำที่ยังรอตอบ = id เดิม created=false (conflict=true ถ้าเนื้อหาต่าง · ไม่ทับเงียบ) · เส้นตายต้องมี default_action · อ้างแคมเปญ/ชิ้น/สรุปสัปดาห์ต้องอยู่ร้านเดียวกัน · ชิ้นต้องอยู่ใน workflow ใหม่';
+comment on function analytics.recommendation_respond(uuid, uuid, text, text, text, text) is
+  'เจ้าของตอบ done/rejected (owner เท่านั้น · rejected ต้องมีเหตุผล) · เขียน owner_response (ล็อกแก้ย้อนหลังไม่ได้) · ตอบซ้ำไม่ได้ (55000) · p_expected_token (= v_recommendation_inbox.content_token) บังคับ — ไม่ตรง = 55000 รีเฟรชก่อน · '
+  'ตอบช้ากว่า respond_by ได้ (late/was_expired ใน payload — คำตอบจริงชนะค่าเริ่มต้น)';
 comment on function analytics.content_weekly_summary_upsert(uuid, date, date, text[], text, text, integer, text) is
-  'เก็บ Weekly Brief ฉบับเต็ม (มติ Q10) — สรุป 1-5 บรรทัด + markdown ≤80000 · ทับสัปดาห์เดิมได้ (revision+1) แต่ไม่ทับเงียบ: คืน created/changed/revision · เนื้อหาเดิมซ้ำ = ไม่เขียน · ai/system ทับฉบับที่ owner เขียนล่าสุดไม่ได้';
+  'เก็บ Weekly Brief ฉบับเต็ม (มติ Q10) — สรุป 1-5 บรรทัด (บรรทัดละ ≤1000) + markdown ≤80000 · ทับสัปดาห์เดิมได้ (revision+1) แต่ไม่ทับเงียบ: คืน created/changed/revision · เนื้อหาเดิมซ้ำ = ไม่เขียน · ai/system ทับฉบับที่ owner เขียนล่าสุดไม่ได้';
+comment on function analytics.campaign_verdict_token_(uuid) is
+  'token (md5) ของเนื้อหาที่เจ้าของเห็นบนแคมเปญ: ข้อเสนอ/หลักฐาน/คำตัดสินที่ยืนยัน/แผน/เกณฑ์ — ใช้เป็น p_expected_token ของ campaign_verdict_confirm (SEC-M1) · ไม่รวม status/updated_at';
+comment on function analytics.recommendation_token_(uuid) is
+  'token (md5) ของเนื้อหาข้อเสนอที่เจ้าของอ่านก่อนตอบ — ใช้เป็น p_expected_token ของ recommendation_respond (SEC-M1) · ไม่รวม outcome_note/updated_at';
 comment on function analytics.campaign_verdict_gate_(uuid, text) is
   'ด่านเนื้อหาของคำตัดสิน (ภายใน — propose/confirm ใช้ร่วม): null = ผ่าน · ข้อความ = เหตุผลที่ตก (ผู้เรียก raise 55000) · เฉพาะ validated/invalidated';
 
@@ -1480,7 +1678,7 @@ declare
   v_bad text;
   v_k   text;
   v_n   bigint;
-  c_fn  constant text := '^(content_bidi_present_|campaign_open_pieces_|campaign_verdict_gate_|content_weekly_summary_guard|campaign_result_guard|recommendation_log_guard|campaign_plan_set|campaign_verdict_propose|campaign_verdict_confirm|recommendation_create|recommendation_respond|content_weekly_summary_upsert)$';
+  c_fn  constant text := '^(content_bidi_present_|campaign_open_pieces_|campaign_verdict_gate_|campaign_verdict_token_|recommendation_token_|content_weekly_summary_guard|campaign_result_guard|recommendation_log_guard|campaign_plan_set|campaign_verdict_propose|campaign_verdict_confirm|recommendation_create|recommendation_respond|content_weekly_summary_upsert)$';
   c_rel constant text[] := array['v_campaign_summary', 'v_recommendation_inbox'];
 begin
   foreach v_k in array array['c5.snap_metric', 'c5.snap_post', 'c5.snap_step', 'c5.snap_campaign', 'c5.snap_reco', 'c5.snap_gate', 'c5.snap_views', 'c5.snap_funcs'] loop
@@ -1550,7 +1748,7 @@ begin
     raise exception '0162 ด่านท้าย: มีฟังก์ชันเดิมที่ไม่ใช่ของไฟล์นี้ถูกเปลี่ยน/เพิ่ม/หาย (รวม 0148 upsert · 0158 · 0159 · 0160 · 0161) — ไฟล์นี้ไม่ replace ฟังก์ชันเดิมใดเลย';
   end if;
 
-  -- trap #1: ฟังก์ชันของไฟล์นี้ต้องมี signature เดียวต่อชื่อ · ครบ 12 ตัว (helper 3 + trigger 3 + RPC 6)
+  -- trap #1: ฟังก์ชันของไฟล์นี้ต้องมี signature เดียวต่อชื่อ · ครบ 14 ตัว (helper 5 + trigger 3 + RPC 6)
   select string_agg(x.proname || '=' || x.n, ', ') into v_bad
     from (select p.proname, count(*) as n from pg_proc p
            where p.pronamespace = 'analytics'::regnamespace and p.prokind = 'f' and p.proname ~ c_fn
@@ -1559,8 +1757,8 @@ begin
     raise exception '0162 ด่านท้าย: ฟังก์ชันมี overload ค้าง — หยุดแล้วรายงาน: %', v_bad;
   end if;
   select count(*) into v_n from pg_proc p where p.pronamespace = 'analytics'::regnamespace and p.proname ~ c_fn;
-  if v_n <> 12 then
-    raise exception '0162 ด่านท้าย: คาดฟังก์ชันของไฟล์นี้ 12 ตัว (helper 3 + trigger 3 + RPC 6) พบ %', v_n;
+  if v_n <> 14 then
+    raise exception '0162 ด่านท้าย: คาดฟังก์ชันของไฟล์นี้ 14 ตัว (helper 5 + trigger 3 + RPC 6) พบ %', v_n;
   end if;
 
   -- trigger ด่านตารางต้องมี เปิดอยู่ (tgenabled = 'O') ชี้ฟังก์ชันถูกตัว และชนิดครบ (ROW=1 BEFORE=2 INSERT=4 DELETE=8 UPDATE=16 TRUNCATE=32)
@@ -1641,11 +1839,12 @@ begin
   if v_bad is not null then
     raise exception '0162 ด่านท้าย: service_role เขียนตรงลง content_weekly_summary ได้ (%) — ต้องมีแค่ SELECT', v_bad;
   end if;
-  select string_agg(x.priv, ', ') into v_bad
-    from (values ('INSERT'), ('UPDATE'), ('DELETE'), ('TRUNCATE')) as x (priv)
-   where has_table_privilege('service_role', 'analytics.recommendation_log'::regclass, x.priv);
+  -- ทุกสิทธิ์นอกจาก SELECT (รวม REFERENCES/TRIGGER) ต้องไม่มี — ตรวจจาก ACL ตรง ไม่ผูกรายชื่อสิทธิ์ที่นึกออก
+  select string_agg(a.privilege_type, ', ') into v_bad
+    from pg_class c cross join lateral aclexplode(coalesce(c.relacl, acldefault('r', c.relowner))) a
+   where c.oid = 'analytics.recommendation_log'::regclass and a.grantee = 'service_role'::regrole and a.privilege_type <> 'SELECT';
   if v_bad is not null then
-    raise exception '0162 ด่านท้าย: service_role ยังมีสิทธิ์เขียน/ลบตรงบน recommendation_log (%) — ต้องถอด (J)', v_bad;
+    raise exception '0162 ด่านท้าย: service_role ยังมีสิทธิ์นอกจาก SELECT บน recommendation_log (%) — ต้องถอด (J)', v_bad;
   end if;
   if not has_table_privilege('service_role', 'analytics.recommendation_log'::regclass, 'SELECT')
      or not has_table_privilege('service_role', 'analytics.content_weekly_summary'::regclass, 'SELECT')
@@ -1689,9 +1888,9 @@ begin
     raise exception '0162 ด่านท้าย: ฟังก์ชันมี current_date: %', v_bad;
   end if;
   if pg_get_functiondef('analytics.campaign_plan_set(uuid,uuid,jsonb,text)'::regprocedure) !~ 'Asia/Bangkok'
-     or pg_get_functiondef('analytics.campaign_verdict_confirm(uuid,uuid,text,text,text,text,text)'::regprocedure) !~ 'Asia/Bangkok'
+     or pg_get_functiondef('analytics.campaign_verdict_confirm(uuid,uuid,text,text,text,text,text,text)'::regprocedure) !~ 'Asia/Bangkok'
      or pg_get_functiondef('analytics.recommendation_create(uuid,text,text,text,text,text,integer,date,text,uuid,uuid,uuid)'::regprocedure) !~ 'Asia/Bangkok'
-     or pg_get_functiondef('analytics.recommendation_respond(uuid,uuid,text,text,text)'::regprocedure) !~ 'Asia/Bangkok'
+     or pg_get_functiondef('analytics.recommendation_respond(uuid,uuid,text,text,text,text)'::regprocedure) !~ 'Asia/Bangkok'
      or pg_get_functiondef('analytics.content_weekly_summary_upsert(uuid,date,date,text[],text,text,integer,text)'::regprocedure) !~ 'Asia/Bangkok' then
     raise exception '0162 ด่านท้าย: RPC ที่คิดวันต้องใช้ Asia/Bangkok';
   end if;
