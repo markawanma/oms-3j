@@ -502,6 +502,14 @@ export interface OemCustomerAddress {
  * this quote is billed to. Only valid on a 'quoted' or 'won' quote. Not wired
  * to any UI yet this phase (see QuoteDetailClient) — plumbing for the tax
  * invoice phase. */
+/** 0164: แก้ชื่อลูกค้า/ช่องทางติดต่อบนใบ (oem_quote.customer_name/customer_contact) — ทุกสถานะยกเว้น
+ * lost/rejected/superseded · ส่งว่าง = ล้างเป็น null (ไม่ใช่คงค่าเดิม) */
+export interface SetQuoteCustomerInput {
+  quoteId: string;
+  customerName?: string | null;
+  customerContact?: string | null;
+}
+
 export interface SetQuoteBillingInput {
   quoteId: string;
   legalName: string;

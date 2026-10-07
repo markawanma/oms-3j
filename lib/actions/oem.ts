@@ -48,6 +48,7 @@ import type {
   SaveMetalPriceInput,
   SaveQuoteInput,
   SetQuoteBillingInput,
+  SetQuoteCustomerInput,
   SetQuoteDepositInput,
   SetQuoteStatusInput,
   SetQuoteVatModeInput,
@@ -55,7 +56,7 @@ import type {
   UpsertOemSettingInput,
   VoidReceiptInput,
 } from "@/lib/oem/types";
-import { hasAnyContact, isValidThaiTaxId, parseBillAddress } from "@/lib/oem/display";
+import { customerTextIssue, hasAnyContact, isValidThaiTaxId, parseBillAddress } from "@/lib/oem/display";
 import type { SellerProfile } from "@/lib/oem/sellerProfile";
 import { fetchAllRows } from "@/lib/supabase/query-limits";
 // S1 fix (0127 code review): saveMetalPrice's silver check must match the
@@ -1178,6 +1179,44 @@ export async function renegotiateQuote(input: RenegotiateQuoteInput): Promise<Ac
   } catch (err) {
     console.error("renegotiateQuote failed", err);
     return { ok: false, error: "ต่อราคาไม่สำเร็จ ลองใหม่อีกครั้ง" };
+  }
+}
+
+// 0164: เติม/แก้ "ลูกค้า" (ชื่อ + ช่องทางติดต่อ) ของใบที่ออกแล้ว — oem_quote_save ตั้งได้ตอนบันทึกเท่านั้น
+// DB (oem_quote_set_customer) เป็นด่านจริง: ปฏิเสธใบ lost/rejected/superseded · ร้านอื่น · ยาว/อักขระต้องห้าม ·
+// แตะแค่ 2 คอลัมน์นี้ (+updated_*) ที่นี่ตรวจรูปร่างก่อนเพื่อให้ข้อความไทยชัด (UX) และไม่ยิง RPC เปล่า
+export async function setQuoteCustomer(input: SetQuoteCustomerInput): Promise<ActionResult<{ quoteId: string }>> {
+  const gateErr = await requireOwnerAdmin();
+  if (gateErr) return gateErr;
+
+  if (!input?.quoteId) return { ok: false, error: "ไม่พบใบเสนอราคา" };
+  const nameErr = customerTextIssue(input.customerName, "ชื่อลูกค้า");
+  if (nameErr) return { ok: false, error: nameErr };
+  const contactErr = customerTextIssue(input.customerContact, "ช่องทางติดต่อ");
+  if (contactErr) return { ok: false, error: contactErr };
+
+  try {
+    const shopId = getDevShopId();
+    const supabase = getServiceClient();
+
+    const { data, error } = await supabase.schema(SCHEMA).rpc("oem_quote_set_customer", {
+      p_shop_id: shopId,
+      p_quote_id: input.quoteId,
+      // ส่งค่า trim แล้ว หรือ null — DB ก็ btrim/nullif ซ้ำ (ว่าง = ล้างเป็น null)
+      p_customer_name: input.customerName?.trim() || null,
+      p_customer_contact: input.customerContact?.trim() || null,
+    });
+    if (error) {
+      // 22023 = ข้อความไทยของด่านเราเอง (ใบปิดแล้ว/ยาวเกิน/อักขระต้องห้าม) — แสดงตรงๆ ได้
+      if ((error as { code?: string }).code === "22023") return { ok: false, error: error.message };
+      throw error;
+    }
+
+    revalidateOemPaths();
+    return { ok: true, data: { quoteId: String(data) } };
+  } catch (err) {
+    console.error("setQuoteCustomer failed", err);
+    return { ok: false, error: "บันทึกข้อมูลลูกค้าไม่สำเร็จ ลองใหม่อีกครั้ง" };
   }
 }
 

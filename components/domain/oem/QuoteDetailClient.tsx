@@ -28,6 +28,7 @@ import { OemCalcBreakdown } from "./OemCalcBreakdown";
 import { LostQuoteDialog } from "./LostQuoteDialog";
 import { RenegotiateDialog } from "./RenegotiateDialog";
 import { BillingDialog } from "./BillingDialog";
+import { CustomerDialog } from "./CustomerDialog";
 import { DepositDialog } from "./DepositDialog";
 import { VatModeDialog } from "./VatModeDialog";
 import { ReceiptSection } from "./ReceiptSection";
@@ -100,6 +101,7 @@ export function QuoteDetailClient({
   const [lostOpen, setLostOpen] = useState(false);
   const [renegotiateOpen, setRenegotiateOpen] = useState(false);
   const [billingOpen, setBillingOpen] = useState(false);
+  const [customerOpen, setCustomerOpen] = useState(false);
   const [depositOpen, setDepositOpen] = useState(false);
   const [vatModeOpen, setVatModeOpen] = useState(false);
   const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
@@ -152,6 +154,9 @@ export function QuoteDetailClient({
   // yet, and every other status (lost/rejected/expired/superseded) is
   // already closed — nothing left to bill.
   const canEditBilling = quote.status === "quoted" || quote.status === "won";
+  // 0164: ชื่อ/ช่องทางติดต่อบนใบ แก้ได้ทุกสถานะยกเว้นใบที่ปิด/ยกเลิก — ตรงกับด่านของ oem_quote_set_customer
+  // (lost/rejected/superseded) · expired แก้ได้ · ไม่โชว์ปุ่มบนใบที่ DB จะปฏิเสธอยู่แล้ว
+  const canEditCustomer = quote.status !== "lost" && quote.status !== "rejected" && quote.status !== "superseded";
   // Print/PDF: owner's own rule — nothing below "quoted" has been shown to
   // a customer yet, so there is nothing worth printing. superseded IS
   // printable (with a watermark, handled on the print page itself).
@@ -208,7 +213,15 @@ export function QuoteDetailClient({
       </div>
 
       <section className="rounded-lg border border-zinc-200 bg-white p-3.5 shadow-sm">
-        <h2 className="text-sm font-bold text-zinc-800">ลูกค้า</h2>
+        <div className="flex items-start justify-between gap-2">
+          <h2 className="text-sm font-bold text-zinc-800">ลูกค้า</h2>
+          {canEditCustomer && (
+            <Button type="button" variant="ghost" size="sm" className="border border-zinc-300" onClick={() => setCustomerOpen(true)}>
+              <Pencil className="h-3.5 w-3.5" aria-hidden="true" />
+              แก้ไข
+            </Button>
+          )}
+        </div>
         <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1.5 text-sm sm:grid-cols-3">
           <div>
             <dt className="text-xs text-zinc-500">ลูกค้า</dt>
@@ -536,6 +549,17 @@ export function QuoteDetailClient({
       )}
 
       {renegotiateOpen && <RenegotiateDialog quote={quote} hasReceivedPayment={hasReceivedPayment} onClose={() => setRenegotiateOpen(false)} />}
+
+      {customerOpen && canEditCustomer && (
+        <CustomerDialog
+          quote={quote}
+          onClose={() => setCustomerOpen(false)}
+          onSaved={() => {
+            setCustomerOpen(false);
+            router.refresh();
+          }}
+        />
+      )}
 
       {billingOpen && (
         <BillingDialog

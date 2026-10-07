@@ -178,3 +178,20 @@ describe("toPrintableQuote — ราคาพิเศษเงินแท่�
     );
   });
 });
+
+// 0164: ชื่อ/ช่องทางติดต่อบนใบแก้ทีหลังได้แล้ว — หน้าพิมพ์ fallback (PrintQuoteClient: billLegalName || customerName) ต้องยังได้ค่าจาก quote ตรงๆ
+describe("toPrintableQuote — customerName/customerContact (fallback ของหน้าพิมพ์เมื่อไม่มีข้อมูลออกบิล)", () => {
+  it("ส่ง customerName/customerContact จากแถว quote ไปตรงๆ และ billLegalName ว่าง → ให้ฝั่งพิมพ์ใช้ customerName", () => {
+    const q = { ...quote(), customerName: "ชื่อที่เติมทีหลัง", customerContact: "LINE: @late", billLegalName: null };
+    const p = toPrintableQuote(q, [barItem({ override: false })]);
+    expect(p.customerName).toBe("ชื่อที่เติมทีหลัง");
+    expect(p.customerContact).toBe("LINE: @late");
+    expect(p.billLegalName).toBeNull();
+  });
+  it("ลูกค้าว่าง (null) ยังเป็น null — ฝั่งพิมพ์แสดงขีดเหมือนเดิม ไม่แปลงเป็นสตริงว่าง", () => {
+    const q = { ...quote(), customerName: null, customerContact: null };
+    const p = toPrintableQuote(q, [barItem({ override: false })]);
+    expect(p.customerName).toBeNull();
+    expect(p.customerContact).toBeNull();
+  });
+});

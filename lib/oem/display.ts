@@ -223,3 +223,29 @@ export function isValidThaiTaxId(taxId: string): boolean {
 export function hasAnyContact(a: string | null | undefined, b: string | null | undefined): boolean {
   return !!a?.trim() || !!b?.trim();
 }
+
+/** 0164: เพดานความยาวของชื่อลูกค้า/ช่องทางติดต่อบนใบเสนอราคา (DB บังคับซ้ำที่ oem_quote_set_customer) */
+export const OEM_CUSTOMER_TEXT_MAX = 200;
+
+/** 0164: ตรวจชื่อลูกค้า / ช่องทางติดต่อ (หลัง trim) ก่อนส่งไป oem_quote_set_customer — null = ใช้ได้ (ว่าง = ล้างค่า).
+ * กฎเดียวกับ DB: ไม่เกิน 200 ตัวอักษร · ห้าม control/ขึ้นบรรทัดใหม่/tab · ห้าม bidi/zero-width
+ * (ชื่อนี้ถูกพิมพ์บนใบเสนอราคาที่ส่งลูกค้า). UX เท่านั้น — ด่านจริงอยู่ที่ DB. */
+export function customerTextIssue(value: string | null | undefined, label: string): string | null {
+  const v = (value ?? "").trim();
+  if (!v) return null;
+  if (/[\u0000-\u001F\u007F-\u009F​-‏‪-‮⁠-⁤⁦-⁩﻿]/.test(v)) {
+    return label + "ห้ามมีขึ้นบรรทัดใหม่ tab หรืออักขระควบคุม/ล่องหน";
+  }
+  if ([...v].length > OEM_CUSTOMER_TEXT_MAX) {
+    return label + "ยาวเกินไป (ไม่เกิน " + OEM_CUSTOMER_TEXT_MAX + " ตัวอักษร)";
+  }
+  return null;
+}
+
+/** 0164: ช่องทางติดต่อที่ดึงจากข้อมูลออกบิล (เบอร์ + ช่องทางอื่น เช่น LINE) — ต่อกันด้วย " / " ข้ามช่องว่าง */
+export function contactFromBilling(phone: string | null | undefined, contactChannel: string | null | undefined): string {
+  return [phone, contactChannel]
+    .map((s) => (s ?? "").trim())
+    .filter(Boolean)
+    .join(" / ");
+}
