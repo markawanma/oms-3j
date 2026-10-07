@@ -38,6 +38,7 @@
 
 import { randomUUID } from "node:crypto";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import pg from "pg";
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -83,6 +84,8 @@ export interface SeededTenant {
 
 /** Creates a fresh shop + one shopee and one tiktok channel_account (both is_sandbox=true). */
 export async function seedTenant(db: SupabaseClient): Promise<SeededTenant> {
+  // fail ก่อนสร้างอะไร — ถ้าลบทีหลังไม่ได้ ร้านทดสอบจะค้างใน DB (ดู cleanupTenant)
+  requireAdminUrl();
   const { data: shop, error: shopErr } = await db
     .from("shop")
     .insert({ name: `QA Test Shop ${randomUUID()}` })
@@ -312,27 +315,75 @@ export async function releaseExpiredReservations(db: SupabaseClient) {
   return db.rpc("release_expired_reservations");
 }
 
+
 /**
- * Explicit dependency-ordered teardown. Deliberately NOT just `delete from shop`
- * relying on cascade: stock_ledger.product_id is ON DELETE RESTRICT (0001, by
- * design — audit trail must outlive a hard-deleted product). If a cascading
- * delete originating from `shop` reached `product` before it reached
- * `stock_ledger` (both reference shop_id directly with ON DELETE CASCADE),
- * Postgres would raise a foreign_key_violation on the RESTRICT edge and abort
- * the whole delete — leaking the tenant's rows and breaking later tests that
- * assume a clean product/sku namespace. Deleting child tables in explicit
- * dependency order avoids depending on unspecified multi-path cascade ordering.
+ * Teardown ของร้านทดสอบ — รันผ่าน connection ของ "เจ้าของตาราง" (pg) ไม่ใช่ service_role
+ *
+ * ทำไมไม่ใช้ `db.from("shop").delete()` แบบเดิม: 0161 (H1) ถอนสิทธิ์ DELETE/TRUNCATE บน
+ * public.shop / analytics.campaign / analytics.campaign_step จาก service_role (กัน cascade
+ * พาประวัติแก้ยอดหาย) ⇒ supabase-js ได้ 42501 แต่ helper เดิมไม่เช็ค error ⇒ ร้านทดสอบค้างใน DB
+ * (มี DB เดียว) และ verify ที่ assume "ร้านเดียว" พังเงียบๆ
+ *
+ * ตอนนี้: ลบเป็น owner ใน transaction เดียว เรียงลูกก่อนแม่ (stock_ledger.product_id เป็น
+ * ON DELETE RESTRICT จึงไม่พึ่งลำดับ cascade) · พลาดตรงไหน ROLLBACK + throw ข้อความไทย ไม่กลืน error
+ *
+ * connection string มาจาก env `TEST_DB_ADMIN_URL` เท่านั้น (ไม่ hardcode) — ต้องชี้ DB เดียวกับ
+ * SUPABASE_URL ของชุดทดสอบ (ดู .env.test.example)
+ * guard: ลบเฉพาะร้านที่ชื่อขึ้นต้น "QA Test Shop " — เผลอส่ง id ร้านจริงมาจะถูกปฏิเสธ
  */
-export async function cleanupTenant(db: SupabaseClient, shopId: string): Promise<void> {
-  await db.from("stock_ledger").delete().eq("shop_id", shopId);
-  await db.from("order_item").delete().eq("shop_id", shopId);
-  await db.from("shipment").delete().eq("shop_id", shopId);
-  await db.from("orders").delete().eq("shop_id", shopId);
-  await db.from("central_stock").delete().eq("shop_id", shopId);
-  await db.from("product_mapping").delete().eq("shop_id", shopId);
-  await db.from("product").delete().eq("shop_id", shopId);
-  await db.from("sync_job").delete().eq("shop_id", shopId);
-  await db.from("channel_account").delete().eq("shop_id", shopId);
-  await db.from("shop_member").delete().eq("shop_id", shopId);
-  await db.from("shop").delete().eq("id", shopId);
+const TEST_SHOP_NAME_PREFIX = "QA Test Shop ";
+
+const TEARDOWN_TABLES_IN_ORDER = [
+  "stock_ledger",
+  "order_item",
+  "shipment",
+  "orders",
+  "central_stock",
+  "product_mapping",
+  "product",
+  "sync_job",
+  "channel_account",
+  "shop_member",
+] as const;
+
+function requireAdminUrl(): string {
+  const url = process.env.TEST_DB_ADMIN_URL;
+  if (!url || url.trim() === "") {
+    throw new Error(
+      "ไม่พบ TEST_DB_ADMIN_URL — ชุดทดสอบนี้ต้องลบร้านทดสอบด้วย connection ของเจ้าของตาราง " +
+        "เพราะ 0161 ถอนสิทธิ์ DELETE บน public.shop จาก service_role แล้ว (ลบผ่าน supabase-js ได้ 42501 " +
+        "และร้านทดสอบจะค้างใน DB) · ตั้งเป็น connection string ของ DB เดียวกับ SUPABASE_URL " +
+        "(ดู .env.test.example) · ยังไม่ได้สร้างร้านทดสอบ จึงหยุดก่อนเพื่อไม่ให้มีของค้าง",
+    );
+  }
+  return url;
+}
+
+export async function cleanupTenant(_db: SupabaseClient, shopId: string): Promise<void> {
+  const client = new pg.Client({ connectionString: requireAdminUrl() });
+  try {
+    await client.connect();
+    await client.query("begin");
+    for (const table of TEARDOWN_TABLES_IN_ORDER) {
+      // ชื่อตารางมาจากค่าคงที่ข้างบน ไม่ใช่ input ภายนอก · shopId ส่งเป็น parameter เสมอ
+      await client.query(`delete from public.${table} where shop_id = $1`, [shopId]);
+    }
+    const res = await client.query("delete from public.shop where id = $1 and name like $2", [
+      shopId,
+      `${TEST_SHOP_NAME_PREFIX}%`,
+    ]);
+    if (res.rowCount !== 1) {
+      throw new Error(
+        `ลบร้านได้ ${res.rowCount ?? "null"} แถว (ต้อง 1) — id ไม่มีอยู่ หรือชื่อร้านไม่ขึ้นต้นด้วย "${TEST_SHOP_NAME_PREFIX}" ` +
+          "(guard กันลบร้านจริง) · ROLLBACK แล้ว",
+      );
+    }
+    await client.query("commit");
+  } catch (err) {
+    await client.query("rollback").catch(() => undefined);
+    const detail = err instanceof Error ? err.message : String(err);
+    throw new Error(`cleanupTenant ล้มเหลว (shop ${shopId}) — ร้านทดสอบอาจค้างใน DB ต้องเก็บกวาดมือด้วย id นี้: ${detail}`);
+  } finally {
+    await client.end().catch(() => undefined);
+  }
 }
