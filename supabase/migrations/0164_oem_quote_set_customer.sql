@@ -44,7 +44,7 @@ declare
   v_name text;
   v_contact text;
   -- control (รวม \n \r \t) + bidi/zero-width ชุดเดียวกับ 0158
-  c_bad constant text := '[[:cntrl:]​-‏‪-‮⁠-⁤⁦-⁩﻿]';
+  c_bad constant text := '[[:cntrl:]\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]';
 begin
   if p_shop_id is null or p_quote_id is null then
     raise exception 'oem_quote_set_customer: p_shop_id and p_quote_id are required';

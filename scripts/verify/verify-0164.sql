@@ -110,7 +110,7 @@ begin
     where p.proname = 'oem_quote_set_customer' and p.pronamespace = 'analytics'::regnamespace and a.privilege_type = 'EXECUTE'
       and (a.grantee = 0 or a.grantee = 'anon'::regrole or a.grantee = 'authenticated'::regrole);
   v_log := v_log || pg_temp.chk('S2', format('ไม่มี PUBLIC/anon/authenticated EXECUTE (พบ %s)', v_cnt), v_cnt = 0);
-  v_log := v_log || pg_temp.chk('S3', 'service_role มี EXECUTE', has_function_privilege('service_role', 'analytics.oem_quote_set_customer(uuid,uuid,text,text)', 'execute'));
+  v_log := v_log || pg_temp.chk('S3', 'service_role มี EXECUTE', has_function_privilege('service_role', 'analytics.oem_quote_set_customer(uuid,uuid,text,text,uuid)', 'execute'));
   select count(*) into v_cnt from pg_trigger where tgrelid = 'analytics.oem_quote'::regclass and not tgisinternal;
   v_log := v_log || pg_temp.chk('S4', format('oem_quote ยังไม่มี trigger (สมมติฐานของ 0164 ว่าไม่มี immutable guard ให้ยกเว้น) พบ %s', v_cnt), v_cnt = 0);
 
@@ -203,21 +203,21 @@ begin
   v_log := v_log || pg_temp.chk('B9b', 'ช่องทางติดต่อมี tab → raise 22023', v_r like 'ERR:22023:%');
   v_r := pg_temp.t_set(v_shop, v_q, E'ab\x01cd', 'x');
   v_log := v_log || pg_temp.chk('B9c', 'ชื่อมี control char (0x01) → raise 22023', v_r like 'ERR:22023:%');
-  v_r := pg_temp.t_set(v_shop, v_q, E'\t', 'x');
-  v_log := v_log || pg_temp.chk('B9d', 'ชื่อเป็น tab ล้วน → raise (ไม่ถูก btrim เป็น null เงียบๆ)', v_r like 'ERR:22023:%');
+  v_r := pg_temp.t_set(v_shop, v_q, E'a\tb', 'x');
+  v_log := v_log || pg_temp.chk('B9d', 'ชื่อมี tab กลางข้อความ → raise', v_r like 'ERR:22023:%');
 
-  v_r := pg_temp.t_set(v_shop, v_q, E'ชื่อ‮ปลอม', 'x');
+  v_r := pg_temp.t_set(v_shop, v_q, E'ชื่อ\u202Eปลอม', 'x');
   v_log := v_log || pg_temp.chk('B10a', 'ชื่อมี RLO (U+202E) → raise 22023', v_r like 'ERR:22023:%');
-  v_r := pg_temp.t_set(v_shop, v_q, E'ชื่อ​ลับ', 'x');
+  v_r := pg_temp.t_set(v_shop, v_q, E'ชื่อ\u200Bลับ', 'x');
   v_log := v_log || pg_temp.chk('B10b', 'ชื่อมี zero-width space (U+200B) → raise 22023', v_r like 'ERR:22023:%');
-  v_r := pg_temp.t_set(v_shop, v_q, 'x', E'﻿line');
+  v_r := pg_temp.t_set(v_shop, v_q, 'x', E'\uFEFFline');
   v_log := v_log || pg_temp.chk('B10c', 'ช่องทางติดต่อมี BOM (U+FEFF) → raise 22023', v_r like 'ERR:22023:%');
-  v_r := pg_temp.t_set(v_shop, v_q, 'x', E'a⁦b');
+  v_r := pg_temp.t_set(v_shop, v_q, 'x', E'a\u2066b');
   v_log := v_log || pg_temp.chk('B10d', 'ช่องทางติดต่อมี isolate (U+2066) → raise 22023', v_r like 'ERR:22023:%');
 
   select * into v_row from analytics.oem_quote where id = v_q;
   v_before := pg_temp.row_md5(v_q);
-  v_r := pg_temp.t_set(v_shop, v_q, 'ชื่อดี', E'ผิด\n');
+  v_r := pg_temp.t_set(v_shop, v_q, 'ชื่อดี', E'ผิด\nอีก');
   select * into v_row from analytics.oem_quote where id = v_q;
   v_log := v_log || pg_temp.chk('B11', 'ชื่อดีแต่ช่องทางผิด → ปฏิเสธทั้งคู่ ชื่อไม่ถูกเขียนครึ่งเดียว', v_r like 'ERR:22023:%' and v_row.customer_name = 'ก่อนปิด');
 

@@ -18,6 +18,7 @@ import { revalidatePath } from "next/cache";
 import { getServiceClient } from "@/lib/supabase/server";
 import { getDevShopId } from "@/lib/dev/context";
 import { getEffectiveRole } from "@/lib/auth/role";
+import { getSessionUser } from "@/lib/auth/session";
 import type { ActionResult } from "@/lib/types";
 import type {
   DeleteOemRateInput,
@@ -56,7 +57,7 @@ import type {
   UpsertOemSettingInput,
   VoidReceiptInput,
 } from "@/lib/oem/types";
-import { customerTextIssue, hasAnyContact, isValidThaiTaxId, parseBillAddress } from "@/lib/oem/display";
+import { customerTextIssue, hasAnyContact, isValidThaiTaxId, parseBillAddress, stripInvisibleText } from "@/lib/oem/display";
 import type { SellerProfile } from "@/lib/oem/sellerProfile";
 import { fetchAllRows } from "@/lib/supabase/query-limits";
 // S1 fix (0127 code review): saveMetalPrice's silver check must match the
@@ -90,12 +91,29 @@ async function requireOwnerAdmin(): Promise<ActionResult<never> | null> {
   return null;
 }
 
+/** 0165 M2: ผู้ลงมือ (p_actor_id ของ oem_quote_save / oem_quote_set_customer) — มาจาก session ฝั่ง server เท่านั้น
+ * (getSessionUser) ห้ามรับจาก client/input (ไม่งั้นเป็นช่องปลอมตัว · SaveQuoteInput/SetQuoteCustomerInput ไม่มี field นี้และมีเทสต์ล็อก).
+ * ไม่ throw: อ่าน session ไม่ได้ (env ผิด/ไม่มี session ตอน AUTH_GATE=off) ⇒ null ⇒ RPC ใช้พฤติกรรมเดิม (updated_by = null) —
+ * การออกใบต้องไม่พังเพราะเรื่อง audit. ผู้ใช้ที่ไม่อยู่ใน auth.users ⇒ RPC เปลี่ยนเป็น null เอง (ไม่ล้มด้วย FK) */
+async function getActorId(): Promise<string | null> {
+  try {
+    const user = await getSessionUser();
+    return user?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
 /** 0163: ด่านที่ขอบ action (ข้อมูลจาก client) — ตรวจแค่รูปร่าง/ช่วง ไม่ใช่ตัดสินราคา:
  * "ต่ำกว่าทุนไหม" ตัดสินที่ DB เท่านั้น (client ไม่รู้ราคารับซื้อคืน และต้องไม่รู้) */
 function validateBarOverride(input: OemPriceCalcInput): string | null {
   if (input.metal !== "silver999") return null;
   const price = input.barPriceOverrideThb;
-  const reason = input.barPriceOverrideReason?.trim() ?? "";
+  // 0165 L6: reason ที่ไม่ใช่ string/null (caller ข้าม type) = ข้อความไทย ไม่ throw 500 · L2: ลบอักขระล่องหน ก่อน trim
+  const rawReason: unknown = input.barPriceOverrideReason;
+  if (rawReason != null && typeof rawReason !== "string") return "เหตุผลราคาพิเศษต้องเป็นข้อความ";
+  if (price != null && typeof price !== "number") return "ราคาพิเศษต้องเป็นตัวเลข";
+  const reason = stripInvisibleText(rawReason).trim();
   if (price == null) {
     return reason ? "มีเหตุผลราคาพิเศษแต่ยังไม่ได้กรอกราคาพิเศษ" : null;
   }
@@ -1105,9 +1123,15 @@ export async function saveQuote(input: SaveQuoteInput): Promise<ActionResult<{ q
     const overrideErr = validateBarOverride(item.input);
     if (overrideErr) return { ok: false, error: overrideErr };
   }
-  if (input.barValidUntil != null && input.barValidUntil !== "" && !/^\d{4}-\d{2}-\d{2}$/.test(input.barValidUntil)) {
+  // 0165 L6: typeof ก่อน regex (.test() บน number/object จะ coerce) · L1: ชื่อ/ช่องทางติดต่อผ่านด่านเดียวกับ DB
+  const bvu: unknown = input.barValidUntil;
+  if (bvu != null && bvu !== "" && (typeof bvu !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(bvu))) {
     return { ok: false, error: "วันยืนราคาไม่ถูกต้อง" };
   }
+  const custNameErr = customerTextIssue(input.customerName, "ชื่อลูกค้า");
+  if (custNameErr) return { ok: false, error: custNameErr };
+  const custContactErr = customerTextIssue(input.customerContact, "ช่องทางติดต่อ");
+  if (custContactErr) return { ok: false, error: custContactErr };
   const discountThb = toNum(input.discountThb) ?? 0;
   if (discountThb < 0) return { ok: false, error: "ส่วนลดต้องไม่ติดลบ" };
 
@@ -1123,6 +1147,7 @@ export async function saveQuote(input: SaveQuoteInput): Promise<ActionResult<{ q
       return obj;
     });
 
+    const actorId = await getActorId();
     const { data, error } = await supabase.schema(SCHEMA).rpc("oem_quote_save", {
       p_shop_id: shopId,
       p_items: pItems,
@@ -1135,6 +1160,8 @@ export async function saveQuote(input: SaveQuoteInput): Promise<ActionResult<{ q
       p_discount_reason: input.discountReason?.trim() || null,
       // 0163: ส่งเฉพาะเมื่อมีวัน — ไม่ส่ง = 10-arg ใช้ default null (พฤติกรรมเดิม)
       ...(input.barValidUntil ? { p_bar_valid_until: input.barValidUntil } : {}),
+      // 0165 M2: ส่งเฉพาะเมื่อมี session user — ไม่มี = เหมือนเดิมเป๊ะ (RPC default null)
+      ...(actorId ? { p_actor_id: actorId } : {}),
     });
     if (error) {
       // 22023 = our own controlled Thai validation messages (floor/margin/
@@ -1189,7 +1216,8 @@ export async function setQuoteCustomer(input: SetQuoteCustomerInput): Promise<Ac
   const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
-  if (!input?.quoteId) return { ok: false, error: "ไม่พบใบเสนอราคา" };
+  // 0165 L6: typeof ก่อนใช้ (quoteId เป็น number/object จาก caller ที่ข้าม type = ข้อความไทย ไม่ใช่ 500)
+  if (!input || typeof input.quoteId !== "string" || !input.quoteId) return { ok: false, error: "ไม่พบใบเสนอราคา" };
   const nameErr = customerTextIssue(input.customerName, "ชื่อลูกค้า");
   if (nameErr) return { ok: false, error: nameErr };
   const contactErr = customerTextIssue(input.customerContact, "ช่องทางติดต่อ");
@@ -1199,12 +1227,15 @@ export async function setQuoteCustomer(input: SetQuoteCustomerInput): Promise<Ac
     const shopId = getDevShopId();
     const supabase = getServiceClient();
 
+    const actorId = await getActorId();
     const { data, error } = await supabase.schema(SCHEMA).rpc("oem_quote_set_customer", {
       p_shop_id: shopId,
       p_quote_id: input.quoteId,
       // ส่งค่า trim แล้ว หรือ null — DB ก็ btrim/nullif ซ้ำ (ว่าง = ล้างเป็น null)
       p_customer_name: input.customerName?.trim() || null,
       p_customer_contact: input.customerContact?.trim() || null,
+      // 0165 M2: ผู้แก้ (จาก session ฝั่ง server) — ไม่มี session = ไม่ส่ง (DB: updated_by null เหมือนเดิม)
+      ...(actorId ? { p_actor_id: actorId } : {}),
     });
     if (error) {
       // 22023 = ข้อความไทยของด่านเราเอง (ใบปิดแล้ว/ยาวเกิน/อักขระต้องห้าม) — แสดงตรงๆ ได้

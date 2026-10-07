@@ -12,6 +12,7 @@ const schemaMock = vi.fn();
 const fromRowsMock = vi.fn();
 
 vi.mock("@/lib/auth/role", () => ({ getEffectiveRole: () => getEffectiveRoleMock() }));
+vi.mock("@/lib/auth/session", () => ({ getSessionUser: async () => null })); // 0165: ไม่มี session = ไม่ส่ง p_actor_id
 vi.mock("@/lib/dev/context", () => ({ getDevShopId: () => "shop-1" }));
 vi.mock("@/lib/supabase/server", () => ({
   getServiceClient: () => ({
