@@ -26,7 +26,7 @@ import type { OemPriceCalcResult, OemProductOption, OemSettingData, SaveQuoteInp
 import { OEM_BAR_SIZE_LABEL_TH } from "@/lib/oem/types";
 import { roundTo } from "@/lib/oem/display";
 import type { JobForm } from "@/lib/oem/quoteForm";
-import { OEM_DEFAULT_PURITY, barSizeForSku, buildJobInput, createJobForm } from "@/lib/oem/quoteForm";
+import { OEM_DEFAULT_PURITY, barSizeForSku, buildJobInput, createJobForm, jobHasBarOverride } from "@/lib/oem/quoteForm";
 import { useToast } from "@/components/ui/Toast";
 import { Button } from "@/components/ui/Button";
 import { QuoteJobItemCard } from "./QuoteJobItemCard";
@@ -62,6 +62,8 @@ export function QuoteCalculatorClient({ setting }: { setting: OemSettingData }) 
   const [discountThb, setDiscountThb] = useState("0");
   const [discountReason, setDiscountReason] = useState("");
   const [approvalNote, setApprovalNote] = useState("");
+  // 0163: วันยืนราคาของใบที่มีราคาพิเศษ (YYYY-MM-DD) — ระดับใบ ไม่ใช่ระดับรายการ
+  const [barValidUntil, setBarValidUntil] = useState("");
   const [saveError, setSaveError] = useState<string | null>(null);
   const [quoteId, setQuoteId] = useState<string | null>(null);
   const [savingDraft, startDraft] = useTransition();
@@ -245,6 +247,12 @@ export function QuoteCalculatorClient({ setting }: { setting: OemSettingData }) 
     return payload;
   }
 
+  // 0163: ส่งวันก็ต่อเมื่อมีรายการราคาพิเศษจริง — DB ปฏิเสธ "ส่งวันแต่ไม่มี override"
+  // (วันค้างใน state หลังผู้ใช้ล้างราคาพิเศษ ต้องไม่หลุดไปกับ payload)
+  function barValidUntilPayload(): string | null {
+    return items.some((it) => jobHasBarOverride(it.job)) && barValidUntil ? barValidUntil : null;
+  }
+
   function handleSaveDraft() {
     const payloadItems = buildPayloadItems();
     if (!payloadItems) return;
@@ -258,6 +266,7 @@ export function QuoteCalculatorClient({ setting }: { setting: OemSettingData }) 
         customerContact: customerContact.trim() || null,
         discountThb: Number(discountThb) || 0,
         discountReason: discountReason.trim() || null,
+        barValidUntil: barValidUntilPayload(),
       });
       if (!result.ok) {
         setSaveError(result.error);
@@ -284,6 +293,7 @@ export function QuoteCalculatorClient({ setting }: { setting: OemSettingData }) 
         customerContact: customerContact.trim() || null,
         discountThb: Number(discountThb) || 0,
         discountReason: discountReason.trim() || null,
+        barValidUntil: barValidUntilPayload(),
       });
       if (!result.ok) {
         setSaveError(result.error);
@@ -367,6 +377,8 @@ export function QuoteCalculatorClient({ setting }: { setting: OemSettingData }) 
             onDiscountReasonChange={setDiscountReason}
             approvalNote={approvalNote}
             onApprovalNoteChange={setApprovalNote}
+            barValidUntil={barValidUntil}
+            onBarValidUntilChange={setBarValidUntil}
             onSaveDraft={handleSaveDraft}
             onIssueQuote={handleIssueQuote}
             savingDraft={savingDraft}

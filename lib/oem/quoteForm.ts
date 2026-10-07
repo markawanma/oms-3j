@@ -68,6 +68,11 @@ export interface JobForm {
   engraveImageThb: string;
   /** 0078, metal='silver999' only — บาท/ชิ้น, optional (empty = ไม่คิด). */
   engraveTextThb: string;
+  /** 0163, metal='silver999' only — ราคาพิเศษต่อแท่ง (บาท, ไม่รวม engrave) optional · ว่าง = ใช้ราคาเว็บวันนี้.
+   * ห้ามต่ำกว่าทุน — ตัดสินที่ DB เท่านั้น (ฟอร์มนี้ไม่รู้ทุน และต้องไม่รู้). */
+  barPriceOverrideThb: string;
+  /** 0163 — เหตุผลราคาพิเศษ · บังคับเมื่อมีราคา · ไม่ถูกส่งไป calc ถ้าราคายังว่าง. */
+  barPriceOverrideReason: string;
   /** SKU picker (analytics.v_dim_product) — label/traceability only, never
    * fed into buildJobInput()/OemPriceCalcInput below: silver_weight_g is
    * null on every SKU today, so there is nothing safe to prefill from a
@@ -97,10 +102,54 @@ export function createJobForm(defaultMarginPct: number): JobForm {
     barSize: "",
     engraveImageThb: "",
     engraveTextThb: "",
+    barPriceOverrideThb: "",
+    barPriceOverrideReason: "",
     productId: null,
     skuSnapshot: null,
     productNameSnapshot: null,
   };
+}
+
+/** 0163: ใบที่มีราคาพิเศษยืนราคาได้ไม่เกินกี่วัน (มติเจ้าของ) — DB บังคับซ้ำที่ oem_quote_save */
+export const OEM_BAR_OVERRIDE_MAX_DAYS = 30;
+
+/** 0163: วันนี้ตามเวลาไทย (YYYY-MM-DD) — DB เป็น UTC, ห้ามใช้ toISOString() ตรงๆ (00:00-07:00 ไทยจะเลื่อนเป็นเมื่อวาน) */
+export function bangkokToday(now: Date = new Date()): string {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok", year: "numeric", month: "2-digit", day: "2-digit" }).format(now);
+}
+
+/** 0163: บวกวันบนวันที่ ISO (ไม่ใช่เงิน) */
+export function addDaysIso(iso: string, days: number): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d + days)).toISOString().slice(0, 10);
+}
+
+/** 0163: ข้อความบอกว่าวันยืนราคาที่เลือกใช้ไม่ได้ (null = ใช้ได้) — ช่วงเดียวกับที่ DB บังคับ: วันนี้ ถึง วันนี้+30 (เวลาไทย) */
+export function barValidUntilIssue(value: string, now: Date = new Date()): string | null {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return "เลือกวันยืนราคา — ใบที่มีราคาพิเศษต้องระบุวัน";
+  const today = bangkokToday(now);
+  if (value < today) return "วันยืนราคาย้อนหลังไม่ได้";
+  if (value > addDaysIso(today, OEM_BAR_OVERRIDE_MAX_DAYS)) return "ยืนราคาได้ไม่เกิน " + OEM_BAR_OVERRIDE_MAX_DAYS + " วันนับจากวันนี้";
+  return null;
+}
+
+/** 0163: มีรายการนี้ใช้ราคาพิเศษไหม (ช่องราคาไม่ว่าง) — ใช้ตัดสินว่าต้องโชว์ช่อง "ยืนราคาถึง" ระดับใบ */
+export function jobHasBarOverride(job: JobForm): boolean {
+  return job.metal === "silver999" && job.barPriceOverrideThb.trim() !== "";
+}
+
+/** 0163: ข้อความบอกผู้ใช้ว่าทำไมราคาพิเศษยังใช้ไม่ได้ (null = ใช้ได้/ไม่มีราคาพิเศษ) —
+ * ตรวจแค่รูปร่าง: ตัวเลขจำกัด > 0 ไม่เกิน 1,000,000 ทศนิยมไม่เกิน 2 ตำแหน่ง + ต้องมีเหตุผล.
+ * ไม่ตัดสิน "ต่ำกว่าทุนไหม" (นั่นคือ floors.barPrice จาก DB). */
+export function barOverrideIssue(job: JobForm): string | null {
+  if (!jobHasBarOverride(job)) return null;
+  const price = Number(job.barPriceOverrideThb);
+  if (!Number.isFinite(price) || price <= 0 || price > 1_000_000) {
+    return "ราคาพิเศษต้องเป็นตัวเลขมากกว่า 0 และไม่เกิน 1,000,000 บาท";
+  }
+  if (Math.round(price * 100) / 100 !== price) return "ราคาพิเศษใส่ทศนิยมได้ไม่เกิน 2 ตำแหน่ง";
+  if (!job.barPriceOverrideReason.trim()) return "กรอกเหตุผลราคาพิเศษ — ไม่มีเหตุผลออกใบไม่ได้";
+  return null;
 }
 
 /** Same validation/shape rules the pre-v2 single-job form used, plus the
@@ -123,12 +172,24 @@ export function buildJobInput(job: JobForm): OemPriceCalcInput | null {
       if (!Number.isFinite(engraveTextThb) || engraveTextThb < 0) return null;
     }
 
+    // 0163: ราคาพิเศษ — validate รูปร่างเท่านั้น (ไม่คิดเงิน ไม่รู้ทุน) · ราคาไม่ถูกต้อง/ไม่มีเหตุผล = null
+    // (ไม่ยิง calc ระหว่างพิมพ์ — เหตุผลไม่ถูกส่งไปถ้าราคายังว่าง) · UI บอกสาเหตุผ่าน barOverrideIssue()
+    let barPriceOverrideThb: number | null = null;
+    let barPriceOverrideReason: string | null = null;
+    if (job.barPriceOverrideThb.trim()) {
+      if (barOverrideIssue(job)) return null;
+      barPriceOverrideThb = Number(job.barPriceOverrideThb);
+      barPriceOverrideReason = job.barPriceOverrideReason.trim();
+    }
+
     return {
       metal: "silver999",
       barSize: job.barSize,
       qty,
       engraveImageThb,
       engraveTextThb,
+      barPriceOverrideThb,
+      barPriceOverrideReason,
     };
   }
 

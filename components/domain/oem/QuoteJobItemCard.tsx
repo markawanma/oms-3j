@@ -10,7 +10,7 @@ import { ChevronDown, ChevronUp, Loader2, Plus, Trash2, X } from "lucide-react";
 import type { OemBarSize, OemMetal, OemPriceCalcResult, OemProductOption } from "@/lib/oem/types";
 import { OEM_BAR_SIZE_LABEL_TH, OEM_METAL_LABEL_TH } from "@/lib/oem/types";
 import type { JobForm } from "@/lib/oem/quoteForm";
-import { OEM_DEFAULT_PURITY } from "@/lib/oem/quoteForm";
+import { OEM_DEFAULT_PURITY, barOverrideIssue } from "@/lib/oem/quoteForm";
 import type { SkuPrefixRow } from "@/lib/catalog/sku-prefix";
 import {
   OEM_BAR_SIZE_WEIGHT_LABEL_TH,
@@ -360,6 +360,48 @@ export function QuoteJobItemCard({
                     placeholder="0"
                   />
                 </label>
+
+                {/* 0163: ราคาพิเศษ — ว่าง = ราคาเว็บวันนี้ตามเดิม · "ต่ำกว่าทุนไหม" ตัดสินที่ DB เท่านั้น
+                    (ฟอร์มนี้ไม่รู้ทุน) ผลโผล่ใน OemBarCalcSummary · เหตุผลไม่ถูกส่งไปคำนวณถ้าราคายังว่าง */}
+                <div className="rounded-md border border-zinc-200 bg-zinc-50/60 p-2.5 sm:col-span-2">
+                  <p className="text-xs font-bold text-zinc-700">
+                    ราคาพิเศษ <span className="font-normal text-zinc-400">ไม่บังคับ</span>
+                  </p>
+                  <p className="mt-0.5 text-[11px] text-zinc-500">
+                    ใช้กับงาน bid / ล็อกราคาล่วงหน้า — ว่างไว้ = ใช้ราคาเว็บวันนี้ · ต่ำกว่าทุนไม่ได้ (ระบบไม่ให้ออกใบ)
+                  </p>
+                  <div className="mt-2 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+                    <label className={labelCls}>
+                      ราคาพิเศษ/แท่ง (บาท ไม่รวมค่ายิงเลเซอร์)
+                      <input
+                        type="number"
+                        inputMode="decimal"
+                        min={0}
+                        step="0.01"
+                        value={job.barPriceOverrideThb}
+                        onChange={(e) => onChange("barPriceOverrideThb", e.target.value)}
+                        className={inputCls}
+                        placeholder="ว่าง = ราคาเว็บ"
+                      />
+                    </label>
+                    <label className={labelCls}>
+                      เหตุผล {job.barPriceOverrideThb.trim() && <span className="text-red-600">*บังคับ</span>}
+                      <input
+                        type="text"
+                        maxLength={200}
+                        value={job.barPriceOverrideReason}
+                        onChange={(e) => onChange("barPriceOverrideReason", e.target.value)}
+                        className={inputCls}
+                        placeholder="เช่น งาน bid ลูกค้า ABC / ล็อกราคาล่วงหน้า"
+                      />
+                    </label>
+                  </div>
+                  {barOverrideIssue(job) && (
+                    <p role="alert" className="mt-1.5 text-xs font-semibold text-amber-700">
+                      {barOverrideIssue(job)}
+                    </p>
+                  )}
+                </div>
               </>
             ) : (
               <>
