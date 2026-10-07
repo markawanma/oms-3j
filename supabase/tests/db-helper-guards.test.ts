@@ -61,3 +61,61 @@ describe("seedTenant → requireAdminUrl guard (ก่อนแตะ DB)", () =
     expect(touched.n).toBe(0);
   });
 });
+
+// ---- QA รอบ 2 (R2-D2 · 7 ต.ค. 69) — เคสที่ "คิดว่าจะหลุด" เพิ่ม · ทุกเคสไม่ต่อ DB จริง ----
+describe("hasDbEnv — ค่าเพี้ยน", () => {
+  it("URL/key เป็นช่องว่างล้วน → false (ไม่ใช่ truthy)", () => {
+    process.env.SUPABASE_URL = "   "; process.env.SUPABASE_SERVICE_ROLE_KEY = "\t"; process.env.TEST_DB_ADMIN_URL = "postgresql://u:p@127.0.0.1:5432/x";
+    expect(hasDbEnv()).toBe(false);
+  });
+  it("มี URL+key แต่ TEST_DB_ADMIN_URL เป็นช่องว่างล้วน → false", () => {
+    process.env.SUPABASE_URL = "http://127.0.0.1:54321"; process.env.SUPABASE_SERVICE_ROLE_KEY = "k"; process.env.TEST_DB_ADMIN_URL = "  ";
+    expect(hasDbEnv()).toBe(false);
+  });
+  it("มีแต่ TEST_DB_ADMIN_URL ไม่มี URL/key → false", () => {
+    process.env.TEST_DB_ADMIN_URL = "postgresql://u:p@127.0.0.1:5432/x";
+    expect(hasDbEnv()).toBe(false);
+  });
+});
+
+describe("requireAdminUrl — ALLOW_SHARED_DB_TEARDOWN ต้องเป็น '1' เป๊ะ", () => {
+  for (const v of ["true", "yes", "1 ", " 1", "01", "11", ""]) {
+    it(`ALLOW=${JSON.stringify(v)} + host ไกล → ยัง throw ไม่แตะ DB`, async () => {
+      process.env.TEST_DB_ADMIN_URL = "postgresql://postgres:pw@db.example.supabase.co:5432/postgres"; process.env.ALLOW_SHARED_DB_TEARDOWN = v;
+      await expect(seedTenant(fakeDb)).rejects.toThrow(/ไม่ใช่เครื่องตัวเอง/);
+      expect(touched.n).toBe(0);
+    });
+  }
+  it("host หลอกด้วย userinfo (127.0.0.1@evil.com) → host จริงคือ evil.com ไม่ผ่าน", async () => {
+    process.env.TEST_DB_ADMIN_URL = "postgresql://127.0.0.1:pw@evil.com:5432/postgres";
+    await expect(seedTenant(fakeDb)).rejects.toThrow(/ไม่ใช่เครื่องตัวเอง/);
+    expect(touched.n).toBe(0);
+  });
+  it("host localhost. (จุดท้าย) / 0.0.0.0 / ::1 ไม่ใส่วงเล็บ → ปฏิเสธแบบอนุรักษ์ ไม่ผ่านเงียบ", async () => {
+    for (const h of ["localhost.", "0.0.0.0"]) {
+      process.env.TEST_DB_ADMIN_URL = `postgresql://postgres:pw@${h}:5432/postgres`;
+      await expect(seedTenant(fakeDb)).rejects.toThrow(/ไม่ใช่เครื่องตัวเอง/);
+    }
+    expect(touched.n).toBe(0);
+  });
+  it("ข้อความ error ของทุกทางปฏิเสธไม่มีรหัสผ่านใน URL", async () => {
+    const urls = ["postgresql://postgres:TOPSECRET@db.example.supabase.co:5432/postgres", "postgresql://postgres:TOPSECRET@evil.com/postgres", "::::TOPSECRET::::"];
+    for (const u of urls) {
+      process.env.TEST_DB_ADMIN_URL = u;
+      await seedTenant(fakeDb).then(() => { throw new Error("should throw"); }, (e: Error) => { expect(e.message).not.toContain("TOPSECRET"); });
+    }
+    expect(touched.n).toBe(0);
+  });
+});
+
+// ช่องที่ยังไม่มีด่าน (finding QA รอบ 2): requireAdminUrl ตรวจแค่ host ของ TEST_DB_ADMIN_URL — ไม่ได้เทียบกับ SUPABASE_URL ที่ seedTenant ใช้สร้างร้านจริง
+// SUPABASE_URL ชี้ DB จริง + TEST_DB_ADMIN_URL ชี้ localhost ⇒ ผ่านด่าน → สร้างร้านทดสอบบน DB จริง แล้ว cleanupTenant ลบที่ localhost (ไม่เจอ) ⇒ ร้านค้างใน DB จริง
+// it.fails = ผ่านตราบที่ช่องนี้ยังไม่ถูกปิด · เมื่อปิดแล้ว test นี้จะ "ล้ม" ให้เปลี่ยนเป็น it ปกติ
+describe("KNOWN GAP — SUPABASE_URL กับ TEST_DB_ADMIN_URL คนละ DB", () => {
+  it.fails("SUPABASE_URL = ไม่ใช่เครื่องตัวเอง + TEST_DB_ADMIN_URL = localhost (ไม่ตั้ง ALLOW) ควรถูกปฏิเสธก่อนแตะ DB", async () => {
+    process.env.SUPABASE_URL = "https://prod-project.supabase.co"; process.env.SUPABASE_SERVICE_ROLE_KEY = "k";
+    process.env.TEST_DB_ADMIN_URL = "postgresql://postgres:pw@127.0.0.1:54322/postgres";
+    await expect(seedTenant(fakeDb)).rejects.toThrow(/SUPABASE_URL|ไม่ใช่เครื่องตัวเอง/);
+    expect(touched.n).toBe(0);
+  });
+});
