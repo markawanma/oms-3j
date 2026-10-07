@@ -227,13 +227,29 @@ export function hasAnyContact(a: string | null | undefined, b: string | null | u
 /** 0164: เพดานความยาวของชื่อลูกค้า/ช่องทางติดต่อบนใบเสนอราคา (DB บังคับซ้ำที่ oem_quote_set_customer) */
 export const OEM_CUSTOMER_TEXT_MAX = 200;
 
-/** 0164: ตรวจชื่อลูกค้า / ช่องทางติดต่อ (หลัง trim) ก่อนส่งไป oem_quote_set_customer — null = ใช้ได้ (ว่าง = ล้างค่า).
- * กฎเดียวกับ DB: ไม่เกิน 200 ตัวอักษร · ห้าม control/ขึ้นบรรทัดใหม่/tab · ห้าม bidi/zero-width
- * (ชื่อนี้ถูกพิมพ์บนใบเสนอราคาที่ส่งลูกค้า). UX เท่านั้น — ด่านจริงอยู่ที่ DB. */
-export function customerTextIssue(value: string | null | undefined, label: string): string | null {
-  const v = (value ?? "").trim();
+/** 0165: อักขระล่องหน/bidi/zero-width ที่ห้ามอยู่ในข้อความที่ขึ้นเอกสาร (ชื่อลูกค้า/ช่องทางติดต่อ/เหตุผลราคาพิเศษ)
+ * ชุดเดียวกับ analytics.oem_text_strip_invisible (0165) — แก้ที่หนึ่งต้องแก้อีกที่ · ไม่รวม U+FE00-FE0F (emoji VS16)
+ * ZWJ (U+200D) ผ่านเฉพาะที่คั่นระหว่างสัญลักษณ์/อีโมจิสองตัว (อีโมจิครอบครัว) ZWJ ที่อื่นถือเป็นล่องหน */
+const OEM_INVISIBLE_RE =
+  /[\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180E\u200B\u200C\u200E\u200F\u2028-\u202E\u2060-\u206F\u3164\uFEFF\uFFA0\u{1BCA0}-\u{1BCA3}\u{E0100}-\u{E01EF}]|(?<![\u2600-\u27BF\u2B00-\u2BFF\u{1F000}-\u{1FAFF}\uFE0F])\u200D|\u200D(?![\u2600-\u27BF\u2B00-\u2BFF\u{1F000}-\u{1FAFF}])/u;
+const OEM_INVISIBLE_RE_G = new RegExp(OEM_INVISIBLE_RE.source, "gu");
+const OEM_CONTROL_RE = /[\u0000-\u001F\u007F-\u009F]/;
+
+/** 0165 L2: ลบอักขระล่องหน/bidi ออกจากข้อความ (ใช้กับเหตุผลราคาพิเศษ — ว่างหลังลบ = ไม่มีเหตุผล) · ไม่ใช่ string = "" */
+export function stripInvisibleText(value: unknown): string {
+  return typeof value === "string" ? value.replace(OEM_INVISIBLE_RE_G, "") : "";
+}
+
+/** 0164/0165: ตรวจชื่อลูกค้า / ช่องทางติดต่อ (หลัง trim) ก่อนส่งไป oem_quote_save / oem_quote_set_customer — null = ใช้ได้
+ * (ว่าง = ล้างค่า). กฎเดียวกับ DB (analytics.oem_customer_text_clean): ไม่เกิน 200 ตัวอักษร · ห้าม control/ขึ้นบรรทัดใหม่/tab ·
+ * ห้าม bidi/zero-width/ล่องหน (ชื่อนี้ถูกพิมพ์บนใบเสนอราคาที่ส่งลูกค้า). UX เท่านั้น — ด่านจริงอยู่ที่ DB.
+ * 0165 L6: ค่าที่ไม่ใช่ string/null (เช่น number จาก caller ที่ข้าม type) = ข้อความไทย ไม่ throw (.trim() บน number = 500) */
+export function customerTextIssue(value: unknown, label: string): string | null {
+  if (value == null) return null;
+  if (typeof value !== "string") return label + "ต้องเป็นข้อความ";
+  const v = value.trim();
   if (!v) return null;
-  if (/[\u0000-\u001F\u007F-\u009F​-‏‪-‮⁠-⁤⁦-⁩﻿]/.test(v)) {
+  if (OEM_CONTROL_RE.test(v) || OEM_INVISIBLE_RE.test(v)) {
     return label + "ห้ามมีขึ้นบรรทัดใหม่ tab หรืออักขระควบคุม/ล่องหน";
   }
   if ([...v].length > OEM_CUSTOMER_TEXT_MAX) {

@@ -11,6 +11,7 @@ const schemaMock = vi.fn();
 const revalidateMock = vi.fn();
 
 vi.mock("@/lib/auth/role", () => ({ getEffectiveRole: () => getEffectiveRoleMock() }));
+vi.mock("@/lib/auth/session", () => ({ getSessionUser: async () => null })); // 0165: ไม่มี session = ไม่ส่ง p_actor_id
 vi.mock("@/lib/dev/context", () => ({ getDevShopId: () => "shop-1" }));
 vi.mock("@/lib/supabase/server", () => ({
   getServiceClient: () => ({
@@ -87,9 +88,9 @@ describe("setQuoteCustomer", () => {
     ["ชื่อมี newline", { customerName: "a\nb" }],
     ["ช่องทางมี tab", { customerContact: "a\tb" }],
     ["ชื่อมี control 0x01", { customerName: "a\u0001b" }],
-    ["ชื่อมี RLO", { customerName: "ชื่อ‮ปลอม" }],
-    ["ชื่อมี zero-width", { customerName: "ชื่อ​ลับ" }],
-    ["ช่องทางมี BOM กลางข้อความ", { customerContact: "li﻿ne" }],
+    ["ชื่อมี RLO", { customerName: "ชื่อ\u202Eปลอม" }],
+    ["ชื่อมี zero-width", { customerName: "ชื่อ\u200Bลับ" }],
+    ["ช่องทางมี BOM กลางข้อความ", { customerContact: "li\uFEFFne" }],
   ])("ปฏิเสธก่อนถึง RPC: %s", async (_label, over) => {
     const { setQuoteCustomer } = await import("./oem");
     const r = await setQuoteCustomer({ quoteId: "quote-1", ...over });

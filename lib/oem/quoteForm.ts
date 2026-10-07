@@ -17,6 +17,7 @@
 // off this number, only off each item's own (already-gated) floors.
 
 import type { OemBarSize, OemMetal, OemPriceCalcInput, OemPriceCalcResult } from "./types";
+import { stripInvisibleText } from "./display";
 
 export const OEM_DEFAULT_PURITY: Record<OemMetal, string> = { silver: "0.925", gold: "", brass: "1", silver999: "" };
 
@@ -148,7 +149,8 @@ export function barOverrideIssue(job: JobForm): string | null {
     return "ราคาพิเศษต้องเป็นตัวเลขมากกว่า 0 และไม่เกิน 1,000,000 บาท";
   }
   if (Math.round(price * 100) / 100 !== price) return "ราคาพิเศษใส่ทศนิยมได้ไม่เกิน 2 ตำแหน่ง";
-  if (!job.barPriceOverrideReason.trim()) return "กรอกเหตุผลราคาพิเศษ — ไม่มีเหตุผลออกใบไม่ได้";
+  // 0165 L2: เหตุผลที่มีแต่อักขระล่องหน (U+2060/U+FEFF/U+202E ...) = ไม่มีเหตุผล (DB ลบแล้ว trim แล้วปฏิเสธเหมือนกัน)
+  if (!stripInvisibleText(job.barPriceOverrideReason).trim()) return "กรอกเหตุผลราคาพิเศษ — ไม่มีเหตุผลออกใบไม่ได้";
   return null;
 }
 
@@ -179,7 +181,7 @@ export function buildJobInput(job: JobForm): OemPriceCalcInput | null {
     if (job.barPriceOverrideThb.trim()) {
       if (barOverrideIssue(job)) return null;
       barPriceOverrideThb = Number(job.barPriceOverrideThb);
-      barPriceOverrideReason = job.barPriceOverrideReason.trim();
+      barPriceOverrideReason = stripInvisibleText(job.barPriceOverrideReason).trim();
     }
 
     return {

@@ -31,7 +31,7 @@ snapshot ใน `oem_quote_item.calc`:
 - `breakdown.bar.web_price_per_piece` = ราคาเว็บวันนั้น · `breakdown.bar.override = {thb, reason}` · `cost_piece` สูตรเดิม (override ไม่แตะฝั่งทุน)
 - `floors.bar_price = {applies:true, pass:bool}`
 - 🔴 key ใหม่ emit **เฉพาะเมื่อมี override** ⇒ เคสไม่มี override ได้ jsonb byte-identical
-- ผู้กรอก/เวลา = `oem_quote.updated_by/updated_at` (ไม่ stamp ซ้ำ)
+- ผู้กรอก/เวลา = `oem_quote.updated_by/updated_at` (ไม่ stamp ซ้ำ) — 🔴 **เป็นจริงหลัง 0165 เท่านั้น**: ก่อนหน้านั้นแอปเรียก RPC ด้วย service client ⇒ `auth.uid()` เป็น null ⇒ `updated_by` ว่างทุกใบ (security M2) · หลัง 0165 ได้ค่าเมื่อ server action ส่ง `p_actor_id` จาก session — ใบที่ออกก่อน 0165 ยังว่างถาวร
 - header `rate_snapshot.bar_valid_until_requested` เฉพาะใบที่มี override
 
 ## 2. `oem_price_calc` branch silver999
@@ -96,10 +96,18 @@ snapshot ใน `oem_quote_item.calc`:
 3. draft มี override ยังไม่กรอกวัน → **บันทึกได้** ตรวจตอน quoted
 4. โชว์ "ขั้นต่ำที่รับได้" ในหน้า admin → **โชว์เฉพาะตอนต่ำกว่าทุน** (หน้า admin เท่านั้น · print boundary คือด่านจริง) · แก้คอมเมนต์หัว `OemBarCalcSummary` ให้ตรง
 5. ใบผสม override + แท่งราคาเว็บ → **อายุ = วันนี้ + UI เตือน**
+6. 🔴 **มติเจ้าของ 7 ต.ค. 69 (security M1) — ไม่แก้**: ใบราคาพิเศษที่พ้นวันยืนราคาแล้ว **ยังออกใบเสร็จ/รับมัดจำได้ตามเดิม** (0084 ตั้งใจ — ใบเสร็จอ่าน `grand_total` จากแถว quote ไม่เช็ควันหมดอายุ)
+   - เหตุผล: "เจ้าของคุมเอง" — เจ้าของเป็นคนตัดสินใจรับเงิน/ทำตามราคาที่เคยเสนอ แม้พ้นวัน (เช่น ลูกค้าประจำมาจ่ายช้า)
+   - ความเสี่ยงที่รับ: ราคาเงินขึ้นหลังพ้นวันยืนราคา แต่รับเงินที่ราคาพิเศษเดิม ⇒ **ขายต่ำกว่าทุนวันรับเงินได้** (ด่าน "ห้ามต่ำกว่าทุน" ตรวจเทียบทุน ณ วันออกใบเท่านั้น ไม่ตรวจซ้ำตอนรับเงิน) · ระบบไม่เตือนที่หน้ารับเงิน
+   - ไม่มีโค้ดรองรับ — ถ้าเจ้าของเปลี่ยนใจ ต้องเพิ่มด่านที่ `oem_receipt_issue` (เทียบ `quote_valid_until` กับวันนี้ BKK) แยกรอบ
 
 ## 10. หนี้ (โหมดเร่งด่วน)
 - D1 ข้าม security-auditor / qa-tester / code-reviewer — ควรตรวจย้อนหลัง (เน้น RPC ตรง, ใบผสม+ส่วนลด, RSC payload หน้าพิมพ์)
 - D2 รายงาน "ใบไหนใช้ราคาพิเศษ" ยังไม่มี — query `calc->'breakdown'->'bar'->'override'` ได้
+- D3 (security M2 — หนี้ที่รู้ตัว ไม่แก้รอบ 0165) ฟังก์ชัน OEM อื่นที่เขียน `updated_by = auth.uid()` เป็น null เหมือนกันเมื่อเรียกผ่าน service client: `oem_quote_set_billing` · `set_deposit` · `set_vat_mode` · `set_status` · `oem_quote_renegotiate` · `oem_receipt_*` — ต้องเติม `p_actor_id` แบบเดียวกับ 0165 ทีละตัว · ใบ/แถวที่แก้ก่อน 0165 ว่างถาวร
+- D4 (security L3 — ไม่แก้) ส่วนลดของใบผสมงานผลิต + แท่ง "กินส่วนแท่งได้ในเชิงเศรษฐศาสตร์": ส่วนลดเป็นก้อนเดียวระดับใบ ด่าน hard floor/blended ตรวจรวมทั้งใบ ไม่ได้บังคับให้ส่วนลดตกที่งานผลิตเท่านั้น — แท่งที่ราคาพิเศษเท่าทุนพอดีรวมกับส่วนลดอาจทำให้ส่วนของแท่งขายต่ำกว่าทุนจริงขณะที่ margin รวมยังเกินด่าน (ด่านรายชิ้น "ต่ำกว่าทุน" ตรวจก่อนหักส่วนลด)
+- D5 (security L4 — ตั้งใจ) `oem_quote_renegotiate` ใบราคาพิเศษไม่เทียบทุนวันนี้ซ้ำ แต่ **ไม่ยืดวันยืนราคา** (สืบทอดวันเดิม `greatest(เดิม − วันนี้, 0)`) — ต่อรองได้แต่ราคาไม่ยืนนานกว่าที่เสนอไว้
+- D6 (security L5 — ยอมรับ) หน้า admin โชว์ "ทุนต่อชิ้น" เมื่อราคาพิเศษต่ำกว่าทุน (ต้องใช้ปรับราคา) — ระวังแชร์จอ/screenshot หน้านี้ให้ลูกค้า · ด่านจริงของ "ไม่หลุดถึงลูกค้า" คือ `PrintableQuote` (ไม่มี field)
 
 ## 11. เบี่ยงจาก design ตอน implement (Han Solo · 7 ต.ค. 69 · apply แล้ว version 20261007115504)
 - ราคาพิเศษทศนิยมเกิน 2 ตำแหน่ง = ปฏิเสธ (22023) — design ไม่ได้ระบุ · กัน "ราคาต่อแท่งกับยอดรวมที่ปัดแล้วบวกไม่ลง" (oem-quote-invariants ข้อ 3)
@@ -107,3 +115,13 @@ snapshot ใน `oem_quote_item.calc`:
 - ไม่มีราคารับซื้อคืนวันนี้ + มี override → is_complete=false + missing `silver_bar_buyback` (ตาม §2.4) · เพดาน 2x ตรวจก่อน (ถ้ามีราคาเว็บ)
 - UI: ช่องเหตุผล approval_note ของใบ (ระดับใบ) แสดงเมื่อ `มีรายการที่ margin รายชิ้นเป็น null (เงินแท่ง) และ margin รวม < floor` แม้ไม่ลดราคา — ให้ตรงกับ DB (0079-fix) · เดิม UI เช็คแค่ discount>0 ทำให้ใบราคาพิเศษที่ margin บางชนด่านโดยไม่มีช่องให้กรอก
 - ไม่มี flow เปิดร่างกลับเป็น JobForm ในโค้ดปัจจุบัน (หน้า /oem/quote สร้างใหม่อย่างเดียว) — คำเตือน Yoda: `fromInputPayload` อ่าน override กลับครบแล้ว + `rate_snapshot.bar_valid_until_requested` เก็บวันของร่างไว้ · ใครสร้าง flow rehydrate ต้องเติม barPriceOverrideThb/Reason + barValidUntil เอง (เทสต์ getQuoteItems ล็อกฝั่งอ่านไว้)
+
+## 12. แก้ตาม security ตรวจย้อนหลัง — 0165 (Han Solo · 7 ต.ค. 69 · branch `fix/oem-override-hardening`)
+- **M2** `p_actor_id uuid default null` เพิ่มท้าย `oem_quote_save` (11-arg) และ `oem_quote_set_customer` (5-arg): `v_actor = coalesce(auth.uid(), id ที่มีอยู่จริงใน auth.users)` — ค่าที่ไม่มีใน auth.users กลายเป็น null (ไม่ล้มด้วย FK) · ใช้กับ created_by/updated_by/approved_by ของ save · server action ส่งเฉพาะ id จาก `getSessionUser()` (ไม่มี field รับจาก client) · ไม่มี session = ไม่ส่ง key = พฤติกรรมเดิม
+- **audit** การแก้ชื่อ/ช่องทางติดต่อ: ตารางใหม่ `analytics.oem_quote_audit` (ไม่ใช้ `crm_audit_log` เพราะ CHECK action เฉพาะ CRM) append-only: trigger กัน UPDATE/DELETE/TRUNCATE + service_role ได้แค่ select/insert · `created_at` ใช้ `clock_timestamp()` ไม่ใช่ `now()` (หลายครั้งในทรานแซกชันเดียวต้องเรียงลำดับได้) · ไม่ใส่ FK ตั้งใจ (FK cascade/set null จะยิง UPDATE/DELETE ชน trigger)
+- **M3 + L1** helper เดียว `analytics.oem_customer_text_clean` (+ `oem_text_strip_invisible`) ใช้ทั้งใน `oem_quote_save` และ `oem_quote_set_customer` · ชุดอักขระล่องหน/bidi ตามบรีฟ + C1/control · ฝั่ง JS `lib/oem/display.ts` ชุดเดียวกัน (`display-customer-text.test.ts` ล็อก 40 code point คู่กับ verify-0165) · `saveQuote` action เรียก `customerTextIssue` ด้วย
+  - ⚠️ เบี่ยงจากบรีฟ: ZWJ (U+200D) อยู่ในช่วง U+200B-200F ของชุดที่สั่งห้าม แต่บรีฟสั่งให้อีโมจิ ZWJ ผ่าน — จึงยอม ZWJ เฉพาะที่ **คั่นระหว่างสัญลักษณ์/อีโมจิสองตัว** (U+2600-27BF · 2B00-2BFF · 1F000-1FAFF · FE0F) ZWJ ติดอักษรไทย/ละติน/ต้นท้ายข้อความยังถูกปฏิเสธ
+  - เพิ่มเอง: ช่องว่างล้วนทุกชนิด (NBSP/em-space/ideographic) = null แทน "ชื่อล่องหน" · U+115F และ U+3164 (Hangul filler) ในชุดล่องหน
+  - พฤติกรรมเปลี่ยนจาก 0164: tab/newline ท้ายข้อความถูก trim ทิ้ง (เดิมปฏิเสธ) — ยังปฏิเสธเมื่ออยู่กลางข้อความ
+- **L2** เหตุผลราคาพิเศษ: ลบอักขระล่องหน/bidi ก่อน trim → ว่าง = ไม่มีเหตุผล = raise · เหตุผลปกติที่ฝังอักขระล่องหนถูกลบก่อนเก็บ · แตะ `oem_price_calc` ⇒ rename→legacy + golden replay strict (3,283 เคส)
+- **L6** `typeof` ก่อน `.trim()`/regex ใน `validateBarOverride` · เช็ค `barValidUntil` · `setQuoteCustomer` (quoteId/ชื่อ/ช่องทาง) → ข้อความไทย ไม่ใช่ 500

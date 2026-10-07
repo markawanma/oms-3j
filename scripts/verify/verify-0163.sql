@@ -136,9 +136,9 @@ begin
   select count(*) into v_cnt from pg_proc where pronamespace = 'analytics'::regnamespace and proname = 'oem_price_calc_legacy';
   v_log := v_log || pg_temp.chk('S2', 'oem_price_calc_legacy ถูก drop แล้ว', v_cnt = 0);
   select count(*) into v_cnt from pg_proc where pronamespace = 'analytics'::regnamespace
-    and proname = 'oem_quote_save' and pronargs = 10 and pronargdefaults >= 1
+    and proname = 'oem_quote_save' and pronargs >= 10 and pronargdefaults >= 1
     and 'p_bar_valid_until' = any (proargnames);
-  v_log := v_log || pg_temp.chk('S3', 'oem_quote_save เป็น 10-arg มี p_bar_valid_until + default', v_cnt = 1);
+  v_log := v_log || pg_temp.chk('S3', 'oem_quote_save ตั้งแต่ 10-arg ขึ้นไป (0165 เพิ่ม p_actor_id) มี p_bar_valid_until + default', v_cnt = 1);
   select count(*) into v_cnt
     from pg_proc p cross join lateral aclexplode(p.proacl) a
     where p.pronamespace = 'analytics'::regnamespace
@@ -264,7 +264,7 @@ begin
   v_log := v_log || pg_temp.chk('C7c', 'เหตุผล "" → raise 22023', v_r like 'ERR:22023:%');
   v_r := pg_temp.t_calc(v_shop, pg_temp.bar_input('1_baht', 1, '1100', E'   \t \n '));
   v_log := v_log || pg_temp.chk('C7d', 'เหตุผลเว้นวรรค/tab/newline ล้วน → raise 22023', v_r like 'ERR:22023:%');
-  v_r := pg_temp.t_calc(v_shop, pg_temp.bar_input('1_baht', 1, '1100', E' ​ '));
+  v_r := pg_temp.t_calc(v_shop, pg_temp.bar_input('1_baht', 1, '1100', E'\u00A0\u200B '));
   v_log := v_log || pg_temp.chk('C7e', 'เหตุผล nbsp/zero-width ล้วน → raise 22023', v_r like 'ERR:22023:%');
   v_r := pg_temp.t_calc(v_shop, pg_temp.bar_input('1_baht', 1, null, 'เหตุผลลอย'));
   v_log := v_log || pg_temp.chk('C7f', 'มีเหตุผลแต่ไม่มี override → raise 22023', v_r like 'ERR:22023:%');
