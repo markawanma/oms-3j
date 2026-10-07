@@ -213,6 +213,7 @@ declare
   v_open10  int;       -- จำนวนชิ้นค้างจริงของ 10.10
   v_through date;
   v_thr_shop date;
+  v_thr_chan date;   -- R-H1 รอบ 2: วันล่าสุดของช่อง line_oa (แคมเปญ 10.10 นับ line_oa)
   v_prop    text;
   v_actual  int;
   v_ind     int;
@@ -398,8 +399,10 @@ begin
       format('view=%s ดิบ=%s', r.orders_actual, v_ind));
     -- SEC-H1: data_through = วันล่าสุดที่ "ร้าน" มีออเดอร์ทุกช่องทาง (ไม่กรอง line_oa) — ไฟล์ import เข้าทีเดียวทุกช่องทาง
     select max(order_date) into v_thr_shop from analytics.fact_order where shop_id = v_shop;
-    v_log := v_log || pg_temp.vb('C3b', 'orders_data_through = วันล่าสุดที่ร้านมีออเดอร์ (ทุกช่องทาง) · covers_window = (through ≥ 10 ต.ค.) = ' || (v_thr_shop >= date '2026-10-10')::text,
-      r.orders_data_through = v_thr_shop and r.orders_data_covers_window = (v_thr_shop >= date '2026-10-10'), format('through=%s (LINE %s) covers=%s', r.orders_data_through, v_through, r.orders_data_covers_window));
+    select max(fo.order_date) into v_thr_chan from analytics.fact_order fo join analytics.dim_channel dc on dc.id = fo.channel_id where fo.shop_id = v_shop and dc.code = 'line_oa';
+    v_log := v_log || pg_temp.vb('C3b', 'orders_data_through = วันล่าสุดที่ร้านมีออเดอร์ (ทุกช่องทาง) · channel_data_through = วันล่าสุดของ line_oa · covers_window (R-H1 รอบ 2) = (ร้านถึง > 10 ต.ค.) และ (line_oa ถึง ≥ 10 ต.ค.) = ' || coalesce((v_thr_shop > date '2026-10-10' and v_thr_chan >= date '2026-10-10')::text, 'false'),
+      r.orders_data_through = v_thr_shop and r.orders_channel_data_through is not distinct from v_thr_chan
+      and r.orders_data_covers_window is not distinct from coalesce(v_thr_shop > date '2026-10-10' and v_thr_chan >= date '2026-10-10', false), format('through=%s (LINE %s) covers=%s', r.orders_data_through, v_through, r.orders_data_covers_window));
     v_log := v_log || pg_temp.note('C3c', format('10.10 วันนี้: นับได้ %s ออเดอร์ (เกณฑ์ ≥ 6) · ข้อมูลถึง %s · covers_window=%s · threshold_met=%s — ⚠️ 0 ออเดอร์ที่นี่แปลว่า "ข้อมูลยังไม่เข้า" ไม่ใช่ "แคมเปญล้มเหลว" ถ้า through < 10 ต.ค.',
       r.orders_actual, r.orders_data_through, r.orders_data_covers_window, r.orders_threshold_met));
     select count(*) filter (where piece_status is not null), count(*) filter (where piece_status = 'posted'),
@@ -429,8 +432,10 @@ begin
         end if;
         select orders_actual, orders_data_covers_window into v_actual, v_c10 from analytics.v_campaign_summary where campaign_id = c_camp;
         v_ind := pg_temp.ind(v_shop, r.d1, r.d2, case when v_t = 'null' then null else v_t end, split_part(v_t2, '|', 2));
-        v_log := v_log || pg_temp.vb('C4 ' || r.lbl || ' ' || v_t2, 'orders_actual = นับอิสระ · covers = (through ≥ วันสุดท้าย)', v_actual = v_ind and v_c10 is not distinct from (
-            (select max(fo.order_date) from analytics.fact_order fo where fo.shop_id = v_shop) >= r.d2),
+        v_log := v_log || pg_temp.vb('C4 ' || r.lbl || ' ' || v_t2, 'orders_actual = นับอิสระ · covers = (ร้านถึง > วันสุดท้าย) และ (ช่องที่นับถึง ≥ วันสุดท้าย — ถ้าระบุช่องทาง)', v_actual = v_ind and v_c10 is not distinct from coalesce(
+            (select max(fo.order_date) from analytics.fact_order fo where fo.shop_id = v_shop) > r.d2
+            and (v_t = 'null' or (select max(fo.order_date) from analytics.fact_order fo join analytics.dim_channel dc on dc.id = fo.channel_id
+                                   where fo.shop_id = v_shop and dc.code = v_t) >= r.d2), false),
           format('view=%s ดิบ=%s covers=%s', v_actual, v_ind, v_c10));
         v_log := v_log || pg_temp.sig('C4.' || r.lbl || '.' || v_t2, v_actual::text);   -- ข้อมูลจริงเสถียร ⇒ เทียบข้ามรอบได้
       end loop;
@@ -485,6 +490,48 @@ begin
       v_log := v_log || pg_temp.vb('C8c', format('SEC-H1 บนข้อมูลจริง: ข้อมูลร้านถึง %s แต่ช่วงจบ %s (covers=false · นับได้ %s) ⇒ AI เสนอ invalidated ถูกปฏิเสธ 55000', r.orders_data_through, r.orders_window_to, r.orders_actual), v_t like 'ERR:55000%', left(v_t, 90));
       v_t := pg_temp.ok('service_role', pg_temp.q_prop(v_shop, c_camp, 'inconclusive', 'ข้อมูลออเดอร์ยังไม่ถึงวันสุดท้ายของช่วง — ยังตัดสินไม่ได้', 'ai'));
       v_log := v_log || pg_temp.vb('C8d', 'ข้อมูลยังไม่ถึง: AI ยังเสนอ inconclusive ได้ (ปิดได้ทุกเมื่อ — Q12)', v_t = 'OK', v_t);
+    end if;
+
+    -- R-H1 รอบ 2 บนข้อมูลจริง (sub-block ที่ rollback เอง — ไม่กระทบแผนของ 10.10 ที่ C9 ใช้ต่อ)
+    --   C8e วันท้ายของข้อมูลจริง: ช่วง X..X โดย X = วันล่าสุดที่ร้านมีออเดอร์ (ไฟล์ยังเข้าไม่ครบวันนั้น — พิสูจน์แล้ว 6 ต.ค.: LINE มี TikTok 0) ⇒ ไม่มีข้อมูลวันหลัง ⇒ ฟันธงไม่ได้
+    --   C8f ช่องทางที่ข้อมูลช้ากว่าร้านอย่างน้อย 2 วัน (ถ้ามีจริง): ช่วง (วันล่าสุดของช่อง + 1) ทั้งที่ร้านมีข้อมูลหลังจากนั้น ⇒ ช่องนี้ไม่ครอบ · ไม่มีช่องที่ช้าพอ = [NOTE] (สร้างด้วยข้อมูลจริงไม่ได้ — fixture อยู่ verify-0162 H1n)
+    if v_thr_shop is not null then
+      begin
+        perform pg_temp.vj('service_role', pg_temp.q_plan(v_shop, c_camp, format('{"metric_channel_code":"line_oa","metric_affinity":"all","metric_date_from":"%s","metric_date_to":"%s","pass_threshold":1,"pass_op":">="}', v_thr_shop, v_thr_shop), 'owner'));
+        select * into r from analytics.v_campaign_summary where campaign_id = c_camp;
+        v_t := pg_temp.vq('service_role', pg_temp.q_prop(v_shop, c_camp, 'invalidated', 'วันท้ายของข้อมูลจริงยอดไม่ถึงเกณฑ์', 'ai'));
+        v_log := v_log || pg_temp.vb('C8e', format('วันท้ายของข้อมูลจริง (ร้านถึง %s · ช่วง %s..%s · line_oa): covers=false (ไม่มีข้อมูลวันหลัง) ⇒ AI เสนอ invalidated ถูกปฏิเสธ 55000', r.orders_data_through, r.orders_window_from, r.orders_window_to),
+          r.orders_data_covers_window is false and v_t like 'ERR:55000%', left(v_t, 90));
+        v_t := pg_temp.vq('service_role', pg_temp.q_prop(v_shop, c_camp, 'validated', 'วันท้ายของข้อมูลจริงยอดถึงเกณฑ์', 'ai'));
+        v_log := v_log || pg_temp.vb('C8e2', 'วันท้ายของข้อมูลจริง: AI เสนอ validated ถูกปฏิเสธ 55000 เช่นกัน', v_t like 'ERR:55000%', left(v_t, 90));
+        raise exception 'c8e-rb';
+      exception when others then
+        if sqlerrm <> 'c8e-rb' then
+          v_log := v_log || format(E'[FAIL] C8e ABORT sqlstate=%s msg=%s\n', sqlstate, left(sqlerrm, 200));
+        end if;
+      end;
+      select dc.code, max(fo.order_date) as d into v_t, v_thr_chan
+        from analytics.fact_order fo join analytics.dim_channel dc on dc.id = fo.channel_id
+       where fo.shop_id = v_shop
+       group by dc.code
+      having max(fo.order_date) + 1 < v_thr_shop
+       order by max(fo.order_date) limit 1;
+      if v_t is null then
+        v_log := v_log || pg_temp.note('C8f', 'ไม่มีช่องทางที่ข้อมูลช้ากว่าร้านเกิน 1 วันในข้อมูลจริงตอนนี้ — ไม่ได้ทดสอบ "ช่องอื่นมีข้อมูลแต่ช่องนี้ไม่มี" บนข้อมูลจริง (ครอบด้วย fixture ที่ verify-0162 H1n/H1o)');
+      else
+        begin
+          perform pg_temp.vj('service_role', pg_temp.q_plan(v_shop, c_camp, format('{"metric_channel_code":"%s","metric_affinity":"all","metric_date_from":"%s","metric_date_to":"%s","pass_threshold":1,"pass_op":">="}', v_t, v_thr_chan + 1, v_thr_chan + 1), 'owner'));
+          select * into r from analytics.v_campaign_summary where campaign_id = c_camp;
+          v_t2 := pg_temp.vq('service_role', pg_temp.q_prop(v_shop, c_camp, 'invalidated', 'ช่องที่ข้อมูลช้ากว่า ยอดไม่ถึงเกณฑ์', 'ai'));
+          v_log := v_log || pg_temp.vb('C8f', format('ช่อง %s ข้อมูลถึง %s แต่ร้านถึง %s: ช่วง %s..%s ⇒ covers=false · AI เสนอ invalidated ถูกปฏิเสธ 55000', v_t, v_thr_chan, r.orders_data_through, r.orders_window_from, r.orders_window_to),
+            r.orders_data_covers_window is false and v_t2 like 'ERR:55000%', left(v_t2, 90));
+          raise exception 'c8f-rb';
+        exception when others then
+          if sqlerrm <> 'c8f-rb' then
+            v_log := v_log || format(E'[FAIL] C8f ABORT sqlstate=%s msg=%s\n', sqlstate, left(sqlerrm, 200));
+          end if;
+        end;
+      end if;
     end if;
 
     -- C9: วงจร propose (AI) → inbox → confirm (owner) บน 10.10 จริง

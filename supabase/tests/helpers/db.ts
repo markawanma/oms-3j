@@ -35,6 +35,8 @@
 //                                 teardown — without it the whole suite is skipped (hasDbEnv)
 //   ALLOW_SHARED_DB_TEARDOWN=1   required when TEST_DB_ADMIN_URL host is not localhost/127.0.0.1
 //                                 (this project has a single shared DB — see .env.test.example)
+//   (R2-3) TEST_DB_ADMIN_URL must point at the SAME project as SUPABASE_URL (project ref compared) — a
+//   mismatch throws before any shop is created; ALLOW_SHARED_DB_TEARDOWN does not bypass it
 //
 // No secrets are hardcoded here (CLAUDE.md hard rule) — every credential comes
 // from process.env, and tests that need them skip loudly (not silently) via
@@ -374,6 +376,61 @@ const LOCAL_DB_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 // ร้านทดสอบต้องเพิ่งถูกสร้าง — กันลบร้านเก่า/ร้านจริงที่ชื่อบังเอิญขึ้นต้นเหมือนกัน
 const TEST_SHOP_MAX_AGE_SQL = "interval '1 hour'";
 
+// project ref ของ Supabase อยู่ได้ 2 ที่: host (<ref>.supabase.co · db.<ref>.supabase.co) หรือ username แบบ pooler (postgres.<ref>)
+const SUPABASE_API_HOST_RE = /^([a-z0-9]{10,40})\.supabase\.(?:co|in|net)$/;
+const SUPABASE_DIRECT_DB_HOST_RE = /^db\.([a-z0-9]{10,40})\.supabase\.(?:co|in|net)$/;
+const SUPABASE_POOLER_HOST_RE = /(?:^|\.)pooler\.supabase\.com$/;
+const SUPABASE_POOLER_USER_RE = /^[a-z_][a-z0-9_]*\.([a-z0-9]{10,40})$/;
+
+/** "local" = เครื่องตัวเอง · "<ref>" = project บน Supabase · null = ระบุไม่ได้ (custom domain ฯลฯ) — ห้ามใส่ raw ลงข้อความ error */
+function projectOfSupabaseUrl(raw: string): string | null {
+  try {
+    const host = new URL(raw).hostname.toLowerCase();
+    if (LOCAL_DB_HOSTS.has(host)) return "local";
+    return SUPABASE_API_HOST_RE.exec(host)?.[1] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function projectOfAdminUrl(raw: string): string | null {
+  try {
+    const u = new URL(raw);
+    const host = u.hostname.toLowerCase();
+    if (LOCAL_DB_HOSTS.has(host)) return "local";
+    const direct = SUPABASE_DIRECT_DB_HOST_RE.exec(host)?.[1];
+    if (direct) return direct;
+    if (SUPABASE_POOLER_HOST_RE.test(host)) return SUPABASE_POOLER_USER_RE.exec(decodeURIComponent(u.username))?.[1] ?? null;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * R2-3 (security): ชุดนี้สร้างร้านทดสอบผ่าน SUPABASE_URL แต่ "ลบ" ผ่าน TEST_DB_ADMIN_URL — ถ้าสองตัวชี้คนละ DB
+ * (เช่น URL = DB จริง · ADMIN = localhost) ร้านที่สร้างจะลบไม่ได้และค้างใน DB จริง · ALLOW_SHARED_DB_TEARDOWN ไม่ข้ามด่านนี้
+ * ระบุ project ไม่ได้ทั้งสองฝั่ง = ปฏิเสธแบบอนุรักษ์ (ไม่เดาว่าเป็น DB เดียวกัน)
+ */
+function assertSameProject(adminUrl: string): void {
+  const apiUrl = process.env.SUPABASE_URL?.trim();
+  if (!apiUrl) {
+    throw new Error(
+      "ไม่พบ SUPABASE_URL — เทียบไม่ได้ว่า TEST_DB_ADMIN_URL ชี้ DB เดียวกับที่ชุดทดสอบจะสร้างร้านทดสอบหรือไม่ " +
+        "(ร้านที่สร้างจะลบไม่ได้ถ้าคนละ DB) · ยังไม่ได้สร้างร้านทดสอบ จึงหยุดก่อน",
+    );
+  }
+  const apiProject = projectOfSupabaseUrl(apiUrl);
+  const adminProject = projectOfAdminUrl(adminUrl);
+  if (apiProject === null || adminProject === null || apiProject !== adminProject) {
+    throw new Error(
+      `SUPABASE_URL (project ${apiProject ?? "ระบุไม่ได้"}) กับ TEST_DB_ADMIN_URL (project ${adminProject ?? "ระบุไม่ได้"}) ไม่ใช่ DB เดียวกัน ` +
+        "— ชุดทดสอบสร้างร้านผ่าน SUPABASE_URL แต่ลบผ่าน TEST_DB_ADMIN_URL ถ้าคนละ DB ร้านทดสอบจะค้างใน DB จริง · " +
+        "ALLOW_SHARED_DB_TEARDOWN ไม่ข้ามด่านนี้ · ยังไม่ได้สร้างร้านทดสอบ จึงหยุดก่อน",
+    );
+  }
+}
+
 function requireAdminUrl(): string {
   const url = process.env.TEST_DB_ADMIN_URL;
   if (!url || url.trim() === "") {
@@ -401,6 +458,7 @@ function requireAdminUrl(): string {
         "ALLOW_SHARED_DB_TEARDOWN=1 เองทุกครั้งที่รัน (อย่าใส่ในไฟล์) · ยังไม่ได้สร้างร้านทดสอบ จึงหยุดก่อน",
     );
   }
+  assertSameProject(url);
   return url;
 }
 

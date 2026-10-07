@@ -462,8 +462,8 @@ begin
   -- C: recommendation_create
   ----------------------------------------------------------------------------
   v_j := pg_temp.vj(pg_temp.q_rcreate(v_s, 'C1 ข้อเสนอแรก', 'รายละเอียดแรก', 'ai', 'proposal', 'agent', 15));
-  v_log := v_log || pg_temp.vb('C1a', 'คืน jsonb object · key = id/created/conflict พอดี (ไม่มี key แอบแฝง)',
-    jsonb_typeof(v_j) = 'object' and (select array_agg(k order by k) from jsonb_object_keys(v_j) k) = array['conflict', 'created', 'id'], v_j::text);
+  v_log := v_log || pg_temp.vb('C1a', 'คืน jsonb object · key = id/created/conflict/expired_previous พอดี (ไม่มี key แอบแฝง · expired_previous เพิ่มรอบ 2 AG)',
+    jsonb_typeof(v_j) = 'object' and (select array_agg(k order by k) from jsonb_object_keys(v_j) k) = array['conflict', 'created', 'expired_previous', 'id'], v_j::text);
   v_log := v_log || pg_temp.vb('C1b', 'ชนิดค่า: id เป็น uuid ที่มีอยู่จริง · created = true (boolean) · conflict = false (boolean)',
     jsonb_typeof(v_j -> 'created') = 'boolean' and jsonb_typeof(v_j -> 'conflict') = 'boolean' and (v_j ->> 'created')::boolean and not (v_j ->> 'conflict')::boolean
     and exists (select 1 from analytics.recommendation_log where id = (v_j ->> 'id')::uuid and shop_id = v_s and owner_action = 'pending'), v_j::text);
@@ -555,7 +555,11 @@ begin
   v_log := v_log || pg_temp.vl('C7h', 'effort 481 → 22023', pg_temp.vx(pg_temp.q_rcreate(v_s, 'C7h', 'x', 'ai', 'proposal', 'agent', 481), array['22023']));
   v_log := v_log || pg_temp.vl('C7i', 'effort 0 → 22023', pg_temp.vx(pg_temp.q_rcreate(v_s, 'C7i', 'x', 'ai', 'proposal', 'agent', 0), array['22023']));
   v_log := v_log || pg_temp.vl('C7j', 'effort ติดลบ → 22023', pg_temp.vx(pg_temp.q_rcreate(v_s, 'C7j', 'x', 'ai', 'proposal', 'agent', -5), array['22023']));
-  v_log := v_log || pg_temp.vl('C7k', 'respond_by = วันนี้ (ไทย) + default ผ่าน', pg_temp.vok(pg_temp.q_rcreate(v_s, 'C7k', 'x', 'ai', 'proposal', 'agent', null, v_today::text, 'ถือว่าเลื่อน')));
+  -- รอบ 2 (R-M4): เส้นตาย "วันนี้" เป็นของเจ้าของ — ai/system ต้องเหลือเวลา ≥ 2 วัน · owner ตั้งวันนี้ได้
+  v_log := v_log || pg_temp.vl('C7k', 'ต้องไม่พัง: owner ตั้ง respond_by = วันนี้ (ไทย) + default ผ่าน', pg_temp.vok(pg_temp.q_rcreate(v_s, 'C7k', 'x', 'owner', 'proposal', 'adhoc', null, v_today::text, 'ถือว่าเลื่อน')));
+  v_log := v_log || pg_temp.vl('C7k2', 'R-M4 ai ตั้ง respond_by = วันนี้ → 22023', pg_temp.vx(pg_temp.q_rcreate(v_s, 'C7k2', 'x', 'ai', 'proposal', 'agent', null, v_today::text, 'ถือว่าเลื่อน'), array['22023']));
+  v_log := v_log || pg_temp.vl('C7k3', 'R-M4 ai ตั้ง respond_by = พรุ่งนี้ → 22023 · วันนี้+2 ผ่าน', pg_temp.vx(pg_temp.q_rcreate(v_s, 'C7k3', 'x', 'ai', 'proposal', 'agent', null, (v_today + 1)::text, 'ถือว่าเลื่อน'), array['22023'])
+    || pg_temp.vok(pg_temp.q_rcreate(v_s, 'C7k4', 'x', 'ai', 'proposal', 'agent', null, (v_today + 2)::text, 'ถือว่าเลื่อน')));
   v_log := v_log || pg_temp.vl('C7l', 'respond_by = เมื่อวาน → 22023', pg_temp.vx(pg_temp.q_rcreate(v_s, 'C7l', 'x', 'ai', 'proposal', 'agent', null, (v_today - 1)::text, 'ถือว่าเลื่อน'), array['22023']));
   v_log := v_log || pg_temp.vl('C7m', 'respond_by = วันนี้+90 ผ่าน', pg_temp.vok(pg_temp.q_rcreate(v_s, 'C7m', 'x', 'ai', 'proposal', 'agent', null, (v_today + 90)::text, 'ถือว่าเลื่อน')));
   v_log := v_log || pg_temp.vl('C7n', 'respond_by = วันนี้+91 → 22023', pg_temp.vx(pg_temp.q_rcreate(v_s, 'C7n', 'x', 'ai', 'proposal', 'agent', null, (v_today + 91)::text, 'ถือว่าเลื่อน'), array['22023']));
@@ -615,7 +619,7 @@ begin
   -- 🔴 FINDING R2-1: recommendation_log_guard ล็อก UPDATE คำตอบเจ้าของแม้ postgres แต่ไม่ล็อก DELETE ของ postgres — เคสนี้ [FAIL] จนกว่าจะปิดช่อง (ดูรายงาน QA รอบ 2)
   v_log := v_log || pg_temp.vl('L1c', 'postgres ลบแถวที่เจ้าของตอบแล้ว → ปฏิเสธ (55000/42501)', pg_temp.vx(format('delete from analytics.recommendation_log where id = %L', v_id), array['55000', '42501']));
   -- L5 ตอบช้ากว่าเส้นตาย (ย้อนวัน respond_by ตรงด้วย postgres ก่อนตอบ — เหมือนเวลาผ่านไป)
-  v_j := pg_temp.vj(pg_temp.q_rcreate(v_s, 'L5 ตอบช้า', 'รายละเอียด L5', 'ai', 'proposal', 'agent', null, (v_today + 1)::text, 'ถือว่าปฏิเสธ'));
+  v_j := pg_temp.vj(pg_temp.q_rcreate(v_s, 'L5 ตอบช้า', 'รายละเอียด L5', 'ai', 'proposal', 'agent', null, (v_today + 2)::text, 'ถือว่าปฏิเสธ'));
   v_id2 := (v_j ->> 'id')::uuid;
   update analytics.recommendation_log set respond_by = v_today - 2 where id = v_id2;
   select i.effective_action into v_r from analytics.v_recommendation_inbox i where i.item_kind = 'reco' and i.item_id = v_id2;
@@ -636,7 +640,8 @@ begin
   v_log := v_log || pg_temp.vl('P1-0', 'fixture: owner ตั้ง orders + ช่วงนับอนาคต (วันนี้+3..+5) บนแคมเปญที่ anchor ผ่านมา 3 วัน',
     pg_temp.vok(pg_temp.q_plan(v_s, v_c, format('{"metric_code":"orders","metric_date_from":"%s","metric_date_to":"%s"}', v_today + 3, v_today + 5), 'owner')));
   v_snap := pg_temp.csnap(v_c);
-  v_log := v_log || pg_temp.vl('P1a', 'ai แก้สมมติฐาน (ช่วงนับยังเป็นอนาคต) → ผ่าน (ต้องไม่พัง)', pg_temp.vok(pg_temp.q_plan(v_s, v_c, '{"hypothesis":"AI เสนอสมมติฐานก่อนช่วงนับ"}', 'ai')));
+  -- รอบ 2 (R-M2a): วันเริ่ม = least(metric_date_from, anchor, วัน step แรก) ⇒ anchor ที่ผ่านมาแล้วนับว่าเริ่ม แม้ช่วงนับของเจ้าของเป็นอนาคต (P1a เดิมคาดว่าผ่าน — กลับเป็นปฏิเสธ)
+  v_log := v_log || pg_temp.vl('P1a', 'R-M2a ai แก้สมมติฐาน (anchor ผ่านมาแล้ว แม้ช่วงนับเป็นอนาคต) → 42501 "เริ่มแล้ว"', pg_temp.vx(pg_temp.q_plan(v_s, v_c, '{"hypothesis":"AI เสนอสมมติฐานก่อนช่วงนับ"}', 'ai'), array['42501'], 'เริ่มแล้ว'));
   v_snap := pg_temp.csnap(v_c);
   v_log := v_log || pg_temp.vl('P1b', 'ai ล้างช่วงนับทั้งคู่ (null/null) → ตกไปใช้ anchor ที่ผ่านมาแล้ว → 42501', pg_temp.vx(pg_temp.q_plan(v_s, v_c, '{"metric_date_from":null,"metric_date_to":null}', 'ai'), array['42501']));
   v_log := v_log || pg_temp.vl('P1c', 'ai ย้ายช่วงนับถอยมาครอบวันนี้ (วันนี้..+5) → 42501', pg_temp.vx(pg_temp.q_plan(v_s, v_c, format('{"metric_date_from":"%s"}', v_today), 'ai'), array['42501']));
@@ -660,7 +665,8 @@ begin
   -- D: คำตัดสิน orders ต้องข้อมูลครอบช่วง · ใช้ร้านแยกต่อสถานการณ์ (data_through เป็นต่อร้าน)
   ----------------------------------------------------------------------------
   declare
-    v_sa uuid; v_sb uuid; v_sc uuid; v_sd uuid; v_se uuid; v_sf uuid;
+    v_sa uuid; v_sb uuid; v_sc uuid; v_sd uuid; v_se uuid; v_sf uuid; v_sh uuid;
+    v_chh uuid; v_o2 uuid;
     v_wt date := v_today - 2;     -- วันสุดท้ายของช่วง
     v_wf date := v_today - 4;
     v_ca uuid; v_cb uuid; v_cc uuid; v_cd uuid; v_ce uuid; v_cf uuid; v_cg uuid;
@@ -673,13 +679,18 @@ begin
     insert into public.shop (name) values ('qa-0162-r2 shop Dd') returning id into v_sd;   -- ไม่มีออเดอร์เลย
     insert into public.shop (name) values ('qa-0162-r2 shop De') returning id into v_se;   -- ข้อมูลถึง wt แต่วันกลางช่วงว่าง
     insert into public.shop (name) values ('qa-0162-r2 shop Df') returning id into v_sf;   -- ข้อมูลหายหลังเสนอ
+    insert into public.shop (name) values ('qa-0162-r2 shop Dh') returning id into v_sh;   -- ข้อมูลถึง wt+1 (ครอบแบบ strict — R-H1 รอบ 2)
     perform pg_temp.mkord(v_sa, v_ch, v_wf); perform pg_temp.mkord(v_sa, v_ch, v_today - 3);
     perform pg_temp.mkord(v_sb, v_ch, v_wf); perform pg_temp.mkord(v_sb, v_ch, v_wt);
+    perform pg_temp.mkord(v_sh, v_ch, v_wf); perform pg_temp.mkord(v_sh, v_ch, v_wt); perform pg_temp.mkord(v_sh, v_ch, v_wt + 1);
     perform pg_temp.mkord(v_sc, v_ch, v_wf); perform pg_temp.mkord(v_sc, (select id from analytics.dim_channel where code = 'tiktok'), v_today + 1);
-    perform pg_temp.mkord(v_se, v_ch, v_wf); perform pg_temp.mkord(v_se, v_ch, v_wt);
-    v_o1 := pg_temp.mkord(v_sf, v_ch, v_wt);
+    perform pg_temp.mkord(v_se, v_ch, v_wf); perform pg_temp.mkord(v_se, v_ch, v_wt); perform pg_temp.mkord(v_se, v_ch, v_wt + 1);
+    perform pg_temp.mkord(v_sf, v_ch, v_wt);
+    v_o1 := pg_temp.mkord(v_sf, v_ch, v_wt + 1);   -- ออเดอร์ล่าสุดของร้าน Df (วันหลัง wt) — D8 ลบตัวนี้
     v_ca := pg_temp.mk_camp(v_sa, v_today - 5); v_cb := pg_temp.mk_camp(v_sb, v_today - 5); v_cc := pg_temp.mk_camp(v_sc, v_today - 5);
     v_cd := pg_temp.mk_camp(v_sd, v_today - 5); v_ce := pg_temp.mk_camp(v_se, v_today - 5); v_cf := pg_temp.mk_camp(v_sf, v_today - 5);
+    v_chh := pg_temp.mk_camp(v_sh, v_today - 5);
+    perform pg_temp.vok(pg_temp.q_plan(v_sh, v_chh, v_set, 'owner'));
     perform pg_temp.vok(pg_temp.q_plan(v_sa, v_ca, v_set, 'owner')); perform pg_temp.vok(pg_temp.q_plan(v_sb, v_cb, v_set, 'owner'));
     perform pg_temp.vok(pg_temp.q_plan(v_sc, v_cc, v_set, 'owner')); perform pg_temp.vok(pg_temp.q_plan(v_sd, v_cd, v_set, 'owner'));
     perform pg_temp.vok(pg_temp.q_plan(v_se, v_ce, v_set, 'owner')); perform pg_temp.vok(pg_temp.q_plan(v_sf, v_cf, v_set, 'owner'));
@@ -687,21 +698,24 @@ begin
     -- D1 ขาด 1 วัน: ข้อมูลถึง wt-1
     select s.orders_data_through::text, s.orders_data_covers_window::text into v_t, v_r from analytics.v_campaign_summary s where s.campaign_id = v_ca;
     v_log := v_log || pg_temp.vb('D1-0', 'ข้อมูลร้านถึง wt-1: through = ' || (v_today - 3) || ' · covers_window = false', v_t = (v_today - 3)::text and v_r = 'false', coalesce(v_t, 'null') || '/' || coalesce(v_r, 'null'));
-    v_log := v_log || pg_temp.vl('D1a', 'ai เสนอ validated เมื่อข้อมูลขาดไป 1 วัน → 55000', pg_temp.vx(pg_temp.q_prop(v_sa, v_ca, 'validated', 'ยอดผ่านเกณฑ์แล้ว', 'ai'), array['55000'], 'ยังไม่ถึงวันสุดท้าย'));
-    v_log := v_log || pg_temp.vl('D1b', 'ai เสนอ invalidated เมื่อข้อมูลขาดไป 1 วัน → 55000 (ศูนย์ที่ยังไม่เข้า ≠ ล้มเหลว)', pg_temp.vx(pg_temp.q_prop(v_sa, v_ca, 'invalidated', 'ยอดไม่ถึงเกณฑ์', 'ai'), array['55000'], 'ยังไม่ถึงวันสุดท้าย'));
+    v_log := v_log || pg_temp.vl('D1a', 'ai เสนอ validated เมื่อข้อมูลขาดไป 1 วัน → 55000', pg_temp.vx(pg_temp.q_prop(v_sa, v_ca, 'validated', 'ยอดผ่านเกณฑ์แล้ว', 'ai'), array['55000'], 'ยังไม่ครบช่วง'));
+    v_log := v_log || pg_temp.vl('D1b', 'ai เสนอ invalidated เมื่อข้อมูลขาดไป 1 วัน → 55000 (ศูนย์ที่ยังไม่เข้า ≠ ล้มเหลว)', pg_temp.vx(pg_temp.q_prop(v_sa, v_ca, 'invalidated', 'ยอดไม่ถึงเกณฑ์', 'ai'), array['55000'], 'ยังไม่ครบช่วง'));
     v_log := v_log || pg_temp.vl('D1c', 'owner เสนอ validated เมื่อข้อมูลขาด 1 วัน → 55000 (ด่านเดียวกัน)', pg_temp.vx(pg_temp.q_prop(v_sa, v_ca, 'validated', 'ยอดผ่านเกณฑ์แล้ว', 'owner'), array['55000']));
     v_log := v_log || pg_temp.vl('D1d', 'ต้องไม่พัง: เสนอ inconclusive เมื่อข้อมูลขาด ผ่าน', pg_temp.vok(pg_temp.q_prop(v_sa, v_ca, 'inconclusive', 'ข้อมูลยังไม่ถึง รอ import', 'ai')));
-    v_log := v_log || pg_temp.vl('D1e', 'owner ยืนยัน validated เมื่อข้อมูลขาด 1 วัน (token+expected ถูก) → 55000', pg_temp.vx(pg_temp.q_conf(v_sa, v_ca, 'validated', null, 'owner', null, 'inconclusive'), array['55000'], 'ยังไม่ถึงวันสุดท้าย'));
-    v_log := v_log || pg_temp.vl('D1f', 'owner ยืนยัน invalidated เมื่อข้อมูลขาด 1 วัน → 55000', pg_temp.vx(pg_temp.q_conf(v_sa, v_ca, 'invalidated', null, 'owner', null, 'inconclusive'), array['55000'], 'ยังไม่ถึงวันสุดท้าย'));
+    v_log := v_log || pg_temp.vl('D1e', 'owner ยืนยัน validated เมื่อข้อมูลขาด 1 วัน (token+expected ถูก) → 55000', pg_temp.vx(pg_temp.q_conf(v_sa, v_ca, 'validated', null, 'owner', null, 'inconclusive'), array['55000'], 'ยังไม่ครบช่วง'));
+    v_log := v_log || pg_temp.vl('D1f', 'owner ยืนยัน invalidated เมื่อข้อมูลขาด 1 วัน → 55000', pg_temp.vx(pg_temp.q_conf(v_sa, v_ca, 'invalidated', null, 'owner', null, 'inconclusive'), array['55000'], 'ยังไม่ครบช่วง'));
     v_log := v_log || pg_temp.vl('D1g', 'ต้องไม่พัง: owner ยืนยัน not_measured เมื่อข้อมูลขาด ผ่าน', pg_temp.vok(pg_temp.q_conf(v_sa, v_ca, 'not_measured', null, 'owner', 'ปิดโดยไม่ฟันธง', 'inconclusive')));
 
-    -- D2 ข้อมูลถึง wt พอดี
+    -- D2 (R-H1 รอบ 2: strict) ข้อมูลถึง wt พอดี = วันท้ายอาจเข้าบางส่วน ⇒ ไม่ครอบ · ข้อมูลถึง wt+1 (ร้าน Dh) ⇒ ครอบ
     select s.orders_data_covers_window::text into v_r from analytics.v_campaign_summary s where s.campaign_id = v_cb;
-    v_log := v_log || pg_temp.vb('D2-0', 'ข้อมูลถึง wt พอดี: covers_window = true', v_r = 'true', coalesce(v_r, 'null'));
-    v_log := v_log || pg_temp.vl('D2a', 'ต้องไม่พัง: ai เสนอ validated เมื่อข้อมูลถึง wt พอดี ผ่าน', pg_temp.vok(pg_temp.q_prop(v_sb, v_cb, 'validated', 'ยอด 2 ผ่านเกณฑ์ 1', 'ai')));
-    v_log := v_log || pg_temp.vl('D2b', 'ต้องไม่พัง: ai เปลี่ยนเป็น invalidated (เสนอซ้ำ) ผ่านด่านข้อมูล', pg_temp.vok(pg_temp.q_prop(v_sb, v_cb, 'invalidated', 'เปลี่ยนความเห็น', 'ai')));
-    v_log := v_log || pg_temp.vl('D2c', 'ต้องไม่พัง: owner ยืนยัน validated ผ่าน · payload orders.actual = 2 · threshold_met = true · data_covers_window = true',
-      case when (pg_temp.vj(pg_temp.q_conf(v_sb, v_cb, 'validated', null, 'owner', null, 'invalidated')) #>> '{orders,actual}') = '2' then 'OK' else 'FAIL payload orders.actual ≠ 2' end);
+    v_log := v_log || pg_temp.vb('D2-0', 'R-H1 ข้อมูลถึง wt พอดี (ไม่มีข้อมูลวันหลัง): covers_window = false', v_r = 'false', coalesce(v_r, 'null'));
+    v_log := v_log || pg_temp.vl('D2a0', 'R-H1 ai เสนอ validated เมื่อข้อมูลถึง wt พอดี → 55000', pg_temp.vx(pg_temp.q_prop(v_sb, v_cb, 'validated', 'ยอด 2 ผ่านเกณฑ์ 1', 'ai'), array['55000'], 'ยังไม่ครบช่วง'));
+    select s.orders_data_covers_window::text into v_r from analytics.v_campaign_summary s where s.campaign_id = v_chh;
+    v_log := v_log || pg_temp.vb('D2-1', 'ข้อมูลร้านถึง wt+1: covers_window = true', v_r = 'true', coalesce(v_r, 'null'));
+    v_log := v_log || pg_temp.vl('D2a', 'ต้องไม่พัง: ai เสนอ validated เมื่อข้อมูลถึง wt+1 ผ่าน', pg_temp.vok(pg_temp.q_prop(v_sh, v_chh, 'validated', 'ยอด 2 ผ่านเกณฑ์ 1', 'ai')));
+    v_log := v_log || pg_temp.vl('D2b', 'ต้องไม่พัง: ai เปลี่ยนเป็น invalidated (เสนอซ้ำ) ผ่านด่านข้อมูล', pg_temp.vok(pg_temp.q_prop(v_sh, v_chh, 'invalidated', 'เปลี่ยนความเห็น', 'ai')));
+    v_log := v_log || pg_temp.vl('D2c', 'ต้องไม่พัง: owner ยืนยัน validated ผ่าน · payload orders.actual = 2 (ออเดอร์วัน wt+1 นอกช่วงไม่นับ) · threshold_met = true · data_covers_window = true',
+      case when (pg_temp.vj(pg_temp.q_conf(v_sh, v_chh, 'validated', null, 'owner', null, 'invalidated')) #>> '{orders,actual}') = '2' then 'OK' else 'FAIL payload orders.actual ≠ 2' end);
 
     -- D3 ข้อมูลของร้านถึงหลัง wt ในช่องทางอื่น → ครอบ (data_through ไม่กรองช่องทาง)
     v_log := v_log || pg_temp.vl('D3', 'ต้องไม่พัง: ออเดอร์ช่องทางอื่นวัน wt+3 ทำให้ข้อมูลร้านครอบช่วง → ai เสนอ invalidated ผ่าน (line_oa ไม่มีออเดอร์ในช่วง wf เท่านั้นก็นับ)',
@@ -713,7 +727,7 @@ begin
 
     -- D5 วันกลางช่วงว่าง แต่ข้อมูลถึง wt → ครอบ (ข้อจำกัดที่รู้: ตรวจแค่ max วัน ไม่ตรวจความต่อเนื่อง)
     select s.orders_data_covers_window::text, s.orders_actual::text into v_r, v_t from analytics.v_campaign_summary s where s.campaign_id = v_ce;
-    v_log := v_log || pg_temp.vb('D5', 'วันกลางช่วงไม่มีออเดอร์เลย (wf กับ wt มี · wf+1 ว่าง) → covers_window = true · actual 2', v_r = 'true' and v_t = '2', coalesce(v_r, 'null') || '/' || coalesce(v_t, 'null'));
+    v_log := v_log || pg_temp.vb('D5', 'วันกลางช่วงไม่มีออเดอร์เลย (wf กับ wt มี · wf+1 ว่าง · ร้านมีข้อมูลวัน wt+1) → covers_window = true · actual 2', v_r = 'true' and v_t = '2', coalesce(v_r, 'null') || '/' || coalesce(v_t, 'null'));
     v_log := v_log || '[NOTE] D5 ด่าน SEC-H1 ตรวจแค่ "วันล่าสุดที่ร้านมีออเดอร์ ≥ วันสุดท้ายของช่วง" — ไม่ตรวจว่าทุกวันในช่วงมีข้อมูล · ถ้า import ไฟล์ข้ามเดือน/ขาดกลางทางแล้ววันถัดไปมีออเดอร์ ยอดวันที่ขาดอ่านเป็น 0 แล้วผ่านด่าน (ความเสี่ยงต่ำ-กลาง · ไม่ใช่บั๊กตามสเปกปัจจุบัน)' || E'\n';
 
     -- D6 ไม่ตั้งเกณฑ์ (threshold/op ว่าง) → ฟันธง validated ไม่ได้ · inconclusive ได้
@@ -728,7 +742,7 @@ begin
     v_log := v_log || pg_temp.vl('D7a', 'owner ขยายวันสิ้นสุดช่วงเป็นอีก 10 วันข้างหน้า (เกินข้อมูลร้าน)', pg_temp.vok(pg_temp.q_plan(v_sc, v_cc, format('{"metric_date_to":"%s"}', v_today + 10), 'owner')));
     v_log := v_log || pg_temp.vb('D7b', 'token เปลี่ยนหลังขยายช่วง (หน้าจอที่เปิดค้างต้องรีเฟรช)', pg_temp.ctok(v_cc) <> v_tok, '');
     v_log := v_log || pg_temp.vl('D7c', 'confirm ด้วย token เก่า → 55000 "ข้อมูลแคมเปญเปลี่ยนแล้ว"', pg_temp.vx(pg_temp.q_conf(v_sc, v_cc, 'invalidated', null, 'owner', null, 'invalidated', v_tok), array['55000'], 'เปลี่ยนแล้ว'));
-    v_log := v_log || pg_temp.vl('D7d', 'confirm ด้วย token สด แต่ช่วงใหม่เกินข้อมูล → 55000 "ยังไม่ถึงวันสุดท้าย" (ด่านข้อมูลทำงานตอนยืนยันด้วย ไม่ใช่แค่ตอนเสนอ)', pg_temp.vx(pg_temp.q_conf(v_sc, v_cc, 'invalidated', null, 'owner', null, 'invalidated'), array['55000'], 'ยังไม่ถึงวันสุดท้าย'));
+    v_log := v_log || pg_temp.vl('D7d', 'confirm ด้วย token สด แต่ช่วงใหม่เกินข้อมูล → 55000 "ยังไม่ถึงวันสุดท้าย" (ด่านข้อมูลทำงานตอนยืนยันด้วย ไม่ใช่แค่ตอนเสนอ)', pg_temp.vx(pg_temp.q_conf(v_sc, v_cc, 'invalidated', null, 'owner', null, 'invalidated'), array['55000'], 'ยังไม่ครบช่วง'));
     v_log := v_log || pg_temp.vl('D7e', 'ต้องไม่พัง: confirm inconclusive ด้วย token สด ผ่าน', pg_temp.vok(pg_temp.q_conf(v_sc, v_cc, 'inconclusive', null, 'owner', 'ช่วงยังไม่จบ', 'invalidated')));
 
     -- D8 ข้อมูลหายหลัง AI เสนอ (ลบออเดอร์วัน wt ที่เป็นข้อมูลล่าสุด) → ตอนยืนยันต้องตกด่านใหม่
@@ -736,7 +750,7 @@ begin
     v_log := v_log || pg_temp.vb('D8-0', 'fixture: ร้าน Df ai เสนอ validated ผ่านตอนข้อมูลถึง wt', (select result_verdict_proposed from analytics.campaign where id = v_cf) = 'validated', '');
     v_r := pg_temp.vok(format('delete from analytics.fact_order where id = %L', v_o1));
     if v_r = 'OK' then
-      v_log := v_log || pg_temp.vl('D8a', 'ออเดอร์ล่าสุดของร้านถูกลบหลังเสนอ → owner ยืนยัน validated → 55000 (ด่านคำนวณสด ไม่ cache ผลตอนเสนอ)', pg_temp.vx(pg_temp.q_conf(v_sf, v_cf, 'validated', null, 'owner', null, 'validated'), array['55000']));
+      v_log := v_log || pg_temp.vl('D8a', 'ออเดอร์ล่าสุดของร้าน (วัน wt+1) ถูกลบหลังเสนอ ⇒ ข้อมูลถึงแค่ wt ไม่ครอบ → owner ยืนยัน validated → 55000 (ด่านคำนวณสด ไม่ cache ผลตอนเสนอ)', pg_temp.vx(pg_temp.q_conf(v_sf, v_cf, 'validated', null, 'owner', null, 'validated'), array['55000']));
     else
       v_log := v_log || '[SKIP] D8a ลบ fact_order ในทรานแซกชันไม่ได้ (' || v_r || ')' || E'\n';
     end if;
