@@ -144,6 +144,7 @@ declare
   v_ok      int;
   v_note    int;
   v_posts0  bigint;
+  v_bf      timestamptz;   -- เวลาที่ backfill 0159 เขียน event create (ทั้งชุดอยู่ในทรานแซกชันเดียว = ค่าเดียว) — ใช้แยก "ข้อมูลสมัย backfill" ออกจาก "งานที่เจ้าของทำหลังจากนั้น"
   v_answers text[] := array[
     'ราคา 925 \1 & $1 "x" 😀',
     E'บรรทัด1\nบรรทัด2\tแท็บ',
@@ -272,43 +273,66 @@ begin
           or s.shoot_location is not null or s.shoot_minutes_est is not null or s.shoot_date is not null or s.expected_host_id is not null
           or s.drafted_by_ai is not null or s.line_audience is not null or s.line_audience_reason is not null);
   v_log := v_log || pg_temp.b_('D10', 'step ก่อน 1 ต.ค. ทุกคอลัมน์ใหม่ของ 0159 เป็น null', v_n = 0, 'แถวที่ไม่ null: ' || v_n);
-  select count(*) into v_n from analytics.step_gate where gate_kind in ('fact_check', 'brand_rule', 'risk_owner') or detail is not null or checked_by_role is not null;
-  v_log := v_log || pg_temp.b_('D11', 'step_gate เดิม 12 แถว: ไม่มีแถว/ค่าของ kind ใหม่งอกขึ้นเอง', v_n = 0, 'พบ ' || v_n);
+  -- baseline ไม่ผูกกับจำนวนข้อมูล ณ วัน apply: แยกด้วยเวลา backfill (v_bf) — แถวที่เกิดก่อน/ตอน backfill ต้องเท่าเดิม · งานที่เจ้าของสร้างหลังจากนั้น (เช่นแคมเปญ 10.10) ไม่ใช่เรื่องของ migration
+  select max(created_at) into v_bf from analytics.content_piece_event where payload ->> 'backfill' = '0159';
+  v_log := v_log || pg_temp.b_('D11a', 'พบเวลา backfill 0159 (event create ที่มี payload.backfill = 0159) — ฐานของการแยกข้อมูลสมัย backfill', v_bf is not null);
+  select count(*) into v_n from analytics.step_gate where created_at <= v_bf;
+  v_log := v_log || pg_temp.b_('D11b', 'step_gate ที่มีตอน backfill = 12 แถว (เท่าเดิมก่อน 0159)', v_n = 12, 'พบ ' || v_n);
+  select count(*) into v_n from analytics.step_gate where created_at <= v_bf and (gate_kind in ('fact_check', 'brand_rule', 'risk_owner') or detail is not null or checked_by_role is not null);
+  v_log := v_log || pg_temp.b_('D11', 'step_gate เดิม 12 แถว: ไม่มีแถว/ค่าของ kind ใหม่งอกขึ้นเอง (เฉพาะแถวที่มีตอน backfill · gate ที่เจ้าของบันทึกทีหลังไม่นับ)', v_n = 0, 'พบ ' || v_n);
 
   ----------------------------------------------------------------------------
   -- B. backfill: นับซ้ำด้วยวิธีอื่น
   ----------------------------------------------------------------------------
+  -- ชุด "สมัย backfill" = step ที่ backfill เขียน event create ให้ (payload.backfill = 0159) · "ยังไม่ถูกแตะ" = ไม่มี event หลังเวลา backfill
+  -- (baseline ไม่ผูกกับจำนวนข้อมูลทั้งตาราง: งานที่เจ้าของสร้าง/ขยับหลัง apply — เช่นแคมเปญ 10.10 · อนุมัติชิ้นเดิม — ไม่ใช่เรื่องที่ backfill ต้องรับผิดชอบ)
   select count(*) into v_n from analytics.campaign_step s join analytics.campaign c on c.id = s.campaign_id
-   where c.anchor_date + s.offset_start_days >= date '2026-10-01' and s.piece_status is not null;
-  select count(*) into v_n2 from analytics.campaign_step s where s.piece_status is not null;
-  v_log := v_log || pg_temp.b_('B1', 'step ที่มี piece_status = 26 พอดี และทั้งหมดอยู่ตั้งแต่ 1 ต.ค. (ไม่มีแถวเก่าหลุดเข้า workflow)', v_n = 26 and v_n2 = 26, v_n || '/' || v_n2);
-  select count(*) filter (where s.piece_status = 'planned'), count(*) filter (where s.piece_status = 'in_review') into v_n, v_n2
-    from analytics.campaign_step s where s.piece_status is not null;
-  v_log := v_log || pg_temp.b_('B2', '13 planned + 13 in_review', v_n = 13 and v_n2 = 13, v_n || '/' || v_n2);
-  select count(*) into v_n from analytics.campaign_step where piece_status is not null and status <> 'todo';
-  v_log := v_log || pg_temp.b_('B3', 'status เดิมของ 26 แถวยัง todo (backfill ไม่ขยับ projection)', v_n = 0, 'ไม่ใช่ todo: ' || v_n);
+   where c.anchor_date + s.offset_start_days >= date '2026-10-01' and s.piece_status is not null
+     and exists (select 1 from analytics.content_piece_event e where e.step_id = s.id and e.event_kind = 'create' and e.payload ->> 'backfill' = '0159');
+  select count(*) into v_n2 from analytics.campaign_step s where s.piece_status is not null
+     and exists (select 1 from analytics.content_piece_event e where e.step_id = s.id and e.event_kind = 'create' and e.payload ->> 'backfill' = '0159');
+  v_log := v_log || pg_temp.b_('B1', 'step สมัย backfill = 26 พอดี และทั้งหมดอยู่ตั้งแต่ 1 ต.ค. (ไม่มีแถวเก่าหลุดเข้า workflow)', v_n = 26 and v_n2 = 26, v_n || '/' || v_n2);
+  select count(*) into v_n from analytics.campaign_step s where s.piece_status is not null
+     and not exists (select 1 from analytics.content_piece_event e where e.step_id = s.id and e.event_kind = 'create' and e.payload ->> 'backfill' = '0159')
+     and s.created_at <= v_bf;
+  v_log := v_log || pg_temp.b_('B1b', 'step ที่มี piece_status แต่ไม่ได้มาจาก backfill ต้องสร้างหลัง backfill เท่านั้น (ไม่มีแถวเก่าที่ถูกดูดเข้า workflow เงียบๆ)', v_n = 0, 'ผิด ' || v_n);
+  select count(*) filter (where e.to_status = 'planned'), count(*) filter (where e.to_status = 'in_review') into v_n, v_n2
+    from analytics.content_piece_event e where e.event_kind = 'create' and e.payload ->> 'backfill' = '0159';
+  v_log := v_log || pg_temp.b_('B2', 'backfill ตั้งต้น 13 planned + 13 in_review (นับจาก to_status ของ event create ตอน backfill — ไม่ใช่สถานะปัจจุบัน)', v_n = 13 and v_n2 = 13, v_n || '/' || v_n2);
+  select count(*) into v_n from analytics.campaign_step s where s.piece_status is not null and s.status <> 'todo'
+     and exists (select 1 from analytics.content_piece_event e where e.step_id = s.id and e.event_kind = 'create' and e.payload ->> 'backfill' = '0159')
+     and not exists (select 1 from analytics.content_piece_event e where e.step_id = s.id and e.created_at > v_bf);
+  v_log := v_log || pg_temp.b_('B3', 'status เดิมของ step สมัย backfill ที่ยังไม่ถูกแตะ ยัง todo (backfill ไม่ขยับ projection)', v_n = 0, 'ไม่ใช่ todo: ' || v_n);
   select count(*) into v_n from analytics.campaign_step s join analytics.step_artifact a on a.step_id = s.id
-   where s.piece_status = 'in_review' and not (s.drafted_by_ai is true and a.generated_by = 'ai_copywriter' and a.status = 'draft_pending_review');
+   where s.piece_status = 'in_review' and not (s.drafted_by_ai is true and a.generated_by = 'ai_copywriter' and a.status = 'draft_pending_review')
+     and not exists (select 1 from analytics.content_piece_event e where e.step_id = s.id and e.created_at > v_bf);
   select count(*) into v_n2 from analytics.campaign_step s join analytics.step_artifact a on a.step_id = s.id
-   where s.piece_status = 'planned' and not (s.drafted_by_ai is false and a.status = 'todo');
-  v_log := v_log || pg_temp.b_('B4', 'in_review ⇔ AI ร่างรอตรวจ (drafted_by_ai=true) · planned ⇔ todo/คนเขียน (drafted_by_ai=false) ตรงกับ artifact ทุกแถว',
+   where s.piece_status = 'planned' and not (s.drafted_by_ai is false and a.status = 'todo')
+     and not exists (select 1 from analytics.content_piece_event e where e.step_id = s.id and e.created_at > v_bf);
+  v_log := v_log || pg_temp.b_('B4', 'in_review ⇔ AI ร่างรอตรวจ (drafted_by_ai=true) · planned ⇔ todo/คนเขียน (drafted_by_ai=false) ตรงกับ artifact ทุกแถวที่ยังไม่ถูกแตะหลัง backfill',
     v_n = 0 and v_n2 = 0, 'ผิด in_review=' || v_n || ' planned=' || v_n2);
   select count(*) into v_n from analytics.campaign_step s join analytics.step_artifact a on a.step_id = s.id
    where s.piece_status is not null and s.piece_kind is distinct from
      case a.artifact_type when 'short_form_clip' then 'short_clip' when 'fb_post' then 'ig_fb_post'
                           when 'broadcast_script_line' then 'line_message' else null end;
   v_log := v_log || pg_temp.b_('B5', 'piece_kind ตรงตาราง artifact_type ทุกแถว (teaser_image/parcel_card = null ไม่เดา)', v_n = 0, 'ผิด ' || v_n);
-  select count(*) into v_n from analytics.campaign_step where piece_status is not null and piece_kind is null;
-  v_log := v_log || pg_temp.b_('B5b', 'แถว piece_kind null = 4 (teaser 3 + parcel 1)', v_n = 4, 'พบ ' || v_n);
-  select count(*) into v_n from analytics.campaign_step where piece_kind = 'line_message' and line_audience is not null;
-  v_log := v_log || pg_temp.b_('B6', 'LINE 2 แถว line_audience = null (ห้ามแต่งเหตุผลให้)', v_n = 0 and (select count(*) from analytics.campaign_step where piece_kind = 'line_message') = 2);
-  select count(*) into v_n from analytics.step_gate;
-  v_log := v_log || pg_temp.b_('B7', 'backfill ไม่สร้าง step_gate (ยัง 12)', v_n = 12, 'พบ ' || v_n);
+  select count(*) into v_n from analytics.campaign_step s where s.piece_status is not null and s.piece_kind is null
+     and exists (select 1 from analytics.content_piece_event e where e.step_id = s.id and e.event_kind = 'create' and e.payload ->> 'backfill' = '0159');
+  v_log := v_log || pg_temp.b_('B5b', 'แถวสมัย backfill ที่ piece_kind null = 4 (teaser 3 + parcel 1)', v_n = 4, 'พบ ' || v_n);
+  -- LINE สมัย backfill 2 แถว: ห้ามแต่ง line_audience ให้ · แถวที่เจ้าของแตะทีหลังอาจกรอกเองได้ จึงตรวจเฉพาะที่ยังไม่ถูกแตะ — แต่จำนวน 2 ต้องคงที่
+  select count(*) into v_n from analytics.campaign_step s where s.piece_kind = 'line_message' and s.line_audience is not null
+     and exists (select 1 from analytics.content_piece_event e where e.step_id = s.id and e.event_kind = 'create' and e.payload ->> 'backfill' = '0159')
+     and not exists (select 1 from analytics.content_piece_event e where e.step_id = s.id and e.created_at > v_bf);
+  select count(*) into v_n2 from analytics.campaign_step s where s.piece_kind = 'line_message'
+     and exists (select 1 from analytics.content_piece_event e where e.step_id = s.id and e.event_kind = 'create' and e.payload ->> 'backfill' = '0159');
+  v_log := v_log || pg_temp.b_('B6', 'LINE สมัย backfill 2 แถว line_audience = null (ห้ามแต่งเหตุผลให้)', v_n = 0 and v_n2 = 2, 'audience ไม่ null=' || v_n || ' · LINE สมัย backfill=' || v_n2);
+  select count(*) into v_n from analytics.step_gate where created_at <= v_bf;
+  v_log := v_log || pg_temp.b_('B7', 'backfill ไม่สร้าง step_gate (ตอน backfill ยัง 12)', v_n = 12, 'พบ ' || v_n);
   select count(*) into v_n from analytics.content_piece_event e
    where e.event_kind = 'create' and e.actor_role = 'system' and e.payload ->> 'backfill' = '0159';
-  select count(*) into v_n2 from analytics.content_piece_event where event_kind <> 'create';
-  v_log := v_log || pg_temp.b_('B8', 'event create ของ backfill = 26 (actor system) · event อื่นมีเฉพาะ confirm (จาก extract 11 ชิ้น) ไม่มีเหตุการณ์แปลกปลอม', v_n = 26
-    and v_n2 = (select count(*) from analytics.content_piece_event where event_kind = 'confirm') and v_n2 = 11, 'create=' || v_n || ' อื่น=' || v_n2);
+  select count(*) into v_n2 from analytics.content_piece_event where event_kind <> 'create' and created_at <= v_bf;
+  v_log := v_log || pg_temp.b_('B8', 'event create ของ backfill = 26 (actor system) · event อื่น ณ ตอน backfill มีเฉพาะ confirm (จาก extract 11 ชิ้น) ไม่มีเหตุการณ์แปลกปลอม', v_n = 26
+    and v_n2 = (select count(*) from analytics.content_piece_event where event_kind = 'confirm' and created_at <= v_bf) and v_n2 = 11, 'create=' || v_n || ' อื่น=' || v_n2);
 
   -- นับ marker ใหม่ด้วย regex คนละชุด (ไม่ใช้ helper ของ dev): คำถามไม่ซ้ำต่อ step เทียบ content_confirm_item
   with q as (
