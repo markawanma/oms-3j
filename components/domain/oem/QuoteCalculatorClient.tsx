@@ -26,7 +26,16 @@ import type { OemPriceCalcResult, OemProductOption, OemSettingData, SaveQuoteInp
 import { OEM_BAR_SIZE_LABEL_TH } from "@/lib/oem/types";
 import { roundTo } from "@/lib/oem/display";
 import type { JobForm } from "@/lib/oem/quoteForm";
-import { OEM_DEFAULT_PURITY, barSizeForSku, buildJobInput, createJobForm, jobHasBarOverride } from "@/lib/oem/quoteForm";
+import {
+  OEM_DEFAULT_PURITY,
+  applyProductSelection,
+  barSizeForSku,
+  buildJobInput,
+  createJobForm,
+  enterProductMode,
+  jobHasBarOverride,
+  shouldAutoSwitchToProduct,
+} from "@/lib/oem/quoteForm";
 import { useToast } from "@/components/ui/Toast";
 import { Button } from "@/components/ui/Button";
 import { QuoteJobItemCard } from "./QuoteJobItemCard";
@@ -140,6 +149,8 @@ export function QuoteCalculatorClient({ setting }: { setting: OemSettingData }) 
     setItems((prev) =>
       prev.map((it) => {
         if (it.key !== key) return it;
+        // 0166: เปลี่ยนเป็น "สินค้า/บริการ" — ถ้ามี SKU ผูกอยู่ ใช้ราคาแคตตาล็อกเป็นราคาตั้งต้น (ช่องราคาว่างเท่านั้น)
+        if (field === "metal" && value === "product") return { ...it, job: enterProductMode(it.job, products) };
         const nextJob = { ...it.job, [field]: value };
         if (field === "metal") nextJob.purity = OEM_DEFAULT_PURITY[value as JobForm["metal"]];
         return { ...it, job: nextJob };
@@ -159,15 +170,15 @@ export function QuoteCalculatorClient({ setting }: { setting: OemSettingData }) 
    * are simply absent from the table, so they fall through untouched. */
   function updateItemSku(key: string, product: OemProductOption | null) {
     const barSize = barSizeForSku(product?.sku);
+    // 0166: เลือก SKU ที่ไม่ใช่แท่งบนรายการที่ยังไม่ได้กรอกงานผลิต → สลับเป็น "สินค้า/บริการ" + ราคาตั้งต้นจากแคตตาล็อก
+    // (รายการที่กรอกงานผลิตไปแล้ว SKU ยังเป็น label เหมือนเดิม — ไม่ทำลายงานที่กรอกค้าง) · ไม่เขียนกลับ catalog
+    const current = items.find((x) => x.key === key)?.job;
+    const switchToProduct = !barSize && product != null && current != null && shouldAutoSwitchToProduct(current);
     setItems((prev) =>
       prev.map((it) => {
         if (it.key !== key) return it;
-        const job: JobForm = {
-          ...it.job,
-          productId: product?.productId ?? null,
-          skuSnapshot: product?.sku ?? null,
-          productNameSnapshot: product?.name ?? null,
-        };
+        const base: JobForm = switchToProduct ? { ...it.job, metal: "product", purity: OEM_DEFAULT_PURITY.product } : it.job;
+        const job: JobForm = applyProductSelection(base, product);
         if (barSize) {
           job.metal = "silver999";
           job.barSize = barSize;
@@ -190,6 +201,11 @@ export function QuoteCalculatorClient({ setting }: { setting: OemSettingData }) 
         `สลับเป็นโหมด "เงินแท่ง 99.99% ขนาด ${OEM_BAR_SIZE_LABEL_TH[barSize]}" ให้อัตโนมัติจาก SKU ${product.sku} — แก้ไขเองได้ที่การ์ดรายการนี้`
       );
       setQuoteId(null); // auto-switch changes the priced input — same as any other field edit
+    } else if (switchToProduct && product) {
+      toast.push(
+        `สลับเป็นรายการ "สินค้า/บริการ" ให้อัตโนมัติจาก SKU ${product.sku} — ราคาตั้งต้นจากแคตตาล็อก แก้ราคาได้ที่การ์ดรายการนี้ (ไม่เขียนกลับแคตตาล็อก)`
+      );
+      setQuoteId(null);
     }
   }
 

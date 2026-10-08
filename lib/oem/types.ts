@@ -12,14 +12,14 @@
 // lib/actions/oem.ts. The only implementation of §2.2's 6-line formula is
 // analytics.oem_price_calc (0062) — everything here is shape only.
 
-export type OemMetal = "silver" | "gold" | "brass" | "silver999";
+export type OemMetal = "silver" | "gold" | "brass" | "silver999" | "product";
 
 /** The 3 metals oem_metal_price (per-gram spot pricing) applies to —
  * silver999 (เงินแท่ง) is explicitly EXCLUDED: bar prices come from
  * analytics.silver_price_daily (a fixed sell price per size, not a per-gram
  * rate an admin enters), so OemMetalPriceMap below must not gain a 4th key
  * just because OemMetal did. See docs/3j-jewelry/analytics/design-oem-bar-quote.md D1. */
-export type OemProductionMetal = Exclude<OemMetal, "silver999">;
+export type OemProductionMetal = Exclude<OemMetal, "silver999" | "product">;
 
 /** เงินแท่ง 99.99% ขนาดที่ขายจริง — 0.5/1/3/5/10 บาท ใช้คอลัมน์
  * bar_0_5_baht…bar_10_baht ของ silver_price_daily; 1_kg ใช้ kilo_sell_vat
@@ -176,9 +176,11 @@ export interface UpsertOemSettingInput {
 // ============================================================================
 // SKU picker (analytics.v_dim_product, read-only) — lets a quote item label
 // itself with an existing product for traceability. NEVER returns
-// unit_cost/effective_unit_cost/list_price/margin_pct — those are retail
-// cost/margin figures, unrelated to (and more sensitive than) OEM job
-// pricing, which analytics.oem_price_calc computes independently. As of
+// unit_cost/effective_unit_cost/margin_pct — those are retail cost/margin
+// figures, unrelated to (and more sensitive than) OEM job pricing, which
+// analytics.oem_price_calc computes independently. 0166: listPrice (ราคาขายปลีกสาธารณะ
+// ของแคตตาล็อก) อนุญาต — ใช้เป็นราคาตั้งต้นของรายการสินค้า (metal='product') และ pre-check
+// "ต่ำกว่าแคตตาล็อกต้องมีเหตุผล" ฝั่งฟอร์มเท่านั้น (ด่านจริงอยู่ที่ DB). As of
 // 2026-08, silver_weight_g is null on all 301 SKUs and silver_purity is a
 // flat 0.925 across the board, so this deliberately does NOT try to prefill
 // weight/purity from a selected SKU — see QuoteJobItemCard's picker copy,
@@ -190,6 +192,8 @@ export interface OemProductOption {
   sku: string;
   name: string;
   category: string | null;
+  /** 0166: ราคาขายปลีกในแคตตาล็อก (public) — null = SKU ไม่มีราคา / เพิ่งสร้างใหม่. ห้ามเติม unit_cost ตรงนี้ */
+  listPrice: number | null;
 }
 
 // ============================================================================
@@ -260,6 +264,17 @@ export interface OemPriceCalcInput {
   barPriceOverrideThb?: number | null;
   /** 0163 (silver999 only): เหตุผลราคาพิเศษ — บังคับเมื่อมี barPriceOverrideThb, ห้ามส่งเมื่อไม่มีราคา. */
   barPriceOverrideReason?: string | null;
+  /** 0166 (product only): ผูกสินค้าจากแคตตาล็อก — มี = โหมด catalog (ชื่อ/ทุนอ่านจาก DB · ห้ามส่ง unitCostThb) ·
+   * ไม่มี = โหมดไม่มี SKU (ต้องมี productName + unitCostThb). */
+  productId?: string | null;
+  /** 0166 (product, ไม่มี productId เท่านั้น): ชื่อรายการ — ผ่านด่านอักขระล่องหน/ยาว ≤200 ที่ DB */
+  productName?: string | null;
+  /** 0166 (product): ราคาต่อชิ้น (บาท) — ผู้ขายกรอก/ตั้งต้นจาก list price ของแคตตาล็อก แก้ได้อิสระ */
+  unitPriceThb?: number | null;
+  /** 0166 (product, ไม่มี productId เท่านั้น): ทุนต่อชิ้น (บังคับ) */
+  unitCostThb?: number | null;
+  /** 0166 (product): เหตุผลราคา — บังคับเมื่อมี productId และราคาต่ำกว่า list price ของแคตตาล็อก (DB ตัดสิน) */
+  priceReason?: string | null;
 }
 
 export interface OemMissingRateEntry {
@@ -310,6 +325,23 @@ export interface OemBarBreakdown {
   override?: { thb: number; reason: string } | null;
 }
 
+/** 0166: breakdown.product — มีเฉพาะ metal='product'. หน้า admin เท่านั้น: มีทุน/เหตุผล/ราคาแคตตาล็อก
+ * ⇒ ห้ามส่งเข้า PrintableQuote (ไม่มี field รองรับ — ด่านคือ type boundary ของ lib/oem/printableQuote.ts). */
+export interface OemProductBreakdown {
+  productId: string | null;
+  sku: string | null;
+  name: string;
+  category: string | null;
+  costSource: "catalog" | "manual";
+  /** catalog = cost_type ของ SKU ('fixed'|'spot'|'spec') · manual = 'manual' */
+  costBasis: string | null;
+  catalogListPrice: number | null;
+  unitPriceThb: number;
+  /** null = เทียบไม่ได้ (ไม่มี list price / รายการไม่มี SKU) */
+  belowCatalog: boolean | null;
+  priceReason: string | null;
+}
+
 export interface OemPriceBreakdown {
   qRun: number;
   rejectPctTotal: number;
@@ -338,6 +370,8 @@ export interface OemPriceBreakdown {
   nre: { cad: number | null; print3d: number | null; mold: number | null; cost: number; price: number };
   /** 0078: non-null only when metal='silver999'. null for every production item. */
   bar?: OemBarBreakdown | null;
+  /** 0166: non-null only when metal='product'. */
+  product?: OemProductBreakdown | null;
   costPiece: number;
   pricePerPiece: number;
   /** null when is_complete=false — do not trust/display a partial total. */
@@ -713,6 +747,7 @@ export const OEM_METAL_LABEL_TH: Record<OemMetal, string> = {
   gold: "ทอง",
   brass: "ทองเหลือง",
   silver999: "เงินแท่ง 99.99%",
+  product: "สินค้า/บริการ",
 };
 
 export const OEM_QUOTE_STATUS_LABEL_TH: Record<OemQuoteStatus, string> = {

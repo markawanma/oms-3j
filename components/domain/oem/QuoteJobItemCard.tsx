@@ -10,7 +10,7 @@ import { ChevronDown, ChevronUp, Loader2, Plus, Trash2, X } from "lucide-react";
 import type { OemBarSize, OemMetal, OemPriceCalcResult, OemProductOption } from "@/lib/oem/types";
 import { OEM_BAR_SIZE_LABEL_TH, OEM_METAL_LABEL_TH } from "@/lib/oem/types";
 import type { JobForm } from "@/lib/oem/quoteForm";
-import { OEM_DEFAULT_PURITY, barOverrideIssue } from "@/lib/oem/quoteForm";
+import { OEM_DEFAULT_PURITY, barOverrideIssue, productFormIssue } from "@/lib/oem/quoteForm";
 import type { SkuPrefixRow } from "@/lib/catalog/sku-prefix";
 import {
   OEM_BAR_SIZE_WEIGHT_LABEL_TH,
@@ -22,6 +22,7 @@ import {
 import { formatTHB } from "@/lib/format";
 import { OemBarCalcSummary } from "./OemBarCalcSummary";
 import { OemCalcBreakdown } from "./OemCalcBreakdown";
+import { OemProductCalcSummary } from "./OemProductCalcSummary";
 import { CreateSkuDialog } from "./CreateSkuDialog";
 
 const inputCls = "min-h-11 w-full rounded-md border border-zinc-300 px-2.5 text-sm text-zinc-900";
@@ -147,7 +148,9 @@ function SkuPicker({
       )}
       {productsError && <p className="mt-1 text-xs text-red-600">{productsError}</p>}
       <p className="mt-1 text-xs text-zinc-400">
-        ผูกไว้เพื่อให้ใบเสนอราคาระบุแบบได้ — น้ำหนักกับจำนวนยังต้องกรอกเอง ไม่ได้กรอกให้อัตโนมัติ
+        {job.metal === "product"
+          ? "เลือก SKU เพื่อดึงราคาแคตตาล็อกมาเป็นราคาตั้งต้น — แก้ราคาในใบนี้ได้ ไม่กระทบแคตตาล็อก · ไม่เลือก SKU ก็ได้ (ต้องกรอกชื่อรายการและทุนเอง)"
+          : "ผูกไว้เพื่อให้ใบเสนอราคาระบุแบบได้ — น้ำหนักกับจำนวนยังต้องกรอกเอง ไม่ได้กรอกให้อัตโนมัติ"}
       </p>
     </div>
   );
@@ -191,7 +194,14 @@ export function QuoteJobItemCard({
   onToggleCollapse: () => void;
 }) {
   const isBar = job.metal === "silver999";
-  const summaryLabel = isBar
+  const isProduct = job.metal === "product";
+  // 0166: pre-check ฝั่งฟอร์ม (รูปร่าง/เหตุผลเมื่อต่ำกว่าแคตตาล็อก) — DB ตัดสินจริง
+  const productIssue = isProduct ? productFormIssue(job) : null;
+  const belowListPrice =
+    isProduct && !!job.productId && job.listPriceThb != null && job.unitPriceThb.trim() !== "" && Number(job.unitPriceThb) < job.listPriceThb;
+  const summaryLabel = isProduct
+    ? [job.skuSnapshot || job.productName.trim() || "สินค้า/บริการ", job.qty ? `${job.qty} ชิ้น` : null].filter(Boolean).join(" · ")
+    : isBar
     ? [
         job.skuSnapshot || null,
         job.barSize ? `เงินแท่ง ${OEM_BAR_SIZE_LABEL_TH[job.barSize as OemBarSize]}` : "ยังไม่ระบุขนาด",
@@ -241,7 +251,7 @@ export function QuoteJobItemCard({
               {calcError}
             </p>
           )}
-          {calc && !calc.isComplete && !isBar && (
+          {calc && !calc.isComplete && !isBar && !isProduct && (
             <p className="rounded-md border border-amber-200 bg-amber-50 p-2 text-xs text-amber-700">
               ยังคิดราคาไม่ได้ — ขาดต้นทุน {calc.missing.length} รายการ
             </p>
@@ -283,7 +293,7 @@ export function QuoteJobItemCard({
               </select>
             </label>
 
-            {!isBar && (
+            {!isBar && !isProduct && (
               <label className={labelCls}>
                 ความบริสุทธิ์ {job.metal === "gold" && <span className="text-red-600">*บังคับกรอก</span>}
                 <input
@@ -403,6 +413,88 @@ export function QuoteJobItemCard({
                   )}
                 </div>
               </>
+            ) : isProduct ? (
+              <>
+                {/* 0166: รายการสินค้า/บริการ — ผูก SKU = ชื่อ/ทุนมาจากแคตตาล็อกที่ DB (ไม่มีช่องทุน) · ไม่มี SKU = กรอกชื่อ + ทุนเอง */}
+                {!job.productId && (
+                  <label className={`${labelCls} sm:col-span-2`}>
+                    ชื่อรายการ <span className="text-red-600">*บังคับ (ไม่มี SKU)</span>
+                    <input
+                      type="text"
+                      maxLength={200}
+                      value={job.productName}
+                      onChange={(e) => onChange("productName", e.target.value)}
+                      className={inputCls}
+                      placeholder="เช่น กล่องสั่งทำ / ค่าส่ง"
+                    />
+                  </label>
+                )}
+                <label className={labelCls}>
+                  จำนวน (ชิ้น)
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    min={1}
+                    step="1"
+                    value={job.qty}
+                    onChange={(e) => onChange("qty", e.target.value)}
+                    className={inputCls}
+                  />
+                </label>
+                <label className={labelCls}>
+                  ราคาต่อชิ้น (บาท)
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    min={0}
+                    step="0.01"
+                    value={job.unitPriceThb}
+                    onChange={(e) => onChange("unitPriceThb", e.target.value)}
+                    className={inputCls}
+                  />
+                  {job.productId && job.listPriceThb != null && (
+                    <span className="mt-0.5 text-[11px] font-normal text-zinc-400">
+                      ราคาแคตตาล็อก {formatTHB(job.listPriceThb)} — แก้ราคาได้ในใบนี้ ไม่กระทบแคตตาล็อก
+                    </span>
+                  )}
+                  {job.productId && job.listPriceThb == null && (
+                    <span className="mt-0.5 text-[11px] font-normal text-amber-700">SKU นี้ยังไม่มีราคาแคตตาล็อก — กรอกราคาเอง</span>
+                  )}
+                </label>
+                {!job.productId && (
+                  <label className={labelCls}>
+                    ทุนต่อชิ้น (บาท) <span className="text-red-600">*บังคับ</span>
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      min={0}
+                      step="0.01"
+                      value={job.unitCostThb}
+                      onChange={(e) => onChange("unitCostThb", e.target.value)}
+                      className={inputCls}
+                    />
+                  </label>
+                )}
+                <label className={`${labelCls} sm:col-span-2`}>
+                  เหตุผลราคา{" "}
+                  {belowListPrice ? (
+                    <span className="text-red-600">*บังคับ (ราคาต่ำกว่าแคตตาล็อก)</span>
+                  ) : (
+                    <span className="font-normal text-zinc-400">ไม่บังคับ</span>
+                  )}
+                  <input
+                    type="text"
+                    maxLength={200}
+                    value={job.priceReason}
+                    onChange={(e) => onChange("priceReason", e.target.value)}
+                    className={inputCls}
+                    placeholder="เช่น ลูกค้าประจำ / โปรสั่งเยอะ"
+                  />
+                </label>
+                {productIssue && (
+                  <p className="text-xs font-semibold text-amber-700 sm:col-span-2">{productIssue}</p>
+                )}
+              </>
             ) : (
               <>
                 <label className={labelCls}>
@@ -457,7 +549,7 @@ export function QuoteJobItemCard({
 
           {/* 0078: เงินแท่งไม่มีระดับขัด/ฝังพลอย/ชุบผิว/แบบใหม่(NRE)/margin —
               ราคาตายตัวจากเว็บ, margin ฝังอยู่แล้ว (ดู OemBarCalcSummary ด้านล่าง) */}
-          {!isBar && (
+          {!isBar && !isProduct && (
             <>
               <div className="flex items-center gap-2">
                 <input
@@ -567,7 +659,13 @@ export function QuoteJobItemCard({
               ไปอยู่ระดับทั้งใบที่ QuoteResultPanel */}
           {calc && !calcLoading && (
             <div className="border-t border-zinc-100 pt-3">
-              {isBar ? <OemBarCalcSummary calc={calc} /> : <OemCalcBreakdown calc={calc} metal={job.metal} />}
+              {isBar ? (
+                <OemBarCalcSummary calc={calc} />
+              ) : isProduct ? (
+                <OemProductCalcSummary calc={calc} />
+              ) : (
+                <OemCalcBreakdown calc={calc} metal={job.metal} />
+              )}
             </div>
           )}
         </div>
