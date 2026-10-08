@@ -328,3 +328,70 @@ describe("toPrintableQuote — approval_note ไม่หลุดหน้า�
     expect(JSON.stringify(p)).not.toContain("ลับ-lost");
   });
 });
+
+// ============================================================================
+// 0169: งานผลิตที่ผู้ใช้พิมพ์ราคาต่อชิ้นทับ — ราคาที่ลูกค้าเห็นคือราคาที่พิมพ์ · ราคาจากสูตร / เหตุผล / ทุน ห้ามหลุด (field set ไม่เปลี่ยน)
+// ============================================================================
+const OVR_FORMULA = 7654.32;
+const OVR_REASON = "ลับ-ลดให้เพราะคู่แข่งเสนอต่ำกว่า";
+const OVR_COST = 3210.98;
+
+function productionOverrideItem(): OemQuoteItemRow {
+  return {
+    id: "po1",
+    seq: 1,
+    skuSnapshot: null,
+    productNameSnapshot: null,
+    qty: 50,
+    pricePerPiece: 4000,
+    itemTotal: 200000,
+    costPiece: OVR_COST,
+    input: {
+      metal: "silver",
+      itemKind: "แหวน",
+      weightG: 3.5,
+      qty: 50,
+      unitPriceOverrideThb: 4000,
+      priceOverrideReason: OVR_REASON,
+    },
+    calc: {
+      isComplete: true,
+      missing: [],
+      warnings: [],
+      formulaVersion: 3,
+      floors: { priceVsCost: { applies: true, pass: true } },
+      breakdown: {
+        costPiece: OVR_COST,
+        pricePerPiece: 4000,
+        bar: null,
+        product: null,
+        productionOverride: { thb: 4000, reason: OVR_REASON, formulaPricePerPiece: OVR_FORMULA },
+      },
+    },
+  } as unknown as OemQuoteItemRow;
+}
+
+describe("toPrintableQuote — งานผลิตที่พิมพ์ราคาทับ (0169)", () => {
+  it("ราคาต่อชิ้น/ยอดรวมบนใบ = ราคาที่พิมพ์ (pricePerPiece/itemTotal ที่เก็บ) · ชนิดงาน/น้ำหนักตามปกติ", () => {
+    const it = toPrintableQuote(quote(), [productionOverrideItem()]).items[0];
+    expect(it.pricePerPiece).toBe(4000);
+    expect(it.itemTotal).toBe(200000);
+    expect(it.itemKindFallback).toBe("แหวน");
+    expect(it.weightG).toBe(3.5);
+    expect(it.barSizeLabel).toBeNull();
+  });
+
+  it("🔴 ราคาจากสูตร / เหตุผล / ทุน / price_vs_cost ไม่หลุดเข้า PrintableQuote ทั้งก้อน (serialize แล้วหา)", () => {
+    const serialized = JSON.stringify(toPrintableQuote(quote(), [productionOverrideItem()]));
+    expect(serialized).not.toContain(OVR_REASON);
+    expect(serialized).not.toContain(String(OVR_FORMULA));
+    expect(serialized).not.toContain(String(OVR_COST));
+    expect(serialized).not.toMatch(/productionOverride|production_override|formulaPrice|priceVsCost|price_vs_cost|priceOverrideReason|unitPriceOverride/i);
+  });
+
+  it("🔴 field set ของ item งานผลิตที่พิมพ์ราคาทับ = field set ของ item เงินแท่ง (ไม่เพิ่ม field เพื่อ override)", () => {
+    const a = Object.keys(toPrintableQuote(quote(), [productionOverrideItem()]).items[0]).sort();
+    const b = Object.keys(toPrintableQuote(quote(), [barItem({ override: false })]).items[0]).sort();
+    expect(a).toEqual(b);
+  });
+});

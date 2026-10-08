@@ -16,7 +16,7 @@
 --   renegotiate: ไม่มีด่าน qty/ล็อต (copy item เดิม ไม่คำนวณ floors ใหม่) ⇒ ไม่ต้องแก้ · Q8a ต่อรองใบที่ออกด้วย note ผ่าน · Q8b draft เรียกต่อรองไม่ได้ (ไม่มีทางอ้อมได้ใบ quoted ที่ไม่มี note)
 --  ด่านอื่นห้ามแตะ (แม้มี note): Q6a is_complete · Q6b hard floor รายชิ้น · Q6c min_job_value · Q6d margin รวมติดลบ · Q6e ราคาพิเศษเงินแท่งต่ำกว่าทุน · Q6f F1 · Q6g F2
 --  fixture: Q0/Q0b ยืนยันว่าเคสที่ใช้ floor "ไม่ผ่านจริง" ตามที่ oem_price_calc รายงาน (floors ยัง pass=false ตามเดิม — calc ไม่ถูกแตะ)
---  mutant 7 จุด (MQ1-MQ7) ต้องล้มจริง · verify-0163/0165/0166/0167 รันซ้ำต้องผ่าน (รายงานแยก) · approval_note ไม่พิมพ์บนใบลูกค้า = vitest (printableQuote.test.ts)
+--  mutant 6 จุด (MQ1-MQ6) ต้องล้มจริง · verify-0163/0165/0166/0167 รันซ้ำต้องผ่าน (รายงานแยก) · approval_note ไม่พิมพ์บนใบลูกค้า = vitest (printableQuote.test.ts)
 --  ⚠️ ที่เทสต์ครอบไม่ได้: PostgREST จริง (probe แยกหลัง apply) · หน้าจอ (vitest + QA)
 
 create function pg_temp.chk(p_id text, p_desc text, p_ok boolean) returns text
@@ -196,8 +196,8 @@ begin
     v_r := pg_temp.t_save(p_shop, jsonb_build_array(pg_temp.pj(p_prod, 'gold', 3)), 'quoted', null);
     v_log := v_log || pg_temp.chk('Q1a', 'ทอง 3 ชิ้น (ต่ำกว่า MOQ + ล็อตทอง) ไม่มี note → 22023 "ต่ำกว่า MOQ/ล็อตโลหะขั้นต่ำ — ต้องใส่เหตุผลอนุมัติ"',
       v_r like 'ERR:22023:%ต่ำกว่า MOQ/ล็อตโลหะขั้นต่ำ%ต้องใส่เหตุผลอนุมัติ%');
-    v_r := pg_temp.t_save(p_shop, jsonb_build_array(pg_temp.pj(p_prod, 'gold', 3)), 'quoted', chr(8288) || chr(65279) || ' ' || chr(8238));
-    v_log := v_log || pg_temp.chk('Q1b', 'note มีแต่อักขระล่องหน/bidi/ช่องว่าง = ไม่มี note → 22023', v_r like 'ERR:22023:%ต่ำกว่า MOQ/ล็อตโลหะขั้นต่ำ%');
+    v_r := pg_temp.t_save(p_shop, jsonb_build_array(pg_temp.pj(p_prod, 'gold', 3)), 'quoted', chr(10240) || ' ' || chr(65039));
+    v_log := v_log || pg_temp.chk('Q1b', 'note ที่ไม่มีตัวอักษร/ตัวเลขจริง (U+2800 / VS16 / ช่องว่าง) = ไม่มี note → 22023 (whitelist oem_note_present ตั้งแต่ 0169 · bidi/ล่องหนจริงตกที่ L2 ของ verify-0169)', v_r like 'ERR:22023:%ต่ำกว่า MOQ/ล็อตโลหะขั้นต่ำ%');
     v_r := pg_temp.t_save(p_shop, jsonb_build_array(pg_temp.pj(p_prod, 'gold', 3)), 'quoted', E'  \t ' || chr(160) || chr(12288));
     v_log := v_log || pg_temp.chk('Q1c', 'note เป็นช่องว่างล้วนทุกชนิด (รวม NBSP/ideographic) → 22023', v_r like 'ERR:22023:%ต่ำกว่า MOQ/ล็อตโลหะขั้นต่ำ%');
     v_r := pg_temp.t_save(p_shop, jsonb_build_array(pg_temp.pj(p_prod, 'silver', 3)), 'quoted', null);
@@ -362,15 +362,14 @@ begin
   for v_m in
     select * from (values
       ('MQ1', 'if (not v_qty_pass_all or not v_metalweight_pass_all)', 'if false and (not v_qty_pass_all or not v_metalweight_pass_all)', array['Q1a', 'Q2a']),
-      ('MQ2', E'and nullif(btrim(analytics.oem_text_strip_invisible(p_approval_note), v_note_ws), '''') is null then\n      raise exception ''oem_quote_save: ต่ำกว่า MOQ',
-              E'and nullif(btrim(p_approval_note), '''') is null then\n      raise exception ''oem_quote_save: ต่ำกว่า MOQ', array['Q1b']),
+      ('MQ2', E'and not analytics.oem_note_present(p_approval_note) then\n      raise exception ''oem_quote_save: ต่ำกว่า MOQ',
+              E'and (p_approval_note is null or btrim(p_approval_note) = '''') then\n      raise exception ''oem_quote_save: ต่ำกว่า MOQ', array['Q1b', 'Q1c']),
       ('MQ3', 'or not v_metalweight_pass_all)', 'or false)', array['Q2d']),
       ('MQ4', 'if (not v_qty_pass_all or', 'if (false or', array['Q2a', 'Q2b', 'Q2c']),
-      ('MQ5', E'and nullif(btrim(analytics.oem_text_strip_invisible(p_approval_note), v_note_ws), '''') is null then\n      raise exception ''oem_quote_save: ต่ำกว่า MOQ',
+      ('MQ5', E'and not analytics.oem_note_present(p_approval_note) then\n      raise exception ''oem_quote_save: ต่ำกว่า MOQ',
               E'and true then\n      raise exception ''oem_quote_save: ต่ำกว่า MOQ', array['Q4a', 'Q4c']),
-      ('MQ7', '|| chr(8287) || chr(12288);', '|| chr(8287);', array['Q1d']),
-      ('MQ6', E'and nullif(btrim(analytics.oem_text_strip_invisible(p_approval_note), v_note_ws), '''') is null then\n      raise exception ''oem_quote_save: ต่ำกว่า MOQ',
-              E'and nullif(btrim(analytics.oem_text_strip_invisible(p_approval_note), v_note_ws), '''') is not null then\n      raise exception ''oem_quote_save: ต่ำกว่า MOQ', array['Q1a', 'Q4a'])
+      ('MQ6', E'and not analytics.oem_note_present(p_approval_note) then\n      raise exception ''oem_quote_save: ต่ำกว่า MOQ',
+              E'and analytics.oem_note_present(p_approval_note) then\n      raise exception ''oem_quote_save: ต่ำกว่า MOQ', array['Q1a', 'Q4a'])
     ) as t(id, f, t, ids)
   loop
     v_total := v_total + 1;

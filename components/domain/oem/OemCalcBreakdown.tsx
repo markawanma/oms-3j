@@ -120,6 +120,9 @@ export function OemCalcBreakdown({
   const marginState = floors.margin.state;
   const hardBlocked = marginState === "hard_floor_breach";
   const needsNote = marginState === "needs_approval_note";
+  // 0169: งานผลิตที่ผู้ใช้พิมพ์ราคาต่อชิ้นทับ (หน้า admin เท่านั้น — มีราคาจากสูตร/เหตุผล · ห้ามเข้าหน้าพิมพ์)
+  const ovr = calc.breakdown.productionOverride ?? null;
+  const belowCost = floors.priceVsCost?.pass === false;
 
   // While rates are missing the RPC still returns a per-piece price, but it is
   // built with the un-entered components coalesced to 0 — i.e. it is always
@@ -158,6 +161,40 @@ export function OemCalcBreakdown({
         </div>
       </div>
 
+      {/* 0169: ราคาต่อชิ้นถูกพิมพ์ทับ — ราคาจากสูตร → ราคาที่พิมพ์ + margin จริงของราคานั้น (การ์ด "margin ที่คิด" ข้างล่างคือ margin ของราคาที่พิมพ์) */}
+      {ovr && !incomplete && (
+        <div className="rounded-lg border border-amber-300 bg-amber-50 p-3.5 shadow-sm">
+          <div className="flex items-center gap-1.5">
+            <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-bold text-amber-800">ราคาที่พิมพ์ทับ</span>
+            <span className="text-xs text-zinc-600">ต้นทุนยังคิดจากสูตรงานผลิตตามเดิม</span>
+          </div>
+          <dl className="mt-1.5 space-y-0.5 text-xs text-zinc-700">
+            <div className="flex justify-between">
+              <dt>ราคาจากสูตร</dt>
+              <dd className="tabular-nums">{ovr.formulaPricePerPiece != null ? formatTHB(ovr.formulaPricePerPiece) : "—"}</dd>
+            </div>
+            <div className="flex justify-between font-semibold">
+              <dt>ราคาที่พิมพ์</dt>
+              <dd className="tabular-nums">{formatTHB(ovr.thb)}</dd>
+            </div>
+            <div className="flex justify-between">
+              <dt>margin จริงของราคาที่พิมพ์</dt>
+              <dd className="tabular-nums">{fmtPct(floors.margin.value)}</dd>
+            </div>
+            <div className="flex justify-between gap-3">
+              <dt className="shrink-0">เหตุผล</dt>
+              <dd className="text-right">{ovr.reason}</dd>
+            </div>
+          </dl>
+          {belowCost && (
+            <p role="alert" className="mt-2 flex items-start gap-1.5 text-xs font-semibold text-red-700">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              ราคาที่พิมพ์ต่ำกว่าทุนต่อชิ้น (รวมต้นทุน/ชิ้นด้านล่าง) — ออกใบเสนอราคาไม่ได้ ไม่มีทางลัด (บันทึกเป็นร่างได้)
+            </p>
+          )}
+        </div>
+      )}
+
       {/* margin */}
       <div
         className={`rounded-lg border p-3.5 shadow-sm ${
@@ -175,7 +212,7 @@ export function OemCalcBreakdown({
             งานทองเป็น pass-through: มาร์จิ้นคิดเฉพาะค่ากำเหน็จ ไม่คิดทับเนื้อทอง — margin รวมทั้งงานจึงต่ำกว่ามากโดยตั้งใจ ไม่ใช่บั๊ก
           </p>
         )}
-        {hardBlocked && (
+        {hardBlocked && !belowCost && (
           <p className="mt-2 flex items-start gap-1.5 text-xs font-semibold text-red-700">
             <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
             ต่ำกว่า hard floor — ออกใบเสนอราคาไม่ได้ ไม่มีทางลัด ต้องปรับราคาหรือปฏิเสธงาน

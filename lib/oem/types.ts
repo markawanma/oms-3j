@@ -275,6 +275,11 @@ export interface OemPriceCalcInput {
   unitCostThb?: number | null;
   /** 0166 (product): เหตุผลราคา — บังคับเมื่อมี productId และราคาต่ำกว่า list price ของแคตตาล็อก (DB ตัดสิน) */
   priceReason?: string | null;
+  /** 0169 (silver/gold/brass เท่านั้น): ราคาต่อชิ้นที่ผู้ใช้พิมพ์ทับ (บาท · รวมทุกอย่างที่ระบบแสดงเป็น "ราคา/ชิ้น") — ต้นทุนยังคิดจากสูตรเหมือนเดิม ·
+   * ต่ำกว่า margin floor ได้เมื่อใส่เหตุผล · ต่ำกว่าทุนต่อชิ้นห้ามเสมอ (DB ตัดสิน) · null/ไม่ส่ง = ราคาจาก margin % ตามเดิม. */
+  unitPriceOverrideThb?: number | null;
+  /** 0169: เหตุผลราคาที่พิมพ์ทับ — บังคับเมื่อมี unitPriceOverrideThb (ต้องมีตัวอักษร/ตัวเลขจริง) · ห้ามส่งเมื่อไม่มีราคา. */
+  priceOverrideReason?: string | null;
 }
 
 export interface OemMissingRateEntry {
@@ -342,6 +347,15 @@ export interface OemProductBreakdown {
   priceReason: string | null;
 }
 
+/** 0169: breakdown.production_override — มีเฉพาะงานผลิตที่ผู้ใช้พิมพ์ราคาต่อชิ้นทับ. หน้า admin เท่านั้น: มีราคาจากสูตร + เหตุผล
+ * ⇒ ห้ามส่งเข้า PrintableQuote (ไม่มี field รองรับ — ด่านคือ type boundary ของ lib/oem/printableQuote.ts). */
+export interface OemProductionOverride {
+  thb: number;
+  reason: string;
+  /** ราคาต่อชิ้นที่สูตร (margin %) ให้ — เทียบกับราคาที่พิมพ์ */
+  formulaPricePerPiece: number | null;
+}
+
 export interface OemPriceBreakdown {
   qRun: number;
   rejectPctTotal: number;
@@ -372,6 +386,8 @@ export interface OemPriceBreakdown {
   bar?: OemBarBreakdown | null;
   /** 0166: non-null only when metal='product'. */
   product?: OemProductBreakdown | null;
+  /** 0169: non-null only เมื่อผู้ใช้พิมพ์ราคาต่อชิ้นทับ (งานผลิต). */
+  productionOverride?: OemProductionOverride | null;
   costPiece: number;
   pricePerPiece: number;
   /** null when is_complete=false — do not trust/display a partial total. */
@@ -406,6 +422,9 @@ export interface OemFloors {
   /** 0163: มีเฉพาะเมื่อมีราคาพิเศษ. pass=false = ต่ำกว่าทุน (preview ได้ แต่ออกใบไม่ได้ — oem_quote_save ปฏิเสธ)
    * · pass=null = ตัดสินไม่ได้ (ไม่มีราคาเว็บ/ราคารับซื้อคืนวันนี้ — isComplete=false อยู่แล้ว). */
   barPrice?: { applies: boolean; pass: boolean | null };
+  /** 0169: มีเฉพาะงานผลิตที่พิมพ์ราคาทับ. pass=false = ราคาที่พิมพ์ต่ำกว่าทุนต่อชิ้น (ออกใบไม่ได้ ไม่มีทางลัด — oem_quote_save ปฏิเสธ) ·
+   * pass=null = ตัดสินไม่ได้ (คำนวณไม่ครบ). */
+  priceVsCost?: { applies: boolean; pass: boolean | null };
 }
 
 export interface OemPriceCalcResult {

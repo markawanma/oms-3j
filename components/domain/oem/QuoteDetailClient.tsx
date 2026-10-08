@@ -18,7 +18,7 @@ import { OEM_BAR_SIZE_LABEL_TH, OEM_METAL_LABEL_TH, OEM_QUOTE_STATUS_LABEL_TH } 
 import type { SellerProfile } from "@/lib/oem/sellerProfile";
 import { formatBangkokTime, formatTHB } from "@/lib/format";
 import { formatThaiDateOnly } from "@/lib/tiktok/format";
-import { fmtPct, formatOemAddressLines } from "@/lib/oem/display";
+import { OEM_APPROVAL_GATE_LABEL_TH, fmtPct, formatOemAddressLines } from "@/lib/oem/display";
 import { Badge } from "@/components/ui/Badge";
 import type { BadgeTone } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -89,7 +89,10 @@ export function QuoteDetailClient({
   sellerProfile,
   parentDeposit,
   receipts,
+  approvalGates = [],
 }: {
+  /** 0169 M2: ด่านอ่อนที่ใบนี้ใช้ approval_note ผ่าน (หน้า admin เท่านั้น) */
+  approvalGates?: string[];
   quote: OemQuoteRow;
   items: OemQuoteItemRow[];
   provinces: OemProvinceOption[];
@@ -244,7 +247,14 @@ export function QuoteDetailClient({
           </p>
         )}
         {quote.approvalNote && (
-          <p className="mt-2 rounded-md bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800">เหตุผลที่ต่ำกว่า floor: {quote.approvalNote}</p>
+          <div className="mt-2 rounded-md bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800">
+            <p>เหตุผลอนุมัติ: {quote.approvalNote}</p>
+            {approvalGates.length > 0 && (
+              <p className="mt-0.5 text-amber-700">
+                ครอบด่าน: {approvalGates.map((g) => OEM_APPROVAL_GATE_LABEL_TH[g] ?? g).join(" · ")}
+              </p>
+            )}
+          </div>
         )}
         {quote.status === "lost" && (
           <p className="mt-2 rounded-md bg-red-50 px-2.5 py-1.5 text-xs text-red-700">

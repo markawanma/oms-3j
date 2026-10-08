@@ -18,6 +18,7 @@
 --    M2     analytics.oem_quote.approval_gates text[] — ด่านอ่อนที่ใบนี้ใช้ note ผ่าน (moq · metal_lot · margin_note_tier · manual_cost · override_below_floor)
 --           คำนวณฝั่ง server เก็บในคอลัมน์ (ไม่ใช่ rate_snapshot · ไม่อยู่ใน v_oem_quote · ไม่เข้า PrintableQuote)
 --    L3     renegotiate คัดลอก approval_note / approved_by / approval_gates ไปใบลูก (+ ด่านอ่อนที่ใช้ตอนต่อราคา)
+-- 🔴 APPLIED แล้ว 9 ต.ค. 69 (เวลาไทย) version 20261008184440 — ห้าม apply ซ้ำ · golden replay 3698 เคสเท่า legacy · verify-0169 OK 55 + mutant 13/13 / FAIL 0
 -- ลอก: oem_price_calc จาก 0167 · oem_quote_save / oem_quote_renegotiate จาก 0168 (ฉบับล่าสุด) — แก้เฉพาะจุดที่ทำเครื่องหมาย "0169"
 -- signature เดิมทุกตัว → create or replace ตรงๆ ไม่เกิด overload · re-grant service_role เท่านั้น (ข้อ 2 + 18) · ฟังก์ชันใหม่ 2 ตัวก็ service_role เท่านั้น
 -- อักขระล่องหนในไฟล์นี้เขียนเป็น chr() ทั้งหมด ห้ามแปลงเป็นตัวอักษรดิบ · ชุดทดสอบ scripts/verify/verify-0169.sql · ไฟล์เป็น LF (ข้อ 20)

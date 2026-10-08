@@ -34,6 +34,7 @@ import type {
   OemPriceCalcInput,
   OemPriceCalcResult,
   OemProductBreakdown,
+  OemProductionOverride,
   OemProductOption,
   OemProvinceOption,
   OemQuoteItemRow,
@@ -58,7 +59,15 @@ import type {
   UpsertOemSettingInput,
   VoidReceiptInput,
 } from "@/lib/oem/types";
-import { customerTextIssue, hasAnyContact, isValidThaiTaxId, parseBillAddress, stripInvisibleText } from "@/lib/oem/display";
+import {
+  approvalNoteIssue,
+  customerTextIssue,
+  hasAnyContact,
+  isValidThaiTaxId,
+  oemNotePresent,
+  parseBillAddress,
+  stripInvisibleText,
+} from "@/lib/oem/display";
 import { cleanPriceReason, productInputIssue } from "@/lib/oem/productItem";
 import type { SellerProfile } from "@/lib/oem/sellerProfile";
 import { fetchAllRows } from "@/lib/supabase/query-limits";
@@ -124,6 +133,24 @@ function validateBarOverride(input: OemPriceCalcInput): string | null {
   }
   if (Math.round(price * 100) / 100 !== price) return "ราคาพิเศษใส่ทศนิยมได้ไม่เกิน 2 ตำแหน่ง";
   if (!reason) return "ราคาพิเศษต้องระบุเหตุผล";
+  return null;
+}
+
+/** 0169: ด่านรูปร่างของราคาต่อชิ้นที่พิมพ์ทับ (งานผลิต) ที่ขอบ action — ตรวจแค่รูปร่าง/ช่วง/เหตุผล · "ต่ำกว่าทุน/ต่ำกว่า floor" ตัดสินที่ DB เท่านั้น */
+function validateProductionOverride(input: OemPriceCalcInput): string | null {
+  if (input.metal !== "silver" && input.metal !== "gold" && input.metal !== "brass") return null;
+  const price: unknown = input.unitPriceOverrideThb;
+  const rawReason: unknown = input.priceOverrideReason;
+  if (rawReason != null && typeof rawReason !== "string") return "เหตุผลราคาที่พิมพ์ต้องเป็นข้อความ";
+  if (price == null) {
+    return stripInvisibleText(rawReason).trim() ? "มีเหตุผลราคาที่พิมพ์แต่ยังไม่ได้กรอกราคา" : null;
+  }
+  if (typeof price !== "number" || !Number.isFinite(price) || price <= 0 || price > 1_000_000) {
+    return "ราคาต่อชิ้นที่พิมพ์ต้องเป็นตัวเลขมากกว่า 0 และไม่เกิน 1,000,000 บาท";
+  }
+  if (Math.round(price * 100) / 100 !== price) return "ราคาต่อชิ้นที่พิมพ์ใส่ทศนิยมได้ไม่เกิน 2 ตำแหน่ง";
+  // 0169 M1: เหตุผลต้องมีตัวอักษร/ตัวเลขจริง (whitelist) — ไม่ใช่แค่ไม่ว่าง
+  if (!oemNotePresent(rawReason)) return "ราคาที่พิมพ์ต้องระบุเหตุผล (ต้องมีตัวอักษรหรือตัวเลข)";
   return null;
 }
 
@@ -196,6 +223,13 @@ function toCalcInputPayload(input: OemPriceCalcInput): Record<string, unknown> {
     as_of_date: input.asOfDate ?? null,
     // 0063: margin to CHARGE — omit to fall back to oem_setting.margin_target_pct.
     margin_pct: input.marginPct ?? null,
+    // 0169: ราคาต่อชิ้นที่พิมพ์ทับ — ส่ง 2 key นี้ "เฉพาะเมื่อมีราคา" (เหตุผลไม่ส่งถ้าราคายังว่าง: DB ปฏิเสธเหตุผลลอย) · ไม่มีการคิดเงินที่นี่
+    ...(input.unitPriceOverrideThb != null
+      ? {
+          unit_price_override_thb: input.unitPriceOverrideThb,
+          price_override_reason: stripInvisibleText(input.priceOverrideReason).trim(),
+        }
+      : {}),
   };
 }
 
@@ -252,6 +286,13 @@ function fromInputPayload(raw: Record<string, unknown>): OemPriceCalcInput {
     gemCount: raw.gem_count == null ? 0 : Number(raw.gem_count),
     asOfDate: (raw.as_of_date as string | null | undefined) ?? null,
     marginPct: raw.margin_pct == null ? null : Number(raw.margin_pct),
+    // 0169: อ่านกลับ — ไม่งั้นเปิดร่างที่เก็บไว้แล้วราคาที่พิมพ์หายเงียบๆ กลับเป็นราคาจากสูตร
+    ...(raw.unit_price_override_thb != null
+      ? {
+          unitPriceOverrideThb: Number(raw.unit_price_override_thb),
+          priceOverrideReason: raw.price_override_reason == null ? null : String(raw.price_override_reason),
+        }
+      : {}),
   };
 }
 
@@ -320,6 +361,17 @@ function fromCalcResult(raw: Record<string, unknown>): OemPriceCalcResult {
         }
       : null;
 
+  // 0169: มีเฉพาะงานผลิตที่พิมพ์ราคาทับ (admin เท่านั้น — มีราคาจากสูตร/เหตุผล · ห้ามส่งต่อเข้า PrintableQuote)
+  const ovrRaw = b.production_override as Record<string, unknown> | null | undefined;
+  const productionOverride: OemProductionOverride | null =
+    ovrRaw && typeof ovrRaw === "object"
+      ? {
+          thb: Number(ovrRaw.thb ?? 0),
+          reason: String(ovrRaw.reason ?? ""),
+          formulaPricePerPiece: ovrRaw.formula_price_per_piece == null ? null : Number(ovrRaw.formula_price_per_piece),
+        }
+      : null;
+
   const laborSteps: OemLaborStep[] = ((labor.steps as unknown[] | undefined) ?? []).map((s) => {
     const r = s as Record<string, unknown>;
     return { key: String(r.key ?? ""), minutes: r.minutes == null ? null : Number(r.minutes), thb: Number(r.thb ?? 0) };
@@ -359,6 +411,7 @@ function fromCalcResult(raw: Record<string, unknown>): OemPriceCalcResult {
     },
     bar,
     product,
+    productionOverride,
     costPiece: Number(b.cost_piece ?? 0),
     pricePerPiece: Number(b.price_per_piece ?? 0),
     quoteTotal: b.quote_total == null ? null : Number(b.quote_total),
@@ -377,6 +430,8 @@ function fromCalcResult(raw: Record<string, unknown>): OemPriceCalcResult {
   const fPriceFresh = f.price_fresh as Record<string, unknown> | undefined;
   // 0163: มีเฉพาะเมื่อมีราคาพิเศษ (pass: null = ตัดสินไม่ได้ ไม่ใช่ผ่าน)
   const fBarPrice = f.bar_price as Record<string, unknown> | undefined;
+  // 0169: มีเฉพาะงานผลิตที่พิมพ์ราคาทับ (pass: null = ตัดสินไม่ได้ ไม่ใช่ผ่าน)
+  const fPriceVsCost = f.price_vs_cost as Record<string, unknown> | undefined;
 
   const floors: OemFloors = {
     qty: { pass: fQty.pass == null ? null : Boolean(fQty.pass), moq: fQty.moq == null ? null : Number(fQty.moq), actual: Number(fQty.actual ?? 0) },
@@ -397,6 +452,9 @@ function fromCalcResult(raw: Record<string, unknown>): OemPriceCalcResult {
       : undefined,
     barPrice: fBarPrice
       ? { applies: Boolean(fBarPrice.applies), pass: fBarPrice.pass == null ? null : Boolean(fBarPrice.pass) }
+      : undefined,
+    priceVsCost: fPriceVsCost
+      ? { applies: Boolean(fPriceVsCost.applies), pass: fPriceVsCost.pass == null ? null : Boolean(fPriceVsCost.pass) }
       : undefined,
   };
 
@@ -1033,6 +1091,8 @@ export async function calcPrice(input: OemPriceCalcInput): Promise<ActionResult<
     if (!Number.isFinite(input.weightG) || (input.weightG as number) <= 0) {
       return { ok: false, error: "น้ำหนักต่อชิ้นต้องมากกว่า 0" };
     }
+    const prodOvrErr = validateProductionOverride(input);
+    if (prodOvrErr) return { ok: false, error: prodOvrErr };
   }
 
   try {
@@ -1193,7 +1253,12 @@ export async function saveQuote(input: SaveQuoteInput): Promise<ActionResult<{ q
     if (overrideErr) return { ok: false, error: overrideErr };
     const productErr = productInputIssue(item.input);
     if (productErr) return { ok: false, error: productErr };
+    const prodOvrErr = validateProductionOverride(item.input);
+    if (prodOvrErr) return { ok: false, error: prodOvrErr };
   }
+  // 0169 L2: เหตุผลอนุมัติ — ห้าม control/bidi/ล่องหน และยาวไม่เกิน 500 (DB บังคับซ้ำ) · ไม่ตรวจ "ต้องมีไหม" ที่นี่ (ด่านไหนต้องใช้ DB ตัดสิน)
+  const noteErr = approvalNoteIssue(input.approvalNote);
+  if (noteErr) return { ok: false, error: noteErr };
   // 0165 L6: typeof ก่อน regex (.test() บน number/object จะ coerce) · L1: ชื่อ/ช่องทางติดต่อผ่านด่านเดียวกับ DB
   const bvu: unknown = input.barValidUntil;
   if (bvu != null && bvu !== "" && (typeof bvu !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(bvu))) {
@@ -1262,6 +1327,9 @@ export async function renegotiateQuote(input: RenegotiateQuoteInput): Promise<Ac
   if (!input?.quoteId) return { ok: false, error: "ไม่พบใบเสนอราคา" };
   const discount = toNum(input.newDiscountThb);
   if (discount === null || discount < 0) return { ok: false, error: "ส่วนลดใหม่ต้องเป็นตัวเลขตั้งแต่ 0 ขึ้นไป" };
+  // 0169 L2: เหตุผลต่อราคาถูกใช้เป็น note ของด่านอ่อนด้วย — รูปร่างเดียวกับ approval_note
+  const reasonErr = approvalNoteIssue(input.reason, "เหตุผล");
+  if (reasonErr) return { ok: false, error: reasonErr };
 
   try {
     const shopId = getDevShopId();
@@ -1661,6 +1729,34 @@ export async function getQuotes(status?: OemQuoteStatus): Promise<ActionResult<G
   } catch (err) {
     console.error("getQuotes failed", err);
     return { ok: false, error: "โหลดรายการใบเสนอราคาไม่สำเร็จ ลองใหม่อีกครั้ง" };
+  }
+}
+
+/** 0169 M2: ด่านอ่อนที่ใบนี้ใช้ approval_note ผ่าน (moq · metal_lot · margin_note_tier · manual_cost · override_below_floor) — หน้า admin เท่านั้น.
+ * อ่านจากตารางตรง (ไม่อยู่ใน v_oem_quote / rate_snapshot / PrintableQuote) · ใบเก่า/ใบที่ไม่ใช้ note = []. */
+export async function getQuoteApprovalGates(quoteId: string): Promise<ActionResult<string[]>> {
+  const gateErr = await requireOwnerAdmin();
+  if (gateErr) return gateErr;
+
+  if (!quoteId) return { ok: false, error: "ไม่พบใบเสนอราคา" };
+
+  try {
+    const shopId = getDevShopId();
+    const supabase = getServiceClient();
+
+    const { data, error } = await supabase
+      .schema(SCHEMA)
+      .from("oem_quote")
+      .select("approval_gates")
+      .eq("shop_id", shopId)
+      .eq("id", quoteId)
+      .maybeSingle();
+    if (error) throw error;
+    const gates = ((data as { approval_gates?: unknown } | null)?.approval_gates ?? []) as unknown[];
+    return { ok: true, data: Array.isArray(gates) ? gates.map((g) => String(g)) : [] };
+  } catch (err) {
+    console.error("getQuoteApprovalGates failed", err);
+    return { ok: false, error: "โหลดข้อมูลด่านอนุมัติไม่สำเร็จ" };
   }
 }
 

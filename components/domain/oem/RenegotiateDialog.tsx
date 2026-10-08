@@ -19,7 +19,7 @@ import { AlertTriangle } from "lucide-react";
 import { renegotiateQuote } from "@/lib/actions/oem";
 import type { OemQuoteRow } from "@/lib/oem/types";
 import { formatTHB } from "@/lib/format";
-import { stripInvisibleText } from "@/lib/oem/display";
+import { OEM_NOTE_MAX, approvalNoteIssue, oemNotePresent } from "@/lib/oem/display";
 import type { ManualCostRow } from "@/lib/oem/productItem";
 import { OEM_MANUAL_COST_NOTE_TH, manualCostNoteReason } from "@/lib/oem/productItem";
 import { Button } from "@/components/ui/Button";
@@ -48,7 +48,9 @@ export function RenegotiateDialog({
   const validAmount = Number.isFinite(amount) && amount >= 0;
   // 0167 F2: รายการสินค้าทุนกรอกเอง + (ส่วนลดใหม่ > 0 หรือ กำไรที่กรอกเองกลบรายการขาดทุน) ⇒ เหตุผลบังคับ
   const manualNote = validAmount ? manualCostNoteReason(manualCostRows, amount) : null;
-  const reasonMissing = manualNote !== null && stripInvisibleText(reason).trim().length === 0;
+  // 0169 M1: "มีเหตุผล" = มีตัวอักษร/ตัวเลขจริง (whitelist ชุดเดียวกับ DB) · L2: รูปร่างเหตุผล
+  const reasonMissing = manualNote !== null && !oemNotePresent(reason);
+  const reasonShapeIssue = approvalNoteIssue(reason, "เหตุผล");
 
   function confirm() {
     if (!validAmount) return;
@@ -105,6 +107,7 @@ export function RenegotiateDialog({
         value={reason}
         onChange={(e) => setReason(e.target.value)}
         rows={3}
+        maxLength={OEM_NOTE_MAX}
         className="mt-1 w-full rounded-md border border-zinc-300 p-2 text-base"
         placeholder="เช่น ลูกค้าขอลดเพิ่มเพื่อปิดออเดอร์"
       />
@@ -113,7 +116,7 @@ export function RenegotiateDialog({
         <Button type="button" variant="secondary" className="flex-1" onClick={onClose}>
           ยกเลิก
         </Button>
-        <Button type="button" variant="primary" className="flex-1" loading={pending} disabled={!validAmount || reasonMissing} onClick={confirm}>
+        <Button type="button" variant="primary" className="flex-1" loading={pending} disabled={!validAmount || reasonMissing || !!reasonShapeIssue} onClick={confirm}>
           ยืนยันต่อราคา
         </Button>
       </div>

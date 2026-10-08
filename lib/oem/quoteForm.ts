@@ -17,7 +17,7 @@
 // off this number, only off each item's own (already-gated) floors.
 
 import type { OemBarSize, OemMetal, OemPriceCalcInput, OemPriceCalcResult, OemProductOption } from "./types";
-import { stripInvisibleText } from "./display";
+import { oemNotePresent, stripInvisibleText } from "./display";
 import { cleanPriceReason, productInputIssue } from "./productItem";
 
 export const OEM_DEFAULT_PURITY: Record<OemMetal, string> = { silver: "0.925", gold: "", brass: "1", silver999: "", product: "" };
@@ -75,6 +75,10 @@ export interface JobForm {
   barPriceOverrideThb: string;
   /** 0163 — เหตุผลราคาพิเศษ · บังคับเมื่อมีราคา · ไม่ถูกส่งไป calc ถ้าราคายังว่าง. */
   barPriceOverrideReason: string;
+  /** 0169, metal silver/gold/brass — ราคาต่อชิ้นที่พิมพ์ทับ (บาท) optional · ว่าง = ราคาจาก margin % ตามเดิม. ต่ำกว่าทุนห้ามเสมอ ต่ำกว่า floor ต้องมีเหตุผล — DB ตัดสิน. */
+  unitPriceOverrideThb: string;
+  /** 0169 — เหตุผลราคาที่พิมพ์ทับ · บังคับเมื่อมีราคา · ไม่ถูกส่งไป calc ถ้าราคายังว่าง. */
+  priceOverrideReason: string;
   /** 0166, metal='product' only — ชื่อรายการ (เฉพาะรายการไม่มี SKU · ถ้าผูก SKU ชื่อมาจากแคตตาล็อกที่ DB). */
   productName: string;
   /** 0166, metal='product' — ราคาต่อชิ้น (บาท) · ผูก SKU = ตั้งต้นจากราคาแคตตาล็อก แก้ได้อิสระ (ไม่เขียนกลับ catalog). */
@@ -117,6 +121,8 @@ export function createJobForm(defaultMarginPct: number): JobForm {
     engraveTextThb: "",
     barPriceOverrideThb: "",
     barPriceOverrideReason: "",
+    unitPriceOverrideThb: "",
+    priceOverrideReason: "",
     productName: "",
     unitPriceThb: "",
     unitCostThb: "",
@@ -256,6 +262,25 @@ export function enterProductMode(job: JobForm, products: OemProductOption[]): Jo
   };
 }
 
+// ============================================================================
+// 0169: ราคาต่อชิ้นที่พิมพ์ทับของงานผลิต — ฟอร์มแค่ตรวจรูปร่าง/เหตุผล (ไม่รู้ทุน ไม่คิดเงิน) · "ต่ำกว่าทุน/ต่ำกว่า floor" ตัดสินที่ DB
+// ============================================================================
+/** มีรายการนี้พิมพ์ราคาทับไหม (งานผลิต silver/gold/brass ที่ช่องราคาไม่ว่าง) */
+export function jobHasProductionOverride(job: JobForm): boolean {
+  return (job.metal === "silver" || job.metal === "gold" || job.metal === "brass") && job.unitPriceOverrideThb.trim() !== "";
+}
+
+/** ข้อความบอกว่าทำไมราคาที่พิมพ์ทับยังใช้ไม่ได้ (null = ใช้ได้/ไม่ได้พิมพ์) */
+export function productionOverrideIssue(job: JobForm): string | null {
+  if (!jobHasProductionOverride(job)) return null;
+  const price = Number(job.unitPriceOverrideThb);
+  if (!Number.isFinite(price) || price <= 0 || price > 1_000_000) return "ราคาที่พิมพ์ต้องเป็นตัวเลขมากกว่า 0 และไม่เกิน 1,000,000 บาท";
+  if (Math.round(price * 100) / 100 !== price) return "ราคาที่พิมพ์ใส่ทศนิยมได้ไม่เกิน 2 ตำแหน่ง";
+  // 0169 M1: เหตุผลต้องมีตัวอักษร/ตัวเลขจริง (whitelist) — "." หรือ "👍" ล้วนไม่ผ่าน
+  if (!oemNotePresent(job.priceOverrideReason)) return "กรอกเหตุผลที่พิมพ์ราคาทับ (ต้องมีตัวอักษรหรือตัวเลข)";
+  return null;
+}
+
 /** Same validation/shape rules the pre-v2 single-job form used, plus the
  * 0078 silver999 branch (validates ONLY barSize+qty+engrave — none of the
  * production fields apply, see D3 in design-oem-bar-quote.md). */
@@ -325,6 +350,15 @@ export function buildJobInput(job: JobForm): OemPriceCalcInput | null {
   if (job.hasGems && (!job.gemTier || !job.gemCount || Number(job.gemCount) <= 0)) return null;
   if (job.hasPlating && !job.platingType) return null;
 
+  // 0169: ราคาที่พิมพ์ทับ — รูปร่างไม่ถูก/ไม่มีเหตุผล = null (ไม่ยิง calc ระหว่างพิมพ์ · เหตุผลไม่ถูกส่งไปถ้าราคายังว่าง) · UI บอกสาเหตุผ่าน productionOverrideIssue()
+  let unitPriceOverrideThb: number | null = null;
+  let priceOverrideReason: string | null = null;
+  if (jobHasProductionOverride(job)) {
+    if (productionOverrideIssue(job)) return null;
+    unitPriceOverrideThb = Number(job.unitPriceOverrideThb);
+    priceOverrideReason = stripInvisibleText(job.priceOverrideReason).trim();
+  }
+
   return {
     metal: job.metal,
     itemKind: job.itemKind,
@@ -337,6 +371,7 @@ export function buildJobInput(job: JobForm): OemPriceCalcInput | null {
     gemTier: job.hasGems ? job.gemTier : null,
     gemCount: job.hasGems ? Number(job.gemCount) : 0,
     marginPct,
+    ...(unitPriceOverrideThb != null ? { unitPriceOverrideThb, priceOverrideReason } : {}),
   };
 }
 
