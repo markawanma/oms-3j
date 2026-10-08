@@ -116,3 +116,12 @@ skill นี้มีไว้ทำให้มันไม่ขึ้นก�
 
 **และกฎที่แพงที่สุดจากวันนั้น**: ห้ามอนุมานค่าคงที่/มาตรฐาน/หน่วยวัด จากตัวเลขราคา —
 ราคาคือสิ่งที่คนตั้ง ไม่ใช่ฟิสิกส์ · **ตัวเลขที่ "พอดีเป๊ะ" กับสมมติฐาน คือสัญญาณให้ตรวจซ้ำ ไม่ใช่สัญญาณว่าถูก**
+
+## 7. งาน AI ที่เขียนลง DB สาย content (ตั้งแต่ 0162 · 8 ต.ค. 69)
+
+- **เขียนผ่าน RPC เท่านั้น ห้าม INSERT/UPDATE ตรง** — MCP/run-sql ต่อเป็น postgres ซึ่ง**ข้ามด่านทุกตัวของ DB** (กันซ้ำ · อักขระล่องหน · เส้นตาย · ล็อกคำตอบเจ้าของ) เขียนตรง = ด่านไม่ทำงานแบบเงียบ
+- ทุกคำสั่งต้องอยู่ทรานแซกชันเดียวกับ `select set_config('request.jwt.claims','{"role":"service_role"}', true);`
+- AI ใช้ `p_actor_role => 'ai'` เสมอ · **ห้ามส่ง `'owner'`** · การตอบข้อเสนอ/ยืนยันคำตัดสินแคมเปญเป็นของเจ้าของ (ทำผ่านแอป หรือเจ้าของสั่งในแชทแล้ว Tech Lead บันทึกในนาม owner)
+- RPC ที่ใช้บ่อย: `recommendation_create` (คืน `{id, created, conflict, expired_previous}` · `respond_by` ของ AI ≥ วันนี้+2) · `content_weekly_summary_upsert` · `campaign_plan_set` (AI ทับแผนที่เจ้าของตั้งไม่ได้ · แก้หลังช่วงนับเริ่มไม่ได้)
+- ตัวอย่างใช้งานจริง: `C:\Users\Markawan's NoteBook\.claude\scheduled-tasks\weekly-marketing-brief\SKILL.md` ขั้น 4 · สัญญาเต็ม: `docs/3j-jewelry/analytics/design-content-workflow-schema-gap.md` §13.y/§13.z
+- ช่องที่ยังเปิด (หนี้ D25/D28): postgres ยังปลอมคำตอบเจ้าของได้ — ห้ามใช้ `owner_response` เป็นหลักฐานยินยอมเรื่องเงิน/สิทธิ์ จนกว่าจะมี role `content_agent`
