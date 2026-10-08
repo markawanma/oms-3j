@@ -406,3 +406,16 @@ export function aggregateQuotePreview(
 
   return { isComplete, piecesSubtotal, nreTotal, quoteTotal, grandTotal, minMarginChargedPct, marginAfterDiscountPct };
 }
+
+// ============================================================================
+// 0168 (มติเจ้าของ 8 ต.ค. 69): MOQ (จำนวนชิ้น) และล็อตโลหะขั้นต่ำ (น้ำหนักทองรวม) ของงานผลิตทุกวัสดุ = "ออกใบได้เมื่อมีเหตุผลอนุมัติ"
+// ไม่ใช่ "ห้ามออกใบ" แล้ว — floors.qty / floors.metalWeight จาก oem_price_calc ยังรายงาน pass=false ตามเดิม (ใช้เตือน) ·
+// ฟังก์ชันนี้เป็น pre-check ฝั่งฟอร์มเท่านั้น (ให้ช่องเหตุผลโผล่ + ปุ่มออกใบไม่ถูกปิดเพราะเรื่องนี้) — DB ตัดสินซ้ำที่ oem_quote_save
+// ============================================================================
+export const OEM_QTY_FLOOR_NOTE_TH = "ต่ำกว่าขั้นต่ำ (MOQ / ล็อตโลหะ) — ใส่เหตุผลเพื่อออกใบ";
+
+/** true = รายการนี้ต่ำกว่า MOQ หรือล็อตโลหะขั้นต่ำ (pass === false เท่านั้น — null/ยังคำนวณไม่ได้ ไม่นับ: isComplete ดักอยู่แล้ว) */
+export function calcBelowQtyFloors(calc: OemPriceCalcResult | null | undefined): boolean {
+  if (!calc) return false;
+  return calc.floors.qty.pass === false || (calc.floors.metalWeight.applies && calc.floors.metalWeight.pass === false);
+}

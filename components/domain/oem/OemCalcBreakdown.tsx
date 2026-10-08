@@ -10,6 +10,7 @@ import Link from "next/link";
 import { AlertTriangle, Package } from "lucide-react";
 import type { OemBatchLine, OemMetal, OemMissingRateEntry, OemPriceBreakdown, OemPriceCalcResult } from "@/lib/oem/types";
 import { fmtPct } from "@/lib/oem/display";
+import { OEM_QTY_FLOOR_NOTE_TH } from "@/lib/oem/quoteForm";
 import { formatTHB } from "@/lib/format";
 
 function FloorChip({ label, pass }: { label: string; pass: boolean | null }) {
@@ -189,6 +190,10 @@ export function OemCalcBreakdown({
         <FloorChip label={`มูลค่างาน (ขั้นต่ำ ${formatTHB(floors.jobValue.min)})`} pass={floors.jobValue.pass} />
         {floors.metalWeight.applies && <FloorChip label="น้ำหนักทองรวม" pass={floors.metalWeight.pass} />}
       </div>
+      {/* 0168: MOQ / ล็อตโลหะไม่ผ่านไม่ได้ห้ามออกใบแล้ว — ออกได้เมื่อใส่เหตุผลอนุมัติ (ช่องอยู่ที่สรุปทั้งใบ) · ป้ายแดงข้างบนยังเป็นคำเตือน */}
+      {(floors.qty.pass === false || (floors.metalWeight.applies && floors.metalWeight.pass === false)) && (
+        <p className="text-xs font-semibold text-amber-700">{OEM_QTY_FLOOR_NOTE_TH}</p>
+      )}
 
       {/* cost breakdown */}
       <div className="rounded-lg border border-zinc-200 bg-white p-3.5 shadow-sm">
