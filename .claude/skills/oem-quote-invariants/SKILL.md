@@ -98,7 +98,7 @@ quoted + floor ไม่ผ่าน + ไม่มี note (หลังลบ�
 ต้นทุนยังคิดจากสูตร ผู้ใช้พิมพ์ `unit_price_override_thb` (+ เหตุผลบังคับ) ทับราคาจาก margin % —
 - **ต่ำกว่าทุนต่อชิ้น (`floors.price_vs_cost.pass=false`) = ห้ามเสมอ** ไม่ปลดด้วยเหตุผล · ข้อความไม่ใส่ตัวเลขทุน · บันทึก draft ได้
 - **ต่ำกว่า margin floor = ด่านอ่อน** ต้อง approval_note (gate `override_below_floor`) · hard floor รายชิ้น "ไม่ใช้" กับรายการที่มี override แต่ **ยังแข็งเต็มที่สำหรับรายการที่ราคามาจากสูตร** (ใบผสมไม่ผ่อนให้กัน)
-- ทอง (pass-through): margin ของราคาที่พิมพ์ = 1 − (แรง+batch)/(ราคา − เนื้อทอง) ความหมายเดียวกับ margin % ในสูตร · NRE ยังคิดจาก margin % เดิม
+- ทอง (pass-through): margin ของราคาที่พิมพ์ = 1 − (แรง+batch)/(ราคา − เนื้อทอง) ความหมายเดียวกับ margin % ในสูตร · NRE (CAD/ปริ้น 3D/ก้อนยาง) ตาม margin ของราคาที่พิมพ์ (0170 · ไม่ต่ำกว่าทุน NRE · เพดาน 0.95) — ห้ามคิด NRE จาก margin % ในช่องเมื่อมี override
 - `breakdown.production_override` (ราคาจากสูตร/เหตุผล) เห็นเฉพาะหน้า admin — `PrintableQuote` ไม่มี field รองรับ (ข้อ 1) · `pricePerPiece` บนใบ = ราคาที่พิมพ์
 
 ### 6.2 เหตุผล/note ทุกชนิดใช้ whitelist ห้าม blacklist (security 0168 M1/L1)

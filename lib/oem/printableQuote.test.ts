@@ -395,3 +395,34 @@ describe("toPrintableQuote — งานผลิตที่พิมพ์ร�
     expect(a).toEqual(b);
   });
 });
+
+// ============================================================================
+// 0170: ค่า NRE ของรายการที่พิมพ์ราคาทับตามราคา — บนใบลูกค้าเห็นแค่ค่า NRE ที่คิดแล้ว (nrePrice) · ทุน NRE / margin ที่ใช้คิด ห้ามหลุด (field set ไม่เปลี่ยน)
+// ============================================================================
+describe("toPrintableQuote — NRE ของรายการที่พิมพ์ราคาทับ (0170)", () => {
+  const SECRET_NRE_COST = 4321.99;
+  const SECRET_NRE_MARGIN = 0.6789;
+  function quoteWithNre(): OemQuoteRow {
+    return { ...quote(), nrePrice: 5000, nreCost: SECRET_NRE_COST, piecesSubtotal: 200000, quoteTotal: 205000, grandTotal: 205000 } as unknown as OemQuoteRow;
+  }
+  function itemWithNreMargin(): OemQuoteItemRow {
+    const base = productionOverrideItem() as unknown as { calc: { breakdown: Record<string, unknown> } };
+    base.calc.breakdown.nre = { cad: 1, print3d: 1, mold: 1, cost: SECRET_NRE_COST, price: 5000 };
+    (base.calc.breakdown.productionOverride as Record<string, unknown>).nreMarginUsed = SECRET_NRE_MARGIN;
+    return base as unknown as OemQuoteItemRow;
+  }
+
+  it("ค่า NRE บนใบ = nrePrice ของใบ (ค่าที่ DB คิดใหม่) · ยอดรวมตรงกัน", () => {
+    const p = toPrintableQuote(quoteWithNre(), [itemWithNreMargin()]);
+    expect(p.nrePrice).toBe(5000);
+    expect(p.piecesSubtotal).toBe(200000);
+    expect(p.quoteTotal).toBe(205000);
+  });
+
+  it("🔴 ทุน NRE / margin ที่ใช้คิด NRE / nreMarginUsed ไม่หลุดเข้า PrintableQuote ทั้งก้อน (serialize แล้วหา)", () => {
+    const serialized = JSON.stringify(toPrintableQuote(quoteWithNre(), [itemWithNreMargin()]));
+    expect(serialized).not.toContain(String(SECRET_NRE_COST));
+    expect(serialized).not.toContain(String(SECRET_NRE_MARGIN));
+    expect(serialized).not.toMatch(/nreCost|nre_cost|nreMargin|nre_margin/i);
+  });
+});
