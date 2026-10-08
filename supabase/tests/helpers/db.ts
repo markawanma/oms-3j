@@ -371,6 +371,8 @@ const TEARDOWN_TABLES_IN_ORDER = [
   "shop_member",
 ] as const;
 
+// query param ที่ pg-connection-string ใช้ทับค่าใน URL (R3-L1) — เทียบแบบไม่สนตัวพิมพ์
+const CONNECTION_OVERRIDE_PARAMS = new Set(["host", "hostaddr", "user", "port", "dbname", "database"]);
 // host ที่ถือว่าเป็นเครื่องตัวเอง (URL.hostname ของ IPv6 คงวงเล็บไว้)
 const LOCAL_DB_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 // ร้านทดสอบต้องเพิ่งถูกสร้าง — กันลบร้านเก่า/ร้านจริงที่ชื่อบังเอิญขึ้นต้นเหมือนกัน
@@ -444,8 +446,20 @@ function requireAdminUrl(): string {
   // ห้ามใส่ url ลงข้อความ error — มีรหัสผ่านอยู่ในนั้น
   let host: string;
   try {
-    host = new URL(url).hostname.toLowerCase();
-  } catch {
+    const parsed = new URL(url);
+    host = parsed.hostname.toLowerCase();
+    // R3-L1: pg-connection-string ให้ query param ทับ host/port/user/dbname ได้ (postgresql://u:p@localhost/db?host=evil.com ⇒ ต่อ evil.com)
+    // ⇒ ด่านที่ดูแค่ hostname ถูกหลอกได้ — ปฏิเสธ URL ที่มี param เหล่านี้ (ใส่ชื่อ param ในข้อความได้ ไม่ใส่ค่า)
+    for (const key of parsed.searchParams.keys()) {
+      if (CONNECTION_OVERRIDE_PARAMS.has(key.toLowerCase())) {
+        throw new Error(
+          `TEST_DB_ADMIN_URL มี query param "${key}" ซึ่งทับ host/port/user/dbname ของ URL ได้ (pg-connection-string) — ด่านตรวจ host จะถูกหลอก · ลบ param นี้ออก ` +
+            "(ใส่ host/port/user/ชื่อ DB ใน URL ตรงๆ เท่านั้น) · ยังไม่ได้สร้างร้านทดสอบ จึงหยุดก่อน",
+        );
+      }
+    }
+  } catch (e) {
+    if (e instanceof Error && e.message.startsWith("TEST_DB_ADMIN_URL มี query param")) throw e;
     throw new Error(
       "TEST_DB_ADMIN_URL ไม่ใช่ URL ที่อ่านได้ (postgresql://user:pass@host:port/db — รหัสผ่านที่มีอักขระพิเศษต้อง URL-encode) · " +
         "ยังไม่ได้สร้างร้านทดสอบ จึงหยุดก่อน",

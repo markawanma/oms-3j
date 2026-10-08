@@ -400,9 +400,9 @@ begin
     -- SEC-H1: data_through = วันล่าสุดที่ "ร้าน" มีออเดอร์ทุกช่องทาง (ไม่กรอง line_oa) — ไฟล์ import เข้าทีเดียวทุกช่องทาง
     select max(order_date) into v_thr_shop from analytics.fact_order where shop_id = v_shop;
     select max(fo.order_date) into v_thr_chan from analytics.fact_order fo join analytics.dim_channel dc on dc.id = fo.channel_id where fo.shop_id = v_shop and dc.code = 'line_oa';
-    v_log := v_log || pg_temp.vb('C3b', 'orders_data_through = วันล่าสุดที่ร้านมีออเดอร์ (ทุกช่องทาง) · channel_data_through = วันล่าสุดของ line_oa · covers_window (R-H1 รอบ 2) = (ร้านถึง > 10 ต.ค.) และ (line_oa ถึง ≥ 10 ต.ค.) = ' || coalesce((v_thr_shop > date '2026-10-10' and v_thr_chan >= date '2026-10-10')::text, 'false'),
+    v_log := v_log || pg_temp.vb('C3b', 'orders_data_through = วันล่าสุดที่ร้านมีออเดอร์ (ทุกช่องทาง) · channel_data_through = วันล่าสุดของ line_oa · covers_window (R3-H1) = (line_oa ถึง > 10 ต.ค.) = ' || coalesce((v_thr_chan > date '2026-10-10')::text, 'false'),
       r.orders_data_through = v_thr_shop and r.orders_channel_data_through is not distinct from v_thr_chan
-      and r.orders_data_covers_window is not distinct from coalesce(v_thr_shop > date '2026-10-10' and v_thr_chan >= date '2026-10-10', false), format('through=%s (LINE %s) covers=%s', r.orders_data_through, v_through, r.orders_data_covers_window));
+      and r.orders_data_covers_window is not distinct from coalesce(v_thr_chan > date '2026-10-10', false), format('through=%s (LINE %s) covers=%s', r.orders_data_through, v_through, r.orders_data_covers_window));
     v_log := v_log || pg_temp.note('C3c', format('10.10 วันนี้: นับได้ %s ออเดอร์ (เกณฑ์ ≥ 6) · ข้อมูลถึง %s · covers_window=%s · threshold_met=%s — ⚠️ 0 ออเดอร์ที่นี่แปลว่า "ข้อมูลยังไม่เข้า" ไม่ใช่ "แคมเปญล้มเหลว" ถ้า through < 10 ต.ค.',
       r.orders_actual, r.orders_data_through, r.orders_data_covers_window, r.orders_threshold_met));
     select count(*) filter (where piece_status is not null), count(*) filter (where piece_status = 'posted'),
@@ -432,10 +432,17 @@ begin
         end if;
         select orders_actual, orders_data_covers_window into v_actual, v_c10 from analytics.v_campaign_summary where campaign_id = c_camp;
         v_ind := pg_temp.ind(v_shop, r.d1, r.d2, case when v_t = 'null' then null else v_t end, split_part(v_t2, '|', 2));
-        v_log := v_log || pg_temp.vb('C4 ' || r.lbl || ' ' || v_t2, 'orders_actual = นับอิสระ · covers = (ร้านถึง > วันสุดท้าย) และ (ช่องที่นับถึง ≥ วันสุดท้าย — ถ้าระบุช่องทาง)', v_actual = v_ind and v_c10 is not distinct from coalesce(
-            (select max(fo.order_date) from analytics.fact_order fo where fo.shop_id = v_shop) > r.d2
-            and (v_t = 'null' or (select max(fo.order_date) from analytics.fact_order fo join analytics.dim_channel dc on dc.id = fo.channel_id
-                                   where fo.shop_id = v_shop and dc.code = v_t) >= r.d2), false),
+        v_log := v_log || pg_temp.vb('C4 ' || r.lbl || ' ' || v_t2, 'orders_actual = นับอิสระ · covers (R3-H1) = ระบุช่อง: ช่องนั้นมีออเดอร์ > วันสุดท้าย · ไม่ระบุ: ร้านมีออเดอร์ > วันสุดท้าย และทุกช่องหลัก (≥10% ใน 28 วันก่อนวันท้าย) มีออเดอร์ > วันสุดท้าย', v_actual = v_ind and v_c10 is not distinct from coalesce(
+            case when v_t <> 'null'
+                 then (select max(fo.order_date) from analytics.fact_order fo join analytics.dim_channel dc on dc.id = fo.channel_id
+                        where fo.shop_id = v_shop and dc.code = v_t) > r.d2
+                 else (select max(fo.order_date) from analytics.fact_order fo where fo.shop_id = v_shop) > r.d2
+                      and not exists (
+                        select 1 from (select fo.channel_id from analytics.fact_order fo
+                                        where fo.shop_id = v_shop and fo.order_date >= r.d2 - 28 and fo.order_date < r.d2
+                                        group by fo.channel_id
+                                       having count(*) * 10 >= (select count(*) from analytics.fact_order z where z.shop_id = v_shop and z.order_date >= r.d2 - 28 and z.order_date < r.d2)) m
+                         where not exists (select 1 from analytics.fact_order y where y.shop_id = v_shop and y.channel_id = m.channel_id and y.order_date > r.d2)) end, false),
           format('view=%s ดิบ=%s covers=%s', v_actual, v_ind, v_c10));
         v_log := v_log || pg_temp.sig('C4.' || r.lbl || '.' || v_t2, v_actual::text);   -- ข้อมูลจริงเสถียร ⇒ เทียบข้ามรอบได้
       end loop;

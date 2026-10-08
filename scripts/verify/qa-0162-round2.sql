@@ -683,7 +683,7 @@ begin
     perform pg_temp.mkord(v_sa, v_ch, v_wf); perform pg_temp.mkord(v_sa, v_ch, v_today - 3);
     perform pg_temp.mkord(v_sb, v_ch, v_wf); perform pg_temp.mkord(v_sb, v_ch, v_wt);
     perform pg_temp.mkord(v_sh, v_ch, v_wf); perform pg_temp.mkord(v_sh, v_ch, v_wt); perform pg_temp.mkord(v_sh, v_ch, v_wt + 1);
-    perform pg_temp.mkord(v_sc, v_ch, v_wf); perform pg_temp.mkord(v_sc, (select id from analytics.dim_channel where code = 'tiktok'), v_today + 1);
+    perform pg_temp.mkord(v_sc, v_ch, v_wf); perform pg_temp.mkord(v_sc, v_ch, v_today - 1); perform pg_temp.mkord(v_sc, (select id from analytics.dim_channel where code = 'tiktok'), v_today + 1);   -- R3-H1: ช่องหลัก (v_ch) ต้องมีข้อมูลหลังวันท้ายเอง (today-1 > wt) ไม่ใช่แค่ช่องอื่น
     perform pg_temp.mkord(v_se, v_ch, v_wf); perform pg_temp.mkord(v_se, v_ch, v_wt); perform pg_temp.mkord(v_se, v_ch, v_wt + 1);
     perform pg_temp.mkord(v_sf, v_ch, v_wt);
     v_o1 := pg_temp.mkord(v_sf, v_ch, v_wt + 1);   -- ออเดอร์ล่าสุดของร้าน Df (วันหลัง wt) — D8 ลบตัวนี้
@@ -718,7 +718,7 @@ begin
       case when (pg_temp.vj(pg_temp.q_conf(v_sh, v_chh, 'validated', null, 'owner', null, 'invalidated')) #>> '{orders,actual}') = '2' then 'OK' else 'FAIL payload orders.actual ≠ 2' end);
 
     -- D3 ข้อมูลของร้านถึงหลัง wt ในช่องทางอื่น → ครอบ (data_through ไม่กรองช่องทาง)
-    v_log := v_log || pg_temp.vl('D3', 'ต้องไม่พัง: ออเดอร์ช่องทางอื่นวัน wt+3 ทำให้ข้อมูลร้านครอบช่วง → ai เสนอ invalidated ผ่าน (line_oa ไม่มีออเดอร์ในช่วง wf เท่านั้นก็นับ)',
+    v_log := v_log || pg_temp.vl('D3', 'ต้องไม่พัง: ช่องหลักมีออเดอร์หลังวันท้าย (today-1) + ช่องอื่นมีวัน +1 ⇒ ร้านครอบช่วง → ai เสนอ invalidated ผ่าน (R3-H1: ช่องที่ไม่ใช่ช่องหลักไม่ต้องมีข้อมูลหลังวันท้าย)',
       pg_temp.vok(pg_temp.q_prop(v_sc, v_cc, 'invalidated', 'ยอดน้อยกว่าเกณฑ์', 'ai')));
 
     -- D4 ร้านไม่มีออเดอร์เลย
@@ -789,7 +789,7 @@ begin
     v_c := pg_temp.mk_camp(v_s, v_today - 8);
     perform pg_temp.vok(pg_temp.q_plan(v_s, v_c, '{"metric_code":"save_rate"}', 'owner'));
     perform pg_temp.mk_posted_in(v_s, v_c, v_today - 8, 2);
-    v_log := v_log || pg_temp.vl('Q3', 'save_rate: posted 1 ชิ้น (ไม่มี T+7) + ชิ้นค้าง → owner ยืนยัน validated → 55000 (ชิ้นค้างไม่นับเป็นหลักฐาน)', pg_temp.vx(pg_temp.q_conf(v_s, v_c, 'validated', null, 'owner', null, 'none'), array['55000'], 'ยังไม่ครบ'));
+    v_log := v_log || pg_temp.vl('Q3', 'save_rate: posted 1 ชิ้น (ไม่มี T+7) + ชิ้นค้าง → owner ยืนยัน validated → 55000 (ชิ้นค้างไม่นับเป็นหลักฐาน)', pg_temp.vx(pg_temp.q_conf(v_s, v_c, 'validated', null, 'owner', null, 'none'), array['55000'], 'ไม่ครบ'));
     v_log := v_log || pg_temp.vl('Q3b', 'ต้องไม่พัง: ยืนยัน not_measured บนแคมเปญเดียวกันผ่านแม้มีชิ้นค้าง', pg_temp.vok(pg_temp.q_conf(v_s, v_c, 'not_measured', null, 'owner', 'ปิดเพราะข้อมูลน้อย', 'none')));
   end;
 

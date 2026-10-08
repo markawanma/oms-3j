@@ -187,3 +187,29 @@ describe("SUPABASE_URL กับ TEST_DB_ADMIN_URL ต้องเป็น DB �
     expect(touched.n).toBe(0);
   });
 });
+
+// R3-L1: query param ที่ pg-connection-string ใช้ทับ host/port/user/dbname — URL ที่ hostname ดูเป็น localhost แต่ ?host=evil.com ต่อไปที่อื่นจริง
+describe("TEST_DB_ADMIN_URL ห้ามมี query param ที่ทับ host/user/port/dbname (R3-L1)", () => {
+  for (const q of ["host=evil.com", "hostaddr=10.0.0.9", "user=postgres", "port=5432", "dbname=prod", "database=prod", "HOST=evil.com", "Port=1", "sslmode=require&host=evil.com"]) {
+    it(`localhost + ?${q} → ปฏิเสธก่อนแตะ DB · ไม่พิมพ์รหัสผ่าน`, async () => {
+      process.env.SUPABASE_URL = "http://127.0.0.1:54321";
+      process.env.TEST_DB_ADMIN_URL = `postgresql://postgres:SECRETPW@127.0.0.1:54322/postgres?${q}`;
+      await seedTenant(fakeDb).then(() => { throw new Error("should throw"); }, (e: Error) => {
+        expect(e.message).toMatch(/query param/); expect(e.message).not.toContain("SECRETPW"); expect(e.message).not.toContain("evil.com");
+      });
+      expect(touched.n).toBe(0);
+    });
+  }
+  it("ALLOW=1 + project ตรง + ?host= → ยังปฏิเสธ (ALLOW ไม่ข้ามด่าน param)", async () => {
+    process.env.SUPABASE_URL = `https://${REF}.supabase.co`; process.env.ALLOW_SHARED_DB_TEARDOWN = "1";
+    process.env.TEST_DB_ADMIN_URL = `postgresql://postgres:pw@db.${REF}.supabase.co:5432/postgres?host=evil.com`;
+    await expect(seedTenant(fakeDb)).rejects.toThrow(/query param/);
+    expect(touched.n).toBe(0);
+  });
+  it("ต้องไม่พัง: param ที่ไม่ทับ host (sslmode / application_name / connect_timeout) ผ่าน", async () => {
+    process.env.SUPABASE_URL = "http://127.0.0.1:54321";
+    process.env.TEST_DB_ADMIN_URL = "postgresql://postgres:pw@127.0.0.1:54322/postgres?sslmode=disable&application_name=qa&connect_timeout=5";
+    await expect(seedTenant(fakeDb)).rejects.toThrow(/DB TOUCHED/);
+    expect(touched.n).toBe(1);
+  });
+});
