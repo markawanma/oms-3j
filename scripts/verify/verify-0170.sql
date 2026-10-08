@@ -142,6 +142,7 @@ declare
   v_c0 jsonb; v_c jsonb;
   v_ncost numeric; v_nf numeric; v_pf numeric; v_cost numeric; v_np numeric; v_m numeric; v_exp numeric;
   v_p text;
+  v_pf9 numeric;
   v_bad1 text := ''; v_bad2 text := ''; v_bad3 text := ''; v_bad4 text := ''; v_bad5 text := ''; v_bad6 text := '';
   v_bad7 text := ''; v_bad8 text := ''; v_bad9 text := ''; v_bad0 text := '';
   v_skip text := '';
@@ -234,8 +235,10 @@ begin
       end if;
       if v_np < v_ncost then v_bad9 := v_bad9 || v_metal || ' '; end if;
 
-      -- N7: override สูงสุด (1,000,000) → margin ของราคา > 95% → clamp ที่ 0.95 + warning
-      v_c := pg_temp.calc_or_null(p_shop, (pg_temp.pjn(p_prod, v_metal, v_qty, '1000000'))->'input');
+      -- N7: override ที่เพดาน 3 เท่า → margin ของราคา > 95% → clamp ที่ 0.95 + warning
+      -- (0171: ราคาที่พิมพ์ต้องไม่เกิน 3 เท่าของราคาสูตร → ใช้ margin % ในช่อง 0.9 ให้ราคาสูตรสูงพอ แล้วพิมพ์ทับที่เพดาน 3 เท่า = margin ของราคา ~0.97 > 0.95)
+      v_pf9 := (pg_temp.calc_or_null(p_shop, (pg_temp.pjn(p_prod, v_metal, v_qty, null))->'input' || jsonb_build_object('margin_pct', 0.9))->'breakdown'->>'price_per_piece')::numeric;
+      v_c := pg_temp.calc_or_null(p_shop, (pg_temp.pjn(p_prod, v_metal, v_qty, (floor(v_pf9 * 3 * 100) / 100)::text))->'input' || jsonb_build_object('margin_pct', 0.9));
       v_np := (v_c->'breakdown'->'nre'->>'price')::numeric;
       if coalesce(v_c is null or (v_c->'breakdown'->'production_override'->>'nre_margin_used')::numeric <> 0.95
          or v_np <> greatest(round(v_ncost / 0.05, 2), ceil(v_ncost * 100) / 100)
@@ -267,7 +270,7 @@ begin
     v_log := v_log || pg_temp.chk('N4', 'override = ราคาสูตร: NRE ≈ NRE สูตร (ต่างไม่เกินปัดเศษของราคา 2 ตำแหน่ง) ' || v_bad4, v_bad4 = '');
     v_log := v_log || pg_temp.chk('N5', 'override เท่าทุนต่อชิ้น + 0.01: NRE ≈ ทุน NRE ไม่ต่ำกว่าทุน · price_vs_cost ผ่าน ' || v_bad5, v_bad5 = '');
     v_log := v_log || pg_temp.chk('N6', 'override ต่ำกว่าทุน (preview): NRE = ทุน NRE (ไม่ต่ำกว่า) · nre_margin_used = 0 · price_vs_cost=false · มี warning ' || v_bad6, v_bad6 = '');
-    v_log := v_log || pg_temp.chk('N7', 'override สูงสุด 1,000,000: margin > 95% → clamp ที่ 0.95 + warning "เพดาน" (กัน 1/(1-m) ระเบิด) ' || v_bad7, v_bad7 = '');
+    v_log := v_log || pg_temp.chk('N7', 'override ที่เพดาน 3 เท่าของราคาสูตร (margin % ช่อง 0.9): margin ของราคา > 95% → clamp ที่ 0.95 + warning "เพดาน" (กัน 1/(1-m) ระเบิด) ' || v_bad7, v_bad7 = '');
     v_log := v_log || pg_temp.chk('N8', 'แบบเดิมของร้าน (ไม่มี NRE) + override: NRE 0 เหมือนเดิม · nre_margin_used = null · quote_total = ปัด(จำนวน x ราคา) ' || v_bad8, v_bad8 = '');
     v_log := v_log || pg_temp.chk('N9', 'ห้ามผ่าน: NRE ต่ำกว่าทุน NRE ทุกกรณี (N2 N3 N5 N6) ' || v_bad9, v_bad9 = '');
     v_log := v_log || pg_temp.chk('N0', 'ต้องไม่พัง: ราคาที่พิมพ์ NaN / Infinity / 0 / ติดลบ / > 1,000,000 ยังถูกปฏิเสธ 22023 ก่อนถึงสูตร NRE ' || v_bad0, v_bad0 = '');
