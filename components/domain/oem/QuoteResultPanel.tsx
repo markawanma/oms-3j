@@ -21,7 +21,8 @@ import {
 } from "@/lib/oem/quoteForm";
 import type { JobForm } from "@/lib/oem/quoteForm";
 import type { OemPriceCalcResult } from "@/lib/oem/types";
-import { fmtPct } from "@/lib/oem/display";
+import { fmtPct, stripInvisibleText } from "@/lib/oem/display";
+import { OEM_MANUAL_COST_NOTE_TH, manualCostNoteReason } from "@/lib/oem/productItem";
 import { formatTHB } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
 
@@ -125,7 +126,20 @@ export function QuoteResultPanel({
   const hasUngatedItem = items.some((i) => i.job.metal !== "product" && i.calc?.isComplete && i.calc.floors.margin.value == null);
   const discountBelowFloor =
     (discountNum > 0 || hasUngatedItem) && preview.marginAfterDiscountPct != null && preview.marginAfterDiscountPct < setting.marginFloorPct;
-  const needsApprovalNote = anyNeedsNoteFromItem || discountBelowFloor;
+  // 0167 F2: รายการสินค้าที่ทุนกรอกเอง + (ส่วนลด > 0 หรือ กำไรที่กรอกเองกลบรายการขาดทุน) ⇒ ต้องมีเหตุผล (pre-check · DB ตัดสินซ้ำ)
+  const manualNote = manualCostNoteReason(
+    items.map((i) => {
+      const qty = Number(i.job.qty) || 0;
+      const b = i.calc?.breakdown;
+      return {
+        isManualCost: i.job.metal === "product" && b?.product?.costSource === "manual",
+        priceTotal: b ? (b.quoteTotal ?? 0) - b.nre.price : 0,
+        costTotal: b ? b.costPiece * qty : 0,
+      };
+    }),
+    discountNum
+  );
+  const needsApprovalNote = anyNeedsNoteFromItem || discountBelowFloor || manualNote !== null;
 
   // 0078: bar prices stand for TODAY only (quote_valid_days=0 server-side —
   // D4), unlike the usual 7/30/45-day window for production metals.
@@ -159,7 +173,7 @@ export function QuoteResultPanel({
     !anyHardBlocked &&
     belowCostIdx < 0 &&
     !barDateIssue &&
-    (!needsApprovalNote || approvalNote.trim().length > 0);
+    (!needsApprovalNote || stripInvisibleText(approvalNote).trim().length > 0);
 
   return (
     <div className="space-y-3">
@@ -339,7 +353,11 @@ export function QuoteResultPanel({
           {needsApprovalNote && (
             <div>
               <label htmlFor="oem-approval-note" className="text-xs font-semibold text-amber-800">
-                margin ต่ำกว่า floor — ระบุเหตุผลก่อนออกใบเสนอราคา (บังคับ)
+                {anyNeedsNoteFromItem || discountBelowFloor
+                  ? "margin ต่ำกว่า floor — ระบุเหตุผลก่อนออกใบเสนอราคา (บังคับ)"
+                  : manualNote
+                  ? OEM_MANUAL_COST_NOTE_TH[manualNote] + " (บังคับ)"
+                  : "ระบุเหตุผลก่อนออกใบเสนอราคา (บังคับ)"}
               </label>
               <textarea
                 id="oem-approval-note"

@@ -19,6 +19,9 @@ import { AlertTriangle } from "lucide-react";
 import { renegotiateQuote } from "@/lib/actions/oem";
 import type { OemQuoteRow } from "@/lib/oem/types";
 import { formatTHB } from "@/lib/format";
+import { stripInvisibleText } from "@/lib/oem/display";
+import type { ManualCostRow } from "@/lib/oem/productItem";
+import { OEM_MANUAL_COST_NOTE_TH, manualCostNoteReason } from "@/lib/oem/productItem";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
@@ -26,10 +29,13 @@ import { useToast } from "@/components/ui/Toast";
 export function RenegotiateDialog({
   quote,
   hasReceivedPayment = false,
+  manualCostRows = [],
   onClose,
 }: {
   quote: OemQuoteRow;
   hasReceivedPayment?: boolean;
+  /** 0167 F2: ราคา/ทุนรายการของใบ (ตัวเลขที่ DB คำนวณแล้ว) + ทุนกรอกเองหรือไม่ — ใช้ pre-check ว่าต้องมีเหตุผลไหม (DB ตัดสินซ้ำ) */
+  manualCostRows?: ManualCostRow[];
   onClose: () => void;
 }) {
   const router = useRouter();
@@ -40,6 +46,9 @@ export function RenegotiateDialog({
 
   const amount = Number(discountThb);
   const validAmount = Number.isFinite(amount) && amount >= 0;
+  // 0167 F2: รายการสินค้าทุนกรอกเอง + (ส่วนลดใหม่ > 0 หรือ กำไรที่กรอกเองกลบรายการขาดทุน) ⇒ เหตุผลบังคับ
+  const manualNote = validAmount ? manualCostNoteReason(manualCostRows, amount) : null;
+  const reasonMissing = manualNote !== null && stripInvisibleText(reason).trim().length === 0;
 
   function confirm() {
     if (!validAmount) return;
@@ -86,8 +95,11 @@ export function RenegotiateDialog({
       />
 
       <label htmlFor="oem-renegotiate-reason" className="mt-3 block text-sm font-medium text-zinc-700">
-        เหตุผล (บังคับถ้า margin หลังหักส่วนลดต่ำกว่า floor)
+        เหตุผล (บังคับถ้า margin หลังหักส่วนลดต่ำกว่า floor{manualNote ? " หรือใบนี้มีรายการสินค้าที่กรอกทุนเอง" : ""})
       </label>
+      {manualNote && (
+        <p className={`mt-1 text-xs font-semibold ${reasonMissing ? "text-amber-700" : "text-zinc-500"}`}>{OEM_MANUAL_COST_NOTE_TH[manualNote]}</p>
+      )}
       <textarea
         id="oem-renegotiate-reason"
         value={reason}
@@ -101,7 +113,7 @@ export function RenegotiateDialog({
         <Button type="button" variant="secondary" className="flex-1" onClick={onClose}>
           ยกเลิก
         </Button>
-        <Button type="button" variant="primary" className="flex-1" loading={pending} disabled={!validAmount} onClick={confirm}>
+        <Button type="button" variant="primary" className="flex-1" loading={pending} disabled={!validAmount || reasonMissing} onClick={confirm}>
           ยืนยันต่อราคา
         </Button>
       </div>

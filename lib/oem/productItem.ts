@@ -54,3 +54,36 @@ export function cleanPriceReason(raw: string | null | undefined): string | null 
   const v = stripInvisibleText(raw ?? "").trim();
   return v ? v.slice(0, OEM_PRODUCT_TEXT_MAX) : null;
 }
+
+// ============================================================================
+// 0167 F2 — รายการสินค้าที่ทุน "กรอกเอง" (calc.breakdown.product.costSource = 'manual') ต้องมี approval_note (renegotiate = เหตุผล) เมื่อ
+//   (ก) ใบมีส่วนลด > 0 หรือ (ข) นับรายการ manual เฉพาะส่วนขาดทุนแล้วใบขาดทุน (กำไรที่ผู้กรอกอ้างเองไม่ถูกนับเป็นหลักฐาน)
+// นี่คือ pre-check ฝั่งฟอร์ม — แค่บวกเลขที่ DB คำนวณมาแล้วเพื่อให้ช่องเหตุผลโผล่ ไม่ใช่ด่าน (DB ตัดสินซ้ำที่ oem_quote_save / oem_quote_renegotiate)
+// ============================================================================
+export interface ManualCostRow {
+  /** รายการสินค้าที่ทุนกรอกเอง */
+  isManualCost: boolean;
+  /** ราคารวมของรายการ (ไม่รวม NRE) · ค่าที่ DB คำนวณมาแล้ว */
+  priceTotal: number;
+  /** ทุนรวมของรายการ (ทุนต่อชิ้น x จำนวน) */
+  costTotal: number;
+}
+
+export type ManualCostNoteReason = "discount" | "cover";
+
+/** null = ไม่ต้องใช้เหตุผลจากกฎนี้ · 'discount' = มีส่วนลด · 'cover' = กำไรที่กรอกเองกลบรายการขาดทุน (ส่วนที่เหลือของใบขาดทุน) */
+export function manualCostNoteReason(rows: ManualCostRow[], discountThb: number): ManualCostNoteReason | null {
+  if (!rows.some((r) => r.isManualCost)) return null;
+  if (Number.isFinite(discountThb) && discountThb > 0) return "discount";
+  let net = 0;
+  for (const r of rows) {
+    const profit = r.priceTotal - r.costTotal;
+    net += r.isManualCost ? Math.min(profit, 0) : profit;
+  }
+  return Math.round(net * 100) / 100 < 0 ? "cover" : null;
+}
+
+export const OEM_MANUAL_COST_NOTE_TH: Record<ManualCostNoteReason, string> = {
+  discount: "ใบนี้มีรายการสินค้าที่กรอกทุนเอง (ไม่มีหลักฐานต้นทุนในแคตตาล็อก) และมีส่วนลด — ต้องระบุเหตุผล",
+  cover: "ใบนี้มีรายการสินค้าที่กรอกทุนเอง และถ้าไม่นับกำไรที่กรอกเองส่วนที่เหลือของใบขาดทุน — ต้องระบุเหตุผล",
+};
