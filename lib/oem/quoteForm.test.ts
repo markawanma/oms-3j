@@ -4,14 +4,20 @@ import { describe, expect, it } from "vitest";
 import {
   OEM_BAR_OVERRIDE_MAX_DAYS,
   addDaysIso,
+  aggregateQuotePreview,
+  applyProductSelection,
   bangkokToday,
   barOverrideIssue,
   barValidUntilIssue,
   buildJobInput,
   createJobForm,
+  enterProductMode,
   jobHasBarOverride,
+  productFormIssue,
+  shouldAutoSwitchToProduct,
 } from "./quoteForm";
 import type { JobForm } from "./quoteForm";
+import type { OemPriceCalcResult, OemProductOption } from "./types";
 
 function barJob(over: Partial<JobForm> = {}): JobForm {
   return { ...createJobForm(30), metal: "silver999", barSize: "1_baht", qty: "2", ...over };
@@ -133,5 +139,200 @@ describe("วันยืนราคา (เวลาไทย)", () => {
     expect(barValidUntilIssue(addDaysIso("2026-10-07", 31), now)).toMatch(/ไม่เกิน 30 วัน/);
     expect(barValidUntilIssue("", now)).toMatch(/เลือกวัน/);
     expect(barValidUntilIssue("07/10/2026", now)).toMatch(/เลือกวัน/);
+  });
+});
+
+// ============================================================================
+// 0166 รายการสินค้า/บริการ (metal='product') — ฟอร์มแค่ตั้งราคาตั้งต้น + pre-check รูปร่าง · ราคา/ทุนจริงตัดสินที่ DB
+// (ตัวเลข fixture สมมติ ไม่ใช่ราคา/ทุนจริง)
+// ============================================================================
+const SKU_A: OemProductOption = { productId: "p-a", sku: "T-A", name: "สินค้าเอ", category: null, listPrice: 1000 };
+const SKU_NO_PRICE: OemProductOption = { productId: "p-n", sku: "T-N", name: "สินค้าไม่มีราคา", category: null, listPrice: null };
+
+function productJob(over: Partial<JobForm> = {}): JobForm {
+  return { ...createJobForm(30), metal: "product", qty: "2", unitPriceThb: "900", ...over };
+}
+
+describe("applyProductSelection — เลือก SKU แล้วราคาตั้งต้น = ราคาแคตตาล็อก", () => {
+  it("โหมดสินค้า: เลือก SKU → ราคาตั้งต้น = list price · ตั้ง label ครบ · ล้างทุน/ชื่อ/เหตุผลของโหมดเก่า", () => {
+    const job = applyProductSelection(
+      productJob({ unitPriceThb: "", unitCostThb: "50", productName: "ชื่อเก่า", priceReason: "เหตุผลเก่า" }),
+      SKU_A
+    );
+    expect(job.unitPriceThb).toBe("1000");
+    expect(job.productId).toBe("p-a");
+    expect(job.skuSnapshot).toBe("T-A");
+    expect(job.productNameSnapshot).toBe("สินค้าเอ");
+    expect(job.listPriceThb).toBe(1000);
+    expect(job.unitCostThb).toBe("");
+    expect(job.productName).toBe("");
+    expect(job.priceReason).toBe("");
+  });
+
+  it("เปลี่ยน SKU → ราคาตั้งต้นเปลี่ยนตาม SKU ใหม่ (ไม่ค้างราคาของ SKU เก่า)", () => {
+    const a = applyProductSelection(productJob(), SKU_A);
+    const n = applyProductSelection(a, SKU_NO_PRICE);
+    expect(n.unitPriceThb).toBe(""); // SKU ไม่มีราคา → ให้กรอกเอง ไม่เดา
+    expect(n.listPriceThb).toBeNull();
+  });
+
+  it("ล้าง SKU (null) → กลับโหมดไม่มี SKU: คงราคาที่กรอก · ล้าง label/list", () => {
+    const a = applyProductSelection(productJob(), SKU_A);
+    const cleared = applyProductSelection({ ...a, unitPriceThb: "850" }, null);
+    expect(cleared.productId).toBeNull();
+    expect(cleared.skuSnapshot).toBeNull();
+    expect(cleared.listPriceThb).toBeNull();
+    expect(cleared.unitPriceThb).toBe("850");
+  });
+
+  it("ไม่ใช่โหมดสินค้า (งานผลิต/เงินแท่ง): SKU เป็น label เหมือนเดิม — ไม่แตะช่องราคา (ต้องไม่พัง)", () => {
+    const prod = { ...createJobForm(30), metal: "silver" as const, itemKind: "แหวน", unitPriceThb: "" };
+    const next = applyProductSelection(prod, SKU_A);
+    expect(next.productId).toBe("p-a");
+    expect(next.skuSnapshot).toBe("T-A");
+    expect(next.unitPriceThb).toBe("");
+    expect(next.metal).toBe("silver");
+  });
+});
+
+describe("shouldAutoSwitchToProduct / enterProductMode", () => {
+  it("รายการงานผลิตที่ยังไม่ได้กรอกประเภท/น้ำหนัก/ระดับขัด → สลับเป็นสินค้าได้ (qty ที่พิมพ์ไว้ไม่นับ)", () => {
+    expect(shouldAutoSwitchToProduct({ ...createJobForm(30), qty: "3" })).toBe(true);
+  });
+  it("กรอกงานผลิตไปแล้ว (ประเภท หรือ น้ำหนัก หรือ ระดับขัด) → ไม่สลับ (SKU เป็น label เหมือนเดิม)", () => {
+    expect(shouldAutoSwitchToProduct({ ...createJobForm(30), itemKind: "แหวน" })).toBe(false);
+    expect(shouldAutoSwitchToProduct({ ...createJobForm(30), weightG: "3.5" })).toBe(false);
+    expect(shouldAutoSwitchToProduct({ ...createJobForm(30), polishTier: "เรียบ" })).toBe(false);
+  });
+  it("เงินแท่ง / สินค้าอยู่แล้ว → ไม่สลับ", () => {
+    expect(shouldAutoSwitchToProduct({ ...createJobForm(30), metal: "silver999" })).toBe(false);
+    expect(shouldAutoSwitchToProduct({ ...createJobForm(30), metal: "product" })).toBe(false);
+  });
+  it("เปลี่ยนวัสดุเป็นสินค้าเมื่อมี SKU label ผูกอยู่ → ใช้ราคาแคตตาล็อกเป็นราคาตั้งต้น (ช่องว่างเท่านั้น) · ไม่มีทุน", () => {
+    const labelled = { ...createJobForm(30), productId: "p-a", skuSnapshot: "T-A", productNameSnapshot: "สินค้าเอ" };
+    const e = enterProductMode(labelled, [SKU_A]);
+    expect(e.metal).toBe("product");
+    expect(e.unitPriceThb).toBe("1000");
+    expect(e.listPriceThb).toBe(1000);
+    expect(e.unitCostThb).toBe("");
+    // ราคาที่กรอกไว้แล้วไม่ถูกทับ
+    expect(enterProductMode({ ...labelled, unitPriceThb: "777" }, [SKU_A]).unitPriceThb).toBe("777");
+    // ไม่มี SKU → โหมดไม่มี SKU
+    const none = enterProductMode(createJobForm(30), [SKU_A]);
+    expect(none.productId).toBeNull();
+    expect(none.listPriceThb).toBeNull();
+  });
+});
+
+describe("buildJobInput — รายการสินค้า", () => {
+  it("catalog: ส่ง productId + ราคา · ไม่มีทุน/ชื่อ (null) · เหตุผลที่ไม่ว่างเท่านั้น", () => {
+    const job = applyProductSelection(productJob({ priceReason: "  ลูกค้าประจำ  " }), SKU_A);
+    const withPrice = { ...job, unitPriceThb: "1200" }; // เท่าหรือสูงกว่า list → ไม่ต้องมีเหตุผล
+    expect(buildJobInput(withPrice)).toEqual({
+      metal: "product",
+      qty: 2,
+      productId: "p-a",
+      productName: null,
+      unitPriceThb: 1200,
+      unitCostThb: null,
+      priceReason: null, // applyProductSelection ล้างเหตุผลของ SKU เก่า — กรอกใหม่หลังเลือก
+    });
+    expect(buildJobInput({ ...withPrice, priceReason: "  ลูกค้าประจำ  " })?.priceReason).toBe("ลูกค้าประจำ");
+  });
+
+  it("manual: ต้องมีชื่อ + ทุน → ส่ง productName (trim) + unitCostThb · ไม่มี productId", () => {
+    const job = productJob({ productName: "  กล่องสั่งทำ ", unitPriceThb: "100.5", unitCostThb: "60.25", qty: "3" });
+    expect(buildJobInput(job)).toEqual({
+      metal: "product",
+      qty: 3,
+      productId: null,
+      productName: "กล่องสั่งทำ",
+      unitPriceThb: 100.5,
+      unitCostThb: 60.25,
+      priceReason: null,
+    });
+  });
+
+  it.each([
+    ["manual ไม่มีชื่อ", productJob({ unitCostThb: "50" })],
+    ["manual ไม่มีทุน", productJob({ productName: "ค่าส่ง" })],
+    ["manual ทุน 0", productJob({ productName: "ค่าส่ง", unitCostThb: "0" })],
+    ["ราคาว่าง", productJob({ productName: "ค่าส่ง", unitCostThb: "5", unitPriceThb: "" })],
+    ["ราคา 0", productJob({ productName: "ค่าส่ง", unitCostThb: "5", unitPriceThb: "0" })],
+    ["ราคาทศนิยม 3 ตำแหน่ง", productJob({ productName: "ค่าส่ง", unitCostThb: "5", unitPriceThb: "1.005" })],
+    ["ราคาเกิน 1,000,000", productJob({ productName: "ค่าส่ง", unitCostThb: "5", unitPriceThb: "1000001" })],
+    ["จำนวนว่าง", productJob({ productName: "ค่าส่ง", unitCostThb: "5", qty: "" })],
+    ["จำนวนทศนิยม", productJob({ productName: "ค่าส่ง", unitCostThb: "5", qty: "1.5" })],
+    ["ชื่อมีขึ้นบรรทัดใหม่", productJob({ productName: "a\nb", unitCostThb: "5" })],
+  ])("%s → null (ไม่ยิง calc) และมีข้อความบอกสาเหตุ", (_n, job) => {
+    expect(buildJobInput(job)).toBeNull();
+    expect(productFormIssue(job)).toBeTruthy();
+  });
+
+  it("catalog + มีทุนค้างในฟอร์ม → ทุนไม่ถูกส่ง (productInputFromForm ตัดทิ้งเมื่อมี productId)", () => {
+    const job = { ...applyProductSelection(productJob(), SKU_A), unitPriceThb: "1000", unitCostThb: "999" };
+    const input = buildJobInput(job);
+    expect(input).not.toBeNull();
+    expect(input?.unitCostThb).toBeNull();
+  });
+});
+
+describe("productFormIssue — ต่ำกว่าราคาแคตตาล็อกต้องมีเหตุผล (pre-check · DB ตัดสินซ้ำ)", () => {
+  const base = () => applyProductSelection(productJob(), SKU_A); // list 1000
+
+  it("ต่ำกว่า list ไม่มีเหตุผล → มีข้อความ · buildJobInput = null", () => {
+    const job = { ...base(), unitPriceThb: "999" };
+    expect(productFormIssue(job)).toContain("เหตุผล");
+    expect(buildJobInput(job)).toBeNull();
+  });
+  it("เหตุผลมีแต่อักขระล่องหน/ช่องว่าง = ไม่มีเหตุผล", () => {
+    expect(productFormIssue({ ...base(), unitPriceThb: "999", priceReason: String.fromCharCode(0x2060, 0xfeff) + " " })).toContain("เหตุผล");
+  });
+  it("ต่ำกว่า list + มีเหตุผล → ผ่าน", () => {
+    expect(productFormIssue({ ...base(), unitPriceThb: "999", priceReason: "โปร" })).toBeNull();
+  });
+  it("ต้องไม่พัง: เท่า list / สูงกว่า list ไม่ต้องมีเหตุผล", () => {
+    expect(productFormIssue({ ...base(), unitPriceThb: "1000" })).toBeNull();
+    expect(productFormIssue({ ...base(), unitPriceThb: "1500" })).toBeNull();
+  });
+  it("ต้องไม่พัง: SKU ไม่มี list price → เทียบไม่ได้ ไม่บังคับเหตุผล (DB เตือนอย่างเดียว)", () => {
+    const job = { ...applyProductSelection(productJob(), SKU_NO_PRICE), unitPriceThb: "10" };
+    expect(productFormIssue(job)).toBeNull();
+  });
+  it("ไม่ใช่โหมดสินค้า → null เสมอ", () => {
+    expect(productFormIssue({ ...createJobForm(30), metal: "silver" })).toBeNull();
+  });
+});
+
+describe("aggregateQuotePreview — รายการสินค้าเข้าสรุปทั้งใบเหมือนรายการทั่วไป (บวกเลขที่ DB คำนวณแล้ว)", () => {
+  function productCalc(total: number, cost: number): OemPriceCalcResult {
+    return {
+      isComplete: true,
+      missing: [],
+      warnings: [],
+      formulaVersion: 5,
+      floors: {
+        qty: { pass: true, moq: null, actual: 1 },
+        jobValue: { pass: true, min: 0 },
+        metalWeight: { pass: true, applies: false },
+        margin: { state: null, value: null, blended: null, target: 0.3 },
+      },
+      breakdown: {
+        costPiece: cost,
+        pricePerPiece: total,
+        quoteTotal: total,
+        marginActualPct: null,
+        marginPctUsed: 0,
+        nre: { cad: null, print3d: null, mold: null, cost: 0, price: 0 },
+        metal: { perPiece: 0 },
+      },
+    } as unknown as OemPriceCalcResult;
+  }
+  it("รายการสินค้า margin.value = null ไม่ทำให้ minMarginChargedPct ขยับ · ผลรวมถูก", () => {
+    const p = aggregateQuotePreview([{ calc: productCalc(1800, 600), metal: "product", qty: 2 }], 0);
+    expect(p.isComplete).toBe(true);
+    expect(p.minMarginChargedPct).toBeNull();
+    expect(p.quoteTotal).toBe(1800);
+    expect(p.marginAfterDiscountPct).toBeCloseTo(1 / 3, 4);
   });
 });

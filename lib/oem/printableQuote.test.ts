@@ -195,3 +195,109 @@ describe("toPrintableQuote — customerName/customerContact (fallback ของ�
     expect(p.customerContact).toBeNull();
   });
 });
+
+// ============================================================================
+// 0166: รายการสินค้า/บริการ — ทุน / เหตุผลราคา / ราคาแคตตาล็อก / ทุน manual ห้ามหลุดหน้าพิมพ์ (field set ของ PrintableQuote ไม่เปลี่ยน)
+// ============================================================================
+const P_REASON = "ลับ-เหตุผลลดราคา-XYZ";
+const P_LIST = 3456.78;
+const P_COST = 765.43;
+
+function productItem(opts: { sku: string | null; name: string | null; id?: string; seq?: number }): OemQuoteItemRow {
+  return {
+    id: opts.id ?? "p1",
+    seq: opts.seq ?? 1,
+    skuSnapshot: opts.sku,
+    productNameSnapshot: opts.name,
+    qty: 3,
+    pricePerPiece: 900,
+    itemTotal: 2700,
+    costPiece: P_COST,
+    input: {
+      metal: "product",
+      qty: 3,
+      productId: opts.sku ? "pid-1" : null,
+      productName: opts.sku ? null : opts.name,
+      unitPriceThb: 900,
+      unitCostThb: opts.sku ? null : P_COST,
+      priceReason: P_REASON,
+    },
+    calc: {
+      isComplete: true,
+      missing: [],
+      warnings: ["ต้นทุนจากแคตตาล็อกเป็นค่าประมาณ"],
+      formulaVersion: 5,
+      floors: {},
+      breakdown: {
+        costPiece: P_COST,
+        pricePerPiece: 900,
+        bar: null,
+        product: {
+          productId: opts.sku ? "pid-1" : null,
+          sku: opts.sku,
+          name: opts.name,
+          category: "หมวดลับ",
+          costSource: opts.sku ? "catalog" : "manual",
+          costBasis: "fixed",
+          catalogListPrice: P_LIST,
+          unitPriceThb: 900,
+          belowCatalog: true,
+          priceReason: P_REASON,
+        },
+      },
+    },
+  } as unknown as OemQuoteItemRow;
+}
+
+describe("toPrintableQuote — รายการสินค้า/บริการ (0166)", () => {
+  it("catalog: ชื่อ/SKU = snapshot · จำนวน · ราคาต่อชิ้น · รวม · weightG null · barSizeLabel null", () => {
+    const p = toPrintableQuote(quote(), [productItem({ sku: "T-SKU", name: "สินค้าทดสอบ" })]);
+    const it = p.items[0];
+    expect(it.skuSnapshot).toBe("T-SKU");
+    expect(it.productNameSnapshot).toBe("สินค้าทดสอบ");
+    expect(it.qty).toBe(3);
+    expect(it.pricePerPiece).toBe(900);
+    expect(it.itemTotal).toBe(2700);
+    expect(it.weightG).toBeNull();
+    expect(it.barSizeLabel).toBeNull();
+    expect(it.barPricePerPiece).toBeNull();
+    expect(it.material).toBe("product");
+  });
+
+  it("ไม่มี SKU: sku = null · ชื่อ fallback = productNameSnapshot (itemKindFallback ไม่ว่าง)", () => {
+    const p = toPrintableQuote(quote(), [productItem({ sku: null, name: "กล่องสั่งทำ" })]);
+    expect(p.items[0].skuSnapshot).toBeNull();
+    expect(p.items[0].productNameSnapshot).toBe("กล่องสั่งทำ");
+    expect(p.items[0].itemKindFallback).toBe("กล่องสั่งทำ");
+  });
+
+  it("ไม่มีแม้แต่ชื่อ snapshot → fallback กลาง 'สินค้า/บริการ' (หน้าพิมพ์ไม่ว่าง)", () => {
+    const p = toPrintableQuote(quote(), [productItem({ sku: null, name: null })]);
+    expect(p.items[0].itemKindFallback).toBe("สินค้า/บริการ");
+  });
+
+  it("🔴 ทุน / เหตุผลราคา / ราคาแคตตาล็อก / หมวด / ทุน manual ไม่หลุดเข้า PrintableQuote ทั้งก้อน (serialize แล้วหา)", () => {
+    for (const item of [productItem({ sku: "T-SKU", name: "สินค้าทดสอบ" }), productItem({ sku: null, name: "กล่องสั่งทำ" })]) {
+      const serialized = JSON.stringify(toPrintableQuote(quote(), [item]));
+      expect(serialized).not.toContain(P_REASON);
+      expect(serialized).not.toContain(String(P_LIST));
+      expect(serialized).not.toContain(String(P_COST));
+      expect(serialized).not.toContain("หมวดลับ");
+      expect(serialized).not.toMatch(/catalogListPrice|belowCatalog|priceReason|costSource|costBasis|breakdown|calc|input/i);
+    }
+  });
+
+  it("🔴 field set ของ item สินค้าเท่ากับ item เงินแท่ง (ไม่เพิ่ม field เพื่อสินค้า — ห้ามเพิ่ม catalogListPrice)", () => {
+    const prodKeys = Object.keys(toPrintableQuote(quote(), [productItem({ sku: "T-SKU", name: "สินค้าทดสอบ" })]).items[0]).sort();
+    const barKeys = Object.keys(toPrintableQuote(quote(), [barItem({ override: false })]).items[0]).sort();
+    expect(prodKeys).toEqual(barKeys);
+  });
+
+  it("ใบสินค้าล้วน: ไม่มีประโยคอ้างอิงราคาเงินแท่ง (silverPriceAsOf/CapturedAt = null) · ใบผสมกับแท่งราคาเว็บยังอ้างอิงตามเดิม", () => {
+    const only = toPrintableQuote(quote(), [productItem({ sku: "T-SKU", name: "สินค้าทดสอบ" })]);
+    expect(only.silverPriceAsOf).toBeNull();
+    expect(only.silverPriceCapturedAt).toBeNull();
+    const mixed = toPrintableQuote(quote(), [productItem({ sku: "T-SKU", name: "สินค้าทดสอบ" }), barItem({ override: false, id: "b1" })]);
+    expect(mixed.silverPriceAsOf).toBe("2026-10-07");
+  });
+});

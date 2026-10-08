@@ -33,6 +33,7 @@ import type {
   OemPriceBreakdown,
   OemPriceCalcInput,
   OemPriceCalcResult,
+  OemProductBreakdown,
   OemProductOption,
   OemProvinceOption,
   OemQuoteItemRow,
@@ -58,6 +59,7 @@ import type {
   VoidReceiptInput,
 } from "@/lib/oem/types";
 import { customerTextIssue, hasAnyContact, isValidThaiTaxId, parseBillAddress, stripInvisibleText } from "@/lib/oem/display";
+import { cleanPriceReason, productInputIssue } from "@/lib/oem/productItem";
 import type { SellerProfile } from "@/lib/oem/sellerProfile";
 import { fetchAllRows } from "@/lib/supabase/query-limits";
 // S1 fix (0127 code review): saveMetalPrice's silver check must match the
@@ -165,6 +167,21 @@ function toCalcInputPayload(input: OemPriceCalcInput): Record<string, unknown> {
         : {}),
     };
   }
+  // 0166: รายการสินค้า — payload แยก (DB อ่านเฉพาะ key เหล่านี้ แล้ว return ก่อนถึงงานผลิต) · catalog (มี productId)
+  // ห้ามส่ง unit_cost_thb/product_name (DB ปฏิเสธทุนที่ส่งมา · ชื่ออ่านจากแคตตาล็อกเอง) · ทุกเลขมาจากที่ผู้ใช้กรอก
+  // ส่งต่อให้ DB ตัดสิน — ไม่มีการคิดเงินที่นี่
+  if (input.metal === "product") {
+    const reason = cleanPriceReason(input.priceReason);
+    return {
+      metal: "product",
+      qty: input.qty,
+      unit_price_thb: input.unitPriceThb ?? null,
+      ...(input.productId
+        ? { product_id: input.productId }
+        : { product_name: input.productName?.trim() ?? null, unit_cost_thb: input.unitCostThb ?? null }),
+      ...(reason ? { price_reason: reason } : {}),
+    };
+  }
   return {
     metal: input.metal,
     item_kind: input.itemKind,
@@ -209,6 +226,17 @@ function fromInputPayload(raw: Record<string, unknown>): OemPriceCalcInput {
       // 0163: ถ้าไม่อ่านกลับ — เปิดร่าง/ใบที่เก็บไว้แล้วราคาพิเศษจะหายเงียบๆ กลับเป็นราคาเว็บ
       barPriceOverrideThb: raw.bar_price_override_thb == null ? null : Number(raw.bar_price_override_thb),
       barPriceOverrideReason: raw.bar_price_override_reason == null ? null : String(raw.bar_price_override_reason),
+    };
+  }
+  if (metal === "product") {
+    return {
+      metal,
+      qty: Number(raw.qty ?? 0),
+      productId: raw.product_id == null ? null : String(raw.product_id),
+      productName: raw.product_name == null ? null : String(raw.product_name),
+      unitPriceThb: raw.unit_price_thb == null ? null : Number(raw.unit_price_thb),
+      unitCostThb: raw.unit_cost_thb == null ? null : Number(raw.unit_cost_thb),
+      priceReason: raw.price_reason == null ? null : String(raw.price_reason),
     };
   }
   return {
@@ -274,6 +302,24 @@ function fromCalcResult(raw: Record<string, unknown>): OemPriceCalcResult {
       }
     : null;
 
+  // 0166: มีเฉพาะ metal='product' (admin เท่านั้น · มีทุน/เหตุผล/ราคาแคตตาล็อก — ห้ามส่งต่อเข้า PrintableQuote)
+  const productRaw = b.product as Record<string, unknown> | null | undefined;
+  const product: OemProductBreakdown | null =
+    productRaw && typeof productRaw === "object"
+      ? {
+          productId: productRaw.product_id == null ? null : String(productRaw.product_id),
+          sku: productRaw.sku == null ? null : String(productRaw.sku),
+          name: String(productRaw.name ?? ""),
+          category: productRaw.category == null ? null : String(productRaw.category),
+          costSource: productRaw.cost_source === "catalog" ? "catalog" : "manual",
+          costBasis: productRaw.cost_basis == null ? null : String(productRaw.cost_basis),
+          catalogListPrice: productRaw.catalog_list_price == null ? null : Number(productRaw.catalog_list_price),
+          unitPriceThb: Number(productRaw.unit_price_thb ?? 0),
+          belowCatalog: productRaw.below_catalog == null ? null : Boolean(productRaw.below_catalog),
+          priceReason: productRaw.price_reason == null ? null : String(productRaw.price_reason),
+        }
+      : null;
+
   const laborSteps: OemLaborStep[] = ((labor.steps as unknown[] | undefined) ?? []).map((s) => {
     const r = s as Record<string, unknown>;
     return { key: String(r.key ?? ""), minutes: r.minutes == null ? null : Number(r.minutes), thb: Number(r.thb ?? 0) };
@@ -312,6 +358,7 @@ function fromCalcResult(raw: Record<string, unknown>): OemPriceCalcResult {
       price: Number(nre.price ?? 0),
     },
     bar,
+    product,
     costPiece: Number(b.cost_piece ?? 0),
     pricePerPiece: Number(b.price_per_piece ?? 0),
     quoteTotal: b.quote_total == null ? null : Number(b.quote_total),
@@ -909,9 +956,10 @@ export async function getMetalPrices(): Promise<ActionResult<OemMetalPriceMap>> 
 // ============================================================================
 // SKU picker (analytics.v_dim_product) — read-only, label/traceability only.
 // See lib/oem/types.ts's OemProductOption header for why unit_cost/
-// list_price/margin_pct are excluded from both the query AND the mapped
-// result below: this endpoint must never leak retail cost/margin to the OEM
-// quote screen, even by accident via a future column-order change.
+// margin_pct are excluded from both the query AND the mapped result below:
+// this endpoint must never leak retail cost/margin to the OEM quote screen,
+// even by accident via a future column-order change. 0166: list_price (ราคาขายปลีกสาธารณะ)
+// ถูกเพิ่มเข้ามาโดยตั้งใจ — เป็นราคาตั้งต้นของรายการสินค้า; unit_cost/margin ยังห้าม.
 // ============================================================================
 
 export async function getOemProducts(): Promise<ActionResult<OemProductOption[]>> {
@@ -925,15 +973,24 @@ export async function getOemProducts(): Promise<ActionResult<OemProductOption[]>
     const { data, error } = await supabase
       .schema(SCHEMA)
       .from("v_dim_product")
-      .select("product_id, sku, name, category")
+      .select("product_id, sku, name, category, list_price")
       .eq("shop_id", shopId)
       .eq("is_active", true)
       .order("sku", { ascending: true });
     if (error) throw error;
 
     const result: OemProductOption[] = (
-      (data ?? []) as { product_id: string; sku: string; name: string; category: string | null }[]
-    ).map((r) => ({ productId: r.product_id, sku: r.sku, name: r.name, category: r.category }));
+      (data ?? []) as { product_id: string; sku: string; name: string; category: string | null; list_price: number | string | null }[]
+    ).map((r) => {
+      const listPrice = toNum(r.list_price);
+      return {
+        productId: r.product_id,
+        sku: r.sku,
+        name: r.name,
+        category: r.category,
+        listPrice: listPrice !== null && listPrice > 0 ? listPrice : null,
+      };
+    });
     return { ok: true, data: result };
   } catch (err) {
     console.error("getOemProducts failed", err);
@@ -964,6 +1021,10 @@ export async function calcPrice(input: OemPriceCalcInput): Promise<ActionResult<
     }
     const overrideErr = validateBarOverride(input);
     if (overrideErr) return { ok: false, error: overrideErr };
+  } else if (input.metal === "product") {
+    // 0166: ด่านรูปร่าง (UX) — ราคาต่ำกว่าแคตตาล็อก/ทุน catalog ไม่ครบ ตัดสินที่ DB
+    const productErr = productInputIssue(input);
+    if (productErr) return { ok: false, error: productErr };
   } else {
     if (!input.itemKind?.trim() || !input.polishTier?.trim()) {
       return { ok: false, error: "กรุณาเลือกวัสดุ / ประเภทงาน / ระดับความยากขัด" };
@@ -986,6 +1047,12 @@ export async function calcPrice(input: OemPriceCalcInput): Promise<ActionResult<
 
     return { ok: true, data: fromCalcResult(data as Record<string, unknown>) };
   } catch (err) {
+    // 0166: 22023 = ข้อความไทยที่ DB เขียนเอง (เหตุผลราคา/ทุนไม่ครบ/ชื่อ/SKU ไม่พบ ...) ไม่มีตัวเลขทุน — แสดงตรงๆ ได้
+    // (เดิมกลืนเป็นข้อความกลาง ทำให้ผู้ใช้ไม่รู้ว่าต้องแก้ช่องไหน) · error อื่นยังเป็นข้อความกลาง ไม่รั่วรายละเอียด
+    const e = err as { code?: string; message?: unknown } | null;
+    if (e?.code === "22023" && typeof e.message === "string") {
+      return { ok: false, error: e.message.replace(/^oem_price_calc:\s*/, "") };
+    }
     console.error("calcPrice failed", err);
     return { ok: false, error: "คำนวณราคาไม่สำเร็จ — ตรวจข้อมูลที่กรอก แล้วลองใหม่อีกครั้ง" };
   }
@@ -1122,6 +1189,8 @@ export async function saveQuote(input: SaveQuoteInput): Promise<ActionResult<{ q
     if (!item?.input) return { ok: false, error: "มีบางรายการยังไม่มีข้อมูลงานที่จะคำนวณราคา" };
     const overrideErr = validateBarOverride(item.input);
     if (overrideErr) return { ok: false, error: overrideErr };
+    const productErr = productInputIssue(item.input);
+    if (productErr) return { ok: false, error: productErr };
   }
   // 0165 L6: typeof ก่อน regex (.test() บน number/object จะ coerce) · L1: ชื่อ/ช่องทางติดต่อผ่านด่านเดียวกับ DB
   const bvu: unknown = input.barValidUntil;
@@ -1141,6 +1210,12 @@ export async function saveQuote(input: SaveQuoteInput): Promise<ActionResult<{ q
 
     const pItems = input.items.map((item) => {
       const obj: Record<string, unknown> = { input: toCalcInputPayload(item.input) };
+      if (item.input.metal === "product") {
+        // 0166: รายการสินค้า — product_id ระดับ item = input.productId เสมอ (DB ปฏิเสธถ้าไม่ตรง) · ไม่ส่ง sku/ชื่อ snapshot:
+        // DB ทับด้วย snapshot จากแคตตาล็อก/ชื่อที่ผ่านด่านแล้ว (ไม่เชื่อค่าจาก client)
+        if (item.input.productId) obj.product_id = item.input.productId;
+        return obj;
+      }
       if (item.productId) obj.product_id = item.productId;
       if (item.skuSnapshot?.trim()) obj.sku_snapshot = item.skuSnapshot.trim();
       if (item.productNameSnapshot?.trim()) obj.product_name_snapshot = item.productNameSnapshot.trim();

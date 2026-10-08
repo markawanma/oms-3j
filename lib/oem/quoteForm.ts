@@ -16,10 +16,11 @@
 // warning copy in QuoteResultPanel, which never disables the submit button
 // off this number, only off each item's own (already-gated) floors.
 
-import type { OemBarSize, OemMetal, OemPriceCalcInput, OemPriceCalcResult } from "./types";
+import type { OemBarSize, OemMetal, OemPriceCalcInput, OemPriceCalcResult, OemProductOption } from "./types";
 import { stripInvisibleText } from "./display";
+import { cleanPriceReason, productInputIssue } from "./productItem";
 
-export const OEM_DEFAULT_PURITY: Record<OemMetal, string> = { silver: "0.925", gold: "", brass: "1", silver999: "" };
+export const OEM_DEFAULT_PURITY: Record<OemMetal, string> = { silver: "0.925", gold: "", brass: "1", silver999: "", product: "" };
 
 // ============================================================================
 // เงินแท่ง 99.99% SKU auto-switch (0078, โจทย์ข้อ 3 ของ Luke) — เลือก SKU กลุ่ม
@@ -74,6 +75,17 @@ export interface JobForm {
   barPriceOverrideThb: string;
   /** 0163 — เหตุผลราคาพิเศษ · บังคับเมื่อมีราคา · ไม่ถูกส่งไป calc ถ้าราคายังว่าง. */
   barPriceOverrideReason: string;
+  /** 0166, metal='product' only — ชื่อรายการ (เฉพาะรายการไม่มี SKU · ถ้าผูก SKU ชื่อมาจากแคตตาล็อกที่ DB). */
+  productName: string;
+  /** 0166, metal='product' — ราคาต่อชิ้น (บาท) · ผูก SKU = ตั้งต้นจากราคาแคตตาล็อก แก้ได้อิสระ (ไม่เขียนกลับ catalog). */
+  unitPriceThb: string;
+  /** 0166, metal='product' ไม่มี SKU เท่านั้น — ทุนต่อชิ้น (บังคับ). ผูก SKU แล้วไม่มีช่องนี้ (ทุนอ่านจากแคตตาล็อกที่ DB). */
+  unitCostThb: string;
+  /** 0166, metal='product' — เหตุผลราคา · บังคับเมื่อผูก SKU และราคาต่ำกว่าราคาแคตตาล็อก (DB ตัดสินซ้ำ). */
+  priceReason: string;
+  /** 0166 — ราคาแคตตาล็อก (public list price) ของ SKU ที่ผูกอยู่ · ใช้ pre-check "ต่ำกว่าแคตตาล็อกต้องมีเหตุผล" เท่านั้น
+   * (ไม่ใช่ที่ตัดสิน — DB อ่านราคาเองและตัดสินเอง) · null = ไม่รู้/SKU ไม่มีราคา. ไม่เคยถูกส่งไป DB. */
+  listPriceThb: number | null;
   /** SKU picker (analytics.v_dim_product) — label/traceability only, never
    * fed into buildJobInput()/OemPriceCalcInput below: silver_weight_g is
    * null on every SKU today, so there is nothing safe to prefill from a
@@ -105,6 +117,11 @@ export function createJobForm(defaultMarginPct: number): JobForm {
     engraveTextThb: "",
     barPriceOverrideThb: "",
     barPriceOverrideReason: "",
+    productName: "",
+    unitPriceThb: "",
+    unitCostThb: "",
+    priceReason: "",
+    listPriceThb: null,
     productId: null,
     skuSnapshot: null,
     productNameSnapshot: null,
@@ -154,10 +171,101 @@ export function barOverrideIssue(job: JobForm): string | null {
   return null;
 }
 
+// ============================================================================
+// 0166: รายการสินค้า/บริการ (metal='product') — ราคาตั้งต้นจากแคตตาล็อก · แก้ราคาได้อิสระ · ต่ำกว่าแคตตาล็อกต้องมีเหตุผล
+// ไม่มีการคิดเงินที่นี่: แค่คัดลอก list price ของ SKU เป็นค่าตั้งต้นของช่องราคา + pre-check รูปร่าง/เหตุผล
+// (DB เป็นด่านจริง — อ่านราคาแคตตาล็อก/ทุนเอง ตัดสินเอง) · ห้ามเขียนกลับ catalog
+// ============================================================================
+
+function numOrNaN(s: string): number {
+  return s.trim() === "" ? NaN : Number(s);
+}
+
+/** รูปร่างของ input ที่จะส่ง (ไม่ผ่านด่าน = null จาก buildJobInput) — แยกจาก buildJobInput เพื่อใช้แสดงข้อความ */
+function productInputFromForm(job: JobForm): OemPriceCalcInput {
+  return {
+    metal: "product",
+    qty: numOrNaN(job.qty),
+    productId: job.productId,
+    productName: job.productId ? null : job.productName.trim(),
+    unitPriceThb: numOrNaN(job.unitPriceThb),
+    unitCostThb: job.productId ? null : numOrNaN(job.unitCostThb),
+    priceReason: cleanPriceReason(job.priceReason),
+  };
+}
+
+/** ข้อความบอกว่าทำไมรายการสินค้ายังคำนวณ/บันทึกไม่ได้ (null = ผ่านด่านฝั่งฟอร์ม · ไม่ใช่ว่า DB จะผ่านแน่)
+ * ใช้ทั้งหมดนี้: รูปร่างตัวเลข/ชื่อ/ทุน (lib/oem/productItem.ts เดียวกับ server action) + pre-check
+ * "ต่ำกว่าราคาแคตตาล็อกต้องมีเหตุผล" จาก listPriceThb (ถ้ารู้ราคาแคตตาล็อก) */
+export function productFormIssue(job: JobForm): string | null {
+  if (job.metal !== "product") return null;
+  const input = productInputFromForm(job);
+  const shape = productInputIssue(input);
+  if (shape) return shape;
+  if (
+    job.productId &&
+    job.listPriceThb != null &&
+    (input.unitPriceThb as number) < job.listPriceThb &&
+    !input.priceReason
+  ) {
+    return "ราคาต่ำกว่าราคาแคตตาล็อก — ใส่เหตุผลที่ลดราคา";
+  }
+  return null;
+}
+
+/** เลือก/ล้าง SKU บนรายการ — ตั้ง 3 field label พร้อมกัน + ถ้าเป็นรายการสินค้า: ราคาตั้งต้น = ราคาแคตตาล็อก
+ * (ว่างถ้า SKU ไม่มีราคา) · ล้างทุน/ชื่อ/เหตุผลของ SKU เก่า · ล้าง SKU (null) = กลับไปโหมดไม่มี SKU: คงราคาที่กรอกไว้,
+ * ต้องกรอกชื่อ+ทุนเอง. ไม่แตะรายการงานผลิต/เงินแท่งนอกจาก label (พฤติกรรมเดิม) */
+export function applyProductSelection(job: JobForm, product: OemProductOption | null): JobForm {
+  const next: JobForm = {
+    ...job,
+    productId: product?.productId ?? null,
+    skuSnapshot: product?.sku ?? null,
+    productNameSnapshot: product?.name ?? null,
+    listPriceThb: product?.listPrice ?? null,
+  };
+  if (next.metal === "product") {
+    next.unitCostThb = "";
+    next.priceReason = "";
+    if (product) {
+      next.unitPriceThb = product.listPrice != null ? String(product.listPrice) : "";
+      next.productName = "";
+    }
+  }
+  return next;
+}
+
+/** รายการที่ยังไม่ได้กรอกอะไรของงานผลิต (ประเภท/น้ำหนัก/ระดับขัด ว่างหมด) — เลือก SKU ที่ไม่ใช่แท่งแล้วสลับเป็นโหมดสินค้าให้เองได้
+ * โดยไม่ทำลายงานที่กรอกค้างไว้ (ถ้ากรอกงานผลิตไปแล้ว SKU ยังเป็น label เหมือนเดิม) */
+export function shouldAutoSwitchToProduct(job: JobForm): boolean {
+  return job.metal !== "silver999" && job.metal !== "product" && !job.itemKind && !job.weightG.trim() && !job.polishTier;
+}
+
+/** เปลี่ยนวัสดุเป็นสินค้า/บริการ — ถ้ามี SKU ผูกอยู่แล้ว (label จากโหมดเดิม) ใช้เป็น catalog ทันที: ราคาตั้งต้น = ราคาแคตตาล็อก
+ * ถ้าช่องราคายังว่าง · products = รายการที่โหลดไว้ (หา listPrice ของ SKU ที่ผูก) */
+export function enterProductMode(job: JobForm, products: OemProductOption[]): JobForm {
+  const linked = job.productId ? products.find((p) => p.productId === job.productId) : undefined;
+  const listPrice = linked?.listPrice ?? null;
+  return {
+    ...job,
+    metal: "product",
+    purity: OEM_DEFAULT_PURITY.product,
+    listPriceThb: job.productId ? listPrice : null,
+    unitPriceThb: job.unitPriceThb.trim() ? job.unitPriceThb : listPrice != null ? String(listPrice) : "",
+    unitCostThb: job.productId ? "" : job.unitCostThb,
+  };
+}
+
 /** Same validation/shape rules the pre-v2 single-job form used, plus the
  * 0078 silver999 branch (validates ONLY barSize+qty+engrave — none of the
  * production fields apply, see D3 in design-oem-bar-quote.md). */
 export function buildJobInput(job: JobForm): OemPriceCalcInput | null {
+  if (job.metal === "product") {
+    // 0166: ไม่ผ่านด่านรูปร่าง/pre-check = null (ไม่ยิง calc ระหว่างพิมพ์) · UI บอกสาเหตุผ่าน productFormIssue()
+    if (productFormIssue(job)) return null;
+    return productInputFromForm(job);
+  }
+
   if (job.metal === "silver999") {
     if (!job.barSize) return null;
     const qty = Number(job.qty);

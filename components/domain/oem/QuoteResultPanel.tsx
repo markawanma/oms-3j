@@ -34,6 +34,9 @@ function lineItemLabel(job: JobForm): string {
     const sizeLabel = job.barSize ? OEM_BAR_SIZE_LABEL_TH[job.barSize as OemBarSize] : "ยังไม่ระบุขนาด";
     return `เงินแท่ง ${sizeLabel} × ${job.qty || "0"} แท่ง`;
   }
+  if (job.metal === "product") {
+    return `${job.skuSnapshot || job.productName.trim() || "สินค้า/บริการ"} × ${job.qty || "0"}`;
+  }
   return `${job.itemKind || "—"} × ${job.qty || "0"}`;
 }
 
@@ -118,7 +121,8 @@ export function QuoteResultPanel({
   // 0163: DB (0079-fix) ยังบังคับ approval_note เมื่อ "มีรายการที่ตรวจ margin รายชิ้นไม่ได้" (เงินแท่ง:
   // floors.margin.value = null) และ margin รวม < floor แม้ไม่ลดราคา — ใบราคาพิเศษที่ margin บางแต่ไม่ต่ำกว่าทุน
   // จึงต้องมีช่องเหตุผลให้กรอก ไม่งั้นกดออกใบแล้วชน error โดยไม่มีช่องให้แก้ (เดิมเงื่อนไขนี้มีแค่ discountNum > 0)
-  const hasUngatedItem = items.some((i) => i.calc?.isComplete && i.calc.floors.margin.value == null);
+  // 0166 มติ 5: รายการสินค้า margin.value เป็น null โดยออกแบบ (ไม่มีด่านทุนรายชิ้น) ≠ "ตรวจไม่ได้" — ไม่ปลุก note-tier (เหมือน DB)
+  const hasUngatedItem = items.some((i) => i.job.metal !== "product" && i.calc?.isComplete && i.calc.floors.margin.value == null);
   const discountBelowFloor =
     (discountNum > 0 || hasUngatedItem) && preview.marginAfterDiscountPct != null && preview.marginAfterDiscountPct < setting.marginFloorPct;
   const needsApprovalNote = anyNeedsNoteFromItem || discountBelowFloor;
@@ -130,7 +134,7 @@ export function QuoteResultPanel({
   // 0163: ราคาพิเศษ — ใบที่มีรายการแบบนี้ยืนราคาตามวันที่กรอก (ไม่เกิน 30 วัน) ไม่ใช่ "วันนี้เท่านั้น"
   const hasOverride = items.some((i) => jobHasBarOverride(i.job));
   const hasWebBarItem = items.some((i) => i.job.metal === "silver999" && !jobHasBarOverride(i.job));
-  const hasProductionItem = items.some((i) => i.job.metal !== "silver999");
+  const hasProductionItem = items.some((i) => i.job.metal !== "silver999" && i.job.metal !== "product");
   // ต่ำกว่าทุน: ตัดสินที่ DB (floors.barPrice) — ที่นี่แค่ปิดปุ่ม · DB ปฏิเสธซ้ำตอน quoted
   const belowCostIdx = items.findIndex((i) => i.calc?.floors.barPrice?.pass === false);
   const barDateIssue = hasOverride ? barValidUntilIssue(barValidUntil) : null;

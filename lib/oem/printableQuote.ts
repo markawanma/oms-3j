@@ -154,6 +154,7 @@ export interface PrintableQuote {
 
 function toPrintableQuoteItem(row: OemQuoteItemRow): PrintableQuoteItem {
   const isBar = row.input.metal === "silver999";
+  const isProduct = row.input.metal === "product";
   const barSize = row.input.barSize as OemBarSize | null | undefined;
   const bar = row.calc?.breakdown?.bar ?? null; // narrow read — see file header
   return {
@@ -161,9 +162,11 @@ function toPrintableQuoteItem(row: OemQuoteItemRow): PrintableQuoteItem {
     seq: row.seq,
     skuSnapshot: row.skuSnapshot,
     productNameSnapshot: row.productNameSnapshot,
-    itemKindFallback: isBar ? "เงินแท่ง 99.99%" : row.input.itemKind ?? "",
+    // 0166: รายการสินค้า (metal='product') ไม่มีประเภทงาน/น้ำหนัก — ชื่อบนใบ = productNameSnapshot (snapshot ที่ DB ทับจากแคตตาล็อก/ชื่อที่ผ่านด่านแล้ว)
+    // ทุน/เหตุผลราคา/ราคาแคตตาล็อกอยู่ใน calc.breakdown.product ซึ่งไฟล์นี้ไม่อ่านเลย (ไม่เพิ่ม field ใน PrintableQuote)
+    itemKindFallback: isBar ? "เงินแท่ง 99.99%" : isProduct ? row.productNameSnapshot ?? "สินค้า/บริการ" : row.input.itemKind ?? "",
     material: row.input.metal,
-    weightG: isBar ? null : row.input.weightG ?? null,
+    weightG: isBar || isProduct ? null : row.input.weightG ?? null,
     qty: row.qty,
     pricePerPiece: row.pricePerPiece,
     itemTotal: row.itemTotal,

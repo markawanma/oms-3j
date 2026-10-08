@@ -24,6 +24,7 @@ import type { BadgeTone } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
 import { OemBarCalcSummary } from "./OemBarCalcSummary";
+import { OemProductCalcSummary } from "./OemProductCalcSummary";
 import { OemCalcBreakdown } from "./OemCalcBreakdown";
 import { LostQuoteDialog } from "./LostQuoteDialog";
 import { RenegotiateDialog } from "./RenegotiateDialog";
@@ -379,6 +380,8 @@ export function QuoteDetailClient({
                           <td colSpan={7} className="p-3">
                             {it.input.metal === "silver999" ? (
                               <OemBarCalcSummary calc={it.calc} />
+                            ) : it.input.metal === "product" ? (
+                              <OemProductCalcSummary calc={it.calc} />
                             ) : (
                               <OemCalcBreakdown calc={it.calc} metal={it.input.metal} />
                             )}

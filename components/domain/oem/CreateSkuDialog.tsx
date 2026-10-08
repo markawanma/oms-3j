@@ -112,6 +112,7 @@ export function CreateSkuDialog({
         sku: result.data.sku,
         name: name.trim(),
         category: prefixRow?.kindLabel ?? null,
+        listPrice: null, // SKU ใหม่ยังไม่มีราคา/ทุนในแคตตาล็อก
       });
       handleClose();
     });
