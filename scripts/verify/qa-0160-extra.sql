@@ -184,7 +184,17 @@ begin
     select count(*) into v_n from analytics.v_content_piece_calendar;
     select count(*) into v_n2 from analytics.campaign_step s join analytics.campaign c on c.id = s.campaign_id
      where s.piece_status is not null and s.piece_status <> 'cancelled' and c.anchor_date is not null;
-    v_log := v_log || pg_temp.bb('R1', 'ปฏิทิน = 26 ชิ้น ต.ค. จริง · เท่ากับการนับอิสระจาก campaign_step+campaign', v_n = 26 and v_n2 = 26, 'view=' || v_n || ' ตารางดิบ=' || v_n2);
+    -- baseline ไม่ผูกจำนวนตายตัว (7 ต.ค. 69 — แคมเปญ 10.10 ที่เจ้าของสร้างหลัง backfill เพิ่มชิ้นจริงเป็น 27): ปฏิทิน = การนับอิสระจากตารางดิบ ·
+    -- ชิ้นสมัย backfill 0159 (event create payload.backfill = 0159) ที่ยังไม่ cancelled ต้องอยู่ในปฏิทินครบทุกชิ้น (ไม่มีชิ้น backfill หลุดจากปฏิทิน)
+    select count(*) into v_n3 from analytics.campaign_step s join analytics.campaign c on c.id = s.campaign_id
+     where s.piece_status is not null and s.piece_status <> 'cancelled' and c.anchor_date is not null
+       and exists (select 1 from analytics.content_piece_event e where e.step_id = s.id and e.event_kind = 'create' and e.payload ->> 'backfill' = '0159')
+       and exists (select 1 from analytics.v_content_piece_calendar k where k.step_id = s.id);
+    select count(*) into v_a from analytics.campaign_step s join analytics.campaign c on c.id = s.campaign_id
+     where s.piece_status is not null and s.piece_status <> 'cancelled' and c.anchor_date is not null
+       and exists (select 1 from analytics.content_piece_event e where e.step_id = s.id and e.event_kind = 'create' and e.payload ->> 'backfill' = '0159');
+    v_log := v_log || pg_temp.bb('R1', 'ปฏิทิน = การนับอิสระจาก campaign_step+campaign (ไม่ผูกจำนวนตายตัว) · ชิ้นสมัย backfill 0159 ที่ยังไม่ cancelled อยู่ในปฏิทินครบ · ชิ้นจริงทั้งหมด ≥ ชิ้น backfill',
+      v_n = v_n2 and v_n3 = v_a and v_n >= v_a and v_a > 0, 'view=' || v_n || ' ตารางดิบ=' || v_n2 || ' backfill ในปฏิทิน=' || v_n3 || '/' || v_a);
     select count(*) into v_n from analytics.v_content_piece_calendar
      where resolved_start < date '2026-10-01' or resolved_start > date '2026-10-31';
     v_log := v_log || pg_temp.bb('R1b', 'ทุกชิ้นในปฏิทินอยู่ในเดือน ต.ค. 69 (resolved_start 2026-10-01..31)', v_n = 0, 'นอกเดือน ' || v_n);
@@ -213,9 +223,15 @@ begin
     select count(*) into v_n2 from analytics.campaign_step s join analytics.campaign c on c.id = s.campaign_id
      where s.piece_kind = 'line_message' and s.piece_status in ('planned', 'drafting', 'in_review', 'approved', 'produced')
        and c.anchor_date + s.offset_start_days < v_today;
-    v_log := v_log || pg_temp.bb('R4', 'v_line_quota_28d 1 แถว/ร้าน · quota=4 · used=0 · planned/overdue เท่าการนับอิสระ · remaining=4 · คอลัมน์ครบ',
-      (select count(*) from analytics.v_line_quota_28d where shop_id = v_shop) = 1 and v_q.quota = 4 and v_q.used_28d = 0 and v_q.planned_28d = v_n and v_q.overdue_planned = v_n2 and v_q.remaining_28d = 4,
-      format('used=%s planned=%s(ดิบ %s) overdue=%s(ดิบ %s) remaining=%s over=%s', v_q.used_28d, v_q.planned_28d, v_n, v_q.overdue_planned, v_n2, v_q.remaining_28d, v_q.over_quota_planned));
+    -- baseline ไม่ผูก used=0 (7 ต.ค. 69 — เจ้าของโพสต์ LINE ของแคมเปญ 10.10 จริงแล้ว 1 ใบ ⇒ used=1): used_28d = นับอิสระจาก event post ล่าสุดของชิ้น LINE ที่ posted
+    -- (สูตรเดียวกับ P2a) · remaining = max(4 − used, 0) · over_quota_planned = (used + planned > 4) — พิสูจน์ครบเท่าเดิม แค่ไม่ตายตัวกับจำนวนข้อมูล ณ วัน apply
+    select count(*) into v_n3 from analytics.campaign_step s
+     where s.piece_kind = 'line_message' and s.piece_status = 'posted'
+       and (select (e.created_at at time zone 'Asia/Bangkok')::date from analytics.content_piece_event e where e.step_id = s.id and e.event_kind = 'post' order by e.seq desc limit 1) between v_today - 27 and v_today;
+    v_log := v_log || pg_temp.bb('R4', 'v_line_quota_28d 1 แถว/ร้าน · quota=4 · used = นับอิสระ · planned/overdue เท่าการนับอิสระ · remaining = max(4−used,0) · over_quota_planned = (used+planned>4)',
+      (select count(*) from analytics.v_line_quota_28d where shop_id = v_shop) = 1 and v_q.quota = 4 and v_q.used_28d = v_n3 and v_q.planned_28d = v_n and v_q.overdue_planned = v_n2
+      and v_q.remaining_28d = greatest(4 - v_n3, 0) and v_q.over_quota_planned = (v_n3 + v_n > 4),
+      format('used=%s(ดิบ %s) planned=%s(ดิบ %s) overdue=%s(ดิบ %s) remaining=%s over=%s', v_q.used_28d, v_n3, v_q.planned_28d, v_n, v_q.overdue_planned, v_n2, v_q.remaining_28d, v_q.over_quota_planned));
     v_log := v_log || pg_temp.nn('R4b', 'LINE จริง ต.ค.: ตัวนับเริ่มที่ used_28d=0 เพราะนับเฉพาะ broadcast ที่ลงผ่าน workflow ใหม่ — broadcast ที่ส่งไปแล้วก่อนระบบนี้/นอกระบบ ไม่ถูกนับ ⇒ 28 วันแรกโควตา "เหลือ" จะสูงเกินจริงได้ (ธุรกิจต้องรู้)');
     -- คอลัมน์ต้องห้าม
     select string_agg(c.relname || '.' || a.attname, ', ') into v_bad
@@ -423,11 +439,21 @@ begin
   begin
     declare
       v_cnt int := 0; v_badc text := ''; v_old date; v_new date; v_oth_before text; v_oth_after text; v_ev int; v_cal date; v_st_before text; v_st_after text;
-      v_sid uuid;
+      v_sid uuid; v_elig int; v_term int; v_termbad text := '';
     begin
+      -- baseline ไม่ผูกจำนวนตายตัว (7 ต.ค. 69 — เจ้าของโพสต์ชิ้น LINE ของแคมเปญ 10.10 แล้ว · posted/cancelled เลื่อนวันไม่ได้โดยออกแบบ = 55000 ตาม C4a):
+      -- ชิ้นจริงที่ยังเลื่อนได้ (ไม่ posted/cancelled) ต้องเลื่อนผ่านหมดทุกชิ้น · ชิ้นจริงที่ posted/cancelled ต้องถูกปฏิเสธ 55000 ทุกชิ้นและไม่ขยับ — ไม่ลดสิ่งที่พิสูจน์ แค่แยก 2 ฝั่ง
+      select count(*) into v_elig from analytics.campaign_step s where s.piece_status is not null and s.title not like 'qa160%' and s.piece_status not in ('posted', 'cancelled');
+      select count(*) into v_term from analytics.campaign_step s where s.piece_status in ('posted', 'cancelled') and s.title not like 'qa160%';
+      v_snap := pg_temp.snap();
+      for rr in select s.id, s.piece_status from analytics.campaign_step s where s.piece_status in ('posted', 'cancelled') and s.title not like 'qa160%' order by s.id loop
+        v_r := pg_temp.qx_ex(format('select analytics.content_piece_defer(%L::uuid,%L::uuid,%L::date,''ทดสอบ'',''owner'')', v_shop, rr.id, v_today + 9), array['55000']);
+        if v_r not like 'OK%' then v_termbad := v_termbad || format('[%s %s: %s] ', left(rr.id::text, 8), rr.piece_status, left(v_r, 80)); end if;
+      end loop;
+      v_log := v_log || pg_temp.bb('C1b', 'defer ชิ้นจริงที่ posted/cancelled (' || v_term || ' ชิ้น) → 55000 ทุกชิ้น · ข้อมูลไม่ขยับ (snap เท่าเดิม)', v_termbad = '' and v_snap = pg_temp.snap(), coalesce(nullif(v_termbad, ''), v_term || ' ชิ้นถูกปฏิเสธครบ'));
       begin
         for rr in select s.id, s.piece_status, s.piece_kind from analytics.campaign_step s
-                   where s.piece_status is not null and s.title not like 'qa160%' order by s.id loop
+                   where s.piece_status is not null and s.title not like 'qa160%' and s.piece_status not in ('posted', 'cancelled') order by s.id loop
           v_sid := rr.id;
           select resolved_start into v_old from analytics.v_content_piece where step_id = v_sid;
           select md5(string_agg(step_id::text || resolved_start::text, ',' order by step_id)) into v_oth_before from analytics.v_content_piece where step_id <> v_sid;
@@ -445,8 +471,8 @@ begin
         raise exception 'qa_rollback' using errcode = 'QA001';
       exception when sqlstate 'QA001' then null;
       end;
-      v_log := v_log || pg_temp.bb('C1', 'defer +1 วัน กับ "ทุกชิ้น" ที่ไม่ใช่ของทดสอบ (' || v_cnt || ' ชิ้น ต.ค. จริง): ปฏิทินแสดงวันใหม่ · ชิ้นอื่นวันไม่ขยับ · event defer 1 แถว (from/to ถูก) · piece_status/สถานะไม่เปลี่ยน',
-        v_cnt >= 26 and v_badc = '', coalesce(nullif(v_badc, ''), v_cnt || ' ชิ้นผ่านหมด'));
+      v_log := v_log || pg_temp.bb('C1', 'defer +1 วัน กับ "ทุกชิ้นที่เลื่อนได้" ที่ไม่ใช่ของทดสอบ (' || v_cnt || '/' || v_elig || ' ชิ้น ต.ค. จริง ไม่นับ posted/cancelled): ปฏิทินแสดงวันใหม่ · ชิ้นอื่นวันไม่ขยับ · event defer 1 แถว (from/to ถูก) · piece_status/สถานะไม่เปลี่ยน',
+        v_cnt = v_elig and v_cnt >= 1 and v_badc = '', coalesce(nullif(v_badc, ''), v_cnt || ' ชิ้นผ่านหมด'));
     end;
     -- C2: หลังถอย (rollback sentinel) ของจริงไม่ขยับ
     select count(*) into v_n from analytics.content_piece_event where event_kind = 'defer' and step_id in (select id from analytics.campaign_step where title not like 'qa160%');

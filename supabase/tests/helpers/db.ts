@@ -31,6 +31,12 @@
 //   SUPABASE_SERVICE_ROLE_KEY    service_role JWT (from `supabase status -o env`)
 //   SUPABASE_ANON_KEY            optional — only needed for the privilege
 //                                 regression guard test in stock-validation.test.ts
+//   TEST_DB_ADMIN_URL            owner-role connection string used ONLY to delete test shops in
+//                                 teardown — without it the whole suite is skipped (hasDbEnv)
+//   ALLOW_SHARED_DB_TEARDOWN=1   required when TEST_DB_ADMIN_URL host is not localhost/127.0.0.1
+//                                 (this project has a single shared DB — see .env.test.example)
+//   (R2-3) TEST_DB_ADMIN_URL must point at the SAME project as SUPABASE_URL (project ref compared) — a
+//   mismatch throws before any shop is created; ALLOW_SHARED_DB_TEARDOWN does not bypass it
 //
 // No secrets are hardcoded here (CLAUDE.md hard rule) — every credential comes
 // from process.env, and tests that need them skip loudly (not silently) via
@@ -38,6 +44,7 @@
 
 import { randomUUID } from "node:crypto";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import pg from "pg";
 
 function requireEnv(name: string): string {
   const value = process.env[name];
@@ -51,9 +58,28 @@ function requireEnv(name: string): string {
   return value;
 }
 
-/** Guard used by every test file's `describe.skipIf(!hasDbEnv())` — see report for why we skip instead of fail. */
+/**
+ * Guard used by every test file's `describe.skipIf(!hasDbEnv())` — see report for why we skip instead of fail.
+ *
+ * ต้องมี TEST_DB_ADMIN_URL ด้วย: ชุดทดสอบนี้ลบร้านทดสอบผ่าน connection ของเจ้าของตาราง (0161 ถอน DELETE ของ
+ * service_role) ⇒ ถ้าขาดตัวนี้ seedTenant จะสร้างร้านแล้วลบไม่ได้ = ของค้างใน DB จริง → skip ทั้ง suite แทน throw
+ * (บอกเหตุผลทาง stderr ครั้งเดียว ไม่ใช่ skip เงียบ)
+ */
+let warnedMissingAdminUrl = false;
 export function hasDbEnv(): boolean {
-  return Boolean(process.env.SUPABASE_URL?.trim() && process.env.SUPABASE_SERVICE_ROLE_KEY?.trim());
+  const hasApi = Boolean(process.env.SUPABASE_URL?.trim() && process.env.SUPABASE_SERVICE_ROLE_KEY?.trim());
+  if (!hasApi) return false;
+  if (!process.env.TEST_DB_ADMIN_URL?.trim()) {
+    if (!warnedMissingAdminUrl) {
+      warnedMissingAdminUrl = true;
+      console.warn(
+        "[supabase/tests] ข้าม DB integration suite: ตั้ง SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY แล้วแต่ไม่มี TEST_DB_ADMIN_URL " +
+          "(ใช้ลบร้านทดสอบตอน teardown — ถ้าไม่มี ร้านทดสอบจะค้างใน DB) · ดู .env.test.example",
+      );
+    }
+    return false;
+  }
+  return true;
 }
 
 export function hasAnonEnv(): boolean {
@@ -83,6 +109,8 @@ export interface SeededTenant {
 
 /** Creates a fresh shop + one shopee and one tiktok channel_account (both is_sandbox=true). */
 export async function seedTenant(db: SupabaseClient): Promise<SeededTenant> {
+  // fail ก่อนสร้างอะไร — ถ้าลบทีหลังไม่ได้ ร้านทดสอบจะค้างใน DB (ดู cleanupTenant)
+  requireAdminUrl();
   const { data: shop, error: shopErr } = await db
     .from("shop")
     .insert({ name: `QA Test Shop ${randomUUID()}` })
@@ -312,27 +340,179 @@ export async function releaseExpiredReservations(db: SupabaseClient) {
   return db.rpc("release_expired_reservations");
 }
 
+
 /**
- * Explicit dependency-ordered teardown. Deliberately NOT just `delete from shop`
- * relying on cascade: stock_ledger.product_id is ON DELETE RESTRICT (0001, by
- * design — audit trail must outlive a hard-deleted product). If a cascading
- * delete originating from `shop` reached `product` before it reached
- * `stock_ledger` (both reference shop_id directly with ON DELETE CASCADE),
- * Postgres would raise a foreign_key_violation on the RESTRICT edge and abort
- * the whole delete — leaking the tenant's rows and breaking later tests that
- * assume a clean product/sku namespace. Deleting child tables in explicit
- * dependency order avoids depending on unspecified multi-path cascade ordering.
+ * Teardown ของร้านทดสอบ — รันผ่าน connection ของ "เจ้าของตาราง" (pg) ไม่ใช่ service_role
+ *
+ * ทำไมไม่ใช้ `db.from("shop").delete()` แบบเดิม: 0161 (H1) ถอนสิทธิ์ DELETE/TRUNCATE บน
+ * public.shop / analytics.campaign / analytics.campaign_step จาก service_role (กัน cascade
+ * พาประวัติแก้ยอดหาย) ⇒ supabase-js ได้ 42501 แต่ helper เดิมไม่เช็ค error ⇒ ร้านทดสอบค้างใน DB
+ * (มี DB เดียว) และ verify ที่ assume "ร้านเดียว" พังเงียบๆ
+ *
+ * ตอนนี้: ลบเป็น owner ใน transaction เดียว เรียงลูกก่อนแม่ (stock_ledger.product_id เป็น
+ * ON DELETE RESTRICT จึงไม่พึ่งลำดับ cascade) · พลาดตรงไหน ROLLBACK + throw ข้อความไทย ไม่กลืน error
+ *
+ * connection string มาจาก env `TEST_DB_ADMIN_URL` เท่านั้น (ไม่ hardcode) — ต้องชี้ DB เดียวกับ
+ * SUPABASE_URL ของชุดทดสอบ (ดู .env.test.example)
+ * guard: ลบเฉพาะร้านที่ชื่อขึ้นต้น "QA Test Shop " — เผลอส่ง id ร้านจริงมาจะถูกปฏิเสธ
  */
-export async function cleanupTenant(db: SupabaseClient, shopId: string): Promise<void> {
-  await db.from("stock_ledger").delete().eq("shop_id", shopId);
-  await db.from("order_item").delete().eq("shop_id", shopId);
-  await db.from("shipment").delete().eq("shop_id", shopId);
-  await db.from("orders").delete().eq("shop_id", shopId);
-  await db.from("central_stock").delete().eq("shop_id", shopId);
-  await db.from("product_mapping").delete().eq("shop_id", shopId);
-  await db.from("product").delete().eq("shop_id", shopId);
-  await db.from("sync_job").delete().eq("shop_id", shopId);
-  await db.from("channel_account").delete().eq("shop_id", shopId);
-  await db.from("shop_member").delete().eq("shop_id", shopId);
-  await db.from("shop").delete().eq("id", shopId);
+const TEST_SHOP_NAME_PREFIX = "QA Test Shop ";
+
+const TEARDOWN_TABLES_IN_ORDER = [
+  "stock_ledger",
+  "order_item",
+  "shipment",
+  "orders",
+  "central_stock",
+  "product_mapping",
+  "product",
+  "sync_job",
+  "channel_account",
+  "shop_member",
+] as const;
+
+// query param ที่ pg-connection-string ใช้ทับค่าใน URL (R3-L1) — เทียบแบบไม่สนตัวพิมพ์
+const CONNECTION_OVERRIDE_PARAMS = new Set(["host", "hostaddr", "user", "port", "dbname", "database"]);
+// host ที่ถือว่าเป็นเครื่องตัวเอง (URL.hostname ของ IPv6 คงวงเล็บไว้)
+const LOCAL_DB_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
+// ร้านทดสอบต้องเพิ่งถูกสร้าง — กันลบร้านเก่า/ร้านจริงที่ชื่อบังเอิญขึ้นต้นเหมือนกัน
+const TEST_SHOP_MAX_AGE_SQL = "interval '1 hour'";
+
+// project ref ของ Supabase อยู่ได้ 2 ที่: host (<ref>.supabase.co · db.<ref>.supabase.co) หรือ username แบบ pooler (postgres.<ref>)
+const SUPABASE_API_HOST_RE = /^([a-z0-9]{10,40})\.supabase\.(?:co|in|net)$/;
+const SUPABASE_DIRECT_DB_HOST_RE = /^db\.([a-z0-9]{10,40})\.supabase\.(?:co|in|net)$/;
+const SUPABASE_POOLER_HOST_RE = /(?:^|\.)pooler\.supabase\.com$/;
+const SUPABASE_POOLER_USER_RE = /^[a-z_][a-z0-9_]*\.([a-z0-9]{10,40})$/;
+
+/** "local" = เครื่องตัวเอง · "<ref>" = project บน Supabase · null = ระบุไม่ได้ (custom domain ฯลฯ) — ห้ามใส่ raw ลงข้อความ error */
+function projectOfSupabaseUrl(raw: string): string | null {
+  try {
+    const host = new URL(raw).hostname.toLowerCase();
+    if (LOCAL_DB_HOSTS.has(host)) return "local";
+    return SUPABASE_API_HOST_RE.exec(host)?.[1] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+function projectOfAdminUrl(raw: string): string | null {
+  try {
+    const u = new URL(raw);
+    const host = u.hostname.toLowerCase();
+    if (LOCAL_DB_HOSTS.has(host)) return "local";
+    const direct = SUPABASE_DIRECT_DB_HOST_RE.exec(host)?.[1];
+    if (direct) return direct;
+    if (SUPABASE_POOLER_HOST_RE.test(host)) return SUPABASE_POOLER_USER_RE.exec(decodeURIComponent(u.username))?.[1] ?? null;
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * R2-3 (security): ชุดนี้สร้างร้านทดสอบผ่าน SUPABASE_URL แต่ "ลบ" ผ่าน TEST_DB_ADMIN_URL — ถ้าสองตัวชี้คนละ DB
+ * (เช่น URL = DB จริง · ADMIN = localhost) ร้านที่สร้างจะลบไม่ได้และค้างใน DB จริง · ALLOW_SHARED_DB_TEARDOWN ไม่ข้ามด่านนี้
+ * ระบุ project ไม่ได้ทั้งสองฝั่ง = ปฏิเสธแบบอนุรักษ์ (ไม่เดาว่าเป็น DB เดียวกัน)
+ */
+function assertSameProject(adminUrl: string): void {
+  const apiUrl = process.env.SUPABASE_URL?.trim();
+  if (!apiUrl) {
+    throw new Error(
+      "ไม่พบ SUPABASE_URL — เทียบไม่ได้ว่า TEST_DB_ADMIN_URL ชี้ DB เดียวกับที่ชุดทดสอบจะสร้างร้านทดสอบหรือไม่ " +
+        "(ร้านที่สร้างจะลบไม่ได้ถ้าคนละ DB) · ยังไม่ได้สร้างร้านทดสอบ จึงหยุดก่อน",
+    );
+  }
+  const apiProject = projectOfSupabaseUrl(apiUrl);
+  const adminProject = projectOfAdminUrl(adminUrl);
+  if (apiProject === null || adminProject === null || apiProject !== adminProject) {
+    throw new Error(
+      `SUPABASE_URL (project ${apiProject ?? "ระบุไม่ได้"}) กับ TEST_DB_ADMIN_URL (project ${adminProject ?? "ระบุไม่ได้"}) ไม่ใช่ DB เดียวกัน ` +
+        "— ชุดทดสอบสร้างร้านผ่าน SUPABASE_URL แต่ลบผ่าน TEST_DB_ADMIN_URL ถ้าคนละ DB ร้านทดสอบจะค้างใน DB จริง · " +
+        "ALLOW_SHARED_DB_TEARDOWN ไม่ข้ามด่านนี้ · ยังไม่ได้สร้างร้านทดสอบ จึงหยุดก่อน",
+    );
+  }
+}
+
+function requireAdminUrl(): string {
+  const url = process.env.TEST_DB_ADMIN_URL;
+  if (!url || url.trim() === "") {
+    throw new Error(
+      "ไม่พบ TEST_DB_ADMIN_URL — ชุดทดสอบนี้ต้องลบร้านทดสอบด้วย connection ของเจ้าของตาราง " +
+        "เพราะ 0161 ถอนสิทธิ์ DELETE บน public.shop จาก service_role แล้ว (ลบผ่าน supabase-js ได้ 42501 " +
+        "และร้านทดสอบจะค้างใน DB) · ตั้งเป็น connection string ของ DB เดียวกับ SUPABASE_URL " +
+        "(ดู .env.test.example) · ยังไม่ได้สร้างร้านทดสอบ จึงหยุดก่อนเพื่อไม่ให้มีของค้าง",
+    );
+  }
+  // ห้ามใส่ url ลงข้อความ error — มีรหัสผ่านอยู่ในนั้น
+  let host: string;
+  try {
+    const parsed = new URL(url);
+    host = parsed.hostname.toLowerCase();
+    // R3-L1: pg-connection-string ให้ query param ทับ host/port/user/dbname ได้ (postgresql://u:p@localhost/db?host=evil.com ⇒ ต่อ evil.com)
+    // ⇒ ด่านที่ดูแค่ hostname ถูกหลอกได้ — ปฏิเสธ URL ที่มี param เหล่านี้ (ใส่ชื่อ param ในข้อความได้ ไม่ใส่ค่า)
+    for (const key of parsed.searchParams.keys()) {
+      if (CONNECTION_OVERRIDE_PARAMS.has(key.toLowerCase())) {
+        throw new Error(
+          `TEST_DB_ADMIN_URL มี query param "${key}" ซึ่งทับ host/port/user/dbname ของ URL ได้ (pg-connection-string) — ด่านตรวจ host จะถูกหลอก · ลบ param นี้ออก ` +
+            "(ใส่ host/port/user/ชื่อ DB ใน URL ตรงๆ เท่านั้น) · ยังไม่ได้สร้างร้านทดสอบ จึงหยุดก่อน",
+        );
+      }
+    }
+  } catch (e) {
+    if (e instanceof Error && e.message.startsWith("TEST_DB_ADMIN_URL มี query param")) throw e;
+    throw new Error(
+      "TEST_DB_ADMIN_URL ไม่ใช่ URL ที่อ่านได้ (postgresql://user:pass@host:port/db — รหัสผ่านที่มีอักขระพิเศษต้อง URL-encode) · " +
+        "ยังไม่ได้สร้างร้านทดสอบ จึงหยุดก่อน",
+    );
+  }
+  if (!LOCAL_DB_HOSTS.has(host) && process.env.ALLOW_SHARED_DB_TEARDOWN !== "1") {
+    throw new Error(
+      `TEST_DB_ADMIN_URL ชี้ host "${host}" ซึ่งไม่ใช่เครื่องตัวเอง (localhost / 127.0.0.1) — ชุดทดสอบนี้เขียน+ลบแถวจริง ` +
+        "ปฏิเสธเพื่อกันรันใส่ DB จริงโดยไม่ตั้งใจ · ถ้าตั้งใจใช้ DB ที่ใช้ร่วมกัน (โปรเจกต์นี้มี DB เดียว) ให้ตั้ง " +
+        "ALLOW_SHARED_DB_TEARDOWN=1 เองทุกครั้งที่รัน (อย่าใส่ในไฟล์) · ยังไม่ได้สร้างร้านทดสอบ จึงหยุดก่อน",
+    );
+  }
+  assertSameProject(url);
+  return url;
+}
+
+export async function cleanupTenant(_db: SupabaseClient, shopId: string): Promise<void> {
+  const client = new pg.Client({ connectionString: requireAdminUrl() });
+  try {
+    await client.connect();
+    await client.query("begin");
+    // 🔴 ตรวจร้านก่อนลบอะไรทั้งนั้น — เดิมวนลบตารางลูกตาม shop_id ก่อนแล้วค่อยเช็คชื่อตอนลบร้าน
+    // (ROLLBACK ช่วยไว้ได้ แต่ลำดับนั้นพึ่ง transaction อย่างเดียว) · for update = ไม่มีใครแก้/ลบร้านระหว่างลบ
+    const guard = await client.query(
+      `select id from public.shop where id = $1 and name like $2 and created_at > now() - ${TEST_SHOP_MAX_AGE_SQL} for update`,
+      [shopId, `${TEST_SHOP_NAME_PREFIX}%`],
+    );
+    if (guard.rowCount !== 1) {
+      throw new Error(
+        `ไม่พบร้านทดสอบที่ลบได้ — id ไม่มีอยู่ · ชื่อไม่ขึ้นต้นด้วย "${TEST_SHOP_NAME_PREFIX}" · หรือสร้างมานานกว่า 1 ชั่วโมง ` +
+          "(guard กันลบร้านจริง) · ยังไม่ได้ลบอะไร",
+      );
+    }
+    for (const table of TEARDOWN_TABLES_IN_ORDER) {
+      // ชื่อตารางมาจากค่าคงที่ข้างบน ไม่ใช่ input ภายนอก · shopId ส่งเป็น parameter เสมอ
+      await client.query(`delete from public.${table} where shop_id = $1`, [shopId]);
+    }
+    const res = await client.query("delete from public.shop where id = $1 and name like $2", [
+      shopId,
+      `${TEST_SHOP_NAME_PREFIX}%`,
+    ]);
+    if (res.rowCount !== 1) {
+      throw new Error(
+        `ลบร้านได้ ${res.rowCount ?? "null"} แถว (ต้อง 1) — id ไม่มีอยู่ หรือชื่อร้านไม่ขึ้นต้นด้วย "${TEST_SHOP_NAME_PREFIX}" ` +
+          "(guard กันลบร้านจริง) · ROLLBACK แล้ว",
+      );
+    }
+    await client.query("commit");
+  } catch (err) {
+    await client.query("rollback").catch(() => undefined);
+    const detail = err instanceof Error ? err.message : String(err);
+    throw new Error(`cleanupTenant ล้มเหลว (shop ${shopId}) — ร้านทดสอบอาจค้างใน DB ต้องเก็บกวาดมือด้วย id นี้: ${detail}`);
+  } finally {
+    await client.end().catch(() => undefined);
+  }
 }

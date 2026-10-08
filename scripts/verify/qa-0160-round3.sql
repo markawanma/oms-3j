@@ -179,7 +179,12 @@ begin
     v_log := v_log || pg_temp.lg('T3c3', 'ปลดโพสต์ใหม่ออกจากชิ้นแล้ว เปิดโพสต์เดิมกลับ → OK (ไม่ชนแล้ว)', pg_temp.qx_ok(format('select analytics.content_post_set_status(%L::uuid, %L::uuid, ''active'')', v_shop, v_p2)));
     v_log := v_log || pg_temp.lg('T3d', 'โพสต์ไม่ผูกชิ้น (p9) deleted → OK', pg_temp.qx_ok(format('select analytics.content_post_set_status(%L::uuid, %L::uuid, ''deleted'')', v_shop, v_p9)));
     v_log := v_log || pg_temp.lg('T3e', 'p9 เปิดกลับ active → OK (ด่าน S-L2 เฉพาะที่ผูกชิ้น)', pg_temp.qx_ok(format('select analytics.content_post_set_status(%L::uuid, %L::uuid, ''active'')', v_shop, v_p9)));
-    v_log := v_log || pg_temp.lg('T3f', 'DELETE content_post ตรง (โพสต์ไม่ผูกชิ้น p9) → OK ไม่ถูก trigger ขวาง', pg_temp.qx_ok(format('delete from analytics.content_post where id = %L::uuid', v_p9)));
+    -- หลัง 0161 (H1) service_role ไม่มีสิทธิ์ DELETE บน content_post แล้ว (กันล้างประวัติแก้ยอดผ่านการลบโพสต์แม่) ⇒ คาด 42501 · ก่อน 0161 ยังต้อง OK (trigger ของ 0160 ไม่ขวาง DELETE)
+    v_log := v_log || pg_temp.lg('T3f', 'DELETE content_post ตรง (โพสต์ไม่ผูกชิ้น p9) → ก่อน 0161 OK ไม่ถูก trigger ขวาง · หลัง 0161 42501 (ไม่มีสิทธิ์ DELETE)', case
+      when has_table_privilege('service_role', 'analytics.content_post', 'DELETE')
+        then pg_temp.qx_ok(format('delete from analytics.content_post where id = %L::uuid', v_p9))
+      else pg_temp.qx_ex(format('delete from analytics.content_post where id = %L::uuid', v_p9), array['42501'])
+    end);
     execute 'reset role';
   exception when others then
     execute 'reset role';
@@ -259,14 +264,17 @@ begin
     v_sf := pg_temp.mkp(v_shop, 'ig_fb_post', 'facebook', 'planned');
     select a.id into v_af from analytics.step_artifact a where a.step_id = v_sf;
     v_pf := analytics.content_post_upsert(v_shop, 'facebook', 'qa160r3-f2', 'https://www.facebook.com/qa160r3/posts/f2', now() - interval '1 day', null, v_af);
-    execute 'set local role service_role';
+    -- F2 ทดสอบพฤติกรรม FK (artifact_id set null) ไม่ใช่สิทธิ์ — หลัง 0161 service_role ลบ campaign_step ตรงไม่ได้แล้ว (H1) จึงลบด้วยเจ้าของตาราง
     v_r := pg_temp.qx_ok(format('delete from analytics.campaign_step where id = %L::uuid', v_sf));
-    execute 'reset role';
+    -- (ไม่ต้อง reset role — ไม่ได้ set)
     select (artifact_id is null)::text into v_txt from analytics.content_post where id = v_pf;
     v_log := v_log || case when v_r = 'OK' then pg_temp.bb('F2', 'ลบชิ้น planned (cascade ลบ artifact) ที่โพสต์อ้าง artifact → artifact_id null · ไม่ถูก trigger ขวาง', v_txt = 'true', v_r || ' artifact_null=' || v_txt)
       else pg_temp.nn('F2', 'ลบชิ้น planned ตรงๆ ถูกขวาง: ' || v_r) end;
     execute 'set local role service_role';
-    v_log := v_log || pg_temp.lg('F3', 'ลบชิ้นที่มีโพสต์ผูก (posted) ตรงๆ ใต้ service_role → ปฏิเสธ 55000 (กันที่ 0159)', pg_temp.qx_ex(format('delete from analytics.campaign_step where id = %L::uuid', v_s1), array['55000']));
+    -- หลัง 0161 (H1) service_role ไม่มีสิทธิ์ DELETE บน campaign_step ⇒ ตกที่ 42501 ก่อนถึงด่านของ 0159 (55000) · ก่อน 0161 คาด 55000 · ด่าน 0159 ยังพิสูจน์ที่ verify-0159 ภายใต้ role เจ้าของ
+    v_log := v_log || pg_temp.lg('F3', 'ลบชิ้นที่มีโพสต์ผูก (posted) ตรงๆ ใต้ service_role → ก่อน 0161 ปฏิเสธ 55000 (กันที่ 0159) · หลัง 0161 42501 (ไม่มีสิทธิ์ DELETE)',
+      pg_temp.qx_ex(format('delete from analytics.campaign_step where id = %L::uuid', v_s1),
+        case when has_table_privilege('service_role', 'analytics.campaign_step', 'DELETE') then array['55000'] else array['42501'] end));
     execute 'reset role';
   exception when others then
     execute 'reset role';

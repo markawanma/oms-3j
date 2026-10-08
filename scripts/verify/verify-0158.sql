@@ -1098,14 +1098,27 @@ begin
   end if;
 
   -- hook_upsert บน step ทุกโหมดที่มีจริง (#17)
-  select count(*) into v_n from analytics.campaign_step where shop_id = v_shop;
+  -- แก้ 7 ต.ค. 69 (QA 0161): ชิ้นงานจริงที่ piece_status in (approved, produced, posted) ถูก guard ของ 0159 ปฏิเสธ 55000 (ถูกต้อง — เนื้อหาชิ้นที่อนุมัติ/โพสต์แล้วแก้ไม่ได้)
+  -- ⇒ C5a วนเฉพาะ step ที่ยังแก้เนื้อหาได้ (ที่เหลือทุกแถว ไม่ลดมาตรฐาน) + C5a2 assert แยกว่า step ที่ล็อกต้องถูกปฏิเสธ 55000 ทุกแถว (ไม่ใช่แค่ข้ามไป)
+  select count(*) into v_n from analytics.campaign_step
+   where shop_id = v_shop and (piece_status is null or piece_status not in ('approved', 'produced', 'posted'));
   v_n2 := 0;
-  for r in select id from analytics.campaign_step where shop_id = v_shop order by id loop
+  for r in select id from analytics.campaign_step
+            where shop_id = v_shop and (piece_status is null or piece_status not in ('approved', 'produced', 'posted')) order by id loop
     if pg_temp.vok(format('select analytics.content_hook_upsert(%L::uuid, %L::uuid, null, ''ทดสอบทุกโหมด'', ''fact'')', v_shop, r.id)) = 'OK' then
       v_n2 := v_n2 + 1;
     end if;
   end loop;
-  v_log := v_log || pg_temp.vb('C5a', 'hook_upsert (ไม่มีป้าย) ผ่านกับ campaign_step จริงทุกแถวทุกโหมด (มี/ไม่มี/หลาย artifact · template · task)', v_n2 = v_n, v_n2 || '/' || v_n);
+  v_log := v_log || pg_temp.vb('C5a', 'hook_upsert (ไม่มีป้าย) ผ่านกับ campaign_step ที่ยังแก้เนื้อหาได้ทุกแถวทุกโหมด (มี/ไม่มี/หลาย artifact · template · task · ไม่รวม approved/produced/posted)', v_n2 = v_n, v_n2 || '/' || v_n);
+  select count(*) into v_n from analytics.campaign_step
+   where shop_id = v_shop and piece_status in ('approved', 'produced', 'posted');
+  v_n2 := 0;
+  for r in select id from analytics.campaign_step where shop_id = v_shop and piece_status in ('approved', 'produced', 'posted') order by id loop
+    if pg_temp.vx(format('select analytics.content_hook_upsert(%L::uuid, %L::uuid, null, ''ทดสอบทุกโหมด'', ''fact'')', v_shop, r.id), array['55000']) like 'OK%' then
+      v_n2 := v_n2 + 1;
+    end if;
+  end loop;
+  v_log := v_log || pg_temp.vb('C5a2', '[ต้องถูกปฏิเสธ] hook_upsert กับ step ที่ approved/produced/posted ทุกแถว → 55000 (guard 0159 ปิดเนื้อหาชิ้นที่ล็อกแล้ว)', v_n2 = v_n, v_n2 || '/' || v_n);
   if v_step_leg is not null then
     select hook_type into v_b_type from analytics.content_hook where step_id = v_step_leg and label = 'B';
     select h.id into v_id from analytics.content_hook h where h.step_id = v_step_leg and h.label = 'A';
