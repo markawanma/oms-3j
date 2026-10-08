@@ -14,7 +14,9 @@ import {
   createJobForm,
   enterProductMode,
   jobHasBarOverride,
+  jobHasProductionOverride,
   productFormIssue,
+  productionOverrideIssue,
   shouldAutoSwitchToProduct,
 } from "./quoteForm";
 import type { JobForm } from "./quoteForm";
@@ -366,5 +368,69 @@ describe("calcBelowQtyFloors", () => {
     expect(calcBelowQtyFloors(calcWith(null, true, null))).toBe(false);
     expect(calcBelowQtyFloors(null)).toBe(false);
     expect(calcBelowQtyFloors(undefined)).toBe(false);
+  });
+});
+
+// ============================================================================
+// 0169: ราคาต่อชิ้นพิมพ์ทับของงานผลิต — ฟอร์มแค่ตรวจรูปร่าง/เหตุผล (ไม่รู้ทุน ไม่คิดเงิน · "ต่ำกว่าทุน/ต่ำกว่า floor" ตัดสินที่ DB · verify-0169)
+// ============================================================================
+function prodJob(over: Partial<JobForm> = {}): JobForm {
+  return { ...createJobForm(30), metal: "silver", itemKind: "แหวน", polishTier: "เรียบ", weightG: "3.5", qty: "50", ...over };
+}
+
+describe("buildJobInput — งานผลิต: ราคาต่อชิ้นพิมพ์ทับ", () => {
+  it("ไม่มีราคาที่พิมพ์ → input เดิมเป๊ะ ไม่มี key override (ต้องไม่พัง)", () => {
+    const input = buildJobInput(prodJob());
+    expect(input).not.toBeNull();
+    expect(input).not.toHaveProperty("unitPriceOverrideThb");
+    expect(input).not.toHaveProperty("priceOverrideReason");
+  });
+
+  it("เหตุผลลอย (ราคายังว่าง) ไม่ถูกส่งต่อ — เหตุผลไม่ไป calc ถ้าราคายังว่าง", () => {
+    const input = buildJobInput(prodJob({ priceOverrideReason: "พิมพ์เหตุผลก่อนราคา" }));
+    expect(input).not.toBeNull();
+    expect(input).not.toHaveProperty("unitPriceOverrideThb");
+    expect(input).not.toHaveProperty("priceOverrideReason");
+  });
+
+  it("ราคา + เหตุผลจริง → ส่งทั้งคู่ (เหตุผลลบอักขระล่องหน + trim)", () => {
+    const job = prodJob({ unitPriceOverrideThb: "1234.5", priceOverrideReason: "  ลูกค้าประจำ" + String.fromCodePoint(0x2060) + " " });
+    const input = buildJobInput(job);
+    expect(input?.unitPriceOverrideThb).toBe(1234.5);
+    expect(input?.priceOverrideReason).toBe("ลูกค้าประจำ");
+    expect(jobHasProductionOverride(job)).toBe(true);
+    expect(productionOverrideIssue(job)).toBeNull();
+  });
+
+  it("ทอง/ทองเหลืองก็ใช้ได้เหมือนเงิน", () => {
+    for (const metal of ["gold", "brass"] as const) {
+      const job = prodJob({ metal, purity: metal === "gold" ? "0.965" : "1", unitPriceOverrideThb: "900", priceOverrideReason: "ปิดดีล" });
+      expect(buildJobInput(job)?.unitPriceOverrideThb).toBe(900);
+    }
+  });
+
+  it.each([
+    ["ไม่มีเหตุผล", prodJob({ unitPriceOverrideThb: "900" })],
+    ["เหตุผลช่องว่าง", prodJob({ unitPriceOverrideThb: "900", priceOverrideReason: "   " })],
+    ["เหตุผล '.' (whitelist)", prodJob({ unitPriceOverrideThb: "900", priceOverrideReason: "." })],
+    ["เหตุผล 👍 ล้วน", prodJob({ unitPriceOverrideThb: "900", priceOverrideReason: String.fromCodePoint(0x1f44d) })],
+    ["เหตุผล U+2800 ล้วน", prodJob({ unitPriceOverrideThb: "900", priceOverrideReason: String.fromCodePoint(0x2800) })],
+    ["ราคา 0", prodJob({ unitPriceOverrideThb: "0", priceOverrideReason: "เหตุผล" })],
+    ["ราคาติดลบ", prodJob({ unitPriceOverrideThb: "-1", priceOverrideReason: "เหตุผล" })],
+    ["ราคาไม่ใช่เลข", prodJob({ unitPriceOverrideThb: "abc", priceOverrideReason: "เหตุผล" })],
+    ["ราคาเกิน 1,000,000", prodJob({ unitPriceOverrideThb: "1000001", priceOverrideReason: "เหตุผล" })],
+    ["ราคาทศนิยม 3 ตำแหน่ง", prodJob({ unitPriceOverrideThb: "1.005", priceOverrideReason: "เหตุผล" })],
+  ])("%s → null (ไม่ยิง calc) และมีข้อความบอกสาเหตุ", (_n, job) => {
+    expect(buildJobInput(job)).toBeNull();
+    expect(productionOverrideIssue(job)).toBeTruthy();
+  });
+
+  it("เงินแท่ง / สินค้า: ช่องราคาที่พิมพ์ทับที่ค้างใน state ไม่มีผล (ไม่ถือว่ามี override · ไม่รบกวน input เดิม)", () => {
+    const bar = { ...createJobForm(30), metal: "silver999" as const, barSize: "1_baht" as const, qty: "2", unitPriceOverrideThb: "900" };
+    expect(jobHasProductionOverride(bar)).toBe(false);
+    expect(buildJobInput(bar)).not.toHaveProperty("unitPriceOverrideThb");
+    const product = { ...createJobForm(30), metal: "product" as const, qty: "1", unitPriceThb: "100", productName: "ค่าส่ง", unitCostThb: "50", unitPriceOverrideThb: "900" };
+    expect(jobHasProductionOverride(product)).toBe(false);
+    expect(buildJobInput(product)).not.toHaveProperty("unitPriceOverrideThb");
   });
 });

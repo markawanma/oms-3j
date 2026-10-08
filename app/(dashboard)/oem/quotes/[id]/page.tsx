@@ -1,5 +1,5 @@
 import { Lock } from "lucide-react";
-import { getOemProvinces, getQuote, getQuoteItems, getReceipts, getSellerProfile } from "@/lib/actions/oem";
+import { getOemProvinces, getQuote, getQuoteApprovalGates, getQuoteItems, getReceipts, getSellerProfile } from "@/lib/actions/oem";
 import { getEffectiveRole } from "@/lib/auth/role";
 import { EMPTY_SELLER_PROFILE } from "@/lib/oem/sellerProfile";
 import type { OemDepositMode } from "@/lib/oem/types";
@@ -24,9 +24,9 @@ export default async function OemQuoteDetailPage({ params }: { params: Promise<{
 
   const { id } = await params;
 
-  let quoteResult, itemsResult, provincesResult, sellerResult, receiptsResult;
+  let quoteResult, itemsResult, provincesResult, sellerResult, receiptsResult, gatesResult;
   try {
-    [quoteResult, itemsResult, provincesResult, sellerResult, receiptsResult] = await Promise.all([
+    [quoteResult, itemsResult, provincesResult, sellerResult, receiptsResult, gatesResult] = await Promise.all([
       getQuote(id),
       getQuoteItems(id),
       getOemProvinces(),
@@ -37,6 +37,8 @@ export default async function OemQuoteDetailPage({ params }: { params: Promise<{
       // 0084: every receipt for this DEAL (whole renegotiation chain, not
       // just this row's own quote_id — see getReceipts' comment).
       getReceipts(id),
+      // 0169 M2: ด่านอ่อนที่ใบนี้ใช้ note ผ่าน — degrade ได้ (ไม่มี = ไม่โชว์รายการด่าน)
+      getQuoteApprovalGates(id),
     ]);
   } catch (err) {
     return <ErrorState message={err instanceof Error ? err.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"} />;
@@ -83,6 +85,7 @@ export default async function OemQuoteDetailPage({ params }: { params: Promise<{
       sellerProfile={sellerProfile}
       parentDeposit={parentDeposit}
       receipts={receipts}
+      approvalGates={gatesResult.ok ? gatesResult.data : []}
     />
   );
 }

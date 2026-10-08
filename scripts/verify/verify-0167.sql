@@ -244,8 +244,8 @@ begin
       v_log := v_log || pg_temp.chk('P3c', 'ต้องไม่พัง: ไม่มีส่วนลด ไม่ต้องมี note ผ่าน', v_r like 'OK:%');
       v_r := pg_temp.t_save(p_shop, jsonb_build_array(v_pi, v_ca), 'quoted', null, v_d);
       v_log := v_log || pg_temp.chk('P3d', 'ต้องไม่พัง: สินค้า catalog (ทุนมีหลักฐาน) + ส่วนลด ไม่ต้องมี note ผ่าน', v_r like 'OK:%');
-      v_r := pg_temp.t_save(p_shop, jsonb_build_array(v_pi, v_bigm), 'quoted', chr(8288) || chr(65279) || ' ', v_d);
-      v_log := v_log || pg_temp.chk('P3f', 'note ที่มีแต่อักขระล่องหน/ช่องว่าง = ไม่มี note → 22023', v_r like 'ERR:22023:%กรอกทุนเอง%');
+      v_r := pg_temp.t_save(p_shop, jsonb_build_array(v_pi, v_bigm), 'quoted', chr(10240) || ' ' || chr(65039), v_d);
+      v_log := v_log || pg_temp.chk('P3f', 'note ที่ไม่มีตัวอักษร/ตัวเลขจริง (U+2800 / VS16 / ช่องว่าง) = ไม่มี note → 22023 (whitelist oem_note_present ตั้งแต่ 0169)', v_r like 'ERR:22023:%กรอกทุนเอง%');
       -- renegotiate
       v_r := pg_temp.t_save(p_shop, jsonb_build_array(v_pi, v_bigm), 'quoted', null, 0);
       v_q := pg_temp.qid(v_r);
@@ -401,8 +401,8 @@ begin
         '(v_cost_total_all - v_manual_cost_sum) + v_manual_loss_sum) < 0)',
         '(v_cost_total_all - v_manual_cost_sum) + v_manual_loss_sum) < -1000000000000)', array['P4b', 'P4c']),
       ('MA5', 'analytics.oem_quote_renegotiate(uuid,uuid,numeric,text)',
-        E'  if v_has_manual_cost\n     and (p_new_discount_thb > 0',
-        E'  if false\n     and (p_new_discount_thb > 0', array['P3e']),
+        E'v_gate_manual := v_has_manual_cost\n     and (p_new_discount_thb > 0',
+        E'v_gate_manual := v_has_manual_cost\n     and (false', array['P3e']),
       ('MA6', 'analytics.oem_price_calc(uuid,jsonb)',
         E'      if exists (\n        select 1 from public.product pr',
         E'      if false and exists (\n        select 1 from public.product pr', array['P5a', 'P5b', 'P5f']),
@@ -410,8 +410,8 @@ begin
         'nullif(btrim(analytics.oem_text_strip_invisible(v_prod_name)), '''')',
         'nullif(btrim(v_prod_name), '''')', array['P7c', 'P7e']),
       ('MA8', 'analytics.oem_quote_save(uuid,jsonb,uuid,text,text,text,text,numeric,text,date,uuid)',
-        E'nullif(btrim(analytics.oem_text_strip_invisible(p_approval_note), v_note_ws), '''') is null then\n      raise exception ''oem_quote_save: ใบนี้มีรายการสินค้า',
-        E'nullif(btrim(p_approval_note), '''') is null then\n      raise exception ''oem_quote_save: ใบนี้มีรายการสินค้า', array['P3f']),
+        E'and not analytics.oem_note_present(p_approval_note) then\n      raise exception ''oem_quote_save: ใบนี้มีรายการสินค้า',
+        E'and (p_approval_note is null or btrim(p_approval_note) = '''') then\n      raise exception ''oem_quote_save: ใบนี้มีรายการสินค้า', array['P3f']),
       ('MA9', 'analytics.oem_quote_renegotiate(uuid,uuid,numeric,text)',
         '(v_cost_all - v_manual_cost_sum) + v_manual_loss_sum) < 0)',
         '(v_cost_all - v_manual_cost_sum) + v_manual_loss_sum) < -1000000000000)', array['P4e']),

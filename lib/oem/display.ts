@@ -265,3 +265,34 @@ export function contactFromBilling(phone: string | null | undefined, contactChan
     .filter(Boolean)
     .join(" / ");
 }
+
+// ============================================================================
+// 0169 (security ตรวจย้อนหลัง 0168 · M1/L1/L2): เหตุผลอนุมัติ (approval_note / เหตุผลต่อราคา / เหตุผลราคาที่พิมพ์ทับ)
+// ============================================================================
+/** 0169 M1/L1: "มีเหตุผล" = whitelist — ต้องมีตัวอักษร/ตัวเลขจริงอย่างน้อย 1 ตัวหลังลบอักขระล่องหน (ไทย/ละติน/เลข ผ่าน ·
+ * ช่องว่าง/NEL/U+2800/VS16/tag/เครื่องหมายวรรคตอน/อีโมจิล้วน ไม่ผ่าน) · ชุดเดียวกับ analytics.oem_note_present · pre-check ฝั่งฟอร์ม — DB ตัดสินซ้ำ */
+export function oemNotePresent(value: unknown): boolean {
+  return typeof value === "string" && new RegExp("[" + "\\p{L}\\p{N}" + "]", "u").test(stripInvisibleText(value));
+}
+
+/** 0169 L2: เหตุผลอนุมัติยาวสูงสุด (DB บังคับซ้ำที่ oem_note_valid) */
+export const OEM_NOTE_MAX = 500;
+
+/** 0169 L2: ตรวจรูปร่างเหตุผลก่อนส่ง — ห้ามมี control char (ยกเว้น tab/ขึ้นบรรทัดใหม่) / bidi / ล่องหน และยาวไม่เกิน 500 · null = ใช้ได้ */
+export function approvalNoteIssue(value: unknown, label = "เหตุผลอนุมัติ"): string | null {
+  if (value == null) return null;
+  if (typeof value !== "string") return label + "ต้องเป็นข้อความ";
+  if ([...value].length > OEM_NOTE_MAX) return label + "ยาวเกินไป (ไม่เกิน " + OEM_NOTE_MAX + " ตัวอักษร)";
+  const withoutLineBreaks = value.replace(new RegExp("[" + String.fromCharCode(9, 10, 13) + "]", "g"), "");
+  if (OEM_CONTROL_RE.test(withoutLineBreaks) || OEM_INVISIBLE_RE.test(withoutLineBreaks)) return label + "ห้ามมีอักขระควบคุม/ล่องหน";
+  return null;
+}
+
+/** 0169 M2: ชื่อด่านอ่อนที่ใบใช้ approval_note ผ่าน (oem_quote.approval_gates) — แสดงหน้า admin เท่านั้น */
+export const OEM_APPROVAL_GATE_LABEL_TH: Record<string, string> = {
+  moq: "จำนวนต่ำกว่า MOQ",
+  metal_lot: "น้ำหนักทองต่ำกว่าล็อตซื้อขั้นต่ำ",
+  margin_note_tier: "margin ต่ำกว่า floor",
+  manual_cost: "ทุนกรอกเอง (รายการสินค้า)",
+  override_below_floor: "ราคาที่พิมพ์ทับต่ำกว่า floor",
+};

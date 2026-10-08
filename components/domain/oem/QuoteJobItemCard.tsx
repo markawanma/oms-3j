@@ -10,7 +10,13 @@ import { ChevronDown, ChevronUp, Loader2, Plus, Trash2, X } from "lucide-react";
 import type { OemBarSize, OemMetal, OemPriceCalcResult, OemProductOption } from "@/lib/oem/types";
 import { OEM_BAR_SIZE_LABEL_TH, OEM_METAL_LABEL_TH } from "@/lib/oem/types";
 import type { JobForm } from "@/lib/oem/quoteForm";
-import { OEM_DEFAULT_PURITY, barOverrideIssue, productFormIssue } from "@/lib/oem/quoteForm";
+import {
+  OEM_DEFAULT_PURITY,
+  barOverrideIssue,
+  jobHasProductionOverride,
+  productFormIssue,
+  productionOverrideIssue,
+} from "@/lib/oem/quoteForm";
 import type { SkuPrefixRow } from "@/lib/catalog/sku-prefix";
 import {
   OEM_BAR_SIZE_WEIGHT_LABEL_TH,
@@ -648,6 +654,50 @@ export function QuoteJobItemCard({
                     className={inputCls}
                   />
                 </label>
+              </div>
+
+              {/* 0169: ราคาต่อชิ้น (พิมพ์ทับ) — ต้นทุนยังคิดจากสูตรเหมือนเดิม · ต่ำกว่า floor = ใส่เหตุผลแล้วออกใบได้ ·
+                  ต่ำกว่าทุนต่อชิ้น = ออกใบไม่ได้ (ตัดสินที่ DB — ฟอร์มนี้ไม่รู้ทุน) · เหตุผลไม่ถูกส่งไปคำนวณถ้าราคายังว่าง */}
+              <div className="rounded-md border border-zinc-200 bg-zinc-50/60 p-2.5">
+                <p className="text-xs font-bold text-zinc-700">
+                  ราคาต่อชิ้น (พิมพ์ทับ) <span className="font-normal text-zinc-400">ไม่บังคับ</span>
+                </p>
+                <p className="mt-0.5 text-[11px] text-zinc-500">
+                  ว่างไว้ = ใช้ราคาจาก margin % ด้านบน · พิมพ์ราคาเองได้ — ต่ำกว่า floor ต้องใส่เหตุผลอนุมัติ · ต่ำกว่าทุนต่อชิ้นออกใบไม่ได้ (ไม่มีทางลัด)
+                </p>
+                <div className="mt-2 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
+                  <label className={labelCls}>
+                    ราคาที่พิมพ์ (บาท/ชิ้น)
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      min={0}
+                      step="0.01"
+                      value={job.unitPriceOverrideThb}
+                      onChange={(e) => onChange("unitPriceOverrideThb", e.target.value)}
+                      className={inputCls}
+                      placeholder="ว่าง = ราคาจากสูตร"
+                    />
+                  </label>
+                  {jobHasProductionOverride(job) && (
+                    <label className={labelCls}>
+                      เหตุผล <span className="text-red-600">*บังคับ</span>
+                      <input
+                        type="text"
+                        maxLength={200}
+                        value={job.priceOverrideReason}
+                        onChange={(e) => onChange("priceOverrideReason", e.target.value)}
+                        className={inputCls}
+                        placeholder="เช่น ลูกค้าประจำ / ปิดดีลใหญ่"
+                      />
+                    </label>
+                  )}
+                </div>
+                {productionOverrideIssue(job) && (
+                  <p role="alert" className="mt-1.5 text-xs font-semibold text-amber-700">
+                    {productionOverrideIssue(job)}
+                  </p>
+                )}
               </div>
             </>
           )}

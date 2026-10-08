@@ -17,13 +17,11 @@ import {
   aggregateQuotePreview,
   bangkokToday,
   barValidUntilIssue,
-  OEM_QTY_FLOOR_NOTE_TH,
-  calcBelowQtyFloors,
   jobHasBarOverride,
 } from "@/lib/oem/quoteForm";
 import type { JobForm } from "@/lib/oem/quoteForm";
 import type { OemPriceCalcResult } from "@/lib/oem/types";
-import { fmtPct, stripInvisibleText } from "@/lib/oem/display";
+import { OEM_NOTE_MAX, approvalNoteIssue, fmtPct, oemNotePresent } from "@/lib/oem/display";
 import { OEM_MANUAL_COST_NOTE_TH, manualCostNoteReason } from "@/lib/oem/productItem";
 import { formatTHB } from "@/lib/format";
 import { Button } from "@/components/ui/Button";
@@ -93,11 +91,11 @@ export function QuoteResultPanel({
 
   const allComplete = items.length > 0 && items.every((i) => i.calc?.isComplete);
   const anyHardBlocked = items.some((i) => i.calc?.floors.margin.state === "hard_floor_breach");
-  const anyNeedsNoteFromItem = items.some((i) => i.calc?.floors.margin.state === "needs_approval_note");
   // 0168: qty (MOQ) / metal_weight (ล็อตโลหะ) ไม่ใช่ด่านแข็งอีกต่อไป — ต่ำกว่าขั้นต่ำ = ออกใบได้เมื่อมีเหตุผล (qtyFloorShortfall ข้างล่าง)
   // เหลือเฉพาะ jobValue ที่ปุ่มยังปิดตามเดิม · ป้ายแดงของ floor ยังแสดงที่การ์ดรายการ (เป็นคำเตือน)
   const allFloorsPass = items.every((i) => i.calc && i.calc.floors.jobValue.pass === true);
-  const qtyFloorShortfall = items.some((i) => calcBelowQtyFloors(i.calc));
+  // 0169: ราคาต่อชิ้นที่พิมพ์ทับต่ำกว่าทุนต่อชิ้น = ปุ่มออกใบปิด (ไม่มีทางลัด · ไม่ใช่ hard floor ของสูตร) — DB ตัดสินซ้ำที่ oem_quote_save
+  const belowCostOverrideIdx = items.findIndex((i) => i.calc?.floors.priceVsCost?.pass === false);
 
   const discountNum = Number(discountThb) || 0;
   const preview = aggregateQuotePreview(
@@ -138,7 +136,22 @@ export function QuoteResultPanel({
     }),
     discountNum
   );
-  const needsApprovalNote = anyNeedsNoteFromItem || discountBelowFloor || manualNote !== null || qtyFloorShortfall;
+  // 0169 M2: แสดงเหตุผลที่ต้องใช้ note "ทุกข้อ" ที่ติดพร้อมกัน (ไม่ใช่แค่ข้อแรก) — pre-check · DB ตัดสินและเก็บ approval_gates ฝั่ง server
+  const noteReasons: string[] = [];
+  if (items.some((i) => i.calc?.floors.qty.pass === false)) noteReasons.push("จำนวนต่ำกว่า MOQ");
+  if (items.some((i) => i.calc?.floors.metalWeight.applies && i.calc.floors.metalWeight.pass === false)) {
+    noteReasons.push("น้ำหนักทองรวมต่ำกว่าล็อตซื้อขั้นต่ำ");
+  }
+  if (items.some((i) => i.calc?.breakdown.productionOverride && i.calc.floors.margin.state === "needs_approval_note")) {
+    noteReasons.push("ราคาที่พิมพ์ทับทำให้ margin ต่ำกว่า floor");
+  }
+  if (items.some((i) => !i.calc?.breakdown.productionOverride && i.calc?.floors.margin.state === "needs_approval_note") || discountBelowFloor) {
+    noteReasons.push("margin ต่ำกว่า floor");
+  }
+  if (manualNote) noteReasons.push(OEM_MANUAL_COST_NOTE_TH[manualNote]);
+  const needsApprovalNote = noteReasons.length > 0;
+  // 0169 L2: รูปร่างเหตุผล (control/bidi/ล่องหน/ยาว > 500) · M1: "มีเหตุผล" = มีตัวอักษร/ตัวเลขจริง (whitelist ชุดเดียวกับ DB)
+  const noteShapeIssue = approvalNoteIssue(approvalNote);
 
   // 0078: bar prices stand for TODAY only (quote_valid_days=0 server-side —
   // D4), unlike the usual 7/30/45-day window for production metals.
@@ -171,8 +184,10 @@ export function QuoteResultPanel({
     allFloorsPass &&
     !anyHardBlocked &&
     belowCostIdx < 0 &&
+    belowCostOverrideIdx < 0 &&
     !barDateIssue &&
-    (!needsApprovalNote || stripInvisibleText(approvalNote).trim().length > 0);
+    !noteShapeIssue &&
+    (!needsApprovalNote || oemNotePresent(approvalNote));
 
   return (
     <div className="space-y-3">
@@ -342,7 +357,14 @@ export function QuoteResultPanel({
             </p>
           )}
 
-          {anyHardBlocked && (
+          {belowCostOverrideIdx >= 0 && (
+            <p role="alert" className="flex items-start gap-1.5 rounded-md border border-red-300 bg-red-50 p-2.5 text-xs font-semibold text-red-700">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+              รายการที่ {belowCostOverrideIdx + 1}: ราคาที่พิมพ์ต่ำกว่าทุนต่อชิ้น — ออกใบเสนอราคาไม่ได้ ไม่มีทางลัด (บันทึกเป็นร่างได้)
+            </p>
+          )}
+
+          {anyHardBlocked && belowCostOverrideIdx < 0 && (
             <p className="flex items-start gap-1.5 rounded-md border border-red-300 bg-red-50 p-2.5 text-xs font-semibold text-red-700">
               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
               มีบางรายการ margin ต่ำกว่า hard floor — ออกใบเสนอราคาไม่ได้ ไม่มีทางลัด ต้องปรับราคาหรือปฏิเสธงาน
@@ -352,22 +374,30 @@ export function QuoteResultPanel({
           {needsApprovalNote && (
             <div>
               <label htmlFor="oem-approval-note" className="text-xs font-semibold text-amber-800">
-                {anyNeedsNoteFromItem || discountBelowFloor
-                  ? "margin ต่ำกว่า floor — ระบุเหตุผลก่อนออกใบเสนอราคา (บังคับ)"
-                  : qtyFloorShortfall
-                  ? OEM_QTY_FLOOR_NOTE_TH + " (บังคับ)"
-                  : manualNote
-                  ? OEM_MANUAL_COST_NOTE_TH[manualNote] + " (บังคับ)"
-                  : "ระบุเหตุผลก่อนออกใบเสนอราคา (บังคับ)"}
+                ต่ำกว่าขั้นต่ำ — ใส่เหตุผลเพื่อออกใบ (บังคับ · ต้องมีตัวอักษรหรือตัวเลข) เพราะ:
               </label>
+              <ul className="mt-0.5 space-y-0.5 text-xs text-amber-800">
+                {noteReasons.map((r) => (
+                  <li key={r}>· {r}</li>
+                ))}
+              </ul>
               <textarea
                 id="oem-approval-note"
                 value={approvalNote}
                 onChange={(e) => onApprovalNoteChange(e.target.value)}
                 rows={2}
+                maxLength={OEM_NOTE_MAX}
                 className="mt-1 w-full rounded-md border border-amber-300 p-2 text-sm text-zinc-900"
                 placeholder="เช่น ลูกค้าประจำ สั่งซ้ำแน่นอน"
               />
+              {noteShapeIssue && (
+                <p role="alert" className="mt-1 text-xs font-semibold text-red-700">
+                  {noteShapeIssue}
+                </p>
+              )}
+              {!noteShapeIssue && approvalNote.trim() !== "" && !oemNotePresent(approvalNote) && (
+                <p className="mt-1 text-xs font-semibold text-amber-700">เหตุผลต้องมีตัวอักษรหรือตัวเลข (เครื่องหมาย/อีโมจิอย่างเดียวไม่นับ)</p>
+              )}
             </div>
           )}
         </>
