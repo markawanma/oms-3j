@@ -6,6 +6,7 @@ import {
   addDaysIso,
   aggregateQuotePreview,
   applyProductSelection,
+  calcBelowQtyFloors,
   bangkokToday,
   barOverrideIssue,
   barValidUntilIssue,
@@ -334,5 +335,36 @@ describe("aggregateQuotePreview — รายการสินค้าเข�
     expect(p.minMarginChargedPct).toBeNull();
     expect(p.quoteTotal).toBe(1800);
     expect(p.marginAfterDiscountPct).toBeCloseTo(1 / 3, 4);
+  });
+});
+
+// ============================================================================
+// 0168: MOQ / ล็อตโลหะ = ออกใบได้เมื่อมีเหตุผล — pre-check ฝั่งฟอร์ม (DB ตัดสิน · verify-0168)
+// ============================================================================
+describe("calcBelowQtyFloors", () => {
+  const calcWith = (qtyPass: boolean | null, applies: boolean, mwPass: boolean | null): OemPriceCalcResult =>
+    ({
+      isComplete: true,
+      missing: [],
+      warnings: [],
+      formulaVersion: 3,
+      breakdown: {},
+      floors: {
+        qty: { pass: qtyPass, moq: 50, actual: 3 },
+        jobValue: { pass: true, min: 0 },
+        metalWeight: { pass: mwPass, applies },
+        margin: { state: null, value: 0.5, blended: 0.5, target: 0.3 },
+      },
+    }) as unknown as OemPriceCalcResult;
+
+  it("MOQ ไม่ผ่าน → true", () => expect(calcBelowQtyFloors(calcWith(false, false, true))).toBe(true));
+  it("ล็อตโลหะ (ทอง) ไม่ผ่านอย่างเดียว → true", () => expect(calcBelowQtyFloors(calcWith(true, true, false))).toBe(true));
+  it("ทอง 3 ชิ้น (ไม่ผ่านทั้งคู่) → true", () => expect(calcBelowQtyFloors(calcWith(false, true, false))).toBe(true));
+  it("ผ่านทั้งคู่ → false", () => expect(calcBelowQtyFloors(calcWith(true, true, true))).toBe(false));
+  it("ล็อตโลหะไม่ applies (เงิน/ทองเหลือง) แม้ pass=false → ไม่นับ", () => expect(calcBelowQtyFloors(calcWith(true, false, false))).toBe(false));
+  it("ยังคำนวณไม่ได้ (null / ไม่มี calc) → false (isComplete ดักอยู่แล้ว ไม่ใช่เรื่องของเหตุผลอนุมัติ)", () => {
+    expect(calcBelowQtyFloors(calcWith(null, true, null))).toBe(false);
+    expect(calcBelowQtyFloors(null)).toBe(false);
+    expect(calcBelowQtyFloors(undefined)).toBe(false);
   });
 });

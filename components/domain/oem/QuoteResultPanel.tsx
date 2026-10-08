@@ -17,6 +17,8 @@ import {
   aggregateQuotePreview,
   bangkokToday,
   barValidUntilIssue,
+  OEM_QTY_FLOOR_NOTE_TH,
+  calcBelowQtyFloors,
   jobHasBarOverride,
 } from "@/lib/oem/quoteForm";
 import type { JobForm } from "@/lib/oem/quoteForm";
@@ -92,13 +94,10 @@ export function QuoteResultPanel({
   const allComplete = items.length > 0 && items.every((i) => i.calc?.isComplete);
   const anyHardBlocked = items.some((i) => i.calc?.floors.margin.state === "hard_floor_breach");
   const anyNeedsNoteFromItem = items.some((i) => i.calc?.floors.margin.state === "needs_approval_note");
-  const allFloorsPass = items.every(
-    (i) =>
-      i.calc &&
-      i.calc.floors.qty.pass === true &&
-      i.calc.floors.jobValue.pass === true &&
-      (!i.calc.floors.metalWeight.applies || i.calc.floors.metalWeight.pass === true)
-  );
+  // 0168: qty (MOQ) / metal_weight (ล็อตโลหะ) ไม่ใช่ด่านแข็งอีกต่อไป — ต่ำกว่าขั้นต่ำ = ออกใบได้เมื่อมีเหตุผล (qtyFloorShortfall ข้างล่าง)
+  // เหลือเฉพาะ jobValue ที่ปุ่มยังปิดตามเดิม · ป้ายแดงของ floor ยังแสดงที่การ์ดรายการ (เป็นคำเตือน)
+  const allFloorsPass = items.every((i) => i.calc && i.calc.floors.jobValue.pass === true);
+  const qtyFloorShortfall = items.some((i) => calcBelowQtyFloors(i.calc));
 
   const discountNum = Number(discountThb) || 0;
   const preview = aggregateQuotePreview(
@@ -139,7 +138,7 @@ export function QuoteResultPanel({
     }),
     discountNum
   );
-  const needsApprovalNote = anyNeedsNoteFromItem || discountBelowFloor || manualNote !== null;
+  const needsApprovalNote = anyNeedsNoteFromItem || discountBelowFloor || manualNote !== null || qtyFloorShortfall;
 
   // 0078: bar prices stand for TODAY only (quote_valid_days=0 server-side —
   // D4), unlike the usual 7/30/45-day window for production metals.
@@ -355,6 +354,8 @@ export function QuoteResultPanel({
               <label htmlFor="oem-approval-note" className="text-xs font-semibold text-amber-800">
                 {anyNeedsNoteFromItem || discountBelowFloor
                   ? "margin ต่ำกว่า floor — ระบุเหตุผลก่อนออกใบเสนอราคา (บังคับ)"
+                  : qtyFloorShortfall
+                  ? OEM_QTY_FLOOR_NOTE_TH + " (บังคับ)"
                   : manualNote
                   ? OEM_MANUAL_COST_NOTE_TH[manualNote] + " (บังคับ)"
                   : "ระบุเหตุผลก่อนออกใบเสนอราคา (บังคับ)"}

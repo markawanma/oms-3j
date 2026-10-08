@@ -314,3 +314,17 @@ describe("toPrintableQuote — discount_reason ไม่หลุดหน้า
     expect(p.discountThb).toBe(300);
   });
 });
+
+// ============================================================================
+// 0168: เหตุผลอนุมัติ (approval_note — ใช้กับ MOQ/ล็อตโลหะ, note-tier, F2) ห้ามหลุดใบลูกค้า (invariant ข้อ 1)
+// ============================================================================
+describe("toPrintableQuote — approval_note ไม่หลุดหน้าพิมพ์", () => {
+  const SECRET_NOTE = "ลับ-อนุมัติเพราะลูกค้าประจำ-ต่ำกว่า-MOQ";
+  it("🔴 PrintableQuote ไม่มี field approvalNote · เหตุผลไม่ปรากฏเมื่อ serialize ทั้งใบ", () => {
+    const q = { ...quote(), approvalNote: SECRET_NOTE, lostReason: "ลับ-lost" } as unknown as OemQuoteRow;
+    const p = toPrintableQuote(q, [barItem({ override: false })]);
+    expect(p).not.toHaveProperty("approvalNote");
+    expect(JSON.stringify(p)).not.toContain(SECRET_NOTE);
+    expect(JSON.stringify(p)).not.toContain("ลับ-lost");
+  });
+});
