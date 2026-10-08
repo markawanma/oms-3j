@@ -1049,8 +1049,10 @@ export async function calcPrice(input: OemPriceCalcInput): Promise<ActionResult<
   } catch (err) {
     // 0166: 22023 = ข้อความไทยที่ DB เขียนเอง (เหตุผลราคา/ทุนไม่ครบ/ชื่อ/SKU ไม่พบ ...) ไม่มีตัวเลขทุน — แสดงตรงๆ ได้
     // (เดิมกลืนเป็นข้อความกลาง ทำให้ผู้ใช้ไม่รู้ว่าต้องแก้ช่องไหน) · error อื่นยังเป็นข้อความกลาง ไม่รั่วรายละเอียด
+    // 0167 F5: ส่งต่อเฉพาะข้อความที่ขึ้นต้น "oem_price_calc:" (ข้อความที่ฟังก์ชันนี้เขียนเอง) — ตัดชื่อฟังก์ชันออกก่อนแสดง ·
+    // 22023 ที่ไม่ได้มาจากฟังก์ชันนี้ (เช่นฟังก์ชันย่อยข้างใน) = ข้อความกลาง ไม่แสดงดิบ
     const e = err as { code?: string; message?: unknown } | null;
-    if (e?.code === "22023" && typeof e.message === "string") {
+    if (e?.code === "22023" && typeof e.message === "string" && /^oem_price_calc:\s*\S/.test(e.message)) {
       return { ok: false, error: e.message.replace(/^oem_price_calc:\s*/, "") };
     }
     console.error("calcPrice failed", err);

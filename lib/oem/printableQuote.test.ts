@@ -156,7 +156,6 @@ describe("toPrintableQuote — ราคาพิเศษเงินแท่�
         "depositAmountThb",
         "depositMode",
         "depositPctEffective",
-        "discountReason",
         "discountThb",
         "grandTotal",
         "id",
@@ -299,5 +298,19 @@ describe("toPrintableQuote — รายการสินค้า/บริก
     expect(only.silverPriceCapturedAt).toBeNull();
     const mixed = toPrintableQuote(quote(), [productItem({ sku: "T-SKU", name: "สินค้าทดสอบ" }), barItem({ override: false, id: "b1" })]);
     expect(mixed.silverPriceAsOf).toBe("2026-10-07");
+  });
+});
+
+// ============================================================================
+// 0167 (มติเจ้าของ): เหตุผลส่วนลด / เหตุผลตอนต่อราคา (discount_reason) ไม่พิมพ์บนใบลูกค้า
+// ============================================================================
+describe("toPrintableQuote — discount_reason ไม่หลุดหน้าพิมพ์", () => {
+  const SECRET_DISCOUNT_REASON = "ลับ-ลูกค้าขู่ย้ายร้าน-ลดให้พิเศษ";
+  it("🔴 PrintableQuote ไม่มี field discountReason · เหตุผลไม่ปรากฏเมื่อ serialize ทั้งใบ · ยังเหลือยอดส่วนลด", () => {
+    const q = { ...quote(), discountThb: 300, discountReason: SECRET_DISCOUNT_REASON } as OemQuoteRow;
+    const p = toPrintableQuote(q, [barItem({ override: false })]);
+    expect(p).not.toHaveProperty("discountReason");
+    expect(JSON.stringify(p)).not.toContain(SECRET_DISCOUNT_REASON);
+    expect(p.discountThb).toBe(300);
   });
 });

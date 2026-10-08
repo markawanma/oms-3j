@@ -208,6 +208,19 @@ describe("calcPrice — ข้อความ 22023 จาก DB", () => {
     }
   });
 
+  it("🔴 F5: 22023 ที่ข้อความไม่ได้ขึ้นต้น oem_price_calc: (เช่นหลุดมาจากฟังก์ชันย่อย) → ข้อความกลาง ไม่แสดงดิบ", async () => {
+    for (const message of [
+      "oem_cost_calc: weight_g must be > 0 (rate row 42)",
+      "something internal went wrong in analytics.v_dim_product",
+      "oem_price_calc:", // มีแต่คำนำหน้า ไม่มีเนื้อความ
+    ]) {
+      rpcMock.mockResolvedValue({ data: null, error: { code: "22023", message } });
+      const { calcPrice } = await import("./oem");
+      const r = await calcPrice(catalogInput());
+      expect(r).toEqual({ ok: false, error: "คำนวณราคาไม่สำเร็จ — ตรวจข้อมูลที่กรอก แล้วลองใหม่อีกครั้ง" });
+    }
+  });
+
   it("22023 ของเงินแท่ง (เดิมถูกกลืนเป็นข้อความกลาง) ตอนนี้ก็แสดงข้อความ DB — ผู้ใช้รู้ว่าต้องแก้อะไร", async () => {
     rpcMock.mockResolvedValue({ data: null, error: { code: "22023", message: "oem_price_calc: ราคาพิเศษสูงกว่า 2 เท่าของราคาเว็บวันนี้ — ตรวจว่าพิมพ์เลขเกินหรือไม่" } });
     const { calcPrice } = await import("./oem");

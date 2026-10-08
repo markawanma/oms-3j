@@ -551,7 +551,18 @@ export function QuoteDetailClient({
         />
       )}
 
-      {renegotiateOpen && <RenegotiateDialog quote={quote} hasReceivedPayment={hasReceivedPayment} onClose={() => setRenegotiateOpen(false)} />}
+      {renegotiateOpen && (
+        <RenegotiateDialog
+          quote={quote}
+          hasReceivedPayment={hasReceivedPayment}
+          manualCostRows={items.map((it) => ({
+            isManualCost: it.input.metal === "product" && it.calc.breakdown.product?.costSource === "manual",
+            priceTotal: it.itemTotal ?? 0,
+            costTotal: (it.costPiece ?? 0) * it.qty,
+          }))}
+          onClose={() => setRenegotiateOpen(false)}
+        />
+      )}
 
       {customerOpen && canEditCustomer && (
         <CustomerDialog

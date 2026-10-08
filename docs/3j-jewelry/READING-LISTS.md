@@ -11,7 +11,7 @@
 - memory: `oem-quote-v2-status` · `oem-pricing` (🔴 ตัวเลขห้ามจด) · `pricing-disclosure-policy` · `silver-price-capture`
 - skill: `oem-quote-invariants`
 - docs: `docs/3j-jewelry/analytics/design-oem-bar-quote.md` · `docs/3j-jewelry/analytics/design-oem-bar-price-override.md` (ราคาพิเศษเงินแท่ง 0163) · `docs/3j-jewelry/analytics/design-oem-product-item.md` (รายการสินค้า/ราคากำหนดเอง 0166) · `docs/3j-jewelry/analytics/design-oem-payment-invoice.md` · `docs/3j-jewelry/oem/design-email-sku-phase1.md` · `docs/3j-jewelry/marketing/oem-pricing-floor.md` (ภายใน ห้ามขึ้นสาธารณะ)
-- migrations: `0061-0067` (cost rate / quote calc) · `0073-0088` (quote v2 · deposit · VAT · receipt · doc integrity) · `0125-0129` (silver spot) · `0140` (cost calc extract) · `0163` (ราคาพิเศษเงินแท่ง) · `0164` (แก้ชื่อ/ช่องทางติดต่อลูกค้าบนใบ) · `0165` (แก้ตาม security: actor + audit + ด่านอักขระล่องหน) · `0166` (รายการสินค้า/ราคากำหนดเอง metal=product)
+- migrations: `0061-0067` (cost rate / quote calc) · `0073-0088` (quote v2 · deposit · VAT · receipt · doc integrity) · `0125-0129` (silver spot) · `0140` (cost calc extract) · `0163` (ราคาพิเศษเงินแท่ง) · `0164` (แก้ชื่อ/ช่องทางติดต่อลูกค้าบนใบ) · `0165` (แก้ตาม security: actor + audit + ด่านอักขระล่องหน) · `0166` (รายการสินค้า/ราคากำหนดเอง metal=product) · `0167` (แก้ตาม security: ยอดงานผลิตหลังลดของใบที่มีสินค้า · ทุน manual ต้องมี note · ชื่อซ้ำแคตตาล็อก)
 - code: `app/(dashboard)/oem/` · `lib/oem/` · `components/domain/oem/` · `app/(dashboard)/catalog/silver-price/`
 
 ## 2. ต้นทุน · spot · สต็อก · ใบผลิต · SKU

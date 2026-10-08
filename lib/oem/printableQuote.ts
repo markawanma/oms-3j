@@ -110,7 +110,8 @@ export interface PrintableQuote {
   nrePrice: number | null;
   quoteTotal: number | null;
   discountThb: number;
-  discountReason: string | null;
+  // 0167 (มติเจ้าของ 8 ต.ค. 69): ไม่มี discountReason — เหตุผลส่วนลด/เหตุผลตอนต่อราคาเป็นข้อมูลภายใน (เห็นเฉพาะในระบบ)
+  // บนใบลูกค้าเหลือแค่ "ส่วนลด X บาท" · เพิ่ม field นี้กลับ = ต้องแก้เทสต์ล็อก field set โดยตั้งใจ
   grandTotal: number | null;
   items: PrintableQuoteItem[];
   /** 0078: set only when at least one item is metal='silver999' — the
@@ -210,7 +211,6 @@ export function toPrintableQuote(quote: OemQuoteRow, items: OemQuoteItemRow[]): 
     nrePrice: quote.nrePrice,
     quoteTotal: quote.quoteTotal,
     discountThb: quote.discountThb,
-    discountReason: quote.discountReason,
     grandTotal: quote.grandTotal,
     items: items.map(toPrintableQuoteItem),
     silverPriceAsOf: hasBarOverride ? null : barSnapshot?.asOfDate ?? null,
