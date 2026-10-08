@@ -220,7 +220,7 @@ function toCalcInputPayload(input: OemPriceCalcInput): Record<string, unknown> {
     plating_type: input.platingType ?? null,
     gem_tier: input.gemTier ?? null,
     gem_count: input.gemCount ?? 0,
-    as_of_date: input.asOfDate ?? null,
+    // 0171 H1: ไม่ส่ง as_of_date ของใบผลิตขึ้นไป — DB คิดต้นทุนใบเสนอราคาด้วยวันนี้ (BKK) เสมอ และปฏิเสธวันอื่น (22023)
     // 0063: margin to CHARGE — omit to fall back to oem_setting.margin_target_pct.
     margin_pct: input.marginPct ?? null,
     // 0169: ราคาต่อชิ้นที่พิมพ์ทับ — ส่ง 2 key นี้ "เฉพาะเมื่อมีราคา" (เหตุผลไม่ส่งถ้าราคายังว่าง: DB ปฏิเสธเหตุผลลอย) · ไม่มีการคิดเงินที่นี่
@@ -1260,6 +1260,9 @@ export async function saveQuote(input: SaveQuoteInput): Promise<ActionResult<{ q
   // 0169 L2: เหตุผลอนุมัติ — ห้าม control/bidi/ล่องหน และยาวไม่เกิน 500 (DB บังคับซ้ำ) · ไม่ตรวจ "ต้องมีไหม" ที่นี่ (ด่านไหนต้องใช้ DB ตัดสิน)
   const noteErr = approvalNoteIssue(input.approvalNote);
   if (noteErr) return { ok: false, error: noteErr };
+  // 0171: เหตุผลส่วนลดผ่านกฎรูปร่างเดียวกัน (DB บังคับซ้ำด้วย oem_note_valid)
+  const discReasonErr = approvalNoteIssue(input.discountReason, "เหตุผลส่วนลด");
+  if (discReasonErr) return { ok: false, error: discReasonErr };
   // 0165 L6: typeof ก่อน regex (.test() บน number/object จะ coerce) · L1: ชื่อ/ช่องทางติดต่อผ่านด่านเดียวกับ DB
   const bvu: unknown = input.barValidUntil;
   if (bvu != null && bvu !== "" && (typeof bvu !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(bvu))) {

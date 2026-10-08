@@ -118,3 +118,34 @@ describe("contactFromBilling (เดิม — ต้องไม่พัง)",
     expect(contactFromBilling(null, "LINE @a")).toBe("LINE @a");
   });
 });
+
+describe("0171 L2 — ช่วงอักขระล่องหน เพิ่มเติม (ตรงกับ verify-0171 L2a-L2d)", () => {
+  const NEW: [string, number][] = [
+    ["mongolian free variation selector 1", 0x180b],
+    ["mongolian free variation selector 3", 0x180d],
+    ["mongolian free variation selector 4", 0x180f],
+    ["interlinear annotation anchor", 0xfff9],
+    ["interlinear annotation terminator", 0xfffb],
+    ["musical symbol begin beam", 0x1d173],
+    ["musical symbol end phrase", 0x1d17a],
+    ["tag space", 0xe0020],
+    ["tag latin small letter a", 0xe0061],
+    ["cancel tag", 0xe007f],
+  ];
+  it.each(NEW)("%s (U+%s) → ถูกลบ และ customerTextIssue ปฏิเสธ", (_n, code) => {
+    expect(stripInvisibleText("a" + cp(code) + "b")).toBe("ab");
+    expect(customerTextIssue("a" + cp(code) + "b", "ชื่อ")).not.toBeNull();
+  });
+  it("ข้อความที่มีแต่ tag ล่องหน → ว่างหลังลบ (เหตุผลลับที่ซ่อนใน tag ไม่รอด)", () => {
+    const hidden = [...("secret")].map((c) => cp(0xe0000 + c.charCodeAt(0))).join("");
+    expect(stripInvisibleText(hidden).trim()).toBe("");
+  });
+  it("ต้องไม่พัง: ธงชาติปกติ (regional indicator) · อีโมจิครอบครัว · ไทย ผ่าน", () => {
+    const flagTh = cp(0x1f1f9) + cp(0x1f1ed);
+    expect(stripInvisibleText(flagTh)).toBe(flagTh);
+    expect(customerTextIssue(flagTh + " ลูกค้า", "ชื่อ")).toBeNull();
+    const fam = cp(0x1f468) + ZWJ + cp(0x1f469) + ZWJ + cp(0x1f467);
+    expect(stripInvisibleText(fam)).toBe(fam);
+    expect(customerTextIssue("สมชาย ใจดี", "ชื่อ")).toBeNull();
+  });
+});
