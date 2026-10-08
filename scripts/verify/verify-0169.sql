@@ -14,7 +14,7 @@
 --             override ต่ำกว่า floor ไม่มี note: S2a S2d · เหตุผลไม่มี/ล่องหน/ลอย: O2c O2d O2e · override บนเงินแท่ง/สินค้า: O2f ·
 --             NaN/Inf/ทศนิยม>2/<=0/>1,000,000: O2a · รายการที่ไม่มี override ด่านแข็งเดิม (hard floor/note-tier): S4a S4b S4c
 --   ต้องไม่พัง override สูงกว่าราคาสูตร/เท่าราคาสูตร ไม่ต้อง note: O1a O1c O1d S3a-c · override ต่ำกว่า floor มี note: S2b S2d (gates={override_below_floor}) ·
---             เท่าทุนผ่าน: S2e · draft ต่ำกว่าทุนบันทึกได้: S1c · ไม่มี override = jsonb เดิม: O1h (+ golden replay ใน migration) · NRE คิดเท่าเดิม: O1b ·
+--             เท่าทุนผ่าน: S2e · draft ต่ำกว่าทุนบันทึกได้: S1c · ไม่มี override = jsonb เดิม: O1h (+ golden replay ใน migration) · NRE: O1b (0170 เปลี่ยนให้ตาม margin ของราคาที่พิมพ์ — ดู verify-0170) ·
 --             ทองใช้ความหมาย margin เดียวกับราคาสูตร: O1d · เงินแท่งส่ง key ว่าง: O2g
 --  B. security 0168
 --   M1+L1 oem_note_present whitelist: N0a (NEL/C0/U+2800/VS16/tag/./👍/ช่องว่าง/ล่องหนล้วน = false) N0b N0c · ทุกด่านอ่อน (MOQ N1a · note-tier N1b · F2 N1c · override N1d)
@@ -244,9 +244,9 @@ begin
       and (v_c->'breakdown'->'production_override'->>'formula_price_per_piece')::numeric = v_pf
       and (v_c->'floors'->'price_vs_cost'->>'pass')::boolean and (v_c->'floors'->'price_vs_cost'->>'applies')::boolean
       and v_c->'floors'->'margin'->>'state' = 'ok');
-    v_log := v_log || pg_temp.chk('O1b', 'ยอดรวม = NRE (คิดจาก margin % เดิม เท่าเดิม) + ปัดสองตำแหน่ง(จำนวน x ราคาที่พิมพ์) · margin_actual คิดจากราคาที่พิมพ์ · cost_piece เท่าสูตร',
+    v_log := v_log || pg_temp.chk('O1b', 'ยอดรวม = NRE (ตั้งแต่ 0170 ตาม margin ของราคาที่พิมพ์ — ไม่ต่ำกว่าทุน NRE · รายละเอียดล็อกใน verify-0170) + ปัดสองตำแหน่ง(จำนวน x ราคาที่พิมพ์) · margin_actual คิดจากราคาที่พิมพ์ · cost_piece เท่าสูตร',
       (v_c->'breakdown'->>'quote_total')::numeric = (v_c->'breakdown'->'nre'->>'price')::numeric + round(50 * v_p_hi::numeric, 2)
-      and (v_c->'breakdown'->'nre'->>'price')::numeric = (v_c0->'breakdown'->'nre'->>'price')::numeric
+      and (v_c->'breakdown'->'nre'->>'price')::numeric >= (v_c->'breakdown'->'nre'->>'cost')::numeric
       and (v_c->'breakdown'->>'cost_piece')::numeric = v_cost
       and (v_c->'breakdown'->>'margin_actual_pct')::numeric = round((v_p_hi::numeric - v_cost) / v_p_hi::numeric, 4));
     v_c := pg_temp.calc_or_null(p_shop, (pg_temp.pjo(p_prod, 'silver', 50, v_p_eq, 'เท่าราคาสูตร'))->'input');

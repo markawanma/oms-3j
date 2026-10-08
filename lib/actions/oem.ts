@@ -369,6 +369,7 @@ function fromCalcResult(raw: Record<string, unknown>): OemPriceCalcResult {
           thb: Number(ovrRaw.thb ?? 0),
           reason: String(ovrRaw.reason ?? ""),
           formulaPricePerPiece: ovrRaw.formula_price_per_piece == null ? null : Number(ovrRaw.formula_price_per_piece),
+          nreMarginUsed: ovrRaw.nre_margin_used == null ? null : Number(ovrRaw.nre_margin_used),
         }
       : null;
 

@@ -186,6 +186,12 @@ export function OemCalcBreakdown({
               <dd className="text-right">{ovr.reason}</dd>
             </div>
           </dl>
+          {/* 0170: ค่า NRE ของรายการนี้ตาม margin ของราคาที่พิมพ์ (ขึ้น-ลงตามราคา) — DB คำนวณ ที่นี่แค่แสดง */}
+          {ovr.nreMarginUsed != null && calc.breakdown.nre.price > 0 && (
+            <p className="mt-1.5 text-xs text-zinc-600">
+              ค่าออกแบบ (NRE) คิดตาม margin ของราคาที่พิมพ์ ({fmtPct(ovr.nreMarginUsed)}) — ไม่ใช่ margin % ในช่อง
+            </p>
+          )}
           {belowCost && (
             <p role="alert" className="mt-2 flex items-start gap-1.5 text-xs font-semibold text-red-700">
               <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />

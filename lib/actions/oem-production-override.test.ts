@@ -54,7 +54,7 @@ function prodCalcJson(over: Record<string, unknown> = {}) {
       price_per_piece: 580,
       quote_total: 29000,
       margin_actual_pct: 0.1379,
-      production_override: { thb: 580, reason: "ลูกค้าประจำ", formula_price_per_piece: 1000 },
+      production_override: { thb: 580, reason: "ลูกค้าประจำ", formula_price_per_piece: 1000, nre_margin_used: 0.1379 },
     },
     floors: {
       qty: { pass: true, moq: 50, actual: 50 },
@@ -189,7 +189,7 @@ describe("อ่านกลับ", () => {
     const r = await calcPrice(prodInput({ unitPriceOverrideThb: 580, priceOverrideReason: "ลูกค้าประจำ" }));
     expect(r.ok).toBe(true);
     if (r.ok) {
-      expect(r.data.breakdown.productionOverride).toEqual({ thb: 580, reason: "ลูกค้าประจำ", formulaPricePerPiece: 1000 });
+      expect(r.data.breakdown.productionOverride).toEqual({ thb: 580, reason: "ลูกค้าประจำ", formulaPricePerPiece: 1000, nreMarginUsed: 0.1379 });
       expect(r.data.floors.priceVsCost).toEqual({ applies: true, pass: true });
       expect(r.data.floors.margin.state).toBe("needs_approval_note");
     }
@@ -232,5 +232,22 @@ describe("อ่านกลับ", () => {
     const r = await getQuoteApprovalGates("q-1");
     expect(r.ok).toBe(false);
     expect(selectMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("0170 — nre_margin_used อ่านกลับ", () => {
+  it("nre_margin_used = null (ไม่มี NRE) → nreMarginUsed null · มีค่า 0 (ราคา <= ทุน) → 0 ไม่ถูกแปลงเป็น null", async () => {
+    const { calcPrice } = await import("./oem");
+    const mk = (v: unknown) => {
+      const j = prodCalcJson();
+      (j.breakdown as Record<string, unknown>).production_override = { thb: 580, reason: "x", formula_price_per_piece: 1000, nre_margin_used: v };
+      return j;
+    };
+    rpcMock.mockResolvedValue({ data: mk(null), error: null });
+    const a = await calcPrice(prodInput({ unitPriceOverrideThb: 580, priceOverrideReason: "x" }));
+    expect(a.ok && a.data.breakdown.productionOverride?.nreMarginUsed).toBeNull();
+    rpcMock.mockResolvedValue({ data: mk(0), error: null });
+    const b = await calcPrice(prodInput({ unitPriceOverrideThb: 580, priceOverrideReason: "x" }));
+    expect(b.ok && b.data.breakdown.productionOverride?.nreMarginUsed).toBe(0);
   });
 });

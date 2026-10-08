@@ -354,6 +354,9 @@ export interface OemProductionOverride {
   reason: string;
   /** ราคาต่อชิ้นที่สูตร (margin %) ให้ — เทียบกับราคาที่พิมพ์ */
   formulaPricePerPiece: number | null;
+  /** 0170: margin ที่ใช้คิดค่า NRE (CAD/ปริ้น 3D/ก้อนยาง) ของรายการนี้ = margin ของราคาที่พิมพ์ (0 เมื่อราคา <= ทุน · เพดาน 0.95) ·
+   * null = ไม่มี NRE หรือคำนวณไม่ครบ. DB คำนวณ — ฟอร์มแค่แสดง. */
+  nreMarginUsed: number | null;
 }
 
 export interface OemPriceBreakdown {

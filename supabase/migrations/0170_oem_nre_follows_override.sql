@@ -12,6 +12,7 @@
 -- ไม่ต้องแก้ oem_quote_save / oem_quote_renegotiate: ด่านที่ใช้ nre_price (min_job_value — ยอดงานผลิตรวม NRE · grand_total) อ่านจาก calc ของรายการอยู่แล้ว ·
 --   margin รวม/hard floor ไม่นับ NRE (item_total ตัด NRE ออก) ⇒ ไม่เพิ่มด่าน (verify-0170 ล็อก)
 -- ฟังก์ชันที่แตะ: oem_price_calc เท่านั้น (signature เดิม → rename→legacy + create → replay → drop · re-grant service_role เท่านั้น ข้อ 2 + 18)
+-- 🔴 APPLIED แล้ว 9 ต.ค. 69 (เวลาไทย) version 20261008191238 — ห้าม apply ซ้ำ · golden replay 3758 เคส · verify-0170 OK 15 + mutant 8/8 / FAIL 0
 -- ลอกจาก 0169 (ฉบับล่าสุด) แก้เฉพาะบล็อกที่ทำเครื่องหมาย "0170" · ชุดทดสอบ scripts/verify/verify-0170.sql · ไฟล์เป็น LF (ข้อ 20)
 
 -- ============================================================================
