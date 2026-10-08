@@ -246,13 +246,18 @@ export function QuoteDetailClient({
             {quote.daysLeftTh != null && !quote.isExpiredTh && ` (เหลือ ${quote.daysLeftTh} วัน)`}
           </p>
         )}
-        {quote.approvalNote && (
+        {/* 0171 L4: ด่านที่ครอบแสดงแยกจากเหตุผลอนุมัติ — ใบจากการเจรจาใหม่อาจมีด่านโดยไม่มี approval_note (ห้ามซ่อนด่านเพราะไม่มีโน้ต) */}
+        {(quote.approvalNote || approvalGates.length > 0) && (
           <div className="mt-2 rounded-md bg-amber-50 px-2.5 py-1.5 text-xs text-amber-800">
-            <p>เหตุผลอนุมัติ: {quote.approvalNote}</p>
+            {quote.approvalNote && <p>เหตุผลอนุมัติ: {quote.approvalNote}</p>}
             {approvalGates.length > 0 && (
-              <p className="mt-0.5 text-amber-700">
+              <p className={quote.approvalNote ? "mt-0.5 text-amber-700" : "text-amber-700"}>
                 ครอบด่าน: {approvalGates.map((g) => OEM_APPROVAL_GATE_LABEL_TH[g] ?? g).join(" · ")}
+                {!quote.approvalNote && " (ไม่มีเหตุผลอนุมัติบันทึกไว้)"}
               </p>
+            )}
+            {approvalGates.length > 0 && quote.parentQuoteId && quote.discountReason && (
+              <p className="mt-0.5 text-amber-700">เหตุผลส่วนลดที่เจรจา (ด่านข้างต้นมาจากการเจรจา): {quote.discountReason}</p>
             )}
           </div>
         )}

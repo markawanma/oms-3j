@@ -274,8 +274,8 @@ begin
       if v_r not like 'ERR:22023:%' then v_bad := v_bad || '[' || v_val || ']=' || left(v_r, 30) || ' '; end if;
     end loop;
     v_log := v_log || pg_temp.chk('O2a', 'override 0 / ติดลบ / NaN / Infinity / >1,000,000 / ทศนิยม 3 ตำแหน่ง / ไม่ใช่เลข → 22023 ทุกค่า ' || v_bad, v_bad = '');
-    v_r := pg_temp.t_calc(p_shop, (pg_temp.pjo(p_prod, 'silver', 50, '1000000', 'เหตุผลทดสอบ'))->'input');
-    v_log := v_log || pg_temp.chk('O2b', 'ต้องไม่พัง: override 1,000,000 พอดี ผ่านด่านรูปร่าง', v_r = 'OK');
+    v_r := pg_temp.t_calc(p_shop, (pg_temp.pjo(p_prod, 'silver', 50, (floor(v_pf * 3 * 100) / 100)::text, 'เหตุผลทดสอบ'))->'input');
+    v_log := v_log || pg_temp.chk('O2b', 'ต้องไม่พัง: override = 3 เท่าของราคาสูตร (ขอบเพดาน 0171: floor 2 ตำแหน่ง) ผ่านด่านรูปร่าง — เดิมทดสอบ 1,000,000 ซึ่ง 0171 ปฏิเสธเพราะเกิน 3 เท่า', v_r = 'OK');
     v_bad := '';
     foreach v_val in array array[chr(133), chr(1), chr(10240), chr(65039), chr(917601), '.', chr(128077), '   ', chr(8288) || chr(65279), '!!!'] loop
       v_r := pg_temp.t_calc(p_shop, (pg_temp.pjo(p_prod, 'silver', 50, v_p_hi, v_val))->'input');

@@ -70,8 +70,8 @@ describe("approvalNoteIssue — L2 รูปร่างเหตุผล", () 
 });
 
 describe("OEM_APPROVAL_GATE_LABEL_TH", () => {
-  it("มีป้ายครบ 5 ด่านอ่อนที่ DB บันทึก", () => {
-    for (const g of ["moq", "metal_lot", "margin_note_tier", "manual_cost", "override_below_floor"]) {
+  it("มีป้ายครบ 6 ด่านอ่อนที่ DB บันทึก (0171 เพิ่ม override_below_hard_floor)", () => {
+    for (const g of ["moq", "metal_lot", "margin_note_tier", "manual_cost", "override_below_floor", "override_below_hard_floor"]) {
       expect(OEM_APPROVAL_GATE_LABEL_TH[g]).toBeTruthy();
     }
   });

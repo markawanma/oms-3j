@@ -663,7 +663,7 @@ export function QuoteJobItemCard({
                   ราคาต่อชิ้น (พิมพ์ทับ) <span className="font-normal text-zinc-400">ไม่บังคับ</span>
                 </p>
                 <p className="mt-0.5 text-[11px] text-zinc-500">
-                  ว่างไว้ = ใช้ราคาจาก margin % ด้านบน · พิมพ์ราคาเองได้ — ต่ำกว่า floor ต้องใส่เหตุผลอนุมัติ · ต่ำกว่าทุนต่อชิ้นออกใบไม่ได้ (ไม่มีทางลัด)
+                  ว่างไว้ = ใช้ราคาจาก margin % ด้านบน · พิมพ์ราคาเองได้ — ต่ำกว่า floor ต้องใส่เหตุผลอนุมัติ · ต่ำกว่าทุนต่อชิ้นออกใบไม่ได้ (ไม่มีทางลัด) · สูงกว่า 3 เท่าของราคาจากสูตรไม่ได้ (กันพิมพ์เลขเกิน — ระบบแจ้งหลังคำนวณ)
                 </p>
                 <div className="mt-2 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
                   <label className={labelCls}>

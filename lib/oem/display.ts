@@ -231,7 +231,7 @@ export const OEM_CUSTOMER_TEXT_MAX = 200;
  * ชุดเดียวกับ analytics.oem_text_strip_invisible (0165) — แก้ที่หนึ่งต้องแก้อีกที่ · ไม่รวม U+FE00-FE0F (emoji VS16)
  * ZWJ (U+200D) ผ่านเฉพาะที่คั่นระหว่างสัญลักษณ์/อีโมจิสองตัว (อีโมจิครอบครัว) ZWJ ที่อื่นถือเป็นล่องหน */
 const OEM_INVISIBLE_RE =
-  /[\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180E\u200B\u200C\u200E\u200F\u2028-\u202E\u2060-\u206F\u3164\uFEFF\uFFA0\u{1BCA0}-\u{1BCA3}\u{E0100}-\u{E01EF}]|(?<![\u2600-\u27BF\u2B00-\u2BFF\u{1F000}-\u{1FAFF}\uFE0F])\u200D|\u200D(?![\u2600-\u27BF\u2B00-\u2BFF\u{1F000}-\u{1FAFF}])/u;
+  /[\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180B-\u180F\u200B\u200C\u200E\u200F\u2028-\u202E\u2060-\u206F\u3164\uFEFF\uFFA0\uFFF9-\uFFFB\u{1BCA0}-\u{1BCA3}\u{1D173}-\u{1D17A}\u{E0000}-\u{E007F}\u{E0100}-\u{E01EF}]|(?<![\u2600-\u27BF\u2B00-\u2BFF\u{1F000}-\u{1FAFF}\uFE0F])\u200D|\u200D(?![\u2600-\u27BF\u2B00-\u2BFF\u{1F000}-\u{1FAFF}])/u;
 const OEM_INVISIBLE_RE_G = new RegExp(OEM_INVISIBLE_RE.source, "gu");
 const OEM_CONTROL_RE = /[\u0000-\u001F\u007F-\u009F]/;
 
@@ -295,4 +295,5 @@ export const OEM_APPROVAL_GATE_LABEL_TH: Record<string, string> = {
   margin_note_tier: "margin ต่ำกว่า floor",
   manual_cost: "ทุนกรอกเอง (รายการสินค้า)",
   override_below_floor: "ราคาที่พิมพ์ทับต่ำกว่า floor",
+  override_below_hard_floor: "ราคาที่พิมพ์ทับต่ำกว่า hard floor (ขายได้ตั้งแต่ทุนขึ้นไป)",
 };

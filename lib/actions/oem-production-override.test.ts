@@ -251,3 +251,32 @@ describe("0170 — nre_margin_used อ่านกลับ", () => {
     expect(b.ok && b.data.breakdown.productionOverride?.nreMarginUsed).toBe(0);
   });
 });
+
+describe("0171 — as_of_date ไม่ไปกับ payload ใบผลิต · discount_reason ตรวจรูปร่าง", () => {
+  it("H1: ส่ง asOfDate เข้ามา → payload งานผลิตไม่มี as_of_date (DB คิดด้วยวันนี้เสมอ)", async () => {
+    rpcMock.mockResolvedValue({ data: prodCalcJson(), error: null });
+    const { calcPrice } = await import("./oem");
+    await calcPrice(prodInput({ asOfDate: "2020-01-01" }));
+    const p = rpcMock.mock.calls[0][1].p_input as Record<string, unknown>;
+    expect(p).not.toHaveProperty("as_of_date");
+    expect(p).not.toHaveProperty("metal_price_thb_per_gram");
+    expect(p.metal).toBe("silver");
+  });
+  it.each([
+    ["bidi", cp(0x202e) + "x"],
+    ["control", cp(7) + "x"],
+    ["tag ล่องหน", cp(0xe0061) + "x"],
+    ["ยาว 501", "ก".repeat(501)],
+  ])("saveQuote: discountReason %s → ปฏิเสธก่อนถึง RPC", async (_n, reason) => {
+    const { saveQuote } = await import("./oem");
+    const r = await saveQuote({ items: [{ input: prodInput() }], status: "quoted", discountThb: 100, discountReason: reason });
+    expect(r.ok).toBe(false);
+    expect(rpcMock).not.toHaveBeenCalled();
+  });
+  it("saveQuote: discountReason ปกติผ่านถึง RPC (ต้องไม่พัง)", async () => {
+    rpcMock.mockResolvedValue({ data: "q-1", error: null });
+    const { saveQuote } = await import("./oem");
+    const r = await saveQuote({ items: [{ input: prodInput() }], status: "quoted", discountThb: 100, discountReason: "ลูกค้าประจำ" });
+    expect(r.ok).toBe(true);
+  });
+});
