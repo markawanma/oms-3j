@@ -47,7 +47,8 @@
 --   M  ชื่อ helper bidi = content_bidi_present_ (ไม่ใช่ content_text_*) — verify-0158 A3c นับฟังก์ชันด้วย prefix content_text_ ต้องได้ 9 พอดี
 --   N  ด่าน 4 ชิ้นนับ count(distinct step) ที่มี T+7 (KPI def = "ชิ้น" · สเปกเขียน "โพสต์") · ช่วงวัน step ใน v_campaign_summary = min(resolved_start) .. max(coalesce(resolved_end, resolved_start))
 --      (สเปกเขียน min/max resolved_start) · ผลต่อโพสต์ในแคมเปญนับเฉพาะชิ้น posted หรือแคมเปญเก่าที่ไม่มี piece_status
---   O  ข้อเสนอ recommendation_respond หมดเวลา = ตอบได้ (สเปก 13.5: คำตอบจริงชนะค่าเริ่มต้น) — "ใช้ค่าเริ่มต้น" = view แสดง expired + default_action ไม่ใช่ RPC ปฏิเสธ/เขียนแทน
+--   O  ข้อเสนอ recommendation_respond หมดเวลา = ตอบได้ (สเปก 13.5: คำตอบจริงชนะค่าเริ่มต้น) — "ใช้ค่าเริ่มต้น" = view แสดง expired + default_action ไม่ใช่ RPC ปฏิเสธ/เขียนแทน ·
+--      ข้อยกเว้นเดียวที่ระบบเขียน expired: recommendation_create ปิด pending ชื่อซ้ำที่หมดเวลา (ข้อ AG) ด้วย acted_by_role = system — เจ้าของยังตอบแถวนั้นได้ (R3-M1 · ข้อ AI)
 --
 -- 🔴 รอบแก้ตาม security (CONDITIONAL GO — High 3) + QA (PASS with notes) 7 ต.ค. 69 — ตัดสินใจเองเพิ่ม:
 --   P  (SEC-H1) ดูข้อ B · v_campaign_summary.orders_data_through ไม่กรองช่องทางแล้ว
@@ -86,6 +87,13 @@
 --   AF (Low · B7) แคมเปญที่เจ้าของยืนยันคำตัดสินแล้ว service_role/authenticated/anon เปลี่ยน status ไม่ได้ (55000)
 --   AG (Low) dedupe ข้อเสนอ: pending ที่หมดเวลาแล้วถูกปิดเป็น expired ก่อนสร้าง (ไม่ใช่ข้ามตอนตรวจ — partial unique index ยังบังอยู่ · 0101 อนุญาต expired ตรงๆ · KPI ไม่ขยับ) · payload เพิ่ม expired_previous
 --   AH (Low) recommendation_log.acted_session_user = session_user ตอน recommendation_respond (ตรวจ spoof ย้อนหลังจนกว่า A2) · อยู่ในรายการล็อกของ guard
+--
+-- 🔴 รอบ 3 (security รอบ 3 · code review C-3PO APPROVE) — 7 ต.ค. 69:
+--   AI (R3-M1) แถว pending ที่ recommendation_create ปิดเป็น expired ตั้ง acted_by_role = system (CHECK owner/system) · recommendation_respond รับ pending หรือ expired+system ·
+--      is_late ใน view นับเฉพาะ acted_by_role = owner · หลังเจ้าของตอบ guard ล็อกเหมือนเดิม (acted_by_role → owner) · payload เพิ่ม reopened_from_system_expiry
+--   AJ (R3-H1 High) ระบุช่องทาง → ช่องนั้นต้องมีออเดอร์ "หลัง" วันท้าย (och.d > วันท้าย) · ไม่ระบุ → ร้านมีข้อมูลหลังวันท้าย และทุกช่องหลัก (≥10% ของออเดอร์ร้านใน 28 วันก่อนวันท้าย) มีข้อมูลหลังวันท้ายด้วย ·
+--      view คอลัมน์ใหม่ orders_major_channels_covered · อ่านวันล่าสุดจาก fact_order ตรง (perf — แทน v_content_order_daily) · ข้อความ gate เป็นภาษาไทยเจ้าของ ไม่มีรหัสภายใน
+--   AK (code review 7) trigger กัน TRUNCATE (statement-level · ฟังก์ชัน content_history_truncate_guard) บน recommendation_log + content_weekly_summary — ครอบ TRUNCATE ... CASCADE จากตารางแม่
 --
 -- ไม่มีเทสต์ครอบ (บอกตรงๆ — ดูท้าย verify-0162):ถอด `for update` ของ RPC (ต้องใช้ 2 connection) · TRUNCATE เมื่อมีคน grant กลับ (กันที่ชั้น GRANT เท่านั้น) · เวลาคร่อม 00:00-07:00 ไทยจริง
 --
@@ -159,7 +167,7 @@ begin
              order by p.oid::regprocedure::text), ''))
     from pg_proc p
     where p.pronamespace = 'analytics'::regnamespace and p.prokind = 'f'
-      and p.proname !~ '^(content_bidi_present_|campaign_open_pieces_|campaign_verdict_gate_|campaign_verdict_token_|recommendation_token_|content_weekly_summary_guard|campaign_result_guard|recommendation_log_guard|campaign_plan_set|campaign_verdict_propose|campaign_verdict_confirm|recommendation_create|recommendation_respond|content_weekly_summary_upsert)$'), true);
+      and p.proname !~ '^(content_bidi_present_|campaign_open_pieces_|campaign_verdict_gate_|campaign_verdict_token_|recommendation_token_|content_weekly_summary_guard|content_history_truncate_guard|campaign_result_guard|recommendation_log_guard|campaign_plan_set|campaign_verdict_propose|campaign_verdict_confirm|recommendation_create|recommendation_respond|content_weekly_summary_upsert)$'), true);
 end
 $c5snap$;
 
@@ -374,8 +382,10 @@ alter table analytics.recommendation_log drop constraint if exists recommendatio
 alter table analytics.recommendation_log add constraint recommendation_log_created_role_check
   check (created_by_role is null or created_by_role in ('owner', 'ai', 'system'));
 alter table analytics.recommendation_log drop constraint if exists recommendation_log_acted_role_check;
+-- R3-M1: 'system' = ระบบปิดเป็น expired ตอน recommendation_create (ข้อเสนอ pending ชื่อซ้ำที่หมดเวลา) — ไม่ใช่เจ้าของตัดสิน ⇒ เจ้าของยังตอบช้าได้ (recommendation_respond รับ pending หรือ expired+system)
+-- 'owner' = เจ้าของตอบผ่าน recommendation_respond (ล็อกแก้ย้อนหลังไม่ได้ทุก role) · null = แถวเก่าที่ปิดตรงก่อน 0162
 alter table analytics.recommendation_log add constraint recommendation_log_acted_role_check
-  check (acted_by_role is null or acted_by_role = 'owner');
+  check (acted_by_role is null or acted_by_role in ('owner', 'system'));
 
 -- FK ที่ชี้เข้าประวัติ: SET NULL ทั้งคู่ (ลบ step/summary ไม่พาข้อเสนอที่เจ้าของเคยตอบหาย) · ไม่มี CASCADE ใดนอกจาก public.shop (ถอนสิทธิ์ลบร้านจาก service_role แล้วใน 0161)
 alter table analytics.recommendation_log drop constraint if exists recommendation_log_related_step_id_fkey;
@@ -397,14 +407,14 @@ comment on column analytics.recommendation_log.owner_response is
   'ข้อความที่เจ้าของตอบ (เขียนครั้งเดียวโดย recommendation_respond พร้อม owner_action/acted_at/acted_by/acted_by_role) · เมื่อ acted_by_role = owner แก้ไม่ได้ทุก role รวม postgres · '
   'ผลที่ทีมจดทีหลังอยู่ outcome_note (แก้ได้)';
 comment on column analytics.recommendation_log.respond_by is
-  'เส้นตายตอบ (วันไทย) · null = ใช้กติกา 14 วันของ 0101 · หมดเวลา = effective_action expired ใน v_recommendation_inbox (ไม่ mutate แถว) · เจ้าของตอบช้าได้ (is_late)';
+  'เส้นตายตอบ (วันไทย) · null = ใช้กติกา 14 วันของ 0101 · หมดเวลา = effective_action expired ใน v_recommendation_inbox (แถวยัง pending — ยกเว้น recommendation_create ปิดแถว pending ชื่อซ้ำที่หมดเวลาเป็น expired · acted_by_role system) · เจ้าของตอบช้าได้ทั้งสองกรณี (is_late นับเฉพาะ acted_by_role = owner)';
 comment on column analytics.recommendation_log.default_action is
   'สิ่งที่ถือเป็นค่าเริ่มต้นเมื่อหมดเวลาโดยเจ้าของไม่ตอบ — บังคับเมื่อมี respond_by · ระบบไม่ทำอะไรเองจากค่านี้ แค่แสดงให้เจ้าของเห็น';
 
 -- ============================================================================
 -- 4. helper + trigger ด่านตาราง
 --    ด่านระดับตารางของ C3 ใช้ current_user อย่างเดียว ไม่มี GUC (D18): ฟังก์ชัน definer ใดๆ ผ่าน · service_role/authenticated/anon เขียนตรงไม่ผ่าน
---    ชั้นแรกคือ GRANT (§8 ถอนสิทธิ์เขียนจาก service_role) — trigger คือชั้นที่สองเมื่อมีคน grant กลับ
+--    ชั้นแรกคือ GRANT (§10 ถอนสิทธิ์เขียนจาก service_role) — trigger คือชั้นที่สองเมื่อมีคน grant กลับ
 -- ============================================================================
 
 -- อักขระควบคุมทิศทาง/ล่องหน/ควบคุม ที่ใช้ปลอมข้อความ (trojan-source · ASCII smuggling ด้วย Unicode Tag) — ปฏิเสธ ไม่แก้เงียบ · ไม่รวม U+200C/200D (ZWNJ/ZWJ ใช้ต่อ emoji) — ตัดสินใจ H/T
@@ -542,6 +552,27 @@ create trigger trg_recommendation_log_guard
   before insert or update or delete on analytics.recommendation_log
   for each row execute function analytics.recommendation_log_guard();
 
+-- R3 (code review ข้อ 7): TRUNCATE ไม่ผ่าน row trigger และ GRANT ไม่ครอบเจ้าของตาราง (postgres/MCP) ⇒ statement-level trigger ปฏิเสธทุก role (แบบ 0161 content_post_metric_amend_log_deny_truncate)
+-- ครอบ TRUNCATE ... CASCADE จากตารางแม่ด้วย (BEFORE TRUNCATE ยิงกับทุกตารางที่ถูกล้าง) · ใช้กับ recommendation_log (ประวัติการตัดสินของเจ้าของ) และ content_weekly_summary (สรุปสัปดาห์)
+create or replace function analytics.content_history_truncate_guard()
+ returns trigger
+ language plpgsql
+ set search_path to 'public', 'analytics', 'pg_temp'
+as $f$
+begin
+  raise exception 'ล้างตาราง % ทั้งตารางไม่ได้ — เป็นประวัติของเจ้าของ (ลบทีละแถวผ่านเจ้าของตารางเท่านั้น)', tg_table_name using errcode = '55000';
+end;
+$f$;
+
+drop trigger if exists trg_recommendation_log_deny_truncate on analytics.recommendation_log;
+create trigger trg_recommendation_log_deny_truncate
+  before truncate on analytics.recommendation_log
+  for each statement execute function analytics.content_history_truncate_guard();
+drop trigger if exists trg_content_weekly_summary_deny_truncate on analytics.content_weekly_summary;
+create trigger trg_content_weekly_summary_deny_truncate
+  before truncate on analytics.content_weekly_summary
+  for each statement execute function analytics.content_history_truncate_guard();
+
 -- ============================================================================
 -- 5. helper ภายใน (ไม่ใช่ API ของหน้าจอ) — ด่านคำตัดสิน + นับชิ้นค้าง
 --    ฟังก์ชันใหม่ทั้งหมด (ไม่ replace ของ 0148/0158/0159/0160/0161) — ด่านท้ายไฟล์เทียบ md5 ของฟังก์ชันเดิมทุกตัว
@@ -593,7 +624,7 @@ begin
     into v_n, v_live
     from analytics.campaign_step s where s.campaign_id = p_campaign_id;
   if v_n > 0 and v_live = 0 then
-    return format('แคมเปญนี้ถูกยกเลิกทุกชิ้น (%s ชิ้น) — ฟัน validated/invalidated ไม่ได้ ปิดได้แค่ inconclusive/not_measured', v_n);
+    return format('แคมเปญนี้ถูกยกเลิกทุกชิ้น (%s ชิ้น) — ฟันธง "ได้ผล" หรือ "ไม่ได้ผล" ไม่ได้ เลือกได้แค่ "ยังสรุปไม่ได้" หรือ "ไม่ได้วัด"', v_n);
   end if;
 
   if v_c.metric_code in ('save_rate', 'share_rate') then
@@ -603,25 +634,32 @@ begin
      where s.campaign_id = p_campaign_id and r.t7_captured_on is not null
        and (s.piece_status is null or s.piece_status = 'posted');
     if v_n < c_min_pieces then
-      return format('ยังไม่ครบ %s ชิ้นที่มีผล T+7 (มี %s) — ฟันธง validated/invalidated ไม่ได้ เสนอได้แค่ inconclusive/not_measured', c_min_pieces, v_n);
+      return format('ยังมีผล T+7 ไม่ครบ %s ชิ้น (มี %s ชิ้น) — ฟันธง "ได้ผล" หรือ "ไม่ได้ผล" ยังไม่ได้ เลือกได้แค่ "ยังสรุปไม่ได้" หรือ "ไม่ได้วัด"', c_min_pieces, v_n);
     end if;
   elsif v_c.metric_code = 'orders' then
     if v_c.pass_threshold is null or v_c.pass_op is null then
-      return 'metric orders ยังไม่ได้ตั้งเกณฑ์ผ่าน (pass_threshold + pass_op) — ตั้งผ่าน campaign_plan_set ก่อนฟันธง validated/invalidated';
+      return 'ยังไม่ได้ตั้งเกณฑ์ผ่านของยอดออเดอร์ — ตั้งเกณฑ์ (ตัวเลข และ "ไม่น้อยกว่า" หรือ "ไม่เกิน") ในแผนของแคมเปญก่อน จึงจะฟันธง "ได้ผล" หรือ "ไม่ได้ผล" ได้';
     end if;
-    select s.orders_window_from, s.orders_window_to, s.orders_data_through, s.orders_data_covers_window, s.orders_channel, s.orders_channel_data_through
+    select s.orders_window_from, s.orders_window_to, s.orders_data_through, s.orders_data_covers_window, s.orders_channel, s.orders_channel_data_through,
+           s.orders_major_channels_covered
       into v_win from analytics.v_campaign_summary s where s.campaign_id = p_campaign_id;
     if v_win.orders_window_from is null or v_win.orders_window_to is null then
-      return 'metric orders ยังไม่รู้ช่วงวันของแคมเปญ (ไม่มี metric_date_from/to · ไม่มี step · ไม่มี anchor_date) — ตั้งผ่าน campaign_plan_set ก่อน';
+      return 'ยังไม่รู้ช่วงวันที่ขายของแคมเปญนี้ (ยังไม่ได้ตั้งช่วงวัน ไม่มีชิ้นงาน และไม่มีวันเริ่ม) — ตั้งช่วงวันในแผนของแคมเปญก่อน';
     end if;
     -- SEC-H1: null (ร้านไม่มีออเดอร์เลย) ก็ไม่ครอบ — coalesce เป็น false ชัดๆ ไม่พึ่งว่า "not null = false" ผ่านด่านเงียบ (trap #13)
+    -- R3-H1: ระบุช่องทาง = ช่องนั้นต้องมีข้อมูลหลังวันท้าย · ไม่ระบุ = ทุกช่องหลักต้องมี (นิยามอยู่ที่ v_campaign_summary) · ข้อความเป็นภาษาเจ้าของ ไม่มีรหัสภายใน (code review ข้อ 8)
     -- R-H1 (รอบ 2): ต้องมีข้อมูลร้านของ "วันหลังวันสุดท้าย" (วันท้ายอาจเข้าไฟล์แค่บางส่วน) + ถ้าระบุช่องทาง ช่องนั้นต้องมีข้อมูลถึงวันสุดท้าย
     if coalesce(v_win.orders_data_covers_window, false) is not true then
-      return format('ข้อมูลออเดอร์ยังไม่ครบช่วง (ช่วงสิ้นสุด %s · ข้อมูลร้านล่าสุด %s · ต้องมีข้อมูลของวันหลังวันสุดท้าย%s) — ยอดวันที่ไฟล์ยังเข้าไม่ครบอ่านเป็นน้อยกว่าจริง/0 ฟัน validated/invalidated ไม่ได้ · import ไฟล์ใหม่ก่อน หรือเสนอได้แค่ inconclusive/not_measured',
+      return format('ข้อมูลออเดอร์ยังไม่ครบช่วง (ช่วงสิ้นสุด %s · ข้อมูลร้านล่าสุด %s%s) — ฟันธง "ได้ผล" หรือ "ไม่ได้ผล" ยังไม่ได้ เพราะ%s · นำเข้าไฟล์ออเดอร์เพิ่มก่อน หรือเลือกได้แค่ "ยังสรุปไม่ได้" หรือ "ไม่ได้วัด"',
                     v_win.orders_window_to, coalesce(v_win.orders_data_through::text, 'ไม่มีข้อมูลเลย'),
                     case when v_win.orders_channel is not null
-                         then format(' และช่องทาง %s ต้องมีออเดอร์ถึงวันสุดท้าย (ช่องนี้ล่าสุด %s)', v_win.orders_channel, coalesce(v_win.orders_channel_data_through::text, 'ไม่มีเลย'))
-                         else '' end);
+                         then format(' · ช่อง %s ล่าสุด %s', v_win.orders_channel, coalesce(v_win.orders_channel_data_through::text, 'ไม่มีเลย'))
+                         else '' end,
+                    case when v_win.orders_channel is not null
+                         then format('ช่อง %s ต้องมีออเดอร์ของวันหลังวันสุดท้ายของช่วงแล้ว (ไฟล์ของวันท้ายอาจเข้าไม่ครบ ยอดจึงอ่านได้ต่ำกว่าจริง)', v_win.orders_channel)
+                         when v_win.orders_major_channels_covered is false
+                         then 'ช่องทางหลักบางช่องยังไม่มีออเดอร์ของวันหลังวันสุดท้ายของช่วง (ไฟล์ของช่องนั้นอาจยังเข้าไม่ครบ ยอดจึงอ่านได้ต่ำกว่าจริง)'
+                         else 'ร้านต้องมีออเดอร์ของวันหลังวันสุดท้ายของช่วงแล้ว (ไฟล์ของวันท้ายอาจเข้าไม่ครบ ยอดจึงอ่านได้ต่ำกว่าจริง)' end);
     end if;
   end if;
   return null;
@@ -1055,7 +1093,7 @@ begin
     raise exception 'campaign_verdict_confirm: คำตัดสินต้องเป็น validated / invalidated / inconclusive / not_measured' using errcode = '22023';
   end if;
   -- compare-and-set ห้ามข้ามด้วย null (ตัดสินใจ C) · 'none' หรือ '' = เจ้าของเห็นว่าไม่มีข้อเสนอ
-  -- (parameter ยังมี default null เพื่อให้ signature ตรงสเปก — null ตกที่นี่เป็น 22023 ไม่ใช่ 42883)
+  -- (parameter มี default null เพื่อให้ผู้เรียกที่ละพารามิเตอร์นี้ได้ 22023 พร้อมข้อความบอกเหตุ แทน 42883 "ไม่พบฟังก์ชัน" — ไม่ได้มีไว้ให้ส่ง null ผ่านด่าน)
   if p_expected_proposed is null or p_expected_proposed not in ('validated', 'invalidated', 'inconclusive', 'not_measured', 'none', '') then
     raise exception 'campaign_verdict_confirm: p_expected_proposed ต้องเป็นคำตัดสินที่เจ้าของเห็นบนจอ (validated/invalidated/inconclusive/not_measured) หรือ none (ไม่มีข้อเสนอ) — ห้าม null' using errcode = '22023';
   end if;
@@ -1121,7 +1159,7 @@ begin
          result_verdict_confirmed_by_role = 'owner',
          lesson = case when v_lesson_sent then v_lesson_new else lesson end,
          result_open_pieces = v_open_n,
-         status = case when status <> 'done' then 'done' else status end,
+         status = 'done',
          updated_by = coalesce(auth.uid(), updated_by)
    where id = p_campaign_id;
 
@@ -1157,7 +1195,8 @@ $f$;
 
 -- ============================================================================
 -- 7. recommendation RPC — สร้างข้อเสนอ/คำถาม (กันซ้ำ) · เจ้าของตอบ (compare-and-set ในตัว)
---    หมดเวลา = view แสดง expired + default_action (ไม่ mutate แถว · หลัก 0101) · เจ้าของตอบช้าได้ — คำตอบจริงชนะค่าเริ่มต้น (is_late)
+--    หมดเวลา = view แสดง expired + default_action (แถวยัง pending · หลัก 0101) — ข้อยกเว้นเดียว: recommendation_create ปิด pending ชื่อซ้ำที่หมดเวลาเป็น expired (acted_by_role = system · ข้อ AG) ·
+--    เจ้าของตอบช้าได้ทั้งสองกรณี — recommendation_respond รับ pending หรือ expired+system · คำตอบจริงชนะค่าเริ่มต้น (is_late นับเฉพาะ acted_by_role = owner)
 -- ============================================================================
 
 -- 🔴 QA-5 (ข้อ W): คืน jsonb {id, created, conflict} (เดิม uuid) — ชื่อซ้ำที่ยัง pending ไม่ error 23505 อีก: คืน id เดิม created=false ·
@@ -1275,10 +1314,11 @@ begin
   -- R2 Low: ข้อเสนอ pending ที่หมดเวลาแล้ว (เงื่อนไขเดียวกับ view/respond: เลย respond_by หรือไม่มีเส้นตายและเกิน 14 วัน) ต้องไม่บังข้อเสนอใหม่ชื่อเดียวกัน —
   -- เดิมนับเป็นซ้ำ ⇒ ข้อเสนอใหม่ "หายเงียบ" (created=false ชี้ไปแถวที่เจ้าของไม่มีวันเห็นว่าทันแล้ว)
   -- เลือก "ปิดแถวเก่าเป็น expired ก่อนสร้าง" ไม่ใช่ "ข้ามแถวหมดเวลาตอนตรวจซ้ำ": partial unique index (owner_action = pending) ยังบังอยู่ ข้ามตอนตรวจแล้ว insert ก็ชน ·
-  -- 0101 อนุญาตให้เขียน expired ตรงๆ (ค่าเดียวกับที่ v_recommendation_acceptance คำนวณให้อยู่แล้ว ⇒ KPI ไม่ขยับ) · acted_by_role ไม่ตั้ง (ระบบปิด ไม่ใช่เจ้าของ) ⇒ guard ไม่ล็อกแถวนี้ ·
+  -- 0101 อนุญาตให้เขียน expired ตรงๆ (ค่าเดียวกับที่ v_recommendation_acceptance คำนวณให้อยู่แล้ว ⇒ KPI ไม่ขยับ) · acted_by_role = 'system' (R3-M1: ระบบปิด ไม่ใช่เจ้าของ ⇒ guard ไม่ล็อกแถวนี้ ·
+  -- เจ้าของยังตอบช้าได้ผ่าน recommendation_respond ซึ่งรับ pending หรือ expired+system — ไม่ขัดหลัก "เจ้าของตอบช้าได้ คำตอบจริงชนะ" · is_late ใน view นับเฉพาะ acted_by_role = owner) ·
   -- ทั้งหมดอยู่ในทรานแซกชันเดียวกับ insert — ตกด่านด้านล่างตรงไหน ย้อนกลับพร้อมกัน
   update analytics.recommendation_log r
-     set owner_action = 'expired', acted_at = now()
+     set owner_action = 'expired', acted_at = now(), acted_by_role = 'system'
    where r.shop_id = p_shop_id and lower(btrim(r.title)) = lower(v_title) and r.owner_action = 'pending'
      and ((r.respond_by is not null and r.respond_by < v_today)
           or (r.respond_by is null and now() - r.created_at > interval '14 days'));
@@ -1341,6 +1381,7 @@ declare
   v_r       analytics.recommendation_log%rowtype;
   v_late    boolean;
   v_expired boolean;
+  v_reopen  boolean;
   v_at      timestamptz := now();
 begin
   if p_shop_id is null or p_id is null or p_action is null then
@@ -1375,7 +1416,9 @@ begin
   if not found then
     raise exception 'recommendation_respond: ไม่พบข้อเสนอในร้านนี้' using errcode = '22023';
   end if;
-  if v_r.owner_action <> 'pending' then
+  -- R3-M1: แถวที่ "ระบบ" ปิดเป็น expired (acted_by_role = system · จาก recommendation_create) ยังตอบได้ — เจ้าของตอบช้าได้เสมอ · แถวที่เจ้าของตอบแล้ว/ปิดตรงโดยคน ตอบซ้ำไม่ได้
+  v_reopen := coalesce(v_r.owner_action = 'expired' and v_r.acted_by_role = 'system', false);   -- coalesce: acted_by_role ว่าง (แถวเก่า) ทำให้ AND เป็น null แล้ว not null ข้ามด่านเงียบ (trap #13)
+  if v_r.owner_action <> 'pending' and not v_reopen then
     raise exception 'recommendation_respond: ตอบแล้ว (% เมื่อ %)', v_r.owner_action, v_r.acted_at using errcode = '55000';
   end if;
   -- แถวถูกล็อก (for update) แล้ว — token ที่คำนวณตรงนี้คือสถานะที่ UPDATE ด้านล่างจะทับจริง
@@ -1384,7 +1427,7 @@ begin
   end if;
 
   v_late := v_r.respond_by is not null and v_today > v_r.respond_by;
-  v_expired := v_late or (v_r.respond_by is null and v_at - v_r.created_at > interval '14 days');
+  v_expired := v_reopen or v_late or (v_r.respond_by is null and v_at - v_r.created_at > interval '14 days');
 
   update analytics.recommendation_log
      set owner_action = p_action, acted_at = v_at, acted_by = auth.uid(), acted_by_role = 'owner', owner_response = v_resp,
@@ -1392,7 +1435,7 @@ begin
    where id = p_id;
 
   return jsonb_build_object('id', p_id, 'owner_action', p_action, 'acted_at', v_at, 'late', v_late, 'was_expired', v_expired,
-                            'default_action_was', v_r.default_action);
+                            'default_action_was', v_r.default_action, 'reopened_from_system_expiry', v_reopen);
 end;
 $f$;
 
@@ -1506,6 +1549,8 @@ $f$;
 -- orders_*: เฉพาะ metric_code = orders · ช่วงวัน = metric_date_from/to > ช่วงวันของ step (min start .. max end) > anchor_date วันเดียว · ไม่มีข้อมูลพอ = null (ไม่เดา)
 --   orders_data_through = วันล่าสุดที่ "ร้าน" มีออเดอร์ (ทุกช่องทาง — ออเดอร์เข้าจากไฟล์ import รายเดือนทีเดียวทุกช่องทาง ยอดวันท้ายอาจยังไม่เข้า)
 --   orders_channel_data_through = วันล่าสุดที่ "ช่องทางที่แคมเปญนับ" มีออเดอร์ (null ถ้าแคมเปญไม่ระบุช่องทาง หรือช่องนั้นไม่มีออเดอร์เลย)
+--   orders_major_channels_covered = (ไม่ระบุช่องทาง) ทุกช่องทางหลักมีออเดอร์หลังวันสุดท้ายของช่วงหรือยัง · ช่องหลัก = ≥10% ของออเดอร์ร้านใน 28 วันก่อนวันท้าย (R3-H1) · null = ระบุช่องทาง/ไม่ใช่ orders
+--   🔴 R3-H1 (รอบ 3 แทนที่ข้อความ R-H1 ด้านล่างในส่วนช่องทาง): ระบุช่องทาง ⇒ ช่องนั้นต้องมีออเดอร์ "หลัง" วันสุดท้าย (och.d > วันท้าย เข้ม) · ไม่ระบุ ⇒ ร้านมีข้อมูลหลังวันท้าย และทุกช่องหลักมีข้อมูลหลังวันท้ายด้วย
 --   🔴 R-H1 (รอบ 2) orders_data_covers_window = ข้อมูลร้านต้องไปถึง "วันหลังวันสุดท้ายของช่วง" (through > วันสุดท้าย แบบเข้ม — วันท้ายที่มีออเดอร์แค่บางส่วนของไฟล์ที่ยังเข้าไม่ครบ ไม่นับว่าครบ ·
 --     พิสูจน์บนข้อมูลจริง 6 ต.ค.: LINE มีออเดอร์ แต่ TikTok 0 เพราะไฟล์ยังไม่เข้า) และถ้าระบุช่องทาง ช่องทางนั้นต้องมีออเดอร์ถึงวันสุดท้ายของช่วงด้วย (channel_through >= วันสุดท้าย — ช่องอื่นมีข้อมูลแต่ช่องนี้ไม่มี = ไม่ครอบ) · null = ไม่ครอบ
 --     ผลข้างเคียงที่รู้: ช่องทางที่เงียบจริงในวันท้ายของช่วง (ไม่มีออเดอร์วันนั้นเลย) ฟัน validated/invalidated ไม่ได้ ทั้งที่ข้อมูลอาจครบ — ตั้งใจ (แยก "เงียบจริง" กับ "ไฟล์ยังไม่เข้า" จากตารางนี้ไม่ได้) ปิดได้แค่ inconclusive/not_measured
@@ -1534,8 +1579,10 @@ select
   case when c.metric_code = 'orders' and w.ok then oa.n end as orders_actual,
   case when c.metric_code = 'orders' then od.d end as orders_data_through,
   case when c.metric_code = 'orders' and c.metric_channel_code is not null then och.d end as orders_channel_data_through,
+  case when c.metric_code = 'orders' and c.metric_channel_code is null and w.ok then coalesce(chk.all_major_after, true) end as orders_major_channels_covered,
   case when c.metric_code = 'orders' and w.ok
-       then coalesce(od.d > w.wt and (c.metric_channel_code is null or och.d >= w.wt), false) end as orders_data_covers_window,
+       then coalesce(case when c.metric_channel_code is not null then och.d > w.wt
+                          else od.d > w.wt and coalesce(chk.all_major_after, true) end, false) end as orders_data_covers_window,
   case when c.metric_code = 'orders' and w.ok and c.pass_threshold is not null and c.pass_op is not null
        then case c.pass_op when '>=' then oa.n >= c.pass_threshold else oa.n <= c.pass_threshold end end as orders_threshold_met,
   case when c.result_verdict_confirmed_at is not null then c.result_verdict
@@ -1586,25 +1633,45 @@ left join lateral (
     and o.affinity = coalesce(c.metric_affinity, 'all')
 ) oa on true
 left join lateral (
-  -- SEC-H1: วันล่าสุดที่ "ร้าน" มีออเดอร์ — ไม่กรองช่องทางที่แคมเปญนับ (ไฟล์ import เข้าทีเดียวทุกช่องทาง · ช่องที่เงียบไม่ใช่เหตุให้ถือว่าข้อมูลยังไม่ถึง) · ร้านไม่มีออเดอร์เลย = null = ไม่ครอบ
-  select max(o.order_date) as d
-  from analytics.v_content_order_daily o
-  where c.metric_code = 'orders' and o.shop_id = c.shop_id and o.affinity = 'all'
+  -- วันล่าสุดที่ "ร้าน" มีออเดอร์ (ทุกช่องทาง) · ร้านไม่มีออเดอร์เลย = null = ไม่ครอบ
+  -- R3 (code review · perf): อ่าน fact_order ตรง (index shop_id + order_date · 0010) ไม่ผ่าน v_content_order_daily (ซึ่ง group ทั้งตารางต่อออเดอร์) — ความหมายเท่าเดิม:
+  -- v_content_order_daily affinity all = ทุกแถว fact_order ที่ join dim_channel ได้ (channel_id not null) · ออเดอร์ที่ยกเลิกถูกลบจริงตอน import (0112)
+  select max(fo.order_date) as d
+  from analytics.fact_order fo
+  where c.metric_code = 'orders' and fo.shop_id = c.shop_id
 ) od on true
 left join lateral (
-  -- R-H1 (รอบ 2): วันล่าสุดที่ "ช่องทางที่แคมเปญนับ" มีออเดอร์ (affinity all) · เฉพาะเมื่อแคมเปญระบุช่องทาง — ใช้ร่วมกับ od ใน covers_window
-  select max(o.order_date) as d
-  from analytics.v_content_order_daily o
+  -- วันล่าสุดที่ "ช่องทางที่แคมเปญนับ" มีออเดอร์ — เฉพาะเมื่อแคมเปญระบุช่องทาง (R-H1 รอบ 3: ช่องนี้ต้องมีออเดอร์ "หลัง" วันสุดท้ายของช่วง ใช้ > ไม่ใช่ >=)
+  select max(fo.order_date) as d
+  from analytics.fact_order fo
+  join analytics.dim_channel dc on dc.id = fo.channel_id
   where c.metric_code = 'orders' and c.metric_channel_code is not null
-    and o.shop_id = c.shop_id and o.affinity = 'all' and o.channel_code = c.metric_channel_code
-) och on true;
+    and fo.shop_id = c.shop_id and dc.code = c.metric_channel_code
+) och on true
+left join lateral (
+  -- R3-H1 (High · security รอบ 3): ไม่ระบุช่องทาง ⇒ "ทุกช่องทางหลัก" ต้องมีออเดอร์หลังวันสุดท้ายของช่วง — เดิมดูแค่ว่าร้านมีข้อมูลวันหลังจากช่องไหนก็ได้
+  -- (ข้อมูลจริง: TikTok ล่าสุด 5 ต.ค. · LINE/FB 6 ต.ค. ⇒ ช่วงจบ 5 ต.ค. ผ่านด่านทั้งที่ไฟล์ TikTok ของวันที่ 5 อาจยังเข้าไม่ครบ)
+  -- ช่องหลัก = ช่องที่มีออเดอร์ ≥ 10% ของออเดอร์ร้านใน 28 วันก่อนวันสุดท้าย (วันท้าย−28 .. วันท้าย−1) · ไม่มีช่องหลักเลย (ร้านไม่มีออเดอร์ในช่วงนั้น) = null ⇒ ผู้ใช้ coalesce true
+  -- และยังต้องผ่าน od.d > วันท้าย เสมอ (ร้านเงียบทั้งหมดไม่ถือว่าครอบ) · count(*) * 10 >= รวม = ไม่ใช้ทศนิยม
+  select bool_and(exists (select 1 from analytics.fact_order x
+                           where x.shop_id = c.shop_id and x.channel_id = m.channel_id and x.order_date > w.wt)) as all_major_after
+  from (
+    select fo.channel_id
+      from analytics.fact_order fo
+     where c.metric_code = 'orders' and c.metric_channel_code is null and w.ok
+       and fo.shop_id = c.shop_id and fo.order_date >= w.wt - 28 and fo.order_date < w.wt
+     group by fo.channel_id
+    having count(*) * 10 >= (select count(*) from analytics.fact_order t
+                              where t.shop_id = c.shop_id and t.order_date >= w.wt - 28 and t.order_date < w.wt)
+  ) m
+) chk on true;
 
 -- inbox กอง 4 + หน้า K "ข้อเสนอในสรุปตอบได้" — union 3 แหล่ง ชนิดคอลัมน์ตรงกันทุกแขน · เรียง created_at desc
 --   ตัวนับกอง 4 ของ UI = count(*) where effective_action = 'pending' จากview นี้ (ไม่ใช่ owner_questions ของ 0160 ที่นับแค่ด่าน)
 --   reco: ทุกแถวของ recommendation_log (ประวัติด้วย — UI กรอง pending) · pending + เลยเส้นตาย = expired · pending ไม่มีเส้นตาย + เกิน 14 วัน = expired (กติกา 0101 คงไว้)
 --   risk_gate: ด่าน risk_owner ที่รอ/ติดของชิ้นที่ยังร่าง/รอรีวิว (เงื่อนไขเดียวกับ v_content_inbox_counts.owner_questions) · ตอบผ่าน content_gate_record — ไม่มีค่าเริ่มต้น (AI ตัดสินแทนไม่ได้)
 --   campaign_verdict: แคมเปญที่ AI เสนอคำตัดสินแล้วแต่เจ้าของยังไม่ยืนยัน · ตอบผ่าน campaign_verdict_confirm
---   ไม่ mutate แถว (หลัก 0101) · ไม่มี cron expire
+--   view ไม่ mutate แถว (หลัก 0101) · ไม่มี cron expire · แถวที่ระบบปิดเป็น expired ตอน recommendation_create (acted_by_role = system) เจ้าของยังตอบได้ — is_late นับเฉพาะ acted_by_role = owner (R3-M1)
 create or replace view analytics.v_recommendation_inbox
   with (security_invoker = true) as
 select u.*
@@ -1631,7 +1698,8 @@ from (
          else 'pending' end as effective_action,
     case when rl.respond_by is null then null::integer
          else rl.respond_by - (now() at time zone 'Asia/Bangkok')::date end as days_left,
-    coalesce(rl.acted_at is not null and rl.respond_by is not null
+    -- R3-M1: นับเฉพาะ "เจ้าของ" ตอบช้า — แถวที่ระบบปิดเป็น expired (acted_by_role = system) ไม่ใช่คำตอบของเจ้าของ
+    coalesce(rl.acted_by_role = 'owner' and rl.acted_at is not null and rl.respond_by is not null
              and (rl.acted_at at time zone 'Asia/Bangkok')::date > rl.respond_by, false) as is_late,
     rl.outcome_note,
     rl.acted_at,
@@ -1714,7 +1782,7 @@ begin
     select p.oid::regprocedure::text as sig
       from pg_proc p
      where p.pronamespace = 'analytics'::regnamespace and p.prokind = 'f'
-       and p.proname ~ '^(content_bidi_present_|campaign_open_pieces_|campaign_verdict_gate_|campaign_verdict_token_|recommendation_token_|content_weekly_summary_guard|campaign_result_guard|recommendation_log_guard|campaign_plan_set|campaign_verdict_propose|campaign_verdict_confirm|recommendation_create|recommendation_respond|content_weekly_summary_upsert)$'
+       and p.proname ~ '^(content_bidi_present_|campaign_open_pieces_|campaign_verdict_gate_|campaign_verdict_token_|recommendation_token_|content_weekly_summary_guard|content_history_truncate_guard|campaign_result_guard|recommendation_log_guard|campaign_plan_set|campaign_verdict_propose|campaign_verdict_confirm|recommendation_create|recommendation_respond|content_weekly_summary_upsert)$'
   loop
     execute format('revoke execute on function %s from public, anon, authenticated', r.sig);
     execute format('grant execute on function %s to service_role', r.sig);
@@ -1738,21 +1806,21 @@ grant select on analytics.recommendation_log to service_role;
 
 comment on view analytics.v_campaign_summary is
   'หน้า E — 1 แถว/แคมเปญ: แผน (hypothesis/metric/baseline/เกณฑ์) · ชิ้นงาน (total/posted/cancelled/open) · ผลโพสต์ (นับเฉพาะชิ้น posted หรือแคมเปญเก่า — ชิ้นค้างไม่นับ Q12) · '
-  'orders_* (metric orders: ช่วงวัน/ช่องทาง/กลุ่มสินค้า จาก v_content_order_daily + orders_data_covers_window เตือนข้อมูลยังไม่ถึง) · verdict_display/stage/awaiting_confirm · ไม่กรองร้าน (frontend .eq(shop_id))';
+  'orders_* (metric orders: ยอดนับจาก v_content_order_daily ตามช่วงวัน/ช่องทาง/กลุ่มสินค้า · orders_data_covers_window เตือนข้อมูลยังไม่ครบ — อ่านวันล่าสุดจาก fact_order ตรง) · verdict_display/stage/awaiting_confirm · ไม่กรองร้าน (frontend .eq(shop_id))';
 comment on view analytics.v_recommendation_inbox is
   'inbox กอง 4 — ข้อเสนอ/คำถาม (recommendation_log) + ด่านความเสี่ยง risk_owner (step_gate) + แคมเปญรอยืนยันคำตัดสิน · ตัวนับ = count(*) where effective_action = pending · '
-  'หมดเวลา = expired (ไม่ mutate แถว) พร้อม default_action · respond_via บอกว่าตอบผ่าน RPC ไหน · ไม่กรองร้าน (frontend .eq(shop_id))';
+  'หมดเวลา = expired (view ไม่ mutate แถว · แถวที่ระบบปิดตอน create เจ้าของยังตอบได้) พร้อม default_action · respond_via บอกว่าตอบผ่าน RPC ไหน · ไม่กรองร้าน (frontend .eq(shop_id))';
 comment on function analytics.campaign_plan_set(uuid, uuid, jsonb, text) is
-  'ตั้งสมมติฐาน/metric/ฐาน/เกณฑ์/ขอบเขตนับออเดอร์ของแคมเปญ (json null = ล้าง · key ไม่ส่ง = คงเดิม) · owner ทุกสถานะที่ยังไม่ปิด · ai/system เฉพาะแคมเปญที่ยังไม่มีชิ้นโพสต์ · ปิดแล้วแก้ไม่ได้ · errcode 22023/42501/55000';
+  'ตั้งสมมติฐาน/metric/ฐาน/เกณฑ์/ขอบเขตนับออเดอร์ของแคมเปญ (json null = ล้าง · key ไม่ส่ง = คงเดิม) · owner: ทุกสถานะที่ยังไม่ปิด · ai/system: เฉพาะแคมเปญที่ยังไม่เริ่ม (วันนี้ไทย < least(metric_date_from, anchor_date, วัน step แรก) ทั้งค่าเดิมและค่า metric_date_from ใหม่) · ไม่มีชิ้น posted/โพสต์ active · ยังไม่มีข้อเสนอคำตัดสิน · และแผนล่าสุดต้องไม่ใช่ของ owner (plan_set_by_role) · ปิดแล้วแก้ไม่ได้ทุก actor · เขียน plan_set_by_role ทุกครั้ง · errcode 22023/42501/55000';
 comment on function analytics.campaign_verdict_propose(uuid, uuid, text, text, text) is
-  'เสนอคำตัดสินแคมเปญ (ยังไม่ใช่คำตัดสิน) — ต้องมีหลักฐาน 3-1000 ตัวอักษร · validated/invalidated ติดด่านเนื้อหา (save/share ≥4 ชิ้นมี T+7 · orders ต้องตั้งเกณฑ์) · เสนอซ้ำทับได้ (previous_proposed คืนค่าเก่า) · AI ทับข้อเสนอของ owner ไม่ได้';
+  'เสนอคำตัดสินแคมเปญ (ยังไม่ใช่คำตัดสิน) — ต้องมีหลักฐาน 3-1000 ตัวอักษร · validated/invalidated ติดด่านเนื้อหา (save/share: ≥4 ชิ้นมี T+7 · orders: ต้องตั้งเกณฑ์ + รู้ช่วงวัน + orders_data_covers_window = true คือข้อมูลต้องไปถึงวันหลังวันสุดท้ายของช่วง · ระบุช่องทาง = ช่องนั้นต้องมีข้อมูลหลังวันท้าย · ไม่ระบุ = ทุกช่องหลัก ≥10% ใน 28 วัน) · ทุกชิ้นถูกยกเลิก = ฟันธงไม่ได้ · ข้อความที่ตกเป็นภาษาไทยของเจ้าของ (55000) · เสนอซ้ำทับได้ (previous_proposed คืนค่าเก่า) · AI ทับข้อเสนอของ owner ไม่ได้';
 comment on function analytics.campaign_verdict_confirm(uuid, uuid, text, text, text, text, text, text) is
   'เจ้าของยืนยันคำตัดสิน (owner เท่านั้น) · compare-and-set บังคับ 2 ชั้น: p_expected_proposed (none/ว่าง = ไม่มีข้อเสนอ) + p_expected_token (= v_campaign_summary.verdict_token) — null = 22023 · ไม่ตรง = 55000 รีเฟรชก่อน · '
   'ปิดได้ทุกเมื่อแม้มีชิ้นค้าง (Q12): บันทึก open_pieces + ชิ้นค้างไม่นับในผล · status → done · บทเรียน ≤300 → content_signal insight (ไม่สร้างซ้ำ) · p_lesson null = คงบทเรียนเดิม / ว่าง = ล้าง · ยืนยันซ้ำทับได้ (previous_* คืนค่าเก่า)';
 comment on function analytics.recommendation_create(uuid, text, text, text, text, text, integer, date, text, uuid, uuid, uuid) is
   'สร้างข้อเสนอ/คำถามถึงเจ้าของ — คืน jsonb {id, created, conflict}: ชื่อซ้ำที่ยังรอตอบ = id เดิม created=false (conflict=true ถ้าเนื้อหาต่าง · ไม่ทับเงียบ) · เส้นตายต้องมี default_action · อ้างแคมเปญ/ชิ้น/สรุปสัปดาห์ต้องอยู่ร้านเดียวกัน · ชิ้นต้องอยู่ใน workflow ใหม่';
 comment on function analytics.recommendation_respond(uuid, uuid, text, text, text, text) is
-  'เจ้าของตอบ done/rejected (owner เท่านั้น · rejected ต้องมีเหตุผล) · เขียน owner_response (ล็อกแก้ย้อนหลังไม่ได้) · ตอบซ้ำไม่ได้ (55000) · p_expected_token (= v_recommendation_inbox.content_token) บังคับ — ไม่ตรง = 55000 รีเฟรชก่อน · '
+  'เจ้าของตอบ done/rejected (owner เท่านั้น · rejected ต้องมีเหตุผล) · เขียน owner_response (ล็อกแก้ย้อนหลังไม่ได้) · ตอบซ้ำไม่ได้ (55000 · ยกเว้นแถวที่ระบบปิดเป็น expired (acted_by_role system) ตอบได้ — R3-M1) · p_expected_token (= v_recommendation_inbox.content_token) บังคับ — ไม่ตรง = 55000 รีเฟรชก่อน · '
   'ตอบช้ากว่า respond_by ได้ (late/was_expired ใน payload — คำตอบจริงชนะค่าเริ่มต้น)';
 comment on function analytics.content_weekly_summary_upsert(uuid, date, date, text[], text, text, integer, text) is
   'เก็บ Weekly Brief ฉบับเต็ม (มติ Q10) — สรุป 1-5 บรรทัด (บรรทัดละ ≤1000) + markdown ≤80000 · ทับสัปดาห์เดิมได้ (revision+1) แต่ไม่ทับเงียบ: คืน created/changed/revision · เนื้อหาเดิมซ้ำ = ไม่เขียน · ai/system ทับฉบับที่ owner เขียนล่าสุดไม่ได้';
@@ -1774,7 +1842,7 @@ declare
   v_bad text;
   v_k   text;
   v_n   bigint;
-  c_fn  constant text := '^(content_bidi_present_|campaign_open_pieces_|campaign_verdict_gate_|campaign_verdict_token_|recommendation_token_|content_weekly_summary_guard|campaign_result_guard|recommendation_log_guard|campaign_plan_set|campaign_verdict_propose|campaign_verdict_confirm|recommendation_create|recommendation_respond|content_weekly_summary_upsert)$';
+  c_fn  constant text := '^(content_bidi_present_|campaign_open_pieces_|campaign_verdict_gate_|campaign_verdict_token_|recommendation_token_|content_weekly_summary_guard|content_history_truncate_guard|campaign_result_guard|recommendation_log_guard|campaign_plan_set|campaign_verdict_propose|campaign_verdict_confirm|recommendation_create|recommendation_respond|content_weekly_summary_upsert)$';
   c_rel constant text[] := array['v_campaign_summary', 'v_recommendation_inbox'];
 begin
   foreach v_k in array array['c5.snap_metric', 'c5.snap_post', 'c5.snap_step', 'c5.snap_campaign', 'c5.snap_reco', 'c5.snap_gate', 'c5.snap_views', 'c5.snap_funcs'] loop
@@ -1844,7 +1912,7 @@ begin
     raise exception '0162 ด่านท้าย: มีฟังก์ชันเดิมที่ไม่ใช่ของไฟล์นี้ถูกเปลี่ยน/เพิ่ม/หาย (รวม 0148 upsert · 0158 · 0159 · 0160 · 0161) — ไฟล์นี้ไม่ replace ฟังก์ชันเดิมใดเลย';
   end if;
 
-  -- trap #1: ฟังก์ชันของไฟล์นี้ต้องมี signature เดียวต่อชื่อ · ครบ 14 ตัว (helper 5 + trigger 3 + RPC 6)
+  -- trap #1: ฟังก์ชันของไฟล์นี้ต้องมี signature เดียวต่อชื่อ · ครบ 15 ตัว (helper 5 + trigger 4 + RPC 6)
   select string_agg(x.proname || '=' || x.n, ', ') into v_bad
     from (select p.proname, count(*) as n from pg_proc p
            where p.pronamespace = 'analytics'::regnamespace and p.prokind = 'f' and p.proname ~ c_fn
@@ -1853,8 +1921,8 @@ begin
     raise exception '0162 ด่านท้าย: ฟังก์ชันมี overload ค้าง — หยุดแล้วรายงาน: %', v_bad;
   end if;
   select count(*) into v_n from pg_proc p where p.pronamespace = 'analytics'::regnamespace and p.proname ~ c_fn;
-  if v_n <> 14 then
-    raise exception '0162 ด่านท้าย: คาดฟังก์ชันของไฟล์นี้ 14 ตัว (helper 5 + trigger 3 + RPC 6) พบ %', v_n;
+  if v_n <> 15 then
+    raise exception '0162 ด่านท้าย: คาดฟังก์ชันของไฟล์นี้ 15 ตัว (helper 5 + trigger 4 + RPC 6) พบ %', v_n;
   end if;
 
   -- trigger ด่านตารางต้องมี เปิดอยู่ (tgenabled = 'O') ชี้ฟังก์ชันถูกตัว และชนิดครบ (ROW=1 BEFORE=2 INSERT=4 DELETE=8 UPDATE=16 TRUNCATE=32)
@@ -1873,11 +1941,18 @@ begin
                     and t.tgenabled = 'O' and t.tgfoid = 'analytics.content_weekly_summary_guard()'::regprocedure and (t.tgtype & 31) = 31) then
     raise exception '0162 ด่านท้าย: trigger trg_content_weekly_summary_guard ไม่ครบ (ต้อง BEFORE INSERT OR UPDATE OR DELETE FOR EACH ROW เปิดอยู่)';
   end if;
-  -- trigger เดิมยังอยู่ครบ (updated_at ของสามตาราง) — ไม่ถูก drop/แทนโดยไฟล์นี้
+  -- trigger TRUNCATE (statement-level · BEFORE=2 TRUNCATE=32 · ไม่ใช่ ROW) ของ recommendation_log + content_weekly_summary ต้องมี เปิดอยู่ ชี้ฟังก์ชันถูกตัว
+  if (select count(*) from pg_trigger t
+       where t.tgname in ('trg_recommendation_log_deny_truncate', 'trg_content_weekly_summary_deny_truncate') and not t.tgisinternal
+         and t.tgenabled = 'O' and t.tgfoid = 'analytics.content_history_truncate_guard()'::regprocedure and (t.tgtype & 35) = 34
+         and t.tgrelid in ('analytics.recommendation_log'::regclass, 'analytics.content_weekly_summary'::regclass)) <> 2 then
+    raise exception '0162 ด่านท้าย: trigger กัน TRUNCATE ของ recommendation_log / content_weekly_summary ไม่ครบ (ต้อง BEFORE TRUNCATE FOR EACH STATEMENT เปิดอยู่)';
+  end if;
+  -- trigger เดิมยังอยู่ครบ (updated_at ของสามตาราง) — ไม่ถูก drop/แทนโดยไฟล์นี้ · recommendation_log / content_weekly_summary = 3 (guard + updated_at + deny_truncate)
   if (select count(*) from pg_trigger t where t.tgrelid = 'analytics.campaign'::regclass and not t.tgisinternal) <> 2
-     or (select count(*) from pg_trigger t where t.tgrelid = 'analytics.recommendation_log'::regclass and not t.tgisinternal) <> 2
-     or (select count(*) from pg_trigger t where t.tgrelid = 'analytics.content_weekly_summary'::regclass and not t.tgisinternal) <> 2 then
-    raise exception '0162 ด่านท้าย: trigger บน campaign / recommendation_log / content_weekly_summary ต้องเหลือตารางละ 2 (guard + updated_at)';
+     or (select count(*) from pg_trigger t where t.tgrelid = 'analytics.recommendation_log'::regclass and not t.tgisinternal) <> 3
+     or (select count(*) from pg_trigger t where t.tgrelid = 'analytics.content_weekly_summary'::regclass and not t.tgisinternal) <> 3 then
+    raise exception '0162 ด่านท้าย: trigger บน campaign ต้องเหลือ 2 (guard + updated_at) · recommendation_log / content_weekly_summary ต้องเหลือตารางละ 3 (guard + updated_at + กัน TRUNCATE)';
   end if;
 
   -- FK ที่ชี้เข้าประวัติ reco ต้องเป็น SET NULL (confdeltype n) ทั้งสามเส้น — ไม่มี CASCADE ที่ลบแถวประวัติ (บทเรียน 0161 H1)

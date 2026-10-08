@@ -307,7 +307,7 @@ $ws$;
 
 do $verify0162$
 declare
-  c_fn      constant text := '^(content_bidi_present_|campaign_open_pieces_|campaign_verdict_gate_|campaign_verdict_token_|recommendation_token_|content_weekly_summary_guard|campaign_result_guard|recommendation_log_guard|campaign_plan_set|campaign_verdict_propose|campaign_verdict_confirm|recommendation_create|recommendation_respond|content_weekly_summary_upsert)$';
+  c_fn      constant text := '^(content_bidi_present_|campaign_open_pieces_|campaign_verdict_gate_|campaign_verdict_token_|recommendation_token_|content_weekly_summary_guard|content_history_truncate_guard|campaign_result_guard|recommendation_log_guard|campaign_plan_set|campaign_verdict_propose|campaign_verdict_confirm|recommendation_create|recommendation_respond|content_weekly_summary_upsert)$';
   v_log     text := E'\n=== verify-0162 ===\n';
   v_today   date := (now() at time zone 'Asia/Bangkok')::date;
   v_shop    uuid;
@@ -444,17 +444,17 @@ begin
   -- A. โครงสร้าง / สิทธิ์ / overload / trigger / FK / วันไทย
   ----------------------------------------------------------------------------
   select count(*) into v_n from pg_proc p where p.pronamespace = 'analytics'::regnamespace and p.proname ~ c_fn;
-  v_log := v_log || pg_temp.vb('A1', 'ฟังก์ชันของ 0162 มี 14 ตัว (helper 5 + trigger 3 + RPC 6) signature เดียวต่อชื่อ (trap #1)', v_n = 14, 'พบ ' || v_n);
+  v_log := v_log || pg_temp.vb('A1', 'ฟังก์ชันของ 0162 มี 15 ตัว (helper 5 + trigger 4 + RPC 6) signature เดียวต่อชื่อ (trap #1)', v_n = 15, 'พบ ' || v_n);
   select string_agg(x.proname || '=' || x.n, ', ') into v_bad
     from (select p.proname, count(*) n from pg_proc p where p.pronamespace = 'analytics'::regnamespace and p.proname ~ c_fn group by p.proname having count(*) <> 1) x;
-  v_log := v_log || pg_temp.vb('A1b', 'pg_proc ต่อชื่อ = 1 ทั้ง 14 ชื่อ', v_bad is null, coalesce(v_bad, '-'));
+  v_log := v_log || pg_temp.vb('A1b', 'pg_proc ต่อชื่อ = 1 ทั้ง 15 ชื่อ', v_bad is null, coalesce(v_bad, '-'));
   select string_agg(p.oid::regprocedure::text, ', ') into v_bad
     from pg_proc p cross join lateral aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
    where p.pronamespace = 'analytics'::regnamespace and p.proname ~ c_fn and a.privilege_type = 'EXECUTE'
      and (a.grantee = 0 or a.grantee = 'anon'::regrole or a.grantee = 'authenticated'::regrole);
   v_log := v_log || pg_temp.vb('A2', 'ไม่มี PUBLIC/anon/authenticated ถือ EXECUTE บนฟังก์ชันของ 0162 (trap #18 · aclexplode+acldefault)', v_bad is null, coalesce(v_bad, '-'));
   select count(*) into v_n from pg_proc p where p.pronamespace = 'analytics'::regnamespace and p.proname ~ c_fn and has_function_privilege('service_role', p.oid, 'execute');
-  v_log := v_log || pg_temp.vb('A2b', 'service_role เรียกได้ครบ 14 ตัว (RPC definer ต้องรันได้)', v_n = 14, 'พบ ' || v_n);
+  v_log := v_log || pg_temp.vb('A2b', 'service_role เรียกได้ครบ 15 ตัว (RPC definer ต้องรันได้)', v_n = 15, 'พบ ' || v_n);
   select string_agg(c.relname, ', ') into v_bad from pg_class c
    where c.relnamespace = 'analytics'::regnamespace and c.relname in ('v_campaign_summary', 'v_recommendation_inbox') and not coalesce(c.reloptions @> array['security_invoker=true'], false);
   v_log := v_log || pg_temp.vb('A3', 'view ใหม่ 2 ตัวเป็น security_invoker', v_bad is null, coalesce(v_bad, '-'));
@@ -483,8 +483,8 @@ begin
   v_log := v_log || pg_temp.vb('A4', 'FK ที่ชี้เข้า recommendation_log (campaign/step/summary) เป็น ON DELETE SET NULL ทั้งหมด — ไม่มี cascade ลบประวัติ', v_bad is null, coalesce(v_bad, '-'));
   select count(*) into v_n from pg_trigger t where t.tgrelid = 'analytics.campaign'::regclass and not t.tgisinternal and t.tgenabled = 'O';
   select count(*) into v_n2 from pg_trigger t where t.tgrelid = 'analytics.recommendation_log'::regclass and not t.tgisinternal and t.tgenabled = 'O';
-  v_log := v_log || pg_temp.vb('A4b', 'trigger เปิดอยู่: campaign 2 (guard + updated_at) · recommendation_log 2 · content_weekly_summary 2', v_n = 2 and v_n2 = 2
-    and (select count(*) from pg_trigger t where t.tgrelid = 'analytics.content_weekly_summary'::regclass and not t.tgisinternal and t.tgenabled = 'O') = 2, v_n || '/' || v_n2);
+  v_log := v_log || pg_temp.vb('A4b', 'trigger เปิดอยู่: campaign 2 (guard + updated_at) · recommendation_log 3 · content_weekly_summary 3 (guard + updated_at + กัน TRUNCATE — R3 code review ข้อ 7)', v_n = 2 and v_n2 = 3
+    and (select count(*) from pg_trigger t where t.tgrelid = 'analytics.content_weekly_summary'::regclass and not t.tgisinternal and t.tgenabled = 'O') = 3, v_n || '/' || v_n2);
   select count(*) into v_n from pg_index i join pg_class c on c.oid = i.indexrelid
    where i.indrelid = 'analytics.recommendation_log'::regclass and c.relname = 'uq_recommendation_log_pending_title' and i.indisunique and i.indpred is not null;
   v_log := v_log || pg_temp.vb('A4c', 'uq_recommendation_log_pending_title เป็น partial unique index', v_n = 1);
@@ -732,7 +732,7 @@ begin
   v_log := v_log || pg_temp.vb('G1', 'cF: pieces_total 5 · posted 4 · open 1 (ชิ้นแรก planned) · pieces_measured 3 (ชิ้นที่ 4 ไม่มี T+7) · posts_active_n 4 · posts_measured_n 3 · stage running',
     r.pieces_total = 5 and r.pieces_posted = 4 and r.pieces_open = 1 and r.pieces_measured = 3 and r.posts_active_n = 4 and r.posts_measured_n = 3 and r.stage = 'running',
     concat_ws('|', r.pieces_total, r.pieces_posted, r.pieces_open, r.pieces_measured, r.posts_active_n, r.posts_measured_n, r.stage));
-  v_log := v_log || pg_temp.vl('G2', 'ai เสนอ validated ที่ 3 ชิ้นมี T+7 → 55000 "(มี 3)"', pg_temp.vx(pg_temp.q_prop(v_shopB, v_cF, 'validated', 'หลักฐานทดสอบ', 'ai'), array['55000'], '(มี 3)'));
+  v_log := v_log || pg_temp.vl('G2', 'ai เสนอ validated ที่ 3 ชิ้นมี T+7 → 55000 "(มี 3 ชิ้น)"', pg_temp.vx(pg_temp.q_prop(v_shopB, v_cF, 'validated', 'หลักฐานทดสอบ', 'ai'), array['55000'], '(มี 3 ชิ้น)'));
   v_log := v_log || pg_temp.vl('G3', 'owner ยืนยัน validated ที่ 3 ชิ้น (expected none) → 55000 ด่านเดียวกัน', pg_temp.vx(pg_temp.q_conf(v_shopB, v_cF, 'validated', null, 'owner', null, 'none'), array['55000'], 'ครบ 4 ชิ้น'));
   v_log := v_log || pg_temp.vl('G3b', 'owner ยืนยัน invalidated ที่ 3 ชิ้น → 55000', pg_temp.vx(pg_temp.q_conf(v_shopB, v_cF, 'invalidated', null, 'owner', null, 'none'), array['55000']));
   select count(*) into v_n from analytics.campaign where id = v_cF and result_verdict_confirmed_at is not null;
@@ -774,7 +774,7 @@ begin
   select * into r from analytics.v_campaign_summary where campaign_id = v_cF;
   v_log := v_log || pg_temp.vb('G6', 'ชิ้นที่ 5 ถูกยกเลิก: pieces_cancelled 1 · pieces_posted 5→4 · pieces_measured 4→3 (ชิ้น cancelled ไม่นับในผล) · open 1 (ไม่รวม cancelled)',
     r.pieces_cancelled = 1 and r.pieces_posted = 4 and r.pieces_measured = 3 and r.pieces_open = 1, concat_ws('|', r.pieces_cancelled, r.pieces_posted, r.pieces_measured, r.pieces_open));
-  v_log := v_log || pg_temp.vl('G7', 'ชิ้นที่ยกเลิกไม่นับในด่านด่าน 4 ชิ้น: ai เสนอ validated → 55000 "(มี 3)" (นับ posted เท่านั้น)', pg_temp.vx(pg_temp.q_prop(v_shopB, v_cF, 'validated', 'หลักฐานทดสอบ', 'ai'), array['55000'], '(มี 3)'));
+  v_log := v_log || pg_temp.vl('G7', 'ชิ้นที่ยกเลิกไม่นับในด่านด่าน 4 ชิ้น: ai เสนอ validated → 55000 "(มี 3 ชิ้น)" (นับ posted เท่านั้น)', pg_temp.vx(pg_temp.q_prop(v_shopB, v_cF, 'validated', 'หลักฐานทดสอบ', 'ai'), array['55000'], '(มี 3 ชิ้น)'));
   perform set_config('c2.piece_rpc', '1', true);
   update analytics.campaign_step set piece_status = 'posted' where id = v_step;
   perform set_config('c2.piece_rpc', '', true);
@@ -1378,17 +1378,18 @@ begin
     perform pg_temp.mkord(v_shopX, v_ch_line, v_day, '{}'::uuid[]);
     perform pg_temp.mkord(v_shopX, v_ch_tt, v_day, array[v_prod_jw, v_prod_jw, v_prod_jw]);
     perform pg_temp.mkord(v_shopX, v_ch_line, v_day + 1, array[v_prod_bar]);
-    -- รอบ 2 (R-H1): D+2 (= วันนี้) มี tiktok 1 ใบ (ไม่มี line item) ⇒ ข้อมูลร้านถึง D+2 · tiktok ถึง D+2 · line_oa ถึง D+1 · facebook ถึง D-1 (ช่องที่ข้อมูลช้ากว่าร้าน) · shopee ไม่มีเลย
+    -- รอบ 2 (R-H1): D+2 (= วันนี้) มี tiktok 1 ใบ (ไม่มี line item) ⇒ ข้อมูลร้านถึง D+2 · tiktok ถึง D+2 · line_oa ถึง D+1 · facebook ถึง D-40 (ช่องที่ข้อมูลช้ากว่าร้าน · นอก 28 วัน ไม่ใช่ช่องหลัก) · shopee ไม่มีเลย
     perform pg_temp.mkord(v_shopX, v_ch_tt, v_day + 2, '{}'::uuid[]);
-    perform pg_temp.mkord(v_shopX, v_ch_fb, v_day - 1, '{}'::uuid[]);
+    perform pg_temp.mkord(v_shopX, v_ch_line, v_day + 2, '{}'::uuid[]);   -- R3-H1: line_oa ถึง D+2 ด้วย (ช่องหลักทุกช่องต้องมีข้อมูลหลังวันท้าย)
+    perform pg_temp.mkord(v_shopX, v_ch_fb, v_day - 40, '{}'::uuid[]);   -- facebook: ข้อมูลเก่ามาก (นอก 28 วัน ⇒ ไม่ใช่ช่องหลัก · ไว้ทดสอบ "ช่องที่ระบุข้อมูลช้ากว่าร้าน")
     v_cG := pg_temp.mk_camp(v_shopX, v_day);
     v_j := pg_temp.vj(pg_temp.q_plan(v_shopX, v_cG, '{"metric_code":"orders","metric_channel_code":"line_oa","metric_affinity":"bar"}', 'owner'));
     select * into r from analytics.v_campaign_summary where campaign_id = v_cG;
     v_log := v_log || pg_temp.vb('O1', 'ไม่ตั้งช่วงวัน → ใช้ช่วงของ step (anchor D · offset 0) · line_oa + bar ในวัน D = 2 (A, C — ตะกร้าผสมนับ 1 ออเดอร์ · ไม่นับ neutral/ไม่มี line item/tiktok/วัน D+1) · orders_channel/affinity ตามที่ตั้ง',
       v_j ? 'changed' and r.orders_window_from = v_day and r.orders_window_to = v_day and r.orders_actual = 2 and r.orders_channel = 'line_oa' and r.orders_affinity = 'bar',
       concat_ws('|', r.orders_window_from, r.orders_window_to, r.orders_actual, left(v_j::text, 100)));
-    v_log := v_log || pg_temp.vb('O2', 'orders_data_through = วันล่าสุดที่ร้านมีออเดอร์ (D+2 จาก tiktok) · orders_channel_data_through = วันล่าสุดของ line_oa (D+1) · window D..D ⇒ covers_window true · threshold ยังไม่ตั้ง → orders_threshold_met null (ไม่เดา)',
-      r.orders_data_through = v_day + 2 and r.orders_channel_data_through = v_day + 1 and r.orders_data_covers_window is true and r.orders_threshold_met is null, concat_ws('|', r.orders_data_through, r.orders_channel_data_through));
+    v_log := v_log || pg_temp.vb('O2', 'orders_data_through = วันล่าสุดที่ร้านมีออเดอร์ (D+2 จาก tiktok) · orders_channel_data_through = วันล่าสุดของ line_oa (D+2) · window D..D ⇒ covers_window true · threshold ยังไม่ตั้ง → orders_threshold_met null (ไม่เดา)',
+      r.orders_data_through = v_day + 2 and r.orders_channel_data_through = v_day + 2 and r.orders_data_covers_window is true and r.orders_threshold_met is null, concat_ws('|', r.orders_data_through, r.orders_channel_data_through));
     perform pg_temp.vj(pg_temp.q_plan(v_shopX, v_cG, '{"metric_affinity":null}', 'owner'));
     select orders_actual into v_n from analytics.v_campaign_summary where campaign_id = v_cG;
     v_log := v_log || pg_temp.vb('O3', 'affinity null = all: line_oa วัน D = 5 (A,B,C,D,E)', v_n = 5, 'ได้ ' || v_n);
@@ -1464,7 +1465,7 @@ begin
     v_cO := pg_temp.mk_camp(v_shopX, v_day);
     perform pg_temp.vj(pg_temp.q_plan(v_shopX, v_cO, format('{"metric_code":"orders","metric_channel_code":"line_oa","metric_date_from":"%s","metric_date_to":"%s","pass_threshold":1,"pass_op":">="}', v_day, v_day + 5), 'owner'));
     select * into r from analytics.v_campaign_summary where campaign_id = v_cO;
-    v_log := v_log || pg_temp.vb('H1a', 'ช่วง D..D+5 แต่ข้อมูลร้านถึง D+2: covers_window false · data_through = D+2 · orders_channel_data_through (line_oa) = D+1', r.orders_data_covers_window is false and r.orders_data_through = v_day + 2 and r.orders_channel_data_through = v_day + 1, concat_ws('|', r.orders_data_covers_window, r.orders_data_through));
+    v_log := v_log || pg_temp.vb('H1a', 'ช่วง D..D+5 แต่ข้อมูลร้านถึง D+2: covers_window false · data_through = D+2 · orders_channel_data_through (line_oa) = D+2', r.orders_data_covers_window is false and r.orders_data_through = v_day + 2 and r.orders_channel_data_through = v_day + 2, concat_ws('|', r.orders_data_covers_window, r.orders_data_through));
     v_log := v_log || pg_temp.vl('H1b', 'ai เสนอ validated บน orders ที่ข้อมูลยังไม่ถึงวันสุดท้าย → 55000 "ยังไม่ถึงวันสุดท้าย"', pg_temp.vx(pg_temp.q_prop(v_shopX, v_cO, 'validated', 'ยอดครบเกณฑ์แล้ว', 'ai'), array['55000'], 'ยังไม่ครบช่วง'));
     v_log := v_log || pg_temp.vl('H1c', 'ai เสนอ invalidated (ยอดวันท้ายที่ยังไม่เข้าอ่านเป็น 0 แล้วตีว่าแคมเปญล้มเหลว) → 55000', pg_temp.vx(pg_temp.q_prop(v_shopX, v_cO, 'invalidated', 'ยอดไม่ถึงเกณฑ์', 'ai'), array['55000'], 'ยังไม่ครบช่วง'));
     v_log := v_log || pg_temp.vl('H1d', 'owner เสนอ validated ก็ตกด่านเดียวกัน (ด่านเนื้อหาไม่ยกเว้นเจ้าของ)', pg_temp.vx(pg_temp.q_prop(v_shopX, v_cO, 'validated', 'เจ้าของเสนอเอง', 'owner'), array['55000'], 'ยังไม่ครบช่วง'));
@@ -1490,11 +1491,11 @@ begin
     v_log := v_log || pg_temp.vb('H1k', 'ต้องไม่พัง: owner ยืนยัน invalidated บน tiktok ศูนย์ออเดอร์ ผ่าน · payload actual 0 · threshold_met false · data_covers_window true', v_j ? 'verdict' and (v_j -> 'orders' ->> 'actual') = '0' and (v_j -> 'orders' ->> 'threshold_met') = 'false'
       and (v_j -> 'orders' ->> 'data_covers_window') = 'true', left(v_j::text, 260));
     -- R-H1 รอบ 2: ช่องทางที่แคมเปญนับต้องมีข้อมูลถึงวันท้ายด้วย — ร้านมีข้อมูลหลังวันท้ายจากช่องอื่น (tiktok D+2) แต่ช่องนี้ไม่มี = ไม่ครอบ
-    --   facebook ข้อมูลถึง D-1 เท่านั้น · shopee ไม่มีออเดอร์เลย · (ต้องไม่พัง: line_oa ถึง D+1 ครอบช่วงที่สิ้นสุด D+1)
+    --   facebook ข้อมูลถึง D-40 เท่านั้น · shopee ไม่มีออเดอร์เลย · (ต้องไม่พัง: line_oa ถึง D+1 ครอบช่วงที่สิ้นสุด D+1)
     v_cO3 := pg_temp.mk_camp(v_shopX, v_day);
     perform pg_temp.vj(pg_temp.q_plan(v_shopX, v_cO3, format('{"metric_code":"orders","metric_channel_code":"facebook","metric_date_from":"%s","metric_date_to":"%s","pass_threshold":1,"pass_op":">="}', v_day + 1, v_day + 1), 'owner'));
     select * into r from analytics.v_campaign_summary where campaign_id = v_cO3;
-    v_log := v_log || pg_temp.vb('H1n1', 'facebook ช่วง D+1: ร้านมีข้อมูลถึง D+2 (> D+1) แต่ facebook ถึงแค่ D-1 ⇒ covers_window false · channel_data_through = D-1', r.orders_data_through = v_day + 2 and r.orders_channel_data_through = v_day - 1 and r.orders_data_covers_window is false,
+    v_log := v_log || pg_temp.vb('H1n1', 'facebook ช่วง D+1: ร้านมีข้อมูลถึง D+2 (> D+1) แต่ facebook ถึงแค่ D-40 ⇒ covers_window false · channel_data_through = D-40', r.orders_data_through = v_day + 2 and r.orders_channel_data_through = v_day - 40 and r.orders_data_covers_window is false,
       concat_ws('|', r.orders_data_through, r.orders_channel_data_through, r.orders_data_covers_window));
     v_log := v_log || pg_temp.vl('H1n2', 'B1 ช่องอื่นมีข้อมูลแต่ช่องนี้ไม่มี: ai เสนอ invalidated → 55000 ระบุช่องทาง facebook', pg_temp.vx(pg_temp.q_prop(v_shopX, v_cO3, 'invalidated', 'facebook ไม่มีออเดอร์', 'ai'), array['55000'], 'facebook'));
     v_log := v_log || pg_temp.vl('H1n3', 'B1 owner ยืนยัน validated บน facebook → 55000 เช่นกัน (ด่านเดียวกัน)', pg_temp.vx(pg_temp.q_conf(v_shopX, v_cO3, 'validated', null, 'owner', null, 'none'), array['55000'], 'facebook'));
@@ -1510,6 +1511,73 @@ begin
       concat_ws('|', r.orders_actual, r.orders_channel_data_through, r.orders_data_through, r.orders_data_covers_window));
     v_log := v_log || pg_temp.vl('H1p2', 'B1 วันท้ายบางส่วน: ai เสนอ validated (ยอด 1 ถึงเกณฑ์) → 55000', pg_temp.vx(pg_temp.q_prop(v_shopX, v_cO3, 'validated', 'ยอดถึงเกณฑ์ 1', 'ai'), array['55000'], 'ยังไม่ครบช่วง'));
     v_log := v_log || pg_temp.vb('H1q', 'แคมเปญที่ metric ไม่ใช่ orders: orders_channel_data_through = null (ทุกแคมเปญนอก orders)', (select count(*) from analytics.v_campaign_summary s where s.metric_code is distinct from 'orders' and s.orders_channel_data_through is not null) = 0);
+    -- R3-H1 (security รอบ 3): ระบุช่องทาง ⇒ ช่องนั้นต้องมีออเดอร์ "หลัง" วันท้าย (>) · ไม่ระบุ ⇒ ทุกช่องหลัก (≥10% ใน 28 วันก่อนวันท้าย) ต้องมีข้อมูลหลังวันท้าย
+    --   ร้าน Z (จำลองข้อมูลจริง: TikTok ล่าสุด 5 ต.ค. · LINE 6 ต.ค.): T = วันนี้−3 · line T-2,T-1,T,T+1 · tiktok T-2,T-1,T
+    declare
+      v_shopZ uuid; v_shopZm uuid; v_shopZx uuid; v_dz date := v_today - 3; v_cz uuid; v_czm uuid; v_czx uuid; v_i3 int;
+    begin
+      insert into public.shop (name) values ('verify-0162 r3 shop Z') returning id into v_shopZ;
+      insert into public.shop (name) values ('verify-0162 r3 shop Zm') returning id into v_shopZm;
+      insert into public.shop (name) values ('verify-0162 r3 shop Zx') returning id into v_shopZx;
+      perform pg_temp.mkord(v_shopZ, v_ch_line, v_dz - 2, '{}'::uuid[]); perform pg_temp.mkord(v_shopZ, v_ch_line, v_dz - 1, '{}'::uuid[]);
+      perform pg_temp.mkord(v_shopZ, v_ch_line, v_dz, '{}'::uuid[]); perform pg_temp.mkord(v_shopZ, v_ch_line, v_dz + 1, '{}'::uuid[]);
+      perform pg_temp.mkord(v_shopZ, v_ch_tt, v_dz - 2, '{}'::uuid[]); perform pg_temp.mkord(v_shopZ, v_ch_tt, v_dz - 1, '{}'::uuid[]); perform pg_temp.mkord(v_shopZ, v_ch_tt, v_dz, '{}'::uuid[]);
+      v_cz := pg_temp.mk_camp(v_shopZ, v_dz - 2);
+      perform pg_temp.vj(pg_temp.q_plan(v_shopZ, v_cz, format('{"metric_code":"orders","metric_date_from":"%s","metric_date_to":"%s","pass_threshold":1000,"pass_op":">="}', v_dz - 2, v_dz), 'owner'));
+      select * into r from analytics.v_campaign_summary where campaign_id = v_cz;
+      v_log := v_log || pg_temp.vb('C9a', 'R3-H1 ไม่ระบุช่องทาง ช่วง T-2..T: ร้านมีข้อมูลถึง T+1 (> T) แต่ tiktok (ช่องหลัก) ถึงแค่ T ⇒ orders_major_channels_covered false · covers_window false',
+        r.orders_data_through = v_dz + 1 and r.orders_major_channels_covered is false and r.orders_data_covers_window is false and r.orders_channel_data_through is null,
+        concat_ws('|', r.orders_data_through, r.orders_major_channels_covered, r.orders_data_covers_window));
+      v_log := v_log || pg_temp.vl('C9a2', 'R3-H1 ai เสนอ invalidated (ยอดต่ำเพราะไฟล์ tiktok ของวันท้ายยังไม่ครบ) → 55000 ข้อความบอก "ช่องทางหลัก" (ภาษาไทย ไม่มีรหัสภายใน)', pg_temp.vx(pg_temp.q_prop(v_shopZ, v_cz, 'invalidated', 'ยอดต่ำกว่าเกณฑ์ 1000', 'ai'), array['55000'], 'ช่องทางหลัก'));
+      v_log := v_log || pg_temp.vl('C9a3', 'R3-H1 owner ยืนยัน validated → 55000 เช่นกัน', pg_temp.vx(pg_temp.q_conf(v_shopZ, v_cz, 'validated', null, 'owner', null, 'none'), array['55000'], 'ช่องทางหลัก'));
+      perform pg_temp.vj(pg_temp.q_plan(v_shopZ, v_cz, '{"metric_channel_code":"tiktok"}', 'owner'));
+      select * into r from analytics.v_campaign_summary where campaign_id = v_cz;
+      v_log := v_log || pg_temp.vb('C9b', 'R3-H1 ระบุ tiktok ช่วง T-2..T: ช่องมีออเดอร์วันท้าย (T) แต่ไม่มี "หลัง" วันท้าย ⇒ covers false (> ไม่ใช่ >=) · major_channels_covered null',
+        r.orders_channel_data_through = v_dz and r.orders_data_covers_window is false and r.orders_major_channels_covered is null and r.orders_actual = 3,
+        concat_ws('|', r.orders_channel_data_through, r.orders_data_covers_window, r.orders_actual));
+      v_log := v_log || pg_temp.vl('C9c', 'R3-H1 ai เสนอ invalidated บน tiktok (วันท้ายเท่ากับข้อมูลล่าสุดของช่อง) → 55000', pg_temp.vx(pg_temp.q_prop(v_shopZ, v_cz, 'invalidated', 'tiktok ต่ำกว่าเกณฑ์', 'ai'), array['55000'], 'ช่อง tiktok'));
+      perform pg_temp.vj(pg_temp.q_plan(v_shopZ, v_cz, '{"metric_channel_code":"line_oa"}', 'owner'));
+      select * into r from analytics.v_campaign_summary where campaign_id = v_cz;
+      v_log := v_log || pg_temp.vb('C9c2', 'ต้องไม่พัง: ระบุ line_oa ช่วง T-2..T: line มีออเดอร์ T+1 (> T) ⇒ covers true', r.orders_data_covers_window is true and r.orders_channel_data_through = v_dz + 1, concat_ws('|', r.orders_data_covers_window, r.orders_channel_data_through));
+      v_log := v_log || pg_temp.vl('C9c3', 'ต้องไม่พัง: ai เสนอ invalidated บน line_oa ผ่าน (ช่องนั้นมีข้อมูลหลังวันท้ายแล้ว)', pg_temp.vok(pg_temp.q_prop(v_shopZ, v_cz, 'invalidated', 'line ต่ำกว่าเกณฑ์ 1000', 'ai')));
+      perform pg_temp.vj(pg_temp.q_plan(v_shopZ, v_cz, format('{"metric_channel_code":null,"metric_date_to":"%s"}', v_dz - 1), 'owner'));
+      select * into r from analytics.v_campaign_summary where campaign_id = v_cz;
+      v_log := v_log || pg_temp.vb('C9d', 'ต้องไม่พัง: ไม่ระบุช่องทาง ช่วง T-2..T-1 (line และ tiktok ต่างมีออเดอร์วัน T หลังวันท้าย) ⇒ major_channels_covered true · covers true',
+        r.orders_major_channels_covered is true and r.orders_data_covers_window is true, concat_ws('|', r.orders_major_channels_covered, r.orders_data_covers_window));
+      -- ช่องรอง (<10%) ที่ข้อมูลช้าไม่บล็อก · ช่องที่ได้ 10% เป๊ะบล็อก
+      for v_i3 in 1..12 loop perform pg_temp.mkord(v_shopZm, v_ch_line, v_dz - 3, '{}'::uuid[]); end loop;
+      perform pg_temp.mkord(v_shopZm, v_ch_fb, v_dz - 3, '{}'::uuid[]); perform pg_temp.mkord(v_shopZm, v_ch_line, v_dz - 1, '{}'::uuid[]);
+      v_czm := pg_temp.mk_camp(v_shopZm, v_dz - 3);
+      perform pg_temp.vj(pg_temp.q_plan(v_shopZm, v_czm, format('{"metric_code":"orders","metric_date_from":"%s","metric_date_to":"%s","pass_threshold":1,"pass_op":">="}', v_dz - 3, v_dz - 2), 'owner'));
+      select * into r from analytics.v_campaign_summary where campaign_id = v_czm;
+      v_log := v_log || pg_temp.vb('C9e', 'ต้องไม่พัง: facebook 1 จาก 13 ออเดอร์ (7.7% < 10% = ไม่ใช่ช่องหลัก) ไม่มีข้อมูลหลังวันท้าย ⇒ ไม่บล็อก · line (หลัก) มีวัน T-1 ⇒ covers true', r.orders_major_channels_covered is true and r.orders_data_covers_window is true and r.orders_actual = 13,
+        concat_ws('|', r.orders_major_channels_covered, r.orders_data_covers_window, r.orders_actual));
+      v_log := v_log || pg_temp.vl('C9e2', 'ต้องไม่พัง: ai เสนอ validated บนช่วงที่ช่องรองข้อมูลช้า ผ่าน', pg_temp.vok(pg_temp.q_prop(v_shopZm, v_czm, 'validated', 'ยอด 13 ถึงเกณฑ์ 1', 'ai')));
+      for v_i3 in 1..9 loop perform pg_temp.mkord(v_shopZx, v_ch_line, v_dz - 3, '{}'::uuid[]); end loop;
+      perform pg_temp.mkord(v_shopZx, v_ch_fb, v_dz - 3, '{}'::uuid[]); perform pg_temp.mkord(v_shopZx, v_ch_line, v_dz - 1, '{}'::uuid[]);
+      v_czx := pg_temp.mk_camp(v_shopZx, v_dz - 3);
+      perform pg_temp.vj(pg_temp.q_plan(v_shopZx, v_czx, format('{"metric_code":"orders","metric_date_from":"%s","metric_date_to":"%s","pass_threshold":1,"pass_op":">="}', v_dz - 3, v_dz - 2), 'owner'));
+      select * into r from analytics.v_campaign_summary where campaign_id = v_czx;
+      v_log := v_log || pg_temp.vb('C9f', 'ขอบ 10% เป๊ะ (facebook 1 จาก 10) ⇒ เป็นช่องหลัก · ไม่มีข้อมูลหลังวันท้าย ⇒ major_channels_covered false · covers false', r.orders_major_channels_covered is false and r.orders_data_covers_window is false,
+        concat_ws('|', r.orders_major_channels_covered, r.orders_data_covers_window));
+      v_log := v_log || pg_temp.vl('C9f2', 'ขอบ 10% เป๊ะ: ai เสนอ validated → 55000', pg_temp.vx(pg_temp.q_prop(v_shopZx, v_czx, 'validated', 'ยอดถึงเกณฑ์', 'ai'), array['55000'], 'ช่องทางหลัก'));
+      -- ข้อความ gate ภาษาไทย (code review ข้อ 8): ไม่มีรหัสภายในรั่ว — เก็บข้อความเต็มของ 4 ด่าน (ช่องหลัก · ช่องที่ระบุ · ร้านทั้งร้าน · ไม่รู้ช่วงวัน)
+      v_s1 := '';
+      perform pg_temp.vj(pg_temp.q_plan(v_shopX, v_cO2, format('{"metric_date_to":"%s"}', v_day + 2), 'owner'));   -- cO2: วันท้ายเท่าข้อมูลล่าสุดของร้าน (ไม่มีข้อมูลวันหลัง)
+      begin perform analytics.campaign_verdict_propose(v_shopZx, v_czx, 'validated', 'ยอดถึงเกณฑ์', 'ai'); exception when others then v_s1 := v_s1 || sqlerrm || E'
+'; end;
+      begin perform analytics.campaign_verdict_propose(v_shopX, v_cO3, 'invalidated', 'ทดสอบข้อความ', 'ai'); exception when others then v_s1 := v_s1 || sqlerrm || E'
+'; end;
+      begin perform analytics.campaign_verdict_propose(v_shopX, v_cO2, 'validated', 'ทดสอบข้อความ', 'ai'); exception when others then v_s1 := v_s1 || sqlerrm || E'
+'; end;
+      begin perform analytics.campaign_verdict_propose(v_shopX, v_cG2, 'validated', 'ทดสอบข้อความ', 'ai'); exception when others then v_s1 := v_s1 || sqlerrm || E'
+'; end;
+      v_log := v_log || pg_temp.vb('C9g', 'ข้อความ gate ทั้ง 4 แบบ (ช่องหลัก/ช่องที่ระบุ/ร้านทั้งร้าน/ไม่รู้ช่วงวัน) เป็นภาษาไทยที่เจ้าของเข้าใจ — ไม่มีรหัสภายใน validated/inconclusive/pass_op/campaign_plan_set/metric_date_from/anchor_date/not_measured · มี "ได้ผล"/"ยังสรุปไม่ได้"',
+        (select count(*) from regexp_split_to_table(v_s1, E'
+') l where l <> '') = 4
+        and v_s1 !~ '(validated|invalidated|inconclusive|not_measured|pass_op|pass_threshold|campaign_plan_set|metric_date|anchor_date|metric_code)' and v_s1 like '%ยังสรุปไม่ได้%' and v_s1 like '%ช่องทางหลัก%', left(v_s1, 400));
+    end;
+
     -- ร้านที่ไม่มีออเดอร์เลย (ร้าน B): data_through null = ไม่ครอบ → validated ตก (ข้อความบอก "ไม่มีข้อมูลเลย")
     perform pg_temp.vj(pg_temp.q_plan(v_shopB, v_cB, '{"pass_threshold":1,"pass_op":">="}', 'owner'));
     select * into r from analytics.v_campaign_summary where campaign_id = v_cB;
@@ -1631,11 +1699,11 @@ begin
   v_log := v_log || pg_temp.vb('R2g1', 'ข้อเสนอ pending ที่เลย respond_by แล้ว: สร้างชื่อเดิมใหม่ได้จริง (created true · id ใหม่ · expired_previous 1) — ไม่หายเงียบเข้าแถวเก่า',
     (v_j ->> 'created') = 'true' and (v_j ->> 'id')::uuid <> v_rR and (v_j ->> 'expired_previous') = '1', left(v_j::text, 200));
   select * into r from analytics.recommendation_log where id = v_rR;
-  v_log := v_log || pg_temp.vb('R2g2', 'แถวเก่าถูกปิดเป็น expired (acted_at ตั้ง · acted_by_role ว่าง = ระบบปิดไม่ใช่เจ้าของ · เนื้อหาเดิมอยู่)', r.owner_action = 'expired' and r.acted_at is not null and r.acted_by_role is null and r.detail = 'เนื้อหาเดิม', r.owner_action);
+  v_log := v_log || pg_temp.vb('R2g2', 'แถวเก่าถูกปิดเป็น expired (acted_at ตั้ง · acted_by_role = system = ระบบปิดไม่ใช่เจ้าของ · เนื้อหาเดิมอยู่)', r.owner_action = 'expired' and r.acted_at is not null and r.acted_by_role = 'system' and r.detail = 'เนื้อหาเดิม', r.owner_action);
   v_log := v_log || pg_temp.vb('R2g3', 'ชื่อนี้เหลือ pending แถวเดียว (partial unique index ไม่ชน) · inbox แถวใหม่ pending',
     (select count(*) from analytics.recommendation_log where shop_id = v_shopB and lower(title) = 'r2 expire dup' and owner_action = 'pending') = 1
     and (select effective_action from analytics.v_recommendation_inbox where item_id = (v_j ->> 'id')::uuid and item_kind = 'reco') = 'pending');
-  v_log := v_log || pg_temp.vl('R2g4', 'ตอบแถวที่ถูกปิดเป็น expired ไปแล้ว → 55000 (ตอบแล้ว)', pg_temp.vx(pg_temp.q_rresp(v_shopB, v_rR, 'done', 'ตอบช้าไป', 'owner'), array['55000']));
+  v_log := v_log || pg_temp.vl('R2g4', 'R3-M1 เจ้าของตอบแถวที่ระบบปิดเป็น expired ได้ (ตอบช้าได้ — ขัดหลัก 0162 ไม่ได้) ผ่าน', pg_temp.vok(pg_temp.q_rresp(v_shopB, v_rR, 'done', 'ตอบช้าไป แต่ยังตอบได้', 'owner')));
   v_j := pg_temp.vj(pg_temp.q_rcreate(v_shopB, 'R2 fresh dup', 'ยังไม่หมดเวลา', 'ai', 'question', 'agent', null, (v_today + 3)::text, 'ถือว่าปฏิเสธ'));
   v_rR := (v_j ->> 'id')::uuid;
   v_j := pg_temp.vj(pg_temp.q_rcreate(v_shopB, 'R2 fresh dup', 'ยังไม่หมดเวลา', 'ai', 'question', 'agent', null, (v_today + 3)::text, 'ถือว่าปฏิเสธ'));
@@ -1658,6 +1726,63 @@ begin
   v_log := v_log || pg_temp.vb('R2i4', 'content_bidi_present_ จับทุกช่วงใหม่ (ขอบล่าง/บน): 0080 009F 034F 17B4 17B5 1160 206A 206F FFA0 1BCA0 1BCA3 E0100 E01EF',
     (select bool_and(analytics.content_bidi_present_('ก' || chr(c) || 'ข')) from unnest(array[128, 159, 847, 6068, 6069, 4448, 8298, 8303, 65440, 113824, 113827, 917760, 917999]) c));
   v_log := v_log || pg_temp.vb('R2i5', 'content_bidi_present_ ไม่จับ FE00-FE0F · 2065 (ไม่อยู่ในชุด) · ตัวอักษรไทย/ตัวเลข/ช่องว่างปกติ', (select not bool_or(analytics.content_bidi_present_('ก' || chr(c) || 'ข')) from unnest(array[65024, 65038, 65039, 8205, 8204, 9, 10, 13, 32, 160, 3585, 48]) c));
+
+
+  ----------------------------------------------------------------------------
+  -- รอบ 3 (security รอบ 3 + code review C-3PO) — R3-M1 · TRUNCATE · (R3-H1 อยู่ในส่วน O ด้านบน: C9a-C9g)
+  ----------------------------------------------------------------------------
+
+  -- R3-M1: แถวที่ระบบปิดเป็น expired ตอน recommendation_create (acted_by_role = system) เจ้าของยังตอบช้าได้ · ล็อกหลังตอบ · is_late นับเฉพาะ owner
+  v_j := pg_temp.vj(pg_temp.q_rcreate(v_shopB, 'R3 sys expire', 'เนื้อหาเดิมของ R3', 'ai', 'question', 'agent', null, (v_today + 2)::text, 'ถือว่าปฏิเสธ'));
+  v_rR := (v_j ->> 'id')::uuid;
+  update analytics.recommendation_log set respond_by = v_today - 1 where id = v_rR;
+  v_j := pg_temp.vj(pg_temp.q_rcreate(v_shopB, 'R3 sys expire', 'เนื้อหารอบใหม่ของ R3', 'ai', 'question', 'agent', null, (v_today + 3)::text, 'ถือว่าปฏิเสธ'));
+  v_rR2 := (v_j ->> 'id')::uuid;
+  select * into r from analytics.recommendation_log where id = v_rR;
+  v_log := v_log || pg_temp.vb('R3m1', 'ระบบปิดแถวเก่าเป็น expired: owner_action expired · acted_by_role = system · acted_at ตั้ง · ไม่มีคำตอบของเจ้าของ', r.owner_action = 'expired' and r.acted_by_role = 'system' and r.acted_at is not null and r.owner_response is null, concat_ws('|', r.owner_action, r.acted_by_role));
+  select i.effective_action, i.is_late into v_s1, v_s2 from analytics.v_recommendation_inbox i where i.item_kind = 'reco' and i.item_id = v_rR;
+  v_log := v_log || pg_temp.vb('R3m2', 'view: effective_action expired · is_late = false (ระบบปิด ไม่ใช่เจ้าของตอบช้า)', v_s1 = 'expired' and v_s2 = 'false', coalesce(v_s1, 'null') || '/' || coalesce(v_s2, 'null'));
+  v_log := v_log || pg_temp.vl('R3m3', 'ai ตอบแถวที่ระบบปิดแล้วไม่ได้ (เฉพาะเจ้าของ)', pg_temp.vx(pg_temp.q_rresp(v_shopB, v_rR, 'done', 'ai ตอบแทน', 'ai'), array['42501', '22023']));
+  v_j := pg_temp.vj(pg_temp.q_rresp(v_shopB, v_rR, 'rejected', 'ขอตอบช้า ไม่เอา', 'owner'));
+  v_log := v_log || pg_temp.vb('R3m4', 'ต้องไม่พัง: เจ้าของตอบแถวที่ระบบปิดเป็น expired ได้ · payload reopened_from_system_expiry true · late true',
+    v_j ->> 'error' is null and (v_j ->> 'reopened_from_system_expiry') = 'true' and (v_j ->> 'late') = 'true' and v_j ->> 'owner_action' = 'rejected', coalesce(v_j ->> 'msg', v_j::text));
+  select * into r from analytics.recommendation_log where id = v_rR;
+  v_log := v_log || pg_temp.vb('R3m5', 'หลังตอบ: owner_action rejected · acted_by_role owner · owner_response ลงตาราง · acted_session_user มี', r.owner_action = 'rejected' and r.acted_by_role = 'owner' and r.owner_response = 'ขอตอบช้า ไม่เอา' and r.acted_session_user is not null);
+  select i.effective_action, i.is_late into v_s1, v_s2 from analytics.v_recommendation_inbox i where i.item_kind = 'reco' and i.item_id = v_rR;
+  v_log := v_log || pg_temp.vb('R3m6', 'view หลังเจ้าของตอบช้า: effective_action rejected · is_late = true (เจ้าของตอบหลังเส้นตายจริง)', v_s1 = 'rejected' and v_s2 = 'true', coalesce(v_s1, 'null') || '/' || coalesce(v_s2, 'null'));
+  v_log := v_log || pg_temp.vl('R3m7', 'ตอบซ้ำหลังเจ้าของตอบแล้ว → 55000', pg_temp.vx(pg_temp.q_rresp(v_shopB, v_rR, 'done', 'เปลี่ยนใจ', 'owner'), array['55000']));
+  v_log := v_log || pg_temp.vl('R3m8', 'ล็อกหลังเจ้าของตอบ: postgres แก้ owner_response → 55000', pg_temp.vx(format('update analytics.recommendation_log set owner_response = %L where id = %L', 'แก้ย้อนหลัง', v_rR), array['55000'], 'แก้ย้อนหลังไม่ได้'));
+  v_log := v_log || pg_temp.vl('R3m9', 'ล็อกหลังเจ้าของตอบ: postgres แก้ owner_action กลับเป็น expired → 55000', pg_temp.vx(format('update analytics.recommendation_log set owner_action = %L where id = %L', 'expired', v_rR), array['55000']));
+  v_log := v_log || pg_temp.vl('R3m10', 'ล็อกหลังเจ้าของตอบ: postgres DELETE → 55000', pg_temp.vx(format('delete from analytics.recommendation_log where id = %L', v_rR), array['55000']));
+  v_log := v_log || pg_temp.vb('R3m11', 'แถวใหม่ชื่อเดียวกันยัง pending ไม่ถูกแตะ', (select owner_action from analytics.recommendation_log where id = v_rR2) = 'pending');
+  -- ปิดตรงโดยคน (postgres · acted_by_role ว่าง) ยังตอบไม่ได้ — มีแต่ที่ "ระบบ" ปิดเท่านั้นที่เปิดให้ตอบ
+  v_j := pg_temp.vj(pg_temp.q_rcreate(v_shopB, 'R3 manual expired', 'ปิดตรงโดย postgres', 'ai'));
+  v_rR2 := (v_j ->> 'id')::uuid;
+  update analytics.recommendation_log set owner_action = 'expired', acted_at = now() where id = v_rR2;
+  v_log := v_log || pg_temp.vl('R3m12', 'แถวที่ postgres ปิดเป็น expired ตรง (acted_by_role ว่าง) เจ้าของตอบไม่ได้ → 55000', pg_temp.vx(pg_temp.q_rresp(v_shopB, v_rR2, 'done', 'ตอบ', 'owner'), array['55000']));
+  v_log := v_log || pg_temp.vl('R3m13', 'acted_by_role = ai ผิด CHECK → 23514 (ชุดที่รับ: owner/system)', pg_temp.vx(format('update analytics.recommendation_log set acted_by_role = %L where id = %L', 'ai', v_rR2), array['23514']));
+  v_log := v_log || pg_temp.vl('R3m14', 'service_role เขียน acted_by_role = system ตรงไม่ได้ → 42501 (ชั้น GRANT)', pg_temp.vr('service_role', format('update analytics.recommendation_log set acted_by_role = %L where id = %L', 'system', v_rR2), array['42501']));
+
+  -- code review ข้อ 7: TRUNCATE ถูกปฏิเสธทุก role (แม้เจ้าของตาราง) · ครอบ CASCADE จากตารางแม่ · แต่ละคำสั่งอยู่ใน sub-block ที่ rollback เองเผื่อ trigger ไม่ทำงาน (ข้อมูลทดสอบไม่หาย)
+  begin
+    v_s1 := pg_temp.vx('truncate analytics.recommendation_log', array['55000'], 'ล้างตาราง');
+    raise exception 'r3t-rb';
+  exception when others then null;
+  end;
+  v_log := v_log || pg_temp.vl('R3t1', 'postgres TRUNCATE recommendation_log → 55000 (trigger ของ 0162 ไม่ใช่ของ 0161)', v_s1);
+  begin
+    v_s1 := pg_temp.vx('truncate analytics.content_weekly_summary cascade', array['55000']);
+    raise exception 'r3t-rb';
+  exception when others then null;
+  end;
+  v_log := v_log || pg_temp.vl('R3t2', 'postgres TRUNCATE content_weekly_summary CASCADE → 55000 (แบบไม่ cascade Postgres ปฏิเสธเองด้วย 0A000 เพราะ recommendation_log อ้างอิงอยู่ — ตัว trigger ของตารางนี้พิสูจน์ด้วย R3t5)', v_s1);
+  -- ไม่ทดสอบ truncate public.shop cascade: คำสั่งนี้ขอ ACCESS EXCLUSIVE กับทุกตารางที่อ้าง public.shop บน DB ที่ใช้ร่วมกัน — ลองแล้วชน deadlock (40P01) กับ session อื่น และขวางงานคนอื่นระหว่างรอ
+  -- ⇒ ใช้ truncate ตรง (R3t1/R3t2) + พิสูจน์ trigger ด้วย pg_trigger (R3t5) แทน · BEFORE TRUNCATE ยิงกับทุกตารางที่ถูกล้างรวมตารางที่ cascade ไป (พฤติกรรมมาตรฐานของ Postgres)
+  v_log := v_log || E'[SKIP] R3t3 truncate public.shop cascade — ไม่รันบน DB ที่ใช้ร่วมกัน (ล็อกทุกตารางที่อ้าง shop · deadlock 40P01 ตอนลอง) · ครอบด้วย R3t1/R3t2/R3t5
+';
+  v_log := v_log || pg_temp.vb('R3t4', 'หลังทุกคำสั่งข้างต้นข้อมูลยังอยู่ครบ (sub-block rollback) — ร้าน B ยังมีแถว reco + ตาราง shop ไม่ว่าง', (select count(*) from analytics.recommendation_log where shop_id = v_shopB) > 0 and (select count(*) from public.shop) > 0);
+  v_log := v_log || pg_temp.vb('R3t5', 'trigger กัน TRUNCATE มีครบ 2 ตัว เป็น BEFORE TRUNCATE FOR EACH STATEMENT เปิดอยู่',
+    (select count(*) from pg_trigger t where t.tgname in ('trg_recommendation_log_deny_truncate', 'trg_content_weekly_summary_deny_truncate') and t.tgenabled = 'O' and (t.tgtype & 35) = 34) = 2);
 
 
   ----------------------------------------------------------------------------

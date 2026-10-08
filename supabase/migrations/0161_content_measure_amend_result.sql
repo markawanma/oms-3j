@@ -289,7 +289,8 @@ $f$;
 
 -- ============================================================================
 -- 3. trigger ด่านตาราง content_post_metric — ครอบทุกเส้นทาง (รวม API ในอนาคตที่ยังไม่เขียน) · ไม่ replace content_post_metric_upsert
---    ด่านใช้ current_user อย่างเดียว (ไม่มี GUC — D18): "เขียนตรงจาก service key/REST = ไม่ผ่าน · ฟังก์ชัน definer ใดๆ = ผ่าน"
+--    ด่านปฏิเสธใช้ current_user อย่างเดียว (ไม่มี GUC — D18): "เขียนตรงจาก service key/REST = ไม่ผ่าน · ฟังก์ชัน definer ใดๆ = ผ่าน"
+--    GUC c4.amend_metric (ตั้งแล้วล้างภายใน content_post_metric_amend) ใช้แยก "ทางของ amend" ออกจาก "ทับค่าที่เจ้าของแก้มือ" เพื่อ "บันทึกประวัติ" เท่านั้น — ไม่ใช่ด่านปฏิเสธ
 --    ข้อ API-ทับ (Q9) ทำงานทุก role: เป็นแค่การบันทึกประวัติ ไม่ใช่การปฏิเสธ
 -- ============================================================================
 
@@ -673,7 +674,7 @@ begin
     raise exception 'content_post_verdict_confirm: ป้ายต้องเป็น above / normal / below' using errcode = '22023';
   end if;
   -- L3: บังคับส่งป้ายที่ผู้ยืนยันเห็น (compare-and-set ห้ามข้ามด้วย null) · ระบบยังไม่มีป้ายคำนวณ (ฐาน<4 ฯลฯ) = 'none'
-  -- (parameter ยังมี default null เพื่อไม่เปลี่ยน signature — null ตกที่นี่เป็น 22023 ไม่ใช่ 42883)
+  -- (parameter มี default null เพื่อให้ผู้เรียกที่ละพารามิเตอร์นี้ได้ 22023 พร้อมข้อความบอกเหตุ แทน 42883 "ไม่พบฟังก์ชัน" — ไม่ได้มีไว้ให้ส่ง null ผ่านด่าน)
   if p_expected_computed is null or p_expected_computed not in ('above', 'normal', 'below', 'none') then
     raise exception 'content_post_verdict_confirm: p_expected_computed ต้องเป็น above / normal / below / none (none = ระบบยังไม่มีป้ายคำนวณ) — ห้าม null' using errcode = '22023';
   end if;
@@ -852,8 +853,7 @@ cross join lateral (
          when x.share_rate > x.baseline_share_p75 then 'above'
          when x.share_rate < x.baseline_share_p25 then 'below'
          else 'normal' end as share_label
-) l1
-order by x.posted_at desc;
+) l1;
 
 -- หน้า K ต่อ hook_type (ตารางดิบ) — เฉพาะ hook ของเรา (ours) ที่ติดประเภทและผูกโพสต์ active · ไม่มีมิติโฮสต์ (มติ Q11)
 -- นิยาม n เดียวกับ v_content_hook_library.type_n_pieces (distinct step ที่มี T+7) ⇒ verdict ตรงกับ type_verdict (verify N6)
