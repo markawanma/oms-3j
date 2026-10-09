@@ -973,3 +973,22 @@ H1 สรุปรายสัปดาห์            [← สัปดาห
 | Q4 (Tech Lead) | เห็นชอบปรับ phase 2 จุด (§0.1) · **ดึง "แปะลิงก์ + รายการสัญญาณ + หยิบเป็นไอเดีย" ขึ้นมาไว้ท้าย P1b** — ข้อมูลสัญญาณหายถาวรทุกสัปดาห์ที่ช้า | P1b ใหญ่ขึ้นเล็กน้อย (S–M) · P4 เหลือ Research/คลัง hook/บันทึกไลฟ์ |
 | D2 D3 D11 D14 | Tech Lead เห็นชอบตามที่ Padmé เสนอ · D11: Luke ตรวจ `set_plan` รับ `date: null` จริงก่อน ไม่ได้ = ซ่อนปุ่ม · D14: แก้ focus-ring เป็น commit แยกก่อน P1a | — |
 | deps | `react-markdown` + `remark-gfm` (P3) ต้องผ่าน security ก่อนติดตั้ง | — |
+
+---
+
+## 11. หนี้จาก code review P1a (9 ต.ค. 69) — ทำต้น P1b
+
+C-3PO ตรวจ P1a (REQUEST CHANGES) · blocker + should-fix + nit ที่เกี่ยวกับความถูกต้องแก้ในรอบแก้แล้ว · รายการด้านล่างเลื่อน (ไม่กระทบความถูกต้อง) — ทำเป็นก้อนแรกของ P1b ก่อนเพิ่มหน้าใหม่ เพื่อไม่ให้สำเนาซ้ำโตตาม P1b:
+
+| # | หนี้ | ทำไมเลื่อน/ทำอะไร |
+|---|---|---|
+| 1 | `useRunAction()` — รวม pattern setBusy / error / stale→refresh / toast ที่ซ้ำ ~8 จุด (PieceActionBar · ApprovalCard · PostCard · GateCard · ConfirmItemList · PostedSheet · PlanForm · AiQuestionCard) | พฤติกรรมถูกต้องแล้ว แค่ซ้ำ — รวมก่อน P1b จะเพิ่มอีก (Triage · Shoot) |
+| 2 | รายการเมนูการตลาด 3 ที่ (`MarketingSubNav` TABS · `MarketingBottomNav` MAIN/MORE · `DashboardShell` NAV) → `lib/marketing/nav.ts` ที่เดียว | เพิ่มเมนูใน P1b ต้องแก้ 3 ที่ถ้าไม่รวม |
+| 3 | ชื่อแพลตฟอร์ม 3 ชุด (`PLATFORM_POST_LABEL` · `PLATFORM_LABEL` ใน content-types · `PLATFORM_NAME` ใน post-link) → ชุดเดียว | |
+| 4 | `daysBetween` ซ้ำ (`lib/marketing/format.ts` กับ `lib/marketing/content-kpi.ts`) → ใช้ตัวเดียว | |
+| 5 | แตก `lib/actions/content-pieces.ts` (ส่วน posts · ส่วน legacy/workflow-ids) และ `PlanForm.tsx` (กลุ่มฟิลด์เป็น component ย่อย) | ไฟล์ใหญ่ขึ้นทุก phase |
+| 6 | `IDENT_TH` ใน `rpc-messages.ts` ประกอบตรง (ปัจจุบัน spread จาก label map + filter ตัดคำเดี่ยว) → ตารางเขียนตรง | กันคำอังกฤษเดี่ยวหลุดแทนที่กลางประโยค |
+| 7 | `AiQuestionList` — บรรทัดสรุปหลังตอบไปต่อท้ายรายการ → เก็บตำแหน่งเดิม | ใช้งานได้แล้ว (ไม่หาย) แค่ตำแหน่งกระโดด |
+| 8 | `PieceActionBar` บน PC อยู่ในกรอบ `max-w-3xl` กลางจอ (หน้าขยายเป็น 6xl แล้ว) → จัดชิดคอลัมน์หลัก | ภาพ ไม่กระทบการใช้งาน |
+
+**หมายเหตุสถานะรอบแก้ (ทำแล้ว):** `useSyncedDraft` ไม่เตือน conflict ผิดหลังบันทึกเอง (markSaved + normalize เหมือน server) · `savePieceBody`/`toggleShot` เรียก RPC เดิมเอง มีธง `stale` · ป้ายด่านของ workflow ใหม่บนบอร์ดเดิม · ปลดโพสต์หลายช่องทางล้มกลางทางบอกจำนวนที่ปลดแล้ว · query "รอตอบ" แยกจาก "ประวัติ" · ดิสโคลเชอร์แทน `role="menu"`
