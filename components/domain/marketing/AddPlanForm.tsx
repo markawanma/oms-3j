@@ -29,6 +29,10 @@ export function AddPlanForm({
   prefillTitle,
   prefillArtifactType,
   triggerLabel = "เพิ่มแผน",
+  open: openProp,
+  onOpenChange,
+  hideTrigger = false,
+  triggerTone = "primary",
 }: {
   /** Prefill for the date field — the currently-viewed agenda date (design:
    * "default = วันที่กำลังดูอยู่"). Deliberately NOT derived from
@@ -58,13 +62,26 @@ export function AddPlanForm({
    * only — the fab variant never shows text, icon-only). Defaults to the
    * original "เพิ่มแผน" so every existing call site renders unchanged. */
   triggerLabel?: string;
+  /** ควบคุมการเปิด-ปิดจากข้างนอก (เมนู "เพิ่ม" บนมือถือของปฏิทินใหม่) — ไม่ส่ง = จัดการเอง เหมือนเดิมทุกจุดที่เรียกใช้ */
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  /** ซ่อนปุ่ม trigger (ใช้คู่กับ open/onOpenChange) */
+  hideTrigger?: boolean;
+  /** สีปุ่ม trigger (variant="button") — "secondary" = ปุ่มขาวขอบ ไม่แย่งปุ่มหลักของหน้า */
+  triggerTone?: "primary" | "secondary";
 }) {
   const initialArtifactType =
     prefillArtifactType && (ARTIFACT_TYPE_OPTIONS as readonly string[]).includes(prefillArtifactType)
       ? prefillArtifactType
       : "";
 
-  const [open, setOpen] = useState(false);
+  const [openState, setOpenState] = useState(false);
+  const controlled = openProp !== undefined;
+  const open = controlled ? openProp : openState;
+  const setOpen = (v: boolean) => {
+    if (controlled) onOpenChange?.(v);
+    else setOpenState(v);
+  };
   const [title, setTitle] = useState(prefillTitle ?? "");
   const [date, setDate] = useState(defaultDate);
   const [startTime, setStartTime] = useState("");
@@ -119,6 +136,7 @@ export function AddPlanForm({
 
   return (
     <>
+      {!hideTrigger && (
       <button
         type="button"
         onClick={() => setOpen(true)}
@@ -126,12 +144,15 @@ export function AddPlanForm({
         className={
           variant === "fab"
             ? "fixed right-4 bottom-4 z-40 flex min-h-14 min-w-14 items-center justify-center rounded-full bg-primary-600 text-white shadow-lg hover:bg-primary-700 md:hidden"
-            : "inline-flex min-h-11 items-center gap-1.5 rounded-md bg-primary-600 px-4 text-sm font-semibold text-white hover:bg-primary-700"
+            : triggerTone === "secondary"
+              ? "inline-flex min-h-11 items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-4 text-sm font-semibold text-zinc-800 hover:bg-zinc-50"
+              : "inline-flex min-h-11 items-center gap-1.5 rounded-md bg-primary-600 px-4 text-sm font-semibold text-white hover:bg-primary-700"
         }
       >
         <Plus className="h-5 w-5" aria-hidden="true" />
         {variant === "button" && triggerLabel}
       </button>
+      )}
 
       {open && (
         <div

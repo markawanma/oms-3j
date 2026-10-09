@@ -31,4 +31,7 @@ export interface CalendarData {
   overdue: Part<PieceRow[]>;
   lineQuota: Part<LineQuota | null>;
   festivals: Part<FestivalSpan[]>;
+  /** ชิ้นงานถึงเพดานแถวต่อครั้ง — อาจไม่ครบ (แคบช่วงหรือใช้ตัวกรอง) */
+  piecesTruncated: boolean;
+  legacyTruncated: boolean;
 }

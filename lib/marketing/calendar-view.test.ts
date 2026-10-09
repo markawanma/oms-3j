@@ -213,3 +213,54 @@ describe("periodLabel (พ.ศ.)", () => {
     expect(dayOfMonth("2026-10-09")).toBe(9);
   });
 });
+
+import { firstVisibleDay, isCalendarDate, isMultiDay, layoutSpans } from "./calendar-view";
+
+describe("isCalendarDate — clamp ปี 2025–2030", () => {
+  it("ในช่วงผ่าน · นอกช่วง/วันที่ไม่จริง ไม่ผ่าน", () => {
+    for (const ok of ["2025-01-01", "2026-10-10", "2030-12-31"]) expect(isCalendarDate(ok), ok).toBe(true);
+    for (const bad of ["2024-12-31", "2031-01-01", "0001-01-01", "9999-12-31", "2026-02-30", "x", null]) expect(isCalendarDate(bad as string), String(bad)).toBe(false);
+  });
+});
+
+describe("งานหลายวัน", () => {
+  it("isMultiDay", () => {
+    expect(isMultiDay({ resolvedStart: "2026-10-10", resolvedEnd: "2026-10-18" })).toBe(true);
+    expect(isMultiDay({ resolvedStart: "2026-10-10", resolvedEnd: "2026-10-10" })).toBe(false);
+    expect(isMultiDay({ resolvedStart: "2026-10-10", resolvedEnd: null })).toBe(false);
+    expect(isMultiDay({ resolvedStart: null, resolvedEnd: "2026-10-10" })).toBe(false);
+  });
+  it("layoutSpans: ตัดให้อยู่ในสัปดาห์ · บอกว่าต่อก่อน/หลัง · คอลัมน์ถูก", () => {
+    const bars = layoutSpans([{ resolvedStart: "2026-10-10", resolvedEnd: "2026-10-18", n: "กินเจ" }], "2026-10-05");
+    expect(bars).toHaveLength(1);
+    expect(bars[0]).toMatchObject({ startCol: 6, endCol: 7, continuesBefore: false, continuesAfter: true, lane: 0 });
+    const next = layoutSpans([{ resolvedStart: "2026-10-10", resolvedEnd: "2026-10-18" }], "2026-10-12");
+    expect(next[0]).toMatchObject({ startCol: 1, endCol: 7, continuesBefore: true, continuesAfter: false });
+  });
+  it("คร่อมสิ้นเดือน 30 ต.ค.–2 พ.ย. ในสัปดาห์ 26 ต.ค. = พฤ.–อา. · สัปดาห์ถัดไป = จ.–จ.", () => {
+    const item = { resolvedStart: "2026-10-30", resolvedEnd: "2026-11-02" };
+    expect(layoutSpans([item], "2026-10-26")[0]).toMatchObject({ startCol: 5, endCol: 7, continuesAfter: true });
+    expect(layoutSpans([item], "2026-11-02")[0]).toMatchObject({ startCol: 1, endCol: 1, continuesBefore: true, continuesAfter: false });
+  });
+  it("นอกสัปดาห์ / วันเดียว ไม่มีแถบ · แถบชนกันแยกแถว ไม่ชนแยกใช้แถวเดียว", () => {
+    expect(layoutSpans([{ resolvedStart: "2026-10-20", resolvedEnd: "2026-10-22" }], "2026-10-05")).toEqual([]);
+    expect(layoutSpans([{ resolvedStart: "2026-10-06", resolvedEnd: null }], "2026-10-05")).toEqual([]);
+    const bars = layoutSpans(
+      [
+        { resolvedStart: "2026-10-05", resolvedEnd: "2026-10-08", k: "a" },
+        { resolvedStart: "2026-10-07", resolvedEnd: "2026-10-09", k: "b" },
+        { resolvedStart: "2026-10-10", resolvedEnd: "2026-10-11", k: "c" },
+      ],
+      "2026-10-05"
+    );
+    const lane = (k: string) => bars.find((b) => (b.item as { k: string }).k === k)?.lane;
+    expect(lane("a")).toBe(0);
+    expect(lane("b")).toBe(1);
+    expect(lane("c")).toBe(0);
+  });
+  it("firstVisibleDay: วันเริ่ม หรือวันแรกของช่วงถ้าเริ่มก่อนหน้า", () => {
+    expect(firstVisibleDay({ resolvedStart: "2026-10-10", resolvedEnd: "2026-10-18" }, "2026-10-01")).toBe("2026-10-10");
+    expect(firstVisibleDay({ resolvedStart: "2026-09-25", resolvedEnd: "2026-10-18" }, "2026-10-01")).toBe("2026-10-01");
+    expect(firstVisibleDay({ resolvedStart: null, resolvedEnd: null }, "2026-10-01")).toBeNull();
+  });
+});

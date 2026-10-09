@@ -316,3 +316,74 @@ export function periodLabel(view: CalendarView, anchor: string): string {
 export function dayOfMonth(date: string): number {
   return toUtc(date).getUTCDate();
 }
+
+// ---------------------------------------------------------------------------
+// ช่วงปีที่สมเหตุผลของ ?d= (QA ต่ำ: ปีหลุดทำให้กริดว่าง/คำนวณแปลก) — นอกช่วง = กลับวันนี้
+// ---------------------------------------------------------------------------
+
+export const MIN_CALENDAR_YEAR = 2025;
+export const MAX_CALENDAR_YEAR = 2030;
+
+/** วันที่จริงและปีอยู่ใน 2025–2030 */
+export function isCalendarDate(s: unknown): s is string {
+  if (!isRealDate(s)) return false;
+  const y = Number(s.slice(0, 4));
+  return y >= MIN_CALENDAR_YEAR && y <= MAX_CALENDAR_YEAR;
+}
+
+// ---------------------------------------------------------------------------
+// งานหลายวัน — แถบเดียวบนหัวสัปดาห์ (ไม่ซ้ำทุกวัน)
+// ---------------------------------------------------------------------------
+
+export function isMultiDay(item: Dated): boolean {
+  return Boolean(item.resolvedStart && item.resolvedEnd && item.resolvedEnd > item.resolvedStart);
+}
+
+export interface SpanBar<T> {
+  item: T;
+  /** คอลัมน์เริ่ม/จบ 1–7 (จ–อา) หลังตัดให้อยู่ในสัปดาห์ */
+  startCol: number;
+  endCol: number;
+  /** ต่อไปก่อนสัปดาห์นี้ / ต่อหลังสัปดาห์นี้ (แสดงลูกศร) */
+  continuesBefore: boolean;
+  continuesAfter: boolean;
+  /** แถวที่แถบอยู่ (0..) — แถบที่ช่วงชนกันไม่ซ้อนแถวเดียวกัน */
+  lane: number;
+}
+
+/** วางแถบงานหลายวันของสัปดาห์ (จองแถวแบบ greedy เรียงตามวันเริ่มแล้วยาวก่อน) */
+export function layoutSpans<T extends Dated>(items: readonly T[], weekFrom: string): SpanBar<T>[] {
+  const weekTo = addDays(weekFrom, 6);
+  const cands = items
+    .filter((i) => isMultiDay(i) && (i.resolvedStart as string) <= weekTo && (i.resolvedEnd as string) >= weekFrom)
+    .map((item) => {
+      const s = item.resolvedStart as string;
+      const e = item.resolvedEnd as string;
+      const cs = s < weekFrom ? weekFrom : s;
+      const ce = e > weekTo ? weekTo : e;
+      return { item, startCol: weekdayIndex(cs) + 1, endCol: weekdayIndex(ce) + 1, continuesBefore: s < weekFrom, continuesAfter: e > weekTo };
+    })
+    .sort((a, b) => a.startCol - b.startCol || b.endCol - b.startCol - (a.endCol - a.startCol));
+  const laneEnds: number[] = [];
+  return cands.map((c) => {
+    let lane = laneEnds.findIndex((end) => end < c.startCol);
+    if (lane === -1) {
+      lane = laneEnds.length;
+      laneEnds.push(c.endCol);
+    } else {
+      laneEnds[lane] = c.endCol;
+    }
+    return { ...c, lane };
+  });
+}
+
+/** วันที่ของรายการแบบ "แสดงครั้งเดียว" ในช่วงที่เห็น: วันเริ่ม หรือวันแรกของช่วงถ้างานเริ่มก่อนหน้านั้น */
+export function firstVisibleDay(item: Dated, rangeFrom: string): string | null {
+  if (!item.resolvedStart) return null;
+  return item.resolvedStart < rangeFrom ? rangeFrom : item.resolvedStart;
+}
+
+/** เทศกาลที่ "เริ่ม" (หรือเริ่มก่อนช่วงและนี่คือวันแรกที่เห็น) ในวันนี้ — มุมมองรายการแสดงครั้งเดียว */
+export function festivalsStartingOn(spans: readonly FestivalSpan[], day: string, rangeFrom: string): FestivalSpan[] {
+  return spans.filter((s) => firstVisibleDay({ resolvedStart: s.from, resolvedEnd: s.to }, rangeFrom) === day && s.to >= day);
+}

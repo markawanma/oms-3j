@@ -70,6 +70,33 @@ describe("getCalendarData", () => {
     expect(calls).toHaveLength(0);
   });
 
+  it("ปีนอก 2025–2030 (หรือวันนี้ผิดปี) → ปฏิเสธโดยไม่ query", async () => {
+    for (const [f, t, today] of [
+      ["2031-01-01", "2031-01-07", "2026-10-09"],
+      ["2024-12-30", "2025-01-05", "2026-10-09"],
+      ["0001-01-01", "0001-01-07", "2026-10-09"],
+      ["2026-10-05", "2026-10-11", "9999-12-31"],
+    ]) {
+      expect((await getCalendarData(f, t, today)).ok, `${f} ${t} ${today}`).toBe(false);
+    }
+    expect(calls).toHaveLength(0);
+    expect((await getCalendarData("2025-01-01", "2025-01-07", "2026-10-09")).ok).toBe(true);
+  });
+
+  it("ถึงเพดานแถว → piecesTruncated / legacyTruncated = true (ไม่ตัดเงียบ) · ต่ำกว่าเพดาน = false", async () => {
+    const mk = (n: number) => Array.from({ length: n }, (_, i) => ({ step_id: `s${i}`, campaign_id: "c", title: "t", piece_status: "planned", resolved_start: "2026-10-06" }));
+    tableResults.v_content_piece_calendar = { data: mk(300), error: null };
+    tableResults.v_campaign_board = { data: Array.from({ length: 300 }, (_, i) => ({ step_id: `old${i}`, campaign_id: "c", step_kind: "x", resolved_start: "2026-10-06" })), error: null };
+    let r = await getCalendarData("2026-10-05", "2026-10-11", "2026-10-09");
+    expect(r.ok && r.data.piecesTruncated).toBe(true);
+    expect(r.ok && r.data.legacyTruncated).toBe(true);
+    tableResults.v_content_piece_calendar = { data: mk(299), error: null };
+    tableResults.v_campaign_board = { data: [], error: null };
+    r = await getCalendarData("2026-10-05", "2026-10-11", "2026-10-09");
+    expect(r.ok && r.data.piecesTruncated).toBe(false);
+    expect(r.ok && r.data.legacyTruncated).toBe(false);
+  });
+
   it("ทุก query กรอง shop_id · มีเพดานแถว · ใช้ overlap (ไม่ใช่กรองแค่ resolved_start)", async () => {
     const r = await getCalendarData("2026-10-26", "2026-11-01", "2026-10-29");
     expect(r.ok).toBe(true);

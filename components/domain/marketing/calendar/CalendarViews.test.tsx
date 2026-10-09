@@ -14,6 +14,8 @@ vi.mock("next/navigation", () => ({ useRouter: () => ({ replace, refresh, push: 
 const createPiece = vi.fn();
 vi.mock("@/lib/actions/content-calendar", () => ({ createPiece: (...a: unknown[]) => createPiece(...a) }));
 vi.mock("@/lib/actions/content-pieces", () => ({ deferPiece: vi.fn(), advancePiece: vi.fn() }));
+const createManualTask = vi.fn();
+vi.mock("@/lib/actions/calendar", () => ({ createManualTask: (...a: unknown[]) => createManualTask(...a) }));
 
 import { CalendarToolbar, LegacyLane, ListView, MonthView, WeekView } from "./CalendarViews";
 import { CalendarPieceCard, canDeferPiece } from "./CalendarPieceCard";
@@ -52,14 +54,34 @@ describe("WeekView", () => {
     expect(today).toHaveTextContent("วันนี้");
   });
 
-  it("งาน 3 วันที่คร่อมสิ้นเดือน (30 ต.ค.–1 พ.ย.) โผล่ครบทุกวัน · วันที่ 2+ มีป้ายต่อเนื่อง", () => {
+  it("งานหลายวันคร่อมสิ้นเดือน (30 ต.ค.–1 พ.ย.) = แถบเดียวบนหัวสัปดาห์ ไม่ซ้ำในช่องวัน · กดแถบไปหน้าชิ้นงาน", () => {
     const span = piece({ title: "งานคร่อมเดือน", resolved_start: "2026-10-30", resolved_end: "2026-11-01" });
     wrap(<WeekView weekFrom="2026-10-26" pieces={[span]} festivals={[]} contentTypes={TYPES} todayTh={TODAY} />);
-    expect(screen.getAllByText("งานคร่อมเดือน")).toHaveLength(3);
-    expect(screen.getAllByText("ต่อเนื่อง")).toHaveLength(2);
+    // ไม่มีในช่องวันใดเลย
+    const dayList = document.querySelector("ol") as HTMLElement;
+    expect(within(dayList).queryByText("งานคร่อมเดือน")).not.toBeInTheDocument();
+    // มีในแถบ PC (ลิงก์) และรายการรวมมือถือ (การ์ด) อย่างละที่เดียว
+    const links = screen.getAllByRole("link", { name: /งานคร่อมเดือน/ });
+    expect(links.length).toBe(2);
+    for (const l of links) expect(l).toHaveAttribute("href", `/marketing/pieces/${span.stepId}?from=calendar`);
+    expect(screen.getByText("งานต่อเนื่องสัปดาห์นี้")).toBeInTheDocument();
+    expect(screen.getAllByText(/30 ต\.ค\. – 1 พ\.ย\./).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/ช่วง/).length).toBeGreaterThan(0);
   });
 
-  it("เทศกาลแสดงในวันที่คร่อมเท่านั้น (วันมาจาก DB) · ไม่มีแถวโฮสต์รายวัน", () => {
+  it("แถบพาดช่วงวัน: ตัดให้อยู่ในสัปดาห์ · สัปดาห์ถัดไปของงานเดิมก็มีแถบ (ไม่หายตอนข้ามเดือน)", () => {
+    const span = piece({ title: "งานคร่อมเดือน", resolved_start: "2026-10-30", resolved_end: "2026-11-03" });
+    wrap(<WeekView weekFrom="2026-11-02" pieces={[span]} festivals={[]} contentTypes={TYPES} todayTh={TODAY} />);
+    expect(screen.getAllByRole("link", { name: /งานคร่อมเดือน/ }).length).toBe(2);
+  });
+
+  it("งานวันเดียวยังอยู่ในช่องวัน · ไม่มีแถบเมื่อไม่มีงานหลายวัน", () => {
+    wrap(<WeekView weekFrom="2026-10-05" pieces={[piece({ title: "วันเดียว" })]} festivals={[]} contentTypes={TYPES} todayTh={TODAY} />);
+    expect(screen.queryByText("งานต่อเนื่องสัปดาห์นี้")).not.toBeInTheDocument();
+    expect(within(document.querySelector("ol") as HTMLElement).getByText("วันเดียว")).toBeInTheDocument();
+  });
+
+  it("เทศกาลหลายวัน = แถบ (PC) + รายการรวม (มือถือ) ไม่ซ้ำทุกวัน · ไม่มีแถวโฮสต์รายวัน", () => {
     wrap(
       <WeekView
         weekFrom="2026-10-05"
@@ -199,8 +221,9 @@ describe("CalendarOverdue", () => {
     expect(container.textContent).toBe("");
     cleanup();
     wrap(<CalendarOverdue pieces={[piece({ title: "ค้างอยู่", resolved_start: "2026-10-04" })]} todayTh={TODAY} />);
-    expect(screen.getByText("ค้างอยู่")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "ยกเลิก" }));
+    expect(screen.getAllByText("ค้างอยู่").length).toBeGreaterThan(0);
+    expect(screen.getByText(/ค้าง 1 ชิ้น/)).toBeInTheDocument(); // บรรทัดพับของมือถือ
+    await userEvent.click(screen.getAllByRole("button", { name: "ยกเลิก" })[0]);
     expect(await screen.findByRole("dialog")).toHaveTextContent("ยกเลิกชิ้นงาน");
   });
 });
@@ -266,5 +289,63 @@ describe("เพิ่มชิ้นงาน (content_piece_create)", () => {
     expect(within(dlg).getByLabelText("ชื่อชิ้นงาน")).toHaveValue("คลิปใหม่");
     await userEvent.click(send);
     await waitFor(() => expect(refresh).toHaveBeenCalled());
+  });
+});
+
+describe("งานหลายวันในเดือน/รายการ (มติเจ้าของ 10 ต.ค.)", () => {
+  const span = piece({ title: "กินเจ", resolved_start: "2026-10-10", resolved_end: "2026-10-18" });
+  it("เดือน: นับทุกวันที่คร่อมแต่ติดเครื่องหมาย ↔ + คำอธิบายว่าเป็นงานต่อเนื่อง · การ์ดของวันที่เลือกบอกช่วงวัน", () => {
+    wrap(<MonthView state={{ view: "month" }} anchor="2026-10-12" selectedDay="2026-10-12" pieces={[span]} festivals={[]} contentTypes={TYPES} todayTh={TODAY} />);
+    expect(screen.getByRole("link", { name: /12 ต.ค./ })).toHaveAccessibleName(/รวมงานต่อเนื่อง 1/);
+    expect(screen.getByText(/รวมงานต่อเนื่องหลายวัน/)).toBeInTheDocument();
+    expect(screen.getAllByText("ต่อเนื่อง").length).toBe(1);
+    expect(screen.getByText(/ช่วง .*10 ต.ค./)).toBeInTheDocument();
+  });
+  it("รายการ: แสดงครั้งเดียวที่วันเริ่ม พร้อมช่วงวัน (ไม่ซ้ำทุกวัน)", () => {
+    wrap(<ListView anchor="2026-10-15" pieces={[span]} festivals={[]} contentTypes={TYPES} todayTh={TODAY} />);
+    expect(screen.getAllByText("กินเจ")).toHaveLength(1);
+    expect(screen.getAllByRole("heading", { level: 2 })).toHaveLength(1);
+    expect(screen.getByText(/ช่วง/)).toBeInTheDocument();
+  });
+  it("รายการ: งานที่เริ่มก่อนเดือนนี้ → แสดงครั้งเดียวที่วันแรกของเดือน", () => {
+    const early = piece({ title: "ข้ามเดือน", resolved_start: "2026-09-25", resolved_end: "2026-10-03" });
+    wrap(<ListView anchor="2026-10-15" pieces={[early]} festivals={[]} contentTypes={TYPES} todayTh={TODAY} />);
+    expect(screen.getAllByText("ข้ามเดือน")).toHaveLength(1);
+    expect(screen.getByRole("heading", { level: 2 })).toHaveTextContent("1");
+  });
+  it("รายการ: เทศกาลหลายวันแสดงครั้งเดียว", () => {
+    wrap(<ListView anchor="2026-10-15" pieces={[]} festivals={[{ name: "กินเจ", from: "2026-10-10", to: "2026-10-18" }]} contentTypes={TYPES} todayTh={TODAY} />);
+    expect(screen.getAllByText(/เทศกาล: กินเจ/)).toHaveLength(1);
+  });
+});
+
+describe("AddMenu — เพิ่มชิ้นงาน + เพิ่มแผนเดิม คู่กัน (มติเจ้าของ 10 ต.ค.)", () => {
+  const options = { campaigns: [], channels: [], statuses: [], types: [] };
+  const mount = () => wrap(<CalendarToolbar state={{ view: "week", d: "2026-10-12" }} anchor="2026-10-12" todayTh={TODAY} options={options} typeLabels={{}} />);
+  it("PC: ปุ่มสองปุ่มชื่อไม่สับสน", () => {
+    mount();
+    expect(screen.getByRole("button", { name: /เพิ่มชิ้นงาน/ })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /เพิ่มแผนเดิม/ })).toBeInTheDocument();
+  });
+  it("มือถือ: ปุ่ม 'เพิ่ม' เดียว → เมนูมี 2 ตัวเลือกพร้อมคำอธิบาย · เลือกแผนเดิมเปิดฟอร์มเดิม · Escape คืนโฟกัส", async () => {
+    mount();
+    const trigger = screen.getByRole("button", { name: /^เพิ่ม$/ });
+    await userEvent.click(trigger);
+    const list = screen.getByRole("list", { name: "เลือกสิ่งที่จะเพิ่ม" });
+    expect(within(list).getAllByRole("button").map((b) => b.textContent)).toEqual([
+      expect.stringContaining("เพิ่มชิ้นงาน"),
+      expect.stringContaining("เพิ่มแผนเดิม"),
+    ]);
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("list", { name: "เลือกสิ่งที่จะเพิ่ม" })).not.toBeInTheDocument();
+    await userEvent.click(trigger);
+    await userEvent.click(within(screen.getByRole("list", { name: "เลือกสิ่งที่จะเพิ่ม" })).getByRole("button", { name: /เพิ่มแผนเดิม/ }));
+    expect(await screen.findByRole("dialog", { name: "เพิ่มแผนเอง" })).toBeInTheDocument();
+  });
+  it("มือถือ: เลือกเพิ่มชิ้นงาน → เปิดกล่องชิ้นงานใหม่", async () => {
+    mount();
+    await userEvent.click(screen.getByRole("button", { name: /^เพิ่ม$/ }));
+    await userEvent.click(within(screen.getByRole("list", { name: "เลือกสิ่งที่จะเพิ่ม" })).getByRole("button", { name: /เพิ่มชิ้นงาน/ }));
+    expect(await screen.findByRole("dialog")).toHaveTextContent("เพิ่มชิ้นงาน");
   });
 });

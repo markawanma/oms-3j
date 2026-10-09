@@ -160,32 +160,38 @@ function Form({ defaultDate, todayTh, onClose, onDirty }: { defaultDate: string;
   );
 }
 
+/** กล่องเพิ่มชิ้นงาน (ควบคุมจากข้างนอก — ใช้ทั้งปุ่ม PC และเมนู "เพิ่ม" บนมือถือ) */
+export function CreatePieceDialog({ open, onClose, defaultDate, todayTh }: { open: boolean; onClose: () => void; defaultDate: string; todayTh: string }) {
+  const dirty = useRef(false);
+  if (!open) return null;
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title="เพิ่มชิ้นงาน"
+      confirmBeforeClose={() => !dirty.current || window.confirm("ทิ้งข้อมูลที่กรอกไว้?")}
+    >
+      <Form
+        defaultDate={defaultDate}
+        todayTh={todayTh}
+        onClose={onClose}
+        onDirty={(d) => {
+          dirty.current = d;
+        }}
+      />
+    </Modal>
+  );
+}
+
 export function CreatePieceButton({ defaultDate, todayTh }: { defaultDate: string; todayTh: string }) {
   const [open, setOpen] = useState(false);
-  const dirty = useRef(false);
   return (
     <>
       <Button type="button" onClick={() => setOpen(true)}>
         <Plus className="h-4 w-4" aria-hidden="true" />
         เพิ่มชิ้นงาน
       </Button>
-      {open && (
-        <Modal
-          open
-          onClose={() => setOpen(false)}
-          title="เพิ่มชิ้นงาน"
-          confirmBeforeClose={() => !dirty.current || window.confirm("ทิ้งข้อมูลที่กรอกไว้?")}
-        >
-          <Form
-            defaultDate={defaultDate}
-            todayTh={todayTh}
-            onClose={() => setOpen(false)}
-            onDirty={(d) => {
-              dirty.current = d;
-            }}
-          />
-        </Modal>
-      )}
+      <CreatePieceDialog open={open} onClose={() => setOpen(false)} defaultDate={defaultDate} todayTh={todayTh} />
     </>
   );
 }

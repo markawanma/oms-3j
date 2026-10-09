@@ -8,7 +8,7 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { CalendarPieceCard } from "@/components/domain/marketing/calendar/CalendarPieceCard";
 import { CalendarFilters } from "@/components/domain/marketing/calendar/CalendarFilters";
-import { CreatePieceButton } from "@/components/domain/marketing/calendar/CreatePieceButton";
+import { AddMenu } from "@/components/domain/marketing/calendar/AddMenu";
 import { RememberView } from "@/components/domain/marketing/calendar/RememberView";
 import { ContentTypeChip } from "@/components/domain/marketing/ContentTypeChip";
 import {
@@ -21,7 +21,11 @@ import {
   compareInDay,
   dayOfMonth,
   festivalsOnDay,
+  festivalsStartingOn,
+  firstVisibleDay,
   groupByDay,
+  isMultiDay,
+  layoutSpans,
   monthGridOf,
   periodLabel,
   shiftAnchor,
@@ -31,7 +35,7 @@ import type { CalendarUrlState, FestivalSpan, FilterOptions } from "@/lib/market
 import type { LegacyStep } from "@/lib/marketing/calendar-types";
 import { EFFECTIVE_STATUS_LABEL } from "@/lib/marketing/campaign-types";
 import { formatThaiDay } from "@/lib/marketing/format";
-import { CHANNEL_LABEL } from "@/lib/marketing/piece-labels";
+import { CHANNEL_LABEL, pieceStatusLabel } from "@/lib/marketing/piece-labels";
 import type { ContentTypeRow } from "@/lib/marketing/content-types";
 import type { PieceRow } from "@/lib/marketing/piece-types";
 
@@ -76,7 +80,7 @@ export function CalendarToolbar({
             </Link>
           </div>
         </div>
-        <CreatePieceButton defaultDate={anchor} todayTh={todayTh} />
+        <AddMenu defaultDate={anchor} todayTh={todayTh} />
       </div>
 
       <nav aria-label="มุมมองปฏิทิน" className="flex w-full gap-1 rounded-lg border border-zinc-200 bg-zinc-50 p-1 sm:w-auto sm:self-start sm:inline-flex">
@@ -150,6 +154,102 @@ function FestivalChips({ spans }: { spans: FestivalSpan[] }) {
 // สัปดาห์ — PC (lg) 7 คอลัมน์ · มือถือ/แท็บเล็ต = รายการแนวตั้งต่อวัน (ไม่ใช่ตาราง 7 คอลัมน์)
 // ---------------------------------------------------------------------------
 
+const COL_START = ["", "col-start-1", "col-start-2", "col-start-3", "col-start-4", "col-start-5", "col-start-6", "col-start-7"];
+const COL_SPAN = ["", "col-span-1", "col-span-2", "col-span-3", "col-span-4", "col-span-5", "col-span-6", "col-span-7"];
+
+function rangeLabel(from: string, to: string): string {
+  return `${formatThaiDay(from).replace(/^\S+\s/, "")} – ${formatThaiDay(to).replace(/^\S+\s/, "")}`;
+}
+
+/** งานหลายวัน + เทศกาลหลายวัน ของสัปดาห์ → แถบเดียวบนหัวสัปดาห์ (PC) / รายการรวมด้านบน (มือถือ) — ไม่ซ้ำทุกวัน (มติเจ้าของ 10 ต.ค.) */
+function SpanBand({
+  weekFrom,
+  pieces,
+  festivals,
+  contentTypes,
+  todayTh,
+}: {
+  weekFrom: string;
+  pieces: PieceRow[];
+  festivals: FestivalSpan[];
+  contentTypes: ContentTypeRow[];
+  todayTh: string;
+}) {
+  type Band = { key: string; resolvedStart: string; resolvedEnd: string; piece?: PieceRow; festival?: FestivalSpan };
+  const items: Band[] = [
+    ...pieces.filter(isMultiDay).map((p) => ({ key: p.stepId, resolvedStart: p.resolvedStart as string, resolvedEnd: p.resolvedEnd as string, piece: p })),
+    ...festivals.filter((f) => f.to > f.from).map((f) => ({ key: `fest-${f.name}-${f.from}`, resolvedStart: f.from, resolvedEnd: f.to, festival: f })),
+  ];
+  const bars = layoutSpans(items, weekFrom);
+  if (bars.length === 0) return null;
+  const lanes = Math.max(...bars.map((b) => b.lane)) + 1;
+  const colorOf = (code: string | null) => contentTypes.find((c) => c.code === code)?.colorHex ?? "#71717a";
+
+  return (
+    <section aria-label="งานต่อเนื่องและเทศกาลของสัปดาห์" className="mb-3">
+      {/* PC: แถบพาดช่วงวันที่คร่อม */}
+      <div className="hidden space-y-1 lg:block">
+        {Array.from({ length: lanes }, (_, lane) => (
+          <div key={lane} className="grid grid-cols-7 gap-2">
+            {bars
+              .filter((b) => b.lane === lane)
+              .map((b) => {
+                const cls = `${COL_START[b.startCol]} ${COL_SPAN[b.endCol - b.startCol + 1]} min-w-0`;
+                const range = rangeLabel(b.item.resolvedStart, b.item.resolvedEnd);
+                if (b.item.festival) {
+                  return (
+                    <div key={b.item.key} className={`${cls} flex items-center gap-1 rounded-md bg-zinc-100 px-2 py-1.5 text-xs font-medium text-zinc-800`}>
+                      {b.continuesBefore && <ChevronLeft className="h-3 w-3 shrink-0" aria-hidden="true" />}
+                      <span className="min-w-0 truncate">
+                        เทศกาล: {b.item.festival.name} · {range}
+                      </span>
+                      {b.continuesAfter && <ChevronRight className="ml-auto h-3 w-3 shrink-0" aria-hidden="true" />}
+                    </div>
+                  );
+                }
+                const p = b.item.piece as PieceRow;
+                return (
+                  <Link
+                    key={b.item.key}
+                    href={`/marketing/pieces/${p.stepId}?from=calendar`}
+                    title={`${p.title} · ${range}`}
+                    className={`${cls} flex min-h-11 items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-2 py-1.5 text-xs hover:border-zinc-500`}
+                  >
+                    {b.continuesBefore && <ChevronLeft className="h-3 w-3 shrink-0" aria-hidden="true" />}
+                    <span aria-hidden="true" style={{ backgroundColor: colorOf(p.contentTypeCode) }} className="h-2 w-2 shrink-0 rounded-full" />
+                    <span className="min-w-0 truncate font-semibold text-zinc-900">{p.title}</span>
+                    <span className="shrink-0 text-zinc-700">
+                      · {range} · {pieceStatusLabel(p.effectiveStatus)}
+                    </span>
+                    {b.continuesAfter && <ChevronRight className="ml-auto h-3 w-3 shrink-0" aria-hidden="true" />}
+                  </Link>
+                );
+              })}
+          </div>
+        ))}
+      </div>
+
+      {/* มือถือ/แท็บเล็ต: รวมไว้บนรายการวัน (ไม่ซ้ำทุกวัน) */}
+      <div className="space-y-2 lg:hidden">
+        <h3 className="text-sm font-semibold text-zinc-900">งานต่อเนื่องสัปดาห์นี้</h3>
+        <ul className="space-y-2">
+          {bars.map((b) =>
+            b.item.piece ? (
+              <li key={b.item.key}>
+                <CalendarPieceCard piece={b.item.piece} contentTypes={contentTypes} todayTh={todayTh} />
+              </li>
+            ) : (
+              <li key={b.item.key} className="rounded-md bg-zinc-100 px-2 py-1.5 text-xs font-medium text-zinc-800">
+                เทศกาล: {b.item.festival?.name} · {rangeLabel(b.item.resolvedStart, b.item.resolvedEnd)}
+              </li>
+            )
+          )}
+        </ul>
+      </div>
+    </section>
+  );
+}
+
 export function WeekView({
   weekFrom,
   pieces,
@@ -164,9 +264,15 @@ export function WeekView({
   todayTh: string;
 }) {
   const days = Array.from({ length: 7 }, (_, i) => addDays(weekFrom, i));
-  const by = groupByDay(pieces, days);
+  // ช่องของแต่ละวันมีเฉพาะงานวันเดียว · งาน/เทศกาลหลายวันอยู่ในแถบด้านบน
+  const by = groupByDay(
+    pieces.filter((p) => !isMultiDay(p)),
+    days
+  );
+  const dayFestivals = festivals.filter((f) => f.to <= f.from);
   return (
     <section aria-label={`สัปดาห์ ${formatThaiDay(days[0])} ถึง ${formatThaiDay(days[6])}`}>
+      <SpanBand weekFrom={weekFrom} pieces={pieces} festivals={festivals} contentTypes={contentTypes} todayTh={todayTh} />
       <ol className="grid gap-3 lg:grid-cols-7 lg:gap-2">
         {days.map((d, i) => {
           const isToday = d === todayTh;
@@ -184,7 +290,7 @@ export function WeekView({
                   {isToday && <span className="ml-1 text-xs font-semibold text-primary-700">วันนี้</span>}
                 </span>
               </h3>
-              <FestivalChips spans={festivalsOnDay(festivals, d)} />
+              <FestivalChips spans={festivalsOnDay(dayFestivals, d)} />
               {entries.length === 0 ? (
                 <p className="py-1 text-xs text-zinc-600">ไม่มีชิ้นงาน</p>
               ) : (
@@ -247,19 +353,24 @@ export function MonthView({
                 const isToday = d === todayTh;
                 const isSel = d === selectedDay;
                 const fest = festivalsOnDay(festivals, d).length > 0;
+                const multi = by[d].filter((e) => isMultiDay(e.item)).length;
                 const dots = Array.from(new Set(by[d].map((e) => e.item.contentTypeCode))).slice(0, 4);
                 return (
                   <td key={d} className="p-0 align-top">
                     <Link
                       href={calendarHref(state, { d })}
                       aria-current={isSel ? "date" : undefined}
-                      aria-label={`${formatThaiDay(d)} ${n > 0 ? `${n} ชิ้น` : "ไม่มีชิ้นงาน"}${fest ? " มีเทศกาล" : ""}${isToday ? " วันนี้" : ""}`}
+                      aria-label={`${formatThaiDay(d)} ${n > 0 ? `${n} ชิ้น` : "ไม่มีชิ้นงาน"}${multi > 0 ? ` (รวมงานต่อเนื่อง ${multi})` : ""}${fest ? " มีเทศกาล" : ""}${isToday ? " วันนี้" : ""}`}
                       className={`flex min-h-14 flex-col items-center justify-start gap-0.5 rounded-md border px-0.5 py-1 text-center ${
                         isSel ? "border-primary-600 bg-primary-50" : isToday ? "border-zinc-900 bg-white" : "border-zinc-200 bg-white hover:bg-zinc-50"
                       } ${inMonth ? "" : "opacity-60"}`}
                     >
                       <span className={`text-sm tabular-nums ${isToday ? "font-bold text-zinc-900" : "font-medium text-zinc-800"}`}>{dayOfMonth(d)}</span>
-                      {n > 0 && <span className="text-xs leading-none text-zinc-800 tabular-nums">{n} ชิ้น</span>}
+                      {n > 0 && (
+                        <span className="text-xs leading-none text-zinc-800 tabular-nums">
+                          {n} ชิ้น{multi > 0 && <span aria-hidden="true">↔</span>}
+                        </span>
+                      )}
                       {n > 0 && (
                         <span className="flex gap-0.5" aria-hidden="true">
                           {dots.map((c, i) => (
@@ -276,6 +387,9 @@ export function MonthView({
           ))}
         </tbody>
       </table>
+      <p className="text-xs text-zinc-700">
+        <span aria-hidden="true">↔</span> = จำนวนในวันนั้นรวมงานต่อเนื่องหลายวันที่คร่อมวันนั้น (นับซ้ำทุกวันที่คร่อม) — กดวันเพื่อดูรายละเอียดและช่วงวันของแต่ละงาน
+      </p>
 
       <div className="space-y-2">
         <h2 className="text-base font-semibold text-zinc-900">{formatThaiDay(selectedDay, true)}</h2>
@@ -310,8 +424,13 @@ export function ListView({
   const grid = monthGridOf(anchor);
   const days: string[] = [];
   for (let d = grid.monthStart; d <= grid.monthEnd; d = addDays(d, 1)) days.push(d);
-  const by = groupByDay(pieces, days);
-  const filled = days.filter((d) => by[d].length > 0);
+  // งานหลายวันแสดงครั้งเดียวที่วันเริ่ม (หรือวันแรกของเดือนถ้าเริ่มก่อนหน้า) พร้อมช่วงวันบนการ์ด — ไม่ซ้ำทุกวัน
+  const by: Record<string, { item: PieceRow; continuation: boolean }[]> = Object.fromEntries(days.map((d) => [d, []]));
+  for (const p of pieces) {
+    const d = firstVisibleDay(p, grid.monthStart);
+    if (d && d >= grid.monthStart && d <= grid.monthEnd && by[d]) by[d].push({ item: p, continuation: false });
+  }
+  const filled = days.filter((d) => by[d].length > 0 || festivalsStartingOn(festivals, d, grid.monthStart).length > 0);
 
   if (filled.length === 0) {
     return (
@@ -328,7 +447,7 @@ export function ListView({
             {formatThaiDay(d, true)}
             {d === todayTh && <span className="ml-2 rounded-sm bg-primary-100 px-1.5 text-xs font-semibold text-primary-700">วันนี้</span>}
           </h2>
-          <FestivalChips spans={festivalsOnDay(festivals, d)} />
+          <FestivalChips spans={festivalsStartingOn(festivals, d, grid.monthStart)} />
           <DayCards entries={by[d]} contentTypes={contentTypes} todayTh={todayTh} />
         </div>
       ))}

@@ -12,7 +12,7 @@ import { revalidatePath } from "next/cache";
 import { getServiceClient } from "@/lib/supabase/server";
 import { getCampaignCalendar } from "@/lib/actions/marketing";
 import { STEP_KIND_LABEL } from "@/lib/marketing/campaign-types";
-import { MAX_RANGE_DAYS, daysInclusive, festivalSpansInRange, isRealDate } from "@/lib/marketing/calendar-view";
+import { MAX_RANGE_DAYS, daysInclusive, festivalSpansInRange, isCalendarDate, isRealDate } from "@/lib/marketing/calendar-view";
 import type { FestivalSpan } from "@/lib/marketing/calendar-view";
 import type { CalendarData, LegacyStep } from "@/lib/marketing/calendar-types";
 import { PIECE_LIGHT_COLUMNS, mapPieceRow } from "@/lib/marketing/piece-types";
@@ -49,7 +49,8 @@ function str(v: unknown): string | null {
 export async function getCalendarData(from: string, to: string, todayTh: string): Promise<PieceResult<CalendarData>> {
   const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
-  if (!isRealDate(from) || !isRealDate(to) || !isRealDate(todayTh) || from > to || daysInclusive(from, to) > MAX_RANGE_DAYS) {
+  // ปีต้องอยู่ใน 2025–2030 (isCalendarDate) — ปีหลุดให้ช่วงแปลก/กริดว่าง · isRealDate ยังใช้กับวันที่ของ createPiece
+  if (!isCalendarDate(from) || !isCalendarDate(to) || !isCalendarDate(todayTh) || from > to || daysInclusive(from, to) > MAX_RANGE_DAYS) {
     return { ok: false, error: "ช่วงวันที่ไม่ถูกต้อง" };
   }
 
@@ -63,6 +64,7 @@ export async function getCalendarData(from: string, to: string, todayTh: string)
   const db = () => getServiceClient().schema(SCHEMA);
   // ขอบบนของ "ค้าง": ก่อนช่วงที่แสดง และก่อนวันนี้ (ชิ้นที่ยังไม่ถึงวันไม่ใช่ค้าง)
   const overdueBefore = from < todayTh ? from : todayTh;
+  let legacyRaw = 0; // จำนวนแถวดิบจาก v_campaign_board (ก่อนตัดชิ้น workflow) — ใช้ตัดสินว่าชนเพดานไหม
 
   const [pieces, legacy, overdue, lineQuota, festivals] = await Promise.all([
     part<PieceRow[]>(
@@ -99,6 +101,7 @@ export async function getCalendarData(from: string, to: string, todayTh: string)
           .order("resolved_start", { ascending: true })
           .limit(LEGACY_LIMIT);
         if (error) throw error;
+        legacyRaw = rows(data).length;
         return rows(data)
           .filter((r) => typeof r.step_id === "string" && !workflowIds.has(r.step_id))
           .map((r): LegacyStep => {
@@ -169,7 +172,21 @@ export async function getCalendarData(from: string, to: string, todayTh: string)
     ),
   ]);
 
-  return { ok: true, data: { from, to, pieces, legacy, overdue, lineQuota, festivals } };
+  return {
+    ok: true,
+    data: {
+      from,
+      to,
+      pieces,
+      legacy,
+      overdue,
+      lineQuota,
+      festivals,
+      // ชนเพดานแถว = ข้อมูลอาจไม่ครบ → หน้าต้องเตือน ไม่ตัดเงียบ
+      piecesTruncated: pieces.ok && pieces.data.length >= PIECE_LIMIT,
+      legacyTruncated: legacy.ok && legacyRaw >= LEGACY_LIMIT,
+    },
+  };
 }
 
 export interface CreatePieceInput {

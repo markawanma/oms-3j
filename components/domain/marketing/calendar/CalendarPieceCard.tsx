@@ -12,7 +12,8 @@ import { ContentTypeChip } from "@/components/domain/marketing/ContentTypeChip";
 import { PieceStatusBadge } from "@/components/domain/marketing/workflow/badges";
 import { DeferDialog } from "@/components/domain/marketing/workflow/TransitionDialog";
 import { deferPiece } from "@/lib/actions/content-pieces";
-import { slotText } from "@/lib/marketing/calendar-view";
+import { isMultiDay, slotText } from "@/lib/marketing/calendar-view";
+import { formatThaiDay } from "@/lib/marketing/format";
 import { CHANNEL_LABEL, PIECE_KIND_LABEL } from "@/lib/marketing/piece-labels";
 import type { ContentTypeRow } from "@/lib/marketing/content-types";
 import type { PieceRow } from "@/lib/marketing/piece-types";
@@ -70,6 +71,11 @@ export function CalendarPieceCard({
         </span>
         <span title={piece.title} className="block break-words text-sm font-semibold leading-snug text-zinc-900 lg:line-clamp-4">{piece.title}</span>
         {(channel || kind) && <span className="block text-xs text-zinc-700">{[channel, kind].filter(Boolean).join(" · ")}</span>}
+        {isMultiDay(piece) && (
+          <span className="block text-xs font-medium text-zinc-800">
+            ช่วง {formatThaiDay(piece.resolvedStart)} – {formatThaiDay(piece.resolvedEnd)}
+          </span>
+        )}
         {piece.expectedHostLabel && <span className="block text-xs text-zinc-600">โฮสต์ที่คาด: {piece.expectedHostLabel}</span>}
         <span className="flex flex-wrap items-center gap-1">
           <PieceStatusBadge status={piece.effectiveStatus} />

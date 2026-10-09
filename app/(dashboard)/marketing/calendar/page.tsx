@@ -10,14 +10,14 @@ import { CampaignCalendar } from "@/components/domain/marketing/CampaignCalendar
 import { CalendarPageTabs } from "@/components/domain/marketing/CalendarPageTabs";
 import { CalendarOverdue } from "@/components/domain/marketing/calendar/CalendarOverdue";
 import { CalendarToolbar, LegacyLane, ListView, MonthView, WeekView } from "@/components/domain/marketing/calendar/CalendarViews";
-import { LineQuotaNotice } from "@/components/domain/marketing/workflow/InboxSections";
+import { LineQuotaLine, TruncatedNotice } from "@/components/domain/marketing/calendar/CalendarNotices";
 import { PageError, SectionError } from "@/components/domain/marketing/workflow/PageError";
 import {
   VIEW_COOKIE,
   applyFilters,
   calendarHref,
   filterOptions,
-  isRealDate,
+  isCalendarDate,
   parseFilters,
   parseView,
   viewRange,
@@ -47,7 +47,8 @@ export default async function MarketingCalendarPage({
   const tab: "plan" | "seasonal" = one("tab") === "seasonal" ? "seasonal" : "plan";
   const todayTh = effectiveDateBangkok(new Date().toISOString());
   const dParam = one("d");
-  const anchor = dParam && isRealDate(dParam) ? dParam : todayTh;
+  // ?d= ต้องเป็นวันที่จริงและปี 2025–2030 — นอกช่วง/ผิดรูป = วันนี้ (กันกริดปีหลุด)
+  const anchor = dParam && isCalendarDate(dParam) ? dParam : todayTh;
 
   const view = parseView(sp.view, (await cookies()).get(VIEW_COOKIE)?.value ?? null);
   const filters = parseFilters(sp);
@@ -109,7 +110,9 @@ export default async function MarketingCalendarPage({
 
       {!d.pieces.ok && <SectionError message={d.pieces.error} />}
       {!d.festivals.ok && <SectionError message={d.festivals.error} />}
-      {lineVisible && d.lineQuota.ok && d.lineQuota.data && <LineQuotaNotice q={d.lineQuota.data} />}
+      {d.piecesTruncated && <TruncatedNotice what="ชิ้นงาน" />}
+      {d.legacyTruncated && <TruncatedNotice what="แผนเดิม" />}
+      {lineVisible && d.lineQuota.ok && d.lineQuota.data && <LineQuotaLine q={d.lineQuota.data} />}
 
       {view !== "list" && d.overdue.ok && <CalendarOverdue pieces={d.overdue.data} todayTh={todayTh} />}
       {!d.overdue.ok && <SectionError message={d.overdue.error} />}
