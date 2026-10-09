@@ -45,7 +45,7 @@ describe("PieceEditCard — ข้อมูลจาก server เปลี่�
     expect(screen.getByRole("button", { name: "บันทึกเนื้อหา" })).toBeDisabled();
   });
 
-  it.fails("BUG-QA-1: หลัง prop เปลี่ยน (ตอบ [ต้องยืนยัน] แล้ว) ช่องแก้ต้องตามเนื้อหาใหม่ และปุ่มบันทึกต้องยังปิด (ไม่ได้แก้เอง)", async () => {
+  it("BUG-QA-1: หลัง prop เปลี่ยน (ตอบ [ต้องยืนยัน] แล้ว) ช่องแก้ต้องตามเนื้อหาใหม่ และปุ่มบันทึกต้องยังปิด (ไม่ได้แก้เอง)", async () => {
     const { rerender } = render(tree("สวัสดี [ต้องยืนยัน: ราคา]"));
     await userEvent.click(screen.getByRole("button", { name: "เปิดโหมดแก้" }));
     rerender(tree("สวัสดี 925 บาท")); // = router.refresh() ส่ง piece ใหม่เข้ามา

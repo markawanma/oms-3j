@@ -12,6 +12,7 @@ import { useToast } from "@/components/ui/Toast";
 import { ClipBriefPanel } from "@/components/domain/marketing/ClipBriefPanel";
 import { ReasonField } from "@/components/domain/marketing/workflow/ReasonField";
 import { EDIT_CARD_ID, useEditMode } from "@/components/domain/marketing/workflow/PieceClientShell";
+import { useSyncedDraft } from "@/components/domain/marketing/workflow/useSyncedDraft";
 import { savePieceBody, upsertHook } from "@/lib/actions/content-pieces";
 import { HOOK_TYPES, HOOK_TYPE_LABEL } from "@/lib/marketing/piece-labels";
 import { isClipArtifactType } from "@/lib/marketing/clip-brief";
@@ -28,11 +29,17 @@ function hasCheckedGates(p: PieceRow): boolean {
 function HookEditor({ stepId, label, hook, resetsGates }: { stepId: string; label: "A" | "B"; hook: PieceHook | null; resetsGates: boolean }) {
   const router = useRouter();
   const toast = useToast();
-  const [text, setText] = useState(hook?.text ?? "");
-  const [type, setType] = useState(hook?.hookType ?? "");
+  // draft ตามค่าจาก server หลัง refresh (BUG-QA-1) · แก้อยู่แล้ว server เปลี่ยน = conflict ไม่เขียนทับเงียบ
+  const t = useSyncedDraft(hook?.text ?? "");
+  const ty = useSyncedDraft(hook?.hookType ?? "");
+  const text = t.draft;
+  const type = ty.draft;
+  const setText = t.setDraft;
+  const setType = ty.setDraft;
+  const conflict = t.conflict || ty.conflict;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const changed = text.trim() !== (hook?.text ?? "").trim() || type !== (hook?.hookType ?? "");
+  const changed = (text.trim() !== (hook?.text ?? "").trim() || type !== (hook?.hookType ?? "")) && !conflict;
 
   async function save() {
     if (resetsGates && !window.confirm("แก้ hook แล้วผลตรวจทั้ง 3 ด่านจะถูกล้าง ต้องตรวจใหม่ — ดำเนินการต่อ?")) return;
@@ -70,6 +77,21 @@ function HookEditor({ stepId, label, hook, resetsGates }: { stepId: string; labe
           ))}
         </select>
       </div>
+      {conflict && (
+        <p role="alert" className="rounded-md border border-amber-200 bg-amber-50 p-2 text-sm text-amber-900">
+          hook นี้ถูกแก้จากที่อื่นระหว่างที่คุณพิมพ์ — บันทึกไม่ได้จนกว่าจะโหลดค่าล่าสุด
+          <button
+            type="button"
+            onClick={() => {
+              t.reload();
+              ty.reload();
+            }}
+            className="ml-1 min-h-11 font-medium underline underline-offset-2"
+          >
+            โหลดค่าล่าสุด (ทิ้งที่พิมพ์)
+          </button>
+        </p>
+      )}
       <ReasonField label="ข้อความ hook" value={text} onChange={setText} max={500} rows={2} error={error} />
       <Button type="button" variant="secondary" loading={busy} disabled={!changed || text.trim() === "" || type === ""} onClick={() => void save()}>
         บันทึก hook {label}
@@ -82,7 +104,10 @@ export function PieceEditCard({ piece }: { piece: PieceRow }) {
   const router = useRouter();
   const toast = useToast();
   const { editing, setEditing } = useEditMode();
-  const [body, setBody] = useState(piece.contentBody ?? "");
+  // BUG-QA-1: ช่องแก้ตามเนื้อหาล่าสุดจาก server (ตอบ [ต้องยืนยัน] แล้ว refresh ส่งข้อความใหม่มา) ไม่ใช่ค่าตอน mount
+  const bodyDraft = useSyncedDraft(piece.contentBody ?? "");
+  const body = bodyDraft.draft;
+  const setBody = bodyDraft.setDraft;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -148,7 +173,15 @@ export function PieceEditCard({ piece }: { piece: PieceRow }) {
                 error={error}
                 hint="ข้อความที่มี [ต้องยืนยัน: …] ให้ตอบในส่วน “ข้อที่ต้องยืนยัน” — ไม่ต้องพิมพ์ทับเอง"
               />
-              <Button type="button" loading={busy} disabled={body === (piece.contentBody ?? "")} onClick={() => void saveBody()}>
+              {bodyDraft.conflict && (
+                <p role="alert" className="rounded-md border border-amber-200 bg-amber-50 p-2.5 text-sm text-amber-900">
+                  เนื้อหาถูกแก้จากที่อื่น (เช่น ตอบข้อที่ต้องยืนยัน) ระหว่างที่คุณพิมพ์ — บันทึกไม่ได้จนกว่าจะโหลดค่าล่าสุด
+                  <button type="button" onClick={bodyDraft.reload} className="ml-1 min-h-11 font-medium underline underline-offset-2">
+                    โหลดค่าล่าสุด (ทิ้งที่พิมพ์)
+                  </button>
+                </p>
+              )}
+              <Button type="button" loading={busy} disabled={!bodyDraft.dirty || bodyDraft.conflict} onClick={() => void saveBody()}>
                 บันทึกเนื้อหา
               </Button>
             </div>
