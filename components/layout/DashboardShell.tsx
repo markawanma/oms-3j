@@ -16,7 +16,6 @@ import {
   BarChart3,
   Boxes,
   Calculator,
-  CalendarDays,
   ClipboardList,
   Coins,
   Factory,
@@ -25,10 +24,8 @@ import {
   Gem,
   Hammer,
   Hash,
-  Inbox,
   LayoutDashboard,
   LineChart,
-  Megaphone,
   Menu,
   PackageX,
   PlusCircle,
@@ -37,16 +34,14 @@ import {
   Settings2,
   Tags,
   Target,
-  Ticket,
   UserCog,
   Users,
   Users2,
-  Wallet,
   X,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Logo } from "@/components/brand/Logo";
-import { isWideMarketingPath } from "@/lib/marketing/nav";
+import { MARKETING_NAV, isWideMarketingPath } from "@/lib/marketing/nav";
 import { signOut } from "@/lib/actions/auth";
 
 interface NavItem {
@@ -102,14 +97,8 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "การตลาด",
     items: [
-      // P1a (content-ui-build-plan.md §6): หน้าแรกของสายการตลาด — แรกสุดของกลุ่ม
-      { href: "/marketing", label: "งานที่รอฉัน", icon: Inbox },
-      { href: "/marketing/ad-spend", label: "ค่าแอด", icon: Wallet },
-      { href: "/marketing/copilot", label: "Ad Copilot", icon: Megaphone },
-      { href: "/marketing/audience", label: "กลุ่มลูกค้า", icon: Users2 },
-      { href: "/marketing/attribution", label: "วัดผลโค้ด", icon: Ticket },
-      { href: "/marketing/calendar", label: "ปฏิทิน", icon: CalendarDays },
-      { href: "/marketing/content/entry", label: "อ่านยอด content", icon: ClipboardList },
+      // มาจาก lib/marketing/nav.ts (MARKETING_NAV) ที่เดียว
+      ...MARKETING_NAV.filter((m) => m.sidebar).map((m) => ({ href: m.href, label: m.sidebarLabel ?? m.label, icon: m.icon })),
     ],
   },
   {

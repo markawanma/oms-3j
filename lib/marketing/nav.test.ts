@@ -42,3 +42,24 @@ describe("isWideMarketingPath — ขยายเฉพาะ route workflow ใ
     }
   });
 });
+
+describe("MARKETING_NAV (รายการเมนูที่เดียว)", () => {
+  it("href ไม่ซ้ำ และขึ้นต้น /marketing", async () => {
+    const { MARKETING_NAV } = await import("./nav");
+    const hrefs = MARKETING_NAV.map((m) => m.href);
+    expect(new Set(hrefs).size).toBe(hrefs.length);
+    expect(hrefs.every((h) => h === "/marketing" || h.startsWith("/marketing/"))).toBe(true);
+  });
+  it("ช่องหลักมือถือไม่เกิน 4 (+ เพิ่มเติม = 5 ช่อง ที่ 390px ช่องละ ≥ 44px)", async () => {
+    const { MARKETING_NAV } = await import("./nav");
+    expect(MARKETING_NAV.filter((m) => m.mobile === "main").length).toBeLessThanOrEqual(4);
+  });
+  it("ทุกหน้าที่มีใน sidebar อยู่ในแถวแท็บ PC ด้วย (ไม่มีหน้าที่หาไม่เจอจากในโมดูล)", async () => {
+    const { MARKETING_NAV } = await import("./nav");
+    for (const m of MARKETING_NAV.filter((x) => x.sidebar)) expect(m.tab).not.toBeNull();
+  });
+  it("ทุกหน้าเข้าถึงได้จากมือถือ (main หรือ more)", async () => {
+    const { MARKETING_NAV } = await import("./nav");
+    for (const m of MARKETING_NAV) expect(m.mobile).not.toBeNull();
+  });
+});

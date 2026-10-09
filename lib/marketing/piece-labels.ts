@@ -5,6 +5,7 @@
 // ทุก enum ที่ DB CHECK ไว้ต้องมี label ครบ — piece-labels.test.ts ไล่ค่าครบ (กัน enum ใหม่หลุดเป็นภาษาอังกฤษดิบบนจอ).
 
 import type { BadgeTone } from "@/components/ui/Badge";
+import { PLATFORM_LABEL } from "@/lib/marketing/content-types";
 
 // ---------------------------------------------------------------------------
 // สถานะชิ้นงาน
@@ -284,10 +285,11 @@ export function eventKindLabel(kind: string | null | undefined): string {
   return EVENT_KIND_LABEL[kind] ?? "เหตุการณ์";
 }
 
+// ชื่อแพลตฟอร์มมาจาก PLATFORM_LABEL (content-types.ts) ชุดเดียว — ที่นี่เลือกเฉพาะช่องที่ "โพสต์ลิงก์" ได้ (ไม่รวม LINE OA)
 export const PLATFORM_POST_LABEL: Record<string, string> = {
-  tiktok: "TikTok",
-  facebook: "Facebook",
-  instagram: "Instagram",
+  tiktok: PLATFORM_LABEL.tiktok,
+  facebook: PLATFORM_LABEL.facebook,
+  instagram: PLATFORM_LABEL.instagram,
 };
 
 export const RECO_KIND_LABEL: Record<string, string> = { question: "คำถามจาก AI", proposal: "ข้อเสนอ" };

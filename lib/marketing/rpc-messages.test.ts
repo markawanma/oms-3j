@@ -231,3 +231,18 @@ describe("stale — ข้อความที่แปลว่า 'หน้�
     expect(stale("42501", "x")).toBe(false);
   });
 });
+
+describe("IDENT_TH ตรงกับ label map", () => {
+  it("ค่า enum snake_case ในประโยค → คำไทยจาก label map เดียวกัน · คำเดี่ยวไม่ถูกแทน", async () => {
+    const L = await import("./piece-labels");
+    const { sanitizeRpcText } = await import("./rpc-messages");
+    const maps: Record<string, string>[] = [L.GATE_KIND_LABEL, L.PIECE_KIND_LABEL, L.CHANNEL_LABEL, L.CUSTOMER_GROUP_LABEL, L.FOOTAGE_STATUS_LABEL, L.SHOOT_LOCATION_LABEL, L.GATE_STATUS_LABEL];
+    for (const m of maps) {
+      for (const [k, v] of Object.entries(m)) {
+        if (k.includes("_")) expect(sanitizeRpcText(`ยังไม่ได้ตั้ง ${k} ของชิ้นนี้`)).toContain(v);
+      }
+    }
+    // คำเดี่ยว (ไม่มี _) ไม่ถูกแทนที่กลางประโยค
+    expect(sanitizeRpcText("ลองดู other story shot ก่อน")).toContain("other story shot");
+  });
+});

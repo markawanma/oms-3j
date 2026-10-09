@@ -17,6 +17,7 @@
 //     test here (there is no automated way to edit a module-level `const`
 //     from inside a test); results reported separately alongside this file.
 
+import { daysBetween } from "./format";
 import { describe, expect, it } from "vitest";
 import {
   HIGH_SIGNAL_MARGIN,
@@ -30,7 +31,6 @@ import {
   computeConfidenceBadge,
   computeMean,
   computeMedian,
-  daysBetween,
   determineContentKpiState,
   pickFormatSuggestion,
   pickSingleClipSuggestion,
@@ -84,7 +84,7 @@ describe("computeMean", () => {
 // daysBetween / addDaysToDateStr
 // ============================================================================
 
-describe("daysBetween", () => {
+describe("daysBetween (ใช้ format.ts ตัวเดียว)", () => {
   it("positive when `to` is later", () => {
     expect(daysBetween("2026-09-25", "2026-09-28")).toBe(3);
   });

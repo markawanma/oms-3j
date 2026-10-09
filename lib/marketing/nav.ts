@@ -1,3 +1,6 @@
+import { CalendarDays, ClipboardList, Gem, History, Inbox, Megaphone, MessageCircleQuestion, Ticket, TrendingUp, Users2, Wallet } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+
 /**
  * Pure active-tab resolution for the Marketing sub-nav.
  *
@@ -29,3 +32,38 @@ export function isWideMarketingPath(pathname: string | null | undefined): boolea
   if (!pathname) return false;
   return pathname === "/marketing" || pathname === "/marketing/calendar" || pathname.startsWith("/marketing/pieces/");
 }
+
+// ---------------------------------------------------------------------------
+// รายการเมนูสายการตลาด — ที่เดียว (หนี้ §11 ข้อ 2): แถวแท็บ PC · แถบล่างมือถือ · sidebar DashboardShell อ่านจากที่นี่
+// เพิ่มหน้าใหม่ = เพิ่มแถวเดียว (ห้ามใส่เมนูก่อนหน้าพร้อมใช้)
+// ---------------------------------------------------------------------------
+
+export interface MarketingNavItem {
+  href: string;
+  label: string;
+  icon: LucideIcon;
+  /** แถวแท็บ md+ : "main" = แท็บหลัก · "more" = ย่อเข้าเมนู "อื่นๆ" · null = ไม่แสดง */
+  tab: "main" | "more" | null;
+  /** แถบล่างมือถือ: "main" = ช่องหลัก (≤ 4) · "more" = ใน sheet "เพิ่มเติม" · null = ไม่แสดง */
+  mobile: "main" | "more" | null;
+  /** ใช้ชื่อสั้นบนแถบล่างมือถือ (ถ้าไม่ระบุใช้ label) */
+  mobileLabel?: string;
+  /** แสดงใน sidebar ของ DashboardShell (ชื่อที่ต่างออกไปถ้ามี) */
+  sidebar: boolean;
+  sidebarLabel?: string;
+}
+
+export const MARKETING_NAV: readonly MarketingNavItem[] = [
+  { href: "/marketing", label: "งานที่รอฉัน", icon: Inbox, tab: "main", mobile: "main", mobileLabel: "รอฉัน", sidebar: true },
+  { href: "/marketing/questions", label: "คำถามจาก AI", icon: MessageCircleQuestion, tab: "main", mobile: "more", sidebar: false },
+  { href: "/marketing/ad-spend", label: "ค่าแอด", icon: Wallet, tab: "more", mobile: "more", sidebar: true },
+  { href: "/marketing/copilot", label: "Ad Copilot", icon: Megaphone, tab: "more", mobile: "more", sidebar: true },
+  { href: "/marketing/audience", label: "กลุ่มลูกค้า", icon: Users2, tab: "more", mobile: "more", sidebar: true },
+  { href: "/marketing/attribution", label: "วัดผลโค้ด", icon: Ticket, tab: "more", mobile: "more", sidebar: true },
+  { href: "/marketing/calendar", label: "ปฏิทิน", icon: CalendarDays, tab: "main", mobile: "main", sidebar: true },
+  // อ่านยอด = หน้าแยก (ไม่ใช่แท็บปฏิทิน) ชื่อสั้นบนแถบ · ยังไม่ใช่ทางเข้าหลักตอนดึก (ux-content-measurement §1.1)
+  { href: "/marketing/content/entry", label: "อ่านยอด", icon: ClipboardList, tab: "main", mobile: "main", mobileLabel: "กรอกยอด", sidebar: true, sidebarLabel: "อ่านยอด content" },
+  { href: "/marketing/content/history", label: "ประวัติ", icon: History, tab: "main", mobile: "more", mobileLabel: "ประวัติยอดโพสต์", sidebar: false },
+  { href: "/marketing/trend-radar", label: "เทรนด์", icon: TrendingUp, tab: "main", mobile: "more", mobileLabel: "เทรนด์รายวัน", sidebar: false },
+  { href: "/marketing/gem-quiz", label: "แบบทดสอบพลอย", icon: Gem, tab: "more", mobile: "more", sidebar: false },
+];

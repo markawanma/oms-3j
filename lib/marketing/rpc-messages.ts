@@ -121,14 +121,28 @@ const ENUM_WORDS: Array<[RegExp, string]> = [
  * แทนที่จะทิ้งทั้งข้อความเมื่อเหลือ snake_case — เจ้าของควรเห็น "ยังไม่ได้ตั้งวัน" ไม่ใช่ "รีเฟรชแล้วลองใหม่"
  * ยาวก่อนสั้น (เช่น line_audience_reason ก่อน line_audience) เพื่อไม่ให้แทนที่ทับบางส่วน
  */
+// เขียนตรงทีละคำ (หนี้ §11 ข้อ 6) — เฉพาะ snake_case + สถานะด่าน 3 คำ · คำอังกฤษเดี่ยว (shot/other/story/na ฯลฯ) อาจอยู่ในประโยคปกติ ห้ามแทนที่
+// ค่าไทยตรงกับ label map ใน piece-labels.ts — มีเทสต์เทียบ (rpc-messages.test.ts "IDENT_TH ตรงกับ label map")
 const IDENT_TH: Record<string, string> = {
-  ...GATE_KIND_LABEL,
-  ...PIECE_KIND_LABEL,
-  ...CHANNEL_LABEL,
-  ...CUSTOMER_GROUP_LABEL,
-  ...FOOTAGE_STATUS_LABEL,
-  ...SHOOT_LOCATION_LABEL,
-  ...GATE_STATUS_LABEL,
+  fact_check: "ข้อเท็จจริง",
+  brand_rule: "กฎแบรนด์",
+  risk_owner: "ความเสี่ยง",
+  short_clip: "คลิปสั้น",
+  live_cut: "คลิปตัดจากไลฟ์",
+  ig_fb_post: "โพสต์ FB/IG",
+  line_message: "ข้อความ LINE",
+  line_oa: "LINE OA",
+  tiktok_live: "TikTok LIVE",
+  parcel_insert: "การ์ดในพัสดุ",
+  jewelry_925: "เครื่องประดับ 925",
+  silver_bar: "เงินแท่ง",
+  needs_shoot: "ต้องถ่าย",
+  has_footage: "มีภาพแล้ว",
+  product_table: "โต๊ะถ่ายสินค้า",
+  host_cam: "กล้องโฮสต์",
+  pending: "รอตรวจ",
+  passed: "ผ่าน",
+  blocked: "ติด",
   piece_kind: "ชนิดชิ้นงาน",
   metric_code: "ตัวชี้วัด",
   baseline_value: "ค่าฐาน",
@@ -154,8 +168,6 @@ const IDENT_TH: Record<string, string> = {
   hook_type: "ประเภท hook",
   step_id: "ชิ้นงาน",
 };
-// เก็บเฉพาะ snake_case + สถานะด่าน 3 คำ — คำอังกฤษเดี่ยว (shot/other/story/na ฯลฯ) อาจอยู่ในประโยคปกติ ห้ามแทนที่
-for (const k of Object.keys(IDENT_TH)) if (!k.includes("_") && !["pending", "passed", "blocked"].includes(k)) delete IDENT_TH[k];
 const IDENT_RE = new RegExp(
   `(?<![A-Za-z0-9_])(${Object.keys(IDENT_TH)
     .sort((a, b) => b.length - a.length)
