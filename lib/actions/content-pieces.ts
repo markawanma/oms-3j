@@ -33,6 +33,7 @@ import {
   cleanText,
   isAdvanceTarget,
   isGateKind,
+  isRecord,
   isGateStatus,
   normalizeReviewSeconds,
   reasonAlwaysRequired,
@@ -173,6 +174,7 @@ export interface AdvanceOptions {
 export async function advancePiece(stepId: string, to: string, opts: AdvanceOptions = {}): Promise<PieceResult<{ to: string }>> {
   const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
+  if (opts !== undefined && !isRecord(opts)) return { ok: false, error: "ข้อมูลที่ส่งมาไม่ถูกต้อง" };
   if (!isUuid(stepId)) return { ok: false, error: "ไม่พบชิ้นงาน" };
   if (!isAdvanceTarget(to)) return { ok: false, error: "เปลี่ยนสถานะแบบนี้ไม่ได้" };
 
@@ -213,6 +215,7 @@ export async function recordGate(stepId: string, input: RecordGateInput): Promis
   const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
   if (!isUuid(stepId)) return { ok: false, error: "ไม่พบชิ้นงาน" };
+  if (!isRecord(input)) return { ok: false, error: "ข้อมูลผลตรวจไม่ถูกต้อง" };
   if (!isGateKind(input.gateKind) || !isGateStatus(input.status)) return { ok: false, error: "เลือกด่านให้ถูกต้อง" };
 
   let existingQuestion: string | null = null;
@@ -283,7 +286,7 @@ export async function setPlan(stepId: string, set: Record<string, unknown>): Pro
   const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
   if (!isUuid(stepId)) return { ok: false, error: "ไม่พบชิ้นงาน" };
-  const clean = sanitizePlanSet(set);
+  const clean = sanitizePlanSet(set); // รับ null/array/ชนิดอื่นได้ → "ไม่มีค่าที่เปลี่ยน"
   if (!clean.ok) return { ok: false, error: clean.error };
 
   const res = await callRpc("content_piece_set_plan", { p_step_id: stepId, p_set: clean.value }, "บันทึกแผนไม่สำเร็จ ลองใหม่อีกครั้ง");
@@ -317,12 +320,38 @@ export async function upsertHook(stepId: string, hook: HookInput): Promise<Piece
   return { ok: true, data: undefined };
 }
 
+/**
+ * security L4: artifact ที่ client ส่งมาต้องเป็นของ step นี้ในร้านนี้ (อ่านจาก v_content_piece) — RPC เดิมรับแค่ artifact id
+ * ไม่ตรง = ปฏิเสธ (แถวอาจเปลี่ยนไป/ส่งมาผิด) · อ่านล้มเหลว = ปฏิเสธ (fail-closed)
+ */
+async function verifyArtifactOwned(stepId: string, artifactId: string, label: string): Promise<PieceResult<undefined>> {
+  try {
+    const { data, error } = await getServiceClient()
+      .schema(SCHEMA)
+      .from("v_content_piece")
+      .select("artifact_id")
+      .eq("shop_id", shopId())
+      .eq("step_id", stepId)
+      .maybeSingle();
+    if (error) throw error;
+    const owned = (data as { artifact_id?: string | null } | null)?.artifact_id;
+    if (!owned || owned !== artifactId) return { ok: false, error: "เนื้อหานี้ไม่ใช่ของชิ้นงานนี้ — รีเฟรชหน้าแล้วลองใหม่", stale: true };
+    return { ok: true, data: undefined };
+  } catch (err) {
+    logRpcFailure(label + ".verifyArtifact", err);
+    return { ok: false, error: "ทำรายการไม่สำเร็จ ลองใหม่อีกครั้ง" };
+  }
+}
+
 /** แก้ข้อความหลัก (content_body) ของเอกสาร — ผ่าน campaign_set_artifact_content เดิม · DB ล็อกหลังอนุมัติและล้างด่านให้เอง */
 export async function savePieceBody(stepId: string, artifactId: string, contentBody: string): Promise<PieceResult<undefined>> {
   const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
   if (!isUuid(stepId) || !isUuid(artifactId)) return { ok: false, error: "ไม่พบเนื้อหาที่จะแก้" };
   if (typeof contentBody !== "string" || contentBody.length > 20_000) return { ok: false, error: "เนื้อหายาวเกินไป" };
+
+  const owned = await verifyArtifactOwned(stepId, artifactId, "savePieceBody");
+  if (!owned.ok) return owned;
 
   const r = await setArtifactContent(artifactId, { contentBody });
   if (!r.ok) return { ok: false, error: r.error };
@@ -337,6 +366,9 @@ export async function toggleShot(stepId: string, artifactId: string, shotId: str
   if (!isUuid(artifactId) || typeof shotId !== "string" || !shotId || shotId.length > 80) {
     return { ok: false, error: "ไม่พบช็อตที่จะติ๊ก" };
   }
+  if (!isUuid(stepId)) return { ok: false, error: "ไม่พบชิ้นงาน" };
+  const owned = await verifyArtifactOwned(stepId, artifactId, "toggleShot");
+  if (!owned.ok) return owned;
   const r = await toggleClipShot(artifactId, shotId, done === true);
   if (!r.ok) return { ok: false, error: r.error };
   refreshPaths(isUuid(stepId) ? stepId : undefined);
@@ -369,6 +401,7 @@ export async function postPiece(stepId: string, input: PostPieceInput): Promise<
   const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
   if (!isUuid(stepId)) return { ok: false, error: "ไม่พบชิ้นงาน" };
+  if (!isRecord(input) || !isRecord(input.hook)) return { ok: false, error: "ข้อมูลโพสต์ไม่ถูกต้อง" };
 
   const platform = input.platform;
   if (platform !== "tiktok" && platform !== "facebook" && platform !== "instagram") {

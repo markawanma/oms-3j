@@ -22,6 +22,7 @@ import type { CampaignBoardStep } from "@/lib/marketing/campaign-types";
 import { CAMPAIGN_BOARD_SELECT, mapCampaignBoardRow } from "@/lib/marketing/campaign-board-mapper";
 import { isValidClipBrief, type ClipBrief } from "@/lib/marketing/clip-brief";
 import { mapCalendarRpcError } from "@/lib/marketing/calendar-errors";
+import { readErrorCode, readErrorMessage, redactUrls } from "@/lib/supabase/postgrest-error";
 
 const SCHEMA = "analytics";
 
@@ -87,7 +88,7 @@ export async function getCalendarTasks(from: string, to: string): Promise<Action
     const rows: CampaignBoardStep[] = ((data ?? []) as Record<string, unknown>[]).map(mapCampaignBoardRow);
     return { ok: true, data: rows };
   } catch (err) {
-    console.error("getCalendarTasks failed", err);
+    console.error("getCalendarTasks failed", { code: readErrorCode(err), message: redactUrls(readErrorMessage(err)) });
     return { ok: false, error: "โหลดปฏิทินไม่สำเร็จ ลองใหม่อีกครั้ง" };
   }
 }
@@ -116,7 +117,7 @@ export async function getCalendarTask(stepId: string): Promise<ActionResult<Camp
 
     return { ok: true, data: data ? mapCampaignBoardRow(data as Record<string, unknown>) : null };
   } catch (err) {
-    console.error("getCalendarTask failed", err);
+    console.error("getCalendarTask failed", { code: readErrorCode(err), message: redactUrls(readErrorMessage(err)) });
     return { ok: false, error: "โหลดรายละเอียดงานไม่สำเร็จ ลองใหม่อีกครั้ง" };
   }
 }
@@ -145,7 +146,7 @@ export async function getCampaignTemplates(): Promise<ActionResult<CampaignTempl
     }));
     return { ok: true, data: rows };
   } catch (err) {
-    console.error("getCampaignTemplates failed", err);
+    console.error("getCampaignTemplates failed", { code: readErrorCode(err), message: redactUrls(readErrorMessage(err)) });
     return { ok: false, error: "โหลดรายการแผนสำเร็จรูปไม่สำเร็จ ลองใหม่อีกครั้ง" };
   }
 }
@@ -194,7 +195,7 @@ export async function createTaskFromReco(input: CreateTaskFromRecoInput): Promis
     revalidatePath("/marketing/copilot");
     return { ok: true, data: data as string };
   } catch (err) {
-    console.error("createTaskFromReco failed", err);
+    console.error("createTaskFromReco failed", { code: readErrorCode(err), message: redactUrls(readErrorMessage(err)) });
     return { ok: false, error: mapCalendarRpcError(err, "สร้างแผนจากแม่แบบไม่สำเร็จ ลองใหม่อีกครั้ง") };
   }
 }
@@ -244,7 +245,7 @@ export async function createManualTask(input: CreateManualTaskInput): Promise<Ac
     revalidatePath("/marketing/calendar");
     return { ok: true, data: data as string };
   } catch (err) {
-    console.error("createManualTask failed", err);
+    console.error("createManualTask failed", { code: readErrorCode(err), message: redactUrls(readErrorMessage(err)) });
     return { ok: false, error: mapCalendarRpcError(err, "เพิ่มงานไม่สำเร็จ ลองใหม่อีกครั้ง") };
   }
 }
@@ -294,7 +295,7 @@ export async function rescheduleTask(
     revalidatePath("/marketing/calendar");
     return { ok: true, data: undefined };
   } catch (err) {
-    console.error("rescheduleTask failed", err);
+    console.error("rescheduleTask failed", { code: readErrorCode(err), message: redactUrls(readErrorMessage(err)) });
     return { ok: false, error: mapCalendarRpcError(err, "เลื่อนวันไม่สำเร็จ ลองใหม่อีกครั้ง") };
   }
 }
@@ -330,7 +331,7 @@ export async function setArtifactContent(
     revalidatePath("/marketing/calendar");
     return { ok: true, data: undefined };
   } catch (err) {
-    console.error("setArtifactContent failed", err);
+    console.error("setArtifactContent failed", { code: readErrorCode(err), message: redactUrls(readErrorMessage(err)) });
     return { ok: false, error: mapCalendarRpcError(err, "บันทึกเนื้อหาไม่สำเร็จ ลองใหม่อีกครั้ง") };
   }
 }
@@ -356,7 +357,7 @@ export async function toggleClipShot(artifactId: string, shotId: string, done: b
     revalidatePath("/marketing/calendar");
     return { ok: true, data: undefined };
   } catch (err) {
-    console.error("toggleClipShot failed", err);
+    console.error("toggleClipShot failed", { code: readErrorCode(err), message: redactUrls(readErrorMessage(err)) });
     return { ok: false, error: mapCalendarRpcError(err, "ติ๊กช็อตไม่สำเร็จ ลองใหม่อีกครั้ง") };
   }
 }
@@ -399,7 +400,7 @@ export async function setStepContentType(stepId: string, contentTypeCode: string
     revalidatePath("/marketing/calendar");
     return { ok: true, data: undefined };
   } catch (err) {
-    console.error("setStepContentType failed", err);
+    console.error("setStepContentType failed", { code: readErrorCode(err), message: redactUrls(readErrorMessage(err)) });
     return { ok: false, error: mapCalendarRpcError(err, "ตั้งประเภทเนื้อหาไม่สำเร็จ ลองใหม่อีกครั้ง") };
   }
 }
@@ -423,7 +424,7 @@ export async function deleteTask(stepId: string): Promise<ActionResult> {
     revalidatePath("/marketing/calendar");
     return { ok: true, data: undefined };
   } catch (err) {
-    console.error("deleteTask failed", err);
+    console.error("deleteTask failed", { code: readErrorCode(err), message: redactUrls(readErrorMessage(err)) });
     return { ok: false, error: mapCalendarRpcError(err, "ลบงานไม่สำเร็จ ลองใหม่อีกครั้ง") };
   }
 }

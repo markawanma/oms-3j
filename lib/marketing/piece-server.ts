@@ -28,7 +28,9 @@ export function isUuid(v: unknown): v is string {
 
 /** บรรทัดแรกของทุก action (F2): staff ใช้ไม่ได้ · AUTH_GATE on ⇒ role มาจาก session จริง (lib/auth/role.ts) */
 export async function requireOwnerAdmin(): Promise<PieceResult<never> | null> {
-  if ((await getEffectiveRole()) === "staff") {
+  // allowlist (security L2): role ที่ไม่รู้จัก/อนาคตต้องไม่ผ่านโดยปริยาย — เฉพาะ owner/admin
+  const role = await getEffectiveRole();
+  if (role !== "owner" && role !== "admin") {
     return { ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่ใช้งานส่วนนี้ได้" };
   }
   return null;
@@ -58,7 +60,7 @@ export async function callRpc<T = unknown>(
     const withActor = opts.withActor !== false;
     const { data, error } = await supabase
       .schema(SCHEMA)
-      .rpc(fn, { p_shop_id: shopId(), ...params, ...(withActor ? { p_actor_role: "owner" } : {}) });
+      .rpc(fn, { ...params, p_shop_id: shopId(), ...(withActor ? { p_actor_role: "owner" } : {}) }); // security L3: shop/actor อยู่หลัง spread — params จากผู้เรียกทับไม่ได้
     if (error) throw error;
     return { ok: true, data: data as T };
   } catch (err) {

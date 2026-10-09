@@ -16,6 +16,7 @@ import { useToast } from "@/components/ui/Toast";
 import { GateBadge } from "@/components/domain/marketing/workflow/badges";
 import { ReasonField } from "@/components/domain/marketing/workflow/ReasonField";
 import { recordGate } from "@/lib/actions/content-pieces";
+import { safeHttpUrl } from "@/lib/marketing/safe-url";
 import { GATE_KIND_LABEL } from "@/lib/marketing/piece-labels";
 import type { GateKind } from "@/lib/marketing/piece-labels";
 import type { PieceGate } from "@/lib/marketing/piece-types";
@@ -37,9 +38,12 @@ function hostOf(url: string): string {
 }
 
 function SourceLink({ url }: { url: string }) {
+  // security L1: ไม่ใช่ http/https = ไม่เป็นลิงก์ (แสดงเป็นข้อความธรรมดา)
+  const safe = safeHttpUrl(url);
+  if (!safe) return <span className="inline-flex min-h-11 items-center break-all text-sm text-zinc-700">{url} (ลิงก์ไม่ปลอดภัย — ไม่เปิดให้กด)</span>;
   return (
     <a
-      href={url}
+      href={safe}
       target="_blank"
       rel="noopener noreferrer"
       className="inline-flex min-h-11 min-w-0 items-center gap-1 break-all text-sm text-primary-700 underline underline-offset-2"

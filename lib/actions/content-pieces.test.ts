@@ -72,6 +72,8 @@ import {
   resolveConfirm,
   setPlan,
   unlinkPost,
+  savePieceBody,
+  toggleShot,
   upsertHook,
 } from "./content-pieces";
 import { getInboxData, respondReco } from "./content-inbox";
@@ -351,5 +353,79 @@ describe("F3 — อ่านข้อมูล", () => {
     expect(r.ok).toBe(true);
     expect(calls.length).toBeGreaterThanOrEqual(8);
     for (const c of calls) expect(c.eqs, `table ${c.table}`).toContainEqual(["shop_id", SHOP]);
+  });
+});
+
+describe("security รอบแก้ — L2/L3/L4/ชนิด input", () => {
+  const ART = "55555555-5555-4555-8555-555555555555";
+  const OTHER_ART = "66666666-6666-4666-8666-666666666666";
+
+  it("L2: role ที่ไม่ใช่ owner/admin (เช่นค่าใหม่/ไม่รู้จัก) ผ่านไม่ได้ — allowlist ไม่ใช่ deny staff", async () => {
+    for (const role of ["viewer", "pending", "", undefined, null]) {
+      getEffectiveRoleMock.mockResolvedValue(role);
+      expect((await advancePiece(STEP, "approved")).ok).toBe(false);
+    }
+    expect(rpcMock).not.toHaveBeenCalled();
+    getEffectiveRoleMock.mockResolvedValue("admin");
+    expect((await advancePiece(STEP, "approved")).ok).toBe(true);
+  });
+
+  it("L3: p_shop_id / p_actor_role อยู่หลัง params — แอบส่งมาทับไม่ได้", async () => {
+    // เรียก callRpc ผ่าน action ที่ส่ง params ตามที่ allowlist (ไม่มีช่องให้ทับ) — พิสูจน์ที่ผลลัพธ์ที่ถึง RPC
+    await resolveConfirm(STEP, ITEM, "คำตอบ");
+    const p = rpcMock.mock.calls[0][1];
+    expect(p.p_shop_id).toBe(SHOP);
+    expect(p.p_actor_role).toBe("owner");
+  });
+
+  it("L4: savePieceBody — artifact ต้องเป็นของ step นี้ (อ่านจาก DB ร้านนี้) ไม่ตรง = ไม่แก้", async () => {
+    const { setArtifactContent } = await import("@/lib/actions/calendar");
+    tableResults.v_content_piece = { data: { artifact_id: OTHER_ART }, error: null };
+    const bad = await savePieceBody(STEP, ART, "เนื้อหาใหม่");
+    expect(bad.ok).toBe(false);
+    expect(setArtifactContent).not.toHaveBeenCalled();
+    const q = calls.find((c) => c.table === "v_content_piece");
+    expect(q?.eqs).toContainEqual(["shop_id", SHOP]);
+    expect(q?.eqs).toContainEqual(["step_id", STEP]);
+
+    tableResults.v_content_piece = { data: { artifact_id: ART }, error: null };
+    expect((await savePieceBody(STEP, ART, "เนื้อหาใหม่")).ok).toBe(true);
+    expect(setArtifactContent).toHaveBeenCalledWith(ART, { contentBody: "เนื้อหาใหม่" });
+  });
+  it("L4: ไม่พบแถว/อ่านล้มเหลว = ปฏิเสธ (fail-closed) · toggleShot ตรวจเช่นเดียวกัน", async () => {
+    const { setArtifactContent, toggleClipShot } = await import("@/lib/actions/calendar");
+    tableResults.v_content_piece = { data: null, error: null };
+    expect((await savePieceBody(STEP, ART, "x")).ok).toBe(false);
+    tableResults.v_content_piece = { data: null, error: { code: "XX", message: "boom" } };
+    expect((await savePieceBody(STEP, ART, "x")).ok).toBe(false);
+    expect(setArtifactContent).not.toHaveBeenCalled();
+    tableResults.v_content_piece = { data: { artifact_id: OTHER_ART }, error: null };
+    expect((await toggleShot(STEP, ART, "s1", true)).ok).toBe(false);
+    expect(toggleClipShot).not.toHaveBeenCalled();
+  });
+
+  it("ชนิด input ผิด (null/ไม่ใช่ string/array) → ข้อความไทย ไม่ throw ไม่ถึง RPC", async () => {
+    const bad = [
+      advancePiece(STEP, "approved", null as never),
+      recordGate(STEP, null as never),
+      recordGate(STEP, { gateKind: "fact_check", status: "passed", sources: "https://a.org" } as never),
+      recordGate(STEP, { gateKind: "brand_rule", status: "blocked", note: 5 } as never),
+      setPlan(STEP, null as never),
+      upsertHook(STEP, null as never),
+      upsertHook(STEP, { label: "A", text: 5, hookType: {} } as never),
+      postPiece(STEP, null as never),
+      postPiece(STEP, { platform: "tiktok", url: "https://www.tiktok.com/@x/video/1", postedAtLocal: 123, hook: { kind: "skip" } } as never),
+      postPiece(STEP, { platform: "tiktok", url: "https://www.tiktok.com/@x/video/1", postedAtLocal: "2026-10-09T10:00", hook: null } as never),
+      resolveConfirm(STEP, ITEM, { x: 1 } as never),
+      deferPiece(STEP, 5 as never, 7 as never),
+      respondReco(null as never),
+      unlinkPost(STEP, ITEM, null as never),
+    ];
+    const results = await Promise.all(bad);
+    for (const r of results) {
+      expect(r.ok).toBe(false);
+      expect(!r.ok && /[\u0E00-\u0E7F]/.test(r.error)).toBe(true);
+    }
+    expect(rpcMock).not.toHaveBeenCalled();
   });
 });

@@ -6,6 +6,7 @@
 import Link from "next/link";
 import { AlertTriangle, ExternalLink, Info, Link2Off } from "lucide-react";
 import { formatThaiDateTime } from "@/lib/marketing/format";
+import { safeHttpUrl } from "@/lib/marketing/safe-url";
 import { actorRoleLabel, eventKindLabel, pieceKindHasPostUrl, pieceStatusLabel, PLATFORM_POST_LABEL, signalKindLabel } from "@/lib/marketing/piece-labels";
 import { lastApprovalReviewSeconds } from "@/lib/marketing/piece-events";
 import type { PieceBanner } from "@/lib/marketing/piece-events";
@@ -89,16 +90,20 @@ export function PiecePosts({ piece }: { piece: PieceRow }) {
                 {PLATFORM_POST_LABEL[p.platform] ?? "โพสต์"}
                 {p.status !== "active" && <span className="ml-1 text-xs font-normal text-zinc-600">(ไม่ได้ใช้งานแล้ว)</span>}
               </p>
-              <a
-                href={p.postUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex min-h-11 max-w-full items-center gap-1 break-all text-primary-700 underline underline-offset-2"
-              >
-                <ExternalLink className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
-                <span className="min-w-0">เปิดโพสต์</span>
-                <span className="sr-only"> ({p.postUrl})</span>
-              </a>
+              {safeHttpUrl(p.postUrl) ? (
+                <a
+                  href={safeHttpUrl(p.postUrl) ?? undefined}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex min-h-11 max-w-full items-center gap-1 break-all text-primary-700 underline underline-offset-2"
+                >
+                  <ExternalLink className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+                  <span className="min-w-0">เปิดโพสต์</span>
+                  <span className="sr-only"> ({p.postUrl})</span>
+                </a>
+              ) : (
+                <p className="break-all text-sm text-zinc-700">{p.postUrl} (ลิงก์ไม่ปลอดภัย — ไม่เปิดให้กด)</p>
+              )}
               <p className="text-xs text-zinc-600">โพสต์เมื่อ {formatThaiDateTime(p.postedAt)}</p>
             </li>
           ))}

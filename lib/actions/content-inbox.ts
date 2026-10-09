@@ -27,7 +27,7 @@ import type {
   WeeklySummaryRow,
 } from "@/lib/marketing/piece-types";
 import { thaiWeekRange } from "@/lib/marketing/inbox-piles";
-import { checkRecoResponse } from "@/lib/marketing/piece-input";
+import { checkRecoResponse, isRecord } from "@/lib/marketing/piece-input";
 import { callRpc, isUuid, logRpcFailure, requireOwnerAdmin, SCHEMA, shopId } from "@/lib/marketing/piece-server";
 import type { PieceResult } from "@/lib/marketing/piece-server";
 
@@ -266,6 +266,7 @@ export async function respondReco(input: {
   const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
+  if (!isRecord(input)) return { ok: false, error: "ข้อมูลที่ส่งมาไม่ถูกต้อง" };
   if (!isUuid(input.recoId)) return { ok: false, error: "ไม่พบข้อเสนอที่จะตอบ" };
   if (typeof input.token !== "string" || input.token.length === 0 || input.token.length > 200) {
     return { ok: false, error: "ข้อมูลข้อเสนอไม่ครบ — รีเฟรชหน้าแล้วลองใหม่", stale: true };

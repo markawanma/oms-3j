@@ -20,6 +20,11 @@ export type InputResult<T> = { ok: true; value: T } | { ok: false; error: string
 
 const INVISIBLE = /[­͏؜ᅟᅠ឴឵᠎​-‏‪-‮⁠-⁯ㅤ︀-️﻿ﾠ]/g;
 
+/** อ็อบเจ็กต์ธรรมดา (ไม่ใช่ null/array) — server action รับ object จาก client ต้องเช็คก่อนเข้าถึง field (กัน TypeError → 500) */
+export function isRecord(v: unknown): v is Record<string, unknown> {
+  return v !== null && typeof v === "object" && !Array.isArray(v);
+}
+
 /** ตัดอักขระล่องหน + trim — ใช้นับความยาวก่อนส่ง (DB ทำซ้ำด้วย content_text_clean) */
 export function cleanText(input: unknown): string {
   return typeof input === "string" ? input.replace(INVISIBLE, "").trim() : "";
@@ -146,6 +151,10 @@ export interface GatePayload {
  * ผ่าน fact_check โดยไม่มีแหล่ง ≥ 1: ปฏิเสธตรงนี้ด้วยข้อความเดียวกับ DB (pre-check · DB ยังเป็นผู้ตัดสิน)
  */
 export function buildGatePayload(input: GateInput, existingQuestion: string | null): InputResult<GatePayload> {
+  if (!isRecord(input)) return { ok: false, error: "ข้อมูลผลตรวจไม่ถูกต้อง" };
+  if (input.sources !== undefined && input.sources !== null && !Array.isArray(input.sources)) return { ok: false, error: "แหล่งอ้างอิงต้องเป็นรายการ" };
+  if (input.note !== undefined && input.note !== null && typeof input.note !== "string") return { ok: false, error: "หมายเหตุต้องเป็นข้อความ" };
+  if (input.answer !== undefined && input.answer !== null && typeof input.answer !== "string") return { ok: false, error: "คำตอบต้องเป็นข้อความ" };
   const note = input.note === undefined || input.note === null ? null : cleanText(input.note);
   if (note && note.length > NOTE_MAX) return { ok: false, error: `หมายเหตุยาวเกิน ${NOTE_MAX} ตัวอักษร` };
 
@@ -311,6 +320,9 @@ export interface HookInput {
 }
 
 export function checkHookInput(raw: HookInput): InputResult<HookInput> {
+  if (!isRecord(raw)) return { ok: false, error: "ข้อมูล hook ไม่ถูกต้อง" };
+  if (typeof raw.text !== "string") return { ok: false, error: "พิมพ์ข้อความ hook ก่อนบันทึก" };
+  if (typeof raw.hookType !== "string") return { ok: false, error: "เลือกประเภท hook" };
   if (raw.label !== "A" && raw.label !== "B") return { ok: false, error: "เลือก hook A หรือ B" };
   const text = cleanText(raw.text);
   if (!text) return { ok: false, error: "พิมพ์ข้อความ hook ก่อนบันทึก" };

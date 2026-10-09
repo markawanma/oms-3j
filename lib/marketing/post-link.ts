@@ -66,6 +66,7 @@ export type PostedAtInput = { ok: true; iso: string } | { ok: false; error: stri
 
 /** "2026-10-09T14:30" (เวลาไทย) → ISO UTC หลังตรวจช่วง 1 ม.ค. 2568 – วันนี้ (+1 วันเผื่อนาฬิกา) */
 export function postedAtFromLocalInput(local: string, nowMs: number = Date.now()): PostedAtInput {
+  if (typeof local !== "string") return { ok: false, error: "ระบุวันและเวลาโพสต์ให้ครบ" };
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(local.trim())) {
     return { ok: false, error: "ระบุวันและเวลาโพสต์ให้ครบ" };
   }
