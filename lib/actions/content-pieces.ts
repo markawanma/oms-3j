@@ -17,7 +17,6 @@ import { getServiceClient } from "@/lib/supabase/server";
 import { canonicalizeTikTokLink, parseCanonicalTikTokPostUrl } from "@/lib/marketing/tiktok-link";
 import { deriveExternalId } from "@/lib/marketing/content-types";
 import { getContentTypes } from "@/lib/actions/content";
-import { setArtifactContent, toggleClipShot } from "@/lib/actions/calendar";
 import {
   PIECE_FULL_COLUMNS,
   mapConfirmItem,
@@ -43,7 +42,7 @@ import type { GateInput, HookInput } from "@/lib/marketing/piece-input";
 import { HOOK_TYPES } from "@/lib/marketing/piece-labels";
 import { checkPostUrlHost, platformsForKind, postedAtFromLocalInput } from "@/lib/marketing/post-link";
 import type { PostPlatform } from "@/lib/marketing/post-link";
-import { callRpc, isUuid, logRpcFailure, requireOwnerAdmin, SCHEMA, shopId } from "@/lib/marketing/piece-server";
+import { callLegacyRpc, callRpc, isUuid, logRpcFailure, requireOwnerAdmin, SCHEMA, shopId } from "@/lib/marketing/piece-server";
 import type { PieceResult } from "@/lib/marketing/piece-server";
 
 const EVENT_LIMIT = 200;
@@ -353,8 +352,9 @@ export async function savePieceBody(stepId: string, artifactId: string, contentB
   const owned = await verifyArtifactOwned(stepId, artifactId, "savePieceBody");
   if (!owned.ok) return owned;
 
-  const r = await setArtifactContent(artifactId, { contentBody });
-  if (!r.ok) return { ok: false, error: r.error };
+  // RPC เดิม campaign_set_artifact_content (ล็อกหลังอนุมัติ/ล้างด่านโดย DB) — เรียกเองเพื่อได้ธง stale และข้อความไทยชุดเดียวกับ action อื่น
+  const r = await callLegacyRpc("campaign_set_artifact_content", { p_artifact_id: artifactId, p_content_body: contentBody, p_clip_brief: null }, "บันทึกเนื้อหาไม่สำเร็จ ลองใหม่อีกครั้ง");
+  if (!r.ok) return r;
   refreshPaths(stepId);
   return { ok: true, data: undefined };
 }
@@ -369,8 +369,8 @@ export async function toggleShot(stepId: string, artifactId: string, shotId: str
   if (!isUuid(stepId)) return { ok: false, error: "ไม่พบชิ้นงาน" };
   const owned = await verifyArtifactOwned(stepId, artifactId, "toggleShot");
   if (!owned.ok) return owned;
-  const r = await toggleClipShot(artifactId, shotId, done === true);
-  if (!r.ok) return { ok: false, error: r.error };
+  const r = await callLegacyRpc("campaign_toggle_clip_shot", { p_artifact_id: artifactId, p_shot_id: shotId, p_done: done === true }, "ติ๊กช็อตไม่สำเร็จ ลองใหม่อีกครั้ง");
+  if (!r.ok) return r;
   refreshPaths(isUuid(stepId) ? stepId : undefined);
   return { ok: true, data: undefined };
 }

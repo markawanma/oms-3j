@@ -52,6 +52,9 @@ function HookEditor({ stepId, label, hook, resetsGates }: { stepId: string; labe
         if (res.stale) router.refresh();
         return;
       }
+      // ค่าที่ server ส่งกลับหลัง refresh คือของเราเอง (อาจถูก trim/ตัดอักขระล่องหน) — ไม่ใช่การแก้จากที่อื่น
+      t.markSaved(text);
+      ty.markSaved(type);
       toast.push(`บันทึก hook ${label} แล้ว`);
       router.refresh();
     } catch {
@@ -125,8 +128,10 @@ export function PieceEditCard({ piece }: { piece: PieceRow }) {
       const res = await savePieceBody(piece.stepId, piece.artifactId, body);
       if (!res.ok) {
         setError(res.error);
+        if (res.stale) router.refresh(); // หน้าเก่ากว่า DB → โหลดใหม่ (draft ตามค่าใหม่ หรือขึ้น conflict ถ้าพิมพ์ค้าง)
         return;
       }
+      bodyDraft.markSaved(body);
       toast.push("บันทึกเนื้อหาแล้ว");
       router.refresh();
     } catch {

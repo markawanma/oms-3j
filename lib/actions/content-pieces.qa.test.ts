@@ -12,8 +12,8 @@ const POST = "66666666-6666-4666-8666-666666666666";
 
 const getEffectiveRoleMock = vi.fn();
 const rpcMock = vi.fn();
-const setArtifactContentMock = vi.fn();
-const toggleClipShotMock = vi.fn();
+// savePieceBody/toggleShot เรียก RPC เดิมของบอร์ดผ่าน service client เอง (รอบแก้ code review ข้อ 4) → ตรวจที่ rpcMock
+const legacyCalls = (fn: string) => rpcMock.mock.calls.filter((c) => c[0] === fn);
 
 interface Op {
   table: string;
@@ -50,10 +50,6 @@ vi.mock("@/lib/marketing/tiktok-link", () => ({
   parseCanonicalTikTokPostUrl: () => ({ kind: "video", user: "x", id: "1" }),
 }));
 vi.mock("@/lib/actions/content", () => ({ getContentTypes: async () => ({ ok: true, data: [] }) }));
-vi.mock("@/lib/actions/calendar", () => ({
-  setArtifactContent: (...a: unknown[]) => setArtifactContentMock(...a),
-  toggleClipShot: (...a: unknown[]) => toggleClipShotMock(...a),
-}));
 
 import {
   advancePiece,
@@ -73,8 +69,6 @@ beforeEach(() => {
   for (const k of Object.keys(tableResults)) delete tableResults[k];
   getEffectiveRoleMock.mockResolvedValue("owner");
   rpcMock.mockResolvedValue({ data: {}, error: null });
-  setArtifactContentMock.mockResolvedValue({ ok: true, data: undefined });
-  toggleClipShotMock.mockResolvedValue({ ok: true, data: undefined });
 });
 afterEach(() => vi.useRealTimers());
 
@@ -174,8 +168,8 @@ describe("สิทธิ์ staff — action ที่เหลือ", () => {
     for (const r of results) expect(r.ok).toBe(false);
     expect(await isWorkflowPiece(STEP)).toBe(false);
     expect(rpcMock).not.toHaveBeenCalled();
-    expect(setArtifactContentMock).not.toHaveBeenCalled();
-    expect(toggleClipShotMock).not.toHaveBeenCalled();
+    expect(legacyCalls("campaign_set_artifact_content")).toHaveLength(0);
+    expect(legacyCalls("campaign_toggle_clip_shot")).toHaveLength(0);
     expect(calls).toHaveLength(0);
   });
 });
@@ -265,17 +259,17 @@ describe("อินพุตสุดโต่ง — ต้องไม่ถ�
     expect((await savePieceBody("x", ART, "ok")).ok).toBe(false);
     expect((await savePieceBody(STEP, "x", "ok")).ok).toBe(false);
     expect((await savePieceBody(STEP, ART, 123 as unknown as string)).ok).toBe(false);
-    expect(setArtifactContentMock).not.toHaveBeenCalled();
+    expect(legacyCalls("campaign_set_artifact_content")).toHaveLength(0);
     expect((await savePieceBody(STEP, ART, "ก".repeat(20_000))).ok).toBe(true);
-    expect(setArtifactContentMock).toHaveBeenCalledWith(ART, { contentBody: "ก".repeat(20_000) });
+    expect(legacyCalls("campaign_set_artifact_content").at(-1)?.[1]).toEqual({ p_artifact_id: ART, p_content_body: "ก".repeat(20_000), p_clip_brief: null });
   });
   it("savePieceBody: เนื้อหาว่าง (ล้างข้อความ) ส่งต่อให้ DB ตัดสิน — ไม่ถูก action ทิ้งเงียบ", async () => {
     expect((await savePieceBody(STEP, ART, "")).ok).toBe(true);
-    expect(setArtifactContentMock).toHaveBeenCalledWith(ART, { contentBody: "" });
+    expect(legacyCalls("campaign_set_artifact_content").at(-1)?.[1]).toEqual({ p_artifact_id: ART, p_content_body: "", p_clip_brief: null });
   });
   it("savePieceBody: error จาก action เดิม ส่งต่อข้อความ (ไม่กลืน)", async () => {
-    setArtifactContentMock.mockResolvedValue({ ok: false, error: "อนุมัติแล้วแก้เนื้อหาไม่ได้" });
-    expect(await savePieceBody(STEP, ART, "x")).toEqual({ ok: false, error: "อนุมัติแล้วแก้เนื้อหาไม่ได้" });
+    rpcMock.mockResolvedValueOnce({ data: null, error: { code: "55000", message: "campaign_set_artifact_content: อนุมัติแล้ว ห้ามแก้เนื้อหา" } });
+    expect(await savePieceBody(STEP, ART, "x")).toEqual({ ok: false, error: "อนุมัติแล้วแก้เนื้อหาไม่ได้ — ส่งกลับก่อน", stale: false });
   });
 
   it("toggleShot: shot id ว่าง/ยาว > 80/ไม่ใช่ string · done ที่ไม่ใช่ true เป๊ะ = false", async () => {
@@ -283,11 +277,11 @@ describe("อินพุตสุดโต่ง — ต้องไม่ถ�
     expect((await toggleShot(STEP, ART, "s".repeat(81), true)).ok).toBe(false);
     expect((await toggleShot(STEP, ART, 5 as unknown as string, true)).ok).toBe(false);
     expect((await toggleShot(STEP, "x", "s1", true)).ok).toBe(false);
-    expect(toggleClipShotMock).not.toHaveBeenCalled();
+    expect(legacyCalls("campaign_toggle_clip_shot")).toHaveLength(0);
     await toggleShot(STEP, ART, "s1", "true" as unknown as boolean);
-    expect(toggleClipShotMock).toHaveBeenLastCalledWith(ART, "s1", false);
+    expect(legacyCalls("campaign_toggle_clip_shot").at(-1)?.[1]).toEqual({ p_artifact_id: ART, p_shot_id: "s1", p_done: false });
     await toggleShot(STEP, ART, "s".repeat(80), true);
-    expect(toggleClipShotMock).toHaveBeenLastCalledWith(ART, "s".repeat(80), true);
+    expect(legacyCalls("campaign_toggle_clip_shot").at(-1)?.[1]).toEqual({ p_artifact_id: ART, p_shot_id: "s".repeat(80), p_done: true });
   });
 
   it("recordGate: risk_owner คำตอบที่ซ่อน [ต้องยืนยัน ด้วยอักขระล่องหนคั่นกลาง → ถูกจับ ไม่ถึง RPC", async () => {

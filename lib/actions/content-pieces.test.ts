@@ -57,10 +57,6 @@ vi.mock("@/lib/marketing/tiktok-link", () => ({
   parseCanonicalTikTokPostUrl: (u: string) => parseCanonicalMock(u),
 }));
 vi.mock("@/lib/actions/content", () => ({ getContentTypes: async () => ({ ok: true, data: [] }) }));
-vi.mock("@/lib/actions/calendar", () => ({
-  setArtifactContent: vi.fn(async () => ({ ok: true, data: undefined })),
-  toggleClipShot: vi.fn(async () => ({ ok: true, data: undefined })),
-}));
 
 import {
   advancePiece,
@@ -379,29 +375,29 @@ describe("security รอบแก้ — L2/L3/L4/ชนิด input", () => {
   });
 
   it("L4: savePieceBody — artifact ต้องเป็นของ step นี้ (อ่านจาก DB ร้านนี้) ไม่ตรง = ไม่แก้", async () => {
-    const { setArtifactContent } = await import("@/lib/actions/calendar");
+    const legacy = (fn: string) => rpcMock.mock.calls.filter((c) => c[0] === fn);
     tableResults.v_content_piece = { data: { artifact_id: OTHER_ART }, error: null };
     const bad = await savePieceBody(STEP, ART, "เนื้อหาใหม่");
     expect(bad.ok).toBe(false);
-    expect(setArtifactContent).not.toHaveBeenCalled();
+    expect(legacy("campaign_set_artifact_content")).toHaveLength(0);
     const q = calls.find((c) => c.table === "v_content_piece");
     expect(q?.eqs).toContainEqual(["shop_id", SHOP]);
     expect(q?.eqs).toContainEqual(["step_id", STEP]);
 
     tableResults.v_content_piece = { data: { artifact_id: ART }, error: null };
     expect((await savePieceBody(STEP, ART, "เนื้อหาใหม่")).ok).toBe(true);
-    expect(setArtifactContent).toHaveBeenCalledWith(ART, { contentBody: "เนื้อหาใหม่" });
+    expect(legacy("campaign_set_artifact_content").at(-1)?.[1]).toEqual({ p_artifact_id: ART, p_content_body: "เนื้อหาใหม่", p_clip_brief: null });
   });
   it("L4: ไม่พบแถว/อ่านล้มเหลว = ปฏิเสธ (fail-closed) · toggleShot ตรวจเช่นเดียวกัน", async () => {
-    const { setArtifactContent, toggleClipShot } = await import("@/lib/actions/calendar");
+    const legacy = (fn: string) => rpcMock.mock.calls.filter((c) => c[0] === fn);
     tableResults.v_content_piece = { data: null, error: null };
     expect((await savePieceBody(STEP, ART, "x")).ok).toBe(false);
     tableResults.v_content_piece = { data: null, error: { code: "XX", message: "boom" } };
     expect((await savePieceBody(STEP, ART, "x")).ok).toBe(false);
-    expect(setArtifactContent).not.toHaveBeenCalled();
+    expect(legacy("campaign_set_artifact_content")).toHaveLength(0);
     tableResults.v_content_piece = { data: { artifact_id: OTHER_ART }, error: null };
     expect((await toggleShot(STEP, ART, "s1", true)).ok).toBe(false);
-    expect(toggleClipShot).not.toHaveBeenCalled();
+    expect(legacy("campaign_toggle_clip_shot")).toHaveLength(0);
   });
 
   it("ชนิด input ผิด (null/ไม่ใช่ string/array) → ข้อความไทย ไม่ throw ไม่ถึง RPC", async () => {

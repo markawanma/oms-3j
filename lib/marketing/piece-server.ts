@@ -53,19 +53,35 @@ export async function callRpc<T = unknown>(
   fn: string,
   params: Record<string, unknown>,
   fallback: string,
-  opts: RpcErrorOptions & { withActor?: boolean } = {}
+  opts: RpcErrorOptions = {}
 ): Promise<PieceResult<T>> {
   try {
     const supabase = getServiceClient();
-    const withActor = opts.withActor !== false;
     const { data, error } = await supabase
       .schema(SCHEMA)
-      .rpc(fn, { ...params, p_shop_id: shopId(), ...(withActor ? { p_actor_role: "owner" } : {}) }); // security L3: shop/actor อยู่หลัง spread — params จากผู้เรียกทับไม่ได้
+      .rpc(fn, { ...params, p_shop_id: shopId(), p_actor_role: "owner" }); // security L3: shop/actor อยู่หลัง spread — params จากผู้เรียกทับไม่ได้
     if (error) throw error;
     return { ok: true, data: data as T };
   } catch (err) {
     logRpcFailure(fn, err);
     const d = describeRpcError(err, fallback, opts);
+    return { ok: false, error: d.message, stale: d.stale };
+  }
+}
+
+/**
+ * RPC เดิมของบอร์ด (campaign_set_artifact_content / campaign_toggle_clip_shot) — signature ไม่มี p_shop_id/p_actor_role
+ * (ตรวจสิทธิ์ร้านภายใน RPC เอง) จึงส่งเฉพาะ params ของมัน · ผู้เรียกต้องตรวจ ownership ของ artifact กับ step/ร้านก่อนเสมอ
+ * แปลง error ผ่าน describeRpcError เหมือน callRpc (มีธง stale · ไม่ใช้ข้อความ "อยู่ใน workflow ใหม่" ของ mapCalendarRpcError)
+ */
+export async function callLegacyRpc<T = unknown>(fn: string, params: Record<string, unknown>, fallback: string): Promise<PieceResult<T>> {
+  try {
+    const { data, error } = await getServiceClient().schema(SCHEMA).rpc(fn, params);
+    if (error) throw error;
+    return { ok: true, data: data as T };
+  } catch (err) {
+    logRpcFailure(fn, err);
+    const d = describeRpcError(err, fallback);
     return { ok: false, error: d.message, stale: d.stale };
   }
 }
