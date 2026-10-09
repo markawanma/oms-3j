@@ -30,7 +30,7 @@
 --   Part 1 — โครงสร้าง: มี oem_cost_calc/oem_price_calc อย่างละ 1 ตัวเป๊ะ
 --            (ไม่มี overload) + oem_price_calc_legacy ถูก drop ไปแล้วจริง
 --   Part 2 — grant: oem_cost_calc = service_role เท่านั้น · oem_price_calc
---            = authenticated + service_role (เท่าเดิมจาก 0083) · ทั้งคู่
+--            = service_role เท่านั้น (0147 revoke authenticated แทนมติ 0140) · ทั้งคู่
 --            ไม่มี anon
 --   Part 3 — silver999 (เงินแท่ง) ไม่ถูกแตะ: oem_price_calc(bar input) ยังได้
 --            รูปทรงเดิม (breakdown.bar.*, formula_version=4) · oem_cost_calc
@@ -117,12 +117,17 @@ begin
     v_log := v_log || 'P2c OK: oem_price_calc ไม่เปิดให้ anon' || E'\n';
   end if;
 
-  if has_function_privilege('authenticated', 'analytics.oem_price_calc(uuid,jsonb)', 'execute')
-     and has_function_privilege('service_role', 'analytics.oem_price_calc(uuid,jsonb)', 'execute') then
-    v_log := v_log || 'P2d OK: oem_price_calc เปิดให้ authenticated + service_role (เท่าเดิมจาก 0083)' || E'\n';
+  -- แก้ 9 ต.ค. 69: 0147 (บีบ execute grant ในสคีมา analytics เหลือ service_role)
+  -- กลับมติเดิมของ 0140 โดยตั้งใจ — oem_price_calc ไม่เปิดให้ authenticated อีกต่อไป
+  -- (แอปเรียกผ่าน service client เท่านั้น; ดู 0147 "SUPERSEDES: 0140:832-833")
+  -- เจตนาเดิมของเคสนี้ (trap #2 — grant หายหลัง replace จนเรียกไม่ได้เลย) ยังอยู่:
+  -- service_role ต้องยังเรียกได้ · สิ่งที่กลับทิศคือ authenticated ต้อง "ไม่มี"
+  if has_function_privilege('service_role', 'analytics.oem_price_calc(uuid,jsonb)', 'execute')
+     and not has_function_privilege('authenticated', 'analytics.oem_price_calc(uuid,jsonb)', 'execute') then
+    v_log := v_log || 'P2d OK: oem_price_calc เปิดให้ service_role เท่านั้น (authenticated ถูก revoke โดย 0147)' || E'\n';
   else
     v_fail_count := v_fail_count + 1;
-    v_log := v_log || 'P2d FAIL: oem_price_calc grant ไม่ครบ authenticated/service_role (trap #2 — grant หายหลัง replace)' || E'\n';
+    v_log := v_log || 'P2d FAIL: oem_price_calc ต้องเปิดให้ service_role และไม่เปิดให้ authenticated (0147) — grant หายหลัง replace (trap #2) หรือถูก re-grant กลับ' || E'\n';
   end if;
 
   -- ========================================================================
@@ -290,11 +295,27 @@ begin
   -- ========================================================================
   -- Part 6 — object ข้างเคียงที่ห้ามแตะยังอยู่ครบ
   -- ========================================================================
-  if to_regprocedure('analytics.oem_quote_save(uuid, jsonb, uuid, text, text, text, text, numeric, text)') is not null then
-    v_log := v_log || 'P6a OK: analytics.oem_quote_save ยังอยู่ signature เดิม' || E'\n';
+  -- แก้ 9 ต.ค. 69: 9-arg เดิมถูก drop โดยตั้งใจ (0163 เพิ่ม p_bar_valid_until · 0166 เพิ่ม
+  -- p_actor_id → ปัจจุบัน 11 arg) เจตนาของเคสนี้คือ "oem_quote_save ไม่หายและไม่แตก overload
+  -- และผู้เรียกที่ส่ง 9 arg แบบเดิมยังเรียกได้" จึงเช็คแทนด้วย:
+  --   (1) มี 1 ตัวเป๊ะ (ไม่มี overload ซ้อน — กับดัก create or replace ของ 3j-migration-traps)
+  --   (2) 9 arg แรกเป็นสัญญาเดิมครบทั้งชื่อ+ชนิด+ลำดับ
+  --   (3) arg ที่บังคับมีแค่ p_shop_id กับ p_items (ที่เหลือมี default) ⇒ call 9 arg เดิมยัง resolve ได้
+  select count(*) into v_count from pg_proc
+    where pronamespace = 'analytics'::regnamespace and proname = 'oem_quote_save';
+  if v_count = 1
+     and exists (
+       select 1 from pg_proc
+        where pronamespace = 'analytics'::regnamespace and proname = 'oem_quote_save'
+          and pg_get_function_identity_arguments(oid) like
+              'p_shop_id uuid, p_items jsonb, p_quote_id uuid, p_status text, p_approval_note text, p_customer_name text, p_customer_contact text, p_discount_thb numeric, p_discount_reason text%'
+          and pronargs >= 9
+          and (pronargs - pronargdefaults) = 2
+     ) then
+    v_log := v_log || 'P6a OK: analytics.oem_quote_save มี 1 ตัว · 9 arg แรกเป็นสัญญาเดิม · arg ใหม่ท้ายทุกตัวมี default' || E'\n';
   else
     v_fail_count := v_fail_count + 1;
-    v_log := v_log || 'P6a FAIL: analytics.oem_quote_save signature เดิมหายไป' || E'\n';
+    v_log := v_log || format('P6a FAIL: analytics.oem_quote_save พบ %s overload หรือ 9 arg แรกไม่ตรงสัญญาเดิม หรือมี arg ใหม่ที่ไม่มี default (ผู้เรียกเดิมจะพัง)', v_count) || E'\n';
   end if;
 
   if to_regprocedure('analytics.oem_quote_renegotiate(uuid, uuid, numeric, text)') is not null then
