@@ -26,7 +26,7 @@ function builder(table: string) {
   const call: Op = { table, ops: [] };
   calls.push(call);
   const b: Record<string, unknown> = {};
-  for (const m of ["select", "eq", "in", "lte", "gt", "gte", "or", "order", "limit", "is"]) {
+  for (const m of ["select", "eq", "neq", "not", "in", "lte", "gt", "gte", "or", "order", "limit", "is"]) {
     b[m] = (...args: unknown[]) => {
       call.ops.push([m, ...args]);
       return b;
@@ -178,7 +178,11 @@ describe("getRecoInbox / isWorkflowPiece", () => {
   it("getRecoInbox กรอง shop_id + มีเพดานแถว", async () => {
     await getRecoInbox();
     expect(opsOf("v_recommendation_inbox", "eq")).toContainEqual(["eq", "shop_id", SHOP]);
-    expect(opsOf("v_recommendation_inbox", "limit").length).toBe(1);
+    // รอบแก้ code review ข้อ 3: query แยก "รอตอบ" (eq pending เรียง respond_by nulls last) กับ "ประวัติ" (neq pending) — รอตอบไม่หลุดเมื่อประวัติเกินเพดาน
+    expect(opsOf("v_recommendation_inbox", "limit").length).toBe(2);
+    expect(opsOf("v_recommendation_inbox", "eq")).toContainEqual(["eq", "effective_action", "pending"]);
+    expect(opsOf("v_recommendation_inbox", "neq")).toContainEqual(["neq", "effective_action", "pending"]);
+    expect(opsOf("v_recommendation_inbox", "order")).toContainEqual(["order", "respond_by", { ascending: true, nullsFirst: false }]);
   });
   it("isWorkflowPiece: uuid ผิด → false โดยไม่ query · DB ล้ม → false (ไม่ redirect ผิด) · พบแถว → true", async () => {
     expect(await isWorkflowPiece("../../etc")).toBe(false);

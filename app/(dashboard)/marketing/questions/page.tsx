@@ -28,8 +28,9 @@ export default async function QuestionsPage({ searchParams }: { searchParams: Pr
   }
   if (!res.ok) return <PageError message={res.error} />;
 
-  const pending: RecoInboxRow[] = sortRecoPending(res.data);
-  const history: RecoInboxRow[] = res.data.filter((r) => r.effectiveAction !== "pending");
+  // DB เรียงมาแล้ว (query แยกรอตอบ/ประวัติ) — sortRecoPending คงไว้เป็นด่านสุดท้ายของลำดับแสดงผล
+  const pending: RecoInboxRow[] = sortRecoPending(res.data.pending);
+  const history: RecoInboxRow[] = res.data.history;
   const list = tab === "pending" ? pending : history;
 
   const tabCls = (active: boolean) =>

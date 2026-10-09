@@ -34,7 +34,7 @@ function builder(table: string) {
     call.eqs.push([k, v]);
     return b;
   };
-  for (const m of ["in", "lte", "gt", "or", "order", "limit", "is"]) b[m] = chain;
+  for (const m of ["in", "lte", "gt", "or", "order", "limit", "is", "neq", "not"]) b[m] = chain;
   const result = () => tableResults[table] ?? { data: null, error: null };
   b.maybeSingle = () => Promise.resolve(result());
   b.then = (res: (v: unknown) => unknown) => Promise.resolve(result()).then(res);

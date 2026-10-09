@@ -539,5 +539,12 @@ export interface InboxData {
   nextScheduled: Part<NextScheduled | null>;
 }
 
+export interface RecoInboxLists {
+  /** รอตอบ — เรียง respond_by ใกล้สุดก่อน (ไม่มี = ท้าย) แล้ว created_at ใหม่สุด */
+  pending: RecoInboxRow[];
+  /** ตอบแล้ว/หมดเวลา — ใหม่สุดก่อน */
+  history: RecoInboxRow[];
+}
+
 /** ผลของ action ในสายงาน content — ActionResult + ธง stale (หน้าเก่ากว่า DB → ฝั่งจอควร refresh) · pure ใช้ได้ทั้ง client/server */
 export type PieceResult<T = undefined> = { ok: true; data: T } | { ok: false; error: string; stale?: boolean };

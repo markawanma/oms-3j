@@ -22,6 +22,7 @@ import type {
   LineQuota,
   NextScheduled,
   Part,
+  RecoInboxLists,
   RecoInboxRow,
   WeeklySummaryRow,
 } from "@/lib/marketing/piece-types";
@@ -139,6 +140,8 @@ export async function getInboxData(): Promise<PieceResult<InboxData>> {
           .select("*")
           .eq("shop_id", shop)
           .eq("effective_action", "pending")
+          .order("respond_by", { ascending: true, nullsFirst: false })
+          .order("created_at", { ascending: false })
           .limit(RECO_LIMIT);
         if (error) throw error;
         return asRows(data).map(mapRecoRow);
@@ -229,21 +232,29 @@ export async function getInboxData(): Promise<PieceResult<InboxData>> {
   };
 }
 
-/** ข้อเสนอ/คำถามทั้งหมด (หน้า /marketing/questions) — รอตอบ + ประวัติ · เรียงฝั่ง page */
-export async function getRecoInbox(): Promise<PieceResult<RecoInboxRow[]>> {
+/**
+ * ข้อเสนอ/คำถามสำหรับหน้า /marketing/questions — แยก query "รอตอบ" กับ "ประวัติ" (code review ข้อ 3):
+ * รอตอบเรียงตามที่ใกล้กำหนดก่อน (respond_by nulls last แล้วใหม่สุด) — ไม่หลุดแม้ประวัติเกินเพดาน · ประวัติเรียงใหม่สุดก่อน มีเพดาน
+ */
+export async function getRecoInbox(): Promise<PieceResult<RecoInboxLists>> {
   const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
   try {
-    const supabase = getServiceClient();
-    const { data, error } = await supabase
-      .schema(SCHEMA)
-      .from("v_recommendation_inbox")
-      .select("*")
-      .eq("shop_id", shopId())
-      .order("created_at", { ascending: false })
-      .limit(RECO_LIMIT);
-    if (error) throw error;
-    return { ok: true, data: asRows(data).map(mapRecoRow) };
+    const shop = shopId();
+    const db = () => getServiceClient().schema(SCHEMA).from("v_recommendation_inbox");
+    const [pending, history] = await Promise.all([
+      db()
+        .select("*")
+        .eq("shop_id", shop)
+        .eq("effective_action", "pending")
+        .order("respond_by", { ascending: true, nullsFirst: false })
+        .order("created_at", { ascending: false })
+        .limit(RECO_LIMIT),
+      db().select("*").eq("shop_id", shop).neq("effective_action", "pending").order("created_at", { ascending: false }).limit(RECO_LIMIT),
+    ]);
+    if (pending.error) throw pending.error;
+    if (history.error) throw history.error;
+    return { ok: true, data: { pending: asRows(pending.data).map(mapRecoRow), history: asRows(history.data).map(mapRecoRow) } };
   } catch (err) {
     logRpcFailure("getRecoInbox", err);
     return { ok: false, error: "โหลดคำถามจาก AI ไม่สำเร็จ ลองใหม่อีกครั้ง" };

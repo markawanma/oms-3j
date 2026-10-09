@@ -17,6 +17,7 @@ import { GateBadge } from "@/components/domain/marketing/workflow/badges";
 import { ReasonField } from "@/components/domain/marketing/workflow/ReasonField";
 import { recordGate } from "@/lib/actions/content-pieces";
 import { safeHttpUrl } from "@/lib/marketing/safe-url";
+import { useSyncedDraft } from "@/components/domain/marketing/workflow/useSyncedDraft";
 import { GATE_KIND_LABEL } from "@/lib/marketing/piece-labels";
 import type { GateKind } from "@/lib/marketing/piece-labels";
 import type { PieceGate } from "@/lib/marketing/piece-types";
@@ -153,7 +154,7 @@ function FactBody({ stepId, gate, editable }: GateCardProps) {
     // คงสถานะเดิม (ถ้าเคยผ่านแล้ว เพิ่มแหล่งไม่ทำให้หลุดผ่าน)
     const keep = status === "passed" || status === "blocked" ? status : "pending";
     const ok = await submit(
-      { gateKind: "fact_check", status: keep, sources: [...sources, next], flagged },
+      { gateKind: "fact_check", status: keep, sources: [...sources, next], flagged, note: gate?.note ?? null }, // คง note เดิม (RPC เขียนทับ detail/note ทั้งก้อน)
       "เพิ่มแหล่งอ้างอิงแล้ว"
     );
     if (ok) setUrl("");
@@ -163,7 +164,7 @@ function FactBody({ stepId, gate, editable }: GateCardProps) {
     const rest = sources.filter((s) => s !== target);
     // ผ่านแล้วแต่ลบแหล่งจนหมด → ผ่านต่อไม่ได้ ต้องลดเป็นรอตรวจ
     const keep = status === "passed" && rest.length === 0 ? "pending" : status === "passed" || status === "blocked" ? status : "pending";
-    await submit({ gateKind: "fact_check", status: keep, sources: rest, flagged }, "ลบแหล่งอ้างอิงแล้ว");
+    await submit({ gateKind: "fact_check", status: keep, sources: rest, flagged, note: gate?.note ?? null }, "ลบแหล่งอ้างอิงแล้ว");
   }
 
   return (
@@ -380,7 +381,14 @@ function RiskBody({ stepId, gate, editable, onRequestEdit }: GateCardProps) {
   const prevAnswer = str(gate?.detail?.answer);
   const status = gate?.status ?? "pending";
   const { busy, error, submit } = useGateSubmit(stepId);
-  const [answer, setAnswer] = useState(prevAnswer);
+  // คำตอบตามค่าจาก server หลัง refresh (ตอบจากหน้าอื่น/แท็บอื่นแล้วไม่ค้างค่าเก่า) — เหมือนช่องแก้เนื้อหา
+  const ad = useSyncedDraft(prevAnswer);
+  const answer = ad.draft;
+  const setAnswer = ad.setDraft;
+  async function saveRisk(status: "passed" | "na", okMessage: string) {
+    const ok = await submit({ gateKind: "risk_owner", status, answer: answer.trim() }, okMessage);
+    if (ok) ad.markSaved(answer.trim());
+  }
 
   return (
     <div className="mt-2 space-y-3">
@@ -409,7 +417,7 @@ function RiskBody({ stepId, gate, editable, onRequestEdit }: GateCardProps) {
               type="button"
               loading={busy}
               disabled={status === "passed" || answer.length > 1000}
-              onClick={() => void submit({ gateKind: "risk_owner", status: "passed", answer: answer.trim() }, "ผ่านด่านความเสี่ยงแล้ว")}
+              onClick={() => void saveRisk("passed", "ผ่านด่านความเสี่ยงแล้ว")}
             >
               ใช้ได้ (ผ่านด่านนี้)
             </Button>
@@ -417,7 +425,7 @@ function RiskBody({ stepId, gate, editable, onRequestEdit }: GateCardProps) {
               type="button"
               variant="secondary"
               disabled={busy || status === "na" || answer.length > 1000}
-              onClick={() => void submit({ gateKind: "risk_owner", status: "na", answer: answer.trim() }, "ทำเครื่องหมายว่าไม่เกี่ยวข้องแล้ว")}
+              onClick={() => void saveRisk("na", "ทำเครื่องหมายว่าไม่เกี่ยวข้องแล้ว")}
             >
               ไม่เกี่ยวข้อง
             </Button>
