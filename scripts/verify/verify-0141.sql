@@ -803,12 +803,19 @@ begin
         raise exception 'product_upsert: SKU % ยังไม่เคยตั้งสเปค — ตั้งค่า cost_type=spec ต้องผ่าน analytics.product_make_spec_set เท่านั้น', btrim(p_sku) using errcode = '22023';
       end if;
 
+      -- แก้ 9 ต.ค. 69: พอร์ตส่วน "พา make_spec ไปกับแถวที่เสนอ" จาก 0142 §2 เข้ามา —
+      -- เดิม Part 0 ฝัง product_upsert ของ 0141 ที่ insert ไม่พา make_spec ⇒ พอ 0142 เพิ่ม
+      -- CHECK product_spec_requires_make_spec_check (Postgres ตรวจกับแถวที่เสนอก่อนรู้ว่าชน
+      -- unique) การ upsert SKU โหมด spec ทุกครั้งโดน 23514 (เคส T7/T12 ล้ม)
+      -- ส่วน guard ทิศ spec→อื่น ของ 0142 ไม่ได้พอร์ต (อยู่ในขอบเขต verify-0142)
       insert into public.product (
         shop_id, sku, name, category, cost_type, unit_cost, silver_weight_g,
-        silver_purity, labor_cost, list_price, barcode, supplier, note, is_active
+        silver_purity, labor_cost, list_price, barcode, supplier, note, is_active,
+        make_spec
       ) values (
         p_shop_id, btrim(p_sku), btrim(p_name), p_category, p_cost_type, p_unit_cost, p_silver_weight_g,
-        p_silver_purity, p_labor_cost, p_list_price, p_barcode, p_supplier, p_note, coalesce(p_is_active, true)
+        p_silver_purity, p_labor_cost, p_list_price, p_barcode, p_supplier, p_note, coalesce(p_is_active, true),
+        v_old.make_spec
       )
       on conflict (shop_id, sku) do update set
         name = excluded.name,
@@ -971,15 +978,42 @@ begin
   -- T8: make_spec null (ใช้ v_p_fixed ซึ่งไม่เคยตั้งสเปคเลย แต่ต้องพลิก
   -- cost_type เป็น spec ตรงๆ ผ่าน DB เพื่อจำลอง defense-in-depth — service_role
   -- bypass RLS ทำได้)
-  update public.product set cost_type = 'spec' where id = v_p_fixed;
+  --
+  -- แก้ 9 ต.ค. 69: 0142 เพิ่ม CHECK product_spec_requires_make_spec_check
+  -- (cost_type <> 'spec' or make_spec is not null) ⇒ UPDATE ตรงๆ แบบนี้ถูกตีตก 23514
+  -- ตั้งแต่ชั้นตารางแล้ว (ทำให้ไฟล์นี้ล้มทั้งก้อนที่บรรทัดนี้) จึงแยกเป็น 2 ขั้น:
+  --   T8a: ด่านชั้นตาราง (0142) ตีตก UPDATE ด้วย 23514 จริง
+  --   T8b: ด่านชั้นฟังก์ชัน (0141 defense-in-depth) ยังปฏิเสธ 22023 — ต้อง drop CHECK
+  --        ชั่วคราว *ภายในทรานแซกชันซ้อมนี้* เพื่อให้ข้อมูลเพี้ยนแบบนี้เกิดได้ แล้ว add
+  --        คืนทันที (ทั้งก้อน rollback เสมอ ไม่กระทบ DB จริง; ไฟล์นี้ alter table
+  --        public.product อยู่แล้วใน Part 0 จึงไม่ได้ถือ lock เพิ่มจากเดิม)
   v_caught := false; v_code := null;
   begin
-    perform analytics.production_cost_calc(v_shop, v_p_fixed, null, 5, false);
+    update public.product set cost_type = 'spec' where id = v_p_fixed;
   exception when others then v_caught := true; get stacked diagnostics v_code = returned_sqlstate;
   end;
-  v_log := v_log || format('[T8] cost_type=spec แต่ make_spec เป็น null ถูกปฏิเสธ (errcode=%s): %s\n',
-    coalesce(v_code, '(none)'), case when v_caught and v_code = '22023' then 'OK' else 'FAIL' end);
+  v_log := v_log || format('[T8a] ตั้ง cost_type=spec โดย make_spec เป็น null ตรงๆ ถูก CHECK ชั้นตาราง (0142) ตีตก (errcode=%s คาด 23514): %s\n',
+    coalesce(v_code, '(none)'), case when v_caught and v_code = '23514' then 'OK' else 'FAIL' end);
+  -- ถ้า T8a ล้ม (CHECK หายไป) แถวจะถูกพลิกเป็น spec จริง — คืนสภาพก่อนไปต่อเสมอ
+  update public.product set cost_type = 'fixed' where id = v_p_fixed and cost_type <> 'fixed';
+
+  alter table public.product drop constraint if exists product_spec_requires_make_spec_check;
+  update public.product set cost_type = 'spec' where id = v_p_fixed;
+  -- ตรวจข้อความด้วย ไม่ใช่แค่ errcode: v_p_fixed ไม่มี silver_weight_g และ make_spec เป็น null
+  -- ⇒ ด่านถัดๆ ไป (น้ำหนัก/metal) ก็โยน 22023 เหมือนกัน ถ้าด่าน make_spec หายไป errcode อย่างเดียวจะไม่รู้
+  v_caught := false; v_code := null; v_msg := null;
+  begin
+    perform analytics.production_cost_calc(v_shop, v_p_fixed, null, 5, false);
+  exception when others then
+    v_caught := true;
+    get stacked diagnostics v_code = returned_sqlstate, v_msg = message_text;
+  end;
+  v_log := v_log || format('[T8b] cost_type=spec แต่ make_spec เป็น null ถูกปฏิเสธโดยด่าน make_spec ของฟังก์ชัน (errcode=%s): %s\n',
+    coalesce(v_code, '(none)'),
+    case when v_caught and v_code = '22023' and v_msg like '%ยังไม่ได้ตั้งสเปค%' then 'OK' else 'FAIL' end);
   update public.product set cost_type = 'fixed' where id = v_p_fixed; -- คืนสภาพ
+  alter table public.product add constraint product_spec_requires_make_spec_check
+    check (cost_type <> 'spec' or make_spec is not null);
 
   -- T9: v_p_raw มี make_spec+cost_type=spec แล้ว (จาก T7) แต่ silver_weight_g
   -- ถูกตั้งไว้แล้วใน T7 (3.5) — ทดสอบ "ยังไม่กรอกน้ำหนัก" ต้องใช้ SKU ใหม่
