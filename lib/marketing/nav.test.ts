@@ -15,7 +15,8 @@ describe("activeTabHref", () => {
   });
   it("does not light up the root tab on child pages", () => {
     expect(activeTabHref("/marketing/calendar", HREFS)).toBe("/marketing/calendar");
-    expect(activeTabHref("/marketing/pieces/abc", HREFS)).toBe("/marketing/pieces");
+    expect(activeTabHref("/marketing/pieces", HREFS)).toBe("/marketing/pieces");
+    expect(activeTabHref("/marketing/pieces/abc", HREFS)).toBeNull(); // หน้าชิ้นงานไม่ทำให้แท็บ list สว่าง
   });
   it("prefers the longest matching href", () => {
     expect(activeTabHref("/marketing/content/entry", HREFS)).toBe("/marketing/content/entry");
