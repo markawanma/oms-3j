@@ -493,3 +493,26 @@ export async function deferPiece(stepId: string, newDate: string, reason: string
   refreshPaths(stepId);
   return { ok: true, data: undefined };
 }
+
+/**
+ * step นี้อยู่ใน workflow ใหม่ไหม (มีแถวใน v_content_piece) — ใช้ตัดสิน redirect จากหน้าเดิม /marketing/calendar/[stepId]
+ * ล้มเหลว/ไม่ใช่ uuid = false (ปล่อยให้หน้าเดิมทำงานตามปกติ ไม่ redirect ผิด)
+ */
+export async function isWorkflowPiece(stepId: string): Promise<boolean> {
+  const gateErr = await requireOwnerAdmin();
+  if (gateErr || !isUuid(stepId)) return false;
+  try {
+    const { data, error } = await getServiceClient()
+      .schema(SCHEMA)
+      .from("v_content_piece")
+      .select("step_id")
+      .eq("shop_id", shopId())
+      .eq("step_id", stepId)
+      .maybeSingle();
+    if (error) throw error;
+    return data !== null;
+  } catch (err) {
+    logRpcFailure("isWorkflowPiece", err);
+    return false;
+  }
+}

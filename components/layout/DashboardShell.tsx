@@ -25,6 +25,7 @@ import {
   Gem,
   Hammer,
   Hash,
+  Inbox,
   LayoutDashboard,
   LineChart,
   Megaphone,
@@ -100,6 +101,8 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "การตลาด",
     items: [
+      // P1a (content-ui-build-plan.md §6): หน้าแรกของสายการตลาด — แรกสุดของกลุ่ม
+      { href: "/marketing", label: "งานที่รอฉัน", icon: Inbox },
       { href: "/marketing/ad-spend", label: "ค่าแอด", icon: Wallet },
       { href: "/marketing/copilot", label: "Ad Copilot", icon: Megaphone },
       { href: "/marketing/audience", label: "กลุ่มลูกค้า", icon: Users2 },

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { CalendarDays, ClipboardList, Gem, History, Megaphone, Ticket, TrendingUp, Users2, Wallet } from "lucide-react";
+import { CalendarDays, ClipboardList, Gem, History, Inbox, Megaphone, MessageCircleQuestion, Ticket, TrendingUp, Users2, Wallet } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { activeTabHref } from "@/lib/marketing/nav";
 
@@ -38,6 +38,7 @@ const TABS: { href: string; label: string; icon: LucideIcon }[] = [
   { href: "/marketing/gem-quiz", label: "แบบทดสอบพลอย", icon: Gem },
 ];
 
+// มือถือ (< md): ซ่อนแถวแท็บเลื่อนแนวนอนนี้ (กติกา 7.3 ห้ามเลื่อนแนวนอน) — ใช้แถบล่าง MarketingBottomNav แทน
 /** Sticky sub-nav tab bar for the Marketing module — mirrors CrmSubNav
  * (components/domain/crm/CrmSubNav.tsx) exactly, same `top-16` sticky offset
  * assumption (see DashboardShell header height note). */
@@ -53,7 +54,7 @@ export function MarketingSubNav() {
   return (
     <nav
       aria-label="เมนูการตลาด"
-      className="sticky top-16 z-10 flex gap-1 overflow-x-auto border-b border-zinc-200 bg-white px-1 py-1.5 scrollbar-none"
+      className="sticky top-16 z-10 hidden gap-1 overflow-x-auto border-b border-zinc-200 bg-white px-1 py-1.5 scrollbar-none md:flex"
     >
       {TABS.map(({ href, label, icon: Icon }) => {
         const active = href === activeHref;
