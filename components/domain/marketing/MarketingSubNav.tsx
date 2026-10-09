@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { CalendarDays, ChevronDown, ClipboardList, Gem, History, Inbox, Megaphone, MessageCircleQuestion, Ticket, TrendingUp, Users2, Wallet } from "lucide-react";
@@ -66,6 +66,7 @@ export function MarketingSubNav() {
     TABS.map((t) => t.href)
   );
   const [moreOpen, setMoreOpen] = useState(false);
+  const moreBtnRef = useRef<HTMLButtonElement>(null);
   const primary = TABS.filter((t) => !OVERFLOW_HREFS.has(t.href));
   const others = TABS.filter((t) => OVERFLOW_HREFS.has(t.href));
   const moreActive = activeHref !== null && OVERFLOW_HREFS.has(activeHref);
@@ -93,13 +94,18 @@ export function MarketingSubNav() {
       <div
         className="relative"
         onKeyDown={(e) => {
-          if (e.key === "Escape") setMoreOpen(false);
+          // Escape ขณะอยู่ในรายการ → ปิดเมนูแล้วคืนโฟกัสให้ปุ่ม "อื่นๆ"
+          if (e.key === "Escape" && moreOpen) {
+            setMoreOpen(false);
+            moreBtnRef.current?.focus();
+          }
         }}
         onBlur={(e) => {
           if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setMoreOpen(false);
         }}
       >
         <button
+          ref={moreBtnRef}
           type="button"
           aria-expanded={moreOpen}
           onClick={() => setMoreOpen((o) => !o)}

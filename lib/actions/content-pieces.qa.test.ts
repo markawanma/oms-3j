@@ -274,7 +274,7 @@ describe("อินพุตสุดโต่ง — ต้องไม่ถ�
   });
   it("savePieceBody: error จาก action เดิม ส่งต่อข้อความ (ไม่กลืน)", async () => {
     rpcMock.mockResolvedValueOnce({ data: null, error: { code: "55000", message: "campaign_set_artifact_content: อนุมัติแล้ว ห้ามแก้เนื้อหา" } });
-    expect(await savePieceBody(STEP, ART, "x")).toEqual({ ok: false, error: "อนุมัติแล้วแก้เนื้อหาไม่ได้ — ส่งกลับก่อน", stale: false });
+    expect(await savePieceBody(STEP, ART, "x")).toEqual({ ok: false, error: "อนุมัติแล้วแก้เนื้อหาไม่ได้ — ส่งกลับก่อน", stale: true });
   });
 
   it("toggleShot: shot id ว่าง/ยาว > 80/ไม่ใช่ string · done ที่ไม่ใช่ true เป๊ะ = false", async () => {

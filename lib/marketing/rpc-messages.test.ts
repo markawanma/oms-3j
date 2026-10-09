@@ -214,3 +214,20 @@ describe("ข้อความเทคนิค (SQL/stack) ห้ามขึ
     expect(m).not.toMatch(/[a-z]+_[a-z_]+/);
   });
 });
+
+describe("stale — ข้อความที่แปลว่า 'หน้านี้เก่ากว่า DB' ต้องสั่ง refresh", () => {
+  const stale = (code: string, message: string) => describeRpcError({ code, message }, "x").stale;
+  it("อนุมัติแล้วห้ามแก้ · รอเงื่อนไข · เลื่อนวันหลังวางแผน · มีโพสต์ช่องนี้แล้ว · ผูกกับชิ้นนี้แล้ว", () => {
+    expect(stale("55000", "campaign_set_artifact_content: อนุมัติแล้ว ห้ามแก้เนื้อหา")).toBe(true);
+    expect(stale("55000", "content_piece_post: ชิ้นงานรอเงื่อนไขอยู่ (รอของ) — กด resume ก่อน")).toBe(true);
+    expect(stale("55000", "content_piece_set_plan: เลื่อนวันหลังวางแผนแล้วต้องใช้ content_piece_defer")).toBe(true);
+    expect(stale("55000", "content_piece_post: ชิ้นนี้มีโพสต์ tiktok ที่ใช้งานอยู่แล้ว")).toBe(true);
+    expect(stale("55000", "content_piece_post: โพสต์นี้ผูกกับชิ้นนี้อยู่แล้ว")).toBe(true);
+  });
+  it("ข้อผิดพลาดที่ไม่เกี่ยวกับความเก่า (ด่านไม่ผ่าน/อินพุต/ผูกชิ้นอื่น) ไม่ตั้ง stale", () => {
+    expect(stale("55000", "content_piece_advance: อนุมัติไม่ได้ — ยังมี [ต้องยืนยัน] ที่ยังไม่ตอบ 2 รายการ")).toBe(false);
+    expect(stale("55000", "content_piece_post: โพสต์นี้ผูกกับชิ้นงานอื่นอยู่")).toBe(false);
+    expect(stale("22023", "content_piece_advance: การยกเลิกต้องมีเหตุผล")).toBe(false);
+    expect(stale("42501", "x")).toBe(false);
+  });
+});

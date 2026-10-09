@@ -40,19 +40,25 @@ type Dialog =
 function MoreMenu({ items, disabled }: { items: MenuItem[]; disabled: boolean }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   if (items.length === 0) return null;
   return (
     <div
       ref={wrapRef}
       className="relative"
       onKeyDown={(e) => {
-        if (e.key === "Escape") setOpen(false);
+        // Escape ขณะอยู่ในรายการ → ปิดเมนูแล้วคืนโฟกัสให้ปุ่มเปิด (ไม่ให้โฟกัสหายไปกับรายการที่ถูกถอดออก)
+        if (e.key === "Escape" && open) {
+          setOpen(false);
+          triggerRef.current?.focus();
+        }
       }}
       onBlur={(e) => {
         if (!wrapRef.current?.contains(e.relatedTarget as Node | null)) setOpen(false);
       }}
     >
       <Button
+        ref={triggerRef}
         type="button"
         variant="secondary"
         // disclosure (ปุ่มเปิด/ปิดรายการปุ่ม) ไม่ใช้ role="menu": role นั้นสัญญาว่าจะมี arrow-key navigation ครบ ซึ่งไม่มี — รายการปุ่มธรรมดาเข้าถึงด้วย Tab ได้ถูกต้องกว่า
@@ -72,6 +78,7 @@ function MoreMenu({ items, disabled }: { items: MenuItem[]; disabled: boolean })
                 type="button"
                 onClick={() => {
                   setOpen(false);
+                  triggerRef.current?.focus(); // กล่องที่เปิดต่อจะคืนโฟกัสให้ปุ่มเปิดเมนูเมื่อปิด (ไม่ใช่รายการที่ถูกถอดแล้ว)
                   it.run();
                 }}
                 className={`flex min-h-11 w-full items-center px-3 text-left text-sm font-medium hover:bg-zinc-50 focus-visible:bg-zinc-50 ${

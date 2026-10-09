@@ -43,7 +43,7 @@ describe("savePieceBody หลังอีกแท็บอนุมัติ (
 
   // BUG-QA-3 (Low-Med): ข้อความนี้ไม่ตั้ง stale:true → PieceEditCard ไม่เรียก router.refresh() (ดู `if (res.stale) router.refresh()` ใน saveBody)
   // → หน้ายังโชว์โหมดแก้ของชิ้นที่อนุมัติไปแล้วในอีกแท็บ จนกว่าผู้ใช้จะโหลดเอง · ผลคือกดบันทึกซ้ำได้ข้อความเดิมวนๆ
-  it.fails("BUG-QA-3: อนุมัติแล้วแก้ไม่ได้ ต้องตั้ง stale เพื่อให้หน้ารีเฟรช", async () => {
+  it("BUG-QA-3: อนุมัติแล้วแก้ไม่ได้ ต้องตั้ง stale เพื่อให้หน้ารีเฟรช", async () => {
     rpcMock.mockResolvedValue({ data: null, error: { code: "55000", message: APPROVED_MSG } });
     const r = await savePieceBody(STEP, ART, "แก้");
     expect(r.ok === false && r.stale === true).toBe(true);
