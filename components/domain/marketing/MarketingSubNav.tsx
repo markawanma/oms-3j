@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { CalendarDays, ClipboardList, Gem, History, Megaphone, Ticket, TrendingUp, Users2, Wallet } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { activeTabHref } from "@/lib/marketing/nav";
 
 // Keep in sync with the "การตลาด" group in
 // components/layout/DashboardShell.tsx (NAV_GROUPS) — same 6 routes, same
@@ -42,6 +43,12 @@ const TABS: { href: string; label: string; icon: LucideIcon }[] = [
  * assumption (see DashboardShell header height note). */
 export function MarketingSubNav() {
   const pathname = usePathname();
+  // Longest-match so a parent tab (e.g. "/marketing") never co-highlights with
+  // a more specific child tab — see lib/marketing/nav.ts.
+  const activeHref = activeTabHref(
+    pathname,
+    TABS.map((t) => t.href)
+  );
 
   return (
     <nav
@@ -49,7 +56,7 @@ export function MarketingSubNav() {
       className="sticky top-16 z-10 flex gap-1 overflow-x-auto border-b border-zinc-200 bg-white px-1 py-1.5 scrollbar-none"
     >
       {TABS.map(({ href, label, icon: Icon }) => {
-        const active = pathname === href || pathname?.startsWith(`${href}/`);
+        const active = href === activeHref;
         return (
           <Link
             key={href}
