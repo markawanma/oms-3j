@@ -40,6 +40,7 @@ const BACK_LINKS: Record<string, { href: string; label: string }> = {
   inbox: { href: "/marketing", label: "งานที่รอฉัน" },
   calendar: { href: "/marketing/calendar", label: "ปฏิทิน" },
   questions: { href: "/marketing/questions", label: "คำถามจาก AI" },
+  copilot: { href: "/marketing/copilot", label: "Ad Copilot" },
 };
 const DEFAULT_BACK = BACK_LINKS.inbox;
 
@@ -135,82 +136,94 @@ export default async function PieceDetailPage({
           </div>
         )}
 
-        <header className="space-y-2">
-          <div className="flex flex-wrap items-center gap-1.5">
-            {contentType && <ContentTypeChip contentType={contentType} />}
-            <PieceStatusBadge status={piece.effectiveStatus} />
-            {piece.draftedByAi && <AuthorBadge kind="ai" />}
-            {piece.humanEdited && <AuthorBadge kind="human" />}
-          </div>
-          <h1 className="break-words text-xl font-bold text-zinc-900">{piece.title}</h1>
-          {meta.length > 0 && <p className="break-words text-sm text-zinc-700">{meta.join(" · ")}</p>}
-        </header>
+        {/* มือถือ: เรียงตามหัวข้อใน §2.4 (…เนื้อหา → ตรวจและอนุมัติ → แผน → โพสต์ → ประวัติ)
+            PC (lg): คอลัมน์หลักซ้าย / คอลัมน์ข้าง sticky = ตรวจและอนุมัติ + แผน (ความกว้างหน้านี้ขยายผ่าน isWideMarketingPath) */}
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_23rem] lg:gap-x-6">
+          <div className="min-w-0 space-y-4 lg:col-start-1 lg:row-start-1">
+            <header className="space-y-2">
+              <div className="flex flex-wrap items-center gap-1.5">
+                {contentType && <ContentTypeChip contentType={contentType} />}
+                <PieceStatusBadge status={piece.effectiveStatus} />
+                {piece.draftedByAi && <AuthorBadge kind="ai" />}
+                {piece.humanEdited && <AuthorBadge kind="human" />}
+              </div>
+              <h1 className="break-words text-xl font-bold text-zinc-900">{piece.title}</h1>
+              {meta.length > 0 && <p className="break-words text-sm text-zinc-700">{meta.join(" · ")}</p>}
+            </header>
 
-        <PieceBanners banners={banners} />
+            <PieceBanners banners={banners} />
 
-        <PieceStatusStepper rawStatus={piece.pieceStatus} effectiveStatus={piece.effectiveStatus} pieceKind={piece.pieceKind} />
+            <PieceStatusStepper rawStatus={piece.pieceStatus} effectiveStatus={piece.effectiveStatus} pieceKind={piece.pieceKind} />
 
-        <PieceOrigin signal={sourceSignal} hypothesis={piece.hypothesis} />
+            <PieceOrigin signal={sourceSignal} hypothesis={piece.hypothesis} />
 
-        {showHooks && (
-          <section aria-label="Hook 2 แบบ" className="space-y-2">
-            <h2 className="text-base font-semibold text-zinc-900">Hook 2 แบบ</h2>
-            <HookPair hooks={piece.hooks} hookStats={hookStats} />
-            <p className="text-xs text-zinc-600">เลือกตัวที่ใช้จริงตอนกด “โพสต์แล้ว”</p>
-          </section>
-        )}
-
-        {/* [ช่องว่างสงวนไว้: แม่แบบคลิป] — ตั้งใจเว้นตำแหน่งนี้ไว้ ไม่มี DOM (brief 0.14: ห้ามทำเป็นปุ่มที่ไม่ทำงาน) */}
-
-        <section aria-label={isClip ? "Storyboard" : "เนื้อหา"} className="space-y-3 rounded-lg border border-zinc-200 bg-white p-3.5">
-          <div className="flex items-center justify-between gap-2">
-            <h2 className="text-base font-semibold text-zinc-900">{isClip ? "Storyboard" : "เนื้อหา"}</h2>
-            <CopyButton text={copyAll} label="คัดลอกทั้งก้อน" />
-          </div>
-          {isClip ? (
-            <StoryboardView stepId={piece.stepId} artifactId={piece.artifactId} clipBrief={piece.clipBrief} />
-          ) : caption ? (
-            <p className="text-sm leading-relaxed text-zinc-900">
-              <ConfirmMarkerText text={piece.contentBody} />
-            </p>
-          ) : (
-            <p className="text-sm text-zinc-600">ยังไม่มีเนื้อหา — รอ AI ร่าง</p>
-          )}
-        </section>
-
-        {isClip && (
-          <section aria-label="แคปชัน" className="space-y-2 rounded-lg border border-zinc-200 bg-white p-3.5">
-            <div className="flex items-center justify-between gap-2">
-              <h2 className="text-base font-semibold text-zinc-900">แคปชัน</h2>
-              <CopyButton text={caption ?? ""} label="คัดลอกแคปชัน" />
-            </div>
-            {caption ? (
-              <p className="text-sm leading-relaxed text-zinc-900">
-                <ConfirmMarkerText text={caption} />
-              </p>
-            ) : (
-              <p className="text-sm text-zinc-600">ยังไม่มีแคปชัน</p>
+            {showHooks && (
+              <section aria-label="Hook 2 แบบ" className="space-y-2">
+                <h2 className="text-base font-semibold text-zinc-900">Hook 2 แบบ</h2>
+                <HookPair hooks={piece.hooks} hookStats={hookStats} />
+                <p className="text-xs text-zinc-600">เลือกตัวที่ใช้จริงตอนกด “โพสต์แล้ว”</p>
+              </section>
             )}
-          </section>
-        )}
 
-        {editable ? (
-          <PieceEditCard piece={piece} />
-        ) : (
-          (piece.pieceStatus === "approved" || piece.pieceStatus === "produced" || piece.pieceStatus === "posted") && (
-            <p className="rounded-md bg-zinc-50 p-3 text-sm text-zinc-700">
-              ล็อกหลังอนุมัติ — เนื้อหาและ hook แก้ไม่ได้ (ติ๊กช็อต วัน และข้อมูลถ่ายทำยังแก้ได้) · ถ้าต้องแก้เนื้อหา ใช้เมนู “⋯ → ถอนอนุมัติ…” ก่อน
-            </p>
-          )
-        )}
+            {/* [ช่องว่างสงวนไว้: แม่แบบคลิป] — ตั้งใจเว้นตำแหน่งนี้ไว้ ไม่มี DOM (brief 0.14: ห้ามทำเป็นปุ่มที่ไม่ทำงาน) */}
 
-        <PlanCard piece={piece} hosts={hosts} contentTypes={contentTypes} todayTh={todayTh} hideEdit={piece.pieceStatus === "idea"} />
+            <section aria-label={isClip ? "Storyboard" : "เนื้อหา"} className="space-y-3 rounded-lg border border-zinc-200 bg-white p-3.5">
+              <div className="flex items-center justify-between gap-2">
+                <h2 className="text-base font-semibold text-zinc-900">{isClip ? "Storyboard" : "เนื้อหา"}</h2>
+                <CopyButton text={copyAll} label="คัดลอกทั้งก้อน" />
+              </div>
+              {isClip ? (
+                <StoryboardView stepId={piece.stepId} artifactId={piece.artifactId} clipBrief={piece.clipBrief} />
+              ) : caption ? (
+                <p className="text-sm leading-relaxed text-zinc-900">
+                  <ConfirmMarkerText text={piece.contentBody} />
+                </p>
+              ) : (
+                <p className="text-sm text-zinc-600">ยังไม่มีเนื้อหา — รอ AI ร่าง</p>
+              )}
+            </section>
 
-        <ReviewPanel piece={piece} confirmItems={confirmItems} />
+            {isClip && (
+              <section aria-label="แคปชัน" className="space-y-2 rounded-lg border border-zinc-200 bg-white p-3.5">
+                <div className="flex items-center justify-between gap-2">
+                  <h2 className="text-base font-semibold text-zinc-900">แคปชัน</h2>
+                  <CopyButton text={caption ?? ""} label="คัดลอกแคปชัน" />
+                </div>
+                {caption ? (
+                  <p className="text-sm leading-relaxed text-zinc-900">
+                    <ConfirmMarkerText text={caption} />
+                  </p>
+                ) : (
+                  <p className="text-sm text-zinc-600">ยังไม่มีแคปชัน</p>
+                )}
+              </section>
+            )}
 
-        <PiecePosts piece={piece} />
+            {editable ? (
+              <PieceEditCard piece={piece} />
+            ) : (
+              (piece.pieceStatus === "approved" || piece.pieceStatus === "produced" || piece.pieceStatus === "posted") && (
+                <p className="rounded-md bg-zinc-50 p-3 text-sm text-zinc-700">
+                  ล็อกหลังอนุมัติ — เนื้อหาและ hook แก้ไม่ได้ (ติ๊กช็อต วัน และข้อมูลถ่ายทำยังแก้ได้) · ถ้าต้องแก้เนื้อหา ใช้เมนู “⋯ → ถอนอนุมัติ…” ก่อน
+                </p>
+              )
+            )}
+          </div>
 
-        <PieceHistory events={events} />
+          <aside
+            aria-label="ตรวจและแผน"
+            className="min-w-0 space-y-4 lg:sticky lg:top-[calc(4rem+3.5rem+1rem)] lg:col-start-2 lg:row-span-2 lg:row-start-1 lg:max-h-[calc(100vh-9rem)] lg:self-start lg:overflow-y-auto"
+          >
+            <ReviewPanel piece={piece} confirmItems={confirmItems} />
+            <PlanCard piece={piece} hosts={hosts} contentTypes={contentTypes} todayTh={todayTh} hideEdit={piece.pieceStatus === "idea"} />
+          </aside>
+
+          <div className="min-w-0 space-y-4 lg:col-start-1 lg:row-start-2">
+            <PiecePosts piece={piece} />
+
+            <PieceHistory events={events} />
+          </div>
+        </div>
 
         <PieceActionBar piece={piece} hosts={hosts} contentTypes={contentTypes} todayTh={todayTh} restoreForcesReview={restoreForcesReview(events)} />
       </div>

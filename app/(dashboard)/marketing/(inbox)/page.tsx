@@ -78,80 +78,92 @@ export default async function MarketingInboxPage() {
 
       {lineInLists && d.lineQuota.ok && d.lineQuota.data && <LineQuotaNotice q={d.lineQuota.data} />}
 
-      {d.weekly.ok && d.weekly.data && <WeeklySummaryPanel summary={d.weekly.data} />}
+      {/* มือถือ: เรียงตามบอร์ด Main (สรุป → กอง → สัปดาห์/กรอกยอด) · PC (lg): กองงานซ้าย / สรุป+สัปดาห์ขวา
+          (ความกว้างหน้านี้ขยายเฉพาะ route นี้ ผ่าน isWideMarketingPath ใน DashboardShell) */}
+      <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_22rem] lg:gap-x-6">
+        {d.weekly.ok && d.weekly.data && (
+          <div className="lg:col-start-2 lg:self-start">
+            <WeeklySummaryPanel summary={d.weekly.data} />
+          </div>
+        )}
 
-      {empty && (
-        <EmptyState
-          icon={PartyPopper}
-          title="ไม่มีอะไรรอคุณ"
-          description={
-            d.nextScheduled.ok && d.nextScheduled.data
-              ? `งานถัดไป: “${d.nextScheduled.data.title}” · ${formatThaiDay(d.nextScheduled.data.resolvedStart, true)}`
-              : "ยังไม่มีชิ้นงานที่วางแผนไว้"
-          }
-          action={
-            d.nextScheduled.ok && d.nextScheduled.data ? (
+        <div className="min-w-0 space-y-5 lg:col-start-1 lg:row-span-2 lg:row-start-1">
+            {empty && (
+              <EmptyState
+                icon={PartyPopper}
+                title="ไม่มีอะไรรอคุณ"
+                description={
+                  d.nextScheduled.ok && d.nextScheduled.data
+                    ? `งานถัดไป: “${d.nextScheduled.data.title}” · ${formatThaiDay(d.nextScheduled.data.resolvedStart, true)}`
+                    : "ยังไม่มีชิ้นงานที่วางแผนไว้"
+                }
+                action={
+                  d.nextScheduled.ok && d.nextScheduled.data ? (
+                    <Link
+                      href={`/marketing/pieces/${d.nextScheduled.data.stepId}?from=inbox`}
+                      className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-4 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
+                    >
+                      <CalendarCheck className="h-4 w-4" aria-hidden="true" />
+                      เปิดงานถัดไป
+                    </Link>
+                  ) : undefined
+                }
+              />
+            )}
+
+            {!d.postRows.ok ? (
+              <SectionError message={d.postRows.error} />
+            ) : (
+              piles.post.length > 0 && (
+                <PileSection id="pile-post" title="วันนี้ต้องโพสต์" count={postCount} shown={piles.post.length}>
+                  {piles.post.map((p) => (
+                    <PostCard key={p.stepId} piece={p} contentType={typeOf(p.contentTypeCode)} overdueNoLink={overdue.has(p.stepId)} todayTh={d.todayTh} />
+                  ))}
+                </PileSection>
+              )
+            )}
+
+            {!d.reviewRows.ok ? (
+              <SectionError message={d.reviewRows.error} />
+            ) : (
+              piles.review.length > 0 && (
+                <PileSection id="pile-review" title="รออนุมัติ" count={reviewCount} shown={piles.review.length}>
+                  {piles.review.map((p) => (
+                    <ApprovalCard key={p.stepId} piece={p} contentType={typeOf(p.contentTypeCode)} />
+                  ))}
+                </PileSection>
+              )
+            )}
+
+            {!d.reco.ok ? (
+              <SectionError message={d.reco.error} />
+            ) : (
+              piles.recoTotal > 0 && (
+                <PileSection id="pile-reco" title="คำถามจาก AI" count={piles.recoTotal} shown={piles.reco.length}>
+                  <AiQuestionList rows={piles.reco} />
+                </PileSection>
+              )
+            )}
+            {d.reco.ok && piles.recoTotal > 0 && (
               <Link
-                href={`/marketing/pieces/${d.nextScheduled.data.stepId}?from=inbox`}
-                className="inline-flex min-h-11 items-center gap-1.5 rounded-md border border-zinc-300 bg-white px-4 text-sm font-medium text-zinc-700 hover:bg-zinc-50"
+                href="/marketing/questions"
+                className="inline-flex min-h-11 items-center text-sm font-medium text-primary-700 underline underline-offset-2"
               >
-                <CalendarCheck className="h-4 w-4" aria-hidden="true" />
-                เปิดงานถัดไป
+                ดูคำถามและข้อเสนอทั้งหมด ({piles.recoTotal})
               </Link>
-            ) : undefined
-          }
-        />
-      )}
+            )}
+        </div>
 
-      {!d.postRows.ok ? (
-        <SectionError message={d.postRows.error} />
-      ) : (
-        piles.post.length > 0 && (
-          <PileSection id="pile-post" title="วันนี้ต้องโพสต์" count={postCount} shown={piles.post.length}>
-            {piles.post.map((p) => (
-              <PostCard key={p.stepId} piece={p} contentType={typeOf(p.contentTypeCode)} overdueNoLink={overdue.has(p.stepId)} todayTh={d.todayTh} />
-            ))}
-          </PileSection>
-        )
-      )}
+        <div className="space-y-3 lg:col-start-2 lg:self-start">
+            {!d.weekRows.ok ? (
+              <SectionError message={d.weekRows.error} />
+            ) : (
+              weekSummary && <WeekStrip from={d.weekFrom} to={d.weekTo} summary={weekSummary} rows={d.weekRows.data} />
+            )}
 
-      {!d.reviewRows.ok ? (
-        <SectionError message={d.reviewRows.error} />
-      ) : (
-        piles.review.length > 0 && (
-          <PileSection id="pile-review" title="รออนุมัติ" count={reviewCount} shown={piles.review.length}>
-            {piles.review.map((p) => (
-              <ApprovalCard key={p.stepId} piece={p} contentType={typeOf(p.contentTypeCode)} />
-            ))}
-          </PileSection>
-        )
-      )}
-
-      {!d.reco.ok ? (
-        <SectionError message={d.reco.error} />
-      ) : (
-        piles.recoTotal > 0 && (
-          <PileSection id="pile-reco" title="คำถามจาก AI" count={piles.recoTotal} shown={piles.reco.length}>
-            <AiQuestionList rows={piles.reco} />
-          </PileSection>
-        )
-      )}
-      {d.reco.ok && piles.recoTotal > 0 && (
-        <Link
-          href="/marketing/questions"
-          className="inline-flex min-h-11 items-center text-sm font-medium text-primary-700 underline underline-offset-2"
-        >
-          ดูคำถามและข้อเสนอทั้งหมด ({piles.recoTotal})
-        </Link>
-      )}
-
-      {!d.weekRows.ok ? (
-        <SectionError message={d.weekRows.error} />
-      ) : (
-        weekSummary && <WeekStrip from={d.weekFrom} to={d.weekTo} summary={weekSummary} rows={d.weekRows.data} />
-      )}
-
-      {d.entryTodayCount.ok ? <EntryTile count={d.entryTodayCount.data} /> : <SectionError message={d.entryTodayCount.error} />}
+            {d.entryTodayCount.ok ? <EntryTile count={d.entryTodayCount.data} /> : <SectionError message={d.entryTodayCount.error} />}
+        </div>
+      </div>
     </div>
   );
 }

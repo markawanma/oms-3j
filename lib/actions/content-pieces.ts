@@ -549,3 +549,26 @@ export async function isWorkflowPiece(stepId: string): Promise<boolean> {
     return false;
   }
 }
+
+/**
+ * id ของ step ทั้งหมดที่อยู่ใน workflow ใหม่ (piece_status is not null) — ใช้ให้หน้าเดิม (ปฏิทิน/Ad Copilot) เปลี่ยนปุ่มสถานะเป็นลิงก์ไปหน้าชิ้นงาน
+ * อ่านจากตาราง campaign_step ตรงๆ (ไม่ผ่าน v_content_piece ที่หนัก) · ล้มเหลว = [] (หน้าเดิมทำงานเหมือนก่อน ไม่พังตาม)
+ */
+export async function getWorkflowStepIds(): Promise<string[]> {
+  const gateErr = await requireOwnerAdmin();
+  if (gateErr) return [];
+  try {
+    const { data, error } = await getServiceClient()
+      .schema(SCHEMA)
+      .from("campaign_step")
+      .select("id")
+      .eq("shop_id", shopId())
+      .not("piece_status", "is", null)
+      .limit(1000);
+    if (error) throw error;
+    return ((data ?? []) as { id?: unknown }[]).map((r) => r.id).filter((x): x is string => typeof x === "string");
+  } catch (err) {
+    logRpcFailure("getWorkflowStepIds", err);
+    return [];
+  }
+}

@@ -27,3 +27,17 @@ describe("activeTabHref", () => {
     expect(activeTabHref("/marketing/calendarx", HREFS)).toBeNull();
   });
 });
+
+import { isWideMarketingPath } from "./nav";
+
+describe("isWideMarketingPath — ขยายเฉพาะ route workflow ใหม่", () => {
+  it("หน้าแรกและหน้าชิ้นงานกว้าง", () => {
+    expect(isWideMarketingPath("/marketing")).toBe(true);
+    expect(isWideMarketingPath("/marketing/pieces/abc")).toBe(true);
+  });
+  it("หน้าอื่นทั้งแอปคงเดิม", () => {
+    for (const p of ["/marketing/questions", "/marketing/calendar", "/marketing/calendar/x", "/marketing/content/entry", "/marketing/copilot", "/crm", "/", "/marketing/pieces", "/marketingx", null, undefined]) {
+      expect(isWideMarketingPath(p as string), String(p)).toBe(false);
+    }
+  });
+});

@@ -188,8 +188,21 @@ describe("F11 — การถอยสถานะจาก approved มีท�
     await waitFor(() => expect(advancePiece).toHaveBeenCalledWith(STEP, "in_review", { reason: "ข้อความผิด" }));
   });
 
-  it("DB ปฏิเสธ (55000 stale) → ข้อความไทยอยู่ในกล่อง · คงเหตุผลที่พิมพ์ไว้ · router.refresh", async () => {
+  // รอบแก้ (QA Low): แท็บเก่ากว่า DB (stale) → ปิดกล่องเหตุผล + แจ้งข้อความ + refresh (เดิมค้างกล่องที่กดซ้ำไม่ได้แล้ว)
+  it("DB ปฏิเสธ (55000 stale) → ปิดกล่อง · refresh", async () => {
     advancePiece.mockResolvedValue({ ok: false, error: "ชิ้นนี้เปลี่ยนสถานะไปแล้ว — รีเฟรชเพื่อดูล่าสุด", stale: true });
+    mount(piece({ piece_status: "approved", effective_piece_status: "approved", footage_status: "has_footage" }));
+    await userEvent.click(screen.getByRole("button", { name: "เมนูเพิ่มเติม" }));
+    await userEvent.click(screen.getByRole("menuitem", { name: "ถอนอนุมัติ…" }));
+    const dlg = await screen.findByRole("dialog");
+    await userEvent.type(within(dlg).getByRole("textbox"), "เหตุผลยาวๆ");
+    await userEvent.click(within(dlg).getByRole("button", { name: "ถอนอนุมัติ" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(refresh).toHaveBeenCalled();
+  });
+
+  it("DB ปฏิเสธแบบไม่ stale → ข้อความไทยอยู่ในกล่อง · คงเหตุผลที่พิมพ์ไว้", async () => {
+    advancePiece.mockResolvedValue({ ok: false, error: "ใส่เหตุผลอย่างน้อย 3 ตัวอักษร" });
     mount(piece({ piece_status: "approved", effective_piece_status: "approved", footage_status: "has_footage" }));
     await userEvent.click(screen.getByRole("button", { name: "เมนูเพิ่มเติม" }));
     await userEvent.click(screen.getByRole("menuitem", { name: "ถอนอนุมัติ…" }));
@@ -197,9 +210,8 @@ describe("F11 — การถอยสถานะจาก approved มีท�
     const ta = within(dlg).getByRole("textbox") as HTMLTextAreaElement;
     await userEvent.type(ta, "เหตุผลยาวๆ ที่ห้ามหาย");
     await userEvent.click(within(dlg).getByRole("button", { name: "ถอนอนุมัติ" }));
-    expect(await within(dlg).findByRole("alert")).toHaveTextContent("เปลี่ยนสถานะไปแล้ว");
+    expect(await within(dlg).findByRole("alert")).toHaveTextContent("ใส่เหตุผล");
     expect(ta.value).toBe("เหตุผลยาวๆ ที่ห้ามหาย");
-    expect(refresh).toHaveBeenCalled();
   });
 });
 

@@ -1,8 +1,9 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { CalendarDays, ClipboardList, Gem, History, Inbox, Megaphone, MessageCircleQuestion, Ticket, TrendingUp, Users2, Wallet } from "lucide-react";
+import { CalendarDays, ChevronDown, ClipboardList, Gem, History, Inbox, Megaphone, MessageCircleQuestion, Ticket, TrendingUp, Users2, Wallet } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { activeTabHref } from "@/lib/marketing/nav";
 
@@ -42,9 +43,20 @@ const TABS: { href: string; label: string; icon: LucideIcon }[] = [
 ];
 
 // มือถือ (< md): ซ่อนแถวแท็บเลื่อนแนวนอนนี้ (กติกา 7.3 ห้ามเลื่อนแนวนอน) — ใช้แถบล่าง MarketingBottomNav แทน
+// แท็บที่ใช้ไม่บ่อยย่อเข้าเมนู "อื่นๆ" — ที่ 768–1280px แถวแท็บไม่ล้น/ไม่ต้องเลื่อนแนวนอน (แผน §1.1 "6 กลุ่ม + อื่นๆ")
+const OVERFLOW_HREFS: ReadonlySet<string> = new Set([
+  "/marketing/ad-spend",
+  "/marketing/copilot",
+  "/marketing/audience",
+  "/marketing/attribution",
+  "/marketing/gem-quiz",
+]);
+
+const TAB_CLS = "flex min-h-11 shrink-0 items-center gap-1.5 rounded-md px-2.5 text-sm font-semibold transition-colors lg:px-3";
+
 /** Sticky sub-nav tab bar for the Marketing module — mirrors CrmSubNav
- * (components/domain/crm/CrmSubNav.tsx) exactly, same `top-16` sticky offset
- * assumption (see DashboardShell header height note). */
+ * (components/domain/crm/CrmSubNav.tsx), same `top-16` sticky offset
+ * assumption (see DashboardShell header height note). md+ เท่านั้น (มือถือใช้ MarketingBottomNav) */
 export function MarketingSubNav() {
   const pathname = usePathname();
   // Longest-match so a parent tab (e.g. "/marketing") never co-highlights with
@@ -53,30 +65,69 @@ export function MarketingSubNav() {
     pathname,
     TABS.map((t) => t.href)
   );
+  const [moreOpen, setMoreOpen] = useState(false);
+  const primary = TABS.filter((t) => !OVERFLOW_HREFS.has(t.href));
+  const others = TABS.filter((t) => OVERFLOW_HREFS.has(t.href));
+  const moreActive = activeHref !== null && OVERFLOW_HREFS.has(activeHref);
 
   return (
     <nav
       aria-label="เมนูการตลาด"
-      className="sticky top-16 z-10 hidden gap-1 overflow-x-auto border-b border-zinc-200 bg-white px-1 py-1.5 scrollbar-none md:flex"
+      className="sticky top-16 z-10 hidden flex-wrap items-center gap-1 border-b border-zinc-200 bg-white px-1 py-1.5 md:flex"
     >
-      {TABS.map(({ href, label, icon: Icon }) => {
+      {primary.map(({ href, label, icon: Icon }) => {
         const active = href === activeHref;
         return (
           <Link
             key={href}
             href={href}
             aria-current={active ? "page" : undefined}
-            className={`flex min-h-11 shrink-0 items-center gap-1.5 rounded-md px-3 text-sm font-semibold transition-colors ${
-              active
-                ? "bg-primary-100 text-primary-700"
-                : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
-            }`}
+            className={`${TAB_CLS} ${active ? "bg-primary-100 text-primary-700" : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"}`}
           >
-            <Icon className="h-4 w-4" aria-hidden="true" />
+            <Icon className="hidden h-4 w-4 lg:block" aria-hidden="true" />
             {label}
           </Link>
         );
       })}
+
+      <div
+        className="relative"
+        onKeyDown={(e) => {
+          if (e.key === "Escape") setMoreOpen(false);
+        }}
+        onBlur={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setMoreOpen(false);
+        }}
+      >
+        <button
+          type="button"
+          aria-haspopup="menu"
+          aria-expanded={moreOpen}
+          onClick={() => setMoreOpen((o) => !o)}
+          className={`${TAB_CLS} ${moreActive ? "bg-primary-100 text-primary-700" : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"}`}
+        >
+          อื่นๆ
+          <ChevronDown className="h-4 w-4" aria-hidden="true" />
+        </button>
+        {moreOpen && (
+          <ul role="menu" aria-label="เมนูการตลาดอื่นๆ" className="absolute left-0 top-full z-20 mt-1 w-52 overflow-hidden rounded-lg border border-zinc-200 bg-white py-1 shadow-lg">
+            {others.map(({ href, label, icon: Icon }) => (
+              <li key={href} role="none">
+                <Link
+                  href={href}
+                  role="menuitem"
+                  aria-current={href === activeHref ? "page" : undefined}
+                  onClick={() => setMoreOpen(false)}
+                  className={`flex min-h-11 items-center gap-2 px-3 text-sm font-medium hover:bg-zinc-50 ${href === activeHref ? "text-primary-700" : "text-zinc-800"}`}
+                >
+                  <Icon className="h-4 w-4" aria-hidden="true" />
+                  {label}
+                </Link>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
     </nav>
   );
 }

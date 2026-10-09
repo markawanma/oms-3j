@@ -2,6 +2,7 @@ import { Lock } from "lucide-react";
 import { getCampaignBoard, getChannelRoas, getMarketingReco } from "@/lib/actions/marketing";
 import { getCampaignTemplates } from "@/lib/actions/calendar";
 import { getContentTypes } from "@/lib/actions/content";
+import { getWorkflowStepIds } from "@/lib/actions/content-pieces";
 import { getShopSetting } from "@/lib/actions/catalog";
 import { getEffectiveRole } from "@/lib/auth/role";
 import { ErrorState } from "@/components/ui/ErrorState";
@@ -59,6 +60,8 @@ export default async function MarketingCopilotPage() {
   if (!settingResult.ok) return <ErrorState message={settingResult.error} />;
 
   const templates = templatesResult.ok ? templatesResult.data : [];
+  // step ใน workflow ใหม่: ปุ่มสถานะของบอร์ดนี้ใช้ไม่ได้ (55000) → CampaignBoard แสดงลิงก์ "เปิดหน้าชิ้นงาน" แทน
+  const workflowIds = await getWorkflowStepIds().catch(() => [] as string[]);
 
   return (
     <div className="space-y-4">
@@ -70,7 +73,11 @@ export default async function MarketingCopilotPage() {
       </div>
 
       {boardResult?.ok && (
-        <CampaignBoard initialSteps={boardResult.data} contentTypes={contentTypesResult.ok ? contentTypesResult.data : []} />
+        <CampaignBoard
+          initialSteps={boardResult.data}
+          contentTypes={contentTypesResult.ok ? contentTypesResult.data : []}
+          workflowStepIds={workflowIds}
+        />
       )}
       <RecoList initialRows={recoResult.data} templates={templates} />
       <ChannelRoasFilter rows={roasResult.data} blendedMarginPct={settingResult.data.blendedMarginPct} />

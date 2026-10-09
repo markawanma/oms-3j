@@ -61,6 +61,7 @@ export function MonthTimeline({
   selectedDate,
   today,
   contentTypes = [],
+  workflowStepIds,
 }: {
   /** Whole month's rows (one getCalendarTasks call, same as before) —
    * grouped by resolvedStart here instead of filtered down to one day. */
@@ -69,6 +70,8 @@ export function MonthTimeline({
   today: string;
   /** Passed straight through to AgendaTaskCard (design doc §3.2). */
   contentTypes?: ContentTypeRow[];
+  /** step ที่อยู่ใน workflow ใหม่ — ส่งต่อให้ AgendaTaskCard */
+  workflowStepIds?: ReadonlySet<string>;
 }) {
   const groupRefs = useRef<Map<string, HTMLLIElement>>(new Map());
 
@@ -168,7 +171,7 @@ export function MonthTimeline({
               </div>
               <ul className="space-y-2">
                 {dayTasks.map((t) => (
-                  <AgendaTaskCard key={t.stepId} step={t} dimmed={isPast && !isToday} contentTypes={contentTypes} />
+                  <AgendaTaskCard key={t.stepId} step={t} dimmed={isPast && !isToday} contentTypes={contentTypes} workflowStepIds={workflowStepIds} />
                 ))}
               </ul>
             </li>
