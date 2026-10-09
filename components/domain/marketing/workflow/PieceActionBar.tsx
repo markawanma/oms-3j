@@ -261,6 +261,10 @@ export function PieceActionBar({
         }
         return { ok: true, data: undefined };
       }
+      // หน้าคัดไอเดียมีกล่องเหตุผลของตัวเอง — แถบปุ่มชิ้นงานไม่ใช้ variant เหล่านี้
+      case "skipIdea":
+      case "holdIdea":
+        return { ok: false, error: "เปลี่ยนสถานะแบบนี้ไม่ได้" };
     }
   }
 

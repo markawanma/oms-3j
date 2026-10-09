@@ -1,4 +1,4 @@
-import { CalendarDays, ClipboardList, Gem, History, Inbox, Megaphone, MessageCircleQuestion, Ticket, TrendingUp, Users2, Wallet } from "lucide-react";
+import { CalendarDays, ClipboardList, Gem, History, Inbox, Lightbulb, Megaphone, MessageCircleQuestion, Ticket, TrendingUp, Users2, Wallet } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 /**
@@ -30,7 +30,12 @@ export function activeTabHref(pathname: string | null | undefined, hrefs: readon
  */
 export function isWideMarketingPath(pathname: string | null | undefined): boolean {
   if (!pathname) return false;
-  return pathname === "/marketing" || pathname === "/marketing/calendar" || pathname.startsWith("/marketing/pieces/");
+  return (
+    pathname === "/marketing" ||
+    pathname === "/marketing/calendar" ||
+    pathname === "/marketing/triage" ||
+    pathname.startsWith("/marketing/pieces/")
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -60,6 +65,7 @@ export const MARKETING_NAV: readonly MarketingNavItem[] = [
   { href: "/marketing/copilot", label: "Ad Copilot", icon: Megaphone, tab: "more", mobile: "more", sidebar: true },
   { href: "/marketing/audience", label: "กลุ่มลูกค้า", icon: Users2, tab: "more", mobile: "more", sidebar: true },
   { href: "/marketing/attribution", label: "วัดผลโค้ด", icon: Ticket, tab: "more", mobile: "more", sidebar: true },
+  { href: "/marketing/triage", label: "คัดไอเดีย", icon: Lightbulb, tab: "main", mobile: "more", sidebar: true },
   { href: "/marketing/calendar", label: "ปฏิทิน", icon: CalendarDays, tab: "main", mobile: "main", sidebar: true },
   // อ่านยอด = หน้าแยก (ไม่ใช่แท็บปฏิทิน) ชื่อสั้นบนแถบ · ยังไม่ใช่ทางเข้าหลักตอนดึก (ux-content-measurement §1.1)
   { href: "/marketing/content/entry", label: "อ่านยอด", icon: ClipboardList, tab: "main", mobile: "main", mobileLabel: "กรอกยอด", sidebar: true, sidebarLabel: "อ่านยอด content" },

@@ -39,6 +39,7 @@ export const dynamic = "force-dynamic";
 const BACK_LINKS: Record<string, { href: string; label: string }> = {
   inbox: { href: "/marketing", label: "งานที่รอฉัน" },
   calendar: { href: "/marketing/calendar", label: "ปฏิทิน" },
+  triage: { href: "/marketing/triage", label: "คัดไอเดีย" },
   questions: { href: "/marketing/questions", label: "คำถามจาก AI" },
   copilot: { href: "/marketing/copilot", label: "Ad Copilot" },
 };

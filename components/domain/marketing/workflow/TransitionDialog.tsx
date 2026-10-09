@@ -26,7 +26,9 @@ export type TransitionVariant =
   | "hold"
   | "cancel"
   | "restore"
-  | "unpost";
+  | "unpost"
+  | "skipIdea"
+  | "holdIdea";
 
 export interface TransitionConfig {
   title: string;
@@ -35,6 +37,8 @@ export interface TransitionConfig {
   danger?: boolean;
   reasonLabel: string;
   successMessage: string;
+  /** เหตุผลตั้งต้น (แก้ได้) — ไม่ถือว่าเป็นข้อความที่พิมพ์ค้าง */
+  defaultReason?: string;
 }
 
 /** ข้อความของแต่ละ variant — ตรงกับตาราง §2.5 (เหตุผลบังคับทุกอัน) */
@@ -97,6 +101,23 @@ export const TRANSITION_CONFIG: Record<TransitionVariant, TransitionConfig> = {
     reasonLabel: "เหตุผลที่ปลดโพสต์",
     successMessage: "ปลดโพสต์แล้ว",
   },
+  // หน้าคัดไอเดีย (/marketing/triage) — เหตุผลบังคับเหมือนกัน (≥3) แต่ถ้อยคำเป็นของการคัด ไม่ใช่ "ยกเลิกชิ้นงาน"
+  skipIdea: {
+    title: "ไม่ทำไอเดียนี้",
+    description: "ไอเดียนี้จะออกจากรายการคัด เก็บเหตุผลไว้เป็นข้อมูล และกู้คืนได้ภายหลังที่หน้า “ชิ้นงานทั้งหมด”",
+    confirmLabel: "ไม่ทำ",
+    danger: true,
+    reasonLabel: "เหตุผลที่ไม่ทำ",
+    successMessage: "ไม่ทำไอเดียนี้แล้ว",
+  },
+  holdIdea: {
+    title: "เลื่อนไอเดียไปรอบหน้า",
+    description: "ไอเดียนี้จะย้ายไปแท็บ “เลื่อนไว้” แล้วกด “กลับมาคัด” ได้เมื่อพร้อม",
+    confirmLabel: "เลื่อน",
+    reasonLabel: "เหตุผลที่เลื่อน (แก้ได้)",
+    successMessage: "เลื่อนไอเดียไปรอบหน้าแล้ว",
+    defaultReason: "เลื่อนไปรอบหน้า",
+  },
 };
 
 function useFocusOnOpen<T extends HTMLElement>() {
@@ -131,7 +152,7 @@ function ReasonBody({ config, extra, onSubmit, onClose, onDirtyChange }: ReasonB
   const router = useRouter();
   const toast = useToast();
   const taRef = useFocusOnOpen<HTMLTextAreaElement>();
-  const [reason, setReason] = useState("");
+  const [reason, setReason] = useState(config.defaultReason ?? "");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
