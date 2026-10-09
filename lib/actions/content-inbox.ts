@@ -22,7 +22,6 @@ import type {
   LineQuota,
   NextScheduled,
   Part,
-  PieceRow,
   RecoInboxRow,
   WeeklySummaryRow,
 } from "@/lib/marketing/piece-types";

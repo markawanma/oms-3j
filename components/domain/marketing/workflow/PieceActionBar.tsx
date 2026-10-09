@@ -266,7 +266,6 @@ export function PieceActionBar({
         {showPrimary ? (
           <Button
             type="button"
-            variant={primary.key === "approve" || primary.key === "mark_posted" || primary.key === "plan" ? "primary" : "primary"}
             loading={busy}
             disabled={busy || approveBlocked}
             onClick={onPrimary}
