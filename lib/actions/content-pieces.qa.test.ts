@@ -202,6 +202,11 @@ describe("getRecoInbox / isWorkflowPiece", () => {
 });
 
 describe("อินพุตสุดโต่ง — ต้องไม่ถึง RPC", () => {
+  // security L4 (รอบแก้): savePieceBody/toggleShot ตรวจว่า artifact เป็นของ step นี้จาก v_content_piece ก่อนเรียกของเดิม
+  beforeEach(() => {
+    tableResults.v_content_piece = { data: { artifact_id: ART }, error: null };
+  });
+
   it("advancePiece: เหตุผลยาว > 500 · เหตุผลเป็นอักขระล่องหนล้วน · to เป็นค่าแปลก (ว่าง/null/ตัวพิมพ์ใหญ่/ชื่อฟังก์ชัน)", async () => {
     expect((await advancePiece(STEP, "cancelled", { reason: "ก".repeat(501) })).ok).toBe(false);
     expect((await advancePiece(STEP, "cancelled", { reason: "​​​​" })).ok).toBe(false);
