@@ -18,6 +18,7 @@ import {
 } from "@/lib/marketing/campaign-types";
 import type { CampaignBoardStep, EffectiveStatus } from "@/lib/marketing/campaign-types";
 import type { ContentTypeRow } from "@/lib/marketing/content-types";
+import { gateKindLabel } from "@/lib/marketing/piece-labels";
 import { Badge } from "@/components/ui/Badge";
 import type { BadgeTone } from "@/components/ui/Badge";
 import { ContentTypeChip } from "@/components/domain/marketing/ContentTypeChip";
@@ -42,8 +43,11 @@ export function AgendaTaskCard({
   step,
   dimmed = false,
   contentTypes = [],
+  workflowStepIds,
 }: {
   step: CampaignBoardStep;
+  /** step ที่อยู่ใน workflow ใหม่ → ลิงก์ตรงไปหน้าชิ้นงาน (ไม่ต้องผ่าน redirect) */
+  workflowStepIds?: ReadonlySet<string>;
   /** Month timeline dims rows on days already past (not today) so the eye
    * lands on what's upcoming — never applied to the status/gate/blocked-
    * reason text itself (dims via container opacity only), so it's still
@@ -71,7 +75,7 @@ export function AgendaTaskCard({
   return (
     <li>
       <Link
-        href={`/marketing/calendar/${step.stepId}`}
+        href={workflowStepIds?.has(step.stepId) ? `/marketing/pieces/${step.stepId}?from=calendar` : `/marketing/calendar/${step.stepId}`}
         className={`block rounded-lg border border-zinc-200 bg-white p-3.5 shadow-sm transition-colors hover:border-primary-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 ${
           dimmed ? "opacity-70" : ""
         }`}
@@ -135,7 +139,7 @@ export function AgendaTaskCard({
           <div className="mt-1.5 flex flex-wrap gap-1">
             {pendingGates.map((g) => (
               <Badge key={g.gateKind} tone="amber">
-                รอ: {GATE_LABEL[g.gateKind] ?? g.gateKind}
+                รอ: {gateKindLabel(g.gateKind, GATE_LABEL)}
               </Badge>
             ))}
           </div>

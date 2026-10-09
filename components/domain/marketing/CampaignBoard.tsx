@@ -10,6 +10,7 @@
 // Writes go through setCampaignArtifactStatus / passCampaignGate (RPC-gated).
 
 import { useState, useTransition } from "react";
+import Link from "next/link";
 import { CalendarClock, CheckCircle2, Circle, Lock, Users } from "lucide-react";
 import { setCampaignArtifactStatus, passCampaignGate } from "@/lib/actions/marketing";
 import {
@@ -23,6 +24,7 @@ import {
 } from "@/lib/marketing/campaign-types";
 import type { CampaignBoardStep, EffectiveStatus } from "@/lib/marketing/campaign-types";
 import type { ContentTypeRow } from "@/lib/marketing/content-types";
+import { gateKindLabel } from "@/lib/marketing/piece-labels";
 import { Badge } from "@/components/ui/Badge";
 import type { BadgeTone } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -56,8 +58,11 @@ function StepCard({
   onToggleContentOpen,
   onCopyContent,
   contentTypes = [],
+  workflowStepIds,
 }: {
   step: CampaignBoardStep;
+  /** step ที่อยู่ใน workflow ใหม่ (content-ui-build-plan.md §6): ปุ่มสถานะ/ด่านของบอร์ดเดิมใช้ไม่ได้ (trigger ปฏิเสธ 55000) → ลิงก์ไปหน้าชิ้นงานแทน */
+  workflowStepIds?: ReadonlySet<string>;
   busyIds: Set<string>;
   openArtifactIds: Set<string>;
   onToggleArtifact: (artifactId: string, done: boolean) => void;
@@ -68,6 +73,7 @@ function StepCard({
 }) {
   const contentType = step.contentTypeCode ? contentTypes.find((ct) => ct.code === step.contentTypeCode) : undefined;
   const dimmed = step.effectiveStatus === "waiting_data" || step.effectiveStatus === "done";
+  const inWorkflow = workflowStepIds?.has(step.stepId) ?? false;
 
   return (
     <div className={`flex flex-col gap-3 rounded-lg border border-zinc-200 bg-white p-4 shadow-sm ${dimmed ? "opacity-80" : ""}`}>
@@ -124,7 +130,7 @@ function StepCard({
                 <li key={a.id} className="flex items-start gap-2">
                   <button
                     type="button"
-                    disabled={isBlocked || busy}
+                    disabled={isBlocked || busy || inWorkflow}
                     onClick={() => onToggleArtifact(a.id, !isDone)}
                     aria-pressed={isDone}
                     aria-label={isDone ? "ทำเครื่องหมายยังไม่เสร็จ" : "ทำเครื่องหมายเสร็จ"}
@@ -200,9 +206,17 @@ function StepCard({
           {step.gates.map((g) => {
             const passed = g.status === "passed";
             const busy = busyIds.has(`${step.stepId}:${g.gateKind}`);
+            if (inWorkflow && !passed) {
+              // ด่านของ step ใน workflow ใหม่ตรวจที่หน้าชิ้นงาน — ที่นี่แสดงสถานะเฉยๆ ไม่มีปุ่มที่กดแล้ว error
+              return (
+                <Badge key={g.gateKind} tone="amber">
+                  รอ: {gateKindLabel(g.gateKind, GATE_LABEL)}
+                </Badge>
+              );
+            }
             return passed ? (
               <Badge key={g.gateKind} tone="green">
-                ✓ {GATE_LABEL[g.gateKind] ?? g.gateKind}
+                ✓ {gateKindLabel(g.gateKind, GATE_LABEL)}
               </Badge>
             ) : (
               <Button
@@ -212,11 +226,20 @@ function StepCard({
                 loading={busy}
                 onClick={() => onPassGate(step.stepId, g.gateKind)}
               >
-                ผ่าน: {GATE_LABEL[g.gateKind] ?? g.gateKind}
+                ผ่าน: {gateKindLabel(g.gateKind, GATE_LABEL)}
               </Button>
             );
           })}
         </div>
+      )}
+
+      {inWorkflow && (
+        <Link
+          href={`/marketing/pieces/${step.stepId}?from=copilot`}
+          className="inline-flex min-h-11 items-center justify-center rounded-md border border-primary-600 bg-white px-4 text-sm font-semibold text-primary-700 hover:bg-primary-50"
+        >
+          เปิดหน้าชิ้นงาน
+        </Link>
       )}
     </div>
   );
@@ -225,9 +248,12 @@ function StepCard({
 export function CampaignBoard({
   initialSteps,
   contentTypes = [],
+  workflowStepIds = [],
 }: {
   initialSteps: CampaignBoardStep[];
   contentTypes?: ContentTypeRow[];
+  /** id ของ step ใน workflow ใหม่ — ใช้เปลี่ยนปุ่มสถานะเป็นลิงก์ไปหน้าชิ้นงาน */
+  workflowStepIds?: string[];
 }) {
   const toast = useToast();
   // design §4 "CampaignBoard เดิม" row: standalone owner-added tasks
@@ -330,6 +356,7 @@ export function CampaignBoard({
     onToggleContentOpen: handleToggleContentOpen,
     onCopyContent: handleCopyContent,
     contentTypes,
+    workflowStepIds: new Set(workflowStepIds),
   };
 
   return (

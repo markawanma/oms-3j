@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<title>รอบถ่ายสัปดาห์นี้</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#a2191d}a:hover{color:#7d1316}
+button{font:inherit;color:inherit}
+.grp{background:#fff;border:1px solid #E8E2E2;border-radius:14px;overflow:hidden}
+.gh{display:flex;align-items:center;justify-content:space-between;padding:12px 14px;background:#FAF8F8;border-bottom:1px solid #F0EAEA}
+.shot{display:flex;align-items:center;gap:12px;min-height:64px;padding:10px 14px;border-bottom:1px solid #F2EDED;cursor:pointer}
+.box{width:30px;height:30px;border-radius:8px;border:2.5px solid #A99FA1;flex:none;box-sizing:border-box;display:flex;align-items:center;justify-content:center}
+.shot.done .box{background:#13613F;border-color:#13613F}
+.shot.done .t{color:#6E6567;text-decoration:line-through}
+.t{font-size:16px;font-weight:600;line-height:1.4}
+.s{font-size:12px;color:#5C5456;display:flex;align-items:center;gap:6px;margin-top:2px}
+.dot{width:8px;height:8px;border-radius:99px;display:inline-block;flex:none}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:44px;padding:0 14px;border-radius:10px;border:1px solid #DCD4D4;background:#fff;font-size:14px;font-weight:600;cursor:pointer;color:#2A2425;text-decoration:none;box-sizing:border-box}
+.badge{display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 9px;border-radius:6px;font-size:12px;font-weight:600;white-space:nowrap}
+</style>
+</helmet>
+<div style="width: 390px; min-height: 1400px; box-sizing: border-box; font-family: 'Noto Sans Thai', system-ui, sans-serif; color: #2A2425; background: #F6F3F3; display: flex; flex-direction: column">
+  <header style="background: #fff; padding: 14px 16px; border-bottom: 1px solid #ECE6E6">
+    <a href="#" style="display: inline-flex; align-items: center; gap: 4px; min-height: 32px; font-size: 14px; font-weight: 600; color: #3A3335; text-decoration: none"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"></path></svg>ผลิต</a>
+    <h1 style="margin: 2px 0 0; font-size: 22px; font-weight: 700">รอบถ่าย พฤ. 8 ต.ค.</h1>
+    <div style="font-size: 14px; color: #5C5456">14:00 · 4 ชิ้น · 11 ช็อต · ประเมิน ≈40 นาที</div>
+    <div style="display: flex; align-items: center; gap: 10px; margin-top: 10px">
+      <div style="flex: 1; height: 10px; border-radius: 99px; background: #E5DFDF; overflow: hidden"><div style="width: 45%; height: 100%; background: #13613F"></div></div>
+      <span style="font-size: 14px; font-weight: 700">5/11</span>
+    </div>
+  </header>
+
+  <main style="flex: 1; padding: 14px 16px 24px; display: flex; flex-direction: column; gap: 14px">
+    <section class="grp" aria-label="โรงงาน">
+      <div class="gh"><span style="font-size: 16px; font-weight: 700">โรงงาน · โต๊ะช่าง</span><span style="font-size: 13px; color: #5C5456">3/5 · ≈15 นาที</span></div>
+      <div class="shot done" role="checkbox" aria-checked="true" tabindex="0"><span class="box"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"></path></svg></span><div><div class="t">แหวนเงินดำบนโต๊ะช่าง ระยะใกล้</div><div class="s"><span class="dot" style="background: #1f3a5f"></span>925 ดำเพราะอะไร · ช็อต 1 · 2 วิ</div></div></div>
+      <div class="shot done" role="checkbox" aria-checked="true" tabindex="0"><span class="box"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"></path></svg></span><div><div class="t">ช่างชี้ผิวแหวน</div><div class="s"><span class="dot" style="background: #1f3a5f"></span>925 ดำเพราะอะไร · ช็อต 2 · 8 วิ</div></div></div>
+      <div class="shot" role="checkbox" aria-checked="false" tabindex="0"><span class="box"></span><div><div class="t">ขัดด้วยผ้า + น้ำยา</div><div class="s"><span class="dot" style="background: #1f3a5f"></span>925 ดำเพราะอะไร · ช็อต 3 · 8 วิ · ให้เห็นขวดน้ำยา</div></div></div>
+      <div class="shot done" role="checkbox" aria-checked="true" tabindex="0"><span class="box"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"></path></svg></span><div><div class="t">ขัดเกลียวแหวน มือช่าง 1 วิแรก</div><div class="s"><span class="dot" style="background: #a2191d"></span>แหวนเกลียว ขึ้นไลฟ์ · hook B</div></div></div>
+      <div class="shot" role="checkbox" aria-checked="false" tabindex="0"><span class="box"></span><div><div class="t">แหวนเงา ใส่นิ้ว</div><div class="s"><span class="dot" style="background: #1f3a5f"></span>925 ดำเพราะอะไร · ช็อต 4 · 6 วิ</div></div></div>
+    </section>
+
+    <section class="grp" aria-label="โต๊ะสินค้า">
+      <div class="gh"><span style="font-size: 16px; font-weight: 700">โต๊ะสินค้า</span><span style="font-size: 13px; color: #5C5456">2/3 · ≈10 นาที</span></div>
+      <div class="shot done" role="checkbox" aria-checked="true" tabindex="0"><span class="box"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"></path></svg></span><div><div class="t">ภาพ 4:5 ชุดดูแลเงิน 3 ข้อ (3 ภาพ)</div><div class="s"><span class="dot" style="background: #1f3a5f"></span>อัลบั้ม ดูแลเงิน 3 ข้อ</div></div></div>
+      <div class="shot done" role="checkbox" aria-checked="true" tabindex="0"><span class="box"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"></path></svg></span><div><div class="t">ปกอัลบั้ม พื้นหลังผ้าลินิน</div><div class="s"><span class="dot" style="background: #1f3a5f"></span>อัลบั้ม ดูแลเงิน 3 ข้อ</div></div></div>
+      <div class="shot" role="checkbox" aria-checked="false" tabindex="0"><span class="box"></span><div><div class="t">มือใส่แหวน ราดน้ำ</div><div class="s"><span class="dot" style="background: #1f3a5f"></span>ใส่อาบน้ำได้ไหม · ช็อต 1</div></div></div>
+    </section>
+
+    <section class="grp" aria-label="หน้ากล้องคนไลฟ์">
+      <div class="gh"><span style="font-size: 16px; font-weight: 700">หน้ากล้อง · โฮสต์ A</span><span style="font-size: 13px; color: #5C5456">0/3 · ≈15 นาที</span></div>
+      <div class="shot" role="checkbox" aria-checked="false" tabindex="0"><span class="box"></span><div><div class="t">"ใส่อาบน้ำได้ไหม?" พูดหน้ากล้อง</div><div class="s"><span class="dot" style="background: #1f3a5f"></span>ใส่อาบน้ำได้ไหม · ช็อต 2 · <a href="#" style="font-weight: 600">ดูบท</a></div></div></div>
+      <div class="shot" role="checkbox" aria-checked="false" tabindex="0"><span class="box"></span><div><div class="t">ตอบ 3 ข้อ ระยะกลาง</div><div class="s"><span class="dot" style="background: #1f3a5f"></span>ใส่อาบน้ำได้ไหม · ช็อต 3</div></div></div>
+      <div class="shot" role="checkbox" aria-checked="false" tabindex="0"><span class="box"></span><div><div class="t">"ชิ้นนี้ขึ้นไลฟ์คืนนี้" ถือแหวน</div><div class="s"><span class="dot" style="background: #a2191d"></span>แหวนเกลียว ขึ้นไลฟ์ · hook A</div></div></div>
+      <div style="padding: 12px 14px; display: flex; align-items: center; justify-content: space-between; gap: 10px; background: #FFF8EC">
+        <span style="font-size: 13px; color: #5A3D00; line-height: 1.45">โฮสต์ไม่มา? เลื่อนทั้งกลุ่ม<br>ห้ามใช้ภาพ AI แทน</span>
+        <button class="btn">ถ่ายไม่ได้ → เลื่อน</button>
+      </div>
+    </section>
+
+    <section class="grp" aria-label="สถานะชิ้นงาน" style="padding: 14px">
+      <div style="font-size: 15px; font-weight: 700; margin-bottom: 8px">ถ่ายครบแล้ว = ผลิตแล้ว</div>
+      <div style="display: flex; flex-direction: column; gap: 8px; font-size: 14px">
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px"><span>อัลบั้ม ดูแลเงิน 3 ข้อ</span><span class="badge" style="background: #C8EBD9; color: #0F4F33">ผลิตแล้ว</span></div>
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px"><span>925 ดำเพราะอะไร</span><span style="font-size: 13px; color: #5C5456">เหลือ 2 ช็อต</span></div>
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px"><span>แหวนเกลียว ขึ้นไลฟ์</span><span style="font-size: 13px; color: #5C5456">เหลือ 1 ช็อต</span></div>
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px"><span>ใส่อาบน้ำได้ไหม</span><span style="font-size: 13px; color: #5C5456">เหลือ 3 ช็อต</span></div>
+      </div>
+      <label for="fl" style="display: block; font-size: 13px; font-weight: 600; margin: 14px 0 6px">ลิงก์โฟลเดอร์ไฟล์ (ไม่บังคับ)</label>
+      <input id="fl" placeholder="วางลิงก์ Google Drive" style="width: 100%; box-sizing: border-box; min-height: 44px; padding: 0 12px; border: 1px solid #D6CECE; border-radius: 10px; font: inherit; font-size: 14px">
+      <label for="df" style="display: block; font-size: 13px; font-weight: 600; margin: 12px 0 6px">ต่างจาก storyboard ตรงไหน</label>
+      <input id="df" placeholder="เช่น ช็อต 3 ใช้มือเจ้าของแทนช่าง" style="width: 100%; box-sizing: border-box; min-height: 44px; padding: 0 12px; border: 1px solid #D6CECE; border-radius: 10px; font: inherit; font-size: 14px">
+    </section>
+
+    <button style="width: 100%; min-height: 52px; border: 0; border-radius: 12px; background: #a2191d; color: #fff; font-size: 16px; font-weight: 700; cursor: pointer">จบรอบถ่าย</button>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1400}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

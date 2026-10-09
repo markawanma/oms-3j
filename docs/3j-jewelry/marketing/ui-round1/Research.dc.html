@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<title>Research</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F6F3F3}
+a{color:#a2191d}a:hover{color:#7d1316}
+button{font:inherit;color:inherit}
+.side a{display:flex;align-items:center;justify-content:space-between;min-height:42px;padding:0 12px;border-radius:10px;font-size:15px;font-weight:600;color:#2A2425;text-decoration:none}
+.side a.sub{font-size:14px;font-weight:500;padding-left:34px;min-height:38px}
+.side a.on{background:#F6E3E3;color:#7d1316}
+.side .n{font-size:12px;font-weight:700;background:#a2191d;color:#fff;border-radius:999px;padding:1px 8px}
+.card{background:#fff;border:1px solid #E8E2E2;border-radius:14px;padding:16px 18px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:40px;padding:0 14px;border-radius:10px;border:1px solid #DCD4D4;background:#fff;font-size:14px;font-weight:600;cursor:pointer;color:#2A2425;text-decoration:none;box-sizing:border-box}
+.btn.p{background:#a2191d;border-color:#a2191d;color:#fff}
+.btn.dk{background:#2A2425;border-color:#2A2425;color:#fff}
+.tab{min-height:40px;padding:0 14px;border:0;border-bottom:2px solid transparent;background:transparent;font-size:14px;font-weight:600;color:#5C5456;cursor:pointer;white-space:nowrap}
+.tab.on{color:#2A2425;border-bottom-color:#2A2425}
+.dd{display:inline-flex;align-items:center;gap:6px;min-height:34px;padding:0 12px;border-radius:999px;border:1px solid #DCD4D4;background:#fff;font-size:13px;font-weight:600;cursor:pointer}
+.badge{display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 9px;border-radius:6px;font-size:12px;font-weight:600;white-space:nowrap}
+.kind{font-size:12px;font-weight:700;color:#5C5456}
+.sig{display:flex;flex-direction:column;gap:8px;text-align:left;width:100%;cursor:pointer;font:inherit;color:#2A2425}
+.sig.on{border-color:#2A2425;box-shadow:0 0 0 1px #2A2425}
+.meta{font-size:13px;color:#5C5456}
+.k{font-size:12px;color:#5C5456}
+.v{font-size:15px;font-weight:600}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:left;font-size:12px;font-weight:700;color:#5C5456;padding:8px 10px;border-bottom:1px solid #ECE6E6}
+td{padding:10px;border-bottom:1px solid #F2EDED}
+</style>
+</helmet>
+<div style="font-family: 'Noto Sans Thai', system-ui, sans-serif; color: #2A2425; background: #F6F3F3; min-height: 100%; display: flex; flex-wrap: wrap">
+  <nav class="side" aria-label="เมนูการตลาด" style="flex: 1 1 220px; max-width: 100%; background: #fff; border-right: 1px solid #ECE6E6; padding: 18px 12px; box-sizing: border-box; display: flex; flex-direction: column; gap: 2px">
+    <div style="font-size: 18px; font-weight: 700; padding: 0 12px 14px">3J Insight <span style="font-size: 13px; font-weight: 500; color: #5C5456">· การตลาด</span></div>
+    <a href="Main.dc.html">งานที่รอฉัน <span class="n">5</span></a>
+    <a class="on" href="#" aria-current="page">Research</a>
+    <a class="sub" href="#">สัญญาณทั้งหมด</a>
+    <a class="sub" href="#">คลัง hook</a>
+    <a href="Calendar.dc.html">วางแผน</a>
+    <a href="Piece.dc.html">ผลิต</a>
+    <a href="#">โพสต์ &amp; บันทึก</a>
+    <a href="#">ผลลัพธ์</a>
+    <div style="height: 1px; background: #ECE6E6; margin: 10px 12px"></div>
+    <a href="#" style="color: #5C5456; font-weight: 500">อื่นๆ</a>
+  </nav>
+
+  <main style="flex: 999 1 560px; min-width: 0; padding: 22px 28px 40px; box-sizing: border-box; display: flex; flex-direction: column; gap: 14px">
+    <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px">
+      <div>
+        <h1 style="margin: 0; font-size: 24px; font-weight: 700">Research</h1>
+        <div class="meta">กล่องวัตถุดิบ · เก็บอย่างเดียว ยังไม่ตัดสิน · ตัดสินตอนคัดไอเดียวันจันทร์</div>
+      </div>
+      <a class="btn dk" href="Capture.dc.html" style="min-height: 44px">+ แปะลิงก์</a>
+    </div>
+
+    <div role="tablist" aria-label="ชนิดสัญญาณ" style="display: flex; gap: 4px; border-bottom: 1px solid #E5DFDF; overflow-x: auto">
+      <button class="tab on" role="tab" aria-selected="true">ทั้งหมด 14</button>
+      <button class="tab" role="tab" aria-selected="false">คลิปอ้างอิง 5</button>
+      <button class="tab" role="tab" aria-selected="false">เทรนด์รายวัน 4</button>
+      <button class="tab" role="tab" aria-selected="false">คำถามจากไลฟ์ 3</button>
+      <button class="tab" role="tab" aria-selected="false">โมเมนต์ช่าง 1</button>
+      <button class="tab" role="tab" aria-selected="false">บทเรียน 1</button>
+    </div>
+    <div style="display: flex; flex-wrap: wrap; gap: 8px">
+      <button class="dd">สถานะ: ใหม่ + เก็บไว้ก่อน</button>
+      <button class="dd">กลุ่ม: ทั้งหมด</button>
+      <button class="dd">ประเภท hook: ทั้งหมด</button>
+      <button class="dd">mass: ทั้งหมด</button>
+      <button class="dd">ใช้กับเราได้ไหม: ทั้งหมด</button>
+    </div>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start">
+      <div style="flex: 1 1 380px; min-width: 0; display: flex; flex-direction: column; gap: 10px">
+        <button class="card sig on" aria-pressed="true">
+          <div style="display: flex; justify-content: space-between; gap: 8px"><span class="kind">คลิปอ้างอิง · TikTok · 6 ต.ค.</span><span class="badge" style="background: #DDF3EA; color: #13613F">หยิบแล้ว</span></div>
+          <div style="font-size: 15px; font-weight: 600; line-height: 1.45">"ใส่เงินแล้วผิวดำ ผิดที่ผิวหรือผิดที่เงิน?"</div>
+          <div style="display: flex; flex-wrap: wrap; gap: 6px; align-items: center"><span class="badge" style="background: #2A2425; color: #fff">mass 2.5×</span><span class="badge" style="background: #F1EEEE; color: #3D3739">คำถาม</span><span class="badge" style="background: #FFF1D6; color: #7A4B00">ปรับแล้วใช้ได้</span><span class="meta">@example_silver_shop</span></div>
+        </button>
+
+        <button class="card sig" aria-pressed="false">
+          <div style="display: flex; justify-content: space-between; gap: 8px"><span class="kind">เทรนด์รายวัน · AI · 6 ต.ค.</span><span class="badge" style="background: #F1EEEE; color: #3D3739">ใหม่</span></div>
+          <div style="font-size: 15px; font-weight: 600; line-height: 1.45">ช่วงใกล้ลอยกระทง คนค้นของขวัญเล็กๆ มากขึ้น</div>
+          <div class="meta">มุมที่หยิบได้ 2 · ต้องมี: ภาพชิ้นงานโทนน้ำ · ความมั่นใจ: กลาง</div>
+          <div style="font-size: 13px; color: #3A3335; background: #F6F3F3; border-radius: 8px; padding: 6px 10px">AI ตัดทิ้ง 3 รายการ — รวมคลิปคู่แข่ง 1 คลิป · <span style="font-weight: 600; color: #a2191d">ดูเหตุผล</span></div>
+        </button>
+
+        <button class="card sig" aria-pressed="false">
+          <div style="display: flex; justify-content: space-between; gap: 8px"><span class="kind">คำถามจากไลฟ์ · 5 ต.ค. · โฮสต์ A</span><span class="badge" style="background: #F1EEEE; color: #3D3739">ใหม่</span></div>
+          <div style="font-size: 15px; font-weight: 600; line-height: 1.45">"มีไซซ์ใหญ่กว่านี้ไหม"</div>
+          <div class="meta">ถูกถาม 2 คืนติด</div>
+        </button>
+
+        <button class="card sig" aria-pressed="false">
+          <div style="display: flex; justify-content: space-between; gap: 8px"><span class="kind">คลิปอ้างอิง · TikTok · 5 ต.ค.</span><span class="badge" style="background: #F1EEEE; color: #3D3739">ใหม่</span></div>
+          <div style="font-size: 15px; font-weight: 600; line-height: 1.45">"ร้านอื่นขายแพงกว่าเรา 3 เท่า"</div>
+          <div style="display: flex; flex-wrap: wrap; gap: 6px; align-items: center"><span class="badge" style="background: #fff; color: #3D3739; border: 1px dashed #A99FA1">วัด mass ไม่ได้ · วิว 8K</span><span class="badge" style="background: #fff; color: #3D3739; border: 1px solid #D6CECE">ยังไม่สุก (2 วัน)</span><span class="badge" style="background: #FDE4E1; color: #B42318">ใช้ไม่ได้: เทียบราคา</span></div>
+        </button>
+
+        <button class="card sig" aria-pressed="false">
+          <div style="display: flex; justify-content: space-between; gap: 8px"><span class="kind">บทเรียน · จากผลสัปดาห์ที่แล้ว</span><span class="badge" style="background: #F1EEEE; color: #3D3739">ใหม่</span></div>
+          <div style="font-size: 15px; font-weight: 600; line-height: 1.45">hook "คำถาม" อัตราบันทึกเหนือปกติ</div>
+          <div class="meta">ข้อสังเกต · ยังสรุปไม่ได้ (3/4)</div>
+        </button>
+      </div>
+
+      <section class="card" aria-label="รายละเอียดคลิปอ้างอิง" style="flex: 999 1 480px; min-width: 0; padding: 22px 24px; display: flex; flex-direction: column; gap: 18px">
+        <div style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px">
+          <div>
+            <div class="kind">คลิปอ้างอิง · TikTok · เห็นโดย เจ้าของ · 6 ต.ค. 2569</div>
+            <h2 style="margin: 4px 0 0; font-size: 22px; font-weight: 700; line-height: 1.4">"ใส่เงินแล้วผิวดำ ผิดที่ผิวหรือผิดที่เงิน?"</h2>
+            <div class="meta" style="margin-top: 2px">@example_silver_shop · ตอบคำถาม · 24 วิ</div>
+          </div>
+          <a class="btn" href="#">เปิดลิงก์</a>
+        </div>
+
+        <div style="display: flex; flex-wrap: wrap; gap: 12px">
+          <div style="flex: 1 1 180px; border-radius: 12px; background: #F6F3F3; padding: 14px 16px">
+            <div class="k">mass (วิว ÷ ผู้ติดตาม)</div>
+            <div style="font-size: 30px; font-weight: 700; line-height: 1.2">2.5×</div>
+            <div class="meta">ไปไกลกว่าฐานแฟน · ค่าประมาณ</div>
+          </div>
+          <div style="flex: 1 1 180px; border-radius: 12px; background: #F6F3F3; padding: 14px 16px">
+            <div class="k">บันทึก ÷ วิว</div>
+            <div style="font-size: 30px; font-weight: 700; line-height: 1.2">3.1%</div>
+            <div class="meta">คนเก็บไว้ = ใกล้การซื้อ</div>
+          </div>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 10px">
+          <div><div class="k">ผู้ติดตาม</div><div class="v">12K</div></div>
+          <div><div class="k">วิว</div><div class="v">30K</div></div>
+          <div><div class="k">ไลก์</div><div class="v">1.1K</div></div>
+          <div><div class="k">คอมเมนต์</div><div class="v">86</div></div>
+          <div><div class="k">บันทึก</div><div class="v">920</div></div>
+          <div><div class="k">แชร์</div><div class="v">140</div></div>
+        </div>
+        <div class="meta" style="margin-top: -8px">ตัวเลขที่เห็นบนจอ ณ 6 ต.ค. · กรอกโดยคน</div>
+
+        <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; padding-top: 16px; border-top: 1px solid #F0EAEA">
+          <div><div class="k">ประเภท hook</div><div class="v">คำถาม</div></div>
+          <div><div class="k">กลุ่มลูกค้า</div><div class="v">เครื่องประดับ 925</div></div>
+          <div style="grid-column: 1 / span 2"><div class="k">ทำไมเวิร์ก</div><div style="font-size: 15px; line-height: 1.6">ตอบความกังวลที่คนถามบ่อย และชวนให้คอมเมนต์เล่าประสบการณ์ตัวเอง</div></div>
+        </div>
+
+        <div style="border-radius: 12px; border: 1px solid #F0D49A; background: #FFF8EC; padding: 12px 14px">
+          <div style="font-size: 14px; font-weight: 700; color: #7A4B00">ใช้กับเราได้ไหม: ปรับแล้วใช้ได้</div>
+          <div style="font-size: 14px; color: #3A3335; line-height: 1.6; margin-top: 2px">ใช้โครง "คำถาม + ตอบด้วยภาพช่าง" ได้ · ห้ามพูดเรื่องผิวเชิงการแพทย์ (ชนด่านความเสี่ยง: สุขภาพ/ผิวหนัง)</div>
+        </div>
+
+        <div>
+          <div style="font-size: 14px; font-weight: 700; margin-bottom: 8px">เส้นทางของสัญญาณนี้</div>
+          <ol style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; font-size: 14px">
+            <li style="display: flex; gap: 10px; align-items: center"><span style="width: 10px; height: 10px; border-radius: 99px; background: #13613F; flex: none"></span>6 ต.ค. · เก็บเข้ากล่อง</li>
+            <li style="display: flex; gap: 10px; align-items: center"><span style="width: 10px; height: 10px; border-radius: 99px; background: #13613F; flex: none"></span>6 ต.ค. · หยิบเป็นไอเดีย "925 ดำเพราะอะไร + ดูแลยังไง"</li>
+            <li style="display: flex; gap: 10px; align-items: center"><span style="width: 10px; height: 10px; border-radius: 99px; border: 2px solid #E3A13B; box-sizing: border-box; flex: none"></span><a href="Piece.dc.html" style="font-weight: 600">ชิ้นงาน · รอตรวจ · พฤ. 8 ต.ค.</a></li>
+            <li style="display: flex; gap: 10px; align-items: center; color: #5C5456"><span style="width: 10px; height: 10px; border-radius: 99px; border: 2px solid #C9C1C2; box-sizing: border-box; flex: none"></span>ผลลัพธ์ · ยังไม่มี</li>
+          </ol>
+        </div>
+
+        <div style="display: flex; flex-wrap: wrap; gap: 8px; padding-top: 14px; border-top: 1px solid #F0EAEA">
+          <button class="btn" disabled style="color: #5C5456">หยิบแล้ว</button>
+          <button class="btn">ไม่ใช้ + เหตุผล</button>
+          <button class="btn">เก็บไว้ก่อน + วันทบทวน</button>
+        </div>
+      </section>
+    </div>
+
+    <section class="card" aria-label="คลัง hook">
+      <div style="display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 6px">
+        <h2 style="margin: 0; font-size: 17px; font-weight: 700">คลัง hook · ผลสะสมของเรา</h2>
+        <span class="meta">ครบ 4 โพสต์ต่อประเภทถึงจะสรุปได้ · ณ 6 ต.ค.</span>
+      </div>
+      <div style="overflow-x: auto">
+        <table>
+          <thead><tr><th>ประเภท</th><th>ใช้แล้ว</th><th>เหนือปกติ</th><th>ปกติ</th><th>ต่ำ</th><th>สรุป</th></tr></thead>
+          <tbody>
+            <tr><td style="font-weight: 600">บอกตรงเรื่องไลฟ์</td><td>4</td><td>1</td><td>2</td><td>1</td><td><span class="badge" style="background: #F1EEEE; color: #3D3739">ปกติ</span></td></tr>
+            <tr><td style="font-weight: 600">คำถาม</td><td>3</td><td>2</td><td>1</td><td>0</td><td><span class="meta">ยังสรุปไม่ได้ (3/4)</span></td></tr>
+            <tr><td style="font-weight: 600">ก่อน–หลัง</td><td>1</td><td>0</td><td>1</td><td>0</td><td><span class="meta">ยังสรุปไม่ได้ (1/4)</span></td></tr>
+            <tr><td style="font-weight: 600">เปิดเบื้องหลัง</td><td>1</td><td>0</td><td>0</td><td>1</td><td><span class="meta">ยังสรุปไม่ได้ (1/4)</span></td></tr>
+            <tr><td style="font-weight: 600; color: #5C5456">ข้อเท็จจริง · คำเตือน · เสียงลูกค้า · เรื่องเล่า</td><td>0</td><td>–</td><td>–</td><td>–</td><td><span class="meta">ยังไม่ได้ลอง</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1240}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

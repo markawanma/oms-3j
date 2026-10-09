@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<title>Component กลาง</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.sec{background:#fff;border:1px solid #E8E2E2;border-radius:14px;padding:20px 22px;display:flex;flex-direction:column;gap:12px}
+.h{margin:0;font-size:16px;font-weight:700}
+.note{font-size:13px;color:#5C5456;line-height:1.55;margin:0}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.type{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 11px;border-radius:999px;border:1.5px solid;background:#fff;font-size:13px;font-weight:600;color:#2A2425;box-sizing:border-box;white-space:nowrap}
+.dot{width:8px;height:8px;border-radius:99px;display:inline-block;flex:none}
+.badge{display:inline-flex;align-items:center;gap:4px;height:26px;padding:0 10px;border-radius:6px;font-size:13px;font-weight:600;white-space:nowrap;box-sizing:border-box}
+.arrow{color:#A99FA1;font-size:13px}
+</style>
+</helmet>
+<div style="width: 1440px; height: 1060px; box-sizing: border-box; padding: 40px; font-family: 'Noto Sans Thai', system-ui, sans-serif; color: #2A2425; background: #F6F3F3; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; align-content: start">
+  <section class="sec">
+    <h2 class="h">ประเภทคอนเทนต์ · ขอบ + จุด (ห้ามถมทึบ)</h2>
+    <div class="row">
+      <sc-for list="{{types}}" as="t" hint-placeholder-count="5">
+        <span class="type" style="border-color: {{t.c}}"><span class="dot" style="background: {{t.c}}"></span>{{t.l}}</span>
+      </sc-for>
+    </div>
+    <p class="note">สีประเภทใช้แค่บอก "เรื่องอะไร" ไม่เคยใช้บอกสถานะ · สีแรกตรงกับแดงแบรนด์ #a2191d จึงห้ามถมเป็นพื้น</p>
+  </section>
+
+  <section class="sec">
+    <h2 class="h">ป้ายอื่นที่ใช้ซ้ำ</h2>
+    <div class="row">
+      <span class="badge" style="background: #E4EEFB; color: #1C4F9C">AI ร่าง</span>
+      <span class="badge" style="background: #F1EEEE; color: #3D3739">แก้โดยคน</span>
+      <span class="badge" style="background: #FFF1C2; color: #5A3D00; box-shadow: 0 0 0 1.5px #D9A400">ต้องยืนยัน</span>
+      <span class="badge" style="background: #F1EEEE; color: #3D3739">ต้องถ่าย</span>
+      <span class="badge" style="background: #EAF4EE; color: #13613F">มีภาพแล้ว</span>
+      <span class="badge" style="background: #FDE4E1; color: #B42318">ยังไม่วางลิงก์</span>
+      <span class="badge" style="background: #fff; color: #3D3739; border: 1px solid #D6CECE">นอกแผน</span>
+    </div>
+    <div class="row">
+      <span class="badge" style="background: #fff; color: #2A2425; border: 1px solid #2A2425">ข้อเท็จจริง</span>
+      <span class="badge" style="background: #fff; color: #2A2425; border: 1px dashed #5C5456">ข้อสังเกต</span>
+      <span class="badge" style="background: #fff; color: #5C5456; border: 1px dotted #8A8183">สมมติฐาน</span>
+      <span class="note">← ระดับความมั่นใจของข้อสรุป</span>
+    </div>
+  </section>
+
+  <section class="sec" style="grid-column: 1 / span 2">
+    <h2 class="h">สถานะชิ้นงาน · ชุดเดียวทั้งระบบ (ปฏิทิน · inbox · หน้าชิ้นงาน ใช้ชุดนี้เป๊ะ)</h2>
+    <div class="row">
+      <sc-for list="{{pieceStates}}" as="s" hint-placeholder-count="9">
+        <span style="display: inline-flex; align-items: center; gap: 8px"><span class="badge" style="background: {{s.bg}}; color: {{s.fg}}; border: {{s.bd}}">{{s.l}}</span><span class="arrow">{{s.arrow}}</span></span>
+      </sc-for>
+    </div>
+    <div class="row">
+      <span class="note" style="font-weight: 700; color: #2A2425">สถานะข้าง:</span>
+      <span class="badge" style="background: #FFF8EC; color: #7A4B00; border: 1px solid #F0D49A">รอเงื่อนไข: [รออะไร]</span>
+      <span class="badge" style="background: #F1EEEE; color: #3D3739">เลื่อน → [วันใหม่]</span>
+      <span class="badge" style="background: #fff; color: #6E6567; border: 1px solid #D6CECE; text-decoration: line-through">ยกเลิก</span>
+      <span class="badge" style="background: #fff; color: #B42318; border: 1px solid #F3CFCB">ส่งกลับแก้</span>
+    </div>
+    <p class="note">โทนสถานะ: เทา (ยังไม่เริ่ม) → น้ำเงิน (AI ทำ) → อำพัน (รอคน) → เขียว (พร้อม/ขึ้นแล้ว) → น้ำเงินเข้ม (วัดผล) · ไม่ใช้สีชุดเดียวกับประเภท · ทุกสถานะมีข้อความกำกับ ไม่พึ่งสีอย่างเดียว</p>
+  </section>
+
+  <section class="sec">
+    <h2 class="h">สัญญาณ · แคมเปญ · คำถามจาก AI</h2>
+    <div class="row"><span class="note" style="width: 72px">สัญญาณ</span>
+      <span class="badge" style="background: #F1EEEE; color: #3D3739">ใหม่</span>
+      <span class="badge" style="background: #DDF3EA; color: #13613F">หยิบแล้ว</span>
+      <span class="badge" style="background: #fff; color: #5C5456; border: 1px solid #D6CECE">ไม่ใช้ + เหตุผล</span>
+      <span class="badge" style="background: #FFF8EC; color: #7A4B00">เก็บไว้ก่อน → [วันทบทวน]</span>
+    </div>
+    <div class="row"><span class="note" style="width: 72px">แคมเปญ</span>
+      <span class="badge" style="background: #F1EEEE; color: #3D3739">ร่าง</span>
+      <span class="badge" style="background: #E4EEFB; color: #1C4F9C">กำลังทำ</span>
+      <span class="badge" style="background: #FFF1D6; color: #7A4B00">รออ่านผล</span>
+      <span class="badge" style="background: #2A2425; color: #fff">ปิดแล้ว</span>
+    </div>
+    <div class="row"><span class="note" style="width: 72px">คำตัดสิน</span>
+      <span class="badge" style="background: #DDF3EA; color: #13613F">ได้ผล</span>
+      <span class="badge" style="background: #FDE4E1; color: #B42318">ไม่ได้ผล</span>
+      <span class="badge" style="background: #F1EEEE; color: #3D3739">ยังสรุปไม่ได้</span>
+      <span class="badge" style="background: #fff; color: #5C5456; border: 1px dashed #A99FA1">วัดไม่ได้</span>
+    </div>
+    <div class="row"><span class="note" style="width: 72px">คำถาม AI</span>
+      <span class="badge" style="background: #FFF1D6; color: #7A4B00">รอตอบ</span>
+      <span class="badge" style="background: #DDF3EA; color: #13613F">ตอบแล้ว</span>
+      <span class="badge" style="background: #fff; color: #5C5456; border: 1px solid #D6CECE">ปฏิเสธ</span>
+      <span class="badge" style="background: #F1EEEE; color: #3D3739">หมดเวลา · ใช้ค่าเริ่มต้น</span>
+    </div>
+  </section>
+
+  <section class="sec">
+    <h2 class="h">ป้าย mass · ผลลัพธ์</h2>
+    <div class="row">
+      <span class="badge" style="background: #2A2425; color: #fff">mass 2.5×</span>
+      <span class="badge" style="background: #F1EEEE; color: #3D3739">ปกติ-ดี 1.2×</span>
+      <span class="badge" style="background: #fff; color: #5C5456; border: 1px solid #D6CECE">ไม่ติด 0.3×</span>
+      <span class="badge" style="background: #fff; color: #3D3739; border: 1px dashed #A99FA1">วัด mass ไม่ได้</span>
+      <span class="badge" style="background: #fff; color: #3D3739; border: 1px solid #D6CECE">ยังไม่สุก</span>
+      <span class="badge" style="background: #FFF8EC; color: #7A4B00">ดูเพลิน ไม่ใช่คนซื้อ</span>
+    </div>
+    <div class="row">
+      <span class="badge" style="background: #DDF3EA; color: #13613F">เหนือปกติ</span>
+      <span class="badge" style="background: #F1EEEE; color: #3D3739">ปกติ</span>
+      <span class="badge" style="background: #FDE4E1; color: #B42318">ต่ำ</span>
+      <span class="note">· ยังสรุปไม่ได้ (3/4) แสดงเป็นข้อความเทา สงบ ไม่ใช่ error</span>
+    </div>
+    <p class="note">ตัวเลขใหญ่สุดบนจอ = mass หรืออัตราบันทึก ไม่ใช่ยอดวิว · ตัวเลขทุกชุดมี "ณ วันที่"</p>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1060}}'>
+class Component extends DCLogic {
+  renderVals() {
+    var ps = [
+      ['ไอเดีย', '#F1EEEE', '#3D3739', '0'],
+      ['วางแผนแล้ว', '#E6E2E2', '#2A2425', '0'],
+      ['AI ร่าง', '#E4EEFB', '#1C4F9C', '0'],
+      ['รอตรวจ', '#FFF1D6', '#7A4B00', '0'],
+      ['อนุมัติแล้ว', '#DDF3EA', '#13613F', '0'],
+      ['ผลิตแล้ว', '#C8EBD9', '#0F4F33', '0'],
+      ['โพสต์แล้ว', '#13613F', '#FFFFFF', '0'],
+      ['กำลังวัดผล', '#FFFFFF', '#1C4F9C', '1px solid #1C4F9C'],
+      ['วัดผลแล้ว', '#1C4F9C', '#FFFFFF', '0']
+    ];
+    return {
+      types: [
+        { l: 'พาเข้าไลฟ์', c: '#a2191d' },
+        { l: 'ความรู้', c: '#1f3a5f' },
+        { l: 'ช่าง/โรงงาน', c: '#6b4a2e' },
+        { l: 'ลูกค้า/ความสัมพันธ์', c: '#4f7f6a' },
+        { l: 'เทศกาล/ประกาศ', c: '#8a8f94' }
+      ],
+      pieceStates: ps.map(function (s, i) {
+        return { l: s[0], bg: s[1], fg: s[2], bd: s[3], arrow: i < ps.length - 1 ? '→' : '' };
+      })
+    };
+  }
+}
+</script>
+</body>
+</html>

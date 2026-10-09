@@ -2,6 +2,7 @@ import { Lock } from "lucide-react";
 import { getCampaignCalendar } from "@/lib/actions/marketing";
 import { getCalendarTasks } from "@/lib/actions/calendar";
 import { getContentTypes } from "@/lib/actions/content";
+import { getWorkflowStepIds } from "@/lib/actions/content-pieces";
 import { getEffectiveRole } from "@/lib/auth/role";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -92,6 +93,7 @@ export default async function MarketingCalendarPage({
   const { from, to, year, month } = monthRangeOf(selectedDate);
 
   let tasksResult;
+  let workflowIdList: string[] = [];
   let contentTypesResult;
   try {
     // Independent of the plan/artifacts fetch on purpose (content_type is a
@@ -104,12 +106,14 @@ export default async function MarketingCalendarPage({
     // the whole calendar down, the exact opposite of what the comment
     // above promises. Catch it here so the promise the comment describes
     // is the one the code actually makes. Same shape as copilot/page.tsx.
-    [tasksResult, contentTypesResult] = await Promise.all([
+    [tasksResult, contentTypesResult, workflowIdList] = await Promise.all([
       getCalendarTasks(from, to),
       getContentTypes().catch((err) => {
         console.error("getContentTypes failed (non-blocking)", err);
         return { ok: false as const, error: "โหลดประเภทเนื้อหาไม่สำเร็จ" };
       }),
+      // step ใน workflow ใหม่ → การ์ดลิงก์ตรงไปหน้าชิ้นงาน (non-blocking: ล้มเหลว = [] → ลิงก์เดิมซึ่ง redirect ให้อยู่แล้ว)
+      getWorkflowStepIds().catch(() => [] as string[]),
     ]);
   } catch (err) {
     return (
@@ -140,6 +144,8 @@ export default async function MarketingCalendarPage({
     dots[t.resolvedStart] = cur;
   }
 
+  const workflowIds = new Set(workflowIdList);
+
   return (
     <div className="space-y-4">
       <CalendarPageTabs activeTab={tab} selectedDate={selectedDate} />
@@ -156,6 +162,7 @@ export default async function MarketingCalendarPage({
         selectedDate={selectedDate}
         today={today}
         contentTypes={contentTypesResult.ok ? contentTypesResult.data : []}
+        workflowStepIds={workflowIds}
       />
 
       {/* Mobile-only floating trigger — stays reachable while the agenda

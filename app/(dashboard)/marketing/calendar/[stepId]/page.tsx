@@ -1,5 +1,7 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { ArrowLeft, CalendarClock, CalendarX, Lock, Users } from "lucide-react";
+import { isWorkflowPiece } from "@/lib/actions/content-pieces";
 import { getCalendarTask } from "@/lib/actions/calendar";
 import { getContentPostsByArtifactIds, getContentTypes } from "@/lib/actions/content";
 import { getEffectiveRole } from "@/lib/auth/role";
@@ -61,6 +63,13 @@ export default async function CalendarTaskDetailPage({ params }: { params: Promi
   }
 
   const { stepId } = await params;
+
+  // P1a (content-ui-build-plan.md §6): step ของ workflow ใหม่ (piece_status ไม่ null) → หน้าชิ้นงานใหม่
+  // (ปุ่มสถานะของบอร์ดเดิมโดน trigger ปฏิเสธ 55000 กับ step พวกนี้) · step เก่ายังใช้หน้านี้ต่อปกติ
+  // redirect() ต้องอยู่นอก try/catch (มัน throw เอง) · isWorkflowPiece ล้มเหลว = false → ไม่ redirect ผิด
+  if (await isWorkflowPiece(stepId)) {
+    redirect(`/marketing/pieces/${stepId}?from=legacy`);
+  }
 
   let result;
   let contentTypesResult;

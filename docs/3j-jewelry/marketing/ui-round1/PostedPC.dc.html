@@ -1,0 +1,88 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<title>โพสต์แล้ว (PC)</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#a2191d}a:hover{color:#7d1316}
+button{font:inherit;color:inherit}
+.lbl{display:block;font-size:14px;font-weight:700;margin-bottom:8px}
+.inp{display:block;width:100%;box-sizing:border-box;min-height:44px;padding:9px 12px;border:1px solid #D6CECE;border-radius:10px;font:inherit;font-size:15px;color:#2A2425;background:#fff}
+.opt{display:flex;align-items:flex-start;gap:12px;padding:12px 14px;border:1.5px solid #E1D9D9;border-radius:12px;cursor:pointer;box-sizing:border-box}
+.opt.on{border-color:#2A2425;background:#FAF8F8}
+.radio{width:20px;height:20px;border-radius:99px;border:2px solid #A99FA1;flex:none;box-sizing:border-box;margin-top:2px}
+.opt.on .radio{border:6px solid #2A2425}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:36px;padding:0 12px;border-radius:10px;border:1px solid #DCD4D4;background:#fff;font-size:13px;font-weight:600;cursor:pointer;color:#2A2425;text-decoration:none}
+.step{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:99px;background:#2A2425;color:#fff;font-size:12px;font-weight:700;margin-right:6px}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; position: relative; overflow: hidden; font-family: 'Noto Sans Thai', system-ui, sans-serif; color: #2A2425; background: #F6F3F3">
+  <div aria-hidden="true" style="position: absolute; inset: 0; display: flex">
+    <div style="width: 240px; background: #fff; border-right: 1px solid #ECE6E6"></div>
+    <div style="flex: 1; padding: 28px; display: flex; flex-direction: column; gap: 16px">
+      <div style="width: 240px; height: 30px; border-radius: 8px; background: #E5DFDF"></div>
+      <div style="display: flex; gap: 16px"><div style="flex: 2; height: 150px; border-radius: 14px; background: #fff"></div><div style="flex: 1; height: 150px; border-radius: 14px; background: #fff"></div></div>
+      <div style="display: flex; gap: 16px"><div style="flex: 1; height: 560px; border-radius: 14px; background: #fff"></div><div style="flex: 1.4; height: 560px; border-radius: 14px; background: #fff"></div></div>
+    </div>
+  </div>
+  <div aria-hidden="true" style="position: absolute; inset: 0; background: rgba(30,24,25,.45)"></div>
+
+  <aside role="dialog" aria-modal="true" aria-labelledby="po-t" style="position: absolute; top: 0; right: 0; bottom: 0; width: 560px; background: #fff; box-shadow: -12px 0 40px rgba(0,0,0,.2); display: flex; flex-direction: column">
+    <div style="display: flex; align-items: flex-start; justify-content: space-between; padding: 20px 16px 14px 24px; border-bottom: 1px solid #F0EAEA">
+      <div>
+        <h1 id="po-t" style="margin: 0; font-size: 20px; font-weight: 700">โพสต์แล้ว</h1>
+        <div style="font-size: 14px; color: #5C5456; margin-top: 2px">"ชิ้นนี้ขึ้นไลฟ์คืนนี้" แหวนเกลียว · TikTok · ก่อนไลฟ์คืนนี้</div>
+      </div>
+      <button aria-label="ปิด" style="width: 44px; height: 44px; border: 0; background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
+    </div>
+
+    <form style="flex: 1; overflow: auto; padding: 20px 24px; display: flex; flex-direction: column; gap: 22px">
+      <section style="border: 1px solid #E8E2E2; border-radius: 12px; padding: 14px 16px; background: #FCFBFB">
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px">
+          <span style="font-size: 14px; font-weight: 700">ฉบับอนุมัติ <span style="font-weight: 500; color: #5C5456">· อนุมัติโดยเจ้าของ 5 ต.ค.</span></span>
+          <span style="display: flex; gap: 6px"><button type="button" class="btn">คัดลอกแคปชัน</button><a class="btn" href="#">เปิดไฟล์คลิป</a></span>
+        </div>
+        <p style="margin: 0; font-size: 14px; line-height: 1.65; color: #3A3335">แหวนเกลียวเงิน 925 ขัดมือทีละวง · ชิ้นนี้ขึ้นไลฟ์คืนนี้ เข้ามาดูของจริงกัน</p>
+      </section>
+
+      <div>
+        <label class="lbl" for="po-link"><span class="step">1</span>วางลิงก์โพสต์</label>
+        <input class="inp" id="po-link" type="url" value="https://www.tiktok.com/@3j…/video/7…">
+        <div style="display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 13px; color: #13613F"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"></path></svg>ลิงก์ TikTok ของร้าน ถูกต้อง</div>
+      </div>
+
+      <fieldset style="border: 0; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px">
+        <legend class="lbl" style="padding: 0"><span class="step">2</span>ใช้ hook ตัวไหนจริง</legend>
+        <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px">
+          <div class="opt on" role="radio" aria-checked="true" tabindex="0"><span class="radio"></span><div><div style="font-size: 12px; font-weight: 700; color: #5C5456">A · บอกตรงเรื่องไลฟ์</div><div style="font-size: 15px; font-weight: 600">"ชิ้นนี้ขึ้นไลฟ์คืนนี้"</div></div></div>
+          <div class="opt" role="radio" aria-checked="false" tabindex="0"><span class="radio"></span><div><div style="font-size: 12px; font-weight: 700; color: #5C5456">B · เปิดเบื้องหลัง</div><div style="font-size: 15px; font-weight: 600">ภาพขัดเกลียวแหวน 1 วินาทีแรก</div></div></div>
+        </div>
+        <div class="opt" role="radio" aria-checked="false" tabindex="0"><span class="radio"></span><div style="font-size: 15px; font-weight: 600">อื่นๆ (พิมพ์เอง)</div></div>
+      </fieldset>
+
+      <div style="font-size: 14px; color: #3A3335; line-height: 1.65; background: #F6F3F3; border-radius: 10px; padding: 12px 14px">กดบันทึกแล้ว สถานะเป็น <strong>โพสต์แล้ว</strong> ทุกหน้าทันที · รอบกรอกยอดแรก <strong>7–8 ต.ค.</strong><br><span style="color: #5C5456">โพสต์ที่ไม่ได้อยู่ในแผน? <a href="#" style="font-weight: 600">วางเป็น "นอกแผน"</a> แล้วผูกกับชิ้นงานทีหลังได้</span></div>
+    </form>
+
+    <div style="display: flex; justify-content: flex-end; gap: 8px; padding: 14px 24px 20px; border-top: 1px solid #F0EAEA">
+      <button style="min-height: 44px; padding: 0 18px; border-radius: 10px; border: 1px solid #DCD4D4; background: #fff; font-size: 15px; font-weight: 600; cursor: pointer">ยกเลิก</button>
+      <button style="min-height: 44px; padding: 0 22px; border-radius: 10px; border: 0; background: #a2191d; color: #fff; font-size: 15px; font-weight: 700; cursor: pointer">บันทึก · โพสต์แล้ว</button>
+    </div>
+  </aside>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

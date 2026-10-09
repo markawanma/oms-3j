@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<title>ปฏิทิน มุมมองสัปดาห์</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F6F3F3}
+a{color:#a2191d}a:hover{color:#7d1316}
+button{font:inherit;color:inherit}
+.side a{display:flex;align-items:center;justify-content:space-between;min-height:42px;padding:0 12px;border-radius:10px;font-size:15px;font-weight:600;color:#2A2425;text-decoration:none}
+.side a.sub{font-size:14px;font-weight:500;padding-left:34px;min-height:38px}
+.side a.on{background:#F6E3E3;color:#7d1316}
+.side .n{font-size:12px;font-weight:700;background:#a2191d;color:#fff;border-radius:999px;padding:1px 8px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:40px;padding:0 14px;border-radius:10px;border:1px solid #DCD4D4;background:#fff;font-size:14px;font-weight:600;cursor:pointer;color:#2A2425;text-decoration:none;box-sizing:border-box}
+.btn.p{background:#a2191d;border-color:#a2191d;color:#fff}
+.seg{min-height:36px;padding:0 16px;border:0;background:transparent;border-radius:8px;cursor:pointer;font-size:14px;font-weight:600;color:#5C5456}
+.seg.on{background:#fff;color:#2A2425;box-shadow:0 1px 2px rgba(0,0,0,.08)}
+.dd{display:inline-flex;align-items:center;gap:6px;min-height:36px;padding:0 12px;border-radius:999px;border:1px solid #DCD4D4;background:#fff;font-size:13px;font-weight:600;cursor:pointer}
+.type{display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 8px;border-radius:999px;border:1.5px solid;background:#fff;font-size:11px;font-weight:600;color:#2A2425;box-sizing:border-box;white-space:nowrap}
+.dot{width:7px;height:7px;border-radius:99px;display:inline-block;flex:none}
+.badge{display:inline-flex;align-items:center;gap:4px;height:22px;padding:0 8px;border-radius:6px;font-size:11px;font-weight:600;white-space:nowrap}
+.pc{display:flex;flex-direction:column;gap:6px;padding:10px;background:#fff;border:1px solid #E5DFDF;border-radius:10px;text-decoration:none;color:#2A2425}
+.pc:hover{border-color:#B9AFB0}
+.flag{font-size:11px;font-weight:600;border-radius:4px;padding:1px 6px}
+</style>
+</helmet>
+<div style="font-family: 'Noto Sans Thai', system-ui, sans-serif; color: #2A2425; background: #F6F3F3; min-height: 100%; display: flex; flex-wrap: wrap">
+  <nav class="side" aria-label="เมนูการตลาด" style="flex: 1 1 220px; max-width: 100%; background: #fff; border-right: 1px solid #ECE6E6; padding: 18px 12px; box-sizing: border-box; display: flex; flex-direction: column; gap: 2px">
+    <div style="font-size: 18px; font-weight: 700; padding: 0 12px 14px">3J Insight <span style="font-size: 13px; font-weight: 500; color: #5C5456">· การตลาด</span></div>
+    <a href="Main.dc.html">งานที่รอฉัน <span class="n">5</span></a>
+    <a href="Research.dc.html">Research</a>
+    <a href="#" aria-expanded="true">วางแผน</a>
+    <a class="sub" href="#">คัดไอเดียประจำสัปดาห์</a>
+    <a class="sub on" href="#" aria-current="page">ปฏิทิน</a>
+    <a class="sub" href="#">แคมเปญ</a>
+    <a href="Piece.dc.html">ผลิต</a>
+    <a href="#">โพสต์ &amp; บันทึก</a>
+    <a href="#">ผลลัพธ์</a>
+    <div style="height: 1px; background: #ECE6E6; margin: 10px 12px"></div>
+    <a href="#" style="color: #5C5456; font-weight: 500">อื่นๆ</a>
+  </nav>
+
+  <main style="flex: 999 1 560px; min-width: 0; padding: 22px 28px; box-sizing: border-box; display: flex; flex-direction: column; gap: 14px">
+    <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px">
+      <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px">
+        <h1 style="margin: 0; font-size: 24px; font-weight: 700">ปฏิทิน</h1>
+        <div style="display: flex; align-items: center; gap: 4px">
+          <button class="btn" aria-label="สัปดาห์ก่อน" style="width: 40px; padding: 0"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"></path></svg></button>
+          <span style="font-size: 17px; font-weight: 600; min-width: 150px; text-align: center">5–11 ต.ค. 2569</span>
+          <button class="btn" aria-label="สัปดาห์ถัดไป" style="width: 40px; padding: 0"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l6-6-6-6"></path></svg></button>
+          <button class="btn">วันนี้</button>
+        </div>
+      </div>
+      <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
+        <div role="group" aria-label="มุมมอง" style="display: flex; gap: 2px; padding: 3px; background: #ECE7E7; border-radius: 10px">
+          <button class="seg on" aria-pressed="true">สัปดาห์</button>
+          <button class="seg" aria-pressed="false">เดือน</button>
+          <button class="seg" aria-pressed="false">รายการ</button>
+        </div>
+        <a class="btn p" href="#">+ เพิ่มชิ้นงาน</a>
+      </div>
+    </div>
+
+    <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 8px">
+      <button class="dd">แคมเปญ: ทั้งหมด <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"></path></svg></button>
+      <button class="dd">ช่องทาง: ทั้งหมด <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"></path></svg></button>
+      <button class="dd">สถานะ: ทั้งหมด <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"></path></svg></button>
+      <button class="dd">ประเภท: ทั้งหมด <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"></path></svg></button>
+      <span style="flex: 1"></span>
+      <span style="font-size: 13px; color: #5C5456">ลากการ์ดเพื่อเลื่อนวัน</span>
+    </div>
+
+    <div role="status" style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 10px 14px; border-radius: 12px; background: #FFF6F5; border: 1px solid #F3CFCB; font-size: 14px">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#B42318" stroke-width="2" stroke-linecap="round" style="flex: none"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v6M12 16.5v.5"></path></svg>
+      <span style="flex: 1; min-width: 240px"><strong style="color: #B42318">ค้างจากสัปดาห์ก่อน:</strong> เฟรมนิ่งจากคลิป #8 + แคปชัน 2 บรรทัด (อา. 4 ต.ค.) ยังไม่โพสต์</span>
+      <button class="btn" style="min-height: 36px">เลื่อน</button>
+      <button class="btn" style="min-height: 36px">ยกเลิก</button>
+    </div>
+
+    <section aria-label="สัปดาห์ 5–11 ตุลาคม" style="background: #fff; border: 1px solid #E8E2E2; border-radius: 14px; overflow-x: auto">
+      <div style="min-width: 1000px; display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); grid-template-rows: auto auto auto 1fr">
+        <sc-for list="{{days}}" as="d" hint-placeholder-count="7">
+          <div style="grid-row: 1; grid-column: {{d.col}}; padding: 12px 10px 8px; border-right: 1px solid #F0EAEA; background: {{d.headBg}}">
+            <div style="font-size: 13px; font-weight: 600; color: {{d.headColor}}">{{d.wd}}</div>
+            <div style="display: flex; align-items: baseline; gap: 6px"><span style="font-size: 22px; font-weight: 700; color: {{d.headColor}}">{{d.n}}</span><span style="font-size: 12px; font-weight: 700; color: #a2191d">{{d.todayLabel}}</span></div>
+          </div>
+          <div style="grid-row: 2; grid-column: {{d.col}}; padding: 0 10px 8px; border-right: 1px solid #F0EAEA; background: {{d.headBg}}">
+            <div style="display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 600; color: #3A3335; background: #F4F1F1; border-radius: 6px; padding: 4px 8px"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="12" cy="12" r="3"></circle><path d="M5 5a10 10 0 0 0 0 14M19 5a10 10 0 0 1 0 14"></path></svg>{{d.host}}</div>
+          </div>
+          <div style="grid-row: 4; grid-column: {{d.col}}; padding: 8px 8px 14px; border-right: 1px solid #F0EAEA; border-top: 1px solid #F0EAEA; display: flex; flex-direction: column; gap: 8px; min-height: 520px; background: {{d.bodyBg}}">
+            <sc-for list="{{d.cards}}" as="c" hint-placeholder-count="1">
+              <a class="pc" href="Piece.dc.html">
+                <div style="display: flex; align-items: center; justify-content: space-between; gap: 4px">
+                  <span style="font-size: 11px; font-weight: 700; color: #5C5456">{{c.slot}}</span>
+                  <span class="type" style="border-color: {{c.color}}"><span class="dot" style="background: {{c.color}}"></span>{{c.typeLabel}}</span>
+                </div>
+                <div style="font-size: 13px; font-weight: 600; line-height: 1.45">{{c.title}}</div>
+                <div style="font-size: 11px; color: #5C5456">{{c.ch}}</div>
+                <div style="display: flex; flex-wrap: wrap; gap: 4px">
+                  <span class="badge" style="background: {{c.stBg}}; color: {{c.stFg}}">{{c.stLabel}}</span>
+                  <sc-for list="{{c.flags}}" as="f" hint-placeholder-count="0">
+                    <span class="flag" style="background: {{f.bg}}; color: {{f.fg}}">{{f.label}}</span>
+                  </sc-for>
+                </div>
+              </a>
+            </sc-for>
+            <sc-if value="{{d.shoot}}" hint-placeholder-val="{{false}}">
+              <a href="#" style="display: block; padding: 8px 10px; border: 1.5px dashed #B9AFB0; border-radius: 10px; font-size: 12px; font-weight: 600; color: #3A3335; text-decoration: none; line-height: 1.5">รอบถ่าย 14:00<br><span style="font-weight: 500; color: #5C5456">4 ชิ้น ≈ 40 นาที · โรงงาน</span></a>
+            </sc-if>
+          </div>
+        </sc-for>
+        <div style="grid-row: 3; grid-column: 6 / span 2; margin: 0 8px 8px; padding: 4px 10px; border-radius: 6px; background: #EEF0F1; color: #3F4448; font-size: 12px; font-weight: 600; border: 1px solid #C9CDD1">เทศกาลกินเจ 10–18 ต.ค. →</div>
+      </div>
+    </section>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: 13px; color: #3A3335">
+      <span style="font-weight: 700">ประเภท</span>
+      <sc-for list="{{legend}}" as="l" hint-placeholder-count="5">
+        <span style="display: inline-flex; align-items: center; gap: 6px"><span class="dot" style="background: {{l.color}}"></span>{{l.label}}</span>
+      </sc-for>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1040}}'>
+var T = {
+  live: { label: 'พาเข้าไลฟ์', color: '#a2191d' },
+  know: { label: 'ความรู้', color: '#1f3a5f' },
+  craft: { label: 'ช่าง/โรงงาน', color: '#6b4a2e' },
+  cust: { label: 'ลูกค้า', color: '#4f7f6a' },
+  fest: { label: 'เทศกาล', color: '#8a8f94' }
+};
+var S = {
+  plan: ['วางแผนแล้ว', '#E6E2E2', '#2A2425'],
+  ai: ['AI ร่าง', '#E4EEFB', '#1C4F9C'],
+  review: ['รอตรวจ', '#FFF1D6', '#7A4B00'],
+  approved: ['อนุมัติแล้ว', '#DDF3EA', '#13613F'],
+  made: ['ผลิตแล้ว', '#C8EBD9', '#0F4F33'],
+  posted: ['โพสต์แล้ว', '#13613F', '#FFFFFF'],
+  wait: ['รอเงื่อนไข: ภาพประวัติ LINE', '#FFF8EC', '#7A4B00']
+};
+var F = {
+  shoot: { label: 'ต้องถ่าย', bg: '#F1EEEE', fg: '#3D3739' },
+  img: { label: 'มีภาพแล้ว', bg: '#EAF4EE', fg: '#13613F' },
+  confirm: { label: 'ต้องยืนยัน', bg: '#FFF1C2', fg: '#5A3D00' },
+  nolink: { label: 'ยังไม่วางลิงก์', bg: '#FDE4E1', fg: '#B42318' }
+};
+var DAYS = [
+  { wd: 'จันทร์', n: 5, host: 'โฮสต์ A', cards: [
+    { slot: 'เช้า', ty: 'craft', title: 'เบื้องหลังเทเงิน', ch: 'IG · โพสต์ภาพ', st: 'posted', fl: ['nolink'] }
+  ] },
+  { wd: 'อังคาร', n: 6, today: true, host: 'โฮสต์ B', cards: [
+    { slot: 'เช้า', ty: 'cust', title: 'ทักลูกค้าเก่า: ของใหม่เดือนนี้', ch: 'LINE · ข้อความ', st: 'wait', fl: [] },
+    { slot: 'ก่อนไลฟ์', ty: 'live', title: '"ชิ้นนี้ขึ้นไลฟ์คืนนี้" แหวนเกลียว', ch: 'TikTok · คลิปสั้น', st: 'made', fl: [] }
+  ] },
+  { wd: 'พุธ', n: 7, host: 'โฮสต์ A', cards: [
+    { slot: 'ก่อนไลฟ์', ty: 'live', title: 'คลิปตัดจากไลฟ์: ประมูลกำไลเมื่อคืน', ch: 'TikTok · คลิปตัด', st: 'ai', fl: ['img'] }
+  ] },
+  { wd: 'พฤหัสบดี', n: 8, host: 'โฮสต์ A', shoot: true, cards: [
+    { slot: 'ก่อนไลฟ์', ty: 'know', title: '925 ดำเพราะอะไร + ดูแลยังไง', ch: 'TikTok · คลิปสั้น', st: 'review', fl: ['confirm', 'shoot'] }
+  ] },
+  { wd: 'ศุกร์', n: 9, host: 'ยังไม่ระบุโฮสต์', cards: [
+    { slot: 'เช้า', ty: 'know', title: 'ใส่อาบน้ำได้ไหม', ch: 'IG · โพสต์ภาพ', st: 'plan', fl: ['shoot'] }
+  ] },
+  { wd: 'เสาร์', n: 10, host: 'โฮสต์ B', cards: [
+    { slot: 'เช้า', ty: 'fest', title: 'สตอรี่ทักทายกินเจ วันแรก', ch: 'IG · สตอรี่', st: 'approved', fl: ['img'] }
+  ] },
+  { wd: 'อาทิตย์', n: 11, host: 'งดไลฟ์', cards: [
+    { slot: 'เช้า', ty: 'know', title: 'อัลบั้ม 4:5 "ดูแลเงิน 3 ข้อ"', ch: 'FB + IG · อัลบั้ม', st: 'review', fl: ['img'] }
+  ] }
+];
+class Component extends DCLogic {
+  renderVals() {
+    return {
+      days: DAYS.map(function (d, i) {
+        return {
+          col: i + 1, wd: d.wd, n: d.n, host: d.host, shoot: !!d.shoot,
+          todayLabel: d.today ? 'วันนี้' : '',
+          headBg: d.today ? '#FBEFEF' : '#FFFFFF',
+          bodyBg: d.n < 6 ? '#FAF8F8' : (d.today ? '#FFFBFB' : '#FFFFFF'),
+          headColor: d.today ? '#a2191d' : '#2A2425',
+          cards: d.cards.map(function (c) {
+            var s = S[c.st];
+            return {
+              slot: c.slot, title: c.title, ch: c.ch,
+              typeLabel: T[c.ty].label, color: T[c.ty].color,
+              stLabel: s[0], stBg: s[1], stFg: s[2],
+              flags: c.fl.map(function (k) { return F[k]; })
+            };
+          })
+        };
+      }),
+      legend: Object.keys(T).map(function (k) { return T[k]; })
+    };
+  }
+}
+</script>
+</body>
+</html>

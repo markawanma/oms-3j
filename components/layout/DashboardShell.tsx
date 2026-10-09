@@ -25,6 +25,7 @@ import {
   Gem,
   Hammer,
   Hash,
+  Inbox,
   LayoutDashboard,
   LineChart,
   Megaphone,
@@ -45,6 +46,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { Logo } from "@/components/brand/Logo";
+import { isWideMarketingPath } from "@/lib/marketing/nav";
 import { signOut } from "@/lib/actions/auth";
 
 interface NavItem {
@@ -100,6 +102,8 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "การตลาด",
     items: [
+      // P1a (content-ui-build-plan.md §6): หน้าแรกของสายการตลาด — แรกสุดของกลุ่ม
+      { href: "/marketing", label: "งานที่รอฉัน", icon: Inbox },
       { href: "/marketing/ad-spend", label: "ค่าแอด", icon: Wallet },
       { href: "/marketing/copilot", label: "Ad Copilot", icon: Megaphone },
       { href: "/marketing/audience", label: "กลุ่มลูกค้า", icon: Users2 },
@@ -283,7 +287,13 @@ export function DashboardShell({
           <NavList groups={navGroups} pathname={pathname} />
         </aside>
 
-        <main className="mx-auto w-full max-w-3xl flex-1 px-4 py-4 print:max-w-none print:p-0">{children}</main>
+        {/* ความกว้างเนื้อหา: เดิม max-w-3xl ทุกหน้า — ขยายเฉพาะหน้า workflow content ใหม่ที่ต้อง 2 คอลัมน์บน PC
+            (isWideMarketingPath: /marketing และ /marketing/pieces/*) · หน้าอื่นไม่เปลี่ยน */}
+        <main
+          className={`mx-auto w-full ${isWideMarketingPath(pathname) ? "max-w-6xl" : "max-w-3xl"} flex-1 px-4 py-4 print:max-w-none print:p-0`}
+        >
+          {children}
+        </main>
       </div>
 
       {drawerOpen && (
