@@ -3,7 +3,7 @@ import { Lock, MessageCircleQuestion } from "lucide-react";
 import { getEffectiveRole } from "@/lib/auth/role";
 import { getRecoInbox } from "@/lib/actions/content-inbox";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { AiQuestionCard } from "@/components/domain/marketing/workflow/AiQuestionCard";
+import { AiQuestionList } from "@/components/domain/marketing/workflow/AiQuestionCard";
 import { PageError } from "@/components/domain/marketing/workflow/PageError";
 import { sortRecoPending } from "@/lib/marketing/inbox-piles";
 import type { RecoInboxRow } from "@/lib/marketing/piece-types";
@@ -62,9 +62,7 @@ export default async function QuestionsPage({ searchParams }: { searchParams: Pr
         )
       ) : (
         <ul className="space-y-3" aria-live="polite">
-          {list.map((r) => (
-            <AiQuestionCard key={`${r.itemKind}-${r.itemId}`} row={r} />
-          ))}
+          <AiQuestionList rows={list} />
         </ul>
       )}
     </div>

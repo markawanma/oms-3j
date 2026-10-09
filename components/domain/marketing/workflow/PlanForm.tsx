@@ -139,8 +139,14 @@ function PlanFormBody({
       if (hasChanges) {
         const res = await setPlan(piece.stepId, diff.set);
         if (!res.ok) {
+          if (res.stale) {
+            // แท็บเก่ากว่า DB: ปิดกล่อง แจ้งข้อความ แล้วโหลดหน้าใหม่ (ไม่ค้างกล่องที่กดซ้ำไม่ได้แล้ว)
+            toast.push(res.error, "error");
+            onClose();
+            router.refresh();
+            return;
+          }
           setError(res.error);
-          if (res.stale) router.refresh();
           return;
         }
       }

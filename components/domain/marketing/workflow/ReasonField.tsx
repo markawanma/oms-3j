@@ -68,6 +68,7 @@ export function ReasonField({
               {hint}
             </p>
           )}
+          {value.length > max && <p className="font-medium text-red-700">ยาวเกิน {max} ตัวอักษร — ตัดออกก่อนส่ง</p>}
           {tooShort && <p className="text-amber-800">ใส่อีกอย่างน้อย {min - value.trim().length} ตัวอักษร</p>}
           {error && (
             <p id={errId} role="alert" className="font-medium text-red-700">

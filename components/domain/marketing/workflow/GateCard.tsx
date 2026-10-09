@@ -252,7 +252,7 @@ function FactBody({ stepId, gate, editable }: GateCardProps) {
                   type="button"
                   variant="danger"
                   loading={busy}
-                  disabled={note.trim().length < 3}
+                  disabled={note.trim().length < 3 || note.length > 500}
                   onClick={async () => {
                     const ok = await submit({ gateKind: "fact_check", status: "blocked", sources, flagged, note: note.trim() }, "ทำเครื่องหมายว่าติดแล้ว");
                     if (ok) {
@@ -329,7 +329,7 @@ function BrandBody({ stepId, gate, editable }: GateCardProps) {
                 type="button"
                 variant="danger"
                 loading={busy}
-                disabled={rules.trim().length === 0 && note.trim().length === 0}
+                disabled={(rules.trim().length === 0 && note.trim().length === 0) || rules.length > 500 || note.length > 500}
                 onClick={async () => {
                   const ok = await submit(
                     {
@@ -408,7 +408,7 @@ function RiskBody({ stepId, gate, editable, onRequestEdit }: GateCardProps) {
             <Button
               type="button"
               loading={busy}
-              disabled={status === "passed"}
+              disabled={status === "passed" || answer.length > 1000}
               onClick={() => void submit({ gateKind: "risk_owner", status: "passed", answer: answer.trim() }, "ผ่านด่านความเสี่ยงแล้ว")}
             >
               ใช้ได้ (ผ่านด่านนี้)
@@ -416,7 +416,7 @@ function RiskBody({ stepId, gate, editable, onRequestEdit }: GateCardProps) {
             <Button
               type="button"
               variant="secondary"
-              disabled={busy || status === "na"}
+              disabled={busy || status === "na" || answer.length > 1000}
               onClick={() => void submit({ gateKind: "risk_owner", status: "na", answer: answer.trim() }, "ทำเครื่องหมายว่าไม่เกี่ยวข้องแล้ว")}
             >
               ไม่เกี่ยวข้อง

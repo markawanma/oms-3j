@@ -93,7 +93,7 @@ function HookEditor({ stepId, label, hook, resetsGates }: { stepId: string; labe
         </p>
       )}
       <ReasonField label="ข้อความ hook" value={text} onChange={setText} max={500} rows={2} error={error} />
-      <Button type="button" variant="secondary" loading={busy} disabled={!changed || text.trim() === "" || type === ""} onClick={() => void save()}>
+      <Button type="button" variant="secondary" loading={busy} disabled={!changed || text.trim() === "" || text.length > 500 || type === ""} onClick={() => void save()}>
         บันทึก hook {label}
       </Button>
     </div>
@@ -181,7 +181,7 @@ export function PieceEditCard({ piece }: { piece: PieceRow }) {
                   </button>
                 </p>
               )}
-              <Button type="button" loading={busy} disabled={!bodyDraft.dirty || bodyDraft.conflict} onClick={() => void saveBody()}>
+              <Button type="button" loading={busy} disabled={!bodyDraft.dirty || bodyDraft.conflict || body.length > 20000} onClick={() => void saveBody()}>
                 บันทึกเนื้อหา
               </Button>
             </div>

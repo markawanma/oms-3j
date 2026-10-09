@@ -144,8 +144,14 @@ function ReasonBody({ config, extra, onSubmit, onClose, onDirtyChange }: ReasonB
     try {
       const res = await onSubmit(trimmed);
       if (!res.ok) {
+        if (res.stale) {
+          // แท็บเก่ากว่า DB: ปิดกล่อง แจ้งข้อความ แล้วโหลดหน้าใหม่ (ไม่ค้างกล่องที่กดซ้ำไม่ได้แล้ว)
+          toast.push(res.error, "error");
+          onClose();
+          router.refresh();
+          return;
+        }
         setError(res.error);
-        if (res.stale) router.refresh();
         return;
       }
       onDirtyChange(false);
@@ -266,8 +272,14 @@ function DeferBody({
     try {
       const res = await onSubmit(date, trimmed, time || null);
       if (!res.ok) {
+        if (res.stale) {
+          // แท็บเก่ากว่า DB: ปิดกล่อง แจ้งข้อความ แล้วโหลดหน้าใหม่ (ไม่ค้างกล่องที่กดซ้ำไม่ได้แล้ว)
+          toast.push(res.error, "error");
+          onClose();
+          router.refresh();
+          return;
+        }
         setError(res.error);
-        if (res.stale) router.refresh();
         return;
       }
       onDirtyChange(false);

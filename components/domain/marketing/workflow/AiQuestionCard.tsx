@@ -51,14 +51,13 @@ function Detail({ text }: { text: string }) {
   );
 }
 
-export function AiQuestionCard({ row }: { row: RecoInboxRow }) {
+export function AiQuestionCard({ row, onAnswered }: { row: RecoInboxRow; onAnswered: (row: RecoInboxRow, note: string) => void }) {
   const router = useRouter();
   const toast = useToast();
   const [mode, setMode] = useState<Mode>("idle");
   const [text, setText] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [doneNote, setDoneNote] = useState<string | null>(null);
 
   const isReco = row.itemKind === "reco";
   const isRisk = row.itemKind === "risk_gate";
@@ -84,7 +83,9 @@ export function AiQuestionCard({ row }: { row: RecoInboxRow }) {
           if (res.stale) router.refresh();
           return;
         }
-        setDoneNote("ผ่านด่านความเสี่ยงแล้ว");
+        toast.push("บันทึกแล้ว");
+        onAnswered(row, "ผ่านด่านความเสี่ยงแล้ว");
+        return;
       } else {
         const res = await respondReco({ recoId: row.itemId, action, response: text, token: row.contentToken });
         if (!res.ok) {
@@ -92,29 +93,15 @@ export function AiQuestionCard({ row }: { row: RecoInboxRow }) {
           if (res.stale) router.refresh(); // โหลดใหม่ แต่คงข้อความที่พิมพ์ไว้ (state ของการ์ดอยู่)
           return;
         }
-        setDoneNote(action === "done" ? (isProposal ? "ตกลงทำแล้ว" : "ตอบแล้ว") : "ปฏิเสธแล้ว");
+        toast.push("บันทึกแล้ว");
+        onAnswered(row, action === "done" ? (isProposal ? "ตกลงทำแล้ว" : "ตอบแล้ว") : "ปฏิเสธแล้ว");
+        return;
       }
-      toast.push("บันทึกแล้ว");
-      setMode("idle");
     } catch {
       setError("ทำรายการไม่สำเร็จ ลองใหม่อีกครั้ง");
     } finally {
       setBusy(false);
     }
-  }
-
-  // ---- ตอบสำเร็จ: ยุบเป็นบรรทัดสรุป ----
-  if (doneNote) {
-    return (
-      <li className="rounded-lg border border-green-200 bg-green-50 p-3.5">
-        <p className="flex items-start gap-2 text-sm font-medium text-green-900">
-          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-          <span className="min-w-0 break-words">
-            {doneNote} · {row.title}
-          </span>
-        </p>
-      </li>
-    );
   }
 
   const defaultLine =
@@ -225,7 +212,7 @@ export function AiQuestionCard({ row }: { row: RecoInboxRow }) {
                   type="submit"
                   loading={busy}
                   variant={mode === "reject" ? "danger" : "primary"}
-                  disabled={mode === "reject" ? text.trim().length < 3 : isReco && !isProposal && text.trim().length === 0}
+                  disabled={text.length > 1000 || (mode === "reject" ? text.trim().length < 3 : isReco && !isProposal && text.trim().length === 0)}
                 >
                   {mode === "reject" ? (isProposal ? "ยืนยันไม่ทำ" : "ยืนยันปฏิเสธ") : isRisk ? "ผ่านด่านนี้" : isProposal ? "ยืนยันตกลงทำ" : "ส่งคำตอบ"}
                 </Button>
@@ -235,5 +222,60 @@ export function AiQuestionCard({ row }: { row: RecoInboxRow }) {
         </div>
       )}
     </li>
+  );
+}
+
+/** บรรทัดสรุปหลังตอบ — ค้างอยู่จนกว่าผู้ใช้กด "ปิด" หรือออกจากหน้า (ไม่หายทันทีตอน revalidate — §2.3) */
+export function AnsweredSummary({ row, note, onDismiss }: { row: RecoInboxRow; note: string; onDismiss: () => void }) {
+  return (
+    <li className="rounded-lg border border-green-200 bg-green-50 p-3.5">
+      <div className="flex items-start justify-between gap-2">
+        <p className="flex min-w-0 items-start gap-2 text-sm font-medium text-green-900">
+          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+          <span className="min-w-0 break-words">
+            {note} · {row.title}
+          </span>
+        </p>
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="-my-2 -mr-2 min-h-11 min-w-11 shrink-0 rounded-md text-sm font-medium text-green-900 underline underline-offset-2 hover:bg-green-100"
+        >
+          ปิด
+        </button>
+      </div>
+    </li>
+  );
+}
+
+/**
+ * รายการการ์ดข้อเสนอ — เก็บ "เพิ่งตอบ" ไว้ฝั่ง client: หลังตอบ server revalidate ทำให้แถวหายจาก list ทันที
+ * แต่ที่นี่ยังแสดงบรรทัดสรุปค้างไว้ (snapshot ของแถว) จนกว่าจะกดปิดหรือเปลี่ยนหน้า
+ * คืน <li> ล้วน (ผู้เรียกห่อด้วย <ul>)
+ */
+export function AiQuestionList({ rows }: { rows: RecoInboxRow[] }) {
+  const [answered, setAnswered] = useState<Record<string, { row: RecoInboxRow; note: string }>>({});
+  const keyOf = (r: RecoInboxRow) => `${r.itemKind}-${r.itemId}`;
+  const live = rows.filter((r) => !answered[keyOf(r)]);
+  const ghosts = Object.entries(answered);
+  return (
+    <>
+      {live.map((r) => (
+        <AiQuestionCard key={keyOf(r)} row={r} onAnswered={(row, note) => setAnswered((a) => ({ ...a, [keyOf(row)]: { row, note } }))} />
+      ))}
+      {ghosts.map(([k, g]) => (
+        <AnsweredSummary
+          key={k}
+          row={g.row}
+          note={g.note}
+          onDismiss={() =>
+            setAnswered((a) => {
+              const { [k]: _gone, ...rest } = a;
+              return rest;
+            })
+          }
+        />
+      ))}
+    </>
   );
 }

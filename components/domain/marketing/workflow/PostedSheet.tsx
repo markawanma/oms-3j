@@ -75,8 +75,14 @@ function NoUrlConfirm({ stepId, title, onClose }: PostedSheetProps) {
     try {
       const res = await postPieceNoUrl(stepId);
       if (!res.ok) {
+        if (res.stale) {
+          // แท็บเก่ากว่า DB: ปิดกล่อง แจ้งข้อความ แล้วโหลดหน้าใหม่ (ไม่ค้างกล่องที่กดซ้ำไม่ได้แล้ว)
+          toast.push(res.error, "error");
+          onClose();
+          router.refresh();
+          return;
+        }
         setError(res.error);
-        if (res.stale) router.refresh();
         return;
       }
       toast.push("บันทึกว่าส่งแล้ว");
@@ -180,7 +186,7 @@ function LinkForm({ stepId, title, pieceKind, posts, hooks, onClose, onDirty }: 
   const hookReady =
     hook.kind === "skip" ||
     hook.kind === "hook" ||
-    (hook.kind === "other" && otherText.trim().length > 0 && otherType !== "");
+    (hook.kind === "other" && otherText.trim().length > 0 && otherText.length <= 500 && otherType !== "");
   const canSubmit = platform !== null && url.trim().length > 0 && postedAt !== "" && hookReady && !busy;
 
   async function submit() {
@@ -196,8 +202,14 @@ function LinkForm({ stepId, title, pieceKind, posts, hooks, onClose, onDirty }: 
             : ({ kind: "skip" } as const);
       const res = await postPiece(stepId, { platform, url, postedAtLocal: postedAt, hook: choice });
       if (!res.ok) {
+        if (res.stale) {
+          // แท็บเก่ากว่า DB: ปิดกล่อง แจ้งข้อความ แล้วโหลดหน้าใหม่ (ไม่ค้างกล่องที่กดซ้ำไม่ได้แล้ว)
+          toast.push(res.error, "error");
+          onClose();
+          router.refresh();
+          return;
+        }
         setError(res.error);
-        if (res.stale) router.refresh();
         return;
       }
       onDirty(false);

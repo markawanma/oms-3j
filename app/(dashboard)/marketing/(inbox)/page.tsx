@@ -4,7 +4,7 @@ import { getEffectiveRole } from "@/lib/auth/role";
 import { getContentTypes } from "@/lib/actions/content";
 import { getInboxData } from "@/lib/actions/content-inbox";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { AiQuestionCard } from "@/components/domain/marketing/workflow/AiQuestionCard";
+import { AiQuestionList } from "@/components/domain/marketing/workflow/AiQuestionCard";
 import { ApprovalCard } from "@/components/domain/marketing/workflow/ApprovalCard";
 import {
   EntryTile,
@@ -132,9 +132,7 @@ export default async function MarketingInboxPage() {
       ) : (
         piles.recoTotal > 0 && (
           <PileSection id="pile-reco" title="คำถามจาก AI" count={piles.recoTotal} shown={piles.reco.length}>
-            {piles.reco.map((r) => (
-              <AiQuestionCard key={`${r.itemKind}-${r.itemId}`} row={r} />
-            ))}
+            <AiQuestionList rows={piles.reco} />
           </PileSection>
         )
       )}

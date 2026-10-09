@@ -56,7 +56,7 @@ function ConfirmItemRow({ stepId, item, editable }: { stepId: string; item: Conf
             error={error}
             hint="คำตอบจะถูกใส่แทนข้อความ [ต้องยืนยัน] ในเนื้อหาจริง"
           />
-          <Button type="button" loading={busy} disabled={answer.trim().length === 0} onClick={() => void save()}>
+          <Button type="button" loading={busy} disabled={answer.trim().length === 0 || answer.length > 1000} onClick={() => void save()}>
             บันทึกคำตอบ
           </Button>
         </div>

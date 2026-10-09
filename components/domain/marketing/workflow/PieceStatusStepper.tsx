@@ -3,12 +3,21 @@
 // ย่อ: "ตอนนี้: … · ถัดไป: …" แล้วกางดูครบ 9 ขั้นด้วย <details> (ไม่ต้องใช้ JS)
 
 import { Check, Circle, CircleDot } from "lucide-react";
-import { PIECE_STATUS_LABEL, STEPPER_STEPS, nextStepperLabel, pieceStatusLabel, stepperIndex } from "@/lib/marketing/piece-labels";
+import { PIECE_STATUS_LABEL, STEPPER_STEPS, pieceStatusLabel, stepperIndex } from "@/lib/marketing/piece-labels";
 
-export function PieceStatusStepper({ rawStatus, effectiveStatus }: { rawStatus: string; effectiveStatus: string }) {
-  const idx = stepperIndex(rawStatus, effectiveStatus);
+/** ชิ้น LINE/สตอรี่: ไม่มีขั้นผลิต (ข้ามได้) และไม่มีการวัดผลรายชิ้น — ไม่แสดงขั้นที่ไม่ใช้ และไม่บอก "ถัดไป: กำลังวัดผล" */
+const NOT_FOR_LINE: readonly string[] = ["produced", "measuring", "measured"];
+
+export function PieceStatusStepper({ rawStatus, effectiveStatus, pieceKind = null }: { rawStatus: string; effectiveStatus: string; pieceKind?: string | null }) {
+  const noMeasure = pieceKind === "line_message" || pieceKind === "story";
+  const steps = noMeasure ? STEPPER_STEPS.filter((st) => !NOT_FOR_LINE.includes(st)) : STEPPER_STEPS;
+  const fullIdx = stepperIndex(rawStatus, effectiveStatus);
+  const curKey = fullIdx === null ? null : STEPPER_STEPS[fullIdx];
+  const found = curKey === null ? -1 : steps.indexOf(curKey);
+  // line/story ที่อยู่ขั้น "ผลิตแล้ว" ตามข้อมูลเก่า/วัดผลแล้ว: ยืนที่ปลายทาง (โพสต์แล้ว) ไม่หายจาก stepper
+  const idx = found >= 0 ? found : fullIdx === null ? null : steps.length - 1;
+  const next = idx === null ? null : (steps[idx + 1] ? PIECE_STATUS_LABEL[steps[idx + 1]] : null);
   const current = pieceStatusLabel(effectiveStatus);
-  const next = nextStepperLabel(idx);
   const side =
     effectiveStatus === "on_hold"
       ? "รอเงื่อนไข"
@@ -34,7 +43,7 @@ export function PieceStatusStepper({ rawStatus, effectiveStatus }: { rawStatus: 
           ดูทุกขั้นของสถานะ
         </summary>
         <ol aria-label="สถานะชิ้นงาน" className="mt-1 grid gap-1 sm:grid-cols-3">
-          {STEPPER_STEPS.map((step, i) => {
+          {steps.map((step, i) => {
             const passed = idx !== null && i < idx;
             const isCurrent = idx !== null && i === idx;
             return (
@@ -59,6 +68,7 @@ export function PieceStatusStepper({ rawStatus, effectiveStatus }: { rawStatus: 
           })}
         </ol>
       </details>
+      {noMeasure && !side && idx !== null && idx === steps.length - 1 && <p className="mt-1 text-xs font-medium text-zinc-700">ไม่มีการวัดผลรายชิ้น</p>}
       {side && <p className="mt-1 text-xs font-medium text-zinc-700">สถานะพิเศษ: {side}</p>}
     </div>
   );

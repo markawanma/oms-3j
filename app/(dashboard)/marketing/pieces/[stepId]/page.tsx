@@ -148,7 +148,7 @@ export default async function PieceDetailPage({
 
         <PieceBanners banners={banners} />
 
-        <PieceStatusStepper rawStatus={piece.pieceStatus} effectiveStatus={piece.effectiveStatus} />
+        <PieceStatusStepper rawStatus={piece.pieceStatus} effectiveStatus={piece.effectiveStatus} pieceKind={piece.pieceKind} />
 
         <PieceOrigin signal={sourceSignal} hypothesis={piece.hypothesis} />
 
