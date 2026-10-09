@@ -123,6 +123,11 @@ function PlanFormBody({
       setFieldErrors({ [diff.field]: diff.error });
       return;
     }
+    // pre-check ฝั่ง client: วันที่ใหม่ต้องไม่ย้อนหลัง (DB ตรวจช่วงเอง — ที่นี่แค่ให้ข้อความไทยที่ช่องก่อนส่ง)
+    if (typeof diff.set.date === "string" && diff.set.date < todayTh) {
+      setFieldErrors({ date: "วันที่ต้องไม่ย้อนหลัง" });
+      return;
+    }
     const hasChanges = Object.keys(diff.set).length > 0;
     if (!hasChanges && !advanceToPlanned) {
       setError("ไม่มีค่าที่เปลี่ยน");

@@ -10,7 +10,16 @@
 // Pure module — ไม่มี import ที่ผูก server (ใช้ได้ทั้ง server action, client component, vitest)
 
 import { readErrorCode, readErrorMessage } from "@/lib/supabase/postgrest-error";
-import { PIECE_STATUS_LABEL } from "@/lib/marketing/piece-labels";
+import {
+  CHANNEL_LABEL,
+  CUSTOMER_GROUP_LABEL,
+  FOOTAGE_STATUS_LABEL,
+  GATE_KIND_LABEL,
+  GATE_STATUS_LABEL,
+  PIECE_KIND_LABEL,
+  PIECE_STATUS_LABEL,
+  SHOOT_LOCATION_LABEL,
+} from "@/lib/marketing/piece-labels";
 
 export interface DescribedRpcError {
   message: string;
@@ -104,6 +113,57 @@ const ENUM_WORDS: Array<[RegExp, string]> = [
   [/(?<![A-Za-z0-9_])hold(?![A-Za-z0-9_])/g, PIECE_STATUS_LABEL.on_hold],
 ];
 
+/**
+ * ชื่อคอลัมน์/ค่า enum ที่ DB ใส่ในประโยคภาษาไทย → คำไทย (BUG-QA-2)
+ * แทนที่จะทิ้งทั้งข้อความเมื่อเหลือ snake_case — เจ้าของควรเห็น "ยังไม่ได้ตั้งวัน" ไม่ใช่ "รีเฟรชแล้วลองใหม่"
+ * ยาวก่อนสั้น (เช่น line_audience_reason ก่อน line_audience) เพื่อไม่ให้แทนที่ทับบางส่วน
+ */
+const IDENT_TH: Record<string, string> = {
+  ...GATE_KIND_LABEL,
+  ...PIECE_KIND_LABEL,
+  ...CHANNEL_LABEL,
+  ...CUSTOMER_GROUP_LABEL,
+  ...FOOTAGE_STATUS_LABEL,
+  ...SHOOT_LOCATION_LABEL,
+  ...GATE_STATUS_LABEL,
+  piece_kind: "ชนิดชิ้นงาน",
+  metric_code: "ตัวชี้วัด",
+  baseline_value: "ค่าฐาน",
+  baseline_as_of: "วันที่ของค่าฐาน",
+  baseline_spread: "ช่วงแกว่ง",
+  pass_threshold: "เกณฑ์ผ่าน",
+  pass_op: "ทิศของเกณฑ์",
+  customer_group: "กลุ่มลูกค้า",
+  line_audience_reason: "เหตุผลของผู้รับ LINE",
+  line_audience: "ผู้รับ LINE",
+  audience_segment: "กลุ่มลูกค้าเป้าหมาย",
+  footage_status: "สถานะภาพ",
+  footage_url: "ลิงก์ไฟล์ภาพ",
+  shoot_location: "สถานที่ถ่าย",
+  shoot_minutes_est: "เวลาประเมินถ่ายทำ",
+  shoot_date: "วันถ่าย",
+  shoot_note: "หมายเหตุถ่ายทำ",
+  expected_host_id: "โฮสต์ที่คาด",
+  content_type_code: "ประเภทเนื้อหา",
+  time_slot: "ช่วงเวลา",
+  start_time: "เวลา",
+  content_body: "เนื้อหา",
+  hook_type: "ประเภท hook",
+  step_id: "ชิ้นงาน",
+};
+// เก็บเฉพาะ snake_case + สถานะด่าน 3 คำ — คำอังกฤษเดี่ยว (shot/other/story/na ฯลฯ) อาจอยู่ในประโยคปกติ ห้ามแทนที่
+for (const k of Object.keys(IDENT_TH)) if (!k.includes("_") && !["pending", "passed", "blocked"].includes(k)) delete IDENT_TH[k];
+const IDENT_RE = new RegExp(
+  `(?<![A-Za-z0-9_])(${Object.keys(IDENT_TH)
+    .sort((a, b) => b.length - a.length)
+    .join("|")})(?![A-Za-z0-9_])`,
+  "g"
+);
+
+/** ข้อความที่ดูเป็น error ทางเทคนิค (SQL/stack/constraint) — ห้ามโชว์แม้จะมีภาษาไทยปน */
+const TECHNICAL_RE =
+  /\b(select|insert into|update\s+\w+\s+set|delete from|syntax error|violates|constraint|stack|traceback|permission denied|pg_)\b|ERROR:|\bat\s+\w+\.\w+\(|relation ".*" does not exist/i;
+
 const THAI = /[฀-๿]/;
 const MAX_LEN = 300;
 
@@ -113,6 +173,7 @@ export function sanitizeRpcText(raw: string): string {
   t = t.replace(/^[a-z][a-z0-9_]*:\s*/i, ""); // `content_piece_advance: `
   t = t.replace(/\s*\([a-z][a-z0-9_.]*(?:\s*,\s*[a-z][a-z0-9_.]*)*\)/gi, ""); // `(piece_kind)` `(a, b)` — ล้างก่อนแปลง enum
   for (const [re, label] of ENUM_WORDS) t = t.replace(re, label);
+  t = t.replace(IDENT_RE, (m) => IDENT_TH[m] ?? m);
   t = t.replace(/\banalytics\.[a-z0-9_]+/gi, "");
   t = t.replace(/\b(?:content|campaign|recommendation|live)_[a-z0-9_]+/gi, "");
   t = t.replace(/\bp_[a-z0-9_]+/gi, "");
@@ -125,6 +186,7 @@ function isShowable(text: string): boolean {
   if (!THAI.test(text)) return false;
   if (/[a-z]+_[a-z_]+/i.test(text)) return false;
   if (/analytics\./i.test(text)) return false;
+  if (TECHNICAL_RE.test(text)) return false;
   return true;
 }
 

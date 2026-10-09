@@ -190,3 +190,27 @@ describe("sanitizeRpcText", () => {
     expect(sanitizeRpcText("not_approved_yet")).toContain("not_approved_yet");
   });
 });
+
+describe("ข้อความเทคนิค (SQL/stack) ห้ามขึ้นจอแม้มีภาษาไทยปน", () => {
+  const FB = "บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง";
+  for (const raw of [
+    "ไม่สำเร็จ: insert into analytics.content_post values (1)",
+    "ข้อผิดพลาด violates foreign key constraint ของชิ้นงาน",
+    "พัง at Object.run(file.js:10) ลองใหม่",
+    "select * from secret_table ที่ไม่มี",
+  ]) {
+    it(raw.slice(0, 30), () => {
+      expect(humanizeRpcError({ code: "55000", message: raw }, FB)).toBe("ทำรายการนี้ไม่ได้ในสถานะปัจจุบัน — รีเฟรชแล้วลองใหม่");
+    });
+  }
+  it("identifier ที่รู้จักถูกแปลงเป็นคำไทย ไม่ทิ้งทั้งข้อความ", () => {
+    const m = humanizeRpcError(
+      { code: "55000", message: "content_piece_advance: วางแผนไม่ได้ — ชนิด short_clip ใช้กับช่องทาง line_oa ไม่ได้ · ด่าน fact_check ยังไม่ผ่าน (สถานะ pending)" },
+      FB
+    );
+    expect(m).toContain("คลิปสั้น");
+    expect(m).toContain("LINE OA");
+    expect(m).toContain("ข้อเท็จจริง");
+    expect(m).not.toMatch(/[a-z]+_[a-z_]+/);
+  });
+});
