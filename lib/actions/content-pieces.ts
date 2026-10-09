@@ -537,10 +537,11 @@ export async function isWorkflowPiece(stepId: string): Promise<boolean> {
   try {
     const { data, error } = await getServiceClient()
       .schema(SCHEMA)
-      .from("v_content_piece")
-      .select("step_id")
+      .from("campaign_step") // piece_status is not null = ชิ้นใน workflow ใหม่ (partial index) — เบากว่า v_content_piece ที่ join หนัก
+      .select("id")
       .eq("shop_id", shopId())
-      .eq("step_id", stepId)
+      .eq("id", stepId)
+      .not("piece_status", "is", null)
       .maybeSingle();
     if (error) throw error;
     return data !== null;

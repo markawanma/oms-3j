@@ -18,6 +18,7 @@ import {
 } from "@/lib/marketing/campaign-types";
 import type { CampaignBoardStep, EffectiveStatus } from "@/lib/marketing/campaign-types";
 import type { ContentTypeRow } from "@/lib/marketing/content-types";
+import { gateKindLabel } from "@/lib/marketing/piece-labels";
 import { Badge } from "@/components/ui/Badge";
 import type { BadgeTone } from "@/components/ui/Badge";
 import { ContentTypeChip } from "@/components/domain/marketing/ContentTypeChip";
@@ -138,7 +139,7 @@ export function AgendaTaskCard({
           <div className="mt-1.5 flex flex-wrap gap-1">
             {pendingGates.map((g) => (
               <Badge key={g.gateKind} tone="amber">
-                รอ: {GATE_LABEL[g.gateKind] ?? g.gateKind}
+                รอ: {gateKindLabel(g.gateKind, GATE_LABEL)}
               </Badge>
             ))}
           </div>

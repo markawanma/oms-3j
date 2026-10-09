@@ -10,7 +10,7 @@ export function PageError({ message }: { message: string }) {
   return <ErrorState message={message} onRetry={() => router.refresh()} />;
 }
 
-/** แถบ error ของ "กองเดียว" — กองอื่นของหน้ายังแสดงตามปกติ (Promise.allSettled) */
+/** แถบ error ของ "กองเดียว" — กองอื่นของหน้ายังแสดงตามปกติ */
 export function SectionError({ message }: { message: string }) {
   const router = useRouter();
   return <ErrorBanner message={message} onRetry={() => router.refresh()} />;

@@ -19,7 +19,7 @@ function CardSkel({ lines = 3 }: { lines?: number }) {
 
 export function InboxSkeleton() {
   return (
-    <div className="space-y-4" role="status" aria-label="กำลังโหลดงานที่รอคุณ">
+    <div className="space-y-4" role="status" aria-label="กำลังโหลดงานที่รอฉัน">
       <Skeleton className="h-8 w-48" />
       <div className="space-y-2 rounded-lg border border-zinc-200 bg-white p-3.5">
         <Skeleton className="h-4 w-40" />

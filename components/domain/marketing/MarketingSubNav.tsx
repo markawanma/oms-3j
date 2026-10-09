@@ -8,8 +8,8 @@ import type { LucideIcon } from "lucide-react";
 import { activeTabHref } from "@/lib/marketing/nav";
 
 // Keep in sync with the "การตลาด" group in
-// components/layout/DashboardShell.tsx (NAV_GROUPS) — same 6 routes, same
-// labels/icons. Was previously only 2 tabs, which orphaned the audience/
+// components/layout/DashboardShell.tsx (NAV_GROUPS) — same routes, same
+// labels/icons (หน้าที่ย่อเข้าเมนู "อื่นๆ" ยังอยู่ใน TABS ครบ). Was previously only 2 tabs, which orphaned the audience/
 // attribution/calendar pages (sub-nav showed neither their tab nor any
 // highlight, so they looked broken from inside the module).
 const TABS: { href: string; label: string; icon: LucideIcon }[] = [
@@ -101,7 +101,6 @@ export function MarketingSubNav() {
       >
         <button
           type="button"
-          aria-haspopup="menu"
           aria-expanded={moreOpen}
           onClick={() => setMoreOpen((o) => !o)}
           className={`${TAB_CLS} ${moreActive ? "bg-primary-100 text-primary-700" : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"}`}
@@ -110,12 +109,11 @@ export function MarketingSubNav() {
           <ChevronDown className="h-4 w-4" aria-hidden="true" />
         </button>
         {moreOpen && (
-          <ul role="menu" aria-label="เมนูการตลาดอื่นๆ" className="absolute left-0 top-full z-20 mt-1 w-52 overflow-hidden rounded-lg border border-zinc-200 bg-white py-1 shadow-lg">
+          <ul aria-label="เมนูการตลาดอื่นๆ" className="absolute left-0 top-full z-20 mt-1 w-52 overflow-hidden rounded-lg border border-zinc-200 bg-white py-1 shadow-lg">
             {others.map(({ href, label, icon: Icon }) => (
-              <li key={href} role="none">
+              <li key={href}>
                 <Link
                   href={href}
-                  role="menuitem"
                   aria-current={href === activeHref ? "page" : undefined}
                   onClick={() => setMoreOpen(false)}
                   className={`flex min-h-11 items-center gap-2 px-3 text-sm font-medium hover:bg-zinc-50 ${href === activeHref ? "text-primary-700" : "text-zinc-800"}`}

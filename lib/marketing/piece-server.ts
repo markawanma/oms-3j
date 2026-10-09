@@ -14,6 +14,7 @@ import { getDevShopId } from "@/lib/dev/context";
 import { getEffectiveRole } from "@/lib/auth/role";
 import { describeRpcError, type RpcErrorOptions } from "@/lib/marketing/rpc-messages";
 import type { PieceResult } from "@/lib/marketing/piece-types";
+import { isUuid } from "@/lib/marketing/piece-input";
 
 export type { PieceResult };
 import { readErrorCode, readErrorMessage, redactUrls } from "@/lib/supabase/postgrest-error";
@@ -21,10 +22,7 @@ import { readErrorCode, readErrorMessage, redactUrls } from "@/lib/supabase/post
 export const SCHEMA = "analytics";
 
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-export function isUuid(v: unknown): v is string {
-  return typeof v === "string" && UUID_RE.test(v);
-}
+export { isUuid };
 
 /** บรรทัดแรกของทุก action (F2): staff ใช้ไม่ได้ · AUTH_GATE on ⇒ role มาจาก session จริง (lib/auth/role.ts) */
 export async function requireOwnerAdmin(): Promise<PieceResult<never> | null> {

@@ -15,7 +15,7 @@ import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
 import { ReasonField } from "@/components/domain/marketing/workflow/ReasonField";
-import { hookTypeLabel } from "@/components/domain/marketing/workflow/HookPair";
+import { hookTypeLabel } from "@/lib/marketing/piece-labels";
 import { inspectContentLink } from "@/lib/actions/content";
 import { postPiece, postPieceNoUrl } from "@/lib/actions/content-pieces";
 import { HOOK_TYPES, HOOK_TYPE_LABEL, PLATFORM_POST_LABEL, pieceKindHasPostUrl } from "@/lib/marketing/piece-labels";
@@ -127,6 +127,7 @@ function LinkForm({ stepId, title, pieceKind, posts, hooks, onClose, onDirty }: 
   const labeledHooks = hooks.filter((h) => h.label === "A" || h.label === "B");
 
   const linkRef = useRef<HTMLInputElement>(null);
+  const checkSeq = useRef(0); // ลำดับคำขอตรวจลิงก์ (ทิ้งผลที่กลับมาช้า)
   const [platform, setPlatform] = useState<PostPlatform | null>(platforms.length === 1 ? platforms[0] : null);
   const [url, setUrl] = useState("");
   const [canonical, setCanonical] = useState<string | null>(null);
@@ -159,14 +160,21 @@ function LinkForm({ stepId, title, pieceKind, posts, hooks, onClose, onDirty }: 
     );
   }
 
+  // ผลตรวจลิงก์ที่กลับมาช้าไม่ใช่ลิงก์ที่กรอกอยู่แล้ว → ทิ้ง (ลำดับคำขอ: ทุกครั้งที่ตรวจใหม่/แก้ลิงก์/เปลี่ยนช่องทาง ลำดับเพิ่ม)
+
   async function checkLink() {
     const raw = url.trim();
+    const my = ++checkSeq.current;
     setCanonical(null);
     setLinkError(null);
-    if (!raw || platform !== "tiktok") return; // ตรวจเฉพาะ TikTok (ตามลิงก์สั้น + ถอดวันเวลาจาก id) — FB/IG ตรวจฝั่ง server ตอนบันทึก
+    if (!raw || platform !== "tiktok") {
+      setInspecting(false);
+      return;
+    } // ตรวจเฉพาะ TikTok (ตามลิงก์สั้น + ถอดวันเวลาจาก id) — FB/IG ตรวจฝั่ง server ตอนบันทึก
     setInspecting(true);
     try {
       const res = await inspectContentLink(raw);
+      if (my !== checkSeq.current) return;
       if (!res.ok) {
         setLinkError(res.error);
         return;
@@ -177,9 +185,9 @@ function LinkForm({ stepId, title, pieceKind, posts, hooks, onClose, onDirty }: 
         if (local) setPostedAt(local);
       }
     } catch {
-      setLinkError("ตรวจลิงก์ไม่สำเร็จ ลองใหม่อีกครั้ง");
+      if (my === checkSeq.current) setLinkError("ตรวจลิงก์ไม่สำเร็จ ลองใหม่อีกครั้ง");
     } finally {
-      setInspecting(false);
+      if (my === checkSeq.current) setInspecting(false);
     }
   }
 
@@ -250,6 +258,8 @@ function LinkForm({ stepId, title, pieceKind, posts, hooks, onClose, onDirty }: 
                   checked={platform === p}
                   onChange={() => {
                     setPlatform(p);
+                    checkSeq.current++;
+                    setInspecting(false);
                     setCanonical(null);
                     setLinkError(null);
                     onDirty(true);
@@ -275,6 +285,8 @@ function LinkForm({ stepId, title, pieceKind, posts, hooks, onClose, onDirty }: 
           value={url}
           onChange={(e) => {
             setUrl(e.target.value);
+            checkSeq.current++; // ลิงก์เปลี่ยน → ผลตรวจค้างของลิงก์เก่าต้องไม่ย้อนมาทับ
+            setInspecting(false);
             setCanonical(null);
             setLinkError(null);
             onDirty(true);

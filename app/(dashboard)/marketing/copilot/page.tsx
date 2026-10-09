@@ -28,8 +28,9 @@ export default async function MarketingCopilotPage() {
   }
 
   let recoResult, roasResult, settingResult, boardResult, templatesResult, contentTypesResult;
+  let workflowIds: string[] = [];
   try {
-    [recoResult, roasResult, settingResult, boardResult, templatesResult, contentTypesResult] = await Promise.all([
+    [recoResult, roasResult, settingResult, boardResult, templatesResult, contentTypesResult, workflowIds] = await Promise.all([
       getMarketingReco(),
       getChannelRoas(),
       getShopSetting(),
@@ -49,6 +50,8 @@ export default async function MarketingCopilotPage() {
         console.error("getContentTypes failed (non-blocking)", err);
         return { ok: true as const, data: [] };
       }),
+      // step ใน workflow ใหม่: ปุ่มสถานะของบอร์ดนี้ใช้ไม่ได้ (55000) → CampaignBoard แสดงลิงก์ "เปิดหน้าชิ้นงาน" แทน (non-blocking)
+      getWorkflowStepIds().catch(() => [] as string[]),
     ]);
   } catch (err) {
     // getDevShopId() throws when DEV_SHOP_ID isn't configured.
@@ -60,8 +63,6 @@ export default async function MarketingCopilotPage() {
   if (!settingResult.ok) return <ErrorState message={settingResult.error} />;
 
   const templates = templatesResult.ok ? templatesResult.data : [];
-  // step ใน workflow ใหม่: ปุ่มสถานะของบอร์ดนี้ใช้ไม่ได้ (55000) → CampaignBoard แสดงลิงก์ "เปิดหน้าชิ้นงาน" แทน
-  const workflowIds = await getWorkflowStepIds().catch(() => [] as string[]);
 
   return (
     <div className="space-y-4">

@@ -24,6 +24,7 @@ import {
 } from "@/lib/marketing/campaign-types";
 import type { CampaignBoardStep, EffectiveStatus } from "@/lib/marketing/campaign-types";
 import type { ContentTypeRow } from "@/lib/marketing/content-types";
+import { gateKindLabel } from "@/lib/marketing/piece-labels";
 import { Badge } from "@/components/ui/Badge";
 import type { BadgeTone } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -209,13 +210,13 @@ function StepCard({
               // ด่านของ step ใน workflow ใหม่ตรวจที่หน้าชิ้นงาน — ที่นี่แสดงสถานะเฉยๆ ไม่มีปุ่มที่กดแล้ว error
               return (
                 <Badge key={g.gateKind} tone="amber">
-                  รอ: {GATE_LABEL[g.gateKind] ?? g.gateKind}
+                  รอ: {gateKindLabel(g.gateKind, GATE_LABEL)}
                 </Badge>
               );
             }
             return passed ? (
               <Badge key={g.gateKind} tone="green">
-                ✓ {GATE_LABEL[g.gateKind] ?? g.gateKind}
+                ✓ {gateKindLabel(g.gateKind, GATE_LABEL)}
               </Badge>
             ) : (
               <Button
@@ -225,7 +226,7 @@ function StepCard({
                 loading={busy}
                 onClick={() => onPassGate(step.stepId, g.gateKind)}
               >
-                ผ่าน: {GATE_LABEL[g.gateKind] ?? g.gateKind}
+                ผ่าน: {gateKindLabel(g.gateKind, GATE_LABEL)}
               </Button>
             );
           })}

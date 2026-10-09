@@ -187,15 +187,16 @@ describe("getRecoInbox / isWorkflowPiece", () => {
   it("isWorkflowPiece: uuid ผิด → false โดยไม่ query · DB ล้ม → false (ไม่ redirect ผิด) · พบแถว → true", async () => {
     expect(await isWorkflowPiece("../../etc")).toBe(false);
     expect(calls).toHaveLength(0);
-    tableResults.v_content_piece = { data: null, error: { code: "XX000", message: "down" } };
+    tableResults.campaign_step = { data: null, error: { code: "XX000", message: "down" } };
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     expect(await isWorkflowPiece(STEP)).toBe(false);
     spy.mockRestore();
-    tableResults.v_content_piece = { data: { step_id: STEP }, error: null };
+    tableResults.campaign_step = { data: { id: STEP }, error: null };
     expect(await isWorkflowPiece(STEP)).toBe(true);
-    tableResults.v_content_piece = { data: null, error: null };
+    tableResults.campaign_step = { data: null, error: null };
     expect(await isWorkflowPiece(STEP)).toBe(false);
-    expect(opsOf("v_content_piece", "eq")).toContainEqual(["eq", "shop_id", SHOP]);
+    expect(opsOf("campaign_step", "eq")).toContainEqual(["eq", "shop_id", SHOP]);
+    expect(opsOf("campaign_step", "not")).toContainEqual(["not", "piece_status", "is", null]);
   });
 });
 

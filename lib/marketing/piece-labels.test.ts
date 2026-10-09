@@ -173,3 +173,18 @@ describe("helpers", () => {
     expect(pieceKindHasPostUrl(null)).toBe(false);
   });
 });
+
+describe("gateKindLabel / hookTypeLabel", () => {
+  it("ด่านใหม่ไม่ขึ้นชื่อดิบ · ป้ายเดิมของบอร์ดยังชนะ · ไม่รู้จัก = ด่านตรวจ", async () => {
+    const { gateKindLabel, hookTypeLabel } = await import("./piece-labels");
+    expect(gateKindLabel("fact_check")).toBe("ข้อเท็จจริง");
+    expect(gateKindLabel("brand_rule")).toBe("กฎแบรนด์");
+    expect(gateKindLabel("risk_owner")).toBe("ความเสี่ยง");
+    expect(gateKindLabel("pdpa_consent", { pdpa_consent: "PDPA consent" })).toBe("PDPA consent");
+    expect(gateKindLabel("something_new")).toBe("ด่านตรวจ");
+    expect(gateKindLabel(null)).toBe("ด่านตรวจ");
+    expect(hookTypeLabel("question")).toBe("คำถาม");
+    expect(hookTypeLabel("contrast")).toBe("ยังไม่ระบุประเภท");
+    expect(hookTypeLabel(null)).toBe("ยังไม่ระบุประเภท");
+  });
+});

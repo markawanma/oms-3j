@@ -3,14 +3,8 @@
 // ห้ามคำว่า ดี/ชนะ (B6) · hook ที่ยังไม่ติดประเภท (ค่าดิบเก่านอก 8 ประเภท) แสดง "ยังไม่ระบุประเภท" ไม่แสดงค่าดิบ
 
 import { ConfirmMarkerText } from "@/components/domain/marketing/workflow/ConfirmMarkerText";
-import { HOOK_TYPE_LABEL } from "@/lib/marketing/piece-labels";
-import type { HookType } from "@/lib/marketing/piece-labels";
+import { hookTypeLabel } from "@/lib/marketing/piece-labels";
 import type { PieceHook } from "@/lib/marketing/piece-types";
-
-export function hookTypeLabel(type: string | null): string {
-  if (!type) return "ยังไม่ระบุประเภท";
-  return HOOK_TYPE_LABEL[type as HookType] ?? "ยังไม่ระบุประเภท";
-}
 
 export function HookPair({
   hooks,

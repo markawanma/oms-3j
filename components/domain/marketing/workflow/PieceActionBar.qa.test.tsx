@@ -65,7 +65,7 @@ async function menuItems(): Promise<string[]> {
   const more = screen.queryByRole("button", { name: "เมนูเพิ่มเติม" });
   if (!more) return [];
   await userEvent.click(more);
-  return screen.getAllByRole("menuitem").map((el) => el.textContent ?? "");
+  return within(screen.getByRole("list", { name: "การกระทำเพิ่มเติม" })).getAllByRole("button").map((el) => el.textContent ?? "");
 }
 
 function topLevelButtons(): string[] {
@@ -171,7 +171,7 @@ describe("F11 — การถอยสถานะจาก approved มีท�
   it("ถอนอนุมัติ: ปุ่มยืนยัน disabled จนมีเหตุผล ≥ 3 ตัวอักษรจริง (ช่องว่าง/อักขระล่องหนไม่นับ) แล้วส่ง to=in_review + reason", async () => {
     mount(piece({ piece_status: "approved", effective_piece_status: "approved", footage_status: "has_footage" }));
     await userEvent.click(screen.getByRole("button", { name: "เมนูเพิ่มเติม" }));
-    await userEvent.click(screen.getByRole("menuitem", { name: "ถอนอนุมัติ…" }));
+    await userEvent.click(screen.getByRole("button", { name: "ถอนอนุมัติ…" }));
     const dlg = await screen.findByRole("dialog");
     const confirm = within(dlg).getByRole("button", { name: "ถอนอนุมัติ" });
     expect(confirm).toBeDisabled();
@@ -193,7 +193,7 @@ describe("F11 — การถอยสถานะจาก approved มีท�
     advancePiece.mockResolvedValue({ ok: false, error: "ชิ้นนี้เปลี่ยนสถานะไปแล้ว — รีเฟรชเพื่อดูล่าสุด", stale: true });
     mount(piece({ piece_status: "approved", effective_piece_status: "approved", footage_status: "has_footage" }));
     await userEvent.click(screen.getByRole("button", { name: "เมนูเพิ่มเติม" }));
-    await userEvent.click(screen.getByRole("menuitem", { name: "ถอนอนุมัติ…" }));
+    await userEvent.click(screen.getByRole("button", { name: "ถอนอนุมัติ…" }));
     const dlg = await screen.findByRole("dialog");
     await userEvent.type(within(dlg).getByRole("textbox"), "เหตุผลยาวๆ");
     await userEvent.click(within(dlg).getByRole("button", { name: "ถอนอนุมัติ" }));
@@ -205,7 +205,7 @@ describe("F11 — การถอยสถานะจาก approved มีท�
     advancePiece.mockResolvedValue({ ok: false, error: "ใส่เหตุผลอย่างน้อย 3 ตัวอักษร" });
     mount(piece({ piece_status: "approved", effective_piece_status: "approved", footage_status: "has_footage" }));
     await userEvent.click(screen.getByRole("button", { name: "เมนูเพิ่มเติม" }));
-    await userEvent.click(screen.getByRole("menuitem", { name: "ถอนอนุมัติ…" }));
+    await userEvent.click(screen.getByRole("button", { name: "ถอนอนุมัติ…" }));
     const dlg = await screen.findByRole("dialog");
     const ta = within(dlg).getByRole("textbox") as HTMLTextAreaElement;
     await userEvent.type(ta, "เหตุผลยาวๆ ที่ห้ามหาย");
@@ -219,7 +219,7 @@ describe("ปลดโพสต์", () => {
   it("LINE/สตอรี่ (ไม่มีแถวโพสต์) → ย้อนสถานะตรง posted→approved พร้อมเหตุผล ไม่เรียก unlinkPost", async () => {
     mount(piece({ piece_status: "posted", effective_piece_status: "posted", piece_kind: "line_message", channel: "line_oa" }));
     await userEvent.click(screen.getByRole("button", { name: "เมนูเพิ่มเติม" }));
-    await userEvent.click(screen.getByRole("menuitem", { name: "ปลดโพสต์…" }));
+    await userEvent.click(screen.getByRole("button", { name: "ปลดโพสต์…" }));
     const dlg = await screen.findByRole("dialog");
     await userEvent.type(within(dlg).getByRole("textbox"), "ส่งผิดกลุ่ม");
     await userEvent.click(within(dlg).getByRole("button", { name: "ปลดโพสต์" }));
@@ -241,7 +241,7 @@ describe("ปลดโพสต์", () => {
       })
     );
     await userEvent.click(screen.getByRole("button", { name: "เมนูเพิ่มเติม" }));
-    await userEvent.click(screen.getByRole("menuitem", { name: "ปลดโพสต์…" }));
+    await userEvent.click(screen.getByRole("button", { name: "ปลดโพสต์…" }));
     const dlg = await screen.findByRole("dialog");
     await userEvent.type(within(dlg).getByRole("textbox"), "ลิงก์ผิด");
     await userEvent.click(within(dlg).getByRole("button", { name: "ปลดโพสต์" }));

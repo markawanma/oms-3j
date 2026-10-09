@@ -388,3 +388,18 @@ export function signalKindLabel(kind: string | null | undefined): string {
   if (!kind) return "สัญญาณ";
   return SIGNAL_KIND_LABEL[kind as SignalKind] ?? "สัญญาณ";
 }
+
+/**
+ * ป้ายชื่อด่านบนหน้าเดิม (CampaignBoard/AgendaTaskCard): ด่านของ workflow ใหม่ (fact_check/brand_rule/risk_owner) ต้องไม่ขึ้นเป็นชื่อดิบ
+ * ลำดับ: ป้ายเดิมของบอร์ด (legacy) → ป้ายของ workflow ใหม่ → "ด่านตรวจ" (ไม่รู้จัก ไม่โชว์ identifier)
+ */
+export function gateKindLabel(kind: string | null | undefined, legacy: Record<string, string> = {}): string {
+  if (!kind) return "ด่านตรวจ";
+  return legacy[kind] ?? GATE_KIND_LABEL[kind as GateKind] ?? "ด่านตรวจ";
+}
+
+/** ป้ายประเภท hook — ใช้ร่วมกันหลายหน้า ("ยังไม่ระบุประเภท" เมื่อ null หรือค่าดิบนอก 8 ประเภท) */
+export function hookTypeLabel(type: string | null | undefined): string {
+  if (!type) return "ยังไม่ระบุประเภท";
+  return HOOK_TYPE_LABEL[type as HookType] ?? "ยังไม่ระบุประเภท";
+}

@@ -487,7 +487,7 @@ export interface ContentTypeOption {
 // ผลรวมสำหรับหน้า (server action → page)
 // ---------------------------------------------------------------------------
 
-/** ผลของส่วนหนึ่งของหน้า — ล้มได้อิสระ (Promise.allSettled ไม่ใช่ all: กองหนึ่งล้ม กองอื่นยังแสดง) */
+/** ผลของส่วนหนึ่งของหน้า — ล้มได้อิสระ (แต่ละ query ครอบ try/catch แยกแล้วคืนเป็น Part: กองหนึ่งล้ม กองอื่นยังแสดง) */
 export type Part<T> = { ok: true; data: T } | { ok: false; error: string };
 
 export interface SignalOrigin {

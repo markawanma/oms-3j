@@ -24,7 +24,7 @@ export const dynamic = "force-dynamic";
 
 // /marketing — "งานที่รอฉัน" (หน้าแรกของสายการตลาด · content-ui-build-plan.md P1a)
 // 4 กอง: วันนี้ต้องโพสต์ · รออนุมัติ · คำถามจาก AI · (สัปดาห์นี้ + ทางลัดกรอกยอด)
-// แต่ละกองล้มได้อิสระ (Promise.allSettled ใน getInboxData) — กองหนึ่งล้ม กองอื่นยังแสดง
+// แต่ละกองล้มได้อิสระ (แต่ละ query ครอบ try/catch แยกใน getInboxData แล้วคืนเป็น Part) — กองหนึ่งล้ม กองอื่นยังแสดง
 export default async function MarketingInboxPage() {
   if ((await getEffectiveRole()) === "staff") {
     return <EmptyState icon={Lock} title="หน้านี้จำกัดสิทธิ์" description="เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่ดูงานการตลาดได้" />;
@@ -35,7 +35,7 @@ export default async function MarketingInboxPage() {
     res = await getInboxData();
   } catch (err) {
     console.error("MarketingInboxPage failed", { message: err instanceof Error ? err.message : "unknown" });
-    return <PageError message="โหลดงานที่รอคุณไม่สำเร็จ ลองใหม่อีกครั้ง" />;
+    return <PageError message="โหลดงานที่รอฉันไม่สำเร็จ ลองใหม่อีกครั้ง" />;
   }
   if (!res.ok) return <PageError message={res.error} />;
   const d = res.data;
@@ -69,7 +69,7 @@ export default async function MarketingInboxPage() {
       <header>
         <p className="text-sm text-zinc-700">{formatThaiDay(d.todayTh, true)}</p>
         <h1 className="text-2xl font-bold text-zinc-900">
-          งานที่รอคุณ <span className="tabular-nums text-primary-700">{waiting.toLocaleString("th-TH")}</span>
+          งานที่รอฉัน <span className="tabular-nums text-primary-700">{waiting.toLocaleString("th-TH")}</span>
         </h1>
       </header>
 

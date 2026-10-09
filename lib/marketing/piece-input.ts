@@ -20,6 +20,13 @@ export type InputResult<T> = { ok: true; value: T } | { ok: false; error: string
 
 const INVISIBLE = /[­͏؜ᅟᅠ឴឵᠎​-‏‪-‮⁠-⁯ㅤ︀-️﻿ﾠ]/g;
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** uuid (ตัวเดียวของสาย content — piece-server re-export) */
+export function isUuid(v: unknown): v is string {
+  return typeof v === "string" && UUID_RE.test(v);
+}
+
 /** อ็อบเจ็กต์ธรรมดา (ไม่ใช่ null/array) — server action รับ object จาก client ต้องเช็คก่อนเข้าถึง field (กัน TypeError → 500) */
 export function isRecord(v: unknown): v is Record<string, unknown> {
   return v !== null && typeof v === "object" && !Array.isArray(v);
@@ -250,7 +257,7 @@ const PLAN_SPEC: Record<string, { kind: PlanKind; values?: readonly string[]; cl
 
 export const PLAN_KEYS: readonly string[] = Object.keys(PLAN_SPEC);
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 
 function isRealDate(s: string): boolean {
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
@@ -295,7 +302,7 @@ export function sanitizePlanSet(raw: unknown): InputResult<Record<string, string
       if (!spec.values?.includes(value)) return { ok: false, error: "ตัวเลือกที่เลือกไม่ถูกต้อง" };
       out[key] = value;
     } else if (spec.kind === "uuid") {
-      if (!UUID_RE.test(value)) return { ok: false, error: "ตัวเลือกที่เลือกไม่ถูกต้อง" };
+      if (!isUuid(value)) return { ok: false, error: "ตัวเลือกที่เลือกไม่ถูกต้อง" };
       out[key] = value;
     } else {
       const t = cleanText(value);
@@ -328,6 +335,6 @@ export function checkHookInput(raw: HookInput): InputResult<HookInput> {
   if (!text) return { ok: false, error: "พิมพ์ข้อความ hook ก่อนบันทึก" };
   if (text.length > 500) return { ok: false, error: "ข้อความ hook ยาวเกิน 500 ตัวอักษร" };
   if (!(HOOK_TYPES as readonly string[]).includes(raw.hookType)) return { ok: false, error: "เลือกประเภท hook" };
-  if (raw.id != null && !UUID_RE.test(raw.id)) return { ok: false, error: "ไม่พบ hook ที่จะแก้" };
+  if (raw.id != null && !isUuid(raw.id)) return { ok: false, error: "ไม่พบ hook ที่จะแก้" };
   return { ok: true, value: { id: raw.id ?? null, label: raw.label, text, hookType: raw.hookType } };
 }

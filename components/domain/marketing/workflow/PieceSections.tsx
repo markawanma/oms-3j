@@ -84,15 +84,17 @@ export function PiecePosts({ piece }: { piece: PieceRow }) {
         </p>
       ) : (
         <ul className="mt-2 divide-y divide-zinc-100">
-          {piece.posts.map((p) => (
+          {piece.posts.map((p) => {
+            const safe = safeHttpUrl(p.postUrl);
+            return (
             <li key={p.postId} className="py-2 text-sm">
               <p className="font-medium text-zinc-900">
                 {PLATFORM_POST_LABEL[p.platform] ?? "โพสต์"}
                 {p.status !== "active" && <span className="ml-1 text-xs font-normal text-zinc-600">(ไม่ได้ใช้งานแล้ว)</span>}
               </p>
-              {safeHttpUrl(p.postUrl) ? (
+              {safe ? (
                 <a
-                  href={safeHttpUrl(p.postUrl) ?? undefined}
+                  href={safe}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="inline-flex min-h-11 max-w-full items-center gap-1 break-all text-primary-700 underline underline-offset-2"
@@ -106,7 +108,8 @@ export function PiecePosts({ piece }: { piece: PieceRow }) {
               )}
               <p className="text-xs text-zinc-600">โพสต์เมื่อ {formatThaiDateTime(p.postedAt)}</p>
             </li>
-          ))}
+            );
+          })}
         </ul>
       )}
       {hasUrl && piece.posts.some((p) => p.status === "active") && (

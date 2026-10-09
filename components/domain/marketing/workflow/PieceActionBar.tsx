@@ -55,7 +55,7 @@ function MoreMenu({ items, disabled }: { items: MenuItem[]; disabled: boolean })
       <Button
         type="button"
         variant="secondary"
-        aria-haspopup="menu"
+        // disclosure (ปุ่มเปิด/ปิดรายการปุ่ม) ไม่ใช้ role="menu": role นั้นสัญญาว่าจะมี arrow-key navigation ครบ ซึ่งไม่มี — รายการปุ่มธรรมดาเข้าถึงด้วย Tab ได้ถูกต้องกว่า
         aria-expanded={open}
         aria-label="เมนูเพิ่มเติม"
         disabled={disabled}
@@ -65,12 +65,11 @@ function MoreMenu({ items, disabled }: { items: MenuItem[]; disabled: boolean })
         <Ellipsis className="h-5 w-5" aria-hidden="true" />
       </Button>
       {open && (
-        <ul role="menu" aria-label="การกระทำเพิ่มเติม" className="absolute bottom-full right-0 z-30 mb-2 w-60 overflow-hidden rounded-lg border border-zinc-200 bg-white py-1 shadow-lg">
+        <ul aria-label="การกระทำเพิ่มเติม" className="absolute bottom-full right-0 z-30 mb-2 w-60 overflow-hidden rounded-lg border border-zinc-200 bg-white py-1 shadow-lg">
           {items.map((it) => (
-            <li key={it.key} role="none">
+            <li key={it.key}>
               <button
                 type="button"
-                role="menuitem"
                 onClick={() => {
                   setOpen(false);
                   it.run();
@@ -243,9 +242,15 @@ export function PieceActionBar({
           // LINE / สตอรี่ ไม่มีแถวโพสต์ภายนอก → ย้อนสถานะตรง (posted → approved)
           return advancePiece(piece.stepId, "approved", { reason });
         }
+        // หลายช่องทาง: ล้มกลางทางต้องบอกว่าปลดไปแล้วกี่ใบ (สถานะชิ้นเปลี่ยนไปแล้วบางส่วน) และสั่ง refresh — ไม่ใช่ error ธรรมดาที่ให้กดซ้ำ
+        let done = 0;
         for (const p of activePosts) {
           const r = await unlinkPost(piece.stepId, p.postId, reason);
-          if (!r.ok) return r;
+          if (!r.ok) {
+            if (done > 0) return { ok: false, error: `ปลดไปแล้ว ${done} จาก ${activePosts.length} — รีเฟรชเพื่อดูล่าสุด`, stale: true };
+            return r;
+          }
+          done++;
         }
         return { ok: true, data: undefined };
       }

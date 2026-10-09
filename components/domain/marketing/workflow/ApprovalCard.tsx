@@ -3,9 +3,10 @@
 // ApprovalCard — การ์ดกอง 2 "รออนุมัติ" บนหน้าแรก: เห็นพอตัดสินได้จากการ์ด (hook A/B · ผลตรวจ 3 ด่าน · ข้อที่ต้องยืนยัน · storyboard ย่อ)
 // 🔴 ปุ่มอนุมัติ disabled ทุกครั้งที่ can_approve=false (ค่าจาก DB ไม่คำนวณซ้ำ — F1/F7) · การ์ดไม่ใช่ลิงก์ทั้งใบ (ไม่มีปุ่มซ้อนปุ่ม)
 // - อนุมัติ 1 ใบ: ไม่มีกล่องยืนยัน (D18) · ส่งกลับ: กล่องเหตุผลบังคับ · เปิดแก้: ไปหน้าชิ้นงาน (ใช้ได้บนมือถือ)
-// - เวลาอ่าน: นับจากตอนการ์ดถูกแสดง (ฝั่ง client) ส่งเป็น p_review_seconds ตอนกดอนุมัติ — ข้อมูลประกอบ ไม่บล็อก
+// - เวลาอ่าน (review_seconds): การ์ดบนหน้าแรกไม่ส่งค่า (null) — เวลาที่เปิดการ์ดไม่สะท้อนการอ่านจริงและหายทุกครั้งที่ refresh
+//   การวัดเวลาอ่านทำที่หน้าชิ้นงานเท่านั้น (ReviewClockProvider) กลไกเดียว
 
-import { useRef, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AlertCircle } from "lucide-react";
@@ -14,7 +15,7 @@ import { useToast } from "@/components/ui/Toast";
 import { ContentTypeChip } from "@/components/domain/marketing/ContentTypeChip";
 import { GateBadge, AuthorBadge, PieceStatusBadge } from "@/components/domain/marketing/workflow/badges";
 import { ConfirmMarkerText } from "@/components/domain/marketing/workflow/ConfirmMarkerText";
-import { hookTypeLabel } from "@/components/domain/marketing/workflow/HookPair";
+import { hookTypeLabel } from "@/lib/marketing/piece-labels";
 import { TransitionDialog } from "@/components/domain/marketing/workflow/TransitionDialog";
 import { advancePiece } from "@/lib/actions/content-pieces";
 import { formatThaiDay } from "@/lib/marketing/format";
@@ -29,7 +30,6 @@ function lbl(map: Record<string, string>, v: string | null): string | null {
 export function ApprovalCard({ piece, contentType }: { piece: PieceRow; contentType?: ContentTypeOption }) {
   const router = useRouter();
   const toast = useToast();
-  const openedAt = useRef<number>(Date.now());
   const [sendBack, setSendBack] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -48,8 +48,7 @@ export function ApprovalCard({ piece, contentType }: { piece: PieceRow; contentT
     setBusy(true);
     setError(null);
     try {
-      const seconds = Math.max(0, Math.floor((Date.now() - openedAt.current) / 1000));
-      const res = await advancePiece(piece.stepId, "approved", { reviewSeconds: seconds });
+      const res = await advancePiece(piece.stepId, "approved");
       if (!res.ok) {
         setError(res.error);
         if (res.stale) router.refresh();
