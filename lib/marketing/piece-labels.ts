@@ -369,3 +369,22 @@ export function isContentLocked(rawStatus: string | null | undefined): boolean {
 export function pieceKindHasPostUrl(kind: string | null | undefined): boolean {
   return kind === "short_clip" || kind === "live_cut" || kind === "ig_fb_post";
 }
+
+// ---------------------------------------------------------------------------
+// สัญญาณต้นทาง (content_signal.kind — 0158)
+// ---------------------------------------------------------------------------
+
+export const SIGNAL_KINDS = ["reference_clip", "trend", "live_question", "craft_moment", "insight"] as const;
+export type SignalKind = (typeof SIGNAL_KINDS)[number];
+export const SIGNAL_KIND_LABEL: Record<SignalKind, string> = {
+  reference_clip: "คลิปอ้างอิง",
+  trend: "เทรนด์",
+  live_question: "คำถามจากไลฟ์",
+  craft_moment: "ช่วงงานช่าง",
+  insight: "ข้อสังเกต",
+};
+
+export function signalKindLabel(kind: string | null | undefined): string {
+  if (!kind) return "สัญญาณ";
+  return SIGNAL_KIND_LABEL[kind as SignalKind] ?? "สัญญาณ";
+}

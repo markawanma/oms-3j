@@ -83,7 +83,7 @@ export async function getPieceDetail(stepId: string): Promise<PieceResult<PieceD
     }
     const piece = mapPieceRow(pieceRes.data as unknown as Record<string, unknown>);
 
-    const [eventsRes, itemsRes, hostsRes, signalRes, typesRes] = await Promise.all([
+    const [eventsRes, itemsRes, hostsRes, signalRes, typesRes, statsRes] = await Promise.all([
       db()
         .from("content_piece_event")
         .select("id, seq, event_kind, from_status, to_status, reason, actor_role, review_seconds, payload, created_at")
@@ -105,6 +105,8 @@ export async function getPieceDetail(stepId: string): Promise<PieceResult<PieceD
         ? db().from("v_content_signal").select("id, kind, summary, seen_on").eq("shop_id", shop).eq("id", piece.sourceSignalId).maybeSingle()
         : Promise.resolve({ data: null, error: null }),
       getContentTypes().catch(() => ({ ok: false as const, error: "" })),
+      // สถิติประเภท hook: ข้อความจาก DB ตรงๆ (ตัวหาร n/4 มาจาก view ไม่เขียนตายตัว) · ล้มเหลว = ไม่แสดงสถิติ ไม่ล้มทั้งหน้า
+      db().from("v_content_hook_type_rollup").select("hook_type, verdict_detail").eq("shop_id", shop).limit(20),
     ]);
     if (eventsRes.error) throw eventsRes.error;
     if (itemsRes.error) throw itemsRes.error;
@@ -125,6 +127,13 @@ export async function getPieceDetail(stepId: string): Promise<PieceResult<PieceD
       };
     }
 
+    const hookStats: Record<string, string> = {};
+    if (!statsRes.error) {
+      for (const r of (statsRes.data ?? []) as Record<string, unknown>[]) {
+        if (typeof r.hook_type === "string" && typeof r.verdict_detail === "string") hookStats[r.hook_type] = r.verdict_detail;
+      }
+    }
+
     const contentTypes: ContentTypeOption[] = typesRes.ok
       ? typesRes.data.map((c) => ({ code: c.code, labelTh: c.labelTh, colorHex: c.colorHex }))
       : [];
@@ -138,6 +147,7 @@ export async function getPieceDetail(stepId: string): Promise<PieceResult<PieceD
           events: ((eventsRes.data ?? []) as Record<string, unknown>[]).map(mapPieceEvent),
           confirmItems: ((itemsRes.data ?? []) as Record<string, unknown>[]).map(mapConfirmItem),
           sourceSignal,
+          hookStats,
           hosts,
           contentTypes,
         },

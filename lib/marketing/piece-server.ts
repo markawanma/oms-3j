@@ -13,12 +13,13 @@ import { getServiceClient } from "@/lib/supabase/server";
 import { getDevShopId } from "@/lib/dev/context";
 import { getEffectiveRole } from "@/lib/auth/role";
 import { describeRpcError, type RpcErrorOptions } from "@/lib/marketing/rpc-messages";
+import type { PieceResult } from "@/lib/marketing/piece-types";
+
+export type { PieceResult };
 import { readErrorCode, readErrorMessage, redactUrls } from "@/lib/supabase/postgrest-error";
 
 export const SCHEMA = "analytics";
 
-/** ผลของ action ในสายงาน content — ActionResult + ธง stale (หน้าเก่ากว่า DB → ฝั่งจอควร refresh) */
-export type PieceResult<T = undefined> = { ok: true; data: T } | { ok: false; error: string; stale?: boolean };
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export function isUuid(v: unknown): v is string {

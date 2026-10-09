@@ -502,6 +502,8 @@ export interface PieceDetailData {
   events: PieceEvent[];
   confirmItems: ConfirmItem[];
   sourceSignal: SignalOrigin | null;
+  /** ข้อความ verdict_detail ของแต่ละประเภท hook จาก v_content_hook_type_rollup ("ยังสรุปไม่ได้ (n/4)" ฯลฯ) — ไม่มีแถว = ยังไม่มีผล */
+  hookStats: Record<string, string>;
   hosts: HostOption[];
   contentTypes: ContentTypeOption[];
 }
@@ -536,3 +538,6 @@ export interface InboxData {
   lineQuota: Part<LineQuota | null>;
   nextScheduled: Part<NextScheduled | null>;
 }
+
+/** ผลของ action ในสายงาน content — ActionResult + ธง stale (หน้าเก่ากว่า DB → ฝั่งจอควร refresh) · pure ใช้ได้ทั้ง client/server */
+export type PieceResult<T = undefined> = { ok: true; data: T } | { ok: false; error: string; stale?: boolean };
