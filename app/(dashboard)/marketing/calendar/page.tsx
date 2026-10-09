@@ -1,174 +1,143 @@
+import { cookies } from "next/headers";
 import { Lock } from "lucide-react";
 import { getCampaignCalendar } from "@/lib/actions/marketing";
-import { getCalendarTasks } from "@/lib/actions/calendar";
+import { getCalendarData } from "@/lib/actions/content-calendar";
 import { getContentTypes } from "@/lib/actions/content";
-import { getWorkflowStepIds } from "@/lib/actions/content-pieces";
 import { getEffectiveRole } from "@/lib/auth/role";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { CampaignCalendar } from "@/components/domain/marketing/CampaignCalendar";
 import { CalendarPageTabs } from "@/components/domain/marketing/CalendarPageTabs";
-import { MonthCalendar } from "@/components/domain/marketing/MonthCalendar";
-import type { DayDots } from "@/components/domain/marketing/MonthCalendar";
-import { MonthTimeline } from "@/components/domain/marketing/MonthTimeline";
-import { AddPlanForm } from "@/components/domain/marketing/AddPlanForm";
+import { CalendarOverdue } from "@/components/domain/marketing/calendar/CalendarOverdue";
+import { CalendarToolbar, LegacyLane, ListView, MonthView, WeekView } from "@/components/domain/marketing/calendar/CalendarViews";
+import { LineQuotaNotice } from "@/components/domain/marketing/workflow/InboxSections";
+import { PageError, SectionError } from "@/components/domain/marketing/workflow/PageError";
+import {
+  VIEW_COOKIE,
+  applyFilters,
+  calendarHref,
+  filterOptions,
+  isRealDate,
+  parseFilters,
+  parseView,
+  viewRange,
+  weekRangeOf,
+} from "@/lib/marketing/calendar-view";
+import type { CalendarUrlState } from "@/lib/marketing/calendar-view";
 import { effectiveDateBangkok } from "@/lib/tiktok/format";
 
 export const dynamic = "force-dynamic";
 
-const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-
-/** Shape AND calendar validity. The regex alone lets "2026-02-30" through,
- * which JS then rolls over to Mar 2 — the agenda heading would say one date
- * while the URL and the grid disagreed. A round-trip check rejects those, so
- * any bad ?d= falls back to today instead of rendering a confusing (or
- * error-page) state. */
-function isRealDate(s: string): boolean {
-  if (!DATE_RE.test(s)) return false;
-  const d = new Date(`${s}T00:00:00Z`);
-  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
-}
-
-/** "YYYY-MM-DD" -> whole calendar month it falls in (design §4: agenda/date
- * grid and agenda both read one getCalendarTasks(from,to) call per month,
- * grouped client-side — "ไม่ต้องมี view นับวัน"). UTC date math throughout:
- * these are date-only strings with no time component, so UTC keeps the
- * arithmetic from drifting a day. */
-function monthRangeOf(dateStr: string): { from: string; to: string; year: number; month: number } {
-  const [y, m] = dateStr.split("-").map(Number);
-  const from = `${y}-${String(m).padStart(2, "0")}-01`;
-  const lastDay = new Date(Date.UTC(y, m, 0)).getUTCDate();
-  const to = `${y}-${String(m).padStart(2, "0")}-${String(lastDay).padStart(2, "0")}`;
-  return { from, to, year: y, month: m };
-}
-
-// /marketing/calendar — 2 tabs (design phase-content-calendar-design.md §6):
-// "แผนงาน" (default: month grid + whole-month timeline, both reading
-// analytics.v_campaign_board via M2's getCalendarTasks — one fetch, two
-// views of the same month so the grid's "zoom in to one day" and the
-// timeline's "scroll the whole month" never disagree) and "เทศกาลทั้งปี"
-// (the original 0034 CampaignCalendar, untouched — long-range festival
-// look-ahead, a different data source and a different question than "what
-// do I do today"). Owner/admin only, same gate as before this change.
+// /marketing/calendar — ปฏิทินใหม่ (content-ui-build-plan.md §1.3 #7 · §2.6 ก · §4 P1b ข้อ 2)
+// 2 แท็บ: "แผนงาน" (สัปดาห์ | เดือน | รายการ — ค่าเริ่มต้นสัปดาห์ จำมุมมองล่าสุดใน cookie) · "เทศกาลทั้งปี" (CampaignCalendar เดิมจาก 0034)
+// ข้อมูลแผนงานมาจาก v_content_piece_calendar (overlap query) + step เก่าจาก v_campaign_board ที่ไม่อยู่ใน workflow ใหม่ (แผนเดิม)
 export default async function MarketingCalendarPage({
   searchParams,
 }: {
-  searchParams: Promise<{ tab?: string; d?: string }>;
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   if ((await getEffectiveRole()) === "staff") {
     return (
-      <EmptyState
-        icon={Lock}
-        title="หน้านี้จำกัดสิทธิ์"
-        description="เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่ดูปฏิทินแคมเปญได้"
-      />
+      <EmptyState icon={Lock} title="หน้านี้จำกัดสิทธิ์" description="เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่ดูปฏิทินแคมเปญได้" />
     );
   }
 
   const sp = await searchParams;
-  const tab: "plan" | "seasonal" = sp.tab === "seasonal" ? "seasonal" : "plan";
-  const today = effectiveDateBangkok(new Date().toISOString());
-  const selectedDate = sp.d && isRealDate(sp.d) ? sp.d : today;
+  const one = (k: string): string | undefined => (Array.isArray(sp[k]) ? (sp[k] as string[])[0] : (sp[k] as string | undefined));
+  const tab: "plan" | "seasonal" = one("tab") === "seasonal" ? "seasonal" : "plan";
+  const todayTh = effectiveDateBangkok(new Date().toISOString());
+  const dParam = one("d");
+  const anchor = dParam && isRealDate(dParam) ? dParam : todayTh;
+
+  const view = parseView(sp.view, (await cookies()).get(VIEW_COOKIE)?.value ?? null);
+  const filters = parseFilters(sp);
+  const state: CalendarUrlState = { view, d: anchor, ...filters };
 
   if (tab === "seasonal") {
     let result;
     try {
       result = await getCampaignCalendar();
     } catch (err) {
+      console.error("MarketingCalendarPage seasonal failed", { message: err instanceof Error ? err.message : "unknown" });
       return (
         <div className="space-y-4">
-          <CalendarPageTabs activeTab={tab} selectedDate={selectedDate} />
-          <ErrorState message={err instanceof Error ? err.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"} />
+          <CalendarPageTabs activeTab={tab} selectedDate={anchor} planHref={calendarHref(state)} />
+          <ErrorState message="โหลดเทศกาลไม่สำเร็จ ลองใหม่อีกครั้ง" />
         </div>
       );
     }
     return (
       <div className="space-y-4">
-        <CalendarPageTabs activeTab={tab} selectedDate={selectedDate} />
+        <CalendarPageTabs activeTab={tab} selectedDate={anchor} planHref={calendarHref(state)} />
         {result.ok ? <CampaignCalendar events={result.data} /> : <ErrorState message={result.error} />}
       </div>
     );
   }
 
-  const { from, to, year, month } = monthRangeOf(selectedDate);
-
-  let tasksResult;
-  let workflowIdList: string[] = [];
-  let contentTypesResult;
+  const range = viewRange(view, anchor);
+  let res;
+  let typesRes;
   try {
-    // Independent of the plan/artifacts fetch on purpose (content_type is a
-    // small global reference table, design doc §1.5's "คนละ query กัน"
-    // principle) — a failure here degrades to "no chips shown", never to a
-    // broken calendar.
-    // M4 fix (26 ก.ย. 69): getContentTypes() calls requireOwnerAdmin() ->
-    // getEffectiveRole() OUTSIDE its own try/catch, so a session/cookie
-    // failure REJECTS instead of returning {ok:false} — which would take
-    // the whole calendar down, the exact opposite of what the comment
-    // above promises. Catch it here so the promise the comment describes
-    // is the one the code actually makes. Same shape as copilot/page.tsx.
-    [tasksResult, contentTypesResult, workflowIdList] = await Promise.all([
-      getCalendarTasks(from, to),
-      getContentTypes().catch((err) => {
-        console.error("getContentTypes failed (non-blocking)", err);
-        return { ok: false as const, error: "โหลดประเภทเนื้อหาไม่สำเร็จ" };
-      }),
-      // step ใน workflow ใหม่ → การ์ดลิงก์ตรงไปหน้าชิ้นงาน (non-blocking: ล้มเหลว = [] → ลิงก์เดิมซึ่ง redirect ให้อยู่แล้ว)
-      getWorkflowStepIds().catch(() => [] as string[]),
+    [res, typesRes] = await Promise.all([
+      getCalendarData(range.from, range.to, todayTh),
+      getContentTypes().catch(() => ({ ok: false as const, error: "" })),
     ]);
   } catch (err) {
-    return (
-      <div className="space-y-4">
-        <CalendarPageTabs activeTab={tab} selectedDate={selectedDate} />
-        <ErrorState message={err instanceof Error ? err.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"} />
-      </div>
-    );
+    console.error("MarketingCalendarPage failed", { message: err instanceof Error ? err.message : "unknown" });
+    return <PageError message="โหลดปฏิทินไม่สำเร็จ ลองใหม่อีกครั้ง" />;
   }
+  if (!res.ok) return <PageError message={res.error} />;
+  const d = res.data;
+  const contentTypes = typesRes.ok ? typesRes.data : [];
+  const typeLabels = Object.fromEntries(contentTypes.map((c) => [c.code, c.labelTh]));
 
-  if (!tasksResult.ok) {
-    return (
-      <div className="space-y-4">
-        <CalendarPageTabs activeTab={tab} selectedDate={selectedDate} />
-        <ErrorState message={tasksResult.error} />
-      </div>
-    );
-  }
+  const allPieces = d.pieces.ok ? d.pieces.data : [];
+  const pieces = applyFilters(allPieces, filters);
+  const options = filterOptions(allPieces);
+  const legacy = d.legacy.ok ? d.legacy.data : [];
+  const festivals = d.festivals.ok ? d.festivals.data : [];
+  const filtersActive = Boolean(filters.campaign || filters.channel || filters.status || filters.type);
 
-  // Per-day dot info for the month grid — one pass over the
-  // month's rows, computed here rather than in either child so both agree.
-  const dots: Record<string, DayDots> = {};
-  for (const t of tasksResult.data) {
-    if (!t.resolvedStart) continue;
-    const cur = dots[t.resolvedStart] ?? { count: 0, alert: false };
-    cur.count += 1;
-    if (t.effectiveStatus === "blocked" || t.effectiveStatus === "waiting_data") cur.alert = true;
-    dots[t.resolvedStart] = cur;
-  }
-
-  const workflowIds = new Set(workflowIdList);
+  const lineVisible = filters.channel === "line_oa" || pieces.some((p) => p.pieceKind === "line_message");
+  const noItems = d.pieces.ok && d.legacy.ok && pieces.length === 0 && legacy.length === 0;
 
   return (
     <div className="space-y-4">
-      <CalendarPageTabs activeTab={tab} selectedDate={selectedDate} />
+      <CalendarPageTabs activeTab={tab} selectedDate={anchor} planHref={calendarHref(state)} />
 
-      <div className="flex items-center justify-between gap-2">
-        <h1 className="text-lg font-bold text-zinc-900">ปฏิทินการตลาด</h1>
-        <AddPlanForm variant="button" defaultDate={selectedDate} />
-      </div>
+      <CalendarToolbar state={state} anchor={anchor} todayTh={todayTh} options={options} typeLabels={typeLabels} />
 
-      <MonthCalendar year={year} month={month} selectedDate={selectedDate} today={today} dots={dots} />
+      {!d.pieces.ok && <SectionError message={d.pieces.error} />}
+      {!d.festivals.ok && <SectionError message={d.festivals.error} />}
+      {lineVisible && d.lineQuota.ok && d.lineQuota.data && <LineQuotaNotice q={d.lineQuota.data} />}
 
-      <MonthTimeline
-        tasks={tasksResult.data}
-        selectedDate={selectedDate}
-        today={today}
-        contentTypes={contentTypesResult.ok ? contentTypesResult.data : []}
-        workflowStepIds={workflowIds}
-      />
+      {view !== "list" && d.overdue.ok && <CalendarOverdue pieces={d.overdue.data} todayTh={todayTh} />}
+      {!d.overdue.ok && <SectionError message={d.overdue.error} />}
 
-      {/* Mobile-only floating trigger — stays reachable while the agenda
-          list scrolls long (UX doc mobile rule); header button above covers
-          desktop where scroll distance to a long list is less of an issue. */}
-      <AddPlanForm variant="fab" defaultDate={selectedDate} />
+      {view === "week" && (
+        <WeekView weekFrom={weekRangeOf(anchor).from} pieces={pieces} festivals={festivals} contentTypes={contentTypes} todayTh={todayTh} />
+      )}
+      {view === "month" && (
+        <MonthView state={state} anchor={anchor} selectedDay={anchor} pieces={pieces} festivals={festivals} contentTypes={contentTypes} todayTh={todayTh} />
+      )}
+      {view === "list" && (
+        <>
+          {d.overdue.ok && d.overdue.data.length > 0 && <CalendarOverdue pieces={d.overdue.data} todayTh={todayTh} />}
+          <ListView anchor={anchor} pieces={pieces} festivals={festivals} contentTypes={contentTypes} todayTh={todayTh} />
+        </>
+      )}
+
+      {noItems && (
+        <p className="text-sm text-zinc-700">
+          {filtersActive ? "ไม่มีชิ้นงานที่ตรงกับตัวกรองในช่วงนี้" : "ช่วงนี้ยังไม่มีชิ้นงาน — กด “เพิ่มชิ้นงาน” เพื่อวางแผน"}
+        </p>
+      )}
+
+      {!d.legacy.ok ? (
+        <SectionError message={d.legacy.error} />
+      ) : (
+        <LegacyLane steps={legacy} from={d.from} to={d.to} contentTypes={contentTypes} filtersActive={filtersActive} />
+      )}
     </div>
   );
 }

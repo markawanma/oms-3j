@@ -14,18 +14,21 @@ const TABS: { key: "plan" | "seasonal"; label: string }[] = [
 export function CalendarPageTabs({
   activeTab,
   selectedDate,
+  planHref,
 }: {
   activeTab: "plan" | "seasonal";
   /** Carried along on the "แผนงาน" tab link so switching back from
    * "เทศกาลทั้งปี" returns to the day the owner was looking at, not always
    * today. */
   selectedDate: string;
+  /** ลิงก์แท็บ "แผนงาน" — ปฏิทินใหม่ส่งมุมมอง/ตัวกรองล่าสุดมาให้ (ไม่ส่ง = รูปแบบเดิม ?tab=plan&d=) */
+  planHref?: string;
 }) {
   return (
     <div role="tablist" aria-label="มุมมองปฏิทิน" className="flex gap-1 rounded-lg border border-zinc-200 bg-zinc-50 p-1">
       {TABS.map((t) => {
         const active = t.key === activeTab;
-        const href = t.key === "plan" ? `/marketing/calendar?tab=plan&d=${selectedDate}` : `/marketing/calendar?tab=seasonal`;
+        const href = t.key === "plan" ? (planHref ?? `/marketing/calendar?tab=plan&d=${selectedDate}`) : `/marketing/calendar?tab=seasonal`;
         return (
           <Link
             key={t.key}

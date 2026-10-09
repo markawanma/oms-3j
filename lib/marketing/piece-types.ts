@@ -138,6 +138,11 @@ export interface PieceRow {
   approvedAt: string | null;
   approvedByRole: string | null;
   lastEventAt: string | null;
+  /** ธงของการ์ดปฏิทิน — มาจาก v_content_piece_calendar เท่านั้น (query อื่นเป็น false) · DB ตัดสิน ห้ามคำนวณซ้ำ */
+  flagNeedsShoot: boolean;
+  flagOnHold: boolean;
+  flagConfirmPending: boolean;
+  flagNoLinkOverdue: boolean;
 }
 
 function mapHook(raw: unknown): PieceHook | null {
@@ -245,6 +250,10 @@ export function mapPieceRow(r: Record<string, unknown>): PieceRow {
     approvedAt: str(r.approved_at),
     approvedByRole: str(r.approved_by_role),
     lastEventAt: str(r.last_event_at),
+    flagNeedsShoot: bool(r.flag_needs_shoot),
+    flagOnHold: bool(r.flag_on_hold),
+    flagConfirmPending: bool(r.flag_confirm_pending),
+    flagNoLinkOverdue: bool(r.flag_no_link_overdue),
   };
 }
 

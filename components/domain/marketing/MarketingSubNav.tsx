@@ -20,7 +20,7 @@ const TABS: { href: string; label: string; icon: LucideIcon }[] = [
   { href: "/marketing/copilot", label: "Ad Copilot", icon: Megaphone },
   { href: "/marketing/audience", label: "กลุ่มลูกค้า", icon: Users2 },
   { href: "/marketing/attribution", label: "วัดผลโค้ด", icon: Ticket },
-  { href: "/marketing/calendar", label: "ปฏิทินแคมเปญ", icon: CalendarDays },
+  { href: "/marketing/calendar", label: "ปฏิทิน", icon: CalendarDays },
   // design doc ux-content-measurement.md §1.1: separate route (not a
   // calendar tab), short label "อ่านยอด" — but explicitly NOT meant to be
   // the primary way in late at night (§1.1: "sub-nav ไม่ใช่ทางเข้าหลักที่

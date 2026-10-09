@@ -108,7 +108,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/marketing/copilot", label: "Ad Copilot", icon: Megaphone },
       { href: "/marketing/audience", label: "กลุ่มลูกค้า", icon: Users2 },
       { href: "/marketing/attribution", label: "วัดผลโค้ด", icon: Ticket },
-      { href: "/marketing/calendar", label: "ปฏิทินแคมเปญ", icon: CalendarDays },
+      { href: "/marketing/calendar", label: "ปฏิทิน", icon: CalendarDays },
       { href: "/marketing/content/entry", label: "อ่านยอด content", icon: ClipboardList },
     ],
   },
