@@ -482,3 +482,57 @@ export interface ContentTypeOption {
   labelTh: string;
   colorHex: string;
 }
+
+// ---------------------------------------------------------------------------
+// ผลรวมสำหรับหน้า (server action → page)
+// ---------------------------------------------------------------------------
+
+/** ผลของส่วนหนึ่งของหน้า — ล้มได้อิสระ (Promise.allSettled ไม่ใช่ all: กองหนึ่งล้ม กองอื่นยังแสดง) */
+export type Part<T> = { ok: true; data: T } | { ok: false; error: string };
+
+export interface SignalOrigin {
+  kind: string;
+  summary: string;
+  seenOn: string | null;
+}
+
+export interface PieceDetailData {
+  piece: PieceRow;
+  /** เรียง seq มาก→น้อย (ล่าสุดก่อน) */
+  events: PieceEvent[];
+  confirmItems: ConfirmItem[];
+  sourceSignal: SignalOrigin | null;
+  hosts: HostOption[];
+  contentTypes: ContentTypeOption[];
+}
+
+export interface LineQuota {
+  used28d: number;
+  planned28d: number;
+  quota: number;
+  remaining28d: number;
+  overQuotaPlanned: boolean;
+}
+
+export interface NextScheduled {
+  stepId: string;
+  title: string;
+  resolvedStart: string;
+}
+
+export interface InboxData {
+  todayTh: string;
+  counts: Part<InboxCounts>;
+  postRows: Part<PieceRow[]>;
+  /** step id ของชิ้นที่ถึงเวลาโพสต์แล้วแต่ยังไม่วางลิงก์ (flag_no_link_overdue จาก view — DB ตัดสิน) */
+  overdueNoLinkIds: string[];
+  reviewRows: Part<PieceRow[]>;
+  weekRows: Part<PieceRow[]>;
+  weekFrom: string;
+  weekTo: string;
+  reco: Part<RecoInboxRow[]>;
+  weekly: Part<WeeklySummaryRow | null>;
+  entryTodayCount: Part<number>;
+  lineQuota: Part<LineQuota | null>;
+  nextScheduled: Part<NextScheduled | null>;
+}
