@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<title>คัดไอเดียประจำสัปดาห์</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F6F3F3}
+a{color:#a2191d}a:hover{color:#7d1316}
+button{font:inherit;color:inherit}
+.side a{display:flex;align-items:center;justify-content:space-between;min-height:42px;padding:0 12px;border-radius:10px;font-size:15px;font-weight:600;color:#2A2425;text-decoration:none}
+.side a.sub{font-size:14px;font-weight:500;padding-left:34px;min-height:38px}
+.side a.on{background:#F6E3E3;color:#7d1316}
+.side .n{font-size:12px;font-weight:700;background:#a2191d;color:#fff;border-radius:999px;padding:1px 8px}
+.card{background:#fff;border:1px solid #E8E2E2;border-radius:14px;padding:18px 20px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:44px;padding:0 16px;border-radius:10px;border:1px solid #DCD4D4;background:#fff;font-size:14px;font-weight:600;cursor:pointer;color:#2A2425;text-decoration:none;box-sizing:border-box}
+.btn.p{background:#a2191d;border-color:#a2191d;color:#fff}
+.btn.ok{background:#13613F;border-color:#13613F;color:#fff}
+.type{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 9px;border-radius:999px;border:1.5px solid;background:#fff;font-size:12px;font-weight:600;color:#2A2425;box-sizing:border-box;white-space:nowrap}
+.dot{width:8px;height:8px;border-radius:99px;display:inline-block;flex:none}
+.badge{display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 9px;border-radius:6px;font-size:12px;font-weight:600;white-space:nowrap}
+.meta{font-size:13px;color:#5C5456}
+.k{font-size:12px;font-weight:700;color:#5C5456;margin-bottom:2px}
+.q{display:flex;flex-direction:column;gap:2px;padding:10px 14px;border-radius:10px;background:#F6F3F3;min-width:120px}
+.idea{display:flex;flex-direction:column;gap:12px}
+.hyp{background:#F6F3F3;border-radius:10px;padding:10px 12px;font-size:14px;line-height:1.55}
+.acts{display:flex;gap:8px;flex-wrap:wrap}
+</style>
+</helmet>
+<div style="font-family: 'Noto Sans Thai', system-ui, sans-serif; color: #2A2425; background: #F6F3F3; min-height: 100%; display: flex; flex-wrap: wrap">
+  <nav class="side" aria-label="เมนูการตลาด" style="flex: 1 1 220px; max-width: 100%; background: #fff; border-right: 1px solid #ECE6E6; padding: 18px 12px; box-sizing: border-box; display: flex; flex-direction: column; gap: 2px">
+    <div style="font-size: 18px; font-weight: 700; padding: 0 12px 14px">3J Insight <span style="font-size: 13px; font-weight: 500; color: #5C5456">· การตลาด</span></div>
+    <a href="InboxPC.dc.html">งานที่รอฉัน <span class="n">3</span></a>
+    <a href="Research.dc.html">Research</a>
+    <a href="#" aria-expanded="true">วางแผน</a>
+    <a class="sub on" href="#" aria-current="page">คัดไอเดียประจำสัปดาห์</a>
+    <a class="sub" href="Calendar.dc.html">ปฏิทิน</a>
+    <a class="sub" href="#">แคมเปญ</a>
+    <a href="Piece.dc.html">ผลิต</a>
+    <a href="#">โพสต์ &amp; บันทึก</a>
+    <a href="Result.dc.html">ผลลัพธ์</a>
+    <div style="height: 1px; background: #ECE6E6; margin: 10px 12px"></div>
+    <a href="#" style="color: #5C5456; font-weight: 500">อื่นๆ</a>
+  </nav>
+
+  <main style="flex: 999 1 560px; min-width: 0; padding: 22px 28px 40px; box-sizing: border-box; display: flex; flex-direction: column; gap: 16px">
+    <div style="display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px">
+      <div>
+        <div class="meta">จันทร์ 12 ต.ค. 2569 · ขั้น ① ไอเดีย → ② วางแผนแล้ว</div>
+        <h1 style="margin: 2px 0 0; font-size: 26px; font-weight: 700">คัดไอเดีย สัปดาห์ 12–18 ต.ค.</h1>
+        <div class="meta" style="margin-top: 4px">AI เสนอ 6 ไอเดีย (โควตา 4 + สำรอง 2) · เลือก ✓ แล้วระบบลงปฏิทินให้เอง</div>
+      </div>
+      <div style="display: flex; align-items: center; gap: 10px">
+        <span class="meta">คัดแล้ว 3/6 · ใช้ไป 4 นาที</span>
+        <div style="width: 140px; height: 8px; border-radius: 99px; background: #E5DFDF; overflow: hidden"><div style="width: 50%; height: 100%; background: #2A2425"></div></div>
+      </div>
+    </div>
+
+    <section aria-label="โควตาและคิว" style="display: flex; flex-wrap: wrap; gap: 10px">
+      <div class="q"><span class="k">TikTok</span><span style="font-size: 18px; font-weight: 700">2 / 3</span></div>
+      <div class="q"><span class="k">Instagram</span><span style="font-size: 18px; font-weight: 700">1 / 1</span></div>
+      <div class="q"><span class="k">LINE (28 วัน)</span><span style="font-size: 18px; font-weight: 700">เหลือ 1 ครั้ง</span></div>
+      <div class="q"><span class="k">ช่องว่างในปฏิทิน</span><span style="font-size: 18px; font-weight: 700">3 วัน</span></div>
+      <div class="q"><span class="k">คิวรออนุมัติ</span><span style="font-size: 18px; font-weight: 700">2 / 10</span></div>
+      <div class="q" style="flex: 1; min-width: 240px; background: #fff; border: 1px solid #E8E2E2"><span class="k">ผลสัปดาห์ก่อน</span><span style="font-size: 14px">hook คำถาม เหนือปกติ 2 จาก 3 · ไลฟ์คืนโฮสต์ B คนดูมากกว่า</span></div>
+    </section>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start">
+      <div style="flex: 999 1 600px; min-width: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px">
+
+        <article class="card idea" style="border-color: #13613F; box-shadow: 0 0 0 1px #13613F">
+          <div style="display: flex; justify-content: space-between; gap: 8px"><span class="type" style="border-color: #1f3a5f"><span class="dot" style="background: #1f3a5f"></span>ความรู้</span><span class="badge" style="background: #DDF3EA; color: #13613F">ทำ · ลง พ. 14 ต.ค.</span></div>
+          <h2 style="margin: 0; font-size: 18px; font-weight: 700">ใส่อาบน้ำได้ไหม? ตอบให้จบใน 20 วิ</h2>
+          <div class="meta">TikTok · คลิปสั้น · เครื่องประดับ 925 · ต้องถ่าย: มือใส่แหวนใต้น้ำ</div>
+          <div class="hyp"><strong>สมมติฐาน:</strong> คำถามที่ถูกถามซ้ำในไลฟ์ 3 คืน จะได้อัตราบันทึกสูงกว่าค่ากลาง<br><span class="meta">ฐาน 0.30% (ณ 11 ต.ค.) → เกณฑ์ผ่าน ≥ 0.36%</span></div>
+          <div class="meta">hook ตั้งต้น: คำถาม · เสียงลูกค้า · ที่มา <a href="Research.dc.html" style="font-weight: 600">คำถามจากไลฟ์ 3 คืน</a></div>
+          <div class="acts"><button class="btn" style="flex: 1">ยกเลิกการเลือก</button></div>
+        </article>
+
+        <article class="card idea" style="border-color: #13613F; box-shadow: 0 0 0 1px #13613F">
+          <div style="display: flex; justify-content: space-between; gap: 8px"><span class="type" style="border-color: #a2191d"><span class="dot" style="background: #a2191d"></span>พาเข้าไลฟ์</span><span class="badge" style="background: #DDF3EA; color: #13613F">ทำ · ลง ศ. 16 ต.ค.</span></div>
+          <h2 style="margin: 0; font-size: 18px; font-weight: 700">ของขวัญลอยกระทง ชิ้นเล็กขึ้นไลฟ์คืนนี้</h2>
+          <div class="meta">TikTok · คลิปสั้น · เครื่องประดับ 925 · มีภาพแล้ว</div>
+          <div class="hyp"><strong>สมมติฐาน:</strong> คลิปบอกตรงเรื่องไลฟ์ช่วงเทศกาล ดันคนเข้าห้องไลฟ์คืนนั้นได้มากกว่าคืนปกติ<br><span class="meta">ฐาน คนดูสูงสุดค่ากลาง 180 (โฮสต์ A) → เกณฑ์ ≥ 210</span></div>
+          <div class="meta">hook ตั้งต้น: บอกตรงเรื่องไลฟ์ · ก่อน–หลัง · ที่มา <a href="Research.dc.html" style="font-weight: 600">เทรนด์รายวัน 6 ต.ค.</a></div>
+          <div class="acts"><button class="btn" style="flex: 1">ยกเลิกการเลือก</button></div>
+        </article>
+
+        <article class="card idea" style="background: #FAF8F8">
+          <div style="display: flex; justify-content: space-between; gap: 8px"><span class="type" style="border-color: #6b4a2e"><span class="dot" style="background: #6b4a2e"></span>ช่าง/โรงงาน</span><span class="badge" style="background: #fff; color: #5C5456; border: 1px solid #D6CECE">ไม่ทำ</span></div>
+          <h2 style="margin: 0; font-size: 18px; font-weight: 700; color: #5C5456">ช่างเทเงินแท่ง 1 กิโล แบบไม่ตัด</h2>
+          <div class="meta">TikTok · เงินแท่ง · ต้องถ่าย: โรงงานช่วงหลอม</div>
+          <label for="rj" style="font-size: 13px; font-weight: 600">เหตุผล (เก็บเป็นข้อมูล)</label>
+          <input id="rj" value="สัปดาห์นี้ช่างไม่หลอม ถ่ายไม่ได้ · ขอไว้เดือนหน้า" style="min-height: 44px; padding: 0 12px; border: 1px solid #D6CECE; border-radius: 10px; font: inherit; font-size: 14px">
+          <div class="acts"><button class="btn" style="flex: 1">เปลี่ยนเป็น เลื่อน</button></div>
+        </article>
+
+        <article class="card idea">
+          <div style="display: flex; justify-content: space-between; gap: 8px"><span class="type" style="border-color: #4f7f6a"><span class="dot" style="background: #4f7f6a"></span>ลูกค้า/ความสัมพันธ์</span><span class="badge" style="background: #F1EEEE; color: #3D3739">รอคัด</span></div>
+          <h2 style="margin: 0; font-size: 18px; font-weight: 700">LINE ทักลูกค้าเก่า: วิธีดูแลชิ้นที่ซื้อไป</h2>
+          <div class="meta">LINE · ข้อความ · เครื่องประดับ 925 · ใช้โควตา LINE ครั้งสุดท้าย</div>
+          <div class="hyp"><strong>สมมติฐาน:</strong> ข้อความดูแลชิ้นงาน (ไม่ขาย) ทำให้ลูกค้าเก่าทักกลับมากกว่าข้อความโปร<br><span class="meta">ฐาน ทักกลับ 6 คน/ครั้ง → เกณฑ์ ≥ 6.3</span></div>
+          <div style="display: flex; gap: 8px; align-items: flex-start; background: #FFF8EC; border: 1px solid #F0D49A; border-radius: 10px; padding: 8px 10px; font-size: 13px; line-height: 1.5; color: #5A3D00">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9A5B00" stroke-width="2.4" stroke-linecap="round" style="flex: none; margin-top: 2px"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v6M12 16.5v.5"></path></svg>
+            <span>เกณฑ์ +5% แคบกว่าช่วงแกว่งปกติของฐาน (±2 คน) — แยกผลจากความบังเอิญไม่ได้ · แนะนำ ≥ 9</span>
+          </div>
+          <div class="acts"><button class="btn">ไม่ทำ</button><button class="btn">เลื่อน</button><button class="btn ok" style="flex: 1">ทำ</button></div>
+        </article>
+
+        <article class="card idea">
+          <div style="display: flex; justify-content: space-between; gap: 8px"><span class="type" style="border-color: #1f3a5f"><span class="dot" style="background: #1f3a5f"></span>ความรู้</span><span class="badge" style="background: #F1EEEE; color: #3D3739">รอคัด</span></div>
+          <h2 style="margin: 0; font-size: 18px; font-weight: 700">มีไซซ์ใหญ่กว่านี้ไหม: วัดไซซ์แหวนเองที่บ้าน</h2>
+          <div class="meta">IG · อัลบั้ม 4:5 · เครื่องประดับ 925 · ต้องถ่าย: โต๊ะสินค้า</div>
+          <div class="hyp"><strong>สมมติฐาน:</strong> อัลบั้มวิธีวัดไซซ์ถูกบันทึกเก็บมากกว่าโพสต์ภาพเดี่ยว<br><span class="meta">ฐาน 0.8% (ณ 11 ต.ค.) → เกณฑ์ ≥ 1.0%</span></div>
+          <div class="meta">ที่มา <a href="Research.dc.html" style="font-weight: 600">คำถามจากไลฟ์ 2 คืน</a></div>
+          <div class="acts"><button class="btn">ไม่ทำ</button><button class="btn">เลื่อน</button><button class="btn ok" style="flex: 1">ทำ</button></div>
+        </article>
+
+        <article class="card idea">
+          <div style="display: flex; justify-content: space-between; gap: 8px"><span class="type" style="border-color: #8a8f94"><span class="dot" style="background: #8a8f94"></span>เทศกาล/ประกาศ</span><span class="badge" style="background: #F1EEEE; color: #3D3739">สำรอง</span></div>
+          <h2 style="margin: 0; font-size: 18px; font-weight: 700">สตอรี่ออกพรรษา ทักทาย ไม่ผูกสินค้า</h2>
+          <div class="meta">IG · สตอรี่ · มีภาพแล้ว · IG เต็มโควตาแล้ว</div>
+          <div class="hyp"><strong>สมมติฐาน:</strong> — <span class="meta">evergreen ไม่วัดผล</span></div>
+          <div class="acts"><button class="btn">ไม่ทำ</button><button class="btn">เลื่อน</button><button class="btn" style="flex: 1">ทำ (เกินโควตา IG)</button></div>
+        </article>
+      </div>
+
+      <aside class="card" aria-label="สรุปชุดนี้" style="flex: 1 1 300px; max-width: 100%; display: flex; flex-direction: column; gap: 12px">
+        <h2 style="margin: 0; font-size: 16px; font-weight: 700">ชุดนี้จะลงปฏิทิน</h2>
+        <ol style="list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; font-size: 14px">
+          <li style="display: flex; gap: 10px; align-items: center"><span style="width: 44px; font-size: 12px; color: #5C5456">พ. 14</span><span class="dot" style="background: #1f3a5f"></span>ใส่อาบน้ำได้ไหม?</li>
+          <li style="display: flex; gap: 10px; align-items: center"><span style="width: 44px; font-size: 12px; color: #5C5456">ศ. 16</span><span class="dot" style="background: #a2191d"></span>ของขวัญลอยกระทง</li>
+          <li style="display: flex; gap: 10px; align-items: center; color: #5C5456"><span style="width: 44px; font-size: 12px">–</span>อีก 2 ช่องยังว่าง</li>
+        </ol>
+        <div style="font-size: 13px; color: #3A3335; background: #F6F3F3; border-radius: 10px; padding: 10px 12px; line-height: 1.55">กดยืนยันแล้ว: ไอเดียที่ ✓ เป็นชิ้นงาน "วางแผนแล้ว" · AI ร่างทั้งชุดวันอังคาร · ไอเดียที่ไม่คัดยังอยู่ใน Research</div>
+        <button class="btn p" style="width: 100%; min-height: 48px; font-size: 15px">ยืนยันชุดนี้ (2 ชิ้น)</button>
+        <div class="meta" style="text-align: center">ยังคัดไม่ครบ 3 ใบ · ยืนยันได้เลย</div>
+      </aside>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1240}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

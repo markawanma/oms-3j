@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<title>แปะลิงก์ที่เจอ (PC)</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+button{font:inherit;color:inherit}
+.lbl{display:block;font-size:14px;font-weight:600;margin-bottom:6px}
+.req{color:#B42318;font-weight:700}
+.inp{display:block;width:100%;box-sizing:border-box;min-height:44px;padding:9px 12px;border:1px solid #D6CECE;border-radius:10px;font:inherit;font-size:15px;color:#2A2425;background:#fff}
+.chip{min-height:40px;padding:0 14px;border-radius:999px;border:1px solid #D6CECE;background:#fff;font-size:14px;font-weight:600;cursor:pointer}
+.chip.on{background:#2A2425;border-color:#2A2425;color:#fff}
+.badge{display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 9px;border-radius:6px;font-size:12px;font-weight:600;white-space:nowrap}
+.sel{display:flex;align-items:center;justify-content:space-between;min-height:44px;padding:0 12px;border:1px solid #D6CECE;border-radius:10px;font-size:15px;color:#5C5456;background:#fff}
+</style>
+</helmet>
+<div style="width: 1440px; height: 900px; position: relative; overflow: hidden; font-family: 'Noto Sans Thai', system-ui, sans-serif; color: #2A2425; background: #F6F3F3">
+  <div aria-hidden="true" style="position: absolute; inset: 0; display: flex">
+    <div style="width: 240px; background: #fff; border-right: 1px solid #ECE6E6"></div>
+    <div style="flex: 1; padding: 28px; display: flex; flex-direction: column; gap: 16px">
+      <div style="width: 220px; height: 28px; border-radius: 8px; background: #E5DFDF"></div>
+      <div style="display: flex; gap: 16px"><div style="flex: 1; height: 520px; border-radius: 14px; background: #fff"></div><div style="flex: 1.4; height: 520px; border-radius: 14px; background: #fff"></div></div>
+    </div>
+  </div>
+  <div aria-hidden="true" style="position: absolute; inset: 0; background: rgba(30,24,25,.55)"></div>
+
+  <div role="dialog" aria-modal="true" aria-labelledby="cap-t" style="position: absolute; left: 50%; top: 70px; transform: translateX(-50%); width: 820px; background: #fff; border-radius: 18px; box-shadow: 0 20px 60px rgba(0,0,0,.25); display: flex; flex-direction: column">
+    <div style="display: flex; align-items: center; justify-content: space-between; padding: 18px 16px 12px 24px; border-bottom: 1px solid #F0EAEA">
+      <div>
+        <h1 id="cap-t" style="margin: 0; font-size: 20px; font-weight: 700">แปะลิงก์ที่เจอ</h1>
+        <div style="font-size: 13px; color: #5C5456">เก็บเข้ากล่อง Research · ยังไม่ต้องตัดสินว่าจะทำ</div>
+      </div>
+      <button aria-label="ปิด" style="width: 44px; height: 44px; border: 0; background: transparent; cursor: pointer; display: flex; align-items: center; justify-content: center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"></path></svg></button>
+    </div>
+
+    <form style="display: flex; gap: 0">
+      <div style="flex: 1; padding: 20px 24px; display: flex; flex-direction: column; gap: 16px; border-right: 1px solid #F0EAEA">
+        <div style="font-size: 12px; font-weight: 700; color: #5C5456">ต้องกรอก 4 ช่อง</div>
+        <div>
+          <label class="lbl" for="pc-link">ลิงก์ <span class="req">*</span></label>
+          <input class="inp" id="pc-link" type="url" value="https://www.tiktok.com/@example_silver_shop/video/7…">
+          <div style="display: flex; align-items: center; gap: 6px; margin-top: 6px; font-size: 13px; color: #13613F"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"></path></svg>TikTok · @example_silver_shop · ยังไม่เคยแปะ</div>
+        </div>
+        <div>
+          <label class="lbl" for="pc-hook">ประโยค hook แรก <span class="req">*</span></label>
+          <textarea class="inp" id="pc-hook" rows="2" style="resize: none; line-height: 1.5">ใส่เงินแล้วผิวดำ ผิดที่ผิวหรือผิดที่เงิน?</textarea>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px">
+          <div>
+            <label class="lbl" for="pc-date">วันที่เห็น <span class="req">*</span></label>
+            <input class="inp" id="pc-date" value="วันนี้ · 6 ต.ค. 2569">
+          </div>
+          <div>
+            <span class="lbl">ใครเห็น <span class="req">*</span></span>
+            <div role="radiogroup" aria-label="ใครเห็น" style="display: flex; gap: 6px">
+              <button type="button" class="chip on" role="radio" aria-checked="true">ฉัน</button>
+              <button type="button" class="chip" role="radio" aria-checked="false">คนไลฟ์</button>
+              <button type="button" class="chip" role="radio" aria-checked="false">ผู้ช่วย</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div style="flex: 1; padding: 20px 24px; display: flex; flex-direction: column; gap: 14px; background: #FCFBFB">
+        <div style="font-size: 12px; font-weight: 700; color: #5C5456">ไม่บังคับ · กรอกทีหลังหรือให้ AI เติมได้</div>
+        <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px">
+          <div><label class="lbl" for="pc-f" style="font-size: 13px">ผู้ติดตาม</label><input class="inp" id="pc-f" value="12K"></div>
+          <div><label class="lbl" for="pc-v" style="font-size: 13px">วิว</label><input class="inp" id="pc-v" value="30K"></div>
+          <div><label class="lbl" for="pc-s" style="font-size: 13px">บันทึก</label><input class="inp" id="pc-s" placeholder="เช่น 1.2K"></div>
+          <div><label class="lbl" for="pc-l" style="font-size: 13px">ไลก์</label><input class="inp" id="pc-l" placeholder="–"></div>
+          <div><label class="lbl" for="pc-c" style="font-size: 13px">คอมเมนต์</label><input class="inp" id="pc-c" placeholder="–"></div>
+          <div><label class="lbl" for="pc-sh" style="font-size: 13px">แชร์</label><input class="inp" id="pc-sh" placeholder="–"></div>
+        </div>
+        <div style="display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 10px; background: #F1EEEE; font-size: 13px">
+          <span class="badge" style="background: #2A2425; color: #fff">mass ≈2.5×</span>
+          <span style="color: #3A3335">วิว ÷ ผู้ติดตาม · ค่าประมาณ</span>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px">
+          <div><span class="lbl" style="font-size: 13px">ประเภท hook</span><div class="sel">คำถาม <span class="badge" style="background: #E4EEFB; color: #1C4F9C">AI เดา</span></div></div>
+          <div><span class="lbl" style="font-size: 13px">กลุ่มลูกค้า</span><div class="sel">เครื่องประดับ 925</div></div>
+        </div>
+        <div><span class="lbl" style="font-size: 13px">ใช้กับเราได้ไหม</span><div class="sel">ให้ AI ประเมินพร้อมกฎแบรนด์</div></div>
+      </div>
+    </form>
+
+    <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 24px 18px; border-top: 1px solid #F0EAEA">
+      <span style="font-size: 13px; color: #5C5456">กด Enter เพื่อเก็บ · เปิดหน้านี้ได้จากทุกหน้าในสายการตลาด</span>
+      <div style="display: flex; gap: 8px">
+        <button style="min-height: 44px; padding: 0 18px; border-radius: 10px; border: 1px solid #DCD4D4; background: #fff; font-size: 15px; font-weight: 600; cursor: pointer">ยกเลิก</button>
+        <button style="min-height: 44px; padding: 0 22px; border-radius: 10px; border: 0; background: #a2191d; color: #fff; font-size: 15px; font-weight: 700; cursor: pointer">เก็บเข้ากล่อง</button>
+      </div>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":900}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

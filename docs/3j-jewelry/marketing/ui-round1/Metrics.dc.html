@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<title>กรอกยอด</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#a2191d}a:hover{color:#7d1316}
+button{font:inherit;color:inherit}
+.card{background:#fff;border:1px solid #E8E2E2;border-radius:14px;padding:14px}
+.f{display:flex;align-items:center;gap:12px;min-height:56px;border-bottom:1px solid #F2EDED}
+.f label{flex:1;font-size:16px;font-weight:600}
+.f input{width:130px;min-height:48px;box-sizing:border-box;padding:0 12px;border:1px solid #D6CECE;border-radius:10px;font:inherit;font-size:18px;font-weight:600;text-align:right;color:#2A2425}
+.badge{display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 9px;border-radius:6px;font-size:12px;font-weight:600;white-space:nowrap}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:44px;padding:0 14px;border-radius:10px;border:1px solid #DCD4D4;background:#fff;font-size:14px;font-weight:600;cursor:pointer;color:#2A2425;text-decoration:none;box-sizing:border-box}
+.meta{font-size:13px;color:#5C5456}
+.dot{width:8px;height:8px;border-radius:99px;display:inline-block;flex:none}
+</style>
+</helmet>
+<div style="width: 390px; min-height: 1180px; box-sizing: border-box; font-family: 'Noto Sans Thai', system-ui, sans-serif; color: #2A2425; background: #F6F3F3; display: flex; flex-direction: column">
+  <header style="background: #fff; padding: 14px 16px; border-bottom: 1px solid #ECE6E6">
+    <div class="meta">ขั้น ⑧ กำลังวัดผล · อ. 6 ต.ค.</div>
+    <div style="display: flex; align-items: baseline; justify-content: space-between">
+      <h1 style="margin: 2px 0 0; font-size: 22px; font-weight: 700">กรอกยอดวันนี้</h1>
+      <span style="font-size: 18px; font-weight: 700">1/3</span>
+    </div>
+    <div style="display: flex; gap: 4px; margin-top: 10px" aria-hidden="true">
+      <span style="flex: 1; height: 6px; border-radius: 99px; background: #13613F"></span>
+      <span style="flex: 1; height: 6px; border-radius: 99px; background: #2A2425"></span>
+      <span style="flex: 1; height: 6px; border-radius: 99px; background: #E5DFDF"></span>
+    </div>
+    <div class="meta" style="margin-top: 6px">เป้า ≤ 3 นาที · เปิดแอป TikTok/IG แล้วกรอกตามลำดับบนจอ</div>
+  </header>
+
+  <main style="flex: 1; padding: 14px 16px 24px; display: flex; flex-direction: column; gap: 14px">
+    <div class="card" style="display: flex; align-items: center; gap: 10px; padding: 12px 14px">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#13613F" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round" style="flex: none"><circle cx="12" cy="12" r="9"></circle><path d="M8 12l3 3 5-6"></path></svg>
+      <div style="flex: 1; min-width: 0"><div style="font-size: 14px; font-weight: 600">คลิปตัด ประมูลกำไล · TikTok</div><div class="meta">รอบวันที่ 3–4 · กรอกแล้ว 08:40</div></div>
+      <button class="btn" style="min-height: 36px">แก้</button>
+    </div>
+
+    <section class="card" aria-label="กำลังกรอก" style="border-color: #2A2425; box-shadow: 0 0 0 1px #2A2425">
+      <div style="display: flex; justify-content: space-between; align-items: center; gap: 8px">
+        <span class="badge" style="background: #fff; color: #1C4F9C; border: 1px solid #1C4F9C">กำลังวัดผล</span>
+        <span class="meta">รอบวันที่ 1–2</span>
+      </div>
+      <div style="font-size: 17px; font-weight: 700; margin-top: 8px">เบื้องหลังเทเงิน</div>
+      <div class="meta" style="display: flex; align-items: center; gap: 6px"><span class="dot" style="background: #6b4a2e"></span>IG · โพสต์ 5 ต.ค. · โฮสต์คืนนั้น: โฮสต์ A</div>
+      <a href="#" style="display: inline-flex; align-items: center; min-height: 36px; font-size: 14px; font-weight: 600">เปิดโพสต์ในแอป</a>
+      <div style="margin-top: 4px">
+        <div class="f"><label for="m-v">วิว</label><input id="m-v" inputmode="decimal" value="2.4K"></div>
+        <div class="f"><label for="m-l">ไลก์</label><input id="m-l" inputmode="decimal" value="186"></div>
+        <div class="f"><label for="m-c">คอมเมนต์</label><input id="m-c" inputmode="decimal" value="12"></div>
+        <div class="f" style="background: #FFFBEF; margin: 0 -14px; padding: 0 14px"><label for="m-s">บันทึก <span style="display: block; font-size: 12px; font-weight: 500; color: #5A3D00">ระบบดึงไม่ได้ · ต้องกรอกเอง</span></label><input id="m-s" inputmode="decimal" placeholder="0"></div>
+        <div class="f" style="border-bottom: 0"><label for="m-sh">แชร์</label><input id="m-sh" inputmode="decimal" value="9"></div>
+      </div>
+      <div style="font-size: 13px; color: #3A3335; background: #F6F3F3; border-radius: 10px; padding: 10px 12px; margin-top: 8px; line-height: 1.55">ทวน: วิว 2,400 (ประมาณ) · ไลก์ 186 · คอมเมนต์ 12 · บันทึก – · แชร์ 9</div>
+      <button style="width: 100%; min-height: 52px; margin-top: 12px; border: 0; border-radius: 12px; background: #a2191d; color: #fff; font-size: 16px; font-weight: 700; cursor: pointer">ยืนยัน · ไปโพสต์ถัดไป</button>
+    </section>
+
+    <div class="card" style="display: flex; align-items: center; gap: 10px; padding: 12px 14px; opacity: .85">
+      <span style="width: 22px; height: 22px; border-radius: 99px; border: 2px solid #C9C1C2; box-sizing: border-box; flex: none"></span>
+      <div style="flex: 1; min-width: 0"><div style="font-size: 14px; font-weight: 600">โพสต์ภาพ ดูแลเงิน (ชุดเก่า) · FB</div><div class="meta">รอบวันที่ 5–9 · ถึงคิววันนี้</div></div>
+    </div>
+
+    <section aria-label="พลาดรอบ">
+      <h2 style="margin: 6px 0 8px; font-size: 15px; font-weight: 700">พลาดรอบไปแล้ว <span class="meta" style="font-weight: 500">· ไม่หายเงียบ</span></h2>
+      <div class="card" style="background: #FAF8F8">
+        <div style="font-size: 14px; font-weight: 600">อัลบั้มเงินแท่ง 3 ขนาด · FB</div>
+        <div class="meta" style="margin-top: 2px">รอบวันที่ 5–9 หมดเขต 3 ต.ค. · ไม่มียอดรอบนี้</div>
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 10px">
+          <span class="badge" style="background: #fff; color: #5C5456; border: 1px dashed #A99FA1">ตกรอบวัด</span>
+          <button class="btn" style="min-height: 36px">กรอกช้า (ติดป้าย)</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="card" aria-label="แก้ย้อนหลัง">
+      <div style="font-size: 14px; font-weight: 700">กรอกผิด? แก้ย้อนหลังได้</div>
+      <div class="meta" style="margin-top: 2px; line-height: 1.5">กด "แก้" ที่โพสต์ที่กรอกแล้ว ใส่ตัวเลขใหม่ + เหตุผล 1 บรรทัด · เก็บประวัติการแก้ไว้เสมอ</div>
+    </section>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1180}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

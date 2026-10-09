@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<title>งานที่รอฉัน (PC)</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F6F3F3}
+a{color:#a2191d}a:hover{color:#7d1316}
+button{font:inherit;color:inherit}
+.side a{display:flex;align-items:center;justify-content:space-between;min-height:42px;padding:0 12px;border-radius:10px;font-size:15px;font-weight:600;color:#2A2425;text-decoration:none}
+.side a.on{background:#F6E3E3;color:#7d1316}
+.side .n{font-size:12px;font-weight:700;background:#a2191d;color:#fff;border-radius:999px;padding:1px 8px}
+.card{background:#fff;border:1px solid #E8E2E2;border-radius:14px;padding:18px 20px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:44px;padding:0 16px;border-radius:10px;border:1px solid #DCD4D4;background:#fff;font-size:14px;font-weight:600;cursor:pointer;color:#2A2425;text-decoration:none;box-sizing:border-box}
+.btn.sm{min-height:36px;padding:0 12px;font-size:13px}
+.btn.p{background:#a2191d;border-color:#a2191d;color:#fff}
+.btn.dk{background:#2A2425;border-color:#2A2425;color:#fff}
+.btn.off{background:#EFEBEB;border-color:#EFEBEB;color:#7A7173;cursor:not-allowed}
+.type{display:inline-flex;align-items:center;gap:6px;height:24px;padding:0 9px;border-radius:999px;border:1.5px solid;background:#fff;font-size:12px;font-weight:600;color:#2A2425;box-sizing:border-box;white-space:nowrap}
+.dot{width:8px;height:8px;border-radius:99px;display:inline-block;flex:none}
+.badge{display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 9px;border-radius:6px;font-size:12px;font-weight:600;white-space:nowrap}
+.meta{font-size:13px;color:#5C5456}
+.gh{display:flex;align-items:center;gap:8px;margin:0;padding:14px 16px 8px;font-size:14px;font-weight:700}
+.count{display:inline-flex;align-items:center;justify-content:center;min-width:22px;height:22px;padding:0 7px;border-radius:999px;background:#2A2425;color:#fff;font-size:12px;font-weight:700;box-sizing:border-box}
+.it{display:flex;align-items:center;gap:12px;width:100%;padding:12px 16px;border:0;border-left:3px solid transparent;background:transparent;text-align:left;cursor:pointer;font:inherit;color:#2A2425;box-sizing:border-box}
+.it:hover{background:#FAF7F7}
+.it.on{background:#F6F3F3;border-left-color:#2A2425}
+.hook{flex:1 1 220px;border:1.5px solid #E1D9D9;border-radius:12px;padding:12px 14px}
+.cf{background:#FFE9A8;color:#4A3200;border-radius:4px;padding:1px 4px;font-weight:600;box-shadow:0 0 0 1.5px #D9A400}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:left;font-size:12px;font-weight:700;color:#5C5456;padding:6px 8px;border-bottom:1px solid #ECE6E6}
+td{padding:8px;border-bottom:1px solid #F2EDED;vertical-align:top;line-height:1.5}
+</style>
+</helmet>
+<div style="font-family: 'Noto Sans Thai', system-ui, sans-serif; color: #2A2425; background: #F6F3F3; min-height: 100%; display: flex; flex-wrap: wrap">
+  <nav class="side" aria-label="เมนูการตลาด" style="flex: 1 1 220px; max-width: 100%; background: #fff; border-right: 1px solid #ECE6E6; padding: 18px 12px; box-sizing: border-box; display: flex; flex-direction: column; gap: 2px">
+    <div style="font-size: 18px; font-weight: 700; padding: 0 12px 14px">3J Insight <span style="font-size: 13px; font-weight: 500; color: #5C5456">· การตลาด</span></div>
+    <a class="on" href="#" aria-current="page">งานที่รอฉัน <span class="n">5</span></a>
+    <a href="Research.dc.html">Research</a>
+    <a href="Calendar.dc.html">วางแผน</a>
+    <a href="Piece.dc.html">ผลิต</a>
+    <a href="PostedPC.dc.html">โพสต์ &amp; บันทึก</a>
+    <a href="#">ผลลัพธ์</a>
+    <div style="height: 1px; background: #ECE6E6; margin: 10px 12px"></div>
+    <a href="#" style="color: #5C5456; font-weight: 500">อื่นๆ</a>
+  </nav>
+
+  <main style="flex: 999 1 560px; min-width: 0; padding: 22px 28px 40px; box-sizing: border-box; display: flex; flex-direction: column; gap: 16px">
+    <div style="display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 12px">
+      <div>
+        <div class="meta">อังคาร 6 ต.ค. 2569 · เจ้าของ</div>
+        <h1 style="margin: 2px 0 0; font-size: 26px; font-weight: 700">งานที่รอคุณ <span style="color: #a2191d">5</span></h1>
+      </div>
+      <a class="btn dk" href="CapturePC.dc.html">+ แปะลิงก์</a>
+    </div>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 16px">
+      <section class="card" aria-label="สรุปสัปดาห์จาก AI" style="flex: 2 1 480px">
+        <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px">
+          <span style="font-size: 15px; font-weight: 700">สรุปสัปดาห์ที่แล้ว</span>
+          <span style="display: flex; align-items: center; gap: 10px"><span class="badge" style="background: #E4EEFB; color: #1C4F9C">AI ร่าง</span><a href="#" style="font-size: 14px; font-weight: 600">อ่านฉบับเต็ม</a></span>
+        </div>
+        <ol style="margin: 8px 0 0; padding-left: 20px; font-size: 14px; line-height: 1.7; color: #3A3335; columns: 2; column-gap: 32px">
+          <li>โพสต์ 4 จาก 5 ชิ้น · 1 ชิ้นเลื่อน (ถ่ายไม่ทัน)</li>
+          <li>hook "คำถาม" อัตราบันทึกเหนือปกติ <span class="meta">(ยังสรุปไม่ได้ 3/4)</span></li>
+          <li>คำถามซ้ำในไลฟ์: "ใส่อาบน้ำได้ไหม" 3 คืน</li>
+          <li>คืนโฮสต์ B คนดูสูงสุดมากกว่า · อย่าเทียบตรงๆ</li>
+          <li>LINE ใช้ไป 3/4 ครั้งในรอบ 28 วัน</li>
+        </ol>
+      </section>
+      <section class="card" aria-label="สัปดาห์นี้" style="flex: 1 1 300px">
+        <div style="display: flex; align-items: baseline; justify-content: space-between"><span style="font-size: 15px; font-weight: 700">สัปดาห์นี้</span><span class="meta">5–11 ต.ค. · 7 ชิ้น</span></div>
+        <div style="display: flex; height: 10px; border-radius: 99px; overflow: hidden; gap: 2px; margin-top: 12px" aria-hidden="true">
+          <span style="flex: 1; background: #13613F"></span><span style="flex: 2; background: #5BA67F"></span><span style="flex: 2; background: #E3A13B"></span><span style="flex: 2; background: #C9C1C2"></span>
+        </div>
+        <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px 12px; margin-top: 10px; font-size: 13px">
+          <span style="display: flex; align-items: center; gap: 6px"><span class="dot" style="background: #13613F"></span>โพสต์แล้ว 1</span>
+          <span style="display: flex; align-items: center; gap: 6px"><span class="dot" style="background: #5BA67F"></span>มีภาพแล้ว 2</span>
+          <span style="display: flex; align-items: center; gap: 6px"><span class="dot" style="background: #E3A13B"></span>รออนุมัติ 2</span>
+          <span style="display: flex; align-items: center; gap: 6px"><span class="dot" style="background: #C9C1C2"></span>ต้องถ่าย 2</span>
+        </div>
+        <a href="#" style="display: block; margin-top: 10px; padding-top: 10px; border-top: 1px solid #F0EAEA; font-size: 13px; font-weight: 600; text-decoration: none">รอบถ่าย พฤ. 8 ต.ค. · 4 ชิ้น ≈ 40 นาที →</a>
+      </section>
+    </div>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start">
+      <section aria-label="คิวงาน" style="flex: 1 1 380px; min-width: 0; background: #fff; border: 1px solid #E8E2E2; border-radius: 14px; overflow: hidden; padding-bottom: 6px">
+        <h2 class="gh">วันนี้ต้องโพสต์ <span class="count">1</span></h2>
+        <div class="it">
+          <span class="dot" style="background: #a2191d"></span>
+          <span style="flex: 1; min-width: 0"><span style="display: block; font-size: 14px; font-weight: 600">"ชิ้นนี้ขึ้นไลฟ์คืนนี้" แหวนเกลียว</span><span class="meta">TikTok · ก่อนเริ่มไลฟ์คืนนี้</span></span>
+          <a class="btn sm p" href="PostedPC.dc.html">โพสต์แล้ว</a>
+        </div>
+        <div class="it">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#B42318" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="flex: none"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"></path><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"></path></svg>
+          <span style="flex: 1; min-width: 0"><span style="display: block; font-size: 14px; font-weight: 600">เบื้องหลังเทเงิน · IG</span><span style="font-size: 13px; font-weight: 600; color: #B42318">ยังไม่วางลิงก์ 26 ชม.</span></span>
+          <a class="btn sm" href="PostedPC.dc.html">วางลิงก์</a>
+        </div>
+
+        <h2 class="gh" style="border-top: 1px solid #F0EAEA; margin-top: 6px">รออนุมัติ <span class="count">2</span></h2>
+        <button class="it on" aria-pressed="true">
+          <span class="dot" style="background: #1f3a5f"></span>
+          <span style="flex: 1; min-width: 0"><span style="display: block; font-size: 14px; font-weight: 600">925 ดำเพราะอะไร + ดูแลยังไง</span><span class="meta">คลิปสั้น · พฤ. 8 ต.ค. ก่อนไลฟ์</span></span>
+          <span class="badge" style="background: #FFF1C2; color: #5A3D00">ยืนยัน 1</span>
+        </button>
+        <button class="it">
+          <span class="dot" style="background: #1f3a5f"></span>
+          <span style="flex: 1; min-width: 0"><span style="display: block; font-size: 14px; font-weight: 600">อัลบั้ม 4:5 "ดูแลเงิน 3 ข้อ"</span><span class="meta">FB + IG · อา. 11 ต.ค. · ผ่าน 3 ด่าน</span></span>
+          <span class="btn sm p" role="presentation">อนุมัติ</span>
+        </button>
+
+        <h2 class="gh" style="border-top: 1px solid #F0EAEA; margin-top: 6px">คำถามจาก AI <span class="count">1</span></h2>
+        <div style="padding: 4px 16px 12px">
+          <div style="font-size: 14px; font-weight: 600">ส่งภาพหน้าประวัติการส่ง LINE เดือนนี้ <span class="meta" style="font-weight: 500">· ~3 นาที</span></div>
+          <div style="font-size: 13px; color: #3A3335; background: #F4F1F1; border-radius: 8px; padding: 6px 10px; margin: 8px 0">ไม่ตอบภายใน <strong>9 ต.ค.</strong> → ไม่ส่ง LINE จนถึง 12 ต.ค.</div>
+          <div style="display: flex; gap: 8px"><button class="btn sm">ปฏิเสธ</button><button class="btn sm p">ส่งภาพเลย</button></div>
+        </div>
+
+        <h2 class="gh" style="border-top: 1px solid #F0EAEA; margin-top: 6px">คัดไอเดียประจำสัปดาห์</h2>
+        <div style="padding: 0 16px 10px" class="meta">รอบถัดไป จ. 12 ต.ค. · ราว 5–10 นาที</div>
+      </section>
+
+      <section class="card" aria-label="รายละเอียดงานที่เลือก" style="flex: 999 1 560px; min-width: 0; padding: 22px 24px; display: flex; flex-direction: column; gap: 16px">
+        <div style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px">
+          <div>
+            <div style="display: flex; flex-wrap: wrap; gap: 8px; align-items: center">
+              <span class="type" style="border-color: #1f3a5f"><span class="dot" style="background: #1f3a5f"></span>ความรู้</span>
+              <span class="badge" style="background: #FFF1D6; color: #7A4B00">รอตรวจ</span>
+              <span class="badge" style="background: #E4EEFB; color: #1C4F9C">AI ร่าง</span>
+            </div>
+            <h2 style="margin: 8px 0 2px; font-size: 22px; font-weight: 700">925 ดำเพราะอะไร + ดูแลยังไง</h2>
+            <div class="meta">คลิปสั้น · TikTok · พฤ. 8 ต.ค. ก่อนไลฟ์ · เครื่องประดับ 925 · คลิปดันไลฟ์ (ต.ค.)</div>
+          </div>
+          <a class="btn sm" href="Piece.dc.html">เปิดหน้าชิ้นงาน</a>
+        </div>
+
+        <div style="display: flex; flex-wrap: wrap; gap: 12px">
+          <div class="hook" style="border-color: #2A2425"><div style="font-size: 12px; font-weight: 700; color: #5C5456">A · คำถาม · สถิติดี</div><div style="font-size: 16px; font-weight: 700; margin-top: 4px">"เงินแท้ทำไมดำ?"</div></div>
+          <div class="hook"><div style="font-size: 12px; font-weight: 700; color: #5C5456">B · ก่อน–หลัง · ทดสอบน้อย</div><div style="font-size: 16px; font-weight: 700; margin-top: 4px">ภาพแหวนดำ → ขัดแล้วเงา</div></div>
+        </div>
+
+        <div>
+          <div style="font-size: 14px; font-weight: 700; margin-bottom: 4px">Storyboard <span class="meta" style="font-weight: 500">4 ช็อต · 24 วิ</span></div>
+          <table>
+            <thead><tr><th style="width: 40px">#</th><th style="width: 60px">วิ</th><th>บทพูด</th></tr></thead>
+            <tbody>
+              <tr><td>1</td><td>0–2</td><td>เงินแท้ทำไมดำ?</td></tr>
+              <tr><td>2</td><td>2–10</td><td>เงิน 925 ทำปฏิกิริยากับกำมะถันในอากาศ เลยเกิดคราบดำ</td></tr>
+              <tr><td>3</td><td>10–18</td><td>ขัดด้วย <span class="cf">[ต้องยืนยัน: ใช้น้ำยาขัดยี่ห้ออะไร]</span> ไม่กี่นาทีก็กลับมาเงา</td></tr>
+              <tr><td>4</td><td>18–24</td><td>คืนนี้ในไลฟ์ ถามวิธีดูแลได้เลย</td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div style="display: flex; flex-wrap: wrap; gap: 8px 20px; padding: 12px 14px; border-radius: 12px; background: #F6F3F3; font-size: 14px; font-weight: 500">
+          <span style="display: flex; align-items: center; gap: 6px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#13613F" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"></path></svg>ข้อเท็จจริง ผ่าน</span>
+          <span style="display: flex; align-items: center; gap: 6px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#13613F" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12l5 5 9-10"></path></svg>กฎแบรนด์ ผ่าน</span>
+          <span style="display: flex; align-items: center; gap: 6px; color: #7A4B00; font-weight: 600"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#9A5B00" stroke-width="2.6" stroke-linecap="round"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v6M12 16.5v.5"></path></svg>ความเสี่ยง: รอคุณตอบ 1 ข้อ</span>
+        </div>
+
+        <div style="border: 1px solid #F0D49A; background: #FFF8EC; border-radius: 12px; padding: 12px 14px; display: flex; flex-wrap: wrap; align-items: center; gap: 10px">
+          <div style="flex: 1; min-width: 240px; font-size: 14px; line-height: 1.55">ประโยค "ผิวบางคนทำให้เงินดำเร็ว" ใช้ได้ไหม <span class="meta">(เรื่องผิวหนัง · AI ตอบแทนไม่ได้)</span></div>
+          <button class="btn sm">ใช้ได้</button><button class="btn sm">ตัดออก</button>
+        </div>
+
+        <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 10px; padding-top: 14px; border-top: 1px solid #F0EAEA">
+          <span class="meta" style="flex: 1; min-width: 200px">เปิดอ่านแล้ว 1 นาที 40 วิ · เหลือ: ยืนยัน 1 จุด + ตอบความเสี่ยง 1 ข้อ</span>
+          <button class="btn">ส่งกลับแก้ + เหตุผล</button>
+          <button class="btn off" disabled>อนุมัติ</button>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1200}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>
