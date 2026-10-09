@@ -12,6 +12,9 @@ import { activeTabHref } from "@/lib/marketing/nav";
 // attribution/calendar pages (sub-nav showed neither their tab nor any
 // highlight, so they looked broken from inside the module).
 const TABS: { href: string; label: string; icon: LucideIcon }[] = [
+  // content-ui-build-plan.md §1.1: หน้าแรกของสายการตลาด = "งานที่รอฉัน" (P1a) · เพิ่มแท็บเมื่อหน้าพร้อมเท่านั้น (ห้ามลิงก์ไปหน้ายังไม่เสร็จ)
+  { href: "/marketing", label: "งานที่รอฉัน", icon: Inbox },
+  { href: "/marketing/questions", label: "คำถามจาก AI", icon: MessageCircleQuestion },
   { href: "/marketing/ad-spend", label: "ค่าแอด", icon: Wallet },
   { href: "/marketing/copilot", label: "Ad Copilot", icon: Megaphone },
   { href: "/marketing/audience", label: "กลุ่มลูกค้า", icon: Users2 },

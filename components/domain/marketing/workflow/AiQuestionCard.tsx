@@ -43,7 +43,7 @@ function Detail({ text }: { text: string }) {
     <div>
       <p className={`whitespace-pre-wrap break-words text-sm leading-relaxed text-zinc-800 ${long && !open ? "line-clamp-6" : ""}`}>{text}</p>
       {long && (
-        <button type="button" onClick={() => setOpen((o) => !o)} className="min-h-11 text-sm font-medium text-primary-700 underline underline-offset-2">
+        <button type="button" onClick={() => setOpen((o) => !o)} className="min-h-11 min-w-11 text-sm font-medium text-primary-700 underline underline-offset-2">
           {open ? "ย่อ" : "ดูเพิ่ม"}
         </button>
       )}

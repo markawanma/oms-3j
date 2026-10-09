@@ -15,7 +15,7 @@ export default function MarketingLayout({ children }: { children: ReactNode }) {
     <div className="-mx-4 -mt-4 flex flex-col">
       <div className="h-[3px] shrink-0 bg-gradient-to-r from-primary-600 to-primary-700" aria-hidden="true" />
       <div className="border-b border-zinc-200 bg-white px-4 pt-2.5 pb-1">
-        <p className="text-[0.68rem] font-bold uppercase tracking-wider text-primary-700">การตลาด</p>
+        <p className="text-xs font-bold uppercase tracking-wider text-primary-700">การตลาด</p>
       </div>
       <MarketingSubNav />
       <div className="flex-1 px-4 py-4 pb-[calc(5rem+env(safe-area-inset-bottom))] md:pb-4">{children}</div>
