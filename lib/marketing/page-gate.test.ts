@@ -32,6 +32,7 @@ describe("ทุกหน้าสายงาน content ใช้ด่าน 
       const src = readFileSync(join(process.cwd(), "app", "(dashboard)", "marketing", f), "utf8");
       expect(src).toContain("canUseContentWorkflow()");
       expect(src).not.toMatch(/===\s*"staff"/); // ด่านแบบ blacklist ปล่อย role แปลกผ่าน
+      expect(src).not.toContain("err.message"); // L4: log ผ่าน logRpcFailure ({code, message ผ่าน redactUrls}) ไม่ใช่ข้อความดิบ
     });
   }
 });
