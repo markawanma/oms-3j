@@ -43,6 +43,7 @@ const BACK_LINKS: Record<string, { href: string; label: string }> = {
   pieces: { href: "/marketing/pieces", label: "ชิ้นงานทั้งหมด" },
   posts: { href: "/marketing/posts", label: "โพสต์วันนี้" },
   shoot: { href: "/marketing/shoot", label: "รอบถ่าย" },
+  research: { href: "/marketing/research", label: "สัญญาณ" },
   questions: { href: "/marketing/questions", label: "คำถามจาก AI" },
   copilot: { href: "/marketing/copilot", label: "Ad Copilot" },
 };

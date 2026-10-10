@@ -9,7 +9,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Ellipsis } from "lucide-react";
+import { Ellipsis, Link2 } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import { MARKETING_NAV, activeTabHref } from "@/lib/marketing/nav";
 
@@ -27,8 +27,20 @@ export function MarketingBottomNav() {
   const active = activeTabHref(pathname, [...MAIN.map((m) => m.href), ...MORE.map((m) => m.href)]);
   const moreActive = active !== null && MORE.some((m) => m.href === active);
 
+  // ปุ่มลอย "แปะลิงก์" (มือถือ) — ทุกหน้าสายการตลาดที่มีแถบล่าง ยกเว้นหน้าแปะลิงก์เอง
+  const showFab = !pathname.startsWith("/marketing/research/capture");
+
   return (
     <>
+      {showFab && (
+        <Link
+          href="/marketing/research/capture"
+          className="fixed right-4 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-30 inline-flex h-12 items-center gap-1.5 rounded-full bg-zinc-900 px-4 text-sm font-semibold text-white shadow-lg hover:bg-zinc-800 md:hidden print:hidden"
+        >
+          <Link2 className="h-4 w-4" aria-hidden="true" />
+          แปะลิงก์
+        </Link>
+      )}
       <nav
         aria-label="เมนูการตลาด (มือถือ)"
         className="fixed inset-x-0 bottom-0 z-30 flex border-t border-zinc-200 bg-white pb-[env(safe-area-inset-bottom)] md:hidden print:hidden"
