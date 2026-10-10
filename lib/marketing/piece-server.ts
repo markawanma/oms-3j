@@ -83,3 +83,27 @@ export async function callLegacyRpc<T = unknown>(fn: string, params: Record<stri
     return { ok: false, error: d.message, stale: d.stale };
   }
 }
+
+/** ผลของ callRpcDetailed — error พก code + detail (เช่น id ของแถวที่ซ้ำ/ชิ้นที่ถูกหยิบไปแล้ว) ให้ action ตัดสินข้อความต่อ */
+export type DetailedResult<T> = { ok: true; data: T } | { ok: false; error: string; stale?: boolean; code?: string; detail: string | null };
+
+/** เหมือน callRpc แต่คืน SQLSTATE + `details` ของ Postgres ด้วย (ใช้กับ RPC ที่ใส่ id ไว้ใน detail: 23505 ซ้ำ · 55000/22023 ที่อ้าง picked_step_id) */
+export async function callRpcDetailed<T = unknown>(
+  fn: string,
+  params: Record<string, unknown>,
+  fallback: string,
+  opts: RpcErrorOptions = {}
+): Promise<DetailedResult<T>> {
+  try {
+    const { data, error } = await getServiceClient()
+      .schema(SCHEMA)
+      .rpc(fn, { ...params, p_shop_id: shopId(), p_actor_role: "owner" });
+    if (error) throw error;
+    return { ok: true, data: data as T };
+  } catch (err) {
+    logRpcFailure(fn, err);
+    const d = describeRpcError(err, fallback, opts);
+    const raw = typeof err === "object" && err !== null ? (err as { details?: unknown }).details : null;
+    return { ok: false, error: d.message, stale: d.stale, code: readErrorCode(err), detail: typeof raw === "string" && raw !== "" ? raw : null };
+  }
+}
