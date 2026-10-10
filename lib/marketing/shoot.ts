@@ -125,3 +125,32 @@ export function needsShotConfirm(items: readonly ShootItem[], completed: Readonl
     .map((i) => ({ stepId: i.piece.stepId, title: i.piece.title, remaining: remainingShots(i, local) }))
     .filter((x) => x.remaining > 0);
 }
+
+// ---------------------------------------------------------------------------
+// หมายเหตุหลังถ่าย — ต่อท้ายหมายเหตุเดิม ไม่ทับ (มติ Tech Lead 10 ต.ค.)
+// ---------------------------------------------------------------------------
+
+export const SHOOT_NOTE_MAX = 500;
+
+export interface AppendedNote {
+  /** ค่าที่จะเขียนลง shoot_note · null = ไม่เขียน (ไม่มีหมายเหตุใหม่ หรือต่อท้ายไม่ได้เลย) */
+  value: string | null;
+  /** ข้อความเตือนผู้ใช้ (ตัด/ข้าม) — ไม่ใช่ error */
+  warning?: string;
+}
+
+/**
+ * เดิม + "\n— ถ่ายแล้ว <วัน>: " + หมายเหตุใหม่ · ว่าง = ข้าม · ความยาวรวมไม่เกิน SHOOT_NOTE_MAX
+ * เกิน = ตัดหมายเหตุ "ใหม่" (พร้อมเตือน) ห้ามตัดของเดิม · ของเดิมยาวจนไม่เหลือที่ = ข้ามพร้อมเตือน
+ * (DB ยุบ newline เป็นช่องว่างตอนบันทึก — ตัวคั่น "— ถ่ายแล้ว" ยังแยกข้อความได้)
+ */
+export function appendShootNote(existing: string | null | undefined, note: string, todayTh: string, max = SHOOT_NOTE_MAX): AppendedNote {
+  const add = (note ?? "").trim();
+  if (!add) return { value: null };
+  const base = (existing ?? "").trim();
+  const head = `${base ? "\n" : ""}— ถ่ายแล้ว ${formatThaiDay(todayTh)}: `;
+  const room = max - base.length - head.length;
+  if (room < 2) return { value: null, warning: "หมายเหตุเดิมยาวจนต่อท้ายไม่ได้ — ไม่ได้เพิ่มหมายเหตุใหม่ (ของเดิมไม่ถูกแตะ)" };
+  if (add.length <= room) return { value: `${base}${head}${add}` };
+  return { value: `${base}${head}${add.slice(0, room - 1)}…`, warning: "หมายเหตุใหม่ยาวเกินที่รับได้ — ตัดให้พอดี (หมายเหตุเดิมไม่ถูกตัด)" };
+}

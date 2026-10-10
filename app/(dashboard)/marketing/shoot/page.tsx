@@ -23,17 +23,17 @@ export default async function ShootPage({ searchParams }: { searchParams: Promis
   const sp = await searchParams;
   const wRaw = Array.isArray(sp.w) ? sp.w[0] : sp.w;
 
+  // โหลดขนาน (ชิ้นที่ต้องถ่าย + ชนิดเนื้อหา) — ชนิดเนื้อหาล้ม = ไม่มีสีชนิด ไม่ล้มทั้งหน้า
   let res;
+  let typesRes;
   try {
-    res = await getShootData(wRaw);
+    [res, typesRes] = await Promise.all([getShootData(wRaw), getContentTypes().catch(() => ({ ok: false as const, error: "" }))]);
   } catch (err) {
     logRpcFailure("ShootPage", err);
     return <PageError message="โหลดรอบถ่ายไม่สำเร็จ ลองใหม่อีกครั้ง" />;
   }
   if (!res.ok) return <PageError message={res.error} />;
   const d = res.data;
-
-  const typesRes = await getContentTypes().catch(() => ({ ok: false as const, error: "" }));
   const types: ContentTypeOption[] = typesRes.ok ? typesRes.data.map((c) => ({ code: c.code, labelTh: c.labelTh, colorHex: c.colorHex })) : [];
 
   const items = toShootItems(d.rows);

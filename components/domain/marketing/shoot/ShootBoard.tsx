@@ -15,7 +15,7 @@ import { ShootPieceCard } from "@/components/domain/marketing/shoot/ShootPieceCa
 import { finishShootRound } from "@/lib/actions/content-shoot";
 import type { ShootFinishResult } from "@/lib/actions/content-shoot";
 import { GENERIC_ACTION_ERROR } from "@/components/domain/marketing/workflow/useRunAction";
-import { groupByLocation, locationLabel, needsShotConfirm, summarize } from "@/lib/marketing/shoot";
+import { doneKey, groupByLocation, locationLabel, needsShotConfirm, remainingShots, summarize } from "@/lib/marketing/shoot";
 import type { DoneMap, ShootItem } from "@/lib/marketing/shoot";
 import type { ContentTypeOption } from "@/lib/marketing/piece-types";
 
@@ -33,14 +33,17 @@ export function ShootBoard({ items, contentTypes, todayTh, shareUrlPath }: { ite
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [failed, setFailed] = useState<{ title: string; error: string }[]>([]);
+  const [warnings, setWarnings] = useState<{ title: string; warning: string }[]>([]);
 
   const groups = useMemo(() => groupByLocation(items), [items]);
+  // ชิ้นที่ติ๊ก "ถ่ายครบ" แต่ไม่อยู่ในรายการปัจจุบันแล้ว (refresh/สลับสัปดาห์/ชิ้นเปลี่ยนสถานะ) ไม่นับและไม่ส่ง
+  const liveCompleted = useMemo(() => new Set(items.map((i) => i.piece.stepId).filter((id) => completed.has(id))), [items, completed]);
   const total = summarize(items, local);
   const typeOf = (code: string | null) => (code ? contentTypes.find((t) => t.code === code) : undefined);
 
   function onLocal(stepId: string, shotId: string, done: boolean | undefined) {
     setLocal((m) => {
-      const k = `${stepId}:${shotId}`;
+      const k = doneKey(stepId, shotId);
       const next = { ...m };
       if (done === undefined) delete next[k];
       else next[k] = done;
@@ -60,11 +63,12 @@ export function ShootBoard({ items, contentTypes, todayTh, shareUrlPath }: { ite
   function requestFinish() {
     setError(null);
     setFailed([]);
-    if (completed.size === 0) {
+    setWarnings([]);
+    if (liveCompleted.size === 0) {
       setError("ติ๊ก “ถ่ายครบ” อย่างน้อยหนึ่งชิ้นก่อนจบรอบ");
       return;
     }
-    const unfinished = needsShotConfirm(items, completed, local);
+    const unfinished = needsShotConfirm(items, liveCompleted, local);
     if (unfinished.length > 0) setConfirm(unfinished);
     else void finish();
   }
@@ -74,7 +78,7 @@ export function ShootBoard({ items, contentTypes, todayTh, shareUrlPath }: { ite
     setBusy(true);
     setError(null);
     try {
-      const res = await finishShootRound({ stepIds: [...completed], note, folderUrl: folder });
+      const res = await finishShootRound({ stepIds: [...liveCompleted], note, folderUrl: folder });
       if (!res.ok) {
         setError(res.error);
         if (res.stale) router.refresh();
@@ -84,10 +88,14 @@ export function ShootBoard({ items, contentTypes, todayTh, shareUrlPath }: { ite
       const bad = r.results.filter((x) => !x.ok);
       const titleOf = (id: string) => items.find((i) => i.piece.stepId === id)?.piece.title ?? "ชิ้นงาน";
       setFailed(bad.map((b) => ({ title: titleOf(b.stepId), error: b.error ?? GENERIC_ACTION_ERROR })));
+      setWarnings(r.results.filter((x) => x.ok && x.warning).map((x) => ({ title: titleOf(x.stepId), warning: x.warning as string })));
       const okIds = r.results.filter((x) => x.ok).map((x) => x.stepId);
       if (okIds.length > 0) {
         toast.push(`จบรอบถ่าย ${okIds.length} ชิ้น — เปลี่ยนเป็น “ผลิตแล้ว”`);
         setCompleted((s) => new Set([...s].filter((id) => !okIds.includes(id))));
+        // หมายเหตุ/ลิงก์ถูกใช้กับชิ้นที่สำเร็จไปแล้ว — ล้างช่อง กันกดจบรอบซ้ำแล้วต่อท้ายซ้ำ
+        setNote("");
+        setFolder("");
         router.refresh();
       }
     } catch {
@@ -142,7 +150,7 @@ export function ShootBoard({ items, contentTypes, todayTh, shareUrlPath }: { ite
         </h3>
         <ul className="space-y-1">
           {items.map((it) => {
-            const left = it.shots.filter((s) => !(local[`${it.piece.stepId}:${s.id}`] ?? s.done)).length;
+            const left = remainingShots(it, local);
             const id = `done-${it.piece.stepId}`;
             return (
               <li key={it.piece.stepId}>
@@ -165,7 +173,7 @@ export function ShootBoard({ items, contentTypes, todayTh, shareUrlPath }: { ite
         </div>
         <div>
           <label htmlFor="shoot-note" className="mb-1 block text-sm font-medium text-zinc-800">
-            ต่างจาก storyboard ตรงไหน (ไม่บังคับ · ใช้กับทุกชิ้นที่ติ๊ก)
+            ต่างจาก storyboard ตรงไหน (ไม่บังคับ · ต่อท้ายหมายเหตุเดิมของทุกชิ้นที่ติ๊ก)
           </label>
           <textarea id="shoot-note" value={note} onChange={(e) => setNote(e.target.value)} maxLength={500} rows={3} className={`${FIELD} py-2`} />
         </div>
@@ -173,6 +181,18 @@ export function ShootBoard({ items, contentTypes, todayTh, shareUrlPath }: { ite
           <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-2.5 text-sm font-medium text-red-800">
             {error}
           </p>
+        )}
+        {warnings.length > 0 && (
+          <div role="status" className="rounded-md border border-amber-200 bg-amber-50 p-2.5 text-sm text-amber-900">
+            <p className="font-semibold">เปลี่ยนเป็นผลิตแล้ว แต่หมายเหตุมีข้อสังเกต:</p>
+            <ul className="mt-1 list-disc space-y-0.5 pl-5">
+              {warnings.map((w) => (
+                <li key={w.title + w.warning}>
+                  {w.title} — {w.warning}
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
         {failed.length > 0 && (
           <div role="alert" className="rounded-md border border-red-200 bg-red-50 p-2.5 text-sm text-red-900">
@@ -187,7 +207,7 @@ export function ShootBoard({ items, contentTypes, todayTh, shareUrlPath }: { ite
           </div>
         )}
         <Button type="button" onClick={requestFinish} loading={busy} disabled={busy}>
-          จบรอบถ่าย ({completed.size} ชิ้น)
+          จบรอบถ่าย ({liveCompleted.size} ชิ้น)
         </Button>
       </section>
 

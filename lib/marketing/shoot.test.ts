@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { doneKey, groupByLocation, isShotDone, locationKeyOf, needsShotConfirm, remainingShots, shootWeekFrom, shootWeekHref, shotsOf, summarize, toShootItems } from "./shoot";
+import { formatThaiDay } from "./format";
+import { appendShootNote, doneKey, groupByLocation, isShotDone, locationKeyOf, needsShotConfirm, remainingShots, shootWeekFrom, shootWeekHref, shotsOf, summarize, toShootItems } from "./shoot";
 import type { PieceRow } from "./piece-types";
 
 const piece = (o: Partial<PieceRow>): PieceRow =>
@@ -98,5 +99,43 @@ describe("สัปดาห์", () => {
     expect(shootWeekHref("2026-10-12", -1, "2026-10-10")).toBe("/marketing/shoot");
     expect(shootWeekHref("2026-10-05", 1, "2026-10-10")).toBe("/marketing/shoot?w=2026-10-12");
     expect(shootWeekHref("2030-12-30", 1, "2026-10-10")).toBeNull();
+  });
+});
+
+describe("appendShootNote — ต่อท้าย ไม่ทับ (มติ Tech Lead)", () => {
+  const T = "2026-10-09";
+  it("มีของเดิม → เดิม + ตัวคั่น + ใหม่ (ของเดิมครบทุกตัวอักษร)", () => {
+    const r = appendShootNote("ถ่ายหน้าโรงงานบ่าย", "เปลี่ยนมุมกล้อง", T);
+    expect(r.value?.startsWith("ถ่ายหน้าโรงงานบ่าย\n— ถ่ายแล้ว")).toBe(true);
+    expect(r.value?.endsWith(": เปลี่ยนมุมกล้อง")).toBe(true);
+    expect(r.warning).toBeUndefined();
+  });
+  it("ไม่มีของเดิม → ไม่มีบรรทัดว่างนำหน้า", () => {
+    for (const e of [null, undefined, "", "   "]) expect(appendShootNote(e, "ใหม่", T).value?.startsWith("— ถ่ายแล้ว")).toBe(true);
+  });
+  it("หมายเหตุใหม่ว่าง/ช่องว่างล้วน → ข้าม (null) ไม่แตะของเดิม", () => {
+    expect(appendShootNote("เดิม", "", T).value).toBeNull();
+    expect(appendShootNote("เดิม", "   \n ", T).value).toBeNull();
+  });
+  it("เกินเพดานรวม → ตัดเฉพาะ 'ใหม่' + เตือน · ของเดิมไม่ถูกตัด · ความยาวรวม ≤ เพดาน", () => {
+    const old = "ก".repeat(300);
+    const r = appendShootNote(old, "ข".repeat(400), T);
+    expect(r.value!.length).toBeLessThanOrEqual(500);
+    expect(r.value!.startsWith(old)).toBe(true);
+    expect(r.value!.endsWith("…")).toBe(true);
+    expect(r.warning).toMatch(/ตัดให้พอดี/);
+  });
+  it("ของเดิมยาวจนไม่เหลือที่ → ข้าม + เตือน (ไม่ตัดของเดิม)", () => {
+    const r = appendShootNote("ก".repeat(495), "ใหม่", T);
+    expect(r.value).toBeNull();
+    expect(r.warning).toMatch(/ต่อท้ายไม่ได้/);
+  });
+  it("พอดีเพดานเป๊ะ → ผ่านไม่ตัด", () => {
+    const head = `\n— ถ่ายแล้ว ${formatThaiDay(T)}: `;
+    const old = "ก".repeat(100);
+    const add = "ข".repeat(500 - old.length - head.length);
+    const r = appendShootNote(old, add, T);
+    expect(r.value!.length).toBe(500);
+    expect(r.warning).toBeUndefined();
   });
 });

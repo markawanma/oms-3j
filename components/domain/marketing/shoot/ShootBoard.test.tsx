@@ -110,3 +110,55 @@ describe("ShootBoard", () => {
     expect(alert).toBeInTheDocument();
   });
 });
+
+describe("ShootBoard — code review should-fix", () => {
+  const ui = (its: ReturnType<typeof items>) => (
+    <ToastProvider>
+      <ShootBoard items={its} contentTypes={[]} todayTh="2026-10-12" shareUrlPath="/marketing/shoot" />
+    </ToastProvider>
+  );
+
+  it("ข้อ 3: ชิ้นที่ติ๊กถ่ายครบแต่หายจากรายการ (refresh) ไม่ถูกนับและไม่ถูกส่ง", async () => {
+    const both = items();
+    const { rerender } = render(ui(both));
+    await userEvent.click(document.getElementById(`done-${A}`)!);
+    await userEvent.click(document.getElementById(`done-${B}`)!);
+    expect(screen.getByRole("button", { name: /จบรอบถ่าย \(2 ชิ้น\)/ })).toBeInTheDocument();
+    rerender(ui(both.filter((i) => i.piece.stepId === B))); // A หายไป (เปลี่ยนสถานะ/สัปดาห์เปลี่ยน)
+    expect(screen.getByRole("button", { name: /จบรอบถ่าย \(1 ชิ้น\)/ })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /จบรอบถ่าย \(1 ชิ้น\)/ }));
+    await waitFor(() => expect(finishShootRound).toHaveBeenCalledWith({ stepIds: [B], note: "", folderUrl: "" }));
+  });
+
+  it("ข้อ 3: ชิ้นที่ติ๊กไว้หายหมด → เท่ากับยังไม่ได้ติ๊ก (ไม่เรียก server)", async () => {
+    const { rerender } = render(ui(items()));
+    await userEvent.click(document.getElementById(`done-${B}`)!);
+    rerender(ui(items().filter((i) => i.piece.stepId === A)));
+    await userEvent.click(screen.getByRole("button", { name: /จบรอบถ่าย \(0 ชิ้น\)/ }));
+    expect(await screen.findByText(/ติ๊ก “ถ่ายครบ” อย่างน้อยหนึ่งชิ้น/)).toBeInTheDocument();
+    expect(finishShootRound).not.toHaveBeenCalled();
+  });
+
+  it("ข้อ 10: ป้ายใต้ช่องบอกว่าต่อท้ายหมายเหตุเดิม · จบรอบสำเร็จแล้วล้างช่องหมายเหตุ/ลิงก์ · เตือนรายชิ้นแสดง", async () => {
+    finishShootRound.mockResolvedValue({ ok: true, data: { results: [{ stepId: B, ok: true, warning: "หมายเหตุใหม่ยาวเกินที่รับได้ — ตัดให้พอดี (หมายเหตุเดิมไม่ถูกตัด)" }] } });
+    render(ui(items()));
+    expect(screen.getByLabelText(/ต่อท้ายหมายเหตุเดิมของทุกชิ้นที่ติ๊ก/)).toBeInTheDocument();
+    await userEvent.click(document.getElementById(`done-${B}`)!);
+    await userEvent.type(screen.getByLabelText(/ลิงก์โฟลเดอร์ไฟล์/), "https://example.test/f");
+    await userEvent.type(screen.getByLabelText(/ต่างจาก storyboard/), "เปลี่ยนมุม");
+    await userEvent.click(screen.getByRole("button", { name: /จบรอบถ่าย \(1 ชิ้น\)/ }));
+    await waitFor(() => expect(screen.getByLabelText(/ต่างจาก storyboard/)).toHaveValue(""));
+    expect(screen.getByLabelText(/ลิงก์โฟลเดอร์ไฟล์/)).toHaveValue("");
+    expect(await screen.findByText(/อัลบั้ม B — หมายเหตุใหม่ยาวเกินที่รับได้/)).toBeInTheDocument();
+  });
+
+  it("ข้อ 10: ถ้าชิ้นล้มทั้งหมด ไม่ล้างช่อง (ผู้ใช้ยังไม่เสียสิ่งที่พิมพ์)", async () => {
+    finishShootRound.mockResolvedValue({ ok: true, data: { results: [{ stepId: B, ok: false, error: "เปลี่ยนสถานะไปแล้ว" }] } });
+    render(ui(items()));
+    await userEvent.click(document.getElementById(`done-${B}`)!);
+    await userEvent.type(screen.getByLabelText(/ต่างจาก storyboard/), "มุมใหม่");
+    await userEvent.click(screen.getByRole("button", { name: /จบรอบถ่าย \(1 ชิ้น\)/ }));
+    await screen.findByText(/อัลบั้ม B — เปลี่ยนสถานะไปแล้ว/);
+    expect(screen.getByLabelText(/ต่างจาก storyboard/)).toHaveValue("มุมใหม่");
+  });
+});

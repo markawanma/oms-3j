@@ -10,7 +10,7 @@ import { effectiveDateBangkok } from "@/lib/tiktok/format";
 import { PIECE_LIGHT_COLUMNS, mapPieceRow } from "@/lib/marketing/piece-types";
 import type { PieceRow } from "@/lib/marketing/piece-types";
 import { addDays } from "@/lib/marketing/calendar-view";
-import { shootWeekFrom } from "@/lib/marketing/shoot";
+import { appendShootNote, shootWeekFrom } from "@/lib/marketing/shoot";
 import { analyticsDb, asRows } from "@/lib/marketing/piece-queries";
 import { isUuid, logRpcFailure, requireOwnerAdmin, shopId } from "@/lib/marketing/piece-server";
 import type { PieceResult } from "@/lib/marketing/piece-server";
@@ -58,14 +58,14 @@ export async function getShootData(weekParam?: string | null): Promise<PieceResu
 export interface ShootFinishInput {
   /** ชิ้นที่ติ๊ก "ถ่ายครบ" */
   stepIds: string[];
-  /** ต่างจาก storyboard ตรงไหน (ใช้กับทุกชิ้นที่เลือก) — ว่าง = ไม่เขียน */
+  /** ต่างจาก storyboard ตรงไหน — "ต่อท้าย" หมายเหตุเดิมของทุกชิ้นที่เลือก (ไม่ทับ) · ว่าง = ไม่เขียน */
   note?: string;
   /** ลิงก์โฟลเดอร์ไฟล์ (ใช้กับทุกชิ้นที่เลือก) — ว่าง = ไม่เขียน · ต้องเป็น http(s) */
   folderUrl?: string;
 }
 
 export interface ShootFinishResult {
-  results: { stepId: string; ok: boolean; error?: string }[];
+  results: { stepId: string; ok: boolean; error?: string; warning?: string }[];
 }
 
 /** จบรอบถ่าย — ชิ้นที่ล้มรายงานรายชิ้น (ชิ้นที่สำเร็จแล้วไม่ถูกย้อน) */
@@ -83,12 +83,30 @@ export async function finishShootRound(input: ShootFinishInput): Promise<PieceRe
   const url = rawUrl ? safeHttpUrl(rawUrl) : null;
   if (rawUrl && (!url || url.length > 500)) return { ok: false, error: "ลิงก์โฟลเดอร์ต้องเป็น http:// หรือ https:// และไม่ยาวเกิน 500 ตัวอักษร" };
 
-  const set: Record<string, unknown> = {};
-  if (note) set.shoot_note = note;
-  if (url) set.footage_url = url; // ค่าที่ผ่าน safeHttpUrl แล้ว (normalize) — ไม่ส่งสตริงดิบจากผู้ใช้ลง DB
+  // หมายเหตุใหม่ = "ต่อท้าย" หมายเหตุเดิมของแต่ละชิ้น (ไม่ทับ) — ต้องอ่านของเดิมก่อน · อ่านไม่ได้ = ไม่เขียนแบบเดาทับ
+  const existing = new Map<string, string | null>();
+  if (note) {
+    try {
+      const { data, error } = await analyticsDb().from("campaign_step").select("id, shoot_note").eq("shop_id", shopId()).in("id", ids).limit(MAX_ROUND);
+      if (error) throw error;
+      for (const r of asRows(data)) if (typeof r.id === "string") existing.set(r.id, typeof r.shoot_note === "string" ? r.shoot_note : null);
+    } catch (err) {
+      logRpcFailure("finishShootRound.notes", err);
+      return { ok: false, error: "อ่านหมายเหตุเดิมไม่สำเร็จ — ยังไม่ได้เปลี่ยนสถานะชิ้นไหน ลองใหม่อีกครั้ง" };
+    }
+  }
+  const todayTh = effectiveDateBangkok(new Date().toISOString());
 
   const results: ShootFinishResult["results"] = [];
   for (const stepId of ids) {
+    const set: Record<string, unknown> = {};
+    let warning: string | undefined;
+    if (url) set.footage_url = url; // ค่าที่ผ่าน safeHttpUrl แล้ว (normalize) — ไม่ส่งสตริงดิบจากผู้ใช้ลง DB
+    if (note) {
+      const n = appendShootNote(existing.get(stepId) ?? null, note, todayTh);
+      if (n.value !== null) set.shoot_note = n.value;
+      warning = n.warning;
+    }
     if (Object.keys(set).length > 0) {
       const p = await setPlan(stepId, set);
       if (!p.ok) {
@@ -97,7 +115,7 @@ export async function finishShootRound(input: ShootFinishInput): Promise<PieceRe
       }
     }
     const a = await advancePiece(stepId, "produced");
-    results.push(a.ok ? { stepId, ok: true } : { stepId, ok: false, error: a.error });
+    results.push(a.ok ? { stepId, ok: true, ...(warning ? { warning } : {}) } : { stepId, ok: false, error: a.error });
   }
   revalidatePath("/marketing");
   revalidatePath("/marketing/shoot");

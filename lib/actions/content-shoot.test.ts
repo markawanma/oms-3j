@@ -14,6 +14,8 @@ interface Op {
 }
 const calls: Op[] = [];
 let result: { data: unknown; error: unknown } = { data: [], error: null };
+// ผลของการอ่านหมายเหตุเดิมจาก campaign_step (id, shoot_note)
+let noteResult: { data: unknown; error: unknown } = { data: [], error: null };
 
 function builder(table: string) {
   const call: Op = { table, ops: [] };
@@ -25,7 +27,7 @@ function builder(table: string) {
       return b;
     };
   }
-  b.then = (res: (v: unknown) => unknown, rej?: (e: unknown) => unknown) => Promise.resolve(result).then(res, rej);
+  b.then = (res: (v: unknown) => unknown, rej?: (e: unknown) => unknown) => Promise.resolve(table === "campaign_step" ? noteResult : result).then(res, rej);
   return b;
 }
 
@@ -44,6 +46,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   calls.length = 0;
   result = { data: [], error: null };
+  noteResult = { data: [], error: null };
   getEffectiveRoleMock.mockResolvedValue("owner");
   setPlanMock.mockResolvedValue({ ok: true, data: undefined });
   advanceMock.mockResolvedValue({ ok: true, data: { to: "produced" } });
@@ -93,7 +96,8 @@ describe("finishShootRound", () => {
     const r = await finishShootRound({ stepIds: [A, B], note: " ต่างจากบทที่มือ ", folderUrl: "https://example.test/folder" });
     expect(r.ok && r.data.results.every((x) => x.ok)).toBe(true);
     expect(order).toEqual([`plan:${A}`, `adv:${A}`, `plan:${B}`, `adv:${B}`]);
-    expect(setPlanMock).toHaveBeenCalledWith(A, { shoot_note: "ต่างจากบทที่มือ", footage_url: "https://example.test/folder" });
+    // ไม่มีหมายเหตุเดิม → ขึ้นต้นด้วยตัวคั่น "— ถ่ายแล้ว" (ต่อท้าย ไม่ใช่แทนที่)
+    expect(setPlanMock).toHaveBeenCalledWith(A, { footage_url: "https://example.test/folder", shoot_note: expect.stringMatching(/^— ถ่ายแล้ว .+: ต่างจากบทที่มือ$/) });
     expect(advanceMock).toHaveBeenCalledWith(A, "produced");
   });
 
@@ -143,5 +147,59 @@ describe("finishShootRound", () => {
     expect(advanceMock).not.toHaveBeenCalled();
     await finishShootRound({ stepIds: [A, A] });
     expect(advanceMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("หมายเหตุหลังถ่าย: ต่อท้ายของเดิม ห้ามทับ (มติ Tech Lead)", () => {
+  it("มีหมายเหตุเดิม → ส่ง เดิม + ตัวคั่น + ใหม่ ต่อชิ้น (ของแต่ละชิ้นไม่ปนกัน)", async () => {
+    noteResult = { data: [{ id: A, shoot_note: "ถ่ายบ่ายหน้าโรงงาน" }, { id: B, shoot_note: null }], error: null };
+    await finishShootRound({ stepIds: [A, B], note: "เปลี่ยนมุม" });
+    const forA = setPlanMock.mock.calls.find((c) => c[0] === A)![1] as { shoot_note: string };
+    const forB = setPlanMock.mock.calls.find((c) => c[0] === B)![1] as { shoot_note: string };
+    expect(forA.shoot_note.startsWith("ถ่ายบ่ายหน้าโรงงาน\n— ถ่ายแล้ว")).toBe(true);
+    expect(forA.shoot_note.endsWith(": เปลี่ยนมุม")).toBe(true);
+    expect(forB.shoot_note.startsWith("— ถ่ายแล้ว")).toBe(true);
+  });
+
+  it("หมายเหตุใหม่ว่าง → ไม่ query/ไม่เขียน shoot_note เลย (ของเดิมอยู่ครบ)", async () => {
+    noteResult = { data: [{ id: A, shoot_note: "เดิม" }], error: null };
+    await finishShootRound({ stepIds: [A], note: "  ", folderUrl: "https://example.test/f" });
+    expect(setPlanMock).toHaveBeenCalledWith(A, { footage_url: "https://example.test/f" });
+    expect(calls.some((c) => c.table === "campaign_step")).toBe(false);
+  });
+
+  it("ของเดิมยาว → ตัดเฉพาะใหม่ + เตือนรายชิ้น · ความยาวรวม ≤ 500 · ของเดิมไม่ถูกตัด", async () => {
+    const old = "ก".repeat(300);
+    noteResult = { data: [{ id: A, shoot_note: old }], error: null };
+    const r = await finishShootRound({ stepIds: [A], note: "ข".repeat(400) });
+    const sent = (setPlanMock.mock.calls[0][1] as { shoot_note: string }).shoot_note;
+    expect(sent.length).toBeLessThanOrEqual(500);
+    expect(sent.startsWith(old)).toBe(true);
+    expect(r.ok && r.data.results[0].warning).toMatch(/ตัดให้พอดี/);
+  });
+
+  it("ของเดิมเต็มจนต่อไม่ได้ → ไม่เขียนหมายเหตุ แต่ยังเปลี่ยนเป็นผลิตแล้ว + เตือน", async () => {
+    noteResult = { data: [{ id: A, shoot_note: "ก".repeat(498) }], error: null };
+    const r = await finishShootRound({ stepIds: [A], note: "ใหม่" });
+    expect(setPlanMock).not.toHaveBeenCalled();
+    expect(advanceMock).toHaveBeenCalledWith(A, "produced");
+    expect(r.ok && r.data.results[0]).toMatchObject({ ok: true, warning: expect.stringContaining("ต่อท้ายไม่ได้") });
+  });
+
+  it("อ่านหมายเหตุเดิมไม่ได้ → ไม่เขียนแบบเดาทับและไม่เปลี่ยนสถานะชิ้นไหน · ไม่รั่ว error ดิบ", async () => {
+    noteResult = { data: null, error: { code: "XX000", message: "analytics.secret" } };
+    const r = await finishShootRound({ stepIds: [A], note: "ใหม่" });
+    expect(r.ok).toBe(false);
+    expect(!r.ok && r.error).not.toContain("secret");
+    expect(setPlanMock).not.toHaveBeenCalled();
+    expect(advanceMock).not.toHaveBeenCalled();
+  });
+
+  it("query อ่านหมายเหตุกรอง shop_id + in ids + limit", async () => {
+    await finishShootRound({ stepIds: [A], note: "ใหม่" });
+    const q = calls.find((c) => c.table === "campaign_step")!.ops;
+    expect(q).toContainEqual(["eq", "shop_id", SHOP]);
+    expect(q).toContainEqual(["in", "id", [A]]);
+    expect(q.some((o) => o[0] === "limit")).toBe(true);
   });
 });
