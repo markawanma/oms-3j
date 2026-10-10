@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { CalendarDays, Lightbulb, Lock } from "lucide-react";
-import { getEffectiveRole } from "@/lib/auth/role";
+import { canUseContentWorkflow } from "@/lib/marketing/page-gate";
+import { logRpcFailure } from "@/lib/marketing/piece-server";
 import { getTriageData } from "@/lib/actions/content-triage";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { PageError, SectionError } from "@/components/domain/marketing/workflow/PageError";
@@ -17,7 +18,7 @@ export const dynamic = "force-dynamic";
 // /marketing/triage — "คัดไอเดีย สัปดาห์ <ช่วงวัน>" (content-ui-build-plan.md §4 P1b ข้อ 1) · มือถือ/PC ชุดเดียวกัน
 // ✓ ต้องเลือกวันเอง · บันทึกทันทีต่อใบ (ไม่มีปุ่ม "ยืนยันชุดนี้") · ไม่มีปุ่มอนุมัติ (คนละขั้น)
 export default async function TriagePage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
-  if ((await getEffectiveRole()) === "staff") {
+  if (!(await canUseContentWorkflow())) {
     return <EmptyState icon={Lock} title="หน้านี้จำกัดสิทธิ์" description="เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่คัดไอเดียได้" />;
   }
 
@@ -29,7 +30,7 @@ export default async function TriagePage({ searchParams }: { searchParams: Promi
   try {
     res = await getTriageData(one("w"));
   } catch (err) {
-    console.error("TriagePage failed", { message: err instanceof Error ? err.message : "unknown" });
+    logRpcFailure("TriagePage", err);
     return <PageError message="โหลดหน้าคัดไอเดียไม่สำเร็จ ลองใหม่อีกครั้ง" />;
   }
   if (!res.ok) return <PageError message={res.error} />;

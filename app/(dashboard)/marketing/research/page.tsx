@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Link2, Lock, Radar } from "lucide-react";
-import { getEffectiveRole } from "@/lib/auth/role";
+import { canUseContentWorkflow } from "@/lib/marketing/page-gate";
+import { logRpcFailure } from "@/lib/marketing/piece-server";
 import { getSignals } from "@/lib/actions/content-signals";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { PageError } from "@/components/domain/marketing/workflow/PageError";
@@ -13,7 +14,7 @@ export const dynamic = "force-dynamic";
 // /marketing/research — รายการสัญญาณ (ลิงก์ที่แปะ · เทรนด์ · คำถามไลฟ์ ฯลฯ) → หยิบเป็นไอเดีย / ไม่ใช้ / เก็บไว้ก่อน
 // กรองด้วยลิงก์ (ค้างใน URL · ไม่ต้องใช้ JS) · ค่าเริ่มต้น "ใหม่" · ?id= = เปิดสัญญาณเดียว (จากลิงก์ "ลิงก์นี้เคยแปะแล้ว")
 export default async function ResearchPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
-  if ((await getEffectiveRole()) === "staff") {
+  if (!(await canUseContentWorkflow())) {
     return <EmptyState icon={Lock} title="หน้านี้จำกัดสิทธิ์" description="เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่ดูสัญญาณได้" />;
   }
 
@@ -22,7 +23,7 @@ export default async function ResearchPage({ searchParams }: { searchParams: Pro
   try {
     res = await getSignals(sp);
   } catch (err) {
-    console.error("ResearchPage failed", { message: err instanceof Error ? err.message : "unknown" });
+    logRpcFailure("ResearchPage", err);
     return <PageError message="โหลดรายการสัญญาณไม่สำเร็จ ลองใหม่อีกครั้ง" />;
   }
   if (!res.ok) return <PageError message={res.error} />;

@@ -3,7 +3,8 @@ import { Lock } from "lucide-react";
 import { getCampaignCalendar } from "@/lib/actions/marketing";
 import { getCalendarData } from "@/lib/actions/content-calendar";
 import { getContentTypes } from "@/lib/actions/content";
-import { getEffectiveRole } from "@/lib/auth/role";
+import { canUseContentWorkflow } from "@/lib/marketing/page-gate";
+import { logRpcFailure } from "@/lib/marketing/piece-server";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { CampaignCalendar } from "@/components/domain/marketing/CampaignCalendar";
@@ -36,7 +37,7 @@ export default async function MarketingCalendarPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
-  if ((await getEffectiveRole()) === "staff") {
+  if (!(await canUseContentWorkflow())) {
     return (
       <EmptyState icon={Lock} title="หน้านี้จำกัดสิทธิ์" description="เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่ดูปฏิทินแคมเปญได้" />
     );
@@ -59,7 +60,7 @@ export default async function MarketingCalendarPage({
     try {
       result = await getCampaignCalendar();
     } catch (err) {
-      console.error("MarketingCalendarPage seasonal failed", { message: err instanceof Error ? err.message : "unknown" });
+      logRpcFailure("MarketingCalendarPage seasonal", err);
       return (
         <div className="space-y-4">
           <CalendarPageTabs activeTab={tab} selectedDate={anchor} planHref={calendarHref(state)} />
@@ -84,7 +85,7 @@ export default async function MarketingCalendarPage({
       getContentTypes().catch(() => ({ ok: false as const, error: "" })),
     ]);
   } catch (err) {
-    console.error("MarketingCalendarPage failed", { message: err instanceof Error ? err.message : "unknown" });
+    logRpcFailure("MarketingCalendarPage", err);
     return <PageError message="โหลดปฏิทินไม่สำเร็จ ลองใหม่อีกครั้ง" />;
   }
   if (!res.ok) return <PageError message={res.error} />;

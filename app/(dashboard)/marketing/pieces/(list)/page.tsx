@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { FileSearch, Lock } from "lucide-react";
-import { getEffectiveRole } from "@/lib/auth/role";
+import { canUseContentWorkflow } from "@/lib/marketing/page-gate";
+import { logRpcFailure } from "@/lib/marketing/piece-server";
 import { getPiecesList } from "@/lib/actions/content-pieces-list";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { PageError, SectionError } from "@/components/domain/marketing/workflow/PageError";
@@ -16,7 +17,7 @@ const FIELD =
   "min-h-11 w-full rounded-md border border-zinc-300 bg-white px-2.5 text-base text-zinc-900 focus:border-primary-600 focus:outline-none focus:ring-1 focus:ring-primary-600";
 
 export default async function PiecesListPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
-  if ((await getEffectiveRole()) === "staff") {
+  if (!(await canUseContentWorkflow())) {
     return <EmptyState icon={Lock} title="หน้านี้จำกัดสิทธิ์" description="เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่ดูชิ้นงานทั้งหมดได้" />;
   }
 
@@ -25,7 +26,7 @@ export default async function PiecesListPage({ searchParams }: { searchParams: P
   try {
     res = await getPiecesList(sp);
   } catch (err) {
-    console.error("PiecesListPage failed", { message: err instanceof Error ? err.message : "unknown" });
+    logRpcFailure("PiecesListPage", err);
     return <PageError message="โหลดรายการชิ้นงานไม่สำเร็จ ลองใหม่อีกครั้ง" />;
   }
   if (!res.ok) return <PageError message={res.error} />;

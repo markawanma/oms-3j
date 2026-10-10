@@ -1,5 +1,6 @@
 import { Link2, Lock, Send } from "lucide-react";
-import { getEffectiveRole } from "@/lib/auth/role";
+import { canUseContentWorkflow } from "@/lib/marketing/page-gate";
+import { logRpcFailure } from "@/lib/marketing/piece-server";
 import { getPostsPageData } from "@/lib/actions/content-posts";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { PageError, SectionError } from "@/components/domain/marketing/workflow/PageError";
@@ -15,7 +16,7 @@ export const dynamic = "force-dynamic";
 // /marketing/posts — โพสต์วันนี้ + ผูกโพสต์นอกแผน (content-ui-build-plan.md §2.6 ค)
 // ส่วนบน: กอง "วันนี้ต้องโพสต์" (ชุดเดียวกับหน้าแรก) · ส่วนล่าง: โพสต์ที่วางลิงก์แล้วแต่ยังไม่ผูกชิ้นงาน → ผูกได้ (DB ตัดสินด่าน)
 export default async function PostsPage() {
-  if ((await getEffectiveRole()) === "staff") {
+  if (!(await canUseContentWorkflow())) {
     return <EmptyState icon={Lock} title="หน้านี้จำกัดสิทธิ์" description="เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่จัดการโพสต์ได้" />;
   }
 
@@ -23,7 +24,7 @@ export default async function PostsPage() {
   try {
     res = await getPostsPageData();
   } catch (err) {
-    console.error("PostsPage failed", { message: err instanceof Error ? err.message : "unknown" });
+    logRpcFailure("PostsPage", err);
     return <PageError message="โหลดหน้าโพสต์วันนี้ไม่สำเร็จ ลองใหม่อีกครั้ง" />;
   }
   if (!res.ok) return <PageError message={res.error} />;

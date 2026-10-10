@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Lock, MessageCircleQuestion } from "lucide-react";
-import { getEffectiveRole } from "@/lib/auth/role";
+import { canUseContentWorkflow } from "@/lib/marketing/page-gate";
+import { logRpcFailure } from "@/lib/marketing/piece-server";
 import { getRecoInbox } from "@/lib/actions/content-inbox";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { AiQuestionList } from "@/components/domain/marketing/workflow/AiQuestionCard";
@@ -12,7 +13,7 @@ export const dynamic = "force-dynamic";
 
 // /marketing/questions — คำถาม/ข้อเสนอจาก AI ทั้งหมด (§2.3): แท็บ "รอตอบ" | "ตอบแล้ว/หมดเวลา"
 export default async function QuestionsPage({ searchParams }: { searchParams: Promise<{ tab?: string | string[] }> }) {
-  if ((await getEffectiveRole()) === "staff") {
+  if (!(await canUseContentWorkflow())) {
     return <EmptyState icon={Lock} title="หน้านี้จำกัดสิทธิ์" description="เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่ตอบข้อเสนอจาก AI ได้" />;
   }
   const sp = await searchParams;
@@ -23,7 +24,7 @@ export default async function QuestionsPage({ searchParams }: { searchParams: Pr
   try {
     res = await getRecoInbox();
   } catch (err) {
-    console.error("QuestionsPage failed", { message: err instanceof Error ? err.message : "unknown" });
+    logRpcFailure("QuestionsPage", err);
     return <PageError message="โหลดคำถามจาก AI ไม่สำเร็จ ลองใหม่อีกครั้ง" />;
   }
   if (!res.ok) return <PageError message={res.error} />;

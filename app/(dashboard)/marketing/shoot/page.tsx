@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Clapperboard, Lock } from "lucide-react";
-import { getEffectiveRole } from "@/lib/auth/role";
+import { canUseContentWorkflow } from "@/lib/marketing/page-gate";
+import { logRpcFailure } from "@/lib/marketing/piece-server";
 import { getShootData } from "@/lib/actions/content-shoot";
 import { getContentTypes } from "@/lib/actions/content";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -15,7 +16,7 @@ export const dynamic = "force-dynamic";
 // /marketing/shoot — รอบถ่ายสัปดาห์ (content-ui-build-plan.md §4 P1b ข้อ 3)
 // เฉพาะชิ้น approved + needs_shoot ของสัปดาห์ (ไม่มี in_review) · จัดกลุ่มตามสถานที่ · จบรอบ = ผลิตแล้ว
 export default async function ShootPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
-  if ((await getEffectiveRole()) === "staff") {
+  if (!(await canUseContentWorkflow())) {
     return <EmptyState icon={Lock} title="หน้านี้จำกัดสิทธิ์" description="เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่ดูรอบถ่ายได้" />;
   }
 
@@ -26,7 +27,7 @@ export default async function ShootPage({ searchParams }: { searchParams: Promis
   try {
     res = await getShootData(wRaw);
   } catch (err) {
-    console.error("ShootPage failed", { message: err instanceof Error ? err.message : "unknown" });
+    logRpcFailure("ShootPage", err);
     return <PageError message="โหลดรอบถ่ายไม่สำเร็จ ลองใหม่อีกครั้ง" />;
   }
   if (!res.ok) return <PageError message={res.error} />;
