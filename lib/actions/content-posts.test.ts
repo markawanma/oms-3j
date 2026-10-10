@@ -122,3 +122,14 @@ describe("linkOrphanPost", () => {
     expect(!r.ok && r.error).toContain("มีโพสต์");
   });
 });
+
+describe("review ข้อ 6: ผู้สมัครผูกที่โพสต์แล้ว นับ 60 วันจาก posted_on", () => {
+  it("or() ใช้ posted_on ไม่ใช่ resolved_start", async () => {
+    tableResults.content_post = { data: [{ id: POST, platform: "instagram", post_url: "https://x", posted_at: "2026-10-09T10:00:00Z", posted_date_th: "2026-10-09" }], error: null };
+    await getPostsPageData();
+    const cand = calls.find((c) => c.table === "v_content_piece")!;
+    const orExpr = String(cand.ops.find((o) => o[0] === "or")?.[1]);
+    expect(orExpr).toContain("posted_on.gte.");
+    expect(orExpr).not.toContain("resolved_start");
+  });
+});

@@ -94,7 +94,7 @@ export async function getPostsPageData(): Promise<PieceResult<PostsPageData>> {
             .select(PIECE_LIGHT_COLUMNS)
             .eq("shop_id", shop)
             .in("piece_kind", LINKABLE_KINDS)
-            .or(`piece_status.in.(approved,produced),and(piece_status.eq.posted,piece_kind.eq.ig_fb_post,resolved_start.gte.${since})`)
+            .or(`piece_status.in.(approved,produced),and(piece_status.eq.posted,piece_kind.eq.ig_fb_post,posted_on.gte.${since})`)
             .order("resolved_start", { ascending: true, nullsFirst: false })
             .order("step_id", { ascending: true })
             .limit(CANDIDATE_LIMIT);

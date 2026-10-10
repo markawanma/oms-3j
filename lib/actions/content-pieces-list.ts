@@ -42,10 +42,10 @@ export async function getPiecesList(rawParams: Record<string, string | string[] 
     // สถานะ — ต้องกรองเสมอ (ไม่มีโหมด "ทั้งหมดไม่จำกัด")
     if (query.status === "open") {
       q = query.withPosted
-        ? q.or(`piece_status.in.(${OPEN_STATUSES.join(",")}),and(piece_status.eq.posted,resolved_start.gte.${since})`)
+        ? q.or(`piece_status.in.(${OPEN_STATUSES.join(",")}),and(piece_status.eq.posted,posted_on.gte.${since})`)
         : q.in("piece_status", [...OPEN_STATUSES]);
     } else if (query.status === "posted") {
-      q = q.eq("piece_status", "posted").gte("resolved_start", since);
+      q = q.eq("piece_status", "posted").gte("posted_on", since);
     } else {
       q = q.eq("piece_status", query.status);
     }

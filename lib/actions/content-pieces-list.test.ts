@@ -80,12 +80,13 @@ describe("getPiecesList", () => {
     }
     calls.length = 0;
     await getPiecesList({ status: "posted" });
-    expect(pieceOps().some((o) => o[0] === "gte" && o[1] === "resolved_start")).toBe(true);
+    expect(pieceOps().some((o) => o[0] === "gte" && o[1] === "posted_on")).toBe(true);
     calls.length = 0;
     await getPiecesList({ posted: "1" });
     const orOp = pieceOps().find((o) => o[0] === "or");
     expect(String(orOp?.[1])).toContain("piece_status.eq.posted");
-    expect(String(orOp?.[1])).toContain("resolved_start.gte.");
+    expect(String(orOp?.[1])).toContain("posted_on.gte."); // review: นับ 60 วันจากวันที่โพสต์จริง ไม่ใช่วันที่วางแผน
+    expect(String(orOp?.[1])).not.toContain("resolved_start");
   });
 
   it("แบ่งหน้า: หน้า 3 → range 100..150 · ได้ 51 แถว = มีหน้าถัดไปและตัดเหลือ 50", async () => {
