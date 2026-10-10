@@ -44,7 +44,7 @@ export function PieceListRow({ piece, contentType }: { piece: PieceRow; contentT
       {piece.holdReason && <p className="mt-1.5 rounded-md bg-orange-50 p-2 text-sm text-orange-900">รอเงื่อนไข: {piece.holdReason}</p>}
       {cancelled && (
         <div className="mt-2">
-          <Button type="button" variant="secondary" size="sm" className="max-md:min-h-11" onClick={() => setRestoreOpen(true)}>
+          <Button type="button" variant="secondary" size="sm" className="min-h-11" onClick={() => setRestoreOpen(true)}>
             <RotateCcw className="h-4 w-4" aria-hidden="true" />
             กู้คืน
           </Button>

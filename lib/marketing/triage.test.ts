@@ -87,6 +87,7 @@ describe("pieceCountsByDay / emptyDayCount / countByChannel", () => {
         row({ pieceStatus: "planned", resolvedStart: "2026-10-13", resolvedEnd: "2026-10-15" }),
         row({ pieceStatus: "cancelled", resolvedStart: "2026-10-12" }),
         row({ pieceStatus: "idea", resolvedStart: null }),
+        row({ pieceStatus: "idea", resolvedStart: "2026-10-14" }), // BUG-QA-1: ไอเดียที่วันค้างเดิม ไม่นับ
         row({ pieceStatus: "approved", resolvedStart: "2026-10-18" }),
       ],
       days

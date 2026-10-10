@@ -80,7 +80,7 @@ export default async function MarketingCalendarPage({
   let typesRes;
   try {
     [res, typesRes] = await Promise.all([
-      getCalendarData(range.from, range.to, todayTh),
+      getCalendarData(range.from, range.to),
       getContentTypes().catch(() => ({ ok: false as const, error: "" })),
     ]);
   } catch (err) {

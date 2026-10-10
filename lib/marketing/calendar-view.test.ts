@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  canShift,
   addDays,
   applyFilters,
   calendarHref,
@@ -262,5 +263,19 @@ describe("งานหลายวัน", () => {
     expect(firstVisibleDay({ resolvedStart: "2026-10-10", resolvedEnd: "2026-10-18" }, "2026-10-01")).toBe("2026-10-10");
     expect(firstVisibleDay({ resolvedStart: "2026-09-25", resolvedEnd: "2026-10-18" }, "2026-10-01")).toBe("2026-10-01");
     expect(firstVisibleDay({ resolvedStart: null, resolvedEnd: null }, "2026-10-01")).toBeNull();
+  });
+});
+
+describe("canShift — ปุ่ม ‹ › ที่ขอบ (BUG-QA-4)", () => {
+  it("ธ.ค. 2030 เดือนถัดไปไม่ได้ · ม.ค. 2025 เดือนก่อนไม่ได้ · กลางช่วงได้", () => {
+    expect(canShift("month", "2030-12-31", 1)).toBe(false);
+    expect(canShift("month", "2030-12-31", -1)).toBe(true);
+    expect(canShift("month", "2025-01-15", -1)).toBe(false);
+    expect(canShift("list", "2025-01-15", 1)).toBe(true);
+    expect(canShift("week", "2026-10-14", 1)).toBe(true);
+  });
+  it("สัปดาห์สุดท้ายของ 2030 ถัดไปไม่ได้ · สัปดาห์แรกของ 2025 ก่อนไม่ได้", () => {
+    expect(canShift("week", "2030-12-28", 1)).toBe(false);
+    expect(canShift("week", "2025-01-03", -1)).toBe(false);
   });
 });

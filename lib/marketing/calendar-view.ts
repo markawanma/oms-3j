@@ -97,6 +97,11 @@ export function shiftAnchor(view: CalendarView, anchor: string, dir: -1 | 1): st
   return fmt(new Date(Date.UTC(y, m - 1 + dir, 1)));
 }
 
+/** ‹ › เลื่อนได้ไหม — ปลายทางต้องยังอยู่ในปี 2025–2030 (ถึงขอบ = ปุ่มปิด ไม่ใช่ลิงก์ไปหน้า error) */
+export function canShift(view: CalendarView, anchor: string, dir: -1 | 1): boolean {
+  return isCalendarDate(shiftAnchor(view, anchor, dir));
+}
+
 /** มุมมองที่ใช้: ?view= ที่ถูกต้อง → cookie ล่าสุดที่ถูกต้อง → "week" (ค่าเริ่มต้นตามเจ้าของสั่ง) */
 export function parseView(param: string | string[] | undefined, cookie?: string | null): CalendarView {
   const p = Array.isArray(param) ? param[0] : param;

@@ -28,6 +28,7 @@ import {
   layoutSpans,
   monthGridOf,
   periodLabel,
+  canShift,
   shiftAnchor,
   slotText,
 } from "@/lib/marketing/calendar-view";
@@ -66,15 +67,27 @@ export function CalendarToolbar({
         <div className="min-w-0">
           <h1 className="text-xl font-bold text-zinc-900">ปฏิทิน</h1>
           <div className="mt-1 flex flex-wrap items-center gap-2">
-            <Link href={calendarHref(state, { d: shiftAnchor(view, anchor, -1) })} aria-label={view === "week" ? "สัปดาห์ก่อน" : "เดือนก่อน"} className={NAV_BTN}>
-              <ChevronLeft className="h-4 w-4" aria-hidden="true" />
-            </Link>
+            {canShift(view, anchor, -1) ? (
+              <Link href={calendarHref(state, { d: shiftAnchor(view, anchor, -1) })} aria-label={view === "week" ? "สัปดาห์ก่อน" : "เดือนก่อน"} className={NAV_BTN}>
+                <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+              </Link>
+            ) : (
+              <span role="img" aria-label={view === "week" ? "ไม่มีสัปดาห์ก่อนหน้านี้" : "ไม่มีเดือนก่อนหน้านี้"} className={`${NAV_BTN} cursor-not-allowed opacity-40`}>
+                <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+              </span>
+            )}
             <span className="min-w-[8.5rem] text-center text-base font-semibold text-zinc-900 tabular-nums" aria-live="polite">
               {periodLabel(view, anchor)}
             </span>
-            <Link href={calendarHref(state, { d: shiftAnchor(view, anchor, 1) })} aria-label={view === "week" ? "สัปดาห์ถัดไป" : "เดือนถัดไป"} className={NAV_BTN}>
-              <ChevronRight className="h-4 w-4" aria-hidden="true" />
-            </Link>
+            {canShift(view, anchor, 1) ? (
+              <Link href={calendarHref(state, { d: shiftAnchor(view, anchor, 1) })} aria-label={view === "week" ? "สัปดาห์ถัดไป" : "เดือนถัดไป"} className={NAV_BTN}>
+                <ChevronRight className="h-4 w-4" aria-hidden="true" />
+              </Link>
+            ) : (
+              <span role="img" aria-label={view === "week" ? "ไม่มีสัปดาห์ถัดไป" : "ไม่มีเดือนถัดไป"} className={`${NAV_BTN} cursor-not-allowed opacity-40`}>
+                <ChevronRight className="h-4 w-4" aria-hidden="true" />
+              </span>
+            )}
             <Link href={calendarHref(state, { d: todayTh })} className={NAV_BTN}>
               วันนี้
             </Link>

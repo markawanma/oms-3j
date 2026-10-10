@@ -98,12 +98,12 @@ export function IdeaCard({
         {contentType && <ContentTypeChip contentType={contentType} />}
         {piece.draftedByAi && <AuthorBadge kind="ai" />}
         {piece.resolvedStart && (
-          <span className="text-xs text-zinc-700">วันที่ตั้งไว้เดิม {formatThaiDay(piece.resolvedStart)} (เลือกวันใหม่ได้)</span>
+          <span className="text-xs text-zinc-700">วันที่ตั้งไว้เดิม {formatThaiDay(piece.resolvedStart)} — ยังเก็บไว้ แต่ไม่แสดงในปฏิทินจนกว่าจะกด “ทำ”</span>
         )}
       </div>
 
       <h3 className="mt-1.5 text-base font-semibold break-words text-zinc-900">
-        <Link href={`/marketing/pieces/${piece.stepId}?from=triage`} className="hover:underline">
+        <Link href={`/marketing/pieces/${piece.stepId}?from=triage`} className="block min-h-11 py-1.5 hover:underline">
           {piece.title}
         </Link>
       </h3>
@@ -281,7 +281,7 @@ export function HeldIdeaRow({ piece, contentType }: { piece: PieceRow; contentTy
     <li className="rounded-lg border border-zinc-200 bg-white p-3.5">
       <div className="flex flex-wrap items-center gap-1.5">{contentType && <ContentTypeChip contentType={contentType} />}</div>
       <h3 className="mt-1 text-base font-semibold break-words text-zinc-900">
-        <Link href={`/marketing/pieces/${piece.stepId}?from=triage`} className="hover:underline">
+        <Link href={`/marketing/pieces/${piece.stepId}?from=triage`} className="block min-h-11 py-1.5 hover:underline">
           {piece.title}
         </Link>
       </h3>
@@ -322,7 +322,7 @@ export function ChosenRow({ piece, contentType }: { piece: PieceRow; contentType
         </span>
       </div>
       <p className="mt-1 text-sm font-medium break-words text-zinc-900">
-        <Link href={`/marketing/pieces/${piece.stepId}?from=triage`} className="hover:underline">
+        <Link href={`/marketing/pieces/${piece.stepId}?from=triage`} className="block min-h-11 py-1.5 hover:underline">
           {piece.title}
         </Link>
       </p>
@@ -335,7 +335,7 @@ export function ChosenRow({ piece, contentType }: { piece: PieceRow; contentType
         type="button"
         variant="secondary"
         size="sm"
-        className="mt-2 max-md:min-h-11"
+        className="mt-2 min-h-11"
         loading={busy}
         disabled={busy}
         onClick={async () => {

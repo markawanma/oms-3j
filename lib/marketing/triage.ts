@@ -57,11 +57,11 @@ export function chosenInWeek(rows: readonly PieceRow[]): PieceRow[] {
     .sort((a, b) => (a.resolvedStart ?? "").localeCompare(b.resolvedStart ?? ""));
 }
 
-/** จำนวนชิ้นต่อวัน (ไม่นับยกเลิก) — ชิ้นหลายวันนับทุกวันที่คร่อม · ใช้บอก "<วัน> · มี n ชิ้น" และ "วันที่ยังไม่มีชิ้นงาน" */
+/** จำนวนชิ้นต่อวัน (ไม่นับยกเลิก และไม่นับ idea — ไอเดียยังไม่ถูกจัดลงวัน วันที่ค้างเดิมไม่ใช่ชิ้นในปฏิทิน) — ชิ้นหลายวันนับทุกวันที่คร่อม · ใช้บอก "<วัน> · มี n ชิ้น" และ "วันที่ยังไม่มีชิ้นงาน" */
 export function pieceCountsByDay(rows: readonly PieceRow[], days: readonly string[]): Record<string, number> {
   const out: Record<string, number> = Object.fromEntries(days.map((d) => [d, 0]));
   for (const r of rows) {
-    if (r.pieceStatus === "cancelled" || !r.resolvedStart) continue;
+    if (r.pieceStatus === "cancelled" || r.pieceStatus === "idea" || !r.resolvedStart) continue;
     const start = r.resolvedStart;
     const end = r.resolvedEnd ?? r.resolvedStart;
     for (const d of days) if (d >= start && d <= end) out[d] += 1;
