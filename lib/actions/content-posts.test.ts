@@ -133,3 +133,15 @@ describe("review ข้อ 6: ผู้สมัครผูกที่โพ�
     expect(orExpr).not.toContain("resolved_start");
   });
 });
+
+describe("review ข้อ 7: กองวันนี้ต้องโพสต์ใช้ loadPostTodayRows ตัวเดียวกับหน้างานที่รอฉัน", () => {
+  it("เรียง resolved_start แล้ว step_id · approved/produced · ถึงวันนี้ · limit · ธง overdue จาก DB", async () => {
+    tableResults.v_content_piece_calendar = { data: [{ step_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", title: "a", piece_status: "produced", resolved_start: "2026-10-08", flag_no_link_overdue: true }, { step_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", title: "b", piece_status: "approved", resolved_start: "2026-10-09", flag_no_link_overdue: false }], error: null };
+    const r = await getPostsPageData();
+    const ops = calls.find((c) => c.table === "v_content_piece_calendar")!.ops;
+    expect(ops).toContainEqual(["in", "piece_status", ["approved", "produced"]]);
+    expect(ops.filter((o) => o[0] === "order").map((o) => o[1])).toEqual(["resolved_start", "step_id"]);
+    expect(ops.some((o) => o[0] === "limit")).toBe(true);
+    expect(r.ok && r.data.overdueNoLinkIds).toEqual(["aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"]);
+  });
+});

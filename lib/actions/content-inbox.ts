@@ -12,7 +12,6 @@ import { effectiveDateBangkok } from "@/lib/tiktok/format";
 import {
   PIECE_FULL_COLUMNS,
   PIECE_LIGHT_COLUMNS,
-  mapInboxCounts,
   mapPieceRow,
   mapRecoRow,
   mapWeeklySummary,
@@ -29,6 +28,7 @@ import type {
 import { thaiWeekRange } from "@/lib/marketing/inbox-piles";
 import { checkRecoResponse, isRecord } from "@/lib/marketing/piece-input";
 import { callRpc, isUuid, logRpcFailure, requireOwnerAdmin, SCHEMA, shopId } from "@/lib/marketing/piece-server";
+import { asRows, loadInboxCounts, loadLineQuota, loadPostTodayRows, part } from "@/lib/marketing/piece-queries";
 import type { PieceResult } from "@/lib/marketing/piece-server";
 
 /** เพดานแถวต่อกอง — กันหน้าแรกหนัก (แสดง "แสดง n จาก m" เมื่อ count จาก view มากกว่า) */
@@ -36,19 +36,6 @@ const POST_LIMIT = 30;
 const REVIEW_LIMIT = 20;
 const WEEK_LIMIT = 100;
 const RECO_LIMIT = 100;
-
-async function part<T>(label: string, fn: () => Promise<T>, fallbackMessage: string): Promise<Part<T>> {
-  try {
-    return { ok: true, data: await fn() };
-  } catch (err) {
-    logRpcFailure(label, err);
-    return { ok: false, error: fallbackMessage };
-  }
-}
-
-function asRows(data: unknown): Record<string, unknown>[] {
-  return Array.isArray(data) ? (data as Record<string, unknown>[]) : [];
-}
 
 /**
  * ข้อมูลทั้งหมดของหน้า /marketing — แต่ละส่วนล้มได้อิสระ (กองหนึ่งล้ม กองอื่นยังแสดง · §3)
@@ -74,33 +61,12 @@ export async function getInboxData(): Promise<PieceResult<InboxData>> {
   const overdueIds: string[] = [];
 
   const [counts, postRows, reviewRows, weekRows, reco, weekly, entryCount, lineQuota, nextScheduled] = await Promise.all([
-    part(
-      "inbox.counts",
-      async () => {
-        const { data, error } = await db().from("v_content_inbox_counts").select("*").eq("shop_id", shop).maybeSingle();
-        if (error) throw error;
-        return mapInboxCounts((data as Record<string, unknown> | null) ?? null);
-      },
-      "โหลดตัวเลขกองงานไม่สำเร็จ"
-    ),
-    part(
-      "inbox.post",
-      async () => {
-        const { data, error } = await db()
-          .from("v_content_piece_calendar")
-          .select(`${PIECE_LIGHT_COLUMNS}, content_body, flag_no_link_overdue`)
-          .eq("shop_id", shop)
-          .in("piece_status", ["approved", "produced"])
-          .lte("resolved_start", todayTh)
-          .order("resolved_start", { ascending: true })
-          .limit(POST_LIMIT);
-        if (error) throw error;
-        const rows = asRows(data);
-        for (const r of rows) if (r.flag_no_link_overdue === true && typeof r.step_id === "string") overdueIds.push(r.step_id);
-        return rows.map(mapPieceRow);
-      },
-      "โหลดกอง \"วันนี้ต้องโพสต์\" ไม่สำเร็จ"
-    ),
+    part("inbox.counts", () => loadInboxCounts(db()), "โหลดตัวเลขกองงานไม่สำเร็จ"),
+    part("inbox.post", async () => {
+      const r = await loadPostTodayRows(db(), todayTh, POST_LIMIT);
+      overdueIds.push(...r.overdueNoLinkIds);
+      return r.rows;
+    }, "โหลดกอง \"วันนี้ต้องโพสต์\" ไม่สำเร็จ"),
     part(
       "inbox.review",
       async () => {
@@ -175,23 +141,7 @@ export async function getInboxData(): Promise<PieceResult<InboxData>> {
       },
       "โหลดคิวกรอกยอดไม่สำเร็จ"
     ),
-    part<LineQuota | null>(
-      "inbox.line",
-      async () => {
-        const { data, error } = await db().from("v_line_quota_28d").select("*").eq("shop_id", shop).maybeSingle();
-        if (error) throw error;
-        if (!data) return null;
-        const r = data as Record<string, unknown>;
-        return {
-          used28d: Number(r.used_28d ?? 0),
-          planned28d: Number(r.planned_28d ?? 0),
-          quota: Number(r.quota ?? 0),
-          remaining28d: Number(r.remaining_28d ?? 0),
-          overQuotaPlanned: r.over_quota_planned === true,
-        };
-      },
-      "โหลดโควตา LINE ไม่สำเร็จ"
-    ),
+    part<LineQuota | null>("inbox.line", () => loadLineQuota(db()), "โหลดโควตา LINE ไม่สำเร็จ"),
     part<NextScheduled | null>(
       "inbox.next",
       async () => {

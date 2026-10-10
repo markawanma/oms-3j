@@ -21,6 +21,7 @@ import type { LineQuota, Part, PieceRow } from "@/lib/marketing/piece-types";
 import { cleanText, isRecord } from "@/lib/marketing/piece-input";
 import { KIND_CHANNELS, CUSTOMER_GROUPS, PIECE_KINDS } from "@/lib/marketing/piece-labels";
 import { callRpc, isUuid, logRpcFailure, requireOwnerAdmin, SCHEMA, shopId } from "@/lib/marketing/piece-server";
+import { asRows as rows, loadLineQuota, part } from "@/lib/marketing/piece-queries";
 import type { PieceResult } from "@/lib/marketing/piece-server";
 
 const PIECE_LIMIT = 300;
@@ -28,19 +29,6 @@ const LEGACY_LIMIT = 300;
 const OVERDUE_LIMIT = 12;
 const CALENDAR_FLAGS = "flag_needs_shoot, flag_on_hold, flag_confirm_pending, flag_no_link_overdue, active_post_n";
 const UNFINISHED = ["planned", "drafting", "in_review", "approved", "produced"];
-
-async function part<T>(label: string, fn: () => Promise<T>, message: string): Promise<Part<T>> {
-  try {
-    return { ok: true, data: await fn() };
-  } catch (err) {
-    logRpcFailure(label, err);
-    return { ok: false, error: message };
-  }
-}
-
-function rows(data: unknown): Record<string, unknown>[] {
-  return Array.isArray(data) ? (data as Record<string, unknown>[]) : [];
-}
 
 function str(v: unknown): string | null {
   return typeof v === "string" ? v : null;
@@ -160,23 +148,7 @@ export async function getCalendarData(from: string, to: string): Promise<PieceRe
       },
       "โหลดงานที่ค้างไม่สำเร็จ"
     ),
-    part<LineQuota | null>(
-      "calendar.line",
-      async () => {
-        const { data, error } = await db().from("v_line_quota_28d").select("*").eq("shop_id", shop).maybeSingle();
-        if (error) throw error;
-        if (!data) return null;
-        const r = data as Record<string, unknown>;
-        return {
-          used28d: Number(r.used_28d ?? 0),
-          planned28d: Number(r.planned_28d ?? 0),
-          quota: Number(r.quota ?? 0),
-          remaining28d: Number(r.remaining_28d ?? 0),
-          overQuotaPlanned: r.over_quota_planned === true,
-        };
-      },
-      "โหลดโควตา LINE ไม่สำเร็จ"
-    ),
+    part<LineQuota | null>("calendar.line", () => loadLineQuota(db()), "โหลดโควตา LINE ไม่สำเร็จ"),
     part<FestivalSpan[]>(
       "calendar.festivals",
       async () => {

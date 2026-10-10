@@ -11,7 +11,7 @@ import type { PieceRow } from "@/lib/marketing/piece-types";
 import { mapOrphanPost } from "@/lib/marketing/post-orphans";
 import type { OrphanPost, PostsPageData } from "@/lib/marketing/post-orphans";
 import { postedSince } from "@/lib/marketing/pieces-list";
-import { analyticsDb, asRows, loadContentTypeOptions, part } from "@/lib/marketing/piece-queries";
+import { analyticsDb, asRows, loadContentTypeOptions, loadPostTodayRows, part } from "@/lib/marketing/piece-queries";
 import { callRpc, isUuid, requireOwnerAdmin, shopId } from "@/lib/marketing/piece-server";
 import type { PieceResult } from "@/lib/marketing/piece-server";
 
@@ -31,25 +31,11 @@ export async function getPostsPageData(): Promise<PieceResult<PostsPageData>> {
   const overdueIds: string[] = [];
 
   const [postRows, postCount, orphans, types] = await Promise.all([
-    part(
-      "posts.today",
-      async () => {
-        const { data, error } = await db
-          .from("v_content_piece_calendar")
-          .select(`${PIECE_LIGHT_COLUMNS}, content_body, flag_no_link_overdue`)
-          .eq("shop_id", shop)
-          .in("piece_status", ["approved", "produced"])
-          .lte("resolved_start", todayTh)
-          .order("resolved_start", { ascending: true })
-          .order("step_id", { ascending: true })
-          .limit(POST_LIMIT);
-        if (error) throw error;
-        const rows = asRows(data);
-        for (const r of rows) if (r.flag_no_link_overdue === true && typeof r.step_id === "string") overdueIds.push(r.step_id);
-        return rows.map(mapPieceRow);
-      },
-      "โหลดกอง \"วันนี้ต้องโพสต์\" ไม่สำเร็จ"
-    ),
+    part("posts.today", async () => {
+      const r = await loadPostTodayRows(db, todayTh, POST_LIMIT);
+      overdueIds.push(...r.overdueNoLinkIds);
+      return r.rows;
+    }, "โหลดกอง \"วันนี้ต้องโพสต์\" ไม่สำเร็จ"),
     part(
       "posts.count",
       async () => {

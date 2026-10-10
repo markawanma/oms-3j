@@ -5,8 +5,8 @@
 import "server-only";
 import { getServiceClient } from "@/lib/supabase/server";
 import { getContentTypes } from "@/lib/actions/content";
-import { mapInboxCounts } from "@/lib/marketing/piece-types";
-import type { ContentTypeOption, HostOption, InboxCounts, LineQuota, Part } from "@/lib/marketing/piece-types";
+import { PIECE_LIGHT_COLUMNS, mapInboxCounts, mapPieceRow } from "@/lib/marketing/piece-types";
+import type { ContentTypeOption, HostOption, InboxCounts, LineQuota, Part, PieceRow } from "@/lib/marketing/piece-types";
 import { logRpcFailure, SCHEMA, shopId } from "@/lib/marketing/piece-server";
 
 export type Db = ReturnType<ReturnType<typeof getServiceClient>["schema"]>;
@@ -69,4 +69,24 @@ export async function loadInboxCounts(db: Db = analyticsDb()): Promise<InboxCoun
   const { data, error } = await db.from("v_content_inbox_counts").select("*").eq("shop_id", shopId()).maybeSingle();
   if (error) throw error;
   return mapInboxCounts((data as Record<string, unknown> | null) ?? null);
+}
+
+/**
+ * กอง "วันนี้ต้องโพสต์" — approved/produced ที่ถึงวัน (resolved_start ≤ วันนี้) เรียงวันใกล้ก่อนแล้ว step_id (นิ่ง)
+ * ใช้ทั้งหน้า "งานที่รอฉัน" และ "โพสต์วันนี้" — query เดียว ลำดับเดียว · overdueNoLinkIds = ชิ้นที่ DB ตั้งธง flag_no_link_overdue (ไม่คำนวณซ้ำ)
+ */
+export async function loadPostTodayRows(db: Db, todayTh: string, limit: number): Promise<{ rows: PieceRow[]; overdueNoLinkIds: string[] }> {
+  const { data, error } = await db
+    .from("v_content_piece_calendar")
+    .select(`${PIECE_LIGHT_COLUMNS}, content_body, flag_no_link_overdue`)
+    .eq("shop_id", shopId())
+    .in("piece_status", ["approved", "produced"])
+    .lte("resolved_start", todayTh)
+    .order("resolved_start", { ascending: true })
+    .order("step_id", { ascending: true })
+    .limit(limit);
+  if (error) throw error;
+  const raw = asRows(data);
+  const overdueNoLinkIds = raw.filter((r) => r.flag_no_link_overdue === true && typeof r.step_id === "string").map((r) => r.step_id as string);
+  return { rows: raw.map(mapPieceRow), overdueNoLinkIds };
 }
