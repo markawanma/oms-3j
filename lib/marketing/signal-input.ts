@@ -28,6 +28,16 @@ export function parseMetric(raw: string): MetricParse {
 // ลิงก์
 // ---------------------------------------------------------------------------
 
+/** localhost · *.localhost · IPv4/IPv6 literal · โฮสต์ที่เป็นตัวเลขล้วน (เช่น 2130706433 = 127.0.0.1) */
+export function isIpOrLocalHost(hostname: string): boolean {
+  const h = hostname.toLowerCase().replace(/[.]$/, "");
+  if (h === "localhost" || h.endsWith(".localhost")) return true;
+  if (h.startsWith("[") || h.includes(":")) return true; // IPv6 literal
+  if (/^[0-9.]+$/.test(h)) return true; // IPv4 หรือเลขล้วน
+  if (/^0x[0-9a-f]+$/.test(h)) return true; // เลขฐานสิบหก
+  return false;
+}
+
 const TRACKING_PARAMS = new Set(["fbclid", "igshid", "igsh", "si", "is_from_webapp", "sender_device", "_t", "_r", "feature", "ref", "ref_src", "mibextid", "gclid", "share_id", "share_link_id", "u_code", "sec_user_id", "utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term", "utm_id"]);
 
 export type CleanLink = { ok: true; url: string } | { ok: false; error: string };
@@ -46,6 +56,8 @@ export function cleanSignalUrl(raw: string): CleanLink {
   }
   if (u.protocol !== "http:" && u.protocol !== "https:") return { ok: false, error: "ลิงก์ต้องขึ้นต้นด้วย http:// หรือ https://" };
   if (u.username || u.password) return { ok: false, error: "ลิงก์ไม่ถูกต้อง" };
+  // ไม่รับ host เป็น IP / localhost (กันลิงก์ชี้เครื่องภายใน) — ไม่ล็อกชื่อโดเมน (เจอคลิปจากแพลตฟอร์มไหนก็แปะได้)
+  if (isIpOrLocalHost(u.hostname)) return { ok: false, error: "ลิงก์ต้องเป็นชื่อเว็บไซต์ ไม่ใช่เลข IP หรือ localhost" };
 
   const host = u.hostname.toLowerCase().replace(/^www\./, "");
   if (host === "youtu.be") {

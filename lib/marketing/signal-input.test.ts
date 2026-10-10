@@ -50,6 +50,20 @@ describe("cleanSignalUrl", () => {
   });
 });
 
+describe("cleanSignalUrl — ปฏิเสธ IP / localhost (L5) แต่ไม่ล็อกโดเมน", () => {
+  it("ห้ามผ่าน: localhost · *.localhost · IPv4 · IPv6 · เลขล้วน · hex", () => {
+    for (const bad of ["http://localhost/a", "http://localhost:3000/a", "https://app.localhost/a", "http://127.0.0.1/a", "http://10.0.0.5:8080/a", "http://169.254.169.254/latest", "http://[::1]/a", "http://[fe80::1]/a", "http://2130706433/a", "http://0x7f000001/a", "http://LOCALHOST./a"]) {
+      const r = cleanSignalUrl(bad);
+      expect(r.ok, bad).toBe(false);
+    }
+  });
+  it("ต้องไม่พัง: โดเมนปกติทุกแพลตฟอร์ม/โดเมนที่ขึ้นต้นด้วยตัวเลข/ลงท้าย local ผ่าน", () => {
+    for (const ok of ["https://www.tiktok.com/@a/video/1", "https://vt.tiktok.com/ZS1/", "https://www.instagram.com/reel/x/", "https://youtu.be/AbC", "https://example.test/x", "https://1688.com/x", "https://my-local.example.com/x", "https://mylocalhost.com/x"]) {
+      expect(cleanSignalUrl(ok).ok, ok).toBe(true);
+    }
+  });
+});
+
 describe("describeLink", () => {
   it("TikTok + @handle · IG/FB/YT จากโฮสต์ · ไม่รู้จัก = ไม่เดา", () => {
     expect(describeLink("https://www.tiktok.com/@some.user/video/1")).toEqual({ platform: "tiktok", platformLabel: "TikTok", account: "@some.user" });

@@ -81,11 +81,11 @@ export async function finishShootRound(input: ShootFinishInput): Promise<PieceRe
   if (note.length > NOTE_MAX) return { ok: false, error: `หมายเหตุยาวเกิน ${NOTE_MAX} ตัวอักษร` };
   const rawUrl = typeof input.folderUrl === "string" ? input.folderUrl.trim() : "";
   const url = rawUrl ? safeHttpUrl(rawUrl) : null;
-  if (rawUrl && (!url || rawUrl.length > 500)) return { ok: false, error: "ลิงก์โฟลเดอร์ต้องเป็น http:// หรือ https:// และไม่ยาวเกิน 500 ตัวอักษร" };
+  if (rawUrl && (!url || url.length > 500)) return { ok: false, error: "ลิงก์โฟลเดอร์ต้องเป็น http:// หรือ https:// และไม่ยาวเกิน 500 ตัวอักษร" };
 
   const set: Record<string, unknown> = {};
   if (note) set.shoot_note = note;
-  if (url) set.footage_url = rawUrl;
+  if (url) set.footage_url = url; // ค่าที่ผ่าน safeHttpUrl แล้ว (normalize) — ไม่ส่งสตริงดิบจากผู้ใช้ลง DB
 
   const results: ShootFinishResult["results"] = [];
   for (const stepId of ids) {

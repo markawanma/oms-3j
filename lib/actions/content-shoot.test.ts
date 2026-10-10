@@ -97,6 +97,11 @@ describe("finishShootRound", () => {
     expect(advanceMock).toHaveBeenCalledWith(A, "produced");
   });
 
+  it("L1: ส่ง url ที่ผ่าน safeHttpUrl (normalize แล้ว) ลง DB ไม่ใช่สตริงดิบ", async () => {
+    await finishShootRound({ stepIds: [A], folderUrl: "  HTTPS://Example.TEST/Folder?x=1  " });
+    expect(setPlanMock).toHaveBeenCalledWith(A, { footage_url: "https://example.test/Folder?x=1" });
+  });
+
   it("ไม่มี note/ลิงก์ → ไม่เรียก setPlan เลย (ไม่เขียนค่าว่างทับ)", async () => {
     await finishShootRound({ stepIds: [A], note: "   ", folderUrl: "" });
     expect(setPlanMock).not.toHaveBeenCalled();

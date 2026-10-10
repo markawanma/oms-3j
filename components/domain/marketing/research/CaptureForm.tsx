@@ -65,6 +65,12 @@ export function CaptureForm() {
   const id = (n: string) => `${uid}-${n}`;
 
   async function submit() {
+    // ลิงก์ไม่ผ่านการตรวจ (รวมยาวเกิน 500) → แจ้งใต้ช่องก่อนส่ง · ช่องไม่ตัดความยาวเงียบ (BUG-QA-4)
+    const c = cleanSignalUrl(v.url);
+    if (!c.ok) {
+      setErr({ field: "url", message: c.error });
+      return;
+    }
     setBusy(true);
     setErr(null);
     try {
@@ -112,7 +118,7 @@ export function CaptureForm() {
       }}
     >
       <Field id={id("url")} label="ลิงก์คลิปที่เจอ" error={errFor("url")} hint={hint?.ok === false ? undefined : (hint?.text ?? "วางลิงก์จากแอป — ระบบไม่เปิดลิงก์นี้")}>
-        <input id={id("url")} type="url" inputMode="url" value={v.url} onChange={(e) => set("url", e.target.value)} maxLength={500} aria-invalid={!!errFor("url")} aria-describedby={errFor("url") ? `${id("url")}-err` : undefined} className={FIELD} placeholder="https://" />
+        <input id={id("url")} type="url" inputMode="url" value={v.url} onChange={(e) => set("url", e.target.value)} aria-invalid={!!errFor("url")} aria-describedby={errFor("url") ? `${id("url")}-err` : undefined} className={FIELD} placeholder="https://" />
         {hint?.ok === false && !errFor("url") && <p className="text-sm text-amber-900">{hint.text}</p>}
       </Field>
       {err?.duplicateId && (
@@ -152,7 +158,7 @@ export function CaptureForm() {
       <details className="rounded-lg border border-zinc-200 bg-white p-3">
         <summary className="min-h-11 cursor-pointer text-sm font-semibold text-zinc-900">ตัวเลขที่เห็นบนจอ (ไม่บังคับ)</summary>
         <div className="mt-3 space-y-3">
-          <p className="text-xs text-zinc-700">ใส่เฉพาะที่เห็นจริง — ไม่เห็นให้เว้นว่าง (ห้ามใส่ 0) · พิมพ์ย่อได้ เช่น 16K, 1.2M · ระบบจะคำนวณ mass ให้หลังบันทึก</p>
+          <p className="text-xs text-zinc-700">ใส่เฉพาะที่เห็นจริง — ไม่เห็นให้เว้นว่าง · ถ้าบนจอเห็นเป็น 0 จริงๆ ใส่ 0 ได้ · พิมพ์ย่อได้ เช่น 16K, 1.2M · ระบบจะคำนวณ mass ให้หลังบันทึก</p>
           <div className="grid grid-cols-2 gap-3">
             {METRICS.map((m) => (
               <Field key={m.key} id={id(m.key)} label={m.label} error={errFor(m.key)}>

@@ -29,6 +29,13 @@ describe("CaptureForm", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
+  it("ข้อความใต้ฟอร์มตรงกับพฤติกรรม: บอกว่าเห็น 0 จริงใส่ 0 ได้ (ไม่ใช่ห้าม 0)", async () => {
+    render(<CaptureForm />);
+    await userEvent.click(screen.getByText("ตัวเลขที่เห็นบนจอ (ไม่บังคับ)"));
+    expect(screen.getByText(/ใส่ 0 ได้/)).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("ห้ามใส่ 0");
+  });
+
   it("ลิงก์ผิด (javascript:) → เตือนใต้ช่องทันที", async () => {
     render(<CaptureForm />);
     await userEvent.type(screen.getByLabelText("ลิงก์คลิปที่เจอ"), "javascript:alert(1)");
@@ -70,6 +77,7 @@ describe("CaptureForm", () => {
   it("server ล้มแบบไม่คาดคิด → ข้อความกลาง ไม่ค้างปุ่ม", async () => {
     captureSignal.mockRejectedValue(new Error("boom"));
     render(<CaptureForm />);
+    await userEvent.type(screen.getByLabelText("ลิงก์คลิปที่เจอ"), "https://www.tiktok.com/@a/video/1");
     await userEvent.click(screen.getByRole("button", { name: "บันทึกลิงก์" }));
     expect(await screen.findByText(/ทำรายการไม่สำเร็จ/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "บันทึกลิงก์" })).toBeEnabled();
