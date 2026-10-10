@@ -78,3 +78,25 @@ describe("คำเมนูคำเดียวทุกที่ (QA ข้�
     }
   });
 });
+
+describe("แถบล่าง/ปุ่มลอย/ระยะเว้นล่าง (review ข้อ 9)", () => {
+  it("แถบล่างซ่อนเฉพาะหน้าชิ้นงาน · ปุ่มลอยซ่อนที่หน้าชิ้นงานและหน้าแปะลิงก์", async () => {
+    const { bottomNavVisible, fabVisible } = await import("./nav");
+    expect(bottomNavVisible("/marketing/calendar")).toBe(true);
+    expect(bottomNavVisible("/marketing/pieces/abc")).toBe(false);
+    expect(bottomNavVisible("/marketing/pieces")).toBe(true); // หน้า list ยังมีแถบ
+    expect(fabVisible("/marketing/triage")).toBe(true);
+    expect(fabVisible("/marketing/shoot")).toBe(true);
+    expect(fabVisible("/marketing/research/capture")).toBe(false);
+    expect(fabVisible("/marketing/pieces/abc")).toBe(false);
+    expect(fabVisible(null)).toBe(true); // ไม่รู้ path = ถือว่าแสดง (ปลอดภัยฝั่งเว้นที่)
+  });
+  it("หน้าที่มีปุ่มลอยเว้นล่างมากกว่า (≥ 8rem) หน้าที่ไม่มีเว้น 5rem · ทุกกรณีมี safe-area", async () => {
+    const { mobileBottomPadding } = await import("./nav");
+    const withFab = mobileBottomPadding("/marketing/triage");
+    const noFab = mobileBottomPadding("/marketing/research/capture");
+    expect(withFab).toContain("8.5rem");
+    expect(noFab).toContain("5rem");
+    for (const p of [withFab, noFab]) expect(p).toContain("env(safe-area-inset-bottom)");
+  });
+});

@@ -2,8 +2,8 @@
 
 // MarketingBottomNav — แถบล่างมือถือ (< md) ของสายการตลาด (content-ui-build-plan.md §1.1 · D2)
 // ช่องละ ≥ 44×56px · ตัวอักษร ≥ 12px · aria-current="page" · ไม่เลื่อนแนวนอน
-// P1a: มีเฉพาะช่องที่มีหน้าจริง (รอฉัน · ปฏิทิน · กรอกยอด · เพิ่มเติม) — Research/ผลิต/โพสต์/ผลลัพธ์ จะเพิ่มพร้อมหน้าในเฟสถัดไป
-//      (ห้ามเมนูโผล่ก่อนหน้าเสร็จ) · "เพิ่มเติม" เปิด sheet รวมหน้าอื่นทั้งหมดของสายการตลาด (แทนแถวแท็บเลื่อนแนวนอนที่ซ่อนบนมือถือ)
+// ช่องและเมนู "เพิ่มเติม" มาจาก MARKETING_NAV (lib/marketing/nav.ts) — เพิ่มหน้าใหม่ = เพิ่มแถวที่นั่น (ห้ามเมนูโผล่ก่อนหน้าเสร็จ)
+// "เพิ่มเติม" เปิด sheet รวมหน้าอื่นทั้งหมดของสายการตลาด (แทนแถวแท็บเลื่อนแนวนอนที่ซ่อนบนมือถือ)
 // ซ่อนบนหน้าชิ้นงาน (/marketing/pieces/*) เพราะหน้านั้นมีแถบปุ่มหลักติดล่างของตัวเอง
 
 import { useState } from "react";
@@ -11,7 +11,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { Ellipsis, Link2 } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
-import { MARKETING_NAV, activeTabHref } from "@/lib/marketing/nav";
+import { MARKETING_NAV, activeTabHref, bottomNavVisible, fabVisible } from "@/lib/marketing/nav";
 
 // รายการมาจาก lib/marketing/nav.ts (MARKETING_NAV) ที่เดียว — ช่องหลัก ≤ 4 + "เพิ่มเติม"
 const MAIN = MARKETING_NAV.filter((m) => m.mobile === "main");
@@ -22,13 +22,13 @@ const ITEM = "flex min-h-14 min-w-0 flex-1 flex-col items-center justify-center 
 export function MarketingBottomNav() {
   const pathname = usePathname() ?? "";
   const [moreOpen, setMoreOpen] = useState(false);
-  if (pathname.startsWith("/marketing/pieces/")) return null;
+  if (!bottomNavVisible(pathname)) return null;
 
   const active = activeTabHref(pathname, [...MAIN.map((m) => m.href), ...MORE.map((m) => m.href)]);
   const moreActive = active !== null && MORE.some((m) => m.href === active);
 
   // ปุ่มลอย "แปะลิงก์" (มือถือ) — ทุกหน้าสายการตลาดที่มีแถบล่าง ยกเว้นหน้าแปะลิงก์เอง
-  const showFab = !pathname.startsWith("/marketing/research/capture");
+  const showFab = fabVisible(pathname);
 
   return (
     <>

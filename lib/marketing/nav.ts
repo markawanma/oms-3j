@@ -78,3 +78,22 @@ export const MARKETING_NAV: readonly MarketingNavItem[] = [
   { href: "/marketing/trend-radar", label: "เทรนด์", icon: TrendingUp, tab: "more", mobile: "more", mobileLabel: "เทรนด์รายวัน", sidebar: false },
   { href: "/marketing/gem-quiz", label: "แบบทดสอบพลอย", icon: Gem, tab: "more", mobile: "more", sidebar: false },
 ];
+
+// ---------------------------------------------------------------------------
+// แถบล่างมือถือ + ปุ่มลอย "แปะลิงก์" — เงื่อนไขแสดงที่เดียว (ใช้ทั้งแถบ ปุ่มลอย และระยะเว้นล่างของเนื้อหา)
+// ---------------------------------------------------------------------------
+
+/** แถบล่างมือถือ: ซ่อนบนหน้าชิ้นงาน (/marketing/pieces/<id>) เพราะมีแถบปุ่มหลักติดล่างของตัวเอง */
+export function bottomNavVisible(pathname: string | null | undefined): boolean {
+  return !(pathname ?? "").startsWith("/marketing/pieces/");
+}
+
+/** ปุ่มลอย "แปะลิงก์": ทุกหน้าที่มีแถบล่าง ยกเว้นหน้าแปะลิงก์เอง */
+export function fabVisible(pathname: string | null | undefined): boolean {
+  return bottomNavVisible(pathname) && !(pathname ?? "").startsWith("/marketing/research/capture");
+}
+
+/** ระยะเว้นล่างของเนื้อหาบนมือถือ (Tailwind arbitrary value) — เผื่อแถบล่าง และปุ่มลอยที่ลอยเหนือแถบ (สูง 3rem ที่ 4.5rem จากล่าง → ~8rem) กันปุ่มท้ายหน้าถูกบัง */
+export function mobileBottomPadding(pathname: string | null | undefined): string {
+  return fabVisible(pathname) ? "pb-[calc(8.5rem+env(safe-area-inset-bottom))]" : "pb-[calc(5rem+env(safe-area-inset-bottom))]";
+}

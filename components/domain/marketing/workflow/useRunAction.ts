@@ -3,7 +3,8 @@
 // useRunAction — pattern เดียวของ "กดปุ่ม → เรียก server action → แสดงผล" (หนี้ §11 ข้อ 1)
 //   busy: ปุ่มกันกดซ้ำ · error: ข้อความไทยจาก action (ไม่ใช่ข้อความดิบ) · stale → refresh (ข้อมูลที่เห็นเก่ากว่า DB)
 //   สำเร็จ → toast (ถ้าส่ง success) + router.refresh() · exception ที่ไม่คาดคิด → ข้อความกลาง (ไม่โชว์ error ดิบ)
-// ใช้ในหน้า client ใหม่ (คัดไอเดีย · รอบถ่าย · รายการชิ้นงาน · โพสต์วันนี้) — ของเดิมค่อยย้ายตามทีหลัง
+// ใช้แล้วใน: PostCard · การ์ดคัดไอเดีย (IdeaCard/HeldIdeaRow/ChosenRow) · ShootPieceCard · SignalCard · PickIdeaDialog · OrphanPostCard
+// ที่ยังซ้ำ pattern เดิม 7 จุด (PieceActionBar · ApprovalCard · GateCard · ConfirmItemList · PostedSheet · PlanForm · AiQuestionCard) — จดหนี้ plan §11 ข้อ 1 / §12ตามทีหลัง
 
 import { useCallback, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
