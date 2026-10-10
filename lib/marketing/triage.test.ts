@@ -101,12 +101,12 @@ describe("pieceCountsByDay / emptyDayCount / countByChannel", () => {
   });
   it("นับต่อช่อง ไม่มีตัวหาร", () => {
     const r = countByChannel([
-      row({ channel: "tiktok" }),
-      row({ channel: "tiktok" }),
-      row({ channel: "line_oa" }),
+      row({ channel: "tiktok", pieceStatus: "planned" }),
+      row({ channel: "tiktok", pieceStatus: "planned" }),
+      row({ channel: "line_oa", pieceStatus: "planned" }),
       row({ channel: "tiktok", pieceStatus: "cancelled" }),
       row({ channel: "tiktok", pieceStatus: "idea", resolvedStart: "2026-10-14" }), // ไอเดียที่วันค้าง ไม่นับ
-      row({ channel: null }),
+      row({ channel: null, pieceStatus: "planned" }),
     ]);
     expect(r).toEqual([
       { channel: "tiktok", n: 2 },
