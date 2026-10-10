@@ -334,8 +334,7 @@ export function ChosenRow({ piece, contentType }: { piece: PieceRow; contentType
       <Button
         type="button"
         variant="secondary"
-        size="sm"
-        className="mt-2 min-h-11"
+        className="mt-2"
         loading={busy}
         disabled={busy}
         onClick={async () => {
