@@ -3,12 +3,11 @@
 // CreatePieceButton — "+ เพิ่มชิ้นงาน" (content_piece_create): ชื่อ · ชนิด · ช่องทาง · กลุ่มลูกค้า · วัน
 // ช่องทางตัดตัวเลือกที่ไม่เข้าคู่กับชนิด (ไม่ใช่ให้เลือกแล้วฟ้อง) · เจ้าของ + มีวัน = "วางแผนแล้ว" (DB) · ค่าที่พิมพ์ค้างเมื่อ error
 
-import { useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
 import { Plus } from "lucide-react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
-import { useToast } from "@/components/ui/Toast";
+import { useRunAction } from "@/components/domain/marketing/workflow/useRunAction";
 import { createPiece } from "@/lib/actions/content-calendar";
 import {
   CHANNEL_LABEL,
@@ -24,37 +23,23 @@ const INPUT =
   "min-h-11 w-full rounded-md border border-zinc-300 bg-white px-2.5 text-base focus:border-primary-600 focus:outline-none focus:ring-1 focus:ring-primary-600";
 
 function Form({ defaultDate, todayTh, onClose, onDirty }: { defaultDate: string; todayTh: string; onClose: () => void; onDirty: (d: boolean) => void }) {
-  const router = useRouter();
-  const toast = useToast();
+  const { run, busy, error } = useRunAction();
   const [title, setTitle] = useState("");
   const [kind, setKind] = useState<PieceKind | "">("");
   const [channel, setChannel] = useState("");
   const [group, setGroup] = useState("");
   const [date, setDate] = useState(defaultDate < todayTh ? todayTh : defaultDate);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
   const titleRef = useRef<HTMLInputElement>(null);
 
   const channels = kind ? KIND_CHANNELS[kind] : [];
   const ready = title.trim().length > 0 && title.length <= 200 && kind !== "" && channel !== "" && group !== "" && date !== "" && !busy;
 
   async function submit() {
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await createPiece({ title, pieceKind: kind, channel, customerGroup: group, date });
-      if (!res.ok) {
-        setError(res.error);
-        return;
-      }
+    // ผลสำเร็จ: toast + refresh โดย useRunAction · ล้มเหลว: ข้อความไทยค้างในกล่อง (ค่าที่พิมพ์ยังอยู่)
+    const res = await run(() => createPiece({ title, pieceKind: kind, channel, customerGroup: group, date }), { success: "เพิ่มชิ้นงานแล้ว" });
+    if (res.ok) {
       onDirty(false);
-      toast.push("เพิ่มชิ้นงานแล้ว");
       onClose();
-      router.refresh();
-    } catch {
-      setError("เพิ่มชิ้นงานไม่สำเร็จ ลองใหม่อีกครั้ง");
-    } finally {
-      setBusy(false);
     }
   }
 
@@ -163,6 +148,10 @@ function Form({ defaultDate, todayTh, onClose, onDirty }: { defaultDate: string;
 /** กล่องเพิ่มชิ้นงาน (ควบคุมจากข้างนอก — ใช้ทั้งปุ่ม PC และเมนู "เพิ่ม" บนมือถือ) */
 export function CreatePieceDialog({ open, onClose, defaultDate, todayTh }: { open: boolean; onClose: () => void; defaultDate: string; todayTh: string }) {
   const dirty = useRef(false);
+  // เปิดกล่องใหม่ = เริ่มสะอาด — ไม่ถามทิ้งข้อมูลจากรอบก่อนที่ปิดด้วยปุ่ม "ยกเลิก"
+  useEffect(() => {
+    if (open) dirty.current = false;
+  }, [open]);
   if (!open) return null;
   return (
     <Modal

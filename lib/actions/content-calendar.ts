@@ -208,7 +208,7 @@ export async function createPiece(input: CreatePieceInput): Promise<PieceResult<
   if (typeof input.customerGroup !== "string" || !(CUSTOMER_GROUPS as readonly string[]).includes(input.customerGroup)) {
     return { ok: false, error: "เลือกกลุ่มลูกค้า" };
   }
-  if (!isRealDate(input.date)) return { ok: false, error: "เลือกวันที่ให้ถูกต้อง" };
+  if (!isCalendarDate(input.date)) return { ok: false, error: "เลือกวันที่ให้ถูกต้อง" };
 
   const res = await callRpc<string>(
     "content_piece_create",

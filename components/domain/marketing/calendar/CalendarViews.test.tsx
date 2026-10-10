@@ -297,6 +297,19 @@ describe("เพิ่มชิ้นงาน (content_piece_create)", () => {
     await userEvent.click(screen.getByRole("button", { name: /เพิ่มชิ้นงาน/ }));
     return await screen.findByRole("dialog");
   }
+  it("review nit: เปิดกล่องใหม่เริ่มสะอาด — ปิดด้วยปุ่ม ยกเลิก แล้วเปิดใหม่ Esc ไม่ถามทิ้งข้อมูลรอบก่อน", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    const dlg = await open();
+    await userEvent.type(within(dlg).getByLabelText("ชื่อชิ้นงาน"), "พิมพ์ค้าง");
+    await userEvent.click(within(dlg).getByRole("button", { name: "ยกเลิก" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    await userEvent.click(screen.getByRole("button", { name: /เพิ่มชิ้นงาน/ }));
+    await screen.findByRole("dialog");
+    await userEvent.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    expect(confirmSpy).not.toHaveBeenCalled();
+    confirmSpy.mockRestore();
+  });
   it("ช่องทางถูกตัดให้เข้าคู่กับชนิด (ไม่ให้เลือกแล้วฟ้อง) · ปุ่มส่งปิดจนกรอกครบ", async () => {
     const dlg = await open();
     const send = within(dlg).getByRole("button", { name: "เพิ่มชิ้นงาน" });

@@ -181,6 +181,15 @@ describe("getCalendarData", () => {
 describe("createPiece", () => {
   const ok = { title: " ชิ้นใหม่ ", pieceKind: "short_clip", channel: "tiktok", customerGroup: "silver_bar", date: "2026-10-12" };
 
+  it("วันที่ต้องอยู่ในปี 2025–2030 (isCalendarDate): นอกช่วง/ไม่จริง ไม่ถึง RPC · ขอบ 2030-12-31 / 2025-01-01 ผ่าน", async () => {
+    for (const date of ["2031-01-01", "9999-12-31", "2024-12-31", "0001-01-01", "2026-02-30", "x"]) {
+      expect((await createPiece({ ...ok, date })).ok, date).toBe(false);
+    }
+    expect(rpcMock).not.toHaveBeenCalled();
+    expect((await createPiece({ ...ok, date: "2030-12-31" })).ok).toBe(true);
+    expect((await createPiece({ ...ok, date: "2025-01-01" })).ok).toBe(true);
+  });
+
   it("ส่ง RPC ด้วยค่าที่ตรวจแล้ว · actor/shop จาก server · ได้ step id", async () => {
     const r = await createPiece(ok);
     expect(r).toEqual({ ok: true, data: { stepId: "11111111-1111-4111-8111-111111111111" } });
