@@ -77,7 +77,7 @@ export function emptyDayCount(counts: Record<string, number>): number {
 export function countByChannel(rows: readonly PieceRow[]): { channel: string; n: number }[] {
   const map = new Map<string, number>();
   for (const r of rows) {
-    if (r.pieceStatus === "cancelled" || !r.channel) continue;
+    if (r.pieceStatus === "cancelled" || r.pieceStatus === "idea" || !r.channel) continue;
     map.set(r.channel, (map.get(r.channel) ?? 0) + 1);
   }
   return [...map.entries()].map(([channel, n]) => ({ channel, n })).sort((a, b) => b.n - a.n || a.channel.localeCompare(b.channel));

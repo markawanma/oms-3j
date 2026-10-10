@@ -18,7 +18,7 @@ function builder(table: string) {
   const call: Op = { table, ops: [] };
   calls.push(call);
   const b: Record<string, unknown> = {};
-  for (const m of ["select", "eq", "in", "lte", "lt", "gte", "gt", "or", "not", "order", "limit", "is"]) {
+  for (const m of ["select", "eq", "neq", "in", "lte", "lt", "gte", "gt", "or", "not", "order", "limit", "is"]) {
     b[m] = (...a: unknown[]) => {
       call.ops.push([m, ...a]);
       return b;
@@ -83,6 +83,7 @@ describe("getTriageData", () => {
     const weekCall = calls.find((c) => c.table === "v_content_piece_calendar");
     expect(weekCall?.ops.some((o) => o[0] === "or" && String(o[1]).includes("resolved_end.is.null"))).toBe(true);
     expect(weekCall?.ops.some((o) => o[0] === "limit")).toBe(true);
+    expect(weekCall?.ops).toContainEqual(["neq", "piece_status", "idea"]); // ไอเดียที่มีวันค้างไม่เข้าตัวนับ
   });
 
   it("ส่วนหนึ่งล้ม (counts) ส่วนอื่นยังมาครบ · ไม่รั่วข้อความดิบ", async () => {
@@ -145,6 +146,7 @@ describe("chooseIdea (✓ ทำ)", () => {
     const r = await chooseIdea(STEP, "2026-10-14");
     expect(r.ok).toBe(false);
     expect(!r.ok && r.error).toContain("วางแผนไม่ได้");
+    expect(!r.ok && r.stale).toBe(true); // วันถูกบันทึกแล้ว → จอต้องรีเฟรช
   });
 });
 

@@ -221,3 +221,32 @@ describe("HeldIdeaRow / ChosenRow", () => {
     expect(await screen.findByText("เปลี่ยนสถานะไปแล้ว")).toBeInTheDocument();
   });
 });
+
+describe("IdeaCard — วันค้างข้ามสัปดาห์ / วันที่ผ่านไปแล้ว (code review must-fix 1)", () => {
+  it("เลือกวันแล้ว props weekDays เปลี่ยน (สัปดาห์อื่น) → ถือว่ายังไม่เลือก · ปุ่ม ทำ disabled · ไม่ส่ง chooseIdea", async () => {
+    const p = piece();
+    const wrapUi = (s: IdeaCardShared) => (
+      <ToastProvider>
+        <ul>
+          <IdeaCard piece={p} shared={s} />
+        </ul>
+      </ToastProvider>
+    );
+    const { rerender } = render(wrapUi(shared()));
+    await userEvent.selectOptions(screen.getByLabelText("ลงวัน"), "2026-10-14");
+    expect(screen.getByRole("button", { name: "ทำ" })).toBeEnabled();
+    rerender(wrapUi(shared({ weekDays: ["2026-10-19", "2026-10-20", "2026-10-21", "2026-10-22", "2026-10-23", "2026-10-24", "2026-10-25"], todayTh: "2026-10-12" })));
+    expect(screen.getByLabelText("ลงวัน")).toHaveValue("");
+    expect(screen.getByRole("button", { name: "ทำ" })).toBeDisabled();
+    expect(chooseIdea).not.toHaveBeenCalled();
+  });
+
+  it("วันที่ผ่านไปแล้วเลือกไม่ได้ (option disabled) · วันนี้และอนาคตเลือกได้", () => {
+    renderCard(piece(), shared({ todayTh: "2026-10-14" }));
+    const sel = screen.getByLabelText("ลงวัน");
+    expect(within(sel).getByRole("option", { name: /12 ต\.ค\..*ผ่านไปแล้ว/ })).toBeDisabled();
+    expect(within(sel).getByRole("option", { name: /13 ต\.ค\..*ผ่านไปแล้ว/ })).toBeDisabled();
+    expect(within(sel).getByRole("option", { name: /14 ต\.ค\./ })).toBeEnabled();
+    expect(within(sel).getByRole("option", { name: /18 ต\.ค\./ })).toBeEnabled();
+  });
+});

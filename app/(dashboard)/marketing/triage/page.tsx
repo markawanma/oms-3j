@@ -136,7 +136,7 @@ export default async function TriagePage({ searchParams }: { searchParams: Promi
                   <ul className="space-y-3">
                     {groups.pending.map((p) => (
                       <IdeaCard
-                        key={p.stepId}
+                        key={`${p.stepId}:${d.weekFrom}`}
                         piece={p}
                         contentType={typeOf(p.contentTypeCode)}
                         signal={p.sourceSignalId ? ideas?.signals[p.sourceSignalId] : undefined}

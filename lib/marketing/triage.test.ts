@@ -105,6 +105,7 @@ describe("pieceCountsByDay / emptyDayCount / countByChannel", () => {
       row({ channel: "tiktok" }),
       row({ channel: "line_oa" }),
       row({ channel: "tiktok", pieceStatus: "cancelled" }),
+      row({ channel: "tiktok", pieceStatus: "idea", resolvedStart: "2026-10-14" }), // ไอเดียที่วันค้าง ไม่นับ
       row({ channel: null }),
     ]);
     expect(r).toEqual([

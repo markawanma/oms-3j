@@ -64,7 +64,9 @@ export function IdeaCard({
   shared: IdeaCardShared;
 }) {
   const { run, busy, error } = useRunAction();
-  const [day, setDay] = useState("");
+  const [dayRaw, setDay] = useState("");
+  // วันที่เลือกต้องอยู่ในสัปดาห์ที่เปิดดูอยู่ และไม่ใช่วันที่ผ่านไปแล้ว — ไม่งั้นถือว่ายังไม่เลือก (กัน ✓ ได้วันของสัปดาห์อื่นเมื่อ props เปลี่ยน)
+  const day = shared.weekDays.includes(dayRaw) && dayRaw >= shared.todayTh ? dayRaw : "";
   const [lineConfirm, setLineConfirm] = useState(false);
   const [skipOpen, setSkipOpen] = useState(false);
   const [holdOpen, setHoldOpen] = useState(false);
@@ -189,8 +191,9 @@ export function IdeaCard({
           <select id={`day-${piece.stepId}`} className={SELECT} value={day} onChange={(e) => setDay(e.target.value)} disabled={busy}>
             <option value="">เลือกวันที่จะลง…</option>
             {shared.weekDays.map((d) => (
-              <option key={d} value={d}>
+              <option key={d} value={d} disabled={d < shared.todayTh}>
                 {dayOptionLabel(d, shared.dayCounts[d] ?? 0)}
+                {d < shared.todayTh ? " (ผ่านไปแล้ว)" : ""}
               </option>
             ))}
           </select>

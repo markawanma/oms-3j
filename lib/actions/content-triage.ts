@@ -75,6 +75,8 @@ export async function getTriageData(weekParam?: string | null): Promise<PieceRes
           .from("v_content_piece_calendar")
           .select(PIECE_LIGHT_COLUMNS)
           .eq("shop_id", shop)
+          // ไอเดียที่ค้างวันเดิม (ยกเลิกการเลือก/✓ ไม่ผ่าน) ยังไม่ถูกจัดลงวัน — ตัดที่ต้นทาง ครอบตัวนับต่อวัน/ต่อช่อง/วันว่างทุกตัว
+          .neq("piece_status", "idea")
           .lte("resolved_start", weekTo)
           .or(`resolved_end.gte.${weekFrom},and(resolved_end.is.null,resolved_start.gte.${weekFrom})`)
           .limit(WEEK_LIMIT);
@@ -142,7 +144,8 @@ export async function chooseIdea(stepId: string, date: string): Promise<PieceRes
   const planned = await setPlan(stepId, { date });
   if (!planned.ok) return planned;
   const adv = await advancePiece(stepId, "planned");
-  if (!adv.ok) return adv;
+  // setPlan ผ่านแล้ว (วันถูกบันทึก) แต่ planned ไม่ผ่าน → ข้อมูลฝั่งจอเก่ากว่า DB (ไอเดียมีวันแล้ว) — stale ให้จอรีเฟรช
+  if (!adv.ok) return { ...adv, stale: true };
   refreshTriage(stepId);
   return { ok: true, data: { date } };
 }
