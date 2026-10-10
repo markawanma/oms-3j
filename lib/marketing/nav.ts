@@ -1,4 +1,4 @@
-import { CalendarDays, ClipboardList, Gem, History, Inbox, Layers, Lightbulb, Send, Megaphone, MessageCircleQuestion, Ticket, TrendingUp, Users2, Wallet } from "lucide-react";
+import { CalendarDays, ClipboardList, Gem, History, Inbox, Clapperboard, Layers, Lightbulb, Send, Megaphone, MessageCircleQuestion, Ticket, TrendingUp, Users2, Wallet } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 /**
@@ -68,11 +68,12 @@ export const MARKETING_NAV: readonly MarketingNavItem[] = [
   { href: "/marketing/attribution", label: "วัดผลโค้ด", icon: Ticket, tab: "more", mobile: "more", sidebar: true },
   { href: "/marketing/triage", label: "คัดไอเดีย", icon: Lightbulb, tab: "main", mobile: "more", sidebar: true },
   { href: "/marketing/calendar", label: "ปฏิทิน", icon: CalendarDays, tab: "main", mobile: "main", sidebar: true },
+  { href: "/marketing/shoot", label: "รอบถ่าย", icon: Clapperboard, tab: "main", mobile: "more", sidebar: true },
   { href: "/marketing/posts", label: "โพสต์วันนี้", icon: Send, tab: "main", mobile: "main", sidebar: true },
-  { href: "/marketing/pieces", label: "ชิ้นงานทั้งหมด", icon: Layers, tab: "main", mobile: "more", mobileLabel: "ชิ้นงานทั้งหมด", sidebar: true },
+  { href: "/marketing/pieces", label: "ชิ้นงานทั้งหมด", icon: Layers, tab: "more", mobile: "more", mobileLabel: "ชิ้นงานทั้งหมด", sidebar: true },
   // อ่านยอด = หน้าแยก (ไม่ใช่แท็บปฏิทิน) ชื่อสั้นบนแถบ · ยังไม่ใช่ทางเข้าหลักตอนดึก (ux-content-measurement §1.1)
   { href: "/marketing/content/entry", label: "อ่านยอด", icon: ClipboardList, tab: "main", mobile: "main", mobileLabel: "กรอกยอด", sidebar: true, sidebarLabel: "อ่านยอด content" },
-  { href: "/marketing/content/history", label: "ประวัติ", icon: History, tab: "main", mobile: "more", mobileLabel: "ประวัติยอดโพสต์", sidebar: false },
-  { href: "/marketing/trend-radar", label: "เทรนด์", icon: TrendingUp, tab: "main", mobile: "more", mobileLabel: "เทรนด์รายวัน", sidebar: false },
+  { href: "/marketing/content/history", label: "ประวัติ", icon: History, tab: "more", mobile: "more", mobileLabel: "ประวัติยอดโพสต์", sidebar: false },
+  { href: "/marketing/trend-radar", label: "เทรนด์", icon: TrendingUp, tab: "more", mobile: "more", mobileLabel: "เทรนด์รายวัน", sidebar: false },
   { href: "/marketing/gem-quiz", label: "แบบทดสอบพลอย", icon: Gem, tab: "more", mobile: "more", sidebar: false },
 ];
