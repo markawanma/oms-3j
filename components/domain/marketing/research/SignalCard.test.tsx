@@ -69,7 +69,7 @@ describe("SignalCard — แสดงผล", () => {
 
   it("หยิบแล้ว → ลิงก์ไปชิ้นงาน + ไม่มีปุ่มหยิบ/ไม่ใช้/เก็บไว้ก่อน", () => {
     renderCard(sig({ status: "picked", pickedStepId: STEP }), { title: "ไอเดียจากสัญญาณ", status: "idea" });
-    expect(screen.getByRole("link", { name: /ไอเดียจากสัญญาณ/ })).toHaveAttribute("href", `/marketing/pieces/${STEP}`);
+    expect(screen.getByRole("link", { name: /ไอเดียจากสัญญาณ/ })).toHaveAttribute("href", `/marketing/pieces/${STEP}?from=research`);
     for (const n of ["หยิบเป็นไอเดีย", "ไม่ใช้", "เก็บไว้ก่อน"]) expect(screen.queryByRole("button", { name: n })).not.toBeInTheDocument();
   });
 });
@@ -88,6 +88,9 @@ describe("SignalCard — หยิบเป็นไอเดีย", () => {
     await userEvent.click(within(dialog).getByRole("button", { name: "หยิบเป็นไอเดีย" }));
     await waitFor(() => expect(pickSignal).toHaveBeenCalledWith(SIG, { title: "คลิปบอกตรงเรื่องไลฟ์", pieceKind: "short_clip", channel: "tiktok", customerGroup: "jewelry_925" }));
     expect(await within(dialog).findByRole("link", { name: "ไปคัดไอเดีย" })).toHaveAttribute("href", "/marketing/triage");
+    expect(refresh).not.toHaveBeenCalled(); // ยังไม่รีเฟรชทันที — ผู้ใช้ต้องเห็นข้อความสำเร็จก่อน
+    await userEvent.click(within(dialog).getAllByRole("button", { name: "ปิด" })[0]);
+    expect(refresh).toHaveBeenCalledTimes(1); // รีเฟรชตอนปิดกล่อง
   });
 
   it("DB ปฏิเสธ → กล่องค้างพร้อมข้อความไทย", async () => {
@@ -99,6 +102,9 @@ describe("SignalCard — หยิบเป็นไอเดีย", () => {
     await userEvent.selectOptions(within(dialog).getByLabelText("ช่องทาง"), "facebook");
     await userEvent.click(within(dialog).getByRole("button", { name: "หยิบเป็นไอเดีย" }));
     expect(await within(dialog).findByText("สัญญาณนี้ถูกหยิบเป็นชิ้นงานแล้ว")).toBeInTheDocument();
+    // หยิบซ้ำ → ลิงก์ไปชิ้นเดิม (code review ข้อ 5) · ไม่รีเฟรชเอง
+    expect(within(dialog).getByRole("link", { name: "ไปดูชิ้นงานที่หยิบไว้แล้ว" })).toHaveAttribute("href", `/marketing/pieces/${STEP}?from=research`);
+    expect(refresh).not.toHaveBeenCalled();
   });
 });
 
@@ -133,7 +139,7 @@ describe("SignalCard — ไม่ใช้ / เก็บไว้ก่อน 
     await userEvent.type(within(dialog).getByRole("textbox"), "ไม่ใช้แล้ว");
     await userEvent.click(within(dialog).getByRole("button", { name: "ไม่ใช้" }));
     expect(await within(dialog).findByText(/ไม่ลบหรือยกเลิกชิ้นงานที่ผูกอยู่/)).toBeInTheDocument();
-    expect(within(dialog).getByRole("link", { name: "ดูชิ้นงานที่ได้รับผลกระทบ" })).toHaveAttribute("href", `/marketing/pieces/${STEP}`);
+    expect(within(dialog).getByRole("link", { name: "ดูชิ้นงานที่ได้รับผลกระทบ" })).toHaveAttribute("href", `/marketing/pieces/${STEP}?from=research`);
     await userEvent.click(within(dialog).getByRole("button", { name: "ยืนยันตั้งสถานะ" }));
     await waitFor(() => expect(setSignalStatus).toHaveBeenLastCalledWith(SIG, expect.objectContaining({ status: "rejected", force: true })));
   });

@@ -77,7 +77,7 @@ export function SignalCard({ signal, piece, todayTh, highlight }: { signal: Sign
       {signal.status === "deferred" && signal.reviewOn && <p className="text-sm text-zinc-800">กลับมาดู {formatThaiDay(signal.reviewOn, true)}</p>}
       {signal.status === "picked" && signal.pickedStepId && (
         <p className="mt-1.5 text-sm">
-          <Link href={`/marketing/pieces/${signal.pickedStepId}`} className="inline-flex min-h-11 items-center font-medium text-primary-700 underline">
+          <Link href={`/marketing/pieces/${signal.pickedStepId}?from=research`} className="inline-flex min-h-11 items-center font-medium text-primary-700 underline">
             ชิ้นงาน: {piece?.title ?? "เปิดดู"}
             {piece?.status ? ` (${pieceStatusLabel(piece.status)})` : ""}
           </Link>

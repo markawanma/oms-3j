@@ -5,6 +5,7 @@
 
 import { useId, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { useRunAction } from "@/components/domain/marketing/workflow/useRunAction";
@@ -24,25 +25,36 @@ export function PickIdeaDialog({ signal, onClose }: { signal: SignalRow; onClose
   const [channel, setChannel] = useState("");
   const [group, setGroup] = useState(signal.customerGroup ?? "");
   const [done, setDone] = useState(false);
+  const [pickedStepId, setPickedStepId] = useState<string | null>(null);
+  const router = useRouter();
   const channels = kind ? KIND_CHANNELS[kind] : [];
   const ready = title.trim().length > 0 && kind !== "" && channel !== "" && group !== "";
 
   async function submit() {
     if (!ready) return;
-    const res = await run(() => pickSignal(signal.id, { title, pieceKind: kind, channel, customerGroup: group }), { success: "หยิบเป็นไอเดียแล้ว — ไปรอที่หน้าคัดไอเดีย" });
+    setPickedStepId(null);
+    // ยังไม่ refresh ทันที — ไม่งั้นการ์ดสัญญาณ (สถานะ ใหม่ → หยิบแล้ว) หายและกล่องนี้ถูก unmount ก่อนผู้ใช้เห็นข้อความสำเร็จ · refresh ตอนปิดกล่อง
+    const res = await run(() => pickSignal(signal.id, { title, pieceKind: kind, channel, customerGroup: group }), { success: "หยิบเป็นไอเดียแล้ว — ไปรอที่หน้าคัดไอเดีย", refresh: false });
     if (res.ok) setDone(true);
+    else setPickedStepId((res as { pickedStepId?: string | null }).pickedStepId ?? null);
+  }
+
+  // ปิดกล่องหลังหยิบสำเร็จ (ปุ่มปิด / X / Esc / ไปคัดไอเดีย) → รีเฟรชรายการ
+  function close() {
+    onClose();
+    if (done) router.refresh();
   }
 
   return (
-    <Modal open onClose={onClose} title="หยิบเป็นไอเดีย">
+    <Modal open onClose={close} title="หยิบเป็นไอเดีย">
       {done ? (
         <div className="space-y-3">
           <p className="text-sm text-zinc-800">ไอเดียนี้ไปรอที่หน้าคัดไอเดียแล้ว พร้อมที่มาจากสัญญาณนี้</p>
           <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
-            <Button type="button" variant="secondary" onClick={onClose}>
+            <Button type="button" variant="secondary" onClick={close}>
               ปิด
             </Button>
-            <Link href="/marketing/triage" className="inline-flex min-h-11 items-center justify-center rounded-md bg-primary-600 px-4 text-base font-medium text-white hover:bg-primary-700">
+            <Link href="/marketing/triage" onClick={() => router.refresh()} className="inline-flex min-h-11 items-center justify-center rounded-md bg-primary-600 px-4 text-base font-medium text-white hover:bg-primary-700">
               ไปคัดไอเดีย
             </Link>
           </div>
@@ -110,12 +122,17 @@ export function PickIdeaDialog({ signal, onClose }: { signal: SignalRow; onClose
             </select>
           </div>
           {error && (
-            <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-2.5 text-sm font-medium text-red-800">
-              {error}
-            </p>
+            <div role="alert" className="rounded-md border border-red-200 bg-red-50 p-2.5 text-sm font-medium text-red-800">
+              <p>{error}</p>
+              {pickedStepId && (
+                <Link href={`/marketing/pieces/${pickedStepId}?from=research`} className="inline-flex min-h-11 items-center font-semibold underline">
+                  ไปดูชิ้นงานที่หยิบไว้แล้ว
+                </Link>
+              )}
+            </div>
           )}
           <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-            <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>
+            <Button type="button" variant="secondary" onClick={close} disabled={busy}>
               ยกเลิก
             </Button>
             <Button type="submit" loading={busy} disabled={!ready || busy}>

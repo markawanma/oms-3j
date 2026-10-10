@@ -67,7 +67,7 @@ export function SignalStatusDialog({ signal, mode, todayTh, onClose }: { signal:
           <div role="alert" className="space-y-2 rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
             <p className="font-semibold">{force.message}</p>
             {force.stepId && (
-              <Link href={`/marketing/pieces/${force.stepId}`} className="inline-flex min-h-11 items-center font-medium underline">
+              <Link href={`/marketing/pieces/${force.stepId}?from=research`} className="inline-flex min-h-11 items-center font-medium underline">
                 ดูชิ้นงานที่ได้รับผลกระทบ
               </Link>
             )}
