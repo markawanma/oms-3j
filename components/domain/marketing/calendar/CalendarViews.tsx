@@ -242,10 +242,13 @@ function SpanBand({
         ))}
       </div>
 
-      {/* มือถือ/แท็บเล็ต: รวมไว้บนรายการวัน (ไม่ซ้ำทุกวัน) */}
-      <div className="space-y-2 lg:hidden">
-        <h3 className="text-sm font-semibold text-zinc-900">งานต่อเนื่องสัปดาห์นี้</h3>
-        <ul className="space-y-2">
+      {/* มือถือ/แท็บเล็ต: พับเป็นบรรทัดเดียว "งานต่อเนื่อง n รายการ ▸" (กางได้) — ให้รายการวันแรกขึ้นเร็ว · ไม่ซ้ำทุกวัน */}
+      <details className="rounded-md border border-zinc-200 bg-white lg:hidden">
+        <summary className="flex min-h-11 cursor-pointer select-none items-center gap-2 px-3 text-sm font-semibold text-zinc-900">
+          งานต่อเนื่อง {bars.length} รายการ
+          <span aria-hidden="true">▸</span>
+        </summary>
+        <ul className="space-y-2 px-2 pb-2">
           {bars.map((b) =>
             b.item.piece ? (
               <li key={b.item.key}>
@@ -258,7 +261,7 @@ function SpanBand({
             )
           )}
         </ul>
-      </div>
+      </details>
     </section>
   );
 }

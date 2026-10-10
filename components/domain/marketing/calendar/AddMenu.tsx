@@ -3,6 +3,7 @@
 // AddMenu — ปุ่มเพิ่มของปฏิทิน (มติเจ้าของ 10 ต.ค.: คง "เพิ่มแผนเดิม" คู่กับ "เพิ่มชิ้นงาน" จนกว่า P2 เสร็จ)
 //  - เพิ่มชิ้นงาน = ทางสร้างชิ้นใน workflow ใหม่ (content_piece_create) → มีขั้นตรวจ/อนุมัติ
 //  - เพิ่มแผนเดิม = AddPlanForm เดิม (createManualTask → campaign_create_task) → โผล่ในส่วน "แผนเดิม" ของปฏิทิน
+// เมนูมือถือชิดซ้ายของปุ่ม (ปุ่มอยู่ซ้ายจอ) กว้างไม่เกินจอ−2rem — ไม่ล้นขอบ (BUG-QA-2)
 // PC (sm+): ปุ่มสองปุ่มคู่กัน · มือถือ: ปุ่มเดียว "เพิ่ม" เปิดรายการเลือก (disclosure ธรรมดา ไม่ใช้ role=menu)
 
 import { useRef, useState } from "react";
@@ -42,7 +43,7 @@ export function AddMenu({ defaultDate, todayTh }: { defaultDate: string; todayTh
           <ChevronDown className="h-4 w-4" aria-hidden="true" />
         </Button>
         {menu && (
-          <ul aria-label="เลือกสิ่งที่จะเพิ่ม" className="absolute right-0 top-full z-30 mt-2 w-72 overflow-hidden rounded-lg border border-zinc-200 bg-white py-1 shadow-lg">
+          <ul aria-label="เลือกสิ่งที่จะเพิ่ม" className="absolute left-0 top-full z-30 mt-2 w-[min(18rem,calc(100vw-2rem))] overflow-hidden rounded-lg border border-zinc-200 bg-white py-1 shadow-lg">
             <li>
               <button
                 type="button"

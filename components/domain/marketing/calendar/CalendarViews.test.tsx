@@ -64,7 +64,8 @@ describe("WeekView", () => {
     const links = screen.getAllByRole("link", { name: /งานคร่อมเดือน/ });
     expect(links.length).toBe(2);
     for (const l of links) expect(l).toHaveAttribute("href", `/marketing/pieces/${span.stepId}?from=calendar`);
-    expect(screen.getByText("งานต่อเนื่องสัปดาห์นี้")).toBeInTheDocument();
+    expect(screen.getByText(/งานต่อเนื่อง 1 รายการ/)).toBeInTheDocument();
+    expect(document.querySelector("details")?.hasAttribute("open")).toBe(false); // พับไว้ — กางได้
     expect(screen.getAllByText(/30 ต\.ค\. – 1 พ\.ย\./).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/ช่วง/).length).toBeGreaterThan(0);
   });
@@ -77,7 +78,7 @@ describe("WeekView", () => {
 
   it("งานวันเดียวยังอยู่ในช่องวัน · ไม่มีแถบเมื่อไม่มีงานหลายวัน", () => {
     wrap(<WeekView weekFrom="2026-10-05" pieces={[piece({ title: "วันเดียว" })]} festivals={[]} contentTypes={TYPES} todayTh={TODAY} />);
-    expect(screen.queryByText("งานต่อเนื่องสัปดาห์นี้")).not.toBeInTheDocument();
+    expect(screen.queryByText(/งานต่อเนื่อง d+ รายการ/)).not.toBeInTheDocument();
     expect(within(document.querySelector("ol") as HTMLElement).getByText("วันเดียว")).toBeInTheDocument();
   });
 
@@ -326,6 +327,14 @@ describe("AddMenu — เพิ่มชิ้นงาน + เพิ่มแ�
     mount();
     expect(screen.getByRole("button", { name: /เพิ่มชิ้นงาน/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /เพิ่มแผนเดิม/ })).toBeInTheDocument();
+  });
+  it("BUG-QA-2: เมนูมือถือชิดซ้ายของปุ่ม (ไม่ right-0) และกว้างไม่เกินจอ — ไม่ล้นขอบซ้าย", async () => {
+    mount();
+    await userEvent.click(screen.getByRole("button", { name: /^เพิ่ม$/ }));
+    const list = screen.getByRole("list", { name: "เลือกสิ่งที่จะเพิ่ม" });
+    expect(list.className).toContain("left-0");
+    expect(list.className).not.toContain("right-0");
+    expect(list.className).toContain("100vw");
   });
   it("มือถือ: ปุ่ม 'เพิ่ม' เดียว → เมนูมี 2 ตัวเลือกพร้อมคำอธิบาย · เลือกแผนเดิมเปิดฟอร์มเดิม · Escape คืนโฟกัส", async () => {
     mount();
