@@ -112,7 +112,7 @@ export function ContentKpiPanel({ state }: { state: ContentKpiState }) {
             href="/marketing/content/entry"
             className="inline-flex min-h-11 items-center justify-center rounded-md bg-primary-600 px-4 text-sm font-semibold text-white hover:bg-primary-700"
           >
-            ไปกรอกตัวเลขที่หน้าอ่านยอด →
+            ไปกรอกตัวเลขที่หน้ากรอกยอด →
           </Link>
         </Panel>
       );

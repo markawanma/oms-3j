@@ -206,7 +206,7 @@ export function IdeaCard({
           </Button>
           <Button type="button" variant="secondary" onClick={() => setHoldOpen(true)} disabled={busy}>
             <Redo2 className="h-4 w-4" aria-hidden="true" />
-            เลื่อน
+            พักรอเงื่อนไข
           </Button>
         </div>
         {blockers && (
@@ -274,7 +274,7 @@ export function IdeaCard({
   );
 }
 
-/** ใบที่ถูกพัก ("เลื่อนไว้") — กลับมาคัดได้ */
+/** ใบที่ถูกพัก ("รอเงื่อนไข") — กลับมาคัดได้ */
 export function HeldIdeaRow({ piece, contentType }: { piece: PieceRow; contentType?: ContentTypeOption }) {
   const { run, busy, error } = useRunAction();
   return (
@@ -285,7 +285,7 @@ export function HeldIdeaRow({ piece, contentType }: { piece: PieceRow; contentTy
           {piece.title}
         </Link>
       </h3>
-      {piece.holdReason && <p className="mt-1 rounded-md bg-orange-50 p-2 text-sm text-orange-900">เลื่อนไว้เพราะ: {piece.holdReason}</p>}
+      {piece.holdReason && <p className="mt-1 rounded-md bg-orange-50 p-2 text-sm text-orange-900">รอเงื่อนไข: {piece.holdReason}</p>}
       {error && (
         <p role="alert" className="mt-2 rounded-md border border-red-200 bg-red-50 p-2.5 text-sm font-medium text-red-800">
           {error}

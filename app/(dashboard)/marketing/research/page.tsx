@@ -48,7 +48,7 @@ export default async function ResearchPage({ searchParams }: { searchParams: Pro
     <div className="space-y-4">
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-zinc-900">สัญญาณที่เก็บไว้</h1>
+          <h1 className="text-2xl font-bold text-zinc-900">สัญญาณ</h1>
           <p className="text-sm text-zinc-700">ลิงก์ที่เจอ เทรนด์ และคำถามจากไลฟ์ — หยิบเป็นไอเดียเมื่อพร้อม</p>
         </div>
         <Link href="/marketing/research/capture" className="inline-flex min-h-11 items-center gap-1.5 rounded-md bg-zinc-900 px-4 text-sm font-medium text-white hover:bg-zinc-800">

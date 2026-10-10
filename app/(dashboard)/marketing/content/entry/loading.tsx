@@ -7,7 +7,7 @@ import { Skeleton } from "@/components/ui/Skeleton";
 // visually reserves its place so the layout doesn't jump once data lands.
 export default function ContentEntryLoading() {
   return (
-    <div className="space-y-4" role="status" aria-label="กำลังโหลดคิวอ่านยอด content">
+    <div className="space-y-4" role="status" aria-label="กำลังโหลดคิวกรอกยอด content">
       <div className="space-y-1.5">
         <Skeleton className="h-6 w-40" />
         <Skeleton className="h-4 w-56" />

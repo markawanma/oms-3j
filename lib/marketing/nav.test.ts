@@ -64,3 +64,17 @@ describe("MARKETING_NAV (รายการเมนูที่เดียว)
     for (const m of MARKETING_NAV) expect(m.mobile).not.toBeNull();
   });
 });
+
+describe("คำเมนูคำเดียวทุกที่ (QA ข้อ 7)", () => {
+  it("กรอกยอด · ประวัติยอดโพสต์ · สัญญาณ — ไม่มีชื่อสำรองบนมือถือ/sidebar ที่ต่างจาก label", async () => {
+    const { MARKETING_NAV } = await import("./nav");
+    const by = (href: string) => MARKETING_NAV.find((m) => m.href === href)!;
+    expect(by("/marketing/content/entry").label).toBe("กรอกยอด");
+    expect(by("/marketing/content/history").label).toBe("ประวัติยอดโพสต์");
+    expect(by("/marketing/research").label).toBe("สัญญาณ");
+    for (const h of ["/marketing/content/entry", "/marketing/content/history", "/marketing/research"]) {
+      expect(by(h).mobileLabel, h).toBeUndefined();
+      expect(by(h).sidebarLabel, h).toBeUndefined();
+    }
+  });
+});

@@ -111,11 +111,11 @@ export const TRANSITION_CONFIG: Record<TransitionVariant, TransitionConfig> = {
     successMessage: "ไม่ทำไอเดียนี้แล้ว",
   },
   holdIdea: {
-    title: "เลื่อนไอเดียไปรอบหน้า",
-    description: "ไอเดียนี้จะย้ายไปแท็บ “เลื่อนไว้” แล้วกด “กลับมาคัด” ได้เมื่อพร้อม",
-    confirmLabel: "เลื่อน",
-    reasonLabel: "เหตุผลที่เลื่อน (แก้ได้)",
-    successMessage: "เลื่อนไอเดียไปรอบหน้าแล้ว",
+    title: "พักไอเดียรอเงื่อนไข",
+    description: "ไอเดียนี้จะย้ายไปแท็บ “รอเงื่อนไข” แล้วกด “กลับมาคัด” ได้เมื่อพร้อม",
+    confirmLabel: "พักไว้",
+    reasonLabel: "รออะไรอยู่ (แก้ได้)",
+    successMessage: "พักไอเดียรอเงื่อนไขแล้ว",
     defaultReason: "เลื่อนไปรอบหน้า",
   },
 };

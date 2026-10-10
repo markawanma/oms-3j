@@ -165,12 +165,12 @@ describe("IdeaCard — ไม่ทำ / เลื่อน", () => {
     await waitFor(() => expect(skipIdea).toHaveBeenCalledWith(STEP, "ซ้ำกับคลิปเก่า"));
   });
 
-  it("เลื่อน: เหตุผลตั้งต้น 'เลื่อนไปรอบหน้า' กดยืนยันได้เลย และแก้ได้", async () => {
+  it("พักรอเงื่อนไข: เหตุผลตั้งต้น 'เลื่อนไปรอบหน้า' กดยืนยันได้เลย และแก้ได้", async () => {
     renderCard(piece(), shared());
-    await userEvent.click(screen.getByRole("button", { name: "เลื่อน" }));
+    await userEvent.click(screen.getByRole("button", { name: "พักรอเงื่อนไข" }));
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByRole("textbox")).toHaveValue("เลื่อนไปรอบหน้า");
-    await userEvent.click(within(dialog).getByRole("button", { name: "เลื่อน" }));
+    await userEvent.click(within(dialog).getByRole("button", { name: "พักไว้" }));
     await waitFor(() => expect(holdIdea).toHaveBeenCalledWith(STEP, "เลื่อนไปรอบหน้า"));
   });
 });
@@ -202,7 +202,7 @@ describe("HeldIdeaRow / ChosenRow", () => {
         </ul>
       </ToastProvider>
     );
-    expect(screen.getByText(/เลื่อนไว้เพราะ: รอภาพ/)).toBeInTheDocument();
+    expect(screen.getByText(/รอเงื่อนไข: รอภาพ/)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "กลับมาคัด" }));
     await waitFor(() => expect(resumeIdea).toHaveBeenCalledWith(STEP));
   });

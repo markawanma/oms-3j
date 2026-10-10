@@ -112,7 +112,7 @@ export default async function TriagePage({ searchParams }: { searchParams: Promi
               aria-current={tab === "held" ? "page" : undefined}
               className={`${TAB_CLS} flex-1 justify-center ${tab === "held" ? "bg-white text-primary-700 shadow-sm" : "text-zinc-700 hover:bg-white/60"}`}
             >
-              เลื่อนไว้ <span className="tabular-nums">({groups.held.length})</span>
+              รอเงื่อนไข <span className="tabular-nums">({groups.held.length})</span>
             </Link>
           </div>
 
@@ -128,7 +128,7 @@ export default async function TriagePage({ searchParams }: { searchParams: Promi
                     title="ไม่มีไอเดียรอคัด"
                     description={
                       groups.held.length > 0
-                        ? `มี ${groups.held.length} ไอเดียที่เลื่อนไว้ — เปิดแท็บ “เลื่อนไว้” เพื่อกลับมาคัด`
+                        ? `มี ${groups.held.length} ไอเดียที่รอเงื่อนไข — เปิดแท็บ “รอเงื่อนไข” เพื่อกลับมาคัด`
                         : "ไอเดียใหม่จะเข้ามาเมื่อ AI เสนอหรือเมื่อหยิบจากสัญญาณ"
                     }
                   />
@@ -146,7 +146,7 @@ export default async function TriagePage({ searchParams }: { searchParams: Promi
                   </ul>
                 )
               ) : groups.held.length === 0 ? (
-                <EmptyState icon={Lightbulb} title="ไม่มีไอเดียที่เลื่อนไว้" description="ไอเดียที่กด “เลื่อน” จะมารอที่นี่ แล้วกด “กลับมาคัด” ได้" />
+                <EmptyState icon={Lightbulb} title="ไม่มีไอเดียที่รอเงื่อนไข" description="ไอเดียที่กด “พักรอเงื่อนไข” จะมารอที่นี่ แล้วกด “กลับมาคัด” ได้" />
               ) : (
                 <ul className="space-y-3">
                   {groups.held.map((p) => (

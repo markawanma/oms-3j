@@ -69,7 +69,7 @@ export default async function ContentEntryPage() {
   const [queueResult, typesResult] = await Promise.all([
     getContentEntryQueue().catch((err) => {
       console.error("getContentEntryQueue failed (non-blocking)", err);
-      return { ok: false as const, error: "โหลดคิวอ่านยอดไม่สำเร็จ" };
+      return { ok: false as const, error: "โหลดคิวกรอกยอดไม่สำเร็จ" };
     }),
     getContentTypes().catch((err) => {
       console.error("getContentTypes failed (non-blocking)", err);
@@ -80,7 +80,7 @@ export default async function ContentEntryPage() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-lg font-bold text-zinc-900">อ่านยอด content</h1>
+        <h1 className="text-lg font-bold text-zinc-900">กรอกยอด</h1>
         <p className="text-sm text-zinc-500">{HEADER_DATE_FMT.format(new Date())}</p>
       </div>
 
