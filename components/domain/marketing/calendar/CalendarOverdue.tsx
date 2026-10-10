@@ -14,20 +14,25 @@ import { advancePiece, deferPiece } from "@/lib/actions/content-pieces";
 import { formatThaiDay } from "@/lib/marketing/format";
 import { pieceStatusLabel } from "@/lib/marketing/piece-labels";
 import { canDeferPiece } from "@/components/domain/marketing/calendar/CalendarPieceCard";
+import { OVERDUE_FETCH_LIMIT } from "@/lib/marketing/calendar-types";
 import type { PieceRow } from "@/lib/marketing/piece-types";
 
 const SHOW = 3;
 
+const ALL_LINK = "/marketing/pieces";
+
 function Items({
   pieces,
+  showAll,
   onDefer,
   onCancel,
 }: {
   pieces: PieceRow[];
+  showAll: boolean;
   onDefer: (p: PieceRow) => void;
   onCancel: (p: PieceRow) => void;
 }) {
-  const shown = pieces.slice(0, SHOW);
+  const shown = showAll ? pieces : pieces.slice(0, SHOW);
   return (
     <>
       <ul className="mt-2 space-y-2">
@@ -53,26 +58,41 @@ function Items({
         ))}
       </ul>
       {pieces.length > shown.length && (
-        <p className="mt-2 text-xs">และอีก {pieces.length - shown.length} ชิ้น — ดูได้ที่มุมมอง “รายการ” (กลุ่มค้างจากก่อนหน้า)</p>
+        <p className="mt-2 text-xs">
+          และอีก {pieces.length - shown.length} ชิ้น —{" "}
+          <Link href={ALL_LINK} className="inline-flex min-h-11 items-center font-semibold underline">
+            ดูทั้งหมดที่ชิ้นงานทั้งหมด
+          </Link>
+        </p>
+      )}
+      {/* ถึงเพดานที่ action ส่งมา = อาจมีมากกว่านี้ — ไม่ตัดเงียบ */}
+      {showAll && pieces.length >= OVERDUE_FETCH_LIMIT && (
+        <p className="mt-2 text-xs">
+          แสดง {pieces.length} ชิ้นล่าสุด — อาจมีมากกว่านี้{" "}
+          <Link href={ALL_LINK} className="inline-flex min-h-11 items-center font-semibold underline">
+            ดูทั้งหมดที่ชิ้นงานทั้งหมด
+          </Link>
+        </p>
       )}
     </>
   );
 }
 
-export function CalendarOverdue({ pieces, todayTh }: { pieces: PieceRow[]; todayTh: string }) {
+/** showAll = มุมมองรายการ: แสดงครบทุกชิ้นที่โหลดมา (ไม่ย่อเหลือ 3) */
+export function CalendarOverdue({ pieces, todayTh, showAll = false }: { pieces: PieceRow[]; todayTh: string; showAll?: boolean }) {
   const [defer, setDefer] = useState<PieceRow | null>(null);
   const [cancel, setCancel] = useState<PieceRow | null>(null);
   if (pieces.length === 0) return null;
 
   return (
-    <div role="status" className="rounded-md border border-amber-200 bg-amber-50 text-sm text-amber-900">
+    <div className="rounded-md border border-amber-200 bg-amber-50 text-sm text-amber-900">
       {/* PC: รายการเต็ม */}
       <div className="hidden p-3 lg:block">
         <p className="flex items-center gap-2 font-semibold">
           <AlertTriangle className="h-4 w-4 shrink-0" aria-hidden="true" />
           ค้างจากก่อนหน้า ({pieces.length})
         </p>
-        <Items pieces={pieces} onDefer={setDefer} onCancel={setCancel} />
+        <Items pieces={pieces} showAll={showAll} onDefer={setDefer} onCancel={setCancel} />
       </div>
       {/* มือถือ/แท็บเล็ต: พับเหลือบรรทัดเดียว */}
       <details className="lg:hidden">
@@ -82,7 +102,7 @@ export function CalendarOverdue({ pieces, todayTh }: { pieces: PieceRow[]; today
           <span aria-hidden="true">▸</span>
         </summary>
         <div className="px-3 pb-3">
-          <Items pieces={pieces} onDefer={setDefer} onCancel={setCancel} />
+          <Items pieces={pieces} showAll={showAll} onDefer={setDefer} onCancel={setCancel} />
         </div>
       </details>
 

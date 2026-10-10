@@ -126,7 +126,7 @@ export default async function MarketingCalendarPage({
       )}
       {view === "list" && (
         <>
-          {d.overdue.ok && d.overdue.data.length > 0 && <CalendarOverdue pieces={d.overdue.data} todayTh={todayTh} />}
+          {d.overdue.ok && d.overdue.data.length > 0 && <CalendarOverdue pieces={d.overdue.data} todayTh={todayTh} showAll />}
           <ListView anchor={anchor} pieces={pieces} festivals={festivals} contentTypes={contentTypes} todayTh={todayTh} />
         </>
       )}

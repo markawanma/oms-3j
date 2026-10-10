@@ -20,6 +20,9 @@ export interface LegacyStep {
   stepOrigin: string | null;
 }
 
+/** จำนวนสูงสุดของกลุ่ม "ค้างจากก่อนหน้า" ที่ action ส่งมา — ถึงเท่านี้ = อาจมีเกิน (ลิงก์ไปชิ้นงานทั้งหมด) */
+export const OVERDUE_FETCH_LIMIT = 12;
+
 export interface CalendarData {
   from: string;
   to: string;

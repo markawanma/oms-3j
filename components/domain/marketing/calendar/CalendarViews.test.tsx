@@ -229,6 +229,39 @@ describe("CalendarOverdue", () => {
   });
 });
 
+describe("CalendarOverdue — code review ข้อ 8", () => {
+  const many = (n: number) => Array.from({ length: n }, (_, i) => piece({ title: `ค้างชิ้น${i + 1}`, resolved_start: "2026-10-04", step_id: `00000000-0000-4000-8000-${String(i).padStart(12, "0")}` }));
+  const pc = (container: HTMLElement) => container.querySelector('[class~="lg:block"]') as HTMLElement; // ชุด PC (รายการเต็ม)
+
+  it("มุมมองปกติ: แสดง 3 ชิ้น + 'และอีก n ชิ้น' เป็นลิงก์ไปชิ้นงานทั้งหมด", () => {
+    const { container } = wrap(<CalendarOverdue pieces={many(5)} todayTh={TODAY} />);
+    const desk = pc(container);
+    expect(within(desk).getAllByRole("listitem")).toHaveLength(3);
+    expect(within(desk).getByText(/และอีก 2 ชิ้น/)).toBeInTheDocument();
+    expect(within(desk).getByRole("link", { name: "ดูทั้งหมดที่ชิ้นงานทั้งหมด" })).toHaveAttribute("href", "/marketing/pieces");
+  });
+
+  it("มุมมองรายการ (showAll): แสดงครบทุกชิ้นที่โหลด ไม่มี 'และอีก n ชิ้น'", () => {
+    const { container } = wrap(<CalendarOverdue pieces={many(5)} todayTh={TODAY} showAll />);
+    const desk = pc(container);
+    expect(within(desk).getAllByRole("listitem")).toHaveLength(5);
+    expect(within(desk).queryByText(/และอีก/)).not.toBeInTheDocument();
+  });
+
+  it("showAll แต่ถึงเพดานที่ action ส่งมา (12) → บอกว่าอาจมีมากกว่า + ลิงก์ (ไม่ตัดเงียบ)", () => {
+    const { container } = wrap(<CalendarOverdue pieces={many(12)} todayTh={TODAY} showAll />);
+    expect(within(pc(container)).getByText(/อาจมีมากกว่านี้/)).toBeInTheDocument();
+    cleanup();
+    const { container: c2 } = wrap(<CalendarOverdue pieces={many(11)} todayTh={TODAY} showAll />);
+    expect(within(pc(c2)).queryByText(/อาจมีมากกว่านี้/)).not.toBeInTheDocument();
+  });
+
+  it("กล่องที่มีปุ่มไม่ใช่ live region (ไม่มี role=status)", () => {
+    const { container } = wrap(<CalendarOverdue pieces={many(1)} todayTh={TODAY} />);
+    expect(container.querySelector('[role="status"]')).toBeNull();
+  });
+});
+
 describe("CalendarToolbar", () => {
   const options = { campaigns: [{ value: "c1", label: "ปิดเดือน" }], channels: [{ value: "tiktok", label: "TikTok" }], statuses: [], types: [] };
   it("‹ › วันนี้ เป็นลิงก์คง view/filter · มุมมองมี aria-current · ปุ่มเพิ่มชิ้นงาน", () => {

@@ -15,6 +15,7 @@ import { STEP_KIND_LABEL } from "@/lib/marketing/campaign-types";
 import { MAX_CALENDAR_YEAR, MAX_RANGE_DAYS, MIN_CALENDAR_YEAR, daysInclusive, festivalSpansInRange, isCalendarDate, isRealDate } from "@/lib/marketing/calendar-view";
 import { effectiveDateBangkok } from "@/lib/tiktok/format";
 import type { FestivalSpan } from "@/lib/marketing/calendar-view";
+import { OVERDUE_FETCH_LIMIT } from "@/lib/marketing/calendar-types";
 import type { CalendarData, LegacyStep } from "@/lib/marketing/calendar-types";
 import { PIECE_LIGHT_COLUMNS, mapPieceRow } from "@/lib/marketing/piece-types";
 import type { LineQuota, Part, PieceRow } from "@/lib/marketing/piece-types";
@@ -26,7 +27,7 @@ import type { PieceResult } from "@/lib/marketing/piece-server";
 
 const PIECE_LIMIT = 300;
 const LEGACY_LIMIT = 300;
-const OVERDUE_LIMIT = 12;
+const OVERDUE_LIMIT = OVERDUE_FETCH_LIMIT;
 const CALENDAR_FLAGS = "flag_needs_shoot, flag_on_hold, flag_confirm_pending, flag_no_link_overdue, active_post_n";
 const UNFINISHED = ["planned", "drafting", "in_review", "approved", "produced"];
 
