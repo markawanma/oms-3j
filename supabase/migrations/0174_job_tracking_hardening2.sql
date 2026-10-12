@@ -1,4 +1,5 @@
 -- 0174_job_tracking_hardening2.sql — แก้ J1 รอบ 2 ตาม security รอบ 2 (N1-N4 + งบ atomic) + QA (N1 N3) · Tech Lead ตัดสินแล้วทุกข้อ
+-- ✅ APPLIED 12 ต.ค. 69 ผ่าน node scripts/run-sql.mjs --commit --record (version 20261012123138 · name 0174_job_tracking_hardening2) — ห้าม apply ซ้ำ (บรรทัดนี้เพิ่มหลัง apply เป็นคอมเมนต์ล้วน)
 -- ต่อจาก 0172/0173 (apply แล้ว แก้ไฟล์เดิมไม่ได้) — ตารางใหม่ 0 · คอลัมน์ใหม่ 0 · แทนที่ฟังก์ชัน job_*/worker_* ที่ระบุ + เพิ่มคอลัมน์ต่อท้าย view · ไม่แตะ oem_*/production_*
 --
 -- N1  ผู้รับงานทองต้องชั่งแบบไม่รู้คำตอบ: job_worker_resolve งานทอง prev_weight_out_g = null · handoff_mismatch ไม่บอกขนาดส่วนต่าง/น้ำหนักขั้นก่อน (ไม่คืน gap_g) ·
