@@ -6,6 +6,7 @@ import type { OemDepositMode } from "@/lib/oem/types";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { QuoteDetailClient } from "@/components/domain/oem/QuoteDetailClient";
+import { JobCreatePanel } from "@/components/domain/jobs/JobCreatePanel";
 
 export const dynamic = "force-dynamic";
 
@@ -77,15 +78,21 @@ export default async function OemQuoteDetailPage({ params }: { params: Promise<{
     }
   }
 
+  // J1: ใบงานผลิตต่อรายการ — แสดงเฉพาะดีลที่ won (ส่วนแยก ไม่แตะ logic ของหน้านี้)
+  const jobItems = itemsResult.data.map((it) => ({ id: it.id, label: it.productNameSnapshot ?? it.skuSnapshot ?? `รายการที่ ${it.seq}` }));
+
   return (
-    <QuoteDetailClient
-      quote={quoteResult.data}
-      items={itemsResult.data}
-      provinces={provinces}
-      sellerProfile={sellerProfile}
-      parentDeposit={parentDeposit}
-      receipts={receipts}
-      approvalGates={gatesResult.ok ? gatesResult.data : []}
-    />
+    <>
+      <QuoteDetailClient
+        quote={quoteResult.data}
+        items={itemsResult.data}
+        provinces={provinces}
+        sellerProfile={sellerProfile}
+        parentDeposit={parentDeposit}
+        receipts={receipts}
+        approvalGates={gatesResult.ok ? gatesResult.data : []}
+      />
+      {quoteResult.data.status === "won" && <JobCreatePanel kind="oem" items={jobItems} />}
+    </>
   );
 }
