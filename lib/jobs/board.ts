@@ -6,6 +6,8 @@ import { addDays } from "@/lib/jobs/dates";
 import type { BoardRow, StageDef } from "@/lib/jobs/types";
 
 export const NO_STAGE = "__none__";
+/** 0173: ส่งต่อ/ข้ามครบทุกขั้นแล้วแต่ออฟฟิศยังไม่ปิดงาน — DB ตัดสินใน v_job_board.board_column */
+export const AWAITING_CLOSE = "awaiting_close";
 
 export interface BoardFilters {
   metal: string;
@@ -28,15 +30,25 @@ export interface BoardColumn {
   rows: BoardRow[];
 }
 
-/** คอลัมน์ = ขั้นที่ใช้งาน (เรียงตามลำดับมาตรฐาน) + "ยังไม่เริ่ม" สำหรับใบที่ยังไม่มีขั้นปัจจุบัน — ขั้นที่ไม่มีใบงานก็แสดง (เห็นภาพรวมสายผลิต) */
+/** คอลัมน์ที่ใบนี้ควรอยู่ — ยึด board_column ของ DB (0173) · ไม่มีค่า/ไม่รู้จัก: ครบทุกขั้นแล้วแต่ไม่มีขั้นปัจจุบัน = รอปิดงาน (กันกรณีข้อมูลเก่า) ไม่งั้น "ยังไม่เริ่ม" */
+export function columnOf(r: BoardRow, known: ReadonlySet<string>): string {
+  const bc = r.boardColumn ?? r.stageCode;
+  if (bc === AWAITING_CLOSE) return AWAITING_CLOSE;
+  if (bc && known.has(bc)) return bc;
+  if (!r.stageCode && r.stageCount > 0 && r.stageDoneCount >= r.stageCount) return AWAITING_CLOSE;
+  return NO_STAGE;
+}
+
+/** คอลัมน์ = "ยังไม่เริ่ม" (ข้อมูลที่ไม่มีขั้น) + ขั้นที่ใช้งาน (เรียงตามลำดับมาตรฐาน) + "รอปิดงาน" ท้ายสุด — ขั้นที่ไม่มีใบงานก็แสดง (เห็นภาพรวมสายผลิต) */
 export function groupByStage(rows: readonly BoardRow[], defs: readonly StageDef[]): BoardColumn[] {
   const known = new Set(defs.map((d) => d.code));
-  const cols: BoardColumn[] = [{ code: NO_STAGE, name: "ยังไม่เริ่ม", rows: [] }, ...defs.map((d) => ({ code: d.code, name: d.nameTh, rows: [] as BoardRow[] }))];
+  const cols: BoardColumn[] = [
+    { code: NO_STAGE, name: "ยังไม่เริ่ม", rows: [] },
+    ...defs.map((d) => ({ code: d.code, name: d.nameTh, rows: [] as BoardRow[] })),
+    { code: AWAITING_CLOSE, name: "รอปิดงาน", rows: [] },
+  ];
   const by = new Map(cols.map((c) => [c.code, c]));
-  for (const r of rows) {
-    const code = r.stageCode && known.has(r.stageCode) ? r.stageCode : NO_STAGE;
-    by.get(code)!.rows.push(r);
-  }
+  for (const r of rows) by.get(columnOf(r, known))!.rows.push(r);
   for (const c of cols) c.rows.sort(compareCards);
   return cols;
 }
@@ -83,6 +95,7 @@ export function cardBadges(r: BoardRow): CardBadge[] {
   if (r.status === "on_hold") out.push({ key: "hold", label: "พักไว้", tone: "amber" });
   if (r.depositMissing && r.status !== "done") out.push({ key: "deposit", label: r.startGateNotePresent ? "ยังไม่มีมัดจำ (เริ่มก่อนด้วยเหตุผล)" : "ยังไม่มีมัดจำ", tone: "amber" });
   if (r.isStale) out.push({ key: "stale", label: "ไม่มีความเคลื่อนไหวเกิน 3 วัน", tone: "amber" });
+  if (r.handoffGapG !== null && r.handoffGapG > 0) out.push({ key: "handoff", label: `ส่วนต่างส่งมอบ ${Math.round(r.handoffGapG * 1000) / 1000} g`, tone: "amber" });
   if (r.hasAutoClosed) out.push({ key: "auto", label: "มีขั้นที่ปิดให้อัตโนมัติ", tone: "gray" });
   if (r.quoteQtyMismatch) out.push({ key: "qty", label: `จำนวนไม่ตรงใบเสนอราคา${r.quoteItemQty !== null ? ` (${r.quoteItemQty})` : ""}`, tone: "blue" });
   return out;

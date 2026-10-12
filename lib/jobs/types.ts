@@ -79,7 +79,7 @@ export const BOARD_COLUMNS = [
   "id", "job_no", "seq", "source_kind", "source_ref", "design_label", "sku_snapshot", "metal", "qty_planned", "status", "due_date",
   "current_stage_code", "current_stage_name", "current_stage_status", "holder_name", "days_in_stage", "is_overdue", "last_event_at",
   "last_scan_at", "is_stale", "stage_count", "stage_done_count", "has_auto_closed", "deposit_missing", "start_gate_note_present",
-  "quote_qty_mismatch", "quote_item_qty", "created_at",
+  "quote_qty_mismatch", "quote_item_qty", "created_at", "board_column", "handoff_gap_g",
 ].join(", ");
 
 export interface BoardRow {
@@ -111,6 +111,10 @@ export interface BoardRow {
   quoteQtyMismatch: boolean;
   quoteItemQty: number | null;
   createdAt: string | null;
+  /** 0173: คอลัมน์บอร์ดที่ DB ตัดสิน — รหัสขั้นปัจจุบัน | 'awaiting_close' (ส่งต่อ/ข้ามครบแล้วรอปิดงาน) | done | cancelled */
+  boardColumn: string | null;
+  /** 0173: ส่วนต่างส่งมอบสูงสุด (ค่าสัมบูรณ์ กรัม) ระหว่างน้ำหนักออกของขั้นก่อนกับน้ำหนักเข้าของขั้นถัดไป — null = ไม่มีคู่น้ำหนัก */
+  handoffGapG: number | null;
 }
 
 export function mapBoardRow(r: Record<string, unknown>): BoardRow | null {
@@ -146,6 +150,8 @@ export function mapBoardRow(r: Record<string, unknown>): BoardRow | null {
     quoteQtyMismatch: bool(r.quote_qty_mismatch),
     quoteItemQty: num(r.quote_item_qty),
     createdAt: str(r.created_at),
+    boardColumn: str(r.board_column),
+    handoffGapG: num(r.handoff_gap_g),
   };
 }
 
@@ -211,6 +217,8 @@ export function mapStageRow(r: Record<string, unknown>, names: Record<string, st
 
 /** น้ำหนักหายของขั้น (g) = เข้า + เติม − ออก − เศษที่เก็บได้ — ค่าตัดสินจริงอยู่ที่ v_job_stage_loss · ที่นี่แสดงผลจากตัวเลขของ DB เท่านั้น (null = ชั่งไม่ครบ) */
 export interface StageLoss {
+  /** 0173: น้ำหนักที่ขั้นนี้รับ - น้ำหนักที่ขั้นก่อนส่งออก (เซ็นได้ + รับมากกว่า) — null = ไม่มีคู่น้ำหนัก */
+  handoffGapG: number | null;
   lossG: number | null;
   lossPct: number | null;
   warn: boolean;
@@ -220,7 +228,7 @@ export interface StageLoss {
 export function mapLossRow(r: Record<string, unknown>): { stageId: string; loss: StageLoss } | null {
   const id = str(r.job_stage_id);
   if (!id) return null;
-  return { stageId: id, loss: { lossG: num(r.loss_g), lossPct: num(r.loss_pct), warn: bool(r.warn), notWeighed: bool(r.not_weighed) } };
+  return { stageId: id, loss: { handoffGapG: num(r.handoff_gap_g), lossG: num(r.loss_g), lossPct: num(r.loss_pct), warn: bool(r.warn), notWeighed: bool(r.not_weighed) } };
 }
 
 // ---------------------------------------------------------------------------

@@ -4,13 +4,13 @@
 //    reproduce จริง: JB-0001 (QA) ช่างส่งต่อครบ 8 ขั้น → การ์ดอยู่คอลัมน์ "ยังไม่เริ่ม" แสดง "ขั้น 8/8"
 //    it.fails จะผ่านตราบที่บั๊กยังอยู่ — แก้แล้วให้ลบ .fails
 import { describe, expect, it } from "vitest";
-import { NO_STAGE, groupByStage } from "@/lib/jobs/board";
+import { AWAITING_CLOSE, NO_STAGE, cardBadges, groupByStage } from "@/lib/jobs/board";
 import type { BoardRow, StageDef } from "@/lib/jobs/types";
 
 const row = (o: Partial<BoardRow> = {}): BoardRow => ({
   id: "i", jobNo: "JB-0001", seq: 1, sourceKind: "oem", sourceRef: null, designLabel: "แหวน", sku: null, metal: "silver", qtyPlanned: 5, status: "in_progress",
   dueDate: null, stageCode: null, stageName: null, stageStatus: null, holderName: null, daysInStage: null, isOverdue: false, lastEventAt: null, lastScanAt: null,
-  isStale: false, stageCount: 8, stageDoneCount: 0, hasAutoClosed: false, depositMissing: false, startGateNotePresent: false, quoteQtyMismatch: false, quoteItemQty: null, createdAt: null,
+  isStale: false, stageCount: 8, stageDoneCount: 0, hasAutoClosed: false, depositMissing: false, startGateNotePresent: false, quoteQtyMismatch: false, quoteItemQty: null, createdAt: null, boardColumn: null, handoffGapG: null,
   ...o,
 });
 const DEFS: StageDef[] = [{ code: "cast", nameTh: "หล่อ", seq: 7 }];
@@ -20,8 +20,24 @@ describe("groupByStage — ใบที่ครบทุกขั้นแต�
     const cols = groupByStage([row({ id: "new", stageDoneCount: 0 })], DEFS);
     expect(cols.find((c) => c.code === NO_STAGE)!.rows.map((r) => r.id)).toEqual(["new"]);
   });
-  it.fails("BUG-J1-02: ใบที่ทำครบ 8/8 ต้องไม่ถูกจัดเป็น 'ยังไม่เริ่ม'", () => {
-    const cols = groupByStage([row({ id: "alldone", stageCount: 8, stageDoneCount: 8 })], DEFS);
+  it("BUG-J1-02 (แก้แล้ว 12 ต.ค. ด้วย board_column ของ 0173): ใบที่ทำครบ 8/8 ไปคอลัมน์ 'รอปิดงาน' ไม่ใช่ 'ยังไม่เริ่ม'", () => {
+    const cols = groupByStage([row({ id: "alldone", stageCount: 8, stageDoneCount: 8, boardColumn: "awaiting_close" })], DEFS);
     expect(cols.find((c) => c.code === NO_STAGE)!.rows.map((r) => r.id)).not.toContain("alldone");
+    expect(cols.find((c) => c.code === AWAITING_CLOSE)!.rows.map((r) => r.id)).toEqual(["alldone"]);
+    expect(cols.at(-1)!.name).toBe("รอปิดงาน");
+  });
+  it("ข้อมูลเก่าไม่มี board_column แต่ครบทุกขั้นและไม่มีขั้นปัจจุบัน → รอปิดงานเช่นกัน (ป้องกันไว้ก่อน)", () => {
+    const cols = groupByStage([row({ id: "old", stageCount: 8, stageDoneCount: 8, boardColumn: null, stageCode: null })], DEFS);
+    expect(cols.find((c) => c.code === AWAITING_CLOSE)!.rows.map((r) => r.id)).toEqual(["old"]);
+  });
+  it("ใบที่ board_column = รหัสขั้นปัจจุบัน → คอลัมน์ของขั้นนั้น · รหัสที่ไม่รู้จัก → ยังไม่เริ่ม", () => {
+    const cols = groupByStage([row({ id: "a", boardColumn: "cast", stageCode: "cast" }), row({ id: "b", boardColumn: "mystery", stageCode: "mystery" })], DEFS);
+    expect(cols.find((c) => c.code === "cast")!.rows.map((r) => r.id)).toEqual(["a"]);
+    expect(cols.find((c) => c.code === NO_STAGE)!.rows.map((r) => r.id)).toEqual(["b"]);
+  });
+  it("ส่วนต่างส่งมอบ (handoff_gap_g) > 0 ขึ้นป้ายบนการ์ด · 0/null ไม่ขึ้น", () => {
+    expect(cardBadges(row({ handoffGapG: 0.37 })).map((b) => b.label)).toContain("ส่วนต่างส่งมอบ 0.37 g");
+    expect(cardBadges(row({ handoffGapG: 0 })).map((b) => b.key)).not.toContain("handoff");
+    expect(cardBadges(row({ handoffGapG: null })).map((b) => b.key)).not.toContain("handoff");
   });
 });

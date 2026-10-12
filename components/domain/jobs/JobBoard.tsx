@@ -119,7 +119,7 @@ export function JobBoard({ initial }: { initial: BoardData }) {
         <div className="ml-auto flex items-center gap-2">
           <div role="group" aria-label="มุมมอง" className="hidden rounded-md border border-zinc-300 bg-white p-0.5 lg:flex">
             {([["board", "บอร์ด", LayoutGrid], ["list", "รายการ", List]] as const).map(([k, label, Icon]) => (
-              <button key={k} type="button" aria-pressed={mode === k} onClick={() => setMode(k)} className={`inline-flex min-h-10 items-center gap-1.5 rounded px-3 text-sm font-medium ${mode === k ? "bg-primary-100 text-primary-800" : "text-zinc-800 hover:bg-zinc-100"}`}>
+              <button key={k} type="button" aria-pressed={mode === k} onClick={() => setMode(k)} className={`inline-flex min-h-11 items-center gap-1.5 rounded px-3 text-sm font-medium ${mode === k ? "bg-primary-100 text-primary-800" : "text-zinc-800 hover:bg-zinc-100"}`}>
                 <Icon className="h-4 w-4" aria-hidden="true" />
                 {label}
               </button>
@@ -162,9 +162,9 @@ export function JobBoard({ initial }: { initial: BoardData }) {
               {columns
                 .filter((c) => c.code !== NO_STAGE || c.rows.length > 0)
                 .map((c) => (
-                  <div key={c.code} className="w-64 shrink-0 rounded-lg bg-zinc-100 p-2">
-                    <h3 className="mb-2 flex items-center justify-between px-1 text-sm font-bold text-zinc-900">
-                      {c.name}
+                  <div key={c.code} className="w-72 min-w-72 shrink-0 rounded-lg bg-zinc-100 p-2">
+                    <h3 className="mb-2 flex items-center justify-between gap-2 px-1 text-sm font-bold text-zinc-900">
+                      <span className="min-w-0 break-words">{c.name}</span>
                       <span className="rounded-full bg-white px-2 text-xs tabular-nums">{c.rows.length}</span>
                     </h3>
                     <ul className="space-y-2">{c.rows.map((r) => <JobCard key={r.id} row={r} />)}</ul>

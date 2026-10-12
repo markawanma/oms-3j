@@ -17,7 +17,7 @@ const TONE: Record<BadgeTone, string> = {
   gray: "border-zinc-300 bg-zinc-50 text-zinc-800",
   blue: "border-sky-300 bg-sky-50 text-sky-900",
 };
-const ICON: Record<string, typeof Info> = { overdue: AlertTriangle, hold: PauseCircle, deposit: CircleDashed, stale: Clock, auto: Info, qty: Info };
+const ICON: Record<string, typeof Info> = { overdue: AlertTriangle, hold: PauseCircle, deposit: CircleDashed, stale: Clock, auto: Info, qty: Info, handoff: AlertTriangle };
 
 export function JobCard({ row }: { row: BoardRow }) {
   const badges = cardBadges(row);

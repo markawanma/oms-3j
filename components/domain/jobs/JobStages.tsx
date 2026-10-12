@@ -13,7 +13,10 @@ const g = (n: number | null) => (n === null ? "—" : `${n.toLocaleString("th-TH
 
 function LossCell({ s, loss }: { s: StageRow; loss: StageLoss | undefined }) {
   if (s.status !== "sent") return <span className="text-zinc-600">—</span>;
-  if (!loss || loss.notWeighed || loss.lossG === null) return <span className="font-medium text-amber-900">ชั่งไม่ครบ</span>;
+  if (!loss || loss.notWeighed || loss.lossG === null) {
+    // ขั้นที่ไม่บังคับชั่งไม่ได้ชั่ง = ปกติ ไม่ใช่ความผิดพลาด (เตือน "ชั่งไม่ครบ" เฉพาะขั้นที่บังคับชั่ง)
+    return s.weighRequired ? <span className="font-medium text-amber-900">ชั่งไม่ครบ</span> : <span className="text-zinc-600">ไม่ได้ชั่ง (ไม่บังคับ)</span>;
+  }
   return (
     <span className={`inline-flex items-center gap-1 tabular-nums ${loss.warn ? "font-bold text-red-800" : "text-zinc-900"}`}>
       {loss.warn && <AlertTriangle className="h-3.5 w-3.5" aria-hidden="true" />}
@@ -49,8 +52,8 @@ export function StageTable({
           <li key={s.id} className={`rounded-lg border bg-white p-3 ${actionable ? "border-primary-600 ring-1 ring-primary-600" : "border-zinc-200"}`}>
             <div className="flex flex-wrap items-baseline justify-between gap-2">
               <p className="text-base font-semibold text-zinc-900">
-                {s.seq}. {s.name}
-                {s.weighRequired && <span className="ml-2 text-xs font-medium text-zinc-700">(ต้องชั่ง)</span>}
+                {s.seq}. {s.name}{" "}
+                {s.weighRequired && <span className="ml-1 rounded bg-zinc-100 px-1.5 py-0.5 text-xs font-medium text-zinc-800">ต้องชั่ง</span>}
               </p>
               <span className="text-sm font-medium text-zinc-800">{STAGE_STATUS_LABEL[s.status] ?? s.status}</span>
             </div>
@@ -63,6 +66,12 @@ export function StageTable({
                 {s.metalAddedG > 0 && <div><dt className="text-xs text-zinc-600">เติมโลหะ</dt><dd className="tabular-nums">{g(s.metalAddedG)}{s.weightNote ? ` · ${s.weightNote}` : ""}</dd></div>}
                 {s.qtyScrap > 0 && <div><dt className="text-xs text-zinc-600">เหตุผลของเสีย</dt><dd>{SCRAP_REASON_LABEL[s.scrapReason ?? ""] ?? s.scrapReason ?? "—"}</dd></div>}
                 <div><dt className="text-xs text-zinc-600">น้ำหนักหาย</dt><dd><LossCell s={s} loss={loss[s.id]} /></dd></div>
+                {loss[s.id]?.handoffGapG != null && loss[s.id].handoffGapG !== 0 && (
+                  <div>
+                    <dt className="text-xs text-zinc-600">ส่วนต่างส่งมอบจากขั้นก่อน</dt>
+                    <dd className="font-medium text-amber-900 tabular-nums">{loss[s.id].handoffGapG! > 0 ? "+" : "−"}{Math.abs(loss[s.id].handoffGapG!).toLocaleString("th-TH", { maximumFractionDigits: 3 })} g</dd>
+                  </div>
+                )}
               </dl>
             )}
             {s.autoClosed && <p className="mt-1 text-xs font-medium text-zinc-700">ขั้นนี้ถูกปิดให้อัตโนมัติ (คนส่งไม่ได้กดส่งต่อ) — น้ำหนักออกอาจว่าง</p>}

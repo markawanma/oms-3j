@@ -7,7 +7,7 @@ import type { BoardRow, StageDef } from "./types";
 const row = (o: Partial<BoardRow> = {}): BoardRow => ({
   id: "i", jobNo: "JB-0001", seq: 1, sourceKind: "production", sourceRef: null, designLabel: "แหวน", sku: null, metal: "silver", qtyPlanned: 5, status: "in_progress", dueDate: null,
   stageCode: "cast", stageName: "หล่อ", stageStatus: "received", holderName: "ช่างเอ", daysInStage: 1, isOverdue: false, lastEventAt: null, lastScanAt: null, isStale: false,
-  stageCount: 5, stageDoneCount: 1, hasAutoClosed: false, depositMissing: false, startGateNotePresent: false, quoteQtyMismatch: false, quoteItemQty: null, createdAt: null, ...o,
+  stageCount: 5, stageDoneCount: 1, hasAutoClosed: false, depositMissing: false, startGateNotePresent: false, quoteQtyMismatch: false, quoteItemQty: null, createdAt: null, boardColumn: null, handoffGapG: null, ...o,
 });
 const DEFS: StageDef[] = [
   { code: "cast", nameTh: "หล่อ", seq: 7 },
@@ -17,7 +17,7 @@ const DEFS: StageDef[] = [
 describe("groupByStage", () => {
   it("คอลัมน์ ยังไม่เริ่ม + ทุกขั้นที่ใช้งาน (แม้ไม่มีใบ) · ใบที่ขั้นปัจจุบันไม่รู้จัก/ว่าง → ยังไม่เริ่ม", () => {
     const cols = groupByStage([row({ id: "a" }), row({ id: "b", stageCode: null }), row({ id: "c", stageCode: "ghost" }), row({ id: "d", stageCode: "polish" })], DEFS);
-    expect(cols.map((c) => c.code)).toEqual([NO_STAGE, "cast", "polish"]);
+    expect(cols.map((c) => c.code)).toEqual([NO_STAGE, "cast", "polish", "awaiting_close"]);
     expect(cols[0].rows.map((r) => r.id).sort()).toEqual(["b", "c"]);
     expect(cols[1].rows.map((r) => r.id)).toEqual(["a"]);
     expect(cols[2].rows.map((r) => r.id)).toEqual(["d"]);
