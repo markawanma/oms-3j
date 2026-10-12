@@ -245,7 +245,7 @@ describe("พิมพ์ QR — token ดิบไม่ออกจากฝ�
 describe("กรอกแทน รับ/ส่ง", () => {
   const recv = { jobId: JOB, expectedSeq: 2, occurredOn: "2026-10-12", weightIn: "10.5", workerId: WORKER, assigneeName: null };
   it("รับ: วันที่ย้อนได้ ≤14 วัน ไม่อนาคต · ต้องระบุผู้รับ · น้ำหนักถูกต้อง", async () => {
-    for (const b of [{ occurredOn: "2026-10-13" }, { occurredOn: "2026-09-27" }, { occurredOn: "x" }, { weightIn: "-1" }, { weightIn: "0" }, { workerId: null, assigneeName: null }, { workerId: "bad" }, { expectedSeq: 0 }, { assigneeName: "ก".repeat(61), workerId: null }]) {
+    for (const b of [{ occurredOn: "2026-10-13" }, { occurredOn: "2026-09-27" }, { occurredOn: "x" }, { weightIn: "-1" }, { weightIn: "0" }, { workerId: null, assigneeName: null }, { workerId: "bad" }, { expectedSeq: 0 }, { assigneeName: "ก".repeat(61), workerId: null }, { assigneeName: "ช่าง<b>", workerId: null }, { assigneeName: "a>b", workerId: null }]) {
       expect((await officeReceiveStage({ ...recv, ...b } as never)).ok, JSON.stringify(b)).toBe(false);
     }
     expect(rpcMock).not.toHaveBeenCalled();
@@ -301,19 +301,21 @@ describe("ทะเบียนช่าง — PIN", () => {
     expect(await saveWorker({ displayName: "ช่างเอ", stageCodes: ["cast"] })).toEqual({ ok: true, data: { id: WORKER, pin: "4831" } });
     expect(lastRpc()[1]).toMatchObject({ p_id: null, p_display_name: "ช่างเอ", p_stage_codes: ["cast"], p_pin: null });
     rpcMock.mockResolvedValue({ data: { id: WORKER, pin: null, pin_generated: false }, error: null });
-    expect(await saveWorker({ displayName: "ช่างบี", stageCodes: [], pin: "7391" })).toEqual({ ok: true, data: { id: WORKER, pin: null } });
+    expect(await saveWorker({ displayName: "ช่างบี", stageCodes: ["cast"], pin: "7391" })).toEqual({ ok: true, data: { id: WORKER, pin: null } });
     expect(lastRpc()[1].p_pin).toBe("7391");
   });
   it("ห้ามผ่าน: ชื่อว่าง/ยาว · PIN ไม่ใช่ 4 หลัก · แก้ช่างเดิมพร้อม PIN · id ผิด · รหัสขั้นผิด", async () => {
-    for (const b of [{ displayName: " " }, { displayName: "ก".repeat(61) }, { pin: "123" }, { pin: "12345" }, { pin: "abcd" }, { stageCodes: ["Bad Code"] }, { id: "x" }]) {
-      expect((await saveWorker({ displayName: "ช่าง", stageCodes: [], ...b } as never)).ok, JSON.stringify(b)).toBe(false);
+    for (const b of [{ displayName: " " }, { displayName: "ก".repeat(61) }, { pin: "123" }, { pin: "12345" }, { pin: "abcd" }, { stageCodes: ["Bad Code"] }, { stageCodes: [] }, { id: "x" }]) {
+      expect((await saveWorker({ displayName: "ช่าง", stageCodes: ["cast"], ...b } as never)).ok, JSON.stringify(b)).toBe(false);
     }
-    expect((await saveWorker({ id: WORKER, displayName: "ช่าง", stageCodes: [], pin: "4831" })).ok).toBe(false);
+    expect((await saveWorker({ id: WORKER, displayName: "ช่าง", stageCodes: ["cast"], pin: "4831" })).ok).toBe(false);
+    // 0174: ช่างต้องมี ≥ 1 ขั้น — ตอบก่อนถึง DB พร้อมข้อความไทย
+    expect(await saveWorker({ displayName: "ช่าง", stageCodes: [] })).toEqual({ ok: false, error: "เลือกขั้นตอนอย่างน้อยหนึ่งขั้น" });
     expect(rpcMock).not.toHaveBeenCalled();
   });
   it("PIN เดาง่าย (DB ปฏิเสธ) → ข้อความไทย · PIN ไม่ถูก log", async () => {
     rpcMock.mockResolvedValue({ data: null, error: { code: "22023", hint: "pin_invalid", message: "PIN ต้องเป็นตัวเลข 4 หลัก และห้ามเป็นเลขซ้ำ/เรียงต่อเนื่อง/เดาง่าย" } });
-    const r = await saveWorker({ displayName: "ช่างเอ", stageCodes: [], pin: "1111" });
+    const r = await saveWorker({ displayName: "ช่างเอ", stageCodes: ["cast"], pin: "1111" });
     expect(!r.ok && r.error).toMatch(/PIN/);
     expect(JSON.stringify(errSpy.mock.calls)).not.toContain("1111");
   });

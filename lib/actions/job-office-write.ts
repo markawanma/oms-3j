@@ -97,7 +97,7 @@ export async function officeReceiveStage(i: OfficeReceiveInput): Promise<JobResu
   const w = parseWeight(i.weightIn, "น้ำหนักเข้า");
   if (!w.ok) return fail(w.error);
   if (i.workerId !== null && i.workerId !== undefined && !isUuid(i.workerId)) return fail("เลือกช่างไม่ถูกต้อง");
-  const name = parseText(i.assigneeName, "ชื่อผู้รับงาน", 60, false);
+  const name = parseLabel(i.assigneeName, "ชื่อผู้รับงาน", 60, false); // ชื่อนี้ไหลไปหน้าจอช่าง (holder_name) → ห้าม < > เหมือนชื่อช่าง
   if (!name.ok) return fail(name.error);
   if (!i.workerId && !name.value) return fail("ระบุผู้รับงาน (เลือกช่างหรือพิมพ์ชื่อ)");
   const r = await callOffice<Raw>("job_office_receive", { p_job_id: i.jobId, p_expected_seq: seq.value, p_occurred_on: on.value, p_weight_in_g: w.value, p_worker_id: i.workerId ?? null, p_assignee_name: name.value, p_channel: "job_page" });

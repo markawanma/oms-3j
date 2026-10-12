@@ -70,7 +70,7 @@ export async function saveWorker(i: UpsertWorkerInput): Promise<JobResult<Worker
   if (editing && !isUuid(i.id)) return fail("ไม่พบช่าง");
   const name = parseLabel(i.displayName, "ชื่อช่าง", 60, true);
   if (!name.ok) return fail(name.error);
-  const codes = parseStageCodes(i.stageCodes, true);
+  const codes = parseStageCodes(i.stageCodes, false) // 0174: ช่างต้องมีอย่างน้อย 1 ขั้น (DB hint stages_required) — ตรงกับ DB ไม่ปล่อยไปให้ DB ตีกลับ;
   if (!codes.ok) return fail(codes.error);
   let pin: string | null = null;
   if (!editing && i.pin) {

@@ -40,7 +40,7 @@ export default async function ProductionOrderDetailPage({ params }: { params: Pr
   const skuOptions = skuOptionsResult.ok ? skuOptionsResult.data : [];
   const skuOptionsError = skuOptionsResult.ok ? null : skuOptionsResult.error;
 
-  // J1: ใบงานผลิตต่อรายการ — ส่วนแยก ไม่แตะ logic ของหน้านี้ (ใบผลิตที่ยกเลิกแล้วไม่เสนอสร้างใบงาน)
+  // J1: ใบงานผลิตต่อรายการ — ส่วนแยก ไม่แตะ logic ของหน้านี้ (เสนอสร้างเฉพาะใบผลิตที่ยังเปิด — RPC ปฏิเสธสถานะอื่นด้วย po_not_open)
   const jobItems = detailResult.data.items.map((it) => ({ id: it.id, label: `${it.sku} · ${it.productName} × ${it.qtyPlanned}` }));
 
   return (
@@ -51,7 +51,7 @@ export default async function ProductionOrderDetailPage({ params }: { params: Pr
         skuOptions={skuOptions}
         skuOptionsError={skuOptionsError}
       />
-      {detailResult.data.order.status !== "cancelled" && <JobCreatePanel kind="production" items={jobItems} />}
+      {detailResult.data.order.status === "open" && <JobCreatePanel kind="production" items={jobItems} />}
     </>
   );
 }
