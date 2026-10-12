@@ -29,7 +29,9 @@ const FORBIDDEN_IMPORTS: [RegExp, string][] = [
   [/lib\/jobs\/page-gate/, "ด่านสิทธิ์ออฟฟิศ (ช่างไม่มี role)"],
   [/lib\/auth\/(session|role|action-guard)/, "session/role ของแอป (ช่างไม่ได้ login)"],
   [/lib\/dev\/context/, "shop/role จาก DEV context"],
-  [/lib\/actions\/(?!job-worker)/, "action อื่นของแอป (ยกเว้น job-worker)"],
+  // อนุญาตเฉพาะ job-worker ตัวเดียว (ลงท้ายด้วย job-worker เป๊ะ) — job-workers (ทะเบียนช่างฝั่งออฟฟิศ) ต้องไม่ผ่าน
+  [/lib\/actions\/(?!job-worker$)/, "action อื่นของแอป (ยกเว้น job-worker เท่านั้น)"],
+  [/lib\/jobs\/office-server/, "ชั้นกลางของ action ออฟฟิศ"],
   [/lib\/oem\//, "โมดูล OEM (ราคา/ต้นทุน)"],
   [/lib\/production\//, "โมดูลใบผลิต (ต้นทุน)"],
   [/lib\/catalog\//, "โมดูลสินค้า/ต้นทุน"],
@@ -66,5 +68,19 @@ describe("เฉพาะ job-worker.ts เป็น 'use server' ในกร�
     const src = readFileSync(join(ROOT, "lib", "jobs", "worker-server.ts"), "utf8");
     expect(/^\s*["']use server["']/m.test(src)).toBe(false);
     expect(src).toContain('import "server-only"');
+  });
+});
+
+describe("ตัวตรวจ import ต้องจับของจริงได้ (กันเทสต์หลวม)", () => {
+  const re = (spec: string) => FORBIDDEN_IMPORTS.some(([r]) => r.test(spec));
+  it("จับ action ออฟฟิศ/ทะเบียนช่าง/ชั้นกลาง/session/OEM", () => {
+    for (const bad of ["@/lib/actions/job-office", "@/lib/actions/job-office-write", "@/lib/actions/job-workers", "@/lib/jobs/office-server", "@/lib/jobs/page-gate", "@/lib/auth/session", "@/lib/actions/oem", "@/lib/oem/types", "@/lib/dev/context"]) {
+      expect(re(bad), bad).toBe(true);
+    }
+  });
+  it("ไม่จับของที่ช่างใช้จริง", () => {
+    for (const ok of ["@/lib/actions/job-worker", "@/lib/jobs/worker-server", "@/lib/jobs/hash", "@/lib/jobs/messages", "@/lib/jobs/input", "@/lib/jobs/worker-view", "@/lib/jobs/types", "@/lib/supabase/server", "next/headers"]) {
+      expect(re(ok), ok).toBe(false);
+    }
   });
 });
