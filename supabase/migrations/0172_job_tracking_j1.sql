@@ -2223,7 +2223,7 @@ begin
     update analytics.worker set failed_attempts = 0, last_failed_at = null, locked_until = null where id = v_w.id;
     delete from analytics.worker_session where expires_at < now() - interval '1 day';
     v_raw := translate(rtrim(encode(extensions.gen_random_bytes(32), 'base64'), '='), '+/', '-_');
-    v_exp := now() + interval '12 hours';
+    v_exp := clock_timestamp() + interval '12 hours';
     insert into analytics.worker_session (shop_id, worker_id, session_hash, expires_at, device_hint)
     values (v_w.shop_id, v_w.id, analytics.job_sha256_hex(v_raw), v_exp, analytics.job_device_hint(p_user_agent, p_ip_hash));
     return jsonb_build_object('ok', true, 'session_token', v_raw, 'expires_at', v_exp,
@@ -2464,7 +2464,7 @@ select
   ev.last_event_at,
   ev.last_scan_at,
   (j.status in ('open', 'in_progress') and analytics.job_bkk_date(coalesce(ev.last_event_at, j.created_at)) < analytics.job_today() - 3) as is_stale,
-  st.stages_total, st.stages_done, st.has_auto_closed,
+  st.stage_count, st.stage_done_count, st.has_auto_closed,
   (j.source_kind = 'oem' and coalesce(pay.paid, 0) <= 0) as deposit_missing,
   (j.start_gate_note is not null) as start_gate_note_present,
   (j.source_kind = 'oem' and j.status not in ('done', 'cancelled') and aqi.qty is distinct from j.qty_planned) as quote_qty_mismatch,
@@ -2479,8 +2479,8 @@ left join lateral (
   select max(e.recorded_at) as last_event_at, max(e.recorded_at) filter (where e.channel = 'worker_qr') as last_scan_at
     from analytics.job_event e where e.job_id = j.id) ev on true
 left join lateral (
-  select count(*)::int as stages_total,
-         (count(*) filter (where s.status in ('sent', 'skipped')))::int as stages_done,
+  select count(*)::int as stage_count,
+         (count(*) filter (where s.status in ('sent', 'skipped')))::int as stage_done_count,
          coalesce(bool_or(s.auto_closed), false) as has_auto_closed
     from analytics.job_stage s where s.job_id = j.id) st on true
 left join lateral (
