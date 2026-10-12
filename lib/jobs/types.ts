@@ -79,7 +79,7 @@ export const BOARD_COLUMNS = [
   "id", "job_no", "seq", "source_kind", "source_ref", "design_label", "sku_snapshot", "metal", "qty_planned", "status", "due_date",
   "current_stage_code", "current_stage_name", "current_stage_status", "holder_name", "days_in_stage", "is_overdue", "last_event_at",
   "last_scan_at", "is_stale", "stage_count", "stage_done_count", "has_auto_closed", "deposit_missing", "start_gate_note_present",
-  "quote_qty_mismatch", "quote_item_qty", "created_at", "board_column", "handoff_gap_g",
+  "quote_qty_mismatch", "quote_item_qty", "created_at", "board_column", "handoff_gap_g", "handoff_mismatch_count",
 ].join(", ");
 
 export interface BoardRow {
@@ -115,6 +115,8 @@ export interface BoardRow {
   boardColumn: string | null;
   /** 0173: ส่วนต่างส่งมอบสูงสุด (ค่าสัมบูรณ์ กรัม) ระหว่างน้ำหนักออกของขั้นก่อนกับน้ำหนักเข้าของขั้นถัดไป — null = ไม่มีคู่น้ำหนัก */
   handoffGapG: number | null;
+  /** 0174: จำนวนครั้งที่ช่างรับน้ำหนักทองไม่ตรงกับขั้นก่อน (event weigh/handoff_mismatch) */
+  handoffMismatchCount: number;
 }
 
 export function mapBoardRow(r: Record<string, unknown>): BoardRow | null {
@@ -152,6 +154,7 @@ export function mapBoardRow(r: Record<string, unknown>): BoardRow | null {
     createdAt: str(r.created_at),
     boardColumn: str(r.board_column),
     handoffGapG: num(r.handoff_gap_g),
+    handoffMismatchCount: num(r.handoff_mismatch_count) ?? 0,
   };
 }
 
@@ -310,6 +313,13 @@ export function summarizeEvent(type: string, payload: unknown): string | null {
   const p = (typeof payload === "object" && payload !== null ? payload : {}) as Record<string, unknown>;
   const reason = str(p.reason);
   if (type === "stage_skip" || type === "stage_reopen" || type === "cancel" || type === "token_revoke") return reason;
+  if (type === "weigh" && p.kind === "handoff_mismatch") {
+    // หน้า owner/admin เท่านั้น: เห็นน้ำหนักจริงที่ช่างพิมพ์ (หน้าช่างห้ามเห็น — ผู้รับต้องชั่งแบบไม่รู้คำตอบ)
+    const wi = num(p.weight_in_g);
+    const wp = num(p.prev_weight_out_g);
+    const gap = num(p.gap_g);
+    return `ชั่งรับไม่ตรงกับขั้นก่อน (ระบบปฏิเสธ): ช่างใส่ ${wi ?? "—"} g · ขั้นก่อนส่ง ${wp ?? "—"} g${gap !== null ? ` · ต่าง ${gap > 0 ? "+" : "−"}${Math.abs(gap)} g` : ""}`;
+  }
   if (type === "due_set") return `${date(p.before) ?? "ไม่ตั้ง"} → ${date(p.after) ?? "ไม่ตั้ง"}`;
   if (type === "done") return `ดี ${num(p.qty_good) ?? "—"} · เสีย ${num(p.qty_scrap) ?? "—"}`;
   if (type === "token_issue") return num(p.print_no) !== null ? `ใบที่ ${num(p.print_no)}` : null;
@@ -351,20 +361,22 @@ export interface WorkerRow {
   lockState: LockState;
   /** จำนวน PIN ผิดในหน้าต่าง 24 ชม. ปัจจุบัน (0 = ไม่มี) */
   failedAttempts: number;
+  /** 0174 v_worker_lock.pin_warning: ผิด >= 3 ครั้งในหน้าต่าง 24 ชม. (ตัวนับไม่ล้างเมื่อ login สำเร็จแล้ว) */
+  pinWarning: boolean;
 }
 
-export const WORKER_LOCK_COLUMNS = "worker_id, lock_state, failed_attempts, in_window";
+export const WORKER_LOCK_COLUMNS = "worker_id, lock_state, failed_attempts, in_window, pin_warning";
 
-export function mapLockRow(r: Record<string, unknown>): { workerId: string; lockState: LockState; failedAttempts: number } | null {
+export function mapLockRow(r: Record<string, unknown>): { workerId: string; lockState: LockState; failedAttempts: number; pinWarning: boolean } | null {
   const id = str(r.worker_id);
   if (!id) return null;
   const st = r.lock_state === "temporary" || r.lock_state === "office" ? r.lock_state : "none";
-  return { workerId: id, lockState: st, failedAttempts: r.in_window === true ? (num(r.failed_attempts) ?? 0) : 0 };
+  return { workerId: id, lockState: st, failedAttempts: r.in_window === true ? (num(r.failed_attempts) ?? 0) : 0, pinWarning: r.pin_warning === true };
 }
 
 export const WORKER_COLUMNS = "id, display_name, stage_codes, is_active, locked_until, created_at";
 
-export function mapWorkerRow(r: Record<string, unknown>, lock?: { lockState: LockState; failedAttempts: number }): WorkerRow | null {
+export function mapWorkerRow(r: Record<string, unknown>, lock?: { lockState: LockState; failedAttempts: number; pinWarning: boolean }): WorkerRow | null {
   const id = str(r.id);
   const name = str(r.display_name);
   if (!id || !name) return null;
@@ -377,6 +389,7 @@ export function mapWorkerRow(r: Record<string, unknown>, lock?: { lockState: Loc
     createdAt: str(r.created_at),
     lockState: lock?.lockState ?? "none",
     failedAttempts: lock?.failedAttempts ?? 0,
+    pinWarning: lock?.pinWarning ?? false,
   };
 }
 

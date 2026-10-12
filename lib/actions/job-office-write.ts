@@ -6,7 +6,7 @@
 
 import { revalidatePath } from "next/cache";
 import { effectiveDateBangkok } from "@/lib/tiktok/format";
-import { isUuid, parseCount, parseDate, parseSeq, parseText, parseWeight, parseWeightOrZero, parseScrapReason } from "@/lib/jobs/input";
+import { isUuid, parseCount, parseDate, parseLabel, parseSeq, parseText, parseWeight, parseWeightOrZero, parseScrapReason } from "@/lib/jobs/input";
 import { callOffice, fail, guard } from "@/lib/jobs/office-server";
 import type { JobResult } from "@/lib/jobs/office-server";
 import { currentAppOrigin } from "@/lib/jobs/origin-server";
@@ -173,7 +173,7 @@ export async function setJobDesignLabel(jobId: string, label: string): Promise<J
   const g = await guard();
   if (g) return g;
   if (!isUuid(jobId)) return fail("ไม่พบใบงาน");
-  const t = parseText(label, "ชื่อเรียกใบงาน", 200, true);
+  const t = parseLabel(label, "ชื่อเรียกใบงาน", 200, true);
   if (!t.ok) return fail(t.error);
   const r = await callOffice("job_design_label_set", { p_job_id: jobId, p_design_label: t.value });
   if (!r.ok) return r;

@@ -5,6 +5,7 @@
 // ตรวจรูปแบบน้ำหนักฝั่งช่างก่อนส่ง (parseWeight ชุดเดียวกับ server) — "95,5" = 95.5, "1,234.5" = กำกวม ปฏิเสธ · DB ยังเป็นด่านจริง
 
 import { useEffect, useState } from "react";
+import type { ReactNode } from "react";
 import { workerLogin, workerReceiveStage, workerSendStage } from "@/lib/actions/job-worker";
 import type { WorkerActionResult } from "@/lib/actions/job-worker";
 import { BigButton, PinPad, ScrapStepper, WeightField } from "@/components/domain/jobs/worker/WorkerParts";
@@ -25,6 +26,11 @@ async function safely(fn: () => Promise<WorkerActionResult>): Promise<WorkerActi
   } catch {
     return { ok: false, error: GENERIC_JOB_ERROR };
   }
+}
+
+/** ปุ่มหลักติดล่างจอ (N2): จอ 390x740 ที่ส่งต่อ+ของเสีย+เหตุผลยาวเกินจอ ปุ่มต้องยังกดได้โดยไม่ต้องเลื่อนหา — sticky ตามหน้าต่าง ไม่ใช่ fixed (ไม่บังเนื้อหาท้ายหน้า) */
+function StickyAction({ children }: { children: ReactNode }) {
+  return <div className="sticky bottom-0 z-10 -mx-4 border-t border-zinc-200 bg-white/95 px-4 pt-2 pb-3 backdrop-blur">{children}</div>;
 }
 
 const ERR_BOX = "rounded-xl border-2 border-red-200 bg-red-50 p-3 text-lg font-semibold text-red-800";
@@ -210,9 +216,11 @@ export function ReceivePanel({ token, view, onDone }: { token: string; view: Wor
       {confirm ? (
         <ConfirmBox text={confirm.text} busy={busy} onYes={() => answer(confirm.kind === "holder" ? { holder: true } : { weight: true })} onNo={() => setConfirm(null)} />
       ) : (
-        <BigButton type="button" onClick={() => void go()} loading={busy}>
-          รับงาน
-        </BigButton>
+        <StickyAction>
+          <BigButton type="button" onClick={() => void go()} loading={busy}>
+            รับงาน
+          </BigButton>
+        </StickyAction>
       )}
     </section>
   );
@@ -260,7 +268,7 @@ export function SendPanel({ token, view, onDone }: { token: string; view: Worker
   }
 
   return (
-    <section aria-labelledby="send-h" className="space-y-4">
+    <section aria-labelledby="send-h" className="space-y-3">
       <h2 id="send-h" className="text-2xl font-bold text-zinc-900">
         ส่งต่อ: {st.name}
       </h2>
@@ -278,9 +286,11 @@ export function SendPanel({ token, view, onDone }: { token: string; view: Worker
           {err}
         </p>
       )}
-      <BigButton type="button" onClick={() => void go()} loading={busy}>
-        {next ? `ส่งต่อ → ${next.name}` : "ส่งต่อ"}
-      </BigButton>
+      <StickyAction>
+        <BigButton type="button" onClick={() => void go()} loading={busy}>
+          {next ? `ส่งต่อ → ${next.name}` : "ส่งต่อ"}
+        </BigButton>
+      </StickyAction>
     </section>
   );
 }

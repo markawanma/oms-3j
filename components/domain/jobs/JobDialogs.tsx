@@ -8,6 +8,7 @@ import type { ReactNode } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { useOfficeRun } from "@/components/domain/jobs/useOfficeRun";
+import { LABEL_ANGLE_MSG, LABEL_ANGLE_RE } from "@/lib/jobs/input";
 import { cancelJob, doneJob, reopenJobStage, setJobDesignLabel, setJobDue, setJobStartGateNote, skipJobStage } from "@/lib/actions/job-office-write";
 
 export const FIELD =
@@ -90,7 +91,8 @@ export const DESIGN_LABEL_WARNING = "ช่างเห็นชื่อนี�
 export function DesignLabelDialog({ jobId, current, onClose }: { jobId: string; current: string; onClose: () => void }) {
   const { run, busy, error } = useOfficeRun();
   const [label, setLabel] = useState(current);
-  const ready = label.trim() !== "" && label.trim() !== current.trim();
+  const bad = LABEL_ANGLE_RE.test(label);
+  const ready = label.trim() !== "" && label.trim() !== current.trim() && !bad;
   async function submit() {
     const r = await run(() => setJobDesignLabel(jobId, label), { success: "แก้ชื่อเรียกใบงานแล้ว" });
     if (r.ok) onClose();
@@ -98,7 +100,7 @@ export function DesignLabelDialog({ jobId, current, onClose }: { jobId: string; 
   return (
     <Modal open onClose={onClose} title="แก้ชื่อเรียกใบงาน">
       <form noValidate className="space-y-3" onSubmit={(e) => { e.preventDefault(); if (ready) void submit(); }}>
-        <Field id="dlabel" label="ชื่อเรียกภายใน (ช่างเห็น)" hint={DESIGN_LABEL_WARNING}>
+        <Field id="dlabel" label="ชื่อเรียกภายใน (ช่างเห็น)" hint={bad ? LABEL_ANGLE_MSG : DESIGN_LABEL_WARNING}>
           <input id="dlabel" value={label} onChange={(e) => setLabel(e.target.value)} maxLength={200} className={FIELD} />
         </Field>
         <ErrorLine message={error} />

@@ -10,7 +10,7 @@ import { revalidatePath } from "next/cache";
 import { effectiveDateBangkok } from "@/lib/tiktok/format";
 import { BOARD_COLUMNS, EVENT_COLUMNS, JOB_COLUMNS, STAGE_COLUMNS, WORKER_COLUMNS, mapBoardRow, mapEventRow, mapJobDetail, mapLossRow, mapStageDef, mapStageRow, mapWorkerRow } from "@/lib/jobs/types";
 import type { BoardRow, EventRow, JobDetail, StageDef, StageLoss, StageRow, WorkerRow } from "@/lib/jobs/types";
-import { isUuid, parseDate, parseStageCodes, parseText } from "@/lib/jobs/input";
+import { isUuid, parseDate, parseLabel, parseStageCodes, parseText } from "@/lib/jobs/input";
 import { callOffice, db, fail, guard, shopId } from "@/lib/jobs/office-server";
 import type { JobResult } from "@/lib/jobs/office-server";
 import { logJobFailure } from "@/lib/jobs/log";
@@ -236,7 +236,7 @@ export async function createJob(input: CreateJobInput): Promise<JobResult<{ jobI
     if (!d.ok) return fail(d.error);
     due = d.value;
   }
-  const label = parseText(input.designLabel, "ชื่อแบบ", 200, false);
+  const label = parseLabel(input.designLabel, "ชื่อเรียกใบงาน", 200, false);
   if (!label.ok) return fail(label.error);
   const note = parseText(input.note, "หมายเหตุ", 500, false);
   if (!note.ok) return fail(note.error);

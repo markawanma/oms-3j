@@ -211,10 +211,12 @@ describe("workerReceiveStage / workerSendStage", () => {
     expect(r).toMatchObject({ ok: true, already: true, by: "ช่างบี", message: "ช่าง ช่างบี รับขั้นนี้ไปแล้ว" });
   });
 
-  it("สัญญา 0173: handoff_mismatch -> ข้อความมีส่วนต่างกรัม · prev_not_sent ผ่านเป็น code (client ใส่ชื่อขั้นเอง)", async () => {
+  it("สัญญา 0174: handoff_mismatch -> ข้อความตายตัว ไม่มีตัวเลขส่วนต่าง/น้ำหนักขั้นก่อน แม้ DB เก่าจะแนบ gap_g มา · prev_not_sent ผ่านเป็น code (client ใส่ชื่อขั้นเอง)", async () => {
     cookieStore.set("w_session", SESSION);
     rpcMock.mockResolvedValue({ data: { ok: false, code: "handoff_mismatch", message: "x", gap_g: -0.37, prev_weight_out_g: 10.5 }, error: null });
-    expect(await workerReceiveStage(TOKEN, 2, "10.13")).toMatchObject({ ok: false, code: "handoff_mismatch", error: "น้ำหนักไม่ตรงกับที่ขั้นก่อนส่ง (ต่าง 0.37 g) — ชั่งใหม่หรือแจ้งออฟฟิศ" });
+    const hm = await workerReceiveStage(TOKEN, 2, "10.13");
+    expect(hm).toMatchObject({ ok: false, code: "handoff_mismatch", error: "น้ำหนักที่รับไม่ตรงกับที่ขั้นก่อนส่งมา — ชั่งใหม่ ถ้ายังไม่ตรงให้แจ้งออฟฟิศ" });
+    expect(JSON.stringify(hm)).not.toMatch(/0\.37|10\.5/);
     rpcMock.mockResolvedValue({ data: { ok: false, code: "prev_not_sent", message: "x" }, error: null });
     expect(await workerReceiveStage(TOKEN, 2, "10")).toMatchObject({ ok: false, code: "prev_not_sent" });
   });

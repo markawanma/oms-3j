@@ -51,7 +51,6 @@ function failExtra(r: Record<string, unknown>): WorkerFailExtra {
     attemptsUntilOffice: finite(r.attempts_until_office),
     tokenBudgetLeft: finite(r.token_budget_left),
     retryAfterSeconds: finite(r.retry_after_seconds),
-    gapG: finite(r.gap_g),
     by: shortText(r.by),
   };
 }

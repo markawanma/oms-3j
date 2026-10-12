@@ -369,12 +369,12 @@ describe("0173: ปลดล็อกช่าง · แก้ชื่อเร
   });
   it("getWorkers: อ่านสถานะล็อกจาก v_worker_lock (ไม่มี pin_hash) แล้วจับคู่กับช่าง · ผิดชนิดถือว่าไม่ล็อก", async () => {
     results.worker = { data: [{ id: WORKER, display_name: "ช่างเอ", stage_codes: ["cast"], is_active: true, locked_until: "infinity", created_at: "2026-10-01T00:00:00Z" }], error: null };
-    results.v_worker_lock = { data: [{ worker_id: WORKER, lock_state: "office", failed_attempts: 15, in_window: true }, { worker_id: "zz", lock_state: "weird" }], error: null };
+    results.v_worker_lock = { data: [{ worker_id: WORKER, lock_state: "office", failed_attempts: 15, in_window: true, pin_warning: true }, { worker_id: "zz", lock_state: "weird" }], error: null };
     const r = await getWorkers();
-    expect(r.ok && r.data.workers[0]).toMatchObject({ id: WORKER, lockState: "office", failedAttempts: 15 });
+    expect(r.ok && r.data.workers[0]).toMatchObject({ id: WORKER, lockState: "office", failedAttempts: 15, pinWarning: true });
     const lk = calls.find((c) => c.table === "v_worker_lock")!;
     expect(lk.ops).toContainEqual(["eq", "shop_id", SHOP]);
-    expect(String(lk.ops.find((o) => o[0] === "select")?.[1])).not.toMatch(/pin|hash/);
+    expect(String(lk.ops.find((o) => o[0] === "select")?.[1])).not.toMatch(/pin_hash|hash/);
     results.v_worker_lock = { data: [{ worker_id: WORKER, lock_state: "weird", failed_attempts: "9", in_window: false }], error: null };
     const r2 = await getWorkers();
     expect(r2.ok && r2.data.workers[0]).toMatchObject({ lockState: "none", failedAttempts: 0 });
@@ -415,5 +415,22 @@ describe("issueJobQr — origin จาก env APP_ORIGIN (security L2)", () => {
     hdrs = { host: "evil.test/../x" };
     expect((await issueJobQr(JOB, false)).ok).toBe(false);
     expect(rpcMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("0174: ชื่อช่าง/ชื่อเรียกใบงานห้ามมี < >", () => {
+  it("saveWorker / createJob / setJobDesignLabel ปฏิเสธก่อนถึง DB พร้อมข้อความไทย · ชื่อปกติผ่าน", async () => {
+    const msg = "ชื่อห้ามมีเครื่องหมาย < หรือ >";
+    expect(await saveWorker({ displayName: "ช่าง<b>", stageCodes: ["cast"] })).toEqual({ ok: false, error: msg });
+    expect(await createJob({ kind: "oem", itemId: ITEM, stageCodes: ["cast", "qc", "pack"], designLabel: "แหวน>ลับ" })).toEqual({ ok: false, error: msg });
+    expect(await setJobDesignLabel(JOB, "<x>")).toEqual({ ok: false, error: msg });
+    expect(rpcMock).not.toHaveBeenCalled();
+    rpcMock.mockResolvedValue({ data: { id: WORKER, pin: null }, error: null });
+    expect((await saveWorker({ displayName: "ช่างเอ", stageCodes: ["cast"] })).ok).toBe(true);
+  });
+  it("DB ปฏิเสธ hint=text_invalid (ด่านซ้ำ) → ข้อความไทยจากตาราง", async () => {
+    rpcMock.mockResolvedValue({ data: null, error: { code: "22023", hint: "text_invalid", message: "worker_upsert: english raw" } });
+    const r = await saveWorker({ displayName: "ช่างเอ", stageCodes: ["cast"] });
+    expect(r).toMatchObject({ ok: false, error: "ชื่อห้ามมีเครื่องหมาย < หรือ >" });
   });
 });

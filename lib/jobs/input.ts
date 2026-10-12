@@ -71,6 +71,10 @@ export function parseDate(raw: unknown, label = "วันที่"): Parsed<st
   return ok(raw);
 }
 
+/** ชื่อที่ไหลไปแสดงบนหน้าจอช่าง/ใบพิมพ์ (ชื่อช่าง ชื่อเรียกใบงาน): ห้ามมี < หรือ > (0174 — DB ปฏิเสธซ้ำด้วย hint text_invalid) */
+export const LABEL_ANGLE_RE = /[<>]/;
+export const LABEL_ANGLE_MSG = "ชื่อห้ามมีเครื่องหมาย < หรือ >";
+
 /** ข้อความอิสระ: ตัดช่องว่างหัวท้าย · ห้าม control char · ยาวไม่เกิน max · required = ต้องมีตัวอักษร */
 export function parseText(raw: unknown, label: string, max: number, required: boolean): Parsed<string | null> {
   if (raw === null || raw === undefined) return required ? bad(`ต้องระบุ${label}`) : ok(null);
@@ -109,4 +113,12 @@ export function parseScrapReason(raw: unknown, qtyScrap: number): Parsed<string 
   if (qtyScrap <= 0) return ok(null);
   if (typeof raw !== "string" || !(SCRAP_REASON_CODES as readonly string[]).includes(raw)) return bad("เลือกเหตุผลของเสีย");
   return ok(raw);
+}
+
+/** parseText + ห้าม < > — ใช้กับชื่อช่าง/ชื่อเรียกใบงาน */
+export function parseLabel(raw: unknown, label: string, max: number, required: boolean): Parsed<string | null> {
+  const t = parseText(raw, label, max, required);
+  if (!t.ok) return t;
+  if (t.value !== null && LABEL_ANGLE_RE.test(t.value)) return bad(LABEL_ANGLE_MSG);
+  return t;
 }

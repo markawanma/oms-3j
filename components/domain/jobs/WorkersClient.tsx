@@ -4,7 +4,7 @@
 // 🔴 PIN แสดงครั้งเดียวในกล่องนี้ (state ในหน้าจอเท่านั้น ไม่ลง storage/URL/log) — ปิดกล่อง = หาย · DB เก็บ bcrypt อ่านกลับไม่ได้
 
 import { useState } from "react";
-import { Plus, UserX, UserCheck, KeyRound, Pencil, Lock, LockOpen } from "lucide-react";
+import { AlertTriangle, Plus, UserX, UserCheck, KeyRound, Pencil, Lock, LockOpen } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Modal } from "@/components/ui/Modal";
@@ -12,6 +12,7 @@ import { ErrorLine, FIELD, Field } from "@/components/domain/jobs/JobDialogs";
 import { useOfficeRun } from "@/components/domain/jobs/useOfficeRun";
 import { resetWorkerPin, saveWorker, setWorkerActive, unlockWorker } from "@/lib/actions/job-workers";
 import type { WorkersData } from "@/lib/actions/job-workers";
+import { LABEL_ANGLE_MSG, LABEL_ANGLE_RE } from "@/lib/jobs/input";
 import { LOCK_STATE_LABEL } from "@/lib/jobs/types";
 import type { WorkerRow } from "@/lib/jobs/types";
 
@@ -54,7 +55,8 @@ function EditDialog({ worker, stages, onClose, onShown }: { worker: WorkerRow | 
   const [codes, setCodes] = useState<string[]>(worker?.stageCodes ?? []);
   const [pin, setPin] = useState("");
   const pinOk = pin === "" || /^\d{4}$/.test(pin);
-  const ready = name.trim() !== "" && codes.length > 0 && pinOk;
+  const nameBad = LABEL_ANGLE_RE.test(name);
+  const ready = name.trim() !== "" && codes.length > 0 && pinOk && !nameBad;
   const toggle = (c: string) => setCodes((p) => (p.includes(c) ? p.filter((x) => x !== c) : [...p, c]));
 
   async function submit() {
@@ -67,7 +69,7 @@ function EditDialog({ worker, stages, onClose, onShown }: { worker: WorkerRow | 
   return (
     <Modal open onClose={onClose} title={worker ? `แก้ไข ${worker.displayName}` : "เพิ่มช่าง"}>
       <form noValidate className="space-y-3" onSubmit={(e) => { e.preventDefault(); if (ready) void submit(); }}>
-        <Field id="wname" label="ชื่อที่ช่างเห็นในหน้ามือถือ">
+        <Field id="wname" label="ชื่อที่ช่างเห็นในหน้ามือถือ" hint={nameBad ? LABEL_ANGLE_MSG : undefined}>
           <input id="wname" value={name} onChange={(e) => setName(e.target.value)} maxLength={60} className={FIELD} />
         </Field>
         <fieldset className="space-y-1">
@@ -164,17 +166,26 @@ export function WorkersClient({ data }: { data: WorkersData }) {
                     {w.failedAttempts > 0 ? ` · ผิด ${w.failedAttempts} ครั้ง` : ""}
                   </p>
                 )}
-                {w.lockState === "none" && w.failedAttempts > 0 && <p className="text-xs text-zinc-700">ใส่ PIN ผิด {w.failedAttempts} ครั้งในรอบ 24 ชม.</p>}
+                {w.pinWarning && (
+                  <p role="alert" className="mt-1 flex items-start gap-1.5 rounded-md border-2 border-amber-400 bg-amber-50 px-2 py-1.5 text-sm font-semibold text-amber-950">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                    <span>
+                      มีคนใส่ PIN ผิด {w.failedAttempts} ครั้ง ในรอบ 24 ชม.
+                      <span className="block font-normal">ครบ 15 ครั้งใน 24 ชม. ระบบจะล็อกจนกว่าออฟฟิศปลดล็อก — ถ้าไม่ใช่ช่างลืม PIN ให้รีเซ็ต PIN และสอบถามช่าง</span>
+                    </span>
+                  </p>
+                )}
+                {!w.pinWarning && w.lockState === "none" && w.failedAttempts > 0 && <p className="text-xs text-zinc-700">ใส่ PIN ผิด {w.failedAttempts} ครั้งในรอบ 24 ชม.</p>}
               </div>
               <div className="flex flex-wrap gap-2">
                 <Button type="button" variant="secondary" onClick={() => setDlg({ t: "edit", worker: w })} aria-label={`แก้ไข ${w.displayName}`}>
                   <Pencil className="h-4 w-4" aria-hidden="true" />
                   แก้ไข
                 </Button>
-                {w.lockState !== "none" && (
+                {(w.lockState !== "none" || w.pinWarning) && (
                   <Button type="button" variant="secondary" onClick={() => unlock(w)} aria-label={`ปลดล็อก ${w.displayName}`}>
                     <LockOpen className="h-4 w-4" aria-hidden="true" />
-                    ปลดล็อก
+                    ปลดล็อก / รีเซ็ตตัวนับ
                   </Button>
                 )}
                 <Button type="button" variant="secondary" onClick={() => setDlg({ t: "pin", worker: w })} aria-label={`รีเซ็ต PIN ของ ${w.displayName}`}>

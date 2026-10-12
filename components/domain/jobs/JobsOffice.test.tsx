@@ -116,8 +116,8 @@ describe("JobPrintClient", () => {
 describe("WorkersClient", () => {
   const data = {
     workers: [
-      { id: U1, displayName: "ช่างเอ", stageCodes: ["cast"], isActive: true, lockedUntil: null, createdAt: null, lockState: "none" as const, failedAttempts: 0 },
-      { id: U2, displayName: "ช่างบี", stageCodes: [], isActive: false, lockedUntil: null, createdAt: null, lockState: "none" as const, failedAttempts: 0 },
+      { id: U1, displayName: "ช่างเอ", stageCodes: ["cast"], isActive: true, lockedUntil: null, createdAt: null, lockState: "none" as const, failedAttempts: 0, pinWarning: false },
+      { id: U2, displayName: "ช่างบี", stageCodes: [], isActive: false, lockedUntil: null, createdAt: null, lockState: "none" as const, failedAttempts: 0, pinWarning: false },
     ],
     stages: [{ code: "cast", nameTh: "หล่อ" }, { code: "polish", nameTh: "ขัด" }],
   };
@@ -304,5 +304,50 @@ describe("JobPrintClient — ที่อยู่ QR และคำเตื�
   it("production ปกติ (ไม่มีคำเตือน) = ไม่มี alert", () => {
     wrap(<JobPrintClient job={printable} qr={{ host: "oms.example.test", warning: null, error: null }} />);
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+});
+
+describe("0174: ทะเบียนช่าง — คำเตือน PIN ผิด · ห้าม < > ในชื่อ", () => {
+  const w0 = { id: U1, displayName: "ช่างเอ", stageCodes: ["cast"], isActive: true, lockedUntil: null, createdAt: null, lockState: "none" as const, failedAttempts: 0, pinWarning: false };
+  const stages = [{ code: "cast", nameTh: "หล่อ" }, { code: "polish", nameTh: "ขัด" }];
+
+  it("pin_warning: ป้ายเตือน 'มีคนใส่ PIN ผิด n ครั้ง' + คำอธิบาย 15 ครั้ง + ปุ่ม 'ปลดล็อก / รีเซ็ตตัวนับ' (ทั้งที่ยังไม่ล็อก)", async () => {
+    unlockWorker.mockResolvedValue({ ok: true, data: null });
+    wrap(<WorkersClient data={{ workers: [{ ...w0, failedAttempts: 4, pinWarning: true }, { ...w0, id: U2, displayName: "ช่างบี" }], stages }} />);
+    const warn = screen.getByRole("alert");
+    expect(warn).toHaveTextContent("มีคนใส่ PIN ผิด 4 ครั้ง ในรอบ 24 ชม.");
+    expect(warn).toHaveTextContent("ครบ 15 ครั้งใน 24 ชม. ระบบจะล็อกจนกว่าออฟฟิศปลดล็อก");
+    expect(screen.queryByRole("button", { name: "ปลดล็อก ช่างบี" })).not.toBeInTheDocument();
+    const btn = screen.getByRole("button", { name: "ปลดล็อก ช่างเอ" });
+    expect(btn).toHaveTextContent("รีเซ็ตตัวนับ");
+    await userEvent.click(btn);
+    expect(unlockWorker).toHaveBeenCalledWith(U1);
+  });
+
+  it("ผิด 1-2 ครั้ง (ยังไม่ถึงเกณฑ์เตือน) = บรรทัดเล็ก ไม่มี alert", () => {
+    wrap(<WorkersClient data={{ workers: [{ ...w0, failedAttempts: 2 }], stages }} />);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    expect(screen.getByText(/ผิด 2 ครั้งในรอบ 24 ชม./)).toBeInTheDocument();
+  });
+
+  it("ชื่อช่างมี < หรือ > = แสดงเหตุผลและบันทึกไม่ได้", async () => {
+    wrap(<WorkersClient data={{ workers: [], stages }} />);
+    await userEvent.click(screen.getAllByRole("button", { name: /เพิ่มช่าง/ })[0]);
+    await userEvent.type(screen.getByLabelText(/ชื่อที่ช่างเห็น/), "ช่าง<b>");
+    await userEvent.click(screen.getByLabelText("หล่อ"));
+    expect(screen.getByText("ชื่อห้ามมีเครื่องหมาย < หรือ >")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "บันทึก" })).toBeDisabled();
+    expect(saveWorker).not.toHaveBeenCalled();
+  });
+
+  it("ชื่อเรียกภายในตอนสร้างใบงานมี < > = สร้างไม่ได้", async () => {
+    getJobsForSourceItems.mockResolvedValue({ ok: true, data: [] });
+    suggestJob.mockResolvedValue({ ok: true, data: { metal: "silver", qty: 1, designLabel: "แหวน", depositMissing: false, existingJob: null, stages: [{ code: "cast", nameTh: "หล่อ", defaultSelected: true }] } });
+    wrap(<JobCreatePanel kind="oem" items={[{ id: U1, label: "แหวน" }]} />);
+    await userEvent.click((await screen.findAllByRole("button", { name: "สร้างใบงาน" }))[0]);
+    const input = await screen.findByLabelText(/ชื่อเรียกภายใน/);
+    await userEvent.type(input, "<x>");
+    expect(screen.getByText("ชื่อห้ามมีเครื่องหมาย < หรือ >")).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "สร้างใบงาน" }).at(-1)).toBeDisabled();
   });
 });

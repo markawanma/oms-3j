@@ -5,7 +5,7 @@
 // 🔴 ข้อมูลที่ได้มาผ่าน sanitizeWorkerView แล้ว (ไม่มีราคา/ต้นทุน/ชื่อลูกค้า) — component นี้ไม่เรียก DB เอง
 // ก่อน hydrate เสร็จ: แสดง skeleton แทนปุ่ม (ปุ่มที่กดตอนนั้นจะไม่ติด) · ผลสำเร็จ = เครื่องหมายถูกเขียว · แพ้การแย่งรับขั้น = ไอคอนเหลือง + ชื่อผู้ชนะ
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, CheckCircle2 } from "lucide-react";
 import { IdentifyPanel, ReceivePanel, SendPanel } from "@/components/domain/jobs/worker/WorkerPanels";
@@ -35,17 +35,32 @@ export function WorkerApp({ token, view }: { token: string; view: WorkerView }) 
   const ready = useHydrated();
   const [done, setDone] = useState<{ msg: string; tone: DoneTone } | null>(null);
   const [outBusy, setOutBusy] = useState(false);
+  // N5: หลัง refresh ข้อมูลใหม่ยังไม่มา แผงเก่าห้ามกดได้ — โชว์ skeleton จนกว่า view ใหม่จะมาถึง (หรือครบ 8 วิ กันค้าง)
+  const [waiting, setWaiting] = useState(false);
   const j = view.job;
+
+  useEffect(() => {
+    setWaiting(false);
+  }, [view]);
+  useEffect(() => {
+    if (!waiting) return;
+    const t = setTimeout(() => setWaiting(false), 8000);
+    return () => clearTimeout(t);
+  }, [waiting]);
+  const refreshView = useCallback(() => {
+    setWaiting(true);
+    router.refresh();
+  }, [router]);
 
   // หลังสำเร็จ: เครื่องหมายถูกเต็มจอ ~2 วิ (เตือนแพ้การแย่ง ~4 วิ + ปุ่มตกลง) แล้วโหลดสถานะใหม่ (ไม่ทิ้งหน้าให้กดซ้ำ)
   useEffect(() => {
     if (!done) return;
     const t = setTimeout(() => {
       setDone(null);
-      router.refresh();
+      refreshView();
     }, done.tone === "warn" ? 4000 : 2000);
     return () => clearTimeout(t);
-  }, [done, router]);
+  }, [done, refreshView]);
 
   if (done) {
     const warn = done.tone === "warn";
@@ -55,7 +70,7 @@ export function WorkerApp({ token, view }: { token: string; view: WorkerView }) 
         <p className="text-3xl font-bold text-zinc-900">{done.msg}</p>
         <p className="text-lg text-zinc-700">{j.jobNo}</p>
         {warn && (
-          <BigButton type="button" onClick={() => { setDone(null); router.refresh(); }}>
+          <BigButton type="button" onClick={() => { setDone(null); refreshView(); }}>
             ตกลง
           </BigButton>
         )}
@@ -71,7 +86,7 @@ export function WorkerApp({ token, view }: { token: string; view: WorkerView }) 
       await workerLogout();
     } finally {
       setOutBusy(false);
-      router.refresh();
+      refreshView();
     }
   }
 
@@ -99,11 +114,11 @@ export function WorkerApp({ token, view }: { token: string; view: WorkerView }) 
 
       {view.heldBy && view.heldBy !== view.viewer?.displayName && <p className="rounded-xl bg-zinc-100 p-3 text-lg text-zinc-900">ตอนนี้อยู่กับ <strong>{view.heldBy}</strong></p>}
 
-      {!ready ? (
+      {!ready || waiting ? (
         <PanelSkeleton />
       ) : (
         <>
-          {view.nextAction === "identify" && <IdentifyPanel token={token} workers={view.workers} onDone={() => router.refresh()} />}
+          {view.nextAction === "identify" && <IdentifyPanel token={token} workers={view.workers} onDone={refreshView} />}
           {view.nextAction === "receive" && view.actionStage && <ReceivePanel token={token} view={view} onDone={(msg, tone = "ok") => setDone({ msg, tone })} />}
           {view.nextAction === "send" && view.actionStage && <SendPanel token={token} view={view} onDone={(msg, tone = "ok") => setDone({ msg, tone })} />}
           {view.nextAction === "held_by_other" && (
@@ -120,7 +135,7 @@ export function WorkerApp({ token, view }: { token: string; view: WorkerView }) 
           <p className="mb-2 text-lg text-zinc-800">
             คุณคือ <strong>{view.viewer.displayName}</strong>
           </p>
-          <BigButton type="button" tone="secondary" onClick={() => void logout()} loading={outBusy} disabled={!ready}>
+          <BigButton type="button" tone="secondary" onClick={() => void logout()} loading={outBusy} disabled={!ready || waiting}>
             ไม่ใช่คุณ? เปลี่ยนคน
           </BigButton>
         </footer>

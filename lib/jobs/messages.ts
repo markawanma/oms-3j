@@ -10,7 +10,8 @@ export const WORKER_CODE_TH: Record<string, string> = {
   locked: "ใส่ PIN ผิดหลายครั้ง ถูกล็อกชั่วคราว — รอสักครู่ หรือให้ออฟฟิศรีเซ็ต PIN",
   locked_office: "ล็อกแล้ว ให้ออฟฟิศปลดล็อก",
   token_budget_exhausted: "ใบนี้ใส่ PIN ผิดเกินกำหนด ขอพิมพ์ใบใหม่จากออฟฟิศ",
-  handoff_mismatch: "น้ำหนักไม่ตรงกับที่ขั้นก่อนส่ง — ชั่งใหม่หรือแจ้งออฟฟิศ",
+  // 0174: ผู้รับต้องชั่งแบบไม่รู้คำตอบ — ห้ามบอกขนาดส่วนต่าง/น้ำหนักขั้นก่อนในข้อความ
+  handoff_mismatch: "น้ำหนักที่รับไม่ตรงกับที่ขั้นก่อนส่งมา — ชั่งใหม่ ถ้ายังไม่ตรงให้แจ้งออฟฟิศ",
   session_required: "เลือกชื่อและใส่ PIN ก่อน",
   job_closed: "ใบงานนี้ปิดแล้ว",
   job_not_found: "ไม่พบใบงานนี้",
@@ -60,6 +61,7 @@ export const OFFICE_HINT_TH: Record<string, string> = {
   stages_duplicate: "เลือกขั้นตอนซ้ำกัน",
   stages_empty: "เลือกขั้นตอนอย่างน้อยหนึ่งขั้น",
   stages_required: "เลือกขั้นที่ช่างทำอย่างน้อย 1 ขั้น",
+  text_invalid: "ชื่อห้ามมีเครื่องหมาย < หรือ >",
   stage_required: "ขั้นนี้ข้ามไม่ได้ (ตรวจ QC และแพ็กต้องผ่านทุกใบงาน)",
   design_label_required: "ใบงาน OEM ต้องตั้งชื่อเรียกภายในก่อนสร้าง (ช่างเห็นชื่อนี้ — ห้ามมีชื่อแบรนด์ลูกค้า)",
   stages_invalid: "รายการขั้นตอนไม่ถูกต้อง",
@@ -92,11 +94,8 @@ export interface WorkerFailExtra {
   attemptsUntilOffice?: number | null;
   tokenBudgetLeft?: number | null;
   retryAfterSeconds?: number | null;
-  gapG?: number | null;
   by?: string | null;
 }
-
-const fmtG = (n: number) => String(Math.round(Math.abs(n) * 1000) / 1000);
 
 /** รอเป็นนาที ปัดขึ้น (เช่น 900 วิ = 15 นาที · 61 วิ = 2 นาที) */
 export function waitMinutes(seconds: number): number {
@@ -119,9 +118,6 @@ export function workerFailMessage(code: unknown, dbMessage: unknown, extra?: Wor
   }
   if (code === "locked") {
     return typeof x.retryAfterSeconds === "number" && x.retryAfterSeconds > 0 ? `ใส่ PIN ผิดหลายครั้ง — ลองใหม่ใน ${waitMinutes(x.retryAfterSeconds)} นาที` : WORKER_CODE_TH.locked;
-  }
-  if (code === "handoff_mismatch" && typeof x.gapG === "number" && Number.isFinite(x.gapG)) {
-    return `น้ำหนักไม่ตรงกับที่ขั้นก่อนส่ง (ต่าง ${fmtG(x.gapG)} g) — ชั่งใหม่หรือแจ้งออฟฟิศ`;
   }
   if (code === "already_received") {
     if (typeof x.by === "string" && x.by !== "") return `ช่าง ${x.by} รับขั้นนี้ไปแล้ว`;

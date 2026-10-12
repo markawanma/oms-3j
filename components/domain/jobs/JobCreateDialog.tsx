@@ -8,6 +8,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
+import { LABEL_ANGLE_MSG, LABEL_ANGLE_RE } from "@/lib/jobs/input";
 import { DESIGN_LABEL_WARNING, ErrorLine, FIELD, Field } from "@/components/domain/jobs/JobDialogs";
 import { useToast } from "@/components/ui/Toast";
 import { createJob, suggestJob } from "@/lib/actions/job-office";
@@ -51,7 +52,8 @@ export function JobCreateDialog({ kind, itemId, itemLabel, onClose, onCreated }:
   const needGate = data?.depositMissing === true && kind === "oem";
   // OEM: ออฟฟิศต้องตั้ง/ยืนยันชื่อเรียกภายในเอง (มติเจ้าของ 12 ต.ค.) — ค่าเริ่มมาจากข้อเสนอของระบบ แต่ห้ามว่าง · ใบผลิตเข้าสต็อกไม่บังคับ
   const labelRequired = kind === "oem";
-  const ready = data !== null && !data.existingJob && codes.length > 0 && (!needGate || gate.trim() !== "") && (!labelRequired || label.trim() !== "");
+  const labelBad = LABEL_ANGLE_RE.test(label);
+  const ready = data !== null && !data.existingJob && codes.length > 0 && (!needGate || gate.trim() !== "") && (!labelRequired || label.trim() !== "") && !labelBad;
   const toggle = (c: string) => setCodes((p) => (p.includes(c) ? p.filter((x) => x !== c) : [...p, c]));
 
   async function submit() {
@@ -102,7 +104,7 @@ export function JobCreateDialog({ kind, itemId, itemLabel, onClose, onCreated }:
                 </label>
               ))}
             </fieldset>
-            <Field id="jlabel" label={`ชื่อเรียกภายใน (ช่างเห็น)${labelRequired ? " — จำเป็น" : " — ไม่บังคับ"}`} hint={DESIGN_LABEL_WARNING}>
+            <Field id="jlabel" label={`ชื่อเรียกภายใน (ช่างเห็น)${labelRequired ? " — จำเป็น" : " — ไม่บังคับ"}`} hint={labelBad ? LABEL_ANGLE_MSG : DESIGN_LABEL_WARNING}>
               <input id="jlabel" value={label} onChange={(e) => setLabel(e.target.value)} maxLength={200} className={FIELD} disabled={busy} />
             </Field>
             <Field id="jdue" label="กำหนดส่ง (ไม่บังคับ)">

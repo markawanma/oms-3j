@@ -15,7 +15,8 @@ export default async function WorkerPage({ params }: { params: Promise<{ token: 
     return (
       <div role="alert" className="space-y-3 pt-8 text-center">
         <p className="text-3xl font-bold text-zinc-900">{closed ? "ใบงานนี้ปิดแล้ว" : "เปิดใบงานไม่ได้"}</p>
-        <p className="text-xl text-zinc-800">{res.error}</p>
+        {/* ใบที่ปิดแล้ว: หัวข้อบอกครบแล้ว — ไม่พิมพ์ข้อความ error ซ้ำ (N4) */}
+        {!closed && <p className="text-xl text-zinc-800">{res.error}</p>}
       </div>
     );
   }

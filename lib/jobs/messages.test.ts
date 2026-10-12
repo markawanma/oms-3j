@@ -42,10 +42,11 @@ describe("workerFailMessage — สัญญา 0173 (ตัวเลขปร�
     expect(workerFailMessage("locked_office", null)).toBe("ล็อกแล้ว ให้ออฟฟิศปลดล็อก");
     expect(workerFailMessage("token_budget_exhausted", null)).toBe("ใบนี้ใส่ PIN ผิดเกินกำหนด ขอพิมพ์ใบใหม่จากออฟฟิศ");
   });
-  it("handoff_mismatch: ใส่ส่วนต่าง (ค่าสัมบูรณ์ ตัดเศษ) ไม่มีค่า = ข้อความทั่วไป", () => {
-    expect(workerFailMessage("handoff_mismatch", null, { gapG: -0.12 })).toBe("น้ำหนักไม่ตรงกับที่ขั้นก่อนส่ง (ต่าง 0.12 g) — ชั่งใหม่หรือแจ้งออฟฟิศ");
-    expect(workerFailMessage("handoff_mismatch", null, { gapG: 1.23456 })).toContain("ต่าง 1.235 g");
-    expect(workerFailMessage("handoff_mismatch", null)).toBe(WORKER_CODE_TH.handoff_mismatch);
+  it("handoff_mismatch (0174): ข้อความตายตัว ไม่บอกขนาดส่วนต่าง/น้ำหนักขั้นก่อน (ผู้รับชั่งแบบไม่รู้คำตอบ) แม้ส่ง extra มา", () => {
+    const want = "น้ำหนักที่รับไม่ตรงกับที่ขั้นก่อนส่งมา — ชั่งใหม่ ถ้ายังไม่ตรงให้แจ้งออฟฟิศ";
+    expect(workerFailMessage("handoff_mismatch", null)).toBe(want);
+    expect(workerFailMessage("handoff_mismatch", "ข้อความ DB ต่าง 0.37 g", { gapG: -0.12 } as never)).toBe(want);
+    expect(WORKER_CODE_TH.handoff_mismatch).not.toMatch(/[0-9]/);
   });
   it("already_received: ใช้ชื่อผู้ชนะ (by) ก่อน · ไม่มี by ใช้ข้อความ DB ที่สะอาด · ไม่มีทั้งคู่ใช้ตาราง", () => {
     expect(workerFailMessage("already_received", "ข้อความ DB", { by: "สมชาย" })).toBe("ช่าง สมชาย รับขั้นนี้ไปแล้ว");
@@ -62,7 +63,6 @@ describe("workerFailMessage — สัญญา 0173 (ตัวเลขปร�
   it("ตัวเลขนอกช่วง/ชนิดผิด ไม่ทำให้ข้อความเพี้ยน", () => {
     const m = workerFailMessage("bad_credentials", null, { attemptsLeft: Number.NaN, attemptsUntilOffice: -5, tokenBudgetLeft: 99 });
     expect(m).toBe("ชื่อหรือ PIN ไม่ถูกต้อง");
-    expect(workerFailMessage("handoff_mismatch", null, { gapG: Number.NaN })).toBe(WORKER_CODE_TH.handoff_mismatch);
   });
 });
 

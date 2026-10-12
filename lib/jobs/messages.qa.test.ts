@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 import { OFFICE_HINT_TH, WORKER_CODE_TH, officeErrorMessage, workerFailMessage } from "@/lib/jobs/messages";
 
 // 0172 + 0173 (ฟังก์ชันที่ 0173 แทนที่ยังมี job_fail ฉบับเก่าใน 0172 — รวมสองไฟล์ = ครอบคลุมทุก code ที่ DB คืนได้)
-const sql = ["0172_job_tracking_j1.sql", "0173_job_tracking_hardening.sql"].map((f) => fs.readFileSync(path.join(process.cwd(), "supabase/migrations", f), "utf8")).join(String.fromCharCode(10));
+const sql = ["0172_job_tracking_j1.sql", "0173_job_tracking_hardening.sql", "0174_job_tracking_hardening2.sql"].map((f) => fs.readFileSync(path.join(process.cwd(), "supabase/migrations", f), "utf8")).join(String.fromCharCode(10));
 const THAI = /[฀-๿]/;
 const TECH = /[a-z]+_[a-z_]+|analytics\.|\bselect\b|\bERROR\b/i;
 

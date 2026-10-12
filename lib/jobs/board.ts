@@ -95,6 +95,7 @@ export function cardBadges(r: BoardRow): CardBadge[] {
   if (r.status === "on_hold") out.push({ key: "hold", label: "พักไว้", tone: "amber" });
   if (r.depositMissing && r.status !== "done") out.push({ key: "deposit", label: r.startGateNotePresent ? "ยังไม่มีมัดจำ (เริ่มก่อนด้วยเหตุผล)" : "ยังไม่มีมัดจำ", tone: "amber" });
   if (r.isStale) out.push({ key: "stale", label: "ไม่มีความเคลื่อนไหวเกิน 3 วัน", tone: "amber" });
+  if (r.handoffMismatchCount > 0) out.push({ key: "mismatch", label: `ชั่งไม่ตรง ${r.handoffMismatchCount} ครั้ง`, tone: "amber" });
   if (r.handoffGapG !== null && r.handoffGapG > 0) out.push({ key: "handoff", label: `ส่วนต่างส่งมอบ ${Math.round(r.handoffGapG * 1000) / 1000} g`, tone: "amber" });
   if (r.hasAutoClosed) out.push({ key: "auto", label: "มีขั้นที่ปิดให้อัตโนมัติ", tone: "gray" });
   if (r.quoteQtyMismatch) out.push({ key: "qty", label: `จำนวนไม่ตรงใบเสนอราคา${r.quoteItemQty !== null ? ` (${r.quoteItemQty})` : ""}`, tone: "blue" });

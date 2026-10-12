@@ -7,7 +7,7 @@
 import { revalidatePath } from "next/cache";
 import { WORKER_COLUMNS, WORKER_LOCK_COLUMNS, mapLockRow, mapWorkerRow } from "@/lib/jobs/types";
 import type { WorkerRow } from "@/lib/jobs/types";
-import { isUuid, parsePin, parseStageCodes, parseText } from "@/lib/jobs/input";
+import { isUuid, parseLabel, parsePin, parseStageCodes } from "@/lib/jobs/input";
 import { callOffice, db, fail, guard, shopId } from "@/lib/jobs/office-server";
 import type { JobResult } from "@/lib/jobs/office-server";
 import { logJobFailure } from "@/lib/jobs/log";
@@ -68,7 +68,7 @@ export async function saveWorker(i: UpsertWorkerInput): Promise<JobResult<Worker
   if (typeof i !== "object" || i === null) return fail("ข้อมูลไม่ถูกต้อง");
   const editing = i.id !== null && i.id !== undefined && i.id !== "";
   if (editing && !isUuid(i.id)) return fail("ไม่พบช่าง");
-  const name = parseText(i.displayName, "ชื่อช่าง", 60, true);
+  const name = parseLabel(i.displayName, "ชื่อช่าง", 60, true);
   if (!name.ok) return fail(name.error);
   const codes = parseStageCodes(i.stageCodes, true);
   if (!codes.ok) return fail(codes.error);

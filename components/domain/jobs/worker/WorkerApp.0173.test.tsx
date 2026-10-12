@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // หน้าช่างหลัง 0173 + รอบแก้ QA/security 12 ต.ค.: แพ้การแย่งรับ (เหลือง) · น้ำหนักจุลภาค/กำกวม · เตือนต่าง >20% · ถามก่อนปิดขั้นคนอื่น · prev_not_sent · +1/+5/+10 · แถบขั้น ±1
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
 
@@ -226,5 +226,86 @@ describe("ก่อน hydrate: skeleton แทนปุ่ม (ปุ่มท�
     expect(html).toContain("JB-0007");
     // ปุ่มเปลี่ยนคนยังอยู่แต่ disabled
     expect(html).toMatch(/<button[^>]*disabled[^>]*>[^]*?ไม่ใช่คุณ/);
+  });
+});
+
+describe("0174 รอบ 2: ส่งต่อติดล่าง (N2) · รอข้อมูลใหม่ (N5) · งานทอง", () => {
+  it("N2: ปุ่มหลักของรับงาน/ส่งต่ออยู่ในกล่อง sticky ติดล่างจอ (จอ 390x740 กดได้โดยไม่ต้องเลื่อนหา)", () => {
+    const { unmount } = render(<WorkerApp token={TOKEN} view={view()} />);
+    expect(screen.getByRole("button", { name: "รับงาน" }).parentElement!.className).toMatch(/sticky bottom-0/);
+    unmount();
+    render(<WorkerApp token={TOKEN} view={view({ nextAction: "send", prevWeightOutG: null }, ["sent", "received", "pending"])} />);
+    expect(screen.getByRole("button", { name: /ส่งต่อ/ }).parentElement!.className).toMatch(/sticky bottom-0/);
+  });
+
+  it("N5: หลังจอสำเร็จ แผงเก่าถูกแทนด้วย skeleton จนกว่าข้อมูลใหม่มา (กดแผงเก่าไม่ได้) แล้วแผงใหม่ขึ้นเมื่อ view เปลี่ยน", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const { rerender } = render(<WorkerApp token={TOKEN} view={view()} />);
+      await userEvent.type(screen.getByLabelText(/น้ำหนักเข้า/), "10");
+      await userEvent.click(screen.getByRole("button", { name: "รับงาน" }));
+      await screen.findByTestId("done-ok");
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2100);
+      });
+      expect(refresh).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole("status", { name: "กำลังโหลด" })).toHaveAttribute("aria-busy", "true");
+      expect(screen.queryByRole("button", { name: "รับงาน" })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /ไม่ใช่คุณ/ })).toBeDisabled();
+      // ข้อมูลใหม่มา (ขั้นถัดไปเป็นของส่งต่อ)
+      rerender(<WorkerApp token={TOKEN} view={view({ nextAction: "send", prevWeightOutG: null }, ["sent", "received", "pending"])} />);
+      expect(screen.queryByRole("status", { name: "กำลังโหลด" })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /ส่งต่อ/ })).toBeEnabled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("N5: ถ้าข้อมูลใหม่ไม่มาใน 8 วิ ก็ไม่ค้าง skeleton ตลอดไป", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      render(<WorkerApp token={TOKEN} view={view()} />);
+      await userEvent.type(screen.getByLabelText(/น้ำหนักเข้า/), "10");
+      await userEvent.click(screen.getByRole("button", { name: "รับงาน" }));
+      await screen.findByTestId("done-ok");
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2100);
+      });
+      expect(screen.getByRole("status", { name: "กำลังโหลด" })).toBeInTheDocument();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(8100);
+      });
+      expect(screen.queryByRole("status", { name: "กำลังโหลด" })).not.toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("งานทอง: prev_weight_out_g = null → ไม่มีข้อความ 'ครั้งก่อนส่งออก' และไม่มีกล่องเตือน 20% ไม่ว่าใส่น้ำหนักเท่าไร", async () => {
+    render(<WorkerApp token={TOKEN} view={view({ prevWeightOutG: null })} />);
+    expect(screen.queryByText(/ครั้งก่อนส่งออก/)).not.toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText(/น้ำหนักเข้า/), "999");
+    await userEvent.click(screen.getByRole("button", { name: "รับงาน" }));
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
+    await waitFor(() => expect(workerReceiveStage).toHaveBeenCalledWith(TOKEN, 2, "999"));
+  });
+
+  it("DB ปฏิเสธ handoff_mismatch (ทอง): แสดงข้อความตายตัวของ server ไม่มีส่วนต่าง · กรอกใหม่ได้", async () => {
+    workerReceiveStage.mockResolvedValue({ ok: false, error: "น้ำหนักที่รับไม่ตรงกับที่ขั้นก่อนส่งมา — ชั่งใหม่ ถ้ายังไม่ตรงให้แจ้งออฟฟิศ", code: "handoff_mismatch" });
+    render(<WorkerApp token={TOKEN} view={view({ prevWeightOutG: null })} />);
+    await userEvent.type(screen.getByLabelText(/น้ำหนักเข้า/), "10");
+    await userEvent.click(screen.getByRole("button", { name: "รับงาน" }));
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("ชั่งใหม่ ถ้ายังไม่ตรงให้แจ้งออฟฟิศ");
+    expect(alert.textContent).not.toMatch(/[0-9]/);
+    expect(screen.getByRole("button", { name: "รับงาน" })).toBeEnabled();
+  });
+
+  it("prev_not_sent จาก resolve + มีผู้ถือ → ข้อความรอทันที ไม่มีปุ่มรับ และไม่มีกล่อง 'จะปิดขั้นของ X ให้'", () => {
+    render(<WorkerApp token={TOKEN} view={view({ nextAction: "prev_not_sent", heldBy: "ช่างบี" }, ["received", "pending", "pending"])} />);
+    expect(screen.getByText(/ขั้นก่อน \(ฉีดเทียน\) ยังไม่กดส่งพร้อมน้ำหนัก/)).toBeInTheDocument();
+    expect(screen.getByText(/ช่างบี/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "รับงาน" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
   });
 });
