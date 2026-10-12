@@ -97,7 +97,7 @@ export function WorkerApp({ token, view }: { token: string; view: WorkerView }) 
         </p>
       )}
 
-      {view.heldBy && <p className="rounded-xl bg-zinc-100 p-3 text-lg text-zinc-900">ตอนนี้อยู่กับ <strong>{view.heldBy}</strong></p>}
+      {view.heldBy && view.heldBy !== view.viewer?.displayName && <p className="rounded-xl bg-zinc-100 p-3 text-lg text-zinc-900">ตอนนี้อยู่กับ <strong>{view.heldBy}</strong></p>}
 
       {!ready ? (
         <PanelSkeleton />

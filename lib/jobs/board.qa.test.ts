@@ -2,7 +2,7 @@
 // 🐞 BUG-J1-02: groupByStage (board.ts:37-38) ส่งทุกใบที่ stageCode = null ไปคอลัมน์ "ยังไม่เริ่ม"
 //    รวมใบที่ทุกขั้น "ส่งต่อแล้ว" (ขั้น 8/8) รอออฟฟิศกดปิดงาน → ออฟฟิศเห็นเหมือนยังไม่มีใครแตะ
 //    reproduce จริง: JB-0001 (QA) ช่างส่งต่อครบ 8 ขั้น → การ์ดอยู่คอลัมน์ "ยังไม่เริ่ม" แสดง "ขั้น 8/8"
-//    it.fails จะผ่านตราบที่บั๊กยังอยู่ — แก้แล้วให้ลบ .fails
+//    (แก้แล้ว 12 ต.ค. ด้วย board_column ของ 0173 — it.fails เดิมเปลี่ยนเป็น it ปกติแล้ว)
 import { describe, expect, it } from "vitest";
 import { AWAITING_CLOSE, NO_STAGE, cardBadges, groupByStage } from "@/lib/jobs/board";
 import type { BoardRow, StageDef } from "@/lib/jobs/types";

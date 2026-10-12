@@ -1,7 +1,7 @@
 // QA (R2-D2) — J1 ระบบใบงาน: ขอบเขตของ parseWeight / parseWeightOrZero / parseCount
 // 🐞 BUG-J1-01: คอมมา "95,5" ถูกตัดทิ้งเป็น 955 (ตัวคั่นหลักพัน) → น้ำหนัก 10 เท่าโดยไม่มีเตือน
 //    reproduce จริงบน /w/<token>: ช่างทองพิมพ์ "95,5" ในช่องน้ำหนักเข้า → job_stage.weight_in_g = 955.000
-//    it.fails ด้านล่างจะ "ผ่าน" ตราบที่บั๊กยังอยู่ — เมื่อแก้แล้ว it.fails จะแดง ให้ลบ .fails ออก
+//    (แก้แล้ว 12 ต.ค. — it.fails เดิมเปลี่ยนเป็น it ปกติแล้ว)
 import { describe, expect, it } from "vitest";
 import { parseCount, parseWeight, parseWeightOrZero } from "@/lib/jobs/input";
 
