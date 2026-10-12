@@ -273,7 +273,7 @@ begin
     r := pg_temp.q(format('select analytics.job_stage_suggest(%L, %L, %L)', p_shop, 'oem', d ->> 'item_id'));
     r2 := pg_temp.q(format('select pg_temp.jcq(%L, %L, %L::text[], null, %L, null, null, %L)',
             p_shop, d ->> 'item_id', pg_temp.std(), case when rec.paid <= 0 then 'verify: เริ่มผลิตก่อนมัดจำ' else null end, v_actor));
-    if rec.qstatus = 'won' and rec.metal = 'silver' then
+    if rec.qstatus = 'won' and rec.metal in ('silver', 'gold', 'brass') then
       if rec.paid > 0 then v_pn := v_pn + 1; end if;
       if r ? 'suggested_stage_codes' and r2 ? 'job_id' and (r ->> 'deposit_missing')::boolean = (rec.paid <= 0) then
         v_ok := v_ok + 1;
@@ -290,7 +290,7 @@ begin
   if v_n = 0 then
     v_log := v_log || '[SKIP] N11  ไม่มี oem_quote_item จริงบน DB — พิสูจน์ "ยิงใส่ข้อมูลจริงทุกโหมด" ไม่ได้' || E'\n';
   else
-    v_log := v_log || pg_temp.chk('N11', format('ยิง suggest+create ใส่ quote item จริงทุกใบบน DB %s รายการ: ได้งาน(won+silver) %s · ถูกปฏิเสธถูกต้อง %s · ผิดคาด: %s',
+    v_log := v_log || pg_temp.chk('N11', format('ยิง suggest+create ใส่ quote item จริงทุกใบบน DB %s รายการ: ได้งาน(won+เงิน/ทอง/ทองเหลือง) %s · ถูกปฏิเสธถูกต้อง %s · ผิดคาด: %s',
       v_n, v_ok, v_rej, coalesce(nullif(v_bad, ''), '(ไม่มี)')), v_bad = '' and v_ok + v_rej = v_n);
   end if;
 
@@ -845,8 +845,8 @@ begin
   update analytics.worker set locked_until = now() - interval '1 second' where id = wA;
   r := pg_temp.login(tA ->> 'hash', wA, '4829');
   sA := r ->> 'session_hash';
-  v_log := v_log || pg_temp.chk('T17f', 'ล็อกหมดอายุแล้วใส่ PIN ถูก → เข้าได้ · ตัวนับถูกล้าง · session token สุ่ม 43 ตัว หมดอายุ 12 ชม.',
-    (r ->> 'ok') = 'true' and (r ->> 'session_token') ~ '^[A-Za-z0-9_-]{43}$' and (select failed_attempts = 0 and locked_until is null from analytics.worker where id = wA)
+  v_log := v_log || pg_temp.chk('T17f', 'ล็อกหมดอายุแล้วใส่ PIN ถูก → เข้าได้ · ล็อกชั่วคราวถูกปลด แต่ตัวนับยังอยู่ (0174 N2: ล้างได้แค่ครบ 24 ชม./worker_unlock/worker_pin_set) · session token สุ่ม 43 ตัว หมดอายุ 12 ชม.',
+    (r ->> 'ok') = 'true' and (r ->> 'session_token') ~ '^[A-Za-z0-9_-]{43}$' and (select failed_attempts = 5 and locked_until is null from analytics.worker where id = wA)
     and (select expires_at - issued_at between interval '11 hours 59 minutes' and interval '12 hours 1 minute' from analytics.worker_session where session_hash = sA)
     and not exists (select 1 from analytics.worker_session s where s::text like '%' || (r ->> 'session_token') || '%')
     and pg_temp.as_role('service_role', 'select session_hash from analytics.worker_session limit 1') like 'ERR:42501:%');
@@ -1036,12 +1036,22 @@ begin
   -- ---------- rate limit (0173 L4): ถังต่อ token เฉพาะ token ที่มีจริง · ip นับเฉพาะ action เขียน + verify PIN ----------
   t2 := pg_temp.tok(p_shop, jt2);
   v_ok := true;
-  for i in 1 .. 60 loop
+  for i in 1 .. 120 loop
     v_ok := v_ok and (pg_temp.w_res(t2 ->> 'hash') ->> 'ok') = 'true';
   end loop;
   m := pg_temp.w_res(t2 ->> 'hash');
-  v_log := v_log || pg_temp.chk('T17n', 'ยิง token จริงใบเดียวเกิน 60 ครั้ง/10 นาที: ครั้งที่ 61 ถูกปฏิเสธ rate_limited (ตัวนับ commit จริง — ไม่ raise)', v_ok and (m ->> 'code') = 'rate_limited'
-    and (select hits from analytics.worker_rate_limit where key = 'tok:' || left(t2 ->> 'hash', 32) order by window_start desc limit 1) = 61);
+  r2 := pg_temp.login(t2 ->> 'hash', wB, '7351');
+  v_log := v_log || pg_temp.chk('T17n', '0174 N3: resolve ใบเดียวเกิน 120 ครั้ง/10 นาที: ครั้งที่ 121 ถูกปฏิเสธ rate_limited (ถัง tov:) แต่ช่างตัวจริง login ด้วย PIN ถูกยังผ่าน (ถัง tok: แยกกัน) · ตัวนับ commit จริง — ไม่ raise', v_ok and (m ->> 'code') = 'rate_limited' and (r2 ->> 'ok') = 'true'
+    and (select hits from analytics.worker_rate_limit where key = 'tov:' || left(t2 ->> 'hash', 32) order by window_start desc limit 1) = 121);
+  t3 := pg_temp.tok(p_shop, jt2);
+  v_ok := true;
+  for i in 1 .. 60 loop
+    m := pg_temp.q(format('select analytics.worker_pin_verify(%L, %L, %L)', t3 ->> 'hash', gen_random_uuid(), '0000'));
+    v_ok := v_ok and (m ->> 'code') = 'bad_credentials';
+  end loop;
+  m := pg_temp.q(format('select analytics.worker_pin_verify(%L, %L, %L)', t3 ->> 'hash', gen_random_uuid(), '0000'));
+  v_log := v_log || pg_temp.chk('T17n2', '0174 N3: PIN/เขียนใช้ถัง tok: 60/10 นาที — ครั้งที่ 61 ถูกปฏิเสธ rate_limited', v_ok and (m ->> 'code') = 'rate_limited'
+    and (select hits from analytics.worker_rate_limit where key = 'tok:' || left(t3 ->> 'hash', 32) order by window_start desc limit 1) = 61);
   v_ok := true;
   for i in 1 .. 100 loop
     m := pg_temp.q(format('select analytics.worker_pin_verify(%L, %L, %L, %L, %L)', analytics.job_sha256_hex('p' || i), wA, '0000', 'ua', analytics.job_sha256_hex('attacker')));
@@ -1432,7 +1442,7 @@ declare
     jsonb_build_object('id', 'MU06', 'what', 'PIN ผิดไม่ล็อก (เพดาน 5 -> 500)', 'fn', 'worker_pin_verify',
       'from', 'when v_att = 5 then now() + interval ''15 minutes''', 'to', 'when v_att = 500 then now() + interval ''15 minutes''', 'expect', jsonb_build_array('T17e')),
     jsonb_build_object('id', 'MU07', 'what', 'rate limit ไม่จำกัด', 'fn', 'job_rate_limit_hit',
-      'from', 'return v_hits <= p_max;', 'to', 'return true;', 'expect', jsonb_build_array('T17n', 'T17o')),
+      'from', 'return v_hits <= p_max;', 'to', 'return true;', 'expect', jsonb_build_array('T17n', 'T17n2', 'T17o')),
     jsonb_build_object('id', 'MU08', 'what', 'วันที่ในอนาคตผ่าน (รับงาน)', 'fn', 'job_core_receive',
       'from', 'or p_occurred_on > v_today', 'to', 'or false', 'expect', jsonb_build_array('T09a')),
     jsonb_build_object('id', 'MU09', 'what', 'สร้างใบงานดีลไม่มีมัดจำโดยไม่ต้องมีเหตุผล', 'fn', 'job_create_from_quote_item',
