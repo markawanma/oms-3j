@@ -19,6 +19,10 @@ export type DoneTone = "ok" | "warn";
 export const WEIGHT_DEVIATION_WARN = 0.2;
 /** code ที่ลองใหม่ด้วย PIN ไม่ได้อีกจนกว่าออฟฟิศช่วย */
 const PERMANENT_BLOCK = new Set(["locked_office", "token_budget_exhausted", "invalid_token"]);
+/** การล็อกที่ผูกกับ "ใบ/QR" ไม่ใช่ตัวช่าง — เปลี่ยนชื่อแล้วก็ยังใช้ไม่ได้ · ที่เหลือ (locked, locked_office) ล็อกรายช่าง: เปลี่ยนคนแล้วแป้นต้องกลับมากดได้ */
+const TOKEN_WIDE_BLOCK = new Set(["token_budget_exhausted", "invalid_token"]);
+/** code ที่แปลว่า "ข้อมูลบนจอเก่าแล้ว" — แก้ได้ด้วยการโหลดใหม่ (ช่างไม่ต้องรู้ว่า "รีเฟรช" คืออะไร) */
+const RELOAD_CODES = new Set(["stage_changed", "out_of_order", "not_holder", "not_received", "already_sent"]);
 
 async function safely(fn: () => Promise<WorkerActionResult>): Promise<WorkerActionResult> {
   try {
@@ -35,24 +39,51 @@ function StickyAction({ children }: { children: ReactNode }) {
 
 const ERR_BOX = "rounded-xl border-2 border-red-200 bg-red-50 p-3 text-lg font-semibold text-red-800";
 
+/** ข้อผิดพลาดใต้ฟอร์ม · ถ้าเป็น code "ข้อมูลเก่า" แสดงปุ่ม "โหลดใหม่" ต่อท้าย (ช่างไม่มีปุ่มรีเฟรชของเบราว์เซอร์ให้ใช้) */
+function ActionError({ message, code, onReload, busy = false }: { message: string; code: string | null; onReload: () => void; busy?: boolean }) {
+  return (
+    <div className="space-y-2">
+      <p role="alert" className={ERR_BOX}>
+        {message}
+      </p>
+      {code && RELOAD_CODES.has(code) && (
+        <BigButton type="button" tone="secondary" onClick={onReload} disabled={busy}>
+          โหลดใหม่
+        </BigButton>
+      )}
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 export function IdentifyPanel({ token, workers, onDone }: { token: string; workers: WorkerView["workers"]; onDone: () => void }) {
   const [picked, setPicked] = useState<{ id: string; name: string } | null>(null);
   const [pin, setPin] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // blocked: true = แป้นล็อก (ผิดหลายครั้ง) · locked/ชั่วคราวปลดเองเมื่อครบเวลา · locked_office/งบ token หมดต้องให้ออฟฟิศ
-  const [blocked, setBlocked] = useState(false);
+  // blockCode: ไม่ null = แป้นล็อก (ผิดหลายครั้ง) · locked/ชั่วคราวปลดเองเมื่อครบเวลา · locked_office/งบ token หมดต้องให้ออฟฟิศ
+  // เก็บ code ไว้เพราะ "ไม่ใช่ฉัน" ต้องปลดเฉพาะการล็อกรายช่าง (locked/locked_office) — การล็อกระดับใบ (TOKEN_WIDE_BLOCK) อยู่ต่อข้ามคน
+  const [blockCode, setBlockCode] = useState<string | null>(null);
   const [unblockMs, setUnblockMs] = useState<number | null>(null);
+  const blocked = blockCode !== null;
 
   useEffect(() => {
     if (unblockMs === null) return;
     const t = setTimeout(() => {
-      setBlocked(false);
+      setBlockCode(null);
       setUnblockMs(null);
     }, unblockMs);
     return () => clearTimeout(t);
   }, [unblockMs]);
+
+  function notMe() {
+    setPicked(null);
+    setPin("");
+    if (blockCode !== null && TOKEN_WIDE_BLOCK.has(blockCode)) return; // ยังล็อกอยู่ทั้งใบ — คงข้อความไว้ให้คนถัดไปเห็นว่าทำไมแป้นกดไม่ได้
+    setBlockCode(null);
+    setUnblockMs(null);
+    setError(null);
+  }
 
   async function submit(code: string) {
     if (!picked || busy || blocked) return;
@@ -66,9 +97,9 @@ export function IdentifyPanel({ token, workers, onDone }: { token: string; worke
     }
     setPin("");
     setError(r.error);
-    if (r.code && PERMANENT_BLOCK.has(r.code)) setBlocked(true);
+    if (r.code && PERMANENT_BLOCK.has(r.code)) setBlockCode(r.code);
     else if (r.code === "locked" && r.retryAfterSeconds) {
-      setBlocked(true);
+      setBlockCode(r.code);
       setUnblockMs(Math.min(r.retryAfterSeconds, 3600) * 1000);
     }
   }
@@ -116,7 +147,7 @@ export function IdentifyPanel({ token, workers, onDone }: { token: string; worke
         </p>
       )}
       {busy && <p className="text-center text-lg text-zinc-700">กำลังตรวจ…</p>}
-      <BigButton type="button" tone="secondary" disabled={busy} onClick={() => { setPicked(null); setPin(""); setError(null); }}>
+      <BigButton type="button" tone="secondary" disabled={busy} onClick={notMe}>
         ไม่ใช่ฉัน — เลือกชื่อใหม่
       </BigButton>
     </section>

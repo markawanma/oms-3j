@@ -106,6 +106,43 @@ describe("ระบุตัว", () => {
     }
   });
 
+  it("ล็อกรายช่าง (ชั่วคราว/ออฟฟิศปลด) → กด 'ไม่ใช่ฉัน' แล้วเลือกช่างบี แป้นต้องกลับมากดได้ ไม่มีข้อความเก่าค้าง", async () => {
+    for (const mock of [
+      { ok: false, error: "ใส่ PIN ผิดหลายครั้ง — ลองใหม่ใน 15 นาที", code: "locked", retryAfterSeconds: 900 },
+      { ok: false, error: "ล็อกแล้ว ให้ออฟฟิศปลดล็อก", code: "locked_office" },
+    ]) {
+      workerLogin.mockResolvedValue(mock);
+      const { unmount } = render(<WorkerApp token={TOKEN} view={identify()} />);
+      await userEvent.click(screen.getByRole("button", { name: "ช่างเอ" }));
+      for (const d of ["1", "9", "9", "9"]) await userEvent.click(screen.getByRole("button", { name: d }));
+      expect(await screen.findByRole("alert")).toHaveTextContent(mock.error);
+      expect(screen.getByRole("button", { name: "5" })).toBeDisabled();
+      await userEvent.click(screen.getByRole("button", { name: /ไม่ใช่ฉัน/ }));
+      await userEvent.click(screen.getByRole("button", { name: "ช่างบี" }));
+      expect(screen.getByRole("button", { name: "5" })).toBeEnabled();
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      unmount();
+    }
+  });
+
+  it("ล็อกระดับใบ (งบ token หมด / ลิงก์ใช้ไม่ได้) → เปลี่ยนไปเลือกช่างบีแล้วแป้นยังล็อก + ยังเห็นเหตุผล", async () => {
+    for (const mock of [
+      { ok: false, error: "ใบนี้ใส่ PIN ผิดเกินกำหนด ขอพิมพ์ใบใหม่จากออฟฟิศ", code: "token_budget_exhausted" },
+      { ok: false, error: "ลิงก์หรือ QR นี้ใช้ไม่ได้ — ขอพิมพ์ใบงานใหม่จากออฟฟิศ", code: "invalid_token" },
+    ]) {
+      workerLogin.mockResolvedValue(mock);
+      const { unmount } = render(<WorkerApp token={TOKEN} view={identify()} />);
+      await userEvent.click(screen.getByRole("button", { name: "ช่างเอ" }));
+      for (const d of ["1", "9", "9", "9"]) await userEvent.click(screen.getByRole("button", { name: d }));
+      expect(await screen.findByRole("alert")).toHaveTextContent(mock.error);
+      await userEvent.click(screen.getByRole("button", { name: /ไม่ใช่ฉัน/ }));
+      await userEvent.click(screen.getByRole("button", { name: "ช่างบี" }));
+      expect(screen.getByRole("button", { name: "5" })).toBeDisabled();
+      expect(screen.getByRole("alert")).toHaveTextContent(mock.error);
+      unmount();
+    }
+  });
+
   it("PIN ผิดครั้งที่ 3: แสดงคำเตือน 'เหลืออีก N ครั้ง' ที่ server แนบมา · ยังกดต่อได้", async () => {
     workerLogin.mockResolvedValue({ ok: false, error: "ชื่อหรือ PIN ไม่ถูกต้อง · เหลืออีก 2 ครั้งก่อนถูกล็อกชั่วคราว", code: "bad_credentials" });
     render(<WorkerApp token={TOKEN} view={identify()} />);
