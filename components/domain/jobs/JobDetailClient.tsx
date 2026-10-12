@@ -7,7 +7,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { AlertTriangle, Printer } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { DoneDialog, DueDialog, ReasonDialog } from "@/components/domain/jobs/JobDialogs";
+import { DesignLabelDialog, DoneDialog, DueDialog, ReasonDialog } from "@/components/domain/jobs/JobDialogs";
 import type { ReasonKind } from "@/components/domain/jobs/JobDialogs";
 import { ReceiveStageDialog, SendStageDialog } from "@/components/domain/jobs/StageDialogs";
 import { JobEvents, StageTable } from "@/components/domain/jobs/JobStages";
@@ -20,6 +20,7 @@ import type { StageRow } from "@/lib/jobs/types";
 type Dlg =
   | { t: "reason"; spec: ReasonKind }
   | { t: "due" }
+  | { t: "label" }
   | { t: "done" }
   | { t: "receive"; stage: StageRow }
   | { t: "send"; stage: StageRow }
@@ -100,6 +101,9 @@ export function JobDetailClient({ data }: { data: JobDetailData }) {
           <Button type="button" variant="secondary" onClick={() => setDlg({ t: "due" })}>
             ตั้งกำหนดส่ง
           </Button>
+          <Button type="button" variant="secondary" onClick={() => setDlg({ t: "label" })}>
+            แก้ชื่อเรียก
+          </Button>
           {started && (
             <Button type="button" variant="secondary" onClick={() => setDlg({ t: "reason", spec: { kind: "reopen" } })}>
               ย้อนขั้น
@@ -133,6 +137,7 @@ export function JobDetailClient({ data }: { data: JobDetailData }) {
       <JobEvents events={events} truncated={data.eventsTruncated} stageNames={Object.fromEntries(stages.map((s) => [s.code, s.name]))} />
 
       {dlg?.t === "reason" && <ReasonDialog jobId={job.id} spec={dlg.spec} onClose={() => setDlg(null)} />}
+      {dlg?.t === "label" && <DesignLabelDialog jobId={job.id} current={job.designLabel} onClose={() => setDlg(null)} />}
       {dlg?.t === "due" && <DueDialog jobId={job.id} current={job.dueDate} todayTh={todayTh} onClose={() => setDlg(null)} />}
       {dlg?.t === "done" && <DoneDialog jobId={job.id} planned={job.qtyPlanned} metal={job.metal} onClose={() => setDlg(null)} />}
       {dlg?.t === "receive" && <ReceiveStageDialog jobId={job.id} stage={dlg.stage} workers={workers} todayTh={todayTh} prevWeightOut={prevOut} onClose={() => setDlg(null)} />}

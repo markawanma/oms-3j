@@ -8,7 +8,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
-import { ErrorLine, FIELD, Field } from "@/components/domain/jobs/JobDialogs";
+import { DESIGN_LABEL_WARNING, ErrorLine, FIELD, Field } from "@/components/domain/jobs/JobDialogs";
 import { useToast } from "@/components/ui/Toast";
 import { createJob, suggestJob } from "@/lib/actions/job-office";
 import type { JobSuggestion } from "@/lib/actions/job-office";
@@ -24,6 +24,7 @@ export function JobCreateDialog({ kind, itemId, itemLabel, onClose, onCreated }:
   const [codes, setCodes] = useState<string[]>([]);
   const [due, setDue] = useState("");
   const [gate, setGate] = useState("");
+  const [label, setLabel] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -35,6 +36,7 @@ export function JobCreateDialog({ kind, itemId, itemLabel, onClose, onCreated }:
         if (cancelled) return;
         if (!r.ok) return setLoad({ s: "error", message: r.error });
         setCodes(r.data.stages.filter((x) => x.defaultSelected).map((x) => x.code));
+        setLabel(r.data.designLabel);
         setLoad({ s: "ready", data: r.data });
       } catch {
         if (!cancelled) setLoad({ s: "error", message: GENERIC_JOB_ERROR });
@@ -47,7 +49,9 @@ export function JobCreateDialog({ kind, itemId, itemLabel, onClose, onCreated }:
 
   const data = load.s === "ready" ? load.data : null;
   const needGate = data?.depositMissing === true && kind === "oem";
-  const ready = data !== null && !data.existingJob && codes.length > 0 && (!needGate || gate.trim() !== "");
+  // OEM: ออฟฟิศต้องตั้ง/ยืนยันชื่อเรียกภายในเอง (มติเจ้าของ 12 ต.ค.) — ค่าเริ่มมาจากข้อเสนอของระบบ แต่ห้ามว่าง · ใบผลิตเข้าสต็อกไม่บังคับ
+  const labelRequired = kind === "oem";
+  const ready = data !== null && !data.existingJob && codes.length > 0 && (!needGate || gate.trim() !== "") && (!labelRequired || label.trim() !== "");
   const toggle = (c: string) => setCodes((p) => (p.includes(c) ? p.filter((x) => x !== c) : [...p, c]));
 
   async function submit() {
@@ -57,7 +61,7 @@ export function JobCreateDialog({ kind, itemId, itemLabel, onClose, onCreated }:
     try {
       // เรียงตามลำดับที่ DB เสนอ (ไม่ใช่ลำดับที่ติ๊ก) — ลำดับขั้นของช่างต้องคงที่
       const ordered = data.stages.filter((s) => codes.includes(s.code)).map((s) => s.code);
-      const r = await createJob({ kind, itemId, stageCodes: ordered, dueDate: due || null, startGateNote: needGate ? gate.trim() : null });
+      const r = await createJob({ kind, itemId, stageCodes: ordered, dueDate: due || null, startGateNote: needGate ? gate.trim() : null, designLabel: label.trim() || null });
       if (!r.ok) return setError(r.error);
       toast.push(`สร้างใบงาน ${r.data.jobNo} แล้ว`);
       onCreated();
@@ -98,6 +102,9 @@ export function JobCreateDialog({ kind, itemId, itemLabel, onClose, onCreated }:
                 </label>
               ))}
             </fieldset>
+            <Field id="jlabel" label={`ชื่อเรียกภายใน (ช่างเห็น)${labelRequired ? " — จำเป็น" : " — ไม่บังคับ"}`} hint={DESIGN_LABEL_WARNING}>
+              <input id="jlabel" value={label} onChange={(e) => setLabel(e.target.value)} maxLength={200} className={FIELD} disabled={busy} />
+            </Field>
             <Field id="jdue" label="กำหนดส่ง (ไม่บังคับ)">
               <input id="jdue" type="date" value={due} onChange={(e) => setDue(e.target.value)} className={FIELD} />
             </Field>

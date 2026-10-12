@@ -8,7 +8,7 @@ import type { ReactNode } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { useOfficeRun } from "@/components/domain/jobs/useOfficeRun";
-import { cancelJob, doneJob, reopenJobStage, setJobDue, setJobStartGateNote, skipJobStage } from "@/lib/actions/job-office-write";
+import { cancelJob, doneJob, reopenJobStage, setJobDesignLabel, setJobDue, setJobStartGateNote, skipJobStage } from "@/lib/actions/job-office-write";
 
 export const FIELD =
   "min-h-11 w-full rounded-md border border-zinc-300 bg-white px-2.5 text-base text-zinc-900 focus:border-primary-600 focus:outline-none focus:ring-1 focus:ring-primary-600";
@@ -79,6 +79,30 @@ export function ReasonDialog({ jobId, spec, onClose }: { jobId: string; spec: Re
         </Field>
         <ErrorLine message={error} />
         <DialogButtons busy={busy} ready={ready} confirm={c.confirm} onClose={onClose} danger={c.danger} />
+      </form>
+    </Modal>
+  );
+}
+
+/** ข้อความเตือนที่ใช้ทุกที่ที่ตั้งชื่อเรียกภายใน — ช่างเห็นชื่อนี้บนมือถือและใบพิมพ์ติดถุงงาน */
+export const DESIGN_LABEL_WARNING = "ช่างเห็นชื่อนี้บนมือถือและบนใบงาน — ห้ามมีชื่อแบรนด์/ชื่อลูกค้า (ตั้งชื่อกลางๆ เช่น “แหวนลายใบไม้ ไซส์ 7”)";
+
+export function DesignLabelDialog({ jobId, current, onClose }: { jobId: string; current: string; onClose: () => void }) {
+  const { run, busy, error } = useOfficeRun();
+  const [label, setLabel] = useState(current);
+  const ready = label.trim() !== "" && label.trim() !== current.trim();
+  async function submit() {
+    const r = await run(() => setJobDesignLabel(jobId, label), { success: "แก้ชื่อเรียกใบงานแล้ว" });
+    if (r.ok) onClose();
+  }
+  return (
+    <Modal open onClose={onClose} title="แก้ชื่อเรียกใบงาน">
+      <form noValidate className="space-y-3" onSubmit={(e) => { e.preventDefault(); if (ready) void submit(); }}>
+        <Field id="dlabel" label="ชื่อเรียกภายใน (ช่างเห็น)" hint={DESIGN_LABEL_WARNING}>
+          <input id="dlabel" value={label} onChange={(e) => setLabel(e.target.value)} maxLength={200} className={FIELD} />
+        </Field>
+        <ErrorLine message={error} />
+        <DialogButtons busy={busy} ready={ready} confirm="บันทึก" onClose={onClose} />
       </form>
     </Modal>
   );

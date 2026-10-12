@@ -102,7 +102,7 @@ export async function getJobDetail(jobId: string): Promise<JobResult<JobDetailDa
 
     const names: Record<string, string> = {};
     for (const d of rows(defRes.data)) if (typeof d.code === "string") names[d.code] = typeof d.name_th === "string" ? d.name_th : d.code;
-    const allWorkers = rows(wkRes.data).map(mapWorkerRow).filter((w): w is WorkerRow => w !== null);
+    const allWorkers = rows(wkRes.data).map((x) => mapWorkerRow(x)).filter((w): w is WorkerRow => w !== null);
     const workerNames = Object.fromEntries(allWorkers.map((w) => [w.id, w.displayName]));
     const stages = rows(stRes.data).map((r) => mapStageRow(r, names, workerNames)).filter((s): s is StageRow => s !== null);
     const stageCodeById = Object.fromEntries(stages.map((s) => [s.id, s.code]));

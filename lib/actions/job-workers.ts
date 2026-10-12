@@ -5,7 +5,7 @@
 // ไม่มีทางอ่าน pin_hash กลับ (grant select ซ่อนคอลัมน์) · worker_audit append-only
 
 import { revalidatePath } from "next/cache";
-import { WORKER_COLUMNS, mapWorkerRow } from "@/lib/jobs/types";
+import { WORKER_COLUMNS, WORKER_LOCK_COLUMNS, mapLockRow, mapWorkerRow } from "@/lib/jobs/types";
 import type { WorkerRow } from "@/lib/jobs/types";
 import { isUuid, parsePin, parseStageCodes, parseText } from "@/lib/jobs/input";
 import { callOffice, db, fail, guard, shopId } from "@/lib/jobs/office-server";
@@ -25,17 +25,20 @@ export async function getWorkers(): Promise<JobResult<WorkersData>> {
   if (g) return g;
   try {
     const shop = shopId();
-    const [w, d] = await Promise.all([
+    const [w, d, lk] = await Promise.all([
       db().from("worker").select(WORKER_COLUMNS).eq("shop_id", shop).order("is_active", { ascending: false }).order("display_name", { ascending: true }).limit(100),
       db().from("job_stage_def").select("code, name_th, seq_default").eq("shop_id", shop).eq("is_active", true).order("seq_default", { ascending: true }).limit(50),
+      db().from("v_worker_lock").select(WORKER_LOCK_COLUMNS).eq("shop_id", shop).limit(100),
     ]);
     if (w.error) throw w.error;
     if (d.error) throw d.error;
+    if (lk.error) throw lk.error;
     const rows = (x: unknown) => (Array.isArray(x) ? (x as Raw[]) : []);
+    const locks = new Map(rows(lk.data).flatMap((x) => { const m = mapLockRow(x); return m ? [[m.workerId, m] as const] : []; }));
     return {
       ok: true,
       data: {
-        workers: rows(w.data).map(mapWorkerRow).filter((r): r is WorkerRow => r !== null),
+        workers: rows(w.data).map((x) => mapWorkerRow(x, locks.get(String(x.id)))).filter((r): r is WorkerRow => r !== null),
         stages: rows(d.data).flatMap((s) => (typeof s.code === "string" && typeof s.name_th === "string" ? [{ code: s.code, nameTh: s.name_th }] : [])),
       },
     };
@@ -99,6 +102,17 @@ export async function resetWorkerPin(workerId: string, pin?: string | null): Pro
   if (!r.ok) return r;
   revalidatePath("/jobs/workers");
   return { ok: true, data: { pin: typeof r.data.pin === "string" ? r.data.pin : null } };
+}
+
+/** ปลดล็อกช่าง (ล้างตัวนับ PIN ผิด + การล็อกรวมล็อกถาวร) — ไม่เพิกถอน session เดิม · ไม่เปลี่ยน PIN (ถ้าลืม PIN ใช้ "รีเซ็ต PIN") */
+export async function unlockWorker(workerId: string): Promise<JobResult<null>> {
+  const g = await guard();
+  if (g) return g;
+  if (!isUuid(workerId)) return fail("ไม่พบช่าง");
+  const r = await callOffice("worker_unlock", { p_worker_id: workerId });
+  if (!r.ok) return r;
+  revalidatePath("/jobs/workers");
+  return { ok: true, data: null };
 }
 
 export async function setWorkerActive(workerId: string, active: boolean): Promise<JobResult<null>> {

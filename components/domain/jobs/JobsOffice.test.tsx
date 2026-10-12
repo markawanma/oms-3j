@@ -26,7 +26,9 @@ vi.mock("@/lib/actions/job-office", () => ({
 const saveWorker = vi.fn();
 const resetWorkerPin = vi.fn();
 const setWorkerActive = vi.fn();
+const unlockWorker = vi.fn();
 vi.mock("@/lib/actions/job-workers", () => ({
+  unlockWorker: (...a: unknown[]) => unlockWorker(...a),
   saveWorker: (...a: unknown[]) => saveWorker(...a),
   resetWorkerPin: (...a: unknown[]) => resetWorkerPin(...a),
   setWorkerActive: (...a: unknown[]) => setWorkerActive(...a),
@@ -114,8 +116,8 @@ describe("JobPrintClient", () => {
 describe("WorkersClient", () => {
   const data = {
     workers: [
-      { id: U1, displayName: "ช่างเอ", stageCodes: ["cast"], isActive: true, lockedUntil: null, createdAt: null },
-      { id: U2, displayName: "ช่างบี", stageCodes: [], isActive: false, lockedUntil: null, createdAt: null },
+      { id: U1, displayName: "ช่างเอ", stageCodes: ["cast"], isActive: true, lockedUntil: null, createdAt: null, lockState: "none" as const, failedAttempts: 0 },
+      { id: U2, displayName: "ช่างบี", stageCodes: [], isActive: false, lockedUntil: null, createdAt: null, lockState: "none" as const, failedAttempts: 0 },
     ],
     stages: [{ code: "cast", nameTh: "หล่อ" }, { code: "polish", nameTh: "ขัด" }],
   };
@@ -164,6 +166,18 @@ describe("WorkersClient", () => {
     await userEvent.click(screen.getByLabelText("ขัด"));
     await userEvent.click(screen.getByRole("button", { name: "บันทึก" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("มีช่างชื่อนี้อยู่แล้ว");
+  });
+
+  it("ช่างที่ถูกล็อก: เห็นสถานะล็อก + ปุ่มปลดล็อก (เฉพาะคนที่ล็อก) → เรียก unlockWorker(id)", async () => {
+    unlockWorker.mockResolvedValue({ ok: true, data: null });
+    const locked = { ...data, workers: [{ ...data.workers[0], lockState: "office" as const, failedAttempts: 15 }, { ...data.workers[1], lockState: "temporary" as const, failedAttempts: 5 }, { ...data.workers[0], id: "33333333-3333-4333-8333-333333333333", displayName: "ช่างซี", lockState: "none" as const, failedAttempts: 2 }] };
+    wrap(<WorkersClient data={locked} />);
+    expect(screen.getByText(/ล็อกจนกว่าออฟฟิศปลดล็อก · ผิด 15 ครั้ง/)).toBeInTheDocument();
+    expect(screen.getByText(/ล็อกชั่วคราว/)).toBeInTheDocument();
+    expect(screen.getByText(/ผิด 2 ครั้งในรอบ 24 ชม./)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "ปลดล็อก ช่างซี" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "ปลดล็อก ช่างเอ" }));
+    expect(unlockWorker).toHaveBeenCalledWith(U1);
   });
 
   it("รีเซ็ต PIN → แสดง PIN ใหม่ครั้งเดียว", async () => {
@@ -219,8 +233,44 @@ describe("JobCreatePanel", () => {
     await userEvent.type(screen.getByLabelText(/เหตุผลที่เริ่มผลิตก่อน/), "ลูกค้าประจำ");
     expect(submit).toBeEnabled();
     await userEvent.click(submit);
-    expect(createJob).toHaveBeenCalledWith({ kind: "oem", itemId: U1, stageCodes: ["cast", "polish"], dueDate: null, startGateNote: "ลูกค้าประจำ" });
+    expect(createJob).toHaveBeenCalledWith({ kind: "oem", itemId: U1, stageCodes: ["cast", "polish"], dueDate: null, startGateNote: "ลูกค้าประจำ", designLabel: "แหวนลาย A" });
     await waitFor(() => expect(push).toHaveBeenCalledWith("/jobs/J9"));
+  });
+
+  const suggestion = (o: Record<string, unknown> = {}) => ({
+    ok: true,
+    data: { metal: "silver", qty: 12, designLabel: "แหวนลาย A", depositMissing: false, existingJob: null, stages: [{ code: "cast", nameTh: "หล่อ", defaultSelected: true }], ...o },
+  });
+
+  it("OEM: ชื่อเรียกภายใน (ช่างเห็น) เติมค่าเริ่มจาก suggest · มีคำเตือนห้ามชื่อแบรนด์ลูกค้า · ล้างชื่อ = สร้างไม่ได้ · แก้แล้วส่งชื่อใหม่", async () => {
+    getJobsForSourceItems.mockResolvedValue({ ok: true, data: [] });
+    suggestJob.mockResolvedValue(suggestion());
+    createJob.mockResolvedValue({ ok: true, data: { jobId: "J9", jobNo: "JB-0009" } });
+    wrap(<JobCreatePanel kind="oem" items={items} />);
+    await userEvent.click((await screen.findAllByRole("button", { name: "สร้างใบงาน" }))[0]);
+    const input = (await screen.findByLabelText(/ชื่อเรียกภายใน/)) as HTMLInputElement;
+    expect(input.value).toBe("แหวนลาย A");
+    expect(screen.getByText(/ห้ามมีชื่อแบรนด์/)).toBeInTheDocument();
+    const submit = screen.getAllByRole("button", { name: "สร้างใบงาน" }).at(-1)!;
+    await userEvent.clear(input);
+    expect(submit).toBeDisabled();
+    await userEvent.type(input, "แหวนกลาง ไซส์ 7");
+    expect(submit).toBeEnabled();
+    await userEvent.click(submit);
+    expect(createJob).toHaveBeenCalledWith(expect.objectContaining({ kind: "oem", designLabel: "แหวนกลาง ไซส์ 7" }));
+  });
+
+  it("ใบผลิตเข้าสต็อก: ชื่อเรียกไม่บังคับ — ว่างก็สร้างได้ (ส่ง null)", async () => {
+    getJobsForSourceItems.mockResolvedValue({ ok: true, data: [] });
+    suggestJob.mockResolvedValue(suggestion({ designLabel: "" }));
+    createJob.mockResolvedValue({ ok: true, data: { jobId: "J8", jobNo: "JB-0008" } });
+    wrap(<JobCreatePanel kind="production" items={items} />);
+    await userEvent.click((await screen.findAllByRole("button", { name: "สร้างใบงาน" }))[0]);
+    await screen.findByLabelText(/ชื่อเรียกภายใน/);
+    const submit = screen.getAllByRole("button", { name: "สร้างใบงาน" }).at(-1)!;
+    expect(submit).toBeEnabled();
+    await userEvent.click(submit);
+    expect(createJob).toHaveBeenCalledWith(expect.objectContaining({ kind: "production", designLabel: null }));
   });
 
   it("รายการมีใบงานอยู่แล้ว (race) = เตือนและสร้างไม่ได้", async () => {

@@ -38,8 +38,8 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("next/headers", () => ({ headers: async () => ({ get: (n: string) => hdrs[n.toLowerCase()] ?? null }) }));
 
 import { createJob, getJobBoard, getJobDetail, getJobsForSourceItems, suggestJob } from "./job-office";
-import { cancelJob, doneJob, issueJobQr, officeReceiveStage, officeSendStage, reopenJobStage, revokeJobQr, setJobDue, setJobStartGateNote, skipJobStage } from "./job-office-write";
-import { getWorkers, resetWorkerPin, saveWorker, setWorkerActive } from "./job-workers";
+import { cancelJob, doneJob, issueJobQr, officeReceiveStage, officeSendStage, reopenJobStage, revokeJobQr, setJobDesignLabel, setJobDue, setJobStartGateNote, skipJobStage } from "./job-office-write";
+import { getWorkers, resetWorkerPin, saveWorker, setWorkerActive, unlockWorker } from "./job-workers";
 
 let errSpy: ReturnType<typeof vi.spyOn>;
 beforeEach(() => {
@@ -80,6 +80,8 @@ describe("สิทธิ์ — ทุก action ปฏิเสธก่อน
     ["saveWorker", () => saveWorker({ displayName: "ช่างเอ", stageCodes: [] })],
     ["resetWorkerPin", () => resetWorkerPin(WORKER)],
     ["setWorkerActive", () => setWorkerActive(WORKER, false)],
+    ["unlockWorker", () => unlockWorker(WORKER)],
+    ["setJobDesignLabel", () => setJobDesignLabel(JOB, "แหวนลายใบไม้")],
   ];
   it.each(all)("%s: role staff/viewer/ว่าง/ตัวพิมพ์ต่าง ถูกปฏิเสธ (allowlist owner|admin)", async (_n, fn) => {
     for (const role of ["staff", "viewer", "manager", "", undefined, null, "Owner", "ADMIN"]) {
@@ -332,5 +334,49 @@ describe("ทะเบียนช่าง — PIN", () => {
     expect(w.ops).toContainEqual(["eq", "shop_id", SHOP]);
     const sel = String(w.ops.find((o) => o[0] === "select")?.[1]);
     expect(sel).not.toMatch(/pin|hash/);
+  });
+});
+
+describe("0173: ปลดล็อกช่าง · แก้ชื่อเรียกใบงาน · สถานะล็อกในทะเบียน", () => {
+  it("unlockWorker: เรียก worker_unlock ด้วย actor/shop จาก server · uuid ผิดไม่ถึง DB", async () => {
+    expect((await unlockWorker(WORKER)).ok).toBe(true);
+    expect(lastRpc()[0]).toBe("worker_unlock");
+    expect(lastRpc()[1]).toMatchObject({ p_worker_id: WORKER, p_shop_id: SHOP, p_actor: USER });
+    rpcMock.mockClear();
+    expect((await unlockWorker("x")).ok).toBe(false);
+    expect(rpcMock).not.toHaveBeenCalled();
+  });
+  it("unlockWorker: client ทับ p_actor/p_shop_id ไม่ได้ (ใส่หลัง spread)", async () => {
+    await unlockWorker(WORKER);
+    const sent = lastRpc()[1];
+    expect(sent.p_actor).toBe(USER);
+    expect(sent.p_shop_id).toBe(SHOP);
+  });
+  it("setJobDesignLabel: ส่งชื่อที่ตัดช่องว่างแล้ว · ว่าง/ยาวเกิน/ตัวควบคุม/uuid ผิด ไม่ถึง DB", async () => {
+    expect((await setJobDesignLabel(JOB, "  แหวนลายใบไม้ ไซส์ 7  ")).ok).toBe(true);
+    expect(lastRpc()[0]).toBe("job_design_label_set");
+    expect(lastRpc()[1]).toMatchObject({ p_job_id: JOB, p_design_label: "แหวนลายใบไม้ ไซส์ 7", p_actor: USER, p_shop_id: SHOP });
+    rpcMock.mockClear();
+    for (const bad of ["", "   ", "x".repeat(201), "a b", 5 as never, null as never]) expect((await setJobDesignLabel(JOB, bad)).ok, String(bad)).toBe(false);
+    expect((await setJobDesignLabel("nope", "ชื่อ")).ok).toBe(false);
+    expect(rpcMock).not.toHaveBeenCalled();
+  });
+  it("setJobDesignLabel: DB ปฏิเสธ (ใบปิดแล้ว) = ข้อความไทย", async () => {
+    rpcMock.mockResolvedValue({ data: null, error: { code: "22023", hint: "job_closed", message: "job_design_label_set: ใบงานปิดแล้ว" } });
+    const r = await setJobDesignLabel(JOB, "ชื่อ");
+    expect(r).toMatchObject({ ok: false });
+    expect(JSON.stringify(r)).not.toContain("job_design_label_set");
+  });
+  it("getWorkers: อ่านสถานะล็อกจาก v_worker_lock (ไม่มี pin_hash) แล้วจับคู่กับช่าง · ผิดชนิดถือว่าไม่ล็อก", async () => {
+    results.worker = { data: [{ id: WORKER, display_name: "ช่างเอ", stage_codes: ["cast"], is_active: true, locked_until: "infinity", created_at: "2026-10-01T00:00:00Z" }], error: null };
+    results.v_worker_lock = { data: [{ worker_id: WORKER, lock_state: "office", failed_attempts: 15, in_window: true }, { worker_id: "zz", lock_state: "weird" }], error: null };
+    const r = await getWorkers();
+    expect(r.ok && r.data.workers[0]).toMatchObject({ id: WORKER, lockState: "office", failedAttempts: 15 });
+    const lk = calls.find((c) => c.table === "v_worker_lock")!;
+    expect(lk.ops).toContainEqual(["eq", "shop_id", SHOP]);
+    expect(String(lk.ops.find((o) => o[0] === "select")?.[1])).not.toMatch(/pin|hash/);
+    results.v_worker_lock = { data: [{ worker_id: WORKER, lock_state: "weird", failed_attempts: "9", in_window: false }], error: null };
+    const r2 = await getWorkers();
+    expect(r2.ok && r2.data.workers[0]).toMatchObject({ lockState: "none", failedAttempts: 0 });
   });
 });

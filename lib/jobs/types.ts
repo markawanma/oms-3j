@@ -337,6 +337,10 @@ export function mapEventRow(r: Record<string, unknown>, stageCodeById: Record<st
 // ---------------------------------------------------------------------------
 // ช่าง (ทะเบียน)
 // ---------------------------------------------------------------------------
+/** 0173 v_worker_lock.lock_state: none | temporary (ล็อกชั่วคราว 15 นาที/1 ชม. ปลดเองเมื่อครบ) | office (ผิดครบ 15 ครั้ง ต้องให้ออฟฟิศปลดล็อก/รีเซ็ต PIN) */
+export type LockState = "none" | "temporary" | "office";
+export const LOCK_STATE_LABEL: Record<LockState, string> = { none: "ปกติ", temporary: "ล็อกชั่วคราว (ใส่ PIN ผิดหลายครั้ง)", office: "ล็อกจนกว่าออฟฟิศปลดล็อก" };
+
 export interface WorkerRow {
   id: string;
   displayName: string;
@@ -344,11 +348,23 @@ export interface WorkerRow {
   isActive: boolean;
   lockedUntil: string | null;
   createdAt: string | null;
+  lockState: LockState;
+  /** จำนวน PIN ผิดในหน้าต่าง 24 ชม. ปัจจุบัน (0 = ไม่มี) */
+  failedAttempts: number;
+}
+
+export const WORKER_LOCK_COLUMNS = "worker_id, lock_state, failed_attempts, in_window";
+
+export function mapLockRow(r: Record<string, unknown>): { workerId: string; lockState: LockState; failedAttempts: number } | null {
+  const id = str(r.worker_id);
+  if (!id) return null;
+  const st = r.lock_state === "temporary" || r.lock_state === "office" ? r.lock_state : "none";
+  return { workerId: id, lockState: st, failedAttempts: r.in_window === true ? (num(r.failed_attempts) ?? 0) : 0 };
 }
 
 export const WORKER_COLUMNS = "id, display_name, stage_codes, is_active, locked_until, created_at";
 
-export function mapWorkerRow(r: Record<string, unknown>): WorkerRow | null {
+export function mapWorkerRow(r: Record<string, unknown>, lock?: { lockState: LockState; failedAttempts: number }): WorkerRow | null {
   const id = str(r.id);
   const name = str(r.display_name);
   if (!id || !name) return null;
@@ -359,6 +375,8 @@ export function mapWorkerRow(r: Record<string, unknown>): WorkerRow | null {
     isActive: r.is_active !== false,
     lockedUntil: str(r.locked_until),
     createdAt: str(r.created_at),
+    lockState: lock?.lockState ?? "none",
+    failedAttempts: lock?.failedAttempts ?? 0,
   };
 }
 

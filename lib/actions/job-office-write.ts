@@ -177,6 +177,19 @@ export async function reopenJobStage(jobId: string, reason: string): Promise<Job
   return { ok: true, data: null };
 }
 
+/** แก้ชื่อเรียกใบงาน (ช่างเห็นบนมือถือ + ใบพิมพ์) — เฉพาะใบที่ยังไม่ปิด · DB เก็บประวัติก่อน/หลังเป็น event */
+export async function setJobDesignLabel(jobId: string, label: string): Promise<JobResult<null>> {
+  const g = await guard();
+  if (g) return g;
+  if (!isUuid(jobId)) return fail("ไม่พบใบงาน");
+  const t = parseText(label, "ชื่อเรียกใบงาน", 200, true);
+  if (!t.ok) return fail(t.error);
+  const r = await callOffice("job_design_label_set", { p_job_id: jobId, p_design_label: t.value });
+  if (!r.ok) return r;
+  done(jobId);
+  return { ok: true, data: null };
+}
+
 export async function setJobDue(jobId: string, dueDate: string | null): Promise<JobResult<null>> {
   const g = await guard();
   if (g) return g;

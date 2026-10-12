@@ -4,15 +4,15 @@
 // 🔴 PIN แสดงครั้งเดียวในกล่องนี้ (state ในหน้าจอเท่านั้น ไม่ลง storage/URL/log) — ปิดกล่อง = หาย · DB เก็บ bcrypt อ่านกลับไม่ได้
 
 import { useState } from "react";
-import { Plus, UserX, UserCheck, KeyRound, Pencil } from "lucide-react";
+import { Plus, UserX, UserCheck, KeyRound, Pencil, Lock, LockOpen } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Modal } from "@/components/ui/Modal";
 import { ErrorLine, FIELD, Field } from "@/components/domain/jobs/JobDialogs";
 import { useOfficeRun } from "@/components/domain/jobs/useOfficeRun";
-import { resetWorkerPin, saveWorker, setWorkerActive } from "@/lib/actions/job-workers";
+import { resetWorkerPin, saveWorker, setWorkerActive, unlockWorker } from "@/lib/actions/job-workers";
 import type { WorkersData } from "@/lib/actions/job-workers";
-import { thaiDateTime } from "@/lib/jobs/dates";
+import { LOCK_STATE_LABEL } from "@/lib/jobs/types";
 import type { WorkerRow } from "@/lib/jobs/types";
 
 type Dlg = { t: "edit"; worker: WorkerRow | null } | { t: "pin"; worker: WorkerRow } | { t: "shown"; name: string; pin: string } | null;
@@ -132,6 +132,7 @@ export function WorkersClient({ data }: { data: WorkersData }) {
   const stageName = (c: string) => data.stages.find((s) => s.code === c)?.nameTh ?? c;
   const toggleActive = (w: WorkerRow) =>
     void run(() => setWorkerActive(w.id, !w.isActive), { success: w.isActive ? `ปิดใช้งาน ${w.displayName} แล้ว` : `เปิดใช้งาน ${w.displayName} แล้ว` });
+  const unlock = (w: WorkerRow) => void run(() => unlockWorker(w.id), { success: `ปลดล็อก ${w.displayName} แล้ว` });
   const shown: OnShown = (name, pin) => setDlg({ t: "shown", name, pin });
 
   return (
@@ -156,15 +157,26 @@ export function WorkersClient({ data }: { data: WorkersData }) {
                   {!w.isActive && <span className="ml-2 text-xs font-medium">ปิดใช้งาน</span>}
                 </p>
                 <p className="text-sm text-zinc-800">{w.stageCodes.length > 0 ? w.stageCodes.map(stageName).join(" · ") : "ยังไม่กำหนดขั้น"}</p>
-                {w.lockedUntil && new Date(w.lockedUntil).getTime() > Date.now() && (
-                  <p className="text-xs font-medium text-amber-900">PIN ถูกล็อกถึง {thaiDateTime(w.lockedUntil)} (ใส่ผิดหลายครั้ง)</p>
+                {w.lockState !== "none" && (
+                  <p className="mt-0.5 inline-flex items-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-900">
+                    <Lock className="h-3 w-3" aria-hidden="true" />
+                    {LOCK_STATE_LABEL[w.lockState]}
+                    {w.failedAttempts > 0 ? ` · ผิด ${w.failedAttempts} ครั้ง` : ""}
+                  </p>
                 )}
+                {w.lockState === "none" && w.failedAttempts > 0 && <p className="text-xs text-zinc-700">ใส่ PIN ผิด {w.failedAttempts} ครั้งในรอบ 24 ชม.</p>}
               </div>
               <div className="flex flex-wrap gap-2">
                 <Button type="button" variant="secondary" onClick={() => setDlg({ t: "edit", worker: w })} aria-label={`แก้ไข ${w.displayName}`}>
                   <Pencil className="h-4 w-4" aria-hidden="true" />
                   แก้ไข
                 </Button>
+                {w.lockState !== "none" && (
+                  <Button type="button" variant="secondary" onClick={() => unlock(w)} aria-label={`ปลดล็อก ${w.displayName}`}>
+                    <LockOpen className="h-4 w-4" aria-hidden="true" />
+                    ปลดล็อก
+                  </Button>
+                )}
                 <Button type="button" variant="secondary" onClick={() => setDlg({ t: "pin", worker: w })} aria-label={`รีเซ็ต PIN ของ ${w.displayName}`}>
                   <KeyRound className="h-4 w-4" aria-hidden="true" />
                   รีเซ็ต PIN

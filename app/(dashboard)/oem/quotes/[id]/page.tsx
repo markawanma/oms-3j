@@ -7,6 +7,7 @@ import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { QuoteDetailClient } from "@/components/domain/oem/QuoteDetailClient";
 import { JobCreatePanel } from "@/components/domain/jobs/JobCreatePanel";
+import { isJobMetal } from "@/lib/jobs/source";
 
 export const dynamic = "force-dynamic";
 
@@ -79,7 +80,8 @@ export default async function OemQuoteDetailPage({ params }: { params: Promise<{
   }
 
   // J1: ใบงานผลิตต่อรายการ — แสดงเฉพาะดีลที่ won (ส่วนแยก ไม่แตะ logic ของหน้านี้)
-  const jobItems = itemsResult.data.map((it) => ({ id: it.id, label: it.productNameSnapshot ?? it.skuSnapshot ?? `รายการที่ ${it.seq}` }));
+  // เฉพาะรายการงานผลิต (เงิน 925/ทอง/ทองเหลือง) — เงินแท่งและสินค้า/บริการไม่มีขั้นตอนในโรงงาน จึงไม่เสนอปุ่มสร้างใบงาน
+  const jobItems = itemsResult.data.filter((it) => isJobMetal(it.input.metal)).map((it) => ({ id: it.id, label: it.productNameSnapshot ?? it.skuSnapshot ?? `รายการที่ ${it.seq}` }));
 
   return (
     <>
@@ -92,7 +94,7 @@ export default async function OemQuoteDetailPage({ params }: { params: Promise<{
         receipts={receipts}
         approvalGates={gatesResult.ok ? gatesResult.data : []}
       />
-      {quoteResult.data.status === "won" && <JobCreatePanel kind="oem" items={jobItems} />}
+      {quoteResult.data.status === "won" && jobItems.length > 0 && <JobCreatePanel kind="oem" items={jobItems} />}
     </>
   );
 }
