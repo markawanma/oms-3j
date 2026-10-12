@@ -285,7 +285,8 @@ create table analytics.job_stage (
   constraint js_scrap_reason_ck check (
     (qty_scrap = 0 and scrap_reason is null)
     or (qty_scrap > 0 and (
-          scrap_reason in ('porosity', 'broken', 'wrong_design', 'missing', 'other')
+          -- coalesce: scrap_reason เป็น null ต้องตก ไม่ใช่ผ่าน (CHECK ผ่านเมื่อผลเป็น null — migration-traps ข้อ 13)
+          coalesce(scrap_reason in ('porosity', 'broken', 'wrong_design', 'missing', 'other'), false)
           or (analytics.oem_note_present(scrap_reason) and analytics.oem_note_valid(scrap_reason) and length(scrap_reason) <= 200)
        ))
   ),
@@ -1217,7 +1218,7 @@ begin
     raise exception 'ลำดับขั้นตอนต้องเรียงตามลำดับมาตรฐาน (CAD ถึงแพ็ก)' using errcode = '22023', hint = 'stages_order';
   end if;
   if not coalesce(p_is_new_design, false) and p_codes && array['cad', 'print3d', 'mold'] then
-    v_warn := v_warn || 'งานนี้ไม่ใช่แบบใหม่ แต่เลือกขั้นออกแบบ/ปริ้น 3D/อัดก้อนยาง';
+    v_warn := v_warn || 'งานนี้ไม่ใช่แบบใหม่ แต่เลือกขั้นออกแบบ/ปริ้น 3D/อัดก้อนยาง'::text;
   end if;
   return v_warn;
 end;
@@ -1325,8 +1326,8 @@ begin
                         coalesce(nullif(v_i.input ->> 'item_kind', ''), 'งาน OEM') || ' #' || v_i.seq);
     v_codes := array['wax_inject', 'wax_tree', 'invest_burnout', 'cast', 'cut_sprue', 'polish', 'qc', 'pack'];
     if v_new then v_codes := array['cad', 'print3d', 'mold'] || v_codes; end if;
-    if v_gem > 0 then v_codes := v_codes || 'gem_set'; end if;
-    if v_plating is not null and v_plating not in ('none', 'null') then v_codes := v_codes || 'plating'; end if;
+    if v_gem > 0 then v_codes := v_codes || 'gem_set'::text; end if;
+    if v_plating is not null and v_plating not in ('none', 'null') then v_codes := v_codes || 'plating'::text; end if;
     return jsonb_build_object('source_kind', 'oem', 'item_id', v_i.id, 'quote_id', v_i.quote_id, 'root_quote_id', v_i.root_id,
       'item_seq', v_i.seq, 'metal', v_metal, 'qty', v_i.qty, 'is_new_design', v_new, 'design_label', left(v_label, 200),
       'sku', left(v_i.sku_snapshot, 100), 'product_id', v_i.product_id, 'deposit_missing', coalesce(v_paid, 0) <= 0,
