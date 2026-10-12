@@ -174,6 +174,9 @@ export default defineConfig({
           // picomatch's own escape char is inconsistent across its glob
           // modes) sidesteps the extglob grouping entirely.
           include: ["components/**/*.test.tsx", "app/[(]quiz[)]/**/*.test.tsx"],
+          // jsdom + userEvent พิมพ์ทีละตัวอักษรช้าเมื่อรันทั้ง suite พร้อมกันหลาย worker — 5 วินาทีเริ่มหมดแบบสุ่ม (10 ต.ค. 69: ผ่านเมื่อรันเดี่ยว ล้มเมื่อรันรวม)
+          // เพิ่มเฉพาะเวลา ไม่ลดความเข้มของ assertion
+          testTimeout: 20_000,
         },
       },
     ],

@@ -4,7 +4,7 @@
 // Pure module. การ canonicalize ลิงก์ TikTok (ยิงเครือข่ายตามลิงก์สั้น) อยู่ที่ server action
 // (lib/actions/content-pieces.ts) — ที่นี่มีเฉพาะตรรกะที่ไม่ต้องใช้เครือข่าย
 
-import { POSTED_AT_INVALID_ERROR, checkPostedAt } from "@/lib/marketing/content-types";
+import { PLATFORM_LABEL, POSTED_AT_INVALID_ERROR, checkPostedAt } from "@/lib/marketing/content-types";
 import type { PiecePost } from "@/lib/marketing/piece-types";
 
 export type PostPlatform = "tiktok" | "facebook" | "instagram";
@@ -28,7 +28,7 @@ const HOST_SUFFIXES: Record<PostPlatform, string[]> = {
   instagram: ["instagram.com", "instagr.am"],
 };
 
-const PLATFORM_NAME: Record<PostPlatform, string> = { tiktok: "TikTok", facebook: "Facebook", instagram: "Instagram" };
+const PLATFORM_NAME: Record<PostPlatform, string> = { tiktok: PLATFORM_LABEL.tiktok, facebook: PLATFORM_LABEL.facebook, instagram: PLATFORM_LABEL.instagram };
 
 export type PostUrlCheck = { ok: true; url: string } | { ok: false; error: string };
 

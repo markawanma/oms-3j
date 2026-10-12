@@ -53,7 +53,7 @@ export default async function ContentHistoryPage() {
   return (
     <div className="space-y-4">
       <div>
-        <h1 className="text-lg font-bold text-zinc-900">ประวัติโพสต์ content</h1>
+        <h1 className="text-lg font-bold text-zinc-900">ประวัติยอดโพสต์</h1>
         <p className="text-sm text-zinc-500">คลิปที่เคยบันทึกลิงก์และตัวเลขล่าสุดที่กรอกไว้ ใหม่ไปเก่า</p>
       </div>
 

@@ -18,6 +18,7 @@ import { useEffect, useRef } from "react";
 import { CalendarDays } from "lucide-react";
 import type { CampaignBoardStep } from "@/lib/marketing/campaign-types";
 import type { ContentTypeRow } from "@/lib/marketing/content-types";
+import { daysBetween } from "@/lib/marketing/format";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { AgendaTaskCard } from "@/components/domain/marketing/AgendaTaskCard";
 import { AddPlanForm } from "@/components/domain/marketing/AddPlanForm";
@@ -33,10 +34,8 @@ const DAY_HEADER_FMT = new Intl.DateTimeFormat("th-TH", {
  * the nearest day-with-tasks when the clicked day itself has none (see
  * "nearest fallback" below). UTC, same date-only convention as the rest of
  * this page's date math. */
-function daysBetween(a: string, b: string): number {
-  const ta = Date.parse(`${a}T00:00:00Z`);
-  const tb = Date.parse(`${b}T00:00:00Z`);
-  return Math.abs(ta - tb) / 86_400_000;
+function daysApart(a: string, b: string): number {
+  return Math.abs(daysBetween(a, b) ?? Number.POSITIVE_INFINITY);
 }
 
 /** Same ordering DayAgenda used: timed tasks earliest-first, untimed
@@ -109,7 +108,7 @@ export function MonthTimeline({
     let nearest: string | null = null;
     let bestDiff = Infinity;
     for (const d of dates) {
-      const diff = daysBetween(d, selectedDate);
+      const diff = daysApart(d, selectedDate);
       if (diff < bestDiff) {
         bestDiff = diff;
         nearest = d;

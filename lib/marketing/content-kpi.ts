@@ -18,6 +18,8 @@
 // classification in this file goes through classifyMetricLevel() below so
 // there is exactly one place this number can be wrong.
 
+import { daysBetween as daysBetweenOrNull } from "./format";
+
 // ============================================================================
 // Constants
 // ============================================================================
@@ -197,13 +199,6 @@ function parseDateOnly(dateStr: string): Date {
   return new Date(`${dateStr}T00:00:00Z`);
 }
 
-/** Whole days from `fromDateStr` to `toDateStr` (both "YYYY-MM-DD"),
- * positive when `to` is later. */
-export function daysBetween(fromDateStr: string, toDateStr: string): number {
-  const ms = parseDateOnly(toDateStr).getTime() - parseDateOnly(fromDateStr).getTime();
-  return Math.round(ms / 86_400_000);
-}
-
 /** `dateStr` + `days` (negative allowed) -> "YYYY-MM-DD". */
 export function addDaysToDateStr(dateStr: string, days: number): string {
   const d = parseDateOnly(dateStr);
@@ -316,13 +311,13 @@ export function determineContentKpiState(input: DetermineKpiStateInput): Content
   if (input.t7UnavailableReason === T7_REASON_WAITING) {
     return {
       kind: "waiting_t7",
-      ageDaysToday: daysBetween(input.postedDateTh, input.todayDateTh),
+      ageDaysToday: daysBetweenOrNull(input.postedDateTh, input.todayDateTh) ?? 0,
       expectedReadyDateTh: addDaysToDateStr(input.postedDateTh, 7),
     };
   }
 
   if (input.t7UnavailableReason === T7_REASON_PENDING_ENTRY) {
-    return { kind: "pending_entry", ageDaysToday: daysBetween(input.postedDateTh, input.todayDateTh) };
+    return { kind: "pending_entry", ageDaysToday: daysBetweenOrNull(input.postedDateTh, input.todayDateTh) ?? 0 };
   }
 
   if (input.t7UnavailableReason !== null) {
