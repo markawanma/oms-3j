@@ -47,7 +47,8 @@ describe("vendor/uqr — supply chain", () => {
     expect(src.match(/^import /gm)).toBeNull(); // ไม่มี dependency
   });
   it("เป็นไฟล์เดิมจาก tarball uqr@0.1.3 (sha256 ล็อกไว้ — แก้ไฟล์ = เทสต์ล้ม ต้องไปตรวจ supply chain ใหม่)", () => {
-    const h = createHash("sha256").update(readFileSync(join(dir, "index.mjs"))).digest("hex");
+    const text = readFileSync(join(dir, "index.mjs"), "utf8").split(String.fromCharCode(13, 10)).join(String.fromCharCode(10)); // normalize CRLF (git autocrlf บน Windows)
+    const h = createHash("sha256").update(text).digest("hex");
     expect(h.startsWith("7f0e61c2f13bb372")).toBe(true);
   });
   it("README ระบุเวอร์ชัน + integrity", () => {
