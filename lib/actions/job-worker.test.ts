@@ -144,8 +144,29 @@ describe("workerLogin", () => {
     const r = await workerLogin(TOKEN, WID, "0001");
     expect(r).toMatchObject({ ok: false, code: "bad_credentials", error: "ชื่อหรือ PIN ไม่ถูกต้อง" });
     rpcMock.mockResolvedValue({ data: { ok: false, code: "locked", message: "x", retry_after_seconds: 900 }, error: null });
-    expect(await workerLogin(TOKEN, WID, "0001")).toMatchObject({ ok: false, code: "locked", retryAfterSeconds: 900 });
+    expect(await workerLogin(TOKEN, WID, "0001")).toMatchObject({ ok: false, code: "locked", retryAfterSeconds: 900, error: "ใส่ PIN ผิดหลายครั้ง — ลองใหม่ใน 15 นาที" });
     expect(cookieSet).not.toHaveBeenCalled();
+  });
+
+  it("สัญญา 0173: PIN ผิดครั้งที่ 3-4 เตือนเหลือกี่ครั้ง · locked 1 ชม. · locked_office · งบ token หมด", async () => {
+    rpcMock.mockResolvedValue({ data: { ok: false, code: "bad_credentials", message: "x", attempts_left: 2, attempts_until_office: 12, token_budget_left: 17 }, error: null });
+    expect(await workerLogin(TOKEN, WID, "0001")).toMatchObject({ ok: false, error: expect.stringContaining("เหลืออีก 2 ครั้ง") });
+    rpcMock.mockResolvedValue({ data: { ok: false, code: "bad_credentials", message: "x", attempts_left: 1, attempts_until_office: 11, token_budget_left: 16 }, error: null });
+    expect(await workerLogin(TOKEN, WID, "0001")).toMatchObject({ ok: false, error: expect.stringContaining("เหลืออีก 1 ครั้ง") });
+    rpcMock.mockResolvedValue({ data: { ok: false, code: "locked", message: "x", retry_after_seconds: 3600 }, error: null });
+    expect(await workerLogin(TOKEN, WID, "0001")).toMatchObject({ code: "locked", retryAfterSeconds: 3600, error: expect.stringContaining("60 นาที") });
+    rpcMock.mockResolvedValue({ data: { ok: false, code: "locked_office", message: "x" }, error: null });
+    expect(await workerLogin(TOKEN, WID, "0001")).toMatchObject({ code: "locked_office", error: "ล็อกแล้ว ให้ออฟฟิศปลดล็อก" });
+    rpcMock.mockResolvedValue({ data: { ok: false, code: "token_budget_exhausted", message: "x" }, error: null });
+    expect(await workerLogin(TOKEN, WID, "0001")).toMatchObject({ code: "token_budget_exhausted", error: "ใบนี้ใส่ PIN ผิดเกินกำหนด ขอพิมพ์ใบใหม่จากออฟฟิศ" });
+    expect(cookieSet).not.toHaveBeenCalled();
+  });
+
+  it("ตัวเลขแนบมาผิดชนิด (string/NaN/ติดลบ) ไม่ทำให้ข้อความเพี้ยน หรือรั่วค่าดิบ", async () => {
+    rpcMock.mockResolvedValue({ data: { ok: false, code: "bad_credentials", message: "x", attempts_left: "2; drop", attempts_until_office: null, token_budget_left: -1 }, error: null });
+    const r = await workerLogin(TOKEN, WID, "0001");
+    expect(r).toMatchObject({ ok: false, error: "ชื่อหรือ PIN ไม่ถูกต้อง" });
+    expect(JSON.stringify(r)).not.toContain("drop");
   });
 
   it("session_token ที่ DB คืนผิดรูป → ไม่ตั้ง cookie", async () => {
@@ -172,7 +193,7 @@ describe("workerReceiveStage / workerSendStage", () => {
   it("รับงาน: ส่ง hash + expected_seq + น้ำหนัก (number) · ไม่มี stage_code/worker_id จาก client", async () => {
     cookieStore.set("w_session", SESSION);
     const r = await workerReceiveStage(TOKEN, 3, "12.345");
-    expect(r).toEqual({ ok: true, already: false, message: null });
+    expect(r).toEqual({ ok: true, already: false, message: null, by: null });
     expect(rpcMock.mock.calls[0][0]).toBe("job_worker_receive");
     expect(paramsOf()).toEqual({ p_token_hash: sha(TOKEN), p_session_hash: sha(SESSION), p_expected_seq: 3, p_weight_in_g: 12.345, p_user_agent: "Mozilla/5.0 test", p_ip_hash: sha("203.0.113.9") });
   });
@@ -187,7 +208,15 @@ describe("workerReceiveStage / workerSendStage", () => {
     cookieStore.set("w_session", SESSION);
     rpcMock.mockResolvedValue({ data: { ok: true, already: true, message: "x", by: "ช่างบี" }, error: null });
     const r = await workerReceiveStage(TOKEN, 1, null);
-    expect(r).toMatchObject({ ok: true, already: true, message: "มีคนรับขั้นนี้ไปแล้ว" });
+    expect(r).toMatchObject({ ok: true, already: true, by: "ช่างบี", message: "ช่าง ช่างบี รับขั้นนี้ไปแล้ว" });
+  });
+
+  it("สัญญา 0173: handoff_mismatch -> ข้อความมีส่วนต่างกรัม · prev_not_sent ผ่านเป็น code (client ใส่ชื่อขั้นเอง)", async () => {
+    cookieStore.set("w_session", SESSION);
+    rpcMock.mockResolvedValue({ data: { ok: false, code: "handoff_mismatch", message: "x", gap_g: -0.37, prev_weight_out_g: 10.5 }, error: null });
+    expect(await workerReceiveStage(TOKEN, 2, "10.13")).toMatchObject({ ok: false, code: "handoff_mismatch", error: "น้ำหนักไม่ตรงกับที่ขั้นก่อนส่ง (ต่าง 0.37 g) — ชั่งใหม่หรือแจ้งออฟฟิศ" });
+    rpcMock.mockResolvedValue({ data: { ok: false, code: "prev_not_sent", message: "x" }, error: null });
+    expect(await workerReceiveStage(TOKEN, 2, "10")).toMatchObject({ ok: false, code: "prev_not_sent" });
   });
 
   it("ส่งต่อ: ของเสีย + เหตุผล + เติมโลหะ → พารามิเตอร์ครบ · หมายเหตุเติมโลหะเป็นข้อความคงที่ (ไม่ให้ช่างพิมพ์)", async () => {

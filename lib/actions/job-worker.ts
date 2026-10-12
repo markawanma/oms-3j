@@ -11,7 +11,7 @@ import { WORKER_SESSION_COOKIE, revokeWorkerSession, verifyWorkerPin, workerRece
 import { WORKER_CODE_TH } from "@/lib/jobs/messages";
 
 export type WorkerActionResult =
-  | { ok: true; already?: boolean; message?: string | null }
+  | { ok: true; already?: boolean; message?: string | null; by?: string | null }
   | { ok: false; error: string; code?: string; retryAfterSeconds?: number };
 
 const bad = (error: string): WorkerActionResult => ({ ok: false, error });
@@ -46,7 +46,7 @@ export async function workerReceiveStage(token: string, expectedSeq: number, wei
   const w = parseWeight(weightIn, "น้ำหนักเข้า");
   if (!w.ok) return bad(w.error);
   const r = await workerReceive(token, { expectedSeq: seq.value, weightInG: w.value });
-  return r.ok ? { ok: true, already: r.data.already, message: r.data.message } : { ok: false, error: r.error, code: r.code, retryAfterSeconds: r.retryAfterSeconds };
+  return r.ok ? { ok: true, already: r.data.already, message: r.data.message, by: r.data.by } : { ok: false, error: r.error, code: r.code, retryAfterSeconds: r.retryAfterSeconds };
 }
 
 export interface WorkerSendInput {
@@ -70,5 +70,5 @@ export async function workerSendStage(token: string, input: WorkerSendInput): Pr
   const added = parseWeightOrZero(input.metalAdded, "เติมโลหะ");
   if (!added.ok) return bad(added.error);
   const r = await workerSend(token, { expectedSeq: seq.value, weightOutG: w.value, qtyScrap: scrap.value, scrapReason: reason.value, metalAddedG: added.value });
-  return r.ok ? { ok: true, already: r.data.already, message: r.data.message } : { ok: false, error: r.error, code: r.code, retryAfterSeconds: r.retryAfterSeconds };
+  return r.ok ? { ok: true, already: r.data.already, message: r.data.message, by: r.data.by } : { ok: false, error: r.error, code: r.code, retryAfterSeconds: r.retryAfterSeconds };
 }

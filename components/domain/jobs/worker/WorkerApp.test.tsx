@@ -83,14 +83,36 @@ describe("ระบุตัว", () => {
     expect(refresh).not.toHaveBeenCalled();
   });
 
-  it("ถูกล็อก → บอกเวลารอ · กด 'ไม่ใช่ฉัน' กลับไปเลือกชื่อ", async () => {
-    workerLogin.mockResolvedValue({ ok: false, error: "ใส่ PIN ผิดหลายครั้ง ถูกล็อกชั่วคราว", code: "locked", retryAfterSeconds: 900 });
+  it("ถูกล็อกชั่วคราว → บอกเวลารอ (ข้อความจาก server) · แป้นถูกล็อกจนครบเวลา · กด 'ไม่ใช่ฉัน' กลับไปเลือกชื่อ", async () => {
+    workerLogin.mockResolvedValue({ ok: false, error: "ใส่ PIN ผิดหลายครั้ง — ลองใหม่ใน 15 นาที", code: "locked", retryAfterSeconds: 900 });
     render(<WorkerApp token={TOKEN} view={identify()} />);
     await userEvent.click(screen.getByRole("button", { name: "ช่างเอ" }));
     for (const d of ["1", "9", "9", "9"]) await userEvent.click(screen.getByRole("button", { name: d }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("รอประมาณ 15 นาที");
+    expect(await screen.findByRole("alert")).toHaveTextContent("ลองใหม่ใน 15 นาที");
+    expect(screen.getByRole("button", { name: "5" })).toBeDisabled();
     await userEvent.click(screen.getByRole("button", { name: /ไม่ใช่ฉัน/ }));
     expect(screen.getByRole("button", { name: "ช่างบี" })).toBeInTheDocument();
+  });
+
+  it("ล็อกจนออฟฟิศปลด / งบ token หมด → แสดงข้อความ + แป้นล็อกถาวร (ไม่ให้เดาต่อ)", async () => {
+    for (const [code, error] of [["locked_office", "ล็อกแล้ว ให้ออฟฟิศปลดล็อก"], ["token_budget_exhausted", "ใบนี้ใส่ PIN ผิดเกินกำหนด ขอพิมพ์ใบใหม่จากออฟฟิศ"]] as const) {
+      workerLogin.mockResolvedValue({ ok: false, error, code });
+      const { unmount } = render(<WorkerApp token={TOKEN} view={identify()} />);
+      await userEvent.click(screen.getByRole("button", { name: "ช่างเอ" }));
+      for (const d of ["1", "9", "9", "9"]) await userEvent.click(screen.getByRole("button", { name: d }));
+      expect(await screen.findByRole("alert")).toHaveTextContent(error);
+      expect(screen.getByRole("button", { name: "5" })).toBeDisabled();
+      unmount();
+    }
+  });
+
+  it("PIN ผิดครั้งที่ 3: แสดงคำเตือน 'เหลืออีก N ครั้ง' ที่ server แนบมา · ยังกดต่อได้", async () => {
+    workerLogin.mockResolvedValue({ ok: false, error: "ชื่อหรือ PIN ไม่ถูกต้อง · เหลืออีก 2 ครั้งก่อนถูกล็อกชั่วคราว", code: "bad_credentials" });
+    render(<WorkerApp token={TOKEN} view={identify()} />);
+    await userEvent.click(screen.getByRole("button", { name: "ช่างเอ" }));
+    for (const d of ["1", "9", "9", "9"]) await userEvent.click(screen.getByRole("button", { name: d }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("เหลืออีก 2 ครั้ง");
+    expect(screen.getByRole("button", { name: "5" })).toBeEnabled();
   });
 
   it("หมดอายุ session → แจ้ง 'ใส่ PIN ใหม่'", () => {
@@ -227,9 +249,9 @@ describe("สถานะที่ไม่มีปุ่มทำงาน + �
   it.each([
     ["awaiting_deposit", /รอมัดจำ/],
     ["not_your_stage", /ไม่ใช่ขั้นของคุณ/],
-    ["prev_not_sent", /ยังไม่ส่งต่อ/],
+    ["prev_not_sent", /ยังไม่กดส่งพร้อมน้ำหนัก/],
     ["on_hold", /พักไว้/],
-    ["none", /ไม่มีขั้นที่ต้องทำ/],
+    ["all_done", /งานนี้ทำครบแล้ว รอออฟฟิศปิดงาน/],
   ] as const)("%s → ข้อความ ไม่มีปุ่มรับ/ส่ง", (na, text) => {
     render(<WorkerApp token={TOKEN} view={view({ nextAction: na })} />);
     expect(screen.getByText(text)).toBeInTheDocument();
@@ -243,7 +265,7 @@ describe("สถานะที่ไม่มีปุ่มทำงาน + �
   });
 
   it("ไม่มีลิงก์/เมนู/นำทางออกนอกหน้าเลย (ทุกสถานะ)", () => {
-    for (const na of ["receive", "send", "identify", "awaiting_deposit", "none"] as const) {
+    for (const na of ["receive", "send", "identify", "awaiting_deposit", "all_done"] as const) {
       const { container, unmount } = render(<WorkerApp token={TOKEN} view={view({ nextAction: na, workers: [{ id: WA, displayName: "ช่างเอ" }], scrapReasons: ["other"] })} />);
       expect(container.querySelectorAll("a, nav, [role=navigation], [role=menu]")).toHaveLength(0);
       unmount();
@@ -258,7 +280,7 @@ describe("สถานะที่ไม่มีปุ่มทำงาน + �
     render(<WorkerApp token={TOKEN} view={view({ viewer: null, nextAction: "identify", workers: [{ id: WA, displayName: "ช่างเอ" }] })} />);
     expect(screen.getByRole("button", { name: "ช่างเอ" }).className).toMatch(/min-h-16/);
     await userEvent.click(screen.getByRole("button", { name: "ช่างเอ" }));
-    expect(screen.getByRole("button", { name: "5" }).className).toMatch(/min-h-16/);
+    expect(screen.getByRole("button", { name: "5" }).className).toMatch(/min-h-14/);
   });
 
   it("ไม่มีข้อความราคา/ต้นทุน/ลูกค้า/ใบเสนอราคาบนหน้า (แม้ view จะมีทุก field ที่อนุญาต)", () => {

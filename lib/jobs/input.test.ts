@@ -2,9 +2,10 @@ import { describe, expect, it } from "vitest";
 import { isUuid, parseCount, parseDate, parsePin, parseScrapReason, parseSeq, parseStageCodes, parseText, parseWeight, parseWeightOrZero } from "./input";
 
 describe("parseWeight", () => {
-  it("ค่าที่ถูก: ทศนิยม ≤3 ตำแหน่ง · มี , คั่น · number · ขอบเขต", () => {
+  it("ค่าที่ถูก: ทศนิยม ≤3 ตำแหน่ง · จุลภาคตัวเดียวไม่มีจุด = ทศนิยม · number · ขอบเขต", () => {
     expect(parseWeight("12.345")).toEqual({ ok: true, value: 12.345 });
-    expect(parseWeight("1,234.5")).toEqual({ ok: true, value: 1234.5 });
+    expect(parseWeight("95,5")).toEqual({ ok: true, value: 95.5 });
+    expect(parseWeight("0,25")).toEqual({ ok: true, value: 0.25 });
     expect(parseWeight(0.001)).toEqual({ ok: true, value: 0.001 });
     expect(parseWeight("100000")).toEqual({ ok: true, value: 100000 });
   });

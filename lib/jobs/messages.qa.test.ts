@@ -7,7 +7,8 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { OFFICE_HINT_TH, WORKER_CODE_TH, officeErrorMessage, workerFailMessage } from "@/lib/jobs/messages";
 
-const sql = fs.readFileSync(path.join(process.cwd(), "supabase/migrations/0172_job_tracking_j1.sql"), "utf8");
+// 0172 + 0173 (ฟังก์ชันที่ 0173 แทนที่ยังมี job_fail ฉบับเก่าใน 0172 — รวมสองไฟล์ = ครอบคลุมทุก code ที่ DB คืนได้)
+const sql = ["0172_job_tracking_j1.sql", "0173_job_tracking_hardening.sql"].map((f) => fs.readFileSync(path.join(process.cwd(), "supabase/migrations", f), "utf8")).join(String.fromCharCode(10));
 const THAI = /[฀-๿]/;
 const TECH = /[a-z]+_[a-z_]+|analytics\.|\bselect\b|\bERROR\b/i;
 
@@ -45,8 +46,8 @@ describe("ข้อความผิดปกติ ไม่หลุดภา
 });
 
 describe("ผู้แพ้การรับพร้อมกัน", () => {
-  it.fails("BUG-J1-03: ข้อความต้องบอกว่าใครรับไปแล้ว (design §5: รับแล้วโดย X)", () => {
-    const msg = workerFailMessage("already_received", "ขั้นนี้ถูกรับไปแล้วโดย สมชาย");
-    expect(msg).toContain("สมชาย");
+  it("BUG-J1-03 (แก้แล้ว 12 ต.ค.): ข้อความต้องบอกว่าใครรับไปแล้ว (design §5: รับแล้วโดย X)", () => {
+    expect(workerFailMessage("already_received", "ขั้นนี้ถูกรับไปแล้วโดย สมชาย")).toContain("สมชาย");
+    expect(workerFailMessage("already_received", null, { by: "สมชาย" })).toContain("สมชาย");
   });
 });

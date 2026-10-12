@@ -8,19 +8,23 @@ export const WORKER_CODE_TH: Record<string, string> = {
   rate_limited: "ลองบ่อยเกินไป รอสักครู่แล้วลองใหม่",
   bad_credentials: "ชื่อหรือ PIN ไม่ถูกต้อง",
   locked: "ใส่ PIN ผิดหลายครั้ง ถูกล็อกชั่วคราว — รอสักครู่ หรือให้ออฟฟิศรีเซ็ต PIN",
+  locked_office: "ล็อกแล้ว ให้ออฟฟิศปลดล็อก",
+  token_budget_exhausted: "ใบนี้ใส่ PIN ผิดเกินกำหนด ขอพิมพ์ใบใหม่จากออฟฟิศ",
+  handoff_mismatch: "น้ำหนักไม่ตรงกับที่ขั้นก่อนส่ง — ชั่งใหม่หรือแจ้งออฟฟิศ",
   session_required: "เลือกชื่อและใส่ PIN ก่อน",
   job_closed: "ใบงานนี้ปิดแล้ว",
   job_not_found: "ไม่พบใบงานนี้",
   job_on_hold: "ใบงานถูกพักอยู่ — รอออฟฟิศ",
   awaiting_deposit: "รอมัดจำ — ยังเริ่มผลิตไม่ได้",
   already_received: "มีคนรับขั้นนี้ไปแล้ว",
+  all_done: "งานนี้ทำครบแล้ว รอออฟฟิศปิดงาน",
   already_sent: "ส่งขั้นนี้ไปแล้ว",
   not_holder: "ขั้นนี้ไม่ได้อยู่กับคุณ",
   not_received: "ยังไม่ได้รับงานขั้นนี้",
   out_of_order: "ลำดับขั้นไม่ตรง — รีเฟรชแล้วลองใหม่",
   stage_changed: "ข้อมูลงานเปลี่ยนไป — รีเฟรชแล้วทำใหม่",
   stage_not_allowed: "ขั้นนี้ไม่ใช่ขั้นของคุณ",
-  prev_not_sent: "ขั้นก่อนหน้ายังไม่ส่งต่อ",
+  prev_not_sent: "ขั้นก่อนหน้ายังไม่กดส่งพร้อมน้ำหนัก — ให้เขากดส่งก่อน หรือแจ้งออฟฟิศ",
   weight_invalid: "น้ำหนักไม่ถูกต้อง (ตัวเลขมากกว่า 0 ทศนิยมไม่เกิน 3 ตำแหน่ง)",
   weight_required: "ขั้นนี้ต้องใส่น้ำหนัก",
   weight_over: "น้ำหนักออกมากกว่าน้ำหนักเข้า — ถ้าเติมโลหะให้ใส่ช่อง “เติมโลหะ”",
@@ -55,6 +59,9 @@ export const OFFICE_HINT_TH: Record<string, string> = {
   stage_not_pending: "ข้ามได้เฉพาะขั้นที่ยังไม่ได้รับงาน",
   stages_duplicate: "เลือกขั้นตอนซ้ำกัน",
   stages_empty: "เลือกขั้นตอนอย่างน้อยหนึ่งขั้น",
+  stages_required: "เลือกขั้นที่ช่างทำอย่างน้อย 1 ขั้น",
+  stage_required: "ขั้นนี้ข้ามไม่ได้ (ตรวจ QC และแพ็กต้องผ่านทุกใบงาน)",
+  design_label_required: "ใบงาน OEM ต้องตั้งชื่อเรียกภายในก่อนสร้าง (ช่างเห็นชื่อนี้ — ห้ามมีชื่อแบรนด์ลูกค้า)",
   stages_invalid: "รายการขั้นตอนไม่ถูกต้อง",
   stages_need_qc_pack: "ต้องมีขั้น ตรวจ QC และ แพ็ก",
   stages_open: "ปิดงานไม่ได้ — ยังมีขั้นที่ยังไม่เสร็จ",
@@ -79,10 +86,54 @@ function showable(text: unknown): text is string {
   return typeof text === "string" && text.length > 0 && text.length <= 300 && THAI.test(text) && !TECHNICAL.test(text);
 }
 
-/** ข้อความของผลฝั่งช่าง {ok:false, code, message} → ไทยสั้น (ตารางก่อน · แล้ว message ของ DB ถ้าสะอาด · แล้วข้อความกลาง) */
-export function workerFailMessage(code: unknown, dbMessage: unknown): string {
-  if (typeof code === "string" && Object.prototype.hasOwnProperty.call(WORKER_CODE_TH, code)) return WORKER_CODE_TH[code];
+/** ตัวเลขประกอบข้อความจาก RPC ฝั่งช่าง (0173) — ผู้เรียกกรองชนิดแล้ว (number จำกัดช่วง / string สั้น) */
+export interface WorkerFailExtra {
+  attemptsLeft?: number | null;
+  attemptsUntilOffice?: number | null;
+  tokenBudgetLeft?: number | null;
+  retryAfterSeconds?: number | null;
+  gapG?: number | null;
+  by?: string | null;
+}
+
+const fmtG = (n: number) => String(Math.round(Math.abs(n) * 1000) / 1000);
+
+/** รอเป็นนาที ปัดขึ้น (เช่น 900 วิ = 15 นาที · 61 วิ = 2 นาที) */
+export function waitMinutes(seconds: number): number {
+  return Math.max(1, Math.ceil(seconds / 60));
+}
+
+/**
+ * ข้อความของผลฝั่งช่าง {ok:false, code, message} → ไทยสั้น (ตารางก่อน · แล้ว message ของ DB ถ้าสะอาด · แล้วข้อความกลาง)
+ * extra (0173): PIN ผิด -> เตือนจำนวนครั้งที่เหลือตั้งแต่ครั้งที่ 3 · locked -> รอกี่นาที · น้ำหนักส่งต่อไม่ตรง -> ส่วนต่างกี่กรัม · รับขั้นแพ้ -> ชื่อผู้ชนะ
+ */
+export function workerFailMessage(code: unknown, dbMessage: unknown, extra?: WorkerFailExtra): string {
+  const known = typeof code === "string" && Object.prototype.hasOwnProperty.call(WORKER_CODE_TH, code);
+  const x = extra ?? {};
+  if (code === "bad_credentials") {
+    const lines = [WORKER_CODE_TH.bad_credentials];
+    if (typeof x.attemptsLeft === "number" && x.attemptsLeft >= 1 && x.attemptsLeft <= 2) lines.push(`เหลืออีก ${x.attemptsLeft} ครั้งก่อนถูกล็อกชั่วคราว`);
+    if (typeof x.attemptsUntilOffice === "number" && x.attemptsUntilOffice >= 1 && x.attemptsUntilOffice <= 3) lines.push(`เหลืออีก ${x.attemptsUntilOffice} ครั้งจะถูกล็อกจนกว่าออฟฟิศปลดล็อก`);
+    if (typeof x.tokenBudgetLeft === "number" && x.tokenBudgetLeft >= 0 && x.tokenBudgetLeft <= 3) lines.push(`ใบนี้ใส่ PIN ผิดได้อีก ${x.tokenBudgetLeft} ครั้งวันนี้`);
+    return lines.join(" · ");
+  }
+  if (code === "locked") {
+    return typeof x.retryAfterSeconds === "number" && x.retryAfterSeconds > 0 ? `ใส่ PIN ผิดหลายครั้ง — ลองใหม่ใน ${waitMinutes(x.retryAfterSeconds)} นาที` : WORKER_CODE_TH.locked;
+  }
+  if (code === "handoff_mismatch" && typeof x.gapG === "number" && Number.isFinite(x.gapG)) {
+    return `น้ำหนักไม่ตรงกับที่ขั้นก่อนส่ง (ต่าง ${fmtG(x.gapG)} g) — ชั่งใหม่หรือแจ้งออฟฟิศ`;
+  }
+  if (code === "already_received") {
+    if (typeof x.by === "string" && x.by !== "") return `ช่าง ${x.by} รับขั้นนี้ไปแล้ว`;
+    if (showable(dbMessage)) return dbMessage;
+  }
+  if (known) return WORKER_CODE_TH[code as string];
   return showable(dbMessage) ? dbMessage : GENERIC_JOB_ERROR;
+}
+
+/** ขั้นก่อนยังไม่ส่ง (prev_not_sent) — ใส่ชื่อขั้นที่ค้างให้ช่างรู้ว่าต้องไปตามใคร */
+export function prevNotSentMessage(prevName: string | null): string {
+  return prevName ? `ขั้นก่อน (${prevName}) ยังไม่กดส่งพร้อมน้ำหนัก — ให้เขากดส่งก่อน หรือแจ้งออฟฟิศ` : WORKER_CODE_TH.prev_not_sent;
 }
 
 /** error ของ RPC ออฟฟิศ (supabase error object) → ไทย · 42501 = ไม่มีสิทธิ์ · hint ที่รู้จัก → ข้อความ DB ถ้าสะอาด ไม่งั้นตาราง */

@@ -8,12 +8,27 @@ const bad = <T = never,>(error: string): Parsed<T> => ({ ok: false, error });
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const isUuid = (v: unknown): v is string => typeof v === "string" && UUID_RE.test(v);
 
+/**
+ * จุลภาคในช่องน้ำหนัก (BUG-J1-01: "95,5" เคยถูกตัดทิ้งเป็น 955 = ผิด 10 เท่าโดยไม่เตือน)
+ * - จุลภาคตัวเดียวและไม่มีจุด = ทศนิยม ("95,5" -> "95.5") — แป้นพิมพ์มือถือไทย/ยุโรปพิมพ์ทศนิยมแบบนี้
+ * - จุลภาคร่วมกับจุด ("1,234.5") หรือหลายจุลภาค ("1,234,5") = กำกวม ปฏิเสธ ไม่เดา
+ */
+export function normalizeWeightText(s: string): Parsed<string> {
+  const commas = s.split(",").length - 1;
+  if (commas === 0) return ok(s);
+  if (commas === 1 && !s.includes(".")) return ok(s.replace(",", "."));
+  return bad("รูปแบบน้ำหนักกำกวม — พิมพ์เป็นตัวเลขธรรมดา เช่น 95.5 (ไม่ต้องใส่จุลภาคคั่นหลักพัน)");
+}
+
 /** น้ำหนักกรัม: ตัวเลข > 0 ≤ 100,000 ทศนิยมไม่เกิน 3 ตำแหน่ง · ว่าง = null (ไม่ได้กรอก) · "0" ไม่ผ่าน (DB: weight > 0) */
 export function parseWeight(raw: unknown, label = "น้ำหนัก"): Parsed<number | null> {
   if (raw === null || raw === undefined) return ok(null);
-  const t = typeof raw === "number" ? String(raw) : typeof raw === "string" ? raw.trim().replace(/,/g, "") : null;
-  if (t === null) return bad(`${label}ไม่ถูกต้อง`);
-  if (t === "") return ok(null);
+  const rawText = typeof raw === "number" ? String(raw) : typeof raw === "string" ? raw.trim() : null;
+  if (rawText === null) return bad(`${label}ไม่ถูกต้อง`);
+  if (rawText === "") return ok(null);
+  const norm = normalizeWeightText(rawText);
+  if (!norm.ok) return bad(norm.error);
+  const t = norm.value;
   if (!/^\d+(?:\.\d{1,3})?$/.test(t)) return bad(`${label}ต้องเป็นตัวเลข ทศนิยมไม่เกิน 3 ตำแหน่ง`);
   const n = Number(t);
   if (!Number.isFinite(n) || n <= 0 || n > 100000) return bad(`${label}ต้องมากกว่า 0 และไม่เกิน 100,000 กรัม`);
@@ -23,7 +38,10 @@ export function parseWeight(raw: unknown, label = "น้ำหนัก"): Pars
 /** น้ำหนักที่ 0 ได้ (เติมโลหะ): ว่าง/ไม่ส่ง = 0 */
 export function parseWeightOrZero(raw: unknown, label: string): Parsed<number> {
   if (raw === null || raw === undefined || (typeof raw === "string" && raw.trim() === "")) return ok(0);
-  const t = typeof raw === "number" ? String(raw) : typeof raw === "string" ? raw.trim().replace(/,/g, "") : "";
+  const rawText = typeof raw === "number" ? String(raw) : typeof raw === "string" ? raw.trim() : "";
+  const norm = normalizeWeightText(rawText);
+  if (!norm.ok) return bad(norm.error);
+  const t = norm.value;
   if (t === "0" || /^0(?:\.0{1,3})?$/.test(t)) return ok(0);
   const p = parseWeight(raw, label);
   if (!p.ok) return bad(p.error);

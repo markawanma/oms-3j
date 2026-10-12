@@ -52,14 +52,23 @@ describe("parseWeight — ค่าที่ต้องถูกปฏิเส
 });
 
 describe("parseWeight — คอมมา", () => {
-  it.fails("BUG-J1-01: '95,5' ต้องไม่กลายเป็น 955 (ต้อง reject หรืออ่านเป็น 95.5)", () => {
+  it("BUG-J1-01 (แก้แล้ว 12 ต.ค.): '95,5' = 95.5 ไม่ใช่ 955", () => {
     const r = parseWeight("95,5");
-    const safe = !r.ok || r.value === 95.5;
-    expect(safe).toBe(true);
+    expect(r.ok && r.value).toBe(95.5);
   });
-  it("ตัวคั่นหลักพันที่ถูกต้อง '1,234.5' = 1234.5 (ต้องไม่พัง)", () => {
-    const r = parseWeight("1,234.5");
-    expect(r.ok && r.value).toBe(1234.5);
+  it("มติ coordinator 12 ต.ค.: จุลภาคกำกวม ('1,234.5' / '1,234,5' / '12,5,') = ปฏิเสธพร้อมข้อความ ไม่เดา", () => {
+    for (const v of ["1,234.5", "1,234,5", "12,5,", "1.234,5", ",,"]) {
+      const r = parseWeight(v);
+      expect(r.ok, v).toBe(false);
+      if (!r.ok) expect(r.error).toContain("กำกวม");
+    }
+  });
+  it("จุลภาคโดดๆ ที่ปลาย/หัว = ปฏิเสธ (รูปแบบเลขผิด)", () => {
+    for (const v of [",5", "5,", ","]) expect(parseWeight(v).ok, v).toBe(false);
+  });
+  it("parseWeightOrZero ใช้กฎเดียวกัน", () => {
+    expect(parseWeightOrZero("0,5", "เติมโลหะ")).toMatchObject({ ok: true, value: 0.5 });
+    expect(parseWeightOrZero("1,234.5", "เติมโลหะ").ok).toBe(false);
   });
 });
 

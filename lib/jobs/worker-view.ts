@@ -4,7 +4,7 @@
 //    (RPC job_worker_resolve ก็ประกอบทีละ key อยู่แล้ว — ชั้นนี้คือด่านซ้ำฝั่งแอป เผื่อ RPC เปลี่ยนในอนาคต)
 // payload นี้ผ่าน RSC ไปถึง client component ทั้งก้อน → ต้องตรวจจากรูปที่ "ส่งออกจริง" (ดู worker-view.test.ts)
 
-export const NEXT_ACTIONS = ["identify", "receive", "send", "awaiting_deposit", "not_your_stage", "held_by_other", "prev_not_sent", "on_hold", "none"] as const;
+export const NEXT_ACTIONS = ["identify", "receive", "send", "awaiting_deposit", "not_your_stage", "held_by_other", "prev_not_sent", "on_hold", "all_done"] as const;
 export type NextAction = (typeof NEXT_ACTIONS)[number];
 
 export interface WorkerViewStage {
@@ -88,8 +88,10 @@ export function sanitizeWorkerView(raw: unknown): WorkerView | null {
   const viewerId = isObj(v) && typeof v.worker_id === "string" && UUID_RE.test(v.worker_id) ? v.worker_id : null;
   const viewer = isObj(v) && viewerId ? { workerId: viewerId, displayName: text(v.display_name, 60) ?? "" } : null;
 
+  // 0173: ไม่มี 'none' แล้ว — ค่านอก enum (เช่น เวอร์ชัน DB ใหม่กว่าแอป) = ปฏิเสธทั้ง view ดีกว่าเดาว่าเป็นปุ่มอะไร
   const na = raw.next_action;
-  const nextAction: NextAction = typeof na === "string" && (NEXT_ACTIONS as readonly string[]).includes(na) ? (na as NextAction) : "none";
+  if (typeof na !== "string" || !(NEXT_ACTIONS as readonly string[]).includes(na)) return null;
+  const nextAction = na as NextAction;
 
   const as = raw.action_stage;
   const actionSeq = isObj(as) ? numOrNull(as.seq) : null;
@@ -108,13 +110,22 @@ export function sanitizeWorkerView(raw: unknown): WorkerView | null {
     job,
     viewer,
     sessionExpired: raw.session_expired === true,
-    nextAction: viewer ? nextAction : "identify",
+    // all_done ไม่ต้องระบุตัวใคร (ไม่มีอะไรให้ทำ) — ค่าอื่นของคนที่ยังไม่ระบุตัว = ให้ระบุตัวก่อนเสมอ
+    nextAction: viewer || nextAction === "all_done" ? nextAction : "identify",
     actionStage,
     prevWeightOutG: numOrNull(raw.prev_weight_out_g),
     heldBy: text(raw.held_by, 60),
     workers,
     scrapReasons: (Array.isArray(raw.scrap_reasons) ? raw.scrap_reasons : []).filter((r): r is string => typeof r === "string" && SCRAP_REASONS.has(r)),
   };
+}
+
+/** ชื่อขั้นก่อนหน้า (ไม่นับที่ข้าม) ของขั้นที่กำลังจะทำ — ใช้ข้อความ "ขั้นก่อน (X) ยังไม่ส่ง" */
+export function prevStageName(view: Pick<WorkerView, "job" | "actionStage">): string | null {
+  const at = view.actionStage?.seq;
+  if (at === undefined) return null;
+  const prev = [...view.job.stages].filter((s) => s.seq < at && s.status !== "skipped").sort((a, b) => b.seq - a.seq)[0];
+  return prev?.name ?? null;
 }
 
 /** key ที่ห้ามปรากฏที่ใดใน payload ของหน้าช่าง/หน้าพิมพ์ (ทดสอบ + ด่านซ้ำใน action) — ตรวจทุกระดับ ไม่สนตัวพิมพ์ */

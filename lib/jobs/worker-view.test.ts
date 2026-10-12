@@ -70,17 +70,28 @@ describe("sanitizeWorkerView — ทิ้ง key ที่ไม่อยู่
     expect(sanitizeWorkerView(base({ next_action: "send" }))!.nextAction).toBe("identify");
   });
 
-  it("ค่าแปลก: next_action นอก enum → none · สถานะขั้นนอก enum → ทิ้งขั้นนั้น · เหตุผลของเสียนอก allowlist → ทิ้ง · worker id ไม่ใช่ uuid → ทิ้ง", () => {
+  it("next_action นอก enum (รวม 'none' เดิม) → null ทั้ง view (0173: ไม่เดาปุ่ม)", () => {
+    for (const na of ["drop table", "none", "", null, 5]) {
+      expect(sanitizeWorkerView(base({ next_action: na, viewer: { worker_id: WID, display_name: "ช่างเอ" } })), String(na)).toBeNull();
+    }
+  });
+
+  it("all_done: ผ่านได้แม้ยังไม่ระบุตัว (ไม่มีอะไรให้ทำ) · คนที่ระบุตัวแล้วก็ได้ค่าเดียวกัน", () => {
+    expect(sanitizeWorkerView(base({ next_action: "all_done" }))!.nextAction).toBe("all_done");
+    expect(sanitizeWorkerView(base({ next_action: "all_done", viewer: { worker_id: WID, display_name: "ช่างเอ" } }))!.nextAction).toBe("all_done");
+  });
+
+  it("ค่าแปลก: สถานะขั้นนอก enum → ทิ้งขั้นนั้น · เหตุผลของเสียนอก allowlist → ทิ้ง · worker id ไม่ใช่ uuid → ทิ้ง", () => {
     const v = sanitizeWorkerView(
       base({
-        next_action: "drop table",
+        next_action: "send",
         viewer: { worker_id: WID, display_name: "ช่างเอ" },
         job: { job_no: "JB-1", status: "open", design_label: "x", stages: [stage({ status: "weird" }), stage({ seq: 2, code: "polish" })] },
         scrap_reasons: ["porosity", "<script>", "other"],
         workers: [{ id: "not-uuid", display_name: "ผี" }],
       })
     )!;
-    expect(v.nextAction).toBe("none");
+    expect(v.nextAction).toBe("send");
     expect(v.job.stages.map((s) => s.code)).toEqual(["polish"]);
     expect(v.scrapReasons).toEqual(["porosity", "other"]);
     expect(v.workers).toEqual([]);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { GENERIC_JOB_ERROR, OFFICE_HINT_TH, WORKER_CODE_TH, officeErrorMessage, safeLogShape, workerFailMessage } from "./messages";
+import { GENERIC_JOB_ERROR, OFFICE_HINT_TH, WORKER_CODE_TH, officeErrorMessage, prevNotSentMessage, safeLogShape, waitMinutes, workerFailMessage } from "./messages";
 
 const THAI = /[฀-๿]/;
 const TECH = /[a-z]+_[a-z_]+|analytics\.|select |insert |p_[a-z]/i;
@@ -7,8 +7,8 @@ const TECH = /[a-z]+_[a-z_]+|analytics\.|select |insert |p_[a-z]/i;
 describe("WORKER_CODE_TH — ทุก code ที่ RPC ฝั่งช่างคืนได้ มีข้อความไทยสั้นและไม่มีศัพท์เทคนิค", () => {
   // รายการ code จริงจาก 0172 (grep job_fail) — เพิ่ม code ใหม่ใน DB ต้องเพิ่มที่นี่ (เทสต์นี้ล้ม = ลืมแปล)
   const CODES = [
-    "already_received", "already_sent", "awaiting_deposit", "bad_credentials", "date_invalid", "invalid_token", "job_closed", "job_not_found",
-    "job_on_hold", "locked", "not_holder", "not_received", "note_invalid", "note_required", "out_of_order", "prev_not_sent", "qty_invalid",
+    "already_sent", "awaiting_deposit", "bad_credentials", "date_invalid", "handoff_mismatch", "invalid_token", "job_closed", "job_not_found",
+    "job_on_hold", "locked", "locked_office", "token_budget_exhausted", "not_holder", "not_received", "note_invalid", "note_required", "out_of_order", "prev_not_sent", "qty_invalid",
     "rate_limited", "reason_required", "reason_unexpected", "session_required", "stage_changed", "stage_not_allowed", "weight_invalid",
     "weight_over", "weight_required", "who_required",
   ];
@@ -18,6 +18,51 @@ describe("WORKER_CODE_TH — ทุก code ที่ RPC ฝั่งช่า�
     expect(THAI.test(m)).toBe(true);
     expect(TECH.test(m)).toBe(false);
     expect(m.length).toBeLessThanOrEqual(90);
+  });
+});
+
+describe("workerFailMessage — สัญญา 0173 (ตัวเลขประกอบข้อความ)", () => {
+  it("PIN ผิดครั้งที่ 1-2: ไม่เตือน · ตั้งแต่ครั้งที่ 3: เหลืออีก N ครั้ง", () => {
+    expect(workerFailMessage("bad_credentials", null, { attemptsLeft: 4, attemptsUntilOffice: 14, tokenBudgetLeft: 18 })).toBe("ชื่อหรือ PIN ไม่ถูกต้อง");
+    expect(workerFailMessage("bad_credentials", null, { attemptsLeft: 2, attemptsUntilOffice: 12, tokenBudgetLeft: 17 })).toContain("เหลืออีก 2 ครั้ง");
+    expect(workerFailMessage("bad_credentials", null, { attemptsLeft: 1, attemptsUntilOffice: 11, tokenBudgetLeft: 16 })).toContain("เหลืออีก 1 ครั้ง");
+  });
+  it("ใกล้ล็อกจนออฟฟิศปลด / งบต่อใบใกล้หมด ก็เตือน", () => {
+    expect(workerFailMessage("bad_credentials", null, { attemptsLeft: 1, attemptsUntilOffice: 2 })).toContain("ออฟฟิศปลดล็อก");
+    expect(workerFailMessage("bad_credentials", null, { tokenBudgetLeft: 3 })).toContain("ใส่ PIN ผิดได้อีก 3 ครั้ง");
+  });
+  it("locked: ลองใหม่ใน N นาที (ปัดขึ้น) · ไม่มีเวลา = ข้อความทั่วไป", () => {
+    expect(workerFailMessage("locked", null, { retryAfterSeconds: 900 })).toContain("ลองใหม่ใน 15 นาที");
+    expect(workerFailMessage("locked", null, { retryAfterSeconds: 3600 })).toContain("ลองใหม่ใน 60 นาที");
+    expect(workerFailMessage("locked", null, { retryAfterSeconds: 61 })).toContain("2 นาที");
+    expect(workerFailMessage("locked", null)).toBe(WORKER_CODE_TH.locked);
+    expect(waitMinutes(0)).toBe(1);
+  });
+  it("locked_office / token_budget_exhausted ตามถ้อยคำที่กำหนด", () => {
+    expect(workerFailMessage("locked_office", null)).toBe("ล็อกแล้ว ให้ออฟฟิศปลดล็อก");
+    expect(workerFailMessage("token_budget_exhausted", null)).toBe("ใบนี้ใส่ PIN ผิดเกินกำหนด ขอพิมพ์ใบใหม่จากออฟฟิศ");
+  });
+  it("handoff_mismatch: ใส่ส่วนต่าง (ค่าสัมบูรณ์ ตัดเศษ) ไม่มีค่า = ข้อความทั่วไป", () => {
+    expect(workerFailMessage("handoff_mismatch", null, { gapG: -0.12 })).toBe("น้ำหนักไม่ตรงกับที่ขั้นก่อนส่ง (ต่าง 0.12 g) — ชั่งใหม่หรือแจ้งออฟฟิศ");
+    expect(workerFailMessage("handoff_mismatch", null, { gapG: 1.23456 })).toContain("ต่าง 1.235 g");
+    expect(workerFailMessage("handoff_mismatch", null)).toBe(WORKER_CODE_TH.handoff_mismatch);
+  });
+  it("already_received: ใช้ชื่อผู้ชนะ (by) ก่อน · ไม่มี by ใช้ข้อความ DB ที่สะอาด · ไม่มีทั้งคู่ใช้ตาราง", () => {
+    expect(workerFailMessage("already_received", "ข้อความ DB", { by: "สมชาย" })).toBe("ช่าง สมชาย รับขั้นนี้ไปแล้ว");
+    expect(workerFailMessage("already_received", "ขั้นนี้ถูกรับไปแล้วโดย สมหญิง")).toContain("สมหญิง");
+    expect(workerFailMessage("already_received", undefined)).toBe(WORKER_CODE_TH.already_received);
+  });
+  it("prev_not_sent: ใส่ชื่อขั้นที่ค้าง · ไม่รู้ชื่อ = ข้อความทั่วไป", () => {
+    expect(prevNotSentMessage("หล่อ")).toBe("ขั้นก่อน (หล่อ) ยังไม่กดส่งพร้อมน้ำหนัก — ให้เขากดส่งก่อน หรือแจ้งออฟฟิศ");
+    expect(prevNotSentMessage(null)).toBe(WORKER_CODE_TH.prev_not_sent);
+  });
+  it("all_done มีข้อความในตาราง", () => {
+    expect(WORKER_CODE_TH.all_done).toBe("งานนี้ทำครบแล้ว รอออฟฟิศปิดงาน");
+  });
+  it("ตัวเลขนอกช่วง/ชนิดผิด ไม่ทำให้ข้อความเพี้ยน", () => {
+    const m = workerFailMessage("bad_credentials", null, { attemptsLeft: Number.NaN, attemptsUntilOffice: -5, tokenBudgetLeft: 99 });
+    expect(m).toBe("ชื่อหรือ PIN ไม่ถูกต้อง");
+    expect(workerFailMessage("handoff_mismatch", null, { gapG: Number.NaN })).toBe(WORKER_CODE_TH.handoff_mismatch);
   });
 });
 

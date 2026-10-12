@@ -61,8 +61,8 @@ describe("sanitizeWorkerView — payload ปนของต้องห้าม
     expect(v.viewer).toBeNull();
     expect(v.nextAction).toBe("identify");
   });
-  it("next_action แปลก → none (ไม่ใช่ค่าที่ client ตีความเป็นปุ่ม)", () => {
-    expect(sanitizeWorkerView(hostile({ next_action: "delete_everything" }))!.nextAction).toBe("none");
+  it("next_action แปลก → null ทั้ง view (ไม่ใช่ค่าที่ client ตีความเป็นปุ่ม)", () => {
+    expect(sanitizeWorkerView(hostile({ next_action: "delete_everything" }))).toBeNull();
   });
   it("รายชื่อช่างเกิน 50 ถูกตัด · ข้อความยาวผิดปกติถูกตัด · emoji/ไทยผ่าน", () => {
     const many = Array.from({ length: 120 }, (_, i) => ({ id: `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`, display_name: "ช่าง🙂" + i }));
