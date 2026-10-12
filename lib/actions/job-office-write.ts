@@ -5,11 +5,11 @@
 // 🔴 token ดิบจาก job_token_issue ใช้สร้าง QR ฝั่ง server แล้วทิ้ง — คืนให้ client เฉพาะ SVG (token ไม่ถูกเก็บ/log/ส่งกลับเป็นข้อความ)
 
 import { revalidatePath } from "next/cache";
-import { headers } from "next/headers";
 import { effectiveDateBangkok } from "@/lib/tiktok/format";
 import { isUuid, parseCount, parseDate, parseSeq, parseText, parseWeight, parseWeightOrZero, parseScrapReason } from "@/lib/jobs/input";
 import { callOffice, fail, guard } from "@/lib/jobs/office-server";
 import type { JobResult } from "@/lib/jobs/office-server";
+import { currentAppOrigin } from "@/lib/jobs/origin-server";
 import { renderQrSvg, workerUrl } from "@/lib/jobs/qr";
 import { GENERIC_JOB_ERROR } from "@/lib/jobs/messages";
 
@@ -29,22 +29,13 @@ export interface IssuedQr {
   revokedPrevious: number;
 }
 
-/** origin ของแอปจาก header ที่ proxy ใส่ — ตรวจรูปแบบ host กันค่าแปลกเข้าไปอยู่ใน QR (ผู้เรียกเป็น owner/admin อยู่แล้ว · ด่านซ้ำ) */
-async function appOrigin(): Promise<string | null> {
-  const h = await headers();
-  const host = (h.get("x-forwarded-host") ?? h.get("host") ?? "").split(",")[0].trim();
-  if (!/^[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:\d{2,5})?$/i.test(host) || host.length > 120) return null;
-  const protoRaw = (h.get("x-forwarded-proto") ?? "").split(",")[0].trim();
-  const proto = protoRaw === "http" || protoRaw === "https" ? protoRaw : host.startsWith("localhost") || host.startsWith("127.") ? "http" : "https";
-  return `${proto}://${host}`;
-}
-
 export async function issueJobQr(jobId: string, keepPrevious: boolean): Promise<JobResult<IssuedQr>> {
   const g = await guard();
   if (g) return g;
   if (!isUuid(jobId)) return fail("ไม่พบใบงาน");
-  const origin = await appOrigin();
-  if (!origin) return fail("สร้างลิงก์ QR ไม่ได้ — ไม่รู้ที่อยู่เว็บของแอป");
+  // origin ใน QR: env APP_ORIGIN (production) ก่อน · ไม่ได้ตั้ง = host ที่ผ่านการตรวจรูปแบบ (lib/jobs/origin.ts) · ผิดรูปแบบ = ไม่ออก token (ไม่เรียก RPC)
+  const origin = await currentAppOrigin();
+  if (!origin.ok) return fail(origin.error);
   const r = await callOffice<Raw>("job_token_issue", { p_job_id: jobId, p_revoke_previous: keepPrevious !== true });
   if (!r.ok) return r;
   const token = r.data.token;
@@ -53,7 +44,7 @@ export async function issueJobQr(jobId: string, keepPrevious: boolean): Promise<
   if (typeof token !== "string" || !/^[A-Za-z0-9_-]{16,64}$/.test(token) || typeof printNo !== "number" || typeof jobNo !== "string") return fail(GENERIC_JOB_ERROR);
   let svg: string;
   try {
-    svg = renderQrSvg(workerUrl(origin, token));
+    svg = renderQrSvg(workerUrl(origin.origin, token));
   } catch {
     return fail("สร้าง QR ไม่สำเร็จ ลองใหม่อีกครั้ง");
   }

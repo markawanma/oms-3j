@@ -75,7 +75,14 @@ export function JobSheet({ job, qrSvg }: { job: PrintableJob; qrSvg: string | nu
   );
 }
 
-export function JobPrintClient({ job }: { job: PrintableJob }) {
+/** ที่อยู่ที่ QR จะชี้ไป + คำเตือน (preview/dev/โดเมนไม่ตรง APP_ORIGIN) หรือ error (ตั้งค่า origin ไม่ได้ → ออก QR ไม่ได้) — แสดงเฉพาะบนจอ */
+export interface QrTarget {
+  host: string | null;
+  warning: string | null;
+  error: string | null;
+}
+
+export function JobPrintClient({ job, qr = { host: null, warning: null, error: null } }: { job: PrintableJob; qr?: QrTarget }) {
   const [keep, setKeep] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -115,13 +122,19 @@ export function JobPrintClient({ job }: { job: PrintableJob }) {
             {!keep && <span className="block text-xs text-amber-900">ไม่ติ๊ก = ใบงานที่พิมพ์ไว้ก่อนหน้าจะสแกนไม่ได้ทันที</span>}
           </span>
         </label>
-        {error && (
+        {qr.host && <p className="text-sm text-zinc-800">QR จะชี้ไปที่ <strong className="break-all">{qr.host}</strong></p>}
+        {qr.warning && (
+          <p role="alert" className="rounded-md border-2 border-amber-400 bg-amber-50 p-2.5 text-sm font-semibold text-amber-950">
+            {qr.warning}
+          </p>
+        )}
+        {(qr.error || error) && (
           <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-2.5 text-sm font-medium text-red-800">
-            {error}
+            {qr.error ?? error}
           </p>
         )}
         <div className="flex flex-wrap gap-2">
-          <Button type="button" onClick={() => void issue()} loading={busy}>
+          <Button type="button" onClick={() => void issue()} loading={busy} disabled={qr.error !== null}>
             <Printer className="h-4 w-4" aria-hidden="true" />
             {issued ? "ออก QR ใหม่และพิมพ์อีกครั้ง" : "ออก QR และพิมพ์"}
           </Button>

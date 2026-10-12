@@ -357,7 +357,7 @@ describe("0173: ปลดล็อกช่าง · แก้ชื่อเร
     expect(lastRpc()[0]).toBe("job_design_label_set");
     expect(lastRpc()[1]).toMatchObject({ p_job_id: JOB, p_design_label: "แหวนลายใบไม้ ไซส์ 7", p_actor: USER, p_shop_id: SHOP });
     rpcMock.mockClear();
-    for (const bad of ["", "   ", "x".repeat(201), "a b", 5 as never, null as never]) expect((await setJobDesignLabel(JOB, bad)).ok, String(bad)).toBe(false);
+    for (const bad of ["", "   ", "x".repeat(201), "a\u0000b", 5 as never, null as never]) expect((await setJobDesignLabel(JOB, bad)).ok, String(bad)).toBe(false);
     expect((await setJobDesignLabel("nope", "ชื่อ")).ok).toBe(false);
     expect(rpcMock).not.toHaveBeenCalled();
   });
@@ -378,5 +378,42 @@ describe("0173: ปลดล็อกช่าง · แก้ชื่อเร
     results.v_worker_lock = { data: [{ worker_id: WORKER, lock_state: "weird", failed_attempts: "9", in_window: false }], error: null };
     const r2 = await getWorkers();
     expect(r2.ok && r2.data.workers[0]).toMatchObject({ lockState: "none", failedAttempts: 0 });
+  });
+});
+
+describe("issueJobQr — origin จาก env APP_ORIGIN (security L2)", () => {
+  const OLD = process.env.APP_ORIGIN;
+  afterEach(() => {
+    if (OLD === undefined) delete process.env.APP_ORIGIN;
+    else process.env.APP_ORIGIN = OLD;
+  });
+  const tokenOk = () => rpcMock.mockResolvedValue({ data: { token: RAW_TOKEN, print_no: 1, job_no: "JB-0001", revoked_previous: 0 }, error: null });
+
+  it("APP_ORIGIN ผิดรูปแบบ (เช่น ค่าตัวอย่าง TODO_OWNER_APP_ORIGIN) = ไม่ออก token ไม่เรียก RPC · ข้อความไทย", async () => {
+    process.env.APP_ORIGIN = "TODO_OWNER_APP_ORIGIN";
+    tokenOk();
+    const r = await issueJobQr(JOB, false);
+    expect(r).toMatchObject({ ok: false, error: expect.stringContaining("APP_ORIGIN") });
+    expect(rpcMock).not.toHaveBeenCalled();
+  });
+
+  it("APP_ORIGIN ถูกต้อง = ออก QR ได้ แม้ Host header จะเป็นโดเมนอื่น/ปลอม (ไม่ใช้ Host)", async () => {
+    process.env.APP_ORIGIN = "https://oms.example.test";
+    hdrs = { host: "evil.test", "x-forwarded-host": "evil.test", "x-forwarded-proto": "http" };
+    tokenOk();
+    const r = await issueJobQr(JOB, false);
+    expect(r.ok).toBe(true);
+    expect(JSON.stringify(r)).not.toContain(RAW_TOKEN);
+    expect(JSON.stringify(r)).not.toContain("evil.test");
+  });
+
+  it("ไม่ตั้ง APP_ORIGIN = ถอยไปใช้ Host (พฤติกรรมเดิม) · host ผิดรูปแบบยังถูกปฏิเสธ", async () => {
+    delete process.env.APP_ORIGIN;
+    tokenOk();
+    expect((await issueJobQr(JOB, false)).ok).toBe(true);
+    rpcMock.mockClear();
+    hdrs = { host: "evil.test/../x" };
+    expect((await issueJobQr(JOB, false)).ok).toBe(false);
+    expect(rpcMock).not.toHaveBeenCalled();
   });
 });

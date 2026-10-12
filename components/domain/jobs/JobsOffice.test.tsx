@@ -282,3 +282,27 @@ describe("JobCreatePanel", () => {
     expect(screen.getAllByRole("button", { name: "สร้างใบงาน" }).at(-1)).toBeDisabled();
   });
 });
+
+describe("JobPrintClient — ที่อยู่ QR และคำเตือน preview (security L2)", () => {
+  it("แสดงที่อยู่ที่ QR จะชี้ไป · พิมพ์จาก preview = แถบเตือนอยู่ในส่วนที่ซ่อนตอนพิมพ์ (ไม่ขึ้นบนใบ)", () => {
+    wrap(<JobPrintClient job={printable} qr={{ host: "oms-git-x.vercel.app", warning: "พิมพ์จาก preview — QR อาจใช้ไม่ได้ (ตัวอย่าง)", error: null }} />);
+    expect(screen.getByText("oms-git-x.vercel.app")).toBeInTheDocument();
+    const warn = screen.getByText(/พิมพ์จาก preview — QR อาจใช้ไม่ได้/);
+    expect(warn.closest("section")!.className).toContain("print:hidden");
+    expect(screen.getByRole("article", { name: /JB-0007/ }).textContent).not.toContain("preview");
+  });
+
+  it("ตั้งค่า origin ไม่ได้ (APP_ORIGIN ผิด/ไม่รู้ host) = แสดงข้อผิดพลาด · ปุ่มออก QR ใช้ไม่ได้ · ไม่เรียก server", async () => {
+    wrap(<JobPrintClient job={printable} qr={{ host: null, warning: null, error: "ตั้งค่า APP_ORIGIN ไม่ถูกต้อง (ตัวอย่าง)" }} />);
+    expect(screen.getByRole("alert")).toHaveTextContent("ตั้งค่า APP_ORIGIN ไม่ถูกต้อง");
+    const btn = screen.getByRole("button", { name: /ออก QR และพิมพ์/ });
+    expect(btn).toBeDisabled();
+    await userEvent.click(btn);
+    expect(issueJobQr).not.toHaveBeenCalled();
+  });
+
+  it("production ปกติ (ไม่มีคำเตือน) = ไม่มี alert", () => {
+    wrap(<JobPrintClient job={printable} qr={{ host: "oms.example.test", warning: null, error: null }} />);
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+  });
+});

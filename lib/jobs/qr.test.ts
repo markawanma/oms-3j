@@ -30,10 +30,10 @@ describe("renderQrSvg", () => {
     expect(renderQrSvg(url)).toBe(svg);
     expect(renderQrSvg(url + "x")).not.toBe(svg);
   });
-  it("URL ยาว ~70 ตัวอักษร ได้ QR ขนาดไม่เกิน version 6 (≤ 41 โมดูล) — พิมพ์ ≥ 35 มม. สแกนง่าย", () => {
+  it("URL ยาว ~70 ตัวอักษร (ecc H) ได้ QR ไม่เกิน version 9 (<= 53 โมดูล + quiet zone) — พิมพ์ 42 มม. ยังได้ >= 0.75 มม./โมดูล", () => {
     const m = /viewBox="0 0 (\d+) \d+"/.exec(svg)!;
     const modules = Number(m[1]) / 8;
-    expect(modules).toBeLessThanOrEqual(45); // 41 + quiet zone 2×2
+    expect(modules).toBeLessThanOrEqual(57); // v9 = 53 + quiet zone 2x2
   });
 });
 
@@ -55,5 +55,19 @@ describe("vendor/uqr — supply chain", () => {
     const readme = readFileSync(join(dir, "README.md"), "utf8");
     expect(readme).toContain("uqr 0.1.3");
     expect(readme).toContain("sha512-0rjE8iEJe4YmT9TOhwsZtqCMRLc5DXZUI2UEYUUg63ikBkqqE5EYWaI0etFe/5KUcmcYwLih2RND1kq+hrUJXA==");
+  });
+});
+
+describe("ระดับแก้ผิด (ECC) = H (โรงงานเลอะ/ยับ — design §6)", () => {
+  it("ใช้ ecc H: โมดูลต่อด้านมากกว่า ecc M ของข้อความเดียวกัน และ QR ยังกว้างพอพิมพ์ 42mm (<= 61 โมดูล + border)", async () => {
+    const { renderSVG } = await import("@/lib/vendor/uqr/index.mjs");
+    const url = workerUrl("https://app.example.test", "Ab3-_xYz0123456789AbCdEfGhIjKlMnOpQrStUvWxY");
+    const side = (s: string) => Number(/viewBox="0 0 (\d+) \d+"/.exec(s)![1]);
+    const h = side(renderQrSvg(url));
+    const m = side(renderSVG(url, { ecc: "M", border: 2, whiteColor: "#ffffff", blackColor: "#000000", pixelSize: 8 }));
+    expect(h).toBeGreaterThan(m);
+    // ผู้อ่านมือถือสแกนได้ที่ >= ~0.7mm/โมดูล : 42mm / (โมดูล+border*2) — ต้องไม่เล็กเกินไป
+    const modulesPerSide = h / 8;
+    expect(42 / modulesPerSide).toBeGreaterThan(0.7);
   });
 });

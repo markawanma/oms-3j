@@ -2,6 +2,7 @@ import { Lock } from "lucide-react";
 import { getJobDetail } from "@/lib/actions/job-office";
 import { canManageJobs } from "@/lib/jobs/page-gate";
 import { logJobFailure } from "@/lib/jobs/log";
+import { currentAppOrigin } from "@/lib/jobs/origin-server";
 import { toPrintableJob } from "@/lib/jobs/print";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
@@ -29,5 +30,8 @@ export default async function JobPrintPage({ params }: { params: Promise<{ id: s
   if (res.data.job.status === "done" || res.data.job.status === "cancelled") {
     return <EmptyState title="ใบงานนี้ปิดแล้ว" description="พิมพ์ใบงานที่ปิด/ยกเลิกแล้วไม่ได้" />;
   }
-  return <JobPrintClient job={toPrintableJob(res.data.job, res.data.stages)} />;
+  // ที่อยู่เว็บที่จะฝังใน QR + คำเตือนถ้าพิมพ์จาก preview/dev (security L2) — host ไม่ใช่ความลับ ส่งให้ client แสดงเป็นแถบ print:hidden
+  const origin = await currentAppOrigin();
+  const qr = origin.ok ? { host: origin.host, warning: origin.warning, error: null } : { host: null, warning: null, error: origin.error };
+  return <JobPrintClient job={toPrintableJob(res.data.job, res.data.stages)} qr={qr} />;
 }
