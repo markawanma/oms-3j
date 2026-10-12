@@ -1,4 +1,5 @@
 -- 0173_job_tracking_hardening.sql — แก้ J1 ตามผล security (H1 M1 M2 L1 L4) + QA (2 5 6 + ข้อสังเกต) + มติเจ้าของ 12 ต.ค. (ชื่อแบบ + น้ำหนักทองส่งต่อ)
+-- ✅ APPLIED 12 ต.ค. 69 ผ่าน node scripts/run-sql.mjs --commit --record (version 20261012112304 · name 0173_job_tracking_hardening) — ห้าม apply ซ้ำ (บรรทัดนี้เพิ่มหลัง apply เป็นคอมเมนต์ล้วน)
 -- แก้ต่อจาก 0172 (apply แล้ว แก้ไฟล์เดิมไม่ได้) — ตารางใหม่ 0 · เพิ่มคอลัมน์ worker.failed_window_start · แทนที่ฟังก์ชัน job_*/worker_* ที่ระบุ · ไม่แตะ oem_*/production_*
 --
 -- H1  worker_pin_verify: ตัวนับ PIN ผิดเดิม reset ทุก 15 นาที -> เดาเงียบๆ ได้ไม่จำกัด ·
