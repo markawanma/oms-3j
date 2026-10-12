@@ -12,4 +12,17 @@ const nextConfig = {
   },
 };
 
+// หน้าช่าง /w/<token>: token อยู่ใน URL → ห้ามรั่วผ่าน Referer · ห้าม search engine เก็บ · ห้ามแคช (security J1 §5.5)
+nextConfig.headers = async () => [
+  {
+    source: "/w/:path*",
+    headers: [
+      { key: "Referrer-Policy", value: "no-referrer" },
+      { key: "X-Robots-Tag", value: "noindex, nofollow, noarchive" },
+      { key: "Cache-Control", value: "no-store, max-age=0" },
+      { key: "X-Content-Type-Options", value: "nosniff" },
+    ],
+  },
+];
+
 export default nextConfig;

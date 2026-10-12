@@ -27,8 +27,14 @@
 // `api/gem-quiz(?:/|$)` would have silently made any FUTURE route under
 // /api/gem-quiz/ (e.g. a stats/export endpoint) public with no test catching
 // it. A new route under this prefix must earn its own exemption explicitly.
+//
+// w/<token> เพิ่ม 12 ต.ค. 69 (ระบบใบงาน J1 — หน้าช่างสแกน QR ไม่ login · design-job-tracking.md §5.5):
+// 🔴 เป็น "prefix /w/" แบบแคบที่สุด — ยอมเฉพาะ "หนึ่งเซกเมนต์ต่อท้าย /w/" ที่เป็นอักขระ base64url ล้วน [A-Za-z0-9_-]+ แล้วจบ
+// (ไม่มี /w/ ล้วน · ไม่มีเซกเมนต์ซ้อน · ไม่มี ".." / "%2e" / "." — traversal อย่าง /w/../oem ไม่ผ่านรูปแบบนี้ จึงยังถูก gate)
+// token จริง 43 ตัว · ความยาว/รูปแบบที่ผิดไปตกที่หน้าช่างซึ่งแสดง "ลิงก์ใช้ไม่ได้" โดยไม่แตะข้อมูลใด
+// ไม่ใช้ `{n,m}` ใน matcher เพราะ Next แปลง matcher ด้วย path-to-regexp (ปีกกาในกลุ่ม regex เสี่ยงตีความผิด) — ตรวจความยาวที่หน้าแทน
 const EXEMPT_PATTERN =
-  /^(?:_next\/static|_next\/image|favicon\.ico|api\/webhooks(?:\/|$)|api\/gem-quiz\/submit\/?$|shop(?:\/|$)|gem-quiz\/?$|stock\/hero(?:\/|$)|.*\.(?:svg|png|jpg|jpeg|gif|webp|ico)$)/;
+  /^(?:_next\/static|_next\/image|favicon\.ico|api\/webhooks(?:\/|$)|api\/gem-quiz\/submit\/?$|shop(?:\/|$)|gem-quiz\/?$|stock\/hero(?:\/|$)|w\/[A-Za-z0-9_-]+\/?$|.*\.(?:svg|png|jpg|jpeg|gif|webp|ico)$)/;
 
 /** true if `pathname` bypasses the auth gate entirely (middleware.ts never
  * runs for it) — mirrors config.matcher's negative-lookahead exactly. */
