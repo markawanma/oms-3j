@@ -17,6 +17,7 @@ import {
   Boxes,
   Calculator,
   CalendarDays,
+  ClipboardCheck,
   ClipboardList,
   Coins,
   Factory,
@@ -24,6 +25,7 @@ import {
   Gauge,
   Gem,
   Hammer,
+  HardHat,
   Hash,
   Inbox,
   LayoutDashboard,
@@ -115,6 +117,14 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "ผลิตเอง",
     items: [{ href: "/production", label: "ใบผลิตเข้าสต็อก", icon: Hammer }],
+  },
+  {
+    // ระบบใบงานผลิต J1 (design-job-tracking.md §6.3) — เฉพาะ owner/admin (กรองด้านล่าง · ด่านจริงอยู่ที่หน้า/action)
+    label: "ใบงาน",
+    items: [
+      { href: "/jobs", label: "ใบงานผลิต", icon: ClipboardCheck },
+      { href: "/jobs/workers", label: "ทะเบียนช่าง", icon: HardHat },
+    ],
   },
   {
     label: "ต้นทุน & ตั้งค่า",
@@ -213,13 +223,15 @@ export function DashboardShell({
   const pathname = usePathname() ?? "";
   const [drawerOpen, setDrawerOpen] = useState(false);
 
+  // กลุ่ม "ใบงาน" ซ่อนจาก staff (role null = ยังไม่มี session จริง/DEV flow → แสดงเหมือนเมนูอื่น) — UI เท่านั้น ด่านจริงอยู่ที่ canManageJobs + requireOwnerAdmin
+  const visibleGroups = role === "staff" ? NAV_GROUPS.filter((g) => g.label !== "ใบงาน") : NAV_GROUPS;
   const navGroups: NavGroup[] =
     role === "owner"
       ? [
-          ...NAV_GROUPS,
+          ...visibleGroups,
           { label: "ทีม", items: [{ href: "/settings/members", label: "สมาชิก", icon: UserCog }] },
         ]
-      : NAV_GROUPS;
+      : visibleGroups;
 
   // Close the drawer on route change (link click already does this via
   // onNavigate, but this also covers back/forward navigation).
