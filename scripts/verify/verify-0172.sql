@@ -1,4 +1,4 @@
--- scripts/verify/verify-0172.sql
+-- scripts/verify/verify-0172.sql  (ปรับครั้งที่ 2 หลัง 0173: คาดค่าตามพฤติกรรมใหม่ · ไม่ยิงสร้างใบงานจากใบเสนอราคาจริงแม้ใน rollback — โคลนเป็นใบทดสอบก่อนเสมอ)
 -- ตรวจ supabase/migrations/0172_job_tracking_j1.sql (ระบบใบงานผลิต J1 ฝั่ง DB) หลัง apply (หรือต่อท้ายไฟล์ 0172 ใน dry-run เดียว)
 -- self-rolling-back (3j-migration-traps ข้อ 11): แตะตัวนับเลขใบงาน ⇒ ทุก section รันใน subtransaction ที่ถอยกลับเอง แล้ว raise exception ปิดท้ายเสมอ
 -- ผลออกทาง error message · [FAIL] >= 1 = ไม่ผ่าน · [SKIP] = พิสูจน์ไม่ได้ (ไม่มีข้อมูลจริงให้ใช้เป็นแม่แบบ fixture)
@@ -77,6 +77,16 @@ end;
 $c$;
 
 create function pg_temp.h(p_val text) returns text language sql as $c$ select analytics.job_sha256_hex(p_val) $c$;
+create function pg_temp.jcq(p_shop uuid, p_item uuid, p_codes text[], p_due date, p_gate text, p_label text, p_note text, p_actor uuid) returns jsonb
+ language sql as $c$
+  select analytics.job_create_from_quote_item(p_shop, p_item, p_codes, p_due, p_gate, coalesce(p_label, 'v172-ชื่อเรียกภายใน'), p_note, p_actor) $c$;
+-- ตัวนับใบผลิตบน DB จริงเคยเพี้ยน (counter < max seq) — fixture ซ่อมในทรานแซกชันของ section เอง (ถอยกลับทุกครั้ง)
+create function pg_temp.po_save(p_shop_id uuid, p_note text) returns jsonb language plpgsql as $c$
+begin
+  update analytics.production_order_counter set last_no = greatest(last_no, (select coalesce(max(seq), 0) from analytics.production_order where shop_id = p_shop_id)) where shop_id = p_shop_id;
+  return analytics.production_order_save(p_shop_id => p_shop_id, p_note => p_note);
+end;
+$c$;
 create function pg_temp.std() returns text[] language sql as $c$
   select array['wax_inject', 'wax_tree', 'invest_burnout', 'cast', 'cut_sprue', 'polish', 'qc', 'pack'] $c$;
 create function pg_temp.code(r jsonb) returns text language sql as $c$ select coalesce(r ->> 'code', r ->> '_hint', r ->> '_state') $c$;
@@ -138,7 +148,7 @@ $c$;
 -- โคลนดีล OEM (ใบเสนอราคา 1 ใบ + รายการเดียว) จากรายการแม่แบบจริง เพื่อสร้าง fixture ทอง/ทองเหลือง/ดีลที่ยังไม่มีมัดจำ/ดีลต่ออายุ
 -- คืน {quote_id, item_id, quote_no} · root ใหม่ = ไม่มีใบเสร็จเลย (paid = 0)
 create function pg_temp.clone_deal(p_tpl_item uuid, p_metal text, p_qty int, p_root uuid default null, p_status text default 'won',
-                                   p_cust text default null, p_new_design boolean default null) returns jsonb
+                                   p_cust text default null, p_new_design boolean default null, p_seq int default 1) returns jsonb
  language plpgsql as $c$
 declare
   v_q   uuid := gen_random_uuid();
@@ -158,7 +168,7 @@ begin
         'customer_name', coalesce(p_cust, v_quote.customer_name)))).*;
   insert into analytics.oem_quote_item
     select (jsonb_populate_record(null::analytics.oem_quote_item,
-      to_jsonb(v_item) || jsonb_build_object('id', v_i, 'quote_id', v_q, 'seq', 1, 'input', v_input, 'qty', p_qty))).*;
+      to_jsonb(v_item) || jsonb_build_object('id', v_i, 'quote_id', v_q, 'seq', p_seq, 'input', v_input, 'qty', p_qty))).*;
   return jsonb_build_object('quote_id', v_q, 'item_id', v_i, 'quote_no', 'V172-' || substr(v_q::text, 1, 8));
 end;
 $c$;
@@ -172,7 +182,7 @@ declare
   d jsonb; r jsonb;
 begin
   d := pg_temp.clone_deal(p_tpl, p_metal, p_qty, p_root, 'won', p_cust, p_new_design);
-  r := pg_temp.q(format('select analytics.job_create_from_quote_item(%L, %L, %L::text[], null, %L, null, null, %L)',
+  r := pg_temp.q(format('select pg_temp.jcq(%L, %L, %L::text[], null, %L, null, null, %L)',
         p_shop, d ->> 'item_id', coalesce(p_codes, pg_temp.std()), p_gate, '00000000-0000-0000-0000-0000000000a1'::uuid));
   return d || r;
 end;
@@ -193,7 +203,7 @@ declare
   r jsonb; r2 jsonb; d jsonb; a jsonb; b jsonb;
   rec record;
   v_n int := 0; v_ok int := 0; v_rej int := 0; v_bad text := '';
-  v_cnt_before int; v_cnt_after int;
+  v_cnt_before int; v_cnt_after int; v_pn int := 0; v_pok int := 0;
   v_shop2 uuid;
   v_seq_before int; v_seq_after int;
   v_x text;
@@ -204,7 +214,7 @@ begin
   select p.id into v_prod from public.product p
    where p.shop_id = p_shop and p.is_active and p.sku !~* '^live' and p.cost_type in ('fixed', 'spot') order by p.sku limit 1;
   v_log := v_log || pg_temp.chk('A0', 'มีสินค้าจริงให้ทำ fixture ใบผลิต', v_prod is not null);
-  v_po := pg_temp.q(format('select analytics.production_order_save(p_shop_id=>%L, p_note=>%L)', p_shop, 'verify0172'));
+  v_po := pg_temp.q(format('select pg_temp.po_save(p_shop_id=>%L, p_note=>%L)', p_shop, 'verify0172'));
   v_po_id := (v_po ->> 'id')::uuid;
   perform analytics.production_order_item_set(p_shop, v_po_id, v_prod, 10);
   select id into v_poi from analytics.production_order_item where production_order_id = v_po_id;
@@ -227,7 +237,7 @@ begin
   a := r2;
 
   -- ใบผลิตที่ยกเลิกแล้ว
-  v_po2 := pg_temp.q(format('select analytics.production_order_save(p_shop_id=>%L, p_note=>%L)', p_shop, 'verify0172-b'));
+  v_po2 := pg_temp.q(format('select pg_temp.po_save(p_shop_id=>%L, p_note=>%L)', p_shop, 'verify0172-b'));
   v_po2_id := (v_po2 ->> 'id')::uuid;
   perform analytics.production_order_item_set(p_shop, v_po2_id, v_prod, 5);
   select id into v_poi2 from analytics.production_order_item where production_order_id = v_po2_id;
@@ -251,18 +261,23 @@ begin
 
   -- ---------- สร้างจาก OEM: ทุกสถานะ/ทุกโลหะที่มีจริงบน DB (ข้อ 17 ของ migration-traps) ----------
   for rec in
-    select i.id as item_id, q.status as qstatus, q.quote_no, i.input ->> 'metal' as metal, i.seq,
+    select i.id as item_id, q.status as qstatus, q.quote_no, i.input ->> 'metal' as metal, i.seq, coalesce(q.root_quote_id, q.id) as root_id,
            (select coalesce(v.paid_thb, 0) from analytics.v_oem_quote v where v.id = q.id) as paid
       from analytics.oem_quote_item i join analytics.oem_quote q on q.id = i.quote_id
      where i.shop_id = p_shop and q.quote_no not like 'V172-%'
      order by q.quote_no, i.seq
   loop
     v_n := v_n + 1;
-    r := pg_temp.q(format('select analytics.job_stage_suggest(%L, %L, %L)', p_shop, 'oem', rec.item_id));
-    r2 := pg_temp.q(format('select analytics.job_create_from_quote_item(%L, %L, %L::text[], null, %L, null, null, %L)',
-            p_shop, rec.item_id, pg_temp.std(), case when rec.paid <= 0 then 'verify: เริ่มผลิตก่อนมัดจำ' else null end, v_actor));
+    -- 0173: ไม่ยิงสร้างจากใบเสนอราคาจริง — โคลนรายการจริง (สถานะ/โลหะ/input/ดีลเดียวกัน → ยอดมัดจำเท่าของจริง) เป็นใบทดสอบก่อน
+    d := pg_temp.clone_deal(rec.item_id, rec.metal, 3, rec.root_id, rec.qstatus, null, null, rec.seq);
+    r := pg_temp.q(format('select analytics.job_stage_suggest(%L, %L, %L)', p_shop, 'oem', d ->> 'item_id'));
+    r2 := pg_temp.q(format('select pg_temp.jcq(%L, %L, %L::text[], null, %L, null, null, %L)',
+            p_shop, d ->> 'item_id', pg_temp.std(), case when rec.paid <= 0 then 'verify: เริ่มผลิตก่อนมัดจำ' else null end, v_actor));
     if rec.qstatus = 'won' and rec.metal = 'silver' then
-      if r ? 'suggested_stage_codes' and r2 ? 'job_id' and (r ->> 'deposit_missing')::boolean = (rec.paid <= 0) then v_ok := v_ok + 1;
+      if rec.paid > 0 then v_pn := v_pn + 1; end if;
+      if r ? 'suggested_stage_codes' and r2 ? 'job_id' and (r ->> 'deposit_missing')::boolean = (rec.paid <= 0) then
+        v_ok := v_ok + 1;
+        if rec.paid > 0 and (select j.start_gate_note is null from analytics.job j where j.id = (r2 ->> 'job_id')::uuid) then v_pok := v_pok + 1; end if;
       else v_bad := v_bad || rec.quote_no || '#' || rec.seq || '(ควรสร้างได้ แต่ ' || coalesce(r2 ->> '_err', 'suggest ผิด') || ') '; end if;
     elsif rec.qstatus <> 'won' then
       if pg_temp.code(r) = 'quote_not_won' and pg_temp.code(r2) = 'quote_not_won' then v_rej := v_rej + 1;
@@ -283,8 +298,8 @@ begin
   b := pg_temp.clone_deal(p_tpl, 'product', 3, null, 'won');
   d := pg_temp.clone_deal(p_tpl, 'silver999', 3, null, 'won');
   v_log := v_log || pg_temp.chk('T11f', 'item ที่ metal=product และ silver999 (ใบ won) สร้างใบงานไม่ได้ (metal_unsupported) · suggest ก็ปฏิเสธ',
-    pg_temp.code(pg_temp.q(format('select analytics.job_create_from_quote_item(%L, %L, %L::text[], null, %L, null, null, %L)', p_shop, b ->> 'item_id', pg_temp.std(), 'verify-gate-note', v_actor))) = 'metal_unsupported'
-    and pg_temp.code(pg_temp.q(format('select analytics.job_create_from_quote_item(%L, %L, %L::text[], null, %L, null, null, %L)', p_shop, d ->> 'item_id', pg_temp.std(), 'verify-gate-note', v_actor))) = 'metal_unsupported'
+    pg_temp.code(pg_temp.q(format('select pg_temp.jcq(%L, %L, %L::text[], null, %L, null, null, %L)', p_shop, b ->> 'item_id', pg_temp.std(), 'verify-gate-note', v_actor))) = 'metal_unsupported'
+    and pg_temp.code(pg_temp.q(format('select pg_temp.jcq(%L, %L, %L::text[], null, %L, null, null, %L)', p_shop, d ->> 'item_id', pg_temp.std(), 'verify-gate-note', v_actor))) = 'metal_unsupported'
     and pg_temp.code(pg_temp.q(format('select analytics.job_stage_suggest(%L, %L, %L)', p_shop, 'oem', b ->> 'item_id'))) = 'metal_unsupported');
   v_log := v_log || pg_temp.chk('T11g', 'INSERT job ตรงด้วย metal ไม่ตรง item / ไม่ใช่ silver-gold-brass ถูกปฏิเสธ (trigger + CHECK)',
     pg_temp.x(format('insert into analytics.job (shop_id, seq, source_kind, oem_quote_item_id, root_quote_id, oem_item_seq, design_label, metal, qty_planned, weigh_required, created_by)
@@ -302,7 +317,7 @@ begin
 
   -- ---------- #12 รายการขั้นตอน ----------
   d := pg_temp.clone_deal(p_tpl, 'silver', 4, null, 'won');
-  v_x := format('select analytics.job_create_from_quote_item(%L, %L, %%L::text[], null, %L, null, null, %L)', p_shop, d ->> 'item_id', 'verify-gate-note', v_actor);
+  v_x := format('select pg_temp.jcq(%L, %L, %%L::text[], null, %L, null, null, %L)', p_shop, d ->> 'item_id', 'verify-gate-note', v_actor);
   v_log := v_log || pg_temp.chk('T12a', 'รายการขั้นตอนว่าง/NULL ถูกปฏิเสธ stages_empty',
     pg_temp.code(pg_temp.q(format(v_x, '{}'))) = 'stages_empty'
     and pg_temp.code(pg_temp.q(replace(format(v_x, 'x'), '''x''::text[]', 'null::text[]'))) = 'stages_empty');
@@ -319,7 +334,7 @@ begin
   r := pg_temp.q(format(v_x, '{cast,qc,pack}'));
   -- แบบที่ไม่ใช่แบบใหม่เลือก cad = เตือน ไม่ปฏิเสธ (ใช้ดีลโคลนใหม่ เพราะ 1 item สร้างได้ใบเดียว)
   d := pg_temp.clone_deal(p_tpl, 'silver', 4, null, 'won', null, false);
-  r2 := pg_temp.q(format('select analytics.job_create_from_quote_item(%L, %L, %L::text[], null, %L, null, null, %L)',
+  r2 := pg_temp.q(format('select pg_temp.jcq(%L, %L, %L::text[], null, %L, null, null, %L)',
           p_shop, d ->> 'item_id', '{cad,cast,qc,pack}', 'verify-gate-note', v_actor));
   v_log := v_log || pg_temp.chk('T12f', 'ไม่ใช่แบบใหม่ แต่เลือก cad = สร้างได้ + warnings 1 รายการ (เตือน ไม่ปฏิเสธ) · ไม่เลือก = warnings ว่าง',
     r2 ? 'job_id' and jsonb_array_length(r2 -> 'warnings') = 1 and r ? 'job_id' and jsonb_array_length(r -> 'warnings') = 0);
@@ -341,7 +356,7 @@ begin
 
   -- ---------- #13 ด่านมัดจำตอนสร้าง ----------
   d := pg_temp.clone_deal(p_tpl, 'silver', 4, null, 'won');
-  v_x := format('select analytics.job_create_from_quote_item(%L, %L, %L::text[], null, %%L, null, null, %L)', p_shop, d ->> 'item_id', pg_temp.std(), v_actor);
+  v_x := format('select pg_temp.jcq(%L, %L, %L::text[], null, %%L, null, null, %L)', p_shop, d ->> 'item_id', pg_temp.std(), v_actor);
   v_log := v_log || pg_temp.chk('T13a', 'ดีลที่ยังไม่มีเงินเข้า สร้างใบงานโดยไม่มีเหตุผลเริ่มก่อนมัดจำ ถูกปฏิเสธ start_gate_required',
     pg_temp.code(pg_temp.q(replace(format(v_x, 'x'), '''x''', 'null'))) = 'start_gate_required');
   v_log := v_log || pg_temp.chk('T13b', 'เหตุผลที่ไม่ใช่ข้อความจริง ("." · ช่องว่างล้วน · อักขระล่องหน · อีโมจิล้วน) ถูกปฏิเสธ — whitelist ไม่ใช่ blacklist',
@@ -354,17 +369,11 @@ begin
   r := pg_temp.q(format(v_x, 'ลูกค้าโอนมัดจำพรุ่งนี้ เจ้าของอนุมัติให้เริ่ม'));
   v_log := v_log || pg_temp.chk('T13c', 'มีเหตุผลจริง → สร้างได้ · start_gate_note ถูกเก็บ · ไม่ปฏิเสธซ้ำ',
     r ? 'job_id' and (select j.start_gate_note is not null from analytics.job j where j.id = (r ->> 'job_id')::uuid));
-  -- T13d: ดีลจริงที่มีมัดจำเข้าแล้ว (N11 สร้างโดยไม่ส่งเหตุผล) ต้องได้ใบงานที่ start_gate_note ว่าง และ deposit_missing = false
-  select count(*) into v_cnt_before from analytics.job j join analytics.oem_quote_item i on i.id = j.oem_quote_item_id
-    join analytics.v_oem_quote v on v.id = i.quote_id join analytics.oem_quote q on q.id = i.quote_id
-   where q.quote_no not like 'V172-%' and v.paid_thb > 0;
-  select count(*) into v_cnt_after from analytics.job j join analytics.oem_quote_item i on i.id = j.oem_quote_item_id
-    join analytics.v_oem_quote v on v.id = i.quote_id join analytics.oem_quote q on q.id = i.quote_id
-   where q.quote_no not like 'V172-%' and v.paid_thb > 0 and j.start_gate_note is null;
-  if v_cnt_before = 0 then
+  -- T13d: ดีลจริงที่มีมัดจำเข้าแล้ว (โคลนในดีลเดียวกัน N11 สร้างโดยไม่ส่งเหตุผล) ต้องได้ใบงานที่ start_gate_note ว่าง
+  if v_pn = 0 then
     v_log := v_log || '[SKIP] T13d  ไม่มีใบ won+silver ที่มีมัดจำเข้าแล้วบน DB — พิสูจน์ "มีมัดจำสร้างได้โดยไม่ต้องมีเหตุผล" ด้วยข้อมูลจริงไม่ได้' || E'\n';
   else
-    v_log := v_log || pg_temp.chk('T13d', format('ดีลจริงที่มีมัดจำแล้ว %s ใบ สร้างใบงานได้โดยไม่ต้องมีเหตุผล (ไม่มีด่านมัดจำค้างผิดที่)', v_cnt_before), v_cnt_before = v_cnt_after);
+    v_log := v_log || pg_temp.chk('T13d', format('ดีลที่มีมัดจำแล้ว %s รายการ (โคลนจากของจริง) สร้างใบงานได้โดยไม่ต้องมีเหตุผล (ไม่มีด่านมัดจำค้างผิดที่)', v_pn), v_pn = v_pok);
   end if;
 
   -- ---------- ทดสอบความสมบูรณ์: ผล suite ไม่ทิ้งแถวขยะนอก subtransaction (ตรวจที่ main) ----------
@@ -372,7 +381,7 @@ begin
 end;
 $s$;
 
--- helper: เดินขั้น p_from..p_to ของใบงานด้วย RPC ออฟฟิศ (รับ 10.000 g / ส่ง 9.900 g ทุกขั้น · ไม่มีของเสีย) · หยุดที่ error แรก
+-- helper: เดินขั้น p_from..p_to ของใบงานด้วย RPC ออฟฟิศ (รับ 9.900 g / ส่ง 9.900 g (รับเท่าที่ขั้นก่อนส่ง — ทองต่างเกิน 0.05 g ถูกปฏิเสธตั้งแต่ 0173) ทุกขั้น · ไม่มีของเสีย) · หยุดที่ error แรก
 create function pg_temp.o_run(p_shop uuid, p_job uuid, p_from int, p_to int, p_on date) returns jsonb
  language plpgsql as $c$
 declare
@@ -381,7 +390,7 @@ begin
   for s in p_from .. p_to loop
     select status into v_st from analytics.job_stage where job_id = p_job and seq = s;
     if v_st = 'pending' then
-      r := pg_temp.o_recv(p_shop, p_job, s, p_on, 10.000, null, 'verify');
+      r := pg_temp.o_recv(p_shop, p_job, s, p_on, 9.900, null, 'verify');
       if r ? '_err' then return r || jsonb_build_object('_at', s); end if;
       v_st := 'received';
     end if;
@@ -584,7 +593,7 @@ begin
   jh := pg_temp.jid(pg_temp.mkjob(p_shop, p_tpl, 'gold', 10));
   r := pg_temp.o_run(p_shop, jh, 1, 3, v_today);
   m := pg_temp.o_recv(p_shop, jh, 4, v_today, null, null, 'ช่างทอง');
-  r2 := pg_temp.o_recv(p_shop, jh, 4, v_today, 10.000, null, 'ช่างทอง');
+  r2 := pg_temp.o_recv(p_shop, jh, 4, v_today, 9.900, null, 'ช่างทอง');   -- ขั้น 3 ส่งออก 9.900 → ทองรับต่างเกิน 0.05 g ถูกปฏิเสธ (0173)
   r3 := pg_temp.o_send(p_shop, jh, 4, v_today, null);
   v_log := v_log || pg_temp.chk('T08a2', 'ทอง ขั้นหล่อ: รับไม่มีน้ำหนักเข้า = weight_required · รับมีน้ำหนักได้ · ส่งไม่มีน้ำหนักออก = weight_required',
     pg_temp.code(m) = 'weight_required' and r2 ? 'ok' and pg_temp.code(r3) = 'weight_required');
@@ -619,8 +628,8 @@ begin
   r := pg_temp.o_run(p_shop, j2, 1, 3, v_today);
   r2 := pg_temp.o_recv(p_shop, j2, 4, v_today, 10.0, null, 'ช่างเอ');
   r3 := pg_temp.o_recv(p_shop, j2, 5, v_today, 10.0, null, 'ช่างบี');
-  v_log := v_log || pg_temp.chk('T08g', 'เงิน: ปิดขั้นหล่ออัตโนมัติโดยไม่มีน้ำหนักออกได้ (ไม่ใช่ทอง) · v_job_stage_loss แสดง not_weighed=true ไม่ซ่อน (R3)',
-    r3 ? 'ok' and pg_temp.st(j2) like '%,4:sen*,5:rec%' and exists (select 1 from analytics.v_job_stage_loss l where l.job_id = j2 and l.stage_code = 'cast' and l.not_weighed and l.loss_g is null));
+  v_log := v_log || pg_temp.chk('T08g', '0173 QA6: เงิน ขั้นหล่อ (บังคับชั่ง) ผู้ถือยังไม่ส่งต่อ/ยังไม่มีน้ำหนักออก → คนถัดไปรับไม่ได้ ไม่ปิดอัตโนมัติ (prev_not_sent) · ขั้นยังเป็น received',
+    pg_temp.code(r3) = 'prev_not_sent' and pg_temp.st(j2) like '%,4:rec,5:pen%');
 
   -- ---------- #9 วันที่ ----------
   jd := pg_temp.jid(pg_temp.mkjob(p_shop, p_tpl, 'silver', 10));
@@ -704,7 +713,7 @@ $c$;
 create function pg_temp.wu(p_shop uuid, p_name text, p_codes text, p_pin text default null) returns jsonb
  language sql as $c$
   select pg_temp.q(format('select analytics.worker_upsert(p_shop_id=>%L, p_display_name=>%L, p_stage_codes=>%L::text[], p_pin=>%L, p_actor=>%L)',
-    p_shop, p_name, '{' || p_codes || '}', p_pin, '00000000-0000-0000-0000-0000000000a1'::uuid)) $c$;
+    p_shop, p_name, '{' || coalesce(nullif(p_codes, ''), 'cad,print3d,mold,wax_inject,wax_tree,invest_burnout,cast,cut_sprue,polish,gem_set,plating,qc,pack') || '}', p_pin, '00000000-0000-0000-0000-0000000000a1'::uuid)) $c$;
 
 -- ============================================================================
 -- Section C — token (#16) · ช่าง/PIN/session (#17) · ช่างทำขั้นผิด/พร้อมกัน (#18) · ด่านมัดจำตอนรับ (#13) · rate limit · ข้ามร้าน (#7)
@@ -715,7 +724,7 @@ declare
   v_log   text := '';
   v_today date := analytics.job_today();
   v_actor constant uuid := '00000000-0000-0000-0000-0000000000a1';
-  jt uuid; jt2 uuid; jc uuid; jg uuid; jp uuid;
+  jt uuid; jt2 uuid; d jsonb; v_root uuid; v_seq int; jc uuid; jg uuid; jp uuid;
   tA jsonb; tB jsonb; t1 jsonb; t2 jsonb; t3 jsonb; tc jsonb;
   wA uuid; wB uuid; wC uuid; wX uuid; wS2 uuid;
   sA text; sB text; sC text;
@@ -750,7 +759,7 @@ begin
     pg_temp.code(pg_temp.wu(p_shop, 'V172-ช่างเอ', '', '8216')) = 'worker_name_taken'
     and (pg_temp.wu(p_shop, E'v172-ช่าง​ซี', '', '8216') ->> '_state') = '22023'
     and pg_temp.code(pg_temp.wu(p_shop, 'v172-ซี', 'zzz', '8216')) = 'stages_unknown'
-    and pg_temp.code(pg_temp.q(format('select analytics.worker_upsert(p_shop_id=>%L, p_id=>%L, p_display_name=>%L, p_pin=>%L, p_actor=>%L)', p_shop, wA, 'v172-ช่างเอ', '8216', v_actor))) = 'use_pin_set');
+    and pg_temp.code(pg_temp.q(format('select analytics.worker_upsert(p_shop_id=>%L, p_id=>%L, p_display_name=>%L, p_stage_codes=>''{qc}''::text[], p_pin=>%L, p_actor=>%L)', p_shop, wA, 'v172-ช่างเอ', '8216', v_actor))) = 'use_pin_set');
 
   -- ---------- ใบงาน + token ----------
   jt := pg_temp.jid(pg_temp.mkjob(p_shop, p_tpl, 'silver', 10));
@@ -804,8 +813,8 @@ begin
   jc := pg_temp.jid(pg_temp.mkjob(p_shop, p_tpl, 'silver', 10));
   tc := pg_temp.tok(p_shop, jc);
   r := pg_temp.q(format('select analytics.job_cancel(%L, %L, %L, %L)', p_shop, jc, 'ลูกค้ายกเลิกงาน', v_actor));
-  v_log := v_log || pg_temp.chk('T16h', 'ใบงานที่ยกเลิกแล้ว: token ถูกเพิกถอนอัตโนมัติ ใช้ไม่ได้ (invalid_token) · ออก token ใหม่ไม่ได้ (job_closed) · ออก token ใหม่ไม่ได้ · INSERT token ตรงไม่ได้ · event cancel + token_revoke',
-    (r ->> 'status') = 'cancelled' and (pg_temp.w_res(tc ->> 'hash') ->> 'code') = 'invalid_token'
+  v_log := v_log || pg_temp.chk('T16h', 'ใบงานที่ยกเลิกแล้ว: token ถูกเพิกถอนอัตโนมัติ — ผู้ถือ QR ใบนั้นได้ job_closed (0173 QA5) · ออก token ใหม่ไม่ได้ (job_closed) · ออก token ใหม่ไม่ได้ · INSERT token ตรงไม่ได้ · event cancel + token_revoke',
+    (r ->> 'status') = 'cancelled' and (pg_temp.w_res(tc ->> 'hash') ->> 'code') = 'job_closed'
     and pg_temp.code(pg_temp.q(format('select analytics.job_token_issue(%L, %L, true, %L)', p_shop, jc, v_actor))) = 'job_closed'
     and pg_temp.x(format('insert into analytics.job_token (shop_id, job_id, token_hash, print_no, issued_by) values (%L, %L, repeat(''b'', 64), 50, %L)', p_shop, jc, v_actor)) like 'ERR:22023:%'
     and exists (select 1 from analytics.job_event e where e.job_id = jc and e.event_type = 'cancel'));
@@ -846,7 +855,10 @@ begin
   r := pg_temp.login(tA ->> 'hash', wB, '2222');
   update analytics.worker set last_failed_at = now() - interval '20 minutes' where id = wB;
   r2 := pg_temp.login(tA ->> 'hash', wB, '3333');
-  v_log := v_log || pg_temp.chk('T17g', 'ผิดเมื่อเกิน 15 นาทีก่อนไม่นับรวม: ผิดอีกครั้งนับใหม่ที่ 1 (attempts_left=4)', (r2 ->> 'attempts_left') = '4');
+  update analytics.worker set failed_window_start = now() - interval '25 hours' where id = wB;
+  r3 := pg_temp.login(tA ->> 'hash', wB, '4444');
+  v_log := v_log || pg_temp.chk('T17g', '0173 H1: ผิดเว้นเกิน 15 นาทียังนับสะสมในหน้าต่าง 24 ชม. (ครั้งที่ 3 เหลือ 2) · หน้าต่างเกิน 24 ชม. ถึงเริ่มนับใหม่ที่ 1 (เหลือ 4)',
+    (r2 ->> 'attempts_left') = '2' and (r3 ->> 'attempts_left') = '4' and (select failed_attempts = 1 from analytics.worker where id = wB));
   m := pg_temp.login(tA ->> 'hash', wB, E'1234'' or ''1''=''1');
   r := pg_temp.login(tA ->> 'hash', wB, 'abcd');
   v_log := v_log || pg_temp.chk('T17h', 'PIN ที่เป็น SQL/ตัวอักษรไม่เป็นเลข 4 หลักถูกปฏิเสธเป็น bad_credentials (ไม่ raise · ไม่นับเป็นความพยายามเดา)',
@@ -925,8 +937,11 @@ begin
   -- ช่าง A รับขั้นตัดต้นต่อ แล้วช่าง B รับขั้นขัดโดยที่ A ยังไม่ส่ง = auto-close (เงิน)
   r := pg_temp.w_recv(tA ->> 'hash', sA, 5, 10.0);
   r2 := pg_temp.w_recv(tA ->> 'hash', sB, 6, 9.9);
-  v_log := v_log || pg_temp.chk('T18i', 'ช่าง B รับขั้นขัดทั้งที่ช่าง A ยังถือตัดต้น (เงิน) = ปิดขั้นของ A อัตโนมัติ (auto_closed) ผ่านทาง QR · event ของ B ไม่ใช่ของ A',
-    (r ->> 'ok') = 'true' and (r2 ->> 'ok') = 'true' and (r2 ->> 'prev_auto_closed') = 'true' and pg_temp.st(jt) like '%,5:sen*,6:rec%' and pg_temp.sv(jt, 6, 'worker_id') = wB::text);
+  m := pg_temp.w_send(tA ->> 'hash', sA, 5, 9.9);
+  r3 := pg_temp.w_recv(tA ->> 'hash', sB, 6, 9.9);
+  v_log := v_log || pg_temp.chk('T18i', '0173 QA6: ช่าง B รับขั้นขัดทั้งที่ช่าง A ยังถือตัดต้น (เงิน ขั้นบังคับชั่ง) ถูกปฏิเสธ prev_not_sent ไม่ปิดอัตโนมัติ · A กดส่งต่อพร้อมน้ำหนักแล้ว B รับได้ปกติ (ไม่ใช่ auto) · event ของ B ไม่ใช่ของ A',
+    (r ->> 'ok') = 'true' and (r2 ->> 'code') = 'prev_not_sent' and (m ->> 'ok') = 'true' and (r3 ->> 'ok') = 'true' and (r3 ->> 'prev_auto_closed') = 'false'
+    and pg_temp.st(jt) like '%,5:sen,6:rec%' and pg_temp.sv(jt, 6, 'worker_id') = wB::text);
 
   tA := pg_temp.tok(p_shop, jt);
   -- ---------- ปิดช่าง / session ----------
@@ -961,7 +976,7 @@ begin
     (r ->> 'ok') = 'true' and (pg_temp.w_res(tA ->> 'hash', sC) ->> 'next_action') = 'identify' and (pg_temp.q('select analytics.job_worker_logout(''zzz'')') ->> 'ok') = 'true');
 
   -- ---------- ข้ามร้าน (#7) ----------
-  r := pg_temp.q(format('select analytics.worker_upsert(p_shop_id=>%L, p_display_name=>%L, p_pin=>%L, p_actor=>%L)', v_shop2, 'v172-ช่างร้านอื่น', '8642', v_actor));
+  r := pg_temp.q(format('select analytics.worker_upsert(p_shop_id=>%L, p_display_name=>%L, p_stage_codes=>''{qc}''::text[], p_pin=>%L, p_actor=>%L)', v_shop2, 'v172-ช่างร้านอื่น', '8642', v_actor));
   wS2 := (r ->> 'id')::uuid;
   insert into analytics.worker_session (shop_id, worker_id, session_hash, expires_at) values (v_shop2, wS2, analytics.job_sha256_hex('s2-session'), now() + interval '1 hour');
   v_log := v_log || pg_temp.chk('T07c', 'ช่างร้านอื่น: ใส่ PIN ถูกกับ token ของร้านนี้ไม่ได้ (bad_credentials) · session ของร้านอื่นใช้กับ token ร้านนี้ไม่ได้ (session_required)',
@@ -986,7 +1001,7 @@ begin
   v_log := v_log || pg_temp.chk('T07f', 'worker RPC ของร้านอื่น: pin_set / set_active / upsert แก้ช่างต่างร้าน = ไม่พบช่าง',
     pg_temp.code(pg_temp.q(format('select analytics.worker_pin_set(%L, %L, %L, %L)', v_shop2, wA, '5821', v_actor))) = 'worker_not_found'
     and pg_temp.code(pg_temp.q(format('select analytics.worker_set_active(%L, %L, false, %L)', v_shop2, wA, v_actor))) = 'worker_not_found'
-    and pg_temp.code(pg_temp.q(format('select analytics.worker_upsert(p_shop_id=>%L, p_id=>%L, p_display_name=>%L, p_actor=>%L)', v_shop2, wA, 'ขโมย', v_actor))) = 'worker_not_found');
+    and pg_temp.code(pg_temp.q(format('select analytics.worker_upsert(p_shop_id=>%L, p_id=>%L, p_display_name=>%L, p_stage_codes=>''{qc}''::text[], p_actor=>%L)', v_shop2, wA, 'ขโมย', v_actor))) = 'worker_not_found');
   v_log := v_log || pg_temp.chk('T07g', 'ไม่มี actor (p_actor ว่างและไม่มี auth.uid) ถูกปฏิเสธ actor_required ทุก RPC เขียน',
     pg_temp.code(pg_temp.q(format('select analytics.job_cancel(%L, %L, %L)', p_shop, jt2, 'ทดสอบ'))) = 'actor_required'
     and pg_temp.code(pg_temp.q(format('select analytics.worker_pin_set(%L, %L)', p_shop, wA))) = 'actor_required'
@@ -994,7 +1009,7 @@ begin
 
   -- ---------- production source: ไม่มีด่านมัดจำ ----------
   select p.id into v_prod from public.product p where p.shop_id = p_shop and p.is_active and p.sku !~* '^live' and p.cost_type in ('fixed', 'spot') order by p.sku limit 1;
-  v_po := pg_temp.q(format('select analytics.production_order_save(p_shop_id=>%L, p_note=>%L)', p_shop, 'verify0172-c'));
+  v_po := pg_temp.q(format('select pg_temp.po_save(p_shop_id=>%L, p_note=>%L)', p_shop, 'verify0172-c'));
   v_po_id := (v_po ->> 'id')::uuid;
   perform analytics.production_order_item_set(p_shop, v_po_id, v_prod, 4);
   select id into v_poi from analytics.production_order_item where production_order_id = v_po_id;
@@ -1003,41 +1018,46 @@ begin
   t1 := pg_temp.tok(p_shop, jp);
   r := pg_temp.w_recv(t1 ->> 'hash', sB, 1);
   v_log := v_log || pg_temp.chk('T13h', 'งานผลิตเข้าสต็อก (production): ไม่มีด่านมัดจำ — ออก token และช่างรับขั้นแรกได้โดยไม่มีเหตุผล', (t1 ->> 'token') is not null and (r ->> 'ok') = 'true');
-  -- ดีลจริงที่มีมัดจำแล้ว
-  select i.id into v_item from analytics.oem_quote_item i join analytics.oem_quote q on q.id = i.quote_id join analytics.v_oem_quote v on v.id = q.id
+  -- ดีลที่มีมัดจำแล้ว: โคลนจากรายการจริงในดีลเดียวกัน (ยอดมัดจำนับตามดีล) — ไม่ยิงสร้างจากใบจริง
+  select i.id, coalesce(q.root_quote_id, q.id), i.seq into v_item, v_root, v_seq
+    from analytics.oem_quote_item i join analytics.oem_quote q on q.id = i.quote_id join analytics.v_oem_quote v on v.id = q.id
    where i.shop_id = p_shop and q.status = 'won' and i.input ->> 'metal' = 'silver' and v.paid_thb > 0 and q.quote_no not like 'V172-%' order by q.quote_no, i.seq limit 1;
   if v_item is null then
     v_log := v_log || '[SKIP] T13i  ไม่มีดีล won+silver ที่มีมัดจำจริง — พิสูจน์ "ช่างรับขั้นแรกของดีลที่มีเงินเข้าแล้วได้โดยไม่มีเหตุผล" ไม่ได้' || E'\n';
   else
-    r := pg_temp.q(format('select analytics.job_create_from_quote_item(%L, %L, %L::text[], null, null, null, null, %L)', p_shop, v_item, pg_temp.std(), v_actor));
+    d := pg_temp.clone_deal(v_item, 'silver', 4, v_root, 'won', null, null, v_seq);
+    r := pg_temp.q(format('select pg_temp.jcq(%L, %L, %L::text[], null, null, null, null, %L)', p_shop, d ->> 'item_id', pg_temp.std(), v_actor));
     t2 := pg_temp.tok(p_shop, pg_temp.jid(r));
     m := pg_temp.w_recv(t2 ->> 'hash', sB, 1);
-    v_log := v_log || pg_temp.chk('T13i', 'ดีลจริงที่มีมัดจำเข้าแล้ว: สร้างใบงานไม่ต้องมีเหตุผล · พิมพ์ได้ · ช่างรับขั้นแรกได้ (ด่านไม่บล็อกของที่ต้องไม่พัง)',
+    v_log := v_log || pg_temp.chk('T13i', 'ดีลที่มีมัดจำเข้าแล้ว (โคลนในดีลจริง): สร้างใบงานไม่ต้องมีเหตุผล · พิมพ์ได้ · ช่างรับขั้นแรกได้ (ด่านไม่บล็อกของที่ต้องไม่พัง)',
       r ? 'job_id' and (t2 ->> 'token') is not null and (m ->> 'ok') = 'true' and (select start_gate_note is null from analytics.job where id = pg_temp.jid(r)));
   end if;
 
-  -- ---------- rate limit ----------
+  -- ---------- rate limit (0173 L4): ถังต่อ token เฉพาะ token ที่มีจริง · ip นับเฉพาะ action เขียน + verify PIN ----------
+  t2 := pg_temp.tok(p_shop, jt2);
   v_ok := true;
   for i in 1 .. 60 loop
-    m := pg_temp.w_res(repeat('9', 64));
-    v_ok := v_ok and (m ->> 'code') = 'invalid_token';
+    v_ok := v_ok and (pg_temp.w_res(t2 ->> 'hash') ->> 'ok') = 'true';
   end loop;
-  m := pg_temp.w_res(repeat('9', 64));
-  v_log := v_log || pg_temp.chk('T17n', 'ยิง token เดียวเกิน 60 ครั้ง/10 นาที: ครั้งที่ 61 ถูกปฏิเสธ rate_limited (ตัวนับ commit จริง — ไม่ raise)', v_ok and (m ->> 'code') = 'rate_limited'
-    and (select hits from analytics.worker_rate_limit where key = 'tok:' || left(repeat('9', 64), 32) order by window_start desc limit 1) = 61);
+  m := pg_temp.w_res(t2 ->> 'hash');
+  v_log := v_log || pg_temp.chk('T17n', 'ยิง token จริงใบเดียวเกิน 60 ครั้ง/10 นาที: ครั้งที่ 61 ถูกปฏิเสธ rate_limited (ตัวนับ commit จริง — ไม่ raise)', v_ok and (m ->> 'code') = 'rate_limited'
+    and (select hits from analytics.worker_rate_limit where key = 'tok:' || left(t2 ->> 'hash', 32) order by window_start desc limit 1) = 61);
   v_ok := true;
-  for i in 1 .. 200 loop
-    m := pg_temp.w_res(analytics.job_sha256_hex('x' || i), null, analytics.job_sha256_hex('attacker'));
+  for i in 1 .. 100 loop
+    m := pg_temp.q(format('select analytics.worker_pin_verify(%L, %L, %L, %L, %L)', analytics.job_sha256_hex('p' || i), wA, '0000', 'ua', analytics.job_sha256_hex('attacker')));
     v_ok := v_ok and (m ->> 'code') = 'invalid_token';
   end loop;
-  m := pg_temp.w_res(analytics.job_sha256_hex('x-final'), null, analytics.job_sha256_hex('attacker'));
-  v_log := v_log || pg_temp.chk('T17o', 'ยิงจาก ip hash เดียวกันเกิน 200 ครั้ง/10 นาที (สุ่ม token): ถูกปฏิเสธ rate_limited · ip hash ที่รูปแบบผิดถูกมองข้าม ไม่พัง',
+  m := pg_temp.q(format('select analytics.worker_pin_verify(%L, %L, %L, %L, %L)', analytics.job_sha256_hex('p-final'), wA, '0000', 'ua', analytics.job_sha256_hex('attacker')));
+  v_log := v_log || pg_temp.chk('T17o', 'verify PIN จาก ip hash เดียวกันเกิน 100 ครั้ง/10 นาที (สุ่ม token): ครั้งที่ 101 ถูกปฏิเสธ rate_limited · ip hash รูปแบบผิดถูกมองข้าม ไม่พัง',
     v_ok and (m ->> 'code') = 'rate_limited' and (pg_temp.w_res(t1 ->> 'hash', sB, 'not-a-hash') ->> 'ok') = 'true');
   v_ok := true;
-  for i in 1 .. 25 loop
-    v_ok := v_ok and (pg_temp.w_res(t1 ->> 'hash', sB, analytics.job_sha256_hex('legit-factory')) ->> 'ok') = 'true';
+  for i in 1 .. 150 loop
+    m := pg_temp.w_res(analytics.job_sha256_hex('r' || i), null, analytics.job_sha256_hex('factory-wifi'));
+    v_ok := v_ok and (m ->> 'code') = 'invalid_token';
   end loop;
-  v_log := v_log || pg_temp.chk('T17p', 'การใช้งานปกติ (25 ครั้งจากเครื่องเดียวกัน) ไม่ถูกจำกัด', v_ok);
+  v_log := v_log || pg_temp.chk('T17p', '0173 L4: resolve (โหลดหน้า) 150 ครั้งจาก ip เดียวกันด้วย token สุ่ม ไม่นับถัง ip (Wi-Fi เดียวทั้งโรงงาน) · token ที่ไม่มีในระบบไม่เขียนแถวใดลงถังนับ',
+    v_ok and not exists (select 1 from analytics.worker_rate_limit r where r.key like 'tok:%' and r.key = 'tok:' || left(analytics.job_sha256_hex('r1'), 32))
+    and not exists (select 1 from analytics.worker_rate_limit r where r.key = 'ip:' || left(analytics.job_sha256_hex('factory-wifi'), 32) or r.key = 'ipw:' || left(analytics.job_sha256_hex('factory-wifi'), 32)));
 
   return v_log;
 end;
@@ -1172,7 +1192,7 @@ begin
     and (length(rtrim(v_total, '0.')) < 5 or position(rtrim(rtrim(v_total, '0'), '.') in v_pay) = 0));
   -- production source: ไม่มีเลข PO
   select p.id into v_prod from public.product p where p.shop_id = p_shop and p.is_active and p.sku !~* '^live' and p.cost_type in ('fixed', 'spot') order by p.sku limit 1;
-  v_pr1 := pg_temp.q(format('select analytics.production_order_save(p_shop_id=>%L, p_note=>%L)', p_shop, 'verify0172-d1'));
+  v_pr1 := pg_temp.q(format('select pg_temp.po_save(p_shop_id=>%L, p_note=>%L)', p_shop, 'verify0172-d1'));
   v_po1 := (v_pr1 ->> 'id')::uuid;
   perform analytics.production_order_item_set(p_shop, v_po1, v_prod, 10);
   select id into v_poi1 from analytics.production_order_item where production_order_id = v_po1;
@@ -1199,8 +1219,8 @@ begin
                        and a.privilege_type = 'EXECUTE' and (a.grantee = 0 or a.grantee = 'anon'::regrole or a.grantee = 'authenticated'::regrole))
     and not exists (select 1 from pg_proc p where p.pronamespace = 'analytics'::regnamespace and (p.proname like 'job\_%' or p.proname like 'worker\_%')
                      and (has_function_privilege('anon', p.oid, 'execute') or has_function_privilege('authenticated', p.oid, 'execute'))));
-  v_log := v_log || pg_temp.chk('T19b', 'service_role ถือ EXECUTE เฉพาะ RPC ที่เปิดใช้ (21 ตัว + helper 3 ตัวที่ view ใช้) · helper ภายใน (core/auth/event_write/office_begin/rate_limit) ไม่มีใครถือ',
-    (select count(*) from pg_proc p where p.pronamespace = 'analytics'::regnamespace and (p.proname like 'job\_%' or p.proname like 'worker\_%') and has_function_privilege('service_role', p.oid, 'execute')) = 24
+  v_log := v_log || pg_temp.chk('T19b', 'service_role ถือ EXECUTE เฉพาะ RPC ที่เปิดใช้ (23 ตัว + helper 3 ตัวที่ view ใช้) · helper ภายใน (core/auth/event_write/office_begin/rate_limit) ไม่มีใครถือ',
+    (select count(*) from pg_proc p where p.pronamespace = 'analytics'::regnamespace and (p.proname like 'job\_%' or p.proname like 'worker\_%') and has_function_privilege('service_role', p.oid, 'execute')) = 26
     and not exists (select 1 from pg_proc p where p.pronamespace = 'analytics'::regnamespace and p.proname in
          ('job_core_receive', 'job_core_send', 'job_worker_auth', 'job_event_write', 'job_office_begin', 'job_rate_limit_hit', 'job_create_insert', 'job_source_info', 'job_text_clean', 'job_pin_generate', 'job_stage_def_ensure')
          and has_function_privilege('service_role', p.oid, 'execute')));
@@ -1236,7 +1256,7 @@ begin
     and pg_temp.as_role('service_role', 'select count(*) from analytics.v_job_stage_from_events') = 'OK'
     and pg_temp.as_role('service_role', 'select count(*) from analytics.v_production_order_job_mismatch') = 'OK'
     and pg_temp.as_role('service_role', 'select analytics.job_core_receive(null, null, null, null, null, null, null, null, null, null)') like 'ERR:42501:%'
-    and pg_temp.as_role('service_role', format('select analytics.job_worker_auth(%L, null, null, true, true)', repeat('a', 64))) like 'ERR:42501:%');
+    and pg_temp.as_role('service_role', format('select analytics.job_worker_auth(%L, null, null, true, true, ''write'')', repeat('a', 64))) like 'ERR:42501:%');
   -- จำลองวันที่กำแพงชั้นนอก (USAGE ของสคีมา) หลุด (migration-traps ข้อ 18.5): ต้องยังตกที่ 42501 ของฟังก์ชัน/ตาราง
   v_ok := not has_schema_privilege('authenticated', 'analytics', 'usage') and not has_schema_privilege('anon', 'analytics', 'usage');
   grant usage on schema analytics to authenticated, anon;
@@ -1268,9 +1288,9 @@ begin
   v_log := v_log || pg_temp.chk('R1a', 'ดีลต่อราคาแล้วจำนวนเปลี่ยน (10 -> 8): บอร์ดขึ้น quote_qty_mismatch=true · quote_item_qty=8 · source_ref ชี้เลขใบเสนอราคาล่าสุดของดีล · ใบงานเดิมไม่ถูกแก้ (qty_planned ยัง 10)',
     exists (select 1 from analytics.v_job_board b where b.id = jr and b.quote_qty_mismatch and b.quote_item_qty = 8 and b.source_ref = (d2 ->> 'quote_no') and b.qty_planned = 10));
   v_log := v_log || pg_temp.chk('R1b', 'สร้างใบงานซ้ำจาก item ของใบเสนอราคาใหม่ในดีลเดียวกัน (ลำดับ item เดิม) ถูกปฏิเสธ job_exists — กันผลิตซ้ำ',
-    pg_temp.code(pg_temp.q(format('select analytics.job_create_from_quote_item(%L, %L, %L::text[], null, %L, null, null, %L)', p_shop, d2 ->> 'item_id', pg_temp.std(), 'verify-gate', v_actor))) = 'job_exists');
+    pg_temp.code(pg_temp.q(format('select pg_temp.jcq(%L, %L, %L::text[], null, %L, null, null, %L)', p_shop, d2 ->> 'item_id', pg_temp.std(), 'verify-gate', v_actor))) = 'job_exists');
   r := pg_temp.q(format('select analytics.job_cancel(%L, %L, %L, %L)', p_shop, jr, 'จำนวนในใบเสนอราคาเปลี่ยน ยกเลิกแล้วสร้างใหม่', v_actor));
-  r2 := pg_temp.q(format('select analytics.job_create_from_quote_item(%L, %L, %L::text[], null, %L, null, null, %L)', p_shop, d2 ->> 'item_id', pg_temp.std(), 'verify-gate', v_actor));
+  r2 := pg_temp.q(format('select pg_temp.jcq(%L, %L, %L::text[], null, %L, null, null, %L)', p_shop, d2 ->> 'item_id', pg_temp.std(), 'verify-gate', v_actor));
   v_log := v_log || pg_temp.chk('R1c', 'ยกเลิกใบเดิมแล้วสร้างใหม่จาก item ของใบเสนอราคาใหม่ได้ (qty_planned=8) · บอร์ดไม่ขึ้น mismatch',
     (r ->> 'status') = 'cancelled' and r2 ? 'job_id' and exists (select 1 from analytics.v_job_board b where b.id = pg_temp.jid(r2) and b.qty_planned = 8 and not b.quote_qty_mismatch));
 
@@ -1282,18 +1302,18 @@ begin
   r := pg_temp.q(format('select analytics.job_stage_skip(%L, %L, %L, %L, %L)', p_shop, jdrift, 'cut_sprue', 'ไม่ต้องตัดต้น', v_actor));
   select count(*) into v_n from analytics.v_job_stage_from_events where job_id = jdrift and drift;
   v_log := v_log || pg_temp.chk('D1a', 'หลังรับ/ส่ง/ย้อน/ข้ามผ่าน RPC: สถานะขั้นที่ reconstruct จาก event ล่าสุด = job_stage จริงทุกขั้น (drift 0 ขั้น)', v_n = 0 and (select count(*) from analytics.v_job_stage_from_events where job_id = jdrift) = 8);
-  update analytics.job_stage set status = 'skipped', skip_reason = 'เขียนตรง ไม่มี event' where job_id = jdrift and seq = 7;
-  v_log := v_log || pg_temp.chk('D1b', 'เขียน job_stage ตรง (ข้าม RPC ไม่มี event) → view drift จับได้ drift=true ขั้นนั้น', exists (select 1 from analytics.v_job_stage_from_events v where v.job_id = jdrift and v.stage_code = 'qc' and v.drift));
+  update analytics.job_stage set status = 'skipped', skip_reason = 'เขียนตรง ไม่มี event' where job_id = jdrift and seq = 6;
+  v_log := v_log || pg_temp.chk('D1b', 'เขียน job_stage ตรง (ข้าม RPC ไม่มี event) → view drift จับได้ drift=true ขั้นนั้น', exists (select 1 from analytics.v_job_stage_from_events v where v.job_id = jdrift and v.stage_code = 'polish' and v.drift));
   v_log := v_log || pg_temp.chk('D1c', 'current_stage_code / status ของใบงานตามขั้นจริงเสมอ (trigger sync): ใบนี้ขั้นปัจจุบัน = qc? ไม่ใช่ — ขั้น 4 pending ถูกย้อนแล้ว', (select current_stage_code from analytics.job where id = jdrift) = 'cast' and (select status from analytics.job where id = jdrift) = 'in_progress');
 
   -- ---------- N09 / R2 ใบผลิตเดิม ----------
   -- ใบผลิต A (มีใบงานที่กำลังเดิน jp) · ใบผลิต B (มีใบงาน jr2 ที่ยังไม่เริ่ม) · ใบผลิต C (ไม่มีใบงานเลย)
-  v_pr2 := pg_temp.q(format('select analytics.production_order_save(p_shop_id=>%L, p_note=>%L)', p_shop, 'verify0172-d2'));
+  v_pr2 := pg_temp.q(format('select pg_temp.po_save(p_shop_id=>%L, p_note=>%L)', p_shop, 'verify0172-d2'));
   v_po2 := (v_pr2 ->> 'id')::uuid;
   perform analytics.production_order_item_set(p_shop, v_po2, v_prod, 10);
   select id into v_poi2 from analytics.production_order_item where production_order_id = v_po2;
   jr2 := pg_temp.jid(pg_temp.q(format('select analytics.job_create_from_production_item(%L, %L, %L::text[], null, null, null, %L)', p_shop, v_poi2, pg_temp.std(), v_actor)));
-  v_pr1 := pg_temp.q(format('select analytics.production_order_save(p_shop_id=>%L, p_note=>%L)', p_shop, 'verify0172-d4'));
+  v_pr1 := pg_temp.q(format('select pg_temp.po_save(p_shop_id=>%L, p_note=>%L)', p_shop, 'verify0172-d4'));
   perform analytics.production_order_item_set(p_shop, (v_pr1 ->> 'id')::uuid, v_prod, 10);
   r := pg_temp.q(format('select analytics.production_order_done(%L, %L)', p_shop, v_po1));
   d2 := pg_temp.q(format('select analytics.production_order_done(%L, %L)', p_shop, (v_pr1 ->> 'id')::uuid));
@@ -1408,9 +1428,9 @@ declare
     jsonb_build_object('id', 'MU04', 'what', 'ฝั่งช่างไม่เช็ค worker.is_active สด', 'fn', 'job_worker_auth',
       'from', 'and w.is_active and w.shop_id = v_job.shop_id', 'to', 'and w.shop_id = v_job.shop_id', 'expect', jsonb_build_array('T17j')),
     jsonb_build_object('id', 'MU05', 'what', 'token ที่เพิกถอนแล้วยังผ่าน', 'fn', 'job_worker_auth',
-      'from', 'where t.token_hash = p_token_hash and t.revoked_at is null;', 'to', 'where t.token_hash = p_token_hash;', 'expect', jsonb_build_array('N08', 'T16f')),
+      'from', 'if v_tok.revoked_at is not null then', 'to', 'if false then', 'expect', jsonb_build_array('N08', 'T16f')),
     jsonb_build_object('id', 'MU06', 'what', 'PIN ผิดไม่ล็อก (เพดาน 5 -> 500)', 'fn', 'worker_pin_verify',
-      'from', 'if v_att >= 5 then', 'to', 'if v_att >= 500 then', 'expect', jsonb_build_array('T17e')),
+      'from', 'when v_att = 5 then now() + interval ''15 minutes''', 'to', 'when v_att = 500 then now() + interval ''15 minutes''', 'expect', jsonb_build_array('T17e')),
     jsonb_build_object('id', 'MU07', 'what', 'rate limit ไม่จำกัด', 'fn', 'job_rate_limit_hit',
       'from', 'return v_hits <= p_max;', 'to', 'return true;', 'expect', jsonb_build_array('T17n', 'T17o')),
     jsonb_build_object('id', 'MU08', 'what', 'วันที่ในอนาคตผ่าน (รับงาน)', 'fn', 'job_core_receive',
@@ -1454,8 +1474,7 @@ declare
     jsonb_build_object('id', 'MU30', 'what', 'รับงานไม่เขียน event stage_receive (ประวัติหาย)', 'fn', 'job_core_receive',
       'from', 'perform analytics.job_event_write(p_job_id, v_t.id, ''stage_receive'',', 'to', 'perform analytics.job_event_write(p_job_id, v_t.id, ''note'',', 'expect', jsonb_build_array('T18b', 'T09b')),
     jsonb_build_object('id', 'MU31', 'what', 'ลบด่าน PIN ล็อก: PIN ผิดคืน raise (ตัวนับ rollback)', 'fn', 'worker_pin_verify',
-      'from', 'return analytics.job_fail(''bad_credentials'', ''ชื่อหรือ PIN ไม่ถูกต้อง'', jsonb_build_object(''attempts_left'', 5 - v_att));',
-      'to', 'raise exception ''bad pin'' using errcode = ''22023'';', 'expect', jsonb_build_array('T17d'))
+      'from', '  return analytics.job_fail(''bad_credentials'', ''ชื่อหรือ PIN ไม่ถูกต้อง'',', 'to', '  raise exception ''bad pin'' using errcode = ''22023''; return analytics.job_fail(''bad_credentials'', ''x'',', 'expect', jsonb_build_array('T17d'))
   );
 begin
   perform set_config('request.jwt.claims', '{"role":"service_role"}', true);
