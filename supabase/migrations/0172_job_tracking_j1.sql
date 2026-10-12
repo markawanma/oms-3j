@@ -1,4 +1,6 @@
 -- 0172_job_tracking_j1.sql — ระบบใบงานผลิต J1 (ฝั่ง DB) · ตารางใหม่ล้วน ไม่แตะ RPC/ตารางเดิมแม้บรรทัดเดียว
+-- ✅ APPLIED 12 ต.ค. 69 ผ่าน node scripts/run-sql.mjs --commit --record (version 20261012083054 · name 0172_job_tracking_j1) — ห้าม apply ซ้ำ
+-- (บรรทัด APPLIED นี้เพิ่มหลัง apply เป็นคอมเมนต์ล้วน: ข้อความที่บันทึกใน schema_migrations ไม่มีบรรทัดนี้ นอกนั้นเหมือนไฟล์นี้ทุกตัวอักษร)
 --
 -- Design (สัญญา): docs/3j-jewelry/oms/design-job-tracking.md §2 §3 §5 §7 + §11 (มติเจ้าของ 12 ต.ค. 69 ทับ §8)
 -- ชุดทดสอบ:       scripts/verify/verify-0172.sql (do-block + raise rollback · ตารางแมป "ข้อ design -> เทสต์" หัวไฟล์)
