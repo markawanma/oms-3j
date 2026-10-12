@@ -22,8 +22,8 @@ export const WORKER_CODE_TH: Record<string, string> = {
   already_sent: "ส่งขั้นนี้ไปแล้ว",
   not_holder: "ขั้นนี้ไม่ได้อยู่กับคุณ",
   not_received: "ยังไม่ได้รับงานขั้นนี้",
-  out_of_order: "ลำดับขั้นไม่ตรง — รีเฟรชแล้วลองใหม่",
-  stage_changed: "ข้อมูลงานเปลี่ยนไป — รีเฟรชแล้วทำใหม่",
+  out_of_order: "งานเปลี่ยนไปแล้ว — กดปุ่มโหลดใหม่ด้านล่าง",
+  stage_changed: "งานเปลี่ยนไปแล้ว — กดปุ่มโหลดใหม่ด้านล่าง",
   stage_not_allowed: "ขั้นนี้ไม่ใช่ขั้นของคุณ",
   prev_not_sent: "ขั้นก่อนหน้ายังไม่กดส่งพร้อมน้ำหนัก — ให้เขากดส่งก่อน หรือแจ้งออฟฟิศ",
   weight_invalid: "น้ำหนักไม่ถูกต้อง (ตัวเลขมากกว่า 0 ทศนิยมไม่เกิน 3 ตำแหน่ง)",
@@ -104,17 +104,19 @@ export function waitMinutes(seconds: number): number {
 
 /**
  * ข้อความของผลฝั่งช่าง {ok:false, code, message} → ไทยสั้น (ตารางก่อน · แล้ว message ของ DB ถ้าสะอาด · แล้วข้อความกลาง)
- * extra (0173): PIN ผิด -> เตือนจำนวนครั้งที่เหลือตั้งแต่ครั้งที่ 3 · locked -> รอกี่นาที · น้ำหนักส่งต่อไม่ตรง -> ส่วนต่างกี่กรัม · รับขั้นแพ้ -> ชื่อผู้ชนะ
+ * extra (0173): PIN ผิด -> เตือนจำนวนครั้งที่เหลือตั้งแต่ครั้งที่ 3 · locked -> รอกี่นาที · handoff_mismatch -> ข้อความตายตัว ไม่บอกส่วนต่าง/น้ำหนักขั้นก่อน (0174 N1 — ห้ามเติม gap_g กลับ) · รับขั้นแพ้ -> ชื่อผู้ชนะ
  */
 export function workerFailMessage(code: unknown, dbMessage: unknown, extra?: WorkerFailExtra): string {
   const known = typeof code === "string" && Object.prototype.hasOwnProperty.call(WORKER_CODE_TH, code);
   const x = extra ?? {};
   if (code === "bad_credentials") {
-    const lines = [WORKER_CODE_TH.bad_credentials];
-    if (typeof x.attemptsLeft === "number" && x.attemptsLeft >= 1 && x.attemptsLeft <= 2) lines.push(`เหลืออีก ${x.attemptsLeft} ครั้งก่อนถูกล็อกชั่วคราว`);
-    if (typeof x.attemptsUntilOffice === "number" && x.attemptsUntilOffice >= 1 && x.attemptsUntilOffice <= 3) lines.push(`เหลืออีก ${x.attemptsUntilOffice} ครั้งจะถูกล็อกจนกว่าออฟฟิศปลดล็อก`);
-    if (typeof x.tokenBudgetLeft === "number" && x.tokenBudgetLeft >= 0 && x.tokenBudgetLeft <= 3) lines.push(`ใบนี้ใส่ PIN ผิดได้อีก ${x.tokenBudgetLeft} ครั้งวันนี้`);
-    return lines.join(" · ");
+    // เตือนทีละประโยค: เอาอันที่ "ใกล้ล็อกที่สุด" (เหลือครั้งน้อยสุด) · เท่ากัน = อันหนักกว่าก่อน (ล็อกทั้งใบ > ล็อกจนออฟฟิศปลด > ล็อกชั่วคราว)
+    const warns: { left: number; severity: number; text: string }[] = [];
+    if (typeof x.attemptsLeft === "number" && x.attemptsLeft >= 1 && x.attemptsLeft <= 2) warns.push({ left: x.attemptsLeft, severity: 1, text: `เหลืออีก ${x.attemptsLeft} ครั้งก่อนถูกล็อกชั่วคราว` });
+    if (typeof x.attemptsUntilOffice === "number" && x.attemptsUntilOffice >= 1 && x.attemptsUntilOffice <= 3) warns.push({ left: x.attemptsUntilOffice, severity: 2, text: `เหลืออีก ${x.attemptsUntilOffice} ครั้งจะถูกล็อกจนกว่าออฟฟิศปลดล็อก` });
+    if (typeof x.tokenBudgetLeft === "number" && x.tokenBudgetLeft >= 0 && x.tokenBudgetLeft <= 3) warns.push({ left: x.tokenBudgetLeft, severity: 3, text: `ใบนี้ใส่ PIN ผิดได้อีก ${x.tokenBudgetLeft} ครั้งวันนี้` });
+    warns.sort((p, q) => p.left - q.left || q.severity - p.severity);
+    return warns.length > 0 ? `${WORKER_CODE_TH.bad_credentials} · ${warns[0].text}` : WORKER_CODE_TH.bad_credentials;
   }
   if (code === "locked") {
     return typeof x.retryAfterSeconds === "number" && x.retryAfterSeconds > 0 ? `ใส่ PIN ผิดหลายครั้ง — ลองใหม่ใน ${waitMinutes(x.retryAfterSeconds)} นาที` : WORKER_CODE_TH.locked;

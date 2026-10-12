@@ -28,8 +28,20 @@ describe("workerFailMessage — สัญญา 0173 (ตัวเลขปร�
     expect(workerFailMessage("bad_credentials", null, { attemptsLeft: 1, attemptsUntilOffice: 11, tokenBudgetLeft: 16 })).toContain("เหลืออีก 1 ครั้ง");
   });
   it("ใกล้ล็อกจนออฟฟิศปลด / งบต่อใบใกล้หมด ก็เตือน", () => {
-    expect(workerFailMessage("bad_credentials", null, { attemptsLeft: 1, attemptsUntilOffice: 2 })).toContain("ออฟฟิศปลดล็อก");
+    expect(workerFailMessage("bad_credentials", null, { attemptsLeft: 2, attemptsUntilOffice: 2 })).toContain("ออฟฟิศปลดล็อก");
     expect(workerFailMessage("bad_credentials", null, { tokenBudgetLeft: 3 })).toContain("ใส่ PIN ผิดได้อีก 3 ครั้ง");
+  });
+  it("เตือนซ้อนหลายอย่างพร้อมกัน → โชว์ประโยคเดียว: อันที่เหลือครั้งน้อยสุด · เท่ากันเอาอันหนักกว่า", () => {
+    const all = (e: Parameters<typeof workerFailMessage>[2]) => workerFailMessage("bad_credentials", null, e);
+    // เหลือน้อยสุดชนะ
+    expect(all({ attemptsLeft: 1, attemptsUntilOffice: 2, tokenBudgetLeft: 3 })).toBe("ชื่อหรือ PIN ไม่ถูกต้อง · เหลืออีก 1 ครั้งก่อนถูกล็อกชั่วคราว");
+    expect(all({ attemptsLeft: 2, attemptsUntilOffice: 1, tokenBudgetLeft: 3 })).toBe("ชื่อหรือ PIN ไม่ถูกต้อง · เหลืออีก 1 ครั้งจะถูกล็อกจนกว่าออฟฟิศปลดล็อก");
+    expect(all({ attemptsLeft: 2, attemptsUntilOffice: 3, tokenBudgetLeft: 0 })).toBe("ชื่อหรือ PIN ไม่ถูกต้อง · ใบนี้ใส่ PIN ผิดได้อีก 0 ครั้งวันนี้");
+    // เท่ากัน: ล็อกทั้งใบ > ล็อกจนออฟฟิศปลด > ล็อกชั่วคราว
+    expect(all({ attemptsLeft: 2, attemptsUntilOffice: 2, tokenBudgetLeft: 2 })).toContain("ใบนี้ใส่ PIN ผิดได้อีก 2 ครั้ง");
+    expect(all({ attemptsLeft: 2, attemptsUntilOffice: 2 })).toContain("ออฟฟิศปลดล็อก");
+    // ไม่มีสองประโยคต่อกัน
+    expect(all({ attemptsLeft: 1, attemptsUntilOffice: 1, tokenBudgetLeft: 1 }).split(" · ")).toHaveLength(2);
   });
   it("locked: ลองใหม่ใน N นาที (ปัดขึ้น) · ไม่มีเวลา = ข้อความทั่วไป", () => {
     expect(workerFailMessage("locked", null, { retryAfterSeconds: 900 })).toContain("ลองใหม่ใน 15 นาที");

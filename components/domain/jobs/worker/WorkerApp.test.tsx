@@ -21,6 +21,7 @@ vi.mock("@/lib/actions/job-worker", () => ({
 }));
 
 import { WorkerApp } from "./WorkerApp";
+import { WORKER_CODE_TH } from "@/lib/jobs/messages";
 import type { WorkerView } from "@/lib/jobs/worker-view";
 
 const TOKEN = "Ab3-_xYz0123456789AbCdEfGhIjKlMnOpQrStUvWxY";
@@ -208,12 +209,25 @@ describe("รับงาน", () => {
   });
 
   it("server ปฏิเสธ → ข้อความไทยใต้ปุ่ม ไม่หายหน้า", async () => {
-    workerReceiveStage.mockResolvedValue({ ok: false, error: "ข้อมูลงานเปลี่ยนไป — รีเฟรชแล้วทำใหม่", code: "stage_changed" });
+    workerReceiveStage.mockResolvedValue({ ok: false, error: "เซิร์ฟเวอร์ไม่ว่าง ลองใหม่", code: "weight_over" });
     render(<WorkerApp token={TOKEN} view={view()} />);
     await userEvent.type(screen.getByLabelText(/น้ำหนักเข้า/), "10");
     await userEvent.click(screen.getByRole("button", { name: "รับงาน" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("ข้อมูลงานเปลี่ยนไป");
+    expect(await screen.findByRole("alert")).toHaveTextContent("เซิร์ฟเวอร์ไม่ว่าง");
     expect(screen.getByRole("button", { name: "รับงาน" })).toBeEnabled();
+    expect(screen.queryByRole("button", { name: "โหลดใหม่" })).not.toBeInTheDocument(); // code ที่ไม่เกี่ยวกับข้อมูลเก่า = ไม่มีปุ่มโหลดใหม่
+  });
+
+  it("ข้อมูลบนจอเก่า (stage_changed) → ข้อความไม่พูดว่า 'รีเฟรช' + มีปุ่ม 'โหลดใหม่' · กดแล้วโหลดสถานะใหม่", async () => {
+    workerReceiveStage.mockResolvedValue({ ok: false, error: WORKER_CODE_TH.stage_changed, code: "stage_changed" });
+    render(<WorkerApp token={TOKEN} view={view()} />);
+    await userEvent.type(screen.getByLabelText(/น้ำหนักเข้า/), "10");
+    await userEvent.click(screen.getByRole("button", { name: "รับงาน" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("กดปุ่มโหลดใหม่ด้านล่าง");
+    expect(screen.getByRole("alert")).not.toHaveTextContent("รีเฟรช");
+    expect(refresh).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "โหลดใหม่" }));
+    expect(refresh).toHaveBeenCalledTimes(1);
   });
 
   it("server ล้มแบบไม่คาดคิด (throw) → ข้อความกลาง ไม่ค้างปุ่ม", async () => {
@@ -273,6 +287,16 @@ describe("ส่งต่อ", () => {
     await waitFor(() => expect(workerSendStage).toHaveBeenCalledWith(TOKEN, expect.objectContaining({ metalAdded: "0.4" })));
   });
 
+  it.each(["out_of_order", "not_holder", "already_sent"])("ส่งต่อแล้วได้ %s → มีปุ่ม 'โหลดใหม่' กดแล้ว refresh", async (code) => {
+    workerSendStage.mockResolvedValue({ ok: false, error: "ข้อความจาก server", code });
+    render(<WorkerApp token={TOKEN} view={send()} />);
+    await userEvent.type(screen.getByLabelText(/น้ำหนักออก/), "9");
+    await userEvent.click(screen.getByRole("button", { name: /ส่งต่อ/ }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("ข้อความจาก server");
+    await userEvent.click(screen.getByRole("button", { name: "โหลดใหม่" }));
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
   it("น้ำหนักออกมากกว่าเข้า (DB ปฏิเสธ) → ข้อความชี้ให้ใช้ช่องเติมโลหะ", async () => {
     workerSendStage.mockResolvedValue({ ok: false, error: "น้ำหนักออกมากกว่าน้ำหนักเข้า — ถ้าเติมโลหะให้ใส่ช่อง “เติมโลหะ”", code: "weight_over" });
     render(<WorkerApp token={TOKEN} view={send()} />);
@@ -297,7 +321,8 @@ describe("สถานะที่ไม่มีปุ่มทำงาน + �
 
   it("held_by_other → บอกว่าอยู่กับใคร ไม่มีปุ่มทำงาน", () => {
     render(<WorkerApp token={TOKEN} view={view({ nextAction: "held_by_other", heldBy: "ช่างบี" })} />);
-    expect(screen.getAllByText(/ช่างบี/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/ช่างบี/)).toHaveLength(1); // ชื่อผู้ถือโผล่กล่องเดียว (ไม่ซ้ำกับแบนเนอร์ "ตอนนี้อยู่กับ")
+    expect(screen.queryByText(/ตอนนี้อยู่กับ/)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /รับงาน|ส่งต่อ/ })).not.toBeInTheDocument();
   });
 

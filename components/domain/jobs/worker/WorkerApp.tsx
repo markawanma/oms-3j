@@ -112,15 +112,15 @@ export function WorkerApp({ token, view }: { token: string; view: WorkerView }) 
         </p>
       )}
 
-      {view.heldBy && view.heldBy !== view.viewer?.displayName && <p className="rounded-xl bg-zinc-100 p-3 text-lg text-zinc-900">ตอนนี้อยู่กับ <strong>{view.heldBy}</strong></p>}
+      {view.nextAction !== "held_by_other" && view.heldBy && view.heldBy !== view.viewer?.displayName && <p className="rounded-xl bg-zinc-100 p-3 text-lg text-zinc-900">ตอนนี้อยู่กับ <strong>{view.heldBy}</strong></p>}
 
       {!ready || waiting ? (
         <PanelSkeleton />
       ) : (
         <>
           {view.nextAction === "identify" && <IdentifyPanel token={token} workers={view.workers} onDone={refreshView} />}
-          {view.nextAction === "receive" && view.actionStage && <ReceivePanel token={token} view={view} onDone={(msg, tone = "ok") => setDone({ msg, tone })} />}
-          {view.nextAction === "send" && view.actionStage && <SendPanel token={token} view={view} onDone={(msg, tone = "ok") => setDone({ msg, tone })} />}
+          {view.nextAction === "receive" && view.actionStage && <ReceivePanel token={token} view={view} onDone={(msg, tone = "ok") => setDone({ msg, tone })} onReload={refreshView} />}
+          {view.nextAction === "send" && view.actionStage && <SendPanel token={token} view={view} onDone={(msg, tone = "ok") => setDone({ msg, tone })} onReload={refreshView} />}
           {view.nextAction === "held_by_other" && (
             <p className="rounded-xl bg-zinc-100 p-4 text-xl text-zinc-900">ขั้น {view.actionStage?.name ?? "นี้"} ยังอยู่กับ {view.heldBy ?? "คนอื่น"} — รอเขาส่งต่อก่อน</p>
           )}

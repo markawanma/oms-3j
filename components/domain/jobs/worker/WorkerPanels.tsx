@@ -172,12 +172,13 @@ function ConfirmBox({ text, onYes, onNo, busy }: { text: string; onYes: () => vo
   );
 }
 
-export function ReceivePanel({ token, view, onDone }: { token: string; view: WorkerView; onDone: (msg: string, tone?: DoneTone) => void }) {
+export function ReceivePanel({ token, view, onDone, onReload }: { token: string; view: WorkerView; onDone: (msg: string, tone?: DoneTone) => void; onReload: () => void }) {
   const st = view.actionStage!;
   const me = view.viewer?.displayName ?? "";
   const [w, setW] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [errCode, setErrCode] = useState<string | null>(null);
   const [wErr, setWErr] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<Confirm>(null);
   const [ack, setAck] = useState<Ack>({ holder: false, weight: false });
@@ -189,6 +190,7 @@ export function ReceivePanel({ token, view, onDone }: { token: string; view: Wor
     if (busy) return;
     setWErr(null);
     setErr(null);
+    setErrCode(null);
     const parsed = parseWeight(w, "น้ำหนักเข้า");
     if (!parsed.ok) {
       setWErr(parsed.error);
@@ -216,7 +218,10 @@ export function ReceivePanel({ token, view, onDone }: { token: string; view: Wor
       // already:true = มีคนรับไปก่อน · ถ้าเป็นชื่อเราเอง (กดซ้ำ) ถือว่าสำเร็จ · ถ้าเป็นคนอื่น = เตือนสีเหลือง ไม่ใช่เครื่องหมายถูก
       if (r.already && !(r.by && r.by === me)) onDone(r.message ?? (r.by ? `ช่าง ${r.by} รับขั้นนี้ไปแล้ว` : "มีคนรับขั้นนี้ไปแล้ว"), "warn");
       else onDone(`รับงานแล้ว — ${st.name}`, "ok");
-    } else setErr(r.code === "prev_not_sent" ? prevNotSentMessage(prevStageName(view)) : r.error);
+    } else {
+      setErr(r.code === "prev_not_sent" ? prevNotSentMessage(prevStageName(view)) : r.error);
+      setErrCode(r.code ?? null);
+    }
   }
 
   const answer = (patch: Partial<Ack>) => {
@@ -239,11 +244,7 @@ export function ReceivePanel({ token, view, onDone }: { token: string; view: Wor
         hint={view.prevWeightOutG !== null ? `ครั้งก่อนส่งออก ${view.prevWeightOutG} กรัม` : null}
         error={wErr}
       />
-      {err && (
-        <p role="alert" className={ERR_BOX}>
-          {err}
-        </p>
-      )}
+      {err && <ActionError message={err} code={errCode} onReload={onReload} busy={busy} />}
       {confirm ? (
         <ConfirmBox text={confirm.text} busy={busy} onYes={() => answer(confirm.kind === "holder" ? { holder: true } : { weight: true })} onNo={() => setConfirm(null)} />
       ) : (
@@ -258,7 +259,7 @@ export function ReceivePanel({ token, view, onDone }: { token: string; view: Wor
 }
 
 // ---------------------------------------------------------------------------
-export function SendPanel({ token, view, onDone }: { token: string; view: WorkerView; onDone: (msg: string, tone?: DoneTone) => void }) {
+export function SendPanel({ token, view, onDone, onReload }: { token: string; view: WorkerView; onDone: (msg: string, tone?: DoneTone) => void; onReload: () => void }) {
   const st = view.actionStage!;
   const next = view.job.stages.find((s) => s.seq > st.seq && s.status === "pending");
   const [w, setW] = useState("");
@@ -268,12 +269,14 @@ export function SendPanel({ token, view, onDone }: { token: string; view: Worker
   const [added, setAdded] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [errCode, setErrCode] = useState<string | null>(null);
   const [wErr, setWErr] = useState<string | null>(null);
   const [sErr, setSErr] = useState<string | null>(null);
 
   async function go() {
     if (busy) return;
     setErr(null);
+    setErrCode(null);
     setWErr(null);
     setSErr(null);
     const out = parseWeight(w, "น้ำหนักออก");
@@ -295,7 +298,10 @@ export function SendPanel({ token, view, onDone }: { token: string; view: Worker
     );
     setBusy(false);
     if (r.ok) onDone(r.already ? (r.message ?? "ส่งขั้นนี้ไปแล้ว") : next ? `ส่งต่อแล้ว — ถัดไป ${next.name}` : "ส่งต่อแล้ว", "ok");
-    else setErr(r.error);
+    else {
+      setErr(r.error);
+      setErrCode(r.code ?? null);
+    }
   }
 
   return (
@@ -312,11 +318,7 @@ export function SendPanel({ token, view, onDone }: { token: string; view: Worker
       ) : (
         <WeightField id="w-add" label="เติมโลหะ" value={added} onChange={setAdded} required={false} hint="ใส่เฉพาะถ้าเติมโลหะเพิ่มระหว่างขั้นนี้" />
       )}
-      {err && (
-        <p role="alert" className={ERR_BOX}>
-          {err}
-        </p>
-      )}
+      {err && <ActionError message={err} code={errCode} onReload={onReload} busy={busy} />}
       <StickyAction>
         <BigButton type="button" onClick={() => void go()} loading={busy}>
           {next ? `ส่งต่อ → ${next.name}` : "ส่งต่อ"}
