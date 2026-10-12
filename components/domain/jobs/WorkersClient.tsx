@@ -1,0 +1,186 @@
+"use client";
+
+// WorkersClient — ทะเบียนช่าง: เพิ่ม/แก้ชื่อ+ขั้นที่ทำ · รีเซ็ต PIN · ปิด/เปิดใช้งาน
+// 🔴 PIN แสดงครั้งเดียวในกล่องนี้ (state ในหน้าจอเท่านั้น ไม่ลง storage/URL/log) — ปิดกล่อง = หาย · DB เก็บ bcrypt อ่านกลับไม่ได้
+
+import { useState } from "react";
+import { Plus, UserX, UserCheck, KeyRound, Pencil } from "lucide-react";
+import { Button } from "@/components/ui/Button";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { Modal } from "@/components/ui/Modal";
+import { ErrorLine, FIELD, Field } from "@/components/domain/jobs/JobDialogs";
+import { useOfficeRun } from "@/components/domain/jobs/useOfficeRun";
+import { resetWorkerPin, saveWorker, setWorkerActive } from "@/lib/actions/job-workers";
+import type { WorkersData } from "@/lib/actions/job-workers";
+import { thaiDateTime } from "@/lib/jobs/dates";
+import type { WorkerRow } from "@/lib/jobs/types";
+
+type Dlg = { t: "edit"; worker: WorkerRow | null } | { t: "pin"; worker: WorkerRow } | { t: "shown"; name: string; pin: string } | null;
+type OnShown = (name: string, pin: string) => void;
+
+function ShownPinDialog({ name, pin, onClose }: { name: string; pin: string; onClose: () => void }) {
+  const [copied, setCopied] = useState(false);
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(pin);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
+  }
+  return (
+    <Modal open onClose={onClose} title={`PIN ของ ${name}`}>
+      <div className="space-y-3">
+        <p role="status" className="text-center text-4xl font-extrabold tracking-[0.4em] text-zinc-900 tabular-nums" aria-label={`PIN ${pin.split("").join(" ")}`}>
+          {pin}
+        </p>
+        <p className="text-sm font-medium text-amber-900">แสดงครั้งเดียว — ปิดกล่องนี้แล้วดูซ้ำไม่ได้ (ถ้าลืมให้รีเซ็ตใหม่) · แจ้งช่างด้วยตัวเอง อย่าส่งในแชทกลุ่ม</p>
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <Button type="button" variant="secondary" onClick={() => void copy()}>
+            {copied ? "คัดลอกแล้ว" : "คัดลอก PIN"}
+          </Button>
+          <Button type="button" onClick={onClose}>
+            จดแล้ว ปิด
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+function EditDialog({ worker, stages, onClose, onShown }: { worker: WorkerRow | null; stages: WorkersData["stages"]; onClose: () => void; onShown: OnShown }) {
+  const { run, busy, error } = useOfficeRun();
+  const [name, setName] = useState(worker?.displayName ?? "");
+  const [codes, setCodes] = useState<string[]>(worker?.stageCodes ?? []);
+  const [pin, setPin] = useState("");
+  const pinOk = pin === "" || /^\d{4}$/.test(pin);
+  const ready = name.trim() !== "" && codes.length > 0 && pinOk;
+  const toggle = (c: string) => setCodes((p) => (p.includes(c) ? p.filter((x) => x !== c) : [...p, c]));
+
+  async function submit() {
+    const r = await run(() => saveWorker({ id: worker?.id ?? null, displayName: name, stageCodes: codes, pin: worker ? null : pin || null }), { success: worker ? "บันทึกแล้ว" : "เพิ่มช่างแล้ว" });
+    if (!r.ok) return;
+    onClose();
+    if (r.data.pin) onShown(name.trim(), r.data.pin);
+  }
+
+  return (
+    <Modal open onClose={onClose} title={worker ? `แก้ไข ${worker.displayName}` : "เพิ่มช่าง"}>
+      <form noValidate className="space-y-3" onSubmit={(e) => { e.preventDefault(); if (ready) void submit(); }}>
+        <Field id="wname" label="ชื่อที่ช่างเห็นในหน้ามือถือ">
+          <input id="wname" value={name} onChange={(e) => setName(e.target.value)} maxLength={60} className={FIELD} />
+        </Field>
+        <fieldset className="space-y-1">
+          <legend className="text-sm font-medium text-zinc-800">ขั้นที่ช่างทำ (เลือกอย่างน้อย 1)</legend>
+          <div className="grid grid-cols-2 gap-1">
+            {stages.map((s) => (
+              <label key={s.code} className="flex min-h-11 items-center gap-2 text-sm text-zinc-900">
+                <input type="checkbox" className="h-5 w-5 accent-primary-600" checked={codes.includes(s.code)} onChange={() => toggle(s.code)} />
+                {s.nameTh}
+              </label>
+            ))}
+          </div>
+        </fieldset>
+        {!worker && (
+          <Field id="wpin" label="PIN 4 หลัก (ไม่ใส่ = ระบบสุ่มให้)" hint={pinOk ? undefined : "ต้องเป็นตัวเลข 4 หลักเท่านั้น"}>
+            <input id="wpin" inputMode="numeric" autoComplete="off" maxLength={4} value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))} className={FIELD} />
+          </Field>
+        )}
+        <ErrorLine message={error} />
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>
+            ยกเลิก
+          </Button>
+          <Button type="submit" loading={busy} disabled={!ready || busy}>
+            บันทึก
+          </Button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+function ResetPinDialog({ worker, onClose, onShown }: { worker: WorkerRow; onClose: () => void; onShown: OnShown }) {
+  const { run, busy, error } = useOfficeRun();
+  async function submit() {
+    const r = await run(() => resetWorkerPin(worker.id, null), { success: "รีเซ็ต PIN แล้ว" });
+    if (!r.ok) return;
+    onClose();
+    if (r.data.pin) onShown(worker.displayName, r.data.pin);
+  }
+  return (
+    <Modal open onClose={onClose} title={`รีเซ็ต PIN ของ ${worker.displayName}`}>
+      <div className="space-y-3">
+        <p className="text-sm text-zinc-800">ระบบจะสุ่ม PIN ใหม่ให้ — PIN เดิมใช้ไม่ได้ และช่างที่เปิดค้างอยู่จะถูกให้ระบุตัวใหม่ทันที</p>
+        <ErrorLine message={error} />
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>
+            ยกเลิก
+          </Button>
+          <Button type="button" onClick={() => void submit()} loading={busy}>
+            สุ่ม PIN ใหม่
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+export function WorkersClient({ data }: { data: WorkersData }) {
+  const { run, error } = useOfficeRun();
+  const [dlg, setDlg] = useState<Dlg>(null);
+  const stageName = (c: string) => data.stages.find((s) => s.code === c)?.nameTh ?? c;
+  const toggleActive = (w: WorkerRow) =>
+    void run(() => setWorkerActive(w.id, !w.isActive), { success: w.isActive ? `ปิดใช้งาน ${w.displayName} แล้ว` : `เปิดใช้งาน ${w.displayName} แล้ว` });
+  const shown: OnShown = (name, pin) => setDlg({ t: "shown", name, pin });
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <h1 className="text-2xl font-bold text-zinc-900">ทะเบียนช่าง</h1>
+        <Button type="button" onClick={() => setDlg({ t: "edit", worker: null })}>
+          <Plus className="h-4 w-4" aria-hidden="true" />
+          เพิ่มช่าง
+        </Button>
+      </div>
+      <ErrorLine message={error} />
+      {data.workers.length === 0 ? (
+        <EmptyState title="ยังไม่มีช่างในทะเบียน" description="เพิ่มช่างก่อน แล้วค่อยพิมพ์ใบงาน — ช่างระบุตัวด้วยชื่อ + PIN 4 หลักบนมือถือ" />
+      ) : (
+        <ul className="divide-y divide-zinc-100 rounded-lg border border-zinc-200 bg-white">
+          {data.workers.map((w) => (
+            <li key={w.id} className={`flex flex-col gap-2 p-3 sm:flex-row sm:items-center sm:justify-between ${w.isActive ? "" : "bg-zinc-50"}`}>
+              <div className="min-w-0">
+                <p className={`text-base font-semibold ${w.isActive ? "text-zinc-900" : "text-zinc-600"}`}>
+                  {w.displayName}
+                  {!w.isActive && <span className="ml-2 text-xs font-medium">ปิดใช้งาน</span>}
+                </p>
+                <p className="text-sm text-zinc-800">{w.stageCodes.length > 0 ? w.stageCodes.map(stageName).join(" · ") : "ยังไม่กำหนดขั้น"}</p>
+                {w.lockedUntil && new Date(w.lockedUntil).getTime() > Date.now() && (
+                  <p className="text-xs font-medium text-amber-900">PIN ถูกล็อกถึง {thaiDateTime(w.lockedUntil)} (ใส่ผิดหลายครั้ง)</p>
+                )}
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button type="button" variant="secondary" onClick={() => setDlg({ t: "edit", worker: w })} aria-label={`แก้ไข ${w.displayName}`}>
+                  <Pencil className="h-4 w-4" aria-hidden="true" />
+                  แก้ไข
+                </Button>
+                <Button type="button" variant="secondary" onClick={() => setDlg({ t: "pin", worker: w })} aria-label={`รีเซ็ต PIN ของ ${w.displayName}`}>
+                  <KeyRound className="h-4 w-4" aria-hidden="true" />
+                  รีเซ็ต PIN
+                </Button>
+                <Button type="button" variant="secondary" onClick={() => toggleActive(w)} aria-label={`${w.isActive ? "ปิด" : "เปิด"}ใช้งาน ${w.displayName}`}>
+                  {w.isActive ? <UserX className="h-4 w-4" aria-hidden="true" /> : <UserCheck className="h-4 w-4" aria-hidden="true" />}
+                  {w.isActive ? "ปิดใช้งาน" : "เปิดใช้งาน"}
+                </Button>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+      {dlg?.t === "edit" && <EditDialog worker={dlg.worker} stages={data.stages} onClose={() => setDlg(null)} onShown={shown} />}
+      {dlg?.t === "pin" && <ResetPinDialog worker={dlg.worker} onClose={() => setDlg(null)} onShown={shown} />}
+      {dlg?.t === "shown" && <ShownPinDialog name={dlg.name} pin={dlg.pin} onClose={() => setDlg(null)} />}
+    </div>
+  );
+}
