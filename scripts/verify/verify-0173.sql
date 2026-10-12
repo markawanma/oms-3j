@@ -340,8 +340,8 @@ begin
   th := pg_temp.newtok(p_shop, jid);
   r := pg_temp.login(th, w4, '1111'); r := pg_temp.login(th, w4, '2222'); r := pg_temp.login(th, w4, '3333');
   r2 := pg_temp.login(th, w4, '4068');
-  v_log := v_log || pg_temp.chk('P5a', 'ผิด 3 ครั้งแล้ว login สำเร็จ → ตัวนับ + หน้าต่างถูกล้าง (failed_attempts=0, failed_window_start null)',
-    (r2 ->> 'ok') = 'true' and (select failed_attempts = 0 and failed_window_start is null from analytics.worker where id = w4));
+  v_log := v_log || pg_temp.chk('P5a', '0174 N2: ผิด 3 ครั้งแล้ว login สำเร็จ → ตัวนับ + หน้าต่างยังอยู่ (failed_attempts=3, failed_window_start ไม่ null) ล้างได้แค่ครบ 24 ชม./worker_unlock/worker_pin_set',
+    (r2 ->> 'ok') = 'true' and (select failed_attempts = 3 and failed_window_start is not null and locked_until is null from analytics.worker where id = w4));
   update analytics.worker set failed_attempts = 12, failed_window_start = now() - interval '3 hours', locked_until = now() + interval '30 minutes' where id = w4;
   r := pg_temp.q(format('select analytics.worker_pin_set(%L, %L, %L, %L)', p_shop, w4, '5179', v_actor));
   v_log := v_log || pg_temp.chk('P5b', 'worker_pin_set ล้างตัวนับ + หน้าต่าง + การล็อก (และ session เดิมหลุด)',
@@ -380,7 +380,7 @@ begin
     (select lock_state from analytics.v_worker_lock where worker_id = ws[2]) = 'temporary' and (select lock_state from analytics.v_worker_lock where worker_id = ws[3]) = 'office'
     and (select lock_state from analytics.v_worker_lock where worker_id = ws[4]) = 'none'
     and pg_temp.as_role('service_role', 'select worker_id, lock_state, failed_attempts, locked_until from analytics.v_worker_lock') = 'OK'
-    and not exists (select 1 from information_schema.columns where table_schema = 'analytics' and table_name = 'v_worker_lock' and column_name like '%pin%')
+    and not exists (select 1 from information_schema.columns where table_schema = 'analytics' and table_name = 'v_worker_lock' and column_name = 'pin_hash')
     and pg_temp.as_role('anon', 'select * from analytics.v_worker_lock') like 'ERR:42501:%');
 
   -- ---------- ข้อสังเกต QA: PIN / stage_codes / ชื่อ / ข้าม QC-แพ็ก ----------
@@ -473,11 +473,15 @@ begin
   select count(*) into v_ev1 from analytics.job_event where job_id = jg;
   r3 := pg_temp.w_recv(tg, sg, 5, 9.860);
   v_log := v_log || pg_temp.chk('M1a', 'ทอง: ขั้นก่อนส่งออก 9.800 g รับ 9.860 g (ต่าง +0.06 > 0.05) ถูกปฏิเสธ handoff_mismatch (ข้อความไทย "ชั่งใหม่หรือแจ้งออฟฟิศ" · ไม่ raise · ไม่เขียน event · ขั้นไม่ขยับ)',
-    (r2 ->> 'ok') = 'true' and (m ->> 'ok') = 'true' and (r3 ->> 'code') = 'handoff_mismatch' and (r3 ->> 'ok') = 'false' and (r3 ->> 'message') like '%ชั่งใหม่หรือแจ้งออฟฟิศ%'
-    and (r3 ->> 'gap_g')::numeric = 0.06 and pg_temp.st(jg) like '%,4:sen,5:pen%');
+    (r2 ->> 'ok') = 'true' and (m ->> 'ok') = 'true' and (r3 ->> 'code') = 'handoff_mismatch' and (r3 ->> 'ok') = 'false' and (r3 ->> 'message') like '%ชั่งใหม่ ถ้ายังไม่ตรงให้แจ้งออฟฟิศ%'
+    and not (r3 ? 'gap_g') and not (r3 ? 'prev_weight_out_g') and (r3 ->> 'message') !~ '[0-9]' and pg_temp.st(jg) like '%,4:sen,5:pen%'
+    and exists (select 1 from analytics.job_event e where e.job_id = jg and e.event_type = 'weigh' and e.payload ->> 'kind' = 'handoff_mismatch' and e.worker_id is not null
+                   and (e.payload ->> 'gap_g')::numeric = 0.06 and (e.payload ->> 'weight_in_g')::numeric = 9.86 and (e.payload ->> 'prev_weight_out_g')::numeric = 9.8));
   select count(*) into v_ev2 from analytics.job_event where job_id = jg;
   r2 := pg_temp.w_recv(tg, sg, 5, 9.740);
-  v_log := v_log || pg_temp.chk('M1b', 'ทอง: รับ 9.740 g (ต่าง −0.06) ถูกปฏิเสธเช่นกัน (ทั้งสองทิศ) · จำนวน event ไม่เพิ่ม', (r2 ->> 'code') = 'handoff_mismatch' and v_ev1 = v_ev2);
+  select count(*) into v_ev1 from analytics.job_event where job_id = jg;
+  v_log := v_log || pg_temp.chk('M1b', '0174 N1: ทอง: รับ 9.740 g (ต่าง −0.06) ถูกปฏิเสธเช่นกัน (ทั้งสองทิศ) · บันทึก event ทุกครั้งที่ไม่ตรง (เพิ่มครั้งละ 1) · v_job_board.handoff_mismatch_count นับได้ 2',
+    (r2 ->> 'code') = 'handoff_mismatch' and v_ev1 = v_ev2 + 1 and (select b.handoff_mismatch_count = 2 from analytics.v_job_board b where b.id = jg));
   r2 := pg_temp.w_recv(tg, sg, 5, 9.850);
   v_log := v_log || pg_temp.chk('M1c', 'ทอง: ต่าง +0.05 g พอดี ผ่าน (เกณฑ์ ">0.05") · event เก็บ handoff_gap_g=0.05 · v_job_stage_loss.handoff_gap_g=0.05',
     (r2 ->> 'ok') = 'true' and (select (e.payload ->> 'handoff_gap_g')::numeric = 0.05 from analytics.job_event e where e.job_id = jg and e.event_type = 'stage_receive' order by e.recorded_at desc limit 1)
@@ -505,8 +509,8 @@ begin
   jb := pg_temp.jid(pg_temp.mkjob(p_shop, p_tpl, 'brass', 10));
   r := pg_temp.o_run(p_shop, jb, 1, 4, v_today);
   m := pg_temp.o_recv(p_shop, jb, 5, v_today, 5.000, null, 'ช่างเอ');
-  v_log := v_log || pg_temp.chk('M1g', 'ทองเหลือง: ต่างมากก็ไม่บล็อก บันทึกส่วนต่างเหมือนเงิน · ส่วนต่างเป็นของขั้นที่รับ',
-    m ? 'ok' and (select l.handoff_gap_g = -4.900 from analytics.v_job_stage_loss l where l.job_id = jb and l.stage_code = 'cut_sprue'));
+  v_log := v_log || pg_temp.chk('M1g', '0174 N4: ทองเหลือง (ไม่บังคับชั่งทั้งสองขั้น): ต่างมากก็ไม่บล็อก และไม่คิดส่วนต่างส่งมอบ (handoff_gap_g null) · ส่วนต่างเป็นของขั้นที่รับ',
+    m ? 'ok' and (select l.handoff_gap_g is null from analytics.v_job_stage_loss l where l.job_id = jb and l.stage_code = 'cut_sprue'));
 
   -- ---------- QA6: ขั้นก่อนบังคับชั่งยังไม่ส่ง -> ไม่ auto-close ----------
   j4 := pg_temp.jid(pg_temp.mkjob(p_shop, p_tpl, 'silver', 10));
@@ -705,7 +709,7 @@ declare
     jsonb_build_object('id', 'NM03', 'what', 'ไม่ล็อก 1 ชม. ตั้งแต่ครั้งที่ 10', 'fn', 'worker_pin_verify',
       'from', 'when v_att >= 10 then now() + interval ''1 hour''', 'to', 'when v_att >= 1000 then now() + interval ''1 hour''', 'expect', jsonb_build_array('P3b', 'P3c')),
     jsonb_build_object('id', 'NM04', 'what', 'งบผิดต่อ token ไม่บังคับ', 'fn', 'worker_pin_verify',
-      'from', 'if coalesce(v_spent, 0) >= 20 then', 'to', 'if coalesce(v_spent, 0) >= 20000 then', 'expect', jsonb_build_array('P6a')),
+      'from', 'if v_spent is null then', 'to', 'if false then', 'expect', jsonb_build_array('P6a')),
     jsonb_build_object('id', 'NM05', 'what', 'เกณฑ์น้ำหนักส่งมอบทองหลวมเป็น 5 g', 'fn', 'job_core_receive',
       'from', 'abs(v_gap) > 0.05', 'to', 'abs(v_gap) > 5', 'expect', jsonb_build_array('M1a', 'M1b', 'M1e')),
     jsonb_build_object('id', 'NM06', 'what', 'ปิดขั้นก่อนหน้าที่บังคับชั่งอัตโนมัติได้', 'fn', 'job_core_receive',
@@ -728,8 +732,8 @@ declare
       'from', 'where w.window_start < now() - interval ''2 days'' limit 200', 'to', 'where w.window_start < now() - interval ''2000 days'' limit 200', 'expect', jsonb_build_array('L4c')),
     jsonb_build_object('id', 'NM15', 'what', 'worker_unlock ไม่ล้างหน้าต่าง/การล็อกถาวร', 'fn', 'worker_unlock',
       'from', 'failed_attempts = 0, failed_window_start = null, last_failed_at = null, locked_until = null where id = p_worker_id', 'to', 'failed_attempts = 0 where id = p_worker_id', 'expect', jsonb_build_array('P4b', 'P4c')),
-    jsonb_build_object('id', 'NM16', 'what', 'login สำเร็จไม่ล้างหน้าต่างนับ', 'fn', 'worker_pin_verify',
-      'from', 'update analytics.worker set failed_attempts = 0, failed_window_start = null, last_failed_at = null, locked_until = null where id = v_w.id;', 'to', 'update analytics.worker set failed_attempts = 0 where id = v_w.id;', 'expect', jsonb_build_array('P5a')),
+    jsonb_build_object('id', 'NM16', 'what', 'login สำเร็จล้างตัวนับ (กลับไปเป็นพฤติกรรม 0173 — ผิด 4 สลับถูก ล็อกไม่ได้)', 'fn', 'worker_pin_verify',
+      'from', 'update analytics.worker set locked_until = null where id = v_w.id;', 'to', 'update analytics.worker set failed_attempts = 0, failed_window_start = null, last_failed_at = null, locked_until = null where id = v_w.id;', 'expect', jsonb_build_array('P5a')),
     jsonb_build_object('id', 'NM17', 'what', 'ถัง ip นับ resolve ด้วย', 'fn', 'job_worker_auth',
       'from', 'if p_ip_class in (''write'', ''pin'') and', 'to', 'if p_ip_class in (''write'', ''pin'', ''none'') and', 'expect', jsonb_build_array('L4a')),
     jsonb_build_object('id', 'NM18', 'what', 'token สุ่มเขียนแถวลงถังนับ (เปิดช่องบวม)', 'fn', 'job_worker_auth',
