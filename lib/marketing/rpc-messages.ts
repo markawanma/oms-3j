@@ -92,6 +92,16 @@ const RULES: Rule[] = [
   { code: "22023", test: /ต้องมีแหล่งอ้างอิงอย่างน้อย 1 ลิงก์/, message: "ผ่านได้ต้องมีลิงก์แหล่งอ้างอิงอย่างน้อย 1 ลิงก์" },
   { code: "22023", test: /ลิงก์แหล่งอ้างอิงไม่ถูกต้อง/, message: "ลิงก์ไม่ถูกต้อง (ต้องขึ้นต้นด้วย http:// หรือ https://)" },
   { code: "22023", test: /ลิงก์โพสต์ไม่ถูกต้อง/, message: "ลิงก์โพสต์ไม่ถูกต้อง — คัดลอกลิงก์จากหน้าโพสต์มาวางใหม่" },
+  { code: "22023", test: /ตัวเลขยอด.ผู้ติดตามต้องอยู่ระหว่าง/, message: "ตัวเลขต้องอยู่ระหว่าง 0 ถึง 10,000,000,000 (ไม่เห็นให้เว้นว่าง · เห็นเป็น 0 จริงใส่ 0 ได้)" },
+  { code: "22023", test: /ติดธง "ตัวเลขประมาณ" แต่ไม่มีตัวเลข/, message: "ติ๊กว่าตัวเลขเป็นค่าประมาณ แต่ยังไม่ได้ใส่ตัวเลขสักช่อง" },
+  { code: "22023", test: /posted_on ต้องไม่หลังวันที่เห็น/, message: "วันที่โพสต์คลิปต้องไม่หลังวันที่เห็น" },
+  { code: "22023", test: /seen_on อยู่ในอนาคต/, message: "วันที่เห็นอยู่ในอนาคตไม่ได้" },
+  { code: "22023", test: /คลิปอ้างอิงต้องมีลิงก์และ hook_text/, message: "คลิปอ้างอิงต้องมีทั้งลิงก์และประโยคเปิดของคลิป" },
+  { code: "22023", test: /summary ต้องมี 1 บรรทัด/, message: "สรุปต้องมี 1–300 ตัวอักษร" },
+  { code: "22023", test: /hook_text ยาวเกิน/, message: "ประโยคเปิดยาวเกิน 500 ตัวอักษร" },
+  { code: "22023", test: /ลิงก์ยาวเกิน 500/, message: "ลิงก์ยาวเกิน 500 ตัวอักษร" },
+  { code: "22023", test: /ลิงก์ไม่ถูกต้อง [(]/, message: "ลิงก์ไม่ถูกต้อง — คัดลอกลิงก์จากแอปมาวางใหม่" },
+  { code: "22023", test: /เก็บไว้ก่อนต้องระบุวันกลับมาดู/, message: "เก็บไว้ก่อนต้องเลือกวันกลับมาดู (วันนี้หรืออนาคต)" },
   { code: "22023", test: /เวลาโพสต์อยู่นอกช่วง|เวลาโพสต์ของโพสต์นี้อยู่นอกช่วง/, message: "วันที่โพสต์ไม่ถูกต้อง — ต้องอยู่ระหว่าง 1 ม.ค. 2568 ถึงวันนี้" },
   { code: "22023", test: /ไม่มีค่าเปลี่ยน/, message: "ไม่มีค่าที่เปลี่ยน" },
   { code: "22023", test: /\[ต้องยืนยัน/, message: "คำตอบต้องไม่มี [ต้องยืนยัน…] ค้างอยู่" },
@@ -121,14 +131,28 @@ const ENUM_WORDS: Array<[RegExp, string]> = [
  * แทนที่จะทิ้งทั้งข้อความเมื่อเหลือ snake_case — เจ้าของควรเห็น "ยังไม่ได้ตั้งวัน" ไม่ใช่ "รีเฟรชแล้วลองใหม่"
  * ยาวก่อนสั้น (เช่น line_audience_reason ก่อน line_audience) เพื่อไม่ให้แทนที่ทับบางส่วน
  */
+// เขียนตรงทีละคำ (หนี้ §11 ข้อ 6) — เฉพาะ snake_case + สถานะด่าน 3 คำ · คำอังกฤษเดี่ยว (shot/other/story/na ฯลฯ) อาจอยู่ในประโยคปกติ ห้ามแทนที่
+// ค่าไทยตรงกับ label map ใน piece-labels.ts — มีเทสต์เทียบ (rpc-messages.test.ts "IDENT_TH ตรงกับ label map")
 const IDENT_TH: Record<string, string> = {
-  ...GATE_KIND_LABEL,
-  ...PIECE_KIND_LABEL,
-  ...CHANNEL_LABEL,
-  ...CUSTOMER_GROUP_LABEL,
-  ...FOOTAGE_STATUS_LABEL,
-  ...SHOOT_LOCATION_LABEL,
-  ...GATE_STATUS_LABEL,
+  fact_check: "ข้อเท็จจริง",
+  brand_rule: "กฎแบรนด์",
+  risk_owner: "ความเสี่ยง",
+  short_clip: "คลิปสั้น",
+  live_cut: "คลิปตัดจากไลฟ์",
+  ig_fb_post: "โพสต์ FB/IG",
+  line_message: "ข้อความ LINE",
+  line_oa: "LINE OA",
+  tiktok_live: "TikTok LIVE",
+  parcel_insert: "การ์ดในพัสดุ",
+  jewelry_925: "เครื่องประดับ 925",
+  silver_bar: "เงินแท่ง",
+  needs_shoot: "ต้องถ่าย",
+  has_footage: "มีภาพแล้ว",
+  product_table: "โต๊ะถ่ายสินค้า",
+  host_cam: "กล้องโฮสต์",
+  pending: "รอตรวจ",
+  passed: "ผ่าน",
+  blocked: "ติด",
   piece_kind: "ชนิดชิ้นงาน",
   metric_code: "ตัวชี้วัด",
   baseline_value: "ค่าฐาน",
@@ -154,8 +178,6 @@ const IDENT_TH: Record<string, string> = {
   hook_type: "ประเภท hook",
   step_id: "ชิ้นงาน",
 };
-// เก็บเฉพาะ snake_case + สถานะด่าน 3 คำ — คำอังกฤษเดี่ยว (shot/other/story/na ฯลฯ) อาจอยู่ในประโยคปกติ ห้ามแทนที่
-for (const k of Object.keys(IDENT_TH)) if (!k.includes("_") && !["pending", "passed", "blocked"].includes(k)) delete IDENT_TH[k];
 const IDENT_RE = new RegExp(
   `(?<![A-Za-z0-9_])(${Object.keys(IDENT_TH)
     .sort((a, b) => b.length - a.length)

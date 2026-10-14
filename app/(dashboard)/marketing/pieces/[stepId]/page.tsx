@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { ArrowLeft, FileX, Lock } from "lucide-react";
-import { getEffectiveRole } from "@/lib/auth/role";
+import { canUseContentWorkflow } from "@/lib/marketing/page-gate";
+import { logRpcFailure } from "@/lib/marketing/piece-server";
 import { getPieceDetail } from "@/lib/actions/content-pieces";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ContentTypeChip } from "@/components/domain/marketing/ContentTypeChip";
@@ -39,6 +40,11 @@ export const dynamic = "force-dynamic";
 const BACK_LINKS: Record<string, { href: string; label: string }> = {
   inbox: { href: "/marketing", label: "งานที่รอฉัน" },
   calendar: { href: "/marketing/calendar", label: "ปฏิทิน" },
+  triage: { href: "/marketing/triage", label: "คัดไอเดีย" },
+  pieces: { href: "/marketing/pieces", label: "ชิ้นงานทั้งหมด" },
+  posts: { href: "/marketing/posts", label: "โพสต์วันนี้" },
+  shoot: { href: "/marketing/shoot", label: "รอบถ่าย" },
+  research: { href: "/marketing/research", label: "สัญญาณ" },
   questions: { href: "/marketing/questions", label: "คำถามจาก AI" },
   copilot: { href: "/marketing/copilot", label: "Ad Copilot" },
 };
@@ -55,7 +61,7 @@ export default async function PieceDetailPage({
   params: Promise<{ stepId: string }>;
   searchParams: Promise<{ from?: string | string[] }>;
 }) {
-  if ((await getEffectiveRole()) === "staff") {
+  if (!(await canUseContentWorkflow())) {
     return <EmptyState icon={Lock} title="หน้านี้จำกัดสิทธิ์" description="เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่ดูชิ้นงานได้" />;
   }
 
@@ -69,7 +75,7 @@ export default async function PieceDetailPage({
   try {
     res = await getPieceDetail(stepId);
   } catch (err) {
-    console.error("PieceDetailPage failed", { message: err instanceof Error ? err.message : "unknown" });
+    logRpcFailure("PieceDetailPage", err);
     return <PageError message="โหลดชิ้นงานไม่สำเร็จ ลองใหม่อีกครั้ง" />;
   }
   if (!res.ok) return <PageError message={res.error} />;

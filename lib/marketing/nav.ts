@@ -1,3 +1,6 @@
+import { CalendarDays, ClipboardList, Gem, History, Inbox, Clapperboard, Layers, Lightbulb, Send, Megaphone, MessageCircleQuestion, Radar, Ticket, TrendingUp, Users2, Wallet } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
+
 /**
  * Pure active-tab resolution for the Marketing sub-nav.
  *
@@ -8,7 +11,8 @@
  * highlighted.
  */
 export function pathMatchesHref(pathname: string, href: string): boolean {
-  if (href === "/marketing") return pathname === "/marketing";
+  // /marketing/pieces/<id> (หน้าชิ้นงาน) เปิดจากหลายที่ — ไม่ให้แท็บ "ชิ้นงานทั้งหมด" สว่างตามไปด้วย
+  if (href === "/marketing" || href === "/marketing/pieces") return pathname === href;
   return pathname === href || pathname.startsWith(`${href}/`);
 }
 
@@ -22,10 +26,74 @@ export function activeTabHref(pathname: string | null | undefined, hrefs: readon
 }
 
 /**
- * หน้าในสายการตลาดที่ขยายความกว้างเนื้อหา (PC 2 คอลัมน์ — แผน §5.3): หน้าแรก "งานที่รอฉัน" และหน้าชิ้นงาน
+ * หน้าในสายการตลาดที่ขยายความกว้างเนื้อหา (PC 2 คอลัมน์ — แผน §5.3): หน้าแรก "งานที่รอฉัน" · ปฏิทิน (สัปดาห์ 7 คอลัมน์) · หน้าชิ้นงาน
  * หน้าอื่นทั้งแอปคงความกว้างเดิม (max-w-3xl) — DashboardShell เรียกฟังก์ชันนี้เพื่อเลือก max-width ของ <main>
  */
 export function isWideMarketingPath(pathname: string | null | undefined): boolean {
   if (!pathname) return false;
-  return pathname === "/marketing" || pathname.startsWith("/marketing/pieces/");
+  return (
+    pathname === "/marketing" ||
+    pathname === "/marketing/calendar" ||
+    pathname === "/marketing/triage" ||
+    pathname.startsWith("/marketing/pieces/")
+  );
+}
+
+// ---------------------------------------------------------------------------
+// รายการเมนูสายการตลาด — ที่เดียว (หนี้ §11 ข้อ 2): แถวแท็บ PC · แถบล่างมือถือ · sidebar DashboardShell อ่านจากที่นี่
+// เพิ่มหน้าใหม่ = เพิ่มแถวเดียว (ห้ามใส่เมนูก่อนหน้าพร้อมใช้)
+// ---------------------------------------------------------------------------
+
+export interface MarketingNavItem {
+  href: string;
+  label: string;
+  icon: LucideIcon;
+  /** แถวแท็บ md+ : "main" = แท็บหลัก · "more" = ย่อเข้าเมนู "อื่นๆ" · null = ไม่แสดง */
+  tab: "main" | "more" | null;
+  /** แถบล่างมือถือ: "main" = ช่องหลัก (≤ 4) · "more" = ใน sheet "เพิ่มเติม" · null = ไม่แสดง */
+  mobile: "main" | "more" | null;
+  /** ใช้ชื่อสั้นบนแถบล่างมือถือ (ถ้าไม่ระบุใช้ label) */
+  mobileLabel?: string;
+  /** แสดงใน sidebar ของ DashboardShell (ชื่อที่ต่างออกไปถ้ามี) */
+  sidebar: boolean;
+  sidebarLabel?: string;
+}
+
+export const MARKETING_NAV: readonly MarketingNavItem[] = [
+  { href: "/marketing", label: "งานที่รอฉัน", icon: Inbox, tab: "main", mobile: "main", mobileLabel: "รอฉัน", sidebar: true },
+  { href: "/marketing/questions", label: "คำถามจาก AI", icon: MessageCircleQuestion, tab: "main", mobile: "more", sidebar: false },
+  { href: "/marketing/ad-spend", label: "ค่าแอด", icon: Wallet, tab: "more", mobile: "more", sidebar: true },
+  { href: "/marketing/copilot", label: "Ad Copilot", icon: Megaphone, tab: "more", mobile: "more", sidebar: true },
+  { href: "/marketing/audience", label: "กลุ่มลูกค้า", icon: Users2, tab: "more", mobile: "more", sidebar: true },
+  { href: "/marketing/attribution", label: "วัดผลโค้ด", icon: Ticket, tab: "more", mobile: "more", sidebar: true },
+  { href: "/marketing/triage", label: "คัดไอเดีย", icon: Lightbulb, tab: "main", mobile: "more", sidebar: true },
+  { href: "/marketing/calendar", label: "ปฏิทิน", icon: CalendarDays, tab: "main", mobile: "main", sidebar: true },
+  { href: "/marketing/shoot", label: "รอบถ่าย", icon: Clapperboard, tab: "main", mobile: "more", sidebar: true },
+  { href: "/marketing/posts", label: "โพสต์วันนี้", icon: Send, tab: "main", mobile: "main", sidebar: true },
+  { href: "/marketing/research", label: "สัญญาณ", icon: Radar, tab: "more", mobile: "more", sidebar: true },
+  { href: "/marketing/pieces", label: "ชิ้นงานทั้งหมด", icon: Layers, tab: "more", mobile: "more", mobileLabel: "ชิ้นงานทั้งหมด", sidebar: true },
+  // กรอกยอด (คำเดียวทุกที่: เมนู PC/มือถือ/sidebar/หัวหน้า) = หน้าแยก (ไม่ใช่แท็บปฏิทิน) ชื่อสั้นบนแถบ · ยังไม่ใช่ทางเข้าหลักตอนดึก (ux-content-measurement §1.1)
+  { href: "/marketing/content/entry", label: "กรอกยอด", icon: ClipboardList, tab: "main", mobile: "main", sidebar: true },
+  { href: "/marketing/content/history", label: "ประวัติยอดโพสต์", icon: History, tab: "more", mobile: "more", sidebar: false },
+  { href: "/marketing/trend-radar", label: "เทรนด์", icon: TrendingUp, tab: "more", mobile: "more", mobileLabel: "เทรนด์รายวัน", sidebar: false },
+  { href: "/marketing/gem-quiz", label: "แบบทดสอบพลอย", icon: Gem, tab: "more", mobile: "more", sidebar: false },
+];
+
+// ---------------------------------------------------------------------------
+// แถบล่างมือถือ + ปุ่มลอย "แปะลิงก์" — เงื่อนไขแสดงที่เดียว (ใช้ทั้งแถบ ปุ่มลอย และระยะเว้นล่างของเนื้อหา)
+// ---------------------------------------------------------------------------
+
+/** แถบล่างมือถือ: ซ่อนบนหน้าชิ้นงาน (/marketing/pieces/<id>) เพราะมีแถบปุ่มหลักติดล่างของตัวเอง */
+export function bottomNavVisible(pathname: string | null | undefined): boolean {
+  return !(pathname ?? "").startsWith("/marketing/pieces/");
+}
+
+/** ปุ่มลอย "แปะลิงก์": ทุกหน้าที่มีแถบล่าง ยกเว้นหน้าแปะลิงก์เอง */
+export function fabVisible(pathname: string | null | undefined): boolean {
+  return bottomNavVisible(pathname) && !(pathname ?? "").startsWith("/marketing/research/capture");
+}
+
+/** ระยะเว้นล่างของเนื้อหาบนมือถือ (Tailwind arbitrary value) — เผื่อแถบล่าง และปุ่มลอยที่ลอยเหนือแถบ (สูง 3rem ที่ 4.5rem จากล่าง → ~8rem) กันปุ่มท้ายหน้าถูกบัง */
+export function mobileBottomPadding(pathname: string | null | undefined): string {
+  return fabVisible(pathname) ? "pb-[calc(8.5rem+env(safe-area-inset-bottom))]" : "pb-[calc(5rem+env(safe-area-inset-bottom))]";
 }

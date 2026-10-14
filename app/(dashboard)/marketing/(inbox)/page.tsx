@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { CalendarCheck, Lock, PartyPopper } from "lucide-react";
-import { getEffectiveRole } from "@/lib/auth/role";
+import { canUseContentWorkflow } from "@/lib/marketing/page-gate";
+import { logRpcFailure } from "@/lib/marketing/piece-server";
 import { getContentTypes } from "@/lib/actions/content";
 import { getInboxData } from "@/lib/actions/content-inbox";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -26,7 +27,7 @@ export const dynamic = "force-dynamic";
 // 4 กอง: วันนี้ต้องโพสต์ · รออนุมัติ · คำถามจาก AI · (สัปดาห์นี้ + ทางลัดกรอกยอด)
 // แต่ละกองล้มได้อิสระ (แต่ละ query ครอบ try/catch แยกใน getInboxData แล้วคืนเป็น Part) — กองหนึ่งล้ม กองอื่นยังแสดง
 export default async function MarketingInboxPage() {
-  if ((await getEffectiveRole()) === "staff") {
+  if (!(await canUseContentWorkflow())) {
     return <EmptyState icon={Lock} title="หน้านี้จำกัดสิทธิ์" description="เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่ดูงานการตลาดได้" />;
   }
 
@@ -34,7 +35,7 @@ export default async function MarketingInboxPage() {
   try {
     res = await getInboxData();
   } catch (err) {
-    console.error("MarketingInboxPage failed", { message: err instanceof Error ? err.message : "unknown" });
+    logRpcFailure("MarketingInboxPage", err);
     return <PageError message="โหลดงานที่รอฉันไม่สำเร็จ ลองใหม่อีกครั้ง" />;
   }
   if (!res.ok) return <PageError message={res.error} />;

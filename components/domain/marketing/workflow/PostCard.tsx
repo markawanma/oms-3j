@@ -7,10 +7,9 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { Link2Off } from "lucide-react";
 import { Button } from "@/components/ui/Button";
-import { useToast } from "@/components/ui/Toast";
+import { useRunAction } from "@/components/domain/marketing/workflow/useRunAction";
 import { ContentTypeChip } from "@/components/domain/marketing/ContentTypeChip";
 import { AuthorBadge, PieceStatusBadge } from "@/components/domain/marketing/workflow/badges";
 import { CopyButton } from "@/components/domain/marketing/workflow/CopyButton";
@@ -36,11 +35,8 @@ export function PostCard({
   overdueNoLink: boolean;
   todayTh: string;
 }) {
-  const router = useRouter();
-  const toast = useToast();
   const [sheet, setSheet] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const { run, busy, error } = useRunAction();
 
   const primary = primaryActionFor({ effective: piece.effectiveStatus, pieceKind: piece.pieceKind, footageStatus: piece.footageStatus });
   const caption = readCaption(piece.contentBody);
@@ -51,23 +47,8 @@ export function PostCard({
   const meta = [lbl(PIECE_KIND_LABEL, piece.pieceKind), lbl(CHANNEL_LABEL, piece.channel), when || null].filter(Boolean);
   const openHref = `/marketing/pieces/${piece.stepId}?from=inbox`;
 
-  async function advance(to: string, ok: string) {
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await advancePiece(piece.stepId, to);
-      if (!res.ok) {
-        setError(res.error);
-        if (res.stale) router.refresh();
-        return;
-      }
-      toast.push(ok);
-      router.refresh();
-    } catch {
-      setError("ทำรายการไม่สำเร็จ ลองใหม่อีกครั้ง");
-    } finally {
-      setBusy(false);
-    }
+  function advance(to: string, ok: string) {
+    return run(() => advancePiece(piece.stepId, to), { success: ok });
   }
 
   function onPrimary() {

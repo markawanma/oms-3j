@@ -15,7 +15,8 @@ describe("activeTabHref", () => {
   });
   it("does not light up the root tab on child pages", () => {
     expect(activeTabHref("/marketing/calendar", HREFS)).toBe("/marketing/calendar");
-    expect(activeTabHref("/marketing/pieces/abc", HREFS)).toBe("/marketing/pieces");
+    expect(activeTabHref("/marketing/pieces", HREFS)).toBe("/marketing/pieces");
+    expect(activeTabHref("/marketing/pieces/abc", HREFS)).toBeNull(); // หน้าชิ้นงานไม่ทำให้แท็บ list สว่าง
   });
   it("prefers the longest matching href", () => {
     expect(activeTabHref("/marketing/content/entry", HREFS)).toBe("/marketing/content/entry");
@@ -33,11 +34,69 @@ import { isWideMarketingPath } from "./nav";
 describe("isWideMarketingPath — ขยายเฉพาะ route workflow ใหม่", () => {
   it("หน้าแรกและหน้าชิ้นงานกว้าง", () => {
     expect(isWideMarketingPath("/marketing")).toBe(true);
+    expect(isWideMarketingPath("/marketing/calendar")).toBe(true);
     expect(isWideMarketingPath("/marketing/pieces/abc")).toBe(true);
   });
   it("หน้าอื่นทั้งแอปคงเดิม", () => {
-    for (const p of ["/marketing/questions", "/marketing/calendar", "/marketing/calendar/x", "/marketing/content/entry", "/marketing/copilot", "/crm", "/", "/marketing/pieces", "/marketingx", null, undefined]) {
+    for (const p of ["/marketing/questions", "/marketing/calendar/x", "/marketing/content/entry", "/marketing/copilot", "/crm", "/", "/marketing/pieces", "/marketingx", null, undefined]) {
       expect(isWideMarketingPath(p as string), String(p)).toBe(false);
     }
+  });
+});
+
+describe("MARKETING_NAV (รายการเมนูที่เดียว)", () => {
+  it("href ไม่ซ้ำ และขึ้นต้น /marketing", async () => {
+    const { MARKETING_NAV } = await import("./nav");
+    const hrefs = MARKETING_NAV.map((m) => m.href);
+    expect(new Set(hrefs).size).toBe(hrefs.length);
+    expect(hrefs.every((h) => h === "/marketing" || h.startsWith("/marketing/"))).toBe(true);
+  });
+  it("ช่องหลักมือถือไม่เกิน 4 (+ เพิ่มเติม = 5 ช่อง ที่ 390px ช่องละ ≥ 44px)", async () => {
+    const { MARKETING_NAV } = await import("./nav");
+    expect(MARKETING_NAV.filter((m) => m.mobile === "main").length).toBeLessThanOrEqual(4);
+  });
+  it("ทุกหน้าที่มีใน sidebar อยู่ในแถวแท็บ PC ด้วย (ไม่มีหน้าที่หาไม่เจอจากในโมดูล)", async () => {
+    const { MARKETING_NAV } = await import("./nav");
+    for (const m of MARKETING_NAV.filter((x) => x.sidebar)) expect(m.tab).not.toBeNull();
+  });
+  it("ทุกหน้าเข้าถึงได้จากมือถือ (main หรือ more)", async () => {
+    const { MARKETING_NAV } = await import("./nav");
+    for (const m of MARKETING_NAV) expect(m.mobile).not.toBeNull();
+  });
+});
+
+describe("คำเมนูคำเดียวทุกที่ (QA ข้อ 7)", () => {
+  it("กรอกยอด · ประวัติยอดโพสต์ · สัญญาณ — ไม่มีชื่อสำรองบนมือถือ/sidebar ที่ต่างจาก label", async () => {
+    const { MARKETING_NAV } = await import("./nav");
+    const by = (href: string) => MARKETING_NAV.find((m) => m.href === href)!;
+    expect(by("/marketing/content/entry").label).toBe("กรอกยอด");
+    expect(by("/marketing/content/history").label).toBe("ประวัติยอดโพสต์");
+    expect(by("/marketing/research").label).toBe("สัญญาณ");
+    for (const h of ["/marketing/content/entry", "/marketing/content/history", "/marketing/research"]) {
+      expect(by(h).mobileLabel, h).toBeUndefined();
+      expect(by(h).sidebarLabel, h).toBeUndefined();
+    }
+  });
+});
+
+describe("แถบล่าง/ปุ่มลอย/ระยะเว้นล่าง (review ข้อ 9)", () => {
+  it("แถบล่างซ่อนเฉพาะหน้าชิ้นงาน · ปุ่มลอยซ่อนที่หน้าชิ้นงานและหน้าแปะลิงก์", async () => {
+    const { bottomNavVisible, fabVisible } = await import("./nav");
+    expect(bottomNavVisible("/marketing/calendar")).toBe(true);
+    expect(bottomNavVisible("/marketing/pieces/abc")).toBe(false);
+    expect(bottomNavVisible("/marketing/pieces")).toBe(true); // หน้า list ยังมีแถบ
+    expect(fabVisible("/marketing/triage")).toBe(true);
+    expect(fabVisible("/marketing/shoot")).toBe(true);
+    expect(fabVisible("/marketing/research/capture")).toBe(false);
+    expect(fabVisible("/marketing/pieces/abc")).toBe(false);
+    expect(fabVisible(null)).toBe(true); // ไม่รู้ path = ถือว่าแสดง (ปลอดภัยฝั่งเว้นที่)
+  });
+  it("หน้าที่มีปุ่มลอยเว้นล่างมากกว่า (≥ 8rem) หน้าที่ไม่มีเว้น 5rem · ทุกกรณีมี safe-area", async () => {
+    const { mobileBottomPadding } = await import("./nav");
+    const withFab = mobileBottomPadding("/marketing/triage");
+    const noFab = mobileBottomPadding("/marketing/research/capture");
+    expect(withFab).toContain("8.5rem");
+    expect(noFab).toContain("5rem");
+    for (const p of [withFab, noFab]) expect(p).toContain("env(safe-area-inset-bottom)");
   });
 });
