@@ -3,6 +3,7 @@
 // StageChips — แทน <select> ขั้น (มือถือ + โหมดรายการบน PC): chip เลื่อนแนวนอน · "ทุกขั้น (n)" + เฉพาะขั้นที่มีงาน
 // ภาษาภาพเดียวกับแท็บ WorkersClient (aria-pressed · min-h-11 · เลือก bg-primary-100)
 
+import { useEffect, useRef } from "react";
 import type { BoardColumn } from "@/lib/jobs/board";
 
 function chipCls(on: boolean): string {
@@ -11,13 +12,24 @@ function chipCls(on: boolean): string {
 
 export function StageChips({ columns, total, stage, onSelect, emptyCount }: { columns: readonly BoardColumn[]; total: number; stage: string; onSelect: (code: string) => void; emptyCount: number }) {
   const withRows = columns.filter((c) => c.rows.length > 0);
+  const strip = useRef<HTMLDivElement>(null);
+  const selected = useRef<HTMLButtonElement>(null);
+  // chip ที่เลือก (เช่น หลังกดแถวส่วนบน) อาจอยู่นอกขอบขวาของ strip → เลื่อนเฉพาะ strip ให้เห็น (ไม่เลื่อนหน้าแนวตั้ง)
+  useEffect(() => {
+    const c = strip.current;
+    const el = selected.current;
+    if (!c || !el) return;
+    const right = el.offsetLeft + el.offsetWidth;
+    if (el.offsetLeft < c.scrollLeft) c.scrollLeft = Math.max(0, el.offsetLeft - 8);
+    else if (right > c.scrollLeft + c.clientWidth) c.scrollLeft = right - c.clientWidth + 8;
+  }, [stage]);
   return (
-    <div role="group" aria-label="กรองตามขั้น" className="flex items-center gap-1.5 overflow-x-auto pb-1">
-      <button type="button" aria-pressed={stage === "all"} onClick={() => onSelect("all")} className={chipCls(stage === "all")}>
+    <div ref={strip} role="group" aria-label="กรองตามขั้น" className="relative flex max-w-full items-center gap-1.5 overflow-x-auto pb-1">
+      <button ref={stage === "all" ? selected : undefined} type="button" aria-pressed={stage === "all"} onClick={() => onSelect("all")} className={chipCls(stage === "all")}>
         ทุกขั้น ({total})
       </button>
       {withRows.map((c) => (
-        <button key={c.code} type="button" aria-pressed={stage === c.code} onClick={() => onSelect(c.code)} className={chipCls(stage === c.code)}>
+        <button key={c.code} ref={stage === c.code ? selected : undefined} type="button" aria-pressed={stage === c.code} onClick={() => onSelect(c.code)} className={chipCls(stage === c.code)}>
           {c.name} ({c.rows.length})
         </button>
       ))}

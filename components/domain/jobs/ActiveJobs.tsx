@@ -1,7 +1,7 @@
 "use client";
 
 // ActiveJobs — ส่วน "งานที่วิ่งอยู่": เรียงเร่งด่วนก่อน · แถวละ 1 ใบ · กดแถว = เลื่อนไปการ์ดในบอร์ด (focusJob) · ลิงก์ ↗ = เปิดใบงาน
-// แถวมี 2 control ที่ไม่ซ้อนกัน: <button> ทั้งแถว (เนื้อในเป็น span ทั้งหมด) + <Link> ไอคอน (พี่น้องกัน ไม่ใช่ลูก)
+// แถว 2 บรรทัดทุกขนาดจอ · แถวมี 2 control ที่ไม่ซ้อนกัน: <button> ทั้งแถว (เนื้อในเป็น span ทั้งหมด) + <Link> ไอคอน (พี่น้องกัน ไม่ใช่ลูก)
 // 🔴 ไม่แสดงราคา/ต้นทุน/ชื่อลูกค้า/sourceRef — ใช้เฉพาะ field ของ BoardRow ที่บอร์ดเดิมแสดงอยู่แล้ว
 
 import Link from "next/link";
@@ -41,68 +41,48 @@ function ActiveJobRow({
   const pct = row.stageCount > 0 ? Math.min(100, Math.round((row.stageDoneCount / row.stageCount) * 100)) : 0;
   const meta = `${row.qtyPlanned} ชิ้น · ${METAL_LABEL[row.metal] ?? row.metal} · ${SOURCE_LABEL[row.sourceKind] ?? row.sourceKind}`;
 
+  const stageLine = [stageDetail, row.stageCount > 0 ? `ขั้น ${row.stageDoneCount}/${row.stageCount}` : null].filter(Boolean).join(" · ");
+
+  // โครง 2 บรรทัดทุกขนาดจอ (ไม่พึ่ง breakpoint — <main> ของ dashboard กว้างแค่ ~768px แม้จอ PC) · เนื้อในเป็น span ทั้งหมด (อยู่ใน <button>)
   return (
-    <li className={`flex items-stretch rounded-lg border border-l-4 border-zinc-200 bg-white hover:bg-zinc-50 ${STATUS_BAR[primary.tone]}`} data-job-id={row.id}>
+    <li className={`flex min-w-0 items-stretch rounded-lg border border-l-4 border-zinc-200 bg-white hover:bg-zinc-50 ${STATUS_BAR[primary.tone]}`} data-job-id={row.id}>
       <button
         type="button"
         onClick={() => onFocus(row)}
         className="min-h-11 min-w-0 flex-1 rounded-lg p-3 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
       >
-        <span className="grid gap-x-3 gap-y-1.5 lg:grid-cols-[11rem_minmax(0,1.3fr)_minmax(0,1.2fr)_9rem_8rem_auto] lg:items-center">
-          {/* ป้ายหลัก + รอง (มือถือ: ป้ายรองไปท้ายการ์ด) */}
-          <span className="flex flex-wrap items-center gap-1.5 lg:flex-col lg:items-start">
-            <StatusChip status={primary} size="primary" />
-            {secondary.length > 0 && (
-              <span className="flex flex-wrap gap-1 max-lg:hidden">
-                {secondary.map((s) => (
-                  <StatusChip key={s.key} status={s} />
-                ))}
-              </span>
-            )}
+        {/* บรรทัดบน: ป้ายหลัก · เลขงาน · ชื่อแบบ */}
+        <span className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+          <StatusChip status={primary} size="primary" />
+          <span className="whitespace-nowrap text-base font-bold tabular-nums text-zinc-900">{row.jobNo}</span>
+          <span className="line-clamp-2 min-w-0 flex-1 basis-40 text-sm font-medium text-zinc-900 [overflow-wrap:anywhere]">{row.designLabel}</span>
+        </span>
+        {/* บรรทัดล่าง: ขั้น · สถานะ · ผู้ถือ · กำหนดส่ง · ป้ายรอง · ดูในบอร์ด */}
+        <span className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-zinc-800">
+          <span>
+            อยู่ขั้น <span className="whitespace-nowrap font-bold text-zinc-900">{stageName}</span>
           </span>
-          {/* เลขงาน + แบบ + จำนวน·โลหะ·แหล่ง */}
-          <span className="block min-w-0">
-            <span className="block text-base font-bold tabular-nums text-zinc-900">{row.jobNo}</span>
-            <span className="line-clamp-2 block break-words text-sm font-medium text-zinc-900">{row.designLabel}</span>
-            <span className="block text-xs text-zinc-700">{meta}</span>
-          </span>
-          {/* ขั้นปัจจุบัน */}
-          <span className="block min-w-0 text-sm text-zinc-800">
-            <span className="block max-lg:hidden">
-              <span className="block break-words font-bold text-zinc-900">{stageName}</span>
-              <span className="block text-xs text-zinc-700">{[stageDetail, row.stageCount > 0 ? `ขั้น ${row.stageDoneCount}/${row.stageCount}` : null].filter(Boolean).join(" · ")}</span>
-              {row.stageCount > 0 && (
-                <span className="mt-1 block h-1 w-full rounded-full bg-zinc-200" aria-hidden="true">
-                  <span className="block h-1 rounded-full bg-primary-600" style={{ width: `${pct}%` }} />
-                </span>
-              )}
+          {stageLine && <span className="text-xs text-zinc-700">{stageLine}</span>}
+          {row.stageCount > 0 && (
+            <span className="h-1 w-14 shrink-0 rounded-full bg-zinc-200" aria-hidden="true">
+              <span className="block h-1 rounded-full bg-primary-600" style={{ width: `${pct}%` }} />
             </span>
-            <span className="lg:hidden">
-              อยู่ขั้น: <span className="font-bold text-zinc-900">{stageName}</span>
-              {stageDetail && <span className="text-zinc-700"> ({stageDetail})</span>}
-            </span>
-          </span>
-          {/* ผู้ถือ */}
-          <span className="flex min-w-0 items-center gap-1 text-sm text-zinc-800">
+          )}
+          <span className="inline-flex min-w-0 max-w-full items-center gap-1">
             <UserRound className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
             <span className="truncate" title={row.holderName ?? "ยังไม่มีผู้ถือ"}>
               {row.holderName ?? "ยังไม่มีผู้ถือ"}
             </span>
           </span>
-          {/* กำหนดส่ง */}
-          <span className="block text-sm tabular-nums">
-            {row.dueDate && <span className="block text-zinc-900">{thaiDate(row.dueDate, false)}</span>}
-            <span className={`block text-xs ${DUE_CLS[due.kind]}`}>{due.text}</span>
+          <span className="tabular-nums">
+            {row.dueDate && <span className="text-zinc-900">{thaiDate(row.dueDate, false)} </span>}
+            <span className={`text-xs ${DUE_CLS[due.kind]}`}>{due.text}</span>
           </span>
-          {/* มือถือ: ป้ายรองท้ายการ์ด */}
-          {secondary.length > 0 && (
-            <span className="flex flex-wrap gap-1 lg:hidden">
-              {secondary.map((s) => (
-                <StatusChip key={s.key} status={s} />
-              ))}
-            </span>
-          )}
-          <span className="inline-flex items-center gap-1 text-xs font-medium text-primary-700">
+          <span className="text-xs text-zinc-700">{meta}</span>
+          {secondary.map((s) => (
+            <StatusChip key={s.key} status={s} />
+          ))}
+          <span className="inline-flex items-center gap-1 text-xs font-medium text-primary-700 sm:ml-auto">
             ดูในบอร์ด
             <ArrowDown className="h-3.5 w-3.5" aria-hidden="true" />
           </span>

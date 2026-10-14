@@ -18,11 +18,11 @@ export function JobCard({ row, todayTh, idPrefix = "board", highlighted = false 
   const due = dueInfo(row, todayTh);
   const age = stageAgeLabel(row);
   return (
-    <li id={`${idPrefix}-job-${row.id}`} className="scroll-mt-24">
+    <li id={`${idPrefix}-job-${row.id}`} className="min-w-0 scroll-mt-24">
       <Link
         href={`/jobs/${row.id}`}
-        className={`block min-h-11 rounded-lg border border-l-4 p-3 hover:border-y-zinc-500 hover:border-r-zinc-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-600 ${STATUS_BAR[primary.tone]} ${
-          highlighted ? "border-primary-600 bg-primary-50 ring-2 ring-primary-600 ring-offset-2 motion-safe:animate-pulse" : "border-zinc-200 bg-white"
+        className={`block min-h-11 min-w-0 rounded-lg border border-l-4 p-3 hover:border-y-zinc-500 hover:border-r-zinc-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-600 ${STATUS_BAR[primary.tone]} ${
+          highlighted ? "border-primary-600 bg-primary-50 ring-2 ring-primary-600 ring-offset-2" : "border-zinc-200 bg-white"
         }`}
       >
         <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
@@ -32,7 +32,7 @@ export function JobCard({ row, todayTh, idPrefix = "board", highlighted = false 
           <span className="text-base font-bold text-zinc-900 tabular-nums">{row.jobNo}</span>
           <span className="text-xs text-zinc-700">{SOURCE_LABEL[row.sourceKind] ?? row.sourceKind}</span>
         </div>
-        <p className="mt-0.5 text-sm font-medium break-words text-zinc-900">{row.designLabel}</p>
+        <p className="mt-0.5 min-w-0 text-sm font-medium text-zinc-900 [overflow-wrap:anywhere]">{row.designLabel}</p>
         <p className="text-sm text-zinc-700">
           {row.qtyPlanned} ชิ้น · {METAL_LABEL[row.metal] ?? row.metal}
         </p>

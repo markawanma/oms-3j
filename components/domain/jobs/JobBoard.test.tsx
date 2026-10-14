@@ -193,6 +193,55 @@ describe("งานที่วิ่งอยู่ — ป้ายสถา�
   });
 });
 
+describe("แถวงานที่วิ่งอยู่ — โครง 2 บรรทัดไม่ขึ้นกับความกว้างจอ · ชื่อยาวไม่ล้น", () => {
+  it("แถวมีครบ: เลขงาน(nowrap) · ชื่อแบบ(line-clamp-2 ไม่มี block) · อยู่ขั้น(ชื่อขั้น nowrap) · ผู้ถือ · กำหนดส่ง+สัมพัทธ์ · ดูในบอร์ด · ป้ายรอง", () => {
+    const r = row({ designLabel: "แหวนลายไทย", stageCode: "cad", boardColumn: "cad", stageName: "ออกแบบ CAD", holderName: "ช่างสมชาย", dueDate: "2026-10-11", isOverdue: true, isStale: true });
+    const { container } = render(<JobBoard initial={board([r])} />);
+    const li = activeRows(container)[0] as HTMLElement;
+    const txt = li.textContent ?? "";
+    for (const t of [r.jobNo, "แหวนลายไทย", "อยู่ขั้น", "ออกแบบ CAD", "ช่างสมชาย", "11 ต.ค.", "เลย 3 วัน", "ดูในบอร์ด", "เลยกำหนด 3 วัน", "นิ่งเกิน 3 วัน", "ขั้น 3/13"]) expect(txt).toContain(t);
+    const byText = (t: string) => [...li.querySelectorAll("span")].find((e) => e.textContent === t) as HTMLElement;
+    expect(byText(r.jobNo).className).toContain("whitespace-nowrap");
+    expect(byText("ออกแบบ CAD").className).toContain("whitespace-nowrap");
+    const name = byText("แหวนลายไทย");
+    expect(name.className).toContain("line-clamp-2");
+    expect(name.className).not.toMatch(/(^|\s)block(\s|$)/);
+    // ไม่มี grid คอลัมน์คงที่ผูก breakpoint lg ในแถว (B1)
+    expect(li.innerHTML).not.toMatch(/lg:grid-cols|11rem/);
+  });
+  it("B2: ชื่อยาวไม่มีช่องว่างมี class กัน overflow ทั้งแถวส่วนบนและการ์ด · grid การ์ดใช้ minmax(0,1fr)", () => {
+    const long = "QA-v2-ผลิต-LONGTOKEN" + "x".repeat(40);
+    const { container } = render(<JobBoard initial={board([row({ designLabel: long })])} />);
+    const inRow = [...activeRows(container)[0].querySelectorAll("span")].find((e) => e.textContent === long)!;
+    expect(inRow.className).toContain("[overflow-wrap:anywhere]");
+    expect(inRow.className).toContain("min-w-0");
+    const inCard = [...listCards(container)[0].querySelectorAll("p")].find((e) => e.textContent === long)!;
+    expect(inCard.className).toContain("[overflow-wrap:anywhere]");
+    expect(inCard.className).toContain("min-w-0");
+    expect(inCard.closest("ul")!.className).toContain("grid-cols-[minmax(0,1fr)]");
+  });
+});
+
+describe("StageChips — chip ที่เลือกอยู่นอกขอบขวา (L1)", () => {
+  it("เลื่อนเฉพาะ strip (scrollLeft) ให้เห็น chip ที่เลือก · ไม่เรียก scrollIntoView ที่ chip", async () => {
+    desktop = false;
+    visiblePrefix = "list-job-";
+    const user = userEvent.setup();
+    const w = row({ stageCode: "wax", boardColumn: "wax" });
+    const { container } = render(<JobBoard initial={board([row(), w])} />);
+    const strip = screen.getByRole("group", { name: "กรองตามขั้น" });
+    Object.defineProperty(strip, "clientWidth", { configurable: true, value: 300 });
+    let left = 0;
+    Object.defineProperty(strip, "scrollLeft", { configurable: true, get: () => left, set: (v: number) => { left = v; } });
+    const waxChip = chip(/^ฉีดแว๊กซ์/);
+    Object.defineProperty(waxChip, "offsetLeft", { configurable: true, value: 500 });
+    Object.defineProperty(waxChip, "offsetWidth", { configurable: true, value: 100 });
+    await user.click(container.querySelector(`li[data-job-id="${w.id}"] > button`)!);
+    expect(left).toBe(308);
+    expect(scrolled.every((s) => s.id.startsWith("list-job-"))).toBe(true);
+  });
+});
+
 describe("focusJob — กดแถวแล้วเลื่อนไปการ์ดในบอร์ด", () => {
   it("PC โหมดบอร์ด: scrollIntoView กับการ์ดที่มองเห็น (board-job-) · focus ลิงก์การ์ด · ไฮไลต์ 3 วิแล้วถอด · aria-live", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
@@ -206,6 +255,7 @@ describe("focusJob — กดแถวแล้วเลื่อนไปกา
     expect(link).toHaveFocus();
     expect(link.className).toContain("ring-primary-600");
     expect(link.className).toContain("bg-primary-50");
+    expect(link.className).not.toContain("animate-pulse");
     expect(screen.getByText(`เลื่อนไปที่ ${r.jobNo} ในขั้น ปริ้น 3D ต้นแบบ`)).toBeInTheDocument();
     await act(async () => {
       await vi.advanceTimersByTimeAsync(HIGHLIGHT_MS + 50);
@@ -385,8 +435,8 @@ describe("empty / ความปลอดภัยของข้อมูล",
     expect(screen.getByRole("region", { name: "สรุป" })).toBeInTheDocument();
     expect(screen.getByText(/กำลังกรอง/)).toBeInTheDocument();
     expect(screen.queryByText("ตามขั้นตอนการผลิต")).toBeNull();
-    const clear = screen.getAllByRole("button", { name: "ล้างตัวกรอง" });
-    await user.click(clear[clear.length - 1]);
+    // L2: เหลือปุ่มล้างตัวกรองปุ่มเดียว (ใน EmptyState) — ปุ่มในแถบกำลังกรองซ่อนตอนไม่มีผลลัพธ์
+    await user.click(screen.getByRole("button", { name: "ล้างตัวกรอง" }));
     expect(activeRows(container)).toHaveLength(2);
     expect(screen.getByLabelText("โลหะ")).toHaveValue("");
   });

@@ -238,9 +238,11 @@ export function JobBoard({ initial }: { initial: BoardData }) {
               <p role="status" className="text-sm text-zinc-900">
                 กำลังกรอง: <span className="font-semibold">{describeFilters(filters, signal, { metal: METAL_LABEL, source: SOURCE_LABEL })}</span> — แสดง {filtered.length} จาก {data.rows.length} ใบ
               </p>
-              <Button type="button" variant="ghost" onClick={clearAll}>
-                ล้างตัวกรอง
-              </Button>
+              {filtered.length > 0 && (
+                <Button type="button" variant="secondary" onClick={clearAll}>
+                  ล้างตัวกรอง
+                </Button>
+              )}
             </div>
           )}
 
@@ -282,7 +284,7 @@ export function JobBoard({ initial }: { initial: BoardData }) {
                 {/* มือถือ/แท็บเล็ต + มุมมองรายการบน PC: chip กรองตามขั้น + รายการ (ไม่มีแถบเลื่อนแนวนอนของบอร์ด) */}
                 <div className={mode === "board" ? "space-y-3 lg:hidden" : "space-y-3"}>
                   <StageChips columns={shownColumns} total={filtered.length} stage={effStage} onSelect={setStage} emptyCount={emptyColumnCount} />
-                  {listRows.length === 0 ? <p className="text-sm text-zinc-700">ไม่มีใบงานในขั้นนี้</p> : <ul className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">{listRows.map((r) => <JobCard key={r.id} row={r} todayTh={todayTh} idPrefix="list" highlighted={highlightId === r.id} />)}</ul>}
+                  {listRows.length === 0 ? <p className="text-sm text-zinc-700">ไม่มีใบงานในขั้นนี้</p> : <ul className="grid grid-cols-[minmax(0,1fr)] gap-2 sm:grid-cols-[repeat(2,minmax(0,1fr))] lg:grid-cols-[repeat(3,minmax(0,1fr))]">{listRows.map((r) => <JobCard key={r.id} row={r} todayTh={todayTh} idPrefix="list" highlighted={highlightId === r.id} />)}</ul>}
                 </div>
 
                 {mode === "board" && (
