@@ -49,6 +49,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 import { Logo } from "@/components/brand/Logo";
 import { isWideMarketingPath } from "@/lib/marketing/nav";
+import { isWideJobsPath } from "@/lib/jobs/nav";
 import { signOut } from "@/lib/actions/auth";
 
 interface NavItem {
@@ -300,9 +301,9 @@ export function DashboardShell({
         </aside>
 
         {/* ความกว้างเนื้อหา: เดิม max-w-3xl ทุกหน้า — ขยายเฉพาะหน้า workflow content ใหม่ที่ต้อง 2 คอลัมน์บน PC
-            (isWideMarketingPath: /marketing และ /marketing/pieces/*) · หน้าอื่นไม่เปลี่ยน */}
+            (isWideMarketingPath: /marketing และ /marketing/pieces/*) + บอร์ดใบงาน /jobs (isWideJobsPath · exact) · หน้าอื่นไม่เปลี่ยน */}
         <main
-          className={`mx-auto w-full ${isWideMarketingPath(pathname) ? "max-w-6xl" : "max-w-3xl"} flex-1 px-4 py-4 print:max-w-none print:p-0`}
+          className={`mx-auto w-full ${isWideMarketingPath(pathname) || isWideJobsPath(pathname) ? "max-w-6xl" : "max-w-3xl"} flex-1 px-4 py-4 print:max-w-none print:p-0`}
         >
           {children}
         </main>
