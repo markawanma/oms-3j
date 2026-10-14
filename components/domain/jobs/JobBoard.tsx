@@ -154,7 +154,7 @@ export function JobBoard({ initial }: { initial: BoardData }) {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="min-w-0 space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
         <h1 className="text-2xl font-bold text-zinc-900">ใบงานผลิต</h1>
         <div className="flex items-center gap-2">
@@ -260,7 +260,7 @@ export function JobBoard({ initial }: { initial: BoardData }) {
             <>
               <ActiveJobs rows={filtered} todayTh={todayTh} stageNames={stageNames} known={known} showAll={showAllActive} onToggleAll={() => setShowAllActive((v) => !v)} onFocus={focusJob} headingRef={activeHeadingRef} />
 
-              <section aria-labelledby="stage-board-heading" className="space-y-3 border-t border-zinc-200 pt-4">
+              <section aria-labelledby="stage-board-heading" className="min-w-0 space-y-3 border-t border-zinc-200 pt-4">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <h2 id="stage-board-heading" className="text-lg font-bold text-zinc-900">
                     ตามขั้นตอนการผลิต
@@ -288,7 +288,7 @@ export function JobBoard({ initial }: { initial: BoardData }) {
                 </div>
 
                 {mode === "board" && (
-                  <div className="hidden space-y-3 lg:block">
+                  <div className="hidden min-w-0 max-w-full space-y-3 lg:block">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <StageRail columns={shownColumns} onJump={jumpToColumn} />
                       {emptyColumnCount > 0 && (
@@ -298,7 +298,7 @@ export function JobBoard({ initial }: { initial: BoardData }) {
                         </label>
                       )}
                     </div>
-                    <div className="flex gap-3 overflow-x-auto pb-2">
+                    <div className="flex max-w-full min-w-0 gap-3 overflow-x-auto pb-2" data-testid="board-columns">
                       {visibleColumns.map((c) => (
                         <div key={c.code} className="w-72 min-w-72 shrink-0 rounded-lg bg-zinc-100 p-2">
                           <h3 id={`board-col-${c.code}`} tabIndex={-1} className="mb-2 flex scroll-mt-24 items-center justify-between gap-2 px-1 text-sm font-bold text-zinc-900 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-600">

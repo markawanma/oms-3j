@@ -222,6 +222,18 @@ describe("แถวงานที่วิ่งอยู่ — โครง 2
   });
 });
 
+describe("B3: บอร์ดที่กว้างไม่ดัน <main> ล้นจอ (ตรวจ class — jsdom วัด layout ไม่ได้)", () => {
+  it("wrapper ของบอร์ดมี min-w-0/max-w-full และคอลัมน์เลื่อนในกล่องตัวเอง", () => {
+    const { container } = render(<JobBoard initial={board([row(), row({ stageCode: "wax", boardColumn: "wax" })])} />);
+    const scroller = screen.getByTestId("board-columns");
+    expect(scroller.className).toMatch(/overflow-x-auto/);
+    expect(scroller.className).toContain("min-w-0");
+    expect(scroller.className).toContain("max-w-full");
+    expect(scroller.parentElement!.className).toContain("min-w-0");
+    expect((container.firstElementChild as HTMLElement).className).toContain("min-w-0");
+  });
+});
+
 describe("StageChips — chip ที่เลือกอยู่นอกขอบขวา (L1)", () => {
   it("เลื่อนเฉพาะ strip (scrollLeft) ให้เห็น chip ที่เลือก · ไม่เรียก scrollIntoView ที่ chip", async () => {
     desktop = false;

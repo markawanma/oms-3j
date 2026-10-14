@@ -62,12 +62,15 @@ function ActiveJobRow({
           <span>
             อยู่ขั้น <span className="whitespace-nowrap font-bold text-zinc-900">{stageName}</span>
           </span>
-          {stageLine && <span className="text-xs text-zinc-700">{stageLine}</span>}
-          {row.stageCount > 0 && (
-            <span className="h-1 w-14 shrink-0 rounded-full bg-zinc-200" aria-hidden="true">
-              <span className="block h-1 rounded-full bg-primary-600" style={{ width: `${pct}%` }} />
-            </span>
-          )}
+          {/* ข้อความขั้น + progress bar อยู่กลุ่มเดียวกัน (bar ไม่ลอยแยกบรรทัดบนมือถือ) */}
+          <span className="inline-flex items-center gap-1.5">
+            {stageLine && <span className="text-xs text-zinc-700">{stageLine}</span>}
+            {row.stageCount > 0 && (
+              <span className="h-1 w-14 shrink-0 rounded-full bg-zinc-200 max-sm:hidden" aria-hidden="true">
+                <span className="block h-1 rounded-full bg-primary-600" style={{ width: `${pct}%` }} />
+              </span>
+            )}
+          </span>
           <span className="inline-flex min-w-0 max-w-full items-center gap-1">
             <UserRound className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
             <span className="truncate" title={row.holderName ?? "ยังไม่มีผู้ถือ"}>

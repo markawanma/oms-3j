@@ -303,7 +303,7 @@ export function DashboardShell({
         {/* ความกว้างเนื้อหา: เดิม max-w-3xl ทุกหน้า — ขยายเฉพาะหน้า workflow content ใหม่ที่ต้อง 2 คอลัมน์บน PC
             (isWideMarketingPath: /marketing และ /marketing/pieces/*) + บอร์ดใบงาน /jobs (isWideJobsPath · exact) · หน้าอื่นไม่เปลี่ยน */}
         <main
-          className={`mx-auto w-full ${isWideMarketingPath(pathname) || isWideJobsPath(pathname) ? "max-w-6xl" : "max-w-3xl"} flex-1 px-4 py-4 print:max-w-none print:p-0`}
+          className={`mx-auto w-full ${isWideMarketingPath(pathname) || isWideJobsPath(pathname) ? "max-w-6xl" : "max-w-3xl"} min-w-0 flex-1 px-4 py-4 print:max-w-none print:p-0`}
         >
           {children}
         </main>
