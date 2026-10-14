@@ -318,3 +318,17 @@ QR = SVG สร้างฝั่ง server — ต้องเพิ่ม depe
 | Q7 | **ช่างไม่เกิน 10 คน · มือถือส่วนตัว** ⇒ ชื่อ + PIN 4 หลัก จำในเครื่อง 12 ชม. |
 | Q8 | **1 รายการ = 1 ใบงานก่อน** · แบ่งล็อต/ส่งบางส่วนเป็นเฟสหลัง |
 | อื่นๆ | Q2 Q3 Q5 Q6 Q9 Q10 Q11 ใช้ค่าเริ่มต้นใน §8 จนกว่าเจ้าของจะบอก |
+
+## 12. สถานะส่งมอบ J1 + หนี้ที่รู้ตัว (14 ต.ค. 69)
+
+ขึ้น production 14 ต.ค. 69 (DB 0172-0174 · UI บอร์ด v2 ตาม spec Padmé · ทะเบียนช่างแยกแท็บ) · โดเมน QR = `APP_ORIGIN` (ดู memory `app-domain`) · ผ่าน security (0173/0174) · code review APPROVE · QA 4 รอบ · เจ้าของ UAT ผ่าน
+
+| # | หนี้ | ผล | ปิดเมื่อ |
+|---|---|---|---|
+| D1 | `lib/vendor/uqr/` vendored (uqr@0.1.3 byte-identical) — `npm audit`/dependabot มองไม่เห็น | ต้องตาม CVE เอง | สลับเป็น `npm i uqr@0.1.3 --save-exact` ใน dir หลัก (ไม่ทำผ่าน worktree เพราะ node_modules เป็น junction) |
+| D2 | DB ไม่ตรวจ `<` `>` ใน `job.assignee_name` (`job_office_receive`) — กันแค่ชั้น TS (`parseLabel`) | ไหลไปหน้าช่างผ่าน holder_name (React escape อยู่ ไม่อันตรายทันที) | migration ถัดไปที่แตะ job (M1/0175) เรียก `job_label_clean` |
+| D3 | ฟอร์มเพิ่มช่างไม่เตือนก่อนกดเมื่อไม่เลือกขั้น (DB บังคับ ≥1 ขั้น · ข้อความมาจาก server) | UX | รอบ UI ถัดไป |
+| D4 | `source_ref` ของใบงานส่งถึง client ในหน้าบอร์ด (ไม่ render) | ข้อมูลภายในใน payload หน้าออฟฟิศ | ตัดใน `getJobBoard` ฝั่ง server |
+| D5 | `handoff_mismatch_count` สะสมไม่ล้าง → ป้าย "ชั่งไม่ตรง" ค้างจนปิดงาน · ทองยังเดาน้ำหนักได้โดยลองซ้ำ (rate limit 60/10 นาที + ป้ายบนบอร์ด) | ป้ายบนบอร์ด = สัญญาณให้เดินไปดู ไม่ใช่สถิติ | view flag "ยังค้าง" รอบหน้า |
+| D6 | SQL ซ้ำ: ด่านมัดจำ 4 ที่ · เงื่อนไข handoff 2 ที่ · scope ช่าง 3 ที่ · `job_counter_bump` ไม่มีคนเรียก | แก้ทีหลังต้องแก้หลายที่ | helper `job_deposit_blocked` / `job_worker_can_do` ใน migration ถัดไปที่แตะ |
+| D7 | เว็บ preview ล็อก Vercel SSO → ทดสอบ QR บน preview ต้อง login Vercel (production ไม่มี) | เฉพาะการทดสอบ | — |
