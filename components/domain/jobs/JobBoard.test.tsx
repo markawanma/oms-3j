@@ -27,7 +27,7 @@ const row = (o: Partial<BoardRow> = {}): BoardRow => {
     id: `id-${n}`, jobNo: `JB-${String(n).padStart(4, "0")}`, seq: n, sourceKind: "oem", sourceRef: null, designLabel: `แบบ ${n}`, sku: null, metal: "silver", qtyPlanned: 30, status: "in_progress", dueDate: null,
     stageCode: "print3d", stageName: "ปริ้น 3D ต้นแบบ", stageStatus: "received", holderName: "ช่างสมชาย", daysInStage: 1, isOverdue: false, lastEventAt: null, lastScanAt: null, isStale: false,
     stageCount: 13, stageDoneCount: 3, hasAutoClosed: false, depositMissing: false, startGateNotePresent: false, quoteQtyMismatch: false, quoteItemQty: null, createdAt: null,
-    boardColumn: o.stageCode === undefined ? "print3d" : (o.stageCode ?? null), handoffGapG: null, handoffMismatchCount: 0, ...o,
+    boardColumn: o.stageCode === undefined ? "print3d" : (o.stageCode ?? null), handoffGapG: null, handoffMismatchCount: 0, qtyOrder: 5, qtySurplus: null, underPlanned: false, surplusPending: false, surplusDisposition: null, targetPieceG: null, metalPlanG: null, ...o,
   };
 };
 const board = (rows: BoardRow[], extra: Partial<BoardData> = {}): BoardData => ({ todayTh: TODAY, rows, stages: STAGES, truncated: false, workers: [], ...extra });

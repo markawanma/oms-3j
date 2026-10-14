@@ -215,6 +215,16 @@ export interface DoneJobInput {
   qtyScrap: number;
   weightFinal: string | null;
   note: string | null;
+  /** 0175: ของเหลือ (qty_good > qty_order) — OEM: hold|spare|deliver (ไม่ส่ง = hold) · ใบผลิต: ไม่ส่ง (DB ตั้ง stock) */
+  surplusDisposition?: string | null;
+  surplusNote?: string | null;
+}
+
+const SURPLUS_VALUES = ["hold", "spare", "deliver", "stock"] as const;
+function parseSurplus(v: unknown): { ok: true; value: string | null } | { ok: false; error: string } {
+  if (v === null || v === undefined || v === "") return { ok: true, value: null };
+  if (typeof v !== "string" || !(SURPLUS_VALUES as readonly string[]).includes(v)) return { ok: false, error: "เลือกการจัดการของเหลือไม่ถูกต้อง" };
+  return { ok: true, value: v };
 }
 
 export async function doneJob(i: DoneJobInput): Promise<JobResult<null>> {
@@ -229,7 +239,15 @@ export async function doneJob(i: DoneJobInput): Promise<JobResult<null>> {
   if (!w.ok) return fail(w.error);
   const note = parseText(i.note, "หมายเหตุ", 500, false);
   if (!note.ok) return fail(note.error);
-  const r = await callOffice("job_done", { p_job_id: i.jobId, p_qty_good: good.value, p_qty_scrap: scrap.value, p_weight_final_g: w.value, p_note: note.value });
+  const disp = parseSurplus(i.surplusDisposition);
+  if (!disp.ok) return fail(disp.error);
+  const sNote = parseText(i.surplusNote, "หมายเหตุของเหลือ", 200, false);
+  if (!sNote.ok) return fail(sNote.error);
+  // ส่ง arg ของเหลือเฉพาะเมื่อมีค่า — ไม่ส่ง = ค่าเริ่มของ DB (caller เดิม/ใบที่ไม่มีของเหลือไม่เปลี่ยนพฤติกรรม)
+  const surplusArgs: Raw = {};
+  if (disp.value !== null) surplusArgs.p_surplus_disposition = disp.value;
+  if (sNote.value !== null) surplusArgs.p_surplus_note = sNote.value;
+  const r = await callOffice("job_done", { p_job_id: i.jobId, p_qty_good: good.value, p_qty_scrap: scrap.value, p_weight_final_g: w.value, p_note: note.value, ...surplusArgs });
   if (!r.ok) return r;
   done(i.jobId);
   return { ok: true, data: null };
@@ -244,5 +262,61 @@ export async function cancelJob(jobId: string, reason: string): Promise<JobResul
   const r = await callOffice("job_cancel", { p_job_id: jobId, p_reason: why.value });
   if (!r.ok) return r;
   done(jobId);
+  return { ok: true, data: null };
+}
+
+// ---------------------------------------------------------------------------
+// 0175: ตัดสินของเหลือ · แก้จำนวนเริ่มผลิต · แก้แผนโลหะ (DB เป็นด่านจริง: job_guard + RPC)
+// ---------------------------------------------------------------------------
+export async function setJobSurplus(jobId: string, disposition: string, note: string | null): Promise<JobResult<null>> {
+  const g = await guard();
+  if (g) return g;
+  if (!isUuid(jobId)) return fail("ไม่พบใบงาน");
+  const d = parseSurplus(disposition);
+  if (!d.ok || d.value === null || d.value === "stock") return fail("เลือกการจัดการของเหลือไม่ถูกต้อง");
+  const n = parseText(note, "หมายเหตุของเหลือ", 200, false);
+  if (!n.ok) return fail(n.error);
+  const r = await callOffice("job_surplus_set", { p_job_id: jobId, p_disposition: d.value, p_note: n.value });
+  if (!r.ok) return r;
+  done(jobId);
+  return { ok: true, data: null };
+}
+
+export async function setJobQtyPlanned(jobId: string, qtyPlanned: number, reason: string | null): Promise<JobResult<null>> {
+  const g = await guard();
+  if (g) return g;
+  if (!isUuid(jobId)) return fail("ไม่พบใบงาน");
+  const q = parseCount(qtyPlanned, "จำนวนเริ่มผลิต");
+  if (!q.ok) return fail(q.error);
+  if (q.value < 1) return fail("จำนวนเริ่มผลิตต้องไม่น้อยกว่า 1");
+  const why = parseText(reason, "เหตุผล", 200, false);
+  if (!why.ok) return fail(why.error);
+  const r = await callOffice("job_qty_planned_set", { p_job_id: jobId, p_qty_planned: q.value, p_reason: why.value });
+  if (!r.ok) return r;
+  done(jobId);
+  return { ok: true, data: null };
+}
+
+export interface SetJobPlanInput {
+  jobId: string;
+  /** null/ว่าง = ล้างแผน */
+  targetPieceG: string | number | null;
+  overrideG?: string | number | null;
+  overrideReason?: string | null;
+}
+
+export async function setJobPlan(i: SetJobPlanInput): Promise<JobResult<null>> {
+  const g = await guard();
+  if (g) return g;
+  if (typeof i !== "object" || i === null || !isUuid(i.jobId)) return fail("ไม่พบใบงาน");
+  const t = parseWeight(i.targetPieceG, "น้ำหนักเป้าหมายต่อชิ้น");
+  if (!t.ok) return fail(t.error);
+  const o = parseWeight(i.overrideG ?? null, "โลหะที่กำหนดเอง");
+  if (!o.ok) return fail(o.error);
+  const why = parseText(i.overrideReason ?? null, "เหตุผลที่กำหนดน้ำหนักโลหะเอง", 200, o.value !== null);
+  if (!why.ok) return fail(why.error);
+  const r = await callOffice("job_plan_set", { p_job_id: i.jobId, p_target_piece_g: t.value, p_override_g: o.value, p_override_reason: why.value });
+  if (!r.ok) return r;
+  done(i.jobId);
   return { ok: true, data: null };
 }

@@ -18,7 +18,11 @@ export interface PrintableJob {
   designLabel: string;
   sku: string | null;
   metalLabel: string;
+  /** 0175: จำนวนที่สั่ง / จำนวนเริ่มผลิต (รวมเผื่อเสีย) / น้ำหนักเป้าหมายต่อชิ้น / โลหะที่ต้องเตรียม — ไม่มี ledger/ดุลเบิกจริงบนกระดาษ */
+  qtyOrder: number;
   qtyPlanned: number;
+  targetPieceG: number | null;
+  metalPlanG: number | null;
   dueDate: string | null;
   /** "งานลูกค้า" (OEM) หรือ "ผลิตเข้าสต็อก" — ไม่มีชื่อลูกค้า */
   sourceLabel: string;
@@ -34,7 +38,10 @@ export function toPrintableJob(job: JobDetail, stages: readonly StageRow[]): Pri
     designLabel: job.designLabel,
     sku: job.sku,
     metalLabel: METAL_LABEL[job.metal] ?? job.metal,
+    qtyOrder: job.qtyOrder,
     qtyPlanned: job.qtyPlanned,
+    targetPieceG: job.targetPieceG,
+    metalPlanG: job.metalPlanG,
     dueDate: job.dueDate,
     sourceLabel: job.sourceKind === "oem" ? "งานลูกค้า" : (SOURCE_LABEL[job.sourceKind] ?? "ผลิตเข้าสต็อก"),
     weightStartG: job.weightStartG,

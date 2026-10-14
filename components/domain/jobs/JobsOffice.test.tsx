@@ -46,7 +46,7 @@ const U1 = "11111111-1111-4111-8111-111111111111";
 const U2 = "22222222-2222-4222-8222-222222222222";
 
 const printable: PrintableJob = {
-  jobId: U1, jobNo: "JB-0007", designLabel: "แหวนลาย A", sku: "RG-001", metalLabel: "เงิน", qtyPlanned: 12, dueDate: "2026-10-30", sourceLabel: "งานลูกค้า", weightStartG: null,
+  jobId: U1, jobNo: "JB-0007", designLabel: "แหวนลาย A", sku: "RG-001", metalLabel: "เงิน", qtyOrder: 12, qtyPlanned: 12, targetPieceG: null, metalPlanG: null, dueDate: "2026-10-30", sourceLabel: "งานลูกค้า", weightStartG: null,
   stages: [{ seq: 1, name: "หล่อ", weighRequired: true }, { seq: 2, name: "ขัด", weighRequired: false }],
 };
 

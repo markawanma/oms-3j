@@ -7,7 +7,7 @@ const TODAY = "2026-10-14";
 const row = (o: Partial<BoardRow> = {}): BoardRow => ({
   id: "i", jobNo: "JB-0001", seq: 1, sourceKind: "production", sourceRef: null, designLabel: "แหวน", sku: null, metal: "silver", qtyPlanned: 5, status: "in_progress", dueDate: null,
   stageCode: "cast", stageName: "หล่อ", stageStatus: "received", holderName: "ช่างเอ", daysInStage: 1, isOverdue: false, lastEventAt: null, lastScanAt: null, isStale: false,
-  stageCount: 5, stageDoneCount: 1, hasAutoClosed: false, depositMissing: false, startGateNotePresent: false, quoteQtyMismatch: false, quoteItemQty: null, createdAt: null, boardColumn: null, handoffGapG: null, handoffMismatchCount: 0, ...o,
+  stageCount: 5, stageDoneCount: 1, hasAutoClosed: false, depositMissing: false, startGateNotePresent: false, quoteQtyMismatch: false, quoteItemQty: null, createdAt: null, boardColumn: null, handoffGapG: null, handoffMismatchCount: 0, qtyOrder: 5, qtySurplus: null, underPlanned: false, surplusPending: false, surplusDisposition: null, targetPieceG: null, metalPlanG: null, ...o,
 });
 const DEFS: StageDef[] = [{ code: "cast", nameTh: "หล่อ", seq: 7 }, { code: "polish", nameTh: "ขัด", seq: 9 }];
 

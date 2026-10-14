@@ -80,6 +80,7 @@ export const BOARD_COLUMNS = [
   "current_stage_code", "current_stage_name", "current_stage_status", "holder_name", "days_in_stage", "is_overdue", "last_event_at",
   "last_scan_at", "is_stale", "stage_count", "stage_done_count", "has_auto_closed", "deposit_missing", "start_gate_note_present",
   "quote_qty_mismatch", "quote_item_qty", "created_at", "board_column", "handoff_gap_g", "handoff_mismatch_count",
+  "qty_order", "qty_surplus", "under_planned", "surplus_pending", "surplus_disposition", "target_piece_g", "metal_plan_g",
 ].join(", ");
 
 export interface BoardRow {
@@ -117,6 +118,17 @@ export interface BoardRow {
   handoffGapG: number | null;
   /** 0174: จำนวนครั้งที่ช่างรับน้ำหนักทองไม่ตรงกับขั้นก่อน (event weigh/handoff_mismatch) */
   handoffMismatchCount: number;
+  /** 0175: จำนวนที่ลูกค้าสั่ง (qtyPlanned = จำนวนเริ่มผลิต รวมเผื่อเสีย) */
+  qtyOrder: number;
+  /** 0175: ใบ done = qty_good − qty_order (ลบ = ผลิตขาด) · ใบอื่น null */
+  qtySurplus: number | null;
+  /** 0175: เริ่มผลิตน้อยกว่าที่สั่ง (ผลิตบางส่วน) */
+  underPlanned: boolean;
+  /** 0175: ใบ done มีของเหลือที่ยังไม่ตัดสิน (hold) */
+  surplusPending: boolean;
+  surplusDisposition: string | null;
+  targetPieceG: number | null;
+  metalPlanG: number | null;
 }
 
 export function mapBoardRow(r: Record<string, unknown>): BoardRow | null {
@@ -155,6 +167,14 @@ export function mapBoardRow(r: Record<string, unknown>): BoardRow | null {
     boardColumn: str(r.board_column),
     handoffGapG: num(r.handoff_gap_g),
     handoffMismatchCount: num(r.handoff_mismatch_count) ?? 0,
+    // ใบเดิม/แถวที่ view ยังไม่ส่งคอลัมน์ใหม่: qtyOrder ถอยไปใช้ qty_planned (backfill เท่ากัน) — ไม่ใช้ 0 ปลอม
+    qtyOrder: num(r.qty_order) ?? num(r.qty_planned) ?? 0,
+    qtySurplus: num(r.qty_surplus),
+    underPlanned: bool(r.under_planned),
+    surplusPending: bool(r.surplus_pending),
+    surplusDisposition: str(r.surplus_disposition),
+    targetPieceG: num(r.target_piece_g),
+    metalPlanG: num(r.metal_plan_g),
   };
 }
 
@@ -238,7 +258,7 @@ export function mapLossRow(r: Record<string, unknown>): { stageId: string; loss:
 // ใบงาน (หน้า /jobs/[id])
 // ---------------------------------------------------------------------------
 export const JOB_COLUMNS =
-  "id, job_no, source_kind, design_label, sku_snapshot, metal, qty_planned, qty_good, qty_scrap, weight_start_g, weight_final_g, weigh_required, due_date, status, current_stage_code, start_gate_note, created_at, done_at, cancelled_at, cancel_reason, note, oem_quote_item_id, production_order_item_id";
+  "id, job_no, source_kind, design_label, sku_snapshot, metal, qty_planned, qty_good, qty_scrap, weight_start_g, weight_final_g, weigh_required, due_date, status, current_stage_code, start_gate_note, created_at, done_at, cancelled_at, cancel_reason, note, oem_quote_item_id, production_order_item_id, qty_order, target_piece_g, metal_plan_g, metal_plan_basis, surplus_disposition, surplus_note";
 
 export interface JobDetail {
   id: string;
@@ -263,6 +283,14 @@ export interface JobDetail {
   note: string | null;
   oemQuoteItemId: string | null;
   productionOrderItemId: string | null;
+  /** 0175 */
+  qtyOrder: number;
+  targetPieceG: number | null;
+  metalPlanG: number | null;
+  /** basis ที่ DB เก็บ (สูตร/rate ที่ใช้/ที่มา/missing[]) — แสดงสูตรบนหน้าใบงาน ไม่คำนวณใหม่ใน client */
+  metalPlanBasis: Record<string, unknown> | null;
+  surplusDisposition: string | null;
+  surplusNote: string | null;
 }
 
 export function mapJobDetail(r: Record<string, unknown>): JobDetail | null {
@@ -292,6 +320,12 @@ export function mapJobDetail(r: Record<string, unknown>): JobDetail | null {
     note: str(r.note),
     oemQuoteItemId: str(r.oem_quote_item_id),
     productionOrderItemId: str(r.production_order_item_id),
+    qtyOrder: num(r.qty_order) ?? num(r.qty_planned) ?? 0,
+    targetPieceG: num(r.target_piece_g),
+    metalPlanG: num(r.metal_plan_g),
+    metalPlanBasis: r.metal_plan_basis !== null && typeof r.metal_plan_basis === "object" && !Array.isArray(r.metal_plan_basis) ? (r.metal_plan_basis as Record<string, unknown>) : null,
+    surplusDisposition: str(r.surplus_disposition),
+    surplusNote: str(r.surplus_note),
   };
 }
 

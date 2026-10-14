@@ -10,7 +10,7 @@ import type { BoardRow, StageDef } from "@/lib/jobs/types";
 const row = (o: Partial<BoardRow> = {}): BoardRow => ({
   id: "i", jobNo: "JB-0001", seq: 1, sourceKind: "oem", sourceRef: null, designLabel: "แหวน", sku: null, metal: "silver", qtyPlanned: 5, status: "in_progress",
   dueDate: null, stageCode: null, stageName: null, stageStatus: null, holderName: null, daysInStage: null, isOverdue: false, lastEventAt: null, lastScanAt: null,
-  isStale: false, stageCount: 8, stageDoneCount: 0, hasAutoClosed: false, depositMissing: false, startGateNotePresent: false, quoteQtyMismatch: false, quoteItemQty: null, createdAt: null, boardColumn: null, handoffGapG: null, handoffMismatchCount: 0,
+  isStale: false, stageCount: 8, stageDoneCount: 0, hasAutoClosed: false, depositMissing: false, startGateNotePresent: false, quoteQtyMismatch: false, quoteItemQty: null, createdAt: null, boardColumn: null, handoffGapG: null, handoffMismatchCount: 0, qtyOrder: 5, qtySurplus: null, underPlanned: false, surplusPending: false, surplusDisposition: null, targetPieceG: null, metalPlanG: null,
   ...o,
 });
 const DEFS: StageDef[] = [{ code: "cast", nameTh: "หล่อ", seq: 7 }];

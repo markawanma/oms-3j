@@ -7,7 +7,7 @@ import type { JobDetail, StageRow } from "./types";
 const job = (o: Partial<JobDetail> = {}): JobDetail => ({
   id: "j1", jobNo: "JB-0007", sourceKind: "oem", designLabel: "แหวนลาย A", sku: "RG-001", metal: "silver", qtyPlanned: 12, qtyGood: null, qtyScrap: null, weightStartG: 120.5, weightFinalG: null,
   dueDate: "2026-10-30", status: "open", currentStageCode: null, startGateNote: "ลูกค้าประจำ ไม่ต้องรอมัดจำ", createdAt: "2026-10-12T00:00:00Z", doneAt: null, cancelledAt: null,
-  cancelReason: null, note: "หมายเหตุภายใน: ลูกค้า บริษัท ลับ จำกัด สั่ง", oemQuoteItemId: "i-secret", productionOrderItemId: null, ...o,
+  cancelReason: null, note: "หมายเหตุภายใน: ลูกค้า บริษัท ลับ จำกัด สั่ง", oemQuoteItemId: "i-secret", productionOrderItemId: null, qtyOrder: 12, targetPieceG: null, metalPlanG: null, metalPlanBasis: null, surplusDisposition: null, surplusNote: null, ...o,
 });
 const stage = (seq: number, name: string, status: StageRow["status"] = "pending", weigh = false): StageRow => ({
   id: `s${seq}`, seq, code: `c${seq}`, name, status, weighRequired: weigh, receivedOn: null, sentOn: null, workerId: null, holderName: "ช่างลับ", autoClosed: false, qtyIn: null, qtyOut: null,
@@ -17,7 +17,7 @@ const stage = (seq: number, name: string, status: StageRow["status"] = "pending"
 describe("toPrintableJob", () => {
   it("ประกอบทีละ field — OEM = 'งานลูกค้า' ไม่มีชื่อลูกค้า/เลขใบเสนอราคา/เหตุผลก่อนมัดจำ/หมายเหตุภายใน/id ต้นทาง", () => {
     const p = toPrintableJob(job(), [stage(1, "หล่อ", "pending", true), stage(2, "ขัด")]);
-    expect(Object.keys(p).sort()).toEqual(["designLabel", "dueDate", "jobId", "jobNo", "metalLabel", "qtyPlanned", "sku", "sourceLabel", "stages", "weightStartG"]);
+    expect(Object.keys(p).sort()).toEqual(["designLabel", "dueDate", "jobId", "jobNo", "metalLabel", "metalPlanG", "qtyOrder", "qtyPlanned", "sku", "sourceLabel", "stages", "targetPieceG", "weightStartG"]);
     expect(p.sourceLabel).toBe("งานลูกค้า");
     const json = JSON.stringify(p);
     for (const secret of ["บริษัท ลับ", "ลูกค้าประจำ", "i-secret", "ช่างลับ", "โน้ตลับ", "หมายเหตุภายใน"]) expect(json).not.toContain(secret);
