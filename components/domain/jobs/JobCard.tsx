@@ -1,33 +1,33 @@
 "use client";
 
-// JobCard — การ์ดใบงานบนบอร์ด: เลขงาน · แบบ · จำนวน·โลหะ · ผู้ถือ · ค้างกี่วัน · ครบกำหนด · ป้าย (ข้อความ+ไอคอน ไม่พึ่งสี)
-// ลิงก์ทั้งการ์ดไปหน้าใบงาน (≥ 44px) · ธงทุกตัวมาจาก v_job_board (DB ตัดสิน)
+// JobCard — การ์ดใบงานบนบอร์ด: ป้ายหลัก 1 อัน (สีตามความเร่งด่วน) + ป้ายรอง · เลขงาน · แบบ · จำนวน·โลหะ · ผู้ถือ · ค้างกี่วัน · ครบกำหนด
+// ลิงก์ทั้งการ์ดไปหน้าใบงาน (≥ 44px) · ธงทุกตัวมาจาก v_job_board (DB ตัดสิน) · แถบสีซ้ายตาม tone ป้ายหลัก
+// id = `${idPrefix}-job-${id}` ให้ส่วน "งานที่วิ่งอยู่" เลื่อนมาหา (การ์ดมี 2 ชุด: board/list) · highlighted = วงแหวน 3 วินาทีหลังถูกเลื่อนมา
 
 import Link from "next/link";
-import { AlertTriangle, CircleDashed, Clock, Info, PauseCircle, UserRound } from "lucide-react";
-import { cardBadges, stageAgeLabel } from "@/lib/jobs/board";
-import type { BadgeTone } from "@/lib/jobs/board";
+import { UserRound } from "lucide-react";
+import { StatusChip, STATUS_BAR } from "@/components/domain/jobs/StatusChip";
+import { dueInfo, primaryStatus, secondaryStatuses, stageAgeLabel } from "@/lib/jobs/board";
 import { thaiDate } from "@/lib/jobs/dates";
 import { METAL_LABEL, SOURCE_LABEL } from "@/lib/jobs/types";
 import type { BoardRow } from "@/lib/jobs/types";
 
-const TONE: Record<BadgeTone, string> = {
-  red: "border-red-300 bg-red-50 text-red-900",
-  amber: "border-amber-300 bg-amber-50 text-amber-900",
-  gray: "border-zinc-300 bg-zinc-50 text-zinc-800",
-  blue: "border-sky-300 bg-sky-50 text-sky-900",
-};
-const ICON: Record<string, typeof Info> = { overdue: AlertTriangle, hold: PauseCircle, deposit: CircleDashed, stale: Clock, auto: Info, qty: Info, handoff: AlertTriangle, mismatch: AlertTriangle };
-
-export function JobCard({ row }: { row: BoardRow }) {
-  const badges = cardBadges(row);
+export function JobCard({ row, todayTh, idPrefix = "board", highlighted = false }: { row: BoardRow; todayTh: string; idPrefix?: "board" | "list"; highlighted?: boolean }) {
+  const primary = primaryStatus(row, todayTh);
+  const secondary = secondaryStatuses(row, todayTh);
+  const due = dueInfo(row, todayTh);
   const age = stageAgeLabel(row);
   return (
-    <li>
+    <li id={`${idPrefix}-job-${row.id}`} className="scroll-mt-24">
       <Link
         href={`/jobs/${row.id}`}
-        className={`block min-h-11 rounded-lg border bg-white p-3 hover:border-zinc-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-600 ${row.isOverdue ? "border-red-400" : "border-zinc-200"}`}
+        className={`block min-h-11 rounded-lg border border-l-4 p-3 hover:border-y-zinc-500 hover:border-r-zinc-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-600 ${STATUS_BAR[primary.tone]} ${
+          highlighted ? "border-primary-600 bg-primary-50 ring-2 ring-primary-600 ring-offset-2 motion-safe:animate-pulse" : "border-zinc-200 bg-white"
+        }`}
       >
+        <div className="mb-1.5 flex flex-wrap items-center gap-1.5">
+          <StatusChip status={primary} size="primary" />
+        </div>
         <div className="flex items-baseline justify-between gap-2">
           <span className="text-base font-bold text-zinc-900 tabular-nums">{row.jobNo}</span>
           <span className="text-xs text-zinc-700">{SOURCE_LABEL[row.sourceKind] ?? row.sourceKind}</span>
@@ -49,22 +49,18 @@ export function JobCard({ row }: { row: BoardRow }) {
           )}
         </p>
         {row.dueDate && (
-          <p className={`mt-0.5 text-sm tabular-nums ${row.isOverdue ? "font-bold text-red-800" : "text-zinc-800"}`}>
-            {row.isOverdue ? "เลยกำหนด " : "กำหนดส่ง "}
+          <p className={`mt-0.5 text-sm tabular-nums ${due.kind === "overdue" ? "font-bold text-red-800" : "text-zinc-800"}`}>
+            {due.kind === "overdue" ? "เลยกำหนด " : "กำหนดส่ง "}
             {thaiDate(row.dueDate, false)}
           </p>
         )}
-        {badges.length > 0 && (
-          <ul className="mt-2 flex flex-wrap gap-1.5" aria-label="สถานะที่ต้องดู">
-            {badges.map((b) => {
-              const Icon = ICON[b.key] ?? Info;
-              return (
-                <li key={b.key} className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-xs font-semibold ${TONE[b.tone]}`}>
-                  <Icon className="h-3 w-3 shrink-0" aria-hidden="true" />
-                  {b.label}
-                </li>
-              );
-            })}
+        {secondary.length > 0 && (
+          <ul className="mt-2 flex flex-wrap gap-1.5" aria-label="สถานะอื่นที่ต้องดู">
+            {secondary.map((s) => (
+              <li key={s.key}>
+                <StatusChip status={s} />
+              </li>
+            ))}
           </ul>
         )}
       </Link>

@@ -8,7 +8,7 @@ import { JobBoard } from "@/components/domain/jobs/JobBoard";
 
 export const dynamic = "force-dynamic";
 
-// /jobs — บอร์ดใบงานผลิต (owner/admin เท่านั้น · allowlist) · คอลัมน์ตามขั้น · รีเฟรชเองทุก 30 วินาที
+// /jobs — บอร์ดใบงานผลิต v2 (owner/admin เท่านั้น · allowlist) · ส่วนบน "งานที่วิ่งอยู่" + ตามขั้นตอนการผลิต · รีเฟรชเองทุก 30 วินาที (h1 อยู่ใน JobBoard)
 export default async function JobsBoardPage() {
   if (!(await canManageJobs())) {
     return <EmptyState icon={Lock} title="หน้านี้จำกัดสิทธิ์" description="เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่ใช้ระบบใบงานได้" />;
@@ -21,10 +21,5 @@ export default async function JobsBoardPage() {
     return <ErrorState message="โหลดบอร์ดใบงานไม่สำเร็จ ลองใหม่อีกครั้ง" />;
   }
   if (!res.ok) return <ErrorState message={res.error} />;
-  return (
-    <div className="space-y-3">
-      <h1 className="text-2xl font-bold text-zinc-900">ใบงานผลิต</h1>
-      <JobBoard initial={res.data} />
-    </div>
-  );
+  return <JobBoard initial={res.data} />;
 }
