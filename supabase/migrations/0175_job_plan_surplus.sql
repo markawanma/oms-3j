@@ -876,3 +876,194 @@ begin
     v_qty_order, v_target, v_plan);
 end;
 $f$;
+
+-- ============================================================================
+-- 7. job_guard (def ต้นทาง 0173:566) — แก้เฉพาะจุดตาม design §8.4
+--    INSERT: qty_order = จำนวนต้นทาง · surplus_* ว่าง · แผนตรง basis
+--    UPDATE: แช่แข็ง qty_order (qty_planned ถอดออกไปตรวจแยก: ก่อนขั้นแรกถูกรับ) · แผนโลหะแก้ได้ก่อน cast รับ + ต้องตรง basis · done แก้ได้เฉพาะ surplus_*
+--    เพิ่มจาก design: ตรวจ metal_plan_g ตรงกับ basis (computed/override) ด้วย ไม่ใช่แค่ qty/target — กัน service key แก้ตัวเลขแผนตรงๆ
+-- ============================================================================
+create or replace function analytics.job_guard()
+ returns trigger
+ language plpgsql
+ set search_path to 'public', 'analytics', 'extensions', 'pg_temp'
+as $f$
+declare
+  v_item_shop   uuid;
+  v_item_seq    int;
+  v_item_input  jsonb;
+  v_q_status    text;
+  v_q_root      uuid;
+  v_po_status   text;
+  v_poi_product uuid;
+  v_prod_shop   uuid;
+  v_item_qty    int;
+  v_ov          text;
+  v_cp          text;
+begin
+  if tg_op = 'DELETE' then
+    raise exception 'job: ห้ามลบใบงาน — ยกเลิกด้วย job_cancel แทน (เก็บไว้เป็นหลักฐานการผลิต)' using errcode = '22023';
+  end if;
+
+  if tg_op = 'INSERT' then
+    if new.status <> 'open' or new.done_at is not null or new.cancelled_at is not null
+       or new.qty_good is not null or new.qty_scrap is not null or new.weight_final_g is not null then
+      raise exception 'job: ใบงานใหม่ต้องเริ่มที่สถานะ open และยังไม่มีผลปิดงาน' using errcode = '22023';
+    end if;
+    if new.source_kind = 'oem' then
+      select i.shop_id, i.seq, i.input, q.status, coalesce(q.root_quote_id, q.id), i.qty
+        into v_item_shop, v_item_seq, v_item_input, v_q_status, v_q_root, v_item_qty
+        from analytics.oem_quote_item i
+        join analytics.oem_quote q on q.id = i.quote_id
+       where i.id = new.oem_quote_item_id;
+      if not found then
+        raise exception 'job: ไม่พบรายการใบเสนอราคา' using errcode = '22023';
+      end if;
+      if v_item_shop <> new.shop_id then
+        raise exception 'job: รายการใบเสนอราคาเป็นของร้านอื่น สร้างใบงานข้ามร้านไม่ได้' using errcode = '22023';
+      end if;
+      if v_q_status <> 'won' then
+        raise exception 'job: สร้างใบงานได้เฉพาะใบเสนอราคาที่ได้งานแล้ว (won) — ใบนี้สถานะ %', v_q_status using errcode = '22023';
+      end if;
+      if new.root_quote_id <> v_q_root or new.oem_item_seq <> v_item_seq then
+        raise exception 'job: ดีล/ลำดับรายการไม่ตรงกับใบเสนอราคา' using errcode = '22023';
+      end if;
+      if new.metal is distinct from (v_item_input ->> 'metal') then
+        raise exception 'job: โลหะของใบงานไม่ตรงกับรายการใบเสนอราคา' using errcode = '22023';
+      end if;
+    else
+      select poi.shop_id, po.status, poi.product_id, poi.qty_planned
+        into v_item_shop, v_po_status, v_poi_product, v_item_qty
+        from analytics.production_order_item poi
+        join analytics.production_order po on po.id = poi.production_order_id
+       where poi.id = new.production_order_item_id;
+      if not found then
+        raise exception 'job: ไม่พบรายการในใบผลิต' using errcode = '22023';
+      end if;
+      if v_item_shop <> new.shop_id then
+        raise exception 'job: รายการใบผลิตเป็นของร้านอื่น สร้างใบงานข้ามร้านไม่ได้' using errcode = '22023';
+      end if;
+      if v_po_status <> 'open' then
+        raise exception 'job: สร้างใบงานได้เฉพาะใบผลิตที่ยังเปิดอยู่ (open) — ใบนี้สถานะ %', v_po_status using errcode = '22023';
+      end if;
+      if new.product_id is distinct from v_poi_product then
+        raise exception 'job: สินค้าของใบงานไม่ตรงกับรายการใบผลิต' using errcode = '22023';
+      end if;
+    end if;
+    -- M1: จำนวนสั่ง = จำนวนจากต้นทางเสมอ (OEM = qty รายการใบเสนอราคา · ผลิต = qty_planned ของรายการใบผลิต) · ของเหลือตั้งตอนสร้างไม่ได้
+    if new.qty_order is distinct from v_item_qty then
+      raise exception 'job: จำนวนที่สั่ง (qty_order) ต้องตรงกับจำนวนในต้นทาง (%)', v_item_qty using errcode = '22023';
+    end if;
+    if new.surplus_disposition is not null or new.surplus_note is not null then
+      raise exception 'job: ใบงานใหม่ตั้งการจัดการของเหลือไม่ได้' using errcode = '22023';
+    end if;
+    -- แผนโลหะต้องตรงกับ basis ที่อธิบายมัน: ไม่งั้นมีคนใช้ service key แก้ metal_plan_g ตรงๆ ให้ไม่ตรงกับที่ DB คำนวณ (plan_drift)
+    if new.metal_plan_basis is not null then
+      if jsonb_typeof(new.metal_plan_basis -> 'target_piece_g') is distinct from 'number'
+         or jsonb_typeof(new.metal_plan_basis -> 'qty_planned') is distinct from 'number'
+         or (new.metal_plan_basis ->> 'target_piece_g')::numeric is distinct from new.target_piece_g
+         or (new.metal_plan_basis ->> 'qty_planned')::numeric is distinct from new.qty_planned::numeric then
+        raise exception 'job: แผนโลหะไม่ตรงกับจำนวนเริ่มผลิต/น้ำหนักเป้าหมาย (plan_drift)' using errcode = '22023', hint = 'plan_drift';
+      end if;
+      v_ov := jsonb_typeof(new.metal_plan_basis -> 'override_g');
+      v_cp := jsonb_typeof(new.metal_plan_basis -> 'computed_g');
+      if v_ov = 'number' then
+        if (new.metal_plan_basis ->> 'override_g')::numeric is distinct from new.metal_plan_g then
+          raise exception 'job: โลหะที่ต้องเตรียมไม่ตรงกับค่าที่กำหนดเองใน basis (plan_drift)' using errcode = '22023', hint = 'plan_drift';
+        end if;
+      elsif v_ov = 'null' and v_cp = 'number' then
+        if (new.metal_plan_basis ->> 'computed_g')::numeric is distinct from new.metal_plan_g then
+          raise exception 'job: โลหะที่ต้องเตรียมไม่ตรงกับค่าที่ DB คำนวณใน basis (plan_drift)' using errcode = '22023', hint = 'plan_drift';
+        end if;
+      elsif v_ov = 'null' and v_cp = 'null' then
+        if new.metal_plan_g is not null then
+          raise exception 'job: ไม่มีผลคำนวณใน basis แต่มี metal_plan_g (plan_drift)' using errcode = '22023', hint = 'plan_drift';
+        end if;
+      else
+        raise exception 'job: basis ของแผนโลหะรูปร่างไม่ถูกต้อง (plan_drift)' using errcode = '22023', hint = 'plan_drift';
+      end if;
+    end if;
+    if new.product_id is not null then
+      select p.shop_id into v_prod_shop from public.product p where p.id = new.product_id;
+      if v_prod_shop is distinct from new.shop_id then
+        raise exception 'job: สินค้าเป็นของร้านอื่น' using errcode = '22023';
+      end if;
+    end if;
+    return new;
+  end if;
+
+  -- UPDATE
+  if new.shop_id <> old.shop_id or new.seq <> old.seq or new.source_kind <> old.source_kind
+     or new.oem_quote_item_id is distinct from old.oem_quote_item_id
+     or new.root_quote_id is distinct from old.root_quote_id
+     or new.oem_item_seq is distinct from old.oem_item_seq
+     or new.production_order_item_id is distinct from old.production_order_item_id
+     or new.product_id is distinct from old.product_id
+     or new.sku_snapshot is distinct from old.sku_snapshot
+     or new.metal <> old.metal or new.qty_order <> old.qty_order or new.weigh_required <> old.weigh_required
+     or new.created_at <> old.created_at or new.created_by <> old.created_by then
+    raise exception 'job: ห้ามเปลี่ยนข้อมูลตั้งต้นของใบงาน (ร้าน/เลขที่/ต้นทาง/แบบ/โลหะ/จำนวน) — ยกเลิกแล้วสร้างใหม่' using errcode = '22023';
+  end if;
+  if old.status = 'cancelled' then
+    raise exception 'job: ใบงาน % สถานะ % แล้ว แก้ไม่ได้', old.job_no, old.status using errcode = '22023';
+  end if;
+  -- done แล้วแก้ไม่ได้ ยกเว้นการจัดการของเหลือ (surplus_*) — ทุกคอลัมน์อื่นต้องเท่าเดิมเป๊ะ (job_surplus_set เท่านั้นที่ใช้ช่องนี้)
+  if old.status = 'done'
+     and (to_jsonb(new) - 'surplus_disposition' - 'surplus_note' - 'updated_at')
+         is distinct from (to_jsonb(old) - 'surplus_disposition' - 'surplus_note' - 'updated_at') then
+    raise exception 'job: ใบงาน % สถานะ % แล้ว แก้ไม่ได้ (ยกเว้นการจัดการของเหลือ)', old.job_no, old.status using errcode = '22023';
+  end if;
+  if new.status <> old.status and not (
+       (old.status = 'open' and new.status in ('in_progress', 'on_hold', 'done', 'cancelled'))
+    or (old.status = 'in_progress' and new.status in ('open', 'on_hold', 'done', 'cancelled'))
+    or (old.status = 'on_hold' and new.status in ('open', 'in_progress', 'done', 'cancelled'))) then
+    raise exception 'job: เปลี่ยนสถานะ % -> % ไม่ได้', old.status, new.status using errcode = '22023';
+  end if;
+  if new.status = 'done' and exists (
+       select 1 from analytics.job_stage s where s.job_id = new.id and s.status in ('pending', 'received')) then
+    raise exception 'job: ปิดงานไม่ได้ — ยังมีขั้นที่ยังไม่รับ/ยังไม่ส่งต่อ' using errcode = '22023';
+  end if;
+  -- จำนวนเริ่มผลิตแก้ได้เฉพาะก่อนขั้นแรกถูกรับ (หลังจากนั้นจำนวนชิ้นในขั้นยึดตามค่านี้แล้ว)
+  if new.qty_planned <> old.qty_planned
+     and exists (select 1 from analytics.job_stage s where s.job_id = new.id and s.status in ('received', 'sent')) then
+    raise exception 'job: แก้จำนวนเริ่มผลิตได้เฉพาะก่อนขั้นแรกถูกรับ' using errcode = '22023', hint = 'started';
+  end if;
+  -- แผนโลหะแก้ได้จนกว่าขั้นหล่อ (cast) จะถูกรับ
+  if (new.target_piece_g is distinct from old.target_piece_g or new.metal_plan_g is distinct from old.metal_plan_g
+      or new.metal_plan_basis is distinct from old.metal_plan_basis)
+     and exists (select 1 from analytics.job_stage s where s.job_id = new.id and s.stage_code = 'cast' and s.status in ('received', 'sent')) then
+    raise exception 'job: แก้แผนโลหะได้เฉพาะก่อนขั้นหล่อถูกรับ' using errcode = '22023', hint = 'cast_started';
+  end if;
+  -- แผนโลหะต้องตรงกับ basis ที่อธิบายมัน: ไม่งั้นมีคนใช้ service key แก้ metal_plan_g ตรงๆ ให้ไม่ตรงกับที่ DB คำนวณ (plan_drift)
+  if new.metal_plan_basis is not null then
+    if jsonb_typeof(new.metal_plan_basis -> 'target_piece_g') is distinct from 'number'
+       or jsonb_typeof(new.metal_plan_basis -> 'qty_planned') is distinct from 'number'
+       or (new.metal_plan_basis ->> 'target_piece_g')::numeric is distinct from new.target_piece_g
+       or (new.metal_plan_basis ->> 'qty_planned')::numeric is distinct from new.qty_planned::numeric then
+      raise exception 'job: แผนโลหะไม่ตรงกับจำนวนเริ่มผลิต/น้ำหนักเป้าหมาย (plan_drift)' using errcode = '22023', hint = 'plan_drift';
+    end if;
+    v_ov := jsonb_typeof(new.metal_plan_basis -> 'override_g');
+    v_cp := jsonb_typeof(new.metal_plan_basis -> 'computed_g');
+    if v_ov = 'number' then
+      if (new.metal_plan_basis ->> 'override_g')::numeric is distinct from new.metal_plan_g then
+        raise exception 'job: โลหะที่ต้องเตรียมไม่ตรงกับค่าที่กำหนดเองใน basis (plan_drift)' using errcode = '22023', hint = 'plan_drift';
+      end if;
+    elsif v_ov = 'null' and v_cp = 'number' then
+      if (new.metal_plan_basis ->> 'computed_g')::numeric is distinct from new.metal_plan_g then
+        raise exception 'job: โลหะที่ต้องเตรียมไม่ตรงกับค่าที่ DB คำนวณใน basis (plan_drift)' using errcode = '22023', hint = 'plan_drift';
+      end if;
+    elsif v_ov = 'null' and v_cp = 'null' then
+      if new.metal_plan_g is not null then
+        raise exception 'job: ไม่มีผลคำนวณใน basis แต่มี metal_plan_g (plan_drift)' using errcode = '22023', hint = 'plan_drift';
+      end if;
+    else
+      raise exception 'job: basis ของแผนโลหะรูปร่างไม่ถูกต้อง (plan_drift)' using errcode = '22023', hint = 'plan_drift';
+    end if;
+  end if;
+  if new.status <> 'done' and (new.surplus_disposition is not null or new.surplus_note is not null) then
+    raise exception 'job: ตั้งการจัดการของเหลือได้เฉพาะใบงานที่ปิดแล้ว (done)' using errcode = '22023';
+  end if;
+  new.updated_at := now();
+  return new;
+end;
+$f$;
