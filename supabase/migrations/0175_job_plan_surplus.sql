@@ -581,7 +581,8 @@ create or replace function analytics.job_plan_suggest(
   p_source_kind    text,
   p_item_id        uuid,
   p_qty_planned    int default null,
-  p_target_piece_g numeric default null
+  p_target_piece_g numeric default null,
+  p_stage_codes    text[] default null
 )
  returns jsonb
  language plpgsql
@@ -619,10 +620,16 @@ begin
     raise exception 'น้ำหนักเป้าหมายต่อชิ้นต้องมากกว่า 0 ไม่เกิน 10,000 กรัม (ทศนิยมไม่เกิน 3 ตำแหน่ง)' using errcode = '22023', hint = 'target_invalid';
   end if;
 
+  if p_stage_codes is not null and cardinality(p_stage_codes) > 50 then
+    raise exception 'รายการขั้นตอนมากเกินไป' using errcode = '22023', hint = 'stage_codes_invalid';
+  end if;
+
   v_info := analytics.job_source_info(p_shop_id, p_source_kind, p_item_id);
   v_qty_ord := (v_info ->> 'qty')::int;
   v_metal := v_info ->> 'metal';
-  v_has_pl := (v_info -> 'suggested_stage_codes') ? 'plating';
+  -- ชุบหรือไม่: ตามขั้นที่ออฟฟิศติ๊กจริง (p_stage_codes) · ไม่ส่ง = ตามขั้นที่ระบบเสนอ
+  v_has_pl := case when p_stage_codes is not null then 'plating' = any (p_stage_codes)
+                   else (v_info -> 'suggested_stage_codes') ? 'plating' end;
 
   v_rc := analytics.oem_rate_value(p_shop_id, 'reject_rate_cast_pct', '-', v_today);
   v_rp := analytics.oem_rate_value(p_shop_id, 'reject_rate_polish_pct', '-', v_today);
@@ -657,7 +664,7 @@ begin
   end if;
 
   return jsonb_build_object(
-    'qty_order', v_qty_ord, 'qty_planned_suggest', v_suggest, 'qty_planned_eff', v_eff, 'under_planned', v_eff < v_qty_ord,
+    'qty_order', v_qty_ord, 'qty_planned_suggest', v_suggest, 'buffer_qty', v_suggest - v_qty_ord, 'qty_planned_eff', v_eff, 'under_planned', v_eff < v_qty_ord,
     'reject_basis', jsonb_build_object('cast_pct', v_rc, 'polish_pct', v_rp, 'plate_pct', case when v_has_pl then v_rpl else null end, 'has_plating', v_has_pl),
     'target_piece_g', v_target, 'target_piece_g_source', v_tsrc, 'metal', v_metal,
     'metal_plan_g', v_plan -> 'metal_plan_g', 'metal_plan_basis', v_plan -> 'basis', 'missing', v_missing);
