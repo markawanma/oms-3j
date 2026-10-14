@@ -1015,9 +1015,10 @@ begin
     raise exception 'job: ใบงาน % สถานะ % แล้ว แก้ไม่ได้', old.job_no, old.status using errcode = '22023';
   end if;
   -- done แล้วแก้ไม่ได้ ยกเว้นการจัดการของเหลือ (surplus_*) — ทุกคอลัมน์อื่นต้องเท่าเดิมเป๊ะ (job_surplus_set เท่านั้นที่ใช้ช่องนี้)
+  -- ตัด job_no ออกจากการเทียบ: เป็น generated column คำนวณหลัง BEFORE trigger จึงเป็น null ใน NEW เสมอ (design §8.4 ไม่ได้กันไว้ — verify B4b จับได้)
   if old.status = 'done'
-     and (to_jsonb(new) - 'surplus_disposition' - 'surplus_note' - 'updated_at')
-         is distinct from (to_jsonb(old) - 'surplus_disposition' - 'surplus_note' - 'updated_at') then
+     and (to_jsonb(new) - 'surplus_disposition' - 'surplus_note' - 'updated_at' - 'job_no')
+         is distinct from (to_jsonb(old) - 'surplus_disposition' - 'surplus_note' - 'updated_at' - 'job_no') then
     raise exception 'job: ใบงาน % สถานะ % แล้ว แก้ไม่ได้ (ยกเว้นการจัดการของเหลือ)', old.job_no, old.status using errcode = '22023';
   end if;
   if new.status <> old.status and not (
