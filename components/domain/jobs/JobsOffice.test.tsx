@@ -129,7 +129,7 @@ describe("WorkersClient", () => {
     wrap(<WorkersClient data={data} />);
     expect(screen.getByText("ช่างเอ")).toBeInTheDocument();
     expect(screen.getByText("หล่อ")).toBeInTheDocument();
-    expect(screen.getByText("ยังไม่กำหนดขั้น")).toBeInTheDocument();
+    expect(screen.queryByText("ยังไม่กำหนดขั้น")).not.toBeInTheDocument(); // ช่างบี ปิดใช้งาน = อยู่แท็บ "ปิดใช้งาน" (ดู describe แท็บ)
   });
 
   it("เพิ่มช่างโดยไม่ใส่ PIN → PIN ที่ระบบสุ่มแสดงครั้งเดียว ปิดกล่องแล้วหาย", async () => {
@@ -170,7 +170,7 @@ describe("WorkersClient", () => {
 
   it("ช่างที่ถูกล็อก: เห็นสถานะล็อก + ปุ่มปลดล็อก (เฉพาะคนที่ล็อก) → เรียก unlockWorker(id)", async () => {
     unlockWorker.mockResolvedValue({ ok: true, data: null });
-    const locked = { ...data, workers: [{ ...data.workers[0], lockState: "office" as const, failedAttempts: 15 }, { ...data.workers[1], lockState: "temporary" as const, failedAttempts: 5 }, { ...data.workers[0], id: "33333333-3333-4333-8333-333333333333", displayName: "ช่างซี", lockState: "none" as const, failedAttempts: 2 }] };
+    const locked = { ...data, workers: [{ ...data.workers[0], lockState: "office" as const, failedAttempts: 15 }, { ...data.workers[1], isActive: true, lockState: "temporary" as const, failedAttempts: 5 }, { ...data.workers[0], id: "33333333-3333-4333-8333-333333333333", displayName: "ช่างซี", lockState: "none" as const, failedAttempts: 2 }] };
     wrap(<WorkersClient data={locked} />);
     expect(screen.getByText(/ล็อกจนกว่าออฟฟิศปลดล็อก · ผิด 15 ครั้ง/)).toBeInTheDocument();
     expect(screen.getByText(/ล็อกชั่วคราว/)).toBeInTheDocument();
@@ -187,6 +187,64 @@ describe("WorkersClient", () => {
     await userEvent.click(screen.getByRole("button", { name: "สุ่ม PIN ใหม่" }));
     expect(resetWorkerPin).toHaveBeenCalledWith(U1, null);
     expect(await screen.findByText("0735")).toBeInTheDocument();
+  });
+});
+
+describe("WorkersClient แท็บ ใช้งานอยู่ / ปิดใช้งาน", () => {
+  const mk = (id: string, displayName: string, isActive: boolean, over: Record<string, unknown> = {}) => ({ id, displayName, stageCodes: ["cast"], isActive, lockedUntil: null, createdAt: null, lockState: "none" as const, failedAttempts: 0, pinWarning: false, ...over });
+  const U3 = "33333333-3333-4333-8333-333333333333";
+  const stages = [{ code: "cast", nameTh: "หล่อ" }, { code: "polish", nameTh: "ขัด" }];
+  const data = { workers: [mk(U1, "ช่างเอ", true), mk(U2, "ช่างบี", false), mk(U3, "ช่างซี", true)], stages };
+
+  it("เริ่มที่แท็บ 'ใช้งานอยู่' · ตัวเลขนับถูก · ไม่เห็นช่างที่ปิด", () => {
+    wrap(<WorkersClient data={data} />);
+    expect(screen.getByRole("button", { name: "ใช้งานอยู่ (2)" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByRole("button", { name: "ปิดใช้งาน (1)" })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByText("ช่างเอ")).toBeInTheDocument();
+    expect(screen.getByText("ช่างซี")).toBeInTheDocument();
+    expect(screen.queryByText("ช่างบี")).not.toBeInTheDocument();
+    expect(screen.getAllByText("ใช้งานอยู่")).toHaveLength(2); // badge เขียวต่อแถว (ไม่นับปุ่มแท็บที่มีตัวเลขต่อท้าย)
+  });
+
+  it("กดแท็บ 'ปิดใช้งาน' = เห็นเฉพาะคนที่ปิด + badge 'ปิดใช้งาน' + ปุ่มเปิดใช้งาน", async () => {
+    wrap(<WorkersClient data={data} />);
+    await userEvent.click(screen.getByRole("button", { name: "ปิดใช้งาน (1)" }));
+    expect(screen.getByRole("button", { name: "ปิดใช้งาน (1)" })).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByText("ช่างบี")).toBeInTheDocument();
+    expect(screen.queryByText("ช่างเอ")).not.toBeInTheDocument();
+    expect(screen.queryByText("ช่างซี")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "เปิดใช้งาน ช่างบี" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "ใช้งานอยู่ (2)" }));
+    expect(screen.getByText("ช่างเอ")).toBeInTheDocument();
+    expect(screen.queryByText("ช่างบี")).not.toBeInTheDocument();
+  });
+
+  it("แท็บว่าง = empty state สั้นๆ", async () => {
+    const { unmount } = wrap(<WorkersClient data={{ workers: [mk(U1, "ช่างเอ", true)], stages }} />);
+    expect(screen.getByRole("button", { name: "ปิดใช้งาน (0)" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "ปิดใช้งาน (0)" }));
+    expect(screen.getByText("ยังไม่มีช่างที่ปิดใช้งาน")).toBeInTheDocument();
+    unmount();
+    wrap(<WorkersClient data={{ workers: [mk(U2, "ช่างบี", false)], stages }} />);
+    expect(screen.getByText("ยังไม่มีช่างที่ใช้งานอยู่")).toBeInTheDocument();
+    expect(screen.queryByText("ช่างบี")).not.toBeInTheDocument();
+  });
+
+  it("แถวช่างที่ปิดใช้งานแต่มีคำเตือน PIN ยังเห็นคำเตือนในแท็บปิดใช้งาน · ช่างที่ใช้งานอยู่เห็นในแท็บใช้งานอยู่", async () => {
+    wrap(<WorkersClient data={{ workers: [mk(U1, "ช่างเอ", true, { failedAttempts: 4, pinWarning: true }), mk(U2, "ช่างบี", false, { failedAttempts: 6, pinWarning: true })], stages }} />);
+    expect(screen.getByRole("alert")).toHaveTextContent("มีคนใส่ PIN ผิด 4 ครั้ง");
+    await userEvent.click(screen.getByRole("button", { name: "ปิดใช้งาน (1)" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("มีคนใส่ PIN ผิด 6 ครั้ง");
+  });
+
+  it("ปุ่มปิดใช้งาน/เปิดใช้งานเรียก setWorkerActive ตาม isActive เดิม", async () => {
+    setWorkerActive.mockResolvedValue({ ok: true, data: null });
+    wrap(<WorkersClient data={data} />);
+    await userEvent.click(screen.getByRole("button", { name: "ปิดใช้งาน ช่างเอ" }));
+    expect(setWorkerActive).toHaveBeenCalledWith(U1, false);
+    await userEvent.click(screen.getByRole("button", { name: "ปิดใช้งาน (1)" }));
+    await userEvent.click(screen.getByRole("button", { name: "เปิดใช้งาน ช่างบี" }));
+    expect(setWorkerActive).toHaveBeenCalledWith(U2, true);
   });
 });
 
