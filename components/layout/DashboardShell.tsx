@@ -16,6 +16,7 @@ import {
   BarChart3,
   Boxes,
   Calculator,
+  ClipboardCheck,
   ClipboardList,
   Coins,
   Factory,
@@ -23,6 +24,7 @@ import {
   Gauge,
   Gem,
   Hammer,
+  HardHat,
   Hash,
   LayoutDashboard,
   LineChart,
@@ -42,6 +44,7 @@ import {
 import type { LucideIcon } from "lucide-react";
 import { Logo } from "@/components/brand/Logo";
 import { MARKETING_NAV, isWideMarketingPath } from "@/lib/marketing/nav";
+import { isWideJobsPath } from "@/lib/jobs/nav";
 import { signOut } from "@/lib/actions/auth";
 
 interface NavItem {
@@ -104,6 +107,14 @@ const NAV_GROUPS: NavGroup[] = [
   {
     label: "ผลิตเอง",
     items: [{ href: "/production", label: "ใบผลิตเข้าสต็อก", icon: Hammer }],
+  },
+  {
+    // ระบบใบงานผลิต J1 (design-job-tracking.md §6.3) — เฉพาะ owner/admin (กรองด้านล่าง · ด่านจริงอยู่ที่หน้า/action)
+    label: "ใบงาน",
+    items: [
+      { href: "/jobs", label: "ใบงานผลิต", icon: ClipboardCheck },
+      { href: "/jobs/workers", label: "ทะเบียนช่าง", icon: HardHat },
+    ],
   },
   {
     label: "ต้นทุน & ตั้งค่า",
@@ -202,13 +213,15 @@ export function DashboardShell({
   const pathname = usePathname() ?? "";
   const [drawerOpen, setDrawerOpen] = useState(false);
 
+  // กลุ่ม "ใบงาน" ซ่อนจาก staff (role null = ยังไม่มี session จริง/DEV flow → แสดงเหมือนเมนูอื่น) — UI เท่านั้น ด่านจริงอยู่ที่ canManageJobs + requireOwnerAdmin
+  const visibleGroups = role === "staff" ? NAV_GROUPS.filter((g) => g.label !== "ใบงาน") : NAV_GROUPS;
   const navGroups: NavGroup[] =
     role === "owner"
       ? [
-          ...NAV_GROUPS,
+          ...visibleGroups,
           { label: "ทีม", items: [{ href: "/settings/members", label: "สมาชิก", icon: UserCog }] },
         ]
-      : NAV_GROUPS;
+      : visibleGroups;
 
   // Close the drawer on route change (link click already does this via
   // onNavigate, but this also covers back/forward navigation).
@@ -277,9 +290,9 @@ export function DashboardShell({
         </aside>
 
         {/* ความกว้างเนื้อหา: เดิม max-w-3xl ทุกหน้า — ขยายเฉพาะหน้า workflow content ใหม่ที่ต้อง 2 คอลัมน์บน PC
-            (isWideMarketingPath: /marketing และ /marketing/pieces/*) · หน้าอื่นไม่เปลี่ยน */}
+            (isWideMarketingPath: /marketing และ /marketing/pieces/*) + บอร์ดใบงาน /jobs (isWideJobsPath · exact) · หน้าอื่นไม่เปลี่ยน */}
         <main
-          className={`mx-auto w-full ${isWideMarketingPath(pathname) ? "max-w-6xl" : "max-w-3xl"} flex-1 px-4 py-4 print:max-w-none print:p-0`}
+          className={`mx-auto w-full ${isWideMarketingPath(pathname) || isWideJobsPath(pathname) ? "max-w-6xl" : "max-w-3xl"} min-w-0 flex-1 px-4 py-4 print:max-w-none print:p-0`}
         >
           {children}
         </main>

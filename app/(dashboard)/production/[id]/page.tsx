@@ -4,6 +4,7 @@ import { getEffectiveRole } from "@/lib/auth/role";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ProductionOrderDetailClient } from "@/components/domain/production/ProductionOrderDetailClient";
+import { JobCreatePanel } from "@/components/domain/jobs/JobCreatePanel";
 
 export const dynamic = "force-dynamic";
 
@@ -39,12 +40,18 @@ export default async function ProductionOrderDetailPage({ params }: { params: Pr
   const skuOptions = skuOptionsResult.ok ? skuOptionsResult.data : [];
   const skuOptionsError = skuOptionsResult.ok ? null : skuOptionsResult.error;
 
+  // J1: ใบงานผลิตต่อรายการ — ส่วนแยก ไม่แตะ logic ของหน้านี้ (เสนอสร้างเฉพาะใบผลิตที่ยังเปิด — RPC ปฏิเสธสถานะอื่นด้วย po_not_open)
+  const jobItems = detailResult.data.items.map((it) => ({ id: it.id, label: `${it.sku} · ${it.productName} × ${it.qtyPlanned}` }));
+
   return (
-    <ProductionOrderDetailClient
-      order={detailResult.data.order}
-      items={detailResult.data.items}
-      skuOptions={skuOptions}
-      skuOptionsError={skuOptionsError}
-    />
+    <>
+      <ProductionOrderDetailClient
+        order={detailResult.data.order}
+        items={detailResult.data.items}
+        skuOptions={skuOptions}
+        skuOptionsError={skuOptionsError}
+      />
+      {detailResult.data.order.status === "open" && <JobCreatePanel kind="production" items={jobItems} />}
+    </>
   );
 }

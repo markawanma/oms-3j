@@ -1,0 +1,68 @@
+// lib/jobs/office-server.ts — ชั้นกลางของ action ออฟฟิศระบบใบงาน (server-only · ไม่ใช่ "use server")
+//  - guard(): session จริง (ถ้า AUTH_GATE on) + allowlist owner|admin (ไม่ใช่ "ไม่ใช่ staff")
+//  - callOffice(): ใส่ p_shop_id (จาก server) + p_actor (session user id ฝั่ง server) "หลัง" spread ของพารามิเตอร์ธุรกิจ → client ทับไม่ได้
+//  - error: officeErrorMessage (ไทย) · log เฉพาะ code+hint (logJobFailure) — ไม่ log ทั้งก้อน/พารามิเตอร์
+// RPC ออฟฟิศ raise 22023/55000 + hint เมื่อผิดกติกา (หน้าจอแสดงข้อความ DB ที่สะอาดแล้ว) · 42501 = ไม่มีสิทธิ์
+
+import "server-only";
+import { getServiceClient } from "@/lib/supabase/server";
+import { getDevShopId } from "@/lib/dev/context";
+import { getSessionUser, requireSessionIfGateOn } from "@/lib/auth/session";
+import { canManageJobs } from "@/lib/jobs/page-gate";
+import { logJobFailure } from "@/lib/jobs/log";
+import { GENERIC_JOB_ERROR, officeErrorMessage } from "@/lib/jobs/messages";
+
+export type JobResult<T> = { ok: true; data: T } | { ok: false; error: string };
+export const fail = (error: string): { ok: false; error: string } => ({ ok: false, error });
+
+export const NOT_ALLOWED = "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่ใช้งานระบบใบงานได้";
+const SCHEMA = "analytics";
+
+/** บรรทัดแรกของทุก action (อ่านและเขียน): ต้องมี session (เมื่อเปิด gate) และเป็น owner/admin */
+export async function guard(): Promise<{ ok: false; error: string } | null> {
+  try {
+    await requireSessionIfGateOn();
+  } catch {
+    return fail("ต้องเข้าสู่ระบบก่อน");
+  }
+  if (!(await canManageJobs())) return fail(NOT_ALLOWED);
+  return null;
+}
+
+/** id ผู้ใช้จาก session ฝั่ง server (ไม่รับจาก client) · อ่านไม่ได้ = null → RPC ปฏิเสธด้วย actor_required */
+export async function actorId(): Promise<string | null> {
+  try {
+    return (await getSessionUser())?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export function shopId(): string {
+  return getDevShopId();
+}
+
+export function db() {
+  return getServiceClient().schema(SCHEMA);
+}
+
+/**
+ * เรียก RPC ออฟฟิศที่รับ p_actor — ไม่มี actor = ไม่เรียก (ข้อความไทย)
+ * @param opts.noActor RPC ที่ไม่มี p_actor (job_stage_suggest) — ไม่ใส่ p_actor
+ */
+export async function callOffice<T>(fn: string, params: Record<string, unknown>, opts: { noActor?: boolean } = {}): Promise<JobResult<T>> {
+  let actor: string | null = null;
+  if (!opts.noActor) {
+    actor = await actorId();
+    if (!actor) return fail("ต้องเข้าสู่ระบบก่อนทำรายการ");
+  }
+  try {
+    const sent = opts.noActor ? { ...params, p_shop_id: shopId() } : { ...params, p_shop_id: shopId(), p_actor: actor };
+    const { data, error } = await db().rpc(fn, sent);
+    if (error) throw error;
+    return { ok: true, data: data as T };
+  } catch (err) {
+    logJobFailure(fn, err);
+    return fail(officeErrorMessage(err, GENERIC_JOB_ERROR));
+  }
+}
