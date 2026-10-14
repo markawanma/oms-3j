@@ -1,6 +1,8 @@
 -- 0175_job_plan_surplus.sql — M1 ส่วนแรก: จำนวนสั่ง/จำนวนเริ่มผลิต (เผื่อเสีย) + แผนโลหะ + ของเหลือ + ปิดหนี้ J1 D2/D6
--- ต่อจาก 0172-0174 (apply แล้ว แก้ไฟล์เดิมไม่ได้) · spec: docs/3j-jewelry/oms/design-job-plan-metal-gems.md §8.0-8.13 (ส่วนของ 0175) · ledger เบิกโลหะ = 0176 (ไม่อยู่ในไฟล์นี้)
+-- ต่อจาก 0172-0174 (apply แล้ว แก้ไฟล์เดิมไม่ได้) · spec: docs/3j-jewelry/oms/design-job-plan-metal-gems.md §8.0-8.13 (ส่วนของ 0175) · 0176 (record profile) ไม่อยู่ในไฟล์นี้
 -- ⚠️ ยังไม่ APPLY — dry-run เท่านั้น (apply หลัง security ผ่าน)
+-- 🔴 apply ด้วย node scripts/run-sql.mjs --commit --record เท่านั้น — ไฟล์พึ่งทรานแซกชันที่ runner ครอบทั้งไฟล์ (temp table on commit drop · disable/enable trg_job_guard ต้องอยู่ tx เดียว)
+--    ห้าม psql -f แบบไม่มี -1/--single-transaction (autocommit: backfill ที่ปิด trigger แล้วพังกลางทาง = guard ค้างปิด)
 --
 -- ทำไม: ใบงาน J1 มี qty_planned ช่องเดียว — แต่ "จำนวนที่ลูกค้าสั่ง" (qty_order) กับ "จำนวนที่เริ่มผลิต" (qty_planned, เผื่อเสียจากหล่อ/ขัด/ชุบ) ต่างกันโดยตั้งใจ
 --   ผลิตเกิน = ของเหลือต้องมีที่ไป (hold ถือไว้ก่อน ตามมติ Q1) · ผลิตขาด = ป้ายเหลือง (Q9) · โลหะที่ต้องเตรียม DB คำนวณให้ (ไม่คูณใน client)
@@ -109,6 +111,12 @@ alter table analytics.job drop constraint if exists job_surplus_ck;
 alter table analytics.job add constraint job_surplus_ck
   check ((surplus_disposition is null or (status = 'done' and qty_good > qty_order))
          and (status <> 'done' or qty_good <= qty_order or surplus_disposition is not null));
+-- ของเหลือตามชนิดต้นทาง: OEM = hold/spare/deliver (ของลูกค้า ห้ามเข้าสต็อกเอง) · ผลิตเข้าสต็อก = stock เท่านั้น (security L2)
+alter table analytics.job drop constraint if exists job_surplus_source_ck;
+alter table analytics.job add constraint job_surplus_source_ck
+  check (surplus_disposition is null
+         or (source_kind = 'oem' and surplus_disposition <> 'stock')
+         or (source_kind = 'production' and surplus_disposition = 'stock'));
 alter table analytics.job drop constraint if exists job_surplus_note_only_ck;
 alter table analytics.job add constraint job_surplus_note_only_ck check (surplus_note is null or surplus_disposition is not null);
 
@@ -132,10 +140,14 @@ begin
 end;
 $e$;
 
+-- D2 ชั้นตาราง: ชื่อผู้รับงานห้ามมี < > ไม่ว่าเขียนผ่านทางไหน (security L3)
+alter table analytics.job_stage drop constraint if exists job_stage_assignee_ck;
+alter table analytics.job_stage add constraint job_stage_assignee_ck check (assignee_name is null or assignee_name !~ '[<>]');
+
 -- ============================================================================
 -- 2. helper D6 (ภายใน — ไม่ grant ให้ role ไหน) + drop job_counter_bump
 --    ทำไม: ด่านมัดจำ/scope ช่างเขียนซ้ำหลายที่ — แก้กติกาทีเดียวต้องไล่แก้หลายฟังก์ชัน (J1 หนี้ D6)
---    รอบนี้ใช้ใน job_core_receive · job_worker_resolve (ใช้ใน 0176) · v_job_board.deposit_missing คงเป็นนิพจน์แยก (ความหมายต่าง: ใบที่รับแล้วก็ยังนับว่า "ไม่มีเงินเข้า")
+--    รอบนี้ใช้ใน job_core_receive · job_worker_resolve (ใช้ใน 0176 record profile) · v_job_board.deposit_missing คงเป็นนิพจน์แยก (ความหมายต่าง: ใบที่รับแล้วก็ยังนับว่า "ไม่มีเงินเข้า")
 -- ============================================================================
 
 -- ด่านมัดจำ: ใบ OEM ที่ยังไม่มีขั้นไหนถูกรับ + ไม่มีเหตุผลเริ่มก่อนมัดจำ + ดีลยังไม่มีเงินเข้าเลย = true (ห้ามรับขั้นแรก)
@@ -373,9 +385,12 @@ begin
   if p_channel is null or p_channel not in ('job_page', 'daily_sheet') then
     raise exception 'ช่องทางต้องเป็น job_page หรือ daily_sheet' using errcode = '22023', hint = 'channel_invalid';
   end if;
-  -- D2: ชื่อผู้รับงานที่ออฟฟิศพิมพ์ ต้องผ่านด่านเดียวกับชื่อช่าง (ห้าม < >) · ว่าง/null = ไม่ระบุ (job_label_clean บังคับต้องมีค่า จึงกันก่อน)
-  v_assignee := case when nullif(btrim(coalesce(p_assignee_name, '')), '') is null then null
-                     else analytics.job_label_clean(p_assignee_name, 'ชื่อผู้รับงาน', 60) end;
+  -- D2: ชื่อผู้รับงานที่ออฟฟิศพิมพ์ ต้องผ่านด่านเดียวกับชื่อช่าง (ห้าม < >) · job_text_clean ก่อน (ตัดช่องว่างทุกชนิด รวม U+3000/NBSP/tab → ว่าง = null ไม่ใช่ error)
+  -- แล้ว job_label_clean เฉพาะเมื่อมีชื่อจริง (job_label_clean บังคับต้องมีตัวอักษร จึงเรียกกับค่าว่างไม่ได้)
+  v_assignee := analytics.job_text_clean(p_assignee_name, 'ชื่อผู้รับงาน', 60, false);
+  if v_assignee is not null then
+    v_assignee := analytics.job_label_clean(v_assignee, 'ชื่อผู้รับงาน', 60);
+  end if;
   if p_worker_id is not null and not exists (
        select 1 from analytics.worker w where w.id = p_worker_id and w.shop_id = p_shop_id and w.is_active) then
     raise exception 'ไม่พบช่างที่ใช้งานอยู่ในร้านนี้' using errcode = '22023', hint = 'worker_not_found';
@@ -402,7 +417,8 @@ create or replace function analytics.job_plan_compute(
   p_qty_planned     int,
   p_target_piece_g  numeric,
   p_override_g      numeric,
-  p_override_reason text
+  p_override_reason text,
+  p_target_source   text default null
 )
  returns jsonb
  language plpgsql
@@ -428,6 +444,9 @@ begin
   end if;
   if not (p_target_piece_g > 0 and p_target_piece_g <= 10000 and p_target_piece_g = round(p_target_piece_g, 3)) then
     raise exception 'น้ำหนักเป้าหมายต่อชิ้นต้องมากกว่า 0 ไม่เกิน 10,000 กรัม (ทศนิยมไม่เกิน 3 ตำแหน่ง)' using errcode = '22023', hint = 'target_invalid';
+  end if;
+  if p_target_source is not null and p_target_source not in ('quote', 'product', 'input') then
+    raise exception 'ที่มาของน้ำหนักเป้าหมายไม่ถูกต้อง' using errcode = '22023', hint = 'target_source_invalid';
   end if;
   if p_override_g is null and p_override_reason is not null then
     raise exception 'ส่งเหตุผลมาโดยไม่มีน้ำหนักโลหะที่กำหนดเอง' using errcode = '22023', hint = 'plan_override_missing';
@@ -468,7 +487,7 @@ begin
   end if;
 
   return jsonb_build_object('metal_plan_g', v_plan, 'basis', jsonb_build_object(
-    'target_piece_g', p_target_piece_g, 'qty_planned', p_qty_planned, 'sprue_loss_pct', v_sprue, 'sprue_rate_as_of', v_today,
+    'target_piece_g', p_target_piece_g, 'target_source', p_target_source, 'qty_planned', p_qty_planned, 'sprue_loss_pct', v_sprue, 'sprue_rate_as_of', v_today,
     'formula', 'qty_planned*target_piece_g*(1+sprue_loss_pct/100)', 'computed_g', v_computed,
     'override_g', p_override_g, 'override_reason', v_reason, 'missing', v_missing));
 end;
@@ -662,7 +681,7 @@ begin
   v_eff := coalesce(p_qty_planned, v_suggest, v_qty_ord);
   v_target := coalesce(p_target_piece_g, nullif(v_info ->> 'target_piece_g', '')::numeric);
   v_tsrc := case when p_target_piece_g is not null then 'input' else v_info ->> 'target_piece_g_source' end;
-  v_plan := analytics.job_plan_compute(p_shop_id, v_metal, v_eff, v_target, null, null);
+  v_plan := analytics.job_plan_compute(p_shop_id, v_metal, v_eff, v_target, null, null, v_tsrc);
   if jsonb_typeof(v_plan -> 'basis') = 'object' then
     v_missing := v_missing || (v_plan -> 'basis' -> 'missing');
   end if;
@@ -814,7 +833,8 @@ begin
   if v_target is not null and not (v_target > 0 and v_target <= 10000 and v_target = round(v_target, 3)) then
     raise exception 'น้ำหนักเป้าหมายต่อชิ้นต้องมากกว่า 0 ไม่เกิน 10,000 กรัม (ทศนิยมไม่เกิน 3 ตำแหน่ง)' using errcode = '22023', hint = 'target_invalid';
   end if;
-  v_plan := analytics.job_plan_compute(p_shop_id, v_info ->> 'metal', v_qty_planned, v_target, p_metal_plan_override_g, p_metal_plan_reason);
+  v_plan := analytics.job_plan_compute(p_shop_id, v_info ->> 'metal', v_qty_planned, v_target, p_metal_plan_override_g, p_metal_plan_reason,
+    case when p_target_piece_g is not null then 'input' else v_info ->> 'target_piece_g_source' end);
 
   return analytics.job_create_insert(p_shop_id, 'oem', p_quote_item_id, (v_info ->> 'root_quote_id')::uuid, (v_info ->> 'item_seq')::int,
     null, nullif(v_info ->> 'product_id', '')::uuid, v_label, nullif(v_info ->> 'sku', ''), v_info ->> 'metal', v_qty_planned,
@@ -879,7 +899,8 @@ begin
   if v_target is not null and not (v_target > 0 and v_target <= 10000 and v_target = round(v_target, 3)) then
     raise exception 'น้ำหนักเป้าหมายต่อชิ้นต้องมากกว่า 0 ไม่เกิน 10,000 กรัม (ทศนิยมไม่เกิน 3 ตำแหน่ง)' using errcode = '22023', hint = 'target_invalid';
   end if;
-  v_plan := analytics.job_plan_compute(p_shop_id, v_info ->> 'metal', v_qty_planned, v_target, p_metal_plan_override_g, p_metal_plan_reason);
+  v_plan := analytics.job_plan_compute(p_shop_id, v_info ->> 'metal', v_qty_planned, v_target, p_metal_plan_override_g, p_metal_plan_reason,
+    case when p_target_piece_g is not null then 'input' else v_info ->> 'target_piece_g_source' end);
 
   return analytics.job_create_insert(p_shop_id, 'production', null, null, null, p_production_order_item_id,
     nullif(v_info ->> 'product_id', '')::uuid, v_label, nullif(v_info ->> 'sku', ''), v_info ->> 'metal', v_qty_planned,
@@ -978,6 +999,22 @@ begin
       end if;
       v_ov := jsonb_typeof(new.metal_plan_basis -> 'override_g');
       v_cp := jsonb_typeof(new.metal_plan_basis -> 'computed_g');
+      -- basis ต้องไม่ใช่ของปลอม: ที่มาน้ำหนักถูกบันทึก · override ต้องมีเหตุผลจริง · computed_g ต้องเท่าสูตรเดียวกับ job_plan_compute เป๊ะ (security L1/L4)
+      if jsonb_typeof(new.metal_plan_basis -> 'target_source') is distinct from 'string'
+         or (new.metal_plan_basis ->> 'target_source') not in ('quote', 'product', 'input') then
+        raise exception 'job: basis ของแผนโลหะไม่ระบุที่มาของน้ำหนักเป้าหมาย (plan_drift)' using errcode = '22023', hint = 'plan_drift';
+      end if;
+      if v_ov = 'number' and not coalesce(analytics.oem_note_present(new.metal_plan_basis ->> 'override_reason'), false) then
+        raise exception 'job: แผนโลหะที่กำหนดเองต้องมีเหตุผล (plan_drift)' using errcode = '22023', hint = 'plan_drift';
+      end if;
+      if v_cp = 'number' then
+        if jsonb_typeof(new.metal_plan_basis -> 'sprue_loss_pct') is distinct from 'number'
+           or (new.metal_plan_basis ->> 'computed_g')::numeric is distinct from round(new.qty_planned * new.target_piece_g * (1 + (new.metal_plan_basis ->> 'sprue_loss_pct')::numeric / 100), 3) then
+          raise exception 'job: computed_g ไม่ตรงสูตรจำนวน × น้ำหนัก × (1 + อัตราก้านต้น) (plan_drift)' using errcode = '22023', hint = 'plan_drift';
+        end if;
+      elsif v_cp = 'null' and v_ov = 'null' and jsonb_typeof(new.metal_plan_basis -> 'sprue_loss_pct') is distinct from 'null' then
+        raise exception 'job: ไม่มี computed_g แต่ basis ระบุอัตราก้านต้น (plan_drift)' using errcode = '22023', hint = 'plan_drift';
+      end if;
       if v_ov = 'number' then
         if (new.metal_plan_basis ->> 'override_g')::numeric is distinct from new.metal_plan_g then
           raise exception 'job: โลหะที่ต้องเตรียมไม่ตรงกับค่าที่กำหนดเองใน basis (plan_drift)' using errcode = '22023', hint = 'plan_drift';
@@ -1056,6 +1093,22 @@ begin
     end if;
     v_ov := jsonb_typeof(new.metal_plan_basis -> 'override_g');
     v_cp := jsonb_typeof(new.metal_plan_basis -> 'computed_g');
+    -- basis ต้องไม่ใช่ของปลอม: ที่มาน้ำหนักถูกบันทึก · override ต้องมีเหตุผลจริง · computed_g ต้องเท่าสูตรเดียวกับ job_plan_compute เป๊ะ (security L1/L4)
+    if jsonb_typeof(new.metal_plan_basis -> 'target_source') is distinct from 'string'
+       or (new.metal_plan_basis ->> 'target_source') not in ('quote', 'product', 'input') then
+      raise exception 'job: basis ของแผนโลหะไม่ระบุที่มาของน้ำหนักเป้าหมาย (plan_drift)' using errcode = '22023', hint = 'plan_drift';
+    end if;
+    if v_ov = 'number' and not coalesce(analytics.oem_note_present(new.metal_plan_basis ->> 'override_reason'), false) then
+      raise exception 'job: แผนโลหะที่กำหนดเองต้องมีเหตุผล (plan_drift)' using errcode = '22023', hint = 'plan_drift';
+    end if;
+    if v_cp = 'number' then
+      if jsonb_typeof(new.metal_plan_basis -> 'sprue_loss_pct') is distinct from 'number'
+         or (new.metal_plan_basis ->> 'computed_g')::numeric is distinct from round(new.qty_planned * new.target_piece_g * (1 + (new.metal_plan_basis ->> 'sprue_loss_pct')::numeric / 100), 3) then
+        raise exception 'job: computed_g ไม่ตรงสูตรจำนวน × น้ำหนัก × (1 + อัตราก้านต้น) (plan_drift)' using errcode = '22023', hint = 'plan_drift';
+      end if;
+    elsif v_cp = 'null' and v_ov = 'null' and jsonb_typeof(new.metal_plan_basis -> 'sprue_loss_pct') is distinct from 'null' then
+      raise exception 'job: ไม่มี computed_g แต่ basis ระบุอัตราก้านต้น (plan_drift)' using errcode = '22023', hint = 'plan_drift';
+    end if;
     if v_ov = 'number' then
       if (new.metal_plan_basis ->> 'override_g')::numeric is distinct from new.metal_plan_g then
         raise exception 'job: โลหะที่ต้องเตรียมไม่ตรงกับค่าที่กำหนดเองใน basis (plan_drift)' using errcode = '22023', hint = 'plan_drift';
@@ -1102,8 +1155,6 @@ declare
   v_job    analytics.job%rowtype;
   v_reason text;
   v_plan   jsonb;
-  v_ovg    numeric := null;
-  v_ovr    text := null;
   v_job2   analytics.job%rowtype;
 begin
   v_job := analytics.job_office_begin('job_qty_planned_set', p_shop_id, p_job_id, v_actor);
@@ -1119,11 +1170,11 @@ begin
                               'qty_planned', v_job.qty_planned, 'under_planned', v_job.qty_planned < v_job.qty_order,
                               'metal_plan_g', v_job.metal_plan_g);
   end if;
+  -- ใบที่เจ้าของกำหนดน้ำหนักโลหะเอง (override): เปลี่ยนจำนวนแล้วค่าที่กำหนดไว้จะไม่ตรงกับจำนวนใหม่ — ไม่เดาต่อให้ ต้องตั้งแผนใหม่เอง (security M2)
   if jsonb_typeof(v_job.metal_plan_basis -> 'override_g') = 'number' then
-    v_ovg := (v_job.metal_plan_basis ->> 'override_g')::numeric;
-    v_ovr := v_job.metal_plan_basis ->> 'override_reason';
+    raise exception 'ใบนี้กำหนดน้ำหนักโลหะเองไว้ — ตั้งแผนโลหะใหม่ (job_plan_set) หลังแก้จำนวน' using errcode = '22023', hint = 'plan_override_stale';
   end if;
-  v_plan := analytics.job_plan_compute(p_shop_id, v_job.metal, p_qty_planned, v_job.target_piece_g, v_ovg, v_ovr);
+  v_plan := analytics.job_plan_compute(p_shop_id, v_job.metal, p_qty_planned, v_job.target_piece_g, null, null, v_job.metal_plan_basis ->> 'target_source');
   update analytics.job
      set qty_planned = p_qty_planned,
          metal_plan_g = (v_plan ->> 'metal_plan_g')::numeric,
@@ -1165,7 +1216,7 @@ begin
   if exists (select 1 from analytics.job_stage s where s.job_id = p_job_id and s.stage_code = 'cast' and s.status in ('received', 'sent')) then
     raise exception 'แก้แผนโลหะไม่ได้ — ขั้นหล่อถูกรับไปแล้ว' using errcode = '22023', hint = 'cast_started';
   end if;
-  v_plan := analytics.job_plan_compute(p_shop_id, v_job.metal, v_job.qty_planned, p_target_piece_g, p_override_g, p_override_reason);
+  v_plan := analytics.job_plan_compute(p_shop_id, v_job.metal, v_job.qty_planned, p_target_piece_g, p_override_g, p_override_reason, 'input');
   update analytics.job
      set target_piece_g = p_target_piece_g,
          metal_plan_g = (v_plan ->> 'metal_plan_g')::numeric,
