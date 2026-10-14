@@ -159,7 +159,7 @@ export function JobBoard({ initial }: { initial: BoardData }) {
         <h1 className="text-2xl font-bold text-zinc-900">ใบงานผลิต</h1>
         <div className="flex items-center gap-2">
           <p className="text-xs text-zinc-700 max-sm:hidden">
-            ข้อมูล ณ {thaiDateTime(updatedAt)} <span className="text-zinc-600">(อัตโนมัติทุก 30 วิ)</span>
+            ข้อมูล ณ {thaiDateTime(updatedAt)} <span>(อัตโนมัติทุก 30 วิ)</span>
           </p>
           <Button type="button" variant="secondary" onClick={() => void refresh()} loading={busy} aria-label="รีเฟรชบอร์ด">
             <RefreshCw className="h-4 w-4" aria-hidden="true" />
