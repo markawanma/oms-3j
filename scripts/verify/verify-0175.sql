@@ -549,10 +549,209 @@ begin
 end;
 $s$;
 
+-- ============================================================================
+-- กลุ่ม B2 — ห้ามผ่าน: input ของ job_create_from_* (จำนวนเริ่มผลิต · น้ำหนักเป้าหมาย · แผนกำหนดเอง) · ต้องไม่พัง: กำหนดเองพร้อมเหตุผลผ่าน
+-- ============================================================================
+create function pg_temp.sb2(p_shop uuid, p_tpl uuid) returns text
+ language plpgsql as $s$
+declare
+  v_log   text := '';
+  d jsonb; r jsonb; v_item uuid; v_n int; v_bad text; k text; v_inv text := chr(8203) || chr(10240) || chr(65039);
+  v_j analytics.job;
+begin
+  perform set_config('request.jwt.claims', '{"role":"service_role"}', true);
+  d := pg_temp.clone_deal(p_tpl, 'silver', 10, null, 'won', null, false);
+  v_item := (d ->> 'item_id')::uuid;
+
+  -- B7 จำนวนเริ่มผลิตนอกช่วง 0 / -1 / 100001 → 22023 qty_planned_invalid · ไม่เกิดใบงาน
+  v_n := 0;
+  foreach k in array array['0', '-1', '100001'] loop
+    r := pg_temp.jc(p_shop, v_item, k::int);
+    if pg_temp.code(r) = 'qty_planned_invalid' and (r ->> '_state') = '22023' then v_n := v_n + 1; end if;
+  end loop;
+  v_log := v_log || pg_temp.chk('B7', 'p_qty_planned = 0 / -1 / 100001 ถูกปฏิเสธ qty_planned_invalid (22023) ทั้ง 3 — ตก ' || v_n || '/3 · ไม่เกิดใบงานของรายการนี้',
+    v_n = 3 and not exists (select 1 from analytics.job where oem_quote_item_id = v_item));
+
+  -- B8 น้ำหนักเป้าหมายนอกช่วง: 0 · ติดลบ · NaN · Infinity · 10001 · ทศนิยม 4 ตำแหน่ง → target_invalid
+  v_n := 0; v_bad := '';
+  foreach k in array array['0', '-1', 'NaN', 'Infinity', '10001', '4.0001'] loop
+    r := pg_temp.jc(p_shop, v_item, null, k);
+    if pg_temp.code(r) = 'target_invalid' and (r ->> '_state') = '22023' then v_n := v_n + 1; else v_bad := v_bad || k || '=' || coalesce(pg_temp.code(r), 'ผ่าน') || ' '; end if;
+  end loop;
+  v_log := v_log || pg_temp.chk('B8', 'p_target_piece_g = 0 / -1 / NaN / Infinity / 10001 / 4.0001 ถูกปฏิเสธ target_invalid ทั้ง 6 — ตก ' || v_n || '/6 ' || v_bad
+    || '· ไม่เกิดใบงาน', v_n = 6 and not exists (select 1 from analytics.job where oem_quote_item_id = v_item));
+
+  -- B9 แผนกำหนดเอง: ไม่มีเหตุผล · เหตุผลเป็นอักขระล่องหน/"." ล้วน · เหตุผลโดยไม่มีน้ำหนัก · น้ำหนัก 0/NaN/100001/ทศนิยมเกิน
+  v_n := 0; v_bad := '';
+  foreach k in array array['5|', '5|' || v_inv, '5|.', '5|   '] loop
+    r := pg_temp.jc(p_shop, v_item, null, '4', split_part(k, '|', 1), nullif(split_part(k, '|', 2), ''));
+    if pg_temp.code(r) = 'plan_reason_required' and (r ->> '_state') = '22023' then v_n := v_n + 1; else v_bad := v_bad || left(k, 3) || '=' || coalesce(pg_temp.code(r), 'ผ่าน') || ' '; end if;
+  end loop;
+  v_log := v_log || pg_temp.chk('B9a', 'กำหนดแผนโลหะเองโดยไม่มีเหตุผล / เหตุผลเป็นอักขระล่องหน-"."-ช่องว่างล้วน ถูกปฏิเสธ plan_reason_required ทั้ง 4 — ตก ' || v_n || '/4 ' || v_bad,
+    v_n = 4 and not exists (select 1 from analytics.job where oem_quote_item_id = v_item));
+  v_n := 0; v_bad := '';
+  foreach k in array array['0', '-5', 'NaN', 'Infinity', '100001', '5.0001'] loop
+    r := pg_temp.jc(p_shop, v_item, null, '4', k, 'ลูกค้าขอเพิ่ม');
+    if pg_temp.code(r) = 'plan_override_invalid' and (r ->> '_state') = '22023' then v_n := v_n + 1; else v_bad := v_bad || k || '=' || coalesce(pg_temp.code(r), 'ผ่าน') || ' '; end if;
+  end loop;
+  r := pg_temp.jc(p_shop, v_item, null, '4', null, 'มีเหตุผลแต่ไม่มีน้ำหนัก');
+  v_log := v_log || pg_temp.chk('B9b', 'น้ำหนักโลหะกำหนดเอง 0 / ติดลบ / NaN / Infinity / 100001 / 5.0001 ถูกปฏิเสธ plan_override_invalid ทั้ง 6 (ตก ' || v_n || '/6 ' || v_bad || ') · ส่งเหตุผลโดยไม่มีน้ำหนัก → plan_override_missing',
+    v_n = 6 and pg_temp.code(r) = 'plan_override_missing' and not exists (select 1 from analytics.job where oem_quote_item_id = v_item));
+
+  -- B9c ตั้งแผนเองโดยไม่มีน้ำหนักเป้าหมาย (เรียก job_plan_compute ตรง) → plan_target_required · ไม่มี target = {null,null} (jsonb null ทั้งคู่ ไม่ใช่ 0)
+  r := pg_temp.q(format('select analytics.job_plan_compute(%L, %L, 10, null, 5, %L)', p_shop, 'silver', 'เหตุผล'));
+  v_log := v_log || pg_temp.chk('B9c', 'job_plan_compute: override โดยไม่มี target → plan_target_required · ไม่มี target + ไม่มี override → {metal_plan_g: null, basis: null} (jsonb null ไม่ใช่ 0)',
+    pg_temp.code(r) = 'plan_target_required'
+    and jsonb_typeof(analytics.job_plan_compute(p_shop, 'silver', 10, null, null, null) -> 'metal_plan_g') = 'null'
+    and jsonb_typeof(analytics.job_plan_compute(p_shop, 'silver', 10, null, null, null) -> 'basis') = 'null');
+
+  -- B10 ต้องไม่พัง: กำหนดเองพร้อมเหตุผล → สร้างได้ · metal_plan_g = ค่าที่กำหนด · basis เก็บ override_g/override_reason/computed_g (เทียบสูตรได้) · แล้วแก้ผ่าน job_plan_set ล้าง override ได้
+  r := pg_temp.jc(p_shop, v_item, null, '4', '5.500', 'ลูกค้าขอโลหะเพิ่มสำหรับงานพิเศษ');
+  select * into v_j from analytics.job where id = (r ->> 'job_id')::uuid;
+  v_log := v_log || pg_temp.chk('B10a', 'กำหนดแผนเอง 5.500 + เหตุผล: สร้างได้ · metal_plan_g = 5.500 · basis.override_g = 5.5 + มีเหตุผล + missing = [] · target = 4.000',
+    (r ->> 'job_id') is not null and v_j.metal_plan_g = 5.500 and (v_j.metal_plan_basis ->> 'override_g')::numeric = 5.5
+    and (v_j.metal_plan_basis ->> 'override_reason') = 'ลูกค้าขอโลหะเพิ่มสำหรับงานพิเศษ' and v_j.metal_plan_basis -> 'missing' = '[]'::jsonb and v_j.target_piece_g = 4.000);
+  r := pg_temp.q(format('select analytics.job_plan_set(p_shop_id=>%L, p_job_id=>%L, p_target_piece_g=>3.000, p_actor=>%L)', p_shop, v_j.id, '00000000-0000-0000-0000-0000000000a1'::uuid));
+  select * into v_j from analytics.job where id = v_j.id;
+  v_log := v_log || pg_temp.chk('B10b', 'job_plan_set ก่อน cast รับ: เปลี่ยน target เป็น 3.000 โดยไม่ส่ง override → override ถูกล้าง (basis.override_g = jsonb null) · plan = ค่าที่ DB คำนวณ (computed_g) · event plan_change 1 รายการ',
+    (r ->> 'ok') = 'true' and v_j.target_piece_g = 3.000 and jsonb_typeof(v_j.metal_plan_basis -> 'override_g') = 'null'
+    and v_j.metal_plan_g is not distinct from (v_j.metal_plan_basis ->> 'computed_g')::numeric
+    and (select count(*) from analytics.job_event where job_id = v_j.id and event_type = 'plan_change') = 1);
+  return v_log;
+end;
+$s$;
+
+-- ============================================================================
+-- กลุ่ม B3 — ห้ามผ่าน: job_qty_planned_set · job_plan_set · job_done (ของเหลือ) · job_surplus_set
+-- ============================================================================
+create function pg_temp.sb3(p_shop uuid, p_tpl uuid) returns text
+ language plpgsql as $s$
+declare
+  v_log   text := '';
+  v_today date := analytics.job_today();
+  v_act   constant uuid := '00000000-0000-0000-0000-0000000000a1';
+  jq uuid; jo uuid; jd uuid; jp uuid; jx uuid; jc uuid; jn uuid;
+  d jsonb; r jsonb; r2 jsonb; v_ev int; v_n int; v_t1 text; v_j analytics.job; v_inv text := chr(8203) || chr(10240) || chr(65039);
+begin
+  perform set_config('request.jwt.claims', '{"role":"service_role"}', true);
+
+  -- ---------- job_qty_planned_set ----------
+  jq := (pg_temp.mkj2(p_shop, p_tpl, 'silver', 10, 10, '4.000') ->> 'job_id')::uuid;
+  r := pg_temp.q(format('select analytics.job_qty_planned_set(p_shop_id=>%L, p_job_id=>%L, p_qty_planned=>12, p_reason=>%L, p_actor=>%L)', p_shop, jq, 'เผื่อเสียเพิ่ม', v_act));
+  select * into v_j from analytics.job where id = jq;
+  v_log := v_log || pg_temp.chk('B11a', 'ต้องไม่พัง: job_qty_planned_set 10→12 ก่อนมีขั้นถูกรับ: qty_planned = 12 · basis.qty_planned = 12 (แผนคำนวณใหม่ ไม่ drift) · qty_order ยัง 10 · event plan_change 1',
+    (r ->> 'ok') = 'true' and (r ->> 'changed') = 'true' and v_j.qty_planned = 12 and v_j.qty_order = 10
+    and (v_j.metal_plan_basis ->> 'qty_planned')::int = 12
+    and (select count(*) from analytics.job_event where job_id = jq and event_type = 'plan_change') = 1
+    and v_j.metal_plan_g is not distinct from (v_j.metal_plan_basis ->> 'computed_g')::numeric);
+  select count(*) into v_ev from analytics.job_event where job_id = jq;
+  r := pg_temp.q(format('select analytics.job_qty_planned_set(%L, %L, 12, null, %L)', p_shop, jq, v_act));
+  v_log := v_log || pg_temp.chk('B11b', 'ค่าเท่าเดิม (12→12) = changed:false ไม่เขียน event · ค่า 0 / -3 / 100001 → qty_planned_invalid · ใบอื่นร้าน/ไม่มี → job_not_found',
+    (r ->> 'changed') = 'false' and (select count(*) from analytics.job_event where job_id = jq) = v_ev
+    and pg_temp.code(pg_temp.q(format('select analytics.job_qty_planned_set(%L, %L, 0, null, %L)', p_shop, jq, v_act))) = 'qty_planned_invalid'
+    and pg_temp.code(pg_temp.q(format('select analytics.job_qty_planned_set(%L, %L, -3, null, %L)', p_shop, jq, v_act))) = 'qty_planned_invalid'
+    and pg_temp.code(pg_temp.q(format('select analytics.job_qty_planned_set(%L, %L, 100001, null, %L)', p_shop, jq, v_act))) = 'qty_planned_invalid'
+    and pg_temp.code(pg_temp.q(format('select analytics.job_qty_planned_set(%L, %L, 5, null, %L)', p_shop, gen_random_uuid(), v_act))) = 'job_not_found');
+  perform pg_temp.o_recv(p_shop, jq, 1, v_today, null, null, 'verify');
+  r := pg_temp.q(format('select analytics.job_qty_planned_set(%L, %L, 15, null, %L)', p_shop, jq, v_act));
+  select * into v_j from analytics.job where id = jq;
+  v_log := v_log || pg_temp.chk('B11c', 'หลังขั้นแรกถูกรับ job_qty_planned_set ตก hint started · qty_planned ไม่ขยับ (12) · ไม่เขียน event ใหม่',
+    pg_temp.code(r) = 'started' and v_j.qty_planned = 12 and (select count(*) from analytics.job_event where job_id = jq and event_type = 'plan_change') = 1);
+
+  -- ---------- job_plan_set ----------
+  jo := (pg_temp.mkj2(p_shop, p_tpl, 'silver', 10, 10, '4.000') ->> 'job_id')::uuid;
+  perform pg_temp.o_run(p_shop, jo, 1, 3, v_today);
+  r := pg_temp.q(format('select analytics.job_plan_set(p_shop_id=>%L, p_job_id=>%L, p_target_piece_g=>5.000, p_actor=>%L)', p_shop, jo, v_act));
+  select * into v_j from analytics.job where id = jo;
+  v_log := v_log || pg_temp.chk('B12a', 'ต้องไม่พัง: job_plan_set หลังขั้น 1-3 ส่งแล้วแต่ cast ยังไม่รับ: ผ่าน · target = 5.000 · basis.target_piece_g = 5',
+    (r ->> 'ok') = 'true' and v_j.target_piece_g = 5.000 and (v_j.metal_plan_basis ->> 'target_piece_g')::numeric = 5);
+  r := pg_temp.q(format('select analytics.job_plan_set(p_shop_id=>%L, p_job_id=>%L, p_target_piece_g=>5.000, p_override_g=>9, p_actor=>%L)', p_shop, jo, v_act));
+  r2 := pg_temp.q(format('select analytics.job_plan_set(p_shop_id=>%L, p_job_id=>%L, p_target_piece_g=>5.000, p_override_g=>9, p_override_reason=>%L, p_actor=>%L)', p_shop, jo, v_inv, v_act));
+  v_log := v_log || pg_temp.chk('B12b', 'job_plan_set: override ไม่มีเหตุผล / เหตุผลล่องหน → plan_reason_required · override โดยล้าง target (null) → plan_target_required · NaN → target_invalid',
+    pg_temp.code(r) = 'plan_reason_required' and pg_temp.code(r2) = 'plan_reason_required'
+    and pg_temp.code(pg_temp.q(format('select analytics.job_plan_set(p_shop_id=>%L, p_job_id=>%L, p_target_piece_g=>null, p_override_g=>9, p_override_reason=>%L, p_actor=>%L)', p_shop, jo, 'x เหตุผล', v_act))) = 'plan_target_required'
+    and pg_temp.code(pg_temp.q(format('select analytics.job_plan_set(p_shop_id=>%L, p_job_id=>%L, p_target_piece_g=>%L::numeric, p_actor=>%L)', p_shop, jo, 'NaN', v_act))) = 'target_invalid'
+    and (select target_piece_g from analytics.job where id = jo) = 5.000);
+  perform pg_temp.o_recv(p_shop, jo, 4, v_today, 9.9, null, 'verify');
+  r := pg_temp.q(format('select analytics.job_plan_set(p_shop_id=>%L, p_job_id=>%L, p_target_piece_g=>6.000, p_actor=>%L)', p_shop, jo, v_act));
+  v_log := v_log || pg_temp.chk('B12c', 'หลัง cast ถูกรับ job_plan_set ตก cast_started · แผนไม่ขยับ (target 5.000)',
+    pg_temp.code(r) = 'cast_started' and (select target_piece_g from analytics.job where id = jo) = 5.000);
+  jc := (pg_temp.mkj2(p_shop, p_tpl, 'silver', 10, 10, '4.000') ->> 'job_id')::uuid;
+  r := pg_temp.q(format('select analytics.job_plan_set(p_shop_id=>%L, p_job_id=>%L, p_target_piece_g=>null, p_actor=>%L)', p_shop, jc, v_act));
+  select * into v_j from analytics.job where id = jc;
+  v_log := v_log || pg_temp.chk('B12d', 'ต้องไม่พัง: ล้างแผน (target null) ก่อน cast รับ = target/metal_plan_g/metal_plan_basis เป็น null พร้อมกัน (CHECK job_plan_ck ผ่าน)',
+    (r ->> 'ok') = 'true' and v_j.target_piece_g is null and v_j.metal_plan_g is null and v_j.metal_plan_basis is null);
+
+  -- ---------- job_done: ของเหลือ ----------
+  jd := (pg_temp.mkj2(p_shop, p_tpl, 'silver', 10, 12) ->> 'job_id')::uuid;      -- OEM สั่ง 10 เริ่ม 12
+  perform pg_temp.o_run(p_shop, jd, 1, 8, v_today);
+  r := pg_temp.o_done(p_shop, jd, 11, 1, 'stock');
+  r2 := pg_temp.o_done(p_shop, jd, 11, 1, 'banana');
+  v_log := v_log || pg_temp.chk('B13a', 'OEM ปิดงานของเหลือ 1 ชิ้น: เลือก stock ตก surplus_oem_no_stock · ค่ามั่ว ตก surplus_invalid · หมายเหตุ > 200 ตัว / ล่องหน ตกทั้งคู่ · ใบยังไม่ปิด (status ไม่เปลี่ยน)',
+    pg_temp.code(r) = 'surplus_oem_no_stock' and pg_temp.code(r2) = 'surplus_invalid'
+    and (pg_temp.o_done(p_shop, jd, 11, 1, 'hold', repeat('ก', 201)) ->> '_state') = '22023'
+    and (pg_temp.o_done(p_shop, jd, 11, 1, 'hold', v_inv) ->> '_state') = '22023'
+    and (select status from analytics.job where id = jd) in ('open', 'in_progress'));
+  jp := (pg_temp.mkpj2(p_shop, 10, 12) ->> 'job_id')::uuid;                      -- ผลิต สั่ง 10 เริ่ม 12
+  perform pg_temp.o_run(p_shop, jp, 1, 8, v_today);
+  v_log := v_log || pg_temp.chk('B13b', 'ใบผลิตมีของเหลือ: ส่ง hold / spare / deliver ตก surplus_production_stock_only (เข้าสต็อกเสมอ) · ไม่ส่งค่า = stock',
+    pg_temp.code(pg_temp.o_done(p_shop, jp, 11, 1, 'hold')) = 'surplus_production_stock_only'
+    and pg_temp.code(pg_temp.o_done(p_shop, jp, 11, 1, 'spare')) = 'surplus_production_stock_only'
+    and pg_temp.code(pg_temp.o_done(p_shop, jp, 11, 1, 'deliver')) = 'surplus_production_stock_only'
+    and (select status from analytics.job where id = jp) in ('open', 'in_progress'));
+  jx := (pg_temp.mkj2(p_shop, p_tpl, 'silver', 10, 10) ->> 'job_id')::uuid;
+  perform pg_temp.o_run(p_shop, jx, 1, 8, v_today);
+  v_log := v_log || pg_temp.chk('B13c', 'ไม่มีของเหลือ (ดี 10 = สั่ง 10): ส่ง disposition (hold/stock) หรือหมายเหตุของเหลือมา → ตก surplus_unexpected · ปิดงานไม่ได้จนกว่าจะไม่ส่ง · ส่งหมายเหตุว่างเปล่า "  " ไม่ถือว่าส่ง (ผ่าน)',
+    pg_temp.code(pg_temp.o_done(p_shop, jx, 10, 0, 'hold')) = 'surplus_unexpected'
+    and pg_temp.code(pg_temp.o_done(p_shop, jx, 10, 0, 'stock')) = 'surplus_unexpected'
+    and pg_temp.code(pg_temp.o_done(p_shop, jx, 10, 0, null, 'หมายเหตุลอย')) = 'surplus_unexpected'
+    and (select status from analytics.job where id = jx) in ('open', 'in_progress')
+    and (pg_temp.o_done(p_shop, jx, 10, 0, null, '  ') ->> 'ok') = 'true');
+
+  -- ---------- job_surplus_set ----------
+  jn := (pg_temp.mkj2(p_shop, p_tpl, 'silver', 10, 10) ->> 'job_id')::uuid;      -- ใบ open
+  r := pg_temp.o_surplus(p_shop, jn, 'spare');
+  r2 := pg_temp.o_surplus(p_shop, jx, 'spare');                                  -- done แต่ไม่มีของเหลือ
+  d := pg_temp.o_done(p_shop, jp, 11, 1);                                        -- ปิดใบผลิตก่อน (ผลต้องมองเห็นในคำสั่งถัดไป ไม่ใช่คำสั่งเดียวกัน)
+  v_ev := (select count(*) from analytics.job_event where job_id = jp and event_type = 'surplus_set');
+  v_t1 := pg_temp.code(pg_temp.o_surplus(p_shop, jp, 'spare'));
+  v_log := v_log || pg_temp.chk('B14a', 'job_surplus_set บนใบ open ตก no_surplus · บนใบ done ที่ไม่มีของเหลือ ตก no_surplus · บนใบผลิต (done มีของเหลือ stock) ตก surplus_fixed · ไม่ขยับ/ไม่เขียน event',
+    pg_temp.code(r) = 'no_surplus' and pg_temp.code(r2) = 'no_surplus' and (d ->> 'ok') = 'true' and v_t1 = 'surplus_fixed'
+    and (select surplus_disposition from analytics.job where id = jp) = 'stock'
+    and (select count(*) from analytics.job_event where job_id = jp and event_type = 'surplus_set') = v_ev);
+  jc := (pg_temp.mkj2(p_shop, p_tpl, 'silver', 10, 12) ->> 'job_id')::uuid;
+  perform pg_temp.o_run(p_shop, jc, 1, 8, v_today);
+  perform pg_temp.o_done(p_shop, jc, 11, 1);
+  v_n := 0;
+  select count(*) into v_ev from analytics.job_event where job_id = jc and event_type = 'surplus_set';
+  r := pg_temp.o_surplus(p_shop, jc, 'stock');
+  r2 := pg_temp.o_surplus(p_shop, jc, 'xyz');
+  v_log := v_log || pg_temp.chk('B14b', 'job_surplus_set บนใบ done (OEM มีของเหลือ): ค่า stock / ค่ามั่ว / null ตก surplus_invalid · หมายเหตุล่องหน/ยาว > 200 ตก 22023 · ไม่ขยับ (hold) · ไม่เขียน event',
+    pg_temp.code(r) = 'surplus_invalid' and pg_temp.code(r2) = 'surplus_invalid' and pg_temp.code(pg_temp.o_surplus(p_shop, jc, null)) = 'surplus_invalid'
+    and (pg_temp.o_surplus(p_shop, jc, 'spare', v_inv) ->> '_state') = '22023' and (pg_temp.o_surplus(p_shop, jc, 'spare', repeat('ก', 201)) ->> '_state') = '22023'
+    and (select surplus_disposition from analytics.job where id = jc) = 'hold'
+    and (select count(*) from analytics.job_event where job_id = jc and event_type = 'surplus_set') = v_ev);
+  r := pg_temp.o_surplus(p_shop, jc, 'spare', 'ลูกค้าให้เก็บเป็นอะไหล่');
+  select * into v_j from analytics.job where id = jc;
+  v_n := (select count(*) from analytics.job_event where job_id = jc and event_type = 'surplus_set');
+  v_log := v_log || pg_temp.chk('B14c', 'ต้องไม่พัง: hold → spare + หมายเหตุ ผ่าน · event surplus_set เพิ่ม 1',
+    (r ->> 'ok') = 'true' and v_j.surplus_disposition = 'spare' and v_j.surplus_note = 'ลูกค้าให้เก็บเป็นอะไหล่' and v_n = v_ev + 1);
+  r := pg_temp.o_surplus(p_shop, jc, 'deliver');
+  r2 := pg_temp.q(format('select analytics.job_cancel(%L, %L, %L, %L)', p_shop, jn, 'verify ยกเลิก', v_act));
+  v_t1 := pg_temp.code(pg_temp.o_surplus(p_shop, jn, 'spare'));
+  v_log := v_log || pg_temp.chk('B14d', 'ต้องไม่พัง: spare → deliver ผ่านอีก · event เก็บ before/after (spare → deliver) · ใบที่ยกเลิก (job_cancel) แล้ว → job_closed',
+    (r ->> 'ok') = 'true' and (r2 ->> 'ok') = 'true' and v_t1 = 'job_closed'
+    and exists (select 1 from analytics.job_event e where e.job_id = jc and e.event_type = 'surplus_set' and e.payload #>> '{before,disposition}' = 'spare' and e.payload #>> '{after,disposition}' = 'deliver'));
+  return v_log;
+end;
+$s$;
+
 create function pg_temp.run_all(p_shop uuid, p_tpl uuid) returns text
  language sql as $c$
   select pg_temp.run_sec('sa', p_shop, p_tpl)
       || pg_temp.run_sec('sb1', p_shop, p_tpl)
+      || pg_temp.run_sec('sb2', p_shop, p_tpl)
+      || pg_temp.run_sec('sb3', p_shop, p_tpl)
 $c$;
 
 do $v175$
