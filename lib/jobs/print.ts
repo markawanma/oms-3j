@@ -32,6 +32,9 @@ export interface PrintableJob {
 
 /** ขั้นที่ยังต้องผ่าน (ไม่นับที่ข้ามแล้ว) — ใบงานพิมพ์เฉพาะแถวที่ช่างต้องเซ็น */
 export function toPrintableJob(job: JobDetail, stages: readonly StageRow[]): PrintableJob {
+  // 🔴 ทอง: น้ำหนักทอง = มูลค่า — ใบงานติดถุงงานที่ช่าง/คนนอกเห็น ห้ามมีแผนโลหะ/น้ำหนักเป้าหมาย/น้ำหนักตั้งต้น (security M1 · ช่างทองต้องชั่งแบบไม่รู้คำตอบ)
+  // ตัดที่ type boundary นี้ ไม่ใช่ที่ component — field ที่ไม่ถูกประกอบจะไม่ถึงเบราว์เซอร์
+  const isGold = job.metal === "gold";
   return {
     jobId: job.id,
     jobNo: job.jobNo,
@@ -40,11 +43,11 @@ export function toPrintableJob(job: JobDetail, stages: readonly StageRow[]): Pri
     metalLabel: METAL_LABEL[job.metal] ?? job.metal,
     qtyOrder: job.qtyOrder,
     qtyPlanned: job.qtyPlanned,
-    targetPieceG: job.targetPieceG,
-    metalPlanG: job.metalPlanG,
+    targetPieceG: isGold ? null : job.targetPieceG,
+    metalPlanG: isGold ? null : job.metalPlanG,
     dueDate: job.dueDate,
     sourceLabel: job.sourceKind === "oem" ? "งานลูกค้า" : (SOURCE_LABEL[job.sourceKind] ?? "ผลิตเข้าสต็อก"),
-    weightStartG: job.weightStartG,
+    weightStartG: isGold ? null : job.weightStartG,
     stages: stages.filter((s) => s.status !== "skipped").map((s) => ({ seq: s.seq, name: s.name, weighRequired: s.weighRequired })),
   };
 }

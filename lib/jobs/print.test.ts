@@ -23,6 +23,16 @@ describe("toPrintableJob", () => {
     for (const secret of ["บริษัท ลับ", "ลูกค้าประจำ", "i-secret", "ช่างลับ", "โน้ตลับ", "หมายเหตุภายใน"]) expect(json).not.toContain(secret);
     expect(findForbiddenKeys(p)).toEqual([]);
   });
+  it("🔴 ใบทอง: ไม่มี target/แผนโลหะ/น้ำหนักตั้งต้น (null ที่ type boundary แม้ JobDetail มีค่า) · ใบเงินและทองเหลืองยังมีครบ", () => {
+    const plan = { targetPieceG: 4, metalPlanG: 48.5, weightStartG: 120.5 };
+    const g = toPrintableJob(job({ metal: "gold", ...plan }), [stage(1, "หล่อ", "pending", true)]);
+    expect([g.targetPieceG, g.metalPlanG, g.weightStartG]).toEqual([null, null, null]);
+    expect(JSON.stringify(g)).not.toMatch(/48.5|120.5/);
+    for (const m of ["silver", "brass"]) {
+      const p = toPrintableJob(job({ metal: m, ...plan }), []);
+      expect([p.targetPieceG, p.metalPlanG, p.weightStartG]).toEqual([4, 48.5, 120.5]);
+    }
+  });
   it("แต่ละขั้นมีเฉพาะ ลำดับ/ชื่อ/บังคับชั่ง — ไม่มีวัน/ช่าง/น้ำหนักของใบเก่า", () => {
     const p = toPrintableJob(job(), [stage(1, "หล่อ", "sent", true)]);
     expect(Object.keys(p.stages[0]).sort()).toEqual(["name", "seq", "weighRequired"]);
