@@ -746,12 +746,360 @@ begin
 end;
 $s$;
 
+-- ============================================================================
+-- กลุ่ม C1 — D2 (ชื่อผู้รับงาน < >) · D6 golden: job_core_receive ใหม่ (ใช้ helper) เทียบกับ legacy (def 0174 ฝังไว้ ถอยกลับกับ section)
+-- ============================================================================
+-- เรียก core ตรงด้วยชื่อฟังก์ชัน (ใหม่/legacy) -> jsonb
+create function pg_temp.core(p_fn text, p_job uuid, p_seq int, p_w numeric, p_worker uuid, p_name text, p_enforce boolean) returns jsonb
+ language sql as $c$
+  select pg_temp.q(format('select analytics.%I(%L::uuid, %L::int, %L::date, %L::numeric, %L::uuid, %L::text, %L::text, %L::uuid, null::text, %L::boolean)',
+    p_fn, p_job, p_seq, analytics.job_today(), p_w, p_worker, p_name, 'job_page', '00000000-0000-0000-0000-0000000000a1'::uuid, p_enforce)) $c$;
+
+create function pg_temp.sc1(p_shop uuid, p_tpl uuid) returns text
+ language plpgsql as $s$
+declare
+  v_log   text := '';
+  v_today date := analytics.job_today();
+  v_act   constant uuid := '00000000-0000-0000-0000-0000000000a1';
+  j1 uuid; j2 uuid; ja uuid; jb uuid; wl uuid; wf uuid; x text;
+  r jsonb; r2 jsonb; ra jsonb; rb jsonb; v_ok boolean := true; v_why text := '';
+  pj1 uuid; pj2 uuid;
+begin
+  perform set_config('request.jwt.claims', '{"role":"service_role"}', true);
+  -- สร้างฟังก์ชัน legacy (def ของ job_core_receive ก่อน 0175 = 0174:245) ใน subtransaction ของ section นี้
+  execute $lg$
+create or replace function analytics.job_core_receive_legacy(
+  p_job_id        uuid,
+  p_expected_seq  int,
+  p_occurred_on   date,
+  p_weight_in     numeric,
+  p_worker_id     uuid,
+  p_assignee      text,
+  p_channel       text,
+  p_actor         uuid,
+  p_device_hint   text,
+  p_enforce_scope boolean
+)
+ returns jsonb
+ language plpgsql
+ set search_path to 'public', 'analytics', 'extensions', 'pg_temp'
+as $f$
+declare
+  v_job     analytics.job%rowtype;
+  v_t       analytics.job_stage%rowtype;
+  v_t2      analytics.job_stage%rowtype;
+  v_p       analytics.job_stage%rowtype;
+  v_p2      analytics.job_stage%rowtype;
+  v_today   date := analytics.job_today();
+  v_codes   text[];
+  v_name    text;
+  v_paid    numeric;
+  v_def     text;
+  v_auto    text := null;
+  v_gap     numeric := null;
+begin
+  select * into v_job from analytics.job where id = p_job_id;
+  if not found then
+    return analytics.job_fail('job_not_found', 'ไม่พบใบงาน');
+  end if;
+  if v_job.status in ('done', 'cancelled') then
+    return analytics.job_fail('job_closed', 'ใบงานนี้ปิดแล้ว รับงานไม่ได้');
+  end if;
+  if v_job.status = 'on_hold' then
+    return analytics.job_fail('job_on_hold', 'ใบงานนี้ถูกพักไว้ รับงานไม่ได้ — แจ้งออฟฟิศ');
+  end if;
+  if p_expected_seq is null then
+    return analytics.job_fail('stage_changed', 'ข้อมูลงานเปลี่ยนไป กรุณารีเฟรชหน้าแล้วลองใหม่');
+  end if;
+
+  select * into v_t from analytics.job_stage where job_id = p_job_id and seq = p_expected_seq;
+  if not found then
+    return analytics.job_fail('stage_changed', 'ข้อมูลงานเปลี่ยนไป กรุณารีเฟรชหน้าแล้วลองใหม่');
+  end if;
+  if v_t.status = 'received' then
+    select coalesce(w.display_name, v_t.assignee_name, 'ผู้รับก่อนหน้า') into v_name
+      from (select 1) x left join analytics.worker w on w.id = v_t.worker_id;
+    return analytics.job_fail('already_received', format('ขั้นนี้ถูกรับไปแล้วโดย %s', v_name), jsonb_build_object('by', v_name));
+  end if;
+  if v_t.status <> 'pending' then
+    return analytics.job_fail('stage_changed', 'ข้อมูลงานเปลี่ยนไป กรุณารีเฟรชหน้าแล้วลองใหม่');
+  end if;
+  if exists (select 1 from analytics.job_stage s where s.job_id = p_job_id and s.seq < v_t.seq and s.status = 'pending') then
+    return analytics.job_fail('out_of_order', 'รับงานข้ามลำดับไม่ได้ — ขั้นก่อนหน้ายังไม่มีใครรับหรือข้าม');
+  end if;
+
+  -- วันที่: ช่างผ่าน QR = วันนี้เสมอ · ออฟฟิศย้อนได้ <= 14 วัน ไม่อนาคต (design §3 ข้อ 9 · มติ Q3)
+  if p_occurred_on is null
+     or p_occurred_on > v_today
+     or (p_channel = 'worker_qr' and p_occurred_on <> v_today)
+     or p_occurred_on < v_today - 14 then
+    return analytics.job_fail('date_invalid', 'วันที่รับงานต้องไม่ใช่อนาคตและย้อนหลังได้ไม่เกิน 14 วัน (ช่างสแกนผ่าน QR ใช้วันนี้เท่านั้น)');
+  end if;
+
+  if p_worker_id is null and p_assignee is null then
+    return analytics.job_fail('who_required', 'ต้องระบุผู้รับงาน');
+  end if;
+  if p_enforce_scope and p_worker_id is not null then
+    select w.stage_codes into v_codes from analytics.worker w where w.id = p_worker_id;
+    if coalesce(cardinality(v_codes), 0) > 0 and not (v_t.stage_code = any (v_codes)) then
+      select d.name_th into v_def from analytics.job_stage_def d where d.shop_id = v_job.shop_id and d.code = v_t.stage_code;
+      return analytics.job_fail('stage_not_allowed', format('งานนี้อยู่ขั้น "%s" ซึ่งคุณไม่ได้รับผิดชอบ', coalesce(v_def, v_t.stage_code)));
+    end if;
+  end if;
+
+  if not analytics.job_weight_ok(p_weight_in) then
+    return analytics.job_fail('weight_invalid', 'น้ำหนักเข้าต้องมากกว่า 0 และไม่เกิน 100,000 กรัม (ทศนิยมไม่เกิน 3 ตำแหน่ง)');
+  end if;
+  if v_t.weigh_required and p_weight_in is null then
+    return analytics.job_fail('weight_required', 'ขั้นนี้ต้องชั่งน้ำหนักก่อนรับงาน');
+  end if;
+
+  -- ด่านมัดจำ (design §3 ข้อ 13 · มติ Q4): รับขั้นแรกของงาน OEM ที่ดีลยังไม่มีเงินเข้าเลย ต้องมีเหตุผลที่ออฟฟิศบันทึกไว้
+  if v_job.source_kind = 'oem'
+     and not exists (select 1 from analytics.job_stage s where s.job_id = p_job_id and s.status in ('received', 'sent')) then
+    select coalesce(v.paid_thb, 0) into v_paid
+      from analytics.oem_quote_item i
+      join analytics.v_oem_quote v on v.id = i.quote_id
+     where i.id = v_job.oem_quote_item_id;
+    if coalesce(v_paid, 0) <= 0 and v_job.start_gate_note is null then
+      return analytics.job_fail('awaiting_deposit', 'รอมัดจำ — ดีลนี้ยังไม่มีเงินเข้า แจ้งออฟฟิศให้บันทึกเหตุผลก่อนเริ่มงาน');
+    end if;
+  end if;
+
+  -- ขั้นก่อนหน้า (ข้ามขั้นที่ skipped): ถ้ายังถือค้าง = ปิดอัตโนมัติ (ยกเว้นทอง) — ยืนยันฝ่ายเดียว (design §5.1 ข้อ 4)
+  select * into v_p from analytics.job_stage s
+   where s.job_id = p_job_id and s.seq < v_t.seq and s.status <> 'skipped' order by s.seq desc limit 1;
+  if found then
+    if v_p.status = 'received' then
+      if v_job.metal = 'gold' then
+        return analytics.job_fail('prev_not_sent', 'งานทอง: ขั้นก่อนหน้ายังไม่ได้กดส่งต่อ — ผู้ถือต้องกดส่งต่อพร้อมน้ำหนักออกก่อน');
+      end if;
+      -- QA 6: ขั้นก่อนหน้าบังคับชั่ง (เงิน: หล่อ/ตัดต้น/ขัด) และยังไม่มีน้ำหนักออก = ห้ามปิดอัตโนมัติ (ไม่งั้นรายงานน้ำหนักหายมีรูเงียบๆ)
+      if v_p.weigh_required then
+        return analytics.job_fail('prev_not_sent', 'ขั้นก่อนหน้าต้องชั่งน้ำหนักออกก่อน — ให้ผู้ถือกดส่งต่อพร้อมน้ำหนัก หรือแจ้งออฟฟิศกรอกแทน');
+      end if;
+      if p_occurred_on < v_p.received_on then
+        return analytics.job_fail('date_invalid', 'วันรับต้องไม่ก่อนวันที่ขั้นก่อนหน้ารับงาน');
+      end if;
+      update analytics.job_stage
+         set status = 'sent', sent_on = p_occurred_on, qty_out = qty_in, auto_closed = true
+       where id = v_p.id
+       returning * into v_p2;
+      perform analytics.job_event_write(p_job_id, v_p.id, 'stage_send', p_occurred_on, p_actor, p_worker_id, p_channel, p_device_hint,
+        jsonb_build_object('stage_code', v_p.stage_code, 'auto_closed', true, 'closed_by_receive_of', v_t.stage_code,
+                           'before', analytics.job_stage_state(v_p), 'after', analytics.job_stage_state(v_p2)));
+      v_auto := v_p.stage_code;
+      v_p := v_p2;
+    elsif v_p.status <> 'sent' then
+      return analytics.job_fail('out_of_order', 'รับงานข้ามลำดับไม่ได้ — ขั้นก่อนหน้ายังไม่เสร็จ');
+    end if;
+    if p_occurred_on < v_p.sent_on then
+      return analytics.job_fail('date_invalid', 'วันรับต้องไม่ก่อนวันที่ขั้นก่อนหน้าส่งต่อ');
+    end if;
+  end if;
+
+  -- M1: น้ำหนักที่รับ vs น้ำหนักที่ขั้นก่อนหน้าส่งออก · ทอง ต่างเกิน 0.05 g = ปฏิเสธ (ต้องชั่งใหม่/ให้ออฟฟิศย้อนขั้นก่อนแก้) ·
+  -- เงิน/ทองเหลือง ไม่บล็อก แต่เก็บส่วนต่างไว้ใน event + v_job_stage_loss.handoff_gap_g
+  -- N4: เทียบเฉพาะเมื่อทั้งขั้นก่อนและขั้นนี้บังคับชั่ง (เทียน/ปูนไม่ถูกเทียบกับหล่อ)
+  if v_p.id is not null and v_p.status = 'sent' and v_p.weight_out_g is not null and p_weight_in is not null
+     and v_t.weigh_required and v_p.weigh_required then
+    v_gap := p_weight_in - v_p.weight_out_g;
+    if v_job.metal = 'gold' and abs(v_gap) > 0.05 then
+      -- N1: ผู้รับต้องชั่งแบบไม่รู้คำตอบ — ข้อความ/ผลลัพธ์ไม่บอกขนาดส่วนต่างหรือน้ำหนักขั้นก่อน · แต่บันทึก event ทุกครั้งที่ไม่ตรงให้ออฟฟิศเห็น
+      -- (event_type 'weigh' ที่ 0172 ประกาศไว้แต่ยังไม่ใช้ · payload.kind = handoff_mismatch · คนเรียกฝั่งออฟฟิศ raise ทำให้ event นี้ถอยกลับ ซึ่งยอมรับได้: ออฟฟิศเห็น error ตรงๆ)
+      perform analytics.job_event_write(p_job_id, v_t.id, 'weigh', p_occurred_on, p_actor, p_worker_id, p_channel, p_device_hint,
+        jsonb_build_object('kind', 'handoff_mismatch', 'stage_code', v_t.stage_code, 'weight_in_g', p_weight_in,
+                           'prev_weight_out_g', v_p.weight_out_g, 'gap_g', v_gap));
+      return analytics.job_fail('handoff_mismatch', 'น้ำหนักที่รับไม่ตรงกับที่ขั้นก่อนส่งมา — ชั่งใหม่ ถ้ายังไม่ตรงให้แจ้งออฟฟิศ');
+    end if;
+  end if;
+
+  update analytics.job_stage
+     set status = 'received', received_on = p_occurred_on, worker_id = p_worker_id, assignee_name = p_assignee,
+         qty_in = case when v_p.id is not null then v_p.qty_out else v_job.qty_planned end,
+         weight_in_g = p_weight_in
+   where id = v_t.id
+   returning * into v_t2;
+
+  if v_job.weight_start_g is null and p_weight_in is not null and v_t.weigh_required then
+    update analytics.job set weight_start_g = p_weight_in where id = p_job_id;
+  end if;
+
+  perform analytics.job_event_write(p_job_id, v_t.id, 'stage_receive', p_occurred_on, p_actor, p_worker_id, p_channel, p_device_hint,
+    jsonb_build_object('stage_code', v_t.stage_code,
+                       'auto_closed_prev', v_auto, 'handoff_gap_g', v_gap,
+                       'before', analytics.job_stage_state(v_t), 'after', analytics.job_stage_state(v_t2)));
+
+  select d.name_th into v_def from analytics.job_stage_def d where d.shop_id = v_job.shop_id and d.code = v_t.stage_code;
+  return jsonb_build_object('ok', true, 'action', 'receive', 'job_no', v_job.job_no, 'stage_seq', v_t.seq, 'stage_code', v_t.stage_code,
+                            'stage_name', v_def, 'received_on', p_occurred_on, 'qty_in', v_t2.qty_in, 'weight_in_g', v_t2.weight_in_g,
+                            'prev_auto_closed', v_auto is not null,
+                            'handoff_gap_g', case when v_job.metal = 'gold' then null else v_gap end);
+end;
+$f$;
+  $lg$;
+  wl := (pg_temp.wu(p_shop, 'v175-เฉพาะหล่อ', 'cast', '4829') ->> 'id')::uuid;
+  wf := (pg_temp.wu(p_shop, 'v175-ทุกขั้น', '', '7351') ->> 'id')::uuid;
+
+  -- C1 D2: ชื่อผู้รับงานที่ออฟฟิศพิมพ์ — มี < หรือ > ถูกปฏิเสธ (ขั้นไม่ขยับ) · ต้องไม่พัง: ชื่อปกติ / ว่าง / null + ระบุช่าง ยังรับได้
+  j1 := (pg_temp.mkj2(p_shop, p_tpl, 'silver', 10) ->> 'job_id')::uuid;
+  r := pg_temp.o_recv(p_shop, j1, 1, v_today, null, null, 'ช่าง<b>เอ');
+  r2 := pg_temp.o_recv(p_shop, j1, 1, v_today, null, null, 'ช่างเอ>');
+  v_log := v_log || pg_temp.chk('C1a', 'D2: ชื่อผู้รับงานมี < หรือ > ถูกปฏิเสธ 22023 text_invalid (ใบงานไม่ขยับ ขั้น 1 ยัง pending)',
+    pg_temp.code(r) = 'text_invalid' and (r ->> '_state') = '22023' and pg_temp.code(r2) = 'text_invalid' and pg_temp.st(j1) like '1:pen%');
+  r := pg_temp.o_recv(p_shop, j1, 1, v_today, null, wf, '   ');
+  j2 := (pg_temp.mkj2(p_shop, p_tpl, 'silver', 10) ->> 'job_id')::uuid;
+  r2 := pg_temp.o_recv(p_shop, j2, 1, v_today, null, null, 'ช่างสมชาย');
+  v_log := v_log || pg_temp.chk('C1b', 'ต้องไม่พัง (D2 ไม่ทำ optional พัง): ชื่อว่างเปล่า/ช่องว่างล้วน + ระบุช่าง (worker_id) รับได้ · ชื่อไทยปกติรับได้ · ไม่มีทั้งชื่อและช่าง = who_required',
+    (r ->> 'ok') = 'true' and (r2 ->> 'ok') = 'true'
+    and pg_temp.code(pg_temp.o_recv(p_shop, (pg_temp.mkj2(p_shop, p_tpl, 'silver', 10) ->> 'job_id')::uuid, 1, v_today, null, null, null)) = 'who_required');
+
+  -- C2 golden D6: ใหม่ vs legacy ผลต้องเท่ากันเป๊ะ (ตัด job_no) + สถานะขั้นเท่ากัน
+  -- G1 ด่านมัดจำ: ใบ OEM ไม่มีเงิน + ไม่มีเหตุผล → awaiting_deposit ทั้งคู่
+  ja := (pg_temp.mkj2(p_shop, p_tpl, 'silver', 10) ->> 'job_id')::uuid;
+  jb := (pg_temp.mkj2(p_shop, p_tpl, 'silver', 10) ->> 'job_id')::uuid;
+  update analytics.job set start_gate_note = null where id in (ja, jb);
+  ra := pg_temp.core('job_core_receive', ja, 1, null, null, 'ออฟฟิศ', false);
+  rb := pg_temp.core('job_core_receive_legacy', jb, 1, null, null, 'ออฟฟิศ', false);
+  v_log := v_log || pg_temp.chk('C2a', 'golden ด่านมัดจำ: ไม่มีเงิน+ไม่มีเหตุผล → ใหม่ = legacy = awaiting_deposit (ผลเท่ากันเป๊ะ · ขั้นไม่ขยับทั้งคู่)',
+    (ra ->> 'code') = 'awaiting_deposit' and (ra - 'job_no') = (rb - 'job_no') and pg_temp.st(ja) = pg_temp.st(jb) and pg_temp.st(ja) like '1:pen%');
+  -- G2 scope ช่าง: ช่างจำกัดขั้น cast รับขั้น 1 (wax_inject) → stage_not_allowed ทั้งคู่ · ช่างทุกขั้นรับได้ทั้งคู่ · enforce=false ข้าม scope
+  update analytics.job set start_gate_note = 'verify: เริ่มก่อนมัดจำ' where id in (ja, jb);
+  ra := pg_temp.core('job_core_receive', ja, 1, null, wl, null, true);
+  rb := pg_temp.core('job_core_receive_legacy', jb, 1, null, wl, null, true);
+  v_log := v_log || pg_temp.chk('C2b', 'golden scope ช่าง: ช่างจำกัด cast รับ wax_inject → ใหม่ = legacy = stage_not_allowed · ข้อความเดียวกัน · ขั้นไม่ขยับ',
+    (ra ->> 'code') = 'stage_not_allowed' and (ra - 'job_no') = (rb - 'job_no') and pg_temp.st(ja) = pg_temp.st(jb) and pg_temp.st(ja) like '1:pen%');
+  ra := pg_temp.core('job_core_receive', ja, 1, null, wf, null, true);
+  rb := pg_temp.core('job_core_receive_legacy', jb, 1, null, wf, null, true);
+  v_log := v_log || pg_temp.chk('C2c', 'golden ต้องไม่พัง: ช่างรับได้ทุกขั้น รับขั้น 1 สำเร็จ ใหม่ = legacy (ผลเท่ากันเป๊ะ) · สถานะขั้นเท่ากัน (1:rec)',
+    (ra ->> 'ok') = 'true' and (ra - 'job_no') = (rb - 'job_no') and pg_temp.st(ja) = pg_temp.st(jb) and pg_temp.st(ja) like '1:rec%');
+  -- G5 หลังมีขั้นถูกรับแล้ว ด่านมัดจำไม่ปิดซ้ำ แม้เหตุผลถูกลบ: ส่งขั้น 1 แล้วรับขั้น 2 → ผ่านทั้งคู่
+  perform pg_temp.o_send(p_shop, ja, 1, v_today);
+  perform pg_temp.o_send(p_shop, jb, 1, v_today);
+  update analytics.job set start_gate_note = null where id in (ja, jb);
+  ra := pg_temp.core('job_core_receive', ja, 2, null, null, 'ออฟฟิศ', false);
+  rb := pg_temp.core('job_core_receive_legacy', jb, 2, null, null, 'ออฟฟิศ', false);
+  v_log := v_log || pg_temp.chk('C2d', 'golden: ขั้น 1 ถูกรับ/ส่งแล้ว เหตุผลเริ่มก่อนมัดจำถูกลบ → รับขั้น 2 ยังผ่าน (ด่านมัดจำใช้กับขั้นแรกเท่านั้น) ใหม่ = legacy',
+    (ra ->> 'ok') = 'true' and (ra - 'job_no') = (rb - 'job_no') and pg_temp.st(ja) = pg_temp.st(jb) and pg_temp.st(ja) like '1:sen,2:rec%');
+  -- G6 ใบผลิต (ไม่ใช่ OEM): ไม่ติดด่านมัดจำ · ใบ OEM ที่มีเหตุผล: รับได้ — สองฟังก์ชันเท่ากัน
+  pj1 := (pg_temp.mkpj2(p_shop, 5) ->> 'job_id')::uuid;
+  pj2 := (pg_temp.mkpj2(p_shop, 5) ->> 'job_id')::uuid;
+  ra := pg_temp.core('job_core_receive', pj1, 1, null, null, 'ออฟฟิศ', false);
+  rb := pg_temp.core('job_core_receive_legacy', pj2, 1, null, null, 'ออฟฟิศ', false);
+  v_log := v_log || pg_temp.chk('C2e', 'golden ใบผลิตเข้าสต็อก: ไม่ติดด่านมัดจำ รับขั้น 1 ผ่านทั้งคู่ · ผลเท่ากัน',
+    (ra ->> 'ok') = 'true' and (ra - 'job_no') = (rb - 'job_no') and pg_temp.st(pj1) = pg_temp.st(pj2));
+  -- G7 ด่านอื่นของ core ไม่ถูกทำให้เปลี่ยน: วันที่อนาคต · ไม่มีผู้รับ · น้ำหนักผิด · ขั้นข้ามลำดับ — ใหม่ = legacy
+  ja := (pg_temp.mkj2(p_shop, p_tpl, 'silver', 10) ->> 'job_id')::uuid;
+  jb := (pg_temp.mkj2(p_shop, p_tpl, 'silver', 10) ->> 'job_id')::uuid;
+  v_ok := true; v_why := '';
+  for x in select unnest(array['3|ออฟฟิศ|', '1||', '1|ออฟฟิศ|-5', '1|ออฟฟิศ|NaN', '9|ออฟฟิศ|']) loop
+    ra := pg_temp.core('job_core_receive', ja, split_part(x, '|', 1)::int, nullif(split_part(x, '|', 3), '')::numeric, null, nullif(split_part(x, '|', 2), ''), false);
+    rb := pg_temp.core('job_core_receive_legacy', jb, split_part(x, '|', 1)::int, nullif(split_part(x, '|', 3), '')::numeric, null, nullif(split_part(x, '|', 2), ''), false);
+    if (ra - 'job_no') is distinct from (rb - 'job_no') or (ra ->> 'ok') = 'true' then v_ok := false; v_why := v_why || x || '→' || coalesce(ra::text, '-') || ' vs ' || coalesce(rb::text, '-') || '; '; end if;
+  end loop;
+  v_log := v_log || pg_temp.chk('C2f', 'golden ด่านอื่นไม่เปลี่ยน: ข้ามลำดับ(ขั้น 3) · ไม่ระบุผู้รับ · น้ำหนักติดลบ/NaN · ขั้นไม่มีอยู่ (9) → ใหม่ปฏิเสธเหมือน legacy ทุกเคส (ผลเท่ากัน) ' || left(v_why, 300),
+    v_ok and pg_temp.st(ja) = pg_temp.st(jb) and pg_temp.st(ja) like '1:pen%');
+  return v_log;
+end;
+$s$;
+
+-- ============================================================================
+-- กลุ่ม C2 — overload · สิทธิ์ (service_role เท่านั้น · 18.5 จำลองกำแพงชั้นนอกหลุด) · view ต่อท้ายไม่แทรกกลาง · helper หน่วย
+-- ============================================================================
+create function pg_temp.sc2(p_shop uuid, p_tpl uuid) returns text
+ language plpgsql as $s$
+declare
+  v_log text := '';
+  v_names constant text[] := array['job_create_insert', 'job_create_from_quote_item', 'job_create_from_production_item', 'job_done', 'job_plan_suggest',
+    'job_plan_compute', 'job_core_receive', 'job_office_receive', 'job_source_info', 'job_guard', 'job_qty_planned_set', 'job_plan_set', 'job_surplus_set',
+    'job_deposit_blocked', 'job_worker_can_do'];
+  v_rpc constant text[] := array['job_create_from_quote_item', 'job_create_from_production_item', 'job_done', 'job_plan_suggest', 'job_office_receive',
+    'job_qty_planned_set', 'job_plan_set', 'job_surplus_set'];
+  v_help constant text[] := array['job_create_insert', 'job_plan_compute', 'job_core_receive', 'job_source_info', 'job_guard', 'job_deposit_blocked', 'job_worker_can_do'];
+  b1 boolean; b2 boolean; b3 boolean; b4 boolean; r jsonb; rr jsonb; v_bad text; v_n int; v_cols text; x text; v_jb uuid; v_row analytics.job;
+  v_old constant text := 'id,shop_id,job_no,seq,source_kind,source_ref,design_label,sku_snapshot,metal,qty_planned,status,due_date,current_stage_code,current_stage_name,current_stage_status,holder_name,days_in_stage,is_overdue,last_event_at,last_scan_at,is_stale,stage_count,stage_done_count,has_auto_closed,deposit_missing,start_gate_note_present,quote_qty_mismatch,quote_item_qty,created_at,done_at,cancelled_at,board_column,handoff_gap_g,handoff_mismatch_count';
+begin
+  perform set_config('request.jwt.claims', '{"role":"service_role"}', true);
+
+  -- C3 overload: ทุกชื่อที่แตะ/เพิ่มมีแถวเดียวใน pg_proc (signature เดิมถูก drop) · ฟังก์ชันที่ไม่ควรมีเหลือ = 0 (job_counter_bump)
+  select string_agg(proname || '=' || n, ', ') into v_bad from (
+    select proname, count(*) n from pg_proc where pronamespace = 'analytics'::regnamespace and proname = any (v_names) group by proname having count(*) <> 1) q;
+  select count(distinct proname) into v_n from pg_proc where pronamespace = 'analytics'::regnamespace and proname = any (v_names);
+  v_log := v_log || pg_temp.chk('C3', 'overload: ' || cardinality(v_names) || ' ชื่อที่แตะ/เพิ่มมีอย่างละ 1 signature (จริง ' || v_n || ' ชื่อ) ผิดปกติ: ' || coalesce(v_bad, '(ไม่มี)') || ' · job_counter_bump = 0',
+    v_bad is null and v_n = cardinality(v_names) and not exists (select 1 from pg_proc where pronamespace = 'analytics'::regnamespace and proname = 'job_counter_bump'));
+
+  -- C4 สิทธิ์: RPC ใหม่/แทนที่ → service_role รันได้ · anon/authenticated ไม่ได้ (ทั้งทาง PUBLIC และ grant ตรง) · helper/trigger/ภายใน → ไม่มีใครรันได้ยกเว้น owner
+  select string_agg(p.oid::regprocedure::text, ', ') into v_bad from pg_proc p
+   where p.pronamespace = 'analytics'::regnamespace and p.proname = any (v_names)
+     and (has_function_privilege('anon', p.oid, 'execute') or has_function_privilege('authenticated', p.oid, 'execute')
+          or has_function_privilege('service_role', p.oid, 'execute') <> (p.proname = any (v_rpc))
+          or exists (select 1 from aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a where a.grantee = 0));
+  v_log := v_log || pg_temp.chk('C4', 'สิทธิ์ execute: RPC ' || cardinality(v_rpc) || ' ตัว = service_role เท่านั้น · helper ' || cardinality(v_help) || ' ตัว (รวม job_guard) ไม่ grant ใคร · ไม่มีสิทธิ์ PUBLIC (proacl) · ผิด: ' || coalesce(v_bad, '(ไม่มี)'),
+    v_bad is null);
+
+  -- C5 (18.5) จำลองวันที่กำแพง schema หลุด: grant usage ให้ authenticated แล้วยิงทุก RPC ใหม่ด้วย null → ต้องตก 42501 (เช็ค EXECUTE ก่อน body) · helper ก็ตกแม้ service_role
+  execute 'grant usage on schema analytics to authenticated';
+  v_bad := '';
+  foreach x in array array[
+    'select analytics.job_surplus_set(null::uuid, null::uuid, null::text)',
+    'select analytics.job_plan_set(null::uuid, null::uuid, null::numeric)',
+    'select analytics.job_qty_planned_set(null::uuid, null::uuid, null::int)',
+    'select analytics.job_plan_suggest(null::uuid, null::text, null::uuid)',
+    'select analytics.job_done(null::uuid, null::uuid, null::int, null::int)',
+    'select analytics.job_create_from_quote_item(null::uuid, null::uuid, null::text[])',
+    'select analytics.job_create_from_production_item(null::uuid, null::uuid, null::text[])',
+    'select analytics.job_office_receive(null::uuid, null::uuid, null::int, null::date)'] loop
+    if pg_temp.xs(pg_temp.as_role('authenticated', x)) not in ('42501') then v_bad := v_bad || left(x, 40) || '=' || pg_temp.as_role('authenticated', x) || '; '; end if;
+    if pg_temp.xs(pg_temp.as_role('anon', x)) not in ('42501') then v_bad := v_bad || 'anon ' || left(x, 30) || '; '; end if;
+  end loop;
+  execute 'revoke usage on schema analytics from authenticated';
+  v_log := v_log || pg_temp.chk('C5a', '18.5: grant usage schema ชั่วคราว → authenticated/anon ยิง RPC ใหม่/แทนที่ 8 ตัวด้วย null ตก 42501 ทุกตัว (ไม่เข้าถึง body) ' || left(v_bad, 300), v_bad = '');
+  v_log := v_log || pg_temp.chk('C5b', 'helper ภายในยิงไม่ได้แม้เป็น service_role: job_plan_compute / job_deposit_blocked / job_worker_can_do / job_source_info / job_core_receive → 42501 · v_job_board: authenticated/anon select ไม่ได้ · service_role select ได้',
+    pg_temp.xs(pg_temp.as_role('service_role', format('select analytics.job_plan_compute(%L, %L, 10, 4, null, null)', p_shop, 'silver'))) = '42501'
+    and pg_temp.xs(pg_temp.as_role('service_role', 'select analytics.job_worker_can_do(null::text[], ''cast'')')) = '42501'
+    and pg_temp.xs(pg_temp.as_role('service_role', format('select analytics.job_source_info(%L, %L, gen_random_uuid())', p_shop, 'oem'))) = '42501'
+    and pg_temp.xs(pg_temp.as_role('authenticated', 'select 1 from analytics.v_job_board limit 1')) = '42501'
+    and pg_temp.xs(pg_temp.as_role('anon', 'select 1 from analytics.v_job_board limit 1')) = '42501'
+    and pg_temp.as_role('service_role', 'select 1 from analytics.v_job_board limit 1') = 'OK');
+
+  -- C6 v_job_board: คอลัมน์เดิม 34 ตัวเป็น prefix ลำดับเดิมเป๊ะ · ใหม่ 7 ตัวต่อท้าย (ไม่ชน 42P16)
+  select string_agg(column_name, ',' order by ordinal_position) into v_cols
+    from information_schema.columns where table_schema = 'analytics' and table_name = 'v_job_board';
+  v_log := v_log || pg_temp.chk('C6', 'v_job_board: คอลัมน์เดิม 34 ตัวเป็น prefix ลำดับเดิมเป๊ะ · ต่อท้ายด้วย qty_order,qty_surplus,under_planned,surplus_pending,surplus_disposition,target_piece_g,metal_plan_g เท่านั้น',
+    v_cols = v_old || ',qty_order,qty_surplus,under_planned,surplus_pending,surplus_disposition,target_piece_g,metal_plan_g');
+
+  -- C7 helper หน่วย: job_worker_can_do ทุกกรณี (null · ว่าง · ตรง · ไม่ตรง) · job_deposit_blocked: บล็อก/มีเหตุผล/มีขั้นถูกรับ/ใบผลิต
+  v_jb := (pg_temp.mkj2(p_shop, p_tpl, 'silver', 10) ->> 'job_id')::uuid;
+  update analytics.job set start_gate_note = null where id = v_jb;
+  select * into v_row from analytics.job where id = v_jb;
+  v_log := v_log || pg_temp.chk('C7a', 'job_worker_can_do: null → true · {} → true · {cast} กับ cast → true · {polish} กับ cast → false · {cast,polish} กับ polish → true',
+    analytics.job_worker_can_do(null, 'cast') and analytics.job_worker_can_do('{}', 'cast') and analytics.job_worker_can_do('{cast}', 'cast')
+    and not analytics.job_worker_can_do('{polish}', 'cast') and analytics.job_worker_can_do('{cast,polish}', 'polish'));
+  b1 := analytics.job_deposit_blocked(v_row);
+  update analytics.job set start_gate_note = 'verify: อนุมัติ' where id = v_jb;
+  select * into v_row from analytics.job where id = v_jb;
+  b2 := analytics.job_deposit_blocked(v_row);
+  rr := pg_temp.o_recv(p_shop, v_jb, 1, analytics.job_today(), null, null, 'verify');
+  update analytics.job set start_gate_note = null where id = v_jb;
+  select * into v_row from analytics.job where id = v_jb;
+  b3 := analytics.job_deposit_blocked(v_row);
+  r := pg_temp.mkpj2(p_shop, 5);
+  select * into v_row from analytics.job where id = (r ->> 'job_id')::uuid;
+  b4 := analytics.job_deposit_blocked(v_row);
+  v_log := v_log || pg_temp.chk('C7b', 'job_deposit_blocked: ใบ OEM ไม่มีเงิน+ไม่มีเหตุผล+ยังไม่มีขั้นถูกรับ = true · ใส่เหตุผล = false · ลบเหตุผลแต่ขั้น 1 ถูกรับแล้ว = false · ใบผลิต = false',
+    b1 and not b2 and (rr ->> 'ok') = 'true' and not b3 and not b4);
+  return v_log;
+end;
+$s$;
+
 create function pg_temp.run_all(p_shop uuid, p_tpl uuid) returns text
  language sql as $c$
   select pg_temp.run_sec('sa', p_shop, p_tpl)
       || pg_temp.run_sec('sb1', p_shop, p_tpl)
       || pg_temp.run_sec('sb2', p_shop, p_tpl)
       || pg_temp.run_sec('sb3', p_shop, p_tpl)
+      || pg_temp.run_sec('sc1', p_shop, p_tpl)
+      || pg_temp.run_sec('sc2', p_shop, p_tpl)
 $c$;
 
 do $v175$
