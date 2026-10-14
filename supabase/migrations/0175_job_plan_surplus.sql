@@ -1312,3 +1312,155 @@ begin
                             'surplus', greatest(v_surplus, 0), 'surplus_disposition', v_disp);
 end;
 $f$;
+
+-- ============================================================================
+-- 9. v_job_board — คอลัมน์ใหม่ต่อท้ายเท่านั้น (ข้อ 3 · ลอกจากฉบับล่าสุด 0174:769 ไม่ใช่ 0172)
+--    แก้นิพจน์ quote_qty_mismatch ในตำแหน่งเดิม: เทียบ qty_order (เดิมเทียบ qty_planned ซึ่งหลัง M1 ต่างกันโดยตั้งใจ) — ใบเดิม qty_order = qty_planned ค่าจึงเท่าเดิม
+--    (ชื่อ/ชนิด/ลำดับคอลัมน์เดิมไม่เปลี่ยน — ไม่ชน 42P16)
+-- ============================================================================
+create or replace view analytics.v_job_board
+  with (security_invoker = true) as
+select
+  j.id, j.shop_id, j.job_no, j.seq, j.source_kind,
+  case j.source_kind when 'oem' then aq.quote_no else po.po_no end as source_ref,
+  j.design_label, j.sku_snapshot, j.metal, j.qty_planned, j.status, j.due_date,
+  j.current_stage_code, d.name_th as current_stage_name, cs.status as current_stage_status,
+  coalesce(w.display_name, cs.assignee_name) as holder_name,
+  (analytics.job_today() - coalesce(cs.received_on, ps.last_sent_on, analytics.job_bkk_date(j.created_at)))::int as days_in_stage,
+  (j.due_date is not null and j.status in ('open', 'in_progress', 'on_hold') and j.due_date < analytics.job_today()) as is_overdue,
+  ev.last_event_at,
+  ev.last_scan_at,
+  (j.status in ('open', 'in_progress') and analytics.job_bkk_date(coalesce(ev.last_event_at, j.created_at)) < analytics.job_today() - 3) as is_stale,
+  st.stage_count, st.stage_done_count, st.has_auto_closed,
+  (j.source_kind = 'oem' and coalesce(pay.paid, 0) <= 0) as deposit_missing,
+  (j.start_gate_note is not null) as start_gate_note_present,
+  (j.source_kind = 'oem' and j.status not in ('done', 'cancelled') and aqi.qty is distinct from j.qty_order) as quote_qty_mismatch,
+  aqi.qty as quote_item_qty,
+  j.created_at, j.done_at, j.cancelled_at,
+  case when j.status in ('done', 'cancelled') then j.status when j.current_stage_code is null then 'awaiting_close' else j.current_stage_code end as board_column,
+  hg.handoff_gap_g,
+  hmc.handoff_mismatch_count,
+  j.qty_order,
+  case when j.status = 'done' then j.qty_good - j.qty_order end as qty_surplus,
+  (j.status not in ('done', 'cancelled') and j.qty_planned < j.qty_order) as under_planned,
+  (j.status = 'done' and j.qty_good > j.qty_order and j.surplus_disposition = 'hold') as surplus_pending,
+  j.surplus_disposition,
+  j.target_piece_g,
+  j.metal_plan_g
+from analytics.job j
+left join analytics.job_stage cs on cs.job_id = j.id and cs.stage_code = j.current_stage_code
+left join analytics.job_stage_def d on d.shop_id = j.shop_id and d.code = j.current_stage_code
+left join analytics.worker w on w.id = cs.worker_id
+left join lateral (select max(s.sent_on) as last_sent_on from analytics.job_stage s where s.job_id = j.id) ps on true
+left join lateral (
+  select max(e.recorded_at) as last_event_at, max(e.recorded_at) filter (where e.channel = 'worker_qr') as last_scan_at
+    from analytics.job_event e where e.job_id = j.id) ev on true
+left join lateral (
+  select count(*)::int as stage_count,
+         (count(*) filter (where s.status in ('sent', 'skipped')))::int as stage_done_count,
+         coalesce(bool_or(s.auto_closed), false) as has_auto_closed
+    from analytics.job_stage s where s.job_id = j.id) st on true
+left join lateral (
+  select q.id, q.quote_no from analytics.oem_quote q
+   where j.source_kind = 'oem' and coalesce(q.root_quote_id, q.id) = j.root_quote_id
+   order by (q.status = 'superseded'), q.created_at desc limit 1) aq on true
+left join lateral (select coalesce(v.paid_thb, 0) as paid from analytics.v_oem_quote v where v.id = aq.id) pay on true
+left join lateral (select i.qty from analytics.oem_quote_item i where i.quote_id = aq.id and i.seq = j.oem_item_seq) aqi on true
+left join analytics.production_order_item poi on poi.id = j.production_order_item_id
+left join analytics.production_order po on po.id = poi.production_order_id
+left join lateral (select max(abs(l.handoff_gap_g)) as handoff_gap_g from analytics.v_job_stage_loss l where l.job_id = j.id) hg on true
+left join lateral (select count(*)::int as handoff_mismatch_count from analytics.job_event e
+                    where e.job_id = j.id and e.event_type = 'weigh' and e.payload ->> 'kind' = 'handoff_mismatch') hmc on true;
+
+-- ============================================================================
+-- 10. สิทธิ์ — service_role เท่านั้น (ปิดทุกอย่างก่อน เปิดเฉพาะ RPC ที่ตั้งใจ · helper/trigger/ภายใน = ไม่ grant ใคร) + overload guard + นับ RPC
+-- ============================================================================
+revoke all on analytics.v_job_board from public, anon, authenticated, service_role;
+grant select on analytics.v_job_board to service_role;
+
+do $g$
+declare
+  r record;
+  v_rpc constant text[] := array[
+    'job_stage_suggest', 'job_create_from_quote_item', 'job_create_from_production_item', 'job_token_issue', 'job_token_revoke',
+    'job_office_receive', 'job_office_send', 'job_stage_skip', 'job_stage_reopen', 'job_set_due', 'job_start_gate_note_set',
+    'job_done', 'job_cancel', 'worker_upsert', 'worker_pin_set', 'worker_set_active', 'worker_unlock', 'job_design_label_set',
+    'worker_pin_verify', 'job_worker_logout', 'job_worker_resolve', 'job_worker_receive', 'job_worker_send',
+    'job_today', 'job_bkk_date', 'job_stage_state',
+    -- 0175
+    'job_plan_suggest', 'job_qty_planned_set', 'job_plan_set', 'job_surplus_set'];
+  v_n int;
+  v_dup text;
+  v_leak text;
+begin
+  for r in
+    select p.oid::regprocedure as sig, p.proname
+      from pg_proc p
+     where p.pronamespace = 'analytics'::regnamespace and (p.proname like 'job\_%' or p.proname like 'worker\_%')
+  loop
+    execute format('revoke all on function %s from public, anon, authenticated, service_role', r.sig);
+    if r.proname = any (v_rpc) then
+      execute format('grant execute on function %s to service_role', r.sig);
+    end if;
+  end loop;
+  select string_agg(proname, ', ') into v_dup from (
+    select proname from pg_proc where pronamespace = 'analytics'::regnamespace and (proname like 'job\_%' or proname like 'worker\_%')
+    group by proname having count(*) > 1) d;
+  if v_dup is not null then
+    raise exception '0175: พบ overload ของฟังก์ชัน: %', v_dup;
+  end if;
+  select count(*) into v_n from pg_proc where pronamespace = 'analytics'::regnamespace and proname = any (v_rpc);
+  if v_n <> cardinality(v_rpc) then
+    raise exception '0175: RPC ที่ประกาศไว้ % ตัว แต่พบใน pg_proc % ตัว', cardinality(v_rpc), v_n;
+  end if;
+  -- ไม่มีฟังก์ชัน job_*/worker_* ตัวไหนที่ anon/authenticated รันได้ (ทั้งทาง PUBLIC และ grant ตรง) และมีเฉพาะ RPC ที่ service_role รันได้
+  select string_agg(p.oid::regprocedure::text, ', ') into v_leak
+    from pg_proc p
+   where p.pronamespace = 'analytics'::regnamespace and (p.proname like 'job\_%' or p.proname like 'worker\_%')
+     and (has_function_privilege('anon', p.oid, 'execute') or has_function_privilege('authenticated', p.oid, 'execute')
+          or (has_function_privilege('service_role', p.oid, 'execute') <> (p.proname = any (v_rpc))));
+  if v_leak is not null then
+    raise exception '0175: สิทธิ์ execute ผิดรูป: %', v_leak;
+  end if;
+end;
+$g$;
+
+-- ============================================================================
+-- 11. ยืนยันว่าไม่มีอะไรขยับนอกรายการที่ตั้งใจแทนที่ (md5 ฟังก์ชันทุกตัวในสคีมา · ฟังก์ชันใหม่ต้องอยู่ในรายการที่ประกาศ · ไม่งั้น raise → rollback ทั้งไฟล์)
+-- ============================================================================
+do $c$
+declare
+  v_changed text;
+  v_unexpected text;
+  c_replaced constant text[] := array['job_core_receive', 'job_office_receive', 'job_source_info', 'job_create_insert',
+    'job_create_from_quote_item', 'job_create_from_production_item', 'job_done', 'job_guard', 'job_counter_bump'];
+  c_new constant text[] := array['job_deposit_blocked', 'job_worker_can_do', 'job_plan_compute', 'job_plan_suggest',
+    'job_qty_planned_set', 'job_plan_set', 'job_surplus_set'];
+begin
+  select string_agg(b.sig, ', ') into v_changed
+    from _j175_fn_base b
+    left join pg_proc p on p.oid = to_regprocedure(b.sig)
+   where not (b.proname = any (c_replaced))
+     and (p.oid is null or md5(pg_get_functiondef(p.oid)) <> b.h);
+  if v_changed is not null then
+    raise exception '0175 แตะฟังก์ชันที่ไม่ได้ตั้งใจแตะ (md5 ไม่เท่า/หาย): %', v_changed;
+  end if;
+  select string_agg(p.oid::regprocedure::text, ', ') into v_unexpected
+    from pg_proc p
+   where p.pronamespace = 'analytics'::regnamespace and p.prokind = 'f'
+     and p.oid::regprocedure::text not in (select sig from _j175_fn_base)
+     and not (p.proname = any (c_replaced)) and not (p.proname = any (c_new));
+  if v_unexpected is not null then
+    raise exception '0175 มีฟังก์ชันใหม่ที่ไม่ได้ประกาศ: %', v_unexpected;
+  end if;
+  if exists (select 1 from pg_proc where pronamespace = 'analytics'::regnamespace and proname = 'job_counter_bump') then
+    raise exception '0175: job_counter_bump ยังไม่ถูก drop';
+  end if;
+  if (select t.tgenabled from pg_trigger t where t.tgrelid = 'analytics.job'::regclass and t.tgname = 'trg_job_guard') is distinct from 'O' then
+    raise exception '0175: trg_job_guard ไม่ได้อยู่ในสถานะเปิด (O) ท้ายไฟล์';
+  end if;
+  raise notice '0175: ฟังก์ชันเดิมนอกรายการแทนที่ md5 เท่าเดิมทั้งหมด · trg_job_guard เปิดอยู่';
+end;
+$c$;
+
+notify pgrst, 'reload schema';
