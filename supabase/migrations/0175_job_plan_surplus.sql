@@ -1067,3 +1067,248 @@ begin
   return new;
 end;
 $f$;
+
+-- ============================================================================
+-- 8. RPC ออฟฟิศใหม่: แก้จำนวนเริ่มผลิต · แก้แผนโลหะ · ตัดสินของเหลือ (security definer · owner/admin · เขียนทางเดียวผ่าน job_guard)
+-- ============================================================================
+
+-- แก้จำนวนเริ่มผลิต: ได้เฉพาะก่อนขั้นแรกถูกรับ (ตรงกับ job_guard) · คำนวณแผนโลหะใหม่ (เก็บ override เดิมถ้ามี) · UPDATE คำสั่งเดียว
+create or replace function analytics.job_qty_planned_set(
+  p_shop_id     uuid,
+  p_job_id      uuid,
+  p_qty_planned int,
+  p_reason      text default null,
+  p_actor       uuid default null
+)
+ returns jsonb
+ language plpgsql
+ security definer
+ set search_path to 'public', 'analytics', 'extensions', 'pg_temp'
+as $f$
+declare
+  v_actor  uuid := coalesce(p_actor, auth.uid());
+  v_job    analytics.job%rowtype;
+  v_reason text;
+  v_plan   jsonb;
+  v_ovg    numeric := null;
+  v_ovr    text := null;
+  v_job2   analytics.job%rowtype;
+begin
+  v_job := analytics.job_office_begin('job_qty_planned_set', p_shop_id, p_job_id, v_actor);
+  if p_qty_planned is null or not (p_qty_planned between 1 and 100000) then
+    raise exception 'จำนวนเริ่มผลิตต้องอยู่ระหว่าง 1 ถึง 100,000' using errcode = '22023', hint = 'qty_planned_invalid';
+  end if;
+  if exists (select 1 from analytics.job_stage s where s.job_id = p_job_id and s.status in ('received', 'sent')) then
+    raise exception 'แก้จำนวนเริ่มผลิตไม่ได้ — ใบงานนี้เริ่มผลิตแล้ว (มีขั้นที่ถูกรับ)' using errcode = '22023', hint = 'started';
+  end if;
+  v_reason := analytics.job_text_clean(p_reason, 'เหตุผล', 200, false);
+  if p_qty_planned = v_job.qty_planned then
+    return jsonb_build_object('ok', true, 'job_no', v_job.job_no, 'changed', false, 'qty_order', v_job.qty_order,
+                              'qty_planned', v_job.qty_planned, 'under_planned', v_job.qty_planned < v_job.qty_order,
+                              'metal_plan_g', v_job.metal_plan_g);
+  end if;
+  if jsonb_typeof(v_job.metal_plan_basis -> 'override_g') = 'number' then
+    v_ovg := (v_job.metal_plan_basis ->> 'override_g')::numeric;
+    v_ovr := v_job.metal_plan_basis ->> 'override_reason';
+  end if;
+  v_plan := analytics.job_plan_compute(p_shop_id, v_job.metal, p_qty_planned, v_job.target_piece_g, v_ovg, v_ovr);
+  update analytics.job
+     set qty_planned = p_qty_planned,
+         metal_plan_g = (v_plan ->> 'metal_plan_g')::numeric,
+         metal_plan_basis = case when jsonb_typeof(v_plan -> 'basis') = 'object' then v_plan -> 'basis' end
+   where id = p_job_id
+   returning * into v_job2;
+  perform analytics.job_event_write(p_job_id, null, 'plan_change', analytics.job_today(), v_actor, null, 'job_page', null,
+    jsonb_build_object('kind', 'qty_planned', 'reason', v_reason,
+                       'before', jsonb_build_object('qty_planned', v_job.qty_planned, 'metal_plan_g', v_job.metal_plan_g),
+                       'after', jsonb_build_object('qty_planned', v_job2.qty_planned, 'metal_plan_g', v_job2.metal_plan_g)));
+  return jsonb_build_object('ok', true, 'job_no', v_job.job_no, 'changed', true, 'qty_order', v_job2.qty_order,
+                            'qty_planned', v_job2.qty_planned, 'under_planned', v_job2.qty_planned < v_job2.qty_order,
+                            'metal_plan_g', v_job2.metal_plan_g,
+                            'plan_missing', coalesce(v_job2.metal_plan_basis -> 'missing', '[]'::jsonb));
+end;
+$f$;
+
+-- แก้แผนโลหะ (น้ำหนักเป้าหมายต่อชิ้น / กำหนดเอง): ได้จนกว่าขั้นหล่อ (cast) จะถูกรับ · p_target_piece_g = null ล้างแผน
+create or replace function analytics.job_plan_set(
+  p_shop_id         uuid,
+  p_job_id          uuid,
+  p_target_piece_g  numeric,
+  p_override_g      numeric default null,
+  p_override_reason text default null,
+  p_actor           uuid default null
+)
+ returns jsonb
+ language plpgsql
+ security definer
+ set search_path to 'public', 'analytics', 'extensions', 'pg_temp'
+as $f$
+declare
+  v_actor uuid := coalesce(p_actor, auth.uid());
+  v_job   analytics.job%rowtype;
+  v_job2  analytics.job%rowtype;
+  v_plan  jsonb;
+begin
+  v_job := analytics.job_office_begin('job_plan_set', p_shop_id, p_job_id, v_actor);
+  if exists (select 1 from analytics.job_stage s where s.job_id = p_job_id and s.stage_code = 'cast' and s.status in ('received', 'sent')) then
+    raise exception 'แก้แผนโลหะไม่ได้ — ขั้นหล่อถูกรับไปแล้ว' using errcode = '22023', hint = 'cast_started';
+  end if;
+  v_plan := analytics.job_plan_compute(p_shop_id, v_job.metal, v_job.qty_planned, p_target_piece_g, p_override_g, p_override_reason);
+  update analytics.job
+     set target_piece_g = p_target_piece_g,
+         metal_plan_g = (v_plan ->> 'metal_plan_g')::numeric,
+         metal_plan_basis = case when jsonb_typeof(v_plan -> 'basis') = 'object' then v_plan -> 'basis' end
+   where id = p_job_id
+   returning * into v_job2;
+  perform analytics.job_event_write(p_job_id, null, 'plan_change', analytics.job_today(), v_actor, null, 'job_page', null,
+    jsonb_build_object('kind', 'plan',
+                       'before', jsonb_build_object('target_piece_g', v_job.target_piece_g, 'metal_plan_g', v_job.metal_plan_g),
+                       'after', jsonb_build_object('target_piece_g', v_job2.target_piece_g, 'metal_plan_g', v_job2.metal_plan_g,
+                                                   'override', p_override_g is not null)));
+  return jsonb_build_object('ok', true, 'job_no', v_job.job_no, 'target_piece_g', v_job2.target_piece_g, 'metal_plan_g', v_job2.metal_plan_g,
+                            'plan_missing', coalesce(v_job2.metal_plan_basis -> 'missing', '[]'::jsonb));
+end;
+$f$;
+
+-- ตัดสินของเหลือบนใบที่ปิดแล้ว (OEM เท่านั้น) — ข้อยกเว้นเดียวของ "done แล้วแก้ไม่ได้" · job_guard ยอมเฉพาะ surplus_disposition/surplus_note
+-- ค่า: hold ถือไว้ก่อน · spare อะไหล่/ตัวอย่าง · deliver ส่งแถมลูกค้า · 'stock' ไม่ให้ (Q1: OEM ไม่เข้าสต็อกอัตโนมัติ — ของลูกค้า)
+create or replace function analytics.job_surplus_set(
+  p_shop_id     uuid,
+  p_job_id      uuid,
+  p_disposition text,
+  p_note        text default null,
+  p_actor       uuid default null
+)
+ returns jsonb
+ language plpgsql
+ security definer
+ set search_path to 'public', 'analytics', 'extensions', 'pg_temp'
+as $f$
+declare
+  v_actor uuid := coalesce(p_actor, auth.uid());
+  v_job   analytics.job%rowtype;
+  v_note  text;
+begin
+  v_job := analytics.job_office_begin('job_surplus_set', p_shop_id, p_job_id, v_actor, true);
+  if v_job.status = 'cancelled' then
+    raise exception 'ใบงาน % ถูกยกเลิกแล้ว', v_job.job_no using errcode = '22023', hint = 'job_closed';
+  end if;
+  if v_job.status <> 'done' or v_job.qty_good is null or v_job.qty_good <= v_job.qty_order then
+    raise exception 'ใบงาน % ไม่มีของเหลือให้ตัดสิน', v_job.job_no using errcode = '22023', hint = 'no_surplus';
+  end if;
+  if v_job.source_kind <> 'oem' then
+    raise exception 'ของเหลือของใบผลิตเข้าสต็อกตอนปิดใบผลิต เปลี่ยนที่นี่ไม่ได้' using errcode = '22023', hint = 'surplus_fixed';
+  end if;
+  if p_disposition is null or p_disposition not in ('hold', 'spare', 'deliver') then
+    raise exception 'การจัดการของเหลือต้องเป็น hold / spare / deliver' using errcode = '22023', hint = 'surplus_invalid';
+  end if;
+  v_note := analytics.job_text_clean(p_note, 'หมายเหตุของเหลือ', 200, false);
+  update analytics.job set surplus_disposition = p_disposition, surplus_note = v_note where id = p_job_id;
+  perform analytics.job_event_write(p_job_id, null, 'surplus_set', analytics.job_today(), v_actor, null, 'job_page', null,
+    jsonb_build_object('surplus', v_job.qty_good - v_job.qty_order,
+                       'before', jsonb_build_object('disposition', v_job.surplus_disposition, 'note_present', v_job.surplus_note is not null),
+                       'after', jsonb_build_object('disposition', p_disposition, 'note_present', v_note is not null)));
+  return jsonb_build_object('ok', true, 'job_no', v_job.job_no, 'surplus', v_job.qty_good - v_job.qty_order, 'surplus_disposition', p_disposition);
+end;
+$f$;
+
+-- job_done: ต่อท้าย p_surplus_disposition/p_surplus_note · signature เปลี่ยน ⇒ drop เดิม (ข้อ 1)
+-- ของเหลือ = qty_good - qty_order > 0 · production: stock เสมอ (เข้าสต็อกผ่าน production_order_done) · OEM: ค่าเริ่ม hold ('stock' ห้าม)
+-- ไม่มีของเหลือแต่ส่งค่ามา = ปฏิเสธ (กัน UI ส่งค่าค้าง) · ใส่ surplus_* ใน UPDATE เดียวกับ status='done' (CHECK job_surplus_ck)
+drop function if exists analytics.job_done(uuid, uuid, int, int, numeric, text, uuid);
+
+-- job_done (def ต้นทาง 0172:1824 · ด่านเดิมทุกข้อคงอยู่ · เพิ่มเฉพาะส่วนของเหลือ)
+create or replace function analytics.job_done(
+  p_shop_id        uuid,
+  p_job_id         uuid,
+  p_qty_good       int,
+  p_qty_scrap      int,
+  p_weight_final_g numeric default null,
+  p_note           text default null,
+  p_actor          uuid default null,
+  p_surplus_disposition text default null,
+  p_surplus_note        text default null
+)
+ returns jsonb
+ language plpgsql
+ security definer
+ set search_path to 'public', 'analytics', 'extensions', 'pg_temp'
+as $f$
+declare
+  v_actor     uuid := coalesce(p_actor, auth.uid());
+  v_job       analytics.job%rowtype;
+  v_open      int;
+  v_first     text;
+  v_final_out int;
+  v_note      text;
+  v_tokens    int;
+  v_today     date := analytics.job_today();
+  v_surplus   int;
+  v_disp      text := null;
+  v_snote     text := null;
+begin
+  v_job := analytics.job_office_begin('job_done', p_shop_id, p_job_id, v_actor);
+  select count(*), min(d.name_th) into v_open, v_first
+    from analytics.job_stage s join analytics.job_stage_def d on d.shop_id = s.shop_id and d.code = s.stage_code
+   where s.job_id = p_job_id and s.status in ('pending', 'received');
+  if v_open > 0 then
+    raise exception 'ปิดงานไม่ได้ — ยังมี % ขั้นที่ยังไม่เสร็จ (เช่น %)', v_open, v_first using errcode = '22023', hint = 'stages_open';
+  end if;
+  if p_qty_good is null or p_qty_scrap is null or p_qty_good < 0 or p_qty_scrap < 0 or p_qty_good > 100000 or p_qty_scrap > 100000
+     or p_qty_good + p_qty_scrap <> v_job.qty_planned then
+    raise exception 'จำนวนดี + จำนวนเสีย ต้องเท่ากับจำนวนที่วางแผน (% ชิ้น)', v_job.qty_planned using errcode = '22023', hint = 'qty_mismatch';
+  end if;
+  select s.qty_out into v_final_out from analytics.job_stage s
+   where s.job_id = p_job_id and s.status = 'sent' order by s.seq desc limit 1;
+  v_final_out := coalesce(v_final_out, v_job.qty_planned);
+  if p_qty_good > v_final_out then
+    raise exception 'จำนวนดี (%) มากกว่าจำนวนที่เหลือจากขั้นสุดท้าย (%) — ตรวจของเสียรายขั้นก่อน', p_qty_good, v_final_out
+      using errcode = '22023', hint = 'qty_exceeds_final';
+  end if;
+  if not analytics.job_weight_ok(p_weight_final_g) then
+    raise exception 'น้ำหนักสุทธิต้องมากกว่า 0 และไม่เกิน 100,000 กรัม (ทศนิยมไม่เกิน 3 ตำแหน่ง)' using errcode = '22023', hint = 'weight_invalid';
+  end if;
+  if v_job.metal = 'gold' and p_weight_final_g is null then
+    raise exception 'งานทองต้องระบุน้ำหนักสุทธิตอนปิดงาน' using errcode = '22023', hint = 'weight_required';
+  end if;
+  v_note := coalesce(analytics.job_text_clean(p_note, 'หมายเหตุ', 500, false), v_job.note);
+
+  v_surplus := p_qty_good - v_job.qty_order;
+  if p_surplus_disposition is not null and p_surplus_disposition not in ('hold', 'spare', 'deliver', 'stock') then
+    raise exception 'การจัดการของเหลือต้องเป็น hold / spare / deliver' using errcode = '22023', hint = 'surplus_invalid';
+  end if;
+  if v_surplus > 0 then
+    if v_job.source_kind = 'production' then
+      if p_surplus_disposition is not null and p_surplus_disposition <> 'stock' then
+        raise exception 'ใบงานของใบผลิต: ของเหลือเข้าสต็อกเสมอ เลือกอย่างอื่นไม่ได้' using errcode = '22023', hint = 'surplus_production_stock_only';
+      end if;
+      v_disp := 'stock';
+    else
+      if p_surplus_disposition = 'stock' then
+        raise exception 'งาน OEM: ของเหลือเป็นของลูกค้า เข้าสต็อกอัตโนมัติไม่ได้ — เลือก hold / spare / deliver' using errcode = '22023', hint = 'surplus_oem_no_stock';
+      end if;
+      v_disp := coalesce(p_surplus_disposition, 'hold');
+    end if;
+    v_snote := analytics.job_text_clean(p_surplus_note, 'หมายเหตุของเหลือ', 200, false);
+  elsif p_surplus_disposition is not null or nullif(btrim(coalesce(p_surplus_note, '')), '') is not null then
+    raise exception 'ไม่มีของเหลือ (จำนวนดีไม่เกินจำนวนที่สั่ง) แต่ส่งการจัดการของเหลือมา' using errcode = '22023', hint = 'surplus_unexpected';
+  end if;
+
+  with r as (
+    update analytics.job_token set revoked_at = clock_timestamp(), revoke_reason = 'job_done'
+     where job_id = p_job_id and revoked_at is null returning 1)
+  select count(*) into v_tokens from r;
+
+  update analytics.job
+     set status = 'done', done_at = now(), qty_good = p_qty_good, qty_scrap = p_qty_scrap,
+         weight_final_g = p_weight_final_g, note = v_note,
+         surplus_disposition = v_disp, surplus_note = v_snote
+   where id = p_job_id;
+
+  perform analytics.job_event_write(p_job_id, null, 'done', v_today, v_actor, null, 'job_page', null,
+    jsonb_build_object('qty_good', p_qty_good, 'qty_scrap', p_qty_scrap, 'weight_final_g', p_weight_final_g, 'tokens_revoked', v_tokens,
+                       'qty_order', v_job.qty_order, 'surplus', greatest(v_surplus, 0), 'surplus_disposition', v_disp));
+  return jsonb_build_object('ok', true, 'job_no', v_job.job_no, 'status', 'done', 'qty_good', p_qty_good, 'qty_scrap', p_qty_scrap,
+                            'surplus', greatest(v_surplus, 0), 'surplus_disposition', v_disp);
+end;
+$f$;
