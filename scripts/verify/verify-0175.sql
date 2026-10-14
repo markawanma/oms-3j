@@ -6,7 +6,31 @@
 -- รัน (หลัง apply):   node scripts/run-sql.mjs scripts/verify/verify-0175.sql
 -- dry-run ก่อน apply: cat supabase/migrations/0175_job_plan_surplus.sql scripts/verify/verify-0175.sql > <tmp>.sql แล้วรันไม่ใส่ --commit
 --
--- ============ ตารางแมป "ข้อในบรีฟ -> เทสต์" ============  (เติมท้ายสุดของงาน)
+-- ============ ตารางแมป "ข้อในบรีฟ (design §8.7 verify-0175) -> เทสต์" ============
+--  A1 backfill updated_at/trg_job_guard   -> assert อยู่ในไฟล์ migration เอง (md5 + count(distinct updated_at) + tgenabled='O' · raise = rollback ทั้งไฟล์ · dry-run ผ่านบน 25 ใบจริง) + verify A1a A2 ตรวจผลลัพธ์หลัง apply
+--                                            ⚠️ verify รัน backfill ซ้ำไม่ได้ (คอลัมน์ NOT NULL แล้ว) — ครอบด้วย assert ใน migration ตอน apply เท่านั้น
+--  A2 create_from_* input ผิด              -> B7 (qty 0/-1/100001) · B8 (target 0/-1/NaN/Infinity/10001/4.0001) · B9a (override ไม่มี/ล่องหน/"."/ว่าง) · B9b (override 0/NaN/…/ไม่มีน้ำหนัก) · B9c (compute ไม่มี target)
+--  A3 INSERT job ตรง                       -> B6a (qty_order ผิด · surplus ตอนสร้าง · plan ไม่มี target = 23514) · B6b (plan ไม่ตรง basis · ค่าถูกต้องไปชน unique)
+--  A4 UPDATE qty_order/qty_planned/plan    -> B1 (× 4 status) · B2a B2b · B3a B3b · MU-1 MU-3
+--  A5 done/cancelled UPDATE ทุกคอลัมน์     -> B4a (20 คอลัมน์ done) · B4b (surplus_* แก้ได้) · B5 (cancelled) · MU-2
+--  A6 job_done ของเหลือ                    -> B13a (OEM stock/มั่ว/note ยาว-ล่องหน) · B13b (ผลิต hold/spare/deliver) · B13c (ไม่มีของเหลือแต่ส่งมา) · A5 A7 (ทางปกติ) · MU-4 MU-5 MU-6
+--  A7 job_surplus_set                      -> B14a (open/done ไม่มีของเหลือ/ผลิต) · B14b (stock/มั่ว/null/note) · B14c B14d (ผ่าน + event + cancelled) · MU-13
+--  A8 qty_planned_set / plan_set           -> B11a B11b B11c · B12a B12b B12c B12d · B10b · MU-14
+--  A9 job_plan_suggest null/NaN            -> D1 (ceil) · D2 (ชุบ) · D3 (rate ว่าง = jsonb null + missing) · D4 (rate 100/-5) · D5 (input ผิด 8 แบบ) · D6 · D7 · MU-10 MU-11 MU-12
+--  A10 D2 ชื่อผู้รับงาน <>                 -> C1a (ปฏิเสธ) · C1b (ว่าง/ปกติ/ไม่มีผู้รับ) · MU-7
+--  A11 overload · counter_bump             -> C3 (15 ชื่อ = 1 signature · counter_bump = 0) · A2
+--  A12 anon/authenticated execute          -> C4 (proacl/PUBLIC) · C5a (18.5 grant usage ชั่วคราว → 42501 ×8) · C5b (helper/view)
+--  ต้องไม่พัง: ใบเดิม/JB-0018              -> A1a A1b (อ่านอย่างเดียว) · A3 (caller เดิม) · A4 (ใบรูปเดิมรับ/ส่ง 8 ขั้น/ปิดงานแบบเดิม) · A6 A7 · A8 · C2 (golden core_receive vs legacy 6 สถานการณ์) · C6 (view prefix)
+--  md5 ฟังก์ชันอื่นไม่ขยับ                 -> assert ท้ายไฟล์ migration (baseline ทุกฟังก์ชันในสคีมา) · MY (63 ตัว job_*/worker_* หลังรัน mutant)
+--  mutant 14 ตัว (ทุกตัวต้องล้ม ไม่งั้น MX FAIL): MU-1..MU-14 (guard ×3 · job_done ×3 · D2 · core_receive scope · deposit helper · suggest ×2 · compute · surplus_set · qty_planned_set)
+--
+--  ❌ ไม่มีเทสต์ครอบ (บอกตรงๆ):
+--    - JB-0018 ใบจริง "รับ/ส่ง/ปิดได้หลัง 0175" ยิงจริงไม่ได้ (ห้ามแตะ + ปิดงานจะเปลี่ยนสถานะถาวร/ออก token) → ครอบด้วยใบ fixture รูปเดียวกัน (qty_order = qty_planned) A4 + C2 + อ่านอย่างเดียว A1b · job_worker_resolve บน token ใบจริง = ไม่มี (0175 ไม่แตะ resolve · ไป 0176)
+--    - race หลาย connection (job_qty_planned_set พร้อม job_receive) = ไม่มี (ต้อง 2 connection) · กันด้วย for update ใน job_office_begin + job_guard
+--    - PostgREST จริง (named args · PGRST202/203 หลัง drop signature) = ไม่มี · ครอบด้วย vitest (lib/actions) + C3 (1 signature)
+--    - ช่วง 00:00-07:00 ไทย (job_today) = ไม่มี · ใช้ job_today() ชุดเดิมของ J1 ไม่มี logic เวลาใหม่
+--    - CHECK job_surplus_ck/job_plan_ck ตัวเองแยกจาก guard: guard จับก่อนเสมอ (BEFORE trigger) จึงถอด CHECK แล้วเทสต์ไม่ล้ม — เป็นชั้นป้องกันซ้ำ ไม่ใช่ด่านเดี่ยว
+--    - หน้า UI / ใบพิมพ์ A5 = ไม่มี (vitest lib/jobs/print.test.ts ครอบ type boundary)
 
 create function pg_temp.chk(p_id text, p_desc text, p_ok boolean) returns text
  language sql as $c$
@@ -1092,6 +1116,127 @@ begin
 end;
 $s$;
 
+-- ============================================================================
+-- กลุ่ม D — job_plan_suggest: จำนวนเผื่อ (ceil) · p_stage_codes ตัดสินชุบ · rate ว่าง/ไม่สมเหตุผล = null + missing (ไม่ใช่ 0) · input ผิด · ที่มาน้ำหนักเป้าหมาย
+-- ============================================================================
+create function pg_temp.ps(p_shop uuid, p_item uuid, p_qty int default null, p_target text default null, p_codes text[] default null) returns jsonb
+ language sql as $c$
+  select pg_temp.q(format('select analytics.job_plan_suggest(p_shop_id=>%L, p_source_kind=>%L, p_item_id=>%L, p_qty_planned=>%L, p_target_piece_g=>%L::numeric, p_stage_codes=>%L::text[])',
+    p_shop, 'oem', p_item, p_qty, p_target, p_codes)) $c$;
+
+create function pg_temp.sd(p_shop uuid, p_tpl uuid) returns text
+ language plpgsql as $s$
+declare
+  v_log text := '';
+  v_today date := analytics.job_today();
+  d jsonb; v_item uuid; r jsonb; r2 jsonb;
+  v_rc numeric; v_rp numeric; v_rpl numeric; v_sprue numeric; v_exp int; v_w numeric; v_n int; v_bad text; k text;
+  v_pitem uuid; v_prod uuid; v_po jsonb; v_pr jsonb;
+  v_std text[] := pg_temp.std();
+begin
+  perform set_config('request.jwt.claims', '{"role":"service_role"}', true);
+  d := pg_temp.clone_deal(p_tpl, 'silver', 10, null, 'won', null, false);
+  v_item := (d ->> 'item_id')::uuid;
+  v_rc := analytics.oem_rate_value(p_shop, 'reject_rate_cast_pct', '-', v_today);
+  v_rp := analytics.oem_rate_value(p_shop, 'reject_rate_polish_pct', '-', v_today);
+  v_rpl := analytics.oem_rate_value(p_shop, 'reject_rate_plate_pct', '-', v_today);
+  v_sprue := analytics.oem_rate_value(p_shop, 'sprue_loss_pct', 'silver', v_today);
+  v_w := nullif((select i.input ->> 'weight_g' from analytics.oem_quote_item i where i.id = v_item), '')::numeric;
+
+  -- D1 ค่าแนะนำ: ไม่ชุบ — ceil(สั่ง / ((1-cast%)(1-polish%))) คำนวณอิสระในเทสต์ · buffer = ค่าแนะนำ − สั่ง · eff = ค่าแนะนำ · ไม่ under_planned
+  r := pg_temp.ps(p_shop, v_item, null, null, v_std);
+  v_exp := case when v_rc >= 0 and v_rc < 100 and v_rp >= 0 and v_rp < 100 then ceil(10 / ((1 - v_rc / 100) * (1 - v_rp / 100)))::int end;
+  v_log := v_log || pg_temp.chk('D1', 'job_plan_suggest (ไม่ชุบ): qty_planned_suggest = ceil(10/((1-' || coalesce(v_rc::text, 'null') || '%)(1-' || coalesce(v_rp::text, 'null') || '%))) = ' || coalesce(v_exp::text, 'null')
+      || ' · buffer_qty = suggest − 10 · eff = suggest (ไม่มี rate = fallback ใบสั่ง) · reject_basis.has_plating=false · plate_pct = null',
+    (r ->> 'qty_order') = '10' and (r ->> 'qty_planned_suggest')::int is not distinct from v_exp
+    and (r ->> 'buffer_qty')::int is not distinct from v_exp - 10 and (r ->> 'qty_planned_eff')::int = coalesce(v_exp, 10)
+    and (r ->> 'under_planned') = 'false' and (r #>> '{reject_basis,has_plating}') = 'false' and jsonb_typeof(r #> '{reject_basis,plate_pct}') = 'null'
+    and (v_exp is not null or (jsonb_typeof(r -> 'qty_planned_suggest') = 'null' and jsonb_typeof(r -> 'buffer_qty') = 'null')));
+
+  -- D2 p_stage_codes ตัดสินชุบจากขั้นที่ติ๊กจริง: มี plating → has_plating=true + plate_pct = rate (หรือ null + missing) · ไม่มี → false (แม้ใบเสนอราคาจะระบุชุบ)
+  r := pg_temp.ps(p_shop, v_item, null, null, v_std || 'plating'::text);
+  r2 := pg_temp.ps(p_shop, v_item, null, null, v_std);
+  v_exp := case when v_rc >= 0 and v_rc < 100 and v_rp >= 0 and v_rp < 100 and v_rpl >= 0 and v_rpl < 100
+                then ceil(10 / ((1 - v_rc / 100) * (1 - v_rp / 100) * (1 - v_rpl / 100)))::int end;
+  v_log := v_log || pg_temp.chk('D2', 'p_stage_codes มี plating: has_plating=true · suggest = ceil(10/((1-c)(1-p)(1-plate))) = ' || coalesce(v_exp::text, 'null') || ' · ไม่มี plating: has_plating=false และ plate_pct=null · ไม่ส่ง p_stage_codes = ตามขั้นที่ระบบเสนอ',
+    (r #>> '{reject_basis,has_plating}') = 'true' and (r ->> 'qty_planned_suggest')::int is not distinct from v_exp
+    and (r2 #>> '{reject_basis,has_plating}') = 'false' and jsonb_typeof(r2 #> '{reject_basis,plate_pct}') = 'null'
+    and (v_rpl is not null or r -> 'missing' @> '["reject_rate_plate_pct[-]"]'::jsonb)
+    and not (r2 -> 'missing' @> '["reject_rate_plate_pct[-]"]'::jsonb)
+    and (pg_temp.ps(p_shop, v_item) #>> '{reject_basis,has_plating}') is not null);
+
+  -- D3 rate reject ว่าง (ลบในทรานแซกชัน): suggest/buffer เป็น jsonb null (ไม่ใช่ 0) + missing ระบุ rate ที่ขาด · eff = จำนวนสั่ง · แผนโลหะยังคำนวณได้ถ้ามี rate ก้านต้น
+  delete from analytics.oem_cost_rate where shop_id = p_shop and rate_key in ('reject_rate_cast_pct', 'reject_rate_polish_pct');
+  r := pg_temp.ps(p_shop, v_item, null, '4.000', v_std);
+  v_log := v_log || pg_temp.chk('D3', 'ไม่มี rate reject: qty_planned_suggest / buffer_qty = jsonb null (ไม่ใช่ 0) · missing มี cast+polish · qty_planned_eff = 10 (สั่ง) · under_planned=false · แผนโลหะ target 4 ยังคืน (basis ตรง)',
+    jsonb_typeof(r -> 'qty_planned_suggest') = 'null' and jsonb_typeof(r -> 'buffer_qty') = 'null'
+    and r -> 'missing' @> '["reject_rate_cast_pct[-]", "reject_rate_polish_pct[-]"]'::jsonb and (r ->> 'qty_planned_eff')::int = 10 and (r ->> 'under_planned') = 'false'
+    and (r #>> '{metal_plan_basis,target_piece_g}')::numeric = 4 and jsonb_typeof(r -> 'reject_basis' -> 'cast_pct') = 'null');
+
+  -- D4 rate ไม่สมเหตุผล (100 = หารศูนย์ · ติดลบ) ต้องถูกมองเป็นไม่มี ไม่ใช่เอามาคำนวณ (ตัวหารศูนย์/พลิกเครื่องหมาย ข้อ 5)
+  select count(*) into v_n from analytics.oem_cost_rate where shop_id = p_shop and rate_key = 'reject_rate_plate_pct';
+  if v_n > 0 then
+    v_bad := '';
+    -- ตาราง rate มี CHECK กันค่านอกช่วงอยู่แล้ว (ชั้นแรก) — ถอด CHECK ใน subtransaction (ถอยกลับ) เพื่อพิสูจน์ว่าชั้นที่สองของ RPC ก็กัน
+    execute 'alter table analytics.oem_cost_rate drop constraint if exists oem_cost_rate_value_check';
+    foreach k in array array['100', '-5'] loop
+      begin
+        update analytics.oem_cost_rate set value = k::numeric where shop_id = p_shop and rate_key = 'reject_rate_plate_pct';
+      exception when others then v_bad := v_bad || 'update ไม่ได้:' || sqlerrm || ' '; continue;
+      end;
+      r := pg_temp.ps(p_shop, v_item, null, null, v_std || 'plating'::text);
+      if not (jsonb_typeof(r -> 'qty_planned_suggest') = 'null' and r -> 'missing' @> '["reject_rate_plate_pct[-]"]'::jsonb and jsonb_typeof(r -> 'reject_basis' -> 'plate_pct') = 'null') then
+        v_bad := v_bad || k || '→' || left(r::text, 120) || ' ';
+      end if;
+    end loop;
+    v_log := v_log || pg_temp.chk('D4', 'rate ชุบ = 100 / -5: suggest = null + missing ระบุ rate (ไม่หารศูนย์ ไม่ใช้ค่าติดลบ) ' || v_bad, v_bad = '');
+  else
+    v_log := v_log || '[SKIP] D4  ไม่มี rate reject_rate_plate_pct ให้แก้ค่าทดสอบ' || E'\n';
+  end if;
+
+  -- D5 input ผิด: qty 0 / 100001 · น้ำหนัก NaN / 0 / 10001 / ทศนิยม 4 · ขั้นตอน > 50 รายการ · item ไม่มี → 22023 ทั้งหมด (ไม่ผ่านเงียบ)
+  v_n := 0; v_bad := '';
+  foreach k in array array['q0', 'q100001', 'tNaN', 't0', 't10001', 't4.0001', 'sMANY', 'iNONE'] loop
+    r := case left(k, 1)
+      when 'q' then pg_temp.ps(p_shop, v_item, substr(k, 2)::int)
+      when 't' then pg_temp.ps(p_shop, v_item, null, substr(k, 2))
+      when 's' then pg_temp.ps(p_shop, v_item, null, null, array(select 'cast' from generate_series(1, 51)))
+      else pg_temp.ps(p_shop, gen_random_uuid()) end;
+    if (r ->> '_state') = '22023' then v_n := v_n + 1; else v_bad := v_bad || k || ' '; end if;
+  end loop;
+  v_log := v_log || pg_temp.chk('D5', 'job_plan_suggest input ผิด 8 แบบ (qty 0/100001 · target NaN/0/10001/4.0001 · ขั้น 51 รายการ · item ไม่มี) ถูกปฏิเสธ 22023 ทั้งหมด — ตก ' || v_n || '/8 ไม่ผ่าน: ' || v_bad, v_n = 8);
+
+  -- D6 พารามิเตอร์ที่ส่งเข้า: qty 15 → eff 15 ไม่ under · qty 5 → under_planned · target 2.5 → source=input · metal_plan_g = round(15×2.5×(1+ก้านต้น%),3) (หรือ null + missing)
+  r := pg_temp.ps(p_shop, v_item, 15, '2.500', v_std);
+  r2 := pg_temp.ps(p_shop, v_item, 5, null, v_std);
+  v_log := v_log || pg_temp.chk('D6', 'p_qty_planned=15 → eff 15 under=false · =5 → under_planned=true · p_target=2.5 → target_piece_g_source=input · metal_plan_g = round(15×2.5×(1+ก้านต้น%),3) หรือ null+missing เมื่อไม่มี rate',
+    (r ->> 'qty_planned_eff')::int = 15 and (r ->> 'under_planned') = 'false' and (r2 ->> 'qty_planned_eff')::int = 5 and (r2 ->> 'under_planned') = 'true'
+    and (r ->> 'target_piece_g_source') = 'input' and (r ->> 'target_piece_g')::numeric = 2.5
+    and (r ->> 'metal_plan_g')::numeric is not distinct from case when v_sprue >= 0 and v_sprue <= 500 then round(15 * 2.5 * (1 + v_sprue / 100), 3) end
+    and (v_sprue is not null or r -> 'missing' @> '["sprue_loss_pct[silver]"]'::jsonb));
+
+  -- D7 ที่มาน้ำหนักเป้าหมาย: OEM = weight_g ในใบเสนอราคา (source=quote) · ใบผลิตเงิน = silver_weight_g ของสินค้า (source=product) · ไม่มี = null (ไม่เดา)
+  select p.id into v_prod from public.product p where p.shop_id = p_shop and p.is_active and p.sku !~* '^live' and p.cost_type in ('fixed', 'spot')
+     and p.silver_weight_g > 0 and p.silver_weight_g <= 10000 and coalesce(p.make_spec ->> 'metal', 'silver') = 'silver' order by p.sku limit 1;
+  r := pg_temp.ps(p_shop, v_item, null, null, v_std);
+  if v_prod is not null then
+    v_po := pg_temp.po_save(p_shop, 'verify0175d');
+    perform analytics.production_order_item_set(p_shop, (v_po ->> 'id')::uuid, v_prod, 10);
+    select id into v_pitem from analytics.production_order_item where production_order_id = (v_po ->> 'id')::uuid;
+    v_pr := pg_temp.q(format('select analytics.job_plan_suggest(p_shop_id=>%L, p_source_kind=>%L, p_item_id=>%L)', p_shop, 'production', v_pitem));
+    v_log := v_log || pg_temp.chk('D7', 'ที่มาน้ำหนัก: OEM → source=quote (= weight_g ใบเสนอราคา ' || coalesce(v_w::text, 'ไม่มี') || ') · ใบผลิตเงิน → source=product (= silver_weight_g ของสินค้า)',
+      (r ->> 'target_piece_g_source') is not distinct from case when v_w > 0 and v_w <= 10000 then 'quote' end
+      and (v_pr ->> 'target_piece_g_source') = 'product'
+      and (v_pr ->> 'target_piece_g')::numeric = (select round(silver_weight_g, 3) from public.product where id = v_prod));
+  else
+    v_log := v_log || pg_temp.chk('D7', 'ที่มาน้ำหนัก OEM = quote (ไม่มีสินค้าเงินที่มี silver_weight_g บน DB นี้ จึงข้ามฝั่งใบผลิต — ' || 'ไม่มีเทสต์ครอบ)',
+      (r ->> 'target_piece_g_source') is not distinct from case when v_w > 0 and v_w <= 10000 then 'quote' end);
+    v_log := v_log || '[SKIP] D7b  ไม่มีสินค้าเงินที่มี silver_weight_g บน DB นี้' || E'\n';
+  end if;
+  return v_log;
+end;
+$s$;
+
 create function pg_temp.run_all(p_shop uuid, p_tpl uuid) returns text
  language sql as $c$
   select pg_temp.run_sec('sa', p_shop, p_tpl)
@@ -1100,6 +1245,7 @@ create function pg_temp.run_all(p_shop uuid, p_tpl uuid) returns text
       || pg_temp.run_sec('sb3', p_shop, p_tpl)
       || pg_temp.run_sec('sc1', p_shop, p_tpl)
       || pg_temp.run_sec('sc2', p_shop, p_tpl)
+      || pg_temp.run_sec('sd', p_shop, p_tpl)
 $c$;
 
 do $v175$
@@ -1108,6 +1254,34 @@ declare
   v_log text := ''; v_s text; v_fail int; v_snap0 text;
   v_m record; v_killed int := 0; v_total int; v_survived text := ''; v_cnt int; v_id text; v_hit int; v_skip int; v_ok_cnt int;
   v_mutants jsonb := jsonb_build_array(
+    jsonb_build_object('id', 'MU-1', 'what', 'job_guard ไม่แช่แข็ง qty_order (แก้จำนวนสั่งตรงๆ ได้)', 'fn', 'job_guard',
+      'from', 'new.metal <> old.metal or new.qty_order <> old.qty_order or new.weigh_required', 'to', 'new.metal <> old.metal or new.weigh_required', 'expect', jsonb_build_array('B1')),
+    jsonb_build_object('id', 'MU-2', 'what', 'job_guard ปล่อยใบ done แก้ได้ทุกคอลัมน์ (ปิดด่าน done แข็ง)', 'fn', 'job_guard',
+      'from', 'if old.status = ''done''', 'to', 'if false and old.status = ''done''', 'expect', jsonb_build_array('B4a')),
+    jsonb_build_object('id', 'MU-3', 'what', 'job_guard ไม่เทียบ metal_plan_g กับ computed_g ใน basis (plan_drift รั่ว)', 'fn', 'job_guard',
+      'from', 'if (new.metal_plan_basis ->> ''computed_g'')::numeric is distinct from new.metal_plan_g then', 'to', 'if false then', 'expect', jsonb_build_array('B3a', 'B6b')),
+    jsonb_build_object('id', 'MU-4', 'what', 'job_done ใบผลิตของเหลือไม่เข้า stock อัตโนมัติ (ตกเป็น hold)', 'fn', 'job_done',
+      'from', 'v_disp := ''stock'';', 'to', 'v_disp := coalesce(p_surplus_disposition, ''hold'');', 'expect', jsonb_build_array('A7', 'B14a')),
+    jsonb_build_object('id', 'MU-5', 'what', 'job_done OEM เลือก stock ได้ (ของลูกค้าเข้าสต็อกเอง)', 'fn', 'job_done',
+      'from', 'if p_surplus_disposition = ''stock'' then', 'to', 'if false then', 'expect', jsonb_build_array('B13a')),
+    jsonb_build_object('id', 'MU-6', 'what', 'job_done ไม่มีของเหลือแต่รับ disposition/note มาเงียบๆ', 'fn', 'job_done',
+      'from', 'elsif p_surplus_disposition is not null or', 'to', 'elsif false or', 'expect', jsonb_build_array('B13c')),
+    jsonb_build_object('id', 'MU-7', 'what', 'D2 หาย: ชื่อผู้รับงานไม่ผ่าน job_label_clean (< > ผ่าน)', 'fn', 'job_office_receive',
+      'from', 'else analytics.job_label_clean(p_assignee_name, ''ชื่อผู้รับงาน'', 60) end', 'to', 'else p_assignee_name end', 'expect', jsonb_build_array('C1a')),
+    jsonb_build_object('id', 'MU-8', 'what', 'job_core_receive ข้าม scope ช่าง (helper ไม่ถูกเรียกจริง)', 'fn', 'job_core_receive',
+      'from', 'if not analytics.job_worker_can_do(v_codes, v_t.stage_code) then', 'to', 'if false then', 'expect', jsonb_build_array('C2b')),
+    jsonb_build_object('id', 'MU-9', 'what', 'job_deposit_blocked ไม่สนใจเหตุผลเริ่มก่อนมัดจำ (บล็อกแม้ออฟฟิศอนุมัติแล้ว)', 'fn', 'job_deposit_blocked',
+      'from', 'p_job.start_gate_note is null', 'to', 'true', 'expect', jsonb_build_array('C7b', 'A3', 'A4')),
+    jsonb_build_object('id', 'MU-10', 'what', 'job_plan_suggest ปัดเศษลง (floor) แทน ceil — เผื่อขาด', 'fn', 'job_plan_suggest',
+      'from', 'v_sug_n := ceil(v_qty_ord / v_den);', 'to', 'v_sug_n := floor(v_qty_ord / v_den);', 'expect', jsonb_build_array('D1', 'D2')),
+    jsonb_build_object('id', 'MU-11', 'what', 'job_plan_suggest ตัดสินชุบเป็นจริงเสมอเมื่อส่ง p_stage_codes (ไม่ดูว่ามี plating จริงไหม)', 'fn', 'job_plan_suggest',
+      'from', 'case when p_stage_codes is not null then ''plating'' = any (p_stage_codes)', 'to', 'case when p_stage_codes is not null then true', 'expect', jsonb_build_array('D2')),
+    jsonb_build_object('id', 'MU-12', 'what', 'job_plan_compute rate ก้านต้นว่าง ไม่รายงาน missing (เงียบ)', 'fn', 'job_plan_compute',
+      'from', 'v_missing := jsonb_build_array(format(''sprue_loss_pct[%s]'', p_metal));', 'to', 'v_missing := ''[]''::jsonb;', 'expect', jsonb_build_array('A8', 'D3')),
+    jsonb_build_object('id', 'MU-13', 'what', 'job_surplus_set เปลี่ยนของเหลือของใบผลิตได้', 'fn', 'job_surplus_set',
+      'from', 'if v_job.source_kind <> ''oem'' then', 'to', 'if false then', 'expect', jsonb_build_array('B14a')),
+    jsonb_build_object('id', 'MU-14', 'what', 'job_qty_planned_set ค่าเท่าเดิมยังเขียน event ซ้ำ', 'fn', 'job_qty_planned_set',
+      'from', 'if p_qty_planned = v_job.qty_planned then', 'to', 'if false then', 'expect', jsonb_build_array('B11b'))
 
   );
 begin
@@ -1169,7 +1343,9 @@ begin
   v_log := v_log || pg_temp.chk('MY', format('หลังรัน mutant: md5 definition ของฟังก์ชัน job_*/worker_* ทั้ง %s ตัวเท่าเดิม · trigger ใบงานเปิดครบ', (select count(*) from _v175_orig)),
     v_cnt = (select count(*) from _v175_orig)
     and not exists (select 1 from pg_trigger t where t.tgrelid in ('analytics.job'::regclass, 'analytics.job_stage'::regclass, 'analytics.job_event'::regclass, 'analytics.job_token'::regclass,
-                                                                 'analytics.worker'::regclass, 'analytics.worker_audit'::regclass) and not t.tgisinternal and t.tgenabled <> 'O'));
+                                                                 'analytics.worker'::regclass, 'analytics.worker_audit'::regclass) and not t.tgisinternal and t.tgenabled <> 'O')
+    and exists (select 1 from pg_constraint where conrelid = 'analytics.oem_cost_rate'::regclass and conname = 'oem_cost_rate_value_check')
+    and exists (select 1 from pg_constraint where conrelid = 'analytics.job'::regclass and conname = 'job_surplus_ck'));
   v_s := pg_temp.run_all(v_shop, v_tpl);
   v_fail := (length(v_s) - length(replace(v_s, '[FAIL]', ''))) / 6;
   v_log := v_log || pg_temp.chk('MZ', 'หลังคืนของเดิม: ชุดเทสต์หลักรันซ้ำ FAIL ' || v_fail, v_fail = 0);

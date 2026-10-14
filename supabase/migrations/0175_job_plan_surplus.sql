@@ -12,6 +12,10 @@
 -- 5 job_plan_compute (ภายใน) · job_source_info (+target_piece_g) · job_plan_suggest · job_create_insert/_from_quote_item/_from_production_item (arg ใหม่ ต่อท้าย)
 -- 6 job_qty_planned_set · job_plan_set · job_done (+surplus) · job_surplus_set · job_guard (replace) · v_job_board (ต่อท้าย)
 --
+-- เบี่ยงจาก design §8 (เหตุผลอยู่ที่จุดนั้นในไฟล์): (1) job_plan_ck = มี target ⇔ มี basis · metal_plan_g ไม่ null ต้องมี target (design เดิมขัดกับเคส rate ว่าง)
+--   (2) job_guard เทียบ metal_plan_g กับ computed/override ใน basis ด้วย (design เทียบแค่ qty/target) · done-row compare ตัด job_no (generated col เป็น null ใน NEW)
+--   (3) production: target_piece_g จาก silver_weight_g เฉพาะงานเงิน · (4) job_plan_suggest +p_stage_codes +buffer_qty (ux-ui B2) · (5) CHECK job_surplus_note_only_ck
+--   (6) rate reject/sprue ที่ไม่สมเหตุผล (>= 100 / ติดลบ / NaN) ถือว่าไม่มี rate (ตารางจำกัดแค่ value >= 0)
 -- ไม่มีราคา/ต้นทุนในทุก object ของไฟล์นี้ (ยืนยัน §8.6) — sprue/reject rate เป็นอัตราส่วน % จาก oem_rate_value ไม่ใช่เงิน
 
 -- baseline ก่อนแตะ: ฟังก์ชันทุกตัวในสคีมา (md5) + ตัวชี้วัด updated_at ของ job — ตรวจท้ายไฟล์ว่าไม่มีอะไรขยับนอกรายการที่ตั้งใจแทนที่

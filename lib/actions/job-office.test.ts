@@ -37,8 +37,8 @@ vi.mock("@/lib/supabase/server", () => ({ getServiceClient: () => ({ schema: () 
 vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 vi.mock("next/headers", () => ({ headers: async () => ({ get: (n: string) => hdrs[n.toLowerCase()] ?? null }) }));
 
-import { createJob, getJobBoard, getJobDetail, getJobsForSourceItems, suggestJob } from "./job-office";
-import { cancelJob, doneJob, issueJobQr, officeReceiveStage, officeSendStage, reopenJobStage, revokeJobQr, setJobDesignLabel, setJobDue, setJobStartGateNote, skipJobStage } from "./job-office-write";
+import { createJob, getJobBoard, getJobDetail, getJobPlanSuggest, getJobsForSourceItems, suggestJob } from "./job-office";
+import { cancelJob, doneJob, issueJobQr, officeReceiveStage, officeSendStage, reopenJobStage, revokeJobQr, setJobDesignLabel, setJobDue, setJobPlan, setJobQtyPlanned, setJobStartGateNote, setJobSurplus, skipJobStage } from "./job-office-write";
 import { getWorkers, resetWorkerPin, saveWorker, setWorkerActive, unlockWorker } from "./job-workers";
 
 let errSpy: ReturnType<typeof vi.spyOn>;
@@ -434,5 +434,65 @@ describe("0174: ชื่อช่าง/ชื่อเรียกใบงา
     rpcMock.mockResolvedValue({ data: null, error: { code: "22023", hint: "text_invalid", message: "worker_upsert: english raw" } });
     const r = await saveWorker({ displayName: "ช่างเอ", stageCodes: ["cast"] });
     expect(r).toMatchObject({ ok: false, error: "ชื่อห้ามมีเครื่องหมาย < หรือ >" });
+  });
+});
+
+// ============================================================================
+// 0175 — จำนวนสั่ง/เผื่อ · แผนโลหะ · ของเหลือ
+// ============================================================================
+describe("0175 createJob / getJobPlanSuggest / ของเหลือ", () => {
+  const base = { kind: "oem" as const, itemId: ITEM, stageCodes: ["cast", "qc", "pack"], designLabel: "แหวน" };
+  it("createJob ไม่ส่ง arg ใหม่ = ไม่ใส่ p_qty_planned/p_target/p_metal_plan_* (caller เดิมใช้ค่าเริ่มของ DB) · ส่งแล้วใส่ครบ", async () => {
+    rpcMock.mockResolvedValue({ data: { job_id: JOB, job_no: "JB-0009" }, error: null });
+    await createJob(base);
+    expect(lastRpc()[1]).not.toHaveProperty("p_qty_planned");
+    expect(lastRpc()[1]).not.toHaveProperty("p_target_piece_g");
+    expect(lastRpc()[1]).not.toHaveProperty("p_metal_plan_override_g");
+    await createJob({ ...base, qtyPlanned: 12, targetPieceG: "4.000", metalPlanOverrideG: "55.5", metalPlanReason: "ลูกค้าขอเพิ่ม" });
+    expect(lastRpc()[1]).toMatchObject({ p_qty_planned: 12, p_target_piece_g: 4, p_metal_plan_override_g: 55.5, p_metal_plan_reason: "ลูกค้าขอเพิ่ม" });
+  });
+  it("createJob ปฏิเสธ input ผิดก่อนถึง DB: qty 0 / ทศนิยม · น้ำหนัก NaN / ติดลบ / 4 ตำแหน่ง · เหตุผลล่องหน", async () => {
+    for (const b of [{ qtyPlanned: 0 }, { qtyPlanned: 1.5 }, { qtyPlanned: 100001 }, { targetPieceG: "NaN" }, { targetPieceG: "-1" }, { targetPieceG: "4.0001" }, { metalPlanOverrideG: "0" }, { metalPlanReason: "a\u0000b" }]) {
+      expect((await createJob({ ...base, ...b } as never)).ok, JSON.stringify(b)).toBe(false);
+    }
+    expect(rpcMock).not.toHaveBeenCalled();
+  });
+  it("getJobPlanSuggest ส่ง arg เฉพาะที่มี · map ผลจาก DB (null ไม่กลายเป็น 0) · ไม่ใส่ p_actor", async () => {
+    rpcMock.mockResolvedValue({ data: { qty_order: 10, qty_planned_suggest: null, buffer_qty: null, qty_planned_eff: 10, under_planned: false,
+      reject_basis: { cast_pct: null, polish_pct: 3, plate_pct: null, has_plating: false }, target_piece_g: 4, target_piece_g_source: "quote", metal: "silver",
+      metal_plan_g: null, metal_plan_basis: { missing: ["sprue_loss_pct[silver]"] }, missing: ["reject_rate_cast_pct[-]"] }, error: null });
+    const r = await getJobPlanSuggest("oem", ITEM, { stageCodes: ["cast", "plating"], qtyPlanned: 12 });
+    expect(lastRpc()[0]).toBe("job_plan_suggest");
+    expect(lastRpc()[1]).toMatchObject({ p_source_kind: "oem", p_item_id: ITEM, p_qty_planned: 12, p_stage_codes: ["cast", "plating"] });
+    expect(lastRpc()[1]).not.toHaveProperty("p_actor");
+    expect(r.ok && r.data.qtyPlannedSuggest).toBeNull();
+    expect(r.ok && r.data.metalPlanG).toBeNull();
+    expect(r.ok && r.data.rejectBasis.polishPct).toBe(3);
+    expect(r.ok && r.data.targetPieceGSource).toBe("quote");
+    expect((await getJobPlanSuggest("x", ITEM)).ok).toBe(false);
+    expect((await getJobPlanSuggest("oem", "nope")).ok).toBe(false);
+  });
+  it("doneJob ส่ง p_surplus_* เฉพาะเมื่อมีค่า · ค่าแปลกถูกปฏิเสธก่อนถึง DB · setJobSurplus ไม่รับ stock", async () => {
+    await doneJob({ jobId: JOB, qtyGood: 3, qtyScrap: 0, weightFinal: null, note: null });
+    expect(lastRpc()[1]).not.toHaveProperty("p_surplus_disposition");
+    await doneJob({ jobId: JOB, qtyGood: 3, qtyScrap: 0, weightFinal: null, note: null, surplusDisposition: "spare", surplusNote: "อะไหล่" });
+    expect(lastRpc()[1]).toMatchObject({ p_surplus_disposition: "spare", p_surplus_note: "อะไหล่" });
+    rpcMock.mockClear();
+    expect((await doneJob({ jobId: JOB, qtyGood: 3, qtyScrap: 0, weightFinal: null, note: null, surplusDisposition: "banana" })).ok).toBe(false);
+    expect((await setJobSurplus(JOB, "stock", null)).ok).toBe(false);
+    expect((await setJobSurplus(JOB, "", null)).ok).toBe(false);
+    expect(rpcMock).not.toHaveBeenCalled();
+    await setJobSurplus(JOB, "deliver", "ส่งแถม");
+    expect(lastRpc()).toEqual(["job_surplus_set", expect.objectContaining({ p_job_id: JOB, p_disposition: "deliver", p_note: "ส่งแถม" })]);
+  });
+  it("setJobQtyPlanned / setJobPlan: ตรวจชนิด · ส่งชื่อ arg ถูก · ล้างแผน = p_target_piece_g null", async () => {
+    expect((await setJobQtyPlanned(JOB, 0, null)).ok).toBe(false);
+    expect((await setJobPlan({ jobId: JOB, targetPieceG: "NaN" })).ok).toBe(false);
+    expect((await setJobPlan({ jobId: JOB, targetPieceG: "4", overrideG: "9", overrideReason: null })).ok).toBe(false);
+    expect(rpcMock).not.toHaveBeenCalled();
+    await setJobQtyPlanned(JOB, 12, "เผื่อ");
+    expect(lastRpc()).toEqual(["job_qty_planned_set", expect.objectContaining({ p_job_id: JOB, p_qty_planned: 12, p_reason: "เผื่อ" })]);
+    await setJobPlan({ jobId: JOB, targetPieceG: null });
+    expect(lastRpc()).toEqual(["job_plan_set", expect.objectContaining({ p_job_id: JOB, p_target_piece_g: null, p_override_g: null })]);
   });
 });
