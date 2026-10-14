@@ -95,3 +95,79 @@ seed ผ่าน `job_record_profile_ensure(p_shop_id)` (`on conflict do nothin
 | `ไม่ชั่ง (รับ/ส่งอย่างเดียว)` | | ไม่มีแถวเลย |
 
 แบบ 2 (ชั่งหล่อ+ตัดต้น · ของเสีย `[ต้องยืนยันกับเจ้าของ]` — Q2 §12) เจ้าของสร้างในจอ §8 ข้อ 1
+
+## 4. RPC / trigger / CHECK — ใหม่ · replace (signature เต็ม · ✱ = security definer + `crm_require_owner_admin` + grant `service_role` · helper ภายใน = revoke ทุก role แบบ 0174 ส่วน 1)
+
+**ใหม่**
+
+| ฟังก์ชัน | สาระ |
+|---|---|
+| `job_record_profile_ensure(p_shop_id uuid) returns void` (ภายใน) | seed §3.3 เฉพาะร้านที่ `not exists (profile where shop_id)` · รันให้ทุก `public.shop` ใน migration |
+| `job_record_profile_list(p_shop_id uuid) returns jsonb` ✱ stable | ensure · คืน `{profiles:[{id, name, note, is_default, is_active, seq, updated_at, stages:[{stage_code, weigh, scrap_qty, scrap_weight}], jobs_open:int (ใบ status ไม่ปลายทางที่ใช้แบบนี้)}], stage_defs:[{code, name_th, seq_default, metal_present, is_active}]}` — รวม inactive (จอจัดการต้องเห็น) |
+| `job_record_profile_upsert(p_shop_id uuid, p_id uuid default null, p_name text default null, p_note text default null, p_stages jsonb default '[]', p_is_active boolean default true, p_seq int default null, p_actor uuid default null) returns jsonb` ✱ | `v_actor := coalesce(p_actor, auth.uid())` บังคับ · ชื่อผ่าน `job_label_clean(…, 'ชื่อแบบ', 60)` · ซ้ำ (lower) ⇒ 22023 `name_dup` · `p_stages` ต้องเป็น array ≤ 100 รายการ รูปร่าง `{stage_code, weigh?, scrap_qty?, scrap_weight?}` (boolean จริงเท่านั้น — `"true"`/1 ⇒ `stage_invalid`) · `stage_code` ต้องมีใน `job_stage_def` ร้านนี้ (ปิดใช้ก็ยอม) · ซ้ำ ⇒ `stage_dup` · `weigh`/`scrap_weight` บนขั้น `metal_present=false` ⇒ `flag_not_applicable` · `p_is_active=false` บนแบบ default ⇒ `default_cannot_close` · แก้ = ลบแถว stage ทั้งชุดแล้ว insert ใหม่ในทรานแซกชันเดียว (แถวปิดทั้ง 3 ไม่ insert) · **ไม่แตะใบงานที่ใช้แบบนี้อยู่** (snapshot) · คืน `{id, name, stages, jobs_open}` |
+| `job_record_profile_set_default(p_shop_id uuid, p_id uuid, p_actor uuid default null) returns jsonb` ✱ | แบบต้อง `is_active` (ไม่ ⇒ `inactive`) · **UPDATE คำสั่งเดียว** `set is_default = (id = p_id) where shop_id = … and (is_default or id = p_id)` (unique index ตรวจท้าย statement ⇒ ไม่ชนระหว่างสลับ) · ไม่กระทบใบที่มีอยู่ |
+| `job_profile_apply(p_job_id uuid, p_profile_id uuid) returns jsonb` (ภายใน) | profile ต้อง `is_active` และ `shop_id = job.shop_id` (ไม่ ⇒ `profile_invalid`) · UPDATE `job_stage` ทุกแถวของใบ: `weigh_required/scrap_qty_ask/scrap_weight_ask` = flag ของ profile (ไม่มีแถว ⇒ false ทั้ง 3) · UPDATE `job`: `profile_id`, `profile_name`, `weigh_required = exists(stage weigh_required)` · คืน `{profile_name, stages:[…], has_weigh, gold_unguarded}` — ใช้ร่วมโดย `job_create_insert` และ `job_profile_set` ⇒ กติกา derive อยู่ที่เดียว |
+| `job_profile_set(p_shop_id uuid, p_job_id uuid, p_profile_id uuid, p_actor uuid default null) returns jsonb` ✱ | `job_office_begin` · มีขั้น `received/sent` ⇒ 22023 `started` ("เปลี่ยนแบบได้เฉพาะก่อนช่างรับงานขั้นแรก") · `job_profile_apply` · event `profile_set` payload `{before:{profile_id, profile_name, stages}, after:{…}}` (`channel='job_page'`) · คืนผล apply |
+
+**replace** (🔴 ทุกตัว `revoke … from public, anon, authenticated` + grant `service_role` ตาม ✱ · signature เปลี่ยน = `drop function` เดิมก่อน · หลัง apply: `check-analytics-grants.sql` + `pg_get_function_identity_arguments` = 1 แถวต่อชื่อ)
+
+| ฟังก์ชัน | def ต้นทาง | เปลี่ยนอะไร |
+|---|---|---|
+| `job_stage_suggest(uuid, text, uuid)` ✱ | **0172:1385** (ตัวเดียว ไม่เคยถูกแตะ — ยืนยัน md5 ก่อน) | `job_record_profile_ensure` · response เพิ่ม `profiles` (เฉพาะ `is_active` · เรียง `seq, name` · แต่ละตัวมี `stages[]`) + `default_profile_id` (null ถ้าร้านไม่มี default — UI ต้องบล็อก ไม่เดา) |
+| `job_create_insert(…)` | **drop** sig 0175:682 (20 arg) → ต่อท้าย `p_profile_id uuid` | `v_profile := coalesce(p_profile_id, (select id … where shop_id and is_default and is_active))` · null ⇒ 22023 `no_default_profile` · INSERT `job` ใส่ `profile_id/profile_name` ตั้งแต่แรก (guard INSERT เช็ค) + `weigh_required=false` ชั่วคราว · INSERT `job_stage` flag false ทั้งหมด (ตรรกะ 0175:722–727 **ลบทิ้ง**) → `job_profile_apply` · event `create` payload เพิ่ม `profile_id, profile_name, has_weigh, gold_unguarded` · response เพิ่ม 3 ตัวเดียวกัน |
+| `job_create_from_quote_item` ✱ | **drop** sig 0175:743 (12 arg) → ต่อท้าย `p_profile_id uuid default null` | ส่งต่อ `job_create_insert` · ตรรกะเดิมทุกบรรทัด |
+| `job_create_from_production_item` ✱ | **drop** sig 0175:823 (11 arg) → ต่อท้าย `p_profile_id uuid default null` | เหมือนบน |
+| `job_core_receive(uuid,int,date,numeric,uuid,text,text,uuid,text,boolean)` | **0175:181** | ลบ block 276–278 (ทอง ⇒ `prev_not_sent`) · เหลือ 280–282 (`v_p.weigh_required`) ข้อความปรับเป็นกลาง · บรรทัดอื่นเท่าเดิมทุกตัว (handoff 306–316 · N1 บ.339 คงตาม metal) |
+| `job_stage_guard()` | **0173:453** | (1) บ.500–503: `weigh_required`/`scrap_qty_ask`/`scrap_weight_ask` เปลี่ยนได้เมื่อ `old.status = 'pending'` ∧ `not exists (job_stage where job_id = new.job_id and status in ('received','sent'))` · นอกนั้น raise เดิม (2) บ.547: `new.auto_closed and new.weigh_required` ⇒ raise "ขั้นที่ต้องชั่งปิดอัตโนมัติไม่ได้ — ต้องกดส่งต่อพร้อมน้ำหนักออก" |
+| `job_guard()` | **0175:893** | INSERT: `new.profile_id is null` ⇒ raise `profile_required` · profile ต้อง `is_active` ร้านเดียวกัน · UPDATE: `weigh_required`/`profile_id`/`profile_name` ถอดจากรายการแช่แข็งบ.1010 แล้วตรวจแยกแบบ `qty_planned`: เปลี่ยนได้เฉพาะ `not exists (job_stage received/sent)` · อื่นเท่าเดิม |
+| `job_worker_resolve(text, text, text)` ✱ | **0174:415** | D6 (ย้ายจาก 0176 ledger เดิม): `job_deposit_blocked`/`job_worker_can_do` แทนบ.465–467, 476, 483–489 · บ.478 ⇒ `v_hold.weigh_required` อย่างเดียว · `action_stage` เพิ่ม `scrap_qty_ask`, `scrap_weight_ask` (จาก stage ที่ action ชี้) · `job` block (เฉพาะช่างที่ระบุตัวแล้ว) เพิ่ม `profile_name` · `prev_weight_out_g` null ของทองคงเดิม · **ไม่มี key ใหม่ที่เป็นตัวเลขน้ำหนัก** |
+| `job_done(uuid, uuid, int, int, numeric, text, uuid, text, text)` ✱ | **0175:1229** (signature เท่าเดิม — replace ตรง) | บ.1279 ⇒ `v_job.metal = 'gold' and v_job.weigh_required and p_weight_final_g is null` |
+| `v_job_board` | **0175** (หลัง apply) — ต่อท้าย | `profile_name` · `has_weigh` (exists stage weigh_required) · `gold_unguarded` (metal='gold' ∧ exists stage ที่ def.metal_present ∧ not weigh_required ∧ status ไม่ปลายทาง) |
+| CHECK บน `job` | 0172:199, 200–206 | `drop constraint job_gold_weigh_ck` · `job_done_ck` drop/add ตาม §1 (แถวเดิมผ่านแน่: ใบทองเดิม `weigh_required=true`) |
+
+**ไม่แตะ**: `job_core_send` (0172:1036) · `job_office_send/receive` · `job_worker_send/receive` · `job_stage_skip/reopen` · `v_job_stage_loss` · `job_plan_*`/`job_surplus_*`/`job_qty_planned_set` ของ 0175 — verify ล็อก md5 baseline (แบบ verify-0175)
+
+## 5. ใบงานที่มีอยู่บน prod (JB-0018 ฯลฯ) เดินต่อด้วยกติกาเดิม — พิสูจน์ทีละจุด
+
+| ของเดิม | หลัง 0176 | ทำไมเหมือนเดิม |
+|---|---|---|
+| `job_stage.weigh_required` ทอง=metal_present · เงิน=3 ขั้น | ค่าเดิม (migration ไม่มี UPDATE) | ด่าน `js_weigh_*_ck`/`core_receive`/`core_send` อ่าน flag นี้ |
+| `scrap_qty_ask/scrap_weight_ask` | true/false (default ของ ADD COLUMN — ไม่ยิง trigger) | = จอช่าง J1 (ถามชิ้นเสียทุกขั้น · ไม่มีช่องเศษ) |
+| `job.weigh_required` ทอง/เงิน = true | ค่าเดิม | `job_done` ทองยังบังคับน้ำหนักสุทธิ |
+| `job.profile_id/profile_name` | null — จอ/ใบพิมพ์แสดง "กติกาเดิม J1" · `job_profile_set` บนใบเดิมที่ยังไม่เริ่ม **ทำได้** · ใบที่เริ่มแล้ว = `started` | guard INSERT เช็ค `profile_required` เฉพาะแถวใหม่ |
+| ทอง `prev_not_sent` | ทุกขั้นทองเดิม `weigh_required=true` ⇒ `v_p.weigh_required` จับเหมือนเดิม | กติกาใหม่ครอบกติกาเก่าเมื่อขั้นชั่งครบ |
+| ทอง handoff ±0.05 · N1 ซ่อน prev/gap | ไม่แก้ | |
+| ทอง auto_close | trigger ใหม่จับด้วย `weigh_required` ⇒ ทองเดิมยังถูกปฏิเสธ | |
+| `updated_at` ของ `job`/`job_stage` | md5 + `count(distinct)` ก่อน/หลัง apply เท่าเดิม | ข้อ 19 — ไม่มี UPDATE ใน migration |
+| caller TS เดิม (ไม่ส่ง `p_profile_id`) | ได้แบบ default | named args — แต่ **drop signature เดิม** กัน PGRST เจอ 2 ตัว |
+
+## 6. เคสห้ามผ่าน + ต้องไม่พัง → `scripts/verify/verify-0176.sql` (do-block + `raise` rollback · `set_config('request.jwt.claims','{"role":"service_role"}',true)` · ข้อมูลทดสอบผ่าน RPC เท่านั้น · ปิดท้ายตารางแมป "ข้อในบรีฟ → เทสต์" · ข้อไหนไม่มีเทสต์เขียนว่าไม่มี + เหตุผล)
+
+**ห้ามผ่าน**
+
+| T | เคส | ด่าน |
+|---|---|---|
+| P1 | upsert: ชื่อว่าง/ล่องหน/`<script>`/ซ้ำ (ต่าง case) · `p_stages` ไม่ใช่ array / JSON null / > 100 · `stage_code` ไม่มีในร้าน / ของร้านอื่น / ซ้ำ · flag เป็น string `"true"` · `weigh=true` บน `cad`/`wax_inject` · `scrap_weight=true` บน `mold` | `job_label_clean` · `name_dup` · `stage_invalid`/`stage_dup`/`flag_not_applicable` |
+| P2 | ปิด (`is_active=false`) แบบที่เป็น default · `set_default` ไปยังแบบ inactive / ของร้านอื่น · INSERT แถว profile ตรงให้มี default 2 ตัว · DELETE/TRUNCATE profile ที่มีใบอ้าง | `default_cannot_close` · `inactive` · partial unique · trigger deny |
+| P3 | สร้างใบงานเมื่อร้านไม่มี default (ปิดชั่วคราวใน do-block ด้วย UPDATE ตรง) · `p_profile_id` ของร้านอื่น / inactive / ไม่มีจริง · INSERT `job` ตรง `profile_id null` | `no_default_profile` · `profile_invalid` · `job_guard` INSERT |
+| P4 | `job_profile_set` หลังขั้นแรก `received` · หลัง `sent` · บนใบ done/cancelled · ใบร้านอื่น | `started` · `job_office_begin` |
+| P5 | UPDATE ตรง `job_stage.weigh_required`/`scrap_*_ask` บนขั้น `received`/`sent` · บนขั้น `pending` ของใบที่มีขั้นอื่น `received` · UPDATE `job.profile_id` หลังเริ่ม · `job.weigh_required` ให้ไม่ตรง stage (mutant ทีละคอลัมน์ × ทุก status ที่มีจริง) | `job_stage_guard` · `job_guard` |
+| P6 | ขั้นที่ profile เปิดชั่ง: รับไม่ใส่น้ำหนัก / ส่งไม่ใส่น้ำหนัก (ทุกโลหะ รวม **ทองเหลือง** ที่ J1 ไม่เคยชั่ง) · ขั้นก่อนที่ชั่งยังถือค้าง ⇒ รับขั้นถัดไป = `prev_not_sent` (ทุกโลหะ) · UPDATE ตรง `auto_closed=true` บนขั้นชั่ง | `weight_required` · `prev_not_sent` · trigger (2) |
+| P7 | **ทอง + แบบที่ชั่ง**: handoff ต่าง > 0.05 ⇒ `handoff_mismatch` + event `weigh` + response ไม่มี `gap_g`/`prev_weight_out_g` · resolve `prev_weight_out_g` null (ลอกเคส N1 verify-0174 ทั้งชุด) · `job_done` ทอง `weigh_required=true` ไม่ส่งน้ำหนักสุทธิ | ผลเดิมเป๊ะ |
+| P8 | ช่าง: resolve/receive/send ไม่มีทางเลือกแบบ (ไม่มี arg) · `job_profile_set`/`job_record_profile_*` ไม่มี grant ให้ worker path · anon/authenticated execute RPC ใหม่ทุกตัว + select ตารางใหม่ (18.5) | 42501 |
+| P9 | overload: `job_create_insert`/`job_create_from_*`/`job_stage_suggest`/`job_worker_resolve`/`job_core_receive`/`job_done` = 1 แถวใน `pg_proc` · `job_gold_weigh_ck` ไม่มีแล้ว · `job_done_ck` นิยามใหม่ | assert หลัง apply |
+| P10 | response `job_worker_resolve` ใบทอง: `jsonb_path_exists` หา key `prev_weight_out_g` ≠ null · `in_g`/`metal_plan_g`/`weight_start_g` ต้องไม่มี | B8 ของ 0176 เดิมย้ายมา |
+
+**ต้องไม่พัง** (ยิงของใหม่ใส่ของเก่าจริง — ข้อ 17)
+- ใบ J1 ทุก status ที่มีจริงบน prod (**JB-0018** อ่านด้วย `job_no` ไม่ hardcode id): หลัง apply `profile_id` null · flag ต่อขั้นเท่าเดิม (snapshot md5 ของ `job_stage` ทั้งตารางก่อน/หลัง) · `v_job_board` แถวครบ + `profile_name` null · `has_weigh` = ค่าเดิมของ `job.weigh_required` ใบเงิน/ทอง · `gold_unguarded=false` ทุกใบทองเดิม · `job_worker_resolve` token ใบจริงคืน `ok` · `action_stage` มี `scrap_qty_ask=true`, `scrap_weight_ask=false`
+- `job_create_from_*` แบบไม่ส่ง `p_profile_id` ⇒ ได้แบบ 1: `cast` weigh+scrap_qty · ขั้นอื่นปิดทั้ง 3 · `job.weigh_required=true` · ใบที่ stage list ไม่มี `cast` ⇒ สร้างได้ `weigh_required=false`, `has_weigh=false` (ไม่ raise)
+- **แบบ "ไม่ชั่ง"** ใบเงิน/ทอง/ทองเหลือง: รับ → ส่ง ทุกขั้นโดยไม่ใส่น้ำหนักเลย ⇒ จบ `job_done` ได้ (ทอง: ไม่ต้องส่ง `p_weight_final_g`) · ใส่น้ำหนักเองก็รับ (optional) · ขั้นก่อนถือค้าง ⇒ auto_close ได้ (รวมทอง) · ไม่มี event `weigh` · `v_job_stage_loss` ทุกแถว `handoff_gap_g` null
+- **ทอง แบบ 1** (ชั่งแค่ cast): cast รับ/ส่งต้องชั่ง · cut_sprue รับไม่ต้อง · handoff cast→cut_sprue ไม่เทียบ (ขั้นรับไม่ชั่ง) · `gold_unguarded=true` บนบอร์ด · `job_done` ต้องมีน้ำหนักสุทธิ (`weigh_required=true`)
+- ของเสีย: ขั้นที่ `scrap_qty_ask=false` ส่ง `p_qty_scrap > 0` + เหตุผล (ออฟฟิศ) ⇒ ยังรับ (flag ไม่ใช่ด่าน — §2 ข้อ 3) · `scrap_weight_ask=false` ส่ง `p_scrap_weight_g` ⇒ รับ
+- `job_profile_set` ใบใหม่ก่อนเริ่ม: แบบ 1 → ไม่ชั่ง → แบบ 1 ⇒ flag ทุกขั้นกลับเท่าเดิม + event `profile_set` 2 แถว before/after ถูก · ใบ J1 เดิม (`profile_id` null) ที่ยังไม่เริ่ม ⇒ set ได้
+- upsert แก้แบบที่ใบเปิดอยู่ใช้ · ปิดแบบนั้น (ไม่ใช่ default) · สลับ default ⇒ **ใบนั้นไม่ขยับสักคอลัมน์** (md5 `job`+`job_stage` ของใบก่อน/หลัง) · สร้างใบใหม่หลังสลับได้แบบใหม่
+- `set_default` สลับ A→B→A ในทรานแซกชันเดียว ⇒ มี default 1 ตัวตลอด
+- `job_stage_suggest` ของ quote/production item จริง คืน key เดิมครบ + `profiles`/`default_profile_id`
+- md5 เท่าเดิม: `job_core_send` · `job_office_*` · `job_worker_send/receive` · `job_stage_skip/reopen` · `job_plan_*` · `job_surplus_set` · `oem_*` · `production_*` (baseline แบบ 0172 ส่วน 0)
+- ช่วง 00:00–07:00 ไทย: `occurred_on` ของ event `profile_set` = วันไทย (`job_today()`)
+- คาดไว้ก่อนว่าไม่มีเทสต์: race "ช่างรับขั้นแรก" พร้อม `job_profile_set` (2 connection) — กันด้วย `for update` ใน `job_office_begin` + `uq_job_stage_one_received` · ระบุในตารางแมป
