@@ -5,6 +5,7 @@
 > อ่านคู่: `design-own-production-costing.md` (make_spec · oem_cost_calc) · `design-production-order.md` · skill `oem-quote-invariants` · skill `3j-migration-traps` · memory `spec-cost-mode` · `production-order-and-spot-cost`
 > 🔴 เอกสารนี้ไม่มีตัวเลขต้นทุน/ราคาจริงโดยตั้งใจ — ตัวเลขอยู่ใน DB เท่านั้น (ค่า % ใน §6 เป็นคำถาม ไม่ใช่ค่าที่ตั้ง)
 > 🔁 §2.2 / §2.3 / §3 ข้อ 21–30 / §4 แถวโลหะ ถูก **§8** ทับด้วยมติ Q7 (14 ต.ค.) — อ่าน §8 เป็นหลักสำหรับ M1 · ส่วนพลอย (§2.4–2.5 · G1) ยังเป็นปัจจุบัน
+> ⏸ **15 ต.ค. 69 — เจ้าของสั่งพัก "ระบบเบิกโลหะ" (ledger + สูตรอัลลอย = 0176 ใน §8) ไว้ก่อน** · 0175 (จำนวน/เผื่อ/แผนโลหะ/ของเหลือ) เดินต่อ · ช่องเลข 0176 กลายเป็น **แบบการบันทึก (record profile)** → `design-job-record-profile.md` · ส่วน ledger ใน §8 ติดป้าย ⏸ ห้ามลบ
 
 ## 0. โจทย์เจ้าของ (13 ต.ค. 69 — สรุปคำพูด) → อะไรมีแล้วใน J1 / อะไรต้องเพิ่ม
 
@@ -292,6 +293,7 @@ public.product (SKU)                         analytics.oem_quote_item (ใบเ
 | CHECK `job_surplus_ck` | `(surplus_disposition is null or (status = 'done' and qty_good > qty_order)) and (status <> 'done' or qty_good <= qty_order or surplus_disposition is not null)` | ข้อ 14: `job_done` ต้องใส่ `surplus_disposition` ใน UPDATE เดียวกับ `status='done'` |
 | `job_event.event_type` | เพิ่ม `'plan_change'`, `'surplus_set'` (0175) · `'metal_issue'`, `'metal_void'` (0176) | drop/add constraint — ลอกชื่อ constraint จริงจาก `pg_constraint` (0172 ไม่ได้ตั้งชื่อ) |
 
+> ⏸ **พักไว้ตามมติเจ้าของ 15 ต.ค. 69** — ตาราง ledger ด้านล่าง (`job_metal_material` · `job_metal_issue` · `job_metal_issue_line`) ยังไม่สร้าง · เหตุผล/ผลกระทบ: `design-job-record-profile.md` §0 มติ 4 + §9
 **0176 — ตารางใหม่** (RLS เปิด ไม่มี policy · grant `service_role` เท่านั้น · append-only trigger แบบ `job_event`)
 
 `job_metal_material` — ทะเบียนวัสดุต่อร้าน (seed ผ่าน `job_metal_material_ensure(shop_id)` on conflict do nothing · เรียกใน `job_worker_resolve`/`job_metal_issue_add` แบบ `job_stage_def_ensure`)
@@ -382,6 +384,7 @@ UI แก้ทะเบียนนี้ = เฟสหลัง (`/jobs/stage
 | `job_guard()` trigger | replace (def **0173:566**) | §8.4 |
 | `v_job_board` | replace (def **0174:769**) — ต่อท้าย | `qty_order` · `qty_surplus` (done: `qty_good − qty_order` else null) · `under_planned` (status ไม่ปลายทาง ∧ `qty_planned < qty_order`) · `surplus_pending` (done ∧ surplus > 0 ∧ `hold`) · `surplus_disposition` · `target_piece_g` · `metal_plan_g` · **แก้นิพจน์คอลัมน์เดิม** `quote_qty_mismatch` ให้เทียบ `aqi.qty is distinct from j.qty_order` (เดิมเทียบ `qty_planned` ซึ่งหลัง M1 ต่างกันโดยตั้งใจ · ชื่อ/ชนิด/ลำดับเดิม ไม่ชน 42P16 · ใบ J1 เดิมค่าไม่เปลี่ยนเพราะ backfill เท่ากัน) |
 
+> ⏸ **พักไว้ตามมติเจ้าของ 15 ต.ค. 69** — RPC/view ของ ledger ด้านล่างยังไม่ทำ · ช่องเลข `0176` ถูกใช้โดย **record profile** (`design-job-record-profile.md` §4) · D6 ส่วน `job_worker_resolve` ย้ายไปทำใน 0176 profile · ห้ามลบ spec นี้ — ถ้าปลุกต้องเขียนทับบนฐานที่มี profile (ดู record-profile §9)
 **0176**
 
 | ฟังก์ชัน | สถานะ | สาระ |
@@ -488,6 +491,7 @@ def ล่าสุด 0141 บ.446–700: `qty_done` ตรวจแค่ `0 �
 8. **ใบ A5** — เพิ่ม สั่ง/เริ่มผลิต · เป้าหมาย/ชิ้น · โลหะที่ต้องเตรียม g · ช่องเขียนมือ "เบิกจริง ___ g" — ไม่มี ledger
 
 ### 8.10 ลำดับงาน
+> ⏸ **มติ 15 ต.ค. 69**: ลำดับ 0176 ledger ด้านล่างพักไว้ — ลำดับงานจริงดู `design-job-record-profile.md` §11
 
 `0175` (backend-dev · worktree) → verify-0175 → security + QA (M: create/done/board/print) → merge → ฟอร์มสร้างใบงาน + ปิดงาน (frontend-dev ขนานกับ) → `0176` (backend-dev) → verify-0176 → **security บังคับ** (RPC เขียนฝั่งช่าง + น้ำหนักทอง = มูลค่า) + QA L (ทุก flow `/w/`) → การ์ดโลหะ + จอช่าง → UAT ให้ช่างหล่อ 1 คนลองใบเงินจริง 1 ใบก่อนเปิดทอง
 

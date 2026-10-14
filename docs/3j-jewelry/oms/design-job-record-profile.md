@@ -171,3 +171,70 @@ seed ผ่าน `job_record_profile_ensure(p_shop_id)` (`on conflict do nothin
 - md5 เท่าเดิม: `job_core_send` · `job_office_*` · `job_worker_send/receive` · `job_stage_skip/reopen` · `job_plan_*` · `job_surplus_set` · `oem_*` · `production_*` (baseline แบบ 0172 ส่วน 0)
 - ช่วง 00:00–07:00 ไทย: `occurred_on` ของ event `profile_set` = วันไทย (`job_today()`)
 - คาดไว้ก่อนว่าไม่มีเทสต์: race "ช่างรับขั้นแรก" พร้อม `job_profile_set` (2 connection) — กันด้วย `for update` ใน `job_office_begin` + `uq_job_stage_one_received` · ระบุในตารางแมป
+
+## 7. สิทธิ์ · ความลับทอง · ไม่มีราคา
+
+| ช่องทาง | ทำอะไรได้ | ยืนยัน |
+|---|---|---|
+| ช่าง (`/w/` token+session) | เห็น `action_stage.{weight_required, scrap_qty_ask, scrap_weight_ask}` + `job.profile_name` · **เลือก/เปลี่ยนแบบไม่ได้** (ไม่มี arg ใน RPC ช่าง) · ทอง: `prev_weight_out_g` null เหมือนเดิม (N1) | P8 · P10 |
+| ออฟฟิศ owner/admin | `job_record_profile_list/upsert/set_default` · `job_profile_set` · `job_stage_suggest` (profiles) · เลือกแบบตอนสร้าง | `crm_require_owner_admin` + `p_actor` |
+| staff | หน้า `/jobs/*` เดิมไม่มีราคาอยู่แล้ว — จอจัดการแบบ = owner/admin เท่านั้น (`getEffectiveRole()`) · แต่ **ไม่ใช่เรื่องราคา** จึงไม่ต้อง gate แบบ `/oem/rates` — ตัดสิน: ให้เฉพาะ owner/admin เพราะเปลี่ยน default กระทบทุกใบใหม่ (นโยบายโรงงาน ไม่ใช่งานประจำวัน) | memory `role-single-level`: กฎบังคับที่ DB (RPC ✱) ไม่ใช่ปุ่ม |
+| anon/authenticated | ไม่มี (สคีมา `analytics` ปิด REST ตั้งแต่ 0123) | `check-analytics-grants.sql` + เคส 18.5 |
+| ราคา/ต้นทุน | profile/flag เป็น boolean ล้วน · ไม่ join `oem_metal_price`/`silver_price_daily`/`oem_cost_rate` ที่ไหน · ใบพิมพ์ `PrintableJob` ประกอบทีละ field: เพิ่ม `profileName` + ต่อขั้น `scrapQtyAsk/scrapWeightAsk` (มี `weighRequired` แล้ว `lib/jobs/print.ts:12`) | grep `price\|cost\|thb` ใน 0176 เจอแค่คอมเมนต์ |
+
+**ทอง — ผลกระทบที่เจ้าของต้องเห็นทุกครั้งที่เลือก** (มติ 1): ด่าน ±0.05 g (N1/N4) ทำงานเฉพาะ **คู่ขั้นที่ชั่งทั้งคู่** · ขั้นที่ไม่ชั่ง = ไม่มีด่านกันทองหายระหว่างขั้นนั้น และ `v_job_stage_loss` ไม่มีตัวเลขให้ดูย้อนหลัง · แบบ "ไม่ชั่ง" บนใบทอง = ไม่มีด่านเลยทั้งใบ + ไม่บังคับน้ำหนักสุทธิตอนปิด — ระบบ**ไม่บล็อก** (เจ้าของตัดสินแล้ว) แต่ต้องมี (ก) ป้ายแดงบนจอเลือกแบบเมื่อ metal=gold และแบบนั้นมีขั้น `metal_present` ที่ไม่ชั่ง (ข) ป้าย `gold_unguarded` บนบอร์ด + หน้าใบงาน (ค) บรรทัดบนใบพิมพ์ "ขั้นที่ชั่ง: หล่อ" ให้คนถือกระดาษรู้
+
+## 8. หน้าจอ (ส่ง ux-ui — ระดับรายการ · สิทธิ์: `/jobs/*` owner/admin · `/w/*` ช่าง)
+
+1. **`/jobs/profiles` จัดการแบบการบันทึก** (แท็บข้าง "ทะเบียนช่าง") — รายการแบบ (ชื่อ · ป้าย "ค่าเริ่ม" · ใช้กับ n ใบที่เปิดอยู่ · ปิดใช้) · กดเข้า = ตาราง **ขั้น (13 แถวตาม `seq_default`) × [ชั่งน้ำหนัก / ชิ้นเสีย / น้ำหนักเศษ]** checkbox · ช่องชั่ง/เศษของขั้นที่ `metal_present=false` disabled พร้อมเหตุผล · ปุ่ม: บันทึก · ตั้งเป็นค่าเริ่ม (confirm: "ใบงานใหม่ทุกใบจะใช้แบบนี้ ใบที่มีอยู่ไม่เปลี่ยน") · ปิดใช้ (disabled ถ้าเป็นค่าเริ่ม + บอกว่าทำไม) · **สร้างจากแบบนี้** (clone แล้วแก้ — ทางที่เจ้าของจะสร้างแบบ 2) · ข้อความคงที่ใต้ตาราง: "ชั่งน้ำหนัก = บังคับชั่งเข้า-ออก · ชิ้นเสีย/น้ำหนักเศษ = ช่องที่ช่างเห็นบนมือถือ (ออฟฟิศกรอกแทนได้เสมอ)" · ทุกข้อความ error มาจาก server (hint code → `lib/jobs/messages.ts`)
+2. **ฟอร์มสร้างใบงาน** — แถว "แบบการบันทึก" select ค่าเริ่ม = `default_profile_id` (ไม่มี ⇒ บล็อกส่ง + ลิงก์ไป `/jobs/profiles`) · ใต้ select: สรุปสดจาก matrix × ขั้นที่ติ๊กไว้: "ชั่ง: หล่อ · ชิ้นเสีย: หล่อ · เศษ: —" · เตือนเหลือง "ขั้นที่เลือกไม่มีขั้นไหนชั่งเลย" · **metal=gold + มีขั้นโลหะที่ไม่ชั่ง ⇒ กล่องแดง** "งานทอง: ขั้น X, Y ไม่ชั่ง — ไม่มีด่านกันทองหายระหว่างขั้นเหล่านี้" (ไม่บล็อก) · ไม่คำนวณอะไรใน client นอกจาก lookup boolean
+3. **`/jobs/[id]` หน้าใบงาน** — การ์ด "แบบการบันทึก": ชื่อแบบ (หรือ "กติกาเดิม J1") + บรรทัดสรุปขั้นที่ชั่ง/ชิ้นเสีย/เศษ · ปุ่ม "เปลี่ยนแบบ" เฉพาะเมื่อยังไม่มีขั้น received/sent (ไม่งั้น disabled + "เปลี่ยนได้ก่อนช่างรับงานขั้นแรก") · ป้ายแดง `gold_unguarded` · timeline ขั้นแสดงไอคอน ⚖/✂ ตาม flag · event log มี `profile_set` (before→after)
+4. **ใบพิมพ์ A5** (`PrintableJob`) — ใต้หัว: "แบบ: แบบ 1 — ชั่งเฉพาะหล่อ" · ตารางขั้น: ช่อง "นน.เข้า/ออก" พิมพ์เฉพาะแถวที่ `weighRequired` · ช่อง "เสีย (ชิ้น)" เฉพาะ `scrapQtyAsk` · ช่อง "เศษ (g)" เฉพาะ `scrapWeightAsk` · แถวที่ปิดทั้ง 3 = ช่องเซ็นรับ/ส่งอย่างเดียว · ใบ `profile_id` null พิมพ์แบบเดิม
+5. **`/w/[token]` ช่าง** — รับ: ช่องน้ำหนักเข้าเฉพาะ `weight_required` (เดิม) · ส่งต่อ: น้ำหนักออกเฉพาะ `weight_required` · บล็อกชิ้นเสีย+เหตุผลเฉพาะ `scrap_qty_ask` (ปิด = ไม่แสดง ส่ง 0) · **ช่องใหม่ "เศษโลหะ (g)" เฉพาะ `scrap_weight_ask`** (optional · `lib/actions/job-worker.ts` ต้องส่ง `scrapWeightG` ซึ่ง `worker-server.ts:116` รองรับอยู่แล้ว) · ขั้นที่ปิดทั้ง 3 = ปุ่มเดียว "ส่งต่อ" · ไม่โชว์ชื่อแบบ/ป้ายทองให้ช่าง (ไม่ใช่เรื่องของช่าง)
+6. **บอร์ด** — ป้าย `gold_unguarded` (แดง) · filter/คอลัมน์ `profile_name` (ไม่บังคับ)
+
+## 9. ผลต่อ `design-job-plan-metal-gems.md` §8 (0175 / 0176 เดิม)
+
+| ส่วนใน §8 | สถานะหลังมติ 15 ต.ค. |
+|---|---|
+| 0175: `qty_order`/เผื่อ/`job_plan_suggest`/`job_qty_planned_set`/surplus/D2 | **ใช้ได้ทั้งหมด** — แผนโลหะ (`metal_plan_g`) เป็นตัวเลขวางแผน ไม่ต้องชั่ง · `job_plan_set` "แก้ได้จน cast รับ" ไม่เกี่ยวกับ flag ชั่ง |
+| 0175: D6 ส่วน `job_worker_resolve` (§8.0 ข้อ 1 บอกว่าไปปิดใน 0176) | **ย้ายมา 0176 profile** (§4 แถว `job_worker_resolve`) |
+| 0176 เดิม: `job_metal_material` · `job_metal_issue(+line)` · `job_metal_*` RPC · `job_worker_metal_issue` · `v_job_metal_balance/recycle_pool/drift` · `job_core_send` branch ledger · `job_stage_reopen` void · `v_job_board.metal_in_g/metal_not_issued/alloy_warn/return_not_recorded` · B1–B11 · จอ §8.9 ข้อ 3–5 · R11–R16 | ⏸ **พักทั้งก้อน** — ติดป้ายในไฟล์เดิม ห้ามลบ · ถ้าปลุกทีหลัง: ต้องเขียนทับบนฐานที่มี profile (ledger `issue` บังคับ `weight_in_g` ⇒ ใช้ได้เฉพาะใบที่ `cast.weigh_required=true` — เพิ่มเป็นด่าน `profile_no_weigh` ตอนนั้น) |
+| `scrap_weight_g` ⇒ ledger `return` อัตโนมัติ (§8.3 `job_core_send`) | พัก — `scrap_weight_g` กลับเป็นช่องบันทึกธรรมดาตาม J1 §4.4 (ต้นทาง `metal_scrap_ledger` J6 ทีหลัง) |
+| §8.8 ไฟล์โค้ด คอลัมน์ 0176 · §8.10 ลำดับงาน "0176 ledger → security → การ์ดโลหะ" | แทนด้วย §10–§11 ของไฟล์นี้ |
+| §8.13 Q11 (อัลลอยทอง) · Q12 | เลื่อนไปพร้อม ledger |
+
+## 10. รายการส่ง Han (0175 — ไม่มีข้อบังคับให้แก้)
+
+| # | เรื่อง | ต้องทำไหม |
+|---|---|---|
+| 1 | signature `job_create_insert`/`job_create_from_*` ของ 0175 จะถูก **drop อีกรอบใน 0176** (ต่อท้าย `p_profile_id`) | ไม่ต้องแก้ 0175 — caller TS ใช้ named args · 0176 drop sig ของ 0175 ตามปกติ · **ขอให้ 0175 นิ่ง (apply) ก่อน 0176 เริ่มเขียน** ไม่งั้น def ต้นทาง §4 เลื่อน |
+| 2 | คอมเมนต์หัวไฟล์ 0175 / `job_worker_resolve` ที่เขียนว่า "D6 ส่วน resolve ไปปิดใน 0176 (ledger)" | ถ้ามี ให้แก้ข้อความเป็น "0176 (record profile)" — ไม่กระทบโค้ด |
+| 3 | `job_event_event_type_ck` ตั้งชื่อแล้ว (0175:124) | ดีแล้ว — 0176 drop/add ด้วยชื่อนี้เพิ่ม `profile_set` |
+| 4 | verify-0175 baseline md5 ที่ล็อก `job_stage_guard`/`job_worker_resolve`/`job_stage_suggest` ว่า "เท่าเดิม" | ถูกต้องสำหรับ 0175 · verify-0176 จะ re-baseline เอง — ไม่ต้องแก้ |
+| 5 | `v_job_board` ของ 0175 | 0176 ต่อท้าย 3 คอลัมน์ — ห้ามแทรกกลาง (42P16) · ไม่ต้องเผื่อ |
+
+## 11. ลำดับงาน · ความเสี่ยง · หนี้
+
+**ลำดับ**: 0175 apply + merge (Han) → `0176` profile (backend-dev · worktree · def ต้นทางตาม §4) → verify-0176 → **security บังคับ** (แตะ RPC ช่าง + ถอดด่านทอง = มูลค่าโลหะ) + QA **L** (ทุก flow `/w/` + สร้าง/ปิดใบงาน + ใบพิมพ์) → merge DB → UI (frontend-dev): `/jobs/profiles` + ฟอร์มสร้าง + หน้าใบงาน + ใบพิมพ์ + จอช่าง (เทสต์ `WorkerApp*.test.tsx` เคสทองต้องแยก "ทองที่ชั่ง" / "ทองไม่ชั่ง") → QA M → UAT: เจ้าของสร้างแบบ 2 เองในจอ แล้วช่าง 1 คนลองใบเงินแบบ 1 จริง 1 ใบ
+
+| # | ความเสี่ยง | กัน |
+|---|---|---|
+| R1 | คลาย freeze `weigh_required` บน guard = service key เขียน flag ตรงได้ช่วงก่อนเริ่มงาน | ยอมรับ (ชั้นเดียวกับ `qty_planned` 0175) · เงื่อนไข `not exists received/sent` ตรวจใน trigger ไม่ใช่ RPC · P5 |
+| R2 | trigger (2) ทั่วไปขึ้น (ขั้นชั่งห้าม auto_close ทุกโลหะ) — path ไหนเคย auto_close ขั้นเงินที่ชั่ง? | ตรวจแล้ว: ทางเดียวคือ `job_core_receive` ซึ่งปฏิเสธอยู่แล้ว (0175:280) ⇒ ไม่เปลี่ยนผล · verify ยิงเคส QA 6 ของ verify-0173 ซ้ำ |
+| R3 | drop/add `job_done_ck` บนตารางที่มีแถว done จริง | แถวทองเดิม `weigh_required=true` ⇒ นิยามใหม่ผ่านแน่ · dry-run ก่อน apply (ข้อ 12) |
+| R4 | UI เลือกแบบ default ไม่มี (ร้านใหม่/คนปิดผ่าน SQL) แล้วสร้างใบเงียบๆ ไม่มี flag | DB raise `no_default_profile` (ไม่ fallback) · `ensure` seed เฉพาะร้านที่ไม่มีแบบเลย · CHECK `(not is_default or is_active)` |
+| R5 | เจ้าของเลือก "ไม่ชั่ง" กับทองโดยไม่ตั้งใจ | ไม่บล็อก (มติ) · ป้าย 3 ที่ (§7) · Q1 §12 ถ้าอยาก default แยกโลหะ |
+| R6 | หน้าช่างเปิดช่อง "เศษโลหะ" เป็นครั้งแรก — ช่างกรอกน้ำหนักชิ้นงานใส่ช่องเศษ | label ชัด "เศษ/ก้านต้นที่เก็บได้ (ไม่ใช่น้ำหนักงาน)" · ด่านเดิม `js_weight_ck` ไม่เกี่ยวกับเศษ ⇒ ค่าผิดไม่ถูกจับ — รับรู้เป็นหนี้ |
+| R7 | เทสต์ TS เดิมผูกพฤติกรรม "ทอง ⇒ prev_not_sent" กับ metal | เคสเดิมยังถูกเมื่อ `weightRequired=true` · เพิ่มเคส gold+`weightRequired=false` |
+| R8 | 0175 แก้หลัง 0176 เริ่มเขียน ⇒ ลอก def ผิดฉบับ (ข้อ 21) | §10 ข้อ 1 · verify-0176 เทียบ md5 ของ `job_core_receive`/`job_guard`/`job_done` **ก่อน replace** กับค่าที่ 0175 apply จริง |
+
+**หนี้ที่รู้ตั้งแต่ spec**: flag ของเสียไม่เป็นด่าน DB (§2 ข้อ 3 — ถ้าเจ้าของอยาก "ต้องยืนยันว่าไม่มีเสีย" ค่อยเพิ่ม `scrap_confirmed`) · ไม่มีประวัติแก้ profile (§2 ข้อ 9) · ใบ J1 เดิม `profile_id` null ตลอดชีวิตใบ · ไม่มี default แยกโลหะ · R6 · ledger ⏸ ทั้งก้อน (รวม D6 ที่ `v_job_board.deposit_missing` ยังเป็นนิพจน์แยก)
+
+## 12. คำถามถึงเจ้าของ (ถามได้ระหว่างทำ · ไม่บล็อก 0176)
+
+| # | คำถาม | ค่าเริ่มถ้าไม่ตอบ |
+|---|---|---|
+| Q1 | **ทอง**: ใช้ "แบบ 1" เป็นค่าเริ่มเหมือนเงินตามที่พูด หรืออยากให้ทอง default เป็น "ชั่งทุกขั้น" แยกต่างหาก (ลดโอกาสเลือกพลาด) | แบบ 1 ทุกโลหะ + ป้ายเตือน (มติ 1) |
+| Q2 | **แบบ 2** (ชั่งหล่อ+ตัดต้น): ชิ้นเสียถามที่ขั้นไหน · น้ำหนักเศษถามที่ขั้นไหน (ตัดต้น?) | ไม่ seed — เจ้าของสร้างเองใน `/jobs/profiles` |
+| Q3 | ใบทองที่ใช้แบบ "ไม่ชั่ง": ตอนปิดงานยังอยากให้**บังคับ**ใส่น้ำหนักสุทธิไหม (ชั่งครั้งเดียวตอนจบ) | ไม่บังคับ (ตามนิยาม `weigh_required=false`) — เปลี่ยนเป็นบังคับได้ด้วยแก้ `job_done_ck` บรรทัดเดียว |
