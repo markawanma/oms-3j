@@ -70,23 +70,19 @@ export function ProfileStageGrid({ idPrefix, defs, flags, onChange, disabled }: 
                     const id = `${idPrefix}-${d.code}-${c.key}`;
                     return (
                       <td key={c.key} className="px-1 py-0.5 text-center">
-                        <span className="relative inline-flex h-11 w-11 items-center justify-center">
-                          <input
-                            id={id}
-                            type="checkbox"
-                            aria-label={`${c.full} — ${d.nameTh}`}
-                            aria-describedby={blocked ? noteId : undefined}
-                            checked={blocked ? false : f[c.key]}
-                            disabled={disabled || blocked}
-                            onChange={(e) => onChange(d.code, c.key, e.target.checked)}
-                            className={blocked ? "sr-only" : "h-6 w-6 accent-primary-600"}
-                          />
-                          {blocked && (
+                        {blocked ? (
+                          <span className="relative inline-flex h-11 w-11 items-center justify-center">
+                            <input id={id} type="checkbox" aria-label={`${c.full} — ${d.nameTh}`} aria-describedby={noteId} checked={false} disabled className="sr-only" />
                             <span aria-hidden="true" className="text-zinc-500">
                               —
                             </span>
-                          )}
-                        </span>
+                          </span>
+                        ) : (
+                          // label ครอบ = พื้นที่แตะ 44×44 จริง (ไม่ใช่แค่ช่องติ๊ก 24px)
+                          <label className="relative inline-flex h-11 w-11 cursor-pointer items-center justify-center">
+                            <input id={id} type="checkbox" aria-label={`${c.full} — ${d.nameTh}`} checked={f[c.key]} disabled={disabled} onChange={(e) => onChange(d.code, c.key, e.target.checked)} className="h-6 w-6 accent-primary-600" />
+                          </label>
+                        )}
                       </td>
                     );
                   })}

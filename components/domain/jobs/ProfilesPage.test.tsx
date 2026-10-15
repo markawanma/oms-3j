@@ -160,6 +160,19 @@ describe("0176 ตารางติ๊กขั้น", () => {
     expect(within(form).getByRole("table")).toBeInTheDocument();
   });
 
+  it("พื้นที่แตะ 44×44: checkbox อยู่ใน label ขนาด h-11 w-11 · คลิกที่พื้นที่ label (ไม่ใช่ตัวช่อง) = ติ๊กได้ · ขั้นไม่มีโลหะไม่มี label", async () => {
+    const form = await openEditor(/แบบ 1 — ชั่งเฉพาะหล่อ/);
+    const box = within(form).getByLabelText("ชั่งน้ำหนัก — ตะไบ") as HTMLInputElement;
+    const wrap = box.closest("label")!;
+    expect(wrap).not.toBeNull();
+    expect(wrap.className).toContain("h-11");
+    expect(wrap.className).toContain("w-11");
+    expect(box.checked).toBe(false);
+    await userEvent.click(wrap);
+    expect(box.checked).toBe(true);
+    expect(within(form).getByLabelText("ชั่งน้ำหนัก — เทียน").closest("label")).toBeNull();
+  });
+
   it("ขั้นที่ปิดใช้แต่ยังมี flag อยู่ = แสดง (จาง + '(ขั้นนี้ปิดใช้แล้ว)')", async () => {
     a.listProfiles.mockResolvedValue({ ok: true, data: data({ profiles: [prof({ ...P_GENERAL, stages: [{ stageCode: "old", weigh: true, scrapQty: false, scrapWeight: false }] }), P_GOLD] }) });
     const form = await openEditor(/แบบ 1 — ชั่งเฉพาะหล่อ/);

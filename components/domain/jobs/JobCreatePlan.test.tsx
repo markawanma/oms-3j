@@ -273,6 +273,9 @@ describe("0175 ฟอร์มสร้างใบงาน — review S1/S2/BU
     await open();
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("คำนวณจำนวนแนะนำไม่ได้ — คำนวณแผนไม่สำเร็จ");
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+    expect(qtyInput()).not.toHaveAttribute("aria-invalid");
+    expect(alert.closest("div")!.className).not.toMatch(/red-/);
     // ไม่มีการ์ดโลหะ (ไม่มีน้ำหนัก) → ปุ่มลองใหม่ต้องอยู่ที่ช่องจำนวน
     expect(screen.queryByRole("region", { name: "โลหะที่ต้องเตรียม" })).not.toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "ลองใหม่" }));
@@ -285,6 +288,10 @@ describe("0175 ฟอร์มสร้างใบงาน — review S1/S2/BU
     await open();
     expect(await screen.findByText(/คำนวณจำนวนแนะนำไม่ได้ — คำนวณแผนไม่สำเร็จ/)).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: "ลองใหม่" })).toHaveLength(1);
+    // role=alert ตัวเดียว (ของการ์ดโลหะ) · ช่อง "เริ่มผลิต" ไม่ขึ้นแดง/ไม่ aria-invalid เพราะ preview ล้ม
+    expect(screen.getAllByRole("alert")).toHaveLength(1);
+    expect(qtyInput()).not.toHaveAttribute("aria-invalid");
+    expect(screen.getByText(/คำนวณจำนวนแนะนำไม่ได้/).closest("div")!.className).not.toMatch(/red-/);
   });
 
   it("S2 พิมพ์ '4' เท่าค่าต้นทาง 4.000 = ไม่นับว่าแก้: ไม่ส่ง targetPieceG · ไม่ถาม preview ด้วยน้ำหนัก · ที่มายังเป็นใบเสนอราคา", async () => {

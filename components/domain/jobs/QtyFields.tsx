@@ -78,8 +78,9 @@ export function QtyFields({ idPrefix, kind, qtyOrder, qtyText, onQtyText, qtyErr
       )}
 
       {preview.s === "error" && (
-        <div className="flex flex-col gap-2 rounded-md border border-red-300 bg-red-50 p-2.5 sm:flex-row sm:items-center sm:justify-between">
-          <p role="alert" className="text-sm font-medium text-red-800">
+        // ไม่ใช่ความผิดของช่อง "เริ่มผลิต" → กล่องสีเหลือง (ไม่ใช้แดง) · มีปุ่มลองใหม่ (onRetry) = ไม่มีการ์ดโลหะข้างล่าง → ตัวนี้เป็น alert ตัวเดียว · ไม่มีปุ่ม = การ์ดโลหะมี alert ของตัวเองอยู่แล้ว ไม่ซ้ำ role
+        <div className="flex flex-col gap-2 rounded-md border border-amber-300 bg-amber-50 p-2.5 sm:flex-row sm:items-center sm:justify-between">
+          <p role={onRetry ? "alert" : undefined} className="text-sm font-medium text-amber-900">
             คำนวณจำนวนแนะนำไม่ได้ — {preview.message}
           </p>
           {onRetry && (
