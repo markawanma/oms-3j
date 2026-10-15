@@ -18,7 +18,9 @@ vi.mock("@/lib/actions/job-office-write", () => ({ issueJobQr: (...a: unknown[])
 const getJobsForSourceItems = vi.fn();
 const suggestJob = vi.fn();
 const createJob = vi.fn();
+const getJobPlanSuggest = vi.fn();
 vi.mock("@/lib/actions/job-office", () => ({
+  getJobPlanSuggest: (...a: unknown[]) => getJobPlanSuggest(...a),
   getJobsForSourceItems: (...a: unknown[]) => getJobsForSourceItems(...a),
   suggestJob: (...a: unknown[]) => suggestJob(...a),
   createJob: (...a: unknown[]) => createJob(...a),
@@ -58,6 +60,8 @@ const printable: PrintableJob = {
 beforeEach(() => {
   vi.clearAllMocks();
   window.print = vi.fn();
+  // ค่าเริ่มของตัวอย่างแผน (0175): ไม่มีค่าแนะนำ/ไม่มีน้ำหนัก — ใบเดิมไม่ขึ้นสองเลข
+  getJobPlanSuggest.mockResolvedValue({ ok: true, data: planData() });
 });
 
 describe("JobsSubNav active", () => {
@@ -294,7 +298,8 @@ describe("JobCreatePanel", () => {
     const submit = screen.getAllByRole("button", { name: "สร้างใบงาน" }).at(-1)!;
     expect(submit).toBeDisabled();
     await userEvent.type(screen.getByLabelText(/เหตุผลที่เริ่มผลิตก่อน/), "ลูกค้าประจำ");
-    expect(submit).toBeEnabled();
+    // ติ๊กขั้นใหม่ = ถามแผนจาก DB ซ้ำ (debounce ~400ms) ระหว่างรอปุ่มสร้างปิดอยู่ (spec §A)
+    await waitFor(() => expect(submit).toBeEnabled(), { timeout: 3000 });
     await userEvent.click(submit);
     expect(createJob).toHaveBeenCalledWith({ kind: "oem", itemId: U1, stageCodes: ["cast", "polish"], dueDate: null, startGateNote: "ลูกค้าประจำ", designLabel: "แหวนลาย A" });
     await waitFor(() => expect(push).toHaveBeenCalledWith("/jobs/J9"));

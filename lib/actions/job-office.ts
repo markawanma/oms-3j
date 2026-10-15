@@ -305,7 +305,7 @@ export interface CreateJobInput {
   metalPlanReason?: string | null;
 }
 
-export async function createJob(input: CreateJobInput): Promise<JobResult<{ jobId: string; jobNo: string }>> {
+export async function createJob(input: CreateJobInput): Promise<JobResult<{ jobId: string; jobNo: string; planMissing: string[] }>> {
   const g = await guard();
   if (g) return g;
   if (typeof input !== "object" || input === null || (input.kind !== "oem" && input.kind !== "production") || !isUuid(input.itemId)) return fail("ข้อมูลไม่ถูกต้อง");

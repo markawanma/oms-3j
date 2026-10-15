@@ -9,7 +9,7 @@ import type { RefObject } from "react";
 import { ArrowDown, ArrowUpRight, CheckCircle2, UserRound } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { StatusChip, STATUS_BAR } from "@/components/domain/jobs/StatusChip";
-import { ATTENTION_MAX_RANK, columnOf, compareBySeverity, dueInfo, primaryStatus, secondaryStatuses, stageAgeLabel } from "@/lib/jobs/board";
+import { ATTENTION_MAX_RANK, columnOf, compareBySeverity, dueInfo, primaryStatus, qtyLabel, secondaryStatuses, stageAgeLabel } from "@/lib/jobs/board";
 import { thaiDate } from "@/lib/jobs/dates";
 import { METAL_LABEL, SOURCE_LABEL, STAGE_STATUS_LABEL } from "@/lib/jobs/types";
 import type { BoardRow } from "@/lib/jobs/types";
@@ -39,7 +39,7 @@ function ActiveJobRow({
   const stageState = row.stageStatus ? (STAGE_STATUS_LABEL[row.stageStatus] ?? row.stageStatus) : null;
   const stageDetail = [stageState, age ? `ค้าง ${age}` : null].filter(Boolean).join(" · ");
   const pct = row.stageCount > 0 ? Math.min(100, Math.round((row.stageDoneCount / row.stageCount) * 100)) : 0;
-  const meta = `${row.qtyPlanned} ชิ้น · ${METAL_LABEL[row.metal] ?? row.metal} · ${SOURCE_LABEL[row.sourceKind] ?? row.sourceKind}`;
+  const meta = `${qtyLabel(row)} · ${METAL_LABEL[row.metal] ?? row.metal} · ${SOURCE_LABEL[row.sourceKind] ?? row.sourceKind}`;
 
   const stageLine = [stageDetail, row.stageCount > 0 ? `ขั้น ${row.stageDoneCount}/${row.stageCount}` : null].filter(Boolean).join(" · ");
 

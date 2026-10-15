@@ -101,6 +101,14 @@ export function cardBadges(r: BoardRow): CardBadge[] {
   return out;
 }
 
+/**
+ * จำนวนบนการ์ด (0175): เท่ากัน = "30 ชิ้น" (ใบเดิมไม่ขึ้นสองเลข) · เริ่มผลิตต่างจากที่สั่ง = "30 (เริ่ม 35) ชิ้น"
+ * ใช้ได้กับ BoardRow และ JobDetail (มี qtyOrder/qtyPlanned เหมือนกัน)
+ */
+export function qtyLabel(r: { qtyOrder: number; qtyPlanned: number }): string {
+  return r.qtyOrder === r.qtyPlanned ? `${r.qtyPlanned} ชิ้น` : `${r.qtyOrder} (เริ่ม ${r.qtyPlanned}) ชิ้น`;
+}
+
 /** "ค้าง n วัน" ในขั้นนี้ — null = ไม่มีข้อมูล (ไม่แสดง) */
 export function stageAgeLabel(r: BoardRow): string | null {
   if (r.daysInStage === null || r.daysInStage < 0) return null;
@@ -136,7 +144,7 @@ export function applySignal(rows: readonly BoardRow[], signal: Signal | null, to
 }
 
 export type StatusTone = BadgeTone | "green";
-export type StatusKey = "overdue" | "dueSoon" | "mismatch" | "handoff" | "stale" | "deposit" | "hold" | "normal" | "auto" | "qty";
+export type StatusKey = "overdue" | "dueSoon" | "mismatch" | "handoff" | "stale" | "deposit" | "hold" | "normal" | "auto" | "qty" | "surplusPending" | "underPlanned";
 
 export interface StatusSignal {
   key: StatusKey;
@@ -166,9 +174,13 @@ export function statusSignals(r: BoardRow, todayTh: string): StatusSignal[] {
   if (r.handoffGapG !== null && r.handoffGapG > 0) out.push({ key: "handoff", rank: 4, label: `ส่วนต่างส่งมอบ ${Math.round(r.handoffGapG * 1000) / 1000} g`, tone: "amber" });
   if (r.isStale) out.push({ key: "stale", rank: 5, label: "นิ่งเกิน 3 วัน", tone: "amber" });
   if (r.depositMissing && r.status !== "done") out.push({ key: "deposit", rank: 6, label: r.startGateNotePresent ? "ยังไม่มีมัดจำ (เริ่มก่อนด้วยเหตุผล)" : "ยังไม่มีมัดจำ", tone: "amber" });
+  // 0175: ใบ done ที่ของเหลือยังถือไว้ไม่ตัดสิน (ปกติไม่อยู่บนบอร์ด เพราะบอร์ดดึงเฉพาะใบที่ยังไม่ปิด — ขึ้นที่หน้ารายละเอียดใบงาน) · n = qty_surplus จาก DB
+  if (r.surplusPending && r.qtySurplus !== null && r.qtySurplus > 0) out.push({ key: "surplusPending", rank: 6.5, label: `เหลือ ${r.qtySurplus} ชิ้น ยังไม่ตัดสิน`, tone: "amber" });
   if (r.status === "on_hold") out.push({ key: "hold", rank: 7, label: "พักไว้", tone: "gray" });
   if (r.hasAutoClosed) out.push({ key: "auto", rank: 9, label: "มีขั้นที่ปิดให้อัตโนมัติ", tone: "gray" });
   if (r.quoteQtyMismatch) out.push({ key: "qty", rank: 10, label: `จำนวนไม่ตรงใบเสนอราคา${r.quoteItemQty !== null ? ` (${r.quoteItemQty})` : ""}`, tone: "blue" });
+  // 0175: ผลิตบางส่วน (เริ่มผลิตน้อยกว่าที่สั่ง) — ข้อมูลประกอบ ไม่ใช่ความผิดปกติ · under_planned จาก DB (ใบเดิม qty_order = qty_planned ไม่ขึ้น)
+  if (r.underPlanned && r.qtyPlanned < r.qtyOrder) out.push({ key: "underPlanned", rank: 10.1, label: `เริ่มผลิต ${r.qtyPlanned} จากสั่ง ${r.qtyOrder}`, tone: "blue" });
   return out;
 }
 
