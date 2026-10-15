@@ -12,14 +12,14 @@ interface Props {
   /** ชื่อไทยของขั้นที่โลหะอยู่ในมือแต่ไม่ชั่ง */
   stageNames: readonly string[];
   variant: "ack" | "info";
-  /** variant ack: แบบนี้บังคับน้ำหนักสุทธิตอนปิดงานไหม (บอกผลจริงให้ตรงกับ DB) */
-  requireFinalWeight?: boolean;
+  /** variant ack: ใบนี้บังคับน้ำหนักสุทธิตอนปิดงานไหม — ผลรวมกติกาของ DB (แบบบังคับ หรือ ทองที่มีขั้นชั่ง) ไม่ใช่แค่ flag ของแบบ · false = บอกว่าไม่บังคับ */
+  finalRequired?: boolean;
   ack?: boolean;
   onAck?: (v: boolean) => void;
   disabled?: boolean;
 }
 
-export function GoldGuardWarning({ idPrefix, stageNames, variant, requireFinalWeight, ack = false, onAck, disabled }: Props) {
+export function GoldGuardWarning({ idPrefix, stageNames, variant, finalRequired, ack = false, onAck, disabled }: Props) {
   if (stageNames.length === 0) return null;
   const list = stageNames.join(", ");
   if (variant === "info") {
@@ -41,7 +41,7 @@ export function GoldGuardWarning({ idPrefix, stageNames, variant, requireFinalWe
           <p>
             ขั้นที่ไม่ชั่ง: <span className="font-semibold">{list}</span> — ถ้าทองหายในขั้นเหล่านี้ ระบบจะไม่เตือน
           </p>
-          {requireFinalWeight === false && <p>ตอนปิดงานไม่บังคับใส่น้ำหนักสุทธิ (ยกเว้นแบบที่มีขั้นชั่ง)</p>}
+          {finalRequired === false && <p>ตอนปิดงานไม่บังคับใส่น้ำหนักสุทธิ</p>}
           <p>ด่านเทียบน้ำหนักส่ง-รับ (±0.05 กรัม) ทำงานเฉพาะสองขั้นติดกันที่ชั่งทั้งคู่</p>
         </div>
       </div>

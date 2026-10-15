@@ -144,7 +144,8 @@ describe("0176 ใบทอง — กล่องแดง + ติ๊กรั
     await open();
     const box = screen.getByText("ใบทองนี้ไม่มีด่านกันทองหายในบางขั้น").closest("[role=alert]") as HTMLElement;
     expect(box).toHaveTextContent("ขัด");
-    expect(box).toHaveTextContent("ตอนปิดงานไม่บังคับใส่น้ำหนักสุทธิ");
+    // ทอง + แบบที่มีขั้นชั่ง (หล่อ) = DB บังคับน้ำหนักสุทธิตอนปิดอยู่แล้ว → กล่องแดงต้องไม่บอกว่า "ไม่บังคับ"
+    expect(box).not.toHaveTextContent("ตอนปิดงานไม่บังคับใส่น้ำหนักสุทธิ");
     expect(box).toHaveTextContent("±0.05 กรัม");
     expect(box.className).toContain("border-red-400");
     expect(submitBtn()).toBeDisabled();
@@ -168,6 +169,15 @@ describe("0176 ใบทอง — กล่องแดง + ติ๊กรั
     await userEvent.click(screen.getByLabelText("ตะไบ")); // เปลี่ยนขั้น
     expect(ackBox().checked).toBe(false);
     expect(submitBtn()).toBeDisabled();
+  });
+
+  it("ทอง + แบบไม่ชั่งเลย (ไม่บังคับน้ำหนักสุทธิ): กล่องแดงบอกว่า 'ตอนปิดงานไม่บังคับใส่น้ำหนักสุทธิ' · พรีวิวปิดงานตรงกัน", async () => {
+    suggestJob.mockResolvedValue(gold());
+    await open();
+    await userEvent.selectOptions(select(), PB);
+    const box = screen.getByText("ใบทองนี้ไม่มีด่านกันทองหายในบางขั้น").closest("[role=alert]") as HTMLElement;
+    expect(box).toHaveTextContent("ตอนปิดงานไม่บังคับใส่น้ำหนักสุทธิ");
+    expect(within(dl()).getByText("ปิดงาน").nextElementSibling).toHaveTextContent("ไม่บังคับน้ำหนักสุทธิ");
   });
 
   it("ทอง + แบบที่ชั่งครบทุกขั้นโลหะของใบ: ไม่มีกล่องแดง · สร้างได้เลย", async () => {

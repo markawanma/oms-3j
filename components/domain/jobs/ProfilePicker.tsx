@@ -94,7 +94,7 @@ export function ProfilePicker({ idPrefix, profiles, defaultProfileId, profileId,
               แบบนี้ตั้งให้ชั่ง แต่ขั้นที่เลือกไม่มีขั้นไหนที่ชั่งเลย — เลือกแบบอื่นหรือเพิ่มขั้น
             </p>
           )}
-          <GoldGuardWarning idPrefix={idPrefix} variant="ack" stageNames={a.goldUnguarded} requireFinalWeight={profile.requireFinalWeight} ack={ack} onAck={onAck} disabled={disabled} />
+          <GoldGuardWarning idPrefix={idPrefix} variant="ack" stageNames={a.goldUnguarded} finalRequired={a.finalRequired} ack={ack} onAck={onAck} disabled={disabled} />
         </>
       )}
     </div>
