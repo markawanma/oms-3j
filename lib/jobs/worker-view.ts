@@ -135,7 +135,8 @@ export function sanitizeWorkerView(raw: unknown): WorkerView | null {
     // all_done ไม่ต้องระบุตัวใคร (ไม่มีอะไรให้ทำ) — ค่าอื่นของคนที่ยังไม่ระบุตัว = ให้ระบุตัวก่อนเสมอ
     nextAction: viewer || nextAction === "all_done" ? nextAction : "identify",
     actionStage,
-    prevWeightOutG: numOrNull(raw.prev_weight_out_g),
+    // 🔴 ทอง: ผู้รับต้องชั่งแบบไม่รู้คำตอบ (0174 N1) — DB ส่ง null ให้อยู่แล้ว · ด่านซ้ำฝั่งแอปเผื่อ RPC เปลี่ยน (security 0176 L2)
+    prevWeightOutG: j.metal === "gold" ? null : numOrNull(raw.prev_weight_out_g),
     heldBy: text(raw.held_by, 60),
     workers,
     scrapReasons: (Array.isArray(raw.scrap_reasons) ? raw.scrap_reasons : []).filter((r): r is string => typeof r === "string" && SCRAP_REASONS.has(r)),

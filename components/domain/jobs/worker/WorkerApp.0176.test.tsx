@@ -130,6 +130,42 @@ describe("0176 ส่งต่อ — flag ต่อขั้น", () => {
   });
 });
 
+describe("0176 QA — label เศษ · บรรทัดบอกเมื่อเปิดของเสีย · code ใหม่ของ 0178", () => {
+  it("label ช่องเศษไม่ซ้ำคำ: 'เศษโลหะ (กรัม) — ถ้าชั่งได้' ครั้งเดียว (exact)", () => {
+    render(<WorkerApp token={TOKEN} view={view("send", { weightRequired: true, scrapWeightAsk: true })} />);
+    const label = screen.getByText(/^เศษโลหะ/, { selector: "label" });
+    expect(label.textContent).toBe("เศษโลหะ (กรัม) — ถ้าชั่งได้");
+    expect(label.textContent?.match(/ถ้าชั่งได้/g)).toHaveLength(1);
+    expect(label.textContent?.match(/\(กรัม\)/g)).toHaveLength(1);
+    // ช่องอื่นไม่พัง: น้ำหนักออก (ต้องใส่) ยังเป็นรูปเดิม
+    expect(screen.getByText(/^น้ำหนักออก/, { selector: "label" }).textContent).toBe("น้ำหนักออก (กรัม) — ต้องใส่");
+  });
+
+  it("ขั้นปิดทั้ง 3: เปิด '+ แจ้งของเสียในขั้นนี้' แล้วบรรทัด 'ไม่ต้องชั่งหรือแจ้งของเสีย' หาย → เหลือ 'ไม่ต้องชั่งน้ำหนัก'", async () => {
+    render(<WorkerApp token={TOKEN} view={view("send", {})} />);
+    expect(screen.getByText("ขั้นนี้ไม่ต้องชั่งหรือแจ้งของเสีย — กดส่งต่อได้เลย")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "+ แจ้งของเสียในขั้นนี้" }));
+    expect(screen.queryByText(/ไม่ต้องชั่งหรือแจ้งของเสีย/)).not.toBeInTheDocument();
+    expect(screen.getByText("ขั้นนี้ไม่ต้องชั่งน้ำหนัก")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "เพิ่มของเสีย" })).toBeInTheDocument();
+  });
+
+  it("scrap_weight_not_asked (ออฟฟิศเปลี่ยนแบบขณะจอเก่าเปิดค้าง): ข้อความ + ปุ่มโหลดใหม่ · scrap_over: ข้อความอย่างเดียว ไม่มีปุ่มโหลดใหม่", async () => {
+    workerSendStage.mockResolvedValue({ ok: false, error: workerFailMessage("scrap_weight_not_asked", "x"), code: "scrap_weight_not_asked" });
+    render(<WorkerApp token={TOKEN} view={view("send", { scrapWeightAsk: true })} />);
+    await userEvent.click(sendBtn());
+    expect(await screen.findByRole("alert")).toHaveTextContent("ขั้นนี้ไม่ได้บันทึกเศษโลหะ");
+    await userEvent.click(screen.getByRole("button", { name: "โหลดใหม่" }));
+    expect(refresh).toHaveBeenCalled();
+    cleanup();
+    workerSendStage.mockResolvedValue({ ok: false, error: workerFailMessage("scrap_over", "x"), code: "scrap_over" });
+    render(<WorkerApp token={TOKEN} view={view("send", { scrapWeightAsk: true })} />);
+    await userEvent.click(sendBtn());
+    expect(await screen.findByRole("alert")).toHaveTextContent("น้ำหนักเศษมากกว่าส่วนที่หายไป");
+    expect(screen.queryByRole("button", { name: "โหลดใหม่" })).not.toBeInTheDocument();
+  });
+});
+
 describe("0176 รับงาน", () => {
   it("ขั้นไม่ชั่ง + ปิดทั้ง 3: ไม่มีช่องน้ำหนักเข้า · 'ขั้นนี้ไม่ต้องบันทึกอะไร — กดรับงานได้เลย' · รับส่ง weightIn null", async () => {
     render(<WorkerApp token={TOKEN} view={view("receive", {})} />);

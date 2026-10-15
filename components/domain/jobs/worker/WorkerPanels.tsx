@@ -11,6 +11,7 @@ import type { WorkerActionResult } from "@/lib/actions/job-worker";
 import { BigButton, PinPad, ScrapStepper, WeightField } from "@/components/domain/jobs/worker/WorkerParts";
 import { parseWeight } from "@/lib/jobs/input";
 import { GENERIC_JOB_ERROR, prevNotSentMessage } from "@/lib/jobs/messages";
+import { stageFieldPlan } from "@/lib/jobs/stage-fields";
 import { prevStageName } from "@/lib/jobs/worker-view";
 import type { WorkerView } from "@/lib/jobs/worker-view";
 
@@ -22,7 +23,7 @@ const PERMANENT_BLOCK = new Set(["locked_office", "token_budget_exhausted", "inv
 /** การล็อกที่ผูกกับ "ใบ/QR" ไม่ใช่ตัวช่าง — เปลี่ยนชื่อแล้วก็ยังใช้ไม่ได้ · ที่เหลือ (locked, locked_office) ล็อกรายช่าง: เปลี่ยนคนแล้วแป้นต้องกลับมากดได้ */
 const TOKEN_WIDE_BLOCK = new Set(["token_budget_exhausted", "invalid_token"]);
 /** code ที่แปลว่า "ข้อมูลบนจอเก่าแล้ว" — แก้ได้ด้วยการโหลดใหม่ (ช่างไม่ต้องรู้ว่า "รีเฟรช" คืออะไร) */
-const RELOAD_CODES = new Set(["stage_changed", "out_of_order", "not_holder", "not_received", "already_sent", "weight_required"]);
+const RELOAD_CODES = new Set(["stage_changed", "out_of_order", "not_holder", "not_received", "already_sent", "weight_required", "scrap_weight_not_asked"]);
 
 async function safely(fn: () => Promise<WorkerActionResult>): Promise<WorkerActionResult> {
   try {
@@ -183,9 +184,9 @@ export function ReceivePanel({ token, view, onDone, onReload }: { token: string;
   const [confirm, setConfirm] = useState<Confirm>(null);
   const [ack, setAck] = useState<Ack>({ holder: false, weight: false });
   // 0176: ใบที่มีแบบการบันทึก = ช่องตาม flag ของขั้น · ใบเดิม (has_profile ไม่ใช่ true) = ช่องน้ำหนักเหมือนเดิมทุกประการ
-  const legacy = view.job.hasProfile !== true;
-  const showWeight = legacy || st.weightRequired;
-  const noteLine = legacy ? null : !st.weightRequired && st.scrapQtyAsk === false && st.scrapWeightAsk !== true ? "ขั้นนี้ไม่ต้องบันทึกอะไร — กดรับงานได้เลย" : !st.weightRequired ? "ขั้นนี้ไม่ต้องชั่งน้ำหนัก" : null;
+  const plan = stageFieldPlan({ hasProfile: view.job.hasProfile, weightRequired: st.weightRequired, scrapQtyAsk: st.scrapQtyAsk, scrapWeightAsk: st.scrapWeightAsk });
+  const showWeight = plan.showWeight;
+  const noteLine = plan.receiveNote;
 
   // ขั้นก่อนยังถืออยู่โดยคนอื่น (ขั้นไม่บังคับชั่ง: การรับงานจะปิดขั้นของเขาให้) → ถามก่อนเสมอ
   const holderOther = view.heldBy !== null && view.heldBy !== me ? view.heldBy : null;
@@ -280,21 +281,14 @@ export function SendPanel({ token, view, onDone, onReload }: { token: string; vi
   const [wErr, setWErr] = useState<string | null>(null);
   const [sErr, setSErr] = useState<string | null>(null);
   // 0176: ใบที่มีแบบการบันทึก = ช่อง/ปุ่มตาม flag ของขั้น · ใบเดิม = UI เดิมทุกประการ (ช่องน้ำหนัก + ชิ้นเสีย + เติมโลหะ ทุกขั้น)
-  const legacy = view.job.hasProfile !== true;
-  const showWeight = legacy || st.weightRequired;
-  const askScrap = legacy || st.scrapQtyAsk !== false;
-  const askScrapWeight = !legacy && st.scrapWeightAsk === true;
-  const showAdd = legacy || st.weightRequired;
   const [scrapOpen, setScrapOpen] = useState(false); // ขั้นที่ไม่ถามชิ้นเสีย: เปิดเองได้ด้วยปุ่ม "+ แจ้งของเสียในขั้นนี้"
   const [scrapW, setScrapW] = useState("");
   const [swErr, setSwErr] = useState<string | null>(null);
-  const noteLine = legacy
-    ? null
-    : !st.weightRequired && !askScrap && !askScrapWeight
-      ? "ขั้นนี้ไม่ต้องชั่งหรือแจ้งของเสีย — กดส่งต่อได้เลย"
-      : !st.weightRequired
-        ? "ขั้นนี้ไม่ต้องชั่งน้ำหนัก"
-        : null;
+  const plan = stageFieldPlan({ hasProfile: view.job.hasProfile, weightRequired: st.weightRequired, scrapQtyAsk: st.scrapQtyAsk, scrapWeightAsk: st.scrapWeightAsk, scrapOpen });
+  const showWeight = plan.showWeight;
+  const askScrapWeight = plan.showScrapWeight;
+  const showAdd = plan.showAddMetal;
+  const noteLine = plan.sendNote;
 
   async function go() {
     if (busy) return;
@@ -347,14 +341,14 @@ export function SendPanel({ token, view, onDone, onReload }: { token: string; vi
       </h2>
       {noteLine && <p className="text-lg text-zinc-700">{noteLine}</p>}
       {showWeight && <WeightField id="w-out" label="น้ำหนักออก" value={w} onChange={(v) => { setW(v); setWErr(null); }} required={st.weightRequired} error={wErr} />}
-      {askScrap || scrapOpen ? (
+      {plan.showScrapStepper ? (
         <ScrapStepper qty={scrap} onQty={(n) => { setScrap(n); setSErr(null); if (n === 0) setReason(null); }} reason={reason} onReason={(r) => { setReason(r); setSErr(null); }} reasons={view.scrapReasons} error={sErr} />
       ) : (
         <button type="button" className="min-h-14 w-full rounded-xl border-2 border-dashed border-zinc-400 text-lg font-semibold text-zinc-800" onClick={() => setScrapOpen(true)}>
           + แจ้งของเสียในขั้นนี้
         </button>
       )}
-      {askScrapWeight && <WeightField id="w-scrap" label="เศษโลหะ (กรัม) — ถ้าชั่งได้" value={scrapW} onChange={(v) => { setScrapW(v); setSwErr(null); }} required={false} hint="เศษ/ก้านต้นที่เก็บได้ ไม่ใช่น้ำหนักงาน" error={swErr} />}
+      {askScrapWeight && <WeightField id="w-scrap" label="เศษโลหะ" value={scrapW} onChange={(v) => { setScrapW(v); setSwErr(null); }} required={false} hint="เศษ/ก้านต้นที่เก็บได้ ไม่ใช่น้ำหนักงาน" error={swErr} />}
       {showAdd &&
         (!addOpen ? (
           <button type="button" className="min-h-14 w-full rounded-xl border-2 border-dashed border-zinc-400 text-lg font-semibold text-zinc-800" onClick={() => setAddOpen(true)}>
