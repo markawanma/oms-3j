@@ -16,13 +16,14 @@
 --
 -- เบี่ยงจาก spec (เหตุผลอยู่ที่จุดนั้นในไฟล์):
 --  (1) ค่าเริ่ม 2 scope (มติ Tech Lead/ux-ui): is_default (งานทั่วไป · ร้านต้องมี 1 แบบเสมอ — constraint trigger deferred) + is_default_gold (เฉพาะทอง · ล้างได้ = ใช้ is_default) · seed 3 แบบรวม "ทอง — ชั่งทุกขั้น" = กติกาทอง J1
---  (2) require_final_weight (profile → snapshot บนใบ): บังคับน้ำหนักสุทธิตอนปิดงานทุกโลหะ · ใบเดิม (profile_id null) ∧ ทอง ยังบังคับตามกติกา J1 (job_done + job_done_ck อ่าน snapshot ไม่ใช่ metal ตรงๆ ยกเว้นใบเดิม)
+--  (2) require_final_weight (profile → snapshot บนใบ): บังคับน้ำหนักสุทธิตอนปิดงานทุกโลหะ · นอกจากนั้นใบทองที่มีขั้นชั่งอย่างน้อย 1 ขั้น (job.weigh_required) ยังบังคับเหมือน J1 (security M1) — เฉพาะแบบที่ไม่ชั่งสักขั้นเท่านั้นที่ไม่บังคับ (มติเจ้าของ) · job_done + job_done_ck ตรงกัน
 --  (3) ใบทองเดิม (profile_id null) คง "ห้ามปิดขั้นก่อนอัตโนมัติทุกขั้น" ไว้ (job_core_receive/job_stage_guard/job_worker_resolve) — spec §1 สรุปว่าใช้ weigh_required แทนได้ แต่ทองเดิมขั้นก่อน cast (เทียน/ปูน)
 --      weigh_required=false ⇒ ถ้าใช้ flag อย่างเดียว กติกาของใบเดิมจะเปลี่ยน · ใบที่มี profile ใช้ flag ของขั้นอย่างเดียวตาม spec
 --  (4) job_stage_guard: flag เปลี่ยนได้เมื่อขั้น pending หรือ skipped (spec เขียนเฉพาะ pending) — job_profile_apply แก้ทุกขั้นของใบ รวมขั้นที่ข้ามไว้ก่อนเริ่ม
 --  (5) job_record_profile_list ไม่ใช่ stable (เรียก ensure ที่เขียนข้อมูล) · upsert/set_default เรียก ensure ก่อน (ร้านที่ยังไม่มีแบบเลยต้องได้ค่าเริ่มเสมอ — R4)
 --  (6) job_worker_resolve: เพิ่ม has_profile (ทั้ง 2 block) + job.profile_name (เฉพาะช่างที่ระบุตัวแล้ว) ตามที่ ux-ui ขอ — แยกใบเดิม (null/false) ออกจากใบใหม่ · เป็นชื่อแบบ/boolean ไม่ใช่น้ำหนัก (N1 คงเดิม)
 --  (7) job_guard UPDATE: weigh_required เปลี่ยนได้ก่อนเริ่ม แต่ต้องเท่า exists(ขั้นที่ weigh_required) ณ ตอนนั้น (weigh_drift) — ใบเดิมที่ไม่ตรงอยู่แล้วไม่ถูกแตะเพราะไม่มีใครแก้คอลัมน์นี้
+--  (9) หนี้ที่รู้ (security L2): ค่าเริ่มทอง (is_default_gold) เป็นภาพนิ่ง ณ ตอนสร้างใบ — แก้/สลับค่าเริ่มทีหลังไม่กระทบใบที่สร้างไปแล้ว (snapshot) · ใบทองที่สร้างตอนไม่มีค่าเริ่มทองจะได้ค่าเริ่มทั่วไป (ชั่งเฉพาะหล่อ) แต่ยังบังคับน้ำหนักสุทธิตาม M1
 --  (8) S6 จาก code review 0175: job_guard แยกบล็อกตรวจ plan_drift ที่ซ้ำเป๊ะ 2 ที่ (INSERT/UPDATE) เป็น job_plan_basis_assert + สูตรเป็น job_plan_formula (ภายใน ไม่ grant) — พฤติกรรม/ข้อความเท่าเดิม (golden GB1-GB6)
 --      ไม่ได้ทำ (ไม่ได้ replace ฟังก์ชันนั้นใน 0176): S5 job_plan_set ประทับ target_source=input ทุกครั้ง · job_plan_compute ยังมีสูตรเองอีก 1 ที่ + N11 nullif(btrim) ซ้ำซ้อน — รอ 0177/จดเป็นหนี้
 -- ไม่มีราคา/ต้นทุนในทุก object ของไฟล์นี้ (boolean ล้วน)
@@ -42,39 +43,39 @@ create temp table _j176_flag_base on commit drop as
 select coalesce(md5(string_agg(id::text || ':' || weigh_required::text || ':' || status, '|' order by id)), '') as h from analytics.job_stage;
 
 -- ============================================================================
--- 0. pre-check: ฟังก์ชันที่จะ replace ต้องเป็นฉบับ 0175 ที่ apply จริง (md5 ที่ query สดจาก prod 15 ต.ค.) หรือฉบับ 0176 (รันซ้ำ) — อย่างอื่น = มีคนแก้นอก migration → หยุด (ข้อ 21)
+-- 0. pre-check: ฟังก์ชันที่จะ replace ต้องเป็นฉบับ 0175 ที่ apply จริง (md5 ที่ query สดจาก prod 15 ต.ค.) หรือฉบับ 0176 ที่ล็อก md5 ไว้ (รันซ้ำ) — อย่างอื่น = มีคนแก้นอก migration → หยุด (ข้อ 21)
 -- ============================================================================
 do $p$
 declare
   r record;
   v_n int;
   v_h text;
-  v_def text;
 begin
+  -- ไฟล์นี้พึ่งทรานแซกชันที่ runner ครอบทั้งไฟล์ (temp table on commit drop) — รันแบบ autocommit ตารางหายทันที ⇒ บรรทัดนี้ล้มก่อน DDL ใดๆ
+  perform 1 from pg_temp._j176_fn_base limit 1;
   if not exists (select 1 from pg_proc where pronamespace = 'analytics'::regnamespace and proname = 'job_plan_suggest') then
     raise exception '0176: ยังไม่พบ 0175 (job_plan_suggest) — apply 0175 ก่อน';
   end if;
   for r in
     select * from (values
-      ('job_core_receive',                 '592d3578722787cfe7c8abc16b00432f'),
-      ('job_create_from_production_item',  '09510c24800e11ddeeed6b02dd590b2d'),
-      ('job_create_from_quote_item',       'e010334fea770b90f2728b8c12345712'),
-      ('job_create_insert',                '56b985e3694977f28f339d9e2dc260db'),
-      ('job_done',                         '7119da41b4918e331b88a012616fb4e3'),
-      ('job_guard',                        '7296958583af076c9d7e8b1cd2eb6ebf'),
-      ('job_stage_guard',                  '6db14595e068c7367663f8f1527a39ec'),
-      ('job_stage_suggest',                '1ebd62aafca9411c408e4167d05ff3a5'),
-      ('job_worker_resolve',               '242d16e947661b73599fd3a799b1f9a0')
-    ) as v(n, h)
+      ('job_core_receive', '592d3578722787cfe7c8abc16b00432f', 'a7a6fd32fcb7be3a4cdec82016665da2'),
+      ('job_create_from_production_item', '09510c24800e11ddeeed6b02dd590b2d', '59ca6642d8a157bb5848b11e44d60098'),
+      ('job_create_from_quote_item', 'e010334fea770b90f2728b8c12345712', '8bf8f169ec7fc25466e5baf1ff4c047d'),
+      ('job_create_insert', '56b985e3694977f28f339d9e2dc260db', '38019cdfd775bc38d199798492761d26'),
+      ('job_done', '7119da41b4918e331b88a012616fb4e3', '9724f6e02da5ad57d83e838475e449f6'),
+      ('job_guard', '7296958583af076c9d7e8b1cd2eb6ebf', 'f12fffe81780e44d01c3f7d58350eafb'),
+      ('job_stage_guard', '6db14595e068c7367663f8f1527a39ec', '0e10b2b1b97742a3abbb5030c8fd0288'),
+      ('job_stage_suggest', '1ebd62aafca9411c408e4167d05ff3a5', '8600395a3ff129cece5a48088045c9b8'),
+      ('job_worker_resolve', '242d16e947661b73599fd3a799b1f9a0', '6b31116d1d143b968b7627de3044eeb5')
+    ) as v(n, h_0175, h_0176)
   loop
     select count(*) into v_n from pg_proc where pronamespace = 'analytics'::regnamespace and proname = r.n;
     if v_n <> 1 then
       raise exception '0176: % มี % signature (ต้องมี 1) — หยุดตรวจ overload', r.n, v_n;
     end if;
-    select pg_get_functiondef(p.oid), md5(pg_get_functiondef(p.oid)) into v_def, v_h
-      from pg_proc p where p.pronamespace = 'analytics'::regnamespace and p.proname = r.n;
-    if v_h <> r.h and position('-- 0176:' in v_def) = 0 then
-      raise exception '0176: def ของ % บน DB ไม่ใช่ฉบับ 0175 ที่ apply (md5 % ≠ %) และไม่ใช่ฉบับ 0176 — มีคนแก้นอก migration · หยุด ห้าม replace ทับ', r.n, v_h, r.h;
+    select md5(pg_get_functiondef(p.oid)) into v_h from pg_proc p where p.pronamespace = 'analytics'::regnamespace and p.proname = r.n;
+    if v_h not in (r.h_0175, r.h_0176) then
+      raise exception '0176: def ของ % บน DB ไม่ใช่ฉบับ 0175 ที่ apply (md5 %) และไม่ใช่ฉบับ 0176 (md5 %) — มีคนแก้นอก migration · หยุด ห้าม replace ทับ', r.n, v_h, r.h_0176;
     end if;
   end loop;
 end;
@@ -91,7 +92,7 @@ create table if not exists analytics.job_record_profile (
   -- ค่าเริ่ม: is_default = งานทั่วไป (ร้านต้องมี 1 แบบเสมอ) · is_default_gold = เฉพาะงานทอง (ไม่มี = ใช้ is_default) — ปิดแบบที่เป็นค่าเริ่มไม่ได้
   is_default            boolean not null default false,
   is_default_gold       boolean not null default false,
-  -- ใบงานที่ใช้แบบนี้ต้องใส่น้ำหนักสุทธิตอนปิดงานไหม (snapshot ลง job.require_final_weight) — false = ไม่บังคับ (ยกเว้นทองที่มีขั้นชั่ง ตามกติกา J1)
+  -- ใบงานที่ใช้แบบนี้ต้องใส่น้ำหนักสุทธิตอนปิดงานไหม (snapshot ลง job.require_final_weight) — true = บังคับทุกโลหะ · false = ตามกติกาเดิมของทอง: ใบทองที่มีขั้นชั่งอย่างน้อย 1 ขั้นยังต้องมีน้ำหนักสุทธิ (job.weigh_required) · ใบทอง/โลหะอื่นที่ไม่มีขั้นชั่งเลย (แบบ "ไม่ชั่ง") ไม่บังคับ
   require_final_weight boolean not null default false,
   is_active             boolean not null default true,
   constraint jrp_default_active_ck check ((not is_default or is_active) and (not is_default_gold or is_active)),
@@ -226,14 +227,14 @@ alter table analytics.job add constraint job_profile_pair_ck
 
 -- ทองไม่บังคับชั่งอีก (มติ 15 ต.ค.: ทองเลือกแบบได้) — ใบทองเดิมทุกใบ weigh_required=true จึงยังผ่านด่านปิดงานเดิม
 alter table analytics.job drop constraint if exists job_gold_weigh_ck;
--- ปิดงาน: น้ำหนักสุทธิบังคับเมื่อ require_final_weight (flag ของแบบ ที่ snapshot ลงใบ) หรือ "ใบเดิมก่อน 0176 (profile_id null) ที่เป็นทอง" (กติกา J1: ใบเดิม weigh_required=true ทุกใบ)
--- แถว done เดิมผ่านแน่: require_final_weight=false · ทองเดิมที่ done มี weight_final_g อยู่แล้ว (CHECK เดิมบังคับ) · ไม่มีแถว gold done บน prod ด้วยซ้ำ
+-- ปิดงาน: น้ำหนักสุทธิบังคับเมื่อ (ทอง ∧ weigh_required) [กติกา J1 — ใบเดิมทุกใบ weigh_required=true · ใบใหม่ = มีขั้นชั่งอย่างน้อย 1 ขั้น] หรือ require_final_weight (flag ของแบบ ที่ snapshot ลงใบ)
+-- มติเจ้าของ "ทองไม่บล็อก" ครอบเฉพาะแบบไม่ชั่ง (weigh_required=false) · แถว done เดิมผ่านแน่: require_final_weight=false · ทองเดิมที่ done มี weight_final_g อยู่แล้ว (CHECK เดิมบังคับ) · ไม่มีแถว gold done บน prod ด้วยซ้ำ
 alter table analytics.job drop constraint if exists job_done_ck;
 alter table analytics.job add constraint job_done_ck check (
   status <> 'done' or (
     done_at is not null and qty_good is not null and qty_scrap is not null
     and qty_good + qty_scrap = qty_planned
-    and ((profile_id is not null or metal <> 'gold') or weight_final_g is not null)
+    and (metal <> 'gold' or not weigh_required or weight_final_g is not null)
     and (not require_final_weight or weight_final_g is not null)
   )
 );
@@ -649,7 +650,9 @@ begin
   if p_profile_id is null then
     raise exception 'ต้องระบุแบบการบันทึก' using errcode = '22023', hint = 'profile_invalid';
   end if;
-  if exists (select 1 from analytics.job_stage s where s.job_id = p_job_id and s.status in ('received', 'sent')) then
+  -- security L1: ใบที่เคยมีการรับงาน (event stage_receive) แล้วย้อนขั้นจนทุกขั้นกลับเป็น pending ก็ถือว่าเริ่มแล้ว — flag ชั่งต้องไม่เปลี่ยนใต้ประวัติ/น้ำหนักที่บันทึกไว้
+  if exists (select 1 from analytics.job_stage s where s.job_id = p_job_id and s.status in ('received', 'sent'))
+     or exists (select 1 from analytics.job_event e where e.job_id = p_job_id and e.event_type = 'stage_receive') then
     raise exception 'เปลี่ยนแบบการบันทึกได้เฉพาะก่อนช่างรับงานขั้นแรก' using errcode = '22023', hint = 'started';
   end if;
   v_before := analytics.job_profile_state(p_job_id);
@@ -1585,7 +1588,7 @@ begin
   );
 end;
 $f$;
--- job_done (def ต้นทาง 0175:1284 — signature เท่าเดิม): น้ำหนักสุทธิบังคับตาม snapshot ของใบ (require_final_weight) · ใบเดิมก่อน profile ∧ ทอง = กติกา J1
+-- job_done (def ต้นทาง 0175:1284 — signature เท่าเดิม): น้ำหนักสุทธิบังคับเมื่อ require_final_weight หรือ (ทอง ∧ weigh_required) — กติกา J1 เดิม (security M1)
 create or replace function analytics.job_done(
   p_shop_id        uuid,
   p_job_id         uuid,
@@ -1636,8 +1639,8 @@ begin
   if not analytics.job_weight_ok(p_weight_final_g) then
     raise exception 'น้ำหนักสุทธิต้องมากกว่า 0 และไม่เกิน 100,000 กรัม (ทศนิยมไม่เกิน 3 ตำแหน่ง)' using errcode = '22023', hint = 'weight_invalid';
   end if;
-  -- 0176: บังคับตาม snapshot ของใบ (flag ของแบบ) · ใบเดิมก่อน profile ที่เป็นทอง = กติกา J1 เดิม
-  if p_weight_final_g is null and (v_job.require_final_weight or (v_job.profile_id is null and v_job.metal = 'gold')) then
+  -- 0176: บังคับตาม snapshot ของใบ (flag ของแบบ) · ทองที่มีขั้นชั่งอย่างน้อย 1 ขั้น (weigh_required · ใบเดิมทุกใบ) = กติกา J1 เดิม (security M1) — แบบไม่ชั่งเท่านั้นที่ไม่บังคับ
+  if p_weight_final_g is null and (v_job.require_final_weight or (v_job.metal = 'gold' and v_job.weigh_required)) then
     raise exception '%', case when v_job.metal = 'gold' then 'งานทองต้องระบุน้ำหนักสุทธิตอนปิดงาน' else 'ใบงานนี้ต้องระบุน้ำหนักสุทธิตอนปิดงาน' end
       using errcode = '22023', hint = 'weight_required';
   end if;

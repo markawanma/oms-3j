@@ -14,12 +14,12 @@
 --  P2 ปิด/ตั้ง default/ลบ/เขียนตรง                          -> P2a-P2d (RPC) · P2e (default ซ้ำ) · P2f (DELETE/TRUNCATE) · P2g (ตั้ง/ปิดตรง) · P2h (ล้าง default กลาง = ผิด · deferred) · P2i P2j (stage ตรง) · MU-14..17
 --  ต้องไม่พัง: แก้/ปิด/สลับ default ไม่ขยับใบที่ใช้อยู่      -> P2k (md5 job+job_stage) · P2l (ใบใหม่ได้แบบใหม่) · สลับ A→B→A มี default 1 ตัวตลอด P2c
 --  P3 สร้างใบ: ไม่มี default / แบบมั่ว-ปิด / INSERT ตรง      -> P3a P3b P3c · ต้องไม่พัง B1a-B1g (เงิน/ทอง/ทองเหลือง/ไม่ชั่ง/ไม่มี cast/ใบผลิต)
---  P4 job_profile_set หลังเริ่ม/ปิด/ร้านอื่น/แบบมั่ว           -> P4a P4b P4c · ต้องไม่พัง B2a B2b B2c (flag กลับเท่าเดิม · event 2 แถว · ใบเดิมเปลี่ยนได้)
+--  P4 job_profile_set หลังเริ่ม/ปิด/ร้านอื่น/แบบมั่ว           -> P4a P4b P4c P4d (L1: ย้อนขั้นจน pending แล้วเปลี่ยนแบบ) · ต้องไม่พัง B2a B2b B2c (flag กลับเท่าเดิม · event 2 แถว · ใบเดิมเปลี่ยนได้)
 --  P5 UPDATE ตรง flag/profile/weigh_required × สถานะ        -> P5a (stage × 3 คอลัมน์ × sent/pending-ที่เริ่มแล้ว/received) · P5b (weigh_drift) · P5c P5d (job × คอลัมน์) · MU-2..4
 --  P6 ขั้นชั่ง รับ/ส่งไม่ใส่น้ำหนัก · prev_not_sent · auto_close  -> P6a P6b P6d (ทุกโลหะ รวมทองเหลือง) · ต้องไม่พัง P6c P6e (ไม่ชั่ง ปิดอัตโนมัติได้ รวมทอง)
 --  P7 ทอง + แบบชั่ง: handoff ±0.05 · N1 · ปิดงาน               -> P7a-P7c · ทอง+แบบ 1 (ไม่ชั่งบางขั้น) P7d-P7f (ไม่เทียบ handoff · gold_unguarded · ปิดไม่บังคับสุทธิ)
 --  แบบ "ไม่ชั่ง" ทุกโลหะ รับ/ส่ง/ปิดได้ไม่ใส่น้ำหนัก             -> P8a P8b
---  require_final_weight (ทุกโลหะ + CHECK ตาราง)              -> P8c · MU-8 MU-18
+--  require_final_weight (ทุกโลหะ + CHECK ตาราง)              -> P8c P7f P7g (M1 ทองที่มีขั้นชั่งต้องมีน้ำหนักสุทธิ รวมแบบ 1/ล้างค่าเริ่มทอง) · MU-8 MU-9 MU-18
 --  ของเสียเป็น flag ไม่ใช่ด่าน                                 -> P8d
 --  golden ใบเดิม vs legacy (def 0175 ของ job_core_receive)    -> G1 (เงิน auto-close) · G2 (เงิน 5 ก้าว weight_required/prev_not_sent/gap) · G3 G3b (ทองเดิม prev_not_sent/trigger) · G4 (ทอง handoff + event) · G5 (ปิดงานทอง/เงินเดิม)
 --  P9 overload / CHECK / trigger / view prefix               -> P9a P9b P9c
@@ -39,6 +39,7 @@
 --    - ช่วง 00:00-07:00 ไทย → B2b ตรวจ occurred_on = job_today() (ฟังก์ชันของ J1) แต่ไม่ได้จำลองนาฬิกา
 --    - JB-0018 ใบจริง "รับ/ส่ง/ปิดได้หลัง 0176" ยิงจริงไม่ได้ (ปิดงานเปลี่ยนสถานะถาวร/ออก token) → ครอบด้วยใบ fixture รูปเดียวกัน (leg) + golden G1-G5 + อ่านอย่างเดียว D6a-D6d
 --    - pre-check md5 ของ migration + รัน migration ซ้ำ (idempotent) → ครอบด้วย dry-run ครั้งเดียว ไม่ได้ยิง apply 2 รอบ
+--    - pre-check ต้นไฟล์ migration (L3 autocommit ล้มก่อน DDL · L4 ล็อก md5 ฉบับ 0175/0176 ของ 9 ฟังก์ชัน) = ไม่มีเทสต์ใน verify (ทดสอบ pre-check ต้อง apply จริงหรือรันนอก tx) — ครอบด้วย dry-run ที่ผ่านด่านนี้ + md5 ฉบับ 0176 คำนวณจาก dry-run ตัวเอง
 --    - UI/ใบพิมพ์/หน้าช่าง ฝั่ง TS = ไม่มี (frontend + vitest)
 --    - trigger truncate: TRUNCATE ถูกปฏิเสธด้วย FK อยู่แล้ว (ตารางมีใบอ้าง) จึงแยกไม่ได้ว่า trigger หรือ FK เป็นตัวกัน (P2f ตรวจแค่ ERR)
 
@@ -963,6 +964,13 @@ begin
   r2 := pg_temp.pset(p_shop, j2, pn);
   v_log := v_log || pg_temp.chk('P4a', 'job_profile_set หลังขั้นแรกถูกรับ / หลังส่ง = 22023 started (flag ไม่ขยับ)',
     pg_temp.rej(r, 'started') and pg_temp.rej(r2, 'started') and pg_temp.flg(j2) = fl0);
+  -- P4d security L1: ย้อนขั้น (job_stage_reopen) จนทุกขั้นกลับเป็น pending แล้วเปลี่ยนแบบ = started (เคยมีการรับงานแล้ว)
+  jp := pg_temp.jid(pg_temp.mkp(p_shop, p_tpl, 'silver'));
+  perform pg_temp.o_recv(p_shop, jp, 1, v_today, null, null, 'verify');
+  r := pg_temp.q(format('select analytics.job_stage_reopen(%L, %L, %L, %L)', p_shop, jp, 'verify ย้อนขั้น', v_act));
+  r2 := pg_temp.pset(p_shop, jp, pn);
+  v_log := v_log || pg_temp.chk('P4d', 'ใบที่รับขั้น 1 แล้วย้อนขั้นจนทุกขั้นเป็น pending: job_profile_set = 22023 started (event stage_receive เคยเกิด) · flag ไม่ขยับ · ต้องไม่พัง: ใบใหม่ที่ไม่เคยรับยังเปลี่ยนได้ (B2a)',
+    pg_temp.st(jp) like '1:pen%' and pg_temp.rej(r2, 'started') and pg_temp.flg(jp) = fl0);
   v_log := v_log || pg_temp.chk('P4b', 'job_profile_set: ใบร้านอื่น (shop มั่ว) = job_not_found · แบบมั่ว/ปิดใช้ = profile_invalid · null = profile_invalid · ใบ cancelled = job_closed',
     pg_temp.rej(pg_temp.pset(gen_random_uuid(), j, p1), 'job_not_found')
     and pg_temp.rej(pg_temp.pset(p_shop, j, gen_random_uuid()), 'profile_invalid') and pg_temp.rej(pg_temp.pset(p_shop, j, pi), 'profile_invalid')
@@ -1114,8 +1122,19 @@ begin
     and not (select gold_unguarded from analytics.v_job_board where id = js));
   perform pg_temp.rw(p_shop, jx, null);
   r := pg_temp.fin(p_shop, jx);
-  v_log := v_log || pg_temp.chk('P7f', 'ใบทอง+แบบ 1 ปิดงานโดยไม่ส่งน้ำหนักสุทธิ ได้ (require_final_weight=false · ไม่ใช่ใบเดิม) · gold_unguarded บนใบที่ปิดแล้ว = false',
-    (r ->> 'status') = 'done' and (select weight_final_g is null from analytics.job where id = jx) and (select not gold_unguarded from analytics.v_job_board where id = jx));
+  x := pg_temp.xr(format('update analytics.job set status = ''done'', done_at = now(), qty_good = 10, qty_scrap = 0 where id = %L', jx));
+  r2 := pg_temp.fin(p_shop, jx, 9.0);
+  v_log := v_log || pg_temp.chk('P7f', 'security M1: ใบทอง+แบบ 1 (มีขั้นชั่ง cast) ปิดงานไม่ส่งน้ำหนักสุทธิ = weight_required (กติกา J1: ทองที่มีขั้นชั่งต้องมีน้ำหนักสุทธิ) · UPDATE done ตรง = 23514 job_done_ck · ส่งแล้วปิดได้ · gold_unguarded บนใบที่ปิดแล้ว = false',
+    pg_temp.rej(r, 'weight_required') and pg_temp.xs(x) = '23514' and pg_temp.xm(x) like '%job_done_ck%' and (r2 ->> 'status') = 'done'
+    and (select weight_final_g = 9.000 from analytics.job where id = jx) and (select not gold_unguarded from analytics.v_job_board where id = jx));
+  -- ล้างค่าเริ่มทอง → ใบทองใหม่ได้แบบ 1 (ชั่งเฉพาะหล่อ) → ปิดงานต้องมีน้ำหนักสุทธิ (ไม่หลุดด่านเพราะค่าเริ่มเปลี่ยน)
+  r := pg_temp.sdf(p_shop, null, 'gold');
+  jc := pg_temp.jid(pg_temp.mkp(p_shop, p_tpl, 'gold'));
+  perform pg_temp.rw(p_shop, jc, 9.9);
+  r2 := pg_temp.fin(p_shop, jc);
+  v_log := v_log || pg_temp.chk('P7g', 'security M1: ล้างค่าเริ่มทอง → ใบทองใหม่ได้แบบ 1 · เดินครบ + ปิดงานไม่ส่งน้ำหนักสุทธิ = weight_required · ส่งแล้วปิดได้',
+    pg_temp.flg(jc) like '%cast:WQ%' and (select profile_name like 'แบบ 1%' and weigh_required and not require_final_weight from analytics.job where id = jc)
+    and pg_temp.rej(r2, 'weight_required') and (pg_temp.fin(p_shop, jc, 9.0) ->> 'status') = 'done');
 
   -- แบบ "ไม่ชั่ง": เดินครบ 8 ขั้นโดยไม่ใส่น้ำหนักเลย ทุกโลหะ → ปิดงานได้ · ไม่มี event weigh · handoff_gap_g ทุกแถวของ v_job_stage_loss = null · ใส่น้ำหนักเองก็รับ (optional)
   v_ok := true; v_why := '';
@@ -1380,10 +1399,10 @@ begin
     if n <> 1 then v_ok := false; v_why := v_why || v_fn || '=' || n || ' '; end if;
   end loop;
   v_log := v_log || pg_temp.chk('P9a', 'overload: ฟังก์ชันที่ replace/ใหม่ทั้ง 14 ชื่อ มี signature เดียวใน pg_proc ' || v_why, v_ok);
-  v_log := v_log || pg_temp.chk('P9b', 'job_gold_weigh_ck ถูกถอดแล้ว · job_done_ck นิยามใหม่ (มี require_final_weight + profile_id) · job_event_event_type_ck มี profile_set · trigger ใหม่เปิดครบ (O) · constraint trigger default_required เป็น deferred',
+  v_log := v_log || pg_temp.chk('P9b', 'job_gold_weigh_ck ถูกถอดแล้ว · job_done_ck นิยามใหม่ (มี require_final_weight + weigh_required) · job_event_event_type_ck มี profile_set · trigger ใหม่เปิดครบ (O) · constraint trigger default_required เป็น deferred',
     not exists (select 1 from pg_constraint where conrelid = 'analytics.job'::regclass and conname = 'job_gold_weigh_ck')
     and (select pg_get_constraintdef(oid) from pg_constraint where conrelid = 'analytics.job'::regclass and conname = 'job_done_ck') like '%require_final_weight%'
-    and (select pg_get_constraintdef(oid) from pg_constraint where conrelid = 'analytics.job'::regclass and conname = 'job_done_ck') like '%profile_id%'
+    and (select pg_get_constraintdef(oid) from pg_constraint where conrelid = 'analytics.job'::regclass and conname = 'job_done_ck') like '%weigh_required%'
     and (select pg_get_constraintdef(oid) from pg_constraint where conrelid = 'analytics.job_event'::regclass and conname = 'job_event_event_type_ck') like '%profile_set%'
     and (select count(*) from pg_trigger t where t.tgrelid in ('analytics.job_record_profile'::regclass, 'analytics.job_record_profile_stage'::regclass) and not t.tgisinternal and t.tgenabled = 'O') = 5
     and (select t.tginitdeferred from pg_trigger t where t.tgname = 'trg_job_record_profile_default_required'));
@@ -1576,9 +1595,9 @@ declare
     jsonb_build_object('id', 'MU-7', 'what', 'job_core_receive กติกาทองกว้างเกิน (ทองที่มีแบบ "ไม่ชั่ง" ก็ปิดอัตโนมัติไม่ได้)', 'fn', 'job_core_receive',
       'from', E'      if v_job.metal = ''gold'' and v_job.profile_id is null then\n        return analytics.job_fail(''prev_not_sent''', 'to', E'      if v_job.metal = ''gold'' then\n        return analytics.job_fail(''prev_not_sent''', 'expect', jsonb_build_array('P6c')),
     jsonb_build_object('id', 'MU-8', 'what', 'job_done ไม่อ่าน require_final_weight (แบบบังคับน้ำหนักสุทธิถูกข้าม)', 'fn', 'job_done',
-      'from', '(v_job.require_final_weight or (v_job.profile_id is null and v_job.metal = ''gold''))', 'to', '(v_job.profile_id is null and v_job.metal = ''gold'')', 'expect', jsonb_build_array('P8c', 'P7c')),
-    jsonb_build_object('id', 'MU-9', 'what', 'job_done ไม่บังคับน้ำหนักสุทธิของทองเดิม (ใบทองเดิมปิดไม่ส่งน้ำหนักได้)', 'fn', 'job_done',
-      'from', '(v_job.require_final_weight or (v_job.profile_id is null and v_job.metal = ''gold''))', 'to', '(v_job.require_final_weight)', 'expect', jsonb_build_array('G5')),
+      'from', '(v_job.require_final_weight or (v_job.metal = ''gold'' and v_job.weigh_required))', 'to', '(v_job.metal = ''gold'' and v_job.weigh_required)', 'expect', jsonb_build_array('P8c')),
+    jsonb_build_object('id', 'MU-9', 'what', 'job_done ไม่บังคับน้ำหนักสุทธิของทองที่มีขั้นชั่ง (security M1: ทองเดิม/ทองแบบ 1 ปิดไม่ส่งน้ำหนักได้)', 'fn', 'job_done',
+      'from', '(v_job.require_final_weight or (v_job.metal = ''gold'' and v_job.weigh_required))', 'to', '(v_job.require_final_weight)', 'expect', jsonb_build_array('G5', 'P7f', 'P7g')),
     jsonb_build_object('id', 'MU-10', 'what', 'job_create_insert หาค่าเริ่มโดยไม่ดูโลหะ (ทองได้แบบทั่วไป)', 'fn', 'job_create_insert',
       'from', 'p.id = analytics.job_profile_default_for(p_shop_id, p_metal)', 'to', 'p.id = analytics.job_profile_default_for(p_shop_id, null)', 'expect', jsonb_build_array('B1b')),
     jsonb_build_object('id', 'MU-11', 'what', 'job_profile_default_for ไม่รู้จักค่าเริ่มทอง', 'fn', 'job_profile_default_for',
@@ -1596,7 +1615,7 @@ declare
     jsonb_build_object('id', 'MU-17', 'what', 'ถอด unique index ค่าเริ่มทั่วไป (default 2 ตัวได้)', 'ddl',
       'drop index analytics.uq_job_record_profile_default', 'expect', jsonb_build_array('P2e')),
     jsonb_build_object('id', 'MU-18', 'what', 'ถอด CHECK job_done_ck (UPDATE done ตรงโดยไม่มีน้ำหนักสุทธิผ่าน)', 'ddl',
-      'alter table analytics.job drop constraint job_done_ck', 'expect', jsonb_build_array('P8c', 'G5')),
+      'alter table analytics.job drop constraint job_done_ck', 'expect', jsonb_build_array('P8c', 'G5', 'P7f')),
     jsonb_build_object('id', 'MU-19', 'what', 'job_profile_apply ไม่คำนวณ job.weigh_required ใหม่ตามขั้น', 'fn', 'job_profile_apply',
       'from', 'weigh_required = exists (select 1 from analytics.job_stage s where s.job_id = p_job_id and s.weigh_required)', 'to', 'weigh_required = weigh_required', 'expect', jsonb_build_array('B2a')),
     jsonb_build_object('id', 'MU-21', 'what', 'job_plan_basis_assert ไม่ตรวจ target_source (ค่ามั่วผ่าน)', 'fn', 'job_plan_basis_assert',
@@ -1609,6 +1628,8 @@ declare
       'from', E'  perform analytics.job_plan_basis_assert(new);\n  if new.status', 'to', E'  null;\n  if new.status', 'expect', jsonb_build_array('GB3a', 'GB3c')),
     jsonb_build_object('id', 'MU-25', 'what', 'job_guard INSERT ไม่เรียก job_plan_basis_assert (INSERT ตรงใส่ plan_g ไม่ตรง basis ได้)', 'fn', 'job_guard',
       'from', E'    perform analytics.job_plan_basis_assert(new);\n    if new.product_id', 'to', E'    null;\n    if new.product_id', 'expect', jsonb_build_array('GB6b')),
+    jsonb_build_object('id', 'MU-26', 'what', 'job_profile_set ไม่ดู event stage_receive (ย้อนขั้นจน pending แล้วเปลี่ยนแบบได้)', 'fn', 'job_profile_set',
+      'from', E'     or exists (select 1 from analytics.job_event e where e.job_id = p_job_id and e.event_type = ''stage_receive'') then', 'to', E'     or false then', 'expect', jsonb_build_array('P4d')),
     jsonb_build_object('id', 'MU-20', 'what', 'job_record_profile_set_default scope gold ไปตั้ง is_default (ทั่วไป) แทน', 'fn', 'job_record_profile_set_default',
       'from', 'update analytics.job_record_profile set is_default_gold = true, updated_by = v_actor where id = p_id and not is_default_gold;', 'to', 'update analytics.job_record_profile set is_default = true, updated_by = v_actor where id = p_id and not is_default;', 'expect', jsonb_build_array('P2d'))
   );
