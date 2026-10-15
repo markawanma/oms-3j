@@ -18,7 +18,7 @@
 --
 -- ตัดสินเอง (นอก design):
 --  (1) helper job_rate_pct แทนการคูณ 100 ทีละจุด — เหตุผล: "ทุกจุดที่อ่าน rate" เหลือที่เดียวและตรวจที่ catalog ได้ (ฟังก์ชัน job_* ที่มี oem_rate_value ในตัวเอง ต้องไม่มี)
---  (2) S5: ใช้ coalesce(basis.target_source, 'input') ในกิ่ง "target ไม่เปลี่ยน" — กันกรณีใบมี target แต่ basis ว่าง (job_guard ปฏิเสธ basis ที่ไม่มีที่มา)
+--  (2) S5: กิ่ง "target ไม่เปลี่ยน" ใช้ basis.target_source ตรงๆ ไม่มี fallback — job_plan_ck บังคับ (มี target ⇔ มี basis) และ job_guard บังคับ target_source เป็น quote/product/input ⇒ ค่านี้ไม่เป็น null เมื่อมี target (กรณี target null ทั้งคู่ compute คืน {null,null} ไม่ใช้ค่า)
 --  (3) N11: ลบ pre-check nullif(btrim(...)) — job_text_clean(…, true) ปฏิเสธค่าว่าง/ช่องว่างทุกชนิดอยู่แล้ว และ exception block เดิมแปลงเป็น hint plan_reason_required เหมือนเดิม (ข้อความเปลี่ยนเป็นของ job_text_clean · hint เท่าเดิม · TS map ตาม hint)
 --  (4) ไม่ได้เขียน job_event ตอนแก้ใบเดิม — job_event ต้องมี actor/worker (je_who_ck) ซึ่ง migration ไม่มี · แจ้งทาง raise notice แทน
 -- ไม่มีราคา/ต้นทุนในทุก object ของไฟล์นี้ (อัตราส่วน % ของน้ำหนักเท่านั้น)
@@ -56,9 +56,9 @@ begin
   end if;
   for r in
     select * from (values
-      ('job_plan_compute', 'ad064bce47bdc403bce4150c1c5bd8ac', '__H0177_COMPUTE__'),
-      ('job_plan_suggest', '16348ddd4bea294c9f989782abf12044', '__H0177_SUGGEST__'),
-      ('job_plan_set', '28a29bf4a4e22b4663c6d8f98ca38c92', '__H0177_SET__')
+      ('job_plan_compute', 'ad064bce47bdc403bce4150c1c5bd8ac', '3d49aca817c527cedeaf38cf6a1b88e6'),
+      ('job_plan_suggest', '16348ddd4bea294c9f989782abf12044', 'd5d81deb7635629b71971e3235319413'),
+      ('job_plan_set', '28a29bf4a4e22b4663c6d8f98ca38c92', '6c6eccb1438e29f2ed3fc6d0c89a4c12')
     ) as v(n, h_0175, h_0177)
   loop
     select count(*) into v_n from pg_proc where pronamespace = 'analytics'::regnamespace and proname = r.n;
@@ -304,7 +304,7 @@ begin
   end if;
   v_plan := analytics.job_plan_compute(p_shop_id, v_job.metal, v_job.qty_planned, p_target_piece_g, p_override_g, p_override_reason,
     case when p_target_piece_g is not distinct from v_job.target_piece_g
-         then coalesce(v_job.metal_plan_basis ->> 'target_source', 'input')
+         then v_job.metal_plan_basis ->> 'target_source'
          else 'input' end);
   update analytics.job
      set target_piece_g = p_target_piece_g,
