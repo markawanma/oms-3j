@@ -7,10 +7,10 @@ import type { JobDetail, StageRow } from "./types";
 const job = (o: Partial<JobDetail> = {}): JobDetail => ({
   id: "j1", jobNo: "JB-0007", sourceKind: "oem", designLabel: "แหวนลาย A", sku: "RG-001", metal: "silver", qtyPlanned: 12, qtyGood: null, qtyScrap: null, weightStartG: 120.5, weightFinalG: null,
   dueDate: "2026-10-30", status: "open", currentStageCode: null, startGateNote: "ลูกค้าประจำ ไม่ต้องรอมัดจำ", createdAt: "2026-10-12T00:00:00Z", doneAt: null, cancelledAt: null,
-  cancelReason: null, note: "หมายเหตุภายใน: ลูกค้า บริษัท ลับ จำกัด สั่ง", oemQuoteItemId: "i-secret", productionOrderItemId: null, qtyOrder: 12, targetPieceG: null, metalPlanG: null, metalPlanBasis: null, surplusDisposition: null, surplusNote: null, ...o,
+  cancelReason: null, note: "หมายเหตุภายใน: ลูกค้า บริษัท ลับ จำกัด สั่ง", oemQuoteItemId: "i-secret", productionOrderItemId: null, qtyOrder: 12, targetPieceG: null, metalPlanG: null, metalPlanBasis: null, surplusDisposition: null, surplusNote: null, profileId: null, profileName: null, requireFinalWeight: false, weighRequired: false, ...o,
 });
 const stage = (seq: number, name: string, status: StageRow["status"] = "pending", weigh = false): StageRow => ({
-  id: `s${seq}`, seq, code: `c${seq}`, name, status, weighRequired: weigh, receivedOn: null, sentOn: null, workerId: null, holderName: "ช่างลับ", autoClosed: false, qtyIn: null, qtyOut: null,
+  id: `s${seq}`, seq, code: `c${seq}`, name, status, weighRequired: weigh, scrapQtyAsk: true, scrapWeightAsk: false, metalPresent: false, receivedOn: null, sentOn: null, workerId: null, holderName: "ช่างลับ", autoClosed: false, qtyIn: null, qtyOut: null,
   qtyScrap: 0, scrapReason: null, weightInG: null, weightOutG: null, metalAddedG: 0, scrapWeightG: null, weightNote: "โน้ตลับ", skipReason: null,
 });
 

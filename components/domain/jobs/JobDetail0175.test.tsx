@@ -51,7 +51,7 @@ const JOB = "11111111-1111-4111-8111-111111111111";
 const ITEM = "22222222-2222-4222-8222-222222222222";
 
 const stage = (code: string, seq: number, status: string): StageRow => ({
-  id: `s-${code}`, seq, code, name: code === "cast" ? "หล่อ" : code === "qc" ? "ตรวจ QC" : "แพ็ก", status, weighRequired: false, receivedOn: null, sentOn: null, workerId: null, holderName: null,
+  id: `s-${code}`, seq, code, name: code === "cast" ? "หล่อ" : code === "qc" ? "ตรวจ QC" : "แพ็ก", status, weighRequired: false, scrapQtyAsk: true, scrapWeightAsk: false, metalPresent: false, receivedOn: null, sentOn: null, workerId: null, holderName: null,
   autoClosed: false, qtyIn: null, qtyOut: null, qtyScrap: 0, scrapReason: null, weightInG: null, weightOutG: null, metalAddedG: 0, scrapWeightG: null, weightNote: null, skipReason: null,
 });
 

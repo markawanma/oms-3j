@@ -81,6 +81,7 @@ export const BOARD_COLUMNS = [
   "last_scan_at", "is_stale", "stage_count", "stage_done_count", "has_auto_closed", "deposit_missing", "start_gate_note_present",
   "quote_qty_mismatch", "quote_item_qty", "created_at", "board_column", "handoff_gap_g", "handoff_mismatch_count",
   "qty_order", "qty_surplus", "under_planned", "surplus_pending", "surplus_disposition", "target_piece_g", "metal_plan_g",
+  "profile_name", "has_weigh", "gold_unguarded",
 ].join(", ");
 
 export interface BoardRow {
@@ -129,6 +130,12 @@ export interface BoardRow {
   surplusDisposition: string | null;
   targetPieceG: number | null;
   metalPlanG: number | null;
+  /** 0176: ชื่อแบบการบันทึก (null = ใบเดิมก่อนมีแบบ) */
+  profileName: string | null;
+  /** 0176: ใบนี้มีขั้นที่ต้องชั่งอย่างน้อย 1 ขั้น */
+  hasWeigh: boolean;
+  /** 0176: ใบทองที่ยังไม่ปิดและมีขั้นที่โลหะอยู่ในมือแต่ไม่ชั่ง (ไม่มีด่านกันทองหาย) — DB ตัดสิน */
+  goldUnguarded: boolean;
 }
 
 export function mapBoardRow(r: Record<string, unknown>): BoardRow | null {
@@ -175,6 +182,9 @@ export function mapBoardRow(r: Record<string, unknown>): BoardRow | null {
     surplusDisposition: str(r.surplus_disposition),
     targetPieceG: num(r.target_piece_g),
     metalPlanG: num(r.metal_plan_g),
+    profileName: str(r.profile_name),
+    hasWeigh: bool(r.has_weigh),
+    goldUnguarded: bool(r.gold_unguarded),
   };
 }
 
@@ -188,6 +198,11 @@ export interface StageRow {
   name: string;
   status: string;
   weighRequired: boolean;
+  /** 0176: ขั้นนี้ถามชิ้นเสีย / น้ำหนักเศษโลหะ (snapshot ตอนสร้างใบ/เปลี่ยนแบบ) — ใบเดิม: ถามชิ้นเสีย true · เศษ false */
+  scrapQtyAsk: boolean;
+  scrapWeightAsk: boolean;
+  /** 0176: โลหะอยู่ในมือที่ขั้นนี้ (จากทะเบียนขั้น) — ใช้บอกว่า "ไม่ชั่ง" ในใบทองคือไม่มีด่าน */
+  metalPresent: boolean;
   receivedOn: string | null;
   sentOn: string | null;
   workerId: string | null;
@@ -206,9 +221,9 @@ export interface StageRow {
 }
 
 export const STAGE_COLUMNS =
-  "id, seq, stage_code, status, weigh_required, received_on, sent_on, worker_id, assignee_name, auto_closed, qty_in, qty_out, qty_scrap, scrap_reason, weight_in_g, weight_out_g, metal_added_g, scrap_weight_g, weight_note, skip_reason";
+  "id, seq, stage_code, status, weigh_required, scrap_qty_ask, scrap_weight_ask, received_on, sent_on, worker_id, assignee_name, auto_closed, qty_in, qty_out, qty_scrap, scrap_reason, weight_in_g, weight_out_g, metal_added_g, scrap_weight_g, weight_note, skip_reason";
 
-export function mapStageRow(r: Record<string, unknown>, names: Record<string, string>, workerNames: Record<string, string>): StageRow | null {
+export function mapStageRow(r: Record<string, unknown>, names: Record<string, string>, workerNames: Record<string, string>, metalPresent: Record<string, boolean> = {}): StageRow | null {
   const id = str(r.id);
   const code = str(r.stage_code);
   if (!id || !code) return null;
@@ -220,6 +235,10 @@ export function mapStageRow(r: Record<string, unknown>, names: Record<string, st
     name: names[code] ?? code,
     status: str(r.status) ?? "pending",
     weighRequired: bool(r.weigh_required),
+    // คอลัมน์ใหม่ที่ยังไม่มีในแถว = ค่าเริ่มของ DB (ถามชิ้นเสีย · ไม่ถามเศษ) ไม่ใช่ "ปิด"
+    scrapQtyAsk: r.scrap_qty_ask === undefined || r.scrap_qty_ask === null ? true : r.scrap_qty_ask === true,
+    scrapWeightAsk: bool(r.scrap_weight_ask),
+    metalPresent: metalPresent[code] === true,
     receivedOn: date(r.received_on),
     sentOn: date(r.sent_on),
     workerId,
@@ -258,7 +277,7 @@ export function mapLossRow(r: Record<string, unknown>): { stageId: string; loss:
 // ใบงาน (หน้า /jobs/[id])
 // ---------------------------------------------------------------------------
 export const JOB_COLUMNS =
-  "id, job_no, source_kind, design_label, sku_snapshot, metal, qty_planned, qty_good, qty_scrap, weight_start_g, weight_final_g, weigh_required, due_date, status, current_stage_code, start_gate_note, created_at, done_at, cancelled_at, cancel_reason, note, oem_quote_item_id, production_order_item_id, qty_order, target_piece_g, metal_plan_g, metal_plan_basis, surplus_disposition, surplus_note";
+  "id, job_no, source_kind, design_label, sku_snapshot, metal, qty_planned, qty_good, qty_scrap, weight_start_g, weight_final_g, weigh_required, due_date, status, current_stage_code, start_gate_note, created_at, done_at, cancelled_at, cancel_reason, note, oem_quote_item_id, production_order_item_id, qty_order, target_piece_g, metal_plan_g, metal_plan_basis, surplus_disposition, surplus_note, profile_id, profile_name, require_final_weight";
 
 export interface JobDetail {
   id: string;
@@ -291,6 +310,11 @@ export interface JobDetail {
   metalPlanBasis: Record<string, unknown> | null;
   surplusDisposition: string | null;
   surplusNote: string | null;
+  /** 0176: แบบการบันทึกของใบ (null = ใบเดิม กติกา J1) · require_final_weight = snapshot ตอนสร้าง/เปลี่ยนแบบ · weighRequired = มีขั้นที่ต้องชั่งอย่างน้อย 1 ขั้น */
+  profileId: string | null;
+  profileName: string | null;
+  requireFinalWeight: boolean;
+  weighRequired: boolean;
 }
 
 export function mapJobDetail(r: Record<string, unknown>): JobDetail | null {
@@ -326,6 +350,10 @@ export function mapJobDetail(r: Record<string, unknown>): JobDetail | null {
     metalPlanBasis: r.metal_plan_basis !== null && typeof r.metal_plan_basis === "object" && !Array.isArray(r.metal_plan_basis) ? (r.metal_plan_basis as Record<string, unknown>) : null,
     surplusDisposition: str(r.surplus_disposition),
     surplusNote: str(r.surplus_note),
+    profileId: str(r.profile_id),
+    profileName: str(r.profile_name),
+    requireFinalWeight: bool(r.require_final_weight),
+    weighRequired: bool(r.weigh_required),
   };
 }
 
