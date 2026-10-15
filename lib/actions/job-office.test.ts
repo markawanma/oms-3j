@@ -184,7 +184,7 @@ describe("createJob — ตรวจ input ก่อนถึง DB", () => {
   it("OEM → job_create_from_quote_item (รวมเหตุผลก่อนมัดจำ) · ผลิตเอง → job_create_from_production_item (ไม่มี gate note)", async () => {
     rpcMock.mockResolvedValue({ data: { job_id: JOB, job_no: "JB-0009" }, error: null });
     const r = await createJob({ ...ok, startGateNote: "  ลูกค้าประจำ  ", designLabel: " แหวน " });
-    expect(r).toEqual({ ok: true, data: { jobId: JOB, jobNo: "JB-0009" } });
+    expect(r).toEqual({ ok: true, data: { jobId: JOB, jobNo: "JB-0009", planMissing: [] } });
     expect(lastRpc()[0]).toBe("job_create_from_quote_item");
     expect(lastRpc()[1]).toMatchObject({ p_quote_item_id: ITEM, p_stage_codes: ["cast", "qc", "pack"], p_due_date: "2026-10-30", p_start_gate_note: "ลูกค้าประจำ", p_design_label: "แหวน" });
     await createJob({ ...ok, kind: "production" });
@@ -198,6 +198,11 @@ describe("createJob — ตรวจ input ก่อนถึง DB", () => {
     expect(r.ok).toBe(false);
     expect(!r.ok && r.error).toMatch(/มัดจำ/);
     expect(!r.ok && r.error).not.toMatch(/start_gate_note|job_create/);
+  });
+  it("0175: plan_missing[] จาก RPC ถูกส่งต่อ (ให้ฟอร์มต่อท้าย toast) · ค่าที่ไม่ใช่ string ถูกกรองทิ้ง", async () => {
+    rpcMock.mockResolvedValue({ data: { job_id: JOB, job_no: "JB-0010", plan_missing: ["sprue_loss_pct[silver]", 5, null] }, error: null });
+    const r = await createJob(ok);
+    expect(r).toEqual({ ok: true, data: { jobId: JOB, jobNo: "JB-0010", planMissing: ["sprue_loss_pct[silver]"] } });
   });
   it("RPC คืนรูปแปลก → ข้อความกลาง ไม่ throw", async () => {
     rpcMock.mockResolvedValue({ data: { job_id: "bad" }, error: null });
