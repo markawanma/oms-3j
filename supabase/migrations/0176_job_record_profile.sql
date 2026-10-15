@@ -23,6 +23,8 @@
 --  (5) job_record_profile_list ไม่ใช่ stable (เรียก ensure ที่เขียนข้อมูล) · upsert/set_default เรียก ensure ก่อน (ร้านที่ยังไม่มีแบบเลยต้องได้ค่าเริ่มเสมอ — R4)
 --  (6) job_worker_resolve: เพิ่ม has_profile (ทั้ง 2 block) + job.profile_name (เฉพาะช่างที่ระบุตัวแล้ว) ตามที่ ux-ui ขอ — แยกใบเดิม (null/false) ออกจากใบใหม่ · เป็นชื่อแบบ/boolean ไม่ใช่น้ำหนัก (N1 คงเดิม)
 --  (7) job_guard UPDATE: weigh_required เปลี่ยนได้ก่อนเริ่ม แต่ต้องเท่า exists(ขั้นที่ weigh_required) ณ ตอนนั้น (weigh_drift) — ใบเดิมที่ไม่ตรงอยู่แล้วไม่ถูกแตะเพราะไม่มีใครแก้คอลัมน์นี้
+--  (8) S6 จาก code review 0175: job_guard แยกบล็อกตรวจ plan_drift ที่ซ้ำเป๊ะ 2 ที่ (INSERT/UPDATE) เป็น job_plan_basis_assert + สูตรเป็น job_plan_formula (ภายใน ไม่ grant) — พฤติกรรม/ข้อความเท่าเดิม (golden GB1-GB6)
+--      ไม่ได้ทำ (ไม่ได้ replace ฟังก์ชันนั้นใน 0176): S5 job_plan_set ประทับ target_source=input ทุกครั้ง · job_plan_compute ยังมีสูตรเองอีก 1 ที่ + N11 nullif(btrim) ซ้ำซ้อน — รอ 0177/จดเป็นหนี้
 -- ไม่มีราคา/ต้นทุนในทุก object ของไฟล์นี้ (boolean ล้วน)
 
 -- baseline ก่อนแตะ: ฟังก์ชันทุกตัวในสคีมา (md5) + ตัวชี้วัด updated_at ของ job/job_stage — ตรวจท้ายไฟล์ว่าไม่มีอะไรขยับนอกรายการที่ตั้งใจแทนที่
@@ -1210,6 +1212,74 @@ begin
 end;
 $f$;
 -- job_guard (def ต้นทาง 0175:918): INSERT ต้องมีแบบ (active · ร้านเดียวกัน · ชื่อ/flag snapshot ตรงแบบ) · UPDATE: weigh_required/profile_*/require_final_weight ถอดจากรายการแช่แข็งไปตรวจแยก (แก้ได้ก่อนขั้นแรกถูกรับ)
+-- S6 (code review 0175): สูตรแผนโลหะ = จำนวน × น้ำหนักต่อชิ้น × (1 + อัตราก้านต้น%) ปัด 3 ตำแหน่ง — job_guard ใช้ผ่าน job_plan_basis_assert
+-- (job_plan_compute ของ 0175 ยังมีสูตรเดียวกันอยู่ในตัวเอง — 0176 ไม่แตะฟังก์ชันนั้น · ถ้าแก้สูตร ต้องแก้ 2 ที่จนกว่าจะ replace job_plan_compute ให้เรียก helper นี้)
+create or replace function analytics.job_plan_formula(p_qty int, p_target numeric, p_sprue_pct numeric)
+ returns numeric
+ language sql
+ immutable
+ set search_path to 'pg_catalog', 'pg_temp'
+as $f$
+  select round(p_qty * p_target * (1 + p_sprue_pct / 100), 3)
+$f$;
+
+-- ตรวจ metal_plan_basis ของแถว job ว่าตรงกับตัวเลขที่มันอธิบาย (plan_drift) — ยกมาจากบล็อกที่ซ้ำกันเป๊ะ 2 ที่ใน job_guard ของ 0175 (INSERT/UPDATE) · พฤติกรรมเท่าเดิมทุกข้อความ/hint
+-- ภายใน (ไม่ grant) · เรียกจาก job_guard เท่านั้น
+create or replace function analytics.job_plan_basis_assert(p analytics.job)
+ returns void
+ language plpgsql
+ stable
+ set search_path to 'public', 'analytics', 'extensions', 'pg_temp'
+as $f$
+declare
+  v_ov text;
+  v_cp text;
+begin
+  if p.metal_plan_basis is not null then
+    if jsonb_typeof(p.metal_plan_basis -> 'target_piece_g') is distinct from 'number'
+       or jsonb_typeof(p.metal_plan_basis -> 'qty_planned') is distinct from 'number'
+       or (p.metal_plan_basis ->> 'target_piece_g')::numeric is distinct from p.target_piece_g
+       or (p.metal_plan_basis ->> 'qty_planned')::numeric is distinct from p.qty_planned::numeric then
+      raise exception 'job: แผนโลหะไม่ตรงกับจำนวนเริ่มผลิต/น้ำหนักเป้าหมาย (plan_drift)' using errcode = '22023', hint = 'plan_drift';
+    end if;
+    v_ov := jsonb_typeof(p.metal_plan_basis -> 'override_g');
+    v_cp := jsonb_typeof(p.metal_plan_basis -> 'computed_g');
+    -- basis ต้องไม่ใช่ของปลอม: ที่มาน้ำหนักถูกบันทึก · override ต้องมีเหตุผลจริง · computed_g ต้องเท่าสูตรเดียวกับ job_plan_compute เป๊ะ (security L1/L4)
+    if jsonb_typeof(p.metal_plan_basis -> 'target_source') is distinct from 'string'
+       or (p.metal_plan_basis ->> 'target_source') not in ('quote', 'product', 'input') then
+      raise exception 'job: basis ของแผนโลหะไม่ระบุที่มาของน้ำหนักเป้าหมาย (plan_drift)' using errcode = '22023', hint = 'plan_drift';
+    end if;
+    if v_ov = 'number' and not coalesce(analytics.oem_note_present(p.metal_plan_basis ->> 'override_reason'), false) then
+      raise exception 'job: แผนโลหะที่กำหนดเองต้องมีเหตุผล (plan_drift)' using errcode = '22023', hint = 'plan_drift';
+    end if;
+    if v_cp = 'number' then
+      if jsonb_typeof(p.metal_plan_basis -> 'sprue_loss_pct') is distinct from 'number'
+         or (p.metal_plan_basis ->> 'computed_g')::numeric is distinct from analytics.job_plan_formula(p.qty_planned, p.target_piece_g, (p.metal_plan_basis ->> 'sprue_loss_pct')::numeric) then
+        raise exception 'job: computed_g ไม่ตรงสูตรจำนวน × น้ำหนัก × (1 + อัตราก้านต้น) (plan_drift)' using errcode = '22023', hint = 'plan_drift';
+      end if;
+    elsif v_cp = 'null' and v_ov = 'null' and jsonb_typeof(p.metal_plan_basis -> 'sprue_loss_pct') is distinct from 'null' then
+      raise exception 'job: ไม่มี computed_g แต่ basis ระบุอัตราก้านต้น (plan_drift)' using errcode = '22023', hint = 'plan_drift';
+    end if;
+    if v_ov = 'number' then
+      if (p.metal_plan_basis ->> 'override_g')::numeric is distinct from p.metal_plan_g then
+        raise exception 'job: โลหะที่ต้องเตรียมไม่ตรงกับค่าที่กำหนดเองใน basis (plan_drift)' using errcode = '22023', hint = 'plan_drift';
+      end if;
+    elsif v_ov = 'null' and v_cp = 'number' then
+      if (p.metal_plan_basis ->> 'computed_g')::numeric is distinct from p.metal_plan_g then
+        raise exception 'job: โลหะที่ต้องเตรียมไม่ตรงกับค่าที่ DB คำนวณใน basis (plan_drift)' using errcode = '22023', hint = 'plan_drift';
+      end if;
+    elsif v_ov = 'null' and v_cp = 'null' then
+      if p.metal_plan_g is not null then
+        raise exception 'job: ไม่มีผลคำนวณใน basis แต่มี metal_plan_g (plan_drift)' using errcode = '22023', hint = 'plan_drift';
+      end if;
+    else
+      raise exception 'job: basis ของแผนโลหะรูปร่างไม่ถูกต้อง (plan_drift)' using errcode = '22023', hint = 'plan_drift';
+    end if;
+  end if;
+
+end;
+$f$;
+
 create or replace function analytics.job_guard()
  returns trigger
  language plpgsql
@@ -1300,48 +1370,8 @@ begin
     if new.surplus_disposition is not null or new.surplus_note is not null then
       raise exception 'job: ใบงานใหม่ตั้งการจัดการของเหลือไม่ได้' using errcode = '22023';
     end if;
-    -- แผนโลหะต้องตรงกับ basis ที่อธิบายมัน: ไม่งั้นมีคนใช้ service key แก้ metal_plan_g ตรงๆ ให้ไม่ตรงกับที่ DB คำนวณ (plan_drift)
-    if new.metal_plan_basis is not null then
-      if jsonb_typeof(new.metal_plan_basis -> 'target_piece_g') is distinct from 'number'
-         or jsonb_typeof(new.metal_plan_basis -> 'qty_planned') is distinct from 'number'
-         or (new.metal_plan_basis ->> 'target_piece_g')::numeric is distinct from new.target_piece_g
-         or (new.metal_plan_basis ->> 'qty_planned')::numeric is distinct from new.qty_planned::numeric then
-        raise exception 'job: แผนโลหะไม่ตรงกับจำนวนเริ่มผลิต/น้ำหนักเป้าหมาย (plan_drift)' using errcode = '22023', hint = 'plan_drift';
-      end if;
-      v_ov := jsonb_typeof(new.metal_plan_basis -> 'override_g');
-      v_cp := jsonb_typeof(new.metal_plan_basis -> 'computed_g');
-      -- basis ต้องไม่ใช่ของปลอม: ที่มาน้ำหนักถูกบันทึก · override ต้องมีเหตุผลจริง · computed_g ต้องเท่าสูตรเดียวกับ job_plan_compute เป๊ะ (security L1/L4)
-      if jsonb_typeof(new.metal_plan_basis -> 'target_source') is distinct from 'string'
-         or (new.metal_plan_basis ->> 'target_source') not in ('quote', 'product', 'input') then
-        raise exception 'job: basis ของแผนโลหะไม่ระบุที่มาของน้ำหนักเป้าหมาย (plan_drift)' using errcode = '22023', hint = 'plan_drift';
-      end if;
-      if v_ov = 'number' and not coalesce(analytics.oem_note_present(new.metal_plan_basis ->> 'override_reason'), false) then
-        raise exception 'job: แผนโลหะที่กำหนดเองต้องมีเหตุผล (plan_drift)' using errcode = '22023', hint = 'plan_drift';
-      end if;
-      if v_cp = 'number' then
-        if jsonb_typeof(new.metal_plan_basis -> 'sprue_loss_pct') is distinct from 'number'
-           or (new.metal_plan_basis ->> 'computed_g')::numeric is distinct from round(new.qty_planned * new.target_piece_g * (1 + (new.metal_plan_basis ->> 'sprue_loss_pct')::numeric / 100), 3) then
-          raise exception 'job: computed_g ไม่ตรงสูตรจำนวน × น้ำหนัก × (1 + อัตราก้านต้น) (plan_drift)' using errcode = '22023', hint = 'plan_drift';
-        end if;
-      elsif v_cp = 'null' and v_ov = 'null' and jsonb_typeof(new.metal_plan_basis -> 'sprue_loss_pct') is distinct from 'null' then
-        raise exception 'job: ไม่มี computed_g แต่ basis ระบุอัตราก้านต้น (plan_drift)' using errcode = '22023', hint = 'plan_drift';
-      end if;
-      if v_ov = 'number' then
-        if (new.metal_plan_basis ->> 'override_g')::numeric is distinct from new.metal_plan_g then
-          raise exception 'job: โลหะที่ต้องเตรียมไม่ตรงกับค่าที่กำหนดเองใน basis (plan_drift)' using errcode = '22023', hint = 'plan_drift';
-        end if;
-      elsif v_ov = 'null' and v_cp = 'number' then
-        if (new.metal_plan_basis ->> 'computed_g')::numeric is distinct from new.metal_plan_g then
-          raise exception 'job: โลหะที่ต้องเตรียมไม่ตรงกับค่าที่ DB คำนวณใน basis (plan_drift)' using errcode = '22023', hint = 'plan_drift';
-        end if;
-      elsif v_ov = 'null' and v_cp = 'null' then
-        if new.metal_plan_g is not null then
-          raise exception 'job: ไม่มีผลคำนวณใน basis แต่มี metal_plan_g (plan_drift)' using errcode = '22023', hint = 'plan_drift';
-        end if;
-      else
-        raise exception 'job: basis ของแผนโลหะรูปร่างไม่ถูกต้อง (plan_drift)' using errcode = '22023', hint = 'plan_drift';
-      end if;
-    end if;
+    -- แผนโลหะต้องตรงกับ basis ที่อธิบายมัน (plan_drift) — helper เดียวกับ UPDATE (0176: ยกจากบล็อกที่ซ้ำกัน 2 ที่ของ 0175)
+    perform analytics.job_plan_basis_assert(new);
     if new.product_id is not null then
       select p.shop_id into v_prod_shop from public.product p where p.id = new.product_id;
       if v_prod_shop is distinct from new.shop_id then
@@ -1417,48 +1447,8 @@ begin
      and exists (select 1 from analytics.job_stage s where s.job_id = new.id and s.stage_code = 'cast' and s.status in ('received', 'sent')) then
     raise exception 'job: แก้แผนโลหะได้เฉพาะก่อนขั้นหล่อถูกรับ' using errcode = '22023', hint = 'cast_started';
   end if;
-  -- แผนโลหะต้องตรงกับ basis ที่อธิบายมัน: ไม่งั้นมีคนใช้ service key แก้ metal_plan_g ตรงๆ ให้ไม่ตรงกับที่ DB คำนวณ (plan_drift)
-  if new.metal_plan_basis is not null then
-    if jsonb_typeof(new.metal_plan_basis -> 'target_piece_g') is distinct from 'number'
-       or jsonb_typeof(new.metal_plan_basis -> 'qty_planned') is distinct from 'number'
-       or (new.metal_plan_basis ->> 'target_piece_g')::numeric is distinct from new.target_piece_g
-       or (new.metal_plan_basis ->> 'qty_planned')::numeric is distinct from new.qty_planned::numeric then
-      raise exception 'job: แผนโลหะไม่ตรงกับจำนวนเริ่มผลิต/น้ำหนักเป้าหมาย (plan_drift)' using errcode = '22023', hint = 'plan_drift';
-    end if;
-    v_ov := jsonb_typeof(new.metal_plan_basis -> 'override_g');
-    v_cp := jsonb_typeof(new.metal_plan_basis -> 'computed_g');
-    -- basis ต้องไม่ใช่ของปลอม: ที่มาน้ำหนักถูกบันทึก · override ต้องมีเหตุผลจริง · computed_g ต้องเท่าสูตรเดียวกับ job_plan_compute เป๊ะ (security L1/L4)
-    if jsonb_typeof(new.metal_plan_basis -> 'target_source') is distinct from 'string'
-       or (new.metal_plan_basis ->> 'target_source') not in ('quote', 'product', 'input') then
-      raise exception 'job: basis ของแผนโลหะไม่ระบุที่มาของน้ำหนักเป้าหมาย (plan_drift)' using errcode = '22023', hint = 'plan_drift';
-    end if;
-    if v_ov = 'number' and not coalesce(analytics.oem_note_present(new.metal_plan_basis ->> 'override_reason'), false) then
-      raise exception 'job: แผนโลหะที่กำหนดเองต้องมีเหตุผล (plan_drift)' using errcode = '22023', hint = 'plan_drift';
-    end if;
-    if v_cp = 'number' then
-      if jsonb_typeof(new.metal_plan_basis -> 'sprue_loss_pct') is distinct from 'number'
-         or (new.metal_plan_basis ->> 'computed_g')::numeric is distinct from round(new.qty_planned * new.target_piece_g * (1 + (new.metal_plan_basis ->> 'sprue_loss_pct')::numeric / 100), 3) then
-        raise exception 'job: computed_g ไม่ตรงสูตรจำนวน × น้ำหนัก × (1 + อัตราก้านต้น) (plan_drift)' using errcode = '22023', hint = 'plan_drift';
-      end if;
-    elsif v_cp = 'null' and v_ov = 'null' and jsonb_typeof(new.metal_plan_basis -> 'sprue_loss_pct') is distinct from 'null' then
-      raise exception 'job: ไม่มี computed_g แต่ basis ระบุอัตราก้านต้น (plan_drift)' using errcode = '22023', hint = 'plan_drift';
-    end if;
-    if v_ov = 'number' then
-      if (new.metal_plan_basis ->> 'override_g')::numeric is distinct from new.metal_plan_g then
-        raise exception 'job: โลหะที่ต้องเตรียมไม่ตรงกับค่าที่กำหนดเองใน basis (plan_drift)' using errcode = '22023', hint = 'plan_drift';
-      end if;
-    elsif v_ov = 'null' and v_cp = 'number' then
-      if (new.metal_plan_basis ->> 'computed_g')::numeric is distinct from new.metal_plan_g then
-        raise exception 'job: โลหะที่ต้องเตรียมไม่ตรงกับค่าที่ DB คำนวณใน basis (plan_drift)' using errcode = '22023', hint = 'plan_drift';
-      end if;
-    elsif v_ov = 'null' and v_cp = 'null' then
-      if new.metal_plan_g is not null then
-        raise exception 'job: ไม่มีผลคำนวณใน basis แต่มี metal_plan_g (plan_drift)' using errcode = '22023', hint = 'plan_drift';
-      end if;
-    else
-      raise exception 'job: basis ของแผนโลหะรูปร่างไม่ถูกต้อง (plan_drift)' using errcode = '22023', hint = 'plan_drift';
-    end if;
-  end if;
+  -- แผนโลหะต้องตรงกับ basis ที่อธิบายมัน (plan_drift) — helper เดียวกับ INSERT
+  perform analytics.job_plan_basis_assert(new);
   if new.status <> 'done' and (new.surplus_disposition is not null or new.surplus_note is not null) then
     raise exception 'job: ตั้งการจัดการของเหลือได้เฉพาะใบงานที่ปิดแล้ว (done)' using errcode = '22023';
   end if;
@@ -1834,7 +1824,8 @@ declare
     'job_core_receive', 'job_stage_guard', 'job_guard', 'job_worker_resolve', 'job_done'];
   c_new constant text[] := array['job_profile_default_for', 'job_record_profile_ensure', 'job_profile_state', 'job_profile_apply', 'job_profile_json',
     'job_record_profile_list', 'job_record_profile_upsert', 'job_record_profile_set_default', 'job_profile_set',
-    'job_record_profile_guard', 'job_record_profile_stage_guard', 'job_record_profile_default_required'];
+    'job_record_profile_guard', 'job_record_profile_stage_guard', 'job_record_profile_default_required',
+    'job_plan_formula', 'job_plan_basis_assert'];
 begin
   select string_agg(b.sig, ', ') into v_changed
     from _j176_fn_base b

@@ -1,7 +1,7 @@
 -- scripts/verify/verify-0176.sql
 -- ตรวจ supabase/migrations/0176_job_record_profile.sql (แบบการบันทึก: ชั่ง/ชิ้นเสีย/น้ำหนักเศษต่อขั้น · ค่าเริ่มทั่วไป+ทอง · require_final_weight · ใบเดิม profile_id null) หลัง apply
 -- (หรือต่อท้ายไฟล์ 0176 ใน dry-run ก่อน apply) · self-rolling-back (3j-migration-traps ข้อ 11) · ผลออกทาง error message · [FAIL] >= 1 = ไม่ผ่าน
--- รอบแรก = ของจริง · รอบถัดไป = mutant 20 จุด (ทุกตัวต้องล้ม ไม่งั้น MX FAIL) · ปิดท้ายตรวจ state ไม่ขยับ
+-- รอบแรก = ของจริง · รอบถัดไป = mutant 25 จุด (ทุกตัวต้องล้ม ไม่งั้น MX FAIL) · ปิดท้ายตรวจ state ไม่ขยับ
 -- 🔴 ไม่ commit อะไร · ข้อมูลทดสอบสร้างผ่าน RPC เท่านั้น (ใบเสนอราคา = โคลนจากรายการจริงในทรานแซกชันที่ถอยกลับ) · JB-0018 + token จริง อ่านอย่างเดียว
 -- ใบ "เดิมก่อน 0176" จำลองด้วยการสร้างใบผ่าน RPC แล้วปิด trg_job_guard ชั่วคราวใน subtransaction เพื่อตั้ง profile_id null + flag แบบ J1 (pg_temp.leg)
 --
@@ -29,7 +29,8 @@
 --  P12 สิทธิ์ 18.5 (anon/authenticated 42501 · helper ไม่มี role) · ช่างไม่มี arg profile -> P12a P12b P12c
 --  P11 ไม่มีราคา/ต้นทุน                                        -> P11
 --  md5 ฟังก์ชันอื่นไม่ขยับ · updated_at/flag ใบเดิมไม่ขยับ        -> assert ท้ายไฟล์ migration (md5 ทุกฟังก์ชัน + updated_at + flag md5 + ทุกร้านมีค่าเริ่ม) · MY (หลังรัน mutant)
---  mutant 20 จุด: MU-1..MU-20 (guard ×4 · stage_guard ×2 · core_receive ×2 · job_done ×2 · create/default_for ×2 · resolve ×2 · DDL ×5 · apply · set_default)
+--  S6 (review 0175) job_guard แยก helper job_plan_basis_assert/job_plan_formula -> golden GB1-GB6 (ยกจาก B1-B6 ของ verify-0175: ผลต้องเท่าเดิมทุกข้อความ) + GF (สูตร) · MU-21..25
+--  mutant 25 จุด: MU-1..MU-25 (guard ×4 · stage_guard ×2 · core_receive ×2 · job_done ×2 · create/default_for ×2 · resolve ×2 · DDL ×5 · apply · set_default)
 --
 --  ❌ ไม่มีเทสต์ครอบ (บอกตรงๆ):
 --    - race หลาย connection: job_profile_set พร้อมช่างรับขั้นแรก (ต้อง 2 connection) → กันด้วย for update ใน job_office_begin + uq_job_stage_one_received + trigger ตรวจ received/sent ตอน UPDATE
@@ -1402,12 +1403,156 @@ begin
 end;
 $s$;
 
+-- ============================================================================
+-- Section E — golden job_guard หลังแยก helper plan_drift (S6): B1-B6 ของ verify-0175 (ผลต้องเท่าเดิม) + สูตร
+-- ============================================================================
+create function pg_temp.se(p_shop uuid, p_tpl uuid) returns text
+ language plpgsql as $s$
+declare
+  v_log   text := '';
+  v_today date := analytics.job_today();
+  ja uuid; jb uuid; jd uuid; jc uuid; jn uuid; jp uuid;
+  d jsonb; r jsonb; x text;
+  v_n int; v_bad text := ''; c record;
+  v_item_qty int;
+begin
+  perform set_config('request.jwt.claims', '{"role":"service_role"}', true);
+
+  -- ใบ open (ยังไม่มีขั้นถูกรับ · มี target+basis) · ใบ in_progress (ขั้น 1 รับแล้ว) · ใบ done (มีของเหลือ) · ใบ cancelled
+  ja := (pg_temp.mkj2(p_shop, p_tpl, 'silver', 10, 10, '4.000') ->> 'job_id')::uuid;
+  jb := (pg_temp.mkj2(p_shop, p_tpl, 'silver', 10, 10, '4.000') ->> 'job_id')::uuid;
+  perform pg_temp.o_recv(p_shop, jb, 1, v_today, null, null, 'verify');
+  jd := (pg_temp.mkj2(p_shop, p_tpl, 'silver', 10, 12, '4.000') ->> 'job_id')::uuid;
+  perform pg_temp.o_run(p_shop, jd, 1, 8, v_today);
+  perform pg_temp.o_done(p_shop, jd, 11, 1);
+  jc := (pg_temp.mkj2(p_shop, p_tpl, 'silver', 10, 10, '4.000') ->> 'job_id')::uuid;
+  perform pg_temp.q(format('select analytics.job_cancel(%L, %L, %L, %L)', p_shop, jc, 'verify ยกเลิก', '00000000-0000-0000-0000-0000000000a1'::uuid));
+
+  -- B1 UPDATE qty_order ตรงๆ ตกทุก status (open / in_progress / done / cancelled)
+  v_n := 0;
+  foreach d in array array[to_jsonb(ja), to_jsonb(jb), to_jsonb(jd), to_jsonb(jc)] loop
+    x := pg_temp.x(format('update analytics.job set qty_order = qty_order + 1 where id = %L', d #>> '{}'));
+    if pg_temp.xs(x) = '22023' and pg_temp.xm(x) like 'job:%' then v_n := v_n + 1; end if;
+  end loop;
+  v_log := v_log || pg_temp.chk('GB1', 'UPDATE qty_order ตรงๆ ตกที่ job_guard ทั้ง 4 status (open · in_progress · done · cancelled) — ตก ' || v_n || '/4', v_n = 4);
+
+  -- B2 qty_planned: ก่อนมีขั้นถูกรับ (ล้างแผนพร้อมกันเพื่อไม่ให้ชน plan_drift) = ได้ · หลังขั้นแรกถูกรับ = ตก hint started · แก้ qty_planned เดี่ยวๆ โดยแผนยังอ้างค่าเก่า = plan_drift
+  x := pg_temp.x(format('update analytics.job set qty_planned = qty_planned + 1 where id = %L', ja));
+  v_log := v_log || pg_temp.chk('GB2a', 'แก้ qty_planned ตรงๆ ขณะแผนโลหะยังอ้างจำนวนเก่า → ตก plan_drift (ต้องผ่าน job_qty_planned_set ที่คำนวณแผนใหม่ให้) · ' || pg_temp.xm(x),
+    pg_temp.xs(x) = '22023' and pg_temp.xm(x) like '%plan_drift%');
+  x := pg_temp.x(format('update analytics.job set qty_planned = 11, target_piece_g = null, metal_plan_g = null, metal_plan_basis = null where id = %L', ja));
+  v_log := v_log || pg_temp.chk('GB2b', 'ต้องไม่พัง: ก่อนขั้นแรกถูกรับ แก้ qty_planned + ล้างแผนใน UPDATE เดียวได้ · หลังขั้นแรกถูกรับ (in_progress) แก้ qty_planned ตก "แก้จำนวนเริ่มผลิตได้เฉพาะก่อนขั้นแรกถูกรับ"',
+    x = 'OK' and (select qty_planned from analytics.job where id = ja) = 11
+    and pg_temp.xs(pg_temp.x(format('update analytics.job set qty_planned = 12, target_piece_g = null, metal_plan_g = null, metal_plan_basis = null where id = %L', jb))) = '22023'
+    and pg_temp.xm(pg_temp.x(format('update analytics.job set qty_planned = 12, target_piece_g = null, metal_plan_g = null, metal_plan_basis = null where id = %L', jb))) like '%ก่อนขั้นแรกถูกรับ%'
+    and (select qty_planned from analytics.job where id = jb) = 10);
+
+  -- B3 แผนโลหะ: metal_plan_g แก้ตรงๆ ให้ไม่ตรง basis = plan_drift · target แก้โดย basis ไม่ตาม = plan_drift · หลัง cast ถูกรับ แก้ target = ตก cast_started
+  x := pg_temp.x(format('update analytics.job set metal_plan_g = coalesce(metal_plan_g, 0) + 1 where id = %L', jb));
+  v_log := v_log || pg_temp.chk('GB3a', 'UPDATE metal_plan_g ตรงๆ ให้ไม่ตรงกับ basis (หรือตั้งค่าทั้งที่ basis ไม่มีผลคำนวณ) → plan_drift · target แก้โดย basis ไม่ตาม → plan_drift',
+    pg_temp.xs(x) = '22023' and pg_temp.xm(x) like '%plan_drift%'
+    and pg_temp.xm(pg_temp.x(format('update analytics.job set target_piece_g = 5.000 where id = %L', jb))) like '%plan_drift%');
+  -- B3c-e (security L1/L4): basis ปลอม — computed_g มั่ว (metal_plan_g ตามให้ตรง) · override ไม่มีเหตุผล/เหตุผล "." · target_source ค่ามั่ว/หาย
+  x := pg_temp.x(format('update analytics.job set metal_plan_basis = jsonb_set(metal_plan_basis, ''{computed_g}'', ''999''::jsonb), metal_plan_g = 999 where id = %L', jb));
+  v_log := v_log || pg_temp.chk('GB3c', 'basis ปลอม: computed_g = 999 (metal_plan_g ตามให้ตรง) ไม่ตรงสูตร จำนวน × น้ำหนัก × (1+ก้านต้น) → plan_drift · ' || pg_temp.xm(x),
+    pg_temp.xs(x) = '22023' and pg_temp.xm(x) like '%plan_drift%');
+  x := pg_temp.x(format('update analytics.job set metal_plan_basis = metal_plan_basis || ''{"override_g": 7, "override_reason": "."}''::jsonb, metal_plan_g = 7 where id = %L', jb));
+  v_log := v_log || pg_temp.chk('GB3d', 'basis ปลอม: override_g = 7 แต่เหตุผลเป็น "." / ว่าง (ไม่มีตัวอักษรจริง) → plan_drift · ' || pg_temp.xm(x),
+    pg_temp.xs(x) = '22023' and pg_temp.xm(x) like '%plan_drift%'
+    and pg_temp.xm(pg_temp.x(format('update analytics.job set metal_plan_basis = metal_plan_basis || ''{"override_g": 7, "override_reason": null}''::jsonb, metal_plan_g = 7 where id = %L', jb))) like '%plan_drift%');
+  v_log := v_log || pg_temp.chk('GB3e', 'basis ปลอม: target_source = "xyz" / ไม่ใช่ข้อความ / หาย → plan_drift (ที่มาน้ำหนักต้องเป็น quote|product|input)',
+    pg_temp.xm(pg_temp.x(format('update analytics.job set metal_plan_basis = jsonb_set(metal_plan_basis, ''{target_source}'', ''"xyz"''::jsonb) where id = %L', jb))) like '%plan_drift%'
+    and pg_temp.xm(pg_temp.x(format('update analytics.job set metal_plan_basis = jsonb_set(metal_plan_basis, ''{target_source}'', ''5''::jsonb) where id = %L', jb))) like '%plan_drift%'
+    and pg_temp.xm(pg_temp.x(format('update analytics.job set metal_plan_basis = metal_plan_basis - ''target_source'' where id = %L', jb))) like '%plan_drift%');
+  perform pg_temp.o_run(p_shop, jb, 1, 3, v_today);
+  perform pg_temp.o_recv(p_shop, jb, 4, v_today, 9.9, null, 'verify');
+  x := pg_temp.x(format('update analytics.job set target_piece_g = null, metal_plan_g = null, metal_plan_basis = null where id = %L', jb));
+  v_log := v_log || pg_temp.chk('GB3b', 'หลังขั้นหล่อ (cast) ถูกรับ: ล้างแผน/แก้แผนตรงๆ ตก "แก้แผนโลหะได้เฉพาะก่อนขั้นหล่อถูกรับ" · แผนเดิมไม่ขยับ · ' || pg_temp.xm(x),
+    pg_temp.xs(x) = '22023' and pg_temp.xm(x) like '%ก่อนขั้นหล่อถูกรับ%' and (select target_piece_g from analytics.job where id = jb) = 4.000);
+
+  -- B4 ใบ done: mutant UPDATE ทีละคอลัมน์ (ทุกคอลัมน์ที่ไม่ใช่ surplus_*) ต้องตกที่ guard · surplus_* แก้ได้
+  v_n := 0; v_bad := '';
+  for c in select * from (values
+      ('design_label', '''x'''), ('note', '''x'''), ('weight_final_g', '1.5'), ('weight_start_g', '1.5'), ('due_date', 'current_date'),
+      ('current_stage_code', '''zz'''), ('start_gate_note', 'null'), ('cancel_reason', '''x'''), ('done_at', 'now() + interval ''1 day'''),
+      ('qty_good', '12'), ('qty_scrap', '2'), ('qty_planned', '13'), ('qty_order', '9'), ('status', '''open'''), ('metal_plan_g', '1.0'),
+      ('target_piece_g', '9.0'), ('metal_plan_basis', 'null'), ('sku_snapshot', '''x'''), ('created_at', 'created_at + interval ''1 second'''), ('weigh_required', 'false')
+    ) as t(col, expr) loop
+    x := pg_temp.x(format('update analytics.job set %I = %s where id = %L', c.col, c.expr, jd));
+    if pg_temp.xs(x) <> 'OK' and pg_temp.xm(x) like 'job:%' then v_n := v_n + 1; else v_bad := v_bad || c.col || ' '; end if;
+  end loop;
+  v_log := v_log || pg_temp.chk('GB4a', 'ใบ done: UPDATE ทีละคอลัมน์ 20 คอลัมน์ (ทุกคอลัมน์ข้อมูลใบงาน ยกเว้น surplus_*) ต้องตกที่ job_guard ทุกตัว — ตก ' || v_n || '/20 · หลุด: ' || coalesce(nullif(v_bad, ''), '(ไม่มี)'),
+    v_n = 20);
+  x := pg_temp.x(format('update analytics.job set surplus_disposition = ''spare'', surplus_note = ''verify'' where id = %L', jd));
+  v_log := v_log || pg_temp.chk('GB4b', 'ต้องไม่พัง: ใบ done แก้ surplus_disposition hold→spare + surplus_note ได้ (ช่องเดียวที่ guard ยอม) [' || x || ']',
+    x = 'OK'
+    and (select surplus_disposition = 'spare' and surplus_note = 'verify' from analytics.job where id = jd));
+
+  -- B4c (security L2): ของเหลือตามชนิดต้นทาง — UPDATE ตรง OEM → stock ตก · ใบผลิต → hold ตก (CHECK job_surplus_source_ck · guard ปล่อยเพราะเป็นช่อง surplus_*)
+  jp := (pg_temp.mkpj2(p_shop, 10, 12) ->> 'job_id')::uuid;
+  perform pg_temp.o_run(p_shop, jp, 1, 8, v_today);
+  perform pg_temp.o_done(p_shop, jp, 11, 1);
+  x := pg_temp.x(format('update analytics.job set surplus_disposition = ''stock'' where id = %L', jd));
+  v_log := v_log || pg_temp.chk('GB4c', 'UPDATE ตรง: ใบ OEM done ตั้ง surplus = stock ตก job_surplus_source_ck (23514) · ใบผลิต done ตั้ง hold ตก (23514) · ต้องไม่พัง: ใบผลิต stock → stock ผ่าน · OEM spare → deliver ผ่าน',
+    pg_temp.xs(x) = '23514' and pg_temp.xm(x) like '%job_surplus_source_ck%'
+    and pg_temp.xs(pg_temp.x(format('update analytics.job set surplus_disposition = ''hold'' where id = %L', jp))) = '23514'
+    and pg_temp.x(format('update analytics.job set surplus_note = ''x'' where id = %L', jp)) = 'OK'
+    and pg_temp.x(format('update analytics.job set surplus_disposition = ''deliver'' where id = %L', jd)) = 'OK');
+
+  -- B5 ใบ cancelled: ตั้ง surplus ไม่ได้ · แก้อะไรก็ไม่ได้
+  v_log := v_log || pg_temp.chk('GB5', 'ใบ cancelled: UPDATE surplus_disposition / surplus_note / design_label ตกที่ guard ทั้งหมด (cancelled แข็งกว่า done)',
+    pg_temp.xs(pg_temp.x(format('update analytics.job set surplus_disposition = ''hold'' where id = %L', jc))) in ('22023', '23514')
+    and pg_temp.xm(pg_temp.x(format('update analytics.job set surplus_disposition = ''hold'' where id = %L', jc))) like 'job:%'
+    and pg_temp.xm(pg_temp.x(format('update analytics.job set surplus_note = ''x'' where id = %L', jc))) like 'job:%'
+    and pg_temp.xm(pg_temp.x(format('update analytics.job set design_label = ''x'' where id = %L', jc))) like 'job:%');
+
+  -- B6 INSERT ตรง: qty_order ไม่ตรงต้นทาง · surplus ตั้งตอนสร้าง · plan_g ไม่มี target (CHECK) · plan_g ไม่ตรง basis · (ต้องไม่พัง: ค่าถูกต้องผ่าน guard ไปชน unique index = guard ไม่เกินเหตุ)
+  jn := jb;  -- ใช้ใบที่ยังมีแผน+basis เป็นแม่แบบโคลน (ชนิด OEM · มีรายการใบเสนอราคา)
+  select i.qty into v_item_qty from analytics.job j join analytics.oem_quote_item i on i.id = j.oem_quote_item_id where j.id = jn;
+  v_log := v_log || pg_temp.chk('GB6a', 'INSERT job ตรง: qty_order ≠ จำนวนรายการใบเสนอราคา ตก guard · ตั้ง surplus_disposition ตอนสร้างตก guard · metal_plan_g ไม่มี target/basis ตก CHECK job_plan_ck (23514)',
+    pg_temp.xs(pg_temp.clone_job(jn, jsonb_build_object('id', gen_random_uuid(), 'seq', 999001, 'qty_order', v_item_qty + 5))) = '22023'
+    and pg_temp.xm(pg_temp.clone_job(jn, jsonb_build_object('id', gen_random_uuid(), 'seq', 999001, 'qty_order', v_item_qty + 5))) like '%จำนวนที่สั่ง%'
+    and pg_temp.xm(pg_temp.clone_job(jn, jsonb_build_object('id', gen_random_uuid(), 'seq', 999002, 'surplus_disposition', 'hold'))) like '%ตั้งการจัดการของเหลือไม่ได้%'
+    and pg_temp.xs(pg_temp.clone_job(jn, jsonb_build_object('id', gen_random_uuid(), 'seq', 999003, 'target_piece_g', null, 'metal_plan_basis', null, 'metal_plan_g', 5))) = '23514');
+  x := pg_temp.clone_job(jn, jsonb_build_object('id', gen_random_uuid(), 'seq', 999005));
+  r := to_jsonb(pg_temp.clone_job(jn, jsonb_build_object('id', gen_random_uuid(), 'seq', 999004, 'metal_plan_g', 98765.432, 'metal_plan_basis', (select jsonb_set(metal_plan_basis, '{override_g}', 'null'::jsonb) from analytics.job where id = jn))));
+  v_log := v_log || pg_temp.chk('GB6b', 'INSERT job ตรง: metal_plan_g ไม่ตรง basis ตก plan_drift · ต้องไม่พัง: ค่าครบถูกต้องผ่าน guard+CHECK แล้วไปชน unique index ของรายการเดิม (23505) — guard ไม่ปฏิเสธเกินเหตุ [' || left(x, 200) || '] [' || left(r #>> '{}', 200) || ']',
+    pg_temp.xm(pg_temp.clone_job(jn, jsonb_build_object('id', gen_random_uuid(), 'seq', 999004, 'metal_plan_g', 98765.432, 'metal_plan_basis', (select jsonb_set(metal_plan_basis, '{override_g}', 'null'::jsonb) from analytics.job where id = jn)))) like '%plan_drift%'
+    and pg_temp.xs(pg_temp.clone_job(jn, jsonb_build_object('id', gen_random_uuid(), 'seq', 999005))) = '23505');
+  -- GF สูตรแผนโลหะ (job_plan_formula): จำนวน × น้ำหนัก × (1 + ก้านต้น%) ปัด 3 ตำแหน่ง = สูตรเดียวกับ job_plan_compute (เทียบ 3 ค่า)
+  v_log := v_log || pg_temp.chk('GF', 'job_plan_formula: (10,4,0)=40.000 · (10,4,6)=42.400 · (3,1.234,2.5) = round(3×1.234×1.025,3) · (7,0.5,0)=3.500',
+    analytics.job_plan_formula(10, 4.000, 0) = 40.000 and analytics.job_plan_formula(10, 4.000, 6) = 42.400
+    and analytics.job_plan_formula(3, 1.234, 2.5) = round(3 * 1.234::numeric * (1 + 2.5 / 100), 3) and analytics.job_plan_formula(7, 0.500, 0) = 3.500);
+  return v_log;
+end;
+$s$;
+
+
 create function pg_temp.run_all(p_shop uuid, p_tpl uuid) returns text
  language sql as $c$
   select pg_temp.run_sec('sa', p_shop, p_tpl)
       || pg_temp.run_sec('sb', p_shop, p_tpl)
       || pg_temp.run_sec('sc', p_shop, p_tpl)
       || pg_temp.run_sec('sd', p_shop, p_tpl)
+      || pg_temp.run_sec('se', p_shop, p_tpl)
+$c$;
+
+-- label ของเคส -> section ที่รันเคสนั้น (mutant รันเฉพาะ section ที่ expect อยู่ — ประหยัดเวลา: ทั้งชุดรันได้ไม่เกิน statement_timeout ของ DB)
+create function pg_temp.sec_of(p_label text) returns text language sql as $c$
+  select case
+    when p_label like 'GB%' or p_label = 'GF' then 'se'
+    when p_label like 'A0%' or p_label ~ '^P1[a-z]$' or p_label like 'P2%' then 'sa'
+    when p_label like 'B%' or p_label in ('P3a', 'P3b', 'P3c') or p_label like 'P4%' or p_label like 'P5%' then 'sb'
+    when p_label like 'P6%' or p_label like 'P7%' or p_label like 'P8%' or p_label like 'G%' then 'sc'
+    else 'sd' end $c$;
+create function pg_temp.run_for(p_expect jsonb, p_shop uuid, p_tpl uuid) returns text language plpgsql as $c$
+declare v text := ''; s text;
+begin
+  for s in select distinct pg_temp.sec_of(e) from jsonb_array_elements_text(p_expect) e order by 1 loop
+    v := v || pg_temp.run_sec(s, p_shop, p_tpl);
+  end loop;
+  return v;
+end;
 $c$;
 
 do $v176$
@@ -1454,6 +1599,16 @@ declare
       'alter table analytics.job drop constraint job_done_ck', 'expect', jsonb_build_array('P8c', 'G5')),
     jsonb_build_object('id', 'MU-19', 'what', 'job_profile_apply ไม่คำนวณ job.weigh_required ใหม่ตามขั้น', 'fn', 'job_profile_apply',
       'from', 'weigh_required = exists (select 1 from analytics.job_stage s where s.job_id = p_job_id and s.weigh_required)', 'to', 'weigh_required = weigh_required', 'expect', jsonb_build_array('B2a')),
+    jsonb_build_object('id', 'MU-21', 'what', 'job_plan_basis_assert ไม่ตรวจ target_source (ค่ามั่วผ่าน)', 'fn', 'job_plan_basis_assert',
+      'from', 'or (p.metal_plan_basis ->> ''target_source'') not in (''quote'', ''product'', ''input'') then', 'to', 'or false then', 'expect', jsonb_build_array('GB3e')),
+    jsonb_build_object('id', 'MU-22', 'what', 'job_plan_basis_assert ไม่ตรวจเหตุผลของ override', 'fn', 'job_plan_basis_assert',
+      'from', 'if v_ov = ''number'' and not coalesce(analytics.oem_note_present(p.metal_plan_basis ->> ''override_reason''), false) then', 'to', 'if false then', 'expect', jsonb_build_array('GB3d')),
+    jsonb_build_object('id', 'MU-23', 'what', 'job_plan_formula สูตรผิด (ไม่คูณก้านต้น)', 'fn', 'job_plan_formula',
+      'from', 'round(p_qty * p_target * (1 + p_sprue_pct / 100), 3)', 'to', 'round(p_qty * p_target, 3)', 'expect', jsonb_build_array('GF')),
+    jsonb_build_object('id', 'MU-24', 'what', 'job_guard UPDATE ไม่เรียก job_plan_basis_assert (plan_drift รั่วตอนแก้)', 'fn', 'job_guard',
+      'from', E'  perform analytics.job_plan_basis_assert(new);\n  if new.status', 'to', E'  null;\n  if new.status', 'expect', jsonb_build_array('GB3a', 'GB3c')),
+    jsonb_build_object('id', 'MU-25', 'what', 'job_guard INSERT ไม่เรียก job_plan_basis_assert (INSERT ตรงใส่ plan_g ไม่ตรง basis ได้)', 'fn', 'job_guard',
+      'from', E'    perform analytics.job_plan_basis_assert(new);\n    if new.product_id', 'to', E'    null;\n    if new.product_id', 'expect', jsonb_build_array('GB6b')),
     jsonb_build_object('id', 'MU-20', 'what', 'job_record_profile_set_default scope gold ไปตั้ง is_default (ทั่วไป) แทน', 'fn', 'job_record_profile_set_default',
       'from', 'update analytics.job_record_profile set is_default_gold = true, updated_by = v_actor where id = p_id and not is_default_gold;', 'to', 'update analytics.job_record_profile set is_default = true, updated_by = v_actor where id = p_id and not is_default;', 'expect', jsonb_build_array('P2d'))
   );
@@ -1487,7 +1642,7 @@ begin
       else
         perform pg_temp.mutate(v_m.m ->> 'fn', v_m.m ->> 'from', v_m.m ->> 'to');
       end if;
-      v_s := pg_temp.run_all(v_shop, v_tpl);
+      v_s := pg_temp.run_for(v_m.m -> 'expect', v_shop, v_tpl);
       raise exception 'MUTANT_DONE';
     exception when others then
       if sqlerrm <> 'MUTANT_DONE' then
