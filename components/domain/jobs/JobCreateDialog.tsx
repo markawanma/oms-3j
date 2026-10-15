@@ -1,22 +1,30 @@
 "use client";
 
-// JobCreateDialog — สร้างใบงานจากรายการ (OEM won / ใบผลิต): ข้อเสนอขั้นตอนจาก job_stage_suggest → ติ๊กขั้น → กำหนดส่ง → สร้าง
-// ไม่มีตรรกะเงิน: มัดจำยังไม่มี = DB บังคับเหตุผล (เราแค่แสดงช่องให้กรอก) · ซ้ำรายการเดิม/ลำดับขั้น/ขั้นที่ไม่รู้จัก DB ตัดสิน
+// JobCreateDialog — สร้างใบงานจากรายการ (OEM won / ใบผลิต): ข้อเสนอขั้นตอนจาก job_stage_suggest → จำนวน/แผนโลหะ (0175) → ติ๊กขั้น → กำหนดส่ง → สร้าง
+// ไม่มีตรรกะเงิน/น้ำหนัก: จำนวนแนะนำ + โลหะที่ต้องเตรียมมาจาก job_plan_suggest (debounce ~400ms) · มัดจำยังไม่มี = DB บังคับเหตุผล
+// ส่ง qtyPlanned/targetPieceG เฉพาะเมื่อต่างจากค่าเริ่มของ DB (qty = จำนวนสั่ง · น้ำหนัก = ค่าจากต้นทาง) — กันตีตราที่มาเป็น "กรอกเอง" โดยไม่ได้แก้
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
-import { LABEL_ANGLE_MSG, LABEL_ANGLE_RE } from "@/lib/jobs/input";
+import { LABEL_ANGLE_MSG, LABEL_ANGLE_RE, parseQtyText } from "@/lib/jobs/input";
 import { DESIGN_LABEL_WARNING, ErrorLine, FIELD, Field } from "@/components/domain/jobs/JobDialogs";
+import { EMPTY_PLAN_FIELDS, PlanFields, planFieldsIssues } from "@/components/domain/jobs/PlanFields";
+import type { PlanFieldsValue } from "@/components/domain/jobs/PlanFields";
+import { QtyFields } from "@/components/domain/jobs/QtyFields";
+import { usePlanPreview } from "@/components/domain/jobs/usePlanPreview";
 import { useToast } from "@/components/ui/Toast";
 import { createJob, suggestJob } from "@/lib/actions/job-office";
-import type { JobSuggestion } from "@/lib/actions/job-office";
+import type { CreateJobInput, JobSuggestion } from "@/lib/actions/job-office";
 import { GENERIC_JOB_ERROR } from "@/lib/jobs/messages";
 import { METAL_LABEL } from "@/lib/jobs/types";
 
 type Load = { s: "loading" } | { s: "error"; message: string } | { s: "ready"; data: JobSuggestion };
+
+/** ค่าน้ำหนักเริ่มต้นจากต้นทาง เป็นข้อความในช่อง (3 ตำแหน่ง ไม่มีตัวคั่นหลักพัน) — null = ต้นทางไม่มีข้อมูล (ไม่เดา) */
+const targetText = (n: number | null | undefined): string => (typeof n === "number" && Number.isFinite(n) ? n.toFixed(3) : "");
 
 export function JobCreateDialog({ kind, itemId, itemLabel, onClose, onCreated }: { kind: "oem" | "production"; itemId: string; itemLabel: string; onClose: () => void; onCreated: () => void }) {
   const router = useRouter();
@@ -26,6 +34,9 @@ export function JobCreateDialog({ kind, itemId, itemLabel, onClose, onCreated }:
   const [due, setDue] = useState("");
   const [gate, setGate] = useState("");
   const [label, setLabel] = useState("");
+  const [qtyText, setQtyText] = useState("");
+  const [qtyTouched, setQtyTouched] = useState(false);
+  const [plan, setPlan] = useState<PlanFieldsValue>(EMPTY_PLAN_FIELDS);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -38,6 +49,8 @@ export function JobCreateDialog({ kind, itemId, itemLabel, onClose, onCreated }:
         if (!r.ok) return setLoad({ s: "error", message: r.error });
         setCodes(r.data.stages.filter((x) => x.defaultSelected).map((x) => x.code));
         setLabel(r.data.designLabel);
+        setQtyText(String(r.data.qty));
+        setPlan({ ...EMPTY_PLAN_FIELDS, targetText: targetText(r.data.targetPieceG) });
         setLoad({ s: "ready", data: r.data });
       } catch {
         if (!cancelled) setLoad({ s: "error", message: GENERIC_JOB_ERROR });
@@ -49,23 +62,56 @@ export function JobCreateDialog({ kind, itemId, itemLabel, onClose, onCreated }:
   }, [kind, itemId]);
 
   const data = load.s === "ready" ? load.data : null;
+  const defaultTarget = targetText(data?.targetPieceG);
+  const qtyParsed = parseQtyText(qtyText);
+  const qtyValue = qtyParsed.ok ? qtyParsed.value : null;
+  const qtyError = qtyParsed.ok ? null : qtyParsed.error;
+  const issues = planFieldsIssues(plan, defaultTarget);
+  const targetChanged = plan.targetText.trim() !== "" && plan.targetText.trim() !== defaultTarget;
+
+  // ตัวอย่างแผนจาก DB: ไม่แตะค่าที่ผู้ใช้ยังไม่ได้แก้ (null = ให้ DB ใช้ค่าเริ่ม/ค่าแนะนำเอง)
+  const { state: preview, retry } = usePlanPreview({
+    kind,
+    itemId,
+    enabled: data !== null && data.existingJob === null && qtyError === null && issues.targetError === null,
+    qtyPlanned: qtyTouched ? qtyValue : null,
+    targetPieceG: targetChanged ? plan.targetText.trim() : null,
+    stageCodes: data ? data.stages.filter((s) => codes.includes(s.code)).map((s) => s.code) : null,
+  });
+  const planData = preview.s === "ready" ? preview.data : null;
+
+  // ยังไม่ได้แก้ช่องเริ่มผลิต → ตามค่าที่ DB ตอบ (ค่าแนะนำ ถ้ามี rate ครบ)
+  const effQty = planData?.qtyPlannedEff;
+  useEffect(() => {
+    if (!qtyTouched && typeof effQty === "number" && effQty >= 1) setQtyText(String(effQty));
+  }, [effQty, qtyTouched]);
+
   const needGate = data?.depositMissing === true && kind === "oem";
   // OEM: ออฟฟิศต้องตั้ง/ยืนยันชื่อเรียกภายในเอง (มติเจ้าของ 12 ต.ค.) — ค่าเริ่มมาจากข้อเสนอของระบบ แต่ห้ามว่าง · ใบผลิตเข้าสต็อกไม่บังคับ
   const labelRequired = kind === "oem";
   const labelBad = LABEL_ANGLE_RE.test(label);
-  const ready = data !== null && !data.existingJob && codes.length > 0 && (!needGate || gate.trim() !== "") && (!labelRequired || label.trim() !== "") && !labelBad;
+  const planPending = preview.s === "loading"; // รอ DB คำนวณ → ห้ามสร้าง (ล้ม = สร้างได้ ระบบคำนวณตอนสร้าง)
+  const ready =
+    data !== null && !data.existingJob && codes.length > 0 && (!needGate || gate.trim() !== "") && (!labelRequired || label.trim() !== "") && !labelBad && qtyError === null && !issues.blocking && !planPending;
   const toggle = (c: string) => setCodes((p) => (p.includes(c) ? p.filter((x) => x !== c) : [...p, c]));
 
   async function submit() {
-    if (busy || !data) return;
+    if (busy || !data || qtyValue === null) return;
     setBusy(true);
     setError(null);
     try {
       // เรียงตามลำดับที่ DB เสนอ (ไม่ใช่ลำดับที่ติ๊ก) — ลำดับขั้นของช่างต้องคงที่
       const ordered = data.stages.filter((s) => codes.includes(s.code)).map((s) => s.code);
-      const r = await createJob({ kind, itemId, stageCodes: ordered, dueDate: due || null, startGateNote: needGate ? gate.trim() : null, designLabel: label.trim() || null });
+      const input: CreateJobInput = { kind, itemId, stageCodes: ordered, dueDate: due || null, startGateNote: needGate ? gate.trim() : null, designLabel: label.trim() || null };
+      if (qtyValue !== data.qty) input.qtyPlanned = qtyValue;
+      if (targetChanged) input.targetPieceG = plan.targetText.trim();
+      if (plan.overrideOn && issues.hasTarget) {
+        input.metalPlanOverrideG = plan.overrideText.trim();
+        input.metalPlanReason = plan.overrideReason.trim();
+      }
+      const r = await createJob(input);
       if (!r.ok) return setError(r.error);
-      toast.push(`สร้างใบงาน ${r.data.jobNo} แล้ว`);
+      toast.push(`สร้างใบงาน ${r.data.jobNo} แล้ว${r.data.planMissing && r.data.planMissing.length > 0 ? " · ยังไม่มีแผนโลหะ" : ""}`);
       onCreated();
       onClose();
       router.push(`/jobs/${r.data.jobId}`);
@@ -84,9 +130,7 @@ export function JobCreateDialog({ kind, itemId, itemLabel, onClose, onCreated }:
         {load.s === "error" && <ErrorLine message={load.message} />}
         {data && (
           <>
-            <p className="text-sm text-zinc-800">
-              {data.qty} ชิ้น · {METAL_LABEL[data.metal] ?? data.metal}
-            </p>
+            <p className="text-sm text-zinc-800">{METAL_LABEL[data.metal] ?? data.metal}</p>
             {data.existingJob && (
               <p role="alert" className="rounded-md border border-amber-300 bg-amber-50 p-2.5 text-sm font-medium text-amber-900">
                 รายการนี้มีใบงานแล้ว:{" "}
@@ -95,6 +139,28 @@ export function JobCreateDialog({ kind, itemId, itemLabel, onClose, onCreated }:
                 </Link>
               </p>
             )}
+            <fieldset className="space-y-2 rounded-md border border-zinc-200 p-3" disabled={busy || data.existingJob !== null}>
+              <legend className="px-1 text-sm font-semibold text-zinc-800">จำนวนและโลหะ</legend>
+              <QtyFields
+                idPrefix="jc"
+                kind={kind}
+                qtyOrder={data.qty}
+                qtyText={qtyText}
+                onQtyText={(v) => {
+                  setQtyTouched(true);
+                  setQtyText(v);
+                }}
+                qtyError={qtyError}
+                qtyValue={qtyValue}
+                plan={planData}
+                onUseSuggest={(n) => {
+                  setQtyTouched(true);
+                  setQtyText(String(n));
+                }}
+                disabled={busy}
+              />
+              <PlanFields idPrefix="jc" metal={data.metal} value={plan} onChange={setPlan} preview={preview} onRetry={retry} defaultSource={data.targetPieceGSource} defaultTargetText={defaultTarget} disabled={busy} />
+            </fieldset>
             <fieldset className="space-y-1">
               <legend className="text-sm font-medium text-zinc-800">ขั้นตอน (ติ๊กที่ต้องผ่าน)</legend>
               {data.stages.map((s) => (

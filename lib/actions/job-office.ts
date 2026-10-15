@@ -355,5 +355,7 @@ export async function createJob(input: CreateJobInput): Promise<JobResult<{ jobI
   if (typeof id !== "string" || !isUuid(id) || typeof no !== "string") return fail(GENERIC_JOB_ERROR);
   revalidatePath("/jobs");
   revalidatePath(input.kind === "oem" ? "/oem/quotes" : "/production");
-  return { ok: true, data: { jobId: id, jobNo: no } };
+  // plan_missing[] (0175): แผนโลหะที่ DB คำนวณให้ไม่ได้ (เช่น ไม่มีอัตราก้านต้น) — ฟอร์มใช้ต่อท้าย toast
+  const planMissing = Array.isArray(r.data.plan_missing) ? r.data.plan_missing.filter((m): m is string => typeof m === "string") : [];
+  return { ok: true, data: { jobId: id, jobNo: no, planMissing } };
 }

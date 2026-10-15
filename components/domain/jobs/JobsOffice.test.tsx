@@ -41,6 +41,11 @@ import { JobCreatePanel } from "./JobCreatePanel";
 import { jobsTabActive } from "./JobsSubNav";
 import type { PrintableJob } from "@/lib/jobs/print";
 
+const planData = (o: Record<string, unknown> = {}) => ({
+  qtyOrder: 12, qtyPlannedSuggest: null, bufferQty: null, qtyPlannedEff: 12, underPlanned: false,
+  rejectBasis: { castPct: null, polishPct: null, platePct: null, hasPlating: false },
+  targetPieceG: null, targetPieceGSource: null, metal: "silver", metalPlanG: null, metalPlanBasis: null, missing: [], ...o,
+});
 const wrap = (ui: ReactElement) => render(<ToastProvider>{ui}</ToastProvider>);
 const U1 = "11111111-1111-4111-8111-111111111111";
 const U2 = "22222222-2222-4222-8222-222222222222";
