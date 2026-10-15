@@ -136,7 +136,7 @@ export function JobCreateDialog({ kind, itemId, itemLabel, onClose, onCreated }:
       }
       const r = await createJob(input);
       if (!r.ok) {
-        if (r.error.includes("แบบการบันทึกไม่ถูกต้อง") || r.error.includes("แบบที่เลือกถูกปิดใช้")) {
+        if (r.code === "profile_invalid") {
           setError("แบบที่เลือกถูกปิดใช้หรือแก้ไปแล้ว — เลือกใหม่");
           void refreshProfiles();
           return;

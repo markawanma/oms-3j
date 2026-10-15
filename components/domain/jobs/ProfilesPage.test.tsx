@@ -188,7 +188,7 @@ describe("0176 ตารางติ๊กขั้น", () => {
   });
 
   it("ชื่อซ้ำ (name_dup): ข้อความที่ช่องชื่อ + aria-invalid + โฟกัส", async () => {
-    a.saveProfile.mockResolvedValue({ ok: false, error: 'มีแบบชื่อ "แบบ 1" อยู่แล้ว' });
+    a.saveProfile.mockResolvedValue({ ok: false, error: 'มีแบบชื่อ "แบบ 1" อยู่แล้ว', code: "name_dup" });
     const form = await openEditor(/แบบ 1 — ชั่งเฉพาะหล่อ/);
     const name = within(form).getByLabelText(/ชื่อแบบ/);
     await userEvent.clear(name);

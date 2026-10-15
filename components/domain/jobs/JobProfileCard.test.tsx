@@ -184,7 +184,7 @@ describe("0176 ChangeProfileDialog", () => {
   });
 
   it("started (ช่างรับไปแล้วระหว่างเปิดกล่อง): ข้อความ DB ค้างในกล่อง + refresh หน้า · ไม่ปิดกล่อง", async () => {
-    changeJobProfile.mockResolvedValue({ ok: false, error: "เปลี่ยนแบบการบันทึกได้เฉพาะก่อนช่างรับงานขั้นแรก" });
+    changeJobProfile.mockResolvedValue({ ok: false, error: "เปลี่ยนแบบการบันทึกได้เฉพาะก่อนช่างรับงานขั้นแรก", code: "started" });
     const dlg = await open();
     await userEvent.selectOptions(await within(dlg).findByLabelText(/^แบบการบันทึก \(ช่าง/), PB);
     await userEvent.click(within(dlg).getByRole("button", { name: "เปลี่ยนแบบ" }));

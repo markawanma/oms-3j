@@ -64,8 +64,8 @@ export function ChangeProfileDialog({ jobId, metal, stages, currentProfileId, on
     const r = await run(() => changeJobProfile(jobId, profile.id), { success: `เปลี่ยนเป็น “${profile.name}” แล้ว` });
     if (r.ok) return onClose();
     // started: ช่างรับงานไปแล้วระหว่างที่กล่องเปิดอยู่ — โหลดหน้าใหม่ให้สถานะตรงจริง · profile_invalid: ดึงรายการแบบใหม่
-    if (r.error.includes("ก่อนช่างรับงานขั้นแรก")) router.refresh();
-    else if (r.error.includes("แบบการบันทึกไม่ถูกต้อง") || r.error.includes("แบบที่เลือกถูกปิดใช้")) {
+    if (r.code === "started") router.refresh();
+    else if (r.code === "profile_invalid") {
       setError("แบบที่เลือกถูกปิดใช้หรือแก้ไปแล้ว — เลือกใหม่");
       void fetchProfiles();
     }

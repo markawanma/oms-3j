@@ -94,7 +94,7 @@ describe("saveProfile", () => {
   it("name_dup จาก DB = ข้อความไทยของ DB (มีแบบชื่อ ... อยู่แล้ว)", async () => {
     rpcMock.mockResolvedValue({ data: null, error: { code: "22023", hint: "name_dup", message: 'มีแบบชื่อ "แบบ 1" อยู่แล้ว' } });
     const r = await saveProfile(ok);
-    expect(r).toEqual({ ok: false, error: 'มีแบบชื่อ "แบบ 1" อยู่แล้ว' });
+    expect(r).toEqual({ ok: false, error: 'มีแบบชื่อ "แบบ 1" อยู่แล้ว', code: "name_dup" });
   });
 });
 
@@ -107,7 +107,7 @@ describe("setProfileActive / setDefaultProfile / changeJobProfile", () => {
   });
   it("ปิดแบบที่เป็นค่าเริ่ม: DB ปฏิเสธ → ข้อความไทยของ DB", async () => {
     rpcMock.mockResolvedValue({ data: null, error: { code: "22023", hint: "default_cannot_close", message: "ปิดแบบที่เป็นค่าเริ่มไม่ได้ — ตั้งแบบอื่นเป็นค่าเริ่มก่อน" } });
-    expect(await setProfileActive(PID, false)).toEqual({ ok: false, error: "ปิดแบบที่เป็นค่าเริ่มไม่ได้ — ตั้งแบบอื่นเป็นค่าเริ่มก่อน" });
+    expect(await setProfileActive(PID, false)).toEqual({ ok: false, error: "ปิดแบบที่เป็นค่าเริ่มไม่ได้ — ตั้งแบบอื่นเป็นค่าเริ่มก่อน", code: "default_cannot_close" });
   });
   it("setDefaultProfile: general/gold ส่ง scope ถูก · gold + null = ล้าง · general + null ปฏิเสธก่อนถึง DB · scope แปลกปฏิเสธ", async () => {
     rpcMock.mockResolvedValue({ data: { ok: true, default_profile_id: PID, default_gold_profile_id: null }, error: null });
@@ -130,7 +130,14 @@ describe("setProfileActive / setDefaultProfile / changeJobProfile", () => {
     expect((await changeJobProfile("nope", PID)).ok).toBe(false);
     expect((await changeJobProfile(JOB, "nope")).ok).toBe(false);
     rpcMock.mockResolvedValue({ data: null, error: { code: "22023", hint: "started", message: "เปลี่ยนแบบการบันทึกได้เฉพาะก่อนช่างรับงานขั้นแรก" } });
-    expect(await changeJobProfile(JOB, PID)).toEqual({ ok: false, error: "เปลี่ยนแบบการบันทึกได้เฉพาะก่อนช่างรับงานขั้นแรก" });
+    expect(await changeJobProfile(JOB, PID)).toEqual({ ok: false, error: "เปลี่ยนแบบการบันทึกได้เฉพาะก่อนช่างรับงานขั้นแรก", code: "started" });
+  });
+  it("code (hint) ผ่านมาเฉพาะรูปร่างปลอดภัย: hint แปลก/ข้อความดิบ = ไม่มี code · DB ล้มไม่มี hint = ไม่มี code", async () => {
+    rpcMock.mockResolvedValue({ data: null, error: { code: "22023", hint: "ข้อความไทย <x>; drop", message: "ปิดแบบไม่ได้" } });
+    expect(await setProfileActive(PID, false)).not.toHaveProperty("code");
+    rpcMock.mockResolvedValue({ data: null, error: { code: "XX000", message: "boom" } });
+    expect(await setProfileActive(PID, false)).toEqual({ ok: false, error: expect.any(String) });
+    expect(await setProfileActive(PID, false)).not.toHaveProperty("code");
   });
 });
 

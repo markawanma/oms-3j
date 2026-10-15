@@ -10,10 +10,11 @@ import { getDevShopId } from "@/lib/dev/context";
 import { getSessionUser, requireSessionIfGateOn } from "@/lib/auth/session";
 import { canManageJobs } from "@/lib/jobs/page-gate";
 import { logJobFailure } from "@/lib/jobs/log";
-import { GENERIC_JOB_ERROR, officeErrorMessage } from "@/lib/jobs/messages";
+import { GENERIC_JOB_ERROR, officeErrorMessage, safeLogShape } from "@/lib/jobs/messages";
 
-export type JobResult<T> = { ok: true; data: T } | { ok: false; error: string };
-export const fail = (error: string): { ok: false; error: string } => ({ ok: false, error });
+/** code = hint ของ RPC (snake_case สั้นๆ เช่น name_dup · profile_invalid · started) — ให้หน้าจอแยกเคสโดยไม่ต้องเทียบข้อความไทย · ไม่ใส่ = ข้อผิดพลาดที่ไม่มี hint */
+export type JobResult<T> = { ok: true; data: T } | { ok: false; error: string; code?: string };
+export const fail = (error: string, code?: string): { ok: false; error: string; code?: string } => (code ? { ok: false, error, code } : { ok: false, error });
 
 export const NOT_ALLOWED = "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่ใช้งานระบบใบงานได้";
 const SCHEMA = "analytics";
@@ -63,6 +64,8 @@ export async function callOffice<T>(fn: string, params: Record<string, unknown>,
     return { ok: true, data: data as T };
   } catch (err) {
     logJobFailure(fn, err);
-    return fail(officeErrorMessage(err, GENERIC_JOB_ERROR));
+    // hint ที่รูปร่างปลอดภัยเท่านั้น (ผ่านไปถึง client — ห้ามเป็นข้อความดิบ)
+    const hint = safeLogShape(err).hint;
+    return fail(officeErrorMessage(err, GENERIC_JOB_ERROR), hint !== null && /^[a-z][a-z0-9_]{1,40}$/.test(hint) ? hint : undefined);
   }
 }

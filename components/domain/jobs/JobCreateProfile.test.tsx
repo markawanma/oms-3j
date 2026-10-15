@@ -224,7 +224,7 @@ describe("0176 ไม่มีแบบ / ไม่มีค่าเริ่�
   });
 
   it("DB ปฏิเสธ profile_invalid: ข้อความ 'เลือกใหม่' + ดึงรายการแบบใหม่ (suggest ซ้ำ) เก็บขั้นที่ติ๊ก · ไม่ปิดกล่อง", async () => {
-    createJob.mockResolvedValue({ ok: false, error: "แบบการบันทึกไม่ถูกต้อง (ไม่พบ/ของร้านอื่น/ปิดใช้งานแล้ว)" });
+    createJob.mockResolvedValue({ ok: false, error: "แบบการบันทึกไม่ถูกต้อง (ไม่พบ/ของร้านอื่น/ปิดใช้งานแล้ว)", code: "profile_invalid" });
     await open();
     await userEvent.click(screen.getByLabelText("ตะไบ"));
     await waitFor(() => expect(submitBtn()).toBeEnabled(), { timeout: 3000 });

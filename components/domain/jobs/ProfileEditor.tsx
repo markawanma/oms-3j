@@ -62,7 +62,7 @@ interface Props {
 }
 
 export function ProfileEditor({ profile, seed, defs, onDirtyChange, onSaved, onChanged, onClone, onCancel }: Props) {
-  const { run, busy, error, setError } = useOfficeRun();
+  const { run, busy, error, code, setError } = useOfficeRun();
   const base = useMemo(() => {
     if (seed) return seed;
     return { name: profile?.name ?? "", note: profile?.note ?? "", requireFinalWeight: profile?.requireFinalWeight ?? false, flags: flagsFrom(profile, defs) };
@@ -91,7 +91,7 @@ export function ProfileEditor({ profile, seed, defs, onDirtyChange, onSaved, onC
   const nameBad = LABEL_ANGLE_RE.test(name);
   const nameOk = name.trim().length >= 1 && name.trim().length <= NAME_MAX && !nameBad;
   const ready = nameOk && dirty && !busy;
-  const nameDup = error !== null && error.startsWith("มีแบบชื่อ");
+  const nameDup = error !== null && code === "name_dup";
 
   const nameOf = (c: string) => defs.find((d) => d.code === c)?.nameTh ?? c;
   const unguardedNames = goldUnguardedStages(defs.filter((d) => d.isActive).map((d) => ({ code: d.code, metalPresent: d.metalPresent, weigh: flags[d.code]?.weigh === true }))).map(nameOf);
@@ -112,7 +112,7 @@ export function ProfileEditor({ profile, seed, defs, onDirtyChange, onSaved, onC
       { success: "บันทึกแบบแล้ว", refresh: false }
     );
     if (r.ok) onSaved(r.data);
-    else if (r.error.startsWith("มีแบบชื่อ")) nameRef.current?.focus();
+    else if (r.code === "name_dup") nameRef.current?.focus();
   }
 
   async function clearGold() {
