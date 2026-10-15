@@ -79,6 +79,8 @@ export function JobCreateDialog({ kind, itemId, itemLabel, onClose, onCreated }:
     stageCodes: data ? data.stages.filter((s) => codes.includes(s.code)).map((s) => s.code) : null,
   });
   const planData = preview.s === "ready" ? preview.data : null;
+  // กล่องแนะนำจำนวนใช้คำตอบล่าสุดแม้กำลังถามใหม่ (ไม่กระพริบ) · ค่าที่ใส่ลงช่องใช้เฉพาะ planData ที่ตอบครบ
+  const hintPlan = planData ?? (preview.s === "loading" ? (preview.prev ?? null) : null);
 
   // ยังไม่ได้แก้ช่องเริ่มผลิต → ตามค่าที่ DB ตอบ (ค่าแนะนำ ถ้ามี rate ครบ)
   const effQty = planData?.qtyPlannedEff;
@@ -152,7 +154,7 @@ export function JobCreateDialog({ kind, itemId, itemLabel, onClose, onCreated }:
                 }}
                 qtyError={qtyError}
                 qtyValue={qtyValue}
-                plan={planData}
+                plan={hintPlan}
                 onUseSuggest={(n) => {
                   setQtyTouched(true);
                   setQtyText(String(n));

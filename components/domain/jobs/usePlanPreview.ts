@@ -11,7 +11,7 @@ import { GENERIC_JOB_ERROR } from "@/lib/jobs/messages";
 
 export const PLAN_DEBOUNCE_MS = 400;
 
-export type PlanPreviewState = { s: "idle" } | { s: "loading" } | { s: "error"; message: string } | { s: "ready"; data: JobPlanSuggestion };
+export type PlanPreviewState = { s: "idle" } | { s: "loading"; prev?: JobPlanSuggestion } | { s: "error"; message: string } | { s: "ready"; data: JobPlanSuggestion };
 
 export interface PlanPreviewArgs {
   kind: "oem" | "production";
@@ -40,7 +40,8 @@ export function usePlanPreview(a: PlanPreviewArgs) {
       return;
     }
     const itemId = a.itemId;
-    setState({ s: "loading" });
+    // เก็บคำตอบล่าสุดไว้ระหว่างรอ (ให้กล่องแนะนำจำนวนไม่กระพริบหาย) — การ์ดโลหะยังขึ้น skeleton และปุ่มสร้างปิด
+    setState((p) => ({ s: "loading", prev: p.s === "ready" ? p.data : p.s === "loading" ? p.prev : undefined }));
     const delay = immediate.current ? 0 : PLAN_DEBOUNCE_MS;
     immediate.current = false;
     const timer = setTimeout(async () => {
