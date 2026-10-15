@@ -264,3 +264,99 @@ describe("0175 ฟอร์มสร้างใบงาน — แผนโล
     expect(push).not.toHaveBeenCalled();
   });
 });
+
+describe("0175 ฟอร์มสร้างใบงาน — review S1/S2/BUG-4", () => {
+  it("S1 ไม่มีน้ำหนักเป้าหมาย + preview ล้ม: ขึ้น role=alert 'คำนวณจำนวนแนะนำไม่ได้' + ลองใหม่ (ไม่เงียบ) · ลองใหม่สำเร็จ = กล่องแนะนำกลับมา", async () => {
+    suggestJob.mockResolvedValue(suggestion({ targetPieceG: null, targetPieceGSource: null }));
+    getJobPlanSuggest.mockResolvedValueOnce({ ok: false, error: "คำนวณแผนไม่สำเร็จ" }).mockResolvedValue(plan({ targetPieceG: null, targetPieceGSource: null, metalPlanG: null, metalPlanBasis: null }));
+    await open();
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("คำนวณจำนวนแนะนำไม่ได้ — คำนวณแผนไม่สำเร็จ");
+    // ไม่มีการ์ดโลหะ (ไม่มีน้ำหนัก) → ปุ่มลองใหม่ต้องอยู่ที่ช่องจำนวน
+    expect(screen.queryByRole("region", { name: "โลหะที่ต้องเตรียม" })).not.toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "ลองใหม่" }));
+    expect(await screen.findByText(/แนะนำ 35 ชิ้น \(เผื่อ 5\)/)).toBeInTheDocument();
+    expect(screen.queryByText(/คำนวณจำนวนแนะนำไม่ได้/)).not.toBeInTheDocument();
+  });
+
+  it("S1 มีน้ำหนัก + preview ล้ม: ปุ่มลองใหม่มีตัวเดียว (อยู่ที่การ์ดโลหะ) ไม่ซ้ำสองปุ่ม", async () => {
+    getJobPlanSuggest.mockResolvedValueOnce({ ok: false, error: "คำนวณแผนไม่สำเร็จ" }).mockResolvedValue(plan());
+    await open();
+    expect(await screen.findByText(/คำนวณจำนวนแนะนำไม่ได้ — คำนวณแผนไม่สำเร็จ/)).toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "ลองใหม่" })).toHaveLength(1);
+  });
+
+  it("S2 พิมพ์ '4' เท่าค่าต้นทาง 4.000 = ไม่นับว่าแก้: ไม่ส่ง targetPieceG · ไม่ถาม preview ด้วยน้ำหนัก · ที่มายังเป็นใบเสนอราคา", async () => {
+    await open();
+    await waitFor(() => expect(submitBtn()).toBeEnabled());
+    const before = getJobPlanSuggest.mock.calls.length;
+    await userEvent.clear(targetInput());
+    await userEvent.type(targetInput(), "4");
+    expect(await screen.findByText(/ที่มา: ใบเสนอราคา/)).toBeInTheDocument();
+    await new Promise((r) => setTimeout(r, 600));
+    for (const c of getJobPlanSuggest.mock.calls.slice(before)) expect(c[2]?.targetPieceG).toBeNull();
+    await waitFor(() => expect(submitBtn()).toBeEnabled());
+    await userEvent.click(submitBtn());
+    expect(createJob.mock.calls[0][0]).not.toHaveProperty("targetPieceG");
+  });
+
+  it("S2 พิมพ์ '4,0' / '4.0' ก็เท่ากัน · '4.5' = แก้จริง → ส่ง targetPieceG และที่มา 'กรอกเอง'", async () => {
+    await open();
+    await userEvent.clear(targetInput());
+    await userEvent.type(targetInput(), "4,0");
+    expect(await screen.findByText(/ที่มา: ใบเสนอราคา/)).toBeInTheDocument();
+    await userEvent.clear(targetInput());
+    await userEvent.type(targetInput(), "4.5");
+    expect(await screen.findByText(/ที่มา: กรอกเอง/)).toBeInTheDocument();
+    await waitFor(() => expect(submitBtn()).toBeEnabled(), { timeout: 3000 });
+    await userEvent.click(submitBtn());
+    expect(createJob).toHaveBeenCalledWith(expect.objectContaining({ targetPieceG: "4.5" }));
+  });
+
+  it.each([["10000", true], ["10000.001", false], ["10001", false], ["100000", false]])("BUG-4 น้ำหนักเป้าหมาย %s กรัม: ผ่านหน้าจอ=%s (เพดานตาม DB 10,000)", async (v, okExpected) => {
+    await open();
+    await userEvent.clear(targetInput());
+    await userEvent.type(targetInput(), v);
+    if (okExpected) {
+      await waitFor(() => expect(submitBtn()).toBeEnabled(), { timeout: 3000 });
+      expect(screen.queryByText(/ไม่เกิน 10,000 กรัม/)).not.toBeInTheDocument();
+    } else {
+      expect(await screen.findByText("น้ำหนักเป้าหมายต่อชิ้นต้องมากกว่า 0 และไม่เกิน 10,000 กรัม")).toHaveAttribute("role", "alert");
+      expect(submitBtn()).toBeDisabled();
+      expect(targetInput()).toHaveAttribute("aria-invalid", "true");
+      expect(createJob).not.toHaveBeenCalled();
+    }
+  });
+
+  it("BUG-4 ช่อง 'กำหนดเอง' (โลหะที่ต้องเตรียม) ยังรับถึง 100,000 g (DB: metal_plan_g ≤ 100000)", async () => {
+    await open();
+    await screen.findByText(/153\.600/);
+    await userEvent.click(screen.getByRole("button", { name: "กำหนดเอง" }));
+    await userEvent.type(screen.getByLabelText(/โลหะที่ต้องเตรียม \(กำหนดเอง\)/), "50000");
+    await userEvent.type(screen.getByLabelText(/เหตุผลที่กำหนดเอง/), "ล็อตใหญ่");
+    await waitFor(() => expect(submitBtn()).toBeEnabled());
+  });
+});
+
+describe("0175 ฟอร์มสร้างใบงาน — S4 คำตอบเก่าที่มาช้า", () => {
+  it("แก้จำนวนระหว่างรอคำตอบแรก: คำตอบแรกกลับมาก่อนคำตอบสอง = ถูกทิ้ง · ปุ่มสร้างยังปิด · จอใช้ค่าคำตอบสอง", async () => {
+    const waits: Array<(v: unknown) => void> = [];
+    getJobPlanSuggest.mockImplementation(() => new Promise((r) => { waits.push(r); }));
+    await open();
+    await waitFor(() => expect(waits).toHaveLength(1));
+    await userEvent.clear(qtyInput());
+    await userEvent.type(qtyInput(), "28");
+    await waitFor(() => expect(waits).toHaveLength(2), { timeout: 3000 });
+
+    waits[0](plan({ metalPlanG: 153.6 })); // คำตอบเก่า (ก่อนแก้จำนวน)
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.getByRole("region", { name: "โลหะที่ต้องเตรียม" })).toHaveAttribute("aria-busy", "true");
+    expect(screen.queryByText(/153\.600/)).not.toBeInTheDocument();
+    expect(submitBtn()).toBeDisabled();
+
+    waits[1](plan({ qtyPlannedEff: 28, metalPlanG: 120 }));
+    expect(await screen.findByText(/120\.000/)).toBeInTheDocument();
+    await waitFor(() => expect(submitBtn()).toBeEnabled());
+    expect(qtyInput().value).toBe("28");
+  });
+});
