@@ -13,6 +13,7 @@ import { LABEL_ANGLE_MSG, LABEL_ANGLE_RE, parseQtyText } from "@/lib/jobs/input"
 import { DESIGN_LABEL_WARNING, ErrorLine, FIELD, Field } from "@/components/domain/jobs/JobDialogs";
 import { EMPTY_PLAN_FIELDS, PlanFields, planFieldsIssues, targetDiffers } from "@/components/domain/jobs/PlanFields";
 import type { PlanFieldsValue } from "@/components/domain/jobs/PlanFields";
+import { ProfilePicker, needsGoldAck } from "@/components/domain/jobs/ProfilePicker";
 import { QtyFields } from "@/components/domain/jobs/QtyFields";
 import { usePlanPreview } from "@/components/domain/jobs/usePlanPreview";
 import { useToast } from "@/components/ui/Toast";
@@ -37,6 +38,8 @@ export function JobCreateDialog({ kind, itemId, itemLabel, onClose, onCreated }:
   const [qtyText, setQtyText] = useState("");
   const [qtyTouched, setQtyTouched] = useState(false);
   const [plan, setPlan] = useState<PlanFieldsValue>(EMPTY_PLAN_FIELDS);
+  const [profileId, setProfileId] = useState<string | null>(null);
+  const [ack, setAck] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -50,6 +53,7 @@ export function JobCreateDialog({ kind, itemId, itemLabel, onClose, onCreated }:
         setCodes(r.data.stages.filter((x) => x.defaultSelected).map((x) => x.code));
         setLabel(r.data.designLabel);
         setQtyText(String(r.data.qty));
+        setProfileId(r.data.defaultProfileId);
         setPlan({ ...EMPTY_PLAN_FIELDS, targetText: targetText(r.data.targetPieceG) });
         setLoad({ s: "ready", data: r.data });
       } catch {
@@ -89,13 +93,30 @@ export function JobCreateDialog({ kind, itemId, itemLabel, onClose, onCreated }:
     if (!qtyTouched && typeof effQty === "number" && effQty >= 1) setQtyText(String(effQty));
   }, [effQty, qtyTouched]);
 
+  // แบบการบันทึก (0176): ขั้นที่ติ๊ก × แบบ — ใบทองที่มีขั้นโลหะไม่ชั่งต้องติ๊กรับทราบก่อน · ไม่มีแบบ/ค่าเริ่ม = สร้างไม่ได้
+  const pickerStages = data ? data.stages.filter((s) => codes.includes(s.code)).map((s) => ({ code: s.code, nameTh: s.nameTh, metalPresent: s.metalPresent })) : [];
+  const allNames = data ? Object.fromEntries(data.stages.map((s) => [s.code, s.nameTh])) : {};
+  const profile = data?.profiles.find((p) => p.id === profileId) ?? null;
+  const profileOk = profile !== null && (!needsGoldAck(profile, pickerStages, data?.metal ?? "") || ack);
   const needGate = data?.depositMissing === true && kind === "oem";
   // OEM: ออฟฟิศต้องตั้ง/ยืนยันชื่อเรียกภายในเอง (มติเจ้าของ 12 ต.ค.) — ค่าเริ่มมาจากข้อเสนอของระบบ แต่ห้ามว่าง · ใบผลิตเข้าสต็อกไม่บังคับ
   const labelRequired = kind === "oem";
   const labelBad = LABEL_ANGLE_RE.test(label);
   const planPending = preview.s === "loading"; // รอ DB คำนวณ → ห้ามสร้าง (ล้ม = สร้างได้ ระบบคำนวณตอนสร้าง)
   const ready =
-    data !== null && !data.existingJob && codes.length > 0 && (!needGate || gate.trim() !== "") && (!labelRequired || label.trim() !== "") && !labelBad && qtyError === null && !issues.blocking && !planPending;
+    data !== null && !data.existingJob && codes.length > 0 && (!needGate || gate.trim() !== "") && (!labelRequired || label.trim() !== "") && !labelBad && qtyError === null && !issues.blocking && !planPending && profileOk;
+  /** แบบที่เลือกถูกปิด/แก้ไปแล้ว (DB ปฏิเสธ profile_invalid) → ดึงรายการแบบใหม่ เก็บขั้นที่ติ๊กไว้ */
+  async function refreshProfiles() {
+    try {
+      const r = await suggestJob(kind, itemId);
+      if (r.ok) {
+        setLoad((p) => (p.s === "ready" ? { s: "ready", data: { ...p.data, profiles: r.data.profiles, defaultProfileId: r.data.defaultProfileId } } : p));
+        setProfileId(r.data.defaultProfileId);
+      }
+    } catch {
+      /* คงรายการเดิม — ผู้ใช้กดสร้างซ้ำได้ ข้อความผิดพลาดยังค้างอยู่ */
+    }
+  }
   const toggle = (c: string) => setCodes((p) => (p.includes(c) ? p.filter((x) => x !== c) : [...p, c]));
 
   async function submit() {
@@ -107,13 +128,21 @@ export function JobCreateDialog({ kind, itemId, itemLabel, onClose, onCreated }:
       const ordered = data.stages.filter((s) => codes.includes(s.code)).map((s) => s.code);
       const input: CreateJobInput = { kind, itemId, stageCodes: ordered, dueDate: due || null, startGateNote: needGate ? gate.trim() : null, designLabel: label.trim() || null };
       if (qtyValue !== data.qty) input.qtyPlanned = qtyValue;
+      input.profileId = profileId;
       if (targetChanged) input.targetPieceG = plan.targetText.trim();
       if (plan.overrideOn && issues.hasTarget) {
         input.metalPlanOverrideG = plan.overrideText.trim();
         input.metalPlanReason = plan.overrideReason.trim();
       }
       const r = await createJob(input);
-      if (!r.ok) return setError(r.error);
+      if (!r.ok) {
+        if (r.error.includes("แบบการบันทึกไม่ถูกต้อง") || r.error.includes("แบบที่เลือกถูกปิดใช้")) {
+          setError("แบบที่เลือกถูกปิดใช้หรือแก้ไปแล้ว — เลือกใหม่");
+          void refreshProfiles();
+          return;
+        }
+        return setError(r.error);
+      }
       toast.push(`สร้างใบงาน ${r.data.jobNo} แล้ว${r.data.planMissing.length > 0 ? " · ยังไม่มีแผนโลหะ" : ""}`);
       onCreated();
       onClose();
@@ -175,6 +204,19 @@ export function JobCreateDialog({ kind, itemId, itemLabel, onClose, onCreated }:
                 </label>
               ))}
             </fieldset>
+            <ProfilePicker
+              idPrefix="jc"
+              profiles={data.profiles}
+              defaultProfileId={data.defaultProfileId}
+              profileId={profileId}
+              onProfile={setProfileId}
+              stages={pickerStages}
+              allNames={allNames}
+              metal={data.metal}
+              ack={ack}
+              onAck={setAck}
+              disabled={busy || data.existingJob !== null}
+            />
             <Field id="jlabel" label={`ชื่อเรียกภายใน (ช่างเห็น)${labelRequired ? " — จำเป็น" : " — ไม่บังคับ"}`} hint={labelBad ? LABEL_ANGLE_MSG : DESIGN_LABEL_WARNING}>
               <input id="jlabel" value={label} onChange={(e) => setLabel(e.target.value)} maxLength={200} className={FIELD} disabled={busy} />
             </Field>

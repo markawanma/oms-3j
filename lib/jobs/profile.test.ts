@@ -1,7 +1,7 @@
 // 0176 แบบการบันทึก: mapper (ทีละ field) + สรุป/ขั้นทองไม่มีด่าน — pure
 import { describe, expect, it } from "vitest";
 import { mapProfilesData, mapRecordProfile } from "@/lib/jobs/profile";
-import { goldUnguardedStages, profileHasWeigh, shortList, summarizeFlags } from "@/lib/jobs/profile-summary";
+import { analyzePicker, finalWeightRequired, goldUnguardedStages, profileHasWeigh, shortList, summarizeFlags } from "@/lib/jobs/profile-summary";
 import { mapBoardRow, mapJobDetail, mapStageRow } from "@/lib/jobs/types";
 
 const ID = "11111111-1111-4111-8111-111111111111";
@@ -75,5 +75,38 @@ describe("types: ใบเดิมไม่มีแบบ (คอลัมน�
     expect(s).toMatchObject({ scrapQtyAsk: true, scrapWeightAsk: false, metalPresent: true, weighRequired: true });
     const t = mapStageRow({ id: "s2", stage_code: "qc", status: "pending", scrap_qty_ask: false, scrap_weight_ask: true }, {}, {})!;
     expect(t).toMatchObject({ scrapQtyAsk: false, scrapWeightAsk: true, metalPresent: false });
+  });
+});
+
+describe("finalWeightRequired — กติกาเดียวกับ DB (job_done)", () => {
+  it("แบบบังคับ = บังคับทุกโลหะ · ทองที่มีขั้นชั่ง = บังคับ · ทองไม่ชั่งเลย/เงิน = ไม่บังคับ", () => {
+    expect(finalWeightRequired({ requireFinalWeight: true, metal: "silver", hasWeigh: false })).toBe(true);
+    expect(finalWeightRequired({ requireFinalWeight: false, metal: "gold", hasWeigh: true })).toBe(true);
+    expect(finalWeightRequired({ requireFinalWeight: false, metal: "gold", hasWeigh: false })).toBe(false);
+    expect(finalWeightRequired({ requireFinalWeight: false, metal: "silver", hasWeigh: true })).toBe(false);
+    expect(finalWeightRequired({ requireFinalWeight: false, metal: "brass", hasWeigh: true })).toBe(false);
+  });
+});
+
+describe("analyzePicker — แบบ × ขั้นของใบนี้", () => {
+  const st = (code: string, nameTh: string, metalPresent = true) => ({ code, nameTh, metalPresent });
+  const flags = [{ stageCode: "cast", weigh: true, scrapQty: true, scrapWeight: false }, { stageCode: "file", weigh: true, scrapQty: false, scrapWeight: true }];
+  const names = { cast: "หล่อ", file: "ตะไบ", polish: "ขัด" };
+  it("lookup เฉพาะขั้นที่ติ๊ก · ขั้นที่แบบตั้งชั่งแต่ใบไม่ผ่าน = weighNotInJob", () => {
+    const a = analyzePicker({ requireFinalWeight: false, stages: flags }, [st("cast", "หล่อ"), st("polish", "ขัด")], "silver", names);
+    expect(a).toMatchObject({ weigh: ["หล่อ"], scrapQty: ["หล่อ"], scrapWeight: [], weighNotInJob: ["ตะไบ"], weighNoMatch: false, goldUnguarded: [], finalRequired: false });
+  });
+  it("แบบมีขั้นชั่งแต่ใบไม่มีขั้นชั่งเลย = weighNoMatch · แบบไม่ชั่งเลย ไม่ใช่ weighNoMatch", () => {
+    expect(analyzePicker({ requireFinalWeight: false, stages: flags }, [st("polish", "ขัด")], "silver", names).weighNoMatch).toBe(true);
+    expect(analyzePicker({ requireFinalWeight: false, stages: [] }, [st("polish", "ขัด")], "silver", names).weighNoMatch).toBe(false);
+  });
+  it("ทอง: ขั้นโลหะไม่ชั่ง = goldUnguarded ตามชื่อขั้น · ขั้นไม่มีโลหะไม่นับ · เงินไม่มี", () => {
+    const stages = [st("wax", "เทียน", false), st("cast", "หล่อ"), st("polish", "ขัด")];
+    expect(analyzePicker({ requireFinalWeight: false, stages: flags }, stages, "gold", names)).toMatchObject({ goldUnguarded: ["ขัด"], finalRequired: true });
+    expect(analyzePicker({ requireFinalWeight: false, stages: flags }, stages, "silver", names).goldUnguarded).toEqual([]);
+    expect(analyzePicker({ requireFinalWeight: false, stages: [] }, stages, "gold", names)).toMatchObject({ goldUnguarded: ["หล่อ", "ขัด"], finalRequired: false });
+  });
+  it("requireFinalWeight ของแบบ = บังคับ (เงิน)", () => {
+    expect(analyzePicker({ requireFinalWeight: true, stages: [] }, [st("cast", "หล่อ")], "silver").finalRequired).toBe(true);
   });
 });

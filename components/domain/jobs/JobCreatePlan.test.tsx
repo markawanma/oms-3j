@@ -29,9 +29,10 @@ import { JobCreateDialog } from "./JobCreateDialog";
 const wrap = (ui: ReactElement) => render(<ToastProvider>{ui}</ToastProvider>);
 const ITEM = "11111111-1111-4111-8111-111111111111";
 
+const PF = [{ id: "99999999-0000-4000-8000-000000000001", name: "แบบ 1", note: null, requireFinalWeight: false, isActive: true, seq: 10, isDefault: true, isDefaultGold: false, stages: [], jobsOpen: 0 }];
 const suggestion = (o: Record<string, unknown> = {}) => ({
   ok: true,
-  data: { metal: "silver", qty: 30, designLabel: "แหวนลาย A", depositMissing: false, existingJob: null, stages: [{ code: "cast", nameTh: "หล่อ", defaultSelected: true }, { code: "plating", nameTh: "ชุบ", defaultSelected: false }], targetPieceG: 4, targetPieceGSource: "quote", ...o },
+  data: { profiles: PF, defaultProfileId: PF[0].id, metal: "silver", qty: 30, designLabel: "แหวนลาย A", depositMissing: false, existingJob: null, stages: [{ code: "cast", nameTh: "หล่อ", defaultSelected: true }, { code: "plating", nameTh: "ชุบ", defaultSelected: false }], targetPieceG: 4, targetPieceGSource: "quote", ...o },
 });
 
 const plan = (o: Record<string, unknown> = {}) => ({
