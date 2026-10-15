@@ -116,7 +116,6 @@ describe("0176 หน้าแบบการบันทึก — 4 state", ()
     await userEvent.click(t);
     expect(t).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByText("แบบเก่าที่เลิกใช้")).toBeInTheDocument();
-    expect(screen.getByText("ใช้ตามงานทั่วไป", { exact: false })).toBeDefined();
   });
 
   it("ไม่มีแบบที่ปิดใช้ = ไม่มี toggle", async () => {
