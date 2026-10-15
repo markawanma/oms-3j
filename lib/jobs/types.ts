@@ -52,6 +52,9 @@ export const EVENT_TYPE_LABEL: Record<string, string> = {
   token_issue: "ออก QR",
   token_revoke: "เพิกถอน QR",
   profile_set: "เปลี่ยนแบบการบันทึก",
+  // 0175: แก้จำนวนเริ่มผลิต/แผนโลหะ · ตัดสินของเหลือ (ครบทุก event_type ใน CHECK job_event_event_type_ck — เทสต์ events-labels ล้มถ้ามีตัวใหม่ที่ยังไม่แปล)
+  plan_change: "แก้จำนวน/แผนโลหะ",
+  surplus_set: "จัดการของเหลือ",
 };
 
 export const CHANNEL_LABEL: Record<string, string> = {
