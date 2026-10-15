@@ -132,7 +132,7 @@ export function ProfilesClient() {
             </p>
           )}
 
-          {data.profiles.length === 0 ? (
+          {data.profiles.length === 0 && editing === null ? (
             <EmptyState
               icon={ListChecks}
               title="ยังไม่มีแบบการบันทึก"
@@ -146,6 +146,7 @@ export function ProfilesClient() {
           ) : (
             <div className="grid gap-4 lg:grid-cols-[360px_minmax(0,1fr)]">
               <section aria-label="รายการแบบการบันทึก" className={editing !== null ? "hidden lg:block" : "block"}>
+                {data.profiles.length === 0 && <p className="rounded-lg border border-dashed border-zinc-300 bg-white p-4 text-sm text-zinc-700">ยังไม่มีแบบการบันทึก — กรอกแบบแรกทางขวาแล้วกดบันทึก</p>}
                 <ul className="space-y-2">
                   {shown.map((p) => {
                     const on = editing === p.id;

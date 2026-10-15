@@ -94,6 +94,18 @@ describe("0176 หน้าแบบการบันทึก — 4 state", ()
     expect(await screen.findByText("ยังไม่มีแบบการบันทึก")).toBeInTheDocument();
   });
 
+  it("empty แล้วกด 'สร้างแบบใหม่' (ทั้งปุ่มหัวและปุ่มใน empty state) = ตัวแก้ไขเปิดจริง · บันทึกส่ง id null", async () => {
+    a.listProfiles.mockResolvedValue({ ok: true, data: data({ profiles: [], defaultProfileId: null, defaultGoldProfileId: null }) });
+    wrap(<ProfilesClient />);
+    await screen.findByText("ยังไม่มีแบบการบันทึก");
+    await userEvent.click(screen.getAllByRole("button", { name: /สร้างแบบใหม่/ }).at(-1)!);
+    const form = await screen.findByRole("form", { name: "สร้างแบบการบันทึกใหม่" });
+    expect(screen.queryByText("ยังไม่มีแบบการบันทึก", { selector: "p" })).not.toBeInTheDocument();
+    await userEvent.type(within(form).getByLabelText(/ชื่อแบบ/), "แบบแรก");
+    await userEvent.click(within(form).getByRole("button", { name: "บันทึก" }));
+    await waitFor(() => expect(a.saveProfile).toHaveBeenCalledWith(expect.objectContaining({ id: null, name: "แบบแรก" })));
+  });
+
   it("ไม่มีค่าเริ่มทั่วไป: แบนเนอร์เหลือง 'สร้างใบงานไม่ได้'", async () => {
     a.listProfiles.mockResolvedValue({ ok: true, data: data({ defaultProfileId: null }) });
     wrap(<ProfilesClient />);
@@ -253,6 +265,32 @@ describe("0176 ค่าเริ่ม · ปิดใช้ · สร้าง
     expect(screen.getByRole("dialog")).toBeInTheDocument();
   });
 
+  it("🔴 แก้ชื่อค้าง แล้วกดปิดใช้/ตั้งค่าเริ่ม = ปุ่มปิด (dirty) · กล่องยืนยันไม่ทำให้ save การแก้ที่ค้าง (saveProfile ไม่ถูกเรียก)", async () => {
+    const form = await openEditor(/ไม่ชั่ง \(รับ/);
+    await userEvent.type(within(form).getByLabelText(/ชื่อแบบ/), " ใหม่");
+    expect(within(form).getByRole("button", { name: "ปิดใช้งาน" })).toBeDisabled();
+    expect(within(form).getByRole("button", { name: "ตั้งเป็นค่าเริ่ม · งานทั่วไป" })).toBeDisabled();
+    expect(a.saveProfile).not.toHaveBeenCalled();
+    // ไม่แก้ → เปิดกล่องปิดใช้ได้ · ยืนยันในกล่อง = ปิดใช้อย่างเดียว ไม่ save ฟอร์ม
+    await userEvent.clear(within(form).getByLabelText(/ชื่อแบบ/));
+    await userEvent.type(within(form).getByLabelText(/ชื่อแบบ/), "ไม่ชั่ง (รับ/ส่งอย่างเดียว)");
+    await userEvent.click(within(form).getByRole("button", { name: "ปิดใช้งาน" }));
+    const dlg = await screen.findByRole("dialog");
+    expect(dlg.closest("form")).toBeNull();
+    await userEvent.click(within(dlg).getByRole("button", { name: "ปิดใช้งาน" }));
+    await waitFor(() => expect(a.setProfileActive).toHaveBeenCalledWith(P2, false));
+    expect(a.saveProfile).not.toHaveBeenCalled();
+  });
+
+  it("แบบปิดอยู่ + แก้ค้าง = ปุ่ม 'เปิดใช้งานอีกครั้ง' ปิดด้วย", async () => {
+    wrap(<ProfilesClient />);
+    await userEvent.click(await screen.findByRole("button", { name: /แสดงแบบที่ปิดใช้/ }));
+    await userEvent.click(screen.getByRole("button", { name: /แบบเก่าที่เลิกใช้/ }));
+    const form = await screen.findByRole("form");
+    await userEvent.type(within(form).getByLabelText(/ชื่อแบบ/), "x");
+    expect(within(form).getByRole("button", { name: "เปิดใช้งานอีกครั้ง" })).toBeDisabled();
+  });
+
   it("แบบที่ปิดอยู่: ปุ่ม 'เปิดใช้งานอีกครั้ง' (ไม่ confirm) · ไม่มีปุ่มตั้งค่าเริ่ม", async () => {
     wrap(<ProfilesClient />);
     await userEvent.click(await screen.findByRole("button", { name: /แสดงแบบที่ปิดใช้/ }));
@@ -271,7 +309,7 @@ describe("0176 ค่าเริ่ม · ปิดใช้ · สร้าง
     expect(btn).toBeEnabled();
     await userEvent.click(within(form).getByLabelText("ชิ้นเสีย — หล่อ"));
     expect(btn).toBeDisabled();
-    expect(within(form).getByText("บันทึกก่อนค่อยตั้งค่าเริ่ม")).toBeInTheDocument();
+    expect(within(form).getByText("บันทึกก่อนค่อยตั้งค่าเริ่มหรือปิด/เปิดใช้งาน")).toBeInTheDocument();
     await userEvent.click(within(form).getByLabelText("ชิ้นเสีย — หล่อ")); // กลับเท่าเดิม = ไม่ dirty
     expect(btn).toBeEnabled();
     await userEvent.click(btn);

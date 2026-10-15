@@ -127,7 +127,9 @@ export function ProfileEditor({ profile, seed, defs, onDirtyChange, onSaved, onC
   }
   const isDefaultAny = profile ? profile.isDefault || profile.isDefaultGold : false;
 
+  // dialog ต้องอยู่นอก <form> — Modal ไม่ใช้ portal: submit ของกล่องยืนยันจะ bubble ขึ้น form นี้แล้ว save การแก้ที่ค้างไปด้วย (review blocker)
   return (
+    <>
     <form
       noValidate
       aria-label={profile ? `แก้แบบ ${profile.name}` : "สร้างแบบการบันทึกใหม่"}
@@ -199,7 +201,7 @@ export function ProfileEditor({ profile, seed, defs, onDirtyChange, onSaved, onC
           <h3 id="pf-manage-h" className="text-sm font-semibold text-zinc-900">
             จัดการแบบนี้
           </h3>
-          {dirty && <p className="text-xs font-medium text-amber-900">บันทึกก่อนค่อยตั้งค่าเริ่ม</p>}
+          {dirty && <p className="text-xs font-medium text-amber-900">บันทึกก่อนค่อยตั้งค่าเริ่มหรือปิด/เปิดใช้งาน</p>}
           <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap">
             {profile.isActive && (
               <>
@@ -226,12 +228,12 @@ export function ProfileEditor({ profile, seed, defs, onDirtyChange, onSaved, onC
               สร้างจากแบบนี้
             </Button>
             {profile.isActive ? (
-              <Button type="button" variant="secondary" onClick={() => setDlg("close")} disabled={busy || isDefaultAny} aria-describedby={isDefaultAny ? "pf-close-why" : undefined}>
+              <Button type="button" variant="secondary" onClick={() => setDlg("close")} disabled={busy || dirty || isDefaultAny} aria-describedby={isDefaultAny ? "pf-close-why" : undefined}>
                 <Power className="h-4 w-4" aria-hidden="true" />
                 ปิดใช้งาน
               </Button>
             ) : (
-              <Button type="button" variant="secondary" onClick={() => void reopen()} disabled={busy}>
+              <Button type="button" variant="secondary" onClick={() => void reopen()} disabled={busy || dirty}>
                 <Power className="h-4 w-4" aria-hidden="true" />
                 เปิดใช้งานอีกครั้ง
               </Button>
@@ -256,9 +258,10 @@ export function ProfileEditor({ profile, seed, defs, onDirtyChange, onSaved, onC
         </Button>
       </div>
 
-      {profile && dlg === "general" && <SetDefaultDialog profile={profile} scope="general" unguardedNames={[]} onDone={() => { setDlg(null); onChanged(); }} onClose={() => setDlg(null)} />}
-      {profile && dlg === "gold" && <SetDefaultDialog profile={profile} scope="gold" unguardedNames={unguardedNames} onDone={() => { setDlg(null); onChanged(); }} onClose={() => setDlg(null)} />}
-      {profile && dlg === "close" && <CloseProfileDialog profile={profile} onDone={() => { setDlg(null); onChanged(); }} onClose={() => setDlg(null)} />}
     </form>
+    {profile && dlg === "general" && <SetDefaultDialog profile={profile} scope="general" unguardedNames={[]} onDone={() => { setDlg(null); onChanged(); }} onClose={() => setDlg(null)} />}
+    {profile && dlg === "gold" && <SetDefaultDialog profile={profile} scope="gold" unguardedNames={unguardedNames} onDone={() => { setDlg(null); onChanged(); }} onClose={() => setDlg(null)} />}
+    {profile && dlg === "close" && <CloseProfileDialog profile={profile} onDone={() => { setDlg(null); onChanged(); }} onClose={() => setDlg(null)} />}
+    </>
   );
 }
