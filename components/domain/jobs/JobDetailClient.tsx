@@ -15,7 +15,7 @@ import { ReceiveStageDialog, SendStageDialog } from "@/components/domain/jobs/St
 import { StatusChip } from "@/components/domain/jobs/StatusChip";
 import { JobEvents, StageTable } from "@/components/domain/jobs/JobStages";
 import type { JobDetailData } from "@/lib/actions/job-office";
-import { statusSignals } from "@/lib/jobs/board";
+import { qtyOrderPlannedText, statusSignals } from "@/lib/jobs/board";
 import { thaiDate } from "@/lib/jobs/dates";
 import { JOB_STATUS_LABEL, METAL_LABEL, SOURCE_LABEL } from "@/lib/jobs/types";
 import type { StageRow } from "@/lib/jobs/types";
@@ -55,7 +55,7 @@ export function JobDetailClient({ data }: { data: JobDetailData }) {
   // ป้ายสถานะ: ชุดเดียวกับบอร์ด v2 (StatusChip) — ธงทุกตัวมาจาก v_job_board (DB ตัดสิน)
   const badges = board ? statusSignals(board, todayTh) : [];
   // 0175: เท่ากัน = "30 ชิ้น" เหมือนเดิม (ใบเดิมไม่ขึ้นสองเลข) · ต่างกัน = "สั่ง 30 · เริ่มผลิต 35 ชิ้น"
-  const qtyText = job.qtyOrder === job.qtyPlanned ? `${job.qtyPlanned} ชิ้น` : `สั่ง ${job.qtyOrder} · เริ่มผลิต ${job.qtyPlanned} ชิ้น`;
+  const qtyText = qtyOrderPlannedText(job);
   const surplusLeft = board?.qtySurplus ?? null;
   const sourceItemId = job.sourceKind === "oem" ? job.oemQuoteItemId : job.productionOrderItemId;
   const needGateNote = job.sourceKind === "oem" && !closed && board?.depositMissing === true && !job.startGateNote;
@@ -129,6 +129,7 @@ export function JobDetailClient({ data }: { data: JobDetailData }) {
       )}
       {!closed && <p className="text-sm text-zinc-700">QR ที่ใช้งานอยู่ {data.activeTokens} ใบ{data.activeTokens === 0 ? " — ยังไม่ได้พิมพ์ใบงาน" : ""}</p>}
 
+      {/* 2 คอลัมน์บนจอใหญ่: เว้นครึ่งขวาไว้ให้การ์ดถัดไป (ยังไม่มี) — จอเล็กเรียงบนลงล่าง */}
       <div className="grid gap-4 lg:grid-cols-2">
         <PlanCard job={job} board={board} stages={stages} onEditQty={() => setDlg({ t: "qty" })} onEditPlan={() => setDlg({ t: "plan" })} onDecideSurplus={() => setDlg({ t: "surplus" })} />
       </div>
@@ -154,7 +155,7 @@ export function JobDetailClient({ data }: { data: JobDetailData }) {
       {dlg?.t === "label" && <DesignLabelDialog jobId={job.id} current={job.designLabel} onClose={() => setDlg(null)} />}
       {dlg?.t === "due" && <DueDialog jobId={job.id} current={job.dueDate} todayTh={todayTh} onClose={() => setDlg(null)} />}
       {dlg?.t === "done" && <DoneDialog jobId={job.id} planned={job.qtyPlanned} qtyOrder={job.qtyOrder} sourceKind={job.sourceKind} metal={job.metal} onClose={() => setDlg(null)} />}
-      {dlg?.t === "qty" && <QtyPlannedDialog jobId={job.id} qtyOrder={job.qtyOrder} current={job.qtyPlanned} hasOverride={typeof job.metalPlanBasis?.override_g === "number"} onClose={() => setDlg(null)} />}
+      {dlg?.t === "qty" && <QtyPlannedDialog jobId={job.id} qtyOrder={job.qtyOrder} current={job.qtyPlanned} hasOverride={typeof job.metalPlanBasis?.override_g === "number"} hasTarget={job.targetPieceG !== null} onClose={() => setDlg(null)} />}
       {dlg?.t === "plan" && (
         <PlanDialog
           job={{ id: job.id, sourceKind: job.sourceKind, sourceItemId, metal: job.metal, qtyPlanned: job.qtyPlanned, targetPieceG: job.targetPieceG, metalPlanBasis: job.metalPlanBasis }}

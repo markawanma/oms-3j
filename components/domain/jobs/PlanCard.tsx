@@ -8,9 +8,8 @@
 import { Button } from "@/components/ui/Button";
 import { fmtG, TARGET_SOURCE_LABEL } from "@/components/domain/jobs/PlanFields";
 import { SURPLUS_DONE_LABEL } from "@/components/domain/jobs/SurplusChoice";
+import { fmtPct, num } from "@/lib/jobs/format";
 import type { BoardRow, JobDetail, StageRow } from "@/lib/jobs/types";
-
-const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
 
 interface Props {
   job: JobDetail;
@@ -92,7 +91,7 @@ export function PlanCard({ job, board, stages, onEditQty, onEditPlan, onDecideSu
               <p className="text-xs text-zinc-700">กำหนดเอง{overrideWhy ? `: ${overrideWhy}` : ""}</p>
             ) : job.metalPlanG !== null && bQty !== null && bTarget !== null && sprue !== null ? (
               <p className="text-xs text-zinc-700">
-                คำนวณ: {bQty.toLocaleString("en-US")} ชิ้น × {fmtG(bTarget)} g × (1 + ก้านต้น {Number(sprue.toFixed(2))}%)
+                คำนวณ: {bQty.toLocaleString("en-US")} ชิ้น × {fmtG(bTarget)} g × (1 + ก้านต้น {fmtPct(sprue)})
               </p>
             ) : null}
             {planMissingRate && <p className="rounded-md border border-amber-300 bg-amber-50 p-2 text-xs font-medium text-amber-900">ยังไม่มีอัตราก้านต้น — กด “แก้แผน” เพื่อกำหนดเอง หรือไปตั้งที่ จัดการต้นทุน</p>}

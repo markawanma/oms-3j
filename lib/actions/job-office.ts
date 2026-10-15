@@ -10,7 +10,7 @@ import { revalidatePath } from "next/cache";
 import { effectiveDateBangkok } from "@/lib/tiktok/format";
 import { BOARD_COLUMNS, EVENT_COLUMNS, JOB_COLUMNS, STAGE_COLUMNS, WORKER_COLUMNS, mapBoardRow, mapEventRow, mapJobDetail, mapLossRow, mapStageDef, mapStageRow, mapWorkerRow } from "@/lib/jobs/types";
 import type { BoardRow, EventRow, JobDetail, StageDef, StageLoss, StageRow, WorkerRow } from "@/lib/jobs/types";
-import { isUuid, parseCount, parseDate, parseLabel, parseStageCodes, parseText, parseWeight } from "@/lib/jobs/input";
+import { isUuid, parseCount, parseDate, parseLabel, parseStageCodes, parseText, parseWeight, TARGET_PIECE_MAX_G } from "@/lib/jobs/input";
 import { callOffice, db, fail, guard, shopId } from "@/lib/jobs/office-server";
 import type { JobResult } from "@/lib/jobs/office-server";
 import { logJobFailure } from "@/lib/jobs/log";
@@ -229,7 +229,8 @@ export interface JobPlanSuggestion {
   rejectBasis: { castPct: number | null; polishPct: number | null; platePct: number | null; hasPlating: boolean };
   targetPieceG: number | null;
   targetPieceGSource: "quote" | "product" | "input" | null;
-  metal: string;
+  /** null = DB ไม่ตอบ (ไม่เดาเป็นเงิน) — หน้าจอใช้ metal จาก suggestJob/ใบงาน ไม่ใช้ตัวนี้ */
+  metal: string | null;
   metalPlanG: number | null;
   /** basis ที่ DB คำนวณ (target_piece_g · qty_planned · sprue_loss_pct · formula · computed_g · override_g · missing[]) */
   metalPlanBasis: Record<string, unknown> | null;
@@ -256,7 +257,7 @@ export async function getJobPlanSuggest(kind: string, itemId: string, input: Pla
     args.p_qty_planned = q.value;
   }
   if (input.targetPieceG !== null && input.targetPieceG !== undefined) {
-    const t = parseWeight(input.targetPieceG, "น้ำหนักเป้าหมายต่อชิ้น");
+    const t = parseWeight(input.targetPieceG, "น้ำหนักเป้าหมายต่อชิ้น", { max: TARGET_PIECE_MAX_G });
     if (!t.ok) return fail(t.error);
     if (t.value !== null) args.p_target_piece_g = t.value;
   }
@@ -282,7 +283,7 @@ export async function getJobPlanSuggest(kind: string, itemId: string, input: Pla
       rejectBasis: { castPct: numOrNull(rb.cast_pct), polishPct: numOrNull(rb.polish_pct), platePct: numOrNull(rb.plate_pct), hasPlating: rb.has_plating === true },
       targetPieceG: numOrNull(d.target_piece_g),
       targetPieceGSource: src === "quote" || src === "product" || src === "input" ? src : null,
-      metal: typeof d.metal === "string" ? d.metal : "silver",
+      metal: typeof d.metal === "string" ? d.metal : null,
       metalPlanG: numOrNull(d.metal_plan_g),
       metalPlanBasis: basis !== null && typeof basis === "object" && !Array.isArray(basis) ? (basis as Record<string, unknown>) : null,
       missing: Array.isArray(d.missing) ? d.missing.filter((m): m is string => typeof m === "string") : [],
@@ -332,7 +333,7 @@ export async function createJob(input: CreateJobInput): Promise<JobResult<{ jobI
     planArgs.p_qty_planned = q.value;
   }
   if (input.targetPieceG !== null && input.targetPieceG !== undefined) {
-    const t = parseWeight(input.targetPieceG, "น้ำหนักเป้าหมายต่อชิ้น");
+    const t = parseWeight(input.targetPieceG, "น้ำหนักเป้าหมายต่อชิ้น", { max: TARGET_PIECE_MAX_G });
     if (!t.ok) return fail(t.error);
     if (t.value !== null) planArgs.p_target_piece_g = t.value;
   }
@@ -341,7 +342,8 @@ export async function createJob(input: CreateJobInput): Promise<JobResult<{ jobI
     if (!o.ok) return fail(o.error);
     if (o.value !== null) planArgs.p_metal_plan_override_g = o.value;
   }
-  const planWhy = parseText(input.metalPlanReason, "เหตุผลที่กำหนดน้ำหนักโลหะเอง", 200, false);
+  // กำหนดโลหะเอง (override) ต้องมีเหตุผลเสมอ — เหมือน setJobPlan (ไม่รอให้ DB ตีกลับ)
+  const planWhy = parseText(input.metalPlanReason, "เหตุผลที่กำหนดน้ำหนักโลหะเอง", 200, planArgs.p_metal_plan_override_g !== undefined);
   if (!planWhy.ok) return fail(planWhy.error);
   if (planWhy.value !== null) planArgs.p_metal_plan_reason = planWhy.value;
 

@@ -8,8 +8,9 @@ import Link from "next/link";
 import { Button } from "@/components/ui/Button";
 import { FIELD, Field } from "@/components/domain/jobs/JobDialogs";
 import type { JobPlanSuggestion } from "@/lib/actions/job-office";
+import type { PlanPreviewState } from "@/components/domain/jobs/usePlanPreview";
+import { fmtPct } from "@/lib/jobs/format";
 
-const fmtPct = (n: number): string => `${Number(n.toFixed(2))}%`;
 
 interface Props {
   idPrefix: string;
@@ -22,11 +23,15 @@ interface Props {
   /** จำนวนที่ผ่านการตรวจแล้ว (ใช้เทียบกับที่สั่ง/ที่แนะนำ) */
   qtyValue: number | null;
   plan: JobPlanSuggestion | null;
+  /** สถานะ preview จาก usePlanPreview — error = แจ้ง "คำนวณจำนวนแนะนำไม่ได้" (ไม่เงียบ แม้ใบไม่มีน้ำหนักเป้าหมายจึงไม่มีการ์ดโลหะให้แสดง error) */
+  preview: PlanPreviewState;
+  /** ไม่ส่ง = ไม่มีปุ่มลองใหม่ที่นี่ (เช่น การ์ดโลหะข้างล่างมีปุ่มของตัวเองอยู่แล้ว) */
+  onRetry?: () => void;
   onUseSuggest: (n: number) => void;
   disabled?: boolean;
 }
 
-export function QtyFields({ idPrefix, kind, qtyOrder, qtyText, onQtyText, qtyError, qtyValue, plan, onUseSuggest, disabled }: Props) {
+export function QtyFields({ idPrefix, kind, qtyOrder, qtyText, onQtyText, qtyError, qtyValue, plan, preview, onRetry, onUseSuggest, disabled }: Props) {
   const suggest = plan?.qtyPlannedSuggest ?? null;
   const rb = plan?.rejectBasis ?? null;
   // อัตราเสียของที่ยังไม่ตั้ง → ไม่แนะนำเผื่อ (ไม่เดา) · ชุบนับเฉพาะเมื่อมีขั้นชุบในใบ
@@ -70,6 +75,19 @@ export function QtyFields({ idPrefix, kind, qtyOrder, qtyText, onQtyText, qtyErr
         <p id={`${idPrefix}-qty-err`} role="alert" className="text-xs font-medium text-red-800">
           {qtyError}
         </p>
+      )}
+
+      {preview.s === "error" && (
+        <div className="flex flex-col gap-2 rounded-md border border-red-300 bg-red-50 p-2.5 sm:flex-row sm:items-center sm:justify-between">
+          <p role="alert" className="text-sm font-medium text-red-800">
+            คำนวณจำนวนแนะนำไม่ได้ — {preview.message}
+          </p>
+          {onRetry && (
+            <Button type="button" size="sm" variant="secondary" onClick={onRetry} disabled={disabled}>
+              ลองใหม่
+            </Button>
+          )}
+        </div>
       )}
 
       {suggest !== null && (

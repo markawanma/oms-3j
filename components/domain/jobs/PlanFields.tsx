@@ -10,7 +10,8 @@ import { Button } from "@/components/ui/Button";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { FIELD, Field } from "@/components/domain/jobs/JobDialogs";
 import type { PlanPreviewState } from "@/components/domain/jobs/usePlanPreview";
-import { parseText, parseWeight } from "@/lib/jobs/input";
+import { fmtPct, num } from "@/lib/jobs/format";
+import { parseText, parseWeight, TARGET_PIECE_MAX_G } from "@/lib/jobs/input";
 import { METAL_LABEL } from "@/lib/jobs/types";
 
 export interface PlanFieldsValue {
@@ -24,7 +25,6 @@ export const EMPTY_PLAN_FIELDS: PlanFieldsValue = { targetText: "", overrideOn: 
 
 /** กรัมแบบ 3 ตำแหน่ง (แสดงผลเท่านั้น) */
 export const fmtG = (n: number): string => n.toLocaleString("en-US", { minimumFractionDigits: 3, maximumFractionDigits: 3 });
-const fmtPct = (n: number): string => `${Number(n.toFixed(2))}%`;
 
 export const TARGET_SOURCE_LABEL: Record<string, string> = { quote: "ใบเสนอราคา", product: "แคตตาล็อก SKU", input: "กรอกเอง" };
 
@@ -39,8 +39,22 @@ export interface PlanFieldsIssues {
   blocking: boolean;
 }
 
+/** เทียบน้ำหนักเป็นตัวเลข ("4" = "4.000" = "4,0") · ว่างทั้งคู่ = เท่ากัน · ผิดรูปแบบ = เทียบข้อความ */
+export function sameWeightText(a: string, b: string): boolean {
+  const x = parseWeight(a, "x");
+  const y = parseWeight(b, "x");
+  if (x.ok && y.ok) return x.value === y.value;
+  return a.trim() === b.trim();
+}
+
+/** ช่องเป้าหมาย "ถูกแก้" จากค่าเริ่ม = ไม่ว่าง และต่างเชิงตัวเลข (ว่าง = ใช้ค่าต้นทาง ไม่นับว่าแก้) */
+export function targetDiffers(text: string, baseText: string): boolean {
+  return text.trim() !== "" && !sameWeightText(text, baseText);
+}
+
 export function planFieldsIssues(v: PlanFieldsValue, defaultTargetText = ""): PlanFieldsIssues {
-  const t = parseWeight(v.targetText, "น้ำหนักเป้าหมายต่อชิ้น");
+  // เพดานน้ำหนักเป้าหมาย = 10,000 g ตาม CHECK ของ DB (ช่องกำหนดเองยังใช้ 100,000)
+  const t = parseWeight(v.targetText, "น้ำหนักเป้าหมายต่อชิ้น", { max: TARGET_PIECE_MAX_G });
   const targetError = t.ok ? null : t.error;
   const hasTarget = targetError === null && (v.targetText.trim() !== "" || defaultTargetText !== "");
   let overrideError: string | null = null;
@@ -55,10 +69,6 @@ export function planFieldsIssues(v: PlanFieldsValue, defaultTargetText = ""): Pl
   return { hasTarget, targetError, overrideError, reasonMissing, blocking: targetError !== null || overrideError !== null || reasonMissing };
 }
 
-function num(v: unknown): number | null {
-  return typeof v === "number" && Number.isFinite(v) ? v : null;
-}
-
 interface Props {
   idPrefix: string;
   metal: string;
@@ -66,22 +76,25 @@ interface Props {
   onChange: (next: PlanFieldsValue) => void;
   preview: PlanPreviewState;
   onRetry: () => void;
-  /** ที่มาของน้ำหนักเริ่มต้น (quote/product) · input = กรอกเอง */
-  defaultSource: "quote" | "product" | null;
-  /** ค่าเริ่มต้นจากต้นทาง (ใช้บอกว่า "ว่าง = ใช้ค่าต้นทาง") */
+  /** ที่มาของน้ำหนักที่ตั้งไว้แล้ว (quote/product/input) — ใช้ตอนช่องยังเท่าค่าเดิม */
+  defaultSource: "quote" | "product" | "input" | null;
+  /** ค่าเริ่มต้นจากต้นทาง (ใช้บอกว่า "ว่าง = ใช้ค่าต้นทาง") · "" = ไม่มีค่าต้นทาง (ว่าง = ไม่วางแผน) */
   defaultTargetText: string;
+  /** ค่าที่ defaultSource อธิบายอยู่ (เช่น น้ำหนักปัจจุบันของใบ ในกล่องแก้แผน) — ไม่ส่ง = ใช้ defaultTargetText */
+  sourceBaseText?: string;
   disabled?: boolean;
   /** true = ไม่มี preview ให้ถาม (เช่น ใบที่ไม่มีรายการต้นทาง) → บอกว่าระบบจะคำนวณตอนบันทึก */
   noPreview?: boolean;
 }
 
-export function PlanFields({ idPrefix, metal, value, onChange, preview, onRetry, defaultSource, defaultTargetText, disabled, noPreview }: Props) {
+export function PlanFields({ idPrefix, metal, value, onChange, preview, onRetry, defaultSource, defaultTargetText, sourceBaseText, disabled, noPreview }: Props) {
   const issues = planFieldsIssues(value, defaultTargetText);
   const metalTh = METAL_LABEL[metal] ?? metal;
   const set = (p: Partial<PlanFieldsValue>) => onChange({ ...value, ...p });
   const data = preview.s === "ready" ? preview.data : null;
-  const changedFromDefault = value.targetText.trim() !== "" && value.targetText.trim() !== defaultTargetText;
-  const sourceKey = changedFromDefault ? "input" : (data?.targetPieceGSource ?? defaultSource);
+  const changedFromDefault = targetDiffers(value.targetText, sourceBaseText ?? defaultTargetText);
+  // ยังเท่าค่าเดิม → ที่มาเดิมของใบ/ต้นทาง (คำตอบ preview ที่ถามด้วยน้ำหนักที่ส่งไปจะตอบ "input" เสมอ จึงไม่ใช้ก่อน)
+  const sourceKey = changedFromDefault ? "input" : (defaultSource ?? data?.targetPieceGSource ?? null);
   const sourceLabel = sourceKey ? TARGET_SOURCE_LABEL[sourceKey] : null;
   const hasTarget = issues.hasTarget;
 

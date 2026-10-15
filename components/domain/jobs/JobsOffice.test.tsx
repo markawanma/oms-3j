@@ -289,7 +289,7 @@ describe("JobCreatePanel", () => {
       ok: true,
       data: { metal: "silver", qty: 12, designLabel: "แหวนลาย A", depositMissing: true, existingJob: null, stages: [{ code: "cast", nameTh: "หล่อ", defaultSelected: true }, { code: "polish", nameTh: "ขัด", defaultSelected: false }] },
     });
-    createJob.mockResolvedValue({ ok: true, data: { jobId: "J9", jobNo: "JB-0009" } });
+    createJob.mockResolvedValue({ ok: true, data: { jobId: "J9", jobNo: "JB-0009", planMissing: [] } });
     wrap(<JobCreatePanel kind="oem" items={items} />);
     await userEvent.click((await screen.findAllByRole("button", { name: "สร้างใบงาน" }))[0]);
     expect(suggestJob).toHaveBeenCalledWith("oem", U1);
@@ -313,7 +313,7 @@ describe("JobCreatePanel", () => {
   it("OEM: ชื่อเรียกภายใน (ช่างเห็น) เติมค่าเริ่มจาก suggest · มีคำเตือนห้ามชื่อแบรนด์ลูกค้า · ล้างชื่อ = สร้างไม่ได้ · แก้แล้วส่งชื่อใหม่", async () => {
     getJobsForSourceItems.mockResolvedValue({ ok: true, data: [] });
     suggestJob.mockResolvedValue(suggestion());
-    createJob.mockResolvedValue({ ok: true, data: { jobId: "J9", jobNo: "JB-0009" } });
+    createJob.mockResolvedValue({ ok: true, data: { jobId: "J9", jobNo: "JB-0009", planMissing: [] } });
     wrap(<JobCreatePanel kind="oem" items={items} />);
     await userEvent.click((await screen.findAllByRole("button", { name: "สร้างใบงาน" }))[0]);
     const input = (await screen.findByLabelText(/ชื่อเรียกภายใน/)) as HTMLInputElement;
@@ -331,7 +331,7 @@ describe("JobCreatePanel", () => {
   it("ใบผลิตเข้าสต็อก: ชื่อเรียกไม่บังคับ — ว่างก็สร้างได้ (ส่ง null)", async () => {
     getJobsForSourceItems.mockResolvedValue({ ok: true, data: [] });
     suggestJob.mockResolvedValue(suggestion({ designLabel: "" }));
-    createJob.mockResolvedValue({ ok: true, data: { jobId: "J8", jobNo: "JB-0008" } });
+    createJob.mockResolvedValue({ ok: true, data: { jobId: "J8", jobNo: "JB-0008", planMissing: [] } });
     wrap(<JobCreatePanel kind="production" items={items} />);
     await userEvent.click((await screen.findAllByRole("button", { name: "สร้างใบงาน" }))[0]);
     await screen.findByLabelText(/ชื่อเรียกภายใน/);

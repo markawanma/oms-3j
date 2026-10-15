@@ -92,7 +92,7 @@ export function cardBadges(r: BoardRow): CardBadge[] {
   const out: CardBadge[] = [];
   if (r.isOverdue) out.push({ key: "overdue", label: "เลยกำหนด", tone: "red" });
   if (r.status === "on_hold") out.push({ key: "hold", label: "พักไว้", tone: "amber" });
-  if (r.depositMissing && r.status !== "done") out.push({ key: "deposit", label: r.startGateNotePresent ? "ยังไม่มีมัดจำ (เริ่มก่อนด้วยเหตุผล)" : "ยังไม่มีมัดจำ", tone: "amber" });
+  if (r.depositMissing && r.status !== "done" && r.status !== "cancelled") out.push({ key: "deposit", label: r.startGateNotePresent ? "ยังไม่มีมัดจำ (เริ่มก่อนด้วยเหตุผล)" : "ยังไม่มีมัดจำ", tone: "amber" });
   if (r.isStale) out.push({ key: "stale", label: "ไม่มีความเคลื่อนไหวเกิน 3 วัน", tone: "amber" });
   if (r.handoffMismatchCount > 0) out.push({ key: "mismatch", label: `ชั่งไม่ตรง ${r.handoffMismatchCount} ครั้ง`, tone: "amber" });
   if (r.handoffGapG !== null && r.handoffGapG > 0) out.push({ key: "handoff", label: `ส่วนต่างส่งมอบ ${Math.round(r.handoffGapG * 1000) / 1000} g`, tone: "amber" });
@@ -107,6 +107,15 @@ export function cardBadges(r: BoardRow): CardBadge[] {
  */
 export function qtyLabel(r: { qtyOrder: number; qtyPlanned: number }): string {
   return r.qtyOrder === r.qtyPlanned ? `${r.qtyPlanned} ชิ้น` : `${r.qtyOrder} (เริ่ม ${r.qtyPlanned}) ชิ้น`;
+}
+
+/**
+ * ข้อความ "สั่ง X · เริ่มผลิต Y ชิ้น" (0175) — ที่เดียวของทุกจอ (หน้ารายละเอียด · ใบพิมพ์ · dialog)
+ * เท่ากัน = "30 ชิ้น" (ใบเดิมไม่ขึ้นสองเลข) · alwaysOrder = เท่ากันก็ขึ้น "สั่ง 30 ชิ้น" (dialog ที่ต้องบอกว่าตัวเลขคือจำนวนสั่ง)
+ */
+export function qtyOrderPlannedText(r: { qtyOrder: number; qtyPlanned: number }, opts: { alwaysOrder?: boolean } = {}): string {
+  if (r.qtyOrder === r.qtyPlanned) return opts.alwaysOrder ? `สั่ง ${r.qtyOrder} ชิ้น` : `${r.qtyPlanned} ชิ้น`;
+  return `สั่ง ${r.qtyOrder} · เริ่มผลิต ${r.qtyPlanned} ชิ้น`;
 }
 
 /** "ค้าง n วัน" ในขั้นนี้ — null = ไม่มีข้อมูล (ไม่แสดง) */
@@ -129,6 +138,8 @@ export type Signal = "overdue" | "dueSoon" | "stale";
 
 /** ครบกำหนดใน 3 วัน = วันนี้ ≤ due ≤ วันนี้+3 และยังไม่เลยกำหนด */
 function isDueSoon(r: BoardRow, todayTh: string): boolean {
+  // ใบที่ปิดแล้ว/ยกเลิกไม่มี "ครบกำหนด" ให้เตือน (S3)
+  if (r.status === "done" || r.status === "cancelled") return false;
   if (r.isOverdue || r.dueDate === null) return false;
   return r.dueDate >= todayTh && r.dueDate <= addDays(todayTh, 3);
 }
@@ -173,7 +184,7 @@ export function statusSignals(r: BoardRow, todayTh: string): StatusSignal[] {
   if (r.handoffMismatchCount > 0) out.push({ key: "mismatch", rank: 3, label: `ชั่งไม่ตรง ${r.handoffMismatchCount} ครั้ง`, tone: "amber" });
   if (r.handoffGapG !== null && r.handoffGapG > 0) out.push({ key: "handoff", rank: 4, label: `ส่วนต่างส่งมอบ ${Math.round(r.handoffGapG * 1000) / 1000} g`, tone: "amber" });
   if (r.isStale) out.push({ key: "stale", rank: 5, label: "นิ่งเกิน 3 วัน", tone: "amber" });
-  if (r.depositMissing && r.status !== "done") out.push({ key: "deposit", rank: 6, label: r.startGateNotePresent ? "ยังไม่มีมัดจำ (เริ่มก่อนด้วยเหตุผล)" : "ยังไม่มีมัดจำ", tone: "amber" });
+  if (r.depositMissing && r.status !== "done" && r.status !== "cancelled") out.push({ key: "deposit", rank: 6, label: r.startGateNotePresent ? "ยังไม่มีมัดจำ (เริ่มก่อนด้วยเหตุผล)" : "ยังไม่มีมัดจำ", tone: "amber" });
   // 0175: ใบ done ที่ของเหลือยังถือไว้ไม่ตัดสิน (ปกติไม่อยู่บนบอร์ด เพราะบอร์ดดึงเฉพาะใบที่ยังไม่ปิด — ขึ้นที่หน้ารายละเอียดใบงาน) · n = qty_surplus จาก DB
   if (r.surplusPending && r.qtySurplus !== null && r.qtySurplus > 0) out.push({ key: "surplusPending", rank: 6.5, label: `เหลือ ${r.qtySurplus} ชิ้น ยังไม่ตัดสิน`, tone: "amber" });
   if (r.status === "on_hold") out.push({ key: "hold", rank: 7, label: "พักไว้", tone: "gray" });

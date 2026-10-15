@@ -11,7 +11,7 @@ import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { LABEL_ANGLE_MSG, LABEL_ANGLE_RE, parseQtyText } from "@/lib/jobs/input";
 import { DESIGN_LABEL_WARNING, ErrorLine, FIELD, Field } from "@/components/domain/jobs/JobDialogs";
-import { EMPTY_PLAN_FIELDS, PlanFields, planFieldsIssues } from "@/components/domain/jobs/PlanFields";
+import { EMPTY_PLAN_FIELDS, PlanFields, planFieldsIssues, targetDiffers } from "@/components/domain/jobs/PlanFields";
 import type { PlanFieldsValue } from "@/components/domain/jobs/PlanFields";
 import { QtyFields } from "@/components/domain/jobs/QtyFields";
 import { usePlanPreview } from "@/components/domain/jobs/usePlanPreview";
@@ -67,7 +67,8 @@ export function JobCreateDialog({ kind, itemId, itemLabel, onClose, onCreated }:
   const qtyValue = qtyParsed.ok ? qtyParsed.value : null;
   const qtyError = qtyParsed.ok ? null : qtyParsed.error;
   const issues = planFieldsIssues(plan, defaultTarget);
-  const targetChanged = plan.targetText.trim() !== "" && plan.targetText.trim() !== defaultTarget;
+  // เทียบเชิงตัวเลข ("4" = "4.000" ไม่นับว่าแก้ — ไม่ส่ง/ไม่ตีตราที่มาเป็น "กรอกเอง")
+  const targetChanged = targetDiffers(plan.targetText, defaultTarget);
 
   // ตัวอย่างแผนจาก DB: ไม่แตะค่าที่ผู้ใช้ยังไม่ได้แก้ (null = ให้ DB ใช้ค่าเริ่ม/ค่าแนะนำเอง)
   const { state: preview, retry } = usePlanPreview({
@@ -113,7 +114,7 @@ export function JobCreateDialog({ kind, itemId, itemLabel, onClose, onCreated }:
       }
       const r = await createJob(input);
       if (!r.ok) return setError(r.error);
-      toast.push(`สร้างใบงาน ${r.data.jobNo} แล้ว${r.data.planMissing && r.data.planMissing.length > 0 ? " · ยังไม่มีแผนโลหะ" : ""}`);
+      toast.push(`สร้างใบงาน ${r.data.jobNo} แล้ว${r.data.planMissing.length > 0 ? " · ยังไม่มีแผนโลหะ" : ""}`);
       onCreated();
       onClose();
       router.push(`/jobs/${r.data.jobId}`);
@@ -155,6 +156,8 @@ export function JobCreateDialog({ kind, itemId, itemLabel, onClose, onCreated }:
                 qtyError={qtyError}
                 qtyValue={qtyValue}
                 plan={hintPlan}
+                preview={preview}
+                onRetry={issues.hasTarget ? undefined : retry}
                 onUseSuggest={(n) => {
                   setQtyTouched(true);
                   setQtyText(String(n));

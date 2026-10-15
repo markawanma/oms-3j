@@ -6,7 +6,7 @@
 
 import { revalidatePath } from "next/cache";
 import { effectiveDateBangkok } from "@/lib/tiktok/format";
-import { isUuid, parseCount, parseDate, parseLabel, parseSeq, parseText, parseWeight, parseWeightOrZero, parseScrapReason } from "@/lib/jobs/input";
+import { isUuid, parseCount, parseDate, parseLabel, parseSeq, parseText, parseWeight, parseWeightOrZero, parseScrapReason, TARGET_PIECE_MAX_G } from "@/lib/jobs/input";
 import { callOffice, fail, guard } from "@/lib/jobs/office-server";
 import type { JobResult } from "@/lib/jobs/office-server";
 import { currentAppOrigin } from "@/lib/jobs/origin-server";
@@ -309,7 +309,7 @@ export async function setJobPlan(i: SetJobPlanInput): Promise<JobResult<null>> {
   const g = await guard();
   if (g) return g;
   if (typeof i !== "object" || i === null || !isUuid(i.jobId)) return fail("ไม่พบใบงาน");
-  const t = parseWeight(i.targetPieceG, "น้ำหนักเป้าหมายต่อชิ้น");
+  const t = parseWeight(i.targetPieceG, "น้ำหนักเป้าหมายต่อชิ้น", { max: TARGET_PIECE_MAX_G });
   if (!t.ok) return fail(t.error);
   const o = parseWeight(i.overrideG ?? null, "โลหะที่กำหนดเอง");
   if (!o.ok) return fail(o.error);

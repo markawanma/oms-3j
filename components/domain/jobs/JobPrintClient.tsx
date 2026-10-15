@@ -10,6 +10,7 @@ import { Printer } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { issueJobQr } from "@/lib/actions/job-office-write";
 import type { IssuedQr } from "@/lib/actions/job-office-write";
+import { qtyOrderPlannedText } from "@/lib/jobs/board";
 import { thaiDate } from "@/lib/jobs/dates";
 import { GENERIC_JOB_ERROR } from "@/lib/jobs/messages";
 import type { PrintableJob } from "@/lib/jobs/print";
@@ -25,7 +26,7 @@ export function JobSheet({ job, qrSvg }: { job: PrintableJob; qrSvg: string | nu
           <p className="text-[30pt] leading-none font-extrabold tracking-tight tabular-nums">{job.jobNo}</p>
           <p className="mt-2 text-[14pt] font-bold break-words">{job.designLabel}</p>
           <p className="text-[11pt]">
-            {job.qtyOrder === job.qtyPlanned ? `${job.qtyPlanned} ชิ้น` : `สั่ง ${job.qtyOrder} · เริ่มผลิต ${job.qtyPlanned} ชิ้น`} · {job.metalLabel}
+            {qtyOrderPlannedText(job)} · {job.metalLabel}
             {job.sku ? ` · ${job.sku}` : ""}
           </p>
           <p className="mt-1 text-[11pt] font-semibold">กำหนดส่ง {thaiDate(job.dueDate)}</p>

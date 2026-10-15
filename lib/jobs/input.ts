@@ -20,8 +20,15 @@ export function normalizeWeightText(s: string): Parsed<string> {
   return bad("รูปแบบน้ำหนักกำกวม — พิมพ์เป็นตัวเลขธรรมดา เช่น 95.5 (ไม่ต้องใส่จุลภาคคั่นหลักพัน)");
 }
 
-/** น้ำหนักกรัม: ตัวเลข > 0 ≤ 100,000 ทศนิยมไม่เกิน 3 ตำแหน่ง · ว่าง = null (ไม่ได้กรอก) · "0" ไม่ผ่าน (DB: weight > 0) */
-export function parseWeight(raw: unknown, label = "น้ำหนัก"): Parsed<number | null> {
+/** เพดานน้ำหนักเป้าหมายต่อชิ้น (g) ตาม CHECK job_target_piece_ck ของ DB (0175) — เล็กกว่าเพดานน้ำหนักทั่วไป (100,000) */
+export const TARGET_PIECE_MAX_G = 10000;
+
+/**
+ * น้ำหนักกรัม: ตัวเลข > 0 ≤ opts.max (ค่าเริ่ม 100,000) ทศนิยมไม่เกิน 3 ตำแหน่ง · ว่าง = null (ไม่ได้กรอก) · "0" ไม่ผ่าน (DB: weight > 0)
+ * opts.max = เพดานเฉพาะช่อง (เช่น TARGET_PIECE_MAX_G) — ไม่ส่ง = พฤติกรรมเดิมทุกช่องอื่น
+ */
+export function parseWeight(raw: unknown, label = "น้ำหนัก", opts: { max?: number } = {}): Parsed<number | null> {
+  const max = opts.max ?? 100000;
   if (raw === null || raw === undefined) return ok(null);
   const rawText = typeof raw === "number" ? String(raw) : typeof raw === "string" ? raw.trim() : null;
   if (rawText === null) return bad(`${label}ไม่ถูกต้อง`);
@@ -31,7 +38,7 @@ export function parseWeight(raw: unknown, label = "น้ำหนัก"): Pars
   const t = norm.value;
   if (!/^\d+(?:\.\d{1,3})?$/.test(t)) return bad(`${label}ต้องเป็นตัวเลข ทศนิยมไม่เกิน 3 ตำแหน่ง`);
   const n = Number(t);
-  if (!Number.isFinite(n) || n <= 0 || n > 100000) return bad(`${label}ต้องมากกว่า 0 และไม่เกิน 100,000 กรัม`);
+  if (!Number.isFinite(n) || n <= 0 || n > max) return bad(`${label}ต้องมากกว่า 0 และไม่เกิน ${max.toLocaleString("en-US")} กรัม`);
   return ok(n);
 }
 

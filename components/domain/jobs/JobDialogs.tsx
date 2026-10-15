@@ -8,6 +8,7 @@ import type { ReactNode } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { useOfficeRun } from "@/components/domain/jobs/useOfficeRun";
+import { qtyOrderPlannedText } from "@/lib/jobs/board";
 import { LABEL_ANGLE_MSG, LABEL_ANGLE_RE } from "@/lib/jobs/input";
 import { SurplusChoice } from "@/components/domain/jobs/SurplusChoice";
 import type { SurplusValue } from "@/components/domain/jobs/SurplusChoice";
@@ -167,7 +168,7 @@ export function DoneDialog({ jobId, planned, qtyOrder, sourceKind, metal, onClos
     <Modal open onClose={onClose} title="ปิดงาน">
       <form noValidate className="space-y-3" onSubmit={(e) => { e.preventDefault(); if (ready) void submit(); }}>
         <p className="text-sm text-zinc-700">ปิดได้เมื่อทุกขั้น ส่งต่อหรือข้ามแล้ว · ปิดแล้ว QR ใช้ไม่ได้และแก้ไม่ได้</p>
-        <p className="text-base font-semibold text-zinc-900">{qtyOrder === planned ? `สั่ง ${qtyOrder} ชิ้น` : `สั่ง ${qtyOrder} · เริ่มผลิต ${planned} ชิ้น`}</p>
+        <p className="text-base font-semibold text-zinc-900">{qtyOrderPlannedText({ qtyOrder, qtyPlanned: planned }, { alwaysOrder: true })}</p>
         <div className="grid grid-cols-2 gap-3">
           <Field id="good" label="จำนวนดี (ชิ้น)">
             <input id="good" inputMode="numeric" value={good} onChange={(e) => setGood(e.target.value)} className={FIELD} />

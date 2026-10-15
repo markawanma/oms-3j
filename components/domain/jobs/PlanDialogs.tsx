@@ -7,19 +7,21 @@
 import { useState } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { DialogButtons, ErrorLine, FIELD, Field } from "@/components/domain/jobs/JobDialogs";
-import { EMPTY_PLAN_FIELDS, PlanFields, planFieldsIssues } from "@/components/domain/jobs/PlanFields";
+import { EMPTY_PLAN_FIELDS, PlanFields, planFieldsIssues, sameWeightText } from "@/components/domain/jobs/PlanFields";
 import type { PlanFieldsValue } from "@/components/domain/jobs/PlanFields";
 import { SurplusChoice } from "@/components/domain/jobs/SurplusChoice";
 import type { SurplusValue } from "@/components/domain/jobs/SurplusChoice";
 import { usePlanPreview } from "@/components/domain/jobs/usePlanPreview";
 import { useOfficeRun } from "@/components/domain/jobs/useOfficeRun";
+import { num } from "@/lib/jobs/format";
+import { qtyOrderPlannedText } from "@/lib/jobs/board";
 import { parseQtyText, parseText } from "@/lib/jobs/input";
 import { setJobPlan, setJobQtyPlanned, setJobSurplus } from "@/lib/actions/job-office-write";
 
 // ---------------------------------------------------------------------------
 // แก้จำนวนเริ่มผลิต (ก่อนขั้นแรกถูกรับ)
 // ---------------------------------------------------------------------------
-export function QtyPlannedDialog({ jobId, qtyOrder, current, hasOverride, onClose }: { jobId: string; qtyOrder: number; current: number; hasOverride: boolean; onClose: () => void }) {
+export function QtyPlannedDialog({ jobId, qtyOrder, current, hasOverride, hasTarget, onClose }: { jobId: string; qtyOrder: number; current: number; hasOverride: boolean; hasTarget: boolean; onClose: () => void }) {
   const { run, busy, error } = useOfficeRun();
   const [text, setText] = useState(String(current));
   const [reason, setReason] = useState("");
@@ -38,14 +40,14 @@ export function QtyPlannedDialog({ jobId, qtyOrder, current, hasOverride, onClos
     <Modal open onClose={onClose} title="แก้จำนวนเริ่มผลิต">
       <form noValidate className="space-y-3" onSubmit={(e) => { e.preventDefault(); if (ready) void submit(); }}>
         <p className="text-sm text-zinc-800">
-          สั่ง {qtyOrder} · เริ่มผลิตตอนนี้ {current} ชิ้น
+          {qtyOrderPlannedText({ qtyOrder, qtyPlanned: current }, { alwaysOrder: true })}
         </p>
         {hasOverride && (
           <p role="alert" className="rounded-md border border-amber-300 bg-amber-50 p-2.5 text-sm font-medium text-amber-900">
             ใบนี้กำหนดน้ำหนักโลหะเองไว้ — กด “แก้แผน” แล้วเลือก “ใช้ค่าระบบ” ก่อน จึงแก้จำนวนได้ (ระบบจะคำนวณโลหะใหม่ให้ตามจำนวน)
           </p>
         )}
-        <Field id="qp-qty" label="เริ่มผลิต (ชิ้น)" hint={q.ok ? "แก้แล้วระบบคำนวณโลหะที่ต้องเตรียมใหม่ให้" : undefined}>
+        <Field id="qp-qty" label="เริ่มผลิต (ชิ้น)" hint={q.ok && hasTarget ? "แก้แล้วระบบคำนวณโลหะที่ต้องเตรียมใหม่ให้" : undefined}>
           <input id="qp-qty" inputMode="numeric" value={text} onChange={(e) => setText(e.target.value)} disabled={busy} aria-invalid={q.ok ? undefined : true} className={FIELD} />
         </Field>
         {!q.ok && (
@@ -71,8 +73,6 @@ export function QtyPlannedDialog({ jobId, qtyOrder, current, hasOverride, onClos
 // ---------------------------------------------------------------------------
 // แก้แผนโลหะ (ก่อนขั้นหล่อถูกรับ) — PlanFields ตัวเดียวกับฟอร์มสร้างใบงาน
 // ---------------------------------------------------------------------------
-const num = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
-
 export interface PlanDialogJob {
   id: string;
   sourceKind: string;
@@ -99,6 +99,9 @@ export function PlanDialog({ job, onClose }: { job: PlanDialogJob; onClose: () =
   const { run, busy, error } = useOfficeRun();
   const [start] = useState(() => initialPlan(job));
   const [plan, setPlan] = useState<PlanFieldsValue>(start);
+  // ที่มาของน้ำหนักที่ใบเก็บไว้ (basis.target_source) — การ์ดขึ้นที่มาเดียวกัน ไม่ขึ้น "กรอกเอง" ทั้งที่ยังไม่ได้แก้ (BUG-2)
+  const src = job.metalPlanBasis?.target_source;
+  const startSource = src === "quote" || src === "product" || src === "input" ? src : null;
   const issues = planFieldsIssues(plan, "");
   const kind = job.sourceKind === "oem" || job.sourceKind === "production" ? job.sourceKind : null;
   const { state: preview, retry } = usePlanPreview({
@@ -109,8 +112,9 @@ export function PlanDialog({ job, onClose }: { job: PlanDialogJob; onClose: () =
     targetPieceG: issues.hasTarget ? plan.targetText.trim() : null,
     stageCodes: null,
   });
-  const changed = plan.targetText.trim() !== start.targetText.trim() || plan.overrideOn !== start.overrideOn || (plan.overrideOn && (plan.overrideText.trim() !== start.overrideText.trim() || plan.overrideReason.trim() !== start.overrideReason.trim()));
-  const clearing = !issues.hasTarget && start.targetText !== "";
+  const changed = !sameWeightText(plan.targetText, start.targetText) || plan.overrideOn !== start.overrideOn || (plan.overrideOn && (plan.overrideText.trim() !== start.overrideText.trim() || plan.overrideReason.trim() !== start.overrideReason.trim()));
+  // "ล้างแผน" = ช่องว่างจริงเท่านั้น — พิมพ์ผิดรูปแบบเป็น error ของช่อง ไม่ใช่การล้าง (BUG-3)
+  const clearing = plan.targetText.trim() === "" && start.targetText !== "";
   const ready = changed && !issues.blocking && preview.s !== "loading";
 
   async function submit() {
@@ -132,7 +136,7 @@ export function PlanDialog({ job, onClose }: { job: PlanDialogJob; onClose: () =
     <Modal open onClose={onClose} title={start.targetText === "" ? "ตั้งแผนโลหะ" : "แก้แผนโลหะ"}>
       <form noValidate className="space-y-3" onSubmit={(e) => { e.preventDefault(); if (ready) void submit(); }}>
         <p className="text-sm text-zinc-700">แก้ได้จนกว่าขั้นหล่อจะถูกรับ · ระบบคำนวณโลหะที่ต้องเตรียมให้จากจำนวนเริ่มผลิต {job.qtyPlanned} ชิ้น</p>
-        <PlanFields idPrefix="pd" metal={job.metal} value={plan} onChange={setPlan} preview={preview} onRetry={retry} defaultSource={null} defaultTargetText="" disabled={busy} noPreview={job.sourceItemId === null} />
+        <PlanFields idPrefix="pd" metal={job.metal} value={plan} onChange={setPlan} preview={preview} onRetry={retry} defaultSource={startSource} defaultTargetText="" sourceBaseText={start.targetText} disabled={busy} noPreview={job.sourceItemId === null} />
         {clearing && (
           <p role="status" className="rounded-md border border-amber-300 bg-amber-50 p-2.5 text-sm font-medium text-amber-900">
             ช่องน้ำหนักว่าง = ล้างแผนโลหะของใบนี้
