@@ -34,6 +34,7 @@ vi.mock("@/lib/actions/job-office-write", () => ({
 }));
 const getJobPlanSuggest = vi.fn();
 vi.mock("@/lib/actions/job-office", () => ({ getJobPlanSuggest: (...a: unknown[]) => getJobPlanSuggest(...a) }));
+vi.mock("@/lib/actions/job-profiles", () => ({ listProfiles: vi.fn(), changeJobProfile: vi.fn() }));
 
 import { ToastProvider } from "@/components/ui/Toast";
 import { JobDetailClient } from "./JobDetailClient";
