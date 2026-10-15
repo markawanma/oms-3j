@@ -4,6 +4,8 @@
 -- 🔴 ไม่ commit อะไร · ใบเสนอราคา = โคลนจากรายการจริง 1 รายการ (แถวใหม่ในทรานแซกชันที่ถอยกลับ) · ใบผลิต/ใบงานสร้างผ่าน RPC · JB-0018 อ่านอย่างเดียว
 --
 -- รัน (หลัง apply):   node scripts/run-sql.mjs scripts/verify/verify-0175.sql
+-- 🔧 แก้เมื่อทำ 0177 (หน่วย rate): ตัวแปร rate ในเทสต์ (v_rc/v_rp/v_rpl/v_sprue) คูณ 100 จากค่าในตาราง (ตารางเก็บสัดส่วน 0..1 — เดิมเทสต์สมมติเป็น % จึงผ่านคู่กับบั๊ก) ·
+--    D4 ใช้ค่าดิบ 1 (=100%) ด้วย · และปรับของที่ 0176 ทำให้ล้าสมัย: A1a (เฉพาะใบก่อน apply 0175) · C6 (+3 คอลัมน์ 0176) · MU-1/3/15/16/17 (ข้อความย้ายไป job_plan_basis_assert)
 -- dry-run ก่อน apply: cat supabase/migrations/0175_job_plan_surplus.sql scripts/verify/verify-0175.sql > <tmp>.sql แล้วรันไม่ใส่ --commit
 --
 -- ============ ตารางแมป "ข้อในบรีฟ (design §8.7 verify-0175) -> เทสต์" ============
@@ -382,15 +384,17 @@ declare
   v_n_job int; v_n_board int;
   j1 uuid; j2 uuid; j3 uuid; j4 uuid; jp uuid;
   d jsonb; r jsonb; r2 jsonb;
-  v_w numeric; v_sprue numeric; v_exp numeric; v_b record; v_j record;
+  v_w numeric; v_sprue numeric; v_exp numeric; v_b record; v_j record; v_cut timestamptz;
 begin
   perform set_config('request.jwt.claims', '{"role":"service_role"}', true);
 
   -- A1 ใบที่มีอยู่ก่อนรัน (ใบจริง รวม JB-0018 ถ้ามี): qty_order = qty_planned ทุกใบ · บอร์ดคืนแถวครบ · คอลัมน์ใหม่เป็นค่าเริ่ม
   select count(*) into v_n_job from analytics.job;
+  -- 0177: A1a ตรวจเฉพาะใบ "เดิมก่อน 0175" — ใบหลัง apply 0175 (เช่น JB-0026..) มี qty_planned <> qty_order ได้ตามออกแบบ · ไม่มีบันทึก apply = ทุกใบถือเป็นใบเดิม
+  select coalesce(min(to_timestamp(m.version, 'YYYYMMDDHH24MISS')), 'infinity') into v_cut from supabase_migrations.schema_migrations m where m.name like '0175\_%' escape '\';
   select count(*) into v_n_board from analytics.v_job_board;
   v_log := v_log || pg_temp.chk('A1a', 'ใบงานเดิมทุกใบ (' || v_n_job || ' ใบ) qty_order = qty_planned · ไม่มี surplus/แผนติดมา · v_job_board แถวครบเท่าจำนวนใบ',
-    not exists (select 1 from analytics.job where qty_order <> qty_planned) and v_n_board = v_n_job
+    not exists (select 1 from analytics.job where qty_order <> qty_planned and created_at < v_cut) and v_n_board = v_n_job
     and not exists (select 1 from analytics.job j where j.status <> 'done' and (j.surplus_disposition is not null or j.surplus_note is not null)));
   select * into v_b from analytics.v_job_board where job_no = 'JB-0018';
   v_log := v_log || case when v_b.id is null then '[SKIP] A1b  ไม่พบ JB-0018 บน DB นี้ (ไม่ใช่ความผิดพลาด)' || E'\n'
@@ -413,7 +417,7 @@ begin
   j1 := (r ->> 'job_id')::uuid;
   select * into v_j from analytics.job where id = j1;
   v_w := nullif((select i.input ->> 'weight_g' from analytics.oem_quote_item i where i.id = (d ->> 'item_id')::uuid), '')::numeric;
-  v_sprue := analytics.oem_rate_value(p_shop, 'sprue_loss_pct', 'silver', v_today);
+  v_sprue := analytics.oem_rate_value(p_shop, 'sprue_loss_pct', 'silver', v_today) * 100;  -- 0177: ตารางเก็บสัดส่วน 0..1 → % จริง
   v_exp := case when v_w > 0 and v_w <= 10000 and v_sprue is not null then round(10 * round(v_w, 3) * (1 + v_sprue / 100), 3) end;
   v_log := v_log || pg_temp.chk('A3', 'ไม่ส่ง arg ใหม่ (caller เดิม): qty_order = qty_planned = 10 · target = น้ำหนักในใบเสนอราคา · metal_plan_g = qty×น้ำหนัก×(1+ก้านต้น%) ที่คำนวณอิสระในเทสต์ (หรือ null + missing เมื่อไม่มี rate) · response มี qty_order/under_planned=false · event create มี qty_order',
     j1 is not null and v_j.qty_order = 10 and v_j.qty_planned = 10 and (r ->> 'qty_order')::int = 10 and (r ->> 'under_planned') = 'false'
@@ -1151,8 +1155,8 @@ begin
   -- C6 v_job_board: คอลัมน์เดิม 34 ตัวเป็น prefix ลำดับเดิมเป๊ะ · ใหม่ 7 ตัวต่อท้าย (ไม่ชน 42P16)
   select string_agg(column_name, ',' order by ordinal_position) into v_cols
     from information_schema.columns where table_schema = 'analytics' and table_name = 'v_job_board';
-  v_log := v_log || pg_temp.chk('C6', 'v_job_board: คอลัมน์เดิม 34 ตัวเป็น prefix ลำดับเดิมเป๊ะ · ต่อท้ายด้วย qty_order,qty_surplus,under_planned,surplus_pending,surplus_disposition,target_piece_g,metal_plan_g เท่านั้น',
-    v_cols = v_old || ',qty_order,qty_surplus,under_planned,surplus_pending,surplus_disposition,target_piece_g,metal_plan_g');
+  v_log := v_log || pg_temp.chk('C6', 'v_job_board: คอลัมน์เดิม 34 ตัวเป็น prefix ลำดับเดิมเป๊ะ · ต่อท้ายด้วย qty_order,qty_surplus,under_planned,surplus_pending,surplus_disposition,target_piece_g,metal_plan_g (0175) + profile_name,has_weigh,gold_unguarded (0176) เท่านั้น',
+    v_cols = v_old || ',qty_order,qty_surplus,under_planned,surplus_pending,surplus_disposition,target_piece_g,metal_plan_g' || ',profile_name,has_weigh,gold_unguarded');  -- 0177: + 3 ตัวของ 0176
 
   -- C7 helper หน่วย: job_worker_can_do ทุกกรณี (null · ว่าง · ตรง · ไม่ตรง) · job_deposit_blocked: บล็อก/มีเหตุผล/มีขั้นถูกรับ/ใบผลิต
   v_jb := (pg_temp.mkj2(p_shop, p_tpl, 'silver', 10) ->> 'job_id')::uuid;
@@ -1199,10 +1203,10 @@ begin
   perform set_config('request.jwt.claims', '{"role":"service_role"}', true);
   d := pg_temp.clone_deal(p_tpl, 'silver', 10, null, 'won', null, false);
   v_item := (d ->> 'item_id')::uuid;
-  v_rc := analytics.oem_rate_value(p_shop, 'reject_rate_cast_pct', '-', v_today);
-  v_rp := analytics.oem_rate_value(p_shop, 'reject_rate_polish_pct', '-', v_today);
-  v_rpl := analytics.oem_rate_value(p_shop, 'reject_rate_plate_pct', '-', v_today);
-  v_sprue := analytics.oem_rate_value(p_shop, 'sprue_loss_pct', 'silver', v_today);
+  v_rc := analytics.oem_rate_value(p_shop, 'reject_rate_cast_pct', '-', v_today) * 100;  -- 0177: สัดส่วน 0..1 → % จริง
+  v_rp := analytics.oem_rate_value(p_shop, 'reject_rate_polish_pct', '-', v_today) * 100;
+  v_rpl := analytics.oem_rate_value(p_shop, 'reject_rate_plate_pct', '-', v_today) * 100;
+  v_sprue := analytics.oem_rate_value(p_shop, 'sprue_loss_pct', 'silver', v_today) * 100;  -- 0177: ตารางเก็บสัดส่วน 0..1 → % จริง
   v_w := nullif((select i.input ->> 'weight_g' from analytics.oem_quote_item i where i.id = v_item), '')::numeric;
 
   -- D1 ค่าแนะนำ: ไม่ชุบ — ceil(สั่ง / ((1-cast%)(1-polish%))) คำนวณอิสระในเทสต์ · buffer = ค่าแนะนำ − สั่ง · eff = ค่าแนะนำ · ไม่ under_planned
@@ -1241,7 +1245,7 @@ begin
     v_bad := '';
     -- ตาราง rate มี CHECK กันค่านอกช่วงอยู่แล้ว (ชั้นแรก) — ถอด CHECK ใน subtransaction (ถอยกลับ) เพื่อพิสูจน์ว่าชั้นที่สองของ RPC ก็กัน
     execute 'alter table analytics.oem_cost_rate drop constraint if exists oem_cost_rate_value_check';
-    foreach k in array array['100', '-5'] loop
+    foreach k in array array['1', '100', '-5'] loop  -- 0177: ค่าดิบในตารางเป็นสัดส่วน — 1 = 100% (ขอบ) · 100 / -5 เกินช่วง
       begin
         update analytics.oem_cost_rate set value = k::numeric where shop_id = p_shop and rate_key = 'reject_rate_plate_pct';
       exception when others then v_bad := v_bad || 'update ไม่ได้:' || sqlerrm || ' '; continue;
@@ -1251,7 +1255,7 @@ begin
         v_bad := v_bad || k || '→' || left(r::text, 120) || ' ';
       end if;
     end loop;
-    v_log := v_log || pg_temp.chk('D4', 'rate ชุบ = 100 / -5: suggest = null + missing ระบุ rate (ไม่หารศูนย์ ไม่ใช้ค่าติดลบ) ' || v_bad, v_bad = '');
+    v_log := v_log || pg_temp.chk('D4', 'rate ชุบ ค่าดิบ 1 (=100%) / 100 / -5: suggest = null + missing ระบุ rate (ไม่หารศูนย์ ไม่ใช้ค่าติดลบ) ' || v_bad, v_bad = '');
   else
     v_log := v_log || '[SKIP] D4  ไม่มี rate reject_rate_plate_pct ให้แก้ค่าทดสอบ' || E'\n';
   end if;
@@ -1317,11 +1321,11 @@ declare
   v_m record; v_killed int := 0; v_total int; v_survived text := ''; v_cnt int; v_id text; v_hit int; v_skip int; v_ok_cnt int;
   v_mutants jsonb := jsonb_build_array(
     jsonb_build_object('id', 'MU-1', 'what', 'job_guard ไม่แช่แข็ง qty_order (แก้จำนวนสั่งตรงๆ ได้)', 'fn', 'job_guard',
-      'from', 'new.metal <> old.metal or new.qty_order <> old.qty_order or new.weigh_required', 'to', 'new.metal <> old.metal or new.weigh_required', 'expect', jsonb_build_array('B1')),
+      'from', 'new.metal <> old.metal or new.qty_order <> old.qty_order', 'to', 'new.metal <> old.metal', 'expect', jsonb_build_array('B1')),
     jsonb_build_object('id', 'MU-2', 'what', 'job_guard ปล่อยใบ done แก้ได้ทุกคอลัมน์ (ปิดด่าน done แข็ง)', 'fn', 'job_guard',
       'from', 'if old.status = ''done''', 'to', 'if false and old.status = ''done''', 'expect', jsonb_build_array('B4a')),
-    jsonb_build_object('id', 'MU-3', 'what', 'job_guard ไม่เทียบ metal_plan_g กับ computed_g ใน basis (plan_drift รั่ว)', 'fn', 'job_guard',
-      'from', 'if (new.metal_plan_basis ->> ''computed_g'')::numeric is distinct from new.metal_plan_g then', 'to', 'if false then', 'expect', jsonb_build_array('B3a', 'B6b')),
+    jsonb_build_object('id', 'MU-3', 'what', 'job_plan_basis_assert (0176 ยกมาจาก job_guard) ไม่เทียบ metal_plan_g กับ computed_g ใน basis (plan_drift รั่ว)', 'fn', 'job_plan_basis_assert',
+      'from', 'if (p.metal_plan_basis ->> ''computed_g'')::numeric is distinct from p.metal_plan_g then', 'to', 'if false then', 'expect', jsonb_build_array('B3a', 'B6b')),
     jsonb_build_object('id', 'MU-4', 'what', 'job_done ใบผลิตของเหลือไม่เข้า stock อัตโนมัติ (ตกเป็น hold)', 'fn', 'job_done',
       'from', 'v_disp := ''stock'';', 'to', 'v_disp := coalesce(p_surplus_disposition, ''hold'');', 'expect', jsonb_build_array('A7', 'B14a')),
     jsonb_build_object('id', 'MU-5', 'what', 'job_done OEM เลือก stock ได้ (ของลูกค้าเข้าสต็อกเอง)', 'fn', 'job_done',
@@ -1344,12 +1348,12 @@ declare
       'from', 'if v_job.source_kind <> ''oem'' then', 'to', 'if false then', 'expect', jsonb_build_array('B14a')),
     jsonb_build_object('id', 'MU-14', 'what', 'job_qty_planned_set ค่าเท่าเดิมยังเขียน event ซ้ำ', 'fn', 'job_qty_planned_set',
       'from', 'if p_qty_planned = v_job.qty_planned then', 'to', 'if false then', 'expect', jsonb_build_array('B11b')),
-    jsonb_build_object('id', 'MU-15', 'what', 'L1: guard ไม่เทียบ computed_g กับสูตรจริง (basis ปลอม computed_g มั่ว ผ่าน)', 'fn', 'job_guard',
-      'from', 'round(new.qty_planned * new.target_piece_g * (1 + (new.metal_plan_basis ->> ''sprue_loss_pct'')::numeric / 100), 3)', 'to', '(new.metal_plan_basis ->> ''computed_g'')::numeric', 'expect', jsonb_build_array('B3c')),
-    jsonb_build_object('id', 'MU-16', 'what', 'L1: guard ไม่ตรวจเหตุผลของ override (override ไม่มีเหตุผลผ่าน)', 'fn', 'job_guard',
-      'from', 'if v_ov = ''number'' and not coalesce(analytics.oem_note_present(new.metal_plan_basis ->> ''override_reason''), false) then', 'to', 'if false then', 'expect', jsonb_build_array('B3d')),
-    jsonb_build_object('id', 'MU-17', 'what', 'L4: guard ไม่ตรวจค่า target_source (ค่ามั่วผ่าน)', 'fn', 'job_guard',
-      'from', 'or (new.metal_plan_basis ->> ''target_source'') not in (''quote'', ''product'', ''input'') then', 'to', 'or false then', 'expect', jsonb_build_array('B3e')),
+    jsonb_build_object('id', 'MU-15', 'what', 'L1: guard ไม่เทียบ computed_g กับสูตรจริง (basis ปลอม computed_g มั่ว ผ่าน)', 'fn', 'job_plan_basis_assert',
+      'from', 'analytics.job_plan_formula(p.qty_planned, p.target_piece_g, (p.metal_plan_basis ->> ''sprue_loss_pct'')::numeric)', 'to', '(p.metal_plan_basis ->> ''computed_g'')::numeric', 'expect', jsonb_build_array('B3c')),
+    jsonb_build_object('id', 'MU-16', 'what', 'L1: guard ไม่ตรวจเหตุผลของ override (override ไม่มีเหตุผลผ่าน)', 'fn', 'job_plan_basis_assert',
+      'from', 'if v_ov = ''number'' and not coalesce(analytics.oem_note_present(p.metal_plan_basis ->> ''override_reason''), false) then', 'to', 'if false then', 'expect', jsonb_build_array('B3d')),
+    jsonb_build_object('id', 'MU-17', 'what', 'L4: guard ไม่ตรวจค่า target_source (ค่ามั่วผ่าน)', 'fn', 'job_plan_basis_assert',
+      'from', 'or (p.metal_plan_basis ->> ''target_source'') not in (''quote'', ''product'', ''input'') then', 'to', 'or false then', 'expect', jsonb_build_array('B3e')),
     jsonb_build_object('id', 'MU-18', 'what', 'M2: job_qty_planned_set คำนวณใหม่ทับใบที่กำหนดน้ำหนักเอง (override ค้างค่าเก่าเงียบๆ)', 'fn', 'job_qty_planned_set',
       'from', 'if jsonb_typeof(v_job.metal_plan_basis -> ''override_g'') = ''number'' then', 'to', 'if false then', 'expect', jsonb_build_array('B11d')),
     jsonb_build_object('id', 'MU-19', 'what', 'L2: ถอน CHECK job_surplus_source_ck (OEM stock / ผลิต hold ผ่านด้วย UPDATE ตรง)', 'ddl',
