@@ -25,11 +25,19 @@ export function JobSheet({ job, qrSvg }: { job: PrintableJob; qrSvg: string | nu
           <p className="text-[30pt] leading-none font-extrabold tracking-tight tabular-nums">{job.jobNo}</p>
           <p className="mt-2 text-[14pt] font-bold break-words">{job.designLabel}</p>
           <p className="text-[11pt]">
-            {job.qtyPlanned} ชิ้น · {job.metalLabel}
+            {job.qtyOrder === job.qtyPlanned ? `${job.qtyPlanned} ชิ้น` : `สั่ง ${job.qtyOrder} · เริ่มผลิต ${job.qtyPlanned} ชิ้น`} · {job.metalLabel}
             {job.sku ? ` · ${job.sku}` : ""}
           </p>
           <p className="mt-1 text-[11pt] font-semibold">กำหนดส่ง {thaiDate(job.dueDate)}</p>
+          {/* 0175: แผนโลหะ (เฉพาะใบที่ toPrintableJob ปล่อยมา — ใบทองเป็น null ทั้งคู่ จึงไม่มีบรรทัดนี้) · ไม่มีเลขที่เบิกจริง/ledger/ดุล/ราคา */}
+          {(job.targetPieceG !== null || job.metalPlanG !== null) && (
+            <>
+              <p className="mt-1 text-[10pt]">น้ำหนักเป้าหมาย/ชิ้น {job.targetPieceG !== null ? `${job.targetPieceG.toFixed(3)} g` : "—"}</p>
+              <p className="text-[10pt] font-semibold">โลหะที่ต้องเตรียม {job.metalPlanG !== null ? `${Number(job.metalPlanG.toFixed(3))} g` : "—"}</p>
+            </>
+          )}
           <p className="mt-1 text-[10pt]">น้ำหนักตั้งต้น {job.weightStartG !== null ? `${job.weightStartG} g` : "............ g"}</p>
+          <p className="mt-1 text-[10pt]">เบิกจริง ............ g &nbsp; ความบริสุทธิ์ ............</p>
         </div>
         <div className="flex w-[42mm] shrink-0 flex-col items-center">
           {qrSvg ? (
