@@ -291,6 +291,49 @@ describe("0176 event profile_set + DoneDialog", () => {
     expect(closeBtn()).toBeEnabled();
   });
 
+  it("🔴 ค่าเริ่มชิ้นเสีย: เสีย = ของเสียที่ช่างแจ้งในขั้น · ดี = เริ่มผลิต − เสีย · บรรทัด 'ของเสียที่บันทึกในขั้น: 5 ชิ้น' · ส่ง doneJob ด้วยค่านั้น", async () => {
+    wrap(<DoneDialog jobId={JOB} planned={35} qtyOrder={30} sourceKind="production" metal="silver" recordedScrap={5} onClose={vi.fn()} />);
+    expect((screen.getByLabelText("จำนวนดี (ชิ้น)") as HTMLInputElement).value).toBe("30");
+    expect((screen.getByLabelText("จำนวนเสีย (ชิ้น)") as HTMLInputElement).value).toBe("5");
+    expect(screen.getByText("ของเสียที่บันทึกในขั้น: 5 ชิ้น")).toBeInTheDocument();
+    // ดี 30 = สั่ง 30 → ไม่มี "ของเหลือ" ผิดๆ (เดิมเสนอ ดี 35 → ของเหลือ 5)
+    expect(screen.queryByText(/ของเหลือ/)).not.toBeInTheDocument();
+    await userEvent.click(closeBtn());
+    await waitFor(() => expect(w.doneJob).toHaveBeenCalledWith(expect.objectContaining({ jobId: JOB, qtyGood: 30, qtyScrap: 5 })));
+  });
+
+  it("ไม่มีของเสียที่บันทึก = ค่าเริ่มเดิม (ดี = เริ่มผลิต · เสีย 0 · ไม่มีบรรทัด) · ผู้ใช้แก้ได้ · ผลรวมผิด = ปุ่มปิด", async () => {
+    wrap(<DoneDialog jobId={JOB} planned={30} qtyOrder={30} sourceKind="production" metal="silver" onClose={vi.fn()} />);
+    expect((screen.getByLabelText("จำนวนดี (ชิ้น)") as HTMLInputElement).value).toBe("30");
+    expect((screen.getByLabelText("จำนวนเสีย (ชิ้น)") as HTMLInputElement).value).toBe("0");
+    expect(screen.queryByText(/ของเสียที่บันทึกในขั้น/)).not.toBeInTheDocument();
+    await userEvent.clear(screen.getByLabelText("จำนวนเสีย (ชิ้น)"));
+    await userEvent.type(screen.getByLabelText("จำนวนเสีย (ชิ้น)"), "2");
+    expect(closeBtn()).toBeDisabled();
+  });
+
+  it("ของเสียที่บันทึกเกินเริ่มผลิต (ข้อมูลแปลก) = ไม่ติดลบ: เสียไม่เกินเริ่มผลิต · ดี ≥ 0 · ค่าไม่ใช่จำนวนเต็ม/ติดลบ = เมินเป็น 0", () => {
+    wrap(<DoneDialog jobId={JOB} planned={10} qtyOrder={10} sourceKind="production" metal="silver" recordedScrap={99} onClose={vi.fn()} />);
+    expect((screen.getByLabelText("จำนวนดี (ชิ้น)") as HTMLInputElement).value).toBe("0");
+    expect((screen.getByLabelText("จำนวนเสีย (ชิ้น)") as HTMLInputElement).value).toBe("10");
+    cleanup();
+    for (const bad of [-3, 1.5, Number.NaN]) {
+      wrap(<DoneDialog jobId={JOB} planned={10} qtyOrder={10} sourceKind="production" metal="silver" recordedScrap={bad} onClose={vi.fn()} />);
+      expect((screen.getByLabelText("จำนวนดี (ชิ้น)") as HTMLInputElement).value).toBe("10");
+      cleanup();
+    }
+  });
+
+  it("หน้าใบงาน: ผลรวม qty_scrap ของทุกขั้นเป็นค่าเริ่ม (ขั้นหล่อเสีย 3 + ขั้นขัดเสีย 2 = 5 → ดี = เริ่มผลิต − 5)", async () => {
+    const st = [stage("cast", 1, "sent", { qtyScrap: 3 }), stage("file", 2, "sent", { qtyScrap: 2 }), stage("qc", 3, "skipped")];
+    wrap(<JobDetailClient data={detail({ status: "in_progress", qty_planned: 35, qty_order: 30 }, st)} />);
+    await userEvent.click(screen.getByRole("button", { name: "ปิดงาน" }));
+    const d = await screen.findByRole("dialog");
+    expect((within(d).getByLabelText("จำนวนดี (ชิ้น)") as HTMLInputElement).value).toBe("30");
+    expect((within(d).getByLabelText("จำนวนเสีย (ชิ้น)") as HTMLInputElement).value).toBe("5");
+    expect(within(d).getByText("ของเสียที่บันทึกในขั้น: 5 ชิ้น")).toBeInTheDocument();
+  });
+
   it("หน้าใบงาน: ส่ง flag ของใบเข้า DoneDialog (ใบทองที่แบบไม่ชั่ง ปิดงานได้โดยไม่ต้องกรอกน้ำหนักสุทธิ)", async () => {
     const done = [stage("cast", 1, "sent"), stage("qc", 2, "skipped")];
     wrap(<JobDetailClient data={detail({ metal: "gold", weigh_required: false, require_final_weight: false, status: "in_progress" }, done)} />);

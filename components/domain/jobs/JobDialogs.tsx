@@ -140,10 +140,13 @@ export function DueDialog({ jobId, current, todayTh, onClose }: { jobId: string;
   );
 }
 
-export function DoneDialog({ jobId, planned, qtyOrder, sourceKind, metal, requireFinalWeight, weighRequired, onClose }: { jobId: string; planned: number; qtyOrder: number; sourceKind: string; metal: string; requireFinalWeight?: boolean; weighRequired?: boolean; onClose: () => void }) {
+export function DoneDialog({ jobId, planned, qtyOrder, sourceKind, metal, requireFinalWeight, weighRequired, recordedScrap = 0, onClose }: { jobId: string; planned: number; qtyOrder: number; sourceKind: string; metal: string; requireFinalWeight?: boolean; weighRequired?: boolean; recordedScrap?: number; onClose: () => void }) {
   const { run, busy, error } = useOfficeRun();
-  const [good, setGood] = useState(String(planned));
-  const [scrap, setScrap] = useState("0");
+  // ค่าเริ่ม: เสีย = ของเสียที่ช่างแจ้งไว้ในขั้นต่างๆ (ผลรวมจำนวนชิ้น qty_scrap — บวกชิ้น ไม่ใช่เงิน/น้ำหนัก) · ดี = เริ่มผลิต − เสีย
+  // ไม่ดึง = เสนอ "ดี = เริ่มผลิตทั้งหมด" ทั้งที่ช่างแจ้งเสียไปแล้ว → ใบผลิตเข้าสต็อกเกิน + ของเหลือผิด (QA 0176) · ผู้ใช้แก้ได้ · DB ตรวจ ดี+เสีย = เริ่มผลิต ซ้ำ
+  const prefillScrap = Number.isInteger(recordedScrap) && recordedScrap > 0 ? Math.min(recordedScrap, planned) : 0;
+  const [good, setGood] = useState(String(planned - prefillScrap));
+  const [scrap, setScrap] = useState(String(prefillScrap));
   const [weight, setWeight] = useState("");
   const [note, setNote] = useState("");
   const [disp, setDisp] = useState<SurplusValue>("hold");
@@ -180,6 +183,7 @@ export function DoneDialog({ jobId, planned, qtyOrder, sourceKind, metal, requir
             <input id="scrap" inputMode="numeric" value={scrap} onChange={(e) => setScrap(e.target.value)} className={FIELD} />
           </Field>
         </div>
+        {prefillScrap > 0 && <p className="text-xs text-zinc-700">ของเสียที่บันทึกในขั้น: {prefillScrap} ชิ้น</p>}
         {!sumOk && <p className="text-xs font-medium text-amber-900">ดี + เสีย ต้องเท่ากับจำนวนเริ่มผลิต ({planned} ชิ้น)</p>}
         {short > 0 && (
           <p role="status" className="rounded-md border border-sky-300 bg-sky-50 p-2.5 text-sm font-medium text-sky-900">
