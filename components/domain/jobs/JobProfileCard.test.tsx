@@ -105,10 +105,12 @@ describe("0176 JobProfileCard", () => {
     expect(screen.queryByText("ต้องชั่ง")).not.toBeInTheDocument();
   });
 
-  it("ใบทอง: ขั้นโลหะอยู่ในมือแต่ไม่ชั่ง = ป้ายแดง 'ไม่ชั่ง' ต่อขั้น + แถบ 'ทอง · ไม่มีด่านชั่ง: ขั้น ตะไบ, ตรวจ QC ไม่ชั่ง' · เงินไม่มี", () => {
+  it("ใบทอง: ขั้นโลหะอยู่ในมือแต่ไม่ชั่ง = ป้ายแดง 'ไม่ชั่ง' ต่อขั้น (2) + ป้ายหัว 'ทอง · ไม่มีด่านชั่ง' ตัวเดียว (ไม่ซ้ำในการ์ดแบบ) · เงินไม่มี", () => {
     wrap(<JobDetailClient data={detail({ metal: "gold" }, PROFILED, { metal: "gold", gold_unguarded: true })} />);
-    expect(within(card()).getByText("ทอง · ไม่มีด่านชั่ง: ขั้น ตะไบ, ตรวจ QC ไม่ชั่ง")).toBeInTheDocument();
     expect(screen.getAllByText("ไม่ชั่ง")).toHaveLength(2);
+    expect(screen.getAllByText(/ทอง · ไม่มีด่านชั่ง/)).toHaveLength(1);
+    expect(within(card()).queryByText(/ทอง · ไม่มีด่านชั่ง/)).not.toBeInTheDocument();
+    expect(screen.getByLabelText("สถานะที่ต้องดู")).toContainElement(screen.getByText("ทอง · ไม่มีด่านชั่ง"));
     cleanup();
     wrap(<JobDetailClient data={detail({ metal: "silver" })} />);
     expect(screen.queryByText("ไม่ชั่ง")).not.toBeInTheDocument();
@@ -131,6 +133,21 @@ describe("0176 JobProfileCard", () => {
   it.each(["done", "cancelled"])("ใบ %s: ไม่มีปุ่มเปลี่ยนแบบ", (status) => {
     wrap(<JobDetailClient data={detail({ status }, PROFILED, { status })} />);
     expect(within(card()).queryByRole("button", { name: "เปลี่ยนแบบ" })).not.toBeInTheDocument();
+  });
+
+  it("🔴 ใบที่เคยรับงานแล้วย้อนขั้นจนทุกขั้นกลับเป็น pending (มี event stage_receive) = ถือว่าเริ่มแล้ว: ปุ่มเปลี่ยนแบบ aria-disabled ตรงกับ DB L1", async () => {
+    const ev = [{ id: "e1", type: "stage_receive", occurredOn: "2026-10-14", recordedAt: "2026-10-14T03:00:00Z", channel: "worker_qr", workerName: "ช่างเอ", stageCode: "cast", summary: null }];
+    wrap(<JobDetailClient data={detail({}, PROFILED, {}, ev)} />);
+    const btn = within(card()).getByRole("button", { name: "เปลี่ยนแบบ" });
+    expect(btn).toHaveAttribute("aria-disabled", "true");
+    await userEvent.click(btn);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("event อื่น (ไม่ใช่ stage_receive) ไม่ล็อก", () => {
+    const ev = [{ id: "e1", type: "due_set", occurredOn: "2026-10-14", recordedAt: "2026-10-14T03:00:00Z", channel: "job_page", workerName: null, stageCode: null, summary: null }];
+    wrap(<JobDetailClient data={detail({}, PROFILED, {}, ev)} />);
+    expect(within(card()).getByRole("button", { name: "เปลี่ยนแบบ" })).not.toHaveAttribute("aria-disabled");
   });
 
   it("เริ่มแล้ว (ช่างรับขั้นแรก): ปุ่ม aria-disabled + ข้อความเห็นได้ผูก aria-describedby · กดแล้วไม่เปิดกล่อง", async () => {

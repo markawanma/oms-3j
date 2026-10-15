@@ -50,7 +50,8 @@ export function JobDetailClient({ data }: { data: JobDetailData }) {
   const firstOpen = stages.find((s) => s.status === "pending" || s.status === "received") ?? null;
   const started = stages.some((s) => s.status !== "pending");
   // เปลี่ยนแบบการบันทึกไม่ได้เมื่อมีขั้นที่ช่างรับ/ส่งแล้ว (DB ตัดสินซ้ำ รวมใบที่เคยรับแล้วย้อนขั้น)
-  const profileLocked = stages.some((s) => s.status === "received" || s.status === "sent");
+  // รวม event stage_receive (ใบที่เคยรับงานแล้วย้อนขั้นจนทุกขั้นกลับเป็น pending ก็ถือว่าเริ่มแล้ว — ตรงกับ DB security L1)
+  const profileLocked = stages.some((s) => s.status === "received" || s.status === "sent") || events.some((e) => e.type === "stage_receive");
   const allDone = stages.length > 0 && stages.every((s) => s.status === "sent" || s.status === "skipped");
   const prevOut = (() => {
     if (!firstOpen) return null;

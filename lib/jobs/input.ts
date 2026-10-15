@@ -136,8 +136,19 @@ export function parseScrapReason(raw: unknown, qtyScrap: number): Parsed<string 
   return ok(raw);
 }
 
-/** parseText + ห้าม < > — ใช้กับชื่อช่าง/ชื่อเรียกใบงาน */
+/**
+ * อักขระที่มองไม่เห็น/ควบคุมทิศทาง — ชื่อที่ดูเหมือนกันแต่ไม่เหมือนกัน (ชื่อแบบซ้ำปลอม · ชื่อช่างสลับทิศ) · security 0176 L1 (Mace)
+ * U+00AD U+034F U+061C U+115F/1160 U+17B4/17B5 U+180B-180F U+200B-200F (zero-width, LRM, RLM) U+202A-202E (bidi) U+2060-206F U+2800 U+3164 U+FE00-FE0F (variation selectors)
+ * U+FEFF U+FFA0 และ tag characters U+E0000-E01EF (surrogate DB40 DC00-DDEF) — ไทย/อีโมจิทั่วไป (เช่น 👍) ไม่โดน
+ * หมายเหตุ: อีโมจิที่ต่อด้วย VS16/ZWJ (❤️ · 👨‍👩‍👧) จะถูกปฏิเสธด้วย — ชื่อใบงาน/ช่าง/แบบไม่ควรมี
+ */
+export const INVISIBLE_RE = /[\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180B-\u180F\u200B-\u200F\u202A-\u202E\u2060-\u206F\u2800\u3164\uFE00-\uFE0F\uFEFF\uFFA0]|\uDB40[\uDC00-\uDDEF]/;
+export const INVISIBLE_MSG = (label: string): string => `${label}มีอักขระที่มองไม่เห็นหรืออักขระควบคุมทิศทาง`;
+
+/** parseText + ห้าม < > + ห้ามอักขระล่องหน/bidi — ใช้กับชื่อช่าง/ชื่อเรียกใบงาน/ชื่อแบบการบันทึก */
 export function parseLabel(raw: unknown, label: string, max: number, required: boolean): Parsed<string | null> {
+  // ตรวจก่อน parseText: ถ้าชื่อมีแต่อักขระล่องหน parseText จะนับว่า "ไม่ว่าง" (trim ไม่ตัด) — ต้องปฏิเสธด้วยข้อความที่ถูกเหตุผล
+  if (typeof raw === "string" && INVISIBLE_RE.test(raw)) return bad(INVISIBLE_MSG(label));
   const t = parseText(raw, label, max, required);
   if (!t.ok) return t;
   if (t.value !== null && LABEL_ANGLE_RE.test(t.value)) return bad(LABEL_ANGLE_MSG);
