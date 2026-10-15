@@ -230,6 +230,22 @@ describe("workerReceiveStage / workerSendStage", () => {
     expect(paramsOf(1)).toMatchObject({ p_qty_scrap: 0, p_scrap_reason: null, p_metal_added_g: 0, p_weight_note: null });
   });
 
+  it("0176 น้ำหนักเศษโลหะ: ส่ง p_scrap_weight_g เมื่อมีค่า (จุลภาคทศนิยมได้) · ไม่ส่ง/ว่าง = null · ผิดรูปแบบ/0/ติดลบ/กำกวม = ไม่ถึง DB", async () => {
+    cookieStore.set("w_session", SESSION);
+    const base = { expectedSeq: 2, weightOut: null, qtyScrap: 0, scrapReason: null, metalAdded: null };
+    await workerSendStage(TOKEN, { ...base, scrapWeight: "0,35" });
+    expect(paramsOf()).toMatchObject({ p_scrap_weight_g: 0.35 });
+    await workerSendStage(TOKEN, base);
+    expect(paramsOf(1)).toMatchObject({ p_scrap_weight_g: null });
+    await workerSendStage(TOKEN, { ...base, scrapWeight: "  " });
+    expect(paramsOf(2)).toMatchObject({ p_scrap_weight_g: null });
+    rpcMock.mockClear();
+    for (const bad of ["abc", "0", "-1", "1,234.5", "1.2345", "NaN", "100001"]) {
+      expect((await workerSendStage(TOKEN, { ...base, scrapWeight: bad })).ok, bad).toBe(false);
+    }
+    expect(rpcMock).not.toHaveBeenCalled();
+  });
+
   it("ห้ามผ่าน (ไม่ถึง DB): น้ำหนักผิด · ของเสียติดลบ/ทศนิยม/มากเกิน · ของเสียแต่ไม่มีเหตุผล · เหตุผลนอก allowlist · seq ผิด · เติมโลหะติดลบ", async () => {
     cookieStore.set("w_session", SESSION);
     const ok = { expectedSeq: 2, weightOut: "10", qtyScrap: 0, scrapReason: null, metalAdded: null };

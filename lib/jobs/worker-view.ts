@@ -29,11 +29,24 @@ export interface WorkerView {
     metal?: string;
     qtyPlanned?: number;
     dueDate?: string | null;
+    /**
+     * 0176: ใบนี้มีแบบการบันทึกไหม — DB ส่งมาทุกครั้ง (boolean) · key หายไป/ไม่ใช่ true = ใบเดิม (UI เดิมทุกประการ — fail-safe แสดงช่องครบ)
+     * 🔴 ไม่มีชื่อแบบ/ป้ายทอง/คำเตือนทองในช่องทางนี้ — ช่างเห็นแค่ "ช่องไหนต้องกรอก" (profile_name ที่ DB ส่งให้ช่างที่ระบุตัวแล้ว ถูกทิ้งที่ชั้นนี้)
+     */
+    hasProfile?: boolean;
   };
   viewer: { workerId: string; displayName: string } | null;
   sessionExpired: boolean;
   nextAction: NextAction;
-  actionStage: { seq: number; code: string; name: string; weightRequired: boolean } | null;
+  actionStage: {
+    seq: number;
+    code: string;
+    name: string;
+    weightRequired: boolean;
+    /** 0176: ขั้นนี้ถามชิ้นเสีย/น้ำหนักเศษไหม — key หายไป = ค่าเริ่มของ DB (ถามชิ้นเสีย · ไม่ถามเศษ) */
+    scrapQtyAsk?: boolean;
+    scrapWeightAsk?: boolean;
+  } | null;
   prevWeightOutG: number | null;
   heldBy: string | null;
   workers: { id: string; displayName: string }[];
@@ -51,6 +64,14 @@ function numOrNull(v: unknown): number | null {
   if (v === null || v === undefined || v === "") return null;
   const n = typeof v === "number" ? v : Number(v);
   return Number.isFinite(n) ? n : null;
+}
+
+/** 0176: ใส่ key เฉพาะที่ DB ส่งมา (ชนิด boolean จริงเท่านั้น) — ไม่มี = ผู้ใช้ถือค่าเริ่ม */
+function scrapAsk(as: Record<string, unknown>): { scrapQtyAsk?: boolean; scrapWeightAsk?: boolean } {
+  const out: { scrapQtyAsk?: boolean; scrapWeightAsk?: boolean } = {};
+  if (typeof as.scrap_qty_ask === "boolean") out.scrapQtyAsk = as.scrap_qty_ask;
+  if (typeof as.scrap_weight_ask === "boolean") out.scrapWeightAsk = as.scrap_weight_ask;
+  return out;
 }
 
 function mapStage(raw: unknown): WorkerViewStage | null {
@@ -83,6 +104,7 @@ export function sanitizeWorkerView(raw: unknown): WorkerView | null {
     job.qtyPlanned = numOrNull(j.qty_planned) ?? undefined;
     job.dueDate = dateText(j.due_date);
   }
+  if ("has_profile" in j) job.hasProfile = j.has_profile === true;
 
   const v = raw.viewer;
   const viewerId = isObj(v) && typeof v.worker_id === "string" && UUID_RE.test(v.worker_id) ? v.worker_id : null;
@@ -97,7 +119,7 @@ export function sanitizeWorkerView(raw: unknown): WorkerView | null {
   const actionSeq = isObj(as) ? numOrNull(as.seq) : null;
   const actionStage =
     isObj(as) && actionSeq !== null && text(as.code, 40)
-      ? { seq: actionSeq, code: text(as.code, 40) as string, name: text(as.name, 80) ?? "", weightRequired: as.weight_required === true }
+      ? { seq: actionSeq, code: text(as.code, 40) as string, name: text(as.name, 80) ?? "", weightRequired: as.weight_required === true, ...scrapAsk(as) }
       : null;
 
   const workers = (Array.isArray(raw.workers) ? raw.workers : [])

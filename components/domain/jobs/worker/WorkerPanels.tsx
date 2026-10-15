@@ -22,7 +22,7 @@ const PERMANENT_BLOCK = new Set(["locked_office", "token_budget_exhausted", "inv
 /** การล็อกที่ผูกกับ "ใบ/QR" ไม่ใช่ตัวช่าง — เปลี่ยนชื่อแล้วก็ยังใช้ไม่ได้ · ที่เหลือ (locked, locked_office) ล็อกรายช่าง: เปลี่ยนคนแล้วแป้นต้องกลับมากดได้ */
 const TOKEN_WIDE_BLOCK = new Set(["token_budget_exhausted", "invalid_token"]);
 /** code ที่แปลว่า "ข้อมูลบนจอเก่าแล้ว" — แก้ได้ด้วยการโหลดใหม่ (ช่างไม่ต้องรู้ว่า "รีเฟรช" คืออะไร) */
-const RELOAD_CODES = new Set(["stage_changed", "out_of_order", "not_holder", "not_received", "already_sent"]);
+const RELOAD_CODES = new Set(["stage_changed", "out_of_order", "not_holder", "not_received", "already_sent", "weight_required"]);
 
 async function safely(fn: () => Promise<WorkerActionResult>): Promise<WorkerActionResult> {
   try {
@@ -182,6 +182,10 @@ export function ReceivePanel({ token, view, onDone, onReload }: { token: string;
   const [wErr, setWErr] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<Confirm>(null);
   const [ack, setAck] = useState<Ack>({ holder: false, weight: false });
+  // 0176: ใบที่มีแบบการบันทึก = ช่องตาม flag ของขั้น · ใบเดิม (has_profile ไม่ใช่ true) = ช่องน้ำหนักเหมือนเดิมทุกประการ
+  const legacy = view.job.hasProfile !== true;
+  const showWeight = legacy || st.weightRequired;
+  const noteLine = legacy ? null : !st.weightRequired && st.scrapQtyAsk === false && st.scrapWeightAsk !== true ? "ขั้นนี้ไม่ต้องบันทึกอะไร — กดรับงานได้เลย" : !st.weightRequired ? "ขั้นนี้ไม่ต้องชั่งน้ำหนัก" : null;
 
   // ขั้นก่อนยังถืออยู่โดยคนอื่น (ขั้นไม่บังคับชั่ง: การรับงานจะปิดขั้นของเขาให้) → ถามก่อนเสมอ
   const holderOther = view.heldBy !== null && view.heldBy !== me ? view.heldBy : null;
@@ -235,15 +239,18 @@ export function ReceivePanel({ token, view, onDone, onReload }: { token: string;
       <h2 id="recv-h" className="text-2xl font-bold text-zinc-900">
         ขั้นถัดไป: {st.name}
       </h2>
-      <WeightField
-        id="w-in"
-        label="น้ำหนักเข้า"
-        value={w}
-        onChange={(v) => { setW(v); setWErr(null); setConfirm(null); setAck((a) => ({ ...a, weight: false })); }}
-        required={st.weightRequired}
-        hint={view.prevWeightOutG !== null ? `ครั้งก่อนส่งออก ${view.prevWeightOutG} กรัม` : null}
-        error={wErr}
-      />
+      {noteLine && <p className="text-lg text-zinc-700">{noteLine}</p>}
+      {showWeight && (
+        <WeightField
+          id="w-in"
+          label="น้ำหนักเข้า"
+          value={w}
+          onChange={(v) => { setW(v); setWErr(null); setConfirm(null); setAck((a) => ({ ...a, weight: false })); }}
+          required={st.weightRequired}
+          hint={view.prevWeightOutG !== null ? `ครั้งก่อนส่งออก ${view.prevWeightOutG} กรัม` : null}
+          error={wErr}
+        />
+      )}
       {err && <ActionError message={err} code={errCode} onReload={onReload} busy={busy} />}
       {confirm ? (
         <ConfirmBox text={confirm.text} busy={busy} onYes={() => answer(confirm.kind === "holder" ? { holder: true } : { weight: true })} onNo={() => setConfirm(null)} />
@@ -272,6 +279,22 @@ export function SendPanel({ token, view, onDone, onReload }: { token: string; vi
   const [errCode, setErrCode] = useState<string | null>(null);
   const [wErr, setWErr] = useState<string | null>(null);
   const [sErr, setSErr] = useState<string | null>(null);
+  // 0176: ใบที่มีแบบการบันทึก = ช่อง/ปุ่มตาม flag ของขั้น · ใบเดิม = UI เดิมทุกประการ (ช่องน้ำหนัก + ชิ้นเสีย + เติมโลหะ ทุกขั้น)
+  const legacy = view.job.hasProfile !== true;
+  const showWeight = legacy || st.weightRequired;
+  const askScrap = legacy || st.scrapQtyAsk !== false;
+  const askScrapWeight = !legacy && st.scrapWeightAsk === true;
+  const showAdd = legacy || st.weightRequired;
+  const [scrapOpen, setScrapOpen] = useState(false); // ขั้นที่ไม่ถามชิ้นเสีย: เปิดเองได้ด้วยปุ่ม "+ แจ้งของเสียในขั้นนี้"
+  const [scrapW, setScrapW] = useState("");
+  const [swErr, setSwErr] = useState<string | null>(null);
+  const noteLine = legacy
+    ? null
+    : !st.weightRequired && !askScrap && !askScrapWeight
+      ? "ขั้นนี้ไม่ต้องชั่งหรือแจ้งของเสีย — กดส่งต่อได้เลย"
+      : !st.weightRequired
+        ? "ขั้นนี้ไม่ต้องชั่งน้ำหนัก"
+        : null;
 
   async function go() {
     if (busy) return;
@@ -279,7 +302,8 @@ export function SendPanel({ token, view, onDone, onReload }: { token: string; vi
     setErrCode(null);
     setWErr(null);
     setSErr(null);
-    const out = parseWeight(w, "น้ำหนักออก");
+    setSwErr(null);
+    const out = parseWeight(showWeight ? w : "", "น้ำหนักออก");
     if (!out.ok) {
       setWErr(out.error);
       return;
@@ -292,9 +316,21 @@ export function SendPanel({ token, view, onDone, onReload }: { token: string; vi
       setSErr("เลือกเหตุผลของเสีย");
       return;
     }
+    const sw = parseWeight(askScrapWeight ? scrapW : "", "น้ำหนักเศษโลหะ");
+    if (!sw.ok) {
+      setSwErr(sw.error);
+      return;
+    }
     setBusy(true);
     const r = await safely(() =>
-      workerSendStage(token, { expectedSeq: st.seq, weightOut: out.value === null ? null : w, qtyScrap: scrap, scrapReason: scrap > 0 ? reason : null, metalAdded: addOpen && added.trim() !== "" ? added : null })
+      workerSendStage(token, {
+        expectedSeq: st.seq,
+        weightOut: out.value === null ? null : w,
+        qtyScrap: scrap,
+        scrapReason: scrap > 0 ? reason : null,
+        metalAdded: showAdd && addOpen && added.trim() !== "" ? added : null,
+        ...(askScrapWeight && sw.value !== null ? { scrapWeight: scrapW } : {}),
+      })
     );
     setBusy(false);
     if (r.ok) onDone(r.already ? (r.message ?? "ส่งขั้นนี้ไปแล้ว") : next ? `ส่งต่อแล้ว — ถัดไป ${next.name}` : "ส่งต่อแล้ว", "ok");
@@ -309,15 +345,24 @@ export function SendPanel({ token, view, onDone, onReload }: { token: string; vi
       <h2 id="send-h" className="text-2xl font-bold text-zinc-900">
         ส่งต่อ: {st.name}
       </h2>
-      <WeightField id="w-out" label="น้ำหนักออก" value={w} onChange={(v) => { setW(v); setWErr(null); }} required={st.weightRequired} error={wErr} />
-      <ScrapStepper qty={scrap} onQty={(n) => { setScrap(n); setSErr(null); if (n === 0) setReason(null); }} reason={reason} onReason={(r) => { setReason(r); setSErr(null); }} reasons={view.scrapReasons} error={sErr} />
-      {!addOpen ? (
-        <button type="button" className="min-h-14 w-full rounded-xl border-2 border-dashed border-zinc-400 text-lg font-semibold text-zinc-800" onClick={() => setAddOpen(true)}>
-          + เติมโลหะ
-        </button>
+      {noteLine && <p className="text-lg text-zinc-700">{noteLine}</p>}
+      {showWeight && <WeightField id="w-out" label="น้ำหนักออก" value={w} onChange={(v) => { setW(v); setWErr(null); }} required={st.weightRequired} error={wErr} />}
+      {askScrap || scrapOpen ? (
+        <ScrapStepper qty={scrap} onQty={(n) => { setScrap(n); setSErr(null); if (n === 0) setReason(null); }} reason={reason} onReason={(r) => { setReason(r); setSErr(null); }} reasons={view.scrapReasons} error={sErr} />
       ) : (
-        <WeightField id="w-add" label="เติมโลหะ" value={added} onChange={setAdded} required={false} hint="ใส่เฉพาะถ้าเติมโลหะเพิ่มระหว่างขั้นนี้" />
+        <button type="button" className="min-h-14 w-full rounded-xl border-2 border-dashed border-zinc-400 text-lg font-semibold text-zinc-800" onClick={() => setScrapOpen(true)}>
+          + แจ้งของเสียในขั้นนี้
+        </button>
       )}
+      {askScrapWeight && <WeightField id="w-scrap" label="เศษโลหะ (กรัม) — ถ้าชั่งได้" value={scrapW} onChange={(v) => { setScrapW(v); setSwErr(null); }} required={false} hint="เศษ/ก้านต้นที่เก็บได้ ไม่ใช่น้ำหนักงาน" error={swErr} />}
+      {showAdd &&
+        (!addOpen ? (
+          <button type="button" className="min-h-14 w-full rounded-xl border-2 border-dashed border-zinc-400 text-lg font-semibold text-zinc-800" onClick={() => setAddOpen(true)}>
+            + เติมโลหะ
+          </button>
+        ) : (
+          <WeightField id="w-add" label="เติมโลหะ" value={added} onChange={setAdded} required={false} hint="ใส่เฉพาะถ้าเติมโลหะเพิ่มระหว่างขั้นนี้" />
+        ))}
       {err && <ActionError message={err} code={errCode} onReload={onReload} busy={busy} />}
       <StickyAction>
         <BigButton type="button" onClick={() => void go()} loading={busy}>

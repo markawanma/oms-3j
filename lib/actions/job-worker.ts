@@ -55,6 +55,8 @@ export interface WorkerSendInput {
   qtyScrap: number;
   scrapReason: string | null;
   metalAdded: string | null;
+  /** 0176: น้ำหนักเศษโลหะที่เก็บได้ (กรัม) — เฉพาะขั้นที่แบบการบันทึกให้ถาม · ไม่ส่ง/ว่าง = ไม่บันทึก */
+  scrapWeight?: string | null;
 }
 
 export async function workerSendStage(token: string, input: WorkerSendInput): Promise<WorkerActionResult> {
@@ -69,6 +71,8 @@ export async function workerSendStage(token: string, input: WorkerSendInput): Pr
   if (!reason.ok) return bad(reason.error);
   const added = parseWeightOrZero(input.metalAdded, "เติมโลหะ");
   if (!added.ok) return bad(added.error);
-  const r = await workerSend(token, { expectedSeq: seq.value, weightOutG: w.value, qtyScrap: scrap.value, scrapReason: reason.value, metalAddedG: added.value });
+  const sw = parseWeight(input.scrapWeight ?? null, "น้ำหนักเศษโลหะ");
+  if (!sw.ok) return bad(sw.error);
+  const r = await workerSend(token, { expectedSeq: seq.value, weightOutG: w.value, qtyScrap: scrap.value, scrapReason: reason.value, metalAddedG: added.value, scrapWeightG: sw.value });
   return r.ok ? { ok: true, already: r.data.already, message: r.data.message, by: r.data.by } : { ok: false, error: r.error, code: r.code, retryAfterSeconds: r.retryAfterSeconds };
 }
