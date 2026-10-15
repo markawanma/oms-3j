@@ -55,6 +55,20 @@ export function parseCount(raw: unknown, label: string, max = 100000): Parsed<nu
   return ok(n);
 }
 
+/**
+ * จำนวนชิ้นจากช่องกรอก (ฟอร์มออฟฟิศ): จำนวนเต็ม 1–100,000 เท่านั้น
+ * 🔴 ห้ามกรองอักขระทิ้งเงียบ ("1,5" เคยจะกลายเป็น 15) — มี "," หรือ "." หรืออักขระอื่น = error
+ */
+export function parseQtyText(raw: unknown, max = 100000): Parsed<number> {
+  const msg = "ใส่เป็นจำนวนเต็ม เช่น 35";
+  const t = typeof raw === "number" ? String(raw) : typeof raw === "string" ? raw.trim() : "";
+  if (!/^\d+$/.test(t)) return bad(msg);
+  const n = Number(t);
+  if (!Number.isSafeInteger(n)) return bad(msg);
+  if (n < 1 || n > max) return bad(`จำนวนต้องอยู่ระหว่าง 1–${max.toLocaleString("en-US")}`);
+  return ok(n);
+}
+
 export function parseSeq(raw: unknown): Parsed<number> {
   const n = typeof raw === "number" ? raw : NaN;
   if (!Number.isInteger(n) || n < 1 || n > 100) return bad("ข้อมูลขั้นตอนไม่ถูกต้อง รีเฟรชแล้วลองใหม่");
