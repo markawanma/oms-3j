@@ -420,6 +420,7 @@ begin
     and v_j.target_piece_g is not distinct from case when v_w > 0 and v_w <= 10000 then round(v_w, 3) end
     and v_j.metal_plan_g is not distinct from v_exp
     and (v_j.metal_plan_basis is null) = (v_j.target_piece_g is null)
+    and (v_j.metal_plan_basis ->> 'target_source') is not distinct from case when v_j.target_piece_g is not null then 'quote' end
     and (v_exp is not null or v_j.target_piece_g is null or jsonb_array_length(v_j.metal_plan_basis -> 'missing') = 1)
     and exists (select 1 from analytics.job_event e where e.job_id = j1 and e.event_type = 'create' and (e.payload ->> 'qty_order') = '10'));
 
@@ -484,7 +485,7 @@ create function pg_temp.sb1(p_shop uuid, p_tpl uuid) returns text
 declare
   v_log   text := '';
   v_today date := analytics.job_today();
-  ja uuid; jb uuid; jd uuid; jc uuid; jn uuid;
+  ja uuid; jb uuid; jd uuid; jc uuid; jn uuid; jp uuid;
   d jsonb; r jsonb; x text;
   v_n int; v_bad text := ''; c record;
   v_item_qty int;
@@ -525,6 +526,18 @@ begin
   v_log := v_log || pg_temp.chk('B3a', 'UPDATE metal_plan_g ตรงๆ ให้ไม่ตรงกับ basis (หรือตั้งค่าทั้งที่ basis ไม่มีผลคำนวณ) → plan_drift · target แก้โดย basis ไม่ตาม → plan_drift',
     pg_temp.xs(x) = '22023' and pg_temp.xm(x) like '%plan_drift%'
     and pg_temp.xm(pg_temp.x(format('update analytics.job set target_piece_g = 5.000 where id = %L', jb))) like '%plan_drift%');
+  -- B3c-e (security L1/L4): basis ปลอม — computed_g มั่ว (metal_plan_g ตามให้ตรง) · override ไม่มีเหตุผล/เหตุผล "." · target_source ค่ามั่ว/หาย
+  x := pg_temp.x(format('update analytics.job set metal_plan_basis = jsonb_set(metal_plan_basis, ''{computed_g}'', ''999''::jsonb), metal_plan_g = 999 where id = %L', jb));
+  v_log := v_log || pg_temp.chk('B3c', 'basis ปลอม: computed_g = 999 (metal_plan_g ตามให้ตรง) ไม่ตรงสูตร จำนวน × น้ำหนัก × (1+ก้านต้น) → plan_drift · ' || pg_temp.xm(x),
+    pg_temp.xs(x) = '22023' and pg_temp.xm(x) like '%plan_drift%');
+  x := pg_temp.x(format('update analytics.job set metal_plan_basis = metal_plan_basis || ''{"override_g": 7, "override_reason": "."}''::jsonb, metal_plan_g = 7 where id = %L', jb));
+  v_log := v_log || pg_temp.chk('B3d', 'basis ปลอม: override_g = 7 แต่เหตุผลเป็น "." / ว่าง (ไม่มีตัวอักษรจริง) → plan_drift · ' || pg_temp.xm(x),
+    pg_temp.xs(x) = '22023' and pg_temp.xm(x) like '%plan_drift%'
+    and pg_temp.xm(pg_temp.x(format('update analytics.job set metal_plan_basis = metal_plan_basis || ''{"override_g": 7, "override_reason": null}''::jsonb, metal_plan_g = 7 where id = %L', jb))) like '%plan_drift%');
+  v_log := v_log || pg_temp.chk('B3e', 'basis ปลอม: target_source = "xyz" / ไม่ใช่ข้อความ / หาย → plan_drift (ที่มาน้ำหนักต้องเป็น quote|product|input)',
+    pg_temp.xm(pg_temp.x(format('update analytics.job set metal_plan_basis = jsonb_set(metal_plan_basis, ''{target_source}'', ''"xyz"''::jsonb) where id = %L', jb))) like '%plan_drift%'
+    and pg_temp.xm(pg_temp.x(format('update analytics.job set metal_plan_basis = jsonb_set(metal_plan_basis, ''{target_source}'', ''5''::jsonb) where id = %L', jb))) like '%plan_drift%'
+    and pg_temp.xm(pg_temp.x(format('update analytics.job set metal_plan_basis = metal_plan_basis - ''target_source'' where id = %L', jb))) like '%plan_drift%');
   perform pg_temp.o_run(p_shop, jb, 1, 3, v_today);
   perform pg_temp.o_recv(p_shop, jb, 4, v_today, 9.9, null, 'verify');
   x := pg_temp.x(format('update analytics.job set target_piece_g = null, metal_plan_g = null, metal_plan_basis = null where id = %L', jb));
@@ -548,6 +561,17 @@ begin
   v_log := v_log || pg_temp.chk('B4b', 'ต้องไม่พัง: ใบ done แก้ surplus_disposition hold→spare + surplus_note ได้ (ช่องเดียวที่ guard ยอม) [' || x || ']',
     x = 'OK'
     and (select surplus_disposition = 'spare' and surplus_note = 'verify' from analytics.job where id = jd));
+
+  -- B4c (security L2): ของเหลือตามชนิดต้นทาง — UPDATE ตรง OEM → stock ตก · ใบผลิต → hold ตก (CHECK job_surplus_source_ck · guard ปล่อยเพราะเป็นช่อง surplus_*)
+  jp := (pg_temp.mkpj2(p_shop, 10, 12) ->> 'job_id')::uuid;
+  perform pg_temp.o_run(p_shop, jp, 1, 8, v_today);
+  perform pg_temp.o_done(p_shop, jp, 11, 1);
+  x := pg_temp.x(format('update analytics.job set surplus_disposition = ''stock'' where id = %L', jd));
+  v_log := v_log || pg_temp.chk('B4c', 'UPDATE ตรง: ใบ OEM done ตั้ง surplus = stock ตก job_surplus_source_ck (23514) · ใบผลิต done ตั้ง hold ตก (23514) · ต้องไม่พัง: ใบผลิต stock → stock ผ่าน · OEM spare → deliver ผ่าน',
+    pg_temp.xs(x) = '23514' and pg_temp.xm(x) like '%job_surplus_source_ck%'
+    and pg_temp.xs(pg_temp.x(format('update analytics.job set surplus_disposition = ''hold'' where id = %L', jp))) = '23514'
+    and pg_temp.x(format('update analytics.job set surplus_note = ''x'' where id = %L', jp)) = 'OK'
+    and pg_temp.x(format('update analytics.job set surplus_disposition = ''deliver'' where id = %L', jd)) = 'OK');
 
   -- B5 ใบ cancelled: ตั้ง surplus ไม่ได้ · แก้อะไรก็ไม่ได้
   v_log := v_log || pg_temp.chk('B5', 'ใบ cancelled: UPDATE surplus_disposition / surplus_note / design_label ตกที่ guard ทั้งหมด (cancelled แข็งกว่า done)',
@@ -634,7 +658,8 @@ begin
   select * into v_j from analytics.job where id = (r ->> 'job_id')::uuid;
   v_log := v_log || pg_temp.chk('B10a', 'กำหนดแผนเอง 5.500 + เหตุผล: สร้างได้ · metal_plan_g = 5.500 · basis.override_g = 5.5 + มีเหตุผล + missing = [] · target = 4.000',
     (r ->> 'job_id') is not null and v_j.metal_plan_g = 5.500 and (v_j.metal_plan_basis ->> 'override_g')::numeric = 5.5
-    and (v_j.metal_plan_basis ->> 'override_reason') = 'ลูกค้าขอโลหะเพิ่มสำหรับงานพิเศษ' and v_j.metal_plan_basis -> 'missing' = '[]'::jsonb and v_j.target_piece_g = 4.000);
+    and (v_j.metal_plan_basis ->> 'override_reason') = 'ลูกค้าขอโลหะเพิ่มสำหรับงานพิเศษ' and v_j.metal_plan_basis -> 'missing' = '[]'::jsonb and v_j.target_piece_g = 4.000
+    and (v_j.metal_plan_basis ->> 'target_source') = 'input');
   r := pg_temp.q(format('select analytics.job_plan_set(p_shop_id=>%L, p_job_id=>%L, p_target_piece_g=>3.000, p_actor=>%L)', p_shop, v_j.id, '00000000-0000-0000-0000-0000000000a1'::uuid));
   select * into v_j from analytics.job where id = v_j.id;
   v_log := v_log || pg_temp.chk('B10b', 'job_plan_set ก่อน cast รับ: เปลี่ยน target เป็น 3.000 โดยไม่ส่ง override → override ถูกล้าง (basis.override_g = jsonb null) · plan = ค่าที่ DB คำนวณ (computed_g) · event plan_change 1 รายการ',
@@ -669,6 +694,8 @@ begin
     and (select count(*) from analytics.job_event where job_id = jq and event_type = 'plan_change') = 1
     and v_j.metal_plan_g is not distinct from (v_j.metal_plan_basis ->> 'computed_g')::numeric);
   select count(*) into v_ev from analytics.job_event where job_id = jq;
+  v_log := v_log || pg_temp.chk('B11a2', 'basis เก็บ target_source = input (ส่งน้ำหนักเอง) และคงไว้หลัง job_qty_planned_set คำนวณใหม่ (L4)',
+    (select metal_plan_basis ->> 'target_source' from analytics.job where id = jq) = 'input');
   r := pg_temp.q(format('select analytics.job_qty_planned_set(%L, %L, 12, null, %L)', p_shop, jq, v_act));
   v_log := v_log || pg_temp.chk('B11b', 'ค่าเท่าเดิม (12→12) = changed:false ไม่เขียน event · ค่า 0 / -3 / 100001 → qty_planned_invalid · ใบอื่นร้าน/ไม่มี → job_not_found',
     (r ->> 'changed') = 'false' and (select count(*) from analytics.job_event where job_id = jq) = v_ev
@@ -681,6 +708,17 @@ begin
   select * into v_j from analytics.job where id = jq;
   v_log := v_log || pg_temp.chk('B11c', 'หลังขั้นแรกถูกรับ job_qty_planned_set ตก hint started · qty_planned ไม่ขยับ (12) · ไม่เขียน event ใหม่',
     pg_temp.code(r) = 'started' and v_j.qty_planned = 12 and (select count(*) from analytics.job_event where job_id = jq and event_type = 'plan_change') = 1);
+
+  -- B11d (security M2): ใบที่กำหนดน้ำหนักโลหะเอง → job_qty_planned_set ตก plan_override_stale · ค่าไม่ขยับ · ล้าง override ผ่าน job_plan_set แล้วแก้ได้
+  jx := (pg_temp.mkj2(p_shop, p_tpl, 'silver', 10, 10, '4.000', '55.500', 'ลูกค้าขอโลหะเพิ่ม') ->> 'job_id')::uuid;
+  r := pg_temp.q(format('select analytics.job_qty_planned_set(%L, %L, 12, null, %L)', p_shop, jx, v_act));
+  select * into v_j from analytics.job where id = jx;
+  r2 := pg_temp.q(format('select analytics.job_plan_set(p_shop_id=>%L, p_job_id=>%L, p_target_piece_g=>4.000, p_actor=>%L)', p_shop, jx, v_act));
+  d := pg_temp.q(format('select analytics.job_qty_planned_set(%L, %L, 12, null, %L)', p_shop, jx, v_act));
+  v_log := v_log || pg_temp.chk('B11d', 'ใบกำหนดโลหะเอง 55.5: job_qty_planned_set → plan_override_stale · qty_planned/แผนไม่ขยับ · หลัง job_plan_set ล้าง override แก้ได้ (qty 12 · basis.qty_planned 12)',
+    pg_temp.code(r) = 'plan_override_stale' and v_j.qty_planned = 10 and v_j.metal_plan_g = 55.500
+    and (r2 ->> 'ok') = 'true' and (d ->> 'ok') = 'true' and (select qty_planned from analytics.job where id = jx) = 12
+    and (select (metal_plan_basis ->> 'qty_planned')::int from analytics.job where id = jx) = 12);
 
   -- ---------- job_plan_set ----------
   jo := (pg_temp.mkj2(p_shop, p_tpl, 'silver', 10, 10, '4.000') ->> 'job_id')::uuid;
@@ -978,6 +1016,30 @@ $f$;
     (r ->> 'ok') = 'true' and (r2 ->> 'ok') = 'true'
     and pg_temp.code(pg_temp.o_recv(p_shop, (pg_temp.mkj2(p_shop, p_tpl, 'silver', 10) ->> 'job_id')::uuid, 1, v_today, null, null, null)) = 'who_required');
 
+  -- C1c (security L3): ชื่อที่เป็นช่องว่างพิเศษล้วน (NBSP / tab / U+3000) + ระบุช่าง → ถือว่าไม่ระบุชื่อ (null) รับได้ ไม่ error · ไม่มีช่างด้วย → who_required
+  v_ok := true; v_why := '';
+  foreach x in array array[chr(160), chr(9), chr(12288), chr(160) || chr(9) || chr(12288)] loop
+    j2 := (pg_temp.mkj2(p_shop, p_tpl, 'silver', 10) ->> 'job_id')::uuid;
+    r := pg_temp.o_recv(p_shop, j2, 1, v_today, null, wf, x);
+    if (r ->> 'ok') is distinct from 'true' or (select assignee_name from analytics.job_stage where job_id = j2 and seq = 1) is not null then
+      v_ok := false; v_why := v_why || encode(convert_to(x, 'UTF8'), 'hex') || '→' || coalesce(r::text, '-') || '; ';
+    end if;
+  end loop;
+  j2 := (pg_temp.mkj2(p_shop, p_tpl, 'silver', 10) ->> 'job_id')::uuid;
+  v_log := v_log || pg_temp.chk('C1c', 'ชื่อ NBSP / tab / U+3000 ล้วน (+ช่างระบุ) รับได้ assignee_name = null ทุกแบบ ' || left(v_why, 300) || ' · ไม่มีช่างด้วย = who_required',
+    v_ok and pg_temp.code(pg_temp.o_recv(p_shop, j2, 1, v_today, null, null, chr(160))) = 'who_required');
+  -- C1d: CHECK ที่ตาราง job_stage กัน < > แม้เขียนตรง (ข้าม RPC) · ชื่อปกติแก้ตรงได้
+  j2 := (pg_temp.mkj2(p_shop, p_tpl, 'silver', 10) ->> 'job_id')::uuid;
+  perform pg_temp.o_recv(p_shop, j2, 1, v_today, null, null, 'ช่างเอ');   -- ขั้นต้องถูกรับก่อน (js_idle_ck: ขั้น pending ห้ามมีชื่อผู้รับ)
+  -- job_stage_guard ห้ามแก้ขั้นที่รับแล้วตรงๆ (ชั้นแรก) — ปิด trigger นี้ชั่วคราวใน subtransaction ของ section (ถอยกลับ) เพื่อพิสูจน์ว่า CHECK ชั้นที่สองกันเอง (ข้อ 18.5: จำลองวันที่ชั้นนอกหลุด)
+  execute 'alter table analytics.job_stage disable trigger trg_job_stage_guard';
+  x := pg_temp.x(format('update analytics.job_stage set assignee_name = %L where job_id = %L and seq = 1', 'a<b', j2));
+  v_why := pg_temp.x(format('update analytics.job_stage set assignee_name = %L where job_id = %L and seq = 1', 'b>', j2));
+  r2 := to_jsonb(pg_temp.x(format('update analytics.job_stage set assignee_name = %L where job_id = %L and seq = 1', 'ช่างปกติ', j2)));
+  v_log := v_log || pg_temp.chk('C1d', 'UPDATE ตรง job_stage.assignee_name มี < หรือ > ตก job_stage_assignee_ck (23514) · ชื่อปกติผ่าน [' || (r2 #>> '{}') || ']',
+    pg_temp.xs(x) = '23514' and pg_temp.xm(x) like '%job_stage_assignee_ck%' and pg_temp.xs(v_why) = '23514' and (r2 #>> '{}') = 'OK');
+  execute 'alter table analytics.job_stage enable trigger trg_job_stage_guard';
+
   -- C2 golden D6: ใหม่ vs legacy ผลต้องเท่ากันเป๊ะ (ตัด job_no) + สถานะขั้นเท่ากัน
   -- G1 ด่านมัดจำ: ใบ OEM ไม่มีเงิน + ไม่มีเหตุผล → awaiting_deposit ทั้งคู่
   ja := (pg_temp.mkj2(p_shop, p_tpl, 'silver', 10) ->> 'job_id')::uuid;
@@ -1211,7 +1273,7 @@ begin
   r2 := pg_temp.ps(p_shop, v_item, 5, null, v_std);
   v_log := v_log || pg_temp.chk('D6', 'p_qty_planned=15 → eff 15 under=false · =5 → under_planned=true · p_target=2.5 → target_piece_g_source=input · metal_plan_g = round(15×2.5×(1+ก้านต้น%),3) หรือ null+missing เมื่อไม่มี rate',
     (r ->> 'qty_planned_eff')::int = 15 and (r ->> 'under_planned') = 'false' and (r2 ->> 'qty_planned_eff')::int = 5 and (r2 ->> 'under_planned') = 'true'
-    and (r ->> 'target_piece_g_source') = 'input' and (r ->> 'target_piece_g')::numeric = 2.5
+    and (r ->> 'target_piece_g_source') = 'input' and (r ->> 'target_piece_g')::numeric = 2.5 and (r #>> '{metal_plan_basis,target_source}') = 'input'
     and (r ->> 'metal_plan_g')::numeric is not distinct from case when v_sprue >= 0 and v_sprue <= 500 then round(15 * 2.5 * (1 + v_sprue / 100), 3) end
     and (v_sprue is not null or r -> 'missing' @> '["sprue_loss_pct[silver]"]'::jsonb));
 
@@ -1267,7 +1329,7 @@ declare
     jsonb_build_object('id', 'MU-6', 'what', 'job_done ไม่มีของเหลือแต่รับ disposition/note มาเงียบๆ', 'fn', 'job_done',
       'from', 'elsif p_surplus_disposition is not null or', 'to', 'elsif false or', 'expect', jsonb_build_array('B13c')),
     jsonb_build_object('id', 'MU-7', 'what', 'D2 หาย: ชื่อผู้รับงานไม่ผ่าน job_label_clean (< > ผ่าน)', 'fn', 'job_office_receive',
-      'from', 'else analytics.job_label_clean(p_assignee_name, ''ชื่อผู้รับงาน'', 60) end', 'to', 'else p_assignee_name end', 'expect', jsonb_build_array('C1a')),
+      'from', 'v_assignee := analytics.job_label_clean(v_assignee, ''ชื่อผู้รับงาน'', 60);', 'to', 'v_assignee := v_assignee;', 'expect', jsonb_build_array('C1a')),
     jsonb_build_object('id', 'MU-8', 'what', 'job_core_receive ข้าม scope ช่าง (helper ไม่ถูกเรียกจริง)', 'fn', 'job_core_receive',
       'from', 'if not analytics.job_worker_can_do(v_codes, v_t.stage_code) then', 'to', 'if false then', 'expect', jsonb_build_array('C2b')),
     jsonb_build_object('id', 'MU-9', 'what', 'job_deposit_blocked ไม่สนใจเหตุผลเริ่มก่อนมัดจำ (บล็อกแม้ออฟฟิศอนุมัติแล้ว)', 'fn', 'job_deposit_blocked',
@@ -1281,7 +1343,21 @@ declare
     jsonb_build_object('id', 'MU-13', 'what', 'job_surplus_set เปลี่ยนของเหลือของใบผลิตได้', 'fn', 'job_surplus_set',
       'from', 'if v_job.source_kind <> ''oem'' then', 'to', 'if false then', 'expect', jsonb_build_array('B14a')),
     jsonb_build_object('id', 'MU-14', 'what', 'job_qty_planned_set ค่าเท่าเดิมยังเขียน event ซ้ำ', 'fn', 'job_qty_planned_set',
-      'from', 'if p_qty_planned = v_job.qty_planned then', 'to', 'if false then', 'expect', jsonb_build_array('B11b'))
+      'from', 'if p_qty_planned = v_job.qty_planned then', 'to', 'if false then', 'expect', jsonb_build_array('B11b')),
+    jsonb_build_object('id', 'MU-15', 'what', 'L1: guard ไม่เทียบ computed_g กับสูตรจริง (basis ปลอม computed_g มั่ว ผ่าน)', 'fn', 'job_guard',
+      'from', 'round(new.qty_planned * new.target_piece_g * (1 + (new.metal_plan_basis ->> ''sprue_loss_pct'')::numeric / 100), 3)', 'to', '(new.metal_plan_basis ->> ''computed_g'')::numeric', 'expect', jsonb_build_array('B3c')),
+    jsonb_build_object('id', 'MU-16', 'what', 'L1: guard ไม่ตรวจเหตุผลของ override (override ไม่มีเหตุผลผ่าน)', 'fn', 'job_guard',
+      'from', 'if v_ov = ''number'' and not coalesce(analytics.oem_note_present(new.metal_plan_basis ->> ''override_reason''), false) then', 'to', 'if false then', 'expect', jsonb_build_array('B3d')),
+    jsonb_build_object('id', 'MU-17', 'what', 'L4: guard ไม่ตรวจค่า target_source (ค่ามั่วผ่าน)', 'fn', 'job_guard',
+      'from', 'or (new.metal_plan_basis ->> ''target_source'') not in (''quote'', ''product'', ''input'') then', 'to', 'or false then', 'expect', jsonb_build_array('B3e')),
+    jsonb_build_object('id', 'MU-18', 'what', 'M2: job_qty_planned_set คำนวณใหม่ทับใบที่กำหนดน้ำหนักเอง (override ค้างค่าเก่าเงียบๆ)', 'fn', 'job_qty_planned_set',
+      'from', 'if jsonb_typeof(v_job.metal_plan_basis -> ''override_g'') = ''number'' then', 'to', 'if false then', 'expect', jsonb_build_array('B11d')),
+    jsonb_build_object('id', 'MU-19', 'what', 'L2: ถอน CHECK job_surplus_source_ck (OEM stock / ผลิต hold ผ่านด้วย UPDATE ตรง)', 'ddl',
+      'alter table analytics.job drop constraint job_surplus_source_ck', 'expect', jsonb_build_array('B4c')),
+    jsonb_build_object('id', 'MU-20', 'what', 'L3: ถอน CHECK job_stage_assignee_ck (UPDATE ตรงใส่ < > ได้)', 'ddl',
+      'alter table analytics.job_stage drop constraint job_stage_assignee_ck', 'expect', jsonb_build_array('C1d')),
+    jsonb_build_object('id', 'MU-21', 'what', 'L3: job_office_receive ไม่ตัดช่องว่างก่อน (ชื่อ NBSP/tab/U+3000 ล้วนกลายเป็น error แทน null)', 'fn', 'job_office_receive',
+      'from', 'v_assignee := analytics.job_text_clean(p_assignee_name, ''ชื่อผู้รับงาน'', 60, false);', 'to', 'v_assignee := nullif(btrim(p_assignee_name), '''');', 'expect', jsonb_build_array('C1c'))
 
   );
 begin
