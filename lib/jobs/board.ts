@@ -155,11 +155,11 @@ export function applySignal(rows: readonly BoardRow[], signal: Signal | null, to
 }
 
 export type StatusTone = BadgeTone | "green";
-export type StatusKey = "overdue" | "dueSoon" | "mismatch" | "handoff" | "stale" | "deposit" | "hold" | "normal" | "auto" | "qty" | "surplusPending" | "underPlanned";
+export type StatusKey = "overdue" | "dueSoon" | "mismatch" | "handoff" | "stale" | "deposit" | "hold" | "normal" | "auto" | "qty" | "surplusPending" | "underPlanned" | "goldUnguarded";
 
 export interface StatusSignal {
   key: StatusKey;
-  /** 1-7 = ต้องดู · 8 = เดินปกติ · 9+ = ข้อมูลประกอบ (รองเท่านั้น) */
+  /** 1-7 = ต้องดู · 8 = เดินปกติ · 9+ = ข้อมูลประกอบ (รองเท่านั้น) — 9 = ทองไม่มีด่านชั่ง · 10 = ปิดให้อัตโนมัติ · 11 = จำนวนไม่ตรงใบเสนอราคา */
   rank: number;
   label: string;
   tone: StatusTone;
@@ -188,8 +188,10 @@ export function statusSignals(r: BoardRow, todayTh: string): StatusSignal[] {
   // 0175: ใบ done ที่ของเหลือยังถือไว้ไม่ตัดสิน (ปกติไม่อยู่บนบอร์ด เพราะบอร์ดดึงเฉพาะใบที่ยังไม่ปิด — ขึ้นที่หน้ารายละเอียดใบงาน) · n = qty_surplus จาก DB
   if (r.surplusPending && r.qtySurplus !== null && r.qtySurplus > 0) out.push({ key: "surplusPending", rank: 6.5, label: `เหลือ ${r.qtySurplus} ชิ้น ยังไม่ตัดสิน`, tone: "amber" });
   if (r.status === "on_hold") out.push({ key: "hold", rank: 7, label: "พักไว้", tone: "gray" });
-  if (r.hasAutoClosed) out.push({ key: "auto", rank: 9, label: "มีขั้นที่ปิดให้อัตโนมัติ", tone: "gray" });
-  if (r.quoteQtyMismatch) out.push({ key: "qty", rank: 10, label: `จำนวนไม่ตรงใบเสนอราคา${r.quoteItemQty !== null ? ` (${r.quoteItemQty})` : ""}`, tone: "blue" });
+  // 0176: ใบทองที่มีขั้นโลหะอยู่ในมือแต่ไม่ชั่ง (ไม่มีด่านกันทองหาย) — ข้อมูลประกอบสีแดง ไม่ใช่ป้ายหลัก/ไม่นับ "ต้องดู" (rank 9 > ATTENTION_MAX_RANK) · gold_unguarded จาก DB (ไม่นับใบปิด/ขั้นที่ข้าม)
+  if (r.goldUnguarded && r.status !== "done" && r.status !== "cancelled") out.push({ key: "goldUnguarded", rank: 9, label: "ทอง · ไม่มีด่านชั่ง", tone: "red" });
+  if (r.hasAutoClosed) out.push({ key: "auto", rank: 10, label: "มีขั้นที่ปิดให้อัตโนมัติ", tone: "gray" });
+  if (r.quoteQtyMismatch) out.push({ key: "qty", rank: 11, label: `จำนวนไม่ตรงใบเสนอราคา${r.quoteItemQty !== null ? ` (${r.quoteItemQty})` : ""}`, tone: "blue" });
   // 0175: ผลิตบางส่วน (เริ่มผลิตน้อยกว่าที่สั่ง) — ข้อมูลประกอบ ไม่ใช่ความผิดปกติ · under_planned จาก DB (ใบเดิม qty_order = qty_planned ไม่ขึ้น)
   if (r.underPlanned && r.qtyPlanned < r.qtyOrder) out.push({ key: "underPlanned", rank: 10.1, label: `เริ่มผลิต ${r.qtyPlanned} จากสั่ง ${r.qtyOrder}`, tone: "blue" });
   return out;

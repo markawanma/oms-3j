@@ -17,12 +17,28 @@ import type { PrintableJob } from "@/lib/jobs/print";
 
 const CELL = "border border-zinc-700 px-1 align-top";
 
+/**
+ * คอลัมน์ของตารางขั้น (0176): ใบเดิม (ไม่มีแบบ) = ครบทุกคอลัมน์เหมือนเดิมทุกประการ
+ * ใบที่มีแบบ = ตัดคอลัมน์ที่ทั้งใบไม่มีขั้นไหนกรอก (นน.เข้า/ออก · เสีย) และเพิ่ม "เศษ (g)" เฉพาะเมื่อมีขั้นที่ถามเศษ — เซลล์ของขั้นที่ไม่ต้องกรอก = "—"
+ */
+export function sheetColumns(job: Pick<PrintableJob, "profileName" | "stages">): { weigh: boolean; scrapQty: boolean; scrapWeight: boolean; legacy: boolean } {
+  if (job.profileName === null) return { weigh: true, scrapQty: true, scrapWeight: false, legacy: true };
+  return {
+    weigh: job.stages.some((s) => s.weighRequired),
+    scrapQty: job.stages.some((s) => s.scrapQtyAsk),
+    scrapWeight: job.stages.some((s) => s.scrapWeightAsk),
+    legacy: false,
+  };
+}
+
 export function JobSheet({ job, qrSvg }: { job: PrintableJob; qrSvg: string | null }) {
+  const cols = sheetColumns(job);
   return (
     <article aria-label={`ใบงาน ${job.jobNo}`} className="job-sheet mx-auto w-[148mm] bg-white p-[7mm] text-[10pt] leading-snug text-black print:p-0">
       <header className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-[9pt] font-semibold">ใบงานผลิต · {job.sourceLabel}</p>
+          {job.profileName !== null && <p className="text-[9pt]">แบบ: {job.profileName}</p>}
           <p className="text-[30pt] leading-none font-extrabold tracking-tight tabular-nums">{job.jobNo}</p>
           <p className="mt-2 text-[14pt] font-bold break-words">{job.designLabel}</p>
           <p className="text-[11pt]">
@@ -57,10 +73,11 @@ export function JobSheet({ job, qrSvg }: { job: PrintableJob; qrSvg: string | nu
             <th className={`${CELL} w-[24%]`}>ขั้น</th>
             <th className={CELL}>วันรับ</th>
             <th className={CELL}>ผู้รับเซ็น</th>
-            <th className={CELL}>นน.เข้า</th>
+            {cols.weigh && <th className={CELL}>นน.เข้า</th>}
             <th className={CELL}>วันส่ง</th>
-            <th className={CELL}>นน.ออก</th>
-            <th className={`${CELL} w-[9%]`}>เสีย</th>
+            {cols.weigh && <th className={CELL}>นน.ออก</th>}
+            {cols.scrapQty && <th className={`${CELL} w-[9%]`}>เสีย</th>}
+            {cols.scrapWeight && <th className={`${CELL} w-[10%]`}>เศษ (g)</th>}
             <th className={CELL}>ผู้ส่งเซ็น</th>
           </tr>
         </thead>
@@ -71,14 +88,20 @@ export function JobSheet({ job, qrSvg }: { job: PrintableJob; qrSvg: string | nu
                 {s.seq}. {s.name}
                 {s.weighRequired ? " *" : ""}
               </td>
-              {Array.from({ length: 7 }, (_, i) => (
-                <td key={i} className={CELL} />
-              ))}
+              {/* ลำดับคอลัมน์: วันรับ · ผู้รับเซ็น · [นน.เข้า] · วันส่ง · [นน.ออก] · [เสีย] · [เศษ] · ผู้ส่งเซ็น — ช่องที่ขั้นนี้ไม่ต้องกรอก = "—" (ใบเดิมว่างทุกช่อง) */}
+              <td className={CELL} />
+              <td className={CELL} />
+              {cols.weigh && <td className={CELL}>{!cols.legacy && !s.weighRequired ? "—" : ""}</td>}
+              <td className={CELL} />
+              {cols.weigh && <td className={CELL}>{!cols.legacy && !s.weighRequired ? "—" : ""}</td>}
+              {cols.scrapQty && <td className={CELL}>{!cols.legacy && !s.scrapQtyAsk ? "—" : ""}</td>}
+              {cols.scrapWeight && <td className={CELL}>{!s.scrapWeightAsk ? "—" : ""}</td>}
+              <td className={CELL} />
             </tr>
           ))}
         </tbody>
       </table>
-      <p className="mt-1 text-[8pt]">* ขั้นที่ต้องชั่งน้ำหนักทุกครั้ง</p>
+      {(cols.legacy || cols.weigh) && <p className="mt-1 text-[8pt]">* ขั้นที่ต้องชั่งน้ำหนักทุกครั้ง</p>}
       <div className="mt-2 h-[16mm] border border-zinc-700 p-1 text-[8pt]">หมายเหตุ</div>
     </article>
   );

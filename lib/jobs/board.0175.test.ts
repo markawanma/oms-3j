@@ -109,3 +109,35 @@ describe("qtyOrderPlannedText (N1)", () => {
     expect(qtyOrderPlannedText({ qtyOrder: 30, qtyPlanned: 35 }, { alwaysOrder: true })).toBe("สั่ง 30 · เริ่มผลิต 35 ชิ้น");
   });
 });
+
+describe("0176 ป้ายทองไม่มีด่านชั่ง (goldUnguarded)", () => {
+  const gold = (o: Record<string, unknown> = {}) => row({ metal: "gold", gold_unguarded: true, ...o });
+  it("ป้าย 'ทอง · ไม่มีด่านชั่ง' สีแดง rank 9 = ข้อมูลประกอบ ไม่ใช่ป้ายหลัก · ไม่นับ 'ต้องดู' (ATTENTION_MAX_RANK = 7 คงเดิม)", () => {
+    const r = gold();
+    const s = statusSignals(r, TODAY).find((x) => x.key === "goldUnguarded")!;
+    expect(s).toMatchObject({ label: "ทอง · ไม่มีด่านชั่ง", tone: "red", rank: 9 });
+    expect(ATTENTION_MAX_RANK).toBe(7);
+    expect(s.rank).toBeGreaterThan(ATTENTION_MAX_RANK);
+    expect(primaryStatus(r, TODAY).key).toBe("normal");
+    expect(secondaryStatuses(r, TODAY).map((x) => x.key)).toContain("goldUnguarded");
+  });
+  it("มีป้ายหลักจริง (เลยกำหนด) = ป้ายหลักยังเป็นเลยกำหนด · ป้ายทองเป็นรอง", () => {
+    const r = gold({ is_overdue: true, due_date: "2026-10-10" });
+    expect(primaryStatus(r, TODAY).key).toBe("overdue");
+    expect(secondaryStatuses(r, TODAY).map((x) => x.key)).toContain("goldUnguarded");
+  });
+  it("gold_unguarded จาก DB เท่านั้น: false/ไม่มี = ไม่ขึ้น · ใบ done/cancelled ไม่ขึ้น", () => {
+    expect(statusSignals(row({ metal: "gold" }), TODAY).map((s) => s.key)).not.toContain("goldUnguarded");
+    expect(statusSignals(gold({ gold_unguarded: false }), TODAY).map((s) => s.key)).not.toContain("goldUnguarded");
+    for (const status of ["done", "cancelled"]) expect(statusSignals(gold({ status }), TODAY).map((s) => s.key)).not.toContain("goldUnguarded");
+  });
+  it("ลำดับ rank: ทอง 9 < auto 10 < underPlanned 10.1 < qty 11 (เลื่อน auto/qty ตาม spec)", () => {
+    const r = gold({ has_auto_closed: true, quote_qty_mismatch: true, quote_item_qty: 8, qty_planned: 28, under_planned: true });
+    const sig = statusSignals(r, TODAY);
+    const rank = (k: string) => sig.find((s) => s.key === k)!.rank;
+    expect([rank("goldUnguarded"), rank("auto"), rank("underPlanned"), rank("qty")]).toEqual([9, 10, 10.1, 11]);
+    const keys = sig.map((s) => s.key);
+    expect(keys.indexOf("goldUnguarded")).toBeLessThan(keys.indexOf("auto"));
+    expect(keys.indexOf("auto")).toBeLessThan(keys.indexOf("qty"));
+  });
+});

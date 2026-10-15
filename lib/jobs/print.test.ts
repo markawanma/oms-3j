@@ -17,7 +17,7 @@ const stage = (seq: number, name: string, status: StageRow["status"] = "pending"
 describe("toPrintableJob", () => {
   it("ประกอบทีละ field — OEM = 'งานลูกค้า' ไม่มีชื่อลูกค้า/เลขใบเสนอราคา/เหตุผลก่อนมัดจำ/หมายเหตุภายใน/id ต้นทาง", () => {
     const p = toPrintableJob(job(), [stage(1, "หล่อ", "pending", true), stage(2, "ขัด")]);
-    expect(Object.keys(p).sort()).toEqual(["designLabel", "dueDate", "jobId", "jobNo", "metalLabel", "metalPlanG", "qtyOrder", "qtyPlanned", "sku", "sourceLabel", "stages", "targetPieceG", "weightStartG"]);
+    expect(Object.keys(p).sort()).toEqual(["designLabel", "dueDate", "jobId", "jobNo", "metalLabel", "metalPlanG", "profileName", "qtyOrder", "qtyPlanned", "sku", "sourceLabel", "stages", "targetPieceG", "weightStartG"]);
     expect(p.sourceLabel).toBe("งานลูกค้า");
     const json = JSON.stringify(p);
     for (const secret of ["บริษัท ลับ", "ลูกค้าประจำ", "i-secret", "ช่างลับ", "โน้ตลับ", "หมายเหตุภายใน"]) expect(json).not.toContain(secret);
@@ -35,7 +35,7 @@ describe("toPrintableJob", () => {
   });
   it("แต่ละขั้นมีเฉพาะ ลำดับ/ชื่อ/บังคับชั่ง — ไม่มีวัน/ช่าง/น้ำหนักของใบเก่า", () => {
     const p = toPrintableJob(job(), [stage(1, "หล่อ", "sent", true)]);
-    expect(Object.keys(p.stages[0]).sort()).toEqual(["name", "seq", "weighRequired"]);
+    expect(Object.keys(p.stages[0]).sort()).toEqual(["name", "scrapQtyAsk", "scrapWeightAsk", "seq", "weighRequired"]);
   });
   it("ขั้นที่ข้ามแล้วไม่ถูกพิมพ์ · ผลิตเข้าสต็อก = ป้ายของมัน", () => {
     const p = toPrintableJob(job({ sourceKind: "production" }), [stage(1, "หล่อ"), stage(2, "ชุบ", "skipped"), stage(3, "แพ็ก")]);

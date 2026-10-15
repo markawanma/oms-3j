@@ -10,6 +10,9 @@ export interface PrintableJobStage {
   seq: number;
   name: string;
   weighRequired: boolean;
+  /** 0176: ขั้นนี้ถามชิ้นเสีย / น้ำหนักเศษ (ใบเดิมไม่มีแบบ: ใบพิมพ์ไม่ใช้ค่านี้ — พิมพ์ทุกคอลัมน์เหมือนเดิม) */
+  scrapQtyAsk: boolean;
+  scrapWeightAsk: boolean;
 }
 
 export interface PrintableJob {
@@ -27,6 +30,8 @@ export interface PrintableJob {
   /** "งานลูกค้า" (OEM) หรือ "ผลิตเข้าสต็อก" — ไม่มีชื่อลูกค้า */
   sourceLabel: string;
   weightStartG: number | null;
+  /** 0176: ชื่อแบบการบันทึก (null = ใบเดิม ไม่พิมพ์บรรทัดแบบ) — 🔴 ไม่มีป้าย/คำเตือนทอง/แผนทองบนกระดาษ */
+  profileName: string | null;
   stages: PrintableJobStage[];
 }
 
@@ -48,7 +53,8 @@ export function toPrintableJob(job: JobDetail, stages: readonly StageRow[]): Pri
     dueDate: job.dueDate,
     sourceLabel: job.sourceKind === "oem" ? "งานลูกค้า" : (SOURCE_LABEL[job.sourceKind] ?? "ผลิตเข้าสต็อก"),
     weightStartG: isGold ? null : job.weightStartG,
-    stages: stages.filter((s) => s.status !== "skipped").map((s) => ({ seq: s.seq, name: s.name, weighRequired: s.weighRequired })),
+    profileName: job.profileName,
+    stages: stages.filter((s) => s.status !== "skipped").map((s) => ({ seq: s.seq, name: s.name, weighRequired: s.weighRequired, scrapQtyAsk: s.scrapQtyAsk, scrapWeightAsk: s.scrapWeightAsk })),
   };
 }
 
