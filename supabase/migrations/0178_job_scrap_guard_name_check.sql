@@ -63,7 +63,7 @@ begin
   for r in
     select * from (values
       ('job_core_send', 'b072eae032ad4d51e89d0f9882a2978e', '328555fe115f62551aa6e8e0668be4b3', '7ba90dd8cee307928f7aebd6ada94b95'),
-      ('job_record_profile_upsert', '9b471e19404ee736c8256a9f0651b559', '9b471e19404ee736c8256a9f0651b559', '75eb50adccfa943603329fa70706e2fc')
+      ('job_record_profile_upsert', '9b471e19404ee736c8256a9f0651b559', '9b471e19404ee736c8256a9f0651b559', 'c0f74711e1229bebaa17d4be84fc2521')
     ) as v(n, h_a, h_b, h_new)
   loop
     select count(*) into v_n from pg_proc where pronamespace = 'analytics'::regnamespace and proname = r.n;
@@ -328,12 +328,12 @@ begin
   end if;
 
   if p_name is not null then
-    -- 0178 L1: ชื่อที่ job_label_clean ปฏิเสธ (ว่าง/ล่องหน/ขึ้นบรรทัดใหม่/ยาว) ได้ hint name_invalid · < > คง hint เดิม text_invalid
+    -- 0178 L1: ชื่อที่ job_label_clean ปฏิเสธ (ว่าง/ล่องหน/ขึ้นบรรทัดใหม่/ยาว) ได้ hint name_invalid (pg_exception_hint คืน '' ไม่ใช่ null เมื่อไม่มี hint — ต้อง nullif) · < > คง hint เดิม text_invalid
     begin
       v_name := analytics.job_label_clean(p_name, 'ชื่อแบบ', 60);
     exception when sqlstate '22023' then
       get stacked diagnostics v_msg = message_text, v_hint = pg_exception_hint;
-      raise exception '%', v_msg using errcode = '22023', hint = coalesce(v_hint, 'name_invalid');
+      raise exception '%', v_msg using errcode = '22023', hint = coalesce(nullif(v_hint, ''), 'name_invalid');
     end;
   elsif p_id is null then
     raise exception 'ต้องระบุชื่อแบบ' using errcode = '22023', hint = 'name_required';

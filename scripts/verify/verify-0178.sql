@@ -940,9 +940,9 @@ declare
       'alter table analytics.job drop constraint job_profile_pair_ck; alter table analytics.job add constraint job_profile_pair_ck check ((profile_id is null) = (profile_name is null) and (profile_name is null or (length(profile_name) between 1 and 60 and profile_name !~ ''[<>]'')))',
       'expect', jsonb_build_array('L1h', 'M4')),
     jsonb_build_object('id', 'MU-14', 'what', 'upsert hint ชื่อไม่ผ่านกลับเป็น text_invalid (name_invalid หาย)', 'fn', 'job_record_profile_upsert',
-      'from', 'hint = coalesce(v_hint, ''name_invalid'')', 'to', 'hint = coalesce(v_hint, ''text_invalid'')', 'expect', jsonb_build_array('L1a', 'L1b', 'L1d')),
+      'from', 'hint = coalesce(nullif(v_hint, ''''), ''name_invalid'')', 'to', 'hint = coalesce(nullif(v_hint, ''''), ''text_invalid'')', 'expect', jsonb_build_array('L1a', 'L1b', 'L1d')),
     jsonb_build_object('id', 'MU-15', 'what', 'upsert ทับ hint text_invalid ของ < > ด้วย name_invalid (เปลี่ยนสัญญาเดิม)', 'fn', 'job_record_profile_upsert',
-      'from', 'hint = coalesce(v_hint, ''name_invalid'')', 'to', 'hint = ''name_invalid''', 'expect', jsonb_build_array('L1c')),
+      'from', 'hint = coalesce(nullif(v_hint, ''''), ''name_invalid'')', 'to', 'hint = ''name_invalid''', 'expect', jsonb_build_array('L1c')),
     jsonb_build_object('id', 'MU-16', 'what', 'job_core_send ถูก grant ให้ service_role (ควรเป็นภายใน)', 'ddl',
       'grant execute on function ' || c_core || ' to service_role', 'expect', jsonb_build_array('M2a', 'M2b'))
   );
