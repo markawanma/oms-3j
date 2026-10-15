@@ -51,6 +51,7 @@ export const EVENT_TYPE_LABEL: Record<string, string> = {
   cancel: "ยกเลิก",
   token_issue: "ออก QR",
   token_revoke: "เพิกถอน QR",
+  profile_set: "เปลี่ยนแบบการบันทึก",
 };
 
 export const CHANNEL_LABEL: Record<string, string> = {
@@ -384,6 +385,14 @@ export function summarizeEvent(type: string, payload: unknown): string | null {
   }
   if (type === "due_set") return `${date(p.before) ?? "ไม่ตั้ง"} → ${date(p.after) ?? "ไม่ตั้ง"}`;
   if (type === "done") return `ดี ${num(p.qty_good) ?? "—"} · เสีย ${num(p.qty_scrap) ?? "—"}`;
+  // 0176: before/after = สถานะแบบของใบ (job_profile_state) — เอาเฉพาะชื่อแบบ · ไม่มีแบบ (ใบเดิม) = "กติกาเดิม"
+  if (type === "profile_set") {
+    const nameOf = (v: unknown) => {
+      const o = typeof v === "object" && v !== null ? (v as Record<string, unknown>) : {};
+      return str(o.profile_name) ?? "กติกาเดิม";
+    };
+    return `${nameOf(p.before)} → ${nameOf(p.after)}`;
+  }
   if (type === "token_issue") return num(p.print_no) !== null ? `ใบที่ ${num(p.print_no)}` : null;
   return null;
 }

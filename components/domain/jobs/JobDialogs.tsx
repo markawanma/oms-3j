@@ -9,6 +9,7 @@ import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { useOfficeRun } from "@/components/domain/jobs/useOfficeRun";
 import { qtyOrderPlannedText } from "@/lib/jobs/board";
+import { finalWeightRequired } from "@/lib/jobs/profile-summary";
 import { LABEL_ANGLE_MSG, LABEL_ANGLE_RE } from "@/lib/jobs/input";
 import { SurplusChoice } from "@/components/domain/jobs/SurplusChoice";
 import type { SurplusValue } from "@/components/domain/jobs/SurplusChoice";
@@ -139,7 +140,7 @@ export function DueDialog({ jobId, current, todayTh, onClose }: { jobId: string;
   );
 }
 
-export function DoneDialog({ jobId, planned, qtyOrder, sourceKind, metal, onClose }: { jobId: string; planned: number; qtyOrder: number; sourceKind: string; metal: string; onClose: () => void }) {
+export function DoneDialog({ jobId, planned, qtyOrder, sourceKind, metal, requireFinalWeight, weighRequired, onClose }: { jobId: string; planned: number; qtyOrder: number; sourceKind: string; metal: string; requireFinalWeight?: boolean; weighRequired?: boolean; onClose: () => void }) {
   const { run, busy, error } = useOfficeRun();
   const [good, setGood] = useState(String(planned));
   const [scrap, setScrap] = useState("0");
@@ -153,7 +154,9 @@ export function DoneDialog({ jobId, planned, qtyOrder, sourceKind, metal, onClos
   const surplus = sumOk && goodN !== null && goodN > qtyOrder ? goodN - qtyOrder : 0;
   const short = sumOk && goodN !== null && goodN < qtyOrder ? qtyOrder - goodN : 0;
   const isOem = sourceKind === "oem";
-  const ready = sumOk && (metal !== "gold" || weight.trim() !== "");
+  // น้ำหนักสุทธิ: แบบการบันทึกบังคับ หรือ ใบทองที่มีขั้นต้องชั่ง (กติกาเดียวกับ DB — ด่านจริงอยู่ที่ job_done) · ไม่ได้ส่ง flag มา (ใบเดิม/ผู้เรียกเก่า) = กติกา J1: ทองบังคับ
+  const finalRequired = requireFinalWeight === undefined && weighRequired === undefined ? metal === "gold" : finalWeightRequired({ requireFinalWeight: requireFinalWeight === true, metal, hasWeigh: weighRequired === true });
+  const ready = sumOk && (!finalRequired || weight.trim() !== "");
   async function submit() {
     const input: DoneJobInput = { jobId, qtyGood: Number(good), qtyScrap: Number(scrap), weightFinal: weight.trim() || null, note: note.trim() || null };
     // 🔴 ส่งการจัดการของเหลือเฉพาะเมื่อ ดี > สั่ง และเป็น OEM — ดี ≤ สั่ง ห้ามส่ง (DB: surplus_unexpected) · ใบผลิตไม่ส่ง (DB ตั้งเข้าสต็อกเอง)
@@ -200,7 +203,7 @@ export function DoneDialog({ jobId, planned, qtyOrder, sourceKind, metal, onClos
             )}
           </div>
         )}
-        <Field id="wfinal" label={`น้ำหนักสุทธิ (กรัม)${metal === "gold" ? " — งานทองต้องใส่" : " — ไม่บังคับ"}`}>
+        <Field id="wfinal" label={`น้ำหนักสุทธิ (กรัม)${finalRequired ? (metal === "gold" ? " — งานทองต้องใส่" : " — แบบการบันทึกนี้บังคับ") : " — ไม่บังคับ"}`}>
           <input id="wfinal" inputMode="decimal" value={weight} onChange={(e) => setWeight(e.target.value.replace(/[^0-9.,]/g, ""))} className={FIELD} />
         </Field>
         <Field id="dnote" label="หมายเหตุ (ไม่บังคับ)">

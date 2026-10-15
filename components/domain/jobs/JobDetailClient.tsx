@@ -9,6 +9,8 @@ import { Printer } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { DesignLabelDialog, DoneDialog, DueDialog, ReasonDialog } from "@/components/domain/jobs/JobDialogs";
 import type { ReasonKind } from "@/components/domain/jobs/JobDialogs";
+import { ChangeProfileDialog } from "@/components/domain/jobs/ChangeProfileDialog";
+import { JobProfileCard } from "@/components/domain/jobs/JobProfileCard";
 import { PlanCard } from "@/components/domain/jobs/PlanCard";
 import { PlanDialog, QtyPlannedDialog, SurplusDialog } from "@/components/domain/jobs/PlanDialogs";
 import { ReceiveStageDialog, SendStageDialog } from "@/components/domain/jobs/StageDialogs";
@@ -28,6 +30,7 @@ type Dlg =
   | { t: "qty" }
   | { t: "plan" }
   | { t: "surplus" }
+  | { t: "profile" }
   | { t: "receive"; stage: StageRow }
   | { t: "send"; stage: StageRow }
   | null;
@@ -46,6 +49,8 @@ export function JobDetailClient({ data }: { data: JobDetailData }) {
   const closed = job.status === "done" || job.status === "cancelled";
   const firstOpen = stages.find((s) => s.status === "pending" || s.status === "received") ?? null;
   const started = stages.some((s) => s.status !== "pending");
+  // เปลี่ยนแบบการบันทึกไม่ได้เมื่อมีขั้นที่ช่างรับ/ส่งแล้ว (DB ตัดสินซ้ำ รวมใบที่เคยรับแล้วย้อนขั้น)
+  const profileLocked = stages.some((s) => s.status === "received" || s.status === "sent");
   const allDone = stages.length > 0 && stages.every((s) => s.status === "sent" || s.status === "skipped");
   const prevOut = (() => {
     if (!firstOpen) return null;
@@ -102,6 +107,8 @@ export function JobDetailClient({ data }: { data: JobDetailData }) {
         )}
       </header>
 
+      <JobProfileCard job={job} stages={stages} started={profileLocked} onChange={() => setDlg({ t: "profile" })} />
+
       {!closed && (
         <div className="flex flex-wrap gap-2 print:hidden">
           <Link href={`/jobs/${job.id}/print`} className="inline-flex min-h-11 items-center gap-1.5 rounded-md bg-primary-600 px-4 text-base font-medium text-white hover:bg-primary-700">
@@ -142,6 +149,8 @@ export function JobDetailClient({ data }: { data: JobDetailData }) {
           stages={stages}
           loss={loss}
           closed={closed}
+          profiled={job.profileId !== null}
+          gold={job.metal === "gold"}
           firstOpenId={firstOpen?.id ?? null}
           onReceive={(s) => setDlg({ t: "receive", stage: s })}
           onSend={(s) => setDlg({ t: "send", stage: s })}
@@ -154,7 +163,8 @@ export function JobDetailClient({ data }: { data: JobDetailData }) {
       {dlg?.t === "reason" && <ReasonDialog jobId={job.id} spec={dlg.spec} onClose={() => setDlg(null)} />}
       {dlg?.t === "label" && <DesignLabelDialog jobId={job.id} current={job.designLabel} onClose={() => setDlg(null)} />}
       {dlg?.t === "due" && <DueDialog jobId={job.id} current={job.dueDate} todayTh={todayTh} onClose={() => setDlg(null)} />}
-      {dlg?.t === "done" && <DoneDialog jobId={job.id} planned={job.qtyPlanned} qtyOrder={job.qtyOrder} sourceKind={job.sourceKind} metal={job.metal} onClose={() => setDlg(null)} />}
+      {dlg?.t === "done" && <DoneDialog jobId={job.id} planned={job.qtyPlanned} qtyOrder={job.qtyOrder} sourceKind={job.sourceKind} metal={job.metal} requireFinalWeight={job.requireFinalWeight} weighRequired={job.weighRequired} onClose={() => setDlg(null)} />}
+      {dlg?.t === "profile" && <ChangeProfileDialog jobId={job.id} metal={job.metal} stages={stages} currentProfileId={job.profileId} onClose={() => setDlg(null)} />}
       {dlg?.t === "qty" && <QtyPlannedDialog jobId={job.id} qtyOrder={job.qtyOrder} current={job.qtyPlanned} hasOverride={typeof job.metalPlanBasis?.override_g === "number"} hasTarget={job.targetPieceG !== null} onClose={() => setDlg(null)} />}
       {dlg?.t === "plan" && (
         <PlanDialog
