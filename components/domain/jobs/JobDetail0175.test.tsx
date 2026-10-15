@@ -358,3 +358,90 @@ describe("0175 ใบพิมพ์ A5", () => {
     expect(document.body.textContent).not.toMatch(/9%|เสีย \d|reject|หล่อเสีย/);
   });
 });
+
+describe("0175 review — กล่องแก้แผน/แก้จำนวน (BUG-2/3/4 · N6) + ป้ายใบปิด (S3)", () => {
+  const openPlan = async (job: Record<string, unknown> = {}) => {
+    wrap(<JobDetailClient data={detail(job)} />);
+    await userEvent.click(within(card()).getByRole("button", { name: "แก้แผน" }));
+    return await screen.findByRole("dialog");
+  };
+  const targetOf = (dlg: HTMLElement) => within(dlg).getByLabelText(/น้ำหนักต่อชิ้น/) as HTMLInputElement;
+
+  it("BUG-2 ที่มาในกล่องแก้แผน = ที่มาเดียวกับการ์ด (ใบเสนอราคา/แคตตาล็อก SKU) · ไม่ใช่ 'กรอกเอง' ตอนยังไม่ได้แก้", async () => {
+    for (const [src, label] of [["quote", "ใบเสนอราคา"], ["product", "แคตตาล็อก SKU"]] as const) {
+      const dlg = await openPlan({ metal_plan_basis: { ...BASIS, target_source: src } });
+      expect(within(card()).getByText(new RegExp(`ที่มา: ${label}`))).toBeInTheDocument();
+      // preview ตอบ "input" เสมอ (ถามด้วยน้ำหนักที่ส่งไป) — กล่องต้องไม่เอาไปขึ้น
+      await waitFor(() => expect(getJobPlanSuggest).toHaveBeenCalled());
+      expect(within(dlg).getByText(new RegExp(`ที่มา: ${label}`))).toBeInTheDocument();
+      expect(within(dlg).queryByText(/ที่มา: กรอกเอง/)).not.toBeInTheDocument();
+      cleanup();
+      vi.clearAllMocks();
+      getJobPlanSuggest.mockResolvedValue({ ok: true, data: { qtyOrder: 30, qtyPlannedSuggest: 35, bufferQty: 5, qtyPlannedEff: 35, underPlanned: false, rejectBasis: { castPct: 6, polishPct: 3, platePct: null, hasPlating: false }, targetPieceG: 4, targetPieceGSource: "input", metal: "silver", metalPlanG: 153.6, metalPlanBasis: BASIS, missing: [] } });
+    }
+  });
+
+  it("BUG-2 แก้น้ำหนักเป็นค่าอื่น = ขึ้น 'กรอกเอง' · พิมพ์เท่าเดิมเชิงตัวเลข ('4') = ยังเป็นที่มาเดิม + ปุ่มบันทึกยังปิด (ไม่มีอะไรเปลี่ยน)", async () => {
+    const dlg = await openPlan();
+    await userEvent.clear(targetOf(dlg));
+    await userEvent.type(targetOf(dlg), "4");
+    expect(within(dlg).getByText(/ที่มา: ใบเสนอราคา/)).toBeInTheDocument();
+    expect(within(dlg).getByRole("button", { name: "บันทึกแผน" })).toBeDisabled();
+    await userEvent.clear(targetOf(dlg));
+    await userEvent.type(targetOf(dlg), "4.5");
+    expect(within(dlg).getByText(/ที่มา: กรอกเอง/)).toBeInTheDocument();
+  });
+
+  it("BUG-3 พิมพ์ผิดรูปแบบ ('abc' / '1,234.5') = error ของช่อง · ไม่ขึ้นข้อความ/ปุ่ม 'ล้างแผนโลหะ' · ปุ่มบันทึกปิด", async () => {
+    const dlg = await openPlan();
+    for (const bad of ["abc", "1,234.5", "-1"]) {
+      await userEvent.clear(targetOf(dlg));
+      await userEvent.type(targetOf(dlg), bad);
+      expect(await within(dlg).findByText(/ต้องเป็นตัวเลข|กำกวม|ต้องมากกว่า 0/)).toHaveAttribute("role", "alert");
+      expect(within(dlg).queryByText("ช่องน้ำหนักว่าง = ล้างแผนโลหะของใบนี้")).not.toBeInTheDocument();
+      expect(within(dlg).queryByRole("button", { name: "ล้างแผนโลหะ" })).not.toBeInTheDocument();
+      expect(within(dlg).getByRole("button", { name: "บันทึกแผน" })).toBeDisabled();
+    }
+    expect(w.setJobPlan).not.toHaveBeenCalled();
+  });
+
+  it("BUG-3 ช่องว่างจริง (เว้นวรรคล้วนก็นับ) = 'ล้างแผนโลหะ' ตามเดิม", async () => {
+    const dlg = await openPlan();
+    await userEvent.clear(targetOf(dlg));
+    await userEvent.type(targetOf(dlg), "  ");
+    expect(await within(dlg).findByText("ช่องน้ำหนักว่าง = ล้างแผนโลหะของใบนี้")).toBeInTheDocument();
+    expect(within(dlg).getByRole("button", { name: "ล้างแผนโลหะ" })).toBeEnabled();
+  });
+
+  it.each(["10001", "100000"])("BUG-4 กล่องแก้แผน: น้ำหนักเป้าหมาย %s = error เพดาน 10,000 · บันทึกไม่ได้", async (v) => {
+    const dlg = await openPlan();
+    await userEvent.clear(targetOf(dlg));
+    await userEvent.type(targetOf(dlg), v);
+    expect(await within(dlg).findByText("น้ำหนักเป้าหมายต่อชิ้นต้องมากกว่า 0 และไม่เกิน 10,000 กรัม")).toBeInTheDocument();
+    expect(within(dlg).getByRole("button", { name: "บันทึกแผน" })).toBeDisabled();
+  });
+
+  it("N6 กล่องแก้จำนวน: hint 'ระบบคำนวณโลหะใหม่ให้' ขึ้นเฉพาะใบที่มีน้ำหนักเป้าหมาย", async () => {
+    wrap(<JobDetailClient data={detail()} />);
+    await userEvent.click(within(card()).getByRole("button", { name: "แก้จำนวน" }));
+    expect(within(await screen.findByRole("dialog")).getByText(/ระบบคำนวณโลหะที่ต้องเตรียมใหม่ให้/)).toBeInTheDocument();
+    cleanup();
+    wrap(<JobDetailClient data={detail({ target_piece_g: null, metal_plan_g: null, metal_plan_basis: null })} />);
+    await userEvent.click(within(card()).getByRole("button", { name: "แก้จำนวน" }));
+    const dlg = await screen.findByRole("dialog");
+    expect(within(dlg).queryByText(/ระบบคำนวณโลหะที่ต้องเตรียมใหม่ให้/)).not.toBeInTheDocument();
+    // และหัวกล่องใช้ข้อความรวม (N1)
+    expect(within(dlg).getByText("สั่ง 30 · เริ่มผลิต 35 ชิ้น")).toBeInTheDocument();
+  });
+
+  it.each(["done", "cancelled"])("S3 ใบ %s ที่มีกำหนดส่งใกล้ๆ + ดีลไม่มีมัดจำ: ไม่ขึ้น 'ครบใน n วัน' / 'ยังไม่มีมัดจำ' บนหัวหน้า", (status) => {
+    wrap(<JobDetailClient data={detail({ status, due_date: "2026-10-17" }, { status, due_date: "2026-10-17", deposit_missing: true })} />);
+    expect(screen.queryByText(/ครบใน \d+ วัน|ครบวันนี้/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/ยังไม่มีมัดจำ/, { selector: "li *, li" })).not.toBeInTheDocument();
+  });
+
+  it("S3 ใบที่ยังเดินอยู่ (open) กำหนดส่งใกล้ๆ: ยังขึ้น 'ครบใน 2 วัน' (ต้องไม่พัง)", () => {
+    wrap(<JobDetailClient data={detail({ status: "open", due_date: "2026-10-17" }, { status: "open", due_date: "2026-10-17" })} />);
+    expect(screen.getByText("ครบใน 2 วัน")).toBeInTheDocument();
+  });
+});

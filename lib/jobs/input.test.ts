@@ -93,3 +93,16 @@ describe("parsePin / parseStageCodes / parseScrapReason / isUuid", () => {
     for (const v of ["", "x", "JB-0001", "11111111-1111-4111-8111-11111111111", null, 5]) expect(isUuid(v)).toBe(false);
   });
 });
+
+describe("parseWeight — เพดานเฉพาะช่อง (opts.max · 0175 BUG-4)", () => {
+  it("ไม่ส่ง opts = เพดานเดิม 100,000 ข้อความเดิม", () => {
+    expect(parseWeight("100000")).toEqual({ ok: true, value: 100000 });
+    expect(parseWeight("100001", "น้ำหนัก")).toEqual({ ok: false, error: "น้ำหนักต้องมากกว่า 0 และไม่เกิน 100,000 กรัม" });
+  });
+  it("max 10,000: 10000 ผ่าน · 10000.001 / 10001 / 100000 ไม่ผ่าน ข้อความบอกเพดานจริง", () => {
+    const o = { max: 10000 };
+    expect(parseWeight("10000", "เป้าหมาย", o)).toEqual({ ok: true, value: 10000 });
+    for (const v of ["10000.001", "10001", "100000"]) expect(parseWeight(v, "เป้าหมาย", o)).toEqual({ ok: false, error: "เป้าหมายต้องมากกว่า 0 และไม่เกิน 10,000 กรัม" });
+    expect(parseWeight("", "เป้าหมาย", o)).toEqual({ ok: true, value: null });
+  });
+});

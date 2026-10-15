@@ -1,6 +1,6 @@
 // 0175: ป้าย surplusPending / underPlanned · qtyLabel · parseQtyText — pure
 import { describe, expect, it } from "vitest";
-import { ATTENTION_MAX_RANK, primaryStatus, qtyLabel, secondaryStatuses, statusSignals } from "@/lib/jobs/board";
+import { ATTENTION_MAX_RANK, cardBadges, matchesSignal, primaryStatus, qtyLabel, qtyOrderPlannedText, secondaryStatuses, statusSignals } from "@/lib/jobs/board";
 import { parseQtyText } from "@/lib/jobs/input";
 import { mapBoardRow } from "@/lib/jobs/types";
 import { OFFICE_HINT_TH, officeErrorMessage } from "@/lib/jobs/messages";
@@ -75,5 +75,37 @@ describe("hint 0175 → ข้อความไทยอ่านรู้เ�
     expect(t).not.toMatch(/[a-z]+_[a-z_]+|job_plan|p_/);
     // ผ่านทางจริง: DB ส่งข้อความที่มีชื่อฟังก์ชัน → ใช้ตารางแทน
     expect(officeErrorMessage({ code: "22023", hint: h, message: `ERROR: job_plan_set failed (${h})` })).toBe(t);
+  });
+});
+
+describe("review S3 — ใบที่ปิดแล้ว/ยกเลิกไม่ขึ้น 'ครบกำหนด'/'ยังไม่มีมัดจำ'", () => {
+  const due = { due_date: "2026-10-17", deposit_missing: true };
+  it("ใบที่ยังเดินอยู่: ขึ้น 'ครบใน 2 วัน' + 'ยังไม่มีมัดจำ' (ต้องไม่พัง)", () => {
+    const keys = statusSignals(row(due), TODAY).map((s) => s.key);
+    expect(keys).toContain("dueSoon");
+    expect(keys).toContain("deposit");
+    expect(statusSignals(row(due), TODAY).find((s) => s.key === "dueSoon")!.label).toBe("ครบใน 2 วัน");
+  });
+  it.each(["done", "cancelled"])("ใบ %s: ไม่มี dueSoon และไม่มี deposit", (status) => {
+    const keys = statusSignals(row({ ...due, status }), TODAY).map((s) => s.key);
+    expect(keys).not.toContain("dueSoon");
+    expect(keys).not.toContain("deposit");
+  });
+  it.each(["done", "cancelled"])("ใบ %s: matchesSignal dueSoon = false · cardBadges ไม่ขึ้นมัดจำ", (status) => {
+    const r = row({ ...due, status });
+    expect(matchesSignal(r, "dueSoon", TODAY)).toBe(false);
+    expect(cardBadges(r).map((b) => b.key)).not.toContain("deposit");
+  });
+  it("ใบ on_hold ยังขึ้นครบกำหนดตามเดิม (ไม่กว้างเกินไป)", () => {
+    expect(statusSignals(row({ ...due, status: "on_hold" }), TODAY).map((s) => s.key)).toContain("dueSoon");
+  });
+});
+
+describe("qtyOrderPlannedText (N1)", () => {
+  it("เท่ากัน = 'n ชิ้น' · alwaysOrder = 'สั่ง n ชิ้น' · ต่างกัน = 'สั่ง X · เริ่มผลิต Y ชิ้น'", () => {
+    expect(qtyOrderPlannedText({ qtyOrder: 30, qtyPlanned: 30 })).toBe("30 ชิ้น");
+    expect(qtyOrderPlannedText({ qtyOrder: 30, qtyPlanned: 30 }, { alwaysOrder: true })).toBe("สั่ง 30 ชิ้น");
+    expect(qtyOrderPlannedText({ qtyOrder: 30, qtyPlanned: 35 })).toBe("สั่ง 30 · เริ่มผลิต 35 ชิ้น");
+    expect(qtyOrderPlannedText({ qtyOrder: 30, qtyPlanned: 35 }, { alwaysOrder: true })).toBe("สั่ง 30 · เริ่มผลิต 35 ชิ้น");
   });
 });

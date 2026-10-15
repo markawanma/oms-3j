@@ -501,3 +501,37 @@ describe("0175 createJob / getJobPlanSuggest / ของเหลือ", () => 
     expect(lastRpc()).toEqual(["job_plan_set", expect.objectContaining({ p_job_id: JOB, p_target_piece_g: null, p_override_g: null })]);
   });
 });
+
+describe("0175 review — N5 เหตุผล override · BUG-4 เพดานเป้าหมาย 10,000 · N4 metal ไม่เดา", () => {
+  const base = { kind: "oem" as const, itemId: ITEM, stageCodes: ["cast", "qc", "pack"], designLabel: "แหวน" };
+  it("N5 createJob: กำหนดโลหะเอง (override) ไม่มีเหตุผล/เหตุผลล่องหน = ปฏิเสธก่อนถึง DB · มีเหตุผล = ผ่าน · ไม่มี override ไม่บังคับเหตุผล", async () => {
+    rpcMock.mockResolvedValue({ data: { job_id: JOB, job_no: "JB-0009" }, error: null });
+    rpcMock.mockClear();
+    for (const b of [{ metalPlanOverrideG: "55.5" }, { metalPlanOverrideG: "55.5", metalPlanReason: "" }, { metalPlanOverrideG: "55.5", metalPlanReason: "   " }]) {
+      expect((await createJob({ ...base, ...b })).ok, JSON.stringify(b)).toBe(false);
+    }
+    expect(rpcMock).not.toHaveBeenCalled();
+    expect((await createJob({ ...base, metalPlanOverrideG: "55.5", metalPlanReason: "ลูกค้าขอเพิ่ม" })).ok).toBe(true);
+    expect(lastRpc()[1]).toMatchObject({ p_metal_plan_override_g: 55.5, p_metal_plan_reason: "ลูกค้าขอเพิ่ม" });
+    expect((await createJob(base)).ok).toBe(true);
+  });
+  it("BUG-4 น้ำหนักเป้าหมาย 10,000 ผ่าน · เกิน 10,000 ถูกปฏิเสธก่อนถึง DB (createJob / setJobPlan / getJobPlanSuggest) · override ยังถึง 100,000", async () => {
+    rpcMock.mockResolvedValue({ data: { job_id: JOB, job_no: "JB-0009" }, error: null });
+    rpcMock.mockClear();
+    for (const v of ["10000.001", "10001", "100000"]) {
+      expect((await createJob({ ...base, targetPieceG: v })).ok, v).toBe(false);
+      expect((await setJobPlan({ jobId: JOB, targetPieceG: v })).ok, v).toBe(false);
+      expect((await getJobPlanSuggest("oem", ITEM, { targetPieceG: v })).ok, v).toBe(false);
+    }
+    expect(rpcMock).not.toHaveBeenCalled();
+    expect((await createJob({ ...base, targetPieceG: "10000" })).ok).toBe(true);
+    expect(lastRpc()[1]).toMatchObject({ p_target_piece_g: 10000 });
+    expect((await createJob({ ...base, targetPieceG: "4", metalPlanOverrideG: "100000", metalPlanReason: "ล็อตใหญ่" })).ok).toBe(true);
+    expect(lastRpc()[1]).toMatchObject({ p_metal_plan_override_g: 100000 });
+  });
+  it("N4 getJobPlanSuggest: DB ไม่ตอบ metal = null (ไม่เดาเป็น silver)", async () => {
+    rpcMock.mockResolvedValue({ data: { qty_order: 10, qty_planned_eff: 10, reject_basis: {}, missing: [] }, error: null });
+    const r = await getJobPlanSuggest("oem", ITEM);
+    expect(r.ok && r.data.metal).toBeNull();
+  });
+});
