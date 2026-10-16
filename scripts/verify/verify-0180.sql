@@ -539,8 +539,8 @@ begin
     (select count(*) = 2 from information_schema.columns where table_schema = 'analytics' and table_name = 'oem_receipt' and column_name in ('invoice_id', 'invoice_no_snapshot') and is_nullable = 'YES')
     and exists (select 1 from pg_constraint where conrelid = 'analytics.oem_receipt'::regclass and conname = 'oem_receipt_invoice_pair_check')
     and (select indexdef from pg_indexes where schemaname = 'analytics' and indexname = 'oem_receipt_one_issued_per_invoice') ~ 'UNIQUE.*\(invoice_id\).*status = .issued.*invoice_id IS NOT NULL'
-    and (select count(*) = 4 from pg_trigger where not tgisinternal and tgenabled = 'O' and tgname in
-          ('trg_oem_receipt_check_invoice_link', 'trg_oem_setting_payment_lines_audit_upd', 'trg_oem_setting_payment_lines_audit_ins', 'trg_oem_doc_counter_deny_insert')));
+    and (select count(*) = 5 from pg_trigger where not tgisinternal and tgenabled = 'O' and tgname in
+          ('trg_oem_receipt_check_invoice_link', 'trg_oem_setting_payment_lines_audit_upd', 'trg_oem_setting_payment_lines_audit_ins', 'trg_oem_doc_counter_deny_insert', 'trg_crm_audit_log_deny_truncate')));
   v := v || pg_temp.chk('A4', 'v_oem_invoice: 53 คอลัมน์ ชื่อ/ลำดับเดิมเป๊ะ · v_oem_receipt: 32 คอลัมน์เดิมเป็น prefix + invoice_id/invoice_no_snapshot ท้ายสุด (34) · v_oem_seller 14 เดิม',
     (select count(*) = 53 and md5(string_agg(column_name, ',' order by ordinal_position)) = 'db0063947e08813e35a2250746a275d8'
        from information_schema.columns where table_schema = 'analytics' and table_name = 'v_oem_invoice')
@@ -550,6 +550,16 @@ begin
     and (select string_agg(column_name, ',' order by ordinal_position) = 'invoice_id,invoice_no_snapshot' from information_schema.columns
           where table_schema = 'analytics' and table_name = 'v_oem_receipt' and ordinal_position > 32)
     and (select md5(string_agg(column_name, ',' order by ordinal_position)) = '19a19f850407e3ee4c26c87c57f276a7' from information_schema.columns where table_schema = 'analytics' and table_name = 'v_oem_seller'));
+  -- F1/F2 (security review): ใบเสร็จอ่านอย่างเดียวสำหรับ service_role · audit log truncate ไม่ได้
+  v := v || pg_temp.chk('A6', 'F1/F2 สิทธิ์: service_role เห็นตาราง/view ใบเสร็จแบบ select อย่างเดียว (ไม่มี insert/update/delete/truncate) · anon/authenticated ไม่มีเลย · service_role ไม่มี truncate บน crm_audit_log',
+    has_table_privilege('service_role', 'analytics.oem_receipt', 'select')
+    and not has_table_privilege('service_role', 'analytics.oem_receipt', 'insert') and not has_table_privilege('service_role', 'analytics.oem_receipt', 'update')
+    and not has_table_privilege('service_role', 'analytics.oem_receipt', 'delete') and not has_table_privilege('service_role', 'analytics.oem_receipt', 'truncate')
+    and has_table_privilege('service_role', 'analytics.v_oem_receipt', 'select')
+    and not has_table_privilege('service_role', 'analytics.v_oem_receipt', 'insert') and not has_table_privilege('service_role', 'analytics.v_oem_receipt', 'update')
+    and not has_table_privilege('service_role', 'analytics.v_oem_receipt', 'delete')
+    and not has_table_privilege('anon', 'analytics.oem_receipt', 'select') and not has_table_privilege('authenticated', 'analytics.oem_receipt', 'select')
+    and not has_table_privilege('service_role', 'analytics.crm_audit_log', 'truncate'));
   v := v || pg_temp.chk('A5', 'v_oem_invoice ไม่มีคอลัมน์ต้นทุน/margin/approval/lost/calc/discount_reason/price_reason/รับซื้อคืน/created_by/voided_by (ผูกใบเสร็จแล้วไม่เพิ่มช่องรั่ว)',
     not exists (select 1 from information_schema.columns where table_schema = 'analytics' and table_name = 'v_oem_invoice'
                  and (column_name ~* '(cost|margin|approval|lost_|calc|rate_snapshot|discount_reason|price_reason|buy_back|kilo_buy)' or column_name in ('created_by', 'voided_by'))));
@@ -586,7 +596,7 @@ begin
 
   -- X2: drift detector — md5 นิยามหลัง apply 0180 (ค่าจาก dry-run 16 ต.ค. 69) · ถ้า migration ภายหลังแก้ object เหล่านี้ (หรือ replay จากไฟล์ CRLF — traps ข้อ 20) ต้องอัปเดตค่าที่นี่โดยตั้งใจ
   v := v || pg_temp.chk('X2', 'นิยามหลัง apply 0180 ตรงค่าที่บันทึก (oem_receipt_issue 11 args · oem_invoice_issue/void · oem_setting_set_payment_lines · v_oem_invoice · v_oem_receipt) — ไม่ตรง = มีคนแก้ภายหลังหรือ replay ด้วย CRLF',
-    md5(pg_get_functiondef('analytics.oem_receipt_issue(uuid,uuid,numeric,date,text,text,text,text,uuid,uuid,uuid)'::regprocedure)) = '20f766cd7dfbf7ac52cda0d026131f77'
+    md5(pg_get_functiondef('analytics.oem_receipt_issue(uuid,uuid,numeric,date,text,text,text,text,uuid,uuid,uuid)'::regprocedure)) = '97102b751f7a486c1c7d92de16bf0bf4'
     and md5(pg_get_functiondef('analytics.oem_invoice_issue(uuid,uuid,text,date,text,uuid,uuid)'::regprocedure)) = 'f4b6baccdd5dac61e4190f22c4d9771a'
     and md5(pg_get_functiondef('analytics.oem_invoice_void(uuid,uuid,text,uuid)'::regprocedure)) = '59d471fd064581820967840c9d2d2728'
     and md5(pg_get_functiondef('analytics.oem_setting_set_payment_lines(uuid,text[],uuid)'::regprocedure)) = '8e8259ea865e3be3af37aa61dc69b1be'
@@ -839,6 +849,18 @@ begin
     pg_temp.hint(pg_temp.rc(p_shop, q, 500, 'deposit', inv, null)) = 'actor_required'
     and pg_temp.hint(pg_temp.rc(p_shop, q, 500, 'deposit', inv, gen_random_uuid())) = 'actor_required');
 
+  -- L05n (L3): วันที่รับเงินก่อนวันที่ออกใบแจ้งหนี้ = ปฏิเสธ invoice_date_before · วันเดียวกัน/หลัง = ผ่าน (ทุก flow ข้างบน) · ไม่เผาเลข
+  q := pg_temp.mkq(p_shop, 'quoted', 1000, 'pct', 0.5);
+  inv := pg_temp.mkinv(p_shop, q, 'deposit', p_actor);
+  c0 := (select coalesce(md5(string_agg(shop_id::text || doc_key || last_no, ',' order by shop_id, doc_key)), '') from analytics.oem_doc_counter where doc_key like 'RT-%');
+  r := pg_temp.rc(p_shop, q, 500, 'deposit', inv, p_actor, null, v_today - 1);
+  v := v || pg_temp.chk('L05n', 'รับเงินก่อนวันที่ออกใบแจ้งหนี้ (เมื่อวาน) ถูกปฏิเสธ invoice_date_before · ไม่เผาเลข RT · ไม่มีใบเสร็จเกิด',
+    pg_temp.hint(r) = 'invoice_date_before' and pg_temp.st(r) = '22023'
+    and c0 = (select coalesce(md5(string_agg(shop_id::text || doc_key || last_no, ',' order by shop_id, doc_key)), '') from analytics.oem_doc_counter where doc_key like 'RT-%')
+    and (select count(*) from analytics.oem_receipt where invoice_id = inv) = 0);
+  r2 := pg_temp.rc(p_shop, q, 500, 'deposit', inv, p_actor, null, v_today);
+  v := v || pg_temp.chk('L05o', 'รับเงินวันเดียวกับวันที่ออกใบแจ้งหนี้ ผ่าน (' || coalesce(left(r2 ->> '_err', 60), '') || ')', not pg_temp.rej(r2));
+
   -- ==================== L07 กำแพงที่ตารางเอง (ทะลุ RPC ด้วยการ insert ตรง) ====================
   q := pg_temp.mkq(p_shop, 'quoted', 1000, 'pct', 0.5);
   inv := pg_temp.mkinv(p_shop, q, 'deposit', p_actor);
@@ -983,6 +1005,14 @@ begin
     (select count(*) from analytics.crm_audit_log where action = 'oem_payment_lines_set') = n0 + 1
     and pg_temp.rej(pg_temp.spl(p_shop, array['TEST-ONLY a1','TEST-ONLY a2','TEST-ONLY a3','TEST-ONLY a4','TEST-ONLY a5','TEST-ONLY a6','TEST-ONLY a7'], p_actor))
     and (select count(*) from analytics.crm_audit_log where action = 'oem_payment_lines_set') = n0 + 1);
+  -- P10 (F2): TRUNCATE audit log ถูกปฏิเสธทั้งสองชั้น: service_role ที่ระดับสิทธิ์ · owner ที่ trigger statement-level (42501)
+  n0 := (select count(*) from analytics.crm_audit_log);
+  execute 'set local role service_role';
+  begin truncate analytics.crm_audit_log; t := 'OK'; exception when others then get stacked diagnostics t = returned_sqlstate; end;
+  execute 'reset role';
+  t2 := pg_temp.x('truncate analytics.crm_audit_log');
+  v := v || pg_temp.chk('P10', 'TRUNCATE crm_audit_log: service_role ตก 42501 (สิทธิ์) · owner ตก 42501 (trigger deny truncate) · แถวยังอยู่ครบ (' || coalesce(t, '') || ' / ' || left(t2, 40) || ')',
+    t = '42501' and t2 like 'ERR:42501:%' and (select count(*) from analytics.crm_audit_log) = n0 and n0 > 0);
   update analytics.oem_setting set seller_payment_lines = lines_ok where shop_id = p_shop;
 
   -- ==================== C. M2 ตัวนับเลขเอกสาร ====================
@@ -1057,6 +1087,57 @@ begin
     and pg_temp.x(format('update analytics.oem_doc_counter set last_no = last_no + 2 where shop_id = %L and doc_key = %L', p_shop, v_ivkey)) like 'ERR:22023:%'
     and pg_temp.x(format('delete from analytics.oem_doc_counter where shop_id = %L and doc_key = %L', p_shop, v_ivkey)) like 'ERR:22023:%'
     and pg_temp.x(format('update analytics.oem_doc_counter set doc_key = %L where shop_id = %L and doc_key = %L', 'IV-0001', p_shop, v_ivkey)) like 'ERR:22023:%');
+
+  -- C7 (F1): service_role เขียนใบเสร็จตรงไม่ได้ (INSERT ปลอม / UPDATE void ตรง / DELETE / TRUNCATE / เขียนผ่าน view) ทุกทางตก 42501 · RPC issue/void ภายใต้ service_role ยังทำงาน
+  q := pg_temp.mkq(p_shop, 'quoted', 1000, 'pct', 0.5);
+  r := pg_temp.rc(p_shop, q, 500, 'deposit', null, null);
+  rid := (r ->> 'id')::uuid;
+  b := true; v_bad := '';
+  foreach st in array array['insert', 'update_void', 'update_any', 'delete', 'truncate', 'view_insert', 'view_update'] loop
+    execute 'set local role service_role';
+    begin
+      if st = 'insert' then
+        insert into analytics.oem_receipt select (jsonb_populate_record(null::analytics.oem_receipt, to_jsonb(r0) || jsonb_build_object('id', gen_random_uuid(), 'receipt_no', 'V180-C7-FORGED'))).* from analytics.oem_receipt r0 where r0.id = rid;
+      elsif st = 'update_void' then
+        update analytics.oem_receipt set status = 'void', void_reason = 'forged', voided_at = now() where id = rid;
+      elsif st = 'update_any' then
+        update analytics.oem_receipt set description = 'forged' where id = rid;
+      elsif st = 'delete' then
+        delete from analytics.oem_receipt where id = rid;
+      elsif st = 'truncate' then
+        truncate analytics.oem_receipt;
+      elsif st = 'view_insert' then
+        insert into analytics.v_oem_receipt (id, shop_id, quote_id, receipt_no, kind, status, amount_thb, vat_rate, vat_base_thb, vat_amount_thb, received_date, issue_date, description, seller_snapshot, buyer_legal_name, quote_no_snapshot, grand_total_snapshot, paid_before_thb, balance_after_thb)
+          values (gen_random_uuid(), p_shop, q, 'V180-C7-VIEW', 'partial', 'issued', 1, 0.07, 1, 0, v_today, v_today, 'x', '{}'::jsonb, 'x', 'x', 1, 0, 0);
+      else
+        update analytics.v_oem_receipt set description = 'forged' where id = rid;
+      end if;
+      t2 := 'OK';
+    exception when others then get stacked diagnostics t2 = returned_sqlstate; end;
+    execute 'reset role';
+    -- view เป็น join (ไม่ใช่ auto-updatable) ⇒ เขียนผ่าน view ไม่ได้อยู่แล้ว (55000) — ยอมรับทั้ง 42501 และ 55000 ว่า "ปฏิเสธ" · ตารางต้อง 42501 เท่านั้น
+    if not (t2 = '42501' or (st like 'view_%' and t2 = '55000')) then b := false; v_bad := v_bad || st || '=' || t2 || ' '; end if;
+  end loop;
+  v := v || pg_temp.chk('C7', 'service_role เขียนใบเสร็จตรงไม่ได้: INSERT ปลอม · UPDATE (void ตรง/แก้ฟิลด์) · DELETE · TRUNCATE · INSERT/UPDATE ผ่าน view ตก 42501 ทั้งหมด ' || v_bad, b);
+  v := v || pg_temp.chk('C7b', 'หลังความพยายามเขียนตรง ใบเสร็จไม่ถูกแตะ (ยัง issued · description เดิม · ไม่มีใบ V180-C7-*)',
+    (select status = 'issued' and description <> 'forged' from analytics.oem_receipt where id = rid)
+    and not exists (select 1 from analytics.oem_receipt where receipt_no like 'V180-C7-%'));
+  -- RPC ภายใต้ role=service_role: ออก (ผูกใบแจ้งหนี้) + void ใบเสร็จได้ตามปกติ (definer owner postgres)
+  q2 := pg_temp.mkq(p_shop, 'quoted', 1000, 'pct', 0.5);
+  inv := pg_temp.mkinv(p_shop, q2, 'deposit', p_actor);
+  execute 'set local role service_role';
+  begin
+    rid2 := analytics.oem_receipt_issue(p_shop_id => p_shop, p_quote_id => q2, p_amount_thb => 500, p_received_date => v_today, p_kind => 'deposit', p_invoice_id => inv, p_actor_id => p_actor);
+    t := 'OK';
+  exception when others then get stacked diagnostics t = returned_sqlstate; t := 'ERR:' || t || ':' || sqlerrm; end;
+  begin
+    perform analytics.oem_receipt_void(p_shop, rid2, 'ทดสอบ C7 void ภายใต้ service_role');
+    t2 := 'OK';
+  exception when others then get stacked diagnostics t2 = returned_sqlstate; t2 := 'ERR:' || t2 || ':' || sqlerrm; end;
+  execute 'reset role';
+  v := v || pg_temp.chk('C7c', 'RPC ใต้ role=service_role ยังทำงานหลัง revoke: oem_receipt_issue (ผูกใบแจ้งหนี้) และ oem_receipt_void (' || left(t, 50) || ' / ' || left(t2, 50) || ')',
+    t = 'OK' and t2 = 'OK' and (select status = 'void' from analytics.oem_receipt where id = rid2)
+    and (select payment_state = 'unpaid' from analytics.v_oem_invoice where id = inv));
 
   -- ==================== M1 L1 actor ต้องเป็นสมาชิกร้าน ====================
   v_bad := '';
@@ -1259,6 +1340,11 @@ begin
    {"id":"MU17","kind":"fn","target":"analytics.oem_receipt_issue(uuid,uuid,numeric,date,text,text,text,text,uuid,uuid,uuid)","from":"v_vat_amount := p_amount_thb - v_vat_base;","to":"v_vat_amount := round(p_amount_thb * v_quote.vat_rate, 2);","expect":["G1"]},
    {"id":"MU18","kind":"fn","target":"analytics.oem_receipt_issue(uuid,uuid,numeric,date,text,text,text,text,uuid,uuid,uuid)","from":"perform analytics.oem_require_actor_member(p_shop_id, v_actor);","to":"null;","expect":["M1a"]},
    {"id":"MU19","kind":"fn","target":"analytics.oem_doc_counter_deny_insert()","from":"if new.last_no is distinct from 1 then","to":"if false then","expect":["C2"]},
+   {"id":"MU21","kind":"sql","sql":"grant insert on analytics.oem_receipt to service_role","expect":["A6","C7"]},
+   {"id":"MU22","kind":"sql","sql":"drop trigger trg_crm_audit_log_deny_truncate on analytics.crm_audit_log","expect":["P10","A3"]},
+   {"id":"MU23","kind":"sql","sql":"grant truncate on analytics.crm_audit_log to service_role","expect":["A6"]},
+   {"id":"MU24","kind":"fn","target":"analytics.oem_receipt_issue(uuid,uuid,numeric,date,text,text,text,text,uuid,uuid,uuid)","from":"if p_reissued_from is null and p_received_date < v_inv.issue_date then","to":"if false then","expect":["L05n"]},
+   {"id":"MU25","kind":"sql","sql":"grant update on analytics.oem_receipt to service_role","expect":["A6","C7"]},
    {"id":"MU20","kind":"sql","sql":"alter table analytics.oem_receipt drop constraint oem_receipt_invoice_pair_check","expect":["L07e","A3"]}
   ]$m$::jsonb;
 

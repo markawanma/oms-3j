@@ -51,7 +51,8 @@ beforeEach(() => {
 });
 
 describe("issueReceipt — ไม่ผูกใบแจ้งหนี้ (ทางเดิม ต้องไม่เปลี่ยน)", () => {
-  it("payload เป็น 9 key เดิมเป๊ะ — ไม่มี p_invoice_id / p_actor_id (TS ใหม่ทำงานกับ DB 9-arg เดิมได้ · ไม่ PGRST202)", async () => {
+  it("ไม่มี actor (session อ่านไม่ได้): payload เป็น 9 key เดิมเป๊ะ — ไม่มี p_invoice_id / p_actor_id", async () => {
+    getSessionUserMock.mockResolvedValue(null);
     const { issueReceipt } = await import("./oem");
     const r = await issueReceipt({ ...baseInput, paymentMethod: "transfer", paymentRef: " ref-1 ", description: "  ทดสอบ ", reissuedFrom: null });
     expect(r).toEqual({ ok: true, data: { receiptId: RID } });
@@ -73,7 +74,19 @@ describe("issueReceipt — ไม่ผูกใบแจ้งหนี้ (ท
     expect(revalidateMock).toHaveBeenCalled();
   });
 
-  it("invoiceId = null / undefined = ทางเดิม · ไม่มี session ก็ออกได้ (ทางเดิมไม่บังคับ actor — DB เดิมไม่บังคับ)", async () => {
+  it("F3: มี actor จาก session แต่ไม่ผูกใบแจ้งหนี้: ส่ง p_actor_id (10 key · ไม่มี p_invoice_id) · actor ปลอมจาก input ไม่ถูกใช้", async () => {
+    const { issueReceipt } = await import("./oem");
+    // @ts-expect-error — IssueReceiptInput ไม่มี field actor โดยตั้งใจ · จำลอง caller ข้าม type
+    const r = await issueReceipt({ ...baseInput, actorId: "attacker" });
+    expect(r.ok).toBe(true);
+    const payload = rpcMock.mock.calls[0][1] as Record<string, unknown>;
+    expect(payload.p_actor_id).toBe(ACTOR);
+    expect(Object.keys(payload)).not.toContain("p_invoice_id");
+    expect(Object.keys(payload)).toHaveLength(10);
+    expect(JSON.stringify(payload)).not.toContain("attacker");
+  });
+
+  it("invoiceId = null / undefined = ทางเดิม · ไม่มี session ก็ออกได้ (ทางเดิมไม่บังคับ actor จนกว่า 0181)", async () => {
     getSessionUserMock.mockResolvedValue(null);
     const { issueReceipt } = await import("./oem");
     expect((await issueReceipt({ ...baseInput, invoiceId: null })).ok).toBe(true);
@@ -167,7 +180,7 @@ describe("issueReceipt — ผูกใบแจ้งหนี้ (0180)", () =
     const { invoiceErrorMessage } = await import("@/lib/oem/invoiceMessages");
     for (const hint of [
       "invoice_stale", "invoice_deal_mismatch", "invoice_amount_mismatch", "invoice_kind_mismatch", "reissue_invoice_mismatch",
-      "invoice_not_found", "invoice_not_issued", "invoice_paid", "actor_required", "invoice_snapshot_mismatch",
+      "invoice_not_found", "invoice_not_issued", "invoice_paid", "actor_required", "invoice_snapshot_mismatch", "invoice_date_before",
     ]) {
       rpcMock.mockResolvedValueOnce({ data: null, error: { code: "22023", message: "RAW-DB-MESSAGE IV-2610-001 5000.51", hint } });
       const r = await issueReceipt({ ...baseInput, invoiceId: INV });

@@ -66,12 +66,26 @@
 --   oem_receipt_deny_mutation (เทียบ to_jsonb(new)-4 คอลัมน์ ⇒ คอลัมน์ใหม่ถูกแช่แข็งอัตโนมัติ) · oem_doc_counter_deny_mutation (ข้อความ error ที่อ้าง
 --   oem_receipt_issue ยอมรับเป็นหนี้เล็ก — ไม่แก้ฟังก์ชัน trigger ของเอกสารภาษี) · v_oem_quote · oem_setting_upsert · job_*
 --
+-- ============================ แก้ตามผล security review (Mace) ============================
+--   F1  revoke insert/update/delete/truncate บน oem_receipt (+ v_oem_receipt) จาก service_role — ผู้เขียนมีแค่ oem_receipt_issue/oem_receipt_void
+--       (definer owner postgres) · TS ไม่เขียนตรง · ถอนแล้วถือ key ก็เขียนใบเสร็จปลอมตรงไม่ได้ (ปิดช่อง (ค) เดิม)
+--   F2  crm_audit_log: revoke truncate จาก service_role + trigger BEFORE TRUNCATE statement-level (ใช้ crm_audit_log_append_only เดิม — ฟังก์ชัน raise อย่างเดียว
+--       ไม่ผูกกับ row จึงรองรับ TRUNCATE) — ไม่งั้น M1 audit ล้างได้ด้วย TRUNCATE
+--   F3  (ฝั่ง TS) issueReceipt ส่ง p_actor_id ทุกครั้งที่มี actor · ผูก invoice แล้วไม่มี actor = ปฏิเสธ
+--   L2  pre-flight เพิ่ม md5 guard ของ oem_receipt_deny_mutation (0180 พึ่งมันแช่แข็ง invoice_id/invoice_no_snapshot)
+--   L3  ใบเสร็จที่อ้างใบแจ้งหนี้ received_date < invoice.issue_date ปฏิเสธ hint invoice_date_before (reissue ยกเว้น)
+--
+-- ============================ หนี้ที่ยกไป 0181 (ตั้งใจไม่ทำรอบนี้) ============================
+--   L1-audit  เพิ่ม actor_source ใน audit ช่องทางชำระ (แยก "auth.uid / ที่ผู้เขียนอ้าง / ไม่ทราบ") — ตอนนี้ actor เขียนตรงที่ไม่แตะ updated_by = null
+--   F4  reissue ตัน: ใบเสร็จที่อ้าง IV ถูก void แล้ว IV ถูก void/ต่อราคาก่อน reissue → reissue ไม่ได้ (invoice_not_issued / invoice_stale)
+--   0181 ยังควรบังคับ actor ทุกทางของ oem_receipt_issue (ตอนนี้ทางเดิมที่ไม่ส่ง p_actor_id ยังผ่าน)
+--   🔴 กติกาหน้างานจนกว่า 0181: "void ใบเสร็จที่อ้าง IV เพื่อแก้ข้อมูลแล้ว reissue ทันที — ห้าม void IV หรือต่อราคาระหว่างทาง"
+--
 -- ⚠️ ข้อจำกัดที่รู้ตัว (รายงานใน handoff)
 --   (ก) L1 บน oem_receipt_issue: ทางเดิม (ไม่ส่ง p_invoice_id และไม่ส่ง p_actor_id) ยังไม่บังคับ actor — เพื่อให้ TS เดิมใช้ได้ระหว่างช่วง apply->deploy ·
 --       หลัง deploy TS ใหม่ (ส่ง p_actor_id ทุกครั้ง) แนะนำ 0181 บังคับ actor ทุกทาง
 --   (ข) oem_receipt_void ยังไม่มี actor (voided_by = auth.uid() = null ใต้ service_role) — ไม่อยู่ใน brief ของรอบนี้
---   (ค) service_role ยังมีสิทธิ์ INSERT/UPDATE/DELETE ตรงบน oem_receipt (trigger กัน UPDATE/DELETE แต่ INSERT เขียนใบเสร็จปลอมได้ถ้าถือ key) — มีมาตั้งแต่ 0084
---       ไฟล์นี้ปิดเฉพาะ "link ปลอม" (trigger ข้อ 2) และ oem_doc_counter (ข้อ 8) ไม่ revoke ตาราง oem_receipt (นอก brief — เสนอให้ security พิจารณา)
+--   (ค) [ปิดแล้วด้วย F1] service_role เคยมีสิทธิ์ INSERT/UPDATE/DELETE ตรงบน oem_receipt (มีมาตั้งแต่ 0084)
 --   (ง) race 2 connection (ออกใบเสร็จอ้างใบเดียวกันพร้อมกัน / void ใบแจ้งหนี้ชนกับออกใบเสร็จ) ไม่มีเทสต์ใน do-block เดียว — กันด้วย for update แถว quote + แถวใบแจ้งหนี้ + unique index
 
 -- ============================================================================
@@ -100,6 +114,11 @@ begin
     end if;
   elsif to_regprocedure(v_sig11) is null then
     raise exception '0180: ไม่พบ oem_receipt_issue ทั้ง 9 และ 11 args';
+  end if;
+
+  -- L2: oem_receipt_deny_mutation ต้องเป็น baseline — 0180 พึ่งมันแช่แข็ง invoice_id/invoice_no_snapshot (เทียบ to_jsonb(new)-4 คอลัมน์) ถ้าถูกแก้ ใบเสร็จที่ผูกแล้วอาจแก้ได้
+  if md5(pg_get_functiondef('analytics.oem_receipt_deny_mutation()'::regprocedure)) <> 'a9c0217c0cf84f51554f4f0f9364cf15' then
+    raise exception '0180: oem_receipt_deny_mutation บน DB ไม่ตรง baseline 0087/0088 (md5 ต่าง) — 0180 พึ่งมันแช่แข็งใบเสร็จ หยุดแล้วเทียบนิยามสดก่อน';
   end if;
 
   -- 3 ฟังก์ชันที่เติมบรรทัด L1: baseline หรือมีเครื่องหมาย 0180 L1 อยู่แล้ว
@@ -570,6 +589,11 @@ begin
     if p_kind is distinct from (case v_inv.kind when 'deposit' then 'deposit' when 'balance' then 'final' end) then
       raise exception 'oem_receipt_issue: ใบแจ้งหนี้ % ชนิด % ต้องออกใบเสร็จชนิด % (ส่งมา %)', v_inv.invoice_no, v_inv.kind,
         (case v_inv.kind when 'deposit' then 'deposit' else 'final' end), p_kind using errcode = '22023', hint = 'invoice_kind_mismatch';
+    end if;
+    -- 0180 L3: วันที่รับเงินต้องไม่ก่อนวันที่ออกใบแจ้งหนี้ (เงินที่รับก่อนมีใบแจ้งหนี้ไม่ใช่การชำระใบนี้) · reissue ยกเว้น (วันที่ต้องเท่าใบเดิมที่ผ่านด่านนี้มาแล้ว — ล็อกโดย 0086)
+    if p_reissued_from is null and p_received_date < v_inv.issue_date then
+      raise exception 'oem_receipt_issue: วันที่รับเงิน (%) ก่อนวันที่ออกใบแจ้งหนี้ % (%) — รับเงินก่อนมีใบแจ้งหนี้ให้บันทึกแบบไม่อ้างใบแจ้งหนี้', p_received_date, v_inv.invoice_no, v_inv.issue_date
+        using errcode = '22023', hint = 'invoice_date_before';
     end if;
   end if;
 
@@ -1253,6 +1277,14 @@ create trigger trg_oem_setting_payment_lines_audit_ins
   for each row when (cardinality(new.seller_payment_lines) > 0)
   execute function analytics.oem_setting_payment_lines_audit();
 
+-- F2: audit log ต้องล้างด้วย TRUNCATE ไม่ได้ — service_role เคยมีสิทธิ์ TRUNCATE (trigger append-only เดิมเป็นระดับแถว ไม่จับ TRUNCATE)
+--    crm_audit_log_append_only() raise อย่างเดียว (ไม่อ่าน OLD/NEW) ⇒ ใช้กับ trigger statement-level ได้เลย · errcode 42501 เหมือน UPDATE/DELETE
+revoke truncate on analytics.crm_audit_log from service_role;
+drop trigger if exists trg_crm_audit_log_deny_truncate on analytics.crm_audit_log;
+create trigger trg_crm_audit_log_deny_truncate
+  before truncate on analytics.crm_audit_log
+  for each statement execute function analytics.crm_audit_log_append_only();
+
 -- ============================================================================
 -- 8. M2 — oem_doc_counter: ตัวนับเลขเอกสารภาษีห้ามถูกแก้ตรงแม้ด้วย service_role key
 --    grep แล้ว (16 ต.ค. 69): ไม่มีโค้ด TS/script เขียนตารางนี้ตรง · ฟังก์ชันที่แตะตัวนับมี 2 ตัว (oem_receipt_issue / oem_invoice_issue) ทั้งคู่ security definer owner postgres
@@ -1281,6 +1313,14 @@ drop trigger if exists trg_oem_doc_counter_deny_insert on analytics.oem_doc_coun
 create trigger trg_oem_doc_counter_deny_insert
   before insert on analytics.oem_doc_counter
   for each row execute function analytics.oem_doc_counter_deny_insert();
+
+-- ============================================================================
+-- 8b. F1 — oem_receipt: เอกสารภาษีเขียนได้ผ่าน RPC definer เท่านั้น (ถือ service_role key ก็เขียนตรงไม่ได้)
+--     ผู้เขียนจริงมีแค่ oem_receipt_issue (INSERT + UPDATE quote) และ oem_receipt_void (UPDATE 4 คอลัมน์) — ทั้งคู่ security definer owner postgres ⇒ ไม่พึ่งสิทธิ์ service_role
+--     TS อ่านผ่าน v_oem_receipt / SELECT เท่านั้น (grep แล้ว) · view เป็น auto-updatable (security_invoker) ถอนที่ view ด้วยกันเขียนผ่านทาง view
+-- ============================================================================
+revoke insert, update, delete, truncate on analytics.oem_receipt from service_role;
+revoke insert, update, delete, truncate on analytics.v_oem_receipt from service_role;
 
 -- ============================================================================
 -- 9. ปิดท้าย: assert (ผิด = raise = ถอยทั้งไฟล์ ไม่ apply ครึ่งๆ) แล้ว reload PostgREST
@@ -1347,6 +1387,25 @@ begin
      or has_table_privilege('anon', 'analytics.oem_doc_counter', 'select')
      or has_table_privilege('authenticated', 'analytics.oem_doc_counter', 'select') then
     raise exception '0180: สิทธิ์ตาราง oem_doc_counter ไม่ตรง (service_role ต้อง select อย่างเดียว · anon/authenticated ไม่มีเลย)';
+  end if;
+
+  -- F1: service_role อ่านใบเสร็จได้อย่างเดียว (ตารางและ view) · F2: ไม่มีสิทธิ์ truncate audit log + trigger มี
+  if not has_table_privilege('service_role', 'analytics.oem_receipt', 'select')
+     or has_table_privilege('service_role', 'analytics.oem_receipt', 'insert')
+     or has_table_privilege('service_role', 'analytics.oem_receipt', 'update')
+     or has_table_privilege('service_role', 'analytics.oem_receipt', 'delete')
+     or has_table_privilege('service_role', 'analytics.oem_receipt', 'truncate')
+     or not has_table_privilege('service_role', 'analytics.v_oem_receipt', 'select')
+     or has_table_privilege('service_role', 'analytics.v_oem_receipt', 'insert')
+     or has_table_privilege('service_role', 'analytics.v_oem_receipt', 'update')
+     or has_table_privilege('service_role', 'analytics.v_oem_receipt', 'delete')
+     or has_table_privilege('anon', 'analytics.oem_receipt', 'select')
+     or has_table_privilege('authenticated', 'analytics.oem_receipt', 'select') then
+    raise exception '0180 F1: สิทธิ์ตาราง/view ใบเสร็จไม่ตรง (service_role ต้อง select อย่างเดียว · anon/authenticated ไม่มีเลย)';
+  end if;
+  if has_table_privilege('service_role', 'analytics.crm_audit_log', 'truncate')
+     or not exists (select 1 from pg_trigger where tgrelid = 'analytics.crm_audit_log'::regclass and tgname = 'trg_crm_audit_log_deny_truncate' and not tgisinternal) then
+    raise exception '0180 F2: crm_audit_log ต้องไม่มีสิทธิ์ truncate ของ service_role และต้องมี trigger deny truncate';
   end if;
 
   -- ไฟล์นี้ไม่ขยับตัวนับ/ใบเสร็จ/ใบแจ้งหนี้ (ข้อ 19) — เทียบกับ baseline ที่เก็บตอนต้นไฟล์

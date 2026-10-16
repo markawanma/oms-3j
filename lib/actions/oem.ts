@@ -1932,17 +1932,15 @@ export async function issueReceipt(input: IssueReceiptInput): Promise<ActionResu
   if (input.paymentMethod != null && !["transfer", "cash", "other"].includes(input.paymentMethod)) {
     return { ok: false, error: "ช่องทางรับเงินไม่ถูกต้อง" };
   }
-  // 0180 (I2): ผูกใบแจ้งหนี้ — ส่ง p_invoice_id + p_actor_id ไปเฉพาะเมื่อมี invoiceId (ทางเดิมไม่ส่งพารามิเตอร์ใหม่เลย: ทำงานได้ทั้งก่อน/หลัง apply 0180)
+  // 0180 (I2): ผูกใบแจ้งหนี้ — ส่ง p_invoice_id เฉพาะเมื่อมี invoiceId · F3 (security review): ส่ง p_actor_id ทุกครั้งที่มี actor จาก session
+  // (DB ตรวจว่าเป็นสมาชิกร้าน owner/admin + บันทึกเป็น created_by) · ทางเดิมที่ไม่มี actor (AUTH_GATE off / อ่าน session ไม่ได้) ยังส่งโดยไม่มี actor ได้ จนกว่า 0181 จะบังคับ
   const invoiceId: unknown = input.invoiceId ?? null;
   if (invoiceId !== null && (typeof invoiceId !== "string" || !UUID_RE.test(invoiceId))) {
     return { ok: false, error: "ไม่พบใบแจ้งหนี้ที่จะผูกกับใบเสร็จ" };
   }
   // ทางใบแจ้งหนี้ = เอกสารการเงิน: ไม่มี actor = ปฏิเสธก่อนยิง RPC (DB บังคับซ้ำ hint actor_required + ตรวจว่าเป็นสมาชิกร้าน)
-  let actorId: string | null = null;
-  if (invoiceId !== null) {
-    actorId = await getActorId();
-    if (!actorId) return { ok: false, error: ACTOR_REQUIRED_MESSAGE };
-  }
+  const actorId = await getActorId();
+  if (invoiceId !== null && !actorId) return { ok: false, error: ACTOR_REQUIRED_MESSAGE };
 
   try {
     const shopId = getDevShopId();
@@ -1958,7 +1956,8 @@ export async function issueReceipt(input: IssueReceiptInput): Promise<ActionResu
       p_payment_ref: input.paymentRef?.trim() || null,
       p_description: input.description?.trim() || null,
       p_reissued_from: input.reissuedFrom ?? null,
-      ...(invoiceId !== null ? { p_invoice_id: invoiceId, p_actor_id: actorId } : {}),
+      ...(invoiceId !== null ? { p_invoice_id: invoiceId } : {}),
+      ...(actorId ? { p_actor_id: actorId } : {}),
     });
     if (error) {
       const code = (error as { code?: string }).code;
