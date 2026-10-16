@@ -22,11 +22,20 @@ import { getSessionUser } from "@/lib/auth/session";
 import type { ActionResult } from "@/lib/types";
 import type {
   DeleteOemRateInput,
+  IssueInvoiceInput,
+  IssuedInvoice,
   IssueReceiptInput,
   OemBarBreakdown,
   OemBarSize,
   OemBatchLine,
   OemFloors,
+  OemInvoiceKind,
+  OemInvoiceLine,
+  OemInvoicePaymentState,
+  OemInvoiceRow,
+  OemInvoiceSellerSnapshot,
+  OemInvoiceStatus,
+  OemInvoiceVatDisplay,
   OemLaborStep,
   OemMetalPriceMap,
   OemMissingRateEntry,
@@ -51,12 +60,14 @@ import type {
   SaveMetalPriceInput,
   SaveQuoteInput,
   SetQuoteBillingInput,
+  SetSellerPaymentLinesInput,
   SetQuoteCustomerInput,
   SetQuoteDepositInput,
   SetQuoteStatusInput,
   SetQuoteVatModeInput,
   UpsertOemRateInput,
   UpsertOemSettingInput,
+  VoidInvoiceInput,
   VoidReceiptInput,
 } from "@/lib/oem/types";
 import {
@@ -69,6 +80,7 @@ import {
   stripInvisibleText,
 } from "@/lib/oem/display";
 import { cleanPriceReason, productInputIssue } from "@/lib/oem/productItem";
+import { OEM_INVOICE_GENERIC_ERROR_TH, OEM_PAYMENT_LINES_ERROR_TH, invoiceErrorMessage } from "@/lib/oem/invoiceMessages";
 import type { SellerProfile } from "@/lib/oem/sellerProfile";
 import { fetchAllRows } from "@/lib/supabase/query-limits";
 // S1 fix (0127 code review): saveMetalPrice's silver check must match the
@@ -83,7 +95,7 @@ import { effectiveDateBangkok } from "@/lib/tiktok/format";
 const SCHEMA = "analytics";
 // T4-T6 routes (all `dynamic = "force-dynamic"`, so this is belt-and-braces
 // alongside router.refresh() on the client side, not the only cache-buster).
-const OEM_PATHS = ["/oem/rates", "/oem/quote", "/oem/quotes", "/oem/receipts"] as const;
+const OEM_PATHS = ["/oem/rates", "/oem/quote", "/oem/quotes", "/oem/receipts", "/oem/invoices"] as const;
 function revalidateOemPaths(): void {
   for (const p of OEM_PATHS) revalidatePath(p);
 }
@@ -804,6 +816,35 @@ function toStringArray(raw: unknown): string[] {
   return raw.filter((v): v is string => typeof v === "string" && v.trim().length > 0).map((v) => v.trim());
 }
 
+/** 0179: ช่องทางชำระเงินของร้าน — อ่านแยกจาก query หลักของ getSellerProfile โดยตั้งใจ:
+ * ถ้าโค้ดนี้ขึ้นก่อน apply 0179 (คอลัมน์/คอลัมน์ใน v_oem_seller ยังไม่มี) หรือ schema cache ยังไม่ reload
+ * query นี้พังอย่างเดียว ไม่ลากหน้าข้อมูลร้าน/หน้าพิมพ์ใบเสนอราคาล่มตามไปด้วย
+ * คืน null = "อ่านไม่ได้" (ต่างจาก [] = อ่านได้แต่ร้านยังไม่ได้กรอก) — UI ต้องแยกสองกรณี:
+ * null แสดง "โหลดช่องทางชำระไม่สำเร็จ" ห้ามบอกว่า "ยังไม่ได้ตั้งค่า" (จะชวนให้เจ้าของกรอกทับของเดิมที่ยังอยู่) */
+async function readSellerPaymentLines(
+  supabase: ReturnType<typeof getServiceClient>,
+  shopId: string
+): Promise<string[] | null> {
+  try {
+    const { data, error } = await supabase
+      .schema(SCHEMA)
+      .from("v_oem_seller")
+      .select("seller_payment_lines")
+      .eq("shop_id", shopId)
+      .maybeSingle();
+    if (error) throw error;
+    // ไม่มีแถว = ร้านยังไม่เคยบันทึกข้อมูลร้าน = อ่านได้แต่ว่าง
+    if (!data) return [];
+    const raw: unknown = (data as { seller_payment_lines?: unknown }).seller_payment_lines;
+    // คอลัมน์ไม่อยู่ในผลลัพธ์/ไม่ใช่ array = อ่านไม่ได้ ไม่ใช่ว่าง
+    if (!Array.isArray(raw)) return null;
+    return toStringArray(raw);
+  } catch (err) {
+    console.error("readSellerPaymentLines failed:", err instanceof Error ? err.message : String(err));
+    return null;
+  }
+}
+
 export async function getSellerProfile(): Promise<ActionResult<SellerProfile>> {
   const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
@@ -833,6 +874,7 @@ export async function getSellerProfile(): Promise<ActionResult<SellerProfile>> {
       email: data?.seller_email ?? null,
       website: data?.seller_website ?? null,
       terms: toStringArray(data?.seller_terms),
+      paymentLines: await readSellerPaymentLines(supabase, shopId),
     };
     return { ok: true, data: profile };
   } catch (err) {
@@ -2059,5 +2101,370 @@ export async function getReceipt(receiptId: string): Promise<ActionResult<OemRec
   } catch (err) {
     console.error("getReceipt failed:", err instanceof Error ? err.message : String(err));
     return { ok: false, error: "โหลดใบเสร็จไม่สำเร็จ ลองใหม่อีกครั้ง" };
+  }
+}
+
+// ============================================================================
+// Invoices / ใบแจ้งหนี้ (0179: analytics.oem_invoice, oem_invoice_issue, oem_invoice_void,
+// oem_setting_set_payment_lines, analytics.v_oem_invoice) — types + ข้อกำหนดเอกสารอยู่ที่หัว section
+// "Invoices" ของ lib/oem/types.ts. ท่าทีเดียวกับ section ใบเสร็จด้านบน:
+//   · requireOwnerAdmin() ก่อนเสมอ (ทั้งอ่านและเขียน) · actor มาจาก session ฝั่ง server (getActorId) ห้ามรับจาก input
+//   · 🔴 ไม่มีการคำนวณ/ส่งยอดเงินจาก client — IssueInvoiceInput ไม่มี field จำนวนเงิน DB อ่านจาก v_oem_quote เอง
+//   · ใบแจ้งหนี้เป็นเอกสารการเงิน: ไม่มี actor = ปฏิเสธ (DB บังคับซ้ำ hint actor_required) ต่างจาก getActorId ของ audit ที่ปล่อย null
+//   · แปลง hint ของ DB เป็นข้อความไทยที่ lib/oem/invoiceMessages.ts — ไม่ส่งข้อความดิบของ DB ที่ไม่รู้จักขึ้นจอ
+//   · log เฉพาะ code + message (ไม่ log ทั้งก้อน error / ไม่ log input) — แถวมีชื่อ/ที่อยู่/เลขผู้เสียภาษีผู้ซื้อ (M3 0076)
+// ============================================================================
+
+const INVOICE_KINDS: readonly OemInvoiceKind[] = ["deposit", "balance"];
+const INVOICE_STATUSES: readonly OemInvoiceStatus[] = ["issued", "void"];
+const INVOICE_PAYMENT_STATES: readonly OemInvoicePaymentState[] = ["unpaid", "paid", "void"];
+const INVOICE_VAT_DISPLAYS: readonly OemInvoiceVatDisplay[] = ["none", "included", "breakdown"];
+const ACTOR_REQUIRED_MESSAGE = invoiceErrorMessage("actor_required") ?? OEM_INVOICE_GENERIC_ERROR_TH;
+
+function logInvoiceError(name: string, err: unknown): void {
+  const e = err as { code?: unknown; message?: unknown } | null;
+  const code = e && typeof e.code === "string" ? e.code : "-";
+  const message = err instanceof Error ? err.message : e && typeof e.message === "string" ? e.message : "unknown";
+  console.error(`${name} failed: [${code}] ${message}`);
+}
+
+/** error จาก supabase rpc -> ข้อความไทยของด่านที่รู้จัก (22023 + hint) หรือ null = ไม่ใช่ด่านที่ควบคุมไว้ (ผู้เรียก throw ต่อ) */
+function invoiceGateMessage(error: unknown): string | null {
+  const e = error as { code?: unknown; hint?: unknown } | null;
+  if (!e || e.code !== "22023") return null;
+  return invoiceErrorMessage(typeof e.hint === "string" ? e.hint : null) ?? OEM_INVOICE_GENERIC_ERROR_TH;
+}
+
+function reqNum(r: Record<string, unknown>, key: string): number {
+  const n = Number(r[key]);
+  if (r[key] == null || !Number.isFinite(n)) throw new Error(`oem_invoice: คอลัมน์ ${key} ไม่ใช่ตัวเลข`);
+  return n;
+}
+
+function optNum(r: Record<string, unknown>, key: string): number | null {
+  if (r[key] == null) return null;
+  return reqNum(r, key);
+}
+
+function pickEnum<T extends string>(value: unknown, allowed: readonly T[], what: string): T {
+  if (typeof value === "string" && (allowed as readonly string[]).includes(value)) return value as T;
+  throw new Error(`oem_invoice: ค่า ${what} ไม่รู้จัก`);
+}
+
+/** lines_snapshot -> OemInvoiceLine[] เลือกเฉพาะ 6 คีย์ที่อนุญาต (คีย์อื่นถูกทิ้ง) · องค์ประกอบผิดรูป = throw (fail closed:
+ * ไม่ทิ้งบรรทัดเงียบๆ จนกระดาษบวกไม่ลง) */
+function parseInvoiceLines(raw: unknown): OemInvoiceLine[] {
+  if (!Array.isArray(raw) || raw.length === 0) throw new Error("oem_invoice: lines_snapshot ว่าง/ผิดรูป");
+  return raw.map((el) => {
+    if (el == null || typeof el !== "object" || Array.isArray(el)) throw new Error("oem_invoice: บรรทัดรายการผิดรูป");
+    const l = el as Record<string, unknown>;
+    if (typeof l.name !== "string") throw new Error("oem_invoice: บรรทัดรายการไม่มีชื่อ");
+    return {
+      seq: reqNum(l, "seq"),
+      name: l.name,
+      sku: typeof l.sku === "string" && l.sku.trim() ? l.sku : null,
+      qty: reqNum(l, "qty"),
+      unitPriceThb: reqNum(l, "unit_price_thb"),
+      lineTotalThb: reqNum(l, "line_total_thb"),
+    };
+  });
+}
+
+function parseInvoiceSellerSnapshot(raw: unknown): OemInvoiceSellerSnapshot {
+  const r = raw != null && typeof raw === "object" && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+  const pickStr = (key: string): string | null => {
+    const v = r[key];
+    return typeof v === "string" && v.trim() ? v.trim() : null;
+  };
+  return {
+    legalName: pickStr("legal_name"),
+    displayName: pickStr("display_name"),
+    branchLabel: pickStr("branch_label"),
+    addressLines: Array.isArray(r.address_lines)
+      ? (r.address_lines as unknown[]).filter((v): v is string => typeof v === "string" && v.trim().length > 0)
+      : null,
+    taxId: pickStr("tax_id"),
+    phone: pickStr("phone"),
+    vatRegistered: r.vat_registered === true,
+  };
+}
+
+const INVOICE_COLUMNS =
+  "id, shop_id, quote_id, invoice_no, kind, status, amount_thb, vat_display, vat_rate, vat_base_thb, vat_amount_thb, issue_date, due_date, pay_before_work, description, note, seller_snapshot, payment_lines, buyer_legal_name, buyer_tax_id, buyer_branch_label, buyer_address, quote_no_snapshot, lines_snapshot, pieces_subtotal_snapshot, nre_price_snapshot, discount_thb_snapshot, grand_total_snapshot, deposit_amount_snapshot, deposit_pct_snapshot, paid_before_thb, balance_after_thb, void_reason, voided_at, replaces_invoice_id, created_at, quote_no, quote_status, deal_root_id, is_deal_active, active_quote_id, deal_quote_no, deal_quote_status, deal_grand_total, deal_paid_thb, quote_valid_until, deal_quote_expired, payment_state, is_stale, is_overdue, receipt_id, receipt_no, received_date";
+
+/** v_oem_invoice -> OemInvoiceRow ทีละ field (ไม่ spread) · ค่าที่ DB รับรองด้วย CHECK แต่ผิดรูป = throw */
+function mapInvoiceRow(r: Record<string, unknown>): OemInvoiceRow {
+  const vatDisplay = pickEnum(r.vat_display, INVOICE_VAT_DISPLAYS, "vat_display");
+  const none = vatDisplay === "none";
+  return {
+    id: String(r.id),
+    shopId: String(r.shop_id),
+    quoteId: String(r.quote_id),
+    invoiceNo: String(r.invoice_no),
+    kind: pickEnum(r.kind, INVOICE_KINDS, "kind"),
+    status: pickEnum(r.status, INVOICE_STATUSES, "status"),
+    amountThb: reqNum(r, "amount_thb"),
+    vatDisplay,
+    // 'none' = ร้านไม่จด VAT: บังคับ null ซ้ำชั้นนี้ ไม่เชื่อค่าที่อาจหลงมา (ห้ามมีคำ/อัตราภาษีบนเอกสาร)
+    vatRate: none ? null : optNum(r, "vat_rate"),
+    vatBaseThb: none ? null : optNum(r, "vat_base_thb"),
+    vatAmountThb: none ? null : optNum(r, "vat_amount_thb"),
+    issueDate: String(r.issue_date),
+    dueDate: String(r.due_date),
+    payBeforeWork: r.pay_before_work === true,
+    description: String(r.description ?? ""),
+    note: typeof r.note === "string" && r.note.trim() ? r.note : null,
+    sellerSnapshot: parseInvoiceSellerSnapshot(r.seller_snapshot),
+    paymentLines: toStringArray(r.payment_lines),
+    buyerLegalName: String(r.buyer_legal_name ?? ""),
+    buyerTaxId: (r.buyer_tax_id as string | null) ?? null,
+    buyerBranchLabel: (r.buyer_branch_label as string | null) ?? null,
+    buyerAddress: parseBillAddress(r.buyer_address),
+    quoteNoSnapshot: String(r.quote_no_snapshot ?? ""),
+    lines: parseInvoiceLines(r.lines_snapshot),
+    piecesSubtotalThb: reqNum(r, "pieces_subtotal_snapshot"),
+    nrePriceThb: reqNum(r, "nre_price_snapshot"),
+    discountThb: reqNum(r, "discount_thb_snapshot"),
+    grandTotalThb: reqNum(r, "grand_total_snapshot"),
+    depositAmountSnapshotThb: optNum(r, "deposit_amount_snapshot"),
+    depositPctSnapshot: optNum(r, "deposit_pct_snapshot"),
+    paidBeforeThb: reqNum(r, "paid_before_thb"),
+    balanceAfterThb: reqNum(r, "balance_after_thb"),
+    voidReason: (r.void_reason as string | null) ?? null,
+    voidedAt: (r.voided_at as string | null) ?? null,
+    replacesInvoiceId: (r.replaces_invoice_id as string | null) ?? null,
+    createdAt: String(r.created_at),
+    quoteNo: String(r.quote_no ?? ""),
+    quoteStatus: String(r.quote_status ?? ""),
+    dealRootId: String(r.deal_root_id),
+    isDealActive: r.is_deal_active === true,
+    activeQuoteId: (r.active_quote_id as string | null) ?? null,
+    dealQuoteNo: (r.deal_quote_no as string | null) ?? null,
+    dealQuoteStatus: (r.deal_quote_status as string | null) ?? null,
+    dealGrandTotalThb: optNum(r, "deal_grand_total"),
+    dealPaidThb: optNum(r, "deal_paid_thb"),
+    quoteValidUntil: (r.quote_valid_until as string | null) ?? null,
+    dealQuoteExpired: r.deal_quote_expired === true,
+    paymentState: pickEnum(r.payment_state, INVOICE_PAYMENT_STATES, "payment_state"),
+    isStale: r.is_stale === true,
+    isOverdue: r.is_overdue === true,
+    receiptId: (r.receipt_id as string | null) ?? null,
+    receiptNo: (r.receipt_no as string | null) ?? null,
+    receivedDate: (r.received_date as string | null) ?? null,
+  };
+}
+
+/** YYYY-MM-DD ที่เป็นวันที่จริง (ไม่รับ 2026-02-31) — pre-check เท่านั้น; ช่วงที่ยอมรับ (>= วันนี้ไทย · <= +365) ตัดสินที่ DB */
+function isRealIsoDate(s: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  const d = new Date(`${s}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
+}
+
+/** บรรทัดช่องทางชำระ -> null = ใช้ได้ · กฎเดียวกับ DB (ตัวอักษรจริง ≤ 200 ไม่มีขึ้นบรรทัดใหม่/control/ล่องหน) UX เท่านั้น */
+function paymentLineIssue(line: string): string | null {
+  if (customerTextIssue(line, "บรรทัดช่องทางชำระ") !== null) {
+    return [...line.trim()].length > 200 ? OEM_PAYMENT_LINES_ERROR_TH.tooLong : OEM_PAYMENT_LINES_ERROR_TH.badLine;
+  }
+  if (!oemNotePresent(line)) return OEM_PAYMENT_LINES_ERROR_TH.badLine;
+  return null;
+}
+
+/** ตั้ง/ล้างช่องทางชำระเงินที่พิมพ์บนใบแจ้งหนี้ (oem_setting_set_payment_lines) — ค่าจริงเจ้าของกรอกเอง ห้ามมีค่าในโค้ด/seed */
+export async function setSellerPaymentLines(input: SetSellerPaymentLinesInput): Promise<ActionResult> {
+  const gateErr = await requireOwnerAdmin();
+  if (gateErr) return gateErr;
+
+  const raw: unknown = input?.lines;
+  if (!Array.isArray(raw) || raw.some((l) => typeof l !== "string")) {
+    return { ok: false, error: OEM_PAYMENT_LINES_ERROR_TH.notArray };
+  }
+  // แถวว่างล้วน (textarea) ตัดทิ้ง · บรรทัดที่เหลือต้องผ่านด่าน (ล่องหน/วรรคตอนล้วนไม่ถูกตัดเงียบ — ตกด่าน)
+  const lines = (raw as string[]).map((l) => l.trim()).filter((l) => l.length > 0);
+  if (lines.length > 6) return { ok: false, error: OEM_PAYMENT_LINES_ERROR_TH.tooMany };
+  for (const l of lines) {
+    const issue = paymentLineIssue(l);
+    if (issue) return { ok: false, error: issue };
+  }
+
+  const actorId = await getActorId();
+  if (!actorId) return { ok: false, error: ACTOR_REQUIRED_MESSAGE };
+
+  try {
+    const shopId = getDevShopId();
+    const supabase = getServiceClient();
+    const { error } = await supabase.schema(SCHEMA).rpc("oem_setting_set_payment_lines", {
+      p_shop_id: shopId,
+      p_lines: lines,
+      p_actor_id: actorId,
+    });
+    if (error) {
+      const gate = invoiceGateMessage(error);
+      if (gate) return { ok: false, error: gate };
+      throw error;
+    }
+    revalidateOemPaths();
+    return { ok: true, data: undefined };
+  } catch (err) {
+    logInvoiceError("setSellerPaymentLines", err);
+    return { ok: false, error: "บันทึกช่องทางชำระเงินไม่สำเร็จ ลองใหม่อีกครั้ง" };
+  }
+}
+
+/** ออกใบแจ้งหนี้ (deposit / balance) — ยอดมาจาก DB ทั้งหมด · คืน {id, invoiceNo} */
+export async function issueInvoice(input: IssueInvoiceInput): Promise<ActionResult<IssuedInvoice>> {
+  const gateErr = await requireOwnerAdmin();
+  if (gateErr) return gateErr;
+
+  if (!input?.quoteId || !UUID_RE.test(input.quoteId)) return { ok: false, error: "ไม่พบใบเสนอราคา" };
+  if (!INVOICE_KINDS.includes(input.kind)) {
+    return { ok: false, error: invoiceErrorMessage("kind_invalid") ?? OEM_INVOICE_GENERIC_ERROR_TH };
+  }
+  const dueDate: unknown = input.dueDate ?? null;
+  if (dueDate !== null && (typeof dueDate !== "string" || !isRealIsoDate(dueDate))) {
+    return { ok: false, error: "วันกำหนดชำระไม่ถูกต้อง" };
+  }
+  const noteIssue = approvalNoteIssue(input.note ?? null, "หมายเหตุ");
+  if (noteIssue) return { ok: false, error: noteIssue };
+  const note = typeof input.note === "string" && input.note.trim() ? input.note.trim() : null;
+  if (note !== null && !oemNotePresent(note)) {
+    return { ok: false, error: invoiceErrorMessage("note_invalid") ?? OEM_INVOICE_GENERIC_ERROR_TH };
+  }
+  const replaces: unknown = input.replacesInvoiceId ?? null;
+  if (replaces !== null && (typeof replaces !== "string" || !UUID_RE.test(replaces))) {
+    return { ok: false, error: invoiceErrorMessage("replaces_invalid") ?? OEM_INVOICE_GENERIC_ERROR_TH };
+  }
+
+  const actorId = await getActorId();
+  if (!actorId) return { ok: false, error: ACTOR_REQUIRED_MESSAGE };
+
+  try {
+    const shopId = getDevShopId();
+    const supabase = getServiceClient();
+    // 🔴 ไม่มีพารามิเตอร์ยอดเงิน — DB ไม่มีช่องรับ (verify-0179 A1 ล็อกไว้)
+    const { data, error } = await supabase.schema(SCHEMA).rpc("oem_invoice_issue", {
+      p_shop_id: shopId,
+      p_quote_id: input.quoteId,
+      p_kind: input.kind,
+      p_due_date: dueDate,
+      p_note: note,
+      p_replaces_invoice_id: replaces,
+      p_actor_id: actorId,
+    });
+    if (error) {
+      const gate = invoiceGateMessage(error);
+      if (gate) return { ok: false, error: gate };
+      throw error;
+    }
+    const out = data as { id?: unknown; invoice_no?: unknown } | null;
+    if (!out || typeof out.id !== "string" || typeof out.invoice_no !== "string") {
+      throw new Error("oem_invoice_issue: ผลลัพธ์ผิดรูป");
+    }
+    revalidateOemPaths();
+    return { ok: true, data: { id: out.id, invoiceNo: out.invoice_no } };
+  } catch (err) {
+    logInvoiceError("issueInvoice", err);
+    return { ok: false, error: "ออกใบแจ้งหนี้ไม่สำเร็จ ลองใหม่อีกครั้ง" };
+  }
+}
+
+export async function voidInvoice(input: VoidInvoiceInput): Promise<ActionResult> {
+  const gateErr = await requireOwnerAdmin();
+  if (gateErr) return gateErr;
+
+  if (!input?.invoiceId || !UUID_RE.test(input.invoiceId)) return { ok: false, error: "ไม่พบใบแจ้งหนี้" };
+  const reasonRaw: unknown = input.reason;
+  const reasonIssue = approvalNoteIssue(reasonRaw ?? null, "เหตุผล");
+  if (reasonIssue) return { ok: false, error: reasonIssue };
+  const reason = typeof reasonRaw === "string" ? reasonRaw.trim() : "";
+  if (!oemNotePresent(reason)) {
+    return { ok: false, error: invoiceErrorMessage("reason_invalid") ?? OEM_INVOICE_GENERIC_ERROR_TH };
+  }
+
+  const actorId = await getActorId();
+  if (!actorId) return { ok: false, error: ACTOR_REQUIRED_MESSAGE };
+
+  try {
+    const shopId = getDevShopId();
+    const supabase = getServiceClient();
+    const { error } = await supabase.schema(SCHEMA).rpc("oem_invoice_void", {
+      p_shop_id: shopId,
+      p_invoice_id: input.invoiceId,
+      p_reason: reason,
+      p_actor_id: actorId,
+    });
+    if (error) {
+      const gate = invoiceGateMessage(error);
+      if (gate) return { ok: false, error: gate };
+      throw error;
+    }
+    revalidateOemPaths();
+    return { ok: true, data: undefined };
+  } catch (err) {
+    logInvoiceError("voidInvoice", err);
+    return { ok: false, error: "ยกเลิกใบแจ้งหนี้ไม่สำเร็จ ลองใหม่อีกครั้ง" };
+  }
+}
+
+export interface GetInvoicesResult {
+  rows: OemInvoiceRow[];
+  /** จำนวนจริงจาก DB (count: exact) — เชื่อได้แม้ rows ถูกตัดที่เพดาน · ดู lib/supabase/query-limits.ts */
+  totalCount: number;
+  truncated: boolean;
+}
+
+/** ใบแจ้งหนี้ของร้าน — ส่ง quoteId = เฉพาะดีลนั้น (ทุก quote_id ใน chain เดียวกัน เพราะ invoice.quote_id ไม่ re-point เมื่อต่อราคา) ·
+ * ไม่ส่ง = ทะเบียนทั้งร้าน (/oem/invoices) */
+export async function getInvoices(quoteId?: string): Promise<ActionResult<GetInvoicesResult>> {
+  const gateErr = await requireOwnerAdmin();
+  if (gateErr) return gateErr;
+
+  try {
+    const shopId = getDevShopId();
+    const supabase = getServiceClient();
+
+    let dealIds: string[] | null = null;
+    if (quoteId) {
+      dealIds = await resolveDealQuoteIds(supabase, shopId, quoteId);
+      if (dealIds.length === 0) return { ok: true, data: { rows: [], totalCount: 0, truncated: false } };
+    }
+
+    const result = await fetchAllRows((pageFrom, pageTo) => {
+      let q = supabase.schema(SCHEMA).from("v_oem_invoice").select(INVOICE_COLUMNS, { count: "exact" }).eq("shop_id", shopId);
+      if (dealIds) q = q.in("quote_id", dealIds);
+      return q.order("created_at", { ascending: false }).order("id", { ascending: false }).range(pageFrom, pageTo);
+    });
+
+    const rows = (result.rows as Record<string, unknown>[]).map(mapInvoiceRow);
+    return { ok: true, data: { rows, totalCount: result.totalCount, truncated: result.truncated } };
+  } catch (err) {
+    logInvoiceError("getInvoices", err);
+    return { ok: false, error: "โหลดรายการใบแจ้งหนี้ไม่สำเร็จ ลองใหม่อีกครั้ง" };
+  }
+}
+
+/** ใบเดียว — หน้าพิมพ์ใช้ผ่าน toPrintableInvoice() (lib/oem/printableInvoice.ts) เท่านั้น ห้ามส่ง OemInvoiceRow เข้า client component */
+export async function getInvoice(invoiceId: string): Promise<ActionResult<OemInvoiceRow>> {
+  const gateErr = await requireOwnerAdmin();
+  if (gateErr) return gateErr;
+
+  if (!invoiceId || !UUID_RE.test(invoiceId)) return { ok: false, error: "ไม่พบใบแจ้งหนี้" };
+
+  try {
+    const shopId = getDevShopId();
+    const supabase = getServiceClient();
+    const { data, error } = await supabase
+      .schema(SCHEMA)
+      .from("v_oem_invoice")
+      .select(INVOICE_COLUMNS)
+      .eq("shop_id", shopId)
+      .eq("id", invoiceId)
+      .maybeSingle();
+    if (error) throw error;
+    if (!data) return { ok: false, error: "ไม่พบใบแจ้งหนี้นี้" };
+    return { ok: true, data: mapInvoiceRow(data as unknown as Record<string, unknown>) };
+  } catch (err) {
+    logInvoiceError("getInvoice", err);
+    return { ok: false, error: "โหลดใบแจ้งหนี้ไม่สำเร็จ ลองใหม่อีกครั้ง" };
   }
 }
