@@ -147,15 +147,18 @@ export function PrintInvoiceClient({ invoice, notices }: { invoice: PrintableInv
         </div>
 
         {/* amount band */}
-        <div className="mt-4 grid break-inside-avoid grid-cols-1 gap-3 rounded-md border-2 border-zinc-800 p-3 sm:grid-cols-[1fr_auto] print:grid-cols-[1fr_auto]">
+        {/* กระชับ (UAT 16 ต.ค. — กล่องใหญ่เกินไป): กรอบบาง · ตัวเลข text-lg */}
+        <div className="mt-3 grid break-inside-avoid grid-cols-1 items-end gap-2 rounded-md border border-zinc-400 px-3 py-2 sm:grid-cols-[1fr_auto] print:grid-cols-[1fr_auto]">
           <div>
-            <p className="text-xs font-bold uppercase tracking-wide text-zinc-500">ยอดที่ต้องชำระครั้งนี้</p>
-            <p className="mt-0.5 text-2xl font-bold tabular-nums text-zinc-900">{formatTHB(invoice.amountThb)}</p>
-            <p className="text-xs italic text-zinc-500">({invoice.amountInWordsTh})</p>
+            <p className="text-[11px] font-bold uppercase tracking-wide text-zinc-500">ยอดที่ต้องชำระครั้งนี้</p>
+            <p className="text-lg font-bold tabular-nums leading-tight text-zinc-900">
+              {formatTHB(invoice.amountThb)}{" "}
+              <span className="text-xs font-normal italic text-zinc-500">({invoice.amountInWordsTh})</span>
+            </p>
           </div>
           <div className="sm:text-right print:text-right">
-            <p className="text-xs font-bold uppercase tracking-wide text-zinc-500">กำหนดชำระ</p>
-            <p className="mt-0.5 text-base font-semibold text-zinc-900">{dueText}</p>
+            <p className="text-[11px] font-bold uppercase tracking-wide text-zinc-500">กำหนดชำระ</p>
+            <p className="text-sm font-semibold text-zinc-900">{dueText}</p>
           </div>
         </div>
 
@@ -278,32 +281,30 @@ export function PrintInvoiceClient({ invoice, notices }: { invoice: PrintableInv
           </div>
         </div>
 
-        {/* payment channels (snapshot ณ วันออกใบ) */}
-        {invoice.paymentLines.length > 0 && (
-          <div className="mt-4 break-inside-avoid border-t border-dashed border-zinc-300 pt-3">
-            <p className="text-xs font-bold uppercase tracking-wide text-zinc-500">ช่องทางชำระเงิน</p>
-            <ul className="mt-1 space-y-0.5 text-sm text-zinc-800">
-              {invoice.paymentLines.map((line, i) => (
-                <li key={i} className="whitespace-pre-wrap break-words">
-                  {line}
-                </li>
-              ))}
-            </ul>
+        {/* ช่องทางชำระ + หมายเหตุ (ซ้าย) · ช่องเซ็นผู้ออกเอกสาร (ขวา) อยู่แถวเดียวกัน (UAT 16 ต.ค.)
+            break-inside-avoid: ทั้งก้อนอยู่หน้าเดียวกัน ไม่ให้บรรทัดวันที่หล่นหน้า 2 */}
+        <div className="mt-4 grid break-inside-avoid grid-cols-1 items-end gap-6 border-t border-dashed border-zinc-300 pt-3 sm:grid-cols-[1fr_14rem] print:grid-cols-[1fr_14rem]">
+          <div className="min-w-0">
+            {invoice.paymentLines.length > 0 && (
+              <div>
+                <p className="text-xs font-bold uppercase tracking-wide text-zinc-500">ช่องทางชำระเงิน</p>
+                <ul className="mt-1 space-y-0.5 text-sm text-zinc-800">
+                  {invoice.paymentLines.map((line, i) => (
+                    <li key={i} className="whitespace-pre-wrap break-words">
+                      {line}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+            {invoice.note && (
+              <div className={invoice.paymentLines.length > 0 ? "mt-3" : undefined}>
+                <p className="text-xs font-bold uppercase tracking-wide text-zinc-500">หมายเหตุ</p>
+                <p className="mt-0.5 whitespace-pre-wrap break-words text-sm text-zinc-800">{invoice.note}</p>
+              </div>
+            )}
           </div>
-        )}
-
-        {invoice.note && (
-          <div className="mt-3">
-            <p className="text-xs font-bold uppercase tracking-wide text-zinc-500">หมายเหตุ</p>
-            <p className="mt-0.5 whitespace-pre-wrap break-words text-sm text-zinc-800">{invoice.note}</p>
-          </div>
-        )}
-
-        {/* signature */}
-        {/* break-inside-avoid: ช่องเซ็น+วันที่ต้องอยู่หน้าเดียวกัน (UAT 16 ต.ค. — บรรทัดวันที่หล่นไปหน้า 2) */}
-        <div className="mt-6 grid break-inside-avoid grid-cols-2 gap-8 text-center text-xs text-zinc-600">
-          <div />
-          <div>
+          <div className="text-center text-xs text-zinc-600">
             <div className="h-10 border-b border-zinc-400" />
             <p className="mt-1">ผู้ออกเอกสาร</p>
             <p className="text-zinc-400">วันที่ ____________</p>
