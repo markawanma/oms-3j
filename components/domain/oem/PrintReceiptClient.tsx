@@ -119,6 +119,8 @@ export function PrintReceiptClient({ receipt }: { receipt: PrintableReceipt }) {
               <p className="text-xs text-zinc-600">วันที่รับเงิน {formatThaiDateOnly(receipt.receivedDate.slice(0, 10))}</p>
             )}
             <p className="text-xs text-zinc-600">อ้างอิงใบเสนอราคาเลขที่ {receipt.quoteNoSnapshot}</p>
+            {/* 0180: เลขใบแจ้งหนี้ที่ใบเสร็จนี้ชำระ (snapshot) — เลขที่ลูกค้าถืออยู่แล้ว จึงพิมพ์บนกระดาษได้ · ใบเก่า/ไม่อ้างใบ = ไม่มีบรรทัดนี้ */}
+            {receipt.invoiceNoSnapshot && <p className="text-xs text-zinc-600">อ้างอิงใบแจ้งหนี้เลขที่ {receipt.invoiceNoSnapshot}</p>}
           </div>
         </div>
 
