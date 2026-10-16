@@ -398,7 +398,7 @@ create or replace function analytics.oem_invoice_issue(
   p_note                 text default null,
   p_replaces_invoice_id  uuid default null,
   p_actor_id             uuid default null
-) returns uuid
+) returns jsonb
 language plpgsql
 security definer
 set search_path = public, analytics, extensions, pg_temp
@@ -738,7 +738,7 @@ begin
   values (p_shop_id, p_quote_id, v_actor, 'invoice_issue', null,
           jsonb_build_object('invoice_id', v_id, 'invoice_no', v_invoice_no, 'kind', p_kind, 'amount_thb', v_amount));
 
-  return v_id;
+  return jsonb_build_object('id', v_id, 'invoice_no', v_invoice_no);
 end;
 $f$;
 
