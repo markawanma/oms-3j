@@ -10,7 +10,7 @@
 //   []    = อ่านได้แต่ยังไม่ได้ตั้ง → แถบเหลือง
 //   [...] = ตั้งแล้ว → แถบเขียว
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, CheckCircle2 } from "lucide-react";
 import { setSellerPaymentLines } from "@/lib/actions/oem";
@@ -24,18 +24,20 @@ export function PaymentLinesSection({ paymentLines }: { paymentLines: string[] |
   const locked = paymentLines === null;
   const [text, setText] = useState(linesToText(paymentLines ?? []));
   const [serverError, setServerError] = useState<string | null>(null);
-  const [pending, startTransition] = useTransition();
+  // pending เป็น state ตรงๆ — React 18 ไม่ติดตาม async transition
+  const [pending, setPending] = useState(false);
 
   const form = parsePaymentLinesText(text);
   const savedCount = paymentLines?.length ?? 0;
   const willClear = !locked && savedCount > 0 && form.count === 0;
   const error = form.error ?? serverError;
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (locked || form.error) return;
+    if (locked || form.error || pending) return;
     setServerError(null);
-    startTransition(async () => {
+    setPending(true);
+    try {
       const result = await setSellerPaymentLines({ lines: form.lines });
       if (!result.ok) {
         setServerError(result.error);
@@ -44,7 +46,13 @@ export function PaymentLinesSection({ paymentLines }: { paymentLines: string[] |
       }
       toast.push(form.count === 0 ? "ล้างช่องทางชำระเงินแล้ว — ออกใบแจ้งหนี้ไม่ได้จนกว่าจะตั้งใหม่" : "บันทึกช่องทางชำระเงินแล้ว");
       router.refresh();
-    });
+    } catch {
+      const msg = "เชื่อมต่อไม่สำเร็จ — ลองบันทึกอีกครั้ง";
+      setServerError(msg);
+      toast.push(msg, "error");
+    } finally {
+      setPending(false);
+    }
   }
 
   return (

@@ -13,7 +13,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, ChevronDown, ChevronUp, Pencil, Printer } from "lucide-react";
 import { setQuoteStatus } from "@/lib/actions/oem";
-import type { OemDepositMode, OemProvinceOption, OemQuoteItemRow, OemQuoteRow, OemReceiptRow } from "@/lib/oem/types";
+import type { OemDepositMode, OemInvoiceRow, OemProvinceOption, OemQuoteItemRow, OemQuoteRow, OemReceiptRow } from "@/lib/oem/types";
 import { OEM_BAR_SIZE_LABEL_TH, OEM_METAL_LABEL_TH, OEM_QUOTE_STATUS_LABEL_TH } from "@/lib/oem/types";
 import type { SellerProfile } from "@/lib/oem/sellerProfile";
 import { formatBangkokTime, formatTHB } from "@/lib/format";
@@ -33,6 +33,7 @@ import { CustomerDialog } from "./CustomerDialog";
 import { DepositDialog } from "./DepositDialog";
 import { VatModeDialog } from "./VatModeDialog";
 import { ReceiptSection } from "./ReceiptSection";
+import { InvoiceSection } from "./InvoiceSection";
 
 /** RAW deposit fields (mode + input, never the computed amount) of the
  * quote's parent, when it has one — used only to detect the 0081 renegotiate
@@ -90,9 +91,15 @@ export function QuoteDetailClient({
   parentDeposit,
   receipts,
   approvalGates = [],
+  invoices,
+  invoicesError = null,
 }: {
   /** 0169 M2: ด่านอ่อนที่ใบนี้ใช้ approval_note ผ่าน (หน้า admin เท่านั้น) */
   approvalGates?: string[];
+  /** 0179: ใบแจ้งหนี้ของดีลนี้ — ไม่ส่ง (undefined) = ไม่แสดงการ์ดใบแจ้งหนี้เลย (ผู้เรียกเดิม/เทสต์เดิมไม่เปลี่ยน) */
+  invoices?: OemInvoiceRow[];
+  /** 0179: โหลดใบแจ้งหนี้ไม่สำเร็จ — การ์ดซ่อนปุ่มออกใบ + แถบแดง (ไม่รู้ว่ามีใบค้างอยู่ไหม) */
+  invoicesError?: string | null;
   quote: OemQuoteRow;
   items: OemQuoteItemRow[];
   provinces: OemProvinceOption[];
@@ -522,6 +529,20 @@ export function QuoteDetailClient({
           )}
         </div>
       </section>
+
+      {/* 0179: ใบแจ้งหนี้ — เหนือการรับเงิน (ลำดับงานจริง: แจ้งยอด → ลูกค้าโอน → บันทึกรับเงิน) · ไม่ส่ง invoices = ไม่แสดงการ์ด */}
+      {(invoices !== undefined || invoicesError !== null) && (
+        <InvoiceSection
+          quote={quote}
+          invoices={invoices ?? []}
+          invoicesError={invoicesError}
+          sellerProfile={sellerProfile}
+          canEditFinancials={canEditFinancials}
+          onChanged={() => router.refresh()}
+          onGoToBilling={() => setBillingOpen(true)}
+          onGoToDeposit={() => setDepositOpen(true)}
+        />
+      )}
 
       <ReceiptSection
         quote={quote}
