@@ -905,6 +905,10 @@ export interface OemReceiptRow {
   /** Set when this receipt was issued to replace a voided one (chain link —
    * see IssueReceiptInput.reissuedFrom). null on a normal, non-reissue receipt. */
   reissuedFromReceiptId: string | null;
+  /** 0180 (I2): ใบแจ้งหนี้ที่ใบเสร็จนี้ชำระ (null = รับเงินแบบไม่อ้างใบ — ใบเสร็จเดิมทุกใบก่อน 0180 เป็น null) · กำหนดตอนออกใบเสร็จเท่านั้น แก้ภายหลังไม่ได้ */
+  invoiceId: string | null;
+  /** 0180: เลขที่ใบแจ้งหนี้ ณ ตอนออกใบเสร็จ (snapshot — พิมพ์ซ้ำได้เหมือนเดิมแม้ใบแจ้งหนี้ถูกยกเลิกทีหลัง) · null เมื่อ invoiceId เป็น null (DB บังคับเป็นคู่) */
+  invoiceNoSnapshot: string | null;
   createdBy: string | null;
   createdAt: string;
   // ---- from v_oem_receipt's join (not stored on oem_receipt itself) ----
@@ -937,6 +941,11 @@ export interface IssueReceiptInput {
   /** Set only when reissuing to replace a voided receipt — must point at a
    * receipt already in 'void' status in this shop, not yet reissued from. */
   reissuedFrom?: string | null;
+  /** 0180 (I2): ผูกใบเสร็จนี้กับใบแจ้งหนี้ (uuid ของ analytics.oem_invoice) — ส่งเมื่อรับเงินตามใบแจ้งหนี้เท่านั้น ·
+   * 🔴 ยอด (amountThb) ต้องเท่ายอดใบแจ้งหนี้เป๊ะ และ kind ต้องแมป (deposit -> deposit · balance -> final) — ผู้เรียกอ่านยอดจาก
+   * OemInvoiceRow.amountThb ห้ามคำนวณเอง · DB ตรวจซ้ำทุกด่าน (ดีลเดียวกัน · issued · ไม่ paid · ไม่ stale · reissue ต้องอ้างใบเดียวกับใบเดิม)
+   * ไม่ส่ง/null = รับเงินแบบเดิมทุกประการ (ไม่เปลี่ยนพฤติกรรมของ flow ที่ไม่ใช้ใบแจ้งหนี้) */
+  invoiceId?: string | null;
 }
 
 /** analytics.oem_receipt_void (0084) — issued -> void, one-way, reason

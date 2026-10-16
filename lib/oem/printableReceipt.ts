@@ -89,6 +89,9 @@ export interface PrintableReceipt {
    * ข้อความบังคับทางเอกสารและต้องอยู่บนกระดาษจริง. */
   voidReason: string | null;
   voidedAt: string | null;
+  /** 0180 (I2): เลขที่ใบแจ้งหนี้ที่ใบเสร็จนี้ชำระ ณ ตอนออกใบ (snapshot · null = รับเงินแบบไม่อ้างใบแจ้งหนี้) — เลขเอกสารที่ลูกค้าถืออยู่แล้ว
+   * จึงพิมพ์ได้ (เช่น "ชำระตามใบแจ้งหนี้เลขที่ IV-…") · ตั้งใจเพิ่มทีละ field ตามกฎหัวไฟล์ — invoiceId (uuid ภายใน) ไม่ผ่านมาที่นี่. */
+  invoiceNoSnapshot: string | null;
 }
 
 /** OemReceiptRow.sellerSnapshot -> PrintableReceiptSeller, field-by-field.
@@ -136,6 +139,7 @@ export function toPrintableReceipt(row: OemReceiptRow): PrintableReceipt {
     balanceAfterThb: row.balanceAfterThb,
     voidReason: row.status === "void" ? row.voidReason : null,
     voidedAt: row.status === "void" ? row.voidedAt : null,
+    invoiceNoSnapshot: row.invoiceNoSnapshot,
   };
 }
 
