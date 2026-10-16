@@ -220,7 +220,10 @@ begin
 
   -- ==================== X1. ของเดิมที่ 0179 ไม่ต้องแตะ (golden md5 ลอกจาก DB ก่อน apply 16 ต.ค. 69) ====================
   v := v || pg_temp.chk('X1a', 'oem_receipt_issue (9 args) / oem_receipt_void / trigger ใบเสร็จ+ตัวนับ ไม่ถูกแตะ (md5 นิยามเท่าเดิม)',
-    md5(pg_get_functiondef('analytics.oem_receipt_issue(uuid,uuid,numeric,date,text,text,text,text,uuid)'::regprocedure)) = '237152ffe9b75961c522bbe7994a836a'
+    -- ก่อน 0180: 9 args baseline md5 237152ff… · หลัง 0180: เหลือ 11 args ตัวเดียว (พฤติกรรมเดิมถูกล็อกด้วย golden legacy ใน verify-0180 G1-G3/N20)
+    case when to_regprocedure('analytics.oem_receipt_issue(uuid,uuid,numeric,date,text,text,text,text,uuid)') is not null
+         then md5(pg_get_functiondef(to_regprocedure('analytics.oem_receipt_issue(uuid,uuid,numeric,date,text,text,text,text,uuid)'))) = '237152ffe9b75961c522bbe7994a836a'
+         else to_regprocedure('analytics.oem_receipt_issue(uuid,uuid,numeric,date,text,text,text,text,uuid,uuid,uuid)') is not null end
     and md5(pg_get_functiondef('analytics.oem_receipt_void(uuid,uuid,text)'::regprocedure)) = '1f14141a16622ef03d8cae82610b0dab'
     and md5(pg_get_functiondef('analytics.oem_receipt_deny_mutation()'::regprocedure)) = 'a9c0217c0cf84f51554f4f0f9364cf15'
     and md5(pg_get_functiondef('analytics.oem_doc_counter_deny_mutation()'::regprocedure)) = '07f8cc3a8165a6d384380191cf2f3c3f'
@@ -231,7 +234,7 @@ begin
     and (select string_agg(md5(pg_get_functiondef(oid)), '' order by oid::regprocedure::text) from pg_proc where proname = 'oem_quote_renegotiate' and pronamespace = 'analytics'::regnamespace) = '51c8d6ec7e4b41414352583fadb5fc09');
   v := v || pg_temp.chk('X1c', 'v_oem_quote / v_oem_receipt ไม่ถูกแตะ (md5 นิยาม + รายชื่อคอลัมน์ 44 ตัว ลำดับเดิม)',
     md5(pg_get_viewdef('analytics.v_oem_quote'::regclass)) = 'cb95a70df22ecfa532cf6b46512fa478'
-    and md5(pg_get_viewdef('analytics.v_oem_receipt'::regclass)) = '116f1ec779a67965963505e5ed7a633e'
+    and md5(pg_get_viewdef('analytics.v_oem_receipt'::regclass)) in ('116f1ec779a67965963505e5ed7a633e', 'e30ccb950642126662fbf7da6786b9e8')   -- หลัง 0180: +invoice_id/invoice_no_snapshot ท้ายสุด
     and (select md5(string_agg(column_name, ',' order by ordinal_position)) from information_schema.columns where table_schema = 'analytics' and table_name = 'v_oem_quote') = '44039b8554559723484c4d75be7415ee');
 
   -- ==================== P. ช่องทางชำระเงิน (oem_setting_set_payment_lines) ====================
@@ -257,6 +260,8 @@ begin
     pg_temp.hint(pg_temp.spl(p_shop, lines_ok, null)) = 'actor_required' and pg_temp.hint(pg_temp.spl(p_shop, lines_ok, gen_random_uuid())) = 'actor_required');
   v := v || pg_temp.chk('P12', 'p_shop_id = null ถูกปฏิเสธ', pg_temp.rej(pg_temp.spl(null, lines_ok, p_actor)));
   insert into public.shop (name) values ('verify0179-shop2') returning id into shop2;
+  -- หลัง 0180 (L1): actor ต้องเป็นสมาชิกร้านถึงจะผ่านด่าน actor — เคส "ร้านอื่น" ด้านล่างต้องทดสอบการแยกร้านจริง (quote_not_found) ไม่ใช่ถูกบังด้วย 42501 · ผลของ L1 เองทดสอบใน verify-0180 M1a-M1f
+  insert into public.shop_member (shop_id, user_id, role) values (shop2, p_actor, 'owner');
   v := v || pg_temp.chk('P13', 'ร้านที่ไม่มีแถว oem_setting ถูกปฏิเสธ (ไม่แทรกแถวใหม่เงียบๆ)',
     pg_temp.rej(pg_temp.spl(shop2, lines_ok, p_actor)) and not exists (select 1 from analytics.oem_setting where shop_id = shop2));
   -- J1: oem_setting_upsert 23 args เดิมเรียกได้ + ไม่ทับ seller_payment_lines
@@ -648,7 +653,7 @@ begin
   t := pg_temp.x(format('delete from analytics.oem_invoice where id = %L', inv));
   v := v || pg_temp.chk('I15c', 'DELETE ตรงๆ ถูกปฏิเสธ · ใบยังอยู่', t like 'ERR:22023:%' and exists (select 1 from analytics.oem_invoice where id = inv));
   t := pg_temp.x('truncate analytics.oem_invoice');
-  v := v || pg_temp.chk('I15d', 'TRUNCATE ถูกปฏิเสธ (ในฐานะ postgres) · ใบยังอยู่', t like 'ERR:22023:%' and exists (select 1 from analytics.oem_invoice where id = inv));
+  v := v || pg_temp.chk('I15d', 'TRUNCATE ถูกปฏิเสธ (ในฐานะ postgres) · ใบยังอยู่', (t like 'ERR:22023:%' or t like 'ERR:0A000:%') and exists (select 1 from analytics.oem_invoice where id = inv));   -- หลัง 0180: oem_receipt.invoice_id ชี้ตารางนี้ด้วย FK ⇒ TRUNCATE ถูกปฏิเสธด้วย 0A000 (ก่อนถึง trigger) — ยังปฏิเสธเหมือนเดิม
   execute 'set local role service_role';
   begin execute format('update analytics.oem_invoice set note = %L where id = %L', 'x', inv); t := 'OK'; exception when others then get stacked diagnostics st = returned_sqlstate; t := 'ERR:' || st; end;
   begin execute format('delete from analytics.oem_invoice where id = %L', inv); t2 := 'OK'; exception when others then get stacked diagnostics st = returned_sqlstate; t2 := 'ERR:' || st; end;
@@ -858,6 +863,7 @@ declare
   v_mdef  text;
   e       text;
   v_killed boolean;
+  v_skip  boolean;
   v_nfail int;
   v_nok   int;
 begin
@@ -897,11 +903,19 @@ begin
    {"id":"MU13","kind":"sql","sql":"grant execute on function analytics.oem_invoice_issue(uuid, uuid, text, date, text, uuid, uuid) to authenticated","expect":["I18a","A3"]},
    {"id":"MU14","kind":"sql","sql":"grant insert on analytics.oem_invoice to service_role","expect":["I15e","A3"]},
    {"id":"MU15","kind":"fn","target":"analytics.oem_setting_set_payment_lines(uuid,text[],uuid)","from":"analytics.oem_note_present(l)","to":"true","expect":["P8"]},
-   {"id":"MU16","kind":"sql","sql":"drop trigger trg_oem_invoice_deny_truncate on analytics.oem_invoice","expect":["I15d"]}
+   {"id":"MU16","kind":"sql","skip_if":"select exists (select 1 from information_schema.columns where table_schema = 'analytics' and table_name = 'oem_receipt' and column_name = 'invoice_id')","sql":"drop trigger trg_oem_invoice_deny_truncate on analytics.oem_invoice","expect":["I15d"]}
   ]$m$::jsonb;
 
   for m in select * from jsonb_array_elements(v_muts) loop
     v_mdef := null;
+    if m ? 'skip_if' then
+      execute m ->> 'skip_if' into v_skip;
+      if v_skip then
+        v_log := v_log || '[SKIP] ' || (m ->> 'id') || '  mutant นี้พิสูจน์ไม่ได้หลัง 0180: TRUNCATE ตาราง oem_invoice ถูกปฏิเสธด้วย FK จาก oem_receipt.invoice_id ก่อนถึง trigger (กำแพงสองชั้น) — ล็อกด้วย I15d ที่ยังรับทั้ง 22023/0A000' || E'
+';
+        continue;
+      end if;
+    end if;
     if m ->> 'kind' = 'fn' then
       v_def := pg_get_functiondef((m ->> 'target')::regprocedure);
       if position(m ->> 'from' in v_def) = 0 then

@@ -584,6 +584,15 @@ begin
     and md5(replace(pg_get_functiondef('analytics.oem_setting_set_payment_lines(uuid,text[],uuid)'::regprocedure),
       E'  -- 0180 L1: actor ต้องเป็นสมาชิกร้าน (owner/admin) จริง — service_role ผ่าน crm_require_owner_admin โดยไม่ตรวจสมาชิก\n  perform analytics.oem_require_actor_member(p_shop_id, v_actor);\n', '')) = 'c90115f15a8fcd7af83d798af7a3167a');
 
+  -- X2: drift detector — md5 นิยามหลัง apply 0180 (ค่าจาก dry-run 16 ต.ค. 69) · ถ้า migration ภายหลังแก้ object เหล่านี้ (หรือ replay จากไฟล์ CRLF — traps ข้อ 20) ต้องอัปเดตค่าที่นี่โดยตั้งใจ
+  v := v || pg_temp.chk('X2', 'นิยามหลัง apply 0180 ตรงค่าที่บันทึก (oem_receipt_issue 11 args · oem_invoice_issue/void · oem_setting_set_payment_lines · v_oem_invoice · v_oem_receipt) — ไม่ตรง = มีคนแก้ภายหลังหรือ replay ด้วย CRLF',
+    md5(pg_get_functiondef('analytics.oem_receipt_issue(uuid,uuid,numeric,date,text,text,text,text,uuid,uuid,uuid)'::regprocedure)) = '20f766cd7dfbf7ac52cda0d026131f77'
+    and md5(pg_get_functiondef('analytics.oem_invoice_issue(uuid,uuid,text,date,text,uuid,uuid)'::regprocedure)) = 'f4b6baccdd5dac61e4190f22c4d9771a'
+    and md5(pg_get_functiondef('analytics.oem_invoice_void(uuid,uuid,text,uuid)'::regprocedure)) = '59d471fd064581820967840c9d2d2728'
+    and md5(pg_get_functiondef('analytics.oem_setting_set_payment_lines(uuid,text[],uuid)'::regprocedure)) = '8e8259ea865e3be3af37aa61dc69b1be'
+    and md5(pg_get_viewdef('analytics.v_oem_invoice'::regclass)) = 'e04e5cb552e8ac370fc03b0e1028cdf5'
+    and md5(pg_get_viewdef('analytics.v_oem_receipt'::regclass)) = 'e30ccb950642126662fbf7da6786b9e8');
+
   -- ==================== G. golden legacy: ไม่ส่ง invoice/actor = ของเดิมเป๊ะ ====================
   -- G1: สำเร็จ — โคลนสองใบเหมือนกันทุกอย่าง ยิงตัวเดิมใบหนึ่ง ตัวใหม่อีกใบ เทียบแถวใบเสร็จ + quote + ตัวนับ
   v_bad := '';
