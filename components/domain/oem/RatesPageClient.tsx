@@ -15,6 +15,7 @@ import { RateCell } from "./RateCell";
 import { MetalPriceSection } from "./MetalPriceSection";
 import { OemPolicySection } from "./OemPolicySection";
 import { SellerProfileSection } from "./SellerProfileSection";
+import { PaymentLinesSection } from "./PaymentLinesSection";
 
 const PRIORITY_TONE: Record<string, BadgeTone> = { P0: "amber", P1: "blue", P2: "slate" };
 
@@ -152,6 +153,8 @@ export function RatesPageClient({
       {/* ข้อมูลร้านเรา (หัวกระดาษ) — ยกไว้บนสุด (เหนือช่องต้นทุน) เพราะเป็น
           ด่านบล็อกการพิมพ์ใบเสนอราคาจริง เจ้าของควรเห็น/กรอกได้ทันทีที่เข้าหน้านี้ */}
       <SellerProfileSection profile={sellerProfile} loadError={sellerLoadError} />
+      {/* 0179: ช่องทางชำระเงินบนใบแจ้งหนี้ — การ์ดแยก (payload ของ SellerProfileSection ไม่แตะ) · key = ค่าที่บันทึกแล้ว ให้ฟอร์มรีเซ็ตหลัง refresh */}
+      <PaymentLinesSection key={sellerProfile.paymentLines === null ? "unreadable" : sellerProfile.paymentLines.join("\n")} paymentLines={sellerProfile.paymentLines} />
 
       {OEM_GROUP_ORDER.map((code) => {
         const groups = groupsByCode.get(code);
