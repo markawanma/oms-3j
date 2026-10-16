@@ -276,4 +276,98 @@ create trigger trg_oem_invoice_deny_truncate
   before truncate on analytics.oem_invoice
   for each statement execute function analytics.oem_invoice_deny_truncate();
 
+-- ============================================================================
+-- 4. analytics.v_oem_invoice — ใบแจ้งหนี้ + สถานะที่ derive สด (ไม่เก็บลงตาราง)
+--    · select list ระบุคอลัมน์ทีละตัว (ไม่ใช้ i.*) — เพิ่มคอลัมน์ตารางทีหลังจะไม่หลุดเข้า view เอง
+--    · ไม่ select created_by/voided_by (user id) · ไม่แตะ v_oem_quote (cost/margin อยู่ในนั้น) — อ่านจาก oem_quote ตรงเฉพาะคอลัมน์ที่ต้องใช้
+--    · void_reason ออกได้ (หน้าจอพนักงานเท่านั้น) แต่ห้ามเข้า PrintableInvoice
+--    · payment_state: 0179 = void | unpaid (ไม่มีทางผูกใบเสร็จ) — 0180 (I2) แก้นิยาม ps ด้านล่างอย่างเดียวให้เป็น paid ได้ (create or replace ต่อท้าย)
+--      is_stale / is_overdue / ด่าน "เปิดค้าง 1 ใบ/ดีล" ใน oem_invoice_issue อ่านจาก ps.state ที่เดียว จึงไม่ต้องแก้ตาม
+--    · is_stale = issued + unpaid + (ยอดรวมของแถว active ของดีล <> ยอดตอนออก หรือ ยอดรับเงินสะสมของดีล <> ตอนออก)
+--      ครอบทั้ง "ต่อราคาหลังออกใบ" และ "รับเงินไปแล้วโดยไม่อ้างใบนี้" — หน้าพิมพ์ต้องบล็อก ไม่ซ่อนปัญหา (invariants ข้อ 8)
+--    · วันนี้ = เวลาไทยทุกจุด (traps ข้อ 6) · is_overdue เป็นป้าย ไม่มี state ใหม่
+-- ============================================================================
+create or replace view analytics.v_oem_invoice with (security_invoker = true) as
+select
+  i.id,
+  i.shop_id,
+  i.quote_id,
+  i.invoice_no,
+  i.kind,
+  i.status,
+  i.amount_thb,
+  i.vat_display,
+  i.vat_rate,
+  i.vat_base_thb,
+  i.vat_amount_thb,
+  i.issue_date,
+  i.due_date,
+  i.pay_before_work,
+  i.description,
+  i.note,
+  i.seller_snapshot,
+  i.payment_lines,
+  i.buyer_legal_name,
+  i.buyer_tax_id,
+  i.buyer_branch_label,
+  i.buyer_address,
+  i.quote_no_snapshot,
+  i.lines_snapshot,
+  i.pieces_subtotal_snapshot,
+  i.nre_price_snapshot,
+  i.discount_thb_snapshot,
+  i.grand_total_snapshot,
+  i.deposit_amount_snapshot,
+  i.deposit_pct_snapshot,
+  i.paid_before_thb,
+  i.balance_after_thb,
+  i.void_reason,
+  i.voided_at,
+  i.replaces_invoice_id,
+  i.created_at,
+  q.quote_no,
+  q.status as quote_status,
+  coalesce(q.root_quote_id, q.id) as deal_root_id,
+  (q.status <> 'superseded') as is_deal_active,
+  act.id as deal_quote_id,
+  act.quote_no as deal_quote_no,
+  act.status as deal_quote_status,
+  act.grand_total as deal_grand_total,
+  pay.paid_thb as deal_paid_thb,
+  coalesce(
+    act.status = 'expired'
+    or (act.status = 'quoted' and act.quote_valid_until is not null
+        and act.quote_valid_until < (now() at time zone 'Asia/Bangkok')::date),
+    false) as deal_quote_expired,
+  ps.state as payment_state,
+  (i.status = 'issued' and ps.state = 'unpaid'
+   and (act.grand_total is distinct from i.grand_total_snapshot
+        or pay.paid_thb is distinct from i.paid_before_thb)) as is_stale,
+  (i.status = 'issued' and ps.state = 'unpaid'
+   and i.due_date < (now() at time zone 'Asia/Bangkok')::date) as is_overdue
+from analytics.oem_invoice i
+join analytics.oem_quote q on q.id = i.quote_id and q.shop_id = i.shop_id
+cross join lateral (
+  select case when i.status = 'void' then 'void' else 'unpaid' end as state
+) ps
+left join lateral (
+  select a.id, a.quote_no, a.status, a.grand_total, a.quote_valid_until
+    from analytics.oem_quote a
+   where a.shop_id = i.shop_id
+     and coalesce(a.root_quote_id, a.id) = coalesce(q.root_quote_id, q.id)
+     and a.status <> 'superseded'
+   order by a.created_at desc
+   limit 1
+) act on true
+left join lateral (
+  select coalesce(sum(r.amount_thb), 0) as paid_thb
+    from analytics.oem_receipt r
+    join analytics.oem_quote rq on rq.id = r.quote_id
+   where rq.root_quote_id = coalesce(q.root_quote_id, q.id)
+     and r.status = 'issued'
+) pay on true;
+
+revoke all on analytics.v_oem_invoice from public, anon, authenticated, service_role;
+grant select on analytics.v_oem_invoice to service_role;
+
 
