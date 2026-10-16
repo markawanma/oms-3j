@@ -37,6 +37,9 @@ export interface SellerProfile {
   website: string | null;
   /** เงื่อนไขมาตรฐานที่พิมพ์ท้ายทุกใบ — บรรทัดละข้อ */
   terms: string[];
+  /** 0179: ช่องทางชำระเงินที่พิมพ์บนใบแจ้งหนี้ (บรรทัดละช่องทาง) — `null` = อ่านไม่ได้ (โหลดไม่สำเร็จ/ยังไม่ apply 0179)
+   *  ต่างจาก `[]` = อ่านได้แต่เจ้าของยังไม่กรอก (ออกใบแจ้งหนี้ไม่ได้) · ไม่รวมใน missingSellerFields (ใบเสนอราคา/ใบเสร็จไม่ใช้) */
+  paymentLines: string[] | null;
 }
 
 /** ค่าว่างเปล่าล้วน — ใช้เป็น fallback เมื่อโหลด getSellerProfile ไม่สำเร็จ
@@ -56,6 +59,7 @@ export const EMPTY_SELLER_PROFILE: SellerProfile = {
   email: null,
   website: null,
   terms: [],
+  paymentLines: null,
 };
 
 /** รายการข้อมูลที่ยังขาด — หน้าใบเสนอราคาใช้ตัดสินว่าให้สั่งพิมพ์ได้หรือยัง

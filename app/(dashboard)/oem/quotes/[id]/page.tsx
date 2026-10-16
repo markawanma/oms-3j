@@ -1,5 +1,5 @@
 import { Lock } from "lucide-react";
-import { getOemProvinces, getQuote, getQuoteApprovalGates, getQuoteItems, getReceipts, getSellerProfile } from "@/lib/actions/oem";
+import { getInvoices, getOemProvinces, getQuote, getQuoteApprovalGates, getQuoteItems, getReceipts, getSellerProfile } from "@/lib/actions/oem";
 import { getEffectiveRole } from "@/lib/auth/role";
 import { EMPTY_SELLER_PROFILE } from "@/lib/oem/sellerProfile";
 import type { OemDepositMode } from "@/lib/oem/types";
@@ -26,9 +26,9 @@ export default async function OemQuoteDetailPage({ params }: { params: Promise<{
 
   const { id } = await params;
 
-  let quoteResult, itemsResult, provincesResult, sellerResult, receiptsResult, gatesResult;
+  let quoteResult, itemsResult, provincesResult, sellerResult, receiptsResult, gatesResult, invoicesResult;
   try {
-    [quoteResult, itemsResult, provincesResult, sellerResult, receiptsResult, gatesResult] = await Promise.all([
+    [quoteResult, itemsResult, provincesResult, sellerResult, receiptsResult, gatesResult, invoicesResult] = await Promise.all([
       getQuote(id),
       getQuoteItems(id),
       getOemProvinces(),
@@ -41,6 +41,8 @@ export default async function OemQuoteDetailPage({ params }: { params: Promise<{
       getReceipts(id),
       // 0169 M2: ด่านอ่อนที่ใบนี้ใช้ note ผ่าน — degrade ได้ (ไม่มี = ไม่โชว์รายการด่าน)
       getQuoteApprovalGates(id),
+      // 0179: ใบแจ้งหนี้ของทั้งดีล (ทุก quote_id ใน chain เดียวกัน) — โหลดไม่ได้ = ส่ง error ลงไป ให้การ์ดซ่อนปุ่มออกใบ (ไม่รู้ว่ามีใบค้างไหม ห้ามเดา)
+      getInvoices(id),
     ]);
   } catch (err) {
     return <ErrorState message={err instanceof Error ? err.message : "เกิดข้อผิดพลาดที่ไม่คาดคิด"} />;
@@ -93,6 +95,8 @@ export default async function OemQuoteDetailPage({ params }: { params: Promise<{
         parentDeposit={parentDeposit}
         receipts={receipts}
         approvalGates={gatesResult.ok ? gatesResult.data : []}
+        invoices={invoicesResult.ok ? invoicesResult.data.rows : []}
+        invoicesError={invoicesResult.ok ? null : invoicesResult.error}
       />
       {quoteResult.data.status === "won" && jobItems.length > 0 && <JobCreatePanel kind="oem" items={jobItems} />}
     </>

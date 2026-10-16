@@ -946,3 +946,157 @@ export interface VoidReceiptInput {
   receiptId: string;
   reason: string;
 }
+
+// ============================================================================
+// Invoices / ใบแจ้งหนี้ (0179: analytics.oem_invoice, oem_invoice_issue,
+// oem_invoice_void, analytics.v_oem_invoice) — แจ้งยอดมัดจำ (deposit) / ยอดคงเหลือ (balance).
+// ไม่ใช่ใบกำกับภาษี. เอกสารตายตัวเหมือนใบเสร็จ: issued -> void ทางเดียว ไม่มี RPC แก้เนื้อหา.
+// 🔴 client ไม่เคยส่งยอดเงิน: IssueInvoiceInput ไม่มี field จำนวนเงินโดยตั้งใจ (มีเทสต์ล็อก) —
+// DB อ่านยอดจาก v_oem_quote เอง (deposit = deposit_amount_thb · balance = outstanding_thb).
+// ทุกตัวเลขเงินใน OemInvoiceRow ถูกคำนวณครั้งเดียวฝั่ง DB ตอนออกใบแล้วแช่แข็ง — ห้ามคำนวณซ้ำฝั่ง client.
+// ============================================================================
+
+export type OemInvoiceKind = "deposit" | "balance";
+export type OemInvoiceStatus = "issued" | "void";
+/** 0179: 'paid' ยังไม่เกิด (ต้องรอ 0180 ผูกใบเสร็จ) — แต่ type รับไว้แล้วเพื่อให้ UI ไม่ต้องแก้ตอน 0180 */
+export type OemInvoicePaymentState = "unpaid" | "paid" | "void";
+export type OemInvoiceVatDisplay = "none" | "included" | "breakdown";
+
+export const OEM_INVOICE_KIND_LABEL_TH: Record<OemInvoiceKind, string> = {
+  deposit: "แจ้งยอดมัดจำ",
+  balance: "แจ้งยอดคงเหลือ",
+};
+
+export const OEM_INVOICE_STATUS_LABEL_TH: Record<OemInvoiceStatus, string> = {
+  issued: "ออกแล้ว",
+  void: "ยกเลิกแล้ว",
+};
+
+export const OEM_INVOICE_PAYMENT_STATE_LABEL_TH: Record<OemInvoicePaymentState, string> = {
+  unpaid: "รอชำระ",
+  paid: "ชำระแล้ว",
+  void: "ยกเลิกแล้ว",
+};
+
+/** ข้อความที่พิมพ์บนใบมัดจำ (มติเจ้าของ 16 ต.ค. 69: มัดจำ = ชำระก่อนเริ่มงาน) */
+export const OEM_INVOICE_PAY_BEFORE_WORK_TH = "ชำระก่อนเริ่มงาน";
+/** มติเจ้าของ 16 ต.ค. 69 (design §15.1): บรรทัดคงที่บนกระดาษทุกใบ ไม่ขึ้นกับ vat_display */
+export const OEM_INVOICE_NOT_TAX_INVOICE_TH = "เอกสารนี้ไม่ใช่ใบกำกับภาษี";
+
+/** หนึ่งบรรทัดของ lines_snapshot — DB ประกอบทีละคีย์ (ไม่มีต้นทุน/margin/calc) · ตัวอ่านฝั่ง TS เลือกเฉพาะ 6 คีย์นี้ซ้ำอีกชั้น */
+export interface OemInvoiceLine {
+  seq: number;
+  name: string;
+  sku: string | null;
+  qty: number;
+  unitPriceThb: number;
+  lineTotalThb: number;
+}
+
+export interface OemInvoiceSellerSnapshot {
+  legalName: string | null;
+  displayName: string | null;
+  branchLabel: string | null;
+  addressLines: string[] | null;
+  taxId: string | null;
+  phone: string | null;
+  /** ตอนออกใบ ร้านจด VAT หรือยัง (ข้อมูลประกอบ — ตัวตัดสินการแสดง VAT คือ vatDisplay ที่แช่แข็งแล้ว) */
+  vatRegistered: boolean;
+}
+
+/** แถวจาก analytics.v_oem_invoice (ไม่มี created_by/voided_by โดยตั้งใจ) */
+export interface OemInvoiceRow {
+  id: string;
+  shopId: string;
+  /** แถว quote ที่ออกใบ ณ ตอนนั้น (ไม่ re-point เมื่อต่อราคา) */
+  quoteId: string;
+  invoiceNo: string;
+  kind: OemInvoiceKind;
+  status: OemInvoiceStatus;
+  /** ยอดที่ขอชำระครั้งนี้ (รวม VAT แล้วถ้าร้านจด VAT) */
+  amountThb: number;
+  vatDisplay: OemInvoiceVatDisplay;
+  /** null เมื่อ vatDisplay = 'none' (ร้านไม่จด VAT — ห้ามมีคำว่าภาษีบนเอกสาร) */
+  vatRate: number | null;
+  vatBaseThb: number | null;
+  vatAmountThb: number | null;
+  issueDate: string;
+  dueDate: string;
+  /** true เฉพาะใบมัดจำ — หน้าพิมพ์ใช้ OEM_INVOICE_PAY_BEFORE_WORK_TH */
+  payBeforeWork: boolean;
+  description: string;
+  note: string | null;
+  sellerSnapshot: OemInvoiceSellerSnapshot;
+  paymentLines: string[];
+  buyerLegalName: string;
+  buyerTaxId: string | null;
+  buyerBranchLabel: string | null;
+  buyerAddress: OemCustomerAddress | null;
+  quoteNoSnapshot: string;
+  lines: OemInvoiceLine[];
+  piecesSubtotalThb: number;
+  nrePriceThb: number;
+  discountThb: number;
+  grandTotalThb: number;
+  depositAmountSnapshotThb: number | null;
+  depositPctSnapshot: number | null;
+  paidBeforeThb: number;
+  balanceAfterThb: number;
+  /** เหตุผลที่ยกเลิก — หน้าจอพนักงานเท่านั้น ห้ามเข้า PrintableInvoice */
+  voidReason: string | null;
+  voidedAt: string | null;
+  replacesInvoiceId: string | null;
+  createdAt: string;
+  // ---- derived สดจาก v_oem_invoice (ไม่ได้เก็บบนตาราง) ----
+  /** เลขใบเสนอราคาปัจจุบันของแถวที่ออกใบ */
+  quoteNo: string;
+  quoteStatus: string;
+  dealRootId: string;
+  isDealActive: boolean;
+  /** แถว active ของดีล (ลิงก์ไปใบที่ใช้งานอยู่) */
+  activeQuoteId: string | null;
+  dealQuoteNo: string | null;
+  dealQuoteStatus: string | null;
+  dealGrandTotalThb: number | null;
+  dealPaidThb: number | null;
+  /** วันยืนราคาของแถว active */
+  quoteValidUntil: string | null;
+  /** ใบเสนอราคา active หมดอายุแล้ว — ออกใบแจ้งหนี้ได้แต่ต้องเตือนพนักงาน */
+  dealQuoteExpired: boolean;
+  paymentState: OemInvoicePaymentState;
+  /** ยอดดีลเปลี่ยนหลังออกใบ — หน้าพิมพ์ต้องบล็อก (ต้อง void แล้วออกใหม่) */
+  isStale: boolean;
+  /** เลยกำหนดชำระ (ไม่นับใบมัดจำที่ due = วันออก = "ชำระก่อนเริ่มงาน") */
+  isOverdue: boolean;
+  /** null จนกว่า 0180 จะผูกใบเสร็จ */
+  receiptId: string | null;
+  receiptNo: string | null;
+  receivedDate: string | null;
+}
+
+/** 🔴 ไม่มี field จำนวนเงินโดยตั้งใจ — ห้ามเพิ่ม (DB ไม่มีพารามิเตอร์ยอด; มีเทสต์ล็อก key set) */
+export interface IssueInvoiceInput {
+  quoteId: string;
+  kind: OemInvoiceKind;
+  /** YYYY-MM-DD · ไม่ส่ง = ค่าเริ่มตามมติ (มัดจำ = วันออก · คงเหลือ = +7 วัน) · ต้อง >= วันนี้ (ไทย) และไม่เกิน +365 */
+  dueDate?: string | null;
+  note?: string | null;
+  /** ออกแทนใบที่ void แล้วของดีลเดียวกัน */
+  replacesInvoiceId?: string | null;
+}
+
+export interface VoidInvoiceInput {
+  invoiceId: string;
+  reason: string;
+}
+
+/** ผลของ oem_invoice_issue */
+export interface IssuedInvoice {
+  id: string;
+  invoiceNo: string;
+}
+
+export interface SetSellerPaymentLinesInput {
+  /** บรรทัดละ 1 ช่องทาง · ส่ง [] = ล้างค่า (ออกใบแจ้งหนี้ไม่ได้จนกว่าจะกรอกใหม่) */
+  lines: string[];
+}
