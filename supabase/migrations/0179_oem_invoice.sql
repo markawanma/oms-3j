@@ -745,4 +745,105 @@ $f$;
 revoke execute on function analytics.oem_invoice_issue(uuid, uuid, text, date, text, uuid, uuid) from public, anon, authenticated;
 grant execute on function analytics.oem_invoice_issue(uuid, uuid, text, date, text, uuid, uuid) to service_role;
 
+-- ============================================================================
+-- 6. analytics.oem_invoice_void — ยกเลิกใบแจ้งหนี้ (issued -> void) · เหตุผลบังคับ (whitelist) · เลขคงอยู่ ไม่ถูกใช้ซ้ำ
+--    ใบที่ชำระแล้ว (payment_state = 'paid' — มีได้หลัง 0180) ปฏิเสธ: ต้องยกเลิกใบเสร็จก่อน · ด่านอ่านจาก v_oem_invoice ที่เดียว
+--    ใน 0179 payment_state ไม่มีทางเป็น paid ⇒ ด่านนี้ยังไม่มีเทสต์ที่ยิงให้ตกได้ (รอ 0180)
+-- ============================================================================
+create or replace function analytics.oem_invoice_void(
+  p_shop_id    uuid,
+  p_invoice_id uuid,
+  p_reason     text,
+  p_actor_id   uuid default null
+) returns void
+language plpgsql
+security definer
+set search_path = public, analytics, extensions, pg_temp
+as $f$
+declare
+  v_actor  uuid;
+  v_inv    analytics.oem_invoice%rowtype;
+  v_state  text;
+begin
+  if p_shop_id is null or p_invoice_id is null then
+    raise exception 'oem_invoice_void: p_shop_id และ p_invoice_id จำเป็น' using errcode = '22023', hint = 'args_required';
+  end if;
+  -- เหตุผลบังคับ: ต้องมีตัวอักษร/ตัวเลขจริง (whitelist) — null ตกที่ oem_note_present
+  if not (analytics.oem_note_valid(p_reason) and analytics.oem_note_present(p_reason)) then
+    raise exception 'oem_invoice_void: ต้องระบุเหตุผลที่ยกเลิก (มีตัวอักษร/ตัวเลขจริง ยาวไม่เกิน 500 ตัวอักษร ห้ามมีอักขระควบคุม/ล่องหน)' using errcode = '22023', hint = 'reason_invalid';
+  end if;
+  perform analytics.crm_require_owner_admin(p_shop_id);
+  v_actor := coalesce(auth.uid(), (select u.id from auth.users u where u.id = p_actor_id));
+  if v_actor is null then
+    raise exception 'oem_invoice_void: ต้องระบุผู้ทำรายการ (p_actor_id จาก session ฝั่ง server)' using errcode = '22023', hint = 'actor_required';
+  end if;
+
+  select * into v_inv from analytics.oem_invoice where id = p_invoice_id and shop_id = p_shop_id for update;
+  if not found then
+    raise exception 'oem_invoice_void: ไม่พบใบแจ้งหนี้ % ในร้านนี้', p_invoice_id using errcode = '22023', hint = 'invoice_not_found';
+  end if;
+  if v_inv.status <> 'issued' then
+    raise exception 'oem_invoice_void: ยกเลิกได้เฉพาะใบสถานะ issued (ใบนี้สถานะ %)', v_inv.status using errcode = '22023', hint = 'invoice_not_issued';
+  end if;
+
+  select vi.payment_state into v_state from analytics.v_oem_invoice vi where vi.id = p_invoice_id;
+  if v_state is distinct from 'unpaid' then
+    raise exception 'oem_invoice_void: ใบนี้ถูกชำระแล้ว (หรืออ่านสถานะไม่ได้) — ยกเลิกใบเสร็จที่อ้างใบนี้ก่อน' using errcode = '22023', hint = 'invoice_paid';
+  end if;
+
+  update analytics.oem_invoice
+     set status = 'void', void_reason = left(btrim(p_reason), 500), voided_at = now(), voided_by = v_actor
+   where id = p_invoice_id and shop_id = p_shop_id;
+
+  insert into analytics.oem_quote_audit (shop_id, quote_id, actor, action, before, after)
+  values (p_shop_id, v_inv.quote_id, v_actor, 'invoice_void', null,
+          jsonb_build_object('invoice_id', v_inv.id, 'invoice_no', v_inv.invoice_no, 'kind', v_inv.kind, 'amount_thb', v_inv.amount_thb));
+end;
+$f$;
+
+revoke execute on function analytics.oem_invoice_void(uuid, uuid, text, uuid) from public, anon, authenticated;
+grant execute on function analytics.oem_invoice_void(uuid, uuid, text, uuid) to service_role;
+
+-- ============================================================================
+-- 7. ปิดท้าย: assert ไม่มี overload (traps ข้อ 1) + ACL ของ object ใหม่ + โครง v_oem_seller · แล้ว reload PostgREST
+--    ผิด = raise → ถอยทั้งไฟล์ (ไม่ apply ครึ่งๆ)
+-- ============================================================================
+do $chk$
+declare
+  v_bad text;
+begin
+  select string_agg(proname || ' x' || n, ', ') into v_bad
+    from (select p.proname, count(*) n
+            from pg_proc p
+           where p.pronamespace = 'analytics'::regnamespace
+             and p.proname in ('oem_invoice_issue', 'oem_invoice_void', 'oem_setting_set_payment_lines',
+                               'oem_invoice_deny_mutation', 'oem_invoice_deny_truncate')
+           group by p.proname having count(*) <> 1) t;
+  if v_bad is not null then
+    raise exception '0179: พบ overload/ขาด signature: %', v_bad;
+  end if;
+
+  -- ไม่มีฟังก์ชันใหม่ตัวไหนที่ PUBLIC/anon/authenticated ถือ EXECUTE (กวาดแบบเดียวกับ scripts/check-analytics-grants.sql)
+  select string_agg(p.oid::regprocedure::text, ', ') into v_bad
+    from pg_proc p cross join lateral aclexplode(p.proacl) a
+   where p.pronamespace = 'analytics'::regnamespace
+     and p.proname in ('oem_invoice_issue', 'oem_invoice_void', 'oem_setting_set_payment_lines',
+                       'oem_invoice_deny_mutation', 'oem_invoice_deny_truncate')
+     and a.privilege_type = 'EXECUTE'
+     and (a.grantee = 0 or a.grantee = 'anon'::regrole or a.grantee = 'authenticated'::regrole);
+  if v_bad is not null then
+    raise exception '0179: ฟังก์ชันที่ PUBLIC/anon/authenticated ถือ EXECUTE: %', v_bad;
+  end if;
+
+  if (select count(*) from information_schema.columns where table_schema = 'analytics' and table_name = 'v_oem_seller') <> 14
+     or (select column_name from information_schema.columns
+          where table_schema = 'analytics' and table_name = 'v_oem_seller' and ordinal_position = 14) <> 'seller_payment_lines'
+     or (select column_name from information_schema.columns
+          where table_schema = 'analytics' and table_name = 'v_oem_seller' and ordinal_position = 13) <> 'deposit_default_pct' then
+    raise exception '0179: v_oem_seller ต้องมี 14 คอลัมน์ และ seller_payment_lines อยู่ลำดับที่ 14 (append ท้ายเท่านั้น)';
+  end if;
+end $chk$;
+
+notify pgrst, 'reload schema';
+
 
