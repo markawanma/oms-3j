@@ -101,7 +101,8 @@ export function InvoiceIssueDialog({
     if (!canSubmit) return;
     setError(null);
     setPending(true);
-    const dueDate = needsDate ? customDue : todayBangkok();
+    // "ชำระก่อนเริ่มงาน" → ส่ง null ให้ DB ใช้วันที่ไทยของตัวเอง (ไม่พึ่งนาฬิกาเครื่องผู้ใช้ · security L1)
+    const dueDate = needsDate ? customDue : null;
     try {
       // 🔴 payload ไม่มี amount — IssueInvoiceInput ไม่มี field ยอดโดยตั้งใจ
       const result = await issueInvoice({

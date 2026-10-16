@@ -84,12 +84,12 @@ describe("InvoiceIssueDialog — ใบมัดจำ", () => {
     expect(screen.getByText("แจ้งยอดมัดจำ · มัดจำตามที่ตกลง")).toBeInTheDocument();
   });
 
-  it("🔴 payload ไม่มี amount: มีเฉพาะ quoteId/kind/dueDate/note · due = วันนี้ไทย · note null", async () => {
+  it("🔴 payload ไม่มี amount: มีเฉพาะ quoteId/kind/dueDate/note · due = null (DB ใช้วันที่ไทยเอง) · note null", async () => {
     renderDeposit();
     await userEvent.click(screen.getByRole("button", { name: /^ออกใบแจ้งหนี้/ }));
     await waitFor(() => expect(issueInvoice).toHaveBeenCalledTimes(1));
     const payload = issueInvoice.mock.calls[0][0] as Record<string, unknown>;
-    expect(payload).toEqual({ quoteId: QUOTE_ID, kind: "deposit", dueDate: todayBangkok(), note: null });
+    expect(payload).toEqual({ quoteId: QUOTE_ID, kind: "deposit", dueDate: null, note: null });
     expect(Object.keys(payload).sort()).toEqual(["dueDate", "kind", "note", "quoteId"]);
     expect(payload).not.toHaveProperty("amount");
     expect(payload).not.toHaveProperty("amountThb");
