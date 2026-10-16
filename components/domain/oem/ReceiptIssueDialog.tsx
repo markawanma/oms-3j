@@ -32,6 +32,7 @@ import { issueReceipt } from "@/lib/actions/oem";
 import type { OemQuoteRow, OemReceiptKind, OemReceiptPaymentMethod } from "@/lib/oem/types";
 import { OEM_PAYMENT_METHOD_LABEL_TH, OEM_RECEIPT_KIND_LABEL_TH } from "@/lib/oem/types";
 import { formatTHB } from "@/lib/format";
+import { todayBangkok } from "@/lib/oem/dates";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
@@ -53,18 +54,6 @@ function missingTaxInvoiceFieldsTh(quote: OemQuoteRow): string[] {
 }
 
 const PAYMENT_METHODS: OemReceiptPaymentMethod[] = ["transfer", "cash", "other"];
-
-/** "วันนี้" ตามเวลาไทย, YYYY-MM-DD — ใช้ en-CA เพราะ Intl จัดรูปแบบวันที่
- * ให้เป็น YYYY-MM-DD ตรงตามที่ <input type="date"> ต้องการพอดี โดยไม่ต้องพึ่ง
- * timezone ของเครื่องผู้ใช้ (เจ้าของร้านอาจเปิดจากเครื่องที่ตั้ง tz อื่น). */
-function todayBangkok(): string {
-  return new Intl.DateTimeFormat("en-CA", {
-    timeZone: "Asia/Bangkok",
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date());
-}
 
 /** เดา kind จากตำแหน่งของยอดนี้ในดีล — ไม่ใช่ตัวเลือกอิสระที่ผู้ใช้กรอกเอง
  * (ดูหัวไฟล์). ยอมให้คลาดเคลื่อนเล็กน้อยจาก floating point ด้วยเกณฑ์ 1 สตางค์. */
