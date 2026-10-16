@@ -20,16 +20,20 @@
 // (0084 §6), but a request that can only ever fail should never leave the
 // browser (same posture as every other write in this app).
 //
+// 0180 (I2): ถ้าดีลมีใบแจ้งหนี้ที่ออกแล้ว/ยังไม่ชำระ/ไม่ล้าสมัย -> ค่าเริ่ม "รับเงินตามใบแจ้งหนี้": ยอดล็อก (readOnly) เท่ายอดในใบที่ DB
+// แช่แข็งไว้ตอนออกใบ · kind แมปตรงจากชนิดใบ (deposit -> deposit · balance -> final) — ห้าม deriveKind ในโหมดนี้ · ส่ง `invoiceId`
+// เฉพาะโหมดนี้ ("ไม่อ้างใบ" = ไม่มี key นี้เลย = ทางเดิมเป๊ะ) · ไม่มีใบแจ้งหนี้ = dialog เดิมทุกประการ · ไม่คำนวณเงินที่นี่ เปรียบเทียบอย่างเดียว
+//
 // 0086: same posture for the buyer's tax-invoice completeness gate —
 // oem_receipt_issue hard-rejects (22023) when the buyer has a tax_id but
 // address/branch_label aren't filled in (missingTaxInvoiceFieldsTh above
 // mirrors that check), so submit is blocked here too, with a link straight to
 // BillingDialog instead of a dead-end toast after the fact.
 
-import { useState, useTransition } from "react";
+import { useId, useState, useTransition } from "react";
 import { AlertTriangle } from "lucide-react";
 import { issueReceipt } from "@/lib/actions/oem";
-import type { OemQuoteRow, OemReceiptKind, OemReceiptPaymentMethod } from "@/lib/oem/types";
+import type { OemInvoiceKind, OemInvoiceRow, OemQuoteRow, OemReceiptKind, OemReceiptPaymentMethod } from "@/lib/oem/types";
 import { OEM_PAYMENT_METHOD_LABEL_TH, OEM_RECEIPT_KIND_LABEL_TH } from "@/lib/oem/types";
 import { formatTHB } from "@/lib/format";
 import { todayBangkok } from "@/lib/oem/dates";
@@ -55,6 +59,21 @@ function missingTaxInvoiceFieldsTh(quote: OemQuoteRow): string[] {
 
 const PAYMENT_METHODS: OemReceiptPaymentMethod[] = ["transfer", "cash", "other"];
 
+/** ตารางแมปตายตัว (ตรงกับ 0180 hint invoice_kind_mismatch) — ใบมัดจำ = รับมัดจำ · ใบคงเหลือ = ชำระงวดสุดท้าย */
+export const INVOICE_TO_RECEIPT_KIND: Record<OemInvoiceKind, OemReceiptKind> = { deposit: "deposit", balance: "final" };
+
+const INVOICE_KIND_SHORT_TH: Record<OemInvoiceKind, string> = { deposit: "มัดจำ", balance: "คงเหลือ" };
+
+/** ใบแจ้งหนี้ที่เสนอให้ผูกได้: ออกแล้ว + ยังไม่ชำระ + ไม่ล้าสมัย (ใบ stale DB ปฏิเสธ จึงไม่เสนอ) · หนึ่งดีลมีใบเปิดได้ใบเดียว */
+export function pickLinkableInvoice(invoices: OemInvoiceRow[]): OemInvoiceRow | null {
+  return invoices.find((i) => i.status === "issued" && i.paymentState === "unpaid" && !i.isStale) ?? null;
+}
+
+/** ใบที่ล้าสมัยค้างอยู่ (ออกแล้ว ยังไม่ชำระ ยอดดีลเปลี่ยนหลังออกใบ) — เตือนว่าต้องยกเลิกก่อนถ้าอยากอ้างใบใหม่ */
+export function pickStaleInvoice(invoices: OemInvoiceRow[]): OemInvoiceRow | null {
+  return invoices.find((i) => i.status === "issued" && i.paymentState === "unpaid" && i.isStale) ?? null;
+}
+
 /** เดา kind จากตำแหน่งของยอดนี้ในดีล — ไม่ใช่ตัวเลือกอิสระที่ผู้ใช้กรอกเอง
  * (ดูหัวไฟล์). ยอมให้คลาดเคลื่อนเล็กน้อยจาก floating point ด้วยเกณฑ์ 1 สตางค์. */
 function deriveKind(paidSoFar: number | null, outstanding: number | null, amount: number): OemReceiptKind {
@@ -68,8 +87,11 @@ export function ReceiptIssueDialog({
   onClose,
   onSaved,
   onGoToBilling,
+  invoices = [],
 }: {
   quote: OemQuoteRow;
+  /** 0180: ใบแจ้งหนี้ของดีล (getInvoices) — ไม่ส่ง/ว่าง = dialog เดิมทุกประการ (ไม่มีกลุ่ม "รับเงินตาม") */
+  invoices?: OemInvoiceRow[];
   onClose: () => void;
   onSaved: () => void;
   /** 0086: closes this dialog + opens QuoteDetailClient's BillingDialog —
@@ -77,6 +99,10 @@ export function ReceiptIssueDialog({
   onGoToBilling: () => void;
 }) {
   const toast = useToast();
+  const linkable = pickLinkableInvoice(invoices);
+  const staleInvoice = pickStaleInvoice(invoices);
+  const [payMode, setPayMode] = useState<"invoice" | "none">("invoice");
+  const warnId = useId();
   const hasReceived = !!quote.paidThb && quote.paidThb > 0;
   const suggested = hasReceived ? quote.outstandingThb : (quote.depositAmountThb ?? quote.outstandingThb);
   const [amountInput, setAmountInput] = useState(suggested != null && suggested > 0 ? String(suggested) : "");
@@ -86,7 +112,10 @@ export function ReceiptIssueDialog({
   const [description, setDescription] = useState("");
   const [pending, startTransition] = useTransition();
 
-  const amount = Number(amountInput);
+  // ตามใบ: ยอดมาจากใบตรงๆ (ตัวเลขที่ DB แช่แข็งไว้ ไม่ผ่านการคำนวณ) · ไม่อ้างใบ/ไม่มีใบ: ยอดที่พนักงานกรอก (เดิม)
+  const linked = linkable !== null && payMode === "invoice" ? linkable : null;
+  const effectiveAmountInput = linked ? String(linked.amountThb) : amountInput;
+  const amount = Number(effectiveAmountInput);
   const outstanding = quote.outstandingThb;
   const validAmount = Number.isFinite(amount) && amount > 0;
   // เพดานจริงคือ outstanding — ถ้า outstanding เป็น null (ยังไม่มียอดรวม) หรือ
@@ -96,12 +125,18 @@ export function ReceiptIssueDialog({
   const blockedByOutstanding = outstanding == null || outstanding <= 0;
   const missingTaxInvoiceFields = missingTaxInvoiceFieldsTh(quote);
   const canSubmit = validAmount && !overOutstanding && !blockedByOutstanding && !!receivedDate && missingTaxInvoiceFields.length === 0;
-  const kind = validAmount ? deriveKind(quote.paidThb, outstanding, amount) : null;
+  const kind: OemReceiptKind | null = linked
+    ? INVOICE_TO_RECEIPT_KIND[linked.kind]
+    : validAmount
+      ? deriveKind(quote.paidThb, outstanding, amount)
+      : null;
 
   function submit() {
     if (!canSubmit || !kind) return;
     startTransition(async () => {
       const result = await issueReceipt({
+        // ส่ง invoiceId เฉพาะโหมดตามใบ — โหมดไม่อ้างใบต้องไม่มี key นี้เลย (ทางเดิมเป๊ะ)
+        ...(linked ? { invoiceId: linked.id } : {}),
         quoteId: quote.id,
         amountThb: amount,
         receivedDate,
@@ -114,7 +149,7 @@ export function ReceiptIssueDialog({
         toast.push(result.error, "error");
         return;
       }
-      toast.push("บันทึกรับเงินและออกใบเสร็จ/ใบกำกับภาษีแล้ว");
+      toast.push(`บันทึกรับเงินและออกใบเสร็จ/ใบกำกับภาษีแล้ว${linked ? ` · ปิดใบแจ้งหนี้ ${linked.invoiceNo} แล้ว` : ""}`);
       onSaved();
     });
   }
@@ -138,6 +173,52 @@ export function ReceiptIssueDialog({
             </button>
           </div>
         </div>
+      )}
+
+      {staleInvoice && (
+        <p className="mb-3 flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" aria-hidden="true" />
+          <span>มีใบแจ้งหนี้ {staleInvoice.invoiceNo} ที่ล้าสมัย — ยกเลิกก่อนถ้าต้องการอ้างใบใหม่</span>
+        </p>
+      )}
+
+      {linkable && (
+        <fieldset className="mb-3 rounded-md border border-zinc-200 px-3 py-1">
+          <legend className="px-1 text-sm font-medium text-zinc-700">รับเงินตาม</legend>
+          <label className="flex min-h-11 cursor-pointer items-center gap-2 text-sm text-zinc-800">
+            <input
+              type="radio"
+              name="oem-receipt-paymode"
+              value="invoice"
+              checked={payMode === "invoice"}
+              onChange={() => setPayMode("invoice")}
+              disabled={pending}
+              className="h-4 w-4 shrink-0"
+            />
+            <span>
+              ตามใบแจ้งหนี้ {linkable.invoiceNo} — <span className="whitespace-nowrap tabular-nums">{formatTHB(linkable.amountThb)}</span> (
+              {INVOICE_KIND_SHORT_TH[linkable.kind]})
+            </span>
+          </label>
+          <label className="flex min-h-11 cursor-pointer items-center gap-2 text-sm text-zinc-800">
+            <input
+              type="radio"
+              name="oem-receipt-paymode"
+              value="none"
+              checked={payMode === "none"}
+              onChange={() => setPayMode("none")}
+              disabled={pending}
+              aria-describedby={payMode === "none" ? warnId : undefined}
+              className="h-4 w-4 shrink-0"
+            />
+            <span>รับเงินโดยไม่อ้างใบแจ้งหนี้</span>
+          </label>
+          {payMode === "none" && (
+            <p id={warnId} className="mb-2 rounded-md border border-amber-300 bg-amber-50 px-2.5 py-2 text-xs text-amber-800">
+              ใบแจ้งหนี้ {linkable.invoiceNo} จะกลายเป็น “ล้าสมัย” (พิมพ์ไม่ได้) และต้องยกเลิกเอง
+            </p>
+          )}
+        </fieldset>
       )}
 
       {blockedByOutstanding ? (
@@ -164,10 +245,12 @@ export function ReceiptIssueDialog({
         inputMode="decimal"
         min={0}
         step="0.01"
-        value={amountInput}
+        value={effectiveAmountInput}
         onChange={(e) => setAmountInput(e.target.value)}
         disabled={blockedByOutstanding}
-        className="mt-1 min-h-11 w-full rounded-md border border-zinc-300 px-2.5 text-base tabular-nums disabled:bg-zinc-100"
+        readOnly={!!linked}
+        aria-readonly={linked ? true : undefined}
+        className="mt-1 min-h-11 w-full rounded-md border border-zinc-300 px-2.5 text-base tabular-nums disabled:bg-zinc-100 read-only:bg-zinc-100 read-only:text-zinc-700"
         aria-invalid={!validAmount || overOutstanding}
         aria-describedby="oem-receipt-amount-error"
       />
@@ -175,6 +258,9 @@ export function ReceiptIssueDialog({
         <p id="oem-receipt-amount-error" className="mt-1 text-xs text-red-600">
           {overOutstanding ? `รับเกินยอดคงค้าง (${formatTHB(outstanding!)}) ไม่ได้` : "กรอกจำนวนเงินให้มากกว่า 0"}
         </p>
+      )}
+      {linked && (
+        <p className="mt-1 text-xs text-zinc-500">ยอดล็อกตามใบแจ้งหนี้ — ถ้าลูกค้าโอนไม่ตรงยอด ให้เลือก “รับเงินโดยไม่อ้างใบแจ้งหนี้”</p>
       )}
       {kind && !overOutstanding && (
         <p className="mt-1 text-xs text-zinc-500">

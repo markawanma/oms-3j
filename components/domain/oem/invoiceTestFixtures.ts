@@ -1,6 +1,6 @@
 // fixtures สำหรับเทสต์ใบแจ้งหนี้ (ใช้ร่วม InvoiceDialogs / InvoiceSection / PrintInvoiceClient)
 // ค่าทุกตัวเป็นของทดสอบที่เห็นชัดว่าไม่จริง — ห้ามใส่เลขบัญชี/ชื่อธนาคารที่ดูจริง
-import type { OemInvoiceRow, OemQuoteRow } from "@/lib/oem/types";
+import type { OemInvoiceRow, OemQuoteRow, OemReceiptRow } from "@/lib/oem/types";
 import { EMPTY_SELLER_PROFILE } from "@/lib/oem/sellerProfile";
 import type { SellerProfile } from "@/lib/oem/sellerProfile";
 
@@ -76,4 +76,45 @@ export function invoiceFx(over: Partial<OemInvoiceRow> = {}): OemInvoiceRow {
     receiptNo: null,
     ...over,
   } as unknown as OemInvoiceRow;
+}
+
+/** ใบเสร็จขั้นต่ำ (I2) — cast เพราะ OemReceiptRow มีฟิลด์อื่นอีกมากที่ ReceiptSection/PrintReceiptClient ไม่แตะ */
+export function receiptFx(over: Partial<OemReceiptRow> = {}): OemReceiptRow {
+  return {
+    id: "44444444-4444-4444-8444-444444444444",
+    shopId: "shop",
+    quoteId: QUOTE_ID,
+    receiptNo: "RT-2610-001",
+    kind: "deposit",
+    status: "issued",
+    amountThb: 5000,
+    vatRate: 0.07,
+    vatBaseThb: 4672.9,
+    vatAmountThb: 327.1,
+    receivedDate: "2026-10-16",
+    issueDate: "2026-10-16",
+    paymentMethod: "transfer",
+    paymentRef: null,
+    description: "เงินมัดจำงาน OEM ตามใบเสนอราคา OEM-2610-004",
+    sellerSnapshot: { legalName: "ร้านทดสอบ TEST-ONLY", displayName: null, branchLabel: "สำนักงานใหญ่", addressLines: ["TEST-ONLY ที่อยู่ร้าน"], taxId: "0000000000000", phone: "000-000-0000" },
+    buyerLegalName: "ผู้ซื้อทดสอบ",
+    buyerTaxId: null,
+    buyerBranchLabel: null,
+    buyerAddress: null,
+    quoteNoSnapshot: "OEM-2610-004",
+    grandTotalSnapshot: 10000,
+    paidBeforeThb: 0,
+    balanceAfterThb: 5000,
+    voidReason: null,
+    voidedAt: null,
+    voidedBy: null,
+    reissuedFromReceiptId: null,
+    invoiceId: null,
+    invoiceNoSnapshot: null,
+    createdBy: null,
+    createdAt: "2026-10-16T01:00:00Z",
+    quoteNo: "OEM-2610-004",
+    isDealActive: true,
+    ...over,
+  } as unknown as OemReceiptRow;
 }

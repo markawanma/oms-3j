@@ -1898,6 +1898,8 @@ function mapReceiptRow(r: Record<string, unknown>): OemReceiptRow {
     voidedAt: (r.voided_at as string | null) ?? null,
     voidedBy: (r.voided_by as string | null) ?? null,
     reissuedFromReceiptId: (r.reissued_from_receipt_id as string | null) ?? null,
+    invoiceId: (r.invoice_id as string | null) ?? null,
+    invoiceNoSnapshot: (r.invoice_no_snapshot as string | null) ?? null,
     createdBy: (r.created_by as string | null) ?? null,
     createdAt: String(r.created_at),
     quoteNo: String(r.quote_no ?? ""),
@@ -1906,7 +1908,7 @@ function mapReceiptRow(r: Record<string, unknown>): OemReceiptRow {
 }
 
 const RECEIPT_COLUMNS =
-  "id, shop_id, quote_id, receipt_no, kind, status, amount_thb, vat_rate, vat_base_thb, vat_amount_thb, received_date, issue_date, payment_method, payment_ref, description, seller_snapshot, buyer_legal_name, buyer_tax_id, buyer_branch_label, buyer_address, quote_no_snapshot, grand_total_snapshot, paid_before_thb, balance_after_thb, void_reason, voided_at, voided_by, reissued_from_receipt_id, created_by, created_at, quote_no, is_deal_active";
+  "id, shop_id, quote_id, receipt_no, kind, status, amount_thb, vat_rate, vat_base_thb, vat_amount_thb, received_date, issue_date, payment_method, payment_ref, description, seller_snapshot, buyer_legal_name, buyer_tax_id, buyer_branch_label, buyer_address, quote_no_snapshot, grand_total_snapshot, paid_before_thb, balance_after_thb, void_reason, voided_at, voided_by, reissued_from_receipt_id, invoice_id, invoice_no_snapshot, created_by, created_at, quote_no, is_deal_active";
 
 export async function issueReceipt(input: IssueReceiptInput): Promise<ActionResult<{ receiptId: string }>> {
   const gateErr = await requireOwnerAdmin();
@@ -1930,6 +1932,15 @@ export async function issueReceipt(input: IssueReceiptInput): Promise<ActionResu
   if (input.paymentMethod != null && !["transfer", "cash", "other"].includes(input.paymentMethod)) {
     return { ok: false, error: "ช่องทางรับเงินไม่ถูกต้อง" };
   }
+  // 0180 (I2): ผูกใบแจ้งหนี้ — ส่ง p_invoice_id เฉพาะเมื่อมี invoiceId · F3 (security review): ส่ง p_actor_id ทุกครั้งที่มี actor จาก session
+  // (DB ตรวจว่าเป็นสมาชิกร้าน owner/admin + บันทึกเป็น created_by) · ทางเดิมที่ไม่มี actor (AUTH_GATE off / อ่าน session ไม่ได้) ยังส่งโดยไม่มี actor ได้ จนกว่า 0181 จะบังคับ
+  const invoiceId: unknown = input.invoiceId ?? null;
+  if (invoiceId !== null && (typeof invoiceId !== "string" || !UUID_RE.test(invoiceId))) {
+    return { ok: false, error: "ไม่พบใบแจ้งหนี้ที่จะผูกกับใบเสร็จ" };
+  }
+  // ทางใบแจ้งหนี้ = เอกสารการเงิน: ไม่มี actor = ปฏิเสธก่อนยิง RPC (DB บังคับซ้ำ hint actor_required + ตรวจว่าเป็นสมาชิกร้าน)
+  const actorId = await getActorId();
+  if (invoiceId !== null && !actorId) return { ok: false, error: ACTOR_REQUIRED_MESSAGE };
 
   try {
     const shopId = getDevShopId();
@@ -1945,11 +1956,17 @@ export async function issueReceipt(input: IssueReceiptInput): Promise<ActionResu
       p_payment_ref: input.paymentRef?.trim() || null,
       p_description: input.description?.trim() || null,
       p_reissued_from: input.reissuedFrom ?? null,
+      ...(invoiceId !== null ? { p_invoice_id: invoiceId } : {}),
+      ...(actorId ? { p_actor_id: actorId } : {}),
     });
     if (error) {
-      // 22023 = controlled Thai validation messages (status/seller/buyer/
-      // overpay/future-date gates in oem_receipt_issue) — safe to show verbatim.
-      if ((error as { code?: string }).code === "22023") return { ok: false, error: error.message };
+      const code = (error as { code?: string }).code;
+      const hint = (error as { hint?: unknown }).hint;
+      // 22023 = controlled Thai validation messages (status/seller/buyer/overpay/future-date gates in
+      // oem_receipt_issue) — safe to show verbatim · ด่านใบแจ้งหนี้ (0180) มี hint คงที่ -> ข้อความไทยของเรา (ไม่ปล่อยข้อความดิบที่มีเลขใบ/ยอด)
+      if (code === "22023") return { ok: false, error: invoiceErrorMessage(typeof hint === "string" ? hint : null) ?? error.message };
+      // 42501 + actor_not_member (L1: actor ไม่ใช่สมาชิกร้าน) — ข้อความคงที่ ไม่ใช่ข้อความดิบ
+      if (code === "42501" && hint === "actor_not_member") return { ok: false, error: invoiceErrorMessage("actor_not_member") ?? OEM_INVOICE_GENERIC_ERROR_TH };
       throw error;
     }
 
@@ -2131,7 +2148,10 @@ function logInvoiceError(name: string, err: unknown): void {
 /** error จาก supabase rpc -> ข้อความไทยของด่านที่รู้จัก (22023 + hint) หรือ null = ไม่ใช่ด่านที่ควบคุมไว้ (ผู้เรียก throw ต่อ) */
 function invoiceGateMessage(error: unknown): string | null {
   const e = error as { code?: unknown; hint?: unknown } | null;
-  if (!e || e.code !== "22023") return null;
+  if (!e) return null;
+  // 0180 L1: actor ไม่ใช่เจ้าของ/แอดมินของร้าน (42501 + hint คงที่) — ข้อความไทยคงที่ ไม่ปล่อยข้อความดิบ
+  if (e.code === "42501" && e.hint === "actor_not_member") return invoiceErrorMessage("actor_not_member") ?? OEM_INVOICE_GENERIC_ERROR_TH;
+  if (e.code !== "22023") return null;
   return invoiceErrorMessage(typeof e.hint === "string" ? e.hint : null) ?? OEM_INVOICE_GENERIC_ERROR_TH;
 }
 

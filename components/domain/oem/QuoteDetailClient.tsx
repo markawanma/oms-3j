@@ -547,6 +547,7 @@ export function QuoteDetailClient({
       <ReceiptSection
         quote={quote}
         receipts={receipts}
+        invoices={invoices}
         onChanged={() => router.refresh()}
         onGoToBilling={() => setBillingOpen(true)}
       />

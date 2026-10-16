@@ -9,35 +9,19 @@
 
 import { useId, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, Ban, CheckCircle2, Clock, Eye, FileText, Printer } from "lucide-react";
+import { Ban, Eye, FileText, Printer } from "lucide-react";
 import type { OemInvoiceRow, OemInvoiceKind, OemQuoteRow } from "@/lib/oem/types";
 import type { SellerProfile } from "@/lib/oem/sellerProfile";
-import type { InvoiceDisplayStatus, InvoiceGate, InvoiceGateTone } from "@/lib/oem/invoiceDisplay";
+import type { InvoiceGate, InvoiceGateTone } from "@/lib/oem/invoiceDisplay";
 import { INVOICE_DISPLAY_STATUS_LABEL_TH, formatDueText, resolveInvoiceDisplayStatus, resolveInvoiceGate } from "@/lib/oem/invoiceDisplay";
 import { formatTHB } from "@/lib/format";
 import { formatThaiDateOnly } from "@/lib/tiktok/format";
 import { Badge } from "@/components/ui/Badge";
-import type { BadgeTone } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+import { INVOICE_STATUS_ICON, INVOICE_STATUS_TONE } from "./invoiceStatusStyle";
 import { InvoiceIssueDialog } from "./InvoiceIssueDialog";
 import { VoidInvoiceDialog } from "./VoidInvoiceDialog";
 import type { InvoiceVoidedInfo } from "./VoidInvoiceDialog";
-
-const STATUS_TONE: Record<InvoiceDisplayStatus, BadgeTone> = {
-  void: "slate",
-  paid: "green",
-  stale: "orange",
-  overdue: "red",
-  pending: "blue",
-};
-
-const STATUS_ICON: Record<InvoiceDisplayStatus, typeof Ban> = {
-  void: Ban,
-  paid: CheckCircle2,
-  stale: AlertTriangle,
-  overdue: Clock,
-  pending: Clock,
-};
 
 const KIND_SHORT_TH: Record<OemInvoiceKind, string> = { deposit: "มัดจำ", balance: "คงเหลือ" };
 
@@ -209,7 +193,7 @@ function GateNotice({
 
 function InvoiceRow({ inv, onView, onVoid }: { inv: OemInvoiceRow; onView: () => void; onVoid: (mode: "normal" | "stale") => void }) {
   const status = resolveInvoiceDisplayStatus(inv);
-  const StatusIcon = STATUS_ICON[status];
+  const StatusIcon = INVOICE_STATUS_ICON[status];
   const isVoid = status === "void";
   const isPaid = status === "paid";
   const isStale = status === "stale";
@@ -220,7 +204,7 @@ function InvoiceRow({ inv, onView, onVoid }: { inv: OemInvoiceRow; onView: () =>
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
         <span className={`font-semibold ${isVoid ? "line-through" : ""}`}>{inv.invoiceNo}</span>
         <Badge tone="slate">{KIND_SHORT_TH[inv.kind]}</Badge>
-        <Badge tone={STATUS_TONE[status]}>
+        <Badge tone={INVOICE_STATUS_TONE[status]}>
           <StatusIcon className="h-3 w-3" aria-hidden="true" />
           {INVOICE_DISPLAY_STATUS_LABEL_TH[status]}
         </Badge>
