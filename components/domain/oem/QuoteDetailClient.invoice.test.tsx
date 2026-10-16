@@ -2,7 +2,7 @@
 // QuoteDetailClient × ใบแจ้งหนี้: ไม่ส่ง invoices = หน้าเดิมเป๊ะ (ไม่มีการ์ดใบแจ้งหนี้) · ส่ง invoices = การ์ดอยู่เหนือการ์ดรับเงิน
 // · ReceiptSection เดิมไม่เปลี่ยน (ไม่มี radio "รับเงินตาม")
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import type { ReactElement } from "react";
 
@@ -76,6 +76,16 @@ describe("QuoteDetailClient — ใบแจ้งหนี้", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("โหลดรายการใบแจ้งหนี้ไม่สำเร็จ");
     expect(screen.queryByRole("button", { name: /^ออกใบแจ้งหนี้/ })).toBeNull();
     expect(screen.getByRole("button", { name: "บันทึกรับเงิน" })).toBeEnabled();
+  });
+
+  it("I2: invoices ส่งต่อถึง ReceiptSection -> dialog บันทึกรับเงินเสนอ 'รับเงินตาม' · ไม่มี invoices = ไม่มีกลุ่มนี้", () => {
+    const withInv = wrap(<QuoteDetailClient {...base({ invoices: [invoiceFx()] })} />);
+    fireEvent.click(screen.getByRole("button", { name: "บันทึกรับเงิน" }));
+    expect(screen.getByRole("group", { name: "รับเงินตาม" })).toBeInTheDocument();
+    withInv.unmount();
+    wrap(<QuoteDetailClient {...base()} />);
+    fireEvent.click(screen.getByRole("button", { name: "บันทึกรับเงิน" }));
+    expect(screen.queryByRole("group", { name: "รับเงินตาม" })).toBeNull();
   });
 
   it("แสดงใบที่มีอยู่", () => {

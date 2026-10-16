@@ -10,7 +10,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { AlertTriangle, Ban, Printer, Receipt as ReceiptIcon } from "lucide-react";
-import type { OemQuoteRow, OemReceiptRow } from "@/lib/oem/types";
+import type { OemInvoiceRow, OemQuoteRow, OemReceiptRow } from "@/lib/oem/types";
 import { OEM_RECEIPT_KIND_LABEL_TH, OEM_RECEIPT_STATUS_LABEL_TH } from "@/lib/oem/types";
 import { formatTHB } from "@/lib/format";
 import { formatThaiDateOnly } from "@/lib/tiktok/format";
@@ -30,9 +30,12 @@ export function ReceiptSection({
   receipts,
   onChanged,
   onGoToBilling,
+  invoices = [],
 }: {
   quote: OemQuoteRow;
   receipts: OemReceiptRow[];
+  /** 0180 (I2): ใบแจ้งหนี้ของดีล — ส่งต่อให้ ReceiptIssueDialog เสนอ "รับเงินตามใบแจ้งหนี้" · ไม่ส่ง/ว่าง = พฤติกรรมเดิมเป๊ะ */
+  invoices?: OemInvoiceRow[];
   onChanged: () => void;
   /** 0086: opens QuoteDetailClient's BillingDialog — ReceiptIssueDialog's
    * incomplete-tax-info warning links here so the owner can jump straight to
@@ -139,7 +142,11 @@ export function ReceiptSection({
               <tbody>
                 {receipts.map((r) => (
                   <tr key={r.id} className={`border-b border-zinc-100 last:border-0 ${r.status === "void" ? "opacity-60" : ""}`}>
-                    <td className="py-1.5 pr-2 font-medium text-zinc-800">{r.receiptNo}</td>
+                    <td className="py-1.5 pr-2 font-medium text-zinc-800">
+                      {r.receiptNo}
+                      {/* ใบเสร็จเก่า/รับเงินแบบไม่อ้างใบ (invoiceNoSnapshot null) = ไม่มีบรรทัดนี้ */}
+                      {r.invoiceNoSnapshot && <span className="block text-[11px] font-normal text-zinc-500">อ้างอิง {r.invoiceNoSnapshot}</span>}
+                    </td>
                     <td className="py-1.5 pr-2 text-zinc-600">{formatThaiDateOnly(r.receivedDate)}</td>
                     <td className="py-1.5 pr-2 text-zinc-600">{OEM_RECEIPT_KIND_LABEL_TH[r.kind]}</td>
                     <td className="py-1.5 pr-2 text-right tabular-nums text-zinc-800">{formatTHB(r.amountThb)}</td>
@@ -176,6 +183,7 @@ export function ReceiptSection({
       {issueOpen && (
         <ReceiptIssueDialog
           quote={quote}
+          invoices={invoices}
           onClose={() => setIssueOpen(false)}
           onSaved={() => {
             setIssueOpen(false);
