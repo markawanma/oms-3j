@@ -300,10 +300,11 @@ export function PrintInvoiceClient({ invoice, notices }: { invoice: PrintableInv
         )}
 
         {/* signature */}
-        <div className="mt-10 grid grid-cols-2 gap-8 text-center text-xs text-zinc-600">
+        {/* break-inside-avoid: ช่องเซ็น+วันที่ต้องอยู่หน้าเดียวกัน (UAT 16 ต.ค. — บรรทัดวันที่หล่นไปหน้า 2) */}
+        <div className="mt-6 grid break-inside-avoid grid-cols-2 gap-8 text-center text-xs text-zinc-600">
           <div />
           <div>
-            <div className="h-16 border-b border-zinc-400" />
+            <div className="h-10 border-b border-zinc-400" />
             <p className="mt-1">ผู้ออกเอกสาร</p>
             <p className="text-zinc-400">วันที่ ____________</p>
           </div>
