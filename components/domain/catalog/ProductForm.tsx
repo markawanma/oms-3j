@@ -91,6 +91,7 @@ export function ProductForm({
   const [note, setNote] = useState(initial?.note ?? "");
   const [isActive, setIsActive] = useState(initial?.isActive ?? true);
   const [error, setError] = useState<string | null>(null);
+  const [purityAttempted, setPurityAttempted] = useState(false);
   const [pending, startTransition] = useTransition();
 
   // ค่าที่ DB เก็บอยู่ตอนนี้ (สัดส่วน) — ช่องที่ผู้ใช้ไม่ได้แตะส่งกลับค่านี้เป๊ะ ไม่ผ่านการปัดเป็น 2 ตำแหน่ง
@@ -139,7 +140,10 @@ export function ProductForm({
     if (!sku.trim()) return setError("กรุณากรอก SKU");
     if (!name.trim()) return setError("กรุณากรอกชื่อสินค้า");
     // ตรวจเฉพาะโหมดที่ช่องแสดงอยู่ (spot/spec) — ผิดกติกา = ไม่บันทึก ไม่ปัดเงียบ · โหมด fixed ไม่ตรวจ (ดู purityToSend)
-    if (costType !== "fixed" && purityIssue) return setError(`ความบริสุทธิ์: ${purityIssue}`);
+    if (costType !== "fixed" && purityIssue) {
+      setPurityAttempted(true); // พยายามบันทึกขณะค่าผิด → ข้อความใต้ช่องแสดงทันที (ไม่รอ blur)
+      return setError(`ความบริสุทธิ์: ${purityIssue}`);
+    }
     if (costType === "spot") {
       const w = Number(weight);
       if (!weight.trim() || !Number.isFinite(w) || w <= 0) {
@@ -352,7 +356,7 @@ export function ProductForm({
             </label>
             <label className={labelCls}>
               ความบริสุทธิ์ (%)
-              <PurityPctInput value={purity} onChange={setPurity} className={inputCls} issue={purityIssue} />
+              <PurityPctInput value={purity} onChange={setPurity} className={inputCls} issue={purityIssue} forceShow={purityAttempted} />
               <span className="block pt-0.5 text-[11px] font-normal text-zinc-500">
                 เครื่องประดับ 925 = 92.50 · เงินแท่ง 999 = 99.90
               </span>
@@ -396,7 +400,7 @@ export function ProductForm({
             </label>
             <label className={labelCls}>
               ความบริสุทธิ์ (%)
-              <PurityPctInput value={purity} onChange={setPurity} className={inputCls} issue={purityIssue} />
+              <PurityPctInput value={purity} onChange={setPurity} className={inputCls} issue={purityIssue} forceShow={purityAttempted} />
               <span className="block pt-0.5 text-[11px] font-normal text-zinc-500">
                 เครื่องประดับ 925 = 92.50
               </span>

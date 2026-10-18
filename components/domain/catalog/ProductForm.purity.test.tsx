@@ -133,6 +133,8 @@ describe("ProductForm — โหมดอิงราคาเงิน (spot)",
     fireEvent.change(purityInput(), { target: { value: typed } });
     expect(purityInput().value).toBe(typed);
     expect(purityInput()).toHaveAttribute("aria-invalid", "true");
+    // ยังไม่ blur/ยังไม่กดบันทึก = ยังไม่มีข้อความ · กดบันทึกทั้งที่ค่าผิดโดยไม่ blur → ข้อความใต้ช่อง + แบนเนอร์ต้องขึ้น (ไม่บล็อกเงียบ)
+    expect(screen.queryByText(new RegExp(message.replace(/[.*+?^${}()|[\]\\%]/g, "\\$&")))).toBeNull();
     fireEvent.click(saveBtn());
     await waitFor(() => expect(screen.getAllByText(new RegExp(message.replace(/[.*+?^${}()|[\]\\%]/g, "\\$&"))).length).toBeGreaterThan(1));
     expect(upsertProduct).not.toHaveBeenCalled();

@@ -6,6 +6,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
+import userEvent from "@testing-library/user-event";
 
 afterEach(cleanup);
 
@@ -149,8 +150,25 @@ describe("OEM quote form — ช่องความบริสุทธิ์
     fireEvent.change(purityInput(), { target: { value: typed } });
     expect(purityInput().value).toBe(typed);
     expect(purityInput()).toHaveAttribute("aria-invalid", "true");
+    // ข้อความ error รอ blur (ไม่วูบแดงระหว่างพิมพ์) แต่ด่านกันยิง calc ทำงานทันที
+    expect(screen.queryByText(new RegExp(message.replace(/[.*+?^${}()|[\]\\%]/g, "\\$&")))).toBeNull();
+    fireEvent.blur(purityInput());
     expect(screen.getByText(new RegExp(message.replace(/[.*+?^${}()|[\]\\%]/g, "\\$&")))).toBeInTheDocument();
     await expectNoCalc();
+  });
+
+  it("พิมพ์ค่าผิดค้าง แล้วกดปุ่มบันทึก (ปุ่ม disabled) → โฟกัสหลุด = เห็นข้อความ ไม่บล็อกเงียบ", async () => {
+    renderForm();
+    fillRestOfJob();
+    await settle();
+    fireEvent.change(purityInput(), { target: { value: "9.25" } });
+    expect(screen.queryByText(/เนื้อโลหะต่ำกว่า 37\.50%/)).toBeNull(); // ยังไม่ blur = ยังไม่มีข้อความ
+    const draftBtn = screen.getByRole("button", { name: /บันทึกร่าง/ });
+    expect(draftBtn).toBeDisabled();
+    purityInput().focus();
+    await userEvent.click(draftBtn);
+    expect(await screen.findByText(/เนื้อโลหะต่ำกว่า 37\.50%/)).toBeInTheDocument();
+    expect(saveQuote).not.toHaveBeenCalled();
   });
 
   it("แก้ค่าผิดกลับเป็นค่าถูก → error หาย และยิง calc ด้วยสัดส่วนที่ถูก", async () => {
