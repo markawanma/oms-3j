@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<title>เปิดงาน จำนวนและกำหนด</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+button{font:inherit;color:inherit}
+.bar{display:flex;gap:4px}
+.bar span{flex:1;height:5px;border-radius:99px;background:#E1D9D9}
+.bar span.d{background:#a2191d}
+.blk{background:#fff;border:1px solid #E8E2E2;border-radius:14px;padding:14px}
+.lbl{font-size:17px;font-weight:700;margin:0 0 10px}
+.step{display:flex;align-items:center;gap:10px}
+.pm{width:56px;height:56px;border-radius:14px;border:1.5px solid #D6CECE;background:#fff;font-size:28px;font-weight:600;cursor:pointer;flex:none}
+.num{flex:1;min-width:0;height:56px;border-radius:14px;border:1.5px solid #2A2425;text-align:center;font:inherit;font-size:28px;font-weight:700;box-sizing:border-box}
+.chip{min-height:52px;padding:0 14px;border-radius:12px;border:1.5px solid #D6CECE;background:#fff;font-size:17px;font-weight:600;cursor:pointer}
+.chip.on{background:#2A2425;border-color:#2A2425;color:#fff}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; font-family: 'Noto Sans Thai', system-ui, sans-serif; color: #2A2425; background: #F6F3F3; display: flex; flex-direction: column; font-size: 18px">
+  <header style="background: #fff; padding: 12px 16px 14px; border-bottom: 1px solid #ECE6E6">
+    <div style="display: flex; align-items: center; justify-content: space-between">
+      <a href="Open2.dc.html" aria-label="ย้อนกลับ" style="width: 44px; height: 44px; margin-left: -10px; display: flex; align-items: center; justify-content: center; color: #2A2425"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg></a>
+      <span style="font-size: 15px; color: #5C5456">แหวนโกเมนไข่ · 3/7</span>
+    </div>
+    <div class="bar" aria-hidden="true"><span class="d"></span><span class="d"></span><span class="d"></span><span></span><span></span><span></span><span></span></div>
+    <h1 style="margin: 12px 0 0; font-size: 24px; font-weight: 700">เท่าไร · เสร็จเมื่อไร</h1>
+  </header>
+  <main style="flex: 1; overflow: auto; padding: 16px; display: flex; flex-direction: column; gap: 12px">
+    <section class="blk">
+      <label class="lbl" for="q1" style="display: block">ต้องการเข้าสต็อก (ชิ้น)</label>
+      <div class="step"><button class="pm" aria-label="ลด">−</button><input class="num" id="q1" inputmode="numeric" value="100"><button class="pm" aria-label="เพิ่ม">+</button></div>
+      <label class="sw" style="display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 14px; padding-top: 14px; border-top: 1px solid #F0EAEA; cursor: pointer; min-height: 48px">
+        <span><span style="display: block; font-size: 17px; font-weight: 700">เผื่อของเสีย</span><span style="display: block; font-size: 14px; color: #5C5456">{{bufHint}}</span></span>
+        <input type="checkbox" role="switch" checked="{{buf}}" onChange="{{toggle}}" style="width: 52px; height: 30px; accent-color: #2A2425; margin: 0; flex: none">
+      </label>
+      <sc-if value="{{buf}}" hint-placeholder-val="{{false}}">
+        <label class="lbl" for="q2" style="display: block; margin-top: 12px">เผื่อเพิ่มกี่ชิ้น</label>
+        <div class="step"><button class="pm" aria-label="ลด">−</button><input class="num" id="q2" inputmode="numeric" value="5"><button class="pm" aria-label="เพิ่ม">+</button></div>
+        <div style="margin-top: 8px; font-size: 15px; font-weight: 600; color: #7A4B00">เริ่มผลิต 105 ชิ้น</div>
+      </sc-if>
+    </section>
+    <section class="blk">
+      <div class="lbl">กำหนดเสร็จ</div>
+      <div role="radiogroup" aria-label="กำหนดเสร็จ" style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px">
+        <button class="chip" role="radio" aria-checked="false">3 วัน</button>
+        <button class="chip on" role="radio" aria-checked="true">7 วัน · 24 ต.ค.</button>
+        <button class="chip" role="radio" aria-checked="false">เลือกวัน</button>
+        <button class="chip" role="radio" aria-checked="false">ยังไม่กำหนด</button>
+      </div>
+    </section>
+    <section class="blk" style="display: flex; align-items: center; justify-content: space-between; gap: 10px">
+      <span style="font-size: 16px; color: #5C5456">น้ำหนักต่อชิ้น (จากแคตตาล็อก)</span>
+      <span style="font-size: 18px; font-weight: 700">[g/ชิ้น]</span>
+    </section>
+    <label class="blk" style="display: flex; align-items: center; gap: 12px; cursor: pointer; min-height: 56px">
+      <input type="checkbox" style="width: 26px; height: 26px; accent-color: #2A2425; margin: 0; flex: none">
+      <span><span style="display: block; font-size: 17px; font-weight: 700">แบบใหม่ (ออกแบบครั้งแรก)</span><span style="display: block; font-size: 14px; color: #5C5456">ออฟฟิศแก้ทีหลังได้</span></span>
+    </label>
+  </main>
+  <div style="padding: 12px 16px 20px; background: #fff; border-top: 1px solid #ECE6E6">
+    <a href="Open4.dc.html" style="display: flex; align-items: center; justify-content: center; min-height: 56px; border-radius: 14px; background: #a2191d; color: #fff; font-size: 18px; font-weight: 700; text-decoration: none">ถัดไป</a>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { buf: false }; }
+  renderVals() {
+    var self = this;
+    return {
+      buf: this.state.buf,
+      bufHint: this.state.buf ? 'เปิดอยู่ · ใส่จำนวนที่เผื่อ' : 'ไม่บังคับ · ปิดอยู่ = ผลิตเท่าที่สั่ง',
+      toggle: function () { self.setState({ buf: !self.state.buf }); }
+    };
+  }
+}
+</script>
+</body>
+</html>

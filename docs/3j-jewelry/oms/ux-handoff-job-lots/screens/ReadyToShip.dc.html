@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<title>เสร็จแล้ว รอส่ง</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F6F3F3}
+a{color:#a2191d}a:hover{color:#7d1316}
+button{font:inherit;color:inherit}
+.side a{display:flex;align-items:center;justify-content:space-between;min-height:42px;padding:0 12px;border-radius:10px;font-size:15px;font-weight:600;color:#2A2425;text-decoration:none}
+.side a.on{background:#F6E3E3;color:#7d1316}
+.side .n{font-size:12px;font-weight:700;background:#a2191d;color:#fff;border-radius:999px;padding:1px 8px}
+.card{background:#fff;border:1px solid #E8E2E2;border-radius:14px;padding:18px 20px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:42px;padding:0 14px;border-radius:10px;border:1px solid #DCD4D4;background:#fff;font-size:14px;font-weight:600;cursor:pointer;color:#2A2425;text-decoration:none;box-sizing:border-box}
+.btn.g{background:#13613F;border-color:#13613F;color:#fff}
+.btn.p{background:#a2191d;border-color:#a2191d;color:#fff}
+.badge{display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 9px;border-radius:6px;font-size:12px;font-weight:600;white-space:nowrap}
+.meta{font-size:13px;color:#5C5456}
+.row{display:flex;flex-wrap:wrap;align-items:center;gap:12px 16px;padding:14px 0;border-bottom:1px solid #F0EAEA}
+.row:last-child{border-bottom:0}
+.qty{width:84px;min-height:42px;box-sizing:border-box;padding:0 10px;border:1px solid #D6CECE;border-radius:8px;font:inherit;font-size:16px;font-weight:700;text-align:right}
+.h2{margin:0 0 4px;font-size:17px;font-weight:700;display:flex;align-items:center;gap:8px}
+.opt{display:flex;align-items:center;gap:8px;min-height:40px;padding:0 12px;border:1.5px solid #E1D9D9;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer}
+.r{width:16px;height:16px;border-radius:99px;border:2px solid #A99FA1;box-sizing:border-box}
+</style>
+</helmet>
+<div style="font-family: 'Noto Sans Thai', system-ui, sans-serif; color: #2A2425; background: #F6F3F3; min-height: 100%; display: flex; flex-wrap: wrap">
+  <nav class="side" aria-label="เมนูการผลิต" style="flex: 1 1 220px; max-width: 100%; background: #fff; border-right: 1px solid #ECE6E6; padding: 18px 12px; box-sizing: border-box; display: flex; flex-direction: column; gap: 2px">
+    <div style="font-size: 18px; font-weight: 700; padding: 0 12px 14px">3J Insight <span style="font-size: 13px; font-weight: 500; color: #5C5456">· การผลิต</span></div>
+    <a href="OfficeAck.dc.html">ใบผลิต <span class="n">3</span></a>
+    <a href="Board.dc.html">บอร์ดใบงาน</a>
+    <a class="on" href="#" aria-current="page">เสร็จแล้ว รอส่ง <span class="n">45</span></a>
+    <a href="GemCatalog.dc.html">แคตตาล็อกพลอย</a>
+    <a href="#">ทะเบียนช่าง</a>
+    <a href="#">ผู้รับจ้างภายนอก</a>
+  </nav>
+
+  <main style="flex: 999 1 560px; min-width: 0; padding: 22px 28px 40px; box-sizing: border-box; display: flex; flex-direction: column; gap: 16px">
+    <div>
+      <h1 style="margin: 0; font-size: 24px; font-weight: 700">เสร็จแล้ว รอส่ง</h1>
+      <div class="meta" style="font-size: 14px">ของที่ผ่าน QC แล้ว ยังไม่เข้าสต็อก/ยังไม่ส่งลูกค้า · กดส่งได้ทุกเย็น ไม่ต้องรอครบใบ · ยังไม่นับในสต็อก</div>
+    </div>
+
+    <section class="card" aria-label="ใบผลิตเข้าสต็อก">
+      <h2 class="h2">เข้าสต็อก <span class="badge" style="background: #DDF3EA; color: #13613F">34 ชิ้น</span></h2>
+      <div class="meta">1 งวด = 1 lot · ประทับต้นทุนด้วยราคาเงินตอนกด</div>
+      <div class="row">
+        <div style="flex: 1; min-width: 240px"><a href="JobParent.dc.html" style="font-size: 16px; font-weight: 700; text-decoration: none; color: #2A2425">JB-0020 · แหวนโกเมนไข่</a><div class="meta">ผ่าน QC 34 · ยังเดินอยู่ 65 · ยังไม่เคยเข้าสต็อก</div></div>
+        <label class="meta" for="s1">จำนวน</label><input class="qty" id="s1" value="34">
+        <button class="btn g">เข้าสต็อก (งวด 1)</button>
+      </div>
+      <div class="row">
+        <div style="flex: 1; min-width: 240px"><span style="font-size: 16px; font-weight: 700">JB-0019 · จี้โกเมนกลม</span><div class="meta">เข้าแล้ว 2 งวด (40) · ผ่าน QC รอ 0 · ยังเดินอยู่ 10</div></div>
+        <span class="meta">ไม่มีของรอ</span>
+      </div>
+    </section>
+
+    <section class="card" aria-label="OEM ส่งลูกค้า">
+      <h2 class="h2">ส่งลูกค้า (OEM) <span class="badge" style="background: #E4EEFB; color: #1C4F9C">11 ชิ้น</span></h2>
+      <div class="meta">ส่งเป็นงวดได้ · เงินยังเป็นมัดจำ + ยอดคงเหลือ</div>
+      <div class="row">
+        <div style="flex: 1; min-width: 240px"><span style="font-size: 16px; font-weight: 700">JB-0024 · [ชื่อแบบ OEM]</span><div class="meta">[ลูกค้า] · ผ่าน QC 60 · ส่งแล้ว 49 · สั่ง 100</div></div>
+        <span class="badge" style="background: #FFF1D6; color: #7A4B00">ค้างชำระ</span>
+        <label class="meta" for="s2">จำนวน</label><input class="qty" id="s2" value="11">
+        <button class="btn">พิมพ์ใบส่งของ</button>
+        <button class="btn p">บันทึกส่งของ</button>
+      </div>
+    </section>
+
+    <section class="card" aria-label="ปิด full" style="border-color: #F0D49A">
+      <h2 class="h2">ปิด full รอคุณตัดสิน <span class="badge" style="background: #FFF1D6; color: #7A4B00">2</span></h2>
+      <div class="meta">ครบพอดีระบบปิดเอง · ขาดหรือเกินต้องใส่เหตุผล</div>
+      <div class="row" style="align-items: flex-start">
+        <div style="flex: 1; min-width: 240px"><span style="font-size: 16px; font-weight: 700">JB-0017 · ต่างหูโกเมน</span><div class="meta">ทุกส่วนถึงปลายทาง · ดี 99 · เสีย 1 · <strong style="color: #B42318">ขาด 1</strong> จากที่สั่ง 100</div></div>
+        <div style="display: flex; flex-direction: column; gap: 8px; flex: 1; min-width: 280px">
+          <label class="meta" for="r1" style="font-weight: 600">เหตุผล</label>
+          <input id="r1" placeholder="เช่น ของเสียเกินที่เผื่อ" style="min-height: 42px; padding: 0 10px; border: 1px solid #D6CECE; border-radius: 8px; font: inherit; font-size: 14px">
+          <button class="btn p" style="align-self: flex-end">ปิด full</button>
+        </div>
+      </div>
+      <div class="row" style="align-items: flex-start">
+        <div style="flex: 1; min-width: 240px"><span style="font-size: 16px; font-weight: 700">JB-0015 · [ชื่อแบบ OEM]</span><div class="meta">OEM · ดี 48 · <strong style="color: #B42318">ขาด 2</strong> จากที่สั่ง 50</div></div>
+        <div style="display: flex; flex-direction: column; gap: 8px; flex: 1; min-width: 280px">
+          <div role="radiogroup" aria-label="ของขาด" style="display: flex; flex-wrap: wrap; gap: 8px">
+            <button class="opt" role="radio" aria-checked="false" style="background: #fff"><span class="r"></span>ผลิตเพิ่ม 2 ชิ้น</button>
+            <button class="opt" role="radio" aria-checked="false" style="background: #fff"><span class="r"></span>แจ้งลูกค้าลดจำนวน</button>
+          </div>
+          <div class="meta">ไม่มีค่าเริ่ม — เลือกทุกครั้ง</div>
+          <button class="btn" disabled style="align-self: flex-end; color: #7A7173; background: #EFEBEB; border-color: #EFEBEB">ปิด full</button>
+        </div>
+      </div>
+      <div class="meta" style="padding-top: 10px">ปิดเองวันนี้: JB-0016 (ครบพอดี 50)</div>
+    </section>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1120}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>
