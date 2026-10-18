@@ -14,9 +14,17 @@ export const PURITY_PCT_EXAMPLE = "92.50";
 // ไม่รับ เครื่องหมาย/เลขยกกำลัง/ช่องว่างกลาง/ลูกน้ำ/% — ทุกอย่างที่ Number() ตีความได้แต่ไม่ใช่ % ที่ตั้งใจพิมพ์
 const PCT_SHAPE = /^(\d*)(?:\.(\d*))?$/;
 
-/** ต่ำกว่านี้ถือว่าพิมพ์เป็นสัดส่วน (0.925) ผิดช่อง — เงิน/ทองที่ร้านใช้ไม่มีต่ำกว่า 1% */
-const MIN_PCT = 1;
+/**
+ * เนื้อโลหะต่ำสุดที่ร้านรับ = ทอง 9K = 37.50% (มติเจ้าของ 18 ต.ค. 69; security M1 — เดิม 1% กว้างเกิน:
+ * พิมพ์ตกหลัก 9.25 หรือ "1" แทน "100" ผ่านด่านแล้วต้นทุน/ราคาเพี้ยนเงียบๆ) · ต่ำกว่านี้บล็อกทุกกรณี
+ * ด่านนี้เป็นของฝั่ง UI เท่านั้น — ด่านขั้นต่ำฝั่ง DB ยังไม่มี (หนี้ที่บันทึกแล้ว)
+ */
+const MIN_PCT = 37.5;
 const MAX_PCT = 100;
+
+const MSG_LOOKS_LIKE_FRACTION = `กรอกเป็น % เช่น ${PURITY_PCT_EXAMPLE} (ไม่ใช่สัดส่วน 0.925)`;
+const MSG_ONE_PCT = "ถ้าหมายถึงเนื้อเต็มให้กรอก 100";
+const MSG_BELOW_MIN = "เนื้อโลหะต่ำกว่า 37.50% — ตรวจว่าพิมพ์ตกหลักไหม";
 
 type Parsed = { ok: true; basisPoints: number } | { ok: false; error: string };
 
@@ -25,12 +33,12 @@ function parsePct(input: string): Parsed {
   const s = input.trim();
   const m = PCT_SHAPE.exec(s);
   if (!m || !/\d/.test(s)) return { ok: false, error: `กรอกเป็นตัวเลข % เช่น ${PURITY_PCT_EXAMPLE}` };
-  // ลำดับสำคัญ: เช็ค <1% ก่อนเช็คจำนวนทศนิยม — "0.925" ต้องได้ข้อความ "กรอกเป็น % เช่น 92.50"
+  // ลำดับสำคัญ: เช็คช่วงก่อนเช็คจำนวนทศนิยม — "0.925" ต้องได้ข้อความ "กรอกเป็น % เช่น 92.50"
   // ไม่ใช่ "ทศนิยมเกิน 2 ตำแหน่ง" · Number() ใช้เทียบช่วงเท่านั้น (ไม่ได้ใช้คำนวณค่าที่ส่งออก)
   const approx = Number(s);
-  if (approx < MIN_PCT) {
-    return { ok: false, error: `กรอกเป็น % เช่น ${PURITY_PCT_EXAMPLE} (ไม่ใช่สัดส่วน 0.925) — ต้องอยู่ระหว่าง 1 ถึง 100` };
-  }
+  if (approx < 1) return { ok: false, error: MSG_LOOKS_LIKE_FRACTION }; // พิมพ์เป็นสัดส่วนเดิม (0.925 / 0.5 / 0)
+  if (approx === 1) return { ok: false, error: MSG_ONE_PCT }; // "1" "1.0" "1.00" — มักตั้งใจพิมพ์ 100 (หรือสัดส่วน 1)
+  if (approx < MIN_PCT) return { ok: false, error: MSG_BELOW_MIN };
   if (approx > MAX_PCT) return { ok: false, error: "ต้องไม่เกิน 100%" };
   const fracDigits = m[2] ?? "";
   if (fracDigits.length > 2) return { ok: false, error: `ทศนิยมไม่เกิน 2 ตำแหน่ง เช่น ${PURITY_PCT_EXAMPLE}` };

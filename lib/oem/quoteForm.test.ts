@@ -482,8 +482,15 @@ describe("buildJobInput — ความบริสุทธิ์เป็น 
     ["abc", "abc"],
     ["0.925 (พิมพ์เป็นสัดส่วนเดิม = 0.925%)", "0.925"],
     ["0.9 (<1%)", "0.9"],
+    ["1 (security M1 — ต้องกรอก 100 ถ้าหมายถึงเต็ม)", "1"],
+    ["9.25 (ตกหลัก)", "9.25"],
+    ["37.49 (ต่ำกว่าเนื้อต่ำสุด 37.50)", "37.49"],
   ])("%s → input เป็น null (ไม่ยิง calc · ไม่ปัดเงียบ)", (_n, pct) => {
     expect(buildJobInput(prodJob({ purity: pct }))).toBeNull();
     expect(buildJobInput(prodJob({ metal: "gold", purity: pct }))).toBeNull();
+  });
+
+  it("เนื้อต่ำสุด 37.50 (ทอง 9K) ผ่าน → 0.375", () => {
+    expect(buildJobInput(prodJob({ metal: "gold", purity: "37.5" }))?.purity).toBe(0.375);
   });
 });

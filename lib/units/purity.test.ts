@@ -19,7 +19,10 @@ describe("purityPctToFraction — ต้องผ่าน", () => {
     ["96.5", 0.965],
     ["91.67", 0.9167],
     ["99.9", 0.999],
-    ["1", 0.01],
+    ["37.5", 0.375], // เส้นแบ่งล่าง: ทอง 9K (มติเจ้าของ 18 ต.ค. 69)
+    ["37.50", 0.375],
+    ["37.51", 0.3751],
+    ["75", 0.75],
     ["92.", 0.92],
   ])("%s → %s (ตรงเป๊ะ ไม่มี float เศษ)", (input, expected) => {
     expect(purityPctToFraction(input)).toBe(expected);
@@ -33,8 +36,8 @@ describe("purityPctToFraction — ต้องผ่าน", () => {
     expect(purityPctIssue("  ")).toBeNull();
   });
 
-  it("ทุกค่า 1.00-100.00 ที่ละ 0.01 → ได้สัดส่วนตรงเป๊ะ (ไม่มี float เศษ) และ round-trip กลับเป็นสตริงเดิม", () => {
-    for (let bp = 100; bp <= 10_000; bp++) {
+  it("ทุกค่า 37.50-100.00 ที่ละ 0.01 → ได้สัดส่วนตรงเป๊ะ (ไม่มี float เศษ) และ round-trip กลับเป็นสตริงเดิม", () => {
+    for (let bp = 3750; bp <= 10_000; bp++) {
       const pct = (bp / 100).toFixed(2);
       const f = purityPctToFraction(pct);
       expect(f, pct).toBe(bp / 10_000);
@@ -77,10 +80,30 @@ describe("purityPctToFraction — รายการที่ห้ามผ่�
     }
   );
 
-  it("เส้นแบ่ง: 0.99% ถูกปฏิเสธ · 1% ผ่าน", () => {
-    expect(purityPctToFraction("0.99")).toBeNull();
-    expect(purityPctToFraction("1")).toBe(0.01);
-    expect(purityPctToFraction("1.00")).toBe(0.01);
+  it.each(["1", "1.0", "1.00", " 1 "])("%s → 'ถ้าหมายถึงเนื้อเต็มให้กรอก 100' (ไม่ผ่านแล้ว — เดิมผ่านเป็น 1%%)", (input) => {
+    expect(purityPctToFraction(input)).toBeNull();
+    expect(purityPctIssue(input)).toBe("ถ้าหมายถึงเนื้อเต็มให้กรอก 100");
+  });
+
+  it.each(["1.01", "9.25", "10", "36.99", "37.49", "37.499", "20"])(
+    "%s (1–37.49%%) → 'เนื้อโลหะต่ำกว่า 37.50% — ตรวจว่าพิมพ์ตกหลักไหม'",
+    (input) => {
+      expect(purityPctToFraction(input)).toBeNull();
+      expect(purityPctIssue(input)).toBe("เนื้อโลหะต่ำกว่า 37.50% — ตรวจว่าพิมพ์ตกหลักไหม");
+    }
+  );
+
+  it("เส้นแบ่งล่าง: 37.49 ถูกปฏิเสธ · 37.50 ผ่าน → 0.375 · 100 ผ่าน → 1", () => {
+    expect(purityPctToFraction("37.49")).toBeNull();
+    expect(purityPctToFraction("37.5")).toBe(0.375);
+    expect(purityPctToFraction("37.50")).toBe(0.375);
+    expect(purityPctToFraction("100")).toBe(1);
+  });
+
+  it("ค่า <1 (สไตล์สัดส่วนเดิม) ยังได้ข้อความเดิม 'กรอกเป็น % เช่น 92.50 (ไม่ใช่สัดส่วน 0.925)'", () => {
+    for (const input of ["0.925", "0.99", "0.5", "0", ".5"]) {
+      expect(purityPctIssue(input), input).toBe("กรอกเป็น % เช่น 92.50 (ไม่ใช่สัดส่วน 0.925)");
+    }
   });
 });
 
