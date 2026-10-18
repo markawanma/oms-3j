@@ -26,6 +26,8 @@ import {
   OEM_POLISH_TIER_OPTIONS,
 } from "@/lib/oem/display";
 import { formatTHB } from "@/lib/format";
+import { PURITY_PCT_EXAMPLE, purityPctToFraction } from "@/lib/units/purity";
+import { PurityPctInput } from "@/components/ui/PurityPctInput";
 import { OemBarCalcSummary } from "./OemBarCalcSummary";
 import { OemCalcBreakdown } from "./OemCalcBreakdown";
 import { OemProductCalcSummary } from "./OemProductCalcSummary";
@@ -83,11 +85,8 @@ function SkuPicker({
   const weightNum = Number(job.weightG);
   const seedWeightG =
     isSilver && !isBar && job.weightG.trim() !== "" && Number.isFinite(weightNum) && weightNum > 0 ? weightNum : null;
-  const purityNum = Number(job.purity);
-  const seedPurity =
-    isSilver && !isBar && job.purity.trim() !== "" && Number.isFinite(purityNum) && purityNum > 0 && purityNum <= 1
-      ? purityNum
-      : null;
+  // ช่องเป็น % → seed ของ SKU ใหม่ต้องเป็นสัดส่วน 0..1 (catalog เก็บแบบนั้น) · ผ่านตัวแปลงกลาง ค่าที่ผิดกติกา = null
+  const seedPurity = isSilver && !isBar ? purityPctToFraction(job.purity) : null;
   const seedCategory = !isBar && job.itemKind ? job.itemKind : null;
 
   return (
@@ -301,17 +300,12 @@ export function QuoteJobItemCard({
 
             {!isBar && !isProduct && (
               <label className={labelCls}>
-                ความบริสุทธิ์ {job.metal === "gold" && <span className="text-red-600">*บังคับกรอก</span>}
-                <input
-                  type="number"
-                  inputMode="decimal"
-                  min={0}
-                  max={1}
-                  step="0.0001"
+                ความบริสุทธิ์ (%) {job.metal === "gold" && <span className="text-red-600">*บังคับกรอก</span>}
+                <PurityPctInput
                   value={job.purity}
-                  onChange={(e) => onChange("purity", e.target.value)}
+                  onChange={(v) => onChange("purity", v)}
                   className={inputCls}
-                  placeholder={job.metal === "gold" ? "เช่น 0.9167 (23K)" : OEM_DEFAULT_PURITY[job.metal]}
+                  placeholder={job.metal === "gold" ? "เช่น 96.50" : OEM_DEFAULT_PURITY[job.metal] || PURITY_PCT_EXAMPLE}
                 />
               </label>
             )}

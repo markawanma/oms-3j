@@ -19,8 +19,17 @@
 import type { OemBarSize, OemMetal, OemPriceCalcInput, OemPriceCalcResult, OemProductOption } from "./types";
 import { oemNotePresent, stripInvisibleText } from "./display";
 import { cleanPriceReason, productInputIssue } from "./productItem";
+import { purityFractionToPct, purityPctToFraction } from "@/lib/units/purity";
 
-export const OEM_DEFAULT_PURITY: Record<OemMetal, string> = { silver: "0.925", gold: "", brass: "1", silver999: "", product: "" };
+// ค่าเริ่มต้นเติมลงช่อง "ความบริสุทธิ์" เป็น % (มติเจ้าของ 18 ต.ค. 69 — เงิน 925 = "92.50") · form state ของ purity เป็นสตริง %
+// เสมอ แปลงเป็นสัดส่วน 0..1 จุดเดียวใน buildJobInput() ผ่าน lib/units/purity.ts (payload ไป server ยังเป็น 0.925 เหมือนเดิม)
+export const OEM_DEFAULT_PURITY: Record<OemMetal, string> = {
+  silver: purityFractionToPct(0.925),
+  gold: "",
+  brass: purityFractionToPct(1),
+  silver999: "",
+  product: "",
+};
 
 // ============================================================================
 // เงินแท่ง 99.99% SKU auto-switch (0078, โจทย์ข้อ 3 ของ Luke) — เลือก SKU กลุ่ม
@@ -335,10 +344,12 @@ export function buildJobInput(job: JobForm): OemPriceCalcInput | null {
   if (!Number.isFinite(weightG) || weightG <= 0) return null;
   if (job.metal === "gold" && !job.purity.trim()) return null;
 
+  // ช่องเป็น % → สัดส่วน 0..1 ที่นี่จุดเดียว · พิมพ์ผิดกติกา (ทศนิยม >2 ตำแหน่ง / <1% / >100%) = null ไม่ปัดเงียบ
+  // UI บอกสาเหตุผ่าน purityPctIssue(job.purity) ที่ช่องกรอก
   let purity: number | null = null;
   if (job.purity.trim()) {
-    purity = Number(job.purity);
-    if (!Number.isFinite(purity) || purity <= 0 || purity > 1) return null;
+    purity = purityPctToFraction(job.purity);
+    if (purity == null) return null;
   }
 
   let marginPct: number | null = null;
