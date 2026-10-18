@@ -24,6 +24,7 @@ import { Gem, Package } from "lucide-react";
 import type { MakeSpec } from "@/lib/catalog/types";
 import type { ProductionSpecCostCalc } from "@/lib/production/types";
 import { formatTHB } from "@/lib/format";
+import { formatPurityPct } from "@/lib/units/purity";
 
 export function ProductionSpecCostCard({
   makeSpec,
@@ -45,7 +46,7 @@ export function ProductionSpecCostCard({
       <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-xs text-zinc-600">
         <span>น้ำหนัก {silverWeightG != null ? `${silverWeightG} ก.` : "—"}</span>
         <span className="text-zinc-300">·</span>
-        <span>ความบริสุทธิ์ {silverPurity != null ? silverPurity : "—"}</span>
+        <span>ความบริสุทธิ์ {formatPurityPct(silverPurity)}</span>
         {makeSpec && (
           <>
             <span className="text-zinc-300">·</span>
