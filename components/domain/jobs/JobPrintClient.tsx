@@ -54,7 +54,7 @@ export function JobSheet({ job, qrSvg }: { job: PrintableJob; qrSvg: string | nu
             </>
           )}
           <p className="mt-1 text-[10pt]">น้ำหนักตั้งต้น {job.weightStartG !== null ? `${job.weightStartG} g` : "............ g"}</p>
-          <p className="mt-1 text-[10pt]">เบิกจริง ............ g &nbsp; ความบริสุทธิ์ ............</p>
+          <p className="mt-1 text-[10pt]">เบิกจริง ............ g &nbsp; เนื้อเงิน ............ %</p>
         </div>
         <div className="flex w-[42mm] shrink-0 flex-col items-center">
           {qrSvg ? (

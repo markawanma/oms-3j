@@ -329,7 +329,8 @@ describe("0175 ใบพิมพ์ A5", () => {
     expect(t).toContain("น้ำหนักเป้าหมาย/ชิ้น 4.000 g");
     expect(t).toContain("โลหะที่ต้องเตรียม 153.6 g");
     expect(t).toMatch(/เบิกจริง \.+ g/);
-    expect(t).toMatch(/ความบริสุทธิ์/);
+    expect(t).toMatch(/เนื้อเงิน \.+ %/); // 18 ต.ค. 69: ช่องเขียนมือเป็น % (เดิม "ความบริสุทธิ์ ....")
+    expect(t).not.toMatch(/ความบริสุทธิ์/);
     expect(t).not.toMatch(/ราคา|ต้นทุน|บาท|฿|in_g|ledger|ดุล|ก้านต้น/);
   });
 
