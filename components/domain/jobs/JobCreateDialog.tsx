@@ -3,13 +3,14 @@
 // JobCreateDialog — สร้างใบงานจากรายการ (OEM won / ใบผลิต): ข้อเสนอขั้นตอนจาก job_stage_suggest → จำนวน/แผนโลหะ (0175) → ติ๊กขั้น → กำหนดส่ง → สร้าง
 // ไม่มีตรรกะเงิน/น้ำหนัก: จำนวนแนะนำ + โลหะที่ต้องเตรียมมาจาก job_plan_suggest (debounce ~400ms) · มัดจำยังไม่มี = DB บังคับเหตุผล
 // ส่ง qtyPlanned/targetPieceG เฉพาะเมื่อต่างจากค่าเริ่มของ DB (qty = จำนวนสั่ง · น้ำหนัก = ค่าจากต้นทาง) — กันตีตราที่มาเป็น "กรอกเอง" โดยไม่ได้แก้
+// มติเจ้าของ 18 ต.ค. 69: "เผื่อของเสีย" ไม่บังคับ ค่าเริ่มปิด — ปิด = เริ่มผลิตเท่าจำนวนสั่ง · เปิด = สั่ง + เผื่อเพิ่ม (กรอกเอง) · ค่าที่ระบบแนะนำเป็นแค่คำแนะนำ ไม่เติมช่องให้เอง (ต้องกด "ใช้ค่าแนะนำ")
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
-import { LABEL_ANGLE_MSG, LABEL_ANGLE_RE, parseQtyText } from "@/lib/jobs/input";
+import { LABEL_ANGLE_MSG, LABEL_ANGLE_RE, parseBufferText } from "@/lib/jobs/input";
 import { DESIGN_LABEL_WARNING, ErrorLine, FIELD, Field } from "@/components/domain/jobs/JobDialogs";
 import { EMPTY_PLAN_FIELDS, PlanFields, planFieldsIssues, targetDiffers } from "@/components/domain/jobs/PlanFields";
 import type { PlanFieldsValue } from "@/components/domain/jobs/PlanFields";
@@ -35,8 +36,9 @@ export function JobCreateDialog({ kind, itemId, itemLabel, onClose, onCreated }:
   const [due, setDue] = useState("");
   const [gate, setGate] = useState("");
   const [label, setLabel] = useState("");
-  const [qtyText, setQtyText] = useState("");
-  const [qtyTouched, setQtyTouched] = useState(false);
+  // เผื่อของเสีย: เปิดกล่องใหม่ = ปิดเสมอ ไม่จำค่าครั้งก่อน (R1) · b เริ่ม 0
+  const [bufferOn, setBufferOn] = useState(false);
+  const [bufferText, setBufferText] = useState("0");
   const [plan, setPlan] = useState<PlanFieldsValue>(EMPTY_PLAN_FIELDS);
   const [profileId, setProfileId] = useState<string | null>(null);
   const [ack, setAck] = useState(false);
@@ -51,8 +53,10 @@ export function JobCreateDialog({ kind, itemId, itemLabel, onClose, onCreated }:
         if (cancelled) return;
         if (!r.ok) return setLoad({ s: "error", message: r.error });
         setCodes(r.data.stages.filter((x) => x.defaultSelected).map((x) => x.code));
+        // เปลี่ยนรายการ/โหลดใหม่ = เผื่อของเสียกลับเป็นปิดเสมอ (ไม่จำค่ารายการก่อน)
+        setBufferOn(false);
+        setBufferText("0");
         setLabel(r.data.designLabel);
-        setQtyText(String(r.data.qty));
         setProfileId(r.data.defaultProfileId);
         setPlan({ ...EMPTY_PLAN_FIELDS, targetText: targetText(r.data.targetPieceG) });
         setLoad({ s: "ready", data: r.data });
@@ -67,31 +71,27 @@ export function JobCreateDialog({ kind, itemId, itemLabel, onClose, onCreated }:
 
   const data = load.s === "ready" ? load.data : null;
   const defaultTarget = targetText(data?.targetPieceG);
-  const qtyParsed = parseQtyText(qtyText);
-  const qtyValue = qtyParsed.ok ? qtyParsed.value : null;
-  const qtyError = qtyParsed.ok ? null : qtyParsed.error;
+  // จำนวนเริ่มผลิต = สั่ง + เผื่อเพิ่ม (ปิดสวิตช์ = เผื่อ 0) — ผลต่างจำนวนชิ้น ไม่ใช่เงิน/น้ำหนัก · ช่องเผื่อผิดรูปแบบ = null + error (ไม่ตัดเงียบ)
+  const bufferParsed = bufferOn && data ? parseBufferText(bufferText, data.qty) : null;
+  const bufferValue = !bufferOn ? 0 : bufferParsed?.ok ? bufferParsed.value : null;
+  const qtyError = bufferParsed && !bufferParsed.ok ? bufferParsed.error : null;
+  const qtyValue = data && bufferValue !== null ? data.qty + bufferValue : null;
   const issues = planFieldsIssues(plan, defaultTarget);
   // เทียบเชิงตัวเลข ("4" = "4.000" ไม่นับว่าแก้ — ไม่ส่ง/ไม่ตีตราที่มาเป็น "กรอกเอง")
   const targetChanged = targetDiffers(plan.targetText, defaultTarget);
 
-  // ตัวอย่างแผนจาก DB: ไม่แตะค่าที่ผู้ใช้ยังไม่ได้แก้ (null = ให้ DB ใช้ค่าเริ่ม/ค่าแนะนำเอง)
+  // ตัวอย่างแผนจาก DB: ส่ง qtyPlanned ชัดๆ เสมอ (ปิดสวิตช์ = จำนวนสั่ง) — ห้ามส่ง null เพราะ job_plan_suggest จะใช้ "ค่าแนะนำ" แทน → แผนโลหะคิดจากจำนวนที่ไม่ได้ขอ
   const { state: preview, retry } = usePlanPreview({
     kind,
     itemId,
     enabled: data !== null && data.existingJob === null && qtyError === null && issues.targetError === null,
-    qtyPlanned: qtyTouched ? qtyValue : null,
+    qtyPlanned: qtyValue,
     targetPieceG: targetChanged ? plan.targetText.trim() : null,
     stageCodes: data ? data.stages.filter((s) => codes.includes(s.code)).map((s) => s.code) : null,
   });
   const planData = preview.s === "ready" ? preview.data : null;
   // กล่องแนะนำจำนวนใช้คำตอบล่าสุดแม้กำลังถามใหม่ (ไม่กระพริบ) · ค่าที่ใส่ลงช่องใช้เฉพาะ planData ที่ตอบครบ
   const hintPlan = planData ?? (preview.s === "loading" ? (preview.prev ?? null) : null);
-
-  // ยังไม่ได้แก้ช่องเริ่มผลิต → ตามค่าที่ DB ตอบ (ค่าแนะนำ ถ้ามี rate ครบ)
-  const effQty = planData?.qtyPlannedEff;
-  useEffect(() => {
-    if (!qtyTouched && typeof effQty === "number" && effQty >= 1) setQtyText(String(effQty));
-  }, [effQty, qtyTouched]);
 
   // แบบการบันทึก (0176): ขั้นที่ติ๊ก × แบบ — ใบทองที่มีขั้นโลหะไม่ชั่งต้องติ๊กรับทราบก่อน · ไม่มีแบบ/ค่าเริ่ม = สร้างไม่ได้
   const pickerStages = data ? data.stages.filter((s) => codes.includes(s.code)).map((s) => ({ code: s.code, nameTh: s.nameTh, metalPresent: s.metalPresent })) : [];
@@ -177,20 +177,20 @@ export function JobCreateDialog({ kind, itemId, itemLabel, onClose, onCreated }:
                 idPrefix="jc"
                 kind={kind}
                 qtyOrder={data.qty}
-                qtyText={qtyText}
-                onQtyText={(v) => {
-                  setQtyTouched(true);
-                  setQtyText(v);
+                bufferOn={bufferOn}
+                onBufferOn={(v) => {
+                  // เปิด = เริ่มที่ 0 (ไม่ prefill ค่าแนะนำ) · ปิด = รีเซ็ตกลับเท่าสั่งทันที ไม่ถามยืนยัน (R3/R6)
+                  setBufferOn(v);
+                  setBufferText("0");
                 }}
-                qtyError={qtyError}
-                qtyValue={qtyValue}
+                bufferText={bufferText}
+                onBufferText={setBufferText}
+                bufferError={qtyError}
+                bufferValue={bufferValue}
                 plan={hintPlan}
                 preview={preview}
                 onRetry={issues.hasTarget ? undefined : retry}
-                onUseSuggest={(n) => {
-                  setQtyTouched(true);
-                  setQtyText(String(n));
-                }}
+                onUseSuggest={(b) => setBufferText(String(b))}
                 disabled={busy}
               />
               <PlanFields idPrefix="jc" metal={data.metal} value={plan} onChange={setPlan} preview={preview} onRetry={retry} defaultSource={data.targetPieceGSource} defaultTargetText={defaultTarget} disabled={busy} />

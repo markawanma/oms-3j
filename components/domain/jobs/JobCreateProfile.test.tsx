@@ -53,7 +53,7 @@ const planOk = { ok: true, data: { qtyOrder: 30, qtyPlannedSuggest: null, buffer
 
 async function open() {
   wrap(<JobCreateDialog kind="oem" itemId={ITEM} itemLabel="แหวนลาย A × 30" onClose={vi.fn()} onCreated={vi.fn()} />);
-  await screen.findByLabelText(/เริ่มผลิต/);
+  await screen.findByTestId("qty-order");
 }
 const submitBtn = () => screen.getAllByRole("button", { name: "สร้างใบงาน" }).at(-1)!;
 const select = () => screen.getByLabelText(/แบบการบันทึก/) as HTMLSelectElement;
