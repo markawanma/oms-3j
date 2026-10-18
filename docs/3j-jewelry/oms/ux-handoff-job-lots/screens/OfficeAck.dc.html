@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<title>รับทราบใบจากหน้างาน</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F6F3F3}
+a{color:#a2191d}a:hover{color:#7d1316}
+button{font:inherit;color:inherit}
+.side a{display:flex;align-items:center;justify-content:space-between;min-height:42px;padding:0 12px;border-radius:10px;font-size:15px;font-weight:600;color:#2A2425;text-decoration:none}
+.side a.on{background:#F6E3E3;color:#7d1316}
+.side .n{font-size:12px;font-weight:700;background:#a2191d;color:#fff;border-radius:999px;padding:1px 8px}
+.card{background:#fff;border:1px solid #E8E2E2;border-radius:14px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:44px;padding:0 16px;border-radius:10px;border:1px solid #DCD4D4;background:#fff;font-size:14px;font-weight:600;cursor:pointer;color:#2A2425;text-decoration:none;box-sizing:border-box}
+.btn.p{background:#a2191d;border-color:#a2191d;color:#fff}
+.badge{display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 9px;border-radius:6px;font-size:12px;font-weight:600;white-space:nowrap}
+.meta{font-size:13px;color:#5C5456}
+.it{display:flex;flex-direction:column;gap:6px;width:100%;padding:14px 16px;border:0;border-left:3px solid transparent;border-bottom:1px solid #F0EAEA;background:transparent;text-align:left;cursor:pointer}
+.it.on{background:#F6F3F3;border-left-color:#2A2425}
+.f label{display:block;font-size:12px;font-weight:700;color:#5C5456;margin-bottom:4px}
+.f input,.f select{width:100%;box-sizing:border-box;min-height:42px;padding:0 10px;border:1px solid #D6CECE;border-radius:8px;font:inherit;font-size:15px;background:#fff;color:#2A2425}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:left;font-size:12px;font-weight:700;color:#5C5456;padding:8px 10px;border-bottom:1px solid #ECE6E6}
+td{padding:10px;border-bottom:1px solid #F2EDED}
+.ph{border-radius:10px;background:repeating-linear-gradient(45deg,#ECE7E7 0 6px,#F6F3F3 6px 12px);display:flex;align-items:flex-end;padding:6px;box-sizing:border-box;font-size:11px;color:#3A3335}
+</style>
+</helmet>
+<div style="font-family: 'Noto Sans Thai', system-ui, sans-serif; color: #2A2425; background: #F6F3F3; min-height: 100%; display: flex; flex-wrap: wrap">
+  <nav class="side" aria-label="เมนูการผลิต" style="flex: 1 1 220px; max-width: 100%; background: #fff; border-right: 1px solid #ECE6E6; padding: 18px 12px; box-sizing: border-box; display: flex; flex-direction: column; gap: 2px">
+    <div style="font-size: 18px; font-weight: 700; padding: 0 12px 14px">3J Insight <span style="font-size: 13px; font-weight: 500; color: #5C5456">· การผลิต</span></div>
+    <a class="on" href="#" aria-current="page">ใบผลิต <span class="n">3</span></a>
+    <a href="Board.dc.html">บอร์ดใบงาน</a>
+    <a href="ReadyToShip.dc.html">เสร็จแล้ว รอส่ง</a>
+    <a href="GemCatalog.dc.html">แคตตาล็อกพลอย <span class="n">2</span></a>
+    <a href="#">ทะเบียนช่าง</a>
+    <a href="#">ผู้รับจ้างภายนอก</a>
+  </nav>
+
+  <main style="flex: 999 1 560px; min-width: 0; padding: 22px 28px 40px; box-sizing: border-box; display: flex; flex-direction: column; gap: 16px">
+    <div>
+      <h1 style="margin: 0; font-size: 24px; font-weight: 700">ใบที่เปิดจากหน้างาน</h1>
+      <div class="meta" style="font-size: 14px">ช่างเริ่มได้ทันที · ออฟฟิศรับทราบ (แก้ได้ทุกเมื่อ ทุกการแก้มีประวัติ) · ปิดใบเข้าสต็อกได้หลังรับทราบ</div>
+    </div>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start">
+      <section class="card" aria-label="รายการ" style="flex: 1 1 340px; min-width: 0; overflow: hidden">
+        <div role="tablist" style="display: flex; gap: 4px; padding: 6px 10px 0; border-bottom: 1px solid #E5DFDF">
+          <button role="tab" aria-selected="true" style="min-height: 40px; padding: 0 12px; border: 0; border-bottom: 2px solid #2A2425; background: transparent; font-size: 14px; font-weight: 700; cursor: pointer">ยังไม่รับทราบ 3</button>
+          <button role="tab" aria-selected="false" style="min-height: 40px; padding: 0 12px; border: 0; border-bottom: 2px solid transparent; background: transparent; font-size: 14px; font-weight: 600; color: #5C5456; cursor: pointer">ทั้งหมด</button>
+        </div>
+        <button class="it on" aria-pressed="true">
+          <span style="display: flex; justify-content: space-between; gap: 8px"><strong style="font-size: 15px">JB-0031 · แหวนโกเมนไข่</strong><span class="meta">วันนี้ 09:12</span></span>
+          <span class="meta">100 ชิ้น · หัวหน้าช่าง · หล่อแล้ว (ช่าง ก รับ)</span>
+        </button>
+        <button class="it">
+          <span style="display: flex; justify-content: space-between; gap: 8px"><strong style="font-size: 15px">JB-0029 · จี้หยดน้ำ</strong><span class="meta">2 วัน</span></span>
+          <span class="meta">30 ชิ้น · ช่าง ค</span>
+          <span style="display: flex; gap: 6px; flex-wrap: wrap"><span class="badge" style="background: #FFF1C2; color: #5A3D00">ไม่มีรหัสสินค้า</span><span class="badge" style="background: #FFF1D6; color: #7A4B00">พลอยรอยืนยัน 1</span></span>
+        </button>
+        <button class="it">
+          <span style="display: flex; justify-content: space-between; gap: 8px"><strong style="font-size: 15px">JB-0026 · ต่างหูห่วง</strong><span class="badge" style="background: #FDE4E1; color: #B42318">ค้าง 3 วัน</span></span>
+          <span class="meta">40 ชิ้น · หัวหน้าช่าง · ฝังพลอย</span>
+        </button>
+      </section>
+
+      <section class="card" aria-label="รายละเอียดใบ JB-0031" style="flex: 999 1 560px; min-width: 0; padding: 20px 22px; display: flex; flex-direction: column; gap: 18px">
+        <div style="display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px">
+          <div>
+            <div style="display: flex; flex-wrap: wrap; gap: 6px"><span class="badge" style="background: #F6E3E3; color: #7d1316">เปิดจากหน้างาน · หัวหน้าช่าง</span><span class="badge" style="background: #F1EEEE; color: #3D3739">ยังไม่รับทราบ</span></div>
+            <h2 style="margin: 8px 0 2px; font-size: 22px; font-weight: 700">JB-0031 · แหวนโกเมนไข่</h2>
+            <div class="meta" style="font-size: 14px">RG-0418 · เงิน 925 · ขั้นตอนตอนนี้: หล่อ (ช่าง ก รับ 09:40)</div>
+          </div>
+          <div style="display: flex; gap: 8px; align-items: flex-start"><button class="btn">พิมพ์ A5</button><button class="btn">ยกเลิกใบ</button></div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px">
+          <div class="f"><label for="a1">เข้าสต็อก</label><input id="a1" value="100"></div>
+          <div class="f"><label for="a2">เผื่อเสีย (ไม่บังคับ)</label><input id="a2" value="0"></div>
+          <div class="f"><label for="a3">กำหนดเสร็จ</label><input id="a3" value="24 ต.ค. 2569"></div>
+          <div class="f"><label for="a4">แบบการบันทึก</label><select id="a4"><option>ค่าเริ่มของร้าน</option></select></div>
+        </div>
+        <label style="display: flex; align-items: center; gap: 10px; font-size: 14px; font-weight: 600; cursor: pointer"><input type="checkbox" style="width: 18px; height: 18px; accent-color: #2A2425; margin: 0">แบบใหม่ (คิดค่าออกแบบ) <span class="meta" style="font-weight: 500">· หน้างานไม่ได้ติ๊ก</span></label>
+
+        <div>
+          <div style="font-size: 15px; font-weight: 700; margin-bottom: 4px">พลอย</div>
+          <table>
+            <thead><tr><th>ชนิด · รูปทรง · ขนาด</th><th>ต่อชิ้น</th><th>รวมทั้งใบ</th><th>ตำแหน่ง</th><th>ที่มา</th></tr></thead>
+            <tbody>
+              <tr><td style="font-weight: 600">โกเมน · ไข่ · 4×6 มม.</td><td>1</td><td>100</td><td>ตรงกลาง</td><td><span class="meta">แม่แบบ</span></td></tr>
+              <tr><td style="font-weight: 600">CZ · กลม · 1.5 มม.</td><td>4</td><td>400</td><td>บ่าซ้าย-ขวา</td><td><span class="meta">แม่แบบ</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div>
+          <div style="font-size: 15px; font-weight: 700; margin-bottom: 8px">รูปสั่งงาน <span class="meta" style="font-weight: 500">3 รูป · 1 รูปส่งไม่สำเร็จจากมือถือ</span></div>
+          <div style="display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px">
+            <div class="ph" style="aspect-ratio: 1/1; box-shadow: 0 0 0 3px #2A2425">★ หลัก</div>
+            <div class="ph" style="aspect-ratio: 1/1">ด้านข้าง</div>
+            <div class="ph" style="aspect-ratio: 1/1">ตำแหน่งพลอย</div>
+            <button class="ph" style="aspect-ratio: 1/1; border: 1.5px dashed #A99FA1; background: #fff; justify-content: center; align-items: center; cursor: pointer; font: inherit; font-size: 13px">+ เพิ่มรูป</button>
+          </div>
+        </div>
+
+        <div style="background: #FAF8F8; border-radius: 12px; padding: 12px 14px">
+          <div style="font-size: 14px; font-weight: 700; margin-bottom: 6px">ประวัติการแก้</div>
+          <ol style="list-style: none; margin: 0; padding: 0; font-size: 13px; line-height: 1.8; color: #3A3335">
+            <li><span class="meta">17 ต.ค. 09:12</span> · หัวหน้าช่าง เปิดงาน (มือถือ)</li>
+            <li><span class="meta">17 ต.ค. 09:40</span> · ช่าง ก รับขั้นหล่อ</li>
+            <li style="color: #5C5456">การแก้ของออฟฟิศจะต่อท้ายที่นี่ (ใคร · เมื่อไร · จากอะไรเป็นอะไร)</li>
+          </ol>
+        </div>
+
+        <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 10px; padding-top: 14px; border-top: 1px solid #F0EAEA">
+          <span class="meta" style="flex: 1; min-width: 220px">ยังไม่มีตัวเลขเงินที่หน้านี้ · ต้นทุนประทับตอนปิดใบ</span>
+          <button class="btn">บันทึกการแก้</button>
+          <button class="btn p">รับทราบ</button>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1160}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

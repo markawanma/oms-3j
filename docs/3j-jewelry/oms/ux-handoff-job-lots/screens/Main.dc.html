@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<title>เปิดงานใหม่ ชื่อและ PIN</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+button{font:inherit;color:inherit}
+.who{display:flex;align-items:center;justify-content:center;min-height:64px;border-radius:14px;border:1.5px solid #D6CECE;background:#fff;font-size:19px;font-weight:600;cursor:pointer}
+.who.on{border-color:#2A2425;background:#2A2425;color:#fff}
+.key{min-height:64px;border-radius:14px;border:1px solid #E1D9D9;background:#fff;font-size:26px;font-weight:600;cursor:pointer}
+.dotp{width:18px;height:18px;border-radius:99px;border:2px solid #2A2425;box-sizing:border-box}
+.dotp.f{background:#2A2425}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; font-family: 'Noto Sans Thai', system-ui, sans-serif; color: #2A2425; background: #F6F3F3; display: flex; flex-direction: column; font-size: 18px">
+  <header style="background: #fff; padding: 16px 16px 14px; border-bottom: 1px solid #ECE6E6">
+    <div style="font-size: 15px; color: #5C5456">3J · เปิดงานใหม่</div>
+    <h1 style="margin: 2px 0 0; font-size: 24px; font-weight: 700">ใครกำลังเปิดงาน?</h1>
+  </header>
+  <main style="flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 18px">
+    <div role="radiogroup" aria-label="เลือกชื่อ" style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px">
+      <button class="who on" role="radio" aria-checked="true">หัวหน้าช่าง</button>
+      <button class="who" role="radio" aria-checked="false">ช่าง ก</button>
+      <button class="who" role="radio" aria-checked="false">ช่าง ข</button>
+      <button class="who" role="radio" aria-checked="false">ช่าง ค</button>
+    </div>
+    <div style="text-align: center">
+      <div style="font-size: 17px; font-weight: 600">ใส่ PIN 4 หลัก</div>
+      <div aria-label="ใส่แล้ว 2 จาก 4 หลัก" style="display: flex; gap: 14px; justify-content: center; margin-top: 10px">
+        <span class="dotp f"></span><span class="dotp f"></span><span class="dotp"></span><span class="dotp"></span>
+      </div>
+    </div>
+    <div style="display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px">
+      <button class="key">1</button><button class="key">2</button><button class="key">3</button>
+      <button class="key">4</button><button class="key">5</button><button class="key">6</button>
+      <button class="key">7</button><button class="key">8</button><button class="key">9</button>
+      <span></span><button class="key">0</button><button class="key" aria-label="ลบ" style="font-size: 18px">ลบ</button>
+    </div>
+    <div style="font-size: 15px; color: #5C5456; text-align: center; line-height: 1.5">จำไว้ในเครื่องนี้ 12 ชม. · ใช้ PIN เดียวกับตอนรับ/ส่งงาน</div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<title>ส่งต่อบางส่วน</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+button{font:inherit;color:inherit}
+.blk{background:#fff;border:1px solid #E8E2E2;border-radius:14px;padding:14px}
+.lbl{display:block;font-size:17px;font-weight:700;margin:0 0 10px}
+.step{display:flex;align-items:center;gap:10px}
+.pm{width:56px;height:56px;border-radius:14px;border:1.5px solid #D6CECE;background:#fff;font-size:28px;font-weight:600;cursor:pointer;flex:none}
+.num{flex:1;min-width:0;height:56px;border-radius:14px;border:1.5px solid #2A2425;text-align:center;font:inherit;font-size:28px;font-weight:700;box-sizing:border-box}
+.chip{min-height:48px;padding:0 14px;border-radius:12px;border:1.5px solid #D6CECE;background:#fff;font-size:16px;font-weight:600;cursor:pointer}
+.chip.on{background:#2A2425;border-color:#2A2425;color:#fff}
+</style>
+</helmet>
+<div style="width: 390px; min-height: 1040px; box-sizing: border-box; font-family: 'Noto Sans Thai', system-ui, sans-serif; color: #2A2425; background: #F6F3F3; display: flex; flex-direction: column; font-size: 18px">
+  <header style="background: #fff; padding: 14px 16px; border-bottom: 1px solid #ECE6E6; display: flex; gap: 12px; align-items: center">
+    <span style="width: 64px; height: 64px; border-radius: 10px; flex: none; background: repeating-linear-gradient(45deg,#ECE7E7 0 6px,#F6F3F3 6px 12px)"></span>
+    <div style="min-width: 0">
+      <div style="font-size: 14px; color: #5C5456">ช่าง ค · ฝังพลอย · พ. 14 ต.ค.</div>
+      <h1 style="margin: 0; font-size: 22px; font-weight: 700">JB-0020 · ส่วนที่ 1</h1>
+      <div style="font-size: 15px; color: #5C5456">แหวนโกเมนไข่ · คุณถืออยู่ <strong style="color: #2A2425">50</strong> ชิ้น</div>
+    </div>
+  </header>
+  <main style="flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 12px">
+    <section class="blk">
+      <label class="lbl" for="bad">ของเสียขั้นนี้</label>
+      <div class="step"><button class="pm" aria-label="ลด">−</button><input class="num" id="bad" inputmode="numeric" value="0"><button class="pm" aria-label="เพิ่ม">+</button></div>
+    </section>
+    <section class="blk">
+      <div style="display: flex; justify-content: space-between; align-items: baseline"><label class="lbl" for="send">ส่งต่อกี่ชิ้น</label><button class="chip" style="min-height: 40px">ทั้งหมด 50</button></div>
+      <div class="step"><button class="pm" aria-label="ลด">−</button><input class="num" id="send" inputmode="numeric" value="40"><button class="pm" aria-label="เพิ่ม">+</button></div>
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 12px">
+        <div style="padding: 10px 12px; border-radius: 10px; background: #F1EEEE"><div style="font-size: 13px; font-weight: 700; color: #5C5456">ส่งไป</div><div style="font-size: 22px; font-weight: 700">40</div></div>
+        <div style="padding: 10px 12px; border-radius: 10px; background: #FFF8EC"><div style="font-size: 13px; font-weight: 700; color: #7A4B00">ค้างกับคุณ</div><div style="font-size: 22px; font-weight: 700">10</div></div>
+      </div>
+      <div style="font-size: 15px; color: #3A3335; margin-top: 10px; line-height: 1.5">40 ชิ้นที่ส่งจะแยกเป็น <strong>ส่วนที่ 2</strong> · QR เดิมใบเดียว</div>
+    </section>
+    <section class="blk">
+      <div class="lbl">ส่งไปที่</div>
+      <div style="font-size: 15px; color: #5C5456; margin: -6px 0 10px">ขั้นถัดไป: ชุบ · <strong style="color: #2A2425">นอกร้าน</strong></div>
+      <div role="radiogroup" aria-label="ผู้รับจ้าง" style="display: flex; flex-wrap: wrap; gap: 8px">
+        <button class="chip on" role="radio" aria-checked="true">บ้านชุบ A</button>
+        <button class="chip" role="radio" aria-checked="false">[ผู้รับจ้างอื่น]</button>
+      </div>
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px; padding-top: 12px; border-top: 1px solid #F0EAEA; font-size: 15px">
+        <span style="color: #5C5456">น้ำหนัก</span><span><strong>40 × [g/ชิ้น]</strong> <span style="font-size: 12px; font-weight: 700; padding: 2px 6px; border-radius: 5px; background: #F1EEEE">ประมาณ</span></span>
+      </div>
+    </section>
+    <button style="min-height: 56px; border-radius: 14px; border: 1.5px dashed #A99FA1; background: #fff; font-size: 16px; font-weight: 600; cursor: pointer">ถ่ายรูปผลงาน (ไม่บังคับ)</button>
+  </main>
+  <div style="padding: 12px 16px 20px; background: #fff; border-top: 1px solid #ECE6E6">
+    <a href="HandoffDone.dc.html" style="display: flex; align-items: center; justify-content: center; min-height: 60px; border-radius: 14px; background: #a2191d; color: #fff; font-size: 19px; font-weight: 700; text-decoration: none">ส่งออก 40 ชิ้น → บ้านชุบ A</a>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1040}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<title>คิวงานช่าง</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+.job{display:flex;gap:12px;padding:12px;background:#fff;border:1px solid #E8E2E2;border-radius:14px;text-decoration:none;color:#2A2425;min-height:88px;box-sizing:border-box}
+.ph{width:64px;height:64px;border-radius:10px;flex:none;background:repeating-linear-gradient(45deg,#ECE7E7 0 6px,#F6F3F3 6px 12px)}
+.t{font-size:18px;font-weight:700;line-height:1.35}
+.s{font-size:15px;color:#5C5456;line-height:1.45}
+.qty{font-size:24px;font-weight:700;flex:none;text-align:right;line-height:1.1}
+.qty small{display:block;font-size:13px;font-weight:600;color:#5C5456}
+.h{display:flex;align-items:baseline;justify-content:space-between;margin:6px 0 8px}
+.h h2{margin:0;font-size:19px;font-weight:700}
+.pill{display:inline-flex;align-items:center;height:26px;padding:0 10px;border-radius:6px;font-size:13px;font-weight:700}
+</style>
+</helmet>
+<div style="width: 390px; min-height: 1100px; box-sizing: border-box; font-family: 'Noto Sans Thai', system-ui, sans-serif; color: #2A2425; background: #F6F3F3; display: flex; flex-direction: column; font-size: 18px">
+  <header style="background: #fff; padding: 16px; border-bottom: 1px solid #ECE6E6">
+    <div style="font-size: 15px; color: #5C5456">ช่าง ค · ฝังพลอย · พฤ. 15 ต.ค.</div>
+    <h1 style="margin: 2px 0 0; font-size: 24px; font-weight: 700">คิวงานของฉัน</h1>
+  </header>
+  <main style="flex: 1; padding: 14px 16px 24px; display: flex; flex-direction: column; gap: 10px">
+    <div class="h"><h2>ถืออยู่</h2><span class="s">2 ใบ · 50 ชิ้น</span></div>
+    <a class="job" href="Handoff.dc.html">
+      <span class="ph"></span>
+      <span style="flex: 1; min-width: 0"><span class="t" style="display: block">JB-0020 · ส่วนที่ 1</span><span class="s" style="display: block">แหวนโกเมนไข่ · รับ 13 ต.ค.</span><span class="s" style="display: block">โกเมน ไข่ 4×6 ×10 · CZ 1.5 ×40</span></span>
+      <span class="qty">10<small>ชิ้น</small></span>
+    </a>
+    <a class="job" href="#">
+      <span class="ph"></span>
+      <span style="flex: 1; min-width: 0"><span class="t" style="display: block">JB-0026</span><span class="s" style="display: block">ต่างหูห่วง · รับ 14 ต.ค.</span><span class="pill" style="background: #FDE4E1; color: #B42318; margin-top: 4px">เลยกำหนด 1 วัน</span></span>
+      <span class="qty">40<small>ชิ้น</small></span>
+    </a>
+
+    <div class="h" style="margin-top: 14px"><h2>กำลังมา</h2><span class="s">ขั้นก่อนหน้ากำลังทำ</span></div>
+    <div class="job" style="background: #FAF8F8; border-style: dashed">
+      <span class="ph" style="opacity: .7"></span>
+      <span style="flex: 1; min-width: 0"><span class="t" style="display: block">JB-0020 · ส่วนหลัก</span><span class="s" style="display: block">แหวนโกเมนไข่ · ขัดอยู่ (ช่าง ข)</span><span class="s" style="display: block">โกเมน ไข่ 4×6 ×50 · CZ 1.5 ×200</span></span>
+      <span class="qty">50<small>ชิ้น</small></span>
+    </div>
+    <div class="job" style="background: #FAF8F8; border-style: dashed">
+      <span class="ph" style="opacity: .7"></span>
+      <span style="flex: 1; min-width: 0"><span class="t" style="display: block">JB-0028</span><span class="s" style="display: block">จี้หยดน้ำ · ขัดอยู่ (ช่าง ข)</span></span>
+      <span class="qty">30<small>ชิ้น</small></span>
+    </div>
+
+    <div style="margin-top: 14px; display: flex; gap: 10px; align-items: center; padding: 14px; border-radius: 14px; background: #fff; border: 1px solid #E8E2E2">
+      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex: none"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"></path><path d="M8 12h8"></path></svg>
+      <span style="font-size: 16px; line-height: 1.45">รับ/ส่งงาน: สแกน QR บนถุงหรือบนจอคนส่ง</span>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1100}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

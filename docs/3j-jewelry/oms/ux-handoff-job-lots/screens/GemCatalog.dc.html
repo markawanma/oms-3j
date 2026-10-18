@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<title>แคตตาล็อกพลอย</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0;background:#F6F3F3}
+a{color:#a2191d}a:hover{color:#7d1316}
+button{font:inherit;color:inherit}
+.side a{display:flex;align-items:center;justify-content:space-between;min-height:42px;padding:0 12px;border-radius:10px;font-size:15px;font-weight:600;color:#2A2425;text-decoration:none}
+.side a.on{background:#F6E3E3;color:#7d1316}
+.side .n{font-size:12px;font-weight:700;background:#a2191d;color:#fff;border-radius:999px;padding:1px 8px}
+.card{background:#fff;border:1px solid #E8E2E2;border-radius:14px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:40px;padding:0 14px;border-radius:10px;border:1px solid #DCD4D4;background:#fff;font-size:14px;font-weight:600;cursor:pointer;color:#2A2425;text-decoration:none;box-sizing:border-box}
+.btn.p{background:#a2191d;border-color:#a2191d;color:#fff}
+.badge{display:inline-flex;align-items:center;gap:4px;height:24px;padding:0 9px;border-radius:6px;font-size:12px;font-weight:600;white-space:nowrap}
+.meta{font-size:13px;color:#5C5456}
+.tab{min-height:40px;padding:0 14px;border:0;border-bottom:2px solid transparent;background:transparent;font-size:14px;font-weight:600;color:#5C5456;cursor:pointer}
+.tab.on{color:#2A2425;border-bottom-color:#2A2425}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:left;font-size:12px;font-weight:700;color:#5C5456;padding:8px 10px;border-bottom:1px solid #ECE6E6}
+td{padding:10px;border-bottom:1px solid #F2EDED;vertical-align:middle}
+.ph{width:40px;height:40px;border-radius:8px;background:repeating-linear-gradient(45deg,#ECE7E7 0 5px,#F6F3F3 5px 10px)}
+.add{width:40px;height:40px;border-radius:8px;border:1.5px dashed #A99FA1;background:#fff;cursor:pointer;font-size:18px;color:#5C5456}
+</style>
+</helmet>
+<div style="font-family: 'Noto Sans Thai', system-ui, sans-serif; color: #2A2425; background: #F6F3F3; min-height: 100%; display: flex; flex-wrap: wrap">
+  <nav class="side" aria-label="เมนูการผลิต" style="flex: 1 1 220px; max-width: 100%; background: #fff; border-right: 1px solid #ECE6E6; padding: 18px 12px; box-sizing: border-box; display: flex; flex-direction: column; gap: 2px">
+    <div style="font-size: 18px; font-weight: 700; padding: 0 12px 14px">3J Insight <span style="font-size: 13px; font-weight: 500; color: #5C5456">· การผลิต</span></div>
+    <a href="OfficeAck.dc.html">ใบผลิต <span class="n">3</span></a>
+    <a href="Board.dc.html">บอร์ดใบงาน</a>
+    <a href="ReadyToShip.dc.html">เสร็จแล้ว รอส่ง</a>
+    <a class="on" href="#" aria-current="page">แคตตาล็อกพลอย <span class="n">2</span></a>
+    <a href="#">ทะเบียนช่าง</a>
+    <a href="#">ผู้รับจ้างภายนอก</a>
+  </nav>
+
+  <main style="flex: 999 1 560px; min-width: 0; padding: 22px 28px 40px; box-sizing: border-box; display: flex; flex-direction: column; gap: 16px">
+    <div style="display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 12px">
+      <div>
+        <h1 style="margin: 0; font-size: 24px; font-weight: 700">แคตตาล็อกพลอย</h1>
+        <div class="meta" style="font-size: 14px">หน้างานพิมพ์ชื่อใหม่ได้ → ขึ้น dropdown ทันทีพร้อมป้าย "รอยืนยัน" → ออฟฟิศยืนยัน / เปลี่ยนชื่อ / รวม</div>
+      </div>
+      <button class="btn p">+ เพิ่มชนิด</button>
+    </div>
+
+    <section class="card" aria-label="รอยืนยัน" style="padding: 18px 20px; border-color: #F0D49A">
+      <h2 style="margin: 0 0 12px; font-size: 16px; font-weight: 700; display: flex; align-items: center; gap: 8px">รอยืนยัน <span class="badge" style="background: #FFF1D6; color: #7A4B00">2</span></h2>
+      <div style="display: flex; flex-direction: column; gap: 10px">
+        <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 12px; background: #FFF8EC">
+          <div style="flex: 1; min-width: 260px">
+            <div style="font-size: 16px; font-weight: 700">ชนิด "โกเมนต์"</div>
+            <div class="meta">เพิ่มโดย ช่าง ค · ใช้ใน JB-0029 · 15 ต.ค. · <strong style="color: #5A3D00">คล้าย "โกเมน" ที่มีอยู่</strong></div>
+          </div>
+          <button class="btn p">รวมเข้ากับ "โกเมน"</button>
+          <button class="btn">เปลี่ยนชื่อ</button>
+          <button class="btn">ยืนยันเป็นชนิดใหม่</button>
+        </div>
+        <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 12px; background: #FFF8EC">
+          <div style="flex: 1; min-width: 260px">
+            <div style="font-size: 16px; font-weight: 700">รูปทรง "[รูปทรงใหม่]"</div>
+            <div class="meta">เพิ่มโดย หัวหน้าช่าง · ใช้ใน JB-0026 · ต้องใส่ขนาด 2 ค่า</div>
+          </div>
+          <button class="btn">รวมเข้ากับ…</button>
+          <button class="btn">เปลี่ยนชื่อ</button>
+          <button class="btn p">ยืนยัน</button>
+        </div>
+      </div>
+      <div class="meta" style="margin-top: 10px">รวมแล้วใบงานเก่าไม่เพี้ยน — ใบเก็บชื่อตอนสั่งไว้เอง</div>
+    </section>
+
+    <section class="card" style="overflow: hidden">
+      <div role="tablist" style="display: flex; gap: 4px; padding: 6px 12px 0; border-bottom: 1px solid #E5DFDF">
+        <button class="tab on" role="tab" aria-selected="true">ชนิด 3</button>
+        <button class="tab" role="tab" aria-selected="false">รูปทรง 12</button>
+        <button class="tab" role="tab" aria-selected="false">ขนาด + ราคา</button>
+      </div>
+      <div style="overflow-x: auto; padding: 0 8px 8px">
+        <table>
+          <thead><tr><th>รูป (ไม่บังคับ)</th><th>ชนิด</th><th>ใช้ในใบที่เปิดอยู่</th><th>รายการขนาด</th><th>ราคาล่าสุด</th><th>สถานะ</th></tr></thead>
+          <tbody>
+            <tr><td><span class="ph" style="display: block"></span></td><td style="font-weight: 600">โกเมน</td><td>4 ใบ</td><td>3 ขนาด</td><td>[ราคา] <span class="meta">· ออฟฟิศเห็นเท่านั้น</span></td><td><span class="badge" style="background: #DDF3EA; color: #13613F">ยืนยันแล้ว</span></td></tr>
+            <tr><td><button class="add" aria-label="เพิ่มรูป Blue Topaz">+</button></td><td style="font-weight: 600">Blue Topaz</td><td>1 ใบ</td><td>1 ขนาด</td><td>[ราคา]</td><td><span class="badge" style="background: #DDF3EA; color: #13613F">ยืนยันแล้ว</span></td></tr>
+            <tr><td><button class="add" aria-label="เพิ่มรูป CZ">+</button></td><td style="font-weight: 600">CZ</td><td>6 ใบ</td><td>2 ขนาด</td><td>[ราคา]</td><td><span class="badge" style="background: #DDF3EA; color: #13613F">ยืนยันแล้ว</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<title>เปิดงาน พลอย</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+button{font:inherit;color:inherit}
+.bar{display:flex;gap:4px}
+.bar span{flex:1;height:5px;border-radius:99px;background:#E1D9D9}
+.bar span.d{background:#a2191d}
+.gem{background:#fff;border:1px solid #E8E2E2;border-radius:14px;padding:12px 14px;display:flex;flex-direction:column;gap:8px}
+.k{font-size:13px;font-weight:700;color:#5C5456}
+.sel{display:flex;align-items:center;justify-content:space-between;min-height:48px;padding:0 12px;border-radius:10px;border:1.5px solid #D6CECE;background:#fff;font-size:17px;font-weight:600;box-sizing:border-box}
+.tot{display:flex;justify-content:space-between;align-items:center;padding-top:8px;border-top:1px solid #F0EAEA;font-size:15px}
+.tag{font-size:12px;font-weight:700;padding:2px 8px;border-radius:6px}
+.opt{width:100%;border:0;border-bottom:1px solid #F2EDED;background:#fff;text-align:left;cursor:pointer;font:inherit;display:flex;align-items:center;justify-content:space-between;min-height:48px;padding:0 12px;font-size:17px;border-bottom:1px solid #F2EDED}
+</style>
+</helmet>
+<div style="width: 390px; min-height: 1040px; box-sizing: border-box; font-family: 'Noto Sans Thai', system-ui, sans-serif; color: #2A2425; background: #F6F3F3; display: flex; flex-direction: column; font-size: 18px">
+  <header style="background: #fff; padding: 12px 16px 14px; border-bottom: 1px solid #ECE6E6">
+    <div style="display: flex; align-items: center; justify-content: space-between">
+      <a href="Open3.dc.html" aria-label="ย้อนกลับ" style="width: 44px; height: 44px; margin-left: -10px; display: flex; align-items: center; justify-content: center; color: #2A2425"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg></a>
+      <a href="Open5.dc.html" style="font-size: 16px; font-weight: 600; color: #5C5456; min-height: 44px; display: flex; align-items: center">ข้าม</a>
+    </div>
+    <div class="bar" aria-hidden="true"><span class="d"></span><span class="d"></span><span class="d"></span><span class="d"></span><span></span><span></span><span></span></div>
+    <h1 style="margin: 12px 0 2px; font-size: 24px; font-weight: 700">ใช้พลอยอะไรบ้าง?</h1>
+    <div style="font-size: 15px; color: #5C5456">ต่อ 1 ชิ้น · ระบบคูณยอดรวมให้ (ผลิต 100)</div>
+  </header>
+
+  <main style="flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 12px">
+    <section class="gem" aria-label="พลอยแถวที่ 1">
+      <div style="display: flex; justify-content: space-between; align-items: center"><span class="tag" style="background: #EEF0F1; color: #3F4448">จากแม่แบบ</span><button aria-label="ลบแถว" style="width: 44px; height: 44px; margin: -8px -10px -8px 0; border: 0; background: transparent; cursor: pointer; color: #5C5456"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></button></div>
+      <div style="font-size: 19px; font-weight: 700">โกเมน · ไข่ · 4×6 มม.</div>
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px">
+        <div><div class="k">ต่อชิ้น</div><div class="sel">1 เม็ด</div></div>
+        <div><div class="k">ตำแหน่ง</div><div class="sel" style="font-weight: 500">ตรงกลาง</div></div>
+      </div>
+      <div class="tot"><span style="color: #5C5456">รวมทั้งใบ</span><strong style="font-size: 18px">100 เม็ด</strong></div>
+    </section>
+
+    <section class="gem" aria-label="พลอยแถวที่ 2">
+      <div style="display: flex; justify-content: space-between; align-items: center"><span class="tag" style="background: #EEF0F1; color: #3F4448">จากแม่แบบ</span><button aria-label="ลบแถว" style="width: 44px; height: 44px; margin: -8px -10px -8px 0; border: 0; background: transparent; cursor: pointer; color: #5C5456"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"></path></svg></button></div>
+      <div style="font-size: 19px; font-weight: 700">CZ · กลม · 1.5 มม.</div>
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px">
+        <div><div class="k">ต่อชิ้น</div><div class="sel">4 เม็ด</div></div>
+        <div><div class="k">ตำแหน่ง</div><div class="sel" style="font-weight: 500">บ่าซ้าย-ขวา</div></div>
+      </div>
+      <div class="tot"><span style="color: #5C5456">รวมทั้งใบ</span><strong style="font-size: 18px">400 เม็ด</strong></div>
+    </section>
+
+    <section class="gem" aria-label="พลอยแถวที่ 3 กำลังกรอก" style="border-color: #2A2425; box-shadow: 0 0 0 1px #2A2425">
+      <span class="tag" style="background: #F6E3E3; color: #7d1316; align-self: flex-start">เพิ่มใหม่</span>
+      <div>
+        <label class="k" for="g3">ชนิด</label>
+        <input id="g3" value="โกเมนต์" style="display: block; width: 100%; box-sizing: border-box; min-height: 48px; padding: 0 12px; border-radius: 10px 10px 0 0; border: 1.5px solid #2A2425; font: inherit; font-size: 17px; font-weight: 600">
+        <div aria-label="ตัวเลือกชนิด" style="border: 1.5px solid #2A2425; border-top: 0; border-radius: 0 0 10px 10px; overflow: hidden; background: #fff">
+          <div style="padding: 10px 12px; background: #FFF8EC; font-size: 15px; color: #5A3D00; line-height: 1.5">มี <strong>"โกเมน"</strong> อยู่แล้ว — ใช้ตัวนั้นไหม?</div>
+          <button class="opt" style="font-weight: 700">โกเมน <span style="font-size: 14px; font-weight: 600; color: #13613F">ใช้ตัวนี้</span></button>
+          <button class="opt">Blue Topaz</button>
+          <button class="opt">[ชนิดที่หน้างานเพิ่มไว้] <span class="tag" style="background: #FFF1D6; color: #7A4B00">รอยืนยัน</span></button>
+          <button class="opt" style="border-bottom: 0; color: #a2191d; font-weight: 600">+ เพิ่ม "โกเมนต์" เป็นชนิดใหม่</button>
+        </div>
+      </div>
+      <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px">
+        <div><div class="k">รูปทรง</div><div class="sel" style="color: #6E6567; font-weight: 500">เลือก</div></div>
+        <div><div class="k">ขนาด (มม.)</div><div class="sel" style="color: #6E6567; font-weight: 500">–</div></div>
+      </div>
+    </section>
+
+    <button style="min-height: 56px; border-radius: 14px; border: 1.5px dashed #2A2425; background: transparent; font-size: 18px; font-weight: 700; cursor: pointer">+ เพิ่มพลอย</button>
+  </main>
+  <div style="padding: 12px 16px 20px; background: #fff; border-top: 1px solid #ECE6E6">
+    <a href="Open5.dc.html" style="display: flex; align-items: center; justify-content: center; min-height: 56px; border-radius: 14px; background: #a2191d; color: #fff; font-size: 18px; font-weight: 700; text-decoration: none">ถัดไป</a>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1040}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>
