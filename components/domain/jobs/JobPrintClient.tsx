@@ -13,9 +13,21 @@ import type { IssuedQr } from "@/lib/actions/job-office-write";
 import { qtyOrderPlannedText } from "@/lib/jobs/board";
 import { thaiDate } from "@/lib/jobs/dates";
 import { GENERIC_JOB_ERROR } from "@/lib/jobs/messages";
+import { METAL_LABEL } from "@/lib/jobs/types";
 import type { PrintableJob } from "@/lib/jobs/print";
 
 const CELL = "border border-zinc-700 px-1 align-top";
+
+/**
+ * คำหน้าช่อง % เขียนมือบนใบ (มติเจ้าของ 18 ต.ค. 69): งานเงิน = "เนื้อเงิน" · ทอง = "เนื้อทอง" · โลหะอื่น/ไม่รู้ = "เนื้อโลหะ"
+ * PrintableJob ไม่มีรหัส metal (ด่าน type boundary ใน lib/jobs/print.ts — ไม่เพิ่ม field) จึงเทียบกับ METAL_LABEL ที่ toPrintableJob ใช้ทำ metalLabel
+ * ("ทองเหลือง" ≠ "ทอง" เทียบเท่ากันทั้งสตริง จึงตกเป็น "เนื้อโลหะ")
+ */
+export function purityWord(metalLabel: string): string {
+  if (metalLabel === METAL_LABEL.silver) return "เนื้อเงิน";
+  if (metalLabel === METAL_LABEL.gold) return "เนื้อทอง";
+  return "เนื้อโลหะ";
+}
 
 /**
  * คอลัมน์ของตารางขั้น (0176): ใบเดิม (ไม่มีแบบ) = ครบทุกคอลัมน์เหมือนเดิมทุกประการ
@@ -54,7 +66,7 @@ export function JobSheet({ job, qrSvg }: { job: PrintableJob; qrSvg: string | nu
             </>
           )}
           <p className="mt-1 text-[10pt]">น้ำหนักตั้งต้น {job.weightStartG !== null ? `${job.weightStartG} g` : "............ g"}</p>
-          <p className="mt-1 text-[10pt]">เบิกจริง ............ g &nbsp; เนื้อเงิน ............ %</p>
+          <p className="mt-1 text-[10pt]">เบิกจริง ............ g &nbsp; {purityWord(job.metalLabel)} ............ %</p>
         </div>
         <div className="flex w-[42mm] shrink-0 flex-col items-center">
           {qrSvg ? (

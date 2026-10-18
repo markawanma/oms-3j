@@ -39,7 +39,7 @@ vi.mock("@/lib/actions/job-profiles", () => ({ listProfiles: vi.fn(), changeJobP
 import { ToastProvider } from "@/components/ui/Toast";
 import { JobDetailClient } from "./JobDetailClient";
 import { DoneDialog } from "./JobDialogs";
-import { JobSheet } from "./JobPrintClient";
+import { JobSheet, purityWord } from "./JobPrintClient";
 import { STATUS_ICON } from "./StatusChip";
 import type { StatusKey } from "@/lib/jobs/board";
 import { toPrintableJob } from "@/lib/jobs/print";
@@ -332,6 +332,31 @@ describe("0175 ใบพิมพ์ A5", () => {
     expect(t).toMatch(/เนื้อเงิน \.+ %/); // 18 ต.ค. 69: ช่องเขียนมือเป็น % (เดิม "ความบริสุทธิ์ ....")
     expect(t).not.toMatch(/ความบริสุทธิ์/);
     expect(t).not.toMatch(/ราคา|ต้นทุน|บาท|฿|in_g|ledger|ดุล|ก้านต้น/);
+  });
+
+  it("คำหน้าช่อง % ตามโลหะของใบ (มติเจ้าของ 18 ต.ค. 69): เงิน=เนื้อเงิน · ทอง=เนื้อทอง · อื่น/ไม่รู้=เนื้อโลหะ", () => {
+    const cases: [string, RegExp, string[]][] = [
+      ["silver", /เนื้อเงิน \.+ %/, ["เนื้อทอง", "เนื้อโลหะ"]],
+      ["gold", /เนื้อทอง \.+ %/, ["เนื้อเงิน", "เนื้อโลหะ"]],
+      ["brass", /เนื้อโลหะ \.+ %/, ["เนื้อเงิน", "เนื้อทอง"]],
+      ["platinum", /เนื้อโลหะ \.+ %/, ["เนื้อเงิน", "เนื้อทอง"]],
+    ];
+    for (const [metal, want, notWant] of cases) {
+      cleanup();
+      render(<JobSheet job={printable({ metal })} qrSvg={null} />);
+      const t = document.body.textContent ?? "";
+      expect(t, metal).toMatch(want);
+      for (const w of notWant) expect(t, `${metal} ไม่ควรมี ${w}`).not.toContain(w);
+      expect(t, metal).not.toMatch(/ความบริสุทธิ์/);
+    }
+  });
+
+  it("purityWord: ไม่รู้จัก/ว่าง → เนื้อโลหะ · 'ทองเหลือง' ไม่ถูกจับเป็นทอง", () => {
+    expect(purityWord("เงิน")).toBe("เนื้อเงิน");
+    expect(purityWord("ทอง")).toBe("เนื้อทอง");
+    expect(purityWord("ทองเหลือง")).toBe("เนื้อโลหะ");
+    expect(purityWord("platinum")).toBe("เนื้อโลหะ");
+    expect(purityWord("")).toBe("เนื้อโลหะ");
   });
 
   it("ใบทอง: ไม่มีแผนโลหะ/น้ำหนักเป้าหมาย/น้ำหนักตั้งต้น (ตัดที่ toPrintableJob) · ไม่มี in_g", () => {
