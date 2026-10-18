@@ -118,8 +118,8 @@ describe("catalog ProductForm -> real upsertProduct -> RPC product_upsert", () =
     const needle = expected.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     expect(txt.replace(/,/g, "")).toContain(needle.replace(/,/g, ""));
   });
-  // BUG-PROBE (QA): purity typed wrong in spot mode, user then switches to fixed (field hidden). Is the user trapped?
-  it("[bug probe] spot: type 0.925 -> switch to fixed (field hidden) -> save should NOT be blocked by a hidden field", async () => {
+  // REGRESSION (เดิม bug probe ของ QA): purity typed wrong in spot mode, user then switches to fixed (field hidden) — ต้องไม่ติดกับดัก
+  it("[regression] spot: type 0.925 -> switch to fixed (field hidden) -> save should NOT be blocked by a hidden field", async () => {
     renderProductForm(row({ costType: "spot" }));
     fireEvent.change(purityBox(), { target: { value: "0.925" } });
     fireEvent.click(screen.getByRole("radio", { name: /ใส่ต้นทุนเอง/ }));

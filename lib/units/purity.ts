@@ -24,7 +24,7 @@ const MAX_PCT = 100;
 
 const MSG_LOOKS_LIKE_FRACTION = `กรอกเป็น % เช่น ${PURITY_PCT_EXAMPLE} (ไม่ใช่สัดส่วน 0.925)`;
 const MSG_ONE_PCT = "ถ้าหมายถึงเนื้อเต็มให้กรอก 100";
-const MSG_BELOW_MIN = "เนื้อโลหะต่ำกว่า 37.50% — ตรวจว่าพิมพ์ตกหลักไหม";
+const MSG_BELOW_MIN = `เนื้อโลหะต่ำกว่า ${MIN_PCT.toFixed(2)}% — ตรวจว่าพิมพ์ตกหลักไหม`;
 
 type Parsed = { ok: true; basisPoints: number } | { ok: false; error: string };
 

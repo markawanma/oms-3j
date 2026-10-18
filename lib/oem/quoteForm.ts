@@ -344,7 +344,7 @@ export function buildJobInput(job: JobForm): OemPriceCalcInput | null {
   if (!Number.isFinite(weightG) || weightG <= 0) return null;
   if (job.metal === "gold" && !job.purity.trim()) return null;
 
-  // ช่องเป็น % → สัดส่วน 0..1 ที่นี่จุดเดียว · พิมพ์ผิดกติกา (ทศนิยม >2 ตำแหน่ง / <1% / >100%) = null ไม่ปัดเงียบ
+  // ช่องเป็น % → สัดส่วน 0..1 ที่นี่จุดเดียว · พิมพ์ผิดกติกา (ทศนิยม >2 ตำแหน่ง / ต่ำกว่า 37.50% / >100%) = null ไม่ปัดเงียบ
   // UI บอกสาเหตุผ่าน purityPctIssue(job.purity) ที่ช่องกรอก
   let purity: number | null = null;
   if (job.purity.trim()) {
