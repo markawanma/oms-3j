@@ -98,6 +98,9 @@ export function ProductForm({
   const purityIssue = purityFormIssue(purity, originalPurity);
   // null = ว่าง หรือ พิมพ์ผิดกติกา (กรณีหลังถูกบล็อกตอน submit ด้วย purityIssue — ไม่ปัดเงียบ)
   const purityFraction = purityFractionFromForm(purity, originalPurity);
+  // โหมด fixed ซ่อนช่องความบริสุทธิ์ → ผู้ใช้ไม่เห็นช่อง จึงไม่ใช้ค่าใน state (อาจเป็นค่าที่พิมพ์ผิดค้างจากโหมดอื่น)
+  // และไม่บล็อกบันทึก · ส่งค่าเดิมใน DB กลับ ห้ามส่ง null ไปล้างค่า (QA 18 ต.ค. 69)
+  const purityToSend = costType === "fixed" ? originalPurity : purityFraction;
 
   const preview = useMemo(() => {
     // พิมพ์ความบริสุทธิ์ผิด → ไม่โชว์ต้นทุน (ไม่ให้ preview ตกไปใช้ default 0.925 โดยไม่บอก)
@@ -135,8 +138,8 @@ export function ProductForm({
 
     if (!sku.trim()) return setError("กรุณากรอก SKU");
     if (!name.trim()) return setError("กรุณากรอกชื่อสินค้า");
-    // ตรวจทุกโหมดที่ช่องมีค่า (โหมด fixed ซ่อนช่องไว้แต่ state ยังถูกส่งเหมือนเดิม) — ผิดกติกา = ไม่บันทึก ไม่ปัดเงียบ
-    if (purityIssue) return setError(`ความบริสุทธิ์: ${purityIssue}`);
+    // ตรวจเฉพาะโหมดที่ช่องแสดงอยู่ (spot/spec) — ผิดกติกา = ไม่บันทึก ไม่ปัดเงียบ · โหมด fixed ไม่ตรวจ (ดู purityToSend)
+    if (costType !== "fixed" && purityIssue) return setError(`ความบริสุทธิ์: ${purityIssue}`);
     if (costType === "spot") {
       const w = Number(weight);
       if (!weight.trim() || !Number.isFinite(w) || w <= 0) {
@@ -166,7 +169,7 @@ export function ProductForm({
         costType,
         unitCost: costType === "fixed" && unitCost.trim() ? Number(unitCost) : null,
         silverWeightG: weight.trim() ? Number(weight) : null,
-        silverPurity: purityFraction,
+        silverPurity: purityToSend,
         laborCost: costType === "spec" ? null : labor.trim() ? Number(labor) : null,
         listPrice: listPrice.trim() ? Number(listPrice) : null,
         barcode: barcode.trim() || null,
@@ -199,7 +202,7 @@ export function ProductForm({
           costType,
           manualUnitCost: costType === "fixed" && unitCost.trim() ? Number(unitCost) : null,
           silverWeightG: weight.trim() ? Number(weight) : null,
-          silverPurity: purityFraction,
+          silverPurity: purityToSend,
           laborCost: costType === "spec" ? null : labor.trim() ? Number(labor) : null,
           listPrice: listPrice.trim() ? Number(listPrice) : null,
           makeSpec: buildMakeSpec(),

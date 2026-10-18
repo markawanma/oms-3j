@@ -164,6 +164,48 @@ describe("ProductForm — โหมดคำนวณจากสเปค (spec
     expect(sent().silverPurity).toBe(0.925);
   });
 
+  it("QA bug: spot → พิมพ์ 0.925 (แดง) → สลับ fixed (ช่องซ่อน) → บันทึกได้ · payload = ค่าเดิมใน DB (ไม่ใช่ค่าผิดใน state · ไม่ใช่ null)", async () => {
+    renderForm(row({ silverPurity: 0.9167 }));
+    fireEvent.change(purityInput(), { target: { value: "0.925" } });
+    expect(purityInput()).toHaveAttribute("aria-invalid", "true");
+    fireEvent.click(screen.getByRole("radio", { name: /ใส่ต้นทุนเอง/ }));
+    expect(screen.queryByRole("textbox", { name: /ความบริสุทธิ์/ })).toBeNull();
+    fireEvent.click(saveBtn());
+    await waitFor(() => expect(upsertProduct).toHaveBeenCalledTimes(1));
+    expect(sent().costType).toBe("fixed");
+    expect(sent().silverPurity).toBe(0.9167);
+    expect(screen.queryByText(/ความบริสุทธิ์:/)).toBeNull();
+  });
+
+  it("spot → พิมพ์ค่าถูกแก้ (96.5) → สลับ fixed → บันทึก: ไม่ใช้ค่าที่แก้ในช่องที่ซ่อน ส่งค่าเดิม DB · SKU ที่เดิมไม่มี purity ยัง null", async () => {
+    renderForm(row({ silverPurity: 0.925 }));
+    fireEvent.change(purityInput(), { target: { value: "96.5" } });
+    fireEvent.click(screen.getByRole("radio", { name: /ใส่ต้นทุนเอง/ }));
+    fireEvent.click(saveBtn());
+    await waitFor(() => expect(upsertProduct).toHaveBeenCalledTimes(1));
+    expect(sent().silverPurity).toBe(0.925);
+
+    cleanup();
+    upsertProduct.mockClear();
+    renderForm(row({ silverPurity: null }));
+    fireEvent.change(purityInput(), { target: { value: "0.925" } });
+    fireEvent.click(screen.getByRole("radio", { name: /ใส่ต้นทุนเอง/ }));
+    fireEvent.click(saveBtn());
+    await waitFor(() => expect(upsertProduct).toHaveBeenCalledTimes(1));
+    expect(sent().silverPurity).toBeNull();
+  });
+
+  it("กลับจาก fixed มา spot ช่องยังถูกตรวจเหมือนเดิม (ค่าผิดที่ค้างยังบล็อก spot)", async () => {
+    renderForm(row());
+    fireEvent.change(purityInput(), { target: { value: "0.925" } });
+    fireEvent.click(screen.getByRole("radio", { name: /ใส่ต้นทุนเอง/ }));
+    fireEvent.click(screen.getByRole("radio", { name: /คำนวณจากน้ำหนักเงิน/ }));
+    expect(purityInput().value).toBe("0.925");
+    fireEvent.click(saveBtn());
+    await waitFor(() => expect(screen.getByText(/ความบริสุทธิ์:/)).toBeInTheDocument());
+    expect(upsertProduct).not.toHaveBeenCalled();
+  });
+
   it("SKU ใหม่ (spot): พิมพ์ 92.5 → ส่ง 0.925", async () => {
     renderForm(undefined);
     fireEvent.change(screen.getByRole("textbox", { name: "SKU" }), { target: { value: "NEW-1" } });
