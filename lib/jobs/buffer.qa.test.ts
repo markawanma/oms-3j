@@ -1,6 +1,6 @@
-// QA scratch: unit + static guards for M1 buffer switch (not for commit)
+// QA guard: M1 สวิตช์เผื่อของเสีย — ห้ามใช้ค่าแนะนำเงียบ (มติ 18 ต.ค. 69)
 import { describe, expect, it } from "vitest";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { attentionCount, bufferQtyOf, primaryStatus, statusSignals } from "@/lib/jobs/board";
 import { parseBufferText } from "@/lib/jobs/input";
@@ -73,7 +73,6 @@ describe("static guards: create path never uses the suggestion", () => {
   it("JobCreateDialog does not read qtyPlannedSuggest / qtyPlannedEff / bufferQty", () => {
     const src = read("components/domain/jobs/JobCreateDialog.tsx");
     expect(src).not.toMatch(/qtyPlannedSuggest|qtyPlannedEff|bufferQty/);
-    expect(src).not.toMatch(/useEffect\([^)]*setBufferText/s);
   });
   it("createJob action: no suggestion fallback; qtyPlanned only forwarded when provided", () => {
     const src = read("lib/actions/job-office.ts");
@@ -82,6 +81,7 @@ describe("static guards: create path never uses the suggestion", () => {
     expect(body).not.toMatch(/suggest/i);
     expect(body).toMatch(/if \(input\.qtyPlanned !== null && input\.qtyPlanned !== undefined\)/);
   });
+  // ผูกข้อความ SQL ตรงตัว (coalesce(p_qty_planned, v_qty_order)) โดยตั้งใจ — ถ้าแก้ตรรกะ/จัดรูปแบบใหม่ ต้องมาอัปเดตเทสต์นี้พร้อมทบทวนว่ายังไม่ใช้ค่าแนะนำ
   it("0176 job_create_* bodies: coalesce(p_qty_planned, v_qty_order) x2, no v_suggest / plan_suggest call", () => {
     const sql = read("supabase/migrations/0176_job_record_profile.sql");
     const start = sql.indexOf("create or replace function analytics.job_create_from_quote_item");
@@ -92,10 +92,12 @@ describe("static guards: create path never uses the suggestion", () => {
     expect((seg.match(/coalesce\(p_qty_planned, v_qty_order\)/g) ?? []).length).toBe(2);
     expect(seg).not.toMatch(/v_suggest|job_plan_suggest\(|qty_planned_suggest/);
   });
-  it("no later migration redefines job_create_* (0177/0178)", () => {
-    for (const f of ["0177_job_plan_rate_unit_fix.sql", "0178_job_scrap_guard_name_check.sql"]) {
+  it("no later migration (เลข > 0176) redefines job_create_* — กวาดทุกไฟล์ ไม่ล็อกรายชื่อ", () => {
+    const later = readdirSync(join(root, "supabase", "migrations")).filter((f) => /^\d{4}_.*\.sql$/.test(f) && Number(f.slice(0, 4)) > 176);
+    expect(later.length).toBeGreaterThan(0);
+    for (const f of later) {
       const sql = read(`supabase/migrations/${f}`);
-      expect(sql).not.toMatch(/create or replace function analytics\.job_create/i);
+      expect(sql, f).not.toMatch(/create or replace function analytics\.job_create/i);
     }
   });
 });

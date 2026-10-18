@@ -34,9 +34,9 @@ export function QtyBufferToggle({ id, checked, onChange, disabled }: Props) {
           {checked ? "เปิด" : "ปิด"}
         </span>
       </button>
-      <span id={labelId} className="text-sm font-medium text-zinc-900">
+      <label id={labelId} htmlFor={id} className="min-h-11 flex-1 cursor-pointer content-center text-sm font-medium text-zinc-900">
         เผื่อของเสีย <span className="font-normal text-zinc-700">(ไม่บังคับ)</span>
-      </span>
+      </label>
     </div>
   );
 }

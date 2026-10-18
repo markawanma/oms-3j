@@ -9,7 +9,6 @@ import { Button } from "@/components/ui/Button";
 import { fmtG, TARGET_SOURCE_LABEL } from "@/components/domain/jobs/PlanFields";
 import { SURPLUS_DONE_LABEL } from "@/components/domain/jobs/SurplusChoice";
 import { fmtPct, num } from "@/lib/jobs/format";
-import { bufferLabel, bufferQtyOf } from "@/lib/jobs/board";
 import type { BoardRow, JobDetail, StageRow } from "@/lib/jobs/types";
 
 interface Props {
@@ -38,7 +37,6 @@ export function PlanCard({ job, board, stages, onEditQty, onEditPlan, onDecideSu
   const surplus = board?.qtySurplus ?? null;
   const showSurplus = job.status === "done" && surplus !== null && surplus > 0;
   const pending = board?.surplusPending === true;
-  const buffer = bufferQtyOf(job);
 
   return (
     <section aria-labelledby="plan-card-h" className="space-y-3 rounded-lg border border-zinc-200 bg-white p-4">
@@ -55,7 +53,6 @@ export function PlanCard({ job, board, stages, onEditQty, onEditPlan, onDecideSu
           <dt className="font-medium text-zinc-700">เริ่มผลิต</dt>
           <dd className="flex flex-wrap items-center gap-x-3 gap-y-1">
             <span className="text-base font-semibold text-zinc-900">{job.qtyPlanned} ชิ้น</span>
-            {buffer > 0 && <span className="inline-flex items-center rounded-md border border-sky-300 bg-sky-50 px-1.5 py-0.5 text-xs font-semibold text-sky-900">{bufferLabel(buffer)}</span>}
             {!closed &&
               (firstTaken ? (
                 <span className="text-xs font-medium text-zinc-700">ขั้นแรกถูกรับแล้ว แก้ไม่ได้</span>

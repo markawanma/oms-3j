@@ -41,7 +41,8 @@ interface Props {
 
 export function QtyFields({ idPrefix, kind, qtyOrder, bufferOn, onBufferOn, bufferText, onBufferText, bufferError, bufferValue, plan, preview, onRetry, onUseSuggest, disabled }: Props) {
   const suggest = plan?.qtyPlannedSuggest ?? null;
-  const sugBuf = suggest !== null ? Math.max(0, plan?.bufferQty ?? suggest - qtyOrder) : null; // ผลต่างจำนวนชิ้น (ไม่ใช่เงิน/น้ำหนัก)
+  // ตัวเลขเผื่อที่แนะนำ = buffer_qty ที่ DB ตอบเท่านั้น (ไม่คิดเองใน client) · DB ไม่ตอบ = ไม่แสดงกล่องแนะนำ
+  const sugBuf = suggest !== null && plan?.bufferQty != null ? Math.max(0, plan.bufferQty) : null;
   const rb = plan?.rejectBasis ?? null;
   // อัตราเสียของที่ยังไม่ตั้ง → ไม่แนะนำเผื่อ (ไม่เดา) · ชุบนับเฉพาะเมื่อมีขั้นชุบในใบ
   const missingNames: string[] = [];

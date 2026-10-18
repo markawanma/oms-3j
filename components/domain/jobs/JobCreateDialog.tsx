@@ -78,17 +78,18 @@ export function JobCreateDialog({ kind, itemId, itemLabel, onClose, onCreated }:
   // จำนวนเริ่มผลิต = สั่ง + เผื่อเพิ่ม (ปิดสวิตช์ = เผื่อ 0) — ผลต่างจำนวนชิ้น ไม่ใช่เงิน/น้ำหนัก · ช่องเผื่อผิดรูปแบบ = null + error (ไม่ตัดเงียบ)
   const bufferParsed = bufferOn && data ? parseBufferText(bufferText, data.qty) : null;
   const bufferValue = !bufferOn ? 0 : bufferParsed?.ok ? bufferParsed.value : null;
-  const qtyError = bufferParsed && !bufferParsed.ok ? bufferParsed.error : null;
+  const bufferError = bufferParsed && !bufferParsed.ok ? bufferParsed.error : null;
   const qtyValue = data && bufferValue !== null ? data.qty + bufferValue : null;
   const issues = planFieldsIssues(plan, defaultTarget);
   // เทียบเชิงตัวเลข ("4" = "4.000" ไม่นับว่าแก้ — ไม่ส่ง/ไม่ตีตราที่มาเป็น "กรอกเอง")
   const targetChanged = targetDiffers(plan.targetText, defaultTarget);
 
+  const previewEnabled = data !== null && data.existingJob === null && bufferError === null && issues.targetError === null;
   // ตัวอย่างแผนจาก DB: ส่ง qtyPlanned ชัดๆ เสมอ (ปิดสวิตช์ = จำนวนสั่ง) — ห้ามส่ง null เพราะ job_plan_suggest จะใช้ "ค่าแนะนำ" แทน → แผนโลหะคิดจากจำนวนที่ไม่ได้ขอ
   const { state: preview, retry } = usePlanPreview({
     kind,
     itemId,
-    enabled: data !== null && data.existingJob === null && qtyError === null && issues.targetError === null,
+    enabled: previewEnabled,
     qtyPlanned: qtyValue,
     targetPieceG: targetChanged ? plan.targetText.trim() : null,
     stageCodes: data ? data.stages.filter((s) => codes.includes(s.code)).map((s) => s.code) : null,
@@ -106,9 +107,10 @@ export function JobCreateDialog({ kind, itemId, itemLabel, onClose, onCreated }:
   // OEM: ออฟฟิศต้องตั้ง/ยืนยันชื่อเรียกภายในเอง (มติเจ้าของ 12 ต.ค.) — ค่าเริ่มมาจากข้อเสนอของระบบ แต่ห้ามว่าง · ใบผลิตเข้าสต็อกไม่บังคับ
   const labelRequired = kind === "oem";
   const labelBad = LABEL_ANGLE_RE.test(label);
-  const planPending = preview.s === "loading"; // รอ DB คำนวณ → ห้ามสร้าง (ล้ม = สร้างได้ ระบบคำนวณตอนสร้าง)
+  // enabled แต่ยัง idle = effect ของ preview ยังไม่ทันยิง (เฟรมแรกหลังโหลดรายการ) → นับเป็นรอ ไม่ให้กดสร้างก่อนถามแผน
+  const planPending = preview.s === "loading" || (previewEnabled && preview.s === "idle"); // รอ DB คำนวณ → ห้ามสร้าง (ล้ม = สร้างได้ ระบบคำนวณตอนสร้าง)
   const ready =
-    data !== null && !data.existingJob && codes.length > 0 && (!needGate || gate.trim() !== "") && (!labelRequired || label.trim() !== "") && !labelBad && qtyError === null && !issues.blocking && !planPending && profileOk;
+    data !== null && !data.existingJob && codes.length > 0 && (!needGate || gate.trim() !== "") && (!labelRequired || label.trim() !== "") && !labelBad && bufferError === null && !issues.blocking && !planPending && profileOk;
   /** แบบที่เลือกถูกปิด/แก้ไปแล้ว (DB ปฏิเสธ profile_invalid) → ดึงรายการแบบใหม่ เก็บขั้นที่ติ๊กไว้ */
   async function refreshProfiles() {
     try {
@@ -189,7 +191,7 @@ export function JobCreateDialog({ kind, itemId, itemLabel, onClose, onCreated }:
                 }}
                 bufferText={bufferText}
                 onBufferText={setBufferText}
-                bufferError={qtyError}
+                bufferError={bufferError}
                 bufferValue={bufferValue}
                 plan={hintPlan}
                 preview={preview}

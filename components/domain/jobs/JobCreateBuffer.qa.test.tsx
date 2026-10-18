@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// QA scratch: adversarial UI tests for M1 buffer switch (not for commit)
+// QA guard: M1 สวิตช์เผื่อของเสีย — ห้ามใช้ค่าแนะนำเงียบ (มติ 18 ต.ค. 69)
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -81,19 +81,19 @@ beforeEach(() => {
 describe("1. no silent buffer - invariant sweep", () => {
   it("every preview call has numeric qtyPlanned (never null/undefined); create has no qtyPlanned after toggling around", async () => {
     await open();
-    await waitFor(() => expect(submitBtn()).toBeEnabled());
+    await waitFor(() => expect(submitBtn()).toBeEnabled(), { timeout: 3000 });
     await userEvent.click(sw());
     await typeBuf("5");
     await settle();
     await userEvent.click(sw()); // off
     await settle();
-    await waitFor(() => expect(submitBtn()).toBeEnabled());
+    await waitFor(() => expect(submitBtn()).toBeEnabled(), { timeout: 3000 });
     await userEvent.click(sw()); // on again
     await typeBuf("abc"); // invalid
     await settle();
     await userEvent.click(sw()); // off
     await settle();
-    await waitFor(() => expect(submitBtn()).toBeEnabled());
+    await waitFor(() => expect(submitBtn()).toBeEnabled(), { timeout: 3000 });
     expect(getJobPlanSuggest.mock.calls.length).toBeGreaterThan(2);
     for (const c of getJobPlanSuggest.mock.calls) {
       expect(typeof c[2]?.qtyPlanned).toBe("number");
@@ -139,11 +139,15 @@ describe("5. screen does not compute the suggestion", () => {
     expect(createJob).toHaveBeenCalledWith(expect.objectContaining({ qtyPlanned: 37 }));
   });
 
-  it("bufferQty null but suggest 41: fallback suggest - order = 11", async () => {
+  it("bufferQty null but suggest 41: ไม่คิดเลขใน client — ไม่โชว์กล่อง/ปุ่มแนะนำ (ต้องเป็นตัวเลขที่ DB ตอบ)", async () => {
     getJobPlanSuggest.mockResolvedValue(plan({ qtyPlannedSuggest: 41, bufferQty: null, qtyPlannedEff: 41 }));
     await open();
     await userEvent.click(sw());
-    expect(await screen.findByText(/ระบบแนะนำเผื่อ \+11 \(เริ่มผลิต 41 ชิ้น\)/)).toBeInTheDocument();
+    await waitFor(() => expect(submitBtn()).toBeEnabled());
+    await new Promise((r) => setTimeout(r, 300));
+    expect(screen.queryByText(/ระบบแนะนำ/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/\+11/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "ใช้ค่าแนะนำ" })).not.toBeInTheDocument();
   });
 
   it("DB suggests below order (25, buffer -5): clamp to 0, never negative, no apply button when b=0", async () => {

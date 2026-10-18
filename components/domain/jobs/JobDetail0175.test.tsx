@@ -102,15 +102,16 @@ describe("0175 การ์ดจำนวนและแผน + header", () =>
     expect(c.getByRole("button", { name: "ตั้งแผนโลหะ" })).toBeEnabled();
   });
 
-  it("เผื่อ: สั่ง 30 เริ่ม 35 = การ์ดแผนมีป้าย 'เผื่อ +5' ข้างแถวเริ่มผลิต · ใบเท่ากัน/ผลิตน้อยกว่าสั่งไม่มีป้ายในการ์ด", () => {
+  it("เผื่อ: สั่ง 30 เริ่ม 35 = ป้าย 'เผื่อ +5' ขึ้นครั้งเดียวที่หัวใบ (StatusChip) · ไม่ซ้ำในการ์ดแผน · ใบเท่ากัน/ผลิตน้อยกว่าสั่งไม่มีป้าย", () => {
     const { unmount } = wrap(<JobDetailClient data={detail()} />);
-    expect(within(card()).getByText("เผื่อ +5")).toBeInTheDocument();
+    expect(screen.getAllByText("เผื่อ +5")).toHaveLength(1);
+    expect(within(card()).queryByText(/เผื่อ \+/)).not.toBeInTheDocument();
     unmount();
     const eq = wrap(<JobDetailClient data={detail({ qty_planned: 30, qty_order: 30 })} />);
-    expect(within(card()).queryByText(/เผื่อ +/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/เผื่อ \+/)).not.toBeInTheDocument();
     eq.unmount();
     wrap(<JobDetailClient data={detail({ qty_planned: 28 }, { under_planned: true })} />);
-    expect(within(card()).queryByText(/เผื่อ +/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/เผื่อ \+/)).not.toBeInTheDocument();
   });
 
   it("เริ่มผลิต 28 จากสั่ง 30: ป้ายฟ้า 'เริ่มผลิต 28 จากสั่ง 30' ข้อมูลประกอบ", () => {

@@ -313,6 +313,11 @@ describe("เผื่อของเสียไม่บังคับ ค่
     expect(sw).toHaveAttribute("aria-checked", "true");
     await userEvent.keyboard("{Enter}");
     expect(sw).toHaveAttribute("aria-checked", "false");
+    // คลิกที่ข้อความ label ก็สลับได้ (label htmlFor)
+    await userEvent.click(screen.getByText("(ไม่บังคับ)"));
+    expect(sw).toHaveAttribute("aria-checked", "true");
+    await userEvent.click(screen.getByText("(ไม่บังคับ)"));
+    expect(sw).toHaveAttribute("aria-checked", "false");
   });
 });
 
