@@ -47,6 +47,10 @@ export function JobCreateDialog({ kind, itemId, itemLabel, onClose, onCreated }:
 
   useEffect(() => {
     let cancelled = false;
+    // itemId เปลี่ยนระหว่าง/หลังโหลด → กลับเป็น loading ทันที: ปุ่มสร้าง/ฟอร์มหายจนกว่าข้อมูลรายการใหม่มา (กันส่ง itemId ใหม่ด้วยจำนวน/เผื่อของรายการเก่า)
+    setLoad({ s: "loading" });
+    setBufferOn(false);
+    setBufferText("0");
     (async () => {
       try {
         const r = await suggestJob(kind, itemId);
