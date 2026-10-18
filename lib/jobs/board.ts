@@ -118,6 +118,14 @@ export function qtyOrderPlannedText(r: { qtyOrder: number; qtyPlanned: number },
   return `สั่ง ${r.qtyOrder} · เริ่มผลิต ${r.qtyPlanned} ชิ้น`;
 }
 
+/** เผื่อกี่ชิ้น = เริ่มผลิต − สั่ง เมื่อเริ่มผลิตมากกว่าที่สั่ง · ไม่งั้น 0 (ผลต่างจำนวนชิ้น ไม่ใช่เงิน/น้ำหนัก) */
+export function bufferQtyOf(r: { qtyOrder: number; qtyPlanned: number }): number {
+  return r.qtyPlanned > r.qtyOrder ? r.qtyPlanned - r.qtyOrder : 0;
+}
+
+/** ป้าย "เผื่อ +5" — ที่เดียวของทุกจอ (ฟอร์มสร้าง · การ์ดแผน · บอร์ด) */
+export const bufferLabel = (n: number): string => `เผื่อ +${n.toLocaleString("en-US")}`;
+
 /** "ค้าง n วัน" ในขั้นนี้ — null = ไม่มีข้อมูล (ไม่แสดง) */
 export function stageAgeLabel(r: BoardRow): string | null {
   if (r.daysInStage === null || r.daysInStage < 0) return null;
@@ -155,7 +163,7 @@ export function applySignal(rows: readonly BoardRow[], signal: Signal | null, to
 }
 
 export type StatusTone = BadgeTone | "green";
-export type StatusKey = "overdue" | "dueSoon" | "mismatch" | "handoff" | "stale" | "deposit" | "hold" | "normal" | "auto" | "qty" | "surplusPending" | "underPlanned" | "goldUnguarded";
+export type StatusKey = "overdue" | "dueSoon" | "mismatch" | "handoff" | "stale" | "deposit" | "hold" | "normal" | "auto" | "qty" | "surplusPending" | "underPlanned" | "buffer" | "goldUnguarded";
 
 export interface StatusSignal {
   key: StatusKey;
@@ -194,6 +202,9 @@ export function statusSignals(r: BoardRow, todayTh: string): StatusSignal[] {
   if (r.quoteQtyMismatch) out.push({ key: "qty", rank: 11, label: `จำนวนไม่ตรงใบเสนอราคา${r.quoteItemQty !== null ? ` (${r.quoteItemQty})` : ""}`, tone: "blue" });
   // 0175: ผลิตบางส่วน (เริ่มผลิตน้อยกว่าที่สั่ง) — ข้อมูลประกอบ ไม่ใช่ความผิดปกติ · under_planned จาก DB (ใบเดิม qty_order = qty_planned ไม่ขึ้น)
   if (r.underPlanned && r.qtyPlanned < r.qtyOrder) out.push({ key: "underPlanned", rank: 10.1, label: `เริ่มผลิต ${r.qtyPlanned} จากสั่ง ${r.qtyOrder}`, tone: "blue" });
+  // เผื่อของเสีย (เริ่มผลิตมากกว่าที่สั่ง) — ข้อมูลประกอบ rank หลัง underPlanned · ส่วนต่างจำนวนชิ้น (ไม่ใช่เงิน/น้ำหนัก) · ใบที่เท่ากัน/น้อยกว่าไม่ขึ้น
+  const buf = bufferQtyOf(r);
+  if (buf > 0) out.push({ key: "buffer", rank: 10.2, label: bufferLabel(buf), tone: "blue" });
   return out;
 }
 

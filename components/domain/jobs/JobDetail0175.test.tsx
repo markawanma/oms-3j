@@ -102,6 +102,17 @@ describe("0175 การ์ดจำนวนและแผน + header", () =>
     expect(c.getByRole("button", { name: "ตั้งแผนโลหะ" })).toBeEnabled();
   });
 
+  it("เผื่อ: สั่ง 30 เริ่ม 35 = การ์ดแผนมีป้าย 'เผื่อ +5' ข้างแถวเริ่มผลิต · ใบเท่ากัน/ผลิตน้อยกว่าสั่งไม่มีป้ายในการ์ด", () => {
+    const { unmount } = wrap(<JobDetailClient data={detail()} />);
+    expect(within(card()).getByText("เผื่อ +5")).toBeInTheDocument();
+    unmount();
+    const eq = wrap(<JobDetailClient data={detail({ qty_planned: 30, qty_order: 30 })} />);
+    expect(within(card()).queryByText(/เผื่อ +/)).not.toBeInTheDocument();
+    eq.unmount();
+    wrap(<JobDetailClient data={detail({ qty_planned: 28 }, { under_planned: true })} />);
+    expect(within(card()).queryByText(/เผื่อ +/)).not.toBeInTheDocument();
+  });
+
   it("เริ่มผลิต 28 จากสั่ง 30: ป้ายฟ้า 'เริ่มผลิต 28 จากสั่ง 30' ข้อมูลประกอบ", () => {
     wrap(<JobDetailClient data={detail({ qty_planned: 28 }, { under_planned: true })} />);
     expect(screen.getByText("เริ่มผลิต 28 จากสั่ง 30")).toBeInTheDocument();
@@ -310,8 +321,8 @@ describe("0175 DoneDialog — ของเหลือ", () => {
 });
 
 describe("StatusChip", () => {
-  it("ทุก StatusKey มีไอคอน (รวม surplusPending/underPlanned/goldUnguarded)", () => {
-    const all: Record<StatusKey, true> = { overdue: true, dueSoon: true, mismatch: true, handoff: true, stale: true, deposit: true, hold: true, normal: true, auto: true, qty: true, surplusPending: true, underPlanned: true, goldUnguarded: true };
+  it("ทุก StatusKey มีไอคอน (รวม surplusPending/underPlanned/buffer/goldUnguarded)", () => {
+    const all: Record<StatusKey, true> = { overdue: true, dueSoon: true, mismatch: true, handoff: true, stale: true, deposit: true, hold: true, normal: true, auto: true, qty: true, surplusPending: true, underPlanned: true, buffer: true, goldUnguarded: true };
     for (const k of Object.keys(all) as StatusKey[]) expect(STATUS_ICON[k], k).toBeTruthy();
   });
 });

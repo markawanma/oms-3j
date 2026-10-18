@@ -34,6 +34,7 @@ export const STATUS_ICON: Record<StatusKey, typeof Info> = {
   qty: Info,
   surplusPending: PackageX,
   underPlanned: Layers,
+  buffer: Layers,
   goldUnguarded: ShieldOff,
 };
 

@@ -1,7 +1,7 @@
 // 0175: ป้าย surplusPending / underPlanned · qtyLabel · parseQtyText — pure
 import { describe, expect, it } from "vitest";
-import { ATTENTION_MAX_RANK, cardBadges, matchesSignal, primaryStatus, qtyLabel, qtyOrderPlannedText, secondaryStatuses, statusSignals } from "@/lib/jobs/board";
-import { parseQtyText } from "@/lib/jobs/input";
+import { ATTENTION_MAX_RANK, bufferLabel, bufferQtyOf, cardBadges, matchesSignal, primaryStatus, qtyLabel, qtyOrderPlannedText, secondaryStatuses, statusSignals } from "@/lib/jobs/board";
+import { parseBufferText, parseQtyText } from "@/lib/jobs/input";
 import { mapBoardRow } from "@/lib/jobs/types";
 import { OFFICE_HINT_TH, officeErrorMessage } from "@/lib/jobs/messages";
 
@@ -41,6 +41,45 @@ describe("ป้าย 0175", () => {
     expect(statusSignals(row({ status: "done", surplus_pending: true, qty_surplus: 0 }), TODAY).map((s) => s.key)).not.toContain("surplusPending");
   });
 
+});
+
+describe("ป้าย 'เผื่อ +n' (มติเจ้าของ 18 ต.ค. 69 — เผื่อของเสียไม่บังคับ)", () => {
+  it("ใบที่เริ่มผลิต > สั่ง: ป้ายฟ้า 'เผื่อ +5' rank 10.2 หลัง underPlanned (10.1) · ข้อมูลประกอบ ไม่ใช่ป้ายหลัก", () => {
+    const r = row({ qty_planned: 35 });
+    const s = statusSignals(r, TODAY).find((x) => x.key === "buffer")!;
+    expect(s).toMatchObject({ label: "เผื่อ +5", tone: "blue", rank: 10.2 });
+    expect(s.rank).toBeGreaterThan(ATTENTION_MAX_RANK);
+    expect(primaryStatus(r, TODAY).key).toBe("normal");
+    expect(secondaryStatuses(r, TODAY).map((x) => x.key)).toContain("buffer");
+  });
+  it("ใบเดิม (เท่ากัน) ไม่ขึ้นป้าย · ใบที่เริ่มผลิตน้อยกว่าสั่ง (ผลิตบางส่วน) ไม่ขึ้น 'เผื่อ' แต่ยังขึ้น underPlanned", () => {
+    expect(statusSignals(row(), TODAY).map((s) => s.key)).not.toContain("buffer");
+    const less = statusSignals(row({ qty_planned: 28, under_planned: true }), TODAY).map((s) => s.key);
+    expect(less).not.toContain("buffer");
+    expect(less).toContain("underPlanned");
+  });
+  it("bufferQtyOf / bufferLabel: ผลต่างจำนวนชิ้นเมื่อเริ่มผลิต > สั่งเท่านั้น · หลักพันมีจุลภาค", () => {
+    expect(bufferQtyOf({ qtyOrder: 100, qtyPlanned: 105 })).toBe(5);
+    expect(bufferQtyOf({ qtyOrder: 100, qtyPlanned: 100 })).toBe(0);
+    expect(bufferQtyOf({ qtyOrder: 100, qtyPlanned: 90 })).toBe(0);
+    expect(bufferLabel(5)).toBe("เผื่อ +5");
+    expect(bufferLabel(1200)).toBe("เผื่อ +1,200");
+  });
+});
+
+describe("parseBufferText — เผื่อกี่ชิ้น (จำนวนเต็มเข้ม ≥ 0)", () => {
+  it.each([["0", 0], ["5", 5], [" 12 ", 12], ["099", 99]])("%j = ผ่าน %i", (t, n) => {
+    expect(parseBufferText(t, 100)).toEqual({ ok: true, value: n });
+  });
+  it.each([["-1"], ["-0"], ["1,5"], ["3.5"], ["abc"], [""], ["  "], ["5 ชิ้น"], ["1e2"], ["+5"], ["๕"]])("%j = ปฏิเสธ ไม่ตัดเงียบ", (t) => {
+    const r = parseBufferText(t, 100);
+    expect(r.ok).toBe(false);
+  });
+  it("รวมกับจำนวนสั่งเกินเพดาน 100,000 = ปฏิเสธ · พอดีเพดานผ่าน · ตัวเลขใหญ่เกิน safe integer = ปฏิเสธ", () => {
+    expect(parseBufferText("99900", 100)).toEqual({ ok: true, value: 99900 });
+    expect(parseBufferText("99901", 100).ok).toBe(false);
+    expect(parseBufferText("99999999999999999999", 100).ok).toBe(false);
+  });
 });
 
 describe("qtyLabel", () => {

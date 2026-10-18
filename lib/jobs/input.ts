@@ -76,6 +76,20 @@ export function parseQtyText(raw: unknown, max = 100000): Parsed<number> {
   return ok(n);
 }
 
+/**
+ * จำนวนเผื่อของเสีย "เพิ่มกี่ชิ้น" (สวิตช์เผื่อของเสียเปิดอยู่): จำนวนเต็ม >= 0 เท่านั้น — 0 ผ่าน (เปิดแล้วยังไม่เผื่อ)
+ * 🔴 ห้ามกรองอักขระทิ้งเงียบ ("1,5" "3.5" "-2" "" "abc" = error) · รวมกับจำนวนสั่งต้องไม่เกินเพดานเริ่มผลิต (ค่าเดียวกับ parseQtyText · DB เป็นด่านจริง)
+ */
+export function parseBufferText(raw: unknown, qtyOrder: number, max = 100000): Parsed<number> {
+  const msg = "ใส่เป็นจำนวนเต็ม 0 ขึ้นไป เช่น 5";
+  const t = typeof raw === "number" ? String(raw) : typeof raw === "string" ? raw.trim() : "";
+  if (!/^\d+$/.test(t)) return bad(msg);
+  const n = Number(t);
+  if (!Number.isSafeInteger(n)) return bad(msg);
+  if (qtyOrder + n > max) return bad(`เริ่มผลิตรวมต้องไม่เกิน ${max.toLocaleString("en-US")} ชิ้น (เผื่อได้อีกไม่เกิน ${Math.max(0, max - qtyOrder).toLocaleString("en-US")})`);
+  return ok(n);
+}
+
 export function parseSeq(raw: unknown): Parsed<number> {
   const n = typeof raw === "number" ? raw : NaN;
   if (!Number.isInteger(n) || n < 1 || n > 100) return bad("ข้อมูลขั้นตอนไม่ถูกต้อง รีเฟรชแล้วลองใหม่");
