@@ -15,6 +15,8 @@ import type { BoardRow, EventRow, JobDetail, StageDef, StageLoss, StageRow, Work
 import { isUuid, parseCount, parseDate, parseLabel, parseStageCodes, parseText, parseWeight, TARGET_PIECE_MAX_G } from "@/lib/jobs/input";
 import { callOffice, db, fail, guard, shopId } from "@/lib/jobs/office-server";
 import type { JobResult } from "@/lib/jobs/office-server";
+import { loadBoardLots, loadJobLots } from "@/lib/jobs/lots-server";
+import type { JobLotsData } from "@/lib/jobs/lots";
 import { logJobFailure } from "@/lib/jobs/log";
 import { GENERIC_JOB_ERROR } from "@/lib/jobs/messages";
 
@@ -41,14 +43,24 @@ export async function getJobBoard(): Promise<JobResult<BoardData>> {
   try {
     const shop = shopId();
     const [board, defs, workers] = await Promise.all([
-      db().from("v_job_board").select(BOARD_COLUMNS).eq("shop_id", shop).in("status", ["open", "in_progress", "on_hold"]).order("is_overdue", { ascending: false }).order("due_date", { ascending: true, nullsFirst: false }).order("seq", { ascending: true }).limit(BOARD_LIMIT),
+      // 0181: การ์ดต่อใบแม่ — ส่วนย่อย (parent_job_id ไม่ว่าง) ไม่ขึ้นบอร์ด (ยอดของส่วนรวมอยู่ในบรรทัดของใบแม่)
+      db().from("v_job_board").select(BOARD_COLUMNS).eq("shop_id", shop).in("status", ["open", "in_progress", "on_hold"]).is("parent_job_id", null).order("is_overdue", { ascending: false }).order("due_date", { ascending: true, nullsFirst: false }).order("seq", { ascending: true }).limit(BOARD_LIMIT),
       db().from("job_stage_def").select("code, name_th, seq_default").eq("shop_id", shop).eq("is_active", true).order("seq_default", { ascending: true }).limit(50),
       db().from("worker").select("id, display_name").eq("shop_id", shop).eq("is_active", true).order("display_name", { ascending: true }).limit(50),
     ]);
     if (board.error) throw board.error;
     if (defs.error) throw defs.error;
     if (workers.error) throw workers.error;
-    const mapped = rows(board.data).map(mapBoardRow).filter((r): r is BoardRow => r !== null);
+    let mapped = rows(board.data).map(mapBoardRow).filter((r): r is BoardRow => r !== null);
+    // 0181: ใบที่แยกส่วนแล้ว/มีส่วนต่างรอชี้แจง → บรรทัด "เสร็จ x/N · …" จาก v_job_tree_summary (อ่านไม่ได้ = บอร์ดแสดงแบบเดิม ไม่พังทั้งหน้า)
+    const split = mapped.filter((r) => (r.partsCount ?? 0) > 1 || (r.qtyPendingExplanation ?? 0) > 0).map((r) => r.id);
+    if (split.length > 0) {
+      const lots = await loadBoardLots(split);
+      mapped = mapped.map((r) => {
+        const l = lots.get(r.id);
+        return l ? { ...r, lotsLine: l.line, lotsSumOk: l.sumOk } : r;
+      });
+    }
     return {
       ok: true,
       data: {
@@ -78,6 +90,8 @@ export interface JobDetailData {
   /** ลิงก์ไปใบเสนอราคา/ใบผลิตต้นทาง (id เท่านั้น) */
   source: { kind: "oem" | "production"; id: string } | null;
   todayTh: string;
+  /** 0181: ต้นไม้ส่วนย่อยของใบแม่ (ส่วน · ยอดรวม · ส่วนต่าง) — null/ไม่มี = อ่านไม่ได้ → หน้าใบงานแบบเดิม · ใบเดี่ยวที่ไม่เคยแยกมี parts 1 แถว (แผงส่วนย่อยไม่แสดง) */
+  lots?: JobLotsData | null;
 }
 
 export async function getJobDetail(jobId: string): Promise<JobResult<JobDetailData | null>> {
@@ -128,10 +142,13 @@ export async function getJobDetail(jobId: string): Promise<JobResult<JobDetailDa
       if (typeof id === "string") source = { kind: "production", id };
     }
 
+    const lots = await loadJobLots(jobId, names);
+
     return {
       ok: true,
       data: {
         job,
+        lots,
         board: boardRes.data ? mapBoardRow(boardRes.data as unknown as Record<string, unknown>) : null,
         stages,
         loss,

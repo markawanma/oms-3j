@@ -55,6 +55,11 @@ export const EVENT_TYPE_LABEL: Record<string, string> = {
   // 0175: แก้จำนวนเริ่มผลิต/แผนโลหะ · ตัดสินของเหลือ (ครบทุก event_type ใน CHECK job_event_event_type_ck — เทสต์ events-labels ล้มถ้ามีตัวใหม่ที่ยังไม่แปล)
   plan_change: "แก้จำนวน/แผนโลหะ",
   surplus_set: "จัดการของเหลือ",
+  // 0181: ส่วนย่อย (ส่งต่อ n จาก N) + ส่วนต่างรอชี้แจง
+  split: "แยกส่วน",
+  split_cancel: "ยกเลิกส่วน",
+  discrepancy: "รับไม่ครบ (ส่วนต่าง)",
+  discrepancy_resolve: "ชี้แจงส่วนต่าง",
 };
 
 export const CHANNEL_LABEL: Record<string, string> = {
@@ -86,6 +91,8 @@ export const BOARD_COLUMNS = [
   "quote_qty_mismatch", "quote_item_qty", "created_at", "board_column", "handoff_gap_g", "handoff_mismatch_count",
   "qty_order", "qty_surplus", "under_planned", "surplus_pending", "surplus_disposition", "target_piece_g", "metal_plan_g",
   "profile_name", "has_weigh", "gold_unguarded",
+  // 0181: บอร์ด 1 การ์ดต่อใบแม่ (กรอง parent_job_id is null ที่ loader) · จำนวนส่วน · ส่วนต่างรอชี้แจง · ขั้นที่มีชิ้นมากสุด (คอลัมน์ของใบที่ของกระจายหลายขั้น)
+  "parent_job_id", "parts_count", "parts_open", "qty_pending_explanation", "dominant_stage_code",
 ].join(", ");
 
 export interface BoardRow {
@@ -140,6 +147,18 @@ export interface BoardRow {
   hasWeigh: boolean;
   /** 0176: ใบทองที่ยังไม่ปิดและมีขั้นที่โลหะอยู่ในมือแต่ไม่ชั่ง (ไม่มีด่านกันทองหาย) — DB ตัดสิน */
   goldUnguarded: boolean;
+  // 0181 (ทั้งหมด optional — ใบเดี่ยว/แถวที่ view ยังไม่ส่งคอลัมน์ใหม่ = ไม่มี key = บอร์ดเดิมทุกประการ)
+  /** ส่วนย่อยที่ยังไม่ยกเลิก (นับใบแม่) — > 1 = ใบที่แยกส่วนแล้ว */
+  partsCount?: number;
+  partsOpen?: number;
+  /** ส่วนต่างรอชี้แจง (ชิ้น) — DB */
+  qtyPendingExplanation?: number;
+  /** ขั้นที่มีชิ้นมากสุดของทั้งใบ — ตำแหน่งการ์ดในมุมมองคอลัมน์เมื่อแยกส่วนแล้ว */
+  dominantStageCode?: string | null;
+  /** บรรทัด "เสร็จ x/N · …" ประกอบที่ loader จาก v_job_tree_summary + v_job_tree */
+  lotsLine?: string | null;
+  /** ผลตรวจ sum_check ของ DB (ผลรวมทุกถัง = เริ่มผลิต) */
+  lotsSumOk?: boolean;
 }
 
 export function mapBoardRow(r: Record<string, unknown>): BoardRow | null {
@@ -189,7 +208,22 @@ export function mapBoardRow(r: Record<string, unknown>): BoardRow | null {
     profileName: str(r.profile_name),
     hasWeigh: bool(r.has_weigh),
     goldUnguarded: bool(r.gold_unguarded),
+    ...lotKeys(r),
   };
+}
+
+/** 0181: ใส่ key เฉพาะที่ view ส่งมา (คอลัมน์ใหม่) — ใบเดิม/view เก่าไม่มี key → BoardRow รูปเดิมเป๊ะ */
+function lotKeys(r: Record<string, unknown>): Partial<BoardRow> {
+  const out: Partial<BoardRow> = {};
+  const parts = num(r.parts_count);
+  if (parts !== null) out.partsCount = parts;
+  const open = num(r.parts_open);
+  if (open !== null) out.partsOpen = open;
+  const pend = num(r.qty_pending_explanation);
+  if (pend !== null && pend > 0) out.qtyPendingExplanation = pend;
+  const dom = str(r.dominant_stage_code);
+  if (dom !== null && (parts ?? 0) > 1) out.dominantStageCode = dom;
+  return out;
 }
 
 // ---------------------------------------------------------------------------

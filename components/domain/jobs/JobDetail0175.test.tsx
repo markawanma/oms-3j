@@ -323,7 +323,7 @@ describe("0175 DoneDialog — ของเหลือ", () => {
 
 describe("StatusChip", () => {
   it("ทุก StatusKey มีไอคอน (รวม surplusPending/underPlanned/buffer/goldUnguarded)", () => {
-    const all: Record<StatusKey, true> = { overdue: true, dueSoon: true, mismatch: true, handoff: true, stale: true, deposit: true, hold: true, normal: true, auto: true, qty: true, surplusPending: true, underPlanned: true, buffer: true, goldUnguarded: true };
+    const all: Record<StatusKey, true> = { overdue: true, dueSoon: true, mismatch: true, handoff: true, stale: true, deposit: true, hold: true, normal: true, auto: true, qty: true, surplusPending: true, underPlanned: true, buffer: true, goldUnguarded: true, pendingExplain: true, partial: true };
     for (const k of Object.keys(all) as StatusKey[]) expect(STATUS_ICON[k], k).toBeTruthy();
   });
 });

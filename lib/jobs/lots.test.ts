@@ -1,0 +1,166 @@
+// lib/jobs/lots.ts + board.ts (0181 ส่วนย่อย) — แถบสะสมรวม N ครบ · ส่วนต่างรอชี้แจง (void ไม่นับ) · ปุ่มปิด full · บอร์ดใบเดี่ยวไม่เปลี่ยน
+import { describe, expect, it } from "vitest";
+import { closeBlocker, hasLots, lotSegments, lotsLine, mapDiscrepancy, mapLotPart, mapLotsSummary, openDiscrepancies, segmentsTotal, splittableParts, toBoardLots } from "@/lib/jobs/lots";
+import type { JobLotsData, LotPart } from "@/lib/jobs/lots";
+import { columnOf, primaryStatus, statusSignals } from "@/lib/jobs/board";
+import { BOARD_COLUMNS, mapBoardRow } from "@/lib/jobs/types";
+import type { BoardRow } from "@/lib/jobs/types";
+
+const ROOT = "11111111-1111-4111-8111-111111111111";
+const L1 = "22222222-2222-4222-8222-222222222221";
+const L2 = "22222222-2222-4222-8222-222222222222";
+const L3 = "22222222-2222-4222-8222-222222222223";
+
+const treeRow = (o: Record<string, unknown>) => ({ job_id: ROOT, root_job_id: ROOT, lot_seq: 0, label: "JB-0020", status: "in_progress", qty_planned: 50, qty_live: 50, stage_code: "setting", stage_name: "ฝังพลอย", stage_status: "received", ...o });
+const part = (o: Record<string, unknown>): LotPart => mapLotPart(treeRow(o))!;
+
+/** ตัวอย่าง JB-0020 = 100 ชิ้น: ส่วนหลัก 50 + ส่วน 1 (10) ที่ฝังพลอย · ส่วน 2 (5) ที่ QC · ส่วน 3 (34) ผ่าน QC แล้ว · เสีย 1 */
+function jb0020(): JobLotsData {
+  return {
+    parts: [
+      part({}),
+      part({ job_id: L1, lot_seq: 1, label: "JB-0020 · ส่วนที่ 1", qty_planned: 10, qty_live: 10 }),
+      part({ job_id: L2, lot_seq: 2, label: "JB-0020 · ส่วนที่ 2", qty_planned: 5, qty_live: 5, stage_code: "qc", stage_name: "ตรวจ QC" }),
+      part({ job_id: L3, lot_seq: 3, label: "JB-0020 · ส่วนที่ 3", qty_planned: 34, qty_live: 34, stage_code: "pack", stage_name: "แพ็ก", qty_qc_passed: 34 }),
+    ],
+    summary: mapLotsSummary({ root_job_id: ROOT, qty_planned: 100, qty_order: 100, parts_count: 4, parts_open: 4, lots_open: 3, qty_scrap_total: 1, qty_pending_explanation: 0, qty_qc_passed_total: 34, sum_check: true }),
+    discrepancies: [],
+  };
+}
+
+describe("แถบสะสมทั้งใบ — ผลรวมเท่าเริ่มผลิต", () => {
+  it("JB-0020: เสร็จ 34 + ฝังพลอย 60 (50+10 รวมขั้นเดียวกัน) + QC 5 + เสีย 1 = 100", () => {
+    const segs = lotSegments(jb0020());
+    expect(segs.map((s) => `${s.label} ${s.qty}`)).toEqual(["เสร็จ 34", "ฝังพลอย 60", "ตรวจ QC 5", "เสีย 1"]);
+    expect(segmentsTotal(segs)).toBe(100);
+    expect(segs.find((s) => s.label === "ตรวจ QC")?.tone).toBe("qc");
+    expect(segs.find((s) => s.label === "ฝังพลอย")?.tone).toBe("shop");
+  });
+  it("ส่วนที่ผ่าน QC แล้วนับที่ 'เสร็จ' ไม่นับซ้ำในถังขั้น (แพ็ก 34 ไม่ขึ้นซ้ำ)", () => {
+    expect(lotSegments(jb0020()).some((s) => s.label === "แพ็ก")).toBe(false);
+  });
+  it("บรรทัดบอร์ด: เสร็จ x/N · ขั้น n · … ครบทุกถัง", () => {
+    expect(lotsLine(jb0020())).toBe("เสร็จ 34/100 · ฝังพลอย 60 · ตรวจ QC 5 · เสีย 1");
+  });
+  it("ส่วนต่างรอชี้แจง/ชี้แจงแล้วเป็นถังแยก (ยอดรวมยังครบ)", () => {
+    const l = jb0020();
+    l.parts[0] = part({ qty_live: 45 });
+    l.summary = mapLotsSummary({ root_job_id: ROOT, qty_planned: 100, parts_count: 4, lots_open: 3, qty_scrap_total: 1, qty_pending_explanation: 3, qty_discrepancy_resolved: 2, qty_qc_passed_total: 34, sum_check: true });
+    const segs = lotSegments(l);
+    expect(segs.find((s) => s.key === "pending")).toMatchObject({ label: "รอชี้แจง", qty: 3 });
+    expect(segs.find((s) => s.key === "resolved")?.qty).toBe(2);
+    expect(lotsLine(l)).toContain("รอชี้แจง 3");
+  });
+  it("ไม่มีชิ้นผ่าน QC: 'เสร็จ 0/100' · ไม่มีสรุป: ไม่มีบรรทัด", () => {
+    const l = { parts: [part({ qty_live: 100 })], summary: mapLotsSummary({ root_job_id: ROOT, qty_planned: 100, parts_count: 1, sum_check: true }) };
+    expect(lotsLine(l)).toBe("เสร็จ 0/100 · ฝังพลอย 100");
+    expect(lotsLine({ parts: [], summary: null })).toBeNull();
+  });
+  it("ส่วนที่ยกเลิก/ปิดแล้วไม่นับเป็นถังขั้น", () => {
+    const l = jb0020();
+    l.parts[1] = part({ job_id: L1, lot_seq: 1, label: "JB-0020 · ส่วนที่ 1", status: "cancelled", qty_live: 10 });
+    expect(lotSegments(l).find((s) => s.label === "ฝังพลอย")?.qty).toBe(50);
+  });
+  it("toBoardLots: ส่ง sum_check ของ DB ต่อ (ไม่คิดเอง)", () => {
+    expect(toBoardLots(jb0020())).toMatchObject({ partsCount: 4, qtyPendingExplanation: 0, sumOk: true });
+    const bad = { ...jb0020(), summary: mapLotsSummary({ root_job_id: ROOT, qty_planned: 100, parts_count: 4, sum_check: false }) };
+    expect(toBoardLots(bad)?.sumOk).toBe(false);
+  });
+});
+
+describe("ส่วนต่างรอชี้แจง", () => {
+  const ctx = { stageById: { s1: { name: "ขัด" }, s2: { name: "ฝังพลอย" } }, labelByJob: { [L1]: "JB-0020 · ส่วนที่ 1" } };
+  const disc = (o: Record<string, unknown>) => mapDiscrepancy({ id: "d1", job_id: L1, from_stage_id: "s1", to_stage_id: "s2", qty: 5, status: "open", created_at: "2026-10-19T03:00:00Z", ...o }, ctx)!;
+  it("map: ชื่อขั้นต้นทาง/ปลายทาง + ป้ายส่วน", () => {
+    expect(disc({})).toMatchObject({ fromStageName: "ขัด", toStageName: "ฝังพลอย", lotLabel: "JB-0020 · ส่วนที่ 1", qty: 5, status: "open" });
+  });
+  it("แถว void ชี้มา = ไม่ถือว่ารอชี้แจง (แถวเดิมยัง status open ตามที่ DB เก็บ)", () => {
+    const d1 = disc({});
+    const v = disc({ id: "d2", status: "void", void_of_id: "d1" });
+    expect(openDiscrepancies([d1])).toHaveLength(1);
+    expect(openDiscrepancies([d1, v])).toHaveLength(0);
+  });
+  it("ชี้แจงแล้ว (resolved) ไม่นับ · แถวผิดรูป (qty ว่าง/สถานะแปลก) ถูกทิ้ง", () => {
+    expect(openDiscrepancies([disc({ status: "resolved", resolved_kind: "lost", resolved_reason: "missing" })])).toHaveLength(0);
+    expect(mapDiscrepancy({ id: "d9", job_id: L1, status: "weird", qty: 1 }, ctx)).toBeNull();
+    expect(mapDiscrepancy({ id: "d9", job_id: L1, status: "open" }, ctx)).toBeNull();
+  });
+});
+
+describe("ปุ่มปิด full — เหตุผลบนปุ่ม", () => {
+  it("ใบเดี่ยวไม่มีส่วนค้าง/ส่วนต่าง = ไม่บล็อก", () => {
+    expect(closeBlocker({ parts: [part({})], summary: null, discrepancies: [] })).toBeNull();
+    expect(closeBlocker(null)).toBeNull();
+    expect(closeBlocker(undefined)).toBeNull();
+  });
+  it("มีส่วนย่อยค้าง → บอกจำนวนส่วน", () => {
+    expect(closeBlocker(jb0020())).toBe("ยังมีส่วนย่อยค้าง 3 ส่วน");
+  });
+  it("มีส่วนต่างรอชี้แจง → บอกจำนวนชิ้น · ทั้งสองอย่าง = ต่อกันด้วย ·", () => {
+    const l = jb0020();
+    l.summary = mapLotsSummary({ root_job_id: ROOT, qty_planned: 100, lots_open: 0, qty_pending_explanation: 4, sum_check: true });
+    expect(closeBlocker(l)).toBe("มีส่วนต่างรอชี้แจง 4 ชิ้น");
+    l.summary = mapLotsSummary({ root_job_id: ROOT, qty_planned: 100, lots_open: 2, qty_pending_explanation: 4, sum_check: true });
+    expect(closeBlocker(l)).toBe("ยังมีส่วนย่อยค้าง 2 ส่วน · มีส่วนต่างรอชี้แจง 4 ชิ้น");
+  });
+  it("ไม่มี summary: ถอยไปนับจาก parts/discrepancies ที่มี (ไม่ปล่อยให้กดแล้วค่อยโดน DB ปฏิเสธเงียบๆ)", () => {
+    const l: JobLotsData = { parts: jb0020().parts, summary: null, discrepancies: [] };
+    expect(closeBlocker(l)).toBe("ยังมีส่วนย่อยค้าง 3 ส่วน");
+  });
+  it("ส่วนย่อยที่ปิด/ยกเลิกแล้วไม่ทำให้ค้าง", () => {
+    const l: JobLotsData = { parts: [part({}), part({ job_id: L1, lot_seq: 1, label: "x", status: "done" }), part({ job_id: L2, lot_seq: 2, label: "y", status: "cancelled" })], summary: null, discrepancies: [] };
+    expect(closeBlocker(l)).toBeNull();
+  });
+});
+
+describe("hasLots / splittableParts", () => {
+  it("แสดงแผงเมื่อมีมากกว่า 1 ส่วน หรือมีส่วนต่าง — ใบเดี่ยว = ไม่แสดง", () => {
+    expect(hasLots({ parts: [part({})], summary: null, discrepancies: [] })).toBe(false);
+    expect(hasLots(jb0020())).toBe(true);
+    expect(hasLots(null)).toBe(false);
+    const d = mapDiscrepancy({ id: "d1", job_id: ROOT, qty: 2, status: "open" }, { stageById: {}, labelByJob: {} })!;
+    expect(hasLots({ parts: [part({})], summary: null, discrepancies: [d] })).toBe(true);
+  });
+  it("แยกได้เฉพาะส่วนที่มีผู้ถือ (holdSeq) และถือ ≥ 2 ชิ้น", () => {
+    const l = jb0020();
+    l.parts[0].holdSeq = 3;
+    l.parts[1].holdSeq = 3;
+    l.parts[1].qtyLive = 1;
+    expect(splittableParts(l).map((p) => p.lotSeq)).toEqual([0]);
+  });
+});
+
+describe("บอร์ด — ใบเดี่ยวไม่เปลี่ยน · ใบแยกส่วนมีป้าย/คอลัมน์ตามขั้นที่มีชิ้นมาก", () => {
+  const base: Record<string, unknown> = { id: ROOT, job_no: "JB-0020", seq: 20, source_kind: "production", design_label: "แหวน", metal: "silver", qty_planned: 100, status: "in_progress", current_stage_code: "cast", board_column: "cast", stage_count: 8, stage_done_count: 2 };
+  const known = new Set(["cast", "setting", "qc"]);
+  it("view เก่า/ใบเดี่ยว (ไม่มีคอลัมน์ใหม่) → BoardRow ไม่มี key ของ 0181 เลย", () => {
+    const r = mapBoardRow(base)!;
+    for (const k of ["partsCount", "partsOpen", "qtyPendingExplanation", "dominantStageCode", "lotsLine", "lotsSumOk"]) expect(k in r).toBe(false);
+    expect(columnOf(r, known)).toBe("cast");
+    expect(statusSignals(r, "2026-10-19").map((s) => s.key)).not.toContain("partial");
+  });
+  it("ใบเดี่ยวที่ view ส่ง parts_count=1: ไม่ขึ้นป้าย 'n ส่วน' และอยู่คอลัมน์เดิม (ไม่ใช้ dominant)", () => {
+    const r = mapBoardRow({ ...base, parts_count: 1, parts_open: 1, qty_pending_explanation: 0, dominant_stage_code: "setting" })!;
+    expect(r.dominantStageCode).toBeUndefined();
+    expect(columnOf(r, known)).toBe("cast");
+    expect(statusSignals(r, "2026-10-19").some((s) => s.key === "partial")).toBe(false);
+  });
+  it("ใบแยกส่วน: ป้าย '4 ส่วน' (sky) + อยู่คอลัมน์ของขั้นที่มีชิ้นมากสุด", () => {
+    const r = mapBoardRow({ ...base, parts_count: 4, parts_open: 4, qty_pending_explanation: 0, dominant_stage_code: "setting" })!;
+    expect(columnOf(r, known)).toBe("setting");
+    expect(statusSignals(r, "2026-10-19").find((s) => s.key === "partial")).toMatchObject({ label: "4 ส่วน", tone: "blue" });
+  });
+  it("รอชี้แจง n ชิ้น = ป้ายต้องดู (amber) · เป็นป้ายหลักเมื่อไม่มีอะไรด่วนกว่า", () => {
+    const r = mapBoardRow({ ...base, parts_count: 2, qty_pending_explanation: 5, dominant_stage_code: "setting" })!;
+    const s = statusSignals(r, "2026-10-19").find((x) => x.key === "pendingExplain");
+    expect(s).toMatchObject({ label: "รอชี้แจง 5 ชิ้น", tone: "amber" });
+    expect(primaryStatus(r, "2026-10-19").key).toBe("pendingExplain");
+  });
+  it("เลยกำหนดยังเด่นกว่ารอชี้แจง", () => {
+    const r: BoardRow = { ...mapBoardRow({ ...base, parts_count: 2, qty_pending_explanation: 5, is_overdue: true, due_date: "2026-10-01" })! };
+    expect(primaryStatus(r, "2026-10-19").key).toBe("overdue");
+  });
+  it("BOARD_COLUMNS มีคอลัมน์ใหม่ของ 0181 ที่ loader ใช้", () => {
+    for (const c of ["parent_job_id", "parts_count", "parts_open", "qty_pending_explanation", "dominant_stage_code"]) expect(BOARD_COLUMNS).toContain(c);
+  });
+});

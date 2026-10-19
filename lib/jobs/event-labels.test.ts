@@ -13,8 +13,9 @@ function checkedEventTypes(): string[] {
   let found: string[] | null = null;
   for (const f of readdirSync(MIG_DIR).filter((x) => /^\d{4}_.*\.sql$/.test(x)).sort()) {
     const sql = readFileSync(join(MIG_DIR, f), "utf8");
-    const m = /add constraint job_event_event_type_ck check \(event_type in \(([^)]*)\)\)/.exec(sql);
-    if (m) found = [...m[1].matchAll(/'([a-z_]+)'/g)].map((x) => x[1]);
+    // รูปแบบ 0176: check (event_type in (...)) · รูปแบบ 0181: check (event_type = any (array[...]))
+    const m = /add constraint job_event_event_type_ck check \(event_type (?:in \(([^)]*)\)|= any \(array\[([^\]]*)\]\))\)/.exec(sql);
+    if (m) found = [...(m[1] ?? m[2]).matchAll(/'([a-z_]+)'/g)].map((x) => x[1]);
   }
   if (!found) throw new Error("ไม่พบ job_event_event_type_ck ใน migrations");
   return found;
@@ -24,7 +25,7 @@ describe("EVENT_TYPE_LABEL ครอบทุก event_type ใน CHECK ขอ�
   const types = checkedEventTypes();
   it("อ่านรายการจาก migration ได้ และมี profile_set / plan_change / surplus_set", () => {
     expect(types.length).toBeGreaterThanOrEqual(21);
-    for (const t of ["profile_set", "plan_change", "surplus_set", "stage_receive", "token_revoke"]) expect(types).toContain(t);
+    for (const t of ["profile_set", "plan_change", "surplus_set", "stage_receive", "token_revoke", "split", "split_cancel", "discrepancy", "discrepancy_resolve"]) expect(types).toContain(t);
   });
   it.each(types)("%s มีป้ายไทย (ไม่ใช่รหัสดิบ)", (t) => {
     const label = EVENT_TYPE_LABEL[t];
