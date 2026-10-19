@@ -88,6 +88,8 @@ export interface CancelLotInput {
   scrapReason?: string | null;
   /** M-C: ทอง + ส่วนมีขั้นชั่ง + scrap = บังคับ (DB ตอบ scrap_weight_required) · อย่างอื่นห้ามส่ง (DB ตอบ weight_unexpected) · > 0 ทศนิยมไม่เกิน 3 ตำแหน่ง */
   scrapWeightG?: number | string | null;
+  /** L-new-1: คำอธิบายเป็นข้อความ — บังคับเมื่อทองที่เศษชั่งน้อยกว่าน้ำหนักล่าสุดของส่วนเกิน 0.05 g (DB ตอบ gold_note_required) · มี note = ส่งเป็นเหตุผลของเสียแทนรหัส · ใช้กับ scrap เท่านั้น */
+  scrapNote?: string | null;
 }
 
 export async function cancelJobLot(i: CancelLotInput): Promise<JobResult<{ disposition: string; liveQty: number | null }>> {
@@ -102,6 +104,13 @@ export async function cancelJobLot(i: CancelLotInput): Promise<JobResult<{ dispo
     const sr = parseScrapReason(i.scrapReason ?? null, 1);
     if (!sr.ok) return fail(sr.error);
     scrapReason = sr.value;
+    if (i.scrapNote != null && i.scrapNote !== "") {
+      const note = parseLabel(i.scrapNote, "คำอธิบาย", 200, true);
+      if (!note.ok) return fail(note.error);
+      if (note.value !== null) scrapReason = note.value;
+    }
+  } else if (i.scrapNote != null && i.scrapNote !== "") {
+    return fail("คำอธิบายใช้เฉพาะตอนยกเลิกเป็นของเสีย");
   }
   let scrapWeight: number | null = null;
   if (i.scrapWeightG != null && i.scrapWeightG !== "") {
