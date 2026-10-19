@@ -4,7 +4,7 @@ import { WORKER_CODE_TH, workerFailMessage } from "@/lib/jobs/messages";
 
 describe("workerFailMessage — code ใหม่มีข้อความไทยบนจอ", () => {
   const THAI = /[฀-๿]/;
-  it.each(["weight_move_required", "office_required", "weight_over", "weight_invalid", "prev_not_sent", "stage_changed", "weight_unexpected", "qty_hold_required", "invalid_part"])("%s", (code) => {
+  it.each(["weight_move_required", "weight_move_over", "office_required", "weight_over", "weight_invalid", "prev_not_sent", "stage_changed", "weight_unexpected", "qty_hold_required", "invalid_part"])("%s", (code) => {
     const m = workerFailMessage(code, null);
     expect(THAI.test(m), code).toBe(true);
     expect(m).not.toMatch(/_/);

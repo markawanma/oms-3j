@@ -67,6 +67,16 @@ describe("workerSendStage — ส่งต่อ n จาก N", () => {
     expect((await workerSendStage(TOKEN, { ...SEND, weightMoveG: "5" })).ok).toBe(false);
     expect(rpcMock).not.toHaveBeenCalled();
   });
+  it("DB ตอบ weight_move_over ตอนแยก → ข้อความของการแยก (ไม่พูดเรื่อง “น้ำหนักออก/เติมโลหะ”) · ไม่มีตัวเลข", async () => {
+    rpcMock.mockResolvedValue({ data: { ok: false, code: "weight_move_over", message: "x" }, error: null });
+    const r = await workerSendStage(TOKEN, { ...SEND, qtySend: 10, qtyHold: 50, weightMoveG: "60" });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.code).toBe("weight_move_over");
+      expect(r.error).toMatch(/แยก/);
+      expect(r.error).not.toMatch(/เติมโลหะ|น้ำหนักออก|\d/);
+    }
+  });
   it("DB ตอบ weight_move_required / office_required → ข้อความไทยตายตัว ไม่มีตัวเลข", async () => {
     for (const code of ["weight_move_required", "office_required"]) {
       rpcMock.mockResolvedValue({ data: { ok: false, code, message: "x" }, error: null });
@@ -95,6 +105,20 @@ describe("workerSendStage — ส่งต่อ n จาก N", () => {
         expect(/[฀-๿]/.test(r.error)).toBe(true);
         expect(r.error).not.toMatch(/\d/);
       }
+    }
+  });
+});
+
+describe("L-2: ล็อกรับไม่ครบหลังชั่งไม่ตรง 3 ครั้ง (office_required ตอน receive)", () => {
+  it("DB ตอบ office_required ตอนรับ → ข้อความล็อกของการรับ (ไม่ใช่ข้อความชี้แจงส่วนต่าง) · ไม่มีตัวเลข · code คงเดิม", async () => {
+    rpcMock.mockResolvedValue({ data: { ok: false, code: "office_required", message: "x" }, error: null });
+    const r = await workerReceiveStage(TOKEN, 5, "9", { lotJobId: LOT, qtyReceived: 9 });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.code).toBe("office_required");
+      expect(r.error).toBe("ขั้นนี้ชั่งรับไม่ตรงหลายครั้งแล้ว — แจ้งออฟฟิศให้เป็นผู้รับงาน");
+      expect(r.error).not.toMatch(/\d/);
+      expect(r.error).not.toMatch(/ชี้แจง/);
     }
   });
 });

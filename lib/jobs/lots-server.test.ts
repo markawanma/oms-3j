@@ -39,6 +39,8 @@ describe("loadJobLots", () => {
     expect(r?.parts[0].holdSeq).toBe(3);
     expect(r?.summary).toBeNull();
     expect(calls.some((c) => c.table === "v_job_tree_summary")).toBe(false);
+    expect(calls.some((c) => c.table === "v_job_tree_stage_loss")).toBe(false); // ใบเดี่ยวใช้ loss ของใบเอง
+    expect(r?.treeLoss).toBeUndefined();
     for (const c of calls) {
       expect(c.ops.some((o) => o[0] === "eq" && o[1] === "shop_id" && o[2] === SHOP), c.table).toBe(true);
       expect(c.ops.some((o) => o[0] === "limit") || c.table === "v_job_tree_summary", c.table).toBe(true);
@@ -57,12 +59,22 @@ describe("loadJobLots", () => {
       ],
       error: null,
     };
-    results.job_discrepancy = { data: [{ id: "d1", root_job_id: ROOT, job_id: L1, from_stage_id: "s1", to_stage_id: "s2", qty: 3, status: "open", created_at: "2026-10-19T03:00:00Z" }], error: null };
+    results.v_job_discrepancy = { data: [{ id: "d1", root_job_id: ROOT, job_id: L1, from_stage_id: "s1", to_stage_id: "s2", qty: 3, status: "open", created_at: "2026-10-19T03:00:00Z", weight_gap_g: -1.5, weight_sent_g: 10, qty_sent: 10, weight_gap_excess_g: -0.5 }], error: null };
+    results.v_job_tree_stage_loss = { data: [{ root_job_id: ROOT, lot_seq: 1, job_id: L1, job_stage_id: "s2", stage_code: "setting", status: "pending", weighed: false, not_weighed: false, loss_g: null, loss_pct: null, warn: false, handoff_gap_g: null, handoff_gap_partial_g: -4, not_comparable: false, cancel_scrap_weight_g: 3.5 }, { job_id: null }], error: null };
     const r = await loadJobLots(ROOT, { cast: "หล่อ", polish: "ขัด", setting: "ฝังพลอย" });
     expect(r?.summary).toMatchObject({ qtyPlanned: 60, lotsOpen: 1, qtyPendingExplanation: 3, sumCheck: true });
     expect(r?.parts[1].passedStages).toEqual(["หล่อ", "ขัด"]);
     expect(r?.parts[0].holdSeq).toBe(3);
     expect(r?.discrepancies[0]).toMatchObject({ qty: 3, fromStageName: "ขัด", toStageName: "ฝังพลอย", lotLabel: "JB-0020 · ส่วนที่ 1" });
+    // M-B: น้ำหนักเทียบ/snapshot/excess มาจาก view (DB คำนวณ) — ไม่คำนวณซ้ำฝั่ง TS
+    expect(r?.discrepancies[0]).toMatchObject({ weightGapG: -1.5, weightSentG: 10, qtySent: 10, weightGapExcessG: -0.5 });
+    // M-A: ต้นไม้ทั้งหมด (แถวเสีย/ไม่มี id ถูกกรอง) · query ผูก shop_id + root_job_id + limit
+    expect(r?.treeLoss).toEqual([expect.objectContaining({ jobId: L1, lotSeq: 1, handoffGapPartialG: -4, handoffGapG: null, cancelScrapWeightG: 3.5 })]);
+    const q = calls.find((c) => c.table === "v_job_tree_stage_loss")!;
+    expect(q.ops.some((o) => o[0] === "eq" && o[1] === "shop_id" && o[2] === SHOP)).toBe(true);
+    expect(q.ops.some((o) => o[0] === "eq" && o[1] === "root_job_id" && o[2] === ROOT)).toBe(true);
+    expect(q.ops.some((o) => o[0] === "limit")).toBe(true);
+    expect(calls.some((c) => c.table === "job_discrepancy")).toBe(false);
   });
 
   it("อ่านไม่ได้ (error ของ view) → null · ไม่ throw (หน้าใบงานตกกลับไปแบบเดิม)", async () => {

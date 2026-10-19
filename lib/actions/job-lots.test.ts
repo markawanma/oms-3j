@@ -124,6 +124,42 @@ describe("cancelJobLot · resolveDiscrepancyOffice · voidDiscrepancy", () => {
     expect((await cancelJobLot({ lotJobId: LOT, reason: "ของเสียทั้งก้อน", disposition: "scrap", scrapReason: "broken" })).ok).toBe(true);
     expect(lastRpc()[1].p_scrap_reason).toBe("broken");
   });
+  it("M-C scrapWeightG: ไม่ระบุ = ไม่ส่ง p_scrap_weight_g · ระบุกับ scrap = ส่ง · 0/ติดลบ/4 ทศนิยม/NaN/ข้อความ/ไปกับ return_to_parent = ไม่ถึง DB", async () => {
+    rpcMock.mockResolvedValue({ data: { ok: true, disposition: "scrap", live_qty: 10 }, error: null });
+    await cancelJobLot({ lotJobId: LOT, reason: "ใช้ไม่ได้", disposition: "scrap", scrapReason: "broken" });
+    expect(lastRpc()[1]).not.toHaveProperty("p_scrap_weight_g");
+    await cancelJobLot({ lotJobId: LOT, reason: "ใช้ไม่ได้", disposition: "scrap", scrapReason: "broken", scrapWeightG: "3.5" });
+    expect(lastRpc()[1].p_scrap_weight_g).toBe(3.5);
+    rpcMock.mockClear();
+    for (const w of [0, "0", -1, "1.2345", NaN, Infinity, "abc", 100001]) {
+      expect((await cancelJobLot({ lotJobId: LOT, reason: "x", disposition: "scrap", scrapReason: "broken", scrapWeightG: w } as never)).ok, String(w)).toBe(false);
+    }
+    expect((await cancelJobLot({ lotJobId: LOT, reason: "x", disposition: "return_to_parent", scrapWeightG: 5 })).ok).toBe(false);
+    expect(rpcMock).not.toHaveBeenCalled();
+  });
+  it("DB ตอบ scrap_weight_required → ข้อความไทยตายตัว + code (ทองต้องชั่งของเสียที่เลิกใช้)", async () => {
+    rpcMock.mockResolvedValue({ data: null, error: { code: "22023", message: "ทอง: ยกเลิกเป็นของเสียต้องชั่งน้ำหนักของเสียที่เลิกใช้", hint: "scrap_weight_required" } });
+    const r = await cancelJobLot({ lotJobId: LOT, reason: "x", disposition: "scrap", scrapReason: "broken" });
+    expect(r).toEqual({ ok: false, error: "ทอง: ยกเลิกเป็นของเสียต้องชั่งน้ำหนักของเสียที่เลิกใช้", code: "scrap_weight_required" });
+  });
+  it("M-B resolve: note (คำอธิบายข้อความ) ส่งเป็น p_reason แทนรหัส · note ล่องหน/< > /ยาวเกิน = ไม่ถึง DB · ไม่มี note = ส่งรหัสเดิม", async () => {
+    rpcMock.mockResolvedValue({ data: { ok: true, qty: 1 }, error: null });
+    await resolveDiscrepancyOffice({ discrepancyId: DISC, kind: "lost", reason: "missing", note: "ชั่งซ้ำแล้ว ผงทองหายตอนตะไบ" });
+    expect(lastRpc()[1].p_reason).toBe("ชั่งซ้ำแล้ว ผงทองหายตอนตะไบ");
+    await resolveDiscrepancyOffice({ discrepancyId: DISC, kind: "lost", reason: "missing", note: "" });
+    expect(lastRpc()[1].p_reason).toBe("missing");
+    rpcMock.mockClear();
+    for (const n of ["a​b", "<b>x</b>", "x".repeat(201)]) {
+      expect((await resolveDiscrepancyOffice({ discrepancyId: DISC, kind: "lost", reason: "missing", note: n })).ok).toBe(false);
+    }
+    expect(rpcMock).not.toHaveBeenCalled();
+  });
+  it("DB ตอบ note_required (ทองหายเกินสัดส่วน) → ข้อความไทย + code", async () => {
+    rpcMock.mockResolvedValue({ data: null, error: { code: "22023", message: "ทอง: น้ำหนักหายมากกว่าสัดส่วนชิ้นที่ขาด — ต้องเขียนคำอธิบายเป็นข้อความ (ไม่ใช่แค่เลือกรหัสเหตุผล)", hint: "note_required" } });
+    const r = await resolveDiscrepancyOffice({ discrepancyId: DISC, kind: "lost", reason: "missing" });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.code).toBe("note_required");
+  });
   it("resolve/void: kind นอก scrap|lost · เหตุผลนอกชุด · id ไม่ใช่ uuid = ไม่ถึง DB · ผ่านแล้วส่ง params ตรงสัญญา", async () => {
     for (const b of [{ discrepancyId: "x", kind: "lost", reason: "missing" }, { discrepancyId: DISC, kind: "broken", reason: "missing" }, { discrepancyId: DISC, kind: "lost", reason: "" }, { discrepancyId: DISC, kind: "lost", reason: "x" }])
       expect((await resolveDiscrepancyOffice(b as never)).ok).toBe(false);

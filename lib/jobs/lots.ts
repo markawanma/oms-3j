@@ -16,10 +16,15 @@ const bool = (v: unknown): boolean => v === true;
 // คอลัมน์ที่อ่าน (ชื่อตรงกับ 0181 §7)
 // ---------------------------------------------------------------------------
 export const TREE_COLUMNS =
-  "job_id, root_job_id, parent_job_id, lot_seq, label, status, qty_planned, qty_live, qty_stage_scrap, qty_split_out, qty_discrepancy_open, qty_discrepancy_resolved, cancel_scrap_qty, qty_good, qty_scrap_final, stage_code, stage_name, stage_status, holder_name, days_in_stage, qty_qc_passed";
+  "job_id, root_job_id, parent_job_id, lot_seq, label, status, qty_planned, qty_live, qty_stage_scrap, qty_split_out, qty_discrepancy_open, qty_discrepancy_resolved, cancel_scrap_qty, qty_good, qty_scrap_final, stage_code, stage_name, stage_status, holder_name, days_in_stage, qty_qc_passed, cancel_scrap_weight_g";
 export const TREE_SUMMARY_COLUMNS =
-  "root_job_id, job_no, qty_planned, qty_order, parts_count, parts_open, lots_open, qty_live_total, qty_done_good, qty_scrap_total, qty_pending_explanation, qty_discrepancy_resolved, qty_qc_passed_total, dominant_stage_code, sum_check";
-export const DISCREPANCY_COLUMNS = "id, root_job_id, job_id, from_stage_id, to_stage_id, qty, status, resolved_kind, resolved_reason, created_at, void_of_id, weight_gap_g";
+  "root_job_id, job_no, qty_planned, qty_order, parts_count, parts_open, lots_open, qty_live_total, qty_done_good, qty_scrap_total, qty_pending_explanation, qty_discrepancy_resolved, qty_qc_passed_total, weight_scrap_cancel_g, dominant_stage_code, sum_check";
+// M-B: อ่านจาก v_job_discrepancy (alias id) — weight_gap_excess_g คำนวณที่ DB (job_disc_excess_g) ไม่คำนวณซ้ำฝั่ง TS · เฉพาะหน้าออฟฟิศ
+export const DISCREPANCY_COLUMNS =
+  "id:discrepancy_id, root_job_id, job_id, from_stage_id, to_stage_id, qty, status, resolved_kind, resolved_reason, created_at, void_of_id, weight_gap_g, weight_sent_g, qty_sent, weight_gap_excess_g";
+// M-A: v_job_stage_loss ทั้งต้นไม้ (ใบแม่ + ส่วนย่อย) — เฉพาะหน้าออฟฟิศ (มีน้ำหนัก/gap)
+export const TREE_LOSS_COLUMNS =
+  "root_job_id, lot_seq, job_id, job_stage_id, stage_code, status, weighed, not_weighed, loss_g, loss_pct, warn, handoff_gap_g, handoff_gap_partial_g, not_comparable, cancel_scrap_weight_g";
 export const LOT_STAGE_COLUMNS = "id, job_id, seq, stage_code, status, weigh_required, qty_in, qty_scrap, qty_split_out";
 
 // ---------------------------------------------------------------------------
@@ -39,6 +44,8 @@ export interface LotPart {
   qtyDiscrepancyOpen: number;
   qtyDiscrepancyResolved: number;
   cancelScrapQty: number | null;
+  /** M-C: น้ำหนักของเสียที่เลิกใช้ตอนยกเลิกส่วนเป็นของเสีย (g · ทอง+ขั้นชั่งเท่านั้น) — เฉพาะหน้าออฟฟิศ */
+  cancelScrapWeightG: number | null;
   qtyGood: number | null;
   stageCode: string | null;
   stageName: string | null;
@@ -71,6 +78,7 @@ export function mapLotPart(r: Record<string, unknown>): LotPart | null {
     qtyDiscrepancyOpen: int0(r.qty_discrepancy_open),
     qtyDiscrepancyResolved: int0(r.qty_discrepancy_resolved),
     cancelScrapQty: num(r.cancel_scrap_qty),
+    cancelScrapWeightG: num(r.cancel_scrap_weight_g),
     qtyGood: num(r.qty_good),
     stageCode: str(r.stage_code),
     stageName: str(r.stage_name),
@@ -100,6 +108,8 @@ export interface LotsSummary {
   /** ส่วนต่างที่ชี้แจงแล้ว (ชิ้น) */
   qtyDiscrepancyResolved: number;
   qtyQcPassedTotal: number;
+  /** M-C: ผลรวมน้ำหนักของเสียที่เลิกใช้ของส่วนที่ยกเลิก (g) */
+  weightScrapCancelG: number;
   dominantStageCode: string | null;
   /** DB ตรวจแล้วว่าผลรวมทุกถัง = เริ่มผลิต */
   sumCheck: boolean;
@@ -121,6 +131,7 @@ export function mapLotsSummary(r: Record<string, unknown>): LotsSummary | null {
     qtyPendingExplanation: int0(r.qty_pending_explanation),
     qtyDiscrepancyResolved: int0(r.qty_discrepancy_resolved),
     qtyQcPassedTotal: int0(r.qty_qc_passed_total),
+    weightScrapCancelG: num(r.weight_scrap_cancel_g) ?? 0,
     dominantStageCode: str(r.dominant_stage_code),
     sumCheck: bool(r.sum_check),
   };
@@ -144,6 +155,11 @@ export interface LotDiscrepancy {
   voidOfId: string | null;
   /** ส่วนต่างน้ำหนักเทียบ (กรัม · รับ − ส่ง) — เฉพาะหน้าออฟฟิศ · null = ไม่มี */
   weightGapG: number | null;
+  /** M-B: น้ำหนักที่ขั้นก่อนส่ง / จำนวนที่ส่ง ตอนรับไม่ครบ (snapshot) — เฉพาะออฟฟิศ */
+  weightSentG: number | null;
+  qtySent: number | null;
+  /** M-B: gap + น้ำหนักตามสัดส่วนชิ้นที่ขาด (g · ลบ = โลหะหายเกินสัดส่วน · DB คำนวณ) — ทองที่ติดลบเกิน 0.05 ต้องชี้แจงด้วยข้อความ */
+  weightGapExcessG: number | null;
 }
 
 export function mapDiscrepancy(r: Record<string, unknown>, ctx: { stageById: Record<string, { name: string }>; labelByJob: Record<string, string> }): LotDiscrepancy | null {
@@ -166,6 +182,9 @@ export function mapDiscrepancy(r: Record<string, unknown>, ctx: { stageById: Rec
     createdAt: str(r.created_at),
     voidOfId: str(r.void_of_id),
     weightGapG: num(r.weight_gap_g),
+    weightSentG: num(r.weight_sent_g),
+    qtySent: num(r.qty_sent),
+    weightGapExcessG: num(r.weight_gap_excess_g),
   };
 }
 
@@ -180,10 +199,56 @@ export const DISCREPANCY_KIND_LABEL: Record<string, string> = { scrap: "เส�
 // ---------------------------------------------------------------------------
 // ข้อมูลของหน้าใบงาน (ใบแม่)
 // ---------------------------------------------------------------------------
+/** M-A: 1 แถวต่อขั้นของทุกใบในต้นไม้ (ใบแม่ lotSeq 0 + ส่วนย่อย) — ตัวเลขน้ำหนัก/gap ที่ DB คำนวณ · เฉพาะหน้าออฟฟิศ */
+export interface TreeStageLoss {
+  jobId: string;
+  jobStageId: string;
+  lotSeq: number;
+  stageCode: string | null;
+  status: string | null;
+  weighed: boolean;
+  notWeighed: boolean;
+  lossG: number | null;
+  lossPct: number | null;
+  warn: boolean;
+  /** ส่วนต่างส่งมอบ (g · รับ − ส่ง) ของคู่ขั้นนี้ — null = ไม่มีคู่น้ำหนักหรือมีส่วนต่างจำนวนชิ้น */
+  handoffGapG: number | null;
+  /** เหมือนกัน แต่เฉพาะคู่ขั้นที่รับไม่ครบ (มีส่วนต่างจำนวนชิ้น) */
+  handoffGapPartialG: number | null;
+  /** ขั้นที่แยกส่วนออกแต่ไม่ได้ชั่งส่วนที่แยก (เทียบน้ำหนักไม่ได้) */
+  notComparable: boolean;
+  /** น้ำหนักของเสียที่เลิกใช้ของใบนี้ (ส่วนย่อยที่ยกเลิกเป็นของเสีย · ทอง) */
+  cancelScrapWeightG: number | null;
+}
+
+export function mapTreeStageLoss(r: Record<string, unknown>): TreeStageLoss | null {
+  const jobId = str(r.job_id);
+  const jobStageId = str(r.job_stage_id);
+  if (!jobId || !jobStageId) return null;
+  return {
+    jobId,
+    jobStageId,
+    lotSeq: int0(r.lot_seq),
+    stageCode: str(r.stage_code),
+    status: str(r.status),
+    weighed: bool(r.weighed),
+    notWeighed: bool(r.not_weighed),
+    lossG: num(r.loss_g),
+    lossPct: num(r.loss_pct),
+    warn: bool(r.warn),
+    handoffGapG: num(r.handoff_gap_g),
+    handoffGapPartialG: num(r.handoff_gap_partial_g),
+    notComparable: bool(r.not_comparable),
+    cancelScrapWeightG: num(r.cancel_scrap_weight_g),
+  };
+}
+
 export interface JobLotsData {
   parts: LotPart[];
   summary: LotsSummary | null;
   discrepancies: LotDiscrepancy[];
+  /** M-A: น้ำหนักสูญเสีย/ส่วนต่างส่งมอบของทุกใบในต้นไม้ (โหลดเมื่อมีมากกว่า 1 ส่วน) — ไม่มี = ใบเดี่ยวใช้ loss ของใบเองตามเดิม */
+  treeLoss?: TreeStageLoss[];
 }
 
 /** แสดงแผงส่วนย่อยเมื่อมีมากกว่า 1 ส่วน หรือมีส่วนต่างบันทึกอยู่ — ใบเดี่ยวที่ไม่เคยแยก = หน้าเดิมทุกประการ */

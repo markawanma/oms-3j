@@ -9,7 +9,7 @@ import { cookies, headers } from "next/headers";
 import { getServiceClient } from "@/lib/supabase/server";
 import { clientIpFromHeaders, ipHashOrNull, sessionHashOrNull, tokenHashOrNull } from "@/lib/jobs/hash";
 import { logJobFailure } from "@/lib/jobs/log";
-import { GENERIC_JOB_ERROR, workerFailMessage } from "@/lib/jobs/messages";
+import { GENERIC_JOB_ERROR, WORKER_RECEIVE_LOCK_TH, workerFailMessage } from "@/lib/jobs/messages";
 import type { WorkerFailExtra } from "@/lib/jobs/messages";
 import { sanitizeWorkerView } from "@/lib/jobs/worker-view";
 import type { WorkerView } from "@/lib/jobs/worker-view";
@@ -152,7 +152,7 @@ export async function workerReceive(token: unknown, i: ReceiveInput): Promise<Wo
     // 0181: ส่งเฉพาะที่ระบุ — ใบเดี่ยว (ไม่มีส่วน) เรียก RPC ด้วย params ชุดเดิมเป๊ะ
     ...(i.lotJobId ? { p_lot_job_id: i.lotJobId } : {}), ...(i.qtyReceived != null ? { p_qty_received: i.qtyReceived } : {}),
   });
-  if (isFail(r)) return r;
+  if (isFail(r)) return r.code === "office_required" ? { ...r, error: WORKER_RECEIVE_LOCK_TH } : r;
   const by = shortText(r.by);
   const data: StageResult = { already: r.already === true, by, message: r.already === true ? workerFailMessage("already_received", r.message, { by }) : null };
   const dq = intOrNull(r.discrepancy_qty);

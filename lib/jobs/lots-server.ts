@@ -4,8 +4,8 @@
 // 🔴 ไม่มีราคา/ต้นทุน/ชื่อลูกค้า (view ไม่มี) · ไม่ส่งชื่อผู้เปิดใบ
 
 import "server-only";
-import { DISCREPANCY_COLUMNS, LOT_STAGE_COLUMNS, TREE_COLUMNS, TREE_SUMMARY_COLUMNS, mapDiscrepancy, mapLotPart, mapLotsSummary, toBoardLots } from "@/lib/jobs/lots";
-import type { BoardLots, JobLotsData, LotPart } from "@/lib/jobs/lots";
+import { DISCREPANCY_COLUMNS, LOT_STAGE_COLUMNS, TREE_COLUMNS, TREE_LOSS_COLUMNS, TREE_SUMMARY_COLUMNS, mapDiscrepancy, mapLotPart, mapLotsSummary, mapTreeStageLoss, toBoardLots } from "@/lib/jobs/lots";
+import type { BoardLots, JobLotsData, LotPart, TreeStageLoss } from "@/lib/jobs/lots";
 import { db, shopId } from "@/lib/jobs/office-server";
 import { logJobFailure } from "@/lib/jobs/log";
 
@@ -18,7 +18,7 @@ export async function loadJobLots(rootJobId: string, stageNames: Record<string, 
     const shop = shopId();
     const [treeRes, discRes] = await Promise.all([
       db().from("v_job_tree").select(TREE_COLUMNS).eq("shop_id", shop).eq("root_job_id", rootJobId).order("lot_seq", { ascending: true }).limit(60),
-      db().from("job_discrepancy").select(DISCREPANCY_COLUMNS).eq("shop_id", shop).eq("root_job_id", rootJobId).order("created_at", { ascending: true }).limit(100),
+      db().from("v_job_discrepancy").select(DISCREPANCY_COLUMNS).eq("shop_id", shop).eq("root_job_id", rootJobId).order("created_at", { ascending: true }).limit(100),
     ]);
     if (treeRes.error) throw treeRes.error;
     if (discRes.error) throw discRes.error;
@@ -29,12 +29,17 @@ export async function loadJobLots(rootJobId: string, stageNames: Record<string, 
     // ขั้นของทุกส่วน: ผู้ถือ (seq ที่ received) + ขั้นที่ผ่านมา + ชื่อขั้นสำหรับส่วนต่าง
     const ids = parts.map((p) => p.jobId);
     const needSummary = parts.length > 1 || discRows.length > 0;
-    const [stRes, sumRes] = await Promise.all([
+    const [stRes, sumRes, lossRes] = await Promise.all([
       db().from("job_stage").select(LOT_STAGE_COLUMNS).eq("shop_id", shop).in("job_id", ids).order("seq", { ascending: true }).limit(600),
       needSummary ? db().from("v_job_tree_summary").select(TREE_SUMMARY_COLUMNS).eq("shop_id", shop).eq("root_job_id", rootJobId).maybeSingle() : Promise.resolve({ data: null, error: null }),
+      // M-A: น้ำหนักสูญเสีย/ส่วนต่างส่งมอบของทุกใบในต้นไม้ — ดึงเมื่อมีหลายส่วนเท่านั้น (ใบเดี่ยวหน้าเดิมใช้ loss ของใบเอง)
+      parts.length > 1
+        ? db().from("v_job_tree_stage_loss").select(TREE_LOSS_COLUMNS).eq("shop_id", shop).eq("root_job_id", rootJobId).order("lot_seq", { ascending: true }).limit(600)
+        : Promise.resolve({ data: null, error: null }),
     ]);
     if (stRes.error) throw stRes.error;
     if (sumRes.error) throw sumRes.error;
+    if (lossRes.error) throw lossRes.error;
 
     const stageById: Record<string, { name: string }> = {};
     const byJob = new Map<string, LotPart>(parts.map((p) => [p.jobId, p]));
@@ -57,7 +62,8 @@ export async function loadJobLots(rootJobId: string, stageNames: Record<string, 
     const labelByJob = Object.fromEntries(parts.map((p) => [p.jobId, p.label]));
     const discrepancies = discRows.map((r) => mapDiscrepancy(r, { stageById, labelByJob })).filter((d): d is NonNullable<typeof d> => d !== null);
     const summary = sumRes.data ? mapLotsSummary(sumRes.data as unknown as Record<string, unknown>) : null;
-    return { parts, summary, discrepancies };
+    const treeLoss: TreeStageLoss[] | undefined = lossRes.data ? rows(lossRes.data).map(mapTreeStageLoss).filter((l): l is TreeStageLoss => l !== null) : undefined;
+    return { parts, summary, discrepancies, ...(treeLoss ? { treeLoss } : {}) };
   } catch (err) {
     logJobFailure("loadJobLots", err);
     return null;

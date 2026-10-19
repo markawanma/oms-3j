@@ -1,6 +1,6 @@
 // lib/jobs/lots.ts + board.ts (0181 ส่วนย่อย) — แถบสะสมรวม N ครบ · ส่วนต่างรอชี้แจง (void ไม่นับ) · ปุ่มปิด full · บอร์ดใบเดี่ยวไม่เปลี่ยน
 import { describe, expect, it } from "vitest";
-import { closeBlocker, hasLots, lotSegments, lotsLine, mapDiscrepancy, mapLotPart, mapLotsSummary, openDiscrepancies, segmentsTotal, splittableParts, toBoardLots } from "@/lib/jobs/lots";
+import { closeBlocker, hasLots, lotSegments, lotsLine, mapDiscrepancy, mapLotPart, mapLotsSummary, mapTreeStageLoss, openDiscrepancies, segmentsTotal, splittableParts, toBoardLots } from "@/lib/jobs/lots";
 import type { JobLotsData, LotPart } from "@/lib/jobs/lots";
 import { columnOf, primaryStatus, statusSignals } from "@/lib/jobs/board";
 import { BOARD_COLUMNS, mapBoardRow } from "@/lib/jobs/types";
@@ -162,5 +162,34 @@ describe("บอร์ด — ใบเดี่ยวไม่เปลี่�
   });
   it("BOARD_COLUMNS มีคอลัมน์ใหม่ของ 0181 ที่ loader ใช้", () => {
     for (const c of ["parent_job_id", "parts_count", "parts_open", "qty_pending_explanation", "dominant_stage_code"]) expect(BOARD_COLUMNS).toContain(c);
+  });
+  it("M-A/M-B/L-1: BOARD_COLUMNS มี tree_* · mapBoardRow ใส่ key เฉพาะที่ view ส่งมา (ไม่มี = บอร์ดเดิมเป๊ะ · mismatch count 0 = ไม่มี key)", () => {
+    for (const c of ["tree_handoff_gap_g", "tree_handoff_gap_partial_g", "tree_handoff_mismatch_count", "tree_weight_gap_excess_g", "tree_lot_first_gap_sum_g"]) expect(BOARD_COLUMNS).toContain(c);
+    const plain = mapBoardRow({ ...base })!;
+    for (const k of ["treeHandoffGapG", "treeHandoffGapPartialG", "treeHandoffMismatchCount", "treeWeightGapExcessG", "treeLotFirstGapSumG"]) expect(plain, k).not.toHaveProperty(k);
+    const withTree = mapBoardRow({ ...base, tree_handoff_gap_g: 0.04, tree_handoff_gap_partial_g: "4", tree_handoff_mismatch_count: 1, tree_weight_gap_excess_g: -0.5, tree_lot_first_gap_sum_g: -0.08 })!;
+    expect(withTree).toMatchObject({ treeHandoffGapG: 0.04, treeHandoffGapPartialG: 4, treeHandoffMismatchCount: 1, treeWeightGapExcessG: -0.5, treeLotFirstGapSumG: -0.08 });
+    expect(mapBoardRow({ ...base, tree_handoff_mismatch_count: 0 })!).not.toHaveProperty("treeHandoffMismatchCount");
+  });
+});
+
+describe("M-A/M-B/M-C — mapper ของข้อมูลน้ำหนักทั้งต้นไม้ (office เท่านั้น)", () => {
+  it("mapTreeStageLoss: แถวไม่มี id = null · ตัวเลขจาก view ตรงๆ (ไม่คำนวณซ้ำ)", () => {
+    expect(mapTreeStageLoss({ job_id: null, job_stage_id: "s1" })).toBeNull();
+    expect(mapTreeStageLoss({ job_id: L1, job_stage_id: null })).toBeNull();
+    expect(mapTreeStageLoss({ root_job_id: ROOT, lot_seq: 1, job_id: L1, job_stage_id: "s9", stage_code: "setting", status: "received", weighed: true, loss_g: "0.1", handoff_gap_g: null, handoff_gap_partial_g: "-4", cancel_scrap_weight_g: "3.5" }))
+      .toMatchObject({ jobId: L1, jobStageId: "s9", lotSeq: 1, weighed: true, lossG: 0.1, handoffGapG: null, handoffGapPartialG: -4, notComparable: false, cancelScrapWeightG: 3.5 });
+  });
+  it("mapDiscrepancy: weight_sent_g / qty_sent / weight_gap_excess_g (ไม่มี = null)", () => {
+    const ctx = { stageById: {}, labelByJob: {} };
+    expect(mapDiscrepancy({ id: "d1", job_id: L1, qty: 1, status: "open" }, ctx)).toMatchObject({ weightGapG: null, weightSentG: null, qtySent: null, weightGapExcessG: null });
+    expect(mapDiscrepancy({ id: "d1", job_id: L1, qty: 1, status: "open", weight_gap_g: -1.5, weight_sent_g: 10, qty_sent: 10, weight_gap_excess_g: -0.5 }, ctx))
+      .toMatchObject({ weightGapG: -1.5, weightSentG: 10, qtySent: 10, weightGapExcessG: -0.5 });
+  });
+  it("mapLotPart / mapLotsSummary: น้ำหนักของเสียที่เลิกใช้ (M-C) · ไม่มี = null / 0", () => {
+    expect(part({}).cancelScrapWeightG).toBeNull();
+    expect(part({ cancel_scrap_weight_g: "3.5" }).cancelScrapWeightG).toBe(3.5);
+    expect(mapLotsSummary({ root_job_id: ROOT })!.weightScrapCancelG).toBe(0);
+    expect(mapLotsSummary({ root_job_id: ROOT, weight_scrap_cancel_g: "3.5" })!.weightScrapCancelG).toBe(3.5);
   });
 });

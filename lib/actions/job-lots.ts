@@ -5,7 +5,7 @@
 // ไม่มีตัวเลขเงิน/ต้นทุนในผลลัพธ์ · token ดิบไม่ผ่านไฟล์นี้ (ออก QR ใบย่อยผ่าน issueJobQr ใน job-office-write.ts)
 
 import { revalidatePath } from "next/cache";
-import { isUuid, parseCount, parseScrapReason, parseSeq, parseText, parseWeight } from "@/lib/jobs/input";
+import { isUuid, parseCount, parseLabel, parseScrapReason, parseSeq, parseText, parseWeight } from "@/lib/jobs/input";
 import { callOffice, fail, guard } from "@/lib/jobs/office-server";
 import type { JobResult } from "@/lib/jobs/office-server";
 
@@ -86,6 +86,8 @@ export interface CancelLotInput {
   /** return_to_parent = คืนชิ้นให้ผู้ถือเดิม (ขั้นแม่ต้องยัง received) · scrap = ชิ้นที่ค้างนับเป็นของเสีย (ต้องมีเหตุผลของเสีย) */
   disposition: "return_to_parent" | "scrap";
   scrapReason?: string | null;
+  /** M-C: ทอง + ส่วนมีขั้นชั่ง + scrap = บังคับ (DB ตอบ scrap_weight_required) · อย่างอื่นห้ามส่ง (DB ตอบ weight_unexpected) · > 0 ทศนิยมไม่เกิน 3 ตำแหน่ง */
+  scrapWeightG?: number | string | null;
 }
 
 export async function cancelJobLot(i: CancelLotInput): Promise<JobResult<{ disposition: string; liveQty: number | null }>> {
@@ -101,7 +103,18 @@ export async function cancelJobLot(i: CancelLotInput): Promise<JobResult<{ dispo
     if (!sr.ok) return fail(sr.error);
     scrapReason = sr.value;
   }
-  const r = await callOffice<Raw>("job_lot_cancel", { p_lot_job_id: i.lotJobId, p_reason: why.value, p_disposition: i.disposition, p_scrap_reason: scrapReason });
+  let scrapWeight: number | null = null;
+  if (i.scrapWeightG != null && i.scrapWeightG !== "") {
+    if (i.disposition !== "scrap") return fail("น้ำหนักของเสียใช้เฉพาะตอนยกเลิกเป็นของเสีย");
+    const sw = parseWeight(i.scrapWeightG, "น้ำหนักของเสีย");
+    if (!sw.ok) return fail(sw.error);
+    if (sw.value === null || sw.value <= 0) return fail("น้ำหนักของเสียต้องมากกว่า 0");
+    scrapWeight = sw.value;
+  }
+  const r = await callOffice<Raw>("job_lot_cancel", {
+    p_lot_job_id: i.lotJobId, p_reason: why.value, p_disposition: i.disposition, p_scrap_reason: scrapReason,
+    ...(scrapWeight !== null ? { p_scrap_weight_g: scrapWeight } : {}),
+  });
   if (!r.ok) return r;
   revalidatePath("/jobs");
   return { ok: true, data: { disposition: str(r.data.disposition, 20) ?? i.disposition, liveQty: num(r.data.live_qty) } };
@@ -110,7 +123,10 @@ export async function cancelJobLot(i: CancelLotInput): Promise<JobResult<{ dispo
 export interface ResolveDiscrepancyOfficeInput {
   discrepancyId: string;
   kind: "scrap" | "lost";
+  /** รหัสเหตุผลของเสีย (porosity/broken/wrong_design/missing/other) */
   reason: string;
+  /** M-B: คำอธิบายเป็นข้อความ — บังคับเมื่อทองที่น้ำหนักหายเกินสัดส่วนชิ้นที่ขาด (excess < −0.05 g · DB ตอบ note_required) · มี note = ส่งเป็นเหตุผลแทนรหัส */
+  note?: string | null;
 }
 
 /** ออฟฟิศชี้แจงส่วนต่างแทนผู้ส่ง (เสียหาย/หาย + เหตุผล) — ครั้งเดียว แก้ไม่ได้ (ผิด → void) */
@@ -121,7 +137,13 @@ export async function resolveDiscrepancyOffice(i: ResolveDiscrepancyOfficeInput)
   if (i.kind !== "scrap" && i.kind !== "lost") return fail("เลือกว่าเสียหายหรือหาย");
   const reason = parseScrapReason(i.reason, 1);
   if (!reason.ok || reason.value === null) return fail("เลือกเหตุผล");
-  const r = await callOffice<Raw>("job_discrepancy_resolve", { p_discrepancy_id: i.discrepancyId, p_kind: i.kind, p_reason: reason.value });
+  let sentReason: string = reason.value;
+  if (i.note != null && i.note !== "") {
+    const note = parseLabel(i.note, "คำอธิบาย", 200, true);
+    if (!note.ok) return fail(note.error);
+    if (note.value !== null) sentReason = note.value;
+  }
+  const r = await callOffice<Raw>("job_discrepancy_resolve", { p_discrepancy_id: i.discrepancyId, p_kind: i.kind, p_reason: sentReason });
   if (!r.ok) return r;
   revalidatePath("/jobs");
   return { ok: true, data: { qty: num(r.data.qty) } };

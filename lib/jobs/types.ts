@@ -93,6 +93,8 @@ export const BOARD_COLUMNS = [
   "profile_name", "has_weigh", "gold_unguarded",
   // 0181: บอร์ด 1 การ์ดต่อใบแม่ (กรอง parent_job_id is null ที่ loader) · จำนวนส่วน · ส่วนต่างรอชี้แจง · ขั้นที่มีชิ้นมากสุด (คอลัมน์ของใบที่ของกระจายหลายขั้น)
   "parent_job_id", "parts_count", "parts_open", "qty_pending_explanation", "dominant_stage_code",
+  // 0181 (re-review M-A/M-B/L-1): เทียบน้ำหนักทั้งต้นไม้ — ใบแม่ + ส่วนย่อย (office เท่านั้น · ห้ามส่งให้ช่าง N1)
+  "tree_handoff_gap_g", "tree_handoff_gap_partial_g", "tree_handoff_mismatch_count", "tree_weight_gap_excess_g", "tree_lot_first_gap_sum_g",
 ].join(", ");
 
 export interface BoardRow {
@@ -159,6 +161,16 @@ export interface BoardRow {
   lotsLine?: string | null;
   /** ผลตรวจ sum_check ของ DB (ผลรวมทุกถัง = เริ่มผลิต) */
   lotsSumOk?: boolean;
+  /** M-A: ส่วนต่างส่งมอบสูงสุด (|กรัม|) ทั้งต้นไม้ — handoffGapG เดิมนับเฉพาะใบตัวเอง จึงมองไม่เห็นขั้นแรกของส่วนย่อย · ไม่มี key = ไม่มีคู่น้ำหนัก */
+  treeHandoffGapG?: number;
+  /** M-A: เหมือนกัน แต่คู่ขั้นที่รับไม่ครบ (มีส่วนต่างจำนวนชิ้น) */
+  treeHandoffGapPartialG?: number;
+  /** M-A: จำนวนครั้งที่ช่างชั่งรับทองไม่ตรง ทั้งต้นไม้ (มี key เฉพาะเมื่อ > 0) */
+  treeHandoffMismatchCount?: number;
+  /** M-B: น้ำหนักที่หายเกินสัดส่วนชิ้นที่ขาด (g · ลบ = หายเกิน) รวมส่วนต่างที่ยังนับอยู่ทั้งต้นไม้ */
+  treeWeightGapExcessG?: number;
+  /** L-1: ผลรวม gap ขั้นแรกของทุกส่วนที่แยกจากขั้นเดียวกัน (ต่ำสุดของกลุ่ม · ลบเกิน 0.05 = ควรเตือน) */
+  treeLotFirstGapSumG?: number;
 }
 
 export function mapBoardRow(r: Record<string, unknown>): BoardRow | null {
@@ -223,6 +235,16 @@ function lotKeys(r: Record<string, unknown>): Partial<BoardRow> {
   if (pend !== null && pend > 0) out.qtyPendingExplanation = pend;
   const dom = str(r.dominant_stage_code);
   if (dom !== null && (parts ?? 0) > 1) out.dominantStageCode = dom;
+  const tg = num(r.tree_handoff_gap_g);
+  if (tg !== null) out.treeHandoffGapG = tg;
+  const tgp = num(r.tree_handoff_gap_partial_g);
+  if (tgp !== null) out.treeHandoffGapPartialG = tgp;
+  const tmc = num(r.tree_handoff_mismatch_count);
+  if (tmc !== null && tmc > 0) out.treeHandoffMismatchCount = tmc;
+  const tex = num(r.tree_weight_gap_excess_g);
+  if (tex !== null) out.treeWeightGapExcessG = tex;
+  const tlg = num(r.tree_lot_first_gap_sum_g);
+  if (tlg !== null) out.treeLotFirstGapSumG = tlg;
   return out;
 }
 
