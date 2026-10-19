@@ -2761,7 +2761,7 @@ declare
     jsonb_build_object('id', 'MU-23', 'what', 'job_tree_assert: ไม่ raise เมื่อผลรวมไม่ตรง', 'fn', 'job_tree_assert',
       'from', 'if v_bad is not null then', 'to', 'if false then', 'expect', jsonb_build_array('M1', 'M2')),
     jsonb_build_object('id', 'MU-24', 'what', 'job_done: ไม่นับ qty_split_out ในสมการดี+เสีย', 'fn', 'job_done',
-      'from', 'or p_qty_good + p_qty_scrap + v_job.qty_split_out <> v_job.qty_planned then', 'to', 'or p_qty_good + p_qty_scrap <> v_job.qty_planned then', 'expect', jsonb_build_array('A11c', 'L5')),
+      'from', '+ v_job.qty_split_out ', 'to', '+ 0 ', 'expect', jsonb_build_array('A11c', 'L5')),
     jsonb_build_object('id', 'MU-25', 'what', 'job_done: ถอดด่านส่วนเปิด (ชั้น RPC — ข้อความต่างจากชั้น trigger)', 'fn', 'job_done',
       'from', 'if (v_job.parent_job_id is null and exists', 'to', 'if false and (v_job.parent_job_id is null and exists', 'expect', jsonb_build_array('A11b')),
     jsonb_build_object('id', 'MU-26', 'what', 'job_stage_reopen: ย้อนขั้นแม่ที่แยกส่วนออกได้ (ชั้น RPC)', 'fn', 'job_stage_reopen',

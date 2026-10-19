@@ -19,8 +19,8 @@
 --  · ใบ (แม่/ที่ส่วนต่างอยู่) done/cancelled = job_closed · ใบถูกพัก = job_on_hold · วันรับ: ช่าง = วันนี้ · ออฟฟิศย้อนได้ ≤ 14 วัน ไม่ก่อนวันที่ขั้นต้นทางส่ง
 --  · event ใหม่ discrepancy_arrive (ใบเดิม) + create/stage_skip/stage_receive ของส่วนใหม่ (รูปแบบเดียวกับแยกส่วน — v_job_stage_from_events ตรงเสมอ)
 -- สิ่งที่ migration นี้ทำ
---  1 คอลัมน์ job_stage.arrive_discrepancy_id (+FK +unique) · jd_kind_ck + 'arrived' · job_event CHECK + 'discrepancy_arrive' (รายการ 28 ชนิดเดิมจาก DB สดหลัง 0182 — ครบ photo_*)
---  2 helper job_arrived_qty · replace: job_identity_gap · job_done · job_stage_guard · job_discrepancy_guard · job_worker_resolve (+action arrive ใน my_actions) · views: v_job_tree (+qty_discrepancy_arrived ต่อท้าย · resolved ไม่นับ arrived) · v_job_tree_drift
+--  1 คอลัมน์ job_stage.arrive_discrepancy_id (+FK +unique) · jd_kind_ck + 'arrived' · job_done_ck นับ arrived (ดี + เสีย + แยกออก + arrived = เริ่มผลิต) · job_event CHECK + 'discrepancy_arrive' (รายการ 28 ชนิดเดิมจาก DB สดหลัง 0182 — ครบ photo_*)
+--  2 helper job_arrived_qty · replace: job_identity_gap · job_done · job_stage_guard · job_discrepancy_guard · job_lot_cancel_core (event ฝั่งแม่ของส่วนที่ไม่มีขั้นแยก) · job_worker_resolve (+action arrive ใน my_actions) · views: v_job_tree (+qty_discrepancy_arrived ต่อท้าย · resolved ไม่นับ arrived) · v_job_tree_drift
 --  3 ใหม่: job_discrepancy_arrive_core (ภายใน) · job_discrepancy_arrive (ออฟฟิศ) · job_worker_discrepancy_arrive (ช่าง)
 --  4 สิทธิ์ service_role เท่านั้น (ข้อ 18) · post-check: ฟังก์ชันอื่น md5 ไม่ขยับ · แถวเดิมไม่ขยับ · ไม่มี overload/grant รั่ว · ใบที่ไม่มีส่วนต่างทำงานเหมือนเดิม
 --
@@ -31,6 +31,7 @@
 --  (4) p_expected_open (CAS) เป็นพารามิเตอร์ท้ายที่ไม่บังคับ — กดซ้ำ/2 มือถือไม่สร้างส่วนซ้ำเมื่อ arrive บางส่วน
 --  (5) job_done บนใบเดิม: ดี + เสีย + แยกออก + arrived = จำนวนเริ่มผลิต (เดิม: ดี + เสีย + แยกออก) — ใบที่ไม่มี arrived ผลเท่าเดิมเป๊ะ
 --  (6) ส่วนใหม่ที่ขั้นรับขาด weigh_required = ตามขั้นของใบเดิม · weigh_required ของใบส่วนใหม่ = มีขั้นหลังขั้นนั้นที่ต้องชั่ง หรือ ทอง+ขั้นชั่ง (เหมือนแยกส่วน)
+--  (7) job_lot_cancel_core: แก้เฉพาะ event split_cancel ฝั่งแม่ — ส่วนที่เกิดจาก arrive ไม่มีขั้นแยก (v_ms ว่าง) เดิมล้มด้วย job_event_write ไม่พบใบงาน (ถอยทั้งก้อน ไม่มีข้อมูลเสีย) · ตอนนี้ยกเลิกเป็นของเสียได้ (ชิ้นที่ได้รับเพิ่มแต่ใช้ไม่ได้) event ฝั่งแม่เขียนที่ใบแม่ไม่ผูกขั้น · ส่วนที่แยกตามปกติ payload/ผลเท่าเดิมเป๊ะ (golden: verify-0181 รันซ้ำ)
 --  หนี้ที่รู้: (a) ส่วนที่มาจาก arrive คืนชิ้นไม่ได้ (ดูโมเดล) (b) รายงานน้ำหนักต้นไม้ (v_job_board.tree_*) ไม่รู้จัก arrive โดยเฉพาะ — น้ำหนักชิ้นที่มาถึงอยู่ที่ weight_in_g ของส่วนใหม่ (c) UI ปิดงานของใบเดิมต้องหัก qty_discrepancy_arrived ออกจากช่องเสีย (ต่อท้าย v_job_tree)
 
 -- baseline ก่อนแตะ: ฟังก์ชันทุกตัวในสคีมา (md5) + ตัวชี้วัดแถวของตารางที่เกี่ยวข้อง (ไฟล์นี้ไม่ UPDATE/INSERT แถวเดิม)
@@ -73,7 +74,8 @@ begin
       ('job_discrepancy_guard','ee2fbb304e5399f3129907e62363fcc0'),
       ('job_identity_gap',     'b0b62907777f323a464d0adf39ab5467'),
       ('job_done',             'edbd55b7bb74431148788e3dc7710751'),
-      ('job_worker_resolve',   '168bb2bed65f5a0d3cb5415806a60594')
+      ('job_worker_resolve',   '168bb2bed65f5a0d3cb5415806a60594'),
+      ('job_lot_cancel_core',  '70a178bcb1f40ce7e0f59533a3c9fe44')
     ) as v(n, h_old)
   loop
     select count(*) into v_n from pg_proc where pronamespace = 'analytics'::regnamespace and proname = r.n;
@@ -99,6 +101,14 @@ begin
       raise exception '0183: def ของ view % บน DB ไม่ใช่ฉบับที่ลอกมา (md5 % ≠ %) — มีคนแก้นอก migration · หยุด', r.n, md5(v_def), r.h_old;
     end if;
   end loop;
+  -- job_done_ck: ต้องเป็นฉบับ 0181 (md5 ด้านล่าง) หรือฉบับ 0183 — ไม่งั้นมีคนแก้นอก migration
+  select pg_get_constraintdef(c.oid) into v_def from pg_constraint c where c.conrelid = 'analytics.job'::regclass and c.conname = 'job_done_ck';
+  if v_def is null then
+    raise exception '0183: ไม่พบ job_done_ck — apply 0181 ก่อน';
+  end if;
+  if md5(v_def) <> 'fb6fafd280035c9141aba3c711525aeb' and position('job_arrived_qty' in v_def) = 0 then
+    raise exception '0183: def ของ job_done_ck บน DB ไม่ใช่ฉบับที่ลอกมา (md5 % ≠ fb6fafd2…) — มีคนแก้นอก migration · หยุด', md5(v_def);
+  end if;
   -- รายการชนิด event ของ DB ต้องมี photo_reorder (ฉบับ 0182) — ไม่งั้นลอกรายการผิดฉบับแล้วชนิดของรูปจะหลุด
   if not exists (select 1 from pg_constraint c where c.conrelid = 'analytics.job_event'::regclass and c.conname = 'job_event_event_type_ck'
                    and pg_get_constraintdef(c.oid) like '%photo_reorder%') then
@@ -149,6 +159,16 @@ as $f$
    where d.job_id = p_job_id and d.status = 'resolved' and d.resolved_kind = 'arrived'
      and not exists (select 1 from analytics.job_discrepancy v where v.void_of_id = d.id)
 $f$;
+
+-- job_done_ck: ดี + เสีย + แยกออก + ได้รับเพิ่มไปเป็นส่วนใหม่ (arrived) = เริ่มผลิต — ใบที่ไม่มี arrived: job_arrived_qty = 0 ⇒ นิยามเดิมเป๊ะ (ที่เหลือของ CHECK ลอกจาก DB สด)
+-- ตรวจแถวเดิมทั้งหมดตอนเพิ่ม (ตารางเล็ก · ใบ done ทุกใบต้องผ่าน — ไม่ผ่านจะถอยทั้งไฟล์ ไม่ใช่แก้ข้อมูล)
+alter table analytics.job drop constraint if exists job_done_ck;
+alter table analytics.job add constraint job_done_ck check (
+  status <> 'done'
+  or (done_at is not null and qty_good is not null and qty_scrap is not null
+      and (qty_good + qty_scrap + qty_split_out + analytics.job_arrived_qty(id)) = qty_planned
+      and (metal <> 'gold' or not weigh_required or weight_final_g is not null)
+      and (not require_final_weight or weight_final_g is not null)));
 
 -- ============================================================================
 -- 3. replace ฟังก์ชัน (def ลอกจาก DB สด 20 ต.ค. 69 + แก้เฉพาะจุดที่มีเครื่องหมาย 0183)
@@ -539,6 +559,132 @@ begin
     raise exception 'job_discrepancy: แถวนี้ถูก void แล้ว ชี้แจงไม่ได้' using errcode = '22023', hint = 'voided';
   end if;
   return new;
+end;
+$f$;
+
+-- job_lot_cancel_core: event ฝั่งแม่ของส่วนที่ไม่มีขั้นแยก (ส่วนที่เกิดจากได้รับเพิ่มแล้ว) — ที่เหลือเหมือนเดิมทุกตัวอักษร
+CREATE OR REPLACE FUNCTION analytics.job_lot_cancel_core(p_lot_job_id uuid, p_disposition text, p_reason text, p_scrap_reason text, p_scrap_weight numeric, p_worker_id uuid, p_channel text, p_actor uuid, p_device_hint text, p_enforce_splitter boolean)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SET search_path TO 'public', 'analytics', 'extensions', 'pg_temp'
+AS $f$
+declare
+  v_l      analytics.job%rowtype;
+  v_ms     analytics.job_stage%rowtype;
+  v_ms2    analytics.job_stage%rowtype;
+  v_s2     analytics.job_stage%rowtype;
+  v_blk    text;
+  v_live   int;
+  v_today  date := analytics.job_today();
+  v_sreason text := null;
+  v_who    uuid;
+  v_wreq   boolean;
+  v_wbasis numeric;
+  v_wgap   numeric;
+begin
+  -- 0181 (M-C security: ทอง + ส่วนมีขั้นชั่ง + นับเป็นของเสีย ⇒ ต้องชั่งน้ำหนักของเสียที่เลิกใช้ ไม่งั้นทองหายจากยอดเงียบๆ)
+  select * into v_l from analytics.job where id = p_lot_job_id;
+  if not found or v_l.parent_job_id is null then
+    return analytics.job_fail('not_lot', 'ไม่พบส่วนย่อยนี้');
+  end if;
+  perform 1 from analytics.job where id = v_l.parent_job_id for update;
+  select * into v_l from analytics.job where id = p_lot_job_id;
+  if p_disposition is null or p_disposition not in ('return_to_parent', 'scrap') then
+    return analytics.job_fail('disposition_invalid', 'ต้องเลือกที่ไปของชิ้น: คืนให้ผู้ถือเดิม หรือนับเป็นของเสีย');
+  end if;
+  if v_l.status in ('done', 'cancelled') then
+    return analytics.job_fail('job_closed', 'ส่วนนี้ปิดหรือยกเลิกไปแล้ว');
+  end if;
+  if exists (select 1 from analytics.job_discrepancy d where d.job_id = p_lot_job_id and d.status = 'open'
+               and not exists (select 1 from analytics.job_discrepancy v where v.void_of_id = d.id)) then
+    return analytics.job_fail('discrepancy_open', 'ส่วนนี้มีส่วนต่างรอชี้แจง — ชี้แจงก่อนจึงยกเลิกได้');
+  end if;
+  if exists (select 1 from analytics.job_stage x join analytics.job c on c.id = x.job_id
+              where x.split_from_stage_id in (select s.id from analytics.job_stage s where s.job_id = p_lot_job_id)
+                and not (c.status = 'cancelled' and c.cancel_scrap_qty is null)) then
+    return analytics.job_fail('has_split', 'ส่วนนี้มีส่วนที่แยกต่อออกไปแล้ว — ยกเลิกส่วนนั้นก่อน');
+  end if;
+  select * into v_s2 from analytics.job_stage where job_id = p_lot_job_id and split_from_stage_id is not null;
+  select * into v_ms from analytics.job_stage where id = v_s2.split_from_stage_id;
+  -- M-D (security delta): บังคับชั่งของเสียเฉพาะส่วนที่มีขั้นชั่ง "ที่ชั่งแล้ว" — ส่วนที่ยังไม่ถึงขั้นชั่ง (แยกที่ขั้นเทียน ฯลฯ) ยังไม่มีน้ำหนักให้เทียบ ยกเลิกเป็นของเสียโดยไม่ชั่งได้
+  v_wreq := p_disposition = 'scrap' and v_l.metal = 'gold'
+            and exists (select 1 from analytics.job_stage x where x.job_id = p_lot_job_id and x.status <> 'skipped' and x.weigh_required
+                           and (x.weight_in_g is not null or x.weight_out_g is not null));
+  if p_scrap_weight is not null and not v_wreq then
+    return analytics.job_fail('weight_unexpected', 'ส่วนนี้ไม่ต้องระบุน้ำหนักของเสีย');
+  end if;
+
+  if p_disposition = 'return_to_parent' then
+    v_blk := analytics.job_lot_return_blocker(p_lot_job_id);
+    if v_blk is not null then
+      return analytics.job_fail(v_blk, case v_blk
+        when 'already_received' then 'มีคนรับส่วนนี้ไปแล้ว — ช่างยกเลิกเองไม่ได้ แจ้งออฟฟิศ'
+        when 'cannot_return' then 'ผู้ถือเดิมส่งต่อส่วนที่เหลือไปแล้ว คืนชิ้นไม่ได้ — แจ้งออฟฟิศ'
+        when 'scrap_recorded' then 'การแยกครั้งนี้มีของเสียที่บันทึกไว้ คืนชิ้นไม่ได้ — แจ้งออฟฟิศ (ยกเลิกเป็นของเสีย)'
+        when 'has_discrepancy' then 'ส่วนนี้มีส่วนต่างบันทึกอยู่ — แจ้งออฟฟิศ'
+        else 'ยกเลิกส่วนนี้ไม่ได้' end);
+    end if;
+    -- ช่าง: ยกเลิกได้เฉพาะส่วนที่ตัวเองแยก (ตาม event split) และยังเป็นผู้ถือขั้นแม่ — ออฟฟิศไม่ถูกจำกัด
+    if p_enforce_splitter then
+      select e.worker_id into v_who from analytics.job_event e
+       where e.job_id = v_ms.job_id and e.event_type = 'split' and e.payload ->> 'lot_job_id' = p_lot_job_id::text limit 1;
+      if v_who is distinct from p_worker_id or v_ms.worker_id is distinct from p_worker_id then
+        return analytics.job_fail('not_splitter', 'ยกเลิกได้เฉพาะส่วนที่คุณแยกเอง และยังเป็นผู้ถือขั้นนี้');
+      end if;
+    end if;
+  else
+    if p_enforce_splitter then
+      return analytics.job_fail('disposition_invalid', 'ช่างยกเลิกได้เฉพาะแบบคืนชิ้นให้ผู้ถือเดิม');
+    end if;
+    v_sreason := nullif(btrim(p_scrap_reason), '');
+    if v_sreason is null or not analytics.job_scrap_reason_valid(v_sreason) then
+      return analytics.job_fail('reason_required', 'ยกเลิกเป็นของเสียต้องระบุเหตุผล (รูพรุน/หัก/ผิดแบบ/หาย/อื่นๆ)');
+    end if;
+  end if;
+  if v_wreq then
+    if p_scrap_weight is null then
+      return analytics.job_fail('scrap_weight_required', 'ทอง: ยกเลิกเป็นของเสียต้องชั่งน้ำหนักของเสียที่เลิกใช้');
+    end if;
+    if p_scrap_weight <= 0 or not analytics.job_weight_ok(p_scrap_weight) then
+      return analytics.job_fail('weight_invalid', 'น้ำหนักของเสียต้องมากกว่า 0 และไม่เกิน 100,000 กรัม (ทศนิยมไม่เกิน 3 ตำแหน่ง)');
+    end if;
+    -- ไม่เกินน้ำหนักสูงสุดที่ส่วนนี้เคยมี (เข้า + เติมโลหะ / ออก ของทุกขั้น)
+    select max(greatest(coalesce(x.weight_in_g + x.metal_added_g, 0), coalesce(x.weight_out_g, 0))) into v_wbasis
+      from analytics.job_stage x where x.job_id = p_lot_job_id;
+    if p_scrap_weight > coalesce(v_wbasis, 0) then
+      return analytics.job_fail('weight_over', 'น้ำหนักของเสียมากกว่าน้ำหนักที่ส่วนนี้มีอยู่ — ชั่งใหม่');
+    end if;
+    -- L-new-1 (security delta): น้ำหนักเศษที่ชั่งน้อยกว่าน้ำหนักล่าสุดของส่วนเกิน 0.05 g = ทองส่วนต่างหายไปไหนไม่มีใครรู้ — ต้องมีคำอธิบายเป็นข้อความ (ไม่ใช่รหัสเหตุผลล้วน · ไม่เปิดตัวเลขให้ช่าง: ฝั่งออฟฟิศเท่านั้น)
+    v_wgap := analytics.job_latest_weight_g(p_lot_job_id) - p_scrap_weight;
+    if v_wgap > 0.05 and not analytics.job_note_is_free_text(v_sreason) then
+      return analytics.job_fail('gold_note_required', 'ทอง: น้ำหนักของเสียที่ชั่งน้อยกว่าน้ำหนักล่าสุดของส่วนนี้ — ต้องเขียนคำอธิบายเป็นข้อความ (ไม่ใช่แค่เลือกรหัสเหตุผล)');
+    end if;
+  end if;
+
+  v_live := analytics.job_live_qty(p_lot_job_id);
+  update analytics.job
+     set status = 'cancelled', cancelled_at = now(), cancel_reason = p_reason,
+         cancel_scrap_qty = case when p_disposition = 'scrap' then v_live end,
+         cancel_scrap_reason = case when p_disposition = 'scrap' then v_sreason end,
+         cancel_scrap_weight_g = case when v_wreq then p_scrap_weight end
+   where id = p_lot_job_id;
+  if p_disposition = 'return_to_parent' then
+    update analytics.job_stage set qty_split_out = qty_split_out - v_l.qty_planned, weight_split_out_g = weight_split_out_g - coalesce(v_s2.weight_out_g, 0) where id = v_ms.id returning * into v_ms2;
+  else
+    select * into v_ms2 from analytics.job_stage where id = v_ms.id;
+  end if;
+  perform analytics.job_event_write(p_lot_job_id, null, 'split_cancel', v_today, p_actor, p_worker_id, p_channel, p_device_hint,
+    jsonb_build_object('disposition', p_disposition, 'reason', p_reason, 'qty', v_l.qty_planned, 'live_qty', v_live, 'scrap_reason', v_sreason,
+                       'scrap_weight_g', case when v_wreq then p_scrap_weight end));
+  -- 0183: ส่วนที่เกิดจาก "ได้รับเพิ่มแล้ว" ไม่มีขั้นแยก (v_ms ว่าง) — event ฝั่งแม่เขียนที่ใบแม่โดยไม่ผูกขั้น · ส่วนที่แยกตามปกติ ผลเท่าเดิมเป๊ะ
+  perform analytics.job_event_write(coalesce(v_ms.job_id, v_l.parent_job_id), v_ms.id, 'split_cancel', v_today, p_actor, p_worker_id, p_channel, p_device_hint,
+    jsonb_build_object('lot_job_id', p_lot_job_id, 'lot_seq', v_l.lot_seq, 'disposition', p_disposition, 'qty', v_l.qty_planned, 'live_qty', v_live,
+                       'before', case when v_ms.id is not null then analytics.job_stage_state(v_ms) end,
+                       'after', case when v_ms.id is not null then analytics.job_stage_state(v_ms2) end)
+    || case when v_ms.id is null then jsonb_build_object('arrive_lot', true) else '{}'::jsonb end);
+  perform analytics.job_tree_check(p_lot_job_id);
+  return jsonb_build_object('ok', true, 'action', 'split_cancel', 'lot_job_id', p_lot_job_id, 'lot_seq', v_l.lot_seq,
+                            'disposition', p_disposition, 'qty', v_l.qty_planned, 'live_qty', v_live);
 end;
 $f$;
 
@@ -1212,7 +1358,7 @@ declare
   r record;
   v_touched constant text[] := array[
     'job_arrived_qty', 'job_discrepancy_arrive_core', 'job_discrepancy_arrive', 'job_worker_discrepancy_arrive',
-    'job_identity_gap', 'job_done', 'job_stage_guard', 'job_discrepancy_guard', 'job_worker_resolve'];
+    'job_identity_gap', 'job_done', 'job_stage_guard', 'job_discrepancy_guard', 'job_worker_resolve', 'job_lot_cancel_core'];
   -- RPC/helper ที่ service_role ต้องเรียก (job_identity_gap + job_arrived_qty = view security_invoker เรียก) · core + guard = ภายในเท่านั้น
   v_rpc constant text[] := array['job_arrived_qty', 'job_discrepancy_arrive', 'job_worker_discrepancy_arrive', 'job_identity_gap', 'job_done', 'job_worker_resolve'];
   v_dup text;
@@ -1250,7 +1396,7 @@ declare
   v_new text;
   v_bad int;
   v_cols int;
-  v_touched constant text[] := array['job_identity_gap', 'job_done', 'job_stage_guard', 'job_discrepancy_guard', 'job_worker_resolve'];
+  v_touched constant text[] := array['job_identity_gap', 'job_done', 'job_stage_guard', 'job_discrepancy_guard', 'job_worker_resolve', 'job_lot_cancel_core'];
   v_added constant text[] := array['job_arrived_qty', 'job_discrepancy_arrive_core', 'job_discrepancy_arrive', 'job_worker_discrepancy_arrive'];
 begin
   -- (1) ฟังก์ชันเดิมนอกรายการ md5 ต้องเท่าเดิมเป๊ะ (oem_*/production_*/stock_*/job_*/worker_* ทุกตัวในสคีมา)
@@ -1308,6 +1454,9 @@ begin
     raise exception '0183: v_job_tree_drift ของข้อมูลเดิมเปลี่ยน (ก่อน % · หลัง %)', (select n from _j183_drift_base), v_bad;
   end if;
   -- (5) constraint/trigger/สิทธิ์
+  if not exists (select 1 from pg_constraint where conrelid = 'analytics.job'::regclass and conname = 'job_done_ck' and pg_get_constraintdef(oid) like '%job_arrived_qty%') then
+    raise exception '0183: job_done_ck ต้องนับ job_arrived_qty';
+  end if;
   if not exists (select 1 from pg_constraint where conrelid = 'analytics.job_discrepancy'::regclass and conname = 'jd_kind_ck' and pg_get_constraintdef(oid) like '%arrived%') then
     raise exception '0183: jd_kind_ck ต้องมี arrived';
   end if;
@@ -1320,7 +1469,7 @@ begin
   if v_bad > 0 then
     raise exception '0183: พบ trigger ของตารางใบงาน/ส่วนต่างที่ไม่ได้เปิด % ตัว', v_bad;
   end if;
-  if coalesce(current_setting('app.job_arrive', true), 'off') <> 'off' then
+  if coalesce(nullif(current_setting('app.job_arrive', true), ''), 'off') <> 'off' then
     raise exception '0183: app.job_arrive ต้องไม่ค้างเปิด';
   end if;
   select string_agg(p.oid::regprocedure::text, ', ') into v_new

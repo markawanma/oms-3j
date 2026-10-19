@@ -10,7 +10,7 @@
 --
 -- ============ ตารางแมป "ข้อในบรีฟ 20 ต.ค. -> เทสต์ที่ครอบ" ============
 --  RPC ช่าง job_worker_discrepancy_arrive — ผู้มีสิทธิ์ = ช่างที่เป็นผู้รับของขั้นที่รับขาดเท่านั้น          -> A1 A2a B2 C1a · MU (ผู้รับ/resolve)
---  RPC ออฟฟิศ job_discrepancy_arrive — กรอกแทน เลือกผู้ถือ/วันรับ · ไม่เลือกผู้ถือ = ผู้รับเดิม             -> A7a A7b B7 B8 B3b · MU (ผู้ถือ/วัน/ร้าน)
+--  RPC ออฟฟิศ job_discrepancy_arrive — กรอกแทน เลือกผู้ถือ/วันรับ · ไม่เลือกผู้ถือ = ผู้รับเดิม             -> A7a A7b B7a B7b B8 B3b · MU (ผู้ถือ/วัน/ร้าน)
 --  1 ≤ qty ≤ ส่วนต่างที่ยัง open                                                                          -> B1 · MU
 --  ได้ไม่ครบ → ที่เหลือยัง open (แยกแถว · ผลรวม/ประวัติชัด: void แถวเดิม + arrived + open ที่เหลือ)         -> A2a A2b A3 E5 · ครบ → resolved kind arrived -> A3 B4b
 --  ชิ้นที่มาถึง → ส่วนใหม่ (ส่วนย่อยของใบแม่) ที่ขั้นรับขาด received ผู้ถือ = คนกด/ที่ออฟฟิศเลือก            -> A2c A7a A7b A6 (ที่ขั้นแพ็ก)
@@ -24,7 +24,7 @@
 --  ห้ามแก้ตรรกะ resolve/void เดิม · ใบที่ไม่มีส่วนต่าง = เดิมเป๊ะ                                           -> C1b C1c C1d · C2a C2b C2c (golden เทียบฉบับก่อน 0183) · C3
 --  job_worker_resolve คืน action arrive ให้ผู้รับ (my_actions) · ผู้อื่น/ก่อน PIN ไม่เห็น                   -> A1 D5 C2c C1a · MU
 --  ❌ ห้ามผ่าน: qty 0/ติดลบ/เกิน open · ช่างไม่ใช่ผู้รับ · ส่วนต่างใบอื่น/ร้านอื่น · resolved/void แล้ว         -> B1 B2 B3a B3b B4a B4b C1b C1c C1d
---     ทองไม่ชั่ง/ชั่งเกิน/ชั่งไม่ผ่าน 3 ครั้ง · ใบ done/cancelled/on_hold · กดซ้ำ/CAS · วัน/ผู้ถือผิด        -> D1 D2a D2b D3b D6b · B9a B9b · B4b B5 · B7 B8 · B10 (ขั้นผู้รับถูกย้อน → ต้อง void)
+--     ทองไม่ชั่ง/ชั่งเกิน/ชั่งไม่ผ่าน 3 ครั้ง · ใบ done/cancelled/on_hold · กดซ้ำ/CAS · วัน/ผู้ถือผิด        -> D1 D2a D2b D3b D6b · B9a B9b · B4b B5 · B7a B7b B8 · B10 (ขั้นผู้รับถูกย้อน → ต้อง void)
 --  ด่านกันเขียนตรง (security): arrived เกิดทางเดียว · void/UPDATE แถว arrived ไม่ได้ · flag ล้างหลังใช้      -> C4a C4b C4c C4d C4e
 --     ส่วนจาก arrive ย้อนขั้น/ผูกใหม่/ผูกข้ามใบไม่ได้ · ตรวจจับข้อมูลเพี้ยน (drift) 4 แบบ                    -> C4f C4g C4h · E1 E2 E3 E4
 --  สิทธิ์ (migration-traps ข้อ 2/7/18): service_role เท่านั้น · 4 ชื่อ · ไม่มี overload · search_path       -> F1 F2 F3 F4 F5 F6 F7 · MY (md5 ทุกฟังก์ชัน)
@@ -34,7 +34,7 @@
 --  ❌ ไม่มีเทสต์ครอบ (บอกตรงๆ):
 --    - race หลาย connection (2 มือถือกดพร้อมกัน) — do-block ทรานแซกชันเดียวจำลองไม่ได้ · ครอบด้วยการล็อกแถวแม่ (job_worker_auth/job_office_begin) + CAS p_expected_open + ด่าน already_resolved (B4b B5 ครอบเคสกดซ้ำแบบเรียงลำดับ)
 --    - ฝั่ง TS/PostgREST/หน้า /w/ จริง = ไม่มี (vitest ฝั่ง lib/ ครอบ signature + allowlist) · UI ปิดใบ (ต้องหัก qty_discrepancy_arrived) = ไม่มี
---    - วันรับย้อนหลังที่ "ผ่าน" (เช่น ย้อน 3 วัน) — ชุดนี้ส่งขั้นต้นทางวันนี้ทุกใบ จึงทดสอบได้แค่ด้านปฏิเสธ (พรุ่งนี้/เกิน 14 วัน/ก่อนวันส่ง) + วันนี้ผ่าน
+--    - วันรับของช่างผ่าน QR ที่ถูกปฏิเสธ (ช่างไม่มีพารามิเตอร์วัน = วันนี้เสมอ ด่านวันของช่องช่างไม่มีทางถูกยิงจากภายนอก) — ไม่มีเทสต์
 --    - ผู้ถือที่ออฟฟิศเลือกเป็นช่างของ "ร้านอื่น" (who_invalid ด้านร้าน) — มีร้านเดียวบน DB นี้ · ครอบเฉพาะช่างไม่มีอยู่/ปิดใช้งาน (B8)
 --    - รายงานน้ำหนักระดับต้นไม้ (v_job_board.tree_*) ยังไม่รู้จัก arrive — เป็นหนี้ที่บันทึกในหัว migration (ไม่มีเทสต์)
 --    - view ที่เปลี่ยน (v_job_tree / v_job_tree_drift) ครอบด้วย mutant แบบแก้ definition ของ view ใน subtransaction (MU ชนิด view) ไม่ใช่การอ่านโค้ด
@@ -326,7 +326,7 @@ end $c$;
 create function pg_temp.dcount(p_root uuid) returns int language sql as $c$ select count(*)::int from analytics.v_job_tree_drift where root_job_id = p_root $c$;
 create function pg_temp.sumok(p_root uuid) returns boolean language sql as $c$ select coalesce((select sum_check from analytics.v_job_tree_summary where root_job_id = p_root), false) $c$;
 create function pg_temp.disc_of(p_job uuid) returns uuid language sql as $c$
-  select id from analytics.job_discrepancy where job_id = p_job and status = 'open' order by created_at limit 1 $c$;
+  select d.id from analytics.job_discrepancy d where d.job_id = p_job and d.status = 'open' and not exists (select 1 from analytics.job_discrepancy v where v.void_of_id = d.id) order by d.created_at limit 1 $c$;
 create function pg_temp.sdrift(p_root uuid) returns int language sql as $c$
   select count(*)::int from analytics.v_job_stage_from_events e join analytics.job j on j.id = e.job_id
    where (j.id = p_root or j.parent_job_id = p_root) and e.drift $c$;
@@ -793,10 +793,13 @@ begin
   r3 := pg_temp.ws(th, sC, 8, l1);
   v_log := v_log || pg_temp.chk('A4a', 'ส่วนที่ 1 เดินต่อ: ช่าง C ส่ง QC → รับแพ็ก → ส่งแพ็ก ได้ทั้งหมด · ออฟฟิศปิดส่วน (ดี 1) ได้ · ส่วนปิด · drift ว่าง',
     (r ->> 'ok') = 'true' and (r2 ->> 'ok') = 'true' and (r3 ->> 'ok') = 'true' and (pg_temp.o_done(p_shop, l1, 1, 0) ->> 'ok') = 'true' and pg_temp.jv(l1, 'status') = 'done' and pg_temp.dcount(j) = 0 and pg_temp.sdrift(j) = 0);
-  v_log := v_log || pg_temp.chk('A4b', 'ส่วนที่ 2 (มาจาก arrive): ยกเลิกแบบคืนชิ้น → ปฏิเสธ not_lot (ทั้งออฟฟิศและช่าง) · ยกเลิกเป็นของเสียได้ · ต้นไม้ยังตรง',
-    pg_temp.rej(pg_temp.o_lcancel(p_shop, l2, 'ทดสอบ', 'return_to_parent'), 'not_lot') and (pg_temp.wc(th, sC, l2) ->> 'code') = 'not_lot'
-    and pg_temp.jv(l2, 'status') = 'in_progress'
-    and (pg_temp.o_lcancel(p_shop, l2, 'ของเสียจริง', 'scrap', 'broken') ->> 'ok') = 'true' and pg_temp.jv(l2, 'status') = 'cancelled'
+  r := pg_temp.o_lcancel(p_shop, l2, 'ทดสอบ', 'return_to_parent');
+  r2 := pg_temp.wc(th, sC, l2);
+  r3 := pg_temp.o_lcancel(p_shop, l2, 'ของเสียจริง', 'scrap', 'broken');
+  v_log := v_log || pg_temp.chk('A4b', 'ส่วนที่ 2 (มาจาก arrive): ยกเลิกแบบคืนชิ้น → ปฏิเสธ not_lot (ทั้งออฟฟิศและช่าง) · ยกเลิกเป็นของเสียได้ (cancel_scrap_qty 1 · event ฝั่งแม่เขียนที่ใบแม่ ไม่ผูกขั้น) · ต้นไม้ยังตรง'
+,
+    pg_temp.rej(r, 'not_lot') and (r2 ->> 'code') = 'not_lot' and (r3 ->> 'ok') = 'true' and pg_temp.jv(l2, 'status') = 'cancelled' and pg_temp.jv(l2, 'cancel_scrap_qty') = '1'
+    and (select count(*) from analytics.job_event where job_id = j and event_type = 'split_cancel' and job_stage_id is null and payload ->> 'arrive_lot' = 'true' and payload ->> 'disposition' = 'scrap') = 1
     and pg_temp.dcount(j) = 0 and pg_temp.sumok(j) and pg_temp.sdrift(j) = 0);
 
   -- ===== ปิดใบเดิม: ดี + เสีย + แยกออก + arrived = เริ่มผลิต =====
@@ -844,7 +847,7 @@ declare
   v_log text := '';
   m jsonb; j uuid; th text; wC uuid; sC text; wA uuid; sA text; dd uuid; r jsonb; rr jsonb; n0 int; v_rows text; v_ev int; v_snap text;
   m2 jsonb; j2 uuid; th2 text; sC2 text; d2 uuid; v_today date := analytics.job_today(); l1 uuid; dwho uuid; w_off uuid;
-  v_ok boolean; i int; v_x text; core_r jsonb; lt jsonb;
+  v_ok boolean; i int; v_x text; core_r jsonb; lt jsonb; r3 jsonb; r4 jsonb; v_n1 int;
 begin
   perform set_config('request.jwt.claims', '{"role":"service_role"}', true);
   m := pg_temp.mkdisc(p_shop, p_tpl, 50, 47);
@@ -904,12 +907,30 @@ begin
     (pg_temp.wa(th2, sC2, d2, 1, 5.5) ->> 'code') = 'weight_unexpected' and pg_temp.nodigit(pg_temp.wa(th2, sC2, d2, 1, 5.5)) and pg_temp.rej(pg_temp.oa(p_shop, d2, 1, 5.5), 'weight_unexpected')
     and pg_temp.nlots(j2) = 0 and pg_temp.drows(j2) = 'open:2' and (pg_temp.wa(th2, sC2, d2, 1) ->> 'ok') = 'true');
 
-  -- B7 วันที่ (ออฟฟิศ): อนาคต / ย้อน > 14 วัน / ก่อนวันที่ขั้นต้นทางส่ง
+  -- B7 วันที่ (ออฟฟิศ): ย้อนวันที่ขั้นต้นทางส่งไปก่อน เพื่อทดสอบแต่ละด่านแยกกัน (ไม่ให้ด่านหนึ่งบังอีกด่าน) · ด้านที่ผ่านทดสอบด้วย
   m2 := pg_temp.mkdisc(p_shop, p_tpl, 20, 18);
   j2 := (m2 ->> 'job')::uuid; d2 := (m2 ->> 'disc')::uuid;
-  v_log := v_log || pg_temp.chk('B7', 'วันรับของออฟฟิศ: พรุ่งนี้ / ย้อน 15 วัน / เมื่อวาน (ก่อนวันที่ขั้นต้นทางส่ง = วันนี้) → date_invalid · ไม่เกิดส่วน · วันนี้ผ่าน · ช่างผ่าน QR ส่งวันไม่ได้ (ไม่มีพารามิเตอร์วัน = วันนี้เสมอ)',
-    pg_temp.rej(pg_temp.oa(p_shop, d2, 1, null, v_today + 1), 'date_invalid') and pg_temp.rej(pg_temp.oa(p_shop, d2, 1, null, v_today - 15), 'date_invalid')
-    and pg_temp.rej(pg_temp.oa(p_shop, d2, 1, null, v_today - 1), 'date_invalid') and pg_temp.nlots(j2) = 0 and (pg_temp.oa(p_shop, d2, 1, null, v_today) ->> 'ok') = 'true');
+  execute 'alter table analytics.job_stage disable trigger trg_job_stage_guard';
+  update analytics.job_stage set received_on = v_today - 20, sent_on = v_today - 20 where id = pg_temp.sid(j2, 6);
+  execute 'alter table analytics.job_stage enable trigger trg_job_stage_guard';
+  r := pg_temp.oa(p_shop, d2, 1, null, v_today + 1);
+  rr := pg_temp.oa(p_shop, d2, 1, null, v_today - 15);
+  v_n1 := pg_temp.nlots(j2);
+  r3 := pg_temp.oa(p_shop, d2, 1, null, v_today - 14);
+  v_log := v_log || pg_temp.chk('B7a', 'วันรับของออฟฟิศ (ขั้นต้นทางส่งเมื่อ 20 วันก่อน): พรุ่งนี้ = date_invalid · ย้อน 15 วัน (เกินเพดาน 14 วัน) = date_invalid · ไม่เกิดส่วน · ย้อน 14 วันพอดี = ok (ขอบ) ผู้ถือส่วนใหม่รับวันนั้น · ช่างผ่าน QR ไม่มีพารามิเตอร์วัน = วันนี้เสมอ',
+    pg_temp.rej(r, 'date_invalid') and pg_temp.rej(rr, 'date_invalid') and v_n1 = 0
+    and (r3 ->> 'ok') = 'true' and pg_temp.sv(pg_temp.lot(r3), 7, 'received_on') = (v_today - 14)::text);
+  m2 := pg_temp.mkdisc(p_shop, p_tpl, 20, 18);
+  j2 := (m2 ->> 'job')::uuid; d2 := (m2 ->> 'disc')::uuid;
+  execute 'alter table analytics.job_stage disable trigger trg_job_stage_guard';
+  update analytics.job_stage set received_on = v_today - 5, sent_on = v_today - 5 where id = pg_temp.sid(j2, 6);
+  execute 'alter table analytics.job_stage enable trigger trg_job_stage_guard';
+  r := pg_temp.oa(p_shop, d2, 1, null, v_today - 6);
+  v_n1 := pg_temp.nlots(j2);
+  r3 := pg_temp.oa(p_shop, d2, 1, null, v_today - 5);
+  r4 := pg_temp.oa(p_shop, pg_temp.disc_of(j2), 1, null, v_today);
+  v_log := v_log || pg_temp.chk('B7b', 'วันรับก่อนวันที่ขั้นต้นทางส่ง (ส่งเมื่อ 5 วันก่อน · รับ 6 วันก่อน) = date_invalid · ไม่เกิดส่วน · รับวันเดียวกับที่ส่ง (ย้อน 5 วัน) = ok (ขอบ) · วันนี้ = ok',
+    pg_temp.rej(r, 'date_invalid') and v_n1 = 0 and (r3 ->> 'ok') = 'true' and (r4 ->> 'ok') = 'true' and pg_temp.nlots(j2) = 2);
 
   -- B8 ผู้ถือที่ออฟฟิศเลือก: ไม่มีช่าง/ช่างปิดใช้งาน
   m2 := pg_temp.mkdisc(p_shop, p_tpl, 20, 18);
@@ -957,7 +978,7 @@ declare
   m jsonb; j uuid; th text; wC uuid; sC text; dd uuid; r jsonb; r2 jsonb; r3 jsonb; l1 uuid; arr uuid; rem uuid;
   wS uuid; sS text; d jsonb; pn uuid; pw uuid; pg_ uuid; wA uuid; sA text; wB uuid; sB text; ls uuid;
   v_n int; v_mm int; v_cnt int; v_job record; v_tok text; v_ses text; v_leg jsonb; v_new jsonb; i int; v_today date := analytics.job_today();
-  v_rows text; v_ok boolean; dj uuid;
+  v_rows text; v_ok boolean; dj uuid; m2 jsonb; j2 uuid; dd2 uuid; v_rows2 text;
 begin
   perform set_config('request.jwt.claims', '{"role":"service_role"}', true);
   pn := pg_temp.pid(p_shop, 'none'); pw := pg_temp.mkprof(p_shop, 'vfy-ชั่งหล่อ+ตัดต้น'); pg_ := pg_temp.pid(p_shop, 'gold');
@@ -1061,6 +1082,19 @@ begin
     and (pg_temp.o_done(p_shop, j, 7, 0) ->> 'ok') = 'true' and analytics.job_arrived_qty(j) = 0 and analytics.job_identity_gap(j) = 0 and pg_temp.dcount(j) = 0 and pg_temp.sumok(j)
     and pg_temp.nev(j, 'discrepancy_arrive') = 0);
 
+  -- ===== C3b ยกเลิกส่วนที่แยกตามปกติ (golden): event ฝั่งแม่ผูกขั้นที่แยก · payload มี before/after · ไม่มี key arrive_lot · คืนชิ้นกลับขั้นแม่ =====
+  d := pg_temp.fx(p_shop, p_tpl, pn, 10, 3);
+  j := pg_temp.jid(d);
+  r := pg_temp.o_recv(p_shop, j, 4, v_today, null, null, 'verify');
+  r2 := pg_temp.o_split(p_shop, j, 4, 3, 0, null, 10);
+  l1 := pg_temp.lot(r2);
+  r3 := pg_temp.o_lcancel(p_shop, l1, 'ยกเลิกเทส', 'return_to_parent');
+  v_log := v_log || pg_temp.chk('C3b', 'ต้องไม่พัง: ยกเลิกส่วนที่แยกตามปกติ (คืนชิ้น) ok · event split_cancel ฝั่งแม่ผูกขั้นที่แยก · payload before/after ไม่ null · ไม่มี key arrive_lot · split_out ขั้นแม่กลับ 0 · ต้นไม้ไม่ drift',
+    (r2 ->> 'ok') = 'true' and (r3 ->> 'ok') = 'true'
+    and exists (select 1 from analytics.job_event e where e.job_id = j and e.event_type = 'split_cancel' and e.job_stage_id = pg_temp.sid(j, 4)
+                  and (e.payload -> 'before') is not null and jsonb_typeof(e.payload -> 'before') = 'object' and jsonb_typeof(e.payload -> 'after') = 'object' and not (e.payload ? 'arrive_lot'))
+    and pg_temp.sv(j, 4, 'qty_split_out') = '0' and pg_temp.dcount(j) = 0 and pg_temp.sumok(j));
+
   -- ===== C4 ด่านกันเขียนตรง (guard): arrived เกิดทางเดียว · void/UPDATE แถว arrived ไม่ได้ · flag ล้างหลังใช้ · ส่วนจาก arrive ย้อน/ผูกใหม่ไม่ได้ =====
   m := pg_temp.mkdisc(p_shop, p_tpl, 50, 47);
   j := (m ->> 'job')::uuid; th := m ->> 'tokh'; wC := (m ->> 'wc')::uuid; sC := m ->> 'sc'; dd := (m ->> 'disc')::uuid;
@@ -1071,21 +1105,32 @@ begin
   v_log := v_log || pg_temp.chk('C4a', 'UPDATE ตรงแถว open ที่เหลือ → resolved/arrived (ไม่ผ่านเส้น arrive) = ปฏิเสธ arrived_no_update · แถวไม่ขยับ',
     pg_temp.x2(format('update analytics.job_discrepancy set status = ''resolved'', resolved_kind = ''arrived'', resolved_reason = ''x'', resolved_at = now() where id = %L', rem)) like 'ERR:22023:arrived_no_update:%'
     and pg_temp.drows(j) = v_rows and pg_temp.d_status(rem) = 'open');
-  v_log := v_log || pg_temp.chk('C4b', 'void แถว arrived: ออฟฟิศกด void = ปฏิเสธ · INSERT void ตรง = arrived_no_void · ไม่เกิดแถว void ใหม่ · ชิ้นอยู่ที่ส่วนใหม่ (live ใบเดิมไม่เปลี่ยน)',
-    (pg_temp.o_dvoid(p_shop, arr, 'ลองยกเลิก') ? '_err')
-    and pg_temp.x2(format('insert into analytics.job_discrepancy (shop_id, root_job_id, job_id, from_stage_id, to_stage_id, qty, status, void_of_id, void_reason) select shop_id, root_job_id, job_id, from_stage_id, to_stage_id, qty, ''void'', id, ''x'' from analytics.job_discrepancy where id = %L', arr)) like 'ERR:22023:arrived_no_void:%'
-    and pg_temp.drows(j) = v_rows and not exists (select 1 from analytics.job_discrepancy where void_of_id = arr));
-  v_log := v_log || pg_temp.chk('C4c', 'INSERT แถว resolved/arrived ตรง (ไม่ผ่านเส้น arrive · flag ปิด) = ปฏิเสธ · ไม่เกิดแถว',
-    pg_temp.x2(format('insert into analytics.job_discrepancy (shop_id, root_job_id, job_id, from_stage_id, to_stage_id, qty, status, resolved_kind, resolved_reason, resolved_at) select shop_id, root_job_id, job_id, from_stage_id, to_stage_id, 1, ''resolved'', ''arrived'', ''x'', now() from analytics.job_discrepancy where id = %L', rem)) like 'ERR:22023:%'
-    and pg_temp.drows(j) = v_rows);
+  -- C4b ใช้ใบแยก: arrive แล้วย้อนขั้นผู้รับของใบเดิมเป็นยังไม่รับ (ด่านขั้นผู้รับไม่บังด่าน "void แถว arrived ไม่ได้")
+  m2 := pg_temp.mkdisc(p_shop, p_tpl, 50, 47);
+  j2 := (m2 ->> 'job')::uuid;
+  r2 := pg_temp.wa(m2 ->> 'tokh', m2 ->> 'sc', (m2 ->> 'disc')::uuid, 1, null, 3);
+  r3 := pg_temp.o_reopen(p_shop, j2, 'ย้อนเพื่อทดสอบ void');
+  v_rows2 := pg_temp.drows(j2);
+  v_log := v_log || pg_temp.chk('C4b', 'void แถว arrived (ขั้นผู้รับใบเดิมถูกย้อนเป็น pending แล้ว): ออฟฟิศกด void = ปฏิเสธ arrived_no_void · INSERT void ตรง = arrived_no_void · ไม่เกิดแถว void ใหม่ · ชิ้นอยู่ที่ส่วนใหม่',
+    (r2 ->> 'ok') = 'true' and (r3 ->> 'ok') = 'true' and pg_temp.sv(j2, 7, 'status') = 'pending'
+    and pg_temp.rej(pg_temp.o_dvoid(p_shop, (r2 ->> 'arrived_id')::uuid, 'ลองยกเลิก'), 'arrived_no_void')
+    and pg_temp.x2(format('insert into analytics.job_discrepancy (shop_id, root_job_id, job_id, from_stage_id, to_stage_id, qty, status, void_of_id, void_reason) select shop_id, root_job_id, job_id, from_stage_id, to_stage_id, qty, ''void'', id, ''x'' from analytics.job_discrepancy where id = %L', (r2 ->> 'arrived_id')::uuid)) like 'ERR:22023:arrived_no_void:%'
+    and pg_temp.drows(j2) = v_rows2 and pg_temp.nlots(j2) = 1);
+  -- C4c ใช้ใบแยก: ย้อนขั้นผู้รับเป็นยังไม่รับก่อน (ด่าน "ขั้นผู้รับต้องยังไม่รับ" จะไม่บังด่าน arrived) เพื่อทดสอบด่านกฎ "arrived เกิดทางเดียว" โดยตรง
+  m2 := pg_temp.mkdisc(p_shop, p_tpl, 50, 47);
+  j2 := (m2 ->> 'job')::uuid; dd2 := (m2 ->> 'disc')::uuid;
+  perform pg_temp.o_reopen(p_shop, j2, 'ย้อนเพื่อทดสอบ');
+  v_log := v_log || pg_temp.chk('C4c', 'INSERT แถว resolved/arrived ตรง (ไม่ผ่านเส้น arrive · flag ปิด · ขั้นผู้รับ pending) = ปฏิเสธ (arrived สร้างได้ทางเดียว) · ไม่เกิดแถว',
+    pg_temp.x2(format('insert into analytics.job_discrepancy (shop_id, root_job_id, job_id, from_stage_id, to_stage_id, qty, status, resolved_kind, resolved_reason, resolved_at) select shop_id, root_job_id, job_id, from_stage_id, to_stage_id, 1, ''resolved'', ''arrived'', ''x'', now() from analytics.job_discrepancy where id = %L', dd2)) like 'ERR:22023:%'
+    and pg_temp.drows(j2) = 'open:3');
   v_log := v_log || pg_temp.chk('C4d', 'flag app.job_arrive ล้างหลัง arrive สำเร็จ (off) · INSERT แถว open ตรงขณะขั้นผู้รับ received (ไม่ผ่านเส้น arrive) = ปฏิเสธ · ไม่เกิดแถว',
-    coalesce(current_setting('app.job_arrive', true), 'off') = 'off'
+    coalesce(nullif(current_setting('app.job_arrive', true), ''), 'off') = 'off'
     and pg_temp.x2(format('insert into analytics.job_discrepancy (shop_id, root_job_id, job_id, from_stage_id, to_stage_id, qty, status) select shop_id, root_job_id, job_id, from_stage_id, to_stage_id, 1, ''open'' from analytics.job_discrepancy where id = %L', rem)) like 'ERR:22023:%'
     and pg_temp.drows(j) = v_rows);
   -- flag ล้างหลัง arrive ที่ถูกปฏิเสธ (ด่านน้ำหนัก/จำนวน) ด้วย
   perform pg_temp.wa(th, sC, rem, 99);
   v_log := v_log || pg_temp.chk('C4e', 'flag ล้างหลัง arrive ที่ถูกปฏิเสธ (qty เกิน) ด้วย · แถวไม่ขยับ',
-    coalesce(current_setting('app.job_arrive', true), 'off') = 'off' and pg_temp.drows(j) = v_rows);
+    coalesce(nullif(current_setting('app.job_arrive', true), ''), 'off') = 'off' and pg_temp.drows(j) = v_rows);
   v_log := v_log || pg_temp.chk('C4f', 'ส่วนที่เกิดจาก arrive: ย้อนขั้นรับขาด (received → pending) = ปฏิเสธ has_split · ขั้นยัง received · ผูก arrive ยังอยู่',
     pg_temp.rej(pg_temp.o_reopen(p_shop, l1, 'ลองย้อน'), 'has_split') and pg_temp.sv(l1, 7, 'status') = 'received' and pg_temp.sv(l1, 7, 'arrive_discrepancy_id') = arr::text);
   v_log := v_log || pg_temp.chk('C4g', 'UPDATE ตรง job_stage.arrive_discrepancy_id ของส่วน (→ null · → แถวอื่น) = ปฏิเสธ · ค่าคงเดิม · ต้นไม้ไม่ drift',
@@ -1244,7 +1289,7 @@ begin
   r := pg_temp.wa(th, sC, dd, 2, null, 3);
   l1 := pg_temp.lot(r); arr := (r ->> 'arrived_id')::uuid; rem := (r ->> 'discrepancy_id')::uuid; ls := pg_temp.sid(l1, 7);
   v_log := v_log || pg_temp.chk('E0', 'baseline: arrive 2 จาก 3 → drift ว่าง · sum_check จริง · job_tree_assert ผ่าน (ไม่ raise) · live 49 + ... รวม = 50',
-    pg_temp.dcount(j) = 0 and pg_temp.sumok(j) and not (pg_temp.q(format('select analytics.job_tree_assert(%L)', j)) ? '_err') and pg_temp.summ(j, 'qty_live_total') = '49');
+    pg_temp.dcount(j) = 0 and pg_temp.sumok(j) and pg_temp.x(format('select analytics.job_tree_assert(%L)', j)) = 'OK' and pg_temp.summ(j, 'qty_live_total') = '49');
 
   -- E1 จำนวนของส่วนใหม่ไม่ตรงกับ arrived (2 → 1)
   execute 'alter table analytics.job disable trigger trg_job_guard';
@@ -1282,16 +1327,16 @@ begin
 
   -- E4 ส่วนใหม่ถูกยกเลิกแบบคืนชิ้นตรง (status cancelled · cancel_scrap_qty null) ทั้งที่คืนไม่ได้
   execute 'alter table analytics.job disable trigger trg_job_guard';
-  update analytics.job set status = 'cancelled' where id = l1;
+  update analytics.job set status = 'cancelled', cancelled_at = now(), cancel_reason = 'verify' where id = l1;
   execute 'alter table analytics.job enable trigger trg_job_guard';
   v_log := v_log || pg_temp.chk('E4', 'ยกเลิกส่วนจาก arrive แบบคืนชิ้นตรง (ไม่มีขั้นแม่รับคืน) → drift มี arrive_link (ชิ้นหายจากต้นไม้) · tree_sum',
     exists (select 1 from analytics.v_job_tree_drift where root_job_id = j and check_code = 'arrive_link')
     and exists (select 1 from analytics.v_job_tree_drift where root_job_id = j and check_code = 'tree_sum'));
   execute 'alter table analytics.job disable trigger trg_job_guard';
-  update analytics.job set status = 'in_progress' where id = l1;
+  update analytics.job set status = 'in_progress', cancelled_at = null, cancel_reason = null where id = l1;
   execute 'alter table analytics.job enable trigger trg_job_guard';
   v_log := v_log || pg_temp.chk('E5', 'คืนค่าทุกอย่างแล้ว: drift ว่าง · sum_check จริง · job_tree_assert ผ่าน · ใบ/ขั้น/แถวส่วนต่างกลับเท่าเดิม',
-    pg_temp.dcount(j) = 0 and pg_temp.sumok(j) and not (pg_temp.q(format('select analytics.job_tree_assert(%L)', j)) ? '_err')
+    pg_temp.dcount(j) = 0 and pg_temp.sumok(j) and pg_temp.x(format('select analytics.job_tree_assert(%L)', j)) = 'OK'
     and pg_temp.jv(l1, 'qty_planned') = '2' and pg_temp.jv(l1, 'status') = 'in_progress' and pg_temp.sv(l1, 7, 'arrive_discrepancy_id') = arr::text
     and (select qty = 2 from analytics.job_discrepancy where id = arr) and pg_temp.drows(j) = 'open:3,void:3,resolved/arrived:2,open:1');
   return v_log;
@@ -1336,8 +1381,9 @@ begin
     not exists (select 1 from pg_proc p where p.pronamespace = 'analytics'::regnamespace and p.proname = any (v_names) and not exists (select 1 from unnest(coalesce(p.proconfig, '{}')) c where c like 'search_path=%'))
     and (select bool_and(prosecdef) from pg_proc where pronamespace = 'analytics'::regnamespace and proname in ('job_discrepancy_arrive', 'job_worker_discrepancy_arrive', 'job_done', 'job_worker_resolve'))
     and not (select prosecdef from pg_proc where pronamespace = 'analytics'::regnamespace and proname = 'job_discrepancy_arrive_core'));
-  v_log := v_log || pg_temp.chk('F6', 'โครงสร้าง: jd_kind_ck มี arrived · job_event_event_type_ck มี discrepancy_arrive + photo_* (ไม่หลุดของ 0182) · uq_job_stage_arrive · js_arrive_fk · js_arrive_split_ck · trigger ส่วนต่างเปิด 2 ตัว',
-    exists (select 1 from pg_constraint where conrelid = 'analytics.job_discrepancy'::regclass and conname = 'jd_kind_ck' and pg_get_constraintdef(oid) like '%arrived%')
+  v_log := v_log || pg_temp.chk('F6', 'โครงสร้าง: job_done_ck นับ job_arrived_qty · jd_kind_ck มี arrived · job_event_event_type_ck มี discrepancy_arrive + photo_* (ไม่หลุดของ 0182) · uq_job_stage_arrive · js_arrive_fk · js_arrive_split_ck · trigger ส่วนต่างเปิด 2 ตัว',
+    exists (select 1 from pg_constraint where conrelid = 'analytics.job'::regclass and conname = 'job_done_ck' and pg_get_constraintdef(oid) like '%job_arrived_qty%')
+    and exists (select 1 from pg_constraint where conrelid = 'analytics.job_discrepancy'::regclass and conname = 'jd_kind_ck' and pg_get_constraintdef(oid) like '%arrived%')
     and exists (select 1 from pg_constraint where conrelid = 'analytics.job_event'::regclass and conname = 'job_event_event_type_ck' and pg_get_constraintdef(oid) like '%discrepancy_arrive%'
                 and pg_get_constraintdef(oid) like '%photo_add%' and pg_get_constraintdef(oid) like '%photo_reorder%' and pg_get_constraintdef(oid) like '%split_cancel%')
     and exists (select 1 from pg_indexes where schemaname = 'analytics' and indexname = 'uq_job_stage_arrive')
@@ -1350,7 +1396,7 @@ begin
                  cross join unnest(array['select', 'insert', 'update', 'delete']) pv
                 where has_table_privilege(r, t, pv)));
   v_log := v_log || pg_temp.chk('F8', 'flag app.job_arrive ไม่ค้างเปิดในการเชื่อมต่อนี้ · event ใหม่ไม่มีใน payload คีย์ต้นทุน/ราคา/ลูกค้า (ตรวจชุดที่เกิดจาก fixture ล่าสุด)',
-    coalesce(current_setting('app.job_arrive', true), 'off') = 'off'
+    coalesce(nullif(current_setting('app.job_arrive', true), ''), 'off') = 'off'
     and not exists (select 1 from analytics.job_event e where e.event_type = 'discrepancy_arrive' and exists (select 1 from unnest(pg_temp.keys_of(e.payload)) k where k ~* '(cost|price|thb|margin|customer|quote_no|baht|amount|token|hash)')));
   return v_log;
 end;
@@ -1424,9 +1470,9 @@ declare
     jsonb_build_object('id', 'MU-14', 'what', 'core: เงิน/ขั้นไม่ชั่งส่งน้ำหนักมาแล้วผ่าน (ถอด weight_unexpected)', 'fn', 'job_discrepancy_arrive_core', 'from', 'elsif p_weight is not null then', 'to', 'elsif false then', 'expect', jsonb_build_array('B6', 'D7')),
     jsonb_build_object('id', 'MU-15', 'what', 'core: ถอดการล็อกครั้งที่ 3 ของช่าง (ไล่เดาน้ำหนักต่อได้)', 'fn', 'job_discrepancy_arrive_core', 'from', 'if p_channel = ''worker_qr'' and v_n_mm >= 3 then', 'to', 'if false then', 'expect', jsonb_build_array('D2a')),
     jsonb_build_object('id', 'MU-16', 'what', 'core: ล็อกหลัง 3 ครั้งไม่มีผลกับครั้งที่ 4 ที่ชั่งถูก', 'fn', 'job_discrepancy_arrive_core', 'from', 'having count(*) >= 3) then', 'to', 'having count(*) >= 3000) then', 'expect', jsonb_build_array('D2a')),
-    jsonb_build_object('id', 'MU-17', 'what', 'core: ออฟฟิศกรอกวันรับเป็นอนาคตได้', 'fn', 'job_discrepancy_arrive_core', 'from', 'or v_on > v_today or', 'to', 'or false or', 'expect', jsonb_build_array('B7')),
-    jsonb_build_object('id', 'MU-18', 'what', 'core: ออฟฟิศย้อนวันรับเกิน 14 วันได้', 'fn', 'job_discrepancy_arrive_core', 'from', 'or v_on < v_today - 14 or', 'to', 'or false or', 'expect', jsonb_build_array('B7')),
-    jsonb_build_object('id', 'MU-19', 'what', 'core: วันรับก่อนวันที่ขั้นต้นทางส่งได้', 'fn', 'job_discrepancy_arrive_core', 'from', 'or v_on < v_fs.sent_on then', 'to', 'then', 'expect', jsonb_build_array('B7')),
+    jsonb_build_object('id', 'MU-17', 'what', 'core: ออฟฟิศกรอกวันรับเป็นอนาคตได้', 'fn', 'job_discrepancy_arrive_core', 'from', 'or v_on > v_today or', 'to', 'or false or', 'expect', jsonb_build_array('B7a')),
+    jsonb_build_object('id', 'MU-18', 'what', 'core: ออฟฟิศย้อนวันรับเกิน 14 วันได้', 'fn', 'job_discrepancy_arrive_core', 'from', 'or v_on < v_today - 14 or', 'to', 'or false or', 'expect', jsonb_build_array('B7a')),
+    jsonb_build_object('id', 'MU-19', 'what', 'core: วันรับก่อนวันที่ขั้นต้นทางส่งได้', 'fn', 'job_discrepancy_arrive_core', 'from', 'or v_on < v_fs.sent_on then', 'to', 'then', 'expect', jsonb_build_array('B7b')),
     jsonb_build_object('id', 'MU-20', 'what', 'core: ผู้ถือที่ออฟฟิศเลือกไม่ถูกใช้ (ใช้ผู้รับเดิมเสมอ)', 'fn', 'job_discrepancy_arrive_core', 'from', 'coalesce(p_holder_worker, case when p_channel = ''worker_qr''', 'to', 'coalesce(null::uuid, case when p_channel = ''worker_qr''', 'expect', jsonb_build_array('A7a', 'D2b')),
     jsonb_build_object('id', 'MU-21', 'what', 'core: เลือกช่างที่ปิดใช้งานเป็นผู้ถือได้', 'fn', 'job_discrepancy_arrive_core', 'from', 'and w.is_active;', 'to', ';', 'expect', jsonb_build_array('B8')),
     jsonb_build_object('id', 'MU-22', 'what', 'core: arrive บางส่วนไม่สร้างแถว open ที่เหลือ (ชิ้นหายจากบัญชี)', 'fn', 'job_discrepancy_arrive_core', 'from', 'if v_rem_qty > 0 then', 'to', 'if false then', 'expect', jsonb_build_array('A2b', 'A3', 'A2e')),
@@ -1450,14 +1496,17 @@ declare
     jsonb_build_object('id', 'MU-40', 'what', 'stage guard: UPDATE arrive_discrepancy_id ของขั้นได้', 'fn', 'job_stage_guard', 'from', 'or new.arrive_discrepancy_id is distinct from old.arrive_discrepancy_id then', 'to', 'then', 'expect', jsonb_build_array('C4g')),
     jsonb_build_object('id', 'MU-41', 'what', 'stage guard: ย้อนขั้นรับขาดของส่วนจาก arrive ได้', 'fn', 'job_stage_guard', 'from', 'old.split_from_stage_id is not null or old.arrive_discrepancy_id is not null', 'to', 'old.split_from_stage_id is not null', 'expect', jsonb_build_array('C4f')),
     jsonb_build_object('id', 'MU-42', 'what', 'stage guard: ส่วนจาก arrive ที่ขั้นแพ็กข้าม QC ไม่ได้', 'fn', 'job_stage_guard', 'from', 'x.seq > new.seq and (x.split_from_stage_id is not null or x.arrive_discrepancy_id is not null)', 'to', 'x.seq > new.seq and (x.split_from_stage_id is not null)', 'expect', jsonb_build_array('A6')),
-    jsonb_build_object('id', 'MU-43', 'what', 'v_job_tree: นับ arrived ซ้ำเป็น ''ชี้แจงแล้ว'' ที่ระดับต้นไม้ (นับสองรอบ)', 'view', 'v_job_tree', 'from', '(dq.resolved_kind IS DISTINCT FROM ''arrived''::text)', 'to', 'true', 'expect', jsonb_build_array('A2e', 'A3')),
-    jsonb_build_object('id', 'MU-44', 'what', 'drift tree_sum: ไม่บวก arrived (ต้นไม้ที่ถูกต้องถูกแจ้ง drift)', 'view', 'v_job_tree_drift', 'from', '(ad.resolved_kind = ''arrived''::text)', 'to', '(false)', 'expect', jsonb_build_array('A2e', 'A3')),
-    jsonb_build_object('id', 'MU-45', 'what', 'drift arrive_link: ถอดการตรวจ arrived ↔ ส่วนใหม่', 'view', 'v_job_tree_drift', 'from', '(d.resolved_kind = ''arrived''::text)', 'to', '(false)', 'expect', jsonb_build_array('E1', 'E2', 'E3', 'E4')),
-    jsonb_build_object('id', 'MU-46', 'what', 'drift lot_split_stage: ไม่นับขั้น arrive เป็นขั้นแยก', 'view', 'v_job_tree_drift', 'from', '((s.split_from_stage_id IS NOT NULL) OR (s.arrive_discrepancy_id IS NOT NULL))', 'to', '(s.split_from_stage_id IS NOT NULL)', 'expect', jsonb_build_array('A2e', 'E0')),
-    jsonb_build_object('id', 'MU-47', 'what', 'สิทธิ์: เปิด RPC ช่างให้ authenticated', 'ddl', 'grant execute on function analytics.job_worker_discrepancy_arrive(text, text, uuid, integer, numeric, integer, text, text) to authenticated', 'expect', jsonb_build_array('F2', 'F3')),
-    jsonb_build_object('id', 'MU-48', 'what', 'สิทธิ์: เปิด RPC ออฟฟิศให้ anon', 'ddl', 'grant execute on function analytics.job_discrepancy_arrive(uuid, uuid, integer, numeric, date, uuid, uuid, integer) to anon', 'expect', jsonb_build_array('F2', 'F3')),
-    jsonb_build_object('id', 'MU-49', 'what', 'สิทธิ์: เปิด core ภายในให้ service_role', 'ddl', 'grant execute on function analytics.job_discrepancy_arrive_core(uuid, integer, numeric, date, uuid, integer, uuid, text, uuid, text, boolean) to service_role', 'expect', jsonb_build_array('F1')),
-    jsonb_build_object('id', 'MU-50', 'what', 'โครงสร้าง: ถอด unique ของ arrive_discrepancy_id (ส่วนใหม่ซ้ำต่อส่วนต่างเดียว)', 'ddl', 'drop index analytics.uq_job_stage_arrive', 'expect', jsonb_build_array('F6'))
+    jsonb_build_object('id', 'MU-43', 'what', 'lot_cancel_core: event ฝั่งแม่ของส่วนจาก arrive ผูกใบแม่ไม่ได้ (กลับไปใช้ขั้นแยกเสมอ → ล้ม)', 'fn', 'job_lot_cancel_core', 'from', 'coalesce(v_ms.job_id, v_l.parent_job_id)', 'to', 'v_ms.job_id', 'expect', jsonb_build_array('A4b')),
+    jsonb_build_object('id', 'MU-44', 'what', 'lot_cancel_core: ส่วนที่แยกตามปกติไม่เก็บ before ของขั้นแม่', 'fn', 'job_lot_cancel_core', 'from', '''before'', case when v_ms.id is not null then analytics.job_stage_state(v_ms) end,', 'to', '''before'', null,', 'expect', jsonb_build_array('C3b')),
+    jsonb_build_object('id', 'MU-45', 'what', 'v_job_tree: นับ arrived ซ้ำเป็น ''ชี้แจงแล้ว'' ที่ระดับต้นไม้ (นับสองรอบ)', 'view', 'v_job_tree', 'from', '(dq.resolved_kind IS DISTINCT FROM ''arrived''::text)', 'to', 'true', 'expect', jsonb_build_array('A2e', 'A3')),
+    jsonb_build_object('id', 'MU-46', 'what', 'drift tree_sum: ไม่บวก arrived (ต้นไม้ที่ถูกต้องถูกแจ้ง drift)', 'view', 'v_job_tree_drift', 'from', '(ad.resolved_kind = ''arrived''::text)', 'to', '(false)', 'expect', jsonb_build_array('A2e', 'A3')),
+    jsonb_build_object('id', 'MU-47', 'what', 'drift arrive_link: ถอดการตรวจ arrived ↔ ส่วนใหม่', 'view', 'v_job_tree_drift', 'from', '(d.resolved_kind = ''arrived''::text)', 'to', '(false)', 'expect', jsonb_build_array('E1', 'E2', 'E3', 'E4')),
+    jsonb_build_object('id', 'MU-48', 'what', 'drift lot_split_stage: ไม่นับขั้น arrive เป็นขั้นแยก', 'view', 'v_job_tree_drift', 'from', '((s.split_from_stage_id IS NOT NULL) OR (s.arrive_discrepancy_id IS NOT NULL))', 'to', '(s.split_from_stage_id IS NOT NULL)', 'expect', jsonb_build_array('A2e', 'E0')),
+    jsonb_build_object('id', 'MU-49', 'what', 'job_done_ck: ถอดการนับ arrived (ปิดใบที่มีส่วนได้รับเพิ่มไม่ได้ — constraint ชนสมการ)', 'ddl', 'alter table analytics.job drop constraint job_done_ck; alter table analytics.job add constraint job_done_ck check (status <> ''done'' or (done_at is not null and qty_good is not null and qty_scrap is not null and (qty_good + qty_scrap + qty_split_out) = qty_planned and (metal <> ''gold'' or not weigh_required or weight_final_g is not null) and (not require_final_weight or weight_final_g is not null)))', 'expect', jsonb_build_array('A5a')),
+    jsonb_build_object('id', 'MU-50', 'what', 'สิทธิ์: เปิด RPC ช่างให้ authenticated', 'ddl', 'grant execute on function analytics.job_worker_discrepancy_arrive(text, text, uuid, integer, numeric, integer, text, text) to authenticated', 'expect', jsonb_build_array('F2', 'F3')),
+    jsonb_build_object('id', 'MU-51', 'what', 'สิทธิ์: เปิด RPC ออฟฟิศให้ anon', 'ddl', 'grant execute on function analytics.job_discrepancy_arrive(uuid, uuid, integer, numeric, date, uuid, uuid, integer) to anon', 'expect', jsonb_build_array('F2', 'F3')),
+    jsonb_build_object('id', 'MU-52', 'what', 'สิทธิ์: เปิด core ภายในให้ service_role', 'ddl', 'grant execute on function analytics.job_discrepancy_arrive_core(uuid, integer, numeric, date, uuid, integer, uuid, text, uuid, text, boolean) to service_role', 'expect', jsonb_build_array('F1')),
+    jsonb_build_object('id', 'MU-53', 'what', 'โครงสร้าง: ถอด unique ของ arrive_discrepancy_id (ส่วนใหม่ซ้ำต่อส่วนต่างเดียว)', 'ddl', 'drop index analytics.uq_job_stage_arrive', 'expect', jsonb_build_array('F6'))
   );
 begin
   perform set_config('request.jwt.claims', '{"role":"service_role"}', true);
