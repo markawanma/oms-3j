@@ -41,7 +41,7 @@ export async function loadJobLots(rootJobId: string, stageNames: Record<string, 
     if (sumRes.error) throw sumRes.error;
     if (lossRes.error) throw lossRes.error;
 
-    const stageById: Record<string, { name: string }> = {};
+    const stageById: Record<string, { name: string; code: string; weighRequired: boolean }> = {};
     const byJob = new Map<string, LotPart>(parts.map((p) => [p.jobId, p]));
     const pendingId = new Map<string, string>(); // job_id → id ของขั้นรอรับต่ำสุด
     const stagesOf = new Map<string, { id: string; seq: number; status: string; qtyIn: number | null; qtyOut: number | null }[]>();
@@ -52,12 +52,13 @@ export async function loadJobLots(rootJobId: string, stageNames: Record<string, 
       const seq = typeof s.seq === "number" ? s.seq : null;
       if (!id || !jobId || !code || seq === null) continue;
       const name = stageNames[code] ?? code;
-      stageById[id] = { name };
+      stageById[id] = { name, code, weighRequired: s.weigh_required === true };
       const list = stagesOf.get(jobId) ?? [];
       list.push({ id, seq, status: typeof s.status === "string" ? s.status : "", qtyIn: typeof s.qty_in === "number" ? s.qty_in : null, qtyOut: typeof s.qty_out === "number" ? s.qty_out : null });
       stagesOf.set(jobId, list);
       const part = byJob.get(jobId);
       if (!part) continue;
+      if (typeof s.arrive_discrepancy_id === "string" && s.arrive_discrepancy_id !== "") part.fromArrive = true;
       if (s.status === "received") {
         part.holdSeq = seq;
         part.holdWeighRequired = s.weigh_required === true;

@@ -215,7 +215,7 @@ export function JobDetailClient({ data }: { data: JobDetailData }) {
       {dlg?.t === "reason" && <ReasonDialog jobId={job.id} spec={dlg.spec} onClose={() => setDlg(null)} />}
       {dlg?.t === "label" && <DesignLabelDialog jobId={job.id} current={job.designLabel} onClose={() => setDlg(null)} />}
       {dlg?.t === "due" && <DueDialog jobId={job.id} current={job.dueDate} todayTh={todayTh} onClose={() => setDlg(null)} />}
-      {dlg?.t === "done" && <DoneDialog jobId={job.id} planned={job.qtyPlanned} qtyOrder={job.qtyOrder} sourceKind={job.sourceKind} metal={job.metal} requireFinalWeight={job.requireFinalWeight} weighRequired={job.weighRequired} recordedScrap={stages.reduce((n, s) => n + s.qtyScrap, 0) + (rootPart?.qtyDiscrepancyResolved ?? 0)} qtySplitOut={rootPart?.qtySplitOut ?? 0} onClose={() => setDlg(null)} />}
+      {dlg?.t === "done" && <DoneDialog jobId={job.id} planned={job.qtyPlanned} qtyOrder={job.qtyOrder} sourceKind={job.sourceKind} metal={job.metal} requireFinalWeight={job.requireFinalWeight} weighRequired={job.weighRequired} recordedScrap={stages.reduce((n, s) => n + s.qtyScrap, 0) + (rootPart?.qtyDiscrepancyResolved ?? 0)} qtySplitOut={rootPart?.qtySplitOut ?? 0} qtyArrived={rootPart?.qtyDiscrepancyArrived ?? 0} onClose={() => setDlg(null)} />}
       {dlg?.t === "profile" && <ChangeProfileDialog jobId={job.id} metal={job.metal} stages={stages} currentProfileId={job.profileId} onClose={() => setDlg(null)} />}
       {dlg?.t === "qty" && <QtyPlannedDialog jobId={job.id} qtyOrder={job.qtyOrder} current={job.qtyPlanned} hasOverride={typeof job.metalPlanBasis?.override_g === "number"} hasTarget={job.targetPieceG !== null} onClose={() => setDlg(null)} />}
       {dlg?.t === "plan" && (

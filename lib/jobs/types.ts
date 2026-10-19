@@ -65,6 +65,8 @@ export const EVENT_TYPE_LABEL: Record<string, string> = {
   split_cancel: "ยกเลิกส่วน",
   discrepancy: "รับไม่ครบ (ส่วนต่าง)",
   discrepancy_resolve: "ชี้แจงส่วนต่าง",
+  // 0183: ส่วนต่างทางที่ 3 "ได้รับเพิ่มแล้ว" (ของนับผิด/ส่งตามมาทีหลัง → ส่วนใหม่)
+  discrepancy_arrive: "ได้รับเพิ่มแล้ว (ส่วนต่าง)",
 };
 
 export const CHANNEL_LABEL: Record<string, string> = {

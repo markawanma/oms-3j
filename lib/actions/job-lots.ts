@@ -5,7 +5,8 @@
 // ไม่มีตัวเลขเงิน/ต้นทุนในผลลัพธ์ · token ดิบไม่ผ่านไฟล์นี้ (ออก QR ใบย่อยผ่าน issueJobQr ใน job-office-write.ts)
 
 import { revalidatePath } from "next/cache";
-import { isUuid, parseCount, parseLabel, parsePieces, parseScrapReason, parseSeq, parseText, parseWeight } from "@/lib/jobs/input";
+import { effectiveDateBangkok } from "@/lib/tiktok/format";
+import { isUuid, parseCount, parseDate, parseLabel, parsePieces, parseScrapReason, parseSeq, parseText, parseWeight } from "@/lib/jobs/input";
 import { callOffice, fail, guard } from "@/lib/jobs/office-server";
 import type { JobResult } from "@/lib/jobs/office-server";
 
@@ -151,6 +152,81 @@ export async function resolveDiscrepancyOffice(i: ResolveDiscrepancyOfficeInput)
   if (!r.ok) return r;
   revalidatePath("/jobs");
   return { ok: true, data: { qty: num(r.data.qty) } };
+}
+
+export interface ArriveDiscrepancyOfficeInput {
+  discrepancyId: string;
+  /** กี่ชิ้นที่ได้รับเพิ่ม (1 ≤ n ≤ ส่วนต่างที่ค้าง · DB ตรวจ) */
+  qty: number | string;
+  /** ทอง + ขั้นที่รับขาดตั้งชั่ง = บังคับ (DB ตอบ arrive_weight_required · น้ำหนักไม่ตรงกับส่วนที่ขาด (ทั้งสองทิศ) = arrive_heavy) · เงิน/ขั้นไม่ชั่ง = ห้ามส่ง (weight_unexpected) */
+  weightG?: number | string | null;
+  /** วันที่รับของจริง (YYYY-MM-DD · ไม่อนาคต · ย้อน ≤ 14 วัน · ไม่ก่อนวันที่ขั้นต้นทางส่ง) — ว่าง = วันนี้ */
+  receivedOn?: string | null;
+  /** ผู้ถือชิ้นที่มาถึง (ช่างที่ใช้งานอยู่ของร้าน) — ว่าง = ผู้รับเดิมของขั้นนั้น */
+  workerId?: string | null;
+  /** จำนวนส่วนต่างที่ค้างตามที่เห็นบนจอ (CAS · หน้าจอเก่า/กดซ้ำ → DB ตอบ stage_changed) */
+  expectedOpen?: number | string | null;
+}
+export interface ArriveDiscrepancyOfficeResult {
+  qty: number;
+  qtyRemaining: number;
+  /** แถวส่วนต่างที่ยังค้าง (id ใหม่ — ใช้กดต่อ) · null = ครบ */
+  remainingDiscrepancyId: string | null;
+  lot: { lotJobId: string; lotSeq: number; label: string; stageCode: string | null };
+}
+
+/**
+ * ออฟฟิศบันทึก "ได้รับเพิ่มแล้ว" แทนช่าง (0183 · มติ 20 ต.ค.) — ชิ้นที่มาถึงเป็นส่วนใหม่ที่ขั้นที่รับขาด (received) · ได้ไม่ครบ = ที่เหลือยังค้าง
+ * ต่างจากช่าง: เลือกวันรับ/ผู้ถือได้ · ไม่ถูกล็อก 3 ครั้งของน้ำหนักทอง · เห็นข้อความจริงของ DB
+ */
+export async function arriveDiscrepancyOffice(i: ArriveDiscrepancyOfficeInput): Promise<JobResult<ArriveDiscrepancyOfficeResult>> {
+  const g = await guard();
+  if (g) return g;
+  if (typeof i !== "object" || i === null || !isUuid(i.discrepancyId)) return fail("ไม่พบส่วนต่างนี้");
+  const qty = parsePieces(i.qty, "จำนวนที่ได้รับเพิ่ม");
+  if (!qty.ok) return fail(qty.error);
+  const w = parseWeight(i.weightG ?? null, "น้ำหนักชิ้นที่มาถึง");
+  if (!w.ok) return fail(w.error);
+  let receivedOn: string | null = null;
+  if (i.receivedOn != null && i.receivedOn !== "") {
+    const d = parseDate(i.receivedOn, "วันที่รับ");
+    if (!d.ok) return fail(d.error);
+    const today = effectiveDateBangkok(new Date().toISOString());
+    if (d.value > today) return fail("วันที่ต้องไม่อยู่ในอนาคต");
+    const diff = Math.round((Date.parse(`${today}T00:00:00Z`) - Date.parse(`${d.value}T00:00:00Z`)) / 86_400_000);
+    if (diff > 14) return fail("ย้อนหลังได้ไม่เกิน 14 วัน");
+    receivedOn = d.value;
+  }
+  if (i.workerId != null && i.workerId !== "" && !isUuid(i.workerId)) return fail("เลือกช่างไม่ถูกต้อง");
+  let expectedOpen: number | null = null;
+  if (i.expectedOpen != null && i.expectedOpen !== "") {
+    const e = parsePieces(i.expectedOpen, "จำนวนส่วนต่างที่ค้าง");
+    if (!e.ok) return fail("โหลดหน้าใหม่แล้วลองอีกครั้ง (ข้อมูลส่วนต่างไม่ถูกต้อง)");
+    expectedOpen = e.value;
+  }
+  const r = await callOffice<Raw>("job_discrepancy_arrive", {
+    p_discrepancy_id: i.discrepancyId, p_qty: qty.value,
+    // ส่งเฉพาะที่ระบุ (ค่าเริ่มของ RPC = null → วันนี้/ผู้รับเดิม)
+    ...(w.value !== null ? { p_weight_g: w.value } : {}), ...(receivedOn !== null ? { p_received_on: receivedOn } : {}),
+    ...(i.workerId ? { p_worker_id: i.workerId } : {}), ...(expectedOpen !== null ? { p_expected_open: expectedOpen } : {}),
+  });
+  if (!r.ok) return r;
+  const q = num(r.data.qty);
+  const remaining = num(r.data.qty_remaining);
+  const lotJobId = typeof r.data.lot_job_id === "string" && isUuid(r.data.lot_job_id) ? r.data.lot_job_id : null;
+  const lotSeq = num(r.data.lot_seq);
+  if (q === null || remaining === null || !lotJobId || lotSeq === null) return fail("ทำรายการไม่สำเร็จ ลองใหม่อีกครั้ง");
+  revalidatePath("/jobs");
+  revalidatePath(`/jobs/${lotJobId}`);
+  return {
+    ok: true,
+    data: {
+      qty: q,
+      qtyRemaining: remaining,
+      remainingDiscrepancyId: typeof r.data.discrepancy_id === "string" && isUuid(r.data.discrepancy_id) ? r.data.discrepancy_id : null,
+      lot: { lotJobId, lotSeq, label: str(r.data.label) ?? "", stageCode: str(r.data.stage_code, 40) },
+    },
+  };
 }
 
 /** ออฟฟิศ void ส่วนต่าง (ของไม่ได้หายจริง/บันทึกผิด) — ต้องย้อนขั้นผู้รับเป็นยังไม่รับก่อน (DB ตอบ stage_not_pending) แล้วผู้รับรับใหม่เต็มจำนวน */

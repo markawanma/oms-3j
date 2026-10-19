@@ -88,4 +88,42 @@ export function receiveButtonLabel(expected: number | null, v: ReceiveView | nul
   return `รับ ${v.got} ชิ้น`;
 }
 
+// ---------------------------------------------------------------------------
+// ได้รับเพิ่มแล้ว (0183 · ส่วนต่างทางที่ 3) — ผู้รับของขั้นที่รับขาดบันทึกว่าชิ้นที่ขาดมาถึงแล้วกี่ชิ้น (open = ที่ยังค้าง · n = ได้รับเพิ่ม)
+// ใช้สูตรเดียวกับ receiveView (ได้รับ/ขาด) — ขาด = ยังค้าง · ไม่มีน้ำหนักใดๆ (N1)
+// ---------------------------------------------------------------------------
+export type ArriveState = "all" | "partial" | "empty" | "over";
+
+export interface ArriveView {
+  /** ยังค้างก่อนกด */
+  open: number;
+  /** ได้รับเพิ่ม (0 เมื่อ empty/over) */
+  got: number;
+  /** ยังค้างหลังกด (0 เมื่อ all/empty/over) */
+  remaining: number;
+  state: ArriveState;
+}
+
+export function arriveView(i: { open: number; n: number | null }): ArriveView {
+  if (i.n === null) return { open: i.open, got: 0, remaining: 0, state: "empty" };
+  if (i.n > i.open) return { open: i.open, got: 0, remaining: 0, state: "over" };
+  if (i.n === i.open) return { open: i.open, got: i.n, remaining: 0, state: "all" };
+  return { open: i.open, got: i.n, remaining: i.open - i.n, state: "partial" };
+}
+
+/** ปุ่มหลัก: "รับเพิ่ม n ชิ้น" · ว่าง/เกิน บอกเหตุที่ปิดปุ่ม */
+export function arriveButtonLabel(v: ArriveView): string {
+  if (v.state === "empty") return "ใส่จำนวนที่ได้รับเพิ่ม";
+  if (v.state === "over") return `ได้รับเพิ่มได้ไม่เกิน ${v.open} ชิ้น`;
+  return `รับเพิ่ม ${v.got} ชิ้น`;
+}
+
+export const arriveDisabled = (s: ArriveState): boolean => s === "empty" || s === "over";
+
+/** ข้อความหลังสำเร็จ (จอ ✓ เต็มจอ): ชิ้นที่มาถึงถืออยู่ที่ขั้นเดิม ส่งต่อได้ · ยังค้าง → บอกตัวเลข */
+export function arriveDoneMessage(qty: number, remaining: number, stageName: string): string {
+  const base = `รับเพิ่ม ${qty} ชิ้นแล้ว · ถืออยู่ที่ขั้น ${stageName} ส่งต่อได้`;
+  return remaining > 0 ? `${base} · ยังค้าง ${remaining} ชิ้น` : base;
+}
+
 export const receiveDisabled = (s: ReceiveState): boolean => s === "empty" || s === "over" || s === "none";
