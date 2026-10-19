@@ -57,6 +57,29 @@ describe("workerSendStage — ส่งต่อ n จาก N", () => {
     ]) expect((await workerSendStage(TOKEN, i as never)).ok).toBe(false);
     expect(rpcMock).not.toHaveBeenCalled();
   });
+  it("H2 ทองชั่งตอนแบ่ง: weightMoveG ส่งเป็น p_weight_move_g (เฉพาะเมื่อระบุ) · 0/ติดลบ/4 ทศนิยม/ข้อความ/ไม่ใช่การแยก = ไม่ถึง DB", async () => {
+    await workerSendStage(TOKEN, { ...SEND, qtySend: 10, qtyHold: 50, weightMoveG: "20.5", lotJobId: LOT });
+    expect(paramsOf()).toMatchObject({ p_qty_send: 10, p_qty_hold: 50, p_weight_move_g: 20.5 });
+    await workerSendStage(TOKEN, { ...SEND, qtySend: 10, qtyHold: 50 });
+    expect(paramsOf(1)).not.toHaveProperty("p_weight_move_g");
+    rpcMock.mockClear();
+    for (const w of [0, "0", -1, "1.2345", "abc", NaN]) expect((await workerSendStage(TOKEN, { ...SEND, qtySend: 10, qtyHold: 50, weightMoveG: w } as never)).ok).toBe(false);
+    expect((await workerSendStage(TOKEN, { ...SEND, weightMoveG: "5" })).ok).toBe(false);
+    expect(rpcMock).not.toHaveBeenCalled();
+  });
+  it("DB ตอบ weight_move_required / office_required → ข้อความไทยตายตัว ไม่มีตัวเลข", async () => {
+    for (const code of ["weight_move_required", "office_required"]) {
+      rpcMock.mockResolvedValue({ data: { ok: false, code, message: "x" }, error: null });
+      const r = code === "office_required"
+        ? await workerResolveDiscrepancyAction(TOKEN, { discrepancyId: DISC, kind: "lost", reason: "missing" })
+        : await workerSendStage(TOKEN, { ...SEND, qtySend: 10, qtyHold: 50, weightMoveG: "5" });
+      expect(r.ok).toBe(false);
+      if (!r.ok) {
+        expect(r.code).toBe(code);
+        expect(r.error).not.toMatch(/\d/);
+      }
+    }
+  });
   it("ส่งทั้งหมดที่ถือ (qtySend = qtyHold) พร้อมน้ำหนัก = ผ่านด่านฝั่งแอป (น้ำหนักห้ามเฉพาะตอนแยกจริง)", async () => {
     const r = await workerSendStage(TOKEN, { ...SEND, weightOut: "9.9", qtySend: 100, qtyHold: 100 });
     expect(r.ok).toBe(true);
@@ -130,7 +153,7 @@ describe("loadWorkerView — หลายส่วน (next_action = multi)", ()
       { lot_job_id: "bad", label: "x", lot_seq: 2, qty_planned: 1 },
     ],
     my_actions: [
-      { lot_job_id: LOT, label: "JB-0020 · ส่วนที่ 1", action: "explain", stage_seq: 4, stage_code: "cast", stage_name: "หล่อ", weight_required: false, scrap_qty_ask: false, scrap_weight_ask: false, qty_hold: null, qty_expected: null, discrepancy_id: DISC, qty: 5 },
+      { lot_job_id: LOT, label: "JB-0020 · ส่วนที่ 1", action: "explain", stage_seq: 4, stage_code: "cast", stage_name: "หล่อ", weight_required: false, scrap_qty_ask: false, scrap_weight_ask: false, qty_hold: null, qty_expected: null, discrepancy_id: DISC, qty: 5, office_only: true },
       { lot_job_id: LOT, label: "x", action: "hack", stage_seq: 1, stage_code: "cast" },
     ],
   };
@@ -143,7 +166,7 @@ describe("loadWorkerView — หลายส่วน (next_action = multi)", ()
     expect(r.data.parts).toHaveLength(1);
     expect(r.data.parts?.[0]).toEqual({ lotJobId: LOT, label: "JB-0020 · ส่วนที่ 1", lotSeq: 1, status: "in_progress", qtyPlanned: 40, qtyLive: 40, stageCode: "cut_sprue", stageName: "ตัดต้น", holderName: null, days: 0, isMine: false, canCancelSplit: true });
     expect(r.data.myActions).toHaveLength(1);
-    expect(r.data.myActions?.[0]).toMatchObject({ action: "explain", discrepancyId: DISC, qty: 5 });
+    expect(r.data.myActions?.[0]).toMatchObject({ action: "explain", discrepancyId: DISC, qty: 5, officeOnly: true });
     expect(findForbiddenKeys(r.data)).toEqual([]);
     expect(JSON.stringify(r.data)).not.toContain("unit_cost");
   });

@@ -5,7 +5,7 @@
 // ไม่มีตัวเลขเงิน/ต้นทุนในผลลัพธ์ · token ดิบไม่ผ่านไฟล์นี้ (ออก QR ใบย่อยผ่าน issueJobQr ใน job-office-write.ts)
 
 import { revalidatePath } from "next/cache";
-import { isUuid, parseCount, parseScrapReason, parseSeq, parseText } from "@/lib/jobs/input";
+import { isUuid, parseCount, parseScrapReason, parseSeq, parseText, parseWeight } from "@/lib/jobs/input";
 import { callOffice, fail, guard } from "@/lib/jobs/office-server";
 import type { JobResult } from "@/lib/jobs/office-server";
 
@@ -30,8 +30,10 @@ export interface SplitLotInput {
   qty: number | string;
   qtyScrap?: number;
   scrapReason?: string | null;
-  /** จำนวนที่ถืออยู่ตามที่เห็นบนจอ (กดซ้ำ → DB ตอบ stage_changed) — ว่าง = ไม่ตรวจ */
-  qtyHold?: number | string | null;
+  /** จำนวนที่ถืออยู่ตามที่เห็นบนจอ — บังคับ (L4: กดซ้ำ → DB ตอบ stage_changed · ไม่ส่ง = ไม่เรียก DB) */
+  qtyHold: number | string;
+  /** H2 (มติ 19 ต.ค. ทองชั่งตอนแบ่ง): น้ำหนักส่วนที่แยกออก (กรัม) — บังคับเมื่อทอง + ขั้นตั้งชั่ง (DB ตอบ weight_move_required) · เงิน/ขั้นไม่ชั่ง = ห้ามส่ง */
+  weightMoveG?: number | string | null;
 }
 export interface SplitLotResult {
   lotJobId: string;
@@ -54,15 +56,19 @@ export async function splitJobLot(i: SplitLotInput): Promise<JobResult<SplitLotR
   if (!scrap.ok) return fail(scrap.error);
   const reason = parseScrapReason(i.scrapReason ?? null, scrap.value);
   if (!reason.ok) return fail(reason.error);
-  let hold: number | null = null;
-  if (i.qtyHold != null && i.qtyHold !== "") {
-    const h = pieces(i.qtyHold, "จำนวนที่ถืออยู่");
-    if (!h.ok) return fail(h.error);
-    hold = h.value;
+  const h = pieces(i.qtyHold, "จำนวนที่ถืออยู่");
+  if (!h.ok) return fail("โหลดหน้าใหม่แล้วลองอีกครั้ง (ไม่ทราบจำนวนที่ถืออยู่)");
+  let weightMove: number | null = null;
+  if (i.weightMoveG != null && i.weightMoveG !== "") {
+    const wm = parseWeight(i.weightMoveG, "น้ำหนักส่วนที่แยกออก");
+    if (!wm.ok) return fail(wm.error);
+    if (wm.value === null || wm.value <= 0) return fail("น้ำหนักส่วนที่แยกออกต้องมากกว่า 0");
+    weightMove = wm.value;
   }
   const r = await callOffice<Raw>("job_lot_split", {
     p_job_id: i.jobId, p_expected_seq: seq.value, p_qty: qty.value, p_qty_scrap: scrap.value, p_scrap_reason: reason.value,
-    ...(hold !== null ? { p_qty_hold: hold } : {}),
+    p_qty_hold: h.value,
+    ...(weightMove !== null ? { p_weight_move_g: weightMove } : {}),
   });
   if (!r.ok) return r;
   const lotJobId = typeof r.data.lot_job_id === "string" && isUuid(r.data.lot_job_id) ? r.data.lot_job_id : null;

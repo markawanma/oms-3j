@@ -44,14 +44,14 @@ const lastRpc = () => rpcMock.mock.calls.at(-1) as [string, Record<string, unkno
 describe("สิทธิ์ — ไม่ใช่ owner/admin = ไม่ถึง DB ทุก action", () => {
   it("staff/ไม่มี session", async () => {
     roleMock.mockResolvedValue("staff");
-    expect((await splitJobLot({ jobId: JOB, expectedSeq: 4, qty: 5 })).ok).toBe(false);
+    expect((await splitJobLot({ jobId: JOB, expectedSeq: 4, qty: 5, qtyHold: 10 })).ok).toBe(false);
     expect((await cancelJobLot({ lotJobId: LOT, reason: "x", disposition: "return_to_parent" })).ok).toBe(false);
     expect((await resolveDiscrepancyOffice({ discrepancyId: DISC, kind: "lost", reason: "missing" })).ok).toBe(false);
     expect((await voidDiscrepancy(DISC, "x")).ok).toBe(false);
     expect((await listJobQr(JOB)).ok).toBe(false);
     roleMock.mockResolvedValue("owner");
     requireSessionMock.mockRejectedValue(new Error("no session"));
-    expect((await splitJobLot({ jobId: JOB, expectedSeq: 4, qty: 5 })).ok).toBe(false);
+    expect((await splitJobLot({ jobId: JOB, expectedSeq: 4, qty: 5, qtyHold: 10 })).ok).toBe(false);
     expect(rpcMock).not.toHaveBeenCalled();
   });
 });
@@ -72,16 +72,40 @@ describe("splitJobLot", () => {
       { jobId: JOB, expectedSeq: 4, qty: 100001 }, { jobId: JOB, expectedSeq: 4, qty: NaN }, { jobId: JOB, expectedSeq: 4, qty: 5, qtyScrap: 2 },
       { jobId: JOB, expectedSeq: 4, qty: 5, qtyScrap: 2, scrapReason: "ตกพื้น" }, { jobId: JOB, expectedSeq: 4, qty: 5, qtyHold: 0 }, null,
     ];
-    for (const b of bads) expect((await splitJobLot(b as never)).ok).toBe(false);
+    for (const b of bads) expect((await splitJobLot({ qtyHold: 10, ...(b as object) } as never)).ok).toBe(false);
     expect(rpcMock).not.toHaveBeenCalled();
   });
   it("DB ปฏิเสธ (22023 + hint) → ข้อความไทย + code = hint · ผลที่รูปไม่ครบ = ข้อความกลาง", async () => {
     rpcMock.mockResolvedValue({ data: null, error: { code: "22023", message: "จำนวนที่แยก (รวมของเสีย) ต้องมากกว่า 0 และต้องเหลือกับผู้ถืออย่างน้อย 1 ชิ้น", hint: "qty_invalid" } });
-    const r = await splitJobLot({ jobId: JOB, expectedSeq: 4, qty: 10 });
+    const r = await splitJobLot({ jobId: JOB, expectedSeq: 4, qty: 10, qtyHold: 20 });
     expect(r).toEqual({ ok: false, error: "จำนวนที่แยก (รวมของเสีย) ต้องมากกว่า 0 และต้องเหลือกับผู้ถืออย่างน้อย 1 ชิ้น", code: "qty_invalid" });
     rpcMock.mockResolvedValue({ data: { ok: true }, error: null });
-    expect((await splitJobLot({ jobId: JOB, expectedSeq: 4, qty: 10 })).ok).toBe(false);
+    expect((await splitJobLot({ jobId: JOB, expectedSeq: 4, qty: 10, qtyHold: 20 })).ok).toBe(false);
     expect(JSON.stringify(errSpy.mock.calls)).not.toContain(JOB);
+  });
+});
+
+describe("splitJobLot — L4 บังคับ qtyHold · H2 น้ำหนักส่วนที่แยก (ทองชั่งตอนแบ่ง)", () => {
+  it("ไม่ส่ง qtyHold / qtyHold ผิดรูป = ไม่ถึง DB (L4)", async () => {
+    for (const h of [undefined, null, "", 0, "0", 2.5, "1,5", -1, 100001]) expect((await splitJobLot({ jobId: JOB, expectedSeq: 4, qty: 5, qtyHold: h } as never)).ok).toBe(false);
+    expect(rpcMock).not.toHaveBeenCalled();
+  });
+  it("weightMoveG: ไม่ระบุ = ไม่ส่ง p_weight_move_g · ระบุ = ส่ง · 0/ติดลบ/4 ทศนิยม/NaN/Infinity/ข้อความ = ไม่ถึง DB", async () => {
+    rpcMock.mockResolvedValue({ data: { ok: true, lot_job_id: LOT, lot_seq: 1, label: "JB-1 · ส่วนที่ 1", qty: 10, parent_remaining: 40 }, error: null });
+    await splitJobLot({ jobId: JOB, expectedSeq: 4, qty: 10, qtyHold: 50 });
+    expect(lastRpc()[1]).not.toHaveProperty("p_weight_move_g");
+    await splitJobLot({ jobId: JOB, expectedSeq: 4, qty: 10, qtyHold: 50, weightMoveG: "20.5" });
+    expect(lastRpc()[1].p_weight_move_g).toBe(20.5);
+    rpcMock.mockClear();
+    for (const w of [0, "0", -1, "-3", 1.2345, "1.2345", NaN, Infinity, "abc", "1,2,3", 100001]) {
+      expect((await splitJobLot({ jobId: JOB, expectedSeq: 4, qty: 10, qtyHold: 50, weightMoveG: w } as never)).ok).toBe(false);
+    }
+    expect(rpcMock).not.toHaveBeenCalled();
+  });
+  it("DB ตอบ weight_move_required → ข้อความไทยตายตัวไม่มีตัวเลข + code", async () => {
+    rpcMock.mockResolvedValue({ data: null, error: { code: "22023", message: "ทองที่ขั้นชั่ง: ต้องชั่งน้ำหนักส่วนที่แยกออกก่อน", hint: "weight_move_required" } });
+    const r = await splitJobLot({ jobId: JOB, expectedSeq: 4, qty: 10, qtyHold: 50 });
+    expect(r).toEqual({ ok: false, error: "ทองที่ขั้นชั่ง: ต้องชั่งน้ำหนักส่วนที่แยกออกก่อน", code: "weight_move_required" });
   });
 });
 
@@ -141,6 +165,11 @@ describe("listJobQr · issueJobQr (ใบย่อย) · revokeJobQr (ราย
     const r1 = await issueJobQr(JOB, true, { purpose: "sublot", lotJobId: LOT });
     expect(lastRpc()[1]).toEqual({ p_job_id: JOB, p_purpose: "sublot", p_lot_job_id: LOT, p_shop_id: SHOP, p_actor: USER });
     expect(r1.ok && JSON.stringify(r1).includes(RAW_TOKEN)).toBe(false);
+    // L6: keepPrevious=false (ที่ UI เดิมใช้แปลว่า "เพิกถอนของเก่า") ไม่ทำให้ใบย่อยเพิกถอนทุกใบ — เพิกถอนต้องเลือกชัด (revokePrevious: true)
+    await issueJobQr(JOB, false, { purpose: "sublot", lotJobId: LOT });
+    expect(lastRpc()[1]).not.toHaveProperty("p_revoke_previous");
+    await issueJobQr(JOB, true, { purpose: "sublot", lotJobId: LOT, revokePrevious: true });
+    expect(lastRpc()[1].p_revoke_previous).toBe(true);
     rpcMock.mockClear();
     expect((await issueJobQr(JOB, true, { purpose: "evil", lotJobId: LOT } as never)).ok).toBe(false);
     expect((await issueJobQr(JOB, true, { purpose: "sublot", lotJobId: "x" })).ok).toBe(false);

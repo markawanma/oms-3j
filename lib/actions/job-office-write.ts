@@ -33,6 +33,8 @@ export interface IssuedQr {
 export interface IssueQrOpts {
   purpose: "sublot" | "delivery_note";
   lotJobId: string;
+  /** L6 (security): ค่าเริ่ม = ไม่เพิกถอน QR ใบไหนเลย (รวมใบงานหลัก) — เพิกถอนต้องเป็นการเลือกชัด (true) · ไม่อิง keepPrevious */
+  revokePrevious?: boolean;
 }
 
 export async function issueJobQr(jobId: string, keepPrevious: boolean, opts?: IssueQrOpts): Promise<JobResult<IssuedQr>> {
@@ -44,7 +46,7 @@ export async function issueJobQr(jobId: string, keepPrevious: boolean, opts?: Is
   const origin = await currentAppOrigin();
   if (!origin.ok) return fail(origin.error);
   const r = await callOffice<Raw>("job_token_issue", opts
-    ? { p_job_id: jobId, p_purpose: opts.purpose, p_lot_job_id: opts.lotJobId, ...(keepPrevious === false ? { p_revoke_previous: true } : {}) }
+    ? { p_job_id: jobId, p_purpose: opts.purpose, p_lot_job_id: opts.lotJobId, ...(opts.revokePrevious === true ? { p_revoke_previous: true } : {}) }
     : { p_job_id: jobId, p_revoke_previous: keepPrevious !== true });
   if (!r.ok) return r;
   const token = r.data.token;
