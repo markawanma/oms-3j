@@ -3,6 +3,7 @@
 import { describe, expect, it } from "vitest";
 import {
   OEM_BAR_OVERRIDE_MAX_DAYS,
+  OEM_DEFAULT_PURITY,
   addDaysIso,
   aggregateQuotePreview,
   applyProductSelection,
@@ -404,7 +405,7 @@ describe("buildJobInput — งานผลิต: ราคาต่อชิ�
 
   it("ทอง/ทองเหลืองก็ใช้ได้เหมือนเงิน", () => {
     for (const metal of ["gold", "brass"] as const) {
-      const job = prodJob({ metal, purity: metal === "gold" ? "0.965" : "1", unitPriceOverrideThb: "900", priceOverrideReason: "ปิดดีล" });
+      const job = prodJob({ metal, purity: metal === "gold" ? "96.50" : "100", unitPriceOverrideThb: "900", priceOverrideReason: "ปิดดีล" });
       expect(buildJobInput(job)?.unitPriceOverrideThb).toBe(900);
     }
   });
@@ -432,5 +433,64 @@ describe("buildJobInput — งานผลิต: ราคาต่อชิ�
     const product = { ...createJobForm(30), metal: "product" as const, qty: "1", unitPriceThb: "100", productName: "ค่าส่ง", unitCostThb: "50", unitPriceOverrideThb: "900" };
     expect(jobHasProductionOverride(product)).toBe(false);
     expect(buildJobInput(product)).not.toHaveProperty("unitPriceOverrideThb");
+  });
+});
+
+// ============================================================================
+// 18 ต.ค. 69: ช่อง "ความบริสุทธิ์" กรอกเป็น % (92.50) — form state เป็นสตริง % · payload ไป calc/save ยังเป็นสัดส่วน 0..1
+// (ไม่คิดเงินที่นี่ — แปลงหน่วยค่าที่กรอกอย่างเดียว · ตัวแปลงอยู่ lib/units/purity.ts)
+// ============================================================================
+describe("buildJobInput — ความบริสุทธิ์เป็น % → payload เป็นสัดส่วน", () => {
+  it("ค่าเริ่มต้นจากโลหะเติมเป็น % (เงิน 92.50 · ทองเหลือง 100.00 · ทองว่าง)", () => {
+    expect(OEM_DEFAULT_PURITY.silver).toBe("92.50");
+    expect(OEM_DEFAULT_PURITY.brass).toBe("100.00");
+    expect(OEM_DEFAULT_PURITY.gold).toBe("");
+    expect(createJobForm(30).purity).toBe("92.50");
+  });
+
+  it("ค่าเริ่มต้นเงิน (ไม่แตะช่อง) → purity ใน payload = 0.925 เป๊ะ (เทียบเท่าของเดิม)", () => {
+    expect(buildJobInput(prodJob())?.purity).toBe(0.925);
+  });
+
+  it("ทองเหลืองค่าเริ่มต้น → 1", () => {
+    expect(buildJobInput(prodJob({ metal: "brass", purity: OEM_DEFAULT_PURITY.brass }))?.purity).toBe(1);
+  });
+
+  it.each([
+    ["92.5", 0.925],
+    ["92.50", 0.925],
+    ["99.99", 0.9999],
+    ["100", 1],
+    ["96.5", 0.965],
+  ])("เงิน/ทอง กรอก %s → %s", (pct, fraction) => {
+    expect(buildJobInput(prodJob({ purity: pct }))?.purity).toBe(fraction);
+    expect(buildJobInput(prodJob({ metal: "gold", purity: pct }))?.purity).toBe(fraction);
+  });
+
+  it("เงินเคลียร์ช่อง → purity null เหมือนเดิม · ทองเคลียร์ช่อง → ยังบังคับกรอก (null ทั้ง input)", () => {
+    const silver = buildJobInput(prodJob({ purity: "" }));
+    expect(silver).not.toBeNull();
+    expect(silver?.purity).toBeNull();
+    expect(buildJobInput(prodJob({ metal: "gold", purity: "" }))).toBeNull();
+  });
+
+  it.each([
+    ["92.505 (ทศนิยม 3 ตำแหน่ง)", "92.505"],
+    ["0", "0"],
+    ["-5", "-5"],
+    ["100.01", "100.01"],
+    ["abc", "abc"],
+    ["0.925 (พิมพ์เป็นสัดส่วนเดิม = 0.925%)", "0.925"],
+    ["0.9 (<1%)", "0.9"],
+    ["1 (security M1 — ต้องกรอก 100 ถ้าหมายถึงเต็ม)", "1"],
+    ["9.25 (ตกหลัก)", "9.25"],
+    ["37.49 (ต่ำกว่าเนื้อต่ำสุด 37.50)", "37.49"],
+  ])("%s → input เป็น null (ไม่ยิง calc · ไม่ปัดเงียบ)", (_n, pct) => {
+    expect(buildJobInput(prodJob({ purity: pct }))).toBeNull();
+    expect(buildJobInput(prodJob({ metal: "gold", purity: pct }))).toBeNull();
+  });
+
+  it("เนื้อต่ำสุด 37.50 (ทอง 9K) ผ่าน → 0.375", () => {
+    expect(buildJobInput(prodJob({ metal: "gold", purity: "37.5" }))?.purity).toBe(0.375);
   });
 });
