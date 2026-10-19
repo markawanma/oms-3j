@@ -107,15 +107,6 @@ export function WorkerApp({ token, view }: { token: string; view: WorkerView }) 
 
   // 0181: ใบเดี่ยว — my_actions ของขั้นที่ action_stage ชี้ (ใช้เปิดช่อง "ส่งไม่ครบ?/ได้ไม่ครบ?") · ไม่มี = หน้าเดิมทุกประการ
   const soloAction = (kind: "send" | "receive") => view.myActions?.find((a) => a.action === kind && a.stageSeq === view.actionStage?.seq);
-  // จำนวนที่ถือ/รอรับ ต้องเห็นในจอแรก (เจ้าของ UAT 19 ต.ค.) — ใบเดี่ยวที่ระบุตัวแล้วและ DB ส่งจำนวนมา · หลายส่วนดูที่การ์ดแต่ละส่วน
-  const holdLine = (() => {
-    if (!view.viewer || isMultiView(view)) return null;
-    const send = soloAction("send");
-    if (view.nextAction === "send" && send && send.qtyHold !== null) return { verb: "คุณถืออยู่", qty: send.qtyHold, stage: send.stageName };
-    const recv = soloAction("receive");
-    if (view.nextAction === "receive" && recv && recv.qtyExpected !== null) return { verb: "รอคุณรับ", qty: recv.qtyExpected, stage: recv.stageName };
-    return null;
-  })();
   const info = view.nextAction === "prev_not_sent" ? { tone: "amber" as const, text: prevNotSentMessage(prevStageName(view)) } : INFO[view.nextAction];
 
   return (
@@ -131,14 +122,6 @@ export function WorkerApp({ token, view }: { token: string; view: WorkerView }) 
           </p>
         )}
       </header>
-
-      {holdLine && (
-        <p data-testid="qty-headline" className="rounded-xl bg-primary-50 p-3 text-zinc-900">
-          <span className="text-lg font-semibold">{holdLine.verb} </span>
-          <span className="text-4xl font-extrabold tabular-nums">{holdLine.qty}</span>
-          <span className="text-lg font-semibold"> ชิ้น · ขั้น {holdLine.stage}</span>
-        </p>
-      )}
 
       {view.sessionExpired && (
         <p role="alert" className="rounded-xl bg-amber-50 p-3 text-lg font-semibold text-amber-900">

@@ -8,9 +8,10 @@ import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { workerLogin, workerReceiveStage, workerSendStage } from "@/lib/actions/job-worker";
 import type { WorkerActionResult } from "@/lib/actions/job-worker";
-import { BigButton, PinPad, QtyStepper, ScrapStepper, WeightField } from "@/components/domain/jobs/worker/WorkerParts";
+import { BigButton, PinPad, QtyAllChip, QtyBar, QtyLegend, QtyStepper, ScrapStepper, WeightField } from "@/components/domain/jobs/worker/WorkerParts";
 import { parseQtyText, parseWeight } from "@/lib/jobs/input";
 import { GENERIC_JOB_ERROR, prevNotSentMessage } from "@/lib/jobs/messages";
+import { clampSendText, receiveButtonLabel, receiveDisabled, receiveView, sendButtonLabel, sendDisabled, splitView } from "@/lib/jobs/qty-split";
 import { stageFieldPlan } from "@/lib/jobs/stage-fields";
 import { isMultiView, prevStageName } from "@/lib/jobs/worker-view";
 import type { WorkerAction, WorkerView } from "@/lib/jobs/worker-view";
@@ -185,19 +186,22 @@ export function ReceivePanel({
   onDone,
   onReload,
   action,
+  embedded = false,
 }: {
   token: string;
   view: WorkerView;
   onDone: (msg: string, tone?: DoneTone) => void;
   onReload: () => void;
-  /** 0181: ส่วนที่จะรับ (จาก my_actions) — ไม่ส่ง = ใบเดี่ยว หน้าจอ/การเรียกเดิมทุกประการ */
+  /** 0181: ส่วนที่จะรับ (จาก my_actions) — ไม่รู้จำนวนที่ส่งมา = หน้าจอ/การเรียกเดิม (ปุ่ม "รับงาน") */
   action?: WorkerAction;
+  /** อยู่ในการ์ดของ MultiPanel (หัวการ์ดมีเลขและชื่อขั้นแล้ว): ไม่แสดง h2 */
+  embedded?: boolean;
 }) {
   const st = stageOf(view, action);
   const me = view.viewer?.displayName ?? "";
   const expected = action?.qtyExpected ?? null;
-  // จำนวนรับเข้าต้องเห็นทุกครั้ง ทุกใบ (เจ้าของ UAT 19 ต.ค.): มีข้อมูลจำนวนที่ส่งมา = แสดงบล็อก "รับเข้า n จาก N ชิ้น" เสมอ
-  // ≥ 2 ชิ้น = ตัวเพิ่ม/ลดค่าเริ่ม = ที่ส่งมา (น้อยกว่า = ส่วนต่างรอผู้ส่งชี้แจง · มติ Q5) · 1 ชิ้น = ตัวเลขอ่านอย่างเดียว · ไม่มีข้อมูล (view เก่า) = ไม่แสดง
+  // v2 (ux-worker-send-receive-v2 §5): เลขตัดสินใจตัวเดียว = ได้รับกี่ชิ้น · แถบ ได้รับ/ขาด · ชิป "ครบ N" · ขาด → ConfirmBox (ส่วนต่างรอผู้ส่งชี้แจง · มติ Q5)
+  // ≥ 2 ชิ้น = ตัวเพิ่ม/ลด (ค่าเริ่ม = ที่ส่งมา · ขั้นต่ำ 1) · 1 ชิ้น = ตัวเลขอ่านอย่างเดียว · ไม่รู้จำนวน (view เก่า) = ไม่แสดงการ์ด
   const showQty = action !== undefined && expected !== null;
   const canShort = showQty && (expected as number) >= 2;
   const [w, setW] = useState("");
@@ -215,6 +219,12 @@ export function ReceivePanel({
   const showWeight = plan.showWeight;
   const noteLine = plan.receiveNote;
 
+  const qParsed = canShort ? parseQtyText(qtyText) : null;
+  const r: number | null = !showQty ? null : canShort ? (qParsed && qParsed.ok ? qParsed.value : null) : (expected as number);
+  const rv = showQty ? receiveView({ expected: expected as number, r }) : null;
+  const mainLabel = receiveButtonLabel(showQty ? expected : null, rv);
+  const mainDisabled = rv !== null && receiveDisabled(rv.state);
+
   // ขั้นก่อนยังถืออยู่โดยคนอื่น (ขั้นไม่บังคับชั่ง: การรับงานจะปิดขั้นของเขาให้) → ถามก่อนเสมอ · หลายส่วน: DB กรอง prev_not_sent ให้แล้ว (held_by เป็นของใบแม่ ไม่ใช่ของส่วนนี้)
   const holderOther = !isMultiView(view) && view.heldBy !== null && view.heldBy !== me ? view.heldBy : null;
 
@@ -227,13 +237,15 @@ export function ReceivePanel({
     const parsed = parseWeight(w, "น้ำหนักเข้า");
     if (!parsed.ok) {
       setWErr(parsed.error);
+      focusField("w-in");
       return;
     }
     if (st.weightRequired && parsed.value === null) {
       setWErr("ขั้นนี้ต้องชั่งน้ำหนักก่อนรับงาน");
+      focusField("w-in");
       return;
     }
-    // จำนวนที่รับเข้า — ตรวจรูปแบบเท่านั้น: จำนวนเต็ม 1..ที่ส่งมา · เท่าที่ส่งมา = เรียกแบบเดิม (ไม่ส่ง qtyReceived) · DB ตัดสินจริง
+    // จำนวนที่ได้รับ — ตรวจรูปแบบเท่านั้น: จำนวนเต็ม 1..ที่ส่งมา · เท่าที่ส่งมา = เรียกแบบเดิม (ไม่ส่ง qtyReceived) · DB ตัดสินจริง
     let received: number | null = null;
     if (canShort) {
       const q = parseQtyText(qtyText);
@@ -242,7 +254,7 @@ export function ReceivePanel({
         return;
       }
       if (q.value > (expected as number)) {
-        setQErr(`รับได้ไม่เกินที่ส่งมา (${expected} ชิ้น)`);
+        setQErr(`รับได้ไม่เกิน ${expected} ชิ้น`);
         return;
       }
       if (q.value < (expected as number)) received = q.value;
@@ -260,7 +272,7 @@ export function ReceivePanel({
     }
     if (received !== null && !a.short) {
       const gap = (expected as number) - received;
-      setConfirm({ kind: "short", yes: `ยืนยัน รับ ${received} ชิ้น`, text: `รับ ${received} จาก ${expected} ชิ้น — ส่วนต่าง ${gap} ชิ้น จะแจ้งกลับไปให้ขั้นก่อนชี้แจง (เสียหาย หรือ หาย)` });
+      setConfirm({ kind: "short", yes: `ถูก รับ ${received} ชิ้น`, text: `รับ ${received} จาก ${expected} ชิ้น — ขาด ${gap} ชิ้น ขั้นก่อนจะถูกถามว่าเสียหายหรือหาย ถูกไหม` });
       return;
     }
     setConfirm(null);
@@ -268,17 +280,17 @@ export function ReceivePanel({
     setBusy(true);
     // หลายส่วน: ระบุส่วนเสมอ · ใบเดี่ยว: ส่ง opts เฉพาะเมื่อรับไม่ครบ (ไม่งั้นเรียกแบบเดิมเป๊ะ)
     const opts = action && isMultiView(view) ? { lotJobId: action.lotJobId, ...(received !== null ? { qtyReceived: received } : {}) } : received !== null ? { qtyReceived: received } : undefined;
-    const r = await safely(() => (opts ? workerReceiveStage(token, st.seq, parsed.value === null ? null : w, opts) : workerReceiveStage(token, st.seq, parsed.value === null ? null : w)));
+    const res = await safely(() => (opts ? workerReceiveStage(token, st.seq, parsed.value === null ? null : w, opts) : workerReceiveStage(token, st.seq, parsed.value === null ? null : w)));
     setBusy(false);
     inflight.current = false;
-    if (r.ok) {
+    if (res.ok) {
       // already:true = มีคนรับไปก่อน · ถ้าเป็นชื่อเราเอง (กดซ้ำ) ถือว่าสำเร็จ · ถ้าเป็นคนอื่น = เตือนสีเหลือง ไม่ใช่เครื่องหมายถูก
-      if (r.already && !(r.by && r.by === me)) onDone(r.message ?? (r.by ? `ช่าง ${r.by} รับขั้นนี้ไปแล้ว` : "มีคนรับขั้นนี้ไปแล้ว"), "warn");
-      else if (r.discrepancyQty && received !== null) onDone(`รับ ${received} ชิ้นแล้ว — ส่วนต่าง ${r.discrepancyQty} ชิ้น แจ้งกลับขั้นก่อนแล้ว`, "ok");
-      else onDone(`รับงานแล้ว — ${st.name}`, "ok");
+      if (res.already && !(res.by && res.by === me)) onDone(res.message ?? (res.by ? `ช่าง ${res.by} รับขั้นนี้ไปแล้ว` : "มีคนรับขั้นนี้ไปแล้ว"), "warn");
+      else if (res.discrepancyQty && received !== null) onDone(`รับ ${received} ชิ้นแล้ว — ขาด ${res.discrepancyQty} ชิ้น แจ้งขั้นก่อนแล้ว`, "ok");
+      else onDone(showQty ? `รับงานแล้ว — ${expected} ชิ้น` : `รับงานแล้ว — ${st.name}`, "ok");
     } else {
-      setErr(r.code === "prev_not_sent" ? prevNotSentMessage(prevStageName(view)) : r.error);
-      setErrCode(r.code ?? null);
+      setErr(res.code === "prev_not_sent" ? prevNotSentMessage(prevStageName(view)) : res.error);
+      setErrCode(res.code ?? null);
     }
   }
 
@@ -288,23 +300,78 @@ export function ReceivePanel({
     void go(next);
   };
   const confirmPatch = (c: NonNullable<Confirm>): Partial<Ack> => (c.kind === "holder" ? { holder: true } : c.kind === "weight" ? { weight: true } : { short: true });
-  // เปลี่ยนจำนวนที่ได้จริง = ต้องยืนยันใหม่
+  // เปลี่ยนจำนวนที่ได้รับ = ต้องยืนยันใหม่
   const resetShort = () => setAck((a) => ({ ...a, short: false }));
+  const setQty = (v: string) => {
+    setQtyText(v);
+    setQErr(null);
+    setConfirm(null);
+    resetShort();
+  };
 
-  // ปุ่มหลักบอกจำนวนที่จะรับ "รับ n ชิ้น" เมื่อรู้จำนวน · ไม่รู้ = "รับงาน" (เดิม)
-  const shownQty = canShort ? (parseQtyText(qtyText).ok ? Number(qtyText.trim()) : null) : expected;
-  const mainLabel = showQty && shownQty !== null ? `รับ ${shownQty} ชิ้น` : "รับงาน";
+  const qtyBlock =
+    showQty && rv ? (
+      <div className="space-y-3 rounded-2xl border border-zinc-300 p-4">
+        {canShort ? (
+          <>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xl font-bold text-zinc-900">ได้รับกี่ชิ้น</span>
+              <QtyAllChip label={`ครบ ${expected}`} pressed={rv.state === "all"} onClick={() => setQty(String(expected))} disabled={busy} />
+            </div>
+            <QtyStepper id="q-recv" label="จำนวนที่ได้รับ" hideLabel size="hero" value={qtyText} onChange={setQty} max={expected as number} error={qErr ?? (rv.state === "over" ? `รับได้ไม่เกิน ${expected} ชิ้น` : null)} disabled={busy} />
+            <p className="text-lg text-zinc-700">ขั้นก่อนส่งมา {expected} ชิ้น</p>
+          </>
+        ) : (
+          <p className="text-lg font-semibold text-zinc-900">
+            ได้รับ <span className="text-5xl font-extrabold tabular-nums">{expected}</span> ชิ้น
+          </p>
+        )}
+        {canShort && (
+          <>
+            <QtyBar
+              empty={rv.state === "empty" || rv.state === "over"}
+              total={expected as number}
+              label={`ขั้นก่อนส่งมา ${expected} ชิ้น ได้รับ ${rv.got} ขาด ${rv.missing}`}
+              segments={[
+                { key: "got", qty: rv.got, tone: "mine" },
+                { key: "miss", qty: rv.missing, tone: "bad" },
+              ]}
+            />
+            {rv.state === "all" ? (
+              <p role="status" aria-live="polite" className="rounded-xl bg-amber-50 p-2 text-xl font-bold text-amber-950">
+                <span aria-hidden="true" className="text-amber-700">
+                  ✓
+                </span>{" "}
+                ครบ {expected} ชิ้น
+              </p>
+            ) : (
+              <QtyLegend
+                items={[
+                  { key: "got", label: "ได้รับ", qty: rv.state === "short" ? rv.got : null, tone: "mine" },
+                  { key: "miss", label: "ขาด", qty: rv.state === "short" ? rv.missing : null, tone: "bad" },
+                ]}
+              />
+            )}
+            {rv.state === "short" && <p className="text-lg text-zinc-800">ขาด {rv.missing} ชิ้น — ระบบจะถามขั้นก่อนว่าเสียหายหรือหาย</p>}
+          </>
+        )}
+      </div>
+    ) : null;
 
   return (
-    <section aria-labelledby="recv-h" className="space-y-3">
-      <h2 id="recv-h" className="text-2xl font-bold text-zinc-900">
-        ขั้นถัดไป: {st.name}
-      </h2>
+    <section aria-labelledby={embedded ? undefined : "recv-h"} aria-label={embedded ? `รับงาน: ${st.name}` : undefined} className="space-y-3">
+      {!embedded && (
+        <h2 id="recv-h" className="text-2xl font-bold text-zinc-900">
+          {showQty ? `รับงาน: ${st.name}` : `ขั้นถัดไป: ${st.name}`}
+        </h2>
+      )}
       {noteLine && <p className="text-lg text-zinc-700">{noteLine}</p>}
+      {qtyBlock}
       {showWeight && (
         <WeightField
           id="w-in"
           label="น้ำหนักเข้า"
+          size={showQty ? "md" : "lg"}
           value={w}
           onChange={(v) => { setW(v); setWErr(null); setConfirm(null); setAck((a) => ({ ...a, weight: false })); }}
           required={st.weightRequired}
@@ -312,34 +379,12 @@ export function ReceivePanel({
           error={wErr}
         />
       )}
-      {showQty &&
-        (canShort ? (
-          <div className="space-y-2 rounded-xl border border-zinc-300 p-3">
-            <p className="text-lg font-semibold text-zinc-900">
-              รับเข้า <span className="text-4xl font-extrabold tabular-nums">{shownQty ?? "—"}</span> จาก {expected} ชิ้น
-            </p>
-            <QtyStepper
-              id="q-recv"
-              label="จำนวนที่รับเข้า"
-              value={qtyText}
-              onChange={(v) => { setQtyText(v); setQErr(null); setConfirm(null); resetShort(); }}
-              max={expected as number}
-              hint="ได้น้อยกว่าที่ส่งมา = ลดตัวเลขลง ส่วนต่างจะแจ้งกลับไปให้ขั้นก่อนชี้แจง"
-              error={qErr}
-              disabled={busy}
-            />
-          </div>
-        ) : (
-          <p className="rounded-xl border border-zinc-300 p-3 text-lg font-semibold text-zinc-900">
-            รับเข้า <span className="text-4xl font-extrabold tabular-nums">{expected}</span> ชิ้น
-          </p>
-        ))}
       {err && <ActionError message={err} code={errCode} onReload={onReload} busy={busy} />}
       {confirm ? (
         <ConfirmBox text={confirm.text} yes={confirm.kind === "short" ? confirm.yes : undefined} busy={busy} onYes={() => answer(confirmPatch(confirm))} onNo={() => setConfirm(null)} />
       ) : (
         <StickyAction>
-          <BigButton type="button" onClick={() => void go()} loading={busy}>
+          <BigButton type="button" onClick={() => void go()} loading={busy} disabled={mainDisabled}>
             {mainLabel}
           </BigButton>
         </StickyAction>
@@ -348,11 +393,76 @@ export function ReceivePanel({
   );
 }
 
+/** โฟกัส + เลื่อนมาช่องที่ผิด (ปุ่มหลักติดล่างทำให้ข้อความใต้ช่องหลุดจอได้) */
+function focusField(id: string): void {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.focus();
+  el.scrollIntoView?.({ block: "center" });
+}
+
 // ---------------------------------------------------------------------------
 export interface SplitResultInfo {
   lot: NonNullable<Extract<WorkerActionResult, { ok: true }>["lot"]>;
-  /** ส่วนที่ผู้ส่งถืออยู่ (เพื่อบอกว่า "ค้างกับคุณ" คือส่วนไหน) */
+  /** ส่วนที่ผู้ส่งถืออยู่ (เพื่อบอกว่า "เหลือกับคุณ" คือส่วนไหน) */
   fromLotJobId: string | null;
+  /** v2: ของเสียที่ผู้ส่งแจ้งในครั้งนี้ + ชื่อขั้นถัดไป (ไม่รู้ = null) — ให้จอหลังส่งวาดแถบเดิม */
+  scrap: number;
+  nextName: string | null;
+}
+
+/** แถวของเสียที่พับ (v2 §4.3): ไม่แย่งสายตา · เปิดค้างเมื่อ > 0 (เหตุผลบังคับต้องเห็น) · ปิดได้เมื่อ 0 */
+function ScrapRow({
+  asks,
+  scrap,
+  open,
+  onOpen,
+  onClose,
+  onQty,
+  reason,
+  onReason,
+  reasons,
+  error,
+  disabled,
+}: {
+  asks: boolean;
+  scrap: number;
+  open: boolean;
+  onOpen: () => void;
+  onClose: () => void;
+  onQty: (n: number) => void;
+  reason: string | null;
+  onReason: (r: string) => void;
+  reasons: string[];
+  error: string | null;
+  disabled: boolean;
+}) {
+  if (!(open || scrap > 0)) {
+    return (
+      <button type="button" disabled={disabled} className="flex min-h-14 w-full items-center justify-between gap-2 rounded-xl border-2 border-dashed border-zinc-400 px-4 text-lg font-semibold text-zinc-800 disabled:opacity-50" onClick={onOpen}>
+        {asks ? (
+          <>
+            <span>
+              ของเสียขั้นนี้ · <strong>ไม่มี</strong>
+            </span>
+            <span>+ แจ้ง</span>
+          </>
+        ) : (
+          <span>+ แจ้งของเสียในขั้นนี้</span>
+        )}
+      </button>
+    );
+  }
+  return (
+    <div className="space-y-2 rounded-xl border-2 border-zinc-300 p-3">
+      <ScrapStepper compact qty={scrap} onQty={onQty} reason={reason} onReason={onReason} reasons={reasons} error={error} />
+      {scrap === 0 && (
+        <button type="button" disabled={disabled} className="min-h-12 w-full rounded-xl border-2 border-zinc-400 bg-white text-lg font-semibold text-zinc-900 disabled:opacity-50" onClick={onClose}>
+          เก็บแถวของเสีย
+        </button>
+      )}
+    </div>
+  );
 }
 
 export function SendPanel({
@@ -362,23 +472,27 @@ export function SendPanel({
   onReload,
   action,
   onSplit,
+  embedded = false,
 }: {
   token: string;
   view: WorkerView;
   onDone: (msg: string, tone?: DoneTone) => void;
   onReload: () => void;
-  /** 0181: ส่วนที่ถืออยู่ (จาก my_actions) — มีจำนวนที่ถือ = แสดงบล็อก "ส่งต่อ n จาก N" เสมอ · ไม่ส่ง (view เก่า) = หน้าจอ/การเรียกเดิม */
+  /** 0181: ส่วนที่ถืออยู่ (จาก my_actions) — มีจำนวนที่ถือ = จอส่ง v2 (การ์ดตัดสินใจ + แถบ) · ไม่ส่ง (view เก่า) = หน้าจอ/การเรียกเดิม */
   action?: WorkerAction;
-  /** ส่งไม่ครบ → แยกส่วนสำเร็จ: ให้ผู้เรียกแสดงจอ "แบ่งส่วนแล้ว" (QR ใบเดิม + ยกเลิกการแยก) */
+  /** ส่งไม่หมด → แยกส่วนสำเร็จ: ให้ผู้เรียกแสดงจอหลังส่ง (QR ใบเดิม + ยกเลิกการส่ง) */
   onSplit?: (r: SplitResultInfo) => void;
+  /** อยู่ในการ์ดของ MultiPanel (หัวการ์ดมีเลขจำนวนและชื่อขั้นแล้ว): ไม่แสดง h2 / "ในมือฉัน" */
+  embedded?: boolean;
 }) {
   const st = stageOf(view, action);
+  const multi = isMultiView(view);
   const next = view.job.stages.find((s) => s.seq > st.seq && s.status === "pending");
   const hold = action?.qtyHold ?? null;
   // 🔴 มติเจ้าของ 19 ต.ค. (H2): งานทองที่ขั้นสั่งชั่ง — แยกส่วนต้องชั่ง "ส่วนที่แยกออก" (เงิน/ขั้นไม่ชั่ง = นับจำนวนอย่างเดียว ไม่มีช่อง)
-  // ไม่โชว์น้ำหนักขั้นก่อน/น้ำหนักที่ถือ (N1: ทองชั่งแบบไม่รู้คำตอบ) · ส่งทั้งหมด = ชั่งน้ำหนักออกตามปกติ ห้ามส่ง weightMoveG
+  // ไม่โชว์น้ำหนักขั้นก่อน/น้ำหนักที่ถือ (N1: ทองชั่งแบบไม่รู้คำตอบ) · แถบมีแต่จำนวนชิ้น · ส่งทั้งหมด = ชั่งน้ำหนักออกตามปกติ ห้ามส่ง weightMoveG
   const goldWeigh = view.job.metal === "gold" && st.weightRequired;
-  // จำนวนส่งออกต้องเห็นทุกครั้ง ทุกใบ (เจ้าของ UAT 19 ต.ค.): รู้จำนวนที่ถือ = บล็อก "ส่งต่อ n จาก N ชิ้น" + กล่องสรุป เสีย/ส่งไป/ค้างกับคุณ เสมอ
+  // จอส่ง v2 (ux-worker-send-receive-v2 §4): รู้จำนวนที่ถือ = การ์ดตัดสินใจ (เลขตัวเดียว + แถบ ส่งไป/เหลือกับฉัน) เสมอ
   const showQty = action !== undefined && hold !== null;
   const canSplit = showQty && (hold as number) >= 2;
   const [w, setW] = useState("");
@@ -391,29 +505,38 @@ export function SendPanel({
   const [errCode, setErrCode] = useState<string | null>(null);
   const [wErr, setWErr] = useState<string | null>(null);
   const [sErr, setSErr] = useState<string | null>(null);
-  // null = ส่งทั้งหมดที่ถือ (หักของเสียที่กรอก — เลขตามสด) · มีค่า = ช่างพิมพ์/กด ± เอง
+  // null = ส่งหมด (ถือ − เสีย · ตามสด) · มีค่า = ช่างพิมพ์/กด ± เอง
   const [qtyText, setQtyText] = useState<string | null>(null);
-  const [qErr, setQErr] = useState<string | null>(null);
   const [moveW, setMoveW] = useState("");
   const [mErr, setMErr] = useState<string | null>(null);
   const inflight = useRef(false);
-  // 0176: ใบที่มีแบบการบันทึก = ช่อง/ปุ่มตาม flag ของขั้น · ใบเดิม = UI เดิมทุกประการ (ช่องน้ำหนัก + ชิ้นเสีย + เติมโลหะ ทุกขั้น)
-  const [scrapOpen, setScrapOpen] = useState(false); // ขั้นที่ไม่ถามชิ้นเสีย: เปิดเองได้ด้วยปุ่ม "+ แจ้งของเสียในขั้นนี้"
+  const [scrapOpen, setScrapOpen] = useState(false); // ขั้นที่ไม่ถามชิ้นเสีย: เปิดเองได้ด้วยแถว "+ แจ้งของเสียในขั้นนี้"
   const [scrapW, setScrapW] = useState("");
   const [swErr, setSwErr] = useState<string | null>(null);
 
-  // ส่งทั้งหมด = ที่ถือ − ของเสียที่กรอก (DB: job_core_send หักของเสียเอง → ไม่ส่ง qtySend) · น้อยกว่านั้น = แยกส่วน (qtySend + qtyHold) · มากกว่า = ผิด
-  const allCount = hold === null ? 0 : Math.max(0, hold - scrap);
+  // สูตรอยู่ lib/jobs/qty-split.ts (pure + test): ส่งหมด = ถือ − เสีย (DB หักเสียเอง → ไม่ส่ง qtySend) · น้อยกว่า = แยกส่วน · มากกว่า = ปิดปุ่ม
+  const holdN = hold ?? 0;
+  const allCount = Math.max(0, holdN - scrap);
   const qtyParsed = canSplit && qtyText !== null ? parseQtyText(qtyText) : null;
-  const n: number | null = !canSplit ? null : qtyText === null ? allCount : qtyParsed && qtyParsed.ok ? qtyParsed.value : null;
-  const overAll = n !== null && n > allCount;
-  const partial = canSplit && n !== null && n < allCount;
+  const n: number | null = !showQty ? null : !canSplit || qtyText === null ? allCount : qtyParsed && qtyParsed.ok ? qtyParsed.value : null;
+  const v = splitView({ hold: holdN, scrap, n });
+  const partial = showQty && v.state === "partial";
+  // ขั้นที่ "ถามชิ้นเสีย" ตามแบบ (ไม่นับที่ช่างเปิดเอง) — ใช้เลือกข้อความแถวของเสีย
+  const asksScrap = stageFieldPlan({ hasProfile: view.job.hasProfile, weightRequired: st.weightRequired, scrapQtyAsk: st.scrapQtyAsk, scrapWeightAsk: st.scrapWeightAsk }).showScrapStepper;
   const plan = stageFieldPlan({ hasProfile: view.job.hasProfile, weightRequired: st.weightRequired, scrapQtyAsk: st.scrapQtyAsk, scrapWeightAsk: st.scrapWeightAsk, scrapOpen: scrapOpen || partial });
-  // แยกส่วนนับจำนวนอย่างเดียว (มติ ค1): ไม่ถามน้ำหนัก/เติมโลหะ/เศษ · ของเสียเปิดเสมอ (ชิ้นที่หายต้องมีที่ลง)
+  // แยกส่วนนับจำนวนอย่างเดียว (มติ ค1): ไม่ถามน้ำหนัก/เติมโลหะ/เศษ · ของเสียเปิดได้เสมอ (ชิ้นที่หายต้องมีที่ลง)
   const showWeight = plan.showWeight && !partial;
   const askScrapWeight = plan.showScrapWeight && !partial;
   const showAdd = plan.showAddMetal && !partial;
-  const noteLine = partial ? (goldWeigh ? "แยกส่วนงานทอง — ชั่งเฉพาะส่วนที่ส่งออก" : "แยกส่วนนับจำนวนอย่างเดียว — ไม่ต้องชั่งน้ำหนัก") : plan.sendNote;
+  const noteLine = partial ? null : plan.sendNote;
+
+  function changeScrap(c: number) {
+    setScrap(c);
+    setSErr(null);
+    if (c === 0) setReason(null);
+    // เพิ่มเสียจน n เกินที่ส่งได้ → ลด n ลงให้เอง (ช่างไม่ได้ผิด) · ลดเสีย n ไม่ขยับเอง (ยกเว้นโหมดส่งหมดที่ตามสดอยู่แล้ว)
+    if (showQty) setQtyText((t) => clampSendText(t, holdN, c));
+  }
 
   async function go() {
     if (busy || inflight.current) return;
@@ -422,25 +545,17 @@ export function SendPanel({
     setWErr(null);
     setSErr(null);
     setSwErr(null);
-    setQErr(null);
     setMErr(null);
-    if (canSplit && qtyText !== null) {
-      if (!qtyParsed || !qtyParsed.ok) {
-        setQErr(qtyParsed && !qtyParsed.ok ? qtyParsed.error : "ใส่จำนวนที่ส่ง");
-        return;
-      }
-      if (qtyParsed.value > allCount) {
-        setQErr(`ส่งได้ไม่เกิน ${allCount} ชิ้น (ถืออยู่ ${hold} − ของเสีย ${scrap})`);
-        return;
-      }
-    }
+    if (showQty && sendDisabled(v.state)) return; // ปุ่มปิดอยู่แล้ว (ว่าง/เกิน) — กันไว้ซ้ำ
     const out = parseWeight(showWeight ? w : "", "น้ำหนักออก");
     if (!out.ok) {
       setWErr(out.error);
+      focusField("w-out");
       return;
     }
     if (!partial && st.weightRequired && out.value === null) {
       setWErr("ขั้นนี้ต้องชั่งน้ำหนักออกก่อนส่งต่อ");
+      focusField("w-out");
       return;
     }
     if (scrap > 0 && !reason) {
@@ -457,10 +572,12 @@ export function SendPanel({
       const mv = parseWeight(moveW, "น้ำหนักส่วนที่ส่ง");
       if (!mv.ok) {
         setMErr(mv.error);
+        focusField("w-move");
         return;
       }
       if (mv.value === null || mv.value <= 0) {
         setMErr("ต้องชั่งน้ำหนักส่วนที่ส่งก่อน (ใส่ตัวเลขมากกว่า 0)");
+        focusField("w-move");
         return;
       }
     }
@@ -475,9 +592,9 @@ export function SendPanel({
         metalAdded: showAdd && addOpen && added.trim() !== "" ? added : null,
         ...(askScrapWeight && sw.value !== null ? { scrapWeight: scrapW } : {}),
         // 0181: ส่วนที่ถือ (หลายส่วน) + จำนวนที่ถืออยู่ที่เห็นบนจอ (กันกดซ้ำ/2 มือถือ → stage_changed) — ส่งทุกครั้งที่รู้จำนวนที่ถือ
-        ...(action && isMultiView(view) ? { lotJobId: action.lotJobId } : {}),
-        ...(showQty ? { qtyHold: hold as number } : {}),
-        // ส่งไม่ครบ = qtySend (p_qty_send) · ส่งครบ = ไม่ส่ง qtySend (DB ใช้ทางเดิม job_core_send)
+        ...(action && multi ? { lotJobId: action.lotJobId } : {}),
+        ...(showQty ? { qtyHold: holdN } : {}),
+        // ส่งไม่หมด = qtySend (p_qty_send) · ส่งหมด = ไม่ส่ง qtySend (DB ใช้ทางเดิม job_core_send)
         ...(partial && n !== null ? { qtySend: n } : {}),
         // น้ำหนักส่วนที่แยกออก: เฉพาะทอง + ขั้นชั่ง + แยกส่วน (ส่งทั้งหมด/เงิน = ไม่ส่ง → DB จะตอบ weight_unexpected ถ้าส่งผิดที่)
         ...(partial && goldWeigh ? { weightMoveG: moveW } : {}),
@@ -486,67 +603,131 @@ export function SendPanel({
     setBusy(false);
     inflight.current = false;
     if (r.ok) {
-      if (r.lot && onSplit) onSplit({ lot: r.lot, fromLotJobId: action?.lotJobId ?? null });
-      else onDone(r.already ? (r.message ?? "ส่งขั้นนี้ไปแล้ว") : next && !isMultiView(view) ? `ส่งต่อแล้ว — ถัดไป ${next.name}` : "ส่งต่อแล้ว", "ok");
+      const nextName = next && !multi ? next.name : null;
+      if (r.lot && onSplit) onSplit({ lot: r.lot, fromLotJobId: action?.lotJobId ?? null, scrap, nextName });
+      else if (r.already) onDone(r.message ?? "ส่งขั้นนี้ไปแล้ว", "ok");
+      else if (showQty) onDone(v.allCount === 0 ? `แจ้งเสียหมด ${holdN} ชิ้นแล้ว` : nextName ? `ส่งแล้ว ${v.send} ชิ้น — ถัดไป ${nextName}` : `ส่งแล้ว ${v.send} ชิ้น`, "ok");
+      else onDone(next && !multi ? `ส่งต่อแล้ว — ถัดไป ${next.name}` : "ส่งต่อแล้ว", "ok");
     } else {
       setErr(r.error);
       setErrCode(r.code ?? null);
     }
   }
 
-  const mainLabel = partial && n !== null ? `ส่งต่อ ${n} จาก ${hold} ชิ้น` : next && !isMultiView(view) ? `ส่งต่อ → ${next.name}` : "ส่งต่อ";
-  // 3 ช่องสรุป: เสีย / ส่งไป / ค้างกับคุณ (แสดงผลสด — DB ตรวจจริง) · ส่งทั้งหมด: ส่งไป = ถือ − เสีย · ค้าง 0
-  const sendNow = n === null ? 0 : n;
-  const keepNow = n === null || overAll ? 0 : Math.max(0, allCount - n);
+  // ---------------- จอส่ง v2 (รู้จำนวนที่ถือ) ----------------
+  if (showQty) {
+    const label = sendButtonLabel({ ...v, hold: holdN });
+    const legend = [
+      { key: "sent", label: "ส่งไป", qty: v.state === "empty" || v.state === "over" ? null : v.send, tone: "sent" as const },
+      { key: "mine", label: "เหลือกับฉัน", qty: v.state === "empty" || v.state === "over" ? null : v.keep, tone: "mine" as const },
+      ...(scrap > 0 ? [{ key: "bad", label: "เสีย", qty: scrap, tone: "bad" as const }] : []),
+    ];
+    return (
+      <section aria-labelledby={embedded ? undefined : "send-h"} aria-label={embedded ? `ส่งงาน: ${st.name}` : undefined} className="space-y-3">
+        {!embedded && (
+          <div>
+            <h2 id="send-h" className="text-2xl font-bold text-zinc-900">
+              ส่งงาน: {st.name}
+            </h2>
+            {next && !multi && <p className="text-lg text-zinc-700">ถัดไป: {next.name}</p>}
+          </div>
+        )}
+        {noteLine && <p className="text-lg text-zinc-700">{noteLine}</p>}
+        <div className="space-y-3 rounded-2xl border border-zinc-300 p-4">
+          {canSplit ? (
+            <>
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-xl font-bold text-zinc-900">ส่งกี่ชิ้น</span>
+                <QtyAllChip label={`ส่งหมด ${allCount}`} pressed={qtyText === null || v.state === "all"} onClick={() => setQtyText(null)} disabled={busy || allCount === 0} />
+              </div>
+              <QtyStepper
+                id="q-send"
+                label="จำนวนที่ส่ง"
+                hideLabel
+                size="hero"
+                value={qtyText ?? String(allCount)}
+                onChange={(t) => setQtyText(t)}
+                max={allCount}
+                error={v.state === "over" ? `ส่งได้ไม่เกิน ${allCount} ชิ้น` : qtyParsed && !qtyParsed.ok && qtyText !== "" ? qtyParsed.error : null}
+                disabled={busy || allCount === 0}
+              />
+              {!embedded && <p className="text-lg text-zinc-700">ในมือฉัน {holdN} ชิ้น</p>}
+            </>
+          ) : (
+            <p className="text-lg font-semibold text-zinc-900">
+              ส่ง <span className="text-5xl font-extrabold tabular-nums">{holdN}</span> ชิ้น
+            </p>
+          )}
+          {canSplit && (
+            <>
+              <QtyBar
+                empty={v.state === "empty" || v.state === "over"}
+                total={holdN}
+                label={`ในมือ ${holdN} ชิ้น ส่งไป ${v.send} เหลือกับฉัน ${v.keep}${scrap > 0 ? ` เสีย ${scrap}` : ""}`}
+                segments={[
+                  { key: "sent", qty: v.send, tone: "sent" },
+                  { key: "mine", qty: v.keep, tone: "mine" },
+                  { key: "bad", qty: scrap, tone: "bad" },
+                ]}
+              />
+              <QtyLegend items={legend} />
+              {v.keep > 0 && <p className="text-lg text-zinc-800">ที่เหลือส่งทีหลังได้</p>}
+              {partial && !goldWeigh && <p className="text-lg text-zinc-700">ส่งบางส่วนนับจำนวนอย่างเดียว ไม่ต้องชั่ง</p>}
+            </>
+          )}
+        </div>
+        {partial && goldWeigh && (
+          <WeightField id="w-move" size="md" label={`น้ำหนัก ${n} ชิ้นที่ส่ง`} value={moveW} onChange={(t) => { setMoveW(t); setMErr(null); }} required hint={`ชั่งเฉพาะ ${n} ชิ้นที่ส่ง ไม่ต้องชั่งที่เหลือ`} error={mErr} />
+        )}
+        {showWeight && <WeightField id="w-out" size="md" label="น้ำหนักออก" value={w} onChange={(t) => { setW(t); setWErr(null); }} required={st.weightRequired} error={wErr} />}
+        <ScrapRow
+          asks={asksScrap}
+          scrap={scrap}
+          open={scrapOpen}
+          onOpen={() => setScrapOpen(true)}
+          onClose={() => setScrapOpen(false)}
+          onQty={changeScrap}
+          reason={reason}
+          onReason={(rr) => { setReason(rr); setSErr(null); }}
+          reasons={view.scrapReasons}
+          error={sErr}
+          disabled={busy}
+        />
+        {askScrapWeight && <WeightField id="w-scrap" size="md" label="เศษโลหะ" value={scrapW} onChange={(t) => { setScrapW(t); setSwErr(null); }} required={false} hint="เศษ/ก้านต้นที่เก็บได้ ไม่ใช่น้ำหนักงาน" error={swErr} />}
+        {showAdd &&
+          (!addOpen ? (
+            <button type="button" className="min-h-14 w-full rounded-xl border-2 border-dashed border-zinc-400 text-lg font-semibold text-zinc-800" onClick={() => setAddOpen(true)}>
+              + เติมโลหะ
+            </button>
+          ) : (
+            <WeightField id="w-add" size="md" label="เติมโลหะ" value={added} onChange={setAdded} required={false} hint="ใส่เฉพาะถ้าเติมโลหะเพิ่มระหว่างขั้นนี้" />
+          ))}
+        {err && <ActionError message={err} code={errCode} onReload={onReload} busy={busy} />}
+        <StickyAction>
+          <BigButton type="button" onClick={() => void go()} loading={busy} disabled={sendDisabled(v.state)}>
+            {label}
+          </BigButton>
+        </StickyAction>
+      </section>
+    );
+  }
 
+  // ---------------- ไม่รู้จำนวนที่ถือ (view เก่า): หน้าจอ/การเรียกเดิมทุกประการ ----------------
   return (
     <section aria-labelledby="send-h" className="space-y-3">
       <h2 id="send-h" className="text-2xl font-bold text-zinc-900">
         ส่งต่อ: {st.name}
       </h2>
-      {noteLine && <p className="text-lg text-zinc-700">{noteLine}</p>}
-      {showQty &&
-        (canSplit ? (
-          <div className="space-y-2 rounded-xl border border-zinc-300 p-3">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-lg font-semibold text-zinc-900">ส่งต่อกี่ชิ้น จาก {hold}</span>
-              <button type="button" className="min-h-12 rounded-xl border-2 border-zinc-400 bg-white px-4 text-lg font-semibold text-zinc-900" onClick={() => { setQtyText(null); setQErr(null); }}>
-                ทั้งหมด {allCount}
-              </button>
-            </div>
-            <QtyStepper
-              id="q-send"
-              label="จำนวนที่ส่ง"
-              value={qtyText ?? String(allCount)}
-              onChange={(v) => { setQtyText(v); setQErr(null); }}
-              max={allCount}
-              error={qErr ?? (overAll ? `ส่งได้ไม่เกิน ${allCount} ชิ้น (ถืออยู่ ${hold} − ของเสีย ${scrap})` : null)}
-              disabled={busy}
-            />
-            <div role="status" aria-live="polite" className="grid grid-cols-3 gap-2 text-center">
-              <div className="rounded-xl bg-zinc-100 p-2"><div className="text-base text-zinc-700">เสีย</div><div className="text-2xl font-bold tabular-nums">{scrap}</div></div>
-              <div className="rounded-xl bg-sky-50 p-2"><div className="text-base text-sky-900">ส่งไป</div><div className="text-2xl font-bold tabular-nums">{sendNow}</div></div>
-              <div className="rounded-xl bg-zinc-100 p-2"><div className="text-base text-zinc-700">ค้างกับคุณ</div><div className="text-2xl font-bold tabular-nums">{keepNow}</div></div>
-            </div>
-            {partial && <p className="text-lg text-zinc-800">{n} ชิ้นที่ส่งจะแยกเป็นส่วนใหม่ · QR เดิมใบเดียว</p>}
-          </div>
-        ) : (
-          <p className="rounded-xl border border-zinc-300 p-3 text-lg font-semibold text-zinc-900">
-            ส่งต่อ <span className="text-4xl font-extrabold tabular-nums">{hold}</span> ชิ้น (ถืออยู่ {hold} ชิ้น)
-          </p>
-        ))}
-      {partial && goldWeigh && (
-        <WeightField id="w-move" label="น้ำหนักส่วนที่ส่ง" value={moveW} onChange={(v) => { setMoveW(v); setMErr(null); }} required hint={`ชั่งเฉพาะ ${n} ชิ้นที่ส่งออก (ไม่ต้องชั่งส่วนที่ค้างกับคุณ)`} error={mErr} />
-      )}
-      {showWeight && <WeightField id="w-out" label="น้ำหนักออก" value={w} onChange={(v) => { setW(v); setWErr(null); }} required={st.weightRequired} error={wErr} />}
+      {plan.sendNote && <p className="text-lg text-zinc-700">{plan.sendNote}</p>}
+      {showWeight && <WeightField id="w-out" label="น้ำหนักออก" value={w} onChange={(t) => { setW(t); setWErr(null); }} required={st.weightRequired} error={wErr} />}
       {plan.showScrapStepper ? (
-        <ScrapStepper qty={scrap} onQty={(c) => { setScrap(c); setSErr(null); if (c === 0) setReason(null); }} reason={reason} onReason={(r) => { setReason(r); setSErr(null); }} reasons={view.scrapReasons} error={sErr} />
+        <ScrapStepper qty={scrap} onQty={changeScrap} reason={reason} onReason={(rr) => { setReason(rr); setSErr(null); }} reasons={view.scrapReasons} error={sErr} />
       ) : (
         <button type="button" className="min-h-14 w-full rounded-xl border-2 border-dashed border-zinc-400 text-lg font-semibold text-zinc-800" onClick={() => setScrapOpen(true)}>
           + แจ้งของเสียในขั้นนี้
         </button>
       )}
-      {askScrapWeight && <WeightField id="w-scrap" label="เศษโลหะ" value={scrapW} onChange={(v) => { setScrapW(v); setSwErr(null); }} required={false} hint="เศษ/ก้านต้นที่เก็บได้ ไม่ใช่น้ำหนักงาน" error={swErr} />}
+      {askScrapWeight && <WeightField id="w-scrap" label="เศษโลหะ" value={scrapW} onChange={(t) => { setScrapW(t); setSwErr(null); }} required={false} hint="เศษ/ก้านต้นที่เก็บได้ ไม่ใช่น้ำหนักงาน" error={swErr} />}
       {showAdd &&
         (!addOpen ? (
           <button type="button" className="min-h-14 w-full rounded-xl border-2 border-dashed border-zinc-400 text-lg font-semibold text-zinc-800" onClick={() => setAddOpen(true)}>
@@ -558,7 +739,7 @@ export function SendPanel({
       {err && <ActionError message={err} code={errCode} onReload={onReload} busy={busy} />}
       <StickyAction>
         <BigButton type="button" onClick={() => void go()} loading={busy}>
-          {mainLabel}
+          {next && !multi ? `ส่งต่อ → ${next.name}` : "ส่งต่อ"}
         </BigButton>
       </StickyAction>
     </section>

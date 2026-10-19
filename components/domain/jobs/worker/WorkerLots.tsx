@@ -10,7 +10,7 @@ import { CheckCircle2 } from "lucide-react";
 import { workerCancelLotAction, workerResolveDiscrepancyAction } from "@/lib/actions/job-worker";
 import { ReceivePanel, SendPanel, ActionError, safely } from "@/components/domain/jobs/worker/WorkerPanels";
 import type { DoneTone, SplitResultInfo } from "@/components/domain/jobs/worker/WorkerPanels";
-import { BigButton } from "@/components/domain/jobs/worker/WorkerParts";
+import { BigButton, QtyBar } from "@/components/domain/jobs/worker/WorkerParts";
 import { renderQrSvgClient, workerPageUrl } from "@/lib/jobs/qr-client";
 import { WORKER_CODE_TH } from "@/lib/jobs/messages";
 import { SCRAP_REASONS, SCRAP_REASON_LABEL } from "@/lib/jobs/types";
@@ -73,7 +73,10 @@ export function CancelSplitButton({ token, lotJobId, qty, onDone, label = "แ�
 }
 
 // ---------------------------------------------------------------------------
-/** จอสำเร็จหลังแยกส่วน: ส่วนที่ส่งไป + ส่วนที่ค้างกับผู้ส่ง + QR ใบเดิมให้คนรับสแกน + ยกเลิกการแยก (L-3) — ไม่ปิดเอง (QR ต้องอยู่บนจอจนกว่าจะกดเสร็จ) */
+/**
+ * จอหลังส่งไม่หมด (v2 §6 · L-3): "ส่งแล้ว n ชิ้น" → แถบแช่แข็ง (ส่งไป/เหลือกับฉัน/เสีย) → การ์ดส่งไป → การ์ดเหลือกับคุณ → QR ใบเดิม → ปุ่ม
+ * ช่างต้องเช็คตัวเลขก่อนยื่นจอให้คนรับสแกน · ไม่ปิดเอง (QR ต้องอยู่บนจอจนกว่าจะกดเสร็จ) · ไม่มีน้ำหนัก/เงิน
+ */
 export function SplitDone({ token, view, info, onFinish, onCancelled }: { token: string; view: WorkerView; info: SplitResultInfo; onFinish: () => void; onCancelled: (msg: string) => void }) {
   const from = view.parts?.find((p) => p.lotJobId === info.fromLotJobId) ?? view.parts?.find((p) => p.lotSeq === 0);
   // QR = URL ของหน้านี้เอง (QR ใบเดิม) — render ในเบราว์เซอร์ · ไม่ออก token ใหม่
@@ -84,31 +87,47 @@ export function SplitDone({ token, view, info, onFinish, onCancelled }: { token:
       return null;
     }
   }, [token]);
-  const lotName = `ส่วนที่ ${info.lot.lotSeq}`;
+  const sent = info.lot.qty;
+  const keep = info.lot.parentRemaining;
+  const scrap = info.scrap;
   return (
     <div className="space-y-4">
       <div role="status" aria-live="polite" className="flex items-center gap-3">
         <CheckCircle2 data-testid="done-ok" className="h-14 w-14 shrink-0 text-green-700" aria-hidden="true" />
         <div>
-          <p className="text-3xl font-bold text-zinc-900">แบ่งส่วนแล้ว</p>
+          <p className="text-3xl font-bold text-zinc-900">ส่งแล้ว {sent} ชิ้น</p>
           <p className="text-lg text-zinc-700">{view.job.jobNo}</p>
         </div>
       </div>
+      <QtyBar
+        total={sent + keep + scrap}
+        label={`ส่งไป ${sent} เหลือกับฉัน ${keep}${scrap > 0 ? ` เสีย ${scrap}` : ""}`}
+        segments={[
+          { key: "sent", qty: sent, tone: "sent" },
+          { key: "mine", qty: keep, tone: "mine" },
+          { key: "bad", qty: scrap, tone: "bad" },
+        ]}
+      />
       <ul className="space-y-2">
-        <li className="flex items-center justify-between gap-3 rounded-xl bg-sky-50 p-4 text-sky-950">
-          <span>
-            <span className="block text-xl font-bold">{lotName}</span>
-            <span className="block text-lg">ส่งต่อแล้ว</span>
+        <li className="flex items-center justify-between gap-3 rounded-2xl bg-sky-50 p-4 text-sky-950">
+          <span className="min-w-0">
+            <span className="block text-xl font-bold">ส่งไปแล้ว</span>
+            <span className="block text-base break-words">
+              {info.nextName ? `ถัดไป: ${info.nextName} · ` : ""}ส่วนที่ {info.lot.lotSeq}
+            </span>
           </span>
-          <strong className="text-3xl tabular-nums">{info.lot.qty}</strong>
+          <strong className="text-4xl tabular-nums">{sent}</strong>
         </li>
-        <li className="flex items-center justify-between gap-3 rounded-xl bg-zinc-100 p-4 text-zinc-900">
-          <span>
-            <span className="block text-xl font-bold">{partName(from)}</span>
-            <span className="block text-lg">ค้างกับคุณ</span>
+        <li className="flex items-center justify-between gap-3 rounded-2xl bg-amber-50 p-4 text-amber-950">
+          <span className="min-w-0">
+            <span className="block text-xl font-bold">เหลือกับคุณ</span>
+            <span className="block text-base break-words">ที่ขั้น{from?.stageName ? ` ${from.stageName}` : "นี้"} · ส่งทีหลังได้</span>
           </span>
-          <strong className="text-3xl tabular-nums">{info.lot.parentRemaining}</strong>
+          <strong className="text-4xl tabular-nums">{keep}</strong>
         </li>
+        {scrap > 0 && (
+          <li className="rounded-xl bg-red-50 p-3 text-lg font-semibold text-red-900">เสีย {scrap} ชิ้น</li>
+        )}
       </ul>
       {svg && (
         <div className="flex items-center gap-4 rounded-xl border border-zinc-300 p-3">
@@ -124,7 +143,7 @@ export function SplitDone({ token, view, info, onFinish, onCancelled }: { token:
       <BigButton type="button" onClick={onFinish}>
         เสร็จแล้ว
       </BigButton>
-      <CancelSplitButton token={token} lotJobId={info.lot.lotJobId} qty={info.lot.qty} onDone={onCancelled} />
+      <CancelSplitButton token={token} lotJobId={info.lot.lotJobId} qty={sent} onDone={onCancelled} label={`ส่งผิด? ยกเลิกการส่ง ${sent} ชิ้น`} />
     </div>
   );
 }
@@ -290,7 +309,7 @@ export function MultiPanel({
           {receive.map((a) => (
             <div key={keyOf(a)} className={CARD}>
               {head(a, a.qtyExpected, `ขั้นถัดไป: ${a.stageName}`)}
-              {open === keyOf(a) ? <ReceivePanel token={token} view={view} action={a} onDone={onDone} onReload={onReload} /> : null}
+              {open === keyOf(a) ? <ReceivePanel token={token} view={view} action={a} embedded onDone={onDone} onReload={onReload} /> : null}
               {toggle(a, `รับ ${a.qtyExpected ?? ""} ชิ้น`.trim())}
             </div>
           ))}
@@ -307,7 +326,7 @@ export function MultiPanel({
             return (
               <div key={keyOf(a)} className={CARD}>
                 {head(a, a.qtyHold, `ถืออยู่ที่ ${a.stageName}${p?.days != null ? ` · ${p.days === 0 ? "วันนี้" : `${p.days} วัน`}` : ""}`)}
-                {open === keyOf(a) ? <SendPanel token={token} view={view} action={a} onDone={onDone} onReload={onReload} onSplit={onSplit} /> : null}
+                {open === keyOf(a) ? <SendPanel token={token} view={view} action={a} embedded onDone={onDone} onReload={onReload} onSplit={onSplit} /> : null}
                 {toggle(a, "ส่งต่อ")}
               </div>
             );
