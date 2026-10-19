@@ -5,13 +5,16 @@
 // 🔴 ข้อมูลที่ได้มาผ่าน sanitizeWorkerView แล้ว (ไม่มีราคา/ต้นทุน/ชื่อลูกค้า) — component นี้ไม่เรียก DB เอง
 // ก่อน hydrate เสร็จ: แสดง skeleton แทนปุ่ม (ปุ่มที่กดตอนนั้นจะไม่ติด) · ผลสำเร็จ = เครื่องหมายถูกเขียว · แพ้การแย่งรับขั้น = ไอคอนเหลือง + ชื่อผู้ชนะ
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, CheckCircle2 } from "lucide-react";
 import { IdentifyPanel, ReceivePanel, SendPanel } from "@/components/domain/jobs/worker/WorkerPanels";
 import type { DoneTone, SplitResultInfo } from "@/components/domain/jobs/worker/WorkerPanels";
 import { MultiPanel, SplitDone } from "@/components/domain/jobs/worker/WorkerLots";
 import { BigButton, PanelSkeleton, StageStrip, useHydrated } from "@/components/domain/jobs/worker/WorkerParts";
+import { JobPhotoThumb } from "@/components/domain/jobs/photos/JobPhotoThumb";
+import { JobPhotoViewer } from "@/components/domain/jobs/photos/JobPhotoViewer";
+import type { RetryReason } from "@/components/domain/jobs/photos/types";
 import { workerLogout } from "@/lib/actions/job-worker";
 import { WORKER_CODE_TH, prevNotSentMessage } from "@/lib/jobs/messages";
 import { METAL_LABEL } from "@/lib/jobs/types";
@@ -41,6 +44,21 @@ export function WorkerApp({ token, view }: { token: string; view: WorkerView }) 
   // N5: หลัง refresh ข้อมูลใหม่ยังไม่มา แผงเก่าห้ามกดได้ — โชว์ skeleton จนกว่า view ใหม่จะมาถึง (หรือครบ 8 วิ กันค้าง)
   const [waiting, setWaiting] = useState(false);
   const j = view.job;
+  // 0182: รูปอ้างอิง (มีเฉพาะช่างที่ระบุตัวแล้ว · รูปหลักก่อน) — ภาพย่อ 80px มุมขวาบนข้างเลขใบงาน · แตะ = เต็มจอ ปัดดู · ไม่มีรูป = ไม่ render อะไรเลย (จอเดิมเป๊ะ)
+  const photos = j.photos ?? [];
+  const [viewerAt, setViewerAt] = useState<number | null>(null);
+  const lastPhotoRefresh = useRef(0);
+  // signed URL หมดอายุ 15 นาที แต่เซสชันช่างอยู่ได้ 12 ชม. → รูปโหลดล้ม = ขอ view ใหม่ (ลิงก์ใหม่) · อัตโนมัติไม่เกิน 1 ครั้ง/10 วินาที · แตะลองใหม่ได้เสมอ
+  // ใช้ router.refresh() ตรงๆ ไม่ใช่ refreshView: refreshView สลับแผงเป็น skeleton (ค่าที่ช่างกรอกค้างอยู่หาย) — รูปไม่ควรกระทบแผนรับ/ส่ง
+  const onPhotoRetry = useCallback(
+    (reason: RetryReason) => {
+      const now = Date.now();
+      if (reason === "error" && now - lastPhotoRefresh.current < 10_000) return;
+      lastPhotoRefresh.current = now;
+      router.refresh();
+    },
+    [router],
+  );
 
   useEffect(() => {
     setWaiting(false);
@@ -109,11 +127,31 @@ export function WorkerApp({ token, view }: { token: string; view: WorkerView }) 
   const soloAction = (kind: "send" | "receive") => view.myActions?.find((a) => a.action === kind && a.stageSeq === view.actionStage?.seq);
   const info = view.nextAction === "prev_not_sent" ? { tone: "amber" as const, text: prevNotSentMessage(prevStageName(view)) } : INFO[view.nextAction];
 
+  const titleBlock = (
+    <>
+      <p className="text-base font-semibold text-zinc-700">ใบงาน</p>
+      <h1 className="text-4xl font-extrabold tracking-tight text-zinc-900">{j.jobNo}</h1>
+    </>
+  );
+
   return (
     <div className="space-y-4">
       <header className="space-y-0.5">
-        <p className="text-base font-semibold text-zinc-700">ใบงาน</p>
-        <h1 className="text-4xl font-extrabold tracking-tight text-zinc-900">{j.jobNo}</h1>
+        {photos.length > 0 ? (
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">{titleBlock}</div>
+            <JobPhotoThumb
+              smUrl={photos[0].smUrl}
+              size={80}
+              label={`รูปงาน ${j.jobNo} ${photos.length > 1 ? `${photos.length} รูป ` : ""}แตะเพื่อดูเต็มจอ`}
+              countChip={photos.length}
+              onClick={() => setViewerAt(0)}
+              onRetryLoad={onPhotoRetry}
+            />
+          </div>
+        ) : (
+          titleBlock
+        )}
         {j.designLabel !== undefined && <p className="text-xl font-semibold break-words text-zinc-900">{j.designLabel}</p>}
         {j.designLabel !== undefined && (
           <p className="text-lg text-zinc-800">
@@ -147,6 +185,18 @@ export function WorkerApp({ token, view }: { token: string; view: WorkerView }) 
       )}
 
       <StageStrip stages={j.stages} currentSeq={current} />
+
+      {viewerAt !== null && photos.length > 0 && (
+        <JobPhotoViewer
+          photos={photos.map((p) => ({ id: p.id, smUrl: p.smUrl, mdUrl: p.mdUrl, isPrimary: p.isPrimary }))}
+          index={viewerAt}
+          onIndexChange={setViewerAt}
+          onClose={() => setViewerAt(null)}
+          title={j.jobNo}
+          closeSize="worker"
+          onRetryLoad={onPhotoRetry}
+        />
+      )}
 
       {view.viewer && (
         <footer className="border-t border-zinc-200 pt-3">
