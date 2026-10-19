@@ -158,7 +158,7 @@ export interface ArriveDiscrepancyOfficeInput {
   discrepancyId: string;
   /** กี่ชิ้นที่ได้รับเพิ่ม (1 ≤ n ≤ ส่วนต่างที่ค้าง · DB ตรวจ) */
   qty: number | string;
-  /** ทอง + ขั้นที่รับขาดตั้งชั่ง = บังคับ (DB ตอบ arrive_weight_required · หนักเกินส่วนที่ขาด+0.05 g = arrive_heavy) · เงิน/ขั้นไม่ชั่ง = ห้ามส่ง (weight_unexpected) */
+  /** ทอง + ขั้นที่รับขาดตั้งชั่ง = บังคับ (DB ตอบ arrive_weight_required · น้ำหนักไม่ตรงกับส่วนที่ขาด (ทั้งสองทิศ) = arrive_heavy) · เงิน/ขั้นไม่ชั่ง = ห้ามส่ง (weight_unexpected) */
   weightG?: number | string | null;
   /** วันที่รับของจริง (YYYY-MM-DD · ไม่อนาคต · ย้อน ≤ 14 วัน · ไม่ก่อนวันที่ขั้นต้นทางส่ง) — ว่าง = วันนี้ */
   receivedOn?: string | null;

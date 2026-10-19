@@ -24,6 +24,9 @@ export function partName(p: Pick<WorkerPart, "lotSeq"> | undefined | null): stri
   return p.lotSeq === 0 ? "ส่วนหลัก" : `ส่วนที่ ${p.lotSeq}`;
 }
 
+/** action arrive ที่ officeOnly (ทองขั้นชั่งไม่มีน้ำหนักอ้างอิง) — ช่างบันทึกไม่ได้ */
+export const ARRIVE_OFFICE_ONLY_MESSAGE = "ชิ้นที่มาถึงชุดนี้ให้ออฟฟิศบันทึก — แจ้งออฟฟิศ";
+
 const CARD = "space-y-3 rounded-xl border border-zinc-300 bg-white p-4";
 const keyOf = (a: WorkerAction) => `${a.action}:${a.lotJobId}:${a.stageSeq}:${a.discrepancyId ?? ""}`;
 
@@ -414,13 +417,23 @@ export function MultiPanel({
           <h2 id="mp-arrive" className="text-base font-bold text-zinc-700">
             ชิ้นที่ยังไม่มาถึง
           </h2>
-          {arrive.map((a) => (
-            <div key={keyOf(a)} className={CARD}>
-              {head(a, a.qty, `ขั้น ${a.stageName} · ได้รับไม่ครบ ถ้าชิ้นที่ขาดมาถึงแล้วให้บันทึกที่นี่`)}
-              {open === keyOf(a) ? <ArrivePanel token={token} action={a} onDone={onDone} onReload={onReload} /> : null}
-              {toggle(a, "ได้รับเพิ่ม")}
-            </div>
-          ))}
+          {arrive.map((a) =>
+            // ทองขั้นชั่งที่ไม่มีน้ำหนักอ้างอิง (officeOnly) = ช่างบันทึกเองไม่ได้ → ซ่อนปุ่ม/ฟอร์ม บอกให้แจ้งออฟฟิศ (ไม่เรียก server)
+            a.officeOnly ? (
+              <div key={keyOf(a)} className={CARD}>
+                {head(a, a.qty, `ขั้น ${a.stageName}`)}
+                <p role="status" className="rounded-xl border-2 border-amber-300 bg-amber-50 p-3 text-lg font-semibold text-amber-950">
+                  {ARRIVE_OFFICE_ONLY_MESSAGE}
+                </p>
+              </div>
+            ) : (
+              <div key={keyOf(a)} className={CARD}>
+                {head(a, a.qty, `ขั้น ${a.stageName} · ได้รับไม่ครบ ถ้าชิ้นที่ขาดมาถึงแล้วให้บันทึกที่นี่`)}
+                {open === keyOf(a) ? <ArrivePanel token={token} action={a} onDone={onDone} onReload={onReload} /> : null}
+                {toggle(a, "ได้รับเพิ่ม")}
+              </div>
+            )
+          )}
         </section>
       )}
 

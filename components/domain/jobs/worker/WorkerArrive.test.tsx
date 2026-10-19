@@ -270,3 +270,56 @@ describe("หน้าช่าง — ได้รับเพิ่มแล�
     expect(document.body.textContent ?? "").not.toMatch(/บาท|฿|ราคา|ต้นทุน|THB/);
   });
 });
+
+describe("หน้าช่าง — arrive ที่ officeOnly (ทองขั้นชั่งไม่มีน้ำหนักอ้างอิง)", () => {
+  const MSG = "ชิ้นที่มาถึงชุดนี้ให้ออฟฟิศบันทึก — แจ้งออฟฟิศ";
+  const DISC2 = "dddddddd-dddd-4ddd-8ddd-ddddddddddd2";
+
+  it("ซ่อนปุ่ม 'ได้รับเพิ่ม' + ฟอร์ม/stepper/น้ำหนัก · แสดง 'ชิ้นที่มาถึงชุดนี้ให้ออฟฟิศบันทึก — แจ้งออฟฟิศ' · ยังเห็นว่าค้างกี่ชิ้น · ไม่เรียก server", async () => {
+    render(<WorkerApp token={TOKEN} view={view({ myActions: [act({ officeOnly: true, weightRequired: true, qty: 3 })] }, { metal: "gold" })} />);
+    expect(await screen.findByText(MSG)).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "ชิ้นที่ยังไม่มาถึง" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /ได้รับเพิ่ม|รับเพิ่ม/ })).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("จำนวนที่ได้รับเพิ่ม")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/น้ำหนัก/)).not.toBeInTheDocument();
+    expect(screen.getByText("3")).toBeInTheDocument();
+    expect(arrive).not.toHaveBeenCalled();
+  });
+
+  it("สองส่วนต่าง: officeOnly ไม่มีปุ่ม · อีกอันที่ไม่ officeOnly ยังมีปุ่ม 'ได้รับเพิ่ม' และใช้งานได้", async () => {
+    render(
+      <WorkerApp
+        token={TOKEN}
+        view={view({ myActions: [act({ officeOnly: true, qty: 3 }), act({ discrepancyId: DISC2, qty: 2, officeOnly: false })] }, { metal: "gold" })}
+      />
+    );
+    await screen.findByText(MSG);
+    expect(screen.getAllByRole("button", { name: "ได้รับเพิ่ม" })).toHaveLength(1);
+    await userEvent.click(screen.getByRole("button", { name: "ได้รับเพิ่ม" }));
+    await userEvent.click(await screen.findByRole("button", { name: "รับเพิ่ม 2 ชิ้น" }));
+    await waitFor(() => expect(arrive).toHaveBeenCalledTimes(1));
+    expect(arrive.mock.calls[0][1]).toMatchObject({ discrepancyId: DISC2, qty: 2, expectedOpen: 2 });
+  });
+
+  it("officeOnly = false (ปกติ) ยังเห็นปุ่มและไม่มีข้อความแจ้งออฟฟิศ", async () => {
+    render(<WorkerApp token={TOKEN} view={view()} />);
+    await screen.findByText("ได้รับเพิ่มกี่ชิ้น");
+    expect(screen.queryByText(MSG)).not.toBeInTheDocument();
+  });
+
+  it("arrive_heavy จาก server (ข้อความกลาง) แสดงตามที่ได้ · office_required ตอน arrive แสดงข้อความของ arrive ครบ", async () => {
+    for (const [code, msg] of [
+      ["arrive_heavy", "น้ำหนักชิ้นที่มาถึงไม่ตรงกับส่วนที่ขาด — ชั่งใหม่ ถ้ายังไม่ตรงให้แจ้งออฟฟิศ"],
+      ["office_required", "ชิ้นที่มาถึงชุดนี้ต้องให้ออฟฟิศเป็นผู้บันทึก (ชั่งไม่ตรงหลายครั้ง หรือไม่มีน้ำหนักอ้างอิง) — แจ้งออฟฟิศ"],
+    ] as const) {
+      cleanup();
+      arrive.mockReset();
+      arrive.mockResolvedValue({ ok: false, error: msg, code });
+      render(<WorkerApp token={TOKEN} view={view({ myActions: [act({ weightRequired: true })] }, { metal: "gold" })} />);
+      await userEvent.type(await screen.findByLabelText(/น้ำหนักชิ้นที่ได้รับเพิ่ม/), "1.5");
+      await userEvent.click(screen.getByRole("button", { name: "รับเพิ่ม 2 ชิ้น" }));
+      expect(await screen.findByRole("alert")).toHaveTextContent(msg);
+      expect(screen.queryByRole("button", { name: "โหลดใหม่" })).not.toBeInTheDocument();
+    }
+  });
+});

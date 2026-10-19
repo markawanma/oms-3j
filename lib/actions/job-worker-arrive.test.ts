@@ -126,6 +126,20 @@ describe("arriveDiscrepancyWorker — DB ปฏิเสธ → ข้อคว�
     expect(!b.ok && b.error).toContain("ชิ้นที่มาถึง");
     expect(!b.ok && b.error).not.toContain("ชี้แจง");
   });
+  it("arrive_heavy (หนักเกิน หรือ เบากว่าที่ควร — DB ตอบรหัสเดียว): ช่างได้ข้อความกลางเดียวกันทุกกรณี · ห้ามบอกทิศ/ตัวเลข (N1)", async () => {
+    const CENTRAL = "น้ำหนักชิ้นที่มาถึงไม่ตรงกับส่วนที่ขาด — ชั่งใหม่ ถ้ายังไม่ตรงให้แจ้งออฟฟิศ";
+    for (const raw of ["หนักเกินส่วนที่ขาด 0.3 g", "เบากว่าที่ควร 1.2 g", "x"]) {
+      rpcMock.mockResolvedValue({ data: { ok: false, code: "arrive_heavy", message: raw }, error: null });
+      const r = await arriveDiscrepancyWorker(TOKEN, { discrepancyId: DISC, qty: 1, weightG: 5 });
+      expect(r).toMatchObject({ ok: false, code: "arrive_heavy", error: CENTRAL });
+      expect(!r.ok && r.error).not.toMatch(/หนักเกิน|เบากว่า|มากเกิน|น้อยเกิน|[0-9]/);
+    }
+  });
+  it("office_required ตอน arrive = ข้อความของ arrive (ชิ้นที่มาถึงชุดนี้ต้องให้ออฟฟิศบันทึก) ไม่ใช่ข้อความล็อกการรับ/ชี้แจง", async () => {
+    rpcMock.mockResolvedValue({ data: { ok: false, code: "office_required", message: "x" }, error: null });
+    const r = await arriveDiscrepancyWorker(TOKEN, { discrepancyId: DISC, qty: 1, weightG: 1 });
+    expect(!r.ok && r.error).toBe("ชิ้นที่มาถึงชุดนี้ต้องให้ออฟฟิศเป็นผู้บันทึก (ชั่งไม่ตรงหลายครั้ง หรือไม่มีน้ำหนักอ้างอิง) — แจ้งออฟฟิศ");
+  });
   it("error ระบบ (supabase error) = ข้อความกลาง · log ไม่มี token/session/ข้อความดิบ", async () => {
     rpcMock.mockResolvedValue({ data: null, error: { code: "XX000", message: `boom ${TOKEN} ${SESSION}`, hint: null } });
     const r = await arriveDiscrepancyWorker(TOKEN, { discrepancyId: DISC, qty: 1 });
