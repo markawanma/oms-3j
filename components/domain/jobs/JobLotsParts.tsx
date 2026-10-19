@@ -81,6 +81,7 @@ export function PartCard({ part, children }: { part: LotPart; children?: ReactNo
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className={`text-base font-semibold ${dim ? "line-through" : "text-zinc-900"}`}>{partTitle(part)}</p>
+          {part.fromArrive && <p className="text-sm font-medium text-sky-900">จากของที่ได้รับเพิ่ม</p>}
           <p className="text-sm text-zinc-700">{partStatusText(part)}</p>
         </div>
         <strong className="shrink-0 text-2xl tabular-nums text-zinc-900" aria-label={`${qty} ชิ้น`}>

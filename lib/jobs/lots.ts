@@ -25,7 +25,7 @@ export const DISCREPANCY_COLUMNS =
 // M-A: v_job_stage_loss ทั้งต้นไม้ (ใบแม่ + ส่วนย่อย) — เฉพาะหน้าออฟฟิศ (มีน้ำหนัก/gap)
 export const TREE_LOSS_COLUMNS =
   "root_job_id, lot_seq, job_id, job_stage_id, stage_code, status, weighed, not_weighed, loss_g, loss_pct, warn, handoff_gap_g, handoff_gap_partial_g, not_comparable, cancel_scrap_weight_g";
-export const LOT_STAGE_COLUMNS = "id, job_id, seq, stage_code, status, weigh_required, weight_in_g, weight_out_g, metal_added_g, qty_in, qty_out, qty_scrap, qty_split_out";
+export const LOT_STAGE_COLUMNS = "id, job_id, seq, stage_code, status, weigh_required, weight_in_g, weight_out_g, metal_added_g, qty_in, qty_out, qty_scrap, qty_split_out, arrive_discrepancy_id";
 
 // ---------------------------------------------------------------------------
 // ส่วน (1 แถวต่อใบในต้นไม้ — ใบแม่ = lotSeq 0)
@@ -77,6 +77,8 @@ export interface LotPart {
   receiveLocked: boolean;
   /** ชื่อขั้นที่ผ่านมาแล้ว (sent/skipped) เรียงตามลำดับ — ใบย่อยพิมพ์บรรทัดเดียว (ฌ3) */
   passedStages: string[];
+  /** 0183: ส่วนนี้เกิดจาก "ได้รับเพิ่มแล้ว" (ขั้นแรกที่ได้รับผูก arrive_discrepancy_id) — ป้าย "จากของที่ได้รับเพิ่ม" · loader เติมจากแถวขั้น */
+  fromArrive: boolean;
 }
 
 export function mapLotPart(r: Record<string, unknown>): LotPart | null {
@@ -116,6 +118,7 @@ export function mapLotPart(r: Record<string, unknown>): LotPart | null {
     pendingWeighRequired: false,
     receiveLocked: false, // loader นับ event (ล็อก L-2) — ไม่มีคอลัมน์บอกล็อกใน view
     passedStages: [],
+    fromArrive: false, // loader เติมจาก job_stage.arrive_discrepancy_id
   };
 }
 
@@ -174,6 +177,9 @@ export interface LotDiscrepancy {
   lotLabel: string;
   fromStageName: string;
   toStageName: string;
+  /** 0183: ขั้นผู้รับ (ที่รับขาด) — ใช้กรองรายชื่อช่างและรู้ว่าต้องชั่งชิ้นที่มาถึงไหม (ทอง + ขั้นตั้งชั่ง) · ไม่รู้ = null/false */
+  toStageCode: string | null;
+  toWeighRequired: boolean;
   qty: number;
   status: "open" | "resolved" | "void";
   resolvedKind: "scrap" | "lost" | "arrived" | null;
@@ -189,7 +195,7 @@ export interface LotDiscrepancy {
   weightGapExcessG: number | null;
 }
 
-export function mapDiscrepancy(r: Record<string, unknown>, ctx: { stageById: Record<string, { name: string }>; labelByJob: Record<string, string> }): LotDiscrepancy | null {
+export function mapDiscrepancy(r: Record<string, unknown>, ctx: { stageById: Record<string, { name: string; code?: string; weighRequired?: boolean }>; labelByJob: Record<string, string> }): LotDiscrepancy | null {
   const id = str(r.id);
   const jobId = str(r.job_id);
   const qty = num(r.qty);
@@ -202,6 +208,8 @@ export function mapDiscrepancy(r: Record<string, unknown>, ctx: { stageById: Rec
     lotLabel: ctx.labelByJob[jobId] ?? "",
     fromStageName: ctx.stageById[str(r.from_stage_id) ?? ""]?.name ?? "ขั้นก่อน",
     toStageName: ctx.stageById[str(r.to_stage_id) ?? ""]?.name ?? "ขั้นที่รับ",
+    toStageCode: ctx.stageById[str(r.to_stage_id) ?? ""]?.code ?? null,
+    toWeighRequired: ctx.stageById[str(r.to_stage_id) ?? ""]?.weighRequired === true,
     qty,
     status,
     resolvedKind: kind,

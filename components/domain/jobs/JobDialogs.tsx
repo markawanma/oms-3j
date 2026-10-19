@@ -140,12 +140,13 @@ export function DueDialog({ jobId, current, todayTh, onClose }: { jobId: string;
   );
 }
 
-export function DoneDialog({ jobId, planned, qtyOrder, sourceKind, metal, requireFinalWeight, weighRequired, recordedScrap = 0, qtySplitOut = 0, title = "ปิดงาน", onClose }: { jobId: string; planned: number; qtyOrder: number; sourceKind: string; metal: string; requireFinalWeight?: boolean; weighRequired?: boolean; recordedScrap?: number; /** 0181: ชิ้นที่แยกเป็นส่วนย่อยแล้ว (อ่านอย่างเดียว) — DB บังคับ ดี + เสีย + แยกออก = จำนวนเริ่มผลิต · 0 = ใบเดี่ยวเหมือนเดิมเป๊ะ */ qtySplitOut?: number; /** ปิดส่วนย่อยใช้ชื่อ "ปิด ส่วนที่ k" */ title?: string; onClose: () => void }) {
+export function DoneDialog({ jobId, planned, qtyOrder, sourceKind, metal, requireFinalWeight, weighRequired, recordedScrap = 0, qtySplitOut = 0, qtyArrived = 0, title = "ปิดงาน", onClose }: { jobId: string; planned: number; qtyOrder: number; sourceKind: string; metal: string; requireFinalWeight?: boolean; weighRequired?: boolean; recordedScrap?: number; /** 0181: ชิ้นที่แยกเป็นส่วนย่อยแล้ว (อ่านอย่างเดียว) — DB บังคับ ดี + เสีย + แยกออก = จำนวนเริ่มผลิต · 0 = ใบเดี่ยวเหมือนเดิมเป๊ะ */ qtySplitOut?: number; /** 0183: ส่วนต่างของใบนี้ที่ "ได้รับเพิ่มแล้ว" (ชิ้น · อ่านอย่างเดียว) — ชิ้นนั้นไปอยู่ที่ส่วนใหม่แล้ว · DB บังคับ ดี + เสีย + แยกออก + ค่านี้ = จำนวนเริ่มผลิต · 0 = เหมือนเดิมเป๊ะ */ qtyArrived?: number; /** ปิดส่วนย่อยใช้ชื่อ "ปิด ส่วนที่ k" */ title?: string; onClose: () => void }) {
   const { run, busy, error } = useOfficeRun();
   // ค่าเริ่ม: เสีย = ของเสียที่ช่างแจ้งไว้ในขั้นต่างๆ (ผลรวมจำนวนชิ้น qty_scrap — บวกชิ้น ไม่ใช่เงิน/น้ำหนัก) · ดี = เริ่มผลิต − เสีย
   // ไม่ดึง = เสนอ "ดี = เริ่มผลิตทั้งหมด" ทั้งที่ช่างแจ้งเสียไปแล้ว → ใบผลิตเข้าสต็อกเกิน + ของเหลือผิด (QA 0176) · ผู้ใช้แก้ได้ · DB ตรวจ ดี+เสีย = เริ่มผลิต ซ้ำ
   // 0181: ฐานของ ดี+เสีย = เริ่มผลิต − ที่แยกเป็นส่วนย่อย (ใบเดี่ยว split = 0 ⇒ เท่าเดิม)
-  const base = planned - qtySplitOut;
+  // 0183: ชิ้นที่ได้รับเพิ่มแล้วไปอยู่ที่ส่วนใหม่ — ไม่นับในดี/เสียของใบนี้ (ไม่หักแล้ว DB ตอบ qty_mismatch) · ไม่มี arrived = เท่าเดิม
+  const base = planned - qtySplitOut - qtyArrived;
   const prefillScrap = Number.isInteger(recordedScrap) && recordedScrap > 0 ? Math.min(recordedScrap, base) : 0;
   const [good, setGood] = useState(String(base - prefillScrap));
   const [scrap, setScrap] = useState(String(prefillScrap));
@@ -158,7 +159,7 @@ export function DoneDialog({ jobId, planned, qtyOrder, sourceKind, metal, requir
   // ผลต่างจำนวนชิ้น (ไม่ใช่เงิน/น้ำหนัก) เพื่อบอกผู้ใช้ — DB ตัดสินซ้ำเอง (qty_surplus · surplus_unexpected)
   const surplus = sumOk && goodN !== null && goodN > qtyOrder ? goodN - qtyOrder : 0;
   // ใบที่แยกส่วน: ดีของใบแม่น้อยกว่าที่สั่งเป็นเรื่องปกติ (ส่วนที่แยกไปปิดแยก) — ไม่ขึ้น "ขาด"
-  const short = sumOk && qtySplitOut === 0 && goodN !== null && goodN < qtyOrder ? qtyOrder - goodN : 0;
+  const short = sumOk && qtySplitOut === 0 && qtyArrived === 0 && goodN !== null && goodN < qtyOrder ? qtyOrder - goodN : 0;
   const isOem = sourceKind === "oem";
   // น้ำหนักสุทธิ: แบบการบันทึกบังคับ หรือ ใบทองที่มีขั้นต้องชั่ง (กติกาเดียวกับ DB — ด่านจริงอยู่ที่ job_done) · ไม่ได้ส่ง flag มา (ใบเดิม/ผู้เรียกเก่า) = กติกา J1: ทองบังคับ
   const finalRequired = requireFinalWeight === undefined && weighRequired === undefined ? metal === "gold" : finalWeightRequired({ requireFinalWeight: requireFinalWeight === true, metal, hasWeigh: weighRequired === true });
@@ -191,10 +192,19 @@ export function DoneDialog({ jobId, planned, qtyOrder, sourceKind, metal, requir
             แยกเป็นส่วนย่อย <strong className="tabular-nums">{qtySplitOut}</strong> ชิ้น (ปิดแยกตามส่วน) — ไม่นับในดี/เสียของใบนี้
           </p>
         )}
+        {qtyArrived > 0 && (
+          <p role="status" className="rounded-md bg-zinc-50 p-2 text-sm text-zinc-900">
+            ได้รับเพิ่มแล้ว <strong className="tabular-nums">{qtyArrived}</strong> ชิ้น (อยู่ที่ส่วนใหม่ ปิดแยกตามส่วน) — ไม่นับในดี/เสียของใบนี้
+          </p>
+        )}
         {prefillScrap > 0 && <p className="text-xs text-zinc-700">ของเสียที่บันทึกในขั้น: {prefillScrap} ชิ้น</p>}
         {!sumOk && (
           <p className="text-xs font-medium text-amber-900">
-            {qtySplitOut > 0 ? `ดี + เสีย + แยกเป็นส่วนย่อย ต้องเท่ากับจำนวนเริ่มผลิต (${planned} ชิ้น)` : `ดี + เสีย ต้องเท่ากับจำนวนเริ่มผลิต (${planned} ชิ้น)`}
+            {qtyArrived > 0
+              ? `ดี + เสีย${qtySplitOut > 0 ? " + แยกเป็นส่วนย่อย" : ""} + ได้รับเพิ่ม ต้องเท่ากับจำนวนเริ่มผลิต (${planned} ชิ้น)`
+              : qtySplitOut > 0
+                ? `ดี + เสีย + แยกเป็นส่วนย่อย ต้องเท่ากับจำนวนเริ่มผลิต (${planned} ชิ้น)`
+                : `ดี + เสีย ต้องเท่ากับจำนวนเริ่มผลิต (${planned} ชิ้น)`}
           </p>
         )}
         {short > 0 && (
