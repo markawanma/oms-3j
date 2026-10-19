@@ -2928,6 +2928,12 @@ create or replace view analytics.v_job_tree_drift
                               FROM analytics.job_stage ls JOIN analytics.job lj ON lj.id = ls.job_id
                              WHERE ls.split_from_stage_id = s.id AND NOT (lj.status = 'cancelled'::text AND lj.cancel_scrap_qty IS NULL))
  UNION ALL
+ SELECT COALESCE(j.parent_job_id, j.id), j.id, 'weight_link'::text, (s.weight_split_out_g)::text
+   FROM analytics.job_stage s JOIN analytics.job j ON j.id = s.job_id
+  WHERE s.weight_split_out_g <> (SELECT COALESCE(sum(ls.weight_out_g), 0)
+                              FROM analytics.job_stage ls JOIN analytics.job lj ON lj.id = ls.job_id
+                             WHERE ls.split_from_stage_id = s.id AND NOT (lj.status = 'cancelled'::text AND lj.cancel_scrap_qty IS NULL))
+ UNION ALL
  SELECT COALESCE(j.parent_job_id, j.id), j.id, 'job_split_sum'::text, (j.qty_split_out)::text
    FROM analytics.job j
   WHERE j.qty_split_out <> (SELECT COALESCE(sum(s.qty_split_out), 0) FROM analytics.job_stage s WHERE s.job_id = j.id)
