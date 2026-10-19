@@ -24,6 +24,7 @@ vi.mock("@/lib/actions/job-worker", () => ({
 
 import { WorkerApp } from "./WorkerApp";
 import { findForbiddenKeys } from "@/lib/jobs/worker-view";
+import { WORKER_CODE_TH, WORKER_RECEIVE_LOCK_TH } from "@/lib/jobs/messages";
 import type { WorkerAction, WorkerPart, WorkerView } from "@/lib/jobs/worker-view";
 
 const TOKEN = "Ab3-_xYz0123456789AbCdEfGhIjKlMnOpQrStUvWxY";
@@ -503,5 +504,36 @@ describe("ใบเดี่ยว (ไม่แบ่ง) — หน้าเ�
     await userEvent.click(screen.getByRole("button", { name: "รับงาน" }));
     await waitFor(() => expect(workerReceiveStage).toHaveBeenCalledTimes(1));
     expect(workerReceiveStage.mock.calls[0]).toHaveLength(3);
+  });
+});
+
+describe("0181 re-review: ล็อกรับไม่ครบ (L-2) · weight_move_over", () => {
+  const recv = () =>
+    view({
+      myActions: [act({ action: "receive", qtyHold: null, qtyExpected: 40, stageSeq: 3 })],
+      parts: [part({ qtyLive: 40, isMine: false, holderName: null })],
+    }, { metal: "gold" });
+
+  it("ทองรับไม่ครบ ชั่งไม่ตรงครบ 3 ครั้ง → ข้อความล็อกตายตัว (ไม่บอกว่าชั่งผิดเท่าไร) ไม่มีปุ่มโหลดใหม่หลอก", async () => {
+    workerReceiveStage.mockResolvedValue({ ok: false, code: "office_required", error: WORKER_RECEIVE_LOCK_TH });
+    render(<WorkerApp token={TOKEN} view={recv()} />);
+    await userEvent.click(await screen.findByRole("button", { name: "ได้ไม่ครบ? แจ้งจำนวนที่ได้จริง" }));
+    await setQty("ได้รับจริงกี่ชิ้น", "35");
+    await userEvent.click(screen.getByRole("button", { name: "รับ 35 ชิ้น" }));
+    await userEvent.click(await screen.findByRole("button", { name: "ยืนยัน รับ 35 ชิ้น" }));
+    const a = await screen.findByRole("alert");
+    expect(a).toHaveTextContent("แจ้งออฟฟิศให้เป็นผู้รับงาน");
+    expect(a.textContent ?? "").not.toMatch(/\d+(\.\d+)? ?(g|กรัม)\b/);
+    expect(screen.queryByRole("button", { name: "โหลดใหม่" })).not.toBeInTheDocument();
+  });
+
+  it("แยกส่วนทอง น้ำหนักส่วนที่แยกเกิน → weight_move_over ข้อความไทยบนจอแยกส่วน", async () => {
+    workerSendStage.mockResolvedValue({ ok: false, code: "weight_move_over", error: WORKER_CODE_TH.weight_move_over });
+    render(<WorkerApp token={TOKEN} view={view({ myActions: [act({ weightRequired: true })] }, { metal: "gold" })} />);
+    await screen.findByText("ส่งต่อกี่ชิ้น จาก 50");
+    await setQty("จำนวนที่ส่ง", "40");
+    await userEvent.type(screen.getByLabelText(/น้ำหนักส่วนที่ส่ง/), "999");
+    await userEvent.click(screen.getByRole("button", { name: "ส่งต่อ 40 จาก 50 ชิ้น" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("น้ำหนักส่วนที่แยกมากเกินน้ำหนักที่ถืออยู่");
   });
 });

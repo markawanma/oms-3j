@@ -4,7 +4,7 @@
 // 🔴 ไม่มีราคา/ต้นทุน/ชื่อลูกค้า (view ไม่มี) · ไม่ส่งชื่อผู้เปิดใบ
 
 import "server-only";
-import { DISCREPANCY_COLUMNS, LOT_STAGE_COLUMNS, TREE_COLUMNS, TREE_LOSS_COLUMNS, TREE_SUMMARY_COLUMNS, mapDiscrepancy, mapLotPart, mapLotsSummary, mapTreeStageLoss, toBoardLots } from "@/lib/jobs/lots";
+import { DISCREPANCY_COLUMNS, LOT_STAGE_COLUMNS, TREE_COLUMNS, TREE_LOSS_COLUMNS, TREE_SUMMARY_COLUMNS, RECEIVE_LOCK_STRIKES, mapDiscrepancy, mapLotPart, mapLotsSummary, mapTreeStageLoss, toBoardLots } from "@/lib/jobs/lots";
 import type { BoardLots, JobLotsData, LotPart, TreeStageLoss } from "@/lib/jobs/lots";
 import { db, shopId } from "@/lib/jobs/office-server";
 import { logJobFailure } from "@/lib/jobs/log";
@@ -43,6 +43,7 @@ export async function loadJobLots(rootJobId: string, stageNames: Record<string, 
 
     const stageById: Record<string, { name: string }> = {};
     const byJob = new Map<string, LotPart>(parts.map((p) => [p.jobId, p]));
+    const pendingId = new Map<string, string>(); // job_id → id ของขั้นรอรับต่ำสุด
     for (const s of rows(stRes.data)) {
       const id = typeof s.id === "string" ? s.id : null;
       const jobId = typeof s.job_id === "string" ? s.job_id : null;
@@ -57,7 +58,33 @@ export async function loadJobLots(rootJobId: string, stageNames: Record<string, 
         part.holdSeq = seq;
         part.holdWeighRequired = s.weigh_required === true;
       }
+      if (s.weigh_required === true && s.status !== "skipped") part.hasWeighStage = true;
+      if (s.status === "pending" && (part.pendingSeq === null || seq < part.pendingSeq)) {
+        part.pendingSeq = seq;
+        part.pendingStageName = name;
+        part.pendingWeighRequired = s.weigh_required === true;
+        pendingId.set(jobId, id);
+      }
       if (s.status === "sent" || s.status === "skipped") part.passedStages.push(name);
+    }
+    // L-2: ขั้นรอรับที่ถูกล็อก (ทอง รับไม่ครบ ชั่งไม่ตรงครบ 3 ครั้ง) — นับจาก event weigh/handoff_mismatch partial ที่ DB บันทึก · อ่านไม่ได้ = ไม่แสดงป้ายล็อก (ไม่พังหน้า)
+    if (pendingId.size > 0) {
+      try {
+        const ev = await db().from("job_event").select("job_id, job_stage_id, payload").eq("shop_id", shop).in("job_id", [...pendingId.keys()]).eq("event_type", "weigh").limit(400);
+        if (ev.error) throw ev.error;
+        const strikes = new Map<string, number>();
+        for (const e of rows(ev.data)) {
+          const p = e.payload as { kind?: unknown; partial?: unknown } | null;
+          const sid = typeof e.job_stage_id === "string" ? e.job_stage_id : null;
+          if (sid && p && p.kind === "handoff_mismatch" && (p.partial === true || p.partial === "true")) strikes.set(sid, (strikes.get(sid) ?? 0) + 1);
+        }
+        for (const [jid, sid] of pendingId) {
+          const part = byJob.get(jid);
+          if (part && (strikes.get(sid) ?? 0) >= RECEIVE_LOCK_STRIKES) part.receiveLocked = true;
+        }
+      } catch (err) {
+        logJobFailure("loadJobLots.lock", err);
+      }
     }
     const labelByJob = Object.fromEntries(parts.map((p) => [p.jobId, p.label]));
     const discrepancies = discRows.map((r) => mapDiscrepancy(r, { stageById, labelByJob })).filter((d): d is NonNullable<typeof d> => d !== null);

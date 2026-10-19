@@ -19,7 +19,7 @@ import { JobEvents, StageTable } from "@/components/domain/jobs/JobStages";
 import type { JobDetailData } from "@/lib/actions/job-office";
 import { qtyOrderPlannedText, statusSignals } from "@/lib/jobs/board";
 import { thaiDate } from "@/lib/jobs/dates";
-import { closeBlocker, hasLots, splittableParts } from "@/lib/jobs/lots";
+import { closeBlocker, hasLots, rootLossFromTree, splittableParts } from "@/lib/jobs/lots";
 import { JOB_STATUS_LABEL, METAL_LABEL, SOURCE_LABEL } from "@/lib/jobs/types";
 import type { StageRow } from "@/lib/jobs/types";
 import type { LotDialogSpec } from "@/components/domain/jobs/JobLotsSection";
@@ -59,6 +59,9 @@ export function JobDetailClient({ data }: { data: JobDetailData }) {
   const canStartSplit = !showLots && lots !== null && splittableParts(lots).length > 0;
   // ปิด full ไม่ได้เมื่อมีส่วนย่อยค้าง/ส่วนต่างรอชี้แจง — เหตุผลขึ้นบนปุ่ม (DB ตัดสินซ้ำที่ job_done: parts_open)
   const doneBlocker = closeBlocker(lots);
+  // M-A: ใบที่แยกส่วนแล้ว — loss/ส่วนต่างส่งมอบของขั้นในใบแม่ใช้ตัวเลขทั้งต้นไม้ (v_job_tree_stage_loss) · ไม่มี = ของใบเอง
+  const lossMap = lots?.treeLoss ? { ...loss, ...rootLossFromTree(lots.treeLoss) } : loss;
+  const stageNameByCode = Object.fromEntries(stages.map((s) => [s.code, s.name]));
   const closed = job.status === "done" || job.status === "cancelled";
   const firstOpen = stages.find((s) => s.status === "pending" || s.status === "received") ?? null;
   const started = stages.some((s) => s.status !== "pending");
@@ -163,7 +166,7 @@ export function JobDetailClient({ data }: { data: JobDetailData }) {
 
       {showLots && lots && (
         <Suspense fallback={<p role="status" aria-busy="true" className="rounded-lg border border-zinc-200 bg-white p-4 text-sm text-zinc-700">กำลังโหลดส่วนของใบนี้…</p>}>
-          <LotsPanel jobId={job.id} lots={lots} closed={closed} openDialog={setLotDlg} gold={job.metal === "gold"} />
+          <LotsPanel jobId={job.id} lots={lots} closed={closed} openDialog={setLotDlg} gold={job.metal === "gold"} stageNames={stageNameByCode} />
         </Suspense>
       )}
 
@@ -173,7 +176,7 @@ export function JobDetailClient({ data }: { data: JobDetailData }) {
         </h2>
         <StageTable
           stages={stages}
-          loss={loss}
+          loss={lossMap}
           closed={closed}
           profiled={job.profileId !== null}
           gold={job.metal === "gold"}
@@ -188,7 +191,7 @@ export function JobDetailClient({ data }: { data: JobDetailData }) {
 
       {lotDlg && lots && (
         <Suspense fallback={null}>
-          <LotDialogs jobId={job.id} lots={lots} spec={lotDlg} onClose={() => setLotDlg(null)} gold={job.metal === "gold"} />
+          <LotDialogs jobId={job.id} lots={lots} spec={lotDlg} onClose={() => setLotDlg(null)} gold={job.metal === "gold"} workers={workers} todayTh={todayTh} />
         </Suspense>
       )}
       {dlg?.t === "reason" && <ReasonDialog jobId={job.id} spec={dlg.spec} onClose={() => setDlg(null)} />}

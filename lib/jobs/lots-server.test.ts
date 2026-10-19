@@ -120,3 +120,64 @@ describe("findLotRoot — ใบนี้เป็นส่วนย่อยไ
     expect(calls[0].ops.some((o) => o[0] === "eq" && o[1] === "shop_id" && o[2] === SHOP)).toBe(true);
   });
 });
+
+describe("0181 re-review: ขั้นรอรับ · ล็อก L-2 · loss ทั้งต้นไม้ · v_job_discrepancy", () => {
+  const two = () => {
+    results.v_job_tree = { data: [tree({}), tree({ job_id: L1, lot_seq: 1, label: "JB-0020 · ส่วนที่ 1", qty_planned: 10, qty_live: 10, stage_status: "pending" })], error: null };
+    results.v_job_tree_summary = { data: { root_job_id: ROOT, qty_planned: 60, parts_count: 2, lots_open: 1, sum_check: true }, error: null };
+  };
+  const stages = [
+    { id: "m1", job_id: ROOT, seq: 3, stage_code: "setting", status: "received", weigh_required: true },
+    { id: "l0", job_id: L1, seq: 1, stage_code: "cast", status: "skipped", weigh_required: true },
+    { id: "l2", job_id: L1, seq: 3, stage_code: "setting", status: "pending", weigh_required: true },
+    { id: "l3", job_id: L1, seq: 4, stage_code: "qc", status: "pending", weigh_required: false },
+  ];
+  const mm = (sid: string, partial: boolean) => ({ job_id: L1, job_stage_id: sid, payload: { kind: "handoff_mismatch", partial } });
+
+  it("ส่วนที่มีขั้นรอรับ: pendingSeq = ต่ำสุด · ชื่อ/ชั่งตามขั้น · hasWeighStage ไม่นับขั้นที่ข้าม", async () => {
+    two();
+    results.job_stage = { data: stages, error: null };
+    const r = await loadJobLots(ROOT, { setting: "ฝังพลอย", qc: "ตรวจ QC", cast: "หล่อ" });
+    const lot = r!.parts[1];
+    expect(lot).toMatchObject({ pendingSeq: 3, pendingStageName: "ฝังพลอย", pendingWeighRequired: true, hasWeighStage: true, receiveLocked: false });
+    expect(r!.parts[0]).toMatchObject({ holdSeq: 3, holdWeighRequired: true, pendingSeq: null });
+  });
+
+  it("ล็อก: ชั่งไม่ตรง (partial) ครบ 3 ครั้งบนขั้นรอรับ = receiveLocked · 2 ครั้ง/ไม่ใช่ partial/ขั้นอื่น = ไม่ล็อก", async () => {
+    two();
+    results.job_stage = { data: stages, error: null };
+    results.job_event = { data: [mm("l2", true), mm("l2", true), mm("l2", true), mm("l3", true)], error: null };
+    expect((await loadJobLots(ROOT, {}))!.parts[1].receiveLocked).toBe(true);
+    results.job_event = { data: [mm("l2", true), mm("l2", true), mm("l2", false), mm("l2", false)], error: null };
+    expect((await loadJobLots(ROOT, {}))!.parts[1].receiveLocked).toBe(false);
+  });
+
+  it("event อ่านไม่ได้ → ไม่แสดงล็อก แต่โหลดต้นไม้ได้ตามปกติ", async () => {
+    two();
+    results.job_stage = { data: stages, error: null };
+    results.job_event = { data: null, error: { code: "42P01" } };
+    const r = await loadJobLots(ROOT, {});
+    expect(r).not.toBeNull();
+    expect(r!.parts[1].receiveLocked).toBe(false);
+  });
+
+  it("หลายส่วน: ดึง v_job_tree_stage_loss (ผูก shop_id + limit) · ใบเดี่ยว: ไม่ดึง · ส่วนต่างอ่านจาก v_job_discrepancy", async () => {
+    two();
+    results.job_stage = { data: stages, error: null };
+    results.v_job_tree_stage_loss = { data: [{ root_job_id: ROOT, lot_seq: 0, job_id: ROOT, job_stage_id: "m1", stage_code: "setting", loss_g: 1, handoff_gap_partial_g: 0.2 }], error: null };
+    const r = await loadJobLots(ROOT, {});
+    expect(r!.treeLoss).toHaveLength(1);
+    expect(r!.treeLoss![0]).toMatchObject({ lossG: 1, handoffGapPartialG: 0.2 });
+    const lossCall = calls.find((c) => c.table === "v_job_tree_stage_loss")!;
+    expect(lossCall.ops.some((o) => o[0] === "eq" && o[1] === "shop_id" && o[2] === SHOP)).toBe(true);
+    expect(lossCall.ops.some((o) => o[0] === "limit")).toBe(true);
+    expect(calls.some((c) => c.table === "v_job_discrepancy")).toBe(true);
+    expect(calls.some((c) => c.table === "job_discrepancy")).toBe(false);
+    calls.length = 0;
+    results.v_job_tree = { data: [tree({})], error: null };
+    results.job_stage = { data: [], error: null };
+    const solo = await loadJobLots(ROOT, {});
+    expect(solo!.treeLoss).toBeUndefined();
+    expect(calls.some((c) => c.table === "v_job_tree_stage_loss")).toBe(false);
+  });
+});

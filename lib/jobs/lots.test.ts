@@ -1,6 +1,6 @@
 // lib/jobs/lots.ts + board.ts (0181 ส่วนย่อย) — แถบสะสมรวม N ครบ · ส่วนต่างรอชี้แจง (void ไม่นับ) · ปุ่มปิด full · บอร์ดใบเดี่ยวไม่เปลี่ยน
 import { describe, expect, it } from "vitest";
-import { closeBlocker, hasLots, lotSegments, lotsLine, mapDiscrepancy, mapLotPart, mapLotsSummary, mapTreeStageLoss, openDiscrepancies, segmentsTotal, splittableParts, toBoardLots } from "@/lib/jobs/lots";
+import { closeBlocker, hasLots, lotSegments, lotsLine, mapDiscrepancy, mapLotPart, mapLotsSummary, mapTreeStageLoss, noteRequired, openDiscrepancies, rootLossFromTree, segmentsTotal, splittableParts, toBoardLots } from "@/lib/jobs/lots";
 import type { JobLotsData, LotPart } from "@/lib/jobs/lots";
 import { columnOf, primaryStatus, statusSignals } from "@/lib/jobs/board";
 import { BOARD_COLUMNS, mapBoardRow } from "@/lib/jobs/types";
@@ -191,5 +191,70 @@ describe("M-A/M-B/M-C — mapper ของข้อมูลน้ำหนั�
     expect(part({ cancel_scrap_weight_g: "3.5" }).cancelScrapWeightG).toBe(3.5);
     expect(mapLotsSummary({ root_job_id: ROOT })!.weightScrapCancelG).toBe(0);
     expect(mapLotsSummary({ root_job_id: ROOT, weight_scrap_cancel_g: "3.5" })!.weightScrapCancelG).toBe(3.5);
+  });
+});
+
+describe("0181 re-review: บอร์ดทองทั้งต้นไม้ (M-A) · note ตอนชี้แจง (M-B) · loss ทั้งต้นไม้", () => {
+  const goldSplit = (o: Record<string, unknown>) =>
+    mapBoardRow({ id: ROOT, job_no: "JB-0020", seq: 20, source_kind: "production", design_label: "แหวน", metal: "gold", qty_planned: 100, status: "in_progress", current_stage_code: "cast", board_column: "cast", parts_count: 3, parts_open: 3, dominant_stage_code: "setting", ...o })!;
+  const keys = (r: BoardRow) => statusSignals(r, "2026-10-19").map((s) => s.key);
+
+  it("ทอง + หลายส่วน: excess < −0.05 หรือ lot_first_gap_sum < −0.05 → ป้าย 'ทอง: น้ำหนักหายเกินสัดส่วน'", () => {
+    expect(keys(goldSplit({ tree_weight_gap_excess_g: -0.2 }))).toContain("goldWeight");
+    expect(keys(goldSplit({ tree_lot_first_gap_sum_g: -0.06 }))).toContain("goldWeight");
+    const s = statusSignals(goldSplit({ tree_weight_gap_excess_g: -0.2 }), "2026-10-19").find((x) => x.key === "goldWeight");
+    expect(s).toMatchObject({ label: "ทอง: น้ำหนักหายเกินสัดส่วน", tone: "amber" });
+  });
+  it("ขอบ: −0.05 พอดี / บวก / ไม่มีค่า → ไม่ขึ้น", () => {
+    expect(keys(goldSplit({ tree_weight_gap_excess_g: -0.05, tree_lot_first_gap_sum_g: -0.05 }))).not.toContain("goldWeight");
+    expect(keys(goldSplit({ tree_weight_gap_excess_g: 0.4, tree_lot_first_gap_sum_g: 1 }))).not.toContain("goldWeight");
+    expect(keys(goldSplit({}))).not.toContain("goldWeight");
+  });
+  it("เงินที่แยกส่วน/ใบทองเดี่ยว: ไม่ขึ้นป้ายน้ำหนักทองแม้ค่าลบมาก", () => {
+    expect(keys(goldSplit({ metal: "silver", tree_weight_gap_excess_g: -5 }))).not.toContain("goldWeight");
+    expect(keys(goldSplit({ parts_count: 1, tree_weight_gap_excess_g: -5 }))).not.toContain("goldWeight");
+  });
+  it("ชั่งไม่ตรง: ใบที่แยกส่วนใช้จำนวนทั้งต้นไม้ (มากกว่าของใบแม่) · ใบเดี่ยวใช้ของใบเอง ไม่สน tree_*", () => {
+    const a = goldSplit({ handoff_mismatch_count: 1, tree_handoff_mismatch_count: 3 });
+    expect(statusSignals(a, "2026-10-19").find((s) => s.key === "mismatch")?.label).toBe("ชั่งไม่ตรง 3 ครั้ง");
+    const b = goldSplit({ parts_count: 1, handoff_mismatch_count: 1, tree_handoff_mismatch_count: 3 });
+    expect(statusSignals(b, "2026-10-19").find((s) => s.key === "mismatch")?.label).toBe("ชั่งไม่ตรง 1 ครั้ง");
+  });
+  it("ส่วนต่างส่งมอบ: ใบที่แยกส่วนใช้ tree_handoff_gap_g (ขั้นแรกของส่วนย่อยมองเห็น) · ไม่มี tree = ของใบแม่", () => {
+    expect(statusSignals(goldSplit({ handoff_gap_g: 0.1, tree_handoff_gap_g: 0.8 }), "2026-10-19").find((s) => s.key === "handoff")?.label).toBe("ส่วนต่างส่งมอบ 0.8 g");
+    expect(statusSignals(goldSplit({ handoff_gap_g: 0.1 }), "2026-10-19").find((s) => s.key === "handoff")?.label).toBe("ส่วนต่างส่งมอบ 0.1 g");
+  });
+  it("mapBoardRow: key tree_* ใส่เมื่อมีค่า (mismatch เฉพาะ > 0) · view เก่า = ไม่มี key", () => {
+    const r = goldSplit({ tree_handoff_gap_g: 0.8, tree_handoff_gap_partial_g: 0.3, tree_handoff_mismatch_count: 0, tree_weight_gap_excess_g: -0.2, tree_lot_first_gap_sum_g: -0.1 });
+    expect(r).toMatchObject({ treeHandoffGapG: 0.8, treeHandoffGapPartialG: 0.3, treeWeightGapExcessG: -0.2, treeLotFirstGapSumG: -0.1 });
+    expect("treeHandoffMismatchCount" in r).toBe(false);
+    const old = mapBoardRow({ id: ROOT, job_no: "JB-0020", seq: 20, metal: "gold" })!;
+    for (const k of ["treeHandoffGapG", "treeHandoffGapPartialG", "treeHandoffMismatchCount", "treeWeightGapExcessG", "treeLotFirstGapSumG"]) expect(k in old).toBe(false);
+  });
+
+  it("noteRequired: ทอง + excess < −0.05 เท่านั้น", () => {
+    const d = (excess: number | null) => ({ weightGapExcessG: excess });
+    expect(noteRequired(d(-0.06), true)).toBe(true);
+    expect(noteRequired(d(-0.05), true)).toBe(false);
+    expect(noteRequired(d(-3), false)).toBe(false);
+    expect(noteRequired(d(null), true)).toBe(false);
+    expect(noteRequired(d(0.5), true)).toBe(false);
+  });
+  it("mapDiscrepancy: weightSentG/qtySent/weightGapExcessG จาก v_job_discrepancy (DB คำนวณ)", () => {
+    const d = mapDiscrepancy({ id: "d1", job_id: L1, qty: 5, status: "open", weight_gap_g: -2.25, weight_sent_g: 20, qty_sent: 10, weight_gap_excess_g: -0.25 }, { stageById: {}, labelByJob: {} })!;
+    expect(d).toMatchObject({ weightGapG: -2.25, weightSentG: 20, qtySent: 10, weightGapExcessG: -0.25 });
+  });
+  it("mapTreeStageLoss + rootLossFromTree: ใบแม่ (lotSeq 0) แทน loss เดิม · ส่วนย่อยไม่ปนเข้าตารางขั้นของใบแม่", () => {
+    const a = mapTreeStageLoss({ job_id: ROOT, job_stage_id: "s1", lot_seq: 0, stage_code: "cast", loss_g: 1.2, loss_pct: 3, warn: false, handoff_gap_g: null, handoff_gap_partial_g: 0.4 })!;
+    const b = mapTreeStageLoss({ job_id: L1, job_stage_id: "s9", lot_seq: 1, stage_code: "polish", loss_g: 0.5, not_comparable: true })!;
+    expect(mapTreeStageLoss({ job_id: ROOT })).toBeNull();
+    const m = rootLossFromTree([a, b]);
+    expect(Object.keys(m)).toEqual(["s1"]);
+    expect(m.s1).toMatchObject({ lossG: 1.2, lossPct: 3, handoffGapPartialG: 0.4 });
+    expect("handoffGapPartialG" in rootLossFromTree([{ ...a, handoffGapPartialG: null }]).s1).toBe(false);
+  });
+  it("mapLotPart: น้ำหนักของเสียที่เลิกใช้ + ค่าเริ่มของขั้นรอรับ/ล็อก", () => {
+    const p = mapLotPart({ job_id: L1, label: "x", cancel_scrap_weight_g: 2.5 })!;
+    expect(p).toMatchObject({ cancelScrapWeightG: 2.5, hasWeighStage: false, pendingSeq: null, receiveLocked: false });
   });
 });

@@ -58,6 +58,14 @@ export interface LotPart {
   holdSeq: number | null;
   /** ขั้นที่ถืออยู่ตั้งชั่งไหน (ทองที่ขั้นชั่ง: แยกส่วนต้องชั่งส่วนที่แยก — มติ 19 ต.ค.) */
   holdWeighRequired: boolean;
+  /** ส่วนนี้มีขั้นที่ต้องชั่ง (ไม่นับขั้นที่ข้าม) — ทอง + ส่วนมีขั้นชั่ง + ยกเลิกเป็นของเสีย = ต้องชั่งของเสียที่เลิกใช้ (M-C) */
+  hasWeighStage: boolean;
+  /** ขั้นที่รอรับ (pending ต่ำสุด) — ใช้ปุ่ม "กรอกแทน: รับงาน" ของออฟฟิศ · null = ไม่มี */
+  pendingSeq: number | null;
+  pendingStageName: string | null;
+  pendingWeighRequired: boolean;
+  /** L-2: ทอง รับไม่ครบ ชั่งไม่ตรงครบ 3 ครั้ง → ขั้นรอรับถูกล็อก ให้ออฟฟิศรับแทน (นับจาก event ที่ DB บันทึก) */
+  receiveLocked: boolean;
   /** ชื่อขั้นที่ผ่านมาแล้ว (sent/skipped) เรียงตามลำดับ — ใบย่อยพิมพ์บรรทัดเดียว (ฌ3) */
   passedStages: string[];
 }
@@ -88,6 +96,11 @@ export function mapLotPart(r: Record<string, unknown>): LotPart | null {
     qtyQcPassed: num(r.qty_qc_passed),
     holdSeq: null,
     holdWeighRequired: false,
+    hasWeighStage: false,
+    pendingSeq: null,
+    pendingStageName: null,
+    pendingWeighRequired: false,
+    receiveLocked: false,
     passedStages: [],
   };
 }
@@ -249,6 +262,27 @@ export interface JobLotsData {
   discrepancies: LotDiscrepancy[];
   /** M-A: น้ำหนักสูญเสีย/ส่วนต่างส่งมอบของทุกใบในต้นไม้ (โหลดเมื่อมีมากกว่า 1 ส่วน) — ไม่มี = ใบเดี่ยวใช้ loss ของใบเองตามเดิม */
   treeLoss?: TreeStageLoss[];
+}
+
+/** เกณฑ์น้ำหนักทองที่ DB ใช้ (g) — UI ใช้เตือน/บังคับกรอก note ก่อนส่งเท่านั้น · DB ตัดสินจริง (note_required) */
+export const GOLD_GAP_TOLERANCE_G = 0.05;
+
+/** L-2: ชั่งรับไม่ตรงครบกี่ครั้งขั้นถูกล็อก (ตามที่ DB ใช้) */
+export const RECEIVE_LOCK_STRIKES = 3;
+
+/** M-B: ทองที่น้ำหนักหายเกินสัดส่วนชิ้นที่ขาด (excess < −0.05) → ชี้แจงต้องมีคำอธิบายเป็นข้อความ */
+export function noteRequired(d: Pick<LotDiscrepancy, "weightGapExcessG">, gold: boolean): boolean {
+  return gold && d.weightGapExcessG !== null && d.weightGapExcessG < -GOLD_GAP_TOLERANCE_G;
+}
+
+/** M-A: ข้อมูลน้ำหนักของใบแม่ที่แยกส่วน → ใช้ขั้น/ส่วนต่างของทั้งต้นไม้ (ใบแม่ lotSeq 0 → รูปเดียวกับ StageLoss เดิม) */
+export function rootLossFromTree(tree: readonly TreeStageLoss[]): Record<string, { handoffGapG: number | null; lossG: number | null; lossPct: number | null; warn: boolean; notWeighed: boolean; handoffGapPartialG?: number }> {
+  const out: Record<string, { handoffGapG: number | null; lossG: number | null; lossPct: number | null; warn: boolean; notWeighed: boolean; handoffGapPartialG?: number }> = {};
+  for (const t of tree) {
+    if (t.lotSeq !== 0) continue;
+    out[t.jobStageId] = { handoffGapG: t.handoffGapG, lossG: t.lossG, lossPct: t.lossPct, warn: t.warn, notWeighed: t.notWeighed, ...(t.handoffGapPartialG !== null ? { handoffGapPartialG: t.handoffGapPartialG } : {}) };
+  }
+  return out;
 }
 
 /** แสดงแผงส่วนย่อยเมื่อมีมากกว่า 1 ส่วน หรือมีส่วนต่างบันทึกอยู่ — ใบเดี่ยวที่ไม่เคยแยก = หน้าเดิมทุกประการ */

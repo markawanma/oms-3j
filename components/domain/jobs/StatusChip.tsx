@@ -38,6 +38,7 @@ export const STATUS_ICON: Record<StatusKey, typeof Info> = {
   goldUnguarded: ShieldOff,
   pendingExplain: HelpCircle,
   partial: Split,
+  goldWeight: Scale,
 };
 
 export function StatusChip({ status, size = "secondary" }: { status: StatusSignal; size?: "primary" | "secondary" }) {
