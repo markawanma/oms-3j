@@ -9,7 +9,7 @@ describe("WORKER_CODE_TH — ทุก code ที่ RPC ฝั่งช่า�
   const CODES = [
     "already_sent", "awaiting_deposit", "bad_credentials", "date_invalid", "handoff_mismatch", "invalid_token", "job_closed", "job_not_found",
     "job_on_hold", "locked", "locked_office", "token_budget_exhausted", "not_holder", "not_received", "note_invalid", "note_required", "out_of_order", "prev_not_sent", "qty_invalid",
-    "rate_limited", "reason_required", "reason_unexpected", "session_required", "stage_changed", "stage_not_allowed", "weight_invalid",
+    "rate_limited", "reason_required", "reason_unexpected", "scrap_over", "scrap_weight_not_asked", "session_required", "stage_changed", "stage_not_allowed", "weight_invalid",
     "weight_over", "weight_required", "who_required",
   ];
   it.each(CODES)("%s", (code) => {

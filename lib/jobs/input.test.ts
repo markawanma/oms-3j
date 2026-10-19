@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isUuid, parseCount, parseDate, parsePin, parseScrapReason, parseSeq, parseStageCodes, parseText, parseWeight, parseWeightOrZero } from "./input";
+import { INVISIBLE_RE, isUuid, parseCount, parseLabel, parseDate, parsePin, parseScrapReason, parseSeq, parseStageCodes, parseText, parseWeight, parseWeightOrZero } from "./input";
 
 describe("parseWeight", () => {
   it("ค่าที่ถูก: ทศนิยม ≤3 ตำแหน่ง · จุลภาคตัวเดียวไม่มีจุด = ทศนิยม · number · ขอบเขต", () => {
@@ -91,5 +91,62 @@ describe("parsePin / parseStageCodes / parseScrapReason / isUuid", () => {
   it("uuid", () => {
     expect(isUuid("11111111-1111-4111-8111-111111111111")).toBe(true);
     for (const v of ["", "x", "JB-0001", "11111111-1111-4111-8111-11111111111", null, 5]) expect(isUuid(v)).toBe(false);
+  });
+});
+
+describe("parseWeight — เพดานเฉพาะช่อง (opts.max · 0175 BUG-4)", () => {
+  it("ไม่ส่ง opts = เพดานเดิม 100,000 ข้อความเดิม", () => {
+    expect(parseWeight("100000")).toEqual({ ok: true, value: 100000 });
+    expect(parseWeight("100001", "น้ำหนัก")).toEqual({ ok: false, error: "น้ำหนักต้องมากกว่า 0 และไม่เกิน 100,000 กรัม" });
+  });
+  it("max 10,000: 10000 ผ่าน · 10000.001 / 10001 / 100000 ไม่ผ่าน ข้อความบอกเพดานจริง", () => {
+    const o = { max: 10000 };
+    expect(parseWeight("10000", "เป้าหมาย", o)).toEqual({ ok: true, value: 10000 });
+    for (const v of ["10000.001", "10001", "100000"]) expect(parseWeight(v, "เป้าหมาย", o)).toEqual({ ok: false, error: "เป้าหมายต้องมากกว่า 0 และไม่เกิน 10,000 กรัม" });
+    expect(parseWeight("", "เป้าหมาย", o)).toEqual({ ok: true, value: null });
+  });
+});
+
+describe("parseLabel — อักขระล่องหน/bidi (security 0176 L1)", () => {
+  const BAD: [string, string][] = [
+    ["U+200B zero-width space", "แบบ\u200B1"],
+    ["U+200C ZWNJ", "แบบ\u200C1"],
+    ["U+200D ZWJ", "แบบ\u200D1"],
+    ["U+200E LRM", "แบบ\u200E1"],
+    ["U+202E RLO (bidi)", "แบบ\u202E1"],
+    ["U+202A LRE", "แบบ\u202A1"],
+    ["U+2066 isolate", "แบบ\u20661"],
+    ["U+2060 word joiner", "แบบ\u20601"],
+    ["U+00AD soft hyphen", "แบบ\u00AD1"],
+    ["U+034F CGJ", "แบบ\u034F1"],
+    ["U+061C ALM", "แบบ\u061C1"],
+    ["U+115F/1160 hangul filler", "แบบ\u115F1"],
+    ["U+17B4 khmer", "แบบ\u17B41"],
+    ["U+180B mongolian VS", "แบบ\u180B1"],
+    ["U+2800 braille blank", "แบบ\u28001"],
+    ["U+3164 hangul filler", "แบบ\u31641"],
+    ["U+FE0F VS16", "แบบ\uFE0F1"],
+    ["U+FEFF BOM", "แบบ\uFEFF1"],
+    ["U+FFA0 halfwidth filler", "แบบ\uFFA01"],
+    ["tag char U+E0041", "แบบ\u{E0041}1"],
+    ["ชื่อมีแต่ตัวล่องหน", "\u200B\u200B"],
+  ];
+  it.each(BAD)("ปฏิเสธ: %s", (_n, v) => {
+    expect(parseLabel(v, "ชื่อแบบ", 60, true)).toEqual({ ok: false, error: "ชื่อแบบมีอักขระที่มองไม่เห็นหรืออักขระควบคุมทิศทาง" });
+    expect(parseLabel(v, "ชื่อแบบ", 60, false).ok).toBe(false);
+    expect(INVISIBLE_RE.test(v)).toBe(true);
+  });
+  it("ต้องไม่พัง: ไทย · อังกฤษ · ตัวเลข · เว้นวรรคปกติ · ขีด · อีโมจิพื้นฐาน · วรรณยุกต์/สระไทย ผ่านและคงเดิม", () => {
+    for (const v of ["แหวนลายใบไม้ ไซส์ 7", "ทอง — ชั่งทุกขั้นที่มีโลหะ + ชั่งสุทธิตอนปิด", "Ring A-01", "ช่างเอ", "แบบ 1 👍", "ก\u0E48\u0E34\u0E49", "ช่าง (สำเนา)"]) {
+      expect(parseLabel(v, "ชื่อ", 60, true), v).toEqual({ ok: true, value: v });
+    }
+    expect(parseLabel("", "ชื่อ", 60, false)).toEqual({ ok: true, value: null });
+    expect(parseLabel(null, "ชื่อ", 60, false)).toEqual({ ok: true, value: null });
+    expect(parseLabel("   ", "ชื่อ", 60, true).ok).toBe(false);
+  });
+  it("กฎเดิมยังอยู่: < > ปฏิเสธ · ยาวเกิน · ไม่ใช่ข้อความ", () => {
+    expect(parseLabel("แบบ<b>", "ชื่อ", 60, true).ok).toBe(false);
+    expect(parseLabel("ก".repeat(61), "ชื่อ", 60, true).ok).toBe(false);
+    expect(parseLabel(5 as never, "ชื่อ", 60, true).ok).toBe(false);
   });
 });

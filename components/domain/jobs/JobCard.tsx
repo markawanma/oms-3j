@@ -7,7 +7,7 @@
 import Link from "next/link";
 import { UserRound } from "lucide-react";
 import { StatusChip, STATUS_BAR } from "@/components/domain/jobs/StatusChip";
-import { dueInfo, primaryStatus, secondaryStatuses, stageAgeLabel } from "@/lib/jobs/board";
+import { dueInfo, primaryStatus, qtyLabel, secondaryStatuses, stageAgeLabel } from "@/lib/jobs/board";
 import { thaiDate } from "@/lib/jobs/dates";
 import { METAL_LABEL, SOURCE_LABEL } from "@/lib/jobs/types";
 import type { BoardRow } from "@/lib/jobs/types";
@@ -34,7 +34,7 @@ export function JobCard({ row, todayTh, idPrefix = "board", highlighted = false 
         </div>
         <p className="mt-0.5 min-w-0 text-sm font-medium text-zinc-900 [overflow-wrap:anywhere]">{row.designLabel}</p>
         <p className="text-sm text-zinc-700">
-          {row.qtyPlanned} ชิ้น · {METAL_LABEL[row.metal] ?? row.metal}
+          {qtyLabel(row)} · {METAL_LABEL[row.metal] ?? row.metal}
         </p>
         <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-sm text-zinc-800">
           <span className="inline-flex items-center gap-1">

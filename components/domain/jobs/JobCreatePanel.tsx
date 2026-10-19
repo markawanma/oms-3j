@@ -78,7 +78,7 @@ export function JobCreatePanel({ kind, items }: { kind: "oem" | "production"; it
           })}
         </ul>
       )}
-      {target && <JobCreateDialog kind={kind} itemId={target.id} itemLabel={target.label} onClose={() => setTarget(null)} onCreated={() => void fetchJobs()} />}
+      {target && <JobCreateDialog key={target.id} kind={kind} itemId={target.id} itemLabel={target.label} onClose={() => setTarget(null)} onCreated={() => void fetchJobs()} />}
     </section>
   );
 }

@@ -20,8 +20,15 @@ export function normalizeWeightText(s: string): Parsed<string> {
   return bad("รูปแบบน้ำหนักกำกวม — พิมพ์เป็นตัวเลขธรรมดา เช่น 95.5 (ไม่ต้องใส่จุลภาคคั่นหลักพัน)");
 }
 
-/** น้ำหนักกรัม: ตัวเลข > 0 ≤ 100,000 ทศนิยมไม่เกิน 3 ตำแหน่ง · ว่าง = null (ไม่ได้กรอก) · "0" ไม่ผ่าน (DB: weight > 0) */
-export function parseWeight(raw: unknown, label = "น้ำหนัก"): Parsed<number | null> {
+/** เพดานน้ำหนักเป้าหมายต่อชิ้น (g) ตาม CHECK job_target_piece_ck ของ DB (0175) — เล็กกว่าเพดานน้ำหนักทั่วไป (100,000) */
+export const TARGET_PIECE_MAX_G = 10000;
+
+/**
+ * น้ำหนักกรัม: ตัวเลข > 0 ≤ opts.max (ค่าเริ่ม 100,000) ทศนิยมไม่เกิน 3 ตำแหน่ง · ว่าง = null (ไม่ได้กรอก) · "0" ไม่ผ่าน (DB: weight > 0)
+ * opts.max = เพดานเฉพาะช่อง (เช่น TARGET_PIECE_MAX_G) — ไม่ส่ง = พฤติกรรมเดิมทุกช่องอื่น
+ */
+export function parseWeight(raw: unknown, label = "น้ำหนัก", opts: { max?: number } = {}): Parsed<number | null> {
+  const max = opts.max ?? 100000;
   if (raw === null || raw === undefined) return ok(null);
   const rawText = typeof raw === "number" ? String(raw) : typeof raw === "string" ? raw.trim() : null;
   if (rawText === null) return bad(`${label}ไม่ถูกต้อง`);
@@ -31,7 +38,7 @@ export function parseWeight(raw: unknown, label = "น้ำหนัก"): Pars
   const t = norm.value;
   if (!/^\d+(?:\.\d{1,3})?$/.test(t)) return bad(`${label}ต้องเป็นตัวเลข ทศนิยมไม่เกิน 3 ตำแหน่ง`);
   const n = Number(t);
-  if (!Number.isFinite(n) || n <= 0 || n > 100000) return bad(`${label}ต้องมากกว่า 0 และไม่เกิน 100,000 กรัม`);
+  if (!Number.isFinite(n) || n <= 0 || n > max) return bad(`${label}ต้องมากกว่า 0 และไม่เกิน ${max.toLocaleString("en-US")} กรัม`);
   return ok(n);
 }
 
@@ -52,6 +59,34 @@ export function parseWeightOrZero(raw: unknown, label: string): Parsed<number> {
 export function parseCount(raw: unknown, label: string, max = 100000): Parsed<number> {
   const n = typeof raw === "number" ? raw : typeof raw === "string" && /^\d+$/.test(raw.trim()) ? Number(raw.trim()) : NaN;
   if (!Number.isInteger(n) || n < 0 || n > max) return bad(`${label}ต้องเป็นจำนวนเต็ม 0–${max.toLocaleString("th-TH")}`);
+  return ok(n);
+}
+
+/**
+ * จำนวนชิ้นจากช่องกรอก (ฟอร์มออฟฟิศ): จำนวนเต็ม 1–100,000 เท่านั้น
+ * 🔴 ห้ามกรองอักขระทิ้งเงียบ ("1,5" เคยจะกลายเป็น 15) — มี "," หรือ "." หรืออักขระอื่น = error
+ */
+export function parseQtyText(raw: unknown, max = 100000): Parsed<number> {
+  const msg = "ใส่เป็นจำนวนเต็ม เช่น 35";
+  const t = typeof raw === "number" ? String(raw) : typeof raw === "string" ? raw.trim() : "";
+  if (!/^\d+$/.test(t)) return bad(msg);
+  const n = Number(t);
+  if (!Number.isSafeInteger(n)) return bad(msg);
+  if (n < 1 || n > max) return bad(`จำนวนต้องอยู่ระหว่าง 1–${max.toLocaleString("en-US")}`);
+  return ok(n);
+}
+
+/**
+ * จำนวนเผื่อของเสีย "เพิ่มกี่ชิ้น" (สวิตช์เผื่อของเสียเปิดอยู่): จำนวนเต็ม >= 0 เท่านั้น — 0 ผ่าน (เปิดแล้วยังไม่เผื่อ)
+ * 🔴 ห้ามกรองอักขระทิ้งเงียบ ("1,5" "3.5" "-2" "" "abc" = error) · รวมกับจำนวนสั่งต้องไม่เกินเพดานเริ่มผลิต (ค่าเดียวกับ parseQtyText · DB เป็นด่านจริง)
+ */
+export function parseBufferText(raw: unknown, qtyOrder: number, max = 100000): Parsed<number> {
+  const msg = "ใส่เป็นจำนวนเต็ม 0 ขึ้นไป เช่น 5";
+  const t = typeof raw === "number" ? String(raw) : typeof raw === "string" ? raw.trim() : "";
+  if (!/^\d+$/.test(t)) return bad(msg);
+  const n = Number(t);
+  if (!Number.isSafeInteger(n)) return bad(msg);
+  if (qtyOrder + n > max) return bad(`เริ่มผลิตรวมต้องไม่เกิน ${max.toLocaleString("en-US")} ชิ้น (เผื่อได้อีกไม่เกิน ${Math.max(0, max - qtyOrder).toLocaleString("en-US")})`);
   return ok(n);
 }
 
@@ -115,8 +150,19 @@ export function parseScrapReason(raw: unknown, qtyScrap: number): Parsed<string 
   return ok(raw);
 }
 
-/** parseText + ห้าม < > — ใช้กับชื่อช่าง/ชื่อเรียกใบงาน */
+/**
+ * อักขระที่มองไม่เห็น/ควบคุมทิศทาง — ชื่อที่ดูเหมือนกันแต่ไม่เหมือนกัน (ชื่อแบบซ้ำปลอม · ชื่อช่างสลับทิศ) · security 0176 L1 (Mace)
+ * U+00AD U+034F U+061C U+115F/1160 U+17B4/17B5 U+180B-180F U+200B-200F (zero-width, LRM, RLM) U+202A-202E (bidi) U+2060-206F U+2800 U+3164 U+FE00-FE0F (variation selectors)
+ * U+FEFF U+FFA0 และ tag characters U+E0000-E01EF (surrogate DB40 DC00-DDEF) — ไทย/อีโมจิทั่วไป (เช่น 👍) ไม่โดน
+ * หมายเหตุ: อีโมจิที่ต่อด้วย VS16/ZWJ (❤️ · 👨‍👩‍👧) จะถูกปฏิเสธด้วย — ชื่อใบงาน/ช่าง/แบบไม่ควรมี
+ */
+export const INVISIBLE_RE = /[\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180B-\u180F\u200B-\u200F\u202A-\u202E\u2060-\u206F\u2800\u3164\uFE00-\uFE0F\uFEFF\uFFA0]|\uDB40[\uDC00-\uDDEF]/;
+export const INVISIBLE_MSG = (label: string): string => `${label}มีอักขระที่มองไม่เห็นหรืออักขระควบคุมทิศทาง`;
+
+/** parseText + ห้าม < > + ห้ามอักขระล่องหน/bidi — ใช้กับชื่อช่าง/ชื่อเรียกใบงาน/ชื่อแบบการบันทึก */
 export function parseLabel(raw: unknown, label: string, max: number, required: boolean): Parsed<string | null> {
+  // ตรวจก่อน parseText: ถ้าชื่อมีแต่อักขระล่องหน parseText จะนับว่า "ไม่ว่าง" (trim ไม่ตัด) — ต้องปฏิเสธด้วยข้อความที่ถูกเหตุผล
+  if (typeof raw === "string" && INVISIBLE_RE.test(raw)) return bad(INVISIBLE_MSG(label));
   const t = parseText(raw, label, max, required);
   if (!t.ok) return t;
   if (t.value !== null && LABEL_ANGLE_RE.test(t.value)) return bad(LABEL_ANGLE_MSG);

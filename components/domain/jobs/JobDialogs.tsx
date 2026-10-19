@@ -8,7 +8,12 @@ import type { ReactNode } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { useOfficeRun } from "@/components/domain/jobs/useOfficeRun";
+import { qtyOrderPlannedText } from "@/lib/jobs/board";
+import { finalWeightRequired } from "@/lib/jobs/profile-summary";
 import { LABEL_ANGLE_MSG, LABEL_ANGLE_RE } from "@/lib/jobs/input";
+import { SurplusChoice } from "@/components/domain/jobs/SurplusChoice";
+import type { SurplusValue } from "@/components/domain/jobs/SurplusChoice";
+import type { DoneJobInput } from "@/lib/actions/job-office-write";
 import { cancelJob, doneJob, reopenJobStage, setJobDesignLabel, setJobDue, setJobStartGateNote, skipJobStage } from "@/lib/actions/job-office-write";
 
 export const FIELD =
@@ -135,22 +140,41 @@ export function DueDialog({ jobId, current, todayTh, onClose }: { jobId: string;
   );
 }
 
-export function DoneDialog({ jobId, planned, metal, onClose }: { jobId: string; planned: number; metal: string; onClose: () => void }) {
+export function DoneDialog({ jobId, planned, qtyOrder, sourceKind, metal, requireFinalWeight, weighRequired, recordedScrap = 0, onClose }: { jobId: string; planned: number; qtyOrder: number; sourceKind: string; metal: string; requireFinalWeight?: boolean; weighRequired?: boolean; recordedScrap?: number; onClose: () => void }) {
   const { run, busy, error } = useOfficeRun();
-  const [good, setGood] = useState(String(planned));
-  const [scrap, setScrap] = useState("0");
+  // ค่าเริ่ม: เสีย = ของเสียที่ช่างแจ้งไว้ในขั้นต่างๆ (ผลรวมจำนวนชิ้น qty_scrap — บวกชิ้น ไม่ใช่เงิน/น้ำหนัก) · ดี = เริ่มผลิต − เสีย
+  // ไม่ดึง = เสนอ "ดี = เริ่มผลิตทั้งหมด" ทั้งที่ช่างแจ้งเสียไปแล้ว → ใบผลิตเข้าสต็อกเกิน + ของเหลือผิด (QA 0176) · ผู้ใช้แก้ได้ · DB ตรวจ ดี+เสีย = เริ่มผลิต ซ้ำ
+  const prefillScrap = Number.isInteger(recordedScrap) && recordedScrap > 0 ? Math.min(recordedScrap, planned) : 0;
+  const [good, setGood] = useState(String(planned - prefillScrap));
+  const [scrap, setScrap] = useState(String(prefillScrap));
   const [weight, setWeight] = useState("");
   const [note, setNote] = useState("");
-  const sumOk = /^\d+$/.test(good) && /^\d+$/.test(scrap) && Number(good) + Number(scrap) === planned;
-  const ready = sumOk && (metal !== "gold" || weight.trim() !== "");
+  const [disp, setDisp] = useState<SurplusValue>("hold");
+  const [sNote, setSNote] = useState("");
+  const goodN = /^\d+$/.test(good) ? Number(good) : null;
+  const sumOk = goodN !== null && /^\d+$/.test(scrap) && goodN + Number(scrap) === planned;
+  // ผลต่างจำนวนชิ้น (ไม่ใช่เงิน/น้ำหนัก) เพื่อบอกผู้ใช้ — DB ตัดสินซ้ำเอง (qty_surplus · surplus_unexpected)
+  const surplus = sumOk && goodN !== null && goodN > qtyOrder ? goodN - qtyOrder : 0;
+  const short = sumOk && goodN !== null && goodN < qtyOrder ? qtyOrder - goodN : 0;
+  const isOem = sourceKind === "oem";
+  // น้ำหนักสุทธิ: แบบการบันทึกบังคับ หรือ ใบทองที่มีขั้นต้องชั่ง (กติกาเดียวกับ DB — ด่านจริงอยู่ที่ job_done) · ไม่ได้ส่ง flag มา (ใบเดิม/ผู้เรียกเก่า) = กติกา J1: ทองบังคับ
+  const finalRequired = requireFinalWeight === undefined && weighRequired === undefined ? metal === "gold" : finalWeightRequired({ requireFinalWeight: requireFinalWeight === true, metal, hasWeigh: weighRequired === true });
+  const ready = sumOk && (!finalRequired || weight.trim() !== "");
   async function submit() {
-    const r = await run(() => doneJob({ jobId, qtyGood: Number(good), qtyScrap: Number(scrap), weightFinal: weight.trim() || null, note: note.trim() || null }), { success: "ปิดงานแล้ว" });
+    const input: DoneJobInput = { jobId, qtyGood: Number(good), qtyScrap: Number(scrap), weightFinal: weight.trim() || null, note: note.trim() || null };
+    // 🔴 ส่งการจัดการของเหลือเฉพาะเมื่อ ดี > สั่ง และเป็น OEM — ดี ≤ สั่ง ห้ามส่ง (DB: surplus_unexpected) · ใบผลิตไม่ส่ง (DB ตั้งเข้าสต็อกเอง)
+    if (surplus > 0 && isOem) {
+      input.surplusDisposition = disp;
+      input.surplusNote = sNote.trim() || null;
+    }
+    const r = await run(() => doneJob(input), { success: "ปิดงานแล้ว" });
     if (r.ok) onClose();
   }
   return (
     <Modal open onClose={onClose} title="ปิดงาน">
       <form noValidate className="space-y-3" onSubmit={(e) => { e.preventDefault(); if (ready) void submit(); }}>
         <p className="text-sm text-zinc-700">ปิดได้เมื่อทุกขั้น ส่งต่อหรือข้ามแล้ว · ปิดแล้ว QR ใช้ไม่ได้และแก้ไม่ได้</p>
+        <p className="text-base font-semibold text-zinc-900">{qtyOrderPlannedText({ qtyOrder, qtyPlanned: planned }, { alwaysOrder: true })}</p>
         <div className="grid grid-cols-2 gap-3">
           <Field id="good" label="จำนวนดี (ชิ้น)">
             <input id="good" inputMode="numeric" value={good} onChange={(e) => setGood(e.target.value)} className={FIELD} />
@@ -159,8 +183,31 @@ export function DoneDialog({ jobId, planned, metal, onClose }: { jobId: string; 
             <input id="scrap" inputMode="numeric" value={scrap} onChange={(e) => setScrap(e.target.value)} className={FIELD} />
           </Field>
         </div>
-        {!sumOk && <p className="text-xs font-medium text-amber-900">ดี + เสีย ต้องเท่ากับจำนวนที่วางแผน ({planned} ชิ้น)</p>}
-        <Field id="wfinal" label={`น้ำหนักสุทธิ (กรัม)${metal === "gold" ? " — งานทองต้องใส่" : " — ไม่บังคับ"}`}>
+        {prefillScrap > 0 && <p className="text-xs text-zinc-700">ของเสียที่บันทึกในขั้น: {prefillScrap} ชิ้น</p>}
+        {!sumOk && <p className="text-xs font-medium text-amber-900">ดี + เสีย ต้องเท่ากับจำนวนเริ่มผลิต ({planned} ชิ้น)</p>}
+        {short > 0 && (
+          <p role="status" className="rounded-md border border-sky-300 bg-sky-50 p-2.5 text-sm font-medium text-sky-900">
+            ดี {goodN} น้อยกว่าที่สั่ง {qtyOrder} — ขาด {short} ชิ้น
+          </p>
+        )}
+        {surplus > 0 && (
+          <div role="status" className="space-y-2 rounded-md border border-amber-300 bg-amber-50 p-2.5 text-sm text-amber-900">
+            <p className="font-semibold">
+              ของเหลือ {surplus} ชิ้น (ดี {goodN} − สั่ง {qtyOrder})
+            </p>
+            {isOem ? (
+              <>
+                <SurplusChoice idPrefix="done" value={disp} onChange={setDisp} note={sNote} onNote={setSNote} disabled={busy} />
+                <p className="text-xs">ยังไม่ตัดสินก็ปิดงานได้ — บอร์ดจะเตือน</p>
+              </>
+            ) : (
+              <p>
+                เข้าสต็อกทั้งหมดตอนปิดใบผลิต (ผลิตได้ {goodN} มากกว่าที่สั่ง {qtyOrder})
+              </p>
+            )}
+          </div>
+        )}
+        <Field id="wfinal" label={`น้ำหนักสุทธิ (กรัม)${finalRequired ? (metal === "gold" ? " — งานทองต้องใส่" : " — แบบการบันทึกนี้บังคับ") : " — ไม่บังคับ"}`}>
           <input id="wfinal" inputMode="decimal" value={weight} onChange={(e) => setWeight(e.target.value.replace(/[^0-9.,]/g, ""))} className={FIELD} />
         </Field>
         <Field id="dnote" label="หมายเหตุ (ไม่บังคับ)">

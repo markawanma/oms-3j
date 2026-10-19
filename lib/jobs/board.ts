@@ -92,7 +92,7 @@ export function cardBadges(r: BoardRow): CardBadge[] {
   const out: CardBadge[] = [];
   if (r.isOverdue) out.push({ key: "overdue", label: "เลยกำหนด", tone: "red" });
   if (r.status === "on_hold") out.push({ key: "hold", label: "พักไว้", tone: "amber" });
-  if (r.depositMissing && r.status !== "done") out.push({ key: "deposit", label: r.startGateNotePresent ? "ยังไม่มีมัดจำ (เริ่มก่อนด้วยเหตุผล)" : "ยังไม่มีมัดจำ", tone: "amber" });
+  if (r.depositMissing && r.status !== "done" && r.status !== "cancelled") out.push({ key: "deposit", label: r.startGateNotePresent ? "ยังไม่มีมัดจำ (เริ่มก่อนด้วยเหตุผล)" : "ยังไม่มีมัดจำ", tone: "amber" });
   if (r.isStale) out.push({ key: "stale", label: "ไม่มีความเคลื่อนไหวเกิน 3 วัน", tone: "amber" });
   if (r.handoffMismatchCount > 0) out.push({ key: "mismatch", label: `ชั่งไม่ตรง ${r.handoffMismatchCount} ครั้ง`, tone: "amber" });
   if (r.handoffGapG !== null && r.handoffGapG > 0) out.push({ key: "handoff", label: `ส่วนต่างส่งมอบ ${Math.round(r.handoffGapG * 1000) / 1000} g`, tone: "amber" });
@@ -100,6 +100,31 @@ export function cardBadges(r: BoardRow): CardBadge[] {
   if (r.quoteQtyMismatch) out.push({ key: "qty", label: `จำนวนไม่ตรงใบเสนอราคา${r.quoteItemQty !== null ? ` (${r.quoteItemQty})` : ""}`, tone: "blue" });
   return out;
 }
+
+/**
+ * จำนวนบนการ์ด (0175): เท่ากัน = "30 ชิ้น" (ใบเดิมไม่ขึ้นสองเลข) · เริ่มผลิตต่างจากที่สั่ง = "30 (เริ่ม 35) ชิ้น"
+ * ใช้ได้กับ BoardRow และ JobDetail (มี qtyOrder/qtyPlanned เหมือนกัน)
+ */
+export function qtyLabel(r: { qtyOrder: number; qtyPlanned: number }): string {
+  return r.qtyOrder === r.qtyPlanned ? `${r.qtyPlanned} ชิ้น` : `${r.qtyOrder} (เริ่ม ${r.qtyPlanned}) ชิ้น`;
+}
+
+/**
+ * ข้อความ "สั่ง X · เริ่มผลิต Y ชิ้น" (0175) — ที่เดียวของทุกจอ (หน้ารายละเอียด · ใบพิมพ์ · dialog)
+ * เท่ากัน = "30 ชิ้น" (ใบเดิมไม่ขึ้นสองเลข) · alwaysOrder = เท่ากันก็ขึ้น "สั่ง 30 ชิ้น" (dialog ที่ต้องบอกว่าตัวเลขคือจำนวนสั่ง)
+ */
+export function qtyOrderPlannedText(r: { qtyOrder: number; qtyPlanned: number }, opts: { alwaysOrder?: boolean } = {}): string {
+  if (r.qtyOrder === r.qtyPlanned) return opts.alwaysOrder ? `สั่ง ${r.qtyOrder} ชิ้น` : `${r.qtyPlanned} ชิ้น`;
+  return `สั่ง ${r.qtyOrder} · เริ่มผลิต ${r.qtyPlanned} ชิ้น`;
+}
+
+/** เผื่อกี่ชิ้น = เริ่มผลิต − สั่ง เมื่อเริ่มผลิตมากกว่าที่สั่ง · ไม่งั้น 0 (ผลต่างจำนวนชิ้น ไม่ใช่เงิน/น้ำหนัก) */
+export function bufferQtyOf(r: { qtyOrder: number; qtyPlanned: number }): number {
+  return r.qtyPlanned > r.qtyOrder ? r.qtyPlanned - r.qtyOrder : 0;
+}
+
+/** ป้าย "เผื่อ +5" — ที่เดียวของทุกจอ (ฟอร์มสร้าง · การ์ดแผน · บอร์ด) */
+export const bufferLabel = (n: number): string => `เผื่อ +${n.toLocaleString("en-US")}`;
 
 /** "ค้าง n วัน" ในขั้นนี้ — null = ไม่มีข้อมูล (ไม่แสดง) */
 export function stageAgeLabel(r: BoardRow): string | null {
@@ -121,6 +146,8 @@ export type Signal = "overdue" | "dueSoon" | "stale";
 
 /** ครบกำหนดใน 3 วัน = วันนี้ ≤ due ≤ วันนี้+3 และยังไม่เลยกำหนด */
 function isDueSoon(r: BoardRow, todayTh: string): boolean {
+  // ใบที่ปิดแล้ว/ยกเลิกไม่มี "ครบกำหนด" ให้เตือน (S3)
+  if (r.status === "done" || r.status === "cancelled") return false;
   if (r.isOverdue || r.dueDate === null) return false;
   return r.dueDate >= todayTh && r.dueDate <= addDays(todayTh, 3);
 }
@@ -136,11 +163,11 @@ export function applySignal(rows: readonly BoardRow[], signal: Signal | null, to
 }
 
 export type StatusTone = BadgeTone | "green";
-export type StatusKey = "overdue" | "dueSoon" | "mismatch" | "handoff" | "stale" | "deposit" | "hold" | "normal" | "auto" | "qty";
+export type StatusKey = "overdue" | "dueSoon" | "mismatch" | "handoff" | "stale" | "deposit" | "hold" | "normal" | "auto" | "qty" | "surplusPending" | "underPlanned" | "buffer" | "goldUnguarded";
 
 export interface StatusSignal {
   key: StatusKey;
-  /** 1-7 = ต้องดู · 8 = เดินปกติ · 9+ = ข้อมูลประกอบ (รองเท่านั้น) */
+  /** 1-7 = ต้องดู · 8 = เดินปกติ · 9+ = ข้อมูลประกอบ (รองเท่านั้น) — 9 = ทองไม่มีด่านชั่ง · 10 = ปิดให้อัตโนมัติ · 11 = จำนวนไม่ตรงใบเสนอราคา */
   rank: number;
   label: string;
   tone: StatusTone;
@@ -165,10 +192,19 @@ export function statusSignals(r: BoardRow, todayTh: string): StatusSignal[] {
   if (r.handoffMismatchCount > 0) out.push({ key: "mismatch", rank: 3, label: `ชั่งไม่ตรง ${r.handoffMismatchCount} ครั้ง`, tone: "amber" });
   if (r.handoffGapG !== null && r.handoffGapG > 0) out.push({ key: "handoff", rank: 4, label: `ส่วนต่างส่งมอบ ${Math.round(r.handoffGapG * 1000) / 1000} g`, tone: "amber" });
   if (r.isStale) out.push({ key: "stale", rank: 5, label: "นิ่งเกิน 3 วัน", tone: "amber" });
-  if (r.depositMissing && r.status !== "done") out.push({ key: "deposit", rank: 6, label: r.startGateNotePresent ? "ยังไม่มีมัดจำ (เริ่มก่อนด้วยเหตุผล)" : "ยังไม่มีมัดจำ", tone: "amber" });
+  if (r.depositMissing && r.status !== "done" && r.status !== "cancelled") out.push({ key: "deposit", rank: 6, label: r.startGateNotePresent ? "ยังไม่มีมัดจำ (เริ่มก่อนด้วยเหตุผล)" : "ยังไม่มีมัดจำ", tone: "amber" });
+  // 0175: ใบ done ที่ของเหลือยังถือไว้ไม่ตัดสิน (ปกติไม่อยู่บนบอร์ด เพราะบอร์ดดึงเฉพาะใบที่ยังไม่ปิด — ขึ้นที่หน้ารายละเอียดใบงาน) · n = qty_surplus จาก DB
+  if (r.surplusPending && r.qtySurplus !== null && r.qtySurplus > 0) out.push({ key: "surplusPending", rank: 6.5, label: `เหลือ ${r.qtySurplus} ชิ้น ยังไม่ตัดสิน`, tone: "amber" });
   if (r.status === "on_hold") out.push({ key: "hold", rank: 7, label: "พักไว้", tone: "gray" });
-  if (r.hasAutoClosed) out.push({ key: "auto", rank: 9, label: "มีขั้นที่ปิดให้อัตโนมัติ", tone: "gray" });
-  if (r.quoteQtyMismatch) out.push({ key: "qty", rank: 10, label: `จำนวนไม่ตรงใบเสนอราคา${r.quoteItemQty !== null ? ` (${r.quoteItemQty})` : ""}`, tone: "blue" });
+  // 0176: ใบทองที่มีขั้นโลหะอยู่ในมือแต่ไม่ชั่ง (ไม่มีด่านกันทองหาย) — ข้อมูลประกอบสีแดง ไม่ใช่ป้ายหลัก/ไม่นับ "ต้องดู" (rank 9 > ATTENTION_MAX_RANK) · gold_unguarded จาก DB (ไม่นับใบปิด/ขั้นที่ข้าม)
+  if (r.goldUnguarded && r.status !== "done" && r.status !== "cancelled") out.push({ key: "goldUnguarded", rank: 9, label: "ทอง · ไม่มีด่านชั่ง", tone: "red" });
+  if (r.hasAutoClosed) out.push({ key: "auto", rank: 10, label: "มีขั้นที่ปิดให้อัตโนมัติ", tone: "gray" });
+  if (r.quoteQtyMismatch) out.push({ key: "qty", rank: 11, label: `จำนวนไม่ตรงใบเสนอราคา${r.quoteItemQty !== null ? ` (${r.quoteItemQty})` : ""}`, tone: "blue" });
+  // 0175: ผลิตบางส่วน (เริ่มผลิตน้อยกว่าที่สั่ง) — ข้อมูลประกอบ ไม่ใช่ความผิดปกติ · under_planned จาก DB (ใบเดิม qty_order = qty_planned ไม่ขึ้น)
+  if (r.underPlanned && r.qtyPlanned < r.qtyOrder) out.push({ key: "underPlanned", rank: 10.1, label: `เริ่มผลิต ${r.qtyPlanned} จากสั่ง ${r.qtyOrder}`, tone: "blue" });
+  // เผื่อของเสีย (เริ่มผลิตมากกว่าที่สั่ง) — ข้อมูลประกอบ rank หลัง underPlanned · ส่วนต่างจำนวนชิ้น (ไม่ใช่เงิน/น้ำหนัก) · ใบที่เท่ากัน/น้อยกว่าไม่ขึ้น
+  const buf = bufferQtyOf(r);
+  if (buf > 0) out.push({ key: "buffer", rank: 10.2, label: bufferLabel(buf), tone: "blue" });
   return out;
 }
 

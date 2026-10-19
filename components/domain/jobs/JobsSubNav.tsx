@@ -1,20 +1,22 @@
 "use client";
 
-// JobsSubNav — แท็บย่อยของระบบใบงาน (ออฟฟิศ): บอร์ด · ทะเบียนช่าง · (เพิ่มเมื่อหน้าพร้อม — ห้ามลิงก์ไปหน้ายังไม่เสร็จ)
+// JobsSubNav — แท็บย่อยของระบบใบงาน (ออฟฟิศ): บอร์ด · ทะเบียนช่าง · แบบการบันทึก · (เพิ่มเมื่อหน้าพร้อม — ห้ามลิงก์ไปหน้ายังไม่เสร็จ)
 // ซ่อนตอนพิมพ์ · ปุ่ม ≥ 44px · aria-current ตามพาธ (ใบงานแต่ละใบ /jobs/<id> ไม่ทำให้แท็บ "บอร์ด" สว่างค้าง — ตรงเฉพาะ /jobs)
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ClipboardList, HardHat } from "lucide-react";
+import { ClipboardList, HardHat, ListChecks } from "lucide-react";
 
 const TABS = [
   { href: "/jobs", label: "บอร์ดใบงาน", icon: ClipboardList, exact: false },
   { href: "/jobs/workers", label: "ทะเบียนช่าง", icon: HardHat, exact: true },
+  { href: "/jobs/profiles", label: "แบบการบันทึก", icon: ListChecks, exact: true },
 ] as const;
 
 export function jobsTabActive(pathname: string | null, href: string): boolean {
   const p = pathname ?? "";
-  if (href === "/jobs") return p === "/jobs" || (p.startsWith("/jobs/") && !p.startsWith("/jobs/workers"));
+  // แท็บ "บอร์ด" สว่างที่ /jobs และ /jobs/<id> เท่านั้น — ไม่สว่างที่แท็บพี่น้อง (workers / profiles)
+  if (href === "/jobs") return p === "/jobs" || (p.startsWith("/jobs/") && !p.startsWith("/jobs/workers") && !p.startsWith("/jobs/profiles"));
   return p === href || p.startsWith(`${href}/`);
 }
 

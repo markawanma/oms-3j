@@ -5,6 +5,7 @@
 
 import { AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { StageFlagChips } from "@/components/domain/jobs/StageFlagChips";
 import { thaiDate, thaiDateTime } from "@/lib/jobs/dates";
 import { CHANNEL_LABEL, EVENT_TYPE_LABEL, SCRAP_REASON_LABEL, STAGE_STATUS_LABEL } from "@/lib/jobs/types";
 import type { EventRow, StageLoss, StageRow } from "@/lib/jobs/types";
@@ -34,7 +35,12 @@ export function StageTable({
   onReceive,
   onSend,
   onSkip,
+  profiled = false,
+  gold = false,
 }: {
+  /** 0176: ใบนี้มีแบบการบันทึก → ป้ายต่อขั้นตาม flag (ใบเดิมคงป้าย "ต้องชั่ง" เดิม) · gold = ใบทอง (ขั้นโลหะไม่ชั่งขึ้นป้ายแดง) */
+  profiled?: boolean;
+  gold?: boolean;
   stages: StageRow[];
   loss: Record<string, StageLoss>;
   closed: boolean;
@@ -53,7 +59,7 @@ export function StageTable({
             <div className="flex flex-wrap items-baseline justify-between gap-2">
               <p className="text-base font-semibold text-zinc-900">
                 {s.seq}. {s.name}{" "}
-                {s.weighRequired && <span className="ml-1 rounded bg-zinc-100 px-1.5 py-0.5 text-xs font-medium text-zinc-800">ต้องชั่ง</span>}
+                {profiled ? <StageFlagChips stage={s} gold={gold} /> : s.weighRequired && <span className="ml-1 rounded bg-zinc-100 px-1.5 py-0.5 text-xs font-medium text-zinc-800">ต้องชั่ง</span>}
               </p>
               <span className="text-sm font-medium text-zinc-800">{STAGE_STATUS_LABEL[s.status] ?? s.status}</span>
             </div>

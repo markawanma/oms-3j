@@ -112,7 +112,7 @@ export interface SendInput {
   qtyScrap: number;
   scrapReason: string | null;
   metalAddedG: number;
-  /** สำรองไว้ M1 (บันทึกเศษคืน) — ยังไม่มีผู้เรียกส่งค่านี้ · RPC รับ null ได้ */
+  /** 0176: น้ำหนักเศษโลหะที่เก็บได้ (ขั้นที่แบบการบันทึกให้ถาม) · RPC รับ null ได้ */
   scrapWeightG?: number | null;
 }
 

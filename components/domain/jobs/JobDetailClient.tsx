@@ -5,14 +5,19 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, Printer } from "lucide-react";
+import { Printer } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { DesignLabelDialog, DoneDialog, DueDialog, ReasonDialog } from "@/components/domain/jobs/JobDialogs";
 import type { ReasonKind } from "@/components/domain/jobs/JobDialogs";
+import { ChangeProfileDialog } from "@/components/domain/jobs/ChangeProfileDialog";
+import { JobProfileCard } from "@/components/domain/jobs/JobProfileCard";
+import { PlanCard } from "@/components/domain/jobs/PlanCard";
+import { PlanDialog, QtyPlannedDialog, SurplusDialog } from "@/components/domain/jobs/PlanDialogs";
 import { ReceiveStageDialog, SendStageDialog } from "@/components/domain/jobs/StageDialogs";
+import { StatusChip } from "@/components/domain/jobs/StatusChip";
 import { JobEvents, StageTable } from "@/components/domain/jobs/JobStages";
 import type { JobDetailData } from "@/lib/actions/job-office";
-import { cardBadges } from "@/lib/jobs/board";
+import { qtyOrderPlannedText, statusSignals } from "@/lib/jobs/board";
 import { thaiDate } from "@/lib/jobs/dates";
 import { JOB_STATUS_LABEL, METAL_LABEL, SOURCE_LABEL } from "@/lib/jobs/types";
 import type { StageRow } from "@/lib/jobs/types";
@@ -22,6 +27,10 @@ type Dlg =
   | { t: "due" }
   | { t: "label" }
   | { t: "done" }
+  | { t: "qty" }
+  | { t: "plan" }
+  | { t: "surplus" }
+  | { t: "profile" }
   | { t: "receive"; stage: StageRow }
   | { t: "send"; stage: StageRow }
   | null;
@@ -40,13 +49,21 @@ export function JobDetailClient({ data }: { data: JobDetailData }) {
   const closed = job.status === "done" || job.status === "cancelled";
   const firstOpen = stages.find((s) => s.status === "pending" || s.status === "received") ?? null;
   const started = stages.some((s) => s.status !== "pending");
+  // เปลี่ยนแบบการบันทึกไม่ได้เมื่อมีขั้นที่ช่างรับ/ส่งแล้ว (DB ตัดสินซ้ำ รวมใบที่เคยรับแล้วย้อนขั้น)
+  // รวม event stage_receive (ใบที่เคยรับงานแล้วย้อนขั้นจนทุกขั้นกลับเป็น pending ก็ถือว่าเริ่มแล้ว — ตรงกับ DB security L1)
+  const profileLocked = stages.some((s) => s.status === "received" || s.status === "sent") || events.some((e) => e.type === "stage_receive");
   const allDone = stages.length > 0 && stages.every((s) => s.status === "sent" || s.status === "skipped");
   const prevOut = (() => {
     if (!firstOpen) return null;
     const prev = [...stages].filter((s) => s.seq < firstOpen.seq && s.status === "sent").pop();
     return prev?.weightOutG ?? null;
   })();
-  const badges = board ? cardBadges(board) : [];
+  // ป้ายสถานะ: ชุดเดียวกับบอร์ด v2 (StatusChip) — ธงทุกตัวมาจาก v_job_board (DB ตัดสิน)
+  const badges = board ? statusSignals(board, todayTh) : [];
+  // 0175: เท่ากัน = "30 ชิ้น" เหมือนเดิม (ใบเดิมไม่ขึ้นสองเลข) · ต่างกัน = "สั่ง 30 · เริ่มผลิต 35 ชิ้น"
+  const qtyText = qtyOrderPlannedText(job);
+  const surplusLeft = board?.qtySurplus ?? null;
+  const sourceItemId = job.sourceKind === "oem" ? job.oemQuoteItemId : job.productionOrderItemId;
   const needGateNote = job.sourceKind === "oem" && !closed && board?.depositMissing === true && !job.startGateNote;
   const sourceHref = source ? (source.kind === "oem" ? `/oem/quotes/${source.id}` : `/production/${source.id}`) : null;
   const B = "min-h-11";
@@ -66,17 +83,16 @@ export function JobDetailClient({ data }: { data: JobDetailData }) {
         </div>
         <p className="text-lg font-semibold break-words text-zinc-900">{job.designLabel}</p>
         <p className="text-sm text-zinc-800">
-          {job.qtyPlanned} ชิ้น · {METAL_LABEL[job.metal] ?? job.metal}
+          {qtyText} · {METAL_LABEL[job.metal] ?? job.metal}
           {job.sku ? ` · ${job.sku}` : ""} · กำหนดส่ง {thaiDate(job.dueDate)}
-          {job.status === "done" && ` · ดี ${job.qtyGood ?? "—"} เสีย ${job.qtyScrap ?? "—"}${job.weightFinalG !== null ? ` · สุทธิ ${job.weightFinalG} กรัม` : ""}`}
+          {job.status === "done" && ` · ดี ${job.qtyGood ?? "—"} เสีย ${job.qtyScrap ?? "—"}${surplusLeft !== null && surplusLeft > 0 ? ` · เหลือ ${surplusLeft}` : ""}${job.weightFinalG !== null ? ` · สุทธิ ${job.weightFinalG} กรัม` : ""}`}
           {job.status === "cancelled" && job.cancelReason ? ` · ยกเลิกเพราะ: ${job.cancelReason}` : ""}
         </p>
         {badges.length > 0 && (
           <ul className="flex flex-wrap gap-1.5" aria-label="สถานะที่ต้องดู">
             {badges.map((b) => (
-              <li key={b.key} className="inline-flex items-center gap-1 rounded-md border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs font-semibold text-amber-900">
-                <AlertTriangle className="h-3 w-3" aria-hidden="true" />
-                {b.label}
+              <li key={b.key}>
+                <StatusChip status={b} />
               </li>
             ))}
           </ul>
@@ -91,6 +107,8 @@ export function JobDetailClient({ data }: { data: JobDetailData }) {
           </p>
         )}
       </header>
+
+      <JobProfileCard job={job} stages={stages} started={profileLocked} onChange={() => setDlg({ t: "profile" })} />
 
       {!closed && (
         <div className="flex flex-wrap gap-2 print:hidden">
@@ -119,6 +137,11 @@ export function JobDetailClient({ data }: { data: JobDetailData }) {
       )}
       {!closed && <p className="text-sm text-zinc-700">QR ที่ใช้งานอยู่ {data.activeTokens} ใบ{data.activeTokens === 0 ? " — ยังไม่ได้พิมพ์ใบงาน" : ""}</p>}
 
+      {/* 2 คอลัมน์บนจอใหญ่: เว้นครึ่งขวาไว้ให้การ์ดถัดไป (ยังไม่มี) — จอเล็กเรียงบนลงล่าง */}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <PlanCard job={job} board={board} stages={stages} onEditQty={() => setDlg({ t: "qty" })} onEditPlan={() => setDlg({ t: "plan" })} onDecideSurplus={() => setDlg({ t: "surplus" })} />
+      </div>
+
       <section aria-labelledby="stages-h" className="space-y-2">
         <h2 id="stages-h" className="text-lg font-bold text-zinc-900">
           ขั้นตอน
@@ -127,6 +150,8 @@ export function JobDetailClient({ data }: { data: JobDetailData }) {
           stages={stages}
           loss={loss}
           closed={closed}
+          profiled={job.profileId !== null}
+          gold={job.metal === "gold"}
           firstOpenId={firstOpen?.id ?? null}
           onReceive={(s) => setDlg({ t: "receive", stage: s })}
           onSend={(s) => setDlg({ t: "send", stage: s })}
@@ -139,7 +164,16 @@ export function JobDetailClient({ data }: { data: JobDetailData }) {
       {dlg?.t === "reason" && <ReasonDialog jobId={job.id} spec={dlg.spec} onClose={() => setDlg(null)} />}
       {dlg?.t === "label" && <DesignLabelDialog jobId={job.id} current={job.designLabel} onClose={() => setDlg(null)} />}
       {dlg?.t === "due" && <DueDialog jobId={job.id} current={job.dueDate} todayTh={todayTh} onClose={() => setDlg(null)} />}
-      {dlg?.t === "done" && <DoneDialog jobId={job.id} planned={job.qtyPlanned} metal={job.metal} onClose={() => setDlg(null)} />}
+      {dlg?.t === "done" && <DoneDialog jobId={job.id} planned={job.qtyPlanned} qtyOrder={job.qtyOrder} sourceKind={job.sourceKind} metal={job.metal} requireFinalWeight={job.requireFinalWeight} weighRequired={job.weighRequired} recordedScrap={stages.reduce((n, s) => n + s.qtyScrap, 0)} onClose={() => setDlg(null)} />}
+      {dlg?.t === "profile" && <ChangeProfileDialog jobId={job.id} metal={job.metal} stages={stages} currentProfileId={job.profileId} onClose={() => setDlg(null)} />}
+      {dlg?.t === "qty" && <QtyPlannedDialog jobId={job.id} qtyOrder={job.qtyOrder} current={job.qtyPlanned} hasOverride={typeof job.metalPlanBasis?.override_g === "number"} hasTarget={job.targetPieceG !== null} onClose={() => setDlg(null)} />}
+      {dlg?.t === "plan" && (
+        <PlanDialog
+          job={{ id: job.id, sourceKind: job.sourceKind, sourceItemId, metal: job.metal, qtyPlanned: job.qtyPlanned, targetPieceG: job.targetPieceG, metalPlanBasis: job.metalPlanBasis }}
+          onClose={() => setDlg(null)}
+        />
+      )}
+      {dlg?.t === "surplus" && <SurplusDialog jobId={job.id} qtySurplus={surplusLeft ?? 0} onClose={() => setDlg(null)} />}
       {dlg?.t === "receive" && <ReceiveStageDialog jobId={job.id} stage={dlg.stage} workers={workers} todayTh={todayTh} prevWeightOut={prevOut} onClose={() => setDlg(null)} />}
       {dlg?.t === "send" && <SendStageDialog jobId={job.id} stage={dlg.stage} todayTh={todayTh} onClose={() => setDlg(null)} />}
     </div>

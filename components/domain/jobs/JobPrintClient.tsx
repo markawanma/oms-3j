@@ -10,26 +10,63 @@ import { Printer } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { issueJobQr } from "@/lib/actions/job-office-write";
 import type { IssuedQr } from "@/lib/actions/job-office-write";
+import { qtyOrderPlannedText } from "@/lib/jobs/board";
 import { thaiDate } from "@/lib/jobs/dates";
 import { GENERIC_JOB_ERROR } from "@/lib/jobs/messages";
+import { METAL_LABEL } from "@/lib/jobs/types";
 import type { PrintableJob } from "@/lib/jobs/print";
 
 const CELL = "border border-zinc-700 px-1 align-top";
 
+/**
+ * คำหน้าช่อง % เขียนมือบนใบ (มติเจ้าของ 18 ต.ค. 69): งานเงิน = "เนื้อเงิน" · ทอง = "เนื้อทอง" · โลหะอื่น/ไม่รู้ = "เนื้อโลหะ"
+ * PrintableJob ไม่มีรหัส metal (ด่าน type boundary ใน lib/jobs/print.ts — ไม่เพิ่ม field) จึงเทียบกับ METAL_LABEL ที่ toPrintableJob ใช้ทำ metalLabel
+ * ("ทองเหลือง" ≠ "ทอง" เทียบเท่ากันทั้งสตริง จึงตกเป็น "เนื้อโลหะ")
+ */
+export function purityWord(metalLabel: string): string {
+  if (metalLabel === METAL_LABEL.silver) return "เนื้อเงิน";
+  if (metalLabel === METAL_LABEL.gold) return "เนื้อทอง";
+  return "เนื้อโลหะ";
+}
+
+/**
+ * คอลัมน์ของตารางขั้น (0176): ใบเดิม (ไม่มีแบบ) = ครบทุกคอลัมน์เหมือนเดิมทุกประการ
+ * ใบที่มีแบบ = ตัดคอลัมน์ที่ทั้งใบไม่มีขั้นไหนกรอก (นน.เข้า/ออก · เสีย) และเพิ่ม "เศษ (g)" เฉพาะเมื่อมีขั้นที่ถามเศษ — เซลล์ของขั้นที่ไม่ต้องกรอก = "—"
+ */
+export function sheetColumns(job: Pick<PrintableJob, "profileName" | "stages">): { weigh: boolean; scrapQty: boolean; scrapWeight: boolean; legacy: boolean } {
+  if (job.profileName === null) return { weigh: true, scrapQty: true, scrapWeight: false, legacy: true };
+  return {
+    weigh: job.stages.some((s) => s.weighRequired),
+    scrapQty: job.stages.some((s) => s.scrapQtyAsk),
+    scrapWeight: job.stages.some((s) => s.scrapWeightAsk),
+    legacy: false,
+  };
+}
+
 export function JobSheet({ job, qrSvg }: { job: PrintableJob; qrSvg: string | null }) {
+  const cols = sheetColumns(job);
   return (
     <article aria-label={`ใบงาน ${job.jobNo}`} className="job-sheet mx-auto w-[148mm] bg-white p-[7mm] text-[10pt] leading-snug text-black print:p-0">
       <header className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="text-[9pt] font-semibold">ใบงานผลิต · {job.sourceLabel}</p>
+          {job.profileName !== null && <p className="text-[9pt]">แบบ: {job.profileName}</p>}
           <p className="text-[30pt] leading-none font-extrabold tracking-tight tabular-nums">{job.jobNo}</p>
           <p className="mt-2 text-[14pt] font-bold break-words">{job.designLabel}</p>
           <p className="text-[11pt]">
-            {job.qtyPlanned} ชิ้น · {job.metalLabel}
+            {qtyOrderPlannedText(job)} · {job.metalLabel}
             {job.sku ? ` · ${job.sku}` : ""}
           </p>
           <p className="mt-1 text-[11pt] font-semibold">กำหนดส่ง {thaiDate(job.dueDate)}</p>
+          {/* 0175: แผนโลหะ (เฉพาะใบที่ toPrintableJob ปล่อยมา — ใบทองเป็น null ทั้งคู่ จึงไม่มีบรรทัดนี้) · ไม่มีเลขที่เบิกจริง/ledger/ดุล/ราคา */}
+          {(job.targetPieceG !== null || job.metalPlanG !== null) && (
+            <>
+              <p className="mt-1 text-[10pt]">น้ำหนักเป้าหมาย/ชิ้น {job.targetPieceG !== null ? `${job.targetPieceG.toFixed(3)} g` : "—"}</p>
+              <p className="text-[10pt] font-semibold">โลหะที่ต้องเตรียม {job.metalPlanG !== null ? `${Number(job.metalPlanG.toFixed(3))} g` : "—"}</p>
+            </>
+          )}
           <p className="mt-1 text-[10pt]">น้ำหนักตั้งต้น {job.weightStartG !== null ? `${job.weightStartG} g` : "............ g"}</p>
+          <p className="mt-1 text-[10pt]">เบิกจริง ............ g &nbsp; {purityWord(job.metalLabel)} ............ %</p>
         </div>
         <div className="flex w-[42mm] shrink-0 flex-col items-center">
           {qrSvg ? (
@@ -48,10 +85,11 @@ export function JobSheet({ job, qrSvg }: { job: PrintableJob; qrSvg: string | nu
             <th className={`${CELL} w-[24%]`}>ขั้น</th>
             <th className={CELL}>วันรับ</th>
             <th className={CELL}>ผู้รับเซ็น</th>
-            <th className={CELL}>นน.เข้า</th>
+            {cols.weigh && <th className={CELL}>นน.เข้า</th>}
             <th className={CELL}>วันส่ง</th>
-            <th className={CELL}>นน.ออก</th>
-            <th className={`${CELL} w-[9%]`}>เสีย</th>
+            {cols.weigh && <th className={CELL}>นน.ออก</th>}
+            {cols.scrapQty && <th className={`${CELL} w-[9%]`}>เสีย</th>}
+            {cols.scrapWeight && <th className={`${CELL} w-[10%]`}>เศษ (g)</th>}
             <th className={CELL}>ผู้ส่งเซ็น</th>
           </tr>
         </thead>
@@ -62,14 +100,20 @@ export function JobSheet({ job, qrSvg }: { job: PrintableJob; qrSvg: string | nu
                 {s.seq}. {s.name}
                 {s.weighRequired ? " *" : ""}
               </td>
-              {Array.from({ length: 7 }, (_, i) => (
-                <td key={i} className={CELL} />
-              ))}
+              {/* ลำดับคอลัมน์: วันรับ · ผู้รับเซ็น · [นน.เข้า] · วันส่ง · [นน.ออก] · [เสีย] · [เศษ] · ผู้ส่งเซ็น — ช่องที่ขั้นนี้ไม่ต้องกรอก = "—" (ใบเดิมว่างทุกช่อง) */}
+              <td className={CELL} />
+              <td className={CELL} />
+              {cols.weigh && <td className={CELL}>{!cols.legacy && !s.weighRequired ? "—" : ""}</td>}
+              <td className={CELL} />
+              {cols.weigh && <td className={CELL}>{!cols.legacy && !s.weighRequired ? "—" : ""}</td>}
+              {cols.scrapQty && <td className={CELL}>{!cols.legacy && !s.scrapQtyAsk ? "—" : ""}</td>}
+              {cols.scrapWeight && <td className={CELL}>{!s.scrapWeightAsk ? "—" : ""}</td>}
+              <td className={CELL} />
             </tr>
           ))}
         </tbody>
       </table>
-      <p className="mt-1 text-[8pt]">* ขั้นที่ต้องชั่งน้ำหนักทุกครั้ง</p>
+      {(cols.legacy || cols.weigh) && <p className="mt-1 text-[8pt]">* ขั้นที่ต้องชั่งน้ำหนักทุกครั้ง</p>}
       <div className="mt-2 h-[16mm] border border-zinc-700 p-1 text-[8pt]">หมายเหตุ</div>
     </article>
   );

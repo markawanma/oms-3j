@@ -26,6 +26,33 @@ const full = () =>
     prev_weight_out_g: 12.345,
   });
 
+describe("sanitizeWorkerView — ใบทองไม่ส่งน้ำหนักออกขั้นก่อนถึงช่าง (0176 L2)", () => {
+  const goldWith = (prev: unknown) => {
+    const raw = full() as Record<string, unknown>;
+    (raw.job as Record<string, unknown>).metal = "gold";
+    raw.prev_weight_out_g = prev;
+    return sanitizeWorkerView(raw)!;
+  };
+  it("ทอง: prev_weight_out_g ที่ DB ส่งมา (แม้ผิดพลาด) ถูกทิ้งเป็น null · ทั้งก้อน view ไม่มีตัวเลขนั้น", () => {
+    const v = goldWith(12.345);
+    expect(v.prevWeightOutG).toBeNull();
+    expect(JSON.stringify(v)).not.toContain("12.345");
+  });
+  it("ต้องไม่พัง: เงิน/ทองเหลืองยังได้ค่า (ใช้เตือนน้ำหนักต่างเกิน 20%)", () => {
+    const silver = full() as Record<string, unknown>;
+    expect(sanitizeWorkerView(silver)!.prevWeightOutG).toBe(12.345);
+    (silver.job as Record<string, unknown>).metal = "brass";
+    expect(sanitizeWorkerView(silver)!.prevWeightOutG).toBe(12.345);
+  });
+  it("ยังไม่ระบุตัว (ไม่มี metal ใน job) = ไม่มีน้ำหนักอยู่แล้ว", () => {
+    const raw = full() as Record<string, unknown>;
+    const job = raw.job as Record<string, unknown>;
+    delete job.metal;
+    delete job.design_label;
+    expect(sanitizeWorkerView(raw)!.job.metal).toBeUndefined();
+  });
+});
+
 describe("sanitizeWorkerView — ทิ้ง key ที่ไม่อยู่ใน allowlist (แม้ DB ส่งมา)", () => {
   const POISON = {
     price_per_piece: 999, unit_cost: 12, margin_pct: 40, customer_name: "บริษัท ลับ จำกัด", quote_no: "Q-2610-001", po_no: "PO-0001",

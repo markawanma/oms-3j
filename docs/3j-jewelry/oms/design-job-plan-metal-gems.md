@@ -1,10 +1,11 @@
 # Design — ใบงานต่อยอด J1: จำนวนเผื่อเสีย · เบิกโลหะ · วางแผนโลหะ · BOM พลอย · แคตตาล็อกพลอย (13 ต.ค. 69)
 
-> architect (Yoda) · สถานะ: **design รอเจ้าของตอบ §6 ก่อนเขียน migration** · ยังไม่มีโค้ด/migration ของส่วนนี้
+> architect (Yoda) · สถานะ: **M1 spec พร้อม implement (§8 · 14 ต.ค. 69) — เจ้าของสั่ง "เริ่ม M1 ได้เลย"** · migration `0175`/`0176` ยังไม่เขียน · G1–G4 รอ
 > ต่อจาก `design-job-tracking.md` (J1 ลง DB แล้ว: `0172`–`0174` apply 12 ต.ค. 69 · โค้ดบน branch `feature/job-tracking-j1`) — **เอกสารนี้ไม่ทวนสิ่งที่ J1 ทำแล้ว** อ่านคู่กัน
 > อ่านคู่: `design-own-production-costing.md` (make_spec · oem_cost_calc) · `design-production-order.md` · skill `oem-quote-invariants` · skill `3j-migration-traps` · memory `spec-cost-mode` · `production-order-and-spot-cost`
 > 🔴 เอกสารนี้ไม่มีตัวเลขต้นทุน/ราคาจริงโดยตั้งใจ — ตัวเลขอยู่ใน DB เท่านั้น (ค่า % ใน §6 เป็นคำถาม ไม่ใช่ค่าที่ตั้ง)
-> ⚠️ `design-job-tracking.md` อยู่บน branch อื่น (commit `c2d4d42`/`3fdddd9` ใน dir หลัก) ยังไม่อยู่ใน worktree นี้ — ตอน merge ให้เพิ่มลิงก์มาที่ไฟล์นี้ท้าย §7 ของมัน
+> 🔁 §2.2 / §2.3 / §3 ข้อ 21–30 / §4 แถวโลหะ ถูก **§8** ทับด้วยมติ Q7 (14 ต.ค.) — อ่าน §8 เป็นหลักสำหรับ M1 · ส่วนพลอย (§2.4–2.5 · G1) ยังเป็นปัจจุบัน
+> ⏸ **15 ต.ค. 69 — เจ้าของสั่งพัก "ระบบเบิกโลหะ" (ledger + สูตรอัลลอย = 0176 ใน §8) ไว้ก่อน** · 0175 (จำนวน/เผื่อ/แผนโลหะ/ของเหลือ) เดินต่อ · ช่องเลข 0176 กลายเป็น **แบบการบันทึก (record profile)** → `design-job-record-profile.md` · ส่วน ledger ใน §8 ติดป้าย ⏸ ห้ามลบ
 
 ## 0. โจทย์เจ้าของ (13 ต.ค. 69 — สรุปคำพูด) → อะไรมีแล้วใน J1 / อะไรต้องเพิ่ม
 
@@ -84,7 +85,7 @@ public.product (SKU)                         analytics.oem_quote_item (ใบเ
 
 `job_guard` (trigger 0172) ต้องแก้: ยอม UPDATE `qty_planned`/`target_piece_g`/`metal_plan_*` เฉพาะเมื่อยังไม่มี `job_stage.status in ('received','sent')` และ status ไม่ปลายทาง · `surplus_*` เขียนได้เฉพาะในทรานแซกชัน `job_done` (ตรวจด้วย `status` เปลี่ยน open→done ในแถวเดียวกัน)
 
-### 2.2 `job_metal_issue` — ledger โลหะต่อใบงาน (append-only · ยกเลิกด้วยแถวกลับ ไม่ UPDATE/DELETE)
+### 2.2 `job_metal_issue` — ledger โลหะต่อใบงาน (append-only · ยกเลิกด้วยแถวกลับ ไม่ UPDATE/DELETE) — 🔁 **ทับด้วย §8.1 (header + lines ตาม Q7)**
 | คอลัมน์ | ชนิด / ด่าน |
 |---|---|
 | `id` · `shop_id` · `job_id` (FK composite `(job_id, shop_id)` → job แบบ J1) · `job_stage_id` (FK `(id, job_id)` → job_stage · stage ต้อง `metal_present=true` ใน def — trigger) | |
@@ -100,7 +101,7 @@ public.product (SKU)                         analytics.oem_quote_item (ใบเ
 
 **ทางเดียว ledger → `job_stage`** (trigger AFTER INSERT): stage ที่มีแถว ledger ⇒ `weight_in_g = Σ issue − Σ void(issue)` · `metal_added_g = Σ top_up` · `scrap_weight_g = Σ return (ที่ผูก stage นั้น)` · `weight_note = 'ledger'` ⇒ `js_weight_ck`/`js_weigh_in_ck` ของ J1 ทำงานต่อโดยไม่ต้องแก้ · `job_stage_guard` ปฏิเสธ UPDATE คอลัมน์ 3 ตัวนี้ตรงๆ บน stage ที่มี ledger (ตรวจ `exists(select 1 from job_metal_issue where job_stage_id = new.id)`) — stage ที่ไม่มี ledger ยังกรอกน้ำหนักแบบ J1 ได้ (งานเงินที่ไม่อยากบันทึกเบิก)
 
-### 2.3 `v_job_metal_balance` — ดุลโลหะต่อใบ (DB คำนวณ · จอแค่แสดง)
+### 2.3 `v_job_metal_balance` — ดุลโลหะต่อใบ (DB คำนวณ · จอแค่แสดง) — 🔁 **ทับด้วย §8.2**
 ต่อ job: `issued_g = Σ issue` · `top_up_g` · `returned_g = Σ return` · `cast_out_g = job_stage(cast).weight_out_g` · `cast_qty_out = job_stage(cast).qty_out` · **`avg_piece_g = round(cast_out_g / cast_qty_out, 3)`** (null ถ้ายังไม่ชั่ง/qty_out = 0 — ไม่ใช่ 0 · ข้อ 13) · `loss_g = issued + top_up − cast_out − returned` · `loss_pct = loss_g / (issued + top_up) × 100` · `plan_vs_issued_g = issued − metal_plan_g` · `piece_vs_target_g = avg_piece_g − target_piece_g` · `fineness_mix` (jsonb: กรัมต่อ fineness — งานที่เบิก 925 กับ 999 ผสมต้องเห็น) · `not_weighed` ถ้า cast ยังไม่ชั่งออก (R3 ของ J1: แสดง ไม่ซ่อน)
 ส่วนต่าง "หายจริง" ที่เจ้าของถาม = `loss_g` **หลังหัก return แล้ว** — ถ้าช่างยังไม่บันทึก return จะดูเหมือนหายเยอะ ⇒ จอต้องโชว์ `returned_g` ข้างกัน และป้าย "ยังไม่บันทึกเศษคืน" เมื่อ `returned_g = 0` และขั้น `cut_sprue` ส่งต่อแล้ว
 
@@ -225,7 +226,7 @@ public.product (SKU)                         analytics.oem_quote_item (ใบเ
 | # | มติ | ผลต่อ design |
 |---|---|---|
 | Q1 | **ถือไว้ก่อน ตัดสินทีหลัง** | ตามค่าเริ่ม: `hold` + note · บอร์ดโชว์ "เหลือ n ชิ้นยังไม่ตัดสิน" · ไม่เข้าสต็อกอัตโนมัติ |
-| Q5 | **ยังไม่ตัดสิน** — "ปกติจะนำมาชั่งหลังจากตัดต้นเสร็จแล้ว" | ⏸ ใช้ค่าเริ่ม (ต่อใบ ช่างกรอกได้ · ไม่บังคับ) ไปก่อน · รอเจ้าของยืนยันว่าตัดต้นทีละใบหรือหลายใบรวมกัน ก่อนล็อก M1 |
+| Q5 | **ชั่งเศษแยกทีละใบงาน** (14 ต.ค.) — ชั่งหลังตัดต้นเสร็จ | ตามค่าเริ่ม: `return` ต่อใบ ผูกขั้น `cut_sprue` · ช่างหรือออฟฟิศกรอก · ไม่มีการปันส่วนถาด |
 | Q6 | **ได้ทั้งช่าง (สแกน QR) และออฟฟิศ** | ตามค่าเริ่ม |
 | Q7 | **บันทึกแค่เงินกับทอง** · ส่วนผสมอื่น (ทองแดง ฯลฯ) ราคาไม่สูง = **ช่องเผื่อเติมได้ ไม่บังคับ** · กรอกเป็นสูตรผสมต่อครั้งเบิก เช่น เงิน x g + ทองแดง y g + อื่นๆ → **ได้เนื้อ 925** และให้เห็น % · **ก้านต้นที่ตัดออกนำกลับไปหล่อต่อได้ทันที** | 🔁 เปลี่ยนจาก §2.2: (1) การเบิกหนึ่งครั้ง = หลายบรรทัดส่วนผสม (โลหะมีค่า **บังคับ** · ทองแดง/อื่นๆ ไม่บังคับ) DB คำนวณ % และเนื้อที่ได้ · (2) เศษ/ก้านต้นที่คืน = วัตถุดิบเบิกซ้ำได้ (บรรทัดส่วนผสมชนิด "เนื้อหลอมกลับ 925") ไม่ใช่ของหาย · ⚠️ ตัวเลขตัวอย่างที่เจ้าของพิมพ์ ("เงิน 100 - 50 กรัม ทองแดง 7 กรัม") ยังอ่านไม่ออก — ใช้แค่โครง ห้ามใช้เป็นสูตร seed |
 | Q7 (ต่อ · 14 ต.ค.) | ผสมด้วย **อัลลอยสำเร็จรูป ประมาณ 6.5–7%** (ไม่ได้ผสมทองแดงเอง) | บรรทัดส่วนผสมค่าเริ่ม = "เงิน" + "อัลลอยสำเร็จรูป" · DB แสดง % อัลลอย และเตือน (ไม่บล็อก) เมื่อนอกช่วงที่ตั้งไว้ต่อร้าน (ค่าเริ่ม 6.5–7%) · สัดส่วนจริงต่อครั้งกรอกเอง ห้าม seed สูตรตายตัว |
@@ -256,3 +257,261 @@ public.product (SKU)                         analytics.oem_quote_item (ใบเ
 
 **หนี้ที่รู้ตั้งแต่ design**
 - ค่าแรงจริงต่อใบยังไม่คิด (G2 เก็บแค่โลหะ+พลอย) · `oem_tier` บน `gem_item` เป็นสะพานชั่วคราวจน G3 · เศษหลอมคืนยังไม่เข้า `metal_scrap_ledger` (J6 ของ J1) — `kind='return'` คือต้นทาง · ไม่มีสต็อกพลอย (G4) · `breakage_allow_pct` ต่อชนิดไม่ใช่ต่อรายการ · แฟลสก์หลายใบปันส่วนเศษไม่ได้จน J3 batch
+
+## 8. M1 — spec พร้อม implement (14 ต.ค. 69 · เจ้าของสั่ง "เริ่ม M1 ได้เลย")
+
+> **ทับ §2.2 / §2.3 / §3 ข้อ 21–30 / §4 แถวโลหะ** ด้วยมติ Q7 (เบิก 1 ครั้ง = หลายบรรทัดส่วนผสม · อัลลอยสำเร็จรูป · เศษหลอมกลับเบิกซ้ำได้) — ส่วนพลอย (§2.4–2.5, G1) ไม่เปลี่ยน
+> def ล่าสุดของทุกฟังก์ชันที่ต้อง replace ระบุไฟล์:บรรทัดไว้ใน §8.3 — **ลอกจากไฟล์นั้น ไม่ใช่จาก 0172** (migration-traps ข้อ 3/21)
+> ไม่มีราคา/ต้นทุนในทุก object ของ M1 (ยืนยัน §8.6)
+
+### 8.0 ตัดสินใจหลัก + แบ่ง migration
+
+| # | ตัดสินใจ | ทางที่ตัดทิ้ง · เหตุผล |
+|---|---|---|
+| 1 | **แยก 2 migration**: `0175` = จำนวนสั่ง/เผื่อ + แผนโลหะ + ปิดหนี้ J1 (D2/D6) · `0176` = ledger เบิกโลหะ | รวมไฟล์เดียว ~2,500 บรรทัดแบบ 0172 รีวิว/verify ยาก · 0175 apply ได้ก่อนให้ frontend ทำฟอร์มสร้างใบงาน ระหว่างที่ backend เขียน ledger · ฟังก์ชันที่ทั้งสองไฟล์จะแตะซ้ำมีตัวเดียวคือ `job_worker_resolve` — 0175 ไม่แตะมัน (D6 ส่วนของ resolve ไปปิดใน 0176) |
+| 2 | **ledger = header + lines** (`job_metal_issue` + `job_metal_issue_line`) | ตารางเดียวแถวละส่วนผสม: "การเบิกครั้งหนึ่ง" ไม่มีตัวตน → void ต้องไล่หลายแถว · % อัลลอยต้อง group เอง · event 1:1 ไม่ได้ |
+| 3 | **ไม่มี trigger sync ledger → `job_stage`** — RPC เขียนทั้งสองที่ในทรานแซกชันเดียว ณ transition ที่ `job_stage_guard` ยอมอยู่แล้ว (รับ: `weight_in_g` · ส่ง: `metal_added_g`/`scrap_weight_g`) + view ตรวจ drift | trigger sync ต้องเจาะ `job_stage_guard` ด้วย session flag (§3 ข้อ 26 เดิม) = เปิดช่องให้ service key เขียนตรง · ราคาที่จ่าย: void หลังขั้น `sent` ทำไม่ได้ ต้องย้อนขั้นก่อน (เท่ากับกติกา J1 "ส่งแล้วแข็ง") |
+| 4 | `job_stage_guard` **ไม่ต้อง replace** (ผลจากข้อ 3) · `job_guard` replace ใน 0175 เท่านั้น | R1 ของ §7 เหลือครึ่งเดียว |
+| 5 | **วัสดุเป็นทะเบียนต่อร้าน `job_metal_material`** (seed · ปุ่มใหญ่บนจอช่าง · snapshot label/fineness ลงบรรทัด) · ช่วงเตือน % อัลลอยอยู่ที่แถววัสดุ `component='alloy'` (`pct_warn_min/max`) | ตาราง setting แยก / `oem_cost_rate`: ช่วงเตือนเป็นคุณสมบัติของ "อัลลอยตัวนั้น" ไม่ใช่ของร้าน (อัลลอยทองคนละช่วง) · ไม่แตะ `oem_rate_def` (global ไม่มี shop_id) · ห้าม seed สูตรผสม — seed แค่รายการวัสดุ + ช่วงเตือนที่เจ้าของให้ (6.5–7) |
+| 6 | **เศษหลอมกลับ = วัตถุดิบ**: `return` ของใบ A ลด `net_used` ของ A · บรรทัด `recycled` ในการเบิกของใบ B นับเต็มเป็นของเข้าของ B · ดุลต่อใบปิดในตัวเอง ไม่อ้างข้ามใบ · กองเศษระดับร้าน = Σ return − Σ recycled-in (view แยก · ติดลบ = เตือน ไม่บล็อก) | ผูก recycled line กับ return แถวต้นทางด้วย FK: ของจริงหลอมรวมถาดแล้วแยกไม่ออก (Q5 ชั่งแยกต่อใบตอนคืน แต่ตอนเบิกซ้ำคือก้อนรวม) · loss ของ B ไม่ติดลบเพราะ recycled คือ input จริงของ B |
+| 7 | `issue` ทำได้ทางเดียว = **ขั้น `cast` ยัง pending** (RPC "รับงาน" ให้ด้วย — 1 สแกน 1 ปุ่ม) · cast ที่ถูกรับแบบ J1 (ชั่งอย่างเดียว) ไปแล้ว = ใบนั้นเดิน J1 ต่อ ไม่แปลงกลางทาง (ย้อนขั้นแล้วเบิกใหม่ได้) | ยอม `issue` ซ้อนบน stage ที่รับแล้ว: ต้อง UPDATE `weight_in_g` ของ stage `received` ซึ่ง guard ห้าม · "เบิกเพิ่มระหว่างถือ" มี `top_up` อยู่แล้ว |
+| 8 | ของเหลือ OEM: `job_done` ตั้ง `hold` อัตโนมัติเมื่อ `qty_good > qty_order` และไม่ส่งค่า · เปลี่ยนทีหลังบนใบ done ผ่าน `job_surplus_set` (ข้อยกเว้นเดียวของ "done แล้วแก้ไม่ได้" — guard ยอมเฉพาะ 2 คอลัมน์นี้) · production: `stock` เสมอ (ของเข้าสต็อกผ่าน `production_order_done` อยู่แล้ว) | บังคับกรอกตอนปิดงาน: ขัด Q1 "ถือไว้ตัดสินทีหลัง" |
+| 9 | ค่าแนะนำจำนวนเผื่อใช้ `reject_rate_cast/polish/plate_pct` **ตัวเดียวกับ `oem_cost_calc`** (0140 บ.202–208) · แผนโลหะใช้ `sprue_loss_pct[metal]` (0140 บ.246) | rate ใหม่ = ซ้ำซ้อน · **ผลข้างเคียงต้องบอกเจ้าของ**: แก้ reject rate เพื่อให้เผื่อมาก/น้อยลง = ต้นทุนใบเสนอราคาใหม่ขยับตาม (ใบที่ออกแล้วไม่ขยับ — snapshot) |
+
+### 8.1 Schema
+
+**0175 — `alter table analytics.job add column`** (ลำดับ: add nullable → `alter table analytics.job disable trigger trg_job_guard` → backfill → `enable trigger` → `set not null` · ทั้งหมดในทรานแซกชันเดียว)
+
+| คอลัมน์ | ชนิด / CHECK | หมายเหตุ |
+|---|---|---|
+| `qty_order int not null` | `check (qty_order between 1 and 100000)` | backfill `= qty_planned` · 🔴 `job_guard` (0173:651) **raise บนแถว `done/cancelled`** และ set `updated_at := now()` เอง (บ.664) ⇒ **ต้อง disable `trg_job_guard` ระหว่าง backfill** · ล็อก `md5(string_agg(updated_at::text, '|' order by id))` + `count(distinct updated_at)` ก่อน/หลัง (ข้อ 19) · trigger บน `job` ที่มีจริง: `trg_job_guard`, `trg_job_deny_truncate` (backend query `pg_trigger` ยืนยันอีกครั้ง) |
+| `target_piece_g numeric(10,3)` | `null or (> 0 and <= 10000)` | น้ำหนักเป้าหมาย/ชิ้น |
+| `metal_plan_g numeric(10,3)` | `null or (> 0 and <= 100000)` | DB คำนวณ (`job_plan_compute`) |
+| `metal_plan_basis jsonb` | `null or jsonb_typeof = 'object'` | `{target_piece_g, qty_planned, sprue_loss_pct, sprue_rate_as_of, formula, computed_g, override_g, override_reason, missing[]}` |
+| `surplus_disposition text` · `surplus_note text` | `in ('hold','spare','deliver','stock')` · note ≤ 200 `oem_note_valid` | |
+| CHECK `job_plan_ck` | `(target_piece_g is null) = (metal_plan_g is null) and (metal_plan_g is null) = (metal_plan_basis is null)` | |
+| CHECK `job_surplus_ck` | `(surplus_disposition is null or (status = 'done' and qty_good > qty_order)) and (status <> 'done' or qty_good <= qty_order or surplus_disposition is not null)` | ข้อ 14: `job_done` ต้องใส่ `surplus_disposition` ใน UPDATE เดียวกับ `status='done'` |
+| `job_event.event_type` | เพิ่ม `'plan_change'`, `'surplus_set'` (0175) · `'metal_issue'`, `'metal_void'` (0176) | drop/add constraint — ลอกชื่อ constraint จริงจาก `pg_constraint` (0172 ไม่ได้ตั้งชื่อ) |
+
+> ⏸ **พักไว้ตามมติเจ้าของ 15 ต.ค. 69** — ตาราง ledger ด้านล่าง (`job_metal_material` · `job_metal_issue` · `job_metal_issue_line`) ยังไม่สร้าง · เหตุผล/ผลกระทบ: `design-job-record-profile.md` §0 มติ 4 + §9
+**0176 — ตารางใหม่** (RLS เปิด ไม่มี policy · grant `service_role` เท่านั้น · append-only trigger แบบ `job_event`)
+
+`job_metal_material` — ทะเบียนวัสดุต่อร้าน (seed ผ่าน `job_metal_material_ensure(shop_id)` on conflict do nothing · เรียกใน `job_worker_resolve`/`job_metal_issue_add` แบบ `job_stage_def_ensure`)
+
+| คอลัมน์ | ชนิด / CHECK |
+|---|---|
+| `shop_id` · `code text` PK `(shop_id, code)` (`^[a-z][a-z0-9_]{1,30}$`) · `metal text check in ('silver','gold')` · `component text check in ('precious','alloy','recycled','other')` · `fineness numeric(6,4)` (`precious/recycled`: not null `> 0 and <= 1` · `alloy/other`: null — CHECK คู่) · `label text` ≤ 60 · `pct_warn_min/pct_warn_max numeric(5,2)` (เฉพาะ `alloy` · null = ไม่เตือน · `min <= max` · 0–100) · `seq int` · `is_active boolean` · `updated_at` | ทองเหลือง **ไม่มี** (Q7 บันทึกแค่เงิน/ทอง — ใบทองเหลืองเดิน J1 ต่อ) · guard: UPDATE ได้เฉพาะ `label/is_active/pct_warn_*/seq` (fineness/component/metal แช่แข็ง) · ห้าม DELETE |
+
+seed (fineness = นิยามมาตรฐานของเกรด ไม่ใช่ตัวเลขร้าน · ช่วงเตือน 6.5–7 = เจ้าของให้ 14 ต.ค.):
+เงิน `ag999` precious 0.999 "เงินเม็ด 999" · `ag925` precious 0.925 "เงินเม็ด 925 สำเร็จ" · `alloy_ag` alloy "อัลลอยสำเร็จรูป (เงิน)" warn **6.50–7.00** · `recycle_ag925` recycled 0.925 "เศษ/ก้านต้นหลอมกลับ 925" · `other_ag` other "อื่นๆ (เงิน)" ·
+ทอง `au9999` precious 0.9999 "ทองคำ 99.99" · `au750` precious 0.750 "ทอง 18K สำเร็จ" · `au585` precious 0.585 "ทอง 14K สำเร็จ" · `alloy_au` alloy "อัลลอยทอง" (**ไม่มีช่วงเตือน — ไม่รู้ ห้ามเดา** §8.13 Q11) · `recycle_au750` recycled 0.750 · `recycle_au585` recycled 0.585 · `other_au` other
+UI แก้ทะเบียนนี้ = เฟสหลัง (`/jobs/stages`) · M1 ไม่มี RPC upsert (YAGNI — หนี้ §8.12)
+
+`job_metal_issue` — header การเบิก/เติม/คืน/ยกเลิก
+
+| คอลัมน์ | ชนิด / CHECK |
+|---|---|
+| `id` · `shop_id` · `job_id` · `job_stage_id uuid not null` · FK `(job_id, shop_id)→job` · `(job_stage_id, job_id)→job_stage` · `(worker_id, shop_id)→worker` | |
+| `kind text check in ('issue','top_up','return','void')` · `void_of_id uuid null` FK self **unique** · CHECK `(kind = 'void') = (void_of_id is not null)` | void = แถวกลับ 1:1 |
+| `occurred_on date` · `recorded_at timestamptz default clock_timestamp()` · `actor uuid` · `worker_id uuid` · `channel check in ('worker_qr','job_page','daily_sheet')` · `device_hint` ≤ 120 · CHECK `actor is not null or worker_id is not null` · CHECK `channel <> 'worker_qr' or worker_id is not null` | ชุดเดียวกับ `job_event` |
+| `note text` (`oem_note_valid` ≤ 200) | บังคับเมื่อ `kind in ('top_up','void')` และ `return` ที่ทำให้ Σ return > Σ in — บังคับใน RPC (ต้องดูยอดสะสม) · `void`: CHECK `kind <> 'void' or oem_note_present(note)` |
+| `event_id uuid not null → job_event` | 1 header = 1 event (`metal_issue`/`metal_void`) |
+| `total_g numeric(10,3) not null check (> 0 and <= 100000)` · `fine_g numeric(10,4) not null check (>= 0)` · `alloy_pct numeric(6,3) null check (null or between 0 and 100)` · `warnings jsonb not null default '[]' check (jsonb_typeof = 'array')` | RPC คำนวณจากบรรทัด (§8.2) · void คัดลอก `total_g/fine_g` ของต้นทาง |
+| constraint trigger **initially deferred** `job_metal_issue_total_ck` (AFTER INSERT บน header และ line) | `kind <> 'void'` ⇒ Σ `line.weight_g = total_g` ณ commit (กัน header/lines ขัดกัน) |
+| trigger `job_metal_issue_guard` BEFORE INSERT | stage เป็นของ job เดียวกัน · `job_stage_def.metal_present` · `job.metal in ('silver','gold')` · `void_of_id` ชี้ header ของ job เดียวกันที่ `kind <> 'void'` · UPDATE/DELETE/TRUNCATE ปฏิเสธทุกกรณี (รวม owner/service_role แบบ `job_event`) |
+
+`job_metal_issue_line` — บรรทัดส่วนผสม
+
+| คอลัมน์ | ชนิด / CHECK |
+|---|---|
+| `id` · `issue_id → job_metal_issue` · `shop_id` · `seq int` unique `(issue_id, seq)` · `material_code text` FK `(shop_id, material_code) → job_metal_material` | |
+| `component text` (snapshot จากวัสดุ) · `label text` (snapshot) · `fineness numeric(6,4) null` (snapshot — บรรทัด `return` ใช้ fineness เฉลี่ยของใบ ไม่ใช่ของวัสดุ) · `weight_g numeric(10,3) check (> 0 and <= 100000)` | ค่าบวกเสมอ ทิศทางอยู่ที่ `kind` ของ header |
+| CHECK `(component in ('precious','recycled')) = (fineness is not null)` · trigger BEFORE INSERT: header ต้อง `kind <> 'void'` และ `shop_id` ตรง | append-only |
+
+### 8.2 สิ่งที่ DB คำนวณ (ไม่รับจาก client — client ส่งแค่ `[{material_code, weight_g}]`)
+
+**ต่อ header** (`job_metal_lines_parse` → เก็บลง header + คืนใน response):
+- `precious_g · recycled_g · alloy_g · other_g` = Σ ตาม component · `total_g` = ผลรวม
+- `fine_g` = Σ `weight_g × fineness` ของ precious + recycled (เนื้อโลหะมีค่าบริสุทธิ์ที่ออกไป · 4 ตำแหน่ง) · `eff_fineness = fine_g / total_g`
+- `alloy_pct` = `alloy_g / (precious_g + alloy_g) × 100` **เฉพาะส่วนผสมสด** (recycled 925 มีอัลลอยในตัวแล้ว ไม่เอาเข้าตัวหาร) · `precious_g = 0` ⇒ **null** (หลอมกลับล้วน ไม่มีอะไรให้เตือน · ข้อ 13: null ไม่ใช่ 0)
+- `warnings[]` (เตือน ไม่บล็อก): ต่อบรรทัด alloy ที่วัสดุมีช่วง → `pct_line = line.weight_g / (precious_g + alloy_g) × 100` นอก `[min,max]` ⇒ `{code:'alloy_pct_out_of_range', material_code, pct, min, max}` · `precious_g > 0 and alloy_g = 0` และร้านมีวัสดุ alloy (active) ของโลหะนั้นที่มีช่วงเตือน ⇒ `{code:'no_alloy'}`
+- `weight_suspicious` (R9): `total_g > 5000` หรือ (`kind='issue'` ∧ `metal_plan_g` ไม่ null ∧ `total_g > 3 × metal_plan_g`) ⇒ RPC คืน/raise `weight_suspicious` จนกว่า `p_confirm = true`
+
+**กติกาบรรทัดต่อ kind**: `issue`/`top_up` 1–10 บรรทัด · ต้องมี ≥ 1 บรรทัด component in (`precious`,`recycled`) = "โลหะมีค่าบังคับ" · `material.metal = job.metal` · ห้าม `material_code` ซ้ำในครั้งเดียว (UI รวมก่อน) · วัสดุต้อง `is_active` · `return` = RPC สร้าง 1 บรรทัด `recycled` ให้เอง (`fineness = in_fineness_eff` สะสมของใบ · `material_code` = recycled ของโลหะนั้นที่ fineness ใกล้สุด) · `void` ไม่มีบรรทัด
+
+**ต่อใบ — `v_job_metal_balance`** ("non-void" = `kind <> 'void'` และไม่มี void ชี้มา · 1 แถวต่อ job ทุกใบ · ใบไม่มี ledger = null ทั้งแถวยกเว้น `has_ledger=false`):
+
+| คอลัมน์ | นิยาม |
+|---|---|
+| `has_ledger` | มี issue non-void ≥ 1 |
+| `issued_g` · `top_up_g` · `in_g = issued + top_up` · `in_fine_g` · `in_fineness_eff = round(in_fine_g / in_g, 4)` | ของเข้า |
+| `fresh_g` (precious+alloy+other ใน issue/top_up) · `recycled_in_g` | ใช้ของใหม่เท่าไร หลอมกลับเท่าไร |
+| `returned_g` · `returned_fine_g` | Σ return non-void |
+| `net_used_g = in_g − returned_g` | โลหะที่ใบนี้กินจริง (ฐานของ G2 ต้นทุนจริง) |
+| `cast_out_g` · `cast_qty_out` · `avg_piece_g = round(cast_out_g / cast_qty_out, 3)` | null ถ้ายังไม่ชั่ง/qty 0 (ข้อ 13 — ไม่ใช่ 0) |
+| `melt_loss_g = in_g − cast_out_g` | หายตอนหล่อ (null ถ้า cast ยังไม่ชั่งออก) |
+| `last_out_g` | `weight_out_g` ของขั้น `sent` ล่าสุดที่ `weigh_required` และชั่งแล้ว |
+| `loss_g = in_g − returned_g − last_out_g` · `loss_pct = round(loss_g / in_g × 100, 2)` | "หายจริง" ที่เจ้าของถาม — หลังหักเศษคืน · null เมื่อ `last_out_g` null |
+| `plan_vs_in_g = in_g − metal_plan_g` · `piece_vs_target_g = avg_piece_g − target_piece_g` | |
+| `fineness_mix jsonb` | `[{material_code, label, component, fineness, weight_g}]` group บรรทัด issue/top_up non-void |
+| `alloy_pct_latest` · `warnings jsonb` | จาก header issue/top_up non-void ล่าสุด / รวมทุก header |
+| `cast_not_weighed` · `return_not_recorded` (`cut_sprue` sent แล้ว ∧ `returned_g = 0`) · `void_count` | ป้ายบนจอ (R3 ของ J1: แสดง ไม่ซ่อน) |
+
+**ระดับร้าน — `v_job_metal_recycle_pool`**: ต่อ `shop_id × metal`: `returned_total_g` · `reissued_total_g` (Σ บรรทัด recycled ใน issue/top_up non-void) · `pool_g = returned − reissued` · `pool_negative` (เบิกหลอมกลับมากกว่าที่เคยคืน — เตือนให้ไปดู ไม่บล็อก เพราะเศษจาก J1-style `scrap_weight_g` และก่อน M1 ไม่อยู่ใน ledger)
+**drift — `v_job_metal_drift`**: stage ที่มี ledger แต่ `weight_in_g ≠ issue.total_g` หรือ (`sent` ∧ (`metal_added_g ≠ Σ top_up` หรือ `coalesce(scrap_weight_g,0) ≠ Σ return ของ stage`)) — ต้องว่างเสมอ (verify + weekly check)
+
+### 8.3 RPC — ใหม่ / replace / drop (signature เต็ม · ✱ = security definer · grant `service_role` เท่านั้น · helper ภายใน = revoke ทุก role ไม่ grant ใคร แบบ 0174 ส่วน 1)
+
+**0175**
+
+| ฟังก์ชัน | สถานะ | สาระ |
+|---|---|---|
+| `job_deposit_blocked(p_job analytics.job) returns boolean` stable | ใหม่ (D6) | `p_job.source_kind='oem' and p_job.start_gate_note is null and not exists(stage received/sent) and coalesce(paid_thb,0) <= 0` (join `oem_quote_item → v_oem_quote` เหมือน 0174:334–337) |
+| `job_worker_can_do(p_codes text[], p_stage_code text) returns boolean` immutable | ใหม่ (D6) | `coalesce(cardinality(p_codes),0) = 0 or p_stage_code = any(p_codes)` |
+| `job_counter_bump(text, timestamptz)` | **drop** (D6) | ก่อน drop assert: `select count(*) from pg_proc where pronamespace='analytics'::regnamespace and prosrc like '%job_counter_bump%'` = 0 (0174 เปลี่ยน `worker_pin_verify` ไปใช้ `job_budget_take` แล้ว — 0174:52,58) |
+| `job_core_receive(uuid,int,date,numeric,uuid,text,text,uuid,text,boolean)` | replace (def **0174:245**) | ใช้ helper แทนบล็อก scope (บ.316–322) และบล็อกมัดจำ (บ.331–341) · ตรรกะอื่นเท่าเดิมทุกบรรทัด |
+| `job_office_receive(uuid,uuid,int,date,numeric,uuid,text,text,uuid)` ✱ | replace (def **0172:1629**) | D2: `v_assignee := case when nullif(btrim(coalesce(p_assignee_name,'')),'') is null then null else analytics.job_label_clean(p_assignee_name,'ชื่อผู้รับงาน',60) end` |
+| `job_plan_compute(p_shop_id uuid, p_metal text, p_qty_planned int, p_target_piece_g numeric, p_override_g numeric, p_override_reason text) returns jsonb` | ใหม่ (ภายใน · stable) | `sprue := oem_rate_value(p_shop_id,'sprue_loss_pct',p_metal, job_today())` · `computed_g = round(qty × piece × (1 + sprue/100), 3)` · override: `job_weight_ok` + `oem_note_present(reason)` บังคับ (ไม่มี ⇒ raise `plan_reason_required`) · คืน `{metal_plan_g, basis}` · `target_piece_g` null ⇒ `{null,null}` · rate ว่างและไม่ override ⇒ `metal_plan_g` **null** + `basis.missing=['sprue_loss_pct[<metal>]']` (ไม่ใช่ 0) |
+| `job_source_info(uuid,text,uuid)` | replace (def **0172:1281**) | เพิ่ม key `target_piece_g`: oem = `nullif(input->>'weight_g','')::numeric` เมื่อ `> 0 and <= 10000` · production = `product.silver_weight_g` เมื่อ `> 0 and <= 10000` · ไม่เข้าเงื่อนไข = null · เพิ่ม `target_piece_g_source: 'quote' | 'product' | null` |
+| `job_plan_suggest(p_shop_id uuid, p_source_kind text, p_item_id uuid, p_qty_planned int default null, p_target_piece_g numeric default null) returns jsonb` ✱ stable | ใหม่ | `crm_require_owner_admin` · อ่าน `job_source_info` · `reject = {cast, polish, plate}` จาก `oem_rate_value(..., '-', job_today())` (plate เฉพาะเมื่อ `suggested_stage_codes` มี `plating`) · `qty_planned_suggest = ceil(qty_order / ((1−rc/100)(1−rp/100)(1−rpl/100)))` · rate ที่ต้องใช้ว่างตัวใดตัวหนึ่ง ⇒ suggest **null** + `missing[]` · `qty_planned_eff = coalesce(p_qty_planned, suggest, qty_order)` · `target_piece_g = coalesce(p_target_piece_g, จาก source)` · `metal_plan_g/basis` จาก `job_plan_compute` · คืน `{qty_order, qty_planned_suggest, qty_planned_eff, under_planned, reject_basis:{cast_pct,polish_pct,plate_pct,has_plating}, target_piece_g, target_piece_g_source, metal, metal_plan_g, metal_plan_basis, missing[]}` · กัน NaN ทุก input ด้วย `not (x > 0 and x <= เพดาน)` |
+| `job_create_insert(...)` | **drop เดิม** `(uuid,text,uuid,uuid,int,uuid,uuid,text,text,text,int,date,text,text,text[],boolean,uuid)` (def 0172:1230) → ใหม่เพิ่มท้าย `p_qty_order int, p_target_piece_g numeric, p_plan jsonb` (`p_qty` = qty_planned เดิม) | insert `qty_order, qty_planned, target_piece_g, metal_plan_g, metal_plan_basis` · event `create` payload เพิ่ม `qty_order, target_piece_g, metal_plan_g` · response เพิ่ม `qty_order, under_planned, metal_plan_g, plan_missing[]` |
+| `job_create_from_quote_item` ✱ | **drop** `(uuid,uuid,text[],date,text,text,text,uuid)` (def **0174:631**) → ใหม่ **ต่อท้าย** `p_qty_planned int default null, p_target_piece_g numeric default null, p_metal_plan_override_g numeric default null, p_metal_plan_reason text default null` | `qty_order := v_info.qty` (ไม่รับจาก client) · `qty_planned := coalesce(p_qty_planned, qty_order)` ตรวจ `between 1 and 100000` · `target_piece_g := coalesce(p_target_piece_g, v_info.target_piece_g)` ตรวจ `not (> 0 and <= 10000)` · plan ผ่าน `job_plan_compute` · ตรรกะเดิมทุกบรรทัดคงไว้ |
+| `job_create_from_production_item` ✱ | **drop** `(uuid,uuid,text[],date,text,text,uuid)` (def **0174:690**) → ต่อท้าย 4 arg เดียวกัน | เหมือนบน |
+| `job_qty_planned_set(p_shop_id uuid, p_job_id uuid, p_qty_planned int, p_reason text default null, p_actor uuid default null) returns jsonb` ✱ | ใหม่ | `job_office_begin` · ปฏิเสธถ้ามี stage `received/sent` (hint `started`) · คำนวณ plan ใหม่ (เก็บ override เดิมถ้ามี · `basis.qty_planned` อัปเดต) · UPDATE `qty_planned, metal_plan_g, metal_plan_basis` คำสั่งเดียว · event `plan_change` before/after · คืน `under_planned` |
+| `job_plan_set(p_shop_id uuid, p_job_id uuid, p_target_piece_g numeric, p_override_g numeric default null, p_override_reason text default null, p_actor uuid default null) returns jsonb` ✱ | ใหม่ | แก้ได้จนกว่า stage `cast` จะ `received/sent` (hint `cast_started`) · `p_target_piece_g` null = ล้างแผน (3 คอลัมน์ null พร้อมกัน) · event `plan_change` |
+| `job_done` ✱ | **drop** `(uuid,uuid,int,int,numeric,text,uuid)` (def **0172:1824**) → ต่อท้าย `p_surplus_disposition text default null, p_surplus_note text default null` | `surplus = p_qty_good − v_job.qty_order` · surplus > 0: production ⇒ `'stock'` บังคับ (ส่งค่าอื่น = 22023 `surplus_production_stock_only`) · OEM ⇒ `coalesce(p, 'hold')` และ `'stock'` ห้าม (Q1 — `surplus_oem_no_stock`) · surplus ≤ 0 ∧ ส่ง disposition/note ⇒ `surplus_unexpected` · note `job_text_clean(…,200,false)` · **ใส่ `surplus_*` ใน UPDATE เดียวกับ `status='done'`** (ข้อ 14) · event `done` payload เพิ่ม `qty_order, surplus, surplus_disposition` · ด่านเดิมทุกข้อคงอยู่ |
+| `job_surplus_set(p_shop_id uuid, p_job_id uuid, p_disposition text, p_note text default null, p_actor uuid default null) returns jsonb` ✱ | ใหม่ | `job_office_begin(..., p_allow_terminal := true)` · job ต้อง `done` ∧ `qty_good > qty_order` (ไม่ใช่ ⇒ `no_surplus`) · `cancelled` ⇒ `job_closed` · OEM เท่านั้น (production ⇒ `surplus_fixed`) · ค่า in (`hold`,`spare`,`deliver`) · event `surplus_set` before/after (`channel='job_page'`) |
+| `job_guard()` trigger | replace (def **0173:566**) | §8.4 |
+| `v_job_board` | replace (def **0174:769**) — ต่อท้าย | `qty_order` · `qty_surplus` (done: `qty_good − qty_order` else null) · `under_planned` (status ไม่ปลายทาง ∧ `qty_planned < qty_order`) · `surplus_pending` (done ∧ surplus > 0 ∧ `hold`) · `surplus_disposition` · `target_piece_g` · `metal_plan_g` · **แก้นิพจน์คอลัมน์เดิม** `quote_qty_mismatch` ให้เทียบ `aqi.qty is distinct from j.qty_order` (เดิมเทียบ `qty_planned` ซึ่งหลัง M1 ต่างกันโดยตั้งใจ · ชื่อ/ชนิด/ลำดับเดิม ไม่ชน 42P16 · ใบ J1 เดิมค่าไม่เปลี่ยนเพราะ backfill เท่ากัน) |
+
+> ⏸ **พักไว้ตามมติเจ้าของ 15 ต.ค. 69** — RPC/view ของ ledger ด้านล่างยังไม่ทำ · ช่องเลข `0176` ถูกใช้โดย **record profile** (`design-job-record-profile.md` §4) · D6 ส่วน `job_worker_resolve` ย้ายไปทำใน 0176 profile · ห้ามลบ spec นี้ — ถ้าปลุกต้องเขียนทับบนฐานที่มี profile (ดู record-profile §9)
+**0176**
+
+| ฟังก์ชัน | สถานะ | สาระ |
+|---|---|---|
+| `job_metal_material_ensure(p_shop_id uuid) returns void` | ใหม่ (ภายใน) | seed §8.1 · `on conflict do nothing` · รันให้ทุก shop ใน migration |
+| `job_metal_lines_parse(p_shop_id uuid, p_metal text, p_kind text, p_lines jsonb) returns jsonb` | ใหม่ (ภายใน) | ตรวจ+คำนวณ §8.2 · raise 22023 hint: `lines_required` · `line_invalid` · `material_unknown` · `material_inactive` · `metal_mismatch` · `precious_required` · `line_dup` · `too_many_lines` · `weight_invalid` (ผ่าน `job_weight_ok`) |
+| `job_metal_core_issue(p_job_id uuid, p_kind text, p_lines jsonb, p_occurred_on date, p_note text, p_worker_id uuid, p_assignee text, p_channel text, p_actor uuid, p_device_hint text, p_enforce_scope boolean, p_confirm boolean, p_stage_code text) returns jsonb` | ใหม่ (ภายใน · pattern `job_fail` ไม่ raise) | ล็อก job `for update` · `metal not in ('silver','gold')` ⇒ `metal_unsupported` · **issue**: stage = `stage_code='cast'` (ไม่มี ⇒ `no_cast_stage`) · pending ⇒ เรียก `job_core_receive(p_weight_in := total_g, …)` ก่อน (fail ส่งต่อตรงๆ รวม `awaiting_deposit`/`stage_not_allowed`/`prev_not_sent`) · received+มี ledger ⇒ `use_top_up` · received ไม่มี ledger ⇒ `stage_already_received` (hint ย้อนขั้น) · **top_up**: stage = ขั้นที่ `received` อยู่ ∧ `metal_present` · ต้องมี issue non-void ≥ 1 (`issue_first`) · ช่าง: ต้องเป็นผู้ถือ (`not_holder`) · note บังคับ (`note_required`) · **return**: stage = `p_stage_code` (office: `received` หรือ `sent` ∧ `metal_present`) หรือขั้นที่ถืออยู่ (ช่าง) · ต้องมี issue (`issue_first`) · `total_g > in_g − returned_g` ⇒ note บังคับ · ทุก kind: วันที่กติกาเดียวกับ receive (ช่าง = วันนี้ · ออฟฟิศ ≤ 14 วัน ไม่อนาคต) · `weight_suspicious` ก่อน insert เมื่อ `not p_confirm` · ลำดับ insert: event `metal_issue` → header → lines · response `{ok, kind, issue_id, stage_code, total_g, alloy_pct, warnings, received: bool}` — **ทอง: ไม่คืน `in_g`/ยอดสะสมใดๆ** · เงิน: คืน `in_g` ได้ |
+| `job_metal_issue_add(p_shop_id uuid, p_job_id uuid, p_kind text, p_lines jsonb, p_occurred_on date default null, p_note text default null, p_worker_id uuid default null, p_assignee_name text default null, p_stage_code text default null, p_confirm boolean default false, p_channel text default 'job_page', p_actor uuid default null) returns jsonb` ✱ | ใหม่ (office) | `job_office_begin` · `job_metal_material_ensure` · `p_kind in ('issue','top_up','return')` · assignee ผ่าน `job_label_clean` · worker ต้อง active ในร้าน · `p_channel in ('job_page','daily_sheet')` · fail ⇒ raise 22023 hint = code (รวม `weight_suspicious` — UI ถามแล้วเรียกซ้ำ `p_confirm := true`) |
+| `job_metal_issue_void(p_shop_id uuid, p_job_id uuid, p_issue_id uuid, p_reason text, p_actor uuid default null) returns jsonb` ✱ | ใหม่ (office เท่านั้น — ช่างไม่มี) | เป้าหมายต้องของ job นี้ · non-void · ไม่เคยถูก void · `kind='issue'` ⇒ reject เสมอ (`use_reopen` — ย้อนขั้นจัดการให้) · `top_up/return` ⇒ stage ต้อง `received` (`sent` ⇒ `stage_sent` hint ย้อนขั้น) · reason ผ่าน `job_text_clean(…,200,true)` · insert event `metal_void` + header `void` (คัดลอก `total_g/fine_g`) |
+| `job_worker_metal_issue(p_token_hash text, p_session_hash text, p_expected_seq int, p_kind text, p_lines jsonb, p_note text default null, p_confirm boolean default false, p_user_agent text default null, p_ip_hash text default null) returns jsonb` ✱ | ใหม่ (ช่าง) | `job_worker_auth(…, true, true, 'write')` · kind in (issue, top_up, return) · core หา stage เอง แล้วต้อง `= p_expected_seq` (ไม่ตรง ⇒ `stage_changed`) · channel `worker_qr` · `p_enforce_scope := true` · ไม่มี `p_stage_code` · `already_received` ของ issue ⇒ ถ้า stage ถูกรับโดยช่างคนเดียวกันและมี ledger ⇒ คืน `{ok:true, already:true}` (กดซ้ำเพราะ network — pattern `job_worker_send`) |
+| `job_core_send(…)` 14 args | replace (def **0172:1036** — ตัวเดียวที่ยังเป็นของ 0172 · ยืนยัน md5 ก่อน) | หลัง validate เดิม: stage นี้มี ledger non-void ⇒ `v_added := Σ top_up` · `p_metal_added > 0` ⇒ `use_ledger` · `v_note := coalesce(cleaned p_weight_note, 'ledger')` เมื่อ `v_added > 0` · มี return ของ stage ⇒ `scrap_weight := Σ return` และ `p_scrap_weight` ต้อง null หรือเท่ากัน (ไม่งั้น `use_ledger`) · ไม่มี return แต่ส่ง `p_scrap_weight` ∧ job `has_ledger` ⇒ สร้าง return ผ่าน `job_metal_core_issue(kind='return')` **ก่อน** update stage (fail ⇒ ทั้ง send ตก) · ไม่มี ledger เลย ⇒ ตรรกะ J1 เป๊ะ · `weight_over` ใช้ `v_added` จาก ledger |
+| `job_stage_reopen(uuid,uuid,text,uuid)` ✱ | replace (def **0172:1739**) | ก่อน UPDATE stage: `sent→received` ⇒ void return ของ stage นั้น · `received→pending` ⇒ void ทุก header non-void ของ stage (issue+top_up+return) · เหตุผล = `p_reason` · event `stage_reopen` payload เพิ่ม `voided_issue_ids[]` · ทางเดียวที่ void `issue` ได้ |
+| `job_worker_resolve(text,text,text)` ✱ | replace (def **0174:415**) | D6: ใช้ `job_deposit_blocked`/`job_worker_can_do` (บ.465–467, 476, 483–489) · `job_metal_material_ensure` · เพิ่ม `metal` block: `{ledger_enabled: metal in (silver,gold), materials: [{code,label,component,fineness}] (เฉพาะ is_active ของโลหะนั้น · **ไม่ส่ง pct_warn**), can_top_up, can_return, has_ledger, in_g (เงินเท่านั้น), avg_piece_g}` · `next_action = 'metal_issue'` แทน `'receive'` เมื่อ pend = `cast` ∧ ledger_enabled (เงื่อนไขอื่นเท่า receive รวม awaiting_deposit/prev_not_sent) · **ทอง: ไม่มี `in_g`/`issued_g`/`metal_plan_g` ใน response** |
+| `v_job_metal_balance` · `v_job_metal_recycle_pool` · `v_job_metal_drift` | ใหม่ (`security_invoker`) | §8.2 |
+| `v_job_board` | replace (def = **0175**) — ต่อท้าย | `metal_in_g` · `metal_not_issued` (`cast` received/sent ∧ `weigh_required` ∧ ไม่มี issue non-void ∧ metal in silver/gold) · `alloy_warn` (มี header non-void ที่ `warnings <> '[]'`) · `return_not_recorded` |
+
+🔴 ทุก `create or replace` ข้างบน: `revoke … from public, anon, authenticated` + grant `service_role` (✱) · หลัง apply ทั้ง 2 ไฟล์: `node scripts/run-sql.mjs scripts/check-analytics-grants.sql` + ตรวจ overload `job_create_from_*`/`job_done`/`job_create_insert` ด้วย `pg_get_function_identity_arguments` = 1 แถวต่อชื่อ
+
+### 8.4 `job_guard` (0175 — ลอก def 0173:566 แล้วแก้เฉพาะจุด)
+
+INSERT เพิ่ม: `new.qty_order` ต้อง = `i.qty` (oem) / `poi.qty_planned` (production) — ใช้ select เดิมที่มีอยู่แล้ว (เพิ่ม `i.qty`/`poi.qty_planned` เข้า into) · `surplus_*` ต้อง null · `job_plan_ck` คุมคู่ plan อยู่แล้ว
+UPDATE แก้ 4 จุด:
+1. รายการแช่แข็ง (บ.640–650): **เพิ่ม `qty_order`** · **ถอด `qty_planned` ออก** แล้วตรวจแยก: `new.qty_planned <> old.qty_planned` ⇒ ต้อง `not exists (job_stage received/sent)` ไม่งั้น raise `job: แก้จำนวนเริ่มผลิตได้เฉพาะก่อนขั้นแรกถูกรับ`
+2. plan: `target_piece_g/metal_plan_g/metal_plan_basis` เปลี่ยน ⇒ ต้อง `not exists (job_stage where stage_code='cast' and status in ('received','sent'))` · และเมื่อ `metal_plan_basis` ไม่ null และ `basis->>'override_g'` เป็น null ⇒ `(basis->>'qty_planned')::int = new.qty_planned` และ `(basis->>'target_piece_g')::numeric = new.target_piece_g` ไม่งั้น raise `plan_drift`
+3. terminal (บ.651–653): `old.status = 'done'` ⇒ **ยอมเฉพาะ** `to_jsonb(new) - 'surplus_disposition' - 'surplus_note' - 'updated_at' = to_jsonb(old) - (3 key เดิม)` (ทุกคอลัมน์อื่นเท่าเดิมเป๊ะ) ไม่งั้น raise เดิม · `cancelled` ⇒ raise เดิมทุกกรณี
+4. `new.status <> 'done'` ⇒ `surplus_*` ต้อง null (CHECK ครอบแล้ว — ใส่ข้อความอ่านง่ายใน guard ด้วย)
+verify: **mutant UPDATE ทีละคอลัมน์** บน job ทุก status ที่มีจริงบน prod (open/in_progress/on_hold/done/cancelled — status ไหนไม่มีให้สร้างผ่าน RPC ใน do-block) นับว่าตกถูกตัว (แบบ verify-0174)
+
+### 8.5 `production_order_done` (ข้อ 6 ของ brief)
+
+def ล่าสุด 0141 บ.446–700: `qty_done` ตรวจแค่ `0 ≤ x ≤ 100000` (บ.551) **ไม่มีด่าน `qty_done ≤ qty_planned`** ⇒ ของเหลือเข้าสต็อกได้ทั้งหมด · ไม่แตะ RPC นี้ · UI หน้าปิดใบผลิต: prefill `qty_done = job.qty_good` (J1 §4.2 เดิม) + แถบข้อมูล "ผลิตได้ X ชิ้น มากกว่าที่สั่ง Y — เข้าสต็อกทั้งหมด" (ไม่บล็อก) · `v_production_order_job_mismatch` (qty_done ≠ qty_good) ทำงานเหมือนเดิม · backend-dev ยืนยันซ้ำด้วย `pg_get_functiondef` สดก่อนเชื่อ (ข้อ 13/21)
+
+### 8.6 สิทธิ์ (ข้อ 8)
+
+| ช่องทาง | ทำอะไรได้ | ยืนยัน |
+|---|---|---|
+| ช่าง (`/w/` token + session · ไม่มี `auth.uid()`) | `job_worker_metal_issue` kind issue/top_up/return บนขั้นที่ตัวเองถือ/ขั้น cast ถัดไป · เห็น `materials[]` (code/label/fineness) · เงิน: เห็น `in_g`/`avg_piece_g` · **ทอง: ไม่เห็นยอดเบิกสะสม/แผน/ส่วนต่าง** (N1 ของ 0174 ขยายมาถึง ledger) · ห้าม void · ห้ามเลือก stage · ห้ามย้อนวัน | เทสต์ B8: ยิง `job_worker_resolve` + `job_worker_metal_issue` + `job_worker_send` ใบทอง แล้ว `jsonb_path_exists` หา key `in_g`,`issued_g`,`metal_plan_g`,`plan_vs_in_g`,`prev_weight_out_g` ต้องไม่มี |
+| ออฟฟิศ (owner/admin · `crm_require_owner_admin` + `p_actor`) | ทุก RPC ✱ ใน §8.3 · void · เลือก stage ตอน return · ย้อนวัน ≤ 14 | — |
+| anon/authenticated | ไม่มีอะไร (สคีมา `analytics` ปิด REST ตั้งแต่ 0123) | `check-analytics-grants.sql` + เคส 18.5 (grant usage ชั่วคราว → `set local role authenticated` → ยิง `job_metal_issue_add(null…)` ต้อง 42501) |
+| ราคา/ต้นทุน | **M1 ไม่มีคอลัมน์ราคา/ต้นทุนในทุก object** (ยืนยัน: `job_metal_material` ไม่มีราคา · `fineness` ไม่ใช่ราคา · `oem_metal_price`/`silver_price_daily` ไม่ถูก join ที่ไหน) · ใบพิมพ์ `PrintableJob` ประกอบทีละ field: `qty_order/qty_planned/target_piece_g/metal_plan_g` + ช่องเขียน "เบิกจริง ___ g" — **ไม่มี ledger/ดุล** บนกระดาษ (ทอง = มูลค่า) | grep `price\|cost\|thb` ใน 0175/0176 ต้องเจอแค่ในคอมเมนต์ · verify ยิงหน้า `/jobs/[id]/print` ใบทองแล้ว grep ตัวเลข `in_g` ใน HTML |
+
+### 8.7 รายการเคสห้ามผ่าน + ต้องไม่พัง → `scripts/verify/verify-0175.sql` และ `verify-0176.sql` (do-block + raise rollback · `set_config('request.jwt.claims','{"role":"service_role"}',true)` · ข้อมูลทดสอบสร้างผ่าน RPC เท่านั้น · ปิดท้ายด้วยตารางแมป "ข้อในบรีฟ → เทสต์")
+
+**verify-0175 — ห้ามผ่าน**
+
+| T | เคส | ด่านที่จับ |
+|---|---|---|
+| A1 | backfill: `updated_at` md5/`count(distinct)` ของ `job` เปลี่ยน · `trg_job_guard.tgenabled <> 'O'` หลัง apply | assert ก่อน/หลัง (ข้อ 19) — ใบ done/cancelled บน prod ต้องผ่าน backfill ได้ |
+| A2 | `job_create_from_*` ส่ง `p_qty_planned` 0 / 100001 · `p_target_piece_g` ≤ 0 / NaN / 10001 · `p_metal_plan_override_g` ไม่มี reason / reason มีแต่อักขระล่องหน | RPC 22023 (`not(between)` · `oem_note_present`) |
+| A3 | INSERT `job` ตรง `qty_order ≠ item.qty` · `surplus_disposition` ตั้งตอน insert · `metal_plan_g` ไม่ null แต่ `target_piece_g` null | `job_guard` INSERT · `job_plan_ck` |
+| A4 | UPDATE `qty_order` · UPDATE `qty_planned` หลัง stage แรก received · UPDATE `target_piece_g` หลัง cast received · UPDATE `metal_plan_g` ตรงให้ไม่ตรง basis (plan_drift) | `job_guard` UPDATE (mutant ทีละคอลัมน์ × ทุก status) |
+| A5 | job `done`: UPDATE คอลัมน์ใดๆ นอกจาก `surplus_*` (mutant ทุกคอลัมน์) · job `cancelled`: UPDATE `surplus_*` | `job_guard` ข้อ 3 |
+| A6 | `job_done` OEM `p_surplus_disposition='stock'` · production ส่ง `'hold'` · ไม่มี surplus แต่ส่ง disposition · note > 200 / ล่องหน | RPC |
+| A7 | `job_surplus_set` บนใบ open · บนใบ done ที่ไม่มี surplus · บนใบ production · บนใบ cancelled · ค่า `'stock'`/ค่ามั่ว | RPC |
+| A8 | `job_qty_planned_set` หลัง received · ค่า < 1 · `job_plan_set` หลัง cast received · override ไม่มี reason | RPC + guard |
+| A9 | `job_plan_suggest` เมื่อ rate reject/sprue ว่าง (ลบ rate ใน do-block) คืน `qty_planned_suggest`/`metal_plan_g` = **null จริง** (`jsonb_typeof = 'null'`) ไม่ใช่ 0 + `missing[]` · input NaN/Infinity | ข้อ 13/37 |
+| A10 | `job_office_receive` `p_assignee_name` มี `<`/`>` (D2) | `job_label_clean` |
+| A11 | overload: `pg_proc` ของ `job_create_from_quote_item`/`_production_item`/`job_done`/`job_create_insert` > 1 แถว · `job_counter_bump` ยังอยู่ | assert หลัง apply |
+| A12 | anon/authenticated execute RPC ใหม่ (18.5) | 42501 |
+
+**verify-0175 — ต้องไม่พัง**: ใบ J1 ทุก status ที่มีจริงบน prod (รวม **JB-0018** ใบจริงของเจ้าของ — อ่านด้วย query `job_no = 'JB-0018'` ไม่ hardcode id) หลัง alter: `qty_order = qty_planned` · `v_job_board` คืนแถวครบเท่าเดิม (นับก่อน/หลัง) + คอลัมน์ใหม่ `under_planned=false`, `qty_surplus` null/0, `quote_qty_mismatch` ค่าเดิม · `job_worker_resolve` token ใบจริงคืน `ok` (ถ้ามี token active) · `job_create_from_*` แบบไม่ส่ง arg ใหม่ (caller เดิม) ⇒ `qty_planned = qty_order`, plan จาก source · `p_qty_planned < qty_order` ⇒ สร้างได้ + `under_planned=true` (Q9) · SKU ไม่มี `silver_weight_g` ⇒ สร้างได้ `target_piece_g` null · rate `sprue_loss_pct` ว่าง ⇒ สร้างได้ `metal_plan_g` null + `plan_missing[]` · `job_done` แบบเดิม (ไม่ส่ง surplus) บนใบ `qty_good ≤ qty_order` ⇒ ผ่าน `surplus_disposition` null · `job_done` OEM `qty_good > qty_order` ไม่ส่ง ⇒ `hold` · production ⇒ `stock` · `job_surplus_set` hold→spare บนใบ done ⇒ ผ่าน + event · `job_office_receive` ชื่อปกติ/ว่าง/null ยังรับได้ (D2 ไม่ทำ optional พัง) · `job_core_receive` หลังใช้ helper: เคส `awaiting_deposit`/`stage_not_allowed` ของ verify-0174 ให้ผลเดิม (ลอกเคสมา) · md5 ของ `oem_*`/`production_*`/`job_stage_guard`/`job_core_send`/`job_worker_resolve` เท่าเดิม (baseline แบบ 0172 ส่วน 0)
+
+**verify-0176 — ห้ามผ่าน**
+
+| T | เคส | ด่านที่จับ |
+|---|---|---|
+| B1 | บรรทัด: `weight_g` ≤ 0 / NaN / Infinity / > 100000 / ทศนิยม 4 · `material_code` ไม่มี/ปิด/คนละโลหะกับ job/คนละร้าน · ซ้ำในครั้งเดียว · > 10 บรรทัด · issue/top_up ไม่มี precious/recycled (อัลลอยล้วน) · `p_lines` ไม่ใช่ array / ว่าง / JSON null | `job_metal_lines_parse` + CHECK |
+| B2 | เบิกให้ใบทองเหลือง · ใบ done/cancelled · ใบ on_hold · ใบที่ไม่มีขั้น cast · issue ซ้ำบน cast ที่รับแล้ว (มี ledger ⇒ `use_top_up` · ไม่มี ⇒ `stage_already_received`) · top_up/return ก่อนมี issue (`issue_first`) · top_up ไม่มี note · return > in−returned ไม่มี note · ออฟฟิศ return บน stage pending / `metal_present=false` (`wax_inject`) · วันที่อนาคต / > 14 วัน | core |
+| B3 | ช่าง: เบิกขั้นที่ไม่ใช่ `p_expected_seq` · ช่างนอก scope ขั้น cast · ไม่ใช่ผู้ถือทำ top_up/return · void (ไม่มี RPC) · session หมด · token เพิกถอน · ใบทอง OEM `awaiting_deposit` ⇒ issue ตก (ผ่าน core_receive) · วันที่ ≠ วันนี้ (arg ไม่มี — ตรวจว่า core ใช้ `job_today()`) | `job_worker_auth` + core + helper D6 |
+| B4 | void: แถว `issue` · แถวที่ถูก void แล้ว · แถว void เอง · stage `sent` แล้ว · ไม่มีเหตุผล · issue_id ของใบอื่น/ร้านอื่น | `job_metal_issue_void` + unique `void_of_id` |
+| B5 | UPDATE/DELETE/TRUNCATE `job_metal_issue`/`_line` (ทุก role รวม postgres) · `job_metal_material` UPDATE `fineness`/`component`/`metal` · DELETE · insert header ที่ `total_g ≠ Σ lines` แล้ว commit (ใน savepoint) · insert line ใต้ header `void` | append-only trigger · deferred constraint trigger |
+| B6 | `job_core_send` บน stage ที่มี ledger: ส่ง `p_metal_added > 0` · ส่ง `p_scrap_weight ≠ Σ return` ที่มีอยู่ · `weight_out > weight_in + Σ top_up` · `p_scrap_weight` ที่ทำให้ return เกินเบิกโดยไม่มี note ⇒ **ทั้ง send ต้องไม่เกิด** (stage ยัง received · ไม่มี header return) | `use_ledger` · `weight_over` · R12 |
+| B7 | `weight_suspicious`: issue `total_g > 3 × metal_plan_g` หรือ > 5000 โดย `p_confirm=false` ⇒ ไม่เขียนแถว (นับ header + stage status ก่อน/หลัง) · `p_confirm=true` ⇒ เขียน | core |
+| B8 | 🔴 ทอง: response ของ `job_worker_resolve`/`job_worker_metal_issue`/`job_worker_send` มี key `in_g`/`issued_g`/`metal_plan_g`/`plan_vs_in_g`/`prev_weight_out_g` | `jsonb_path_exists` = false |
+| B9 | ตารางใหม่/view ใหม่: anon/authenticated select (18.5) · RPC ใหม่ execute | 42501 |
+| B10 | เตือนอัลลอย: เงิน `ag999` 100 g + `alloy_ag` 5 g ⇒ `warnings` มี `alloy_pct_out_of_range` (5/105 = 4.76 < 6.5) **แต่ insert สำเร็จ** (ไม่บล็อก) · `ag999` 100 g ไม่มี alloy ⇒ `no_alloy` · `recycle_ag925` ล้วน ⇒ `alloy_pct` null (`jsonb_typeof='null'`) ไม่มี warning · ทอง `alloy_au` ⇒ ไม่มี warning (ไม่มีช่วง) | parse |
+| B11 | หลังทุกเคส `v_job_metal_drift` ว่าง · overload ของ `job_core_send`/`job_stage_reopen`/`job_worker_resolve` = 1 แถว | view · pg_proc |
+
+**verify-0176 — ต้องไม่พัง** (ยิงของใหม่ใส่ของเก่าจริง — ข้อ 17): ใบ J1 บน prod ทุก status: `v_job_metal_balance.has_ledger=false` ทุกใบ · `v_job_board` คอลัมน์ใหม่ null/false · `job_worker_send`/`job_office_send` บนใบ J1 ที่ไม่มี ledger ด้วย `p_metal_added`/`p_scrap_weight` แบบเดิม ⇒ ผ่านเหมือน verify-0172 (ลอกเคส send ทั้งชุดมา) · `job_stage_reopen` ใบไม่มี ledger ⇒ ผลเดิม · **ใบเงินใหม่ flow เต็ม**: ช่างสแกน cast pending → `next_action='metal_issue'` → เบิก [`ag999` 92.5, `alloy_ag` 7] ⇒ stage `received`, `weight_in_g = 99.5`, `job.weight_start_g = 99.5`, `alloy_pct ≈ 7.035` ไม่มี warning · top_up [`recycle_ag925` 10] + note ⇒ ส่งต่อ `weight_out` 105 ⇒ `metal_added_g = 10`, `weight_note='ledger'` · cut_sprue รับ 105 → ส่งต่อ `weight_out` 80 + `p_scrap_weight` 20 ⇒ สร้าง return 20 g fineness = `in_fineness_eff` ((92.5×0.999 + 10×0.925)/109.5 → 4 ตำแหน่ง) ⇒ `scrap_weight_g = 20` · balance: `in_g 109.5`, `returned_g 20`, `net_used_g 89.5`, `melt_loss_g 4.5`, `loss_g = 109.5−20−80 = 9.5`, `recycled_in_g 10`, `fineness_mix` 3 แถว · ใบ B เบิก [`recycle_ag925` 20] ล้วน ⇒ `alloy_pct` null · `v_job_metal_recycle_pool.pool_g` ของร้าน = 20 − 30 = −10 ⇒ `pool_negative=true` (เตือน ไม่บล็อก) · void top_up ขณะ received ⇒ balance กลับเท่าก่อน (`void_count=1`) · reopen cast (received→pending) ⇒ ทุก header ของ stage ถูก void, `weight_in_g` null, เบิกใหม่ได้ · ออฟฟิศ issue แทนช่าง (`p_worker_id` หรือ `p_assignee_name`) ⇒ ผ่าน · ใบทอง: issue [`au9999` 10, `alloy_au` 3.33] ⇒ `warnings=[]` (ไม่มีช่วง) + response ไม่มี `in_g` · ใบเดียวเบิก `ag925` + `ag999` ⇒ `fineness_mix` 2 แถว · ช่วง 00:00–07:00 ไทย `occurred_on` = วันไทย (ข้อ 6 — ทดสอบด้วย `job_today()` เทียบ `current_date`)
+ตารางแมปบรีฟ→เทสต์: ข้อไหนไม่มีเทสต์ เขียนว่าไม่มี + เหตุผล — คาดไว้ก่อน: **race 2 ช่างเบิก cast พร้อมกัน** = ไม่มีเทสต์ใน do-block เดียว (ต้อง 2 connection) · กันด้วย `for update` บน job + `uq_job_stage_one_received`
+
+### 8.8 ไฟล์โค้ดที่ต้องแก้ (คอมมิตเดียวกับ migration ที่เกี่ยว · ลำดับ deploy: apply DB → merge โค้ด · named args ⇒ arg ใหม่ไม่ส่ง = default แต่ **ต้อง drop signature เดิม** ไม่งั้น PGRST เจอ 2 ตัว)
+
+| ไฟล์ | 0175 | 0176 |
+|---|---|---|
+| `lib/actions/job-office.ts` (บ.196 `job_stage_suggest` · บ.248–249 create) | เพิ่ม action `getJobPlanSuggest` → `job_plan_suggest` · create ส่ง `p_qty_planned/p_target_piece_g/p_metal_plan_override_g/p_metal_plan_reason` · อ่าน `v_job_board` คอลัมน์ใหม่ · หน้า `[id]` อ่าน `job.qty_order/target/plan/surplus_*` | อ่าน `v_job_metal_balance` + ledger (header+lines) สำหรับการ์ดโลหะ |
+| `lib/actions/job-office-write.ts` (บ.232 `job_done`) | `job_done` ส่ง `p_surplus_*` · เพิ่ม `job_surplus_set` · `job_qty_planned_set` · `job_plan_set` | เพิ่ม `job_metal_issue_add` · `job_metal_issue_void` |
+| `lib/actions/job-worker.ts` | — | เพิ่ม `workerMetalIssue` → `job_worker_metal_issue` · validate รูปร่าง `lines` ฝั่ง TS (pre-check เท่านั้น — DB ตัดสิน) |
+| `lib/jobs/worker-view.ts` (`WorkerJobView`) | — | เพิ่ม `metal?: {ledgerEnabled, materials[], canTopUp, canReturn, hasLedger, inG?, avgPieceG?}` **ประกอบทีละ field** · ทอง: `inG` undefined |
+| `lib/jobs/print.ts` (`PrintableJob`) | เพิ่ม `qtyOrder, qtyPlanned, targetPieceG, metalPlanG` | ไม่เพิ่ม ledger |
+| `components/domain/jobs/*` (ฟอร์มสร้าง · `JobsOffice.test.tsx`) + `app/(dashboard)/jobs/[id]/page.tsx` · `app/(dashboard)/jobs/page.tsx` · `app/(dashboard)/jobs/[id]/print/page.tsx` · `components/domain/jobs/JobPrintClient.tsx` | ฟอร์ม 2 แถวใหม่ · การ์ด "จำนวน/แผน" · ป้ายบอร์ด `under_planned`/`surplus_pending` · ปิดงาน: ส่วน "ของเหลือ" เมื่อ `qty_good > qty_order` · ปุ่ม "ตัดสินของเหลือ" บนใบ done | การ์ด "โลหะ" (ledger + ดุล + ปุ่ม office) · ป้าย `metal_not_issued`/`alloy_warn`/`return_not_recorded` |
+| `app/(worker)/w/[token]/page.tsx` + component ช่าง | — | จอเบิก (ปุ่มวัสดุใหญ่ + ช่องกรัม + เพิ่มบรรทัด) · ปุ่มเติม · ส่งต่อมีช่อง "เศษคืน g" (cut_sprue) · ยืนยัน `weight_suspicious` · ทองไม่โชว์ยอดสะสม |
+| เทสต์ `lib/actions/job-office.test.ts` · `job-worker.test.ts` · `lib/jobs/print.test.ts` · `lib/jobs/messages.test.ts` | อัปเดตตาม | อัปเดตตาม + เคส "ทองไม่มี inG" |
+
+### 8.9 หน้าจอ M1 (ส่ง ux-ui — ระดับรายการ · สิทธิ์เดิม: `/jobs/*` owner/admin · `/w/*` ช่าง)
+
+1. **ฟอร์มสร้างใบงาน** — แถว "จำนวนที่สั่ง N (อ่านอย่างเดียว) → จำนวนเริ่มผลิต [ ]" ค่าเริ่ม `qty_planned_suggest` + ป้าย "เผื่อ x ชิ้น จาก reject rate หล่อ a% / ขัด b% / ชุบ c%" · rate ว่าง = ช่องว่าง + ลิงก์ `/oem/rates` · น้อยกว่าที่สั่ง = ป้ายเหลือง "ผลิตบางส่วน" (ไม่บล็อก) · แถว "น้ำหนัก/ชิ้น [ ] g (ค่าเริ่มจาก SKU/ใบเสนอราคา · บอกที่มา) → โลหะที่ต้องเตรียม = 35 × 4.000 × (1 + ก้านต้น 12%) = xxx g" (อ่านอย่างเดียว · ปุ่ม "กำหนดเอง" เปิดช่อง g + เหตุผล) · ทุกตัวเลขมาจาก `job_plan_suggest` re-fetch (debounce) ไม่คูณใน client
+2. **`/jobs/[id]` การ์ด "จำนวน/แผน"** — สั่ง / เริ่มผลิต (แก้ได้จนกว่าขั้นแรกรับ) / เป้าหมาย/ชิ้น / โลหะที่ต้องเตรียม (+ที่มา) / ปุ่มแก้แผน (จนกว่า cast รับ)
+3. **`/jobs/[id]` การ์ด "โลหะ"** (0176) — บน: แผน vs เบิกจริง · ดุล: เข้า · คืน · ใช้จริง · หล่อออก · เฉลี่ย/ชิ้น vs เป้า · หายตอนหล่อ · หายจริง g (%) · % อัลลอยครั้งล่าสุด + เตือน · ล่าง: ตาราง ledger (วัน · ชนิด · บรรทัดส่วนผสม · รวม g · ใคร · ช่องทาง · void?) · ปุ่ม office: เบิก / เติม / คืนเศษ (เลือกขั้น) / ยกเลิกรายการ (+เหตุผล · ซ่อนเมื่อขั้น sent แล้ว + ข้อความ "ย้อนขั้นก่อน") · ป้าย "ยังไม่บันทึกเศษคืน" · "ยังไม่เบิกโลหะ" · staff เห็นการ์ดนี้ได้ (ไม่มีราคา)
+4. **`/w/[token]` ขั้น cast (ช่าง)** — `next_action='metal_issue'`: หัว "เบิกโลหะเพื่อหล่อ" · ปุ่มวัสดุใหญ่จาก `materials[]` (เงินค่าเริ่มเลือก "เงินเม็ด 999" + "อัลลอยสำเร็จรูป" เป็น 2 บรรทัดว่าง) · ช่องกรัม `inputmode=decimal` ต่อบรรทัด · "+ เพิ่มส่วนผสม" (รวม "เศษหลอมกลับ") · ปุ่มยืนยัน = รับงาน · ผลลัพธ์: "เบิกแล้ว 99.5 g · อัลลอย 7.0%" + เตือนเหลืองถ้านอกช่วง · ถือขั้นอยู่: ปุ่ม "เติมโลหะ" (บรรทัด + เหตุผลชิป) · "ส่งต่อ" = ชั่งรวมหลังหล่อ (เดิม) · หลังส่ง: "เฉลี่ยต่อชิ้น x.xxx g" · ปุ่มยืนยัน disable ระหว่างรอ (R14) · **ทอง**: ไม่โชว์ยอดเบิกสะสม/แผน/ส่วนต่างทุกจุด (ชั่งแบบไม่รู้คำตอบ)
+5. **`/w/[token]` ขั้น cut_sprue** — "ส่งต่อ": น้ำหนักออก (เดิม) + **"เศษ/ก้านต้นคืน (g)"** ไม่บังคับ → ledger return อัตโนมัติ · ป้าย "เศษนี้นำกลับไปหล่อต่อได้"
+6. **ปิดงาน** — เมื่อ `qty_good > qty_order`: ส่วน "ของเหลือ n ชิ้น" OEM: ถือไว้ก่อน (ค่าเริ่ม) / อะไหล่-ตัวอย่าง / ส่งแถมลูกค้า + หมายเหตุ · production: ข้อความ "เข้าสต็อกทั้งหมดตอนปิดใบผลิต" · ใบ done ที่ `hold`: ปุ่ม "ตัดสินของเหลือ"
+7. **บอร์ด** — ป้าย `under_planned` · `surplus_pending` ("เหลือ n ชิ้นยังไม่ตัดสิน") · `metal_not_issued` · `alloy_warn` · `return_not_recorded`
+8. **ใบ A5** — เพิ่ม สั่ง/เริ่มผลิต · เป้าหมาย/ชิ้น · โลหะที่ต้องเตรียม g · ช่องเขียนมือ "เบิกจริง ___ g" — ไม่มี ledger
+
+### 8.10 ลำดับงาน
+> ⏸ **มติ 15 ต.ค. 69**: ลำดับ 0176 ledger ด้านล่างพักไว้ — ลำดับงานจริงดู `design-job-record-profile.md` §11
+
+`0175` (backend-dev · worktree) → verify-0175 → security + QA (M: create/done/board/print) → merge → ฟอร์มสร้างใบงาน + ปิดงาน (frontend-dev ขนานกับ) → `0176` (backend-dev) → verify-0176 → **security บังคับ** (RPC เขียนฝั่งช่าง + น้ำหนักทอง = มูลค่า) + QA L (ทุก flow `/w/`) → การ์ดโลหะ + จอช่าง → UAT ให้ช่างหล่อ 1 คนลองใบเงินจริง 1 ใบก่อนเปิดทอง
+
+### 8.11 ความเสี่ยงเฉพาะ M1 (เพิ่มจาก §7)
+
+- R10 **backfill ผ่าน trigger disabled** — ลืม `enable trigger` ในทรานแซกชันเดียวกัน = guard หาย · verify assert `tgenabled = 'O'` ของ `trg_job_guard` หลัง apply
+- R11 **`job_core_send` เป็นฟังก์ชันเดียวที่ 0173/0174 ไม่เคยแตะ** — def = 0172:1036 จริง (ยืนยัน md5 ก่อน replace) · branch ledger ต้องไม่เปลี่ยนผล path ไม่มี ledger (ลอกเคส verify-0172 ส่วน send มาทั้งชุด)
+- R12 **return อัตโนมัติจาก `p_scrap_weight` ใน core_send** — core_issue fail (เช่น note_required) ⇒ ทั้ง send ต้องไม่เกิด (ไม่ใช่ส่งต่อสำเร็จแต่ return หาย) · เทสต์ B6
+- R13 **void ทำไม่ได้หลังขั้น sent** — ออฟฟิศต้องย้อนขั้น (void ทั้งขั้น) แล้วกรอกใหม่ · บอกในจอ ไม่ให้งงว่าปุ่มหาย
+- R14 **ช่างกดซ้ำเพราะ network** — issue ซ้ำบน cast received ⇒ `already` (ไม่สร้างซ้ำ) · top_up/return ซ้ำ = 2 แถวจริง (ไม่มี idempotency key) ⇒ ปุ่ม disable ระหว่างรอ + ออฟฟิศ void ได้ · เกิดจริงค่อยเพิ่ม `p_client_key` (YAGNI)
+- R15 **`quote_qty_mismatch` เปลี่ยนความหมาย** (เทียบ `qty_order`) — ใบ J1 เดิม `qty_order = qty_planned` ⇒ ค่าเท่าเดิม · หน้าบอร์ดไม่ต้องแก้
+- R16 **ใบทองที่กำลังเดินอยู่บน prod ตอน apply 0176** — ถ้า cast รับไปแล้วแบบ J1 จะไม่มี ledger ตลอดใบ (ตั้งใจ · ข้อ 7) · บอร์ดขึ้น `metal_not_issued` ให้รู้ ไม่ใช่บั๊ก
+
+### 8.12 หนี้ที่ M1 รู้ตัวตั้งแต่ spec
+
+ไม่มี UI แก้ทะเบียนวัสดุ (`job_metal_material`) — เพิ่ม/ปิด/แก้ช่วงเตือนต้องผ่าน SQL จน `/jobs/stages` · เศษจาก J1-style `scrap_weight_g` (ใบที่ไม่มี ledger) ไม่เข้ากองเศษ · ไม่มี idempotency key ฝั่งช่าง (R14) · void หลัง sent ต้องย้อนขั้น (R13) · ทองยังไม่มีช่วงเตือนอัลลอย (รอเจ้าของ) · `metal_scrap_ledger` (J6) ยังไม่มี — `kind='return'` + `v_job_metal_recycle_pool` คือต้นทาง · D6 ส่วน `v_job_board.deposit_missing` ยังเป็นนิพจน์แยก (ความหมายต่างจาก `job_deposit_blocked` — ตั้งใจ)
+
+### 8.13 คำถามถึงเจ้าของ (ถามได้ระหว่างทำ ไม่บล็อก 0175)
+
+| # | คำถาม | ค่าเริ่มถ้าไม่ตอบ |
+|---|---|---|
+| Q11 | **ทอง**: ผสมจาก 99.99 + อัลลอยทองเอง หรือซื้อ 18K/14K สำเร็จ — และช่วง % อัลลอยทองที่อยากให้เตือน | seed ทั้งสองทาง · ไม่เตือน (null) |
+| Q12 | ช่าง **ยกเลิกรายการที่กรอกผิดเองไม่ได้** ต้องแจ้งออฟฟิศ (มีจอยืนยันก่อนบันทึก + เตือนน้ำหนักผิดปกติ) — รับได้ไหม | รับได้ (audit ชัดกว่า) |

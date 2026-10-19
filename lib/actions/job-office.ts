@@ -9,8 +9,10 @@
 import { revalidatePath } from "next/cache";
 import { effectiveDateBangkok } from "@/lib/tiktok/format";
 import { BOARD_COLUMNS, EVENT_COLUMNS, JOB_COLUMNS, STAGE_COLUMNS, WORKER_COLUMNS, mapBoardRow, mapEventRow, mapJobDetail, mapLossRow, mapStageDef, mapStageRow, mapWorkerRow } from "@/lib/jobs/types";
+import { mapRecordProfile } from "@/lib/jobs/profile";
+import type { RecordProfile } from "@/lib/jobs/profile";
 import type { BoardRow, EventRow, JobDetail, StageDef, StageLoss, StageRow, WorkerRow } from "@/lib/jobs/types";
-import { isUuid, parseDate, parseLabel, parseStageCodes, parseText } from "@/lib/jobs/input";
+import { isUuid, parseCount, parseDate, parseLabel, parseStageCodes, parseText, parseWeight, TARGET_PIECE_MAX_G } from "@/lib/jobs/input";
 import { callOffice, db, fail, guard, shopId } from "@/lib/jobs/office-server";
 import type { JobResult } from "@/lib/jobs/office-server";
 import { logJobFailure } from "@/lib/jobs/log";
@@ -96,15 +98,20 @@ export async function getJobDetail(jobId: string): Promise<JobResult<JobDetailDa
       db().from("v_job_stage_loss").select("job_stage_id, loss_g, loss_pct, warn, not_weighed, handoff_gap_g").eq("shop_id", shop).eq("job_id", jobId).limit(50),
       db().from("job_token").select("id", { count: "exact", head: true }).eq("shop_id", shop).eq("job_id", jobId).is("revoked_at", null),
       db().from("worker").select(WORKER_COLUMNS).eq("shop_id", shop).order("display_name", { ascending: true }).limit(60),
-      db().from("job_stage_def").select("code, name_th").eq("shop_id", shop).limit(50),
+      db().from("job_stage_def").select("code, name_th, metal_present").eq("shop_id", shop).limit(50),
     ]);
     for (const r of [stRes, evRes, boardRes, lossRes, tokRes, wkRes, defRes]) if (r.error) throw r.error;
 
     const names: Record<string, string> = {};
-    for (const d of rows(defRes.data)) if (typeof d.code === "string") names[d.code] = typeof d.name_th === "string" ? d.name_th : d.code;
+    const metalPresent: Record<string, boolean> = {};
+    for (const d of rows(defRes.data)) {
+      if (typeof d.code !== "string") continue;
+      names[d.code] = typeof d.name_th === "string" ? d.name_th : d.code;
+      metalPresent[d.code] = d.metal_present === true;
+    }
     const allWorkers = rows(wkRes.data).map((x) => mapWorkerRow(x)).filter((w): w is WorkerRow => w !== null);
     const workerNames = Object.fromEntries(allWorkers.map((w) => [w.id, w.displayName]));
-    const stages = rows(stRes.data).map((r) => mapStageRow(r, names, workerNames)).filter((s): s is StageRow => s !== null);
+    const stages = rows(stRes.data).map((r) => mapStageRow(r, names, workerNames, metalPresent)).filter((s): s is StageRow => s !== null);
     const stageCodeById = Object.fromEntries(stages.map((s) => [s.id, s.code]));
     const events = rows(evRes.data).map((r) => mapEventRow(r, stageCodeById, workerNames)).filter((e): e is EventRow => e !== null);
     const loss: Record<string, StageLoss> = {};
@@ -179,6 +186,8 @@ export interface SuggestStage {
   code: string;
   nameTh: string;
   defaultSelected: boolean;
+  /** 0176: โลหะอยู่ในมือที่ขั้นนี้ (ชั่งได้) */
+  metalPresent: boolean;
 }
 export interface JobSuggestion {
   metal: string;
@@ -187,6 +196,12 @@ export interface JobSuggestion {
   depositMissing: boolean;
   existingJob: { id: string; jobNo: string } | null;
   stages: SuggestStage[];
+  /** 0175: น้ำหนักเป้าหมายต่อชิ้นจากต้นทาง (ใบเสนอราคา/สินค้า) + ที่มา · null = ไม่มีข้อมูล (ไม่เดา) */
+  targetPieceG: number | null;
+  targetPieceGSource: "quote" | "product" | null;
+  /** 0176: แบบการบันทึกที่ใช้งานอยู่ + ค่าเริ่มที่ server resolve ตามโลหะแล้ว (null = ร้านไม่มีค่าเริ่ม → ฟอร์มต้องบล็อก ไม่เดา) */
+  profiles: RecordProfile[];
+  defaultProfileId: string | null;
 }
 
 export async function suggestJob(kind: string, itemId: string): Promise<JobResult<JobSuggestion>> {
@@ -199,8 +214,9 @@ export async function suggestJob(kind: string, itemId: string): Promise<JobResul
   const ex = d.existing_job as { id?: unknown; job_no?: unknown } | null;
   const stages: SuggestStage[] = (Array.isArray(d.stages) ? d.stages : []).flatMap((s: unknown) => {
     const o = s as Record<string, unknown>;
-    return typeof o.code === "string" && typeof o.name_th === "string" ? [{ code: o.code, nameTh: o.name_th, defaultSelected: o.default_selected === true }] : [];
+    return typeof o.code === "string" && typeof o.name_th === "string" ? [{ code: o.code, nameTh: o.name_th, defaultSelected: o.default_selected === true, metalPresent: o.metal_present === true }] : [];
   });
+  const profiles = (Array.isArray(d.profiles) ? d.profiles : []).map(mapRecordProfile).filter((p): p is RecordProfile => p !== null);
   return {
     ok: true,
     data: {
@@ -210,6 +226,83 @@ export async function suggestJob(kind: string, itemId: string): Promise<JobResul
       depositMissing: d.deposit_missing === true,
       existingJob: ex && typeof ex.id === "string" && typeof ex.job_no === "string" ? { id: ex.id, jobNo: ex.job_no } : null,
       stages,
+      targetPieceG: typeof d.target_piece_g === "number" ? d.target_piece_g : null,
+      targetPieceGSource: d.target_piece_g_source === "quote" || d.target_piece_g_source === "product" ? d.target_piece_g_source : null,
+      profiles,
+      // ค่าเริ่มต้องเป็นแบบที่ active อยู่ในรายการจริง — ไม่งั้นถือว่าไม่มี (ไม่เดา)
+      defaultProfileId: typeof d.default_profile_id === "string" && profiles.some((p) => p.id === d.default_profile_id) ? d.default_profile_id : null,
+    },
+  };
+}
+
+// 0175: ค่าแนะนำจำนวนเผื่อ + แผนโลหะ — ทุกตัวเลขมาจาก DB (job_plan_suggest) ฟอร์มแค่แสดง
+export interface JobPlanSuggestion {
+  qtyOrder: number;
+  qtyPlannedSuggest: number | null;
+  bufferQty: number | null;
+  qtyPlannedEff: number;
+  underPlanned: boolean;
+  rejectBasis: { castPct: number | null; polishPct: number | null; platePct: number | null; hasPlating: boolean };
+  targetPieceG: number | null;
+  targetPieceGSource: "quote" | "product" | "input" | null;
+  /** null = DB ไม่ตอบ (ไม่เดาเป็นเงิน) — หน้าจอใช้ metal จาก suggestJob/ใบงาน ไม่ใช้ตัวนี้ */
+  metal: string | null;
+  metalPlanG: number | null;
+  /** basis ที่ DB คำนวณ (target_piece_g · qty_planned · sprue_loss_pct · formula · computed_g · override_g · missing[]) */
+  metalPlanBasis: Record<string, unknown> | null;
+  missing: string[];
+}
+
+const numOrNull = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+
+export interface PlanSuggestInput {
+  qtyPlanned?: number | null;
+  targetPieceG?: string | number | null;
+  stageCodes?: string[] | null;
+}
+
+export async function getJobPlanSuggest(kind: string, itemId: string, input: PlanSuggestInput = {}): Promise<JobResult<JobPlanSuggestion>> {
+  const g = await guard();
+  if (g) return g;
+  if ((kind !== "oem" && kind !== "production") || !isUuid(itemId)) return fail("ข้อมูลไม่ถูกต้อง");
+  const args: Record<string, unknown> = { p_source_kind: kind, p_item_id: itemId };
+  if (input.qtyPlanned !== null && input.qtyPlanned !== undefined) {
+    const q = parseCount(input.qtyPlanned, "จำนวนเริ่มผลิต");
+    if (!q.ok) return fail(q.error);
+    if (q.value < 1) return fail("จำนวนเริ่มผลิตต้องไม่น้อยกว่า 1");
+    args.p_qty_planned = q.value;
+  }
+  if (input.targetPieceG !== null && input.targetPieceG !== undefined) {
+    const t = parseWeight(input.targetPieceG, "น้ำหนักเป้าหมายต่อชิ้น", { max: TARGET_PIECE_MAX_G });
+    if (!t.ok) return fail(t.error);
+    if (t.value !== null) args.p_target_piece_g = t.value;
+  }
+  if (input.stageCodes !== null && input.stageCodes !== undefined) {
+    const codes = parseStageCodes(input.stageCodes, true);
+    if (!codes.ok) return fail(codes.error);
+    args.p_stage_codes = codes.value;
+  }
+  const r = await callOffice<Record<string, unknown>>("job_plan_suggest", args, { noActor: true });
+  if (!r.ok) return r;
+  const d = r.data;
+  const rb = (d.reject_basis ?? {}) as Record<string, unknown>;
+  const src = d.target_piece_g_source;
+  const basis = d.metal_plan_basis;
+  return {
+    ok: true,
+    data: {
+      qtyOrder: numOrNull(d.qty_order) ?? 0,
+      qtyPlannedSuggest: numOrNull(d.qty_planned_suggest),
+      bufferQty: numOrNull(d.buffer_qty),
+      qtyPlannedEff: numOrNull(d.qty_planned_eff) ?? 0,
+      underPlanned: d.under_planned === true,
+      rejectBasis: { castPct: numOrNull(rb.cast_pct), polishPct: numOrNull(rb.polish_pct), platePct: numOrNull(rb.plate_pct), hasPlating: rb.has_plating === true },
+      targetPieceG: numOrNull(d.target_piece_g),
+      targetPieceGSource: src === "quote" || src === "product" || src === "input" ? src : null,
+      metal: typeof d.metal === "string" ? d.metal : null,
+      metalPlanG: numOrNull(d.metal_plan_g),
+      metalPlanBasis: basis !== null && typeof basis === "object" && !Array.isArray(basis) ? (basis as Record<string, unknown>) : null,
+      missing: Array.isArray(d.missing) ? d.missing.filter((m): m is string => typeof m === "string") : [],
     },
   };
 }
@@ -222,9 +315,16 @@ export interface CreateJobInput {
   startGateNote?: string | null;
   designLabel?: string | null;
   note?: string | null;
+  /** 0175 (ไม่ส่ง = ค่าเริ่มของ DB: qty_planned = จำนวนสั่ง · น้ำหนัก/แผนจากต้นทาง) */
+  qtyPlanned?: number | null;
+  targetPieceG?: string | number | null;
+  metalPlanOverrideG?: string | number | null;
+  metalPlanReason?: string | null;
+  /** 0176: แบบการบันทึกที่เลือก (ไม่ส่ง = DB ใช้ค่าเริ่มตามโลหะ) */
+  profileId?: string | null;
 }
 
-export async function createJob(input: CreateJobInput): Promise<JobResult<{ jobId: string; jobNo: string }>> {
+export async function createJob(input: CreateJobInput): Promise<JobResult<{ jobId: string; jobNo: string; planMissing: string[] }>> {
   const g = await guard();
   if (g) return g;
   if (typeof input !== "object" || input === null || (input.kind !== "oem" && input.kind !== "production") || !isUuid(input.itemId)) return fail("ข้อมูลไม่ถูกต้อง");
@@ -242,16 +342,45 @@ export async function createJob(input: CreateJobInput): Promise<JobResult<{ jobI
   if (!note.ok) return fail(note.error);
   const gate = parseText(input.startGateNote, "เหตุผลที่เริ่มผลิตก่อนมัดจำ", 500, false);
   if (!gate.ok) return fail(gate.error);
+  // M1: arg ใหม่ใส่เฉพาะเมื่อมีค่า (ไม่ส่ง = default ของ DB)
+  const planArgs: Record<string, unknown> = {};
+  if (input.qtyPlanned !== null && input.qtyPlanned !== undefined) {
+    const q = parseCount(input.qtyPlanned, "จำนวนเริ่มผลิต");
+    if (!q.ok) return fail(q.error);
+    if (q.value < 1) return fail("จำนวนเริ่มผลิตต้องไม่น้อยกว่า 1");
+    planArgs.p_qty_planned = q.value;
+  }
+  if (input.targetPieceG !== null && input.targetPieceG !== undefined) {
+    const t = parseWeight(input.targetPieceG, "น้ำหนักเป้าหมายต่อชิ้น", { max: TARGET_PIECE_MAX_G });
+    if (!t.ok) return fail(t.error);
+    if (t.value !== null) planArgs.p_target_piece_g = t.value;
+  }
+  if (input.metalPlanOverrideG !== null && input.metalPlanOverrideG !== undefined) {
+    const o = parseWeight(input.metalPlanOverrideG, "โลหะที่กำหนดเอง");
+    if (!o.ok) return fail(o.error);
+    if (o.value !== null) planArgs.p_metal_plan_override_g = o.value;
+  }
+  // กำหนดโลหะเอง (override) ต้องมีเหตุผลเสมอ — เหมือน setJobPlan (ไม่รอให้ DB ตีกลับ)
+  const planWhy = parseText(input.metalPlanReason, "เหตุผลที่กำหนดน้ำหนักโลหะเอง", 200, planArgs.p_metal_plan_override_g !== undefined);
+  if (!planWhy.ok) return fail(planWhy.error);
+  if (planWhy.value !== null) planArgs.p_metal_plan_reason = planWhy.value;
+
+  if (input.profileId !== null && input.profileId !== undefined) {
+    if (!isUuid(input.profileId)) return fail("แบบที่เลือกถูกปิดใช้หรือแก้ไปแล้ว — เลือกใหม่");
+    planArgs.p_profile_id = input.profileId;
+  }
 
   const r =
     input.kind === "oem"
-      ? await callOffice<Record<string, unknown>>("job_create_from_quote_item", { p_quote_item_id: input.itemId, p_stage_codes: codes.value, p_due_date: due, p_start_gate_note: gate.value, p_design_label: label.value, p_note: note.value })
-      : await callOffice<Record<string, unknown>>("job_create_from_production_item", { p_production_order_item_id: input.itemId, p_stage_codes: codes.value, p_due_date: due, p_design_label: label.value, p_note: note.value });
+      ? await callOffice<Record<string, unknown>>("job_create_from_quote_item", { p_quote_item_id: input.itemId, p_stage_codes: codes.value, p_due_date: due, p_start_gate_note: gate.value, p_design_label: label.value, p_note: note.value, ...planArgs })
+      : await callOffice<Record<string, unknown>>("job_create_from_production_item", { p_production_order_item_id: input.itemId, p_stage_codes: codes.value, p_due_date: due, p_design_label: label.value, p_note: note.value, ...planArgs });
   if (!r.ok) return r;
   const id = r.data.job_id ?? r.data.id;
   const no = r.data.job_no;
   if (typeof id !== "string" || !isUuid(id) || typeof no !== "string") return fail(GENERIC_JOB_ERROR);
   revalidatePath("/jobs");
   revalidatePath(input.kind === "oem" ? "/oem/quotes" : "/production");
-  return { ok: true, data: { jobId: id, jobNo: no } };
+  // plan_missing[] (0175): แผนโลหะที่ DB คำนวณให้ไม่ได้ (เช่น ไม่มีอัตราก้านต้น) — ฟอร์มใช้ต่อท้าย toast
+  const planMissing = Array.isArray(r.data.plan_missing) ? r.data.plan_missing.filter((m): m is string => typeof m === "string") : [];
+  return { ok: true, data: { jobId: id, jobNo: no, planMissing } };
 }

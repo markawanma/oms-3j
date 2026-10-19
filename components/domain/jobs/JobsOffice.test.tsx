@@ -17,8 +17,11 @@ const issueJobQr = vi.fn();
 vi.mock("@/lib/actions/job-office-write", () => ({ issueJobQr: (...a: unknown[]) => issueJobQr(...a) }));
 const getJobsForSourceItems = vi.fn();
 const suggestJob = vi.fn();
+const PF = [{ id: "99999999-0000-4000-8000-000000000001", name: "แบบ 1", note: null, requireFinalWeight: false, isActive: true, seq: 10, isDefault: true, isDefaultGold: false, stages: [], jobsOpen: 0 }];
 const createJob = vi.fn();
+const getJobPlanSuggest = vi.fn();
 vi.mock("@/lib/actions/job-office", () => ({
+  getJobPlanSuggest: (...a: unknown[]) => getJobPlanSuggest(...a),
   getJobsForSourceItems: (...a: unknown[]) => getJobsForSourceItems(...a),
   suggestJob: (...a: unknown[]) => suggestJob(...a),
   createJob: (...a: unknown[]) => createJob(...a),
@@ -41,18 +44,26 @@ import { JobCreatePanel } from "./JobCreatePanel";
 import { jobsTabActive } from "./JobsSubNav";
 import type { PrintableJob } from "@/lib/jobs/print";
 
+const planData = (o: Record<string, unknown> = {}) => ({
+  qtyOrder: 12, qtyPlannedSuggest: null, bufferQty: null, qtyPlannedEff: 12, underPlanned: false,
+  rejectBasis: { castPct: null, polishPct: null, platePct: null, hasPlating: false },
+  targetPieceG: null, targetPieceGSource: null, metal: "silver", metalPlanG: null, metalPlanBasis: null, missing: [], ...o,
+});
 const wrap = (ui: ReactElement) => render(<ToastProvider>{ui}</ToastProvider>);
 const U1 = "11111111-1111-4111-8111-111111111111";
 const U2 = "22222222-2222-4222-8222-222222222222";
 
 const printable: PrintableJob = {
-  jobId: U1, jobNo: "JB-0007", designLabel: "แหวนลาย A", sku: "RG-001", metalLabel: "เงิน", qtyPlanned: 12, dueDate: "2026-10-30", sourceLabel: "งานลูกค้า", weightStartG: null,
-  stages: [{ seq: 1, name: "หล่อ", weighRequired: true }, { seq: 2, name: "ขัด", weighRequired: false }],
+  jobId: U1, jobNo: "JB-0007", designLabel: "แหวนลาย A", sku: "RG-001", metalLabel: "เงิน", qtyOrder: 12, qtyPlanned: 12, targetPieceG: null, metalPlanG: null, dueDate: "2026-10-30", sourceLabel: "งานลูกค้า", weightStartG: null,
+  profileName: null,
+  stages: [{ seq: 1, name: "หล่อ", weighRequired: true, scrapQtyAsk: true, scrapWeightAsk: false }, { seq: 2, name: "ขัด", weighRequired: false, scrapQtyAsk: true, scrapWeightAsk: false }],
 };
 
 beforeEach(() => {
   vi.clearAllMocks();
   window.print = vi.fn();
+  // ค่าเริ่มของตัวอย่างแผน (0175): ไม่มีค่าแนะนำ/ไม่มีน้ำหนัก — ใบเดิมไม่ขึ้นสองเลข
+  getJobPlanSuggest.mockResolvedValue({ ok: true, data: planData() });
 });
 
 describe("JobsSubNav active", () => {
@@ -278,9 +289,9 @@ describe("JobCreatePanel", () => {
     getJobsForSourceItems.mockResolvedValue({ ok: true, data: [] });
     suggestJob.mockResolvedValue({
       ok: true,
-      data: { metal: "silver", qty: 12, designLabel: "แหวนลาย A", depositMissing: true, existingJob: null, stages: [{ code: "cast", nameTh: "หล่อ", defaultSelected: true }, { code: "polish", nameTh: "ขัด", defaultSelected: false }] },
+      data: { profiles: PF, defaultProfileId: PF[0].id, metal: "silver", qty: 12, designLabel: "แหวนลาย A", depositMissing: true, existingJob: null, stages: [{ code: "cast", nameTh: "หล่อ", defaultSelected: true }, { code: "polish", nameTh: "ขัด", defaultSelected: false }] },
     });
-    createJob.mockResolvedValue({ ok: true, data: { jobId: "J9", jobNo: "JB-0009" } });
+    createJob.mockResolvedValue({ ok: true, data: { jobId: "J9", jobNo: "JB-0009", planMissing: [] } });
     wrap(<JobCreatePanel kind="oem" items={items} />);
     await userEvent.click((await screen.findAllByRole("button", { name: "สร้างใบงาน" }))[0]);
     expect(suggestJob).toHaveBeenCalledWith("oem", U1);
@@ -289,21 +300,22 @@ describe("JobCreatePanel", () => {
     const submit = screen.getAllByRole("button", { name: "สร้างใบงาน" }).at(-1)!;
     expect(submit).toBeDisabled();
     await userEvent.type(screen.getByLabelText(/เหตุผลที่เริ่มผลิตก่อน/), "ลูกค้าประจำ");
-    expect(submit).toBeEnabled();
+    // ติ๊กขั้นใหม่ = ถามแผนจาก DB ซ้ำ (debounce ~400ms) ระหว่างรอปุ่มสร้างปิดอยู่ (spec §A)
+    await waitFor(() => expect(submit).toBeEnabled(), { timeout: 3000 });
     await userEvent.click(submit);
-    expect(createJob).toHaveBeenCalledWith({ kind: "oem", itemId: U1, stageCodes: ["cast", "polish"], dueDate: null, startGateNote: "ลูกค้าประจำ", designLabel: "แหวนลาย A" });
+    expect(createJob).toHaveBeenCalledWith({ kind: "oem", itemId: U1, stageCodes: ["cast", "polish"], dueDate: null, startGateNote: "ลูกค้าประจำ", designLabel: "แหวนลาย A", profileId: PF[0].id });
     await waitFor(() => expect(push).toHaveBeenCalledWith("/jobs/J9"));
   });
 
   const suggestion = (o: Record<string, unknown> = {}) => ({
     ok: true,
-    data: { metal: "silver", qty: 12, designLabel: "แหวนลาย A", depositMissing: false, existingJob: null, stages: [{ code: "cast", nameTh: "หล่อ", defaultSelected: true }], ...o },
+    data: { profiles: PF, defaultProfileId: PF[0].id, metal: "silver", qty: 12, designLabel: "แหวนลาย A", depositMissing: false, existingJob: null, stages: [{ code: "cast", nameTh: "หล่อ", defaultSelected: true }], ...o },
   });
 
   it("OEM: ชื่อเรียกภายใน (ช่างเห็น) เติมค่าเริ่มจาก suggest · มีคำเตือนห้ามชื่อแบรนด์ลูกค้า · ล้างชื่อ = สร้างไม่ได้ · แก้แล้วส่งชื่อใหม่", async () => {
     getJobsForSourceItems.mockResolvedValue({ ok: true, data: [] });
     suggestJob.mockResolvedValue(suggestion());
-    createJob.mockResolvedValue({ ok: true, data: { jobId: "J9", jobNo: "JB-0009" } });
+    createJob.mockResolvedValue({ ok: true, data: { jobId: "J9", jobNo: "JB-0009", planMissing: [] } });
     wrap(<JobCreatePanel kind="oem" items={items} />);
     await userEvent.click((await screen.findAllByRole("button", { name: "สร้างใบงาน" }))[0]);
     const input = (await screen.findByLabelText(/ชื่อเรียกภายใน/)) as HTMLInputElement;
@@ -321,7 +333,7 @@ describe("JobCreatePanel", () => {
   it("ใบผลิตเข้าสต็อก: ชื่อเรียกไม่บังคับ — ว่างก็สร้างได้ (ส่ง null)", async () => {
     getJobsForSourceItems.mockResolvedValue({ ok: true, data: [] });
     suggestJob.mockResolvedValue(suggestion({ designLabel: "" }));
-    createJob.mockResolvedValue({ ok: true, data: { jobId: "J8", jobNo: "JB-0008" } });
+    createJob.mockResolvedValue({ ok: true, data: { jobId: "J8", jobNo: "JB-0008", planMissing: [] } });
     wrap(<JobCreatePanel kind="production" items={items} />);
     await userEvent.click((await screen.findAllByRole("button", { name: "สร้างใบงาน" }))[0]);
     await screen.findByLabelText(/ชื่อเรียกภายใน/);
@@ -333,7 +345,7 @@ describe("JobCreatePanel", () => {
 
   it("รายการมีใบงานอยู่แล้ว (race) = เตือนและสร้างไม่ได้", async () => {
     getJobsForSourceItems.mockResolvedValue({ ok: true, data: [] });
-    suggestJob.mockResolvedValue({ ok: true, data: { metal: "silver", qty: 1, designLabel: "x", depositMissing: false, existingJob: { id: "J1", jobNo: "JB-0001" }, stages: [{ code: "cast", nameTh: "หล่อ", defaultSelected: true }] } });
+    suggestJob.mockResolvedValue({ ok: true, data: { profiles: PF, defaultProfileId: PF[0].id, metal: "silver", qty: 1, designLabel: "x", depositMissing: false, existingJob: { id: "J1", jobNo: "JB-0001" }, stages: [{ code: "cast", nameTh: "หล่อ", defaultSelected: true }] } });
     wrap(<JobCreatePanel kind="production" items={items} />);
     await userEvent.click((await screen.findAllByRole("button", { name: "สร้างใบงาน" }))[0]);
     expect(await screen.findByRole("alert")).toHaveTextContent("JB-0001");
@@ -400,7 +412,7 @@ describe("0174: ทะเบียนช่าง — คำเตือน PIN 
 
   it("ชื่อเรียกภายในตอนสร้างใบงานมี < > = สร้างไม่ได้", async () => {
     getJobsForSourceItems.mockResolvedValue({ ok: true, data: [] });
-    suggestJob.mockResolvedValue({ ok: true, data: { metal: "silver", qty: 1, designLabel: "แหวน", depositMissing: false, existingJob: null, stages: [{ code: "cast", nameTh: "หล่อ", defaultSelected: true }] } });
+    suggestJob.mockResolvedValue({ ok: true, data: { profiles: PF, defaultProfileId: PF[0].id, metal: "silver", qty: 1, designLabel: "แหวน", depositMissing: false, existingJob: null, stages: [{ code: "cast", nameTh: "หล่อ", defaultSelected: true }] } });
     wrap(<JobCreatePanel kind="oem" items={[{ id: U1, label: "แหวน" }]} />);
     await userEvent.click((await screen.findAllByRole("button", { name: "สร้างใบงาน" }))[0]);
     const input = await screen.findByLabelText(/ชื่อเรียกภายใน/);

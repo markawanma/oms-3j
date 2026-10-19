@@ -8,13 +8,19 @@ import { useRouter } from "next/navigation";
 import { useToast } from "@/components/ui/Toast";
 import { GENERIC_JOB_ERROR } from "@/lib/jobs/messages";
 
-type Res<T> = { ok: true; data: T } | { ok: false; error: string };
+type Res<T> = { ok: true; data: T } | { ok: false; error: string; code?: string };
 
 export function useOfficeRun() {
   const router = useRouter();
   const toast = useToast();
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setErrorText] = useState<string | null>(null);
+  /** hint ของ RPC ที่ล้มครั้งล่าสุด (แยกเคสโดยไม่เทียบข้อความไทย) — ล้างพร้อม error */
+  const [code, setCode] = useState<string | null>(null);
+  const setError = useCallback((m: string | null) => {
+    setErrorText(m);
+    if (m === null) setCode(null);
+  }, []);
   const inFlight = useRef(false);
 
   const run = useCallback(
@@ -27,6 +33,7 @@ export function useOfficeRun() {
         const res = await fn();
         if (!res.ok) {
           setError(res.error);
+          setCode(res.code ?? null);
           return res;
         }
         if (opts.success) toast.push(opts.success);
@@ -43,5 +50,5 @@ export function useOfficeRun() {
     [router, toast]
   );
 
-  return { run, busy, error, setError };
+  return { run, busy, error, code, setError };
 }
