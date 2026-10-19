@@ -4,7 +4,7 @@
 //    (RPC job_worker_resolve ก็ประกอบทีละ key อยู่แล้ว — ชั้นนี้คือด่านซ้ำฝั่งแอป เผื่อ RPC เปลี่ยนในอนาคต)
 // payload นี้ผ่าน RSC ไปถึง client component ทั้งก้อน → ต้องตรวจจากรูปที่ "ส่งออกจริง" (ดู worker-view.test.ts)
 
-export const NEXT_ACTIONS = ["identify", "receive", "send", "awaiting_deposit", "not_your_stage", "held_by_other", "prev_not_sent", "on_hold", "all_done"] as const;
+export const NEXT_ACTIONS = ["identify", "receive", "send", "awaiting_deposit", "not_your_stage", "held_by_other", "prev_not_sent", "on_hold", "all_done", "multi"] as const;
 export type NextAction = (typeof NEXT_ACTIONS)[number];
 
 export interface WorkerViewStage {
@@ -18,7 +18,50 @@ export interface WorkerViewStage {
   autoClosed?: boolean;
 }
 
+/** 0181: ส่วนหนึ่งของใบ (ใบแม่ = lotSeq 0) — ภาพรวมให้ช่างที่ระบุตัวแล้ว · ไม่มีราคา/ต้นทุน/ชื่อลูกค้า */
+export interface WorkerPart {
+  lotJobId: string;
+  label: string;
+  lotSeq: number;
+  status: string;
+  qtyPlanned: number;
+  qtyLive: number | null;
+  stageCode: string | null;
+  stageName: string | null;
+  holderName: string | null;
+  days: number | null;
+  isMine: boolean;
+  /** ช่างคนนี้ยกเลิกส่วนนี้เองได้ (ส่วนที่ตัวเองแยก · ยังไม่มีคนรับ · ผู้ถือเดิมยังไม่ส่งส่วนที่เหลือ) */
+  canCancelSplit: boolean;
+}
+
+export const MY_ACTION_KINDS = ["send", "receive", "explain"] as const;
+export type MyActionKind = (typeof MY_ACTION_KINDS)[number];
+
+/** 0181: สิ่งที่ช่างคนนี้ทำได้ในต้นไม้ (ส่งส่วนที่ถือ · รับส่วนที่ขั้นถัดไปเป็นของฉัน · ชี้แจงส่วนต่างที่ฉันเป็นผู้ส่ง) */
+export interface WorkerAction {
+  lotJobId: string;
+  label: string;
+  action: MyActionKind;
+  stageSeq: number;
+  stageCode: string;
+  stageName: string;
+  weightRequired: boolean;
+  scrapQtyAsk: boolean;
+  scrapWeightAsk: boolean;
+  /** send: จำนวนที่ถืออยู่ (ส่ง p_qty_hold นี้กลับเมื่อแยกส่วน) */
+  qtyHold: number | null;
+  /** receive: จำนวนที่คาดว่าจะได้รับ (ผู้รับใส่จำนวนจริงได้ — น้อยกว่า = ส่วนต่างรอชี้แจง) */
+  qtyExpected: number | null;
+  /** explain */
+  discrepancyId: string | null;
+  qty: number | null;
+}
+
 export interface WorkerView {
+  /** 0181: มีเมื่อช่างระบุตัวแล้วเท่านั้น (ก่อน PIN ไม่ส่ง) */
+  parts?: WorkerPart[];
+  myActions?: WorkerAction[];
   job: {
     jobNo: string;
     status: string;
@@ -88,6 +131,56 @@ function mapStage(raw: unknown): WorkerViewStage | null {
   return out;
 }
 
+const uuidOrNull = (v: unknown): string | null => (typeof v === "string" && UUID_RE.test(v) ? v : null);
+
+function mapPart(raw: unknown): WorkerPart | null {
+  if (!isObj(raw)) return null;
+  const lotJobId = uuidOrNull(raw.lot_job_id);
+  const label = text(raw.label, 60);
+  const lotSeq = numOrNull(raw.lot_seq);
+  const qtyPlanned = numOrNull(raw.qty_planned);
+  if (!lotJobId || !label || lotSeq === null || qtyPlanned === null) return null;
+  return {
+    lotJobId,
+    label,
+    lotSeq,
+    status: text(raw.status, 20) ?? "open",
+    qtyPlanned,
+    qtyLive: numOrNull(raw.qty_live),
+    stageCode: text(raw.stage_code, 40),
+    stageName: text(raw.stage_name, 80),
+    holderName: text(raw.holder_name, 60),
+    days: numOrNull(raw.days),
+    isMine: raw.is_mine === true,
+    canCancelSplit: raw.can_cancel_split === true,
+  };
+}
+
+function mapAction(raw: unknown): WorkerAction | null {
+  if (!isObj(raw)) return null;
+  const lotJobId = uuidOrNull(raw.lot_job_id);
+  const label = text(raw.label, 60);
+  const stageSeq = numOrNull(raw.stage_seq);
+  const stageCode = text(raw.stage_code, 40);
+  const action = typeof raw.action === "string" && (MY_ACTION_KINDS as readonly string[]).includes(raw.action) ? (raw.action as MyActionKind) : null;
+  if (!lotJobId || !label || stageSeq === null || !stageCode || !action) return null;
+  return {
+    lotJobId,
+    label,
+    action,
+    stageSeq,
+    stageCode,
+    stageName: text(raw.stage_name, 80) ?? stageCode,
+    weightRequired: raw.weight_required === true,
+    scrapQtyAsk: raw.scrap_qty_ask === true,
+    scrapWeightAsk: raw.scrap_weight_ask === true,
+    qtyHold: numOrNull(raw.qty_hold),
+    qtyExpected: numOrNull(raw.qty_expected),
+    discrepancyId: uuidOrNull(raw.discrepancy_id),
+    qty: numOrNull(raw.qty),
+  };
+}
+
 /** คืน null เมื่อรูปที่ได้ไม่ใช่ view ที่ใช้ได้ — ผู้เรียกแสดง "ลิงก์ใช้ไม่ได้" แทนการเดา */
 export function sanitizeWorkerView(raw: unknown): WorkerView | null {
   if (!isObj(raw) || raw.ok !== true || !isObj(raw.job)) return null;
@@ -128,7 +221,13 @@ export function sanitizeWorkerView(raw: unknown): WorkerView | null {
     .filter((w) => w.id !== "" && w.displayName !== "")
     .slice(0, 50);
 
+  // 0181: parts/my_actions เฉพาะช่างที่ระบุตัวแล้ว (DB ส่ง null ก่อน PIN) — ไม่มี key = ไม่ใส่ในผลลัพธ์ (view เดิมไม่เปลี่ยนรูป)
+  const multi: Pick<WorkerView, "parts" | "myActions"> = {};
+  if (viewer && Array.isArray(raw.parts)) multi.parts = raw.parts.map(mapPart).filter((p): p is WorkerPart => p !== null).slice(0, 30);
+  if (viewer && Array.isArray(raw.my_actions)) multi.myActions = raw.my_actions.map(mapAction).filter((a): a is WorkerAction => a !== null).slice(0, 60);
+
   return {
+    ...multi,
     job,
     viewer,
     sessionExpired: raw.session_expired === true,

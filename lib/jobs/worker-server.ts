@@ -105,9 +105,19 @@ export async function verifyWorkerPin(token: unknown, workerId: string, pin: str
 export interface ReceiveInput {
   expectedSeq: number;
   weightInG: number | null;
+  /** 0181: ส่วนที่จะรับ (ว่าง = ใบของ token) · ต้องเป็น lotJobId จาก parts/my_actions ที่ DB ส่งมาเท่านั้น */
+  lotJobId?: string | null;
+  /** 0181: จำนวนที่ได้จริง (ว่าง = ตามที่ส่ง) — น้อยกว่าที่ส่ง = ส่วนต่างรอชี้แจงกลับไปขั้นก่อน */
+  qtyReceived?: number | null;
 }
 export interface SendInput {
   expectedSeq: number;
+  /** 0181: ส่วนที่ถืออยู่ (ว่าง = ใบของ token) */
+  lotJobId?: string | null;
+  /** 0181: ส่งต่อกี่ชิ้น (ว่าง = ส่งทั้งหมดที่ถือ) — น้อยกว่าที่ถือ = แยกส่วน (ส่งต่อ n จาก N) ต้องส่ง qtyHold ด้วย */
+  qtySend?: number | null;
+  /** 0181: จำนวนที่ถืออยู่ตามที่เห็นบนจอ (กดซ้ำ/2 มือถือ → DB ตอบ stage_changed) */
+  qtyHold?: number | null;
   weightOutG: number | null;
   qtyScrap: number;
   scrapReason: string | null;
@@ -117,7 +127,19 @@ export interface SendInput {
 }
 
 /** already=true: ขั้นนี้มีคนทำไปแล้ว (แพ้การแย่ง/กดซ้ำ) · by = ชื่อผู้รับ (เฉพาะรับงาน) — client เทียบกับชื่อตัวเองเพื่อแยก "ฉันเอง" ออกจาก "คนอื่นชนะ" */
-export type StageResult = { already: boolean; message: string | null; by: string | null };
+export type StageResult = {
+  already: boolean;
+  message: string | null;
+  by: string | null;
+  /** 0181: ผลการแยกส่วน (ส่งต่อ n จาก N) — มีเมื่อ action = split */
+  lot?: { lotJobId: string; lotSeq: number; label: string; qty: number; parentRemaining: number };
+  /** 0181: ส่วนต่างที่เกิดตอนรับไม่ครบ (ชิ้น) — มีเมื่อรับน้อยกว่าที่ส่ง */
+  discrepancyQty?: number;
+};
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const uuidOrNull = (v: unknown): string | null => (typeof v === "string" && UUID_RE.test(v) ? v : null);
+const intOrNull = (v: unknown): number | null => (typeof v === "number" && Number.isInteger(v) ? v : null);
 
 export async function workerReceive(token: unknown, i: ReceiveInput): Promise<WorkerOk<StageResult> | WorkerFail> {
   const c = await readCaller(token);
@@ -125,10 +147,14 @@ export async function workerReceive(token: unknown, i: ReceiveInput): Promise<Wo
   if (!c.sessionHash) return fail("session_required");
   const r = await callWorkerRpc("job_worker_receive", {
     p_token_hash: c.tokenHash, p_session_hash: c.sessionHash, p_expected_seq: i.expectedSeq, p_weight_in_g: i.weightInG, p_user_agent: c.userAgent, p_ip_hash: c.ipHash,
+    p_lot_job_id: i.lotJobId ?? null, p_qty_received: i.qtyReceived ?? null,
   });
   if (isFail(r)) return r;
   const by = shortText(r.by);
-  return { ok: true, data: { already: r.already === true, by, message: r.already === true ? workerFailMessage("already_received", r.message, { by }) : null } };
+  const data: StageResult = { already: r.already === true, by, message: r.already === true ? workerFailMessage("already_received", r.message, { by }) : null };
+  const dq = intOrNull(r.discrepancy_qty);
+  if (dq !== null && dq > 0) data.discrepancyQty = dq;
+  return { ok: true, data };
 }
 
 export async function workerSend(token: unknown, i: SendInput): Promise<WorkerOk<StageResult> | WorkerFail> {
@@ -139,9 +165,50 @@ export async function workerSend(token: unknown, i: SendInput): Promise<WorkerOk
     p_token_hash: c.tokenHash, p_session_hash: c.sessionHash, p_expected_seq: i.expectedSeq, p_weight_out_g: i.weightOutG, p_qty_scrap: i.qtyScrap,
     p_scrap_reason: i.scrapReason, p_metal_added_g: i.metalAddedG, p_weight_note: i.metalAddedG > 0 ? "เติมโลหะ (ช่างแจ้งผ่าน QR)" : null,
     p_scrap_weight_g: i.scrapWeightG ?? null, p_user_agent: c.userAgent, p_ip_hash: c.ipHash,
+    p_lot_job_id: i.lotJobId ?? null, p_qty_send: i.qtySend ?? null, p_qty_hold: i.qtyHold ?? null,
   });
   if (isFail(r)) return r;
-  return { ok: true, data: { already: r.already === true, by: null, message: r.already === true ? workerFailMessage("already_sent", r.message) : null } };
+  const data: StageResult = { already: r.already === true, by: null, message: r.already === true ? workerFailMessage("already_sent", r.message) : null };
+  const lotId = uuidOrNull(r.lot_job_id);
+  const lotSeq = intOrNull(r.lot_seq);
+  const qty = intOrNull(r.qty);
+  const remaining = intOrNull(r.parent_remaining);
+  if (r.action === "split" && lotId && lotSeq !== null && qty !== null && remaining !== null) {
+    data.lot = { lotJobId: lotId, lotSeq, label: shortText(r.label) ?? "", qty, parentRemaining: remaining };
+  }
+  return { ok: true, data };
+}
+
+export interface ResolveDiscrepancyInput {
+  discrepancyId: string;
+  kind: "scrap" | "lost";
+  reason: string;
+}
+
+/** 0181 (มติ Q5): ผู้ส่งของขั้นนั้นชี้แจงส่วนต่างที่ผู้รับบันทึกไว้ — เสียหาย (scrap) หรือหาย (lost) + เหตุผล · ครั้งเดียว */
+export async function workerResolveDiscrepancy(token: unknown, i: ResolveDiscrepancyInput): Promise<WorkerOk<{ qty: number | null }> | WorkerFail> {
+  const c = await readCaller(token);
+  if (!c.tokenHash) return fail("invalid_token");
+  if (!c.sessionHash) return fail("session_required");
+  const r = await callWorkerRpc("job_worker_discrepancy_resolve", {
+    p_token_hash: c.tokenHash, p_session_hash: c.sessionHash, p_discrepancy_id: i.discrepancyId, p_kind: i.kind, p_reason: i.reason,
+    p_user_agent: c.userAgent, p_ip_hash: c.ipHash,
+  });
+  if (isFail(r)) return r;
+  return { ok: true, data: { qty: intOrNull(r.qty) } };
+}
+
+/** 0181 (ข3): ช่างยกเลิกส่วนที่ตัวเองแยกก่อนมีคนรับ — ชิ้นกลับขั้นแม่ที่ยังถืออยู่ · ส่วนอื่น/ที่รับแล้ว = ให้ออฟฟิศยกเลิก */
+export async function workerCancelLot(token: unknown, lotJobId: string, reason: string | null): Promise<WorkerOk<{ qty: number | null }> | WorkerFail> {
+  const c = await readCaller(token);
+  if (!c.tokenHash) return fail("invalid_token");
+  if (!c.sessionHash) return fail("session_required");
+  const r = await callWorkerRpc("job_worker_lot_cancel", {
+    p_token_hash: c.tokenHash, p_session_hash: c.sessionHash, p_lot_job_id: lotJobId, p_reason: reason,
+    p_user_agent: c.userAgent, p_ip_hash: c.ipHash,
+  });
+  if (isFail(r)) return r;
+  return { ok: true, data: { qty: intOrNull(r.qty) } };
 }
 
 /** ออกจากระบบ: เพิกถอน session ใน DB (ถ้ามี cookie) — ผู้เรียกลบ cookie เอง */

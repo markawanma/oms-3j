@@ -1,3 +1,55 @@
+-- scripts/verify/verify-0181.sql
+-- ตรวจ supabase/migrations/0181_job_lots_l1.sql (L1: ส่วนย่อย "ส่งต่อ n จาก N" · ส่วนต่างรอชี้แจง · QR หลายใบไม่เพิกถอน) ตาม design-job-lots-shopfloor.md §10.1 + §10.2
+-- self-rolling-back (3j-migration-traps ข้อ 11) · ผลออกทาง error message · [FAIL] >= 1 = ไม่ผ่าน · ข้อมูลทดสอบสร้างผ่าน RPC ใน do-block ที่ถอยกลับทุก section
+--   (ข้อยกเว้นที่บอกตรงๆ: ใบเสนอราคา OEM = โคลนจากรายการจริงด้วย INSERT ในทรานแซกชันที่ถอย (แบบเดียวกับ verify-0172..0178) · เคสห้ามผ่านของ trigger ใช้ UPDATE/INSERT ตรงตามที่ design §10.1 ข้อ 6 สั่ง · ติ๊ก worker.can_external/is_active ด้วย UPDATE ตรง)
+-- รอบแรก = ของจริง · รอบถัดไป = mutant 34 จุด (ทุกตัวต้องล้ม ไม่งั้น MX FAIL) · ปิดท้ายตรวจ state ไม่ขยับ (นับ+md5 ทุกตาราง รวมตัวนับเลขใบงาน)
+-- 🔴 ไฟล์นี้ต้องรันหลัง Tech Lead ส่งข้อความ "รันได้" เท่านั้น (ล็อกตาราง job นานช่วง mutant — QA อาจกำลังกดบน DB จริง)
+--
+-- รัน (หลัง apply):   node scripts/run-sql.mjs scripts/verify/verify-0181.sql
+-- dry-run ก่อน apply: cat supabase/migrations/0181_job_lots_l1.sql scripts/verify/verify-0181.sql > <tmp>.sql แล้วรันไม่ใส่ --commit  (ใช้เวลาหลายนาที — รันแบบ background)
+--
+-- ============ ตารางแมป "ข้อในบรีฟ/design §10 -> เทสต์ที่ครอบ" ============
+--  10.1-1  แยก qty ≤ 0 · ≥ ที่ถือ · NaN · > 100000 · จากขั้น pending/sent/skipped · ใบ done/cancelled/on_hold      -> B1a B1b B1c B1d B2a B2b B2c B3a B3b B3c · mutant MU-8
+--  10.1-2  ช่างไม่ใช่ผู้ถือ · token/ส่วนของใบอื่น · ส่วน cancelled · session หมด/ช่างปิด · token เพิกถอน             -> C1 C2 C3 C4a C4b C4c · MU-10
+--  10.1-3  น้ำหนัก/เติมโลหะ/เศษมากับการแยก (ค1) weight_unexpected                                              -> D1 D2 · MU-6
+--  10.1-4  ของเสียตอนแยก ไม่มีเหตุผล/ล่องหน/เหตุผลโดยไม่มีของเสีย                                              -> E1 E2 E3 E4 E5
+--  10.1-5  2 มือถือแยกส่วนเดียวพร้อมกัน / แยก+ส่งพร้อมกัน                                                       -> B4a B4b B4c B4d (กลไก CAS p_qty_hold → stage_changed · MU-7 MU-9) ·
+--          ❌ ไม่มีเทสต์ 2 connection จริง (do-block ทรานแซกชันเดียวจำลองไม่ได้) — ล็อกแถวแม่ for update (job_worker_auth p_lock / job_office_begin ล็อกแม่ก่อน) ตรวจด้วยการอ่านโค้ดเท่านั้น
+--  10.1-6  UPDATE/INSERT ตรง: parent/lot_seq/split_out · split_out บนขั้นไม่ received · ลด/เพิ่ม split_out นอก RPC ·
+--          split_from ผิดขั้น · ส่วนซ้อน 2 ชั้น · source/metal ไม่ตรงแม่ · token ให้ส่วน · lot_seq ชน · unique ใบแม่ซ้ำ        -> G1 G2 G3 G4 G5 G6 G7 G8 G9 · MU-11 MU-12 MU-17
+--  10.1-7  auto-close ขั้นที่ split_out > 0 (ช่างถัดไปรับส่วนเดิมขณะผู้ถือยังค้าง)                              -> H1 H2 · ต้องไม่พัง H3 · A8 (resolve ไม่เสนอ receive) · MU-3 MU-22
+--  10.1-8  รับ qty = 0 · > ที่ส่ง · NaN · ขั้นแรกของใบส่ง p_qty_received                                         -> I1 I2 I3 I4 · MU-4
+--  10.1-9  ชี้แจงโดยคนไม่ใช่ผู้ส่ง/ไม่มี can_external/ซ้ำ/kind นอกชุด/ไม่มีเหตุผล · UPDATE/DELETE แถวตรง            -> J3 J4 J5 J6 J7 J8 J9b J9c J9d J9e · MU-18 MU-19 MU-33
+--  10.1-10 ช่างยกเลิกส่วนที่คนอื่นแยก · ส่วนที่ขั้นถัดไปรับแล้ว · ส่วนมี discrepancy · ออฟฟิศ return เมื่อขั้นแม่ sent · scrap ไม่มีเหตุผล -> K1a K2a K3 K4 K5 K6 K7 · MU-20 MU-21
+--          ❌ "ส่วนนอกร้านโดยไม่มี can_external" + "ส่วนที่มี alloc งวด" = ไม่มีเทสต์ (L2/L3 — ตารางนอกร้าน/งวดยังไม่มี)
+--  10.1-11 job_done แม่ขณะมีส่วน open/discrepancy open · job_done ไม่รวม split_out · job_cancel แม่ที่มีส่วน · reopen ขั้นที่แยก -> A11b J9 L1 L2 L3 L4 L5 L6 L7 L8 · MU-13 MU-24 MU-25 MU-26 MU-27
+--  10.1-12 Σ ต้นไม้ไม่เท่า qty_planned หลังทุก RPC (mutant ลด split_out ตรง) + v_job_tree_drift ว่าง                    -> A7 A9 A10 A11a J2 K1b K2b M0 M1 M2 M3 Q1c (drift ตรวจทุก section) · MU-23 MU-32
+--  10.1-13 job_token_issue: purpose/lot นอกชุด · เกินเพดาน · ค่าเริ่ม revoke (ใบหลายส่วน+sublot ไม่เพิกถอน · ใบส่วนเดียว traveler เพิกถอน) -> N1 N2 N3 N4 N5 N6a N6b N7a N7b · MU-15 MU-16 MU-34
+--  10.1-14 response resolve/send/receive: ไม่มี key cost/price/thb/customer/quote_no · ทอง prev_weight_out_g null         -> A12 (keys ทุก response) · A8 · Q2b (ทอง = เท่าฉบับเดิม null)
+--          ❌ "ยิงหน้า /w/<token> จริง grep RSC" = ไม่มี (ฝั่ง TS/Next — lib/jobs/worker-view.test.ts + worker-boundary.test.ts ครอบ allowlist)
+--  10.1-15 anon/authenticated execute RPC ใหม่/ตารางใหม่ (18.5) · overload ทุกตัวที่ drop/replace = 1 แถว pg_proc            -> P1 P2 P3 P4 P5 P6 P7 · MU-28 MU-29 · (รัน scripts/check-analytics-grants.sql หลัง apply ด้วย)
+--  10.2    ใบ J1/M1 เดิมทุก status บน prod: parent null/lot_seq 0/split 0 · v_job_board แถวครบ+คอลัมน์ใหม่ค่าว่าง/0           -> Q1a Q1b
+--          job_worker_resolve เท่าเดิมทุก key (ใบจริง + ใบใหม่ 5 แบบ × ผู้ดู 3 × 2 สถานะ)                                -> Q2a Q2b
+--          job_core_receive/send เท่าฉบับเดิมทุกคำสั่ง (เงินชั่ง/เงินไม่ชั่ง/ทอง · ปฏิเสธ+สำเร็จ ~28 คำสั่ง)                -> Q31 Q32 Q33 (เทียบ pg_temp.core_*_legacy = def จาก DB สด)
+--          ด่านทอง ±0.05 g · แบบการบันทึก 0176 · ด่านน้ำหนัก/เศษ 0178 ไม่เปลี่ยน                                         -> Q33 (handoff_mismatch ทอง) · Q31 (scrap_over/not_asked ผ่าน golden) · A2e A2f A2g (ขั้นชั่ง + loss ไม่เทียบ)
+--          ใบไม่แบ่ง รับ→ส่งทั้งหมด→job_done ผลเท่า J1                                                                    -> Q4 · B1e · H3 · L7 L8
+--          แยก 1 ครั้ง→ส่วนเดิน→แม่ส่งที่เหลือ→job_done ส่วนแล้วแม่ · แยกซ้อน · แยกที่ QC · แยกจากใบเดิม profile null         -> A1..A11d · A2a A2b A2c A2d
+--          ช่างยกเลิกแยกแล้วส่งใหม่ · รับไม่ครบ→ชี้แจง scrap/lost→Σ ครบ · ออฟฟิศ void แล้วผู้รับส่งต่อตามปกติ              -> K1b K1c · J1 J5 J10 · J9b J9c J9d
+--          ใบย่อยพิมพ์ 3 ใบ ทุก QR เปิดใบเดียวกัน · เพิกถอน 1 ใบ ใบอื่นยังใช้ · ปิด full เพิกถอนหมด                          -> N3 N4 N6a · A11c (done เพิกถอนทุกใบ)
+--          ใบผลิต (production): ส่วนไม่ชน unique · existing_job = แม่ · production_order_done ไม่ถูกแตะ                  -> A2h · MY (md5 ทุกฟังก์ชัน oem_*/production_*/stock_* เท่าเดิม)
+--          00:00–07:00 ไทย: sent_on/received_on ของขั้นแยก = วันไทย                                                       -> P8 (static: ใช้ job_today() ไม่มี current_date) · A5 (= job_today()) ·
+--          ❌ ไม่ได้จำลองนาฬิกาช่วง 00:00–07:00 จริง (now() คงที่ทั้งทรานแซกชัน) — ครอบแบบ static เท่านั้น
+--  กติกาเหล็ก: state ไม่ขยับ (ตัวนับเลขใบงาน/ทุกตาราง) · ฟังก์ชันอื่นไม่ถูกแตะ · trigger เปิดครบ                           -> K0 K0c MY (+ post-check ใน migration §9)
+--  mutant 34 จุด: MU-1..MU-34 (รายการและ expect อยู่ท้ายไฟล์ · MX ต้องจับครบ)
+--
+--  ❌ ไม่มีเทสต์ครอบ (บอกตรงๆ):
+--    - race หลาย connection (2 มือถือพร้อมกัน) — ดู 10.1-5 · ครอบด้วยกลไก CAS + การอ่านโค้ด
+--    - PostgREST จริง (named args) / server action / หน้า /w/ จริง = ไม่มี (vitest ฝั่ง lib/ ครอบ allowlist + signature ที่ส่ง)
+--    - เคสส่วนนอกร้าน (can_external ยกเลิกส่งออก) · งวด/alloc = L2/L3
+--    - ข้อมูลเดิมที่ผิดนิยามต้นไม้ (ถ้ามีบน prod ในอนาคต) — job_tree_assert ข้ามต้นไม้ที่ไม่มีส่วน/ส่วนต่าง โดยตั้งใจ (ไม่ให้ใบเดิมพังจากด่านใหม่); Q1c ยืนยันว่า ณ ตอนนี้ drift ว่างทั้ง DB
+--    - ตัวอักษรล่องหนนอกชุด oem_text_strip_invisible (ทดสอบแค่ ZWSP "." tab) — พึ่งชุดเดียวกับ note ทุกช่อง
+--    - surplus ระดับต้นไม้ (design §3: surplus_* คิดเฉพาะใบแม่)
+
 -- ===== helper จาก verify-0176 (ลอกตรง) =====
 create function pg_temp.chk(p_id text, p_desc text, p_ok boolean) returns text
  language sql as $c$
@@ -1473,7 +1525,8 @@ begin
   v_log := v_log || pg_temp.chk('J6', 'UPDATE/DELETE แถวส่วนต่างตรงๆ (แก้ qty · ย้อน status · ลบ) = ปฏิเสธ (append-only)',
     pg_temp.x(format('update analytics.job_discrepancy set qty = 1 where id = %L', dd)) like 'ERR:22023:%'
     and pg_temp.x(format('update analytics.job_discrepancy set status = ''open'' where id = %L', dd)) like 'ERR:%'
-    and pg_temp.x(format('delete from analytics.job_discrepancy where id = %L', dd)) like 'ERR:22023:%');
+    and pg_temp.x(format('delete from analytics.job_discrepancy where id = %L', dd)) like 'ERR:22023:%'
+    and pg_temp.x(format('update analytics.job_discrepancy set resolved_reason = ''broken'' where id = %L', dd)) like 'ERR:22023:%');
   r := pg_temp.o_done(p_shop, l1, 35, 5);
   v_log := v_log || pg_temp.chk('J10', 'หลังชี้แจงแล้ว ปิดส่วนที่ 1 ได้: ดี 35 + เสีย 5 (ส่วนต่างที่หาย) + แยกออก 0 = 40 · ต้นไม้ไม่ drift · sum_check จริง',
     (r ->> 'ok') = 'true' and pg_temp.jv(l1, 'status') = 'done' and pg_temp.dcount(j) = 0 and pg_temp.sumok(j));
@@ -1696,7 +1749,7 @@ begin
   r := pg_temp.o_reopen(p_shop, j);
   r2 := pg_temp.o_reopen(p_shop, l1);
   v_log := v_log || pg_temp.chk('L6', 'ย้อนขั้นล่าสุดของแม่ (received ที่แยก 15) = ปฏิเสธ has_split · ย้อนขั้นล่าสุดของส่วน (ขั้นแยก) = ปฏิเสธ has_split · UPDATE ตรง (received→pending ของขั้นที่แยก · sent→received ของขั้นแยกของส่วน) = ปฏิเสธ',
-    pg_temp.rej(r, 'has_split') and pg_temp.rej(r2, 'has_split')
+    pg_temp.rej(r, 'has_split') and pg_temp.rej(r2, 'has_split') and (r ->> '_err') like 'ย้อนขั้นไม่ได้ — ขั้นนี้มีการแยกส่วน%' and (r2 ->> '_err') like 'ย้อนขั้นไม่ได้ — ขั้นนี้มีการแยกส่วน%'
     and pg_temp.x(format('update analytics.job_stage set status = ''pending'', received_on = null, worker_id = null, assignee_name = null, qty_in = null where job_id = %L and seq = 4', j)) like 'ERR:%'
     and pg_temp.x(format('update analytics.job_stage set status = ''received'', sent_on = null, qty_out = null where job_id = %L and seq = 4', l1)) like 'ERR:%'
     and pg_temp.sv(j, 4, 'status') = 'received' and pg_temp.sv(l1, 4, 'status') = 'sent');
@@ -2105,3 +2158,202 @@ begin
   return coalesce(v, '');
 end;
 $c$;
+
+-- ============================================================================
+-- ตัวรันหลัก: section ทั้งหมด → state ไม่ขยับ → mutant → คืนของเดิม → section ซ้ำ → state ไม่ขยับ
+-- ============================================================================
+-- label ของเคส -> section ที่รันเคสนั้น (mutant รันเฉพาะ section ที่ expect อยู่)
+create function pg_temp.sec_of(p_label text) returns text language sql as $c$
+  select case
+    when p_label ~ '^A2[a-h]' then 'sa2'
+    when p_label ~ '^A' then 'sa'
+    when p_label ~ '^B' then 'sb'
+    when p_label ~ '^C' then 'sc'
+    when p_label ~ '^D' then 'sd'
+    when p_label ~ '^E' then 'se'
+    when p_label ~ '^G' then 'sg'
+    when p_label ~ '^H' then 'sh'
+    when p_label ~ '^I' then 'si'
+    when p_label ~ '^J(7|8|9[b-e])' then 'sj2'
+    when p_label ~ '^J' then 'sj'
+    when p_label ~ '^K' then 'sk'
+    when p_label ~ '^L' then 'sl'
+    when p_label ~ '^M[0-9]' then 'sm'
+    when p_label ~ '^N' then 'sn'
+    when p_label ~ '^P' then 'sp'
+    else 'sq' end $c$;
+create function pg_temp.run_for(p_expect jsonb, p_shop uuid, p_tpl uuid) returns text language plpgsql as $c$
+declare v text := ''; s text;
+begin
+  for s in select distinct pg_temp.sec_of(e) from jsonb_array_elements_text(p_expect) e order by 1 loop
+    v := v || pg_temp.run_sec(s, p_shop, p_tpl);
+  end loop;
+  return v;
+end;
+$c$;
+create function pg_temp.run_all(p_shop uuid, p_tpl uuid) returns text
+ language sql as $c$
+  select pg_temp.run_sec('sa', p_shop, p_tpl) || pg_temp.run_sec('sa2', p_shop, p_tpl) || pg_temp.run_sec('sb', p_shop, p_tpl) || pg_temp.run_sec('sc', p_shop, p_tpl)
+      || pg_temp.run_sec('sd', p_shop, p_tpl) || pg_temp.run_sec('se', p_shop, p_tpl) || pg_temp.run_sec('sg', p_shop, p_tpl) || pg_temp.run_sec('sh', p_shop, p_tpl)
+      || pg_temp.run_sec('si', p_shop, p_tpl) || pg_temp.run_sec('sj', p_shop, p_tpl) || pg_temp.run_sec('sj2', p_shop, p_tpl) || pg_temp.run_sec('sk', p_shop, p_tpl)
+      || pg_temp.run_sec('sl', p_shop, p_tpl) || pg_temp.run_sec('sm', p_shop, p_tpl) || pg_temp.run_sec('sn', p_shop, p_tpl) || pg_temp.run_sec('sp', p_shop, p_tpl)
+      || pg_temp.run_sec('sq', p_shop, p_tpl)
+$c$;
+create function pg_temp.snap_x() returns text language sql as $c$
+  select pg_temp.snap() || (select count(*)::text || '/' || coalesce(md5(string_agg(x::text, '|' order by x::text)), '') from analytics.job_discrepancy x) $c$;
+
+do $v181$
+declare
+  v_shop uuid; v_tpl uuid;
+  v_log text := ''; v_s text; v_fail int; v_snap0 text; v_d0 text;
+  v_m record; v_killed int := 0; v_total int; v_survived text := ''; v_cnt int; v_id text; v_hit int; v_skip int; v_ok_cnt int;
+  c_send constant text := 'analytics.job_core_send(uuid, int, date, numeric, int, text, numeric, text, numeric, uuid, text, uuid, text, boolean)';
+  c_split constant text := 'analytics.job_lot_split(uuid, uuid, integer, integer, integer, text, integer, uuid)';
+  v_mutants jsonb := jsonb_build_array(
+    jsonb_build_object('id', 'MU-1', 'what', 'job_core_send: qty_out ไม่หักส่วนที่แยกออก (ผิดโซ่)', 'fn', 'job_core_send',
+      'from', 'qty_out = qty_in - v_total - qty_split_out,', 'to', 'qty_out = qty_in - v_total,', 'expect', jsonb_build_array('A10', 'A11a', 'E3')),
+    jsonb_build_object('id', 'MU-2', 'what', 'job_core_send: ผู้ถือ = เข้า (ไม่หักเสีย/แยกออก) — ของเสียเกินที่ถือผ่าน', 'fn', 'job_core_send',
+      'from', 'v_hold := v_s.qty_in - v_s.qty_scrap - v_s.qty_split_out;', 'to', 'v_hold := v_s.qty_in;', 'expect', jsonb_build_array('E5')),
+    jsonb_build_object('id', 'MU-3', 'what', 'job_core_receive: ปิดขั้นก่อนอัตโนมัติแม้แยกส่วนออกไปแล้ว', 'fn', 'job_core_receive',
+      'from', 'if v_p.qty_split_out > 0 then', 'to', 'if false then', 'expect', jsonb_build_array('H1')),
+    jsonb_build_object('id', 'MU-4', 'what', 'job_core_receive: รับมากกว่าที่ส่งผ่าน', 'fn', 'job_core_receive',
+      'from', 'p_qty_received > v_base', 'to', 'p_qty_received > v_base + 1000000', 'expect', jsonb_build_array('I1')),
+    jsonb_build_object('id', 'MU-5', 'what', 'job_core_receive: รับไม่ครบไม่สร้างส่วนต่าง (ของหายเงียบ)', 'fn', 'job_core_receive',
+      'from', 'if v_qin < v_base then', 'to', 'if false then', 'expect', jsonb_build_array('J1')),
+    jsonb_build_object('id', 'MU-6', 'what', 'job_lot_split_core: ถอดด่านน้ำหนักห้ามมากับการแยก (ค1)', 'fn', 'job_lot_split_core',
+      'from', 'if p_weight_out is not null or coalesce(p_metal_added, 0) <> 0 or p_scrap_weight is not null or nullif(btrim(p_weight_note), '''') is not null then', 'to', 'if false then', 'expect', jsonb_build_array('D1')),
+    jsonb_build_object('id', 'MU-7', 'what', 'job_lot_split_core: ถอด CAS จำนวนที่ถือ (กดซ้ำ/2 มือถือสร้างส่วนซ้ำ)', 'fn', 'job_lot_split_core',
+      'from', 'if p_qty_hold is not null and p_qty_hold is distinct from v_hold then', 'to', 'if false then', 'expect', jsonb_build_array('B4b', 'B4c')),
+    jsonb_build_object('id', 'MU-8', 'what', 'job_lot_split_core: แยกได้จนผู้ถือเหลือ 0', 'fn', 'job_lot_split_core',
+      'from', 'or p_qty + v_scrap > v_hold - 1 then', 'to', 'or p_qty + v_scrap > v_hold then', 'expect', jsonb_build_array('B1b', 'B1c')),
+    jsonb_build_object('id', 'MU-9', 'what', 'job_lot_split_core: ช่างไม่ส่ง p_qty_hold ก็แยกได้', 'fn', 'job_lot_split_core',
+      'from', 'if p_channel = ''worker_qr'' and p_qty_hold is null then', 'to', 'if false then', 'expect', jsonb_build_array('B4a')),
+    jsonb_build_object('id', 'MU-10', 'what', 'job_lot_split_core: ไม่ตรวจว่าเป็นผู้ถือ', 'fn', 'job_lot_split_core',
+      'from', 'if p_enforce_holder and v_s.worker_id is distinct from p_worker_id then', 'to', 'if false then', 'expect', jsonb_build_array('C1')),
+    jsonb_build_object('id', 'MU-11', 'what', 'job_stage_guard: ถอดการผูก qty_split_out กับส่วนที่ชี้ขั้น (แก้จำนวนตรงๆ ได้)', 'fn', 'job_stage_guard',
+      'from', 'if new.qty_split_out <> v_link then', 'to', 'if false then', 'expect', jsonb_build_array('G4')),
+    jsonb_build_object('id', 'MU-12', 'what', 'job_guard: ถอดการบังคับ job.qty_split_out = Σ ขั้น', 'fn', 'job_guard',
+      'from', 'if new.qty_split_out is distinct from (select coalesce(sum(s.qty_split_out), 0) from analytics.job_stage s where s.job_id = new.id) then', 'to', 'if false then', 'expect', jsonb_build_array('G2')),
+    jsonb_build_object('id', 'MU-13', 'what', 'job_guard: ปิดใบแม่ได้ทั้งที่ส่วนยังเปิด (ชั้น trigger)', 'fn', 'job_guard',
+      'from', 'if new.parent_job_id is null and exists (select 1 from analytics.job c where c.parent_job_id = new.id and c.status not in (''done'', ''cancelled'')) then', 'to', 'if false then', 'expect', jsonb_build_array('L2')),
+    jsonb_build_object('id', 'MU-14', 'what', 'job_stage_guard: ข้าม QC/แพ็กได้ทุกใบ', 'fn', 'job_stage_guard',
+      'from', 'if new.stage_code in (''qc'', ''pack'')', 'to', 'if false and new.stage_code in (''qc'', ''pack'')', 'expect', jsonb_build_array('A2c')),
+    jsonb_build_object('id', 'MU-15', 'what', 'job_token_issue: ใบที่แบ่งแล้วพิมพ์ traveler ค่าเริ่มเพิกถอนของเก่า', 'fn', 'job_token_issue',
+      'from', 'p_purpose = ''traveler'' and not exists (select 1 from analytics.job l where l.parent_job_id = p_job_id and l.status <> ''cancelled''))', 'to', 'p_purpose = ''traveler'')', 'expect', jsonb_build_array('N3')),
+    jsonb_build_object('id', 'MU-16', 'what', 'job_token_issue: เพดาน QR 5 → 50', 'fn', 'job_token_issue',
+      'from', 'if v_active >= 5 then', 'to', 'if v_active >= 50 then', 'expect', jsonb_build_array('N7a', 'P8')),
+    jsonb_build_object('id', 'MU-17', 'what', 'job_token_guard: INSERT token ให้ส่วนย่อยตรงๆ ได้', 'fn', 'job_token_guard',
+      'from', 'if v_parent is not null then', 'to', 'if false then', 'expect', jsonb_build_array('G8')),
+    jsonb_build_object('id', 'MU-18', 'what', 'job_discrepancy_guard: แก้แถวที่ชี้แจงแล้วได้ (ไม่ใช่ open→resolved ครั้งเดียว)', 'fn', 'job_discrepancy_guard',
+      'from', 'if old.status <> ''open'' or new.status <> ''resolved'' then', 'to', 'if false then', 'expect', jsonb_build_array('J6')),
+    jsonb_build_object('id', 'MU-19', 'what', 'job_worker_discrepancy_resolve: ใครก็ชี้แจงได้ (ไม่ตรวจผู้ส่ง/can_external)', 'fn', 'job_worker_discrepancy_resolve',
+      'from', 'if v_fs.worker_id is distinct from v_wid and not coalesce(v_ext, false) then', 'to', 'if false then', 'expect', jsonb_build_array('J4', 'J7')),
+    jsonb_build_object('id', 'MU-20', 'what', 'job_lot_cancel_core: ช่างยกเลิกส่วนที่คนอื่นแยกได้', 'fn', 'job_lot_cancel_core',
+      'from', 'if v_who is distinct from p_worker_id or v_ms.worker_id is distinct from p_worker_id then', 'to', 'if false then', 'expect', jsonb_build_array('K1a')),
+    jsonb_build_object('id', 'MU-21', 'what', 'job_lot_return_blocker: คืนชิ้นได้แม้ขั้นถัดไปถูกรับแล้ว', 'fn', 'job_lot_return_blocker',
+      'from', 'if exists (select 1 from analytics.job_stage s where s.job_id = p_lot_job_id and s.id <> v_s2.id and s.status in (''received'', ''sent'')) then', 'to', 'if false then', 'expect', jsonb_build_array('K2a')),
+    jsonb_build_object('id', 'MU-22', 'what', 'job_worker_resolve: เสนอ "รับ" ขั้นถัดไปของแม่ทั้งที่ผู้ถือยังค้างส่วนที่เหลือ', 'fn', 'job_worker_resolve',
+      'from', 'or ph.qty_split_out > 0))', 'to', 'or false))', 'expect', jsonb_build_array('A8')),
+    jsonb_build_object('id', 'MU-23', 'what', 'job_tree_assert: ไม่ raise เมื่อผลรวมไม่ตรง', 'fn', 'job_tree_assert',
+      'from', 'if v_bad is not null then', 'to', 'if false then', 'expect', jsonb_build_array('M1', 'M2')),
+    jsonb_build_object('id', 'MU-24', 'what', 'job_done: ไม่นับ qty_split_out ในสมการดี+เสีย', 'fn', 'job_done',
+      'from', 'or p_qty_good + p_qty_scrap + v_job.qty_split_out <> v_job.qty_planned then', 'to', 'or p_qty_good + p_qty_scrap <> v_job.qty_planned then', 'expect', jsonb_build_array('A11c', 'L5')),
+    jsonb_build_object('id', 'MU-25', 'what', 'job_done: ถอดด่านส่วนเปิด (ชั้น RPC — ข้อความต่างจากชั้น trigger)', 'fn', 'job_done',
+      'from', 'if (v_job.parent_job_id is null and exists', 'to', 'if false and (v_job.parent_job_id is null and exists', 'expect', jsonb_build_array('A11b')),
+    jsonb_build_object('id', 'MU-26', 'what', 'job_stage_reopen: ย้อนขั้นแม่ที่แยกส่วนออกได้ (ชั้น RPC)', 'fn', 'job_stage_reopen',
+      'from', 'if v_s.qty_split_out > 0 or v_s.split_from_stage_id is not null', 'to', 'if v_s.qty_split_out > 1000000 or v_s.split_from_stage_id is not null', 'expect', jsonb_build_array('L6')),
+    jsonb_build_object('id', 'MU-27', 'what', 'job_stage_guard: ย้อนขั้นที่แยกส่วนออกตรงๆ ได้ (ชั้น trigger)', 'fn', 'job_stage_guard',
+      'from', 'if old.qty_split_out > 0 or old.split_from_stage_id is not null', 'to', 'if false and (old.qty_split_out > 0 or old.split_from_stage_id is not null)', 'expect', jsonb_build_array('L6')),
+    jsonb_build_object('id', 'MU-28', 'what', 'ddl: job_lot_split ถูก grant ให้ authenticated', 'ddl',
+      'grant execute on function ' || c_split || ' to authenticated', 'expect', jsonb_build_array('P2', 'P3')),
+    jsonb_build_object('id', 'MU-29', 'what', 'ddl: job_core_send (ภายใน) ถูก grant ให้ service_role', 'ddl',
+      'grant execute on function ' || c_send || ' to service_role', 'expect', jsonb_build_array('P2')),
+    jsonb_build_object('id', 'MU-30', 'what', 'job_stage_sync: ไม่ sync job.qty_split_out', 'fn', 'job_stage_sync',
+      'from', 'qty_split_out = v_split', 'to', 'qty_split_out = j.qty_split_out', 'expect', jsonb_build_array('A1', 'A4')),
+    jsonb_build_object('id', 'MU-31', 'what', 'job_stage_guard: โซ่จำนวนไม่หักส่วนต่าง', 'fn', 'job_stage_guard',
+      'from', 'v_exp_in := v_prev.qty_out - analytics.job_disc_active_qty(v_prev.id, new.id);', 'to', 'v_exp_in := v_prev.qty_out;', 'expect', jsonb_build_array('J1')),
+    jsonb_build_object('id', 'MU-32', 'what', 'job_live_qty: ไม่หักส่วนที่แยกออกจากผู้ถือ', 'fn', 'job_live_qty',
+      'from', 's.qty_in - s.qty_scrap - s.qty_split_out', 'to', 's.qty_in - s.qty_scrap', 'expect', jsonb_build_array('A7')),
+    jsonb_build_object('id', 'MU-33', 'what', 'job_discrepancy_void: void ได้ขณะผู้รับยังรับอยู่', 'fn', 'job_discrepancy_void',
+      'from', 'if v_to.status <> ''pending'' then', 'to', 'if false then', 'expect', jsonb_build_array('J8')),
+    jsonb_build_object('id', 'MU-34', 'what', 'job_token_revoke: p_print_no ไม่มีผล (เพิกถอนทุกใบ)', 'fn', 'job_token_revoke',
+      'from', 'and (p_print_no is null or print_no = p_print_no)', 'to', 'and true', 'expect', jsonb_build_array('N6a'))
+  );
+begin
+  perform set_config('request.jwt.claims', '{"role":"service_role"}', true);
+  select id into v_shop from public.shop order by created_at limit 1;
+  select i.id into v_tpl from analytics.oem_quote_item i join analytics.oem_quote q on q.id = i.quote_id
+   where i.shop_id = v_shop and i.input ->> 'metal' = 'silver' and q.quote_no not like 'V17%' order by q.created_at, i.seq limit 1;
+  if v_tpl is null then
+    v_log := v_log || '[FAIL] S0  ไม่มี oem_quote_item เงินจริงให้ใช้เป็นแม่แบบโคลน — ชุดทดสอบรันต่อไม่ได้' || E'\n';
+    raise exception E'%', v_log;
+  end if;
+
+  create temp table _v181_orig on commit drop as
+    select p.oid::regprocedure::text as sig, md5(pg_get_functiondef(p.oid)) as h
+      from pg_proc p where p.pronamespace = 'analytics'::regnamespace and p.prokind = 'f';
+
+  v_snap0 := pg_temp.snap_x(); v_d0 := pg_temp.snap_d();
+  v_s := pg_temp.run_all(v_shop, v_tpl);
+  v_log := v_log || v_s;
+  v_log := v_log || pg_temp.chk('K0', 'หลังรัน: แถวตารางใบงาน/ช่าง/ตัวนับ/ส่วนต่าง/แบบการบันทึก + ตาราง OEM/ผลิต/สต็อก (นับ + md5) เท่าเดิมเป๊ะ — ทุก section ถอยกลับ (ตัวนับเลขใบงานไม่ขยับถาวร)', pg_temp.snap_x() = v_snap0);
+  v_ok_cnt := (length(v_s) - length(replace(v_s, '[OK]', ''))) / 4;
+
+  v_total := jsonb_array_length(v_mutants);
+  for v_m in select value as m from jsonb_array_elements(v_mutants) loop
+    v_id := v_m.m ->> 'id';
+    v_s := '';
+    begin
+      if v_m.m ? 'ddl' then
+        execute v_m.m ->> 'ddl';
+      else
+        perform pg_temp.mutate(v_m.m ->> 'fn', v_m.m ->> 'from', v_m.m ->> 'to');
+      end if;
+      v_s := pg_temp.run_for(v_m.m -> 'expect', v_shop, v_tpl);
+      raise exception 'MUTANT_DONE';
+    exception when others then
+      if sqlerrm <> 'MUTANT_DONE' then
+        v_log := v_log || format(E'[FAIL] %s  ใช้ mutant ไม่ได้: %s\n', v_id, sqlerrm);
+        v_s := 'ERR';
+      end if;
+    end;
+    v_hit := 0;
+    for v_cnt in 0 .. jsonb_array_length(v_m.m -> 'expect') - 1 loop
+      -- ถูกจับเมื่อเคสที่คาดไว้ล้ม — หรือ section ที่รันเคสนั้นล้มด้วย exception ทั้งก้อน (mutant ทำให้ระบบพังเสียงดัง ก็นับว่าเทสต์จับได้)
+      if position('[FAIL] ' || (v_m.m -> 'expect' ->> v_cnt) || ' ' in v_s) > 0
+         or position('[FAIL] ' || pg_temp.sec_of(v_m.m -> 'expect' ->> v_cnt) || '  section ล้ม' in v_s) > 0 then
+        v_hit := v_hit + 1;
+      end if;
+    end loop;
+    if v_hit >= 1 then
+      v_killed := v_killed + 1;
+      v_log := v_log || format(E'[OK] %s  mutant ถูกจับ (%s): ล้ม %s จาก %s\n', v_id, v_m.m ->> 'what', v_hit, v_m.m -> 'expect');
+    else
+      v_survived := v_survived || v_id || ' ';
+      v_log := v_log || format(E'[FAIL] %s  mutant รอด (%s) — ไม่มี %s ล้มเลย\n', v_id, v_m.m ->> 'what', v_m.m -> 'expect');
+    end if;
+  end loop;
+  v_log := v_log || pg_temp.chk('MX', format('mutant %s จุด ถูกจับ %s · รอด: %s', v_total, v_killed, coalesce(nullif(v_survived, ''), '(ไม่มี)')), v_killed = v_total);
+
+  select count(*) into v_cnt from _v181_orig o where md5(pg_get_functiondef(to_regprocedure(o.sig))) = o.h;
+  v_log := v_log || pg_temp.chk('MY', format('หลังรัน mutant: md5 definition ของฟังก์ชันทุกตัวในสคีมา analytics (%s ตัว รวม oem_*/production_*/stock_* ที่ 0181 ไม่แตะ) เท่าเดิม · trigger ใบงาน/ขั้น/token/ช่าง/ส่วนต่างเปิดครบ · grant ของ core ภายใน/RPC ไม่เปลี่ยน', (select count(*) from _v181_orig)),
+    v_cnt = (select count(*) from _v181_orig)
+    and not exists (select 1 from pg_trigger t where t.tgrelid in ('analytics.job'::regclass, 'analytics.job_stage'::regclass, 'analytics.job_event'::regclass, 'analytics.job_token'::regclass,
+                                                                  'analytics.worker'::regclass, 'analytics.job_discrepancy'::regclass) and not t.tgisinternal and t.tgenabled not in ('O', 'A'))
+    and not has_function_privilege('service_role', c_send, 'execute')
+    and not has_function_privilege('authenticated', c_split, 'execute'));
+  v_s := pg_temp.run_all(v_shop, v_tpl);
+  v_fail := (length(v_s) - length(replace(v_s, '[FAIL]', ''))) / 6;
+  v_log := v_log || pg_temp.chk('MZ', 'หลังคืนของเดิม: ชุดเทสต์หลักรันซ้ำ FAIL ' || v_fail, v_fail = 0);
+  if v_fail > 0 then
+    v_log := v_log || (select string_agg('    (รันซ้ำ) ' || l, E'\n') from unnest(string_to_array(v_s, E'\n')) l where l like '[FAIL]%') || E'\n';
+  end if;
+  v_log := v_log || pg_temp.chk('K0c', 'state ไม่ขยับหลังรัน mutant ทั้งหมด' || coalesce((select ' ขยับ: ' || string_agg(split_part(a, '=', 1), ',') from unnest(string_to_array(v_d0, chr(10))) a
+    where a <> '' and not (a = any (string_to_array(pg_temp.snap_d(), chr(10))))), ''), pg_temp.snap_x() = v_snap0);
+
+  v_fail := (length(v_log) - length(replace(v_log, '[FAIL]', ''))) / 6;
+  v_skip := (length(v_log) - length(replace(v_log, '[SKIP]', ''))) / 6;
+  v_log := v_log || format(E'\n=== สรุป: [OK] ~%s (ก่อน mutant) · [FAIL] ทั้งไฟล์ = %s · [SKIP] = %s %s ===\n', v_ok_cnt, v_fail, v_skip, case when v_fail = 0 then '(ผ่าน)' else '(ไม่ผ่าน)' end);
+  raise exception E'%', v_log;
+end;
+$v181$;
