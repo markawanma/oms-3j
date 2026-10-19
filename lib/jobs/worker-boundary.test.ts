@@ -18,6 +18,8 @@ function walk(dir: string, out: string[] = []): string[] {
 const WORKER_FILES = [
   ...walk(join(ROOT, "app", "(worker)")),
   ...walk(join(ROOT, "components", "domain", "jobs", "worker")),
+  // 0182: ชั้นแสดงผลล้วนของรูปใบงาน (Thumb/Viewer/AddButtons/PrintPhoto) ใช้ร่วมกับหน้าช่าง — ต้องไม่เรียก action ใดๆ (ชั้นเรียก action ของออฟฟิศอยู่นอกโฟลเดอร์นี้)
+  ...walk(join(ROOT, "components", "domain", "jobs", "photos")),
   join(ROOT, "lib", "jobs", "worker-server.ts"),
   join(ROOT, "lib", "actions", "job-worker.ts"),
   join(ROOT, "lib", "jobs", "worker-view.ts"),
@@ -54,6 +56,23 @@ describe("กราฟหน้าช่าง /w/ — import ต้องห้
       expect(/v_job_board|v_oem|oem_quote|production_order|v_dim_product|unit_cost|list_price/i.test(src.replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "")), `${rel} อ้างข้อมูลราคา/ต้นทุน/ออฟฟิศ`).toBe(false);
     });
   }
+});
+
+describe("0182 โฟลเดอร์ photos/ (ชั้นแสดงผลล้วน) อยู่ในกราฟหน้าช่าง", () => {
+  const rel = (f: string) => relative(ROOT, f).replace(/\\/g, "/");
+  const photoFiles = WORKER_FILES.filter((f) => rel(f).startsWith("components/domain/jobs/photos/"));
+  it("ตรวจครบทุกชิ้นของชั้นแสดงผล (ถ้าเพิ่ม/ย้ายไฟล์แล้วเทสต์นี้ล้ม = กราฟไม่ครอบคลุม)", () => {
+    const names = photoFiles.map((f) => rel(f).split("/").pop());
+    for (const n of ["JobPhotoThumb.tsx", "JobPhotoViewer.tsx", "PhotoAddButtons.tsx", "PrintPhoto.tsx", "usePrintPhoto.ts", "PrintPhotoStatus.tsx", "types.ts"]) expect(names, n).toContain(n);
+  });
+  it("ไม่ import lib/actions/** และ lib/images/client (ย่อรูป/อัปโหลดเป็นงานของออฟฟิศ)", () => {
+    for (const f of photoFiles) {
+      const src = readFileSync(f, "utf8");
+      const code = src.replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
+      expect(/lib\/actions\//.test(code), rel(f)).toBe(false);
+      expect(/lib\/images\/client/.test(code), rel(f)).toBe(false);
+    }
+  });
 });
 
 describe("เฉพาะ job-worker.ts เป็น 'use server' ในกราฟนี้", () => {

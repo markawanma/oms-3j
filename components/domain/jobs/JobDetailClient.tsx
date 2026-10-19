@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/Button";
 import { DesignLabelDialog, DoneDialog, DueDialog, ReasonDialog } from "@/components/domain/jobs/JobDialogs";
 import type { ReasonKind } from "@/components/domain/jobs/JobDialogs";
 import { ChangeProfileDialog } from "@/components/domain/jobs/ChangeProfileDialog";
+import { JobPhotosCard } from "@/components/domain/jobs/JobPhotosCard";
 import { JobProfileCard } from "@/components/domain/jobs/JobProfileCard";
 import { PlanCard } from "@/components/domain/jobs/PlanCard";
 import { PlanDialog, QtyPlannedDialog, SurplusDialog } from "@/components/domain/jobs/PlanDialogs";
@@ -160,10 +161,20 @@ export function JobDetailClient({ data }: { data: JobDetailData }) {
         </div>
       )}
       {!closed && <p className="text-sm text-zinc-700">QR ที่ใช้งานอยู่ {data.activeTokens} ใบ{data.activeTokens === 0 ? " — ยังไม่ได้พิมพ์ใบงาน" : ""}</p>}
+      {/* 0182: ไม่มีรูป = เตือนเบาๆ ไม่บล็อกการพิมพ์ (รูปไม่ใช่ด่าน — มติ จ5) · photos === undefined (อ่านรูปไม่ได้) ไม่เตือนว่า "ไม่มีรูป" เพราะไม่รู้ */}
+      {!closed && data.photos !== undefined && data.photos.length === 0 && (
+        <p className="text-sm text-zinc-800">
+          ใบนี้ยังไม่มีรูป — ใบพิมพ์จะไม่มีรูปหลัก ·{" "}
+          <a href="#job-photos" className="font-semibold text-primary-700 underline underline-offset-2">
+            เพิ่มรูป
+          </a>
+        </p>
+      )}
 
-      {/* 2 คอลัมน์บนจอใหญ่: เว้นครึ่งขวาไว้ให้การ์ดถัดไป (ยังไม่มี) — จอเล็กเรียงบนลงล่าง */}
-      <div className="grid gap-4 lg:grid-cols-2">
+      {/* 2 คอลัมน์บนจอใหญ่: แผนโลหะ (ซ้าย) · รูปงาน (ขวา) — จอเล็กเรียงบนลงล่าง และรูปงานขึ้นก่อนแผนโลหะ (รูปเป็นสิ่งที่ต้องทำก่อนพิมพ์) */}
+      <div className="grid gap-4 lg:grid-cols-2 lg:items-start">
         <PlanCard job={job} board={board} stages={stages} onEditQty={() => setDlg({ t: "qty" })} onEditPlan={() => setDlg({ t: "plan" })} onDecideSurplus={() => setDlg({ t: "surplus" })} />
+        <JobPhotosCard jobId={job.id} jobNo={job.jobNo} sku={job.sku} sourceKind={job.sourceKind} activeTokens={data.activeTokens} photos={data.photos} />
       </div>
 
       {lots === null && (board?.partsCount ?? 0) > 1 && (

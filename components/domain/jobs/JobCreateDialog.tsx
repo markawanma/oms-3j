@@ -152,7 +152,8 @@ export function JobCreateDialog({ kind, itemId, itemLabel, onClose, onCreated }:
       toast.push(`สร้างใบงาน ${r.data.jobNo} แล้ว${r.data.planMissing.length > 0 ? " · ยังไม่มีแผนโลหะ" : ""}`);
       onCreated();
       onClose();
-      router.push(`/jobs/${r.data.jobId}`);
+      // 0182: สร้างเสร็จพาไปการ์ดรูปงาน (ถ่าย/ดูรูปก่อนพิมพ์) — เติม hash เท่านั้น ไม่ใส่ช่องรูปในฟอร์ม (มติ ux Q2)
+      router.push(`/jobs/${r.data.jobId}#job-photos`);
     } catch {
       setError(GENERIC_JOB_ERROR);
     } finally {

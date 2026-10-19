@@ -305,7 +305,7 @@ describe("JobCreatePanel", () => {
     await waitFor(() => expect(submit).toBeEnabled(), { timeout: 3000 });
     await userEvent.click(submit);
     expect(createJob).toHaveBeenCalledWith({ kind: "oem", itemId: U1, stageCodes: ["cast", "polish"], dueDate: null, startGateNote: "ลูกค้าประจำ", designLabel: "แหวนลาย A", profileId: PF[0].id });
-    await waitFor(() => expect(push).toHaveBeenCalledWith("/jobs/J9"));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/jobs/J9#job-photos"));
   });
 
   const suggestion = (o: Record<string, unknown> = {}) => ({
