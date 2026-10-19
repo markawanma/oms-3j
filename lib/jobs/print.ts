@@ -5,6 +5,7 @@
 
 import { METAL_LABEL, SOURCE_LABEL } from "@/lib/jobs/types";
 import type { JobDetail, StageRow } from "@/lib/jobs/types";
+import type { LotPart } from "@/lib/jobs/lots";
 
 export interface PrintableJobStage {
   seq: number;
@@ -64,4 +65,51 @@ export interface HandoffRow {
   designLabel: string;
   qty: number;
   weightG: number | null;
+}
+
+// ---------------------------------------------------------------------------
+// 0181: ใบย่อย (ถุงของส่วนที่แยก) — QR = อีกใบของใบแม่เดิม (ข1) · ประกอบทีละ field ห้าม spread
+// 🔴 ไม่มี: ราคา · ต้นทุน · ชื่อลูกค้า · เลขอ้างอิง · ชื่อผู้เปิดใบ/ผู้ถือ · น้ำหนัก/แผนโลหะ (ทองห้าม · ต้นเหตุ N1 — ใบย่อยไม่พิมพ์น้ำหนักประมาณรอบนี้) · ตัวเลข reject
+// ---------------------------------------------------------------------------
+
+export interface PrintableSublot {
+  /** ใบแม่ (ใช้ออก QR) */
+  jobId: string;
+  lotJobId: string;
+  /** "JB-0020 · ส่วนที่ 2" */
+  lotLabel: string;
+  lotSeq: number;
+  designLabel: string;
+  sku: string | null;
+  metalLabel: string;
+  /** จำนวนชิ้นของส่วนนี้ */
+  qty: number;
+  /** ขั้นที่ผ่านมาแล้ว บรรทัดเดียว (ฌ3) เช่น "หล่อ › ขัด" — ว่าง = ยังไม่ผ่านขั้นไหน */
+  passedLine: string;
+  /** ขั้นที่ส่วนนี้อยู่/รอรับ (ไม่มีชื่อคน) */
+  stageName: string | null;
+  sourceLabel: string;
+  dueDate: string | null;
+  /** วันที่พิมพ์ (วันไทย YYYY-MM-DD) */
+  printedOn: string;
+}
+
+/** ส่วนที่ไม่ใช่ส่วนย่อยที่ยังเปิด (ใบแม่/ปิดแล้ว/ยกเลิก) = null — ใบย่อยพิมพ์ได้เฉพาะส่วนย่อยที่ยังมีงานอยู่ */
+export function toPrintableSublot(job: JobDetail, part: LotPart | undefined, printedOn: string): PrintableSublot | null {
+  if (!part || part.lotSeq < 1 || part.status === "done" || part.status === "cancelled") return null;
+  return {
+    jobId: job.id,
+    lotJobId: part.jobId,
+    lotLabel: `${job.jobNo} · ส่วนที่ ${part.lotSeq}`,
+    lotSeq: part.lotSeq,
+    designLabel: job.designLabel,
+    sku: job.sku,
+    metalLabel: METAL_LABEL[job.metal] ?? job.metal,
+    qty: part.qtyLive ?? part.qtyPlanned,
+    passedLine: part.passedStages.join(" › "),
+    stageName: part.stageName,
+    sourceLabel: job.sourceKind === "oem" ? "งานลูกค้า" : (SOURCE_LABEL[job.sourceKind] ?? "ผลิตเข้าสต็อก"),
+    dueDate: job.dueDate,
+    printedOn,
+  };
 }

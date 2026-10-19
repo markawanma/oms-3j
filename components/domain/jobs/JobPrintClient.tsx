@@ -126,8 +126,8 @@ export interface QrTarget {
   error: string | null;
 }
 
-export function JobPrintClient({ job, qr = { host: null, warning: null, error: null } }: { job: PrintableJob; qr?: QrTarget }) {
-  const [keep, setKeep] = useState(false);
+export function JobPrintClient({ job, qr = { host: null, warning: null, error: null }, defaultKeep = false }: { job: PrintableJob; qr?: QrTarget; /** 0181: ใบที่แยกส่วนแล้ว — ถุงหลายใบถือ QR พร้อมกัน ค่าเริ่ม = ไม่เพิกถอนใบเก่า */ defaultKeep?: boolean }) {
+  const [keep, setKeep] = useState(defaultKeep);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [issued, setIssued] = useState<IssuedQr | null>(null);

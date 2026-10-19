@@ -25,6 +25,9 @@ import { SCRAP_REASONS, SCRAP_REASON_LABEL } from "@/lib/jobs/types";
 /** เพดาน QR ที่ใช้งานพร้อมกันต่อใบ (มติ Q8: คง 5) — DB ตัดสินจริง (token_cap) · ที่นี่ไว้ปิดปุ่ม/อธิบายก่อนกด */
 export const QR_CAP = 5;
 
+/** event ในหน้าต่าง: รายการ QR เปลี่ยน (เพิกถอน/ออกใหม่) */
+export const QR_CHANGED = "job-qr-changed";
+
 export type LotDialogSpec =
   | { t: "split"; partId?: string }
   | { t: "cancelLot"; partId: string }
@@ -53,6 +56,12 @@ export function useQrList(jobId: string) {
   }, [jobId]);
   useEffect(() => {
     void load();
+  }, [load]);
+  // เพิกถอน/ออก QR จากที่อื่นในหน้า (dialog) แล้วรายการต้องโหลดใหม่
+  useEffect(() => {
+    const h = () => void load();
+    window.addEventListener(QR_CHANGED, h);
+    return () => window.removeEventListener(QR_CHANGED, h);
   }, [load]);
   const active = state.s === "ok" ? state.rows.filter((r) => r.active) : [];
   return { state, load, active, capReached: active.length >= QR_CAP };
@@ -413,7 +422,10 @@ export function RevokeQrDialog({ jobId, printNo, label, onClose }: { jobId: stri
   const ready = reason.trim() !== "";
   async function submit() {
     const r = await run(() => revokeJobQr(jobId, reason, printNo), { success: "เพิกถอน QR แล้ว" });
-    if (r.ok) onClose();
+    if (r.ok) {
+      window.dispatchEvent(new Event(QR_CHANGED));
+      onClose();
+    }
   }
   return (
     <Modal open onClose={onClose} title={`เพิกถอน QR ${label}`}>
@@ -426,5 +438,16 @@ export function RevokeQrDialog({ jobId, printNo, label, onClose }: { jobId: stri
         <DialogButtons busy={busy} ready={ready} confirm="เพิกถอน QR" onClose={onClose} danger />
       </form>
     </Modal>
+  );
+}
+
+/** รายการ QR + เพิกถอนรายใบ ใช้ซ้ำนอกแผงส่วน (หน้าพิมพ์ใบย่อย: ครบเพดานแล้วให้เลือกเพิกถอนเอง — ไม่เพิกถอนเงียบ) */
+export function QrManager({ jobId, qr, closed = false }: { jobId: string; qr: ReturnType<typeof useQrList>; closed?: boolean }) {
+  const [rev, setRev] = useState<{ printNo: number; label: string } | null>(null);
+  return (
+    <>
+      <QrList qr={qr} closed={closed} onRevoke={(r) => setRev({ printNo: r.printNo, label: `ใบที่ ${r.printNo} · ${PURPOSE_LABEL[r.purpose]}${r.label ? ` · ${r.label}` : ""}` })} />
+      {rev && <RevokeQrDialog jobId={jobId} printNo={rev.printNo} label={rev.label} onClose={() => setRev(null)} />}
+    </>
   );
 }
