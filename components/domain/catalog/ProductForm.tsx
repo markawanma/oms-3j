@@ -25,7 +25,9 @@ import {
   OEM_PLATING_OPTIONS,
   OEM_POLISH_TIER_OPTIONS,
 } from "@/lib/oem/display";
+import { purityFormIssue, purityFractionFromForm, purityFractionToPct } from "@/lib/units/purity";
 import { Button } from "@/components/ui/Button";
+import { PurityPctInput } from "@/components/ui/PurityPctInput";
 import { useToast } from "@/components/ui/Toast";
 import { ProductImageSection } from "./ProductImageSection";
 
@@ -71,7 +73,8 @@ export function ProductForm({
   const [costType, setCostType] = useState<CostType>(initial?.costType ?? "fixed");
   const [unitCost, setUnitCost] = useState(initial?.manualUnitCost != null ? String(initial.manualUnitCost) : "");
   const [weight, setWeight] = useState(initial?.silverWeightG != null ? String(initial.silverWeightG) : "");
-  const [purity, setPurity] = useState(initial?.silverPurity != null ? String(initial.silverPurity) : "");
+  // ช่องเป็น % (มติเจ้าของ 18 ต.ค. 69) — DB/action ยังเป็นสัดส่วน 0..1 · แปลงผ่าน lib/units/purity.ts จุดเดียว (purityFraction ด้านล่าง)
+  const [purity, setPurity] = useState(purityFractionToPct(initial?.silverPurity));
   const [labor, setLabor] = useState(initial?.laborCost != null ? String(initial.laborCost) : "");
   const [listPrice, setListPrice] = useState(initial?.listPrice != null ? String(initial.listPrice) : "");
   // 0141: โหมด 'spec' เท่านั้น — ค่าต้องตรงเป๊ะกับ scope ของเรตในฐานข้อมูล
@@ -88,21 +91,33 @@ export function ProductForm({
   const [note, setNote] = useState(initial?.note ?? "");
   const [isActive, setIsActive] = useState(initial?.isActive ?? true);
   const [error, setError] = useState<string | null>(null);
+  const [purityAttempted, setPurityAttempted] = useState(false);
   const [pending, startTransition] = useTransition();
 
+  // ค่าที่ DB เก็บอยู่ตอนนี้ (สัดส่วน) — ช่องที่ผู้ใช้ไม่ได้แตะส่งกลับค่านี้เป๊ะ ไม่ผ่านการปัดเป็น 2 ตำแหน่ง
+  const originalPurity = initial?.silverPurity ?? null;
+  const purityIssue = purityFormIssue(purity, originalPurity);
+  // null = ว่าง หรือ พิมพ์ผิดกติกา (กรณีหลังถูกบล็อกตอน submit ด้วย purityIssue — ไม่ปัดเงียบ)
+  const purityFraction = purityFractionFromForm(purity, originalPurity);
+  // โหมด fixed ซ่อนช่องความบริสุทธิ์ → ผู้ใช้ไม่เห็นช่อง จึงไม่ใช้ค่าใน state (อาจเป็นค่าที่พิมพ์ผิดค้างจากโหมดอื่น)
+  // และไม่บล็อกบันทึก · ส่งค่าเดิมใน DB กลับ ห้ามส่ง null ไปล้างค่า (QA 18 ต.ค. 69)
+  const purityToSend = costType === "fixed" ? originalPurity : purityFraction;
+
   const preview = useMemo(() => {
+    // พิมพ์ความบริสุทธิ์ผิด → ไม่โชว์ต้นทุน (ไม่ให้ preview ตกไปใช้ default 0.925 โดยไม่บอก)
+    if (purityIssue && costType !== "fixed") return { cost: null, margin: null };
     const cost = computeEffectiveCost(
       costType,
       unitCost.trim() ? Number(unitCost) : null,
       weight.trim() ? Number(weight) : null,
-      purity.trim() ? Number(purity) : null,
+      purityFraction,
       labor.trim() ? Number(labor) : null,
       silverSpot
     );
     const price = listPrice.trim() ? Number(listPrice) : null;
     const margin = cost != null && price != null && price > 0 ? (price - cost) / price : null;
     return { cost, margin };
-  }, [costType, unitCost, weight, purity, labor, silverSpot, listPrice]);
+  }, [costType, unitCost, weight, purityIssue, purityFraction, labor, silverSpot, listPrice]);
 
   /** null เมื่อ costType !== 'spec' — ใช้ทั้งตอนส่ง payload และตอนประกอบ
    * synthesized row (create path ด้านล่าง) ให้ตรงกันเป๊ะจุดเดียว. */
@@ -124,6 +139,11 @@ export function ProductForm({
 
     if (!sku.trim()) return setError("กรุณากรอก SKU");
     if (!name.trim()) return setError("กรุณากรอกชื่อสินค้า");
+    // ตรวจเฉพาะโหมดที่ช่องแสดงอยู่ (spot/spec) — ผิดกติกา = ไม่บันทึก ไม่ปัดเงียบ · โหมด fixed ไม่ตรวจ (ดู purityToSend)
+    if (costType !== "fixed" && purityIssue) {
+      setPurityAttempted(true); // พยายามบันทึกขณะค่าผิด → ข้อความใต้ช่องแสดงทันที (ไม่รอ blur)
+      return setError(`ความบริสุทธิ์: ${purityIssue}`);
+    }
     if (costType === "spot") {
       const w = Number(weight);
       if (!weight.trim() || !Number.isFinite(w) || w <= 0) {
@@ -153,7 +173,7 @@ export function ProductForm({
         costType,
         unitCost: costType === "fixed" && unitCost.trim() ? Number(unitCost) : null,
         silverWeightG: weight.trim() ? Number(weight) : null,
-        silverPurity: purity.trim() ? Number(purity) : null,
+        silverPurity: purityToSend,
         laborCost: costType === "spec" ? null : labor.trim() ? Number(labor) : null,
         listPrice: listPrice.trim() ? Number(listPrice) : null,
         barcode: barcode.trim() || null,
@@ -186,7 +206,7 @@ export function ProductForm({
           costType,
           manualUnitCost: costType === "fixed" && unitCost.trim() ? Number(unitCost) : null,
           silverWeightG: weight.trim() ? Number(weight) : null,
-          silverPurity: purity.trim() ? Number(purity) : null,
+          silverPurity: purityToSend,
           laborCost: costType === "spec" ? null : labor.trim() ? Number(labor) : null,
           listPrice: listPrice.trim() ? Number(listPrice) : null,
           makeSpec: buildMakeSpec(),
@@ -335,20 +355,10 @@ export function ProductForm({
               />
             </label>
             <label className={labelCls}>
-              ความบริสุทธิ์
-              <input
-                type="number"
-                inputMode="decimal"
-                min={0}
-                max={1}
-                step="0.001"
-                value={purity}
-                onChange={(e) => setPurity(e.target.value)}
-                placeholder="0.925"
-                className={inputCls}
-              />
+              ความบริสุทธิ์ (%)
+              <PurityPctInput value={purity} onChange={setPurity} className={inputCls} issue={purityIssue} forceShow={purityAttempted} />
               <span className="block pt-0.5 text-[11px] font-normal text-zinc-500">
-                เครื่องประดับ 925 = 0.925 · เงินแท่ง 999 = 0.999
+                เครื่องประดับ 925 = 92.50 · เงินแท่ง 999 = 99.90
               </span>
             </label>
             <label className={labelCls}>
@@ -389,20 +399,10 @@ export function ProductForm({
               />
             </label>
             <label className={labelCls}>
-              ความบริสุทธิ์
-              <input
-                type="number"
-                inputMode="decimal"
-                min={0}
-                max={1}
-                step="0.001"
-                value={purity}
-                onChange={(e) => setPurity(e.target.value)}
-                placeholder="0.925"
-                className={inputCls}
-              />
+              ความบริสุทธิ์ (%)
+              <PurityPctInput value={purity} onChange={setPurity} className={inputCls} issue={purityIssue} forceShow={purityAttempted} />
               <span className="block pt-0.5 text-[11px] font-normal text-zinc-500">
-                เครื่องประดับ 925 = 0.925
+                เครื่องประดับ 925 = 92.50
               </span>
             </label>
             <label className={labelCls}>

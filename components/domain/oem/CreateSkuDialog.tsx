@@ -28,6 +28,7 @@ import { createCatalogSku } from "@/lib/actions/catalog-sku";
 import type { SkuPrefixRow } from "@/lib/catalog/sku-prefix";
 import { SKU_WORK_TYPE_LABEL_TH } from "@/lib/catalog/sku-prefix";
 import type { OemProductOption } from "@/lib/oem/types";
+import { formatPurityPct } from "@/lib/units/purity";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
@@ -86,7 +87,7 @@ export function CreateSkuDialog({
   // หรือวัสดุไม่ใช่เงิน) แล้วข้อความจะหายไป ไม่ใช่ error.
   const seedLines: string[] = [];
   if (seed.weightG != null) seedLines.push(`น้ำหนัก ${seed.weightG} ก.`);
-  if (seed.purity != null) seedLines.push(`ความบริสุทธิ์ ${seed.purity}`);
+  if (seed.purity != null) seedLines.push(`ความบริสุทธิ์ ${formatPurityPct(seed.purity)}`);
   if (seed.category) seedLines.push(`ประเภท ${seed.category}`);
 
   function submit() {
