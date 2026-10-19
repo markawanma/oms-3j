@@ -14,7 +14,7 @@
 --  4 core: job_core_receive (+p_qty_received · ส่วนต่าง · ขั้นก่อนที่แยกแล้วปิดอัตโนมัติไม่ได้) · job_core_send (ส่งส่วนที่เหลือหลังแยก) · job_lot_split_core · job_lot_cancel_core · job_tree_assert/check
 --  5 RPC ออฟฟิศ: job_lot_split · job_lot_cancel · job_discrepancy_resolve/void · job_token_list · job_office_receive(+p_qty_received) · job_token_issue(+purpose/lot) · job_token_revoke(+p_print_no) · job_done · job_cancel · job_stage_reopen · job_office_begin (ล็อกใบแม่ก่อน)
 --  6 RPC ช่าง: job_worker_send/receive (พารามิเตอร์ใหม่ต่อท้าย default null) · job_worker_discrepancy_resolve · job_worker_lot_cancel · job_worker_resolve (+parts/my_actions/'multi')
---  7 views: v_job_board (+6 คอลัมน์ท้าย) · v_job_stage_loss (+not_comparable) · v_job_stage_from_events · v_production_order_job_mismatch · v_job_tree · v_job_tree_summary · v_job_tree_drift
+--  7 views: v_job_board (+12 คอลัมน์ท้าย: 7 เดิมของ L1 + tree_handoff_gap_g · tree_handoff_gap_partial_g · tree_handoff_mismatch_count · tree_weight_gap_excess_g · tree_lot_first_gap_sum_g) · v_job_stage_loss (+not_comparable) · v_job_stage_from_events · v_production_order_job_mismatch · v_job_tree · v_job_tree_summary · v_job_tree_drift · v_job_tree_stage_loss (ใหม่) · v_job_discrepancy (ใหม่)
 --  8 สิทธิ์ service_role เท่านั้น (ข้อ 18) · RLS เปิดไม่มี policy · post-check: md5 ฟังก์ชันอื่นไม่ขยับ · updated_at ไม่ขยับ · trigger เปิดครบ · ไม่มี overload
 --
 -- ตัดสินเอง (นอก design/brief — เหตุผล)
@@ -1976,7 +1976,7 @@ begin
   -- 0181: ออฟฟิศยกเลิกส่วนได้ทุกเมื่อ + เหตุผล + ที่ไปของชิ้น (return_to_parent | scrap) — ไม่มี "หายเฉยๆ"
   v_job := analytics.job_office_begin('job_lot_cancel', p_shop_id, p_lot_job_id, v_actor);
   v_reason := analytics.job_text_clean(p_reason, 'เหตุผลที่ยกเลิกส่วน', 200, true);
-  v_r := analytics.job_lot_cancel_core(p_lot_job_id, p_disposition, v_reason, p_scrap_reason, p_scrap_weight_g, 'job_page', v_actor, null, false);
+  v_r := analytics.job_lot_cancel_core(p_lot_job_id, p_disposition, v_reason, p_scrap_reason, p_scrap_weight_g, null, 'job_page', v_actor, null, false);
   if not (v_r ->> 'ok')::boolean then
     raise exception '%', v_r ->> 'message' using errcode = '22023', hint = v_r ->> 'code';
   end if;
