@@ -3,9 +3,9 @@
 // JobDetailClient — หน้าใบงาน /jobs/[id] (ออฟฟิศ): หัวใบงาน · ขั้นตอน+น้ำหนัก · ปุ่มออฟฟิศ · ประวัติ event
 // ปุ่ม/สถานะเป็นเพียงทางเลือกที่แสดง — ทุกกติกา (ลำดับขั้น · น้ำหนัก · วันย้อน ≤14 · มัดจำ) ตัดสินที่ DB และแสดงข้อความไทยกลับมา
 
-import { useState } from "react";
+import { Suspense, lazy, useState } from "react";
 import Link from "next/link";
-import { Printer } from "lucide-react";
+import { Printer, Scissors } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { DesignLabelDialog, DoneDialog, DueDialog, ReasonDialog } from "@/components/domain/jobs/JobDialogs";
 import type { ReasonKind } from "@/components/domain/jobs/JobDialogs";
@@ -19,8 +19,14 @@ import { JobEvents, StageTable } from "@/components/domain/jobs/JobStages";
 import type { JobDetailData } from "@/lib/actions/job-office";
 import { qtyOrderPlannedText, statusSignals } from "@/lib/jobs/board";
 import { thaiDate } from "@/lib/jobs/dates";
+import { closeBlocker, hasLots, rootLossFromTree, splittableParts } from "@/lib/jobs/lots";
 import { JOB_STATUS_LABEL, METAL_LABEL, SOURCE_LABEL } from "@/lib/jobs/types";
 import type { StageRow } from "@/lib/jobs/types";
+import type { LotDialogSpec } from "@/components/domain/jobs/JobLotsSection";
+
+// 0181: แผงส่วนย่อย/dialog โหลดเมื่อใช้จริงเท่านั้น (ใบเดี่ยวที่ไม่เคยแยกไม่โหลดโค้ดชุดนี้ · ระหว่างโหลดแสดง skeleton)
+const LotsPanel = lazy(() => import("@/components/domain/jobs/JobLotsSection").then((m) => ({ default: m.LotsPanel })));
+const LotDialogs = lazy(() => import("@/components/domain/jobs/JobLotsSection").then((m) => ({ default: m.LotDialogs })));
 
 type Dlg =
   | { t: "reason"; spec: ReasonKind }
@@ -46,6 +52,18 @@ const STATUS_TONE: Record<string, string> = {
 export function JobDetailClient({ data }: { data: JobDetailData }) {
   const { job, board, stages, loss, events, workers, source, todayTh } = data;
   const [dlg, setDlg] = useState<Dlg>(null);
+  const [lotDlg, setLotDlg] = useState<LotDialogSpec>(null);
+  const lots = data.lots ?? null;
+  // ส่วนหลัก (ใบเอง) — ให้ dialog รับแทนรู้จำนวนที่ส่งมา/ขั้นถูกล็อก (ใบเดี่ยวที่ถูกล็อก L-2 ก็ต้องมีช่องจำนวน)
+  const rootPart = lots?.parts.find((p) => p.lotSeq === 0) ?? null;
+  const showLots = hasLots(lots);
+  // ใบเดี่ยวที่ยังไม่เคยแยก: ปุ่ม "แยกส่วน" อยู่แถวปุ่มด้านบน (เมื่อมีผู้ถือถือ ≥ 2 ชิ้น) · ใบที่แยกแล้วอยู่ในแผงส่วน
+  const canStartSplit = !showLots && lots !== null && splittableParts(lots).length > 0;
+  // ปิด full ไม่ได้เมื่อมีส่วนย่อยค้าง/ส่วนต่างรอชี้แจง — เหตุผลขึ้นบนปุ่ม (DB ตัดสินซ้ำที่ job_done: parts_open)
+  const doneBlocker = closeBlocker(lots);
+  // M-A: ใบที่แยกส่วนแล้ว — loss/ส่วนต่างส่งมอบของขั้นในใบแม่ใช้ตัวเลขทั้งต้นไม้ (v_job_tree_stage_loss) · ไม่มี = ของใบเอง
+  const lossMap = lots?.treeLoss ? { ...loss, ...rootLossFromTree(lots.treeLoss) } : loss;
+  const stageNameByCode = Object.fromEntries(stages.map((s) => [s.code, s.name]));
   const closed = job.status === "done" || job.status === "cancelled";
   const firstOpen = stages.find((s) => s.status === "pending" || s.status === "received") ?? null;
   const started = stages.some((s) => s.status !== "pending");
@@ -127,8 +145,14 @@ export function JobDetailClient({ data }: { data: JobDetailData }) {
               ย้อนขั้น
             </Button>
           )}
-          <Button type="button" variant="secondary" disabled={!allDone} title={allDone ? undefined : "ปิดได้เมื่อทุกขั้นส่งต่อหรือข้ามแล้ว"} onClick={() => setDlg({ t: "done" })}>
-            ปิดงาน
+          {canStartSplit && (
+            <Button type="button" variant="secondary" onClick={() => setLotDlg({ t: "split" })}>
+              <Scissors className="h-4 w-4" aria-hidden="true" />
+              แยกส่วน
+            </Button>
+          )}
+          <Button type="button" variant="secondary" disabled={!allDone || doneBlocker !== null} title={doneBlocker ?? (allDone ? undefined : "ปิดได้เมื่อทุกขั้นส่งต่อหรือข้ามแล้ว")} onClick={() => setDlg({ t: "done" })}>
+            {doneBlocker ? `ปิดงานไม่ได้ — ${doneBlocker}` : "ปิดงาน"}
           </Button>
           <Button type="button" variant="danger" onClick={() => setDlg({ t: "reason", spec: { kind: "cancel" } })}>
             ยกเลิกใบงาน
@@ -142,13 +166,24 @@ export function JobDetailClient({ data }: { data: JobDetailData }) {
         <PlanCard job={job} board={board} stages={stages} onEditQty={() => setDlg({ t: "qty" })} onEditPlan={() => setDlg({ t: "plan" })} onDecideSurplus={() => setDlg({ t: "surplus" })} />
       </div>
 
+      {lots === null && (board?.partsCount ?? 0) > 1 && (
+        <p role="alert" className="rounded-md border border-amber-300 bg-amber-50 p-2.5 text-sm font-medium text-amber-900">
+          โหลดส่วนย่อยของใบนี้ไม่ได้ — ตัวเลข/ปุ่มปิดงานบนหน้านี้อาจไม่ครบ ลองรีเฟรช ถ้ายังไม่ได้แจ้งผู้ดูแลระบบ
+        </p>
+      )}
+      {showLots && lots && (
+        <Suspense fallback={<p role="status" aria-busy="true" className="rounded-lg border border-zinc-200 bg-white p-4 text-sm text-zinc-700">กำลังโหลดส่วนของใบนี้…</p>}>
+          <LotsPanel jobId={job.id} lots={lots} closed={closed} openDialog={setLotDlg} gold={job.metal === "gold"} stageNames={stageNameByCode} />
+        </Suspense>
+      )}
+
       <section aria-labelledby="stages-h" className="space-y-2">
         <h2 id="stages-h" className="text-lg font-bold text-zinc-900">
           ขั้นตอน
         </h2>
         <StageTable
           stages={stages}
-          loss={loss}
+          loss={lossMap}
           closed={closed}
           profiled={job.profileId !== null}
           gold={job.metal === "gold"}
@@ -161,10 +196,15 @@ export function JobDetailClient({ data }: { data: JobDetailData }) {
 
       <JobEvents events={events} truncated={data.eventsTruncated} stageNames={Object.fromEntries(stages.map((s) => [s.code, s.name]))} />
 
+      {lotDlg && lots && (
+        <Suspense fallback={null}>
+          <LotDialogs jobId={job.id} lots={lots} spec={lotDlg} onClose={() => setLotDlg(null)} gold={job.metal === "gold"} workers={workers} todayTh={todayTh} job={{ sourceKind: job.sourceKind, metal: job.metal, requireFinalWeight: job.requireFinalWeight }} />
+        </Suspense>
+      )}
       {dlg?.t === "reason" && <ReasonDialog jobId={job.id} spec={dlg.spec} onClose={() => setDlg(null)} />}
       {dlg?.t === "label" && <DesignLabelDialog jobId={job.id} current={job.designLabel} onClose={() => setDlg(null)} />}
       {dlg?.t === "due" && <DueDialog jobId={job.id} current={job.dueDate} todayTh={todayTh} onClose={() => setDlg(null)} />}
-      {dlg?.t === "done" && <DoneDialog jobId={job.id} planned={job.qtyPlanned} qtyOrder={job.qtyOrder} sourceKind={job.sourceKind} metal={job.metal} requireFinalWeight={job.requireFinalWeight} weighRequired={job.weighRequired} recordedScrap={stages.reduce((n, s) => n + s.qtyScrap, 0)} onClose={() => setDlg(null)} />}
+      {dlg?.t === "done" && <DoneDialog jobId={job.id} planned={job.qtyPlanned} qtyOrder={job.qtyOrder} sourceKind={job.sourceKind} metal={job.metal} requireFinalWeight={job.requireFinalWeight} weighRequired={job.weighRequired} recordedScrap={stages.reduce((n, s) => n + s.qtyScrap, 0) + (rootPart?.qtyDiscrepancyResolved ?? 0)} qtySplitOut={rootPart?.qtySplitOut ?? 0} qtyArrived={rootPart?.qtyDiscrepancyArrived ?? 0} onClose={() => setDlg(null)} />}
       {dlg?.t === "profile" && <ChangeProfileDialog jobId={job.id} metal={job.metal} stages={stages} currentProfileId={job.profileId} onClose={() => setDlg(null)} />}
       {dlg?.t === "qty" && <QtyPlannedDialog jobId={job.id} qtyOrder={job.qtyOrder} current={job.qtyPlanned} hasOverride={typeof job.metalPlanBasis?.override_g === "number"} hasTarget={job.targetPieceG !== null} onClose={() => setDlg(null)} />}
       {dlg?.t === "plan" && (
@@ -174,7 +214,7 @@ export function JobDetailClient({ data }: { data: JobDetailData }) {
         />
       )}
       {dlg?.t === "surplus" && <SurplusDialog jobId={job.id} qtySurplus={surplusLeft ?? 0} onClose={() => setDlg(null)} />}
-      {dlg?.t === "receive" && <ReceiveStageDialog jobId={job.id} stage={dlg.stage} workers={workers} todayTh={todayTh} prevWeightOut={prevOut} onClose={() => setDlg(null)} />}
+      {dlg?.t === "receive" && <ReceiveStageDialog jobId={job.id} stage={dlg.stage} workers={workers} todayTh={todayTh} prevWeightOut={prevOut} qtyExpected={rootPart?.pendingSeq === dlg.stage.seq ? rootPart.pendingQtyExpected : null} locked={rootPart?.pendingSeq === dlg.stage.seq && rootPart.receiveLocked} onClose={() => setDlg(null)} />}
       {dlg?.t === "send" && <SendStageDialog jobId={job.id} stage={dlg.stage} todayTh={todayTh} onClose={() => setDlg(null)} />}
     </div>
   );

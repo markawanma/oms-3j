@@ -6,7 +6,7 @@
 
 import { revalidatePath } from "next/cache";
 import { effectiveDateBangkok } from "@/lib/tiktok/format";
-import { isUuid, parseCount, parseDate, parseLabel, parseSeq, parseText, parseWeight, parseWeightOrZero, parseScrapReason, TARGET_PIECE_MAX_G } from "@/lib/jobs/input";
+import { isUuid, parseCount, parseDate, parseLabel, parsePieces, parseSeq, parseText, parseWeight, parseWeightOrZero, parseScrapReason, TARGET_PIECE_MAX_G } from "@/lib/jobs/input";
 import { callOffice, fail, guard } from "@/lib/jobs/office-server";
 import type { JobResult } from "@/lib/jobs/office-server";
 import { currentAppOrigin } from "@/lib/jobs/origin-server";
@@ -29,14 +29,25 @@ export interface IssuedQr {
   revokedPrevious: number;
 }
 
-export async function issueJobQr(jobId: string, keepPrevious: boolean): Promise<JobResult<IssuedQr>> {
+/** 0181: ใบย่อย (sublot) = QR อีกใบของใบแม่ ชี้ส่วน — ค่าเริ่มไม่เพิกถอนของเก่า (ข1) · ไม่ส่ง opts = พิมพ์ใบงานหลักแบบเดิมทุกประการ */
+export interface IssueQrOpts {
+  purpose: "sublot" | "delivery_note";
+  lotJobId: string;
+  /** L6 (security): ค่าเริ่ม = ไม่เพิกถอน QR ใบไหนเลย (รวมใบงานหลัก) — เพิกถอนต้องเป็นการเลือกชัด (true) · ไม่อิง keepPrevious */
+  revokePrevious?: boolean;
+}
+
+export async function issueJobQr(jobId: string, keepPrevious: boolean, opts?: IssueQrOpts): Promise<JobResult<IssuedQr>> {
   const g = await guard();
   if (g) return g;
   if (!isUuid(jobId)) return fail("ไม่พบใบงาน");
+  if (opts !== undefined && (typeof opts !== "object" || opts === null || (opts.purpose !== "sublot" && opts.purpose !== "delivery_note") || !isUuid(opts.lotJobId))) return fail("ส่วนที่เลือกไม่ถูกต้อง");
   // origin ใน QR: env APP_ORIGIN (production) ก่อน · ไม่ได้ตั้ง = host ที่ผ่านการตรวจรูปแบบ (lib/jobs/origin.ts) · ผิดรูปแบบ = ไม่ออก token (ไม่เรียก RPC)
   const origin = await currentAppOrigin();
   if (!origin.ok) return fail(origin.error);
-  const r = await callOffice<Raw>("job_token_issue", { p_job_id: jobId, p_revoke_previous: keepPrevious !== true });
+  const r = await callOffice<Raw>("job_token_issue", opts
+    ? { p_job_id: jobId, p_purpose: opts.purpose, p_lot_job_id: opts.lotJobId, ...(opts.revokePrevious === true ? { p_revoke_previous: true } : {}) }
+    : { p_job_id: jobId, p_revoke_previous: keepPrevious !== true });
   if (!r.ok) return r;
   const token = r.data.token;
   const printNo = r.data.print_no;
@@ -52,13 +63,15 @@ export async function issueJobQr(jobId: string, keepPrevious: boolean): Promise<
   return { ok: true, data: { svg, printNo, jobNo, revokedPrevious: typeof r.data.revoked_previous === "number" ? r.data.revoked_previous : 0 } };
 }
 
-export async function revokeJobQr(jobId: string, reason: string): Promise<JobResult<{ revoked: number }>> {
+/** printNo ว่าง = เพิกถอนทุกใบที่ใช้งานอยู่ (เดิม) · ระบุ = เพิกถอนเฉพาะใบนั้น ("QR ที่หาย" — 0181) */
+export async function revokeJobQr(jobId: string, reason: string, printNo?: number): Promise<JobResult<{ revoked: number }>> {
   const g = await guard();
   if (g) return g;
   if (!isUuid(jobId)) return fail("ไม่พบใบงาน");
+  if (printNo !== undefined && (!Number.isInteger(printNo) || printNo < 1 || printNo > 100000)) return fail("เลือก QR ที่จะเพิกถอนไม่ถูกต้อง");
   const why = parseText(reason, "เหตุผลที่เพิกถอน QR", 200, true);
   if (!why.ok) return fail(why.error);
-  const r = await callOffice<Raw>("job_token_revoke", { p_job_id: jobId, p_reason: why.value });
+  const r = await callOffice<Raw>("job_token_revoke", printNo === undefined ? { p_job_id: jobId, p_reason: why.value } : { p_job_id: jobId, p_reason: why.value, p_print_no: printNo });
   if (!r.ok) return r;
   done(jobId);
   return { ok: true, data: { revoked: typeof r.data.revoked === "number" ? r.data.revoked : 0 } };
@@ -84,6 +97,8 @@ export interface OfficeReceiveInput {
   weightIn: string | null;
   workerId: string | null;
   assigneeName: string | null;
+  /** 0181: จำนวนที่ได้จริง (ว่าง = ตามที่ส่ง) — น้อยกว่าที่ส่ง = ส่วนต่างรอชี้แจง · jobId ชี้ส่วนย่อยได้ */
+  qtyReceived?: number | string | null;
 }
 
 export async function officeReceiveStage(i: OfficeReceiveInput): Promise<JobResult<null>> {
@@ -100,7 +115,13 @@ export async function officeReceiveStage(i: OfficeReceiveInput): Promise<JobResu
   const name = parseLabel(i.assigneeName, "ชื่อผู้รับงาน", 60, false); // ชื่อนี้ไหลไปหน้าจอช่าง (holder_name) → ห้าม < > เหมือนชื่อช่าง
   if (!name.ok) return fail(name.error);
   if (!i.workerId && !name.value) return fail("ระบุผู้รับงาน (เลือกช่างหรือพิมพ์ชื่อ)");
-  const r = await callOffice<Raw>("job_office_receive", { p_job_id: i.jobId, p_expected_seq: seq.value, p_occurred_on: on.value, p_weight_in_g: w.value, p_worker_id: i.workerId ?? null, p_assignee_name: name.value, p_channel: "job_page" });
+  let qtyReceived: number | null = null;
+  if (i.qtyReceived != null && i.qtyReceived !== "") {
+    const q = parsePieces(i.qtyReceived, "จำนวนที่ได้รับ");
+    if (!q.ok) return fail(q.error);
+    qtyReceived = q.value;
+  }
+  const r = await callOffice<Raw>("job_office_receive", { p_job_id: i.jobId, p_expected_seq: seq.value, p_occurred_on: on.value, p_weight_in_g: w.value, p_worker_id: i.workerId ?? null, p_assignee_name: name.value, p_channel: "job_page", ...(qtyReceived !== null ? { p_qty_received: qtyReceived } : {}) });
   if (!r.ok) return r;
   done(i.jobId);
   return { ok: true, data: null };

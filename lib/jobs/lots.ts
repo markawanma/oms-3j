@@ -1,0 +1,415 @@
+// lib/jobs/lots.ts — ส่วนย่อยของใบงาน (L1 · 0181): ชนิดข้อมูล + mapper + ตัวช่วยแสดงผล (pure · ไม่แตะ DB)
+// ตัวเลขทุกตัวมาจาก v_job_tree / v_job_tree_summary / job_discrepancy ที่ DB คำนวณ — ที่นี่จัดกลุ่ม/ตั้งป้ายเท่านั้น (ไม่หาผลรวมเอง)
+//  · "รวม N ครบ" ยึด sum_check ของ DB — ไม่ใช่ผลบวกที่หน้าจอคิดเอง
+//  · ไม่มีราคา/ต้นทุน/ชื่อลูกค้าในชนิดข้อมูลนี้ (view ออกแบบไว้ไม่มี) · ไม่มีชื่อผู้เปิดใบ
+
+const str = (v: unknown): string | null => (typeof v === "string" && v !== "" ? v : null);
+function num(v: unknown): number | null {
+  if (v === null || v === undefined || v === "") return null;
+  const n = typeof v === "number" ? v : Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+const int0 = (v: unknown): number => num(v) ?? 0;
+const bool = (v: unknown): boolean => v === true;
+
+// ---------------------------------------------------------------------------
+// คอลัมน์ที่อ่าน (ชื่อตรงกับ 0181 §7)
+// ---------------------------------------------------------------------------
+export const TREE_COLUMNS =
+  "job_id, root_job_id, parent_job_id, lot_seq, label, status, qty_planned, qty_live, qty_stage_scrap, qty_split_out, qty_discrepancy_open, qty_discrepancy_resolved, qty_discrepancy_arrived, cancel_scrap_qty, qty_good, qty_scrap_final, stage_code, stage_name, stage_status, holder_name, days_in_stage, qty_qc_passed, cancel_scrap_weight_g, weight_scrap_gap_g";
+export const TREE_SUMMARY_COLUMNS =
+  "root_job_id, job_no, qty_planned, qty_order, parts_count, parts_open, lots_open, qty_live_total, qty_done_good, qty_scrap_total, qty_pending_explanation, qty_discrepancy_resolved, qty_qc_passed_total, weight_scrap_cancel_g, dominant_stage_code, sum_check";
+// M-B: อ่านจาก v_job_discrepancy (alias id) — weight_gap_excess_g คำนวณที่ DB (job_disc_excess_g) ไม่คำนวณซ้ำฝั่ง TS · เฉพาะหน้าออฟฟิศ
+export const DISCREPANCY_COLUMNS =
+  "id:discrepancy_id, root_job_id, job_id, from_stage_id, to_stage_id, qty, status, resolved_kind, resolved_reason, created_at, void_of_id, weight_gap_g, weight_sent_g, qty_sent, weight_gap_excess_g";
+// M-A: v_job_stage_loss ทั้งต้นไม้ (ใบแม่ + ส่วนย่อย) — เฉพาะหน้าออฟฟิศ (มีน้ำหนัก/gap)
+export const TREE_LOSS_COLUMNS =
+  "root_job_id, lot_seq, job_id, job_stage_id, stage_code, status, weighed, not_weighed, loss_g, loss_pct, warn, handoff_gap_g, handoff_gap_partial_g, not_comparable, cancel_scrap_weight_g";
+export const LOT_STAGE_COLUMNS = "id, job_id, seq, stage_code, status, weigh_required, weight_in_g, weight_out_g, metal_added_g, qty_in, qty_out, qty_scrap, qty_split_out, arrive_discrepancy_id";
+
+// ---------------------------------------------------------------------------
+// ส่วน (1 แถวต่อใบในต้นไม้ — ใบแม่ = lotSeq 0)
+// ---------------------------------------------------------------------------
+export interface LotPart {
+  jobId: string;
+  lotSeq: number;
+  /** "JB-0020" (ส่วนหลัก) · "JB-0020 · ส่วนที่ 2" — ที่เดียวของทุกจอ (job_no ของส่วนย่อยไม่ใช้บนจอ) */
+  label: string;
+  status: string;
+  qtyPlanned: number;
+  /** ชิ้นที่อยู่ในมือ/รอรับ ตอนนี้ (DB: job_live_qty) */
+  qtyLive: number | null;
+  qtyStageScrap: number;
+  qtySplitOut: number;
+  qtyDiscrepancyOpen: number;
+  qtyDiscrepancyResolved: number;
+  /** 0183: ส่วนต่างของใบนี้ที่ "ได้รับเพิ่มแล้ว" (ชิ้น) — ไปนับเป็น qtyLive ของส่วนใหม่แล้ว · ไม่รวมใน qtyDiscrepancyResolved · ปิดใบ: ดี + เสีย + แยกออก + ค่านี้ = เริ่มผลิต */
+  qtyDiscrepancyArrived: number;
+  cancelScrapQty: number | null;
+  /** M-C: น้ำหนักของเสียที่เลิกใช้ตอนยกเลิกส่วนเป็นของเสีย (g · ทอง+ขั้นชั่งเท่านั้น) — เฉพาะหน้าออฟฟิศ */
+  cancelScrapWeightG: number | null;
+  /** L-new-1: น้ำหนักล่าสุดของส่วน − น้ำหนักของเสียที่เลิกใช้ (g · DB คำนวณ · บวกเกิน 0.05 = ทองหายระหว่างทาง ต้องมีคำอธิบายตอนยกเลิก) — เฉพาะหน้าออฟฟิศ */
+  weightScrapGapG: number | null;
+  qtyGood: number | null;
+  stageCode: string | null;
+  stageName: string | null;
+  stageStatus: string | null;
+  holderName: string | null;
+  daysInStage: number | null;
+  /** ผ่าน QC แล้วกี่ชิ้น (qc.qty_out เมื่อ qc ส่งแล้ว) — null = ยังไม่ผ่าน */
+  qtyQcPassed: number | null;
+  /** ขั้นที่ถืออยู่ (received) — ใช้แยกส่วนจากออฟฟิศ · null = ไม่มีขั้นที่ถือ */
+  holdSeq: number | null;
+  /** ขั้นที่ถืออยู่ตั้งชั่งไหน (ทองที่ขั้นชั่ง: แยกส่วนต้องชั่งส่วนที่แยก — มติ 19 ต.ค.) */
+  holdWeighRequired: boolean;
+  /** ส่วนนี้มีขั้นชั่งที่ "ชั่งแล้ว" (ตั้งชั่ง + ไม่ข้าม + มีน้ำหนักเข้า/ออกจริง) — ทอง + ส่วนมีขั้นชั่งที่ชั่งแล้ว + ยกเลิกเป็นของเสีย = ต้องชั่งของเสียที่เลิกใช้ (M-C/M-D) · ส่วนทองที่ยังไม่ถึงขั้นชั่ง = false (ไม่มีช่อง · ส่งน้ำหนักไป DB ตอบ weight_unexpected) */
+  hasWeighStage: boolean;
+  /** น้ำหนักล่าสุดของส่วน (g · ขั้นไม่ข้ามลำดับสูงสุดที่มีน้ำหนัก: ออก ถ้ายังไม่ส่งใช้ เข้า + เติม — ตรงกับ job_latest_weight_g) — ใช้ pre-check แสดงผลเท่านั้น · DB ตัดสินจริง · เฉพาะหน้าออฟฟิศ */
+  latestWeightG: number | null;
+  /** ขั้นที่รอรับ (pending ต่ำสุด) — ใช้ปุ่ม "กรอกแทน: รับงาน" ของออฟฟิศ · null = ไม่มี */
+  pendingSeq: number | null;
+  pendingStageName: string | null;
+  pendingStageCode: string | null;
+  /** จำนวนที่คาดว่าจะได้รับที่ขั้นรอรับ (ชิ้น · ตามสูตรเดียวกับ qty_expected ของ DB: ขั้นก่อนส่งแล้ว = qty_out · ยังถืออยู่ = qty_in · หักส่วนต่างที่บันทึกแล้ว) — ใช้ช่อง "ได้รับจริงกี่ชิ้น" ของออฟฟิศ · pre-check แสดงผล DB ตัดสินจริง */
+  pendingQtyExpected: number | null;
+  pendingWeighRequired: boolean;
+  /** L-2: ทอง รับไม่ครบ ชั่งไม่ตรงครบ 3 ครั้ง → ขั้นรอรับถูกล็อก ให้ออฟฟิศรับแทน (นับจาก event ที่ DB บันทึก) */
+  receiveLocked: boolean;
+  /** ชื่อขั้นที่ผ่านมาแล้ว (sent/skipped) เรียงตามลำดับ — ใบย่อยพิมพ์บรรทัดเดียว (ฌ3) */
+  passedStages: string[];
+  /** 0183: ส่วนนี้เกิดจาก "ได้รับเพิ่มแล้ว" (ขั้นแรกที่ได้รับผูก arrive_discrepancy_id) — ป้าย "จากของที่ได้รับเพิ่ม" · loader เติมจากแถวขั้น */
+  fromArrive: boolean;
+}
+
+export function mapLotPart(r: Record<string, unknown>): LotPart | null {
+  const jobId = str(r.job_id);
+  const label = str(r.label);
+  if (!jobId || !label) return null;
+  return {
+    jobId,
+    lotSeq: int0(r.lot_seq),
+    label,
+    status: str(r.status) ?? "open",
+    qtyPlanned: int0(r.qty_planned),
+    qtyLive: num(r.qty_live),
+    qtyStageScrap: int0(r.qty_stage_scrap),
+    qtySplitOut: int0(r.qty_split_out),
+    qtyDiscrepancyOpen: int0(r.qty_discrepancy_open),
+    qtyDiscrepancyResolved: int0(r.qty_discrepancy_resolved),
+    qtyDiscrepancyArrived: int0(r.qty_discrepancy_arrived),
+    cancelScrapQty: num(r.cancel_scrap_qty),
+    cancelScrapWeightG: num(r.cancel_scrap_weight_g),
+    weightScrapGapG: num(r.weight_scrap_gap_g),
+    qtyGood: num(r.qty_good),
+    stageCode: str(r.stage_code),
+    stageName: str(r.stage_name),
+    stageStatus: str(r.stage_status),
+    holderName: str(r.holder_name),
+    daysInStage: num(r.days_in_stage),
+    qtyQcPassed: num(r.qty_qc_passed),
+    holdSeq: null,
+    holdWeighRequired: false,
+    hasWeighStage: false,
+    latestWeightG: null,
+    pendingSeq: null,
+    pendingStageName: null,
+    pendingStageCode: null,
+    pendingQtyExpected: null,
+    pendingWeighRequired: false,
+    receiveLocked: false, // loader นับ event (ล็อก L-2) — ไม่มีคอลัมน์บอกล็อกใน view
+    passedStages: [],
+    fromArrive: false, // loader เติมจาก job_stage.arrive_discrepancy_id
+  };
+}
+
+export interface LotsSummary {
+  rootJobId: string;
+  qtyPlanned: number;
+  qtyOrder: number;
+  partsCount: number;
+  partsOpen: number;
+  /** ส่วนย่อยที่ยังไม่ปิด/ยกเลิก (ไม่นับใบแม่) — ปิด full ไม่ได้เมื่อ > 0 */
+  lotsOpen: number;
+  qtyLiveTotal: number;
+  qtyDoneGood: number;
+  qtyScrapTotal: number;
+  /** ส่วนต่างรอชี้แจง (ชิ้น) — ปิด full ไม่ได้เมื่อ > 0 */
+  qtyPendingExplanation: number;
+  /** ส่วนต่างที่ชี้แจงแล้ว (ชิ้น) */
+  qtyDiscrepancyResolved: number;
+  qtyQcPassedTotal: number;
+  /** M-C: ผลรวมน้ำหนักของเสียที่เลิกใช้ของส่วนที่ยกเลิก (g) */
+  weightScrapCancelG: number;
+  dominantStageCode: string | null;
+  /** DB ตรวจแล้วว่าผลรวมทุกถัง = เริ่มผลิต */
+  sumCheck: boolean;
+}
+
+export function mapLotsSummary(r: Record<string, unknown>): LotsSummary | null {
+  const rootJobId = str(r.root_job_id);
+  if (!rootJobId) return null;
+  return {
+    rootJobId,
+    qtyPlanned: int0(r.qty_planned),
+    qtyOrder: int0(r.qty_order),
+    partsCount: int0(r.parts_count),
+    partsOpen: int0(r.parts_open),
+    lotsOpen: int0(r.lots_open),
+    qtyLiveTotal: int0(r.qty_live_total),
+    qtyDoneGood: int0(r.qty_done_good),
+    qtyScrapTotal: int0(r.qty_scrap_total),
+    qtyPendingExplanation: int0(r.qty_pending_explanation),
+    qtyDiscrepancyResolved: int0(r.qty_discrepancy_resolved),
+    qtyQcPassedTotal: int0(r.qty_qc_passed_total),
+    weightScrapCancelG: num(r.weight_scrap_cancel_g) ?? 0,
+    dominantStageCode: str(r.dominant_stage_code),
+    sumCheck: bool(r.sum_check),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// ส่วนต่างรอชี้แจง (มติ Q5)
+// ---------------------------------------------------------------------------
+export interface LotDiscrepancy {
+  id: string;
+  jobId: string;
+  /** ป้ายส่วน "JB-0020 · ส่วนที่ 2" (ประกอบจาก parts ฝั่ง loader) */
+  lotLabel: string;
+  fromStageName: string;
+  toStageName: string;
+  /** 0183: ขั้นผู้รับ (ที่รับขาด) — ใช้กรองรายชื่อช่างและรู้ว่าต้องชั่งชิ้นที่มาถึงไหม (ทอง + ขั้นตั้งชั่ง) · ไม่รู้ = null/false */
+  toStageCode: string | null;
+  toWeighRequired: boolean;
+  qty: number;
+  status: "open" | "resolved" | "void";
+  resolvedKind: "scrap" | "lost" | "arrived" | null;
+  resolvedReason: string | null;
+  createdAt: string | null;
+  voidOfId: string | null;
+  /** ส่วนต่างน้ำหนักเทียบ (กรัม · รับ − ส่ง) — เฉพาะหน้าออฟฟิศ · null = ไม่มี */
+  weightGapG: number | null;
+  /** M-B: น้ำหนักที่ขั้นก่อนส่ง / จำนวนที่ส่ง ตอนรับไม่ครบ (snapshot) — เฉพาะออฟฟิศ */
+  weightSentG: number | null;
+  qtySent: number | null;
+  /** M-B: gap + น้ำหนักตามสัดส่วนชิ้นที่ขาด (g · ลบ = โลหะหายเกินสัดส่วน · DB คำนวณ) — ทองที่ติดลบเกิน 0.05 ต้องชี้แจงด้วยข้อความ */
+  weightGapExcessG: number | null;
+}
+
+export function mapDiscrepancy(r: Record<string, unknown>, ctx: { stageById: Record<string, { name: string; code?: string; weighRequired?: boolean }>; labelByJob: Record<string, string> }): LotDiscrepancy | null {
+  const id = str(r.id);
+  const jobId = str(r.job_id);
+  const qty = num(r.qty);
+  const status = r.status === "open" || r.status === "resolved" || r.status === "void" ? r.status : null;
+  if (!id || !jobId || qty === null || !status) return null;
+  const kind = r.resolved_kind === "scrap" || r.resolved_kind === "lost" || r.resolved_kind === "arrived" ? r.resolved_kind : null;
+  return {
+    id,
+    jobId,
+    lotLabel: ctx.labelByJob[jobId] ?? "",
+    fromStageName: ctx.stageById[str(r.from_stage_id) ?? ""]?.name ?? "ขั้นก่อน",
+    toStageName: ctx.stageById[str(r.to_stage_id) ?? ""]?.name ?? "ขั้นที่รับ",
+    toStageCode: ctx.stageById[str(r.to_stage_id) ?? ""]?.code ?? null,
+    toWeighRequired: ctx.stageById[str(r.to_stage_id) ?? ""]?.weighRequired === true,
+    qty,
+    status,
+    resolvedKind: kind,
+    resolvedReason: str(r.resolved_reason),
+    createdAt: str(r.created_at),
+    voidOfId: str(r.void_of_id),
+    weightGapG: num(r.weight_gap_g),
+    weightSentG: num(r.weight_sent_g),
+    qtySent: num(r.qty_sent),
+    weightGapExcessG: num(r.weight_gap_excess_g),
+  };
+}
+
+/** ส่วนต่างที่ยังรอชี้แจงจริง: status open และไม่มีแถว void ชี้มา (void = แถวใหม่ ไม่แก้แถวเดิม — 0181 ข้อ 5) */
+export function openDiscrepancies(list: readonly LotDiscrepancy[]): LotDiscrepancy[] {
+  const voided = new Set(list.map((d) => d.voidOfId).filter((x): x is string => x !== null));
+  return list.filter((d) => d.status === "open" && !voided.has(d.id));
+}
+
+export const DISCREPANCY_KIND_LABEL: Record<string, string> = { scrap: "เสียหาย", lost: "หาย", arrived: "ได้รับเพิ่มแล้ว" };
+
+// ---------------------------------------------------------------------------
+// ข้อมูลของหน้าใบงาน (ใบแม่)
+// ---------------------------------------------------------------------------
+/** M-A: 1 แถวต่อขั้นของทุกใบในต้นไม้ (ใบแม่ lotSeq 0 + ส่วนย่อย) — ตัวเลขน้ำหนัก/gap ที่ DB คำนวณ · เฉพาะหน้าออฟฟิศ */
+export interface TreeStageLoss {
+  jobId: string;
+  jobStageId: string;
+  lotSeq: number;
+  stageCode: string | null;
+  status: string | null;
+  weighed: boolean;
+  notWeighed: boolean;
+  lossG: number | null;
+  lossPct: number | null;
+  warn: boolean;
+  /** ส่วนต่างส่งมอบ (g · รับ − ส่ง) ของคู่ขั้นนี้ — null = ไม่มีคู่น้ำหนักหรือมีส่วนต่างจำนวนชิ้น */
+  handoffGapG: number | null;
+  /** เหมือนกัน แต่เฉพาะคู่ขั้นที่รับไม่ครบ (มีส่วนต่างจำนวนชิ้น) */
+  handoffGapPartialG: number | null;
+  /** ขั้นที่แยกส่วนออกแต่ไม่ได้ชั่งส่วนที่แยก (เทียบน้ำหนักไม่ได้) */
+  notComparable: boolean;
+  /** น้ำหนักของเสียที่เลิกใช้ของใบนี้ (ส่วนย่อยที่ยกเลิกเป็นของเสีย · ทอง) */
+  cancelScrapWeightG: number | null;
+}
+
+export function mapTreeStageLoss(r: Record<string, unknown>): TreeStageLoss | null {
+  const jobId = str(r.job_id);
+  const jobStageId = str(r.job_stage_id);
+  if (!jobId || !jobStageId) return null;
+  return {
+    jobId,
+    jobStageId,
+    lotSeq: int0(r.lot_seq),
+    stageCode: str(r.stage_code),
+    status: str(r.status),
+    weighed: bool(r.weighed),
+    notWeighed: bool(r.not_weighed),
+    lossG: num(r.loss_g),
+    lossPct: num(r.loss_pct),
+    warn: bool(r.warn),
+    handoffGapG: num(r.handoff_gap_g),
+    handoffGapPartialG: num(r.handoff_gap_partial_g),
+    notComparable: bool(r.not_comparable),
+    cancelScrapWeightG: num(r.cancel_scrap_weight_g),
+  };
+}
+
+export interface JobLotsData {
+  parts: LotPart[];
+  summary: LotsSummary | null;
+  discrepancies: LotDiscrepancy[];
+  /** M-A: น้ำหนักสูญเสีย/ส่วนต่างส่งมอบของทุกใบในต้นไม้ (โหลดเมื่อมีมากกว่า 1 ส่วน) — ไม่มี = ใบเดี่ยวใช้ loss ของใบเองตามเดิม */
+  treeLoss?: TreeStageLoss[];
+}
+
+/** เกณฑ์น้ำหนักทองที่ DB ใช้ (g) — UI ใช้เตือน/บังคับกรอก note ก่อนส่งเท่านั้น · DB ตัดสินจริง (note_required) */
+export const GOLD_GAP_TOLERANCE_G = 0.05;
+
+/** L-2: ชั่งรับไม่ตรงครบกี่ครั้งขั้นถูกล็อก (ตามที่ DB ใช้) */
+export const RECEIVE_LOCK_STRIKES = 3;
+
+/** M-B: ทองที่น้ำหนักหายเกินสัดส่วนชิ้นที่ขาด (excess < −0.05) → ชี้แจงต้องมีคำอธิบายเป็นข้อความ */
+export function noteRequired(d: Pick<LotDiscrepancy, "weightGapExcessG">, gold: boolean): boolean {
+  return gold && d.weightGapExcessG !== null && d.weightGapExcessG < -GOLD_GAP_TOLERANCE_G;
+}
+
+/**
+ * L-new-1: ยกเลิกส่วนทองเป็นของเสีย — น้ำหนักเศษที่ชั่งน้อยกว่าน้ำหนักล่าสุดของส่วนเกิน 0.05 g → ต้องเขียนคำอธิบายเป็นข้อความ
+ * (pre-check แสดงผลเท่านั้น: DB ตัดสินจริงและตอบ gold_note_required) · null = ยังไม่รู้น้ำหนัก/ยังไม่กรอก → ไม่บังคับ
+ */
+export function scrapNoteRequired(latestWeightG: number | null, scrapWeightG: number | null): boolean {
+  if (latestWeightG === null || scrapWeightG === null) return false;
+  return Math.round((latestWeightG - scrapWeightG) * 1000) / 1000 > GOLD_GAP_TOLERANCE_G;
+}
+
+/** M-A: ข้อมูลน้ำหนักของใบแม่ที่แยกส่วน → ใช้ขั้น/ส่วนต่างของทั้งต้นไม้ (ใบแม่ lotSeq 0 → รูปเดียวกับ StageLoss เดิม) */
+export function rootLossFromTree(tree: readonly TreeStageLoss[]): Record<string, { handoffGapG: number | null; lossG: number | null; lossPct: number | null; warn: boolean; notWeighed: boolean; handoffGapPartialG?: number }> {
+  const out: Record<string, { handoffGapG: number | null; lossG: number | null; lossPct: number | null; warn: boolean; notWeighed: boolean; handoffGapPartialG?: number }> = {};
+  for (const t of tree) {
+    if (t.lotSeq !== 0) continue;
+    out[t.jobStageId] = { handoffGapG: t.handoffGapG, lossG: t.lossG, lossPct: t.lossPct, warn: t.warn, notWeighed: t.notWeighed, ...(t.handoffGapPartialG !== null ? { handoffGapPartialG: t.handoffGapPartialG } : {}) };
+  }
+  return out;
+}
+
+/** แสดงแผงส่วนย่อยเมื่อมีมากกว่า 1 ส่วน หรือมีส่วนต่างบันทึกอยู่ — ใบเดี่ยวที่ไม่เคยแยก = หน้าเดิมทุกประการ */
+export function hasLots(l: JobLotsData | null | undefined): l is JobLotsData {
+  return !!l && (l.parts.length > 1 || l.discrepancies.length > 0);
+}
+
+/** ส่วนที่ยังใช้งาน (ไม่ยกเลิก) */
+export const activeParts = (l: JobLotsData): LotPart[] => l.parts.filter((p) => p.status !== "cancelled");
+
+/** ส่วนที่ผู้ถือถืออยู่และแยกได้ (ถืออยู่ ≥ 2 ชิ้น — DB ต้องเหลือผู้ถือเดิมอย่างน้อย 1) */
+export function splittableParts(l: JobLotsData): LotPart[] {
+  return l.parts.filter((p) => p.status !== "done" && p.status !== "cancelled" && p.holdSeq !== null && (p.qtyLive ?? 0) >= 2);
+}
+
+/**
+ * เหตุผลที่ "ปิด full" ไม่ได้ (null = ไม่มีส่วนค้าง/ส่วนต่าง) — ข้อความขึ้นบนปุ่ม ไม่ใช่ tooltip
+ * ด่านจริงอยู่ที่ DB (parts_open) — ที่นี่แค่ไม่ให้กดสิ่งที่รู้ว่าจะถูกปฏิเสธ
+ */
+export function closeBlocker(l: JobLotsData | null | undefined): string | null {
+  if (!l) return null;
+  const lotsOpen = l.summary?.lotsOpen ?? Math.max(0, l.parts.filter((p) => p.lotSeq > 0 && p.status !== "done" && p.status !== "cancelled").length);
+  const pending = l.summary?.qtyPendingExplanation ?? openDiscrepancies(l.discrepancies).reduce((n, d) => n + d.qty, 0);
+  const why: string[] = [];
+  if (lotsOpen > 0) why.push(`ยังมีส่วนย่อยค้าง ${lotsOpen} ส่วน`);
+  if (pending > 0) why.push(`มีส่วนต่างรอชี้แจง ${pending} ชิ้น`);
+  return why.length > 0 ? why.join(" · ") : null;
+}
+
+// ---------------------------------------------------------------------------
+// แถบสีสะสมทั้งใบ + บรรทัดบนบอร์ด (ชุดเดียวกัน — token map ส่วน 5)
+// ---------------------------------------------------------------------------
+export type SegmentTone = "done" | "qc" | "shop" | "scrap" | "pending" | "resolved";
+export interface LotSegment {
+  key: string;
+  label: string;
+  qty: number;
+  tone: SegmentTone;
+}
+
+/** รหัสขั้น QC (สีเหลืองอำพันตาม token map) — ขั้นอื่นในร้าน = เทา */
+const QC_CODE = "qc";
+
+/**
+ * ถังจำนวนของทั้งใบ: เสร็จ (ผ่าน QC) · แต่ละขั้นที่ยังมีชิ้น · เสีย · รอชี้แจง · ส่วนต่างที่ชี้แจงแล้ว
+ * ตัวเลขแต่ละถังมาจาก DB (summary + แถวของ v_job_tree) — ส่วนที่ผ่าน QC แล้วนับที่ "เสร็จ" ไม่นับซ้ำในถังขั้น
+ */
+export function lotSegments(l: Pick<JobLotsData, "parts" | "summary">): LotSegment[] {
+  const out: LotSegment[] = [];
+  const done = l.summary?.qtyQcPassedTotal ?? l.parts.reduce((n, p) => n + (p.qtyQcPassed ?? 0), 0);
+  if (done > 0) out.push({ key: "done", label: "เสร็จ", qty: done, tone: "done" });
+  const byStage = new Map<string, LotSegment>();
+  for (const p of l.parts) {
+    if (p.status === "done" || p.status === "cancelled" || p.qtyQcPassed !== null) continue;
+    const q = p.qtyLive ?? 0;
+    if (q <= 0) continue;
+    const code = p.stageCode ?? "none";
+    const cur = byStage.get(code);
+    if (cur) cur.qty += q;
+    else byStage.set(code, { key: `stage:${code}`, label: p.stageName ?? "ยังไม่เริ่ม", qty: q, tone: code === QC_CODE ? "qc" : "shop" });
+  }
+  out.push(...byStage.values());
+  const scrap = l.summary?.qtyScrapTotal ?? 0;
+  if (scrap > 0) out.push({ key: "scrap", label: "เสีย", qty: scrap, tone: "scrap" });
+  const pend = l.summary?.qtyPendingExplanation ?? 0;
+  if (pend > 0) out.push({ key: "pending", label: "รอชี้แจง", qty: pend, tone: "pending" });
+  const res = l.summary?.qtyDiscrepancyResolved ?? 0;
+  if (res > 0) out.push({ key: "resolved", label: "ส่วนต่างชี้แจงแล้ว", qty: res, tone: "resolved" });
+  return out;
+}
+
+/** บรรทัดเดียวบนการ์ดบอร์ด: "เสร็จ 34/100 · QC 15 · บ้านชุบ 50 · เสีย 1" — ไม่มีชิ้นเสร็จ = "เสร็จ 0/100" */
+export function lotsLine(l: Pick<JobLotsData, "parts" | "summary">): string | null {
+  const total = l.summary?.qtyPlanned;
+  if (total === undefined) return null;
+  const segs = lotSegments(l);
+  const done = segs.find((s) => s.key === "done")?.qty ?? 0;
+  const rest = segs.filter((s) => s.key !== "done").map((s) => `${s.label} ${s.qty}`);
+  return [`เสร็จ ${done}/${total}`, ...rest].join(" · ");
+}
+
+/** ผลรวมของถังที่แสดง (ไว้เทียบกับ N เพื่อบอกว่าครบ) — ใช้แสดงผลเท่านั้น ตัดสิน "ครบ" ด้วย sum_check ของ DB */
+export const segmentsTotal = (segs: readonly LotSegment[]): number => segs.reduce((n, s) => n + s.qty, 0);
+
+// ---------------------------------------------------------------------------
+// ข้อมูลที่การ์ดบนบอร์ดต้องการ
+// ---------------------------------------------------------------------------
+export interface BoardLots {
+  /** ส่วนที่ยังไม่ยกเลิก (นับใบแม่ด้วย) */
+  partsCount: number;
+  qtyPendingExplanation: number;
+  line: string | null;
+  sumOk: boolean;
+}
+
+export function toBoardLots(l: Pick<JobLotsData, "parts" | "summary">): BoardLots | null {
+  if (!l.summary) return null;
+  return { partsCount: l.summary.partsCount, qtyPendingExplanation: l.summary.qtyPendingExplanation, line: lotsLine(l), sumOk: l.summary.sumCheck };
+}

@@ -77,6 +77,16 @@ export function parseQtyText(raw: unknown, max = 100000): Parsed<number> {
 }
 
 /**
+ * จำนวนชิ้นจาก action (ส่วนย่อย 0181): number หรือ string ตัวเลขล้วน → จำนวนเต็ม 1–100,000 · ข้อความ error "<label>ต้องเป็นจำนวนเต็ม 1–100,000"
+ * ที่เดียวของ server action ทั้งหมด (job-lots · job-worker · job-office-write) — ห้ามกรองอักขระทิ้งเงียบ ("1,5" "3.5" "-2" = error)
+ */
+export function parsePieces(raw: unknown, label: string): Parsed<number> {
+  const n = typeof raw === "number" ? raw : typeof raw === "string" && /^\d+$/.test(raw.trim()) ? Number(raw.trim()) : NaN;
+  if (!Number.isSafeInteger(n) || n < 1 || n > 100000) return bad(`${label}ต้องเป็นจำนวนเต็ม 1–100,000`);
+  return ok(n);
+}
+
+/**
  * จำนวนเผื่อของเสีย "เพิ่มกี่ชิ้น" (สวิตช์เผื่อของเสียเปิดอยู่): จำนวนเต็ม >= 0 เท่านั้น — 0 ผ่าน (เปิดแล้วยังไม่เผื่อ)
  * 🔴 ห้ามกรองอักขระทิ้งเงียบ ("1,5" "3.5" "-2" "" "abc" = error) · รวมกับจำนวนสั่งต้องไม่เกินเพดานเริ่มผลิต (ค่าเดียวกับ parseQtyText · DB เป็นด่านจริง)
  */

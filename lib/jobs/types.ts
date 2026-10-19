@@ -46,6 +46,11 @@ export const EVENT_TYPE_LABEL: Record<string, string> = {
   hold: "พักงาน",
   resume: "ทำต่อ",
   photo_add: "เพิ่มรูป",
+  // 0182: ลบรูป (ตั้งรูปหลัก/เรียงรูปไม่เขียน event — design §5)
+  photo_remove: "ลบรูป",
+  // 0182 (security L4): ตั้งรูปหลัก/เรียงรูป เขียน event เมื่อเปลี่ยนจริง
+  photo_primary: "ตั้งรูปหลัก",
+  photo_reorder: "เรียงรูป",
   note: "หมายเหตุ",
   done: "ปิดงาน",
   cancel: "ยกเลิก",
@@ -55,6 +60,13 @@ export const EVENT_TYPE_LABEL: Record<string, string> = {
   // 0175: แก้จำนวนเริ่มผลิต/แผนโลหะ · ตัดสินของเหลือ (ครบทุก event_type ใน CHECK job_event_event_type_ck — เทสต์ events-labels ล้มถ้ามีตัวใหม่ที่ยังไม่แปล)
   plan_change: "แก้จำนวน/แผนโลหะ",
   surplus_set: "จัดการของเหลือ",
+  // 0181: ส่วนย่อย (ส่งต่อ n จาก N) + ส่วนต่างรอชี้แจง
+  split: "แยกส่วน",
+  split_cancel: "ยกเลิกส่วน",
+  discrepancy: "รับไม่ครบ (ส่วนต่าง)",
+  discrepancy_resolve: "ชี้แจงส่วนต่าง",
+  // 0183: ส่วนต่างทางที่ 3 "ได้รับเพิ่มแล้ว" (ของนับผิด/ส่งตามมาทีหลัง → ส่วนใหม่)
+  discrepancy_arrive: "ได้รับเพิ่มแล้ว (ส่วนต่าง)",
 };
 
 export const CHANNEL_LABEL: Record<string, string> = {
@@ -86,6 +98,10 @@ export const BOARD_COLUMNS = [
   "quote_qty_mismatch", "quote_item_qty", "created_at", "board_column", "handoff_gap_g", "handoff_mismatch_count",
   "qty_order", "qty_surplus", "under_planned", "surplus_pending", "surplus_disposition", "target_piece_g", "metal_plan_g",
   "profile_name", "has_weigh", "gold_unguarded",
+  // 0181: บอร์ด 1 การ์ดต่อใบแม่ (กรอง parent_job_id is null ที่ loader) · จำนวนส่วน · ส่วนต่างรอชี้แจง · ขั้นที่มีชิ้นมากสุด (คอลัมน์ของใบที่ของกระจายหลายขั้น)
+  "parent_job_id", "parts_count", "parts_open", "qty_pending_explanation", "dominant_stage_code",
+  // 0181 (re-review M-A/M-B/L-1): เทียบน้ำหนักทั้งต้นไม้ — ใบแม่ + ส่วนย่อย (office เท่านั้น · ห้ามส่งให้ช่าง N1)
+  "tree_handoff_gap_g", "tree_handoff_gap_partial_g", "tree_handoff_mismatch_count", "tree_weight_gap_excess_g", "tree_lot_first_gap_sum_g",
 ].join(", ");
 
 export interface BoardRow {
@@ -140,6 +156,28 @@ export interface BoardRow {
   hasWeigh: boolean;
   /** 0176: ใบทองที่ยังไม่ปิดและมีขั้นที่โลหะอยู่ในมือแต่ไม่ชั่ง (ไม่มีด่านกันทองหาย) — DB ตัดสิน */
   goldUnguarded: boolean;
+  // 0181 (ทั้งหมด optional — ใบเดี่ยว/แถวที่ view ยังไม่ส่งคอลัมน์ใหม่ = ไม่มี key = บอร์ดเดิมทุกประการ)
+  /** ส่วนย่อยที่ยังไม่ยกเลิก (นับใบแม่) — > 1 = ใบที่แยกส่วนแล้ว */
+  partsCount?: number;
+  partsOpen?: number;
+  /** ส่วนต่างรอชี้แจง (ชิ้น) — DB */
+  qtyPendingExplanation?: number;
+  /** ขั้นที่มีชิ้นมากสุดของทั้งใบ — ตำแหน่งการ์ดในมุมมองคอลัมน์เมื่อแยกส่วนแล้ว */
+  dominantStageCode?: string | null;
+  /** บรรทัด "เสร็จ x/N · …" ประกอบที่ loader จาก v_job_tree_summary + v_job_tree */
+  lotsLine?: string | null;
+  /** ผลตรวจ sum_check ของ DB (ผลรวมทุกถัง = เริ่มผลิต) */
+  lotsSumOk?: boolean;
+  /** M-A: ส่วนต่างส่งมอบสูงสุด (|กรัม|) ทั้งต้นไม้ — handoffGapG เดิมนับเฉพาะใบตัวเอง จึงมองไม่เห็นขั้นแรกของส่วนย่อย · ไม่มี key = ไม่มีคู่น้ำหนัก */
+  treeHandoffGapG?: number;
+  /** M-A: เหมือนกัน แต่คู่ขั้นที่รับไม่ครบ (มีส่วนต่างจำนวนชิ้น) */
+  treeHandoffGapPartialG?: number;
+  /** M-A: จำนวนครั้งที่ช่างชั่งรับทองไม่ตรง ทั้งต้นไม้ (มี key เฉพาะเมื่อ > 0) */
+  treeHandoffMismatchCount?: number;
+  /** M-B: น้ำหนักที่หายเกินสัดส่วนชิ้นที่ขาด (g · ลบ = หายเกิน) รวมส่วนต่างที่ยังนับอยู่ทั้งต้นไม้ */
+  treeWeightGapExcessG?: number;
+  /** L-1: ผลรวม gap ขั้นแรกของทุกส่วนที่แยกจากขั้นเดียวกัน (ต่ำสุดของกลุ่ม · ลบเกิน 0.05 = ควรเตือน) */
+  treeLotFirstGapSumG?: number;
 }
 
 export function mapBoardRow(r: Record<string, unknown>): BoardRow | null {
@@ -189,7 +227,32 @@ export function mapBoardRow(r: Record<string, unknown>): BoardRow | null {
     profileName: str(r.profile_name),
     hasWeigh: bool(r.has_weigh),
     goldUnguarded: bool(r.gold_unguarded),
+    ...lotKeys(r),
   };
+}
+
+/** 0181: ใส่ key เฉพาะที่ view ส่งมา (คอลัมน์ใหม่) — ใบเดิม/view เก่าไม่มี key → BoardRow รูปเดิมเป๊ะ */
+function lotKeys(r: Record<string, unknown>): Partial<BoardRow> {
+  const out: Partial<BoardRow> = {};
+  const parts = num(r.parts_count);
+  if (parts !== null) out.partsCount = parts;
+  const open = num(r.parts_open);
+  if (open !== null) out.partsOpen = open;
+  const pend = num(r.qty_pending_explanation);
+  if (pend !== null && pend > 0) out.qtyPendingExplanation = pend;
+  const dom = str(r.dominant_stage_code);
+  if (dom !== null && (parts ?? 0) > 1) out.dominantStageCode = dom;
+  const tg = num(r.tree_handoff_gap_g);
+  if (tg !== null) out.treeHandoffGapG = tg;
+  const tgp = num(r.tree_handoff_gap_partial_g);
+  if (tgp !== null) out.treeHandoffGapPartialG = tgp;
+  const tmc = num(r.tree_handoff_mismatch_count);
+  if (tmc !== null && tmc > 0) out.treeHandoffMismatchCount = tmc;
+  const tex = num(r.tree_weight_gap_excess_g);
+  if (tex !== null) out.treeWeightGapExcessG = tex;
+  const tlg = num(r.tree_lot_first_gap_sum_g);
+  if (tlg !== null) out.treeLotFirstGapSumG = tlg;
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -215,6 +278,8 @@ export interface StageRow {
   qtyIn: number | null;
   qtyOut: number | null;
   qtyScrap: number;
+  /** 0181: ชิ้นที่แยกเป็นส่วนย่อยออกจากขั้นนี้ (ไม่มี key = 0) */
+  qtySplitOut?: number;
   scrapReason: string | null;
   weightInG: number | null;
   weightOutG: number | null;
@@ -225,7 +290,7 @@ export interface StageRow {
 }
 
 export const STAGE_COLUMNS =
-  "id, seq, stage_code, status, weigh_required, scrap_qty_ask, scrap_weight_ask, received_on, sent_on, worker_id, assignee_name, auto_closed, qty_in, qty_out, qty_scrap, scrap_reason, weight_in_g, weight_out_g, metal_added_g, scrap_weight_g, weight_note, skip_reason";
+  "id, seq, stage_code, status, weigh_required, scrap_qty_ask, scrap_weight_ask, received_on, sent_on, worker_id, assignee_name, auto_closed, qty_in, qty_out, qty_scrap, qty_split_out, scrap_reason, weight_in_g, weight_out_g, metal_added_g, scrap_weight_g, weight_note, skip_reason";
 
 export function mapStageRow(r: Record<string, unknown>, names: Record<string, string>, workerNames: Record<string, string>, metalPresent: Record<string, boolean> = {}): StageRow | null {
   const id = str(r.id);
@@ -251,6 +316,7 @@ export function mapStageRow(r: Record<string, unknown>, names: Record<string, st
     qtyIn: num(r.qty_in),
     qtyOut: num(r.qty_out),
     qtyScrap: num(r.qty_scrap) ?? 0,
+    ...(num(r.qty_split_out) !== null ? { qtySplitOut: num(r.qty_split_out) as number } : {}),
     scrapReason: str(r.scrap_reason),
     weightInG: num(r.weight_in_g),
     weightOutG: num(r.weight_out_g),
@@ -269,12 +335,15 @@ export interface StageLoss {
   lossPct: number | null;
   warn: boolean;
   notWeighed: boolean;
+  /** 0181 H1: รับไม่ครบ — ส่วนต่างน้ำหนักเทียบ (รับ − ส่ง) · เฉพาะหน้าออฟฟิศ (ห้ามส่งหน้าช่าง) · ไม่มี key = ไม่มีส่วนต่างบันทึก */
+  handoffGapPartialG?: number;
 }
 
 export function mapLossRow(r: Record<string, unknown>): { stageId: string; loss: StageLoss } | null {
   const id = str(r.job_stage_id);
   if (!id) return null;
-  return { stageId: id, loss: { handoffGapG: num(r.handoff_gap_g), lossG: num(r.loss_g), lossPct: num(r.loss_pct), warn: bool(r.warn), notWeighed: bool(r.not_weighed) } };
+  const partial = num(r.handoff_gap_partial_g);
+  return { stageId: id, loss: { handoffGapG: num(r.handoff_gap_g), lossG: num(r.loss_g), lossPct: num(r.loss_pct), warn: bool(r.warn), notWeighed: bool(r.not_weighed), ...(partial !== null ? { handoffGapPartialG: partial } : {}) } };
 }
 
 // ---------------------------------------------------------------------------

@@ -10,6 +10,32 @@ import { thaiDate, thaiDateTime } from "@/lib/jobs/dates";
 import { CHANNEL_LABEL, EVENT_TYPE_LABEL, SCRAP_REASON_LABEL, STAGE_STATUS_LABEL } from "@/lib/jobs/types";
 import type { EventRow, StageLoss, StageRow } from "@/lib/jobs/types";
 
+/**
+ * จำนวนชิ้นของขั้น (เจ้าของ UAT 19 ต.ค.: ต้องเห็นของเข้า/ของออกทันที ไม่ซ่อนในรายละเอียด):
+ * รับเข้า · ส่งออก · เสีย · ค้าง — ค้าง = รับเข้า − ส่งออก − เสีย − แยกออก (จำนวนชิ้น ไม่ใช่เงิน/น้ำหนัก · DB ไม่มีคอลัมน์ "ค้าง" จึงคิดเพื่อแสดงผล)
+ * ขั้นที่ยังไม่รับ/ข้าม = "—" ทั้งหมด · ขั้นที่ถืออยู่ยังไม่ส่ง: ส่งออก "—"
+ */
+export function stageQty(s: Pick<StageRow, "status" | "qtyIn" | "qtyOut" | "qtyScrap" | "qtySplitOut">): { in: number | null; out: number | null; scrap: number | null; hold: number | null } {
+  if (s.status !== "received" && s.status !== "sent") return { in: null, out: null, scrap: null, hold: null };
+  const hold = s.qtyIn === null ? null : s.qtyIn - (s.qtyOut ?? 0) - s.qtyScrap - (s.qtySplitOut ?? 0);
+  return { in: s.qtyIn, out: s.qtyOut, scrap: s.qtyScrap, hold };
+}
+
+const n0 = (n: number | null) => (n === null ? "—" : n.toLocaleString("th-TH"));
+
+function QtyCells({ s }: { s: StageRow }) {
+  const q = stageQty(s);
+  const CELL = "min-w-12 text-right";
+  return (
+    <dl aria-label={`จำนวนชิ้น ${s.name}`} className="mt-1.5 flex justify-end gap-x-4 tabular-nums">
+      <div className={CELL}><dt className="text-xs text-zinc-600">รับเข้า</dt><dd className="text-lg font-bold text-zinc-900">{n0(q.in)}</dd></div>
+      <div className={CELL}><dt className="text-xs text-zinc-600">ส่งออก</dt><dd className="text-lg font-bold text-zinc-900">{n0(q.out)}</dd></div>
+      <div className={CELL}><dt className="text-xs text-zinc-600">เสีย</dt><dd className={`text-lg font-bold ${q.scrap ? "text-red-800" : "text-zinc-900"}`}>{n0(q.scrap)}</dd></div>
+      <div className={CELL}><dt className="text-xs text-zinc-600">ค้าง</dt><dd className={`text-lg font-bold ${q.hold ? "text-amber-900" : "text-zinc-900"}`}>{n0(q.hold)}</dd></div>
+    </dl>
+  );
+}
+
 const g = (n: number | null) => (n === null ? "—" : `${n.toLocaleString("th-TH", { maximumFractionDigits: 3 })} g`);
 
 function LossCell({ s, loss }: { s: StageRow; loss: StageLoss | undefined }) {
@@ -63,12 +89,12 @@ export function StageTable({
               </p>
               <span className="text-sm font-medium text-zinc-800">{STAGE_STATUS_LABEL[s.status] ?? s.status}</span>
             </div>
+            <QtyCells s={s} />
             {(s.status === "received" || s.status === "sent") && (
               <dl className="mt-1.5 grid grid-cols-2 gap-x-4 gap-y-0.5 text-sm text-zinc-800 sm:grid-cols-4">
                 <div><dt className="text-xs text-zinc-600">ผู้ถือ</dt><dd>{s.holderName ?? "—"}</dd></div>
                 <div><dt className="text-xs text-zinc-600">รับ / ส่ง</dt><dd>{thaiDate(s.receivedOn, false)} / {thaiDate(s.sentOn, false)}</dd></div>
                 <div><dt className="text-xs text-zinc-600">น้ำหนักเข้า / ออก</dt><dd className="tabular-nums">{g(s.weightInG)} / {g(s.weightOutG)}</dd></div>
-                <div><dt className="text-xs text-zinc-600">จำนวน เข้า / ออก / เสีย</dt><dd className="tabular-nums">{s.qtyIn ?? "—"} / {s.qtyOut ?? "—"} / {s.qtyScrap}</dd></div>
                 {s.metalAddedG > 0 && <div><dt className="text-xs text-zinc-600">เติมโลหะ</dt><dd className="tabular-nums">{g(s.metalAddedG)}{s.weightNote ? ` · ${s.weightNote}` : ""}</dd></div>}
                 {s.qtyScrap > 0 && <div><dt className="text-xs text-zinc-600">เหตุผลของเสีย</dt><dd>{SCRAP_REASON_LABEL[s.scrapReason ?? ""] ?? s.scrapReason ?? "—"}</dd></div>}
                 <div><dt className="text-xs text-zinc-600">น้ำหนักหาย</dt><dd><LossCell s={s} loss={loss[s.id]} /></dd></div>
@@ -76,6 +102,12 @@ export function StageTable({
                   <div>
                     <dt className="text-xs text-zinc-600">ส่วนต่างส่งมอบจากขั้นก่อน</dt>
                     <dd className="font-medium text-amber-900 tabular-nums">{loss[s.id].handoffGapG! > 0 ? "+" : "−"}{Math.abs(loss[s.id].handoffGapG!).toLocaleString("th-TH", { maximumFractionDigits: 3 })} g</dd>
+                  </div>
+                )}
+                {loss[s.id]?.handoffGapPartialG != null && loss[s.id].handoffGapPartialG !== 0 && (
+                  <div>
+                    <dt className="text-xs text-zinc-600">ส่วนต่างน้ำหนัก (รับไม่ครบ)</dt>
+                    <dd className="font-medium text-amber-900 tabular-nums">{loss[s.id].handoffGapPartialG! > 0 ? "+" : "−"}{Math.abs(loss[s.id].handoffGapPartialG!).toLocaleString("th-TH", { maximumFractionDigits: 3 })} g</dd>
                   </div>
                 )}
               </dl>

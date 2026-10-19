@@ -9,7 +9,8 @@ import { cookies, headers } from "next/headers";
 import { getServiceClient } from "@/lib/supabase/server";
 import { clientIpFromHeaders, ipHashOrNull, sessionHashOrNull, tokenHashOrNull } from "@/lib/jobs/hash";
 import { logJobFailure } from "@/lib/jobs/log";
-import { GENERIC_JOB_ERROR, workerFailMessage } from "@/lib/jobs/messages";
+import { isUuid } from "@/lib/jobs/input";
+import { GENERIC_JOB_ERROR, WORKER_ARRIVE_CODE_TH, WORKER_RECEIVE_LOCK_TH, workerFailMessage } from "@/lib/jobs/messages";
 import type { WorkerFailExtra } from "@/lib/jobs/messages";
 import { sanitizeWorkerView } from "@/lib/jobs/worker-view";
 import type { WorkerView } from "@/lib/jobs/worker-view";
@@ -105,9 +106,21 @@ export async function verifyWorkerPin(token: unknown, workerId: string, pin: str
 export interface ReceiveInput {
   expectedSeq: number;
   weightInG: number | null;
+  /** 0181: ส่วนที่จะรับ (ว่าง = ใบของ token) · ต้องเป็น lotJobId จาก parts/my_actions ที่ DB ส่งมาเท่านั้น */
+  lotJobId?: string | null;
+  /** 0181: จำนวนที่ได้จริง (ว่าง = ตามที่ส่ง) — น้อยกว่าที่ส่ง = ส่วนต่างรอชี้แจงกลับไปขั้นก่อน */
+  qtyReceived?: number | null;
 }
 export interface SendInput {
   expectedSeq: number;
+  /** 0181: ส่วนที่ถืออยู่ (ว่าง = ใบของ token) */
+  lotJobId?: string | null;
+  /** 0181: ส่งต่อกี่ชิ้น (ว่าง = ส่งทั้งหมดที่ถือ) — น้อยกว่าที่ถือ = แยกส่วน (ส่งต่อ n จาก N) ต้องส่ง qtyHold ด้วย */
+  qtySend?: number | null;
+  /** 0181: จำนวนที่ถืออยู่ตามที่เห็นบนจอ (กดซ้ำ/2 มือถือ → DB ตอบ stage_changed) */
+  qtyHold?: number | null;
+  /** 0181 H2: น้ำหนักส่วนที่แยกออก (ทอง + ขั้นชั่ง) — ส่ง p_weight_move_g เฉพาะเมื่อระบุ */
+  weightMoveG?: number | null;
   weightOutG: number | null;
   qtyScrap: number;
   scrapReason: string | null;
@@ -117,7 +130,17 @@ export interface SendInput {
 }
 
 /** already=true: ขั้นนี้มีคนทำไปแล้ว (แพ้การแย่ง/กดซ้ำ) · by = ชื่อผู้รับ (เฉพาะรับงาน) — client เทียบกับชื่อตัวเองเพื่อแยก "ฉันเอง" ออกจาก "คนอื่นชนะ" */
-export type StageResult = { already: boolean; message: string | null; by: string | null };
+export type StageResult = {
+  already: boolean;
+  message: string | null;
+  by: string | null;
+  /** 0181: ผลการแยกส่วน (ส่งต่อ n จาก N) — มีเมื่อ action = split */
+  lot?: { lotJobId: string; lotSeq: number; label: string; qty: number; parentRemaining: number };
+  /** 0181: ส่วนต่างที่เกิดตอนรับไม่ครบ (ชิ้น) — มีเมื่อรับน้อยกว่าที่ส่ง */
+  discrepancyQty?: number;
+};
+
+const intOrNull = (v: unknown): number | null => (typeof v === "number" && Number.isInteger(v) ? v : null);
 
 export async function workerReceive(token: unknown, i: ReceiveInput): Promise<WorkerOk<StageResult> | WorkerFail> {
   const c = await readCaller(token);
@@ -125,10 +148,15 @@ export async function workerReceive(token: unknown, i: ReceiveInput): Promise<Wo
   if (!c.sessionHash) return fail("session_required");
   const r = await callWorkerRpc("job_worker_receive", {
     p_token_hash: c.tokenHash, p_session_hash: c.sessionHash, p_expected_seq: i.expectedSeq, p_weight_in_g: i.weightInG, p_user_agent: c.userAgent, p_ip_hash: c.ipHash,
+    // 0181: ส่งเฉพาะที่ระบุ — ใบเดี่ยว (ไม่มีส่วน) เรียก RPC ด้วย params ชุดเดิมเป๊ะ
+    ...(i.lotJobId ? { p_lot_job_id: i.lotJobId } : {}), ...(i.qtyReceived != null ? { p_qty_received: i.qtyReceived } : {}),
   });
-  if (isFail(r)) return r;
+  if (isFail(r)) return r.code === "office_required" ? { ...r, error: WORKER_RECEIVE_LOCK_TH } : r;
   const by = shortText(r.by);
-  return { ok: true, data: { already: r.already === true, by, message: r.already === true ? workerFailMessage("already_received", r.message, { by }) : null } };
+  const data: StageResult = { already: r.already === true, by, message: r.already === true ? workerFailMessage("already_received", r.message, { by }) : null };
+  const dq = intOrNull(r.discrepancy_qty);
+  if (dq !== null && dq > 0) data.discrepancyQty = dq;
+  return { ok: true, data };
 }
 
 export async function workerSend(token: unknown, i: SendInput): Promise<WorkerOk<StageResult> | WorkerFail> {
@@ -139,9 +167,104 @@ export async function workerSend(token: unknown, i: SendInput): Promise<WorkerOk
     p_token_hash: c.tokenHash, p_session_hash: c.sessionHash, p_expected_seq: i.expectedSeq, p_weight_out_g: i.weightOutG, p_qty_scrap: i.qtyScrap,
     p_scrap_reason: i.scrapReason, p_metal_added_g: i.metalAddedG, p_weight_note: i.metalAddedG > 0 ? "เติมโลหะ (ช่างแจ้งผ่าน QR)" : null,
     p_scrap_weight_g: i.scrapWeightG ?? null, p_user_agent: c.userAgent, p_ip_hash: c.ipHash,
+    ...(i.lotJobId ? { p_lot_job_id: i.lotJobId } : {}), ...(i.qtySend != null ? { p_qty_send: i.qtySend } : {}), ...(i.qtyHold != null ? { p_qty_hold: i.qtyHold } : {}), ...(i.weightMoveG != null ? { p_weight_move_g: i.weightMoveG } : {}),
   });
   if (isFail(r)) return r;
-  return { ok: true, data: { already: r.already === true, by: null, message: r.already === true ? workerFailMessage("already_sent", r.message) : null } };
+  const data: StageResult = { already: r.already === true, by: null, message: r.already === true ? workerFailMessage("already_sent", r.message) : null };
+  const lotId = isUuid(r.lot_job_id) ? r.lot_job_id : null;
+  const lotSeq = intOrNull(r.lot_seq);
+  const qty = intOrNull(r.qty);
+  const remaining = intOrNull(r.parent_remaining);
+  if (r.action === "split" && lotId && lotSeq !== null && qty !== null && remaining !== null) {
+    data.lot = { lotJobId: lotId, lotSeq, label: shortText(r.label) ?? "", qty, parentRemaining: remaining };
+  }
+  return { ok: true, data };
+}
+
+export interface ResolveDiscrepancyInput {
+  discrepancyId: string;
+  kind: "scrap" | "lost";
+  reason: string;
+}
+
+/** 0181 (มติ Q5): ผู้ส่งของขั้นนั้นชี้แจงส่วนต่างที่ผู้รับบันทึกไว้ — เสียหาย (scrap) หรือหาย (lost) + เหตุผล · ครั้งเดียว */
+export async function workerResolveDiscrepancy(token: unknown, i: ResolveDiscrepancyInput): Promise<WorkerOk<{ qty: number | null }> | WorkerFail> {
+  const c = await readCaller(token);
+  if (!c.tokenHash) return fail("invalid_token");
+  if (!c.sessionHash) return fail("session_required");
+  const r = await callWorkerRpc("job_worker_discrepancy_resolve", {
+    p_token_hash: c.tokenHash, p_session_hash: c.sessionHash, p_discrepancy_id: i.discrepancyId, p_kind: i.kind, p_reason: i.reason,
+    p_user_agent: c.userAgent, p_ip_hash: c.ipHash,
+  });
+  if (isFail(r)) return r;
+  return { ok: true, data: { qty: intOrNull(r.qty) } };
+}
+
+/** 0181 (ข3): ช่างยกเลิกส่วนที่ตัวเองแยกก่อนมีคนรับ — ชิ้นกลับขั้นแม่ที่ยังถืออยู่ · ส่วนอื่น/ที่รับแล้ว = ให้ออฟฟิศยกเลิก */
+export async function workerCancelLot(token: unknown, lotJobId: string, reason: string | null): Promise<WorkerOk<{ qty: number | null }> | WorkerFail> {
+  const c = await readCaller(token);
+  if (!c.tokenHash) return fail("invalid_token");
+  if (!c.sessionHash) return fail("session_required");
+  const r = await callWorkerRpc("job_worker_lot_cancel", {
+    p_token_hash: c.tokenHash, p_session_hash: c.sessionHash, p_lot_job_id: lotJobId, p_reason: reason,
+    p_user_agent: c.userAgent, p_ip_hash: c.ipHash,
+  });
+  if (isFail(r)) return r;
+  return { ok: true, data: { qty: intOrNull(r.qty) } };
+}
+
+export interface ArriveDiscrepancyInput {
+  discrepancyId: string;
+  /** กี่ชิ้นที่ได้รับเพิ่ม (1 ≤ n ≤ ส่วนต่างที่ค้าง · DB ตรวจ) */
+  qty: number;
+  /** ทอง + ขั้นที่รับขาดตั้งชั่ง: น้ำหนักชิ้นที่มาถึง (กรัม) · อย่างอื่นห้ามส่ง (DB ตอบ weight_unexpected) */
+  weightG?: number | null;
+  /** จำนวนส่วนต่างที่ค้างตามที่เห็นบนจอ (CAS · กดซ้ำ/2 มือถือ → DB ตอบ stage_changed) */
+  expectedOpen?: number | null;
+}
+export interface ArriveResult {
+  /** ที่ได้รับเพิ่มครั้งนี้ */
+  qty: number;
+  /** ส่วนต่างที่ยังค้าง (0 = ครบ) */
+  qtyRemaining: number;
+  /** แถวส่วนต่างที่ยังค้าง (id ใหม่ — ใช้กดต่อ) · null = ครบ */
+  remainingDiscrepancyId: string | null;
+  /** ส่วนใหม่ที่เกิดจากชิ้นที่มาถึง (ส่วนย่อยของใบแม่) */
+  lot: { lotJobId: string; lotSeq: number; label: string; stageCode: string | null };
+}
+
+/**
+ * 0183 (มติ 20 ต.ค.): ผู้รับของขั้นที่รับขาดกด "ได้รับเพิ่มแล้ว" (ของนับผิด/ส่งตามมาทีหลัง) — ชิ้นที่มาถึงเป็นส่วนใหม่ที่ขั้นนั้น (received · ผู้ถือ = คนกด)
+ * 🔴 ไม่มีน้ำหนัก/ส่วนที่ขาด/เพดานในผลลัพธ์และข้อความ (N1: ผู้ชั่งต้องชั่งแบบไม่รู้คำตอบ) · ข้อความ code ที่ซ้ำกับบริบทอื่นใช้ WORKER_ARRIVE_CODE_TH
+ */
+export async function workerArriveDiscrepancy(token: unknown, i: ArriveDiscrepancyInput): Promise<WorkerOk<ArriveResult> | WorkerFail> {
+  const c = await readCaller(token);
+  if (!c.tokenHash) return fail("invalid_token");
+  if (!c.sessionHash) return fail("session_required");
+  const r = await callWorkerRpc("job_worker_discrepancy_arrive", {
+    p_token_hash: c.tokenHash, p_session_hash: c.sessionHash, p_discrepancy_id: i.discrepancyId, p_qty: i.qty,
+    p_user_agent: c.userAgent, p_ip_hash: c.ipHash,
+    // ส่งเฉพาะที่ระบุ (ค่าเริ่มของ RPC = null)
+    ...(i.weightG != null ? { p_weight_g: i.weightG } : {}), ...(i.expectedOpen != null ? { p_expected_open: i.expectedOpen } : {}),
+  });
+  if (isFail(r)) {
+    const override = Object.prototype.hasOwnProperty.call(WORKER_ARRIVE_CODE_TH, r.code) ? WORKER_ARRIVE_CODE_TH[r.code] : null;
+    return override ? { ...r, error: override } : r;
+  }
+  const qty = intOrNull(r.qty);
+  const remaining = intOrNull(r.qty_remaining);
+  const lotId = isUuid(r.lot_job_id) ? r.lot_job_id : null;
+  const lotSeq = intOrNull(r.lot_seq);
+  if (r.action !== "arrive" || qty === null || remaining === null || !lotId || lotSeq === null) return fail("error", GENERIC_JOB_ERROR);
+  return {
+    ok: true,
+    data: {
+      qty,
+      qtyRemaining: remaining,
+      remainingDiscrepancyId: isUuid(r.discrepancy_id) ? r.discrepancy_id : null,
+      lot: { lotJobId: lotId, lotSeq, label: shortText(r.label) ?? "", stageCode: shortText(r.stage_code, 40) },
+    },
+  };
 }
 
 /** ออกจากระบบ: เพิกถอน session ใน DB (ถ้ามี cookie) — ผู้เรียกลบ cookie เอง */

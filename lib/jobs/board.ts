@@ -3,6 +3,7 @@
 // ที่นี่คำนวณเฉพาะ "ครบกำหนดใน 3 วัน" (ข้อมูลประกอบ จากวันที่ไทยของ server) และจัดกลุ่ม
 
 import { addDays, daysBetween } from "@/lib/jobs/dates";
+import { GOLD_GAP_TOLERANCE_G } from "@/lib/jobs/lots";
 import type { BoardRow, StageDef } from "@/lib/jobs/types";
 
 export const NO_STAGE = "__none__";
@@ -32,7 +33,8 @@ export interface BoardColumn {
 
 /** คอลัมน์ที่ใบนี้ควรอยู่ — ยึด board_column ของ DB (0173) · ไม่มีค่า/ไม่รู้จัก: ครบทุกขั้นแล้วแต่ไม่มีขั้นปัจจุบัน = รอปิดงาน (กันกรณีข้อมูลเก่า) ไม่งั้น "ยังไม่เริ่ม" */
 export function columnOf(r: BoardRow, known: ReadonlySet<string>): string {
-  const bc = r.boardColumn ?? r.stageCode;
+  // 0181: ใบที่แยกส่วนแล้ว (หลายส่วน) อยู่คอลัมน์ของขั้นที่มีชิ้นมากสุด (DB: dominant_stage_code) — current_stage_code ของใบแม่เป็นของ "ส่วนหลัก" เท่านั้น · ใบเดี่ยว = เดิมทุกประการ
+  const bc = (r.partsCount ?? 0) > 1 && r.dominantStageCode ? r.dominantStageCode : (r.boardColumn ?? r.stageCode);
   if (bc === AWAITING_CLOSE) return AWAITING_CLOSE;
   if (bc && known.has(bc)) return bc;
   if (!r.stageCode && r.stageCount > 0 && r.stageDoneCount >= r.stageCount) return AWAITING_CLOSE;
@@ -163,7 +165,7 @@ export function applySignal(rows: readonly BoardRow[], signal: Signal | null, to
 }
 
 export type StatusTone = BadgeTone | "green";
-export type StatusKey = "overdue" | "dueSoon" | "mismatch" | "handoff" | "stale" | "deposit" | "hold" | "normal" | "auto" | "qty" | "surplusPending" | "underPlanned" | "buffer" | "goldUnguarded";
+export type StatusKey = "overdue" | "dueSoon" | "mismatch" | "handoff" | "stale" | "deposit" | "hold" | "normal" | "auto" | "qty" | "surplusPending" | "underPlanned" | "buffer" | "goldUnguarded" | "pendingExplain" | "partial" | "goldWeight";
 
 export interface StatusSignal {
   key: StatusKey;
@@ -189,8 +191,18 @@ export function statusSignals(r: BoardRow, todayTh: string): StatusSignal[] {
     const n = daysBetween(todayTh, r.dueDate as string);
     out.push({ key: "dueSoon", rank: 2, label: n === 0 ? "ครบวันนี้" : `ครบใน ${n} วัน`, tone: "amber" });
   }
-  if (r.handoffMismatchCount > 0) out.push({ key: "mismatch", rank: 3, label: `ชั่งไม่ตรง ${r.handoffMismatchCount} ครั้ง`, tone: "amber" });
-  if (r.handoffGapG !== null && r.handoffGapG > 0) out.push({ key: "handoff", rank: 4, label: `ส่วนต่างส่งมอบ ${Math.round(r.handoffGapG * 1000) / 1000} g`, tone: "amber" });
+  // 0181 M-A: ใบที่แยกส่วนแล้ว ใช้ตัวเลขทั้งต้นไม้ (ใบแม่ + ส่วนย่อย) แทนของใบแม่ที่มองไม่เห็นขั้นแรกของส่วนย่อย · ไม่มีค่า tree = ใช้ของใบเอง · ใบเดี่ยว = เดิมทุกประการ
+  const treeView = (r.partsCount ?? 0) > 1;
+  const mismatchN = treeView ? Math.max(r.handoffMismatchCount, r.treeHandoffMismatchCount ?? 0) : r.handoffMismatchCount;
+  const gapG = treeView ? (r.treeHandoffGapG ?? r.handoffGapG) : r.handoffGapG;
+  if (mismatchN > 0) out.push({ key: "mismatch", rank: 3, label: `ชั่งไม่ตรง ${mismatchN} ครั้ง`, tone: "amber" });
+  // 0181 M-A/M-B/L-1 (ทอง · ออฟฟิศเท่านั้น): น้ำหนักหายเกินสัดส่วนชิ้นที่ขาด หรือหลายส่วนหายสะสม — ใบทองที่แยกส่วนแล้วเท่านั้น (เงิน/ใบเดี่ยวไม่ขึ้น)
+  if (treeView && r.metal === "gold" && ((r.treeWeightGapExcessG ?? 0) < -GOLD_GAP_TOLERANCE_G || (r.treeLotFirstGapSumG ?? 0) < -GOLD_GAP_TOLERANCE_G)) {
+    out.push({ key: "goldWeight", rank: 3.6, label: "ทอง: น้ำหนักหายเกินสัดส่วน", tone: "amber" });
+  }
+  if (gapG !== null && gapG > 0) out.push({ key: "handoff", rank: 4, label: `ส่วนต่างส่งมอบ ${Math.round(gapG * 1000) / 1000} g`, tone: "amber" });
+  // 0181 (มติ Q5): ผู้รับรับได้น้อยกว่าที่ส่ง — ส่วนต่างรอผู้ส่งชี้แจง · ต้องดู (นับใน "ต้องดู") · n = ชิ้นจาก DB
+  if ((r.qtyPendingExplanation ?? 0) > 0) out.push({ key: "pendingExplain", rank: 3.5, label: `รอชี้แจง ${r.qtyPendingExplanation} ชิ้น`, tone: "amber" });
   if (r.isStale) out.push({ key: "stale", rank: 5, label: "นิ่งเกิน 3 วัน", tone: "amber" });
   if (r.depositMissing && r.status !== "done" && r.status !== "cancelled") out.push({ key: "deposit", rank: 6, label: r.startGateNotePresent ? "ยังไม่มีมัดจำ (เริ่มก่อนด้วยเหตุผล)" : "ยังไม่มีมัดจำ", tone: "amber" });
   // 0175: ใบ done ที่ของเหลือยังถือไว้ไม่ตัดสิน (ปกติไม่อยู่บนบอร์ด เพราะบอร์ดดึงเฉพาะใบที่ยังไม่ปิด — ขึ้นที่หน้ารายละเอียดใบงาน) · n = qty_surplus จาก DB
@@ -205,6 +217,8 @@ export function statusSignals(r: BoardRow, todayTh: string): StatusSignal[] {
   // เผื่อของเสีย (เริ่มผลิตมากกว่าที่สั่ง) — ข้อมูลประกอบ rank หลัง underPlanned · ส่วนต่างจำนวนชิ้น (ไม่ใช่เงิน/น้ำหนัก) · ใบที่เท่ากัน/น้อยกว่าไม่ขึ้น
   const buf = bufferQtyOf(r);
   if (buf > 0) out.push({ key: "buffer", rank: 10.2, label: bufferLabel(buf), tone: "blue" });
+  // 0181: ใบที่แยกส่วนแล้ว "n ส่วน" — ข้อมูลประกอบ (sky) · ใบเดี่ยวไม่ขึ้น
+  if ((r.partsCount ?? 0) > 1) out.push({ key: "partial", rank: 10.3, label: `${r.partsCount} ส่วน`, tone: "blue" });
   return out;
 }
 

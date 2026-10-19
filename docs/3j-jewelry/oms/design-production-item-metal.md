@@ -16,7 +16,7 @@
 | `production_order_item` 36 แถว · `cost_calc` 0 · PO open 4 (PO-0003/PO-0015 มี spot) · `stock_lot` 0 · job production = silver ทั้งหมด | ไม่ backfill · ไม่ UPDATE แถวเดิม (ข้อ 19) — แถวเดิม `metal` null ⇒ helper คืนค่าเดิมเป๊ะ (§2.2) · ใบ open 4 ใบคือ golden ของ "ไม่พัง" |
 | `cost_calc` snapshot (0142) มี `metal_per_piece/labor_per_piece/batch_per_piece/nre_cost/nre_per_piece/batch_lines` แยกแล้ว | ตอบข้อสงสัย L3 §5.3 ได้เลย: **component แยกพร้อมแล้ว** ไม่ต้องเพิ่ม key · งานนี้เพิ่มแค่ `metal/purity/weight_g` (additive) |
 | `job_profile_default_for(shop,'gold')` → profile "ทอง — ชั่งทุกขั้น + สุทธิ" (`is_default_gold`) · `weigh_required = p_metal in ('gold','silver')` · ด่าน ±0.05 g (N1) ผูก `job.metal` | ทองในใบผลิต → แค่ให้ `job.metal='gold'` ถูก ด่านทองทุกตัว**ทำงานเองโดยไม่แก้ 0175/0176** |
-| `schema_migrations` ล่าสุด 0180 · L1 จอง **0181** (ยังไม่ apply) · `job_source_info` ไม่อยู่ในรายการที่ L1 replace (W1 แตะทีหลัง) | งานนี้ = **0182** (ลอก def `job_source_info` จาก 0175 บน main · 1 แถว `pg_proc` หลัง replace) · L3 เลื่อนเป็น 0183 (§5) |
+| `schema_migrations` ล่าสุด 0180 · L1 จอง **0181** (ยังไม่ apply) · `job_source_info` ไม่อยู่ในรายการที่ L1 replace (W1 แตะทีหลัง) | งานนี้ = **0184** (ลอก def `job_source_info` จาก 0175 บน main · 1 แถว `pg_proc` หลัง replace) · L3 เลื่อนเป็น 0185 (§5) |
 | `MakeSpec.metal: "silver"` (TS) · `product_make_spec_set` whitelist silver · `ProductionSpecCostCard` hardcode "เนื้อเงิน" | สเปค SKU ยังเงินอย่างเดียวได้ (ไม่แตะ /catalog รอบนี้) — โลหะของ**รายการ**ทับตอนคิด · ป้าย "เนื้อเงิน" → "เนื้อ<โลหะ>" |
 
 ## 1. หลักการ (ตัดสินแล้ว)
@@ -33,7 +33,7 @@
 
 | คอลัมน์ | ชนิด / CHECK | ความหมาย |
 |---|---|---|
-| `metal text null` | `in ('silver','gold','brass')` | โลหะของรอบนี้ · null = แถวเดิมก่อน 0182 ⇒ helper §2.2 คืนกติกาเดิม · แถวใหม่ `item_set` เติมเสมอ (ไม่ null) |
+| `metal text null` | `in ('silver','gold','brass')` | โลหะของรอบนี้ · null = แถวเดิมก่อน 0184 ⇒ helper §2.2 คืนกติกาเดิม · แถวใหม่ `item_set` เติมเสมอ (ไม่ null) |
 | `purity numeric(6,4) null` | `purity >= 0.3750 and purity <= 1` · `(metal is distinct from 'gold') or purity is not null` | สัดส่วน 0..1 (DB คงหน่วยเดิม — `lib/units/purity.ts` แปลงที่ขอบ UI) · **ขั้นต่ำ 37.50% ฝั่ง DB ครั้งแรก** (หนี้ที่ purity.ts จดไว้ — ปิดเฉพาะตารางนี้ ไม่แตะ `product`) · ทองต้องมีเสมอ (เหมือน OEM) |
 | `weight_g numeric(10,3) null` | `> 0 and <= 10000` | น้ำหนัก/ชิ้น · null ได้ (SKU fixed ที่ยังไม่รู้น้ำหนัก) · **ต้องมีตอน done/preview เมื่อ cost_type ∈ {spot, spec}** (ด่านเดิมที่เคยเช็ค `silver_weight_g` ย้ายมาเช็คค่า effective) |
 | `weight_source text null` | `in ('product','input')` · `(weight_g is null) = (weight_source is null)` | ที่มา: ลอกจาก SKU หรือพิมพ์เอง — ป้อนต่อเป็น `target_piece_g_source` ของใบงาน (0175 guard รับ `'product'`/`'input'` อยู่แล้ว ไม่ต้องเพิ่มค่าใหม่) |
@@ -100,14 +100,14 @@
 
 | phase | ขอบเขต | migration | ขนาด | QA | security | พึ่ง / ชน |
 |---|---|---|---|---|---|---|
-| **L1** (กำลังทำ) | ส่วนย่อยในร้าน | 0181 | L | L | บังคับ | — · ไม่แตะ `production_*`/`job_source_info` ⇒ **ไม่ชน** งานนี้ · ทำคู่ขนานได้ (worktree แยก · apply 0181 ก่อน 0182) |
-| **PM-A ฝั่ง DB (งานนี้) 💰** | §2 ทั้งหมด + `verify-0182.sql` (golden 4 ใบ open + สังเคราะห์ 3 โลหะ × 3 โหมด) | **0182** | M (DB ~500 บรรทัด · 6 ฟังก์ชัน) | L (ใบผลิตทุก flow + สร้างใบงานจากใบผลิต + `/catalog` ไม่ขยับ) | **บังคับก่อน merge** (แตะ `production_order_done` · ราคาโลหะใหม่ · signature 3 ตัว) | หลัง L1 apply · **ก่อน L3** |
+| **L1** (กำลังทำ) | ส่วนย่อยในร้าน | 0181 | L | L | บังคับ | — · ไม่แตะ `production_*`/`job_source_info` ⇒ **ไม่ชน** งานนี้ · ทำคู่ขนานได้ (worktree แยก · apply 0181 ก่อน 0184) |
+| **PM-A ฝั่ง DB (งานนี้) 💰** | §2 ทั้งหมด + `verify-0184.sql` (golden 4 ใบ open + สังเคราะห์ 3 โลหะ × 3 โหมด) | **0184** | M (DB ~500 บรรทัด · 6 ฟังก์ชัน) | L (ใบผลิตทุก flow + สร้างใบงานจากใบผลิต + `/catalog` ไม่ขยับ) | **บังคับก่อน merge** (แตะ `production_order_done` · ราคาโลหะใหม่ · signature 3 ตัว) | หลัง L1 apply · **ก่อน L3** |
 | **PM-B ฝั่งจอ** | §3 (ux-ui → frontend) | — | M | L | ไม่ (ไม่มีเงินใน client) · grep RSC payload ไม่มี `_raw`/ราคา OEM | PM-A apply ก่อน deploy (named args — PGRST202 ถ้าสลับ · บทเรียน 0132) |
-| **L3** 💰 (เลื่อนเลข) | งวด + `production_receipt` + §4 pending lot | **0183** (เดิม 0182) | L | 💰 | บังคับ | `production_receipt_core` เรียก `production_cost_calc` **signature ใหม่** + `production_metal_price_resolve` ต่อโลหะของรายการ · `p_expected_metal_prices` แบบเดียวกับ done — ต้องแก้ `design-job-lots-shopfloor.md` §5.2/§12 ตามนี้ |
-| L2 / W1 / L4 | ตามเดิม | 0184 / 0185 / 0186 | | | | W1 `job_worker_open(p_metal …)` ใบไม่มี SKU → ลง `production_order_item.metal/purity/weight_g` ตรงๆ (คอลัมน์พร้อมแล้ว — ลดงาน W1) |
+| **L3** 💰 (เลื่อนเลข) | งวด + `production_receipt` + §4 pending lot | **0185** (เดิม 0182 → เลื่อนเป็น 0183 → เลื่อนอีกครั้ง 20 ต.ค. เพราะ 0182 = รูปงาน · 0183 = ส่วนต่าง "ได้รับเพิ่มแล้ว") | L | 💰 | บังคับ | `production_receipt_core` เรียก `production_cost_calc` **signature ใหม่** + `production_metal_price_resolve` ต่อโลหะของรายการ · `p_expected_metal_prices` แบบเดียวกับ done — ต้องแก้ `design-job-lots-shopfloor.md` §5.2/§12 ตามนี้ |
+| L2 / W1 / L4 | ตามเดิม | 0186 / 0187 / 0188 | | | | W1 `job_worker_open(p_metal …)` ใบไม่มี SKU → ลง `production_order_item.metal/purity/weight_g` ตรงๆ (คอลัมน์พร้อมแล้ว — ลดงาน W1) |
 | G1 พลอย | หลัง W1 | ถัดไป | L 💰 | | | BOM พลอยต่อรายการใบผลิตจะวางบน `production_order_item` ตัวเดียวกัน |
 
-**ทำไม PM-A ก่อน L3**: L3 ลอกเส้นต้นทุนของ done ไปใช้ในงวด — ถ้าทำ L3 ก่อน ต้องแก้สองครอบครัว RPC สองรอบ (done + receipt) และ `p_expected_spot` ของ L3 จะเกิดมาเป็นแบบเงินเดี่ยวแล้วต้องรื้อ · PM-A เล็กกว่า L3 มาก และตอบคำสั่งตรงของเจ้าของ 19 ต.ค. · ความเสี่ยงของการสลับ: ถ้า L1 ลากยาว PM-A รอ 0181 เปล่าๆ — ทางออก: PM-A ไม่พึ่ง L1 เชิงโค้ด (คนละ object) จองเลข 0182 แล้ว dry-run บน main ได้เลย apply ตามลำดับเลข
+**ทำไม PM-A ก่อน L3**: L3 ลอกเส้นต้นทุนของ done ไปใช้ในงวด — ถ้าทำ L3 ก่อน ต้องแก้สองครอบครัว RPC สองรอบ (done + receipt) และ `p_expected_spot` ของ L3 จะเกิดมาเป็นแบบเงินเดี่ยวแล้วต้องรื้อ · PM-A เล็กกว่า L3 มาก และตอบคำสั่งตรงของเจ้าของ 19 ต.ค. · ความเสี่ยงของการสลับ: ถ้า L1 ลากยาว PM-A รอ 0181 เปล่าๆ — ทางออก: PM-A ไม่พึ่ง L1 เชิงโค้ด (คนละ object) จองเลข 0184 แล้ว dry-run บน main ได้เลย apply ตามลำดับเลข
 
 ## 6. เคสห้ามผ่าน / ต้องไม่พัง (verify = do-block + `raise` rollback · fixture ผ่าน RPC เท่านั้น · ตารางแมป "ข้อในบรีฟ → เทสต์" บังคับ)
 
@@ -178,4 +178,4 @@
 
 **หนี้ที่รู้ตั้งแต่ design**: สเปค SKU (`make_spec`) ยังเงินอย่างเดียวที่ /catalog · ไม่มี override ราคาทองต่อใบ · `v_dim_product` "ต้นทุนถ้าผลิตวันนี้" ยังสูตรเงิน · ไม่มี feed ราคาทอง · pending-price lot (§4) รอ L3 · `purity_basis` ยังไม่มีใครอ่าน
 
-**ไฟล์ที่แตะ (คาด)**: `supabase/migrations/0182_production_item_metal.sql` + `scripts/verify/verify-0182.sql` · `lib/production/types.ts` (+`metal/purity/weightG/weightSource` · `metalPrices` · `ProductionMetal`) · `lib/actions/production.ts` (`setProductionOrderItem` 4 arg · `previewProductionOrder`/`doneProductionOrder` map) · `components/domain/production/ProductionItemCard.tsx` (ใหม่) · `ProductionAddItemForm.tsx` · `ProductionOrderDetailClient.tsx` · `ProductionDoneDialog.tsx` · `ProductionSpecCostCard.tsx` (ป้ายโลหะ) · `lib/production/types.test.ts` · `docs/3j-jewelry/oms/design-job-lots-shopfloor.md` (§5.2/§9/§12 เลขและ signature)
+**ไฟล์ที่แตะ (คาด)**: `supabase/migrations/0184_production_item_metal.sql` + `scripts/verify/verify-0184.sql` · `lib/production/types.ts` (+`metal/purity/weightG/weightSource` · `metalPrices` · `ProductionMetal`) · `lib/actions/production.ts` (`setProductionOrderItem` 4 arg · `previewProductionOrder`/`doneProductionOrder` map) · `components/domain/production/ProductionItemCard.tsx` (ใหม่) · `ProductionAddItemForm.tsx` · `ProductionOrderDetailClient.tsx` · `ProductionDoneDialog.tsx` · `ProductionSpecCostCard.tsx` (ป้ายโลหะ) · `lib/production/types.test.ts` · `docs/3j-jewelry/oms/design-job-lots-shopfloor.md` (§5.2/§9/§12 เลขและ signature)
