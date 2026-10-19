@@ -36,6 +36,13 @@ export function JobCard({ row, todayTh, idPrefix = "board", highlighted = false 
         <p className="text-sm text-zinc-700">
           {qtyLabel(row)} · {METAL_LABEL[row.metal] ?? row.metal}
         </p>
+        {/* 0181: ใบที่แยกส่วนแล้ว = บรรทัดเดียวสรุปทั้งใบ "เสร็จ x/N · ขั้น n …" (ตัวเลขจาก DB) · ใบเดี่ยวไม่มี */}
+        {row.lotsLine && (
+          <p className="mt-0.5 text-sm font-medium tabular-nums text-zinc-900" title={row.lotsSumOk ? `รวม ${row.qtyPlanned} ครบ` : "ตัวเลขรวมไม่ครบ — แจ้งผู้ดูแลระบบตรวจ"}>
+            {row.lotsLine}
+            {row.lotsSumOk === false && <span className="ml-1 font-semibold text-amber-900">(ตัวเลขรวมไม่ครบ)</span>}
+          </p>
+        )}
         <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-sm text-zinc-800">
           <span className="inline-flex items-center gap-1">
             <UserRound className="h-3.5 w-3.5" aria-hidden="true" />
