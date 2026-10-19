@@ -2,6 +2,7 @@
 // เคสห้ามผ่าน (brief PH-A): ไม่ใช่ JPEG จริง · เกิน 1 MB · Exif/GPS ค้าง · เกินเพดาน · path จาก client/ข้ามใบ/ข้ามร้าน · URL ถาวร/public · ส่วนย่อย · log ทั้งก้อน (PII)
 // ต้องไม่พัง: สร้างใบเมื่อไม่มีรูป/copy ล้ม (ดู job-office-photos.test.ts) · ใบปิดแล้วแก้รูปได้ (action ไม่เช็คสถานะ — ด่านอยู่ที่ DB และ DB อนุญาตตามมติ) · catalog รูปเดิมไม่ถูกเขียน
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { hasCameraMetadata } from "@/lib/images/server";
 
 const SHOP = "a7c850ee-6776-4c3e-ba72-ba9e8caba2b7";
 const USER = "99999999-9999-4999-8999-999999999999";
@@ -62,9 +63,17 @@ const ascii = (s: string): number[] => Array.from(s, (c) => c.charCodeAt(0));
 const seg = (marker: number, payload: number[]): number[] => [0xff, marker, ((payload.length + 2) >> 8) & 0xff, (payload.length + 2) & 0xff, ...payload];
 const JFIF = seg(0xe0, [...ascii("JFIF"), 0x00, 0x01, 0x01, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00]);
 const sof = (w: number, h: number) => [0xff, 0xc0, 0x00, 0x0b, 0x08, (h >> 8) & 0xff, h & 0xff, (w >> 8) & 0xff, w & 0xff, 0x01, 0x01, 0x11, 0x00];
-const cleanJpeg = (w = 1200, h = 800, pad = 0): Uint8Array => new Uint8Array([0xff, 0xd8, ...JFIF, ...sof(w, h), ...new Array(pad).fill(0x11), 0xff, 0xd9]);
-const exifJpeg = (): Uint8Array => new Uint8Array([0xff, 0xd8, ...seg(0xe1, [...ascii("Exif"), 0, 0, 0x49, 0x49, 0x2a, 0, 8, 0, 0, 0, 1, 0, 0x25, 0x88, 4, 0, 1, 0, 0, 0, 0x1a, 0, 0, 0]), ...JFIF, ...sof(1200, 800), 0xff, 0xd9]);
-const xmpJpeg = (): Uint8Array => new Uint8Array([0xff, 0xd8, ...seg(0xe1, [...ascii("http://ns.adobe.com/xap/1.0/"), 0, ...ascii("<exif:GPSLatitude/>")]), ...JFIF, ...sof(1200, 800), 0xff, 0xd9]);
+const SOS = [0xff, 0xda, 0x00, 0x08, 0x01, 0x01, 0x00, 0x00, 0x3f, 0x00];
+const SCAN = [0x12, 0x34, 0xff, 0x00, 0x56, 0xff, 0xd0, 0x78]; // ข้อมูลภาพ: byte ถูกแทรก (FF00) + RST0
+const ICC = seg(0xe2, [...ascii("ICC_PROFILE"), 0, 1, 1, 9, 9, 9]);
+/** JPEG โครงสมบูรณ์ (SOI · ส่วนหัวเสริม · JFIF · SOF · SOS · ข้อมูลภาพ · pad · EOI · ท้ายไฟล์) — ไม่ใช่รูปที่ถอดรหัสได้ แต่โครง marker ถูกต้องตามที่ stripJpegMetadata ตรวจ */
+const jpegWith = (before: number[][] = [], w = 1200, h = 800, pad = 0, tail: number[] = []): Uint8Array =>
+  new Uint8Array([0xff, 0xd8, ...before.flat(), ...JFIF, ...sof(w, h), ...SOS, ...SCAN, ...new Array(pad).fill(0x11), 0xff, 0xd9, ...tail]);
+const cleanJpeg = (w = 1200, h = 800, pad = 0): Uint8Array => jpegWith([], w, h, pad);
+const EXIF_GPS = seg(0xe1, [...ascii("Exif"), 0, 0, 0x49, 0x49, 0x2a, 0, 8, 0, 0, 0, 1, 0, 0x25, 0x88, 4, 0, 1, 0, 0, 0, 0x1a, 0, 0, 0, ...ascii("GPS13.7563N100.5018E")]);
+const XMP = seg(0xe1, [...ascii("http://ns.adobe.com/xap/1.0/"), 0, ...ascii("<exif:GPSLatitude>13.7563</exif:GPSLatitude>")]);
+const exifJpeg = (): Uint8Array => jpegWith([EXIF_GPS, ICC, seg(0xfe, ascii("comment ชื่อลูกค้า"))], 1200, 800, 0, [...EXIF_GPS]);
+const xmpJpeg = (): Uint8Array => jpegWith([XMP, ICC, seg(0xed, ascii("Photoshop 3.0"))], 1200, 800, 0, [...XMP]);
 const file = (bytes: Uint8Array | string, name = "photo.jpg", type = "image/jpeg") => new File([bytes as BlobPart], name, { type });
 
 function form(o: { jobId?: string | null; md?: unknown; sm?: unknown; caption?: string; extra?: Record<string, string> } = {}): FormData {
@@ -190,12 +199,39 @@ describe("uploadJobPhoto — เคสห้ามผ่าน (ด่านไ�
     expect(rpcMock).not.toHaveBeenCalled();
   });
 
-  it("🔴 JPEG ที่ยังมี Exif (GPS) หรือ XMP — ยิงตรงเข้า action ข้าม client → ปฏิเสธ (ทั้ง md และ sm) · ไม่อัปโหลด ไม่ยิง RPC", async () => {
-    for (const bad of [exifJpeg(), xmpJpeg()]) {
+  it("🔴 H1: JPEG ที่มี Exif (GPS) / XMP / COM / APP13 / ท้าย EOI — ยิงตรงเข้า action: ไม่ถูกปฏิเสธ (iPhone ผ่านได้) แต่ server ตัด metadata ก่อนเก็บ · bytes ที่ขึ้น bucket ไม่มี Exif/XMP/GPS/COM/ท้ายไฟล์ · ICC คงอยู่ · p_bytes = md+sm ที่ตัดแล้ว", async () => {
+    for (const dirty of [exifJpeg(), xmpJpeg()]) {
+      uploadMock.mockClear();
+      rpcMock.mockClear();
+      const r = await uploadJobPhoto(form({ md: file(dirty), sm: file(dirty) }));
+      expect(r.ok).toBe(true);
+      const sent = uploadMock.mock.calls.map((c) => c[2] as Uint8Array);
+      expect(sent).toHaveLength(2);
+      for (const b of sent) {
+        expect(hasCameraMetadata(b)).toBe(false);
+        const txt = Buffer.from(b).toString("latin1");
+        for (const leak of ["Exif", "GPS", "xap", "13.7563", "comment", "Photoshop"]) expect(txt, leak).not.toContain(leak);
+        expect(txt).toContain("ICC_PROFILE"); // โปรไฟล์สีไม่หาย
+        expect(txt).toContain("JFIF");
+        expect(b.byteLength).toBeLessThan(dirty.byteLength);
+      }
+      expect(rpcCalls("job_photo_add")[0][1].p_bytes).toBe(sent[0].byteLength + sent[1].byteLength);
+    }
+  });
+
+  it("🔴 H1: ไฟล์พัง/polyglot/ไม่รู้จัก → ปฏิเสธ ไม่อัปโหลด: byte ขยะระหว่าง segment · ไม่มี EOI · ถูกตัดกลางข้อมูลภาพ · SOS ก่อน SOF · SOF ซ้ำ · marker ที่ไม่รู้จัก · length เกินไฟล์", async () => {
+    const junkBetween = new Uint8Array([0xff, 0xd8, ...JFIF, ...ascii("<script>alert(1)</script>"), ...sof(1200, 800), ...SOS, ...SCAN, 0xff, 0xd9]);
+    const noEoi = new Uint8Array([0xff, 0xd8, ...JFIF, ...sof(1200, 800), ...SOS, ...SCAN, 0xff, 0x00]);
+    const truncated = new Uint8Array([0xff, 0xd8, ...JFIF, ...sof(1200, 800), ...SOS, 0x12, 0x34]);
+    const sosFirst = new Uint8Array([0xff, 0xd8, ...JFIF, ...SOS, ...SCAN, ...sof(1200, 800), 0xff, 0xd9]);
+    const twoSof = new Uint8Array([0xff, 0xd8, ...JFIF, ...sof(1200, 800), ...sof(1200, 800), ...SOS, ...SCAN, 0xff, 0xd9]);
+    const unknown = new Uint8Array([0xff, 0xd8, ...JFIF, ...seg(0xf5, [1, 2, 3]), ...sof(1200, 800), ...SOS, ...SCAN, 0xff, 0xd9]);
+    const overrun = new Uint8Array([0xff, 0xd8, 0xff, 0xdb, 0xff, 0xf0, 0x00, 0x01]);
+    for (const [name, bad] of Object.entries({ junkBetween, noEoi, truncated, sosFirst, twoSof, unknown, overrun })) {
       for (const slot of ["md", "sm"] as const) {
         const r = await uploadJobPhoto(form({ [slot]: file(bad) }));
-        expect(r.ok, slot).toBe(false);
-        expect(!r.ok && r.error, slot).toMatch(/ข้อมูลจากกล้อง/);
+        expect(r.ok, name + "/" + slot).toBe(false);
+        expect(!r.ok && r.error, name + "/" + slot).toMatch(/เสียหาย|โครงสร้าง/);
       }
     }
     expect(uploadMock).not.toHaveBeenCalled();
@@ -523,7 +559,7 @@ describe("pullJobPhotoFromCatalog — copy (ไม่ใช่ link) · ไม�
     expect(r.ok).toBe(false);
     expect(JSON.stringify(r)).not.toContain(HOST_SECRET);
 
-    for (const bad of [exifJpeg(), xmpJpeg(), new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]), cleanJpeg(1200, 800, 1_048_577)]) {
+    for (const bad of [new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3]), cleanJpeg(1200, 800, 1_048_577), new Uint8Array([0xff, 0xd8, ...JFIF, ...ascii("garbage"), 0xff, 0xd9])]) {
       downloadMock.mockImplementation(async () => blob(bad));
       r = await pullJobPhotoFromCatalog(JOB);
       expect(r.ok).toBe(false);
@@ -531,6 +567,21 @@ describe("pullJobPhotoFromCatalog — copy (ไม่ใช่ link) · ไม�
     }
     expect(uploadMock).not.toHaveBeenCalled();
     expect(rpcCalls("job_photo_add")).toHaveLength(0);
+  });
+
+  it("H1: รูปแคตตาล็อกที่ยังมี Exif/XMP → copy เข้าใบแบบตัด metadata แล้ว (ไม่ปฏิเสธ) · bytes ที่ขึ้น bucket ใบงานไม่มี GPS · ต้นฉบับใน product-images ไม่ถูกแตะ", async () => {
+    downloadMock.mockImplementation(async (_b: string, path: string) => blob(path === SRC_MD ? exifJpeg() : xmpJpeg()));
+    const r = await pullJobPhotoFromCatalog(JOB);
+    expect(r.ok).toBe(true);
+    const sent = uploadMock.mock.calls.map((c) => c[2] as Uint8Array);
+    expect(sent).toHaveLength(2);
+    for (const b of sent) {
+      expect(hasCameraMetadata(b)).toBe(false);
+      expect(Buffer.from(b).toString("latin1")).not.toMatch(/Exif|GPS|xap/);
+    }
+    expect(uploadMock.mock.calls.every((c) => c[0] === "job-photos")).toBe(true);
+    expect(removeMock.mock.calls.some((c) => c[0] === "product-images")).toBe(false);
+    expect(rpcCalls("job_photo_add")[0][1].p_bytes).toBe(sent[0].byteLength + sent[1].byteLength);
   });
 
   it("RPC add ล้ม (ดึงซ้ำ photo_catalog_dup / เพดาน / ใบปิด) → ลบไฟล์ที่ copy ไปแล้ว · ข้อความไทย · log ไม่มี path", async () => {

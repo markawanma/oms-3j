@@ -8,20 +8,24 @@
 -- สิ่งที่ migration นี้ทำ
 --  1 storage bucket 'job-photos' (private · 1 MB · image/jpeg · ไม่มี storage policy — ทุก read/write ผ่าน service client ฝั่ง server)
 --  2 ตาราง analytics.job_photo (RLS เปิดไม่มี policy · service_role select อย่างเดียว · เขียนผ่าน RPC definer เท่านั้น) + path = <shop>/<job>/<photo_id>_md.jpg|_sm.jpg บังคับด้วย CHECK (id มาจาก path)
---  3 trigger: job_photo_guard (INSERT: ใบแม่ในร้านเดียวกัน · UPDATE: แก้ได้เฉพาะรูปหลัก/ลำดับ/caption/ลบ · DELETE ปฏิเสธเสมอ) · job_photo_enforce_cap (5 reference · 20 รวม · 250 MB ต่อร้าน — advisory lock)
+--  3 trigger: job_photo_guard (INSERT: ใบแม่ในร้านเดียวกัน · UPDATE: แก้ได้เฉพาะรูปหลัก/ลำดับ/caption/ลบ · DELETE ปฏิเสธเสมอ) · job_photo_enforce_cap (5 reference · 20 รวม · 330 MB (md+sm) ต่อร้าน — advisory lock)
 --  4 RPC ออฟฟิศ: job_photo_add · job_photo_remove · job_photo_set_primary · job_photo_reorder · job_photo_catalog_source (อ่านรูปหลักของ SKU ให้ action copy)
---  5 job_event: + 'photo_remove' · job_worker_resolve (replace · signature เดิม): + job.photos เฉพาะหลังระบุตัวช่าง · ไม่มีรูป = ไม่มี key (ผลเดิมเป๊ะ)
+--  5 job_event: + 'photo_remove' · 'photo_primary' · 'photo_reorder' · job_worker_resolve (replace · signature เดิม): + job.photos เฉพาะหลังระบุตัวช่าง · ไม่มีรูป = ไม่มี key (ผลเดิมเป๊ะ)
 --  6 สิทธิ์ service_role เท่านั้น (ข้อ 18) · post-check: md5 ฟังก์ชันอื่นไม่ขยับ · ไม่มี overload · bucket private · ไม่มี policy
 --
 -- ตัดสินเอง (นอก design — เหตุผล)
 --  (1) มติเจ้าของ §10.1 Q1 ทับ design §2.3/§5: ใบ done/cancelled เพิ่ม/ลบ/ตั้งหลัก/เรียงรูปได้ (job_office_begin p_allow_terminal = true) · ยังเก็บ audit ใคร/เมื่อไร (soft delete + job_event) · ไม่มี job_closed ในชุดรูป
 --  (2) path ผูกกับ id ด้วย CHECK (storage_path = shop/job/id_md.jpg) — design เขียนแค่ "ตรวจรูปแบบ + uuid เดียวกัน" · ผมให้ id ของแถว = uuid ใน path เพื่อให้ client เดาชื่อ/ยัด path ที่ไม่ใช่ของตัวเองไม่ได้แม้เขียนตาราง
---  (3) bytes มีเพดาน 1 MB ที่ตาราง (design: > 0 อย่างเดียว) — เป็นขนาดของ md variant ที่ bucket จำกัดอยู่แล้ว · กันตัวเลขเพี้ยนเข้าไปคิด budget
+--  (3) bytes = ขนาด md + sm รวมกัน (security L1: budget เดิมนับแค่ md ⇒ ดิสก์จริงเกินที่ตั้ง ~⅓) · CHECK 1..2 MB (= 2 × เพดานรายไฟล์ 1 MB ของ bucket) · budget ร้าน 330 MB = ของเดิม 250 MB(md) + sm ≈ ⅓ ⇒ ตัวเลขที่ DB นับ = ที่ใช้ดิสก์จริง
 --  (4) partial unique (job_id, product_image_id) เมื่อไม่ลบ — กดดึงรูปแคตตาล็อกซ้ำ/ 2 แท็บ = ไม่ได้รูปซ้ำ (hint photo_catalog_dup)
 --  (5) job_worker_resolve ส่งเฉพาะ kind='reference' (design ไม่ระบุ kind) — รูปผลงานต่อขั้น (W2b) ยังไม่มี และต้องออกแบบการแสดงแยกตอนนั้น
 --  (6) job_photo_catalog_source เป็น RPC (design ให้ action SELECT product_image ตรง) — ผูก job↔product↔ร้านในที่เดียวและทดสอบใน DB ได้ · อ่านอย่างเดียว ไม่เขียน product_image/product-images
 --  (7) trigger ปล่อยให้ FK on delete set null แก้ product_image_id → null ได้ (ลบรูปแคตตาล็อกต้องไม่ติดด่านของรูปใบงาน) · การแก้อย่างอื่นของแถวที่ลบแล้ว = ปฏิเสธ
---  (8) ตั้งรูปหลัก/เรียง ไม่เขียน job_event ตาม design §5 (ลำดับแสดงผล ไม่มีน้ำหนักทางธุรกิจ) — UX ขอป้าย "ตั้งรูปหลัก" ในไทม์ไลน์ · ต้องให้ Tech Lead ตัดสินก่อนเพิ่ม event
+--  (8) [security L4] ตั้งรูปหลัก/เรียงรูป เขียน job_event (photo_primary · photo_reorder) — ใบปิดแล้วก็แก้รูปได้ตามมติ จึงต้องมีร่องรอยว่าใครเปลี่ยนรูปที่พิมพ์/ที่ช่างเห็นเมื่อไร (ทับ design §5 ที่ให้ไม่เขียน) · เขียนเฉพาะเมื่อเปลี่ยนจริง (ตั้งรูปที่เป็นหลักอยู่แล้ว/ส่งลำดับเดิม = ไม่มี event) · payload มีเฉพาะ id (ไม่มี path)
+--  (9) [security H1] ด่าน Exif/GPS ย้ายเป็น "ตัด metadata ระดับ marker ฝั่ง server ก่อนเก็บ" (lib/images/server.ts stripJpegMetadata) แทนปฏิเสธไฟล์ที่มี APP1 — ไม่มีผลต่อ SQL ไฟล์นี้ (DB ไม่เห็น bytes ของไฟล์)
+--
+-- หนี้ที่รู้ตัว (ไม่ทำในไฟล์นี้)
+--  [security L2] ไฟล์ค้างใน bucket job-photos: upload สำเร็จแต่ RPC ล้มแล้วลบ object ล้มซ้ำ / ลบรูปแล้ว remove object ล้ม = object ไม่มีแถว active ชี้ — ยังไม่มีงานเก็บกวาด (ต้องเขียน script เทียบ storage.objects กับ job_photo ที่ deleted_at is null) · budget นับเฉพาะแถว active จึงไม่เห็นไฟล์ค้างพวกนี้
 --
 -- race 2 connection ของ cap/budget: ไม่มีเทสต์ใน do-block (ทรานแซกชันเดียวจำลองไม่ได้) — pattern advisory lock เหมือน 0104/0105 เป๊ะ
 
@@ -98,7 +102,7 @@ alter table analytics.job_event drop constraint if exists job_event_event_type_c
 alter table analytics.job_event add constraint job_event_event_type_ck check (event_type = any (array[
   'create', 'stage_receive', 'stage_send', 'stage_skip', 'stage_reopen', 'weigh', 'scrap', 'batch_join', 'batch_leave', 'due_set', 'hold', 'resume',
   'photo_add', 'note', 'done', 'cancel', 'token_issue', 'token_revoke', 'plan_change', 'surplus_set', 'profile_set',
-  'split', 'split_cancel', 'discrepancy', 'discrepancy_resolve', 'photo_remove']));
+  'split', 'split_cancel', 'discrepancy', 'discrepancy_resolve', 'photo_remove', 'photo_primary', 'photo_reorder']));
 
 -- ============================================================================
 -- 3. ตาราง analytics.job_photo
@@ -113,7 +117,7 @@ create table if not exists analytics.job_photo (
   product_image_id uuid references public.product_image (id) on delete set null,
   storage_path     text not null,
   variant_sm_path  text not null,
-  bytes            int  not null check (bytes between 1 and 1048576),
+  bytes            int  not null check (bytes between 1 and 2097152), -- md + sm รวมกัน (ไฟล์ละ ≤ 1 MB ที่ bucket)
   width            int  check (width is null or width between 1 and 100000),
   height           int  check (height is null or height between 1 and 100000),
   is_primary       boolean not null default false,
@@ -211,7 +215,7 @@ end;
 $f$;
 
 -- เพดาน + budget: บังคับที่ DB ไม่ใช่แค่ app (ลอก pattern 0104/0105 — advisory lock ต่อใบ seed 2 · ต่อร้าน seed 3 แยกจาก product_image ที่ใช้ seed 0/1)
--- 🔴 ตัวเลข 5 / 20 / 250 MB อยู่ 2 ที่: ที่นี่ + lib/images/constants.ts (MAX_REFERENCE_PHOTOS · MAX_JOB_PHOTOS · JOB_PHOTOS_BUDGET_BYTES) — ขยับพร้อมกัน
+-- 🔴 ตัวเลข 5 / 20 / 330 MB (+ เพดาน bytes รวม 2 MB ที่ CHECK) อยู่ 2 ที่: ที่นี่ + lib/images/constants.ts (MAX_REFERENCE_PHOTOS · MAX_JOB_PHOTOS · JOB_PHOTOS_BUDGET_BYTES · JOB_PHOTO_TOTAL_MAX_BYTES) — ขยับพร้อมกัน
 create or replace function analytics.job_photo_enforce_cap()
  returns trigger
  language plpgsql
@@ -231,10 +235,10 @@ begin
   if v_all >= 20 then
     raise exception 'ใบงานนี้มีรูปครบ 20 รูปแล้ว' using errcode = 'P0002', hint = 'photo_cap_total';
   end if;
-  -- budget เป็น bytes ของ md (sm ≈ ⅓) · นับเฉพาะรูปที่ยังไม่ลบ (ไฟล์ของรูปที่ลบถูกลบจาก bucket จริงแล้ว)
+  -- budget = bytes ของ md+sm รวม (security L1) · นับเฉพาะรูปที่ยังไม่ลบ (ไฟล์ของรูปที่ลบถูกลบจาก bucket จริงแล้ว)
   perform pg_advisory_xact_lock(hashtextextended(new.shop_id::text, 3));
   select coalesce(sum(p.bytes), 0) into v_bytes from analytics.job_photo p where p.shop_id = new.shop_id and p.deleted_at is null;
-  if v_bytes + new.bytes > 250 * 1024 * 1024 then
+  if v_bytes + new.bytes > 330 * 1024 * 1024 then
     raise exception 'พื้นที่เก็บรูปใบงานของร้านเต็มแล้ว' using errcode = 'P0003', hint = 'photo_budget';
   end if;
   return new;
@@ -299,8 +303,8 @@ begin
   if p_variant_sm_path <> v_prefix || v_id::text || '_sm.jpg' then
     raise exception 'ตำแหน่งไฟล์รูปไม่ถูกต้อง' using errcode = '22023', hint = 'photo_path_invalid';
   end if;
-  if p_bytes is null or not (p_bytes between 1 and 1048576) then
-    raise exception 'ขนาดไฟล์รูปไม่ถูกต้อง (ไม่เกิน 1 MB)' using errcode = '22023', hint = 'photo_bytes_invalid';
+  if p_bytes is null or not (p_bytes between 1 and 2097152) then
+    raise exception 'ขนาดไฟล์รูปไม่ถูกต้อง (md + sm รวมไม่เกิน 2 MB)' using errcode = '22023', hint = 'photo_bytes_invalid';
   end if;
   if (p_width is not null and not (p_width between 1 and 100000)) or (p_height is not null and not (p_height between 1 and 100000)) then
     raise exception 'ขนาดภาพไม่ถูกต้อง' using errcode = '22023', hint = 'photo_dims_invalid';
@@ -393,6 +397,7 @@ declare
   v_actor  uuid := coalesce(p_actor, auth.uid());
   v_job_id uuid;
   v_ph     analytics.job_photo%rowtype;
+  v_prev   uuid;
 begin
   if p_shop_id is null or p_photo_id is null then
     raise exception 'job_photo_set_primary: p_shop_id และ p_photo_id จำเป็น' using errcode = '22023';
@@ -412,8 +417,12 @@ begin
   end if;
   -- ล้างตัวเก่าก่อนตั้งตัวใหม่ (partial unique index ตรวจทันทีทุกคำสั่ง) · ตัวเดิมเป็นหลักอยู่แล้ว = ไม่ทำอะไร (ไม่ใช่ error)
   if not v_ph.is_primary then
+    select p.id into v_prev from analytics.job_photo p where p.job_id = v_job_id and p.is_primary and p.deleted_at is null;
     update analytics.job_photo set is_primary = false where job_id = v_job_id and is_primary and deleted_at is null;
     update analytics.job_photo set is_primary = true where id = p_photo_id;
+    -- L4: ใบปิดแล้วก็แก้ได้ ⇒ ต้องมีร่องรอย (เฉพาะเมื่อเปลี่ยนจริง)
+    perform analytics.job_event_write(v_job_id, null, 'photo_primary', analytics.job_today(), v_actor, null, 'job_page', null,
+      jsonb_build_object('photo_id', p_photo_id, 'previous_photo_id', v_prev));
   end if;
   return jsonb_build_object('ok', true, 'photo_id', p_photo_id);
 end;
@@ -429,6 +438,7 @@ declare
   v_actor uuid := coalesce(p_actor, auth.uid());
   v_job   analytics.job%rowtype;
   v_have  uuid[];
+  v_old   uuid[];
 begin
   if p_shop_id is null or p_job_id is null then
     raise exception 'job_photo_reorder: p_shop_id และ p_job_id จำเป็น' using errcode = '22023';
@@ -444,9 +454,15 @@ begin
      or v_have is distinct from (select coalesce(array_agg(x order by x), '{}') from unnest(p_ids) as x) then
     raise exception 'ลำดับรูปต้องมีรูปทั้งหมดของใบนี้ครบ ไม่ซ้ำ ไม่ขาด' using errcode = '22023', hint = 'photo_set_mismatch';
   end if;
+  select coalesce(array_agg(p.id order by p.sort_order, p.created_at, p.id), '{}') into v_old from analytics.job_photo p where p.job_id = p_job_id and p.deleted_at is null;
   update analytics.job_photo p set sort_order = o.ord - 1
     from unnest(p_ids) with ordinality as o(id, ord)
    where p.id = o.id and p.job_id = p_job_id;
+  -- L4: event เฉพาะเมื่อลำดับเปลี่ยนจริง (ส่งลำดับเดิม = ไม่มี event · sort_order ถูกจัดให้เรียง 0..n-1 อยู่ดี)
+  if v_old is distinct from p_ids then
+    perform analytics.job_event_write(p_job_id, null, 'photo_reorder', analytics.job_today(), v_actor, null, 'job_page', null,
+      jsonb_build_object('count', cardinality(p_ids), 'photo_ids', to_jsonb(p_ids)));
+  end if;
   return jsonb_build_object('ok', true, 'count', cardinality(p_ids));
 end;
 $f$;

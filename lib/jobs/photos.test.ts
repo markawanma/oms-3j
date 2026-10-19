@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { JOB_PHOTOS_BUDGET_BYTES, JOB_PHOTO_CAPTION_MAX, JOB_PHOTO_REASON_MAX, JOB_PHOTO_SIGNED_URL_TTL_S, MAX_BYTES, MAX_JOB_PHOTOS, MAX_REFERENCE_PHOTOS } from "@/lib/images/constants";
+import { JOB_PHOTOS_BUDGET_BYTES, JOB_PHOTO_TOTAL_MAX_BYTES, JOB_PHOTO_CAPTION_MAX, JOB_PHOTO_REASON_MAX, JOB_PHOTO_SIGNED_URL_TTL_S, MAX_BYTES, MAX_JOB_PHOTOS, MAX_REFERENCE_PHOTOS } from "@/lib/images/constants";
 import { OFFICE_HINT_TH, officeErrorMessage } from "@/lib/jobs/messages";
 import { JOB_PHOTO_COLUMNS, JOB_PHOTO_ERROR_TH, JOB_PHOTO_PATH_RE, isJobPhotoSignedUrl, jobPhotoErrorMessage, mapJobPhotoRow } from "@/lib/jobs/photos";
 
@@ -102,7 +102,11 @@ describe("migration 0182 ตรงกับค่าคงที่ของแ�
     expect(code).toContain(`v_ref >= ${MAX_REFERENCE_PHOTOS}`);
     expect(code).toContain(`v_all >= ${MAX_JOB_PHOTOS}`);
     expect(code).toContain(`${JOB_PHOTOS_BUDGET_BYTES / 1024 / 1024} * 1024 * 1024`);
-    expect(code).toContain(`bytes between 1 and ${MAX_BYTES}`);
+    // L1: bytes = md+sm รวม ⇒ เพดานต่อรูป = 2 × ไฟล์ละ 1 MB · RPC เช็คเพดานเดียวกัน
+    expect(JOB_PHOTO_TOTAL_MAX_BYTES).toBe(2 * MAX_BYTES);
+    expect(code).toContain(`bytes between 1 and ${JOB_PHOTO_TOTAL_MAX_BYTES}`);
+    expect(code).toContain(`p_bytes between 1 and ${JOB_PHOTO_TOTAL_MAX_BYTES}`);
+    expect(JOB_PHOTOS_BUDGET_BYTES).toBe(330 * 1024 * 1024);
     expect(code).toContain(`file_size_limit = ${MAX_BYTES}`);
     expect(JOB_PHOTO_SIGNED_URL_TTL_S).toBe(900);
   });

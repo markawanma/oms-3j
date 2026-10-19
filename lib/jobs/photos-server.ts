@@ -10,7 +10,7 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { getServiceClient } from "@/lib/supabase/server";
 import { BUCKET as PRODUCT_IMAGES_BUCKET, JOB_PHOTOS_BUCKET, MAX_BYTES } from "@/lib/images/constants";
-import { extractJpegDimensions, hasCameraMetadata, looksLikeJpeg } from "@/lib/images/server";
+import { cleanJpegForStorage, extractJpegDimensions } from "@/lib/images/server";
 import { signJobPhotoPaths } from "@/lib/images/signing";
 import { isUuid } from "@/lib/jobs/input";
 import { logJobFailure } from "@/lib/jobs/log";
@@ -157,7 +157,7 @@ export async function storeJobPhoto(i: StoreJobPhotoInput): Promise<JobResult<St
     p_source: i.source,
     p_storage_path: mdPath,
     p_variant_sm_path: smPath,
-    p_bytes: i.md.byteLength,
+    p_bytes: i.md.byteLength + i.sm.byteLength, // L1: budget นับ md+sm รวม
     p_width: i.width,
     p_height: i.height,
     p_caption: i.caption,
@@ -187,7 +187,7 @@ export type CopyCatalogResult =
 const COPY_FAIL_TH: Record<string, string> = {
   no_product: "ใบงานนี้ไม่ได้ผูกกับสินค้าในแคตตาล็อก",
   no_catalog_image: "สินค้านี้ยังไม่มีรูปในแคตตาล็อก",
-  catalog_file_invalid: "รูปในแคตตาล็อกใช้ไม่ได้ (ไฟล์เสียหรือยังมีข้อมูลจากกล้อง) — อัปโหลดรูปเองที่ใบงาน",
+  catalog_file_invalid: "รูปในแคตตาล็อกใช้ไม่ได้ (ไฟล์เสียหายหรือโครงสร้างไม่ถูกต้อง) — อัปโหลดรูปเองที่ใบงาน",
   failed: JOB_PHOTO_GENERIC_ERROR,
 };
 const copyFail = (reason: Exclude<CopyCatalogResult, { ok: true }>["reason"], code?: string): CopyCatalogResult => ({ ok: false, reason, error: COPY_FAIL_TH[reason], ...(code ? { code } : {}) });
@@ -220,12 +220,12 @@ export async function copyCatalogPhotoToJob(jobId: string): Promise<CopyCatalogR
 
     const [md, sm] = await Promise.all([downloadCatalogObject(mdSrc), downloadCatalogObject(smSrc)]);
     if (!md || !sm) return copyFail("failed");
-    // ไฟล์ที่ copy ผ่านด่านเดียวกับไฟล์ที่อัปโหลดใหม่ (JPEG จริง · ≤ 1 MB · ไม่มี Exif/XMP) — รูปแคตตาล็อกจะถึงมือถือช่าง
-    if (md.byteLength === 0 || sm.byteLength === 0 || md.byteLength > MAX_BYTES || sm.byteLength > MAX_BYTES || !looksLikeJpeg(md) || !looksLikeJpeg(sm) || hasCameraMetadata(md) || hasCameraMetadata(sm)) {
-      return copyFail("catalog_file_invalid");
-    }
-    const dims = extractJpegDimensions(md);
-    const stored = await storeJobPhoto({ jobId, md, sm, width: dims?.width ?? null, height: dims?.height ?? null, caption: null, source: "product", productImageId: pimg });
+    // ไฟล์ที่ copy ผ่านด่านเดียวกับไฟล์ที่อัปโหลดใหม่ (JPEG จริง · ตัด metadata ที่ marker + ตรวจซ้ำ · ≤ 1 MB) — รูปแคตตาล็อกจะถึงมือถือช่าง · เก็บ bytes ที่ตัดแล้ว
+    const cmd = cleanJpegForStorage(md, MAX_BYTES);
+    const csm = cleanJpegForStorage(sm, MAX_BYTES);
+    if (!cmd.ok || !csm.ok) return copyFail("catalog_file_invalid");
+    const dims = extractJpegDimensions(cmd.bytes);
+    const stored = await storeJobPhoto({ jobId, md: cmd.bytes, sm: csm.bytes, width: dims?.width ?? null, height: dims?.height ?? null, caption: null, source: "product", productImageId: pimg });
     if (!stored.ok) return { ok: false, reason: "failed", error: stored.error, code: stored.code };
     return { ok: true, ...stored.data };
   } catch (err) {

@@ -4,7 +4,8 @@
 // ทุก action: guard() บรรทัดแรก (session จริงเมื่อ AUTH_GATE on + allowlist owner|admin) · shop/actor จาก server (callOffice ใส่ p_shop_id/p_actor หลัง spread — client ทับไม่ได้)
 // 🔴 ด่านที่ไม่ผ่อน (ทุกด่านรันทุกครั้ง — อย่าถอด):
 //    - action ไม่รับ path/ชื่อไฟล์/shop/ที่มา จาก FormData เลย — รับแค่ jobId + md + sm + caption · path สร้างที่ server จาก uuid ใหม่ + shop/job ที่ DB ยืนยัน
-//    - ไฟล์: ไม่ว่าง · ≤ 1 MB ต่อ variant · magic bytes เป็น JPEG จริง (ไม่เชื่อ Content-Type/นามสกุล) · ไม่มี Exif/XMP (GPS) — ไฟล์ที่ยิงตรงเข้า action ข้าม client ก็ถูกปฏิเสธ
+//    - ไฟล์: ไม่ว่าง · ≤ 1 MB ต่อ variant · magic bytes เป็น JPEG จริง (ไม่เชื่อ Content-Type/นามสกุล) · server ตัด metadata ระดับ marker (Exif/XMP/APP13/COM/ท้าย EOI — GPS หาย) แล้วตรวจซ้ำก่อนเก็บ ·
+//      เก็บ "bytes ที่ตัดแล้ว" เท่านั้น (ไฟล์ที่ยิงตรงเข้า action ข้าม client ก็ไม่มี GPS ค้าง) · โครงสร้างพัง/polyglot/ไม่รู้จัก = ปฏิเสธ
 //    - ใบ: ต้องอยู่ร้านนี้ · เป็นใบแม่ (ส่วนย่อยใช้รูปแม่) · เพดาน 5 reference/20 รวม/250 MB ต่อร้าน (app เช็คก่อน + trigger DB เป็นด่านจริงกัน race)
 //    - ผลที่ถึง client = JobPhotoRow (signed URL 15 นาที) เท่านั้น — ไม่มี storage_path/product_image_id/uploaded_by
 //    - log เฉพาะ label + code/hint (logJobFailure) — ไม่ log path/URL/error ทั้งก้อน
@@ -14,7 +15,7 @@
 
 import { revalidatePath } from "next/cache";
 import { JOB_PHOTO_CAPTION_MAX, JOB_PHOTO_REASON_MAX, MAX_BYTES, MAX_JOB_PHOTOS, MAX_REFERENCE_PHOTOS } from "@/lib/images/constants";
-import { extractJpegDimensions, hasCameraMetadata, looksLikeJpeg } from "@/lib/images/server";
+import { cleanJpegForStorage, extractJpegDimensions, looksLikeJpeg } from "@/lib/images/server";
 import { isUuid, parseText } from "@/lib/jobs/input";
 import { logJobFailure } from "@/lib/jobs/log";
 import { JOB_PHOTO_ERROR_TH, JOB_PHOTO_FILE_ERROR_TH, JOB_PHOTO_GENERIC_ERROR } from "@/lib/jobs/photos";
@@ -85,11 +86,16 @@ export async function uploadJobPhoto(fd: FormData): Promise<JobResult<JobPhotoRo
     const sm = new Uint8Array(await smFile.arrayBuffer());
     // ไม่เชื่อ Content-Type/นามสกุลของ client — ตรวจ byte จริง (FF D8 FF)
     if (!looksLikeJpeg(md) || !looksLikeJpeg(sm)) return fail(JOB_PHOTO_FILE_ERROR_TH.notJpeg);
-    // ไฟล์ที่ยัดมาตรงๆ ข้าม client อาจยังมี Exif/XMP (GPS) — ปฏิเสธ ไม่ strip เอง
-    if (hasCameraMetadata(md) || hasCameraMetadata(sm)) return fail(JOB_PHOTO_FILE_ERROR_TH.cameraMetadata);
-    const dims = extractJpegDimensions(md);
+    // H1: ตัด metadata (Exif/XMP/APP13/COM/ท้าย EOI) ที่ marker — ไม่ decode/re-encode · iPhone (WebKit canvas เขียน Exif ขั้นต่ำ) ผ่านได้ · โครงสร้างพัง = ปฏิเสธ · เก็บเฉพาะ bytes ที่ตัดแล้วและตรวจซ้ำแล้ว
+    const cmd = cleanJpegForStorage(md, MAX_BYTES);
+    const csm = cleanJpegForStorage(sm, MAX_BYTES);
+    if (!cmd.ok || !csm.ok) {
+      const why = !cmd.ok ? cmd.reason : !csm.ok ? csm.reason : "broken";
+      return fail(why === "broken" ? JOB_PHOTO_FILE_ERROR_TH.broken : why === "too_large" ? JOB_PHOTO_FILE_ERROR_TH.tooLarge : JOB_PHOTO_FILE_ERROR_TH.cameraMetadata);
+    }
+    const dims = extractJpegDimensions(cmd.bytes);
 
-    const stored = await storeJobPhoto({ jobId, md, sm, width: dims?.width ?? null, height: dims?.height ?? null, caption: caption.value, source: "office", productImageId: null });
+    const stored = await storeJobPhoto({ jobId, md: cmd.bytes, sm: csm.bytes, width: dims?.width ?? null, height: dims?.height ?? null, caption: caption.value, source: "office", productImageId: null });
     if (!stored.ok) return stored;
 
     revalidateJob(jobId);

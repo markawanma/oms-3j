@@ -12,9 +12,9 @@
 -- ============ ตารางแมป "ข้อในบรีฟ PH-A -> เทสต์ที่ครอบ" ============
 --  ห้ามผ่าน 1  ไฟล์ไม่ใช่ JPEG จริง (svg/html/png/pdf ปลอมนามสกุล · Content-Type ปลอม)
 --              -> DB: H9a (bucket จำกัด image/jpeg 1 MB private) · B2a (path นามสกุล .svg/.png ถูกปฏิเสธ) · ❌ ไม่มีเทสต์ DB ที่ยัดไฟล์จริงเข้า Storage (DB ไม่เห็น bytes) — ด่านจริงอยู่ที่ action: lib/images/server.test.ts (looksLikeJpeg) + lib/actions/job-photos.test.ts
---  ห้ามผ่าน 2  เกิน 1 MB (variant) · 0 byte                          -> B1a B1b B1c C3b · TS: job-photos.test.ts (bytes ก่อน upload) · MU-9
---  ห้ามผ่าน 3  Exif/GPS ค้าง                                           -> ❌ ไม่มีเทสต์ DB (DB ไม่เห็น bytes ของไฟล์) — lib/images/server.test.ts (findExifApp1 bytes สังเคราะห์) + job-photos.test.ts (action ปฏิเสธก่อน upload) · QA ยิงไฟล์ GPS จริงเข้า action
---  ห้ามผ่าน 4  เกินเพดานรูปต่อใบ (5 reference · 20 รวม) · budget ร้าน 250 MB
+--  ห้ามผ่าน 2  เกิน 1 MB (ต่อไฟล์ — TS) · bytes รวม md+sm เกิน 2 MB / 0 (DB)  -> B1a B1b B1c C3b · TS: job-photos.test.ts (ขนาดก่อน upload + หลังตัด metadata) · MU-9 MU-51
+--  ห้ามผ่าน 3  Exif/GPS ค้าง (security H1: เปลี่ยนจากปฏิเสธเป็นตัดที่ marker ฝั่ง server)  -> ❌ ไม่มีเทสต์ DB (DB ไม่เห็น bytes ของไฟล์) — lib/images/exif.test.ts (stripJpegMetadata: ตัด Exif/XMP/APP13/COM/ท้าย EOI · เก็บ ICC · ไฟล์พัง/polyglot = null · fuzz) + lib/actions/job-photos.test.ts (bytes ที่ขึ้น bucket ไม่มี GPS · ไฟล์พังถูกปฏิเสธ) · QA ยิงไฟล์ GPS จริง + iPhone จริงเข้า action
+--  ห้ามผ่าน 4  เกินเพดานรูปต่อใบ (5 reference · 20 รวม) · budget ร้าน 330 MB (md+sm รวม — security L1)
 --              -> C1a C1b C1c C1d C2a C2b C2c C2d C3a C3b C3c C3d C3e · MU-3 MU-4 MU-5 MU-6 MU-36 ·
 --                 ❌ race 2 connection (2 อัปโหลดพร้อมกันตอนมี 4) ไม่มีเทสต์ — do-block ทรานแซกชันเดียวจำลองไม่ได้ · ครอบด้วย pattern advisory lock เหมือน 0104/0105 + อ่านโค้ด
 --  ห้ามผ่าน 5  path ที่ client ส่งมาไม่ตรงรูปแบบ/ข้ามใบ/ข้ามร้าน/ซ้ำ    -> B2a (13 แบบ) B2b B2c B2d D4a · MU-7 MU-8 · TS: action ไม่รับ path จาก FormData (job-photos.test.ts)
@@ -24,6 +24,7 @@
 --  ห้ามผ่าน 9  log error ทั้งก้อน (PII)                                -> ❌ ไม่มีเทสต์ DB — TS: job-photos.test.ts (console.error ถูกดัก: ไม่มี path/URL/error ทั้งก้อน) + ใช้ logJobFailure/safeLogShape เดิม
 --  เพิ่มจาก design §9.1: rank 6-8 (kind stage/shopfloor/worker ผ่านทางออฟฟิศ) -> B4a B4b · MU-11 MU-12 · rank 7 (product_image_id ข้ามร้าน/ข้าม SKU) -> B4c E5 · MU-13 ·
 --              rank 9 (is_primary ซ้ำ/แก้ฟิลด์ตัวตน/DELETE/TRUNCATE) -> D1 D2 D3a D3b D6 D7 D8 · MU-20 MU-21 MU-22 MU-24 MU-37 MU-38 MU-40 ·
+--              security L4 (ตั้งหลัก/เรียงรูปต้องมี event · ใบปิดแล้วก็มี · ไม่มี event เมื่อไม่เปลี่ยน) -> A7c A7d G4a G4b G5a G6a H10 · MU-48 MU-49 MU-50 ·
 --              rank 10 (ลบซ้ำ/ตั้งหลัก-เรียงรูปที่ลบแล้ว/reorder ชุดผิด) -> B6a B6b B7a B7b · MU-18 MU-45 MU-47 · rank 11 (caption ล่องหน/bidi/ยาว) -> B5a B5b D6 · MU-14 ·
 --              rank 12 (anon/authenticated เรียก RPC/อ่านตาราง/อ่าน bucket) -> H1 H2 H5 H7 H8a H8b H8c H9a H9b · MU-31 MU-32 MU-33 MU-34 MU-35 · rank 13 (RSC payload หน้า /w/) -> F4a F4c · MU-28 · ❌ ยิงหน้า /w/ จริง grep RSC = ไม่มี (TS: worker-view.test.ts)
 --  ต้องไม่พัง  ใบไม่มีรูป = หน้าช่าง/พิมพ์/บอร์ดเดิมเป๊ะ                   -> F1 F2 F3 F10 (golden: resolve ใหม่ตัด photos = ฉบับเดิมเป๊ะ ทั้งใบทดสอบและใบจริงบน DB ทุกใบ) A5 · ❌ พิมพ์/บอร์ด = ฝั่ง TS (print.test.ts · allowlist test เดิมปรับเฉพาะ key ใหม่)
@@ -36,6 +37,7 @@
 --
 --  ❌ ไม่มีเทสต์ครอบ (บอกตรงๆ):
 --    - race หลาย connection (เพดาน/budget/หลักซ้ำ) — ดู ห้ามผ่าน 4
+--    - security L2 (ไฟล์ค้างใน bucket เมื่อ remove object ล้ม) — หนี้ที่รู้ตัว จดไว้หัว migration ไม่ทำ
 --    - PostgREST จริง (named args) / server action / หน้า /w/ จริง / Storage จริง = ไม่มี (vitest ฝั่ง lib/ ครอบ contract ของ action และ allowlist)
 --    - mutant ของ trigger เฉพาะชั้นใดชั้นหนึ่งของด่านที่ซ้อนกัน (RPC + trigger/CHECK) — ถอดทั้งสองชั้นพร้อมกันในแต่ละ mutant (ด่านซ้อน ถอดชั้นเดียวไม่ทำให้เคสล้มโดยตั้งใจ)
 --    - ❌ ไม่มี mutant: job_photo_path_ck/job_photo_primary_ck/job_photo_who_ck/job_photo_deleted_ck แยกตัว (เป็น CHECK ซ้อนกับ RPC/guard) — ครอบด้วยเคส D4a D4b ที่ยิงตรง
@@ -699,9 +701,10 @@ begin
   r := pg_temp.padd(p_shop, j, id4, 1500, 'หลังยกเลิก');
   v_log := v_log || pg_temp.chk('A7b', 'ใบ cancelled: เพิ่มรูปได้ (ไม่ใช่ job_closed) · ไม่ใช่รูปหลักเพราะมีหลักแล้ว', (r ->> 'ok') = 'true' and (r ->> 'is_primary') = 'false');
   r := pg_temp.pprim(p_shop, id4);
-  v_log := v_log || pg_temp.chk('A7c', 'ใบ cancelled: ตั้งรูปหลักได้ · หลักเปลี่ยนเป็นรูปใหม่ · มีหลักพอดี 1', (r ->> 'ok') = 'true' and pg_temp.prim(j) = id4 and pg_temp.nprim(j) = 1);
-  r := pg_temp.pord(p_shop, j, array[id3, id4]);
-  v_log := v_log || pg_temp.chk('A7d', 'ใบ cancelled: เรียงรูปได้ · ลำดับตามที่ส่ง', (r ->> 'ok') = 'true' and pg_temp.order_of(j) = array[id3, id4]);
+  v_log := v_log || pg_temp.chk('A7c', 'ใบ cancelled: ตั้งรูปหลักได้ · หลักเปลี่ยนเป็นรูปใหม่ · มีหลักพอดี 1 · มี event photo_primary', (r ->> 'ok') = 'true' and pg_temp.prim(j) = id4 and pg_temp.nprim(j) = 1
+    and pg_temp.nev(j, 'photo_primary') = 1);
+  r := pg_temp.pord(p_shop, j, array[id4, id3]);
+  v_log := v_log || pg_temp.chk('A7d', 'ใบ cancelled: เรียงรูปได้ · ลำดับตามที่ส่ง · มี event photo_reorder (ใบปิดแล้วก็ต้องมีร่องรอย)', (r ->> 'ok') = 'true' and pg_temp.order_of(j) = array[id4, id3] and pg_temp.nev(j, 'photo_reorder') = 1);
   r := pg_temp.prem(p_shop, id3, 'ลบหลังยกเลิก');
   v_log := v_log || pg_temp.chk('A7e', 'ใบ cancelled: ลบรูปได้ · เก็บ audit ใคร/เหตุผล · ไฟล์ที่ต้องลบถูกส่งกลับ',
     (r ->> 'ok') = 'true' and (r ->> 'storage_path') = pg_temp.pmd(p_shop, j, id3) and (r ->> 'variant_sm_path') = pg_temp.psm(p_shop, j, id3)
@@ -738,18 +741,18 @@ begin
   j := pg_temp.mkj(p_shop, p_tpl);
   j2 := pg_temp.mkj(p_shop, p_tpl);
 
-  -- B1 ขนาดไฟล์ (bytes ของ md · ขอบเขต 1..1048576 · int จึงไม่มี NaN/Infinity)
+  -- B1 ขนาดไฟล์ (bytes = md+sm รวม · ขอบเขต 1..2097152 (2 MB) · int จึงไม่มี NaN/Infinity)
   n0 := pg_temp.nph(j);
   v_ok := true;
-  foreach i in array array[0, -1, 1048577, 2147483647] loop
+  foreach i in array array[0, -1, 2097153, 2147483647] loop
     v_ok := v_ok and pg_temp.rej(pg_temp.padd(p_shop, j, gen_random_uuid(), i), 'photo_bytes_invalid');
   end loop;
   v_ok := v_ok and pg_temp.rej(pg_temp.padd(p_shop, j, gen_random_uuid(), null), 'photo_bytes_invalid');
-  v_log := v_log || pg_temp.chk('B1a', 'bytes = 0 / -1 / 1 MB+1 / int สูงสุด / null → 22023 photo_bytes_invalid · ไม่เกิดแถว', v_ok and pg_temp.nph(j) = n0);
+  v_log := v_log || pg_temp.chk('B1a', 'bytes = 0 / -1 / 2 MB+1 / int สูงสุด / null → 22023 photo_bytes_invalid · ไม่เกิดแถว', v_ok and pg_temp.nph(j) = n0);
   r := pg_temp.padd(p_shop, j, gen_random_uuid(), 1);
   v_log := v_log || pg_temp.chk('B1b', 'ต้องไม่พัง: ขอบล่าง 1 byte ผ่าน', (r ->> 'ok') = 'true');
-  r := pg_temp.padd(p_shop, j, gen_random_uuid(), 1048576);
-  v_log := v_log || pg_temp.chk('B1c', 'ต้องไม่พัง: ขอบบน 1,048,576 bytes (1 MB เป๊ะ) ผ่าน', (r ->> 'ok') = 'true');
+  r := pg_temp.padd(p_shop, j, gen_random_uuid(), 2097152);
+  v_log := v_log || pg_temp.chk('B1c', 'ต้องไม่พัง: ขอบบน 2,097,152 bytes (md+sm รวม 2 MB เป๊ะ) ผ่าน', (r ->> 'ok') = 'true');
   n0 := pg_temp.nph(j);
   v_ok := pg_temp.rej(pg_temp.padd(p_shop, j, gen_random_uuid(), 1000, null, 'office', null, 'reference', 0, 800), 'photo_dims_invalid')
       and pg_temp.rej(pg_temp.padd(p_shop, j, gen_random_uuid(), 1000, null, 'office', null, 'reference', 1200, -5), 'photo_dims_invalid')
@@ -874,7 +877,7 @@ end;
 $s$;
 
 -- ============================================================================
--- Section C — เพดานรูปต่อใบ (5 reference · 20 รวม) และ budget ร้าน (250 MB) — บังคับที่ trigger
+-- Section C — เพดานรูปต่อใบ (5 reference · 20 รวม) และ budget ร้าน (330 MB นับ md+sm รวม) — บังคับที่ trigger
 -- ============================================================================
 create function pg_temp.sc(p_shop uuid, p_tpl uuid) returns text
  language plpgsql as $s$
@@ -883,7 +886,7 @@ declare
   j uuid; j2 uuid; j3 uuid; w uuid; st uuid;
   r jsonb; i int; ids uuid[];
   v_used bigint; v_left bigint; v_n int; v_x text;
-  v_limit constant bigint := 250::bigint * 1024 * 1024;
+  v_limit constant bigint := 330::bigint * 1024 * 1024;
   rj record;
 begin
   perform set_config('request.jwt.claims', '{"role":"service_role"}', true);
@@ -919,7 +922,7 @@ begin
   v_log := v_log || pg_temp.chk('C2d', 'INSERT ตรงของแถว stage รูปที่ 21 ก็ถูกด่านเดียวกันตัด (service key เลี่ยงไม่ได้)',
     pg_temp.x(format('select pg_temp.dins(%L, %L, %L, %L, 1000)', p_shop, j3, st, w)) like 'ERR:P0002:%');
 
-  -- budget ร้าน 250 MB: เติมด้วยแถว stage ขนาด 1 MB กระจายไปหลายใบ (ถอยกลับทั้งหมด) จนเหลือที่ว่างพอดี 1 MB
+  -- budget ร้าน 330 MB (md+sm): เติมด้วยแถว stage ขนาด 1 MB กระจายไปหลายใบ (ถอยกลับทั้งหมด) จนเหลือที่ว่างพอดี 1 MB
   select coalesce(sum(bytes), 0) into v_used from analytics.job_photo where shop_id = p_shop and deleted_at is null;
   v_left := v_limit - v_used;
   for rj in select jj.id as job_id, (select s.id from analytics.job_stage s where s.job_id = jj.id order by s.seq limit 1) as stage_id
@@ -937,11 +940,11 @@ begin
     end loop;
   end loop;
   select coalesce(sum(bytes), 0) into v_used from analytics.job_photo where shop_id = p_shop and deleted_at is null;
-  v_log := v_log || pg_temp.chk('C3a', 'fixture: ที่ว่างเหลือพอดี 1 MB (1,048,576 bytes) ก่อนชนเพดาน 250 MB', v_limit - v_used = 1048576);
-  r := pg_temp.padd(p_shop, j2, gen_random_uuid(), 1048577);
-  v_log := v_log || pg_temp.chk('C3b', 'ขนาดเกิน 1 MB ถูกด่านขนาดตัดก่อน (ไม่ใช่ budget) — photo_bytes_invalid', pg_temp.rej(r, 'photo_bytes_invalid'));
+  v_log := v_log || pg_temp.chk('C3a', 'fixture: ที่ว่างเหลือพอดี 1 MB (1,048,576 bytes) ก่อนชนเพดาน 330 MB', v_limit - v_used = 1048576);
+  r := pg_temp.padd(p_shop, j2, gen_random_uuid(), 2097153);
+  v_log := v_log || pg_temp.chk('C3b', 'ขนาดเกิน 2 MB (md+sm รวม) ถูกด่านขนาดตัดก่อน (ไม่ใช่ budget) — photo_bytes_invalid', pg_temp.rej(r, 'photo_bytes_invalid'));
   r := pg_temp.padd(p_shop, j2, gen_random_uuid(), 1048576);
-  v_log := v_log || pg_temp.chk('C3c', 'ต้องไม่พัง: เติมเต็ม 250 MB พอดี (รวม = เพดาน) ยังผ่าน · ไม่ใช่ "มากกว่า"', (r ->> 'ok') = 'true');
+  v_log := v_log || pg_temp.chk('C3c', 'ต้องไม่พัง: เติมเต็ม 330 MB พอดี (รวม = เพดาน) ยังผ่าน · ไม่ใช่ "มากกว่า"', (r ->> 'ok') = 'true');
   r := pg_temp.padd(p_shop, j2, gen_random_uuid(), 1);
   v_log := v_log || pg_temp.chk('C3d', 'เกินเพดาน 1 byte → P0003 photo_budget · ไม่เกิดแถว',
     (r ->> '_state') = 'P0003' and (r ->> '_hint') = 'photo_budget' and (select coalesce(sum(bytes), 0) from analytics.job_photo where shop_id = p_shop and deleted_at is null) = v_limit);
@@ -1231,22 +1234,32 @@ begin
   r := pg_temp.padd(p_shop, j, d);
   v_log := v_log || pg_temp.chk('G3b', 'เพิ่มรูปหลังลบหมด: เป็นรูปหลัก · sort 0', (r ->> 'is_primary') = 'true' and pg_temp.ph(d, 'sort_order') = '0');
 
-  -- ตั้งหลัก / เรียง: เก็บ invariant "หลักพอดี 1" · ไม่เขียน event (design §5)
+  -- ตั้งหลัก / เรียง: เก็บ invariant "หลักพอดี 1" · เขียน event เฉพาะเมื่อเปลี่ยนจริง (security L4)
   r := pg_temp.padd(p_shop, j, e); r := pg_temp.padd(p_shop, j, f);
   n_ev := (select count(*)::int from analytics.job_event where job_id = j);
   r := pg_temp.pprim(p_shop, d);
-  v_log := v_log || pg_temp.chk('G4a', 'ตั้งรูปที่เป็นหลักอยู่แล้ว = ok ไม่เปลี่ยนอะไร (ไม่ใช่ error)', (r ->> 'ok') = 'true' and pg_temp.prim(j) = d and pg_temp.nprim(j) = 1);
+  v_log := v_log || pg_temp.chk('G4a', 'ตั้งรูปที่เป็นหลักอยู่แล้ว = ok ไม่เปลี่ยนอะไร (ไม่ใช่ error) · ไม่มี event', (r ->> 'ok') = 'true' and pg_temp.prim(j) = d and pg_temp.nprim(j) = 1
+    and (select count(*)::int from analytics.job_event where job_id = j) = n_ev and pg_temp.nev(j, 'photo_primary') = 0);
   r := pg_temp.pprim(p_shop, f);
-  v_log := v_log || pg_temp.chk('G4b', 'ตั้ง f เป็นหลัก: หลักเดิม (d) ถูกล้าง · หลักพอดี 1 · ลำดับแสดงไม่เปลี่ยน',
-    (r ->> 'ok') = 'true' and pg_temp.prim(j) = f and pg_temp.nprim(j) = 1 and pg_temp.order_of(j) = array[d, e, f]);
+  v_log := v_log || pg_temp.chk('G4b', 'ตั้ง f เป็นหลัก: หลักเดิม (d) ถูกล้าง · หลักพอดี 1 · ลำดับแสดงไม่เปลี่ยน · event photo_primary 1 แถว (payload id รูปใหม่+รูปหลักเดิม · ไม่มี path)',
+    (r ->> 'ok') = 'true' and pg_temp.prim(j) = f and pg_temp.nprim(j) = 1 and pg_temp.order_of(j) = array[d, e, f]
+    and pg_temp.nev(j, 'photo_primary') = 1
+    and (select payload ->> 'photo_id' = f::text and payload ->> 'previous_photo_id' = d::text and pg_temp.keys(payload) = 'photo_id,previous_photo_id'
+           and payload::text !~ '_md|_sm|jpg|storage' and actor = pg_temp.act() and channel = 'job_page'
+           from analytics.job_event where job_id = j and event_type = 'photo_primary'));
   r := pg_temp.pord(p_shop, j, array[f, e, d]);
-  v_log := v_log || pg_temp.chk('G5a', 'reorder: sort_order = index (0,1,2) · รูปหลักไม่เปลี่ยนตามลำดับ',
-    (r ->> 'ok') = 'true' and pg_temp.order_of(j) = array[f, e, d] and pg_temp.ph(f, 'sort_order') = '0' and pg_temp.ph(e, 'sort_order') = '1' and pg_temp.ph(d, 'sort_order') = '2' and pg_temp.prim(j) = f);
+  v_log := v_log || pg_temp.chk('G5a', 'reorder: sort_order = index (0,1,2) · รูปหลักไม่เปลี่ยนตามลำดับ · event photo_reorder 1 แถว (count + photo_ids ตามลำดับใหม่ · ไม่มี path)',
+    (r ->> 'ok') = 'true' and pg_temp.order_of(j) = array[f, e, d] and pg_temp.ph(f, 'sort_order') = '0' and pg_temp.ph(e, 'sort_order') = '1' and pg_temp.ph(d, 'sort_order') = '2' and pg_temp.prim(j) = f
+    and pg_temp.nev(j, 'photo_reorder') = 1
+    and (select pg_temp.keys(payload) = 'count,photo_ids' and (payload ->> 'count') = '3' and payload -> 'photo_ids' = to_jsonb(array[f, e, d]) and payload::text !~ '_md|_sm|jpg|storage'
+           from analytics.job_event where job_id = j and event_type = 'photo_reorder'));
   r := pg_temp.pord(p_shop, j, array[e, d, f]);
   v_log := v_log || pg_temp.chk('G5b', 'reorder ย้ายรูปหลักไปท้าย: ยังเป็นรูปหลัก (ลำดับกับรูปหลักเป็นคนละเรื่อง — ใบ A5 ไม่เปลี่ยนรูปโดยไม่ตั้งใจ)',
     pg_temp.prim(j) = f and pg_temp.order_of(j) = array[e, d, f]);
-  v_log := v_log || pg_temp.chk('G6a', 'ตั้งหลัก/เรียง ไม่เขียน job_event (จำนวน event ไม่ขยับ) — ตาม design §5',
-    (select count(*)::int from analytics.job_event where job_id = j) = n_ev);
+  -- ส่งลำดับเดิมซ้ำ = ไม่มีอะไรเปลี่ยน → ไม่มี event เพิ่ม (ยัง ok)
+  r := pg_temp.pord(p_shop, j, array[e, d, f]);
+  v_log := v_log || pg_temp.chk('G6a', 'reorder ส่งลำดับเดิม = ok แต่ไม่เขียน event เพิ่ม (photo_reorder ยัง 2 · photo_primary ยัง 1) · event ตั้งหลัก/เรียงรวม 3', (r ->> 'ok') = 'true'
+    and pg_temp.nev(j, 'photo_reorder') = 2 and pg_temp.nev(j, 'photo_primary') = 1 and (select count(*)::int from analytics.job_event where job_id = j) = n_ev + 3);
   -- ลบรูปหลักหลัง reorder: เลื่อน "ตามลำดับแสดง (sort_order)" ไม่ใช่ตามเวลาสร้าง/ id — ลำดับ e, d, f · ลบ f (หลัก) → e ขึ้นหลัก (e ถูกสร้างหลัง d)
   r := pg_temp.prem(p_shop, f);
   v_log := v_log || pg_temp.chk('G6b', 'ลบรูปหลักหลัง reorder: เลื่อนตัวแรกตาม sort_order (e) ไม่ใช่ตามเวลาสร้าง (d สร้างก่อน e)', (r ->> 'promoted_photo_id') = e::text and pg_temp.prim(j) = e);
@@ -1385,8 +1398,9 @@ begin
 
   -- job_event CHECK: ค่าเดิมครบทุกตัว (ไม่หลุดตอนลอกรายการ) + photo_remove
   v_x := (select pg_get_constraintdef(c.oid) from pg_constraint c where c.conrelid = 'analytics.job_event'::regclass and c.conname = 'job_event_event_type_ck');
-  v_log := v_log || pg_temp.chk('H10', 'job_event_event_type_ck: ชนิดเดิมของ 0181 ครบทั้ง 25 + photo_remove (ไม่มีชนิดหลุดตอนลอกรายการ)',
-    not exists (select 1 from unnest(v_old) o where position('''' || o || '''::text' in v_x) = 0) and position('''photo_remove''::text' in v_x) > 0);
+  v_log := v_log || pg_temp.chk('H10', 'job_event_event_type_ck: ชนิดเดิมของ 0181 ครบทั้ง 25 + photo_remove · photo_primary · photo_reorder (ไม่มีชนิดหลุดตอนลอกรายการ)',
+    not exists (select 1 from unnest(v_old) o where position('''' || o || '''::text' in v_x) = 0) and position('''photo_remove''::text' in v_x) > 0
+    and position('''photo_primary''::text' in v_x) > 0 and position('''photo_reorder''::text' in v_x) > 0);
   return v_log;
 end;
 $s$;
@@ -1437,11 +1451,11 @@ declare
     jsonb_build_object('id', $m$MU-2$m$, 'what', $m$reorder ไม่เช็คส่วนย่อย$m$, 'steps', jsonb_build_array(jsonb_build_object('fn', $m$job_photo_reorder$m$, 'from', $m$if v_job.parent_job_id is not null then$m$, 'to', $m$if false then$m$)), 'expect', jsonb_build_array($m$B6b$m$)),
     jsonb_build_object('id', $m$MU-3$m$, 'what', $m$เพดาน reference 5 -> 500$m$, 'steps', jsonb_build_array(jsonb_build_object('fn', $m$job_photo_enforce_cap$m$, 'from', $m$v_ref >= 5$m$, 'to', $m$v_ref >= 500$m$)), 'expect', jsonb_build_array($m$C1b$m$)),
     jsonb_build_object('id', $m$MU-4$m$, 'what', $m$เพดานรวม 20 -> 2000$m$, 'steps', jsonb_build_array(jsonb_build_object('fn', $m$job_photo_enforce_cap$m$, 'from', $m$v_all >= 20$m$, 'to', $m$v_all >= 2000$m$)), 'expect', jsonb_build_array($m$C2c$m$, $m$C2d$m$)),
-    jsonb_build_object('id', $m$MU-5$m$, 'what', $m$budget ร้าน 250 MB -> 2500 MB$m$, 'steps', jsonb_build_array(jsonb_build_object('fn', $m$job_photo_enforce_cap$m$, 'from', $m$250 * 1024 * 1024$m$, 'to', $m$2500 * 1024 * 1024$m$)), 'expect', jsonb_build_array($m$C3d$m$)),
+    jsonb_build_object('id', $m$MU-5$m$, 'what', $m$budget ร้าน 330 MB -> 3300 MB$m$, 'steps', jsonb_build_array(jsonb_build_object('fn', $m$job_photo_enforce_cap$m$, 'from', $m$330 * 1024 * 1024$m$, 'to', $m$3300 * 1024 * 1024$m$)), 'expect', jsonb_build_array($m$C3d$m$)),
     jsonb_build_object('id', $m$MU-6$m$, 'what', $m$budget นับรูปที่ลบแล้วด้วย (พื้นที่ไม่คืน)$m$, 'steps', jsonb_build_array(jsonb_build_object('fn', $m$job_photo_enforce_cap$m$, 'from', $m$p.shop_id = new.shop_id and p.deleted_at is null$m$, 'to', $m$p.shop_id = new.shop_id$m$)), 'expect', jsonb_build_array($m$C3c$m$, $m$C3d$m$, $m$C3e$m$)),
     jsonb_build_object('id', $m$MU-7$m$, 'what', $m$path: ไม่ผูก prefix ร้าน/ใบ + ไม่เทียบ sm + CHECK path ถูกถอด (ข้ามใบ/ข้ามร้านได้)$m$, 'steps', jsonb_build_array(jsonb_build_object('fn', $m$job_photo_add$m$, 'from', $m$('^' || v_prefix || '[0-9a-f]{8}$m$, 'to', $m$('^[0-9a-f/-]{74}[0-9a-f]{8}$m$), jsonb_build_object('fn', $m$job_photo_add$m$, 'from', $m$if p_variant_sm_path <> v_prefix || v_id::text || '_sm.jpg' then$m$, 'to', $m$if false then$m$), jsonb_build_object('ddl', $m$alter table analytics.job_photo drop constraint job_photo_path_ck$m$)), 'expect', jsonb_build_array($m$B2a$m$, $m$B2c$m$)),
     jsonb_build_object('id', $m$MU-8$m$, 'what', $m$path: ไม่เทียบ sm กับ md + CHECK path ถูกถอด (sm คนละ uuid / sm = md / นามสกุลผิดผ่าน)$m$, 'steps', jsonb_build_array(jsonb_build_object('fn', $m$job_photo_add$m$, 'from', $m$if p_variant_sm_path <> v_prefix || v_id::text || '_sm.jpg' then$m$, 'to', $m$if false then$m$), jsonb_build_object('ddl', $m$alter table analytics.job_photo drop constraint job_photo_path_ck$m$)), 'expect', jsonb_build_array($m$B2a$m$)),
-    jsonb_build_object('id', $m$MU-9$m$, 'what', $m$ไม่เช็คขนาด bytes ที่ RPC (เหลือแต่ CHECK ตาราง)$m$, 'steps', jsonb_build_array(jsonb_build_object('fn', $m$job_photo_add$m$, 'from', $m$if p_bytes is null or not (p_bytes between 1 and 1048576) then$m$, 'to', $m$if false then$m$)), 'expect', jsonb_build_array($m$B1a$m$)),
+    jsonb_build_object('id', $m$MU-9$m$, 'what', $m$ไม่เช็คขนาด bytes ที่ RPC (เหลือแต่ CHECK ตาราง)$m$, 'steps', jsonb_build_array(jsonb_build_object('fn', $m$job_photo_add$m$, 'from', $m$if p_bytes is null or not (p_bytes between 1 and 2097152) then$m$, 'to', $m$if false then$m$)), 'expect', jsonb_build_array($m$B1a$m$)),
     jsonb_build_object('id', $m$MU-10$m$, 'what', $m$ไม่เช็คกว้าง/สูง$m$, 'steps', jsonb_build_array(jsonb_build_object('fn', $m$job_photo_add$m$, 'from', $m$if (p_width is not null and not (p_width between 1 and 100000)) or (p_height is not null and not (p_height between 1 and 100000)) then$m$, 'to', $m$if false then$m$)), 'expect', jsonb_build_array($m$B1d$m$)),
     jsonb_build_object('id', $m$MU-11$m$, 'what', $m$ไม่เช็ค source (shopfloor/ค่ามั่วผ่านไปถึง CHECK)$m$, 'steps', jsonb_build_array(jsonb_build_object('fn', $m$job_photo_add$m$, 'from', $m$if p_source is null or p_source not in ('office', 'product') then$m$, 'to', $m$if false then$m$)), 'expect', jsonb_build_array($m$B4b$m$)),
     jsonb_build_object('id', $m$MU-12$m$, 'what', $m$ประตู kind = stage เปิด$m$, 'steps', jsonb_build_array(jsonb_build_object('fn', $m$job_photo_add$m$, 'from', $m$if p_kind = 'stage' then$m$, 'to', $m$if false then$m$)), 'expect', jsonb_build_array($m$B4a$m$)),
@@ -1486,6 +1500,10 @@ declare
     jsonb_build_object('id', $m$MU-44$m$, 'what', $m$ดึงรูปแคตตาล็อกซ้ำตอบ photo_path_dup แทน photo_catalog_dup$m$, 'steps', jsonb_build_array(jsonb_build_object('fn', $m$job_photo_add$m$, 'from', $m$if v_con = 'job_photo_product_image_uq' then$m$, 'to', $m$if false then$m$)), 'expect', jsonb_build_array($m$E4b$m$)),
     jsonb_build_object('id', $m$MU-45$m$, 'what', $m$ลบรูปซ้ำผ่านเงียบ (ถอด RPC + guard)$m$, 'steps', jsonb_build_array(jsonb_build_object('fn', $m$job_photo_remove$m$, 'from', $m$if v_ph.deleted_at is not null then$m$, 'to', $m$if false then$m$), jsonb_build_object('fn', $m$job_photo_guard$m$, 'from', $m$if old.deleted_at is not null then$m$, 'to', $m$if false then$m$)), 'expect', jsonb_build_array($m$B7a$m$)),
     jsonb_build_object('id', $m$MU-46$m$, 'what', $m$รูปที่อัปโหลดเองอ้าง product_image_id ได้$m$, 'steps', jsonb_build_array(jsonb_build_object('fn', $m$job_photo_add$m$, 'from', $m$elsif p_product_image_id is not null then$m$, 'to', $m$elsif false then$m$)), 'expect', jsonb_build_array($m$B4c$m$)),
+    jsonb_build_object('id', $m$MU-48$m$, 'what', $m$ตั้งรูปหลักเขียน event ผิดชนิด (note)$m$, 'steps', jsonb_build_array(jsonb_build_object('fn', $m$job_photo_set_primary$m$, 'from', $m$'photo_primary', analytics.job_today()$m$, 'to', $m$'note', analytics.job_today()$m$)), 'expect', jsonb_build_array($m$G4b$m$, $m$A7c$m$)),
+    jsonb_build_object('id', $m$MU-49$m$, 'what', $m$เรียงรูปเขียน event ผิดชนิด (note)$m$, 'steps', jsonb_build_array(jsonb_build_object('fn', $m$job_photo_reorder$m$, 'from', $m$'photo_reorder', analytics.job_today()$m$, 'to', $m$'note', analytics.job_today()$m$)), 'expect', jsonb_build_array($m$G5a$m$, $m$A7d$m$)),
+    jsonb_build_object('id', $m$MU-50$m$, 'what', $m$เรียงรูปเขียน event ทุกครั้งแม้ลำดับเดิม$m$, 'steps', jsonb_build_array(jsonb_build_object('fn', $m$job_photo_reorder$m$, 'from', $m$if v_old is distinct from p_ids then$m$, 'to', $m$if true then$m$)), 'expect', jsonb_build_array($m$G6a$m$)),
+    jsonb_build_object('id', $m$MU-51$m$, 'what', $m$budget นับ md อย่างเดียวไม่ได้ — CHECK เพดาน bytes รวมถูกถอด (bytes เกิน 2 MB ผ่าน RPC ที่ถูกถอดด้วย)$m$, 'steps', jsonb_build_array(jsonb_build_object('fn', $m$job_photo_add$m$, 'from', $m$if p_bytes is null or not (p_bytes between 1 and 2097152) then$m$, 'to', $m$if false then$m$), jsonb_build_object('ddl', $m$alter table analytics.job_photo drop constraint job_photo_bytes_check$m$)), 'expect', jsonb_build_array($m$B1a$m$)),
     jsonb_build_object('id', $m$MU-47$m$, 'what', $m$ลบรูปไม่เช็คร้านของรูป (เชื่อ p_photo_id อย่างเดียว)$m$, 'steps', jsonb_build_array(jsonb_build_object('fn', $m$job_photo_remove$m$, 'from', $m$where ph.id = p_photo_id and ph.shop_id = p_shop_id;$m$, 'to', $m$where ph.id = p_photo_id;$m$)), 'expect', jsonb_build_array($m$B7a$m$))
   );
   v_m record; v_st record; v_id text; v_total int; v_killed int := 0; v_survived text := ''; v_hit int; v_cnt int; v_ok_cnt int; v_i int;

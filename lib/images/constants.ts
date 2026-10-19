@@ -58,8 +58,11 @@ export const MAX_REFERENCE_PHOTOS = 5;
 /** รูปทุกชนิดรวมต่อใบ (reference + stage ของ W2b) — 🔴 2 ที่เช่นกัน (trigger เดียวกัน) */
 export const MAX_JOB_PHOTOS = 20;
 
-/** budget bytes ของ md ต่อร้าน (sm ≈ ⅓ ⇒ ~330 MB บนดิสก์) — 🔴 2 ที่เช่นกัน (trigger เดียวกัน · P0003) */
-export const JOB_PHOTOS_BUDGET_BYTES = 250 * 1024 * 1024;
+/** budget bytes ของ md+sm รวม ต่อร้าน (security L1: เดิมนับแค่ md) — 🔴 2 ที่เช่นกัน (trigger เดียวกัน · P0003) */
+export const JOB_PHOTOS_BUDGET_BYTES = 330 * 1024 * 1024;
+
+/** bytes ที่ลงทะเบียนต่อรูป = md + sm รวม (CHECK ของตาราง) = 2 × เพดานรายไฟล์ */
+export const JOB_PHOTO_TOTAL_MAX_BYTES = 2 * MAX_BYTES;
 
 /** TTL ของ signed URL รูปใบงาน (ออฟฟิศ + ช่าง + หน้าพิมพ์) — สั้นกว่า 1 ชม. ของแคตตาล็อก เพราะรูปแบบของลูกค้า OEM ถึงมือถือช่าง (design §3.1) */
 export const JOB_PHOTO_SIGNED_URL_TTL_S = 15 * 60;

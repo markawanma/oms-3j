@@ -48,6 +48,9 @@ export const EVENT_TYPE_LABEL: Record<string, string> = {
   photo_add: "เพิ่มรูป",
   // 0182: ลบรูป (ตั้งรูปหลัก/เรียงรูปไม่เขียน event — design §5)
   photo_remove: "ลบรูป",
+  // 0182 (security L4): ตั้งรูปหลัก/เรียงรูป เขียน event เมื่อเปลี่ยนจริง
+  photo_primary: "ตั้งรูปหลัก",
+  photo_reorder: "เรียงรูป",
   note: "หมายเหตุ",
   done: "ปิดงาน",
   cancel: "ยกเลิก",
