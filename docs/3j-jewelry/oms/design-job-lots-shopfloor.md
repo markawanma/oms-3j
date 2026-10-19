@@ -224,6 +224,8 @@ trigger BEFORE UPDATE บน `production_order`: `old.status='open' and new.stat
 
 ## 9. ลำดับ phase (ผลิตเข้าสต็อก · เสนอใหม่แทน W0–W4/L0–L5)
 
+> 🔀 19 ต.ค. 69: เลข migration ในหัวข้อนี้เลื่อนแล้ว — 0182 = รูปบนใบงาน (`design-job-photos.md` · มติ "ทำก่อน") · PM-A (ใบผลิตเลือกโลหะ) 0183 · L3 0184 · L2 0185 · W1 0186 · L4 0187
+
 | phase | ขอบเขต | migration | ขนาด | QA | security | พึ่ง | UAT เจ้าของ |
 |---|---|---|---|---|---|---|---|
 | **P0 ปิดหนี้ก่อนเริ่ม** | merge `feature/job-m1-metal` + `feature/job-m1-ui` เข้า main (ไฟล์ 0175–0178 ที่ apply แล้ว + UI M1) · UI "เผื่อไม่บังคับ" (§8) · ตรวจ `production_cost_calc` ว่าแยก component (§5.3) · ยืนยัน `token_cap`/ชื่อผู้รับจ้าง/SLA/ช่อง LINE กับเจ้าของ | — (UI + เอกสาร) | S–M | M (ฟอร์มสร้างใบงาน + ใบ M1 เดิม) | ไม่ | — | ✅ ฟอร์มเผื่อ |

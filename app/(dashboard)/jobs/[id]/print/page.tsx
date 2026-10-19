@@ -4,6 +4,7 @@ import { canManageJobs } from "@/lib/jobs/page-gate";
 import { logJobFailure } from "@/lib/jobs/log";
 import { currentAppOrigin } from "@/lib/jobs/origin-server";
 import { toPrintableJob, toPrintableSublot } from "@/lib/jobs/print";
+import { primaryPhotoMdUrl } from "@/lib/jobs/photos-server";
 import { redirect } from "next/navigation";
 import { isUuid } from "@/lib/jobs/input";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -39,13 +40,15 @@ export default async function JobPrintPage({ params, searchParams }: { params: P
   // ที่อยู่เว็บที่จะฝังใน QR + คำเตือนถ้าพิมพ์จาก preview/dev (security L2) — host ไม่ใช่ความลับ ส่งให้ client แสดงเป็นแถบ print:hidden
   const origin = await currentAppOrigin();
   const qr = origin.ok ? { host: origin.host, warning: origin.warning, error: null } : { host: null, warning: null, error: origin.error };
+  // 0182: รูปหลักของใบแม่ (md · signed 15 นาที) — ไม่มีรูป/เซ็นไม่ได้ = null = พิมพ์ต่อแบบเดิมเป๊ะ (ไม่ throw)
+  const photoUrl = await primaryPhotoMdUrl(res.data.job.id);
   // 0181: ?lot=<id ส่วนย่อย> = ใบย่อย (ประกอบทีละ field ผ่าน toPrintableSublot) · ไม่ใช่ส่วนย่อยที่ยังเปิด = ไม่พิมพ์
   if (typeof lotParam === "string") {
     if (!isUuid(lotParam)) return <EmptyState title="ไม่พบส่วนย่อยนี้" />;
-    const sub = toPrintableSublot(res.data.job, res.data.lots?.parts.find((p) => p.jobId === lotParam), res.data.todayTh);
+    const sub = toPrintableSublot(res.data.job, res.data.lots?.parts.find((p) => p.jobId === lotParam), res.data.todayTh, photoUrl);
     if (!sub) return <EmptyState title="พิมพ์ใบย่อยของส่วนนี้ไม่ได้" description="ส่วนนี้ไม่มี หรือปิด/ยกเลิกแล้ว" />;
     return <SublotPrintClient sub={sub} qrTarget={qr} />;
   }
   const splitJob = (res.data.lots?.parts.length ?? 0) > 1;
-  return <JobPrintClient job={toPrintableJob(res.data.job, res.data.stages)} qr={qr} defaultKeep={splitJob} />;
+  return <JobPrintClient job={toPrintableJob(res.data.job, res.data.stages, photoUrl)} qr={qr} defaultKeep={splitJob} />;
 }

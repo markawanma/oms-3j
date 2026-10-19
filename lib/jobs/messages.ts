@@ -3,6 +3,8 @@
 //  - ออฟฟิศ: RPC raise 22023 + hint — ใช้ข้อความ DB (ไทย มีเลขงาน/จำนวนที่ช่วยตัดสินใจ) ถ้าสะอาด ไม่งั้นตารางนี้
 // ข้อความที่ผ่านฟังก์ชันนี้ต้องไม่มี: snake_case · ชื่อตาราง/ฟังก์ชัน · SQL · token/PIN ใดๆ
 
+import { JOB_PHOTO_ERROR_TH } from "@/lib/jobs/photos";
+
 export const WORKER_CODE_TH: Record<string, string> = {
   invalid_token: "ลิงก์หรือ QR นี้ใช้ไม่ได้ — ขอพิมพ์ใบงานใหม่จากออฟฟิศ",
   rate_limited: "ลองบ่อยเกินไป รอสักครู่แล้วลองใหม่",
@@ -86,7 +88,7 @@ export const WORKER_ARRIVE_CODE_TH: Record<string, string> = {
 export const WORKER_RECEIVE_LOCK_TH = "ขั้นนี้ชั่งรับไม่ตรงหลายครั้งแล้ว — แจ้งออฟฟิศให้เป็นผู้รับงาน";
 
 /** hint ที่ RPC ออฟฟิศ raise (22023/55000) — ใช้เป็นข้อความสำรองเมื่อข้อความ DB ไม่สะอาด */
-export const OFFICE_HINT_TH: Record<string, string> = {
+const OFFICE_HINT_BASE: Record<string, string> = {
   actor_required: "ต้องเข้าสู่ระบบก่อนทำรายการ",
   channel_invalid: "ช่องทางบันทึกไม่ถูกต้อง",
   due_invalid: "กำหนดส่งต้องไม่ย้อนหลังและไม่เกิน 2 ปีข้างหน้า",
@@ -202,6 +204,9 @@ export const OFFICE_HINT_TH: Record<string, string> = {
   arrived_no_update: "ส่วนต่างที่ได้รับเพิ่มแล้วสร้างได้ทางเดียวคือกดบันทึกได้รับเพิ่มแล้ว",
   name_invalid: "ชื่อแบบไม่ถูกต้อง — ห้ามเว้นว่าง ห้ามขึ้นบรรทัดใหม่/อักขระล่องหน และยาวไม่เกิน 60 ตัวอักษร",
 };
+
+/** + 0182: ข้อความสำรองของ hint รูปใบงาน (photo_* · lot_no_photo · already_deleted · caption_invalid ฯลฯ — ตารางเดียวกับ JOB_PHOTO_ERROR_TH) */
+export const OFFICE_HINT_TH: Record<string, string> = { ...OFFICE_HINT_BASE, ...JOB_PHOTO_ERROR_TH };
 
 export const GENERIC_JOB_ERROR = "ทำรายการไม่สำเร็จ ลองใหม่อีกครั้ง";
 const NO_PERMISSION = "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่ใช้งานส่วนนี้ได้";

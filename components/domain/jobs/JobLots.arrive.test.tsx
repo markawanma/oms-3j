@@ -27,6 +27,7 @@ vi.mock("@/lib/actions/job-office-write", () => ({
   skipJobStage: vi.fn(), officeReceiveStage: vi.fn(), officeSendStage: vi.fn(), issueJobQr: vi.fn(),
 }));
 vi.mock("@/lib/actions/job-office", () => ({ getJobPlanSuggest: vi.fn() }));
+vi.mock("@/lib/actions/job-photos", () => ({ getJobPhotos: vi.fn(), uploadJobPhoto: vi.fn(), removeJobPhoto: vi.fn(), setPrimaryJobPhoto: vi.fn(), reorderJobPhotos: vi.fn(), pullJobPhotoFromCatalog: vi.fn() }));
 vi.mock("@/lib/actions/job-profiles", () => ({ listProfiles: vi.fn(), changeJobProfile: vi.fn() }));
 
 import { ToastProvider } from "@/components/ui/Toast";

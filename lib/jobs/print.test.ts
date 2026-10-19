@@ -17,7 +17,7 @@ const stage = (seq: number, name: string, status: StageRow["status"] = "pending"
 describe("toPrintableJob", () => {
   it("ประกอบทีละ field — OEM = 'งานลูกค้า' ไม่มีชื่อลูกค้า/เลขใบเสนอราคา/เหตุผลก่อนมัดจำ/หมายเหตุภายใน/id ต้นทาง", () => {
     const p = toPrintableJob(job(), [stage(1, "หล่อ", "pending", true), stage(2, "ขัด")]);
-    expect(Object.keys(p).sort()).toEqual(["designLabel", "dueDate", "jobId", "jobNo", "metalLabel", "metalPlanG", "profileName", "qtyOrder", "qtyPlanned", "sku", "sourceLabel", "stages", "targetPieceG", "weightStartG"]);
+    expect(Object.keys(p).sort()).toEqual(["designLabel", "dueDate", "jobId", "jobNo", "metalLabel", "metalPlanG", "primaryPhotoUrl", "profileName", "qtyOrder", "qtyPlanned", "sku", "sourceLabel", "stages", "targetPieceG", "weightStartG"]);
     expect(p.sourceLabel).toBe("งานลูกค้า");
     const json = JSON.stringify(p);
     for (const secret of ["บริษัท ลับ", "ลูกค้าประจำ", "i-secret", "ช่างลับ", "โน้ตลับ", "หมายเหตุภายใน"]) expect(json).not.toContain(secret);

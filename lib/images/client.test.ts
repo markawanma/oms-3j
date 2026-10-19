@@ -1,12 +1,12 @@
 // lib/catalog/image-client.test.ts — coverage for the pure pieces of the
 // browser resize pipeline (calcTargetDimensions / isHeicFile / QUALITY_STEPS
 // shape). The canvas/createImageBitmap path (resizeImageVariant,
-// resizeProductImage) needs real browser APIs Vitest's node environment
+// resizeImageVariants) needs real browser APIs Vitest's node environment
 // doesn't provide (vitest.config.ts) — that half is exercised manually by
 // frontend-dev once the upload UI exists, per the design brief.
 import { describe, expect, it } from "vitest";
-import { calcTargetDimensions, isHeicFile, isSourceTooLarge, MAX_SOURCE_BYTES, QUALITY_STEPS } from "./image-client";
-import { MD_MAX_PX, SM_MAX_PX } from "./image-constants";
+import { calcTargetDimensions, isHeicFile, isSourceTooLarge, MAX_SOURCE_BYTES, QUALITY_STEPS } from "./client";
+import { MD_MAX_PX, SM_MAX_PX } from "./constants";
 
 describe("calcTargetDimensions", () => {
   it("never upscales — an image already under maxPx keeps its original size", () => {

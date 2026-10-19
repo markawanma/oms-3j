@@ -104,7 +104,7 @@ describe("0176 🔴 ใบพิมพ์ใบทอง — ไม่ถอย�
 
   it("PrintableJob ประกอบทีละ field: ไม่มี profileId / requireFinalWeight / goldUnguarded / flag ระดับใบ · ไม่มี key ต้องห้าม", () => {
     const p = toPrintableJob(job({ metal: "gold" }), goldStages);
-    expect(Object.keys(p).sort()).toEqual(["designLabel", "dueDate", "jobId", "jobNo", "metalLabel", "metalPlanG", "profileName", "qtyOrder", "qtyPlanned", "sku", "sourceLabel", "stages", "targetPieceG", "weightStartG"]);
+    expect(Object.keys(p).sort()).toEqual(["designLabel", "dueDate", "jobId", "jobNo", "metalLabel", "metalPlanG", "primaryPhotoUrl", "profileName", "qtyOrder", "qtyPlanned", "sku", "sourceLabel", "stages", "targetPieceG", "weightStartG"]);
     expect(Object.keys(p.stages[0]).sort()).toEqual(["name", "scrapQtyAsk", "scrapWeightAsk", "seq", "weighRequired"]);
     expect([p.targetPieceG, p.metalPlanG, p.weightStartG]).toEqual([null, null, null]);
     expect(findForbiddenKeys(p)).toEqual([]);

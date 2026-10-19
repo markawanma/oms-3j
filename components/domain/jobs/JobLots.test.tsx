@@ -9,6 +9,8 @@ import type { ReactElement } from "react";
 afterEach(cleanup);
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }), usePathname: () => "/jobs" }));
+// 0182: JobDetailClient render การ์ดรูปงาน (JobPhotosCard) ซึ่ง import action รูป — mock เหมือน action อื่นของหน้า (เทสต์นี้ไม่ทดสอบรูป: ดู JobPhotosCard.test.tsx)
+vi.mock("@/lib/actions/job-photos", () => ({ getJobPhotos: vi.fn(), uploadJobPhoto: vi.fn(), removeJobPhoto: vi.fn(), setPrimaryJobPhoto: vi.fn(), reorderJobPhotos: vi.fn(), pullJobPhotoFromCatalog: vi.fn() }));
 vi.mock("next/link", () => ({ default: ({ href, children, ...r }: { href: string; children: React.ReactNode }) => <a href={href} {...r}>{children}</a> }));
 
 const lots = {
@@ -71,7 +73,7 @@ function detail(lotsData: JobLotsData | null | undefined, o: { stagesAllSent?: b
   const base = { id: JOB, job_no: "JB-0020", source_kind: "production", design_label: "แหวนโกเมนไข่", sku_snapshot: null, metal: o.metal ?? "silver", qty_planned: o.qty ?? 100, qty_order: o.qty ?? 100, status: o.status ?? "in_progress", production_order_item_id: "33333333-3333-4333-8333-333333333333" };
   const stages = o.stagesAllSent ? [stage("cast", 1, "sent"), stage("qc", 2, "sent"), stage("pack", 3, "sent")] : [stage("cast", 1, "sent"), stage("qc", 2, "received"), stage("pack", 3, "pending")];
   return {
-    job: mapJobDetail(base)!, board: mapBoardRow({ id: JOB, job_no: "JB-0020", seq: 20, source_kind: "production", metal: "silver", qty_planned: o.qty ?? 100, qty_order: o.qty ?? 100, status: base.status, ...(o.partsCount !== undefined ? { parts_count: o.partsCount } : {}) }), stages, loss: {}, events: [], eventsTruncated: false, activeTokens: 0, workers: [], source: null, todayTh: "2026-10-19",
+    job: mapJobDetail(base)!, board: mapBoardRow({ id: JOB, job_no: "JB-0020", seq: 20, source_kind: "production", metal: "silver", qty_planned: o.qty ?? 100, qty_order: o.qty ?? 100, status: base.status, ...(o.partsCount !== undefined ? { parts_count: o.partsCount } : {}) }), stages, loss: {}, events: [], eventsTruncated: false, activeTokens: 0, workers: [], source: null, todayTh: "2026-10-19", photos: [], // 0182: getJobDetail ส่ง photos เสมอ (undefined = อ่านรูปไม่ได้ → การ์ดรูปขึ้นแถบแดง role=alert ชนกับ getByRole("alert") ของเทสต์นี้)
     ...(lotsData !== undefined ? { lots: lotsData } : {}),
   };
 }

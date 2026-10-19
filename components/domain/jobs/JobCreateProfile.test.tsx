@@ -125,7 +125,7 @@ describe("0176 ProfilePicker ในฟอร์มสร้างใบงาน
     await waitFor(() => expect(submitBtn()).toBeEnabled());
     await userEvent.click(submitBtn());
     expect(createJob).toHaveBeenCalledWith(expect.objectContaining({ profileId: PA }));
-    await waitFor(() => expect(push).toHaveBeenCalledWith("/jobs/J9"));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/jobs/J9#job-photos"));
     createJob.mockClear();
     cleanup();
     await open();

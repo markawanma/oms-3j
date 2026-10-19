@@ -50,7 +50,7 @@ beforeEach(() => {
 describe("toPrintableSublot — ด่าน type boundary", () => {
   it("ประกอบเฉพาะ field ที่ใบย่อยต้องใช้ · ไม่มีชื่อผู้ถือ/ผู้เปิด · ไม่มี note/เหตุผลก่อนมัดจำ/น้ำหนัก/แผนโลหะ/เงิน", () => {
     const s = sub();
-    expect(Object.keys(s).sort()).toEqual(["designLabel", "dueDate", "jobId", "lotJobId", "lotLabel", "lotSeq", "metalLabel", "passedLine", "printedOn", "qty", "sku", "sourceLabel", "stageName"]);
+    expect(Object.keys(s).sort()).toEqual(["designLabel", "dueDate", "jobId", "lotJobId", "lotLabel", "lotSeq", "metalLabel", "passedLine", "primaryPhotoUrl", "printedOn", "qty", "sku", "sourceLabel", "stageName"]);
     const json = JSON.stringify(s);
     expect(json).not.toContain("ช่างลับ");
     expect(json).not.toContain("หมายเหตุภายใน");

@@ -11,6 +11,8 @@ afterEach(cleanup);
 
 const refresh = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh, push: vi.fn() }), usePathname: () => "/jobs" }));
+// 0182: JobDetailClient render การ์ดรูปงาน (JobPhotosCard) ซึ่ง import action รูป — mock เหมือน action อื่นของหน้า (เทสต์นี้ไม่ทดสอบรูป: ดู JobPhotosCard.test.tsx)
+vi.mock("@/lib/actions/job-photos", () => ({ getJobPhotos: vi.fn(), uploadJobPhoto: vi.fn(), removeJobPhoto: vi.fn(), setPrimaryJobPhoto: vi.fn(), reorderJobPhotos: vi.fn(), pullJobPhotoFromCatalog: vi.fn() }));
 vi.mock("next/link", () => ({ default: ({ href, children, ...r }: { href: string; children: React.ReactNode }) => <a href={href} {...r}>{children}</a> }));
 
 const w = { doneJob: vi.fn() };
