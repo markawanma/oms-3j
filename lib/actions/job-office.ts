@@ -17,6 +17,8 @@ import { callOffice, db, fail, guard, shopId } from "@/lib/jobs/office-server";
 import type { JobResult } from "@/lib/jobs/office-server";
 import { findLotRoot, loadBoardLots, loadJobLots } from "@/lib/jobs/lots-server";
 import type { JobLotsData } from "@/lib/jobs/lots";
+import { HISTORY_COLUMNS, HISTORY_LIMIT, HISTORY_TREE_COLUMNS, applyTreeTotals, mapHistoryRow } from "@/lib/jobs/history";
+import type { HistoryRow } from "@/lib/jobs/history";
 import { logJobFailure } from "@/lib/jobs/log";
 import { GENERIC_JOB_ERROR } from "@/lib/jobs/messages";
 import type { JobPhotoRow } from "@/lib/jobs/photos";
@@ -76,6 +78,51 @@ export async function getJobBoard(): Promise<JobResult<BoardData>> {
   } catch (err) {
     logJobFailure("getJobBoard", err);
     return fail("โหลดบอร์ดใบงานไม่สำเร็จ ลองใหม่อีกครั้ง");
+  }
+}
+
+export interface HistoryData {
+  todayTh: string;
+  rows: HistoryRow[];
+  truncated: boolean;
+}
+
+/** รหัสใบแม่ต่อ 1 คำขอสรุปต้นไม้ — IN list ยาวเกินจะทะลุเพดาน URL ของ PostgREST */
+const HISTORY_TREE_CHUNK = 100;
+
+/**
+ * ประวัติงาน: ใบแม่ที่ปิดแล้ว/ยกเลิก (ล่าสุดก่อน · ไม่เกิน 500) — whitelist คอลัมน์ ไม่มีราคา/ลูกค้า/source_ref
+ * ใบแม่ที่แบ่งส่วน/ได้รับเพิ่ม: ดี/เสีย = ของทั้งต้นไม้ (v_job_tree_summary) · อ่านสรุปไม่ได้ = ล้มทั้งคำขอ (ไม่โชว์ยอดครึ่งเดียวเงียบๆ)
+ */
+export async function getJobHistory(): Promise<JobResult<HistoryData>> {
+  const g = await guard();
+  if (g) return g;
+  try {
+    const shop = shopId();
+    const res = await db().from("job").select(HISTORY_COLUMNS).eq("shop_id", shop).in("status", ["done", "cancelled"]).is("parent_job_id", null).order("updated_at", { ascending: false }).limit(HISTORY_LIMIT);
+    if (res.error) throw res.error;
+    const raw = rows(res.data);
+    const mapped = raw.map(mapHistoryRow).filter((r): r is HistoryRow => r !== null);
+    const doneIds = mapped.filter((r) => r.status === "done").map((r) => r.id);
+    const tree = new Map<string, Record<string, unknown>>();
+    const chunks: string[][] = [];
+    for (let i = 0; i < doneIds.length; i += HISTORY_TREE_CHUNK) chunks.push(doneIds.slice(i, i + HISTORY_TREE_CHUNK));
+    const parts = await Promise.all(chunks.map((ids) => db().from("v_job_tree_summary").select(HISTORY_TREE_COLUMNS).eq("shop_id", shop).in("root_job_id", ids).limit(ids.length)));
+    for (const p of parts) {
+      if (p.error) throw p.error;
+      for (const t of rows(p.data)) if (typeof t.root_job_id === "string") tree.set(t.root_job_id, t);
+    }
+    return {
+      ok: true,
+      data: {
+        todayTh: effectiveDateBangkok(new Date().toISOString()),
+        rows: mapped.map((r) => applyTreeTotals(r, tree.get(r.id))),
+        truncated: raw.length >= HISTORY_LIMIT,
+      },
+    };
+  } catch (err) {
+    logJobFailure("getJobHistory", err);
+    return fail("โหลดประวัติงานไม่สำเร็จ ลองใหม่อีกครั้ง");
   }
 }
 
