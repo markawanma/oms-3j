@@ -1751,6 +1751,342 @@ end;
 $s$;
 
 -- ============================================================================
+-- Section N — QR หลายใบ ไม่เพิกถอนของเก่า (ข้อ 13 · ข1 · Q8 เพดาน 5) · เพิกถอนรายใบ · รายการ QR
+-- ============================================================================
+create function pg_temp.sn(p_shop uuid, p_tpl uuid) returns text
+ language plpgsql as $s$
+declare
+  v_log text := '';
+  pn uuid; wA uuid;
+  d jsonb; j uuid; th text; sa text; d2 jsonb; j2 uuid; lo uuid;
+  r jsonb; r2 jsonb; r3 jsonb; r4 jsonb; l1 uuid; v_no text;
+  h1 text; h2 text; h3 text; h4 text; n_act int; i int;
+begin
+  perform set_config('request.jwt.claims', '{"role":"service_role"}', true);
+  pn := pg_temp.pid(p_shop, 'none');
+  wA := pg_temp.wid(p_shop, 'vfy-ช่าง A', '4829');
+  d := pg_temp.fx(p_shop, p_tpl, pn, 20, 3);
+  j := pg_temp.jid(d); th := d ->> 'tokh'; sa := pg_temp.sess(th, wA, '4829');
+  select job_no into v_no from analytics.job where id = j;
+  d2 := pg_temp.fx(p_shop, p_tpl, pn, 20, 3);
+  j2 := pg_temp.jid(d2);
+  perform pg_temp.wr(d2 ->> 'tokh', pg_temp.sess(d2 ->> 'tokh', wA, '4829'), 4);
+  lo := pg_temp.lot(pg_temp.ws(d2 ->> 'tokh', pg_temp.sess(d2 ->> 'tokh', wA, '4829'), 4, null, 5, 20));
+  -- N1 ชนิด/ส่วนไม่ถูกต้อง
+  r := pg_temp.o_tissue(p_shop, j, null, 'foo');
+  r2 := pg_temp.o_tissue(p_shop, j, null, 'sublot', null);
+  r3 := pg_temp.o_tissue(p_shop, j, null, 'traveler', lo);
+  r4 := pg_temp.o_tissue(p_shop, j, null, 'sublot', lo);
+  v_log := v_log || pg_temp.chk('N1', 'purpose นอกชุด = purpose_invalid · sublot ไม่ระบุส่วน / traveler ระบุส่วน = lot_invalid · ส่วนของใบอื่น = lot_invalid · ไม่ออก token เพิ่ม',
+    pg_temp.rej(r, 'purpose_invalid') and pg_temp.rej(r2, 'lot_invalid') and pg_temp.rej(r3, 'lot_invalid') and pg_temp.rej(r4, 'lot_invalid')
+    and (select count(*) from analytics.job_token where job_id = j and revoked_at is null) = 1);
+  -- N2 ใบส่วนเดียว traveler ค่าเริ่ม (null) = เพิกถอนของเก่า (เหมือน J1) · ค่า false = ไม่เพิกถอน
+  r := pg_temp.o_tissue(p_shop, j);
+  v_log := v_log || pg_temp.chk('N2', 'ใบที่ยังไม่แบ่ง: พิมพ์ traveler ค่าเริ่ม (null) = เพิกถอนใบเก่า 1 ใบ · ใช้งานอยู่ 1 · token เก่าใช้ไม่ได้ (invalid_token)',
+    (r ->> 'revoked_previous') = '1' and (select count(*) from analytics.job_token where job_id = j and revoked_at is null) = 1 and (pg_temp.w_res(th, null) ->> 'code') = 'invalid_token');
+  h1 := r ->> 'hash';
+  -- N3 แบ่งส่วนแล้ว: sublot/traveler ค่าเริ่ม = ไม่เพิกถอน · ค่า true ชัดเจนชนะ
+  perform pg_temp.wr(h1, pg_temp.sess(h1, wA, '4829'), 4);
+  l1 := pg_temp.lot(pg_temp.ws(h1, pg_temp.sess(h1, wA, '4829'), 4, null, 5, 20));
+  r := pg_temp.o_tissue(p_shop, j, null, 'sublot', l1);
+  r2 := pg_temp.o_tissue(p_shop, j, null, 'sublot', l1);
+  r3 := pg_temp.o_tissue(p_shop, j);
+  h2 := r ->> 'hash'; h3 := r2 ->> 'hash'; h4 := r3 ->> 'hash';
+  select count(*) into n_act from analytics.job_token where job_id = j and revoked_at is null;
+  v_log := v_log || pg_temp.chk('N3', 'ใบที่แบ่งแล้ว: ใบย่อย (sublot) 2 ใบ + traveler ค่าเริ่ม = ไม่เพิกถอนของเก่าเลย (revoked_previous 0 ทั้งหมด) · ใช้งานอยู่ 4 ใบ · label ใบย่อย = "<job_no> · ส่วนที่ 1"',
+    (r ->> 'revoked_previous') = '0' and (r2 ->> 'revoked_previous') = '0' and (r3 ->> 'revoked_previous') = '0' and n_act = 4 and r ->> 'lot_label' = v_no || ' · ส่วนที่ 1' and r ->> 'purpose' = 'sublot');
+  v_log := v_log || pg_temp.chk('N4', 'ทุก QR (traveler + sublot) เปิดใบงานเดียวกัน: resolve ด้วย 4 token ได้ job_no เดียวกันทั้งหมด',
+    (pg_temp.w_res(h1, null) -> 'job' ->> 'job_no') = v_no and (pg_temp.w_res(h2, null) -> 'job' ->> 'job_no') = v_no
+    and (pg_temp.w_res(h3, null) -> 'job' ->> 'job_no') = v_no and (pg_temp.w_res(h4, null) -> 'job' ->> 'job_no') = v_no);
+  -- N5 รายการ QR: ไม่มี token/hash · มี purpose/label/active
+  r := pg_temp.o_tlist(p_shop, j);
+  v_log := v_log || pg_temp.chk('N5', 'job_token_list: 5 รายการ (รวมที่เพิกถอนแล้ว) · มี print_no/purpose/label/active · ไม่มี key token/hash · ใบย่อยมี lot_job_id',
+    jsonb_array_length(r) = 5 and pg_temp.clean_keys(r) and not exists (select 1 from jsonb_array_elements(r) e where not (e ? 'print_no' and e ? 'purpose' and e ? 'label' and e ? 'active'))
+    and (select count(*) from jsonb_array_elements(r) e where e ->> 'purpose' = 'sublot' and (e ->> 'lot_job_id')::uuid = l1) = 2);
+  -- N6 เพิกถอนรายใบ: ใบอื่นยังใช้ได้ · print_no ไม่มี = token_not_found
+  r := pg_temp.q(format('select analytics.job_token_revoke(%L, %L, %L, %L, %L)', p_shop, j, 'ใบหาย', pg_temp.act(), 4));
+  v_log := v_log || pg_temp.chk('N6a', 'เพิกถอนเฉพาะ print_no 4 → revoked 1 · ใบ 2/3/5 ยังใช้ได้ · ใบที่ถูกเพิกถอนเปิดไม่ได้ (invalid_token)',
+    (r ->> 'revoked') = '1' and (pg_temp.w_res(h2, null) ->> 'ok') = 'true' and (pg_temp.w_res(h4, null) ->> 'ok') = 'true'
+    and (pg_temp.w_res(h3, null) ->> 'code') = 'invalid_token' and (select count(*) from analytics.job_token where job_id = j and revoked_at is null) = 3);
+  r := pg_temp.q(format('select analytics.job_token_revoke(%L, %L, %L, %L, %L)', p_shop, j, 'ใบหาย', pg_temp.act(), 4));
+  r2 := pg_temp.q(format('select analytics.job_token_revoke(%L, %L, %L, %L, %L)', p_shop, j, 'ใบหาย', pg_temp.act(), 99));
+  v_log := v_log || pg_temp.chk('N6b', 'เพิกถอน print_no ที่เพิกถอนแล้ว / ไม่มี = ปฏิเสธ token_not_found · ใช้งานอยู่ยัง 3', pg_temp.rej(r, 'token_not_found') and pg_temp.rej(r2, 'token_not_found')
+    and (select count(*) from analytics.job_token where job_id = j and revoked_at is null) = 3);
+  -- N7 เพดาน 5: ครบ 5 ใบที่ใช้งานอยู่ แล้วพิมพ์เพิ่ม = token_cap (ไม่เพิกถอนเงียบ) · explicit true เพิกถอนทั้งหมดแล้วออกใหม่
+  perform pg_temp.o_tissue(p_shop, j, false, 'sublot', l1);
+  perform pg_temp.o_tissue(p_shop, j, false, 'sublot', l1);
+  r := pg_temp.o_tissue(p_shop, j, false, 'sublot', l1);
+  v_log := v_log || pg_temp.chk('N7a', 'ครบ 5 ใบที่ใช้งานอยู่แล้วพิมพ์เพิ่ม = ปฏิเสธ token_cap · ใช้งานอยู่ยัง 5 (ไม่เพิกถอนเงียบ · ไม่ออกใบที่ 6)', pg_temp.rej(r, 'token_cap')
+    and (select count(*) from analytics.job_token where job_id = j and revoked_at is null) = 5);
+  r := pg_temp.o_tissue(p_shop, j, true);
+  v_log := v_log || pg_temp.chk('N7b', 'ส่ง revoke=true ชัดเจนบนใบที่แบ่งแล้ว = เพิกถอน 5 ใบเดิมแล้วออกใบใหม่ (ใช้งานอยู่ 1) — ค่าชัดเจนชนะค่าเริ่ม',
+    (r ->> 'revoked_previous') = '5' and (select count(*) from analytics.job_token where job_id = j and revoked_at is null) = 1);
+  return v_log;
+end;
+$s$;
+
+-- ============================================================================
+-- Section P — สิทธิ์/overload/โครงสร้าง (ข้อ 15 · ข้อ 18.5): พฤติกรรมจริง ไม่ใช่แค่อ่าน ACL
+-- ============================================================================
+create function pg_temp.sp(p_shop uuid, p_tpl uuid) returns text
+ language plpgsql as $s$
+declare
+  v_log text := '';
+  v_touched constant text[] := array[
+    'job_scrap_reason_valid', 'job_disc_active_qty', 'job_live_qty', 'job_identity_gap', 'job_tree_dominant_stage', 'job_lot_return_blocker',
+    'job_discrepancy_guard', 'job_tree_assert', 'job_tree_check', 'job_lot_split_core', 'job_lot_cancel_core',
+    'job_lot_split', 'job_lot_cancel', 'job_discrepancy_resolve', 'job_discrepancy_void', 'job_token_list',
+    'job_worker_discrepancy_resolve', 'job_worker_lot_cancel',
+    'job_cancel', 'job_core_receive', 'job_core_send', 'job_done', 'job_guard', 'job_office_begin', 'job_office_receive', 'job_source_info',
+    'job_stage_guard', 'job_stage_reopen', 'job_stage_state', 'job_stage_sync', 'job_token_guard', 'job_token_issue', 'job_token_revoke',
+    'job_worker_receive', 'job_worker_resolve', 'job_worker_send'];
+  v_rpc constant text[] := array[
+    'job_lot_split', 'job_lot_cancel', 'job_discrepancy_resolve', 'job_discrepancy_void', 'job_token_list',
+    'job_worker_discrepancy_resolve', 'job_worker_lot_cancel',
+    'job_cancel', 'job_done', 'job_office_receive', 'job_stage_reopen', 'job_token_issue', 'job_token_revoke',
+    'job_worker_receive', 'job_worker_resolve', 'job_worker_send',
+    'job_stage_state', 'job_disc_active_qty', 'job_live_qty', 'job_identity_gap', 'job_tree_dominant_stage'];
+  v_x text; v_bad text; k text; v_n int; r record;
+begin
+  perform set_config('request.jwt.claims', '{"role":"service_role"}', true);
+  select string_agg(proname || '=' || n, ', ') into v_x from (
+    select proname, count(*) n from pg_proc where pronamespace = 'analytics'::regnamespace and proname = any (v_touched) group by proname having count(*) <> 1) z;
+  select count(distinct proname) into v_n from pg_proc where pronamespace = 'analytics'::regnamespace and proname = any (v_touched);
+  v_log := v_log || pg_temp.chk('P1', 'ทุกฟังก์ชันที่ drop/replace/สร้างใหม่ (36 ชื่อ) มี signature เดียวใน pg_proc (ไม่เกิด overload) ' || coalesce(v_x, ''), v_x is null and v_n = 36);
+  v_bad := '';
+  for r in select p.oid, p.oid::regprocedure::text as sig, p.proname from pg_proc p where p.pronamespace = 'analytics'::regnamespace and p.proname = any (v_touched) loop
+    if has_function_privilege('anon', r.oid, 'execute') or has_function_privilege('authenticated', r.oid, 'execute')
+       or has_function_privilege('service_role', r.oid, 'execute') <> (r.proname = any (v_rpc)) then
+      v_bad := v_bad || ' ' || r.proname;
+    end if;
+  end loop;
+  v_log := v_log || pg_temp.chk('P2', 'ACL: anon/authenticated ไม่มี execute บนทุกตัว · service_role มีเฉพาะ RPC 21 ตัวที่ประกาศ (ภายใน/trigger/core ไม่มี) ' || v_bad, v_bad = '');
+  execute 'grant usage on schema analytics to authenticated';  -- จำลองวันที่กำแพงชั้นนอกหลุด (ถอยกลับพร้อม section)
+  v_bad := '';
+  foreach k in array array[
+    'select analytics.job_lot_split(null::uuid, null::uuid, null::int, null::int)',
+    'select analytics.job_lot_cancel(null::uuid, null::uuid, null::text, null::text)',
+    'select analytics.job_discrepancy_resolve(null::uuid, null::uuid, null::text, null::text)',
+    'select analytics.job_discrepancy_void(null::uuid, null::uuid, null::text)',
+    'select analytics.job_token_list(null::uuid, null::uuid)',
+    'select analytics.job_token_issue(null::uuid, null::uuid)',
+    'select analytics.job_worker_send(null::text, null::text, null::int)',
+    'select analytics.job_worker_receive(null::text, null::text, null::int)',
+    'select analytics.job_worker_discrepancy_resolve(null::text, null::text, null::uuid, null::text, null::text)',
+    'select analytics.job_worker_lot_cancel(null::text, null::text, null::uuid)',
+    'select analytics.job_worker_resolve(null::text)',
+    'select analytics.job_live_qty(null::uuid)'] loop
+    v_x := pg_temp.as_role('authenticated', k);
+    if v_x not like 'ERR:42501:%' then v_bad := v_bad || ' ' || left(k, 45) || '=' || left(v_x, 30); end if;
+  end loop;
+  v_log := v_log || pg_temp.chk('P3', 'พฤติกรรมจริง: authenticated (หลังได้ usage ของสคีมา) เรียก RPC ใหม่/ที่ replace ทุกตัว = 42501 permission denied ก่อนเข้า body ' || v_bad, v_bad = '');
+  v_x := pg_temp.as_role('authenticated', 'select 1 from analytics.job_discrepancy limit 1');
+  v_log := v_log || pg_temp.chk('P4', 'authenticated อ่านตาราง/view ใหม่ตรงๆ = 42501 (job_discrepancy · v_job_tree · v_job_tree_summary · v_job_tree_drift) · service_role อ่านได้ แต่เขียนตรง (INSERT/UPDATE/DELETE) = 42501',
+    v_x like 'ERR:42501:%'
+    and pg_temp.as_role('authenticated', 'select 1 from analytics.v_job_tree limit 1') like 'ERR:42501:%'
+    and pg_temp.as_role('authenticated', 'select 1 from analytics.v_job_tree_summary limit 1') like 'ERR:42501:%'
+    and pg_temp.as_role('authenticated', 'select 1 from analytics.v_job_tree_drift limit 1') like 'ERR:42501:%'
+    and pg_temp.as_role('service_role', 'select 1 from analytics.job_discrepancy limit 1') = 'OK'
+    and pg_temp.as_role('service_role', 'select 1 from analytics.v_job_tree_drift limit 1') = 'OK'
+    and pg_temp.as_role('service_role', 'update analytics.job_discrepancy set qty = qty') like 'ERR:42501:%'
+    and pg_temp.as_role('service_role', 'delete from analytics.job_discrepancy') like 'ERR:42501:%'
+    and pg_temp.as_role('service_role', 'update analytics.job set qty_split_out = 1') like 'ERR:42501:%');
+  v_log := v_log || pg_temp.chk('P5', 'job_token: service_role อ่านคอลัมน์ purpose/lot_job_id ได้ แต่ token_hash ยังอ่านไม่ได้ (42501) · worker.can_external อ่านได้ pin_hash ยังอ่านไม่ได้',
+    pg_temp.as_role('service_role', 'select purpose, lot_job_id from analytics.job_token limit 1') = 'OK'
+    and pg_temp.as_role('service_role', 'select token_hash from analytics.job_token limit 1') like 'ERR:42501:%'
+    and pg_temp.as_role('service_role', 'select can_external from analytics.worker limit 1') = 'OK'
+    and pg_temp.as_role('service_role', 'select pin_hash from analytics.worker limit 1') like 'ERR:42501:%');
+  v_log := v_log || pg_temp.chk('P6', 'RLS: job_discrepancy เปิด ไม่มี policy · RPC ช่าง/ออฟฟิศใหม่เป็น security definer ที่ pin search_path · trigger ตารางใบงาน/ช่าง/ส่วนต่างเปิดครบ',
+    (select relrowsecurity from pg_class where oid = 'analytics.job_discrepancy'::regclass) and not exists (select 1 from pg_policy where polrelid = 'analytics.job_discrepancy'::regclass)
+    and not exists (select 1 from pg_proc p where p.pronamespace = 'analytics'::regnamespace and p.proname = any (v_rpc) and p.proname not in ('job_stage_state', 'job_disc_active_qty', 'job_live_qty', 'job_identity_gap', 'job_tree_dominant_stage')
+                      and (not p.prosecdef or not exists (select 1 from unnest(p.proconfig) c where c like 'search_path=%')))
+    and not exists (select 1 from pg_trigger t where t.tgrelid in ('analytics.job'::regclass, 'analytics.job_stage'::regclass, 'analytics.job_event'::regclass, 'analytics.job_token'::regclass,
+                                                                  'analytics.worker'::regclass, 'analytics.job_discrepancy'::regclass) and not t.tgisinternal and t.tgenabled not in ('O', 'A')));
+  v_log := v_log || pg_temp.chk('P7', 'โครงสร้าง: CHECK ใหม่/แก้ครบ (job_done_ck นับ qty_split_out · js_sent_ck · js_not_sent_ck ยอมเสียก่อนส่งเฉพาะ split_out>0 · js_idle_ck · event ใหม่ 4 ชนิด) · unique 3 ตัวมี parent_job_id is null · มี uq_job_lot_seq',
+    (select pg_get_constraintdef(oid) like '%qty_split_out%' from pg_constraint where conname = 'job_done_ck' and conrelid = 'analytics.job'::regclass)
+    and (select pg_get_constraintdef(oid) like '%qty_split_out%' from pg_constraint where conname = 'js_sent_ck')
+    and (select pg_get_constraintdef(oid) like '%qty_split_out > 0%' from pg_constraint where conname = 'js_not_sent_ck')
+    and (select pg_get_constraintdef(oid) like '%qty_split_out = 0%' from pg_constraint where conname = 'js_idle_ck')
+    and (select pg_get_constraintdef(oid) like '%split_cancel%' and pg_get_constraintdef(oid) like '%discrepancy_resolve%' from pg_constraint where conname = 'job_event_event_type_ck')
+    and (select count(*) from pg_indexes where schemaname = 'analytics' and indexname in ('uq_job_production_item', 'uq_job_oem_item', 'uq_job_oem_deal_seq') and indexdef like '%parent_job_id IS NULL%') = 3
+    and exists (select 1 from pg_indexes where schemaname = 'analytics' and indexname = 'uq_job_lot_seq'));
+  v_log := v_log || pg_temp.chk('P8', 'เพดาน QR ยัง 5 (ไม่ใช่ 12) ในนิยาม job_token_issue · ใบส่วนย่อย/ส่วนต่างของช่างใช้ job_today() (เวลาไทย) ไม่ใช้ current_date/now()::date ในแยกส่วน/ยกเลิกส่วน (ข้อ 6)',
+    pg_get_functiondef('analytics.job_token_issue(uuid,uuid,boolean,uuid,text,uuid)'::regprocedure) like '%v_active >= 5%'
+    and pg_get_functiondef('analytics.job_lot_split_core(uuid,int,int,int,int,text,numeric,numeric,numeric,text,uuid,text,uuid,text,boolean)'::regprocedure) like '%job_today()%'
+    and pg_get_functiondef('analytics.job_lot_split_core(uuid,int,int,int,int,text,numeric,numeric,numeric,text,uuid,text,uuid,text,boolean)'::regprocedure) !~* 'current_date|now\(\)::date'
+    and pg_get_functiondef('analytics.job_lot_cancel_core(uuid,text,text,text,uuid,text,uuid,text,boolean)'::regprocedure) !~* 'current_date|now\(\)::date'
+    and pg_get_functiondef('analytics.job_worker_discrepancy_resolve(text,text,uuid,text,text,text,text)'::regprocedure) !~* 'current_date|now\(\)::date');
+  return v_log;
+end;
+$s$;
+
+-- ============================================================================
+-- Section Q — ต้องไม่พัง (design §10.2 · ข้อ 17 "ยิงของใหม่ใส่ของเก่า"): golden เทียบฉบับเดิมบน DB สด (core รับ/ส่ง + resolve) · ใบเดิมบน prod · ใบที่ไม่แบ่งเดินครบวงจร
+-- ============================================================================
+create function pg_temp.g_recv(p_leg boolean, p_job uuid, p_seq int, p_w numeric, p_worker uuid, p_name text, p_chan text, p_scope boolean) returns jsonb
+ language plpgsql as $c$
+declare r jsonb;
+begin
+  begin
+    if p_leg then
+      r := pg_temp.core_recv_legacy(p_job, p_seq, analytics.job_today(), p_w, p_worker, p_name, p_chan, pg_temp.act(), null, p_scope);
+    else
+      r := analytics.job_core_receive(p_job, p_seq, analytics.job_today(), p_w, p_worker, p_name, p_chan, pg_temp.act(), null, p_scope);
+    end if;
+  exception when others then
+    r := jsonb_build_object('_err', sqlerrm, '_state', sqlstate);
+  end;
+  return r - 'job_no';
+end $c$;
+create function pg_temp.g_send(p_leg boolean, p_job uuid, p_seq int, p_w numeric, p_scrap int, p_reason text, p_added numeric, p_note text, p_sw numeric, p_worker uuid, p_chan text, p_enforce boolean) returns jsonb
+ language plpgsql as $c$
+declare r jsonb;
+begin
+  begin
+    if p_leg then
+      r := pg_temp.core_send_legacy(p_job, p_seq, analytics.job_today(), p_w, p_scrap, p_reason, p_added, p_note, p_sw, p_worker, p_chan, pg_temp.act(), null, p_enforce);
+    else
+      r := analytics.job_core_send(p_job, p_seq, analytics.job_today(), p_w, p_scrap, p_reason, p_added, p_note, p_sw, p_worker, p_chan, pg_temp.act(), null, p_enforce);
+    end if;
+  exception when others then
+    r := jsonb_build_object('_err', sqlerrm, '_state', sqlstate);
+  end;
+  return r - 'job_no';
+end $c$;
+
+-- ลำดับคำสั่งชุดเดียวกัน รันด้วยฉบับเดิม (p_leg) หรือฉบับใหม่ — ผลของทุกคำสั่ง (ทั้งสำเร็จ/ปฏิเสธ) ต้องเท่ากันเป๊ะ
+create function pg_temp.g_run(p_job uuid, p_leg boolean, p_worker uuid, p_gold boolean) returns jsonb
+ language plpgsql as $c$
+declare
+  v jsonb := '[]'::jsonb;
+  s int; w numeric := 9.9;
+begin
+  v := v || jsonb_build_array(pg_temp.g_recv(p_leg, p_job, 1, null, null, 'verify', 'job_page', false));
+  v := v || jsonb_build_array(pg_temp.g_recv(p_leg, p_job, 1, null, null, 'verify', 'job_page', false));
+  v := v || jsonb_build_array(pg_temp.g_recv(p_leg, p_job, 3, null, null, 'verify', 'job_page', false));
+  v := v || jsonb_build_array(pg_temp.g_send(p_leg, p_job, 1, null, 2, null, 0, null, null, null, 'job_page', false));
+  v := v || jsonb_build_array(pg_temp.g_send(p_leg, p_job, 1, null, 99, 'porosity', 0, null, null, null, 'job_page', false));
+  v := v || jsonb_build_array(pg_temp.g_send(p_leg, p_job, 1, null, 2, 'porosity', 0, null, null, null, 'job_page', false));
+  v := v || jsonb_build_array(pg_temp.g_send(p_leg, p_job, 1, null, 0, null, 0, null, null, null, 'job_page', false));
+  for s in 2 .. 3 loop
+    v := v || jsonb_build_array(pg_temp.g_recv(p_leg, p_job, s, null, null, 'verify', 'job_page', false));
+    v := v || jsonb_build_array(pg_temp.g_send(p_leg, p_job, s, null, 0, null, 0, null, null, null, 'job_page', false));
+  end loop;
+  -- ขั้น 4 cast (ชั่ง): ไม่ใส่น้ำหนัก · น้ำหนักผิด · ผ่าน · ออกเกินเข้า · ออกปกติ + เสีย + เศษ (ออฟฟิศ) · ช่างอื่นส่ง
+  v := v || jsonb_build_array(pg_temp.g_recv(p_leg, p_job, 4, null, null, 'verify', 'job_page', false));
+  v := v || jsonb_build_array(pg_temp.g_recv(p_leg, p_job, 4, 0, null, 'verify', 'job_page', false));
+  v := v || jsonb_build_array(pg_temp.g_recv(p_leg, p_job, 4, w, p_worker, null, 'worker_qr', true));
+  v := v || jsonb_build_array(pg_temp.g_send(p_leg, p_job, 4, 10.5, 0, null, 0, null, null, p_worker, 'worker_qr', true));
+  v := v || jsonb_build_array(pg_temp.g_send(p_leg, p_job, 4, null, 0, null, 0, null, null, p_worker, 'worker_qr', true));
+  v := v || jsonb_build_array(pg_temp.g_send(p_leg, p_job, 4, 9.0, 1, 'missing', 0, null, 0.5, p_worker, 'worker_qr', true));
+  v := v || jsonb_build_array(pg_temp.g_send(p_leg, p_job, 4, 9.0, 1, 'missing', 0, null, 0.5, null, 'job_page', false));
+  -- ขั้น 5: ส่วนต่างน้ำหนักรับ-ส่ง (ทอง: 0.2 = ปฏิเสธ · 0.04 = ผ่าน · เงิน: ผ่านและเก็บ gap) · เติมโลหะต้องมีหมายเหตุ
+  v := v || jsonb_build_array(pg_temp.g_recv(p_leg, p_job, 5, case when p_gold then 9.2 else 8.8 end, p_worker, null, 'worker_qr', true));
+  v := v || jsonb_build_array(pg_temp.g_recv(p_leg, p_job, 5, 9.04, p_worker, null, 'worker_qr', true));
+  v := v || jsonb_build_array(pg_temp.g_send(p_leg, p_job, 5, 9.04, 0, null, 0.5, null, null, p_worker, 'worker_qr', true));
+  v := v || jsonb_build_array(pg_temp.g_send(p_leg, p_job, 5, 9.3, 0, null, 0.5, 'เติมทดสอบ', null, p_worker, 'worker_qr', true));
+  for s in 6 .. 8 loop
+    v := v || jsonb_build_array(pg_temp.g_recv(p_leg, p_job, s, case when p_gold then 9.3 else null end, p_worker, null, 'worker_qr', true));
+    v := v || jsonb_build_array(pg_temp.g_send(p_leg, p_job, s, case when p_gold then 9.3 else null end, 0, null, 0, null, null, p_worker, 'worker_qr', true));
+  end loop;
+  return v;
+end $c$;
+
+create function pg_temp.g_state(p_job uuid) returns jsonb language sql as $c$
+  select jsonb_build_object(
+    'stages', (select jsonb_agg(analytics.job_stage_state(s) order by s.seq) from analytics.job_stage s where s.job_id = p_job),
+    'events', (select jsonb_object_agg(event_type, n) from (select event_type, count(*) n from analytics.job_event where job_id = p_job group by event_type) e),
+    'job', (select jsonb_build_object('status', status, 'current', current_stage_code, 'weight_start_g', weight_start_g) from analytics.job where id = p_job)) $c$;
+
+create function pg_temp.sq(p_shop uuid, p_tpl uuid) returns text
+ language plpgsql as $s$
+declare
+  v_log text := '';
+  pn uuid; pw uuid; pg_ uuid; wA uuid; wB uuid;
+  d jsonb; j uuid; ja uuid; jb uuid; th text; sa text; sb text;
+  r jsonb; r2 jsonb; r3 jsonb;
+  ra jsonb; rb jsonb; sta jsonb; stb jsonb;
+  v_n int; v_bad int; v_job record; v_tok text; v_ses text; v_leg jsonb; v_new jsonb;
+  v_mm int := 0; v_cnt int := 0; i int;
+begin
+  perform set_config('request.jwt.claims', '{"role":"service_role"}', true);
+  pn := pg_temp.pid(p_shop, 'none');
+  pw := pg_temp.mkprof(p_shop, 'vfy-ชั่งหล่อ+ตัดต้น');
+  pg_ := pg_temp.pid(p_shop, 'gold');
+  wA := pg_temp.wid(p_shop, 'vfy-ช่าง A', '4829');
+  wB := pg_temp.wid(p_shop, 'vfy-ช่าง B', '7351');
+
+  -- Q1 ใบเดิมทั้งหมดบน DB: ไม่มีส่วน/แยก · ใบแม่ส่วนเดียว · บอร์ดครบทุกแถว + คอลัมน์ใหม่ค่าว่าง/0 · ไม่ drift
+  select count(*) into v_n from analytics.job;
+  select count(*) into v_bad from analytics.job where parent_job_id is not null or lot_seq <> 0 or qty_split_out <> 0 or cancel_scrap_qty is not null;
+  v_log := v_log || pg_temp.chk('Q1a', format('ใบงานเดิมบน DB (%s ใบ): ไม่มีใบไหนมี parent/lot_seq/split_out/cancel_scrap · ขั้นเดิมไม่มี split_out/split_from', v_n),
+    v_bad = 0 and not exists (select 1 from analytics.job_stage where qty_split_out <> 0 or split_from_stage_id is not null) and not exists (select 1 from analytics.job_discrepancy));
+  select count(*) into v_bad from analytics.v_job_board b
+   where b.parent_job_id is not null or b.lot_seq <> 0 or b.qty_pending_explanation <> 0
+      or b.parts_count <> case when b.status = 'cancelled' then 0 else 1 end
+      or b.dominant_stage_code is distinct from b.current_stage_code;
+  v_log := v_log || pg_temp.chk('Q1b', 'v_job_board: แถวครบเท่าจำนวนใบ · ใบเดิมทุกแถว parent null · lot_seq 0 · ส่วนรอชี้แจง 0 · parts_count 1 (cancelled 0) · dominant_stage_code = current_stage_code',
+    (select count(*) from analytics.v_job_board) = v_n and v_bad = 0);
+  v_log := v_log || pg_temp.chk('Q1c', 'v_job_tree_drift ว่างบนข้อมูลเดิมทั้งหมด (สมการจำนวนของใบเดิมทุกใบตรงนิยามใหม่) · v_job_stage_from_events ไม่ drift ของขั้นที่เคยไม่ drift ก่อน 0181 (qty_split_out ไม่เปลี่ยน state ของขั้นเดิม)',
+    (select count(*) from analytics.v_job_tree_drift) = 0);
+
+  -- Q2 golden resolve: ผลของ job_worker_resolve ฉบับใหม่ (ตัด parts/my_actions) = ฉบับเดิมเป๊ะ ทุกสถานะ/ทุกผู้ดู บนใบจริงที่ยังเปิด + ใบสร้างใหม่หลายแบบ
+  for v_job in select id from analytics.job where status in ('open', 'in_progress') order by created_at loop
+    v_tok := (pg_temp.o_tissue(p_shop, v_job.id, false) ->> 'hash');
+    if v_tok is null then continue; end if;
+    v_ses := pg_temp.sess(v_tok, wA, '4829');
+    v_leg := pg_temp.q(format('select pg_temp.resolve_legacy(%L, %L, %L)', v_tok, null, null));
+    v_new := pg_temp.w_res(v_tok, null) - 'parts' - 'my_actions';
+    v_cnt := v_cnt + 1; if v_leg is distinct from v_new then v_mm := v_mm + 1; end if;
+    v_leg := pg_temp.q(format('select pg_temp.resolve_legacy(%L, %L, %L)', v_tok, v_ses, null));
+    v_new := pg_temp.w_res(v_tok, v_ses) - 'parts' - 'my_actions';
+    v_cnt := v_cnt + 1; if v_leg is distinct from v_new then v_mm := v_mm + 1; end if;
+  end loop;
+  v_log := v_log || pg_temp.chk('Q2a', format('golden resolve บนใบจริงที่ยังเปิด: %s คู่ (ก่อน PIN + หลัง PIN ของช่างที่ทำได้ทุกขั้น) ฉบับใหม่ (ตัด parts/my_actions) = ฉบับเดิม ไม่ต่างแม้ key เดียว', v_cnt), v_mm = 0);
+  v_mm := 0; v_cnt := 0;
+  foreach d in array array[
+      pg_temp.fx(p_shop, p_tpl, pn, 10, 0), pg_temp.fx(p_shop, p_tpl, pn, 10, 3), pg_temp.fx(p_shop, p_tpl, pw, 10, 3, 'silver', 9.9),
+      pg_temp.fx(p_shop, p_tpl, pg_, 10, 3, 'gold', 9.9), pg_temp.fx(p_shop, p_tpl, pn, 10, 8)] loop
+    j := pg_temp.jid(d); th := d ->> 'tokh';
+    sa := pg_temp.sess(th, wA, '4829'); sb := pg_temp.sess(th, wB, '7351');
+    for i in 1 .. 2 loop
+      if i = 2 and (select status from analytics.job_stage where job_id = j and seq = 4) = 'pending' then
+        perform pg_temp.wr(th, sa, 4, null, null, case when (select weigh_required from analytics.job_stage where job_id = j and seq = 4) then 9.9 end);
+      end if;
+      foreach v_ses in array array[null, sa, sb] loop
+        v_leg := pg_temp.q(format('select pg_temp.resolve_legacy(%L, %L, %L)', th, v_ses, null));
+        v_new := pg_temp.w_res(th, v_ses) - 'parts' - 'my_actions';
+        v_cnt := v_cnt + 1; if v_leg is distinct from v_new then v_mm := v_mm + 1; end if;
+      end loop;
+    end loop;
+  end loop;
+  v_log := v_log || pg_temp.chk('Q2b', format('golden resolve บนใบใหม่ 5 แบบ (ยังไม่เริ่ม · กลางทาง · ชั่งเงิน · ทอง · ครบรอปิด) × ผู้ดู 3 × 2 สถานะ = %s คู่ เท่าฉบับเดิมเป๊ะ (รวม prev_weight_out_g ทอง = null)', v_cnt), v_mm = 0 and v_cnt = 30);
+
+  -- Q3 golden core: คำสั่งชุดเดียวกัน (ปฏิเสธ + สำเร็จ ~30 คำสั่ง) บนใบแฝด 2 ใบ ใบหนึ่งผ่านฉบับเดิมของ job_core_receive/send อีกใบผ่านฉบับใหม่ · ผล + สถานะขั้น + จำนวน event เท่ากันทุกใบ
+  for i in 1 .. 3 loop
+    ja := pg_temp.jid(pg_temp.mkp(p_shop, p_tpl, case when i = 3 then 'gold' else 'silver' end, case i when 1 then pw when 2 then pn else pg_ end, null, 10));
+    jb := pg_temp.jid(pg_temp.mkp(p_shop, p_tpl, case when i = 3 then 'gold' else 'silver' end, case i when 1 then pw when 2 then pn else pg_ end, null, 10));
+    ra := pg_temp.g_run(ja, true, wA, i = 3);
+    rb := pg_temp.g_run(jb, false, wA, i = 3);
+    sta := pg_temp.g_state(ja); stb := pg_temp.g_state(jb);
+    v_log := v_log || pg_temp.chk('Q3' || i, format('golden core %s: %s คำสั่ง · ผลของทุกคำสั่งเท่าฉบับเดิม · สถานะ 8 ขั้นเท่ากัน · จำนวน event แต่ละชนิดเท่ากัน · มีทั้งสำเร็จและปฏิเสธ',
+        case i when 1 then 'เงินแบบชั่งหล่อ+ตัดต้น' when 2 then 'เงินแบบไม่ชั่ง' else 'ทองแบบ "ทอง"' end, jsonb_array_length(ra)),
+      ra = rb and sta = stb and jsonb_array_length(ra) >= 25
+      and exists (select 1 from jsonb_array_elements(ra) e where e ->> 'ok' = 'true') and exists (select 1 from jsonb_array_elements(ra) e where e ->> 'ok' = 'false'));
+  end loop;
+
+  -- Q4 ใบที่ไม่แบ่งเดินครบวงจรเหมือน J1: รับ → ส่งทั้งหมดทุกขั้น → job_done · ไม่มีส่วน · token ถูกเพิกถอน · production_order_done ไม่เกี่ยว (ฟังก์ชันไม่ถูกแตะ — ดู MY)
+  d := pg_temp.fx(p_shop, p_tpl, pn, 12, 8);
+  j := pg_temp.jid(d);
+  r := pg_temp.o_done(p_shop, j, 11, 1);
+  v_log := v_log || pg_temp.chk('Q4', 'ใบไม่แบ่ง: เดินครบ 8 ขั้นแล้วปิด ดี 11 + เสีย 1 = 12 → ok (นิยามเดิม split_out 0) · ไม่มีส่วน · token ถูกเพิกถอน · v_job_tree_summary 1 ส่วน sum_check จริง drift ว่าง',
+    (r ->> 'ok') = 'true' and pg_temp.jv(j, 'status') = 'done' and pg_temp.nlots(j) = 0 and not exists (select 1 from analytics.job_token where job_id = j and revoked_at is null)
+    and (select parts_count = 1 and sum_check from analytics.v_job_tree_summary where root_job_id = j) and pg_temp.dcount(j) = 0);
+  return v_log;
+end;
+$s$;
+
+-- ============================================================================
 -- ตัวรัน section: แต่ละ section ล้มด้วย exception ไม่ทำให้ทั้งชุดตาย · ทุก section ถอยกลับ (raise) — ข้อมูลทดสอบไม่เหลือ
 -- ============================================================================
 create function pg_temp.run_sec(p_fn text, p_shop uuid, p_tpl uuid) returns text
