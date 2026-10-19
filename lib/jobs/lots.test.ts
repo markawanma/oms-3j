@@ -189,6 +189,8 @@ describe("M-A/M-B/M-C — mapper ของข้อมูลน้ำหนั�
   it("mapLotPart / mapLotsSummary: น้ำหนักของเสียที่เลิกใช้ (M-C) · ไม่มี = null / 0", () => {
     expect(part({}).cancelScrapWeightG).toBeNull();
     expect(part({ cancel_scrap_weight_g: "3.5" }).cancelScrapWeightG).toBe(3.5);
+    expect(part({}).weightScrapGapG).toBeNull();
+    expect(part({ cancel_scrap_weight_g: "15", weight_scrap_gap_g: "5" }).weightScrapGapG).toBe(5);
     expect(mapLotsSummary({ root_job_id: ROOT })!.weightScrapCancelG).toBe(0);
     expect(mapLotsSummary({ root_job_id: ROOT, weight_scrap_cancel_g: "3.5" })!.weightScrapCancelG).toBe(3.5);
   });

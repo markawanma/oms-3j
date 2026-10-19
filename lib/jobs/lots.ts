@@ -16,7 +16,7 @@ const bool = (v: unknown): boolean => v === true;
 // คอลัมน์ที่อ่าน (ชื่อตรงกับ 0181 §7)
 // ---------------------------------------------------------------------------
 export const TREE_COLUMNS =
-  "job_id, root_job_id, parent_job_id, lot_seq, label, status, qty_planned, qty_live, qty_stage_scrap, qty_split_out, qty_discrepancy_open, qty_discrepancy_resolved, cancel_scrap_qty, qty_good, qty_scrap_final, stage_code, stage_name, stage_status, holder_name, days_in_stage, qty_qc_passed, cancel_scrap_weight_g";
+  "job_id, root_job_id, parent_job_id, lot_seq, label, status, qty_planned, qty_live, qty_stage_scrap, qty_split_out, qty_discrepancy_open, qty_discrepancy_resolved, cancel_scrap_qty, qty_good, qty_scrap_final, stage_code, stage_name, stage_status, holder_name, days_in_stage, qty_qc_passed, cancel_scrap_weight_g, weight_scrap_gap_g";
 export const TREE_SUMMARY_COLUMNS =
   "root_job_id, job_no, qty_planned, qty_order, parts_count, parts_open, lots_open, qty_live_total, qty_done_good, qty_scrap_total, qty_pending_explanation, qty_discrepancy_resolved, qty_qc_passed_total, weight_scrap_cancel_g, dominant_stage_code, sum_check";
 // M-B: อ่านจาก v_job_discrepancy (alias id) — weight_gap_excess_g คำนวณที่ DB (job_disc_excess_g) ไม่คำนวณซ้ำฝั่ง TS · เฉพาะหน้าออฟฟิศ
@@ -46,6 +46,8 @@ export interface LotPart {
   cancelScrapQty: number | null;
   /** M-C: น้ำหนักของเสียที่เลิกใช้ตอนยกเลิกส่วนเป็นของเสีย (g · ทอง+ขั้นชั่งเท่านั้น) — เฉพาะหน้าออฟฟิศ */
   cancelScrapWeightG: number | null;
+  /** L-new-1: น้ำหนักล่าสุดของส่วน − น้ำหนักของเสียที่เลิกใช้ (g · DB คำนวณ · บวกเกิน 0.05 = ทองหายระหว่างทาง ต้องมีคำอธิบายตอนยกเลิก) — เฉพาะหน้าออฟฟิศ */
+  weightScrapGapG: number | null;
   qtyGood: number | null;
   stageCode: string | null;
   stageName: string | null;
@@ -87,6 +89,7 @@ export function mapLotPart(r: Record<string, unknown>): LotPart | null {
     qtyDiscrepancyResolved: int0(r.qty_discrepancy_resolved),
     cancelScrapQty: num(r.cancel_scrap_qty),
     cancelScrapWeightG: num(r.cancel_scrap_weight_g),
+    weightScrapGapG: num(r.weight_scrap_gap_g),
     qtyGood: num(r.qty_good),
     stageCode: str(r.stage_code),
     stageName: str(r.stage_name),

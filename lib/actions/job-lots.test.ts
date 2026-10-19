@@ -155,10 +155,32 @@ describe("cancelJobLot · resolveDiscrepancyOffice · voidDiscrepancy", () => {
     expect(rpcMock).not.toHaveBeenCalled();
   });
   it("DB ตอบ note_required (ทองหายเกินสัดส่วน) → ข้อความไทย + code", async () => {
-    rpcMock.mockResolvedValue({ data: null, error: { code: "22023", message: "ทอง: น้ำหนักหายมากกว่าสัดส่วนชิ้นที่ขาด — ต้องเขียนคำอธิบายเป็นข้อความ (ไม่ใช่แค่เลือกรหัสเหตุผล)", hint: "note_required" } });
+    rpcMock.mockResolvedValue({ data: null, error: { code: "22023", message: "ทอง: น้ำหนักหายมากกว่าสัดส่วนชิ้นที่ขาด — ต้องเขียนคำอธิบายเป็นข้อความ (ไม่ใช่แค่เลือกรหัสเหตุผล)", hint: "gold_note_required" } });
     const r = await resolveDiscrepancyOffice({ discrepancyId: DISC, kind: "lost", reason: "missing" });
     expect(r.ok).toBe(false);
-    if (!r.ok) expect(r.code).toBe("note_required");
+    if (!r.ok) expect(r.code).toBe("gold_note_required");
+  });
+  it("L-new-1 cancel: scrapNote ส่งเป็น p_scrap_reason แทนรหัส · ไม่มี note = ส่งรหัส · note ล่องหน/< > /ยาวเกิน/ไปกับ return_to_parent = ไม่ถึง DB", async () => {
+    rpcMock.mockResolvedValue({ data: { ok: true, disposition: "scrap", live_qty: 10 }, error: null });
+    await cancelJobLot({ lotJobId: LOT, reason: "ใช้ไม่ได้", disposition: "scrap", scrapReason: "broken", scrapWeightG: 15, scrapNote: "เศษหายระหว่างขัดเงา" });
+    expect(lastRpc()[1].p_scrap_reason).toBe("เศษหายระหว่างขัดเงา");
+    await cancelJobLot({ lotJobId: LOT, reason: "ใช้ไม่ได้", disposition: "scrap", scrapReason: "broken", scrapWeightG: 15, scrapNote: "" });
+    expect(lastRpc()[1].p_scrap_reason).toBe("broken");
+    rpcMock.mockClear();
+    for (const n of ["a\u200Bb", "<b>x</b>", "x".repeat(201)]) {
+      expect((await cancelJobLot({ lotJobId: LOT, reason: "x", disposition: "scrap", scrapReason: "broken", scrapWeightG: 15, scrapNote: n })).ok).toBe(false);
+    }
+    expect((await cancelJobLot({ lotJobId: LOT, reason: "x", disposition: "return_to_parent", scrapNote: "อะไรสักอย่าง" })).ok).toBe(false);
+    expect(rpcMock).not.toHaveBeenCalled();
+  });
+  it("DB ตอบ gold_note_required ตอนยกเลิกส่วน → code + ข้อความไทย", async () => {
+    rpcMock.mockResolvedValue({ data: null, error: { code: "22023", message: "x", hint: "gold_note_required" } });
+    const r = await cancelJobLot({ lotJobId: LOT, reason: "x", disposition: "scrap", scrapReason: "broken", scrapWeightG: 15 });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.code).toBe("gold_note_required");
+      expect(r.error).toMatch(/คำอธิบาย/);
+    }
   });
   it("resolve/void: kind นอก scrap|lost · เหตุผลนอกชุด · id ไม่ใช่ uuid = ไม่ถึง DB · ผ่านแล้วส่ง params ตรงสัญญา", async () => {
     for (const b of [{ discrepancyId: "x", kind: "lost", reason: "missing" }, { discrepancyId: DISC, kind: "broken", reason: "missing" }, { discrepancyId: DISC, kind: "lost", reason: "" }, { discrepancyId: DISC, kind: "lost", reason: "x" }])

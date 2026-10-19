@@ -2,7 +2,7 @@
 -- ตรวจ supabase/migrations/0181_job_lots_l1.sql (L1: ส่วนย่อย "ส่งต่อ n จาก N" · ส่วนต่างรอชี้แจง · QR หลายใบไม่เพิกถอน) ตาม design-job-lots-shopfloor.md §10.1 + §10.2
 -- self-rolling-back (3j-migration-traps ข้อ 11) · ผลออกทาง error message · [FAIL] >= 1 = ไม่ผ่าน · ข้อมูลทดสอบสร้างผ่าน RPC ใน do-block ที่ถอยกลับทุก section
 --   (ข้อยกเว้นที่บอกตรงๆ: ใบเสนอราคา OEM = โคลนจากรายการจริงด้วย INSERT ในทรานแซกชันที่ถอย (แบบเดียวกับ verify-0172..0178) · เคสห้ามผ่านของ trigger ใช้ UPDATE/INSERT ตรงตามที่ design §10.1 ข้อ 6 สั่ง · ติ๊ก worker.can_external/is_active ด้วย UPDATE ตรง)
--- รอบแรก = ของจริง · รอบถัดไป = mutant 59 จุด (ทุกตัวต้องล้ม ไม่งั้น MX FAIL) · ปิดท้ายตรวจ state ไม่ขยับ (นับ+md5 ทุกตาราง รวมตัวนับเลขใบงาน)
+-- รอบแรก = ของจริง · รอบถัดไป = mutant 64 จุด (ทุกตัวต้องล้ม ไม่งั้น MX FAIL) · ปิดท้ายตรวจ state ไม่ขยับ (นับ+md5 ทุกตาราง รวมตัวนับเลขใบงาน)
 -- 🔴 ไฟล์นี้ต้องรันหลัง Tech Lead ส่งข้อความ "รันได้" เท่านั้น (ล็อกตาราง job นานช่วง mutant — QA อาจกำลังกดบน DB จริง)
 --
 -- รัน (หลัง apply):   node scripts/run-sql.mjs scripts/verify/verify-0181.sql
@@ -49,7 +49,7 @@
 --  security L4  ออฟฟิศแยกต้องส่ง p_qty_hold (บังคับทุกช่องทาง)                                                    -> B4d · MU-9
 --  security L6/L7  ฝั่ง TS (job-lots.test.ts) / หัวไฟล์ migration — ไม่มีเทสต์ DB (บอกตรงๆ)
 --  กติกาเหล็ก: state ไม่ขยับ (ตัวนับเลขใบงาน/ทุกตาราง) · ฟังก์ชันอื่นไม่ถูกแตะ · trigger เปิดครบ                           -> K0 K0c MY (+ post-check ใน migration §9)
---  mutant 59 จุด: MU-1..MU-59 (รายการและ expect อยู่ท้ายไฟล์ · MX ต้องจับครบ)
+--  mutant 64 จุด: MU-1..MU-64 (รายการและ expect อยู่ท้ายไฟล์ · MX ต้องจับครบ)
 --
 --  ❌ ไม่มีเทสต์ครอบ (บอกตรงๆ):
 --    - race หลาย connection (2 มือถือพร้อมกัน) — ดู 10.1-5 · ครอบด้วยกลไก CAS + การอ่านโค้ด
@@ -67,8 +67,15 @@
 --    L-3 (แยกรอบสองเกินสะสม · scrap_over หักน้ำหนักที่แยก) + weight_move_over -> U5a U5b U5c T22 · MU-57 MU-58 MU-59
 --    ❌ ไม่มี mutant: view v_job_board.tree_* / v_job_tree_stage_loss / v_job_discrepancy / drift cancel_weight (view — ตัวรัน mutant เปลี่ยนเฉพาะฟังก์ชัน/grant) · ครอบด้วย U1a-c U2a U3b U3c แบบตรวจค่า
 --
--- ชุดนี้ยาวเกินเพดาน statement_timeout ปริยายของ pooler (เคยถูกตัดที่ 57014 ตอนมี mutant 59 จุด) — ตั้งเฉพาะทรานแซกชันนี้ (set local · ถอยพร้อม rollback)
+-- ชุดนี้ยาวเกินเพดาน statement_timeout ปริยายของ pooler (เคยถูกตัดที่ 57014 ตอนมี mutant 64 จุด) — ตั้งเฉพาะทรานแซกชันนี้ (set local · ถอยพร้อม rollback)
 set local statement_timeout = '45min';
+--
+--  security delta (19 ต.ค. รอบ 2): M-D · L-new-1 · L-new-2 · L-new-3
+--    M-D (ส่วนทองที่ยังไม่ถึงขั้นชั่ง ยกเลิกเป็นของเสียโดยไม่ชั่งได้ · ที่ชั่งแล้วยังบังคับ U3a)      -> U6a · U3a U3b · MU-60
+--    L-new-1 (เศษชั่งน้อยกว่าน้ำหนักล่าสุด > 0.05 g ต้องมีคำอธิบาย · v_job_tree.weight_scrap_gap_g · ขอบเขต 0.05/0.03 ต้องไม่พัง) -> U7a U7b U7c · MU-61 MU-62
+--    L-new-2 (รหัสพิมพ์ใหญ่/ผสม/คั่นช่องว่างเลี่ยงด่านคำอธิบายไม่ได้ — ทั้ง M-B และ L-new-1)              -> U2b U7a · MU-63 MU-64
+--    L-new-3 (hint gold_note_required แยกจาก note_required ของเติมโลหะ job_core_send)                    -> U2b U7a (ตรวจ _hint) · ฝั่ง TS: messages/job-lots.test.ts
+--    ❌ ไม่มี mutant: weight_scrap_gap_g ใน v_job_tree และเงื่อนไข drift cancel_weight (view) · ครอบด้วยค่าที่ตรวจใน U7b U7c / U6a
 -- ===== helper จาก verify-0176 (ลอกตรง) =====
 create function pg_temp.chk(p_id text, p_desc text, p_ok boolean) returns text
  language sql as $c$
@@ -1915,7 +1922,7 @@ create function pg_temp.sp(p_shop uuid, p_tpl uuid) returns text
 declare
   v_log text := '';
   v_touched constant text[] := array[
-    'job_scrap_reason_valid', 'job_disc_excess_g', 'job_disc_active_qty', 'job_live_qty', 'job_identity_gap', 'job_tree_dominant_stage', 'job_lot_return_blocker',
+    'job_scrap_reason_valid', 'job_disc_excess_g', 'job_latest_weight_g', 'job_note_is_free_text', 'job_disc_active_qty', 'job_live_qty', 'job_identity_gap', 'job_tree_dominant_stage', 'job_lot_return_blocker',
     'job_discrepancy_guard', 'job_tree_assert', 'job_tree_check', 'job_lot_split_core', 'job_lot_cancel_core',
     'job_lot_split', 'job_lot_cancel', 'job_discrepancy_resolve', 'job_discrepancy_void', 'job_token_list',
     'job_worker_discrepancy_resolve', 'job_worker_lot_cancel',
@@ -1927,14 +1934,14 @@ declare
     'job_worker_discrepancy_resolve', 'job_worker_lot_cancel',
     'job_cancel', 'job_done', 'job_office_receive', 'job_stage_reopen', 'job_token_issue', 'job_token_revoke',
     'job_worker_receive', 'job_worker_resolve', 'job_worker_send',
-    'job_stage_state', 'job_disc_excess_g', 'job_disc_active_qty', 'job_live_qty', 'job_identity_gap', 'job_tree_dominant_stage'];
+    'job_stage_state', 'job_disc_excess_g', 'job_latest_weight_g', 'job_disc_active_qty', 'job_live_qty', 'job_identity_gap', 'job_tree_dominant_stage'];
   v_x text; v_bad text; k text; v_n int; r record;
 begin
   perform set_config('request.jwt.claims', '{"role":"service_role"}', true);
   select string_agg(proname || '=' || n, ', ') into v_x from (
     select proname, count(*) n from pg_proc where pronamespace = 'analytics'::regnamespace and proname = any (v_touched) group by proname having count(*) <> 1) z;
   select count(distinct proname) into v_n from pg_proc where pronamespace = 'analytics'::regnamespace and proname = any (v_touched);
-  v_log := v_log || pg_temp.chk('P1', 'ทุกฟังก์ชันที่ drop/replace/สร้างใหม่ (37 ชื่อ) มี signature เดียวใน pg_proc (ไม่เกิด overload) ' || coalesce(v_x, ''), v_x is null and v_n = 37);
+  v_log := v_log || pg_temp.chk('P1', 'ทุกฟังก์ชันที่ drop/replace/สร้างใหม่ (39 ชื่อ) มี signature เดียวใน pg_proc (ไม่เกิด overload) ' || coalesce(v_x, ''), v_x is null and v_n = 39);
   v_bad := '';
   for r in select p.oid, p.oid::regprocedure::text as sig, p.proname from pg_proc p where p.pronamespace = 'analytics'::regnamespace and p.proname = any (v_touched) loop
     if has_function_privilege('anon', r.oid, 'execute') or has_function_privilege('authenticated', r.oid, 'execute')
@@ -1942,7 +1949,7 @@ begin
       v_bad := v_bad || ' ' || r.proname;
     end if;
   end loop;
-  v_log := v_log || pg_temp.chk('P2', 'ACL: anon/authenticated ไม่มี execute บนทุกตัว · service_role มีเฉพาะ RPC 22 ตัวที่ประกาศ (ภายใน/trigger/core ไม่มี) ' || v_bad, v_bad = '');
+  v_log := v_log || pg_temp.chk('P2', 'ACL: anon/authenticated ไม่มี execute บนทุกตัว · service_role มีเฉพาะ RPC 23 ตัวที่ประกาศ (ภายใน/trigger/core ไม่มี) ' || v_bad, v_bad = '');
   execute 'grant usage on schema analytics to authenticated';  -- จำลองวันที่กำแพงชั้นนอกหลุด (ถอยกลับพร้อม section)
   v_bad := '';
   foreach k in array array[
@@ -1958,7 +1965,9 @@ begin
     'select analytics.job_worker_lot_cancel(null::text, null::text, null::uuid)',
     'select analytics.job_worker_resolve(null::text)',
     'select analytics.job_live_qty(null::uuid)',
-    'select analytics.job_disc_excess_g(null::numeric, null::numeric, null::int, null::int)'] loop
+    'select analytics.job_disc_excess_g(null::numeric, null::numeric, null::int, null::int)',
+    'select analytics.job_latest_weight_g(null::uuid)',
+    'select analytics.job_note_is_free_text(null::text)'] loop
     v_x := pg_temp.as_role('authenticated', k);
     if v_x not like 'ERR:42501:%' then v_bad := v_bad || ' ' || left(k, 45) || '=' || left(v_x, 30); end if;
   end loop;
@@ -1985,7 +1994,7 @@ begin
     and pg_temp.as_role('service_role', 'select pin_hash from analytics.worker limit 1') like 'ERR:42501:%');
   v_log := v_log || pg_temp.chk('P6', 'RLS: job_discrepancy เปิด ไม่มี policy · RPC ช่าง/ออฟฟิศใหม่เป็น security definer ที่ pin search_path · trigger ตารางใบงาน/ช่าง/ส่วนต่างเปิดครบ',
     (select relrowsecurity from pg_class where oid = 'analytics.job_discrepancy'::regclass) and not exists (select 1 from pg_policy where polrelid = 'analytics.job_discrepancy'::regclass)
-    and not exists (select 1 from pg_proc p where p.pronamespace = 'analytics'::regnamespace and p.proname = any (v_rpc) and p.proname not in ('job_stage_state', 'job_disc_excess_g', 'job_disc_active_qty', 'job_live_qty', 'job_identity_gap', 'job_tree_dominant_stage')
+    and not exists (select 1 from pg_proc p where p.pronamespace = 'analytics'::regnamespace and p.proname = any (v_rpc) and p.proname not in ('job_stage_state', 'job_disc_excess_g', 'job_latest_weight_g', 'job_disc_active_qty', 'job_live_qty', 'job_identity_gap', 'job_tree_dominant_stage')
                       and (not p.prosecdef or not exists (select 1 from unnest(p.proconfig) c where c like 'search_path=%')))
     and exists (select 1 from pg_proc p where p.pronamespace = 'analytics'::regnamespace and p.proname = 'job_disc_excess_g' and p.provolatile = 'i' and not p.prosecdef and exists (select 1 from unnest(p.proconfig) c where c like 'search_path=%'))
     and not exists (select 1 from pg_trigger t where t.tgrelid in ('analytics.job'::regclass, 'analytics.job_stage'::regclass, 'analytics.job_event'::regclass, 'analytics.job_token'::regclass,
@@ -2449,9 +2458,11 @@ begin
     and not exists (select 1 from unnest(pg_temp.keys_of(pg_temp.w_res(th, sb)) || pg_temp.keys_of(pg_temp.w_res(th, sa))) k where k ~* 'excess|weight_sent|qty_sent'));
   r := pg_temp.o_dres(p_shop, dd, 'lost', 'missing');
   r2 := pg_temp.o_dres(p_shop, dd, 'scrap', 'other');
+  r4 := pg_temp.o_dres(p_shop, dd, 'lost', 'OTHER');
+  r5 := pg_temp.o_dres(p_shop, dd, 'lost', 'Missing');
   r3 := pg_temp.o_dres(p_shop, dd, 'lost', '...');
-  v_log := v_log || pg_temp.chk('U2b', 'ทอง excess −0.5 (< −0.05): ออฟฟิศชี้แจงด้วยรหัสเหตุผลล้วน (missing / other) = note_required · ข้อความไม่มีสัญลักษณ์ล้วน (...) = ปฏิเสธ · แถวยัง open · เขียนคำอธิบายเป็นข้อความ = ok',
-    pg_temp.rej(r, 'note_required') and pg_temp.rej(r2, 'note_required') and (r3 ->> '_err') is not null and pg_temp.d_status(dd) = 'open'
+  v_log := v_log || pg_temp.chk('U2b', 'ทอง excess −0.5 (< −0.05): ออฟฟิศชี้แจงด้วยรหัสเหตุผลล้วน (missing / other) หรือรหัสพิมพ์ใหญ่/ตัวพิมพ์ผสม (OTHER / Missing — L-new-2) = gold_note_required · ข้อความไม่มีสัญลักษณ์ล้วน (...) = ปฏิเสธ · แถวยัง open · เขียนคำอธิบายเป็นข้อความ = ok',
+    pg_temp.rej(r, 'gold_note_required') and pg_temp.rej(r2, 'gold_note_required') and pg_temp.rej(r4, 'gold_note_required') and pg_temp.rej(r5, 'gold_note_required') and (r3 ->> '_err') is not null and pg_temp.d_status(dd) = 'open'
     and (pg_temp.o_dres(p_shop, dd, 'lost', 'ชั่งซ้ำแล้ว ผงทองหายตอนตะไบ') ->> 'ok') = 'true' and pg_temp.d_status(dd) = 'resolved');
   -- ขอบเขต: excess −0.04 / −0.05 ไม่เกินเกณฑ์ = ใช้รหัสได้ (ต้องไม่พัง)
   d := pg_temp.fx(p_shop, p_tpl, pg_, 10, 3, 'gold', 9.9);
@@ -2470,7 +2481,7 @@ begin
   perform pg_temp.ws(th, sa, 4, null, null, 10, 0, null, 10);
   perform pg_temp.wr(th, sb, 5, null, 9, 8.5);
   dd := pg_temp.disc_of(j);
-  v_log := v_log || pg_temp.chk('U2d', 'เงิน excess −0.5 → ออฟฟิศชี้แจงด้วยรหัส missing ได้ (note_required เฉพาะทอง) · ok',
+  v_log := v_log || pg_temp.chk('U2d', 'เงิน excess −0.5 → ออฟฟิศชี้แจงด้วยรหัส missing ได้ (gold_note_required เฉพาะทอง) · ok',
     coalesce((select weight_gap_excess_g = -0.5 and metal = 'silver' from analytics.v_job_discrepancy where discrepancy_id = dd), false)
     and (pg_temp.o_dres(p_shop, dd, 'lost', 'missing') ->> 'ok') = 'true');
 
@@ -2487,7 +2498,7 @@ begin
   v_log := v_log || pg_temp.chk('U3a', 'ส่วนทอง (มีขั้นชั่ง) ยกเลิกเป็นของเสีย: ไม่ใส่น้ำหนัก = scrap_weight_required · 0 = weight_invalid · 4 ทศนิยม = weight_invalid · 25 (เกิน 20 g ที่ส่วนนี้เคยมี) = weight_over · คืนชิ้นแต่ใส่น้ำหนัก = weight_unexpected · ส่วนยังไม่ถูกยกเลิก',
     pg_temp.rej(r, 'scrap_weight_required') and pg_temp.rej(r2, 'weight_invalid') and pg_temp.rej(r5, 'weight_invalid') and pg_temp.rej(r3, 'weight_over')
     and pg_temp.rej(r4, 'weight_unexpected') and pg_temp.jv(l1, 'status') <> 'cancelled' and pg_temp.jv(l1, 'cancel_scrap_weight_g') is null);
-  r := pg_temp.o_lcancel(p_shop, l1, 'ใช้ไม่ได้', 'scrap', 'broken', 3.5);
+  r := pg_temp.o_lcancel(p_shop, l1, 'ใช้ไม่ได้', 'scrap', 'ตะไบหายตอนขัด เศษเหลือแค่นี้', 3.5);
   v_log := v_log || pg_temp.chk('U3b', 'ใส่น้ำหนักของเสีย 3.5 → ok · เก็บ cancel_scrap_weight_g = 3.500 · event split_cancel มี scrap_weight_g · v_job_tree / v_job_tree_stage_loss / v_job_tree_summary นับน้ำหนักนี้ · ต้นไม้ไม่ drift · sum_check จริง',
     (r ->> 'ok') = 'true' and pg_temp.jv(l1, 'cancel_scrap_weight_g') = '3.500'
     and exists (select 1 from analytics.job_event where job_id = l1 and event_type = 'split_cancel' and (payload ->> 'scrap_weight_g')::numeric = 3.5)
@@ -2512,9 +2523,10 @@ begin
     and pg_temp.jv(l1, 'cancel_scrap_weight_g') = '3.500' and pg_temp.dcount(j) = 0);
   -- ต้องไม่พัง: เงิน (ไม่ใช่ทอง) ยกเลิกเป็นของเสียไม่ต้องชั่ง / ใส่น้ำหนักมา = weight_unexpected · ทอง+แบบไม่ชั่ง ไม่ต้องชั่ง
   d := pg_temp.fx(p_shop, p_tpl, pw, 30, 3, 'silver', 9.9);
-  j := pg_temp.jid(d); th := d ->> 'tokh'; sa := pg_temp.sess(th, wA, '4829');
+  j := pg_temp.jid(d); th := d ->> 'tokh'; sa := pg_temp.sess(th, wA, '4829'); sb := pg_temp.sess(th, wB, '7351');
   perform pg_temp.wr(th, sa, 4, null, null, 9.9);
   l2 := pg_temp.lot(pg_temp.o_split(p_shop, j, 4, 10));
+  perform pg_temp.wr(th, sb, 5, l2, null, 9.0);  -- เงิน: ส่วนที่ชั่งแล้ว (ขั้น 5 รับพร้อมน้ำหนัก) ก็ไม่บังคับชั่งของเสีย
   r := pg_temp.o_lcancel(p_shop, l2, 'ใช้ไม่ได้', 'scrap', 'broken', 2);
   r2 := pg_temp.o_lcancel(p_shop, l2, 'ใช้ไม่ได้', 'scrap', 'broken');
   d := pg_temp.fx(p_shop, p_tpl, pn, 30, 3, 'gold', null);
@@ -2522,8 +2534,8 @@ begin
   perform pg_temp.wr(th, sa, 4);
   l3 := pg_temp.lot(pg_temp.o_split(p_shop, j, 4, 10));
   r3 := pg_temp.o_lcancel(p_shop, l3, 'ใช้ไม่ได้', 'scrap', 'broken');
-  v_log := v_log || pg_temp.chk('U3e', 'ต้องไม่พัง: เงินยกเลิกเป็นของเสียโดยไม่ชั่ง = ok · เงินใส่น้ำหนักมา = weight_unexpected · ทอง+แบบ "ไม่ชั่ง" ยกเลิกเป็นของเสียโดยไม่ชั่ง = ok · ไม่เก็บน้ำหนัก (null)',
-    pg_temp.rej(r, 'weight_unexpected') and (r2 ->> 'ok') = 'true' and pg_temp.jv(l2, 'cancel_scrap_weight_g') is null
+  v_log := v_log || pg_temp.chk('U3e', 'ต้องไม่พัง: เงินยกเลิกเป็นของเสียโดยไม่ชั่ง = ok (แม้ส่วนมีน้ำหนักที่ชั่งแล้ว) · เงินใส่น้ำหนักมา = weight_unexpected · ทอง+แบบ "ไม่ชั่ง" ยกเลิกเป็นของเสียโดยไม่ชั่ง = ok · ไม่เก็บน้ำหนัก (null)',
+    pg_temp.sv(l2, 5, 'weight_in_g') is not null and pg_temp.rej(r, 'weight_unexpected') and (r2 ->> 'ok') = 'true' and pg_temp.jv(l2, 'cancel_scrap_weight_g') is null
     and (r3 ->> 'ok') = 'true' and pg_temp.jv(l3, 'cancel_scrap_weight_g') is null and pg_temp.dcount(j) = 0);
 
   -- ===== U4 (L-2): ทอง + ช่างรับไม่ครบผ่าน QR ชั่งไม่ผ่านครบ 3 ครั้ง = ล็อก ต้องให้ออฟฟิศรับ =====
@@ -2585,6 +2597,45 @@ begin
   v_log := v_log || pg_temp.chk('U5c', 'ขั้นที่แยกส่วนไปแล้ว (40 g · ขั้นที่ถามเศษ): ส่งต่อน้ำหนักออก 50 เศษ 15 (> 100 − 50 − 40 = 10) = scrap_over · เศษ 10 = ok · loss ของขั้น = 0 (ไม่ติดลบ)',
     (r ->> 'code') = 'scrap_over' and (r2 ->> 'ok') = 'true'
     and coalesce((select loss_g = 0 from analytics.v_job_stage_loss where job_stage_id = pg_temp.sid(j, 5)), false) and pg_temp.dcount(j) = 0);
+
+  -- ===== U6 (M-D): ส่วนทองที่ยังไม่ถึงขั้นชั่ง ยกเลิกเป็นของเสียโดยไม่ชั่งได้ (ต้องไม่พัง) =====
+  d := pg_temp.fx(p_shop, p_tpl, pg_, 30, 1, 'gold', 9.9);
+  j := pg_temp.jid(d); th := d ->> 'tokh'; sa := pg_temp.sess(th, wA, '4829');
+  perform pg_temp.wr(th, sa, 2);
+  l1 := pg_temp.lot(pg_temp.o_split(p_shop, j, 2, 10));
+  r := pg_temp.o_lcancel(p_shop, l1, 'แยกผิด', 'scrap', 'broken', 3);
+  r2 := pg_temp.o_lcancel(p_shop, l1, 'แยกผิด', 'scrap', 'broken');
+  v_log := v_log || pg_temp.chk('U6a', 'ทองแยกที่ขั้นก่อนขั้นชั่ง (ขั้น 2 ไม่ชั่ง · ขั้นหล่อ/ตัดต้นข้างหน้าตั้งชั่งแต่ยังไม่ได้ชั่ง): ส่วนมีขั้นชั่งรออยู่ แต่ยังไม่มีน้ำหนักเลย → ยกเลิกเป็นของเสียโดยไม่ชั่ง = ok (ไม่ใช่ weight_over/scrap_weight_required) · ใส่น้ำหนักมา = weight_unexpected · ไม่เก็บน้ำหนัก · drift ว่าง (cancel_weight ใช้เงื่อนไขเดียวกัน) · sum_check จริง',
+    pg_temp.sv(j, 2, 'weigh_required') = 'false'
+    and exists (select 1 from analytics.job_stage where job_id = l1 and weigh_required and status <> 'skipped' and weight_in_g is null and weight_out_g is null)
+    and pg_temp.rej(r, 'weight_unexpected') and (r2 ->> 'ok') = 'true' and pg_temp.jv(l1, 'cancel_scrap_weight_g') is null
+    and not exists (select 1 from analytics.v_job_tree_drift where root_job_id = j) and pg_temp.sumok(j));
+
+  -- ===== U7 (L-new-1/2): น้ำหนักเศษน้อยกว่าน้ำหนักล่าสุดของส่วนเกิน 0.05 g ต้องมีคำอธิบายเป็นข้อความ (รหัสพิมพ์ใหญ่/ผสม/คั่นด้วยช่องว่างเลี่ยงไม่ได้) =====
+  d := pg_temp.fx(p_shop, p_tpl, pg_, 50, 3, 'gold', 9.9);
+  j := pg_temp.jid(d); th := d ->> 'tokh'; sa := pg_temp.sess(th, wA, '4829');
+  perform pg_temp.wr(th, sa, 4, null, null, 100);
+  l1 := pg_temp.lot(pg_temp.o_split(p_shop, j, 4, 10, 0, null, null, 20));
+  l2 := pg_temp.lot(pg_temp.o_split(p_shop, j, 4, 10, 0, null, null, 20));
+  l3 := pg_temp.lot(pg_temp.o_split(p_shop, j, 4, 10, 0, null, null, 20));
+  r := pg_temp.o_lcancel(p_shop, l1, 'ใช้ไม่ได้', 'scrap', 'broken', 15);
+  r2 := pg_temp.o_lcancel(p_shop, l1, 'ใช้ไม่ได้', 'scrap', 'BROKEN', 15);
+  r3 := pg_temp.o_lcancel(p_shop, l1, 'ใช้ไม่ได้', 'scrap', 'Wrong Design', 15);
+  r4 := pg_temp.o_lcancel(p_shop, l1, 'ใช้ไม่ได้', 'scrap', '...', 15);
+  v_log := v_log || pg_temp.chk('U7a', 'ส่วนทอง 20 g ยกเลิกเป็นของเสียชั่ง 15 (น้อยกว่าที่มี 5 g เกิน 0.05): เหตุผลเป็นรหัสล้วน broken / BROKEN / "Wrong Design" = gold_note_required (ทั้งตัวพิมพ์ใหญ่และคั่นช่องว่าง) · "..." = ปฏิเสธ · ส่วนยังไม่ถูกยกเลิก',
+    pg_temp.rej(r, 'gold_note_required') and pg_temp.rej(r2, 'gold_note_required') and pg_temp.rej(r3, 'gold_note_required') and (r4 ->> '_err') is not null
+    and pg_temp.jv(l1, 'status') <> 'cancelled' and pg_temp.jv(l1, 'cancel_scrap_weight_g') is null);
+  r := pg_temp.o_lcancel(p_shop, l1, 'ใช้ไม่ได้', 'scrap', 'เศษหายระหว่างขัดเงา', 15);
+  v_log := v_log || pg_temp.chk('U7b', 'เขียนคำอธิบายเป็นข้อความ = ok · เก็บน้ำหนัก 15 · v_job_tree.weight_scrap_gap_g = 5.000 (น้ำหนักล่าสุด 20 − 15) · ต้นไม้ไม่ drift',
+    (r ->> 'ok') = 'true' and pg_temp.jv(l1, 'cancel_scrap_weight_g') = '15.000'
+    and coalesce((select weight_scrap_gap_g = 5 from analytics.v_job_tree where job_id = l1), false) and pg_temp.dcount(j) = 0);
+  r := pg_temp.o_lcancel(p_shop, l2, 'ใช้ไม่ได้', 'scrap', 'broken', 19.95);
+  r2 := pg_temp.o_lcancel(p_shop, l3, 'ใช้ไม่ได้', 'scrap', 'other', 19.97);
+  v_log := v_log || pg_temp.chk('U7c', 'ต้องไม่พัง: ชั่งเศษ 19.95 (gap 0.05 พอดี) และ 19.97 (gap 0.03) ใช้รหัสเหตุผลได้ = ok · gap เก็บ 0.05 / 0.03 · ใบที่ไม่มีน้ำหนักเศษ (ใบแม่) weight_scrap_gap_g = null',
+    (r ->> 'ok') = 'true' and (r2 ->> 'ok') = 'true'
+    and coalesce((select weight_scrap_gap_g = 0.05 from analytics.v_job_tree where job_id = l2), false)
+    and coalesce((select weight_scrap_gap_g = 0.03 from analytics.v_job_tree where job_id = l3), false)
+    and coalesce((select weight_scrap_gap_g is null from analytics.v_job_tree where job_id = j), false) and pg_temp.dcount(j) = 0);
   return v_log;
 end;
 $s$;
@@ -2781,7 +2832,17 @@ declare
     jsonb_build_object('id', 'MU-58', 'what', 'L-3: เพดานเศษไม่หักน้ำหนักที่แยกไปแล้ว (scrap_over หลวม)', 'fn', 'job_core_send',
       'from', 'v_s.weight_in_g + v_added - p_weight_out - v_s.weight_split_out_g end', 'to', 'v_s.weight_in_g + v_added - p_weight_out end', 'expect', jsonb_build_array('U5c')),
     jsonb_build_object('id', 'MU-59', 'what', 'รหัส weight_move_over ของการแยกกลับไปใช้ weight_over (ข้อความผิดบริบท)', 'fn', 'job_lot_split_core',
-      'from', 'return analytics.job_fail(''weight_move_over''', 'to', 'return analytics.job_fail(''weight_over''', 'expect', jsonb_build_array('T22', 'U5a'))
+      'from', 'return analytics.job_fail(''weight_move_over''', 'to', 'return analytics.job_fail(''weight_over''', 'expect', jsonb_build_array('T22', 'U5a')),
+    jsonb_build_object('id', 'MU-60', 'what', 'M-D: บังคับชั่งของเสียแม้ส่วนยังไม่เคยชั่ง (ถอดเงื่อนไข "ชั่งแล้ว")', 'fn', 'job_lot_cancel_core',
+      'from', 'and (x.weight_in_g is not null or x.weight_out_g is not null)', 'to', '', 'expect', jsonb_build_array('U6a')),
+    jsonb_build_object('id', 'MU-61', 'what', 'L-new-1: ถอดด่านคำอธิบายเมื่อเศษชั่งน้อยกว่าน้ำหนักล่าสุด', 'fn', 'job_lot_cancel_core',
+      'from', 'if v_wgap > 0.05 and not', 'to', 'if false and not', 'expect', jsonb_build_array('U7a')),
+    jsonb_build_object('id', 'MU-62', 'what', 'L-new-1: เกณฑ์ gap 0.05 g เป็น 0 (gap 0.03 / 0.05 ที่ในเกณฑ์ถูกบังคับให้เขียนคำอธิบายเกินขอบเขต)', 'fn', 'job_lot_cancel_core',
+      'from', 'if v_wgap > 0.05 and not', 'to', 'if v_wgap >= 0 and not', 'expect', jsonb_build_array('U7c')),
+    jsonb_build_object('id', 'MU-63', 'what', 'L-new-2: เทียบรหัสเหตุผลแบบแยกตัวพิมพ์ (OTHER / Missing เลี่ยงด่านคำอธิบายได้)', 'fn', 'job_note_is_free_text',
+      'from', 'lower(regexp_replace(', 'to', '(regexp_replace(', 'expect', jsonb_build_array('U2b', 'U7a')),
+    jsonb_build_object('id', 'MU-64', 'what', 'L-new-2: ไม่ตัดเครื่องหมาย/ช่องว่างก่อนเทียบรหัส ("Wrong Design" เลี่ยงด่านได้)', 'fn', 'job_note_is_free_text',
+      'from', '''[^[:alnum:]]''', 'to', '''[^[:alnum:] ]''', 'expect', jsonb_build_array('U7a'))
   );
 begin
   perform set_config('request.jwt.claims', '{"role":"service_role"}', true);

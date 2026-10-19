@@ -42,6 +42,10 @@
 --  (20) แยกส่วน: น้ำหนักส่วนที่แยกเกินที่ถืออยู่ใช้รหัส weight_move_over (เดิม weight_over ซึ่งข้อความพูดเรื่อง "น้ำหนักออก/เติมโลหะ" ผิดบริบทฝั่งช่าง) · weight_over ยังใช้กับขั้นส่งต่อ/ของเสียที่เลิกใช้
 --  (21) [L-1] board.tree_lot_first_gap_sum_g = ค่าต่ำสุดของผลรวม gap ขั้นแรกของทุกส่วนที่แยกจากขั้นเดียวกัน (ลบเกิน 0.05 = เตือนว่าหลายส่วนหายสะสม) · เป็นเพียงตัวเลขให้ UI เตือน ไม่บล็อก
 --       หนี้ที่รู้: (a) ปลดล็อก L-2 = ออฟฟิศรับแทนเท่านั้น ไม่มีปุ่ม "ให้ช่างลองใหม่" (b) basis ของ weight_over ตอนยกเลิกส่วนเป็นของเสีย = น้ำหนักสูงสุดที่ส่วนนั้นเคยมี ไม่ใช่น้ำหนักปัจจุบันที่แม่นยำ
+--  (22) [security delta M-D] ส่วนทองที่ยังไม่ถึงขั้นชั่ง (แยกที่ขั้นเทียน ฯลฯ — ยังไม่มีน้ำหนักเลย) ยกเลิกเป็นของเสียโดยไม่ชั่งได้ · บังคับชั่ง (scrap_weight_required) เฉพาะส่วนที่มีขั้น weigh_required ที่ "ชั่งแล้ว" (weight_in_g/weight_out_g ไม่ null) · drift cancel_weight ใช้เงื่อนไขเดียวกัน
+--  (23) [L-new-1] job_latest_weight_g(job) = น้ำหนักล่าสุดของใบ · v_job_tree.weight_scrap_gap_g = น้ำหนักล่าสุด − cancel_scrap_weight_g · ยกเลิกเป็นของเสียงานทองที่ gap > 0.05 g ต้องมีคำอธิบายเป็นข้อความที่ p_scrap_reason (gold_note_required)
+--  (24) [L-new-2/3] job_note_is_free_text(text) = ผ่าน oem_note_present และไม่ใช่รหัสเหตุผลทั้ง 5 (เทียบหลัง lower + ตัดเครื่องหมาย: OTHER · Missing · wrong design ไม่นับ) ใช้ร่วม M-B (ชี้แจงส่วนต่าง) กับ L-new-1 ·
+--       hint ของทั้งสองด่านคือ gold_note_required (แยกจาก note_required ของ "เติมโลหะต้องมีหมายเหตุ" ที่ job_core_send)
 --  (8) can_external: เพิ่มคอลัมน์ worker.can_external (default false) ใน L1 เพราะ RPC ชี้แจงของ design ใช้สิทธิ์นี้ — ยังไม่มี UI/RPC ตั้งค่า (L2) · ไม่มีใครถือสิทธิ์นี้ตอน apply
 --  (9) token_cap คง 5 (มติ Q8 18 ต.ค.) · job_token_issue ค่าเริ่ม p_revoke_previous = null ⇒ traveler ของใบที่ไม่มีส่วน = เพิกถอนของเก่า (เหมือน J1) · ใบที่มีส่วน/ใบย่อย/ใบส่งของ = ไม่เพิกถอน · ค่าที่ส่งมาชัดเจนชนะเสมอ
 --      (TS ปัจจุบัน lib/actions/job-office-write.ts ส่ง boolean ชัดเจนเสมอ ⇒ พฤติกรรมเดิมไม่เปลี่ยนจนกว่า UI จะส่ง null)
@@ -478,6 +482,33 @@ create or replace function analytics.job_disc_excess_g(p_weight_gap numeric, p_w
 as $f$
   select case when p_weight_gap is null or p_weight_sent is null or p_qty is null or p_qty_sent is null or p_qty_sent <= 0 then null
               else p_weight_gap + round(p_weight_sent * p_qty / p_qty_sent, 3) end
+$f$;
+
+-- M-D/L-new-1 (security delta): น้ำหนักล่าสุดของใบ = ขั้น (ไม่ข้าม) ลำดับสูงสุดที่มีน้ำหนัก: น้ำหนักออก ถ้ายังไม่ส่งใช้ น้ำหนักเข้า + เติมโลหะ · null = ยังไม่เคยชั่งเลย
+-- (ใช้เทียบกับน้ำหนักของเสียที่เลิกใช้ของส่วนที่ยกเลิก — weight_scrap_gap_g · ไม่ใช่ security definer: view เรียกในสิทธิ์ผู้เรียก)
+create or replace function analytics.job_latest_weight_g(p_job_id uuid)
+ returns numeric
+ language sql
+ stable
+ set search_path to 'pg_catalog', 'pg_temp'
+as $f$
+  select coalesce(s.weight_out_g, s.weight_in_g + s.metal_added_g)
+    from analytics.job_stage s
+   where s.job_id = p_job_id and s.status <> 'skipped' and (s.weight_out_g is not null or s.weight_in_g is not null)
+   order by s.seq desc
+   limit 1
+$f$;
+
+-- L-new-2 (security delta): "คำอธิบายจริง" = ผ่าน whitelist oem_note_present และไม่ใช่รหัสเหตุผลทั้ง 5 ตัวที่พิมพ์ต่างตัวพิมพ์/คั่นด้วยเครื่องหมาย
+-- (OTHER · Missing · wrong design · o-t-h-e-r ไม่นับเป็นคำอธิบาย) — ใช้ร่วมกันที่ job_discrepancy_resolve (M-B) และ job_lot_cancel_core (L-new-1)
+create or replace function analytics.job_note_is_free_text(p_val text)
+ returns boolean
+ language sql
+ immutable
+ set search_path to 'pg_catalog', 'pg_temp'
+as $f$
+  select coalesce(analytics.oem_note_present(p_val), false)
+     and lower(regexp_replace(p_val, '[^[:alnum:]]', '', 'g')) <> all (array['porosity', 'broken', 'wrongdesign', 'missing', 'other'])
 $f$;
 
 create or replace function analytics.job_discrepancy_guard()
@@ -1668,6 +1699,7 @@ declare
   v_who    uuid;
   v_wreq   boolean;
   v_wbasis numeric;
+  v_wgap   numeric;
 begin
   -- 0181 (M-C security: ทอง + ส่วนมีขั้นชั่ง + นับเป็นของเสีย ⇒ ต้องชั่งน้ำหนักของเสียที่เลิกใช้ ไม่งั้นทองหายจากยอดเงียบๆ)
   select * into v_l from analytics.job where id = p_lot_job_id;
@@ -1693,8 +1725,10 @@ begin
   end if;
   select * into v_s2 from analytics.job_stage where job_id = p_lot_job_id and split_from_stage_id is not null;
   select * into v_ms from analytics.job_stage where id = v_s2.split_from_stage_id;
+  -- M-D (security delta): บังคับชั่งของเสียเฉพาะส่วนที่มีขั้นชั่ง "ที่ชั่งแล้ว" — ส่วนที่ยังไม่ถึงขั้นชั่ง (แยกที่ขั้นเทียน ฯลฯ) ยังไม่มีน้ำหนักให้เทียบ ยกเลิกเป็นของเสียโดยไม่ชั่งได้
   v_wreq := p_disposition = 'scrap' and v_l.metal = 'gold'
-            and exists (select 1 from analytics.job_stage x where x.job_id = p_lot_job_id and x.status <> 'skipped' and x.weigh_required);
+            and exists (select 1 from analytics.job_stage x where x.job_id = p_lot_job_id and x.status <> 'skipped' and x.weigh_required
+                           and (x.weight_in_g is not null or x.weight_out_g is not null));
   if p_scrap_weight is not null and not v_wreq then
     return analytics.job_fail('weight_unexpected', 'ส่วนนี้ไม่ต้องระบุน้ำหนักของเสีย');
   end if;
@@ -1738,6 +1772,11 @@ begin
       from analytics.job_stage x where x.job_id = p_lot_job_id;
     if p_scrap_weight > coalesce(v_wbasis, 0) then
       return analytics.job_fail('weight_over', 'น้ำหนักของเสียมากกว่าน้ำหนักที่ส่วนนี้มีอยู่ — ชั่งใหม่');
+    end if;
+    -- L-new-1 (security delta): น้ำหนักเศษที่ชั่งน้อยกว่าน้ำหนักล่าสุดของส่วนเกิน 0.05 g = ทองส่วนต่างหายไปไหนไม่มีใครรู้ — ต้องมีคำอธิบายเป็นข้อความ (ไม่ใช่รหัสเหตุผลล้วน · ไม่เปิดตัวเลขให้ช่าง: ฝั่งออฟฟิศเท่านั้น)
+    v_wgap := analytics.job_latest_weight_g(p_lot_job_id) - p_scrap_weight;
+    if v_wgap > 0.05 and not analytics.job_note_is_free_text(v_sreason) then
+      return analytics.job_fail('gold_note_required', 'ทอง: น้ำหนักของเสียที่ชั่งน้อยกว่าน้ำหนักล่าสุดของส่วนนี้ — ต้องเขียนคำอธิบายเป็นข้อความ (ไม่ใช่แค่เลือกรหัสเหตุผล)');
     end if;
   end if;
 
@@ -2019,8 +2058,9 @@ begin
   -- M-B (security): ทองที่น้ำหนักหายเกินสัดส่วนชิ้นที่ขาด (excess < -0.05 g) ต้องมีข้อความอธิบายจริง ไม่ใช่แค่รหัสเหตุผล — ปิดทองหายเงียบๆ ด้วยปุ่มเดียว
   if analytics.job_disc_excess_g(v_d.weight_gap_g, v_d.weight_sent_g, v_d.qty, v_d.qty_sent) < -0.05
      and v_job.metal = 'gold'
-     and (v_reason = any (array['porosity', 'broken', 'wrong_design', 'missing', 'other']) or not analytics.oem_note_present(v_reason)) then
-    raise exception 'ทอง: น้ำหนักหายมากกว่าสัดส่วนชิ้นที่ขาด — ต้องเขียนคำอธิบายเป็นข้อความ (ไม่ใช่แค่เลือกรหัสเหตุผล)' using errcode = '22023', hint = 'note_required';
+     and not analytics.job_note_is_free_text(v_reason) then
+    -- L-new-2: เทียบรหัสแบบไม่สนตัวพิมพ์/เครื่องหมาย (OTHER · Missing เลี่ยงไม่ได้) · L-new-3: hint แยกจาก note_required ของเติมโลหะ (job_core_send)
+    raise exception 'ทอง: น้ำหนักหายมากกว่าสัดส่วนชิ้นที่ขาด — ต้องเขียนคำอธิบายเป็นข้อความ (ไม่ใช่แค่เลือกรหัสเหตุผล)' using errcode = '22023', hint = 'gold_note_required';
   end if;
   update analytics.job_discrepancy
      set status = 'resolved', resolved_kind = p_kind, resolved_reason = v_reason, resolved_by_actor = v_actor, resolved_at = clock_timestamp()
@@ -2925,6 +2965,7 @@ create or replace view analytics.v_job_tree
     dsc.disc_resolved AS qty_discrepancy_resolved,
     j.cancel_scrap_qty,
     j.cancel_scrap_weight_g,
+    CASE WHEN j.cancel_scrap_weight_g IS NULL THEN NULL::numeric ELSE (analytics.job_latest_weight_g(j.id) - j.cancel_scrap_weight_g) END AS weight_scrap_gap_g,
     j.qty_good,
     j.qty_scrap AS qty_scrap_final,
     cur.stage_code,
@@ -3041,7 +3082,7 @@ create or replace view analytics.v_job_tree_drift
  SELECT j.parent_job_id, j.id, 'cancel_weight'::text, NULL::text
    FROM analytics.job j
   WHERE j.parent_job_id IS NOT NULL AND j.status = 'cancelled'::text AND j.cancel_scrap_qty IS NOT NULL AND j.metal = 'gold'
-    AND EXISTS (SELECT 1 FROM analytics.job_stage s WHERE s.job_id = j.id AND s.status <> 'skipped'::text AND s.weigh_required)
+    AND EXISTS (SELECT 1 FROM analytics.job_stage s WHERE s.job_id = j.id AND s.status <> 'skipped'::text AND s.weigh_required AND (s.weight_in_g IS NOT NULL OR s.weight_out_g IS NOT NULL))
     AND j.cancel_scrap_weight_g IS NULL;
 
 -- v_job_tree_stage_loss (M-A): v_job_stage_loss ทั้งต้นไม้ — 1 แถวต่อขั้นของทุกใบ (แม่ + ส่วน) พร้อม root_job_id/lot_seq ให้หน้าใบแม่ดึงครั้งเดียว
@@ -3254,7 +3295,7 @@ do $g$
 declare
   r record;
   v_touched constant text[] := array[
-    'job_scrap_reason_valid', 'job_disc_excess_g', 'job_disc_active_qty', 'job_live_qty', 'job_identity_gap', 'job_tree_dominant_stage', 'job_lot_return_blocker',
+    'job_scrap_reason_valid', 'job_disc_excess_g', 'job_latest_weight_g', 'job_note_is_free_text', 'job_disc_active_qty', 'job_live_qty', 'job_identity_gap', 'job_tree_dominant_stage', 'job_lot_return_blocker',
     'job_discrepancy_guard', 'job_tree_assert', 'job_tree_check', 'job_lot_split_core', 'job_lot_cancel_core',
     'job_lot_split', 'job_lot_cancel', 'job_discrepancy_resolve', 'job_discrepancy_void', 'job_token_list',
     'job_worker_discrepancy_resolve', 'job_worker_lot_cancel',
@@ -3267,7 +3308,7 @@ declare
     'job_worker_discrepancy_resolve', 'job_worker_lot_cancel',
     'job_cancel', 'job_done', 'job_office_receive', 'job_stage_reopen', 'job_token_issue', 'job_token_revoke',
     'job_worker_receive', 'job_worker_resolve', 'job_worker_send',
-    'job_stage_state', 'job_disc_excess_g', 'job_disc_active_qty', 'job_live_qty', 'job_identity_gap', 'job_tree_dominant_stage'];
+    'job_stage_state', 'job_disc_excess_g', 'job_latest_weight_g', 'job_disc_active_qty', 'job_live_qty', 'job_identity_gap', 'job_tree_dominant_stage'];
   v_n int;
   v_dup text;
 begin
@@ -3312,7 +3353,7 @@ declare
     'job_stage_guard', 'job_stage_reopen', 'job_stage_state', 'job_stage_sync', 'job_token_guard', 'job_token_issue', 'job_token_revoke',
     'job_worker_receive', 'job_worker_resolve', 'job_worker_send'];
   v_added constant text[] := array[
-    'job_scrap_reason_valid', 'job_disc_excess_g', 'job_disc_active_qty', 'job_live_qty', 'job_identity_gap', 'job_tree_dominant_stage', 'job_lot_return_blocker',
+    'job_scrap_reason_valid', 'job_disc_excess_g', 'job_latest_weight_g', 'job_note_is_free_text', 'job_disc_active_qty', 'job_live_qty', 'job_identity_gap', 'job_tree_dominant_stage', 'job_lot_return_blocker',
     'job_discrepancy_guard', 'job_tree_assert', 'job_tree_check', 'job_lot_split_core', 'job_lot_cancel_core',
     'job_lot_split', 'job_lot_cancel', 'job_discrepancy_resolve', 'job_discrepancy_void', 'job_token_list',
     'job_worker_discrepancy_resolve', 'job_worker_lot_cancel'];
