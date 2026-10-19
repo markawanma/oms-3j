@@ -58,7 +58,15 @@ export async function loadJobLots(rootJobId: string, stageNames: Record<string, 
         part.holdSeq = seq;
         part.holdWeighRequired = s.weigh_required === true;
       }
-      if (s.weigh_required === true && s.status !== "skipped") part.hasWeighStage = true;
+      const wIn = typeof s.weight_in_g === "number" ? s.weight_in_g : null;
+      const wOut = typeof s.weight_out_g === "number" ? s.weight_out_g : null;
+      // ขั้นชั่งที่ "ชั่งแล้ว" เท่านั้น (M-D) — ตั้งชั่งแต่ยังไม่มีน้ำหนักเลย = ยังไม่ถึงขั้นชั่ง
+      if (s.weigh_required === true && s.status !== "skipped" && (wIn !== null || wOut !== null)) part.hasWeighStage = true;
+      // น้ำหนักล่าสุด: ขั้นไม่ข้าม seq สูงสุดที่มีน้ำหนัก (เรียงตาม seq จาก query → ตัวหลังชนะ) — pre-check เท่านั้น
+      if (s.status !== "skipped" && (wIn !== null || wOut !== null)) {
+        const added = typeof s.metal_added_g === "number" ? s.metal_added_g : 0;
+        part.latestWeightG = wOut ?? (wIn as number) + added;
+      }
       if (s.status === "pending" && (part.pendingSeq === null || seq < part.pendingSeq)) {
         part.pendingSeq = seq;
         part.pendingStageName = name;
@@ -80,7 +88,7 @@ export async function loadJobLots(rootJobId: string, stageNames: Record<string, 
         }
         for (const [jid, sid] of pendingId) {
           const part = byJob.get(jid);
-          if (part && (strikes.get(sid) ?? 0) >= RECEIVE_LOCK_STRIKES) part.receiveLocked = true;
+          if (part && !part.receiveLocked && (strikes.get(sid) ?? 0) >= RECEIVE_LOCK_STRIKES) part.receiveLocked = true;
         }
       } catch (err) {
         logJobFailure("loadJobLots.lock", err);

@@ -25,7 +25,7 @@ export const DISCREPANCY_COLUMNS =
 // M-A: v_job_stage_loss ทั้งต้นไม้ (ใบแม่ + ส่วนย่อย) — เฉพาะหน้าออฟฟิศ (มีน้ำหนัก/gap)
 export const TREE_LOSS_COLUMNS =
   "root_job_id, lot_seq, job_id, job_stage_id, stage_code, status, weighed, not_weighed, loss_g, loss_pct, warn, handoff_gap_g, handoff_gap_partial_g, not_comparable, cancel_scrap_weight_g";
-export const LOT_STAGE_COLUMNS = "id, job_id, seq, stage_code, status, weigh_required, qty_in, qty_scrap, qty_split_out";
+export const LOT_STAGE_COLUMNS = "id, job_id, seq, stage_code, status, weigh_required, weight_in_g, weight_out_g, metal_added_g, qty_in, qty_scrap, qty_split_out";
 
 // ---------------------------------------------------------------------------
 // ส่วน (1 แถวต่อใบในต้นไม้ — ใบแม่ = lotSeq 0)
@@ -60,8 +60,10 @@ export interface LotPart {
   holdSeq: number | null;
   /** ขั้นที่ถืออยู่ตั้งชั่งไหน (ทองที่ขั้นชั่ง: แยกส่วนต้องชั่งส่วนที่แยก — มติ 19 ต.ค.) */
   holdWeighRequired: boolean;
-  /** ส่วนนี้มีขั้นที่ต้องชั่ง (ไม่นับขั้นที่ข้าม) — ทอง + ส่วนมีขั้นชั่ง + ยกเลิกเป็นของเสีย = ต้องชั่งของเสียที่เลิกใช้ (M-C) */
+  /** ส่วนนี้มีขั้นชั่งที่ "ชั่งแล้ว" (ตั้งชั่ง + ไม่ข้าม + มีน้ำหนักเข้า/ออกจริง) — ทอง + ส่วนมีขั้นชั่งที่ชั่งแล้ว + ยกเลิกเป็นของเสีย = ต้องชั่งของเสียที่เลิกใช้ (M-C/M-D) · ส่วนทองที่ยังไม่ถึงขั้นชั่ง = false (ไม่มีช่อง · ส่งน้ำหนักไป DB ตอบ weight_unexpected) */
   hasWeighStage: boolean;
+  /** น้ำหนักล่าสุดของส่วน (g · ขั้นไม่ข้ามลำดับสูงสุดที่มีน้ำหนัก: ออก ถ้ายังไม่ส่งใช้ เข้า + เติม — ตรงกับ job_latest_weight_g) — ใช้ pre-check แสดงผลเท่านั้น · DB ตัดสินจริง · เฉพาะหน้าออฟฟิศ */
+  latestWeightG: number | null;
   /** ขั้นที่รอรับ (pending ต่ำสุด) — ใช้ปุ่ม "กรอกแทน: รับงาน" ของออฟฟิศ · null = ไม่มี */
   pendingSeq: number | null;
   pendingStageName: string | null;
@@ -100,10 +102,12 @@ export function mapLotPart(r: Record<string, unknown>): LotPart | null {
     holdSeq: null,
     holdWeighRequired: false,
     hasWeighStage: false,
+    latestWeightG: null,
     pendingSeq: null,
     pendingStageName: null,
     pendingWeighRequired: false,
-    receiveLocked: false,
+    // ถ้า view บอกล็อกตรงๆ (คอลัมน์ receive_locked) ใช้ค่านั้น · ปัจจุบัน 0181 ยังไม่มีคอลัมน์นี้ → loader นับ event แทน
+    receiveLocked: r.receive_locked === true,
     passedStages: [],
   };
 }
@@ -276,6 +280,15 @@ export const RECEIVE_LOCK_STRIKES = 3;
 /** M-B: ทองที่น้ำหนักหายเกินสัดส่วนชิ้นที่ขาด (excess < −0.05) → ชี้แจงต้องมีคำอธิบายเป็นข้อความ */
 export function noteRequired(d: Pick<LotDiscrepancy, "weightGapExcessG">, gold: boolean): boolean {
   return gold && d.weightGapExcessG !== null && d.weightGapExcessG < -GOLD_GAP_TOLERANCE_G;
+}
+
+/**
+ * L-new-1: ยกเลิกส่วนทองเป็นของเสีย — น้ำหนักเศษที่ชั่งน้อยกว่าน้ำหนักล่าสุดของส่วนเกิน 0.05 g → ต้องเขียนคำอธิบายเป็นข้อความ
+ * (pre-check แสดงผลเท่านั้น: DB ตัดสินจริงและตอบ gold_note_required) · null = ยังไม่รู้น้ำหนัก/ยังไม่กรอก → ไม่บังคับ
+ */
+export function scrapNoteRequired(latestWeightG: number | null, scrapWeightG: number | null): boolean {
+  if (latestWeightG === null || scrapWeightG === null) return false;
+  return Math.round((latestWeightG - scrapWeightG) * 1000) / 1000 > GOLD_GAP_TOLERANCE_G;
 }
 
 /** M-A: ข้อมูลน้ำหนักของใบแม่ที่แยกส่วน → ใช้ขั้น/ส่วนต่างของทั้งต้นไม้ (ใบแม่ lotSeq 0 → รูปเดียวกับ StageLoss เดิม) */

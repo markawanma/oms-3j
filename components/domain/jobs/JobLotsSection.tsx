@@ -17,7 +17,7 @@ import type { JobQrRow } from "@/lib/actions/job-lots";
 import { officeReceiveStage, revokeJobQr } from "@/lib/actions/job-office-write";
 import { GENERIC_JOB_ERROR } from "@/lib/jobs/messages";
 import { parseQtyText, parseWeight } from "@/lib/jobs/input";
-import { DISCREPANCY_KIND_LABEL, lotSegments, noteRequired, openDiscrepancies, splittableParts } from "@/lib/jobs/lots";
+import { DISCREPANCY_KIND_LABEL, lotSegments, noteRequired, openDiscrepancies, scrapNoteRequired, splittableParts } from "@/lib/jobs/lots";
 import type { JobLotsData, LotDiscrepancy, LotPart, TreeStageLoss } from "@/lib/jobs/lots";
 import { addDays, thaiDateTime } from "@/lib/jobs/dates";
 import { SCRAP_REASONS, SCRAP_REASON_LABEL } from "@/lib/jobs/types";
@@ -348,10 +348,13 @@ export function CancelLotDialog({ part, onClose, gold = false }: { part: LotPart
   const [wText, setWText] = useState("");
   const wParsed = needWeight ? parseWeight(wText, "น้ำหนักเศษที่คืน") : null;
   const wBad = needWeight && (!wParsed || !wParsed.ok || wParsed.value === null || wParsed.value <= 0);
-  const ready = reason.trim() !== "" && (disp === "return_to_parent" || scrapReason !== null) && !wBad;
+  // L-new-1: เศษที่ชั่งน้อยกว่าน้ำหนักล่าสุดของส่วนเกิน 0.05 g → ต้องมีคำอธิบายเป็นข้อความ (pre-check แสดงผล · DB ตอบ gold_note_required ซ้ำ)
+  const [scrapNote, setScrapNote] = useState("");
+  const needNote = needWeight && !wBad && wParsed?.ok === true && scrapNoteRequired(part.latestWeightG, wParsed.value);
+  const ready = reason.trim() !== "" && (disp === "return_to_parent" || scrapReason !== null) && !wBad && (!needNote || scrapNote.trim() !== "");
 
   async function submit() {
-    const r = await run(() => cancelJobLot({ lotJobId: part.jobId, reason, disposition: disp, scrapReason: disp === "scrap" ? scrapReason : null, ...(needWeight ? { scrapWeightG: wText } : {}) }), { success: `ยกเลิก${partTitle(part)}แล้ว` });
+    const r = await run(() => cancelJobLot({ lotJobId: part.jobId, reason, disposition: disp, scrapReason: disp === "scrap" ? scrapReason : null, ...(needWeight ? { scrapWeightG: wText } : {}), ...(needNote ? { scrapNote } : {}) }), { success: `ยกเลิก${partTitle(part)}แล้ว` });
     if (r.ok) onClose();
   }
 
@@ -390,6 +393,12 @@ export function CancelLotDialog({ part, onClose, gold = false }: { part: LotPart
               <input id="cancel-lot-weight" inputMode="decimal" value={wText} onChange={(e) => setWText(e.target.value)} className={FIELD} aria-invalid={wText !== "" && wBad} />
             </Field>
             {wText !== "" && wParsed && !wParsed.ok && <ErrorLine message={wParsed.error} />}
+            {part.latestWeightG !== null && <p className="text-xs text-zinc-700">น้ำหนักล่าสุดของส่วนนี้ {part.latestWeightG.toLocaleString("th-TH", { maximumFractionDigits: 3 })} g (ใช้เทียบกับเศษที่ชั่ง)</p>}
+            {needNote && (
+              <Field id="cancel-lot-note" label="คำอธิบาย (บังคับ — เศษที่ชั่งน้อยกว่าน้ำหนักล่าสุดของส่วนนี้)" hint="เขียนเป็นข้อความว่าทองส่วนต่างหายไปไหน · ไม่ใช่แค่รหัสเหตุผล · ไม่เกิน 200 ตัวอักษร">
+                <textarea id="cancel-lot-note" value={scrapNote} onChange={(e) => setScrapNote(e.target.value)} rows={3} maxLength={200} className={`${FIELD} py-2`} />
+              </Field>
+            )}
           </>
         )}
         <Field id="cancel-lot-reason" label="เหตุผลที่ยกเลิกส่วน">

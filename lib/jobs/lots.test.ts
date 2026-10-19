@@ -1,6 +1,6 @@
 // lib/jobs/lots.ts + board.ts (0181 ส่วนย่อย) — แถบสะสมรวม N ครบ · ส่วนต่างรอชี้แจง (void ไม่นับ) · ปุ่มปิด full · บอร์ดใบเดี่ยวไม่เปลี่ยน
 import { describe, expect, it } from "vitest";
-import { closeBlocker, hasLots, lotSegments, lotsLine, mapDiscrepancy, mapLotPart, mapLotsSummary, mapTreeStageLoss, noteRequired, openDiscrepancies, rootLossFromTree, segmentsTotal, splittableParts, toBoardLots } from "@/lib/jobs/lots";
+import { closeBlocker, hasLots, lotSegments, lotsLine, mapDiscrepancy, mapLotPart, mapLotsSummary, mapTreeStageLoss, noteRequired, openDiscrepancies, rootLossFromTree, scrapNoteRequired, segmentsTotal, splittableParts, toBoardLots } from "@/lib/jobs/lots";
 import type { JobLotsData, LotPart } from "@/lib/jobs/lots";
 import { columnOf, primaryStatus, statusSignals } from "@/lib/jobs/board";
 import { BOARD_COLUMNS, mapBoardRow } from "@/lib/jobs/types";
@@ -258,5 +258,26 @@ describe("0181 re-review: บอร์ดทองทั้งต้นไม้
   it("mapLotPart: น้ำหนักของเสียที่เลิกใช้ + ค่าเริ่มของขั้นรอรับ/ล็อก", () => {
     const p = mapLotPart({ job_id: L1, label: "x", cancel_scrap_weight_g: 2.5 })!;
     expect(p).toMatchObject({ cancelScrapWeightG: 2.5, hasWeighStage: false, pendingSeq: null, receiveLocked: false });
+  });
+});
+
+describe("0181 security delta: scrapNoteRequired (L-new-1) · weightScrapGapG · receive_locked จาก view", () => {
+  it("ล่าสุด − เศษ > 0.05 → ต้องมีคำอธิบาย · = 0.05 พอดี / น้อยกว่า / เศษมากกว่าล่าสุด → ไม่ต้อง", () => {
+    expect(scrapNoteRequired(10, 9.9)).toBe(true);
+    expect(scrapNoteRequired(10, 9.95)).toBe(false); // gap 0.05 พอดี (ปัดทศนิยม 3 ตำแหน่งกัน float)
+    expect(scrapNoteRequired(10.05, 10)).toBe(false);
+    expect(scrapNoteRequired(10, 10)).toBe(false);
+    expect(scrapNoteRequired(10, 12)).toBe(false);
+    expect(scrapNoteRequired(0.3, 0.2)).toBe(true);
+  });
+  it("ยังไม่รู้น้ำหนักล่าสุด/ยังไม่กรอกเศษ → ไม่บังคับ (DB ตัดสินจริง)", () => {
+    expect(scrapNoteRequired(null, 5)).toBe(false);
+    expect(scrapNoteRequired(5, null)).toBe(false);
+  });
+  it("mapLotPart: weightScrapGapG จาก v_job_tree · receive_locked ที่ view ให้มา = ล็อก (ไม่ให้ = ไม่ล็อก)", () => {
+    expect(mapLotPart({ job_id: L1, label: "x", weight_scrap_gap_g: 0.12 })!.weightScrapGapG).toBe(0.12);
+    expect(mapLotPart({ job_id: L1, label: "x" })!.weightScrapGapG).toBeNull();
+    expect(mapLotPart({ job_id: L1, label: "x", receive_locked: true })!.receiveLocked).toBe(true);
+    expect(mapLotPart({ job_id: L1, label: "x", receive_locked: false })!.receiveLocked).toBe(false);
   });
 });

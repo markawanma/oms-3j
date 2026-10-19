@@ -128,7 +128,8 @@ describe("0181 re-review: ขั้นรอรับ · ล็อก L-2 · los
   };
   const stages = [
     { id: "m1", job_id: ROOT, seq: 3, stage_code: "setting", status: "received", weigh_required: true },
-    { id: "l0", job_id: L1, seq: 1, stage_code: "cast", status: "skipped", weigh_required: true },
+    { id: "l0", job_id: L1, seq: 1, stage_code: "cast", status: "skipped", weigh_required: true, weight_in_g: 99, weight_out_g: 99 },
+    { id: "l1", job_id: L1, seq: 2, stage_code: "polish", status: "sent", weigh_required: true, weight_in_g: 20, weight_out_g: 19.5, metal_added_g: 0 },
     { id: "l2", job_id: L1, seq: 3, stage_code: "setting", status: "pending", weigh_required: true },
     { id: "l3", job_id: L1, seq: 4, stage_code: "qc", status: "pending", weigh_required: false },
   ];
@@ -179,5 +180,40 @@ describe("0181 re-review: ขั้นรอรับ · ล็อก L-2 · los
     const solo = await loadJobLots(ROOT, {});
     expect(solo!.treeLoss).toBeUndefined();
     expect(calls.some((c) => c.table === "v_job_tree_stage_loss")).toBe(false);
+  });
+});
+
+describe("0181 security delta: ขั้นชั่งที่ชั่งแล้ว (M-D) · น้ำหนักล่าสุด (L-new-1)", () => {
+  const one = (stages: Record<string, unknown>[]) => {
+    results.v_job_tree = { data: [tree({}), tree({ job_id: L1, lot_seq: 1, label: "JB-0020 · ส่วนที่ 1" })], error: null };
+    results.v_job_tree_summary = { data: { root_job_id: ROOT, qty_planned: 60, parts_count: 2, sum_check: true }, error: null };
+    results.job_stage = { data: stages, error: null };
+  };
+  it("ตั้งชั่งแต่ยังไม่มีน้ำหนักเลย (ยังไม่ถึงขั้นชั่ง) → hasWeighStage = false · latestWeightG = null", async () => {
+    one([{ id: "a", job_id: L1, seq: 1, stage_code: "wax", status: "received", weigh_required: false }, { id: "b", job_id: L1, seq: 3, stage_code: "setting", status: "pending", weigh_required: true }]);
+    const p = (await loadJobLots(ROOT, {}))!.parts[1];
+    expect(p.hasWeighStage).toBe(false);
+    expect(p.latestWeightG).toBeNull();
+  });
+  it("ขั้นชั่งที่ชั่งแล้ว (มีน้ำหนักเข้าหรือออก) → true · ขั้นที่ข้ามไม่นับ · ขั้นไม่ตั้งชั่งแม้มีน้ำหนักไม่นับเป็น 'ขั้นชั่ง'", async () => {
+    one([{ id: "a", job_id: L1, seq: 1, stage_code: "cast", status: "skipped", weigh_required: true, weight_in_g: 5, weight_out_g: 5 }]);
+    expect((await loadJobLots(ROOT, {}))!.parts[1].hasWeighStage).toBe(false);
+    one([{ id: "a", job_id: L1, seq: 1, stage_code: "cast", status: "received", weigh_required: false, weight_in_g: 5 }]);
+    expect((await loadJobLots(ROOT, {}))!.parts[1].hasWeighStage).toBe(false);
+    one([{ id: "a", job_id: L1, seq: 1, stage_code: "cast", status: "received", weigh_required: true, weight_in_g: 5 }]);
+    expect((await loadJobLots(ROOT, {}))!.parts[1].hasWeighStage).toBe(true);
+    one([{ id: "a", job_id: L1, seq: 1, stage_code: "cast", status: "sent", weigh_required: true, weight_out_g: 4.5 }]);
+    expect((await loadJobLots(ROOT, {}))!.parts[1].hasWeighStage).toBe(true);
+  });
+  it("น้ำหนักล่าสุด = ขั้นไม่ข้าม seq สูงสุดที่มีน้ำหนัก: ออก ถ้ายังไม่ส่งใช้ เข้า + เติม (ตรง job_latest_weight_g)", async () => {
+    one([
+      { id: "a", job_id: L1, seq: 1, stage_code: "cast", status: "sent", weigh_required: true, weight_in_g: 30, weight_out_g: 29 },
+      { id: "b", job_id: L1, seq: 2, stage_code: "polish", status: "received", weigh_required: true, weight_in_g: 28, metal_added_g: 0.5 },
+      { id: "c", job_id: L1, seq: 3, stage_code: "setting", status: "skipped", weigh_required: true, weight_in_g: 77, weight_out_g: 77 },
+      { id: "d", job_id: L1, seq: 4, stage_code: "qc", status: "pending", weigh_required: false },
+    ]);
+    expect((await loadJobLots(ROOT, {}))!.parts[1].latestWeightG).toBe(28.5);
+    one([{ id: "a", job_id: L1, seq: 1, stage_code: "cast", status: "sent", weigh_required: true, weight_in_g: 30, weight_out_g: 29 }]);
+    expect((await loadJobLots(ROOT, {}))!.parts[1].latestWeightG).toBe(29);
   });
 });

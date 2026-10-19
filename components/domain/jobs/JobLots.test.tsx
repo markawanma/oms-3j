@@ -649,3 +649,83 @@ describe("0181 re-review: ส่วนต่างทอง (M-B) · ยกเ�
     });
   });
 });
+
+describe("0181 security delta: ยกเลิกส่วนทองเป็นของเสีย — คำอธิบายเมื่อเศษน้อยกว่าน้ำหนักล่าสุด (L-new-1) · ส่วนที่ยังไม่ชั่งไม่มีช่อง (M-D)", () => {
+  const mk = (o: Record<string, unknown>): JobLotsData => {
+    const l = jb0020();
+    l.parts[1] = { ...l.parts[1], hasWeighStage: true, latestWeightG: 10, ...o };
+    return l;
+  };
+  const open = async (l: JobLotsData, metal = "gold") => {
+    wrap(<JobDetailClient data={detail(l, { metal })} />);
+    await userEvent.click(await screen.findByRole("button", { name: "ยกเลิก ส่วนที่ 1" }));
+    const d = within(await screen.findByRole("dialog", { name: /ยกเลิก ส่วนที่/ }));
+    await userEvent.type(d.getByLabelText("เหตุผลที่ยกเลิกส่วน"), "ของแตก");
+    await userEvent.click(d.getByRole("radio", { name: "นับเป็นของเสีย" }));
+    await userEvent.click(d.getByRole("radio", { name: "หัก" }));
+    return d;
+  };
+  const weigh = async (d: ReturnType<typeof within>, v: string) => {
+    const f = d.getByLabelText(/น้ำหนักเศษที่คืน/);
+    await userEvent.clear(f);
+    await userEvent.type(f, v);
+  };
+
+  it("เศษ 9.9 จากล่าสุด 10 (ต่าง 0.1 > 0.05): โชว์น้ำหนักล่าสุด + ช่องคำอธิบายบังคับ → ส่ง scrapWeightG + scrapNote", async () => {
+    const d = await open(mk({}));
+    expect(d.getByText(/น้ำหนักล่าสุดของส่วนนี้ 10 g/)).toBeInTheDocument();
+    await weigh(d, "9,9");
+    const btn = d.getByRole("button", { name: "ยกเลิกส่วน" });
+    expect(d.getByLabelText(/คำอธิบาย \(บังคับ/)).toBeInTheDocument();
+    expect(btn).toBeDisabled();
+    await userEvent.type(d.getByLabelText(/คำอธิบาย \(บังคับ/), "ผงขัดติดผ้า");
+    expect(btn).toBeEnabled();
+    await userEvent.click(btn);
+    await waitFor(() => expect(lots.cancelJobLot).toHaveBeenCalledWith({ lotJobId: L1, reason: "ของแตก", disposition: "scrap", scrapReason: "broken", scrapWeightG: "9,9", scrapNote: "ผงขัดติดผ้า" }));
+  });
+
+  it("ต่างพอดี 0.05 / เศษเท่าล่าสุด / เศษมากกว่า → ไม่มีช่องคำอธิบาย ไม่ส่ง scrapNote", async () => {
+    for (const v of ["9.95", "10", "10.5"]) {
+      const d = await open(mk({}));
+      await weigh(d, v);
+      expect(d.queryByLabelText(/คำอธิบาย \(บังคับ/), v).not.toBeInTheDocument();
+      await userEvent.click(d.getByRole("button", { name: "ยกเลิกส่วน" }));
+      await waitFor(() => expect(lots.cancelJobLot).toHaveBeenCalledWith({ lotJobId: L1, reason: "ของแตก", disposition: "scrap", scrapReason: "broken", scrapWeightG: v }));
+      lots.cancelJobLot.mockClear();
+      cleanup();
+    }
+  });
+
+  it("ส่วนทองที่ยังไม่ถึงขั้นชั่ง (hasWeighStage = false): เลือกของเสียแล้วก็ไม่มีช่องน้ำหนัก/คำอธิบาย · ส่งโดยไม่มี scrapWeightG", async () => {
+    wrap(<JobDetailClient data={detail(mk({ hasWeighStage: false, latestWeightG: null }), { metal: "gold" })} />);
+    await userEvent.click(await screen.findByRole("button", { name: "ยกเลิก ส่วนที่ 1" }));
+    const d = within(await screen.findByRole("dialog", { name: /ยกเลิก ส่วนที่/ }));
+    await userEvent.type(d.getByLabelText("เหตุผลที่ยกเลิกส่วน"), "ของแตก");
+    await userEvent.click(d.getByRole("radio", { name: "นับเป็นของเสีย" }));
+    await userEvent.click(d.getByRole("radio", { name: "หัก" }));
+    expect(d.queryByLabelText(/น้ำหนักเศษที่คืน/)).not.toBeInTheDocument();
+    expect(d.queryByLabelText(/คำอธิบาย \(บังคับ/)).not.toBeInTheDocument();
+    await userEvent.click(d.getByRole("button", { name: "ยกเลิกส่วน" }));
+    await waitFor(() => expect(lots.cancelJobLot).toHaveBeenCalledWith({ lotJobId: L1, reason: "ของแตก", disposition: "scrap", scrapReason: "broken" }));
+  });
+
+  it("เงิน: ไม่มีช่องคำอธิบาย แม้ข้อมูลน้ำหนักมี · ช่องว่างล้วนในคำอธิบายไม่ผ่าน", async () => {
+    const a = await open(mk({}), "silver");
+    expect(a.queryByLabelText(/น้ำหนักเศษที่คืน/)).not.toBeInTheDocument();
+    cleanup();
+    const d = await open(mk({}));
+    await weigh(d, "5");
+    await userEvent.type(d.getByLabelText(/คำอธิบาย \(บังคับ/), "   ");
+    expect(d.getByRole("button", { name: "ยกเลิกส่วน" })).toBeDisabled();
+  });
+
+  it("DB ตอบ gold_note_required → ข้อความไทยค้างในกล่อง · ค่าที่กรอกไม่หาย", async () => {
+    lots.cancelJobLot.mockResolvedValue({ ok: false, error: "ทอง: น้ำหนักหาย/เศษที่ชั่งน้อยกว่าที่ควรมี — ต้องเขียนคำอธิบายเป็นข้อความ (ไม่ใช่แค่เลือกรหัสเหตุผล)" });
+    const d = await open(mk({}));
+    await weigh(d, "9");
+    await userEvent.type(d.getByLabelText(/คำอธิบาย \(บังคับ/), "หาย");
+    await userEvent.click(d.getByRole("button", { name: "ยกเลิกส่วน" }));
+    expect(await d.findByRole("alert")).toHaveTextContent("ต้องเขียนคำอธิบายเป็นข้อความ");
+    expect(d.getByLabelText(/คำอธิบาย \(บังคับ/)).toHaveValue("หาย");
+  });
+});
