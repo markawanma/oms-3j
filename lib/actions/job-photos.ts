@@ -14,7 +14,7 @@
 // ไฟล์ "use server": export ได้เฉพาะ async function (ชนิด/ค่าคงที่อยู่ lib/jobs/photos.ts · lib/images/constants.ts)
 
 import { revalidatePath } from "next/cache";
-import { JOB_PHOTO_CAPTION_MAX, JOB_PHOTO_REASON_MAX, MAX_BYTES, MAX_JOB_PHOTOS, MAX_REFERENCE_PHOTOS } from "@/lib/images/constants";
+import { JOB_PHOTO_CAPTION_MAX, JOB_PHOTO_DIM_SLACK_PX, JOB_PHOTO_REASON_MAX, MAX_BYTES, MAX_JOB_PHOTOS, MAX_REFERENCE_PHOTOS, MD_MAX_PX, SM_MAX_PX } from "@/lib/images/constants";
 import { cleanJpegForStorage, extractJpegDimensions, looksLikeJpeg } from "@/lib/images/server";
 import { isUuid, parseText } from "@/lib/jobs/input";
 import { logJobFailure } from "@/lib/jobs/log";
@@ -95,9 +95,15 @@ export async function uploadJobPhoto(fd: FormData): Promise<JobResult<JobPhotoRo
       if (why === "too_large") return fail(JOB_PHOTO_FILE_ERROR_TH.tooLarge, JOB_PHOTO_FILE_CODE.tooLarge);
       return fail(JOB_PHOTO_FILE_ERROR_TH.cameraMetadata, JOB_PHOTO_FILE_CODE.cameraMetadata);
     }
+    // เพดาน pixel (อ่านจากค่าคงที่ของ resizeImageVariants + เผื่อเล็กน้อย): ไฟล์ ≤ 1 MB ยังเป็น JPEG 12000×12000 ได้ — decode แล้วกินหน่วยความจำของเครื่องที่เปิดดู/พิมพ์ · อ่านขนาดไม่ได้ = ปฏิเสธ (พิสูจน์เพดานไม่ได้)
     const dims = extractJpegDimensions(cmd.bytes);
+    const sdims = extractJpegDimensions(csm.bytes);
+    if (!dims || !sdims) return fail(JOB_PHOTO_FILE_ERROR_TH.broken, JOB_PHOTO_FILE_CODE.broken);
+    if (Math.max(dims.width, dims.height) > MD_MAX_PX + JOB_PHOTO_DIM_SLACK_PX || Math.max(sdims.width, sdims.height) > SM_MAX_PX + JOB_PHOTO_DIM_SLACK_PX) {
+      return fail(JOB_PHOTO_FILE_ERROR_TH.tooLargeDim, JOB_PHOTO_FILE_CODE.tooLargeDim);
+    }
 
-    const stored = await storeJobPhoto({ jobId, md: cmd.bytes, sm: csm.bytes, width: dims?.width ?? null, height: dims?.height ?? null, caption: caption.value, source: "office", productImageId: null });
+    const stored = await storeJobPhoto({ jobId, md: cmd.bytes, sm: csm.bytes, width: dims.width, height: dims.height, caption: caption.value, source: "office", productImageId: null });
     if (!stored.ok) return stored;
 
     revalidateJob(jobId);

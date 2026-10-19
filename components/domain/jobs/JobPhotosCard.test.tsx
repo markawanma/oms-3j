@@ -207,7 +207,7 @@ describe("อัปโหลด", () => {
   });
 
   it("ลองใหม่ไม่ช่วย — ด่านไฟล์ฝั่ง server (ไฟล์เสียหาย / ล้างข้อมูลกล้องไม่สำเร็จ): แสดงข้อความใหม่ตามจริง ไม่มีปุ่มลองใหม่", async () => {
-    for (const key of ["broken", "cameraMetadata", "notJpeg", "tooLarge"] as const) {
+    for (const key of ["broken", "cameraMetadata", "notJpeg", "tooLarge", "tooLargeDim"] as const) {
       const msg = JOB_PHOTO_FILE_ERROR_TH[key];
       act_.uploadJobPhoto.mockResolvedValueOnce({ ok: false, error: msg, code: JOB_PHOTO_FILE_CODE[key] });
       const a = card();

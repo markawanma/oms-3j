@@ -92,6 +92,8 @@ export const JOB_PHOTO_FILE_ERROR_TH = {
   empty: "ไฟล์รูปว่างเปล่า",
   tooLarge: "ไฟล์รูปใหญ่เกิน 1 MB",
   notJpeg: "ไฟล์ไม่ใช่ JPEG จริง — เลือกรูปถ่ายแล้วอัปโหลดผ่านหน้าเว็บ",
+  /** ขนาดภาพ (พิกเซล) เกินที่หน้าเว็บผลิต — ไฟล์ที่ยิงตรงข้ามการย่อรูป (กันรูป 12000×12000 กินหน่วยความจำตอนพิมพ์/ดู) */
+  tooLargeDim: "ขนาดภาพ (พิกเซล) ใหญ่เกินที่ระบบรับ — อัปโหลดผ่านหน้าเว็บ ระบบจะย่อให้ หรือเลือกรูปใหม่",
   /** ไฟล์เสียหาย/โครงสร้างผิด/ไม่รู้จัก (ตัด metadata ไม่ได้อย่างปลอดภัย) — ไม่เก็บ */
   broken: "ไฟล์รูปเสียหายหรือโครงสร้างไม่ถูกต้อง — เลือกรูปใหม่",
   /** ตัด metadata แล้วยังเหลือ (ไม่ควรเกิด — ด่านสุดท้าย) */
@@ -110,4 +112,5 @@ export const JOB_PHOTO_FILE_CODE = {
   notJpeg: "photo_file_not_jpeg",
   broken: "photo_file_broken",
   cameraMetadata: "photo_file_metadata",
+  tooLargeDim: "photo_file_too_large_dim",
 } as const;

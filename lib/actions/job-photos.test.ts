@@ -3,6 +3,7 @@
 // ต้องไม่พัง: สร้างใบเมื่อไม่มีรูป/copy ล้ม (ดู job-office-photos.test.ts) · ใบปิดแล้วแก้รูปได้ (action ไม่เช็คสถานะ — ด่านอยู่ที่ DB และ DB อนุญาตตามมติ) · catalog รูปเดิมไม่ถูกเขียน
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { hasCameraMetadata } from "@/lib/images/server";
+import { JOB_PHOTO_DIM_SLACK_PX, MD_MAX_PX, SM_MAX_PX } from "@/lib/images/constants";
 import { JOB_PHOTO_FILE_CODE, JOB_PHOTO_FILE_ERROR_TH } from "@/lib/jobs/photos";
 
 const SHOP = "a7c850ee-6776-4c3e-ba72-ba9e8caba2b7";
@@ -73,8 +74,8 @@ const jpegWith = (before: number[][] = [], w = 1200, h = 800, pad = 0, tail: num
 const cleanJpeg = (w = 1200, h = 800, pad = 0): Uint8Array => jpegWith([], w, h, pad);
 const EXIF_GPS = seg(0xe1, [...ascii("Exif"), 0, 0, 0x49, 0x49, 0x2a, 0, 8, 0, 0, 0, 1, 0, 0x25, 0x88, 4, 0, 1, 0, 0, 0, 0x1a, 0, 0, 0, ...ascii("GPS13.7563N100.5018E")]);
 const XMP = seg(0xe1, [...ascii("http://ns.adobe.com/xap/1.0/"), 0, ...ascii("<exif:GPSLatitude>13.7563</exif:GPSLatitude>")]);
-const exifJpeg = (): Uint8Array => jpegWith([EXIF_GPS, ICC, seg(0xfe, ascii("comment ชื่อลูกค้า"))], 1200, 800, 0, [...EXIF_GPS]);
-const xmpJpeg = (): Uint8Array => jpegWith([XMP, ICC, seg(0xed, ascii("Photoshop 3.0"))], 1200, 800, 0, [...XMP]);
+const exifJpeg = (w = 1200, h = 800): Uint8Array => jpegWith([EXIF_GPS, ICC, seg(0xfe, ascii("comment ชื่อลูกค้า"))], w, h, 0, [...EXIF_GPS]);
+const xmpJpeg = (w = 1200, h = 800): Uint8Array => jpegWith([XMP, ICC, seg(0xed, ascii("Photoshop 3.0"))], w, h, 0, [...XMP]);
 const file = (bytes: Uint8Array | string, name = "photo.jpg", type = "image/jpeg") => new File([bytes as BlobPart], name, { type });
 
 function form(o: { jobId?: string | null; md?: unknown; sm?: unknown; caption?: string; extra?: Record<string, string> } = {}): FormData {
@@ -148,6 +149,42 @@ describe("สิทธิ์ — ทุก action ปฏิเสธก่อน
 });
 
 describe("uploadJobPhoto — เคสห้ามผ่าน (ด่านไฟล์ก่อนแตะ Storage/RPC)", () => {
+  it("เพดาน pixel: ยิงตรง JPEG 12000×12000 (ไฟล์เล็ก ผ่านเพดาน 1 MB) → ปฏิเสธ code photo_file_too_large_dim ไม่แตะ Storage/RPC · ใช้ค่าคงที่ของ resizeImageVariants + เผื่อเล็กน้อย", async () => {
+      const slack = JOB_PHOTO_DIM_SLACK_PX;
+      const rejected: [string, Record<string, unknown>][] = [
+        ["md 12000×12000", { md: file(cleanJpeg(12000, 12000)) }],
+        ["sm 12000×12000", { sm: file(cleanJpeg(12000, 12000)) }],
+        ["md ด้านยาวเกินเผื่อ 1 พิกเซล (แนวนอน)", { md: file(cleanJpeg(MD_MAX_PX + slack + 1, 300)) }],
+        ["md ด้านยาวเกินเผื่อ 1 พิกเซล (แนวตั้ง)", { md: file(cleanJpeg(300, MD_MAX_PX + slack + 1)) }],
+        ["sm ด้านยาวเกินเผื่อ 1 พิกเซล", { sm: file(cleanJpeg(SM_MAX_PX + slack + 1, 200)) }],
+        ["sm เป็นขนาด md (ส่ง md ซ้ำเป็น sm)", { sm: file(cleanJpeg(MD_MAX_PX, 800)) }],
+      ];
+      for (const [name, o] of rejected) {
+        const r = await uploadJobPhoto(form(o));
+        expect(r.ok, name).toBe(false);
+        expect(!r.ok && r.code, name).toBe("photo_file_too_large_dim");
+        expect(!r.ok && r.code, name).toBe(JOB_PHOTO_FILE_CODE.tooLargeDim);
+        expect(!r.ok && r.error, name).toBe(JOB_PHOTO_FILE_ERROR_TH.tooLargeDim);
+      }
+      untouched();
+    });
+
+  it("เพดาน pixel — ต้องไม่พัง: ขนาดที่ resizeImageVariants ผลิต (md 1200 · sm 480) และเผื่อพอดี ผ่าน · แนวตั้ง/แนวนอน/จัตุรัสเล็กผ่าน", async () => {
+    const slack = JOB_PHOTO_DIM_SLACK_PX;
+    const ok: [string, Record<string, unknown>][] = [
+      ["1200×900 / 480×360", { md: file(cleanJpeg(MD_MAX_PX, 900)), sm: file(cleanJpeg(SM_MAX_PX, 360)) }],
+      ["แนวตั้ง 900×1200 / 360×480", { md: file(cleanJpeg(900, MD_MAX_PX)), sm: file(cleanJpeg(360, SM_MAX_PX)) }],
+      ["พอดีเพดานเผื่อ", { md: file(cleanJpeg(MD_MAX_PX + slack, 600)), sm: file(cleanJpeg(SM_MAX_PX + slack, 300)) }],
+      ["รูปเล็กกว่าเพดาน (ไม่ upscale)", { md: file(cleanJpeg(640, 480)), sm: file(cleanJpeg(200, 150)) }],
+    ];
+    for (const [name, o] of ok) {
+      uploadMock.mockClear();
+      const r = await uploadJobPhoto(form(o));
+      expect(r.ok, name).toBe(true);
+      expect(uploadMock, name).toHaveBeenCalledTimes(2);
+    }
+  });
+
   it("S3: ทุกด่านไฟล์ตอบ code (UI ตัดสิน retry จาก code ไม่ใช่ข้อความไทย) · ข้อความตรงตารางกลาง", async () => {
     const fd = new FormData();
     fd.set("jobId", JOB);
@@ -220,10 +257,10 @@ describe("uploadJobPhoto — เคสห้ามผ่าน (ด่านไ�
   });
 
   it("🔴 H1: JPEG ที่มี Exif (GPS) / XMP / COM / APP13 / ท้าย EOI — ยิงตรงเข้า action: ไม่ถูกปฏิเสธ (iPhone ผ่านได้) แต่ server ตัด metadata ก่อนเก็บ · bytes ที่ขึ้น bucket ไม่มี Exif/XMP/GPS/COM/ท้ายไฟล์ · ICC คงอยู่ · p_bytes = md+sm ที่ตัดแล้ว", async () => {
-    for (const dirty of [exifJpeg(), xmpJpeg()]) {
+    for (const [dirty, dirtySm] of [[exifJpeg(), exifJpeg(480, 320)], [xmpJpeg(), xmpJpeg(480, 320)]]) {
       uploadMock.mockClear();
       rpcMock.mockClear();
-      const r = await uploadJobPhoto(form({ md: file(dirty), sm: file(dirty) }));
+      const r = await uploadJobPhoto(form({ md: file(dirty), sm: file(dirtySm) }));
       expect(r.ok).toBe(true);
       const sent = uploadMock.mock.calls.map((c) => c[2] as Uint8Array);
       expect(sent).toHaveLength(2);

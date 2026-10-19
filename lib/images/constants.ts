@@ -25,6 +25,9 @@ export const MD_MAX_PX = 1200;
 /** Long-edge cap, in pixels, for the "sm" variant — thumbnails/list views. */
 export const SM_MAX_PX = 480;
 
+/** เผื่อพิกเซลด้านยาวที่ server รับเกินค่าที่ resizeImageVariants ผลิต (MD_MAX_PX/SM_MAX_PX) — ปัดเศษ/encoder อื่นของรูปที่ยิงตรง · ไม่ใช่ช่องให้ส่งรูปใหญ่ (เพดาน pixel รูปใบงาน: lib/actions/job-photos.ts) */
+export const JOB_PHOTO_DIM_SLACK_PX = 8;
+
 /** Per-file byte ceiling for EACH variant (md and sm are checked
  * independently) — matches storage.buckets.file_size_limit set on the
  * 'product-images' bucket in supabase/migrations/0104_product_images.sql.
