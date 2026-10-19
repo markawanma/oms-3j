@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { HeicNotSupportedError, ImageDecodeError, ImageTooLargeError, SourceImageTooLargeError, resizeImageVariants } from "@/lib/images/client";
 import type { ImageVariants } from "@/lib/images/client";
+import { JOB_PHOTO_FILE_ERROR_TH } from "@/lib/jobs/photos";
 import type { JobPhotoRow } from "@/lib/jobs/photos";
 
 /** ทำพร้อมกันกี่รูป (แคตตาล็อกใช้ 3 — ใบงานใช้ 2 ตาม ux §7) */
@@ -32,6 +33,9 @@ export type SendResult = { ok: true; data: JobPhotoRow } | { ok: false; error: s
 
 /** code ของด่านรูปที่ลองใหม่ไม่ช่วย (เต็ม/ไม่มีใบ/ไฟล์ไม่ถูกต้อง) */
 const NO_RETRY_CODES: ReadonlySet<string> = new Set(["photo_cap_ref", "photo_cap_total", "photo_budget", "lot_no_photo", "job_not_found", "photo_bytes_invalid", "photo_dims_invalid"]);
+
+/** ข้อความของด่านไฟล์ฝั่ง server (action ตอบเป็นข้อความไม่มี code) — ไฟล์เสีย/ไม่ใช่ JPEG/ล้าง metadata ไม่สำเร็จ/ใหญ่เกิน: ส่งไฟล์เดิมซ้ำผลเดิม = ไม่มีปุ่มลองใหม่ */
+const NO_RETRY_MESSAGES: ReadonlySet<string> = new Set([JOB_PHOTO_FILE_ERROR_TH.broken, JOB_PHOTO_FILE_ERROR_TH.cameraMetadata, JOB_PHOTO_FILE_ERROR_TH.notJpeg, JOB_PHOTO_FILE_ERROR_TH.tooLarge, JOB_PHOTO_FILE_ERROR_TH.empty, JOB_PHOTO_FILE_ERROR_TH.missing]);
 
 export const HEIC_MESSAGE = "ไฟล์ HEIC เปิดไม่ได้ — iPhone: ตั้งค่า > กล้อง > รูปแบบ > รองรับมากที่สุด แล้วถ่ายใหม่ หรือส่งผ่าน LINE ก่อน";
 
@@ -119,7 +123,7 @@ export function useJobPhotoUploads({
         return;
       }
       if (!res.ok) {
-        patch(id, { phase: "error", message: res.error, retryable: !(res.code && NO_RETRY_CODES.has(res.code)) });
+        patch(id, { phase: "error", message: res.error, retryable: !(res.code && NO_RETRY_CODES.has(res.code)) && !NO_RETRY_MESSAGES.has(res.error) });
         return;
       }
       finish(id);

@@ -34,6 +34,7 @@ import { JobDetailClient } from "./JobDetailClient";
 import { mapBoardRow, mapJobDetail } from "@/lib/jobs/types";
 import type { StageRow } from "@/lib/jobs/types";
 import type { JobDetailData } from "@/lib/actions/job-office";
+import { JOB_PHOTO_FILE_ERROR_TH } from "@/lib/jobs/photos";
 import type { JobPhotoRow } from "@/lib/jobs/photos";
 
 const wrap = (ui: ReactElement) => render(<ToastProvider>{ui}</ToastProvider>);
@@ -203,6 +204,19 @@ describe("อัปโหลด", () => {
     expect(await screen.findByText(/ใบงานนี้มีรูปอ้างอิงครบ 5 รูปแล้ว/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /แตะเพื่อลองใหม่/ })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "เอาออก" })).toBeInTheDocument();
+  });
+
+  it("ลองใหม่ไม่ช่วย — ด่านไฟล์ฝั่ง server (ไฟล์เสียหาย / ล้างข้อมูลกล้องไม่สำเร็จ): แสดงข้อความใหม่ตามจริง ไม่มีปุ่มลองใหม่", async () => {
+    for (const msg of [JOB_PHOTO_FILE_ERROR_TH.broken, JOB_PHOTO_FILE_ERROR_TH.cameraMetadata]) {
+      act_.uploadJobPhoto.mockResolvedValueOnce({ ok: false, error: msg });
+      const a = card();
+      await userEvent.upload(pick(), file());
+      expect(await screen.findByText(msg)).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /แตะเพื่อลองใหม่/ })).not.toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "เอาออก" })).toBeInTheDocument();
+      a.unmount();
+    }
+    expect(JOB_PHOTO_FILE_ERROR_TH.cameraMetadata).toBe("ล้างข้อมูลจากกล้องออกจากรูปไม่สำเร็จ — เลือกรูปใหม่หรืออัปโหลดผ่านหน้าเว็บ");
   });
 
   it("ครบ 5: ปุ่มเพิ่มหาย + ข้อความเหตุผล · ตัวนับ 5/5", () => {
