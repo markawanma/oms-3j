@@ -18,6 +18,10 @@
 --  ผลรวมต้นไม้ = เริ่มผลิตเสมอ · v_job_tree_drift ว่าง · ปิด full ได้เมื่อส่วนต่างไม่ open                  -> A2e A3 A5a A5b E0 E5 · C3 (แยกส่วนเดิม)
 --  ทอง: ขั้นที่รับตั้งชั่ง → ต้องชั่งชิ้นที่มาถึง · เพดาน ≤ (ส่งออกขั้นก่อน − รับเข้าเดิม) + 0.05 g          -> D0 D1 D2a D2b D3a D3b D4 D6b · MU
 --  บันทึก gap (แถวที่เหลือ + event) · ไม่แสดงน้ำหนักให้ช่าง (N1: response/action/ข้อความ)                    -> D3a D5 D2a D1 (nodigit/keys)
+--  [security H1] ด่านน้ำหนักสองทิศ (หนักเกิน/ปิดทั้งก้อนเบาเกิน = arrive_heavy รหัสเดียว) · ไม่มีน้ำหนักอ้างอิง = ช่างไม่ได้ · ตัวนับต่อขั้น · ออฟฟิศเบาเกินผ่าน+residual_g · แถว arrived เก็บน้ำหนัก (ธง excess)  -> D9a D9a2 D9b D9c D9d D3a D4 · MU (7 ตัว)
+--  [security M1] job_done_ck เป็น <= ไม่เรียกฟังก์ชัน (ความเท่ากันเป๊ะที่ job_done + drift)  -> F6 A5a A5b · MU (DDL)
+--  [security M2] เพดานสำรองหักน้ำหนักที่ arrive ไปแล้ว  -> D10 · MU
+--  [security L2] arrive_mismatch ยังไม่นับใน tree_handoff_mismatch_count — ไม่มี (หนี้ · ต้อง replace v_job_board) · L3/L4 ตามรายงาน security
 --  ส่วนต่างทองที่ L-2 ล็อก → ช่างกด arrive ได้ แต่ต้องผ่านด่านน้ำหนัก                                        -> D6a D6b
 --  เงิน/ทองขั้นไม่ชั่ง: นับจำนวนอย่างเดียว · ส่งน้ำหนักมา = weight_unexpected                                -> B6 D7 · MU
 --  event ใหม่ discrepancy_arrive (+create/skip/receive ของส่วนใหม่ · v_job_stage_from_events ไม่ drift)       -> A2d D3a A7a F6 F8
@@ -1153,6 +1157,7 @@ create function pg_temp.sd(p_shop uuid, p_tpl uuid) returns text
 declare
   v_log text := '';
   m jsonb; j uuid; th text; wC uuid; sC text; dd uuid; r jsonb; r2 jsonb; r3 jsonb; r4 jsonb; r5 jsonb; l1 uuid; l2 uuid; rem uuid; a jsonb;
+  m4 jsonb; j4 uuid; th4 text; sC4 text; dd4 uuid; pq uuid; r6 jsonb;
   m2 jsonb; j2 uuid; th2 text; sC2 text; dd2 uuid; d jsonb; wB uuid; sB text; pg_ uuid; pw uuid; v_n int; v_rows text; i int;
 begin
   perform set_config('request.jwt.claims', '{"role":"service_role"}', true);
@@ -1191,9 +1196,10 @@ begin
   j2 := (m2 ->> 'job')::uuid; th2 := m2 ->> 'tokh'; sC2 := m2 ->> 'sc'; dd2 := (m2 ->> 'disc')::uuid;
   r := pg_temp.wa(th2, sC2, dd2, 1, 1.0, 2);
   l1 := pg_temp.lot(r); rem := (r ->> 'discrepancy_id')::uuid;
-  v_log := v_log || pg_temp.chk('D3a', 'ทอง arrive 1 จาก 2 ชั่ง 1.000 g = ok · ส่วนใหม่ weight_in 1.000 weight_start 1.000 weigh_required · แถว arrived ไม่เก็บน้ำหนัก · แถว open ที่เหลือ gap −1.000 (= −2 + 1) weight_sent 10.000 qty_sent 10 · event เก็บ weight_g 1.0 + gap_after −1.0 · response ช่างไม่มีน้ำหนัก/gap/missing · ไม่ drift',
+  v_log := v_log || pg_temp.chk('D3a', 'ทอง arrive 1 จาก 2 ชั่ง 1.000 g = ok · ส่วนใหม่ weight_in 1.000 weight_start 1.000 weigh_required · แถว arrived เก็บน้ำหนักเชิงบัญชี (gap −1.000 = 0 − สัดส่วนชิ้นที่มาถึง · excess 0) · ธง tree_weight_gap_excess_g ของใบ = 0 (ไม่หาย ไม่เกิน) · แถว open ที่เหลือ gap −1.000 (= −2 + 1) weight_sent 10.000 qty_sent 10 · event เก็บ weight_g 1.0 + gap_after −1.0 · response ช่างไม่มีน้ำหนัก/gap/missing · ไม่ drift',
     (r ->> 'ok') = 'true' and pg_temp.sv(l1, 7, 'weight_in_g') = '1.000' and pg_temp.jv(l1, 'weight_start_g') = '1.000' and pg_temp.jv(l1, 'weigh_required') = 'true'
-    and (select weight_gap_g is null from analytics.job_discrepancy where id = (r ->> 'arrived_id')::uuid)
+    and (select weight_gap_g = -1 and weight_sent_g = 10 and qty_sent = 10 from analytics.job_discrepancy where id = (r ->> 'arrived_id')::uuid)
+    and (select tree_weight_gap_excess_g = 0 from analytics.v_job_board where id = j2)
     and (select weight_gap_g = -1 and weight_sent_g = 10 and qty_sent = 10 and qty = 1 from analytics.job_discrepancy where id = rem)
     and exists (select 1 from analytics.job_event where job_id = j2 and event_type = 'discrepancy_arrive' and (payload ->> 'weight_g')::numeric = 1.0 and (payload ->> 'gap_after_g')::numeric = -1.0)
     and pg_temp.keys(r) !~ 'weight|missing|gap' and pg_temp.clean_keys(r) and pg_temp.dcount(j2) = 0 and pg_temp.sumok(j2));
@@ -1204,12 +1210,13 @@ begin
     (r2 ->> 'code') = 'arrive_heavy' and (r3 ->> 'ok') = 'true'
     and pg_temp.disc_of(j2) is null and pg_temp.nlots(j2) = 2 and pg_temp.sv(l2, 7, 'weight_in_g') = '1.050'
     and pg_temp.dcount(j2) = 0 and pg_temp.sumok(j2));
-  -- เบากว่าส่วนที่ขาดได้ (ชั้นของหาย/ของเสียระหว่างทาง)
+  -- ช่างได้รับเพิ่ม "บางส่วน" ชั่งเบากว่าส่วนที่ขาดได้ (ของที่เหลือยังค้างให้ตามต่อ) — ปิดทั้งก้อนแต่เบากว่า = ไม่ตรง (D9a)
   m2 := pg_temp.mkdisc(p_shop, p_tpl, 10, 8, 6, null, 'gold', 10.0, 8.0);
   j2 := (m2 ->> 'job')::uuid;
-  r := pg_temp.wa(m2 ->> 'tokh', m2 ->> 'sc', (m2 ->> 'disc')::uuid, 2, 0.3, 2);
-  v_log := v_log || pg_temp.chk('D4', 'ต้องไม่พัง: ทอง arrive ครบ 2 ชิ้น ชั่งเบากว่าส่วนที่ขาด (0.3 < 2.0) = ok · ส่วนใหม่ weight_in 0.300 · ไม่มีแถว open · ต้นไม้ไม่ drift',
-    (r ->> 'ok') = 'true' and pg_temp.sv(pg_temp.lot(r), 7, 'weight_in_g') = '0.300' and pg_temp.disc_of(j2) is null and pg_temp.dcount(j2) = 0 and pg_temp.sumok(j2));
+  r := pg_temp.wa(m2 ->> 'tokh', m2 ->> 'sc', (m2 ->> 'disc')::uuid, 1, 0.3, 2);
+  v_log := v_log || pg_temp.chk('D4', 'ต้องไม่พัง: ทอง ช่าง arrive "บางส่วน" 1 จาก 2 ชั่งเบากว่าส่วนที่ขาด (0.3 < 2.0) = ok · ส่วนใหม่ weight_in 0.300 · แถวเหลือ gap −1.700 (ยังเห็นว่าขาดอีก 1.7 g) · ธง excess ของใบ = −0.700 (ขาดสุทธิ 1.7 g − สัดส่วนของ 1 ชิ้นที่ยังไม่มา 1.0 g · ไม่ถูกลบ) · ต้นไม้ไม่ drift',
+    (r ->> 'ok') = 'true' and pg_temp.sv(pg_temp.lot(r), 7, 'weight_in_g') = '0.300' and (select weight_gap_g = -1.7 from analytics.job_discrepancy where id = (r ->> 'discrepancy_id')::uuid)
+    and (select tree_weight_gap_excess_g = -0.7 from analytics.v_job_board where id = j2) and pg_temp.dcount(j2) = 0 and pg_temp.sumok(j2));
 
   -- ===== D5 N1: action arrive ของผู้รับ ไม่มีน้ำหนัก/ส่วนที่ขาด · key ตรงชุดที่กำหนด =====
   m2 := pg_temp.mkdisc(p_shop, p_tpl, 10, 8, 6, null, 'gold', 10.0, 8.0);
@@ -1262,14 +1269,89 @@ begin
   -- ===== D8 ส่วนใหม่ของทองเดินต่อได้ (ชั่งส่งต่อ/รับถัดไป/ปิดส่วน) · ปิดใบเดิมที่ทองได้ =====
   m2 := pg_temp.mkdisc(p_shop, p_tpl, 10, 8, 6, null, 'gold', 10.0, 8.0);
   j2 := (m2 ->> 'job')::uuid; th2 := m2 ->> 'tokh'; sC2 := m2 ->> 'sc'; dd2 := (m2 ->> 'disc')::uuid;
-  r := pg_temp.wa(th2, sC2, dd2, 2, 1.5, 2);
+  r := pg_temp.wa(th2, sC2, dd2, 2, 2.0, 2);
   l1 := pg_temp.lot(r);
-  r2 := pg_temp.ws(th2, sC2, 7, l1, null, null, 0, null, 1.5);
-  r3 := pg_temp.wr(th2, sC2, 8, l1, null, 1.5);
-  r4 := pg_temp.ws(th2, sC2, 8, l1, null, null, 0, null, 1.5);
-  v_log := v_log || pg_temp.chk('D8', 'ส่วนใหม่ทอง (2 ชิ้น 1.500 g): ส่งต่อที่ขั้นรับขาดพร้อมน้ำหนัก 1.5 · รับแพ็ก · ส่งแพ็ก · ปิดส่วน (ดี 2 น้ำหนัก 1.5) = ok · ต้นไม้ไม่ drift',
+  r2 := pg_temp.ws(th2, sC2, 7, l1, null, null, 0, null, 2.0);
+  r3 := pg_temp.wr(th2, sC2, 8, l1, null, 2.0);
+  r4 := pg_temp.ws(th2, sC2, 8, l1, null, null, 0, null, 2.0);
+  v_log := v_log || pg_temp.chk('D8', 'ส่วนใหม่ทอง (2 ชิ้น 2.000 g): ส่งต่อที่ขั้นรับขาดพร้อมน้ำหนัก 2.0 · รับแพ็ก · ส่งแพ็ก · ปิดส่วน (ดี 2 น้ำหนัก 2.0) = ok · ต้นไม้ไม่ drift',
     (r ->> 'ok') = 'true' and (r2 ->> 'ok') = 'true' and (r3 ->> 'ok') = 'true' and (r4 ->> 'ok') = 'true'
-    and (pg_temp.o_done(p_shop, l1, 2, 0, 1.5) ->> 'ok') = 'true' and pg_temp.jv(l1, 'status') = 'done' and pg_temp.dcount(j2) = 0 and pg_temp.sdrift(j2) = 0);
+    and (pg_temp.o_done(p_shop, l1, 2, 0, 2.0) ->> 'ok') = 'true' and pg_temp.jv(l1, 'status') = 'done' and pg_temp.dcount(j2) = 0 and pg_temp.sdrift(j2) = 0);
+
+  -- ===== D9 (security H1): ด่านน้ำหนักสองทิศ · ปิดทั้งก้อนเบาเกิน · ไม่มีน้ำหนักอ้างอิง · ตัวนับต่อขั้น · residual_g =====
+  -- D9a ช่างปิดทั้งก้อน (2 จาก 2 · ขาด 2.000 g): เบากว่า 0.3 / 1.94 = arrive_heavy (รหัสเดียวกับหนักเกิน · ข้อความเหมือนกันทุกตัวอักษร) · 1.95 พอดี = ok (ขอบ) · บันทึกทิศใน event (ออฟฟิศเห็น)
+  m4 := pg_temp.mkdisc(p_shop, p_tpl, 10, 8, 6, null, 'gold', 10.0, 8.0);
+  j4 := (m4 ->> 'job')::uuid; th4 := m4 ->> 'tokh'; sC4 := m4 ->> 'sc'; dd4 := (m4 ->> 'disc')::uuid;
+  r := pg_temp.wa(th4, sC4, dd4, 2, 0.3, 2);
+  r2 := pg_temp.wa(th4, sC4, dd4, 2, 1.94, 2);
+  r3 := pg_temp.wa(th4, sC4, dd4, 2, 2.06, 2);
+  r4 := pg_temp.wa(th4, sC4, dd4, 2, 1.95, 2);
+  v_log := v_log || pg_temp.chk('D9a', 'ช่างปิดทั้งก้อนเบากว่าส่วนที่ขาด (0.3 / 1.94 ขาด 2.0) = arrive_heavy · หนักเกิน (2.06) = รหัสและข้อความเดียวกันเป๊ะ (กัน binary search) · 1.95 พอดี = ok · event mismatch 3 รายการ บอกทิศ under/over (ออฟฟิศเห็น ช่างไม่เห็น)',
+    (r ->> 'code') = 'arrive_heavy' and (r2 ->> 'code') = 'arrive_heavy' and (r3 ->> 'code') = 'office_required' and (r4 ->> 'code') = 'office_required'
+    and (select count(*) from analytics.job_event e where e.job_id = j4 and e.payload ->> 'kind' = 'arrive_mismatch' and e.payload ->> 'direction' = 'under') = 2
+    and (select count(*) from analytics.job_event e where e.job_id = j4 and e.payload ->> 'kind' = 'arrive_mismatch' and e.payload ->> 'direction' = 'over') = 1
+    and pg_temp.nlots(j4) = 0);
+  -- (ทดสอบด้านที่ต้องผ่านแยกฟิกซ์เจอร์ ไม่ให้ตัวนับ 3 ครั้งล็อก)
+  m4 := pg_temp.mkdisc(p_shop, p_tpl, 10, 8, 6, null, 'gold', 10.0, 8.0);
+  j4 := (m4 ->> 'job')::uuid; th4 := m4 ->> 'tokh'; sC4 := m4 ->> 'sc'; dd4 := (m4 ->> 'disc')::uuid;
+  r := pg_temp.wa(th4, sC4, dd4, 2, 1.94, 2);
+  r2 := pg_temp.wa(th4, sC4, dd4, 2, 2.06, 2);
+  r3 := pg_temp.wa(th4, sC4, dd4, 2, 1.95, 2);
+  v_log := v_log || pg_temp.chk('D9a2', 'ช่างปิดทั้งก้อน: 1.94 (เบา) และ 2.06 (หนัก) ข้อความเหมือนกันเป๊ะ ไม่มีตัวเลข · 1.95 พอดี (ขอบล่าง) = ok · ต้นไม้ไม่ drift · excess ของใบ = −0.050 (ขาดจริงหลังหักที่เจอ — ธงยังเห็น)',
+    (r ->> 'code') = 'arrive_heavy' and (r2 ->> 'code') = 'arrive_heavy' and (r ->> 'message') = (r2 ->> 'message') and pg_temp.nodigit(r) and pg_temp.nodigit(r2)
+    and (r3 ->> 'ok') = 'true' and pg_temp.dcount(j4) = 0 and pg_temp.sumok(j4)
+    and (select tree_weight_gap_excess_g = -0.05 from analytics.v_job_board where id = j4));
+  -- D9b ออฟฟิศปิดทั้งก้อนเบาเกิน = ผ่านได้ + residual_g ใน event + ธง excess ของใบ −1.700 (ทองหายสุทธิ ไม่ถูกลบ) · ออฟฟิศหนักเกิน = ยังปฏิเสธ
+  m4 := pg_temp.mkdisc(p_shop, p_tpl, 10, 8, 6, null, 'gold', 10.0, 8.0);
+  j4 := (m4 ->> 'job')::uuid; dd4 := (m4 ->> 'disc')::uuid;
+  r := pg_temp.oa(p_shop, dd4, 2, 2.06);
+  r2 := pg_temp.oa(p_shop, dd4, 2, 0.3, null, null, 2);
+  v_log := v_log || pg_temp.chk('D9b', 'ออฟฟิศปิดทั้งก้อน: หนักเกิน (2.06) = ปฏิเสธ arrive_heavy · เบากว่า (0.3) = ok · event discrepancy_arrive มี residual_g 1.700 · แถว arrived เก็บ gap −3.700 (excess −1.700) · ธง tree_weight_gap_excess_g = −1.700 (ทองหาย 1.7 g ยังเห็น) · ไม่มีแถว open ค้าง · ต้นไม้ไม่ drift',
+    pg_temp.rej(r, 'arrive_heavy') and (r2 ->> 'ok') = 'true'
+    and exists (select 1 from analytics.job_event where job_id = j4 and event_type = 'discrepancy_arrive' and (payload ->> 'residual_g')::numeric = 1.7 and (payload ->> 'weight_g')::numeric = 0.3)
+    and (select weight_gap_g = -3.7 and weight_sent_g = 10 and qty_sent = 10 from analytics.job_discrepancy where id = (r2 ->> 'arrived_id')::uuid)
+    and (select tree_weight_gap_excess_g = -1.7 from analytics.v_job_board where id = j4)
+    and pg_temp.disc_of(j4) is null and pg_temp.dcount(j4) = 0 and pg_temp.sumok(j4));
+  -- D9c ไม่มีน้ำหนักอ้างอิง (ทอง · ขั้นที่รับขาดตั้งชั่ง · ขั้นก่อนไม่ชั่ง): ช่างทำไม่ได้ office_required + action arrive ตั้ง office_only · ออฟฟิศผ่านได้ (ไม่มีเพดาน/ไม่มี residual_g)
+  pq := (pg_temp.pu(p_shop, null, 'vfy-ชั่งเฉพาะ QC', null, '[{"stage_code":"qc","weigh":true}]') ->> 'id')::uuid;
+  d := pg_temp.fx(p_shop, p_tpl, pq, 10, 6, 'gold');
+  j4 := pg_temp.jid(d); th4 := d ->> 'tokh';
+  wC := pg_temp.wcv(p_shop); sC4 := pg_temp.sess(th4, wC, '2468');
+  r6 := pg_temp.wr(th4, sC4, 7, null, 8, 8.0);
+  dd4 := pg_temp.disc_of(j4);
+  r := pg_temp.wa(th4, sC4, dd4, 1, 1.0, 2);
+  r2 := pg_temp.oa(p_shop, dd4, 1, 99.0, null, null, 2);
+  v_log := v_log || pg_temp.chk('D9c', 'ไม่มีน้ำหนักอ้างอิง: ผู้รับรับ 8 จาก 10 ได้ (ขั้นก่อนไม่ชั่ง) · action arrive ตั้ง office_only · ช่างกด arrive = office_required (ข้อความไม่มีตัวเลข) · ออฟฟิศกรอกได้ (ไม่มีเพดานให้เทียบ) · residual_g ว่าง · ไม่เกิดส่วนจากฝั่งช่าง',
+    (r6 ->> 'ok') = 'true' and dd4 is not null and (select weight_gap_g is null from analytics.job_discrepancy where id = dd4)
+    and coalesce((pg_temp.arr_act(pg_temp.w_res(th4, sC4)) ->> 'office_only') = 'true', false)
+    and (r ->> 'code') = 'office_required' and pg_temp.nodigit(r) and (r2 ->> 'ok') = 'true'
+    and exists (select 1 from analytics.job_event where job_id = j4 and event_type = 'discrepancy_arrive' and payload ? 'residual_g' and (payload -> 'residual_g') = 'null'::jsonb)
+    and pg_temp.nlots(j4) = 1);
+  -- D9d ตัวนับ 3 ครั้งนับต่อขั้น (ไม่ใช่ต่อแถวส่วนต่าง): ชั่งไม่ตรง 2 ครั้ง → arrive บางส่วนที่ถูกต้อง (สร้างแถวส่วนต่างใหม่) → ไม่ตรงอีก 1 ครั้ง = ครั้งที่ 3 ของขั้น = office_required · แล้วชั่งถูกก็ล็อก
+  m4 := pg_temp.mkdisc(p_shop, p_tpl, 10, 8, 6, null, 'gold', 10.0, 8.0);
+  j4 := (m4 ->> 'job')::uuid; th4 := m4 ->> 'tokh'; sC4 := m4 ->> 'sc'; dd4 := (m4 ->> 'disc')::uuid;
+  r := pg_temp.wa(th4, sC4, dd4, 1, 2.06, 2);
+  r2 := pg_temp.wa(th4, sC4, dd4, 1, 5.0, 2);
+  r3 := pg_temp.wa(th4, sC4, dd4, 1, 1.0, 2);
+  rem := (r3 ->> 'discrepancy_id')::uuid;
+  r4 := pg_temp.wa(th4, sC4, rem, 1, 5.0, 1);
+  r5 := pg_temp.wa(th4, sC4, rem, 1, 1.0, 1);
+  v_log := v_log || pg_temp.chk('D9d', 'ตัวนับต่อขั้น: ไม่ตรง 2 ครั้ง (arrive_heavy) → arrive บางส่วนที่ถูก 1.0 = ok (แถวส่วนต่างใหม่) → ไม่ตรงอีกครั้งบนแถวใหม่ = office_required (ครั้งที่ 3 ของขั้น) → ชั่งถูก 1.0 ก็ล็อก (office_required) · ไม่เกินส่วนที่ 1',
+    (r ->> 'code') = 'arrive_heavy' and (r2 ->> 'code') = 'arrive_heavy' and (r3 ->> 'ok') = 'true' and rem is not null and rem <> dd4
+    and (r4 ->> 'code') = 'office_required' and (r5 ->> 'code') = 'office_required' and pg_temp.nlots(j4) = 1);
+
+  -- ===== D10 (security M2): เพดานสำรอง (ไม่มี gap บนแถว แต่ทั้งสองขั้นมีน้ำหนัก) หักน้ำหนักที่ arrive ไปแล้วของคู่ขั้น =====
+  m4 := pg_temp.mkdisc(p_shop, p_tpl, 10, 8, 6, null, 'gold', 10.0, 8.0);
+  j4 := (m4 ->> 'job')::uuid; th4 := m4 ->> 'tokh'; sC4 := m4 ->> 'sc'; dd4 := (m4 ->> 'disc')::uuid;
+  r := pg_temp.wa(th4, sC4, dd4, 1, 1.0, 2);
+  rem := (r ->> 'discrepancy_id')::uuid;
+  execute 'alter table analytics.job_discrepancy disable trigger trg_job_discrepancy_guard';
+  update analytics.job_discrepancy set weight_gap_g = null, weight_sent_g = null, qty_sent = null where id = rem;
+  execute 'alter table analytics.job_discrepancy enable trigger trg_job_discrepancy_guard';
+  r2 := pg_temp.wa(th4, sC4, rem, 1, 1.06, 1);
+  r3 := pg_temp.wa(th4, sC4, rem, 1, 1.05, 1);
+  v_log := v_log || pg_temp.chk('D10', 'เพดานสำรอง (แถวไม่มี gap · ส่งออก 10 − รับเข้า 8 = ขาด 2.0 หักที่ arrive แล้ว 1.0 = เหลือ 1.0): 1.06 = arrive_heavy · 1.05 = ok (ถ้าไม่หักที่ arrive ไปแล้ว เพดาน 2.05 จะปล่อย 1.06 ผ่าน)',
+    (r ->> 'ok') = 'true' and (r2 ->> 'code') = 'arrive_heavy' and (r3 ->> 'ok') = 'true' and pg_temp.nlots(j4) = 2);
   return v_log;
 end;
 $s$;
@@ -1381,8 +1463,8 @@ begin
     not exists (select 1 from pg_proc p where p.pronamespace = 'analytics'::regnamespace and p.proname = any (v_names) and not exists (select 1 from unnest(coalesce(p.proconfig, '{}')) c where c like 'search_path=%'))
     and (select bool_and(prosecdef) from pg_proc where pronamespace = 'analytics'::regnamespace and proname in ('job_discrepancy_arrive', 'job_worker_discrepancy_arrive', 'job_done', 'job_worker_resolve'))
     and not (select prosecdef from pg_proc where pronamespace = 'analytics'::regnamespace and proname = 'job_discrepancy_arrive_core'));
-  v_log := v_log || pg_temp.chk('F6', 'โครงสร้าง: job_done_ck นับ job_arrived_qty · jd_kind_ck มี arrived · job_event_event_type_ck มี discrepancy_arrive + photo_* (ไม่หลุดของ 0182) · uq_job_stage_arrive · js_arrive_fk · js_arrive_split_ck · trigger ส่วนต่างเปิด 2 ตัว',
-    exists (select 1 from pg_constraint where conrelid = 'analytics.job'::regclass and conname = 'job_done_ck' and pg_get_constraintdef(oid) like '%job_arrived_qty%')
+  v_log := v_log || pg_temp.chk('F6', 'โครงสร้าง: job_done_ck เป็น <= qty_planned ไม่เรียกฟังก์ชัน (M1) · jd_kind_ck มี arrived · job_event_event_type_ck มี discrepancy_arrive + photo_* (ไม่หลุดของ 0182) · uq_job_stage_arrive · js_arrive_fk · js_arrive_split_ck · trigger ส่วนต่างเปิด 2 ตัว',
+    exists (select 1 from pg_constraint where conrelid = 'analytics.job'::regclass and conname = 'job_done_ck' and pg_get_constraintdef(oid) like '%<= qty_planned%' and pg_get_constraintdef(oid) not like '%job_arrived_qty%')
     and exists (select 1 from pg_constraint where conrelid = 'analytics.job_discrepancy'::regclass and conname = 'jd_kind_ck' and pg_get_constraintdef(oid) like '%arrived%')
     and exists (select 1 from pg_constraint where conrelid = 'analytics.job_event'::regclass and conname = 'job_event_event_type_ck' and pg_get_constraintdef(oid) like '%discrepancy_arrive%'
                 and pg_get_constraintdef(oid) like '%photo_add%' and pg_get_constraintdef(oid) like '%photo_reorder%' and pg_get_constraintdef(oid) like '%split_cancel%')
@@ -1476,37 +1558,45 @@ declare
     jsonb_build_object('id', 'MU-20', 'what', 'core: ผู้ถือที่ออฟฟิศเลือกไม่ถูกใช้ (ใช้ผู้รับเดิมเสมอ)', 'fn', 'job_discrepancy_arrive_core', 'from', 'coalesce(p_holder_worker, case when p_channel = ''worker_qr''', 'to', 'coalesce(null::uuid, case when p_channel = ''worker_qr''', 'expect', jsonb_build_array('A7a', 'D2b')),
     jsonb_build_object('id', 'MU-21', 'what', 'core: เลือกช่างที่ปิดใช้งานเป็นผู้ถือได้', 'fn', 'job_discrepancy_arrive_core', 'from', 'and w.is_active;', 'to', ';', 'expect', jsonb_build_array('B8')),
     jsonb_build_object('id', 'MU-22', 'what', 'core: arrive บางส่วนไม่สร้างแถว open ที่เหลือ (ชิ้นหายจากบัญชี)', 'fn', 'job_discrepancy_arrive_core', 'from', 'if v_rem_qty > 0 then', 'to', 'if false then', 'expect', jsonb_build_array('A2b', 'A3', 'A2e')),
-    jsonb_build_object('id', 'MU-23', 'what', 'core: gap ที่เหลือไม่หักน้ำหนักที่มาถึง', 'fn', 'job_discrepancy_arrive_core', 'from', 'v_d.weight_gap_g + coalesce(p_weight, 0)', 'to', 'v_d.weight_gap_g', 'expect', jsonb_build_array('D3a', 'D3b')),
-    jsonb_build_object('id', 'MU-24', 'what', 'core: ส่วนใหม่ไม่เก็บน้ำหนักรับเข้า', 'fn', 'job_discrepancy_arrive_core', 'from', 'weight_in_g = case when v_gold_w then p_weight end', 'to', 'weight_in_g = null', 'expect', jsonb_build_array('D3a', 'D2b')),
-    jsonb_build_object('id', 'MU-25', 'what', 'core: ขั้นที่รับขาดของส่วนใหม่ถูกข้ามด้วย (รับขาดไม่ได้ received)', 'fn', 'job_discrepancy_arrive_core', 'from', 'if r.seq < v_ts.seq then', 'to', 'if r.seq <= v_ts.seq then', 'expect', jsonb_build_array('A2c')),
-    jsonb_build_object('id', 'MU-26', 'what', 'core: ส่วนใหม่ไม่ผูกส่วนต่าง (arrive_discrepancy_id ว่าง)', 'fn', 'job_discrepancy_arrive_core', 'from', 'case when r.id = v_ts.id then v_arr end', 'to', 'case when r.id = v_ts.id then null end', 'expect', jsonb_build_array('A2c')),
-    jsonb_build_object('id', 'MU-27', 'what', 'core: จำนวนที่วางแผนของส่วนใหม่เกิน arrive 1 ชิ้น', 'fn', 'job_discrepancy_arrive_core', 'from', 'v_root.metal, p_qty, p_qty, v_weigh,', 'to', 'v_root.metal, p_qty + 1, p_qty, v_weigh,', 'expect', jsonb_build_array('A2c', 'A2e')),
-    jsonb_build_object('id', 'MU-28', 'what', 'core: ไม่บันทึก event discrepancy_arrive (ใช้ note)', 'fn', 'job_discrepancy_arrive_core', 'from', '''discrepancy_arrive'', v_on', 'to', '''note'', v_on', 'expect', jsonb_build_array('A2d')),
-    jsonb_build_object('id', 'MU-29', 'what', 'worker RPC: ช่างชี้ส่วนต่างของใบอื่นได้ (ถอดตรวจใบแม่ของ token)', 'fn', 'job_worker_discrepancy_arrive', 'from', 'or not exists (select 1 from analytics.job_discrepancy d where d.id = p_discrepancy_id and d.root_job_id = v_root) then', 'to', 'then', 'expect', jsonb_build_array('B3a')),
-    jsonb_build_object('id', 'MU-30', 'what', 'office RPC: ส่วนต่างของร้านอื่นผ่าน (ถอดตรวจ shop)', 'fn', 'job_discrepancy_arrive', 'from', 'where id = p_discrepancy_id and shop_id = p_shop_id;', 'to', 'where id = p_discrepancy_id;', 'expect', jsonb_build_array('B3b')),
-    jsonb_build_object('id', 'MU-31', 'what', 'job_done: ปิดใบที่มี arrived ไม่นับ arrived (ดี+เสีย ≠ เริ่มผลิต)', 'fn', 'job_done', 'from', 'p_qty_good + p_qty_scrap + v_job.qty_split_out + analytics.job_arrived_qty(p_job_id) <> v_job.qty_planned', 'to', 'p_qty_good + p_qty_scrap + v_job.qty_split_out <> v_job.qty_planned', 'expect', jsonb_build_array('A5a')),
-    jsonb_build_object('id', 'MU-32', 'what', 'job_identity_gap: ใบ done ไม่นับ arrived (drift ค้างหลังปิด)', 'fn', 'job_identity_gap', 'from', 'j.qty_split_out + analytics.job_arrived_qty(j.id))', 'to', 'j.qty_split_out)', 'expect', jsonb_build_array('A5b')),
-    jsonb_build_object('id', 'MU-33', 'what', 'resolve: ทุกช่างเห็น action arrive (ถอดผู้รับ/สถานะ)', 'fn', 'job_worker_resolve', 'from', 'and ts.worker_id = v_worker and ts.status in (''received'', ''sent'')', 'to', 'and true', 'expect', jsonb_build_array('A1')),
-    jsonb_build_object('id', 'MU-34', 'what', 'resolve: action arrive ไม่บอกว่าต้องชั่ง (ทอง)', 'fn', 'job_worker_resolve', 'from', '(p.metal = ''gold'' and ts.weigh_required) as w_req', 'to', 'false as w_req', 'expect', jsonb_build_array('D5', 'D0')),
-    jsonb_build_object('id', 'MU-35', 'what', 'core: flag app.job_arrive ไม่ล้างหลังใช้ (เปิดค้างทั้งทรานแซกชัน)', 'fn', 'job_discrepancy_arrive_core', 'from', 'perform set_config(''app.job_arrive'', ''off'', true);', 'to', '', 'expect', jsonb_build_array('C4c', 'C4d')),
-    jsonb_build_object('id', 'MU-36', 'what', 'guard: เขียนแถว open ตอนขั้นผู้รับ received ได้โดยไม่ผ่านเส้น arrive', 'fn', 'job_discrepancy_guard', 'from', '(v_arr and v_t.status in (''received'', ''sent''))', 'to', '(v_t.status in (''received'', ''sent''))', 'expect', jsonb_build_array('C4d')),
-    jsonb_build_object('id', 'MU-37', 'what', 'guard: UPDATE แถว open → arrived ตรงได้', 'fn', 'job_discrepancy_guard', 'from', 'if new.resolved_kind = ''arrived'' then', 'to', 'if false then', 'expect', jsonb_build_array('C4a')),
-    jsonb_build_object('id', 'MU-38', 'what', 'guard: void แถว arrived ได้', 'fn', 'job_discrepancy_guard', 'from', 'if v_o.resolved_kind = ''arrived'' then', 'to', 'if false then', 'expect', jsonb_build_array('C4b')),
-    jsonb_build_object('id', 'MU-39', 'what', 'guard: INSERT แถว arrived ตรงได้โดยไม่ผ่านเส้น arrive', 'fn', 'job_discrepancy_guard', 'from', 'elsif new.status = ''resolved'' and v_arr and new.resolved_kind = ''arrived'' then', 'to', 'elsif new.status = ''resolved'' and new.resolved_kind = ''arrived'' then', 'expect', jsonb_build_array('C4c')),
-    jsonb_build_object('id', 'MU-40', 'what', 'stage guard: UPDATE arrive_discrepancy_id ของขั้นได้', 'fn', 'job_stage_guard', 'from', 'or new.arrive_discrepancy_id is distinct from old.arrive_discrepancy_id then', 'to', 'then', 'expect', jsonb_build_array('C4g')),
-    jsonb_build_object('id', 'MU-41', 'what', 'stage guard: ย้อนขั้นรับขาดของส่วนจาก arrive ได้', 'fn', 'job_stage_guard', 'from', 'old.split_from_stage_id is not null or old.arrive_discrepancy_id is not null', 'to', 'old.split_from_stage_id is not null', 'expect', jsonb_build_array('C4f')),
-    jsonb_build_object('id', 'MU-42', 'what', 'stage guard: ส่วนจาก arrive ที่ขั้นแพ็กข้าม QC ไม่ได้', 'fn', 'job_stage_guard', 'from', 'x.seq > new.seq and (x.split_from_stage_id is not null or x.arrive_discrepancy_id is not null)', 'to', 'x.seq > new.seq and (x.split_from_stage_id is not null)', 'expect', jsonb_build_array('A6')),
-    jsonb_build_object('id', 'MU-43', 'what', 'lot_cancel_core: event ฝั่งแม่ของส่วนจาก arrive ผูกใบแม่ไม่ได้ (กลับไปใช้ขั้นแยกเสมอ → ล้ม)', 'fn', 'job_lot_cancel_core', 'from', 'coalesce(v_ms.job_id, v_l.parent_job_id)', 'to', 'v_ms.job_id', 'expect', jsonb_build_array('A4b')),
-    jsonb_build_object('id', 'MU-44', 'what', 'lot_cancel_core: ส่วนที่แยกตามปกติไม่เก็บ before ของขั้นแม่', 'fn', 'job_lot_cancel_core', 'from', '''before'', case when v_ms.id is not null then analytics.job_stage_state(v_ms) end,', 'to', '''before'', null,', 'expect', jsonb_build_array('C3b')),
-    jsonb_build_object('id', 'MU-45', 'what', 'v_job_tree: นับ arrived ซ้ำเป็น ''ชี้แจงแล้ว'' ที่ระดับต้นไม้ (นับสองรอบ)', 'view', 'v_job_tree', 'from', '(dq.resolved_kind IS DISTINCT FROM ''arrived''::text)', 'to', 'true', 'expect', jsonb_build_array('A2e', 'A3')),
-    jsonb_build_object('id', 'MU-46', 'what', 'drift tree_sum: ไม่บวก arrived (ต้นไม้ที่ถูกต้องถูกแจ้ง drift)', 'view', 'v_job_tree_drift', 'from', '(ad.resolved_kind = ''arrived''::text)', 'to', '(false)', 'expect', jsonb_build_array('A2e', 'A3')),
-    jsonb_build_object('id', 'MU-47', 'what', 'drift arrive_link: ถอดการตรวจ arrived ↔ ส่วนใหม่', 'view', 'v_job_tree_drift', 'from', '(d.resolved_kind = ''arrived''::text)', 'to', '(false)', 'expect', jsonb_build_array('E1', 'E2', 'E3', 'E4')),
-    jsonb_build_object('id', 'MU-48', 'what', 'drift lot_split_stage: ไม่นับขั้น arrive เป็นขั้นแยก', 'view', 'v_job_tree_drift', 'from', '((s.split_from_stage_id IS NOT NULL) OR (s.arrive_discrepancy_id IS NOT NULL))', 'to', '(s.split_from_stage_id IS NOT NULL)', 'expect', jsonb_build_array('A2e', 'E0')),
-    jsonb_build_object('id', 'MU-49', 'what', 'job_done_ck: ถอดการนับ arrived (ปิดใบที่มีส่วนได้รับเพิ่มไม่ได้ — constraint ชนสมการ)', 'ddl', 'alter table analytics.job drop constraint job_done_ck; alter table analytics.job add constraint job_done_ck check (status <> ''done'' or (done_at is not null and qty_good is not null and qty_scrap is not null and (qty_good + qty_scrap + qty_split_out) = qty_planned and (metal <> ''gold'' or not weigh_required or weight_final_g is not null) and (not require_final_weight or weight_final_g is not null)))', 'expect', jsonb_build_array('A5a')),
-    jsonb_build_object('id', 'MU-50', 'what', 'สิทธิ์: เปิด RPC ช่างให้ authenticated', 'ddl', 'grant execute on function analytics.job_worker_discrepancy_arrive(text, text, uuid, integer, numeric, integer, text, text) to authenticated', 'expect', jsonb_build_array('F2', 'F3')),
-    jsonb_build_object('id', 'MU-51', 'what', 'สิทธิ์: เปิด RPC ออฟฟิศให้ anon', 'ddl', 'grant execute on function analytics.job_discrepancy_arrive(uuid, uuid, integer, numeric, date, uuid, uuid, integer) to anon', 'expect', jsonb_build_array('F2', 'F3')),
-    jsonb_build_object('id', 'MU-52', 'what', 'สิทธิ์: เปิด core ภายในให้ service_role', 'ddl', 'grant execute on function analytics.job_discrepancy_arrive_core(uuid, integer, numeric, date, uuid, integer, uuid, text, uuid, text, boolean) to service_role', 'expect', jsonb_build_array('F1')),
-    jsonb_build_object('id', 'MU-53', 'what', 'โครงสร้าง: ถอด unique ของ arrive_discrepancy_id (ส่วนใหม่ซ้ำต่อส่วนต่างเดียว)', 'ddl', 'drop index analytics.uq_job_stage_arrive', 'expect', jsonb_build_array('F6'))
+    jsonb_build_object('id', 'MU-23', 'what', 'core: gap ที่เหลือไม่หักน้ำหนักที่มาถึง', 'fn', 'job_discrepancy_arrive_core', 'from', 'then v_d.weight_gap_g + v_w_eff end;', 'to', 'then v_d.weight_gap_g end;', 'expect', jsonb_build_array('D3a', 'D3b')),
+    jsonb_build_object('id', 'MU-24', 'what', 'H1: ช่างปิดทั้งก้อนเบากว่าส่วนที่ขาดเกิน 0.05 ผ่าน (ธงทองหายถูกลบเงียบ)', 'fn', 'job_discrepancy_arrive_core', 'from', '(p_channel = ''worker_qr'' and p_qty = v_d.qty and p_weight < v_missing - 0.05)', 'to', 'false', 'expect', jsonb_build_array('D9a', 'D9a2')),
+    jsonb_build_object('id', 'MU-25', 'what', 'H1: ออฟฟิศก็ถูกด่านเบาเกินด้วย (ควรผ่านได้ + บันทึก residual)', 'fn', 'job_discrepancy_arrive_core', 'from', '(p_channel = ''worker_qr'' and p_qty = v_d.qty and p_weight < v_missing - 0.05)', 'to', '(p_qty = v_d.qty and p_weight < v_missing - 0.05)', 'expect', jsonb_build_array('D9b')),
+    jsonb_build_object('id', 'MU-26', 'what', 'H1: ไม่มีน้ำหนักอ้างอิง ช่างผ่านได้ (ชั่งอะไรก็ได้)', 'fn', 'job_discrepancy_arrive_core', 'from', 'if v_missing is null and p_channel = ''worker_qr'' then', 'to', 'if false then', 'expect', jsonb_build_array('D9c')),
+    jsonb_build_object('id', 'MU-27', 'what', 'H1: ไม่บันทึก residual_g ของออฟฟิศ', 'fn', 'job_discrepancy_arrive_core', 'from', '''residual_g'', case when v_gold_w and v_missing is not null then round(v_missing - p_weight, 3) end', 'to', '''residual_g'', null', 'expect', jsonb_build_array('D9b')),
+    jsonb_build_object('id', 'MU-28', 'what', 'H1: ตัวนับ 3 ครั้งนับตามแถวส่วนต่าง (arrive บางส่วนรีเซ็ตตัวนับ — ไล่เดาต่อได้)', 'fn', 'job_discrepancy_arrive_core', 'from', 'e.job_stage_id = v_ts.id', 'to', 'e.payload ->> ''discrepancy_id'' = v_d.id::text', 'expect', jsonb_build_array('D9d')),
+    jsonb_build_object('id', 'MU-29', 'what', 'H1: แถว arrived ไม่เก็บน้ำหนัก (ธง excess ของใบถูกลบด้วยการกด arrive)', 'fn', 'job_discrepancy_arrive_core', 'from', 'p_actor_worker, p_actor, v_arr_gap, case when v_arr_gap is not null then v_d.weight_sent_g end, case when v_arr_gap is not null then v_d.qty_sent end)', 'to', 'p_actor_worker, p_actor, null, null, null)', 'expect', jsonb_build_array('D3a', 'D9b')),
+    jsonb_build_object('id', 'MU-30', 'what', 'M2: เพดานสำรองไม่หักน้ำหนักที่ arrive ไปแล้ว', 'fn', 'job_discrepancy_arrive_core', 'from', '(v_fs.weight_out_g - v_ts.weight_in_g) - v_found end;', 'to', '(v_fs.weight_out_g - v_ts.weight_in_g) end;', 'expect', jsonb_build_array('D10')),
+    jsonb_build_object('id', 'MU-31', 'what', 'H1: resolve ไม่ตั้ง office_only เมื่อไม่มีน้ำหนักอ้างอิง', 'fn', 'job_worker_resolve', 'from', '(p.metal = ''gold'' and ts.weigh_required and dd.weight_gap_g is null and not (fs3.weight_out_g is not null and ts.weight_in_g is not null)) as ref_missing', 'to', 'false as ref_missing', 'expect', jsonb_build_array('D9c')),
+    jsonb_build_object('id', 'MU-32', 'what', 'core: ส่วนใหม่ไม่เก็บน้ำหนักรับเข้า', 'fn', 'job_discrepancy_arrive_core', 'from', 'weight_in_g = case when v_gold_w then p_weight end', 'to', 'weight_in_g = null', 'expect', jsonb_build_array('D3a', 'D2b')),
+    jsonb_build_object('id', 'MU-33', 'what', 'core: ขั้นที่รับขาดของส่วนใหม่ถูกข้ามด้วย (รับขาดไม่ได้ received)', 'fn', 'job_discrepancy_arrive_core', 'from', 'if r.seq < v_ts.seq then', 'to', 'if r.seq <= v_ts.seq then', 'expect', jsonb_build_array('A2c')),
+    jsonb_build_object('id', 'MU-34', 'what', 'core: ส่วนใหม่ไม่ผูกส่วนต่าง (arrive_discrepancy_id ว่าง)', 'fn', 'job_discrepancy_arrive_core', 'from', 'case when r.id = v_ts.id then v_arr end', 'to', 'case when r.id = v_ts.id then null end', 'expect', jsonb_build_array('A2c')),
+    jsonb_build_object('id', 'MU-35', 'what', 'core: จำนวนที่วางแผนของส่วนใหม่เกิน arrive 1 ชิ้น', 'fn', 'job_discrepancy_arrive_core', 'from', 'v_root.metal, p_qty, p_qty, v_weigh,', 'to', 'v_root.metal, p_qty + 1, p_qty, v_weigh,', 'expect', jsonb_build_array('A2c', 'A2e')),
+    jsonb_build_object('id', 'MU-36', 'what', 'core: ไม่บันทึก event discrepancy_arrive (ใช้ note)', 'fn', 'job_discrepancy_arrive_core', 'from', '''discrepancy_arrive'', v_on', 'to', '''note'', v_on', 'expect', jsonb_build_array('A2d')),
+    jsonb_build_object('id', 'MU-37', 'what', 'worker RPC: ช่างชี้ส่วนต่างของใบอื่นได้ (ถอดตรวจใบแม่ของ token)', 'fn', 'job_worker_discrepancy_arrive', 'from', 'or not exists (select 1 from analytics.job_discrepancy d where d.id = p_discrepancy_id and d.root_job_id = v_root) then', 'to', 'then', 'expect', jsonb_build_array('B3a')),
+    jsonb_build_object('id', 'MU-38', 'what', 'office RPC: ส่วนต่างของร้านอื่นผ่าน (ถอดตรวจ shop)', 'fn', 'job_discrepancy_arrive', 'from', 'where id = p_discrepancy_id and shop_id = p_shop_id;', 'to', 'where id = p_discrepancy_id;', 'expect', jsonb_build_array('B3b')),
+    jsonb_build_object('id', 'MU-39', 'what', 'job_done: ปิดใบที่มี arrived ไม่นับ arrived (ดี+เสีย ≠ เริ่มผลิต)', 'fn', 'job_done', 'from', 'p_qty_good + p_qty_scrap + v_job.qty_split_out + analytics.job_arrived_qty(p_job_id) <> v_job.qty_planned', 'to', 'p_qty_good + p_qty_scrap + v_job.qty_split_out <> v_job.qty_planned', 'expect', jsonb_build_array('A5a')),
+    jsonb_build_object('id', 'MU-40', 'what', 'job_identity_gap: ใบ done ไม่นับ arrived (drift ค้างหลังปิด)', 'fn', 'job_identity_gap', 'from', 'j.qty_split_out + analytics.job_arrived_qty(j.id))', 'to', 'j.qty_split_out)', 'expect', jsonb_build_array('A5b')),
+    jsonb_build_object('id', 'MU-41', 'what', 'resolve: ทุกช่างเห็น action arrive (ถอดผู้รับ/สถานะ)', 'fn', 'job_worker_resolve', 'from', 'and ts.worker_id = v_worker and ts.status in (''received'', ''sent'')', 'to', 'and true', 'expect', jsonb_build_array('A1')),
+    jsonb_build_object('id', 'MU-42', 'what', 'resolve: action arrive ไม่บอกว่าต้องชั่ง (ทอง)', 'fn', 'job_worker_resolve', 'from', '(p.metal = ''gold'' and ts.weigh_required) as w_req', 'to', 'false as w_req', 'expect', jsonb_build_array('D5', 'D0')),
+    jsonb_build_object('id', 'MU-43', 'what', 'core: flag app.job_arrive ไม่ล้างหลังใช้ (เปิดค้างทั้งทรานแซกชัน)', 'fn', 'job_discrepancy_arrive_core', 'from', 'perform set_config(''app.job_arrive'', ''off'', true);', 'to', '', 'expect', jsonb_build_array('C4c', 'C4d')),
+    jsonb_build_object('id', 'MU-44', 'what', 'guard: เขียนแถว open ตอนขั้นผู้รับ received ได้โดยไม่ผ่านเส้น arrive', 'fn', 'job_discrepancy_guard', 'from', '(v_arr and v_t.status in (''received'', ''sent''))', 'to', '(v_t.status in (''received'', ''sent''))', 'expect', jsonb_build_array('C4d')),
+    jsonb_build_object('id', 'MU-45', 'what', 'guard: UPDATE แถว open → arrived ตรงได้', 'fn', 'job_discrepancy_guard', 'from', 'if new.resolved_kind = ''arrived'' then', 'to', 'if false then', 'expect', jsonb_build_array('C4a')),
+    jsonb_build_object('id', 'MU-46', 'what', 'guard: void แถว arrived ได้', 'fn', 'job_discrepancy_guard', 'from', 'if v_o.resolved_kind = ''arrived'' then', 'to', 'if false then', 'expect', jsonb_build_array('C4b')),
+    jsonb_build_object('id', 'MU-47', 'what', 'guard: INSERT แถว arrived ตรงได้โดยไม่ผ่านเส้น arrive', 'fn', 'job_discrepancy_guard', 'from', 'elsif new.status = ''resolved'' and v_arr and new.resolved_kind = ''arrived'' then', 'to', 'elsif new.status = ''resolved'' and new.resolved_kind = ''arrived'' then', 'expect', jsonb_build_array('C4c')),
+    jsonb_build_object('id', 'MU-48', 'what', 'stage guard: UPDATE arrive_discrepancy_id ของขั้นได้', 'fn', 'job_stage_guard', 'from', 'or new.arrive_discrepancy_id is distinct from old.arrive_discrepancy_id then', 'to', 'then', 'expect', jsonb_build_array('C4g')),
+    jsonb_build_object('id', 'MU-49', 'what', 'stage guard: ย้อนขั้นรับขาดของส่วนจาก arrive ได้', 'fn', 'job_stage_guard', 'from', 'old.split_from_stage_id is not null or old.arrive_discrepancy_id is not null', 'to', 'old.split_from_stage_id is not null', 'expect', jsonb_build_array('C4f')),
+    jsonb_build_object('id', 'MU-50', 'what', 'stage guard: ส่วนจาก arrive ที่ขั้นแพ็กข้าม QC ไม่ได้', 'fn', 'job_stage_guard', 'from', 'x.seq > new.seq and (x.split_from_stage_id is not null or x.arrive_discrepancy_id is not null)', 'to', 'x.seq > new.seq and (x.split_from_stage_id is not null)', 'expect', jsonb_build_array('A6')),
+    jsonb_build_object('id', 'MU-51', 'what', 'lot_cancel_core: event ฝั่งแม่ของส่วนจาก arrive ผูกใบแม่ไม่ได้ (กลับไปใช้ขั้นแยกเสมอ → ล้ม)', 'fn', 'job_lot_cancel_core', 'from', 'coalesce(v_ms.job_id, v_l.parent_job_id)', 'to', 'v_ms.job_id', 'expect', jsonb_build_array('A4b')),
+    jsonb_build_object('id', 'MU-52', 'what', 'lot_cancel_core: ส่วนที่แยกตามปกติไม่เก็บ before ของขั้นแม่', 'fn', 'job_lot_cancel_core', 'from', '''before'', case when v_ms.id is not null then analytics.job_stage_state(v_ms) end,', 'to', '''before'', null,', 'expect', jsonb_build_array('C3b')),
+    jsonb_build_object('id', 'MU-53', 'what', 'v_job_tree: นับ arrived ซ้ำเป็น ''ชี้แจงแล้ว'' ที่ระดับต้นไม้ (นับสองรอบ)', 'view', 'v_job_tree', 'from', '(dq.resolved_kind IS DISTINCT FROM ''arrived''::text)', 'to', 'true', 'expect', jsonb_build_array('A2e', 'A3')),
+    jsonb_build_object('id', 'MU-54', 'what', 'drift tree_sum: ไม่บวก arrived (ต้นไม้ที่ถูกต้องถูกแจ้ง drift)', 'view', 'v_job_tree_drift', 'from', '(ad.resolved_kind = ''arrived''::text)', 'to', '(false)', 'expect', jsonb_build_array('A2e', 'A3')),
+    jsonb_build_object('id', 'MU-55', 'what', 'drift arrive_link: ถอดการตรวจ arrived ↔ ส่วนใหม่', 'view', 'v_job_tree_drift', 'from', '(d.resolved_kind = ''arrived''::text)', 'to', '(false)', 'expect', jsonb_build_array('E1', 'E2', 'E3', 'E4')),
+    jsonb_build_object('id', 'MU-56', 'what', 'drift lot_split_stage: ไม่นับขั้น arrive เป็นขั้นแยก', 'view', 'v_job_tree_drift', 'from', '((s.split_from_stage_id IS NOT NULL) OR (s.arrive_discrepancy_id IS NOT NULL))', 'to', '(s.split_from_stage_id IS NOT NULL)', 'expect', jsonb_build_array('A2e', 'E0')),
+    jsonb_build_object('id', 'MU-57', 'what', 'job_done_ck: ถอดการนับ arrived (ปิดใบที่มีส่วนได้รับเพิ่มไม่ได้ — constraint ชนสมการ)', 'ddl', 'alter table analytics.job drop constraint job_done_ck; alter table analytics.job add constraint job_done_ck check (status <> ''done'' or (done_at is not null and qty_good is not null and qty_scrap is not null and (qty_good + qty_scrap + qty_split_out) = qty_planned and (metal <> ''gold'' or not weigh_required or weight_final_g is not null) and (not require_final_weight or weight_final_g is not null)))', 'expect', jsonb_build_array('A5a')),
+    jsonb_build_object('id', 'MU-58', 'what', 'สิทธิ์: เปิด RPC ช่างให้ authenticated', 'ddl', 'grant execute on function analytics.job_worker_discrepancy_arrive(text, text, uuid, integer, numeric, integer, text, text) to authenticated', 'expect', jsonb_build_array('F2', 'F3')),
+    jsonb_build_object('id', 'MU-59', 'what', 'สิทธิ์: เปิด RPC ออฟฟิศให้ anon', 'ddl', 'grant execute on function analytics.job_discrepancy_arrive(uuid, uuid, integer, numeric, date, uuid, uuid, integer) to anon', 'expect', jsonb_build_array('F2', 'F3')),
+    jsonb_build_object('id', 'MU-60', 'what', 'สิทธิ์: เปิด core ภายในให้ service_role', 'ddl', 'grant execute on function analytics.job_discrepancy_arrive_core(uuid, integer, numeric, date, uuid, integer, uuid, text, uuid, text, boolean) to service_role', 'expect', jsonb_build_array('F1')),
+    jsonb_build_object('id', 'MU-61', 'what', 'โครงสร้าง: ถอด unique ของ arrive_discrepancy_id (ส่วนใหม่ซ้ำต่อส่วนต่างเดียว)', 'ddl', 'drop index analytics.uq_job_stage_arrive', 'expect', jsonb_build_array('F6'))
   );
 begin
   perform set_config('request.jwt.claims', '{"role":"service_role"}', true);

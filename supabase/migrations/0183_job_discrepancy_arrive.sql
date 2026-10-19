@@ -19,7 +19,7 @@
 --  · ใบ (แม่/ที่ส่วนต่างอยู่) done/cancelled = job_closed · ใบถูกพัก = job_on_hold · วันรับ: ช่าง = วันนี้ · ออฟฟิศย้อนได้ ≤ 14 วัน ไม่ก่อนวันที่ขั้นต้นทางส่ง
 --  · event ใหม่ discrepancy_arrive (ใบเดิม) + create/stage_skip/stage_receive ของส่วนใหม่ (รูปแบบเดียวกับแยกส่วน — v_job_stage_from_events ตรงเสมอ)
 -- สิ่งที่ migration นี้ทำ
---  1 คอลัมน์ job_stage.arrive_discrepancy_id (+FK +unique) · jd_kind_ck + 'arrived' · job_done_ck นับ arrived (ดี + เสีย + แยกออก + arrived = เริ่มผลิต) · job_event CHECK + 'discrepancy_arrive' (รายการ 28 ชนิดเดิมจาก DB สดหลัง 0182 — ครบ photo_*)
+--  1 คอลัมน์ job_stage.arrive_discrepancy_id (+FK +unique) · jd_kind_ck + 'arrived' · job_done_ck ผ่อนเป็น ≤ (security M1 · ความเท่ากันเป๊ะที่ job_done + drift) · job_event CHECK + 'discrepancy_arrive' (รายการ 28 ชนิดเดิมจาก DB สดหลัง 0182 — ครบ photo_*)
 --  2 helper job_arrived_qty · replace: job_identity_gap · job_done · job_stage_guard · job_discrepancy_guard · job_lot_cancel_core (event ฝั่งแม่ของส่วนที่ไม่มีขั้นแยก) · job_worker_resolve (+action arrive ใน my_actions) · views: v_job_tree (+qty_discrepancy_arrived ต่อท้าย · resolved ไม่นับ arrived) · v_job_tree_drift
 --  3 ใหม่: job_discrepancy_arrive_core (ภายใน) · job_discrepancy_arrive (ออฟฟิศ) · job_worker_discrepancy_arrive (ช่าง)
 --  4 สิทธิ์ service_role เท่านั้น (ข้อ 18) · post-check: ฟังก์ชันอื่น md5 ไม่ขยับ · แถวเดิมไม่ขยับ · ไม่มี overload/grant รั่ว · ใบที่ไม่มีส่วนต่างทำงานเหมือนเดิม
@@ -32,6 +32,9 @@
 --  (5) job_done บนใบเดิม: ดี + เสีย + แยกออก + arrived = จำนวนเริ่มผลิต (เดิม: ดี + เสีย + แยกออก) — ใบที่ไม่มี arrived ผลเท่าเดิมเป๊ะ
 --  (6) ส่วนใหม่ที่ขั้นรับขาด weigh_required = ตามขั้นของใบเดิม · weigh_required ของใบส่วนใหม่ = มีขั้นหลังขั้นนั้นที่ต้องชั่ง หรือ ทอง+ขั้นชั่ง (เหมือนแยกส่วน)
 --  (7) job_lot_cancel_core: แก้เฉพาะ event split_cancel ฝั่งแม่ — ส่วนที่เกิดจาก arrive ไม่มีขั้นแยก (v_ms ว่าง) เดิมล้มด้วย job_event_write ไม่พบใบงาน (ถอยทั้งก้อน ไม่มีข้อมูลเสีย) · ตอนนี้ยกเลิกเป็นของเสียได้ (ชิ้นที่ได้รับเพิ่มแต่ใช้ไม่ได้) event ฝั่งแม่เขียนที่ใบแม่ไม่ผูกขั้น · ส่วนที่แยกตามปกติ payload/ผลเท่าเดิมเป๊ะ (golden: verify-0181 รันซ้ำ)
+--  (8) [security H1] ด่านน้ำหนักสองทิศ: ไม่ตรง (หนักเกินส่วนที่ขาด+0.05 g · ช่างปิดทั้งก้อนแต่เบากว่าส่วนที่ขาดเกิน 0.05 g) = arrive_heavy รหัสเดียว (กัน binary search) · ไม่มีน้ำหนักอ้างอิง = ช่างทำไม่ได้ (office_required) · ตัวนับ 3 ครั้งนับ "ต่อขั้น" (job_stage_id) · ออฟฟิศเบาเกินผ่านได้ event discrepancy_arrive บันทึก residual_g · แถว arrived เก็บน้ำหนักเชิงบัญชี (excess ของแถว arrived = 0 เมื่อบางส่วน · = ส่วนที่หายสุทธิเมื่อปิดทั้งก้อน) ⇒ tree_weight_gap_excess_g ยังเห็นทองหายสุทธิ · ไม่ได้ชั่ง (เงิน/ขั้นไม่ชั่ง) = ตามสัดส่วนชิ้น ไม่ขยับ excess เดิม · action arrive ใน my_actions ตั้ง office_only เมื่อทองขั้นชั่งไม่มีน้ำหนักอ้างอิง
+--  (9) [security M1/M2] job_done_ck เป็น <= (ไม่เรียกฟังก์ชัน) · เพดานสำรองหักน้ำหนักที่ arrive ไปแล้วของคู่ขั้นนั้น
+--  หนี้: (L2) event arrive_mismatch ยังไม่นับใน v_job_board.tree_handoff_mismatch_count (ต้อง replace v_job_board ทั้งตัว — ไม่คุ้มใน 0183) · (L3/L4) ตามรายงาน security
 --  หนี้ที่รู้: (a) ส่วนที่มาจาก arrive คืนชิ้นไม่ได้ (ดูโมเดล) (b) รายงานน้ำหนักต้นไม้ (v_job_board.tree_*) ไม่รู้จัก arrive โดยเฉพาะ — น้ำหนักชิ้นที่มาถึงอยู่ที่ weight_in_g ของส่วนใหม่ (c) UI ปิดงานของใบเดิมต้องหัก qty_discrepancy_arrived ออกจากช่องเสีย (ต่อท้าย v_job_tree)
 
 -- baseline ก่อนแตะ: ฟังก์ชันทุกตัวในสคีมา (md5) + ตัวชี้วัดแถวของตารางที่เกี่ยวข้อง (ไฟล์นี้ไม่ UPDATE/INSERT แถวเดิม)
@@ -106,7 +109,7 @@ begin
   if v_def is null then
     raise exception '0183: ไม่พบ job_done_ck — apply 0181 ก่อน';
   end if;
-  if md5(v_def) <> 'fb6fafd280035c9141aba3c711525aeb' and position('job_arrived_qty' in v_def) = 0 then
+  if md5(v_def) <> 'fb6fafd280035c9141aba3c711525aeb' and position('<= qty_planned' in v_def) = 0 then
     raise exception '0183: def ของ job_done_ck บน DB ไม่ใช่ฉบับที่ลอกมา (md5 % ≠ fb6fafd2…) — มีคนแก้นอก migration · หยุด', md5(v_def);
   end if;
   -- รายการชนิด event ของ DB ต้องมี photo_reorder (ฉบับ 0182) — ไม่งั้นลอกรายการผิดฉบับแล้วชนิดของรูปจะหลุด
@@ -160,13 +163,14 @@ as $f$
      and not exists (select 1 from analytics.job_discrepancy v where v.void_of_id = d.id)
 $f$;
 
--- job_done_ck: ดี + เสีย + แยกออก + ได้รับเพิ่มไปเป็นส่วนใหม่ (arrived) = เริ่มผลิต — ใบที่ไม่มี arrived: job_arrived_qty = 0 ⇒ นิยามเดิมเป๊ะ (ที่เหลือของ CHECK ลอกจาก DB สด)
--- ตรวจแถวเดิมทั้งหมดตอนเพิ่ม (ตารางเล็ก · ใบ done ทุกใบต้องผ่าน — ไม่ผ่านจะถอยทั้งไฟล์ ไม่ใช่แก้ข้อมูล)
+-- job_done_ck (security M1): CHECK ห้ามเรียกฟังก์ชันที่อ่านตารางอื่น (dump/restore พัง) ⇒ ผ่อน "= เริ่มผลิต" เป็น "<= เริ่มผลิต" (ดี + เสีย + แยกออก ≤ จำนวนที่วางแผน)
+-- ความเท่ากันเป๊ะ (ดี + เสีย + แยกออก + arrived = เริ่มผลิต) บังคับที่ job_done (RPC) + v_job_tree_drift 'job_identity' ตามเดิม · ที่เหลือของ CHECK ลอกจาก DB สด
+-- ตรวจแถวเดิมทั้งหมดตอนเพิ่ม (ใบ done ทุกใบเดิมเท่ากับอยู่แล้ว ⇒ ผ่าน)
 alter table analytics.job drop constraint if exists job_done_ck;
 alter table analytics.job add constraint job_done_ck check (
   status <> 'done'
   or (done_at is not null and qty_good is not null and qty_scrap is not null
-      and (qty_good + qty_scrap + qty_split_out + analytics.job_arrived_qty(id)) = qty_planned
+      and (qty_good + qty_scrap + qty_split_out) <= qty_planned
       and (metal <> 'gold' or not weigh_required or weight_final_g is not null)
       and (not require_final_weight or weight_final_g is not null)));
 
@@ -878,6 +882,9 @@ declare
   v_on      date;
   v_gold_w  boolean;
   v_missing numeric;
+  v_found   numeric;
+  v_w_eff   numeric;
+  v_arr_gap numeric := null;
   v_n_mm    int;
   v_holder  uuid;
   v_hname   text;
@@ -936,15 +943,24 @@ begin
     if p_weight <= 0 or not analytics.job_weight_ok(p_weight) then
       return analytics.job_fail('weight_invalid', 'น้ำหนักต้องมากกว่า 0 และไม่เกิน 100,000 กรัม (ทศนิยมไม่เกิน 3 ตำแหน่ง)');
     end if;
-    -- น้ำหนักที่ยังขาดอยู่ของส่วนต่างนี้ = −gap ของแถว (แถว open ที่เหลือหลัง arrive บางส่วนถือ gap ที่หักไปแล้ว) · ไม่มี gap แต่มีน้ำหนักส่งออก/รับเข้า = เทียบสองขั้น · ไม่มีเลย = ไม่มีเพดานอ้างอิง
+    -- น้ำหนักที่ยังขาดอยู่ของส่วนต่างนี้ = −gap ของแถว (แถว open ที่เหลือหลัง arrive บางส่วนถือ gap ที่หักไปแล้ว) · ไม่มี gap แต่ทั้งสองขั้นมีน้ำหนัก = (ส่งออกขั้นก่อน − รับเข้าเดิม) หักน้ำหนักที่ arrive ไปแล้วของคู่ขั้นนี้ (security M2)
+    select coalesce(sum(ls.weight_in_g), 0) into v_found
+      from analytics.job_stage ls join analytics.job_discrepancy ad on ad.id = ls.arrive_discrepancy_id
+     where ad.from_stage_id = v_d.from_stage_id and ad.to_stage_id = v_d.to_stage_id and ad.status = 'resolved' and ad.resolved_kind = 'arrived';
     v_missing := case when v_d.weight_gap_g is not null then -v_d.weight_gap_g
-                      when v_fs.weight_out_g is not null and v_ts.weight_in_g is not null then v_fs.weight_out_g - v_ts.weight_in_g end;
-    if v_missing is not null and p_weight > v_missing + 0.05 then
-      -- ผู้ชั่งต้องชั่งแบบไม่รู้คำตอบ: ไม่บอกส่วนต่าง/น้ำหนักที่ขาด · บันทึก event ทุกครั้ง (ออฟฟิศเห็น) · ช่างชั่งไม่ผ่านครบ 3 ครั้ง = ให้ออฟฟิศกรอกแทน (กันไล่เดา)
+                      when v_fs.weight_out_g is not null and v_ts.weight_in_g is not null then (v_fs.weight_out_g - v_ts.weight_in_g) - v_found end;
+    -- security H1: ไม่มีน้ำหนักอ้างอิง = ช่างทำไม่ได้ (ออฟฟิศเท่านั้น) — ไม่งั้นชั่งอะไรก็ผ่านและธงทองหายหายไป
+    if v_missing is null and p_channel = 'worker_qr' then
+      return analytics.job_fail('office_required', 'ไม่มีน้ำหนักอ้างอิงของส่วนที่ขาด — แจ้งออฟฟิศให้บันทึกแทน');
+    end if;
+    -- security H1: ไม่ตรง "ทั้งสองทิศ" ตอบรหัสเดียว arrive_heavy (กัน binary search · N1) · เกินส่วนที่ขาด+0.05 = ไม่ตรงเสมอ · ช่างปิดทั้งก้อนแต่เบากว่าส่วนที่ขาดเกิน 0.05 = ไม่ตรง (ธงทองหายต้องไม่ถูกลบเงียบ) · ช่างได้รับเพิ่มบางส่วนเบากว่าได้ · ออฟฟิศเบาเกินผ่านได้ (บันทึก residual_g)
+    if v_missing is not null and (p_weight > v_missing + 0.05 or (p_channel = 'worker_qr' and p_qty = v_d.qty and p_weight < v_missing - 0.05)) then
+      -- ผู้ชั่งต้องชั่งแบบไม่รู้คำตอบ: ไม่บอกส่วนต่าง/น้ำหนักที่ขาด/ทิศ · บันทึก event ทุกครั้ง (ออฟฟิศเห็น) · ช่างชั่งไม่ผ่านครบ 3 ครั้ง "ต่อขั้น" = ให้ออฟฟิศบันทึก (กันไล่เดา — นับตามขั้นไม่ใช่ตามแถวส่วนต่าง เพราะ arrive บางส่วนสร้างแถวใหม่)
       perform analytics.job_event_write(v_d.job_id, v_ts.id, 'weigh', v_today, p_actor, p_actor_worker, p_channel, p_device_hint,
-        jsonb_build_object('kind', 'arrive_mismatch', 'discrepancy_id', v_d.id, 'stage_code', v_ts.stage_code, 'weight_g', p_weight, 'missing_g', v_missing));
+        jsonb_build_object('kind', 'arrive_mismatch', 'discrepancy_id', v_d.id, 'stage_code', v_ts.stage_code, 'weight_g', p_weight, 'missing_g', v_missing,
+                           'direction', case when p_weight > v_missing + 0.05 then 'over' else 'under' end, 'qty', p_qty));
       select count(*) into v_n_mm from analytics.job_event e
-       where e.job_id = v_d.job_id and e.event_type = 'weigh' and e.payload ->> 'kind' = 'arrive_mismatch' and e.payload ->> 'discrepancy_id' = v_d.id::text;
+       where e.job_id = v_d.job_id and e.job_stage_id = v_ts.id and e.event_type = 'weigh' and e.payload ->> 'kind' = 'arrive_mismatch';
       if p_channel = 'worker_qr' and v_n_mm >= 3 then
         return analytics.job_fail('office_required', 'ชั่งชิ้นที่มาถึงไม่ตรงหลายครั้งแล้ว — แจ้งออฟฟิศให้บันทึกแทน');
       end if;
@@ -952,7 +968,7 @@ begin
     end if;
     if p_channel = 'worker_qr' and exists (
          select 1 from analytics.job_event e
-          where e.job_id = v_d.job_id and e.event_type = 'weigh' and e.payload ->> 'kind' = 'arrive_mismatch' and e.payload ->> 'discrepancy_id' = v_d.id::text
+          where e.job_id = v_d.job_id and e.job_stage_id = v_ts.id and e.event_type = 'weigh' and e.payload ->> 'kind' = 'arrive_mismatch'
           having count(*) >= 3) then
       return analytics.job_fail('office_required', 'ชั่งชิ้นที่มาถึงไม่ตรงหลายครั้งแล้ว — แจ้งออฟฟิศให้บันทึกแทน');
     end if;
@@ -981,19 +997,26 @@ begin
   end if;
 
   -- แถวส่วนต่าง: void แถวเดิม → แถว arrived → แถว open ที่เหลือ (guard ยอมให้สร้างตอนขั้นผู้รับ received/sent เฉพาะเมื่อ app.job_arrive = on)
+  -- บัญชีน้ำหนัก (security H1): w_eff = น้ำหนักที่มาถึงจริง (ทองขั้นชั่ง) · ไม่ได้ชั่ง = ตามสัดส่วนชิ้น (ไม่ขยับ excess เดิม)
+  --  แถวที่เหลือ gap' = gap + w_eff · แถว arrived: gap_a = (ปิดทั้งก้อน ? gap + w_eff : 0) − สัดส่วนของชิ้นที่มาถึง ⇒ excess ของแถว arrived = 0 (บางส่วน) หรือ = ส่วนที่หายสุทธิ (ปิดทั้งก้อน)
+  --  ⇒ ผลรวม job_disc_excess_g ของทั้งต้นไม้ (ธง tree_weight_gap_excess_g) ยังเห็นทองที่หายสุทธิ ไม่ถูกลบด้วยการกด arrive
+  if v_d.weight_gap_g is not null then
+    v_w_eff := case when v_gold_w then p_weight else round(v_d.weight_sent_g * p_qty / v_d.qty_sent, 3) end;
+    v_arr_gap := (case when p_qty = v_d.qty then v_d.weight_gap_g + v_w_eff else 0 end) - round(v_d.weight_sent_g * p_qty / v_d.qty_sent, 3);
+  end if;
   perform set_config('app.job_arrive', 'on', true);
   insert into analytics.job_discrepancy (shop_id, root_job_id, job_id, from_stage_id, to_stage_id, qty, status, void_of_id, void_reason, created_by_worker, created_by_actor)
   values (v_d.shop_id, v_d.root_job_id, v_d.job_id, v_d.from_stage_id, v_d.to_stage_id, v_d.qty, 'void', v_d.id, v_text || ' (แยกแถวใหม่)', p_actor_worker, p_actor)
   returning id into v_void;
   insert into analytics.job_discrepancy (shop_id, root_job_id, job_id, from_stage_id, to_stage_id, qty, status, resolved_kind, resolved_reason, resolved_by_worker, resolved_by_actor, resolved_at,
-                                         created_by_worker, created_by_actor)
+                                         created_by_worker, created_by_actor, weight_gap_g, weight_sent_g, qty_sent)
   values (v_d.shop_id, v_d.root_job_id, v_d.job_id, v_d.from_stage_id, v_d.to_stage_id, p_qty, 'resolved', 'arrived', v_text, p_actor_worker, p_actor, clock_timestamp(),
-          p_actor_worker, p_actor)
+          p_actor_worker, p_actor, v_arr_gap, case when v_arr_gap is not null then v_d.weight_sent_g end, case when v_arr_gap is not null then v_d.qty_sent end)
   returning id into v_arr;
   v_rem_qty := v_d.qty - p_qty;
   if v_rem_qty > 0 then
     -- gap ที่เหลือ = gap เดิม + น้ำหนักที่มาถึง (ขาดน้อยลง) · น้ำหนักส่งออก/จำนวนส่งออกคัดลอก (jd_sent_ck: ทั้งสามค่าพร้อมกัน)
-    v_rem_gap := case when v_d.weight_gap_g is not null then v_d.weight_gap_g + coalesce(p_weight, 0) end;
+    v_rem_gap := case when v_d.weight_gap_g is not null then v_d.weight_gap_g + v_w_eff end;
     insert into analytics.job_discrepancy (shop_id, root_job_id, job_id, from_stage_id, to_stage_id, qty, status, created_by_worker, created_by_actor, weight_gap_g, weight_sent_g, qty_sent)
     values (v_d.shop_id, v_d.root_job_id, v_d.job_id, v_d.from_stage_id, v_d.to_stage_id, v_rem_qty, 'open', p_actor_worker, p_actor, v_rem_gap,
             case when v_rem_gap is not null then v_d.weight_sent_g end, case when v_rem_gap is not null then v_d.qty_sent end)
@@ -1047,7 +1070,8 @@ begin
   perform analytics.job_event_write(v_d.job_id, v_fs.id, 'discrepancy_arrive', v_on, p_actor, p_actor_worker, p_channel, p_device_hint,
     jsonb_build_object('discrepancy_id', v_d.id, 'void_id', v_void, 'arrived_id', v_arr, 'remaining_id', v_rem, 'qty', p_qty, 'qty_remaining', greatest(v_rem_qty, 0),
                        'lot_job_id', v_lot.id, 'lot_seq', v_lot_seq, 'to_stage_code', v_ts.stage_code, 'holder_worker_id', v_holder,
-                       'weight_g', case when v_gold_w then p_weight end, 'gap_after_g', v_rem_gap));
+                       'weight_g', case when v_gold_w then p_weight end, 'gap_after_g', v_rem_gap,
+                       'residual_g', case when v_gold_w and v_missing is not null then round(v_missing - p_weight, 3) end));
   perform analytics.job_tree_check(v_d.job_id);
   return jsonb_build_object('ok', true, 'action', 'arrive', 'discrepancy_id', v_rem, 'arrived_id', v_arr, 'qty', p_qty, 'qty_remaining', greatest(v_rem_qty, 0),
                             'lot_job_id', v_lot.id, 'lot_seq', v_lot_seq, 'label', v_root.job_no || ' · ส่วนที่ ' || v_lot_seq,
@@ -1289,15 +1313,16 @@ begin
           'qty_hold', null, 'qty_expected', null, 'discrepancy_id', dr.id, 'qty', dr.qty, 'office_only', dr.office_only);
       end loop;
       -- 0183: ส่วนต่างที่ยัง open ซึ่ง "ฉันเป็นผู้รับของขั้นที่รับขาด" → ปุ่ม "ได้รับเพิ่มแล้ว" (qty = ยอดที่ยังค้าง · weight_required = ทอง + ขั้นนั้นตั้งชั่ง — ไม่ส่งน้ำหนัก/ส่วนต่างให้ช่าง N1)
-      for dr in select dd.id, dd.qty, ts.seq as t_seq, ts.stage_code as t_code, (p.metal = 'gold' and ts.weigh_required) as w_req
-                  from analytics.job_discrepancy dd join analytics.job_stage ts on ts.id = dd.to_stage_id
+      for dr in select dd.id, dd.qty, ts.seq as t_seq, ts.stage_code as t_code, (p.metal = 'gold' and ts.weigh_required) as w_req,
+                      (p.metal = 'gold' and ts.weigh_required and dd.weight_gap_g is null and not (fs3.weight_out_g is not null and ts.weight_in_g is not null)) as ref_missing
+                  from analytics.job_discrepancy dd join analytics.job_stage ts on ts.id = dd.to_stage_id join analytics.job_stage fs3 on fs3.id = dd.from_stage_id
                  where dd.job_id = p.id and dd.status = 'open' and not exists (select 1 from analytics.job_discrepancy v where v.void_of_id = dd.id)
                    and ts.worker_id = v_worker and ts.status in ('received', 'sent')
                  order by dd.created_at loop
         v_acts := v_acts || jsonb_build_object('lot_job_id', p.id, 'label', v_lbl, 'action', 'arrive', 'stage_seq', dr.t_seq, 'stage_code', dr.t_code,
           'stage_name', (select d8.name_th from analytics.job_stage_def d8 where d8.shop_id = p.shop_id and d8.code = dr.t_code),
           'weight_required', dr.w_req, 'scrap_qty_ask', false, 'scrap_weight_ask', false,
-          'qty_hold', null, 'qty_expected', null, 'discrepancy_id', dr.id, 'qty', dr.qty, 'office_only', false);
+          'qty_hold', null, 'qty_expected', null, 'discrepancy_id', dr.id, 'qty', dr.qty, 'office_only', dr.ref_missing);
       end loop;
     end loop;
   end if;
@@ -1454,8 +1479,8 @@ begin
     raise exception '0183: v_job_tree_drift ของข้อมูลเดิมเปลี่ยน (ก่อน % · หลัง %)', (select n from _j183_drift_base), v_bad;
   end if;
   -- (5) constraint/trigger/สิทธิ์
-  if not exists (select 1 from pg_constraint where conrelid = 'analytics.job'::regclass and conname = 'job_done_ck' and pg_get_constraintdef(oid) like '%job_arrived_qty%') then
-    raise exception '0183: job_done_ck ต้องนับ job_arrived_qty';
+  if not exists (select 1 from pg_constraint where conrelid = 'analytics.job'::regclass and conname = 'job_done_ck' and pg_get_constraintdef(oid) like '%<= qty_planned%' and pg_get_constraintdef(oid) not like '%job_arrived_qty%') then
+    raise exception '0183: job_done_ck ต้องเป็น <= qty_planned และไม่เรียกฟังก์ชัน (security M1)';
   end if;
   if not exists (select 1 from pg_constraint where conrelid = 'analytics.job_discrepancy'::regclass and conname = 'jd_kind_ck' and pg_get_constraintdef(oid) like '%arrived%') then
     raise exception '0183: jd_kind_ck ต้องมี arrived';
