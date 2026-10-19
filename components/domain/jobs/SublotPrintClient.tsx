@@ -21,7 +21,7 @@ import { thaiDate } from "@/lib/jobs/dates";
 import { GENERIC_JOB_ERROR } from "@/lib/jobs/messages";
 import type { PrintableSublot } from "@/lib/jobs/print";
 
-export function SublotSheet({ sub, qrSvg, showPhoto = true, onPhotoLoad, onPhotoError }: { sub: PrintableSublot; qrSvg: string | null; /** 0182: false = ตัดรูปหลักของใบแม่ออก (โหลดไม่ได้ → พิมพ์แบบไม่มีรูป) */ showPhoto?: boolean; onPhotoLoad?: () => void; onPhotoError?: () => void }) {
+export function SublotSheet({ sub, qrSvg, showPhoto = true, onPhotoLoad, onPhotoError, photoRef }: { sub: PrintableSublot; qrSvg: string | null; /** 0182: false = ตัดรูปหลักของใบแม่ออก (โหลดไม่ได้ → พิมพ์แบบไม่มีรูป) */ showPhoto?: boolean; onPhotoLoad?: () => void; onPhotoError?: () => void; photoRef?: React.Ref<HTMLImageElement> }) {
   const photoUrl = showPhoto ? sub.primaryPhotoUrl : null;
   // ข้อความใต้หัวใบ (ผ่านมาแล้ว · คำอธิบาย QR) — มีรูป: อยู่แถวเดียวกับรูปหลัก 30×30 มม. · ไม่มีรูป: markup เดิมเป๊ะ
   const notes = (
@@ -61,7 +61,7 @@ export function SublotSheet({ sub, qrSvg, showPhoto = true, onPhotoLoad, onPhoto
       {photoUrl ? (
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">{notes}</div>
-          <PrintPhoto url={photoUrl} alt={`รูปงาน ${sub.lotLabel}`} onLoad={onPhotoLoad} onError={onPhotoError} className="mt-3" />
+          <PrintPhoto url={photoUrl} alt={`รูปงาน ${sub.lotLabel}`} onLoad={onPhotoLoad} onError={onPhotoError} imgRef={photoRef} className="mt-3" />
         </div>
       ) : (
         notes
@@ -148,7 +148,7 @@ export function SublotPrintClient({ sub, qrTarget = { host: null, warning: null,
         )}
         <QrManager jobId={sub.jobId} qr={qr} />
       </section>
-      <SublotSheet sub={sub} qrSvg={issued?.svg ?? null} showPhoto={photo.status !== "failed"} onPhotoLoad={photo.onLoad} onPhotoError={photo.onError} />
+      <SublotSheet sub={sub} qrSvg={issued?.svg ?? null} showPhoto={photo.status !== "failed"} onPhotoLoad={photo.onLoad} onPhotoError={photo.onError} photoRef={photo.imgRef} />
     </div>
   );
 }

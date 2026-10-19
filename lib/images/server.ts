@@ -88,7 +88,8 @@ export function extractJpegDimensions(bytes: Uint8Array): JpegDimensions | null 
 // 0182 รูปใบงาน: ตรวจว่ามีข้อมูลจากกล้อง (Exif / XMP — GPS อยู่ในนี้) · ใช้ตรวจซ้ำหลังตัดด้วย stripJpegMetadata (ด้านล่าง) — design-job-photos.md §2.4
 // ============================================================================
 // client ย่อรูปผ่าน canvas ซึ่งทิ้ง metadata ทั้งหมดโดยโครงสร้าง (ดู lib/images/client.ts) แต่ action รับไฟล์จากใคร/อะไรก็ได้ที่ยิงตรง (ข้าม client) —
-// server จึงยืนยันซ้ำ · "ไม่ strip เอง" โดยตั้งใจ: เขียน JPEG ใหม่ฝั่ง server โดยไม่มีไลบรารี = ความเสี่ยงที่ไม่คุ้ม (เหตุผลเดียวกับ 0105 ที่ไม่เอา sharp) — ปฏิเสธแล้วให้ผู้ใช้อัปผ่านหน้าเว็บ
+// server จึงตัด metadata ระดับ marker ด้วย stripJpegMetadata (ไม่ decode/re-encode ภาพ — เหตุผลเดียวกับ 0105 ที่ไม่เอา sharp) แล้ว "ตรวจซ้ำ" ด้วยตัวตรวจด้านล่างก่อนเก็บ:
+// ตัดไม่ได้อย่างปลอดภัย (โครงสร้างพัง/polyglot) = ปฏิเสธ · ตัดแล้วยังเหลือ = ปฏิเสธ (cleanJpegForStorage)
 //
 // วิธีตรวจ = สแกน byte ทั้งไฟล์หาลำดับ "FF E1 <len 2 byte> <signature>" ไม่เดิน marker ทีละ segment: ข้อมูลภาพที่บีบอัดแล้วไม่มีทางมี FF E1 ดิบ (FF ในข้อมูลถูกแทรก 00 เสมอ)
 // ⇒ เจอลำดับนี้ = marker APP1 จริง · ไม่พึ่ง parser ที่ resync ข้ามขยะ (ผู้ส่งซ่อน APP1 หลัง byte แปลกๆ เพื่อหลบ walker ไม่ได้) · ไฟล์ 1 MB สแกนไม่ถึงมิลลิวินาที

@@ -18,7 +18,7 @@ import { JOB_PHOTO_CAPTION_MAX, JOB_PHOTO_REASON_MAX, MAX_BYTES, MAX_JOB_PHOTOS,
 import { cleanJpegForStorage, extractJpegDimensions, looksLikeJpeg } from "@/lib/images/server";
 import { isUuid, parseText } from "@/lib/jobs/input";
 import { logJobFailure } from "@/lib/jobs/log";
-import { JOB_PHOTO_ERROR_TH, JOB_PHOTO_FILE_ERROR_TH, JOB_PHOTO_GENERIC_ERROR } from "@/lib/jobs/photos";
+import { JOB_PHOTO_ERROR_TH, JOB_PHOTO_FILE_CODE, JOB_PHOTO_FILE_ERROR_TH, JOB_PHOTO_GENERIC_ERROR } from "@/lib/jobs/photos";
 import type { JobPhotoRow } from "@/lib/jobs/photos";
 import { copyCatalogPhotoToJob, jobPhotoRowAfterStore, loadJobPhotos, photoFail, removeJobPhotoObjects, storeJobPhoto } from "@/lib/jobs/photos-server";
 import { callOffice, db, fail, guard, shopId } from "@/lib/jobs/office-server";
@@ -67,9 +67,9 @@ export async function uploadJobPhoto(fd: FormData): Promise<JobResult<JobPhotoRo
   if (!isUuid(jobId)) return fail(JOB_PHOTO_FILE_ERROR_TH.jobMissing, "job_not_found");
   const mdFile = fd.get("md");
   const smFile = fd.get("sm");
-  if (!(mdFile instanceof File) || !(smFile instanceof File)) return fail(JOB_PHOTO_FILE_ERROR_TH.missing);
-  if (mdFile.size === 0 || smFile.size === 0) return fail(JOB_PHOTO_FILE_ERROR_TH.empty);
-  if (mdFile.size > MAX_BYTES || smFile.size > MAX_BYTES) return fail(JOB_PHOTO_FILE_ERROR_TH.tooLarge);
+  if (!(mdFile instanceof File) || !(smFile instanceof File)) return fail(JOB_PHOTO_FILE_ERROR_TH.missing, JOB_PHOTO_FILE_CODE.missing);
+  if (mdFile.size === 0 || smFile.size === 0) return fail(JOB_PHOTO_FILE_ERROR_TH.empty, JOB_PHOTO_FILE_CODE.empty);
+  if (mdFile.size > MAX_BYTES || smFile.size > MAX_BYTES) return fail(JOB_PHOTO_FILE_ERROR_TH.tooLarge, JOB_PHOTO_FILE_CODE.tooLarge);
   const rawCaption = fd.get("caption");
   const caption = parseText(rawCaption === null || typeof rawCaption === "string" ? rawCaption : null, "ป้ายรูป", JOB_PHOTO_CAPTION_MAX, false);
   if (!caption.ok) return fail(caption.error, "caption_invalid");
@@ -85,13 +85,15 @@ export async function uploadJobPhoto(fd: FormData): Promise<JobResult<JobPhotoRo
     const md = new Uint8Array(await mdFile.arrayBuffer());
     const sm = new Uint8Array(await smFile.arrayBuffer());
     // ไม่เชื่อ Content-Type/นามสกุลของ client — ตรวจ byte จริง (FF D8 FF)
-    if (!looksLikeJpeg(md) || !looksLikeJpeg(sm)) return fail(JOB_PHOTO_FILE_ERROR_TH.notJpeg);
+    if (!looksLikeJpeg(md) || !looksLikeJpeg(sm)) return fail(JOB_PHOTO_FILE_ERROR_TH.notJpeg, JOB_PHOTO_FILE_CODE.notJpeg);
     // H1: ตัด metadata (Exif/XMP/APP13/COM/ท้าย EOI) ที่ marker — ไม่ decode/re-encode · iPhone (WebKit canvas เขียน Exif ขั้นต่ำ) ผ่านได้ · โครงสร้างพัง = ปฏิเสธ · เก็บเฉพาะ bytes ที่ตัดแล้วและตรวจซ้ำแล้ว
     const cmd = cleanJpegForStorage(md, MAX_BYTES);
     const csm = cleanJpegForStorage(sm, MAX_BYTES);
     if (!cmd.ok || !csm.ok) {
       const why = !cmd.ok ? cmd.reason : !csm.ok ? csm.reason : "broken";
-      return fail(why === "broken" ? JOB_PHOTO_FILE_ERROR_TH.broken : why === "too_large" ? JOB_PHOTO_FILE_ERROR_TH.tooLarge : JOB_PHOTO_FILE_ERROR_TH.cameraMetadata);
+      if (why === "broken") return fail(JOB_PHOTO_FILE_ERROR_TH.broken, JOB_PHOTO_FILE_CODE.broken);
+      if (why === "too_large") return fail(JOB_PHOTO_FILE_ERROR_TH.tooLarge, JOB_PHOTO_FILE_CODE.tooLarge);
+      return fail(JOB_PHOTO_FILE_ERROR_TH.cameraMetadata, JOB_PHOTO_FILE_CODE.cameraMetadata);
     }
     const dims = extractJpegDimensions(cmd.bytes);
 

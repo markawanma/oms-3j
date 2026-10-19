@@ -52,6 +52,7 @@ export function JobSheet({
   showPhoto = true,
   onPhotoLoad,
   onPhotoError,
+  photoRef,
 }: {
   job: PrintableJob;
   qrSvg: string | null;
@@ -59,6 +60,7 @@ export function JobSheet({
   showPhoto?: boolean;
   onPhotoLoad?: () => void;
   onPhotoError?: () => void;
+  photoRef?: React.Ref<HTMLImageElement>;
 }) {
   const cols = sheetColumns(job);
   return (
@@ -66,7 +68,7 @@ export function JobSheet({
       <header className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           {/* 0182: รูปหลัก 30×30 มม. ลอยขวาเป็นลูกแรกของคอลัมน์ข้อความ (ข้อความไหลอ้อม · ติด QR) — ไม่มีรูป = ไม่มีองค์ประกอบใหม่เลย (layout เดิมเป๊ะ) */}
-          {job.primaryPhotoUrl && showPhoto && <PrintPhoto url={job.primaryPhotoUrl} alt={`รูปงาน ${job.jobNo}`} onLoad={onPhotoLoad} onError={onPhotoError} />}
+          {job.primaryPhotoUrl && showPhoto && <PrintPhoto url={job.primaryPhotoUrl} alt={`รูปงาน ${job.jobNo}`} onLoad={onPhotoLoad} onError={onPhotoError} imgRef={photoRef} />}
           <p className="text-[9pt] font-semibold">ใบงานผลิต · {job.sourceLabel}</p>
           {job.profileName !== null && <p className="text-[9pt]">แบบ: {job.profileName}</p>}
           <p className="text-[30pt] leading-none font-extrabold tracking-tight tabular-nums">{job.jobNo}</p>
@@ -216,7 +218,7 @@ export function JobPrintClient({ job, qr = { host: null, warning: null, error: n
           </p>
         )}
       </section>
-      <JobSheet job={job} qrSvg={issued?.svg ?? null} showPhoto={photo.status !== "failed"} onPhotoLoad={photo.onLoad} onPhotoError={photo.onError} />
+      <JobSheet job={job} qrSvg={issued?.svg ?? null} showPhoto={photo.status !== "failed"} onPhotoLoad={photo.onLoad} onPhotoError={photo.onError} photoRef={photo.imgRef} />
     </div>
   );
 }

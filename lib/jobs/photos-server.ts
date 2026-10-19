@@ -14,7 +14,7 @@ import { cleanJpegForStorage, extractJpegDimensions } from "@/lib/images/server"
 import { signJobPhotoPaths } from "@/lib/images/signing";
 import { isUuid } from "@/lib/jobs/input";
 import { logJobFailure } from "@/lib/jobs/log";
-import { JOB_PHOTO_COLUMNS, JOB_PHOTO_ERROR_TH, JOB_PHOTO_GENERIC_ERROR, mapJobPhotoRow } from "@/lib/jobs/photos";
+import { JOB_PHOTO_COLUMNS, JOB_PHOTO_GENERIC_ERROR, jobPhotoErrorMessage, mapJobPhotoRow } from "@/lib/jobs/photos";
 import type { JobPhotoRow } from "@/lib/jobs/photos";
 import { callOffice, db, fail, shopId } from "@/lib/jobs/office-server";
 import type { JobResult } from "@/lib/jobs/office-server";
@@ -24,8 +24,7 @@ const rows = (d: unknown): Record<string, unknown>[] => (Array.isArray(d) ? (d a
 
 /** เปลี่ยนผลล้มของ callOffice เป็นข้อความไทยของด่านรูป (code = hint ของ RPC) — ไม่รู้จัก = ข้อความจาก DB ที่สะอาดแล้ว หรือข้อความกลาง */
 export function photoFail(r: { ok: false; error: string; code?: string }): { ok: false; error: string; code?: string } {
-  const known = r.code ? JOB_PHOTO_ERROR_TH[r.code] : undefined;
-  return fail(known ?? (r.error || JOB_PHOTO_GENERIC_ERROR), r.code);
+  return fail(jobPhotoErrorMessage(r.code) ?? (r.error || JOB_PHOTO_GENERIC_ERROR), r.code);
 }
 
 // ---------------------------------------------------------------------------
@@ -205,9 +204,9 @@ async function downloadCatalogObject(path: string): Promise<Uint8Array | null> {
 export async function copyCatalogPhotoToJob(jobId: string): Promise<CopyCatalogResult> {
   try {
     // ใบไม่ผูก SKU = ไม่ต้องยิง RPC (ประหยัดทุกใบ OEM ที่ไม่มี SKU)
-    const jr = await db().from("job").select("product_id, parent_job_id").eq("shop_id", shopId()).eq("id", jobId).maybeSingle();
+    const jr = await db().from("job").select("product_id").eq("shop_id", shopId()).eq("id", jobId).maybeSingle();
     if (jr.error) throw jr.error;
-    const job = jr.data as { product_id?: unknown; parent_job_id?: unknown } | null;
+    const job = jr.data as { product_id?: unknown } | null;
     if (!job || typeof job !== "object" || Array.isArray(job) || typeof job.product_id !== "string") return copyFail("no_product");
 
     const src = await callOffice<Record<string, unknown>>("job_photo_catalog_source", { p_job_id: jobId }, { noActor: true });

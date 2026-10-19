@@ -63,7 +63,7 @@ describe("0182 โฟลเดอร์ photos/ (ชั้นแสดงผล�
   const photoFiles = WORKER_FILES.filter((f) => rel(f).startsWith("components/domain/jobs/photos/"));
   it("ตรวจครบทุกชิ้นของชั้นแสดงผล (ถ้าเพิ่ม/ย้ายไฟล์แล้วเทสต์นี้ล้ม = กราฟไม่ครอบคลุม)", () => {
     const names = photoFiles.map((f) => rel(f).split("/").pop());
-    for (const n of ["JobPhotoThumb.tsx", "JobPhotoViewer.tsx", "PhotoAddButtons.tsx", "PrintPhoto.tsx", "usePrintPhoto.ts", "PrintPhotoStatus.tsx", "types.ts"]) expect(names, n).toContain(n);
+    for (const n of ["JobPhotoThumb.tsx", "JobPhotoViewer.tsx", "PhotoAddButtons.tsx", "PrintPhoto.tsx", "usePrintPhoto.ts", "PrintPhotoStatus.tsx", "useRefreshGate.ts", "types.ts"]) expect(names, n).toContain(n);
   });
   it("ไม่ import lib/actions/** และ lib/images/client (ย่อรูป/อัปโหลดเป็นงานของออฟฟิศ)", () => {
     for (const f of photoFiles) {

@@ -34,7 +34,7 @@ import { JobDetailClient } from "./JobDetailClient";
 import { mapBoardRow, mapJobDetail } from "@/lib/jobs/types";
 import type { StageRow } from "@/lib/jobs/types";
 import type { JobDetailData } from "@/lib/actions/job-office";
-import { JOB_PHOTO_FILE_ERROR_TH } from "@/lib/jobs/photos";
+import { JOB_PHOTO_FILE_CODE, JOB_PHOTO_FILE_ERROR_TH } from "@/lib/jobs/photos";
 import type { JobPhotoRow } from "@/lib/jobs/photos";
 
 const wrap = (ui: ReactElement) => render(<ToastProvider>{ui}</ToastProvider>);
@@ -207,8 +207,9 @@ describe("อัปโหลด", () => {
   });
 
   it("ลองใหม่ไม่ช่วย — ด่านไฟล์ฝั่ง server (ไฟล์เสียหาย / ล้างข้อมูลกล้องไม่สำเร็จ): แสดงข้อความใหม่ตามจริง ไม่มีปุ่มลองใหม่", async () => {
-    for (const msg of [JOB_PHOTO_FILE_ERROR_TH.broken, JOB_PHOTO_FILE_ERROR_TH.cameraMetadata]) {
-      act_.uploadJobPhoto.mockResolvedValueOnce({ ok: false, error: msg });
+    for (const key of ["broken", "cameraMetadata", "notJpeg", "tooLarge"] as const) {
+      const msg = JOB_PHOTO_FILE_ERROR_TH[key];
+      act_.uploadJobPhoto.mockResolvedValueOnce({ ok: false, error: msg, code: JOB_PHOTO_FILE_CODE[key] });
       const a = card();
       await userEvent.upload(pick(), file());
       expect(await screen.findByText(msg)).toBeInTheDocument();
@@ -217,6 +218,22 @@ describe("อัปโหลด", () => {
       a.unmount();
     }
     expect(JOB_PHOTO_FILE_ERROR_TH.cameraMetadata).toBe("ล้างข้อมูลจากกล้องออกจากรูปไม่สำเร็จ — เลือกรูปใหม่หรืออัปโหลดผ่านหน้าเว็บ");
+  });
+
+  it("S3: ตัดสิน retry จาก code เท่านั้น — ข้อความไทยเหมือนกันแต่ไม่มี code = ลองใหม่ได้ (ไม่ผูกกับข้อความ)", async () => {
+    act_.uploadJobPhoto.mockResolvedValueOnce({ ok: false, error: JOB_PHOTO_FILE_ERROR_TH.broken });
+    card();
+    await userEvent.upload(pick(), file());
+    expect(await screen.findByRole("button", { name: "ส่งรูปไม่สำเร็จ แตะเพื่อลองใหม่" })).toBeInTheDocument();
+  });
+
+  it("รูปที่ลองใหม่ไม่ช่วยถูกส่งครั้งเดียว ไม่วนเข้าคิวซ้ำ (hook: ดู useJobPhotoUploads.test.tsx)", async () => {
+    act_.uploadJobPhoto.mockResolvedValueOnce({ ok: false, error: "x", code: "photo_file_broken" });
+    card();
+    await userEvent.upload(pick(), file());
+    await screen.findByRole("button", { name: "เอาออก" });
+    expect(act_.uploadJobPhoto).toHaveBeenCalledTimes(1);
+    expect(resize).toHaveBeenCalledTimes(1);
   });
 
   it("ครบ 5: ปุ่มเพิ่มหาย + ข้อความเหตุผล · ตัวนับ 5/5", () => {
@@ -302,6 +319,7 @@ describe("ตั้งรูปหลัก · เรียง · ลบ (ใน
 
   it("ตั้งรูปหลักล้ม → ย้อนลำดับเดิม + toast error", async () => {
     act_.setPrimaryJobPhoto.mockResolvedValue({ ok: false, error: "รูปนี้ถูกลบไปแล้ว — โหลดหน้าใหม่" });
+    act_.getJobPhotos.mockResolvedValue({ ok: true, data: rows(3) }); // ล้ม → resync จาก server (ความจริงฝั่ง server = ลำดับเดิม)
     card({ photos: rows(3) });
     await userEvent.click(tile(2, 3));
     await userEvent.click(within(viewer()).getByRole("button", { name: "ตั้งเป็นรูปหลัก" }));
@@ -328,6 +346,7 @@ describe("ตั้งรูปหลัก · เรียง · ลบ (ใน
 
   it("เลื่อนล้ม → ย้อนลำดับ + toast error", async () => {
     act_.reorderJobPhotos.mockResolvedValue({ ok: false, error: "รูปในใบเปลี่ยนไปแล้ว — โหลดหน้าใหม่แล้วเรียงอีกครั้ง" });
+    act_.getJobPhotos.mockResolvedValue({ ok: true, data: rows(4) });
     card({ photos: rows(4) });
     await userEvent.click(tile(2, 4));
     await userEvent.click(within(viewer()).getByRole("button", { name: "เลื่อนหลัง" }));
@@ -421,6 +440,58 @@ describe("ตั้งรูปหลัก · เรียง · ลบ (ใน
   });
 });
 
+describe("S1: แก้รูปล้ม → resync จาก server ไม่ทับรูปที่เพิ่งอัปเสร็จ", () => {
+  const newRow = () => row(9, { id: "new9", isPrimary: false, smUrl: url("new9", "sm"), mdUrl: url("new9", "md") });
+
+  async function setPrimaryWhileUploading(failWith: "server" | "throw") {
+    let release: (v: unknown) => void = () => undefined;
+    let fail: (e: unknown) => void = () => undefined;
+    act_.setPrimaryJobPhoto.mockImplementationOnce(() => new Promise((res, rej) => { release = res; fail = rej; }));
+    act_.uploadJobPhoto.mockResolvedValue({ ok: true, data: newRow() });
+    card({ photos: rows(3) });
+    await userEvent.click(tile(2, 3));
+    await userEvent.click(within(viewer()).getByRole("button", { name: "ตั้งเป็นรูปหลัก" }));
+    await userEvent.click(within(viewer()).getByRole("button", { name: "ปิดรูป" }));
+    // ระหว่างรอ action: รูปใหม่อัปเสร็จ
+    await userEvent.upload(pick(), file());
+    await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(4));
+    await act(async () => (failWith === "server" ? release({ ok: false, error: "รูปนี้ถูกลบไปแล้ว — โหลดหน้าใหม่" }) : fail(new Error("net"))));
+  }
+
+  it("ตั้งรูปหลักล้ม + อ่านจาก server ได้ → ใช้รายการจาก server (มีรูปใหม่ · รูปหลักเดิมกลับมา)", async () => {
+    act_.getJobPhotos.mockResolvedValue({ ok: true, data: [...rows(3), newRow()] });
+    await setPrimaryWhileUploading("server");
+    await waitFor(() => expect(act_.getJobPhotos).toHaveBeenCalledWith(JOB));
+    await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(4));
+    expect(tile(1, 4).querySelector("img")).toHaveAttribute("src", url("p1", "sm"));
+    expect(tile(1, 4)).toHaveAccessibleName(/รูปหลัก/);
+    expect(screen.getByRole("button", { name: /^รูปที่ 4 จาก 4/ }).querySelector("img")).toHaveAttribute("src", url("new9", "sm"));
+  });
+
+  it("ตั้งรูปหลักล้ม (exception) + อ่านจาก server ไม่ได้ → ย้อนเฉพาะธงรูปหลักของรูปเดิม · รูปที่เพิ่งอัปเสร็จไม่หาย", async () => {
+    act_.getJobPhotos.mockRejectedValue(new Error("down"));
+    await setPrimaryWhileUploading("throw");
+    await waitFor(() => expect(act_.getJobPhotos).toHaveBeenCalled());
+    await waitFor(() => expect(tile(1, 4).querySelector("img")).toHaveAttribute("src", url("p1", "sm")));
+    expect(screen.getAllByRole("listitem")).toHaveLength(4);
+    expect(screen.getAllByRole("button", { name: /รูปหลัก · แตะเพื่อดู/ })).toHaveLength(1);
+    expect(tile(1, 4)).toHaveAccessibleName(/รูปหลัก/);
+    expect(screen.getByRole("button", { name: /^รูปที่ 4 จาก 4/ }).querySelector("img")).toHaveAttribute("src", url("new9", "sm"));
+  });
+
+  it("เรียงล้ม (photo_set_mismatch เพราะมีรูปใหม่แทรก) → resync จาก server ได้รายการจริงครบรวมรูปใหม่", async () => {
+    act_.reorderJobPhotos.mockResolvedValue({ ok: false, error: "รูปในใบเปลี่ยนไปแล้ว — โหลดหน้าใหม่แล้วเรียงอีกครั้ง", code: "photo_set_mismatch" });
+    act_.getJobPhotos.mockResolvedValue({ ok: true, data: [row(1), row(2), row(3), row(4), newRow()] });
+    card({ photos: rows(4) });
+    await userEvent.click(tile(2, 4));
+    await userEvent.click(within(viewer()).getByRole("button", { name: "เลื่อนหลัง" }));
+    await screen.findByText("รูปในใบเปลี่ยนไปแล้ว — โหลดหน้าใหม่แล้วเรียงอีกครั้ง");
+    await userEvent.click(within(viewer()).getByRole("button", { name: "ปิดรูป" }));
+    await waitFor(() => expect(screen.getAllByRole("listitem")).toHaveLength(5));
+    expect([1, 2, 3, 4, 5].map((n) => tile(n, 5).querySelector("img")?.getAttribute("src"))).toEqual([url("p1", "sm"), url("p2", "sm"), url("p3", "sm"), url("p4", "sm"), url("new9", "sm")]);
+  });
+});
+
 describe("ดึงรูปจากแคตตาล็อก (กดเอง)", () => {
   it("ใบผูก SKU ที่ยังไม่มีรูปจากแคตตาล็อก → ปุ่มขึ้น · กด → pullJobPhotoFromCatalog(jobId) → รูป 'จากแคตตาล็อก' ขึ้นเป็นรูปหลัก", async () => {
     act_.pullJobPhotoFromCatalog.mockResolvedValue({ ok: true, data: row(1, { id: "cat1", source: "product", isPrimary: true }) });
@@ -477,10 +548,51 @@ describe("ลิงก์รูปหมดอายุ 15 นาที", () => 
   });
 });
 
+describe("S2: ขอลิงก์ใหม่อัตโนมัติไม่วนไม่จบ", () => {
+  it("อัตโนมัติ ≤ 2 ครั้ง (ลิงก์ใหม่ก็พังซ้ำ) → แล้วหยุดเหลือปุ่มแตะ · แตะ = ขอได้ทันที และรีเซ็ตให้อัตโนมัติได้อีก 2 ครั้ง · รอบหมดอายุใหม่ (> 5 นาที) นับใหม่เอง", async () => {
+    let t = 1_000_000;
+    const now = vi.spyOn(Date, "now").mockImplementation(() => t);
+    let n = 0;
+    act_.getJobPhotos.mockImplementation(async () => ({ ok: true, data: [row(1, { smUrl: url("p1", "sm", `t${++n}`) })] }));
+    try {
+      const { container } = card({ photos: [row(1)] });
+      const breakImg = async (calls: number) => {
+        t += 11_000;
+        fireEvent.error(container.querySelector("img")!);
+        await waitFor(() => expect(act_.getJobPhotos).toHaveBeenCalledTimes(calls));
+        await waitFor(() => expect(container.querySelector("img")).not.toBeNull());
+      };
+      await breakImg(1);
+      await breakImg(2);
+      // ครั้งที่ 3: ไม่ขอ (เกินเพดาน) → ค้างที่ปุ่มแตะ
+      t += 11_000;
+      fireEvent.error(container.querySelector("img")!);
+      await screen.findByRole("button", { name: "โหลดรูปไม่ได้ แตะเพื่อลองใหม่" });
+      expect(act_.getJobPhotos).toHaveBeenCalledTimes(2);
+      // แตะ = ขอทันที (ไม่ติดเพดาน) + รีเซ็ต
+      await userEvent.click(screen.getByRole("button", { name: "โหลดรูปไม่ได้ แตะเพื่อลองใหม่" }));
+      await waitFor(() => expect(act_.getJobPhotos).toHaveBeenCalledTimes(3));
+      await waitFor(() => expect(container.querySelector("img")).not.toBeNull());
+      await breakImg(4);
+      await breakImg(5);
+      t += 11_000;
+      fireEvent.error(container.querySelector("img")!);
+      await screen.findByRole("button", { name: "โหลดรูปไม่ได้ แตะเพื่อลองใหม่" });
+      expect(act_.getJobPhotos).toHaveBeenCalledTimes(5);
+      // ผ่านไปเกิน 5 นาที = ลิงก์หมดอายุรอบใหม่ → อัตโนมัติได้อีก
+      t += 6 * 60_000;
+      await userEvent.click(screen.getByRole("button", { name: "โหลดรูปไม่ได้ แตะเพื่อลองใหม่" }));
+      await waitFor(() => expect(act_.getJobPhotos).toHaveBeenCalledTimes(6));
+    } finally {
+      now.mockRestore();
+    }
+  });
+});
+
 describe("ข้อความช่วย + หน้าใบงาน (JobDetailClient)", () => {
   it("เคยพิมพ์ใบแล้ว (QR ใช้งาน > 0) และมีรูป → บอกว่ากระดาษใบเก่าไม่มีรูป ช่างดูมือถือได้ · ใบ OEM บอกว่าช่างทุกขั้นเห็น", () => {
     const a = card({ photos: rows(2), activeTokens: 1 });
-    expect(screen.getByText(/ใบกระดาษที่พิมพ์ไปแล้วไม่มีรูปหลัก — ช่างดูรูปจากมือถือ \(สแกน QR\) ได้ทันที/)).toBeInTheDocument();
+    expect(screen.getByText(/ใบกระดาษที่พิมพ์ไปแล้วอาจไม่มีรูปหลัก \(ถ้าเพิ่มรูปหลังพิมพ์\) — ช่างดูรูปจากมือถือ \(สแกน QR\) ได้ทันที/)).toBeInTheDocument();
     a.unmount();
     card({ photos: rows(2), activeTokens: 0, sourceKind: "oem" });
     expect(screen.getByText("รูปนี้ช่างทุกขั้นเห็นผ่าน QR และพิมพ์บนใบงาน")).toBeInTheDocument();

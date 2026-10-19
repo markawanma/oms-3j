@@ -181,6 +181,58 @@ describe("JobPrintClient — ปุ่มพิมพ์รอรูป", () => 
   });
 });
 
+describe("B1: รูปโหลดเสร็จ/พังก่อน hydrate (ไม่มี onLoad/onError)", () => {
+  const proto = HTMLImageElement.prototype;
+  const setImg = (complete: boolean, naturalWidth: number) => {
+    Object.defineProperty(proto, "complete", { configurable: true, get: () => complete });
+    Object.defineProperty(proto, "naturalWidth", { configurable: true, get: () => naturalWidth });
+  };
+  afterEach(() => {
+    delete (proto as unknown as Record<string, unknown>).complete;
+    delete (proto as unknown as Record<string, unknown>).naturalWidth;
+  });
+  const issueBtn = () => screen.getByRole("button", { name: /ออก QR และพิมพ์|กำลังโหลดรูป/ });
+
+  it("complete=true และ naturalWidth>0 ก่อน mount → ready ทันที (ปุ่มเปิด · ไม่รอ 8 วินาที · ไม่ตัดรูปทิ้ง)", () => {
+    setImg(true, 800);
+    vi.useFakeTimers();
+    try {
+      render(<JobPrintClient job={printable(PHOTO)} />);
+      expect(issueBtn()).toBeEnabled();
+      expect(issueBtn()).toHaveTextContent("ออก QR และพิมพ์");
+      expect(screen.getByText(/รูปหลัก: มี — พิมพ์ 30×30 มม./)).toBeInTheDocument();
+      expect(screen.getByTestId("print-photo")).toBeInTheDocument();
+      act(() => void vi.advanceTimersByTime(PRINT_PHOTO_TIMEOUT_MS + 1000));
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      expect(screen.getByTestId("print-photo")).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("complete=true แต่ naturalWidth=0 (พังก่อน hydrate) → failed ทันที: ตัดรูปออก + แถบเตือน + พิมพ์ต่อได้", () => {
+    setImg(true, 0);
+    render(<JobPrintClient job={printable(PHOTO)} />);
+    expect(screen.getByRole("alert")).toHaveTextContent("โหลดรูปหลักไม่ได้");
+    expect(screen.queryByTestId("print-photo")).not.toBeInTheDocument();
+    expect(issueBtn()).toBeEnabled();
+  });
+
+  it("complete=false (ยังโหลดอยู่) → ยังรอ (ปุ่มปิด) จนกว่า onLoad/หมดเวลา", () => {
+    setImg(false, 0);
+    render(<JobPrintClient job={printable(PHOTO)} />);
+    expect(issueBtn()).toBeDisabled();
+    expect(issueBtn()).toHaveTextContent("กำลังโหลดรูป…");
+  });
+
+  it("ใบย่อย: โหลดเสร็จก่อน hydrate → ready ทันทีเช่นกัน", async () => {
+    setImg(true, 640);
+    wrap(<SublotPrintClient sub={sublot(PHOTO)} />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "ออก QR และพิมพ์" })).toBeEnabled());
+    expect(screen.getByTestId("print-photo")).toBeInTheDocument();
+  });
+});
+
 describe("ใบย่อย (SublotSheet) — รูปหลักของใบแม่", () => {
   it("มีรูป: 30×30 มม. อยู่แถวเดียวกับข้อความ 'ผ่านมาแล้ว' · alt = ป้ายใบย่อย · ข้อความยังอยู่ครบ", () => {
     const { container } = render(<SublotSheet sub={sublot(PHOTO)} qrSvg={null} />);

@@ -98,3 +98,16 @@ export const JOB_PHOTO_FILE_ERROR_TH = {
   cameraMetadata: "ล้างข้อมูลจากกล้องออกจากรูปไม่สำเร็จ — เลือกรูปใหม่หรืออัปโหลดผ่านหน้าเว็บ",
   jobMissing: "ไม่พบใบงานที่จะอัปโหลดรูป",
 } as const;
+
+/**
+ * code (hint) ของด่านไฟล์ฝั่ง action — UI ตัดสินว่า "ลองใหม่ช่วยไหม" จาก code ไม่ใช่จากข้อความไทย (แก้ข้อความแล้วด่านไม่พัง)
+ * ไฟล์เดิมส่งซ้ำได้ผลเดิม → ทุก code ในนี้ลองใหม่ไม่ช่วย (UI: มีแต่ "เอาออก")
+ */
+export const JOB_PHOTO_FILE_CODE = {
+  missing: "photo_file_missing",
+  empty: "photo_file_empty",
+  tooLarge: "photo_file_too_large",
+  notJpeg: "photo_file_not_jpeg",
+  broken: "photo_file_broken",
+  cameraMetadata: "photo_file_metadata",
+} as const;

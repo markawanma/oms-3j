@@ -119,6 +119,33 @@ describe("viewer หน้าช่าง", () => {
 });
 
 describe("ลิงก์รูปหมดอายุ (15 นาที · เซสชันช่าง 12 ชม.)", () => {
+  it("S2: อัตโนมัติ ≤ 2 ครั้ง (ลิงก์ใหม่พังซ้ำ) แล้วหยุด · แตะ = ขอทันทีและรีเซ็ต", async () => {
+    let t = 5_000_000;
+    const now = vi.spyOn(Date, "now").mockImplementation(() => t);
+    try {
+      let n = 0;
+      const next = () => view([photo(1, `t${++n}`)]);
+      const { container, rerender } = render(<WorkerApp token={TOKEN} view={next()} />);
+      for (const calls of [1, 2]) {
+        t += 11_000;
+        fireEvent.error(container.querySelector("img")!);
+        expect(refresh).toHaveBeenCalledTimes(calls);
+        rerender(<WorkerApp token={TOKEN} view={next()} />); // server ส่งลิงก์ใหม่ (ที่พังอีก)
+      }
+      t += 11_000;
+      fireEvent.error(container.querySelector("img")!);
+      expect(refresh).toHaveBeenCalledTimes(2); // เกินเพดาน — ไม่วนต่อ
+      await userEvent.click(screen.getByRole("button", { name: "โหลดรูปไม่ได้ แตะเพื่อลองใหม่" }));
+      expect(refresh).toHaveBeenCalledTimes(3);
+      rerender(<WorkerApp token={TOKEN} view={next()} />);
+      t += 11_000;
+      fireEvent.error(container.querySelector("img")!);
+      expect(refresh).toHaveBeenCalledTimes(4); // แตะแล้วรีเซ็ต — อัตโนมัติได้อีก
+    } finally {
+      now.mockRestore();
+    }
+  });
+
   it("ภาพย่อโหลดล้ม → 'โหลดรูปไม่ได้ · แตะลองใหม่' + ขอ view ใหม่อัตโนมัติครั้งเดียว (ไม่สลับแผงเป็น skeleton) · ล้มซ้ำในช่วงห้ามยิง ไม่ยิงซ้ำ · แตะ = ขอใหม่ทันที", async () => {
     const { container, rerender } = render(<WorkerApp token={TOKEN} view={view([photo(1), photo(2)])} />);
     fireEvent.error(container.querySelector("img")!);

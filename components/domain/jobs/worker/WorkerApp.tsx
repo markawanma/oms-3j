@@ -5,7 +5,7 @@
 // 🔴 ข้อมูลที่ได้มาผ่าน sanitizeWorkerView แล้ว (ไม่มีราคา/ต้นทุน/ชื่อลูกค้า) — component นี้ไม่เรียก DB เอง
 // ก่อน hydrate เสร็จ: แสดง skeleton แทนปุ่ม (ปุ่มที่กดตอนนั้นจะไม่ติด) · ผลสำเร็จ = เครื่องหมายถูกเขียว · แพ้การแย่งรับขั้น = ไอคอนเหลือง + ชื่อผู้ชนะ
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, CheckCircle2 } from "lucide-react";
 import { IdentifyPanel, ReceivePanel, SendPanel } from "@/components/domain/jobs/worker/WorkerPanels";
@@ -14,6 +14,7 @@ import { MultiPanel, SplitDone } from "@/components/domain/jobs/worker/WorkerLot
 import { BigButton, PanelSkeleton, StageStrip, useHydrated } from "@/components/domain/jobs/worker/WorkerParts";
 import { JobPhotoThumb } from "@/components/domain/jobs/photos/JobPhotoThumb";
 import { JobPhotoViewer } from "@/components/domain/jobs/photos/JobPhotoViewer";
+import { useRefreshGate } from "@/components/domain/jobs/photos/useRefreshGate";
 import type { RetryReason } from "@/components/domain/jobs/photos/types";
 import { workerLogout } from "@/lib/actions/job-worker";
 import { WORKER_CODE_TH, prevNotSentMessage } from "@/lib/jobs/messages";
@@ -47,17 +48,16 @@ export function WorkerApp({ token, view }: { token: string; view: WorkerView }) 
   // 0182: รูปอ้างอิง (มีเฉพาะช่างที่ระบุตัวแล้ว · รูปหลักก่อน) — ภาพย่อ 80px มุมขวาบนข้างเลขใบงาน · แตะ = เต็มจอ ปัดดู · ไม่มีรูป = ไม่ render อะไรเลย (จอเดิมเป๊ะ)
   const photos = j.photos ?? [];
   const [viewerAt, setViewerAt] = useState<number | null>(null);
-  const lastPhotoRefresh = useRef(0);
-  // signed URL หมดอายุ 15 นาที แต่เซสชันช่างอยู่ได้ 12 ชม. → รูปโหลดล้ม = ขอ view ใหม่ (ลิงก์ใหม่) · อัตโนมัติไม่เกิน 1 ครั้ง/10 วินาที · แตะลองใหม่ได้เสมอ
+  // กันขอลิงก์ใหม่อัตโนมัติวนไม่จบ: อัตโนมัติ ≤ 2 ครั้ง (ห่าง ≥ 10 วินาที) จนช่างแตะ "ลองใหม่" แล้วรีเซ็ต (useRefreshGate)
+  const allowPhotoRefresh = useRefreshGate();
+  // signed URL หมดอายุ 15 นาที แต่เซสชันช่างอยู่ได้ 12 ชม. → รูปโหลดล้ม = ขอ view ใหม่ (ลิงก์ใหม่) · อัตโนมัติจำกัดด้วย useRefreshGate · แตะลองใหม่ได้เสมอ
   // ใช้ router.refresh() ตรงๆ ไม่ใช่ refreshView: refreshView สลับแผงเป็น skeleton (ค่าที่ช่างกรอกค้างอยู่หาย) — รูปไม่ควรกระทบแผนรับ/ส่ง
   const onPhotoRetry = useCallback(
     (reason: RetryReason) => {
-      const now = Date.now();
-      if (reason === "error" && now - lastPhotoRefresh.current < 10_000) return;
-      lastPhotoRefresh.current = now;
+      if (!allowPhotoRefresh(reason)) return;
       router.refresh();
     },
-    [router],
+    [router, allowPhotoRefresh],
   );
 
   useEffect(() => {

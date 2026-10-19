@@ -20,6 +20,7 @@ import { useJobPhotoUploads } from "@/components/domain/jobs/useJobPhotoUploads"
 import { JobPhotoThumb } from "@/components/domain/jobs/photos/JobPhotoThumb";
 import { JobPhotoViewer } from "@/components/domain/jobs/photos/JobPhotoViewer";
 import { PhotoAddButtons } from "@/components/domain/jobs/photos/PhotoAddButtons";
+import { useRefreshGate } from "@/components/domain/jobs/photos/useRefreshGate";
 import type { PhotoView, RetryReason } from "@/components/domain/jobs/photos/types";
 import { getJobPhotos, pullJobPhotoFromCatalog, removeJobPhoto, reorderJobPhotos, setPrimaryJobPhoto, uploadJobPhoto } from "@/lib/actions/job-photos";
 import { MAX_REFERENCE_PHOTOS } from "@/lib/images/constants";
@@ -27,14 +28,17 @@ import type { ImageVariants } from "@/lib/images/client";
 import { GENERIC_JOB_ERROR } from "@/lib/jobs/messages";
 import type { JobPhotoRow } from "@/lib/jobs/photos";
 
-/** รูปล้มโหลดอัตโนมัติ → ขอลิงก์ใหม่ได้ไม่เกินหนึ่งครั้งต่อช่วงนี้ (กันวนเมื่อรูปพังด้วยเหตุอื่นที่ไม่ใช่ลิงก์หมดอายุ) */
-const AUTO_REFRESH_GAP_MS = 10_000;
-
 const toView = (p: JobPhotoRow): PhotoView => ({ id: p.id, smUrl: p.smUrl, mdUrl: p.mdUrl, isPrimary: p.isPrimary, fromCatalog: p.source === "product" });
 
 /** รูปหลักขึ้นหน้า (loader เรียงแบบนี้อยู่แล้ว — ใช้ตอนแก้ในเครื่องแบบ optimistic) */
 function primaryFirst(list: readonly JobPhotoRow[]): JobPhotoRow[] {
   return [...list.filter((p) => p.isPrimary), ...list.filter((p) => !p.isPrimary)];
+}
+
+/** เรียงรูปตามลำดับ id ที่ให้ (รูปที่ไม่อยู่ในรายการ เช่นเพิ่งอัปเสร็จระหว่างนั้น ต่อท้าย — ไม่หาย) */
+function orderBy(list: readonly JobPhotoRow[], ids: readonly string[]): JobPhotoRow[] {
+  const at = new Map(ids.map((id, i) => [id, i]));
+  return [...list].sort((a, b) => (at.get(a.id) ?? Number.MAX_SAFE_INTEGER) - (at.get(b.id) ?? Number.MAX_SAFE_INTEGER));
 }
 
 /** แทรกรูปที่ server ตอบกลับ: รูปหลักใหม่ล้างธงของเดิม · id ซ้ำ = แทนที่ */
@@ -99,16 +103,13 @@ export function JobPhotosCard({
   }, [up.online, failedCount]);
 
   // ---------- ลิงก์รูปหมดอายุ 15 นาที → โหลดรายการใหม่ (รูปพัง/แตะลองใหม่) ----------
-  const lastAuto = useRef(0);
+  // อัตโนมัติ ≤ 2 ครั้ง (ห่าง ≥ 10 วินาที) จนผู้ใช้แตะ "ลองใหม่" แล้วรีเซ็ต — กันวนเมื่อรูปพังด้วยเหตุอื่นที่ไม่ใช่ลิงก์หมดอายุ (useRefreshGate)
+  const allowRefresh = useRefreshGate();
   const refreshing = useRef(false);
   const refreshUrls = useCallback(
     async (reason: RetryReason) => {
       if (refreshing.current) return;
-      if (reason === "error") {
-        const now = Date.now();
-        if (now - lastAuto.current < AUTO_REFRESH_GAP_MS) return;
-        lastAuto.current = now;
-      }
+      if (!allowRefresh(reason)) return;
       refreshing.current = true;
       try {
         const r = await getJobPhotos(jobId);
@@ -120,8 +121,32 @@ export function JobPhotosCard({
         refreshing.current = false;
       }
     },
-    [jobId, toast],
+    [jobId, toast, allowRefresh],
   );
+
+  /** อ่านรายการจริงจาก server (ล้มแล้วคืน null — ไม่ throw) */
+  async function fetchPhotos(): Promise<JobPhotoRow[] | null> {
+    try {
+      const r = await getJobPhotos(jobId);
+      return r.ok ? r.data : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * S1: แก้แบบ optimistic ล้ม → ห้ามเอา snapshot เก่าทับทั้งรายการ (รูปที่เพิ่งอัปเสร็จระหว่างรอจะหาย) · ทางหลัก = อ่านจาก server ใหม่
+   * อ่านไม่ได้ = ย้อนเฉพาะธงรูปหลัก+ลำดับของรูปที่มีใน snapshot (รูปใหม่คงอยู่)
+   */
+  async function recover(before: readonly JobPhotoRow[]) {
+    const fresh = await fetchPhotos();
+    if (fresh) {
+      setPhotos(fresh);
+      return;
+    }
+    const flag = new Map(before.map((p) => [p.id, p.isPrimary]));
+    setPhotos((prev) => orderBy((prev ?? []).map((x) => (flag.has(x.id) ? { ...x, isPrimary: flag.get(x.id) as boolean } : x)), before.map((p) => p.id)));
+  }
 
   /** โหลดรายการไม่ได้ตั้งแต่แรก (photos undefined) → ปุ่ม "ลองใหม่" ของแถบแดง */
   async function reload() {
@@ -155,16 +180,16 @@ export function JobPhotosCard({
   async function setPrimary(p: JobPhotoRow) {
     if (manageBusy || p.isPrimary) return;
     const before = list;
-    setPhotos(primaryFirst(list.map((x) => ({ ...x, isPrimary: x.id === p.id }))));
+    setPhotos((prev) => primaryFirst((prev ?? []).map((x) => ({ ...x, isPrimary: x.id === p.id }))));
     setManageBusy(true);
     try {
       const r = await setPrimaryJobPhoto(p.id);
       if (!r.ok) {
-        setPhotos(before);
+        await recover(before);
         toast.push(r.error, "error");
       } else toast.push("ตั้งเป็นรูปหลักแล้ว");
     } catch {
-      setPhotos(before);
+      await recover(before);
       toast.push(GENERIC_JOB_ERROR, "error");
     } finally {
       setManageBusy(false);
@@ -181,16 +206,17 @@ export function JobPhotosCard({
     [rest[k], rest[to]] = [rest[to], rest[k]];
     const next = [...head, ...rest];
     const before = list;
-    setPhotos(next);
+    const ids = next.map((x) => x.id);
+    setPhotos((prev) => orderBy(prev ?? [], ids));
     setManageBusy(true);
     try {
-      const r = await reorderJobPhotos(jobId, next.map((x) => x.id));
+      const r = await reorderJobPhotos(jobId, ids);
       if (!r.ok) {
-        setPhotos(before);
+        await recover(before);
         toast.push(r.error, "error");
       }
     } catch {
-      setPhotos(before);
+      await recover(before);
       toast.push(GENERIC_JOB_ERROR, "error");
     } finally {
       setManageBusy(false);
@@ -238,7 +264,7 @@ export function JobPhotosCard({
   // ข้อความช่วยบรรทัดเดียว (ลำดับความสำคัญบน→ล่าง · ไม่มีเน็ตเป็นแถบแยกด้านบน)
   const help =
     activeTokens > 0 && list.length > 0
-      ? "ใบกระดาษที่พิมพ์ไปแล้วไม่มีรูปหลัก — ช่างดูรูปจากมือถือ (สแกน QR) ได้ทันที · ถ้าต้องการให้กระดาษมีรูปต้องพิมพ์ใหม่ (QR ใบเก่าจะใช้ไม่ได้)"
+      ? "ใบกระดาษที่พิมพ์ไปแล้วอาจไม่มีรูปหลัก (ถ้าเพิ่มรูปหลังพิมพ์) — ช่างดูรูปจากมือถือ (สแกน QR) ได้ทันที · ถ้าต้องการให้กระดาษมีรูปต้องพิมพ์ใหม่ (QR ใบเก่าจะใช้ไม่ได้)"
       : sourceKind === "oem"
         ? "รูปนี้ช่างทุกขั้นเห็นผ่าน QR และพิมพ์บนใบงาน"
         : null;

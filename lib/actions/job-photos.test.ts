@@ -3,6 +3,7 @@
 // ต้องไม่พัง: สร้างใบเมื่อไม่มีรูป/copy ล้ม (ดู job-office-photos.test.ts) · ใบปิดแล้วแก้รูปได้ (action ไม่เช็คสถานะ — ด่านอยู่ที่ DB และ DB อนุญาตตามมติ) · catalog รูปเดิมไม่ถูกเขียน
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { hasCameraMetadata } from "@/lib/images/server";
+import { JOB_PHOTO_FILE_CODE, JOB_PHOTO_FILE_ERROR_TH } from "@/lib/jobs/photos";
 
 const SHOP = "a7c850ee-6776-4c3e-ba72-ba9e8caba2b7";
 const USER = "99999999-9999-4999-8999-999999999999";
@@ -147,6 +148,25 @@ describe("สิทธิ์ — ทุก action ปฏิเสธก่อน
 });
 
 describe("uploadJobPhoto — เคสห้ามผ่าน (ด่านไฟล์ก่อนแตะ Storage/RPC)", () => {
+  it("S3: ทุกด่านไฟล์ตอบ code (UI ตัดสิน retry จาก code ไม่ใช่ข้อความไทย) · ข้อความตรงตารางกลาง", async () => {
+    const fd = new FormData();
+    fd.set("jobId", JOB);
+    const cases: [string, Promise<{ ok: boolean; error?: string; code?: string }>, keyof typeof JOB_PHOTO_FILE_CODE][] = [
+      ["ไม่มีไฟล์", uploadJobPhoto(fd), "missing"],
+      ["ไฟล์ว่าง", uploadJobPhoto(form({ md: file(new Uint8Array(0)) })), "empty"],
+      ["ใหญ่เกิน", uploadJobPhoto(form({ md: file(cleanJpeg(1200, 800, 1_048_577 - cleanJpeg().byteLength)) })), "tooLarge"],
+      ["ไม่ใช่ JPEG", uploadJobPhoto(form({ md: file(new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0, 0, 0, 0])) })), "notJpeg"],
+      ["โครงสร้างพัง", uploadJobPhoto(form({ md: file(new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x04, 0x00, 0x00])) })), "broken"],
+    ];
+    for (const [name, p, key] of cases) {
+      const r = await p;
+      expect(r.ok, name).toBe(false);
+      expect(r.code, name).toBe(JOB_PHOTO_FILE_CODE[key]);
+      expect(r.error, name).toBe(JOB_PHOTO_FILE_ERROR_TH[key]);
+    }
+    expect(uploadMock).not.toHaveBeenCalled();
+  });
+
   it("ไม่ใช่ FormData · jobId ผิดรูป/ว่าง → ไม่ถึงไหนเลย", async () => {
     expect((await uploadJobPhoto({} as FormData)).ok).toBe(false);
     for (const jobId of [null, "", "x", "../oem", `${JOB}/../x`, "11111111-1111-4111-8111"]) expect((await uploadJobPhoto(form({ jobId }))).ok, String(jobId)).toBe(false);

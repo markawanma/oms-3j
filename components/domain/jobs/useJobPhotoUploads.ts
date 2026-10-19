@@ -9,7 +9,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { HeicNotSupportedError, ImageDecodeError, ImageTooLargeError, SourceImageTooLargeError, resizeImageVariants } from "@/lib/images/client";
 import type { ImageVariants } from "@/lib/images/client";
-import { JOB_PHOTO_FILE_ERROR_TH } from "@/lib/jobs/photos";
+import { JOB_PHOTO_FILE_CODE } from "@/lib/jobs/photos";
 import type { JobPhotoRow } from "@/lib/jobs/photos";
 
 /** ทำพร้อมกันกี่รูป (แคตตาล็อกใช้ 3 — ใบงานใช้ 2 ตาม ux §7) */
@@ -32,10 +32,11 @@ export interface UploadItem {
 export type SendResult = { ok: true; data: JobPhotoRow } | { ok: false; error: string; code?: string };
 
 /** code ของด่านรูปที่ลองใหม่ไม่ช่วย (เต็ม/ไม่มีใบ/ไฟล์ไม่ถูกต้อง) */
-const NO_RETRY_CODES: ReadonlySet<string> = new Set(["photo_cap_ref", "photo_cap_total", "photo_budget", "lot_no_photo", "job_not_found", "photo_bytes_invalid", "photo_dims_invalid"]);
-
-/** ข้อความของด่านไฟล์ฝั่ง server (action ตอบเป็นข้อความไม่มี code) — ไฟล์เสีย/ไม่ใช่ JPEG/ล้าง metadata ไม่สำเร็จ/ใหญ่เกิน: ส่งไฟล์เดิมซ้ำผลเดิม = ไม่มีปุ่มลองใหม่ */
-const NO_RETRY_MESSAGES: ReadonlySet<string> = new Set([JOB_PHOTO_FILE_ERROR_TH.broken, JOB_PHOTO_FILE_ERROR_TH.cameraMetadata, JOB_PHOTO_FILE_ERROR_TH.notJpeg, JOB_PHOTO_FILE_ERROR_TH.tooLarge, JOB_PHOTO_FILE_ERROR_TH.empty, JOB_PHOTO_FILE_ERROR_TH.missing]);
+const NO_RETRY_CODES: ReadonlySet<string> = new Set([
+  "photo_cap_ref", "photo_cap_total", "photo_budget", "lot_no_photo", "job_not_found", "photo_bytes_invalid", "photo_dims_invalid",
+  // ด่านไฟล์ฝั่ง action (ไฟล์เดิมส่งซ้ำได้ผลเดิม) — ตัดสินจาก code ไม่ใช่ข้อความไทย (S3)
+  ...Object.values(JOB_PHOTO_FILE_CODE),
+]);
 
 export const HEIC_MESSAGE = "ไฟล์ HEIC เปิดไม่ได้ — iPhone: ตั้งค่า > กล้อง > รูปแบบ > รองรับมากที่สุด แล้วถ่ายใหม่ หรือส่งผ่าน LINE ก่อน";
 
@@ -78,11 +79,15 @@ export function useJobPhotoUploads({
   const files = useRef(new Map<string, File>());
   const previews = useRef(new Map<string, string>());
   const queue = useRef<string[]>([]);
+  /** id ที่อยู่ในคิวหรือกำลังทำงาน — กัน retry ซ้ำในจังหวะเดียวกันส่งสองรอบ */
+  const scheduled = useRef(new Set<string>());
   const active = useRef(0);
   const alive = useRef(true);
   const fnRef = useRef({ send, onUploaded, resize });
+  const itemsRef = useRef<UploadItem[]>([]);
   useEffect(() => {
     fnRef.current = { send, onUploaded, resize };
+    itemsRef.current = items;
   });
 
   const patch = useCallback((id: string, p: Partial<UploadItem>) => {
@@ -123,7 +128,7 @@ export function useJobPhotoUploads({
         return;
       }
       if (!res.ok) {
-        patch(id, { phase: "error", message: res.error, retryable: !(res.code && NO_RETRY_CODES.has(res.code)) && !NO_RETRY_MESSAGES.has(res.error) });
+        patch(id, { phase: "error", message: res.error, retryable: !(res.code && NO_RETRY_CODES.has(res.code)) });
         return;
       }
       finish(id);
@@ -138,6 +143,7 @@ export function useJobPhotoUploads({
       if (!id) break;
       active.current += 1;
       void run(id).finally(() => {
+        scheduled.current.delete(id);
         active.current -= 1;
         pump();
       });
@@ -153,6 +159,7 @@ export function useJobPhotoUploads({
         return { id, fileName: f.name, phase: "queued", message: null, retryable: true, previewUrl: null };
       });
       setItems((prev) => [...prev, ...fresh]);
+      for (const x of fresh) scheduled.current.add(x.id);
       queue.current.push(...fresh.map((x) => x.id));
       pump();
     },
@@ -161,9 +168,12 @@ export function useJobPhotoUploads({
 
   const retry = useCallback(
     (id: string) => {
-      if (!files.current.has(id)) return;
-      setItems((prev) => prev.map((it) => (it.id === id && it.phase === "error" && it.retryable ? { ...it, phase: "queued", message: null } : it)));
-      if (!queue.current.includes(id)) queue.current.push(id);
+      // N4: ลองใหม่ได้เฉพาะรายการที่ล้มแบบ retryable (ไม่ดันรายการที่กำลังส่ง/ล้มแบบลองใหม่ไม่ช่วยเข้าคิว)
+      const it = itemsRef.current.find((x) => x.id === id);
+      if (!files.current.has(id) || !it || it.phase !== "error" || !it.retryable || scheduled.current.has(id)) return;
+      setItems((prev) => prev.map((x) => (x.id === id ? { ...x, phase: "queued", message: null } : x)));
+      scheduled.current.add(id);
+      queue.current.push(id);
       pump();
     },
     [pump],
@@ -179,6 +189,7 @@ export function useJobPhotoUploads({
   const remove = useCallback(
     (id: string) => {
       queue.current = queue.current.filter((q) => q !== id);
+      scheduled.current.delete(id);
       finish(id);
     },
     [finish],
