@@ -4,6 +4,8 @@
 //    (RPC job_worker_resolve ก็ประกอบทีละ key อยู่แล้ว — ชั้นนี้คือด่านซ้ำฝั่งแอป เผื่อ RPC เปลี่ยนในอนาคต)
 // payload นี้ผ่าน RSC ไปถึง client component ทั้งก้อน → ต้องตรวจจากรูปที่ "ส่งออกจริง" (ดู worker-view.test.ts)
 
+import { isJobPhotoSignedUrl } from "@/lib/jobs/photos";
+
 export const NEXT_ACTIONS = ["identify", "receive", "send", "awaiting_deposit", "not_your_stage", "held_by_other", "prev_not_sent", "on_hold", "all_done", "multi"] as const;
 export type NextAction = (typeof NEXT_ACTIONS)[number];
 
@@ -33,6 +35,18 @@ export interface WorkerPart {
   isMine: boolean;
   /** ช่างคนนี้ยกเลิกส่วนนี้เองได้ (ส่วนที่ตัวเองแยก · ยังไม่มีคนรับ · ผู้ถือเดิมยังไม่ส่งส่วนที่เหลือ) */
   canCancelSplit: boolean;
+}
+
+/**
+ * 0182: รูปอ้างอิงของใบ (เฉพาะช่างที่ระบุตัวแล้ว) — signed URL 15 นาที (worker-server เซ็นจาก path ที่ RPC ส่งมา แล้วทิ้ง path) · รูปหลักมาก่อน
+ * 🔴 ไม่มี path/ชื่อไฟล์/ที่มา/ผู้อัปโหลด/product_image_id/ขนาดไฟล์ — ประกอบทีละ key จาก {id, sm_url, md_url, is_primary, caption} ที่ worker-server แปลงแล้วเท่านั้น
+ */
+export interface WorkerPhoto {
+  id: string;
+  smUrl: string;
+  mdUrl: string;
+  isPrimary: boolean;
+  caption: string | null;
 }
 
 export const MY_ACTION_KINDS = ["send", "receive", "explain"] as const;
@@ -79,6 +93,8 @@ export interface WorkerView {
      * 🔴 ไม่มีชื่อแบบ/ป้ายทอง/คำเตือนทองในช่องทางนี้ — ช่างเห็นแค่ "ช่องไหนต้องกรอก" (profile_name ที่ DB ส่งให้ช่างที่ระบุตัวแล้ว ถูกทิ้งที่ชั้นนี้)
      */
     hasProfile?: boolean;
+    /** 0182: ไม่มี key = ใบไม่มีรูป/ยังไม่ระบุตัว/เซ็น URL ไม่ได้ทุกรูป (หน้าช่างเดิมเป๊ะ) */
+    photos?: WorkerPhoto[];
   };
   viewer: { workerId: string; displayName: string } | null;
   sessionExpired: boolean;
@@ -134,6 +150,16 @@ function mapStage(raw: unknown): WorkerViewStage | null {
 }
 
 const uuidOrNull = (v: unknown): string | null => (typeof v === "string" && UUID_RE.test(v) ? v : null);
+
+/** 0182: แถวรูปที่ worker-server เซ็นแล้ว ({id, sm_url, md_url, is_primary, caption}) → WorkerPhoto · URL ต้องเป็น signed URL ของ job-photos (ด่านซ้ำ) · ไม่มี URL ที่ใช้ได้ = ทิ้งรูปนั้น · path ดิบ (sm_path/md_path) ไม่ถูกอ่านเลย */
+function mapPhoto(raw: unknown): WorkerPhoto | null {
+  if (!isObj(raw)) return null;
+  const id = uuidOrNull(raw.id);
+  const sm = isJobPhotoSignedUrl(raw.sm_url) ? raw.sm_url : null;
+  const md = isJobPhotoSignedUrl(raw.md_url) ? raw.md_url : null;
+  if (!id || (!sm && !md)) return null;
+  return { id, smUrl: (sm ?? md) as string, mdUrl: (md ?? sm) as string, isPrimary: raw.is_primary === true, caption: text(raw.caption, 60) };
+}
 
 function mapPart(raw: unknown): WorkerPart | null {
   if (!isObj(raw)) return null;
@@ -205,6 +231,12 @@ export function sanitizeWorkerView(raw: unknown): WorkerView | null {
   const v = raw.viewer;
   const viewerId = isObj(v) && typeof v.worker_id === "string" && UUID_RE.test(v.worker_id) ? v.worker_id : null;
   const viewer = isObj(v) && viewerId ? { workerId: viewerId, displayName: text(v.display_name, 60) ?? "" } : null;
+
+  // 0182: รูปเฉพาะช่างที่ระบุตัวแล้ว (viewer) — DB ไม่ส่ง key ก่อน PIN · ถ้าส่งมาทั้งที่ไม่มี viewer ก็ทิ้ง (ด่านซ้ำ) · ไม่มีรูปที่ใช้ได้ = ไม่ใส่ key (view เดิมไม่เปลี่ยนรูป)
+  if (viewer && "design_label" in j && Array.isArray(j.photos)) {
+    const photos = j.photos.map(mapPhoto).filter((p): p is WorkerPhoto => p !== null).slice(0, 20);
+    if (photos.length > 0) job.photos = photos;
+  }
 
   // 0173: ไม่มี 'none' แล้ว — ค่านอก enum (เช่น เวอร์ชัน DB ใหม่กว่าแอป) = ปฏิเสธทั้ง view ดีกว่าเดาว่าเป็นปุ่มอะไร
   const na = raw.next_action;

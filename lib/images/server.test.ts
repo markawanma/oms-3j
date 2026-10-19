@@ -3,7 +3,7 @@
 // No canvas/browser APIs involved, so this runs fine under Vitest's node
 // environment (vitest.config.ts).
 import { describe, expect, it } from "vitest";
-import { extractJpegDimensions, looksLikeJpeg } from "./image-server";
+import { extractJpegDimensions, looksLikeJpeg } from "./server";
 
 /**
  * Builds a minimal, structurally-valid JPEG marker stream: SOI -> APP0

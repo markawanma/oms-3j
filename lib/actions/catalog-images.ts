@@ -22,9 +22,9 @@
 //
 // This module is "use server" + async-function-exports ONLY (lesson from
 // 0ae940d: `export const` in a "use server" file breaks the build) — every
-// constant/type lives in lib/catalog/image-constants.ts (plain module)
+// constant/type lives in lib/images/constants.ts (plain module)
 // instead, and the JPEG byte-parsing helpers live in lib/catalog/
-// image-server.ts (also plain, and unit-testable there).
+// lib/images/server.ts (also plain, and unit-testable there).
 
 import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
@@ -32,9 +32,9 @@ import { getServiceClient } from "@/lib/supabase/server";
 import { getDevShopId } from "@/lib/dev/context";
 import { getEffectiveRole } from "@/lib/auth/role";
 import type { ActionResult } from "@/lib/types";
-import { BUCKET, MAX_BYTES, MAX_IMAGES_PER_SKU } from "@/lib/catalog/image-constants";
-import { extractJpegDimensions, looksLikeJpeg } from "@/lib/catalog/image-server";
-import { signImagePaths } from "@/lib/catalog/image-signing";
+import { BUCKET, MAX_BYTES, MAX_IMAGES_PER_SKU } from "@/lib/images/constants";
+import { extractJpegDimensions, looksLikeJpeg } from "@/lib/images/server";
+import { signImagePaths } from "@/lib/images/signing";
 import type { ProductImageRow } from "@/lib/catalog/types";
 
 const JPEG_CONTENT_TYPE = "image/jpeg";
@@ -129,7 +129,7 @@ export async function getProductImages(productId: string): Promise<ActionResult<
 //
 // FormData contract (frontend-dev, next round): { productId: string,
 // md: File, sm: File } — both already resized+re-encoded to JPEG client-side
-// via lib/catalog/image-client.ts's resizeProductImage(). This action does
+// via lib/images/client.ts's resizeImageVariants(). This action does
 // NOT trust that client-side work happened correctly: magic bytes and size
 // are re-checked here against the actual bytes received.
 // ============================================================================

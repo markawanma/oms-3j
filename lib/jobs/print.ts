@@ -6,6 +6,7 @@
 import { METAL_LABEL, SOURCE_LABEL } from "@/lib/jobs/types";
 import type { JobDetail, StageRow } from "@/lib/jobs/types";
 import type { LotPart } from "@/lib/jobs/lots";
+import { isJobPhotoSignedUrl } from "@/lib/jobs/photos";
 
 export interface PrintableJobStage {
   seq: number;
@@ -33,11 +34,16 @@ export interface PrintableJob {
   weightStartG: number | null;
   /** 0176: ชื่อแบบการบันทึก (null = ใบเดิม ไม่พิมพ์บรรทัดแบบ) — 🔴 ไม่มีป้าย/คำเตือนทอง/แผนทองบนกระดาษ */
   profileName: string | null;
+  /**
+   * 0182: signed URL (md · 15 นาที) ของรูปหลักของใบ — field รูป "เดียว" ของใบพิมพ์ (ไม่มี caption/ที่มา/ผู้อัปโหลด/จำนวนรูป) · null = ใบไม่มีรูป = markup เดิมเป๊ะ (ไม่มีกรอบว่าง/ข้อความ "ไม่มีรูป")
+   * ผ่านด่านรูปร่าง URL (isJobPhotoSignedUrl) — ค่าอื่นที่ไม่ใช่ signed URL ของ bucket job-photos ถูกทิ้งเป็น null
+   */
+  primaryPhotoUrl: string | null;
   stages: PrintableJobStage[];
 }
 
 /** ขั้นที่ยังต้องผ่าน (ไม่นับที่ข้ามแล้ว) — ใบงานพิมพ์เฉพาะแถวที่ช่างต้องเซ็น */
-export function toPrintableJob(job: JobDetail, stages: readonly StageRow[]): PrintableJob {
+export function toPrintableJob(job: JobDetail, stages: readonly StageRow[], primaryPhotoUrl: string | null = null): PrintableJob {
   // 🔴 ทอง: น้ำหนักทอง = มูลค่า — ใบงานติดถุงงานที่ช่าง/คนนอกเห็น ห้ามมีแผนโลหะ/น้ำหนักเป้าหมาย/น้ำหนักตั้งต้น (security M1 · ช่างทองต้องชั่งแบบไม่รู้คำตอบ)
   // ตัดที่ type boundary นี้ ไม่ใช่ที่ component — field ที่ไม่ถูกประกอบจะไม่ถึงเบราว์เซอร์
   const isGold = job.metal === "gold";
@@ -55,6 +61,7 @@ export function toPrintableJob(job: JobDetail, stages: readonly StageRow[]): Pri
     sourceLabel: job.sourceKind === "oem" ? "งานลูกค้า" : (SOURCE_LABEL[job.sourceKind] ?? "ผลิตเข้าสต็อก"),
     weightStartG: isGold ? null : job.weightStartG,
     profileName: job.profileName,
+    primaryPhotoUrl: isJobPhotoSignedUrl(primaryPhotoUrl) ? primaryPhotoUrl : null,
     stages: stages.filter((s) => s.status !== "skipped").map((s) => ({ seq: s.seq, name: s.name, weighRequired: s.weighRequired, scrapQtyAsk: s.scrapQtyAsk, scrapWeightAsk: s.scrapWeightAsk })),
   };
 }
@@ -92,10 +99,12 @@ export interface PrintableSublot {
   dueDate: string | null;
   /** วันที่พิมพ์ (วันไทย YYYY-MM-DD) */
   printedOn: string;
+  /** 0182: รูปหลักของใบแม่ (ส่วนย่อยไม่มีรูปของตัวเอง) — field รูปเดียวเหมือน PrintableJob · null = ไม่มีรูป */
+  primaryPhotoUrl: string | null;
 }
 
 /** ส่วนที่ไม่ใช่ส่วนย่อยที่ยังเปิด (ใบแม่/ปิดแล้ว/ยกเลิก) = null — ใบย่อยพิมพ์ได้เฉพาะส่วนย่อยที่ยังมีงานอยู่ */
-export function toPrintableSublot(job: JobDetail, part: LotPart | undefined, printedOn: string): PrintableSublot | null {
+export function toPrintableSublot(job: JobDetail, part: LotPart | undefined, printedOn: string, primaryPhotoUrl: string | null = null): PrintableSublot | null {
   if (!part || part.lotSeq < 1 || part.status === "done" || part.status === "cancelled") return null;
   return {
     jobId: job.id,
@@ -111,5 +120,6 @@ export function toPrintableSublot(job: JobDetail, part: LotPart | undefined, pri
     sourceLabel: job.sourceKind === "oem" ? "งานลูกค้า" : (SOURCE_LABEL[job.sourceKind] ?? "ผลิตเข้าสต็อก"),
     dueDate: job.dueDate,
     printedOn,
+    primaryPhotoUrl: isJobPhotoSignedUrl(primaryPhotoUrl) ? primaryPhotoUrl : null,
   };
 }

@@ -46,6 +46,8 @@ export const EVENT_TYPE_LABEL: Record<string, string> = {
   hold: "พักงาน",
   resume: "ทำต่อ",
   photo_add: "เพิ่มรูป",
+  // 0182: ลบรูป (ตั้งรูปหลัก/เรียงรูปไม่เขียน event — design §5)
+  photo_remove: "ลบรูป",
   note: "หมายเหตุ",
   done: "ปิดงาน",
   cancel: "ยกเลิก",

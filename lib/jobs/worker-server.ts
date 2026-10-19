@@ -7,6 +7,8 @@
 import "server-only";
 import { cookies, headers } from "next/headers";
 import { getServiceClient } from "@/lib/supabase/server";
+import { signJobPhotoPaths } from "@/lib/images/signing";
+import { JOB_PHOTO_PATH_RE } from "@/lib/jobs/photos";
 import { clientIpFromHeaders, ipHashOrNull, sessionHashOrNull, tokenHashOrNull } from "@/lib/jobs/hash";
 import { logJobFailure } from "@/lib/jobs/log";
 import { isUuid } from "@/lib/jobs/input";
@@ -80,13 +82,41 @@ async function callWorkerRpc(fn: string, params: Record<string, unknown>): Promi
   return out;
 }
 
+/**
+ * 0182: แปลง job.photos ของ RPC ({id, sm_path, md_path, is_primary, caption}) เป็น URL ที่เซ็นแล้ว ({id, sm_url, md_url, is_primary, caption}) — path ถูกทิ้งตรงนี้
+ * 🔴 เซ็นเฉพาะ path ที่ RPC ส่งมาหลังระบุตัว (หน้าตาตรง <shop>/<job>/<uuid>_md|sm.jpg) · ไม่มี viewer = ทิ้งทั้งก้อน (ไม่ควรมี — RPC ไม่ส่ง) · TTL 15 นาที · เซ็นล้มทั้งคู่ = รูปนั้นหาย (ไม่ล้มทั้งหน้า)
+ */
+async function signWorkerPhotos(r: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const job = r.job;
+  if (typeof job !== "object" || job === null || Array.isArray(job)) return r;
+  const list = (job as Record<string, unknown>).photos;
+  if (!Array.isArray(list)) return r;
+  const rest = { ...(job as Record<string, unknown>) };
+  delete rest.photos;
+  const hasViewer = typeof r.viewer === "object" && r.viewer !== null;
+  if (!hasViewer) return { ...r, job: rest };
+  const items = list.slice(0, 20).filter((x): x is Record<string, unknown> => typeof x === "object" && x !== null && !Array.isArray(x));
+  const paths: string[] = [];
+  for (const it of items) {
+    for (const p of [it.md_path, it.sm_path]) if (typeof p === "string" && JOB_PHOTO_PATH_RE.test(p)) paths.push(p);
+  }
+  const signed = paths.length > 0 ? await signJobPhotoPaths(getServiceClient(), paths) : new Map<string, string>();
+  const photos = items.flatMap((it) => {
+    const md = typeof it.md_path === "string" ? signed.get(it.md_path) : undefined;
+    const sm = typeof it.sm_path === "string" ? signed.get(it.sm_path) : undefined;
+    if (!md && !sm) return [];
+    return [{ id: it.id, sm_url: sm ?? md, md_url: md ?? sm, is_primary: it.is_primary === true, caption: it.caption }];
+  });
+  return { ...r, job: photos.length > 0 ? { ...rest, photos } : rest };
+}
+
 /** อ่านข้อมูลหน้าช่าง (เรียกจาก server component ของหน้า /w/<token> เท่านั้น) */
 export async function loadWorkerView(token: unknown): Promise<WorkerOk<WorkerView> | WorkerFail> {
   const c = await readCaller(token);
   if (!c.tokenHash) return fail("invalid_token");
   const r = await callWorkerRpc("job_worker_resolve", { p_token_hash: c.tokenHash, p_session_hash: c.sessionHash, p_ip_hash: c.ipHash });
   if (isFail(r)) return r;
-  const view = sanitizeWorkerView(r);
+  const view = sanitizeWorkerView(await signWorkerPhotos(r));
   return view ? { ok: true, data: view } : fail("error", GENERIC_JOB_ERROR);
 }
 

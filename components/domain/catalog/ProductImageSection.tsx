@@ -5,7 +5,7 @@
 // lib/actions/catalog-images.ts (uploadProductImage/deleteProductImage/
 // reorderProductImages/getProductImages — read-only from this file's POV,
 // do not edit that module or lib/catalog/image-*.ts) and the client-side
-// resize pipeline in lib/catalog/image-client.ts.
+// resize pipeline in lib/images/client.ts.
 //
 // Reordering uses ‹ › buttons, not drag-and-drop — this repo has no dnd
 // library, the modal is often viewed at 360px where drag targets are easy
@@ -43,9 +43,9 @@ import {
   ImageDecodeError,
   ImageTooLargeError,
   SourceImageTooLargeError,
-  resizeProductImage,
-} from "@/lib/catalog/image-client";
-import { MAX_IMAGES_PER_SKU } from "@/lib/catalog/image-constants";
+  resizeImageVariants,
+} from "@/lib/images/client";
+import { MAX_IMAGES_PER_SKU } from "@/lib/images/constants";
 import type { ProductImageRow, ProductRow } from "@/lib/catalog/types";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorBanner } from "@/components/ui/ErrorState";
@@ -175,9 +175,9 @@ export function ProductImageSection({
     if (!productId) return;
     updatePendingStatus(item.id, "resizing");
 
-    let variants: Awaited<ReturnType<typeof resizeProductImage>>;
+    let variants: Awaited<ReturnType<typeof resizeImageVariants>>;
     try {
-      variants = await resizeProductImage(item.file);
+      variants = await resizeImageVariants(item.file);
     } catch (err) {
       if (err instanceof HeicNotSupportedError) {
         finishPendingWithProblem(item.id, "heic");
@@ -196,7 +196,7 @@ export function ProductImageSection({
           `ไฟล์ต้นฉบับใหญ่เกินไป (${(err.bytes / 1024 / 1024).toFixed(0)}MB) — ลองเลือกไฟล์ที่เล็กกว่านี้ หรือลดความละเอียดกล้องก่อนถ่าย`
         );
       } else {
-        console.error("ProductImageSection: resizeProductImage failed", err);
+        console.error("ProductImageSection: resizeImageVariants failed", err);
         finishPendingWithProblem(item.id, "error", "ย่อรูปไม่สำเร็จ ลองใหม่อีกครั้ง");
       }
       return;

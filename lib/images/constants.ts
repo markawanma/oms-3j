@@ -1,6 +1,5 @@
-// lib/catalog/image-constants.ts — shared constants for the SKU product-image
-// pipeline (lib/catalog/image-client.ts resize step, lib/actions/catalog-
-// images.ts server action, lib/actions/catalog.ts's primary-image lookup).
+// lib/images/constants.ts (เดิม lib/catalog/image-constants.ts) — shared constants for the SKU product-image pipeline (lib/images/client.ts resize step,
+// lib/actions/catalog-images.ts server action, lib/actions/catalog.ts's primary-image lookup) AND the job-photo pipeline (lib/actions/job-photos.ts · 0182).
 //
 // Plain module — no "use server" here on purpose. This file is imported by
 // BOTH a "use server" actions file and (in the next round) client
@@ -45,3 +44,26 @@ export const BUCKET = "product-images";
 // — callers render `row.mdUrl`/`row.smUrl`/`row.primaryImageUrl` etc.
 // straight from those results, they never construct a URL from a path
 // themselves anymore.
+
+// ============================================================================
+// รูปอ้างอิงบนใบงาน (0182 · design-job-photos.md §2.3) — bucket private 'job-photos'
+// ============================================================================
+
+export const JOB_PHOTOS_BUCKET = "job-photos";
+
+/** รูป reference ต่อใบ (เพดานที่ DB: trigger analytics.job_photo_enforce_cap — มติเจ้าของ 17-18 ต.ค. 69)
+ * 🔴 THIS NUMBER LIVES IN TWO PLACES (เหมือน MAX_IMAGES_PER_SKU): ขยับที่นี่ครึ่งเดียว = ฟอร์มเสนอช่องที่ DB ปฏิเสธ — ต้องออก migration ใหม่คู่กัน */
+export const MAX_REFERENCE_PHOTOS = 5;
+
+/** รูปทุกชนิดรวมต่อใบ (reference + stage ของ W2b) — 🔴 2 ที่เช่นกัน (trigger เดียวกัน) */
+export const MAX_JOB_PHOTOS = 20;
+
+/** budget bytes ของ md ต่อร้าน (sm ≈ ⅓ ⇒ ~330 MB บนดิสก์) — 🔴 2 ที่เช่นกัน (trigger เดียวกัน · P0003) */
+export const JOB_PHOTOS_BUDGET_BYTES = 250 * 1024 * 1024;
+
+/** TTL ของ signed URL รูปใบงาน (ออฟฟิศ + ช่าง + หน้าพิมพ์) — สั้นกว่า 1 ชม. ของแคตตาล็อก เพราะรูปแบบของลูกค้า OEM ถึงมือถือช่าง (design §3.1) */
+export const JOB_PHOTO_SIGNED_URL_TTL_S = 15 * 60;
+
+/** caption ต่อรูป / เหตุผลที่ลบ (ตรงกับ CHECK ของ analytics.job_photo) */
+export const JOB_PHOTO_CAPTION_MAX = 60;
+export const JOB_PHOTO_REASON_MAX = 300;

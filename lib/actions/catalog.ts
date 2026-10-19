@@ -17,8 +17,8 @@ import { getEffectiveRole } from "@/lib/auth/role";
 import { requireWriteAccess } from "@/lib/auth/action-guard";
 import type { ActionResult } from "@/lib/types";
 import { fetchAllRows } from "@/lib/supabase/query-limits";
-import { BUCKET as PRODUCT_IMAGES_BUCKET } from "@/lib/catalog/image-constants";
-import { signImagePaths } from "@/lib/catalog/image-signing";
+import { BUCKET as PRODUCT_IMAGES_BUCKET } from "@/lib/images/constants";
+import { signImagePaths } from "@/lib/images/signing";
 import { humanizeCatalogError, parseMakeSpec, silverSpotValidationError } from "@/lib/catalog/types";
 import type {
   BlendedMarginSuggestion,

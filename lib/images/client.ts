@@ -1,5 +1,5 @@
-// lib/catalog/image-client.ts — browser-only image resize pipeline for the
-// SKU product-image upload feature. Plain module (no "use client"/"use
+// lib/images/client.ts (เดิม lib/catalog/image-client.ts — ย้ายออกจาก lib/catalog/ เพราะกราฟหน้าช่างห้าม import lib/catalog/** · logic เดิม 100%)
+// — browser-only image resize pipeline for the SKU product-image upload feature AND the job-photo upload (lib/actions/job-photos.ts). Plain module (no "use client"/"use
 // server" directive needed — it exports functions, not a component; the
 // component that calls it, in the next frontend round, will carry "use
 // client" itself since createImageBitmap/canvas only exist in a browser).
@@ -17,10 +17,10 @@
 // Only the pure, non-canvas pieces (calcTargetDimensions, isHeicFile,
 // QUALITY_STEPS) are unit-tested — see image-client.test.ts. The
 // canvas/createImageBitmap path can't run under Vitest's node environment
-// (vitest.config.ts), so resizeImageVariant/resizeProductImage are exercised
+// (vitest.config.ts), so resizeImageVariant/resizeImageVariants are exercised
 // manually by frontend-dev once the upload UI exists.
 
-import { MAX_BYTES, MD_MAX_PX, SM_MAX_PX } from "./image-constants";
+import { MAX_BYTES, MD_MAX_PX, SM_MAX_PX } from "./constants";
 
 export class HeicNotSupportedError extends Error {
   constructor() {
@@ -198,20 +198,20 @@ export async function resizeImageVariant(file: File, maxPx: number): Promise<Res
   }
 }
 
-export interface ProductImageVariants {
+export interface ImageVariants {
   md: ResizedImage;
   sm: ResizedImage;
 }
 
 /**
  * Produces both variants (md + sm) from one source File — the pair the
- * server action's FormData contract expects (`productId, md, sm`). Decodes
+ * server actions' FormData contract expects (`productId|jobId, md, sm`). Decodes
  * the source file twice (once per variant) rather than sharing one
  * ImageBitmap across both encodes; simpler and safe (createImageBitmap
  * accepts a File directly and each decode is independent), and the extra
  * decode cost is negligible for a single admin-triggered upload.
  */
-export async function resizeProductImage(file: File): Promise<ProductImageVariants> {
+export async function resizeImageVariants(file: File): Promise<ImageVariants> {
   const [md, sm] = await Promise.all([resizeImageVariant(file, MD_MAX_PX), resizeImageVariant(file, SM_MAX_PX)]);
   return { md, sm };
 }

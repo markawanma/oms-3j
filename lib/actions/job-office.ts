@@ -19,6 +19,8 @@ import { findLotRoot, loadBoardLots, loadJobLots } from "@/lib/jobs/lots-server"
 import type { JobLotsData } from "@/lib/jobs/lots";
 import { logJobFailure } from "@/lib/jobs/log";
 import { GENERIC_JOB_ERROR } from "@/lib/jobs/messages";
+import type { JobPhotoRow } from "@/lib/jobs/photos";
+import { copyCatalogPhotoToJob, loadJobPhotos } from "@/lib/jobs/photos-server";
 
 const BOARD_LIMIT = 400;
 const EVENT_LIMIT = 150;
@@ -94,6 +96,11 @@ export interface JobDetailData {
   lots?: JobLotsData | null;
   /** 0181: ถ้าใบนี้เป็นส่วนย่อย = id ใบแม่ (หน้า /jobs/[id] redirect ไปใบแม่) · ไม่ใช่ส่วนย่อย = null/ไม่มี */
   partOf?: string | null;
+  /**
+   * 0182: รูปอ้างอิง active ของใบ (รูปหลักก่อน · signed URL 15 นาที — ไม่มี path/ที่มา/ผู้อัปโหลด) · [] = ใบไม่มีรูป (การ์ดว่าง) ·
+   * undefined = อ่านรูปไม่ได้ (ไม่ใช่ "ไม่มีรูป" — UI แสดงสถานะผิดพลาด + ปุ่มโหลดใหม่ แต่หน้าใบงานทั้งหน้ายังเปิดได้)
+   */
+  photos?: JobPhotoRow[];
 }
 
 export async function getJobDetail(jobId: string): Promise<JobResult<JobDetailData | null>> {
@@ -147,6 +154,16 @@ export async function getJobDetail(jobId: string): Promise<JobResult<JobDetailDa
     const lots = await loadJobLots(jobId, names);
     // 0181: ใบนี้เป็น "ส่วนย่อย" (ไม่ใช่ใบแม่) → บอกใบแม่ให้หน้าเด้งไปที่ใบแม่ (anchor ที่ส่วนนั้น) — ถามเฉพาะเมื่อไม่มีต้นไม้ของใบนี้
     const partOf = lots === null ? await findLotRoot(jobId) : null;
+    // 0182: รูปอ้างอิง (เฉพาะใบแม่ — ส่วนย่อยใช้รูปแม่) · อ่าน/เซ็นไม่ได้ไม่ล้มทั้งหน้า
+    let photos: JobPhotoRow[] | undefined = [];
+    if (!partOf) {
+      try {
+        photos = await loadJobPhotos(jobId);
+      } catch (err) {
+        logJobFailure("getJobDetail.photos", err);
+        photos = undefined;
+      }
+    }
 
     return {
       ok: true,
@@ -154,6 +171,7 @@ export async function getJobDetail(jobId: string): Promise<JobResult<JobDetailDa
         job,
         lots,
         partOf,
+        photos,
         board: boardRes.data ? mapBoardRow(boardRes.data as unknown as Record<string, unknown>) : null,
         stages,
         loss,
@@ -401,6 +419,12 @@ export async function createJob(input: CreateJobInput): Promise<JobResult<{ jobI
   const id = r.data.job_id ?? r.data.id;
   const no = r.data.job_no;
   if (typeof id !== "string" || !isUuid(id) || typeof no !== "string") return fail(GENERIC_JOB_ERROR);
+  // 0182: รูปหลักของ SKU (ถ้ามี) = รูปหลักของใบอัตโนมัติ (copy เข้า bucket ใบงาน) — ไม่บล็อกการสร้างใบ: ไม่มี SKU/ไม่มีรูป/ล้มกลางทาง = ใบเกิดปกติ (ปุ่ม "ดึงรูปจากแคตตาล็อก" ทำซ้ำได้)
+  try {
+    await copyCatalogPhotoToJob(id);
+  } catch (err) {
+    logJobFailure("createJob.photo", err);
+  }
   revalidatePath("/jobs");
   revalidatePath(input.kind === "oem" ? "/oem/quotes" : "/production");
   // plan_missing[] (0175): แผนโลหะที่ DB คำนวณให้ไม่ได้ (เช่น ไม่มีอัตราก้านต้น) — ฟอร์มใช้ต่อท้าย toast
