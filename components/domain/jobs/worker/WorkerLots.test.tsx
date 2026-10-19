@@ -126,14 +126,14 @@ describe("หลายส่วน — ส่งต่อ n จาก N", () => 
     // ปุ่ม + จำกัดที่ 50 · พิมพ์เกินเอง = ข้อความ
     await setQty("จำนวนที่ส่ง", "51");
     await userEvent.click(sendBtn("ส่งต่อ"));
-    expect(await screen.findByText("ส่งได้ไม่เกินที่ถืออยู่ (50 ชิ้น)")).toBeInTheDocument();
+    expect(await screen.findByText("ส่งได้ไม่เกิน 50 ชิ้น (ถืออยู่ 50 − ของเสีย 0)")).toBeInTheDocument();
     expect(workerSendStage).not.toHaveBeenCalled();
-    // ส่ง 49 + เสีย 1 = เหลือ 0 → ปฏิเสธฝั่งหน้าจอ (DB ตรวจจริงซ้ำ)
-    await setQty("จำนวนที่ส่ง", "49");
+    // เสีย 1 → ส่งได้ไม่เกิน 49 (ถือ − เสีย) · พิมพ์ 50 = เกิน → ปฏิเสธฝั่งหน้าจอ (DB ตรวจจริงซ้ำ)
     await userEvent.click(screen.getByRole("button", { name: "เพิ่มของเสีย" }));
     await userEvent.click(screen.getByRole("radio", { name: "หัก" }));
-    await userEvent.click(sendBtn("ส่งต่อ 49 จาก 50 ชิ้น"));
-    expect(await screen.findByText("ส่งต่อ + ของเสีย ต้องเหลือกับคุณอย่างน้อย 1 ชิ้น")).toBeInTheDocument();
+    await setQty("จำนวนที่ส่ง", "50");
+    await userEvent.click(sendBtn("ส่งต่อ"));
+    expect(await screen.findByText("ส่งได้ไม่เกิน 49 ชิ้น (ถืออยู่ 50 − ของเสีย 1)")).toBeInTheDocument();
     expect(workerSendStage).not.toHaveBeenCalled();
   });
 
@@ -287,7 +287,7 @@ describe("หลายส่วน — ส่งต่อ n จาก N", () => 
           view={view({ nextAction: "send", actionStage: { seq: 3, code: "setting", name: "ฝังพลอย", weightRequired: true }, myActions: [act({ weightRequired: true })] }, { metal: "gold" })}
         />
       );
-      await userEvent.click(await screen.findByText("ส่งไม่ครบ? แบ่งส่งบางส่วน"));
+      await screen.findByText("ส่งต่อกี่ชิ้น จาก 50");
       await setQty("จำนวนที่ส่ง", "20");
       expect(screen.getByLabelText(/น้ำหนักส่วนที่ส่ง/)).toBeInTheDocument();
     });
@@ -314,8 +314,7 @@ describe("หลายส่วน — รับจำนวนจริง", ()
     workerReceiveStage.mockResolvedValue({ ok: true, discrepancyQty: 5 });
     render(<WorkerApp token={TOKEN} view={recvView()} />);
     await screen.findByRole("button", { name: "รับ 40 ชิ้น" });
-    await userEvent.click(screen.getByRole("button", { name: "ได้ไม่ครบ? แจ้งจำนวนที่ได้จริง" }));
-    await setQty("ได้รับจริงกี่ชิ้น", "35");
+    await setQty("จำนวนที่รับเข้า", "35");
     await userEvent.click(screen.getByRole("button", { name: "รับ 35 ชิ้น" }));
     const dlg = await screen.findByRole("alertdialog");
     expect(dlg).toHaveTextContent("รับ 35 จาก 40 ชิ้น — ส่วนต่าง 5 ชิ้น จะแจ้งกลับไปให้ขั้นก่อนชี้แจง");
@@ -329,14 +328,13 @@ describe("หลายส่วน — รับจำนวนจริง", ()
   it("'กลับไปแก้' ไม่ส่ง · กรอกเกินที่ส่งมา/ว่าง/0 = ข้อความ ไม่ส่ง", async () => {
     render(<WorkerApp token={TOKEN} view={recvView()} />);
     await screen.findByRole("button", { name: "รับ 40 ชิ้น" });
-    await userEvent.click(screen.getByRole("button", { name: "ได้ไม่ครบ? แจ้งจำนวนที่ได้จริง" }));
-    await setQty("ได้รับจริงกี่ชิ้น", "41");
+    await setQty("จำนวนที่รับเข้า", "41");
     await userEvent.click(screen.getByRole("button", { name: /^รับ / }));
     expect(await screen.findByText("รับได้ไม่เกินที่ส่งมา (40 ชิ้น)")).toBeInTheDocument();
-    await setQty("ได้รับจริงกี่ชิ้น", "0");
+    await setQty("จำนวนที่รับเข้า", "0");
     await userEvent.click(screen.getByRole("button", { name: /^รับ|^รับงาน/ }));
     expect(await screen.findByText(/จำนวนต้องอยู่ระหว่าง/)).toBeInTheDocument();
-    await setQty("ได้รับจริงกี่ชิ้น", "30");
+    await setQty("จำนวนที่รับเข้า", "30");
     await userEvent.click(screen.getByRole("button", { name: "รับ 30 ชิ้น" }));
     await userEvent.click(await screen.findByRole("button", { name: "กลับไปแก้" }));
     expect(workerReceiveStage).not.toHaveBeenCalled();
@@ -463,28 +461,30 @@ describe("ใบเดี่ยว (ไม่แบ่ง) — หน้าเ�
   const solo = (o: Partial<WorkerView> = {}) =>
     view({ nextAction: "send", actionStage: { seq: 3, code: "setting", name: "ฝังพลอย", weightRequired: false }, ...o });
 
-  it("ไม่มี my_actions (view เดิม): ไม่มีปุ่ม 'ส่งไม่ครบ?' · ส่งแบบเดิมเป๊ะ (ไม่มี lotJobId/qtyHold/qtySend)", async () => {
+  it("ไม่มี my_actions (view เก่าที่ไม่ส่งจำนวน): ไม่มีบล็อกจำนวน · ส่งแบบเดิมเป๊ะ (ไม่มี lotJobId/qtyHold/qtySend)", async () => {
     render(<WorkerApp token={TOKEN} view={solo({ myActions: undefined, parts: undefined })} />);
-    expect(screen.queryByText("ส่งไม่ครบ? แบ่งส่งบางส่วน")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("จำนวนที่ส่ง")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("qty-headline")).not.toBeInTheDocument();
     await userEvent.click(await screen.findByRole("button", { name: /^ส่งต่อ/ }));
     await waitFor(() => expect(workerSendStage).toHaveBeenCalledTimes(1));
     const input = workerSendStage.mock.calls[0][1];
     for (const k of ["lotJobId", "qtyHold", "qtySend"]) expect(input).not.toHaveProperty(k);
   });
 
-  it("มี my_actions (DB ใหม่) แต่ไม่เปิดช่อง: ส่งทั้งหมดแบบเดิมเป๊ะ · มีแค่ปุ่มเสริม 'ส่งไม่ครบ?'", async () => {
+  it("มี my_actions: บล็อกจำนวนเห็นเสมอ (ไม่ซ่อนหลังลิงก์) · ส่งทั้งหมด = ไม่ส่ง qtySend/lotJobId · ส่ง qtyHold", async () => {
     render(<WorkerApp token={TOKEN} view={solo()} />);
-    expect(await screen.findByText("ส่งไม่ครบ? แบ่งส่งบางส่วน")).toBeInTheDocument();
-    expect(screen.queryByLabelText("จำนวนที่ส่ง")).not.toBeInTheDocument();
+    expect(await screen.findByText("ส่งต่อกี่ชิ้น จาก 50")).toBeInTheDocument();
+    expect(screen.getByLabelText("จำนวนที่ส่ง")).toHaveValue("50");
     await userEvent.click(screen.getByRole("button", { name: /^ส่งต่อ/ }));
     await waitFor(() => expect(workerSendStage).toHaveBeenCalledTimes(1));
     const input = workerSendStage.mock.calls[0][1];
-    for (const k of ["lotJobId", "qtyHold", "qtySend"]) expect(input).not.toHaveProperty(k);
+    for (const k of ["lotJobId", "qtySend"]) expect(input).not.toHaveProperty(k);
+    expect(input).toMatchObject({ qtyHold: 50 });
   });
 
-  it("ใบเดี่ยวกดเปิด 'ส่งไม่ครบ?' แล้วส่ง 20 จาก 50 → qtySend=20 qtyHold=50 (ไม่ต้องระบุส่วน = ใบของ token)", async () => {
+  it("ใบเดี่ยวส่ง 20 จาก 50 → qtySend=20 qtyHold=50 (ไม่ต้องระบุส่วน = ใบของ token)", async () => {
     render(<WorkerApp token={TOKEN} view={solo()} />);
-    await userEvent.click(await screen.findByText("ส่งไม่ครบ? แบ่งส่งบางส่วน"));
+    await screen.findByText("ส่งต่อกี่ชิ้น จาก 50");
     await setQty("จำนวนที่ส่ง", "20");
     await userEvent.click(screen.getByRole("button", { name: "ส่งต่อ 20 จาก 50 ชิ้น" }));
     await waitFor(() => expect(workerSendStage).toHaveBeenCalledTimes(1));
@@ -493,15 +493,15 @@ describe("ใบเดี่ยว (ไม่แบ่ง) — หน้าเ�
     expect(input).not.toHaveProperty("lotJobId");
   });
 
-  it("ใบเดี่ยวรับ: ปุ่มยังเป็น 'รับงาน' · มีลิงก์ 'ได้ไม่ครบ?' เมื่อ DB บอกจำนวนที่ส่งมา ≥ 2 · รับตามปกติเรียก 3 อาร์กิวเมนต์เหมือนเดิม", async () => {
+  it("ใบเดี่ยวรับ: บล็อก 'รับเข้า 12 จาก 12' เห็นเสมอ · ปุ่ม 'รับ 12 ชิ้น' · รับตามปกติเรียก 3 อาร์กิวเมนต์เหมือนเดิม", async () => {
     render(
       <WorkerApp
         token={TOKEN}
         view={view({ nextAction: "receive", actionStage: { seq: 3, code: "setting", name: "ฝังพลอย", weightRequired: false }, myActions: [act({ action: "receive", qtyHold: null, qtyExpected: 12 })] })}
       />
     );
-    expect(await screen.findByRole("button", { name: "ได้ไม่ครบ? แจ้งจำนวนที่ได้จริง" })).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "รับงาน" }));
+    expect(await screen.findByLabelText("จำนวนที่รับเข้า")).toHaveValue("12");
+    await userEvent.click(screen.getByRole("button", { name: "รับ 12 ชิ้น" }));
     await waitFor(() => expect(workerReceiveStage).toHaveBeenCalledTimes(1));
     expect(workerReceiveStage.mock.calls[0]).toHaveLength(3);
   });
@@ -517,8 +517,8 @@ describe("0181 re-review: ล็อกรับไม่ครบ (L-2) · weigh
   it("ทองรับไม่ครบ ชั่งไม่ตรงครบ 3 ครั้ง → ข้อความล็อกตายตัว (ไม่บอกว่าชั่งผิดเท่าไร) ไม่มีปุ่มโหลดใหม่หลอก", async () => {
     workerReceiveStage.mockResolvedValue({ ok: false, code: "office_required", error: WORKER_RECEIVE_LOCK_TH });
     render(<WorkerApp token={TOKEN} view={recv()} />);
-    await userEvent.click(await screen.findByRole("button", { name: "ได้ไม่ครบ? แจ้งจำนวนที่ได้จริง" }));
-    await setQty("ได้รับจริงกี่ชิ้น", "35");
+    await screen.findByLabelText("จำนวนที่รับเข้า");
+    await setQty("จำนวนที่รับเข้า", "35");
     await userEvent.click(screen.getByRole("button", { name: "รับ 35 ชิ้น" }));
     await userEvent.click(await screen.findByRole("button", { name: "ยืนยัน รับ 35 ชิ้น" }));
     const a = await screen.findByRole("alert");
@@ -544,18 +544,153 @@ describe("nit 9: เงินใบเดี่ยวรับไม่ครบ
   it("รับครบ + น้ำหนักต่างจากขั้นก่อน >20% → ยังเตือน (ของเดิม)", async () => {
     render(<WorkerApp token={TOKEN} view={soloRecv()} />);
     await userEvent.type(await screen.findByLabelText(/น้ำหนักเข้า/), "5");
-    await userEvent.click(screen.getByRole("button", { name: "รับงาน" }));
+    await userEvent.click(screen.getByRole("button", { name: "รับ 12 ชิ้น" }));
     expect(await screen.findByRole("alertdialog")).toHaveTextContent("ต่างจากที่ขั้นก่อนส่งมา");
     expect(workerReceiveStage).not.toHaveBeenCalled();
   });
   it("รับไม่ครบ (ได้ 8 จาก 12) + น้ำหนักต่างมาก → ไม่เตือนน้ำหนัก (ชิ้นต่างกัน เทียบทั้งก้อนไม่ได้) · เหลือแค่ยืนยันส่วนต่าง", async () => {
     render(<WorkerApp token={TOKEN} view={soloRecv()} />);
     await userEvent.type(await screen.findByLabelText(/น้ำหนักเข้า/), "5");
-    await userEvent.click(screen.getByRole("button", { name: "ได้ไม่ครบ? แจ้งจำนวนที่ได้จริง" }));
-    await setQty("ได้รับจริงกี่ชิ้น", "8");
-    await userEvent.click(screen.getByRole("button", { name: "รับงาน" }));
+    await setQty("จำนวนที่รับเข้า", "8");
+    await userEvent.click(screen.getByRole("button", { name: "รับ 8 ชิ้น" }));
     const dlg = await screen.findByRole("alertdialog");
     expect(dlg).toHaveTextContent("รับ 8 จาก 12 ชิ้น");
     expect(dlg.textContent ?? "").not.toMatch(/ต่างจากที่ขั้นก่อนส่งมา/);
+  });
+});
+
+describe("จำนวนเข้า/ออกเห็นทุกครั้ง ทุกใบ (เจ้าของ UAT 19 ต.ค.) — ใบเดี่ยว 53 ชิ้น", () => {
+  const soloSend = (qty = 53) => view({ nextAction: "send", actionStage: { seq: 3, code: "setting", name: "ฝังพลอย", weightRequired: false }, myActions: [act({ qtyHold: qty })], parts: [part({ qtyLive: qty })] });
+  const soloRecv = (qty = 53) => view({ nextAction: "receive", actionStage: { seq: 3, code: "setting", name: "ฝังพลอย", weightRequired: false }, myActions: [act({ action: "receive", qtyHold: null, qtyExpected: qty })], parts: [part({ qtyLive: qty })] });
+
+  describe("จอรับ", () => {
+    it("แสดง 'รับเข้า 53 จาก 53 ชิ้น' + ตัวเพิ่ม/ลด ค่าเริ่ม 53 · หัวจอ 'รอคุณรับ 53 ชิ้น · ขั้น ฝังพลอย' ตั้งแต่จอแรก", async () => {
+      render(<WorkerApp token={TOKEN} view={soloRecv()} />);
+      const stepper = await screen.findByLabelText("จำนวนที่รับเข้า");
+      expect(stepper).toHaveValue("53");
+      expect(screen.getByText(/รับเข้า/, { selector: "p" })).toHaveTextContent("รับเข้า 53 จาก 53 ชิ้น");
+      expect(screen.getByRole("button", { name: "ลดจำนวนที่รับเข้า" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "เพิ่มจำนวนที่รับเข้า" })).toBeDisabled(); // เกินที่ส่งมาไม่ได้
+      expect(screen.getByTestId("qty-headline")).toHaveTextContent("รอคุณรับ 53 ชิ้น · ขั้น ฝังพลอย");
+    });
+    it("กดรับโดยไม่แก้ = payload เดิมเป๊ะ (3 อาร์กิวเมนต์ ไม่มี qtyReceived)", async () => {
+      render(<WorkerApp token={TOKEN} view={soloRecv()} />);
+      await userEvent.click(await screen.findByRole("button", { name: "รับ 53 ชิ้น" }));
+      await waitFor(() => expect(workerReceiveStage).toHaveBeenCalledTimes(1));
+      expect(workerReceiveStage.mock.calls[0]).toEqual([TOKEN, 3, null]);
+    });
+    it("ลดเป็น 50 (กดลบ/พิมพ์) → ถามยืนยันส่วนต่าง 3 ชิ้น → ส่ง qtyReceived 50", async () => {
+      render(<WorkerApp token={TOKEN} view={soloRecv()} />);
+      await setQty("จำนวนที่รับเข้า", "50");
+      expect(screen.getByText(/รับเข้า/, { selector: "p" })).toHaveTextContent("รับเข้า 50 จาก 53 ชิ้น");
+      await userEvent.click(screen.getByRole("button", { name: "รับ 50 ชิ้น" }));
+      const dlg = await screen.findByRole("alertdialog");
+      expect(dlg).toHaveTextContent("รับ 50 จาก 53 ชิ้น — ส่วนต่าง 3 ชิ้น");
+      expect(workerReceiveStage).not.toHaveBeenCalled();
+      await userEvent.click(within(dlg).getByRole("button", { name: "ยืนยัน รับ 50 ชิ้น" }));
+      await waitFor(() => expect(workerReceiveStage).toHaveBeenCalledTimes(1));
+      expect(workerReceiveStage.mock.calls[0]).toEqual([TOKEN, 3, null, { qtyReceived: 50 }]);
+    });
+    it("ปุ่ม − ลด 1 ทีละชิ้น (53 → 52) และกลับขึ้นได้ถึง 53", async () => {
+      render(<WorkerApp token={TOKEN} view={soloRecv()} />);
+      await userEvent.click(await screen.findByRole("button", { name: "ลดจำนวนที่รับเข้า" }));
+      expect(screen.getByLabelText("จำนวนที่รับเข้า")).toHaveValue("52");
+      await userEvent.click(screen.getByRole("button", { name: "เพิ่มจำนวนที่รับเข้า" }));
+      expect(screen.getByLabelText("จำนวนที่รับเข้า")).toHaveValue("53");
+    });
+    it("ชิ้นเดียว: ตัวเลขอ่านอย่างเดียว (ไม่มีช่อง/ปุ่ม ±) · ปุ่ม 'รับ 1 ชิ้น' · เรียก action เดิม", async () => {
+      render(<WorkerApp token={TOKEN} view={soloRecv(1)} />);
+      await screen.findByRole("button", { name: "รับ 1 ชิ้น" });
+      expect(screen.queryByLabelText("จำนวนที่รับเข้า")).not.toBeInTheDocument();
+      expect(screen.getByText(/รับเข้า/, { selector: "p" })).toHaveTextContent("รับเข้า 1 ชิ้น");
+      await userEvent.click(screen.getByRole("button", { name: "รับ 1 ชิ้น" }));
+      await waitFor(() => expect(workerReceiveStage).toHaveBeenCalledTimes(1));
+      expect(workerReceiveStage.mock.calls[0]).toEqual([TOKEN, 3, null]);
+    });
+    it("ตัวเลขรับเข้าตัวใหญ่ (≥ 24px: text-3xl/4xl) และปุ่ม ± สูง 56px", async () => {
+      render(<WorkerApp token={TOKEN} view={soloRecv()} />);
+      expect(await screen.findByLabelText("จำนวนที่รับเข้า")).toHaveClass("text-3xl");
+      expect(screen.getByRole("button", { name: "ลดจำนวนที่รับเข้า" })).toHaveClass("h-14", "w-14");
+    });
+  });
+
+  describe("จอส่ง", () => {
+    it("แสดง 'ส่งต่อกี่ชิ้น จาก 53' ค่าเริ่ม 53 + กล่องสรุป เสีย 0 / ส่งไป 53 / ค้างกับคุณ 0 · หัวจอ 'คุณถืออยู่ 53 ชิ้น · ขั้น ฝังพลอย'", async () => {
+      render(<WorkerApp token={TOKEN} view={soloSend()} />);
+      expect(await screen.findByText("ส่งต่อกี่ชิ้น จาก 53")).toBeInTheDocument();
+      expect(screen.getByLabelText("จำนวนที่ส่ง")).toHaveValue("53");
+      expect(screen.getByText("เสีย").nextSibling).toHaveTextContent("0");
+      expect(screen.getByText("ส่งไป").nextSibling).toHaveTextContent("53");
+      expect(screen.getByText("ค้างกับคุณ").nextSibling).toHaveTextContent("0");
+      expect(screen.getByTestId("qty-headline")).toHaveTextContent("คุณถืออยู่ 53 ชิ้น · ขั้น ฝังพลอย");
+    });
+    it("ส่ง 53 (ทั้งหมด) = payload เดิม: ไม่มี qtySend · ไม่มี lotJobId · ส่ง qtyHold 53", async () => {
+      render(<WorkerApp token={TOKEN} view={soloSend()} />);
+      await screen.findByText("ส่งต่อกี่ชิ้น จาก 53");
+      await userEvent.click(screen.getByRole("button", { name: /^ส่งต่อ/ }));
+      await waitFor(() => expect(workerSendStage).toHaveBeenCalledTimes(1));
+      const input = workerSendStage.mock.calls[0][1];
+      expect(input).toMatchObject({ expectedSeq: 3, qtyScrap: 0, qtyHold: 53 });
+      for (const k of ["qtySend", "lotJobId", "weightMoveG"]) expect(input).not.toHaveProperty(k);
+    });
+    it("ส่ง 40 → qtySend 40 + qtyHold 53 · กล่องสรุป เสีย 0 / ส่งไป 40 / ค้าง 13 อัปเดตสด · ปุ่ม 'ส่งต่อ 40 จาก 53 ชิ้น'", async () => {
+      render(<WorkerApp token={TOKEN} view={soloSend()} />);
+      await screen.findByText("ส่งต่อกี่ชิ้น จาก 53");
+      await setQty("จำนวนที่ส่ง", "40");
+      expect(screen.getByText("ส่งไป").nextSibling).toHaveTextContent("40");
+      expect(screen.getByText("ค้างกับคุณ").nextSibling).toHaveTextContent("13");
+      await userEvent.click(screen.getByRole("button", { name: "ส่งต่อ 40 จาก 53 ชิ้น" }));
+      await waitFor(() => expect(workerSendStage).toHaveBeenCalledTimes(1));
+      expect(workerSendStage.mock.calls[0][1]).toMatchObject({ qtySend: 40, qtyHold: 53 });
+      expect(workerSendStage.mock.calls[0][1]).not.toHaveProperty("lotJobId");
+    });
+    it("ค่าเริ่มหักของเสียที่กรอกตามสด: เสีย 3 → 'ทั้งหมด 50' ส่งไป 50 ค้าง 0 · ส่งทั้งหมด = ไม่ส่ง qtySend (DB หักเสียเอง) + qtyScrap 3", async () => {
+      render(<WorkerApp token={TOKEN} view={soloSend()} />);
+      await screen.findByText("ส่งต่อกี่ชิ้น จาก 53");
+      for (let i = 0; i < 3; i++) await userEvent.click(screen.getByRole("button", { name: "เพิ่มของเสีย" }));
+      await userEvent.click(screen.getByRole("radio", { name: "หัก" }));
+      expect(screen.getByLabelText("จำนวนที่ส่ง")).toHaveValue("50");
+      expect(screen.getByRole("button", { name: "ทั้งหมด 50" })).toBeInTheDocument();
+      expect(screen.getByText("เสีย").nextSibling).toHaveTextContent("3");
+      expect(screen.getByText("ส่งไป").nextSibling).toHaveTextContent("50");
+      expect(screen.getByText("ค้างกับคุณ").nextSibling).toHaveTextContent("0");
+      await userEvent.click(screen.getByRole("button", { name: /^ส่งต่อ/ }));
+      await waitFor(() => expect(workerSendStage).toHaveBeenCalledTimes(1));
+      const input = workerSendStage.mock.calls[0][1];
+      expect(input).toMatchObject({ qtyScrap: 3, scrapReason: "broken", qtyHold: 53 });
+      expect(input).not.toHaveProperty("qtySend");
+    });
+    it("ปุ่ม 'ทั้งหมด N' คืนค่าเริ่มหลังพิมพ์เอง", async () => {
+      render(<WorkerApp token={TOKEN} view={soloSend()} />);
+      await screen.findByText("ส่งต่อกี่ชิ้น จาก 53");
+      await setQty("จำนวนที่ส่ง", "7");
+      await userEvent.click(screen.getByRole("button", { name: "ทั้งหมด 53" }));
+      expect(screen.getByLabelText("จำนวนที่ส่ง")).toHaveValue("53");
+      expect(screen.getByText("ค้างกับคุณ").nextSibling).toHaveTextContent("0");
+    });
+    it("ถือชิ้นเดียว: ตัวเลขอ่านอย่างเดียว 'ส่งต่อ 1 ชิ้น' (ไม่มีช่อง/กล่องสรุป) · ส่ง qtyHold 1 ไม่มี qtySend", async () => {
+      render(<WorkerApp token={TOKEN} view={soloSend(1)} />);
+      expect(await screen.findByText(/ส่งต่อ/, { selector: "p.rounded-xl" })).toHaveTextContent("ส่งต่อ 1 ชิ้น (ถืออยู่ 1 ชิ้น)");
+      expect(screen.queryByLabelText("จำนวนที่ส่ง")).not.toBeInTheDocument();
+      expect(screen.queryByText("ค้างกับคุณ")).not.toBeInTheDocument();
+      await userEvent.click(screen.getByRole("button", { name: /^ส่งต่อ/ }));
+      await waitFor(() => expect(workerSendStage).toHaveBeenCalledTimes(1));
+      const input = workerSendStage.mock.calls[0][1];
+      expect(input).toMatchObject({ qtyHold: 1 });
+      expect(input).not.toHaveProperty("qtySend");
+    });
+  });
+
+  describe("หัวจอ", () => {
+    it("ยังไม่ระบุตัว / ไม่มีจำนวนจาก DB: ไม่มีบรรทัดจำนวน (ไม่เดา)", () => {
+      const v = soloSend();
+      render(<WorkerApp token={TOKEN} view={{ ...v, myActions: undefined }} />);
+      expect(screen.queryByTestId("qty-headline")).not.toBeInTheDocument();
+    });
+    it("หลายส่วน: ไม่มีบรรทัดรวม (ดูจำนวนที่การ์ดแต่ละส่วน)", async () => {
+      render(<WorkerApp token={TOKEN} view={view()} />);
+      await screen.findByText("ส่งต่อกี่ชิ้น จาก 50");
+      expect(screen.queryByTestId("qty-headline")).not.toBeInTheDocument();
+    });
   });
 });

@@ -307,7 +307,7 @@ export function MultiPanel({
             return (
               <div key={keyOf(a)} className={CARD}>
                 {head(a, a.qtyHold, `ถืออยู่ที่ ${a.stageName}${p?.days != null ? ` · ${p.days === 0 ? "วันนี้" : `${p.days} วัน`}` : ""}`)}
-                {open === keyOf(a) ? <SendPanel token={token} view={view} action={a} qtyOpenByDefault onDone={onDone} onReload={onReload} onSplit={onSplit} /> : null}
+                {open === keyOf(a) ? <SendPanel token={token} view={view} action={a} onDone={onDone} onReload={onReload} onSplit={onSplit} /> : null}
                 {toggle(a, "ส่งต่อ")}
               </div>
             );

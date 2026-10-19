@@ -271,6 +271,8 @@ export interface StageRow {
   qtyIn: number | null;
   qtyOut: number | null;
   qtyScrap: number;
+  /** 0181: ชิ้นที่แยกเป็นส่วนย่อยออกจากขั้นนี้ (ไม่มี key = 0) */
+  qtySplitOut?: number;
   scrapReason: string | null;
   weightInG: number | null;
   weightOutG: number | null;
@@ -281,7 +283,7 @@ export interface StageRow {
 }
 
 export const STAGE_COLUMNS =
-  "id, seq, stage_code, status, weigh_required, scrap_qty_ask, scrap_weight_ask, received_on, sent_on, worker_id, assignee_name, auto_closed, qty_in, qty_out, qty_scrap, scrap_reason, weight_in_g, weight_out_g, metal_added_g, scrap_weight_g, weight_note, skip_reason";
+  "id, seq, stage_code, status, weigh_required, scrap_qty_ask, scrap_weight_ask, received_on, sent_on, worker_id, assignee_name, auto_closed, qty_in, qty_out, qty_scrap, qty_split_out, scrap_reason, weight_in_g, weight_out_g, metal_added_g, scrap_weight_g, weight_note, skip_reason";
 
 export function mapStageRow(r: Record<string, unknown>, names: Record<string, string>, workerNames: Record<string, string>, metalPresent: Record<string, boolean> = {}): StageRow | null {
   const id = str(r.id);
@@ -307,6 +309,7 @@ export function mapStageRow(r: Record<string, unknown>, names: Record<string, st
     qtyIn: num(r.qty_in),
     qtyOut: num(r.qty_out),
     qtyScrap: num(r.qty_scrap) ?? 0,
+    ...(num(r.qty_split_out) !== null ? { qtySplitOut: num(r.qty_split_out) as number } : {}),
     scrapReason: str(r.scrap_reason),
     weightInG: num(r.weight_in_g),
     weightOutG: num(r.weight_out_g),
