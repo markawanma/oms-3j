@@ -20,7 +20,7 @@ function builder(table: string) {
 }
 vi.mock("@/lib/jobs/office-server", () => ({ db: () => ({ from: (t: string) => builder(t) }), shopId: () => SHOP }));
 
-import { loadBoardLots, loadJobLots } from "./lots-server";
+import { findLotRoot, loadBoardLots, loadJobLots } from "./lots-server";
 
 beforeEach(() => {
   calls.length = 0;
@@ -88,5 +88,23 @@ describe("loadBoardLots", () => {
   it("ล้ม → map ว่าง (บอร์ดแสดงแบบเดิม)", async () => {
     results.v_job_tree_summary = { data: null, error: { code: "42P01" } };
     expect((await loadBoardLots([ROOT])).size).toBe(0);
+  });
+});
+
+describe("findLotRoot — ใบนี้เป็นส่วนย่อยไหม", () => {
+  it("ส่วนย่อย (มี parent) → id ใบแม่ · ใบแม่/ไม่พบ/อ่านไม่ได้ → null (ไม่เด้ง)", async () => {
+    results.v_job_tree = { data: { job_id: L1, root_job_id: ROOT, parent_job_id: ROOT }, error: null };
+    await expect(findLotRoot(L1)).resolves.toBe(ROOT);
+    results.v_job_tree = { data: { job_id: ROOT, root_job_id: ROOT, parent_job_id: null }, error: null };
+    await expect(findLotRoot(ROOT)).resolves.toBeNull();
+    results.v_job_tree = { data: null, error: null };
+    await expect(findLotRoot(L1)).resolves.toBeNull();
+    results.v_job_tree = { data: null, error: { code: "42P01" } };
+    await expect(findLotRoot(L1)).resolves.toBeNull();
+  });
+  it("query ผูก shop_id", async () => {
+    results.v_job_tree = { data: null, error: null };
+    await findLotRoot(L1);
+    expect(calls[0].ops.some((o) => o[0] === "eq" && o[1] === "shop_id" && o[2] === SHOP)).toBe(true);
   });
 });

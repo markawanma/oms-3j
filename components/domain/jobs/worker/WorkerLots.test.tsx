@@ -40,7 +40,7 @@ const stages = [
 ] as WorkerView["job"]["stages"];
 
 const part = (o: Partial<WorkerPart> = {}): WorkerPart => ({ lotJobId: LOT0, label: "JB-0020", lotSeq: 0, status: "in_progress", qtyPlanned: 100, qtyLive: 50, stageCode: "setting", stageName: "ฝังพลอย", holderName: "ช่างเอ", days: 1, isMine: true, canCancelSplit: false, ...o });
-const act = (o: Partial<WorkerAction> = {}): WorkerAction => ({ lotJobId: LOT0, label: "JB-0020", action: "send", stageSeq: 3, stageCode: "setting", stageName: "ฝังพลอย", weightRequired: false, scrapQtyAsk: true, scrapWeightAsk: false, qtyHold: 50, qtyExpected: null, discrepancyId: null, qty: null, ...o });
+const act = (o: Partial<WorkerAction> = {}): WorkerAction => ({ lotJobId: LOT0, label: "JB-0020", action: "send", stageSeq: 3, stageCode: "setting", stageName: "ฝังพลอย", weightRequired: false, scrapQtyAsk: true, scrapWeightAsk: false, qtyHold: 50, qtyExpected: null, discrepancyId: null, officeOnly: false, qty: null, ...o });
 
 const view = (o: Partial<WorkerView> = {}, job: Partial<WorkerView["job"]> = {}): WorkerView => ({
   job: { jobNo: "JB-0020", status: "in_progress", stages, designLabel: "แหวนโกเมนไข่", sku: "RG-001", metal: "silver", qtyPlanned: 100, dueDate: null, ...job },
@@ -202,19 +202,94 @@ describe("หลายส่วน — ส่งต่อ n จาก N", () => 
     expect(refresh).toHaveBeenCalled();
   });
 
-  it("🔴 งานทองที่ขั้นสั่งชั่ง: ไม่มีทางแยกส่วน (fail-closed) — ส่งได้ทั้งหมดเท่านั้น + บอกเหตุผล", async () => {
-    render(
-      <WorkerApp
-        token={TOKEN}
-        view={view({ myActions: [act({ weightRequired: true })], parts: [part()] }, { metal: "gold" })}
-      />
-    );
-    expect(await screen.findByText(/งานทอง: ขั้นนี้ต้องชั่ง/)).toBeInTheDocument();
-    expect(screen.queryByLabelText("จำนวนที่ส่ง")).not.toBeInTheDocument();
-    await userEvent.type(screen.getByLabelText(/น้ำหนักออก/), "12.5");
-    await userEvent.click(sendBtn("ส่งต่อ"));
-    await waitFor(() => expect(workerSendStage).toHaveBeenCalledTimes(1));
-    expect(workerSendStage.mock.calls[0][1]).not.toHaveProperty("qtySend");
+  describe("ทอง + ขั้นชั่ง: แยกส่วนต้องชั่งส่วนที่แยกออก (H2 · มติ 19 ต.ค.)", () => {
+    const gold = (o: Partial<WorkerAction> = {}, v: Partial<WorkerView> = {}) =>
+      view({ myActions: [act({ weightRequired: true, ...o })], parts: [part()], ...v }, { metal: "gold" });
+    const openSplit = async (n = "40") => {
+      render(<WorkerApp token={TOKEN} view={gold()} />);
+      await screen.findByText("ส่งต่อกี่ชิ้น จาก 50");
+      await setQty("จำนวนที่ส่ง", n);
+    };
+
+    it("ส่งน้อยกว่าที่ถือ: มีช่อง 'น้ำหนักส่วนที่ส่ง' บังคับ · ไม่มีช่องน้ำหนักออก/ไม่มีน้ำหนักขั้นก่อน/น้ำหนักที่ถือ", async () => {
+      await openSplit();
+      expect(screen.getByLabelText(/น้ำหนักส่วนที่ส่ง/)).toBeInTheDocument();
+      expect(screen.getByText(/— ต้องใส่/)).toBeInTheDocument();
+      expect(screen.queryByLabelText(/น้ำหนักออก/)).not.toBeInTheDocument();
+      expect(document.body.textContent ?? "").not.toMatch(/ครั้งก่อนส่งออก|ถืออยู่ \d+(\.\d+)? กรัม/);
+    });
+
+    it("ไม่ชั่ง = ไม่ส่ง (ข้อความใต้ช่อง) · 0 / ค่าเพี้ยน / ทศนิยมเกิน 3 ตำแหน่ง = ปฏิเสธฝั่งหน้าจอ", async () => {
+      await openSplit();
+      const btn = () => screen.getByRole("button", { name: "ส่งต่อ 40 จาก 50 ชิ้น" });
+      await userEvent.click(btn());
+      expect(await screen.findByText(/ต้องชั่งน้ำหนักส่วนที่ส่งก่อน/)).toBeInTheDocument();
+      for (const v of ["0", "1.2345", "1.2.3"]) {
+        const f = screen.getByLabelText(/น้ำหนักส่วนที่ส่ง/);
+        await userEvent.clear(f);
+        await userEvent.type(f, v);
+        await userEvent.click(btn());
+        await waitFor(() => expect(screen.getAllByRole("alert").length).toBeGreaterThan(0));
+      }
+      expect(workerSendStage).not.toHaveBeenCalled();
+    });
+
+    it("ชั่ง '12,5' → weightMoveG ส่งไปพร้อม qtySend=40 qtyHold=50 (ตัวแปลง 12,5 = 12.5 อยู่ที่ action) · ไม่ส่ง weightOut", async () => {
+      await openSplit();
+      await userEvent.type(screen.getByLabelText(/น้ำหนักส่วนที่ส่ง/), "12,5");
+      await userEvent.click(screen.getByRole("button", { name: "ส่งต่อ 40 จาก 50 ชิ้น" }));
+      await waitFor(() => expect(workerSendStage).toHaveBeenCalledTimes(1));
+      expect(workerSendStage.mock.calls[0][1]).toMatchObject({ qtySend: 40, qtyHold: 50, weightMoveG: "12,5", weightOut: null, lotJobId: LOT0 });
+    });
+
+    it("ส่งทั้งหมด (ค่าเริ่ม): ไม่มีช่องน้ำหนักส่วนที่ส่ง · ชั่งน้ำหนักออกตามปกติ · ห้ามส่ง weightMoveG", async () => {
+      render(<WorkerApp token={TOKEN} view={gold()} />);
+      await screen.findByText("ส่งต่อกี่ชิ้น จาก 50");
+      expect(screen.queryByLabelText(/น้ำหนักส่วนที่ส่ง/)).not.toBeInTheDocument();
+      await userEvent.type(screen.getByLabelText(/น้ำหนักออก/), "20.5");
+      await userEvent.click(screen.getByRole("button", { name: "ส่งต่อ" }));
+      await waitFor(() => expect(workerSendStage).toHaveBeenCalledTimes(1));
+      const input = workerSendStage.mock.calls[0][1];
+      expect(input).not.toHaveProperty("weightMoveG");
+      expect(input).not.toHaveProperty("qtySend");
+      expect(input).toMatchObject({ weightOut: "20.5" });
+    });
+
+    it("เงิน (ขั้นชั่ง) และทองที่ขั้นไม่ชั่ง: ไม่มีช่องน้ำหนักส่วนที่ส่ง ไม่ส่ง weightMoveG", async () => {
+      const a = render(<WorkerApp token={TOKEN} view={view({ myActions: [act({ weightRequired: true })] })} />);
+      await screen.findByText("ส่งต่อกี่ชิ้น จาก 50");
+      await setQty("จำนวนที่ส่ง", "40");
+      expect(screen.queryByLabelText(/น้ำหนักส่วนที่ส่ง/)).not.toBeInTheDocument();
+      await userEvent.click(screen.getByRole("button", { name: "ส่งต่อ 40 จาก 50 ชิ้น" }));
+      await waitFor(() => expect(workerSendStage).toHaveBeenCalledTimes(1));
+      expect(workerSendStage.mock.calls[0][1]).not.toHaveProperty("weightMoveG");
+      a.unmount();
+      workerSendStage.mockClear();
+      render(<WorkerApp token={TOKEN} view={view({ myActions: [act({ weightRequired: false })] }, { metal: "gold" })} />);
+      await screen.findByText("ส่งต่อกี่ชิ้น จาก 50");
+      await setQty("จำนวนที่ส่ง", "40");
+      expect(screen.queryByLabelText(/น้ำหนักส่วนที่ส่ง/)).not.toBeInTheDocument();
+    });
+
+    it("DB ตอบ weight_move_required / weight_over → ข้อความไทยบนจอ", async () => {
+      workerSendStage.mockResolvedValue({ ok: false, error: "ทองที่ขั้นชั่ง: ต้องชั่งน้ำหนักส่วนที่แยกออกก่อน", code: "weight_move_required" });
+      await openSplit();
+      await userEvent.type(screen.getByLabelText(/น้ำหนักส่วนที่ส่ง/), "5");
+      await userEvent.click(screen.getByRole("button", { name: "ส่งต่อ 40 จาก 50 ชิ้น" }));
+      expect(await screen.findByRole("alert")).toHaveTextContent("ต้องชั่งน้ำหนักส่วนที่แยกออกก่อน");
+    });
+
+    it("ใบเดี่ยวที่เป็นทอง (ไม่ใช่ multi): แยกส่วนได้เหมือนกัน · ต้องชั่งส่วนที่แยก", async () => {
+      render(
+        <WorkerApp
+          token={TOKEN}
+          view={view({ nextAction: "send", actionStage: { seq: 3, code: "setting", name: "ฝังพลอย", weightRequired: true }, myActions: [act({ weightRequired: true })] }, { metal: "gold" })}
+        />
+      );
+      await userEvent.click(await screen.findByText("ส่งไม่ครบ? แบ่งส่งบางส่วน"));
+      await setQty("จำนวนที่ส่ง", "20");
+      expect(screen.getByLabelText(/น้ำหนักส่วนที่ส่ง/)).toBeInTheDocument();
+    });
   });
 });
 
@@ -308,6 +383,17 @@ describe("หลายส่วน — การ์ดชี้แจงส่�
     expect(screen.getAllByRole("radio", { name: "หาย" }).some((r) => r.getAttribute("aria-checked") === "true")).toBe(true);
     await userEvent.click(screen.getByRole("button", { name: "ยืนยันชี้แจง" }));
     await waitFor(() => expect(workerResolve).toHaveBeenCalledWith(TOKEN, { discrepancyId: DISC, kind: "lost", reason: "missing" }));
+  });
+
+  it("officeOnly (ทองที่มีน้ำหนักเทียบ): ไม่มีปุ่มชี้แจงบนหน้าช่าง · แสดง ให้ออฟฟิศเป็นผู้ชี้แจง · ไม่มีตัวเลขน้ำหนัก", async () => {
+    const v = explainView();
+    v.myActions = [{ ...v.myActions![0], officeOnly: true }];
+    render(<WorkerApp token={TOKEN} view={v} />);
+    expect(await screen.findByText("ส่วนต่าง 5 ชิ้น — รอออฟฟิศชี้แจง")).toBeInTheDocument();
+    expect(screen.getByText(/ให้ออฟฟิศเป็นผู้ชี้แจง/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "ยืนยันชี้แจง" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("radio")).not.toBeInTheDocument();
+    expect(document.body.textContent ?? "").not.toMatch(/d+(.d+)? ?(g|กรัม)/);
   });
 
   it("งานทองมีส่วนต่างน้ำหนัก → ช่างชี้แจงเองไม่ได้ (office_required) แสดงข้อความตายตัว", async () => {

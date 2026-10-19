@@ -15,7 +15,7 @@ import type { BoardRow, EventRow, JobDetail, StageDef, StageLoss, StageRow, Work
 import { isUuid, parseCount, parseDate, parseLabel, parseStageCodes, parseText, parseWeight, TARGET_PIECE_MAX_G } from "@/lib/jobs/input";
 import { callOffice, db, fail, guard, shopId } from "@/lib/jobs/office-server";
 import type { JobResult } from "@/lib/jobs/office-server";
-import { loadBoardLots, loadJobLots } from "@/lib/jobs/lots-server";
+import { findLotRoot, loadBoardLots, loadJobLots } from "@/lib/jobs/lots-server";
 import type { JobLotsData } from "@/lib/jobs/lots";
 import { logJobFailure } from "@/lib/jobs/log";
 import { GENERIC_JOB_ERROR } from "@/lib/jobs/messages";
@@ -92,6 +92,8 @@ export interface JobDetailData {
   todayTh: string;
   /** 0181: ต้นไม้ส่วนย่อยของใบแม่ (ส่วน · ยอดรวม · ส่วนต่าง) — null/ไม่มี = อ่านไม่ได้ → หน้าใบงานแบบเดิม · ใบเดี่ยวที่ไม่เคยแยกมี parts 1 แถว (แผงส่วนย่อยไม่แสดง) */
   lots?: JobLotsData | null;
+  /** 0181: ถ้าใบนี้เป็นส่วนย่อย = id ใบแม่ (หน้า /jobs/[id] redirect ไปใบแม่) · ไม่ใช่ส่วนย่อย = null/ไม่มี */
+  partOf?: string | null;
 }
 
 export async function getJobDetail(jobId: string): Promise<JobResult<JobDetailData | null>> {
@@ -109,7 +111,7 @@ export async function getJobDetail(jobId: string): Promise<JobResult<JobDetailDa
       db().from("job_stage").select(STAGE_COLUMNS).eq("shop_id", shop).eq("job_id", jobId).order("seq", { ascending: true }).limit(50),
       db().from("job_event").select(EVENT_COLUMNS).eq("shop_id", shop).eq("job_id", jobId).order("recorded_at", { ascending: false }).limit(EVENT_LIMIT),
       db().from("v_job_board").select(BOARD_COLUMNS).eq("shop_id", shop).eq("id", jobId).maybeSingle(),
-      db().from("v_job_stage_loss").select("job_stage_id, loss_g, loss_pct, warn, not_weighed, handoff_gap_g").eq("shop_id", shop).eq("job_id", jobId).limit(50),
+      db().from("v_job_stage_loss").select("job_stage_id, loss_g, loss_pct, warn, not_weighed, handoff_gap_g, handoff_gap_partial_g").eq("shop_id", shop).eq("job_id", jobId).limit(50),
       db().from("job_token").select("id", { count: "exact", head: true }).eq("shop_id", shop).eq("job_id", jobId).is("revoked_at", null),
       db().from("worker").select(WORKER_COLUMNS).eq("shop_id", shop).order("display_name", { ascending: true }).limit(60),
       db().from("job_stage_def").select("code, name_th, metal_present").eq("shop_id", shop).limit(50),
@@ -143,12 +145,15 @@ export async function getJobDetail(jobId: string): Promise<JobResult<JobDetailDa
     }
 
     const lots = await loadJobLots(jobId, names);
+    // 0181: ใบนี้เป็น "ส่วนย่อย" (ไม่ใช่ใบแม่) → บอกใบแม่ให้หน้าเด้งไปที่ใบแม่ (anchor ที่ส่วนนั้น) — ถามเฉพาะเมื่อไม่มีต้นไม้ของใบนี้
+    const partOf = lots === null ? await findLotRoot(jobId) : null;
 
     return {
       ok: true,
       data: {
         job,
         lots,
+        partOf,
         board: boardRes.data ? mapBoardRow(boardRes.data as unknown as Record<string, unknown>) : null,
         stages,
         loss,

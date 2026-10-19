@@ -78,6 +78,12 @@ export function StageTable({
                     <dd className="font-medium text-amber-900 tabular-nums">{loss[s.id].handoffGapG! > 0 ? "+" : "−"}{Math.abs(loss[s.id].handoffGapG!).toLocaleString("th-TH", { maximumFractionDigits: 3 })} g</dd>
                   </div>
                 )}
+                {loss[s.id]?.handoffGapPartialG != null && loss[s.id].handoffGapPartialG !== 0 && (
+                  <div>
+                    <dt className="text-xs text-zinc-600">ส่วนต่างน้ำหนัก (รับไม่ครบ)</dt>
+                    <dd className="font-medium text-amber-900 tabular-nums">{loss[s.id].handoffGapPartialG! > 0 ? "+" : "−"}{Math.abs(loss[s.id].handoffGapPartialG!).toLocaleString("th-TH", { maximumFractionDigits: 3 })} g</dd>
+                  </div>
+                )}
               </dl>
             )}
             {s.autoClosed && <p className="mt-1 text-xs font-medium text-zinc-700">ขั้นนี้ถูกปิดให้อัตโนมัติ (คนส่งไม่ได้กดส่งต่อ) — น้ำหนักออกอาจว่าง</p>}

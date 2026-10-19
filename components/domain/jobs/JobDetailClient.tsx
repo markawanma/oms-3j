@@ -163,7 +163,7 @@ export function JobDetailClient({ data }: { data: JobDetailData }) {
 
       {showLots && lots && (
         <Suspense fallback={<p role="status" aria-busy="true" className="rounded-lg border border-zinc-200 bg-white p-4 text-sm text-zinc-700">กำลังโหลดส่วนของใบนี้…</p>}>
-          <LotsPanel jobId={job.id} lots={lots} closed={closed} openDialog={setLotDlg} />
+          <LotsPanel jobId={job.id} lots={lots} closed={closed} openDialog={setLotDlg} gold={job.metal === "gold"} />
         </Suspense>
       )}
 
@@ -188,7 +188,7 @@ export function JobDetailClient({ data }: { data: JobDetailData }) {
 
       {lotDlg && lots && (
         <Suspense fallback={null}>
-          <LotDialogs jobId={job.id} lots={lots} spec={lotDlg} onClose={() => setLotDlg(null)} />
+          <LotDialogs jobId={job.id} lots={lots} spec={lotDlg} onClose={() => setLotDlg(null)} gold={job.metal === "gold"} />
         </Suspense>
       )}
       {dlg?.t === "reason" && <ReasonDialog jobId={job.id} spec={dlg.spec} onClose={() => setDlg(null)} />}

@@ -372,10 +372,10 @@ export function SendPanel({
   const st = stageOf(view, action);
   const next = view.job.stages.find((s) => s.seq > st.seq && s.status === "pending");
   const hold = action?.qtyHold ?? null;
-  // 🔴 มติเจ้าของ 19 ต.ค.: งานทองที่ขั้นสั่งชั่ง — แยกส่วนต้องชั่งส่วนที่แยก (เงินนับจำนวนอย่างเดียว) · RPC/action รองรับน้ำหนักส่วนที่แยกแล้วจึงเปิดช่อง "น้ำหนักส่วนที่ส่ง"
-  // ระหว่างนี้ปิดทางแยกส่วน (fail-closed): ทองที่ต้องชั่ง = ส่งได้ทั้งหมดเท่านั้น (ชั่งตามปกติ) — ไม่ปล่อยให้ทองแยกโดยไม่ชั่ง
-  const goldWeighBlocked = view.job.metal === "gold" && st.weightRequired;
-  const canSplit = action !== undefined && hold !== null && hold >= 2 && !goldWeighBlocked;
+  // 🔴 มติเจ้าของ 19 ต.ค. (H2): งานทองที่ขั้นสั่งชั่ง — แยกส่วนต้องชั่ง "ส่วนที่แยกออก" (เงิน/ขั้นไม่ชั่ง = นับจำนวนอย่างเดียว ไม่มีช่อง)
+  // ไม่โชว์น้ำหนักขั้นก่อน/น้ำหนักที่ถือ (N1: ทองชั่งแบบไม่รู้คำตอบ) · ส่งทั้งหมด = ชั่งน้ำหนักออกตามปกติ ห้ามส่ง weightMoveG
+  const goldWeigh = view.job.metal === "gold" && st.weightRequired;
+  const canSplit = action !== undefined && hold !== null && hold >= 2;
   const [w, setW] = useState("");
   const [scrap, setScrap] = useState(0);
   const [reason, setReason] = useState<string | null>(null);
@@ -389,6 +389,8 @@ export function SendPanel({
   const [qtyOpen, setQtyOpen] = useState(canSplit && qtyOpenByDefault);
   const [qtyText, setQtyText] = useState(hold !== null ? String(hold) : "");
   const [qErr, setQErr] = useState<string | null>(null);
+  const [moveW, setMoveW] = useState("");
+  const [mErr, setMErr] = useState<string | null>(null);
   const inflight = useRef(false);
   // 0176: ใบที่มีแบบการบันทึก = ช่อง/ปุ่มตาม flag ของขั้น · ใบเดิม = UI เดิมทุกประการ (ช่องน้ำหนัก + ชิ้นเสีย + เติมโลหะ ทุกขั้น)
   const [scrapOpen, setScrapOpen] = useState(false); // ขั้นที่ไม่ถามชิ้นเสีย: เปิดเองได้ด้วยปุ่ม "+ แจ้งของเสียในขั้นนี้"
@@ -404,7 +406,7 @@ export function SendPanel({
   const showWeight = plan.showWeight && !partial;
   const askScrapWeight = plan.showScrapWeight && !partial;
   const showAdd = plan.showAddMetal && !partial;
-  const noteLine = partial ? "แยกส่วนนับจำนวนอย่างเดียว — ไม่ต้องชั่งน้ำหนัก" : plan.sendNote;
+  const noteLine = partial ? (goldWeigh ? "แยกส่วนงานทอง — ชั่งเฉพาะส่วนที่ส่งออก" : "แยกส่วนนับจำนวนอย่างเดียว — ไม่ต้องชั่งน้ำหนัก") : plan.sendNote;
 
   async function go() {
     if (busy || inflight.current) return;
@@ -414,6 +416,7 @@ export function SendPanel({
     setSErr(null);
     setSwErr(null);
     setQErr(null);
+    setMErr(null);
     if (qtyOpen && canSplit) {
       if (!qtyParsed || !qtyParsed.ok) {
         setQErr(qtyParsed && !qtyParsed.ok ? qtyParsed.error : "ใส่จำนวนที่ส่ง");
@@ -446,6 +449,18 @@ export function SendPanel({
       setSwErr(sw.error);
       return;
     }
+    // ทองที่ขั้นชั่ง + แยกส่วน: ต้องชั่งส่วนที่แยกออก (> 0 · ทศนิยม ≤ 3 · "1,5" = 1.5 ผ่าน parseWeight ชุดเดียวกับ server) — DB ตรวจซ้ำ (weight_move_required / weight_over)
+    if (partial && goldWeigh) {
+      const mv = parseWeight(moveW, "น้ำหนักส่วนที่ส่ง");
+      if (!mv.ok) {
+        setMErr(mv.error);
+        return;
+      }
+      if (mv.value === null || mv.value <= 0) {
+        setMErr("ต้องชั่งน้ำหนักส่วนที่ส่งก่อน (ใส่ตัวเลขมากกว่า 0)");
+        return;
+      }
+    }
     inflight.current = true;
     setBusy(true);
     const r = await safely(() =>
@@ -461,6 +476,8 @@ export function SendPanel({
         ...(action && (qtyOpen || multiMode(view)) && hold !== null ? { qtyHold: hold } : {}),
         // ส่งไม่ครบ = qtySend (p_qty_send) · ส่งครบ = ไม่ส่ง qtySend (DB ใช้ทางเดิม job_core_send)
         ...(partial && n !== null ? { qtySend: n } : {}),
+        // น้ำหนักส่วนที่แยกออก: เฉพาะทอง + ขั้นชั่ง + แยกส่วน (ส่งทั้งหมด/เงิน = ไม่ส่ง → DB จะตอบ weight_unexpected ถ้าส่งผิดที่)
+        ...(partial && goldWeigh ? { weightMoveG: moveW } : {}),
       })
     );
     setBusy(false);
@@ -486,9 +503,6 @@ export function SendPanel({
         ส่งต่อ: {st.name}
       </h2>
       {noteLine && <p className="text-lg text-zinc-700">{noteLine}</p>}
-      {action !== undefined && hold !== null && hold >= 2 && goldWeighBlocked && multiMode(view) && (
-        <p className="rounded-xl bg-amber-50 p-3 text-lg text-amber-900">งานทอง: ขั้นนี้ต้องชั่ง — ส่งต่อได้ทั้งหมดที่ถืออยู่เท่านั้น (ถ้าต้องแบ่งส่ง แจ้งออฟฟิศ)</p>
-      )}
       {canSplit &&
         (qtyOpen ? (
           <div className="space-y-2 rounded-xl border border-zinc-300 p-3">
@@ -513,6 +527,9 @@ export function SendPanel({
             ส่งไม่ครบ? แบ่งส่งบางส่วน
           </button>
         ))}
+      {partial && goldWeigh && (
+        <WeightField id="w-move" label="น้ำหนักส่วนที่ส่ง" value={moveW} onChange={(v) => { setMoveW(v); setMErr(null); }} required hint={`ชั่งเฉพาะ ${n} ชิ้นที่ส่งออก (ไม่ต้องชั่งส่วนที่ค้างกับคุณ)`} error={mErr} />
+      )}
       {showWeight && <WeightField id="w-out" label="น้ำหนักออก" value={w} onChange={(v) => { setW(v); setWErr(null); }} required={st.weightRequired} error={wErr} />}
       {plan.showScrapStepper ? (
         <ScrapStepper qty={scrap} onQty={(c) => { setScrap(c); setSErr(null); if (c === 0) setReason(null); }} reason={reason} onReason={(r) => { setReason(r); setSErr(null); }} reasons={view.scrapReasons} error={sErr} />

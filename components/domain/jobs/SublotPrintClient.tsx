@@ -72,7 +72,7 @@ export function SublotPrintClient({ sub, qrTarget = { host: null, warning: null,
     setBusy(true);
     setError(null);
     try {
-      // keepPrevious = true → ไม่เพิกถอน QR ใบเก่า (ถุงอื่นของใบเดียวกันถืออยู่) · ชนิด sublot ชี้ส่วนนี้
+      // ไม่ส่ง revokePrevious = ไม่เพิกถอน QR ใบไหนเลย (L6 · ถุงอื่นของใบเดียวกันถืออยู่) · ชนิด sublot ชี้ส่วนนี้ · เพิกถอนต้องเลือกเองที่รายการ QR
       const r = await issueJobQr(sub.jobId, true, { purpose: "sublot", lotJobId: sub.lotJobId });
       if (r.ok) {
         setIssued(r.data);

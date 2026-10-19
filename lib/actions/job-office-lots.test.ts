@@ -78,6 +78,25 @@ describe("getJobBoard", () => {
   });
 });
 
+describe("getJobDetail — ส่วนย่อยเด้งไปใบแม่", () => {
+  const PART = "44444444-4444-4444-8444-444444444444";
+  const job = { id: PART, job_no: "JB-0033", source_kind: "production", design_label: "แหวน", metal: "silver", qty_planned: 10, qty_order: 10, status: "in_progress" };
+  it("ใบที่เป็นส่วนย่อย: partOf = id ใบแม่ (หน้า redirect) · ใบแม่/ใบเดี่ยว: partOf null", async () => {
+    results.job = { data: job, error: null };
+    results.v_job_tree = { data: [], error: null }; // ไม่มีต้นไม้ที่ root_job_id = ส่วนนี้
+    // findLotRoot ใช้ maybeSingle บน v_job_tree เดียวกัน — mock คืนผลเดียวต่อตาราง: ใช้ object สำหรับ maybeSingle
+    results.v_job_tree = { data: { job_id: PART, root_job_id: ROOT, parent_job_id: ROOT }, error: null };
+    const r = await getJobDetail(PART);
+    expect(r.ok && r.data?.partOf).toBe(ROOT);
+  });
+  it("ใบแม่ที่มีต้นไม้: ไม่ถามหาใบแม่ (partOf null)", async () => {
+    results.job = { data: { ...job, id: ROOT }, error: null };
+    results.v_job_tree = { data: [{ job_id: ROOT, root_job_id: ROOT, lot_seq: 0, label: "JB-0020", status: "in_progress", qty_planned: 10, qty_live: 10 }], error: null };
+    const r = await getJobDetail(ROOT);
+    expect(r.ok && r.data?.partOf).toBeNull();
+  });
+});
+
 describe("getJobDetail", () => {
   it("ใส่ lots ให้ใบแม่ (ใบเดี่ยว = parts 1 แถว) · ต้นไม้อ่านไม่ได้ = lots null ไม่ล้ม", async () => {
     const job = { id: ROOT, job_no: "JB-0020", source_kind: "production", design_label: "แหวน", metal: "silver", qty_planned: 100, status: "in_progress", qty_order: 100 };

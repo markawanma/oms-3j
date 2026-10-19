@@ -16,7 +16,7 @@ import { cancelJobLot, listJobQr, resolveDiscrepancyOffice, splitJobLot, voidDis
 import type { JobQrRow } from "@/lib/actions/job-lots";
 import { revokeJobQr } from "@/lib/actions/job-office-write";
 import { GENERIC_JOB_ERROR } from "@/lib/jobs/messages";
-import { parseQtyText } from "@/lib/jobs/input";
+import { parseQtyText, parseWeight } from "@/lib/jobs/input";
 import { DISCREPANCY_KIND_LABEL, lotSegments, openDiscrepancies, splittableParts } from "@/lib/jobs/lots";
 import type { JobLotsData, LotDiscrepancy, LotPart } from "@/lib/jobs/lots";
 import { thaiDateTime } from "@/lib/jobs/dates";
@@ -120,7 +120,7 @@ function QrList({ qr, closed, onRevoke }: { qr: ReturnType<typeof useQrList>; cl
 // ---------------------------------------------------------------------------
 // แผงหลัก
 // ---------------------------------------------------------------------------
-export function LotsPanel({ jobId, lots, closed, openDialog }: { jobId: string; lots: JobLotsData; closed: boolean; openDialog: (d: LotDialogSpec) => void }) {
+export function LotsPanel({ jobId, lots, closed, openDialog, gold = false }: { jobId: string; lots: JobLotsData; closed: boolean; openDialog: (d: LotDialogSpec) => void; /** งานทอง — ออฟฟิศเห็นส่วนต่างน้ำหนักเทียบ (หน้าช่างไม่เห็น) */ gold?: boolean }) {
   const qr = useQrList(jobId);
   const segs = lotSegments(lots);
   const total = lots.summary?.qtyPlanned ?? 0;
@@ -184,6 +184,11 @@ export function LotsPanel({ jobId, lots, closed, openDialog }: { jobId: string; 
                 <p className="text-sm text-amber-950">
                   {d.fromStageName} ส่งไป {d.toStageName} — ผู้รับได้น้อยกว่าที่ส่ง · รอผู้ส่งชี้แจง (เสียหาย / หาย)
                 </p>
+                {gold && d.weightGapG !== null && (
+                  <p className="text-sm font-medium text-amber-950">
+                    ส่วนต่างน้ำหนักเทียบ (รับ − ส่ง): <span className="tabular-nums">{d.weightGapG > 0 ? "+" : d.weightGapG < 0 ? "−" : ""}{Math.abs(d.weightGapG).toLocaleString("th-TH", { maximumFractionDigits: 3 })} g</span> · งานทอง ออฟฟิศเป็นผู้ชี้แจง (ช่างชี้แจงเองไม่ได้)
+                  </p>
+                )}
                 {!closed && (
                   <div className="mt-2 flex flex-wrap gap-2">
                     <Button type="button" onClick={() => openDialog({ t: "resolve", discId: d.id })}>
@@ -217,9 +222,9 @@ export function LotsPanel({ jobId, lots, closed, openDialog }: { jobId: string; 
 // ---------------------------------------------------------------------------
 // dialogs
 // ---------------------------------------------------------------------------
-export function LotDialogs({ jobId, lots, spec, onClose }: { jobId: string; lots: JobLotsData; spec: LotDialogSpec; onClose: () => void }) {
+export function LotDialogs({ jobId, lots, spec, onClose, gold = false }: { jobId: string; lots: JobLotsData; spec: LotDialogSpec; onClose: () => void; gold?: boolean }) {
   if (!spec) return null;
-  if (spec.t === "split") return <SplitLotDialog parts={splittableParts(lots)} initial={spec.partId} onClose={onClose} />;
+  if (spec.t === "split") return <SplitLotDialog parts={splittableParts(lots)} initial={spec.partId} gold={gold} onClose={onClose} />;
   if (spec.t === "cancelLot") {
     const p = lots.parts.find((x) => x.jobId === spec.partId);
     return p ? <CancelLotDialog part={p} onClose={onClose} /> : null;
@@ -233,7 +238,7 @@ export function LotDialogs({ jobId, lots, spec, onClose }: { jobId: string; lots
 }
 
 /** แยกส่วน (ออฟฟิศ): เลือกส่วนที่ผู้ถือถืออยู่ + จำนวนที่แยก (ผู้ถือเดิมเหลือ ≥ 1) · ไม่ชั่ง (ค1) */
-export function SplitLotDialog({ parts, initial, onClose }: { parts: LotPart[]; initial?: string; onClose: () => void }) {
+export function SplitLotDialog({ parts, initial, onClose, gold = false }: { parts: LotPart[]; initial?: string; onClose: () => void; /** งานทอง: ขั้นที่ตั้งชั่ง = ต้องชั่งส่วนที่แยก (มติ 19 ต.ค.) — เงิน/ขั้นไม่ชั่ง = ไม่มีช่อง */ gold?: boolean }) {
   const { run, busy, error, setError } = useOfficeRun();
   const [pickId, setPickId] = useState(initial ?? parts[0]?.jobId ?? "");
   const part = parts.find((p) => p.jobId === pickId) ?? parts[0];
@@ -242,11 +247,15 @@ export function SplitLotDialog({ parts, initial, onClose }: { parts: LotPart[]; 
   const parsed = parseQtyText(text);
   const n = parsed.ok ? parsed.value : null;
   const tooMany = n !== null && n > hold - 1;
-  const ready = !!part && part.holdSeq !== null && n !== null && !tooMany;
+  const needWeight = gold && !!part?.holdWeighRequired;
+  const [moveText, setMoveText] = useState("");
+  const move = needWeight ? parseWeight(moveText, "น้ำหนักส่วนที่แยกออก") : null;
+  const moveBad = needWeight && (!move || !move.ok || move.value === null || move.value <= 0);
+  const ready = !!part && part.holdSeq !== null && n !== null && !tooMany && !moveBad;
 
   async function submit() {
     if (!part || part.holdSeq === null || n === null) return;
-    const r = await run(() => splitJobLot({ jobId: part.jobId, expectedSeq: part.holdSeq as number, qty: n, qtyHold: hold }), { success: "แยกส่วนแล้ว" });
+    const r = await run(() => splitJobLot({ jobId: part.jobId, expectedSeq: part.holdSeq as number, qty: n, qtyHold: hold, ...(needWeight ? { weightMoveG: moveText } : {}) }), { success: "แยกส่วนแล้ว" });
     if (r.ok) onClose();
   }
 
@@ -272,9 +281,17 @@ export function SplitLotDialog({ parts, initial, onClose }: { parts: LotPart[]; 
             {partTitle(part)} ถืออยู่ที่ {part.stageName ?? "—"}
             {part.holderName ? ` · ${part.holderName}` : ""} · <strong>{hold} ชิ้น</strong>
           </p>
-          <Field id="split-qty" label="แยกออกกี่ชิ้น" hint={`ผู้ถือเดิมต้องเหลืออย่างน้อย 1 ชิ้น (แยกได้ 1–${hold - 1}) · แยกส่วนนับจำนวนอย่างเดียว ไม่ต้องชั่ง`}>
+          <Field id="split-qty" label="แยกออกกี่ชิ้น" hint={`ผู้ถือเดิมต้องเหลืออย่างน้อย 1 ชิ้น (แยกได้ 1–${hold - 1}) · ${needWeight ? "งานทองที่ขั้นชั่ง: ต้องชั่งส่วนที่แยกออกด้วย" : "แยกส่วนนับจำนวนอย่างเดียว ไม่ต้องชั่ง"}`}>
             <input id="split-qty" inputMode="numeric" value={text} onChange={(e) => { setText(e.target.value); setError(null); }} className={FIELD} aria-invalid={text !== "" && (!parsed.ok || tooMany)} />
           </Field>
+          {needWeight && (
+            <>
+              <Field id="split-weight" label="น้ำหนักส่วนที่แยกออก (กรัม)" hint="ชั่งเฉพาะส่วนที่แยกออก · ทศนิยมไม่เกิน 3 ตำแหน่ง · ต้องมากกว่า 0">
+                <input id="split-weight" inputMode="decimal" value={moveText} onChange={(e) => { setMoveText(e.target.value); setError(null); }} className={FIELD} aria-invalid={moveText !== "" && !!moveBad} />
+              </Field>
+              {moveText !== "" && move && !move.ok && <ErrorLine message={move.error} />}
+            </>
+          )}
           {text !== "" && !parsed.ok && <ErrorLine message={parsed.error} />}
           {tooMany && <ErrorLine message={`แยกได้ไม่เกิน ${hold - 1} ชิ้น (ผู้ถือเดิมต้องเหลืออย่างน้อย 1 ชิ้น)`} />}
           {ready && n !== null && (

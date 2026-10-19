@@ -19,8 +19,8 @@ export const TREE_COLUMNS =
   "job_id, root_job_id, parent_job_id, lot_seq, label, status, qty_planned, qty_live, qty_stage_scrap, qty_split_out, qty_discrepancy_open, qty_discrepancy_resolved, cancel_scrap_qty, qty_good, qty_scrap_final, stage_code, stage_name, stage_status, holder_name, days_in_stage, qty_qc_passed";
 export const TREE_SUMMARY_COLUMNS =
   "root_job_id, job_no, qty_planned, qty_order, parts_count, parts_open, lots_open, qty_live_total, qty_done_good, qty_scrap_total, qty_pending_explanation, qty_discrepancy_resolved, qty_qc_passed_total, dominant_stage_code, sum_check";
-export const DISCREPANCY_COLUMNS = "id, root_job_id, job_id, from_stage_id, to_stage_id, qty, status, resolved_kind, resolved_reason, created_at, void_of_id";
-export const LOT_STAGE_COLUMNS = "id, job_id, seq, stage_code, status, qty_in, qty_scrap, qty_split_out";
+export const DISCREPANCY_COLUMNS = "id, root_job_id, job_id, from_stage_id, to_stage_id, qty, status, resolved_kind, resolved_reason, created_at, void_of_id, weight_gap_g";
+export const LOT_STAGE_COLUMNS = "id, job_id, seq, stage_code, status, weigh_required, qty_in, qty_scrap, qty_split_out";
 
 // ---------------------------------------------------------------------------
 // ส่วน (1 แถวต่อใบในต้นไม้ — ใบแม่ = lotSeq 0)
@@ -49,6 +49,8 @@ export interface LotPart {
   qtyQcPassed: number | null;
   /** ขั้นที่ถืออยู่ (received) — ใช้แยกส่วนจากออฟฟิศ · null = ไม่มีขั้นที่ถือ */
   holdSeq: number | null;
+  /** ขั้นที่ถืออยู่ตั้งชั่งไหน (ทองที่ขั้นชั่ง: แยกส่วนต้องชั่งส่วนที่แยก — มติ 19 ต.ค.) */
+  holdWeighRequired: boolean;
   /** ชื่อขั้นที่ผ่านมาแล้ว (sent/skipped) เรียงตามลำดับ — ใบย่อยพิมพ์บรรทัดเดียว (ฌ3) */
   passedStages: string[];
 }
@@ -77,6 +79,7 @@ export function mapLotPart(r: Record<string, unknown>): LotPart | null {
     daysInStage: num(r.days_in_stage),
     qtyQcPassed: num(r.qty_qc_passed),
     holdSeq: null,
+    holdWeighRequired: false,
     passedStages: [],
   };
 }
@@ -139,6 +142,8 @@ export interface LotDiscrepancy {
   resolvedReason: string | null;
   createdAt: string | null;
   voidOfId: string | null;
+  /** ส่วนต่างน้ำหนักเทียบ (กรัม · รับ − ส่ง) — เฉพาะหน้าออฟฟิศ · null = ไม่มี */
+  weightGapG: number | null;
 }
 
 export function mapDiscrepancy(r: Record<string, unknown>, ctx: { stageById: Record<string, { name: string }>; labelByJob: Record<string, string> }): LotDiscrepancy | null {
@@ -160,6 +165,7 @@ export function mapDiscrepancy(r: Record<string, unknown>, ctx: { stageById: Rec
     resolvedReason: str(r.resolved_reason),
     createdAt: str(r.created_at),
     voidOfId: str(r.void_of_id),
+    weightGapG: num(r.weight_gap_g),
   };
 }
 

@@ -77,7 +77,7 @@ export function PartCard({ part, children }: { part: LotPart; children?: ReactNo
   const dim = part.status === "cancelled";
   const qty = part.status === "done" ? (part.qtyGood ?? part.qtyPlanned) : (part.qtyLive ?? part.qtyPlanned);
   return (
-    <li className={`rounded-lg border p-3 ${dim ? "border-zinc-200 bg-zinc-50 text-zinc-600" : "border-zinc-200 bg-white"}`}>
+    <li id={`part-${part.jobId}`} className={`scroll-mt-24 rounded-lg border p-3 target:ring-2 target:ring-primary-600 ${dim ? "border-zinc-200 bg-zinc-50 text-zinc-600" : "border-zinc-200 bg-white"}`}>
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <p className={`text-base font-semibold ${dim ? "line-through" : "text-zinc-900"}`}>{partTitle(part)}</p>

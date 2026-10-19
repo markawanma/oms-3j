@@ -67,8 +67,8 @@ function jb0020(sumCheck = true): JobLotsData {
   return { parts, summary: mapLotsSummary({ root_job_id: JOB, qty_planned: 100, qty_order: 100, parts_count: 4, parts_open: 4, lots_open: 3, qty_scrap_total: 1, qty_qc_passed_total: 34, sum_check: sumCheck }), discrepancies: [] };
 }
 
-function detail(lotsData: JobLotsData | null | undefined, o: { stagesAllSent?: boolean; status?: string } = {}): JobDetailData {
-  const base = { id: JOB, job_no: "JB-0020", source_kind: "production", design_label: "แหวนโกเมนไข่", sku_snapshot: null, metal: "silver", qty_planned: 100, qty_order: 100, status: o.status ?? "in_progress", production_order_item_id: "33333333-3333-4333-8333-333333333333" };
+function detail(lotsData: JobLotsData | null | undefined, o: { stagesAllSent?: boolean; status?: string; metal?: string } = {}): JobDetailData {
+  const base = { id: JOB, job_no: "JB-0020", source_kind: "production", design_label: "แหวนโกเมนไข่", sku_snapshot: null, metal: o.metal ?? "silver", qty_planned: 100, qty_order: 100, status: o.status ?? "in_progress", production_order_item_id: "33333333-3333-4333-8333-333333333333" };
   const stages = o.stagesAllSent ? [stage("cast", 1, "sent"), stage("qc", 2, "sent"), stage("pack", 3, "sent")] : [stage("cast", 1, "sent"), stage("qc", 2, "received"), stage("pack", 3, "pending")];
   return {
     job: mapJobDetail(base)!, board: mapBoardRow({ id: JOB, job_no: "JB-0020", seq: 20, source_kind: "production", metal: "silver", qty_planned: 100, qty_order: 100, status: base.status }), stages, loss: {}, events: [], eventsTruncated: false, activeTokens: 0, workers: [], source: null, todayTh: "2026-10-19",
@@ -371,5 +371,93 @@ describe("QR ที่ใช้งานอยู่ + พิมพ์ใบย�
     await userEvent.type(d.getByLabelText(/เหตุผล/), "กระดาษหาย");
     await userEvent.click(d.getByRole("button", { name: "เพิกถอน QR" }));
     await waitFor(() => expect(w.revokeJobQr).toHaveBeenCalledWith(JOB, "กระดาษหาย", 2));
+  });
+});
+
+describe("ทอง: แยกส่วนต้องชั่งส่วนที่แยกออก (H2) + ส่วนต่างน้ำหนักเทียบ (ออฟฟิศเท่านั้น)", () => {
+  const goldLots = (weigh: boolean): JobLotsData => {
+    const l = jb0020();
+    l.parts[0] = { ...l.parts[0], holdWeighRequired: weigh };
+    l.parts[1] = { ...l.parts[1], holdWeighRequired: weigh };
+    return l;
+  };
+  const open = async (l: JobLotsData, metal: string) => {
+    wrap(<JobDetailClient data={detail(l, { metal })} />);
+    await userEvent.click(await screen.findByRole("button", { name: "แยกส่วน" }));
+    return within(await screen.findByRole("dialog", { name: /แยกส่วน/ }));
+  };
+
+  it("ทอง + ขั้นชั่ง: มีช่องน้ำหนักบังคับ · ว่าง/0/ทศนิยมเกิน 3 = ปุ่มปิด · ชั่งแล้ว splitJobLot ส่ง weightMoveG + qtyHold", async () => {
+    const d = await open(goldLots(true), "gold");
+    const btn = d.getByRole("button", { name: "แยกส่วน" });
+    await userEvent.type(d.getByLabelText("แยกออกกี่ชิ้น"), "20");
+    expect(btn).toBeDisabled(); // ยังไม่ชั่ง
+    for (const v of ["0", "1.2345", "abc"]) {
+      const f = d.getByLabelText(/น้ำหนักส่วนที่แยกออก/);
+      await userEvent.clear(f);
+      await userEvent.type(f, v);
+      expect(btn, v).toBeDisabled();
+    }
+    const f = d.getByLabelText(/น้ำหนักส่วนที่แยกออก/);
+    await userEvent.clear(f);
+    await userEvent.type(f, "12,5");
+    expect(btn).toBeEnabled();
+    await userEvent.click(btn);
+    await waitFor(() => expect(lots.splitJobLot).toHaveBeenCalledWith({ jobId: JOB, expectedSeq: 3, qty: 20, qtyHold: 50, weightMoveG: "12,5" }));
+  });
+
+  it("เงิน (แม้ขั้นชั่ง) และทองที่ขั้นไม่ชั่ง: ไม่มีช่องน้ำหนัก ไม่ส่ง weightMoveG แต่ส่ง qtyHold เสมอ", async () => {
+    const a = await open(goldLots(true), "silver");
+    expect(a.queryByLabelText(/น้ำหนักส่วนที่แยกออก/)).not.toBeInTheDocument();
+    await userEvent.type(a.getByLabelText("แยกออกกี่ชิ้น"), "20");
+    await userEvent.click(a.getByRole("button", { name: "แยกส่วน" }));
+    await waitFor(() => expect(lots.splitJobLot).toHaveBeenCalledWith({ jobId: JOB, expectedSeq: 3, qty: 20, qtyHold: 50 }));
+    cleanup();
+    const b = await open(goldLots(false), "gold");
+    expect(b.queryByLabelText(/น้ำหนักส่วนที่แยกออก/)).not.toBeInTheDocument();
+  });
+
+  it("DB ตอบ weight_over → ข้อความค้างในกล่อง ค่าที่กรอกไม่หาย", async () => {
+    lots.splitJobLot.mockResolvedValue({ ok: false, error: "น้ำหนักส่วนที่แยกมากเกินน้ำหนักที่ถืออยู่ — ต้องเหลือให้ผู้ถือ ชั่งใหม่" });
+    const d = await open(goldLots(true), "gold");
+    await userEvent.type(d.getByLabelText("แยกออกกี่ชิ้น"), "20");
+    await userEvent.type(d.getByLabelText(/น้ำหนักส่วนที่แยกออก/), "99");
+    await userEvent.click(d.getByRole("button", { name: "แยกส่วน" }));
+    expect(await d.findByRole("alert")).toHaveTextContent("มากเกินน้ำหนักที่ถืออยู่");
+    expect(d.getByLabelText(/น้ำหนักส่วนที่แยกออก/)).toHaveValue("99");
+  });
+
+  it("ส่วนต่างทอง: ออฟฟิศเห็นส่วนต่างน้ำหนักเทียบ + ยังกด ชี้แจงแทน ได้ · งานเงินไม่แสดงน้ำหนัก", async () => {
+    const mk = (): JobLotsData => {
+      const l = jb0020();
+      l.discrepancies = [mapDiscrepancy({ id: DISC, job_id: L1, from_stage_id: "a", to_stage_id: "b", qty: 5, status: "open", weight_gap_g: -2.25 }, { stageById: { a: { name: "ขัด" }, b: { name: "ฝังพลอย" } }, labelByJob: { [L1]: "JB-0020 · ส่วนที่ 1" } })!];
+      l.summary = mapLotsSummary({ root_job_id: JOB, qty_planned: 100, lots_open: 3, qty_pending_explanation: 5, sum_check: true });
+      return l;
+    };
+    const a = wrap(<JobDetailClient data={detail(mk(), { metal: "gold" })} />);
+    const p = within(await panel());
+    expect(p.getByText(/ส่วนต่างน้ำหนักเทียบ/)).toHaveTextContent("−2.25 g");
+    expect(p.getByRole("button", { name: "ชี้แจงแทน" })).toBeEnabled();
+    a.unmount();
+    wrap(<JobDetailClient data={detail(mk(), { metal: "silver" })} />);
+    await panel();
+    expect(screen.queryByText(/ส่วนต่างน้ำหนักเทียบ/)).not.toBeInTheDocument();
+  });
+
+  it("ส่วนต่างน้ำหนักระดับขั้นของใบแม่ (handoff_gap_partial_g) แสดงในตารางขั้น — เฉพาะเมื่อมีค่า", async () => {
+    const d = detail(jb0020(), { metal: "gold" });
+    d.stages[0] = { ...d.stages[0], status: "sent" };
+    d.loss = { [d.stages[0].id]: { handoffGapG: null, lossG: null, lossPct: null, warn: false, notWeighed: true, handoffGapPartialG: 1.5 } };
+    wrap(<JobDetailClient data={d} />);
+    expect(await screen.findByText("ส่วนต่างน้ำหนัก (รับไม่ครบ)")).toBeInTheDocument();
+    expect(screen.getByText("+1.5 g")).toBeInTheDocument();
+  });
+});
+
+describe("ส่วนย่อย: เลื่อนมาที่ส่วนนั้นในใบแม่ (anchor)", () => {
+  it("การ์ดส่วนมี id part-<jobId> ให้ redirect #part-... เลื่อนมาหา", async () => {
+    wrap(<JobDetailClient data={detail(jb0020())} />);
+    await panel();
+    expect(document.getElementById(`part-${L2}`)).not.toBeNull();
   });
 });

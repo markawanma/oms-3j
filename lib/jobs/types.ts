@@ -303,12 +303,15 @@ export interface StageLoss {
   lossPct: number | null;
   warn: boolean;
   notWeighed: boolean;
+  /** 0181 H1: รับไม่ครบ — ส่วนต่างน้ำหนักเทียบ (รับ − ส่ง) · เฉพาะหน้าออฟฟิศ (ห้ามส่งหน้าช่าง) · ไม่มี key = ไม่มีส่วนต่างบันทึก */
+  handoffGapPartialG?: number;
 }
 
 export function mapLossRow(r: Record<string, unknown>): { stageId: string; loss: StageLoss } | null {
   const id = str(r.job_stage_id);
   if (!id) return null;
-  return { stageId: id, loss: { handoffGapG: num(r.handoff_gap_g), lossG: num(r.loss_g), lossPct: num(r.loss_pct), warn: bool(r.warn), notWeighed: bool(r.not_weighed) } };
+  const partial = num(r.handoff_gap_partial_g);
+  return { stageId: id, loss: { handoffGapG: num(r.handoff_gap_g), lossG: num(r.loss_g), lossPct: num(r.loss_pct), warn: bool(r.warn), notWeighed: bool(r.not_weighed), ...(partial !== null ? { handoffGapPartialG: partial } : {}) } };
 }
 
 // ---------------------------------------------------------------------------

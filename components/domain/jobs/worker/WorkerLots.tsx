@@ -12,6 +12,7 @@ import { ReceivePanel, SendPanel, ActionError, safely } from "@/components/domai
 import type { DoneTone, SplitResultInfo } from "@/components/domain/jobs/worker/WorkerPanels";
 import { BigButton } from "@/components/domain/jobs/worker/WorkerParts";
 import { renderQrSvgClient, workerPageUrl } from "@/lib/jobs/qr-client";
+import { WORKER_CODE_TH } from "@/lib/jobs/messages";
 import { SCRAP_REASONS, SCRAP_REASON_LABEL } from "@/lib/jobs/types";
 import type { WorkerAction, WorkerPart, WorkerView } from "@/lib/jobs/worker-view";
 
@@ -156,6 +157,17 @@ export function ExplainCard({ token, action, onDone, onReload }: { token: string
     }
   }
 
+  // H1: ส่วนต่างงานทองที่มีน้ำหนักเทียบ — ออฟฟิศชี้แจงเท่านั้น (ช่างกดแล้ว DB ตอบ office_required) → ไม่ให้ปุ่ม แสดงข้อความ · ไม่แสดงน้ำหนักใดๆ
+  if (action.officeOnly) {
+    return (
+      <section aria-labelledby={`ex-h-${action.discrepancyId}`} className="space-y-2 rounded-xl border-2 border-amber-300 bg-amber-50 p-4">
+        <h3 id={`ex-h-${action.discrepancyId}`} className="text-2xl font-bold text-amber-950">
+          ส่วนต่าง {qty} ชิ้น — รอออฟฟิศชี้แจง
+        </h3>
+        <p className="text-lg text-amber-950">{WORKER_CODE_TH.office_required}</p>
+      </section>
+    );
+  }
   const CHIP = (on: boolean) => `min-h-14 rounded-xl border-2 px-4 text-xl font-semibold ${on ? "border-primary-600 bg-primary-50 text-primary-900" : "border-zinc-400 bg-white text-zinc-900"}`;
   return (
     <section aria-labelledby={`ex-h-${action.discrepancyId}`} className="space-y-3 rounded-xl border-2 border-amber-300 bg-amber-50 p-4">

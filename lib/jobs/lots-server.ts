@@ -48,7 +48,10 @@ export async function loadJobLots(rootJobId: string, stageNames: Record<string, 
       stageById[id] = { name };
       const part = byJob.get(jobId);
       if (!part) continue;
-      if (s.status === "received") part.holdSeq = seq;
+      if (s.status === "received") {
+        part.holdSeq = seq;
+        part.holdWeighRequired = s.weigh_required === true;
+      }
       if (s.status === "sent" || s.status === "skipped") part.passedStages.push(name);
     }
     const labelByJob = Object.fromEntries(parts.map((p) => [p.jobId, p.label]));
@@ -57,6 +60,19 @@ export async function loadJobLots(rootJobId: string, stageNames: Record<string, 
     return { parts, summary, discrepancies };
   } catch (err) {
     logJobFailure("loadJobLots", err);
+    return null;
+  }
+}
+
+/** ใบนี้เป็นส่วนย่อยไหม — คืน id ใบแม่ (ส่วนย่อยเท่านั้น) · ไม่ใช่/อ่านไม่ได้ = null */
+export async function findLotRoot(jobId: string): Promise<string | null> {
+  try {
+    const { data, error } = await db().from("v_job_tree").select("job_id, root_job_id, parent_job_id").eq("shop_id", shopId()).eq("job_id", jobId).maybeSingle();
+    if (error) throw error;
+    const r = data as { root_job_id?: unknown; parent_job_id?: unknown } | null;
+    return r && typeof r.parent_job_id === "string" && typeof r.root_job_id === "string" && r.root_job_id !== jobId ? r.root_job_id : null;
+  } catch (err) {
+    logJobFailure("findLotRoot", err);
     return null;
   }
 }
