@@ -12,7 +12,7 @@ import { Modal } from "@/components/ui/Modal";
 import { DialogButtons, DoneDialog, ErrorLine, FIELD, Field } from "@/components/domain/jobs/JobDialogs";
 import { PartCard, PartsStackBar, partTitle } from "@/components/domain/jobs/JobLotsParts";
 import { useOfficeRun } from "@/components/domain/jobs/useOfficeRun";
-import { cancelJobLot, listJobQr, resolveDiscrepancyOffice, splitJobLot, voidDiscrepancy } from "@/lib/actions/job-lots";
+import { arriveDiscrepancyOffice, cancelJobLot, listJobQr, resolveDiscrepancyOffice, splitJobLot, voidDiscrepancy } from "@/lib/actions/job-lots";
 import type { JobQrRow } from "@/lib/actions/job-lots";
 import { revokeJobQr } from "@/lib/actions/job-office-write";
 import { ReceiveStageDialog } from "@/components/domain/jobs/StageDialogs";
@@ -20,7 +20,7 @@ import { GENERIC_JOB_ERROR } from "@/lib/jobs/messages";
 import { parseQtyText, parseWeight } from "@/lib/jobs/input";
 import { DISCREPANCY_KIND_LABEL, lotSegments, noteRequired, openDiscrepancies, scrapNoteRequired, splittableParts } from "@/lib/jobs/lots";
 import type { JobLotsData, LotDiscrepancy, LotPart, TreeStageLoss } from "@/lib/jobs/lots";
-import { thaiDateTime } from "@/lib/jobs/dates";
+import { addDays, thaiDateTime } from "@/lib/jobs/dates";
 import { SCRAP_REASONS, SCRAP_REASON_LABEL } from "@/lib/jobs/types";
 
 /** เพดาน QR ที่ใช้งานพร้อมกันต่อใบ (มติ Q8: คง 5) — DB ตัดสินจริง (token_cap) · ที่นี่ไว้ปิดปุ่ม/อธิบายก่อนกด */
@@ -34,6 +34,7 @@ export type LotDialogSpec =
   | { t: "cancelLot"; partId: string }
   | { t: "resolve"; discId: string }
   | { t: "void"; discId: string }
+  | { t: "arrive"; discId: string }
   | { t: "receive"; partId: string }
   | { t: "donePart"; partId: string }
   | { t: "revoke"; printNo: number; label: string }
@@ -225,6 +226,9 @@ export function LotsPanel({ jobId, lots, closed, openDialog, gold = false, stage
                     <Button type="button" onClick={() => openDialog({ t: "resolve", discId: d.id })}>
                       ชี้แจงแทน
                     </Button>
+                    <Button type="button" variant="secondary" onClick={() => openDialog({ t: "arrive", discId: d.id })}>
+                      ได้รับเพิ่ม
+                    </Button>
                     <Button type="button" variant="secondary" onClick={() => openDialog({ t: "void", discId: d.id })}>
                       ยกเลิกส่วนต่าง
                     </Button>
@@ -239,7 +243,15 @@ export function LotsPanel({ jobId, lots, closed, openDialog, gold = false, stage
         <ul className="space-y-1 text-sm text-zinc-800" aria-label="ส่วนต่างที่ชี้แจงแล้ว">
           {settled.map((d) => (
             <li key={d.id}>
-              ชี้แจงแล้ว: {d.qty} ชิ้น {DISCREPANCY_KIND_LABEL[d.resolvedKind ?? ""] ?? ""} ({SCRAP_REASON_LABEL[d.resolvedReason ?? ""] ?? d.resolvedReason ?? "—"}) · {d.fromStageName} → {d.toStageName}
+              {d.resolvedKind === "arrived" ? (
+                <>
+                  {DISCREPANCY_KIND_LABEL.arrived} {d.qty} ชิ้น · {d.fromStageName} → {d.toStageName}
+                </>
+              ) : (
+                <>
+                  ชี้แจงแล้ว: {d.qty} ชิ้น {DISCREPANCY_KIND_LABEL[d.resolvedKind ?? ""] ?? ""} ({SCRAP_REASON_LABEL[d.resolvedReason ?? ""] ?? d.resolvedReason ?? "—"}) · {d.fromStageName} → {d.toStageName}
+                </>
+              )}
             </li>
           ))}
         </ul>
@@ -277,6 +289,7 @@ export function LotDialogs({ jobId, lots, spec, onClose, gold = false, workers =
         weighRequired={false}
         recordedScrap={p.qtyStageScrap + p.qtyDiscrepancyResolved}
         qtySplitOut={p.qtySplitOut}
+        qtyArrived={p.qtyDiscrepancyArrived}
         title={`ปิด ${partTitle(p)}`}
         onClose={onClose}
       />
@@ -298,6 +311,10 @@ export function LotDialogs({ jobId, lots, spec, onClose, gold = false, workers =
         onClose={onClose}
       />
     );
+  }
+  if (spec.t === "arrive") {
+    const d = lots.discrepancies.find((x) => x.id === spec.discId);
+    return d ? <ArriveDiscrepancyDialog disc={d} gold={gold} workers={workers} todayTh={todayTh} onClose={onClose} /> : null;
   }
   if (spec.t === "resolve" || spec.t === "void") {
     const d = lots.discrepancies.find((x) => x.id === spec.discId);
@@ -502,6 +519,88 @@ export function ResolveDiscrepancyDialog({ disc, onClose, gold = false }: { disc
         )}
         <ErrorLine message={error} />
         <DialogButtons busy={busy} ready={ready} confirm="ยืนยันชี้แจง" onClose={onClose} />
+      </form>
+    </Modal>
+  );
+}
+
+/**
+ * ได้รับเพิ่มแล้ว แทนผู้รับ (0183): จำนวน (1..ค้าง · ได้ไม่ครบ = ที่เหลือยังค้าง) + วันรับจริง + ผู้ถือชิ้นที่มาถึง (ค่าเริ่ม = ผู้รับเดิมของขั้นนั้น)
+ * ทอง + ขั้นที่รับขาดตั้งชั่ง = ต้องชั่งชิ้นที่มาถึง (ออฟฟิศเห็น/กรอกได้ · ไม่ถูกล็อก 3 ครั้งแบบช่าง) · เงิน/ขั้นไม่ชั่ง = ไม่มีช่อง (ส่งไปได้ weight_unexpected)
+ * ส่ง expectedOpen = ที่ค้างตามหน้าจอ (กดซ้ำ/หน้าจอเก่า → DB ตอบ stage_changed) · วันที่ส่งเฉพาะเมื่อไม่ใช่วันนี้ (ค่าเริ่มของ RPC = วันนี้)
+ */
+export function ArriveDiscrepancyDialog({ disc, onClose, gold = false, workers = [], todayTh = "" }: { disc: LotDiscrepancy; onClose: () => void; gold?: boolean; workers?: { id: string; displayName: string; stageCodes: string[] }[]; todayTh?: string }) {
+  const { run, busy, error } = useOfficeRun();
+  const open = disc.qty;
+  const [qtyText, setQtyText] = useState(String(open));
+  const [on, setOn] = useState(todayTh);
+  const [workerId, setWorkerId] = useState("");
+  const [wText, setWText] = useState("");
+  const parsed = parseQtyText(qtyText);
+  const n = parsed.ok ? parsed.value : null;
+  const tooMany = n !== null && n > open;
+  const needWeight = gold && disc.toWeighRequired;
+  const wParsed = needWeight ? parseWeight(wText, "น้ำหนักชิ้นที่มาถึง") : null;
+  const wBad = needWeight && (!wParsed || !wParsed.ok || wParsed.value === null || wParsed.value <= 0);
+  const ready = n !== null && !tooMany && !wBad && (todayTh === "" || on !== "");
+  const eligible = workers.filter((x) => x.stageCodes.length === 0 || disc.toStageCode === null || x.stageCodes.includes(disc.toStageCode));
+
+  async function submit() {
+    if (n === null) return;
+    const r = await run(
+      () =>
+        arriveDiscrepancyOffice({
+          discrepancyId: disc.id,
+          qty: n,
+          expectedOpen: open,
+          ...(needWeight ? { weightG: wText } : {}),
+          ...(on !== "" && on !== todayTh ? { receivedOn: on } : {}),
+          ...(workerId !== "" ? { workerId } : {}),
+        }),
+      { success: `บันทึกได้รับเพิ่ม ${n} ชิ้นแล้ว` }
+    );
+    if (r.ok) onClose();
+  }
+
+  return (
+    <Modal open onClose={onClose} title="ได้รับเพิ่มแล้ว">
+      <form noValidate className="space-y-3" onSubmit={(e) => { e.preventDefault(); if (ready) void submit(); }}>
+        <p className="text-sm text-zinc-800">
+          ส่วนต่างที่ค้าง <strong className="tabular-nums">{open}</strong> ชิ้น · {disc.lotLabel || "ส่วนนี้"} · {disc.fromStageName} ส่งไป {disc.toStageName} — ชิ้นที่ขาดมาถึงแล้วกี่ชิ้น
+        </p>
+        <Field id="arrive-qty" label="ได้รับเพิ่มกี่ชิ้น" hint={`ค้างอยู่ ${open} ชิ้น · ได้ไม่ครบใส่จำนวนที่ได้จริง (ที่เหลือยังค้างรอชี้แจง)`}>
+          <input id="arrive-qty" inputMode="numeric" value={qtyText} onChange={(e) => setQtyText(e.target.value)} className={FIELD} aria-invalid={qtyText !== "" && (!parsed.ok || tooMany)} />
+        </Field>
+        {qtyText !== "" && !parsed.ok && <ErrorLine message={parsed.error} />}
+        {tooMany && <ErrorLine message={`ได้รับเพิ่มได้ไม่เกิน ${open} ชิ้น (ส่วนต่างที่ค้าง)`} />}
+        <Field id="arrive-on" label="วันที่ได้รับของ" hint="ย้อนหลังได้ไม่เกิน 14 วัน · ไม่เป็นอนาคต · ว่างไม่ได้">
+          <input id="arrive-on" type="date" min={todayTh ? addDays(todayTh, -14) : undefined} max={todayTh || undefined} value={on} onChange={(e) => setOn(e.target.value)} className={FIELD} />
+        </Field>
+        <Field id="arrive-worker" label="ผู้ถือชิ้นที่มาถึง" hint="ชิ้นที่มาถึงเป็นส่วนใหม่ที่ขั้นเดิม — ส่งต่อได้ต่อจากขั้นนี้">
+          <select id="arrive-worker" value={workerId} onChange={(e) => setWorkerId(e.target.value)} className={FIELD}>
+            <option value="">ผู้รับเดิมของขั้น {disc.toStageName} (ค่าเริ่มต้น)</option>
+            {eligible.map((x) => (
+              <option key={x.id} value={x.id}>
+                {x.displayName}
+              </option>
+            ))}
+          </select>
+        </Field>
+        {needWeight && (
+          <>
+            <Field id="arrive-weight" label="น้ำหนักชิ้นที่มาถึง (กรัม) — ขั้นนี้ต้องชั่ง" hint="ชั่งเฉพาะชิ้นที่ได้รับเพิ่ม · ทศนิยมไม่เกิน 3 ตำแหน่ง · ต้องมากกว่า 0">
+              <input id="arrive-weight" inputMode="decimal" value={wText} onChange={(e) => setWText(e.target.value)} className={FIELD} aria-invalid={wText !== "" && !!wBad} />
+            </Field>
+            {wText !== "" && wParsed && !wParsed.ok && <ErrorLine message={wParsed.error} />}
+          </>
+        )}
+        {ready && n !== null && (
+          <p role="status" aria-live="polite" className="rounded-md bg-zinc-50 p-2.5 text-sm text-zinc-900">
+            ได้รับเพิ่ม <strong>{n}</strong> · ยังค้าง <strong>{open - n}</strong>
+          </p>
+        )}
+        <ErrorLine message={error} />
+        <DialogButtons busy={busy} ready={ready} confirm="บันทึกได้รับเพิ่ม" onClose={onClose} />
       </form>
     </Modal>
   );

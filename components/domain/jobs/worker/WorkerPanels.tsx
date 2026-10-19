@@ -24,7 +24,7 @@ const PERMANENT_BLOCK = new Set(["locked_office", "token_budget_exhausted", "inv
 /** การล็อกที่ผูกกับ "ใบ/QR" ไม่ใช่ตัวช่าง — เปลี่ยนชื่อแล้วก็ยังใช้ไม่ได้ · ที่เหลือ (locked, locked_office) ล็อกรายช่าง: เปลี่ยนคนแล้วแป้นต้องกลับมากดได้ */
 const TOKEN_WIDE_BLOCK = new Set(["token_budget_exhausted", "invalid_token"]);
 /** code ที่แปลว่า "ข้อมูลบนจอเก่าแล้ว" — แก้ได้ด้วยการโหลดใหม่ (ช่างไม่ต้องรู้ว่า "รีเฟรช" คืออะไร) */
-const RELOAD_CODES = new Set(["stage_changed", "out_of_order", "not_holder", "not_received", "already_sent", "weight_required", "scrap_weight_not_asked", "invalid_part", "qty_hold_required", "weight_unexpected", "discrepancy_open"]);
+const RELOAD_CODES = new Set(["stage_changed", "out_of_order", "not_holder", "not_received", "already_sent", "weight_required", "scrap_weight_not_asked", "invalid_part", "qty_hold_required", "weight_unexpected", "discrepancy_open", "already_resolved"]);
 
 export async function safely(fn: () => Promise<WorkerActionResult>): Promise<WorkerActionResult> {
   try {
@@ -401,7 +401,7 @@ export function ReceivePanel({
 }
 
 /** โฟกัส + เลื่อนมาช่องที่ผิด (ปุ่มหลักติดล่างทำให้ข้อความใต้ช่องหลุดจอได้) */
-function focusField(id: string): void {
+export function focusField(id: string): void {
   const el = document.getElementById(id);
   if (!el) return;
   el.focus();
