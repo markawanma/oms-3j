@@ -1284,6 +1284,473 @@ end;
 $s$;
 
 -- ============================================================================
+-- Section G — UPDATE/INSERT ตรง (ข้อ 6) · H — auto-close ขั้นที่แยก (ข้อ 7) · I — รับด้วยจำนวนไม่ถูกต้อง (ข้อ 8)
+-- ============================================================================
+create function pg_temp.sg(p_shop uuid, p_tpl uuid) returns text
+ language plpgsql as $s$
+declare
+  v_log text := '';
+  pn uuid; wA uuid;
+  d jsonb; j uuid; th text; sa text;
+  r jsonb; l1 uuid; ms uuid; d2 jsonb; j2 uuid;
+  v_ins text;
+begin
+  perform set_config('request.jwt.claims', '{"role":"service_role"}', true);
+  pn := pg_temp.pid(p_shop, 'none');
+  wA := pg_temp.wid(p_shop, 'vfy-ช่าง A', '4829');
+  d := pg_temp.fx(p_shop, p_tpl, pn, 100, 3);
+  j := pg_temp.jid(d); th := d ->> 'tokh'; sa := pg_temp.sess(th, wA, '4829');
+  perform pg_temp.wr(th, sa, 4);
+  l1 := pg_temp.lot(pg_temp.ws(th, sa, 4, null, 40, 100));
+  ms := pg_temp.sid(j, 4);
+  d2 := pg_temp.fx(p_shop, p_tpl, pn, 10, 0);
+  j2 := pg_temp.jid(d2);
+
+  v_log := v_log || pg_temp.chk('G1', 'UPDATE ตรง job.parent_job_id ของใบแม่ / lot_seq ของส่วน = ปฏิเสธ (ห้ามเปลี่ยนใบแม่/ลำดับส่วน)',
+    pg_temp.x(format('update analytics.job set parent_job_id = %L where id = %L', j2, j)) like 'ERR:22023:%' and pg_temp.x(format('update analytics.job set lot_seq = 7 where id = %L', l1)) like 'ERR:%');
+  v_log := v_log || pg_temp.chk('G2', 'UPDATE ตรง job.qty_split_out (ไม่ตรง Σ ของขั้น) ทั้งแม่และส่วน = ปฏิเสธ split_sum',
+    pg_temp.x(format('update analytics.job set qty_split_out = 5 where id = %L', j)) like 'ERR:22023:%qty_split_out%'
+    and pg_temp.x(format('update analytics.job set qty_split_out = 1 where id = %L', l1)) like 'ERR:22023:%qty_split_out%');
+  v_log := v_log || pg_temp.chk('G3', 'UPDATE ตรง job_stage.qty_split_out บนขั้น pending / sent = ปฏิเสธ (เปลี่ยนได้เฉพาะขั้นที่ถืออยู่)',
+    pg_temp.x(format('update analytics.job_stage set qty_split_out = 3 where job_id = %L and seq = 5', j)) like 'ERR:%'
+    and pg_temp.x(format('update analytics.job_stage set qty_split_out = 1 where job_id = %L and seq = 4', l1)) like 'ERR:%');
+  v_log := v_log || pg_temp.chk('G4', 'ลด/เพิ่ม qty_split_out ของขั้นแม่ตรงๆ (40→0 · 40→45) โดยไม่มีส่วนรองรับ = ปฏิเสธ split_link · ค่าคงเดิม',
+    pg_temp.x(format('update analytics.job_stage set qty_split_out = 0 where id = %L', ms)) like 'ERR:22023:%qty_split_out%'
+    and pg_temp.x(format('update analytics.job_stage set qty_split_out = 45 where id = %L', ms)) like 'ERR:22023:%qty_split_out%'
+    and pg_temp.sv(j, 4, 'qty_split_out') = '40' and pg_temp.dcount(j) = 0);
+  v_log := v_log || pg_temp.chk('G5', 'split_from_stage_id: แก้ตรงบนขั้นที่ไม่ใช่ขั้นแยก = ปฏิเสธ · INSERT ขั้นใหม่บนใบแม่ที่มี split_from = ปฏิเสธ (มีเฉพาะขั้นแยกของส่วน)',
+    pg_temp.x(format('update analytics.job_stage set split_from_stage_id = %L where job_id = %L and seq = 5', ms, l1)) like 'ERR:22023:%'
+    and pg_temp.x(format('insert into analytics.job_stage (job_id, shop_id, stage_code, seq, split_from_stage_id) select %L, shop_id, ''gem_set'', 9, %L from analytics.job where id = %L', j2, ms, j2)) like 'ERR:22023:%split_from%');
+
+  -- INSERT ส่วนตรงๆ: ซ้อน 2 ชั้น · ต้นทาง/โลหะไม่ตรงแม่ · lot_seq ซ้ำ · มีแผนโลหะ
+  v_ins := 'insert into analytics.job (shop_id, seq, source_kind, oem_quote_item_id, root_quote_id, oem_item_seq, production_order_item_id, product_id, design_label, sku_snapshot, metal, qty_planned, qty_order, weigh_required, created_by, profile_id, profile_name, require_final_weight, parent_job_id, lot_seq) '
+        || 'select shop_id, %s, source_kind, oem_quote_item_id, root_quote_id, oem_item_seq, production_order_item_id, product_id, design_label, sku_snapshot, %s, 5, 5, false, created_by, profile_id, profile_name, require_final_weight, %L, %s from analytics.job where id = %L';
+  v_log := v_log || pg_temp.chk('G6', 'INSERT ส่วนที่ชี้ "ส่วน" (ซ้อน 2 ชั้น) = ปฏิเสธ lot_nested · โลหะไม่ตรงแม่ = ปฏิเสธ lot_mismatch · lot_seq ซ้ำ = unique violation 23505 · ส่วนที่ถูกต้อง (lot_seq 9) = ผ่าน',
+    pg_temp.x(format(v_ins, 990001, '''silver''', l1, 9, j)) like 'ERR:22023:%ซ้อนกันไม่ได้%'
+    and pg_temp.x(format(v_ins, 990002, '''gold''', j, 9, j)) like 'ERR:22023:%ต้นทาง%'
+    and pg_temp.x(format(v_ins, 990003, '''silver''', j, 1, j)) like 'ERR:23505:%'
+    and pg_temp.x(format(v_ins, 990004, '''silver''', j, 9, j)) = 'OK');
+  v_log := v_log || pg_temp.chk('G7', 'ส่วนมีแผนโลหะ (target_piece_g + basis) ภายหลัง = ปฏิเสธ lot_mismatch (แผนอยู่ที่ใบแม่)',
+    pg_temp.x(format('update analytics.job set target_piece_g = 5, metal_plan_basis = ''{"x":1}''::jsonb where id = %L', l1)) like 'ERR:22023:%แผนโลหะ%');
+  v_log := v_log || pg_temp.chk('G8', 'token: ออก QR ให้ส่วนผ่าน RPC = lot_no_token · INSERT job_token ตรงให้ส่วน = ปฏิเสธ · lot_job_id นอกต้นไม้ = ปฏิเสธ',
+    pg_temp.rej(pg_temp.o_tissue(p_shop, l1), 'lot_no_token')
+    and pg_temp.x(format('insert into analytics.job_token (shop_id, job_id, token_hash, print_no, issued_by) values (%L, %L, repeat(''a'', 64), 1, %L)', p_shop, l1, pg_temp.act())) like 'ERR:22023:%ส่วนย่อย%'
+    and pg_temp.x(format('insert into analytics.job_token (shop_id, job_id, token_hash, print_no, issued_by, lot_job_id) values (%L, %L, repeat(''b'', 64), 9, %L, %L)', p_shop, j2, pg_temp.act(), l1)) like 'ERR:%');
+  v_log := v_log || pg_temp.chk('G9', 'ใบแม่ซ้ำ: INSERT ใบแม่ใหม่ (parent null) ที่ source เดียวกับแม่ที่ยังไม่ยกเลิก = unique violation (ของเดิมคงอยู่) · ส่วน (parent ไม่ null) ไม่ชน',
+    pg_temp.x(format(replace(replace(v_ins, '%L, %s from', 'null::uuid, 0 from'), ', 5, 5, false,', ', qty_order, qty_order, false,'), 990005, '''silver''', j)) like 'ERR:23505:%');
+  return v_log;
+end;
+$s$;
+
+create function pg_temp.sh(p_shop uuid, p_tpl uuid) returns text
+ language plpgsql as $s$
+declare
+  v_log text := '';
+  pn uuid; wA uuid; wB uuid;
+  d jsonb; j uuid; th text; sa text; sb text;
+  r jsonb; r2 jsonb;
+begin
+  perform set_config('request.jwt.claims', '{"role":"service_role"}', true);
+  pn := pg_temp.pid(p_shop, 'none');
+  wA := pg_temp.wid(p_shop, 'vfy-ช่าง A', '4829');
+  wB := pg_temp.wid(p_shop, 'vfy-ช่าง B', '7351');
+  d := pg_temp.fx(p_shop, p_tpl, pn, 20, 3);
+  j := pg_temp.jid(d); th := d ->> 'tokh'; sa := pg_temp.sess(th, wA, '4829'); sb := pg_temp.sess(th, wB, '7351');
+  perform pg_temp.wr(th, sa, 4);
+  perform pg_temp.ws(th, sa, 4, null, 5, 20);
+  r := pg_temp.wr(th, sb, 5);
+  r2 := pg_temp.o_recv2(p_shop, j, 5, null, wB);
+  v_log := v_log || pg_temp.chk('H1', 'ช่างถัดไปรับขั้น 5 ของแม่ขณะผู้ถือยังค้างส่วนที่เหลือ (แยกแล้ว 5) = prev_not_sent (ไม่ auto-close) · ออฟฟิศ = ปฏิเสธ prev_not_sent · ขั้น 4 ยัง received · ขั้น 5 ยัง pending',
+    (r ->> 'code') = 'prev_not_sent' and pg_temp.rej(r2, 'prev_not_sent') and pg_temp.sv(j, 4, 'status') = 'received' and pg_temp.sv(j, 4, 'auto_closed') = 'false' and pg_temp.sv(j, 5, 'status') = 'pending');
+  v_log := v_log || pg_temp.chk('H2', 'UPDATE ตรง ปิดขั้นที่แยกแล้วแบบ auto_closed (qty_out = qty_in) = ปฏิเสธ (CHECK/guard) · ขั้นไม่ขยับ',
+    pg_temp.x(format('update analytics.job_stage set status = ''sent'', sent_on = %L, qty_out = qty_in, auto_closed = true where job_id = %L and seq = 4', analytics.job_today(), j)) like 'ERR:%'
+    and pg_temp.sv(j, 4, 'status') = 'received');
+  -- ต้องไม่พัง: ใบที่ไม่แยก auto-close ได้ตามเดิม (แบบไม่ชั่ง)
+  d := pg_temp.fx(p_shop, p_tpl, pn, 20, 3);
+  j := pg_temp.jid(d); th := d ->> 'tokh'; sa := pg_temp.sess(th, wA, '4829'); sb := pg_temp.sess(th, wB, '7351');
+  perform pg_temp.wr(th, sa, 4);
+  r := pg_temp.wr(th, sb, 5);
+  v_log := v_log || pg_temp.chk('H3', 'ต้องไม่พัง: ใบที่ไม่แยก + ขั้นไม่ชั่ง: ช่างถัดไปรับแล้วปิดขั้นก่อนอัตโนมัติได้ตามเดิม (prev_auto_closed true · qty_out = qty_in)',
+    (r ->> 'ok') = 'true' and (r ->> 'prev_auto_closed') = 'true' and pg_temp.sv(j, 4, 'auto_closed') = 'true' and pg_temp.sv(j, 4, 'qty_out') = '20');
+  return v_log;
+end;
+$s$;
+
+create function pg_temp.si(p_shop uuid, p_tpl uuid) returns text
+ language plpgsql as $s$
+declare
+  v_log text := '';
+  pn uuid; wA uuid; wB uuid;
+  d jsonb; j uuid; th text; sa text; sb text;
+  r jsonb; r2 jsonb; r3 jsonb; r4 jsonb; l1 uuid;
+begin
+  perform set_config('request.jwt.claims', '{"role":"service_role"}', true);
+  pn := pg_temp.pid(p_shop, 'none');
+  wA := pg_temp.wid(p_shop, 'vfy-ช่าง A', '4829');
+  wB := pg_temp.wid(p_shop, 'vfy-ช่าง B', '7351');
+  d := pg_temp.fx(p_shop, p_tpl, pn, 100, 3);
+  j := pg_temp.jid(d); th := d ->> 'tokh'; sa := pg_temp.sess(th, wA, '4829'); sb := pg_temp.sess(th, wB, '7351');
+  perform pg_temp.wr(th, sa, 4);
+  l1 := pg_temp.lot(pg_temp.ws(th, sa, 4, null, 40, 100));
+  r := pg_temp.wr(th, sb, 5, l1, 0);
+  r2 := pg_temp.wr(th, sb, 5, l1, 41);
+  r3 := pg_temp.wr(th, sb, 5, l1, -1);
+  r4 := pg_temp.o_recv2(p_shop, l1, 5, 41, wB);
+  v_log := v_log || pg_temp.chk('I1', 'รับด้วยจำนวน 0 / 41 (> ที่ส่ง 40) / −1 = qty_invalid · ออฟฟิศ 41 = ปฏิเสธ qty_invalid · ขั้นยัง pending · ไม่มีส่วนต่าง',
+    (r ->> 'code') = 'qty_invalid' and (r2 ->> 'code') = 'qty_invalid' and (r3 ->> 'code') = 'qty_invalid' and pg_temp.rej(r4, 'qty_invalid')
+    and pg_temp.sv(l1, 5, 'status') = 'pending' and not exists (select 1 from analytics.job_discrepancy where root_job_id = j));
+  v_log := v_log || pg_temp.chk('I2', 'NaN เป็นจำนวนที่รับ = error ตั้งแต่ cast · ขั้นยัง pending',
+    pg_temp.x(format('select analytics.job_office_receive(p_shop_id=>%L, p_job_id=>%L, p_expected_seq=>5, p_occurred_on=>%L, p_assignee_name=>''x'', p_qty_received=>%L::numeric::int, p_actor=>%L)', p_shop, l1, analytics.job_today(), 'NaN', pg_temp.act())) like 'ERR:%'
+    and pg_temp.sv(l1, 5, 'status') = 'pending');
+  -- ขั้นแรกของใบ: ส่งจำนวนที่รับมาไม่เท่าจำนวนเริ่มผลิตไม่ได้
+  d := pg_temp.fx(p_shop, p_tpl, pn, 10, 0);
+  j := pg_temp.jid(d); th := d ->> 'tokh'; sb := pg_temp.sess(th, wB, '7351');
+  r := pg_temp.wr(th, sb, 1, null, 5);
+  r2 := pg_temp.o_recv2(p_shop, j, 1, 9, wB);
+  v_log := v_log || pg_temp.chk('I3', 'ขั้นแรกของใบ: รับ 5 / 9 (≠ เริ่มผลิต 10) = qty_invalid ทั้งช่างและออฟฟิศ · ขั้นยัง pending',
+    (r ->> 'code') = 'qty_invalid' and pg_temp.rej(r2, 'qty_invalid') and pg_temp.sv(j, 1, 'status') = 'pending');
+  r := pg_temp.wr(th, sb, 1, null, 10);
+  v_log := v_log || pg_temp.chk('I4', 'ต้องไม่พัง: ขั้นแรกรับ 10 (= เริ่มผลิต) = ok · ไม่มีส่วนต่าง', (r ->> 'ok') = 'true' and pg_temp.sv(j, 1, 'qty_in') = '10' and not exists (select 1 from analytics.job_discrepancy where root_job_id = j));
+  return v_log;
+end;
+$s$;
+
+-- ============================================================================
+-- Section J — ส่วนต่างรอชี้แจง (ข้อ 9 · มติ Q5): รับไม่ครบ → แถว job_discrepancy → ชี้แจง scrap/lost → void · ผลรวมต้นไม้ยังตรง
+-- ============================================================================
+create function pg_temp.sj(p_shop uuid, p_tpl uuid) returns text
+ language plpgsql as $s$
+declare
+  v_log text := '';
+  pn uuid; wA uuid; wB uuid; wC uuid;
+  d jsonb; j uuid; th text; sa text; sb text; sc text;
+  r jsonb; r2 jsonb; r3 jsonb; r4 jsonb;
+  l1 uuid; dd uuid; l2 uuid; dd2 uuid;
+begin
+  perform set_config('request.jwt.claims', '{"role":"service_role"}', true);
+  pn := pg_temp.pid(p_shop, 'none');
+  wA := pg_temp.wid(p_shop, 'vfy-ช่าง A', '4829');
+  wB := pg_temp.wid(p_shop, 'vfy-ช่าง B', '7351');
+  wC := (pg_temp.wu(p_shop, 'vfy-ช่าง C', 'qc,pack', '2468') ->> 'id')::uuid;
+  d := pg_temp.fx(p_shop, p_tpl, pn, 100, 3);
+  j := pg_temp.jid(d); th := d ->> 'tokh';
+  sa := pg_temp.sess(th, wA, '4829'); sb := pg_temp.sess(th, wB, '7351'); sc := pg_temp.sess(th, wC, '2468');
+  perform pg_temp.wr(th, sa, 4);
+  l1 := pg_temp.lot(pg_temp.ws(th, sa, 4, null, 40, 100));
+  r := pg_temp.wr(th, sb, 5, l1, 35);
+  dd := pg_temp.disc_of(l1);
+  v_log := v_log || pg_temp.chk('J1', 'ช่าง B รับส่วนที่ 1 ได้ 35 จาก 40 → ok · qty_in 35 · แถวส่วนต่าง open qty 5 ผูกขั้นผู้ส่ง (seq 4) → ขั้นผู้รับ (seq 5) · event discrepancy ที่ขั้นผู้ส่ง · response discrepancy_qty 5',
+    (r ->> 'ok') = 'true' and (r ->> 'discrepancy_qty') = '5' and pg_temp.sv(l1, 5, 'qty_in') = '35' and dd is not null
+    and (select qty = 5 and status = 'open' and from_stage_id = pg_temp.sid(l1, 4) and to_stage_id = pg_temp.sid(l1, 5) and root_job_id = j and created_by_worker = wB from analytics.job_discrepancy where id = dd)
+    and exists (select 1 from analytics.job_event where job_id = l1 and event_type = 'discrepancy' and job_stage_id = pg_temp.sid(l1, 4)));
+  v_log := v_log || pg_temp.chk('J2', 'ต้นไม้ยังตรง: drift ว่าง · sum_check จริง · ส่วนรอชี้แจง 5 · ส่วนที่ 1 live 35 · v_job_board แถวใบแม่ qty_pending_explanation 5 · ไม่ drift ของ event',
+    pg_temp.dcount(j) = 0 and pg_temp.sumok(j) and (select qty_pending_explanation = 5 from analytics.v_job_tree_summary where root_job_id = j)
+    and analytics.job_live_qty(l1) = 35 and (select qty_pending_explanation from analytics.v_job_board where id = j) = 5 and pg_temp.sdrift(j) = 0);
+  r := pg_temp.w_res(th, sa); r2 := pg_temp.w_res(th, sb); r3 := pg_temp.w_res(th, sc); r4 := pg_temp.w_res(th, null);
+  v_log := v_log || pg_temp.chk('J3', 'resolve: ผู้ส่ง (A) มี action explain พร้อม discrepancy_id/qty 5 · ผู้รับ (B) และช่างอื่น (C) ไม่มี · ก่อน PIN: รายชื่อช่างมี A',
+    exists (select 1 from jsonb_array_elements(r -> 'my_actions') a where a ->> 'action' = 'explain' and (a ->> 'discrepancy_id')::uuid = dd and (a ->> 'qty') = '5')
+    and not exists (select 1 from jsonb_array_elements(r2 -> 'my_actions') a where a ->> 'action' = 'explain')
+    and not exists (select 1 from jsonb_array_elements(r3 -> 'my_actions') a where a ->> 'action' = 'explain')
+    and exists (select 1 from jsonb_array_elements(r4 -> 'workers') w where (w ->> 'id')::uuid = wA));
+  r := pg_temp.wd(th, sb, dd, 'scrap', 'porosity');
+  r2 := pg_temp.wd(th, sa, dd, 'broken', 'porosity');
+  r3 := pg_temp.wd(th, sa, dd, 'scrap', null);
+  r4 := pg_temp.wd(th, sa, dd, 'lost', chr(8203));
+  v_log := v_log || pg_temp.chk('J4', 'ชี้แจงโดยผู้รับ (ไม่ใช่ผู้ส่ง) = not_sender · kind ผิด = kind_invalid · ไม่มีเหตุผล/เหตุผลล่องหน = reason_required · แถวยัง open',
+    (r ->> 'code') = 'not_sender' and (r2 ->> 'code') = 'kind_invalid' and (r3 ->> 'code') = 'reason_required' and (r4 ->> 'code') = 'reason_required' and pg_temp.d_status(dd) = 'open');
+  -- J9: ส่วนต่างที่ยัง open บล็อกการปิดส่วน (ข้อ 11) — เดินส่วนที่ 1 ให้ครบทุกขั้นก่อน แล้วลองปิด
+  r := pg_temp.rw(p_shop, l1, null, 8);
+  r2 := pg_temp.o_done(p_shop, l1, 35, 5);
+  v_log := v_log || pg_temp.chk('J9', 'ส่วนที่ 1 เดินครบทุกขั้น (ส่งสุดท้าย 35) แต่มีส่วนต่าง open = ปิดส่วนไม่ได้ parts_open · ส่วนยังไม่ done · ไม่ drift',
+    not (r ? '_err') and pg_temp.sv(l1, 8, 'qty_out') = '35' and pg_temp.rej(r2, 'parts_open') and pg_temp.jv(l1, 'status') <> 'done' and pg_temp.dcount(j) = 0);
+  r := pg_temp.wd(th, sa, dd, 'lost', 'missing');
+  r2 := pg_temp.wd(th, sa, dd, 'scrap', 'porosity');
+  v_log := v_log || pg_temp.chk('J5', 'ผู้ส่งชี้แจง lost (missing) → ok · resolved โดย worker A · event discrepancy_resolve · ชี้แจงซ้ำ = already_resolved · drift ว่าง · ส่วนรอชี้แจง 0 ชี้แจงแล้ว 5 · sum_check จริง',
+    (r ->> 'ok') = 'true' and (r2 ->> 'code') = 'already_resolved' and (select status = 'resolved' and resolved_kind = 'lost' and resolved_by_worker = wA from analytics.job_discrepancy where id = dd)
+    and exists (select 1 from analytics.job_event where job_id = l1 and event_type = 'discrepancy_resolve')
+    and pg_temp.dcount(j) = 0 and pg_temp.sumok(j)
+    and (select qty_pending_explanation = 0 and qty_discrepancy_resolved = 5 from analytics.v_job_tree_summary where root_job_id = j));
+  v_log := v_log || pg_temp.chk('J6', 'UPDATE/DELETE แถวส่วนต่างตรงๆ (แก้ qty · ย้อน status · ลบ) = ปฏิเสธ (append-only)',
+    pg_temp.x(format('update analytics.job_discrepancy set qty = 1 where id = %L', dd)) like 'ERR:22023:%'
+    and pg_temp.x(format('update analytics.job_discrepancy set status = ''open'' where id = %L', dd)) like 'ERR:%'
+    and pg_temp.x(format('delete from analytics.job_discrepancy where id = %L', dd)) like 'ERR:22023:%');
+  r := pg_temp.o_done(p_shop, l1, 35, 5);
+  v_log := v_log || pg_temp.chk('J10', 'หลังชี้แจงแล้ว ปิดส่วนที่ 1 ได้: ดี 35 + เสีย 5 (ส่วนต่างที่หาย) + แยกออก 0 = 40 · ต้นไม้ไม่ drift · sum_check จริง',
+    (r ->> 'ok') = 'true' and pg_temp.jv(l1, 'status') = 'done' and pg_temp.dcount(j) = 0 and pg_temp.sumok(j));
+  return v_log;
+end;
+$s$;
+
+-- ============================================================================
+-- Section J2 — ผู้มีสิทธิ์นอกร้าน (can_external) · ออฟฟิศชี้แจง · void (ต้องย้อนขั้นผู้รับก่อน) · รับใหม่เต็มจำนวน
+-- ============================================================================
+create function pg_temp.sj2(p_shop uuid, p_tpl uuid) returns text
+ language plpgsql as $s$
+declare
+  v_log text := '';
+  pn uuid; wA uuid; wB uuid; wC uuid;
+  d jsonb; j uuid; th text; sa text; sb text; sc text;
+  r jsonb; r2 jsonb; r3 jsonb;
+  l1 uuid; l2 uuid; dd uuid; dd2 uuid;
+begin
+  perform set_config('request.jwt.claims', '{"role":"service_role"}', true);
+  pn := pg_temp.pid(p_shop, 'none');
+  wA := pg_temp.wid(p_shop, 'vfy-ช่าง A', '4829');
+  wB := pg_temp.wid(p_shop, 'vfy-ช่าง B', '7351');
+  wC := (pg_temp.wu(p_shop, 'vfy-ช่าง C', 'qc,pack', '2468') ->> 'id')::uuid;
+  d := pg_temp.fx(p_shop, p_tpl, pn, 100, 3);
+  j := pg_temp.jid(d); th := d ->> 'tokh';
+  sa := pg_temp.sess(th, wA, '4829'); sb := pg_temp.sess(th, wB, '7351'); sc := pg_temp.sess(th, wC, '2468');
+  perform pg_temp.wr(th, sa, 4);
+  l1 := pg_temp.lot(pg_temp.ws(th, sa, 4, null, 40, 100));
+  perform pg_temp.wr(th, sb, 5, l1, 35);
+  dd := pg_temp.disc_of(l1);
+  r := pg_temp.wd(th, sc, dd, 'scrap', 'porosity');
+  update analytics.worker set can_external = true where id = wC;
+  r2 := pg_temp.wd(th, sc, dd, 'scrap', 'porosity');
+  v_log := v_log || pg_temp.chk('J7', 'ช่างที่ไม่ใช่ผู้ส่งและไม่มี can_external (C) ชี้แจง = not_sender · ติ๊ก can_external แล้วชี้แจงแทนผู้ส่งได้ (resolved_by_worker = C kind scrap)',
+    (r ->> 'code') = 'not_sender' and (r2 ->> 'ok') = 'true'
+    and (select status = 'resolved' and resolved_kind = 'scrap' and resolved_by_worker = wC from analytics.job_discrepancy where id = dd));
+  -- ส่วนที่ 2: B รับได้ 8 จาก 10 → ออฟฟิศ: kind ผิด / void ก่อนย้อนขั้น = ปฏิเสธ → ย้อนขั้นผู้รับ → void → ผู้รับรับใหม่เต็ม 10
+  l2 := pg_temp.lot(pg_temp.ws(th, sa, 4, null, 10, 60));
+  perform pg_temp.wr(th, sb, 5, l2, 8);
+  dd2 := pg_temp.disc_of(l2);
+  r := pg_temp.o_dres(p_shop, dd2, 'broken', 'porosity');
+  r2 := pg_temp.o_dvoid(p_shop, dd2, 'ของเจอแล้ว');
+  v_log := v_log || pg_temp.chk('J8', 'ออฟฟิศ: ชี้แจง kind ผิด = ปฏิเสธ kind_invalid · void ขณะผู้รับยัง received = ปฏิเสธ stage_not_pending · ไม่มีเหตุผล void = ปฏิเสธ · แถวยัง open',
+    pg_temp.rej(r, 'kind_invalid') and pg_temp.rej(r2, 'stage_not_pending') and pg_temp.q(format('select analytics.job_discrepancy_void(%L, %L, null, %L)', p_shop, dd2, pg_temp.act())) ? '_err'
+    and pg_temp.d_status(dd2) = 'open');
+  r := pg_temp.o_reopen(p_shop, l2);
+  v_log := v_log || pg_temp.chk('J9b', 'ย้อนขั้นผู้รับ (received→pending) ที่มีส่วนต่างอ้างถึงได้ (ขั้นผู้รับไม่ใช่ต้นทางของส่วนต่าง) · ต้นไม้ยังตรง (ชิ้น 8 รอรับ + ส่วนต่าง 2)',
+    (r ->> 'ok') = 'true' and pg_temp.sv(l2, 5, 'status') = 'pending' and analytics.job_live_qty(l2) = 8 and pg_temp.dcount(j) = 0);
+  r := pg_temp.o_dvoid(p_shop, dd2, 'ของเจอแล้ว');
+  r2 := pg_temp.o_dvoid(p_shop, dd2, 'ซ้ำ');
+  v_log := v_log || pg_temp.chk('J9c', 'void หลังย้อนขั้น = ok (แถวใหม่ status void ชี้แถวเดิม · แถวเดิมไม่ถูกแก้) · void ซ้ำ = ปฏิเสธ voided · ส่วนที่ 2 live กลับเป็น 10 · ชี้แจงแถวที่ถูก void ไม่ได้',
+    (r ->> 'ok') = 'true' and pg_temp.rej(r2, 'voided')
+    and (select count(*) from analytics.job_discrepancy where void_of_id = dd2 and status = 'void') = 1 and pg_temp.d_status(dd2) = 'open'
+    and analytics.job_live_qty(l2) = 10 and pg_temp.dcount(j) = 0
+    and pg_temp.rej(pg_temp.o_dres(p_shop, dd2, 'scrap', 'porosity'), 'already_resolved'));
+  r := pg_temp.wr(th, sb, 5, l2);
+  v_log := v_log || pg_temp.chk('J9d', 'ผู้รับรับใหม่ (ไม่ระบุจำนวน) = เต็ม 10 (ส่วนต่างที่ void ไม่นับ) · ไม่มีส่วนต่างที่ยังนับ · drift ว่าง · sum_check จริง',
+    (r ->> 'ok') = 'true' and pg_temp.sv(l2, 5, 'qty_in') = '10' and r ->> 'discrepancy_qty' is null and pg_temp.dcount(j) = 0 and pg_temp.sumok(j)
+    and analytics.job_disc_active_qty(pg_temp.sid(l2, 4), null) = 0);
+  -- ย้อนขั้นต้นทางของส่วนต่างที่ยังนับอยู่ไม่ได้ (has_split)
+  r := pg_temp.o_reopen(p_shop, l1);
+  v_log := v_log || pg_temp.chk('J9e', 'ส่วนที่ 1 มีส่วนต่างที่ชี้แจงแล้วอ้างถึง: ย้อนขั้นล่าสุด (ขั้นผู้รับ ยังย้อนได้) แล้วย้อนอีกครั้ง (ขั้นต้นทางของส่วนต่าง = ขั้นแยก) = ปฏิเสธ has_split',
+    (r ->> 'ok') = 'true' and pg_temp.rej(pg_temp.o_reopen(p_shop, l1), 'has_split'));
+  return v_log;
+end;
+$s$;
+
+-- ============================================================================
+-- Section K — ยกเลิกส่วน (ข้อ 10 · มติ Q3/ข3) · L — ปิด/ยกเลิก/ย้อนขั้น (ข้อ 11) · M — ด่านต้นไม้ (ข้อ 12)
+-- ============================================================================
+create function pg_temp.sk(p_shop uuid, p_tpl uuid) returns text
+ language plpgsql as $s$
+declare
+  v_log text := '';
+  pn uuid; wA uuid; wB uuid;
+  d jsonb; j uuid; th text; sa text; sb text;
+  r jsonb; r2 jsonb; r3 jsonb; r4 jsonb;
+  l1 uuid; l2 uuid; l3 uuid;
+begin
+  perform set_config('request.jwt.claims', '{"role":"service_role"}', true);
+  pn := pg_temp.pid(p_shop, 'none');
+  wA := pg_temp.wid(p_shop, 'vfy-ช่าง A', '4829');
+  wB := pg_temp.wid(p_shop, 'vfy-ช่าง B', '7351');
+  -- K1 ช่างยกเลิกส่วนที่ตัวเองแยกก่อนมีคนรับ → ชิ้นกลับขั้นแม่ → แยกใหม่ได้ (เลขส่วนไม่ใช้ซ้ำ)
+  d := pg_temp.fx(p_shop, p_tpl, pn, 100, 3);
+  j := pg_temp.jid(d); th := d ->> 'tokh'; sa := pg_temp.sess(th, wA, '4829'); sb := pg_temp.sess(th, wB, '7351');
+  perform pg_temp.wr(th, sa, 4);
+  l1 := pg_temp.lot(pg_temp.ws(th, sa, 4, null, 40, 100));
+  r := pg_temp.wc(th, sb, l1, 'ไม่ใช่ของฉัน');
+  v_log := v_log || pg_temp.chk('K1a', 'ช่าง B ยกเลิกส่วนที่ช่าง A แยก = not_splitter · ส่วนยังเปิด · ขั้นแม่ split_out 40', (r ->> 'code') = 'not_splitter' and pg_temp.jv(l1, 'status') = 'in_progress' and pg_temp.sv(j, 4, 'qty_split_out') = '40');
+  r := pg_temp.wc(th, sa, l1, 'แยกผิด');
+  v_log := v_log || pg_temp.chk('K1b', 'ช่าง A (ผู้แยก ผู้ถือขั้นแม่) ยกเลิกก่อนมีคนรับ → ok return_to_parent · ส่วน cancelled (เหตุผลเก็บ) · ขั้นแม่ split_out 0 · job.qty_split_out 0 · ผู้ถือกลับมา 100 · event split_cancel ทั้งสองฝั่ง · drift ว่าง · sum_check จริง · parts_count 1',
+    (r ->> 'ok') = 'true' and r ->> 'disposition' = 'return_to_parent' and pg_temp.jv(l1, 'status') = 'cancelled' and pg_temp.jv(l1, 'cancel_reason') = 'แยกผิด' and pg_temp.jv(l1, 'cancel_scrap_qty') is null
+    and pg_temp.sv(j, 4, 'qty_split_out') = '0' and pg_temp.jv(j, 'qty_split_out') = '0' and analytics.job_live_qty(j) = 100
+    and (select count(*) from analytics.job_event where event_type = 'split_cancel' and (job_id = l1 or job_id = j)) = 2
+    and pg_temp.dcount(j) = 0 and pg_temp.sumok(j) and (select parts_count = 1 from analytics.v_job_tree_summary where root_job_id = j) and pg_temp.sdrift(j) = 0);
+  r := pg_temp.ws(th, sa, 4, null, 25, 100);
+  v_log := v_log || pg_temp.chk('K1c', 'แยกใหม่หลังยกเลิก = lot_seq 2 (ไม่ใช้เลข 1 ซ้ำ) · drift ว่าง', (r ->> 'ok') = 'true' and (r ->> 'lot_seq') = '2' and pg_temp.dcount(j) = 0);
+  -- K2 มีคนรับแล้ว: ช่างยกเลิกไม่ได้ · ออฟฟิศคืนชิ้นไม่ได้ · ออฟฟิศยกเลิกเป็นของเสียต้องมีเหตุผล
+  l2 := pg_temp.lot(r);
+  perform pg_temp.wr(th, sb, 5, l2);
+  r := pg_temp.wc(th, sa, l2);
+  r2 := pg_temp.o_lcancel(p_shop, l2, 'verify', 'return_to_parent');
+  r3 := pg_temp.o_lcancel(p_shop, l2, 'verify', 'scrap');
+  v_log := v_log || pg_temp.chk('K2a', 'ส่วนที่ขั้นถัดไปถูกรับแล้ว: ช่างยกเลิก = already_received · ออฟฟิศ return = ปฏิเสธ already_received · ออฟฟิศ scrap ไม่ใส่เหตุผล = ปฏิเสธ reason_required · ส่วนยังเปิด',
+    (r ->> 'code') = 'already_received' and pg_temp.rej(r2, 'already_received') and pg_temp.rej(r3, 'reason_required') and pg_temp.jv(l2, 'status') = 'in_progress');
+  r := pg_temp.o_lcancel(p_shop, l2, 'ของเสียทั้งก้อน', 'scrap', 'broken');
+  v_log := v_log || pg_temp.chk('K2b', 'ออฟฟิศยกเลิกเป็นของเสีย (เหตุผล broken) → ok · cancel_scrap_qty = ชิ้น live ตอนนั้น (25) · ขั้นแม่ยัง split_out 25 · drift ว่าง · sum_check จริง · qty_scrap_total รวม 25',
+    (r ->> 'ok') = 'true' and pg_temp.jv(l2, 'status') = 'cancelled' and pg_temp.jv(l2, 'cancel_scrap_qty') = '25' and pg_temp.jv(l2, 'cancel_scrap_reason') = 'broken'
+    and pg_temp.sv(j, 4, 'qty_split_out') = '25' and pg_temp.dcount(j) = 0 and pg_temp.sumok(j)
+    and (select qty_scrap_total = 25 from analytics.v_job_tree_summary where root_job_id = j));
+  -- แม่ส่งส่วนที่เหลือ (75) แล้วปิดแม่ได้ (ส่วนที่ยกเลิกไม่บล็อก): ดี + เสีย + แยกออก = 100
+  r := pg_temp.ws(th, sa, 4, null, null, 75);
+  perform pg_temp.rw(p_shop, j, null, 8);
+  r2 := pg_temp.o_done(p_shop, j, 75, 0);
+  v_log := v_log || pg_temp.chk('K2c', 'ส่วนที่ยกเลิกไม่บล็อกการปิดแม่: แม่ส่ง 75 แล้วปิด (ดี 75 + เสีย 0 + แยกออก 25 = 100) → ok · drift ว่าง · sum_check จริง',
+    (r ->> 'ok') = 'true' and (r2 ->> 'ok') = 'true' and pg_temp.dcount(j) = 0 and pg_temp.sumok(j));
+
+  -- K3 ผู้ถือเดิมส่งส่วนที่เหลือไปแล้ว → คืนชิ้นไม่ได้ (cannot_return) ทั้งช่างและออฟฟิศ
+  d := pg_temp.fx(p_shop, p_tpl, pn, 30, 3);
+  j := pg_temp.jid(d); th := d ->> 'tokh'; sa := pg_temp.sess(th, wA, '4829');
+  perform pg_temp.wr(th, sa, 4);
+  l1 := pg_temp.lot(pg_temp.ws(th, sa, 4, null, 10, 30));
+  perform pg_temp.ws(th, sa, 4, null, null, 20);
+  r := pg_temp.wc(th, sa, l1);
+  r2 := pg_temp.o_lcancel(p_shop, l1, 'verify', 'return_to_parent');
+  v_log := v_log || pg_temp.chk('K3', 'ผู้ถือส่งส่วนที่เหลือไปแล้ว: ช่างยกเลิก = cannot_return · ออฟฟิศ return_to_parent = ปฏิเสธ cannot_return · ส่วนยังเปิด · split_out คงเดิม',
+    (r ->> 'code') = 'cannot_return' and pg_temp.rej(r2, 'cannot_return') and pg_temp.jv(l1, 'status') = 'in_progress' and pg_temp.sv(j, 4, 'qty_split_out') = '10' and pg_temp.dcount(j) = 0);
+  -- K4 ส่วนมีส่วนต่าง open → ยกเลิกไม่ได้
+  d := pg_temp.fx(p_shop, p_tpl, pn, 30, 3);
+  j := pg_temp.jid(d); th := d ->> 'tokh'; sa := pg_temp.sess(th, wA, '4829'); sb := pg_temp.sess(th, wB, '7351');
+  perform pg_temp.wr(th, sa, 4);
+  l1 := pg_temp.lot(pg_temp.ws(th, sa, 4, null, 10, 30));
+  perform pg_temp.wr(th, sb, 5, l1, 8);
+  r := pg_temp.wc(th, sa, l1);
+  r2 := pg_temp.o_lcancel(p_shop, l1, 'verify', 'scrap', 'broken');
+  v_log := v_log || pg_temp.chk('K4', 'ส่วนที่มีส่วนต่างรอชี้แจง: ช่างยกเลิก = discrepancy_open · ออฟฟิศ scrap = ปฏิเสธ discrepancy_open · ส่วนยังเปิด',
+    (r ->> 'code') = 'discrepancy_open' and pg_temp.rej(r2, 'discrepancy_open') and pg_temp.jv(l1, 'status') = 'in_progress');
+  -- K5 ส่วนที่แยกต่อ (มีลูก): ยกเลิกไม่ได้ (has_split)
+  d := pg_temp.fx(p_shop, p_tpl, pn, 30, 3);
+  j := pg_temp.jid(d); th := d ->> 'tokh'; sa := pg_temp.sess(th, wA, '4829'); sb := pg_temp.sess(th, wB, '7351');
+  perform pg_temp.wr(th, sa, 4);
+  l1 := pg_temp.lot(pg_temp.ws(th, sa, 4, null, 15, 30));
+  perform pg_temp.wr(th, sb, 5, l1);
+  l3 := pg_temp.lot(pg_temp.ws(th, sb, 5, l1, 5, 15));
+  r := pg_temp.o_lcancel(p_shop, l1, 'verify', 'scrap', 'broken');
+  r2 := pg_temp.o_lcancel(p_shop, l3, 'verify', 'return_to_parent');
+  v_log := v_log || pg_temp.chk('K5', 'ส่วนที่มีส่วนแยกต่อ (split_out > 0 จากขั้นของมัน): ยกเลิก = ปฏิเสธ has_split · ส่วนลูก (ยังไม่มีคนรับ) คืนชิ้นให้ขั้นของส่วนที่แยกมา — ขั้นนั้นยัง received โดย B → ok · ต้นไม้ไม่ drift',
+    pg_temp.rej(r, 'has_split') and (r2 ->> 'ok') = 'true' and pg_temp.sv(l1, 5, 'qty_split_out') = '0' and pg_temp.dcount(j) = 0 and pg_temp.sumok(j));
+  -- K6 ของเสียที่บันทึกตอนแยก → คืนชิ้นไม่ได้ (scrap_recorded) · ออฟฟิศเลือก scrap
+  d := pg_temp.fx(p_shop, p_tpl, pn, 30, 3);
+  j := pg_temp.jid(d); th := d ->> 'tokh'; sa := pg_temp.sess(th, wA, '4829');
+  perform pg_temp.wr(th, sa, 4);
+  l1 := pg_temp.lot(pg_temp.ws(th, sa, 4, null, 10, 30, 2, 'porosity'));
+  r := pg_temp.wc(th, sa, l1);
+  r2 := pg_temp.o_lcancel(p_shop, l1, 'verify', 'return_to_parent');
+  r3 := pg_temp.o_lcancel(p_shop, l1, 'verify', 'scrap', 'porosity');
+  v_log := v_log || pg_temp.chk('K6', 'แยกพร้อมของเสียที่บันทึก (2): คืนชิ้นจะเหลือขั้นแม่ split_out 0 + เสีย 2 (ผิด CHECK) → ช่าง/ออฟฟิศคืนไม่ได้ scrap_recorded · ออฟฟิศยกเลิกเป็นของเสียได้ (cancel_scrap_qty 10) · drift ว่าง',
+    (r ->> 'code') = 'scrap_recorded' and pg_temp.rej(r2, 'scrap_recorded') and (r3 ->> 'ok') = 'true' and pg_temp.jv(l1, 'cancel_scrap_qty') = '10' and pg_temp.dcount(j) = 0 and pg_temp.sumok(j));
+  -- K7 ออฟฟิศคืนชิ้นของส่วนที่ช่างแยก (ไม่จำกัดผู้แยก) · disposition ผิด · ใบแม่/ส่วนอื่น
+  d := pg_temp.fx(p_shop, p_tpl, pn, 30, 3);
+  j := pg_temp.jid(d); th := d ->> 'tokh'; sa := pg_temp.sess(th, wA, '4829');
+  perform pg_temp.wr(th, sa, 4);
+  l1 := pg_temp.lot(pg_temp.ws(th, sa, 4, null, 10, 30));
+  r := pg_temp.o_lcancel(p_shop, l1, 'verify', 'xx');
+  r2 := pg_temp.o_lcancel(p_shop, j, 'verify', 'return_to_parent');
+  r3 := pg_temp.o_lcancel(p_shop, l1, 'verify', 'return_to_parent');
+  v_log := v_log || pg_temp.chk('K7', 'ที่ไปของชิ้นนอกชุด = ปฏิเสธ disposition_invalid · ยกเลิก "ใบแม่" ด้วย job_lot_cancel = ปฏิเสธ not_lot · ออฟฟิศคืนชิ้นของส่วนที่ช่างแยกได้ (ok) · ขั้นแม่ split_out 0',
+    pg_temp.rej(r, 'disposition_invalid') and pg_temp.rej(r2, 'not_lot') and (r3 ->> 'ok') = 'true' and pg_temp.sv(j, 4, 'qty_split_out') = '0' and pg_temp.dcount(j) = 0);
+  return v_log;
+end;
+$s$;
+
+create function pg_temp.sl(p_shop uuid, p_tpl uuid) returns text
+ language plpgsql as $s$
+declare
+  v_log text := '';
+  pn uuid; wA uuid; wB uuid;
+  d jsonb; j uuid; th text; sa text; sb text;
+  r jsonb; r2 jsonb; r3 jsonb;
+  l1 uuid; l2 uuid;
+begin
+  perform set_config('request.jwt.claims', '{"role":"service_role"}', true);
+  pn := pg_temp.pid(p_shop, 'none');
+  wA := pg_temp.wid(p_shop, 'vfy-ช่าง A', '4829');
+  wB := pg_temp.wid(p_shop, 'vfy-ช่าง B', '7351');
+  d := pg_temp.fx(p_shop, p_tpl, pn, 40, 3);
+  j := pg_temp.jid(d); th := d ->> 'tokh'; sa := pg_temp.sess(th, wA, '4829'); sb := pg_temp.sess(th, wB, '7351');
+  perform pg_temp.wr(th, sa, 4);
+  l1 := pg_temp.lot(pg_temp.ws(th, sa, 4, null, 15, 40));
+  r := pg_temp.o_cancel(p_shop, j);
+  r2 := pg_temp.o_cancel(p_shop, l1);
+  v_log := v_log || pg_temp.chk('L1', 'ยกเลิกใบแม่ที่มีส่วน = ปฏิเสธ has_parts · ยกเลิกส่วนด้วย job_cancel = ปฏิเสธ use_lot_cancel · UPDATE ตรง status cancelled ของแม่ = ปฏิเสธ (guard)',
+    pg_temp.rej(r, 'has_parts') and pg_temp.rej(r2, 'use_lot_cancel')
+    and pg_temp.x(format('update analytics.job set status = ''cancelled'', cancelled_at = now(), cancel_reason = ''x'' where id = %L', j)) like 'ERR:22023:%ส่วนย่อย%');
+  -- เดินแม่/ส่วนจนครบ แล้วทดสอบปิด
+  perform pg_temp.ws(th, sa, 4, null, null, 25);
+  perform pg_temp.rw(p_shop, j, null, 8);
+  perform pg_temp.rw(p_shop, l1, null, 8);
+  v_log := v_log || pg_temp.chk('L2', 'UPDATE ตรง status=done ของแม่ที่ขั้นครบ แต่ส่วนยังเปิด = ปฏิเสธ parts_open (guard · ชั้นที่สองต่อจาก RPC)',
+    pg_temp.x(format('update analytics.job set status = ''done'', done_at = now(), qty_good = 25, qty_scrap = 0 where id = %L', j)) like 'ERR:22023:%ส่วนย่อย%');
+  r := pg_temp.o_done(p_shop, l1, 15, 0);
+  r2 := pg_temp.o_done(p_shop, l1, 14, 1);
+  v_log := v_log || pg_temp.chk('L3', 'ปิดส่วน: ดี 15 + เสีย 0 = 15 (ส่วนไม่มี split_out) ok · (ปิดซ้ำ = job_closed)', (r ->> 'ok') = 'true' and pg_temp.rej(r2, 'job_closed'));
+  -- แม่: ดี + เสีย ไม่รวมส่วนที่แยกออก = qty_mismatch · UPDATE ตรง done ที่ ดี+เสีย = planned แต่ split_out > 0 = ปฏิเสธ CHECK
+  r := pg_temp.o_done(p_shop, j, 25, 15);
+  r2 := pg_temp.o_done(p_shop, j, 40, 0);
+  v_log := v_log || pg_temp.chk('L4', 'ปิดแม่ที่แยกออก 15: ดี 25 + เสีย 15 (นับส่วนที่แยกเป็นเสีย) = qty_mismatch · ดี 40 (= planned โดยไม่นับแยก) = qty_mismatch · UPDATE ตรง ดี 25 + เสีย 0 + (แยก 15) ≠ 40 / ดี 40 + เสีย 0 + แยก 15 = ปฏิเสธ job_done_ck',
+    pg_temp.rej(r, 'qty_mismatch') and pg_temp.rej(r2, 'qty_mismatch')
+    and pg_temp.x(format('update analytics.job set status = ''done'', done_at = now(), qty_good = 40, qty_scrap = 0 where id = %L', j)) like 'ERR:23514:%job_done_ck%');
+  r := pg_temp.o_done(p_shop, j, 25, 0);
+  v_log := v_log || pg_temp.chk('L5', 'ปิดแม่ ดี 25 + เสีย 0 + แยกออก 15 = 40 → ok (ส่วนปิดแล้ว) · drift ว่าง · sum_check จริง', (r ->> 'ok') = 'true' and pg_temp.dcount(j) = 0 and pg_temp.sumok(j));
+
+  -- ย้อนขั้น (reopen)
+  d := pg_temp.fx(p_shop, p_tpl, pn, 40, 3);
+  j := pg_temp.jid(d); th := d ->> 'tokh'; sa := pg_temp.sess(th, wA, '4829'); sb := pg_temp.sess(th, wB, '7351');
+  perform pg_temp.wr(th, sa, 4);
+  l1 := pg_temp.lot(pg_temp.ws(th, sa, 4, null, 15, 40));
+  r := pg_temp.o_reopen(p_shop, j);
+  r2 := pg_temp.o_reopen(p_shop, l1);
+  v_log := v_log || pg_temp.chk('L6', 'ย้อนขั้นล่าสุดของแม่ (received ที่แยก 15) = ปฏิเสธ has_split · ย้อนขั้นล่าสุดของส่วน (ขั้นแยก) = ปฏิเสธ has_split · UPDATE ตรง (received→pending ของขั้นที่แยก · sent→received ของขั้นแยกของส่วน) = ปฏิเสธ',
+    pg_temp.rej(r, 'has_split') and pg_temp.rej(r2, 'has_split')
+    and pg_temp.x(format('update analytics.job_stage set status = ''pending'', received_on = null, worker_id = null, assignee_name = null, qty_in = null where job_id = %L and seq = 4', j)) like 'ERR:%'
+    and pg_temp.x(format('update analytics.job_stage set status = ''received'', sent_on = null, qty_out = null where job_id = %L and seq = 4', l1)) like 'ERR:%'
+    and pg_temp.sv(j, 4, 'status') = 'received' and pg_temp.sv(l1, 4, 'status') = 'sent');
+  perform pg_temp.wr(th, sb, 5, l1);
+  r := pg_temp.o_reopen(p_shop, l1);
+  r2 := pg_temp.wr(th, sb, 5, l1);
+  v_log := v_log || pg_temp.chk('L7', 'ต้องไม่พัง: ย้อนขั้นที่ส่วนเดินต่อไปแล้ว (ขั้น 5 received→pending) ย้อนได้ตามเดิม แล้วรับใหม่ได้ · drift ว่าง',
+    (r ->> 'ok') = 'true' and (r2 ->> 'ok') = 'true' and pg_temp.dcount(j) = 0);
+  -- ข้ามขั้นที่ยังไม่ถึงของส่วน ได้ตามเดิม (ไม่พัง) · ข้าม QC ของส่วนไม่ได้
+  r := pg_temp.q(format('select analytics.job_stage_skip(%L, %L, %L, %L, %L)', p_shop, l1, 'polish', 'verify', pg_temp.act()));
+  r2 := pg_temp.q(format('select analytics.job_stage_skip(%L, %L, %L, %L, %L)', p_shop, l1, 'qc', 'verify', pg_temp.act()));
+  v_log := v_log || pg_temp.chk('L8', 'ต้องไม่พัง: ข้ามขั้น polish ที่ส่วนยังไม่ถึง = ok · ข้าม QC ของส่วน = ปฏิเสธ stage_required (ข้อยกเว้น split_inherit ใช้ผ่าน RPC แยกส่วนเท่านั้น)',
+    (r ->> 'ok') = 'true' and pg_temp.rej(r2, 'stage_required') and pg_temp.dcount(j) = 0);
+  return v_log;
+end;
+$s$;
+
+create function pg_temp.sm(p_shop uuid, p_tpl uuid) returns text
+ language plpgsql as $s$
+declare
+  v_log text := '';
+  pn uuid; wA uuid;
+  d jsonb; j uuid; th text; sa text;
+  r jsonb; l1 uuid; ms uuid; v_codes text;
+begin
+  perform set_config('request.jwt.claims', '{"role":"service_role"}', true);
+  pn := pg_temp.pid(p_shop, 'none');
+  wA := pg_temp.wid(p_shop, 'vfy-ช่าง A', '4829');
+  d := pg_temp.fx(p_shop, p_tpl, pn, 100, 3);
+  j := pg_temp.jid(d); th := d ->> 'tokh'; sa := pg_temp.sess(th, wA, '4829');
+  perform pg_temp.wr(th, sa, 4);
+  l1 := pg_temp.lot(pg_temp.ws(th, sa, 4, null, 40, 100));
+  ms := pg_temp.sid(j, 4);
+  v_log := v_log || pg_temp.chk('M0', 'ก่อนบิด: ต้นไม้ตรง (drift ว่าง) · job_tree_assert ผ่านเงียบ', pg_temp.dcount(j) = 0 and pg_temp.x(format('select analytics.job_tree_assert(%L)', j)) = 'OK');
+  -- ปิด guard ของขั้น (จำลองทางอื่นที่แก้จำนวนตรงๆ) แล้วลด split_out ของแม่ 40→35
+  execute 'alter table analytics.job_stage disable trigger trg_job_stage_guard';
+  update analytics.job_stage set qty_split_out = 35 where id = ms;
+  execute 'alter table analytics.job_stage enable trigger trg_job_stage_guard';
+  select string_agg(distinct check_code, ',' order by check_code) into v_codes from analytics.v_job_tree_drift where root_job_id = j;
+  v_log := v_log || pg_temp.chk('M1', 'บิดจำนวน (ลด qty_split_out 40→35 โดยเลี่ยง guard) → v_job_tree_drift มีแถว (split_link + tree_sum) · job_tree_assert = raise tree_sum_mismatch ข้อความไม่มี UUID ' || coalesce(v_codes, ''),
+    v_codes like '%split_link%' and v_codes like '%tree_sum%'
+    and pg_temp.q(format('select analytics.job_tree_assert(%L)', j)) ->> '_hint' = 'tree_sum_mismatch'
+    and pg_temp.q(format('select analytics.job_tree_assert(%L)', j)) ->> '_err' !~ '[0-9a-f]{8}-[0-9a-f]{4}');
+  r := pg_temp.ws(th, sa, 4, null, null, 65);
+  v_log := v_log || pg_temp.chk('M2', 'หลังบิด RPC ที่แตะต้นไม้ (ส่งส่วนที่เหลือ) ถอยทั้งก้อนด้วย tree_sum_mismatch · ขั้นแม่ยัง received',
+    r ->> '_hint' = 'tree_sum_mismatch' and pg_temp.sv(j, 4, 'status') = 'received');
+  update analytics.job_stage set qty_split_out = 40 where id = ms;
+  v_log := v_log || pg_temp.chk('M3', 'คืนค่า 40 แล้วต้นไม้กลับตรง (drift ว่าง) · ส่งส่วนที่เหลือผ่านได้',
+    pg_temp.dcount(j) = 0 and (pg_temp.ws(th, sa, 4, null, null, 60) ->> 'ok') = 'true');
+  return v_log;
+end;
+$s$;
+
+-- ============================================================================
 -- ตัวรัน section: แต่ละ section ล้มด้วย exception ไม่ทำให้ทั้งชุดตาย · ทุก section ถอยกลับ (raise) — ข้อมูลทดสอบไม่เหลือ
 -- ============================================================================
 create function pg_temp.run_sec(p_fn text, p_shop uuid, p_tpl uuid) returns text
