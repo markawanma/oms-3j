@@ -147,7 +147,8 @@ export async function workerReceive(token: unknown, i: ReceiveInput): Promise<Wo
   if (!c.sessionHash) return fail("session_required");
   const r = await callWorkerRpc("job_worker_receive", {
     p_token_hash: c.tokenHash, p_session_hash: c.sessionHash, p_expected_seq: i.expectedSeq, p_weight_in_g: i.weightInG, p_user_agent: c.userAgent, p_ip_hash: c.ipHash,
-    p_lot_job_id: i.lotJobId ?? null, p_qty_received: i.qtyReceived ?? null,
+    // 0181: ส่งเฉพาะที่ระบุ — ใบเดี่ยว (ไม่มีส่วน) เรียก RPC ด้วย params ชุดเดิมเป๊ะ
+    ...(i.lotJobId ? { p_lot_job_id: i.lotJobId } : {}), ...(i.qtyReceived != null ? { p_qty_received: i.qtyReceived } : {}),
   });
   if (isFail(r)) return r;
   const by = shortText(r.by);
@@ -165,7 +166,7 @@ export async function workerSend(token: unknown, i: SendInput): Promise<WorkerOk
     p_token_hash: c.tokenHash, p_session_hash: c.sessionHash, p_expected_seq: i.expectedSeq, p_weight_out_g: i.weightOutG, p_qty_scrap: i.qtyScrap,
     p_scrap_reason: i.scrapReason, p_metal_added_g: i.metalAddedG, p_weight_note: i.metalAddedG > 0 ? "เติมโลหะ (ช่างแจ้งผ่าน QR)" : null,
     p_scrap_weight_g: i.scrapWeightG ?? null, p_user_agent: c.userAgent, p_ip_hash: c.ipHash,
-    p_lot_job_id: i.lotJobId ?? null, p_qty_send: i.qtySend ?? null, p_qty_hold: i.qtyHold ?? null,
+    ...(i.lotJobId ? { p_lot_job_id: i.lotJobId } : {}), ...(i.qtySend != null ? { p_qty_send: i.qtySend } : {}), ...(i.qtyHold != null ? { p_qty_hold: i.qtyHold } : {}),
   });
   if (isFail(r)) return r;
   const data: StageResult = { already: r.already === true, by: null, message: r.already === true ? workerFailMessage("already_sent", r.message) : null };
