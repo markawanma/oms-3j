@@ -16,7 +16,7 @@ const bool = (v: unknown): boolean => v === true;
 // คอลัมน์ที่อ่าน (ชื่อตรงกับ 0181 §7)
 // ---------------------------------------------------------------------------
 export const TREE_COLUMNS =
-  "job_id, root_job_id, parent_job_id, lot_seq, label, status, qty_planned, qty_live, qty_stage_scrap, qty_split_out, qty_discrepancy_open, qty_discrepancy_resolved, cancel_scrap_qty, qty_good, qty_scrap_final, stage_code, stage_name, stage_status, holder_name, days_in_stage, qty_qc_passed, cancel_scrap_weight_g, weight_scrap_gap_g";
+  "job_id, root_job_id, parent_job_id, lot_seq, label, status, qty_planned, qty_live, qty_stage_scrap, qty_split_out, qty_discrepancy_open, qty_discrepancy_resolved, qty_discrepancy_arrived, cancel_scrap_qty, qty_good, qty_scrap_final, stage_code, stage_name, stage_status, holder_name, days_in_stage, qty_qc_passed, cancel_scrap_weight_g, weight_scrap_gap_g";
 export const TREE_SUMMARY_COLUMNS =
   "root_job_id, job_no, qty_planned, qty_order, parts_count, parts_open, lots_open, qty_live_total, qty_done_good, qty_scrap_total, qty_pending_explanation, qty_discrepancy_resolved, qty_qc_passed_total, weight_scrap_cancel_g, dominant_stage_code, sum_check";
 // M-B: อ่านจาก v_job_discrepancy (alias id) — weight_gap_excess_g คำนวณที่ DB (job_disc_excess_g) ไม่คำนวณซ้ำฝั่ง TS · เฉพาะหน้าออฟฟิศ
@@ -43,6 +43,8 @@ export interface LotPart {
   qtySplitOut: number;
   qtyDiscrepancyOpen: number;
   qtyDiscrepancyResolved: number;
+  /** 0183: ส่วนต่างของใบนี้ที่ "ได้รับเพิ่มแล้ว" (ชิ้น) — ไปนับเป็น qtyLive ของส่วนใหม่แล้ว · ไม่รวมใน qtyDiscrepancyResolved · ปิดใบ: ดี + เสีย + แยกออก + ค่านี้ = เริ่มผลิต */
+  qtyDiscrepancyArrived: number;
   cancelScrapQty: number | null;
   /** M-C: น้ำหนักของเสียที่เลิกใช้ตอนยกเลิกส่วนเป็นของเสีย (g · ทอง+ขั้นชั่งเท่านั้น) — เฉพาะหน้าออฟฟิศ */
   cancelScrapWeightG: number | null;
@@ -92,6 +94,7 @@ export function mapLotPart(r: Record<string, unknown>): LotPart | null {
     qtySplitOut: int0(r.qty_split_out),
     qtyDiscrepancyOpen: int0(r.qty_discrepancy_open),
     qtyDiscrepancyResolved: int0(r.qty_discrepancy_resolved),
+    qtyDiscrepancyArrived: int0(r.qty_discrepancy_arrived),
     cancelScrapQty: num(r.cancel_scrap_qty),
     cancelScrapWeightG: num(r.cancel_scrap_weight_g),
     weightScrapGapG: num(r.weight_scrap_gap_g),
@@ -173,7 +176,7 @@ export interface LotDiscrepancy {
   toStageName: string;
   qty: number;
   status: "open" | "resolved" | "void";
-  resolvedKind: "scrap" | "lost" | null;
+  resolvedKind: "scrap" | "lost" | "arrived" | null;
   resolvedReason: string | null;
   createdAt: string | null;
   voidOfId: string | null;
@@ -192,7 +195,7 @@ export function mapDiscrepancy(r: Record<string, unknown>, ctx: { stageById: Rec
   const qty = num(r.qty);
   const status = r.status === "open" || r.status === "resolved" || r.status === "void" ? r.status : null;
   if (!id || !jobId || qty === null || !status) return null;
-  const kind = r.resolved_kind === "scrap" || r.resolved_kind === "lost" ? r.resolved_kind : null;
+  const kind = r.resolved_kind === "scrap" || r.resolved_kind === "lost" || r.resolved_kind === "arrived" ? r.resolved_kind : null;
   return {
     id,
     jobId,
@@ -218,7 +221,7 @@ export function openDiscrepancies(list: readonly LotDiscrepancy[]): LotDiscrepan
   return list.filter((d) => d.status === "open" && !voided.has(d.id));
 }
 
-export const DISCREPANCY_KIND_LABEL: Record<string, string> = { scrap: "เสียหาย", lost: "หาย" };
+export const DISCREPANCY_KIND_LABEL: Record<string, string> = { scrap: "เสียหาย", lost: "หาย", arrived: "ได้รับเพิ่มแล้ว" };
 
 // ---------------------------------------------------------------------------
 // ข้อมูลของหน้าใบงาน (ใบแม่)

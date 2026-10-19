@@ -35,7 +35,7 @@ export interface WorkerPart {
   canCancelSplit: boolean;
 }
 
-export const MY_ACTION_KINDS = ["send", "receive", "explain"] as const;
+export const MY_ACTION_KINDS = ["send", "receive", "explain", "arrive"] as const;
 export type MyActionKind = (typeof MY_ACTION_KINDS)[number];
 
 /** 0181: สิ่งที่ช่างคนนี้ทำได้ในต้นไม้ (ส่งส่วนที่ถือ · รับส่วนที่ขั้นถัดไปเป็นของฉัน · ชี้แจงส่วนต่างที่ฉันเป็นผู้ส่ง) */
@@ -53,7 +53,7 @@ export interface WorkerAction {
   qtyHold: number | null;
   /** receive: จำนวนที่คาดว่าจะได้รับ (ผู้รับใส่จำนวนจริงได้ — น้อยกว่า = ส่วนต่างรอชี้แจง) */
   qtyExpected: number | null;
-  /** explain */
+  /** explain · arrive (0183: ผู้รับของขั้นที่รับขาด กด "ได้รับเพิ่มแล้ว" — qty = ส่วนต่างที่ยังค้าง · weightRequired = ทองที่ขั้นชั่ง ต้องชั่งชิ้นที่มาถึง · ไม่มีน้ำหนักอื่นใดมากับ action นี้) */
   discrepancyId: string | null;
   /** explain: ส่วนต่างงานทองที่มีน้ำหนักเทียบ — ออฟฟิศชี้แจงเท่านั้น (H1) · ช่างกดแล้วได้ office_required */
   officeOnly: boolean;

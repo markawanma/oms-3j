@@ -46,6 +46,11 @@ export const EVENT_TYPE_LABEL: Record<string, string> = {
   hold: "พักงาน",
   resume: "ทำต่อ",
   photo_add: "เพิ่มรูป",
+  // 0182: ลบรูป (ตั้งรูปหลัก/เรียงรูปไม่เขียน event — design §5)
+  photo_remove: "ลบรูป",
+  // 0182 (security L4): ตั้งรูปหลัก/เรียงรูป เขียน event เมื่อเปลี่ยนจริง
+  photo_primary: "ตั้งรูปหลัก",
+  photo_reorder: "เรียงรูป",
   note: "หมายเหตุ",
   done: "ปิดงาน",
   cancel: "ยกเลิก",
@@ -60,6 +65,8 @@ export const EVENT_TYPE_LABEL: Record<string, string> = {
   split_cancel: "ยกเลิกส่วน",
   discrepancy: "รับไม่ครบ (ส่วนต่าง)",
   discrepancy_resolve: "ชี้แจงส่วนต่าง",
+  // 0183: ส่วนต่างทางที่ 3 "ได้รับเพิ่มแล้ว" (ของนับผิด/ส่งตามมาทีหลัง → ส่วนใหม่)
+  discrepancy_arrive: "ได้รับเพิ่มแล้ว (ส่วนต่าง)",
 };
 
 export const CHANNEL_LABEL: Record<string, string> = {

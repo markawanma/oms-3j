@@ -7,7 +7,7 @@
 
 import { cookies } from "next/headers";
 import { parseCount, parsePieces, parsePin, parseScrapReason, parseSeq, parseText, parseWeight, parseWeightOrZero, isUuid } from "@/lib/jobs/input";
-import { WORKER_SESSION_COOKIE, revokeWorkerSession, verifyWorkerPin, workerCancelLot, workerReceive, workerResolveDiscrepancy, workerSend } from "@/lib/jobs/worker-server";
+import { WORKER_SESSION_COOKIE, revokeWorkerSession, verifyWorkerPin, workerArriveDiscrepancy, workerCancelLot, workerReceive, workerResolveDiscrepancy, workerSend } from "@/lib/jobs/worker-server";
 import { WORKER_CODE_TH } from "@/lib/jobs/messages";
 
 export type WorkerActionResult =
@@ -20,6 +20,8 @@ export type WorkerActionResult =
       lot?: { lotJobId: string; lotSeq: number; label: string; qty: number; parentRemaining: number };
       /** 0181: ส่วนต่างที่เกิดตอนรับไม่ครบ (ชิ้น) */
       discrepancyQty?: number;
+      /** 0183: ผล "ได้รับเพิ่มแล้ว" — ส่วนใหม่ที่เกิดจากชิ้นที่มาถึง + ส่วนต่างที่ยังค้าง (ไม่มีน้ำหนักใดๆ) */
+      arrived?: { qty: number; qtyRemaining: number; remainingDiscrepancyId: string | null; lot: { lotJobId: string; lotSeq: number; label: string; stageCode: string | null } };
     }
   | { ok: false; error: string; code?: string; retryAfterSeconds?: number };
 
@@ -157,6 +159,34 @@ export async function workerResolveDiscrepancyAction(token: string, input: Worke
   if (!reason.ok || reason.value === null) return bad("เลือกเหตุผล");
   const r = await workerResolveDiscrepancy(token, { discrepancyId: input.discrepancyId, kind: input.kind, reason: reason.value });
   return r.ok ? { ok: true } : { ok: false, error: r.error, code: r.code, retryAfterSeconds: r.retryAfterSeconds };
+}
+
+export interface WorkerArriveDiscrepancyInput {
+  /** ต้องมาจาก my_actions (action = arrive) ที่ DB ส่งมา — DB ตรวจว่าอยู่ในต้นไม้ของ token และผู้กดเป็นผู้รับของขั้นนั้น */
+  discrepancyId: string;
+  /** กี่ชิ้นที่ได้รับเพิ่ม (จำนวนเต็ม 1–100,000 · DB ตรวจไม่เกินส่วนต่างที่ค้าง) */
+  qty: number | string;
+  /** ทอง + ขั้นตั้งชั่ง (my_actions.weightRequired) = ต้องชั่งชิ้นที่มาถึง (กรัม > 0 ทศนิยมไม่เกิน 3) · อย่างอื่นห้ามส่ง */
+  weightG?: number | string | null;
+  /** จำนวนส่วนต่างที่ค้างตามที่เห็นบนจอ (my_actions.qty) — กดซ้ำ/หน้าจอเก่า → DB ตอบ stage_changed */
+  expectedOpen?: number | string | null;
+}
+
+/** 0183 (มติ 20 ต.ค.): ผู้รับกด "ได้รับเพิ่มแล้ว" — ชิ้นที่มาถึงเป็นส่วนใหม่ที่ขั้นที่รับขาด (ผู้ถือ = คนกด) · ได้ไม่ครบ = ที่เหลือยังค้าง · ไม่แสดงน้ำหนัก/ส่วนที่ขาดให้ช่าง */
+export async function arriveDiscrepancyWorker(token: string, input: WorkerArriveDiscrepancyInput): Promise<WorkerActionResult> {
+  if (typeof input !== "object" || input === null || !isUuid(input.discrepancyId)) return bad("ข้อมูลไม่ถูกต้อง");
+  const q = parsePieces(input.qty, "จำนวนที่ได้รับเพิ่ม");
+  if (!q.ok) return bad(q.error);
+  const w = parseWeight(input.weightG ?? null, "น้ำหนักชิ้นที่มาถึง");
+  if (!w.ok) return bad(w.error);
+  let expectedOpen: number | null = null;
+  if (input.expectedOpen != null && input.expectedOpen !== "") {
+    const e = parsePieces(input.expectedOpen, "จำนวนส่วนต่างที่ค้าง");
+    if (!e.ok) return bad("โหลดหน้าใหม่แล้วลองอีกครั้ง (ข้อมูลส่วนต่างไม่ถูกต้อง)");
+    expectedOpen = e.value;
+  }
+  const r = await workerArriveDiscrepancy(token, { discrepancyId: input.discrepancyId, qty: q.value, weightG: w.value, expectedOpen });
+  return r.ok ? { ok: true, arrived: r.data } : { ok: false, error: r.error, code: r.code, retryAfterSeconds: r.retryAfterSeconds };
 }
 
 /** 0181 (ข3): ช่างยกเลิกส่วนที่ตัวเองแยกก่อนมีคนรับ (ชิ้นกลับขั้นแม่) */
