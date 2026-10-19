@@ -6,7 +6,7 @@
 
 import { revalidatePath } from "next/cache";
 import { effectiveDateBangkok } from "@/lib/tiktok/format";
-import { isUuid, parseCount, parseDate, parseLabel, parseSeq, parseText, parseWeight, parseWeightOrZero, parseScrapReason, TARGET_PIECE_MAX_G } from "@/lib/jobs/input";
+import { isUuid, parseCount, parseDate, parseLabel, parsePieces, parseSeq, parseText, parseWeight, parseWeightOrZero, parseScrapReason, TARGET_PIECE_MAX_G } from "@/lib/jobs/input";
 import { callOffice, fail, guard } from "@/lib/jobs/office-server";
 import type { JobResult } from "@/lib/jobs/office-server";
 import { currentAppOrigin } from "@/lib/jobs/origin-server";
@@ -117,9 +117,9 @@ export async function officeReceiveStage(i: OfficeReceiveInput): Promise<JobResu
   if (!i.workerId && !name.value) return fail("ระบุผู้รับงาน (เลือกช่างหรือพิมพ์ชื่อ)");
   let qtyReceived: number | null = null;
   if (i.qtyReceived != null && i.qtyReceived !== "") {
-    const q = typeof i.qtyReceived === "number" ? i.qtyReceived : /^\d+$/.test(String(i.qtyReceived).trim()) ? Number(String(i.qtyReceived).trim()) : NaN;
-    if (!Number.isSafeInteger(q) || q < 1 || q > 100000) return fail("จำนวนที่ได้รับต้องเป็นจำนวนเต็ม 1–100,000");
-    qtyReceived = q;
+    const q = parsePieces(i.qtyReceived, "จำนวนที่ได้รับ");
+    if (!q.ok) return fail(q.error);
+    qtyReceived = q.value;
   }
   const r = await callOffice<Raw>("job_office_receive", { p_job_id: i.jobId, p_expected_seq: seq.value, p_occurred_on: on.value, p_weight_in_g: w.value, p_worker_id: i.workerId ?? null, p_assignee_name: name.value, p_channel: "job_page", ...(qtyReceived !== null ? { p_qty_received: qtyReceived } : {}) });
   if (!r.ok) return r;

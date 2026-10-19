@@ -150,3 +150,20 @@ describe("parseLabel — อักขระล่องหน/bidi (security 017
     expect(parseLabel(5 as never, "ชื่อ", 60, true).ok).toBe(false);
   });
 });
+
+import { parsePieces } from "@/lib/jobs/input";
+describe("parsePieces — จำนวนชิ้นของ action ส่วนย่อย (ที่เดียว)", () => {
+  it("ผ่าน: number/ตัวเลขล้วน 1–100,000 (เว้นวรรครอบ ๆ ได้)", () => {
+    expect(parsePieces(1, "x")).toEqual({ ok: true, value: 1 });
+    expect(parsePieces("40", "x")).toEqual({ ok: true, value: 40 });
+    expect(parsePieces(" 7 ", "x")).toEqual({ ok: true, value: 7 });
+    expect(parsePieces(100000, "x")).toEqual({ ok: true, value: 100000 });
+  });
+  it("ปฏิเสธ + ข้อความ '<label>ต้องเป็นจำนวนเต็ม 1–100,000': 0 · ติดลบ · ทศนิยม · '1,5' · '3.5' · ว่าง · null · NaN · เกินเพดาน", () => {
+    for (const v of [0, -1, 1.5, "1,5", "3.5", "", "abc", null, undefined, NaN, Infinity, 100001, "100001", "٣"]) {
+      const r = parsePieces(v, "จำนวนที่ส่ง");
+      expect(r.ok, String(v)).toBe(false);
+      if (!r.ok) expect(r.error).toBe("จำนวนที่ส่งต้องเป็นจำนวนเต็ม 1–100,000");
+    }
+  });
+});

@@ -245,6 +245,9 @@ export function sanitizeWorkerView(raw: unknown): WorkerView | null {
   };
 }
 
+/** DB ตอบ next_action='multi' (หลายส่วน/มีส่วนต่างรอชี้แจง) — ปุ่มส่ง/รับของส่วนต้องระบุส่วนเสมอ · ที่เดียวของ UI ทั้งหมด */
+export const isMultiView = (v: Pick<WorkerView, "nextAction">): boolean => v.nextAction === "multi";
+
 /** ชื่อขั้นก่อนหน้า (ไม่นับที่ข้าม) ของขั้นที่กำลังจะทำ — ใช้ข้อความ "ขั้นก่อน (X) ยังไม่ส่ง" */
 export function prevStageName(view: Pick<WorkerView, "job" | "actionStage">): string | null {
   const at = view.actionStage?.seq;

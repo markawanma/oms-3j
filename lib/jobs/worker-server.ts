@@ -9,6 +9,7 @@ import { cookies, headers } from "next/headers";
 import { getServiceClient } from "@/lib/supabase/server";
 import { clientIpFromHeaders, ipHashOrNull, sessionHashOrNull, tokenHashOrNull } from "@/lib/jobs/hash";
 import { logJobFailure } from "@/lib/jobs/log";
+import { isUuid } from "@/lib/jobs/input";
 import { GENERIC_JOB_ERROR, WORKER_RECEIVE_LOCK_TH, workerFailMessage } from "@/lib/jobs/messages";
 import type { WorkerFailExtra } from "@/lib/jobs/messages";
 import { sanitizeWorkerView } from "@/lib/jobs/worker-view";
@@ -139,8 +140,6 @@ export type StageResult = {
   discrepancyQty?: number;
 };
 
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const uuidOrNull = (v: unknown): string | null => (typeof v === "string" && UUID_RE.test(v) ? v : null);
 const intOrNull = (v: unknown): number | null => (typeof v === "number" && Number.isInteger(v) ? v : null);
 
 export async function workerReceive(token: unknown, i: ReceiveInput): Promise<WorkerOk<StageResult> | WorkerFail> {
@@ -172,7 +171,7 @@ export async function workerSend(token: unknown, i: SendInput): Promise<WorkerOk
   });
   if (isFail(r)) return r;
   const data: StageResult = { already: r.already === true, by: null, message: r.already === true ? workerFailMessage("already_sent", r.message) : null };
-  const lotId = uuidOrNull(r.lot_job_id);
+  const lotId = isUuid(r.lot_job_id) ? r.lot_job_id : null;
   const lotSeq = intOrNull(r.lot_seq);
   const qty = intOrNull(r.qty);
   const remaining = intOrNull(r.parent_remaining);

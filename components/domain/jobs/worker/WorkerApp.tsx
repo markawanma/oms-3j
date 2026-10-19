@@ -15,7 +15,7 @@ import { BigButton, PanelSkeleton, StageStrip, useHydrated } from "@/components/
 import { workerLogout } from "@/lib/actions/job-worker";
 import { WORKER_CODE_TH, prevNotSentMessage } from "@/lib/jobs/messages";
 import { METAL_LABEL } from "@/lib/jobs/types";
-import { prevStageName } from "@/lib/jobs/worker-view";
+import { isMultiView, prevStageName } from "@/lib/jobs/worker-view";
 import type { NextAction, WorkerView } from "@/lib/jobs/worker-view";
 
 const INFO: Partial<Record<NextAction, { tone: "amber" | "zinc"; text: string }>> = {
@@ -105,7 +105,6 @@ export function WorkerApp({ token, view }: { token: string; view: WorkerView }) 
     }
   }
 
-  const multi = view.nextAction === "multi";
   // 0181: ใบเดี่ยว — my_actions ของขั้นที่ action_stage ชี้ (ใช้เปิดช่อง "ส่งไม่ครบ?/ได้ไม่ครบ?") · ไม่มี = หน้าเดิมทุกประการ
   const soloAction = (kind: "send" | "receive") => view.myActions?.find((a) => a.action === kind && a.stageSeq === view.actionStage?.seq);
   const info = view.nextAction === "prev_not_sent" ? { tone: "amber" as const, text: prevNotSentMessage(prevStageName(view)) } : INFO[view.nextAction];
@@ -130,7 +129,7 @@ export function WorkerApp({ token, view }: { token: string; view: WorkerView }) 
         </p>
       )}
 
-      {!multi && view.nextAction !== "held_by_other" && view.heldBy && view.heldBy !== view.viewer?.displayName && <p className="rounded-xl bg-zinc-100 p-3 text-lg text-zinc-900">ตอนนี้อยู่กับ <strong>{view.heldBy}</strong></p>}
+      {!isMultiView(view) && view.nextAction !== "held_by_other" && view.heldBy && view.heldBy !== view.viewer?.displayName && <p className="rounded-xl bg-zinc-100 p-3 text-lg text-zinc-900">ตอนนี้อยู่กับ <strong>{view.heldBy}</strong></p>}
 
       {!ready || waiting ? (
         <PanelSkeleton />
@@ -139,7 +138,7 @@ export function WorkerApp({ token, view }: { token: string; view: WorkerView }) 
           {view.nextAction === "identify" && <IdentifyPanel token={token} workers={view.workers} onDone={refreshView} />}
           {view.nextAction === "receive" && view.actionStage && <ReceivePanel token={token} view={view} action={soloAction("receive")} onDone={(msg, tone = "ok") => setDone({ msg, tone })} onReload={refreshView} />}
           {view.nextAction === "send" && view.actionStage && <SendPanel token={token} view={view} action={soloAction("send")} onSplit={setSplit} onDone={(msg, tone = "ok") => setDone({ msg, tone })} onReload={refreshView} />}
-          {multi && <MultiPanel token={token} view={view} onDone={(msg, tone = "ok") => setDone({ msg, tone })} onReload={refreshView} onSplit={setSplit} onCancelled={(msg) => setDone({ msg, tone: "ok" })} />}
+          {isMultiView(view) && <MultiPanel token={token} view={view} onDone={(msg, tone = "ok") => setDone({ msg, tone })} onReload={refreshView} onSplit={setSplit} onCancelled={(msg) => setDone({ msg, tone: "ok" })} />}
           {view.nextAction === "held_by_other" && (
             <p className="rounded-xl bg-zinc-100 p-4 text-xl text-zinc-900">ขั้น {view.actionStage?.name ?? "นี้"} ยังอยู่กับ {view.heldBy ?? "คนอื่น"} — รอเขาส่งต่อก่อน</p>
           )}

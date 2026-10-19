@@ -6,7 +6,7 @@
 // session ช่าง: cookie httpOnly · secure (production) · sameSite=lax · path=/w · อายุตาม DB (≤ 12 ชม.) · เก็บ session token ดิบ (DB เก็บแค่ sha256)
 
 import { cookies } from "next/headers";
-import { parseCount, parsePin, parseScrapReason, parseSeq, parseText, parseWeight, parseWeightOrZero, isUuid } from "@/lib/jobs/input";
+import { parseCount, parsePieces, parsePin, parseScrapReason, parseSeq, parseText, parseWeight, parseWeightOrZero, isUuid } from "@/lib/jobs/input";
 import { WORKER_SESSION_COOKIE, revokeWorkerSession, verifyWorkerPin, workerCancelLot, workerReceive, workerResolveDiscrepancy, workerSend } from "@/lib/jobs/worker-server";
 import { WORKER_CODE_TH } from "@/lib/jobs/messages";
 
@@ -55,13 +55,6 @@ export async function workerLogout(): Promise<WorkerActionResult> {
   const jar = await cookies();
   jar.set(WORKER_SESSION_COOKIE, "", { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax", path: "/w", maxAge: 0 });
   return { ok: true };
-}
-
-/** 0181: จำนวนชิ้นจากช่องกรอก 1–100,000 จำนวนเต็มเท่านั้น (ไม่กรองอักขระทิ้งเงียบ) */
-function parsePieces(raw: unknown, label: string): { ok: true; value: number } | { ok: false; error: string } {
-  const n = typeof raw === "number" ? raw : typeof raw === "string" && /^\d+$/.test(raw.trim()) ? Number(raw.trim()) : NaN;
-  if (!Number.isSafeInteger(n) || n < 1 || n > 100000) return { ok: false, error: `${label}ต้องเป็นจำนวนเต็ม 1–100,000` };
-  return { ok: true, value: n };
 }
 
 export interface WorkerReceiveOpts {

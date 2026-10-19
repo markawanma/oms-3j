@@ -537,3 +537,25 @@ describe("0181 re-review: ล็อกรับไม่ครบ (L-2) · weigh
     expect(await screen.findByRole("alert")).toHaveTextContent("น้ำหนักส่วนที่แยกมากเกินน้ำหนักที่ถืออยู่");
   });
 });
+
+describe("nit 9: เงินใบเดี่ยวรับไม่ครบ ข้ามเตือนน้ำหนัก", () => {
+  const soloRecv = () =>
+    view({ nextAction: "receive", actionStage: { seq: 3, code: "setting", name: "ฝังพลอย", weightRequired: true }, prevWeightOutG: 10, myActions: [act({ action: "receive", qtyHold: null, qtyExpected: 12, weightRequired: true })] });
+  it("รับครบ + น้ำหนักต่างจากขั้นก่อน >20% → ยังเตือน (ของเดิม)", async () => {
+    render(<WorkerApp token={TOKEN} view={soloRecv()} />);
+    await userEvent.type(await screen.findByLabelText(/น้ำหนักเข้า/), "5");
+    await userEvent.click(screen.getByRole("button", { name: "รับงาน" }));
+    expect(await screen.findByRole("alertdialog")).toHaveTextContent("ต่างจากที่ขั้นก่อนส่งมา");
+    expect(workerReceiveStage).not.toHaveBeenCalled();
+  });
+  it("รับไม่ครบ (ได้ 8 จาก 12) + น้ำหนักต่างมาก → ไม่เตือนน้ำหนัก (ชิ้นต่างกัน เทียบทั้งก้อนไม่ได้) · เหลือแค่ยืนยันส่วนต่าง", async () => {
+    render(<WorkerApp token={TOKEN} view={soloRecv()} />);
+    await userEvent.type(await screen.findByLabelText(/น้ำหนักเข้า/), "5");
+    await userEvent.click(screen.getByRole("button", { name: "ได้ไม่ครบ? แจ้งจำนวนที่ได้จริง" }));
+    await setQty("ได้รับจริงกี่ชิ้น", "8");
+    await userEvent.click(screen.getByRole("button", { name: "รับงาน" }));
+    const dlg = await screen.findByRole("alertdialog");
+    expect(dlg).toHaveTextContent("รับ 8 จาก 12 ชิ้น");
+    expect(dlg.textContent ?? "").not.toMatch(/ต่างจากที่ขั้นก่อนส่งมา/);
+  });
+});

@@ -186,7 +186,8 @@ export async function getJobsForSourceItems(kind: string, itemIds: string[]): Pr
   if (itemIds.length === 0) return { ok: true, data: [] };
   try {
     const col = kind === "oem" ? "oem_quote_item_id" : "production_order_item_id";
-    const { data, error } = await db().from("job").select(`id, job_no, status, ${col}`).eq("shop_id", shopId()).neq("status", "cancelled").in(col, itemIds).limit(100);
+    // 0181: ใบแม่เท่านั้น — ส่วนย่อยคัดลอก source จากแม่ (ชี้รายการเดียวกัน) ถ้าไม่กรองจะหยิบส่วนย่อยมาเป็น "ใบงานของรายการ" + limit(100) ตัดใบแม่ทิ้ง
+    const { data, error } = await db().from("job").select(`id, job_no, status, ${col}`).eq("shop_id", shopId()).is("parent_job_id", null).neq("status", "cancelled").in(col, itemIds).limit(100);
     if (error) throw error;
     const out: SourceJob[] = [];
     for (const r of rows(data)) {

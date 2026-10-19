@@ -110,3 +110,15 @@ describe("getJobDetail", () => {
     if (bad.ok) expect(bad.data?.lots).toBeNull();
   });
 });
+
+describe("getJobsForSourceItems — เฉพาะใบแม่ (Q2)", () => {
+  it("กรอง parent_job_id is null (ส่วนย่อยคัดลอก source ของแม่ ไม่ให้หยิบมาเป็นใบงานของรายการ)", async () => {
+    const { getJobsForSourceItems } = await import("./job-office");
+    results.job = { data: [{ id: ROOT, job_no: "JB-0020", status: "open", production_order_item_id: "66666666-6666-4666-8666-666666666666" }], error: null };
+    const r = await getJobsForSourceItems("production", ["66666666-6666-4666-8666-666666666666"]);
+    expect(r.ok && r.data).toEqual([{ itemId: "66666666-6666-4666-8666-666666666666", jobId: ROOT, jobNo: "JB-0020", status: "open" }]);
+    const q = calls.find((c) => c.table === "job")!;
+    expect(q.ops.some((o) => o[0] === "is" && o[1] === "parent_job_id" && o[2] === null)).toBe(true);
+    expect(q.ops.some((o) => o[0] === "eq" && o[1] === "shop_id" && o[2] === SHOP)).toBe(true);
+  });
+});

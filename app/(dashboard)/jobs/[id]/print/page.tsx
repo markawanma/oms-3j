@@ -4,7 +4,7 @@ import { canManageJobs } from "@/lib/jobs/page-gate";
 import { logJobFailure } from "@/lib/jobs/log";
 import { currentAppOrigin } from "@/lib/jobs/origin-server";
 import { toPrintableJob, toPrintableSublot } from "@/lib/jobs/print";
-import { effectiveDateBangkok } from "@/lib/tiktok/format";
+import { redirect } from "next/navigation";
 import { isUuid } from "@/lib/jobs/input";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
@@ -31,6 +31,8 @@ export default async function JobPrintPage({ params, searchParams }: { params: P
   }
   if (!res.ok) return <ErrorState message={res.error} />;
   if (!res.data) return <EmptyState title="ไม่พบใบงานนี้" />;
+  // 0181: ส่วนย่อยไม่มีหน้าพิมพ์ของตัวเอง (QR ออกให้ใบแม่) → ไปหน้าพิมพ์ใบย่อยของส่วนนี้ที่ใบแม่
+  if (res.data.partOf) redirect(`/jobs/${res.data.partOf}/print?lot=${id}`);
   if (res.data.job.status === "done" || res.data.job.status === "cancelled") {
     return <EmptyState title="ใบงานนี้ปิดแล้ว" description="พิมพ์ใบงานที่ปิด/ยกเลิกแล้วไม่ได้" />;
   }
@@ -40,7 +42,7 @@ export default async function JobPrintPage({ params, searchParams }: { params: P
   // 0181: ?lot=<id ส่วนย่อย> = ใบย่อย (ประกอบทีละ field ผ่าน toPrintableSublot) · ไม่ใช่ส่วนย่อยที่ยังเปิด = ไม่พิมพ์
   if (typeof lotParam === "string") {
     if (!isUuid(lotParam)) return <EmptyState title="ไม่พบส่วนย่อยนี้" />;
-    const sub = toPrintableSublot(res.data.job, res.data.lots?.parts.find((p) => p.jobId === lotParam), effectiveDateBangkok(new Date().toISOString()));
+    const sub = toPrintableSublot(res.data.job, res.data.lots?.parts.find((p) => p.jobId === lotParam), res.data.todayTh);
     if (!sub) return <EmptyState title="พิมพ์ใบย่อยของส่วนนี้ไม่ได้" description="ส่วนนี้ไม่มี หรือปิด/ยกเลิกแล้ว" />;
     return <SublotPrintClient sub={sub} qrTarget={qr} />;
   }

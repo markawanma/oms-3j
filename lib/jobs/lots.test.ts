@@ -274,10 +274,9 @@ describe("0181 security delta: scrapNoteRequired (L-new-1) · weightScrapGapG ·
     expect(scrapNoteRequired(null, 5)).toBe(false);
     expect(scrapNoteRequired(5, null)).toBe(false);
   });
-  it("mapLotPart: weightScrapGapG จาก v_job_tree · receive_locked ที่ view ให้มา = ล็อก (ไม่ให้ = ไม่ล็อก)", () => {
+  it("mapLotPart: weightScrapGapG จาก v_job_tree · ไม่อ่าน receive_locked (ล็อกมาจากนับ event)", () => {
     expect(mapLotPart({ job_id: L1, label: "x", weight_scrap_gap_g: 0.12 })!.weightScrapGapG).toBe(0.12);
     expect(mapLotPart({ job_id: L1, label: "x" })!.weightScrapGapG).toBeNull();
-    expect(mapLotPart({ job_id: L1, label: "x", receive_locked: true })!.receiveLocked).toBe(true);
-    expect(mapLotPart({ job_id: L1, label: "x", receive_locked: false })!.receiveLocked).toBe(false);
+    expect(mapLotPart({ job_id: L1, label: "x", receive_locked: true })!.receiveLocked).toBe(false); // ไม่อ่านคอลัมน์ที่ไม่มีใน view — ล็อกมาจากการนับ event เท่านั้น
   });
 });

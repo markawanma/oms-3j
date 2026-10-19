@@ -5,7 +5,7 @@
 // ไม่มีตัวเลขเงิน/ต้นทุนในผลลัพธ์ · token ดิบไม่ผ่านไฟล์นี้ (ออก QR ใบย่อยผ่าน issueJobQr ใน job-office-write.ts)
 
 import { revalidatePath } from "next/cache";
-import { isUuid, parseCount, parseLabel, parseScrapReason, parseSeq, parseText, parseWeight } from "@/lib/jobs/input";
+import { isUuid, parseCount, parseLabel, parsePieces, parseScrapReason, parseSeq, parseText, parseWeight } from "@/lib/jobs/input";
 import { callOffice, fail, guard } from "@/lib/jobs/office-server";
 import type { JobResult } from "@/lib/jobs/office-server";
 
@@ -17,11 +17,6 @@ const done = (jobId: string) => {
 
 const num = (v: unknown): number | null => (typeof v === "number" && Number.isInteger(v) ? v : null);
 const str = (v: unknown, max = 80): string | null => (typeof v === "string" && v !== "" ? v.slice(0, max) : null);
-const pieces = (raw: unknown, label: string): { ok: true; value: number } | { ok: false; error: string } => {
-  const n = typeof raw === "number" ? raw : typeof raw === "string" && /^\d+$/.test(raw.trim()) ? Number(raw.trim()) : NaN;
-  if (!Number.isSafeInteger(n) || n < 1 || n > 100000) return { ok: false, error: `${label}ต้องเป็นจำนวนเต็ม 1–100,000` };
-  return { ok: true, value: n };
-};
 
 export interface SplitLotInput {
   /** ใบที่ถือขั้นนั้นอยู่ (ใบแม่หรือส่วนย่อย) */
@@ -43,20 +38,20 @@ export interface SplitLotResult {
   parentRemaining: number;
 }
 
-/** ออฟฟิศแยกส่วนแทน (ส่งต่อ n จาก N) — ไม่ชั่งน้ำหนัก (มติ ค1) · ผู้ถือเดิมเหลือ ≥ 1 ชิ้น */
+/** ออฟฟิศแยกส่วนแทน (ส่งต่อ n จาก N) — เงิน/ขั้นไม่ชั่ง = นับจำนวนอย่างเดียว (มติ ค1) · ทองที่ขั้นตั้งชั่ง = ต้องส่ง weightMoveG (น้ำหนักส่วนที่แยกออก · มติ 19 ต.ค.) · ผู้ถือเดิมเหลือ ≥ 1 ชิ้น */
 export async function splitJobLot(i: SplitLotInput): Promise<JobResult<SplitLotResult>> {
   const g = await guard();
   if (g) return g;
   if (typeof i !== "object" || i === null || !isUuid(i.jobId)) return fail("ไม่พบใบงาน");
   const seq = parseSeq(i.expectedSeq);
   if (!seq.ok) return fail(seq.error);
-  const qty = pieces(i.qty, "จำนวนที่แยก");
+  const qty = parsePieces(i.qty, "จำนวนที่แยก");
   if (!qty.ok) return fail(qty.error);
   const scrap = parseCount(i.qtyScrap ?? 0, "จำนวนของเสีย", 100000);
   if (!scrap.ok) return fail(scrap.error);
   const reason = parseScrapReason(i.scrapReason ?? null, scrap.value);
   if (!reason.ok) return fail(reason.error);
-  const h = pieces(i.qtyHold, "จำนวนที่ถืออยู่");
+  const h = parsePieces(i.qtyHold, "จำนวนที่ถืออยู่");
   if (!h.ok) return fail("โหลดหน้าใหม่แล้วลองอีกครั้ง (ไม่ทราบจำนวนที่ถืออยู่)");
   let weightMove: number | null = null;
   if (i.weightMoveG != null && i.weightMoveG !== "") {

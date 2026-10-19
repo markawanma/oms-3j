@@ -12,7 +12,7 @@ import { BigButton, PinPad, QtyStepper, ScrapStepper, WeightField } from "@/comp
 import { parseQtyText, parseWeight } from "@/lib/jobs/input";
 import { GENERIC_JOB_ERROR, prevNotSentMessage } from "@/lib/jobs/messages";
 import { stageFieldPlan } from "@/lib/jobs/stage-fields";
-import { prevStageName } from "@/lib/jobs/worker-view";
+import { isMultiView, prevStageName } from "@/lib/jobs/worker-view";
 import type { WorkerAction, WorkerView } from "@/lib/jobs/worker-view";
 
 export type DoneTone = "ok" | "warn";
@@ -38,7 +38,7 @@ export function StickyAction({ children }: { children: ReactNode }) {
   return <div className="sticky bottom-0 z-10 -mx-4 border-t border-zinc-200 bg-white/95 px-4 pt-2 pb-3 backdrop-blur">{children}</div>;
 }
 
-export const ERR_BOX ="rounded-xl border-2 border-red-200 bg-red-50 p-3 text-lg font-semibold text-red-800";
+const ERR_BOX ="rounded-xl border-2 border-red-200 bg-red-50 p-3 text-lg font-semibold text-red-800";
 
 /** ข้อผิดพลาดใต้ฟอร์ม · ถ้าเป็น code "ข้อมูลเก่า" แสดงปุ่ม "โหลดใหม่" ต่อท้าย (ช่างไม่มีปุ่มรีเฟรชของเบราว์เซอร์ให้ใช้) */
 export function ActionError({ message, code, onReload, busy = false }: { message: string; code: string | null; onReload: () => void; busy?: boolean }) {
@@ -194,7 +194,6 @@ export function ReceivePanel({
   action?: WorkerAction;
 }) {
   const st = stageOf(view, action);
-  const multi = view.nextAction === "multi";
   const me = view.viewer?.displayName ?? "";
   const expected = action?.qtyExpected ?? null;
   // 0181 (มติ Q5): รับได้ไม่ครบ → ใส่จำนวนที่ได้จริง (ค่าเริ่ม = ที่ส่งมา) · ใบเดี่ยวซ่อนไว้หลังลิงก์ "ได้ไม่ครบ?" · หลายส่วนก็ใช้ลิงก์เดียวกัน (ปุ่มหลักบอกจำนวนที่ส่งมา)
@@ -216,7 +215,7 @@ export function ReceivePanel({
   const noteLine = plan.receiveNote;
 
   // ขั้นก่อนยังถืออยู่โดยคนอื่น (ขั้นไม่บังคับชั่ง: การรับงานจะปิดขั้นของเขาให้) → ถามก่อนเสมอ · หลายส่วน: DB กรอง prev_not_sent ให้แล้ว (held_by เป็นของใบแม่ ไม่ใช่ของส่วนนี้)
-  const holderOther = !multi && view.heldBy !== null && view.heldBy !== me ? view.heldBy : null;
+  const holderOther = !isMultiView(view) && view.heldBy !== null && view.heldBy !== me ? view.heldBy : null;
 
   async function go(a: Ack = ack) {
     if (busy || inflight.current) return;
@@ -252,7 +251,8 @@ export function ReceivePanel({
       return;
     }
     const prev = view.prevWeightOutG;
-    if (parsed.value !== null && prev !== null && prev > 0 && !a.weight && Math.abs(parsed.value - prev) / prev > WEIGHT_DEVIATION_WARN) {
+    // รับไม่ครบ (received != null): จำนวนชิ้นต่างกัน น้ำหนักเทียบกับที่ขั้นก่อนส่งทั้งก้อนไม่ได้ — ข้ามเตือนน้ำหนัก (ทองไม่มี prev อยู่แล้ว · เงินใบเดี่ยวมี)
+    if (received === null && parsed.value !== null && prev !== null && prev > 0 && !a.weight && Math.abs(parsed.value - prev) / prev > WEIGHT_DEVIATION_WARN) {
       const pct = Math.round((Math.abs(parsed.value - prev) / prev) * 100);
       setConfirm({ kind: "weight", text: `น้ำหนักที่ใส่ ${parsed.value} กรัม ต่างจากที่ขั้นก่อนส่งมา (${prev} กรัม) ประมาณ ${pct}% — ใส่ถูกไหม` });
       return;
@@ -266,7 +266,7 @@ export function ReceivePanel({
     inflight.current = true;
     setBusy(true);
     // หลายส่วน: ระบุส่วนเสมอ · ใบเดี่ยว: ส่ง opts เฉพาะเมื่อรับไม่ครบ (ไม่งั้นเรียกแบบเดิมเป๊ะ)
-    const opts = action && multi ? { lotJobId: action.lotJobId, ...(received !== null ? { qtyReceived: received } : {}) } : received !== null ? { qtyReceived: received } : undefined;
+    const opts = action && isMultiView(view) ? { lotJobId: action.lotJobId, ...(received !== null ? { qtyReceived: received } : {}) } : received !== null ? { qtyReceived: received } : undefined;
     const r = await safely(() => (opts ? workerReceiveStage(token, st.seq, parsed.value === null ? null : w, opts) : workerReceiveStage(token, st.seq, parsed.value === null ? null : w)));
     setBusy(false);
     inflight.current = false;
@@ -292,7 +292,7 @@ export function ReceivePanel({
 
   // ปุ่มหลัก: ใบเดี่ยว = "รับงาน" (เดิม) · หลายส่วน = "รับ n ชิ้น" (n = ที่ส่งมา หรือที่กรอก)
   const shownQty = shortOpen && canShort ? (parseQtyText(qtyText).ok ? Number(qtyText.trim()) : null) : expected;
-  const mainLabel = multi && shownQty !== null ? `รับ ${shownQty} ชิ้น` : "รับงาน";
+  const mainLabel = isMultiView(view) && shownQty !== null ? `รับ ${shownQty} ชิ้น` : "รับงาน";
 
   return (
     <section aria-labelledby="recv-h" className="space-y-3">
@@ -472,8 +472,8 @@ export function SendPanel({
         metalAdded: showAdd && addOpen && added.trim() !== "" ? added : null,
         ...(askScrapWeight && sw.value !== null ? { scrapWeight: scrapW } : {}),
         // 0181: ส่วนที่ถือ + จำนวนที่ถืออยู่ที่เห็นบนจอ (กันกดซ้ำ/2 มือถือ → stage_changed) · ส่งเฉพาะเมื่อมี action — ใบเดี่ยวที่ไม่เปิดช่องจำนวน = เรียกแบบเดิมเป๊ะ
-        ...(action && multiMode(view) ? { lotJobId: action.lotJobId } : {}),
-        ...(action && (qtyOpen || multiMode(view)) && hold !== null ? { qtyHold: hold } : {}),
+        ...(action && isMultiView(view) ? { lotJobId: action.lotJobId } : {}),
+        ...(action && (qtyOpen || isMultiView(view)) && hold !== null ? { qtyHold: hold } : {}),
         // ส่งไม่ครบ = qtySend (p_qty_send) · ส่งครบ = ไม่ส่ง qtySend (DB ใช้ทางเดิม job_core_send)
         ...(partial && n !== null ? { qtySend: n } : {}),
         // น้ำหนักส่วนที่แยกออก: เฉพาะทอง + ขั้นชั่ง + แยกส่วน (ส่งทั้งหมด/เงิน = ไม่ส่ง → DB จะตอบ weight_unexpected ถ้าส่งผิดที่)
@@ -484,14 +484,14 @@ export function SendPanel({
     inflight.current = false;
     if (r.ok) {
       if (r.lot && onSplit) onSplit({ lot: r.lot, fromLotJobId: action?.lotJobId ?? null });
-      else onDone(r.already ? (r.message ?? "ส่งขั้นนี้ไปแล้ว") : next && !multiMode(view) ? `ส่งต่อแล้ว — ถัดไป ${next.name}` : "ส่งต่อแล้ว", "ok");
+      else onDone(r.already ? (r.message ?? "ส่งขั้นนี้ไปแล้ว") : next && !isMultiView(view) ? `ส่งต่อแล้ว — ถัดไป ${next.name}` : "ส่งต่อแล้ว", "ok");
     } else {
       setErr(r.error);
       setErrCode(r.code ?? null);
     }
   }
 
-  const mainLabel = partial && n !== null ? `ส่งต่อ ${n} จาก ${hold} ชิ้น` : next && !multiMode(view) ? `ส่งต่อ → ${next.name}` : "ส่งต่อ";
+  const mainLabel = partial && n !== null ? `ส่งต่อ ${n} จาก ${hold} ชิ้น` : next && !isMultiView(view) ? `ส่งต่อ → ${next.name}` : "ส่งต่อ";
   // 3 ช่องสรุป: เสีย / ส่งไป / ค้างกับคุณ (แสดงผล — DB ตรวจจริง) · ส่งทั้งหมด = ถือ − เสีย
   const showSummary = qtyOpen && canSplit && n !== null;
   const sendNow = showSummary ? (n < (hold as number) ? n : (hold as number) - scrap) : 0;
@@ -556,6 +556,3 @@ export function SendPanel({
     </section>
   );
 }
-
-/** หน้าที่ DB ตอบ next_action='multi' (หลายส่วน/มีส่วนต่าง) — ปุ่มส่ง/รับของส่วนต้องระบุส่วนเสมอ */
-const multiMode = (v: WorkerView): boolean => v.nextAction === "multi";

@@ -44,6 +44,7 @@ export async function loadJobLots(rootJobId: string, stageNames: Record<string, 
     const stageById: Record<string, { name: string }> = {};
     const byJob = new Map<string, LotPart>(parts.map((p) => [p.jobId, p]));
     const pendingId = new Map<string, string>(); // job_id → id ของขั้นรอรับต่ำสุด
+    const stagesOf = new Map<string, { id: string; seq: number; status: string; qtyIn: number | null; qtyOut: number | null }[]>();
     for (const s of rows(stRes.data)) {
       const id = typeof s.id === "string" ? s.id : null;
       const jobId = typeof s.job_id === "string" ? s.job_id : null;
@@ -52,6 +53,9 @@ export async function loadJobLots(rootJobId: string, stageNames: Record<string, 
       if (!id || !jobId || !code || seq === null) continue;
       const name = stageNames[code] ?? code;
       stageById[id] = { name };
+      const list = stagesOf.get(jobId) ?? [];
+      list.push({ id, seq, status: typeof s.status === "string" ? s.status : "", qtyIn: typeof s.qty_in === "number" ? s.qty_in : null, qtyOut: typeof s.qty_out === "number" ? s.qty_out : null });
+      stagesOf.set(jobId, list);
       const part = byJob.get(jobId);
       if (!part) continue;
       if (s.status === "received") {
@@ -70,6 +74,7 @@ export async function loadJobLots(rootJobId: string, stageNames: Record<string, 
       if (s.status === "pending" && (part.pendingSeq === null || seq < part.pendingSeq)) {
         part.pendingSeq = seq;
         part.pendingStageName = name;
+        part.pendingStageCode = code;
         part.pendingWeighRequired = s.weigh_required === true;
         pendingId.set(jobId, id);
       }
@@ -88,11 +93,28 @@ export async function loadJobLots(rootJobId: string, stageNames: Record<string, 
         }
         for (const [jid, sid] of pendingId) {
           const part = byJob.get(jid);
-          if (part && !part.receiveLocked && (strikes.get(sid) ?? 0) >= RECEIVE_LOCK_STRIKES) part.receiveLocked = true;
+          if (part && (strikes.get(sid) ?? 0) >= RECEIVE_LOCK_STRIKES) part.receiveLocked = true;
         }
       } catch (err) {
         logJobFailure("loadJobLots.lock", err);
       }
+    }
+    // จำนวนที่คาดว่าจะได้รับ (ช่อง "ได้รับจริงกี่ชิ้น" ของออฟฟิศ): ขั้นก่อนที่ไม่ข้าม — ส่งแล้ว = qty_out · ถืออยู่ = qty_in · ไม่มีขั้นก่อน = จำนวนของส่วน · หักส่วนต่างที่ยังนับอยู่ (ไม่ถูก void)
+    const voided = new Set(discRows.map((d) => (typeof d.void_of_id === "string" ? d.void_of_id : null)).filter((x): x is string => x !== null));
+    for (const [jid, pid] of pendingId) {
+      const part = byJob.get(jid);
+      if (!part || part.pendingSeq === null) continue;
+      const prev = (stagesOf.get(jid) ?? []).filter((x) => x.seq < (part.pendingSeq as number) && x.status !== "skipped").sort((a, b) => b.seq - a.seq)[0];
+      if (!prev) {
+        part.pendingQtyExpected = part.qtyPlanned;
+        continue;
+      }
+      const base = prev.status === "received" ? prev.qtyIn : prev.qtyOut;
+      if (base === null) continue;
+      const gap = discRows
+        .filter((d) => d.from_stage_id === prev.id && d.to_stage_id === pid && (d.status === "open" || d.status === "resolved") && typeof d.id === "string" && !voided.has(d.id))
+        .reduce((n, d) => n + (typeof d.qty === "number" ? d.qty : 0), 0);
+      part.pendingQtyExpected = base - gap;
     }
     const labelByJob = Object.fromEntries(parts.map((p) => [p.jobId, p.label]));
     const discrepancies = discRows.map((r) => mapDiscrepancy(r, { stageById, labelByJob })).filter((d): d is NonNullable<typeof d> => d !== null);

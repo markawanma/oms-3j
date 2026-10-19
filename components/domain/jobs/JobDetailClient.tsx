@@ -54,6 +54,8 @@ export function JobDetailClient({ data }: { data: JobDetailData }) {
   const [dlg, setDlg] = useState<Dlg>(null);
   const [lotDlg, setLotDlg] = useState<LotDialogSpec>(null);
   const lots = data.lots ?? null;
+  // ส่วนหลัก (ใบเอง) — ให้ dialog รับแทนรู้จำนวนที่ส่งมา/ขั้นถูกล็อก (ใบเดี่ยวที่ถูกล็อก L-2 ก็ต้องมีช่องจำนวน)
+  const rootPart = lots?.parts.find((p) => p.lotSeq === 0) ?? null;
   const showLots = hasLots(lots);
   // ใบเดี่ยวที่ยังไม่เคยแยก: ปุ่ม "แยกส่วน" อยู่แถวปุ่มด้านบน (เมื่อมีผู้ถือถือ ≥ 2 ชิ้น) · ใบที่แยกแล้วอยู่ในแผงส่วน
   const canStartSplit = !showLots && lots !== null && splittableParts(lots).length > 0;
@@ -164,6 +166,11 @@ export function JobDetailClient({ data }: { data: JobDetailData }) {
         <PlanCard job={job} board={board} stages={stages} onEditQty={() => setDlg({ t: "qty" })} onEditPlan={() => setDlg({ t: "plan" })} onDecideSurplus={() => setDlg({ t: "surplus" })} />
       </div>
 
+      {lots === null && (board?.partsCount ?? 0) > 1 && (
+        <p role="alert" className="rounded-md border border-amber-300 bg-amber-50 p-2.5 text-sm font-medium text-amber-900">
+          โหลดส่วนย่อยของใบนี้ไม่ได้ — ตัวเลข/ปุ่มปิดงานบนหน้านี้อาจไม่ครบ ลองรีเฟรช ถ้ายังไม่ได้แจ้งผู้ดูแลระบบ
+        </p>
+      )}
       {showLots && lots && (
         <Suspense fallback={<p role="status" aria-busy="true" className="rounded-lg border border-zinc-200 bg-white p-4 text-sm text-zinc-700">กำลังโหลดส่วนของใบนี้…</p>}>
           <LotsPanel jobId={job.id} lots={lots} closed={closed} openDialog={setLotDlg} gold={job.metal === "gold"} stageNames={stageNameByCode} />
@@ -191,13 +198,13 @@ export function JobDetailClient({ data }: { data: JobDetailData }) {
 
       {lotDlg && lots && (
         <Suspense fallback={null}>
-          <LotDialogs jobId={job.id} lots={lots} spec={lotDlg} onClose={() => setLotDlg(null)} gold={job.metal === "gold"} workers={workers} todayTh={todayTh} />
+          <LotDialogs jobId={job.id} lots={lots} spec={lotDlg} onClose={() => setLotDlg(null)} gold={job.metal === "gold"} workers={workers} todayTh={todayTh} job={{ sourceKind: job.sourceKind, metal: job.metal, requireFinalWeight: job.requireFinalWeight }} />
         </Suspense>
       )}
       {dlg?.t === "reason" && <ReasonDialog jobId={job.id} spec={dlg.spec} onClose={() => setDlg(null)} />}
       {dlg?.t === "label" && <DesignLabelDialog jobId={job.id} current={job.designLabel} onClose={() => setDlg(null)} />}
       {dlg?.t === "due" && <DueDialog jobId={job.id} current={job.dueDate} todayTh={todayTh} onClose={() => setDlg(null)} />}
-      {dlg?.t === "done" && <DoneDialog jobId={job.id} planned={job.qtyPlanned} qtyOrder={job.qtyOrder} sourceKind={job.sourceKind} metal={job.metal} requireFinalWeight={job.requireFinalWeight} weighRequired={job.weighRequired} recordedScrap={stages.reduce((n, s) => n + s.qtyScrap, 0)} onClose={() => setDlg(null)} />}
+      {dlg?.t === "done" && <DoneDialog jobId={job.id} planned={job.qtyPlanned} qtyOrder={job.qtyOrder} sourceKind={job.sourceKind} metal={job.metal} requireFinalWeight={job.requireFinalWeight} weighRequired={job.weighRequired} recordedScrap={stages.reduce((n, s) => n + s.qtyScrap, 0) + (rootPart?.qtyDiscrepancyResolved ?? 0)} qtySplitOut={rootPart?.qtySplitOut ?? 0} onClose={() => setDlg(null)} />}
       {dlg?.t === "profile" && <ChangeProfileDialog jobId={job.id} metal={job.metal} stages={stages} currentProfileId={job.profileId} onClose={() => setDlg(null)} />}
       {dlg?.t === "qty" && <QtyPlannedDialog jobId={job.id} qtyOrder={job.qtyOrder} current={job.qtyPlanned} hasOverride={typeof job.metalPlanBasis?.override_g === "number"} hasTarget={job.targetPieceG !== null} onClose={() => setDlg(null)} />}
       {dlg?.t === "plan" && (
@@ -207,7 +214,7 @@ export function JobDetailClient({ data }: { data: JobDetailData }) {
         />
       )}
       {dlg?.t === "surplus" && <SurplusDialog jobId={job.id} qtySurplus={surplusLeft ?? 0} onClose={() => setDlg(null)} />}
-      {dlg?.t === "receive" && <ReceiveStageDialog jobId={job.id} stage={dlg.stage} workers={workers} todayTh={todayTh} prevWeightOut={prevOut} onClose={() => setDlg(null)} />}
+      {dlg?.t === "receive" && <ReceiveStageDialog jobId={job.id} stage={dlg.stage} workers={workers} todayTh={todayTh} prevWeightOut={prevOut} qtyExpected={rootPart?.pendingSeq === dlg.stage.seq ? rootPart.pendingQtyExpected : null} locked={rootPart?.pendingSeq === dlg.stage.seq && rootPart.receiveLocked} onClose={() => setDlg(null)} />}
       {dlg?.t === "send" && <SendStageDialog jobId={job.id} stage={dlg.stage} todayTh={todayTh} onClose={() => setDlg(null)} />}
     </div>
   );

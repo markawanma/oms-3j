@@ -25,7 +25,7 @@ export const DISCREPANCY_COLUMNS =
 // M-A: v_job_stage_loss ทั้งต้นไม้ (ใบแม่ + ส่วนย่อย) — เฉพาะหน้าออฟฟิศ (มีน้ำหนัก/gap)
 export const TREE_LOSS_COLUMNS =
   "root_job_id, lot_seq, job_id, job_stage_id, stage_code, status, weighed, not_weighed, loss_g, loss_pct, warn, handoff_gap_g, handoff_gap_partial_g, not_comparable, cancel_scrap_weight_g";
-export const LOT_STAGE_COLUMNS = "id, job_id, seq, stage_code, status, weigh_required, weight_in_g, weight_out_g, metal_added_g, qty_in, qty_scrap, qty_split_out";
+export const LOT_STAGE_COLUMNS = "id, job_id, seq, stage_code, status, weigh_required, weight_in_g, weight_out_g, metal_added_g, qty_in, qty_out, qty_scrap, qty_split_out";
 
 // ---------------------------------------------------------------------------
 // ส่วน (1 แถวต่อใบในต้นไม้ — ใบแม่ = lotSeq 0)
@@ -67,6 +67,9 @@ export interface LotPart {
   /** ขั้นที่รอรับ (pending ต่ำสุด) — ใช้ปุ่ม "กรอกแทน: รับงาน" ของออฟฟิศ · null = ไม่มี */
   pendingSeq: number | null;
   pendingStageName: string | null;
+  pendingStageCode: string | null;
+  /** จำนวนที่คาดว่าจะได้รับที่ขั้นรอรับ (ชิ้น · ตามสูตรเดียวกับ qty_expected ของ DB: ขั้นก่อนส่งแล้ว = qty_out · ยังถืออยู่ = qty_in · หักส่วนต่างที่บันทึกแล้ว) — ใช้ช่อง "ได้รับจริงกี่ชิ้น" ของออฟฟิศ · pre-check แสดงผล DB ตัดสินจริง */
+  pendingQtyExpected: number | null;
   pendingWeighRequired: boolean;
   /** L-2: ทอง รับไม่ครบ ชั่งไม่ตรงครบ 3 ครั้ง → ขั้นรอรับถูกล็อก ให้ออฟฟิศรับแทน (นับจาก event ที่ DB บันทึก) */
   receiveLocked: boolean;
@@ -105,9 +108,10 @@ export function mapLotPart(r: Record<string, unknown>): LotPart | null {
     latestWeightG: null,
     pendingSeq: null,
     pendingStageName: null,
+    pendingStageCode: null,
+    pendingQtyExpected: null,
     pendingWeighRequired: false,
-    // ถ้า view บอกล็อกตรงๆ (คอลัมน์ receive_locked) ใช้ค่านั้น · ปัจจุบัน 0181 ยังไม่มีคอลัมน์นี้ → loader นับ event แทน
-    receiveLocked: r.receive_locked === true,
+    receiveLocked: false, // loader นับ event (ล็อก L-2) — ไม่มีคอลัมน์บอกล็อกใน view
     passedStages: [],
   };
 }

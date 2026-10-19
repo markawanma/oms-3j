@@ -140,22 +140,25 @@ export function DueDialog({ jobId, current, todayTh, onClose }: { jobId: string;
   );
 }
 
-export function DoneDialog({ jobId, planned, qtyOrder, sourceKind, metal, requireFinalWeight, weighRequired, recordedScrap = 0, onClose }: { jobId: string; planned: number; qtyOrder: number; sourceKind: string; metal: string; requireFinalWeight?: boolean; weighRequired?: boolean; recordedScrap?: number; onClose: () => void }) {
+export function DoneDialog({ jobId, planned, qtyOrder, sourceKind, metal, requireFinalWeight, weighRequired, recordedScrap = 0, qtySplitOut = 0, title = "ปิดงาน", onClose }: { jobId: string; planned: number; qtyOrder: number; sourceKind: string; metal: string; requireFinalWeight?: boolean; weighRequired?: boolean; recordedScrap?: number; /** 0181: ชิ้นที่แยกเป็นส่วนย่อยแล้ว (อ่านอย่างเดียว) — DB บังคับ ดี + เสีย + แยกออก = จำนวนเริ่มผลิต · 0 = ใบเดี่ยวเหมือนเดิมเป๊ะ */ qtySplitOut?: number; /** ปิดส่วนย่อยใช้ชื่อ "ปิด ส่วนที่ k" */ title?: string; onClose: () => void }) {
   const { run, busy, error } = useOfficeRun();
   // ค่าเริ่ม: เสีย = ของเสียที่ช่างแจ้งไว้ในขั้นต่างๆ (ผลรวมจำนวนชิ้น qty_scrap — บวกชิ้น ไม่ใช่เงิน/น้ำหนัก) · ดี = เริ่มผลิต − เสีย
   // ไม่ดึง = เสนอ "ดี = เริ่มผลิตทั้งหมด" ทั้งที่ช่างแจ้งเสียไปแล้ว → ใบผลิตเข้าสต็อกเกิน + ของเหลือผิด (QA 0176) · ผู้ใช้แก้ได้ · DB ตรวจ ดี+เสีย = เริ่มผลิต ซ้ำ
-  const prefillScrap = Number.isInteger(recordedScrap) && recordedScrap > 0 ? Math.min(recordedScrap, planned) : 0;
-  const [good, setGood] = useState(String(planned - prefillScrap));
+  // 0181: ฐานของ ดี+เสีย = เริ่มผลิต − ที่แยกเป็นส่วนย่อย (ใบเดี่ยว split = 0 ⇒ เท่าเดิม)
+  const base = planned - qtySplitOut;
+  const prefillScrap = Number.isInteger(recordedScrap) && recordedScrap > 0 ? Math.min(recordedScrap, base) : 0;
+  const [good, setGood] = useState(String(base - prefillScrap));
   const [scrap, setScrap] = useState(String(prefillScrap));
   const [weight, setWeight] = useState("");
   const [note, setNote] = useState("");
   const [disp, setDisp] = useState<SurplusValue>("hold");
   const [sNote, setSNote] = useState("");
   const goodN = /^\d+$/.test(good) ? Number(good) : null;
-  const sumOk = goodN !== null && /^\d+$/.test(scrap) && goodN + Number(scrap) === planned;
+  const sumOk = goodN !== null && /^\d+$/.test(scrap) && goodN + Number(scrap) === base;
   // ผลต่างจำนวนชิ้น (ไม่ใช่เงิน/น้ำหนัก) เพื่อบอกผู้ใช้ — DB ตัดสินซ้ำเอง (qty_surplus · surplus_unexpected)
   const surplus = sumOk && goodN !== null && goodN > qtyOrder ? goodN - qtyOrder : 0;
-  const short = sumOk && goodN !== null && goodN < qtyOrder ? qtyOrder - goodN : 0;
+  // ใบที่แยกส่วน: ดีของใบแม่น้อยกว่าที่สั่งเป็นเรื่องปกติ (ส่วนที่แยกไปปิดแยก) — ไม่ขึ้น "ขาด"
+  const short = sumOk && qtySplitOut === 0 && goodN !== null && goodN < qtyOrder ? qtyOrder - goodN : 0;
   const isOem = sourceKind === "oem";
   // น้ำหนักสุทธิ: แบบการบันทึกบังคับ หรือ ใบทองที่มีขั้นต้องชั่ง (กติกาเดียวกับ DB — ด่านจริงอยู่ที่ job_done) · ไม่ได้ส่ง flag มา (ใบเดิม/ผู้เรียกเก่า) = กติกา J1: ทองบังคับ
   const finalRequired = requireFinalWeight === undefined && weighRequired === undefined ? metal === "gold" : finalWeightRequired({ requireFinalWeight: requireFinalWeight === true, metal, hasWeigh: weighRequired === true });
@@ -171,7 +174,7 @@ export function DoneDialog({ jobId, planned, qtyOrder, sourceKind, metal, requir
     if (r.ok) onClose();
   }
   return (
-    <Modal open onClose={onClose} title="ปิดงาน">
+    <Modal open onClose={onClose} title={title}>
       <form noValidate className="space-y-3" onSubmit={(e) => { e.preventDefault(); if (ready) void submit(); }}>
         <p className="text-sm text-zinc-700">ปิดได้เมื่อทุกขั้น ส่งต่อหรือข้ามแล้ว · ปิดแล้ว QR ใช้ไม่ได้และแก้ไม่ได้</p>
         <p className="text-base font-semibold text-zinc-900">{qtyOrderPlannedText({ qtyOrder, qtyPlanned: planned }, { alwaysOrder: true })}</p>
@@ -183,8 +186,17 @@ export function DoneDialog({ jobId, planned, qtyOrder, sourceKind, metal, requir
             <input id="scrap" inputMode="numeric" value={scrap} onChange={(e) => setScrap(e.target.value)} className={FIELD} />
           </Field>
         </div>
+        {qtySplitOut > 0 && (
+          <p role="status" className="rounded-md bg-zinc-50 p-2 text-sm text-zinc-900">
+            แยกเป็นส่วนย่อย <strong className="tabular-nums">{qtySplitOut}</strong> ชิ้น (ปิดแยกตามส่วน) — ไม่นับในดี/เสียของใบนี้
+          </p>
+        )}
         {prefillScrap > 0 && <p className="text-xs text-zinc-700">ของเสียที่บันทึกในขั้น: {prefillScrap} ชิ้น</p>}
-        {!sumOk && <p className="text-xs font-medium text-amber-900">ดี + เสีย ต้องเท่ากับจำนวนเริ่มผลิต ({planned} ชิ้น)</p>}
+        {!sumOk && (
+          <p className="text-xs font-medium text-amber-900">
+            {qtySplitOut > 0 ? `ดี + เสีย + แยกเป็นส่วนย่อย ต้องเท่ากับจำนวนเริ่มผลิต (${planned} ชิ้น)` : `ดี + เสีย ต้องเท่ากับจำนวนเริ่มผลิต (${planned} ชิ้น)`}
+          </p>
+        )}
         {short > 0 && (
           <p role="status" className="rounded-md border border-sky-300 bg-sky-50 p-2.5 text-sm font-medium text-sky-900">
             ดี {goodN} น้อยกว่าที่สั่ง {qtyOrder} — ขาด {short} ชิ้น

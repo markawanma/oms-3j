@@ -9,17 +9,18 @@ import Link from "next/link";
 import { Printer, Scissors } from "lucide-react";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
-import { DialogButtons, ErrorLine, FIELD, Field } from "@/components/domain/jobs/JobDialogs";
+import { DialogButtons, DoneDialog, ErrorLine, FIELD, Field } from "@/components/domain/jobs/JobDialogs";
 import { PartCard, PartsStackBar, partTitle } from "@/components/domain/jobs/JobLotsParts";
 import { useOfficeRun } from "@/components/domain/jobs/useOfficeRun";
 import { cancelJobLot, listJobQr, resolveDiscrepancyOffice, splitJobLot, voidDiscrepancy } from "@/lib/actions/job-lots";
 import type { JobQrRow } from "@/lib/actions/job-lots";
-import { officeReceiveStage, revokeJobQr } from "@/lib/actions/job-office-write";
+import { revokeJobQr } from "@/lib/actions/job-office-write";
+import { ReceiveStageDialog } from "@/components/domain/jobs/StageDialogs";
 import { GENERIC_JOB_ERROR } from "@/lib/jobs/messages";
 import { parseQtyText, parseWeight } from "@/lib/jobs/input";
 import { DISCREPANCY_KIND_LABEL, lotSegments, noteRequired, openDiscrepancies, scrapNoteRequired, splittableParts } from "@/lib/jobs/lots";
 import type { JobLotsData, LotDiscrepancy, LotPart, TreeStageLoss } from "@/lib/jobs/lots";
-import { addDays, thaiDateTime } from "@/lib/jobs/dates";
+import { thaiDateTime } from "@/lib/jobs/dates";
 import { SCRAP_REASONS, SCRAP_REASON_LABEL } from "@/lib/jobs/types";
 
 /** เพดาน QR ที่ใช้งานพร้อมกันต่อใบ (มติ Q8: คง 5) — DB ตัดสินจริง (token_cap) · ที่นี่ไว้ปิดปุ่ม/อธิบายก่อนกด */
@@ -34,6 +35,7 @@ export type LotDialogSpec =
   | { t: "resolve"; discId: string }
   | { t: "void"; discId: string }
   | { t: "receive"; partId: string }
+  | { t: "donePart"; partId: string }
   | { t: "revoke"; printNo: number; label: string }
   | null;
 
@@ -165,6 +167,11 @@ export function LotsPanel({ jobId, lots, closed, openDialog, gold = false, stage
               )}
               {!closed && open && p.lotSeq > 0 && (
                 <>
+                  {p.pendingSeq === null && p.holdSeq === null && (
+                    <Button type="button" aria-label={`ปิด ${partTitle(p)}`} onClick={() => openDialog({ t: "donePart", partId: p.jobId })}>
+                      ปิดส่วนนี้
+                    </Button>
+                  )}
                   {qr.capReached ? (
                     <span className="inline-flex min-h-11 items-center rounded-md border border-zinc-200 bg-zinc-50 px-3 text-sm text-zinc-700">พิมพ์ใบย่อยไม่ได้ — QR ครบ {QR_CAP} ใบ (เพิกถอนก่อน)</span>
                   ) : (
@@ -248,16 +255,49 @@ export function LotsPanel({ jobId, lots, closed, openDialog, gold = false, stage
 // ---------------------------------------------------------------------------
 // dialogs
 // ---------------------------------------------------------------------------
-export function LotDialogs({ jobId, lots, spec, onClose, gold = false, workers = [], todayTh = "" }: { jobId: string; lots: JobLotsData; spec: LotDialogSpec; onClose: () => void; gold?: boolean; workers?: { id: string; displayName: string }[]; todayTh?: string }) {
+export function LotDialogs({ jobId, lots, spec, onClose, gold = false, workers = [], todayTh = "", job }: { jobId: string; lots: JobLotsData; spec: LotDialogSpec; onClose: () => void; gold?: boolean; workers?: { id: string; displayName: string; stageCodes: string[] }[]; todayTh?: string; /** ใบแม่ — ใช้ปิดส่วนย่อย (ที่มา/โลหะ/บังคับน้ำหนักสุทธิ) */ job?: { sourceKind: string; metal: string; requireFinalWeight?: boolean } }) {
   if (!spec) return null;
   if (spec.t === "split") return <SplitLotDialog parts={splittableParts(lots)} initial={spec.partId} gold={gold} onClose={onClose} />;
   if (spec.t === "cancelLot") {
     const p = lots.parts.find((x) => x.jobId === spec.partId);
     return p ? <CancelLotDialog part={p} gold={gold} onClose={onClose} /> : null;
   }
+  if (spec.t === "donePart") {
+    const p = lots.parts.find((x) => x.jobId === spec.partId);
+    if (!p || !job) return null;
+    // ส่วนย่อยไม่ปิดเอง (ไม่มี auto-close ของส่วน) — ออฟฟิศปิดด้วย dialog เดียวกับใบแม่ · ดี+เสีย = จำนวนของส่วน (+แยกซ้อน) ตรงกับ job_done · น้ำหนักสุทธิ: DB ตัดสินว่าบังคับไหม (ช่องมีให้เสมอ)
+    return (
+      <DoneDialog
+        jobId={p.jobId}
+        planned={p.qtyPlanned}
+        qtyOrder={p.qtyPlanned}
+        sourceKind={job.sourceKind}
+        metal={job.metal}
+        requireFinalWeight={job.requireFinalWeight}
+        weighRequired={false}
+        recordedScrap={p.qtyStageScrap + p.qtyDiscrepancyResolved}
+        qtySplitOut={p.qtySplitOut}
+        title={`ปิด ${partTitle(p)}`}
+        onClose={onClose}
+      />
+    );
+  }
   if (spec.t === "receive") {
     const p = lots.parts.find((x) => x.jobId === spec.partId);
-    return p && p.pendingSeq !== null ? <PartReceiveDialog part={p} workers={workers} todayTh={todayTh} onClose={onClose} /> : null;
+    if (!p || p.pendingSeq === null) return null;
+    return (
+      <ReceiveStageDialog
+        jobId={p.jobId}
+        stage={{ seq: p.pendingSeq, code: p.pendingStageCode ?? "", name: p.pendingStageName ?? "", weighRequired: p.pendingWeighRequired }}
+        workers={workers}
+        todayTh={todayTh}
+        prevWeightOut={null}
+        qtyExpected={p.pendingQtyExpected}
+        locked={p.receiveLocked}
+        title={`รับงานแทน: ${partTitle(p)} · ${p.pendingStageName ?? ""}`}
+        onClose={onClose}
+      />
+    );
   }
   if (spec.t === "resolve" || spec.t === "void") {
     const d = lots.discrepancies.find((x) => x.id === spec.discId);
@@ -267,7 +307,7 @@ export function LotDialogs({ jobId, lots, spec, onClose, gold = false, workers =
   return <RevokeQrDialog jobId={jobId} printNo={spec.printNo} label={spec.label} onClose={onClose} />;
 }
 
-/** แยกส่วน (ออฟฟิศ): เลือกส่วนที่ผู้ถือถืออยู่ + จำนวนที่แยก (ผู้ถือเดิมเหลือ ≥ 1) · ไม่ชั่ง (ค1) */
+/** แยกส่วน (ออฟฟิศ): เลือกส่วนที่ผู้ถือถืออยู่ + จำนวนที่แยก (ผู้ถือเดิมเหลือ ≥ 1) · เงิน/ขั้นไม่ชั่ง = นับจำนวนอย่างเดียว (ค1) · ทองที่ขั้นชั่ง = ต้องชั่งส่วนที่แยกออก (มติ 19 ต.ค.) */
 export function SplitLotDialog({ parts, initial, onClose, gold = false }: { parts: LotPart[]; initial?: string; onClose: () => void; /** งานทอง: ขั้นที่ตั้งชั่ง = ต้องชั่งส่วนที่แยก (มติ 19 ต.ค.) — เงิน/ขั้นไม่ชั่ง = ไม่มีช่อง */ gold?: boolean }) {
   const { run, busy, error, setError } = useOfficeRun();
   const [pickId, setPickId] = useState(initial ?? parts[0]?.jobId ?? "");
@@ -572,58 +612,5 @@ export function TreeLossList({ tree, parts, stageNames }: { tree: readonly TreeS
         ))}
       </ul>
     </section>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// ออฟฟิศรับแทนของส่วนย่อย (ขั้นรอรับ) — ปลดล็อก L-2 (ทอง รับไม่ครบ ชั่งไม่ตรงครบ 3 ครั้ง) ได้ด้วยทางนี้
-// ---------------------------------------------------------------------------
-export function PartReceiveDialog({ part, workers, todayTh, onClose }: { part: LotPart; workers: { id: string; displayName: string }[]; todayTh: string; onClose: () => void }) {
-  const { run, busy, error } = useOfficeRun();
-  const [on, setOn] = useState(todayTh);
-  const [w, setW] = useState("");
-  const [workerId, setWorkerId] = useState("");
-  const [name, setName] = useState("");
-  const weighReq = part.pendingWeighRequired;
-  const wParsed = parseWeight(w, "น้ำหนักเข้า");
-  const ready = part.pendingSeq !== null && on !== "" && (workerId !== "" || name.trim() !== "") && wParsed.ok && (!weighReq || wParsed.value !== null);
-
-  async function submit() {
-    if (part.pendingSeq === null) return;
-    const r = await run(() => officeReceiveStage({ jobId: part.jobId, expectedSeq: part.pendingSeq as number, occurredOn: on, weightIn: w.trim() || null, workerId: workerId || null, assigneeName: workerId ? null : name.trim() || null }), {
-      success: `รับงานแล้ว — ${part.pendingStageName ?? "ขั้นนี้"}`,
-    });
-    if (r.ok) onClose();
-  }
-
-  return (
-    <Modal open onClose={onClose} title={`รับงานแทน: ${partTitle(part)} · ${part.pendingStageName ?? ""}`}>
-      <form noValidate className="space-y-3" onSubmit={(e) => { e.preventDefault(); if (ready) void submit(); }}>
-        {part.receiveLocked && <p className="rounded-md border border-amber-300 bg-amber-50 p-2.5 text-sm font-medium text-amber-900">ขั้นนี้ถูกล็อกเพราะช่างชั่งรับไม่ตรงหลายครั้ง — ออฟฟิศชั่งและรับแทนได้ (ปลดล็อก)</p>}
-        <Field id="prc-on" label="วันที่ (ตามกระดาษ)" hint="ย้อนหลังได้ไม่เกิน 14 วัน · ไม่เป็นอนาคต">
-          <input id="prc-on" type="date" min={addDays(todayTh, -14)} max={todayTh} value={on} onChange={(e) => setOn(e.target.value)} className={FIELD} />
-        </Field>
-        <Field id="prc-w" label={`น้ำหนักเข้า (กรัม)${weighReq ? " — ขั้นนี้ต้องใส่" : " — ไม่บังคับ"}`}>
-          <input id="prc-w" inputMode="decimal" value={w} onChange={(e) => setW(e.target.value.replace(/[^0-9.,]/g, ""))} className={FIELD} />
-        </Field>
-        <Field id="prc-worker" label="ผู้รับงาน">
-          <select id="prc-worker" value={workerId} onChange={(e) => setWorkerId(e.target.value)} className={FIELD}>
-            <option value="">เลือกช่างในทะเบียน…</option>
-            {workers.map((x) => (
-              <option key={x.id} value={x.id}>
-                {x.displayName}
-              </option>
-            ))}
-          </select>
-        </Field>
-        {!workerId && (
-          <Field id="prc-name" label="หรือพิมพ์ชื่อ (ช่างนอกทะเบียน)">
-            <input id="prc-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={60} className={FIELD} />
-          </Field>
-        )}
-        <ErrorLine message={error} />
-        <DialogButtons busy={busy} ready={ready} confirm="บันทึกรับงาน" onClose={onClose} />
-      </form>
-    </Modal>
   );
 }
