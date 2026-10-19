@@ -26,7 +26,14 @@
 --  (5) job_discrepancy.void: = แถวใหม่ status 'void' ชี้แถวเดิม (ไม่ UPDATE แถวเดิม) · ทำได้เมื่อขั้นผู้รับ (to_stage) ถูกย้อนเป็น pending แล้วเท่านั้น (ไม่งั้นจำนวนที่ผู้รับรับไปจะขัดกับโซ่) · ชิ้นกลับเข้าโซ่ทางเดียว = ผู้รับรับใหม่ด้วยจำนวนเต็ม — ไม่มีทาง "เพิ่มของเข้าโซ่" โดยไม่ผ่านออฟฟิศ
 --      (design เขียนแค่ "void ด้วยแถวใหม่" — ผมเลือกนิยามนี้เพราะเป็นอันเดียวที่ผลรวมต้นไม้ยังตรง)
 --  (6) ช่างยกเลิกส่วน (return_to_parent) ไม่ได้เมื่อการคืนจะเหลือขั้นแม่ split_out = 0 แต่มีของเสียที่บันทึกตอนแยกค้าง (ผิด js_not_sent_ck) — ตอบ scrap_recorded ให้ออฟฟิศเลือก "ยกเลิกเป็นของเสีย" (scrap) แทน
---  (7) รับไม่ครบ (m < n): ข้ามการเทียบน้ำหนักทองรับ-ส่ง (±0.05 g) และ handoff_gap — จำนวนชิ้นต่างกัน น้ำหนักเทียบกันไม่ได้ · ส่วนต่างบันทึกเป็นแถวที่ผู้ส่งต้องชี้แจง + บล็อกปิดใบ · รับครบ (m = n) ด่านทองเดิมเป๊ะ
+--  (7) [แก้ตาม security H1] รับไม่ครบ (m < n): เทียบน้ำหนักทุกครั้งที่ทั้งสองขั้นชั่ง — ทองรับครบ |gap| > 0.05 g = ปฏิเสธ (เดิมเป๊ะ) · ทองรับไม่ครบที่ "หนักกว่า" ที่ขั้นก่อนส่ง (gap > +0.05) = ปฏิเสธ · gap บันทึกลง job_discrepancy.weight_gap_g (ออฟฟิศเห็น)
+--      ผู้ส่งชี้แจงส่วนต่างงานทองที่มี weight_gap_g เองไม่ได้ (office_required — ออฟฟิศเท่านั้น) · v_job_stage_loss ต่อท้าย handoff_gap_partial_g + v_job_board แสดง (แทน null เงียบ) · response ช่างยังไม่เห็น gap (N1)
+--      [M1] รับไม่ครบขณะขั้นก่อนยังไม่ส่ง = prev_not_sent (ไม่ปิดขั้นก่อนอัตโนมัติด้วยจำนวนเต็มแล้วโยนความผิดให้ผู้ส่ง)
+--  (13) [security H2 · มติเจ้าของ 19 ต.ค. "ทองชั่งตอนแบ่ง"] เฉพาะ metal='gold' และขั้นที่แยกตั้ง weigh_required: การแยก (ช่าง + ออฟฟิศ) ต้องส่ง p_weight_move_g (น้ำหนักส่วนที่แยกออก > 0 · ≤ 3 ทศนิยม · ต้องเหลือให้ผู้ถือ) —
+--      ขั้นแยกของส่วนใหม่เก็บเป็น weight_in = weight_out = น้ำหนักนั้น (weigh_required) ⇒ ผู้รับขั้นถัดไปชั่งเทียบ ±0.05 g เหมือนส่งต่อปกติ · ขั้นแม่เก็บ weight_split_out_g (= Σ น้ำหนักของส่วน — guard บังคับ) ·
+--      ส่งต่อส่วนที่เหลือ: น้ำหนักออก ≤ เข้า + เติม − น้ำหนักที่แยกไป · loss ของขั้นที่แยกหักน้ำหนักที่แยกไป (ไม่ null สำหรับทอง) · เงิน/ขั้นไม่ชั่ง = นับจำนวนอย่างเดียว (ค1) — ส่งน้ำหนักมา = weight_unexpected
+--  (14) [M3] v_production_order_job_mismatch เทียบกับยอดดีทั้งต้นไม้ · [L4] job_lot_split ออฟฟิศต้องส่ง p_qty_hold ด้วย (บังคับทุกช่องทาง)
+--  (15) [L7] post-check §9 (4) raise ถ้ามีส่วนย่อย/ขั้นที่แยกอยู่แล้ว = รันไฟล์นี้ซ้ำ "หลังเริ่มใช้งานจริง" ไม่ได้ (ตั้งใจ — ตรวจว่า apply ครั้งแรกบนข้อมูลที่ยังไม่มีส่วน) · รันซ้ำก่อนมีส่วนได้ (idempotent)
 --  (8) can_external: เพิ่มคอลัมน์ worker.can_external (default false) ใน L1 เพราะ RPC ชี้แจงของ design ใช้สิทธิ์นี้ — ยังไม่มี UI/RPC ตั้งค่า (L2) · ไม่มีใครถือสิทธิ์นี้ตอน apply
 --  (9) token_cap คง 5 (มติ Q8 18 ต.ค.) · job_token_issue ค่าเริ่ม p_revoke_previous = null ⇒ traveler ของใบที่ไม่มีส่วน = เพิกถอนของเก่า (เหมือน J1) · ใบที่มีส่วน/ใบย่อย/ใบส่งของ = ไม่เพิกถอน · ค่าที่ส่งมาชัดเจนชนะเสมอ
 --      (TS ปัจจุบัน lib/actions/job-office-write.ts ส่ง boolean ชัดเจนเสมอ ⇒ พฤติกรรมเดิมไม่เปลี่ยนจนกว่า UI จะส่ง null)
@@ -189,7 +196,9 @@ create index if not exists idx_job_parent on analytics.job (parent_job_id) where
 -- 1.2 job_stage
 alter table analytics.job_stage
   add column if not exists qty_split_out       integer not null default 0,
-  add column if not exists split_from_stage_id uuid;
+  add column if not exists split_from_stage_id uuid,
+  -- H2 (security · มติ 19 ต.ค.): ทองที่ขั้นชั่ง — น้ำหนักรวมของส่วนที่แยกออกจากขั้นนี้ (= Σ weight_out_g ของขั้นแยกของส่วนที่ชี้ขั้นนี้) · เงิน/ขั้นไม่ชั่ง = 0
+  add column if not exists weight_split_out_g  numeric(10,3) not null default 0;
 
 do $ddl$
 begin
@@ -199,6 +208,12 @@ begin
   if not exists (select 1 from pg_constraint where conrelid = 'analytics.job_stage'::regclass and conname = 'js_split_qty_ck') then
     alter table analytics.job_stage add constraint js_split_qty_ck
       check (qty_split_out between 0 and 100000 and split_from_stage_id is distinct from id and (not auto_closed or qty_split_out = 0));
+  end if;
+  if not exists (select 1 from pg_constraint where conrelid = 'analytics.job_stage'::regclass and conname = 'js_split_weight_ck') then
+    alter table analytics.job_stage add constraint js_split_weight_ck check (
+      weight_split_out_g between 0 and 100000
+      and (weight_split_out_g = 0 or (status in ('received', 'sent') and qty_split_out > 0 and weight_in_g is not null and weight_split_out_g < weight_in_g + metal_added_g))
+      and (weight_out_g is null or weight_out_g + weight_split_out_g <= weight_in_g + metal_added_g));
   end if;
 end;
 $ddl$;
@@ -266,10 +281,13 @@ create table if not exists analytics.job_discrepancy (
   resolved_at        timestamptz,
   void_of_id         uuid references analytics.job_discrepancy (id) on delete restrict,
   void_reason        text,
+  -- H1 (security): ส่วนต่างน้ำหนัก (น้ำหนักที่รับ − น้ำหนักที่ขั้นก่อนส่งออก) ตอนรับไม่ครบ · เห็นเฉพาะออฟฟิศ · null = ไม่มีน้ำหนักให้เทียบ
+  weight_gap_g       numeric(10,3),
   created_by_worker  uuid,
   created_by_actor   uuid,
   created_at         timestamptz not null default clock_timestamp(),
   constraint jd_qty_ck check (qty between 1 and 100000),
+  constraint jd_gap_ck check (weight_gap_g is null or abs(weight_gap_g) <= 100000),
   constraint jd_status_ck check (status in ('open', 'resolved', 'void')),
   constraint jd_kind_ck check (resolved_kind is null or resolved_kind in ('scrap', 'lost')),
   constraint jd_resolved_ck check (
@@ -512,6 +530,7 @@ as $f$
     'qty_scrap', s.qty_scrap, 'scrap_reason', s.scrap_reason, 'weight_in_g', s.weight_in_g, 'weight_out_g', s.weight_out_g,
     'metal_added_g', s.metal_added_g, 'weight_note', s.weight_note, 'scrap_weight_g', s.scrap_weight_g, 'skip_reason', s.skip_reason)
     || case when s.qty_split_out > 0 then jsonb_build_object('qty_split_out', s.qty_split_out) else '{}'::jsonb end
+    || case when s.weight_split_out_g > 0 then jsonb_build_object('weight_split_out_g', s.weight_split_out_g) else '{}'::jsonb end
 $f$;
 
 create or replace function analytics.job_stage_sync()
@@ -551,6 +570,7 @@ declare
   v_prev   analytics.job_stage%rowtype;
   v_exp_in int;
   v_link   int;
+  v_wlink  numeric;
 begin
   -- 0181: ส่วนย่อย (แยก/ยกเลิก/ส่วนต่าง) — ของเดิมทุกข้อคงไว้ · เพิ่ม: qty_split_out (ผูกกับส่วนที่ชี้ขั้นนี้) · split_from_stage_id · โซ่จำนวนหักส่วนต่าง · ห้าม auto-close/ย้อนขั้นที่แยก
   if tg_op = 'DELETE' then
@@ -619,7 +639,7 @@ begin
   if v_job.status in ('done', 'cancelled') then
     raise exception 'job_stage: ใบงาน % สถานะ % แล้ว แก้ขั้นไม่ได้', v_job.job_no, v_job.status using errcode = '22023';
   end if;
-  if new.qty_split_out is distinct from old.qty_split_out and old.status <> 'received' then
+  if (new.qty_split_out is distinct from old.qty_split_out or new.weight_split_out_g is distinct from old.weight_split_out_g) and old.status <> 'received' then
     raise exception 'job_stage: qty_split_out เปลี่ยนได้เฉพาะขั้นที่ถืออยู่ (received)' using errcode = '22023', hint = 'has_split';
   end if;
 
@@ -627,10 +647,10 @@ begin
     if old.status in ('received', 'sent') and analytics.job_stage_state(new) is distinct from analytics.job_stage_state(old) then
       -- ข้อยกเว้นเดียว: ขั้น received เปลี่ยนเฉพาะ qty_split_out/qty_scrap/scrap_reason ตอนแยก (เพิ่ม — เหลือผู้ถืออย่างน้อย 1 ชิ้น) หรือคืนชิ้นจากส่วนที่ยกเลิก (ลด — ของเสียเท่าเดิม)
       if not (old.status = 'received'
-              and (analytics.job_stage_state(new) - 'qty_split_out' - 'qty_scrap' - 'scrap_reason')
-                  = (analytics.job_stage_state(old) - 'qty_split_out' - 'qty_scrap' - 'scrap_reason')
-              and ((new.qty_split_out > old.qty_split_out and new.qty_scrap >= old.qty_scrap)
-                   or (new.qty_split_out < old.qty_split_out and new.qty_scrap = old.qty_scrap and new.scrap_reason is not distinct from old.scrap_reason))
+              and (analytics.job_stage_state(new) - 'qty_split_out' - 'weight_split_out_g' - 'qty_scrap' - 'scrap_reason')
+                  = (analytics.job_stage_state(old) - 'qty_split_out' - 'weight_split_out_g' - 'qty_scrap' - 'scrap_reason')
+              and ((new.qty_split_out > old.qty_split_out and new.qty_scrap >= old.qty_scrap and new.weight_split_out_g >= old.weight_split_out_g)
+                   or (new.qty_split_out < old.qty_split_out and new.weight_split_out_g <= old.weight_split_out_g and new.qty_scrap = old.qty_scrap and new.scrap_reason is not distinct from old.scrap_reason))
               and new.qty_split_out + new.qty_scrap < new.qty_in) then
         raise exception 'job_stage: ขั้นที่รับ/ส่งแล้วแก้ตรงไม่ได้ — ใช้ย้อนขั้น (job_stage_reopen) พร้อมเหตุผล' using errcode = '22023';
       end if;
@@ -641,13 +661,20 @@ begin
       if new.qty_split_out <> v_link then
         raise exception 'job_stage: qty_split_out ต้องเท่ากับผลรวมจำนวนของส่วนที่แยกจากขั้นนี้' using errcode = '22023', hint = 'split_link';
       end if;
+      -- H2: น้ำหนักที่แยกออก (ทองที่ขั้นชั่ง) ต้องเท่า Σ น้ำหนักออกของขั้นแยกของส่วนที่ชี้ขั้นนี้ — กระทบยอดน้ำหนักได้เสมอ
+      select coalesce(sum(ls.weight_out_g), 0) into v_wlink
+        from analytics.job_stage ls join analytics.job lj on lj.id = ls.job_id
+       where ls.split_from_stage_id = new.id and not (lj.status = 'cancelled' and lj.cancel_scrap_qty is null);
+      if new.weight_split_out_g <> v_wlink then
+        raise exception 'job_stage: weight_split_out_g ต้องเท่าผลรวมน้ำหนักของส่วนที่แยกจากขั้นนี้' using errcode = '22023', hint = 'split_link';
+      end if;
     end if;
     new.updated_at := now();
     return new;
   end if;
 
   -- เปลี่ยนสถานะ: qty_split_out ห้ามขยับพร้อมกัน (received→sent คงค่าเดิม — js_sent_ck ใช้ค่านั้น)
-  if new.qty_split_out is distinct from old.qty_split_out then
+  if new.qty_split_out is distinct from old.qty_split_out or new.weight_split_out_g is distinct from old.weight_split_out_g then
     raise exception 'job_stage: ห้ามเปลี่ยน qty_split_out พร้อมเปลี่ยนสถานะ' using errcode = '22023', hint = 'has_split';
   end if;
 
@@ -1101,6 +1128,10 @@ begin
     return analytics.job_fail('qty_invalid', 'จำนวนที่รับไม่ถูกต้อง — ต้องมากกว่า 0 และไม่เกินจำนวนที่ส่งมา (ขั้นแรกของใบรับครบจำนวนเสมอ)');
   end if;
   v_qin := coalesce(p_qty_received, v_base);
+  -- M1 (security): รับไม่ครบขณะผู้ถือขั้นก่อนยังไม่ส่ง = ปิดขั้นก่อนอัตโนมัติด้วยจำนวนเต็มแล้วโยนความผิดให้ผู้ส่ง — ปฏิเสธ ให้ผู้ถือกดส่งต่อก่อน
+  if v_p.id is not null and v_p.status = 'received' and v_qin < v_base then
+    return analytics.job_fail('prev_not_sent', 'ขั้นก่อนหน้ายังไม่ได้กดส่งต่อ — รับไม่ครบไม่ได้ ให้ผู้ถือกดส่งต่อก่อน');
+  end if;
 
   if v_p.id is not null then
     if v_p.status = 'received' then
@@ -1139,11 +1170,12 @@ begin
   -- M1: น้ำหนักที่รับ vs น้ำหนักที่ขั้นก่อนหน้าส่งออก · ทอง ต่างเกิน 0.05 g = ปฏิเสธ (ต้องชั่งใหม่/ให้ออฟฟิศย้อนขั้นก่อนแก้) ·
   -- เงิน/ทองเหลือง ไม่บล็อก แต่เก็บส่วนต่างไว้ใน event + v_job_stage_loss.handoff_gap_g
   -- N4: เทียบเฉพาะเมื่อทั้งขั้นก่อนและขั้นนี้บังคับชั่ง (เทียน/ปูนไม่ถูกเทียบกับหล่อ)
-  -- 0181: รับไม่ครบ (v_qin < v_base) = จำนวนชิ้นต่างกัน น้ำหนักเทียบกันไม่ได้ ⇒ ข้ามการเทียบ (ส่วนต่างถูกบันทึกเป็นแถว job_discrepancy ที่ผู้ส่งต้องชี้แจงอยู่แล้ว — ใบจะปิดไม่ได้จนกว่าจะชี้แจง)
+  -- 0181 (H1 security): เทียบน้ำหนักทุกครั้งที่ทั้งสองขั้นชั่ง — รับครบ: ทอง |gap| > 0.05 = ปฏิเสธ (ด่านเดิมเป๊ะ) · รับไม่ครบ: ทองที่ "หนักกว่า" ที่ขั้นก่อนส่ง (gap > +0.05) = ปฏิเสธ
+  -- (น้ำหนักน้อยลงตามจำนวนชิ้นเป็นเรื่องปกติ ไม่บล็อก) · gap บันทึกลง job_discrepancy.weight_gap_g ให้ออฟฟิศเห็น/ตัดสิน — ไม่ปิดด่านทองเงียบ
   if v_p.id is not null and v_p.status = 'sent' and v_p.weight_out_g is not null and p_weight_in is not null
-     and v_t.weigh_required and v_p.weigh_required and v_qin = v_base then
+     and v_t.weigh_required and v_p.weigh_required then
     v_gap := p_weight_in - v_p.weight_out_g;
-    if v_job.metal = 'gold' and abs(v_gap) > 0.05 then
+    if v_job.metal = 'gold' and ((v_qin = v_base and abs(v_gap) > 0.05) or (v_qin < v_base and v_gap > 0.05)) then
       -- N1: ผู้รับต้องชั่งแบบไม่รู้คำตอบ — ข้อความ/ผลลัพธ์ไม่บอกขนาดส่วนต่างหรือน้ำหนักขั้นก่อน · แต่บันทึก event ทุกครั้งที่ไม่ตรงให้ออฟฟิศเห็น
       -- (event_type 'weigh' ที่ 0172 ประกาศไว้แต่ยังไม่ใช้ · payload.kind = handoff_mismatch · คนเรียกฝั่งออฟฟิศ raise ทำให้ event นี้ถอยกลับ ซึ่งยอมรับได้: ออฟฟิศเห็น error ตรงๆ)
       perform analytics.job_event_write(p_job_id, v_t.id, 'weigh', p_occurred_on, p_actor, p_worker_id, p_channel, p_device_hint,
@@ -1155,8 +1187,8 @@ begin
 
   -- 0181: ส่วนต่าง (ต้องมาก่อน UPDATE ขั้น — job_stage_guard หักส่วนต่างที่บันทึกแล้วจากจำนวนเข้า)
   if v_qin < v_base then
-    insert into analytics.job_discrepancy (shop_id, root_job_id, job_id, from_stage_id, to_stage_id, qty, status, created_by_worker, created_by_actor)
-    values (v_job.shop_id, coalesce(v_job.parent_job_id, v_job.id), v_job.id, v_p.id, v_t.id, v_base - v_qin, 'open', p_worker_id, p_actor)
+    insert into analytics.job_discrepancy (shop_id, root_job_id, job_id, from_stage_id, to_stage_id, qty, status, created_by_worker, created_by_actor, weight_gap_g)
+    values (v_job.shop_id, coalesce(v_job.parent_job_id, v_job.id), v_job.id, v_p.id, v_t.id, v_base - v_qin, 'open', p_worker_id, p_actor, v_gap)
     returning id into v_disc;
   end if;
 
@@ -1298,13 +1330,14 @@ begin
       return analytics.job_fail('note_invalid', 'หมายเหตุน้ำหนักมีอักขระที่ไม่อนุญาตหรือยาวเกิน 200 ตัวอักษร');
     end;
   end if;
-  if p_weight_out is not null and v_s.weight_in_g is not null and p_weight_out > v_s.weight_in_g + v_added then
+  -- 0181 (H2): หักน้ำหนักที่แยกออกเป็นส่วนย่อยแล้ว (ทองที่ขั้นชั่ง) — ไม่แยก = 0 เท่าเดิมเป๊ะ
+  if p_weight_out is not null and v_s.weight_in_g is not null and p_weight_out > v_s.weight_in_g + v_added - v_s.weight_split_out_g then
     return analytics.job_fail('weight_over',
       format('น้ำหนักออกมากกว่าน้ำหนักเข้า %s g — ถ้าเติมโลหะให้ระบุเติมโลหะพร้อมหมายเหตุ',
-             trim_scale(p_weight_out - v_s.weight_in_g - v_added)::text));
+             trim_scale(p_weight_out - v_s.weight_in_g - v_added + v_s.weight_split_out_g)::text));
   end if;
   -- 0178 M1: เศษต้องไม่เกินส่วนที่หายไป (loss = in + added - out - scrap ต้อง >= 0) · คำนวณเฉพาะเมื่อมีทั้งน้ำหนักเข้า/ออก (ตรงกับ v_job_stage_loss) · ค่าใดเป็น null = ข้าม (ไม่ใช่ผ่านหรือตก — ไม่มี loss ให้บิดเบือน)
-  v_room := case when p_weight_out is not null and v_s.weight_in_g is not null then v_s.weight_in_g + v_added - p_weight_out end;
+  v_room := case when p_weight_out is not null and v_s.weight_in_g is not null then v_s.weight_in_g + v_added - p_weight_out - v_s.weight_split_out_g end;
   if p_scrap_weight is not null and v_room is not null and p_scrap_weight > v_room then
     return analytics.job_fail('scrap_over', 'น้ำหนักเศษมากกว่าส่วนที่หายไป — ชั่งใหม่');
   end if;
@@ -1380,7 +1413,7 @@ $f$;
 -- แยกส่วน (ภายใน): ส่ง n จากที่ถือ N → ส่วนใหม่ (แถว job + ขั้นคัดลอกจากผู้แยก) · ผู้ถือเดิมเหลือ ≥ 1 ชิ้น
 -- p_job_id = ใบที่ถือขั้นนั้น (ใบแม่หรือส่วนย่อย — แยกซ้อนได้แต่ส่วนใหม่ชี้ใบแม่เดิมเสมอ) · p_qty_hold = จำนวนที่ผู้เรียกเห็น (กัน 2 มือถือแยกซ้ำ → stage_changed) · น้ำหนักทุกชนิดห้ามส่งมา (มติ ค1)
 create or replace function analytics.job_lot_split_core(p_job_id uuid, p_expected_seq integer, p_qty integer, p_qty_hold integer, p_qty_scrap integer, p_scrap_reason text,
-                                                        p_weight_out numeric, p_metal_added numeric, p_scrap_weight numeric, p_weight_note text,
+                                                        p_weight_out numeric, p_metal_added numeric, p_scrap_weight numeric, p_weight_note text, p_weight_move numeric,
                                                         p_worker_id uuid, p_channel text, p_actor uuid, p_device_hint text, p_enforce_holder boolean)
  returns jsonb
  language plpgsql
@@ -1406,6 +1439,7 @@ declare
   v_who_n  text;
   v_next   record;
   v_final_reason text;
+  v_gold_w boolean;
   r        analytics.job_stage%rowtype;
   v_cur    analytics.job_stage%rowtype;
 begin
@@ -1442,7 +1476,8 @@ begin
   end if;
   v_hold := v_s.qty_in - v_s.qty_scrap - v_s.qty_split_out;
   -- กัน 2 มือถือแยกส่วนเดียวกัน/กดซ้ำ: จำนวนที่ถืออยู่ต้องตรงกับที่ผู้เรียกเห็น · ช่องช่าง (worker_qr) บังคับส่งมาเสมอ — ไม่งั้นกดซ้ำแล้วเกิดส่วนซ้ำ
-  if p_channel = 'worker_qr' and p_qty_hold is null then
+  -- L4 (security): บังคับทุกช่องทาง (ออฟฟิศด้วย) — กดซ้ำจากหน้าออฟฟิศก็สร้างส่วนซ้ำได้เหมือนกัน
+  if p_qty_hold is null then
     return analytics.job_fail('qty_hold_required', 'ต้องระบุจำนวนที่ถืออยู่ — โหลดหน้าใหม่แล้วลองอีกครั้ง');
   end if;
   if p_qty_hold is not null and p_qty_hold is distinct from v_hold then
@@ -1450,6 +1485,22 @@ begin
   end if;
   -- มติ ค1: ตอนแยกนับจำนวนอย่างเดียว — ห้ามส่งน้ำหนักออก/เติมโลหะ/เศษ/หมายเหตุน้ำหนักมาด้วย (ข้อความไม่มีตัวเลข)
   if p_weight_out is not null or coalesce(p_metal_added, 0) <> 0 or p_scrap_weight is not null or nullif(btrim(p_weight_note), '') is not null then
+    return analytics.job_fail('weight_unexpected', 'การแยกส่วนนับจำนวนอย่างเดียว ไม่ต้องชั่งน้ำหนัก — โหลดหน้าใหม่');
+  end if;
+  -- H2 (security · มติเจ้าของ 19 ต.ค.: ทองชั่งตอนแบ่ง): เฉพาะทอง + ขั้นที่ตั้งชั่ง (weigh_required ตามแบบการบันทึก) ต้องชั่งน้ำหนักส่วนที่แยกออก (p_weight_move) —
+  -- ส่วนใหม่เก็บเป็นน้ำหนักออกของขั้นแยก ให้ผู้รับขั้นถัดไปชั่งเทียบ ±0.05 g เหมือนส่งต่อปกติ · เงิน/ขั้นไม่ชั่ง = นับจำนวนอย่างเดียว (ค1) ส่งน้ำหนักมา = weight_unexpected
+  v_gold_w := v_root.metal = 'gold' and v_s.weigh_required;
+  if v_gold_w then
+    if p_weight_move is null then
+      return analytics.job_fail('weight_move_required', 'ทองที่ขั้นชั่ง: ต้องชั่งน้ำหนักส่วนที่แยกออกก่อน');
+    end if;
+    if p_weight_move <= 0 or not analytics.job_weight_ok(p_weight_move) then
+      return analytics.job_fail('weight_invalid', 'น้ำหนักส่วนที่แยกออกต้องมากกว่า 0 และไม่เกิน 100,000 กรัม (ทศนิยมไม่เกิน 3 ตำแหน่ง)');
+    end if;
+    if v_s.weight_in_g is null or p_weight_move + v_s.weight_split_out_g >= v_s.weight_in_g + v_s.metal_added_g then
+      return analytics.job_fail('weight_over', 'น้ำหนักส่วนที่แยกออกมากเกินน้ำหนักที่ถืออยู่ — ต้องเหลือน้ำหนักให้ผู้ถือ ชั่งใหม่');
+    end if;
+  elsif p_weight_move is not null then
     return analytics.job_fail('weight_unexpected', 'การแยกส่วนนับจำนวนอย่างเดียว ไม่ต้องชั่งน้ำหนัก — โหลดหน้าใหม่');
   end if;
   if p_qty is null or p_qty < 1 or p_qty > 100000 or v_scrap < 0 or v_scrap > 100000 or p_qty + v_scrap > v_hold - 1 then
@@ -1473,7 +1524,7 @@ begin
   on conflict (shop_id) do update set last_no = c.last_no + 1
   returning c.last_no into v_seq;
   -- ส่วนใหม่ไม่ชั่ง ⇒ weigh_required = มีขั้นหลังขั้นแยกที่ต้องชั่ง (ค่าเริ่มของ job_profile_apply: exists ขั้น weigh_required)
-  select exists (select 1 from analytics.job_stage x where x.job_id = p_job_id and x.seq > v_s.seq and x.status <> 'skipped' and x.weigh_required) into v_weigh;
+  select exists (select 1 from analytics.job_stage x where x.job_id = p_job_id and x.seq > v_s.seq and x.status <> 'skipped' and x.weigh_required) or v_gold_w into v_weigh;
 
   insert into analytics.job (shop_id, seq, source_kind, oem_quote_item_id, root_quote_id, oem_item_seq, production_order_item_id, product_id,
                              design_label, sku_snapshot, metal, qty_planned, qty_order, weigh_required, due_date, created_by,
@@ -1486,7 +1537,7 @@ begin
   -- ขั้นของส่วนใหม่ = ขั้นของผู้แยก (flag ชั่ง/ของเสียลอก ยกเว้นขั้นแยก weigh_required = false) · ขั้นที่ผู้แยกยังไม่ถึง = pending/ที่ข้ามไว้คงข้าม
   for r in select s.* from analytics.job_stage s where s.job_id = p_job_id order by s.seq loop
     insert into analytics.job_stage (job_id, shop_id, stage_code, seq, weigh_required, scrap_qty_ask, scrap_weight_ask, split_from_stage_id)
-    values (v_lot.id, v_lot.shop_id, r.stage_code, r.seq, case when r.id = v_s.id then false else r.weigh_required end,
+    values (v_lot.id, v_lot.shop_id, r.stage_code, r.seq, case when r.id = v_s.id then v_gold_w else r.weigh_required end,
             r.scrap_qty_ask, r.scrap_weight_ask, case when r.id = v_s.id then v_s.id end);
   end loop;
   perform analytics.job_event_write(v_lot.id, null, 'create', v_today, p_actor, p_worker_id, p_channel, p_device_hint,
@@ -1503,13 +1554,14 @@ begin
         jsonb_build_object('stage_code', r.stage_code, 'reason', 'split_inherit', 'before', analytics.job_stage_state(r), 'after', analytics.job_stage_state(v_ns)));
     elsif r.seq = v_s.seq then
       update analytics.job_stage
-         set status = 'received', received_on = v_s.received_on, worker_id = v_who_a, assignee_name = v_who_n, qty_in = p_qty
+         set status = 'received', received_on = v_s.received_on, worker_id = v_who_a, assignee_name = v_who_n, qty_in = p_qty,
+             weight_in_g = case when v_gold_w then p_weight_move end
        where id = r.id returning * into v_ns;
       perform analytics.job_event_write(v_lot.id, r.id, 'stage_receive', v_s.received_on, p_actor, p_worker_id, p_channel, p_device_hint,
         jsonb_build_object('stage_code', r.stage_code, 'split_inherit', true, 'before', analytics.job_stage_state(r), 'after', analytics.job_stage_state(v_ns)));
       v_new_s := r.id;
       v_cur := v_ns;
-      update analytics.job_stage set status = 'sent', sent_on = v_today, qty_out = p_qty where id = v_cur.id returning * into v_ns;
+      update analytics.job_stage set status = 'sent', sent_on = v_today, qty_out = p_qty, weight_out_g = case when v_gold_w then p_weight_move end where id = v_cur.id returning * into v_ns;
       perform analytics.job_event_write(v_lot.id, v_cur.id, 'stage_send', v_today, p_actor, p_worker_id, p_channel, p_device_hint,
         jsonb_build_object('stage_code', v_cur.stage_code, 'auto_closed', false, 'split_inherit', true, 'before', analytics.job_stage_state(v_cur), 'after', analytics.job_stage_state(v_ns)));
     elsif exists (select 1 from analytics.job_stage o where o.job_id = p_job_id and o.seq = r.seq and o.status = 'skipped') then
@@ -1527,7 +1579,8 @@ begin
                          when v_reason = v_s.scrap_reason then v_reason
                          else 'other' end;
   update analytics.job_stage
-     set qty_split_out = qty_split_out + p_qty, qty_scrap = qty_scrap + v_scrap, scrap_reason = v_final_reason
+     set qty_split_out = qty_split_out + p_qty, qty_scrap = qty_scrap + v_scrap, scrap_reason = v_final_reason,
+         weight_split_out_g = weight_split_out_g + case when v_gold_w then p_weight_move else 0 end
    where id = v_s.id
    returning * into v_s2;
   if v_scrap > 0 then
@@ -1535,7 +1588,7 @@ begin
       jsonb_build_object('kind', 'split', 'qty', v_scrap, 'reason', v_reason, 'stage_code', v_s.stage_code));
   end if;
   perform analytics.job_event_write(p_job_id, v_s.id, 'split', v_today, p_actor, p_worker_id, p_channel, p_device_hint,
-    jsonb_build_object('lot_job_id', v_lot.id, 'lot_seq', v_lot_seq, 'qty', p_qty, 'scrap_qty', v_scrap, 'stage_code', v_s.stage_code,
+    jsonb_build_object('lot_job_id', v_lot.id, 'lot_seq', v_lot_seq, 'qty', p_qty, 'scrap_qty', v_scrap, 'stage_code', v_s.stage_code, 'weight_move_g', case when v_gold_w then p_weight_move end,
                        'before', analytics.job_stage_state(v_s), 'after', analytics.job_stage_state(v_s2)));
   perform analytics.job_tree_check(p_job_id);
 
@@ -1628,7 +1681,7 @@ begin
          cancel_scrap_reason = case when p_disposition = 'scrap' then v_sreason end
    where id = p_lot_job_id;
   if p_disposition = 'return_to_parent' then
-    update analytics.job_stage set qty_split_out = qty_split_out - v_l.qty_planned where id = v_ms.id returning * into v_ms2;
+    update analytics.job_stage set qty_split_out = qty_split_out - v_l.qty_planned, weight_split_out_g = weight_split_out_g - coalesce(v_s2.weight_out_g, 0) where id = v_ms.id returning * into v_ms2;
   else
     select * into v_ms2 from analytics.job_stage where id = v_ms.id;
   end if;
@@ -1817,7 +1870,7 @@ begin
 end;
 $f$;
 
-create or replace function analytics.job_lot_split(p_shop_id uuid, p_job_id uuid, p_expected_seq integer, p_qty integer, p_qty_scrap integer default 0, p_scrap_reason text default null, p_qty_hold integer default null, p_actor uuid default null)
+create or replace function analytics.job_lot_split(p_shop_id uuid, p_job_id uuid, p_expected_seq integer, p_qty integer, p_qty_scrap integer default 0, p_scrap_reason text default null, p_qty_hold integer default null, p_actor uuid default null, p_weight_move_g numeric default null)
  returns jsonb
  language plpgsql
  security definer
@@ -1830,7 +1883,7 @@ declare
 begin
   -- 0181: ออฟฟิศแยกส่วนแทน (ทุกขั้นที่ใบถืออยู่ — ไม่จำกัดผู้ถือ) · p_job_id = ใบที่ถือขั้นนั้น (แม่/ส่วน) · ไม่ชั่ง · ช่อง job_page
   v_job := analytics.job_office_begin('job_lot_split', p_shop_id, p_job_id, v_actor);
-  v_r := analytics.job_lot_split_core(p_job_id, p_expected_seq, p_qty, p_qty_hold, p_qty_scrap, p_scrap_reason, null, null, null, null,
+  v_r := analytics.job_lot_split_core(p_job_id, p_expected_seq, p_qty, p_qty_hold, p_qty_scrap, p_scrap_reason, null, null, null, null, p_weight_move_g,
                                       null, 'job_page', v_actor, null, false);
   if not (v_r ->> 'ok')::boolean then
     raise exception '%', v_r ->> 'message' using errcode = '22023', hint = v_r ->> 'code';
@@ -2258,7 +2311,7 @@ $f$;
 -- 6. RPC ช่าง (public ผ่าน token + PIN · security definer) — พารามิเตอร์ใหม่ต่อท้ายพร้อม default: caller เดิม (TS ที่ส่ง named args) ยังเรียกได้โดยไม่แก้ · null = ใบเดียว/ส่งทั้งหมด เหมือน J1
 -- ============================================================================
 drop function if exists analytics.job_worker_send(text, text, integer, numeric, integer, text, numeric, text, numeric, text, text);
-create or replace function analytics.job_worker_send(p_token_hash text, p_session_hash text, p_expected_seq integer, p_weight_out_g numeric default null::numeric, p_qty_scrap integer default 0, p_scrap_reason text default null::text, p_metal_added_g numeric default 0, p_weight_note text default null::text, p_scrap_weight_g numeric default null::numeric, p_user_agent text default null::text, p_ip_hash text default null::text, p_lot_job_id uuid default null, p_qty_send integer default null, p_qty_hold integer default null)
+create or replace function analytics.job_worker_send(p_token_hash text, p_session_hash text, p_expected_seq integer, p_weight_out_g numeric default null::numeric, p_qty_scrap integer default 0, p_scrap_reason text default null::text, p_metal_added_g numeric default 0, p_weight_note text default null::text, p_scrap_weight_g numeric default null::numeric, p_user_agent text default null::text, p_ip_hash text default null::text, p_lot_job_id uuid default null, p_qty_send integer default null, p_qty_hold integer default null, p_weight_move_g numeric default null)
  returns jsonb
  language plpgsql
  security definer
@@ -2290,6 +2343,10 @@ begin
   v_hold := case when v_s.status = 'received' then v_s.qty_in - v_s.qty_scrap - v_s.qty_split_out end;
 
   if p_qty_send is null or v_hold is null or p_qty_send = v_hold then
+    -- น้ำหนักส่วนที่แยกออกใช้กับการแยกจริงเท่านั้น — ส่งทั้งหมดใช้น้ำหนักออกปกติ (ไม่ปล่อยทิ้งเงียบ)
+    if p_weight_move_g is not null then
+      return analytics.job_fail('weight_unexpected', 'ส่งต่อทั้งหมดใช้น้ำหนักออกตามปกติ ไม่ใช่น้ำหนักส่วนที่แยก — โหลดหน้าใหม่');
+    end if;
     if v_hold is not null and p_qty_hold is not null and p_qty_hold <> v_hold then
       return analytics.job_fail('stage_changed', 'ข้อมูลงานเปลี่ยนไป กรุณารีเฟรชหน้าแล้วลองใหม่');
     end if;
@@ -2302,7 +2359,7 @@ begin
     return v_r;
   end if;
   return analytics.job_lot_split_core(v_target, p_expected_seq, p_qty_send, p_qty_hold, p_qty_scrap, p_scrap_reason,
-                                      p_weight_out_g, p_metal_added_g, p_scrap_weight_g, p_weight_note,
+                                      p_weight_out_g, p_metal_added_g, p_scrap_weight_g, p_weight_note, p_weight_move_g,
                                       v_wid, 'worker_qr', null, v_hint, true);
 end;
 $f$;
@@ -2374,6 +2431,10 @@ begin
   end if;
   if v_d.status <> 'open' or exists (select 1 from analytics.job_discrepancy v where v.void_of_id = v_d.id) then
     return analytics.job_fail('already_resolved', 'ส่วนต่างนี้ชี้แจงแล้วหรือถูกยกเลิกแล้ว');
+  end if;
+  -- H1 (security): ส่วนต่างของงานทองที่มีน้ำหนักเทียบ (weight_gap_g) ผู้ส่งชี้แจงเองไม่ได้ — กันผู้ส่งปิดด่านทองเอง (ชั่งเบากว่าแล้วเขียนว่า "หาย") · ออฟฟิศชี้แจงผ่าน job_discrepancy_resolve · ข้อความไม่มีตัวเลขน้ำหนัก (N1)
+  if v_d.weight_gap_g is not null and exists (select 1 from analytics.job gj where gj.id = v_d.job_id and gj.metal = 'gold') then
+    return analytics.job_fail('office_required', 'ส่วนต่างของงานทองที่มีน้ำหนักเทียบ ให้ออฟฟิศเป็นผู้ชี้แจง — แจ้งออฟฟิศ');
   end if;
   if p_kind is null or p_kind not in ('scrap', 'lost') then
     return analytics.job_fail('kind_invalid', 'ต้องเลือกว่าเสียหายหรือหาย');
@@ -2578,7 +2639,7 @@ begin
                                else (case when pv.status = 'received' then pv.qty_in else pv.qty_out end) - analytics.job_disc_active_qty(pv.id, pp.id) end,
           'discrepancy_id', null, 'qty', null);
       end if;
-      for dr in select dd.id, dd.qty, fs.seq as f_seq, fs.stage_code as f_code
+      for dr in select dd.id, dd.qty, (dd.weight_gap_g is not null and p.metal = 'gold') as office_only, fs.seq as f_seq, fs.stage_code as f_code
                  from analytics.job_discrepancy dd join analytics.job_stage fs on fs.id = dd.from_stage_id
                 where dd.job_id = p.id and dd.status = 'open' and not exists (select 1 from analytics.job_discrepancy v where v.void_of_id = dd.id)
                   and (fs.worker_id = v_worker or v_can_ext)
@@ -2586,7 +2647,7 @@ begin
         v_acts := v_acts || jsonb_build_object('lot_job_id', p.id, 'label', v_lbl, 'action', 'explain', 'stage_seq', dr.f_seq, 'stage_code', dr.f_code,
           'stage_name', (select d7.name_th from analytics.job_stage_def d7 where d7.shop_id = p.shop_id and d7.code = dr.f_code),
           'weight_required', false, 'scrap_qty_ask', false, 'scrap_weight_ask', false,
-          'qty_hold', null, 'qty_expected', null, 'discrepancy_id', dr.id, 'qty', dr.qty);
+          'qty_hold', null, 'qty_expected', null, 'discrepancy_id', dr.id, 'qty', dr.qty, 'office_only', dr.office_only);
       end loop;
     end loop;
   end if;
@@ -2637,129 +2698,6 @@ begin
   );
 end;
 $f$;
--- ============================================================================
--- 7. views (อ่านฝั่ง server เท่านั้น · security_invoker · service_role เท่านั้น) — ต่อท้ายคอลัมน์เดิมเท่านั้น (42P16) · ไม่มีต้นทุน/ราคา
--- ============================================================================
--- v_job_board: 44 คอลัมน์เดิมคงเป๊ะ (ลอกจาก definition บน DB สด — ฉบับล่าสุดที่ 0176 แก้) + ต่อท้าย: parent_job_id · lot_seq · parts_count · parts_open · qty_pending_explanation · dominant_stage_code
--- quote_qty_mismatch ไม่นับส่วนย่อย (qty_order ของส่วน = จำนวนของส่วนเอง ไม่ใช่จำนวนในใบเสนอราคา) · TS กรองแถวส่วนย่อยออกจากการ์ด (parent_job_id is null)
-create or replace view analytics.v_job_board
-  with (security_invoker = true) as
-select b.*,
-       jj.parent_job_id,
-       jj.lot_seq,
-       lt.parts_count,
-       lt.parts_open,
-       lt.qty_pending_explanation,
-       case when jj.parent_job_id is null then coalesce(analytics.job_tree_dominant_stage(jj.id), b.current_stage_code)
-            else b.current_stage_code end as dominant_stage_code
-  from (
- SELECT j.id,
-    j.shop_id,
-    j.job_no,
-    j.seq,
-    j.source_kind,
-        CASE j.source_kind
-            WHEN 'oem'::text THEN aq.quote_no
-            ELSE po.po_no
-        END AS source_ref,
-    j.design_label,
-    j.sku_snapshot,
-    j.metal,
-    j.qty_planned,
-    j.status,
-    j.due_date,
-    j.current_stage_code,
-    d.name_th AS current_stage_name,
-    cs.status AS current_stage_status,
-    COALESCE(w.display_name, cs.assignee_name) AS holder_name,
-    (analytics.job_today() - COALESCE(cs.received_on, ps.last_sent_on, analytics.job_bkk_date(j.created_at))) AS days_in_stage,
-    ((j.due_date IS NOT NULL) AND (j.status = ANY (ARRAY['open'::text, 'in_progress'::text, 'on_hold'::text])) AND (j.due_date < analytics.job_today())) AS is_overdue,
-    ev.last_event_at,
-    ev.last_scan_at,
-    ((j.status = ANY (ARRAY['open'::text, 'in_progress'::text])) AND (analytics.job_bkk_date(COALESCE(ev.last_event_at, j.created_at)) < (analytics.job_today() - 3))) AS is_stale,
-    st.stage_count,
-    st.stage_done_count,
-    st.has_auto_closed,
-    ((j.source_kind = 'oem'::text) AND (COALESCE(pay.paid, (0)::numeric) <= (0)::numeric)) AS deposit_missing,
-    (j.start_gate_note IS NOT NULL) AS start_gate_note_present,
-    ((j.source_kind = 'oem'::text) AND (j.status <> ALL (ARRAY['done'::text, 'cancelled'::text])) AND (j.parent_job_id IS NULL) AND (aqi.qty IS DISTINCT FROM j.qty_order)) AS quote_qty_mismatch,
-    aqi.qty AS quote_item_qty,
-    j.created_at,
-    j.done_at,
-    j.cancelled_at,
-        CASE
-            WHEN (j.status = ANY (ARRAY['done'::text, 'cancelled'::text])) THEN j.status
-            WHEN (j.current_stage_code IS NULL) THEN 'awaiting_close'::text
-            ELSE j.current_stage_code
-        END AS board_column,
-    hg.handoff_gap_g,
-    hmc.handoff_mismatch_count,
-    j.qty_order,
-        CASE
-            WHEN (j.status = 'done'::text) THEN (j.qty_good - j.qty_order)
-            ELSE NULL::integer
-        END AS qty_surplus,
-    ((j.status <> ALL (ARRAY['done'::text, 'cancelled'::text])) AND (j.qty_planned < j.qty_order)) AS under_planned,
-    ((j.status = 'done'::text) AND (j.qty_good > j.qty_order) AND (j.surplus_disposition = 'hold'::text)) AS surplus_pending,
-    j.surplus_disposition,
-    j.target_piece_g,
-    j.metal_plan_g,
-    j.profile_name,
-    COALESCE(pw.has_weigh, false) AS has_weigh,
-    ((j.metal = 'gold'::text) AND (j.status <> ALL (ARRAY['done'::text, 'cancelled'::text])) AND COALESCE(pw.unguarded, false)) AS gold_unguarded
-   FROM ((((((((((((((analytics.job j
-     LEFT JOIN analytics.job_stage cs ON (((cs.job_id = j.id) AND (cs.stage_code = j.current_stage_code))))
-     LEFT JOIN analytics.job_stage_def d ON (((d.shop_id = j.shop_id) AND (d.code = j.current_stage_code))))
-     LEFT JOIN analytics.worker w ON ((w.id = cs.worker_id)))
-     LEFT JOIN LATERAL ( SELECT max(s.sent_on) AS last_sent_on
-           FROM analytics.job_stage s
-          WHERE (s.job_id = j.id)) ps ON (true))
-     LEFT JOIN LATERAL ( SELECT max(e.recorded_at) AS last_event_at,
-            max(e.recorded_at) FILTER (WHERE (e.channel = 'worker_qr'::text)) AS last_scan_at
-           FROM analytics.job_event e
-          WHERE (e.job_id = j.id)) ev ON (true))
-     LEFT JOIN LATERAL ( SELECT (count(*))::integer AS stage_count,
-            (count(*) FILTER (WHERE (s.status = ANY (ARRAY['sent'::text, 'skipped'::text]))))::integer AS stage_done_count,
-            COALESCE(bool_or(s.auto_closed), false) AS has_auto_closed
-           FROM analytics.job_stage s
-          WHERE (s.job_id = j.id)) st ON (true))
-     LEFT JOIN LATERAL ( SELECT q.id,
-            q.quote_no
-           FROM analytics.oem_quote q
-          WHERE ((j.source_kind = 'oem'::text) AND (COALESCE(q.root_quote_id, q.id) = j.root_quote_id))
-          ORDER BY (q.status = 'superseded'::text), q.created_at DESC
-         LIMIT 1) aq ON (true))
-     LEFT JOIN LATERAL ( SELECT COALESCE(v.paid_thb, (0)::numeric) AS paid
-           FROM analytics.v_oem_quote v
-          WHERE (v.id = aq.id)) pay ON (true))
-     LEFT JOIN LATERAL ( SELECT i.qty
-           FROM analytics.oem_quote_item i
-          WHERE ((i.quote_id = aq.id) AND (i.seq = j.oem_item_seq))) aqi ON (true))
-     LEFT JOIN analytics.production_order_item poi ON ((poi.id = j.production_order_item_id)))
-     LEFT JOIN analytics.production_order po ON ((po.id = poi.production_order_id)))
-     LEFT JOIN LATERAL ( SELECT max(abs(l.handoff_gap_g)) AS handoff_gap_g
-           FROM analytics.v_job_stage_loss l
-          WHERE (l.job_id = j.id)) hg ON (true))
-     LEFT JOIN LATERAL ( SELECT (count(*))::integer AS handoff_mismatch_count
-           FROM analytics.job_event e
-          WHERE ((e.job_id = j.id) AND (e.event_type = 'weigh'::text) AND ((e.payload ->> 'kind'::text) = 'handoff_mismatch'::text))) hmc ON (true))
-     LEFT JOIN LATERAL ( SELECT bool_or(s.weigh_required) AS has_weigh,
-            bool_or((d2.metal_present AND (NOT s.weigh_required) AND (s.status <> 'skipped'::text))) AS unguarded
-           FROM (analytics.job_stage s
-             JOIN analytics.job_stage_def d2 ON (((d2.shop_id = s.shop_id) AND (d2.code = s.stage_code))))
-          WHERE (s.job_id = j.id)) pw ON (true))
-
-  ) b
-  join analytics.job jj on jj.id = b.id
-  left join lateral (
-    select (count(*) filter (where t.status <> 'cancelled'))::integer as parts_count,
-           (count(*) filter (where t.status in ('open', 'in_progress', 'on_hold')))::integer as parts_open,
-           coalesce((select sum(d.qty) from analytics.job_discrepancy d
-                      where d.root_job_id = jj.id and d.status = 'open'
-                        and not exists (select 1 from analytics.job_discrepancy v where v.void_of_id = d.id)), 0)::integer as qty_pending_explanation
-      from analytics.job t
-     where jj.parent_job_id is null and (t.id = jj.id or t.parent_job_id = jj.id)
-  ) lt on true;
 
 -- v_job_stage_loss: ขั้นที่แยกส่วนออก (qty_split_out > 0) น้ำหนักเข้ารวมชิ้นที่แยกไป แต่น้ำหนักออกเป็นของส่วนที่เหลือ ⇒ loss_g/loss_pct = null + not_comparable (มติ ค1 ไม่ชั่งตอนแยก — ห้ามให้เกิดธง loss ปลอม)
 -- handoff_gap_g ไม่คำนวณข้ามคู่ขั้นที่มีส่วนต่างรอชี้แจง/ชี้แจงแล้ว (จำนวนชิ้นต่างกัน น้ำหนักเทียบกันไม่ได้) · คอลัมน์เดิม 21 ตัวคงเป๊ะ + ต่อท้าย not_comparable
@@ -2789,7 +2727,8 @@ create or replace view analytics.v_job_stage_loss
             ELSE (x.loss_pct > x.loss_warn_pct)
         END AS warn,
     hg.handoff_gap_g,
-    (x.qty_split_out > 0) AS not_comparable
+    (x.qty_split_out > 0 AND x.weight_split_out_g = 0) AS not_comparable,
+    hg.handoff_gap_partial_g
    FROM (( SELECT s.id AS job_stage_id,
             s.job_id,
             s.shop_id,
@@ -2807,17 +2746,18 @@ create or replace view analytics.v_job_stage_loss
             ((s.weight_in_g IS NOT NULL) AND (s.weight_out_g IS NOT NULL)) AS weighed,
             ((s.status = 'sent'::text) AND ((s.weight_in_g IS NULL) OR (s.weight_out_g IS NULL))) AS not_weighed,
                 CASE
-                    WHEN (s.qty_split_out > 0) THEN NULL::numeric
-                    WHEN ((s.weight_in_g IS NOT NULL) AND (s.weight_out_g IS NOT NULL)) THEN (((s.weight_in_g + s.metal_added_g) - s.weight_out_g) - COALESCE(s.scrap_weight_g, (0)::numeric))
+                    WHEN (s.qty_split_out > 0 AND s.weight_split_out_g = 0) THEN NULL::numeric
+                    WHEN ((s.weight_in_g IS NOT NULL) AND (s.weight_out_g IS NOT NULL)) THEN (((s.weight_in_g + s.metal_added_g) - s.weight_out_g) - COALESCE(s.scrap_weight_g, (0)::numeric) - s.weight_split_out_g)
                     ELSE NULL::numeric
                 END AS loss_g,
                 CASE
-                    WHEN (s.qty_split_out > 0) THEN NULL::numeric
-                    WHEN ((s.weight_in_g IS NOT NULL) AND (s.weight_out_g IS NOT NULL) AND (s.weight_in_g > (0)::numeric)) THEN round((((((s.weight_in_g + s.metal_added_g) - s.weight_out_g) - COALESCE(s.scrap_weight_g, (0)::numeric)) / s.weight_in_g) * (100)::numeric), 2)
+                    WHEN (s.qty_split_out > 0 AND s.weight_split_out_g = 0) THEN NULL::numeric
+                    WHEN ((s.weight_in_g IS NOT NULL) AND (s.weight_out_g IS NOT NULL) AND (s.weight_in_g > (0)::numeric)) THEN round((((((s.weight_in_g + s.metal_added_g) - s.weight_out_g) - COALESCE(s.scrap_weight_g, (0)::numeric) - s.weight_split_out_g) / s.weight_in_g) * (100)::numeric), 2)
                     ELSE NULL::numeric
                 END AS loss_pct,
             d.loss_warn_pct,
-            s.qty_split_out
+            s.qty_split_out,
+            s.weight_split_out_g
            FROM (((analytics.job_stage s
              JOIN analytics.job j ON ((j.id = s.job_id)))
              JOIN analytics.job_stage_def d ON (((d.shop_id = s.shop_id) AND (d.code = s.stage_code))))
@@ -2832,7 +2772,17 @@ create or replace view analytics.v_job_stage_loss
                                          FROM analytics.job_discrepancy vq
                                         WHERE (vq.void_of_id = dq.id))))))) THEN (x.weight_in_g - pv.weight_out_g)
                     ELSE NULL::numeric
-                END AS handoff_gap_g
+                END AS handoff_gap_g,
+                CASE
+                    WHEN ((x.weight_in_g IS NOT NULL) AND (pv.weight_out_g IS NOT NULL) AND (pv.status = 'sent'::text) AND me.weigh_required AND pv.weigh_required
+                          AND (EXISTS ( SELECT 1
+                                 FROM analytics.job_discrepancy dq
+                                WHERE ((dq.from_stage_id = pv.id) AND (dq.to_stage_id = me.id) AND (dq.status = ANY (ARRAY['open'::text, 'resolved'::text]))
+                                   AND (NOT EXISTS ( SELECT 1
+                                         FROM analytics.job_discrepancy vq
+                                        WHERE (vq.void_of_id = dq.id))))))) THEN (x.weight_in_g - pv.weight_out_g)
+                    ELSE NULL::numeric
+                END AS handoff_gap_partial_g
            FROM (analytics.job_stage me
              JOIN analytics.job_stage pv ON (((pv.job_id = me.job_id) AND (pv.seq < me.seq) AND (pv.status <> 'skipped'::text))))
           WHERE (me.id = x.job_stage_id)
@@ -2861,7 +2811,7 @@ create or replace view analytics.v_job_stage_from_events
           ORDER BY e.recorded_at DESC, e.id DESC
          LIMIT 1) le ON (true));
 
--- v_production_order_job_mismatch: เทียบใบแม่เท่านั้น (ส่วนย่อยคัดลอก production_order_item_id จากแม่ — ไม่ใช่ใบงานของรายการนั้นเอง)
+-- v_production_order_job_mismatch (M3 security): เทียบ qty_done กับยอดดีของ "ทั้งต้นไม้" (ใบแม่ + ส่วนย่อยที่ไม่ยกเลิก) — ไม่ใช่ใบแม่ใบเดียว (ใบที่แบ่งส่วนจะเป็นรายการ mismatch ปลอม/ซ่อน mismatch จริง) · ใบแม่ done เท่านั้นที่ถูกเทียบ · คอลัมน์เดิมคงเป๊ะ (qty_good/qty_scrap = ผลรวมต้นไม้)
 create or replace view analytics.v_production_order_job_mismatch
   with (security_invoker = true) as
  SELECT j.id AS job_id,
@@ -2872,13 +2822,14 @@ create or replace view analytics.v_production_order_job_mismatch
     poi.id AS production_order_item_id,
     p.sku,
     poi.qty_done,
-    j.qty_good,
-    j.qty_scrap
+    tt.qty_good,
+    tt.qty_scrap
    FROM (((analytics.job j
      JOIN analytics.production_order_item poi ON ((poi.id = j.production_order_item_id)))
      JOIN analytics.production_order po ON ((po.id = poi.production_order_id)))
      JOIN product p ON ((p.id = poi.product_id)))
-  WHERE ((j.source_kind = 'production'::text) AND (j.status = 'done'::text) AND (j.parent_job_id IS NULL) AND (poi.qty_done IS NOT NULL) AND (poi.qty_done <> j.qty_good));
+     CROSS JOIN LATERAL ( SELECT COALESCE(sum(t.qty_good) FILTER (WHERE (t.status = 'done'::text)), 0)::integer AS qty_good, COALESCE(sum(t.qty_scrap) FILTER (WHERE (t.status = 'done'::text)), 0)::integer AS qty_scrap FROM analytics.job t WHERE ((t.id = j.id) OR (t.parent_job_id = j.id)) AND NOT (t.status = 'cancelled'::text AND t.parent_job_id IS NOT NULL)) tt
+  WHERE ((j.source_kind = 'production'::text) AND (j.status = 'done'::text) AND (j.parent_job_id IS NULL) AND (poi.qty_done IS NOT NULL) AND (poi.qty_done <> tt.qty_good));
 
 -- v_job_tree: 1 แถวต่อใบในต้นไม้ (แม่ + ส่วน) · label = "JB-0020 · ส่วนที่ 2" (job_no ของส่วนไม่ใช้บนจอ) · qty_live = ชิ้นที่อยู่ในมือ/รอรับ ณ ตอนนี้ · ไม่มีต้นทุน
 create or replace view analytics.v_job_tree
@@ -3002,6 +2953,131 @@ create or replace view analytics.v_job_tree_drift
     AND NOT EXISTS (SELECT 1 FROM analytics.job_discrepancy v WHERE v.void_of_id = d.id)
     AND tos.status IN ('received', 'sent')
     AND tos.qty_in IS DISTINCT FROM (fs.qty_out - analytics.job_disc_active_qty(fs.id, tos.id));
+-- ============================================================================
+-- 7. views (อ่านฝั่ง server เท่านั้น · security_invoker · service_role เท่านั้น) — ต่อท้ายคอลัมน์เดิมเท่านั้น (42P16) · ไม่มีต้นทุน/ราคา
+-- ============================================================================
+-- v_job_board: 44 คอลัมน์เดิมคงเป๊ะ (ลอกจาก definition บน DB สด — ฉบับล่าสุดที่ 0176 แก้) + ต่อท้าย: parent_job_id · lot_seq · parts_count · parts_open · qty_pending_explanation · dominant_stage_code · handoff_gap_partial_g (H1: ส่วนต่างน้ำหนักของคู่ขั้นที่รับไม่ครบ — แทนค่า null เงียบ)
+-- quote_qty_mismatch ไม่นับส่วนย่อย (qty_order ของส่วน = จำนวนของส่วนเอง ไม่ใช่จำนวนในใบเสนอราคา) · TS กรองแถวส่วนย่อยออกจากการ์ด (parent_job_id is null)
+create or replace view analytics.v_job_board
+  with (security_invoker = true) as
+select b.*,
+       jj.parent_job_id,
+       jj.lot_seq,
+       lt.parts_count,
+       lt.parts_open,
+       lt.qty_pending_explanation,
+       case when jj.parent_job_id is null then coalesce(analytics.job_tree_dominant_stage(jj.id), b.current_stage_code)
+            else b.current_stage_code end as dominant_stage_code,
+       hgp.gap as handoff_gap_partial_g
+  from (
+ SELECT j.id,
+    j.shop_id,
+    j.job_no,
+    j.seq,
+    j.source_kind,
+        CASE j.source_kind
+            WHEN 'oem'::text THEN aq.quote_no
+            ELSE po.po_no
+        END AS source_ref,
+    j.design_label,
+    j.sku_snapshot,
+    j.metal,
+    j.qty_planned,
+    j.status,
+    j.due_date,
+    j.current_stage_code,
+    d.name_th AS current_stage_name,
+    cs.status AS current_stage_status,
+    COALESCE(w.display_name, cs.assignee_name) AS holder_name,
+    (analytics.job_today() - COALESCE(cs.received_on, ps.last_sent_on, analytics.job_bkk_date(j.created_at))) AS days_in_stage,
+    ((j.due_date IS NOT NULL) AND (j.status = ANY (ARRAY['open'::text, 'in_progress'::text, 'on_hold'::text])) AND (j.due_date < analytics.job_today())) AS is_overdue,
+    ev.last_event_at,
+    ev.last_scan_at,
+    ((j.status = ANY (ARRAY['open'::text, 'in_progress'::text])) AND (analytics.job_bkk_date(COALESCE(ev.last_event_at, j.created_at)) < (analytics.job_today() - 3))) AS is_stale,
+    st.stage_count,
+    st.stage_done_count,
+    st.has_auto_closed,
+    ((j.source_kind = 'oem'::text) AND (COALESCE(pay.paid, (0)::numeric) <= (0)::numeric)) AS deposit_missing,
+    (j.start_gate_note IS NOT NULL) AS start_gate_note_present,
+    ((j.source_kind = 'oem'::text) AND (j.status <> ALL (ARRAY['done'::text, 'cancelled'::text])) AND (j.parent_job_id IS NULL) AND (aqi.qty IS DISTINCT FROM j.qty_order)) AS quote_qty_mismatch,
+    aqi.qty AS quote_item_qty,
+    j.created_at,
+    j.done_at,
+    j.cancelled_at,
+        CASE
+            WHEN (j.status = ANY (ARRAY['done'::text, 'cancelled'::text])) THEN j.status
+            WHEN (j.current_stage_code IS NULL) THEN 'awaiting_close'::text
+            ELSE j.current_stage_code
+        END AS board_column,
+    hg.handoff_gap_g,
+    hmc.handoff_mismatch_count,
+    j.qty_order,
+        CASE
+            WHEN (j.status = 'done'::text) THEN (j.qty_good - j.qty_order)
+            ELSE NULL::integer
+        END AS qty_surplus,
+    ((j.status <> ALL (ARRAY['done'::text, 'cancelled'::text])) AND (j.qty_planned < j.qty_order)) AS under_planned,
+    ((j.status = 'done'::text) AND (j.qty_good > j.qty_order) AND (j.surplus_disposition = 'hold'::text)) AS surplus_pending,
+    j.surplus_disposition,
+    j.target_piece_g,
+    j.metal_plan_g,
+    j.profile_name,
+    COALESCE(pw.has_weigh, false) AS has_weigh,
+    ((j.metal = 'gold'::text) AND (j.status <> ALL (ARRAY['done'::text, 'cancelled'::text])) AND COALESCE(pw.unguarded, false)) AS gold_unguarded
+   FROM ((((((((((((((analytics.job j
+     LEFT JOIN analytics.job_stage cs ON (((cs.job_id = j.id) AND (cs.stage_code = j.current_stage_code))))
+     LEFT JOIN analytics.job_stage_def d ON (((d.shop_id = j.shop_id) AND (d.code = j.current_stage_code))))
+     LEFT JOIN analytics.worker w ON ((w.id = cs.worker_id)))
+     LEFT JOIN LATERAL ( SELECT max(s.sent_on) AS last_sent_on
+           FROM analytics.job_stage s
+          WHERE (s.job_id = j.id)) ps ON (true))
+     LEFT JOIN LATERAL ( SELECT max(e.recorded_at) AS last_event_at,
+            max(e.recorded_at) FILTER (WHERE (e.channel = 'worker_qr'::text)) AS last_scan_at
+           FROM analytics.job_event e
+          WHERE (e.job_id = j.id)) ev ON (true))
+     LEFT JOIN LATERAL ( SELECT (count(*))::integer AS stage_count,
+            (count(*) FILTER (WHERE (s.status = ANY (ARRAY['sent'::text, 'skipped'::text]))))::integer AS stage_done_count,
+            COALESCE(bool_or(s.auto_closed), false) AS has_auto_closed
+           FROM analytics.job_stage s
+          WHERE (s.job_id = j.id)) st ON (true))
+     LEFT JOIN LATERAL ( SELECT q.id,
+            q.quote_no
+           FROM analytics.oem_quote q
+          WHERE ((j.source_kind = 'oem'::text) AND (COALESCE(q.root_quote_id, q.id) = j.root_quote_id))
+          ORDER BY (q.status = 'superseded'::text), q.created_at DESC
+         LIMIT 1) aq ON (true))
+     LEFT JOIN LATERAL ( SELECT COALESCE(v.paid_thb, (0)::numeric) AS paid
+           FROM analytics.v_oem_quote v
+          WHERE (v.id = aq.id)) pay ON (true))
+     LEFT JOIN LATERAL ( SELECT i.qty
+           FROM analytics.oem_quote_item i
+          WHERE ((i.quote_id = aq.id) AND (i.seq = j.oem_item_seq))) aqi ON (true))
+     LEFT JOIN analytics.production_order_item poi ON ((poi.id = j.production_order_item_id)))
+     LEFT JOIN analytics.production_order po ON ((po.id = poi.production_order_id)))
+     LEFT JOIN LATERAL ( SELECT max(abs(l.handoff_gap_g)) AS handoff_gap_g
+           FROM analytics.v_job_stage_loss l
+          WHERE (l.job_id = j.id)) hg ON (true))
+     LEFT JOIN LATERAL ( SELECT (count(*))::integer AS handoff_mismatch_count
+           FROM analytics.job_event e
+          WHERE ((e.job_id = j.id) AND (e.event_type = 'weigh'::text) AND ((e.payload ->> 'kind'::text) = 'handoff_mismatch'::text))) hmc ON (true))
+     LEFT JOIN LATERAL ( SELECT bool_or(s.weigh_required) AS has_weigh,
+            bool_or((d2.metal_present AND (NOT s.weigh_required) AND (s.status <> 'skipped'::text))) AS unguarded
+           FROM (analytics.job_stage s
+             JOIN analytics.job_stage_def d2 ON (((d2.shop_id = s.shop_id) AND (d2.code = s.stage_code))))
+          WHERE (s.job_id = j.id)) pw ON (true))
+
+  ) b
+  join analytics.job jj on jj.id = b.id
+  left join lateral (
+    select (count(*) filter (where t.status <> 'cancelled'))::integer as parts_count,
+           (count(*) filter (where t.status in ('open', 'in_progress', 'on_hold')))::integer as parts_open,
+           coalesce((select sum(d.qty) from analytics.job_discrepancy d
+                      where d.root_job_id = jj.id and d.status = 'open'
+                        and not exists (select 1 from analytics.job_discrepancy v where v.void_of_id = d.id)), 0)::integer as qty_pending_explanation
+      from analytics.job t
+     where jj.parent_job_id is null and (t.id = jj.id or t.parent_job_id = jj.id)
+  ) lt on true
+  left join lateral (select max(abs(l.handoff_gap_partial_g)) as gap from analytics.v_job_stage_loss l where l.job_id = jj.id) hgp on true;
 
 -- ============================================================================
 -- 8. สิทธิ์ — service_role เท่านั้น (migration-traps ข้อ 2, 7, 18) · ปิดทุกอย่างก่อนแล้วเปิดเฉพาะที่ตั้งใจ · เฉพาะ object ที่ไฟล์นี้แตะ (ไม่เหวี่ยงแห)
@@ -3123,7 +3199,7 @@ begin
   if v_bad > 0 then
     raise exception '0181: พบใบงาน % ใบที่ไม่ใช่ "ใบแม่ส่วนเดียว" (parent/lot_seq/split_out) — ควรเป็น 0 ตอน apply ครั้งแรก', v_bad;
   end if;
-  select count(*) into v_bad from analytics.job_stage where qty_split_out <> 0 or split_from_stage_id is not null;
+  select count(*) into v_bad from analytics.job_stage where qty_split_out <> 0 or split_from_stage_id is not null or weight_split_out_g <> 0;
   if v_bad > 0 then
     raise exception '0181: พบขั้นที่มี split_out/split_from % ขั้น — ควรเป็น 0 ตอน apply ครั้งแรก', v_bad;
   end if;
@@ -3144,11 +3220,11 @@ begin
   end if;
   -- (6) view v_job_board: 44 คอลัมน์เดิมเป็น prefix เหมือนเดิมเป๊ะ + 6 คอลัมน์ใหม่ต่อท้าย
   select count(*) into v_n_after from information_schema.columns where table_schema = 'analytics' and table_name = 'v_job_board';
-  if v_n_after <> 50
+  if v_n_after <> 51
      or (select string_agg(column_name, ',' order by ordinal_position) from information_schema.columns
           where table_schema = 'analytics' and table_name = 'v_job_board' and ordinal_position > 44)
-        <> 'parent_job_id,lot_seq,parts_count,parts_open,qty_pending_explanation,dominant_stage_code' then
-    raise exception '0181: v_job_board ต้องมี 50 คอลัมน์ (44 เดิม + 6 ใหม่ต่อท้าย) — พบ %', v_n_after;
+        <> 'parent_job_id,lot_seq,parts_count,parts_open,qty_pending_explanation,dominant_stage_code,handoff_gap_partial_g' then
+    raise exception '0181: v_job_board ต้องมี 51 คอลัมน์ (44 เดิม + 7 ใหม่ต่อท้าย) — พบ %', v_n_after;
   end if;
   -- (7) ข้อมูลเดิมผ่านนิยามใหม่ (แจ้งอย่างเดียว — ใบเดิมไม่ผ่านด่านต้นไม้ เพราะข้ามสำหรับต้นไม้ที่ไม่มีส่วน)
   select count(*) into v_bad from analytics.v_job_tree_drift;
