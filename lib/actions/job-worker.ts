@@ -101,6 +101,8 @@ export interface WorkerSendInput {
   qtySend?: number | string | null;
   /** 0181: จำนวนที่ถืออยู่ตามที่เห็นบนจอ (qty_hold ของ my_actions) */
   qtyHold?: number | string | null;
+  /** 0181 H2 (มติ 19 ต.ค. ทองชั่งตอนแบ่ง): น้ำหนักส่วนที่แยกออก (กรัม) — บังคับเมื่อ metal=ทอง + ขั้นนั้นตั้งชั่ง (DB ตอบ weight_move_required) · เงิน/ขั้นไม่ชั่ง = ห้ามส่ง (weight_unexpected) */
+  weightMoveG?: number | string | null;
 }
 
 export async function workerSendStage(token: string, input: WorkerSendInput): Promise<WorkerActionResult> {
@@ -120,6 +122,7 @@ export async function workerSendStage(token: string, input: WorkerSendInput): Pr
   if (input.lotJobId != null && !isUuid(input.lotJobId)) return bad("ส่วนที่เลือกไม่ถูกต้อง");
   let qtySend: number | null = null;
   let qtyHold: number | null = null;
+  let weightMove: number | null = null;
   if (input.qtySend != null && input.qtySend !== "") {
     // ส่งต่อ n จาก N (แยกส่วน): ต้องมีจำนวนที่ถืออยู่ที่เห็นบนจอ (กันกดซ้ำ) · ห้ามมีน้ำหนักมากับการแยก (มติ ค1 — DB ปฏิเสธซ้ำ)
     const q = parsePieces(input.qtySend, "จำนวนที่ส่งต่อ");
@@ -128,13 +131,22 @@ export async function workerSendStage(token: string, input: WorkerSendInput): Pr
     if (!h.ok) return bad("โหลดหน้าใหม่แล้วลองอีกครั้ง (ไม่ทราบจำนวนที่ถืออยู่)");
     qtySend = q.value;
     qtyHold = h.value;
+    // น้ำหนักออก/เติม/เศษห้ามมากับการแยก (ค1) — ยกเว้น weightMoveG = น้ำหนักส่วนที่แยกออก (ทองที่ขั้นชั่งเท่านั้น · มติ 19 ต.ค. — DB เป็นด่านจริงว่าเมื่อไรบังคับ/ห้าม)
     if (q.value < h.value && (w.value !== null || added.value > 0 || sw.value !== null)) return bad("การแยกส่วนนับจำนวนอย่างเดียว ไม่ต้องชั่งน้ำหนัก");
+    if (input.weightMoveG != null && input.weightMoveG !== "") {
+      const wm = parseWeight(input.weightMoveG, "น้ำหนักส่วนที่แยกออก");
+      if (!wm.ok) return bad(wm.error);
+      if (wm.value === null || wm.value <= 0) return bad("น้ำหนักส่วนที่แยกออกต้องมากกว่า 0");
+      weightMove = wm.value;
+    }
+  } else if (input.weightMoveG != null && input.weightMoveG !== "") {
+    return bad("น้ำหนักส่วนที่แยกออกใช้กับการแยกส่วนเท่านั้น");
   } else if (input.qtyHold != null && input.qtyHold !== "") {
     const h = parsePieces(input.qtyHold, "จำนวนที่ถืออยู่");
     if (!h.ok) return bad(h.error);
     qtyHold = h.value;
   }
-  const r = await workerSend(token, { expectedSeq: seq.value, weightOutG: w.value, qtyScrap: scrap.value, scrapReason: reason.value, metalAddedG: added.value, scrapWeightG: sw.value, lotJobId: input.lotJobId ?? null, qtySend, qtyHold });
+  const r = await workerSend(token, { expectedSeq: seq.value, weightOutG: w.value, qtyScrap: scrap.value, scrapReason: reason.value, metalAddedG: added.value, scrapWeightG: sw.value, lotJobId: input.lotJobId ?? null, qtySend, qtyHold, weightMoveG: weightMove });
   return r.ok ? stageOk(r.data) : { ok: false, error: r.error, code: r.code, retryAfterSeconds: r.retryAfterSeconds };
 }
 

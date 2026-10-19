@@ -55,6 +55,8 @@ export interface WorkerAction {
   qtyExpected: number | null;
   /** explain */
   discrepancyId: string | null;
+  /** explain: ส่วนต่างงานทองที่มีน้ำหนักเทียบ — ออฟฟิศชี้แจงเท่านั้น (H1) · ช่างกดแล้วได้ office_required */
+  officeOnly: boolean;
   qty: number | null;
 }
 
@@ -177,6 +179,7 @@ function mapAction(raw: unknown): WorkerAction | null {
     qtyHold: numOrNull(raw.qty_hold),
     qtyExpected: numOrNull(raw.qty_expected),
     discrepancyId: uuidOrNull(raw.discrepancy_id),
+    officeOnly: raw.office_only === true,
     qty: numOrNull(raw.qty),
   };
 }
