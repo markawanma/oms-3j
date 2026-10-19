@@ -8,6 +8,9 @@
 import { useEffect, useState } from "react";
 import { Printer } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { PrintPhoto } from "@/components/domain/jobs/photos/PrintPhoto";
+import { PrintPhotoStatus } from "@/components/domain/jobs/photos/PrintPhotoStatus";
+import { usePrintPhoto } from "@/components/domain/jobs/photos/usePrintPhoto";
 import { issueJobQr } from "@/lib/actions/job-office-write";
 import type { IssuedQr } from "@/lib/actions/job-office-write";
 import { qtyOrderPlannedText } from "@/lib/jobs/board";
@@ -43,12 +46,27 @@ export function sheetColumns(job: Pick<PrintableJob, "profileName" | "stages">):
   };
 }
 
-export function JobSheet({ job, qrSvg }: { job: PrintableJob; qrSvg: string | null }) {
+export function JobSheet({
+  job,
+  qrSvg,
+  showPhoto = true,
+  onPhotoLoad,
+  onPhotoError,
+}: {
+  job: PrintableJob;
+  qrSvg: string | null;
+  /** 0182: false = ตัดรูปหลักออกจากใบ (รูปโหลดไม่ได้ → พิมพ์เป็น layout ไม่มีรูป ไม่พิมพ์กรอบว่าง/ไอคอนรูปแตก) */
+  showPhoto?: boolean;
+  onPhotoLoad?: () => void;
+  onPhotoError?: () => void;
+}) {
   const cols = sheetColumns(job);
   return (
     <article aria-label={`ใบงาน ${job.jobNo}`} className="job-sheet mx-auto w-[148mm] bg-white p-[7mm] text-[10pt] leading-snug text-black print:p-0">
       <header className="flex items-start justify-between gap-3">
         <div className="min-w-0">
+          {/* 0182: รูปหลัก 30×30 มม. ลอยขวาเป็นลูกแรกของคอลัมน์ข้อความ (ข้อความไหลอ้อม · ติด QR) — ไม่มีรูป = ไม่มีองค์ประกอบใหม่เลย (layout เดิมเป๊ะ) */}
+          {job.primaryPhotoUrl && showPhoto && <PrintPhoto url={job.primaryPhotoUrl} alt={`รูปงาน ${job.jobNo}`} onLoad={onPhotoLoad} onError={onPhotoError} />}
           <p className="text-[9pt] font-semibold">ใบงานผลิต · {job.sourceLabel}</p>
           {job.profileName !== null && <p className="text-[9pt]">แบบ: {job.profileName}</p>}
           <p className="text-[30pt] leading-none font-extrabold tracking-tight tabular-nums">{job.jobNo}</p>
@@ -131,13 +149,16 @@ export function JobPrintClient({ job, qr = { host: null, warning: null, error: n
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [issued, setIssued] = useState<IssuedQr | null>(null);
+  // 0182: รอรูปหลักโหลดก่อนพิมพ์ (ไม่พิมพ์กรอบว่าง) · โหลดไม่ได้/หมดเวลา 8 วินาที = ตัดรูปออกแล้วพิมพ์ต่อ
+  const photo = usePrintPhoto(job.primaryPhotoUrl);
+  const photoLoading = photo.status === "loading";
 
-  // พิมพ์หลัง React วาด QR แล้วเท่านั้น (ไม่พิมพ์ใบที่ยังไม่มี QR)
+  // พิมพ์หลัง React วาด QR แล้วเท่านั้น (ไม่พิมพ์ใบที่ยังไม่มี QR) และหลังรูปหลักโหลดเสร็จ/ตัดสินแล้ว
   useEffect(() => {
-    if (!issued) return;
+    if (!issued || photoLoading) return;
     const t = setTimeout(() => window.print(), 250);
     return () => clearTimeout(t);
-  }, [issued]);
+  }, [issued, photoLoading]);
 
   async function issue() {
     setBusy(true);
@@ -177,13 +198,14 @@ export function JobPrintClient({ job, qr = { host: null, warning: null, error: n
             {qr.error ?? error}
           </p>
         )}
+        <PrintPhotoStatus status={photo.status} url={job.primaryPhotoUrl} addHref={`/jobs/${job.jobId}#job-photos`} />
         <div className="flex flex-wrap gap-2">
-          <Button type="button" onClick={() => void issue()} loading={busy} disabled={qr.error !== null}>
+          <Button type="button" onClick={() => void issue()} loading={busy} disabled={qr.error !== null || photoLoading}>
             <Printer className="h-4 w-4" aria-hidden="true" />
-            {issued ? "ออก QR ใหม่และพิมพ์อีกครั้ง" : "ออก QR และพิมพ์"}
+            {photoLoading ? "กำลังโหลดรูป…" : issued ? "ออก QR ใหม่และพิมพ์อีกครั้ง" : "ออก QR และพิมพ์"}
           </Button>
           {issued && (
-            <Button type="button" variant="secondary" onClick={() => window.print()}>
+            <Button type="button" variant="secondary" onClick={() => window.print()} disabled={photoLoading}>
               พิมพ์ใบนี้ซ้ำ
             </Button>
           )}
@@ -194,7 +216,7 @@ export function JobPrintClient({ job, qr = { host: null, warning: null, error: n
           </p>
         )}
       </section>
-      <JobSheet job={job} qrSvg={issued?.svg ?? null} />
+      <JobSheet job={job} qrSvg={issued?.svg ?? null} showPhoto={photo.status !== "failed"} onPhotoLoad={photo.onLoad} onPhotoError={photo.onError} />
     </div>
   );
 }

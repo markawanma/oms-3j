@@ -9,6 +9,9 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { Printer } from "lucide-react";
 import { Button } from "@/components/ui/Button";
+import { PrintPhoto } from "@/components/domain/jobs/photos/PrintPhoto";
+import { PrintPhotoStatus } from "@/components/domain/jobs/photos/PrintPhotoStatus";
+import { usePrintPhoto } from "@/components/domain/jobs/photos/usePrintPhoto";
 import { ErrorLine } from "@/components/domain/jobs/JobDialogs";
 import { QR_CAP, QR_CHANGED, QrManager, useQrList } from "@/components/domain/jobs/JobLotsSection";
 import type { QrTarget } from "@/components/domain/jobs/JobPrintClient";
@@ -18,7 +21,18 @@ import { thaiDate } from "@/lib/jobs/dates";
 import { GENERIC_JOB_ERROR } from "@/lib/jobs/messages";
 import type { PrintableSublot } from "@/lib/jobs/print";
 
-export function SublotSheet({ sub, qrSvg }: { sub: PrintableSublot; qrSvg: string | null }) {
+export function SublotSheet({ sub, qrSvg, showPhoto = true, onPhotoLoad, onPhotoError }: { sub: PrintableSublot; qrSvg: string | null; /** 0182: false = ตัดรูปหลักของใบแม่ออก (โหลดไม่ได้ → พิมพ์แบบไม่มีรูป) */ showPhoto?: boolean; onPhotoLoad?: () => void; onPhotoError?: () => void }) {
+  const photoUrl = showPhoto ? sub.primaryPhotoUrl : null;
+  // ข้อความใต้หัวใบ (ผ่านมาแล้ว · คำอธิบาย QR) — มีรูป: อยู่แถวเดียวกับรูปหลัก 30×30 มม. · ไม่มีรูป: markup เดิมเป๊ะ
+  const notes = (
+    <>
+      <p className="mt-3 text-[10pt]">
+        <strong>ผ่านมาแล้ว:</strong> {sub.passedLine || "—"}
+        {sub.stageName ? ` (ต่อที่ ${sub.stageName})` : ""}
+      </p>
+      <p className="mt-2 text-[8.5pt]">สแกน QR นี้ = เปิดใบงานเดิม ระบบแสดงเฉพาะส่วนของคนที่สแกน</p>
+    </>
+  );
   return (
     <article aria-label={`ใบย่อย ${sub.lotLabel}`} className="job-sheet mx-auto w-[148mm] bg-white p-[7mm] text-[10pt] leading-snug text-black print:p-0">
       <header className="flex items-start justify-between gap-3">
@@ -44,11 +58,14 @@ export function SublotSheet({ sub, qrSvg }: { sub: PrintableSublot; qrSvg: strin
           <p className="mt-0.5 text-[8pt]">สแกนเพื่อรับ / ส่งต่อ</p>
         </div>
       </header>
-      <p className="mt-3 text-[10pt]">
-        <strong>ผ่านมาแล้ว:</strong> {sub.passedLine || "—"}
-        {sub.stageName ? ` (ต่อที่ ${sub.stageName})` : ""}
-      </p>
-      <p className="mt-2 text-[8.5pt]">สแกน QR นี้ = เปิดใบงานเดิม ระบบแสดงเฉพาะส่วนของคนที่สแกน</p>
+      {photoUrl ? (
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">{notes}</div>
+          <PrintPhoto url={photoUrl} alt={`รูปงาน ${sub.lotLabel}`} onLoad={onPhotoLoad} onError={onPhotoError} className="mt-3" />
+        </div>
+      ) : (
+        notes
+      )}
       <div className="mt-2 h-[16mm] border border-zinc-700 p-1 text-[8pt]">หมายเหตุ</div>
     </article>
   );
@@ -59,13 +76,16 @@ export function SublotPrintClient({ sub, qrTarget = { host: null, warning: null,
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [issued, setIssued] = useState<IssuedQr | null>(null);
+  // 0182: รูปหลักของใบแม่ — รอโหลดก่อนพิมพ์ · โหลดไม่ได้/หมดเวลา 8 วินาที = ตัดรูปออกแล้วพิมพ์ต่อ
+  const photo = usePrintPhoto(sub.primaryPhotoUrl);
+  const photoLoading = photo.status === "loading";
 
-  // พิมพ์หลัง React วาด QR แล้วเท่านั้น
+  // พิมพ์หลัง React วาด QR แล้วเท่านั้น และหลังรูปหลักโหลดเสร็จ/ตัดสินแล้ว
   useEffect(() => {
-    if (!issued) return;
+    if (!issued || photoLoading) return;
     const t = setTimeout(() => window.print(), 250);
     return () => clearTimeout(t);
-  }, [issued]);
+  }, [issued, photoLoading]);
 
   async function issue() {
     if (busy) return;
@@ -106,13 +126,14 @@ export function SublotPrintClient({ sub, qrTarget = { host: null, warning: null,
             QR ใช้งานครบ {QR_CAP} ใบแล้ว — เลือกเพิกถอนใบที่หายหรือไม่ใช้ด้านล่างก่อน จึงพิมพ์ใบย่อยเพิ่มได้ (ระบบไม่เพิกถอนให้เอง)
           </p>
         )}
+        <PrintPhotoStatus status={photo.status} url={sub.primaryPhotoUrl} addHref={`/jobs/${sub.jobId}#job-photos`} />
         <div className="flex flex-wrap gap-2">
-          <Button type="button" onClick={() => void issue()} loading={busy} disabled={qrTarget.error !== null || blocked || qr.state.s !== "ok"}>
+          <Button type="button" onClick={() => void issue()} loading={busy} disabled={qrTarget.error !== null || blocked || qr.state.s !== "ok" || photoLoading}>
             <Printer className="h-4 w-4" aria-hidden="true" />
-            {issued ? "ออก QR ใหม่และพิมพ์อีกครั้ง" : "ออก QR และพิมพ์"}
+            {photoLoading ? "กำลังโหลดรูป…" : issued ? "ออก QR ใหม่และพิมพ์อีกครั้ง" : "ออก QR และพิมพ์"}
           </Button>
           {issued && (
-            <Button type="button" variant="secondary" onClick={() => window.print()}>
+            <Button type="button" variant="secondary" onClick={() => window.print()} disabled={photoLoading}>
               พิมพ์ใบนี้ซ้ำ
             </Button>
           )}
@@ -127,7 +148,7 @@ export function SublotPrintClient({ sub, qrTarget = { host: null, warning: null,
         )}
         <QrManager jobId={sub.jobId} qr={qr} />
       </section>
-      <SublotSheet sub={sub} qrSvg={issued?.svg ?? null} />
+      <SublotSheet sub={sub} qrSvg={issued?.svg ?? null} showPhoto={photo.status !== "failed"} onPhotoLoad={photo.onLoad} onPhotoError={photo.onError} />
     </div>
   );
 }

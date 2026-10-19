@@ -6,9 +6,9 @@
 
 import type { ReactNode } from "react";
 
-export function PrintPhoto({ url, alt, onLoad, onError, children }: { url: string; alt: string; onLoad?: () => void; onError?: () => void; children?: ReactNode }) {
+export function PrintPhoto({ url, alt, onLoad, onError, className = "", children }: { url: string; alt: string; onLoad?: () => void; onError?: () => void; className?: string; children?: ReactNode }) {
   return (
-    <div data-testid="print-photo" className="float-right ml-[3mm] mr-[1mm] mb-[1mm] w-[30mm]">
+    <div data-testid="print-photo" className={`float-right ml-[3mm] mr-[1mm] mb-[1mm] w-[30mm] shrink-0 ${className}`}>
       {/* eslint-disable-next-line @next/next/no-img-element -- signed URL อายุสั้น · พิมพ์ต้องเป็น <img> ธรรมดา */}
       <img src={url} alt={alt} referrerPolicy="no-referrer" onLoad={onLoad} onError={onError} className="block h-[30mm] w-[30mm] border border-zinc-700 bg-white object-contain" />
       {children}
