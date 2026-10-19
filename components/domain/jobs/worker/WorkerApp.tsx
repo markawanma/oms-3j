@@ -9,7 +9,8 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, CheckCircle2 } from "lucide-react";
 import { IdentifyPanel, ReceivePanel, SendPanel } from "@/components/domain/jobs/worker/WorkerPanels";
-import type { DoneTone } from "@/components/domain/jobs/worker/WorkerPanels";
+import type { DoneTone, SplitResultInfo } from "@/components/domain/jobs/worker/WorkerPanels";
+import { MultiPanel, SplitDone } from "@/components/domain/jobs/worker/WorkerLots";
 import { BigButton, PanelSkeleton, StageStrip, useHydrated } from "@/components/domain/jobs/worker/WorkerParts";
 import { workerLogout } from "@/lib/actions/job-worker";
 import { WORKER_CODE_TH, prevNotSentMessage } from "@/lib/jobs/messages";
@@ -35,6 +36,8 @@ export function WorkerApp({ token, view }: { token: string; view: WorkerView }) 
   const ready = useHydrated();
   const [done, setDone] = useState<{ msg: string; tone: DoneTone } | null>(null);
   const [outBusy, setOutBusy] = useState(false);
+  // 0181: แยกส่วนสำเร็จ → จอ "แบ่งส่วนแล้ว" (QR ใบเดิมบนจอ + ยกเลิกการแยก) — ไม่ปิดเอง
+  const [split, setSplit] = useState<SplitResultInfo | null>(null);
   // N5: หลัง refresh ข้อมูลใหม่ยังไม่มา แผงเก่าห้ามกดได้ — โชว์ skeleton จนกว่า view ใหม่จะมาถึง (หรือครบ 8 วิ กันค้าง)
   const [waiting, setWaiting] = useState(false);
   const j = view.job;
@@ -61,6 +64,18 @@ export function WorkerApp({ token, view }: { token: string; view: WorkerView }) 
     }, done.tone === "warn" ? 4000 : 2000);
     return () => clearTimeout(t);
   }, [done, refreshView]);
+
+  if (split) {
+    return (
+      <SplitDone
+        token={token}
+        view={view}
+        info={split}
+        onFinish={() => { setSplit(null); refreshView(); }}
+        onCancelled={(msg) => { setSplit(null); setDone({ msg, tone: "ok" }); }}
+      />
+    );
+  }
 
   if (done) {
     const warn = done.tone === "warn";
@@ -90,6 +105,9 @@ export function WorkerApp({ token, view }: { token: string; view: WorkerView }) 
     }
   }
 
+  const multi = view.nextAction === "multi";
+  // 0181: ใบเดี่ยว — my_actions ของขั้นที่ action_stage ชี้ (ใช้เปิดช่อง "ส่งไม่ครบ?/ได้ไม่ครบ?") · ไม่มี = หน้าเดิมทุกประการ
+  const soloAction = (kind: "send" | "receive") => view.myActions?.find((a) => a.action === kind && a.stageSeq === view.actionStage?.seq);
   const info = view.nextAction === "prev_not_sent" ? { tone: "amber" as const, text: prevNotSentMessage(prevStageName(view)) } : INFO[view.nextAction];
 
   return (
@@ -112,15 +130,16 @@ export function WorkerApp({ token, view }: { token: string; view: WorkerView }) 
         </p>
       )}
 
-      {view.nextAction !== "held_by_other" && view.heldBy && view.heldBy !== view.viewer?.displayName && <p className="rounded-xl bg-zinc-100 p-3 text-lg text-zinc-900">ตอนนี้อยู่กับ <strong>{view.heldBy}</strong></p>}
+      {!multi && view.nextAction !== "held_by_other" && view.heldBy && view.heldBy !== view.viewer?.displayName && <p className="rounded-xl bg-zinc-100 p-3 text-lg text-zinc-900">ตอนนี้อยู่กับ <strong>{view.heldBy}</strong></p>}
 
       {!ready || waiting ? (
         <PanelSkeleton />
       ) : (
         <>
           {view.nextAction === "identify" && <IdentifyPanel token={token} workers={view.workers} onDone={refreshView} />}
-          {view.nextAction === "receive" && view.actionStage && <ReceivePanel token={token} view={view} onDone={(msg, tone = "ok") => setDone({ msg, tone })} onReload={refreshView} />}
-          {view.nextAction === "send" && view.actionStage && <SendPanel token={token} view={view} onDone={(msg, tone = "ok") => setDone({ msg, tone })} onReload={refreshView} />}
+          {view.nextAction === "receive" && view.actionStage && <ReceivePanel token={token} view={view} action={soloAction("receive")} onDone={(msg, tone = "ok") => setDone({ msg, tone })} onReload={refreshView} />}
+          {view.nextAction === "send" && view.actionStage && <SendPanel token={token} view={view} action={soloAction("send")} onSplit={setSplit} onDone={(msg, tone = "ok") => setDone({ msg, tone })} onReload={refreshView} />}
+          {multi && <MultiPanel token={token} view={view} onDone={(msg, tone = "ok") => setDone({ msg, tone })} onReload={refreshView} onSplit={setSplit} onCancelled={(msg) => setDone({ msg, tone: "ok" })} />}
           {view.nextAction === "held_by_other" && (
             <p className="rounded-xl bg-zinc-100 p-4 text-xl text-zinc-900">ขั้น {view.actionStage?.name ?? "นี้"} ยังอยู่กับ {view.heldBy ?? "คนอื่น"} — รอเขาส่งต่อก่อน</p>
           )}

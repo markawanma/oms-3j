@@ -159,7 +159,78 @@ export function StageStrip({ stages, currentSeq }: { stages: WorkerViewStage[]; 
 }
 
 // ---------------------------------------------------------------------------
-const STEP_BTN = "flex items-center justify-center rounded-xl border-2 border-zinc-400 bg-white font-bold text-zinc-900 disabled:opacity-40";
+const QTY_BTN = "flex h-14 w-14 shrink-0 items-center justify-center rounded-xl border-2 border-zinc-400 bg-white font-bold text-zinc-900 disabled:opacity-40";
+
+/**
+ * ตัวเพิ่ม/ลดจำนวนชิ้น (− n +) ปุ่ม 56px + พิมพ์ได้ (0181 ส่งต่อ n จาก N · รับจำนวนจริง)
+ * ค่าเป็นข้อความ (พิมพ์ทีละตัวได้) — ผู้เรียกตรวจรูปแบบด้วย parseQtyText · ตัวเลขช่องกรอก ≥ 24px ตามสเปก · พิมพ์ได้เฉพาะตัวเลข (inputMode numeric)
+ * min/max จำกัดปุ่ม ± เท่านั้น (ค่าที่พิมพ์เองตรวจตอนกดปุ่มหลัก) · ไม่มีตัวเลขเงิน/น้ำหนัก
+ */
+export function QtyStepper({
+  id,
+  label,
+  value,
+  onChange,
+  min = 1,
+  max,
+  hint,
+  error,
+  disabled,
+}: {
+  id: string;
+  label: string;
+  value: string;
+  onChange: (v: string) => void;
+  min?: number;
+  max: number;
+  hint?: string | null;
+  error?: string | null;
+  disabled?: boolean;
+}) {
+  const cur = /^\d+$/.test(value.trim()) ? Number(value.trim()) : null;
+  const bump = (d: number) => onChange(String(Math.min(max, Math.max(min, (cur ?? min) + d))));
+  return (
+    <div className="space-y-1.5">
+      <label htmlFor={id} className="block text-lg font-semibold text-zinc-900">
+        {label}
+      </label>
+      <div className="flex items-center gap-3">
+        <button type="button" aria-label={`ลด${label}`} disabled={disabled || (cur !== null && cur <= min)} onClick={() => bump(-1)} className={QTY_BTN}>
+          <Minus className="h-7 w-7" aria-hidden="true" />
+        </button>
+        <input
+          id={id}
+          type="text"
+          inputMode="numeric"
+          autoComplete="off"
+          enterKeyHint="done"
+          value={value}
+          disabled={disabled}
+          onChange={(e) => onChange(e.target.value.replace(/[^0-9]/g, ""))}
+          aria-invalid={!!error}
+          aria-describedby={error ? `${id}-err` : hint ? `${id}-hint` : undefined}
+          className="min-h-14 min-w-0 flex-1 rounded-xl border-2 border-zinc-900 bg-white px-3 text-center text-3xl font-bold tabular-nums text-zinc-900 focus:border-primary-600 focus:outline-none focus:ring-4 focus:ring-primary-200 disabled:opacity-50"
+        />
+        <button type="button" aria-label={`เพิ่ม${label}`} disabled={disabled || (cur !== null && cur >= max)} onClick={() => bump(1)} className={QTY_BTN}>
+          <Plus className="h-7 w-7" aria-hidden="true" />
+        </button>
+      </div>
+      {hint && !error && (
+        <p id={`${id}-hint`} className="text-lg text-zinc-700">
+          {hint}
+        </p>
+      )}
+      {error && (
+        <p id={`${id}-err`} role="alert" className="text-lg font-semibold text-red-700">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+const STEP_BTN ="flex items-center justify-center rounded-xl border-2 border-zinc-400 bg-white font-bold text-zinc-900 disabled:opacity-40";
 
 export function ScrapStepper({
   qty,
