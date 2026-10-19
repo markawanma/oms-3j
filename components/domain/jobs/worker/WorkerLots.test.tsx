@@ -676,23 +676,34 @@ describe("จอส่ง/รับ v2 (ux-worker-send-receive-v2) — ใบเ
       expect(screen.getByLabelText("จำนวนที่ส่ง")).toHaveValue("53");
       expect(legend("เหลือกับฉัน")).toHaveTextContent("0");
     });
-    it("Q2 เสียหมดทั้งก้อน (DB ยอม: job_core_send ให้เสียได้ถึงจำนวนที่ถือ): ปุ่ม 'แจ้งเสียหมด 3 ชิ้น' ไม่ใช่ 'ส่ง 0 ชิ้น' · ต้องเลือกเหตุผล · payload qtyScrap 3 ไม่มี qtySend", async () => {
+    it("เสียหมดทั้งก้อน (3 จาก 3): ไม่มีปุ่ม 'แจ้งเสียหมด' · ปุ่มหลักปิด 'เสียหมดทั้ง 3 ชิ้น — แจ้งออฟฟิศให้ยกเลิก/ปิดใบ' · กดไม่เรียก server · ลดเสียแล้วกลับมาส่งได้", async () => {
       render(<WorkerApp token={TOKEN} view={soloSend(3)} />);
       await screen.findByText("ส่งกี่ชิ้น");
       await openScrap();
       for (let i = 0; i < 3; i++) await userEvent.click(screen.getByRole("button", { name: "เพิ่มของเสีย" }));
-      const btn = screen.getByRole("button", { name: "แจ้งเสียหมด 3 ชิ้น" });
-      expect(btn).toBeEnabled();
+      const btn = screen.getByRole("button", { name: "เสียหมดทั้ง 3 ชิ้น — แจ้งออฟฟิศให้ยกเลิก/ปิดใบ" });
+      expect(btn).toBeDisabled();
+      expect(screen.queryByRole("button", { name: /แจ้งเสียหมด/ })).not.toBeInTheDocument();
       expect(screen.queryByRole("button", { name: /^ส่ง 0/ })).not.toBeInTheDocument();
-      await userEvent.click(btn);
-      expect(await screen.findByText("เลือกเหตุผลของเสีย")).toBeInTheDocument();
+      expect(screen.getByText(/ให้ออฟฟิศเป็นคนปิดใบ/)).toBeInTheDocument();
+      // stepper ของเสียกรอกถึง N ได้ แต่ไม่เกินที่ถือ
+      await userEvent.click(screen.getByRole("button", { name: "เพิ่มของเสีย" }));
+      expect(document.querySelector("output")).toHaveTextContent("3");
+      await userEvent.click(btn, { pointerEventsCheck: 0 });
       expect(workerSendStage).not.toHaveBeenCalled();
-      await userEvent.click(screen.getByRole("radio", { name: "หัก" }));
-      await userEvent.click(screen.getByRole("button", { name: "แจ้งเสียหมด 3 ชิ้น" }));
-      await waitFor(() => expect(workerSendStage).toHaveBeenCalledTimes(1));
-      const input = workerSendStage.mock.calls[0][1];
-      expect(input).toMatchObject({ qtyScrap: 3, qtyHold: 3 });
-      expect(input).not.toHaveProperty("qtySend");
+      await userEvent.click(screen.getByRole("button", { name: "ลดของเสีย" }));
+      expect(screen.getByRole("button", { name: "ส่ง 1 ชิ้น · เสีย 2" })).toBeEnabled();
+      expect(screen.queryByText(/ให้ออฟฟิศเป็นคนปิดใบ/)).not.toBeInTheDocument();
+    });
+    it("ถือชิ้นเดียวแล้วแจ้งเสีย 1 = เสียหมดทั้ง 1 ชิ้น · ปุ่มปิด · ไม่เรียก server", async () => {
+      render(<WorkerApp token={TOKEN} view={soloSend(1)} />);
+      await screen.findByRole("button", { name: "ส่ง 1 ชิ้น" });
+      await openScrap();
+      await userEvent.click(screen.getByRole("button", { name: "เพิ่มของเสีย" }));
+      const btn = screen.getByRole("button", { name: "เสียหมดทั้ง 1 ชิ้น — แจ้งออฟฟิศให้ยกเลิก/ปิดใบ" });
+      expect(btn).toBeDisabled();
+      await userEvent.click(btn, { pointerEventsCheck: 0 });
+      expect(workerSendStage).not.toHaveBeenCalled();
     });
     it("ถือชิ้นเดียว: อ่านอย่างเดียว 'ส่ง 1 ชิ้น' (ไม่มีช่อง/แถบ) · ปุ่ม 'ส่ง 1 ชิ้น' · qtyHold 1 ไม่มี qtySend", async () => {
       render(<WorkerApp token={TOKEN} view={soloSend(1)} />);
@@ -746,6 +757,14 @@ describe("จอส่ง/รับ v2 (ux-worker-send-receive-v2) — ใบเ
   });
 
   describe("จอรับ", () => {
+    it("ที่ส่งมา 0 ชิ้น (ใบเก่าที่เคยเสียหมด): ไม่มีปุ่มรับ/ช่องจำนวน · ข้อความ 'ขั้นก่อนเสียหมด — แจ้งออฟฟิศ' · ไม่เรียก server", async () => {
+      render(<WorkerApp token={TOKEN} view={soloRecv(0)} />);
+      expect(await screen.findByText("ขั้นก่อนเสียหมด — แจ้งออฟฟิศ")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /^รับ/ })).not.toBeInTheDocument();
+      expect(screen.queryByLabelText("จำนวนที่ได้รับ")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("qty-bar")).not.toBeInTheDocument();
+      expect(workerReceiveStage).not.toHaveBeenCalled();
+    });
     it("'รับงาน: ฝังพลอย' · 'ได้รับกี่ชิ้น' · เลขกลาง 53 (text-5xl) · 'ขั้นก่อนส่งมา 53 ชิ้น' · ชิป 'ครบ 53' กดอยู่ · แถบ · legend '✓ ครบ 53 ชิ้น' · ปุ่ม 'รับ 53 ชิ้น' · ไม่มีหัวจอเลขซ้ำ", async () => {
       render(<WorkerApp token={TOKEN} view={soloRecv()} />);
       expect(await screen.findByText("ได้รับกี่ชิ้น")).toBeInTheDocument();

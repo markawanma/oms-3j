@@ -3,7 +3,8 @@
 // ย้ายสูตร allCount/partial/keep ที่เคยฝังใน SendPanel ออกมา "ไม่เปลี่ยนสูตร": ส่งทั้งหมด = ถือ − เสีย (DB หักเสียเอง ไม่ส่ง qtySend) · น้อยกว่า = แยกส่วน (qtySend) · มากกว่า = ผิด
 // ศัพท์ชุดเดียว: ส่ง / ส่งไป / เหลือกับฉัน (ไม่ใช้ ส่งต่อ/ส่งออก/ค้าง/ถืออยู่/ส่วนใหม่ บนจอส่ง-รับ)
 
-export type SplitState = "all" | "partial" | "empty" | "over";
+/** scrapAll = ของเสียเท่าที่ถือ (ไม่เหลืออะไรให้ส่ง) — หน้าช่างห้ามแจ้งเสียหมดทั้งก้อน (ขั้นถัดไปรับ 0 ชิ้นไม่ได้ → ใบค้าง) ต้องให้ออฟฟิศยกเลิก/ปิดใบ */
+export type SplitState = "all" | "partial" | "empty" | "over" | "scrapAll";
 
 export interface SplitView {
   /** ส่งหมดได้กี่ชิ้น = ถือ − เสีย (≥ 0) */
@@ -20,8 +21,8 @@ export interface SplitView {
 export function splitView(i: { hold: number; scrap: number; n: number | null }): SplitView {
   const scrap = Math.max(0, i.scrap);
   const allCount = Math.max(0, i.hold - scrap);
+  if (allCount === 0) return { allCount, send: 0, keep: 0, scrap, state: "scrapAll" }; // เสียหมดทั้งก้อน — ไม่ส่งอะไรไป server
   if (i.n === null) return { allCount, send: 0, keep: 0, scrap, state: "empty" };
-  if (allCount === 0) return { allCount, send: 0, keep: 0, scrap, state: "all" }; // เสียหมดทั้งก้อน — ไม่มีอะไรจะส่ง
   if (i.n > allCount) return { allCount, send: 0, keep: 0, scrap, state: "over" };
   if (i.n === allCount) return { allCount, send: allCount, keep: 0, scrap, state: "all" };
   return { allCount, send: i.n, keep: allCount - i.n, scrap, state: "partial" };
@@ -36,21 +37,25 @@ export function clampSendText(text: string | null, hold: number, scrap: number):
   return Number(text.trim()) > all ? String(all) : text;
 }
 
+/** เสียหมดทั้งก้อน: ปุ่มหลักปิด + ข้อความนี้ (ไม่มีการส่งอะไรไป server) */
+export const scrapAllMessage = (hold: number): string => `เสียหมดทั้ง ${hold} ชิ้น — แจ้งออฟฟิศให้ยกเลิก/ปิดใบ`;
+
 /** ปุ่มหลักจอส่ง — พูดผลลัพธ์ (ตาราง §4.4) */
 export function sendButtonLabel(v: SplitView & { hold: number }): string {
   if (v.state === "empty") return "ใส่จำนวนที่ส่ง";
   if (v.state === "over") return `ส่งได้ไม่เกิน ${v.allCount} ชิ้น`;
-  if (v.allCount === 0) return `แจ้งเสียหมด ${v.hold} ชิ้น`;
+  if (v.state === "scrapAll") return scrapAllMessage(v.hold);
   if (v.hold === 1) return "ส่ง 1 ชิ้น";
   if (v.state === "all") return v.scrap > 0 ? `ส่ง ${v.send} ชิ้น · เสีย ${v.scrap}` : `ส่งหมด ${v.send} ชิ้น`;
   return v.scrap > 0 ? `ส่ง ${v.send} ชิ้น · เสีย ${v.scrap} · เหลือกับฉัน ${v.keep}` : `ส่ง ${v.send} ชิ้น · เหลือกับฉัน ${v.keep}`;
 }
 
-/** ปุ่มจอส่งปิดเมื่อเลขยังใช้ไม่ได้ (ว่าง/เกิน) — ด่านอื่น (เหตุผลของเสีย/น้ำหนัก) แสดงข้อความใต้ช่องตอนกด ไม่ปิดปุ่ม */
-export const sendDisabled = (s: SplitState): boolean => s === "empty" || s === "over";
+/** ปุ่มจอส่งปิดเมื่อเลขยังใช้ไม่ได้ (ว่าง/เกิน) หรือเสียหมดทั้งก้อน — ด่านอื่น (เหตุผลของเสีย/น้ำหนัก) แสดงข้อความใต้ช่องตอนกด ไม่ปิดปุ่ม */
+export const sendDisabled = (s: SplitState): boolean => s === "empty" || s === "over" || s === "scrapAll";
 
 // ---------------------------------------------------------------------------
-export type ReceiveState = "all" | "short" | "empty" | "over";
+/** none = ขั้นก่อนเสียหมด (ที่ส่งมา 0 ชิ้น · ใบเก่า) — ไม่มีปุ่มรับ ให้แจ้งออฟฟิศ */
+export type ReceiveState = "all" | "short" | "empty" | "over" | "none";
 
 export interface ReceiveView {
   /** ที่ส่งมา (E) */
@@ -64,19 +69,23 @@ export interface ReceiveView {
 
 /** r = จำนวนที่ได้รับ · null = ว่าง/พิมพ์ไม่ผ่าน */
 export function receiveView(i: { expected: number; r: number | null }): ReceiveView {
+  if (i.expected <= 0) return { expected: 0, got: 0, missing: 0, state: "none" };
   if (i.r === null) return { expected: i.expected, got: 0, missing: 0, state: "empty" };
   if (i.r > i.expected) return { expected: i.expected, got: 0, missing: 0, state: "over" };
   if (i.r === i.expected) return { expected: i.expected, got: i.r, missing: 0, state: "all" };
   return { expected: i.expected, got: i.r, missing: i.expected - i.r, state: "short" };
 }
 
+export const RECEIVE_NONE_MESSAGE = "ขั้นก่อนเสียหมด — แจ้งออฟฟิศ";
+
 /** ปุ่มหลักจอรับ (ตาราง §5.3) · expected = null (ไม่รู้จำนวน) = "รับงาน" เดิม */
 export function receiveButtonLabel(expected: number | null, v: ReceiveView | null): string {
   if (expected === null || v === null) return "รับงาน";
+  if (v.state === "none") return RECEIVE_NONE_MESSAGE;
   if (v.state === "empty") return "ใส่จำนวนที่ได้รับ";
   if (v.state === "over") return `รับได้ไม่เกิน ${expected} ชิ้น`;
   if (v.state === "short") return `รับ ${v.got} ชิ้น · ขาด ${v.missing}`;
   return `รับ ${v.got} ชิ้น`;
 }
 
-export const receiveDisabled = (s: ReceiveState): boolean => s === "empty" || s === "over";
+export const receiveDisabled = (s: ReceiveState): boolean => s === "empty" || s === "over" || s === "none";

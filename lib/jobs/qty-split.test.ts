@@ -1,6 +1,6 @@
 // qty-split (pure) — สูตรจำนวนชิ้นจอส่ง/รับหน้าช่าง v2 · เคส "ต้องถูก" ตาม ux-worker-send-receive-v2.md §9
 import { describe, expect, it } from "vitest";
-import { clampSendText, receiveButtonLabel, receiveView, sendButtonLabel, sendDisabled, splitView } from "@/lib/jobs/qty-split";
+import { clampSendText, receiveButtonLabel, receiveDisabled, receiveView, sendButtonLabel, sendDisabled, splitView } from "@/lib/jobs/qty-split";
 
 const label = (hold: number, scrap: number, n: number | null) => {
   const v = splitView({ hold, scrap, n });
@@ -44,12 +44,21 @@ describe("splitView + sendButtonLabel", () => {
   it("ถือ 1 → 'ส่ง 1 ชิ้น' (ไม่ใช่ ส่งหมด)", () => {
     expect(label(1, 0, 1).text).toBe("ส่ง 1 ชิ้น");
   });
-  it("เสียหมดทั้งก้อน (allCount 0) → 'แจ้งเสียหมด 53 ชิ้น' ไม่ใช่ 'ส่ง 0 ชิ้น' · ปุ่มไม่ปิด", () => {
-    const { v, text } = label(53, 53, 0);
-    expect(v).toMatchObject({ allCount: 0, send: 0, keep: 0, state: "all" });
-    expect(text).toBe("แจ้งเสียหมด 53 ชิ้น");
-    expect(text).not.toMatch(/ส่ง 0/);
+  it("เสียหมดทั้งก้อน (allCount 0) → scrapAll · ปุ่มปิด · 'เสียหมดทั้ง 53 ชิ้น — แจ้งออฟฟิศให้ยกเลิก/ปิดใบ' (ไม่มีปุ่มแจ้งเสียหมด · ไม่ใช่ 'ส่ง 0 ชิ้น')", () => {
+    for (const n of [0, 5, null]) {
+      const { v, text } = label(53, 53, n);
+      expect(v).toMatchObject({ allCount: 0, send: 0, keep: 0, state: "scrapAll" });
+      expect(text).toBe("เสียหมดทั้ง 53 ชิ้น — แจ้งออฟฟิศให้ยกเลิก/ปิดใบ");
+      expect(text).not.toMatch(/ส่ง 0|แจ้งเสียหมด/);
+      expect(sendDisabled(v.state)).toBe(true);
+    }
+    expect(label(1, 1, 0).text).toBe("เสียหมดทั้ง 1 ชิ้น — แจ้งออฟฟิศให้ยกเลิก/ปิดใบ");
+  });
+  it("เสีย = ถือ − 1 ยังส่งได้ 1 ชิ้น (ไม่ใช่ scrapAll)", () => {
+    const { v, text } = label(53, 52, 1);
+    expect(v.state).toBe("all");
     expect(sendDisabled(v.state)).toBe(false);
+    expect(text).toBe("ส่ง 1 ชิ้น · เสีย 52");
   });
   it("เสียมากกว่าที่ถือ (ข้อมูลผิด) ไม่ทำให้ติดลบ", () => {
     expect(splitView({ hold: 5, scrap: 9, n: 1 })).toMatchObject({ allCount: 0, send: 0, keep: 0 });
@@ -97,6 +106,15 @@ describe("receiveView + receiveButtonLabel", () => {
     expect(receiveView({ expected: 50, r: 51 }).state).toBe("over");
     expect(btn(50, 51)).toBe("รับได้ไม่เกิน 50 ชิ้น");
     expect(btn(50, null)).toBe("ใส่จำนวนที่ได้รับ");
+  });
+  it("E=0 (ขั้นก่อนเสียหมด · ใบเก่า) → none · ปิดรับ · 'ขั้นก่อนเสียหมด — แจ้งออฟฟิศ' ไม่ว่า r เป็นอะไร", () => {
+    for (const r of [0, 1, null]) {
+      const v = receiveView({ expected: 0, r });
+      expect(v).toMatchObject({ state: "none", got: 0, missing: 0 });
+      expect(receiveDisabled(v.state)).toBe(true);
+      expect(btn(0, r)).toBe("ขั้นก่อนเสียหมด — แจ้งออฟฟิศ");
+    }
+    expect(receiveDisabled("all")).toBe(false);
   });
   it("ไม่รู้จำนวน → 'รับงาน' เดิม · E=1 → 'รับ 1 ชิ้น'", () => {
     expect(btn(null, null)).toBe("รับงาน");

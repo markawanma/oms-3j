@@ -11,7 +11,7 @@ import type { WorkerActionResult } from "@/lib/actions/job-worker";
 import { BigButton, PinPad, QtyAllChip, QtyBar, QtyLegend, QtyStepper, ScrapStepper, WeightField } from "@/components/domain/jobs/worker/WorkerParts";
 import { parseQtyText, parseWeight } from "@/lib/jobs/input";
 import { GENERIC_JOB_ERROR, prevNotSentMessage } from "@/lib/jobs/messages";
-import { clampSendText, receiveButtonLabel, receiveDisabled, receiveView, sendButtonLabel, sendDisabled, splitView } from "@/lib/jobs/qty-split";
+import { clampSendText, RECEIVE_NONE_MESSAGE, receiveButtonLabel, receiveDisabled, receiveView, sendButtonLabel, sendDisabled, splitView } from "@/lib/jobs/qty-split";
 import { stageFieldPlan } from "@/lib/jobs/stage-fields";
 import { isMultiView, prevStageName } from "@/lib/jobs/worker-view";
 import type { WorkerAction, WorkerView } from "@/lib/jobs/worker-view";
@@ -230,6 +230,7 @@ export function ReceivePanel({
 
   async function go(a: Ack = ack) {
     if (busy || inflight.current) return;
+    if (rv?.state === "none") return; // ขั้นก่อนเสียหมด (ส่งมา 0 ชิ้น) — ไม่เรียก server
     setWErr(null);
     setQErr(null);
     setErr(null);
@@ -366,8 +367,14 @@ export function ReceivePanel({
         </h2>
       )}
       {noteLine && <p className="text-lg text-zinc-700">{noteLine}</p>}
-      {qtyBlock}
-      {showWeight && (
+      {rv?.state === "none" ? (
+        <p role="status" className="rounded-2xl border-2 border-red-300 bg-red-50 p-4 text-xl font-bold text-red-950">
+          {RECEIVE_NONE_MESSAGE}
+        </p>
+      ) : (
+        qtyBlock
+      )}
+      {showWeight && rv?.state !== "none" && (
         <WeightField
           id="w-in"
           label="น้ำหนักเข้า"
@@ -380,7 +387,7 @@ export function ReceivePanel({
         />
       )}
       {err && <ActionError message={err} code={errCode} onReload={onReload} busy={busy} />}
-      {confirm ? (
+      {rv?.state === "none" ? null : confirm ? (
         <ConfirmBox text={confirm.text} yes={confirm.kind === "short" ? confirm.yes : undefined} busy={busy} onYes={() => answer(confirmPatch(confirm))} onNo={() => setConfirm(null)} />
       ) : (
         <StickyAction>
@@ -530,7 +537,9 @@ export function SendPanel({
   const showAdd = plan.showAddMetal && !partial;
   const noteLine = partial ? null : plan.sendNote;
 
-  function changeScrap(c: number) {
+  function changeScrap(raw: number) {
+    // เพดานของเสีย = จำนวนที่ถือ (ถึงเท่าที่ถือได้ → ขึ้นข้อความ "เสียหมดทั้ง N ชิ้น — แจ้งออฟฟิศ") · ไม่ลดเพดานลงเหลือ ถือ − 1
+    const c = showQty ? Math.min(raw, holdN) : raw;
     setScrap(c);
     setSErr(null);
     if (c === 0) setReason(null);
@@ -606,7 +615,7 @@ export function SendPanel({
       const nextName = next && !multi ? next.name : null;
       if (r.lot && onSplit) onSplit({ lot: r.lot, fromLotJobId: action?.lotJobId ?? null, scrap, nextName });
       else if (r.already) onDone(r.message ?? "ส่งขั้นนี้ไปแล้ว", "ok");
-      else if (showQty) onDone(v.allCount === 0 ? `แจ้งเสียหมด ${holdN} ชิ้นแล้ว` : nextName ? `ส่งแล้ว ${v.send} ชิ้น — ถัดไป ${nextName}` : `ส่งแล้ว ${v.send} ชิ้น`, "ok");
+      else if (showQty) onDone(nextName ? `ส่งแล้ว ${v.send} ชิ้น — ถัดไป ${nextName}` : `ส่งแล้ว ${v.send} ชิ้น`, "ok");
       else onDone(next && !multi ? `ส่งต่อแล้ว — ถัดไป ${next.name}` : "ส่งต่อแล้ว", "ok");
     } else {
       setErr(r.error);
@@ -674,6 +683,11 @@ export function SendPanel({
               {v.keep > 0 && <p className="text-lg text-zinc-800">ที่เหลือส่งทีหลังได้</p>}
               {partial && !goldWeigh && <p className="text-lg text-zinc-700">ส่งบางส่วนนับจำนวนอย่างเดียว ไม่ต้องชั่ง</p>}
             </>
+          )}
+          {v.state === "scrapAll" && (
+            <p role="status" className="rounded-xl border-2 border-red-300 bg-red-50 p-3 text-lg font-bold text-red-950">
+              ขั้นถัดไปรับงานที่ไม่มีชิ้นไม่ได้ — ให้ออฟฟิศเป็นคนปิดใบ
+            </p>
           )}
         </div>
         {partial && goldWeigh && (
