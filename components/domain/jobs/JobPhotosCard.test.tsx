@@ -286,6 +286,7 @@ describe("ตั้งรูปหลัก · เรียง · ลบ (ใน
     expect(await screen.findByText("ตั้งเป็นรูปหลักแล้ว")).toBeInTheDocument();
     await userEvent.click(within(viewer()).getByRole("button", { name: "ปิดรูป" }));
     expect(tile(1, 3)).toHaveAccessibleName("รูปที่ 1 จาก 3 · รูปหลัก · แตะเพื่อดู");
+    expect(tile(1, 3).querySelector("img")).toHaveAttribute("src", url("p3", "sm")); // p3 ขึ้นเป็นรูปแรกจริง
     // รูปเดิม p1 ไม่ใช่รูปหลักแล้ว (รูปหลักมีรูปเดียว)
     expect(screen.getAllByRole("button", { name: /รูปหลัก · แตะเพื่อดู/ })).toHaveLength(1);
   });
@@ -308,6 +309,9 @@ describe("ตั้งรูปหลัก · เรียง · ลบ (ใน
     await userEvent.click(within(viewer()).getByRole("button", { name: "ปิดรูป" }));
     expect(tile(1, 3)).toHaveAccessibleName("รูปที่ 1 จาก 3 · รูปหลัก · แตะเพื่อดู");
     expect(tile(2, 3)).toHaveAccessibleName("รูปที่ 2 จาก 3 · แตะเพื่อดู");
+    // ตรวจที่ตัวรูปจริง (ป้ายตามตำแหน่งแยกไม่ออกว่าย้อนจริงไหม): ช่องแรกยังเป็นรูป p1 · ช่องสองเป็น p2
+    expect(tile(1, 3).querySelector("img")).toHaveAttribute("src", url("p1", "sm"));
+    expect(tile(2, 3).querySelector("img")).toHaveAttribute("src", url("p2", "sm"));
   });
 
   it("เลื่อนหลัง: reorderJobPhotos(jobId, [รูปหลัก, ...สลับ]) · รูปหลักยังอยู่แรกเสมอ · ปุ่มเลื่อนก่อนของรูปที่ 2 ปิด (ข้ามรูปหลักไม่ได้)", async () => {
