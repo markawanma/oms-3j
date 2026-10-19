@@ -946,3 +946,57 @@ describe("รอบแก้ review: รับแทน + ช่อง 'ได�
     });
   });
 });
+
+describe("ตารางขั้นบนหน้าใบงาน: รับเข้า · ส่งออก · เสีย · ค้าง เห็นทันทีทุกขั้น (เจ้าของ UAT 19 ต.ค.)", () => {
+  const cells = (name: string) => {
+    const el = screen.getByLabelText(`จำนวนชิ้น ${name}`);
+    return ["รับเข้า", "ส่งออก", "เสีย", "ค้าง"].map((k) => within(el).getByText(k).nextSibling?.textContent);
+  };
+  const withQty = (): JobDetailData => {
+    const d = detail(undefined, { qty: 53 });
+    d.stages = [
+      { ...stage("cast", 1, "sent"), qtyIn: 53, qtyOut: 50, qtyScrap: 3 },
+      { ...stage("qc", 2, "received"), qtyIn: 50, qtyOut: null, qtyScrap: 0 },
+      stage("pack", 3, "pending"),
+    ];
+    return d;
+  };
+
+  it("ทุกขั้นมี 4 ช่องเห็นตลอด (ไม่ต้องกดเปิดรายละเอียด): ส่งแล้ว 53/50/3/0 · ถืออยู่ 50/—/0/50 · ยังไม่รับ —/—/—/—", () => {
+    wrap(<JobDetailClient data={withQty()} />);
+    expect(cells("หล่อ")).toEqual(["53", "50", "3", "0"]);
+    expect(cells("ตรวจ QC")).toEqual(["50", "—", "0", "50"]);
+    expect(cells("แพ็ก")).toEqual(["—", "—", "—", "—"]);
+  });
+
+  it("ค้าง = รับเข้า − ส่งออก − เสีย − แยกออก (ขั้นที่แยกส่วนออก 12 ชิ้น: เข้า 53 เสีย 1 แยก 12 → ค้าง 40)", () => {
+    const d = withQty();
+    d.stages[1] = { ...stage("qc", 2, "received"), qtyIn: 53, qtyOut: null, qtyScrap: 1, qtySplitOut: 12 };
+    wrap(<JobDetailClient data={d} />);
+    expect(cells("ตรวจ QC")).toEqual(["53", "—", "1", "40"]);
+  });
+
+  it("ชิ้นเดียว: 1 / — / 0 / 1 · ไม่มีจำนวน (ข้อมูลเก่า qtyIn ว่าง) = — ไม่เดา · เสียมากกว่า 0 ขึ้นสีแดง", () => {
+    const d = withQty();
+    d.stages[0] = { ...stage("cast", 1, "received"), qtyIn: 1, qtyOut: null, qtyScrap: 0 };
+    d.stages[1] = { ...stage("qc", 2, "received"), qtyIn: null, qtyOut: null, qtyScrap: 0 };
+    wrap(<JobDetailClient data={d} />);
+    expect(cells("หล่อ")).toEqual(["1", "—", "0", "1"]);
+    expect(cells("ตรวจ QC")).toEqual(["—", "—", "0", "—"]);
+  });
+
+  it("เสีย > 0 สีแดง · ค้าง > 0 สีเหลืองเข้ม · ตัวเลข ≥ 18px (text-lg) ชิดขวา", () => {
+    wrap(<JobDetailClient data={withQty()} />);
+    const el = screen.getByLabelText("จำนวนชิ้น หล่อ");
+    expect(within(el).getByText("เสีย").nextSibling).toHaveClass("text-red-800", "text-lg");
+    const qc = screen.getByLabelText("จำนวนชิ้น ตรวจ QC");
+    expect(within(qc).getByText("ค้าง").nextSibling).toHaveClass("text-amber-900");
+    expect(el).toHaveClass("justify-end");
+  });
+
+  it("รายละเอียดเดิม (ผู้ถือ/วันที่/น้ำหนัก) ยังอยู่ · ไม่มีบรรทัด 'จำนวน เข้า / ออก / เสีย' ซ้ำ", () => {
+    wrap(<JobDetailClient data={withQty()} />);
+    expect(screen.getAllByText("ผู้ถือ").length).toBeGreaterThan(0);
+    expect(screen.queryByText("จำนวน เข้า / ออก / เสีย")).not.toBeInTheDocument();
+  });
+});
