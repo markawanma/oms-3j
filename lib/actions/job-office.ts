@@ -9,6 +9,7 @@
 import { revalidatePath } from "next/cache";
 import { effectiveDateBangkok } from "@/lib/tiktok/format";
 import { BOARD_COLUMNS, EVENT_COLUMNS, JOB_COLUMNS, STAGE_COLUMNS, WORKER_COLUMNS, mapBoardRow, mapEventRow, mapJobDetail, mapLossRow, mapStageDef, mapStageRow, mapWorkerRow } from "@/lib/jobs/types";
+import { visibleBoardStages } from "@/lib/jobs/board";
 import { mapRecordProfile } from "@/lib/jobs/profile";
 import type { RecordProfile } from "@/lib/jobs/profile";
 import type { BoardRow, EventRow, JobDetail, StageDef, StageLoss, StageRow, WorkerRow } from "@/lib/jobs/types";
@@ -49,7 +50,7 @@ export async function getJobBoard(): Promise<JobResult<BoardData>> {
     const [board, defs, workers] = await Promise.all([
       // 0181: การ์ดต่อใบแม่ — ส่วนย่อย (parent_job_id ไม่ว่าง) ไม่ขึ้นบอร์ด (ยอดของส่วนรวมอยู่ในบรรทัดของใบแม่)
       db().from("v_job_board").select(BOARD_COLUMNS).eq("shop_id", shop).in("status", ["open", "in_progress", "on_hold"]).is("parent_job_id", null).order("is_overdue", { ascending: false }).order("due_date", { ascending: true, nullsFirst: false }).order("seq", { ascending: true }).limit(BOARD_LIMIT),
-      db().from("job_stage_def").select("code, name_th, seq_default").eq("shop_id", shop).eq("is_active", true).order("seq_default", { ascending: true }).limit(50),
+      db().from("job_stage_def").select("code, name_th, seq_default, is_active").eq("shop_id", shop).order("seq_default", { ascending: true }).limit(50),
       db().from("worker").select("id, display_name").eq("shop_id", shop).eq("is_active", true).order("display_name", { ascending: true }).limit(50),
     ]);
     if (board.error) throw board.error;
@@ -70,7 +71,8 @@ export async function getJobBoard(): Promise<JobResult<BoardData>> {
       data: {
         todayTh: effectiveDateBangkok(new Date().toISOString()),
         rows: mapped,
-        stages: rows(defs.data).map(mapStageDef).filter((s): s is StageDef => s !== null),
+        // 0184: ทะเบียนทุกแถว (รวมเลิกใช้) → visibleBoardStages เก็บขั้นเลิกใช้เฉพาะที่ยังมีใบอยู่ (ใบเก่าที่ค้างขั้น polish ต้องไม่ตกคอลัมน์ "ยังไม่เริ่ม")
+        stages: visibleBoardStages(rows(defs.data).map(mapStageDef).filter((s): s is StageDef => s !== null), mapped),
         truncated: rows(board.data).length >= BOARD_LIMIT,
         workers: rows(workers.data).flatMap((w) => (typeof w.id === "string" && typeof w.display_name === "string" ? [{ id: w.id, displayName: w.display_name }] : [])),
       },

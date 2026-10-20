@@ -118,6 +118,41 @@ describe("กล่อง 'ตั้ง PIN เอง'", () => {
   });
 });
 
+describe("จากกล่องแก้ไขช่าง: แก้ค้างไว้แล้วกด 'ตั้ง PIN เอง'", () => {
+  const openEdit = async () => {
+    await userEvent.click(within(row()).getByRole("button", { name: "แก้ไข ช่างเอ" }));
+    return await screen.findByRole("dialog", { name: /แก้ไข ช่างเอ/ });
+  };
+  it("แก้ชื่อค้าง → ถามยืนยัน 'ยังไม่ได้บันทึกการแก้ไข' ก่อน · กลับไปแก้ต่อ = ชื่อที่แก้ยังอยู่ · ยืนยันทิ้ง = ไปกล่องตั้ง PIN", async () => {
+    wrap(<WorkersClient data={data()} />);
+    let edit = await openEdit();
+    const name = within(edit).getByLabelText(/ชื่อที่ช่างเห็น/) as HTMLInputElement;
+    await userEvent.type(name, "X");
+    await userEvent.click(within(edit).getByRole("button", { name: "ตั้ง PIN เอง" }));
+    expect(within(edit).getByRole("alert")).toHaveTextContent("ยังไม่ได้บันทึกการแก้ไข — ทิ้งแล้วไปตั้ง PIN?");
+    expect(screen.queryByRole("dialog", { name: /ตั้ง PIN เองให้/ })).not.toBeInTheDocument();
+    await userEvent.click(within(edit).getByRole("button", { name: "กลับไปแก้ต่อ" }));
+    expect(within(edit).queryByRole("alert")).not.toBeInTheDocument();
+    expect((within(edit).getByLabelText(/ชื่อที่ช่างเห็น/) as HTMLInputElement).value).toBe("ช่างเอX");
+    await userEvent.click(within(edit).getByRole("button", { name: "ตั้ง PIN เอง" }));
+    await userEvent.click(within(edit).getByRole("button", { name: "ทิ้งการแก้ไขแล้วไปตั้ง PIN" }));
+    expect(await screen.findByRole("dialog", { name: /ตั้ง PIN เองให้ ช่างเอ$/ })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: /แก้ไข ช่างเอ/ })).not.toBeInTheDocument();
+    expect(a.saveWorker).not.toHaveBeenCalled();
+  });
+  it("แก้ขั้น (ติ๊กเพิ่ม) ก็นับว่าแก้ค้าง · ติ๊กแล้วติ๊กกลับ = ไม่แก้ → ไม่ถาม", async () => {
+    wrap(<WorkersClient data={data()} />);
+    let edit = await openEdit();
+    await userEvent.click(within(edit).getByRole("checkbox", { name: "ขัด" }));
+    await userEvent.click(within(edit).getByRole("button", { name: "ตั้ง PIN เอง" }));
+    expect(within(edit).getByRole("alert")).toBeInTheDocument();
+    await userEvent.click(within(edit).getByRole("button", { name: "กลับไปแก้ต่อ" }));
+    await userEvent.click(within(edit).getByRole("checkbox", { name: "ขัด" }));
+    await userEvent.click(within(edit).getByRole("button", { name: "ตั้ง PIN เอง" }));
+    expect(await screen.findByRole("dialog", { name: /ตั้ง PIN เองให้ ช่างเอ$/ })).toBeInTheDocument();
+  });
+});
+
 describe("จากกล่องแก้ไขช่าง", () => {
   it("แก้ช่างเดิม: มีปุ่ม 'ตั้ง PIN เอง' → ปิดกล่องแก้ไขแล้วเปิดกล่องตั้ง PIN · เพิ่มช่างใหม่: ไม่มีปุ่มนี้ (มีช่อง PIN ในฟอร์มอยู่แล้ว)", async () => {
     wrap(<WorkersClient data={data()} />);

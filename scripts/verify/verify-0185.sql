@@ -16,12 +16,12 @@
 --     ('1234 ' · '1234\n' · '12\n34' · '+123' · '-123' · '12.4' ด้วย)
 --  🟢 null ผ่าน RPC = สุ่ม (ไม่ใช่ null=ผ่าน job_pin_ok) · PIN สุ่มยังห้ามเดาง่ายเหมือนเดิม            -> P2c · P5 (สุ่ม 3000 ครั้ง ไม่มีซ้ำ/คู่ซ้ำ/เรียง/0000/2580) · MU-5
 --  🟢 แก้ช่างเดิมยังไม่รับ PIN (ต้องใช้ worker_pin_set)                                           -> P6
---  ✅ ไม่แตะนโยบายล็อก 5/10/15: md5 worker_pin_verify · worker_pin_set · worker_upsert · worker_unlock · job_worker_resolve เท่ากับของก่อน 0185 -> P7
+--  ✅ ไม่แตะนโยบายล็อก (ผิด 5=15 นาที · 10-14=1 ชม. · 15=ถาวร): md5 worker_pin_verify · worker_pin_set · worker_upsert · worker_unlock · job_worker_resolve เท่ากับของก่อน 0185 -> P7
 --  ✅ IMMUTABLE/search_path/ACL เดิม · ไม่มี overload                                             -> P7
 --  K0: ชุดทดสอบไม่ทิ้งรอย · MY: md5 ฟังก์ชันเท่าเดิมหลัง mutant
 --
 --  ❌ ไม่มีเทสต์ครอบ (บอกตรงๆ):
---    - ด่านล็อก 5/10/15 ครั้งเอง (ไม่แตะในงานนี้ — ล็อก md5 ของ worker_pin_verify ไว้แทนการทดสอบพฤติกรรมซ้ำ)
+--    - ด่านล็อกตามนโยบายผิด 5/10/15 ครั้งเอง (ไม่แตะในงานนี้ — ล็อก md5 ของ worker_pin_verify ไว้แทนการทดสอบพฤติกรรมซ้ำ)
 --    - ข้อความ error ภายใน DB ของ worker_pin_set/worker_upsert ยังพูดถึง "เลขซ้ำ/เรียง" (ไม่ได้ replace — หน้าจอแปลงจาก hint · ดูหนี้ใน migration)
 --    - ฝั่ง TS/หน้าจอ (ปุ่ม "ตั้ง PIN เอง" · parsePin) = vitest ฝั่ง lib/components ไม่ใช่ไฟล์นี้
 --    - race (ตั้ง PIN กับ login พร้อมกัน): do-block ทรานแซกชันเดียวจำลองไม่ได้ · worker_pin_set ล็อกแถวช่าง for update เหมือนเดิม

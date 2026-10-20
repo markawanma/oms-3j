@@ -20,7 +20,7 @@
 --  5. job_source_info — ชุดขั้นค่าเริ่มของใบ OEM/ใบผลิต: แทน 'polish' ด้วย 'finish', 'buff' · ลอก definition สดจาก DB (pg_get_functiondef 20 ต.ค. 69 ก่อนเขียนไฟล์) ไม่ลอกจาก 0181 — แก้เฉพาะ 2 บรรทัด v_codes
 --     (งาน PM-A "ใบผลิตเลือกโลหะ" ที่จะ replace job_source_info ต่อ ต้องลอก definition จากฟังก์ชันหลังไฟล์นี้ — ดู design-production-item-metal.md)
 --  6. worker ทุกคนที่มี polish ใน stage_codes -> เพิ่ม finish, buff (คง polish ไว้ — ใบเก่าที่ค้างขั้น polish ช่างยังรับ/ส่งได้ · job_worker_resolve/job_core_receive เช็ค stage_codes)
---     - ช่างที่ stage_codes ว่าง (= ทุกขั้น) ไม่แตะ · UPDATE แคบ: เฉพาะแถวที่มี polish และยังไม่มี finish+buff ครบ ⇒ รันซ้ำไม่แตะแถวเดิม (worker_guard ตั้ง updated_at เฉพาะแถวที่เปลี่ยนจริง — ข้อ 19)
+--     - ช่างที่ stage_codes ว่าง (= ทุกขั้น) ไม่แตะ · UPDATE แคบ: เฉพาะแถวที่มี polish และยังไม่มี finish+buff ครบ ⇒ รันซ้ำไม่แตะแถวเดิม (worker_guard ตั้ง updated_at ทุกครั้งที่แถวถูก UPDATE ไม่ว่าค่าจะเปลี่ยนหรือไม่ — ข้อ 19 — จึงต้อง WHERE ให้แคบเหลือเฉพาะแถวที่ค่าเปลี่ยนจริง)
 --     - ไม่เขียน worker_audit: คอลัมน์ actor not null (ต้องเป็น uuid ผู้ทำรายการ) ไม่มีผู้ใช้จริงในงานระบบ ⇒ ประวัติของการเปลี่ยนนี้คือไฟล์นี้ + version ใน schema_migrations
 --  7. แบบการบันทึก (job_record_profile_stage) ทุกแบบที่มีแถว polish -> คัดลอก flag (weigh/scrap_qty/scrap_weight) ไปให้ finish และ buff (insert อย่างเดียว · ไม่ UPDATE job_record_profile ⇒ updated_at ของแบบไม่ขยับ)
 --     - คง polish ไว้ในแบบ: ใบเก่าที่เปลี่ยนแบบ (job_profile_set -> job_profile_apply อ่านแถวตามขั้นของใบ) ยังได้ flag ของขั้น polish เดิม · หน้าตั้งค่าแบบ (visibleStageDefs) โชว์แถวขั้นปิดใช้งานเฉพาะที่ยังมี flag อยู่แล้ว — พฤติกรรมเดิมของ UI
@@ -36,6 +36,10 @@ create temp table _j184_base on commit drop as
   select 'job'::text as t, count(*) as n, coalesce(md5(string_agg(x::text, '|' order by x::text)), '') as h from analytics.job x
   union all select 'job_stage', count(*), coalesce(md5(string_agg(x::text, '|' order by x::text)), '') from analytics.job_stage x
   union all select 'job_event', count(*), coalesce(md5(string_agg(x::text, '|' order by x::text)), '') from analytics.job_event x;
+-- ฝั่งช่าง: อัปเดต stage_codes ต้องไม่ขยับ PIN/ตัวนับผิด/การล็อก/สถานะใช้งาน (เทียบท้ายไฟล์)
+create temp table _j184_worker_base on commit drop as
+  select count(*) as n, coalesce(md5(string_agg(x.id::text || '|' || x.pin_hash || '|' || x.failed_attempts::text || '|' || coalesce(x.locked_until::text, '-') || '|' || x.is_active::text, ';' order by x.id)), '') as h
+    from analytics.worker x;
 create temp table _j184_acl_base on commit drop as
   select p.oid::regprocedure::text as sig, coalesce(p.proacl::text, 'NULL') as acl
     from pg_proc p where p.pronamespace = 'analytics'::regnamespace and p.proname in ('job_source_info', 'job_stage_def_ensure');
@@ -298,6 +302,12 @@ begin
       on a.t = b.t and (a.n, a.h) is distinct from (b.n, b.h);
   if v_bad is not null then
     raise exception '0184: ตารางใบงานขยับระหว่าง migration: % (ต้องไม่แตะใบที่เปิดอยู่)', v_bad;
+  end if;
+  -- ช่างทุกคน: (id, pin_hash, failed_attempts, locked_until, is_active) เท่าเดิม — มี UPDATE worker ในไฟล์นี้ ต้องพิสูจน์ว่าแตะแค่ stage_codes
+  if exists (select 1 from _j184_worker_base b,
+              (select count(*) as n, coalesce(md5(string_agg(x.id::text || '|' || x.pin_hash || '|' || x.failed_attempts::text || '|' || coalesce(x.locked_until::text, '-') || '|' || x.is_active::text, ';' order by x.id)), '') as h from analytics.worker x) a
+             where (a.n, a.h) is distinct from (b.n, b.h)) then
+    raise exception '0184: worker.(pin_hash · failed_attempts · locked_until · is_active) ขยับระหว่าง migration — ต้องแตะเฉพาะ stage_codes';
   end if;
   raise notice '0184: ผังขั้น/ช่าง/แบบการบันทึก/ฟังก์ชัน/ใบงานผ่านด่านหลังทำครบ';
 end;

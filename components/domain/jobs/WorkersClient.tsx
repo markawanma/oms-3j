@@ -61,6 +61,9 @@ function EditDialog({ worker, stages, retired, onClose, onShown, onSetPin }: { w
   const nameBad = LABEL_ANGLE_RE.test(name);
   const ready = name.trim() !== "" && codes.length > 0 && pinOk && !nameBad;
   const toggle = (c: string) => setCodes((p) => (p.includes(c) ? p.filter((x) => x !== c) : [...p, c]));
+  // ไปตั้ง PIN จากกล่องนี้ = ปิดกล่องแก้ไข — ถ้าชื่อ/ขั้นถูกแก้ค้างไว้ต้องถามก่อน ไม่ให้ของที่แก้หายเงียบ
+  const [askDiscard, setAskDiscard] = useState(false);
+  const dirty = worker !== null && (name !== worker.displayName || codes.length !== worker.stageCodes.length || codes.some((c) => !worker.stageCodes.includes(c)));
 
   async function submit() {
     const r = await run(() => saveWorker({ id: worker?.id ?? null, displayName: name, stageCodes: codes, pin: worker ? null : pin || null }), { success: worker ? "บันทึกแล้ว" : "เพิ่มช่างแล้ว" });
@@ -92,13 +95,26 @@ function EditDialog({ worker, stages, retired, onClose, onShown, onSetPin }: { w
             ))}
           </div>
         </fieldset>
-        {worker && (
+        {worker && !askDiscard && (
           <div className="flex flex-wrap items-center gap-2 rounded-md border border-zinc-200 bg-zinc-50 p-2">
             <p className="min-w-0 flex-1 text-sm text-zinc-800">อยากเปลี่ยน PIN ของช่างคนนี้?</p>
-            <Button type="button" variant="secondary" disabled={busy} onClick={() => onSetPin(worker)}>
+            <Button type="button" variant="secondary" disabled={busy} onClick={() => (dirty ? setAskDiscard(true) : onSetPin(worker))}>
               <KeyRound className="h-4 w-4" aria-hidden="true" />
               ตั้ง PIN เอง
             </Button>
+          </div>
+        )}
+        {worker && askDiscard && (
+          <div role="alert" className="space-y-2 rounded-md border-2 border-amber-400 bg-amber-50 p-3">
+            <p className="text-sm font-semibold text-amber-950">ยังไม่ได้บันทึกการแก้ไข — ทิ้งแล้วไปตั้ง PIN?</p>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <Button type="button" variant="secondary" onClick={() => setAskDiscard(false)}>
+                กลับไปแก้ต่อ
+              </Button>
+              <Button type="button" onClick={() => onSetPin(worker)}>
+                ทิ้งการแก้ไขแล้วไปตั้ง PIN
+              </Button>
+            </div>
           </div>
         )}
         {!worker && (
