@@ -53,7 +53,8 @@ export function ChangeProfileDialog({ jobId, metal, stages, currentProfileId, on
 
   const data = load.s === "ready" ? load.data : null;
   const active = data ? data.profiles.filter((p) => p.isActive) : [];
-  const defaultId = data ? (metal === "gold" ? (data.defaultGoldProfileId ?? data.defaultProfileId) : data.defaultProfileId) : null;
+  // 0186 M1: ทอง = ค่าเริ่มทองเท่านั้น (ไม่มี = null → ผู้ใช้ต้องเลือกแบบเอง) — ไม่ fallback ไปแบบงานทั่วไปเงียบๆ เหมือน DB (job_profile_default_for)
+  const defaultId = data ? (metal === "gold" ? data.defaultGoldProfileId : data.defaultProfileId) : null;
   const pickerStages = stages.filter((s) => s.status !== "skipped").map((s) => ({ code: s.code, nameTh: s.name, metalPresent: s.metalPresent }));
   const allNames = Object.fromEntries(stages.map((s) => [s.code, s.name]));
   const profile = active.find((p) => p.id === profileId) ?? null;

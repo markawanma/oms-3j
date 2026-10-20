@@ -1,3 +1,5 @@
+-- ⚠ PARTIALLY SUPERSEDED BY 0186 (20 ต.ค. 69): job_profile_default_for(ทอง) ไม่ fallback ไปแบบค่าเริ่มทั่วไปอีกแล้ว (security M1) —
+--   P2d (ล้างค่าเริ่มทอง → "ทองใช้ค่าเริ่มทั่วไป") และ MU-11 คาดผลเดิม จะ FAIL ถ้ารันซ้ำหลัง 0186 · ผลใหม่ตรวจที่ verify-0186.sql กลุ่ม X (X1a-X1h)
 -- scripts/verify/verify-0176.sql
 -- ตรวจ supabase/migrations/0176_job_record_profile.sql (แบบการบันทึก: ชั่ง/ชิ้นเสีย/น้ำหนักเศษต่อขั้น · ค่าเริ่มทั่วไป+ทอง · require_final_weight · ใบเดิม profile_id null) หลัง apply
 -- (หรือต่อท้ายไฟล์ 0176 ใน dry-run ก่อน apply) · self-rolling-back (3j-migration-traps ข้อ 11) · ผลออกทาง error message · [FAIL] >= 1 = ไม่ผ่าน

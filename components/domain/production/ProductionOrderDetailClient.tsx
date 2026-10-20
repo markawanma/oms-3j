@@ -14,7 +14,7 @@ import { Fragment, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Trash2 } from "lucide-react";
-import { removeProductionOrderItem, saveProductionOrder, setProductionOrderItem } from "@/lib/actions/production";
+import { removeProductionOrderItemById, saveProductionOrder, setProductionOrderItem } from "@/lib/actions/production";
 import type { ProductionOrderItemRow, ProductionOrderRow, ProductionOrderStatus, ProductionSkuOption } from "@/lib/production/types";
 import {
   PRODUCTION_COST_TYPE_LABEL_TH,
@@ -41,6 +41,11 @@ const STATUS_TONE: Record<ProductionOrderStatus, BadgeTone> = {
 
 const inputCls = "mt-1 min-h-11 w-full rounded-md border border-zinc-300 px-2.5 text-base text-zinc-900";
 const labelCls = "block text-sm font-medium text-zinc-700";
+
+/** 0186: รายการไม่มี SKU ไม่มีรหัส — แสดงชื่อแบบแทน (หน้าจอเต็มรูปแบบของ PM-B จะมาแทนที่ตารางนี้ · ตรงนี้กันแค่ไม่ให้พิมพ์ "null") */
+function itemSkuText(item: ProductionOrderItemRow): string {
+  return item.sku ?? item.pendingProductLabel ?? "ยังไม่ผูก SKU";
+}
 
 function ProductionOrderMetaForm({ order }: { order: ProductionOrderRow }) {
   const toast = useToast();
@@ -156,7 +161,7 @@ export function ProductionOrderDetailClient({
   const toast = useToast();
   const [doneDialogOpen, setDoneDialogOpen] = useState(false);
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
-  const [removingProductId, setRemovingProductId] = useState<string | null>(null);
+  const [removingItemId, setRemovingItemId] = useState<string | null>(null);
   const [togglingNewDesignProductId, setTogglingNewDesignProductId] = useState<string | null>(null);
 
   const isOpen = order.status === "open";
@@ -173,6 +178,8 @@ export function ProductionOrderDetailClient({
   // ค่าที่อาจมีอยู่ก่อนโดยไม่ตั้งใจ) — ที่นี่การกดคือการ "ตั้งใจสั่งค่านี้ตรงๆ"
   // สำหรับ item ตัวเดียวที่รู้ id ชัดเจนอยู่แล้ว จึงส่ง true/false ตรงตัวได้ปลอดภัย
   function toggleNewDesign(item: ProductionOrderItemRow, checked: boolean) {
+    // 0186: ช่องติ๊กนี้มีเฉพาะรายการ spec (ต้องมี SKU เสมอ) — กันซ้ำให้ type แคบลงเป็น string
+    if (item.productId === null) return;
     setTogglingNewDesignProductId(item.productId);
     setProductionOrderItem({
       productionOrderId: order.id,
@@ -187,23 +194,24 @@ export function ProductionOrderDetailClient({
       }
       toast.push(
         checked
-          ? `ติ๊ก "แบบใหม่" ${item.sku} แล้ว — ค่าออกแบบจะถูกคิดตอนกดผลิตเสร็จ`
-          : `ถอดติ๊ก "แบบใหม่" ${item.sku} แล้ว`
+          ? `ติ๊ก "แบบใหม่" ${itemSkuText(item)} แล้ว — ค่าออกแบบจะถูกคิดตอนกดผลิตเสร็จ`
+          : `ถอดติ๊ก "แบบใหม่" ${itemSkuText(item)} แล้ว`
       );
       refresh();
     });
   }
 
   function removeItem(item: ProductionOrderItemRow) {
-    if (!window.confirm(`ลบ ${item.sku} ออกจากใบผลิต ${order.poNo}?`)) return;
-    setRemovingProductId(item.productId);
-    removeProductionOrderItem({ productionOrderId: order.id, productId: item.productId }).then((result) => {
-      setRemovingProductId(null);
+    if (!window.confirm(`ลบ ${itemSkuText(item)} ออกจากใบผลิต ${order.poNo}?`)) return;
+    setRemovingItemId(item.id);
+    // 0186: ลบด้วย id ทุกกรณี (รายการไม่มี SKU ลบด้วย productId ไม่ได้) — มีใบงานผูกอยู่ DB ตอบ job_exists พร้อมเลขใบงาน
+    removeProductionOrderItemById({ productionOrderId: order.id, itemId: item.id }).then((result) => {
+      setRemovingItemId(null);
       if (!result.ok) {
         toast.push(result.error, "error");
         return;
       }
-      toast.push(`ลบ ${item.sku} แล้ว`);
+      toast.push(`ลบ ${itemSkuText(item)} แล้ว`);
       refresh();
     });
   }
@@ -314,8 +322,12 @@ export function ProductionOrderDetailClient({
                     <Fragment key={item.id}>
                       <tr className="border-b border-zinc-100 last:border-0">
                         <td className="py-2 pl-3.5 pr-3">
-                          <span className="font-medium text-zinc-800">{item.sku}</span>{" "}
-                          <span className="text-zinc-500">· {item.productName}</span>
+                          <span className="font-medium text-zinc-800">{itemSkuText(item)}</span>{" "}
+                          {item.productId === null ? (
+                            <Badge tone="amber">ยังไม่ผูก SKU</Badge>
+                          ) : (
+                            <span className="text-zinc-500">· {item.productName}</span>
+                          )}
                         </td>
                         <td className="py-2 pr-3 text-right tabular-nums text-zinc-700">
                           {item.qtyPlanned.toLocaleString("en-US")}
@@ -326,9 +338,13 @@ export function ProductionOrderDetailClient({
                           </td>
                         )}
                         <td className="py-2 pr-3">
-                          <Badge tone={item.currentCostType === "spot" ? "cyan" : item.currentCostType === "spec" ? "indigo" : "slate"}>
-                            {PRODUCTION_COST_TYPE_LABEL_TH[item.currentCostType]}
-                          </Badge>
+                          {item.currentCostType === null ? (
+                            <span className="text-zinc-300">—</span>
+                          ) : (
+                            <Badge tone={item.currentCostType === "spot" ? "cyan" : item.currentCostType === "spec" ? "indigo" : "slate"}>
+                              {PRODUCTION_COST_TYPE_LABEL_TH[item.currentCostType]}
+                            </Badge>
+                          )}
                         </td>
                         <td className="py-2 pr-3">
                           {item.currentCostType !== "spec" ? (
@@ -391,8 +407,8 @@ export function ProductionOrderDetailClient({
                             <button
                               type="button"
                               onClick={() => removeItem(item)}
-                              disabled={removingProductId === item.productId}
-                              aria-label={`ลบ ${item.sku}`}
+                              disabled={removingItemId === item.id}
+                              aria-label={`ลบ ${itemSkuText(item)}`}
                               className="inline-flex h-9 w-9 items-center justify-center rounded-md text-zinc-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
                             >
                               <Trash2 className="h-4 w-4" aria-hidden="true" />

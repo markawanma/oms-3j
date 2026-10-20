@@ -26,6 +26,10 @@ const costCalc: ProductionSpecCostCalc = {
   isNewDesign: false,
   metalPriceThbPerGram: null,
   unitCost: 160,
+  // 0186: snapshot ก่อน 0186 ไม่มีโลหะ/เนื้อ/น้ำหนักของรายการ — null (การ์ดยังแสดงเหมือนเดิม)
+  metal: null,
+  purity: null,
+  weightG: null,
 };
 
 function renderCard(silverPurity: number | null) {

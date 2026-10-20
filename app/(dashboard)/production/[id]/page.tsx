@@ -41,7 +41,7 @@ export default async function ProductionOrderDetailPage({ params }: { params: Pr
   const skuOptionsError = skuOptionsResult.ok ? null : skuOptionsResult.error;
 
   // J1: ใบงานผลิตต่อรายการ — ส่วนแยก ไม่แตะ logic ของหน้านี้ (เสนอสร้างเฉพาะใบผลิตที่ยังเปิด — RPC ปฏิเสธสถานะอื่นด้วย po_not_open)
-  const jobItems = detailResult.data.items.map((it) => ({ id: it.id, label: `${it.sku} · ${it.productName} × ${it.qtyPlanned}` }));
+  const jobItems = detailResult.data.items.map((it) => ({ id: it.id, label: `${it.sku ?? it.pendingProductLabel ?? "ยังไม่ผูก SKU"}${it.productName ? ` · ${it.productName}` : ""} × ${it.qtyPlanned}` }));
 
   return (
     <>

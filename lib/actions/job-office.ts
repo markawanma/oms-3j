@@ -288,7 +288,7 @@ export interface JobSuggestion {
   stages: SuggestStage[];
   /** 0175: น้ำหนักเป้าหมายต่อชิ้นจากต้นทาง (ใบเสนอราคา/สินค้า) + ที่มา · null = ไม่มีข้อมูล (ไม่เดา) */
   targetPieceG: number | null;
-  targetPieceGSource: "quote" | "product" | null;
+  targetPieceGSource: "quote" | "product" | "input" | null;
   /** 0176: แบบการบันทึกที่ใช้งานอยู่ + ค่าเริ่มที่ server resolve ตามโลหะแล้ว (null = ร้านไม่มีค่าเริ่ม → ฟอร์มต้องบล็อก ไม่เดา) */
   profiles: RecordProfile[];
   defaultProfileId: string | null;
@@ -317,7 +317,7 @@ export async function suggestJob(kind: string, itemId: string): Promise<JobResul
       existingJob: ex && typeof ex.id === "string" && typeof ex.job_no === "string" ? { id: ex.id, jobNo: ex.job_no } : null,
       stages,
       targetPieceG: typeof d.target_piece_g === "number" ? d.target_piece_g : null,
-      targetPieceGSource: d.target_piece_g_source === "quote" || d.target_piece_g_source === "product" ? d.target_piece_g_source : null,
+      targetPieceGSource: d.target_piece_g_source === "quote" || d.target_piece_g_source === "product" || d.target_piece_g_source === "input" ? d.target_piece_g_source : null,
       profiles,
       // ค่าเริ่มต้องเป็นแบบที่ active อยู่ในรายการจริง — ไม่งั้นถือว่าไม่มี (ไม่เดา)
       defaultProfileId: typeof d.default_profile_id === "string" && profiles.some((p) => p.id === d.default_profile_id) ? d.default_profile_id : null,

@@ -58,6 +58,8 @@ import type {
   OemSettingData,
   RenegotiateQuoteInput,
   SaveMetalPriceInput,
+  SaveMetalPriceInputInput,
+  SaveMetalPriceInputResult,
   SaveQuoteInput,
   SetQuoteBillingInput,
   SetSellerPaymentLinesInput,
@@ -87,6 +89,14 @@ import { fetchAllRows } from "@/lib/supabase/query-limits";
 // RPC's 5–500 bound (analytics.oem_metal_price_set, 0127) — reuse the single
 // source of truth instead of a second copy of the magic numbers.
 import { silverSpotValidationError } from "@/lib/catalog/types";
+// 0186: ช่วงราคาทอง/ทองเหลือง + ตัวแปลงราคาสมาคม/บาทต่อกก. — ไฟล์เดียวที่เก็บค่าคงที่ (preview ฝั่ง client ใช้ตัวเดียวกัน)
+import {
+  convertMetalPriceInput,
+  isMetalPricePerGramInRange,
+  metalPriceInputIssueMessage,
+  metalPricePerGramRangeMessage,
+} from "@/lib/oem/metal-price";
+import { humanizeProductionError } from "@/lib/production/types";
 // M2: the one helper this app already uses for "Asia/Bangkok calendar day"
 // (lib/tiktok/format.ts) — getSilverPriceFreshness below must not become a
 // 4th copy of the same Intl.DateTimeFormat call.
@@ -941,6 +951,9 @@ export async function saveMetalPrice(input: SaveMetalPriceInput): Promise<Action
     if (spotError) return { ok: false, error: spotError };
   } else if (!(price > 0)) {
     return { ok: false, error: "ราคาโลหะต่อกรัมต้องมากกว่า 0" };
+  } else if ((input.metal === "gold" || input.metal === "brass") && !isMetalPricePerGramInRange(input.metal, price)) {
+    // 0186: ช่วงที่เจ้าของเคาะ 20 ต.ค. (ทอง 100% 2,000–8,000 · ทองเหลือง 0.10–1.00 บาท/กรัม) — ด่านจริงอยู่ที่ RPC + CHECK ของตาราง (ซ้ำกัน ไม่ใช่แทน)
+    return { ok: false, error: metalPricePerGramRangeMessage(input.metal) };
   }
 
   try {
@@ -976,6 +989,51 @@ export async function saveMetalPrice(input: SaveMetalPriceInput): Promise<Action
   } catch (err) {
     console.error("saveMetalPrice failed", err);
     return { ok: false, error: "บันทึกราคาโลหะไม่สำเร็จ ลองใหม่อีกครั้ง" };
+  }
+}
+
+/** 0186: กรอกราคาทอง/ทองเหลืองด้วย "หน่วยหน้างานจริง" — ทอง = ราคาสมาคมฯ ทองคำแท่ง 96.5% ฝั่งขายออก (บาทละ) ÷15.244 ÷0.965 ·
+ * ทองเหลือง = บาท/กก. ÷1,000 · เก็บเป็นราคา "ของวันนี้ (เวลาไทย)" เท่านั้น (ไม่มี p_as_of — ย้อนวันไม่ได้) · ไม่มี p_source (RPC บังคับ manual)
+ * 🔴 DB เป็นผู้ตัดสินการแปลง/ช่วงราคา (oem-quote-invariants ข้อ 2) — ที่นี่ตรวจล่วงหน้าด้วยฟังก์ชัน pure ตัวเดียวกับที่ใช้ preview (lib/oem/metal-price.ts) ให้ error ไวและมีข้อความเฉพาะ ·
+ * ค่าที่คืน = ค่าที่ server เก็บจริง (หน้าจอต้องโชว์ค่านี้ ไม่ใช่ค่า preview) */
+export async function saveMetalPriceInput(input: SaveMetalPriceInputInput): Promise<ActionResult<SaveMetalPriceInputResult>> {
+  const gateErr = await requireOwnerAdmin();
+  if (gateErr) return gateErr;
+
+  if (input.metal !== "gold" && input.metal !== "brass") return { ok: false, error: "กรอกด้วยราคาสมาคม/บาทต่อกก. ได้เฉพาะทองและทองเหลือง" };
+  const converted = convertMetalPriceInput(input.metal, input.inputValue);
+  if (!converted.ok) return { ok: false, error: metalPriceInputIssueMessage(input.metal, converted) };
+
+  try {
+    const shopId = getDevShopId();
+    const supabase = getServiceClient();
+
+    const { data, error } = await supabase.schema(SCHEMA).rpc("oem_metal_price_set_input", {
+      p_shop_id: shopId,
+      p_metal: input.metal,
+      p_input_value: converted.inputValue,
+      p_input_unit: converted.unit,
+    });
+    if (error) throw error;
+
+    const row = data as { metal: "gold" | "brass"; as_of_date: string; price_thb_per_gram: number | string; input_value: number | string; input_unit: "assoc965_sell_per_baht" | "thb_per_kg" };
+
+    revalidateOemPaths();
+    revalidatePath("/production");
+    return {
+      ok: true,
+      data: {
+        metal: row.metal,
+        asOfDate: row.as_of_date,
+        priceThbPerGram: Number(row.price_thb_per_gram),
+        inputValue: Number(row.input_value),
+        inputUnit: row.input_unit,
+      },
+    };
+  } catch (err) {
+    console.error("saveMetalPriceInput failed", err);
+    // 22023 ทุกตัวของ RPC นี้เป็นข้อความไทยที่ตั้งใจพูดกับผู้ใช้ (ช่วง/หน่วย/ทศนิยม) — ปล่อยผ่านเฉพาะ SQLSTATE นี้ (แพทเทิร์นเดียวกับ humanizeProductionError)
+    return { ok: false, error: humanizeProductionError(err, "บันทึกราคาโลหะไม่สำเร็จ ลองใหม่อีกครั้ง (ค่าที่กรอกยังอยู่)") };
   }
 }
 
@@ -1036,16 +1094,30 @@ export async function getMetalPrices(): Promise<ActionResult<OemMetalPriceMap>> 
     const { data, error } = await supabase
       .schema(SCHEMA)
       .from("oem_metal_price")
-      .select("metal, price_thb_per_gram, as_of_date, source")
+      .select("metal, price_thb_per_gram, as_of_date, source, input_value, input_unit")
       .eq("shop_id", shopId)
       .order("as_of_date", { ascending: false });
     if (error) throw error;
 
     const result: OemMetalPriceMap = { silver: null, gold: null, brass: null };
-    for (const row of (data ?? []) as { metal: string; price_thb_per_gram: number; as_of_date: string; source: string }[]) {
+    for (const row of (data ?? []) as {
+      metal: string;
+      price_thb_per_gram: number;
+      as_of_date: string;
+      source: string;
+      input_value?: number | string | null;
+      input_unit?: string | null;
+    }[]) {
       const metal = row.metal as (typeof OEM_METALS)[number];
       if (!OEM_METALS.includes(metal) || result[metal] !== null) continue; // keep only the latest per metal
-      result[metal] = { priceThbPerGram: Number(row.price_thb_per_gram), asOfDate: row.as_of_date, source: row.source };
+      result[metal] = {
+        priceThbPerGram: Number(row.price_thb_per_gram),
+        asOfDate: row.as_of_date,
+        source: row.source,
+        // 0186 (R4): ค่าที่ผู้ใช้กรอก (null = แถวเก่า/กรอกต่อกรัมตรง — ไม่แปลงย้อนกลับ ห้ามอนุมานฐานจากตัวเลข)
+        inputValue: row.input_value == null ? null : Number(row.input_value),
+        inputUnit: row.input_unit === "assoc965_sell_per_baht" || row.input_unit === "thb_per_kg" ? row.input_unit : null,
+      };
     }
     return { ok: true, data: result };
   } catch (err) {

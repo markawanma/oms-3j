@@ -43,13 +43,17 @@ import type {
   ProductionOrderPreviewItem,
   ProductionOrderRow,
 } from "@/lib/production/types";
-import { PRODUCTION_COST_TYPE_LABEL_TH } from "@/lib/production/types";
+import { PRODUCTION_COST_TYPE_LABEL_TH, PRODUCTION_METAL_LABEL_TH } from "@/lib/production/types";
 import { formatTHB } from "@/lib/format";
+import { brassPerGramToKgText } from "@/lib/oem/metal-price";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
 import { ProductionSpecCostCard } from "./ProductionSpecCostCard";
+
+// ค่าต่อกรัมจาก server (numeric(14,4)) — แสดงอย่างน้อย 2 ตำแหน่ง สูงสุด 4 ไม่ปัดทิ้งเศษของทองเหลือง (0.3506)
+const fmtPerGram = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 4 });
 
 interface DoneRow {
   productId: string;
@@ -80,18 +84,27 @@ export function ProductionDoneDialog({
   onDone: () => void;
 }) {
   const toast = useToast();
+  // 0186: รายการที่ยังไม่มี SKU (productId null) ปิดใบ/คิดต้นทุนไม่ได้ (DB ตอบ sku_required) — จอ PM-B จะกันที่ปุ่มก่อนเปิดกล่องนี้ ·
+  // ตรงนี้กันซ้ำ: ไม่ให้แถวพวกนี้เข้า payload และปิดปุ่มยืนยันพร้อมบอกเหตุผล (ไม่ปล่อยให้ผู้ใช้กดไปชน error ของ DB)
+  const unboundCount = items.filter((item) => item.productId === null).length;
   const [rows] = useState<DoneRow[]>(() =>
-    items.map((item) => ({
-      productId: item.productId,
-      sku: item.sku,
-      productName: item.productName,
-      qtyPlanned: item.qtyPlanned,
-      qtyDoneInput: String(item.qtyPlanned),
-      makeSpec: item.makeSpec,
-    }))
+    items.flatMap((item) =>
+      item.productId === null
+        ? []
+        : [
+            {
+              productId: item.productId,
+              sku: item.sku ?? "",
+              productName: item.productName ?? "",
+              qtyPlanned: item.qtyPlanned,
+              qtyDoneInput: String(item.qtyPlanned),
+              makeSpec: item.makeSpec,
+            },
+          ]
+    )
   );
   const [qtyByProductId, setQtyByProductId] = useState<Map<string, string>>(
-    () => new Map(items.map((item) => [item.productId, String(item.qtyPlanned)]))
+    () => new Map(items.flatMap((item) => (item.productId === null ? [] : [[item.productId, String(item.qtyPlanned)] as [string, string]])))
   );
   const [preview, setPreview] = useState<ProductionOrderPreview | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
@@ -163,7 +176,13 @@ export function ProductionDoneDialog({
   );
 
   const totalQtyDone = doneItems.items.reduce((sum, it) => sum + it.qtyDone, 0);
-  const canSubmit = !previewLoading && !previewError && doneItems.allValid && totalQtyDone > 0 && !pending;
+  // 0186 (R3): โลหะ (ทอง/ทองเหลือง) ที่ใบใช้แต่ยังไม่มีราคาของวันนี้ — done ยัง fail-closed อยู่ที่ DB · ที่นี่กันปุ่มพร้อมบอกทาง (ไม่มีราคาเฉพาะใบ)
+  const missingPriceLabels = (preview?.missingPrices ?? []).map((m) => PRODUCTION_METAL_LABEL_TH[m]);
+  const goldPrice = preview?.metalPrices?.gold ?? null;
+  const brassPrice = preview?.metalPrices?.brass ?? null;
+  const brassKgText = brassPrice != null ? brassPerGramToKgText(String(brassPrice)) : null;
+  const canSubmit =
+    !previewLoading && !previewError && doneItems.allValid && totalQtyDone > 0 && !pending && unboundCount === 0 && missingPriceLabels.length === 0;
 
   function submit() {
     if (!canSubmit) return;
@@ -172,10 +191,11 @@ export function ProductionDoneDialog({
       const result = await doneProductionOrder({
         productionOrderId: order.id,
         items: doneItems.items,
-        // 0132 M1 — ราคาที่ preview ตัวนี้เห็นจริงตอนเปิดหน้าต่าง (หลังพิมพ์
+        // 0132 M1 → 0186 ต่อโลหะ — ราคาที่ preview ตัวนี้เห็นจริงตอนเปิดหน้าต่าง (หลังพิมพ์
         // จำนวนล่าสุดแล้ว) ส่งกลับให้ DB เทียบกับราคาที่ resolve ได้จริง ณ ตอน
-        // กดยืนยัน (กันราคาเลื่อนระหว่างที่หน้าต่างนี้เปิดค้างไว้)
-        expectedSpotThbPerGram: preview?.spotPriceThbPerGram ?? null,
+        // กดยืนยัน (กันราคาเลื่อนระหว่างที่หน้าต่างนี้เปิดค้างไว้) — อ็อบเจกต์เดียวกับที่ preview คืน
+        // (มีเฉพาะโลหะที่ใบใช้จริง · ใบ fixed ล้วน = {})
+        expectedMetalPrices: preview?.metalPrices ?? null,
       });
       if (!result.ok) {
         setSubmitError(result.error);
@@ -204,6 +224,18 @@ export function ProductionDoneDialog({
         </div>
       )}
 
+      {unboundCount > 0 && (
+        <p role="alert" className="mt-3 rounded-md border border-red-200 bg-red-50 p-2 text-xs text-red-700">
+          ใบนี้มี {unboundCount} รายการที่ยังไม่ผูก SKU — ผูก SKU ให้ครบก่อน ระบบถึงคิดต้นทุนและเข้าสต็อกได้
+        </p>
+      )}
+
+      {preview && !previewError && missingPriceLabels.length > 0 && (
+        <p role="alert" className="mt-3 rounded-md border border-red-200 bg-red-50 p-2 text-xs text-red-700">
+          ยังไม่มีราคา{missingPriceLabels.join("/")}ของวันนี้ — ต้องกรอกที่หน้าราคาโลหะ (/oem/rates) ก่อน (ไม่มีราคาเฉพาะใบ · ห้ามใช้ราคาเก่า)
+        </p>
+      )}
+
       {preview && !previewError && (
         <>
           {preview.spotPriceThbPerGram != null ? (
@@ -215,6 +247,20 @@ export function ProductionDoneDialog({
             <p className="mt-3 text-xs text-zinc-400">
               ทุกรายการในใบนี้เป็นต้นทุนคงที่ — ไม่ใช้ราคาเงิน
               {previewLoading && <span className="ml-1.5 text-zinc-400">(กำลังคำนวณใหม่...)</span>}
+            </p>
+          )}
+
+          {/* ราคาทอง/ทองเหลือง: โชว์ค่าที่ server คืนมาตรงๆ (preview.metalPrices) — ที่เห็น = ที่จะส่งกลับเป็น expectedMetalPrices และถูก stamp */}
+          {goldPrice != null && (
+            <p className="mt-1 text-xs text-zinc-500" data-testid="done-gold-price">
+              ราคาทองที่จะใช้: <span className="font-semibold text-zinc-700">{fmtPerGram(goldPrice)} บาท/กรัม</span> (ทอง 100%)
+            </p>
+          )}
+          {brassPrice != null && (
+            <p className="mt-1 text-xs text-zinc-500" data-testid="done-brass-price">
+              ราคาทองเหลืองที่จะใช้:{" "}
+              <span className="font-semibold text-zinc-700">{brassKgText != null ? `${brassKgText} บาท/กก.` : `${fmtPerGram(brassPrice)} บาท/กรัม`}</span>
+              {brassKgText != null && <span className="ml-1 text-zinc-400">({fmtPerGram(brassPrice)} บาท/กรัม)</span>}
             </p>
           )}
 

@@ -92,12 +92,34 @@ describe("static guards: create path never uses the suggestion", () => {
     expect((seg.match(/coalesce\(p_qty_planned, v_qty_order\)/g) ?? []).length).toBe(2);
     expect(seg).not.toMatch(/v_suggest|job_plan_suggest\(|qty_planned_suggest/);
   });
-  it("no later migration (เลข > 0176) redefines job_create_* — กวาดทุกไฟล์ ไม่ล็อกรายชื่อ", () => {
+  it("no later migration (เลข > 0176) redefines job_create_* — allowlist แคบ 0186:job_create_insert เท่านั้น + ชั้นสอง: ตัวที่ allow ต้องไม่อ้างค่าแนะนำ", () => {
+    // 0186 (PM-A) replace job_create_insert (ตัวแกนที่ job_create_from_* ทุกตัวเรียก) เพื่อปิดช่อง fallback เงียบของแบบทอง (no_gold_profile)
+    // ฟังก์ชันนั้นรับจำนวนจากผู้เรียกตรงๆ ไม่อ่านค่าแนะนำเลย ⇒ เจตนาของด่านนี้ยังครบ
+    // allow เฉพาะคู่ "ไฟล์:ฟังก์ชัน" ที่ตรวจแล้ว — migration อื่นที่แตะ job_create_* ต้องล้ม แล้วมาทบทวนก่อนเพิ่มคู่ที่นี่
+    const ALLOW = ["0186_production_item_metal.sql:job_create_insert"];
     const later = readdirSync(join(root, "supabase", "migrations")).filter((f) => /^\d{4}_.*\.sql$/.test(f) && Number(f.slice(0, 4)) > 176);
     expect(later.length).toBeGreaterThan(0);
+    const startRe = /create or replace function analytics\.(job_create\w*)/gi;
+    const seen: string[] = [];
     for (const f of later) {
       const sql = read(`supabase/migrations/${f}`);
-      expect(sql, f).not.toMatch(/create or replace function analytics\.job_create/i);
+      for (const m of sql.matchAll(startRe)) {
+        const key = `${f}:${m[1]}`;
+        seen.push(key);
+        if (!ALLOW.includes(key)) continue; // ไม่อยู่ใน allowlist → ล้มที่ assertion ท้ายเทสต์พร้อมรายชื่อ
+        const rest = sql.slice(m.index ?? 0);
+        // ตัวฟังก์ชันจบที่ dollar-quote ปิดบรรทัดแรกหลังเริ่ม (`$fn$;` / `$function$;` / `$f$;`)
+        const end = rest.search(/\n\$[a-z_0-9]*\$;/i);
+        const body = end > 0 ? rest.slice(0, end) : rest.slice(0, 20000);
+        expect(body, key).not.toMatch(/v_suggest|job_plan_suggest\(|qty_planned_suggest/);
+      }
     }
+    // เท่ากันเป๊ะ: มีตัวนอก allowlist = ล้ม · allowlist ค้างเก่า (ไม่เจอจริง) = ล้ม
+    expect([...seen].sort()).toEqual([...ALLOW].sort());
+  });
+  it("0186 redefines only job_create_insert among job_create_* (the 3 job_create_from_*/entry RPCs untouched — their bodies are the 0176 ones this file pins above)", () => {
+    const sql = read("supabase/migrations/0186_production_item_metal.sql");
+    const names = [...sql.matchAll(/create or replace function analytics\.(job_create\w*)/gi)].map((m) => m[1]);
+    expect(names).toEqual(["job_create_insert"]);
   });
 });

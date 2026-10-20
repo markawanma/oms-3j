@@ -116,7 +116,7 @@ export function ProfilesClient() {
           <section aria-label="ค่าเริ่มตอนสร้างใบงาน" className="rounded-lg border border-zinc-200 bg-white p-3 text-sm text-zinc-800">
             <p className="font-semibold text-zinc-900">ค่าเริ่มตอนสร้างใบงาน</p>
             <p>งานทั่วไป (ไม่ใช่ทอง): {nameById(data.defaultProfileId) ?? "—"}</p>
-            <p>งานทอง: {nameById(data.defaultGoldProfileId) ?? "ใช้ตามงานทั่วไป"}</p>
+            <p>งานทอง: {nameById(data.defaultGoldProfileId) ?? "ยังไม่ตั้ง — สร้างใบงานทองต้องเลือกแบบเอง"}</p>
           </section>
           {data.defaultProfileId === null && (
             <p role="alert" className="rounded-md border border-amber-300 bg-amber-50 p-2.5 text-sm font-medium text-amber-900">
