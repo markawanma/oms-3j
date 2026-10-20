@@ -132,9 +132,10 @@ export function parseText(raw: unknown, label: string, max: number, required: bo
   return ok(t);
 }
 
-/** PIN 4 หลัก — ตรวจรูปแบบเท่านั้น (เลขซ้ำ/เรียง/เดาง่ายให้ DB ปฏิเสธ — ข้อความไทยมาจาก hint pin_invalid) */
+/** PIN 4 หลัก — ตรวจรูปแบบเท่านั้น · 0185: เลขซ้ำ/เรียง/0000 ใช้ได้ (เจ้าของ 20 ต.ค. 69) · DB ตรวจรูปแบบซ้ำ (job_pin_ok) ข้อความไทยมาจาก hint pin_invalid */
+export const PIN_RE = /^[0-9]{4}$/;
 export function parsePin(raw: unknown): Parsed<string> {
-  if (typeof raw !== "string" || !/^[0-9]{4}$/.test(raw)) return bad("PIN ต้องเป็นตัวเลข 4 หลัก");
+  if (typeof raw !== "string" || !PIN_RE.test(raw)) return bad("PIN ต้องเป็นตัวเลข 4 หลัก");
   return ok(raw);
 }
 

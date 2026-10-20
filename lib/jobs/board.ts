@@ -4,6 +4,7 @@
 
 import { addDays, daysBetween } from "@/lib/jobs/dates";
 import { GOLD_GAP_TOLERANCE_G } from "@/lib/jobs/lots";
+import { retiredStageLabel } from "@/lib/jobs/types";
 import type { BoardRow, StageDef } from "@/lib/jobs/types";
 
 export const NO_STAGE = "__none__";
@@ -39,6 +40,16 @@ export function columnOf(r: BoardRow, known: ReadonlySet<string>): string {
   if (bc && known.has(bc)) return bc;
   if (!r.stageCode && r.stageCount > 0 && r.stageDoneCount >= r.stageCount) return AWAITING_CLOSE;
   return NO_STAGE;
+}
+
+/**
+ * ขั้นที่ขึ้นเป็นคอลัมน์บอร์ด (0184): ขั้นที่ใช้งานอยู่ทั้งหมด (แม้ไม่มีใบ) + ขั้นที่เลิกใช้ "เฉพาะเมื่อมีใบอยู่ที่ขั้นนั้น" ชื่อต่อท้าย "(เลิกใช้)"
+ * ไม่งั้นใบเก่าที่ยังเดินผ่านขั้น polish ตกคอลัมน์ "ยังไม่เริ่ม" (columnOf ไม่รู้จักรหัส) · เรียงตาม seq ของทะเบียน (defs ต้องเรียงมาแล้ว) · ขั้นเลิกใช้ที่ไม่มีใบ = ไม่แสดง
+ */
+export function visibleBoardStages(defs: readonly StageDef[], rows: readonly BoardRow[]): StageDef[] {
+  const all = new Set(defs.map((d) => d.code));
+  const used = new Set(rows.map((r) => columnOf(r, all)));
+  return defs.filter((d) => !d.retired || used.has(d.code)).map((d) => (d.retired ? { ...d, nameTh: retiredStageLabel(d.nameTh) } : d));
 }
 
 /** คอลัมน์ = "ยังไม่เริ่ม" (ข้อมูลที่ไม่มีขั้น) + ขั้นที่ใช้งาน (เรียงตามลำดับมาตรฐาน) + "รอปิดงาน" ท้ายสุด — ขั้นที่ไม่มีใบงานก็แสดง (เห็นภาพรวมสายผลิต) */

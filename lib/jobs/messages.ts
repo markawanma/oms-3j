@@ -99,7 +99,7 @@ const OFFICE_HINT_BASE: Record<string, string> = {
   metal_unsupported: "โลหะของรายการนี้สร้างใบงานไม่ได้ (รองรับเงิน/ทอง/ทองเหลือง)",
   not_oem: "ใช้กับงาน OEM เท่านั้น",
   nothing_to_reopen: "ยังไม่มีความคืบหน้าให้ย้อน",
-  pin_invalid: "PIN ต้องเป็นเลข 4 หลัก และห้ามซ้ำ/เรียงต่อเนื่อง/เดาง่าย",
+  pin_invalid: "PIN ต้องเป็นตัวเลข 4 หลัก",
   po_not_open: "ใบผลิตนี้ไม่ได้เปิดอยู่ สร้างใบงานไม่ได้",
   qty_exceeds_final: "จำนวนดีมากกว่าจำนวนที่เหลือจากขั้นสุดท้าย",
   qty_mismatch: "จำนวนดี + เสีย ต้องเท่ากับจำนวนที่วางแผน",
@@ -264,11 +264,15 @@ export function prevNotSentMessage(prevName: string | null): string {
   return prevName ? `ขั้นก่อน (${prevName}) ยังไม่กดส่งพร้อมน้ำหนัก — ให้เขากดส่งก่อน หรือแจ้งออฟฟิศ` : WORKER_CODE_TH.prev_not_sent;
 }
 
-/** error ของ RPC ออฟฟิศ (supabase error object) → ไทย · 42501 = ไม่มีสิทธิ์ · hint ที่รู้จัก → ข้อความ DB ถ้าสะอาด ไม่งั้นตาราง */
+/** hint ที่ใช้ข้อความจากตาราง OFFICE_HINT_TH เสมอ (ไม่ใช้ข้อความ DB) — pin_invalid: ข้อความ DB ของ worker_pin_set/worker_upsert ยังพูดถึง "เลขซ้ำ/เรียง" (0185 ผ่อนกฎแล้ว) */
+const TABLE_ONLY_HINTS: ReadonlySet<string> = new Set(["pin_invalid"]);
+
+/** error ของ RPC ออฟฟิศ (supabase error object) → ไทย · 42501 = ไม่มีสิทธิ์ · hint ที่รู้จัก → ข้อความ DB ถ้าสะอาด ไม่งั้นตาราง (ยกเว้น TABLE_ONLY_HINTS = ตารางเสมอ) */
 export function officeErrorMessage(err: unknown, fallback: string = GENERIC_JOB_ERROR): string {
   const e = (typeof err === "object" && err !== null ? err : {}) as { code?: unknown; message?: unknown; hint?: unknown };
   if (e.code === "42501") return NO_PERMISSION;
   const hint = typeof e.hint === "string" ? e.hint : null;
+  if ((e.code === "22023" || e.code === "55000") && hint && TABLE_ONLY_HINTS.has(hint) && Object.prototype.hasOwnProperty.call(OFFICE_HINT_TH, hint)) return OFFICE_HINT_TH[hint];
   if ((e.code === "22023" || e.code === "55000") && hint && Object.prototype.hasOwnProperty.call(OFFICE_HINT_TH, hint)) {
     const raw = typeof e.message === "string" ? e.message.replace(/^[a-z][a-z0-9_]*:\s*/i, "") : "";
     return showable(raw) ? raw : OFFICE_HINT_TH[hint];

@@ -43,6 +43,28 @@ describe("getJobBoard", () => {
     expect(b.ops.some((o) => o[0] === "is" && o[1] === "parent_job_id" && o[2] === null)).toBe(true);
   });
 
+  it("0184: อ่านทะเบียนขั้นทุกแถวรวมเลิกใช้ (ไม่กรอง is_active) · ขั้น polish ที่เลิกใช้ขึ้นคอลัมน์ '(เลิกใช้)' เฉพาะเมื่อมีใบอยู่ · ใบเก่าไม่ตก 'ยังไม่เริ่ม'", async () => {
+    results.job_stage_def = { data: [
+      { code: "cut_sprue", name_th: "ตัดต้น", seq_default: 80, is_active: true },
+      { code: "polish", name_th: "แต่ง ขัด", seq_default: 90, is_active: false },
+      { code: "finish", name_th: "แต่ง", seq_default: 91, is_active: true },
+      { code: "buff", name_th: "ขัด", seq_default: 92, is_active: true },
+      { code: "old_unused", name_th: "ขั้นเก่าไม่มีใบ", seq_default: 95, is_active: false },
+    ], error: null };
+    results.v_job_board = { data: [boardRow({ current_stage_code: "polish", board_column: "polish", parts_count: 1 })], error: null };
+    const r = await getJobBoard();
+    if (!r.ok) throw new Error("board failed");
+    const d = calls.find((c) => c.table === "job_stage_def")!;
+    expect(d.ops.some((o) => o[0] === "eq" && o[1] === "is_active")).toBe(false);
+    expect(String(d.ops.find((o) => o[0] === "select")?.[1])).toContain("is_active");
+    expect(r.data.stages.map((s) => [s.code, s.nameTh])).toEqual([["cut_sprue", "ตัดต้น"], ["polish", "แต่ง ขัด (เลิกใช้)"], ["finish", "แต่ง"], ["buff", "ขัด"]]);
+    // ไม่มีใบค้างที่ polish แล้ว = คอลัมน์เลิกใช้หายไป
+    results.v_job_board = { data: [boardRow({ current_stage_code: "finish", board_column: "finish", parts_count: 1 })], error: null };
+    const r2 = await getJobBoard();
+    if (!r2.ok) throw new Error("board failed");
+    expect(r2.data.stages.map((s) => s.code)).toEqual(["cut_sprue", "finish", "buff"]);
+  });
+
   it("ใบเดี่ยว: ไม่ query ต้นไม้ · แถวไม่มี key ของส่วนย่อย", async () => {
     results.v_job_board = { data: [boardRow({ parts_count: 1, parts_open: 1, qty_pending_explanation: 0, parent_job_id: null })], error: null };
     const r = await getJobBoard();

@@ -17,7 +17,10 @@ type Raw = Record<string, unknown>;
 
 export interface WorkersData {
   workers: WorkerRow[];
+  /** ขั้นที่เปิดใช้งาน — ตัวเลือกให้ติ๊กตอนเพิ่ม/แก้ช่าง */
   stages: { code: string; nameTh: string }[];
+  /** ขั้นที่เลิกใช้ (เช่น polish "แต่ง ขัด" หลัง 0184) — ไว้แสดงชื่อไทยของรหัสที่ช่างยังถืออยู่ ไม่ใช่ตัวเลือกใหม่ */
+  retiredStages?: { code: string; nameTh: string }[];
 }
 
 export async function getWorkers(): Promise<JobResult<WorkersData>> {
@@ -27,7 +30,7 @@ export async function getWorkers(): Promise<JobResult<WorkersData>> {
     const shop = shopId();
     const [w, d, lk] = await Promise.all([
       db().from("worker").select(WORKER_COLUMNS).eq("shop_id", shop).order("is_active", { ascending: false }).order("display_name", { ascending: true }).limit(100),
-      db().from("job_stage_def").select("code, name_th, seq_default").eq("shop_id", shop).eq("is_active", true).order("seq_default", { ascending: true }).limit(50),
+      db().from("job_stage_def").select("code, name_th, seq_default, is_active").eq("shop_id", shop).order("seq_default", { ascending: true }).limit(50),
       db().from("v_worker_lock").select(WORKER_LOCK_COLUMNS).eq("shop_id", shop).limit(100),
     ]);
     if (w.error) throw w.error;
@@ -39,7 +42,8 @@ export async function getWorkers(): Promise<JobResult<WorkersData>> {
       ok: true,
       data: {
         workers: rows(w.data).map((x) => mapWorkerRow(x, locks.get(String(x.id)))).filter((r): r is WorkerRow => r !== null),
-        stages: rows(d.data).flatMap((s) => (typeof s.code === "string" && typeof s.name_th === "string" ? [{ code: s.code, nameTh: s.name_th }] : [])),
+        stages: rows(d.data).flatMap((s) => (typeof s.code === "string" && typeof s.name_th === "string" && s.is_active !== false ? [{ code: s.code, nameTh: s.name_th }] : [])),
+        retiredStages: rows(d.data).flatMap((s) => (typeof s.code === "string" && typeof s.name_th === "string" && s.is_active === false ? [{ code: s.code, nameTh: s.name_th }] : [])),
       },
     };
   } catch (err) {

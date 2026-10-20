@@ -318,11 +318,30 @@ describe("ทะเบียนช่าง — PIN", () => {
     expect(await saveWorker({ displayName: "ช่าง", stageCodes: [] })).toEqual({ ok: false, error: "เลือกขั้นตอนอย่างน้อยหนึ่งขั้น" });
     expect(rpcMock).not.toHaveBeenCalled();
   });
-  it("PIN เดาง่าย (DB ปฏิเสธ) → ข้อความไทย · PIN ไม่ถูก log", async () => {
+  it("PIN ผิดรูปแบบ (DB ปฏิเสธ pin_invalid) → ข้อความไทยตรงกฎใหม่ 'ตัวเลข 4 หลัก' · PIN ไม่ถูก log", async () => {
+    // ข้อความ DB จริงของ worker_pin_set/worker_upsert (ยังพูดถึงเลขซ้ำ/เรียง) — จอต้องได้ข้อความจากตาราง hint ไม่ใช่ข้อความ DB
     rpcMock.mockResolvedValue({ data: null, error: { code: "22023", hint: "pin_invalid", message: "PIN ต้องเป็นตัวเลข 4 หลัก และห้ามเป็นเลขซ้ำ/เรียงต่อเนื่อง/เดาง่าย" } });
     const r = await saveWorker({ displayName: "ช่างเอ", stageCodes: ["cast"], pin: "1111" });
-    expect(!r.ok && r.error).toMatch(/PIN/);
+    expect(r).toMatchObject({ ok: false, code: "pin_invalid", error: "PIN ต้องเป็นตัวเลข 4 หลัก" });
     expect(JSON.stringify(errSpy.mock.calls)).not.toContain("1111");
+  });
+  it("0185: PIN เลขซ้ำ/เรียง (1111 · 1212 · 1234 · 0000) ผ่านด่านฝั่งแอปและส่งถึง DB · ตั้ง PIN เอง (resetWorkerPin) ส่ง p_pin ตามที่ตั้ง · PIN ผิดรูปแบบไม่ถึง DB", async () => {
+    for (const pin of ["1111", "1212", "1234", "0000"]) {
+      rpcMock.mockClear();
+      rpcMock.mockResolvedValue({ data: { id: WORKER, display_name: "ช่างเอ", stage_codes: ["cast"], pin: null, pin_generated: false }, error: null });
+      expect((await saveWorker({ displayName: "ช่างเอ", stageCodes: ["cast"], pin })).ok, pin).toBe(true);
+      expect(lastRpc()[1].p_pin).toBe(pin);
+      rpcMock.mockClear();
+      rpcMock.mockResolvedValue({ data: { worker_id: WORKER, pin: null, pin_generated: false }, error: null });
+      expect(await resetWorkerPin(WORKER, pin)).toEqual({ ok: true, data: { pin: null } });
+      expect(lastRpc()[1]).toMatchObject({ p_worker_id: WORKER, p_pin: pin });
+    }
+    rpcMock.mockClear();
+    for (const bad of ["123", "12345", "abcd", "12a4", " 1234", "๑๒๓๔"]) {
+      expect((await resetWorkerPin(WORKER, bad)).ok, bad).toBe(false);
+      expect((await saveWorker({ displayName: "ช่างเอ", stageCodes: ["cast"], pin: bad })).ok, bad).toBe(false);
+    }
+    expect(rpcMock).not.toHaveBeenCalled();
   });
   it("รีเซ็ต PIN: สุ่ม (ไม่ส่ง) คืนครั้งเดียว · กำหนดเอง = ไม่คืน · ปิด/เปิดช่างส่ง boolean", async () => {
     rpcMock.mockResolvedValue({ data: { worker_id: WORKER, pin: "2604", pin_generated: true }, error: null });
@@ -373,6 +392,21 @@ describe("0173: ปลดล็อกช่าง · แก้ชื่อเร
     const r = await setJobDesignLabel(JOB, "ชื่อ");
     expect(r).toMatchObject({ ok: false });
     expect(JSON.stringify(r)).not.toContain("job_design_label_set");
+  });
+  it("getWorkers (0184): ทะเบียนขั้นอ่านทุกแถวรวมที่เลิกใช้ — stages = เฉพาะที่เปิด (ตัวเลือกติ๊ก) · retiredStages = is_active=false (ไว้แสดงชื่อ) · ไม่ส่ง is_active มา = ถือว่าเปิด", async () => {
+    results.job_stage_def = { data: [
+      { code: "cut_sprue", name_th: "ตัดต้น", seq_default: 80, is_active: true },
+      { code: "polish", name_th: "แต่ง ขัด", seq_default: 90, is_active: false },
+      { code: "finish", name_th: "แต่ง", seq_default: 91 },
+      { code: 5, name_th: "ผิดชนิด", is_active: false },
+    ], error: null };
+    const r = await getWorkers();
+    expect(r.ok && r.data.stages).toEqual([{ code: "cut_sprue", nameTh: "ตัดต้น" }, { code: "finish", nameTh: "แต่ง" }]);
+    expect(r.ok && r.data.retiredStages).toEqual([{ code: "polish", nameTh: "แต่ง ขัด" }]);
+    const d = calls.find((c) => c.table === "job_stage_def")!;
+    expect(d.ops).toContainEqual(["eq", "shop_id", SHOP]);
+    expect(d.ops.some((o) => o[0] === "eq" && o[1] === "is_active")).toBe(false);
+    expect(String(d.ops.find((o) => o[0] === "select")?.[1])).toContain("is_active");
   });
   it("getWorkers: อ่านสถานะล็อกจาก v_worker_lock (ไม่มี pin_hash) แล้วจับคู่กับช่าง · ผิดชนิดถือว่าไม่ล็อก", async () => {
     results.worker = { data: [{ id: WORKER, display_name: "ช่างเอ", stage_codes: ["cast"], is_active: true, locked_until: "infinity", created_at: "2026-10-01T00:00:00Z" }], error: null };

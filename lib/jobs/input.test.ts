@@ -71,9 +71,10 @@ describe("parseText", () => {
 });
 
 describe("parsePin / parseStageCodes / parseScrapReason / isUuid", () => {
-  it("PIN 4 หลักเท่านั้น (ความง่ายให้ DB ตัดสิน)", () => {
-    expect(parsePin("4831").ok).toBe(true);
-    for (const v of ["123", "12345", "12a4", " 123", "", null, 1234, "１２３４"]) expect(parsePin(v as never).ok, String(v)).toBe(false);
+  it("PIN ตัวเลข 4 หลักเท่านั้น · 0185: เลขซ้ำ/คู่ซ้ำ/เรียง/0000/2580 ใช้ได้", () => {
+    for (const v of ["4831", "1111", "1212", "1234", "0000", "1122", "2580", "4321"]) expect(parsePin(v).ok, v).toBe(true);
+    for (const v of ["123", "12345", "12a4", " 123", "1234 ", "", "abcd", "๑๒๓๔", "1234\n", null, 1234, "１２３４"]) expect(parsePin(v as never).ok, String(v)).toBe(false);
+    expect(parsePin("12a4")).toEqual({ ok: false, error: "PIN ต้องเป็นตัวเลข 4 หลัก" });
   });
   it("รหัสขั้น: รูปแบบ · ไม่ซ้ำ · ไม่ว่าง (เมื่อไม่อนุญาต)", () => {
     expect(parseStageCodes(["cast", "polish"], false)).toEqual({ ok: true, value: ["cast", "polish"] });

@@ -536,14 +536,19 @@ export function mapWorkerRow(r: Record<string, unknown>, lock?: { lockState: Loc
   };
 }
 
+/** ป้ายชื่อขั้นที่เลิกใช้ (0184) — ใช้ที่เดียวกันทั้งบอร์ดและทะเบียนช่าง */
+export const retiredStageLabel = (nameTh: string): string => `${nameTh} (เลิกใช้)`;
+
 export interface StageDef {
   code: string;
   nameTh: string;
   seq: number;
+  /** is_active=false (เช่น polish "แต่ง ขัด" หลัง 0184) — ไม่มีคีย์นี้ = ขั้นที่ใช้งานอยู่ */
+  retired?: boolean;
 }
 
 export function mapStageDef(r: Record<string, unknown>): StageDef | null {
   const code = str(r.code);
   if (!code) return null;
-  return { code, nameTh: str(r.name_th) ?? code, seq: num(r.seq_default) ?? 0 };
+  return { code, nameTh: str(r.name_th) ?? code, seq: num(r.seq_default) ?? 0, ...(r.is_active === false ? { retired: true } : {}) };
 }
