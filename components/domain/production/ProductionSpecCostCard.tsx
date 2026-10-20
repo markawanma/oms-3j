@@ -22,7 +22,8 @@
 
 import { Gem, Package } from "lucide-react";
 import type { MakeSpec } from "@/lib/catalog/types";
-import type { ProductionSpecCostCalc } from "@/lib/production/types";
+import type { ProductionMetal, ProductionSpecCostCalc } from "@/lib/production/types";
+import { PRODUCTION_METAL_LABEL_TH } from "@/lib/production/types";
 import { formatTHB } from "@/lib/format";
 import { formatPurityPct } from "@/lib/units/purity";
 
@@ -30,6 +31,7 @@ export function ProductionSpecCostCard({
   makeSpec,
   silverWeightG,
   silverPurity,
+  metal,
   costCalc,
 }: {
   /** null when the side-channel read didn't find a spec (shouldn't happen
@@ -38,8 +40,11 @@ export function ProductionSpecCostCard({
   makeSpec: MakeSpec | null;
   silverWeightG: number | null;
   silverPurity: number | null;
+  /** 0186: โลหะของรายการ (ป้าย "เนื้อ<โลหะ>") — ไม่ส่ง = ใช้โลหะใน snapshot costCalc.metal · ไม่มีทั้งคู่ = เงิน (ใบก่อน 0186) */
+  metal?: ProductionMetal | null;
   costCalc: ProductionSpecCostCalc;
 }) {
+  const metalLabel = PRODUCTION_METAL_LABEL_TH[metal ?? costCalc.metal ?? "silver"];
   return (
     <div className="mt-2 space-y-2 rounded-md border border-indigo-200 bg-indigo-50/50 p-2.5">
       {/* การ์ดสเปค — น้ำหนัก/ระดับงาน/พลอย/ชุบ (task brief 2c) */}
@@ -68,7 +73,7 @@ export function ProductionSpecCostCard({
           costCalc เองไม่มี field ราคา/margin เลยสักตัว (ดู type ที่ import) */}
       <dl className="space-y-0.5 text-xs">
         <div className="flex justify-between">
-          <dt className="text-zinc-500">เนื้อเงิน</dt>
+          <dt className="text-zinc-500">เนื้อ{metalLabel}</dt>
           <dd className="tabular-nums text-zinc-700">{formatTHB(costCalc.metalPerPiece)}</dd>
         </div>
         <div className="flex justify-between">
