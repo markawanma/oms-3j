@@ -7,7 +7,7 @@
 // before) specifically so child-module sub-navs that assume `sticky top-16`
 // (TikTokSubNav, CrmSubNav) keep working unmodified — only its *contents*
 // change (hamburger + logo instead of inline nav links).
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 import type { ReactNode } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -16,6 +16,7 @@ import {
   BarChart3,
   Boxes,
   Calculator,
+  ChevronDown,
   ClipboardCheck,
   ClipboardList,
   Coins,
@@ -46,6 +47,7 @@ import { Logo } from "@/components/brand/Logo";
 import { MARKETING_NAV, isWideMarketingPath } from "@/lib/marketing/nav";
 import { isWideJobsPath } from "@/lib/jobs/nav";
 import { signOut } from "@/lib/actions/auth";
+import { loadCollapsed, saveCollapsed } from "@/lib/nav/collapsed";
 
 interface NavItem {
   href: string;
@@ -148,47 +150,94 @@ function activeNavHref(pathname: string, hrefs: string[]): string | null {
   return best;
 }
 
+/** หมวดที่มีหน้า active อยู่ (longest-match เดียวกับไฮไลต์) — null ถ้าไม่อยู่หน้าไหนในเมนูเลย */
+function activeGroupLabel(pathname: string, groups: NavGroup[]): string | null {
+  const href = activeNavHref(
+    pathname,
+    groups.flatMap((g) => g.items.map((i) => i.href))
+  );
+  if (href === null) return null;
+  return groups.find((g) => g.items.some((i) => i.href === href))?.label ?? null;
+}
+
 function NavList({
   groups,
   pathname,
+  collapsed,
+  onToggleGroup,
   onNavigate,
 }: {
   groups: NavGroup[];
   pathname: string;
+  /** label ของหมวดที่พับอยู่ — state เดียวกันทั้ง sidebar และ drawer (อยู่ที่ DashboardShell) */
+  collapsed: ReadonlySet<string>;
+  onToggleGroup: (label: string) => void;
   onNavigate?: () => void;
 }) {
+  // sidebar กับ drawer render NavList พร้อมกันได้ (drawer เปิดบนมือถือ) — id ต้องไม่ซ้ำเพื่อให้ aria-controls ชี้ถูกตัว
+  const uid = useId();
   const activeHref = activeNavHref(
     pathname,
     groups.flatMap((g) => g.items.map((i) => i.href))
   );
   return (
-    <nav aria-label="เมนูหลัก" className="flex flex-col gap-4 p-3">
-      {groups.map((group) => (
-        <div key={group.label}>
-          <p className="px-2 pb-1 text-[0.68rem] font-bold uppercase tracking-wider text-zinc-400">{group.label}</p>
-          <div className="flex flex-col gap-0.5">
-            {group.items.map(({ href, label, icon: Icon }) => {
-              const active = href === activeHref;
-              return (
-                <Link
-                  key={href}
-                  href={href}
-                  onClick={onNavigate}
-                  aria-current={active ? "page" : undefined}
-                  className={`flex min-h-11 items-center gap-2.5 rounded-md px-3 text-sm font-medium transition-colors ${
-                    active
-                      ? "bg-primary-100 text-primary-700"
-                      : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
-                  }`}
-                >
-                  <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
-                  {label}
-                </Link>
-              );
-            })}
+    <nav aria-label="เมนูหลัก" className="flex flex-col gap-2 p-3">
+      {groups.map((group, idx) => {
+        const open = !collapsed.has(group.label);
+        const hasActive = group.items.some((i) => i.href === activeHref);
+        const panelId = `${uid}-nav-group-${idx}`;
+        return (
+          <div key={group.label}>
+            <button
+              type="button"
+              onClick={() => onToggleGroup(group.label)}
+              aria-expanded={open}
+              aria-controls={panelId}
+              className="flex min-h-10 w-full items-center justify-between gap-2 rounded-md px-2 text-left text-[0.68rem] font-bold uppercase tracking-wider text-zinc-400 hover:bg-zinc-100 hover:text-zinc-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-600"
+            >
+              <span className="flex min-w-0 items-center gap-1.5">
+                {group.label}
+                {/* พับอยู่แต่หน้าปัจจุบันอยู่ในหมวดนี้ — จุด brand บอกว่า "อยู่ในนี้" */}
+                {!open && hasActive && (
+                  <>
+                    <span aria-hidden="true" className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary-600" />
+                    <span className="sr-only">(หน้าที่เปิดอยู่อยู่ในหมวดนี้)</span>
+                  </>
+                )}
+              </span>
+              {/* motion-reduce: ยังพลิกทิศบอกสถานะ แต่ไม่มี transition (เปลี่ยนทันที) */}
+              <ChevronDown
+                className={`h-4 w-4 shrink-0 transition-transform duration-150 motion-reduce:transition-none ${open ? "" : "-rotate-90"}`}
+                aria-hidden="true"
+              />
+            </button>
+            {/* ซ่อนด้วย hidden (ไม่ unmount) — aria-controls ต้องมี element จริงให้ชี้ · wrapper นี้ห้ามมี class display เอง ไม่งั้นทับ [hidden] */}
+            <div id={panelId} hidden={!open}>
+              <div className="flex flex-col gap-0.5">
+                {group.items.map(({ href, label, icon: Icon }) => {
+                  const active = href === activeHref;
+                  return (
+                    <Link
+                      key={href}
+                      href={href}
+                      onClick={onNavigate}
+                      aria-current={active ? "page" : undefined}
+                      className={`flex min-h-11 items-center gap-2.5 rounded-md px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-600 ${
+                        active
+                          ? "bg-primary-100 text-primary-700"
+                          : "text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900"
+                      }`}
+                    >
+                      <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
+                      {label}
+                    </Link>
+                  );
+                })}
+              </div>
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </nav>
   );
 }
@@ -222,6 +271,47 @@ export function DashboardShell({
           { label: "ทีม", items: [{ href: "/settings/members", label: "สมาชิก", icon: UserCog }] },
         ]
       : visibleGroups;
+
+  // พับ/กางหมวดเมนู (เจ้าของสั่ง 20 ต.ค. 69) — state เดียวใช้ทั้ง sidebar และ drawer
+  // SSR + render แรก = กางทุกหมวด (Set ว่าง) แล้วค่อยอ่าน localStorage หลัง mount เท่านั้น กัน hydration mismatch
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(() => new Set<string>());
+  const [navPrefsLoaded, setNavPrefsLoaded] = useState(false);
+  const currentGroup = activeGroupLabel(pathname, navGroups);
+
+  useEffect(() => {
+    const stored = new Set(loadCollapsed());
+    // หมวดที่หน้าปัจจุบันอยู่ในนั้นกางเสมอตอนเข้าหน้า (ผู้ใช้พับเองทีหลังได้)
+    if (currentGroup) stored.delete(currentGroup);
+    setCollapsed(stored);
+    setNavPrefsLoaded(true);
+    // deps ว่างโดยตั้งใจ: อ่านครั้งเดียวตอน mount · การเปลี่ยนหมวดตอนใช้งานจัดการใน effect ถัดไป
+  }, []);
+
+  // เข้าสู่หมวดอื่น (active group เปลี่ยน) → กางหมวดนั้นอัตโนมัติ · เปลี่ยนหน้าภายในหมวดเดิมไม่แตะ
+  // ไม่งั้นผู้ใช้ที่พับหมวดทิ้งไว้จะโดนกางซ้ำทุกครั้งที่กด sub-nav ในหน้า
+  useEffect(() => {
+    if (!navPrefsLoaded || !currentGroup) return;
+    setCollapsed((prev) => {
+      if (!prev.has(currentGroup)) return prev;
+      const next = new Set(prev);
+      next.delete(currentGroup);
+      return next;
+    });
+  }, [currentGroup, navPrefsLoaded]);
+
+  // จำค่า — ไม่เขียนก่อนอ่านเสร็จ (ไม่งั้น Set ว่างตอนแรกจะทับค่าที่เคยจำไว้)
+  useEffect(() => {
+    if (navPrefsLoaded) saveCollapsed(collapsed);
+  }, [collapsed, navPrefsLoaded]);
+
+  const toggleGroup = useCallback((label: string) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(label)) next.delete(label);
+      else next.add(label);
+      return next;
+    });
+  }, []);
 
   // Close the drawer on route change (link click already does this via
   // onNavigate, but this also covers back/forward navigation).
@@ -286,7 +376,7 @@ export function DashboardShell({
 
       <div className="flex flex-1">
         <aside className="sticky top-16 hidden h-[calc(100vh-4rem)] w-56 shrink-0 overflow-y-auto border-r border-zinc-200 bg-white md:block print:hidden">
-          <NavList groups={navGroups} pathname={pathname} />
+          <NavList groups={navGroups} pathname={pathname} collapsed={collapsed} onToggleGroup={toggleGroup} />
         </aside>
 
         {/* ความกว้างเนื้อหา: เดิม max-w-3xl ทุกหน้า — ขยายเฉพาะหน้า workflow content ใหม่ที่ต้อง 2 คอลัมน์บน PC
@@ -318,7 +408,13 @@ export function DashboardShell({
                 <X className="h-5 w-5" aria-hidden="true" />
               </button>
             </div>
-            <NavList groups={navGroups} pathname={pathname} onNavigate={() => setDrawerOpen(false)} />
+            <NavList
+              groups={navGroups}
+              pathname={pathname}
+              collapsed={collapsed}
+              onToggleGroup={toggleGroup}
+              onNavigate={() => setDrawerOpen(false)}
+            />
           </div>
         </div>
       )}
