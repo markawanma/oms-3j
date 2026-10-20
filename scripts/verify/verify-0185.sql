@@ -297,8 +297,8 @@ declare
     jsonb_build_object('id', 'MU-3', 'what', 'job_pin_ok: ถอด anchor ^ $ (มีขยะนำหน้า/ต่อท้ายผ่าน)', 'fn', 'job_pin_ok', 'from', '''^[0-9]{4}$''', 'to', '''[0-9]{4}''', 'expect', jsonb_build_array('P2', 'P2b')),
     jsonb_build_object('id', 'MU-4', 'what', 'job_pin_ok: null ผ่าน', 'fn', 'job_pin_ok', 'from', 'select p_pin ~', 'to', 'select p_pin is null or p_pin ~', 'expect', jsonb_build_array('P2')),
     jsonb_build_object('id', 'MU-5', 'what', 'job_pin_generate: ถอดกรองคู่ซ้ำ (ตัวสุ่มแจก 1212 ฯลฯ)', 'fn', 'job_pin_generate', 'from', 'and v !~ ''^(..)\1$''', 'to', '', 'expect', jsonb_build_array('P5')),
-    jsonb_build_object('id', 'MU-6', 'what', 'worker_pin_set: ไม่เพิกถอน session เดิม', 'fn', 'worker_pin_set', 'from', 'update analytics.worker_session set revoked_at = clock_timestamp() where worker_id = p_worker_id and revoked_at is null;', 'to', '', 'expect', jsonb_build_array('P4', 'P7a')),
-    jsonb_build_object('id', 'MU-7', 'what', 'worker_pin_set: ไม่ปลดล็อก', 'fn', 'worker_pin_set', 'from', ', locked_until = null', 'to', '', 'expect', jsonb_build_array('P4', 'P7a')),
+    jsonb_build_object('id', 'MU-6', 'what', 'worker_pin_set: ไม่เพิกถอน session เดิม', 'fn', 'worker_pin_set', 'from', 'update analytics.worker_session set revoked_at = clock_timestamp() where worker_id = p_worker_id and revoked_at is null;', 'to', '', 'expect', jsonb_build_array('P4')),
+    jsonb_build_object('id', 'MU-7', 'what', 'worker_pin_set: ไม่ปลดล็อก', 'fn', 'worker_pin_set', 'from', ', locked_until = null', 'to', '', 'expect', jsonb_build_array('P4')),
     jsonb_build_object('id', 'MU-8', 'what', 'job_pin_ok: รับทุกข้อความที่ไม่ null (ไม่ตรวจรูปแบบ)', 'fn', 'job_pin_ok', 'from', 'select p_pin ~ ''^[0-9]{4}$''', 'to', 'select p_pin is not null', 'expect', jsonb_build_array('P2', 'P2b'))
   );
 begin

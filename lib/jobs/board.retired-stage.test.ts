@@ -13,7 +13,7 @@ const row = (o: Partial<BoardRow> = {}): BoardRow => ({
   boardColumn: "polish", handoffGapG: null, handoffMismatchCount: 0, ...o,
 } as BoardRow);
 
-// ทะเบียนที่ getJobBoard ส่งมาหลัง 0184 = เฉพาะขั้นเปิดใช้งาน (ไม่มี polish)
+// ทะเบียนเฉพาะขั้นเปิดใช้งาน (ไม่มี polish) — ใช้ยืนยัน columnOf/groupByStage ของ finish/buff · การแสดงขั้นเลิกใช้ทดสอบกับ ALL_DEFS + visibleBoardStages ด้านล่าง
 const ACTIVE_DEFS: StageDef[] = [
   { code: "cut_sprue", nameTh: "ตัดต้น", seq: 80 },
   { code: "finish", nameTh: "แต่ง", seq: 91 },

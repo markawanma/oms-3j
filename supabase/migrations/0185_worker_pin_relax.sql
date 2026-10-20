@@ -16,7 +16,7 @@
 -- ไม่แตะ: worker_pin_verify (ด่านล็อกตามนโยบายด้านบน · ตัวนับ) · worker_pin_set (null=สุ่ม · รีเซ็ต = ปลดล็อก + ล้างตัวนับ + session เดิมหมดอายุทันที) · worker_upsert (เพิ่มช่างรับ PIN · แก้ช่างเดิมไม่รับ PIN)
 --   ⇒ verify-0185 ล็อก md5 definition ของฟังก์ชันเหล่านี้ไว้ (ต้องไม่ขยับ)
 -- หนี้บอกตรงๆ: ข้อความ error ภายใน DB ของ worker_pin_set/worker_upsert ยังเขียนว่า "ห้ามเป็นเลขซ้ำ/เรียงต่อเนื่อง/เดาง่าย" (ไม่ได้ replace 2 ฟังก์ชัน security definer เพื่อแก้ข้อความ) —
---   หน้าจอไม่เห็นข้อความนี้ (ฝั่งแอปแปลงจาก hint pin_invalid -> lib/jobs/messages.ts) · ถ้าจะแก้ให้ตรง ต้อง replace + re-grant 2 ตัวแยกงาน
+--   หน้าจอไม่เห็นข้อความนี้: officeErrorMessage ใช้ตาราง OFFICE_HINT_TH เสมอสำหรับ hint pin_invalid (lib/jobs/messages.ts · ไม่ใช้ข้อความ DB) · ถ้าจะแก้ให้ตรง ต้อง replace + re-grant 2 ตัวแยกงาน
 -- สิทธิ์: ฟังก์ชันทั้งสองเป็นตัวช่วยภายใน (proacl = {postgres=X/postgres} ตั้งแต่ก่อนไฟล์นี้) — revoke 3 ชื่อซ้ำ ไม่ grant ให้ใคร = เท่าเดิมเป๊ะ (ข้อ 2/18 ของ 3j-migration-traps)
 
 create temp table _j185_base on commit drop as

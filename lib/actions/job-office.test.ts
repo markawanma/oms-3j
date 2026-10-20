@@ -319,7 +319,8 @@ describe("ทะเบียนช่าง — PIN", () => {
     expect(rpcMock).not.toHaveBeenCalled();
   });
   it("PIN ผิดรูปแบบ (DB ปฏิเสธ pin_invalid) → ข้อความไทยตรงกฎใหม่ 'ตัวเลข 4 หลัก' · PIN ไม่ถูก log", async () => {
-    rpcMock.mockResolvedValue({ data: null, error: { code: "22023", hint: "pin_invalid", message: "PIN ต้องเป็นตัวเลข 4 หลัก" } });
+    // ข้อความ DB จริงของ worker_pin_set/worker_upsert (ยังพูดถึงเลขซ้ำ/เรียง) — จอต้องได้ข้อความจากตาราง hint ไม่ใช่ข้อความ DB
+    rpcMock.mockResolvedValue({ data: null, error: { code: "22023", hint: "pin_invalid", message: "PIN ต้องเป็นตัวเลข 4 หลัก และห้ามเป็นเลขซ้ำ/เรียงต่อเนื่อง/เดาง่าย" } });
     const r = await saveWorker({ displayName: "ช่างเอ", stageCodes: ["cast"], pin: "1111" });
     expect(r).toMatchObject({ ok: false, code: "pin_invalid", error: "PIN ต้องเป็นตัวเลข 4 หลัก" });
     expect(JSON.stringify(errSpy.mock.calls)).not.toContain("1111");

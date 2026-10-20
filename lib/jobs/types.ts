@@ -536,6 +536,9 @@ export function mapWorkerRow(r: Record<string, unknown>, lock?: { lockState: Loc
   };
 }
 
+/** ป้ายชื่อขั้นที่เลิกใช้ (0184) — ใช้ที่เดียวกันทั้งบอร์ดและทะเบียนช่าง */
+export const retiredStageLabel = (nameTh: string): string => `${nameTh} (เลิกใช้)`;
+
 export interface StageDef {
   code: string;
   nameTh: string;

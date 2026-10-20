@@ -4,6 +4,7 @@
 
 import { addDays, daysBetween } from "@/lib/jobs/dates";
 import { GOLD_GAP_TOLERANCE_G } from "@/lib/jobs/lots";
+import { retiredStageLabel } from "@/lib/jobs/types";
 import type { BoardRow, StageDef } from "@/lib/jobs/types";
 
 export const NO_STAGE = "__none__";
@@ -48,7 +49,7 @@ export function columnOf(r: BoardRow, known: ReadonlySet<string>): string {
 export function visibleBoardStages(defs: readonly StageDef[], rows: readonly BoardRow[]): StageDef[] {
   const all = new Set(defs.map((d) => d.code));
   const used = new Set(rows.map((r) => columnOf(r, all)));
-  return defs.filter((d) => !d.retired || used.has(d.code)).map((d) => (d.retired ? { ...d, nameTh: `${d.nameTh} (เลิกใช้)` } : d));
+  return defs.filter((d) => !d.retired || used.has(d.code)).map((d) => (d.retired ? { ...d, nameTh: retiredStageLabel(d.nameTh) } : d));
 }
 
 /** คอลัมน์ = "ยังไม่เริ่ม" (ข้อมูลที่ไม่มีขั้น) + ขั้นที่ใช้งาน (เรียงตามลำดับมาตรฐาน) + "รอปิดงาน" ท้ายสุด — ขั้นที่ไม่มีใบงานก็แสดง (เห็นภาพรวมสายผลิต) */

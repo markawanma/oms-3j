@@ -13,8 +13,8 @@ import { ErrorLine, FIELD, Field } from "@/components/domain/jobs/JobDialogs";
 import { useOfficeRun } from "@/components/domain/jobs/useOfficeRun";
 import { resetWorkerPin, saveWorker, setWorkerActive, unlockWorker } from "@/lib/actions/job-workers";
 import type { WorkersData } from "@/lib/actions/job-workers";
-import { LABEL_ANGLE_MSG, LABEL_ANGLE_RE } from "@/lib/jobs/input";
-import { LOCK_STATE_LABEL } from "@/lib/jobs/types";
+import { LABEL_ANGLE_MSG, LABEL_ANGLE_RE, PIN_RE } from "@/lib/jobs/input";
+import { LOCK_STATE_LABEL, retiredStageLabel } from "@/lib/jobs/types";
 import type { WorkerRow } from "@/lib/jobs/types";
 
 type Dlg = { t: "edit"; worker: WorkerRow | null } | { t: "pin"; worker: WorkerRow } | { t: "setpin"; worker: WorkerRow } | { t: "shown"; name: string; pin: string } | null;
@@ -57,7 +57,7 @@ function EditDialog({ worker, stages, retired, onClose, onShown, onSetPin }: { w
   const [name, setName] = useState(worker?.displayName ?? "");
   const [codes, setCodes] = useState<string[]>(worker?.stageCodes ?? []);
   const [pin, setPin] = useState("");
-  const pinOk = pin === "" || /^\d{4}$/.test(pin);
+  const pinOk = pin === "" || PIN_RE.test(pin);
   const nameBad = LABEL_ANGLE_RE.test(name);
   const ready = name.trim() !== "" && codes.length > 0 && pinOk && !nameBad;
   const toggle = (c: string) => setCodes((p) => (p.includes(c) ? p.filter((x) => x !== c) : [...p, c]));
@@ -90,7 +90,7 @@ function EditDialog({ worker, stages, retired, onClose, onShown, onSetPin }: { w
             {heldRetired.map((s) => (
               <label key={s.code} className="flex min-h-11 items-center gap-2 text-sm text-zinc-600">
                 <input type="checkbox" className="h-5 w-5 accent-primary-600" checked={codes.includes(s.code)} onChange={() => toggle(s.code)} />
-                {s.nameTh} (เลิกใช้)
+                {retiredStageLabel(s.nameTh)}
               </label>
             ))}
           </div>
@@ -167,7 +167,7 @@ function ResetPinDialog({ worker, onClose, onShown }: { worker: WorkerRow; onClo
 function SetPinDialog({ worker, onClose, onShown }: { worker: WorkerRow; onClose: () => void; onShown: OnShown }) {
   const { run, busy, error } = useOfficeRun();
   const [pin, setPin] = useState("");
-  const pinOk = /^[0-9]{4}$/.test(pin);
+  const pinOk = PIN_RE.test(pin);
   async function submit() {
     const r = await run(() => resetWorkerPin(worker.id, pin), { success: "ตั้ง PIN แล้ว" });
     if (!r.ok) return;
@@ -274,7 +274,7 @@ export function WorkersClient({ data }: { data: WorkersData }) {
     const a = data.stages.find((s) => s.code === c);
     if (a) return a.nameTh;
     const r = retired.find((s) => s.code === c);
-    return r ? `${r.nameTh} (เลิกใช้)` : c;
+    return r ? retiredStageLabel(r.nameTh) : c;
   };
   const toggleActive = (w: WorkerRow) =>
     void run(() => setWorkerActive(w.id, !w.isActive), { success: w.isActive ? `ปิดใช้งาน ${w.displayName} แล้ว` : `เปิดใช้งาน ${w.displayName} แล้ว` });

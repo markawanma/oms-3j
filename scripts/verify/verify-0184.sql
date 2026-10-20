@@ -28,7 +28,7 @@
 --    - "ไม่แตะใบที่เปิดอยู่" ครอบด้วยด่านในไฟล์ migration เอง (md5 job/job_stage/job_event ก่อน-หลัง raise ถอยทั้งก้อน — ทำงานตอน apply) ไม่ใช่ในไฟล์นี้ — ไฟล์นี้รันหลัง migration เทียบก่อนไม่ได้
 --    - ความแคบของ UPDATE worker (ช่างที่ไม่มี polish ไม่ถูกแตะ) ไม่มีเทสต์ในไฟล์นี้ (state ก่อน migration หายไปแล้ว) — ครอบด้วย dry-run ต่อไฟล์: migration x2 (รอบสองต้องไม่ขยับอะไร) ตามรายงานส่งงาน
 --    - race หลาย connection (ช่างสองคนกดรับขั้นเดียวกัน) — do-block ทรานแซกชันเดียวจำลองไม่ได้ · ล็อกแถวใบแม่เดิมของ J1 ครอบ ไม่ได้ทดสอบซ้ำที่นี่
---    - ฝั่ง TS/หน้าจอ (WorkersClient แสดงรหัส "polish" ใต้ช่างที่ยังถือ · ฟอร์มสร้างใบ) = ไม่มีเทสต์ในไฟล์นี้ (vitest ฝั่ง lib/components)
+--    - ฝั่ง TS/หน้าจอ (WorkersClient แสดงป้าย "(เลิกใช้)" · บอร์ดคอลัมน์ขั้นเลิกใช้ · ฟอร์มสร้างใบ) = ไม่มีเทสต์ในไฟล์นี้ (vitest ฝั่ง lib/components: WorkersClient.retired.test · board.retired-stage.test · job-office-lots.test)
 --    - เส้นใบผลิต (C2): SKIP เมื่อไม่มี production_order_item ของใบผลิต open บน DB — ถ้า SKIP ถือว่าไม่ได้ทดสอบ (แก้ 2 บรรทัดใน job_source_info เหมือนเส้น OEM แต่ไม่ได้รันจริง)
 --    - ชุดทดสอบเก่า verify-0172..0183 ที่สร้างใบด้วย polish จะล้มถ้ารันซ้ำหลัง apply (ดูหนี้ท้ายไฟล์ migration) — ไม่ได้แก้
 set local statement_timeout = '45min';
