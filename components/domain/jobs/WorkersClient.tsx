@@ -50,8 +50,10 @@ function ShownPinDialog({ name, pin, onClose }: { name: string; pin: string; onC
   );
 }
 
-function EditDialog({ worker, stages, onClose, onShown }: { worker: WorkerRow | null; stages: WorkersData["stages"]; onClose: () => void; onShown: OnShown }) {
+function EditDialog({ worker, stages, retired, onClose, onShown }: { worker: WorkerRow | null; stages: WorkersData["stages"]; retired: NonNullable<WorkersData["retiredStages"]>; onClose: () => void; onShown: OnShown }) {
   const { run, busy, error } = useOfficeRun();
+  // ขั้นเลิกใช้: โชว์เฉพาะที่ช่างคนนี้ยังถืออยู่ (ติ๊กอยู่ · เอาออกได้ · เพิ่มกลับไม่ได้) — กดบันทึกโดยไม่แตะ = คงรหัสไว้ ไม่หลุด
+  const heldRetired = retired.filter((s) => worker?.stageCodes.includes(s.code));
   const [name, setName] = useState(worker?.displayName ?? "");
   const [codes, setCodes] = useState<string[]>(worker?.stageCodes ?? []);
   const [pin, setPin] = useState("");
@@ -80,6 +82,12 @@ function EditDialog({ worker, stages, onClose, onShown }: { worker: WorkerRow | 
               <label key={s.code} className="flex min-h-11 items-center gap-2 text-sm text-zinc-900">
                 <input type="checkbox" className="h-5 w-5 accent-primary-600" checked={codes.includes(s.code)} onChange={() => toggle(s.code)} />
                 {s.nameTh}
+              </label>
+            ))}
+            {heldRetired.map((s) => (
+              <label key={s.code} className="flex min-h-11 items-center gap-2 text-sm text-zinc-600">
+                <input type="checkbox" className="h-5 w-5 accent-primary-600" checked={codes.includes(s.code)} onChange={() => toggle(s.code)} />
+                {s.nameTh} (เลิกใช้)
               </label>
             ))}
           </div>
@@ -198,7 +206,14 @@ export function WorkersClient({ data }: { data: WorkersData }) {
     { value: "active", label: "ใช้งานอยู่", count: activeWorkers.length },
     { value: "inactive", label: "ปิดใช้งาน", count: inactiveWorkers.length },
   ];
-  const stageName = (c: string) => data.stages.find((s) => s.code === c)?.nameTh ?? c;
+  const retired = data.retiredStages ?? [];
+  // ขั้นที่เลิกใช้แล้ว (เช่น "แต่ง ขัด") ยังต้องอ่านออก — แสดงชื่อไทย + ป้าย ไม่โชว์รหัสดิบ
+  const stageName = (c: string) => {
+    const a = data.stages.find((s) => s.code === c);
+    if (a) return a.nameTh;
+    const r = retired.find((s) => s.code === c);
+    return r ? `${r.nameTh} (เลิกใช้)` : c;
+  };
   const toggleActive = (w: WorkerRow) =>
     void run(() => setWorkerActive(w.id, !w.isActive), { success: w.isActive ? `ปิดใช้งาน ${w.displayName} แล้ว` : `เปิดใช้งาน ${w.displayName} แล้ว` });
   const unlock = (w: WorkerRow) => void run(() => unlockWorker(w.id), { success: `ปลดล็อก ${w.displayName} แล้ว` });
@@ -247,7 +262,7 @@ export function WorkersClient({ data }: { data: WorkersData }) {
           )}
         </>
       )}
-      {dlg?.t === "edit" && <EditDialog worker={dlg.worker} stages={data.stages} onClose={() => setDlg(null)} onShown={shown} />}
+      {dlg?.t === "edit" && <EditDialog worker={dlg.worker} stages={data.stages} retired={retired} onClose={() => setDlg(null)} onShown={shown} />}
       {dlg?.t === "pin" && <ResetPinDialog worker={dlg.worker} onClose={() => setDlg(null)} onShown={shown} />}
       {dlg?.t === "shown" && <ShownPinDialog name={dlg.name} pin={dlg.pin} onClose={() => setDlg(null)} />}
     </div>

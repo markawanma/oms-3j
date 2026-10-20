@@ -374,6 +374,21 @@ describe("0173: ปลดล็อกช่าง · แก้ชื่อเร
     expect(r).toMatchObject({ ok: false });
     expect(JSON.stringify(r)).not.toContain("job_design_label_set");
   });
+  it("getWorkers (0184): ทะเบียนขั้นอ่านทุกแถวรวมที่เลิกใช้ — stages = เฉพาะที่เปิด (ตัวเลือกติ๊ก) · retiredStages = is_active=false (ไว้แสดงชื่อ) · ไม่ส่ง is_active มา = ถือว่าเปิด", async () => {
+    results.job_stage_def = { data: [
+      { code: "cut_sprue", name_th: "ตัดต้น", seq_default: 80, is_active: true },
+      { code: "polish", name_th: "แต่ง ขัด", seq_default: 90, is_active: false },
+      { code: "finish", name_th: "แต่ง", seq_default: 91 },
+      { code: 5, name_th: "ผิดชนิด", is_active: false },
+    ], error: null };
+    const r = await getWorkers();
+    expect(r.ok && r.data.stages).toEqual([{ code: "cut_sprue", nameTh: "ตัดต้น" }, { code: "finish", nameTh: "แต่ง" }]);
+    expect(r.ok && r.data.retiredStages).toEqual([{ code: "polish", nameTh: "แต่ง ขัด" }]);
+    const d = calls.find((c) => c.table === "job_stage_def")!;
+    expect(d.ops).toContainEqual(["eq", "shop_id", SHOP]);
+    expect(d.ops.some((o) => o[0] === "eq" && o[1] === "is_active")).toBe(false);
+    expect(String(d.ops.find((o) => o[0] === "select")?.[1])).toContain("is_active");
+  });
   it("getWorkers: อ่านสถานะล็อกจาก v_worker_lock (ไม่มี pin_hash) แล้วจับคู่กับช่าง · ผิดชนิดถือว่าไม่ล็อก", async () => {
     results.worker = { data: [{ id: WORKER, display_name: "ช่างเอ", stage_codes: ["cast"], is_active: true, locked_until: "infinity", created_at: "2026-10-01T00:00:00Z" }], error: null };
     results.v_worker_lock = { data: [{ worker_id: WORKER, lock_state: "office", failed_attempts: 15, in_window: true, pin_warning: true }, { worker_id: "zz", lock_state: "weird" }], error: null };
