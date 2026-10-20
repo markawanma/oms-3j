@@ -223,6 +223,30 @@ describe("0176 ไม่มีแบบ / ไม่มีค่าเริ่�
     await waitFor(() => expect(submitBtn()).toBeEnabled(), { timeout: 3000 });
   });
 
+  // 0186 M1: ทองที่ร้านไม่มีแบบทองค่าเริ่ม — DB (job_profile_default_for) ไม่ fallback ไปแบบเงินแล้ว ส่ง default null มา → ฟอร์มต้องบังคับเลือกแบบเอง + บอกเหตุผล
+  it("ทอง + defaultProfileId = null (ไม่มีแบบทองค่าเริ่ม): ข้อความ 'ยังไม่มีแบบการบันทึกสำหรับทอง — เลือกแบบเอง…' · ไม่เลือกแบบให้ · ปุ่มสร้างปิดจนเลือก", async () => {
+    suggestJob.mockResolvedValue(suggestion({ metal: "gold", defaultProfileId: null }));
+    await open();
+    expect(screen.getByRole("status")).toHaveTextContent("ยังไม่มีแบบการบันทึกสำหรับทอง — เลือกแบบเอง หรือตั้งแบบทองค่าเริ่มที่หน้า");
+    expect(screen.getByRole("link", { name: /แบบการบันทึก/ })).toHaveAttribute("href", "/jobs/profiles");
+    expect(select().value).toBe("");
+    expect(submitBtn()).toBeDisabled();
+    expect(createJob).not.toHaveBeenCalled();
+    // เลือกแบบเอง (ไม่ชั่งเลย) → ยังต้อง ack กล่องแดงของทอง (ด่านเดิมไม่หลวม) แล้วถึงสร้างได้
+    await userEvent.selectOptions(select(), PC);
+    await waitFor(() => expect(submitBtn()).toBeEnabled(), { timeout: 3000 });
+  });
+
+  it("เงิน + defaultProfileId = null: ไม่มีข้อความของทอง (ข้อความเฉพาะงานทอง) · ทอง + มีค่าเริ่ม: ไม่มีข้อความด้วย (ต้องไม่พัง)", async () => {
+    suggestJob.mockResolvedValue(suggestion({ defaultProfileId: null }));
+    await open();
+    expect(screen.queryByText(/ยังไม่มีแบบการบันทึกสำหรับทอง/)).not.toBeInTheDocument();
+    cleanup();
+    suggestJob.mockResolvedValue(suggestion({ metal: "gold" }));
+    await open();
+    expect(screen.queryByText(/ยังไม่มีแบบการบันทึกสำหรับทอง/)).not.toBeInTheDocument();
+  });
+
   it("DB ปฏิเสธ profile_invalid: ข้อความ 'เลือกใหม่' + ดึงรายการแบบใหม่ (suggest ซ้ำ) เก็บขั้นที่ติ๊ก · ไม่ปิดกล่อง", async () => {
     createJob.mockResolvedValue({ ok: false, error: "แบบการบันทึกไม่ถูกต้อง (ไม่พบ/ของร้านอื่น/ปิดใช้งานแล้ว)", code: "profile_invalid" });
     await open();

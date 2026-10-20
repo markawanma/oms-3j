@@ -15,7 +15,7 @@
 --  5. production_cost_calc รับ metal/purity/weight จากผู้เรียก · production_order_preview คืน metal_prices + missing_prices (R3) ·
 --     production_order_done รับ p_expected_metal_prices (fail-closed ต่อโลหะ) + sku_required + stamp ค่า effective ลง item
 --  6. production_order_item_set รับ SKU หรือชื่อแบบ + metal/purity/weight (+ ล็อกโลหะเมื่อมีใบงาน) · production_order_item_remove_by_id · production_item_prefill (metal_known)
---  7. job_source_info (branch production) อ่านโลหะ/น้ำหนักจาก helper + รองรับรายการไม่มี SKU · job_create_insert ปิดช่อง fallback เงียบ (ทองไม่มีแบบทอง ⇒ no_gold_profile)
+--  7. job_source_info (branch production) อ่านโลหะ/น้ำหนักจาก helper + รองรับรายการไม่มี SKU · ปิดช่อง fallback เงียบของแบบทอง 2 ชั้น: job_profile_default_for ทองไม่มีแบบทอง = null (§13b — ต้นทางของหน้าสร้างใบงาน) + job_create_insert ⇒ no_gold_profile
 --  8. v_production_order_item: left join product + ต่อท้ายคอลัมน์ (42P16: เฉพาะต่อท้าย)
 --
 -- โมเดล/การตัดสินใจ (เหตุผล)
@@ -74,6 +74,10 @@ begin
   select pg_get_functiondef(to_regprocedure('analytics.job_create_insert(uuid,text,uuid,uuid,integer,uuid,uuid,text,text,text,integer,date,text,text,text[],boolean,uuid,integer,numeric,jsonb,uuid)')) into v_def;
   if v_def is null or position('job_profile_default_for' in v_def) = 0 or position('no_gold_profile' in v_def) > 0 then
     raise exception '0186 pre-check: job_create_insert ไม่ใช่ฉบับที่ลอกมา (0176+) — หยุด';
+  end if;
+  select pg_get_functiondef(to_regprocedure('analytics.job_profile_default_for(uuid,text)')) into v_def;
+  if v_def is null or position('p_metal = ''gold'' and p.is_default_gold' in v_def) = 0 or position('case when' in v_def) > 0 then
+    raise exception '0186 pre-check: job_profile_default_for ไม่ใช่ฉบับ 0176 (fallback ทองไปแบบทั่วไป) ที่ลอกมา — หยุด';
   end if;
   select pg_get_functiondef(to_regprocedure('analytics.oem_metal_price_set(uuid,text,numeric,date,text)')) into v_def;
   if v_def is null or position('p_price > 0' in v_def) = 0 then
@@ -213,6 +217,12 @@ begin
 
   v_today := (now() at time zone 'Asia/Bangkok')::date;
   v_as_of := coalesce(p_as_of, v_today);
+  -- 0186 L1: ราคาทอง/ทองเหลืองลงวันอนาคตไม่ได้ (ไม่ใช่ราคาของวันนั้นจริง + ไปบังแถวของวันนั้นเมื่อถึงวัน) — ย้อนหลังยังทำได้ตามเดิม · เงินไม่แตะ (พฤติกรรมเดิม)
+  if p_metal <> 'silver' and v_as_of > v_today then
+    raise exception 'oem_metal_price_set: ราคา% ลงวันอนาคตไม่ได้ (วันที่ % เกินวันนี้ % — ใช้ได้เฉพาะวันนี้หรือย้อนหลัง)',
+      case p_metal when 'gold' then 'ทอง' else 'ทองเหลือง' end, v_as_of, v_today
+      using errcode = '22023', hint = 'as_of_future';
+  end if;
 
   if p_metal = 'silver' then
     perform pg_advisory_xact_lock(hashtextextended('silver_spot:' || p_shop_id::text, 0));
@@ -319,6 +329,7 @@ alter table analytics.production_order_item
       and char_length(pending_product_label) between 1 and 200
       and pending_product_label !~ '[<>]'
       and pending_product_label !~ '[[:cntrl:]]'
+      and pending_product_label !~ '\s\s'
       and analytics.oem_note_valid(pending_product_label)
       and analytics.oem_note_present(pending_product_label))),
   add constraint production_order_item_pending_metal_ck check (product_id is not null or metal is not null),
@@ -801,7 +812,8 @@ begin
     raise exception 'production_order_item_set: สั่งล้างน้ำหนักพร้อมส่งน้ำหนักใหม่ไม่ได้' using errcode = '22023', hint = 'weight_invalid';
   end if;
   if p_pending_product_label is not null then
-    v_label := analytics.job_label_clean(p_pending_product_label, 'ชื่อแบบ', 200);
+    -- 0186 L3: ยุบช่องว่างซ้อนกลางข้อความเป็นช่องเดียวหลังล้างแล้ว — "แหวน  A" กับ "แหวน A" ต้องเป็นชื่อเดียวกัน (ไม่งั้นหลบ unique ชื่อซ้ำในใบเดียวได้)
+    v_label := regexp_replace(analytics.job_label_clean(p_pending_product_label, 'ชื่อแบบ', 200), '\s+', ' ', 'g');
   end if;
 
   perform analytics.crm_require_owner_admin(p_shop_id);
@@ -929,6 +941,7 @@ as $fn$
 declare
   v_order  analytics.production_order%rowtype;
   v_job_no text;
+  v_job_status text;
 begin
   if p_shop_id is null or p_production_order_id is null or p_item_id is null then
     raise exception 'production_order_item_remove_by_id: required args missing';
@@ -941,14 +954,22 @@ begin
   if v_order.status <> 'open' then
     raise exception 'production_order_item_remove_by_id: ใบ % สถานะ % แล้ว ลบรายการไม่ได้', v_order.po_no, v_order.status using errcode = '22023';
   end if;
-  select j.job_no into v_job_no from analytics.job j where j.production_order_item_id = p_item_id order by j.created_at limit 1;
-  if v_job_no is not null then
-    raise exception 'production_order_item_remove_by_id: ลบรายการไม่ได้ — มีใบงาน % ผูกอยู่ (ใบงานเก็บไว้เป็นหลักฐาน)', v_job_no using errcode = '22023', hint = 'job_exists';
-  end if;
-  delete from analytics.production_order_item where id = p_item_id and production_order_id = p_production_order_id;
+  -- 0186 L2: เช็คก่อนว่ารายการอยู่ในใบนี้จริง (ล็อกแถวไว้) แล้วค่อยหาใบงาน — id ของใบอื่นต้องไม่รั่วเลขใบงานของใบอื่นมาในข้อความ
+  perform 1 from analytics.production_order_item i where i.id = p_item_id and i.production_order_id = p_production_order_id for update;
   if not found then
     raise exception 'production_order_item_remove_by_id: ไม่พบรายการนี้ในใบ' using errcode = '22023', hint = 'item_not_found';
   end if;
+  -- ใบงานที่ยังเดิน = ลบไม่ได้ (job_exists) · ใบงานทุกใบยกเลิกแล้วก็ยังลบแถวไม่ได้ เพราะ job.production_order_item_id → FK on delete restrict (ใบงานที่ยกเลิกเก็บเป็นหลักฐาน
+  -- และ job_source_ck บังคับให้ใบงานผลิตต้องชี้รายการ) — ข้อความแยกให้ต่างกัน (hint job_history) · ทางออก soft-remove ต้องกรองรายการที่ถูกถอนในทุกเส้นต้นทุน (done/preview/view/นับยอด) = รอ W1
+  select j.job_no, j.status into v_job_no, v_job_status from analytics.job j where j.production_order_item_id = p_item_id
+   order by (j.status <> 'cancelled') desc, j.created_at limit 1;
+  if v_job_no is not null then
+    if v_job_status <> 'cancelled' then
+      raise exception 'production_order_item_remove_by_id: ลบรายการไม่ได้ — มีใบงาน % ผูกอยู่ (ใบงานเก็บไว้เป็นหลักฐาน)', v_job_no using errcode = '22023', hint = 'job_exists';
+    end if;
+    raise exception 'production_order_item_remove_by_id: ลบรายการไม่ได้ — เคยมีใบงาน % (ยกเลิกแล้ว แต่เก็บไว้เป็นหลักฐาน ลบรายการที่ผูกอยู่ไม่ได้) — ถ้ารายการนี้ไม่ใช้แล้วให้ยกเลิกทั้งใบผลิตแล้วเปิดใบใหม่', v_job_no using errcode = '22023', hint = 'job_history';
+  end if;
+  delete from analytics.production_order_item where id = p_item_id and production_order_id = p_production_order_id;
 end;
 $fn$;
 revoke execute on function analytics.production_order_item_remove_by_id(uuid, uuid, uuid) from public, anon, authenticated;
@@ -1489,8 +1510,10 @@ $fn$;
 revoke execute on function analytics.job_source_info(uuid, text, uuid) from public, anon, authenticated, service_role;
 
 -- ============================================================================
--- §13 job_create_insert (ลอกสด) — ปิดช่อง fallback เงียบ: ทองไม่ส่งแบบมา + ไม่มีแบบทอง (is_default_gold active) ⇒ raise no_gold_profile
---     (เดิม job_profile_default_for คืนแบบ default ของเงินแทนเงียบๆ ⇒ ใบทองได้กติกาชั่งของเงิน) · แก้ที่ _core นี้ที่เดียว = ครอบทั้งออฟฟิศและหน้างานอนาคต
+-- §13 job_create_insert (ลอกสด) — ทองไม่ส่งแบบมา + ไม่มีแบบทอง (is_default_gold active) ⇒ raise no_gold_profile (ชั้นที่ 2 — ชั้นแรกคือ §13b)
+--     ⚠ ด่านนี้อย่างเดียว "ไม่พอ" บนทางออฟฟิศจริง (security M1 20 ต.ค.): หน้าสร้างใบงานเรียก job_stage_suggest → job_profile_default_for แล้ว UI ส่ง profileId ที่ได้กลับมา
+--     ⇒ ไม่เคยเข้ากิ่ง p_profile_id is null · เดิม job_profile_default_for คืนแบบ default ของเงินแทนเมื่อไม่มีแบบทอง ⇒ ใบทองได้กติกาชั่งของเงินเงียบๆ
+--     ⇒ ปิดที่ต้นทาง (§13b: ทองไม่มีแบบทอง = คืน null) แล้วด่านในนี้คือเข็มขัดสำหรับ caller ที่ไม่ผ่าน suggest (หน้างานอนาคต W1) — ใส่แบบมาชัดเจนผ่านตามเดิม
 -- ============================================================================
 create or replace function analytics.job_create_insert(p_shop_id uuid, p_source_kind text, p_oem_item_id uuid, p_root_quote_id uuid, p_oem_item_seq integer, p_poi_id uuid, p_product_id uuid, p_design_label text, p_sku text, p_metal text, p_qty integer, p_due date, p_gate_note text, p_note text, p_codes text[], p_is_new_design boolean, p_actor uuid, p_qty_order integer, p_target_piece_g numeric, p_plan jsonb, p_profile_id uuid)
  returns jsonb
@@ -1574,6 +1597,29 @@ $fn$;
 revoke execute on function analytics.job_create_insert(uuid, text, uuid, uuid, integer, uuid, uuid, text, text, text, integer, date, text, text, text[], boolean, uuid, integer, numeric, jsonb, uuid) from public, anon, authenticated, service_role;
 
 -- ============================================================================
+-- §13b job_profile_default_for (ลอกสดจาก DB 20 ต.ค. — ผู้เรียกทั้งหมดตรวจแล้ว: job_create_insert · job_stage_suggest · job_record_profile_list · job_record_profile_set_default) — M1
+--     ทอง: คืน "แบบทองค่าเริ่ม (is_default_gold) ที่ active" เท่านั้น — ไม่มี = null (ไม่ fallback ไปแบบค่าเริ่มทั่วไปอีก) · โลหะอื่น/null: is_default เดิมเป๊ะ
+--     ผลต่อผู้เรียก:
+--       • job_stage_suggest → default_profile_id = null สำหรับใบทองที่ร้านไม่มีแบบทอง ⇒ UI (JobCreateDialog) ไม่เลือกแบบให้ บังคับเลือกเอง + บอกเหตุผล (ปุ่มสร้างปิดจนเลือก)
+--       • job_create_insert → ไม่ส่งแบบมา = no_gold_profile (§13) · ส่ง profile_id มาชัดเจน = ผ่านตามเดิม (ผู้ใช้เลือกเอง + ack กล่องแดงของทองที่ UI)
+--       • job_record_profile_list / set_default → default_gold_profile_id = null เมื่อไม่ได้ตั้ง (เดิมคืนแบบทั่วไปแทน ทำให้หน้าแบบการบันทึกโชว์ผิดว่า "งานทองใช้แบบทั่วไป")
+--     สิทธิ์: ฟังก์ชันภายใน (proacl = postgres เท่านั้น ตั้งแต่ก่อนไฟล์นี้) — คงเดิม · signature เดิม (ไม่เกิด overload)
+-- ============================================================================
+create or replace function analytics.job_profile_default_for(p_shop_id uuid, p_metal text)
+ returns uuid
+ language sql
+ stable
+ set search_path to 'public', 'analytics', 'extensions', 'pg_temp'
+as $fn$
+  select p.id
+    from analytics.job_record_profile p
+   where p.shop_id = p_shop_id and p.is_active
+     and case when p_metal = 'gold' then p.is_default_gold else p.is_default end
+   limit 1
+$fn$;
+revoke execute on function analytics.job_profile_default_for(uuid, text) from public, anon, authenticated, service_role;
+
+-- ============================================================================
 -- §14 v_production_order_item — left join product (รายการไม่มี SKU) + ต่อท้ายคอลัมน์ (42P16: 17 คอลัมน์เดิมคงลำดับ/ชนิดเดิมเป๊ะ)
 --     security_invoker ต้องระบุซ้ำ (create or replace ไม่การันตีคงตัวเลือกเดิม) · effective_* = ค่าที่ preview/done จะใช้จริง (helper lenient) ·
 --     sku_* = ค่าเริ่มของ SKU (ไว้ติดป้าย "จาก SKU / แก้ในใบนี้" — แสดงผลอย่างเดียว)
@@ -1630,7 +1676,7 @@ begin
   -- ชื่อที่ต้องเหลือ 1 signature เท่านั้น (ข้อ 1) — ยกเว้น 3 ตัว legacy ที่ rename ไว้ + production_cost_calc ที่มี 5-arg เดิมรอ drop หลัง golden
   for r in select * from (values
       ('production_order_item_set'), ('production_order_preview'), ('production_order_done'), ('job_source_info'),
-      ('job_create_insert'), ('oem_metal_price_set'), ('production_spot_resolve'), ('production_metal_price_resolve'),
+      ('job_create_insert'), ('job_profile_default_for'), ('oem_metal_price_set'), ('production_spot_resolve'), ('production_metal_price_resolve'),
       ('production_item_spec'), ('production_item_prefill'), ('production_order_item_remove_by_id'), ('oem_metal_price_set_input'),
       ('oem_metal_price_range_ok'), ('oem_metal_price_convert'), ('production_metal_price_today')) as t(n)
   loop
@@ -1646,7 +1692,7 @@ begin
   -- anon/authenticated ห้าม execute ทุกตัวที่แตะ (ข้อ 18)
   for r in select p.oid, p.oid::regprocedure::text as sig from pg_proc p
             where p.pronamespace = 'analytics'::regnamespace
-              and p.proname in ('production_order_item_set', 'production_order_preview', 'production_order_done', 'job_source_info', 'job_create_insert',
+              and p.proname in ('production_order_item_set', 'production_order_preview', 'production_order_done', 'job_source_info', 'job_create_insert', 'job_profile_default_for',
                                 'oem_metal_price_set', 'production_spot_resolve', 'production_metal_price_resolve', 'production_item_spec', 'production_item_prefill',
                                 'production_order_item_remove_by_id', 'oem_metal_price_set_input', 'oem_metal_price_range_ok', 'oem_metal_price_convert',
                                 'production_metal_price_today', 'production_cost_calc', 'production_order_item_derive_shop', 'production_order_item_deny_mutation')
@@ -1945,7 +1991,7 @@ declare
 begin
   for r in select * from (values
       ('production_order_item_set'), ('production_order_preview'), ('production_order_done'), ('job_source_info'),
-      ('job_create_insert'), ('oem_metal_price_set'), ('production_spot_resolve'), ('production_metal_price_resolve'),
+      ('job_create_insert'), ('job_profile_default_for'), ('oem_metal_price_set'), ('production_spot_resolve'), ('production_metal_price_resolve'),
       ('production_item_spec'), ('production_item_prefill'), ('production_order_item_remove_by_id'), ('oem_metal_price_set_input'),
       ('oem_metal_price_range_ok'), ('oem_metal_price_convert'), ('production_metal_price_today'), ('production_cost_calc')) as t(n)
   loop
@@ -1974,12 +2020,16 @@ begin
   end loop;
   -- ตัวช่วยภายในต้องไม่เปิดให้ใครเรียกจากนอก (job_source_info/job_create_insert/convert/today = postgres เท่านั้น)
   for r in select p.oid, p.oid::regprocedure::text as sig from pg_proc p
-            where p.pronamespace = 'analytics'::regnamespace and p.proname in ('job_source_info', 'job_create_insert', 'oem_metal_price_convert', 'production_metal_price_today')
+            where p.pronamespace = 'analytics'::regnamespace and p.proname in ('job_source_info', 'job_create_insert', 'job_profile_default_for', 'oem_metal_price_convert', 'production_metal_price_today')
   loop
     if has_function_privilege('service_role', r.oid, 'execute') or has_function_privilege('anon', r.oid, 'execute') or has_function_privilege('authenticated', r.oid, 'execute') then
       raise exception '0186 post: % ต้องเป็นฟังก์ชันภายใน (postgres เท่านั้น) แต่ยังเปิดให้ role อื่น', r.sig;
     end if;
   end loop;
+  -- proacl ของ job_profile_default_for ต้องเหมือนก่อนไฟล์นี้เป๊ะ ({postgres=X/postgres}) — ไม่ได้เปิดสิทธิ์เพิ่มตอน replace
+  if (select p.proacl::text from pg_proc p where p.oid = 'analytics.job_profile_default_for(uuid,text)'::regprocedure) is distinct from '{postgres=X/postgres}' then
+    raise exception '0186 post: proacl ของ job_profile_default_for เปลี่ยนจากเดิม {postgres=X/postgres}';
+  end if;
 
   -- snapshot §0: product / v_dim_product / สต็อก / lot / ledger / สถานะใบ / รายการใบผลิต (ไม่นับคอลัมน์ใหม่) / ใบงาน ต้องเท่าเดิมเป๊ะ
   -- (golden จำลอง done ในทรานแซกชันย่อยที่ rollback — ถ้าตัวใดรั่ว ตรงนี้จะจับได้และถอยทั้งไฟล์)
@@ -2013,7 +2063,10 @@ $post$;
 --  • ไม่มี RPC "ผูก SKU" (production_order_item_bind_product — UX C.3 R2) และ "แก้ชื่อแบบก่อนผูก" — เป็นของ W1 (OfficeAck/ผูก SKU ต้องแตะใบงานที่ผูกอยู่ด้วย) · ตอนนี้รายการไม่มี SKU ลบได้ (remove_by_id) แต่ยังผูกไม่ได้
 --  • done เขียนค่า effective ลง production_order_item (metal/purity/weight_g/weight_source) รวมแถวเดิม — snapshot ครบ · ค่านอก CHECK (เช่น น้ำหนัก SKU เดิมเกิน 10,000) ไม่ stamp ค่านั้น (ไม่ทำให้ done ล้ม)
 --  • production_order_done: audit catalog_audit_log เพิ่ม metal ใน after เท่านั้น (before = สถานะ product ไม่มีเรื่องโลหะ)
---  • job_profile_default_for ไม่แก้ (ยัง fallback ให้ฟังก์ชันแสดงผลเช่น job_stage_suggest) — ด่านจริงอยู่ที่ job_create_insert (no_gold_profile)
+--  • job_profile_default_for แก้แล้ว (§13b · security M1): ทองไม่มีแบบทองค่าเริ่ม = null ไม่ fallback — ด่าน no_gold_profile ใน job_create_insert จึงเป็นชั้นที่ 2 (กัน caller ที่ไม่ผ่าน suggest)
+--    ผลข้างเคียงที่ตั้งใจ: job_record_profile_list/set_default คืน default_gold_profile_id = null เมื่อไม่ได้ตั้ง (เดิมคืนแบบทั่วไป) · verify-0176 P2d/MU-11 คาดผลเดิม (ทองใช้ค่าเริ่มทั่วไป) = ถูกแทนที่
+--  • oem_metal_price_set: ทอง/ทองเหลืองลง p_as_of อนาคตไม่ได้ (as_of_future · L1) · oem_metal_price_set_input ไม่มี p_as_of (วันนี้เท่านั้น) จึงไม่มีช่องนี้
+--  • production_order_item_remove_by_id: ใบงานที่ยกเลิกหมดแล้วก็ยังลบรายการไม่ได้ (FK job.production_order_item_id restrict — ใบงานที่ยกเลิกเก็บเป็นหลักฐาน) = hint job_history · รายการไม่มี SKU ที่ติดสถานะนี้ต้องยกเลิกทั้งใบผลิตแล้วเปิดใหม่ (soft-remove ต้องกรองทุกเส้นต้นทุน — รอ W1)
 --  • ราคาทองเหลือง 25 ส.ค. เดิม = 1.0000 บาท/กรัม = ขอบบนของช่วงใหม่พอดี (1,000 บาท/กก.) — ผ่านด่าน แต่ควรให้เจ้าของยืนยันว่าเป็นค่าจริง ไม่ใช่ค่าตั้งต้น
 --  • v_production_order_job_mismatch ยัง join product แบบ inner — รายการไม่มี SKU ไม่มีวัน done (sku_required) จึงไม่ตกหล่นจริง
 --  • สเปคใน SKU (make_spec) ยังเงินอย่างเดียว (product_make_spec_set whitelist) — โลหะของรายการทับตอนคิด spec cost เท่านั้น

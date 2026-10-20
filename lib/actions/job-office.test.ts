@@ -479,6 +479,31 @@ describe("0174: ชื่อช่าง/ชื่อเรียกใบงา
 // ============================================================================
 // 0175 — จำนวนสั่ง/เผื่อ · แผนโลหะ · ของเหลือ
 // ============================================================================
+// 0186 L4: น้ำหนักเป้าของรายการใบผลิตที่ผู้จัดการ/ออฟฟิศพิมพ์เอง = ที่มา 'input' — ต้องไม่ถูกตัดเป็น null บนจอสร้างใบงาน
+describe("0186 suggestJob — ที่มาน้ำหนักเป้า (target_piece_g_source)", () => {
+  const sug = (src: unknown) => ({ data: { metal: "gold", qty: 5, design_label: "x", deposit_missing: false, existing_job: null, stages: [], target_piece_g: 3.2, target_piece_g_source: src, profiles: [], default_profile_id: null }, error: null });
+  it("รับ quote / product / input ตามที่ DB ส่ง", async () => {
+    for (const s of ["quote", "product", "input"] as const) {
+      rpcMock.mockResolvedValue(sug(s));
+      const r = await suggestJob("production", ITEM);
+      expect(r.ok && r.data.targetPieceGSource, s).toBe(s);
+      expect(r.ok && r.data.targetPieceG).toBe(3.2);
+    }
+  });
+  it("ค่านอกชุด (เช่น 'typed'/null/ตัวเลข) = null ไม่ throw", async () => {
+    for (const s of ["typed", null, 7, undefined]) {
+      rpcMock.mockResolvedValue(sug(s));
+      const r = await suggestJob("production", ITEM);
+      expect(r.ok && r.data.targetPieceGSource, String(s)).toBeNull();
+    }
+  });
+  it("ทอง + default_profile_id null (ไม่มีแบบทองค่าเริ่ม) → defaultProfileId null (ไม่เดา)", async () => {
+    rpcMock.mockResolvedValue(sug("input"));
+    const r = await suggestJob("production", ITEM);
+    expect(r.ok && r.data.defaultProfileId).toBeNull();
+  });
+});
+
 describe("0175 createJob / getJobPlanSuggest / ของเหลือ", () => {
   const base = { kind: "oem" as const, itemId: ITEM, stageCodes: ["cast", "qc", "pack"], designLabel: "แหวน" };
   it("createJob ไม่ส่ง arg ใหม่ = ไม่ใส่ p_qty_planned/p_target/p_metal_plan_* (caller เดิมใช้ค่าเริ่มของ DB) · ส่งแล้วใส่ครบ", async () => {

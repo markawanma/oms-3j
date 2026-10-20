@@ -137,10 +137,11 @@ describe("0176 หน้าแบบการบันทึก — 4 state", ()
     expect(screen.queryByRole("button", { name: /แบบที่ปิดใช้/ })).not.toBeInTheDocument();
   });
 
-  it("งานทองไม่มีค่าเริ่มทอง = 'ใช้ตามงานทั่วไป'", async () => {
+  it("งานทองไม่มีค่าเริ่มทอง = 'ยังไม่ตั้ง — ต้องเลือกแบบเอง' (0186 M1: ไม่ใช้ตามงานทั่วไปเงียบๆ อีกแล้ว)", async () => {
     a.listProfiles.mockResolvedValue({ ok: true, data: data({ defaultGoldProfileId: null, profiles: [P_GENERAL, prof({ ...P_GOLD, id: P3, isDefaultGold: false })] }) });
     wrap(<ProfilesClient />);
-    expect(await screen.findByText("งานทอง: ใช้ตามงานทั่วไป")).toBeInTheDocument();
+    expect(await screen.findByText("งานทอง: ยังไม่ตั้ง — สร้างใบงานทองต้องเลือกแบบเอง")).toBeInTheDocument();
+    expect(screen.queryByText(/ใช้ตามงานทั่วไป/)).not.toBeInTheDocument();
   });
 });
 

@@ -33,7 +33,15 @@
 --  ✅ เปลี่ยนโลหะเมื่อมีใบงาน = ปฏิเสธ (RPC + trigger ตรง) · ยกเลิกใบงานแล้วเปลี่ยนได้ · แก้น้ำหนักได้ไม่แตะ job   -> I10a-I10g
 --  ✅ UPDATE/DELETE ตรงบนใบ done/cancelled · overload = 1 แถว · anon/authenticated execute ไม่ได้ (จำลองกำแพงหลุด) -> F9a-F9c · S1-S4
 --  ✅ prefill metal_known (spot/spec = true · fixed ไม่มี make_spec = false) · view left join + security_invoker + 17 คอลัมน์เดิม -> F1a-F1d · F4a-F4e
---  ✅ mutant ≥ 3 (ลบด่านแล้วเคสต้องล้มจริง)                                                                  -> M1-M7
+--  ✅ mutant ≥ 3 (ลบด่านแล้วเคสต้องล้มจริง)                                                                  -> M1-M9 (+ M10-M13 รอบแก้ 20 ต.ค.)
+--  รอบแก้หลัง security/QA 20 ต.ค. (กลุ่ม X):
+--  ✅ M1 security: ทองไม่มีแบบทองค่าเริ่ม → job_stage_suggest คืน default_profile_id = null (ไม่ fallback แบบเงิน) · list/set_default คืน default_gold = null · ACL คงเดิม -> X1a-X1h · M10
+--  ✅ L1: ราคาทอง/ทองเหลือง p_as_of อนาคต → as_of_future (วันนี้/ย้อนหลัง/ไม่ส่ง ผ่าน · เงินไม่ถูกแตะ)               -> X2a-X2e · M11
+--  ✅ L2: remove_by_id เช็คว่ารายการอยู่ในใบนี้ก่อน (ใบอื่น = item_not_found ไม่รั่วเลขใบงาน)                        -> X3a-X3b · M12
+--  ✅ L3: ยุบช่องว่างซ้อนในชื่อแบบ (RPC + CHECK ตาราง)                                                           -> X4a-X4d · M13
+--  ✅ ทางตัน: ใบงานยกเลิกหมดแล้วลบรายการไม่ได้ (FK) → hint job_history + ข้อความบอกทางออก · active ยัง job_exists  -> X3b-X3d
+--  ❌ L4 (job-office.ts รับ weight source 'input') อยู่ฝั่ง TS — lib/actions/job-office.test.ts · UI JobCreateDialog ข้อความทองไม่มีแบบ — components/domain/jobs/JobCreateProfile.test.tsx (ไม่ใช่ไฟล์นี้)
+--  ❌ ผ่อนให้ลบรายการที่ใบงานยกเลิกหมดแล้ว "ไม่ทำ": job.production_order_item_id → FK on delete restrict + job_source_ck บังคับให้ใบงานผลิตชี้รายการ · soft-remove ต้องกรองทุกเส้นต้นทุน (done/preview/view/นับยอด) = รอ W1
 --
 --  ❌ ไม่มีเทสต์ครอบ (บอกตรงๆ):
 --    - M-b ของ done (cost_type ถูกพลิกกลางฟังก์ชันภายใต้ READ COMMITTED) และ race หลาย connection (done×done, item_set×done) — ต้อง 2 connection พร้อมกัน do-block ทรานแซกชันเดียวจำลองไม่ได้
@@ -1180,6 +1188,157 @@ end;
 $c$;
 
 -- ============================================================================
+-- X. รอบแก้หลัง security/QA (20 ต.ค.): M1 แบบทองไม่ fallback (ต้นทางหน้าสร้างใบงาน) · L1 ราคาทองลงวันอนาคต · L2 remove_by_id · L3 ยุบช่องว่างชื่อแบบ · ทางตันลบรายการ
+-- ============================================================================
+create function pg_temp.g_fix() returns text
+ language plpgsql as $c$
+declare
+  v text := '';
+  v_shop uuid := pg_temp.fx('shop');
+  p_fixa uuid := pg_temp.fx('fixa'); p_bar uuid := pg_temp.fx('bar');
+  v_today date := (now() at time zone 'Asia/Bangkok')::date;
+  v_act uuid := '00000000-0000-0000-0000-0000000000a1';
+  o uuid; o2 uuid; i1 uuid; i2 uuid; i3 uuid; r jsonb; r2 jsonb; r3 jsonb; s jsonb; j jsonb;
+  v_gold_prof uuid; v_gen_prof uuid; v_job uuid; v_job_no text; v_n int; v_acl text;
+begin
+  perform analytics.job_stage_def_ensure(v_shop);
+  perform analytics.job_record_profile_ensure(v_shop);
+  select id into v_gold_prof from analytics.job_record_profile where shop_id = v_shop and is_default_gold;
+  select id into v_gen_prof from analytics.job_record_profile where shop_id = v_shop and is_default;
+
+  -- M1 (security): job_stage_suggest → job_profile_default_for ต้องไม่ fallback ทอง→แบบเงิน (หน้าสร้างใบงานส่ง profileId ที่ได้กลับมา ⇒ ด่านใน job_create_insert ไม่เคยทำงาน)
+  begin
+    o := pg_temp.po(v_shop, 'X-M1');
+    i1 := (pg_temp.iset(v_shop, o, p_fixa, 5, null, 'gold', 0.9, 3.2, 'input') ->> 'id')::uuid;   -- รายการทอง
+    i2 := (pg_temp.iset(v_shop, o, p_bar, 3) ->> 'id')::uuid;                                      -- รายการเงิน
+    s := pg_temp.q(format('select analytics.job_stage_suggest(%L, %L, %L)', v_shop, 'production', i1));
+    v := v || pg_temp.chk('X1a', 'มีแบบทองค่าเริ่ม: suggest ใบทองคืน default_profile_id = แบบทอง (ต้องไม่พัง)', v_gold_prof is not null and (s ->> 'default_profile_id')::uuid = v_gold_prof and (s ->> 'metal') = 'gold');
+    update analytics.job_record_profile set is_default_gold = false where shop_id = v_shop and is_default_gold;   -- probe A8: ปิดแบบทองค่าเริ่ม
+    s := pg_temp.q(format('select analytics.job_stage_suggest(%L, %L, %L)', v_shop, 'production', i1));
+    v := v || pg_temp.chk('X1b', 'ปิดแบบทองค่าเริ่ม: suggest ใบทองคืน default_profile_id = null (ไม่ fallback ไปแบบเงิน/ทั่วไป) · metal ยัง gold · profiles ยังมีให้เลือกเอง',
+      (s -> 'default_profile_id') = 'null'::jsonb and (s ->> 'metal') = 'gold' and jsonb_array_length(s -> 'profiles') > 0);
+    s := pg_temp.q(format('select analytics.job_stage_suggest(%L, %L, %L)', v_shop, 'production', i2));
+    v := v || pg_temp.chk('X1c', 'ใบเงินไม่ได้รับผล (ต้องไม่พัง): suggest ยังคืนแบบค่าเริ่มทั่วไปเดิม', (s ->> 'default_profile_id')::uuid = v_gen_prof and (s ->> 'metal') = 'silver');
+    v := v || pg_temp.chk('X1d', 'default_for โดยตรง: ทอง = null · เงิน/ทองเหลือง/null = แบบค่าเริ่มทั่วไป (ทองเหลืองไม่ใช่ทอง — ไม่ถูกด่านใหม่กระทบ)',
+      analytics.job_profile_default_for(v_shop, 'gold') is null and analytics.job_profile_default_for(v_shop, 'silver') = v_gen_prof
+      and analytics.job_profile_default_for(v_shop, 'brass') = v_gen_prof and analytics.job_profile_default_for(v_shop, null) = v_gen_prof);
+    -- ทางเดียวกับที่ UI ทำ: ไม่มีค่าเริ่มมา → ผู้ใช้ไม่เลือก → ส่ง profile ว่าง → ต้องตก no_gold_profile · เลือกเอง (explicit) ผ่าน
+    j := pg_temp.mkjob(v_shop, i1);
+    v := v || pg_temp.chk('X1e', 'สร้างใบทองโดยไม่ส่งแบบ (suggest ไม่เคยเสนอ) ตก no_gold_profile ชั้นที่ 2 ยังอยู่ · explicit กับแบบที่เลือกเองผ่านตามเดิม',
+      pg_temp.hint(j) = '22023|no_gold_profile' and (pg_temp.mkjob(v_shop, i1, v_gen_prof) ->> 'job_id') is not null);
+    r := pg_temp.q(format('select analytics.job_record_profile_list(%L)', v_shop));
+    v := v || pg_temp.chk('X1f', 'job_record_profile_list: default_gold_profile_id = null (เดิมคืนแบบทั่วไปแทน) · default_profile_id ยังอยู่', (r -> 'default_gold_profile_id') = 'null'::jsonb and (r ->> 'default_profile_id')::uuid = v_gen_prof);
+    r := pg_temp.q(format('select analytics.job_record_profile_set_default(%L, %L, %L, %L)', v_shop, v_gold_prof, 'gold', v_act));
+    r2 := pg_temp.q(format('select analytics.job_record_profile_set_default(%L, null, %L, %L)', v_shop, 'gold', v_act));
+    v := v || pg_temp.chk('X1g', 'set_default ทอง: ตั้งแล้ว default_gold = แบบนั้น · ล้างแล้ว default_gold = null (ไม่ใช่แบบทั่วไป) และ default_profile_id ทั่วไปไม่ขยับ',
+      (r ->> 'default_gold_profile_id')::uuid = v_gold_prof and (r2 -> 'default_gold_profile_id') = 'null'::jsonb and (r2 ->> 'default_profile_id')::uuid = v_gen_prof);
+    select count(*) into v_n from pg_proc where pronamespace = 'analytics'::regnamespace and proname = 'job_profile_default_for';
+    select proacl::text into v_acl from pg_proc where oid = 'analytics.job_profile_default_for(uuid,text)'::regprocedure;
+    v := v || pg_temp.chk('X1h', 'job_profile_default_for: signature เดียว (ไม่ overload) · proacl คงเดิม {postgres=X/postgres} ไม่เปิดสิทธิ์เพิ่ม (' || coalesce(v_acl, 'null') || ')',
+      v_n = 1 and v_acl = '{postgres=X/postgres}' and not has_function_privilege('service_role', 'analytics.job_profile_default_for(uuid,text)', 'execute')
+      and not has_function_privilege('authenticated', 'analytics.job_profile_default_for(uuid,text)', 'execute'));
+    raise exception 'rb_186';
+  exception when others then
+    if sqlerrm <> 'rb_186' then v := v || pg_temp.chk('X1-crash', sqlstate || ' ' || sqlerrm, false); end if;
+  end;
+
+  -- L1: ราคาทอง/ทองเหลืองลง p_as_of อนาคตไม่ได้ (ย้อนหลังยังได้ · เงินพฤติกรรมเดิม)
+  v := v || pg_temp.chk('X2a', 'ทอง p_as_of = พรุ่งนี้ ตก as_of_future (ราคาในช่วง 3000 แต่วันอนาคต)', pg_temp.err(format('select analytics.oem_metal_price_set(%L, %L, 3000, date %L, %L)', v_shop, 'gold', v_today + 1, 'manual')) = '22023|as_of_future');
+  v := v || pg_temp.chk('X2b', 'ทองเหลือง p_as_of = +365 วัน ตก as_of_future', pg_temp.err(format('select analytics.oem_metal_price_set(%L, %L, 0.5, date %L, %L)', v_shop, 'brass', v_today + 365, 'manual')) = '22023|as_of_future');
+  v := v || pg_temp.chk('X2c', 'ทอง/ทองเหลือง วันนี้ + เมื่อวาน + ไม่ส่งวัน ผ่าน (ขอบ: วันนี้ไทยพอดี ไม่ตกเพราะ UTC)',
+    pg_temp.err(format('select analytics.oem_metal_price_set(%L, %L, 3000, date %L, %L)', v_shop, 'gold', v_today, 'manual')) = 'OK'
+    and pg_temp.err(format('select analytics.oem_metal_price_set(%L, %L, 0.5, date %L, %L)', v_shop, 'brass', v_today - 1, 'manual')) = 'OK'
+    and pg_temp.err(format('select analytics.oem_metal_price_set(%L, %L, 0.5, null, %L)', v_shop, 'brass', 'manual')) = 'OK');
+  v := v || pg_temp.chk('X2d', 'ตกแล้วไม่มีแถววันอนาคตในตาราง · เงิน (พฤติกรรมเดิม) ลงวันอนาคตยังไม่ถูกด่านนี้แตะ',
+    not exists (select 1 from analytics.oem_metal_price where shop_id = v_shop and as_of_date > v_today and metal <> 'silver')
+    and pg_temp.err(format('select analytics.oem_metal_price_set(%L, %L, 70, date %L, %L)', v_shop, 'silver', v_today + 1, 'manual')) = 'OK');
+  v := v || pg_temp.chk('X2e', 'oem_metal_price_set_input ไม่มี p_as_of (วันนี้เท่านั้น) จึงไม่มีช่องวันอนาคต — ผลต้องเป็นแถววันนี้เสมอ',
+    (analytics.oem_metal_price_set_input(v_shop, 'gold', 41250, 'assoc965_sell_per_baht') ->> 'as_of_date')::date = v_today);
+
+  -- L2: remove_by_id เช็คว่ารายการอยู่ในใบนี้ก่อน (ใบอื่น = item_not_found ไม่รั่วเลขใบงานของอีกใบ)
+  begin
+    perform analytics.job_stage_def_ensure(v_shop);
+    o := pg_temp.po(v_shop, 'X-L2a'); o2 := pg_temp.po(v_shop, 'X-L2b');
+    i1 := (pg_temp.iset(v_shop, o, null, 2, 'L2 มีใบงาน', 'silver') ->> 'id')::uuid;
+    j := pg_temp.mkjob(v_shop, i1);
+    select job_no into v_job_no from analytics.job where id = (j ->> 'job_id')::uuid;
+    r := pg_temp.q(format('select analytics.production_order_item_remove_by_id(%L, %L, %L)', v_shop, o2, i1));
+    v := v || pg_temp.chk('X3a', 'ยิง id ของรายการที่มีใบงาน (' || coalesce(v_job_no, '?') || ') ด้วยเลขใบผลิตอื่น: ตก item_not_found · ข้อความไม่มีเลขใบงาน · รายการยังอยู่',
+      (r ->> '_hint') = 'item_not_found' and (r ->> '_err') not like '%' || v_job_no || '%' and exists (select 1 from analytics.production_order_item where id = i1));
+    r := pg_temp.q(format('select analytics.production_order_item_remove_by_id(%L, %L, %L)', v_shop, o, i1));
+    v := v || pg_temp.chk('X3b', 'ใบถูกต้อง + ใบงานยังเดิน: ตก job_exists บอกเลขใบงาน (ใบงานที่ active ยังกันเหมือนเดิม)', (r ->> '_hint') = 'job_exists' and (r ->> '_err') like '%' || v_job_no || '%');
+    -- ทางตัน: ใบงานยกเลิกหมดแล้ว — FK restrict ทำให้ลบแถวไม่ได้ → hint แยก (job_history) + บอกทางออก · ไม่ลบเงียบ ไม่ FK error ดิบ
+    perform analytics.job_cancel(v_shop, (j ->> 'job_id')::uuid, 'verify ยกเลิก', v_act);
+    r := pg_temp.q(format('select analytics.production_order_item_remove_by_id(%L, %L, %L)', v_shop, o, i1));
+    v := v || pg_temp.chk('X3c', 'ใบงานทุกใบยกเลิกแล้ว: ลบรายการไม่ได้ (FK ใบงานเป็นหลักฐาน) ตก job_history ข้อความบอก "ยกเลิกทั้งใบผลิต" — ไม่ใช่ FK error ดิบ 23503 · รายการยังอยู่',
+      (r ->> '_hint') = 'job_history' and (r ->> '_state') = '22023' and (r ->> '_err') like '%ยกเลิกทั้งใบผลิต%' and exists (select 1 from analytics.production_order_item where id = i1));
+    r := pg_temp.q(format('select analytics.production_order_cancel(%L, %L, %L)', v_shop, o, 'verify'));
+    v := v || pg_temp.chk('X3d', 'ทางออกที่บอกไว้ใช้ได้จริง: ยกเลิกทั้งใบผลิต (ใบ open ที่มีรายการติดใบงานที่ยกเลิกแล้ว) ผ่าน · ' || coalesce(r ->> '_err', r ->> 'status'),
+      (r ->> '_err') is null and (select status from analytics.production_order where id = o) = 'cancelled');
+    raise exception 'rb_186';
+  exception when others then
+    if sqlerrm <> 'rb_186' then v := v || pg_temp.chk('X3-crash', sqlstate || ' ' || sqlerrm, false); end if;
+  end;
+
+  -- L3: ยุบช่องว่างซ้อนในชื่อแบบ (หลบ unique ชื่อซ้ำในใบเดียวด้วยจำนวนช่องว่างไม่ได้)
+  begin
+    o := pg_temp.po(v_shop, 'X-L3');
+    r := pg_temp.iset(v_shop, o, null, 2, 'แหวน  ลาย   A', 'silver');
+    r2 := pg_temp.iset(v_shop, o, null, 5, 'แหวน ลาย A', 'silver');
+    v := v || pg_temp.chk('X4a', 'ชื่อ "แหวน  ลาย   A" (ช่องว่างซ้อน) เก็บเป็น "แหวน ลาย A" · ส่ง "แหวน ลาย A" ซ้ำ = รายการเดิม (id เดียว qty 5) ไม่สร้างแถวซ้ำ',
+      (r ->> 'pending_product_label') = 'แหวน ลาย A' and (r2 ->> 'id') = (r ->> 'id') and (r2 ->> 'qty_planned')::int = 5
+      and (select count(*) from analytics.production_order_item where production_order_id = o and product_id is null) = 1);
+    r3 := pg_temp.iset(v_shop, o, null, 1, E'  แหวน   ลาย A  ', 'silver');
+    v := v || pg_temp.chk('X4b', 'ช่องว่างหัวท้าย + ซ้อนรวมกันก็ยุบเป็นชื่อเดิม (ยังเป็นแถวเดียว)', (r3 ->> 'id') = (r ->> 'id'));
+    v := v || pg_temp.chk('X4c', 'CHECK ตรง: ชื่อที่มีช่องว่างซ้อนตก 23514 (production_order_item_label_ck — กันทางที่ไม่ผ่าน RPC)',
+      pg_temp.err(format('insert into analytics.production_order_item (production_order_id, pending_product_label, qty_planned, metal, purity) values (%L, %L, 1, %L, 0.925)', o, 'x  y', 'silver')) like '23514|%');
+    v := v || pg_temp.chk('X4d', 'ชื่อที่มีช่องว่างเดี่ยวปกติ + ชื่อที่ยุบแล้วยังสั้นกว่า 200 ผ่าน (ต้องไม่พัง)', (pg_temp.iset(v_shop, o, null, 1, 'ทองคำ แหวนเกลี้ยง', 'gold', 0.9) ->> 'pending_product_label') = 'ทองคำ แหวนเกลี้ยง');
+    raise exception 'rb_186';
+  exception when others then
+    if sqlerrm <> 'rb_186' then v := v || pg_temp.chk('X4-crash', sqlstate || ' ' || sqlerrm, false); end if;
+  end;
+
+  -- mutant: ถอดด่านใหม่แล้วเคสต้องล้มจริง
+  begin
+    o := pg_temp.po(v_shop, 'X-M10');
+    i1 := (pg_temp.iset(v_shop, o, p_fixa, 5, null, 'gold', 0.9, 3.2, 'input') ->> 'id')::uuid;
+    update analytics.job_record_profile set is_default_gold = false where shop_id = v_shop and is_default_gold;
+    perform pg_temp.mutate('analytics.job_profile_default_for(uuid,text)', 'case when p_metal = ''gold'' then p.is_default_gold else p.is_default end', '(p.is_default or (p_metal = ''gold'' and p.is_default_gold))');
+    s := pg_temp.q(format('select analytics.job_stage_suggest(%L, %L, %L)', v_shop, 'production', i1));
+    v := v || pg_temp.chk('M10', 'mutant: คืน fallback ทอง→แบบทั่วไป (ฉบับ 0176) → suggest ใบทองคืน default_profile_id = ' || coalesce(s ->> 'default_profile_id', 'null') || ' (ไม่ใช่ null) = เทสต์ X1b ล้มจริง', (s -> 'default_profile_id') <> 'null'::jsonb);
+    raise exception 'rb_186';
+  exception when others then if sqlerrm <> 'rb_186' then v := v || pg_temp.chk('M10-crash', sqlstate || ' ' || sqlerrm, false); end if; end;
+
+  begin
+    perform pg_temp.mutate('analytics.oem_metal_price_set(uuid,text,numeric,date,text)', 'if p_metal <> ''silver'' and v_as_of > v_today then', 'if false then');
+    v_n := case when pg_temp.err(format('select analytics.oem_metal_price_set(%L, %L, 3000, date %L, %L)', v_shop, 'gold', v_today + 1, 'manual')) = 'OK' then 1 else 0 end;
+    v := v || pg_temp.chk('M11', 'mutant: ถอดด่านวันอนาคต → ราคาทองลงพรุ่งนี้ผ่าน = เทสต์ X2a ล้มจริง', v_n = 1);
+    raise exception 'rb_186';
+  exception when others then if sqlerrm <> 'rb_186' then v := v || pg_temp.chk('M11-crash', sqlstate || ' ' || sqlerrm, false); end if; end;
+
+  begin
+    o := pg_temp.po(v_shop, 'X-M12'); o2 := pg_temp.po(v_shop, 'X-M12b');
+    i1 := (pg_temp.iset(v_shop, o, p_fixa, 2) ->> 'id')::uuid;
+    perform pg_temp.mutate('analytics.production_order_item_remove_by_id(uuid,uuid,uuid)', 'where i.id = p_item_id and i.production_order_id = p_production_order_id for update', 'where i.id = p_item_id for update');
+    r := pg_temp.q(format('select analytics.production_order_item_remove_by_id(%L, %L, %L)', v_shop, o2, i1));
+    v := v || pg_temp.chk('M12', 'mutant: ถอดเงื่อนไข "รายการอยู่ในใบนี้" (ใช้ id อย่างเดียว) → ยิงด้วยเลขใบอื่นผ่านไปถึงขั้นลบ (ผล ' || coalesce(r ->> '_hint', 'OK') || ') = เทสต์ X3a ล้มจริง', (r ->> '_hint') is distinct from 'item_not_found');
+    raise exception 'rb_186';
+  exception when others then if sqlerrm <> 'rb_186' then v := v || pg_temp.chk('M12-crash', sqlstate || ' ' || sqlerrm, false); end if; end;
+
+  begin
+    o := pg_temp.po(v_shop, 'X-M13');
+    perform pg_temp.mutate('analytics.production_order_item_set(uuid,uuid,uuid,integer,boolean,text,text,numeric,numeric,text,boolean)', ', ''\s+'', '' '', ''g'')', ', ''ZZNOMATCHZZ'', '' '', ''g'')');
+    r := pg_temp.iset(v_shop, o, null, 2, 'แหวน  ลาย A', 'silver');
+    r2 := pg_temp.iset(v_shop, o, null, 5, 'แหวน ลาย A', 'silver');
+    v := v || pg_temp.chk('M13', 'mutant: ถอดการยุบช่องว่าง → ชื่อช่องว่างซ้อนถูกปฏิเสธโดย CHECK หรือสร้างแถวแยก (ผล ' || coalesce(r ->> '_state', 'OK') || ') แทนที่จะเป็นรายการเดิม = เทสต์ X4a ล้มจริง',
+      (r ->> '_state') is not null or (r2 ->> 'id') is distinct from (r ->> 'id'));
+    raise exception 'rb_186';
+  exception when others then if sqlerrm <> 'rb_186' then v := v || pg_temp.chk('M13-crash', sqlstate || ' ' || sqlerrm, false); end if; end;
+  return v;
+end;
+$c$;
+
+-- ============================================================================
 -- runner
 -- ============================================================================
 do $v186$
@@ -1191,7 +1350,7 @@ declare
 begin
   perform set_config('request.jwt.claims', '{"role":"service_role"}', true);
   v_msg := v_msg || pg_temp.g_setup();
-  foreach v_part in array array['g_price', 'g_item', 'g_done', 'g_job', 'g_misc', 'g_sec', 'g_real', 'g_mut'] loop
+  foreach v_part in array array['g_price', 'g_item', 'g_done', 'g_job', 'g_fix', 'g_misc', 'g_sec', 'g_real', 'g_mut'] loop
     begin
       execute format('select pg_temp.%I()', v_part) into v_out;
       v_msg := v_msg || v_out;

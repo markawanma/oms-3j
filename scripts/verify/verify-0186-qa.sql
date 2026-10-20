@@ -216,7 +216,7 @@ begin
     r2 := pg_temp.q(format('select analytics.job_cancel(%L, %L, %L, %L)', v_shop, (j ->> 'job_id')::uuid, 'qa5 ยกเลิก', v_act));
     v := v || pg_temp.chk('Q5c', 'ยกเลิกใบงานได้ · ' || coalesce(r2 ->> '_err', 'ok'), r2 ->> '_err' is null);
     r := pg_temp.q(format('select analytics.production_order_item_remove_by_id(%L, %L, %L)', v_shop, o, i2));
-    v := v || pg_temp.chk('Q5d', '[ข้อจำกัดที่รู้ — ล็อกพฤติกรรมปัจจุบัน] รายการไม่มี SKU ที่เคยมีใบงาน (แม้ยกเลิกแล้ว) ลบไม่ได้ (job_exists) · ยังไม่มี RPC ผูก SKU (W1) ⇒ ใบผลิตนั้นปิดไม่ได้ ต้องยกเลิกทั้งใบ · ได้ ' || pg_temp.hint(r), pg_temp.hint(r) = '22023|job_exists');
+    v := v || pg_temp.chk('Q5d', '[ข้อจำกัดที่รู้ — ล็อกพฤติกรรมปัจจุบัน] รายการไม่มี SKU ที่เคยมีใบงาน (แม้ยกเลิกแล้ว) ลบไม่ได้ — FK ใบงานเป็นหลักฐาน · หลังรอบแก้ 20 ต.ค. แยก hint เป็น job_history (ใบงานที่ active ยัง job_exists = Q5b) พร้อมข้อความบอกทางออก · ยังไม่มี RPC ผูก SKU (W1) ⇒ ใบผลิตนั้นปิดไม่ได้ ต้องยกเลิกทั้งใบ · ได้ ' || pg_temp.hint(r), pg_temp.hint(r) = '22023|job_history' and (r ->> '_err') like '%ยกเลิกทั้งใบผลิต%');
     v := v || pg_temp.chk('Q5e', 'ใบผลิตที่ค้างรายการไม่มี SKU ยกเลิกทั้งใบได้ (ทางออกเดียว)', pg_temp.err(format('select analytics.production_order_cancel(%L, %L, %L)', v_shop, o, 'qa5 ยกเลิกทั้งใบ')) = 'OK');
     raise exception 'rb_qa';
   exception when others then

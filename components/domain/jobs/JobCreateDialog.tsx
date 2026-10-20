@@ -211,6 +211,15 @@ export function JobCreateDialog({ kind, itemId, itemLabel, onClose, onCreated }:
                 </label>
               ))}
             </fieldset>
+            {data.metal === "gold" && data.defaultProfileId === null && data.profiles.length > 0 && (
+              // 0186 M1: ทองไม่มีแบบทองค่าเริ่ม = DB ไม่ส่งค่าเริ่มมา (ไม่ fallback ไปแบบเงิน) → บังคับเลือกแบบเอง ปุ่มสร้างเปิดเมื่อเลือกแล้ว
+              <p role="status" className="rounded-md border border-amber-300 bg-amber-50 p-2.5 text-sm font-medium text-amber-900">
+                ยังไม่มีแบบการบันทึกสำหรับทอง — เลือกแบบเอง หรือตั้งแบบทองค่าเริ่มที่หน้า{" "}
+                <a href="/jobs/profiles" target="_blank" rel="noopener noreferrer" className="underline">
+                  แบบการบันทึก ↗
+                </a>
+              </p>
+            )}
             <ProfilePicker
               idPrefix="jc"
               profiles={data.profiles}
