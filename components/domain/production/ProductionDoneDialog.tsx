@@ -350,7 +350,12 @@ export function ProductionDoneDialog({
               const qtyInvalid = parsedQty(qtyInput) === null;
               const changed =
                 calc?.unitCost != null && calc?.prevUnitCost != null && Math.abs(calc.unitCost - calc.prevUnitCost) > 0.005;
-              const metal = calc?.metal ?? r.metal;
+              // preview คือค่าที่จะถูกล็อกจริง — ใช้ค่าของ preview ตรงๆ (รวมค่าว่าง: น้ำหนัก null ต้องขึ้น "ไม่ได้ระบุ" ห้ามถอยไปหยิบค่าเก่าจากแถว) ·
+              // ยกเว้นรายการ skipped (0 ชิ้น — RPC ไม่คิดจึงไม่คืนค่า) ใช้ค่าจากแถวแทน
+              const live = calc && !calc.skipped ? calc : null;
+              const metal = live ? (live.metal ?? r.metal) : r.metal;
+              const rbPurity = live ? live.purity : r.purity;
+              const rbWeight = live ? live.weightG : r.weightG;
               return (
                 <div key={r.productId} className="rounded-md border border-zinc-200 p-2.5">
                   <div className="flex items-center justify-between gap-2">
@@ -377,7 +382,7 @@ export function ProductionDoneDialog({
                   </div>
                   {/* read-back: ค่าที่จะถูกล็อก (จาก preview ของ server) — พิมพ์ผิดตรงนี้ = ต้นทุนผิดทั้งล็อต */}
                   <p className="mt-1 text-xs text-zinc-700" data-testid={`done-readback-${r.productId}`}>
-                    {readBack(metal, calc?.purity ?? r.purity, calc?.weightG ?? r.weightG, parsedQty(qtyInput))}
+                    {readBack(metal, rbPurity, rbWeight, parsedQty(qtyInput))}
                   </p>
                   {calc?.priceMissing && (
                     <p className="mt-1 text-xs font-medium text-red-700">ยังไม่มีราคา{metal ? PRODUCTION_METAL_LABEL_TH[metal] : "โลหะ"}ของวันนี้ — ยังไม่คิดต้นทุนรายการนี้</p>
