@@ -667,6 +667,10 @@ export async function getProductionItemPrefill(productId: string): Promise<Actio
   }
 }
 
+/**
+ * @deprecated 0186: ใช้ removeProductionOrderItemById — ลบตาม item id (รองรับรายการไม่มี SKU, แถวซ้ำ SKU เดียวกัน) ·
+ * ตัวนี้ลบตาม (order, product) จึงลบรายการที่ไม่มี SKU ไม่ได้ · คงไว้เพื่อ caller เดิมเท่านั้น ห้ามเรียกใหม่
+ */
 export async function removeProductionOrderItem(input: {
   productionOrderId: string;
   productId: string;

@@ -1,6 +1,6 @@
 // lib/oem/metal-price.test.ts — ตัวแปลงราคาทอง/ทองเหลือง (PM-A · 0186)
 // เวกเตอร์ชุดเดียวกับ scripts/verify/verify-0186.sql G1-G4 (DB เป็นผู้ตัดสิน — ไฟล์นี้พิสูจน์ว่าสำเนา pure ฝั่ง client ไม่เพี้ยนจาก DB)
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
@@ -10,6 +10,7 @@ import {
   METAL_PRICE_INPUT_UNIT,
   METAL_PRICE_RANGE_PER_GRAM,
   brassKgToPerGram,
+  brassPerGramToKgText,
   convertMetalPriceInput,
   goldAssocToPerGram100,
   isMetalPricePerGramInRange,
@@ -158,28 +159,68 @@ describe("isMetalPricePerGramInRange — ปุ่มราคาต่อกร
   });
 });
 
-// กัน TS กับ DB เพี้ยนจากกัน: อ่านไฟล์ migration 0186 แล้วเทียบค่าคงที่/ช่วงราคา/ชื่อหน่วยกับไฟล์นี้ (DB เป็นผู้ตัดสิน — ถ้ามีใครแก้ฝั่งเดียว ตกตรงนี้)
-describe("contract กับ supabase/migrations/0186_production_item_metal.sql", () => {
-  const sql = readFileSync(resolve(__dirname, "../../supabase/migrations/0186_production_item_metal.sql"), "utf8");
+describe("brassPerGramToKgText — แสดงผลบาท/กก. จากค่าต่อกรัมที่ server คืน (เลื่อนจุดทศนิยมด้วยสตริง/BigInt)", () => {
+  it("0.3506 → 350.6 · 0.35 → 350 · 1 → 1,000 · 0.1 → 100 · 0.0001 → 0.1", () => {
+    expect(brassPerGramToKgText("0.3506")).toBe("350.6");
+    expect(brassPerGramToKgText("0.35")).toBe("350");
+    expect(brassPerGramToKgText("1.0000")).toBe("1,000");
+    expect(brassPerGramToKgText("0.1000")).toBe("100");
+    expect(brassPerGramToKgText("0.0001")).toBe("0.1");
+  });
+  it("รูปแบบที่ไม่ใช่ทศนิยมปกติ (e-notation/ติดลบ/ตัวอักษร/ว่าง) → null ไม่เดา", () => {
+    for (const bad of ["1e-5", "-0.35", "abc", "", "0.35.1"]) expect(brassPerGramToKgText(bad)).toBeNull();
+  });
+});
+
+// กัน TS กับ DB เพี้ยนจากกัน: กวาดทุก migration แล้วใช้ "ไฟล์เลขสูงสุดที่นิยามฟังก์ชันนั้นๆ" (ฟังก์ชันที่ถูก replace ทีหลังเป็นนิยามที่ใช้จริง — ไม่ผูกเลข 0186)
+// เทียบค่าคงที่/ช่วงราคา/ชื่อหน่วยกับไฟล์นี้ (DB เป็นผู้ตัดสิน — ถ้ามีใครแก้ฝั่งเดียว ตกตรงนี้)
+describe("contract กับนิยามล่าสุดใน supabase/migrations/*.sql", () => {
+  const dir = resolve(__dirname, "../../supabase/migrations");
+  const files = readdirSync(dir)
+    .filter((f) => /^\d{4}_.*\.sql$/.test(f))
+    .sort();
+
+  /** ไฟล์เลขสูงสุดที่มี `create [or replace] function analytics.<name>(` — คืนเฉพาะตัวฟังก์ชัน (จนถึง dollar-quote ปิด) */
+  function latestDefinition(name: string): { file: string; body: string } {
+    const re = new RegExp(`create (?:or replace )?function analytics\\.${name}\\s*\\(`, "i");
+    for (const f of [...files].reverse()) {
+      const sql = readFileSync(resolve(dir, f), "utf8");
+      const m = re.exec(sql);
+      if (!m) continue;
+      const rest = sql.slice(m.index);
+      const end = rest.search(/\n\$[a-z_0-9]*\$/i);
+      // ข้ามชื่อ *_legacy… ไม่เข้าเงื่อนไข regexp (ต้องตามด้วย "(" ทันที) จึงไม่ปนกับ legacy
+      return { file: f, body: end > 0 ? rest.slice(0, end) : rest };
+    }
+    throw new Error(`ไม่พบ analytics.${name} ใน migration ใดเลย`);
+  }
+
+  const convert = latestDefinition("oem_metal_price_convert");
+  const rangeOk = latestDefinition("oem_metal_price_range_ok");
+
+  it("กวาดเจอทั้งสองฟังก์ชัน และอยู่ในไฟล์ที่เลขไม่ต่ำกว่า 0186 (ไม่หลุดไปอ่านนิยามเก่า)", () => {
+    expect(Number(convert.file.slice(0, 4))).toBeGreaterThanOrEqual(186);
+    expect(Number(rangeOk.file.slice(0, 4))).toBeGreaterThanOrEqual(186);
+  });
 
   it("ค่าคงที่การแปลงทอง 15.244 / 0.965 ตรงกับ oem_metal_price_convert", () => {
-    expect(Number(/c_gram_per_baht constant numeric := ([0-9.]+);/.exec(sql)?.[1])).toBe(GOLD_GRAM_PER_BAHT);
-    expect(Number(/c_assoc_purity\s+constant numeric := ([0-9.]+);/.exec(sql)?.[1])).toBe(GOLD_ASSOC_PURITY);
+    expect(Number(/c_gram_per_baht constant numeric := ([0-9.]+);/.exec(convert.body)?.[1]), convert.file).toBe(GOLD_GRAM_PER_BAHT);
+    expect(Number(/c_assoc_purity\s+constant numeric := ([0-9.]+);/.exec(convert.body)?.[1]), convert.file).toBe(GOLD_ASSOC_PURITY);
   });
 
   it("ช่วงราคาต่อกรัมของทั้ง 3 โลหะตรงกับ oem_metal_price_range_ok", () => {
     for (const metal of ["silver", "gold", "brass"] as const) {
-      const m = new RegExp(`when '${metal}'\\s+then \\(p_price >= ([0-9.]+) and p_price <= ([0-9.]+)\\)`).exec(sql);
-      expect(m, `ไม่พบช่วงของ ${metal} ใน migration`).not.toBeNull();
+      const m = new RegExp(`when '${metal}'\\s+then \\(p_price >= ([0-9.]+) and p_price <= ([0-9.]+)\\)`).exec(rangeOk.body);
+      expect(m, `ไม่พบช่วงของ ${metal} ใน ${rangeOk.file}`).not.toBeNull();
       expect(Number(m?.[1])).toBe(METAL_PRICE_RANGE_PER_GRAM[metal].min);
       expect(Number(m?.[2])).toBe(METAL_PRICE_RANGE_PER_GRAM[metal].max);
     }
   });
 
-  it("ชื่อหน่วยที่ DB เก็บ (input_unit) ตรงกับ METAL_PRICE_INPUT_UNIT", () => {
-    expect(sql).toContain(`'${METAL_PRICE_INPUT_UNIT.gold}'`);
-    expect(sql).toContain(`'${METAL_PRICE_INPUT_UNIT.brass}'`);
-    expect(sql).toContain("p_input_value / (c_gram_per_baht * c_assoc_purity)");
-    expect(sql).toContain("p_input_value / 1000");
+  it("ชื่อหน่วยที่ DB เก็บ (input_unit) + สูตรหาร ตรงกับ METAL_PRICE_INPUT_UNIT", () => {
+    expect(convert.body).toContain(`'${METAL_PRICE_INPUT_UNIT.gold}'`);
+    expect(convert.body).toContain(`'${METAL_PRICE_INPUT_UNIT.brass}'`);
+    expect(convert.body).toContain("p_input_value / (c_gram_per_baht * c_assoc_purity)");
+    expect(convert.body).toContain("p_input_value / 1000");
   });
 });

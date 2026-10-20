@@ -92,24 +92,30 @@ describe("static guards: create path never uses the suggestion", () => {
     expect((seg.match(/coalesce\(p_qty_planned, v_qty_order\)/g) ?? []).length).toBe(2);
     expect(seg).not.toMatch(/v_suggest|job_plan_suggest\(|qty_planned_suggest/);
   });
-  it("no later migration (เลข > 0176) redefines job_create_* with the suggestion — กวาดทุกไฟล์ ไม่ล็อกรายชื่อ", () => {
-    // 0186 (PM-A) ต้อง replace job_create_insert (ตัวแกนที่ job_create_from_* ทุกตัวเรียก) เพื่อปิดช่อง fallback เงียบของแบบทอง (no_gold_profile) —
-    // ฟังก์ชันนั้นรับจำนวนมาจากผู้เรียกตรงๆ ไม่คำนวณ/ไม่อ่านค่าแนะนำเลย ⇒ เจตนาของด่านนี้ ("เส้นสร้างใบไม่ใช้ค่าแนะนำเป็นค่าตั้งต้นเงียบๆ") ยังครบ:
-    // จึงเปลี่ยนจาก "ห้ามมี migration ใหม่ replace job_create_*" เป็น "ถ้ามี ตัวฟังก์ชันต้องไม่เรียก/อ้างค่าแนะนำ" (ยังกวาดทุกไฟล์ ไม่ล็อกชื่อ)
+  it("no later migration (เลข > 0176) redefines job_create_* — allowlist แคบ 0186:job_create_insert เท่านั้น + ชั้นสอง: ตัวที่ allow ต้องไม่อ้างค่าแนะนำ", () => {
+    // 0186 (PM-A) replace job_create_insert (ตัวแกนที่ job_create_from_* ทุกตัวเรียก) เพื่อปิดช่อง fallback เงียบของแบบทอง (no_gold_profile)
+    // ฟังก์ชันนั้นรับจำนวนจากผู้เรียกตรงๆ ไม่อ่านค่าแนะนำเลย ⇒ เจตนาของด่านนี้ยังครบ
+    // allow เฉพาะคู่ "ไฟล์:ฟังก์ชัน" ที่ตรวจแล้ว — migration อื่นที่แตะ job_create_* ต้องล้ม แล้วมาทบทวนก่อนเพิ่มคู่ที่นี่
+    const ALLOW = ["0186_production_item_metal.sql:job_create_insert"];
     const later = readdirSync(join(root, "supabase", "migrations")).filter((f) => /^\d{4}_.*\.sql$/.test(f) && Number(f.slice(0, 4)) > 176);
     expect(later.length).toBeGreaterThan(0);
-    const startRe = /create or replace function analytics\.job_create\w*/gi;
+    const startRe = /create or replace function analytics\.(job_create\w*)/gi;
+    const seen: string[] = [];
     for (const f of later) {
       const sql = read(`supabase/migrations/${f}`);
       for (const m of sql.matchAll(startRe)) {
-        const from = m.index ?? 0;
-        const rest = sql.slice(from);
+        const key = `${f}:${m[1]}`;
+        seen.push(key);
+        if (!ALLOW.includes(key)) continue; // ไม่อยู่ใน allowlist → ล้มที่ assertion ท้ายเทสต์พร้อมรายชื่อ
+        const rest = sql.slice(m.index ?? 0);
         // ตัวฟังก์ชันจบที่ dollar-quote ปิดบรรทัดแรกหลังเริ่ม (`$fn$;` / `$function$;` / `$f$;`)
         const end = rest.search(/\n\$[a-z_0-9]*\$;/i);
         const body = end > 0 ? rest.slice(0, end) : rest.slice(0, 20000);
-        expect(body, `${f}: ${m[0]}`).not.toMatch(/v_suggest|job_plan_suggest\(|qty_planned_suggest/);
+        expect(body, key).not.toMatch(/v_suggest|job_plan_suggest\(|qty_planned_suggest/);
       }
     }
+    // เท่ากันเป๊ะ: มีตัวนอก allowlist = ล้ม · allowlist ค้างเก่า (ไม่เจอจริง) = ล้ม
+    expect([...seen].sort()).toEqual([...ALLOW].sort());
   });
   it("0186 redefines only job_create_insert among job_create_* (the 3 job_create_from_*/entry RPCs untouched — their bodies are the 0176 ones this file pins above)", () => {
     const sql = read("supabase/migrations/0186_production_item_metal.sql");

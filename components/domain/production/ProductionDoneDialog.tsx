@@ -45,11 +45,15 @@ import type {
 } from "@/lib/production/types";
 import { PRODUCTION_COST_TYPE_LABEL_TH, PRODUCTION_METAL_LABEL_TH } from "@/lib/production/types";
 import { formatTHB } from "@/lib/format";
+import { brassPerGramToKgText } from "@/lib/oem/metal-price";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { useToast } from "@/components/ui/Toast";
 import { ProductionSpecCostCard } from "./ProductionSpecCostCard";
+
+// ค่าต่อกรัมจาก server (numeric(14,4)) — แสดงอย่างน้อย 2 ตำแหน่ง สูงสุด 4 ไม่ปัดทิ้งเศษของทองเหลือง (0.3506)
+const fmtPerGram = (n: number) => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 4 });
 
 interface DoneRow {
   productId: string;
@@ -174,6 +178,9 @@ export function ProductionDoneDialog({
   const totalQtyDone = doneItems.items.reduce((sum, it) => sum + it.qtyDone, 0);
   // 0186 (R3): โลหะ (ทอง/ทองเหลือง) ที่ใบใช้แต่ยังไม่มีราคาของวันนี้ — done ยัง fail-closed อยู่ที่ DB · ที่นี่กันปุ่มพร้อมบอกทาง (ไม่มีราคาเฉพาะใบ)
   const missingPriceLabels = (preview?.missingPrices ?? []).map((m) => PRODUCTION_METAL_LABEL_TH[m]);
+  const goldPrice = preview?.metalPrices?.gold ?? null;
+  const brassPrice = preview?.metalPrices?.brass ?? null;
+  const brassKgText = brassPrice != null ? brassPerGramToKgText(String(brassPrice)) : null;
   const canSubmit =
     !previewLoading && !previewError && doneItems.allValid && totalQtyDone > 0 && !pending && unboundCount === 0 && missingPriceLabels.length === 0;
 
@@ -240,6 +247,20 @@ export function ProductionDoneDialog({
             <p className="mt-3 text-xs text-zinc-400">
               ทุกรายการในใบนี้เป็นต้นทุนคงที่ — ไม่ใช้ราคาเงิน
               {previewLoading && <span className="ml-1.5 text-zinc-400">(กำลังคำนวณใหม่...)</span>}
+            </p>
+          )}
+
+          {/* ราคาทอง/ทองเหลือง: โชว์ค่าที่ server คืนมาตรงๆ (preview.metalPrices) — ที่เห็น = ที่จะส่งกลับเป็น expectedMetalPrices และถูก stamp */}
+          {goldPrice != null && (
+            <p className="mt-1 text-xs text-zinc-500" data-testid="done-gold-price">
+              ราคาทองที่จะใช้: <span className="font-semibold text-zinc-700">{fmtPerGram(goldPrice)} บาท/กรัม</span> (ทอง 100%)
+            </p>
+          )}
+          {brassPrice != null && (
+            <p className="mt-1 text-xs text-zinc-500" data-testid="done-brass-price">
+              ราคาทองเหลืองที่จะใช้:{" "}
+              <span className="font-semibold text-zinc-700">{brassKgText != null ? `${brassKgText} บาท/กก.` : `${fmtPerGram(brassPrice)} บาท/กรัม`}</span>
+              {brassKgText != null && <span className="ml-1 text-zinc-400">({fmtPerGram(brassPrice)} บาท/กรัม)</span>}
             </p>
           )}
 

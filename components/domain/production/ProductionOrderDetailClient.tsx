@@ -161,7 +161,7 @@ export function ProductionOrderDetailClient({
   const toast = useToast();
   const [doneDialogOpen, setDoneDialogOpen] = useState(false);
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
-  const [removingProductId, setRemovingProductId] = useState<string | null>(null);
+  const [removingItemId, setRemovingItemId] = useState<string | null>(null);
   const [togglingNewDesignProductId, setTogglingNewDesignProductId] = useState<string | null>(null);
 
   const isOpen = order.status === "open";
@@ -203,10 +203,10 @@ export function ProductionOrderDetailClient({
 
   function removeItem(item: ProductionOrderItemRow) {
     if (!window.confirm(`ลบ ${itemSkuText(item)} ออกจากใบผลิต ${order.poNo}?`)) return;
-    setRemovingProductId(item.id);
+    setRemovingItemId(item.id);
     // 0186: ลบด้วย id ทุกกรณี (รายการไม่มี SKU ลบด้วย productId ไม่ได้) — มีใบงานผูกอยู่ DB ตอบ job_exists พร้อมเลขใบงาน
     removeProductionOrderItemById({ productionOrderId: order.id, itemId: item.id }).then((result) => {
-      setRemovingProductId(null);
+      setRemovingItemId(null);
       if (!result.ok) {
         toast.push(result.error, "error");
         return;
@@ -407,7 +407,7 @@ export function ProductionOrderDetailClient({
                             <button
                               type="button"
                               onClick={() => removeItem(item)}
-                              disabled={removingProductId === item.id}
+                              disabled={removingItemId === item.id}
                               aria-label={`ลบ ${itemSkuText(item)}`}
                               className="inline-flex h-9 w-9 items-center justify-center rounded-md text-zinc-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
                             >

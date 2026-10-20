@@ -129,6 +129,16 @@ describe("humanizeProductionError", () => {
     expect(humanizeProductionError(err, "fallback")).toBe(err.message);
   });
 
+  // 0186 รอบ 3: ข้อความปิดใบของทอง/ทองเหลืองใช้ชื่อไทย (ไม่ใช่รหัส gold/brass) — ต้องผ่านเข้าหน้าจอครบ ไม่ถูก rewrite และไม่มีคำผิด
+  it.each([
+    "production_order_done: ราคาทองเปลี่ยนไประหว่างที่เปิดหน้าต่างนี้ค้างไว้ (ตอนเปิดหน้าต่างเห็นราคา 2800.1271 บาท/กรัม แต่ตอนนี้ระบบคำนวณได้ 2805.1271 บาท/กรัม) — ปิดหน้าต่างยืนยันนี้แล้วเปิดใบผลิตใหม่อีกครั้งเพื่อดูราคาล่าสุดก่อนยืนยัน",
+    "production_order_done: ราคาทองเหลืองเปลี่ยนไประหว่างที่เปิดหน้าต่างนี้ค้างไว้ (ตอนเปิดหน้าต่างเห็นราคา 0.35 บาท/กรัม แต่ตอนนี้ระบบคำนวณได้ 0.36 บาท/กรัม) — ปิดหน้าต่างยืนยันนี้แล้วเปิดใบผลิตใหม่อีกครั้งเพื่อดูราคาล่าสุดก่อนยืนยัน",
+    "production_order_done: ไม่มีราคาทองที่หน้าจอเห็นมาด้วย (p_expected_metal_prices) — ปิดหน้าต่างแล้วเปิดใบผลิตใหม่อีกครั้ง",
+  ])("passes the gold/brass done messages (0186 round 3, Thai metal names) through as-is: %s", (message) => {
+    expect(humanizeProductionError({ code: "22023", message }, "fallback")).toBe(message);
+    expect(message).not.toMatch(/gold|brass|ไปประหว่าง/);
+  });
+
   it("falls back when there is no usable message at all", () => {
     expect(humanizeProductionError(null, "fallback")).toBe("fallback");
     expect(humanizeProductionError(undefined, "fallback")).toBe("fallback");

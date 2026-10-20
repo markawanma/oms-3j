@@ -1298,6 +1298,23 @@ begin
     if sqlerrm <> 'rb_186' then v := v || pg_temp.chk('X4-crash', sqlstate || ' ' || sqlerrm, false); end if;
   end;
 
+  -- X5: ข้อความ error ปิดใบ M1 ต้องเป็นชื่อโลหะไทย (ไม่ใช่รหัส) และสะกดถูก ("ระหว่าง") · ใบเงินได้ข้อความเดิม "ราคาเงินเปลี่ยนไประหว่าง…"
+  begin
+    o := pg_temp.po(v_shop, 'X-M5');
+    perform pg_temp.iset(v_shop, o, pg_temp.fx('spot'), 5, null, 'gold', 0.9, 3.2, 'input');
+    perform pg_temp.iset(v_shop, o, p_bar, 2);
+    r := pg_temp.dn(v_shop, o, null, jsonb_build_object('silver', 99, 'gold', analytics.production_metal_price_resolve(v_shop, 'gold', null)));
+    r2 := pg_temp.dn(v_shop, o, null, jsonb_build_object('silver', 72, 'gold', analytics.production_metal_price_resolve(v_shop, 'gold', null) + 5));
+    r3 := pg_temp.dn(v_shop, o, null, jsonb_build_object('silver', 72));
+    v := v || pg_temp.chk('X5a', 'ราคาเงินเปลี่ยน: "ราคาเงินเปลี่ยนไประหว่างที่เปิดหน้าต่างนี้ค้างไว้" (ข้อความเดิม 0132 M1 — ไม่มีรหัส silver · ไม่มีคำผิด "ประหว่าง")',
+      (r ->> '_hint') = 'metal_price_changed' and (r ->> '_err') like '%ราคาเงินเปลี่ยนไประหว่างที่เปิดหน้าต่างนี้ค้างไว้%' and (r ->> '_err') not like '%silver%' and (r ->> '_err') not like '%ไปประหว่าง%');
+    v := v || pg_temp.chk('X5b', 'ราคาทองเปลี่ยน: "ราคาทองเปลี่ยนไประหว่าง…" ไม่ใช่ "ราคาgold"', (r2 ->> '_hint') = 'metal_price_changed' and (r2 ->> '_err') like '%ราคาทองเปลี่ยนไประหว่าง%' and (r2 ->> '_err') not like '%gold%');
+    v := v || pg_temp.chk('X5c', 'ไม่ส่งราคาทอง: "ไม่มีราคาทองที่หน้าจอเห็นมาด้วย" ไม่ใช่รหัส gold', (r3 ->> '_hint') = 'expected_prices_required' and (r3 ->> '_err') like '%ไม่มีราคาทองที่หน้าจอเห็นมาด้วย%' and (r3 ->> '_err') not like '%gold%');
+    raise exception 'rb_186';
+  exception when others then
+    if sqlerrm <> 'rb_186' then v := v || pg_temp.chk('X5-crash', sqlstate || ' ' || sqlerrm, false); end if;
+  end;
+
   -- mutant: ถอดด่านใหม่แล้วเคสต้องล้มจริง
   begin
     o := pg_temp.po(v_shop, 'X-M10');

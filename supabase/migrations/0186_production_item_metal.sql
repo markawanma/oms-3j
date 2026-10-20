@@ -168,6 +168,8 @@ alter table analytics.oem_metal_price
         and input_value > 0 and input_value < 100000000
         and ((metal = 'gold' and input_unit = 'assoc965_sell_per_baht') or (metal = 'brass' and input_unit = 'thb_per_kg')))
   ),
+  -- เงินยกเว้นโดยตั้งใจ: แถวเงินมาจากชีต/trigger (silver_spot_sync_from_history) หลายทาง และเคยมีค่าหลุดหน่วย (บั๊ก 1,097 ของ 17 ก.ย.) —
+  -- CHECK บนตารางที่มีแถวเงินเดิมอาจตีตกการ sync ของระบบเอง/ทำให้ apply ล้มด้วยข้อมูลเก่า · เงินยังมีด่าน 5-500 ที่ RPC (oem_metal_price_set) และ resolve เหมือนเดิม
   add constraint oem_metal_price_range_ck check (
     metal = 'silver' or analytics.oem_metal_price_range_ok(metal, price_thb_per_gram)
   );
@@ -1271,11 +1273,14 @@ begin
     end if;
     foreach v_metal in array v_metals loop
       if jsonb_typeof(p_expected_metal_prices -> v_metal) is distinct from 'number' then
-        raise exception 'production_order_done: ไม่มีราคา % ที่หน้าจอเห็นมาด้วย (p_expected_metal_prices) — ปิดหน้าต่างแล้วเปิดใบผลิตใหม่อีกครั้ง', v_metal using errcode = '22023', hint = 'expected_prices_required';
+        raise exception 'production_order_done: ไม่มีราคา%ที่หน้าจอเห็นมาด้วย (p_expected_metal_prices) — ปิดหน้าต่างแล้วเปิดใบผลิตใหม่อีกครั้ง',
+          case v_metal when 'gold' then 'ทอง' when 'brass' then 'ทองเหลือง' else 'เงิน' end using errcode = '22023', hint = 'expected_prices_required';
       end if;
       if not (abs((v_prices ->> v_metal)::numeric - (p_expected_metal_prices ->> v_metal)::numeric) <= 0.0001) then
-        raise exception 'production_order_done: ราคา% เปลี่ยนไปประหว่างที่เปิดหน้าต่างนี้ค้างไว้ (ตอนเปิดหน้าต่างเห็นราคา % บาท/กรัม แต่ตอนนี้ระบบคำนวณได้ % บาท/กรัม) — ปิดหน้าต่างยืนยันนี้แล้วเปิดใบผลิตใหม่อีกครั้งเพื่อดูราคาล่าสุดก่อนยืนยัน',
-          v_metal, p_expected_metal_prices ->> v_metal, v_prices ->> v_metal using errcode = '22023', hint = 'metal_price_changed';
+        -- ชื่อโลหะเป็นไทย (ไม่ใช่รหัส gold/silver) · ใบเงินได้ข้อความเดิม "ราคาเงินเปลี่ยนไประหว่างที่เปิดหน้าต่างนี้ค้างไว้…" ตาม 0132 M1 ที่ UI/เทสต์เดิมพึ่งอยู่
+        raise exception 'production_order_done: ราคา%เปลี่ยนไประหว่างที่เปิดหน้าต่างนี้ค้างไว้ (ตอนเปิดหน้าต่างเห็นราคา % บาท/กรัม แต่ตอนนี้ระบบคำนวณได้ % บาท/กรัม) — ปิดหน้าต่างยืนยันนี้แล้วเปิดใบผลิตใหม่อีกครั้งเพื่อดูราคาล่าสุดก่อนยืนยัน',
+          case v_metal when 'gold' then 'ทอง' when 'brass' then 'ทองเหลือง' else 'เงิน' end,
+          p_expected_metal_prices ->> v_metal, v_prices ->> v_metal using errcode = '22023', hint = 'metal_price_changed';
       end if;
     end loop;
   end if;
@@ -1533,7 +1538,7 @@ begin
   if p_qty_order is null or not (p_qty_order between 1 and 100000) or p_qty is null or not (p_qty between 1 and 100000) then
     raise exception 'จำนวนสั่ง/จำนวนเริ่มผลิตต้องอยู่ระหว่าง 1 ถึง 100,000' using errcode = '22023', hint = 'qty_planned_invalid';
   end if;
-  -- 0176: แบบการบันทึก — ไม่ส่งมา = ค่าเริ่มตามโลหะ (ทอง: is_default_gold ถ้ามี ไม่งั้น is_default) · ไม่มีค่าเริ่ม/แบบไม่ถูกต้อง (ไม่พบ/ร้านอื่น/ปิดใช้) = ปฏิเสธ ไม่เดา
+  -- 0176 → 0186: แบบการบันทึก — ไม่ส่งมา = ค่าเริ่มตามโลหะ (ทอง: is_default_gold ที่ active เท่านั้น ไม่มี = no_gold_profile ไม่ fallback ไปแบบทั่วไป) · ไม่มีค่าเริ่ม/แบบไม่ถูกต้อง (ไม่พบ/ร้านอื่น/ปิดใช้) = ปฏิเสธ ไม่เดา
   if p_profile_id is null then
     -- 0186: ทองต้องมีแบบทองเป็นค่าเริ่มเท่านั้น — ไม่ fallback ไปแบบ default ของเงินเงียบๆ
     if p_metal = 'gold' and not exists (

@@ -16,13 +16,15 @@
 // ช่วง sanity (เจ้าของเคาะ 20 ต.ค. "ใช้ที่เสนอ"): ทอง 100% 2,000–8,000 บาท/กรัม · ทองเหลือง 100–1,000 บาท/กก. (= 0.10–1.00 บาท/กรัม) · เงิน 5–500 (เดิม)
 // ด่านช่วงตรวจที่ "ค่าต่อกรัมที่แปลงแล้ว ก่อนปัด" (ทองเหลือง: 99.99 และ 1,000.01 บาท/กก. ปัด 4 ตำแหน่งแล้วจะหลุดเข้าช่วง จึงต้องตรวจก่อนปัด — ตรงกับ DB)
 
+import { GRAMS_PER_BAHT_WEIGHT } from "@/lib/catalog/types";
+
 export type MetalPriceInputMetal = "gold" | "brass";
 export type MetalPriceMetal = "silver" | "gold" | "brass";
 /** หน่วยของ "ค่าที่ผู้ใช้กรอก" ที่ DB เก็บคู่กับค่าต่อกรัม (oem_metal_price.input_unit) */
 export type MetalPriceInputUnit = "assoc965_sell_per_baht" | "thb_per_kg";
 
-/** 1 บาททองคำ = 15.244 กรัม */
-export const GOLD_GRAM_PER_BAHT = 15.244;
+/** 1 บาททองคำ = 15.244 กรัม — re-export ค่าเดียวกับที่ catalog ใช้ (ค่าเดียวในโค้ด) · BigInt สเกลด้านล่างผูกกับค่านี้ด้วยเทสต์ float + contract กับ SQL */
+export const GOLD_GRAM_PER_BAHT = GRAMS_PER_BAHT_WEIGHT;
 /** ทองคำแท่งสมาคม = 96.5% */
 export const GOLD_ASSOC_PURITY = 0.965;
 
@@ -40,6 +42,28 @@ export const METAL_PRICE_RANGE_PER_GRAM: Record<MetalPriceMetal, { min: number; 
 };
 /** ช่วงที่ผู้ใช้เห็น/กรอก (ทองเหลือง = บาท/กก. · ทอง = ต่อกรัม 100% — ราคาสมาคมที่กรอกไม่มีช่วงของตัวเอง ตรวจที่ค่าที่แปลงแล้ว) */
 export const BRASS_PRICE_RANGE_PER_KG = { min: 100, max: 1000 } as const;
+
+const fmtThb = (n: number, digits = 0) => n.toLocaleString("en-US", { minimumFractionDigits: digits, maximumFractionDigits: digits });
+const BRASS_KG_RANGE_TEXT = `${fmtThb(BRASS_PRICE_RANGE_PER_KG.min)}–${fmtThb(BRASS_PRICE_RANGE_PER_KG.max)}`;
+const GOLD_MIN_TEXT = fmtThb(METAL_PRICE_RANGE_PER_GRAM.gold.min);
+const GOLD_MAX_TEXT = fmtThb(METAL_PRICE_RANGE_PER_GRAM.gold.max);
+
+/**
+ * แสดงผลอย่างเดียว: ราคาทองเหลืองต่อกรัมที่ server คืนมา (สตริงทศนิยม เช่น "0.3506") → ข้อความ บาท/กก. (×1,000 ด้วยการเลื่อนจุดทศนิยมในสตริง ไม่ใช้ float)
+ * ไม่ใช่การคำนวณราคา — ค่าที่ใช้คิดต้นทุนคือค่าต่อกรัมจาก server เท่านั้น · ไม่ใช่ตัวเลขที่ถูกต้อง → null
+ */
+export function brassPerGramToKgText(perGramText: string): string | null {
+  const m = /^(\d{1,10})(?:\.(\d{1,4}))?$/.exec(perGramText.trim());
+  if (!m) return null;
+  const frac = ((m[2] ?? "") + "0000").slice(0, 4);
+  const units4 = BigInt(m[1]) * 10_000n + BigInt(frac); // บาท/กรัม สเกล 10^4
+  const kgUnits4 = units4 * 1000n; // บาท/กก. สเกล 10^4
+  const s = kgUnits4.toString().padStart(5, "0");
+  const whole = s.slice(0, -4);
+  const fracKg = s.slice(-4).replace(/0+$/, "");
+  const wholeFmt = BigInt(whole).toLocaleString("en-US");
+  return fracKg ? `${wholeFmt}.${fracKg}` : wholeFmt;
+}
 
 export const METAL_PRICE_INPUT_UNIT: Record<MetalPriceInputMetal, MetalPriceInputUnit> = {
   gold: "assoc965_sell_per_baht",
@@ -160,7 +184,7 @@ export function metalPricePerGramRangeMessage(metal: MetalPriceMetal): string {
   const fmt = (n: number) => (metal === "brass" ? n.toFixed(2) : n.toLocaleString("en-US"));
   const extra =
     metal === "brass"
-      ? " (= 100–1,000 บาท/กก. — ทองเหลืองกรอกเป็นบาทต่อกิโลกรัมแล้วให้ระบบแปลง)"
+      ? ` (= ${BRASS_KG_RANGE_TEXT} บาท/กก. — ทองเหลืองกรอกเป็นบาทต่อกิโลกรัมแล้วให้ระบบแปลง)`
       : metal === "gold"
         ? " (ทอง 100% — ถ้าเป็นราคาสมาคมบาทละ ให้กรอกด้วยช่องราคาสมาคม ระบบแปลงให้)"
         : "";
@@ -176,8 +200,8 @@ export function metalPriceInputIssueMessage(metal: MetalPriceInputMetal, result:
   if (metal === "gold") {
     const below = result.perGramText !== undefined && Number(result.perGramText) < METAL_PRICE_RANGE_PER_GRAM.gold.min;
     return below
-      ? `แปลงแล้วได้ ${result.perGramText} บาท/กรัม (ทอง 100%) ต่ำกว่า 2,000 ที่ระบบรับ — ตรวจว่ากรอก "ราคาบาทละ" ของทองคำแท่ง 96.5% ไม่ใช่ราคาต่อกรัม`
-      : `แปลงแล้วได้ ${result.perGramText} บาท/กรัม (ทอง 100%) สูงกว่า 8,000 ที่ระบบรับ — ตรวจว่าตัวเลขไม่เกินหลัก`;
+      ? `แปลงแล้วได้ ${result.perGramText} บาท/กรัม (ทอง 100%) ต่ำกว่า ${GOLD_MIN_TEXT} ที่ระบบรับ — ตรวจว่ากรอก "ราคาบาทละ" ของทองคำแท่ง ${(GOLD_ASSOC_PURITY * 100).toFixed(1)}% ไม่ใช่ราคาต่อกรัม`
+      : `แปลงแล้วได้ ${result.perGramText} บาท/กรัม (ทอง 100%) สูงกว่า ${GOLD_MAX_TEXT} ที่ระบบรับ — ตรวจว่าตัวเลขไม่เกินหลัก`;
   }
-  return "ราคาทองเหลืองต้องอยู่ระหว่าง 100–1,000 บาท/กก. (กรอกเป็นบาทต่อกิโลกรัม ไม่ใช่ต่อกรัม)";
+  return `ราคาทองเหลืองต้องอยู่ระหว่าง ${BRASS_KG_RANGE_TEXT} บาท/กก. (กรอกเป็นบาทต่อกิโลกรัม ไม่ใช่ต่อกรัม)`;
 }

@@ -184,7 +184,7 @@
 | การแปลง | **DB เป็นผู้ตัดสิน** (`oem_metal_price_convert` + `oem_metal_price_set_input` — คืนค่าที่เก็บจริง) · TS มีสำเนา pure ตัวเดียว (`lib/oem/metal-price.ts` — BigInt ไม่ใช้ float) ไว้ preview เท่านั้น · ด่านช่วงตรวจที่ค่าต่อกรัม "ก่อนปัด 4 ตำแหน่ง" (ทองเหลือง 99.99 / 1,000.01 บาท/กก. ปัดแล้วจะหลุดเข้าช่วง) · metal-price.test.ts อ่านไฟล์ migration เทียบ 15.244/0.965/ช่วงราคา กันเพี้ยนจากกัน | oem-quote-invariants ข้อ 2 |
 | ชื่อ signature | `production_cost_calc(shop, product, metal_price, qty, is_new_design, metal, purity, weight_g)` — **8 arg ไม่มี default** (ไม่ซ้อน/ไม่ ambiguous กับฉบับ 5 arg ระหว่าง golden) · `production_order_done(shop, order, items, p_expected_metal_prices jsonb, actor)` · `production_order_item_set(…, p_pending_product_label, p_metal, p_purity, p_weight_g, p_weight_source, p_clear_weight)` · ใหม่: `production_metal_price_resolve` · `production_item_prefill` · `production_order_item_remove_by_id` · `oem_metal_price_set_input` | implement |
 
-**ไม่อยู่ใน PM-A (ตั้งใจ)**: RPC ผูก SKU (`production_order_item_bind_product` · UX C.3 R2) และแก้ชื่อแบบก่อนผูก — ต้องแตะใบงานที่ผูกรายการอยู่ด้วย จึงเป็นของ W1 (OfficeAck) · หน้าจอ PM-B · `job_profile_default_for` ยัง fallback ให้ฟังก์ชันแสดงผล (ด่านจริงอยู่ที่ `job_create_insert`)
+**ไม่อยู่ใน PM-A (ตั้งใจ)**: RPC ผูก SKU (`production_order_item_bind_product` · UX C.3 R2) และแก้ชื่อแบบก่อนผูก — ต้องแตะใบงานที่ผูกรายการอยู่ด้วย จึงเป็นของ W1 (OfficeAck) · หน้าจอ PM-B · `job_profile_default_for` — **แก้แล้ว: ทองไม่มีแบบทอง = null (ดู §7.2 M1)**
 
 ## 8. ความเสี่ยงต้นทุน · หนี้ · ไฟล์
 
