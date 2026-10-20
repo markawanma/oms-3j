@@ -187,7 +187,28 @@ export async function getProductionOrders(): Promise<ActionResult<GetProductionO
       itemCount: Number(r.item_count) || 0,
       qtyPlannedTotal: Number(r.qty_planned_total) || 0,
       qtyDoneTotal: Number(r.qty_done_total) || 0,
+      unboundItemCount: 0,
     }));
+
+    // PM-B: จำนวนรายการที่ยังไม่ผูก SKU ต่อใบ (ป้าย "ยังไม่ผูก SKU n" บนรายการ) — v_production_order ไม่มีคอลัมน์นี้ (0186 ไม่ได้ขยาย view)
+    // อ่านตรงจากตารางรายการ (service_role มี select อยู่แล้ว — แพทเทิร์นเดียวกับ getProductionOrder) · อ่านไม่ได้ = ไม่มีป้าย ไม่ล้มทั้งหน้า
+    try {
+      const unboundRes = await supabase
+        .schema(SCHEMA)
+        .from("production_order_item")
+        .select("production_order_id")
+        .eq("shop_id", shopId)
+        .is("product_id", null)
+        .limit(5000);
+      if (unboundRes.error) throw unboundRes.error;
+      const counts = new Map<string, number>();
+      for (const u of (unboundRes.data ?? []) as { production_order_id: string }[]) {
+        counts.set(u.production_order_id, (counts.get(u.production_order_id) ?? 0) + 1);
+      }
+      for (const row of rows) row.unboundItemCount = counts.get(row.id) ?? 0;
+    } catch (err) {
+      console.error("getProductionOrders: unbound item count failed (badge hidden)", err);
+    }
 
     return { ok: true, data: { rows, totalCount: result.totalCount, truncated: result.truncated } };
   } catch (err) {
@@ -327,6 +348,7 @@ export async function getProductionOrder(id: string): Promise<ActionResult<Produ
       itemCount: Number(o.item_count) || 0,
       qtyPlannedTotal: Number(o.qty_planned_total) || 0,
       qtyDoneTotal: Number(o.qty_done_total) || 0,
+      unboundItemCount: (itemsRes.data ?? []).filter((r) => (r as { product_id: string | null }).product_id === null).length,
     };
 
     const items: ProductionOrderItemRow[] = (

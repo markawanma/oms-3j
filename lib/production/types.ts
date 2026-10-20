@@ -181,6 +181,9 @@ export interface ProductionOrderRow {
   itemCount: number;
   qtyPlannedTotal: number;
   qtyDoneTotal: number;
+  /** 0186 (PM-B): จำนวนรายการที่ยังไม่ผูก SKU (product_id null) — v_production_order ไม่มีคอลัมน์นี้ อ่านจากตารางรายการเป็น side-channel ·
+   * 0 เมื่ออ่านไม่ได้ (ป้ายหายเงียบ ไม่ล้มทั้งหน้ารายการ) · มีความหมายเฉพาะใบ open */
+  unboundItemCount: number;
 }
 
 export interface ProductionOrderItemRow {
