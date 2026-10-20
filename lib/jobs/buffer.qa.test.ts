@@ -92,12 +92,28 @@ describe("static guards: create path never uses the suggestion", () => {
     expect((seg.match(/coalesce\(p_qty_planned, v_qty_order\)/g) ?? []).length).toBe(2);
     expect(seg).not.toMatch(/v_suggest|job_plan_suggest\(|qty_planned_suggest/);
   });
-  it("no later migration (เลข > 0176) redefines job_create_* — กวาดทุกไฟล์ ไม่ล็อกรายชื่อ", () => {
+  it("no later migration (เลข > 0176) redefines job_create_* with the suggestion — กวาดทุกไฟล์ ไม่ล็อกรายชื่อ", () => {
+    // 0186 (PM-A) ต้อง replace job_create_insert (ตัวแกนที่ job_create_from_* ทุกตัวเรียก) เพื่อปิดช่อง fallback เงียบของแบบทอง (no_gold_profile) —
+    // ฟังก์ชันนั้นรับจำนวนมาจากผู้เรียกตรงๆ ไม่คำนวณ/ไม่อ่านค่าแนะนำเลย ⇒ เจตนาของด่านนี้ ("เส้นสร้างใบไม่ใช้ค่าแนะนำเป็นค่าตั้งต้นเงียบๆ") ยังครบ:
+    // จึงเปลี่ยนจาก "ห้ามมี migration ใหม่ replace job_create_*" เป็น "ถ้ามี ตัวฟังก์ชันต้องไม่เรียก/อ้างค่าแนะนำ" (ยังกวาดทุกไฟล์ ไม่ล็อกชื่อ)
     const later = readdirSync(join(root, "supabase", "migrations")).filter((f) => /^\d{4}_.*\.sql$/.test(f) && Number(f.slice(0, 4)) > 176);
     expect(later.length).toBeGreaterThan(0);
+    const startRe = /create or replace function analytics\.job_create\w*/gi;
     for (const f of later) {
       const sql = read(`supabase/migrations/${f}`);
-      expect(sql, f).not.toMatch(/create or replace function analytics\.job_create/i);
+      for (const m of sql.matchAll(startRe)) {
+        const from = m.index ?? 0;
+        const rest = sql.slice(from);
+        // ตัวฟังก์ชันจบที่ dollar-quote ปิดบรรทัดแรกหลังเริ่ม (`$fn$;` / `$function$;` / `$f$;`)
+        const end = rest.search(/\n\$[a-z_0-9]*\$;/i);
+        const body = end > 0 ? rest.slice(0, end) : rest.slice(0, 20000);
+        expect(body, `${f}: ${m[0]}`).not.toMatch(/v_suggest|job_plan_suggest\(|qty_planned_suggest/);
+      }
     }
+  });
+  it("0186 redefines only job_create_insert among job_create_* (the 3 job_create_from_*/entry RPCs untouched — their bodies are the 0176 ones this file pins above)", () => {
+    const sql = read("supabase/migrations/0186_production_item_metal.sql");
+    const names = [...sql.matchAll(/create or replace function analytics\.(job_create\w*)/gi)].map((m) => m[1]);
+    expect(names).toEqual(["job_create_insert"]);
   });
 });

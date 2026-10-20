@@ -41,7 +41,10 @@ import type { ActionResult } from "@/lib/types";
 import { parseMakeSpec } from "@/lib/catalog/types";
 import type {
   DoneItemInput,
+  DoneProductionOrderInput,
   ProductionCostType,
+  ProductionItemPrefill,
+  ProductionMetal,
   ProductionOrderCancelResult,
   ProductionOrderDoneResult,
   ProductionOrderItemRow,
@@ -52,12 +55,20 @@ import type {
   ProductionOrderStatus,
   ProductionSkuOption,
   SaveProductionOrderInput,
+  SetProductionOrderItemInput,
 } from "@/lib/production/types";
 import {
   humanizeProductionError,
+  parseMetalPrices,
+  parseMissingPrices,
+  parseProductionMetal,
+  parseProductionNumber,
   parseProductionSpecCostCalc,
+  parseProductionWeightSource,
+  PRODUCTION_METALS,
   PRODUCTION_SPOT_OVERRIDE_MAX,
   PRODUCTION_SPOT_OVERRIDE_MIN,
+  productionItemInputIssue,
 } from "@/lib/production/types";
 import { fetchAllRows } from "@/lib/supabase/query-limits";
 
@@ -218,7 +229,9 @@ export async function getProductionOrder(id: string): Promise<ActionResult<Produ
         .schema(SCHEMA)
         .from("v_production_order_item")
         .select(
-          "id, production_order_id, po_no, order_status, product_id, sku, product_name, current_cost_type, current_unit_cost, qty_planned, qty_done, stamped_unit_cost, prev_cost_type, prev_unit_cost, created_at, updated_at"
+          // 0186: v_production_order_item ต่อท้าย 13 คอลัมน์ (pending_product_label … sku_metal_known — left join product: รายการไม่มี SKU ไม่หายจากวิว)
+          // ⚠ ต้องเป็น string literal เดียว (ห้ามต่อสตริงด้วย +) — type ของ supabase-js parse select จาก literal ถ้าต่อสตริงจะกลายเป็น GenericStringError
+          "id, production_order_id, po_no, order_status, product_id, sku, product_name, current_cost_type, current_unit_cost, qty_planned, qty_done, stamped_unit_cost, prev_cost_type, prev_unit_cost, created_at, updated_at, pending_product_label, metal, purity, weight_g, weight_source, effective_metal, effective_purity, effective_weight_g, effective_weight_source, sku_metal, sku_purity, sku_weight_g, sku_metal_known"
         )
         .eq("production_order_id", id)
         .eq("shop_id", shopId)
@@ -235,7 +248,10 @@ export async function getProductionOrder(id: string): Promise<ActionResult<Produ
     // same side-channel pattern lib/actions/catalog.ts already uses for
     // barcode/supplier/note. Both grant select to service_role already
     // (0131 §15 / 0028) — no schema change needed for this read.
-    const productIds = Array.from(new Set((itemsRes.data ?? []).map((r) => (r as { product_id: string }).product_id)));
+    // 0186: product_id null = รายการไม่มี SKU (ไม่มีอะไรให้อ่านจาก product)
+    const productIds = Array.from(
+      new Set((itemsRes.data ?? []).map((r) => (r as { product_id: string | null }).product_id).filter((id): id is string => id !== null))
+    );
     const itemIds = (itemsRes.data ?? []).map((r) => (r as { id: string }).id);
     const [specRes, costCalcRes] = await Promise.all([
       productIds.length > 0
@@ -319,10 +335,10 @@ export async function getProductionOrder(id: string): Promise<ActionResult<Produ
         production_order_id: string;
         po_no: string;
         order_status: ProductionOrderStatus;
-        product_id: string;
-        sku: string;
-        product_name: string;
-        current_cost_type: ProductionCostType;
+        product_id: string | null;
+        sku: string | null;
+        product_name: string | null;
+        current_cost_type: ProductionCostType | null;
         current_unit_cost: number | null;
         qty_planned: number;
         qty_done: number | null;
@@ -331,30 +347,59 @@ export async function getProductionOrder(id: string): Promise<ActionResult<Produ
         prev_unit_cost: number | null;
         created_at: string;
         updated_at: string;
+        pending_product_label: string | null;
+        metal: string | null;
+        purity: number | string | null;
+        weight_g: number | string | null;
+        weight_source: string | null;
+        effective_metal: string | null;
+        effective_purity: number | string | null;
+        effective_weight_g: number | string | null;
+        effective_weight_source: string | null;
+        sku_metal: string | null;
+        sku_purity: number | string | null;
+        sku_weight_g: number | string | null;
+        sku_metal_known: boolean | null;
       }[]
-    ).map((r) => ({
-      id: r.id,
-      productionOrderId: r.production_order_id,
-      poNo: r.po_no,
-      orderStatus: r.order_status,
-      productId: r.product_id,
-      sku: r.sku,
-      productName: r.product_name,
-      currentCostType: r.current_cost_type,
-      currentUnitCost: r.current_unit_cost == null ? null : Number(r.current_unit_cost),
-      qtyPlanned: Number(r.qty_planned) || 0,
-      qtyDone: r.qty_done == null ? null : Number(r.qty_done),
-      stampedUnitCost: r.stamped_unit_cost == null ? null : Number(r.stamped_unit_cost),
-      prevCostType: r.prev_cost_type,
-      prevUnitCost: r.prev_unit_cost == null ? null : Number(r.prev_unit_cost),
-      createdAt: r.created_at,
-      updatedAt: r.updated_at,
-      makeSpec: r.current_cost_type === "spec" ? parseMakeSpec(specByProductId.get(r.product_id)?.makeSpec) : null,
-      currentSilverWeightG: specByProductId.get(r.product_id)?.silverWeightG ?? null,
-      currentSilverPurity: specByProductId.get(r.product_id)?.silverPurity ?? null,
-      isNewDesign: costCalcByItemId.get(r.id)?.isNewDesign ?? false,
-      costCalc: parseProductionSpecCostCalc(costCalcByItemId.get(r.id)?.costCalc),
-    }));
+    ).map((r) => {
+      const spec = r.product_id === null ? undefined : specByProductId.get(r.product_id);
+      return {
+        id: r.id,
+        productionOrderId: r.production_order_id,
+        poNo: r.po_no,
+        orderStatus: r.order_status,
+        productId: r.product_id,
+        sku: r.sku,
+        productName: r.product_name,
+        pendingProductLabel: r.pending_product_label,
+        currentCostType: r.current_cost_type,
+        currentUnitCost: r.current_unit_cost == null ? null : Number(r.current_unit_cost),
+        metal: parseProductionMetal(r.metal),
+        purity: parseProductionNumber(r.purity),
+        weightG: parseProductionNumber(r.weight_g),
+        weightSource: parseProductionWeightSource(r.weight_source),
+        effectiveMetal: parseProductionMetal(r.effective_metal),
+        effectivePurity: parseProductionNumber(r.effective_purity),
+        effectiveWeightG: parseProductionNumber(r.effective_weight_g),
+        effectiveWeightSource: parseProductionWeightSource(r.effective_weight_source),
+        skuMetal: parseProductionMetal(r.sku_metal),
+        skuPurity: parseProductionNumber(r.sku_purity),
+        skuWeightG: parseProductionNumber(r.sku_weight_g),
+        skuMetalKnown: r.sku_metal_known === true,
+        qtyPlanned: Number(r.qty_planned) || 0,
+        qtyDone: r.qty_done == null ? null : Number(r.qty_done),
+        stampedUnitCost: r.stamped_unit_cost == null ? null : Number(r.stamped_unit_cost),
+        prevCostType: r.prev_cost_type,
+        prevUnitCost: r.prev_unit_cost == null ? null : Number(r.prev_unit_cost),
+        createdAt: r.created_at,
+        updatedAt: r.updated_at,
+        makeSpec: r.current_cost_type === "spec" ? parseMakeSpec(spec?.makeSpec) : null,
+        currentSilverWeightG: spec?.silverWeightG ?? null,
+        currentSilverPurity: spec?.silverPurity ?? null,
+        isNewDesign: costCalcByItemId.get(r.id)?.isNewDesign ?? false,
+        costCalc: parseProductionSpecCostCalc(costCalcByItemId.get(r.id)?.costCalc),
+      } satisfies ProductionOrderItemRow;
+    });
 
     return { ok: true, data: { order, items } };
   } catch (err) {
@@ -472,39 +517,57 @@ export async function saveProductionOrder(
   }
 }
 
-export async function setProductionOrderItem(input: {
-  productionOrderId: string;
-  productId: string;
-  qtyPlanned: number;
-  /** 0144 — undefined/omitted = "ไม่ได้ตั้งใจเปลี่ยน" ⇒ ส่ง null ต่อให้ RPC
-   * (คงค่าเดิมของแถวไว้ ทั้งตอน insert ใหม่ที่ default false ตามคอลัมน์ และตอน
-   * upsert รายการเดิม). ส่ง true/false ชัดเจนเฉพาะตอนผู้ใช้ตั้งใจติ๊ก/ถอดติ๊ก
-   * จริง — ห้าม caller ส่ง `false` เป็นค่าเริ่มต้นเงียบๆ (จะรีเซ็ตค่าที่ติ๊กไว้
-   * แล้วทุกครั้งที่แก้ qty ผ่าน RPC เดียวกันนี้ — เคสห้ามผ่าน #2 ของบรีฟ). */
-  isNewDesign?: boolean;
-}): Promise<ActionResult<ProductionOrderItemSetResult>> {
+/** เพิ่ม/แก้รายการในใบผลิต (production_order_item_set 0144 → 0186) — SKU หรือชื่อแบบ (รายการไม่มี SKU) อย่างใดอย่างหนึ่ง ·
+ * ทุกช่องที่ไม่ส่ง (undefined) = "ไม่แตะค่าเดิม" ⇒ ส่ง null / ไม่ส่ง arg นั้นให้ RPC (แถวใหม่: server เติมค่าเริ่มจาก SKU ด้วย helper ตัวเดียว)
+ *  • isNewDesign (0144): ห้าม caller ส่ง `false` เป็นค่าเริ่มต้นเงียบๆ (จะรีเซ็ตค่าที่ติ๊กไว้แล้วทุกครั้งที่แก้ qty) — ส่งเฉพาะตอนผู้ใช้ตั้งใจติ๊ก/ถอดติ๊กจริง
+ *  • metal/purity/weight (0186): purity เป็นสัดส่วน 0.375–1 ไม่ใช่ % · ทองไม่มี default เนื้อ · ทองเหลืองล็อก 1 · เปลี่ยนโลหะไม่ได้เมื่อมีใบงานเดินอยู่ (DB ตอบ metal_locked)
+ *  • arg ใหม่ของ 0186 ส่งเฉพาะที่มีค่า (ใบเงินแบบเดิมส่ง 5 arg เดิมเหมือนก่อน 0186 — เรียก DB ได้ทั้งก่อน/หลัง apply) */
+export async function setProductionOrderItem(input: SetProductionOrderItemInput): Promise<ActionResult<ProductionOrderItemSetResult>> {
   const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
 
-  if (!input.productionOrderId || !input.productId) return { ok: false, error: "กรุณาเลือก SKU" };
-  if (!Number.isFinite(input.qtyPlanned) || !Number.isInteger(input.qtyPlanned) || input.qtyPlanned <= 0 || input.qtyPlanned > 100000) {
-    return { ok: false, error: "จำนวนที่วางแผนผลิตต้องเป็นจำนวนเต็ม 1-100000" };
-  }
+  if (!input.productionOrderId) return { ok: false, error: "ไม่พบใบผลิตที่ต้องการ" };
+  const hasSku = input.productId != null && input.productId !== "";
+  if (!hasSku && (input.pendingProductLabel == null || input.pendingProductLabel === "")) return { ok: false, error: "กรุณาเลือก SKU" };
+  const issue = productionItemInputIssue(input);
+  if (issue) return { ok: false, error: issue };
 
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();
 
-    const { data, error } = await supabase.schema(SCHEMA).rpc("production_order_item_set", {
+    const args: Record<string, unknown> = {
       p_shop_id: shopId,
       p_production_order_id: input.productionOrderId,
-      p_product_id: input.productId,
+      p_product_id: hasSku ? input.productId : null,
       p_qty_planned: input.qtyPlanned,
       p_is_new_design: input.isNewDesign ?? null,
-    });
+    };
+    if (input.pendingProductLabel != null && input.pendingProductLabel !== "") args.p_pending_product_label = input.pendingProductLabel;
+    if (input.metal !== undefined) args.p_metal = input.metal;
+    if (input.purity !== undefined) args.p_purity = input.purity;
+    if (input.weightG !== undefined) {
+      args.p_weight_g = input.weightG;
+      args.p_weight_source = input.weightSource;
+    }
+    if (input.clearWeight) args.p_clear_weight = true;
+
+    const { data, error } = await supabase.schema(SCHEMA).rpc("production_order_item_set", args);
     if (error) throw error;
 
-    const row = data as { id: string; product_id: string; sku: string; name: string; qty_planned: number; is_new_design: boolean };
+    const row = data as {
+      id: string;
+      product_id: string | null;
+      sku: string | null;
+      name: string | null;
+      pending_product_label?: string | null;
+      qty_planned: number;
+      is_new_design: boolean;
+      metal?: string | null;
+      purity?: number | string | null;
+      weight_g?: number | string | null;
+      weight_source?: string | null;
+    };
 
     revalidateProduction(input.productionOrderId);
 
@@ -512,16 +575,95 @@ export async function setProductionOrderItem(input: {
       ok: true,
       data: {
         id: row.id,
-        productId: row.product_id,
-        sku: row.sku,
-        name: row.name,
+        productId: row.product_id ?? null,
+        sku: row.sku ?? null,
+        name: row.name ?? row.pending_product_label ?? "",
+        pendingProductLabel: row.pending_product_label ?? null,
         qtyPlanned: Number(row.qty_planned) || 0,
         isNewDesign: Boolean(row.is_new_design),
+        metal: parseProductionMetal(row.metal),
+        purity: parseProductionNumber(row.purity),
+        weightG: parseProductionNumber(row.weight_g),
+        weightSource: parseProductionWeightSource(row.weight_source),
       },
     };
   } catch (err) {
     console.error("setProductionOrderItem failed", err);
     return { ok: false, error: humanizeProductionError(err, "เพิ่ม/แก้รายการไม่สำเร็จ ลองใหม่อีกครั้ง") };
+  }
+}
+
+/** ลบรายการด้วย id (รายการไม่มี SKU ลบด้วย productId ไม่ได้) — มีใบงานผูกอยู่ DB ตอบ job_exists พร้อมเลขใบงาน */
+export async function removeProductionOrderItemById(input: { productionOrderId: string; itemId: string }): Promise<ActionResult> {
+  const gateErr = await requireOwnerAdmin();
+  if (gateErr) return gateErr;
+
+  if (!input.productionOrderId || !input.itemId || !UUID_RE.test(input.itemId)) return { ok: false, error: "ไม่พบรายการที่จะลบ" };
+
+  try {
+    const shopId = getDevShopId();
+    const supabase = getServiceClient();
+
+    const { error } = await supabase.schema(SCHEMA).rpc("production_order_item_remove_by_id", {
+      p_shop_id: shopId,
+      p_production_order_id: input.productionOrderId,
+      p_item_id: input.itemId,
+    });
+    if (error) throw error;
+
+    revalidateProduction(input.productionOrderId);
+    return { ok: true, data: undefined };
+  } catch (err) {
+    console.error("removeProductionOrderItemById failed", err);
+    return { ok: false, error: humanizeProductionError(err, "ลบรายการไม่สำเร็จ ลองใหม่อีกครั้ง") };
+  }
+}
+
+/** ค่าเริ่มของ SKU ตอนเลือกในการ์ดร่าง — server ตัดสิน (production_item_prefill ใช้ helper ตัวเดียวกับ preview/done) · client แค่แสดง
+ * metalKnown = true เฉพาะ SKU ที่ระบุโลหะจริง (make_spec.metal / โหมด spot) ⇒ เตือน "ต่างจาก SKU" ได้เฉพาะกรณีนี้ ที่เหลือใช้ข้อความกลาง */
+export async function getProductionItemPrefill(productId: string): Promise<ActionResult<ProductionItemPrefill>> {
+  const gateErr = await requireOwnerAdmin();
+  if (gateErr) return gateErr;
+
+  if (!productId || !UUID_RE.test(productId)) return { ok: false, error: "กรุณาเลือก SKU" };
+
+  try {
+    const shopId = getDevShopId();
+    const supabase = getServiceClient();
+
+    const { data, error } = await supabase.schema(SCHEMA).rpc("production_item_prefill", { p_shop_id: shopId, p_product_id: productId });
+    if (error) throw error;
+
+    const row = data as {
+      product_id: string;
+      sku: string;
+      name: string;
+      cost_type: ProductionCostType;
+      metal: string | null;
+      purity: number | string | null;
+      weight_g: number | string | null;
+      weight_source: string | null;
+      metal_known: boolean | null;
+    };
+
+    return {
+      ok: true,
+      data: {
+        productId: row.product_id,
+        sku: row.sku,
+        name: row.name,
+        costType: row.cost_type,
+        // server คืน silver เป็นค่าเริ่มเสมอเมื่อ SKU ไม่ระบุโลหะ (มติ Q5) — ถ้า parse ไม่ได้จริงๆ ก็ตกที่ silver เหมือนกัน ไม่ปล่อยให้ว่าง
+        metal: parseProductionMetal(row.metal) ?? "silver",
+        purity: parseProductionNumber(row.purity),
+        weightG: parseProductionNumber(row.weight_g),
+        weightSource: parseProductionWeightSource(row.weight_source),
+        metalKnown: row.metal_known === true,
+      },
+    };
+  } catch (err) {
+    console.error("getProductionItemPrefill failed", err);
+    return { ok: false, error: humanizeProductionError(err, "โหลดค่าเริ่มของ SKU ไม่สำเร็จ ลองใหม่อีกครั้ง") };
   }
 }
 
@@ -591,6 +733,9 @@ export async function previewProductionOrder(
       production_order_id: string;
       po_no: string;
       spot_price_thb_per_gram: number | null;
+      // 0186 — additive: DB เก่า (ก่อน apply) ไม่มี 2 key นี้ → default ว่าง
+      metal_prices?: unknown;
+      missing_prices?: unknown;
       items: {
         item_id: string;
         product_id: string;
@@ -608,6 +753,11 @@ export async function previewProductionOrder(
         is_new_design: boolean;
         cost_calc: unknown;
         skipped?: boolean;
+        price_missing?: boolean;
+        metal?: string | null;
+        purity?: number | string | null;
+        weight_g?: number | string | null;
+        weight_source?: string | null;
       }[];
     };
 
@@ -617,7 +767,14 @@ export async function previewProductionOrder(
         productionOrderId: row.production_order_id,
         poNo: row.po_no,
         spotPriceThbPerGram: row.spot_price_thb_per_gram == null ? null : Number(row.spot_price_thb_per_gram),
+        metalPrices: parseMetalPrices(row.metal_prices),
+        missingPrices: parseMissingPrices(row.missing_prices),
         items: (row.items ?? []).map((it) => ({
+          priceMissing: it.price_missing === true,
+          metal: parseProductionMetal(it.metal),
+          purity: parseProductionNumber(it.purity),
+          weightG: parseProductionNumber(it.weight_g),
+          weightSource: parseProductionWeightSource(it.weight_source),
           itemId: it.item_id,
           productId: it.product_id,
           sku: it.sku,
@@ -643,21 +800,37 @@ export async function previewProductionOrder(
   }
 }
 
-export async function doneProductionOrder(input: {
-  productionOrderId: string;
-  items: DoneItemInput[];
-  // 0132 M1 — ราคาเงินที่ client เห็นตอน preview (production_order_preview);
-  // ส่งกลับเข้า done เพื่อให้ DB เทียบกับราคาที่ resolve ได้จริง ณ ตอนกด
-  // ยืนยัน — กันต้นทุนที่ล็อกถาวรเงียบๆ ไม่ตรงกับที่เจ้าของเห็นก่อนกด (security
-  // review 18 ก.ย., M1). null/undefined = ไม่เทียบ (RPC ข้ามเงียบๆ)
-  expectedSpotThbPerGram?: number | null;
-}): Promise<ActionResult<ProductionOrderDoneResult>> {
+/** ราคาที่หน้าจอเห็นตอน preview ต่อโลหะ (0186 — M1 fail-closed ต่อโลหะ: 0132 M1 ขยายจากเงินเดี่ยว) → payload `p_expected_metal_prices`
+ * · expectedMetalPrices ชนะ expectedSpotThbPerGram (ช่องทางเดิมของ UI ก่อน PM-B — แปลงเป็น {silver} ให้) · ใบ fixed ล้วนส่ง {} หรือไม่ส่งเลยก็ได้
+ * · ค่าที่ DB ไม่ต้องการ (โลหะที่ใบไม่ได้ใช้) DB ปฏิเสธ (expected_prices_extra) — จึงส่งเฉพาะที่หน้าจอเห็นจริง ไม่เติมเอง
+ * คืน { ok:false } เมื่อ payload ผิดรูป (กันค่าเพี้ยนก่อนถึง DB) */
+function buildExpectedMetalPrices(input: DoneProductionOrderInput): { ok: true; value: Record<string, number> | null } | { ok: false; error: string } {
+  const bad = { ok: false as const, error: "ราคาโลหะอ้างอิงที่ส่งมาไม่ถูกต้อง — ปิดหน้าต่างแล้วเปิดใหม่อีกครั้ง" };
+  if (input.expectedMetalPrices != null) {
+    if (typeof input.expectedMetalPrices !== "object" || Array.isArray(input.expectedMetalPrices)) return bad;
+    const out: Record<string, number> = {};
+    for (const [metal, price] of Object.entries(input.expectedMetalPrices)) {
+      if (!(PRODUCTION_METALS as readonly string[]).includes(metal)) return bad;
+      if (typeof price !== "number" || !Number.isFinite(price) || !(price > 0)) return bad;
+      out[metal] = price;
+    }
+    return { ok: true, value: out };
+  }
+  if (input.expectedSpotThbPerGram != null) {
+    if (!Number.isFinite(input.expectedSpotThbPerGram)) {
+      return { ok: false, error: "ราคาเงินอ้างอิงที่ส่งมาไม่ถูกต้อง — ปิดหน้าต่างแล้วเปิดใหม่อีกครั้ง" };
+    }
+    return { ok: true, value: { silver: input.expectedSpotThbPerGram } };
+  }
+  return { ok: true, value: null };
+}
+
+export async function doneProductionOrder(input: DoneProductionOrderInput): Promise<ActionResult<ProductionOrderDoneResult>> {
   const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
   if (!input.productionOrderId) return { ok: false, error: "ไม่พบใบผลิตที่ต้องการ" };
-  if (input.expectedSpotThbPerGram != null && !Number.isFinite(input.expectedSpotThbPerGram)) {
-    return { ok: false, error: "ราคาเงินอ้างอิงที่ส่งมาไม่ถูกต้อง — ปิดหน้าต่างแล้วเปิดใหม่อีกครั้ง" };
-  }
+  const expected = buildExpectedMetalPrices(input);
+  if (!expected.ok) return { ok: false, error: expected.error };
 
   // security review 18 ก.ย. (M6) — payload นี้ไปกำหนดว่าของเข้าสต็อกกี่ชิ้นและ
   // ต้นทุนถูกล็อกเท่าไร (แก้ย้อนไม่ได้) จึงต้องกันให้ครบ 3 อย่างที่ DB กันให้ไม่ได้
@@ -682,8 +855,8 @@ export async function doneProductionOrder(input: {
       p_shop_id: shopId,
       p_production_order_id: input.productionOrderId,
       p_items: input.items.map((it) => ({ product_id: it.productId, qty_done: it.qtyDone })),
-      // 0132 M1
-      p_expected_spot_thb_per_gram: input.expectedSpotThbPerGram ?? null,
+      // 0132 M1 → 0186: ต่อโลหะ (jsonb {silver, gold, brass}) — null/{} ได้เฉพาะใบ fixed ล้วน (DB fail-closed เมื่อใบใช้ราคาแล้วไม่ส่ง)
+      p_expected_metal_prices: expected.value,
       // 0132 M4
       p_actor: actorId,
     });
@@ -694,6 +867,7 @@ export async function doneProductionOrder(input: {
       po_no: string;
       status: ProductionOrderStatus;
       already_done: boolean;
+      metal_prices?: unknown;
       items: {
         product_id: string;
         sku: string;
@@ -702,6 +876,9 @@ export async function doneProductionOrder(input: {
         prev_cost_type: ProductionCostType | null;
         prev_unit_cost: number | null;
         cost_calc: unknown;
+        metal?: string | null;
+        purity?: number | string | null;
+        weight_g?: number | string | null;
       }[];
     };
 
@@ -721,6 +898,7 @@ export async function doneProductionOrder(input: {
         poNo: row.po_no,
         status: row.status,
         alreadyDone: Boolean(row.already_done),
+        metalPrices: parseMetalPrices(row.metal_prices),
         items: (row.items ?? []).map((it) => ({
           productId: it.product_id,
           sku: it.sku,
@@ -729,6 +907,9 @@ export async function doneProductionOrder(input: {
           prevCostType: it.prev_cost_type,
           prevUnitCost: it.prev_unit_cost == null ? null : Number(it.prev_unit_cost),
           costCalc: parseProductionSpecCostCalc(it.cost_calc),
+          metal: parseProductionMetal(it.metal),
+          purity: parseProductionNumber(it.purity),
+          weightG: parseProductionNumber(it.weight_g),
         })),
       },
     };

@@ -1,8 +1,8 @@
 # Design — รายการในใบผลิตเลือก โลหะ · เนื้อ % · น้ำหนัก/ชิ้น ได้ ("ให้เหมือนหน้าผลิต OEM") · 19 ต.ค. 69
 
-> architect (Yoda) · สถานะ: **design เท่านั้น — ไม่มี migration/โค้ด** · เจ้าของ 19 ต.ค.: *"หน้าใบผลิตเองในบ้านไม่เห็นมีให้เลือกประเภทโลหะเลย … ทำไมเราไม่ทำให้เหมือนๆ กับหน้าผลิต OEM"*
+> architect (Yoda) · สถานะ: **design + PM-A ฝั่ง DB/server action implement แล้ว (migration 0186 — dry-run ผ่าน รอ security ก่อน apply · สิ่งที่ implement จริง + มติ 20 ต.ค. = §7.2)** · PM-B (จอ) ยังไม่ทำ · เจ้าของ 19 ต.ค.: *"หน้าใบผลิตเองในบ้านไม่เห็นมีให้เลือกประเภทโลหะเลย … ทำไมเราไม่ทำให้เหมือนๆ กับหน้าผลิต OEM"*
 > ฐานที่ต่อยอด: ใบผลิต `0131`/`0132`/`0138`/`0139`/`0141`–`0144` (💰 ต้นทุน+สต็อก) · ใบงาน M1 `0175`–`0178` (merge main แล้ว) · เอกสารพี่น้อง: `design-production-order.md` · `design-own-production-costing.md` · `design-inventory-lot-costing.md` · `design-job-lots-shopfloor.md` (L1/L3 — งานคู่ขนาน ห้ามชน)
-> 🔴 ไม่มีตัวเลขต้นทุน/ราคาในไฟล์นี้ · ช่วงราคาทอง/ทองเหลือง · แหล่งราคาทอง · ค่าเริ่มเนื้อทอง = **[ต้องยืนยัน]** จากเจ้าของ ห้ามแต่ง · ชื่อคอลัมน์/ฟังก์ชันเป็นข้อเสนอ ชื่อจริงตามไฟล์ migration ที่ apply
+> 🔴 ไม่มีตัวเลขต้นทุน/ราคาในไฟล์นี้ · ช่วงราคาทอง/ทองเหลือง · แหล่งราคาทอง · ค่าเริ่มเนื้อทอง = ~~[ต้องยืนยัน]~~ (ช่วงราคา + ฐานราคาทอง เจ้าของเคาะแล้ว 20 ต.ค. — ค่าจริงอยู่ §7.2 · ช่วง sanity ไม่ใช่ตัวเลขต้นทุน · เนื้อทอง = ว่างบังคับกรอก) ห้ามแต่ง · ชื่อคอลัมน์/ฟังก์ชันเป็นข้อเสนอ ชื่อจริงตามไฟล์ migration ที่ apply
 
 ## 0. ของจริงที่ตรวจก่อนออกแบบ (19 ต.ค. 69 · SELECT อย่างเดียวผ่าน `run-sql.mjs` dry-run) → ผลต่อ design
 
@@ -161,9 +161,28 @@
 | Q5 | SKU ไม่มีข้อมูลโลหะ → ค่าเริ่ม **เงิน 925** · ช่องโลหะอยู่บนสุด |
 | Q6 | ปิดใบทองแต่วันนั้นไม่มีราคาทอง → **ต้องกรอกราคาวันนั้นที่ /oem/rates ก่อน** (ไม่มี override ต่อใบ · ไม่ fallback) |
 | Q7 | เนื้อทองค่าเริ่ม **ว่าง บังคับกรอก** |
-| Q8 | ช่วง sanity ราคาทอง/ทองเหลืองต่อกรัม → **ทีมเสนอจากราคาตลาดจริง (docs-researcher + URL) แล้วเจ้าของยืนยันก่อนใช้** · ระหว่างรอ = [ต้องยืนยัน] |
+| Q8 | ช่วง sanity ราคาทอง/ทองเหลืองต่อกรัม → **ทีมเสนอจากราคาตลาดจริง (docs-researcher + URL) แล้วเจ้าของยืนยันก่อนใช้** · ระหว่างรอ = [ต้องยืนยัน] → ✅ **เจ้าของเคาะ "ใช้ที่เสนอ" 20 ต.ค. — ค่าจริงอยู่ §7.2** |
 | Q3 | ไม่มี override ราคาทองต่อใบในเฟสนี้ (ตาม Q6) |
 ⚠️ แจ้งเจ้าของแล้ว 19 ต.ค.: ใบเสนอราคา OEM งานทอง/ทองเหลืองยังใช้ราคากรอกมือ 25 ส.ค. เงียบๆ (หนี้ H2(ข)) — ระหว่างนี้ให้อัปเดต /oem/rates ก่อนออกใบทองทุกครั้ง · ปิดถาวรพร้อม PM-A
+
+### 7.2 มติเจ้าของ 20 ต.ค. 69 + สิ่งที่ implement จริงใน PM-A (migration **0186** · เขียนทับ §0/§2/§7/§7.1 เมื่อขัด)
+> สถานะ: dry-run ผ่านบน DB จริง (ทรานแซกชัน rollback) · golden replay ฝังในไฟล์ migration · ยังไม่ apply — รอ security 💰 · ไฟล์: `supabase/migrations/0186_production_item_metal.sql` · `scripts/verify/verify-0186.sql` · `lib/oem/metal-price.ts` · `lib/production/types.ts` · `lib/actions/production.ts` · `lib/actions/oem.ts`
+
+| # | มติ / สิ่งที่ตัดสิน | ที่มา |
+|---|---|---|
+| Q8 ช่วง sanity | **ทอง 100% 2,000–8,000 บาท/กรัม** · **ทองเหลือง 100–1,000 บาท/กก.** (DB เก็บต่อกรัม ⇒ ด่าน 0.10–1.00 บาท/กรัม) · เงิน 5–500 เดิม · นอกช่วง = ปฏิเสธ — ทั้งใน RPC ต่อกรัม (`oem_metal_price_set`), RPC กรอกหน่วยหน้างาน (`oem_metal_price_set_input`) และ CHECK ของตาราง `oem_metal_price` (ทางที่ไม่ผ่าน RPC ก็ตก) | เจ้าของ 20 ต.ค. |
+| Q2 ราคาทองหน้ากรอก | ผู้ใช้กรอก **ราคาสมาคม ทองคำแท่ง 96.5% ฝั่ง "ขายออก" (บาทละ)** → ระบบแปลงเป็นบาท/กรัมทอง 100% = ÷15.244 ÷0.965 (ราคาที่ร้านจ่ายซื้อทองจริง · วันที่ประกาศหลายรอบ = กรอกรอบที่ซื้อจริง) · ป้ายช่อง `ราคาสมาคมฯ ทองคำแท่ง 96.5% ขายออก (บาทละ)` | เจ้าของ 20 ต.ค. (UX §C.2.1 Q1) |
+| Q2 ทองเหลือง | กรอก **บาท/กก.** แล้ว ÷1,000 · DB เก็บต่อกรัมเดิม · **เนื้อทองเหลืองล็อก 100%** (CHECK + RPC) | Tech Lead ตามช่วงที่เจ้าของเคาะเป็น /กก. |
+| Q4 prefill | SKU ที่ยังไม่มีโลหะในแคตตาล็อก / ยังไม่มี SKU ทอง ⇒ `production_item_prefill` คืน `metal_known` — **true เฉพาะ SKU ที่ระบุโลหะจริง** (make_spec.metal หรือโหมด spot = ราคาเงินแท่ง) · false ⇒ UI ขึ้นข้อความกลาง ไม่ใช่คำเตือนสีเหลือง (กัน warning fatigue — UX P1) · ช่องโลหะบน SKU = งานแยกทีหลัง | เจ้าของ 20 ต.ค. |
+| Q6/N1 น้ำหนักทอง | น้ำหนักงานทองไม่โชว์บนจอช่าง — response ฝั่งช่างไม่มี target weight ของทอง (กฎเดิม · A5 พิมพ์ `targetPieceG = null` เมื่อทอง) · verify J4 ล็อกว่าไม่มี `job_worker_*` อ้าง `target_piece_g` | เจ้าของ 20 ต.ค. |
+| Delta Yoda → PM-A | `production_order_item.product_id` nullable + `pending_product_label` (`job_label_clean` ≤ 200 · ห้าม `< >`/ควบคุม/ล่องหน) + CHECK `num_nonnulls(product_id, pending_product_label) = 1` + unique `(production_order_id, lower(label)) where product_id is null` · helper `production_item_spec(poi, p, lenient)` รับ p ว่าง · `job_source_info` (ลอกสดหลัง 0181+0184) left join product — `design_label = coalesce(ชื่อ SKU, sku, ชื่อแบบ)` · `production_order_done/preview` ตก `sku_required` ก่อนเข้าเส้นต้นทุน · `production_order_item_set` รับ SKU **หรือ** ชื่อแบบ · ปิดช่อง fallback เงียบ: ทองไม่ส่งแบบ + ไม่มีแบบทอง (`is_default_gold` active) ⇒ `no_gold_profile` ที่ `job_create_insert` ที่เดียว (ครอบทั้งออฟฟิศและหน้างานอนาคต — ส่งแบบมาชัดเจนผ่านตามเดิม) | Yoda → Tech Lead |
+| R3 | `production_order_preview` ของ **ทอง/ทองเหลือง** ที่ไม่มีราคาวันนี้ **ไม่ raise** — คืน `missing_prices: ['gold']` + รายการนั้น `price_missing: true` (ไม่คิดต้นทุน ไม่เดา) ให้ UI ขึ้นเช็คลิสต์ · `done` ยัง fail-closed (raise `metal_price_missing` ไม่ fallback แถว 25 ส.ค.) · **เงินคง raise เหมือนเดิม** (UI เดิมพึ่งข้อความนั้น) | ตัดสินเอง — เหตุผล: เช็คลิสต์ UX ต้องเห็นว่าโลหะไหนขาด โดยตัวเลขที่เหลือยังโชว์ได้ · ไม่เสี่ยงเพราะ done เป็นด่านจริง |
+| R4 | เก็บ `oem_metal_price.input_value/input_unit` (`assoc965_sell_per_baht` / `thb_per_kg`) คู่ค่าต่อกรัม — ประวัติเห็น "กรอก 41,250 บาทละ" · RPC ต่อกรัมตรงล้างคู่นี้เป็น null เสมอ · แถวเดิมไม่แปลงย้อนกลับ (ห้ามอนุมานฐาน) | ตัดสินเอง — เหตุผล: ตรวจย้อนหลังได้ ไม่ต้องเดาจากตัวเลข · เพิ่มคอลัมน์ nullable 2 ตัว ไม่มีผลกับ 22 แถวเดิม |
+| R5 | แถวเดิมบน prod (ตรวจ 20 ต.ค. SELECT อย่างเดียว): **ทอง 25 ส.ค. = 4,736.0000 บาท/กรัม → อยู่ในช่วง** · **ทองเหลือง 25 ส.ค. = 1.0000 บาท/กรัม (= 1,000 บาท/กก.) → อยู่ในช่วงพอดีที่ขอบบน** ⚠️ ควรให้เจ้าของยืนยันว่าเป็นค่าจริง ไม่ใช่ค่าตั้งต้น · ไม่แก้ข้อมูล | รายงาน |
+| การแปลง | **DB เป็นผู้ตัดสิน** (`oem_metal_price_convert` + `oem_metal_price_set_input` — คืนค่าที่เก็บจริง) · TS มีสำเนา pure ตัวเดียว (`lib/oem/metal-price.ts` — BigInt ไม่ใช้ float) ไว้ preview เท่านั้น · ด่านช่วงตรวจที่ค่าต่อกรัม "ก่อนปัด 4 ตำแหน่ง" (ทองเหลือง 99.99 / 1,000.01 บาท/กก. ปัดแล้วจะหลุดเข้าช่วง) · metal-price.test.ts อ่านไฟล์ migration เทียบ 15.244/0.965/ช่วงราคา กันเพี้ยนจากกัน | oem-quote-invariants ข้อ 2 |
+| ชื่อ signature | `production_cost_calc(shop, product, metal_price, qty, is_new_design, metal, purity, weight_g)` — **8 arg ไม่มี default** (ไม่ซ้อน/ไม่ ambiguous กับฉบับ 5 arg ระหว่าง golden) · `production_order_done(shop, order, items, p_expected_metal_prices jsonb, actor)` · `production_order_item_set(…, p_pending_product_label, p_metal, p_purity, p_weight_g, p_weight_source, p_clear_weight)` · ใหม่: `production_metal_price_resolve` · `production_item_prefill` · `production_order_item_remove_by_id` · `oem_metal_price_set_input` | implement |
+
+**ไม่อยู่ใน PM-A (ตั้งใจ)**: RPC ผูก SKU (`production_order_item_bind_product` · UX C.3 R2) และแก้ชื่อแบบก่อนผูก — ต้องแตะใบงานที่ผูกรายการอยู่ด้วย จึงเป็นของ W1 (OfficeAck) · หน้าจอ PM-B · `job_profile_default_for` ยัง fallback ให้ฟังก์ชันแสดงผล (ด่านจริงอยู่ที่ `job_create_insert`)
 
 ## 8. ความเสี่ยงต้นทุน · หนี้ · ไฟล์
 

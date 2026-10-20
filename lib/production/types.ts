@@ -37,6 +37,25 @@ export const PRODUCTION_SPOT_OVERRIDE_MAX = 500;
 
 export type ProductionCostType = "fixed" | "spot" | "spec";
 
+// ============================================================================
+// 0186 (PM-A) — โลหะ · เนื้อ · น้ำหนัก ต่อ "รายการ" ในใบผลิต (SKU เป็นแค่ค่าเริ่ม — รายการในใบคือความจริงของรอบนั้น)
+// หน่วย: purity = สัดส่วน 0..1 (DB คงหน่วยเดิม — UI แปลงเป็น % ที่ขอบด้วย lib/units/purity.ts) · น้ำหนัก = กรัม/ชิ้น
+// ราคาโลหะทุกตัวเป็น "บาทต่อกรัม ของโลหะบริสุทธิ์ 100%" (ดู lib/oem/metal-price.ts)
+// 🔴 type ฝั่งจอไม่มี field ราคาขาย/margin/floor (มติ 19 ก.ย. — type boundary ไม่ใช่ rendering choice)
+// ============================================================================
+
+export type ProductionMetal = "silver" | "gold" | "brass";
+export const PRODUCTION_METALS: readonly ProductionMetal[] = ["silver", "gold", "brass"];
+/** ชื่อสั้นของโลหะ (ไม่ใช่ "เงิน 925" — เงินแท่ง 99.90% จะผิดทันที) */
+export const PRODUCTION_METAL_LABEL_TH: Record<ProductionMetal, string> = { silver: "เงิน", gold: "ทอง", brass: "ทองเหลือง" };
+export type ProductionWeightSource = "product" | "input";
+
+/** ขอบเขต (ตรงกับ CHECK ของ production_order_item ใน 0186) */
+export const PRODUCTION_PURITY_MIN = 0.375; // ขั้นต่ำ 37.50%
+export const PRODUCTION_PURITY_MAX = 1;
+export const PRODUCTION_WEIGHT_MAX_G = 10000;
+export const PRODUCTION_LABEL_MAX_LEN = 200;
+
 /** ป้ายบอกโหมดต่อบรรทัดในหน้าใบผลิต (task brief 2d — คำที่ต่างจาก
  * lib/catalog/types.ts's COST_TYPE_LABEL_TH โดยตั้งใจ: ตรงนี้พูดกับคนกดใบ
  * ผลิต "ตัวเลขนี้มาจากไหน" ไม่ใช่พูดกับคนตั้งค่า SKU ใน /catalog). */
@@ -80,6 +99,20 @@ export interface ProductionSpecCostCalc {
   isNewDesign: boolean;
   metalPriceThbPerGram: number | null;
   unitCost: number;
+  /** 0186: โลหะ/เนื้อ/น้ำหนักที่ใช้คิดรอบนี้ (ของ "รายการ" — ทับของ SKU) · null ในแถวที่ stamp ก่อน 0186 */
+  metal: ProductionMetal | null;
+  purity: number | null;
+  weightG: number | null;
+}
+
+function parseMetal(v: unknown): ProductionMetal | null {
+  return v === "silver" || v === "gold" || v === "brass" ? v : null;
+}
+function parseWeightSource(v: unknown): ProductionWeightSource | null {
+  return v === "product" || v === "input" ? v : null;
+}
+function numOrNull(v: unknown): number | null {
+  return v == null ? null : Number.isFinite(Number(v)) ? Number(v) : null;
 }
 
 /** Parses the `cost_calc` jsonb analytics.production_cost_calc (and therefore
@@ -124,6 +157,9 @@ export function parseProductionSpecCostCalc(raw: unknown): ProductionSpecCostCal
     isNewDesign: Boolean(r.is_new_design),
     metalPriceThbPerGram: r.metal_price_thb_per_gram == null ? null : Number(r.metal_price_thb_per_gram),
     unitCost: num(r.unit_cost),
+    metal: parseMetal(r.metal),
+    purity: numOrNull(r.purity),
+    weightG: numOrNull(r.weight_g),
   };
 }
 
@@ -152,11 +188,30 @@ export interface ProductionOrderItemRow {
   productionOrderId: string;
   poNo: string;
   orderStatus: ProductionOrderStatus;
-  productId: string;
-  sku: string;
-  productName: string;
-  currentCostType: ProductionCostType;
+  /** 0186: null = รายการที่ยังไม่มี SKU (ใช้ pendingProductLabel) — ใบที่มีรายการแบบนี้ผลิตเสร็จ/คิดต้นทุนไม่ได้จนกว่าจะผูก SKU (sku_required) */
+  productId: string | null;
+  sku: string | null;
+  productName: string | null;
+  /** 0186: ชื่อแบบของรายการไม่มี SKU (ไม่เขียนกลับ catalog) · null เมื่อมี SKU */
+  pendingProductLabel: string | null;
+  currentCostType: ProductionCostType | null;
   currentUnitCost: number | null;
+  /** 0186: ค่าที่ "เก็บในรายการ" (null = แถวเดิมก่อน 0186 — ใช้ effective* แทนตอนแสดงผล) */
+  metal: ProductionMetal | null;
+  purity: number | null;
+  weightG: number | null;
+  weightSource: ProductionWeightSource | null;
+  /** 0186: ค่าที่ preview/done จะใช้จริง (helper production_item_spec ฝั่ง DB — ห้ามคิด default ซ้ำที่ client) */
+  effectiveMetal: ProductionMetal | null;
+  effectivePurity: number | null;
+  effectiveWeightG: number | null;
+  effectiveWeightSource: ProductionWeightSource | null;
+  /** 0186: ค่าเริ่มของ SKU (ไว้ติดป้าย "จาก SKU / แก้ในใบนี้" — แสดงผลอย่างเดียว ไม่ตัดสิน) · null เมื่อไม่มี SKU */
+  skuMetal: ProductionMetal | null;
+  skuPurity: number | null;
+  skuWeightG: number | null;
+  /** 0186: true เฉพาะ SKU ที่ "ระบุโลหะจริง" (make_spec.metal หรือโหมด spot) — กัน warning "ต่างจาก SKU" ผิดทุกครั้งที่เปิดงานทอง (UX P1) */
+  skuMetalKnown: boolean;
   qtyPlanned: number;
   qtyDone: number | null;
   /** unit_cost stamped by production_order_done — null until this item's
@@ -241,14 +296,95 @@ export interface SaveProductionOrderInput {
 /** analytics.production_order_item_set */
 export interface ProductionOrderItemSetResult {
   id: string;
-  productId: string;
-  sku: string;
+  /** 0186: null เมื่อเป็นรายการไม่มี SKU */
+  productId: string | null;
+  sku: string | null;
+  /** ชื่อ SKU หรือ (รายการไม่มี SKU) ชื่อแบบ */
   name: string;
+  pendingProductLabel: string | null;
   qtyPlanned: number;
   /** 0144: analytics.production_order_item.is_new_design as written by this
    * call — echoes back whatever the RPC actually persisted (coalesce'd if
    * p_is_new_design was null), not an echo of the request. */
   isNewDesign: boolean;
+  /** 0186: ค่าที่ DB "เก็บจริง" หลังบันทึก (ค่าเริ่มที่ server ตัดสิน/ค่าที่ล้างตามเปลี่ยนโลหะ) — หน้าจอต้องโชว์ค่านี้ ไม่ใช่ค่าที่ client ส่งไป */
+  metal: ProductionMetal | null;
+  purity: number | null;
+  weightG: number | null;
+  weightSource: ProductionWeightSource | null;
+}
+
+/** input ของ setProductionOrderItem — "SKU" หรือ "ชื่อแบบ" อย่างใดอย่างหนึ่ง (DB บังคับ) ·
+ * ค่าที่ไม่ส่ง (undefined) = ไม่แตะค่าเดิม (แถวใหม่: server เติมค่าเริ่มจาก SKU ด้วย helper ตัวเดียว) */
+export interface SetProductionOrderItemInput {
+  productionOrderId: string;
+  productId?: string | null;
+  pendingProductLabel?: string | null;
+  qtyPlanned: number;
+  isNewDesign?: boolean;
+  metal?: ProductionMetal;
+  /** สัดส่วน 0.375–1 (ไม่ใช่เปอร์เซ็นต์ — แปลงที่ขอบ UI ด้วย lib/units/purity.ts) · ทศนิยมไม่เกิน 4 ตำแหน่ง · ทองต้องส่งเอง (ไม่มี default) · ทองเหลืองล็อก 1 */
+  purity?: number;
+  /** กรัม/ชิ้น · ส่งคู่กับ weightSource · ทศนิยมไม่เกิน 3 ตำแหน่ง · ไม่เกิน 10,000 */
+  weightG?: number;
+  weightSource?: ProductionWeightSource;
+  /** true = ล้างน้ำหนัก+ที่มา (ส่งพร้อม weightG ไม่ได้) */
+  clearWeight?: boolean;
+}
+
+/** ค่าเริ่มของ SKU สำหรับการ์ดร่างตอนเพิ่มรายการ (analytics.production_item_prefill — server ตัดสิน · client แค่แสดง) */
+export interface ProductionItemPrefill {
+  productId: string;
+  sku: string;
+  name: string;
+  costType: ProductionCostType;
+  metal: ProductionMetal;
+  purity: number | null;
+  weightG: number | null;
+  weightSource: ProductionWeightSource | null;
+  /** true เฉพาะ SKU ที่ระบุโลหะจริง (make_spec.metal หรือโหมด spot) · false = UI ขึ้นข้อความกลาง ไม่ใช่คำเตือน */
+  metalKnown: boolean;
+}
+
+function decimalsAtMost(v: number, places: number): boolean {
+  const m = /^\d+(?:\.(\d+))?$/.exec(String(v));
+  return m !== null && (m[1]?.length ?? 0) <= places;
+}
+
+/** ตรวจ input ของ setProductionOrderItem ก่อนยิง RPC (ข้อความไทยต่อช่อง) — ด่านจริงอยู่ที่ DB (ซ้ำกัน ไม่ใช่แทน) · คืน null เมื่อผ่าน
+ * not-between style: NaN/Infinity ตกทุกช่อง */
+export function productionItemInputIssue(input: SetProductionOrderItemInput): string | null {
+  const hasSku = input.productId != null && input.productId !== "";
+  const label = input.pendingProductLabel;
+  const hasLabel = label != null && label !== "";
+  if (hasSku === hasLabel) return hasSku ? "เลือกได้อย่างเดียว: SKU หรือชื่อแบบ" : "ต้องระบุ SKU หรือชื่อแบบ";
+  if (hasLabel) {
+    if ((label as string).trim() === "") return "กรอกชื่อแบบ";
+    if ([...(label as string)].length > PRODUCTION_LABEL_MAX_LEN) return `ชื่อแบบยาวเกินไป (ไม่เกิน ${PRODUCTION_LABEL_MAX_LEN} ตัวอักษร)`;
+    if (/[<>]/.test(label as string)) return "ชื่อแบบห้ามมีเครื่องหมาย < หรือ >";
+    if (input.metal === undefined) return "รายการที่ยังไม่มี SKU ต้องเลือกโลหะ";
+  }
+  if (!Number.isFinite(input.qtyPlanned) || !Number.isInteger(input.qtyPlanned) || input.qtyPlanned <= 0 || input.qtyPlanned > 100000) {
+    return "จำนวนที่วางแผนผลิตต้องเป็นจำนวนเต็ม 1-100000";
+  }
+  if (input.metal !== undefined && !PRODUCTION_METALS.includes(input.metal)) return "โลหะต้องเป็นเงิน/ทอง/ทองเหลือง";
+  if (input.purity !== undefined) {
+    const p = input.purity;
+    if (!Number.isFinite(p) || !(p >= PRODUCTION_PURITY_MIN && p <= PRODUCTION_PURITY_MAX) || !decimalsAtMost(p, 4)) {
+      return "เนื้อโลหะต้องอยู่ระหว่าง 37.50%-100% (ทศนิยมไม่เกิน 2 ตำแหน่งของเปอร์เซ็นต์)";
+    }
+    if (input.metal === "brass" && p !== 1) return "ทองเหลืองเนื้อล็อก 100%";
+  }
+  if ((input.weightG === undefined) !== (input.weightSource === undefined)) return "น้ำหนักกับที่มาของน้ำหนักต้องส่งมาคู่กัน";
+  if (input.weightG !== undefined) {
+    const w = input.weightG;
+    if (!Number.isFinite(w) || !(w > 0 && w <= PRODUCTION_WEIGHT_MAX_G) || !decimalsAtMost(w, 3)) {
+      return "น้ำหนักต้องมากกว่า 0 และไม่เกิน 10,000 กรัม (ทศนิยมไม่เกิน 3 ตำแหน่ง)";
+    }
+    if (input.weightSource !== "product" && input.weightSource !== "input") return "ที่มาของน้ำหนักไม่ถูกต้อง";
+    if (input.clearWeight) return "สั่งล้างน้ำหนักพร้อมส่งน้ำหนักใหม่ไม่ได้";
+  }
+  return null;
 }
 
 /** analytics.production_order_preview — ONLY callable while status='open'
@@ -285,12 +421,24 @@ export interface ProductionOrderPreviewItem {
    * line (it would raise for spec mode on qty<=0), unitCost/costCalc are
    * both null. */
   skipped: boolean;
+  /** 0186 (R3): true = รายการ spot/spec ที่โลหะของมัน "ยังไม่มีราคาของวันนี้" (ทอง/ทองเหลือง) — ไม่คิดต้นทุน (unitCost null) ไม่เดา · เงินที่ไม่มีราคา preview raise เหมือนเดิม */
+  priceMissing: boolean;
+  /** 0186: โลหะ/เนื้อ/น้ำหนักที่ใช้คิดจริงของรายการนี้ (effective จาก DB) · metal null เฉพาะ skipped บางกรณีที่ไม่คืนค่า */
+  metal: ProductionMetal | null;
+  purity: number | null;
+  weightG: number | null;
+  weightSource: ProductionWeightSource | null;
 }
 
 export interface ProductionOrderPreview {
   productionOrderId: string;
   poNo: string;
+  /** ราคาเงินที่ใบใช้ (override ของใบหรือราคาวันนี้) — null ถ้าใบนี้ไม่ใช้ราคาเงินเลข (ความหมายเดิม) · UI เดิมที่อ่านเฉพาะเงินใช้ต่อได้ */
   spotPriceThbPerGram: number | null;
+  /** 0186: ราคาต่อกรัม (โลหะ 100%) ของแต่ละโลหะที่ใบใช้จริง — ส่งกลับเข้า doneProductionOrder.expectedMetalPrices เป็นอ็อบเจกต์เดียวกัน (M1 ต่อโลหะ) */
+  metalPrices: Partial<Record<ProductionMetal, number>>;
+  /** 0186 (R3): โลหะ (ทอง/ทองเหลือง) ที่ใบใช้แต่ "ยังไม่มีราคาของวันนี้" — UI ขึ้นเช็คลิสต์ · done ยัง fail-closed (ไม่มี fallback) */
+  missingPrices: ProductionMetal[];
   items: ProductionOrderPreviewItem[];
 }
 
@@ -311,6 +459,10 @@ export interface ProductionOrderDoneItemResult {
   /** non-null only for cost_type='spec' — same snapshot that gets written to
    * production_order_item.cost_calc (permanent once done). */
   costCalc: ProductionSpecCostCalc | null;
+  /** 0186: โลหะ/เนื้อ/น้ำหนักที่ถูกล็อกลงรายการ (snapshot) */
+  metal: ProductionMetal | null;
+  purity: number | null;
+  weightG: number | null;
 }
 
 export interface ProductionOrderDoneResult {
@@ -318,7 +470,18 @@ export interface ProductionOrderDoneResult {
   poNo: string;
   status: ProductionOrderStatus;
   alreadyDone: boolean;
+  /** 0186: ราคาต่อกรัมที่ใบใช้จริงตอนปิด (ว่างเมื่อ alreadyDone หรือใบ fixed ล้วน) */
+  metalPrices: Partial<Record<ProductionMetal, number>>;
   items: ProductionOrderDoneItemResult[];
+}
+
+/** input ของ doneProductionOrder — expectedMetalPrices = อ็อบเจกต์เดียวกับ ProductionOrderPreview.metalPrices ที่หน้าจอเห็น ·
+ * ใบ fixed ล้วนส่ง {} หรือไม่ส่งก็ได้ · expectedSpotThbPerGram = ช่องทางเดิม (UI ก่อน PM-B) แปลงเป็น {silver} ให้ — ใช้ร่วมกับ expectedMetalPrices ไม่ได้ผลถ้ามีอย่างหลัง */
+export interface DoneProductionOrderInput {
+  productionOrderId: string;
+  items: DoneItemInput[];
+  expectedMetalPrices?: Partial<Record<ProductionMetal, number>> | null;
+  expectedSpotThbPerGram?: number | null;
 }
 
 /** analytics.production_order_cancel */
@@ -345,6 +508,34 @@ export interface ProductionOrderCancelResult {
 // ============================================================================
 
 const NO_SPOT_PRICE_MARKER = "ยังไม่มีราคาเงินของวันนี้";
+// 0186: ทอง/ทองเหลืองไม่มี feed จึงไม่ล็อกชีต → ทางออกคือกรอกราคาของวันนี้ที่ /oem/rates (ต่างจากเงินที่ห้ามชี้ไป /oem/rates) · ไม่มีราคาเฉพาะใบ (มติ Q6/Q3)
+const NO_GOLD_PRICE_MARKER = "ยังไม่มีราคาทองของวันนี้";
+const NO_BRASS_PRICE_MARKER = "ยังไม่มีราคาทองเหลืองของวันนี้";
+
+export function parseProductionMetal(v: unknown): ProductionMetal | null {
+  return parseMetal(v);
+}
+export function parseProductionWeightSource(v: unknown): ProductionWeightSource | null {
+  return parseWeightSource(v);
+}
+export function parseProductionNumber(v: unknown): number | null {
+  return numOrNull(v);
+}
+/** {silver: 72, gold: 2804.1271} (jsonb จาก RPC) → อ็อบเจกต์ที่มีเฉพาะ 3 โลหะ · key แปลก/ค่าไม่ใช่ตัวเลขถูกทิ้ง (อ่านอย่างเดียว ไม่ throw) */
+export function parseMetalPrices(raw: unknown): Partial<Record<ProductionMetal, number>> {
+  const out: Partial<Record<ProductionMetal, number>> = {};
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return out;
+  for (const metal of PRODUCTION_METALS) {
+    const n = numOrNull((raw as Record<string, unknown>)[metal]);
+    if (n !== null) out[metal] = n;
+  }
+  return out;
+}
+/** ["gold"] → ProductionMetal[] (กรองเฉพาะ 3 โลหะ) */
+export function parseMissingPrices(raw: unknown): ProductionMetal[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map(parseMetal).filter((m): m is ProductionMetal => m !== null);
+}
 
 /** แปล error ของ 0131 เป็นข้อความที่เจ้าของอ่านรู้เรื่อง
  *
@@ -370,6 +561,10 @@ export function humanizeProductionError(err: unknown, fallback: string): string 
       "(1) กรอก \"ราคาเงินเฉพาะใบนี้\" เป็นราคาที่ซื้อมาจริง แล้วบันทึกใบผลิตอีกครั้ง หรือ " +
       "(2) รอราคาที่จะเข้าระบบอัตโนมัติตอนเช้าพรุ่งนี้แล้วค่อยกลับมาทำต่อ"
     );
+  }
+  if (msg.includes(NO_GOLD_PRICE_MARKER) || msg.includes(NO_BRASS_PRICE_MARKER)) {
+    const metal = msg.includes(NO_BRASS_PRICE_MARKER) ? "ทองเหลือง" : "ทอง";
+    return `ยังไม่มีราคา${metal}ของวันนี้ — ต้องกรอกราคา${metal}ของวันนี้ที่หน้าราคาโลหะ (/oem/rates) ก่อน (ไม่มีราคาเฉพาะใบ · ห้ามใช้ราคาเก่า) แล้วกดตรวจอีกครั้ง`;
   }
   return msg;
 }
