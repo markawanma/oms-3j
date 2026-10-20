@@ -17,7 +17,7 @@ import { LABEL_ANGLE_MSG, LABEL_ANGLE_RE } from "@/lib/jobs/input";
 import { LOCK_STATE_LABEL } from "@/lib/jobs/types";
 import type { WorkerRow } from "@/lib/jobs/types";
 
-type Dlg = { t: "edit"; worker: WorkerRow | null } | { t: "pin"; worker: WorkerRow } | { t: "shown"; name: string; pin: string } | null;
+type Dlg = { t: "edit"; worker: WorkerRow | null } | { t: "pin"; worker: WorkerRow } | { t: "setpin"; worker: WorkerRow } | { t: "shown"; name: string; pin: string } | null;
 type OnShown = (name: string, pin: string) => void;
 
 function ShownPinDialog({ name, pin, onClose }: { name: string; pin: string; onClose: () => void }) {
@@ -50,7 +50,7 @@ function ShownPinDialog({ name, pin, onClose }: { name: string; pin: string; onC
   );
 }
 
-function EditDialog({ worker, stages, retired, onClose, onShown }: { worker: WorkerRow | null; stages: WorkersData["stages"]; retired: NonNullable<WorkersData["retiredStages"]>; onClose: () => void; onShown: OnShown }) {
+function EditDialog({ worker, stages, retired, onClose, onShown, onSetPin }: { worker: WorkerRow | null; stages: WorkersData["stages"]; retired: NonNullable<WorkersData["retiredStages"]>; onClose: () => void; onShown: OnShown; onSetPin: (w: WorkerRow) => void }) {
   const { run, busy, error } = useOfficeRun();
   // ขั้นเลิกใช้: โชว์เฉพาะที่ช่างคนนี้ยังถืออยู่ (ติ๊กอยู่ · เอาออกได้ · เพิ่มกลับไม่ได้) — กดบันทึกโดยไม่แตะ = คงรหัสไว้ ไม่หลุด
   const heldRetired = retired.filter((s) => worker?.stageCodes.includes(s.code));
@@ -92,8 +92,17 @@ function EditDialog({ worker, stages, retired, onClose, onShown }: { worker: Wor
             ))}
           </div>
         </fieldset>
+        {worker && (
+          <div className="flex flex-wrap items-center gap-2 rounded-md border border-zinc-200 bg-zinc-50 p-2">
+            <p className="min-w-0 flex-1 text-sm text-zinc-800">อยากเปลี่ยน PIN ของช่างคนนี้?</p>
+            <Button type="button" variant="secondary" disabled={busy} onClick={() => onSetPin(worker)}>
+              <KeyRound className="h-4 w-4" aria-hidden="true" />
+              ตั้ง PIN เอง
+            </Button>
+          </div>
+        )}
         {!worker && (
-          <Field id="wpin" label="PIN 4 หลัก (ไม่ใส่ = ระบบสุ่มให้)" hint={pinOk ? undefined : "ต้องเป็นตัวเลข 4 หลักเท่านั้น"}>
+          <Field id="wpin" label="PIN 4 หลัก (ตัวเลขอะไรก็ได้ · ไม่ใส่ = ระบบสุ่มให้)" hint={pinOk ? undefined : "PIN ต้องเป็นตัวเลข 4 หลัก"}>
             <input id="wpin" inputMode="numeric" autoComplete="off" maxLength={4} value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))} className={FIELD} />
           </Field>
         )}
@@ -137,10 +146,43 @@ function ResetPinDialog({ worker, onClose, onShown }: { worker: WorkerRow; onClo
   );
 }
 
-type ItemProps = { w: WorkerRow; stageName: (c: string) => string; onEdit: () => void; onPin: () => void; onToggle: () => void; onUnlock: () => void };
+// ตั้ง PIN เอง (4 หลักอะไรก็ได้ — เจ้าของ 20 ต.ค. 69) · ปุ่ม "รีเซ็ต PIN" (สุ่มให้) แยกต่างหาก ไม่เปลี่ยน
+// 🔴 PIN อยู่ใน state ของกล่องนี้เท่านั้น: ไม่ลง URL/storage/log · ส่งไป server action แล้วแสดงครั้งเดียวใน ShownPinDialog
+function SetPinDialog({ worker, onClose, onShown }: { worker: WorkerRow; onClose: () => void; onShown: OnShown }) {
+  const { run, busy, error } = useOfficeRun();
+  const [pin, setPin] = useState("");
+  const pinOk = /^[0-9]{4}$/.test(pin);
+  async function submit() {
+    const r = await run(() => resetWorkerPin(worker.id, pin), { success: "ตั้ง PIN แล้ว" });
+    if (!r.ok) return;
+    onClose();
+    onShown(worker.displayName, pin);
+  }
+  return (
+    <Modal open onClose={onClose} title={`ตั้ง PIN เองให้ ${worker.displayName}`}>
+      <form noValidate className="space-y-3" onSubmit={(e) => { e.preventDefault(); if (pinOk && !busy) void submit(); }}>
+        <Field id="wsetpin" label="PIN ใหม่ 4 หลัก (ตัวเลขอะไรก็ได้)" hint={pin !== "" && !pinOk ? "PIN ต้องเป็นตัวเลข 4 หลัก" : undefined}>
+          <input id="wsetpin" inputMode="numeric" autoComplete="off" maxLength={4} value={pin} onChange={(e) => setPin(e.target.value.replace(/\D/g, ""))} className={FIELD} />
+        </Field>
+        <p className="text-sm text-zinc-800">PIN เดิมใช้ไม่ได้ทันที และช่างที่เปิดค้างอยู่จะถูกให้ระบุตัวใหม่ — ถ้าช่างถูกล็อกอยู่จะปลดล็อกให้ด้วย</p>
+        <ErrorLine message={error} />
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>
+            ยกเลิก
+          </Button>
+          <Button type="submit" loading={busy} disabled={!pinOk || busy}>
+            ตั้ง PIN นี้
+          </Button>
+        </div>
+      </form>
+    </Modal>
+  );
+}
+
+type ItemProps = { w: WorkerRow; stageName: (c: string) => string; onEdit: () => void; onPin: () => void; onSetPin: () => void; onToggle: () => void; onUnlock: () => void };
 
 // แถวช่าง: ซ้าย = ชื่อ + badge สถานะ + ขั้น + คำเตือน (ตัดบรรทัดในพื้นที่ตัวเอง) · ขวา = ปุ่มแถวเดียวบน ≥768px (มือถือซ้อนได้)
-function WorkerItem({ w, stageName, onEdit, onPin, onToggle, onUnlock }: ItemProps) {
+function WorkerItem({ w, stageName, onEdit, onPin, onSetPin, onToggle, onUnlock }: ItemProps) {
   return (
     <li className={`flex flex-col gap-2 p-3 md:flex-row md:items-center md:justify-between md:gap-4 ${w.isActive ? "" : "bg-zinc-50"}`}>
       <div className="min-w-0 md:flex-1">
@@ -167,7 +209,7 @@ function WorkerItem({ w, stageName, onEdit, onPin, onToggle, onUnlock }: ItemPro
         )}
         {!w.pinWarning && w.lockState === "none" && w.failedAttempts > 0 && <p className="text-xs text-zinc-700">ใส่ PIN ผิด {w.failedAttempts} ครั้งในรอบ 24 ชม.</p>}
       </div>
-      <div className="flex flex-wrap gap-2 md:shrink-0 md:flex-nowrap">
+      <div className="flex flex-wrap gap-2 md:max-w-[28rem] md:shrink-0 md:justify-end">
         <Button type="button" variant="secondary" className="md:whitespace-nowrap" onClick={onEdit} aria-label={`แก้ไข ${w.displayName}`}>
           <Pencil className="h-4 w-4" aria-hidden="true" />
           แก้ไข
@@ -181,6 +223,10 @@ function WorkerItem({ w, stageName, onEdit, onPin, onToggle, onUnlock }: ItemPro
         <Button type="button" variant="secondary" className="md:whitespace-nowrap" onClick={onPin} aria-label={`รีเซ็ต PIN ของ ${w.displayName}`}>
           <KeyRound className="h-4 w-4" aria-hidden="true" />
           รีเซ็ต PIN
+        </Button>
+        <Button type="button" variant="secondary" className="md:whitespace-nowrap" onClick={onSetPin} aria-label={`ตั้ง PIN เองให้ ${w.displayName}`}>
+          <KeyRound className="h-4 w-4" aria-hidden="true" />
+          ตั้ง PIN เอง
         </Button>
         <Button type="button" variant="secondary" className="md:whitespace-nowrap" onClick={onToggle} aria-label={`${w.isActive ? "ปิด" : "เปิด"}ใช้งาน ${w.displayName}`}>
           {w.isActive ? <UserX className="h-4 w-4" aria-hidden="true" /> : <UserCheck className="h-4 w-4" aria-hidden="true" />}
@@ -256,13 +302,14 @@ export function WorkersClient({ data }: { data: WorkersData }) {
           ) : (
             <ul className="divide-y divide-zinc-100 rounded-lg border border-zinc-200 bg-white">
               {visible.map((w) => (
-                <WorkerItem key={w.id} w={w} stageName={stageName} onEdit={() => setDlg({ t: "edit", worker: w })} onPin={() => setDlg({ t: "pin", worker: w })} onToggle={() => toggleActive(w)} onUnlock={() => unlock(w)} />
+                <WorkerItem key={w.id} w={w} stageName={stageName} onEdit={() => setDlg({ t: "edit", worker: w })} onPin={() => setDlg({ t: "pin", worker: w })} onSetPin={() => setDlg({ t: "setpin", worker: w })} onToggle={() => toggleActive(w)} onUnlock={() => unlock(w)} />
               ))}
             </ul>
           )}
         </>
       )}
-      {dlg?.t === "edit" && <EditDialog worker={dlg.worker} stages={data.stages} retired={retired} onClose={() => setDlg(null)} onShown={shown} />}
+      {dlg?.t === "edit" && <EditDialog worker={dlg.worker} stages={data.stages} retired={retired} onClose={() => setDlg(null)} onShown={shown} onSetPin={(w) => setDlg({ t: "setpin", worker: w })} />}
+      {dlg?.t === "setpin" && <SetPinDialog worker={dlg.worker} onClose={() => setDlg(null)} onShown={shown} />}
       {dlg?.t === "pin" && <ResetPinDialog worker={dlg.worker} onClose={() => setDlg(null)} onShown={shown} />}
       {dlg?.t === "shown" && <ShownPinDialog name={dlg.name} pin={dlg.pin} onClose={() => setDlg(null)} />}
     </div>

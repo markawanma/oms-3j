@@ -318,11 +318,29 @@ describe("ทะเบียนช่าง — PIN", () => {
     expect(await saveWorker({ displayName: "ช่าง", stageCodes: [] })).toEqual({ ok: false, error: "เลือกขั้นตอนอย่างน้อยหนึ่งขั้น" });
     expect(rpcMock).not.toHaveBeenCalled();
   });
-  it("PIN เดาง่าย (DB ปฏิเสธ) → ข้อความไทย · PIN ไม่ถูก log", async () => {
-    rpcMock.mockResolvedValue({ data: null, error: { code: "22023", hint: "pin_invalid", message: "PIN ต้องเป็นตัวเลข 4 หลัก และห้ามเป็นเลขซ้ำ/เรียงต่อเนื่อง/เดาง่าย" } });
+  it("PIN ผิดรูปแบบ (DB ปฏิเสธ pin_invalid) → ข้อความไทยตรงกฎใหม่ 'ตัวเลข 4 หลัก' · PIN ไม่ถูก log", async () => {
+    rpcMock.mockResolvedValue({ data: null, error: { code: "22023", hint: "pin_invalid", message: "PIN ต้องเป็นตัวเลข 4 หลัก" } });
     const r = await saveWorker({ displayName: "ช่างเอ", stageCodes: ["cast"], pin: "1111" });
-    expect(!r.ok && r.error).toMatch(/PIN/);
+    expect(r).toMatchObject({ ok: false, code: "pin_invalid", error: "PIN ต้องเป็นตัวเลข 4 หลัก" });
     expect(JSON.stringify(errSpy.mock.calls)).not.toContain("1111");
+  });
+  it("0185: PIN เลขซ้ำ/เรียง (1111 · 1212 · 1234 · 0000) ผ่านด่านฝั่งแอปและส่งถึง DB · ตั้ง PIN เอง (resetWorkerPin) ส่ง p_pin ตามที่ตั้ง · PIN ผิดรูปแบบไม่ถึง DB", async () => {
+    for (const pin of ["1111", "1212", "1234", "0000"]) {
+      rpcMock.mockClear();
+      rpcMock.mockResolvedValue({ data: { id: WORKER, display_name: "ช่างเอ", stage_codes: ["cast"], pin: null, pin_generated: false }, error: null });
+      expect((await saveWorker({ displayName: "ช่างเอ", stageCodes: ["cast"], pin })).ok, pin).toBe(true);
+      expect(lastRpc()[1].p_pin).toBe(pin);
+      rpcMock.mockClear();
+      rpcMock.mockResolvedValue({ data: { worker_id: WORKER, pin: null, pin_generated: false }, error: null });
+      expect(await resetWorkerPin(WORKER, pin)).toEqual({ ok: true, data: { pin: null } });
+      expect(lastRpc()[1]).toMatchObject({ p_worker_id: WORKER, p_pin: pin });
+    }
+    rpcMock.mockClear();
+    for (const bad of ["123", "12345", "abcd", "12a4", " 1234", "๑๒๓๔"]) {
+      expect((await resetWorkerPin(WORKER, bad)).ok, bad).toBe(false);
+      expect((await saveWorker({ displayName: "ช่างเอ", stageCodes: ["cast"], pin: bad })).ok, bad).toBe(false);
+    }
+    expect(rpcMock).not.toHaveBeenCalled();
   });
   it("รีเซ็ต PIN: สุ่ม (ไม่ส่ง) คืนครั้งเดียว · กำหนดเอง = ไม่คืน · ปิด/เปิดช่างส่ง boolean", async () => {
     rpcMock.mockResolvedValue({ data: { worker_id: WORKER, pin: "2604", pin_generated: true }, error: null });
