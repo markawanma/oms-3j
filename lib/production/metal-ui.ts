@@ -31,7 +31,6 @@ export function defaultPurityText(metal: ProductionMetal): string {
 }
 
 export const MSG_GOLD_PURITY_REQUIRED = "ทองต้องกรอกเนื้อทอง (%) — ขั้นต่ำ 37.50%";
-export const MSG_SILVER_PURITY_REQUIRED = "กรอกเนื้อเงิน (%) เช่น 92.50";
 export const MSG_WEIGHT_INVALID = "น้ำหนักต้องมากกว่า 0 และไม่เกิน 10,000 กรัม (ทศนิยมไม่เกิน 3 ตำแหน่ง)";
 export const MSG_QTY_INVALID = "จำนวนที่วางแผนผลิตต้องเป็นจำนวนเต็ม 1-100000";
 export const MSG_LABEL_REQUIRED = "กรอกชื่อแบบ";
@@ -62,7 +61,8 @@ export function weightFieldIssue(text: string): string | null {
 /** เนื้อ %: ทองเหลืองล็อก 100 (ไม่ตรวจ) · ทอง/เงินว่าง = บังคับกรอก · อื่นๆ ใช้กติกาเดิมของ lib/units/purity.ts (ไม่เขียนสูตรซ้ำ) */
 export function purityFieldIssue(metal: ProductionMetal, text: string): string | null {
   if (metal === "brass") return null;
-  if (text.trim() === "") return metal === "gold" ? MSG_GOLD_PURITY_REQUIRED : MSG_SILVER_PURITY_REQUIRED;
+  // เงินเว้นว่างไม่ใช่ error (มติเจ้าของ: ค่าเริ่ม 92.50 แก้ได้ ไม่บังคับกรอก) · ทองว่าง = บังคับกรอก
+  if (text.trim() === "") return metal === "gold" ? MSG_GOLD_PURITY_REQUIRED : null;
   return purityPctIssue(text);
 }
 
@@ -221,9 +221,11 @@ export function buildItemSaveInput(args: {
   if (!hasSku || metalChanged) input.metal = draft.metal;
   if (metalChanged || purityChanged) {
     if (draft.metal === "brass") input.purity = 1;
-    else {
+    else if (draft.metal === "silver" && draft.purityText.trim() === "") {
+      // เงินเว้นว่าง = ไม่บังคับกรอก (มติเจ้าของ: ค่าเริ่ม 92.50) — ไม่ส่ง purity ให้ server ใช้ค่าเริ่มของโลหะ (เปลี่ยนโลหะ → รีเซ็ต · ไม่เปลี่ยน → คงเดิม) แล้วหน้าจอโชว์ค่าที่ server เก็บ
+    } else {
       const f = purityPctToFraction(draft.purityText);
-      if (f === null) return { ok: false, errors: { purity: draft.metal === "gold" ? MSG_GOLD_PURITY_REQUIRED : MSG_SILVER_PURITY_REQUIRED } };
+      if (f === null) return { ok: false, errors: { purity: MSG_GOLD_PURITY_REQUIRED } };
       input.purity = f;
     }
   }
@@ -263,9 +265,11 @@ export function buildNewItemInput(args: {
   else input.pendingProductLabel = label;
 
   if (draft.metal === "brass") input.purity = 1;
-  else {
+  else if (draft.metal === "silver" && draft.purityText.trim() === "") {
+    // เงินเว้นว่างไม่บังคับ — ไม่ส่ง purity ให้ server เติมค่าเริ่ม (SKU/92.50) แล้วการ์ดที่เพิ่มโชว์ค่าที่เก็บจริง
+  } else {
     const f = purityPctToFraction(draft.purityText);
-    if (f === null) return { ok: false, errors: { purity: draft.metal === "gold" ? MSG_GOLD_PURITY_REQUIRED : MSG_SILVER_PURITY_REQUIRED } };
+    if (f === null) return { ok: false, errors: { purity: MSG_GOLD_PURITY_REQUIRED } };
     input.purity = f;
   }
   if (draft.weightText.trim() !== "") {

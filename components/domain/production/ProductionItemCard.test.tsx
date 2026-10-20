@@ -122,6 +122,21 @@ describe("เปลี่ยนโลหะ", () => {
     expect(screen.getByText("ทองเหลืองล็อกเนื้อ 100%")).toBeInTheDocument();
   });
 
+  it("ทอง→เงิน: เติม 92.50 ในช่องให้เห็นชัด + ข้อความ 'ค่าเริ่ม 92.50 แก้ได้' · เงินเว้นว่างบันทึกได้ไม่ error (ไม่ส่ง purity)", async () => {
+    setItem.mockResolvedValue({ ok: true, data: { id: "i-1", productId: "p-1", sku: "GR-0007", name: "x", pendingProductLabel: null, qtyPlanned: 30, isNewDesign: false, metal: "silver", purity: 0.925, weightG: null, weightSource: null } });
+    renderCard(row({ effectiveMetal: "gold", effectivePurity: 0.9, effectiveWeightG: null, effectiveWeightSource: null }));
+    await userEvent.click(metalRadio("เงิน"));
+    expect(purityBox().value).toBe("92.50");
+    expect(screen.getByText(/ค่าเริ่ม 92.50 แก้ได้/)).toBeInTheDocument();
+    await userEvent.clear(purityBox());
+    await userEvent.click(saveBtn());
+    await waitFor(() => expect(setItem).toHaveBeenCalled());
+    expect(setItem.mock.calls[0][0]).toEqual({ productionOrderId: "po-1", productId: "p-1", qtyPlanned: 30, metal: "silver" });
+    expect(screen.queryByText(/กรอกเนื้อเงิน/)).toBeNull();
+    // หลังบันทึก หน้าจอโชว์ค่าที่ server เก็บ (92.50) ไม่ใช่ช่องว่าง
+    await waitFor(() => expect(purityBox().value).toBe("92.50"));
+  });
+
   it("กลับมาโลหะเดิม = คืนเนื้อ/น้ำหนักเดิม และไม่ dirty อีก", async () => {
     const { onDirtyChange } = renderCard(row());
     await userEvent.click(metalRadio("ทอง"));

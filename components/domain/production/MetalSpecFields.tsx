@@ -126,7 +126,7 @@ export function MetalSpecFields({
             </p>
           ) : (
             <p className="mt-1 text-xs text-zinc-500">
-              ขั้นต่ำ 37.50{metal === "gold" ? " · ทอง = ว่างเสมอ ต้องกรอกเอง" : ""}
+              {metal === "silver" ? "ค่าเริ่ม 92.50 แก้ได้ · " : ""}ขั้นต่ำ 37.50{metal === "gold" ? " · ทอง = ว่างเสมอ ต้องกรอกเอง" : ""}
               {purityBadge && <span className="ml-1.5 rounded-sm bg-zinc-100 px-1 py-0.5 text-[0.7rem] text-zinc-700">{purityBadge}</span>}
             </p>
           )}

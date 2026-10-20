@@ -92,7 +92,10 @@ describe("ตรวจช่อง", () => {
     expect(purityFieldIssue("silver", "0.925")).toContain("ไม่ใช่สัดส่วน");
     expect(purityFieldIssue("gold", "37.49")).toContain("ต่ำกว่า 37.50%");
     expect(purityFieldIssue("silver", "100.01")).toContain("ไม่เกิน 100%");
-    expect(purityFieldIssue("silver", "")).not.toBeNull();
+    // มติเจ้าของ: เงินค่าเริ่ม 92.50 แก้ได้ — เว้นว่างไม่ใช่ error (ไม่บังคับกรอก) · ทองว่างยังบังคับ
+    expect(purityFieldIssue("silver", "")).toBeNull();
+    expect(purityFieldIssue("silver", "  ")).toBeNull();
+    expect(purityFieldIssue("silver", "92.50")).toBeNull();
   });
 
   it("metalSpecIssues คืนเฉพาะช่องที่ผิด (รวมจำนวน)", () => {
@@ -190,6 +193,26 @@ describe("buildItemSaveInput — ส่งเฉพาะช่องที่�
     const res = mk(d);
     expect(res.ok).toBe(false);
     if (!res.ok) expect(res.errors.purity).toBe(MSG_GOLD_PURITY_REQUIRED);
+  });
+
+  it("ทอง→เงิน: เติม 92.50 ในช่อง (มองเห็น) แล้วส่ง purity 0.925 ชัดเจน · ผู้ใช้ลบช่องเงินจนว่าง = ไม่บังคับ ไม่ส่ง purity (server ใช้ค่าเริ่ม)", () => {
+    const goldRow = row({ effectiveMetal: "gold", effectivePurity: 0.9, effectiveWeightG: null, effectiveWeightSource: null });
+    const gBase = draftFromRow(goldRow);
+    const toSilver = applyMetalChange(gBase, "silver", gBase, null).draft;
+    expect(toSilver.purityText).toBe("92.50");
+    const filled = buildItemSaveInput({ orderId: "po-1", row: goldRow, draft: toSilver, base: gBase });
+    expect(filled).toEqual({ ok: true, input: { productionOrderId: "po-1", productId: "p-1", qtyPlanned: 30, metal: "silver", purity: 0.925 } });
+    const blank = buildItemSaveInput({ orderId: "po-1", row: goldRow, draft: { ...toSilver, purityText: "" }, base: gBase });
+    expect(blank).toEqual({ ok: true, input: { productionOrderId: "po-1", productId: "p-1", qtyPlanned: 30, metal: "silver" } });
+  });
+
+  it("เงินเว้นว่างตอนเพิ่มรายการ: ไม่ error · ไม่ส่ง purity (server เติมค่าเริ่ม) · ทองเว้นว่าง = ปฏิเสธ", () => {
+    const d = { metal: "silver" as const, purityText: "", weightText: "", qtyText: "2", isNewDesign: false };
+    expect(buildNewItemInput({ orderId: "po-1", productId: "p-1", label: null, draft: d, skuWeightG: null, isSpecSku: false })).toEqual({
+      ok: true,
+      input: { productionOrderId: "po-1", productId: "p-1", qtyPlanned: 2, metal: "silver" },
+    });
+    expect(buildNewItemInput({ orderId: "po-1", productId: "p-1", label: null, draft: { ...d, metal: "gold" }, skuWeightG: null, isSpecSku: false }).ok).toBe(false);
   });
 
   it("ทองเหลือง: ส่ง purity = 1 เสมอ", () => {
