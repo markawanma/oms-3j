@@ -38,10 +38,10 @@ export const MSG_METAL_RESET_PURITY = "เนื้อรีเซ็ตตา�
 export const MSG_WEIGHT_CLEARED_FROM_SKU = "ล้างน้ำหนักจากสินค้าแล้ว (ใช้กับเงินเท่านั้น)";
 
 /**
- * ตัวเลือก "ไม่มี SKU — ใส่ชื่อแบบ" ในฟอร์มเพิ่มรายการฝั่งออฟฟิศ — ซ่อนไว้ก่อน (ทางตัน: ยังไม่มีปุ่ม/RPC ผูก SKU ให้รายการแบบนี้ ใบที่มีรายการไม่มี SKU ผลิตเสร็จไม่ได้)
- * เปิดเมื่อ W1 มี RPC ผูก SKU (production_order_item_bind_product) · การ์ดที่มีรายการไม่มี SKU อยู่แล้ว (เช่นเปิดจากหน้างานในอนาคต) ยังแสดงป้าย/เช็คลิสต์ตามเดิม
+ * ตัวเลือก "ไม่มี SKU — ใส่ชื่อแบบ" ในฟอร์มเพิ่มรายการฝั่งออฟฟิศ — เปิดแล้ว (W1 UI): การ์ดรายการไม่มี SKU มีปุ่ม "ผูก SKU" (bindProductionItemProduct · production_order_item_bind_product)
+ * และแก้ชื่อแบบก่อนผูกได้ (setProductionItemLabel) จึงไม่ใช่ทางตันอีก · ใบที่มีรายการไม่มี SKU ยังผลิตเสร็จไม่ได้จนผูกครบ (ด่านที่ DB + เช็คลิสต์ข้อ unbound)
  */
-export const ALLOW_UNBOUND_ITEM_OFFICE = false;
+export const ALLOW_UNBOUND_ITEM_OFFICE = true;
 
 // ============================================================================
 // ตรวจรูปร่างช่อง (ข้อความไทยต่อช่อง) — ด่านจริงอยู่ที่ DB ซ้ำกัน ไม่ใช่แทน
@@ -339,10 +339,10 @@ export function itemShortName(row: Pick<ProductionOrderItemRow, "sku" | "pending
 
 // ============================================================================
 // เช็คลิสต์ก่อนกด "ผลิตเสร็จ" (UX A.2) — ข้อติดที่ "รู้จากแถวเลย" ไม่ต้องยิง preview
-// ลำดับบรรทัดเหตุผลใต้ปุ่ม: ① แก้ไว้ยังไม่บันทึก ② (ยังไม่รับทราบ — ส่วน B/W1 ไม่อยู่ในรอบนี้) ③ ยังไม่ผูก SKU ④ น้ำหนักขาด ⑤ ไม่มีรายการ
+// ลำดับบรรทัดเหตุผลใต้ปุ่ม: ① แก้ไว้ยังไม่บันทึก ② ยังไม่รับทราบ (ใบจากหน้างาน · W1) ③ ยังไม่ผูก SKU ④ น้ำหนักขาด ⑤ ไม่มีรายการ
 // ============================================================================
 
-export type CloseBlockerCode = "dirty" | "unbound" | "weight" | "empty";
+export type CloseBlockerCode = "dirty" | "ack" | "unbound" | "weight" | "empty";
 
 export interface CloseBlocker {
   code: CloseBlockerCode;
@@ -350,11 +350,16 @@ export interface CloseBlocker {
   message: string;
   /** รายการที่เกี่ยวข้อง — ปุ่มลัด scroll+focus ไปที่การ์ดนี้ */
   itemId?: string;
+  /** element id ที่ปุ่มลัดพาไป (เช่น การ์ดรับทราบ) — ใช้เมื่อไม่ผูกกับรายการเดียว */
+  anchorId?: string;
 }
 
 const COST_TYPES_NEEDING_WEIGHT: readonly ProductionCostType[] = ["spot", "spec"];
 
-export function closeBlockers(items: readonly ProductionOrderItemRow[], dirtyIds: ReadonlySet<string>): CloseBlocker[] {
+export const ACK_BLOCKER_MESSAGE = 'ใบนี้เปิดจากหน้างาน — ยังไม่ได้ "รับทราบ" (ตรวจโลหะ/เนื้อ/น้ำหนักที่หน้างานกรอกแล้วกดรับทราบที่การ์ดด้านบน)';
+
+/** opts.ackPending = ใบหน้างานที่ยังไม่รับทราบ (ackPending() ของ office-ack.ts) — ออฟฟิศไม่ส่ง = พฤติกรรมเดิมเป๊ะ */
+export function closeBlockers(items: readonly ProductionOrderItemRow[], dirtyIds: ReadonlySet<string>, opts: { ackPending?: boolean; ackAnchorId?: string } = {}): CloseBlocker[] {
   const out: CloseBlocker[] = [];
   if (items.length === 0) return [{ code: "empty", message: "ยังไม่มีรายการในใบนี้ — เพิ่มรายการก่อน" }];
 
@@ -362,6 +367,7 @@ export function closeBlockers(items: readonly ProductionOrderItemRow[], dirtyIds
   if (dirtyItems.length > 0) {
     out.push({ code: "dirty", message: 'มีรายการที่แก้ไว้แต่ยังไม่บันทึก — กด "บันทึกรายการ" ก่อน', itemId: dirtyItems[0].id });
   }
+  if (opts.ackPending) out.push({ code: "ack", message: ACK_BLOCKER_MESSAGE, anchorId: opts.ackAnchorId ?? "po-ack-card" });
   for (const i of items) {
     if (i.productId === null) {
       out.push({

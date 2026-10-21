@@ -371,8 +371,8 @@ describe("closeBlockers — 4 ข้อ + ลำดับ (① dirty ③ ไม�
 });
 
 describe("อื่นๆ", () => {
-  it("ALLOW_UNBOUND_ITEM_OFFICE ปิดอยู่ (ทางตัน: ยังไม่มี RPC ผูก SKU จนถึง W1) — เปิดต้องแก้ค่าคงที่นี้ที่เดียว", () => {
-    expect(ALLOW_UNBOUND_ITEM_OFFICE).toBe(false);
+  it("ALLOW_UNBOUND_ITEM_OFFICE เปิดแล้ว (W1 UI: การ์ดรายการไม่มี SKU มีปุ่มผูก SKU/แก้ชื่อแบบ — ไม่เป็นทางตัน) — ปิดต้องแก้ค่าคงที่นี้ที่เดียว", () => {
+    expect(ALLOW_UNBOUND_ITEM_OFFICE).toBe(true);
   });
   it("itemDisplayName ไม่พิมพ์ 'null' · labelKey ยุบช่องว่าง+พิมพ์เล็ก", () => {
     expect(itemDisplayName({ sku: "A-1", productName: "แหวน", pendingProductLabel: null })).toBe("A-1 · แหวน");

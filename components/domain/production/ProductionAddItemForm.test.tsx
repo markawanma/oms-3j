@@ -188,20 +188,21 @@ describe("โหมด 'มี SKU'", () => {
   });
 });
 
-// มติ Tech Lead 21 ต.ค.: ซ่อนตัวเลือก "ไม่มี SKU" ฝั่งออฟฟิศไว้ก่อน (ALLOW_UNBOUND_ITEM_OFFICE = false) — ทางตัน ไม่มีปุ่มผูก SKU จนถึง W1
-describe("flag ALLOW_UNBOUND_ITEM_OFFICE = false (ค่าปัจจุบัน)", () => {
-  it("ไม่มี segmented / ไม่มีตัวเลือก 'ไม่มี SKU — ใส่ชื่อแบบ' / ไม่มีช่องชื่อแบบ — เหลือโหมดมี SKU โหมดเดียว", () => {
+// W1 UI (21 ต.ค.): เปิด flag ALLOW_UNBOUND_ITEM_OFFICE = true แล้ว — การ์ดรายการไม่มี SKU มีปุ่มผูก SKU/แก้ชื่อแบบ จึงไม่ใช่ทางตัน
+// (พฤติกรรมโหมด "ไม่มี SKU — ใส่ชื่อแบบ" แบบละเอียดอยู่ใน ProductionAddItemForm.unbound.test.tsx)
+describe("flag ALLOW_UNBOUND_ITEM_OFFICE = true (ค่าปัจจุบัน)", () => {
+  it("มี segmented 'รูปแบบรายการ' + ตัวเลือก 'ไม่มี SKU — ใส่ชื่อแบบ' · โหมดเริ่มต้นยังเป็นมี SKU (ช่องค้น SKU อยู่)", () => {
     renderForm();
-    expect(screen.queryByRole("radiogroup", { name: "รูปแบบรายการ" })).toBeNull();
-    expect(screen.queryByRole("radio", { name: /ไม่มี SKU/ })).toBeNull();
-    expect(screen.queryByRole("textbox", { name: /ชื่อแบบ/ })).toBeNull();
+    expect(screen.getByRole("radiogroup", { name: "รูปแบบรายการ" })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: /ไม่มี SKU/ })).toBeInTheDocument();
+    expect(screen.getAllByRole("radio")).toHaveLength(2);
     expect(skuBox()).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /สินค้าใหม่/ })).toBeInTheDocument();
   });
-  it("ไม่มี SKU ให้เลือก → ข้อความ empty ไม่ชี้ไปทางเลือก 'ไม่มี SKU' ที่ซ่อนอยู่", () => {
+  it("ไม่มี SKU ให้เลือก → ข้อความ empty ชี้ไปทางเลือก 'ไม่มี SKU — ใส่ชื่อแบบ'", () => {
     renderForm({ skuOptions: [] });
     expect(screen.getByText(/ยังไม่มี SKU ที่เลือกได้/)).toBeInTheDocument();
-    expect(screen.queryByText(/ไม่มี SKU — ใส่ชื่อแบบ/)).toBeNull();
+    expect(screen.getByText(/ยังไม่มี SKU ที่เลือกได้/).textContent).toMatch(/ไม่มี SKU — ใส่ชื่อแบบ/);
   });
 });
 

@@ -36,6 +36,8 @@ import { ProductionAddItemForm } from "./ProductionAddItemForm";
 import { ProductionDoneDialog } from "./ProductionDoneDialog";
 import { ProductionCancelDialog } from "./ProductionCancelDialog";
 import { ProductionItemCard } from "./ProductionItemCard";
+import { ProductionOfficeAckCard } from "./ProductionOfficeAckCard";
+import { ACK_CARD_ID, ackPending } from "@/lib/production/office-ack";
 import { CLOSE_CHECKLIST_ID, ProductionCloseChecklist } from "./ProductionCloseChecklist";
 
 const STATUS_TONE: Record<ProductionOrderStatus, BadgeTone> = {
@@ -195,7 +197,9 @@ export function ProductionOrderDetailClient({
     return () => window.removeEventListener("beforeunload", handler);
   }, [dirtyIds]);
 
-  const blockers = isOpen ? closeBlockers(items, dirtyIds) : [];
+  const usedProductIds = new Set(items.flatMap((i) => (i.productId ? [i.productId] : [])));
+  const needAck = ackPending(order);
+  const blockers = isOpen ? closeBlockers(items, dirtyIds, { ackPending: needAck, ackAnchorId: ACK_CARD_ID }) : [];
   const blocked = blockers.length > 0;
   const reason = closeReasonLine(blockers);
 
@@ -287,6 +291,8 @@ export function ProductionOrderDetailClient({
         </p>
       )}
 
+      <ProductionOfficeAckCard order={order} items={items} dirty={dirtyIds.size > 0} onAcked={refresh} />
+
       {isOpen && <ProductionCloseChecklist blockers={blockers} />}
 
       {isOpen ? (
@@ -321,6 +327,9 @@ export function ProductionOrderDetailClient({
                   onRemove={removeItem}
                   onSaved={refresh}
                   onDirtyChange={handleDirtyChange}
+                  skuOptions={skuOptions}
+                  skuOptionsError={skuOptionsError}
+                  usedProductIds={usedProductIds}
                 />
               </li>
             ))}
