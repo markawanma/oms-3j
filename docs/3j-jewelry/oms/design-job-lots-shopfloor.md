@@ -257,7 +257,11 @@ trigger BEFORE UPDATE บน `production_order`: `old.status='open' and new.stat
 
 **ตัดสินเอง:** begin ไม่เก็บคูปอง photo_id (add ตรวจซ้ำทุกด่าน + PK กันซ้ำ) · รูปแรกเป็นรูปหลักอัตโนมัติ, `isPrimary` ขอสลับได้เฉพาะเมื่อรูปหลักเดิมเป็นของหน้างานเอง · ลบ: `deleted_by = id ช่าง` · ออก QR ใหม่ **ไม่เพิกถอนของเก่า** (QR ที่ติดชิ้นงานต้องยังใช้ได้ · เพดาน 5 จึงมีความหมาย — ถ้าเจ้าของอยากให้ "ออกใหม่ = เก่าใช้ไม่ได้" เปลี่ยน `false→true` จุดเดียวใน RPC) · ถอน can_open_job = รายการใบของฉันว่าง (ไม่ใช่ error)
 
-**ไม่ได้ทำ/ข้อจำกัด (บอกตรงๆ):** storage ทดสอบใน SQL ไม่ได้ (vitest + mock เท่านั้น — ต้อง UAT ถ่ายรูปจริง 1 รอบ) · race 2 connection ไม่มีเทสต์ · ไฟล์ค้างใน bucket หลัง add/remove ล้มซ้ำ = หนี้ sweep เดิมของ 0182 · **dry-run 0189 + verify-0189 บน DB จริงยังไม่ได้รัน** (agent ไม่มี SUPABASE_DB_URL ใน worktree) — ผ่านบน Postgres จริงแบบ WASM กับ schema จำลองแล้ว ไม่ใช่ schema จริง
+**ไม่ได้ทำ/ข้อจำกัด (บอกตรงๆ):** storage ทดสอบใน SQL ไม่ได้ (vitest + mock เท่านั้น — ต้อง UAT ถ่ายรูปจริง 1 รอบ) · race 2 connection ไม่มีเทสต์ · ไฟล์ค้างใน bucket หลัง add/remove ล้มซ้ำ = หนี้ sweep เดิมของ 0182 · เพดานระหว่าง begin กับ add ใช้ขอบละเอียดที่ guard เท่านั้น (begin ไม่รู้ขนาดไฟล์ จึงปฏิเสธเมื่อพื้นที่เต็มแล้วเท่านั้น)
+
+**โควตาหน้างาน (security M1 · 21 ต.ค. — ค่าที่ทีมตั้ง แจ้งเจ้าของแล้ว ปรับทีหลังได้):** พื้นที่รวมรูป source=shopfloor ที่ยังไม่ลบ **ต่อร้าน ≤ 80 MB** · **ต่อช่าง ≤ 60 รูป/24 ชม. (นับรวมที่ลบแล้ว กันวน add/remove)** — ค่าอยู่ที่ `analytics.job_shopfloor_photo_quota()` ตำแหน่งเดียว (คู่กับ `lib/images/constants.ts` SHOPFLOOR_PHOTOS_*) · บังคับที่ `job_photo_guard` (ล็อกใบ seed 2 → ร้าน seed 3 → ช่าง seed 4 — ตรงกับ trigger เพดานเดิม ไม่ deadlock) + begin ปฏิเสธก่อนแตะ bucket เมื่อเต็ม · hint `photo_budget_shopfloor` / `photo_daily_cap` · นับเพดาน 3 รูป/ใบเฉพาะ `kind='reference'` ตรงกันทุกจุด (guard · begin · add · list)
+
+**ผล dry-run บน DB จริง (21 ต.ค. 69 · ROLLBACK ไม่ commit):** 0189 + verify-0189 = OK 151 · FAIL 0 (mutant 30/30) · + check-analytics-grants ผ่าน · + verify-0188 = 36/0 · + verify-0187 = 313/0 · + verify-0182 (ฉบับ QA แก้ให้ใช้ได้หลัง 0184) = FAIL 0 · ทดสอบ logic เพิ่มบน Postgres จริงแบบ WASM (PGlite · schema จำลอง) 132 เคส · vitest ทั้ง suite + typecheck ผ่าน · **ยังไม่ apply**
 
 ## 8. มติ 18 ต.ค. "เผื่อของเสียไม่บังคับ ค่าเริ่มปิด" → แก้อะไร
 - **DB (0175): ไม่แก้** — `job_create_from_production_item/quote_item` ใช้ `coalesce(p_qty_planned, qty_order)` อยู่แล้ว · `job_plan_suggest.qty_planned_suggest` ยังคืนคำแนะนำ (rate ว่าง = null ไม่เดา) · `under_planned` ป้ายเดิม

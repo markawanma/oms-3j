@@ -86,6 +86,8 @@ const PHOTO_CODE_TH: Record<string, string> = {
   photo_cap_ref: "ใบนี้มีรูปอ้างอิงครบ 5 รูปแล้ว — แจ้งออฟฟิศ",
   photo_cap_total: "ใบนี้มีรูปครบกำหนดแล้ว — แจ้งออฟฟิศ",
   photo_budget: "พื้นที่เก็บรูปของร้านเต็มแล้ว — แจ้งออฟฟิศ",
+  photo_budget_shopfloor: "พื้นที่รูปจากหน้างานเต็มแล้ว — แจ้งออฟฟิศ",
+  photo_daily_cap: "วันนี้แนบรูปครบกำหนดแล้ว",
   photo_not_found: "ไม่พบรูปนี้ — โหลดหน้าใหม่",
   already_deleted: "รูปนี้ถูกลบไปแล้ว — โหลดหน้าใหม่",
   photo_path_invalid: "บันทึกรูปไม่สำเร็จ ลองใหม่อีกครั้ง",

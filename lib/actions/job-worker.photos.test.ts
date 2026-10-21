@@ -161,6 +161,8 @@ describe("intakeUploadPhoto — begin ปฏิเสธ = ไม่มี objec
     ["rate_limited", "rate limit เกิน"],
     ["photo_cap_shopfloor", "รูปที่ 4 จากหน้างาน"],
     ["photo_cap_ref", "reference รวมที่ 6"],
+    ["photo_budget_shopfloor", "พื้นที่รวมรูปหน้างานของร้านเต็ม (M1)"],
+    ["photo_daily_cap", "ช่างแนบครบ 60 รูป/24 ชม. (M1)"],
   ];
   for (const [code, why] of cases) {
     it(`${why} → ${code}: ไม่ upload · ไม่ remove · ไม่ add · ข้อความไทย`, async () => {
@@ -176,6 +178,13 @@ describe("intakeUploadPhoto — begin ปฏิเสธ = ไม่มี objec
       expect(fn("job_worker_photo_add")).toHaveLength(0);
     });
   }
+
+  it("ข้อความไทยของโควตาหน้างานตามที่กำหนด (M1)", async () => {
+    beginResult = fail("photo_budget_shopfloor");
+    expect(await intakeUploadPhoto(TOKEN, form())).toMatchObject({ ok: false, error: "พื้นที่รูปจากหน้างานเต็มแล้ว — แจ้งออฟฟิศ" });
+    beginResult = fail("photo_daily_cap");
+    expect(await intakeUploadPhoto(TOKEN, form())).toMatchObject({ ok: false, error: "วันนี้แนบรูปครบกำหนดแล้ว" });
+  });
 
   it("begin คืน id ผิดรูป (ไม่ใช่ uuid พิมพ์เล็ก) → ไม่ upload", async () => {
     beginResult = { data: { ok: true, job_id: JOB, shop_id: SHOP, photo_id: "NOT-A-UUID" }, error: null };
@@ -301,7 +310,7 @@ describe("intakeUploadPhoto — ไฟล์ที่ยิงตรง action (
 
 describe("intakeUploadPhoto — ล้มกลางทาง = ลบ object ที่เพิ่งอัป", () => {
   it("add ถูกปฏิเสธ (สถานะเปลี่ยนระหว่างอัปโหลด: ช่างรับงาน/เพดาน/rate limit) → ลบ md+sm · ข้อความไทย", async () => {
-    for (const code of ["job_locked", "photo_cap_shopfloor", "rate_limited", "photo_path_dup", "job_cancelled", "not_allowed", "invalid_token"]) {
+    for (const code of ["job_locked", "photo_cap_shopfloor", "rate_limited", "photo_path_dup", "job_cancelled", "not_allowed", "invalid_token", "photo_budget_shopfloor", "photo_daily_cap"]) {
       removeMock.mockClear();
       uploadMock.mockClear();
       addResult = fail(code);

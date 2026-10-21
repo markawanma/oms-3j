@@ -72,7 +72,7 @@ exception when others then
 end;
 $c$;
 create function pg_temp.std() returns text[] language sql as $c$
-  select array['wax_inject', 'wax_tree', 'invest_burnout', 'cast', 'cut_sprue', 'polish', 'qc', 'pack'] $c$;
+  select array['wax_inject', 'wax_tree', 'invest_burnout', 'cast', 'cut_sprue', 'finish', 'buff', 'qc', 'pack'] $c$;
 create function pg_temp.o_recv(p_shop uuid, p_job uuid, p_seq int, p_on date, p_w numeric default null,
                                p_worker uuid default null, p_name text default null) returns jsonb
  language sql as $c$
@@ -159,7 +159,7 @@ $c$;
 create function pg_temp.wu(p_shop uuid, p_name text, p_codes text, p_pin text default null) returns jsonb
  language sql as $c$
   select pg_temp.q(format('select analytics.worker_upsert(p_shop_id=>%L, p_display_name=>%L, p_stage_codes=>%L::text[], p_pin=>%L, p_actor=>%L)',
-    p_shop, p_name, '{' || coalesce(nullif(p_codes, ''), 'cad,print3d,mold,wax_inject,wax_tree,invest_burnout,cast,cut_sprue,polish,gem_set,plating,qc,pack') || '}', p_pin, '00000000-0000-0000-0000-0000000000a1'::uuid)) $c$;
+    p_shop, p_name, '{' || coalesce(nullif(p_codes, ''), 'cad,print3d,mold,wax_inject,wax_tree,invest_burnout,cast,cut_sprue,finish,buff,gem_set,plating,qc,pack') || '}', p_pin, '00000000-0000-0000-0000-0000000000a1'::uuid)) $c$;
 create function pg_temp.newtok(p_shop uuid, p_job uuid) returns text language sql as $c$ select pg_temp.tok(p_shop, p_job) ->> 'hash' $c$;
 create function pg_temp.wid(p_shop uuid, p_name text, p_pin text) returns uuid language sql as $c$ select (pg_temp.wu(p_shop, p_name, '', p_pin) ->> 'id')::uuid $c$;
 create function pg_temp.mutate(p_name text, p_from text, p_to text) returns void
@@ -197,7 +197,7 @@ begin
   return d || pg_temp.jcp(p_shop, (d ->> 'item_id')::uuid, p_codes, p_profile);
 end;
 $c$;
-create function pg_temp.rw(p_shop uuid, p_job uuid, p_w numeric, p_to int default 8) returns jsonb language plpgsql as $c$
+create function pg_temp.rw(p_shop uuid, p_job uuid, p_w numeric, p_to int default 9) returns jsonb language plpgsql as $c$
 declare s int; r jsonb; v_st text; v_today date := analytics.job_today();
 begin
   for s in 1 .. p_to loop
@@ -711,7 +711,7 @@ begin
     and pg_temp.ph(id3, 'deleted_by') = pg_temp.act()::text and pg_temp.ph(id3, 'delete_reason') = 'ลบหลังยกเลิก');
 
   -- ใบ done: ทำครบทุกขั้นแล้วปิดงาน → แก้รูปได้เช่นกัน
-  d := pg_temp.fx(p_shop, p_tpl, pg_temp.pid(p_shop, 'none'), 10, 8);
+  d := pg_temp.fx(p_shop, p_tpl, pg_temp.pid(p_shop, 'none'), 10, 9);
   jd := pg_temp.jid(d);
   r := pg_temp.o_done(p_shop, jd, 10, 0);
   v_log := v_log || pg_temp.chk('A8a', 'fixture: ใบปิดงานแล้ว (done)', (r ->> 'ok') = 'true' and (select status from analytics.job where id = jd) = 'done');
@@ -1305,7 +1305,7 @@ declare
     'analytics.job_photo_set_primary(uuid,uuid,uuid)', 'analytics.job_photo_reorder(uuid,uuid,uuid[],uuid)', 'analytics.job_photo_catalog_source(uuid,uuid)',
     'analytics.job_worker_resolve(text,text,text)'];
   v_trg constant text[] := array['analytics.job_photo_guard()', 'analytics.job_photo_enforce_cap()'];
-  s text; v_bad text := ''; v_x text; r text; j uuid; v_ev text;
+  s text; v_bad text := ''; v_x text; r text; j uuid; v_ev text; v_base text;
   v_calls constant text[] := array[
     'select analytics.job_photo_add(null::uuid, null::uuid, null::text, null::text, null::text, null::text, null::int)',
     'select analytics.job_photo_remove(null::uuid, null::uuid)', 'select analytics.job_photo_set_primary(null::uuid, null::uuid)',
@@ -1385,12 +1385,12 @@ begin
     exists (select 1 from storage.buckets b where b.id = 'job-photos' and b.public = false and b.file_size_limit = 1048576 and b.allowed_mime_types = array['image/jpeg'])
     and not exists (select 1 from pg_policies p where p.schemaname = 'storage' and (coalesce(p.qual, '') || coalesce(p.with_check, '')) like '%job-photos%')
     and exists (select 1 from storage.buckets b where b.id = 'product-images' and b.public = false));
-  v_x := pg_temp.as_role('service_role', 'insert into storage.objects (bucket_id, name) values (''job-photos'', ''verify0182/' || gen_random_uuid()::text || '_md.jpg'')');
+  v_base := pg_temp.cnt_as('service_role', 'select count(*) from storage.objects where bucket_id = ''job-photos'''); v_x := pg_temp.as_role('service_role', 'insert into storage.objects (bucket_id, name) values (''job-photos'', ''verify0182/' || gen_random_uuid()::text || '_md.jpg'')');
   if v_x = 'OK' then
     v_x := pg_temp.cnt_as('authenticated', 'select count(*) from storage.objects where bucket_id = ''job-photos''');
     r := pg_temp.cnt_as('anon', 'select count(*) from storage.objects where bucket_id = ''job-photos''');
-    v_log := v_log || pg_temp.chk('H9b', 'มี object จริง 1 แถวใน job-photos: authenticated/anon นับได้ 0 หรือถูกปฏิเสธ (ไม่เห็น object)',
-      (v_x = '0' or v_x like 'ERR:%') and (r = '0' or r like 'ERR:%') and pg_temp.cnt_as('service_role', 'select count(*) from storage.objects where bucket_id = ''job-photos''') = '1');
+    v_log := v_log || pg_temp.chk('H9b', 'มี object จริงใน job-photos (ใส่ปลอมเพิ่ม 1 แถวบนฐานเดิมที่อาจมีไฟล์จริงจาก UAT — เทียบจำนวนก่อน/หลัง): authenticated/anon นับได้ 0 หรือถูกปฏิเสธ (ไม่เห็น object) · service_role เห็นเพิ่ม 1',
+      (v_x = '0' or v_x like 'ERR:%') and (r = '0' or r like 'ERR:%') and pg_temp.cnt_as('service_role', 'select count(*) from storage.objects where bucket_id = ''job-photos''') = (v_base::int + 1)::text);
     perform pg_temp.as_role('service_role', 'delete from storage.objects where bucket_id = ''job-photos'' and name like ''verify0182/%''');
   else
     v_log := v_log || '[SKIP] H9b  ใส่ object ปลอมใน storage.objects ไม่ได้ (' || left(v_x, 60) || ') — ทดสอบการอ่าน object จริงด้วยสิทธิ์ anon/authenticated ไม่ได้ในชั้นนี้' || E'\n';

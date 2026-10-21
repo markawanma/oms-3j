@@ -77,3 +77,8 @@ export const JOB_PHOTO_REASON_MAX = 300;
 /** รูปที่ผู้จัดการแนบจากหน้างาน (source = shopfloor · QR ร้าน + PIN · 0189) ต่อใบ — มติเจ้าของ 21 ต.ค. 69 (อยู่ภายใต้เพดาน MAX_REFERENCE_PHOTOS ไม่ใช่เพิ่มจากมัน)
  * 🔴 2 ที่เช่นกัน: ที่นี่ + migration 0189 (job_worker_photo_begin/add: v_sf >= 3 · trigger job_photo_guard: >= 3 · key 'max' ในผลของ RPC) — ขยับครึ่งเดียว = หน้าจอเสนอช่องที่ DB ปฏิเสธ */
 export const MAX_SHOPFLOOR_PHOTOS = 3;
+
+/** โควตารูปหน้างาน (security M1 · 21 ต.ค. 69 — ค่าที่ทีมตั้ง แจ้งเจ้าของแล้ว ปรับทีหลังได้): พื้นที่รวม md+sm ของรูป source=shopfloor ที่ยังไม่ลบ ต่อร้าน · จำนวนรูปที่ช่างคนหนึ่งแนบต่อ 24 ชม. (นับรวมที่ลบแล้ว กันวน add/remove)
+ * 🔴 2 ที่เช่นกัน: ที่นี่ + analytics.job_shopfloor_photo_quota() ใน migration 0189 (ตำแหน่งเดียวฝั่ง DB) — ฝั่งแอปไม่ได้ใช้ตัดสิน (DB ตัดสินที่ begin/add) มีไว้ให้ UI/เอกสารอ้างอิงเท่านั้น */
+export const SHOPFLOOR_PHOTOS_BUDGET_BYTES = 80 * 1024 * 1024;
+export const SHOPFLOOR_PHOTOS_PER_WORKER_24H = 60;
