@@ -13,7 +13,9 @@
 --     (a) ต้องมาจาก RPC ช่าง: GUC analytics.shop_photo_id = id ของแถวนั้นในทรานแซกชันเดียวกัน (b) นับรูปหน้างานที่ยังไม่ลบของใบ ≥ 3 = photo_cap_shopfloor (กำแพงที่ DB แม้ RPC ถูกแก้ผิด)
 --     ออฟฟิศ (source office/product) · kind stage · แถวที่ผิด CHECK = พฤติกรรมเดิมเป๊ะ (ด่านใหม่อยู่ท้ายสุดของสาย INSERT และเปิดเฉพาะ reference+shopfloor+worker — verify-0182 ยิง shopfloor ตรงเฉพาะ kind stage / ไม่มี worker)
 --  2. helper ภายใน (ไม่ grant ใคร): shop_intake_photo_auth · job_worker_photo_job · job_worker_photo_block
---  3. RPC ช่าง 4 ตัว (security definer · service_role เท่านั้น): job_worker_photo_begin · job_worker_photo_add · job_worker_photo_remove · job_worker_photo_list
+--  3. RPC ช่าง 5 ตัว (security definer · service_role เท่านั้น): job_worker_photo_begin · job_worker_photo_add · job_worker_photo_remove · job_worker_photo_list · job_worker_my_intake_list ("ใบที่ฉันเปิด" บน hub — มติ 21 ต.ค.)
+--     begin/add/list อ้างใบได้ 2 ทาง "อย่างใดอย่างหนึ่ง": p_idem_key (เพิ่งเปิดใบ) หรือ p_job_id (จากรายการใบของฉัน) — ผ่านเงื่อนไขเดียวกัน: ใบผลิต opened_via=shopfloor ∧ opened_by_worker_id = ช่างใน session ∧ ร้านจาก token ·
+--     job_id ของคนอื่น/ใบออฟฟิศ/ร้านอื่น/ส่วนย่อย = order_not_found (ไม่ใช่แค่รู้ uuid แล้วเข้าได้) · ทั้งสองทางหรือไม่ส่งสักทาง = idem_invalid
 --  ไม่มี trigger ใหม่บน job_photo (verify-0182 นับ trigger = 3) · ไม่แตะ job_photo_enforce_cap / job_photo_add (ออฟฟิศ) / job_worker_resolve (แสดงรูป reference ทุก source อยู่แล้ว) / production_order_done
 --
 -- ตัดสินเอง (นอก design — เหตุผล)
@@ -71,6 +73,15 @@ begin
      or not exists (select 1 from information_schema.columns where table_schema = 'analytics' and table_name = 'production_order' and column_name = 'intake_idem_key')
      or not exists (select 1 from information_schema.columns where table_schema = 'analytics' and table_name = 'production_order' and column_name = 'opened_by_worker_id') then
     raise exception '0189: ไม่พบคอลัมน์ worker.can_open_job / production_order.intake_idem_key / opened_by_worker_id (0187)';
+  end if;
+  -- คอลัมน์ที่ job_worker_my_intake_list อ่าน (plpgsql ไม่ตรวจชื่อคอลัมน์ตอน create — ตรวจที่นี่ให้ล้มก่อน DDL)
+  select count(*) into v_n from information_schema.columns
+   where table_schema = 'analytics'
+     and ((table_name = 'job' and column_name in ('design_label', 'metal', 'qty_order', 'job_no', 'status', 'created_at', 'production_order_item_id', 'parent_job_id'))
+       or (table_name = 'production_order' and column_name in ('po_no', 'status', 'opened_via'))
+       or (table_name = 'production_order_item' and column_name = 'production_order_id'));
+  if v_n <> 12 then
+    raise exception '0189: คอลัมน์ของ job / production_order / production_order_item ไม่ครบตามที่ my_intake_list ใช้ (พบ % จาก 12)', v_n;
   end if;
   select count(*) into v_n from pg_proc where pronamespace = 'analytics'::regnamespace and proname = 'job_photo_guard';
   if v_n <> 1 then
@@ -163,7 +174,7 @@ $f$;
 -- ============================================================================
 
 -- ด่านกลางของทางแนบรูป: ip → รูปแบบ hash → token ร้าน (ไม่พบ = ไม่เขียนถัง) → เพิกถอน → session ช่าง (ร้านเดียวกัน · active) → can_open_job สด → ถังต่อช่าง
--- p_bucket: write (begin/add/remove) | read (list) · คืน {ok, shop_id, worker_id} หรือ job_fail
+-- p_bucket: write (begin/add/remove) | read (รูปของใบ) | list (รายการใบของฉัน — ไม่บังคับ can_open_job) · คืน {ok, shop_id, worker_id, can_open} หรือ job_fail
 create or replace function analytics.shop_intake_photo_auth(p_token_hash text, p_session_hash text, p_ip_hash text, p_bucket text)
  returns jsonb
  language plpgsql
@@ -173,7 +184,7 @@ declare
   v_tok analytics.shop_intake_token%rowtype;
   v_w   analytics.worker%rowtype;
 begin
-  if p_bucket is null or p_bucket not in ('write', 'read') then
+  if p_bucket is null or p_bucket not in ('write', 'read', 'list') then
     raise exception 'shop_intake_photo_auth: bucket ไม่ถูกต้อง' using errcode = '22023';
   end if;
   -- ต่อ IP ก่อน (เขียน = ถังเดียวกับเปิดใบ ipw: 300 · อ่าน = ipr: 240)
@@ -202,19 +213,22 @@ begin
     return analytics.job_fail('session_required', 'หมดเวลาแล้ว — ใส่ PIN ใหม่');
   end if;
   -- สิทธิ์ตรวจสดจาก DB ทุกครั้ง (ออฟฟิศถอนสิทธิ์หลังเปิดใบ = แนบ/ลบรูปไม่ได้ทันที)
-  if not v_w.can_open_job then
+  -- bucket 'list' (รายการใบของฉัน บน hub) ผ่านได้แม้ถูกถอนสิทธิ์ — ผู้เรียกคืนรายการว่างเอง (คืน can_open ให้) · bucket อื่นต้องมีสิทธิ์เสมอ
+  if p_bucket <> 'list' and not v_w.can_open_job then
     return analytics.job_fail('not_allowed', 'บัญชีนี้ไม่มีสิทธิ์จัดการใบงานจากหน้างาน — แจ้งออฟฟิศ');
   end if;
   -- ถังต่อช่างนับ "หลัง" พบ session ที่มีสิทธิ์ — คนถือ QR ปลอม cookie เผาถังของผู้จัดการตัวจริงไม่ได้
   if not analytics.job_rate_limit_hit(case p_bucket when 'write' then 'wp:' else 'wpl:' end || v_w.id::text, case p_bucket when 'write' then 30 else 120 end) then
     return analytics.job_fail('rate_limited', 'ส่งถี่เกินไป — รอสักครู่แล้วลองใหม่');
   end if;
-  return jsonb_build_object('ok', true, 'shop_id', v_tok.shop_id, 'worker_id', v_w.id);
+  return jsonb_build_object('ok', true, 'shop_id', v_tok.shop_id, 'worker_id', v_w.id, 'can_open', v_w.can_open_job);
 end;
 $f$;
 
--- ใบงานรากที่ "ช่างคนนี้เปิดเอง" ด้วย idem key นี้ (ร้านจาก token) — ไม่พบ/ของช่างอื่น/ใบออฟฟิศ (idem ว่างเสมอ) = null (ผู้เรียกตอบ order_not_found เหมือนกันทุกกรณี)
-create or replace function analytics.job_worker_photo_job(p_shop_id uuid, p_worker_id uuid, p_idem_key text)
+-- ใบงานรากที่ "ช่างคนนี้เปิดเอง" (ร้านจาก token) อ้างได้ 2 ทาง "อย่างใดอย่างหนึ่งเท่านั้น": idem key ของการเปิดใบ (ตอนเพิ่งเปิดในเซสชันเดียวกัน) หรือ job_id (จากรายการ "ใบที่ฉันเปิด" บน hub)
+-- ทั้งสองทางผ่านเงื่อนไขเดียวกัน: ใบผลิต opened_via='shopfloor' ∧ opened_by_worker_id = ช่างใน session ∧ ร้านเดียวกัน — job_id ของคนอื่น/ใบออฟฟิศ/ร้านอื่น/ส่วนย่อย ไม่ใช่เป้าหมายได้ (ไม่ใช่แค่ "รู้ uuid แล้วเข้าได้")
+-- ไม่พบ/ของช่างอื่น/ใบออฟฟิศ/ส่งไม่ครบหรือเกินหนึ่งทาง = null (ผู้เรียกตอบ order_not_found เหมือนกันทุกกรณี)
+create or replace function analytics.job_worker_photo_job(p_shop_id uuid, p_worker_id uuid, p_idem_key text, p_job_id uuid default null)
  returns uuid
  language sql
  stable
@@ -225,7 +239,9 @@ as $f$
     join analytics.production_order_item i on i.production_order_id = po.id
     join analytics.job j on j.production_order_item_id = i.id
    where po.shop_id = p_shop_id
-     and po.intake_idem_key = p_idem_key
+     and j.shop_id = p_shop_id
+     and num_nonnulls(p_idem_key, p_job_id) = 1
+     and (po.intake_idem_key = p_idem_key or j.id = p_job_id)
      and po.opened_by_worker_id = p_worker_id
      and po.opened_via = 'shopfloor'
      and j.parent_job_id is null
@@ -270,7 +286,7 @@ $f$;
 -- ============================================================================
 
 -- begin: ผ่านด่านทุกชั้น "ก่อนแตะ bucket" แล้วออก uuid ให้ server ใช้สร้าง path — ไม่เขียนข้อมูลใด (นอกจากนับถัง rate limit)
-create or replace function analytics.job_worker_photo_begin(p_token_hash text, p_session_hash text, p_idem_key text, p_ip_hash text default null)
+create or replace function analytics.job_worker_photo_begin(p_token_hash text, p_session_hash text, p_idem_key text, p_ip_hash text default null, p_job_id uuid default null)
  returns jsonb
  language plpgsql
  security definer
@@ -291,10 +307,10 @@ begin
   end if;
   v_shop := (v_a ->> 'shop_id')::uuid;
   v_wid := (v_a ->> 'worker_id')::uuid;
-  if p_idem_key is null or p_idem_key !~ '^[A-Za-z0-9_-]{16,64}$' then
+  if num_nonnulls(p_idem_key, p_job_id) <> 1 or (p_idem_key is not null and p_idem_key !~ '^[A-Za-z0-9_-]{16,64}$') then
     return analytics.job_fail('idem_invalid', 'ข้อมูลไม่ครบ — โหลดหน้าใหม่แล้วลองอีกครั้ง');
   end if;
-  v_job := analytics.job_worker_photo_job(v_shop, v_wid, p_idem_key);
+  v_job := analytics.job_worker_photo_job(v_shop, v_wid, p_idem_key, p_job_id);
   if v_job is null then
     return analytics.job_fail('order_not_found', 'ไม่พบใบงานที่เปิดด้วยรหัสนี้ — โหลดหน้าใหม่แล้วลองอีกครั้ง');
   end if;
@@ -318,7 +334,7 @@ $f$;
 create or replace function analytics.job_worker_photo_add(
   p_token_hash text, p_session_hash text, p_idem_key text, p_photo_id uuid, p_storage_path text, p_variant_sm_path text,
   p_bytes integer, p_width integer default null, p_height integer default null, p_is_primary boolean default false,
-  p_user_agent text default null, p_ip_hash text default null)
+  p_user_agent text default null, p_ip_hash text default null, p_job_id uuid default null)
  returns jsonb
  language plpgsql
  security definer
@@ -348,7 +364,7 @@ begin
   v_shop := (v_a ->> 'shop_id')::uuid;
   v_wid := (v_a ->> 'worker_id')::uuid;
   -- รูปแบบค่า (ไม่แตะข้อมูล) · ตัวเลขใช้ not(between) กัน null/NaN (ข้อ 4)
-  if p_idem_key is null or p_idem_key !~ '^[A-Za-z0-9_-]{16,64}$' then
+  if num_nonnulls(p_idem_key, p_job_id) <> 1 or (p_idem_key is not null and p_idem_key !~ '^[A-Za-z0-9_-]{16,64}$') then
     return analytics.job_fail('idem_invalid', 'ข้อมูลไม่ครบ — โหลดหน้าใหม่แล้วลองอีกครั้ง');
   end if;
   if p_photo_id is null or p_storage_path is null or p_variant_sm_path is null then
@@ -360,7 +376,7 @@ begin
   if (p_width is not null and not (p_width between 1 and 100000)) or (p_height is not null and not (p_height between 1 and 100000)) then
     return analytics.job_fail('photo_dims_invalid', 'ขนาดภาพไม่ถูกต้อง ลองถ่ายรูปใหม่');
   end if;
-  v_job_id := analytics.job_worker_photo_job(v_shop, v_wid, p_idem_key);
+  v_job_id := analytics.job_worker_photo_job(v_shop, v_wid, p_idem_key, p_job_id);
   if v_job_id is null then
     return analytics.job_fail('order_not_found', 'ไม่พบใบงานที่เปิดด้วยรหัสนี้ — โหลดหน้าใหม่แล้วลองอีกครั้ง');
   end if;
@@ -486,7 +502,7 @@ end;
 $f$;
 
 -- list: รูป active ของใบที่ช่างคนนี้เปิดเอง (ให้หน้าจอรู้ว่าแนบไปแล้วกี่รูป/รูปไหนลบได้) — path ให้ server เซ็น URL แล้วทิ้ง (ไม่ถึง client)
-create or replace function analytics.job_worker_photo_list(p_token_hash text, p_session_hash text, p_idem_key text, p_ip_hash text default null)
+create or replace function analytics.job_worker_photo_list(p_token_hash text, p_session_hash text, p_idem_key text, p_ip_hash text default null, p_job_id uuid default null)
  returns jsonb
  language plpgsql
  security definer
@@ -507,10 +523,10 @@ begin
   end if;
   v_shop := (v_a ->> 'shop_id')::uuid;
   v_wid := (v_a ->> 'worker_id')::uuid;
-  if p_idem_key is null or p_idem_key !~ '^[A-Za-z0-9_-]{16,64}$' then
+  if num_nonnulls(p_idem_key, p_job_id) <> 1 or (p_idem_key is not null and p_idem_key !~ '^[A-Za-z0-9_-]{16,64}$') then
     return analytics.job_fail('idem_invalid', 'ข้อมูลไม่ครบ — โหลดหน้าใหม่แล้วลองอีกครั้ง');
   end if;
-  v_job := analytics.job_worker_photo_job(v_shop, v_wid, p_idem_key);
+  v_job := analytics.job_worker_photo_job(v_shop, v_wid, p_idem_key, p_job_id);
   if v_job is null then
     return analytics.job_fail('order_not_found', 'ไม่พบใบงานที่เปิดด้วยรหัสนี้ — โหลดหน้าใหม่แล้วลองอีกครั้ง');
   end if;
@@ -526,6 +542,53 @@ begin
 end;
 $f$;
 
+-- my_intake_list: "ใบที่ฉันเปิด" บน hub QR ร้าน (มติ 21 ต.ค.) — เฉพาะใบที่ช่างคนนี้เปิดเอง (ใบผลิต opened_via=shopfloor ∧ opened_by_worker_id = ช่างใน session) ที่ยังไม่ปิด/ไม่ยกเลิก · ล่าสุดก่อน · ≤ 20 ใบ · ภายใน 14 วัน (ทีมตั้ง)
+-- ไม่มีเงิน/ต้นทุน/น้ำหนักทอง (มีแค่เลขใบ ชื่อแบบ วัสดุ จำนวนสั่ง สถานะ จำนวนรูป) · ใบของคนอื่น/ใบออฟฟิศ/ร้านอื่นไม่เข้าเงื่อนไขเลย · ถูกถอน can_open_job = รายการว่าง (ไม่ใช่ error — hub ไม่ต้องแสดงข้อผิดพลาด)
+-- editable = ผ่าน job_worker_photo_block (ยังไม่มีขั้น received/sent · สถานะ open) — ตัดสินที่เดียวกับ begin/add/remove
+create or replace function analytics.job_worker_my_intake_list(p_token_hash text, p_session_hash text, p_ip_hash text default null)
+ returns jsonb
+ language plpgsql
+ security definer
+ set search_path to 'public', 'analytics', 'extensions', 'pg_temp'
+as $f$
+declare
+  v_a    jsonb;
+  v_shop uuid;
+  v_wid  uuid;
+  v_jobs jsonb;
+begin
+  v_a := analytics.shop_intake_photo_auth(p_token_hash, p_session_hash, p_ip_hash, 'list');
+  if not (v_a ->> 'ok')::boolean then
+    return v_a;
+  end if;
+  if not (v_a ->> 'can_open')::boolean then
+    return jsonb_build_object('ok', true, 'open_allowed', false, 'jobs', '[]'::jsonb);
+  end if;
+  v_shop := (v_a ->> 'shop_id')::uuid;
+  v_wid := (v_a ->> 'worker_id')::uuid;
+  select coalesce(jsonb_agg(x.o order by x.created_at desc, x.job_id), '[]'::jsonb) into v_jobs
+    from (
+      select j.id as job_id, j.created_at,
+             jsonb_build_object(
+               'job_id', j.id, 'order_no', po.po_no, 'job_no', j.job_no, 'design_label', j.design_label, 'metal', j.metal,
+               'qty', j.qty_order, 'created_at', j.created_at, 'status', j.status,
+               'photos_count', (select count(*) from analytics.job_photo p where p.job_id = j.id and p.deleted_at is null and p.kind = 'reference'),
+               'my_photos_count', (select count(*) from analytics.job_photo p where p.job_id = j.id and p.deleted_at is null and p.kind = 'reference' and p.source = 'shopfloor'),
+               'editable', analytics.job_worker_photo_block(j.id) is null) as o
+        from analytics.production_order po
+        join analytics.production_order_item i on i.production_order_id = po.id
+        join analytics.job j on j.production_order_item_id = i.id
+       where po.shop_id = v_shop and j.shop_id = v_shop
+         and po.opened_by_worker_id = v_wid and po.opened_via = 'shopfloor'
+         and po.status = 'open'
+         and j.parent_job_id is null and j.status not in ('done', 'cancelled')
+         and j.created_at >= now() - interval '14 days'
+       order by j.created_at desc, j.id
+       limit 20) x;
+  return jsonb_build_object('ok', true, 'open_allowed', true, 'jobs', v_jobs, 'max_photos', 3);
+end;
+$f$;
+
 -- ============================================================================
 -- 4. สิทธิ์ (ข้อ 2 · 18.1): ถอนทั้ง 4 ชื่อ แล้ว grant เฉพาะ RPC ช่างให้ service_role — helper/trigger function ไม่ให้ใคร
 -- ============================================================================
@@ -534,8 +597,8 @@ declare
   r record;
   v_touched constant text[] := array[
     'job_photo_guard', 'shop_intake_photo_auth', 'job_worker_photo_job', 'job_worker_photo_block',
-    'job_worker_photo_begin', 'job_worker_photo_add', 'job_worker_photo_remove', 'job_worker_photo_list'];
-  v_rpc constant text[] := array['job_worker_photo_begin', 'job_worker_photo_add', 'job_worker_photo_remove', 'job_worker_photo_list'];
+    'job_worker_photo_begin', 'job_worker_photo_add', 'job_worker_photo_remove', 'job_worker_photo_list', 'job_worker_my_intake_list'];
+  v_rpc constant text[] := array['job_worker_photo_begin', 'job_worker_photo_add', 'job_worker_photo_remove', 'job_worker_photo_list', 'job_worker_my_intake_list'];
   v_n int;
 begin
   for r in
@@ -564,7 +627,7 @@ declare
   v_changed text;
   v_new text;
   v_touched constant text[] := array['job_photo_guard'];
-  v_added constant text[] := array['shop_intake_photo_auth', 'job_worker_photo_job', 'job_worker_photo_block', 'job_worker_photo_begin', 'job_worker_photo_add', 'job_worker_photo_remove', 'job_worker_photo_list'];
+  v_added constant text[] := array['shop_intake_photo_auth', 'job_worker_photo_job', 'job_worker_photo_block', 'job_worker_photo_begin', 'job_worker_photo_add', 'job_worker_photo_remove', 'job_worker_photo_list', 'job_worker_my_intake_list'];
 begin
   -- (1) ฟังก์ชันเดิมนอกรายการ md5 ต้องเท่าเดิมเป๊ะ (ทุกตัวในสคีมา — รวม job_photo_enforce_cap · job_photo_add · job_worker_resolve · production_order_done)
   select string_agg(b.sig, ', ') into v_changed
@@ -621,7 +684,7 @@ begin
   select string_agg(p.proname, ', ') into v_new
     from pg_proc p
    where p.pronamespace = 'analytics'::regnamespace and p.proname = any (v_added)
-     and (has_function_privilege('service_role', p.oid, 'execute')) <> (p.proname in ('job_worker_photo_begin', 'job_worker_photo_add', 'job_worker_photo_remove', 'job_worker_photo_list'));
+     and (has_function_privilege('service_role', p.oid, 'execute')) <> (p.proname in ('job_worker_photo_begin', 'job_worker_photo_add', 'job_worker_photo_remove', 'job_worker_photo_list', 'job_worker_my_intake_list'));
   if v_new is not null then
     raise exception '0189: สิทธิ์ service_role ของฟังก์ชันใหม่ผิด (RPC ช่างต้อง execute ได้ · helper ต้องไม่ได้): %', v_new;
   end if;
@@ -630,9 +693,9 @@ begin
 end;
 $c$;
 
-comment on function analytics.job_worker_photo_begin(text, text, text, text) is
+comment on function analytics.job_worker_photo_begin(text, text, text, text, uuid) is
   '0189 W2: ผ่านด่านทุกชั้น (QR ร้าน + session ผู้จัดการ + ใบที่ช่างคนนี้เปิดเอง + ยังไม่มีขั้นถูกรับ + เพดาน 3/5) ก่อน server แตะ bucket · ออก uuid ให้ path · ไม่เขียนข้อมูล';
-comment on function analytics.job_worker_photo_add(text, text, text, uuid, text, text, integer, integer, integer, boolean, text, text) is
+comment on function analytics.job_worker_photo_add(text, text, text, uuid, text, text, integer, integer, integer, boolean, text, text, uuid) is
   '0189 W2: ลงทะเบียนรูป source=shopfloor (ตรวจทุกด่านซ้ำใต้ล็อกแถวใบ · path ต้องตรง <shop>/<job>/<photo_id>) · guard บน job_photo บังคับว่า INSERT shopfloor มาจากฟังก์ชันนี้เท่านั้น (GUC)';
 comment on function analytics.job_worker_photo_remove(text, text, uuid, text, text) is
   '0189 W2: ลบรูปของตัวเองจนช่างเริ่มรับงาน (soft delete · event photo_remove actor=ช่าง) · คืน path ให้ server ลบ object';
