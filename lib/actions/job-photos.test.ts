@@ -496,6 +496,14 @@ describe("removeJobPhoto / setPrimaryJobPhoto / reorderJobPhotos", () => {
     expect(logged()).not.toContain(PH);
   });
 
+  it("ลบรูปที่ผู้จัดการแนบจากหน้างาน (0189): DB ตอบ reason_required → ข้อความไทยบอกให้ระบุเหตุผล · ไม่ลบไฟล์ · code ส่งต่อให้หน้าจอ", async () => {
+    rpcMock.mockResolvedValueOnce({ data: null, error: { code: "22023", hint: "reason_required", message: "ลบรูปที่ผู้จัดการแนบจากหน้างานต้องระบุเหตุผล (อย่างน้อย 2 ตัวอักษร)" } });
+    const r = await removeJobPhoto(PH, null);
+    expect(!r.ok && r.code).toBe("reason_required");
+    expect(!r.ok && r.error).toMatch(/ต้องระบุเหตุผล/);
+    expect(removeMock).not.toHaveBeenCalled();
+  });
+
   it("ตั้งรูปหลัก: RPC พร้อม actor จาก session · id ผิดรูปไม่ถึง RPC · ข้อความไทยเมื่อล้ม", async () => {
     expect(await setPrimaryJobPhoto(PH)).toEqual({ ok: true, data: null });
     expect(rpcCalls("job_photo_set_primary")[0][1]).toMatchObject({ p_photo_id: PH, p_shop_id: SHOP, p_actor: USER });

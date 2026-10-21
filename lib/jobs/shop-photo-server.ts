@@ -32,6 +32,8 @@ export interface IntakePhoto {
 }
 
 export interface IntakeUploadResult {
+  /** true = clientPhotoKey เดิมเคยแนบสำเร็จแล้ว — คืนรูปเดิม ไม่สร้าง/ไม่อัปซ้ำ */
+  already?: boolean;
   photo: IntakePhoto;
   /** รูปจากหน้างานของใบนี้หลังเพิ่ม */
   count: number;
@@ -95,6 +97,8 @@ const PHOTO_CODE_TH: Record<string, string> = {
   photo_bytes_invalid: "ไฟล์รูปไม่ถูกต้อง (ใหญ่เกินกำหนดหรือว่างเปล่า)",
   photo_dims_invalid: "ขนาดภาพไม่ถูกต้อง ลองถ่ายรูปใหม่",
   photo_conflict: "รูปหลักของใบเปลี่ยนไปพร้อมกัน — ลองอีกครั้ง",
+  photo_key_used: "รูปนี้ถูกใช้ไปแล้ว — เลือกรูปใหม่",
+  primary_locked: "รูปหลักตั้งโดยออฟฟิศแล้ว — เปลี่ยนไม่ได้ ถ้าต้องแก้ แจ้งออฟฟิศ",
   job_closed: "ใบนี้ปิดแล้ว — ออก QR ใหม่ไม่ได้",
   token_cap: "ใบนี้มี QR ที่ใช้งานอยู่ครบ 5 ใบแล้ว — แจ้งออฟฟิศให้เพิกถอนก่อน",
   token_not_issued: "ออก QR ไม่ได้ตอนนี้ — แจ้งออฟฟิศ",
@@ -186,32 +190,57 @@ export async function listMyIntakeJobs(token: unknown): Promise<WorkerOk<MyIntak
 }
 
 // ---------------------------------------------------------------------------
+// ตั้งรูปหลักหลังส่งแล้ว (มติ 21 ต.ค.)
+// ---------------------------------------------------------------------------
+
+/** ตั้งรูป (ของตัวเอง) เป็นรูปหลัก — DB ตรวจเจ้าของ/ล็อก · ไม่ล้มรูปหลักที่ออฟฟิศ/แคตตาล็อกตั้ง (primary_locked) */
+export async function setPrimaryIntakePhoto(token: unknown, ref: IntakeJobRef, photoId: unknown): Promise<WorkerOk<{ changed: boolean }> | WorkerFail> {
+  if (!refValid(ref)) return photoFail(fail("idem_invalid"));
+  if (typeof photoId !== "string" || !isUuid(photoId)) return photoFail(fail("photo_not_found"));
+  const a = await authed(token);
+  if ("f" in a) return a.f;
+  const r = await callWorkerRpc("job_worker_photo_set_primary", { p_token_hash: a.c.tokenHash, p_session_hash: a.c.sessionHash, p_photo_id: photoId, p_ip_hash: a.c.ipHash, ...refParams(ref) });
+  if (isFail(r)) return photoFail(r);
+  const bad = intakeClean(r, "job_worker_photo_set_primary");
+  if (bad) return bad;
+  return { ok: true, data: { changed: r.changed === true } };
+}
+
+// ---------------------------------------------------------------------------
 // ออก QR ใหม่ของใบที่ฉันเปิด (มติ 21 ต.ค.)
 // ---------------------------------------------------------------------------
 
 export interface IntakeReissueResult {
-  /** QR ใบงานดิบ — แสดงครั้งเดียว (ผู้เรียกห้าม log/เก็บ) */
-  token: string;
-  printNo: number;
+  /** true = idemKey เดิมออกไปแล้ว (ภายใน 10–20 นาที) — ไม่ออกใหม่ และไม่มี token (ไม่เก็บ raw token ส่งซ้ำไม่ได้): หน้าจอบอก "ออกไปแล้ว ถ้าไม่เห็น QR ให้กดออกใหม่อีกครั้ง" (ใช้ key ใหม่) */
+  already: boolean;
+  /** QR ใบงานดิบ — แสดงครั้งเดียว (ผู้เรียกห้าม log/เก็บ) · null เมื่อ already */
+  token: string | null;
+  printNo: number | null;
   jobNo: string;
 }
 
 const TOKEN_RE = /^[A-Za-z0-9_-]{16,64}$/;
 
-export async function reissueIntakeToken(token: unknown, jobId: unknown): Promise<WorkerOk<IntakeReissueResult> | WorkerFail> {
+export async function reissueIntakeToken(token: unknown, jobId: unknown, idemKey?: unknown): Promise<WorkerOk<IntakeReissueResult> | WorkerFail> {
   if (typeof jobId !== "string" || !isUuid(jobId)) return photoFail(fail("order_not_found"));
+  if (idemKey !== null && idemKey !== undefined && (typeof idemKey !== "string" || !IDEM_RE.test(idemKey))) return photoFail(fail("idem_invalid"));
   const a = await authed(token);
   if ("f" in a) return a.f;
-  const r = await callWorkerRpc("job_worker_token_reissue", { p_token_hash: a.c.tokenHash, p_session_hash: a.c.sessionHash, p_job_id: jobId, p_ip_hash: a.c.ipHash });
+  const r = await callWorkerRpc("job_worker_token_reissue", { p_token_hash: a.c.tokenHash, p_session_hash: a.c.sessionHash, p_job_id: jobId, p_ip_hash: a.c.ipHash, ...(typeof idemKey === "string" ? { p_idem_key: idemKey } : {}) });
   if (isFail(r)) return photoFail(r);
   // ผลดิบมี token ดิบ (ตั้งใจ) — ตรวจ key ต้องห้ามบนสำเนาที่ไม่มี token (ไม่ log ผลดิบเด็ดขาด)
   const { token: raw, ...rest } = r;
   const bad = intakeClean(rest, "job_worker_token_reissue");
   if (bad) return bad;
   const jobNo = typeof rest.job_no === "string" ? rest.job_no.slice(0, 20) : "";
+  if (rest.already === true) {
+    // ออกไปแล้ว: ไม่มี token — ถ้า DB แอบส่ง token มา = ผิดสัญญา ไม่ส่งต่อ
+    if (raw !== undefined || !/^JB-\d{1,8}$/.test(jobNo)) return fail("error", GENERIC_JOB_ERROR);
+    return { ok: true, data: { already: true, token: null, printNo: null, jobNo } };
+  }
   const printNo = finite(rest.print_no);
   if (typeof raw !== "string" || !TOKEN_RE.test(raw) || !/^JB-\d{1,8}$/.test(jobNo) || printNo === null || !Number.isInteger(printNo) || printNo < 1 || printNo > 1000) return fail("error", GENERIC_JOB_ERROR);
-  return { ok: true, data: { token: raw, printNo, jobNo } };
+  return { ok: true, data: { already: false, token: raw, printNo, jobNo } };
 }
 
 // ---------------------------------------------------------------------------
@@ -224,6 +253,8 @@ export interface IntakePhotoUploadInput {
   sm: File;
   /** ขอเป็นรูปหลัก (DB ตัดสิน: ไม่ล้มรูปหลักที่ออฟฟิศ/แคตตาล็อกตั้งไว้) */
   isPrimary: boolean;
+  /** uuid ต่อรูปจาก client (idempotency) — key เดิมของช่างคนเดิม = คืนรูปเดิม ไม่สร้างซ้ำ ไม่อัปซ้ำ · ไม่ส่ง = พฤติกรรมเดิม */
+  clientKey?: string | null;
 }
 
 const fileFail = (code: keyof typeof JOB_PHOTO_FILE_CODE, msg: keyof typeof JOB_PHOTO_FILE_ERROR_TH): WorkerFail => ({ ok: false, code: JOB_PHOTO_FILE_CODE[code], error: JOB_PHOTO_FILE_ERROR_TH[msg] });
@@ -253,6 +284,14 @@ async function prepareJpegPair(mdFile: File, smFile: File): Promise<Prepared> {
   return { ok: true, md: cmd.bytes, sm: csm.bytes, width: dims.width, height: dims.height };
 }
 
+/** รูปเดิมของ key ที่เคยแนบแล้ว (อ่านจาก list — path ไม่ออกถึง client) */
+async function existingPhoto(token: unknown, ref: IntakeJobRef, photoId: string): Promise<WorkerOk<IntakeUploadResult> | WorkerFail> {
+  const l = await listIntakePhotos(token, ref);
+  if (!l.ok) return l;
+  const hit = l.data.photos.find((p) => p.id === photoId);
+  return hit ? { ok: true, data: { already: true, photo: hit, count: l.data.count, max: MAX_SHOPFLOOR_PHOTOS } } : fail("error", GENERIC_JOB_ERROR);
+}
+
 export async function uploadIntakePhoto(token: unknown, i: IntakePhotoUploadInput): Promise<WorkerOk<IntakeUploadResult> | WorkerFail> {
   if (!refValid(i.ref)) return photoFail(fail("idem_invalid"));
   if (!(i.md instanceof File) || !(i.sm instanceof File)) return fileFail("missing", "missing");
@@ -260,7 +299,9 @@ export async function uploadIntakePhoto(token: unknown, i: IntakePhotoUploadInpu
   if (i.md.size > MAX_BYTES || i.sm.size > MAX_BYTES) return fileFail("tooLarge", "tooLarge");
   const a = await authed(token);
   if ("f" in a) return a.f;
-  const base = { p_token_hash: a.c.tokenHash, p_session_hash: a.c.sessionHash, p_ip_hash: a.c.ipHash, ...refParams(i.ref) };
+  const clientKey = typeof i.clientKey === "string" && isUuid(i.clientKey) ? i.clientKey.toLowerCase() : null;
+  if (i.clientKey !== null && i.clientKey !== undefined && clientKey === null) return photoFail(fail("idem_invalid"));
+  const base = { p_token_hash: a.c.tokenHash, p_session_hash: a.c.sessionHash, p_ip_hash: a.c.ipHash, ...refParams(i.ref), ...(clientKey ? { p_client_key: clientKey } : {}) };
 
   // 2) ผ่าน DB ก่อนแตะ bucket
   const b = await callWorkerRpc("job_worker_photo_begin", base);
@@ -271,6 +312,8 @@ export async function uploadIntakePhoto(token: unknown, i: IntakePhotoUploadInpu
   const shopId = lc(b.shop_id);
   const photoId = lc(b.photo_id);
   if (!jobId || !shopId || !photoId) return fail("error", GENERIC_JOB_ERROR);
+  // key เดิมเคยแนบสำเร็จแล้ว → คืนรูปเดิม ไม่อ่านไฟล์ ไม่แตะ bucket ไม่ลงทะเบียนซ้ำ
+  if (b.already === true) return existingPhoto(token, i.ref, photoId);
 
   // 3) bytes (ตัด Exif ที่ server เอง — ไม่เชื่อว่า client ย่อ/ล้างมาแล้ว)
   const prep = await prepareJpegPair(i.md, i.sm);
@@ -309,6 +352,12 @@ export async function uploadIntakePhoto(token: unknown, i: IntakePhotoUploadInpu
   }
   const rBad = intakeClean(r, "job_worker_photo_add");
   if (rBad) return rBad;
+  if (r.already === true) {
+    // ส่งซ้ำพร้อมกัน/ซ้ำหลัง begin: DB คืนรูปเดิมของ key นี้ — object ที่เพิ่งอัปเป็นของซ้ำ ลบทิ้ง แล้วคืนรูปเดิม
+    await deleteJobPhotoObjects([mdPath, smPath]);
+    const ex = lc(r.photo_id);
+    return ex ? existingPhoto(token, i.ref, ex) : fail("error", GENERIC_JOB_ERROR);
+  }
   if (lc(r.photo_id) !== photoId) {
     // ผิดสัญญา (ไม่ควรเกิด): แถวอาจเกิดแล้ว — ไม่ลบ object
     logJobFailure("uploadIntakePhoto.contract", { code: "bad_rpc_result" });

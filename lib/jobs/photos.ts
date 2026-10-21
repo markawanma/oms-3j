@@ -77,6 +77,8 @@ export const JOB_PHOTO_ERROR_TH: Record<string, string> = {
   photo_not_yet: "ยังไม่เปิดใช้รูปชนิดนี้",
   caption_invalid: `ป้ายรูปไม่ถูกต้อง — ห้ามขึ้นบรรทัดใหม่/อักขระล่องหน และยาวไม่เกิน ${JOB_PHOTO_CAPTION_MAX} ตัวอักษร`,
   reason_invalid: "เหตุผลที่ลบมีอักขระที่ไม่อนุญาตหรือยาวเกินไป",
+  // 0189: รูปที่ผู้จัดการแนบจากหน้างาน ออฟฟิศลบต้องระบุเหตุผล (DB บังคับที่ job_photo_remove)
+  reason_required: "รูปนี้ผู้จัดการแนบจากหน้างาน — ต้องระบุเหตุผลที่ลบ (อย่างน้อย 2 ตัวอักษร)",
 };
 
 export const JOB_PHOTO_GENERIC_ERROR = "ทำรายการกับรูปไม่สำเร็จ ลองใหม่อีกครั้ง";

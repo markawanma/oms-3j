@@ -10,7 +10,7 @@ import { INVISIBLE_RE, TARGET_PIECE_MAX_G, parseBufferText, parseCount, parseDat
 import { WORKER_SESSION_COOKIE, openIntakeJob, revokeWorkerSession, searchIntakeProducts, verifyIntakePin, verifyWorkerPin, workerArriveDiscrepancy, workerCancelLot, workerReceive, workerResolveDiscrepancy, workerSend } from "@/lib/jobs/worker-server";
 import type { IntakeMetal, IntakeOpenResult, IntakeProduct, WorkerFail } from "@/lib/jobs/worker-server";
 import { JOB_PHOTO_FILE_CODE, JOB_PHOTO_FILE_ERROR_TH } from "@/lib/jobs/photos";
-import { listIntakePhotos, listMyIntakeJobs, reissueIntakeToken, removeIntakePhoto, uploadIntakePhoto } from "@/lib/jobs/shop-photo-server";
+import { listIntakePhotos, listMyIntakeJobs, reissueIntakeToken, removeIntakePhoto, setPrimaryIntakePhoto, uploadIntakePhoto } from "@/lib/jobs/shop-photo-server";
 import type { IntakeJobRef, IntakePhotoList, IntakeReissueResult, IntakeUploadResult, MyIntakeList } from "@/lib/jobs/shop-photo-server";
 import { purityPctIssue, purityPctToFraction } from "@/lib/units/purity";
 import { WORKER_CODE_TH } from "@/lib/jobs/messages";
@@ -370,8 +370,29 @@ export async function intakeUploadPhoto(token: string, fd: FormData): Promise<In
   const sm = fd.get("sm");
   if (!(md instanceof File) || !(sm instanceof File)) return { ok: false, error: JOB_PHOTO_FILE_ERROR_TH.missing, code: JOB_PHOTO_FILE_CODE.missing };
   const prim = fd.get("isPrimary");
-  const r = await uploadIntakePhoto(token, { ref, md, sm, isPrimary: prim === "true" || prim === "1" });
+  // clientPhotoKey (ไม่บังคับ): uuid ต่อรูปจาก client — สร้างตอนเลือกรูป ใช้ซ้ำตอน "ลองใหม่" เสมอ · key เดิม = คืนรูปเดิม (result.already) ไม่สร้างซ้ำ ไม่อัปซ้ำ
+  const rawKey = fd.get("clientPhotoKey");
+  let clientKey: string | null = null;
+  if (rawKey !== null && rawKey !== "") {
+    if (typeof rawKey !== "string" || !isUuid(rawKey)) return intakeBad("ข้อมูลไม่ครบ — โหลดหน้าใหม่แล้วลองอีกครั้ง", "key");
+    clientKey = rawKey.toLowerCase();
+  }
+  const r = await uploadIntakePhoto(token, { ref, md, sm, isPrimary: prim === "true" || prim === "1", clientKey });
   return r.ok ? { ok: true, ...r.data } : failOf(r);
+}
+
+export type IntakeSetPrimaryActionResult = { ok: true; changed: boolean } | IntakeActionFail;
+
+/**
+ * ตั้งรูป (ของตัวเอง) เป็นรูปหลักหลังส่งแล้ว — อ้างใบด้วย idemKey หรือ jobId อย่างใดอย่างหนึ่ง (DB ตรวจว่าเป็นใบ/รูปของช่างใน session · ยังไม่มีขั้นถูกรับ)
+ * สลับได้เฉพาะเมื่อรูปหลักปัจจุบันเป็นรูปหน้างานหรือยังไม่มีรูปหลัก — รูปหลักที่ออฟฟิศ/แคตตาล็อกตั้ง = code primary_locked · เป็นหลักอยู่แล้ว = ok changed:false
+ */
+export async function intakeSetPrimaryPhoto(token: string, input: { idemKey?: string | null; jobId?: string | null; photoId: string }): Promise<IntakeSetPrimaryActionResult> {
+  if (typeof input !== "object" || input === null || typeof input.photoId !== "string" || !isUuid(input.photoId)) return intakeBad("ข้อมูลไม่ถูกต้อง");
+  const ref = photoRef(input.idemKey, input.jobId);
+  if (!ref) return intakeBad("ข้อมูลไม่ครบ — โหลดหน้าใหม่แล้วลองอีกครั้ง", "key");
+  const r = await setPrimaryIntakePhoto(token, ref, input.photoId);
+  return r.ok ? { ok: true, changed: r.data.changed } : failOf(r);
 }
 
 export type IntakePhotoRemoveActionResult = { ok: true; promotedPhotoId: string | null; already: boolean } | IntakeActionFail;
@@ -399,9 +420,12 @@ export type IntakeReissueActionResult = ({ ok: true } & IntakeReissueResult) | I
 /**
  * "ออก QR ใหม่" ของใบที่ฉันเปิดเอง (DB ตรวจเจ้าของ/สถานะ/เพดาน 5 ใบ) — คืน QR ดิบครั้งเดียวให้หน้าจอวาด (ห้าม log/เก็บ) · QR เดิมยังใช้ได้ (ไม่เพิกถอน)
  */
-export async function intakeReissueToken(token: string, jobId: string): Promise<IntakeReissueActionResult> {
+export async function intakeReissueToken(token: string, jobId: string, idemKey?: string | null): Promise<IntakeReissueActionResult> {
   if (typeof jobId !== "string" || !isUuid(jobId)) return intakeBad("ข้อมูลไม่ถูกต้อง");
-  const r = await reissueIntakeToken(token, jobId);
+  // idemKey (ไม่บังคับ · 16–64 ตัว [A-Za-z0-9_-]): key เดิมภายใน 10–20 นาที = ไม่ออกใหม่ → result.already = true และไม่มี token (DB ไม่เก็บ QR ดิบ) ·
+  // หน้าจอบอก "ออกไปแล้ว ถ้าไม่เห็น QR ให้กดออกใหม่อีกครั้ง" แล้วกดใหม่ด้วย key ใหม่
+  if (idemKey !== null && idemKey !== undefined && (typeof idemKey !== "string" || !IDEM_RE.test(idemKey))) return intakeBad("ข้อมูลไม่ครบ — โหลดหน้าใหม่แล้วลองอีกครั้ง", "key");
+  const r = await reissueIntakeToken(token, jobId, idemKey ?? undefined);
   return r.ok ? { ok: true, ...r.data } : failOf(r);
 }
 
