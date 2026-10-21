@@ -139,3 +139,34 @@ describe("โฟลเดอร์ shop + shop-open.ts — ไม่มีเร
     expect(hits[0]).toMatch(/\.test\(t\)/);
   });
 });
+
+// 0189 W2 UI: หน้าช่าง /w/<token> ขยายรูปหลักใหญ่บนหัวจอ — เป็นการ "แสดงผล" ล้วน (ภาพ md ที่ server เซ็นมาแล้ว): กราฟต้องไม่ลากโค้ดย่อรูป/ตัด Exif/อัปโหลดเข้ามา และไม่แตะโมดูลออฟฟิศ
+describe("หน้า /w/<token> — กราฟ import ทั้งเส้น (transitive) หลังขยายรูปหลัก", () => {
+  const files = closure(join(ROOT, "app", "(worker)", "w", "[token]", "page.tsx"));
+  const rels = [...files].map(norm);
+
+  it("พบหน้า + WorkerApp + ภาพย่อ/viewer ในกราฟ (กันเทสต์ว่างเปล่า)", () => {
+    expect(rels).toContain("app/(worker)/w/[token]/page.tsx");
+    expect(rels).toContain("components/domain/jobs/worker/WorkerApp.tsx");
+    expect(rels).toContain("components/domain/jobs/photos/JobPhotoThumb.tsx");
+    expect(rels).toContain("components/domain/jobs/photos/JobPhotoViewer.tsx");
+  });
+  it("ไม่มีโมดูลใบผลิต/OEM/แคตตาล็อก/ออฟฟิศ/session แอป ในกราฟ · 'use server' = job-worker ไฟล์เดียว", () => {
+    for (const r of rels) for (const p of FORBIDDEN_PREFIX) expect(r.startsWith(p), `${r} อยู่ในกราฟสาธารณะ — ห้าม (${p})`).toBe(false);
+    const servers = [...files].filter((f) => /\.(ts|tsx)$/.test(f) && /^\s*["']use server["']/m.test(readFileSync(f, "utf8"))).map(norm);
+    expect(servers).toEqual(["lib/actions/job-worker.ts"]);
+    expect(rels.filter((r) => r.startsWith("lib/actions/"))).toEqual(["lib/actions/job-worker.ts"]);
+  });
+  it("🔴 ไม่ลาก lib/images/client (ย่อรูปด้วย canvas) และ lib/images/server (ตัด Exif) เข้ากราฟ static — รูปหลักใหญ่เป็นการแสดงผลล้วน", () => {
+    expect(rels.some((r) => r.startsWith("lib/images/client"))).toBe(false);
+    expect(rels).not.toContain("lib/images/server.ts");
+  });
+  it("รูปหลักใหญ่ = JobPhotoThumb size hero · สูงจำกัดด้วย min(vh, rem) (ไม่ใช่ค่าตายตัว) และใช้ภาพกลาง md", () => {
+    const thumb = readFileSync(join(ROOT, "components", "domain", "jobs", "photos", "JobPhotoThumb.tsx"), "utf8");
+    expect(thumb).toMatch(/hero:\s*"[^"]*h-\[min\(30vh,13rem\)\][^"]*w-full/);
+    const app = readFileSync(join(ROOT, "components", "domain", "jobs", "worker", "WorkerApp.tsx"), "utf8");
+    expect(app).toMatch(/size="hero"/);
+    expect(app).toMatch(/photos\[0\]\.mdUrl \?\? photos\[0\]\.smUrl/);
+    expect(app).not.toMatch(/size=\{80\}/);
+  });
+});
