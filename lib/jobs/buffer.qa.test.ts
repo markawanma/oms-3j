@@ -96,7 +96,8 @@ describe("static guards: create path never uses the suggestion", () => {
     // 0186 (PM-A) replace job_create_insert (ตัวแกนที่ job_create_from_* ทุกตัวเรียก) เพื่อปิดช่อง fallback เงียบของแบบทอง (no_gold_profile)
     // ฟังก์ชันนั้นรับจำนวนจากผู้เรียกตรงๆ ไม่อ่านค่าแนะนำเลย ⇒ เจตนาของด่านนี้ยังครบ
     // allow เฉพาะคู่ "ไฟล์:ฟังก์ชัน" ที่ตรวจแล้ว — migration อื่นที่แตะ job_create_* ต้องล้ม แล้วมาทบทวนก่อนเพิ่มคู่ที่นี่
-    const ALLOW = ["0186_production_item_metal.sql:job_create_insert"];
+    // 0187 (W1): job_create_insert เพิ่ม p_worker_id (ท้ายสุด default null) · job_create_from_production_item ตัดเนื้อไป _core (ช่างหน้างานใช้ร่วม) — ทั้งสามไม่อ่านค่าแนะนำ (จำนวนเริ่มผลิต = ที่ผู้เปิดส่งมา/เท่าจำนวนสั่ง)
+    const ALLOW = ["0186_production_item_metal.sql:job_create_insert", "0187_shop_intake_w1.sql:job_create_insert", "0187_shop_intake_w1.sql:job_create_from_production_item_core", "0187_shop_intake_w1.sql:job_create_from_production_item"];
     const later = readdirSync(join(root, "supabase", "migrations")).filter((f) => /^\d{4}_.*\.sql$/.test(f) && Number(f.slice(0, 4)) > 176);
     expect(later.length).toBeGreaterThan(0);
     const startRe = /create or replace function analytics\.(job_create\w*)/gi;
@@ -116,6 +117,15 @@ describe("static guards: create path never uses the suggestion", () => {
     }
     // เท่ากันเป๊ะ: มีตัวนอก allowlist = ล้ม · allowlist ค้างเก่า (ไม่เจอจริง) = ล้ม
     expect([...seen].sort()).toEqual([...ALLOW].sort());
+  });
+  it("0187 redefines job_create_insert + job_create_from_production_item (+ _core) only — quote path untouched · core รับจำนวนเริ่มผลิตจากผู้เรียก coalesce กับจำนวนสั่ง 1 จุด ไม่อ้างค่าแนะนำ", () => {
+    const sql = read("supabase/migrations/0187_shop_intake_w1.sql");
+    const names = [...sql.matchAll(/create or replace function analytics\.(job_create\w*)/gi)].map((m) => m[1]).sort();
+    expect(names).toEqual(["job_create_from_production_item", "job_create_from_production_item_core", "job_create_insert"]);
+    const core = sql.slice(sql.indexOf("function analytics.job_create_from_production_item_core"));
+    const body = core.slice(0, core.search(/\n\$[a-z_0-9]*\$;/i));
+    expect((body.match(/coalesce\(p_qty_planned, v_qty_order\)/g) ?? []).length).toBe(1);
+    expect(body).not.toMatch(/v_suggest|job_plan_suggest\(|qty_planned_suggest/);
   });
   it("0186 redefines only job_create_insert among job_create_* (the 3 job_create_from_*/entry RPCs untouched — their bodies are the 0176 ones this file pins above)", () => {
     const sql = read("supabase/migrations/0186_production_item_metal.sql");

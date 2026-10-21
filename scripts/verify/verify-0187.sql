@@ -1472,6 +1472,11 @@ begin
       if (select prosecdef from pg_proc where pronamespace = 'analytics'::regnamespace and proname = x) then s := s || x || '(definer) '; end if;
     end loop;
     v := v || pg_temp.chk('C4e', 'RPC ทุกตัว SECURITY DEFINER · core/helper ไม่เป็น definer (ใช้สิทธิ์ผู้เรียก = owner เท่านั้นเรียกได้) · ผิด: ' || coalesce(nullif(s, ''), 'ไม่มี'), s = '');
+    s := '';
+    foreach x in array array['shop_intake_resolve', 'worker_pin_verify_intake', 'job_product_search', 'job_worker_open', 'shop_intake_auth'] loop
+      if (select pg_get_function_identity_arguments(oid) from pg_proc where pronamespace = 'analytics'::regnamespace and proname = x) ~* 'shop' then s := s || x || ' '; end if;
+    end loop;
+    v := v || pg_temp.chk('C4f', '🔴 RPC ฝั่งช่างหน้างานไม่รับ p_shop_id/อาร์กิวเมนต์ร้านใดๆ — ร้านมาจาก token ร้านเท่านั้น (crm_require_owner_admin ปล่อย service_role ผ่าน จึงไม่ใช่ด่านของทางนี้) · มี: ' || coalesce(nullif(s, ''), 'ไม่มี'), s = '');
     raise exception 'rb_187';
   exception when others then
     if sqlerrm <> 'rb_187' then v := v || pg_temp.chk('C4-crash', sqlstate || ' ' || sqlerrm, false); end if;
@@ -1506,6 +1511,12 @@ begin
       and (select reloptions::text from pg_class where oid = 'analytics.v_production_order'::regclass) like '%security_invoker=true%');
     v := v || pg_temp.chk('C6e', 'v_production_order: service_role อ่านได้ · anon/authenticated ไม่ได้ · จำนวนแถว = ตาราง', has_table_privilege('service_role', 'analytics.v_production_order', 'select') and not has_table_privilege('anon', 'analytics.v_production_order', 'select')
       and not has_table_privilege('authenticated', 'analytics.v_production_order', 'select') and (select count(*) from analytics.v_production_order) = (select count(*) from analytics.production_order));
+    v := v || pg_temp.chk('C6g', 'ยิงจริงด้วย role service_role (ไม่ใช่ owner): อ่าน v_production_order (join worker ผ่าน security_invoker) · worker.can_open_job/can_external · job_token.issued_by_worker_id · shop_intake_token (คอลัมน์ที่ grant) ได้ — ที่หน้าออฟฟิศอ่านจริง',
+      pg_temp.asrole('service_role', 'select count(*), count(opened_by_worker_name) from analytics.v_production_order') = 'OK'
+      and pg_temp.asrole('service_role', 'select id, display_name, can_open_job, can_external from analytics.worker limit 1') = 'OK'
+      and pg_temp.asrole('service_role', 'select issued_by, issued_by_worker_id from analytics.job_token limit 1') = 'OK'
+      and pg_temp.asrole('service_role', 'select id, issued_at, revoked_at from analytics.shop_intake_token limit 1') = 'OK'
+      and pg_temp.asrole('service_role', 'select opened_by_worker_id, created_by from analytics.job limit 1') = 'OK');
     o := pg_temp.open_label('แหวน C6'); r := (select to_jsonb(vx) from analytics.v_production_order vx where vx.po_no = o ->> 'order_no' and vx.shop_id = a);
     v := v || pg_temp.chk('C6f', 'view แสดงใบหน้างาน: opened_via=shopfloor · ชื่อผู้เปิด · ยังไม่รับทราบ · unbound_item_count=1', r ->> 'opened_via' = 'shopfloor' and r ->> 'opened_by_worker_name' = 'ZZ-M ผู้จัดการ' and r -> 'acknowledged_at' = 'null'::jsonb and (r ->> 'unbound_item_count')::int = 1);
     raise exception 'rb_187';

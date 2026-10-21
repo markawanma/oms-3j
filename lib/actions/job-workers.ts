@@ -58,6 +58,10 @@ export interface UpsertWorkerInput {
   stageCodes: string[];
   /** เฉพาะช่างใหม่ — ว่าง = ระบบสุ่มให้ (คืนครั้งเดียว) */
   pin?: string | null;
+  /** 0187: ผู้จัดการ (เปิดใบจากมือถือด้วย QR ร้าน + PIN) — ไม่ส่ง = ไม่แตะ (ช่างใหม่ = ปิด) · ยังต้องเลือกขั้นที่ทำอย่างน้อย 1 */
+  canOpenJob?: boolean;
+  /** 0187: ผู้ดูแลงานนอกร้าน — ไม่ส่ง = ไม่แตะ */
+  canExternal?: boolean;
 }
 
 export interface WorkerSaved {
@@ -83,7 +87,12 @@ export async function saveWorker(i: UpsertWorkerInput): Promise<JobResult<Worker
     pin = p.value;
   }
   if (editing && i.pin) return fail("แก้ช่างเดิมไม่รับ PIN — ใช้ปุ่มรีเซ็ต PIN");
-  const r = await callOffice<Raw>("worker_upsert", { p_id: editing ? i.id : null, p_display_name: name.value, p_stage_codes: codes.value, p_pin: pin });
+  // 0187: flag ส่งเฉพาะที่ระบุเป็น boolean จริง (ไม่ส่ง = DB ไม่แตะค่าเดิม) · ชนิดอื่น = ปฏิเสธ ไม่แปลงเงียบ
+  for (const f of [i.canOpenJob, i.canExternal]) if (f !== undefined && typeof f !== "boolean") return fail("ข้อมูลสิทธิ์ไม่ถูกต้อง");
+  const flags: Record<string, boolean> = {};
+  if (typeof i.canOpenJob === "boolean") flags.p_can_open_job = i.canOpenJob;
+  if (typeof i.canExternal === "boolean") flags.p_can_external = i.canExternal;
+  const r = await callOffice<Raw>("worker_upsert", { p_id: editing ? i.id : null, p_display_name: name.value, p_stage_codes: codes.value, p_pin: pin, ...flags });
   if (!r.ok) return r;
   const id = r.data.id;
   if (typeof id !== "string" || !isUuid(id)) return fail(GENERIC_JOB_ERROR);
@@ -117,6 +126,53 @@ export async function unlockWorker(workerId: string): Promise<JobResult<null>> {
   if (!r.ok) return r;
   revalidatePath("/jobs/workers");
   return { ok: true, data: null };
+}
+
+// ---------------------------------------------------------------------------
+// 0187 W1 — QR ร้าน (hub ที่ผู้จัดการสแกนเพื่อเปิดใบ) · DB เก็บ hash เท่านั้น · active ได้ 1 ใบ/ร้าน · ออกใหม่ = เพิกถอนใบเก่าในตัว
+// 🔴 ค่าดิบ (token) คืนให้หน้าจอ "ครั้งเดียว" ตอนออก (ไว้ทำ QR/ลิงก์พิมพ์) — ไม่ log ไม่เก็บ · อ่านย้อนหลังไม่ได้ ถ้าหายต้องออกใหม่
+// ---------------------------------------------------------------------------
+export interface ShopIntakeStatus {
+  active: boolean;
+  issuedAt: string | null;
+}
+
+export async function getShopIntakeStatus(): Promise<JobResult<ShopIntakeStatus>> {
+  const g = await guard();
+  if (g) return g;
+  const r = await callOffice<Raw>("shop_intake_token_status", {}, { noActor: true }); // RPC อ่านอย่างเดียว ไม่มี p_actor
+  if (!r.ok) return r;
+  return { ok: true, data: { active: r.data.active === true, issuedAt: typeof r.data.issued_at === "string" ? r.data.issued_at : null } };
+}
+
+export interface ShopIntakeIssued {
+  /** ค่าดิบ — แสดง/พิมพ์ครั้งเดียว · ลิงก์ที่ผู้จัดการสแกน = <APP_ORIGIN>/w/s/<token> */
+  token: string;
+  issuedAt: string;
+  /** จำนวน QR ร้านเดิมที่ถูกเพิกถอนพร้อมกัน (0 หรือ 1) */
+  revokedPrevious: number;
+}
+
+export async function issueShopIntakeToken(): Promise<JobResult<ShopIntakeIssued>> {
+  const g = await guard();
+  if (g) return g;
+  const r = await callOffice<Raw>("shop_intake_token_issue", {});
+  if (!r.ok) return r;
+  const token = r.data.token;
+  const issuedAt = r.data.issued_at;
+  if (typeof token !== "string" || !/^[A-Za-z0-9_-]{16,64}$/.test(token) || typeof issuedAt !== "string") return fail(GENERIC_JOB_ERROR);
+  const prev = typeof r.data.revoked_previous === "number" && Number.isInteger(r.data.revoked_previous) ? r.data.revoked_previous : 0;
+  revalidatePath("/jobs/workers");
+  return { ok: true, data: { token, issuedAt, revokedPrevious: prev } };
+}
+
+export async function revokeShopIntakeToken(): Promise<JobResult<{ revoked: number }>> {
+  const g = await guard();
+  if (g) return g;
+  const r = await callOffice<Raw>("shop_intake_token_revoke", {});
+  if (!r.ok) return r;
+  revalidatePath("/jobs/workers");
+  return { ok: true, data: { revoked: typeof r.data.revoked === "number" && Number.isInteger(r.data.revoked) ? r.data.revoked : 0 } };
 }
 
 export async function setWorkerActive(workerId: string, active: boolean): Promise<JobResult<null>> {

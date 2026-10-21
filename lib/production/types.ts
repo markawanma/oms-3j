@@ -184,6 +184,12 @@ export interface ProductionOrderRow {
   /** 0186 (PM-B): จำนวนรายการที่ยังไม่ผูก SKU (product_id null) — v_production_order ไม่มีคอลัมน์นี้ อ่านจากตารางรายการเป็น side-channel ·
    * 0 เมื่ออ่านไม่ได้ (ป้ายหายเงียบ ไม่ล้มทั้งหน้ารายการ) · มีความหมายเฉพาะใบ open */
   unboundItemCount: number;
+  /** 0187: ที่มาของใบ — office (ออฟฟิศเปิด · ทุกใบเดิม) | shopfloor (ผู้จัดการเปิดจากมือถือ — ต้องรับทราบก่อนปิดใบ) */
+  openedVia?: "office" | "shopfloor";
+  /** ชื่อผู้จัดการที่เปิด (เฉพาะ shopfloor) */
+  openedByWorkerName?: string | null;
+  /** เวลาที่ออฟฟิศรับทราบ · null = ยังไม่รับทราบ (shopfloor เท่านั้นที่ต้องมี) */
+  acknowledgedAt?: string | null;
 }
 
 export interface ProductionOrderItemRow {
@@ -493,6 +499,35 @@ export interface ProductionOrderCancelResult {
   poNo: string;
   status: ProductionOrderStatus;
   alreadyCancelled: boolean;
+}
+
+/** 0187 W1: analytics.production_order_acknowledge — ออฟฟิศรับทราบใบที่ผู้จัดการเปิดจากหน้างาน (ครั้งเดียว · ปิดใบไม่ได้จนกว่าจะรับทราบ) */
+export interface ProductionOrderAckResult {
+  productionOrderId: string;
+  poNo: string;
+  acknowledgedAt: string;
+  /** จำนวนใบงานแม่ที่บันทึก event ack ให้ */
+  jobsLogged: number;
+}
+
+/** 0187 W1: analytics.production_order_item_bind_product — ผูก SKU ให้รายการที่ช่างเปิดโดยไม่มี SKU */
+export interface ProductionItemBindResult {
+  itemId: string;
+  productId: string;
+  sku: string;
+  name: string | null;
+  /** ชื่อแบบเดิมที่ช่างพิมพ์ (ไว้แสดงบรรทัดรองหลังผูก — UX R2) */
+  pendingLabelBefore: string | null;
+  /** จำนวนใบงาน (แม่+ส่วนที่ไม่ยกเลิก) ที่ถูกเติม SKU */
+  jobsUpdated: number;
+  itemMetal: ProductionMetal | null;
+  skuMetal: ProductionMetal | null;
+  /** SKU ระบุโลหะชัด (make_spec/สปอต) — false = ข้อความกลาง ไม่เตือน */
+  skuMetalKnown: boolean;
+  /** SKU ระบุโลหะชัดแต่ต่างจากโลหะของรายการ = เตือน (ไม่บล็อก · ไม่ทับค่าที่กรอก) */
+  metalMismatch: boolean;
+  /** น้ำหนักว่างแล้วระบบประทับน้ำหนักเงินจาก SKU ลงรายการ (เปิดเผย ไม่ปล่อยให้ค่าที่มีผลเปลี่ยนเงียบ) */
+  weightFilled: boolean;
 }
 
 // ============================================================================
