@@ -229,6 +229,11 @@ export function useShopPhotos({
         lockAll(v.lock);
         return;
       }
+      if (v.quota) {
+        // โควตาร้าน/ช่างเต็ม (M1): รูปที่เหลือในคิวจะล้มเหมือนกัน — พักไว้ทั้งชุด ไม่ยิงซ้ำให้ล้มทีละรูป · ลองใหม่ไม่ช่วย (มีแต่ "เอาออก")
+        mutate((cur) => cur.map((i) => (i.key === key || i.phase === "queued" ? { ...i, phase: "error", message: v.message, retryable: false } : i)));
+        return;
+      }
       if (v.needsPin) {
         // session หมดกลางคิว: รูปที่เหลือไม่ต้องยิงซ้ำให้ล้มทีละรูป — พักไว้ทั้งชุดจนใส่ PIN แล้วกด "ลองใหม่"
         mutate((cur) => cur.map((i) => (i.key === key || i.phase === "queued" ? { ...i, phase: "error", message: v.message, retryable: true, needsPin: true } : i)));

@@ -475,6 +475,19 @@ describe("W-8 ส่งรูปหลังเปิดใบ + QR gate", () =>
     expect(screen.getAllByRole("button", { name: "ลองใหม่" })).toHaveLength(1);
   });
 
+  it("โควตาหน้างานเต็ม (photo_daily_cap): ทุกแถวขึ้น '⚠ วันนี้แนบรูปครบกำหนดแล้ว' ไม่มีปุ่ม ลองใหม่ (มีแต่ เอาออก) · ยิง server ครั้งเดียว · QR แสดง + กล่องเตือนรูปที่ยังไม่ได้ส่ง", async () => {
+    intakeUploadPhoto.mockResolvedValue({ ok: false, error: "วันนี้แนบรูปครบกำหนดแล้ว", code: "photo_daily_cap" });
+    render(<ShopIntakeApp token={TOKEN} initial={hubOf()} />);
+    await openWithPhotos(["a", "b"]);
+    await waitFor(() => expect(screen.getAllByText("⚠ วันนี้แนบรูปครบกำหนดแล้ว")).toHaveLength(2));
+    expect(screen.queryByRole("button", { name: "ลองใหม่" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /ลองใหม่ทั้งหมด/ })).not.toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "เอาออก" })).toHaveLength(2);
+    expect(intakeUploadPhoto).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("img", { name: "QR ใบงาน JB-0031" })).toBeInTheDocument();
+    expect(screen.getByText(/รูปที่ 1, 2 ยังไม่ได้ส่ง — ให้ช่างสแกนได้เลย/)).toBeInTheDocument();
+  });
+
   it("ล้มตั้งแต่ ≥ 2 รูป + มีเน็ต: ปุ่ม 'ลองใหม่ทั้งหมด (n รูป)' · ไม่ส่งเองอัตโนมัติ", async () => {
     let fail = true;
     intakeUploadPhoto.mockImplementation(async () => {

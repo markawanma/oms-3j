@@ -53,6 +53,12 @@ describe("photoErrorView — ตัดสินจาก code ไม่ใช่
       expect(v, code).toEqual({ message: "ใบนี้มีรูปจากหน้างานครบ 3 รูปแล้ว", retryable: false });
     }
   });
+  it("โควตา M1 (พื้นที่รูปหน้างานของร้านเต็ม / ช่างแนบครบต่อ 24 ชม.) → ข้อความตรงกับ server · ลองใหม่ไม่ช่วย · quota=true (หยุดคิวทั้งชุด) · ไม่มีตัวเลขโควตาบนจอ", () => {
+    expect(photoErrorView({ code: "photo_budget_shopfloor", error: "x" })).toEqual({ message: "พื้นที่รูปจากหน้างานเต็มแล้ว — แจ้งออฟฟิศ", retryable: false, quota: true });
+    expect(photoErrorView({ code: "photo_daily_cap", error: "x" })).toEqual({ message: "วันนี้แนบรูปครบกำหนดแล้ว", retryable: false, quota: true });
+    expect(SHOP_PHOTO_TH.failShopBudget + SHOP_PHOTO_TH.failDailyCap).not.toMatch(/\d|MB|GB|60|80/);
+    expect(photoErrorView({ code: "photo_cap_shopfloor" }).quota).toBeUndefined(); // เพดานต่อใบไม่ใช่โควตา (ลบรูปเก่าแล้วเพิ่มได้ ไม่หยุดคิว)
+  });
   it("ด่านไฟล์ (JPEG ปลอม/เสีย/ใหญ่/พิกเซลเกิน) → ลองใหม่ไม่ช่วย ใช้ข้อความไทยของด่าน", () => {
     for (const code of Object.values(JOB_PHOTO_FILE_CODE)) {
       const v = photoErrorView({ code, error: "ไฟล์รูปเสียหายหรือโครงสร้างไม่ถูกต้อง — เลือกรูปใหม่" });

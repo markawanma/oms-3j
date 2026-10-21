@@ -69,6 +69,9 @@ export const SHOP_PHOTO_TH = {
   failPin: "หมดเวลาแล้ว — ใส่ PIN ใหม่",
   failRate: "ส่งถี่เกินไป — รอสักครู่แล้วกด \"ลองใหม่\"",
   failCap: `ใบนี้มีรูปจากหน้างานครบ ${SHOP_PHOTO_MAX} รูปแล้ว`,
+  /** โควตา M1 (backend 21 ต.ค.): พื้นที่รวมรูปหน้างานของร้านเต็ม / ช่างแนบครบต่อ 24 ชม. — ข้อความตรงกับ PHOTO_CODE_TH ฝั่ง server (ไม่มีตัวเลขโควตาบนจอ) */
+  failShopBudget: "พื้นที่รูปจากหน้างานเต็มแล้ว — แจ้งออฟฟิศ",
+  failDailyCap: "วันนี้แนบรูปครบกำหนดแล้ว",
   failClosed: "ใบนี้ปิดหรือยกเลิกแล้ว — ส่งรูปไม่ได้",
   failNotOwner: "แก้รูปได้เฉพาะคนที่เปิดใบนี้",
   failQr: "QR ร้านนี้ใช้ไม่ได้แล้ว — ขอออฟฟิศออก QR ใหม่",
@@ -141,6 +144,8 @@ export interface PhotoErrorView {
   message: string;
   retryable: boolean;
   needsPin?: boolean;
+  /** โควตาร้าน/ช่างเต็ม — ลองใหม่ไม่ช่วย และรูปที่เหลือในคิวจะล้มเหมือนกัน (หยุดคิวทั้งชุด ไม่ยิงซ้ำ) */
+  quota?: boolean;
   /** ใบเข้าสภาพที่ส่ง/ลบอีกไม่ได้ (ทั้งใบ — ไม่ใช่แค่รูปนี้) */
   lock?: ShopPhotoLock;
 }
@@ -158,6 +163,8 @@ export function photoErrorView(f: PhotoFail): PhotoErrorView {
   if (CLOSED_CODES.has(code)) return { message: SHOP_PHOTO_TH.failClosed, retryable: false, lock: "closed" };
   if (NOT_OWNER_CODES.has(code)) return { message: SHOP_PHOTO_TH.failNotOwner, retryable: false, lock: "not_owner" };
   if (code === "photo_cap_shopfloor" || code === "photo_cap_ref" || code === "photo_cap_total") return { message: SHOP_PHOTO_TH.failCap, retryable: false };
+  if (code === "photo_budget_shopfloor") return { message: SHOP_PHOTO_TH.failShopBudget, retryable: false, quota: true };
+  if (code === "photo_daily_cap") return { message: SHOP_PHOTO_TH.failDailyCap, retryable: false, quota: true };
   if (code === "invalid_token" || code === "token_budget_exhausted") return { message: SHOP_PHOTO_TH.failQr, retryable: false };
   if (code === "photo_bytes_invalid" || code === "photo_dims_invalid" || FILE_CODES.has(code)) {
     return { message: isCleanMessage(f.error) ? f.error : "ไฟล์รูปนี้ส่งไม่ได้ — เอาออกแล้วเลือกรูปใหม่", retryable: false };

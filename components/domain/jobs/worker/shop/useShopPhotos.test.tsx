@@ -376,6 +376,25 @@ describe("ล็อก / PIN / ด่านของ server", () => {
     expect(result.current.items.some((i) => i.needsPin)).toBe(false);
   });
 
+  it("โควตาหน้างานเต็ม (photo_daily_cap / photo_budget_shopfloor) → ทุกรูปที่รออยู่ error ลองใหม่ไม่ได้ ไม่ยิงซ้ำ (ไม่เผาโควตา/rate limit) · ไม่ล็อกทั้งใบ", async () => {
+    for (const code of ["photo_daily_cap", "photo_budget_shopfloor"]) {
+      const { io } = makeIo({ upload: vi.fn(async () => ({ ok: false as const, error: "x", code })) });
+      const { result, unmount } = setup(io);
+      act(() => result.current.pick([file("a"), file("b"), file("c")]));
+      await settle(result, () => result.current.items.every((i) => i.phase === "ready"));
+      act(() => result.current.start(REF));
+      await settle(result, () => result.current.items.every((i) => i.phase === "error"));
+      expect(io.upload, code).toHaveBeenCalledTimes(1);
+      expect(result.current.items.every((i) => !i.retryable && !i.needsPin), code).toBe(true);
+      expect(result.current.items[0].message, code).toBe(code === "photo_daily_cap" ? "วันนี้แนบรูปครบกำหนดแล้ว" : "พื้นที่รูปจากหน้างานเต็มแล้ว — แจ้งออฟฟิศ");
+      expect(result.current.lock, code).toBeNull();
+      act(() => result.current.retryAll());
+      expect(result.current.items.every((i) => i.phase === "error"), code).toBe(true);
+      expect(io.upload, code).toHaveBeenCalledTimes(1);
+      unmount();
+    }
+  });
+
   it("ครบเพดาน/ไฟล์ไม่ผ่านที่ server → error ลองใหม่ไม่ได้ (มีแต่เอาออก) และไม่ล็อกทั้งใบ", async () => {
     const { io } = makeIo({ upload: vi.fn(async () => ({ ok: false as const, error: "ไฟล์ไม่ใช่ JPEG จริง", code: "photo_file_not_jpeg" })) });
     const { result } = setup(io);
