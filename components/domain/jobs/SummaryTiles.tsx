@@ -1,31 +1,34 @@
 "use client";
 
-// SummaryTiles — 4 tile = ปุ่มกรอง (aria-pressed) · ตัวเลขนับจากใบหลังกรอง dropdown แต่ก่อนกรอง signal → เท่าผลที่เห็นเมื่อกด
+// SummaryTiles — 5 tile (W1 เพิ่ม "รอรับทราบ") = ปุ่มกรอง (aria-pressed) · ตัวเลขนับจากใบหลังกรอง dropdown แต่ก่อนกรอง signal → เท่าผลที่เห็นเมื่อกด
 // n=0 → เทา disabled ยกเว้น tile ที่กำลังเลือกอยู่ (รีเฟรชแล้วเหลือ 0 ต้องกดออกได้) · กดซ้ำ = ล้าง
 
-import { AlertTriangle, CalendarClock, Check, Clock, ListChecks } from "lucide-react";
+import { AlertTriangle, CalendarClock, Check, ClipboardCheck, Clock, ListChecks } from "lucide-react";
 import type { BoardSummary, Signal } from "@/lib/jobs/board";
 import { STATUS_TONE } from "@/components/domain/jobs/StatusChip";
 
-type TileDef = { signal: Signal | null; label: string; icon: typeof Clock; tone: "red" | "amber" | null; n: (s: BoardSummary) => number };
+type TileDef = { signal: Signal | null; label: string; icon: typeof Clock; tone: "red" | "amber" | null; n: (s: BoardSummary) => number; /** tone ที่ขึ้นเมื่อ n>0 (ไม่ส่ง = ใช้ tone) */ toneOf?: (s: BoardSummary) => "red" | "amber" | null };
 
 const TILES: TileDef[] = [
   { signal: null, label: "ใบงานที่เปิดอยู่", icon: ListChecks, tone: null, n: (s) => s.active },
   { signal: "overdue", label: "เลยกำหนด", icon: AlertTriangle, tone: "red", n: (s) => s.overdue },
   { signal: "dueSoon", label: "ครบใน 3 วัน", icon: CalendarClock, tone: "amber", n: (s) => s.dueSoon },
   { signal: "stale", label: "นิ่งเกิน 3 วัน", icon: Clock, tone: "amber", n: (s) => s.stale },
+  // W1: tile ที่ 5 — amber เมื่อ n>0 · แดงถ้ามีใบค้างเกินกำหนดเตือน · ไม่ซ่อนเมื่อ n=0 (เลย์เอาต์ไม่กระโดด)
+  { signal: "unacked", label: "รอรับทราบ", icon: ClipboardCheck, tone: "amber", n: (s) => s.unacked, toneOf: (s) => (s.unackedStale > 0 ? "red" : "amber") },
 ];
 
 export function SummaryTiles({ summary, signal, onSelect }: { summary: BoardSummary; signal: Signal | null; onSelect: (s: Signal | null) => void }) {
   return (
-    <section aria-label="สรุป" className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+    <section aria-label="สรุป" className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
       {TILES.map((t) => {
         const n = t.n(summary);
         const selected = t.signal === signal;
         const Icon = t.icon;
         // tile "ทั้งหมด" = ล้างตัวกรอง signal: เลือกอยู่เมื่อไม่มี signal · กดแล้วไม่มีอะไรเปลี่ยนถ้าไม่ได้กรองอยู่ (ไม่ disable เมื่อ n>0)
         const disabled = n === 0 && !selected;
-        const tone = n > 0 && t.tone ? STATUS_TONE[t.tone] : "border-zinc-200 bg-white text-zinc-900";
+        const toneKey = n > 0 ? (t.toneOf ? t.toneOf(summary) : t.tone) : null;
+        const tone = toneKey ? STATUS_TONE[toneKey] : "border-zinc-200 bg-white text-zinc-900";
         const dim = disabled ? "cursor-not-allowed border-zinc-200 bg-zinc-50 text-zinc-600" : tone;
         return (
           <button

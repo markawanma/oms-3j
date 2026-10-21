@@ -3,15 +3,15 @@
 // ค้าง = นับวันปฏิทินไทย (มติ Q10): เปิดวันจันทร์ → พุธ = ค้าง 3 วัน (นับวันที่เปิดเป็นวันที่ 1) — ตรงตัวอย่างในมติ "เปิดวันจันทร์ → พุธเตือน"
 //   [ต้องยืนยัน] ถ้าเจ้าของหมายถึง "ผ่านไป 3 วันเต็ม" (จันทร์ → พฤหัส) ให้เปลี่ยนค่าเดียวที่ STALE_CALENDAR_DAYS
 
-import { bkkDateOf, daysBetween } from "@/lib/jobs/dates";
+import { STALE_CALENDAR_DAYS, calendarDaysOpen } from "@/lib/jobs/intake-ack";
 import { PRODUCTION_METAL_LABEL_TH } from "@/lib/production/types";
 import type { ProductionMetal, ProductionOrderItemRow, ProductionOrderRow } from "@/lib/production/types";
 import { purityFractionToPct } from "@/lib/units/purity";
 
 export const ACK_CARD_ID = "po-ack-card";
 
-/** ค้างรับทราบ "ครบ n วันปฏิทิน" (นับวันที่เปิดเป็นวันที่ 1) = เกินกำหนดเตือน */
-export const STALE_CALENDAR_DAYS = 3;
+// ค่า/วิธีนับ "ค้างรับทราบ" อยู่ที่เดียว: lib/jobs/intake-ack.ts (ใช้ร่วมกับบอร์ดใบงาน)
+export { STALE_CALENDAR_DAYS, calendarDaysOpen };
 
 export type AckOrderLike = Pick<ProductionOrderRow, "status" | "openedVia" | "acknowledgedAt" | "createdAt">;
 
@@ -20,13 +20,6 @@ export const isShopfloor = (o: Pick<ProductionOrderRow, "openedVia">): boolean =
 /** ใบหน้างานที่ยังเปิดอยู่และยังไม่รับทราบ — ใบ office ไม่มีวันเป็น true (ไม่ติดด่านเดิม) */
 export function ackPending(o: AckOrderLike): boolean {
   return o.openedVia === "shopfloor" && o.status === "open" && o.acknowledgedAt === null;
-}
-
-/** จำนวนวันปฏิทินไทยนับจากวันที่เปิด (วันเปิด = 1) · อ่านเวลาไม่ได้ = null */
-export function calendarDaysOpen(createdAt: string | null, today: string): number | null {
-  const d = bkkDateOf(createdAt);
-  if (d === null) return null;
-  return Math.max(1, daysBetween(d, today) + 1);
 }
 
 export function isStale(o: AckOrderLike, today: string): boolean {
@@ -81,3 +74,29 @@ export const ackButtonLabel = (items: readonly ProductionOrderItemRow[]): string
   const s = ackSummary(items);
   return s === "" ? "รับทราบ" : `รับทราบ · ${s}`;
 };
+
+// ---------------------------------------------------------------------------
+// /production (รายการ) — ตัวกรองกลุ่ม "ต้องจัดการ" (UX B.10.2): ทำงานแบบ AND กับแถบสถานะ · ตัวนับนับเฉพาะใบ open
+// ---------------------------------------------------------------------------
+
+export type NeedFilter = "unacked" | "unbound";
+
+export const NEED_FILTER_LABEL: Record<NeedFilter, string> = { unacked: "รอรับทราบ", unbound: "ยังไม่ผูก SKU" };
+
+type NeedOrderLike = AckOrderLike & Pick<ProductionOrderRow, "unboundItemCount">;
+
+export function matchesNeed(o: NeedOrderLike, f: NeedFilter): boolean {
+  if (o.status !== "open") return false;
+  return f === "unacked" ? ackPending(o) : o.unboundItemCount > 0;
+}
+
+/** ตัวนับของปุ่มกรอง — นับจากทุกใบ (ไม่ขึ้นกับแถบสถานะ) เฉพาะใบ open */
+export function needCounts(orders: readonly NeedOrderLike[]): Record<NeedFilter, number> {
+  return { unacked: orders.filter((o) => matchesNeed(o, "unacked")).length, unbound: orders.filter((o) => matchesNeed(o, "unbound")).length };
+}
+
+/** ข้อความ empty เมื่อเปิดตัวกรองแล้วไม่เหลือ (เลือกหลายตัว = ต้องตรงทุกตัว) */
+export function needEmptyText(active: readonly NeedFilter[]): string {
+  if (active.length === 1) return active[0] === "unacked" ? "ไม่มีใบที่รอรับทราบ" : "ไม่มีรายการที่ยังไม่ผูก SKU";
+  return "ไม่มีใบที่ตรงทุกเงื่อนไขที่เลือก";
+}

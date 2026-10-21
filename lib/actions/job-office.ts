@@ -17,6 +17,7 @@ import { isUuid, parseCount, parseDate, parseLabel, parseStageCodes, parseText, 
 import { callOffice, db, fail, guard, shopId } from "@/lib/jobs/office-server";
 import type { JobResult } from "@/lib/jobs/office-server";
 import { findLotRoot, loadBoardLots, loadJobLots } from "@/lib/jobs/lots-server";
+import { loadBoardIntake } from "@/lib/jobs/intake-server";
 import type { JobLotsData } from "@/lib/jobs/lots";
 import { HISTORY_COLUMNS, HISTORY_LIMIT, HISTORY_TREE_COLUMNS, applyTreeTotals, mapHistoryRow } from "@/lib/jobs/history";
 import type { HistoryRow } from "@/lib/jobs/history";
@@ -65,6 +66,12 @@ export async function getJobBoard(): Promise<JobResult<BoardData>> {
         const l = lots.get(r.id);
         return l ? { ...r, lotsLine: l.line, lotsSumOk: l.sumOk } : r;
       });
+    }
+    // W1 (0187): ใบงานที่ใบผลิตต้นทางเปิดจากหน้างาน → ป้าย "จากหน้างาน/รอรับทราบ" (อ่านไม่ได้ = บอร์ดแสดงแบบเดิม ไม่พังทั้งหน้า)
+    const poRefs = mapped.filter((r) => r.sourceKind === "production" && r.sourceRef).map((r) => r.sourceRef as string);
+    if (poRefs.length > 0) {
+      const intake = await loadBoardIntake(poRefs);
+      if (intake.size > 0) mapped = mapped.map((r) => (r.sourceKind === "production" && r.sourceRef && intake.has(r.sourceRef) ? { ...r, intake: intake.get(r.sourceRef) } : r));
     }
     return {
       ok: true,
