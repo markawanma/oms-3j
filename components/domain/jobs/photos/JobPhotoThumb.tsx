@@ -16,7 +16,7 @@ const BOX: Record<string, string> = {
   "80": "h-20 w-20 shrink-0 rounded-xl border-2 border-zinc-300",
   "56": "h-14 w-14 shrink-0 rounded-lg border border-zinc-300",
   "48": "h-12 w-12 shrink-0 rounded-md border border-zinc-300",
-  hero: "h-[min(34vh,14rem)] w-full rounded-2xl border-2 border-zinc-300",
+  hero: "h-[min(30vh,13rem)] w-full rounded-2xl border-2 border-zinc-300",
 };
 const FOCUS = "focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary-300";
 const TAG = "rounded bg-white px-1.5 py-0.5 text-xs font-bold text-zinc-900 shadow";

@@ -45,7 +45,7 @@ export function WorkerApp({ token, view }: { token: string; view: WorkerView }) 
   // N5: หลัง refresh ข้อมูลใหม่ยังไม่มา แผงเก่าห้ามกดได้ — โชว์ skeleton จนกว่า view ใหม่จะมาถึง (หรือครบ 8 วิ กันค้าง)
   const [waiting, setWaiting] = useState(false);
   const j = view.job;
-  // 0182: รูปอ้างอิง (มีเฉพาะช่างที่ระบุตัวแล้ว · รูปหลักก่อน) — ภาพย่อ 80px มุมขวาบนข้างเลขใบงาน · แตะ = เต็มจอ ปัดดู · ไม่มีรูป = ไม่ render อะไรเลย (จอเดิมเป๊ะ)
+  // 0182: รูปอ้างอิง (มีเฉพาะช่างที่ระบุตัวแล้ว · รูปหลักก่อน) — 0189 W2: รูปหลักใหญ่บนหัวจอ (เดิมภาพย่อ 80px) · แตะ = เต็มจอ ปัดดู · ไม่มีรูป = ไม่ render อะไรเลย (จอเดิมเป๊ะ)
   const photos = j.photos ?? [];
   const [viewerAt, setViewerAt] = useState<number | null>(null);
   // กันขอลิงก์ใหม่อัตโนมัติวนไม่จบ: อัตโนมัติ ≤ 2 ครั้ง (ห่าง ≥ 10 วินาที) จนช่างแตะ "ลองใหม่" แล้วรีเซ็ต (useRefreshGate)
@@ -137,21 +137,21 @@ export function WorkerApp({ token, view }: { token: string; view: WorkerView }) 
   return (
     <div className="space-y-4">
       <header className="space-y-0.5">
-        {photos.length > 0 ? (
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">{titleBlock}</div>
+        {photos.length > 0 && (
+          // 0189 W2 (มติ 21 ต.ค. "ช่างตรวจว่าถูกชิ้นจากรูป"): รูปหลักใหญ่เกือบเต็มความกว้างบนหัวจอ (เดิมภาพย่อ 80px) · แตะ = เต็มจอ ปัดดูทุกรูป
+          // 🔴 สูงจำกัด min(30vh, 13rem) + object-contain (ไม่ตัดชิ้นงาน) — กันดันปุ่มหลัก sticky (รับงาน/ส่งต่อ) ตกจอที่ 360×640 · ใช้ภาพกลาง (md) ให้ชัดบนจอ 3x · ไม่มีรูป = จอเดิมเป๊ะ
+          <div className="pb-2">
             <JobPhotoThumb
-              smUrl={photos[0].smUrl}
-              size={80}
+              smUrl={photos[0].mdUrl ?? photos[0].smUrl}
+              size="hero"
               label={`รูปงาน ${j.jobNo} ${photos.length > 1 ? `${photos.length} รูป ` : ""}แตะเพื่อดูเต็มจอ`}
               countChip={photos.length}
               onClick={() => setViewerAt(0)}
               onRetryLoad={onPhotoRetry}
             />
           </div>
-        ) : (
-          titleBlock
         )}
+        {titleBlock}
         {j.designLabel !== undefined && <p className="text-xl font-semibold break-words text-zinc-900">{j.designLabel}</p>}
         {j.designLabel !== undefined && (
           <p className="text-lg text-zinc-800">
