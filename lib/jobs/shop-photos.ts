@@ -178,6 +178,41 @@ export function photoActionErrorMessage(f: PhotoFail, fallback: string): string 
 }
 
 // ============================================================================
+// ออก QR ใหม่ (intakeReissueToken) — ข้อความ error
+// ============================================================================
+
+export const REISSUE_TH = {
+  button: "ออก QR ใหม่",
+  note: "QR ใบงานแสดงซ้ำไม่ได้ — ออก QR ใหม่ได้ (QR เดิมที่ติดไปแล้วยังใช้ได้) หรือให้ออฟฟิศพิมพ์ใบ A5 ให้ช่างสแกน",
+  title: (jobNo: string) => `ออก QR ใหม่ของ ${jobNo}?`,
+  body: "QR เดิมที่ให้ช่างไปแล้วยังใช้ได้ · ใบงานหนึ่งมี QR ที่ใช้งานอยู่ได้ไม่เกิน 5 ใบ · QR ใหม่แสดงครั้งเดียว ออกจากหน้านี้แล้วดูซ้ำไม่ได้",
+  confirm: "ออก QR ใหม่",
+  working: "กำลังออก QR…",
+  resultTitle: (jobNo: string) => `QR ใหม่ ${jobNo}`,
+  once: "⚠ QR นี้แสดงครั้งเดียว — ออกจากหน้านี้แล้วจะหายจากจอ",
+  done: "เสร็จแล้ว",
+  /** คำขอหลุดกลางทาง: อาจออก QR ไปแล้วแต่ไม่เห็น — ลองซ้ำกินโควตา (ไม่มี idem key) จึงเตือน */
+  netFail: "ออก QR ไม่สำเร็จ — เช็คสัญญาณแล้วลองอีกครั้ง (ถ้าลองซ้ำหลายครั้ง อาจใช้โควตา QR ของใบนี้ไปหลายใบ)",
+  generic: "ออก QR ใหม่ไม่สำเร็จ — ลองอีกครั้ง",
+} as const;
+
+const REISSUE_CLOSED: ReadonlySet<string> = new Set(["job_closed", "job_cancelled", "job_not_open"]);
+
+/** ผลล้มของ action ออก QR ใหม่ → ข้อความไทย (ตัดสินจาก code) · needsPin = ต้องใส่ PIN ใหม่ */
+export function reissueErrorView(f: PhotoFail): { message: string; needsPin: boolean; final: boolean } {
+  const code = f.code ?? "";
+  if (code === "session_required") return { message: SHOP_PHOTO_TH.failPin, needsPin: true, final: false };
+  if (code === "rate_limited") return { message: "ส่งถี่เกินไป — รอสักครู่แล้วลองอีกครั้ง", needsPin: false, final: false };
+  if (code === "token_cap") return { message: "ใบนี้มี QR ที่ใช้งานอยู่ครบ 5 ใบแล้ว — แจ้งออฟฟิศให้เพิกถอนก่อน", needsPin: false, final: true };
+  if (REISSUE_CLOSED.has(code)) return { message: "ใบนี้ปิดหรือยกเลิกแล้ว — ออก QR ใหม่ไม่ได้", needsPin: false, final: true };
+  if (NOT_OWNER_CODES.has(code)) return { message: SHOP_PHOTO_TH.failNotOwner, needsPin: false, final: true };
+  if (code === "token_not_issued") return { message: "ออก QR ไม่ได้ตอนนี้ — แจ้งออฟฟิศ", needsPin: false, final: true };
+  if (code === "invalid_token" || code === "token_budget_exhausted") return { message: SHOP_PHOTO_TH.failQr, needsPin: false, final: true };
+  if (isCleanMessage(f.error) && code !== "" && code !== "error") return { message: f.error, needsPin: false, final: false };
+  return { message: REISSUE_TH.generic, needsPin: false, final: false };
+}
+
+// ============================================================================
 // คิว / สรุป / ด่านก่อนออกจากจอ
 // ============================================================================
 

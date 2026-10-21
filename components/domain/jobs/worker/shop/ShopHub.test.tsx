@@ -13,7 +13,9 @@ const intakeLogin = vi.fn();
 const workerLogout = vi.fn();
 const intakeSearch = vi.fn();
 const intakeOpen = vi.fn();
+const intakeMyJobs = vi.fn();
 vi.mock("@/lib/actions/job-worker", () => ({
+  intakeMyJobs: (...a: unknown[]) => intakeMyJobs(...a),
   intakeLogin: (...a: unknown[]) => intakeLogin(...a),
   workerLogout: (...a: unknown[]) => workerLogout(...a),
   intakeSearch: (...a: unknown[]) => intakeSearch(...a),
@@ -36,6 +38,7 @@ const ready = (o: Partial<IntakeHubView> = {}): ShopInitial => hub({ state: "rea
 
 beforeEach(() => {
   vi.clearAllMocks();
+  intakeMyJobs.mockResolvedValue({ ok: true, openAllowed: true, jobs: [], maxPhotos: 3 });
   intakeLogin.mockResolvedValue({ ok: true });
   workerLogout.mockResolvedValue({ ok: true });
 });
@@ -110,7 +113,9 @@ describe("W-1c มีสิทธิ์", () => {
     render(<ShopIntakeApp token={TOKEN} initial={ready()} />);
     expect(screen.getByRole("button", { name: "เปิดงานใหม่" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "ไม่ใช่ฉัน — เลือกชื่อใหม่" })).toBeInTheDocument();
-    expect(screen.getAllByRole("button")).toHaveLength(2);
+    // W2 (W-9): + ปุ่ม "รีเฟรช" ของรายการ "ใบที่ฉันเปิด" — ปุ่มพื้นทึบ (primary) ยังมีตัวเดียวคือ "เปิดงานใหม่"
+    expect(screen.getAllByRole("button").map((b) => b.textContent?.trim())).toEqual(["เปิดงานใหม่", "รีเฟรช", "ไม่ใช่ฉัน — เลือกชื่อใหม่"]);
+    expect(screen.getAllByRole("button").filter((b) => b.className.includes("bg-primary-600"))).toHaveLength(1);
     expect(screen.queryByText(/คิวงานของฉัน/)).not.toBeInTheDocument();
   });
   it("กด 'เปิดงานใหม่' → W-2 ผลิตอะไร?", async () => {

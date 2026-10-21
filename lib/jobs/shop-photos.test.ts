@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import { MAX_SHOPFLOOR_PHOTOS } from "@/lib/images/constants";
 import { JOB_PHOTO_FILE_CODE } from "@/lib/jobs/photos";
 import {
-  SHOP_HEIC_MESSAGE, SHOP_PHOTO_MAX, SHOP_PHOTO_TH, describeShopResizeError, leaveGuard, normalizePrimary, photoActionErrorMessage, photoErrorView, photosSummary, positions, uploadOrder,
+  SHOP_HEIC_MESSAGE, SHOP_PHOTO_MAX, SHOP_PHOTO_TH, describeShopResizeError, leaveGuard, normalizePrimary, photoActionErrorMessage, photoErrorView, photosSummary, positions, reissueErrorView, uploadOrder,
 } from "@/lib/jobs/shop-photos";
 import type { ShopPhotoItem } from "@/lib/jobs/shop-photos";
 
@@ -72,7 +72,7 @@ describe("photoErrorView — ตัดสินจาก code ไม่ใช่
   });
   it("ข้อความทุกตัวใน SHOP_PHOTO_TH ไม่มีคำเรื่องเงิน/น้ำหนักทอง", () => {
     const fnTexts = [SHOP_PHOTO_TH.reviewFooter(3), SHOP_PHOTO_TH.retryAll(2), SHOP_PHOTO_TH.qrPartial("1, 2"), SHOP_PHOTO_TH.cutNotice(5, 2)];
-    const all = [...Object.values(SHOP_PHOTO_TH).filter((v): v is string => typeof v === "string"), ...fnTexts];
+    const all = [...(Object.values(SHOP_PHOTO_TH) as unknown[]).filter((v): v is string => typeof v === "string"), ...fnTexts];
     for (const s of all) expect(s, s).not.toMatch(/บาท|฿|ราคา|ต้นทุน|margin|price|cost|กรัม/i);
   });
 });
@@ -86,6 +86,23 @@ describe("photoActionErrorMessage (ลบ/ตั้งรูปหลักล�
     expect(photoActionErrorMessage({ code: "rate_limited" }, "x")).toBe("ส่งถี่เกินไป — รอสักครู่แล้วกด \"ลองใหม่\"");
     expect(photoActionErrorMessage({ code: "error", error: "ระบบขัดข้อง" }, "สำรอง")).toBe("สำรอง");
     expect(photoActionErrorMessage({ error: "snake_case_error" }, "สำรอง")).toBe("สำรอง");
+  });
+});
+
+describe("reissueErrorView — ออก QR ใหม่", () => {
+  it("แต่ละ code → ข้อความไทย + ต้องใส่ PIN/จบ (ลองซ้ำไม่ช่วย)", () => {
+    expect(reissueErrorView({ code: "session_required" })).toEqual({ message: "หมดเวลาแล้ว — ใส่ PIN ใหม่", needsPin: true, final: false });
+    expect(reissueErrorView({ code: "token_cap" })).toEqual({ message: "ใบนี้มี QR ที่ใช้งานอยู่ครบ 5 ใบแล้ว — แจ้งออฟฟิศให้เพิกถอนก่อน", needsPin: false, final: true });
+    for (const code of ["job_closed", "job_cancelled", "job_not_open"]) expect(reissueErrorView({ code }), code).toEqual({ message: "ใบนี้ปิดหรือยกเลิกแล้ว — ออก QR ใหม่ไม่ได้", needsPin: false, final: true });
+    for (const code of ["not_allowed", "order_not_found"]) expect(reissueErrorView({ code }).message, code).toBe("แก้รูปได้เฉพาะคนที่เปิดใบนี้");
+    expect(reissueErrorView({ code: "token_not_issued" }).final).toBe(true);
+    expect(reissueErrorView({ code: "rate_limited" })).toMatchObject({ final: false, needsPin: false });
+  });
+  it("code ไม่รู้จัก: ข้อความสะอาด = ใช้ต่อ · มีรหัส/ชื่อตาราง/เงิน = ข้อความกลาง · ไม่ final", () => {
+    expect(reissueErrorView({ code: "weird", error: "ลองอีกครั้งในอีกสักครู่" })).toEqual({ message: "ลองอีกครั้งในอีกสักครู่", needsPin: false, final: false });
+    expect(reissueErrorView({ code: "weird", error: "job_token_issue_core failed" }).message).toBe("ออก QR ใหม่ไม่สำเร็จ — ลองอีกครั้ง");
+    expect(reissueErrorView({ code: "error", error: "ระบบขัดข้อง" }).message).toBe("ออก QR ใหม่ไม่สำเร็จ — ลองอีกครั้ง");
+    expect(reissueErrorView({}).final).toBe(false);
   });
 });
 

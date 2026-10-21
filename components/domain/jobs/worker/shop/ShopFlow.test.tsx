@@ -16,7 +16,9 @@ const intakeLogin = vi.fn();
 const workerLogout = vi.fn();
 const intakeSearch = vi.fn();
 const intakeOpen = vi.fn();
+const intakeMyJobs = vi.fn();
 vi.mock("@/lib/actions/job-worker", () => ({
+  intakeMyJobs: (...a: unknown[]) => intakeMyJobs(...a),
   intakeLogin: (...a: unknown[]) => intakeLogin(...a),
   workerLogout: (...a: unknown[]) => workerLogout(...a),
   intakeSearch: (...a: unknown[]) => intakeSearch(...a),
@@ -49,6 +51,7 @@ const okResult = (o: Partial<IntakeOpenResult> = {}): { ok: true; result: Intake
 
 beforeEach(() => {
   vi.clearAllMocks();
+  intakeMyJobs.mockResolvedValue({ ok: true, openAllowed: true, jobs: [], maxPhotos: 3 });
   window.scrollTo = vi.fn() as unknown as typeof window.scrollTo;
   intakeSearch.mockResolvedValue({ ok: true, items: [product()] });
   intakeOpen.mockResolvedValue(okResult());
