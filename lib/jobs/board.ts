@@ -3,6 +3,7 @@
 // ที่นี่คำนวณเฉพาะ "ครบกำหนดใน 3 วัน" (ข้อมูลประกอบ จากวันที่ไทยของ server) และจัดกลุ่ม
 
 import { addDays, daysBetween } from "@/lib/jobs/dates";
+import { calendarDaysOpen, isAckStale } from "@/lib/jobs/intake-ack";
 import { GOLD_GAP_TOLERANCE_G } from "@/lib/jobs/lots";
 import { retiredStageLabel } from "@/lib/jobs/types";
 import type { BoardRow, StageDef } from "@/lib/jobs/types";
@@ -80,6 +81,10 @@ export interface BoardSummary {
   dueSoon: number;
   stale: number;
   depositMissing: number;
+  /** W1: ใบงานที่ใบผลิตต้นทางเปิดจากหน้างานและยังไม่รับทราบ */
+  unacked: number;
+  /** W1: ในนั้นค้างเกินกำหนดเตือน (วันปฏิทินไทย) — tile ขึ้นแดง */
+  unackedStale: number;
 }
 
 /** ครบกำหนดใน 3 วัน = วันนี้ ≤ due ≤ วันนี้+3 และยังไม่เลยกำหนด — ข้อมูลประกอบ */
@@ -90,6 +95,8 @@ export function summarize(rows: readonly BoardRow[], todayTh: string): BoardSumm
     dueSoon: rows.filter((r) => matchesSignal(r, "dueSoon", todayTh)).length,
     stale: rows.filter((r) => matchesSignal(r, "stale", todayTh)).length,
     depositMissing: rows.filter((r) => r.depositMissing).length,
+    unacked: rows.filter((r) => matchesSignal(r, "unacked", todayTh)).length,
+    unackedStale: rows.filter((r) => isUnackedStale(r, todayTh)).length,
   };
 }
 
@@ -155,7 +162,18 @@ export function holderOptions(rows: readonly BoardRow[]): string[] {
 // ---------------------------------------------------------------------------
 
 /** ตัวกรองจาก tile (ทำงานต่อจาก dropdown) */
-export type Signal = "overdue" | "dueSoon" | "stale";
+export type Signal = "overdue" | "dueSoon" | "stale" | "unacked";
+
+/** W1: ค้างรับทราบครบกำหนดเตือน (ที่เดียว = isAckStale ของ intake-ack.ts — ใช้ร่วมกับ /production) · ไม่ใช่ใบรอรับทราบ = false */
+export function isUnackedStale(r: BoardRow, todayTh: string): boolean {
+  return r.intake?.ackPending === true && isAckStale(r.intake.openedAt, todayTh);
+}
+
+/** W1: ใบงานจากหน้างานที่ยังไม่รับทราบ → ค้างกี่วันปฏิทินไทย (วันเปิด = 1) · ไม่ใช่ใบรอรับทราบ = null */
+export function unackedDays(r: BoardRow, todayTh: string): number | null {
+  if (!r.intake?.ackPending) return null;
+  return calendarDaysOpen(r.intake.openedAt, todayTh);
+}
 
 /** ครบกำหนดใน 3 วัน = วันนี้ ≤ due ≤ วันนี้+3 และยังไม่เลยกำหนด */
 function isDueSoon(r: BoardRow, todayTh: string): boolean {
@@ -168,6 +186,7 @@ function isDueSoon(r: BoardRow, todayTh: string): boolean {
 export function matchesSignal(r: BoardRow, signal: Signal, todayTh: string): boolean {
   if (signal === "overdue") return r.isOverdue;
   if (signal === "stale") return r.isStale;
+  if (signal === "unacked") return r.intake?.ackPending === true;
   return isDueSoon(r, todayTh);
 }
 
@@ -176,7 +195,7 @@ export function applySignal(rows: readonly BoardRow[], signal: Signal | null, to
 }
 
 export type StatusTone = BadgeTone | "green";
-export type StatusKey = "overdue" | "dueSoon" | "mismatch" | "handoff" | "stale" | "deposit" | "hold" | "normal" | "auto" | "qty" | "surplusPending" | "underPlanned" | "buffer" | "goldUnguarded" | "pendingExplain" | "partial" | "goldWeight";
+export type StatusKey = "overdue" | "unacked" | "unboundSku" | "metalDiff" | "fromShop" | "dueSoon" | "mismatch" | "handoff" | "stale" | "deposit" | "hold" | "normal" | "auto" | "qty" | "surplusPending" | "underPlanned" | "buffer" | "goldUnguarded" | "pendingExplain" | "partial" | "goldWeight";
 
 export interface StatusSignal {
   key: StatusKey;
@@ -197,6 +216,12 @@ export function statusSignals(r: BoardRow, todayTh: string): StatusSignal[] {
   if (r.isOverdue) {
     const n = r.dueDate ? daysBetween(r.dueDate, todayTh) : 0;
     out.push({ key: "overdue", rank: 1, label: n > 0 ? `เลยกำหนด ${n} วัน` : "เลยกำหนด", tone: "red" });
+  }
+  // W1: ใบจากหน้างานที่ยังไม่รับทราบ — ต้องดู (rank 1.5 ระหว่างเลยกำหนดกับครบใน 3 วัน · แดงเมื่อค้างครบกำหนดเตือน)
+  const ackDays = unackedDays(r, todayTh);
+  if (r.intake?.ackPending) {
+    const stale = isUnackedStale(r, todayTh);
+    out.push({ key: "unacked", rank: 1.5, label: stale ? `รอรับทราบ ค้าง ${ackDays} วัน` : "รอรับทราบ", tone: stale ? "red" : "amber" });
   }
   if (isDueSoon(r, todayTh)) {
     const n = daysBetween(todayTh, r.dueDate as string);
@@ -230,6 +255,12 @@ export function statusSignals(r: BoardRow, todayTh: string): StatusSignal[] {
   if (buf > 0) out.push({ key: "buffer", rank: 10.2, label: bufferLabel(buf), tone: "blue" });
   // 0181: ใบที่แยกส่วนแล้ว "n ส่วน" — ข้อมูลประกอบ (sky) · ใบเดี่ยวไม่ขึ้น
   if ((r.partsCount ?? 0) > 1) out.push({ key: "partial", rank: 10.3, label: `${r.partsCount} ส่วน`, tone: "blue" });
+  // W1: ข้อมูลประกอบของใบจากหน้างาน (รอง — ไม่นับ "ต้องดู": ออฟฟิศจัดการที่หน้าใบผลิต) · ใบเดิมไม่มี intake = ไม่ขึ้นสักป้าย
+  if (r.intake) {
+    if (r.sku === null) out.push({ key: "unboundSku", rank: 9.5, label: "⚑ ยังไม่ผูก SKU", tone: "amber" });
+    if (r.intake.metalMismatch) out.push({ key: "metalDiff", rank: 9.6, label: "โลหะต่างจาก SKU", tone: "amber" });
+    out.push({ key: "fromShop", rank: 10.4, label: "จากหน้างาน", tone: "blue" });
+  }
   return out;
 }
 
@@ -289,7 +320,7 @@ export function hasFilters(f: BoardFilters, signal: Signal | null): boolean {
   return !!(f.metal || f.source || f.holder || f.overdueOnly || signal);
 }
 
-const SIGNAL_LABEL: Record<Signal, string> = { overdue: "เลยกำหนด", dueSoon: "ครบใน 3 วัน", stale: "นิ่งเกิน 3 วัน" };
+const SIGNAL_LABEL: Record<Signal, string> = { overdue: "เลยกำหนด", dueSoon: "ครบใน 3 วัน", stale: "นิ่งเกิน 3 วัน", unacked: "รอรับทราบ" };
 export const SIGNAL_TEXT = SIGNAL_LABEL;
 
 /** "เลยกำหนด · โลหะ ทอง · แหล่ง งาน OEM · ผู้ถือ ช่างเอ" — ป้ายชื่อโลหะ/แหล่งส่งเข้ามาเพื่อไม่ผูก lib นี้กับ types */

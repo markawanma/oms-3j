@@ -2,16 +2,21 @@
 
 // ProductionCloseChecklist — เช็คลิสต์ก่อนกด "ผลิตเสร็จ" (UX A.2): แสดงเฉพาะข้อที่ยังติด (ไม่ใช่ checklist ยาวทุกใบ)
 // ทุกข้อมีปุ่มลัด scroll+focus ไปที่การ์ดที่ต้องแก้ (ไม่ใช่ลิงก์ออก) · ตัวส่วนหัว focus ได้ (tabIndex -1) ให้ปุ่ม aria-disabled พามาที่นี่
+// W1: ข้อ "ยังไม่รับทราบ" พาไปการ์ดรับทราบ (anchorId) · ข้อรายการพาไปการ์ดรายการ (itemId)
 
 import type { CloseBlocker } from "@/lib/production/metal-ui";
 
 export const CLOSE_CHECKLIST_ID = "production-close-checklist";
 
-export function focusItemCard(itemId: string) {
-  const el = document.getElementById(`po-item-${itemId}`);
+function focusById(id: string) {
+  const el = document.getElementById(id);
   if (!el) return;
   el.scrollIntoView?.({ behavior: "smooth", block: "center" });
   el.focus({ preventScroll: true });
+}
+
+export function focusItemCard(itemId: string) {
+  focusById(`po-item-${itemId}`);
 }
 
 export function ProductionCloseChecklist({ blockers }: { blockers: readonly CloseBlocker[] }) {
@@ -26,13 +31,13 @@ export function ProductionCloseChecklist({ blockers }: { blockers: readonly Clos
               <span aria-hidden="true">✗ </span>
               {b.message}
             </span>
-            {b.itemId && (
+            {(b.itemId || b.anchorId) && (
               <button
                 type="button"
-                onClick={() => focusItemCard(b.itemId as string)}
+                onClick={() => (b.itemId ? focusItemCard(b.itemId) : focusById(b.anchorId as string))}
                 className="min-h-9 shrink-0 rounded-md border border-amber-400 bg-white px-2.5 text-xs font-medium text-amber-950 hover:bg-amber-100"
               >
-                ไปที่รายการ
+                {b.itemId ? "ไปที่รายการ" : "ไปที่การ์ดรับทราบ"}
               </button>
             )}
           </li>

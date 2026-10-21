@@ -1,6 +1,6 @@
 "use client";
 
-// WorkersClient — ทะเบียนช่าง: เพิ่ม/แก้ชื่อ+ขั้นที่ทำ · รีเซ็ต PIN · ปิด/เปิดใช้งาน
+// WorkersClient — ทะเบียนช่าง: เพิ่ม/แก้ชื่อ+ขั้นที่ทำ · สิทธิ์เพิ่มเติม (เปิดงานได้/ดูแลงานนอกร้าน · W1) · รีเซ็ต PIN · ปิด/เปิดใช้งาน · การ์ด QR ร้าน (W1)
 // 🔴 PIN แสดงครั้งเดียวในกล่องนี้ (state ในหน้าจอเท่านั้น ไม่ลง storage/URL/log) — ปิดกล่อง = หาย · DB เก็บ bcrypt อ่านกลับไม่ได้
 
 import { useMemo, useState } from "react";
@@ -12,12 +12,13 @@ import { Modal } from "@/components/ui/Modal";
 import { ErrorLine, FIELD, Field } from "@/components/domain/jobs/JobDialogs";
 import { useOfficeRun } from "@/components/domain/jobs/useOfficeRun";
 import { resetWorkerPin, saveWorker, setWorkerActive, unlockWorker } from "@/lib/actions/job-workers";
-import type { WorkersData } from "@/lib/actions/job-workers";
+import type { ShopIntakeStatus, WorkersData } from "@/lib/actions/job-workers";
+import { ShopQrCard } from "@/components/domain/jobs/ShopQrCard";
 import { LABEL_ANGLE_MSG, LABEL_ANGLE_RE, PIN_RE } from "@/lib/jobs/input";
 import { LOCK_STATE_LABEL, retiredStageLabel } from "@/lib/jobs/types";
 import type { WorkerRow } from "@/lib/jobs/types";
 
-type Dlg = { t: "edit"; worker: WorkerRow | null } | { t: "pin"; worker: WorkerRow } | { t: "setpin"; worker: WorkerRow } | { t: "shown"; name: string; pin: string } | null;
+type Dlg = { t: "edit"; worker: WorkerRow | null } | { t: "pin"; worker: WorkerRow } | { t: "setpin"; worker: WorkerRow } | { t: "deactivate"; worker: WorkerRow } | { t: "shown"; name: string; pin: string } | null;
 type OnShown = (name: string, pin: string) => void;
 
 function ShownPinDialog({ name, pin, onClose }: { name: string; pin: string; onClose: () => void }) {
@@ -57,16 +58,29 @@ function EditDialog({ worker, stages, retired, onClose, onShown, onSetPin }: { w
   const [name, setName] = useState(worker?.displayName ?? "");
   const [codes, setCodes] = useState<string[]>(worker?.stageCodes ?? []);
   const [pin, setPin] = useState("");
+  // W1: สิทธิ์เพิ่มเติม — บันทึกพร้อมปุ่ม "บันทึก" (ไม่ใช่สวิตช์ทันที: สิทธิ์สร้างข้อมูลจริงต้องมีจังหวะยืนยัน)
+  const [canOpenJob, setCanOpenJob] = useState(worker?.canOpenJob ?? false);
+  const [canExternal, setCanExternal] = useState(worker?.canExternal ?? false);
   const pinOk = pin === "" || PIN_RE.test(pin);
   const nameBad = LABEL_ANGLE_RE.test(name);
   const ready = name.trim() !== "" && codes.length > 0 && pinOk && !nameBad;
   const toggle = (c: string) => setCodes((p) => (p.includes(c) ? p.filter((x) => x !== c) : [...p, c]));
   // ไปตั้ง PIN จากกล่องนี้ = ปิดกล่องแก้ไข — ถ้าชื่อ/ขั้นถูกแก้ค้างไว้ต้องถามก่อน ไม่ให้ของที่แก้หายเงียบ
   const [askDiscard, setAskDiscard] = useState(false);
-  const dirty = worker !== null && (name !== worker.displayName || codes.length !== worker.stageCodes.length || codes.some((c) => !worker.stageCodes.includes(c)));
+  const dirty =
+    worker !== null &&
+    (name !== worker.displayName || codes.length !== worker.stageCodes.length || codes.some((c) => !worker.stageCodes.includes(c)) || canOpenJob !== worker.canOpenJob || canExternal !== worker.canExternal);
 
   async function submit() {
-    const r = await run(() => saveWorker({ id: worker?.id ?? null, displayName: name, stageCodes: codes, pin: worker ? null : pin || null }), { success: worker ? "บันทึกแล้ว" : "เพิ่มช่างแล้ว" });
+    const r = await run(() => saveWorker({
+        id: worker?.id ?? null,
+        displayName: name,
+        stageCodes: codes,
+        pin: worker ? null : pin || null,
+        // ส่งสิทธิ์เฉพาะที่เปลี่ยนจริง (เป็น boolean ชัด — ถอนสิทธิ์ส่ง false) · ไม่เปลี่ยน = ไม่ส่ง (DB ไม่แตะค่าเดิม · ช่างใหม่ที่ไม่ติ๊ก = ค่าเริ่มของ DB คือปิด)
+        ...(canOpenJob !== (worker?.canOpenJob ?? false) ? { canOpenJob } : {}),
+        ...(canExternal !== (worker?.canExternal ?? false) ? { canExternal } : {}),
+      }), { success: worker ? "บันทึกแล้ว" : "เพิ่มช่างแล้ว" });
     if (!r.ok) return;
     onClose();
     if (r.data.pin) onShown(name.trim(), r.data.pin);
@@ -94,6 +108,23 @@ function EditDialog({ worker, stages, retired, onClose, onShown, onSetPin }: { w
               </label>
             ))}
           </div>
+        </fieldset>
+        <fieldset className="space-y-1">
+          <legend className="text-sm font-medium text-zinc-800">สิทธิ์เพิ่มเติม</legend>
+          <label className="flex min-h-11 items-start gap-2 py-1 text-sm text-zinc-900">
+            <input type="checkbox" className="mt-0.5 h-5 w-5 shrink-0 accent-primary-600" checked={canOpenJob} onChange={(e) => setCanOpenJob(e.target.checked)} />
+            <span>
+              <span className="block font-medium">เปิดงานได้</span>
+              <span className="block text-sm text-zinc-700">สร้างใบผลิต + ใบงานจากมือถือ (สแกน QR ร้าน) · ออฟฟิศต้องกดรับทราบก่อนปิดใบ · ต้องเลือกขั้นที่ช่างทำอย่างน้อย 1 ขั้นด้วย</span>
+            </span>
+          </label>
+          <label className="flex min-h-11 items-start gap-2 py-1 text-sm text-zinc-900">
+            <input type="checkbox" className="mt-0.5 h-5 w-5 shrink-0 accent-primary-600" checked={canExternal} onChange={(e) => setCanExternal(e.target.checked)} />
+            <span>
+              <span className="block font-medium">ดูแลงานนอกร้าน</span>
+              <span className="block text-sm text-zinc-700">ชี้แจงส่วนต่าง / ส่งออก / รับกลับ / ยกเลิกการส่งออกของคนอื่นได้</span>
+            </span>
+          </label>
         </fieldset>
         {worker && !askDiscard && (
           <div className="flex flex-wrap items-center gap-2 rounded-md border border-zinc-200 bg-zinc-50 p-2">
@@ -205,6 +236,9 @@ function WorkerItem({ w, stageName, onEdit, onPin, onSetPin, onToggle, onUnlock 
         <p className={`flex flex-wrap items-center gap-x-2 gap-y-1 text-base font-semibold ${w.isActive ? "text-zinc-900" : "text-zinc-600"}`}>
           <span className="break-words">{w.displayName}</span>
           <Badge tone={w.isActive ? "green" : "slate"}>{w.isActive ? "ใช้งานอยู่" : "ปิดใช้งาน"}</Badge>
+          {/* W1: ป้ายสิทธิ์ — ช่างที่ปิดใช้งานไม่โชว์ (ใช้สิทธิ์ไม่ได้อยู่แล้ว) */}
+          {w.isActive && w.canOpenJob && <span className="inline-flex items-center rounded-sm bg-primary-100 px-2 py-0.5 text-xs font-medium whitespace-nowrap text-primary-700">เปิดงานได้</span>}
+          {w.isActive && w.canExternal && <Badge tone="blue">ดูแลงานนอกร้าน</Badge>}
         </p>
         <p className={`break-words text-sm ${w.isActive ? "text-zinc-800" : "text-zinc-600"}`}>{w.stageCodes.length > 0 ? w.stageCodes.map(stageName).join(" · ") : "ยังไม่กำหนดขั้น"}</p>
         {w.lockState !== "none" && (
@@ -255,7 +289,33 @@ function WorkerItem({ w, stageName, onEdit, onPin, onSetPin, onToggle, onUnlock 
 
 type Tab = "active" | "inactive";
 
-export function WorkersClient({ data }: { data: WorkersData }) {
+/** ปิดใช้งานช่างที่ถือสิทธิ์ (W1): ยืนยันก่อน + บอกผลต่อการเปิดงานจากมือถือ — ไม่บล็อก */
+function DeactivateDialog({ worker, onClose }: { worker: WorkerRow; onClose: () => void }) {
+  const { run, busy, error } = useOfficeRun();
+  async function submit() {
+    const r = await run(() => setWorkerActive(worker.id, false), { success: `ปิดใช้งาน ${worker.displayName} แล้ว` });
+    if (r.ok) onClose();
+  }
+  return (
+    <Modal open onClose={onClose} title={`ปิดใช้งาน ${worker.displayName}?`}>
+      <div className="space-y-3">
+        <p className="text-sm text-zinc-800">ปิดแล้วช่างคนนี้ระบุตัวบนมือถือไม่ได้ · เปิดใช้งานกลับได้จากแท็บ “ปิดใช้งาน”</p>
+        {worker.canOpenJob && <p className="text-sm font-medium text-amber-950">ช่างคนนี้เปิดงานจากมือถือไม่ได้อีก</p>}
+        <ErrorLine message={error} />
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>
+            ยกเลิก
+          </Button>
+          <Button type="button" variant="danger" loading={busy} onClick={() => void submit()}>
+            ปิดใช้งาน
+          </Button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+export function WorkersClient({ data, intake }: { data: WorkersData; /** W1: สถานะ QR ร้าน (ไม่ส่ง = ไม่แสดงการ์ด) */ intake?: { status: ShopIntakeStatus | null; error: string | null } }) {
   const { run, error } = useOfficeRun();
   const [dlg, setDlg] = useState<Dlg>(null);
   const [tab, setTab] = useState<Tab>("active");
@@ -276,13 +336,19 @@ export function WorkersClient({ data }: { data: WorkersData }) {
     const r = retired.find((s) => s.code === c);
     return r ? retiredStageLabel(r.nameTh) : c;
   };
-  const toggleActive = (w: WorkerRow) =>
+  // ช่างที่ถือสิทธิ์เปิดงาน/ดูแลงานนอกร้านต้องยืนยันก่อนปิด · ช่างทั่วไปปิดได้ทันทีเหมือนเดิม
+  const toggleActive = (w: WorkerRow) => {
+    if (w.isActive && (w.canOpenJob || w.canExternal)) {
+      setDlg({ t: "deactivate", worker: w });
+      return;
+    }
     void run(() => setWorkerActive(w.id, !w.isActive), { success: w.isActive ? `ปิดใช้งาน ${w.displayName} แล้ว` : `เปิดใช้งาน ${w.displayName} แล้ว` });
+  };
   const unlock = (w: WorkerRow) => void run(() => unlockWorker(w.id), { success: `ปลดล็อก ${w.displayName} แล้ว` });
   const shown: OnShown = (name, pin) => setDlg({ t: "shown", name, pin });
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 print:[&>*:not([data-print-keep])]:hidden">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h1 className="text-2xl font-bold text-zinc-900">ทะเบียนช่าง</h1>
         <Button type="button" onClick={() => setDlg({ t: "edit", worker: null })}>
@@ -290,6 +356,7 @@ export function WorkersClient({ data }: { data: WorkersData }) {
           เพิ่มช่าง
         </Button>
       </div>
+      {intake && <ShopQrCard status={intake.status} statusError={intake.error} />}
       <ErrorLine message={error} />
       {data.workers.length === 0 ? (
         <EmptyState title="ยังไม่มีช่างในทะเบียน" description="เพิ่มช่างก่อน แล้วค่อยพิมพ์ใบงาน — ช่างระบุตัวด้วยชื่อ + PIN 4 หลักบนมือถือ" />
@@ -327,6 +394,7 @@ export function WorkersClient({ data }: { data: WorkersData }) {
       {dlg?.t === "edit" && <EditDialog worker={dlg.worker} stages={data.stages} retired={retired} onClose={() => setDlg(null)} onShown={shown} onSetPin={(w) => setDlg({ t: "setpin", worker: w })} />}
       {dlg?.t === "setpin" && <SetPinDialog worker={dlg.worker} onClose={() => setDlg(null)} onShown={shown} />}
       {dlg?.t === "pin" && <ResetPinDialog worker={dlg.worker} onClose={() => setDlg(null)} onShown={shown} />}
+      {dlg?.t === "deactivate" && <DeactivateDialog worker={dlg.worker} onClose={() => setDlg(null)} />}
       {dlg?.t === "shown" && <ShownPinDialog name={dlg.name} pin={dlg.pin} onClose={() => setDlg(null)} />}
     </div>
   );

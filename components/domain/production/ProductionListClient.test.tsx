@@ -30,7 +30,8 @@ describe("ป้าย 'ยังไม่ผูก SKU n'", () => {
         orders={[order({ id: "c", poNo: "PO-0040", status: "cancelled", unboundItemCount: 1 }), order({ id: "d", poNo: "PO-0041", status: "done", unboundItemCount: 1, qtyDoneTotal: 5 })]}
       />
     );
-    expect(screen.queryByText(/ยังไม่ผูก SKU/)).toBeNull();
+    // ตารางไม่มีป้าย (ปุ่มกรอง "ยังไม่ผูก SKU (n)" อยู่นอกตาราง — นับเฉพาะใบ open จึงเป็น 0)
+    expect(within(screen.getByRole("table")).queryByText(/ยังไม่ผูก SKU/)).toBeNull();
   });
   it("ป้ายไม่ซ่อนข้ามตัวกรองสถานะ: เลือก 'กำลังผลิต' ยังเห็นป้าย", async () => {
     render(<ProductionListClient orders={[order({ id: "a", poNo: "PO-0034", unboundItemCount: 1 })]} />);

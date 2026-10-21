@@ -9,7 +9,7 @@ import { Check, Loader2, Minus, Plus } from "lucide-react";
 import { SCRAP_REASON_LABEL, STAGE_STATUS_LABEL } from "@/lib/jobs/types";
 import type { WorkerViewStage } from "@/lib/jobs/worker-view";
 
-export const BIG_BTN = "inline-flex min-h-14 w-full items-center justify-center gap-2 rounded-xl px-5 text-xl font-bold focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary-300 disabled:cursor-not-allowed disabled:opacity-50";
+export const BIG_BTN = "inline-flex min-h-14 w-full items-center justify-center gap-2 rounded-xl px-5 text-xl font-bold focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary-300 disabled:cursor-not-allowed disabled:opacity-50 aria-disabled:cursor-not-allowed aria-disabled:opacity-50";
 
 const noopSubscribe = () => () => {};
 /** false ตอน SSR/ก่อน hydrate เสร็จ · true หลังจากนั้น — ปุ่มที่กดก่อน hydrate จะ "ไม่ติด" (ไม่มี handler) จึงโชว์ skeleton แทนจนกว่าจะพร้อม */

@@ -1,7 +1,7 @@
 // StatusChip — ป้ายสถานะใบงาน (ข้อความ + ไอคอน + สี ไม่พึ่งสีอย่างเดียว) ใช้ทั้ง "งานที่วิ่งอยู่" และ JobCard
 // tone ชุดเดียวกัน: แดง/amber/เทา/เขียว/ฟ้า(ข้อมูลประกอบ) — ห้ามเพิ่มสีนอกชุดนี้
 
-import { AlertTriangle, CalendarClock, CheckCircle2, CircleDashed, Clock, HelpCircle, Info, Layers, PackageX, PauseCircle, Scale, ShieldOff, Split } from "lucide-react";
+import { AlertTriangle, CalendarClock, CheckCircle2, ClipboardCheck, Smartphone, CircleDashed, Clock, HelpCircle, Info, Layers, PackageX, PauseCircle, Scale, ShieldOff, Split } from "lucide-react";
 import type { StatusKey, StatusSignal, StatusTone } from "@/lib/jobs/board";
 
 export const STATUS_TONE: Record<StatusTone, string> = {
@@ -23,6 +23,10 @@ export const STATUS_BAR: Record<StatusTone, string> = {
 
 export const STATUS_ICON: Record<StatusKey, typeof Info> = {
   overdue: AlertTriangle,
+  unacked: ClipboardCheck,
+  unboundSku: AlertTriangle,
+  metalDiff: Scale,
+  fromShop: Smartphone,
   dueSoon: CalendarClock,
   mismatch: Scale,
   handoff: AlertTriangle,

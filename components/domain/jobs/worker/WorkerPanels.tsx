@@ -58,7 +58,22 @@ export function ActionError({ message, code, onReload, busy = false }: { message
 }
 
 // ---------------------------------------------------------------------------
-export function IdentifyPanel({ token, workers, onDone }: { token: string; workers: WorkerView["workers"]; onDone: () => void }) {
+export function IdentifyPanel({
+  token,
+  workers,
+  onDone,
+  login = workerLogin,
+  heading = "คุณคือใคร",
+  emptyMessage = "ยังไม่มีชื่อช่างที่ทำขั้นนี้ได้ — บอกออฟฟิศให้เพิ่มชื่อ",
+}: {
+  token: string;
+  workers: WorkerView["workers"];
+  onDone: () => void;
+  /** ทางเข้า: ค่าเริ่ม = QR ใบงาน (workerLogin) · QR ร้าน (/w/s/) ส่ง intakeLogin */
+  login?: (token: string, workerId: string, pin: string) => Promise<WorkerActionResult>;
+  heading?: string;
+  emptyMessage?: string;
+}) {
   const [picked, setPicked] = useState<{ id: string; name: string } | null>(null);
   const [pin, setPin] = useState("");
   const [busy, setBusy] = useState(false);
@@ -91,7 +106,7 @@ export function IdentifyPanel({ token, workers, onDone }: { token: string; worke
     if (!picked || busy || blocked) return;
     setBusy(true);
     setError(null);
-    const r = await safely(() => workerLogin(token, picked.id, code));
+    const r = await safely(() => login(token, picked.id, code));
     setBusy(false);
     if (r.ok) {
       onDone();
@@ -110,10 +125,10 @@ export function IdentifyPanel({ token, workers, onDone }: { token: string; worke
     return (
       <section aria-labelledby="who-h" className="space-y-3">
         <h2 id="who-h" className="text-2xl font-bold text-zinc-900">
-          คุณคือใคร
+          {heading}
         </h2>
         {workers.length === 0 ? (
-          <p className="rounded-xl bg-amber-50 p-4 text-lg text-amber-900">ยังไม่มีชื่อช่างที่ทำขั้นนี้ได้ — บอกออฟฟิศให้เพิ่มชื่อ</p>
+          <p className="rounded-xl bg-amber-50 p-4 text-lg text-amber-900">{emptyMessage}</p>
         ) : (
           <ul className="space-y-2">
             {workers.map((w) => (

@@ -11,7 +11,7 @@
 import { useEffect, useId, useState } from "react";
 import { Trash2 } from "lucide-react";
 import { setProductionOrderItem } from "@/lib/actions/production";
-import type { ProductionOrderItemRow, ProductionOrderRow } from "@/lib/production/types";
+import type { ProductionOrderItemRow, ProductionOrderRow, ProductionSkuOption } from "@/lib/production/types";
 import { PRODUCTION_COST_TYPE_LABEL_TH } from "@/lib/production/types";
 import {
   applyMetalChange,
@@ -33,6 +33,7 @@ import { useToast } from "@/components/ui/Toast";
 import { MetalTag } from "./MetalTag";
 import { MetalSpecFields } from "./MetalSpecFields";
 import { ProductionSpecCostCard } from "./ProductionSpecCostCard";
+import { ProductionItemBindPanel } from "./ProductionItemBindPanel";
 
 const inputCls = "mt-1 min-h-11 w-full rounded-md border border-zinc-300 px-2.5 text-base text-zinc-900 tabular-nums disabled:bg-zinc-100 disabled:text-zinc-500";
 const labelCls = "block text-sm font-medium text-zinc-700";
@@ -53,6 +54,9 @@ export function ProductionItemCard({
   onRemove,
   onSaved,
   onDirtyChange,
+  skuOptions,
+  skuOptionsError,
+  usedProductIds,
 }: {
   order: Pick<ProductionOrderRow, "id" | "poNo" | "status">;
   row: ProductionOrderItemRow;
@@ -62,6 +66,11 @@ export function ProductionItemCard({
   onRemove?: (row: ProductionOrderItemRow) => void;
   onSaved?: () => void;
   onDirtyChange?: (itemId: string, dirty: boolean) => void;
+  /** W1: รายการ SKU ที่ผูกได้ (ส่งมา = รายการไม่มี SKU มีปุ่มผูก SKU/แก้ชื่อแบบ · ไม่ส่ง = ข้อความเดิม) */
+  skuOptions?: readonly ProductionSkuOption[];
+  skuOptionsError?: string | null;
+  /** product_id ที่อยู่ในใบนี้แล้ว (ไม่เสนอซ้ำ) */
+  usedProductIds?: ReadonlySet<string>;
 }) {
   const toast = useToast();
   const idBase = useId();
@@ -215,6 +224,7 @@ export function ProductionItemCard({
             {row.currentCostType && <Badge tone={costModeTone(row.currentCostType)}>{PRODUCTION_COST_TYPE_LABEL_TH[row.currentCostType]}</Badge>}
             <span className="tabular-nums">แผน {row.qtyPlanned.toLocaleString("en-US")} ชิ้น</span>
             {!isOpen && <span className="tabular-nums">ผลิตเข้าแล้ว {row.qtyDone != null ? row.qtyDone.toLocaleString("en-US") : "—"} ชิ้น</span>}
+            {hasSku && row.pendingProductLabel && <span className="break-words text-zinc-500 [overflow-wrap:anywhere]">ชื่อที่หน้างานตั้ง: {row.pendingProductLabel}</span>}
             {dirty && (
               <span className="font-medium text-amber-800">
                 ยังไม่บันทึก <span aria-hidden="true">●</span>
@@ -300,11 +310,22 @@ export function ProductionItemCard({
 
             {hasSku && <div>{costLine}</div>}
 
-            {!hasSku && (
-              <p className="text-xs text-zinc-600">
-                ยังไม่มีปุ่มผูก SKU ในหน้านี้ — ถ้าลบรายการนี้ไม่ได้ (มีใบงานผูกอยู่) ให้ยกเลิกทั้งใบผลิตแล้วเปิดใหม่
-              </p>
-            )}
+            {!hasSku &&
+              (skuOptions ? (
+                <ProductionItemBindPanel
+                  order={order}
+                  row={row}
+                  skuOptions={skuOptions}
+                  skuOptionsError={skuOptionsError ?? null}
+                  usedProductIds={usedProductIds ?? new Set()}
+                  cardDirty={dirty}
+                  onChanged={onSaved}
+                />
+              ) : (
+                <p className="text-xs text-zinc-600">
+                  ยังไม่มีปุ่มผูก SKU ในหน้านี้ — ถ้าลบรายการนี้ไม่ได้ (มีใบงานผูกอยู่) ให้ยกเลิกทั้งใบผลิตแล้วเปิดใหม่
+                </p>
+              ))}
 
             {cardError && (
               <p role="alert" className="rounded-md border border-red-200 bg-red-50 p-2 text-sm text-red-700">

@@ -77,20 +77,21 @@ describe("dialog แก้ช่าง: ตัวเลือกยังเฉ�
   it("ช่างที่ถือ polish: เห็น 'แต่ง ขัด (เลิกใช้)' ติ๊กอยู่ · ช่างที่ไม่ถือ: ไม่เห็นตัวเลือกเลิกใช้เลย · เพิ่มช่างใหม่: ไม่เห็น", async () => {
     wrap(<WorkersClient data={data()} />);
     let dlg = await openEdit("ช่างเก่า");
+    const PERMS = 2; // W1: เปิดงานได้ · ดูแลงานนอกร้าน
     const held = within(dlg).getByRole("checkbox", { name: /แต่ง ขัด \(เลิกใช้\)/ });
     expect(held).toBeChecked();
-    expect(within(dlg).getAllByRole("checkbox")).toHaveLength(STAGES.length + 1);
+    expect(within(dlg).getAllByRole("checkbox")).toHaveLength(STAGES.length + 1 + PERMS);
     await userEvent.click(within(dlg).getByRole("button", { name: "ยกเลิก" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     dlg = await openEdit("ช่างใหม่");
     expect(within(dlg).queryByText(/เลิกใช้/)).not.toBeInTheDocument();
-    expect(within(dlg).getAllByRole("checkbox")).toHaveLength(STAGES.length);
+    expect(within(dlg).getAllByRole("checkbox")).toHaveLength(STAGES.length + PERMS);
     await userEvent.click(within(dlg).getByRole("button", { name: "ยกเลิก" }));
     await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
     await userEvent.click(screen.getByRole("button", { name: /เพิ่มช่าง/ }));
     dlg = await screen.findByRole("dialog");
     expect(within(dlg).queryByText(/เลิกใช้/)).not.toBeInTheDocument();
-    expect(within(dlg).getAllByRole("checkbox")).toHaveLength(STAGES.length);
+    expect(within(dlg).getAllByRole("checkbox")).toHaveLength(STAGES.length + PERMS);
   });
   it("กดบันทึกโดยไม่แตะขั้น: รหัส polish คงอยู่ในที่ส่งไป (ไม่หลุด) และไม่ error", async () => {
     wrap(<WorkersClient data={data()} />);

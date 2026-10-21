@@ -1,5 +1,5 @@
 import { Lock } from "lucide-react";
-import { getWorkers } from "@/lib/actions/job-workers";
+import { getShopIntakeStatus, getWorkers } from "@/lib/actions/job-workers";
 import { canManageJobs } from "@/lib/jobs/page-gate";
 import { logJobFailure } from "@/lib/jobs/log";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -14,12 +14,14 @@ export default async function JobWorkersPage() {
     return <EmptyState icon={Lock} title="หน้านี้จำกัดสิทธิ์" description="เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่จัดการทะเบียนช่างได้" />;
   }
   let res;
+  let qr;
   try {
-    res = await getWorkers();
+    [res, qr] = await Promise.all([getWorkers(), getShopIntakeStatus()]);
   } catch (err) {
     logJobFailure("JobWorkersPage", err);
     return <ErrorState message="โหลดทะเบียนช่างไม่สำเร็จ ลองใหม่อีกครั้ง" />;
   }
   if (!res.ok) return <ErrorState message={res.error} />;
-  return <WorkersClient data={res.data} />;
+  // W1: สถานะ QR ร้านอ่านไม่ได้ ≠ ทะเบียนช่างพัง — การ์ดขึ้นข้อความของตัวเอง ทะเบียนใช้งานต่อได้
+  return <WorkersClient data={res.data} intake={{ status: qr.ok ? qr.data : null, error: qr.ok ? null : "อ่านสถานะ QR ร้านไม่สำเร็จ — โหลดหน้าใหม่แล้วลองอีกครั้ง" }} />;
 }

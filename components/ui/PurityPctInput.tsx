@@ -21,6 +21,7 @@ export function PurityPctInput({
   forceShow,
   id,
   disabled,
+  size,
 }: {
   value: string;
   onChange: (next: string) => void;
@@ -35,6 +36,8 @@ export function PurityPctInput({
   id?: string;
   /** ปิดช่อง (เช่น ระหว่างบันทึก) — ไม่ส่ง = ไม่มี attribute เหมือนเดิม DOM ไม่เปลี่ยน */
   disabled?: boolean;
+  /** lg = หน้ามือถือของช่าง (ข้อความ error ≥ 15px · เครื่องหมาย % ใหญ่) — ไม่ส่ง = DOM/สไตล์เดิมทุกประการ */
+  size?: "lg";
 }) {
   const errorId = useId();
   const [touched, setTouched] = useState(false);
@@ -56,14 +59,14 @@ export function PurityPctInput({
           // aria-invalid บอกสถานะจริงเสมอ (ไม่ถูกอ่านออกเสียงเอง) — ส่วนข้อความ/สีแดงรอ blur
           aria-invalid={actualIssue ? true : undefined}
           aria-describedby={shownIssue ? errorId : undefined}
-          className={`${className ?? ""} w-full pr-8 ${shownIssue ? "ring-1 ring-red-500" : ""}`}
+          className={`${className ?? ""} w-full ${size === "lg" ? "pr-10" : "pr-8"} ${shownIssue ? "ring-1 ring-red-500" : ""}`}
         />
-        <span aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-2.5 flex items-center text-sm text-zinc-500">
+        <span aria-hidden="true" className={`pointer-events-none absolute inset-y-0 right-2.5 flex items-center text-zinc-500 ${size === "lg" ? "text-lg" : "text-sm"}`}>
           %
         </span>
       </div>
       {shownIssue && (
-        <p id={errorId} role="alert" className="pt-0.5 text-[11px] font-normal text-red-600">
+        <p id={errorId} role="alert" className={size === "lg" ? "pt-1 text-base font-semibold text-red-700" : "pt-0.5 text-[11px] font-normal text-red-600"}>
           {shownIssue}
         </p>
       )}

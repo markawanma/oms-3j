@@ -1,0 +1,289 @@
+"use client";
+
+// ShopOpenFlow — วิซาร์ดเปิดใบ (W-2 → W-2b → W-3 → W-6/7 → W-8) · state ทั้งหมดอยู่ที่นี่ (local state — ไม่ใช้ global store)
+// 🔴 หลักที่ต้องไม่พัง
+//   • idem key สร้าง "ครั้งเดียวต่อฟอร์ม" (newForm) และคงไว้ข้ามการลองใหม่ทุกครั้ง (กดซ้ำ/เน็ตสะดุด = ใบเดียว) — เปลี่ยนเฉพาะเมื่อ DB บอกคีย์ชน/ผิดรูป หรือกด "เปิดอีกใบ"
+//   • กันกดซ้ำด้วย inflight ref (ไม่พึ่ง state ที่ยังไม่ re-render)
+//   • ทุก error: ฟอร์มและค่าที่กรอกไม่หาย · session หมดเวลา → ให้ผู้เรียกโหลด hub ใหม่ (แผ่น PIN) แล้วกลับมากด "เปิดงาน" ต่อ
+//   • token ใบงานดิบ (QR) อยู่ใน state นี้เท่านั้น — ไม่เขียน storage/URL/log · ออกจากจอสำเร็จ = หาย
+//   • ไม่มีตัวเลขเงิน/ราคา · ไม่มีลิงก์ออกนอกแอปช่าง
+
+import { useCallback, useEffect, useRef, useState } from "react";
+import { intakeOpen } from "@/lib/actions/job-worker";
+import { bkkDateOf } from "@/lib/jobs/dates";
+import {
+  MSG_NETWORK, backToSearch, buildIntakeInput, newForm, newIdemKey, purityLabel, shopErrorView, shopOpenIssues, stepProgress, stepsFor,
+} from "@/lib/jobs/shop-open";
+import type { ShopErrorView, ShopFieldKey, ShopForm, ShopStep } from "@/lib/jobs/shop-open";
+import type { IntakeOpenResult } from "@/lib/jobs/worker-server";
+import { focusField } from "@/components/domain/jobs/worker/WorkerPanels";
+import { ShopMetalSheet } from "@/components/domain/jobs/worker/shop/ShopMetalSummary";
+import type { ShopProfileReady } from "@/components/domain/jobs/worker/shop/ShopMetalSummary";
+import { ShopMetalStep } from "@/components/domain/jobs/worker/shop/ShopMetalStep";
+import { ShopOpenSuccess } from "@/components/domain/jobs/worker/shop/ShopOpenSuccess";
+import { LABEL_FIELD_ID, ShopProductSearch } from "@/components/domain/jobs/worker/shop/ShopProductSearch";
+import { ShopQtyStep } from "@/components/domain/jobs/worker/shop/ShopQtyStep";
+import { ShopReview } from "@/components/domain/jobs/worker/shop/ShopReview";
+import { ShopStepHeader } from "@/components/domain/jobs/worker/shop/ShopStepHeader";
+
+export const todayBkk = (): string => bkkDateOf(new Date().toISOString()) ?? new Date().toISOString().slice(0, 10);
+
+const TITLE: Record<ShopStep, string> = { search: "ผลิตอะไร?", metal: "ทำจากอะไร?", qty: "เท่าไร · เสร็จเมื่อไร", review: "ทวนก่อนเปิดงาน" };
+export const MSG_FORM_CLEARED = "เปลี่ยนคนแล้ว — ล้างฟอร์มเดิมเพื่อไม่ให้เปิดงานในชื่อคนใหม่โดยไม่ตั้งใจ เริ่มกรอกใหม่ได้เลย";
+export const MSG_READY_AGAIN = "พร้อมแล้ว — กด \"เปิดงาน\" อีกครั้งได้";
+
+export function ShopOpenFlow({
+  token,
+  ready,
+  workerId,
+  onExit,
+  onSessionLost,
+}: {
+  token: string;
+  ready: ShopProfileReady;
+  /** ผู้จัดการที่ระบุตัวอยู่ตอนนี้ (null = hub กำลังให้ใส่ PIN) — ฟอร์มเป็นของคนที่เริ่มกรอก: คนอื่น login แทน = ล้างฟอร์ม */
+  workerId: string | null;
+  onExit: () => void;
+  onSessionLost: () => void;
+}) {
+  const [form, setForm] = useState<ShopForm>(() => newForm());
+  const [step, setStep] = useState<ShopStep>("search");
+  const [query, setQuery] = useState("");
+  const [showLabelError, setShowLabelError] = useState(false);
+  const [sheet, setSheet] = useState<null | { focusPurity: boolean }>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<ShopErrorView | null>(null);
+  const [waitLeft, setWaitLeft] = useState(0);
+  const [readyNote, setReadyNote] = useState<string | null>(null);
+  const [done, setDone] = useState<{ result: IntakeOpenResult; purity: string } | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const ownerRef = useRef<string | null>(workerId);
+  const inflight = useRef(false);
+  const headRef = useRef<HTMLHeadingElement>(null);
+  const [today] = useState(todayBkk);
+
+  // เปลี่ยนขั้น → โฟกัสหัวขั้น (screen reader อ่านหัวใหม่) + เลื่อนขึ้นบน
+  useEffect(() => {
+    if (sheet !== null) return; // แผ่นแก้เปิดอยู่ — แผ่นจัดการโฟกัสของมันเอง
+    headRef.current?.focus();
+    window.scrollTo?.(0, 0);
+  }, [step, done, sheet]);
+
+  // นับถอยหลัง (rate limit): ประกาศครั้งเดียวตอนเริ่ม (ข้อความใน banner) และตอนพร้อม (readyNote) — ตัวเลขรายวินาทีเป็น aria-hidden
+  const waiting = error?.action === "wait" && waitLeft > 0;
+  useEffect(() => {
+    if (!waiting) return;
+    const t = setInterval(() => {
+      setWaitLeft((n) => {
+        if (n <= 1) {
+          clearInterval(t);
+          return 0;
+        }
+        return n - 1;
+      });
+    }, 1000);
+    return () => clearInterval(t);
+  }, [waiting]);
+  useEffect(() => {
+    if (error?.action === "wait" && waitLeft === 0) {
+      setError(null);
+      setReadyNote(MSG_READY_AGAIN);
+    }
+  }, [error, waitLeft]);
+
+  // session หมดเวลา → PIN ผ่านแล้วกลับมา: คนเดิม = ฟอร์มต่อ + banner "หมดเวลาแล้ว" หายไป · คนอื่นกด "ไม่ใช่ฉัน" แล้ว login แทน = ล้างฟอร์มทั้งก้อน (ไม่ให้ฟอร์มของคนเดิมเดินต่อในชื่อคนใหม่เงียบๆ)
+  useEffect(() => {
+    if (workerId === null) return; // hub กำลังให้ใส่ PIN (ฟอร์มซ่อนอยู่)
+    if (ownerRef.current !== null && ownerRef.current !== workerId) {
+      setForm(newForm());
+      setStep("search");
+      setQuery("");
+      setShowLabelError(false);
+      setSheet(null);
+      setDone(null);
+      setError(null);
+      setWaitLeft(0);
+      setReadyNote(null);
+      setNotice(MSG_FORM_CLEARED);
+    } else {
+      setError((prev) => (prev?.action === "pin" ? null : prev));
+    }
+    ownerRef.current = workerId;
+  }, [workerId]);
+
+  const go = useCallback((s: ShopStep) => {
+    setNotice(null);
+    setError(null);
+    setReadyNote(null);
+    setStep(s);
+  }, []);
+
+  const steps = stepsFor(form);
+  const idx = steps.indexOf(step);
+  const nextStep = () => go(steps[Math.min(idx + 1, steps.length - 1)]);
+  const back = () => {
+    if (step === "search") {
+      if (form.mode === "new") {
+        setShowLabelError(false);
+        setForm(backToSearch(form));
+        return;
+      }
+      onExit();
+      return;
+    }
+    go(steps[Math.max(idx - 1, 0)]);
+  };
+
+  /** แก้วัสดุ: สินค้าใหม่ = กลับ W-2b · มี SKU = แผ่นแก้ */
+  const editMetal = (focusPurity = false) => {
+    if (form.mode === "new") {
+      go("metal");
+      if (focusPurity) setTimeout(() => focusField("shop-metal-purity"), 0);
+    } else setSheet({ focusPurity });
+  };
+
+  /** กลับไปช่อง/ขั้นที่ผิด (จาก error หรือจากผลตรวจฟอร์ม) */
+  function goToField(field: ShopFieldKey | undefined) {
+    setError(null);
+    setReadyNote(null);
+    switch (field) {
+      case "label":
+      case "product":
+        setShowLabelError(true);
+        setStep("search");
+        if (field === "label") setTimeout(() => focusField(LABEL_FIELD_ID), 0);
+        return;
+      case "metal":
+      case "purity":
+      case "weight":
+        editMetal(field === "purity");
+        return;
+      case "qty":
+      case "buffer":
+      case "due":
+        setStep("qty");
+        setTimeout(() => focusField(field === "qty" ? "shop-qty" : field === "buffer" ? "shop-buffer" : "shop-due-date"), 0);
+        return;
+      case "note":
+        setTimeout(() => focusField("shop-note"), 0);
+        return;
+      default:
+        return;
+    }
+  }
+
+  async function submit() {
+    if (inflight.current) return;
+    const issues = shopOpenIssues(form, today);
+    if (issues.length > 0) {
+      setError({ message: issues[0].message, action: "back", field: issues[0].field });
+      return;
+    }
+    inflight.current = true;
+    setBusy(true);
+    setNotice(null);
+    setError(null);
+    setReadyNote(null);
+    let r: Awaited<ReturnType<typeof intakeOpen>> | null = null;
+    try {
+      r = await intakeOpen(token, buildIntakeInput(form, today));
+    } catch {
+      r = null; // เน็ตหลุด/ไม่ทราบผล — คีย์เดิมกดซ้ำได้ (DB ไม่เปิดซ้ำ)
+    } finally {
+      inflight.current = false;
+      setBusy(false);
+    }
+    if (r === null) {
+      setError({ message: MSG_NETWORK, action: "retry" });
+      return;
+    }
+    if (r.ok) {
+      setDone({ result: r.result, purity: purityLabel(form.metal, form.purityText) });
+      return;
+    }
+    const view = shopErrorView(r);
+    if (view.newKey) setForm((f) => ({ ...f, idemKey: newIdemKey() }));
+    if (view.action === "wait") setWaitLeft(view.waitSeconds ?? 0);
+    if (view.action === "pin") onSessionLost();
+    setError(view);
+  }
+
+  if (done) {
+    return (
+      <ShopOpenSuccess
+        result={done.result}
+        purityLabel={done.purity}
+        onAnother={() => {
+          setDone(null);
+          setForm(newForm());
+          setQuery("");
+          setShowLabelError(false);
+          setError(null);
+          setStep("search");
+        }}
+        onFinish={() => {
+          setDone(null);
+          onExit();
+        }}
+      />
+    );
+  }
+
+  const prog = stepProgress(form, step);
+  const context = form.mode === "new" ? (form.label.trim() !== "" ? form.label.trim() : "สินค้าใหม่") : form.product && step !== "search" ? form.product.name : "เปิดงานใหม่";
+
+  return (
+    <div className="space-y-2">
+      <div hidden={sheet !== null}>
+        {notice && (
+          <p role="status" className="mb-2 rounded-xl border-2 border-amber-300 bg-amber-50 p-3 text-lg font-semibold text-amber-950">
+            {notice}
+          </p>
+        )}
+        <ShopStepHeader ref={headRef} title={step === "search" && form.mode === "new" ? "สินค้าใหม่" : TITLE[step]} context={context} n={prog.n} total={prog.total} onBack={back} disabled={busy} />
+        {step === "search" && (
+          <ShopProductSearch
+            token={token}
+            form={form}
+            setForm={setForm}
+            onNext={nextStep}
+            onSessionLost={onSessionLost}
+            showLabelError={showLabelError}
+            setShowLabelError={setShowLabelError}
+            query={query}
+            setQuery={setQuery}
+          />
+        )}
+        {step === "metal" && <ShopMetalStep form={form} setForm={setForm} ready={ready} onNext={nextStep} />}
+        {step === "qty" && <ShopQtyStep form={form} setForm={setForm} ready={ready} today={today} onNext={nextStep} onEditMetal={() => editMetal(false)} onNeedPurity={() => editMetal(true)} />}
+        {step === "review" && (
+          <ShopReview
+            form={form}
+            setForm={setForm}
+            today={today}
+            busy={busy}
+            error={error}
+            waitLeft={waitLeft}
+            readyNote={readyNote}
+            onSubmit={() => void submit()}
+            onEditProduct={() => go("search")}
+            onEditMetal={() => editMetal(false)}
+            onBack={() => goToField(error?.field)}
+          />
+        )}
+      </div>
+      {sheet && (
+        <ShopMetalSheet
+          form={form}
+          ready={ready}
+          initialFocusPurity={sheet.focusPurity}
+          onCancel={() => setSheet(null)}
+          onApply={(next) => {
+            setForm((f) => ({ ...f, ...next }));
+            setSheet(null);
+          }}
+        />
+      )}
+    </div>
+  );
+}

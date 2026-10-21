@@ -116,10 +116,9 @@ describe("เช็คลิสต์ + aria-disabled", () => {
   it("empty: ไม่มีรายการ → EmptyState + ปุ่มผลิตเสร็จ aria-disabled 'ยังไม่มีรายการ' · ยังเพิ่มรายการได้", () => {
     renderPage([]);
     expect(screen.getByText("ยังไม่มีรายการในใบนี้", { selector: "p" })).toBeInTheDocument();
-    // flag ALLOW_UNBOUND_ITEM_OFFICE ปิด — ไม่ชวนเลือก "ไม่มี SKU" ที่ซ่อนอยู่
-    expect(screen.getByText("เพิ่มรายการด้านล่างได้เลย")).toBeInTheDocument();
-    expect(screen.queryByText(/ไม่มี SKU ก็ได้/)).toBeNull();
-    expect(screen.queryByRole("radio", { name: /ไม่มี SKU/ })).toBeNull();
+    // flag ALLOW_UNBOUND_ITEM_OFFICE เปิด (W1 UI — มีปุ่มผูก SKU แล้ว) — ชวนเพิ่มได้ทั้งมี/ไม่มี SKU
+    expect(screen.getByText("เพิ่มรายการด้านล่างได้เลย (มี SKU หรือไม่มี SKU ก็ได้)")).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: /ไม่มี SKU/ })).toBeInTheDocument();
     expect(doneBtn()).toHaveAttribute("aria-disabled", "true");
     expect(screen.getByRole("region", { name: "เพิ่มรายการ" })).toBeInTheDocument();
   });

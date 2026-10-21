@@ -182,6 +182,18 @@ export interface BoardRow {
   treeWeightGapExcessG?: number;
   /** L-1: ผลรวม gap ขั้นแรกของทุกส่วนที่แยกจากขั้นเดียวกัน (ต่ำสุดของกลุ่ม · ลบเกิน 0.05 = ควรเตือน) */
   treeLotFirstGapSumG?: number;
+  /** W1 (0187): มีเฉพาะใบงานที่ใบผลิตต้นทางเปิดจากหน้างาน — ประกอบที่ loader (lib/jobs/intake-server.ts) ไม่ใช่คอลัมน์ของ v_job_board · ไม่มี key = ใบเดิม (บอร์ดเดิมทุกประการ) */
+  intake?: BoardIntake;
+}
+
+/** ข้อมูลใบที่เปิดจากหน้างานที่บอร์ดต้องใช้ (ไม่มีชื่อผู้เปิด/เงิน) — ค้างกี่วันคำนวณที่ board.ts จากวันที่ไทยของ server */
+export interface BoardIntake {
+  /** ใบผลิตต้นทาง open + ยังไม่รับทราบ (DB ตัดสิน — acknowledged_at ว่าง) */
+  ackPending: boolean;
+  /** เวลาที่เปิดใบผลิต (ISO) — ใช้นับวันปฏิทินไทย */
+  openedAt: string | null;
+  /** รายการของใบผลิตต้นทางมีโลหะต่างจาก SKU ที่ระบุโลหะชัด (v_production_order_item.metal_mismatch) */
+  metalMismatch: boolean;
 }
 
 export function mapBoardRow(r: Record<string, unknown>): BoardRow | null {
