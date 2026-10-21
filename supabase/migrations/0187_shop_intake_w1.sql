@@ -1,5 +1,7 @@
 -- 0187_shop_intake_w1.sql — W1: ผู้จัดการเปิดใบผลิต + ใบงานจากมือถือ ด้วย QR ร้าน + PIN (ไม่ login) · ออฟฟิศรับทราบ · ผูก SKU ทีหลัง
--- สถานะ: ยังไม่ apply · dry-run เท่านั้นจนกว่า security ผ่าน (ช่องสาธารณะที่ "สร้างข้อมูล" + trigger บนเส้นปิดใบ) · apply ด้วย node scripts/run-sql.mjs --commit --record เท่านั้น (🔴 ห้าม supabase db push)
+-- สถานะ: security ผ่านแล้ว (ไม่มี C/H/M+ · 21 ต.ค. 69) · ยังไม่ apply (dry-run เท่านั้น) · apply ด้วย node scripts/run-sql.mjs --commit --record เท่านั้น (🔴 ห้าม supabase db push)
+-- 🔴 ลำดับ deploy: (0) ต้องมี 0182–0186 อยู่บน DB แล้ว (ไฟล์นี้ลอก definition สดของ 0181/0184/0185/0186) → dry-run 0187 + verify-0187 (ต่อไฟล์ LF เป็นไฟล์เดียว ไม่ใส่ --commit) → apply --commit --record →
+--   รัน verify-0187 + `node scripts/run-sql.mjs scripts/check-analytics-grants.sql` → แล้วค่อย merge โค้ด TS · merge ก่อน apply = หน้าทะเบียนช่าง/สร้างใบงาน/ใบผลิตล้ม (โค้ดใหม่ select worker.can_open_job · v_production_order.opened_via/unbound_item_count · v_production_order_item.metal_mismatch ซึ่งยังไม่มีใน DB — DB เดียว ไม่มี dev/prod แยก)
 -- ชุดทดสอบ: scripts/verify/verify-0187.sql (dry-run = ต่อไฟล์นี้ + ไฟล์นั้น แล้วรันไม่ใส่ --commit · ไฟล์ LF) · ตรวจหลังลงฝังอยู่ท้ายไฟล์นี้ (§11) — ล้ม = raise = ถอยทั้งไฟล์
 -- design: docs/3j-jewelry/oms/design-job-lots-shopfloor.md §7 (เลข/ลำดับในเอกสารเก่าอย่ายึด — ตามมติ 20 ต.ค. ด้านล่าง) · UX: docs/3j-jewelry/oms/ux-production-metal-and-shop-intake.md ส่วน B + §C.2.1 + §C.3 (R1 R2 R6)
 --   · design-production-item-metal.md §7.2 (PM-A: product_id nullable + pending_product_label + sku_required)
@@ -819,6 +821,7 @@ declare
   v_day   timestamptz := date_trunc('day', now() at time zone 'Asia/Bangkok') at time zone 'Asia/Bangkok';
   v_spent int;
   v_new   boolean;
+  v_store int;
 begin
   select * into v_w from analytics.worker w where w.id = p_worker_id and w.shop_id = p_shop_id for update;
   if not found or not v_w.is_active then
@@ -840,15 +843,15 @@ begin
     return analytics.job_fail('bad_credentials', 'ชื่อหรือ PIN ไม่ถูกต้อง');
   end if;
 
-  -- งบผิดต่อ token ต่อวัน (<= 20) แบบ atomic: จองช่องก่อนตรวจ PIN (insert .. on conflict .. where hits < max returning) — พร้อมกันกี่ตัวก็ไม่เกิน 20 ·
-  -- เต็มแล้ว token นี้ verify ไม่ได้แม้ใส่ถูก · ใส่ถูกคืนช่อง (นับเฉพาะครั้งที่ผิด) · 0187: p_budget_key null = ไม่ใช้งบ (ทาง QR ร้าน)
+  -- งบผิดต่อ token ต่อวัน แบบ atomic: จองช่องก่อนตรวจ PIN (insert .. on conflict .. where hits < max returning) — พร้อมกันกี่ตัวก็ไม่เกิน p_budget_max ·
+  -- เต็มแล้ว token นี้ verify ไม่ได้แม้ใส่ถูก · ใส่ถูกคืนช่อง (นับเฉพาะครั้งที่ผิด) · 0187: QR ใบงาน = pf:<token> งบ 20 (เดิม) · QR ร้าน = sf:<token> งบ 7 (รวมทั้งร้าน) · p_budget_key null = ไม่ใช้งบ (ไม่มีผู้เรียกใช้ในปัจจุบัน)
   if p_budget_key is not null then
     if p_budget_max is null or not (p_budget_max between 1 and 1000) then
       raise exception 'worker_pin_verify_core: p_budget_max ต้องอยู่ระหว่าง 1-1000' using errcode = '22023';
     end if;
     v_spent := analytics.job_budget_take(p_budget_key, v_day, p_budget_max);
     if v_spent is null then
-      return analytics.job_fail('token_budget_exhausted', 'ใส่ PIN ผิดครบกำหนดของใบงานนี้ในวันนี้แล้ว — ให้ออฟฟิศพิมพ์ใบงานใหม่');
+      return analytics.job_fail('token_budget_exhausted', 'ใส่ PIN ผิดครบกำหนดของวันนี้แล้ว — แจ้งออฟฟิศ');
     end if;
   end if;
 
@@ -871,12 +874,15 @@ begin
   -- PIN ผิด: นับสะสมในหน้าต่าง 24 ชม. ที่ยึดครั้งแรก (เว้นระยะนานแค่ไหนก็ยังนับ) · ล็อก 15 นาทีที่ครั้งที่ 5 · >= 10 ล็อก 1 ชม. · 15 ล็อกถาวร
   v_new := v_w.failed_window_start is null or v_w.failed_window_start < now() - interval '24 hours';
   v_att := case when v_new then 1 else v_w.failed_attempts + 1 end;
+  -- security L-a: ทาง QR ร้าน (ไม่ใช่ทางที่ถึงล็อกถาวรได้) ไม่ดันตัวนับที่เก็บเกิน 9 และไม่ลดตัวนับเดิม — คนแปลกหน้าถือ QR ร้านพิมพ์ผิดซ้ำคร่อมเที่ยงคืน (งบรีเซ็ต) ก็ดันผู้จัดการไปถึง 15 (ถาวรทางใบงาน) ไม่ได้
+  -- ระยะล็อกคิดจากค่าเต็ม (v_att) เหมือนเดิม (>= 10 = 1 ชม.) · เก็บ least(v_att, 9) แต่ไม่ต่ำกว่าของเดิม
+  v_store := case when p_allow_permanent_lock then v_att else greatest(least(v_att, 9), case when v_new then 0 else v_w.failed_attempts end) end;
   v_lock := case when v_att >= 15 and p_allow_permanent_lock then 'infinity'::timestamptz
                  when v_att >= 10 then now() + interval '1 hour'
                  when v_att = 5 then now() + interval '15 minutes'
                  else null end;
   update analytics.worker
-     set failed_attempts = v_att, last_failed_at = now(), locked_until = v_lock,
+     set failed_attempts = v_store, last_failed_at = now(), locked_until = v_lock,
          failed_window_start = case when v_new then now() else failed_window_start end
    where id = v_w.id;
   if v_lock = 'infinity'::timestamptz then
@@ -1127,11 +1133,12 @@ begin
      where s.session_hash = p_session_hash and s.revoked_at is null and s.expires_at > now()
        and w.is_active and w.shop_id = v_tok.shop_id;
   end if;
-  -- security L1: ถังต่อ token ของ hub/ค้นสินค้า/เปิดใบ นับ "หลัง" พบ session ที่ valid เท่านั้น — คนถือ QR ปลอม cookie ยิงรัวต้องเผาถังของผู้จัดการตัวจริงไม่ได้ (ถังต่อ IP ของ open คงเดิมด้านบน)
+  -- security L1 + L-b: ถังต่อ token ของ hub นับ "หลัง" พบ session valid · ของค้นสินค้า/เปิดใบนับเมื่อ session valid "และ" can_open_job — คนถือ QR ปลอม cookie ยิงรัวต้องเผาถังของผู้จัดการตัวจริงไม่ได้ (ถังต่อ IP ของ open คงเดิมด้านบน)
   -- hub ที่ยังไม่มี session (รายชื่อผู้จัดการ · อ่านอย่างเดียว) นับถังต่อ IP ipv: 240 แทน (ไม่มี IP = ไม่นับ — ไม่มีอะไรให้เผา)
   if p_class <> 'pin' then
     if v_w.id is not null then
-      if not analytics.job_rate_limit_hit(v_key, v_max) then
+      -- open/search นับถังต่อ token เฉพาะ session ที่เป็นผู้จัดการ (can_open_job) — ช่างทั่วไปที่มี session จริงยิงรัวก็เผาถังของผู้จัดการไม่ได้ (S6/L-b) · hub นับทุก session ที่ valid (อ่านอย่างเดียว)
+      if (p_class = 'hub' or v_w.can_open_job) and not analytics.job_rate_limit_hit(v_key, v_max) then
         return analytics.job_fail('rate_limited', 'ลองบ่อยเกินไป กรุณารอสักครู่แล้วลองใหม่');
       end if;
     elsif p_class = 'hub' and p_ip_hash is not null and p_ip_hash ~ '^[0-9a-f]{64}$' then
@@ -1302,7 +1309,7 @@ begin
   end if;
   v_shop := (v_a ->> 'shop_id')::uuid;
   v_wid := (v_a ->> 'worker_id')::uuid;
-  -- สิทธิ์ตรวจสดจาก DB ทุกครั้ง (ออฟฟิศถอนสิทธิ์ระหว่างกรอก = ปฏิเสธ) · ก่อน rate limit ของช่าง เพื่อไม่ให้คนไม่มีสิทธิ์กินถังช่างตัวจริง
+  -- สิทธิ์ตรวจสดจาก DB ทุกครั้ง (ออฟฟิศถอนสิทธิ์ระหว่างกรอก = ปฏิเสธ) · ก่อนถังต่อช่าง (wo:) — และถังต่อ token (sio:) ก็ไม่ถูกนับสำหรับ session ที่ไม่มีสิทธิ์ (shop_intake_auth) จึงไม่มีทางที่คนไม่มีสิทธิ์เผาถังของผู้จัดการตัวจริง
   if not (v_a ->> 'can_open')::boolean then
     return analytics.job_fail('not_allowed', 'บัญชีนี้ไม่มีสิทธิ์เปิดงานใหม่ — แจ้งออฟฟิศ');
   end if;
@@ -1372,7 +1379,7 @@ begin
     end if;
     select j.* into v_jobrow
       from analytics.job j join analytics.production_order_item i on i.id = j.production_order_item_id
-     where i.production_order_id = v_po.id and j.parent_job_id is null order by j.created_at limit 1;
+     where i.production_order_id = v_po.id and j.parent_job_id is null order by (j.status = 'cancelled'), j.created_at desc limit 1;
     -- replay: ทุกค่ามาจาก DB (ไม่เชื่อค่าที่ client ส่งซ้ำมา) · status = สถานะจริงของใบ (ใบงานหรือใบผลิตถูกยกเลิกแล้ว = cancelled → หน้าจอบอก "ใบนี้ถูกยกเลิกแล้ว" ไม่ใช่ "เปิดไว้แล้ว")
     return jsonb_build_object('ok', true, 'already', true, 'order_no', v_po.po_no, 'job_no', v_jobrow.job_no,
                               'design_label', v_jobrow.design_label, 'metal', v_jobrow.metal, 'qty_order', v_jobrow.qty_order, 'qty_planned', v_jobrow.qty_planned,
@@ -1670,7 +1677,7 @@ begin
   v_purity := coalesce(v_item.purity, v_before.purity);
   v_weight := v_item.weight_g;
   v_wsrc := v_item.weight_source;
-  if v_weight is null and v_before.metal = 'silver' and v_product.silver_weight_g > 0 then
+  if v_weight is null and v_before.metal = 'silver' and v_product.silver_weight_g between 0.001 and 10000 then
     v_weight := round(v_product.silver_weight_g, 3);
     v_wsrc := 'product';
     v_filled := true;

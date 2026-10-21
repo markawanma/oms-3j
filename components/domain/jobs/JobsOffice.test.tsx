@@ -128,8 +128,8 @@ describe("JobPrintClient", () => {
 describe("WorkersClient", () => {
   const data = {
     workers: [
-      { id: U1, displayName: "ช่างเอ", stageCodes: ["cast"], isActive: true, lockedUntil: null, createdAt: null, lockState: "none" as const, failedAttempts: 0, pinWarning: false },
-      { id: U2, displayName: "ช่างบี", stageCodes: [], isActive: false, lockedUntil: null, createdAt: null, lockState: "none" as const, failedAttempts: 0, pinWarning: false },
+      { id: U1, displayName: "ช่างเอ", stageCodes: ["cast"], isActive: true, lockedUntil: null, createdAt: null, lockState: "none" as const, failedAttempts: 0, pinWarning: false, canOpenJob: false, canExternal: false },
+      { id: U2, displayName: "ช่างบี", stageCodes: [], isActive: false, lockedUntil: null, createdAt: null, lockState: "none" as const, failedAttempts: 0, pinWarning: false, canOpenJob: false, canExternal: false },
     ],
     stages: [{ code: "cast", nameTh: "หล่อ" }, { code: "polish", nameTh: "ขัด" }],
   };
@@ -203,7 +203,7 @@ describe("WorkersClient", () => {
 });
 
 describe("WorkersClient แท็บ ใช้งานอยู่ / ปิดใช้งาน", () => {
-  const mk = (id: string, displayName: string, isActive: boolean, over: Record<string, unknown> = {}) => ({ id, displayName, stageCodes: ["cast"], isActive, lockedUntil: null, createdAt: null, lockState: "none" as const, failedAttempts: 0, pinWarning: false, ...over });
+  const mk = (id: string, displayName: string, isActive: boolean, over: Record<string, unknown> = {}) => ({ id, displayName, stageCodes: ["cast"], isActive, lockedUntil: null, createdAt: null, lockState: "none" as const, failedAttempts: 0, pinWarning: false, canOpenJob: false, canExternal: false, ...over });
   const U3 = "33333333-3333-4333-8333-333333333333";
   const stages = [{ code: "cast", nameTh: "หล่อ" }, { code: "polish", nameTh: "ขัด" }];
   const data = { workers: [mk(U1, "ช่างเอ", true), mk(U2, "ช่างบี", false), mk(U3, "ช่างซี", true)], stages };
@@ -379,7 +379,7 @@ describe("JobPrintClient — ที่อยู่ QR และคำเตื�
 });
 
 describe("0174: ทะเบียนช่าง — คำเตือน PIN ผิด · ห้าม < > ในชื่อ", () => {
-  const w0 = { id: U1, displayName: "ช่างเอ", stageCodes: ["cast"], isActive: true, lockedUntil: null, createdAt: null, lockState: "none" as const, failedAttempts: 0, pinWarning: false };
+  const w0 = { id: U1, displayName: "ช่างเอ", stageCodes: ["cast"], isActive: true, lockedUntil: null, createdAt: null, lockState: "none" as const, failedAttempts: 0, pinWarning: false, canOpenJob: false, canExternal: false };
   const stages = [{ code: "cast", nameTh: "หล่อ" }, { code: "polish", nameTh: "ขัด" }];
 
   it("pin_warning: ป้ายเตือน 'มีคนใส่ PIN ผิด n ครั้ง' + คำอธิบาย 15 ครั้ง + ปุ่ม 'ปลดล็อก / รีเซ็ตตัวนับ' (ทั้งที่ยังไม่ล็อก)", async () => {

@@ -27,7 +27,7 @@ function row(over: Partial<ProductionOrderItemRow> = {}): ProductionOrderItemRow
     id: "i-1", productionOrderId: "po-1", poNo: "PO-0034", orderStatus: "open", productId: "p-1", sku: "GR-0007", productName: "แหวนลายใบไม้",
     pendingProductLabel: null, currentCostType: "fixed", currentUnitCost: 120, metal: "silver", purity: 0.8, weightG: null, weightSource: null,
     effectiveMetal: "silver", effectivePurity: 0.8, effectiveWeightG: 3.2, effectiveWeightSource: "product",
-    skuMetal: "silver", skuPurity: 0.925, skuWeightG: 3.2, skuMetalKnown: false, qtyPlanned: 30, qtyDone: null, stampedUnitCost: null,
+    skuMetal: "silver", skuPurity: 0.925, skuWeightG: 3.2, skuMetalKnown: false, metalMismatch: false, qtyPlanned: 30, qtyDone: null, stampedUnitCost: null,
     prevCostType: null, prevUnitCost: null, createdAt: "2026-10-20T00:00:00Z", updatedAt: "2026-10-20T00:00:00Z", makeSpec: null,
     currentSilverWeightG: 3.2, currentSilverPurity: 0.925, isNewDesign: false, costCalc: null, ...over,
   };

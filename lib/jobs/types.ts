@@ -511,9 +511,9 @@ export interface WorkerRow {
   /** 0174 v_worker_lock.pin_warning: ผิด >= 3 ครั้งในหน้าต่าง 24 ชม. (ตัวนับไม่ล้างเมื่อ login สำเร็จแล้ว) */
   pinWarning: boolean;
   /** 0187: ผู้จัดการ — เปิดใบผลิต/ใบงานจากมือถือ (QR ร้าน + PIN) ได้ · ยังต้องมีขั้นที่ทำอย่างน้อย 1 (stages_required) */
-  canOpenJob?: boolean;
+  canOpenJob: boolean;
   /** 0181/0187: ผู้ดูแลงานนอกร้าน (ชี้แจงส่วนต่างของงานส่งออก) — ตั้งผ่าน worker_upsert */
-  canExternal?: boolean;
+  canExternal: boolean;
 }
 
 export const WORKER_LOCK_COLUMNS = "worker_id, lock_state, failed_attempts, in_window, pin_warning";

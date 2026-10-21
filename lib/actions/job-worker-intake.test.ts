@@ -126,7 +126,7 @@ describe("intakeLogin", () => {
     expect(JSON.stringify(r)).not.toContain(SESSION);
   });
 
-  it("ผิด/ล็อก: ข้อความเดิมของ workerFailMessage (เหลืออีก n ครั้ง · รอ n นาที · ล็อกจนออฟฟิศปลด) · ไม่มีข้อความงบ/วัน (QR ร้านไม่มีงบนี้) · ไม่ตั้ง cookie", async () => {
+  it("ผิด/ล็อก: ข้อความเดิมของ workerFailMessage (เหลืออีก n ครั้ง · รอ n นาที · ล็อกจนออฟฟิศปลด) · ไม่ตั้ง cookie (ข้อความงบของร้านดูเทสต์ถัดไป)", async () => {
     rpcMock.mockResolvedValue({ data: { ok: false, code: "bad_credentials", message: "x", attempts_left: 2, attempts_until_office: 12 }, error: null });
     expect(await intakeLogin(TOKEN, WID, "0001")).toMatchObject({ ok: false, error: expect.stringContaining("เหลืออีก 2 ครั้งก่อนถูกล็อกชั่วคราว") });
     rpcMock.mockResolvedValue({ data: { ok: false, code: "locked", message: "x", retry_after_seconds: 900 }, error: null });
@@ -225,6 +225,13 @@ describe("ขอบเขตช่องทางสาธารณะ (static)"
       const code = readFileSync(f, "utf8").replace(/\/\/.*$/gm, "").replace(/\/\*[\s\S]*?\*\//g, "");
       expect(code, f).not.toMatch(/p_shop_id|p_actor|shop_id/);
     }
+  });
+  it("INTAKE_PIN_BUDGET ตรงกับงบที่ migration 0187 ส่งให้ core (sf: 7 ครั้ง · ไม่ถึงล็อกถาวร) — กันตัวเลขสองที่ drift", async () => {
+    const { readFileSync } = await import("node:fs");
+    const { INTAKE_PIN_BUDGET } = await import("@/lib/jobs/worker-server");
+    const sql = readFileSync("supabase/migrations/0187_shop_intake_w1.sql", "utf8");
+    expect(sql).toContain("'sf:' || left(p_token_hash, 32), true, " + INTAKE_PIN_BUDGET + ", false);");
+    expect(INTAKE_PIN_BUDGET).toBe(7);
   });
   it("ผลสำเร็จของเปิดใบไม่ spread ผลดิบ (allowlist ทีละ field) — ไม่มี ...r ใน openIntakeJob/searchIntakeProducts/loadIntakeHub", async () => {
     const { readFileSync } = await import("node:fs");

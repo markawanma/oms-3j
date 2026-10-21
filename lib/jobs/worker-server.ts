@@ -83,7 +83,7 @@ async function callWorkerRpc(fn: string, params: Record<string, unknown>, opts: 
   const out: WorkerFail = { ok: false, code, error: workerFailMessage(code, r.message, extra) };
   if (opts.intake) {
     const b = finite(r.token_budget_left);
-    if (b !== null && b >= 0 && b <= 7) out.budgetLeft = b;
+    if (b !== null && b >= 0 && b <= INTAKE_PIN_BUDGET) out.budgetLeft = b;
   }
   const retry = typeof r.retry_after_seconds === "number" ? r.retry_after_seconds : null;
   if (retry !== null && Number.isFinite(retry) && retry > 0) out.retryAfterSeconds = Math.min(Math.ceil(retry), 3600);
@@ -343,6 +343,9 @@ const intakeClean = (r: Record<string, unknown>, fn: string): WorkerFail | null 
   return null;
 };
 
+/** งบ PIN ผิดของ QR ร้าน ต่อวัน รวมทั้งร้าน (มติเจ้าของ 21 ต.ค. — ต้องตรงกับ worker_pin_verify_intake ใน 0187: p_budget_max = 7) */
+export const INTAKE_PIN_BUDGET = 7;
+
 const METALS = ["silver", "gold", "brass"] as const;
 export type IntakeMetal = (typeof METALS)[number];
 const parseMetalOrNull = (v: unknown): IntakeMetal | null => (typeof v === "string" && (METALS as readonly string[]).includes(v) ? (v as IntakeMetal) : null);
@@ -440,8 +443,7 @@ export async function searchIntakeProducts(token: unknown, q: string): Promise<W
     const sku = shortText(o.sku, 100);
     const name = shortText(o.name, 200);
     if (!isUuid(o.id) || !sku || !name || !pf || !metal) return [];
-    const metalOk = metal === "silver" || metal === "gold" || metal === "brass";
-    return metalOk ? [{ o, pf, metal, sku, name, id: o.id as string }] : [];
+    return [{ o, pf, metal, sku, name, id: o.id as string }];
   });
   const paths = rows.map((x) => x.o.image_path).filter((p): p is string => typeof p === "string" && IMAGE_PATH_RE.test(p) && !p.includes(".."));
   let signed = new Map<string, string>();
@@ -481,8 +483,8 @@ export interface IntakeOpenInput {
   note: string | null;
 }
 
-const ITEM_STATUSES = ["open", "in_progress", "on_hold", "done", "cancelled"] as const;
-export type IntakeJobStatus = (typeof ITEM_STATUSES)[number];
+const JOB_STATUSES = ["open", "in_progress", "on_hold", "done", "cancelled"] as const;
+export type IntakeJobStatus = (typeof JOB_STATUSES)[number];
 
 export interface IntakeOpenResult {
   /** true = key เดิมเปิดไปแล้ว (กดซ้ำ/เน็ตสะดุด) — ไม่มี QR (เก็บ hash แสดงซ้ำไม่ได้) */
@@ -528,7 +530,7 @@ export async function openIntakeJob(token: unknown, i: IntakeOpenInput): Promise
   if (!already && (typeof raw !== "string" || !/^[A-Za-z0-9_-]{16,64}$/.test(raw))) return fail("error", GENERIC_JOB_ERROR);
   const due = typeof r.due_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(r.due_date) ? r.due_date : null;
   // ทุกค่ามาจาก DB เท่านั้น (ไม่ fallback ไปค่าที่ client ส่งมา — กด "ลองใหม่" ด้วยค่าอื่นต้องเห็นของจริงที่เปิดไปแล้ว) · status ไม่รู้จัก = ข้อความกลาง
-  const status = typeof r.status === "string" && (ITEM_STATUSES as readonly string[]).includes(r.status) ? (r.status as IntakeJobStatus) : null;
+  const status = typeof r.status === "string" && (JOB_STATUSES as readonly string[]).includes(r.status) ? (r.status as IntakeJobStatus) : null;
   const qtyOrder = intOrNull(r.qty_order);
   const designLabel = shortText(r.design_label, 200);
   if (status === null || qtyOrder === null || !designLabel) return fail("error", GENERIC_JOB_ERROR);
