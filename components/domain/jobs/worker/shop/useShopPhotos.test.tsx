@@ -238,7 +238,7 @@ describe("ส่งหลังเปิดใบ — ทีละรูป ห�
     await settle(result, () => result.current.items[0]?.phase === "ready");
     act(() => result.current.start(REF));
     await settle(result, () => result.current.items[0]?.phase === "error");
-    expect(result.current.items[0]).toMatchObject({ retryable: true, ambiguous: true, message: "ส่งไม่สำเร็จ — ลองอีกครั้ง" });
+    expect(result.current.items[0]).toMatchObject({ retryable: true, message: "ส่งไม่สำเร็จ — ลองอีกครั้ง" });
     expect(result.current.summary).toBe("partial");
     fail = false;
     act(() => result.current.retry(result.current.items[0].key));
@@ -246,17 +246,44 @@ describe("ส่งหลังเปิดใบ — ทีละรูป ห�
     expect(result.current.summary).toBe("done");
   });
 
-  it("ส่งล้มแบบไม่ทราบผล → ก่อนลองใหม่เทียบรายการกับ server: เจอรูปของเราที่ client ไม่รู้จัก = ถือว่าส่งแล้ว ไม่ส่งซ้ำ (กันรูปซ้ำจนติดเพดาน)", async () => {
+  it("idempotency ต่อรูป: FormData มี clientPhotoKey = uuid จริง · คนละรูปคนละ key · ลองใหม่ใช้ key เดิมของรูปนั้น (สร้างครั้งเดียวตอนเลือก)", async () => {
+    const keys: string[] = [];
+    let n = 0;
+    const { io } = makeIo({
+      upload: vi.fn(async (fd: FormData) => {
+        keys.push(String(fd.get("clientPhotoKey")));
+        n += 1;
+        if (n === 1) throw new Error("timeout"); // รูปแรกส่งแล้วไม่ทราบผล
+        return { ok: true as const, photo: sp(`p${n}`, { isPrimary: n === 2 }), count: n, max: 3 };
+      }),
+    });
+    const { result } = setup(io);
+    act(() => result.current.pick([file("a"), file("b")]));
+    await settle(result, () => result.current.items.every((i) => i.phase === "ready"));
+    const [a, b] = result.current.items;
+    act(() => result.current.start(REF));
+    await settle(result, () => result.current.items.find((i) => i.key === b.key)?.phase === "done" && result.current.items.find((i) => i.key === a.key)?.phase === "error");
+    act(() => result.current.retry(a.key));
+    await settle(result, () => result.current.items.every((i) => i.phase === "done"));
+    const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+    expect(keys.every((k) => UUID.test(k))).toBe(true);
+    expect(keys).toHaveLength(3);
+    expect(keys[0]).toBe(a.key); // รูป a ส่งก่อน (หลัก) แล้วล้ม
+    expect(keys[1]).toBe(b.key);
+    expect(keys[2]).toBe(a.key); // ลองใหม่ = key เดิม
+    expect(a.key).not.toBe(b.key);
+  });
+
+  it("server ตอบ already:true (key เดิมเคยแนบสำเร็จแล้ว — คำขอก่อนหน้าถึง server แต่ตอบไม่ถึง) = สำเร็จ ได้รูปเดิม ไม่สร้างซ้ำ · ไม่เรียก list เทียบอีก", async () => {
     let first = true;
     const { io } = makeIo({
       upload: vi.fn(async () => {
         if (first) {
           first = false;
-          throw new Error("timeout"); // server อาจรับไปแล้ว
+          throw new Error("timeout");
         }
-        return { ok: true as const, photo: sp("dup", { isPrimary: true }), count: 2, max: 3 };
+        return { ok: true as const, already: true, photo: sp("orig1", { isPrimary: true }), count: 1, max: 3 };
       }),
-      list: vi.fn(async () => ({ ok: true as const, photos: [sp("lost1", { isPrimary: true })], count: 1, max: 3, locked: false, lockCode: null })),
     });
     const { result } = setup(io);
     act(() => result.current.pick([file("a")]));
@@ -265,29 +292,20 @@ describe("ส่งหลังเปิดใบ — ทีละรูป ห�
     await settle(result, () => result.current.items[0]?.phase === "error");
     act(() => result.current.retry(result.current.items[0].key));
     await settle(result, () => result.current.items[0]?.phase === "done");
-    expect(io.list).toHaveBeenCalledTimes(1);
-    expect(io.upload).toHaveBeenCalledTimes(1); // ไม่ส่งซ้ำ
-    expect(result.current.items[0].serverId).toBe("lost1");
+    expect(result.current.items[0]).toMatchObject({ serverId: "orig1", isPrimary: true });
+    expect(io.upload).toHaveBeenCalledTimes(2);
+    expect(io.list).not.toHaveBeenCalled();
   });
 
-  it("ลองใหม่หลังไม่ทราบผล แต่ server ไม่มีรูปนั้น → ส่งจริงอีกครั้ง", async () => {
-    let n = 0;
-    const { io } = makeIo({
-      upload: vi.fn(async () => {
-        n += 1;
-        if (n === 1) throw new Error("drop");
-        return { ok: true as const, photo: sp("p1", { isPrimary: true }), count: 1, max: 3 };
-      }),
-    });
+  it("photo_key_used (key ชนรูปที่ลบแล้ว/ใบอื่น) → error ลองใหม่ไม่ได้ ข้อความไทย · มีแต่เอาออก", async () => {
+    const { io } = makeIo({ upload: vi.fn(async () => ({ ok: false as const, error: "รูปนี้ถูกใช้ไปแล้ว — เลือกรูปใหม่", code: "photo_key_used" })) });
     const { result } = setup(io);
     act(() => result.current.pick([file("a")]));
     await settle(result, () => result.current.items[0]?.phase === "ready");
     act(() => result.current.start(REF));
     await settle(result, () => result.current.items[0]?.phase === "error");
-    act(() => result.current.retry(result.current.items[0].key));
-    await settle(result, () => result.current.items[0]?.phase === "done");
-    expect(io.list).toHaveBeenCalledTimes(1);
-    expect(io.upload).toHaveBeenCalledTimes(2);
+    expect(result.current.items[0]).toMatchObject({ retryable: false, message: "รูปนี้ถูกใช้ไปแล้ว — เลือกรูปใหม่" });
+    expect(result.current.lock).toBeNull();
   });
 
   it("รูปหลักส่งล้ม รูปอื่นไปก่อน → ดาวยังอยู่ที่รูปที่ผู้ใช้เลือก · ลองใหม่สำเร็จแล้วส่ง isPrimary=true (server สลับให้)", async () => {
@@ -476,7 +494,7 @@ describe("ลบ / ตั้งหลักรูปที่ส่งแล้�
     await act(async () => {
       r = await h2.result.current.setPrimary(h2.result.current.items[1].key);
     });
-    expect(setPrimary).toHaveBeenCalledWith("p2");
+    expect(setPrimary).toHaveBeenCalledWith(REF, "p2"); // อ้างใบด้วย ref เดียวกับที่ส่งรูป
     expect(r).toEqual({ ok: false, message: "ตั้งรูปหลักไม่สำเร็จ — ลองอีกครั้ง" });
     expect(h2.result.current.items.map((i) => i.isPrimary)).toEqual([true, false]); // ย้อน
     setPrimary.mockResolvedValueOnce({ ok: true } as never);
@@ -485,6 +503,43 @@ describe("ลบ / ตั้งหลักรูปที่ส่งแล้�
     });
     expect(r).toEqual({ ok: true });
     expect(h2.result.current.items.map((i) => i.isPrimary)).toEqual([false, true]);
+  });
+
+  it("ตั้งรูปหลักล้มด้วย code ของ server: primary_locked (ออฟฟิศตั้งไว้) → ข้อความเฉพาะ ย้อนดาว ไม่ล็อกใบ · job_locked/job_cancelled/not_allowed → ล็อกทั้งใบ · photo_not_found/already_deleted → ข้อความ server ย้อนดาว · changed:false = สำเร็จ", async () => {
+    const cases: [string, string, "locked" | "closed" | "not_owner" | null, string][] = [
+      ["primary_locked", "x", null, "รูปหลักออฟฟิศตั้งไว้แล้ว — แจ้งออฟฟิศถ้าจะเปลี่ยน"],
+      ["job_locked", "x", "locked", "ช่างรับงานแล้ว แก้รูปไม่ได้ — แจ้งออฟฟิศ"],
+      ["job_cancelled", "x", "closed", "ใบนี้ปิดหรือยกเลิกแล้ว — ส่งรูปไม่ได้"],
+      ["not_allowed", "x", "not_owner", "แก้รูปได้เฉพาะคนที่เปิดใบนี้"],
+      ["photo_not_found", "ไม่พบรูปนี้ — โหลดหน้าใหม่", null, "ไม่พบรูปนี้ — โหลดหน้าใหม่"],
+      ["already_deleted", "รูปนี้ถูกลบไปแล้ว — โหลดหน้าใหม่", null, "รูปนี้ถูกลบไปแล้ว — โหลดหน้าใหม่"],
+    ];
+    for (const [code, error, lock, message] of cases) {
+      const setPrimary = vi.fn(async () => ({ ok: false as const, error, code }));
+      const { io } = makeIo({ setPrimary });
+      const h = setup(io);
+      act(() => h.result.current.pick([file("a"), file("b")]));
+      await settle(h.result, () => h.result.current.items.every((i) => i.phase === "ready"));
+      act(() => h.result.current.start(REF));
+      await settle(h.result, () => h.result.current.items.every((i) => i.phase === "done"));
+      let r: Awaited<ReturnType<typeof h.result.current.setPrimary>> | null = null;
+      await act(async () => {
+        r = await h.result.current.setPrimary(h.result.current.items[1].key);
+      });
+      expect(r, code).toEqual({ ok: false, message });
+      expect(h.result.current.lock, code).toBe(lock);
+      expect(h.result.current.items.map((i) => i.isPrimary), code).toEqual([true, false]);
+      h.unmount();
+    }
+    const ok = makeIo({ setPrimary: vi.fn(async () => ({ ok: true as const, changed: false })) });
+    const h = setup(ok.io);
+    act(() => h.result.current.pick([file("a"), file("b")]));
+    await settle(h.result, () => h.result.current.items.every((i) => i.phase === "ready"));
+    act(() => h.result.current.start(REF));
+    await settle(h.result, () => h.result.current.items.every((i) => i.phase === "done"));
+    await act(async () => {
+      expect(await h.result.current.setPrimary(h.result.current.items[1].key)).toEqual({ ok: true });
+    });
   });
 });
 

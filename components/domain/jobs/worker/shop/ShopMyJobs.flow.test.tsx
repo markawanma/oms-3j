@@ -21,7 +21,9 @@ const intakeRemovePhoto = vi.fn();
 const intakeListPhotos = vi.fn();
 const intakeMyJobs = vi.fn();
 const intakeReissueToken = vi.fn();
+const intakeSetPrimaryPhoto = vi.fn();
 vi.mock("@/lib/actions/job-worker", () => ({
+  intakeSetPrimaryPhoto: (...a: unknown[]) => intakeSetPrimaryPhoto(...a),
   intakeLogin: (...a: unknown[]) => intakeLogin(...a),
   workerLogout: (...a: unknown[]) => workerLogout(...a),
   intakeSearch: (...a: unknown[]) => intakeSearch(...a),
@@ -87,6 +89,7 @@ beforeEach(() => {
     revoked.push(u);
   };
   workerLogout.mockResolvedValue({ ok: true });
+  intakeSetPrimaryPhoto.mockResolvedValue({ ok: true, changed: true });
   intakeMyJobs.mockResolvedValue(list([job()]));
   intakeListPhotos.mockResolvedValue(photosRes([sp("m1", { isPrimary: true }), sp("m2")]));
   intakeRemovePhoto.mockResolvedValue({ ok: true, promotedPhotoId: null, already: false });
@@ -353,11 +356,11 @@ describe("W-10 จอแก้รูปของใบ", () => {
     expect(screen.queryByText("✎ แก้ได้จนช่างเริ่มรับงาน")).not.toBeInTheDocument();
   });
 
-  it("ลบรูปที่บันทึกแล้ว: กล่องยืนยัน 'ลบรูปนี้? ลบแล้วกู้คืนไม่ได้' → เรียก intakeRemovePhoto(token, id) · ตัวนับลด · ★ ไม่มีให้ (ไม่มี action ตั้งหลักของรูปที่ส่งแล้ว)", async () => {
+  it("ลบรูปที่บันทึกแล้ว: กล่องยืนยัน 'ลบรูปนี้? ลบแล้วกู้คืนไม่ได้' → เรียก intakeRemovePhoto(token, id) · ตัวนับลด", async () => {
     await toW10();
     await userEvent.click(screen.getByRole("button", { name: /รูปที่ 2 จาก 2 · แตะเพื่อดู/ }));
     const dlg = screen.getByRole("dialog", { name: "รูปงาน JB-0031" });
-    expect(within(dlg).queryByRole("button", { name: /ตั้งเป็นรูปหลัก/ })).not.toBeInTheDocument();
+    expect(within(dlg).getByRole("button", { name: "ตั้งเป็นรูปหลัก" })).toBeEnabled(); // intakeSetPrimaryPhoto เปิดให้รูปที่บันทึกแล้ว
     await userEvent.click(within(dlg).getByRole("button", { name: "ลบรูปนี้" }));
     await userEvent.click(within(screen.getByRole("dialog", { name: "ลบรูปนี้? ลบแล้วกู้คืนไม่ได้" })).getByRole("button", { name: "ลบรูป" }));
     await waitFor(() => expect(intakeRemovePhoto).toHaveBeenCalledWith(TOKEN, "m2"));
@@ -463,7 +466,7 @@ describe("ออก QR ใหม่", () => {
     await click("ออก QR ใหม่");
     await userEvent.click(within(screen.getByRole("dialog", { name: "ออก QR ใหม่ของ JB-0031?" })).getByRole("button", { name: "ออก QR ใหม่" }));
     await screen.findByRole("heading", { level: 1, name: "QR ใหม่ JB-0031" });
-    expect(intakeReissueToken).toHaveBeenCalledWith(TOKEN, J1);
+    expect(intakeReissueToken).toHaveBeenCalledWith(TOKEN, J1, expect.stringMatching(/^[A-Za-z0-9_-]{16,64}$/)); // idem key ต่อการออก (กันกินโควตาซ้ำ)
     expect(qrSpy).toHaveBeenCalledWith(`${window.location.origin}/w/${RAW_QR}`);
     expect(screen.getByRole("img", { name: "QR ใบงาน JB-0031" })).toBeInTheDocument();
     expect(screen.getByTestId("qr-pair-photo")).toBeInTheDocument();
@@ -523,15 +526,17 @@ describe("ออก QR ใหม่", () => {
     }
   });
 
-  it("เน็ตหลุด → เตือนว่าลองซ้ำอาจกินโควตา · กดลองใหม่ได้ · session หมด → โหลด hub ใหม่ (แผ่น PIN) ปิดกล่อง · ใส่ PIN แล้วกด ออก QR ใหม่ ซ้ำได้", async () => {
+  it("เน็ตหลุด → กดลองใหม่ได้ด้วย idem key เดิม · session หมด → โหลด hub ใหม่ (แผ่น PIN) ปิดกล่อง · ใส่ PIN แล้วกด ออก QR ใหม่ ซ้ำได้ (key เดิมจนกว่าจะได้ผลชัดเจน)", async () => {
     intakeReissueToken.mockRejectedValueOnce(new Error("net"));
     const { rerender } = await toW10();
     await click("ออก QR ใหม่");
     await userEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "ออก QR ใหม่" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("ออก QR ไม่สำเร็จ — เช็คสัญญาณแล้วลองอีกครั้ง (ถ้าลองซ้ำหลายครั้ง อาจใช้โควตา QR ของใบนี้ไปหลายใบ)");
+    expect(await screen.findByRole("alert")).toHaveTextContent("ออก QR ไม่สำเร็จ — เช็คสัญญาณแล้วลองอีกครั้ง");
+    expect(screen.getByRole("alert").textContent).not.toMatch(/โควตา/); // ลองซ้ำปลอดภัยแล้ว (idempotent) ไม่ต้องขู่
     intakeReissueToken.mockResolvedValueOnce({ ok: false, error: "x", code: "session_required" });
     await userEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "ออก QR ใหม่" }));
     await waitFor(() => expect(refresh).toHaveBeenCalled());
+    expect(intakeReissueToken.mock.calls[1][2]).toBe(intakeReissueToken.mock.calls[0][2]); // ลองใหม่ = key เดิม
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
     rerender(<ShopIntakeApp token={TOKEN} initial={identifyHub()} />);
     await screen.findByRole("heading", { level: 1, name: "ใครกำลังเปิดงาน?" });
@@ -540,6 +545,33 @@ describe("ออก QR ใหม่", () => {
     await click("ออก QR ใหม่");
     await userEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "ออก QR ใหม่" }));
     await screen.findByRole("heading", { level: 1, name: "QR ใหม่ JB-0031" });
+    expect(intakeReissueToken.mock.calls[2][2]).toBe(intakeReissueToken.mock.calls[0][2]);
+  });
+
+  it("ออกสำเร็จแล้วกดออกอีกใบ = key ใหม่ (QR ใบใหม่จริง ไม่ใช่ replay) · คนละการกด = คนละ key", async () => {
+    await toW10();
+    await click("ออก QR ใหม่");
+    await userEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "ออก QR ใหม่" }));
+    await screen.findByRole("heading", { level: 1, name: "QR ใหม่ JB-0031" });
+    await click("เสร็จแล้ว");
+    await click("ออก QR ใหม่");
+    await userEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "ออก QR ใหม่" }));
+    await waitFor(() => expect(intakeReissueToken).toHaveBeenCalledTimes(2));
+    expect(intakeReissueToken.mock.calls[1][2]).not.toBe(intakeReissueToken.mock.calls[0][2]);
+  });
+
+  it("already:true (key เดิมออกไปแล้ว คำขอก่อนหน้าตอบไม่ถึง · server ไม่มี QR ดิบ) → 'ออกไปแล้ว ถ้าไม่เห็น QR ให้กดออกใหม่อีกครั้ง' ไม่มีจอ QR · กดใหม่ = key ใหม่ ได้ QR", async () => {
+    intakeReissueToken.mockResolvedValueOnce({ ok: true, already: true, token: null, printNo: null, jobNo: "JB-0031" });
+    await toW10();
+    await click("ออก QR ใหม่");
+    await userEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "ออก QR ใหม่" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("ออกไปแล้ว ถ้าไม่เห็น QR ให้กดออกใหม่อีกครั้ง");
+    expect(screen.queryByRole("heading", { level: 1, name: "QR ใหม่ JB-0031" })).not.toBeInTheDocument();
+    expect(qrSpy).not.toHaveBeenCalled();
+    await userEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "ออก QR ใหม่" }));
+    await screen.findByRole("heading", { level: 1, name: "QR ใหม่ JB-0031" });
+    expect(intakeReissueToken).toHaveBeenCalledTimes(2);
+    expect(intakeReissueToken.mock.calls[1][2]).not.toBe(intakeReissueToken.mock.calls[0][2]);
   });
 
   it("🔴 ไม่มีเงิน/น้ำหนักบนจอ QR ใหม่", async () => {

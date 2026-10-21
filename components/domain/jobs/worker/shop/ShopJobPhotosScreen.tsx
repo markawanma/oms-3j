@@ -9,7 +9,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft } from "lucide-react";
-import { intakeListPhotos, intakeReissueToken, intakeRemovePhoto, intakeUploadPhoto } from "@/lib/actions/job-worker";
+import { intakeListPhotos, intakeReissueToken, intakeRemovePhoto, intakeSetPrimaryPhoto, intakeUploadPhoto } from "@/lib/actions/job-worker";
 import { Modal } from "@/components/ui/Modal";
 import { BigButton } from "@/components/domain/jobs/worker/WorkerParts";
 import { ShopExitGuard } from "@/components/domain/jobs/worker/shop/ShopExitGuard";
@@ -22,6 +22,7 @@ import type { ShopPhotoIo } from "@/components/domain/jobs/worker/shop/useShopPh
 import { useRefreshGate } from "@/components/domain/jobs/photos/useRefreshGate";
 import type { RetryReason } from "@/components/domain/jobs/photos/types";
 import { renderQrSvgClient, workerPageUrl } from "@/lib/jobs/qr-client";
+import { newIdemKey } from "@/lib/jobs/shop-open";
 import { REISSUE_TH, SHOP_PHOTO_TH, leaveGuard, positions, reissueErrorView } from "@/lib/jobs/shop-photos";
 import type { MyIntakeJob } from "@/lib/jobs/shop-photo-server";
 
@@ -37,6 +38,7 @@ export function ShopJobPhotosScreen({ token, job, onBack, onSessionLost }: { tok
       upload: (fd) => intakeUploadPhoto(token, fd),
       remove: (photoId) => intakeRemovePhoto(token, photoId),
       list: (ref) => intakeListPhotos(token, ref),
+      setPrimary: (ref, photoId) => intakeSetPrimaryPhoto(token, { ...("idemKey" in ref ? { idemKey: ref.idemKey } : { jobId: ref.jobId }), photoId }),
     }),
     [token],
   );
@@ -51,6 +53,8 @@ export function ShopJobPhotosScreen({ token, job, onBack, onSessionLost }: { tok
   const seq = useRef(0);
   const alive = useRef(true);
   const inflight = useRef(false);
+  // idem key ของการออก QR ใหม่: คงเดิมข้ามการ "ลองใหม่" หลังเน็ตหลุด (ครั้งก่อนออกไปแล้ว = server ตอบ already ไม่กินโควตา) · เปลี่ยนเมื่อได้ผลชัดเจนแล้ว (ออกสำเร็จ/ออกไปแล้ว) ให้กดครั้งถัดไปเป็น QR ใบใหม่
+  const reissueKey = useRef<string | null>(null);
   const allowRefresh = useRefreshGate();
   const lost = useRef(onSessionLost);
   useEffect(() => {
@@ -116,9 +120,10 @@ export function ShopJobPhotosScreen({ token, job, onBack, onSessionLost }: { tok
     if (inflight.current) return;
     inflight.current = true;
     setReissue({ phase: "confirm", busy: true, error: null, pin: false, final: false });
+    if (reissueKey.current === null) reissueKey.current = newIdemKey();
     let r: Awaited<ReturnType<typeof intakeReissueToken>> | null = null;
     try {
-      r = await intakeReissueToken(token, job.jobId);
+      r = await intakeReissueToken(token, job.jobId, reissueKey.current);
     } catch {
       r = null;
     } finally {
@@ -138,6 +143,13 @@ export function ShopJobPhotosScreen({ token, job, onBack, onSessionLost }: { tok
         return;
       }
       setReissue({ phase: "confirm", busy: false, error: v.message, pin: false, final: v.final });
+      return;
+    }
+    // ผลชัดเจนแล้ว (ออกสำเร็จ หรือ key เดิมออกไปแล้ว) → ครั้งถัดไปใช้ key ใหม่
+    reissueKey.current = null;
+    if (r.already || r.token === null) {
+      // key เดิมออกไปแล้วแต่คำขอก่อนหน้าตอบไม่ถึง: server ไม่มี QR ดิบส่งซ้ำ — บอกผู้ใช้ให้กดออกใหม่ (key ใหม่)
+      setReissue({ phase: "confirm", busy: false, error: REISSUE_TH.already, pin: false, final: false });
       return;
     }
     // token ดิบ → SVG ทันที แล้วทิ้ง (ไม่เก็บใน state)

@@ -9,7 +9,7 @@
 //   • ไม่มีตัวเลขเงิน/ราคา · ไม่มีลิงก์ออกนอกแอปช่าง
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { intakeListPhotos, intakeOpen, intakeRemovePhoto, intakeUploadPhoto } from "@/lib/actions/job-worker";
+import { intakeListPhotos, intakeOpen, intakeRemovePhoto, intakeSetPrimaryPhoto, intakeUploadPhoto } from "@/lib/actions/job-worker";
 import { bkkDateOf } from "@/lib/jobs/dates";
 import {
   MSG_NETWORK, backToSearch, buildIntakeInput, newForm, newIdemKey, purityLabel, shopErrorView, shopOpenIssues, stepProgress, stepsFor,
@@ -70,6 +70,7 @@ export function ShopOpenFlow({
       upload: (fd) => intakeUploadPhoto(token, fd),
       remove: (photoId) => intakeRemovePhoto(token, photoId),
       list: (ref) => intakeListPhotos(token, ref),
+      setPrimary: (ref, photoId) => intakeSetPrimaryPhoto(token, { ...("idemKey" in ref ? { idemKey: ref.idemKey } : { jobId: ref.jobId }), photoId }),
     }),
     [token],
   );

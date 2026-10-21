@@ -8,7 +8,7 @@
 // 🔴 ไม่เรียก server action เอง: io (upload/remove/list/setPrimary) ถูกฉีดเข้ามา (container ที่ import lib/actions/job-worker เป็นคนส่ง) → ทดสอบได้โดยไม่ mock module + ไม่ผูกกับ "use server"
 // กติกาที่ต้องไม่พัง:
 //  • ส่งทีละรูป (concurrency 1) เรียงรูปหลักก่อน — server ตั้งรูปแรกที่ส่งสำเร็จเป็นรูปหลัก ส่งขนานแล้วรูปหลักสลับเงียบๆ (A5 พิมพ์ผิดรูป)
-//  • รูปที่ส่งแล้วไม่ทราบผล (คำขอหลุดกลางทาง) → ก่อนลองใหม่เทียบรายการกับ server (กันรูปซ้ำจนติดเพดาน 3) — backend ยังไม่มี idem key ต่อรูป
+//  • กันรูปซ้ำ: ทุกรูปมี clientPhotoKey (uuid สร้างครั้งเดียวตอนเลือก ใช้ซ้ำตอนลองใหม่) — ส่งแล้วไม่ทราบผล (คำขอหลุดกลางทาง) ลองใหม่ = server คืนรูปเดิม (already:true) ไม่สร้างซ้ำ
 //  • ช่างรับงานแล้ว/ใบปิด (code จาก server) = ล็อกทั้งใบ: รูปที่ยังไม่ส่งกลายเป็น locked ไม่ส่งต่อ
 //  • blob URL ถูก revoke ทุกครั้งที่เอาออก/ล้าง/ออกจากจอ · ไม่เขียน storage/URL/log · wake lock เฉพาะช่วงที่มีรูปรอส่ง
 
@@ -37,8 +37,8 @@ export interface ShopPhotoIo {
   upload: (fd: FormData) => Promise<{ ok: true; photo: ServerPhoto; count: number; max: number } | Fail>;
   remove: (photoId: string) => Promise<{ ok: true; promotedPhotoId: string | null; already: boolean } | Fail>;
   list: (ref: PhotoRef) => Promise<{ ok: true; photos: ServerPhoto[]; count: number; max: number; locked: boolean; lockCode: string | null } | Fail>;
-  /** ไม่มี = ตั้งรูปหลักของรูปที่ "ส่งแล้ว" ไม่ได้ (ปุ่มซ่อน) — action ช่างยังไม่มีตัวนี้ */
-  setPrimary?: (photoId: string) => Promise<{ ok: true } | Fail>;
+  /** ตั้งรูปที่ "ส่งแล้ว" เป็นรูปหลัก (intakeSetPrimaryPhoto) · ไม่มี = ปุ่ม ★ ของรูปที่ส่งแล้วซ่อน */
+  setPrimary?: (ref: PhotoRef, photoId: string) => Promise<{ ok: true; changed?: boolean } | Fail>;
 }
 
 export interface ShopPhotoRejection {
@@ -48,7 +48,18 @@ export interface ShopPhotoRejection {
 
 export type PhotoActionResult = { ok: true } | { ok: false; message: string };
 
-const newKey = (): string => (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function" ? crypto.randomUUID() : `${Date.now()}-${Math.random().toString(36).slice(2)}`);
+/** uuid v4 (ต้องเป็น uuid จริง — ใช้เป็น clientPhotoKey ที่ server ตรวจรูปแบบ) · ไม่มี crypto.randomUUID = ประกอบจาก getRandomValues → ไม่มี crypto เลย = Math.random (ไม่ใช่ความลับ ใช้กันซ้ำเท่านั้น) */
+const newKey = (): string => {
+  const c = typeof crypto !== "undefined" ? crypto : undefined;
+  if (c && typeof c.randomUUID === "function") return c.randomUUID();
+  const b = new Uint8Array(16);
+  if (c && typeof c.getRandomValues === "function") c.getRandomValues(b);
+  else for (let i = 0; i < 16; i++) b[i] = Math.floor(Math.random() * 256);
+  b[6] = (b[6] & 0x0f) | 0x40;
+  b[8] = (b[8] & 0x3f) | 0x80;
+  const h = [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+};
 
 /** ภาพย่อ/ภาพกลางในเครื่องเป็นแค่ความสวยงาม — สร้างไม่ได้/โยน exception ต้องไม่ทำให้การส่งล้ม */
 const makeUrl = (b: Blob): string | null => {
@@ -66,7 +77,7 @@ const dropUrl = (u: string): void => {
   }
 };
 
-const blank = (key: string): ShopPhotoItem => ({ key, phase: "resizing", isPrimary: false, serverPrimary: false, saved: false, serverId: null, smUrl: null, mdUrl: null, message: null, retryable: true, needsPin: false, ambiguous: false });
+const blank = (key: string): ShopPhotoItem => ({ key, phase: "resizing", isPrimary: false, serverPrimary: false, saved: false, serverId: null, smUrl: null, mdUrl: null, message: null, retryable: true, needsPin: false });
 
 const LOCK_MESSAGE: Record<ShopPhotoLock, string> = { locked: SHOP_PHOTO_TH.lockedUnsent, closed: SHOP_PHOTO_TH.failClosed, not_owner: SHOP_PHOTO_TH.failNotOwner };
 
@@ -159,36 +170,13 @@ export function useShopPhotos({
         const otherIntent = cur.some((o) => o.key !== key && o.isPrimary && o.phase !== "done");
         const takesStar = photo.isPrimary && !otherIntent;
         return cur.map((i) => {
-          if (i.key === key) return { ...i, phase: "done", serverId: photo.id, serverPrimary: photo.isPrimary, isPrimary: photo.isPrimary ? takesStar : false, message: null, retryable: false, needsPin: false, ambiguous: false };
+          if (i.key === key) return { ...i, phase: "done", serverId: photo.id, serverPrimary: photo.isPrimary, isPrimary: photo.isPrimary ? takesStar : false, message: null, retryable: false, needsPin: false };
           if (photo.isPrimary) return { ...i, serverPrimary: false, isPrimary: takesStar ? false : i.isPrimary };
           return i;
         });
       });
     },
     [mutate],
-  );
-
-  /** คำขอก่อนหน้าหลุดกลางทาง: รูปอาจถึง server แล้ว — ถ้ามีรูปของเราที่ client ยังไม่รู้จัก ถือว่าเป็นรูปนี้ (ไม่ส่งซ้ำ) */
-  const reconcile = useCallback(
-    async (key: string, ref: PhotoRef, g: number): Promise<boolean> => {
-      let l: Awaited<ReturnType<ShopPhotoIo["list"]>> | null = null;
-      try {
-        l = await fns.current.io.list(ref);
-      } catch {
-        l = null;
-      }
-      if (g !== gen.current || !alive.current) return true; // ล้างฟอร์มไปแล้ว — หยุด
-      if (l && l.ok) {
-        const known = new Set(itemsRef.current.map((i) => i.serverId).filter((x): x is string => x !== null));
-        const orphan = l.photos.find((p) => p.mine && !known.has(p.id));
-        if (orphan && itemsRef.current.some((i) => i.key === key)) {
-          markDone(key, orphan);
-          return true;
-        }
-      }
-      return false;
-    },
-    [markDone],
   );
 
   const uploadOne = useCallback(
@@ -203,24 +191,25 @@ export function useShopPhotos({
         return;
       }
       patch(key, { phase: "uploading", message: null, needsPin: false });
-      if (it.ambiguous && (await reconcile(key, ref, g))) return;
-      if (g !== gen.current || !alive.current) return;
       const fd = new FormData();
       if ("idemKey" in ref) fd.set("idemKey", ref.idemKey);
       else fd.set("jobId", ref.jobId);
       fd.set("md", b.md, "md.jpg");
       fd.set("sm", b.sm, "sm.jpg");
+      // idempotency ต่อรูป: key สร้างครั้งเดียวตอนเลือกรูป (item.key = uuid) ใช้ซ้ำทุกครั้งที่ลองใหม่ — ส่งแล้วไม่ทราบผล (เน็ตหลุด) กดลองใหม่ = server คืนรูปเดิม (already) ไม่สร้างซ้ำ
+      fd.set("clientPhotoKey", key);
       if (itemsRef.current.find((i) => i.key === key)?.isPrimary) fd.set("isPrimary", "true");
       let res: Awaited<ReturnType<ShopPhotoIo["upload"]>>;
       try {
         res = await fns.current.io.upload(fd);
       } catch {
         if (g !== gen.current) return;
-        patch(key, { phase: "error", message: typeof navigator !== "undefined" && navigator.onLine === false ? SHOP_PHOTO_TH.failNet : SHOP_PHOTO_TH.failGeneric, retryable: true, ambiguous: true });
+        patch(key, { phase: "error", message: typeof navigator !== "undefined" && navigator.onLine === false ? SHOP_PHOTO_TH.failNet : SHOP_PHOTO_TH.failGeneric, retryable: true });
         return;
       }
       if (g !== gen.current || !alive.current) return;
       if (res.ok) {
+        // res.already = key เดิมเคยแนบสำเร็จแล้ว (คำขอก่อนหน้าถึง server แต่ตอบไม่ถึง) → ถือว่าสำเร็จ รูปเดิมไม่ซ้ำ
         markDone(key, res.photo);
         return;
       }
@@ -241,7 +230,7 @@ export function useShopPhotos({
       }
       patch(key, { phase: "error", message: v.message, retryable: v.retryable });
     },
-    [lockAll, markDone, mutate, patch, reconcile],
+    [lockAll, markDone, mutate, patch],
   );
 
   const pump = useCallback(async () => {
@@ -405,12 +394,13 @@ export function useShopPhotos({
         return { ok: true };
       }
       const fn = fns.current.io.setPrimary;
-      if (!fn) return { ok: false, message: SHOP_PHOTO_TH.primaryFail };
+      const ref = refRef.current;
+      if (!fn || !ref) return { ok: false, message: SHOP_PHOTO_TH.primaryFail };
       const before = itemsRef.current;
       mutate((cur) => cur.map((i) => ({ ...i, isPrimary: i.key === key, serverPrimary: i.key === key })));
       let r: Awaited<ReturnType<NonNullable<ShopPhotoIo["setPrimary"]>>>;
       try {
-        r = await fn(it.serverId);
+        r = await fn(ref, it.serverId);
       } catch {
         commit(before);
         return { ok: false, message: SHOP_PHOTO_TH.primaryFail };

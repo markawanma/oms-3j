@@ -295,6 +295,21 @@ describe("ลบรูปจากหน้างาน = บังคับเ�
     await waitFor(() => expect(removeJobPhoto).toHaveBeenCalledTimes(2));
   });
 
+  it("DB บังคับเหตุผลซ้ำ (reason_required) → ข้อความไทยของ server แสดงในกล่อง · UI ตรวจ ≥ 2 ตัวก่อนส่ง (1 ตัว = ปุ่ม aria-disabled ไม่เรียก server)", async () => {
+    removeJobPhoto.mockResolvedValueOnce({ ok: false, error: "รูปนี้ผู้จัดการแนบจากหน้างาน — ต้องระบุเหตุผลที่ลบ (อย่างน้อย 2 ตัวอักษร)", code: "reason_required" });
+    renderPage();
+    const dlg = await deleteViaViewer();
+    const box = within(dlg).getByLabelText("เหตุผล (บังคับ)");
+    fireEvent.change(box, { target: { value: "x" } });
+    expect(within(dlg).getByText("เหตุผลสั้นเกินไป (อย่างน้อย 2 ตัวอักษร)")).toBeInTheDocument();
+    await userEvent.click(within(dlg).getByRole("button", { name: "ลบรูป" }));
+    expect(removeJobPhoto).not.toHaveBeenCalled();
+    fireEvent.change(box, { target: { value: "xy" } });
+    await userEvent.click(within(dlg).getByRole("button", { name: "ลบรูป" }));
+    expect(await within(dlg).findByRole("alert")).toHaveTextContent("ต้องระบุเหตุผลที่ลบ (อย่างน้อย 2 ตัวอักษร)");
+    expect(tiles()).toHaveLength(3);
+  });
+
   it("ลบรูปหลักของหน้างาน → ดาวย้ายตาม promotedPhotoId · ข้อความเตือน 'นี่คือรูปหลัก' ยังอยู่ในกล่อง", async () => {
     removeJobPhoto.mockResolvedValueOnce({ ok: true, data: { promotedPhotoId: "p2" } });
     renderPage();

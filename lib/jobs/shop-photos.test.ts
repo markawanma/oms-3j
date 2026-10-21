@@ -8,7 +8,7 @@ import {
 import type { ShopPhotoItem } from "@/lib/jobs/shop-photos";
 
 const it_ = (o: Partial<ShopPhotoItem> = {}): ShopPhotoItem => ({
-  key: "k", phase: "ready", isPrimary: false, serverPrimary: false, saved: false, serverId: null, smUrl: null, mdUrl: null, message: null, retryable: true, needsPin: false, ambiguous: false, ...o,
+  key: "k", phase: "ready", isPrimary: false, serverPrimary: false, saved: false, serverId: null, smUrl: null, mdUrl: null, message: null, retryable: true, needsPin: false, ...o,
 });
 
 describe("เพดาน", () => {
@@ -58,6 +58,13 @@ describe("photoErrorView — ตัดสินจาก code ไม่ใช่
     expect(photoErrorView({ code: "photo_daily_cap", error: "x" })).toEqual({ message: "วันนี้แนบรูปครบกำหนดแล้ว", retryable: false, quota: true });
     expect(SHOP_PHOTO_TH.failShopBudget + SHOP_PHOTO_TH.failDailyCap).not.toMatch(/\d|MB|GB|60|80/);
     expect(photoErrorView({ code: "photo_cap_shopfloor" }).quota).toBeUndefined(); // เพดานต่อใบไม่ใช่โควตา (ลบรูปเก่าแล้วเพิ่มได้ ไม่หยุดคิว)
+  });
+  it("photo_key_used (clientPhotoKey ซ้ำกับรูปที่ลบแล้ว/ใบอื่น) → ลองใหม่ไม่ช่วย ข้อความไทย ไม่ล็อกใบ", () => {
+    expect(photoErrorView({ code: "photo_key_used", error: "x" })).toEqual({ message: "รูปนี้ถูกใช้ไปแล้ว — เลือกรูปใหม่", retryable: false });
+  });
+  it("primary_locked (ออฟฟิศ/แคตตาล็อกตั้งรูปหลักไว้) → ข้อความเฉพาะของการตั้งรูปหลัก (ไม่ใช่ล็อกทั้งใบ)", () => {
+    expect(photoActionErrorMessage({ code: "primary_locked", error: "รูปหลักตั้งโดยออฟฟิศแล้ว — เปลี่ยนไม่ได้ ถ้าต้องแก้ แจ้งออฟฟิศ" }, "x")).toBe("รูปหลักออฟฟิศตั้งไว้แล้ว — แจ้งออฟฟิศถ้าจะเปลี่ยน");
+    expect(photoErrorView({ code: "primary_locked" }).lock).toBeUndefined();
   });
   it("ด่านไฟล์ (JPEG ปลอม/เสีย/ใหญ่/พิกเซลเกิน) → ลองใหม่ไม่ช่วย ใช้ข้อความไทยของด่าน", () => {
     for (const code of Object.values(JOB_PHOTO_FILE_CODE)) {

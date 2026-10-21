@@ -30,8 +30,6 @@ export interface ShopPhotoItem {
   retryable: boolean;
   /** ล้มเพราะ session หมดเวลา — ต้องใส่ PIN ใหม่ก่อนลองใหม่ */
   needsPin: boolean;
-  /** คำขอหลุดกลางทาง ไม่รู้ว่ารูปถึง server ไหม — ลองใหม่ต้องเทียบรายการกับ server ก่อน (กันรูปซ้ำ) */
-  ambiguous: boolean;
 }
 
 export type ShopPhotoLock = "locked" | "closed" | "not_owner";
@@ -70,6 +68,8 @@ export const SHOP_PHOTO_TH = {
   failRate: "ส่งถี่เกินไป — รอสักครู่แล้วกด \"ลองใหม่\"",
   failCap: `ใบนี้มีรูปจากหน้างานครบ ${SHOP_PHOTO_MAX} รูปแล้ว`,
   /** โควตา M1 (backend 21 ต.ค.): พื้นที่รวมรูปหน้างานของร้านเต็ม / ช่างแนบครบต่อ 24 ชม. — ข้อความตรงกับ PHOTO_CODE_TH ฝั่ง server (ไม่มีตัวเลขโควตาบนจอ) */
+  failKeyUsed: "รูปนี้ถูกใช้ไปแล้ว — เลือกรูปใหม่",
+  primaryLocked: "รูปหลักออฟฟิศตั้งไว้แล้ว — แจ้งออฟฟิศถ้าจะเปลี่ยน",
   failShopBudget: "พื้นที่รูปจากหน้างานเต็มแล้ว — แจ้งออฟฟิศ",
   failDailyCap: "วันนี้แนบรูปครบกำหนดแล้ว",
   failClosed: "ใบนี้ปิดหรือยกเลิกแล้ว — ส่งรูปไม่ได้",
@@ -163,6 +163,8 @@ export function photoErrorView(f: PhotoFail): PhotoErrorView {
   if (CLOSED_CODES.has(code)) return { message: SHOP_PHOTO_TH.failClosed, retryable: false, lock: "closed" };
   if (NOT_OWNER_CODES.has(code)) return { message: SHOP_PHOTO_TH.failNotOwner, retryable: false, lock: "not_owner" };
   if (code === "photo_cap_shopfloor" || code === "photo_cap_ref" || code === "photo_cap_total") return { message: SHOP_PHOTO_TH.failCap, retryable: false };
+  // clientPhotoKey ซ้ำกับรูปที่ลบแล้ว/ใบอื่น — เอารูปนี้ออกแล้วเลือกใหม่ (ลองใหม่ด้วย key เดิมได้ผลเดิม)
+  if (code === "photo_key_used") return { message: SHOP_PHOTO_TH.failKeyUsed, retryable: false };
   if (code === "photo_budget_shopfloor") return { message: SHOP_PHOTO_TH.failShopBudget, retryable: false, quota: true };
   if (code === "photo_daily_cap") return { message: SHOP_PHOTO_TH.failDailyCap, retryable: false, quota: true };
   if (code === "invalid_token" || code === "token_budget_exhausted") return { message: SHOP_PHOTO_TH.failQr, retryable: false };
@@ -175,6 +177,8 @@ export function photoErrorView(f: PhotoFail): PhotoErrorView {
 
 /** ข้อความเมื่อ "ลบ"/"ตั้งรูปหลัก" ล้ม (ไม่ใช่การส่ง) */
 export function photoActionErrorMessage(f: PhotoFail, fallback: string): string {
+  // รูปหลักที่ออฟฟิศ/แคตตาล็อกตั้งไว้ผู้จัดการสลับไม่ได้ (ไม่ล็อกทั้งใบ — ลบ/เพิ่มรูปของตัวเองยังทำได้)
+  if (f.code === "primary_locked") return SHOP_PHOTO_TH.primaryLocked;
   const v = photoErrorView(f);
   if (v.needsPin) return SHOP_PHOTO_TH.failPin;
   if (v.lock === "locked") return SHOP_PHOTO_TH.locked;
@@ -198,8 +202,10 @@ export const REISSUE_TH = {
   resultTitle: (jobNo: string) => `QR ใหม่ ${jobNo}`,
   once: "⚠ QR นี้แสดงครั้งเดียว — ออกจากหน้านี้แล้วจะหายจากจอ",
   done: "เสร็จแล้ว",
-  /** คำขอหลุดกลางทาง: อาจออก QR ไปแล้วแต่ไม่เห็น — ลองซ้ำกินโควตา (ไม่มี idem key) จึงเตือน */
-  netFail: "ออก QR ไม่สำเร็จ — เช็คสัญญาณแล้วลองอีกครั้ง (ถ้าลองซ้ำหลายครั้ง อาจใช้โควตา QR ของใบนี้ไปหลายใบ)",
+  /** คำขอหลุดกลางทาง: กดลองใหม่ได้ปลอดภัย — ใช้ idem key เดิม (ถ้าครั้งก่อนออกไปแล้ว server บอก already ไม่กินโควตาเพิ่ม) */
+  netFail: "ออก QR ไม่สำเร็จ — เช็คสัญญาณแล้วลองอีกครั้ง",
+  /** idem key เดิมออกไปแล้ว (คำขอก่อนหน้าถึง server แต่ตอบไม่ถึง) — server ไม่มี QR ดิบส่งซ้ำ: กดใหม่ = key ใหม่ = QR ใบใหม่ (นับโควตา) */
+  already: "ออกไปแล้ว ถ้าไม่เห็น QR ให้กดออกใหม่อีกครั้ง",
   generic: "ออก QR ใหม่ไม่สำเร็จ — ลองอีกครั้ง",
 } as const;
 

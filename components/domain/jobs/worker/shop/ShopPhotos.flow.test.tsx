@@ -21,7 +21,9 @@ const intakeRemovePhoto = vi.fn();
 const intakeListPhotos = vi.fn();
 const intakeMyJobs = vi.fn();
 const intakeReissueToken = vi.fn();
+const intakeSetPrimaryPhoto = vi.fn();
 vi.mock("@/lib/actions/job-worker", () => ({
+  intakeSetPrimaryPhoto: (...a: unknown[]) => intakeSetPrimaryPhoto(...a),
   intakeLogin: (...a: unknown[]) => intakeLogin(...a),
   workerLogout: (...a: unknown[]) => workerLogout(...a),
   intakeSearch: (...a: unknown[]) => intakeSearch(...a),
@@ -90,6 +92,7 @@ beforeEach(() => {
   intakeSearch.mockResolvedValue({ ok: true, items: [product()] });
   intakeOpen.mockResolvedValue(okResult());
   workerLogout.mockResolvedValue({ ok: true });
+  intakeSetPrimaryPhoto.mockResolvedValue({ ok: true, changed: true });
   intakeMyJobs.mockResolvedValue({ ok: true, openAllowed: true, jobs: [], maxPhotos: 3 });
   intakeRemovePhoto.mockResolvedValue({ ok: true, promotedPhotoId: null, already: false });
   intakeListPhotos.mockResolvedValue({ ok: true, photos: [], count: 0, max: 3, locked: false, lockCode: null });
@@ -374,6 +377,7 @@ describe("W-8 ส่งรูปหลังเปิดใบ + QR gate", () =>
     expect(first.get("idemKey")).toBe(intakeOpen.mock.calls[0][1].idemKey);
     expect(first.get("jobId")).toBeNull();
     expect(first.get("isPrimary")).toBe("true"); // รูป b ที่ผู้ใช้เลือกเป็นหลักไปก่อน
+    expect(String(first.get("clientPhotoKey"))).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/); // idempotency ต่อรูป (uuid)
     expect(screen.getAllByText("กำลังส่ง…").length).toBeGreaterThanOrEqual(1); // แถวรูป (+ ป้ายบนรูปหลักคู่ QR)
     expect(within(screen.getByTestId("qr-pair-photo")).getByText("กำลังส่ง…")).toBeInTheDocument();
     expect(screen.getByText("รอคิวส่ง")).toBeInTheDocument();
@@ -726,8 +730,59 @@ describe("ไม่เลือกรูป / W-8b / ยกเลิก", () => 
   });
 });
 
+describe("ตั้งรูปหลักหลังส่งแล้ว (intakeSetPrimaryPhoto)", () => {
+  async function sentTwo() {
+    render(<ShopIntakeApp token={TOKEN} initial={hubOf()} />);
+    await openWithPhotos(["a", "b"]);
+    await waitFor(() => expect(screen.getByText("✓ ส่งรูปแล้ว 2 รูป")).toBeInTheDocument());
+    await click(/จัดการ/);
+  }
+  const openViewerOf = async (n: number) => {
+    await userEvent.click(screen.getByRole("button", { name: new RegExp(`^รูปที่ ${n} จาก 2 ·`) }));
+    return screen.getByRole("dialog", { name: "รูปงาน JB-0031" });
+  };
+
+  it("ปุ่ม ★ เปิดหลังส่งแล้ว: เรียก intakeSetPrimaryPhoto(token, { idemKey ของใบ, photoId }) · ดาวย้ายทันที + 'ตั้งเป็นรูปหลักแล้ว' · รูปหลักอยู่แล้ว = ปุ่ม disabled", async () => {
+    await sentTwo();
+    const d1 = await openViewerOf(1);
+    expect(within(d1).getByRole("button", { name: "เป็นรูปหลักอยู่แล้ว" })).toBeDisabled();
+    await click("ปิดรูป");
+    const d2 = await openViewerOf(2);
+    await userEvent.click(within(d2).getByRole("button", { name: "ตั้งเป็นรูปหลัก" }));
+    await waitFor(() => expect(intakeSetPrimaryPhoto).toHaveBeenCalledTimes(1));
+    expect(intakeSetPrimaryPhoto).toHaveBeenCalledWith(TOKEN, { idemKey: intakeOpen.mock.calls[0][1].idemKey, photoId: "p2" });
+    expect(await screen.findByText("ตั้งเป็นรูปหลักแล้ว")).toBeInTheDocument();
+    await click("ปิดรูป");
+    expect(within(screen.getByRole("region", { name: "รูปจากหน้างาน" })).getAllByRole("listitem")[0]).toHaveTextContent("รูปที่ 1");
+    expect(within(screen.getByRole("region", { name: "รูปจากหน้างาน" })).getAllByRole("listitem")[0]).toHaveTextContent("★ รูปหลัก");
+  });
+
+  it("primary_locked (ออฟฟิศตั้งรูปหลักไว้) → ข้อความ 'รูปหลักออฟฟิศตั้งไว้แล้ว — แจ้งออฟฟิศถ้าจะเปลี่ยน' · ดาวย้อนกลับ · ปุ่มยังอยู่ (ไม่ล็อกใบ)", async () => {
+    intakeSetPrimaryPhoto.mockResolvedValue({ ok: false, error: "รูปหลักตั้งโดยออฟฟิศแล้ว — เปลี่ยนไม่ได้ ถ้าต้องแก้ แจ้งออฟฟิศ", code: "primary_locked" });
+    await sentTwo();
+    const d2 = await openViewerOf(2);
+    await userEvent.click(within(d2).getByRole("button", { name: "ตั้งเป็นรูปหลัก" }));
+    expect(await screen.findByText("รูปหลักออฟฟิศตั้งไว้แล้ว — แจ้งออฟฟิศถ้าจะเปลี่ยน")).toBeInTheDocument();
+    expect(within(screen.getByRole("dialog", { name: "รูปงาน JB-0031" })).getByRole("button", { name: "ตั้งเป็นรูปหลัก" })).toBeEnabled();
+    await click("ปิดรูป");
+    expect(within(screen.getByRole("region", { name: "รูปจากหน้างาน" })).getAllByRole("listitem")[0]).toHaveTextContent("★ รูปหลัก");
+    expect(screen.queryByText(/🔒/)).not.toBeInTheDocument();
+  });
+
+  it("ตั้งรูปหลักแล้วช่างเพิ่งรับงาน (job_locked) → ล็อกทั้งจอ: แถบ 🔒 · ซ่อนเพิ่ม/จัดการ", async () => {
+    intakeSetPrimaryPhoto.mockResolvedValue({ ok: false, error: "x", code: "job_locked" });
+    await sentTwo();
+    const d2 = await openViewerOf(2);
+    await userEvent.click(within(d2).getByRole("button", { name: "ตั้งเป็นรูปหลัก" }));
+    expect(await screen.findByText("ช่างรับงานแล้ว แก้รูปไม่ได้ — แจ้งออฟฟิศ", { selector: "p[role=status]" })).toBeInTheDocument();
+    await click("ปิดรูป");
+    expect(screen.getByText("🔒 ช่างรับงานแล้ว แก้รูปไม่ได้ — แจ้งออฟฟิศ")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "ถ่ายรูป" })).not.toBeInTheDocument();
+  });
+});
+
 describe("ลบรูปที่ส่งแล้ว (หลังเปิด)", () => {
-  it("แถบพับ → จัดการ ▾ → ปุ่มเพิ่มรูป + ข้อความกลับมาแก้ที่ 'ใบที่ฉันเปิด' · แตะ thumb → viewer · ลบ = กล่องยืนยัน (focus ที่ ยกเลิก) · ลบสำเร็จเรียก server + toast · ★ ซ่อน (ไม่มี action ตั้งหลักของรูปที่ส่งแล้ว)", async () => {
+  it("แถบพับ → จัดการ ▾ → ปุ่มเพิ่มรูป + ข้อความกลับมาแก้ที่ 'ใบที่ฉันเปิด' · แตะ thumb → viewer · ลบ = กล่องยืนยัน (focus ที่ ยกเลิก) · ลบสำเร็จเรียก server + toast", async () => {
     render(<ShopIntakeApp token={TOKEN} initial={hubOf()} />);
     await openWithPhotos(["a", "b"]);
     await waitFor(() => expect(screen.getByText("✓ ส่งรูปแล้ว 2 รูป")).toBeInTheDocument());
@@ -737,7 +792,7 @@ describe("ลบรูปที่ส่งแล้ว (หลังเปิ�
     expect(screen.getByText("รูป 2/2")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: /รูปที่ 2 จาก 2 · แตะเพื่อดู/ }));
     const dlg = screen.getByRole("dialog", { name: "รูปงาน JB-0031" });
-    expect(within(dlg).queryByRole("button", { name: /ตั้งเป็นรูปหลัก|เป็นรูปหลักอยู่แล้ว/ })).not.toBeInTheDocument();
+    expect(within(dlg).getByRole("button", { name: "ตั้งเป็นรูปหลัก" })).toBeEnabled(); // รูปที่ส่งแล้วตั้งรูปหลักได้ (intakeSetPrimaryPhoto)
     await userEvent.click(within(dlg).getByRole("button", { name: "ลบรูปนี้" }));
     const confirm = screen.getByRole("dialog", { name: "ลบรูปนี้? ลบแล้วกู้คืนไม่ได้" });
     await waitFor(() => expect(within(confirm).getByRole("button", { name: "ยกเลิก" })).toHaveFocus());
