@@ -17,6 +17,8 @@
 --     · job_worker_token_reissue ("ออก QR ใหม่" ของใบที่ฉันเปิด — ใช้ job_token_issue_core · ไม่เพิกถอน QR เดิม · เพดาน 5 · ได้แม้ช่างรับงานแล้วตราบใดที่ใบยังไม่ปิด/ยกเลิก)
 --     begin/add/list อ้างใบได้ 2 ทาง "อย่างใดอย่างหนึ่ง": p_idem_key (เพิ่งเปิดใบ) หรือ p_job_id (จากรายการใบของฉัน) — ผ่านเงื่อนไขเดียวกัน: ใบผลิต opened_via=shopfloor ∧ opened_by_worker_id = ช่างใน session ∧ ร้านจาก token ·
 --     job_id ของคนอื่น/ใบออฟฟิศ/ร้านอื่น/ส่วนย่อย = order_not_found (ไม่ใช่แค่รู้ uuid แล้วเข้าได้) · ทั้งสองทางหรือไม่ส่งสักทาง = idem_invalid
+--  4. โควตาหน้างาน (security M1 · 21 ต.ค.): ฟังก์ชันค่ากำหนด job_shopfloor_photo_quota() ที่เดียว — พื้นที่รวมรูป shopfloor ที่ยังไม่ลบต่อร้าน ≤ 80 MB · ต่อช่าง ≤ 60 รูป/24 ชม. (นับรวมที่ลบแล้ว กันวน add/remove) ·
+--     บังคับที่ guard (ล็อกใบ seed 2 → ร้าน seed 3 → ช่าง seed 4 · L1) + เช็คก่อนแตะ bucket ที่ begin · hint photo_budget_shopfloor / photo_daily_cap · นับเพดาน 3 เฉพาะ kind='reference' ตรงกันทุกจุด (L2) · index idx_job_photo_shopfloor_worker
 --  ไม่มี trigger ใหม่บน job_photo (verify-0182 นับ trigger = 3) · ไม่แตะ job_photo_enforce_cap / job_photo_add (ออฟฟิศ) / job_worker_resolve (แสดงรูป reference ทุก source อยู่แล้ว) / production_order_done
 --
 -- ตัดสินเอง (นอก design — เหตุผล)
@@ -105,6 +107,21 @@ end;
 $p$;
 
 -- ============================================================================
+-- 0.5 โควตารูปจากหน้างาน (M1) — ค่ากำหนดตำแหน่งเดียว (ทีมตั้ง ไม่ใช่ค่าเจ้าของ · แจ้งเจ้าของแล้ว · ปรับทีหลังได้ด้วย migration ที่ replace ฟังก์ชันนี้)
+--   shop_bytes_max = พื้นที่รวมรูป source=shopfloor ที่ยังไม่ลบ ต่อร้าน (md+sm) · worker_24h_max = จำนวนรูปที่ช่างคนหนึ่งแนบใน 24 ชม. (นับรวมที่ลบแล้ว)
+--   🔴 ตัวเลขนี้ซ้ำใน lib/images/constants.ts (SHOPFLOOR_PHOTOS_BUDGET_BYTES · SHOPFLOOR_PHOTOS_PER_WORKER_24H) — ขยับพร้อมกัน
+-- ============================================================================
+create or replace function analytics.job_shopfloor_photo_quota()
+ returns jsonb
+ language sql
+ immutable
+ set search_path to 'pg_catalog', 'pg_temp'
+as $f$ select jsonb_build_object('shop_bytes_max', 80 * 1024 * 1024, 'worker_24h_max', 60) $f$;
+
+-- ต่อช่าง/24 ชม. (นับรวมที่ลบแล้ว) — ให้การนับของ guard/begin ไม่ต้องกวาดทั้งตาราง
+create index if not exists idx_job_photo_shopfloor_worker on analytics.job_photo (worker_id, created_at) where source = 'shopfloor';
+
+-- ============================================================================
 -- 1. job_photo_guard — เนื้อเดิมของ 0182 ทุกบรรทัด + ด่านท้ายสาย INSERT (เฉพาะ reference + shopfloor + มี worker)
 -- ============================================================================
 create or replace function analytics.job_photo_guard()
@@ -137,8 +154,23 @@ begin
       if current_setting('analytics.shop_photo_id', true) is distinct from new.id::text then
         raise exception 'รูปจากหน้างานเขียนได้เฉพาะทาง RPC ของช่าง' using errcode = '42501', hint = 'shopfloor_rpc_only';
       end if;
-      if (select count(*) from analytics.job_photo p where p.job_id = new.job_id and p.source = 'shopfloor' and p.deleted_at is null) >= 3 then
+      -- L1: ล็อกต่อใบ (seed 2 — ตัวเดียวกับ job_photo_enforce_cap) ก่อนนับเพดาน · ลำดับล็อกคงที่ใบ(2) → ร้าน(3) → ช่าง(4) ตรงกับ trigger เพดานเดิม (ใบ → ร้าน) จึงไม่ deadlock
+      perform pg_advisory_xact_lock(hashtextextended(new.job_id::text, 2));
+      -- L2: นับเฉพาะ kind = 'reference' (ตรงกับ begin/add/list) — รูปผลงานต่อขั้น (kind stage · W2b) ไม่กินเพดาน 3 ของรูปสั่งงาน
+      if (select count(*) from analytics.job_photo p where p.job_id = new.job_id and p.source = 'shopfloor' and p.kind = 'reference' and p.deleted_at is null) >= 3 then
         raise exception 'ใบงานนี้มีรูปจากหน้างานครบ 3 รูปแล้ว' using errcode = 'P0001', hint = 'photo_cap_shopfloor';
+      end if;
+      -- M1 (security 21 ต.ค.): โควตาหน้างาน — ค่ากำหนดอยู่ที่ analytics.job_shopfloor_photo_quota() ที่เดียว (ทีมตั้ง · แจ้งเจ้าของแล้ว · ปรับทีหลังได้)
+      --   (ก) พื้นที่รวมรูป shopfloor ที่ยังไม่ลบต่อร้าน (md+sm) ≤ shop_bytes_max  (ข) ต่อช่าง ≤ worker_24h_max รูป/24 ชม. "นับรวมที่ลบแล้ว" (กันวน add/remove เผาพื้นที่/ถัง)
+      perform pg_advisory_xact_lock(hashtextextended(new.shop_id::text, 3));
+      if (select coalesce(sum(p.bytes), 0) from analytics.job_photo p where p.shop_id = new.shop_id and p.source = 'shopfloor' and p.deleted_at is null) + new.bytes
+           > (analytics.job_shopfloor_photo_quota() ->> 'shop_bytes_max')::bigint then
+        raise exception 'พื้นที่รูปจากหน้างานของร้านเต็มแล้ว' using errcode = 'P0003', hint = 'photo_budget_shopfloor';
+      end if;
+      perform pg_advisory_xact_lock(hashtextextended(new.worker_id::text, 4));
+      if (select count(*) from analytics.job_photo p where p.worker_id = new.worker_id and p.source = 'shopfloor' and p.created_at > now() - interval '24 hours')
+           >= (analytics.job_shopfloor_photo_quota() ->> 'worker_24h_max')::int then
+        raise exception 'วันนี้แนบรูปจากหน้างานครบกำหนดแล้ว' using errcode = 'P0001', hint = 'photo_daily_cap';
       end if;
     end if;
   else
@@ -302,6 +334,8 @@ declare
   v_block jsonb;
   v_sf    int;
   v_ref   int;
+  v_bytes bigint;
+  v_day   int;
 begin
   v_a := analytics.shop_intake_photo_auth(p_token_hash, p_session_hash, p_ip_hash, 'write');
   if not (v_a ->> 'ok')::boolean then
@@ -320,13 +354,22 @@ begin
   if v_block is not null then
     return v_block;
   end if;
-  select count(*) filter (where p.source = 'shopfloor'), count(*) filter (where p.kind = 'reference') into v_sf, v_ref
+  select count(*) filter (where p.source = 'shopfloor' and p.kind = 'reference'), count(*) filter (where p.kind = 'reference') into v_sf, v_ref
     from analytics.job_photo p where p.job_id = v_job and p.deleted_at is null;
   if v_sf >= 3 then
     return analytics.job_fail('photo_cap_shopfloor', 'แนบรูปจากหน้างานได้สูงสุด 3 รูปต่อใบ — ลบรูปเก่าก่อนเพิ่ม');
   end if;
   if v_ref >= 5 then
     return analytics.job_fail('photo_cap_ref', 'ใบนี้มีรูปอ้างอิงครบ 5 รูปแล้ว — แจ้งออฟฟิศ');
+  end if;
+  -- M1: โควตาหน้างาน เช็คก่อนแตะ bucket (ที่ begin ยังไม่รู้ขนาดไฟล์ → ปฏิเสธเมื่อเต็มแล้ว · ขอบละเอียดตัดที่ guard ตอน add) — ไม่ให้ object เกิดเมื่อโควตาเต็ม
+  select coalesce(sum(p.bytes), 0) into v_bytes from analytics.job_photo p where p.shop_id = v_shop and p.source = 'shopfloor' and p.deleted_at is null;
+  if v_bytes >= (analytics.job_shopfloor_photo_quota() ->> 'shop_bytes_max')::bigint then
+    return analytics.job_fail('photo_budget_shopfloor', 'พื้นที่รูปจากหน้างานเต็มแล้ว — แจ้งออฟฟิศ');
+  end if;
+  select count(*) into v_day from analytics.job_photo p where p.worker_id = v_wid and p.source = 'shopfloor' and p.created_at > now() - interval '24 hours';
+  if v_day >= (analytics.job_shopfloor_photo_quota() ->> 'worker_24h_max')::int then
+    return analytics.job_fail('photo_daily_cap', 'วันนี้แนบรูปครบกำหนดแล้ว');
   end if;
   return jsonb_build_object('ok', true, 'job_id', v_job, 'shop_id', v_shop, 'photo_id', gen_random_uuid(), 'count', v_sf, 'max', 3);
 end;
@@ -396,7 +439,7 @@ begin
   if p_storage_path is distinct from v_prefix || '_md.jpg' or p_variant_sm_path is distinct from v_prefix || '_sm.jpg' then
     return analytics.job_fail('photo_path_invalid', 'บันทึกรูปไม่สำเร็จ ลองใหม่อีกครั้ง');
   end if;
-  select count(*) filter (where p.source = 'shopfloor'), count(*) filter (where p.kind = 'reference') into v_sf, v_ref
+  select count(*) filter (where p.source = 'shopfloor' and p.kind = 'reference'), count(*) filter (where p.kind = 'reference') into v_sf, v_ref
     from analytics.job_photo p where p.job_id = v_job_id and p.deleted_at is null;
   if v_sf >= 3 then
     return analytics.job_fail('photo_cap_shopfloor', 'แนบรูปจากหน้างานได้สูงสุด 3 รูปต่อใบ — ลบรูปเก่าก่อนเพิ่ม');
@@ -434,6 +477,10 @@ begin
         return analytics.job_fail('photo_cap_total', 'ใบนี้มีรูปครบกำหนดแล้ว — แจ้งออฟฟิศ');
       elsif v_hint = 'photo_budget' then
         return analytics.job_fail('photo_budget', 'พื้นที่เก็บรูปของร้านเต็มแล้ว — แจ้งออฟฟิศ');
+      elsif v_hint = 'photo_budget_shopfloor' then
+        return analytics.job_fail('photo_budget_shopfloor', 'พื้นที่รูปจากหน้างานเต็มแล้ว — แจ้งออฟฟิศ');
+      elsif v_hint = 'photo_daily_cap' then
+        return analytics.job_fail('photo_daily_cap', 'วันนี้แนบรูปครบกำหนดแล้ว');
       end if;
       raise;
   end;
@@ -536,7 +583,7 @@ begin
   select jsonb_agg(jsonb_build_object('id', p.id, 'sm_path', p.variant_sm_path, 'md_path', p.storage_path, 'is_primary', p.is_primary,
                                       'mine', p.source = 'shopfloor' and p.worker_id = v_wid)
                    order by p.is_primary desc, p.sort_order, p.created_at, p.id),
-         count(*) filter (where p.source = 'shopfloor')
+         count(*) filter (where p.source = 'shopfloor' and p.kind = 'reference')
     into v_photos, v_sf
     from analytics.job_photo p where p.job_id = v_job and p.deleted_at is null and p.kind = 'reference';
   return jsonb_build_object('ok', true, 'locked', v_block is not null, 'lock_code', v_block ->> 'code',
@@ -658,7 +705,7 @@ do $g$
 declare
   r record;
   v_touched constant text[] := array[
-    'job_photo_guard', 'shop_intake_photo_auth', 'job_worker_photo_job', 'job_worker_photo_block',
+    'job_photo_guard', 'job_shopfloor_photo_quota', 'shop_intake_photo_auth', 'job_worker_photo_job', 'job_worker_photo_block',
     'job_worker_photo_begin', 'job_worker_photo_add', 'job_worker_photo_remove', 'job_worker_photo_list', 'job_worker_my_intake_list', 'job_worker_token_reissue'];
   v_rpc constant text[] := array['job_worker_photo_begin', 'job_worker_photo_add', 'job_worker_photo_remove', 'job_worker_photo_list', 'job_worker_my_intake_list', 'job_worker_token_reissue'];
   v_n int;
@@ -689,7 +736,7 @@ declare
   v_changed text;
   v_new text;
   v_touched constant text[] := array['job_photo_guard'];
-  v_added constant text[] := array['shop_intake_photo_auth', 'job_worker_photo_job', 'job_worker_photo_block', 'job_worker_photo_begin', 'job_worker_photo_add', 'job_worker_photo_remove', 'job_worker_photo_list', 'job_worker_my_intake_list', 'job_worker_token_reissue'];
+  v_added constant text[] := array['job_shopfloor_photo_quota', 'shop_intake_photo_auth', 'job_worker_photo_job', 'job_worker_photo_block', 'job_worker_photo_begin', 'job_worker_photo_add', 'job_worker_photo_remove', 'job_worker_photo_list', 'job_worker_my_intake_list', 'job_worker_token_reissue'];
 begin
   -- (1) ฟังก์ชันเดิมนอกรายการ md5 ต้องเท่าเดิมเป๊ะ (ทุกตัวในสคีมา — รวม job_photo_enforce_cap · job_photo_add · job_worker_resolve · production_order_done)
   select string_agg(b.sig, ', ') into v_changed
@@ -701,7 +748,8 @@ begin
   end if;
   -- (2) job_photo_guard เปลี่ยนจริง (มีเครื่องหมาย 0189) · ฟังก์ชันใหม่ = รายการที่ประกาศเท่านั้น
   if not exists (select 1 from pg_proc p where p.pronamespace = 'analytics'::regnamespace and p.proname = 'job_photo_guard'
-                    and position('shop_photo_id' in pg_get_functiondef(p.oid)) > 0 and position('photo_cap_shopfloor' in pg_get_functiondef(p.oid)) > 0) then
+                    and position('shop_photo_id' in pg_get_functiondef(p.oid)) > 0 and position('photo_cap_shopfloor' in pg_get_functiondef(p.oid)) > 0
+                    and position('photo_budget_shopfloor' in pg_get_functiondef(p.oid)) > 0 and position('photo_daily_cap' in pg_get_functiondef(p.oid)) > 0) then
     raise exception '0189: job_photo_guard ยังไม่ใช่ฉบับ 0189';
   end if;
   select string_agg(p.oid::regprocedure::text, ', ') into v_new
