@@ -73,6 +73,7 @@ import {
   productionItemInputIssue,
 } from "@/lib/production/types";
 import { fetchAllRows } from "@/lib/supabase/query-limits";
+import { readErrorCode, readErrorMessage, redactUrls } from "@/lib/supabase/postgrest-error";
 
 const SCHEMA = "analytics";
 
@@ -120,6 +121,11 @@ async function getActorId(): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+/** log เฉพาะ code + message ที่ลบ URL แล้ว (บทเรียน supabase-error-logging-trap: ห้าม log error ทั้งก้อน — มี PII/URL) */
+function logRpcFailure(label: string, err: unknown): void {
+  console.error(`${label} failed`, { code: readErrorCode(err), message: redactUrls(readErrorMessage(err)) });
 }
 
 function revalidateProduction(id?: string) {
@@ -271,7 +277,7 @@ export async function getProductionOrder(id: string): Promise<ActionResult<Produ
         .select(
           // 0186: v_production_order_item ต่อท้าย 13 คอลัมน์ (pending_product_label … sku_metal_known — left join product: รายการไม่มี SKU ไม่หายจากวิว)
           // ⚠ ต้องเป็น string literal เดียว (ห้ามต่อสตริงด้วย +) — type ของ supabase-js parse select จาก literal ถ้าต่อสตริงจะกลายเป็น GenericStringError
-          "id, production_order_id, po_no, order_status, product_id, sku, product_name, current_cost_type, current_unit_cost, qty_planned, qty_done, stamped_unit_cost, prev_cost_type, prev_unit_cost, created_at, updated_at, pending_product_label, metal, purity, weight_g, weight_source, effective_metal, effective_purity, effective_weight_g, effective_weight_source, sku_metal, sku_purity, sku_weight_g, sku_metal_known"
+          "id, production_order_id, po_no, order_status, product_id, sku, product_name, current_cost_type, current_unit_cost, qty_planned, qty_done, stamped_unit_cost, prev_cost_type, prev_unit_cost, created_at, updated_at, pending_product_label, metal, purity, weight_g, weight_source, effective_metal, effective_purity, effective_weight_g, effective_weight_source, sku_metal, sku_purity, sku_weight_g, sku_metal_known, metal_mismatch"
         )
         .eq("production_order_id", id)
         .eq("shop_id", shopId)
@@ -407,6 +413,7 @@ export async function getProductionOrder(id: string): Promise<ActionResult<Produ
         sku_purity: number | string | null;
         sku_weight_g: number | string | null;
         sku_metal_known: boolean | null;
+        metal_mismatch: boolean | null;
       }[]
     ).map((r) => {
       const spec = r.product_id === null ? undefined : specByProductId.get(r.product_id);
@@ -433,6 +440,8 @@ export async function getProductionOrder(id: string): Promise<ActionResult<Produ
         skuPurity: parseProductionNumber(r.sku_purity),
         skuWeightG: parseProductionNumber(r.sku_weight_g),
         skuMetalKnown: r.sku_metal_known === true,
+        // 0187: DB คำนวณ (โลหะรายการ ≠ โลหะ SKU ที่ระบุชัด) — ห้าม client คิดเอง
+        metalMismatch: r.metal_mismatch === true,
         qtyPlanned: Number(r.qty_planned) || 0,
         qtyDone: r.qty_done == null ? null : Number(r.qty_done),
         stampedUnitCost: r.stamped_unit_cost == null ? null : Number(r.stamped_unit_cost),
@@ -1035,7 +1044,7 @@ export async function acknowledgeProductionOrder(input: { productionOrderId: str
       data: { productionOrderId: row.production_order_id, poNo: row.po_no, acknowledgedAt: row.acknowledged_at, jobsLogged: Number(row.jobs_logged) || 0 },
     };
   } catch (err) {
-    console.error("acknowledgeProductionOrder failed", err);
+    logRpcFailure("acknowledgeProductionOrder", err);
     return { ok: false, error: humanizeProductionError(err, "รับทราบใบผลิตไม่สำเร็จ ลองใหม่อีกครั้ง") };
   }
 }
@@ -1081,7 +1090,7 @@ export async function bindProductionItemProduct(input: { productionOrderId: stri
       },
     };
   } catch (err) {
-    console.error("bindProductionItemProduct failed", err);
+    logRpcFailure("bindProductionItemProduct", err);
     return { ok: false, error: humanizeProductionError(err, "ผูก SKU ไม่สำเร็จ ลองใหม่อีกครั้ง") };
   }
 }
@@ -1108,7 +1117,7 @@ export async function setProductionItemLabel(input: { productionOrderId: string;
     else revalidatePath("/production");
     return { ok: true, data: { label: r.pending_product_label } };
   } catch (err) {
-    console.error("setProductionItemLabel failed", err);
+    logRpcFailure("setProductionItemLabel", err);
     return { ok: false, error: humanizeProductionError(err, "แก้ชื่อแบบไม่สำเร็จ ลองใหม่อีกครั้ง") };
   }
 }

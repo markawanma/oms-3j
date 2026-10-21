@@ -622,7 +622,8 @@ begin
     locked2 := last_code;
     legit := pg_temp.pin_in(pg_temp.fx('wM'), '2468');
     v := v || pg_temp.chk('QA-F1', format('INFO DoS รอบ 1: ไม่มีข้อมูลรับรอง ยิง PIN ผิด 5 ครั้ง/คน (รวม 10 request) -> ผู้จัดการทั้งร้านถูกล็อก 15 นาที (%s/%s) · ผู้จัดการตัวจริงใส่ PIN ถูกก็เข้าไม่ได้: %s', locked1, locked2, legit ->> 'code'),
-      locked1 = 'locked' and locked2 = 'locked' and legit ->> 'code' = 'locked');
+      -- หลังแก้ 0187 รอบ 21 ต.ค.: ล็อกรายคนยังเกิด (5 ครั้ง/คน) แต่คนที่ 2 ชนงบร้าน 7 ครั้ง/วัน (token_budget_exhausted) · ทางออก = ออฟฟิศออก QR ร้านใหม่/ปลดล็อก — session เดิมไม่กระทบ (QA-F2)
+      locked1 = 'locked' and locked2 in ('locked', 'token_budget_exhausted') and legit ->> 'code' in ('locked', 'token_budget_exhausted'));
     -- จำลองรอจนล็อกหมด (fixture: ปลด locked_until) แล้วยิงต่ออีก 10 ครั้ง/คน -> ครบ 15 ในหน้าต่าง 24 ชม. = ล็อกถาวรต้องให้ออฟฟิศปลด
     update analytics.worker set locked_until = null where id in (pg_temp.fx('wM'), pg_temp.fx('wM2'));
     for i in 11..14 loop
@@ -640,7 +641,8 @@ begin
     end loop;
     legit := pg_temp.pin_in(pg_temp.fx('wM'), '2468');
     v := v || pg_temp.chk('QA-F1b', format('INFO DoS รอบ 2 (จำลองรอ): ยิงผิดสะสม >= 15/คน ใน 24 ชม. -> ผู้จัดการ locked_office ถาวร: PIN ถูกก็เข้าไม่ได้ = %s · ใช้ request รวม ~ %s ต่อคน · ไม่มีด่านต่อ IP/ต่อ token ที่หยุดได้ (ต่อ IP 100/10 นาที · ต่อ token 60/10 นาที ห่างไกล)', legit ->> 'code', 15),
-      legit ->> 'code' = 'locked_office');
+      -- หลังแก้ 0187: ทาง QR ร้านไม่ถึงล็อกถาวร (p_allow_permanent_lock=false) + งบ 7 ครั้ง/วัน — ต้องไม่เป็น locked_office และ locked_until ไม่เป็น infinity
+      legit ->> 'code' is distinct from 'locked_office' and not exists (select 1 from analytics.worker where id in (pg_temp.fx('wM'), pg_temp.fx('wM2')) and locked_until = 'infinity'::timestamptz));
     -- session ที่ออกก่อนถูกล็อกยังใช้ได้ (ไม่ถูกเตะ)
     r := pg_temp.hub(pg_temp.kv('sM'));
     v := v || pg_temp.chk('QA-F2', 'session เดิมของผู้จัดการที่ถูกล็อกทีหลัง ยังใช้ hub ได้ (ล็อกกันเฉพาะ PIN ใหม่): ' || coalesce(r ->> 'state', r ->> 'code'), r ->> 'state' = 'ready');
@@ -717,7 +719,8 @@ begin
     end loop;
     legit := pg_temp.opn(pg_temp.kv('sM'), jsonb_build_object('label', 'ผู้จัดการตัวจริง', 'metal', 'silver', 'rl', '1'));
     v := v || pg_temp.chk('QA-G1', format('INFO DoS ถัง open: ไม่มี session จริง ยิง 25 ครั้ง (ครั้งสุดท้าย=%s) -> ผู้จัดการตัวจริง (session ถูก) เปิดใบได้ไหม: ok=%s code=%s (rate_limited = ถูกบล็อก ≤10 นาที ยิงซ้ำได้ไม่จำกัด)', last_code, legit ->> 'ok', legit ->> 'code'),
-      last_code = 'rate_limited' and legit ->> 'code' = 'rate_limited');
+      -- หลังแก้ 0187 (security L1): session ปลอมไม่เผาถังต่อ token — ผู้จัดการตัวจริงต้องเปิดได้
+      last_code = 'session_required' and legit ->> 'ok' = 'true');
     raise exception 'rb_qa';
   exception when others then if sqlerrm <> 'rb_qa' then v := v || pg_temp.chk('QA-G1-crash', sqlstate || ' ' || sqlerrm, false); end if; end;
   begin
@@ -726,7 +729,7 @@ begin
       r := pg_temp.hub(null); last_code := r ->> 'code';
     end loop;
     legit := pg_temp.hub(pg_temp.kv('sM'));
-    v := v || pg_temp.chk('QA-G2', format('INFO DoS ถัง hub: ยิง resolve 125 ครั้งไม่ต้องมี session (สุดท้าย=%s) -> ผู้จัดการตัวจริงโหลด hub: code=%s', last_code, legit ->> 'code'), last_code = 'rate_limited' and legit ->> 'code' = 'rate_limited');
+    v := v || pg_temp.chk('QA-G2', format('INFO DoS ถัง hub: ยิง resolve 125 ครั้งไม่ต้องมี session (สุดท้าย=%s) -> ผู้จัดการตัวจริงโหลด hub: code=%s', last_code, legit ->> 'code'), last_code is null and legit ->> 'state' = 'ready');   -- หลังแก้ 0187: hub ไม่มี session ไม่เผาถังต่อ token (ไม่มี IP = ไม่นับ) · ผู้จัดการตัวจริงยังดู hub ได้
     raise exception 'rb_qa';
   exception when others then if sqlerrm <> 'rb_qa' then v := v || pg_temp.chk('QA-G2-crash', sqlstate || ' ' || sqlerrm, false); end if; end;
   begin
@@ -735,7 +738,7 @@ begin
       r := pg_temp.srch(analytics.job_sha256_hex('fs' || i), 'x'); last_code := r ->> 'code';
     end loop;
     legit := pg_temp.srch(pg_temp.kv('sM'), 'ZZ187');
-    v := v || pg_temp.chk('QA-G3', format('INFO DoS ถังค้น: 245 ครั้งด้วย session ปลอม (สุดท้าย=%s) -> ผู้จัดการค้นสินค้า: code=%s', last_code, legit ->> 'code'), last_code = 'rate_limited' and legit ->> 'code' = 'rate_limited');
+    v := v || pg_temp.chk('QA-G3', format('INFO DoS ถังค้น: 245 ครั้งด้วย session ปลอม (สุดท้าย=%s) -> ผู้จัดการค้นสินค้า: code=%s', last_code, legit ->> 'code'), last_code = 'session_required' and legit ->> 'code' is null and legit ? 'items');   -- หลังแก้ 0187 (L1): session ปลอมไม่เผาถังค้น
     raise exception 'rb_qa';
   exception when others then if sqlerrm <> 'rb_qa' then v := v || pg_temp.chk('QA-G3-crash', sqlstate || ' ' || sqlerrm, false); end if; end;
   return v;

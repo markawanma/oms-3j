@@ -221,6 +221,8 @@ export interface ProductionOrderItemRow {
   skuWeightG: number | null;
   /** 0186: true เฉพาะ SKU ที่ "ระบุโลหะจริง" (make_spec.metal หรือโหมด spot) — กัน warning "ต่างจาก SKU" ผิดทุกครั้งที่เปิดงานทอง (UX P1) */
   skuMetalKnown: boolean;
+  /** 0187: โลหะของรายการ ≠ โลหะของ SKU ที่ระบุโลหะชัด (คำนวณที่ DB · v_production_order_item.metal_mismatch) — เตือน ไม่บล็อก · ไม่มี SKU/SKU ไม่ระบุโลหะ = false · optional เพื่อ fixture เดิม */
+  metalMismatch?: boolean;
   qtyPlanned: number;
   qtyDone: number | null;
   /** unit_cost stamped by production_order_done — null until this item's

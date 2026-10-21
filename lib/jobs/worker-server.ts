@@ -21,7 +21,7 @@ export const WORKER_SESSION_COOKIE = "w_session";
 export const WORKER_SESSION_MAX_AGE_S = 12 * 60 * 60;
 
 /** jobNo: เฉพาะช่องทางเปิดใบ (0187) — เลขใบงานที่ชน (job_exists) เพื่อบอกผู้จัดการ · ช่องทางอื่นไม่ใส่ (รูปเดิมไม่เปลี่ยน) */
-export type WorkerFail = { ok: false; code: string; error: string; retryAfterSeconds?: number; jobNo?: string };
+export type WorkerFail = { ok: false; code: string; error: string; retryAfterSeconds?: number; jobNo?: string; budgetLeft?: number };
 export type WorkerOk<T> = { ok: true; data: T };
 
 const fail = (code: string, error?: string): WorkerFail => ({ ok: false, code, error: error ?? workerFailMessage(code, null) });
@@ -63,7 +63,7 @@ function failExtra(r: Record<string, unknown>): WorkerFailExtra {
  * เรียก RPC ฝั่งช่าง · คืน data (ok:true) หรือ WorkerFail เสมอ — ทั้งกรณี {ok:false, code, message} ของ DB และ error ระบบ
  * error ระบบ → ข้อความกลาง (ไม่ log ข้อความดิบ) · ผลที่ไม่ใช่ object → ข้อความกลาง
  */
-async function callWorkerRpc(fn: string, params: Record<string, unknown>, opts: { keepJobNo?: boolean } = {}): Promise<Record<string, unknown> | WorkerFail> {
+async function callWorkerRpc(fn: string, params: Record<string, unknown>, opts: { keepJobNo?: boolean; intake?: boolean } = {}): Promise<Record<string, unknown> | WorkerFail> {
   let data: unknown;
   try {
     const res = await getServiceClient().schema("analytics").rpc(fn, params);
@@ -77,7 +77,14 @@ async function callWorkerRpc(fn: string, params: Record<string, unknown>, opts: 
   const r = data as Record<string, unknown>;
   if (r.ok === true) return r;
   const code = typeof r.code === "string" ? r.code : "error";
-  const out: WorkerFail = { ok: false, code, error: workerFailMessage(code, r.message, failExtra(r)) };
+  const extra = failExtra(r);
+  // QR ร้าน: งบผิดเป็นของ "ทั้งร้าน" — ข้อความ "ใบนี้ใส่ PIN ผิดได้อีก n ครั้ง" ของ QR ใบงานไม่ใช้ (ตัวเลขส่งต่อทาง budgetLeft ให้ intakeFail ประกอบข้อความของร้านเอง)
+  if (opts.intake) extra.tokenBudgetLeft = null;
+  const out: WorkerFail = { ok: false, code, error: workerFailMessage(code, r.message, extra) };
+  if (opts.intake) {
+    const b = finite(r.token_budget_left);
+    if (b !== null && b >= 0 && b <= 7) out.budgetLeft = b;
+  }
   const retry = typeof r.retry_after_seconds === "number" ? r.retry_after_seconds : null;
   if (retry !== null && Number.isFinite(retry) && retry > 0) out.retryAfterSeconds = Math.min(Math.ceil(retry), 3600);
   const jn = opts.keepJobNo ? shortText(r.job_no, 20) : null;
@@ -311,10 +318,14 @@ const INTAKE_CODE_TH: Record<string, string> = {
   invalid_token: "QR ร้านนี้ใช้ไม่ได้แล้ว — ขอ QR ใหม่จากออฟฟิศ",
   session_required: "หมดเวลาแล้ว — ใส่ PIN ใหม่",
   rate_limited: "ส่งถี่เกินไป — รอสักครู่แล้วลองอีกครั้ง",
+  // งบผิด 7 ครั้ง/วัน รวมทั้งร้าน (มติเจ้าของ 21 ต.ค.) — ไม่พูดถึงใบงาน (ข้อความของ QR ใบงานคนละบริบท)
+  token_budget_exhausted: "วันนี้ใส่ PIN ผิดครบกำหนดแล้ว — ขอ QR ร้านใหม่จากออฟฟิศ",
 };
 const intakeFail = (f: WorkerFail): WorkerFail => {
   const own = Object.prototype.hasOwnProperty.call(INTAKE_CODE_TH, f.code) ? INTAKE_CODE_TH[f.code] : null;
   if (f.code === "job_exists") return { ...f, error: f.jobNo ? `SKU นี้มีใบงาน ${f.jobNo} เปิดอยู่แล้ว — ถ้าต้องการเพิ่มจำนวน แจ้งออฟฟิศ หรือเลือกสินค้าอื่น` : "SKU นี้มีใบงานเปิดอยู่แล้ว — ถ้าต้องการเพิ่มจำนวน แจ้งออฟฟิศ หรือเลือกสินค้าอื่น" };
+  // PIN ผิดใกล้งบของร้านหมด (เหลือ ≤ 3) — บอกให้รู้ตัว (ทั้งร้านใช้งบร่วมกัน)
+  if (f.code === "bad_credentials" && typeof f.budgetLeft === "number" && f.budgetLeft <= 3) return { ...f, error: `${f.error} · วันนี้ใส่ PIN ผิดได้อีก ${f.budgetLeft} ครั้ง (ทั้งร้านใช้ร่วมกัน)` };
   return own ? { ...f, error: own } : f;
 };
 /** ผลดิบมี key ต้องห้าม (เงิน/ต้นทุน/ลูกค้า/เลขเอกสาร ฯลฯ) = ไม่ส่งต่อ · ไม่ log ผล (อาจมี token) */
@@ -383,7 +394,7 @@ export async function loadIntakeHub(token: unknown): Promise<WorkerOk<IntakeHubV
 export async function verifyIntakePin(token: unknown, workerId: string, pin: string): Promise<WorkerOk<{ sessionToken: string; maxAgeSeconds: number }> | WorkerFail> {
   const c = await readCaller(token);
   if (!c.tokenHash) return intakeFail(fail("invalid_token"));
-  const r = await callWorkerRpc("worker_pin_verify_intake", { p_token_hash: c.tokenHash, p_worker_id: workerId, p_pin: pin, p_user_agent: c.userAgent, p_ip_hash: c.ipHash });
+  const r = await callWorkerRpc("worker_pin_verify_intake", { p_token_hash: c.tokenHash, p_worker_id: workerId, p_pin: pin, p_user_agent: c.userAgent, p_ip_hash: c.ipHash }, { intake: true });
   if (isFail(r)) return intakeFail(r);
   const raw = r.session_token;
   if (typeof raw !== "string" || sessionHashOrNull(raw) === null) return fail("error", GENERIC_JOB_ERROR);
@@ -470,9 +481,14 @@ export interface IntakeOpenInput {
   note: string | null;
 }
 
+const ITEM_STATUSES = ["open", "in_progress", "on_hold", "done", "cancelled"] as const;
+export type IntakeJobStatus = (typeof ITEM_STATUSES)[number];
+
 export interface IntakeOpenResult {
   /** true = key เดิมเปิดไปแล้ว (กดซ้ำ/เน็ตสะดุด) — ไม่มี QR (เก็บ hash แสดงซ้ำไม่ได้) */
   already: boolean;
+  /** สถานะจริงของใบ (DB) — already + cancelled = หน้าจอบอก "ใบนี้ถูกยกเลิกแล้ว" ไม่ใช่ "เปิดไว้แล้ว" */
+  status: IntakeJobStatus;
   jobNo: string;
   /** QR ใบงานดิบ — แสดงครั้งเดียว (ผู้เรียกห้าม log/เก็บ) · null เมื่อ already */
   token: string | null;
@@ -511,12 +527,17 @@ export async function openIntakeJob(token: unknown, i: IntakeOpenInput): Promise
   const raw = r.token;
   if (!already && (typeof raw !== "string" || !/^[A-Za-z0-9_-]{16,64}$/.test(raw))) return fail("error", GENERIC_JOB_ERROR);
   const due = typeof r.due_date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(r.due_date) ? r.due_date : null;
+  // ทุกค่ามาจาก DB เท่านั้น (ไม่ fallback ไปค่าที่ client ส่งมา — กด "ลองใหม่" ด้วยค่าอื่นต้องเห็นของจริงที่เปิดไปแล้ว) · status ไม่รู้จัก = ข้อความกลาง
+  const status = typeof r.status === "string" && (ITEM_STATUSES as readonly string[]).includes(r.status) ? (r.status as IntakeJobStatus) : null;
+  const qtyOrder = intOrNull(r.qty_order);
+  const designLabel = shortText(r.design_label, 200);
+  if (status === null || qtyOrder === null || !designLabel) return fail("error", GENERIC_JOB_ERROR);
   return {
     ok: true,
     data: {
-      already, jobNo, token: already ? null : (raw as string),
-      designLabel: shortText(r.design_label, 200) ?? "", sku: shortText(r.sku, 100), skuPending: r.sku_pending === true, metal,
-      qtyOrder: intOrNull(r.qty_order) ?? i.qtyOrder, qtyPlanned: intOrNull(r.qty_planned), isNewDesign: r.is_new_design === true, dueDate: due,
+      already, jobNo, token: already ? null : (raw as string), status,
+      designLabel, sku: shortText(r.sku, 100), skuPending: r.sku_pending === true, metal,
+      qtyOrder, qtyPlanned: intOrNull(r.qty_planned), isNewDesign: r.is_new_design === true, dueDate: due,
     },
   };
 }

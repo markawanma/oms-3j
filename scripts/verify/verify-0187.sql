@@ -53,6 +53,18 @@
 --    5. soft-remove รายการไม่มี SKU (R2 ข้อสุดท้าย) — ไม่ได้ทำ (ต้องแตะเส้นต้นทุน done/preview/view = หยุดตามบรีฟ) · job_worker_open_cancel (ก4) ไม่ได้ทำ — ไม่มีเทสต์เพราะไม่มีโค้ด
 --    6. ชีตราคาสมาคม/ต้นทุนทอง (💰 ส่วนของ PM-A) ไม่ทดสอบซ้ำ — ใช้ SKU fixed ในวงจร Y เพื่อไม่ต้องมีราคาทองวันนี้ (verify-0186 ครอบ) · ที่นี่พิสูจน์เฉพาะว่า md5 ของ done เท่าเดิมและด่านใหม่อยู่ที่ trigger
 --    7. ข้อความ U+2800 (Braille blank) กลางชื่อแบบ ผ่าน oem_note_valid ของ DB (พฤติกรรมเดิมของ helper กลาง) — ชั้น TS parseLabel/INVISIBLE_RE จับก่อนถึง DB (lib/jobs/input.test.ts) · ไม่แก้ helper กลางในงานนี้
+--
+--  ===== รอบแก้หลัง security/red-team/QA (21 ต.ค. 69 · มติเจ้าของ: ไม่ห้าม PIN เดาง่าย ใช้จำกัดจำนวนครั้งแทน) — ข้อ -> เทสต์ =====
+--   1 งบผิด QR ร้าน 7 ครั้ง/วัน รวมทั้งร้าน (sf:) · ครั้งที่ 8 = token_budget_exhausted      -> P2b-P2c · P4e · P8a-P8b · MU6 MU21
+--     ห้ามถึง locked_office ผ่าน QR ร้าน (รวมคร่อมเที่ยงคืน 3 วัน×7) · ทาง QR ใบงานบันไดเดิม  -> P8f-P8h (ควบคุม QR ใบงาน = locked_office) · P4a-P4b · MU19
+--     1234/0000/1111/1212/9999 ใช้ได้ · ออก QR ใหม่ = งบใหม่ · ใส่ถูกคืนช่อง                  -> P8e-P8e2 · P8d
+--   2 ถังต่อ token open/search/hub นับหลังพบ session valid · session ปลอม ×25/×260 ไม่เผาถัง -> H6a-H6d · H5 (มี session = 121) · O10b · MU20 · QA-G1-G3
+--   3 v_production_order_item.metal_mismatch (คำนวณที่ DB)                                  -> B3b2 B3b3 B3f
+--   4 verify-0186 J4b แคบลง (ยกเว้น job_worker_open — พึ่งเทสต์พฤติกรรม OK3b/OK3c + QA D1-D8)  -> verify-0186 J4b (รัน 0187+verify-0186 = 0 FAIL)
+--   5 idem replay ของใบที่ยกเลิก → status cancelled · replay คืนค่าจาก DB                    -> O9e0-O9f · MU22 · (TS) job-worker-intake.test.ts
+--   6 hub identify ไม่ส่ง profile_ready/gold_profile_ready (ส่งหลังมี session)               -> H1c
+--   7 logRpcFailure (code + redactUrls) ใน production.ts 3 จุด                              -> (TS) w1-office.test.ts
+--  ความเสี่ยงที่เจ้าของรับ: PIN เดาง่ายของผู้จัดการเดาได้ <= 7 ครั้ง/วัน ผ่าน QR ร้าน · ใบที่เปิดยังไม่เข้าสต็อกจนออฟฟิศ ack · งบเป็นของทั้งร้าน (คนแปลกหน้าพิมพ์ผิด 7 ครั้งทำให้เข้าทาง QR นี้ไม่ได้ทั้งวัน จนออกใหม่)
 
 set local statement_timeout = '30min';
 
@@ -437,19 +449,21 @@ begin
     if sqlerrm <> 'rb_187' then v := v || pg_temp.chk('P1-crash', sqlstate || ' ' || sqlerrm, false); end if;
   end;
 
-  -- P2 ผิด: attempts_left นับถอยหลัง · ไม่มี token_budget_left (ไม่มีงบผิด/วัน/token ที่ QR ร้าน)
+  -- P2 ผิด: attempts_left นับถอยหลัง · token_budget_left = งบผิดของ QR ร้าน 7 ครั้ง/วัน รวมทั้งร้าน (key sf:) — ไม่ใช่ pf: ของ QR ใบงาน
   begin
     r := pg_temp.pin_in(pg_temp.fx('wM'), '0000');
     v := v || pg_temp.chk('P2a', 'PIN ผิดครั้งแรก: bad_credentials · attempts_left=4 · attempts_until_office=14', r ->> 'code' = 'bad_credentials' and (r ->> 'attempts_left')::int = 4 and (r ->> 'attempts_until_office')::int = 14);
-    v := v || pg_temp.chk('P2b', 'ไม่มี token_budget_left ในผลทางร้าน (ไม่ใช้งบผิด 20/วัน/token)', not (r ? 'token_budget_left'));
-    select count(*) into n from analytics.worker_rate_limit where key like 'pf:%' and key = 'pf:' || left(tokh, 32);
-    v := v || pg_temp.chk('P2c', 'ไม่มีแถวงบ pf: ของ QR ร้านในตารางจำกัดอัตรา · มีถัง sip: ของ QR ร้าน', n = 0 and exists (select 1 from analytics.worker_rate_limit where key = 'sip:' || left(tokh, 32)));
+    v := v || pg_temp.chk('P2b', 'ทางร้าน: token_budget_left = 6 (งบ 7 ครั้ง/วัน ใช้ไป 1)', (r ->> 'token_budget_left')::int = 6);
+    select count(*) into n from analytics.worker_rate_limit where key = 'pf:' || left(tokh, 32);
+    v := v || pg_temp.chk('P2c', 'ถังงบของ QR ร้านคือ sf:<token> hits=1 (ไม่ใช่ pf: ของ QR ใบงาน) · มีถัง sip: ของ QR ร้าน', n = 0 and (select hits from analytics.worker_rate_limit where key = 'sf:' || left(tokh, 32)) = 1
+      and exists (select 1 from analytics.worker_rate_limit where key = 'sip:' || left(tokh, 32)));
     r2 := pg_temp.pin_job(jobh, pg_temp.fx('wM2'), '0000');
-    v := v || pg_temp.chk('P2d', 'ทาง QR ใบงานเดิม: ผิดครั้งแรกยังมี token_budget_left=19 · attempts_left=4 (พฤติกรรมเดิมไม่เปลี่ยน)', r2 ->> 'code' = 'bad_credentials' and (r2 ->> 'token_budget_left')::int = 19 and (r2 ->> 'attempts_left')::int = 4);
+    v := v || pg_temp.chk('P2d', 'ทาง QR ใบงานเดิม: ผิดครั้งแรกยังมี token_budget_left=19 (งบ 20) · attempts_left=4 (พฤติกรรมเดิมไม่เปลี่ยน)', r2 ->> 'code' = 'bad_credentials' and (r2 ->> 'token_budget_left')::int = 19 and (r2 ->> 'attempts_left')::int = 4);
     raise exception 'rb_187';
   exception when others then
     if sqlerrm <> 'rb_187' then v := v || pg_temp.chk('P2-crash', sqlstate || ' ' || sqlerrm, false); end if;
   end;
+
 
   -- P3 ช่างที่ไม่มี can_open_job / ปิดใช้ / ร้านอื่น / ไม่มีตัวตน = bad_credentials เหมือนใส่ผิด · ไม่นับครั้งผิด · ไม่ออก session
   begin
@@ -471,33 +485,110 @@ begin
     if sqlerrm <> 'rb_187' then v := v || pg_temp.chk('P3-crash', sqlstate || ' ' || sqlerrm, false); end if;
   end;
 
-  -- P4 บันไดล็อกเดียวสองทาง: ผิด 5 = 15 นาที · 10 = 1 ชม. · 15 = ถาวร (ผู้จัดการที่ QR ร้าน vs ผู้จัดการอีกคนที่ QR ใบงาน — ลำดับผลต้องเท่ากันเป๊ะ)
+  -- P4 บันไดล็อก: ทาง QR ใบงานครบ 5/10/15 (ถาวรที่ 15) · ทาง QR ร้านผลเท่ากันใน 7 ครั้งแรก (งบร้าน 7 ครั้ง/วัน) — ผู้จัดการ M (QR ร้าน) vs M2 (QR ใบงาน)
   begin
     s1 := ''; s2 := '';
-    for i in 1..15 loop
+    for i in 1..7 loop
       r := pg_temp.pin_in(pg_temp.fx('wM'), '0000');
       r2 := pg_temp.pin_job(jobh, pg_temp.fx('wM2'), '0000');
       s1 := s1 || (r ->> 'code') || coalesce(':' || (r ->> 'retry_after_seconds'), '') || coalesce('/' || (r ->> 'attempts_left'), '') || ' ';
       s2 := s2 || (r2 ->> 'code') || coalesce(':' || (r2 ->> 'retry_after_seconds'), '') || coalesce('/' || (r2 ->> 'attempts_left'), '') || ' ';
-      -- จำลองเวลาผ่านไปหลังล็อกชั่วคราว (fixture: UPDATE ตรง — ยกเว้นที่บอกตรงๆ) เพื่อไต่ต่อถึงครั้งที่ 10/15 ในทรานแซกชันเดียว (now() คงที่)
-      -- (ตั้งแต่ครั้งที่ 5 ทุกครั้งที่ผิดจะล็อกใหม่ — ปลดทุกครั้งยกเว้นหลังครั้งที่ 15 ที่ต้องคงล็อกถาวรไว้ตรวจ)
-      if i >= 5 and i < 15 then update analytics.worker set locked_until = null where id in (pg_temp.fx('wM'), pg_temp.fx('wM2')); end if;
+      -- จำลองเวลาผ่านไปหลังล็อกชั่วคราว (fixture: UPDATE ตรง — ยกเว้นที่บอกตรงๆ) เพื่อไต่ต่อในทรานแซกชันเดียว (now() คงที่)
+      if i >= 5 then update analytics.worker set locked_until = null where id in (pg_temp.fx('wM'), pg_temp.fx('wM2')); end if;
     end loop;
-    v := v || pg_temp.chk('P4a', 'ลำดับผล 15 ครั้งผิด: ทาง QR ร้าน = ทาง QR ใบงาน (code/retry/attempts_left) — นโยบายล็อกเดียว (core ร่วม): ' || s1, s1 = s2);
-    v := v || pg_temp.chk('P4b', 'ครั้งที่ 5 = locked 900 วิ · ครั้งที่ 10 = locked 3600 วิ · ครั้งที่ 15 = locked_office',
-      s1 like '%locked:900%' and s1 like '%locked:3600%' and split_part(s1, ' ', 15) = 'locked_office' and split_part(s1, ' ', 5) = 'locked:900' and split_part(s1, ' ', 10) = 'locked:3600');
-    r := pg_temp.pin_in(pg_temp.fx('wM'), '2468');
-    v := v || pg_temp.chk('P4c', 'ล็อกถาวรแล้ว ใส่ PIN ถูกก็ยังเข้าไม่ได้ (locked_office) · ไม่มี session ใหม่', r ->> 'code' = 'locked_office' and not (r ? 'session_token'));
-    perform analytics.worker_unlock(a, pg_temp.fx('wM'), pg_temp.act());
-    r := pg_temp.pin_in(pg_temp.fx('wM'), '2468');
-    v := v || pg_temp.chk('P4d', 'worker_unlock (ออฟฟิศ) แล้วเข้าได้ — ปลดล็อกเดิมใช้กับทางร้านด้วย', r ->> 'ok' = 'true');
-    select count(*) into n from analytics.worker_rate_limit where key = 'pf:' || left(tokh, 32);
-    v := v || pg_temp.chk('P4e', 'ผิด 15 ครั้งที่ QR ร้าน ไม่ทำให้ token ร้านติดงบ pf: (งบ 20/วัน เป็นของ QR ใบงานเท่านั้น) · QR ใบงานมีแถวงบ pf: 1 แถว',
-      n = 0 and (select count(*) from analytics.worker_rate_limit where key = 'pf:' || left(jobh, 32)) = 1);
+    v := v || pg_temp.chk('P4a', '7 ครั้งผิดแรก: ทาง QR ร้าน = ทาง QR ใบงาน (code/retry/attempts_left) — นโยบายล็อกเดียว (core ร่วม): ' || s1, s1 = s2 and split_part(s1, ' ', 5) = 'locked:900');
+    -- QR ใบงานไต่ต่อถึง 15 (M2 อยู่ที่ 7 แล้ว) — บันไดเดิมครบ: 10 = 1 ชม. · 15 = ถาวร
+    s2 := '';
+    for i in 8..15 loop
+      r2 := pg_temp.pin_job(jobh, pg_temp.fx('wM2'), '0000');
+      s2 := s2 || (r2 ->> 'code') || coalesce(':' || (r2 ->> 'retry_after_seconds'), '') || ' ';
+      if i < 15 then update analytics.worker set locked_until = null where id = pg_temp.fx('wM2'); end if;
+    end loop;
+    v := v || pg_temp.chk('P4b', 'ทาง QR ใบงาน (บันไดเดิม): ครั้งที่ 8-9 ผิดธรรมดา · 10 = locked 3600 · 11-14 = locked 3600 · 15 = locked_office — ได้: ' || s2,
+      split_part(s2, ' ', 3) = 'locked:3600' and split_part(s2, ' ', 8) = 'locked_office');
+    r := pg_temp.pin_in(pg_temp.fx('wM2'), '1357');
+    v := v || pg_temp.chk('P4c', 'ล็อกถาวรแล้ว (จากทาง QR ใบงาน) ใส่ PIN ถูกที่ QR ร้านก็ยังเข้าไม่ได้ (locked_office) · ไม่มี session ใหม่', r ->> 'code' = 'locked_office' and not (r ? 'session_token'));
+    perform analytics.worker_unlock(a, pg_temp.fx('wM2'), pg_temp.act());
+    r := pg_temp.pin_job(jobh, pg_temp.fx('wM2'), '1357');
+    v := v || pg_temp.chk('P4d', 'worker_unlock (ออฟฟิศ) แล้วเข้าได้ — ปลดล็อกเดิมใช้ได้ทั้งสองทาง (ที่นี่ยืนยันทาง QR ใบงาน · ทาง QR ร้านงบหมดแล้ว ดู P8)', r ->> 'ok' = 'true');
+    v := v || pg_temp.chk('P4e', 'งบ: ผิด 7 ครั้งที่ QR ร้านใช้ถัง sf: (hits=7) ไม่แตะ pf: ของ QR ร้าน · QR ใบงานมีแถวงบ pf: 1 แถว (hits 15 — ไม่ใช่ถังเดียวกัน)',
+      (select hits from analytics.worker_rate_limit where key = 'sf:' || left(tokh, 32)) = 7 and not exists (select 1 from analytics.worker_rate_limit where key = 'pf:' || left(tokh, 32))
+      and (select hits from analytics.worker_rate_limit where key = 'pf:' || left(jobh, 32)) = 15);
     raise exception 'rb_187';
   exception when others then
     if sqlerrm <> 'rb_187' then v := v || pg_temp.chk('P4-crash', sqlstate || ' ' || sqlerrm, false); end if;
   end;
+
+  -- P8 งบผิดของ QR ร้าน 7 ครั้ง/วัน รวมทั้งร้าน (มติเจ้าของ 21 ต.ค.) · ไม่ห้าม PIN เดาง่าย (1234/0000/1111 ใช้ได้) · ไม่มีทางถึง locked_office ผ่าน QR ร้าน · ออก QR ใหม่ = งบใหม่
+  begin
+    s1 := '';
+    for i in 1..8 loop
+      -- สลับ M/M2 กันล็อกรายคน (ครั้งที่ 5 ต่อคนจะไม่ถึง) — งบนับรวมทั้งร้าน
+      r := pg_temp.pin_in(case when i % 2 = 1 then pg_temp.fx('wM') else pg_temp.fx('wM2') end, '9999');
+      s1 := s1 || coalesce(r ->> 'code', 'ok') || coalesce('/' || (r ->> 'token_budget_left'), '') || ' ';
+    end loop;
+    v := v || pg_temp.chk('P8a', 'ผิด 7 ครั้งแรก = bad_credentials งบเหลือ 6..0 · ครั้งที่ 8 = token_budget_exhausted (รวมทั้งร้าน ไม่ใช่รายคน) — ได้: ' || s1,
+      s1 = 'bad_credentials/6 bad_credentials/5 bad_credentials/4 bad_credentials/3 bad_credentials/2 bad_credentials/1 bad_credentials/0 token_budget_exhausted ');
+    r := pg_temp.pin_in(pg_temp.fx('wM'), '2468'); r2 := pg_temp.pin_in(pg_temp.fx('wM2'), '1357');
+    v := v || pg_temp.chk('P8b', 'งบเต็มแล้ว ใส่ PIN ถูกก็เข้าไม่ได้ทั้งสองคน (token_budget_exhausted) · ไม่มี session ใหม่', r ->> 'code' = 'token_budget_exhausted' and r2 ->> 'code' = 'token_budget_exhausted' and not (r ? 'session_token'));
+    v := v || pg_temp.chk('P8c', 'ผู้จัดการที่มี session อยู่แล้ว ยังเปิดใบได้ (งบนับเฉพาะการตรวจ PIN)', pg_temp.opn(pg_temp.kv('sM'), jsonb_build_object('label', 'แหวนหลังงบเต็ม', 'metal', 'silver')) ->> 'ok' = 'true');
+    -- ออก QR ร้านใหม่ = hash ใหม่ = งบใหม่ (ออฟฟิศปลดทางตัน) · QR เก่าใช้ไม่ได้
+    perform analytics.shop_intake_token_issue(a, pg_temp.act());
+    raise exception 'rb_187';
+  exception when others then
+    if sqlerrm <> 'rb_187' then v := v || pg_temp.chk('P8-crash', sqlstate || ' ' || sqlerrm, false); end if;
+  end;
+  begin
+    -- งบหมดแล้วออก QR ใหม่
+    for i in 1..7 loop perform pg_temp.pin_in(case when i % 2 = 1 then pg_temp.fx('wM') else pg_temp.fx('wM2') end, '9999'); end loop;
+    r := pg_temp.pin_in(pg_temp.fx('wM'), '2468');
+    v := v || pg_temp.chk('P8d-pre', 'งบหมดแล้ว (ก่อนออก QR ใหม่) เข้าไม่ได้', r ->> 'code' = 'token_budget_exhausted');
+    r2 := analytics.shop_intake_token_issue(a, pg_temp.act());
+    r := pg_temp.pin_in(pg_temp.fx('wM'), '2468', analytics.job_sha256_hex(r2 ->> 'token'));
+    v := v || pg_temp.chk('P8d', 'ออก QR ร้านใหม่ = งบใหม่ (hash ใหม่): เข้าได้ · QR เก่าใช้ไม่ได้ (invalid_token)', r ->> 'ok' = 'true' and pg_temp.pin_in(pg_temp.fx('wM'), '2468') ->> 'code' = 'invalid_token');
+    raise exception 'rb_187';
+  exception when others then
+    if sqlerrm <> 'rb_187' then v := v || pg_temp.chk('P8d-crash', sqlstate || ' ' || sqlerrm, false); end if;
+  end;
+  begin
+    -- PIN เดาง่ายใช้ได้ (มติเจ้าของ: ไม่ห้าม — ใช้จำกัดจำนวนครั้งแทน)
+    s1 := '';
+    foreach s in array array['1234', '0000', '1111', '1212', '9999'] loop
+      perform analytics.worker_pin_set(a, pg_temp.fx('wM'), s, pg_temp.act());
+      r := pg_temp.pin_in(pg_temp.fx('wM'), s);
+      s1 := s1 || coalesce(r ->> 'code', 'ok') || ' ';
+    end loop;
+    v := v || pg_temp.chk('P8e', 'PIN เดาง่าย 1234/0000/1111/1212/9999 ตั้งได้และเข้าทาง QR ร้านได้ (ok ทั้งหมด) — ได้: ' || s1, s1 = 'ok ok ok ok ok ');
+    v := v || pg_temp.chk('P8e2', 'ใส่ถูกคืนช่องงบ: เข้าสำเร็จ 5 ครั้งไม่กินงบ (hits=0)', (select hits from analytics.worker_rate_limit where key = 'sf:' || left(tokh, 32)) = 0);
+    raise exception 'rb_187';
+  exception when others then
+    if sqlerrm <> 'rb_187' then v := v || pg_temp.chk('P8e-crash', sqlstate || ' ' || sqlerrm, false); end if;
+  end;
+  begin
+    -- ไม่มีทางถึงล็อกถาวรผ่าน QR ร้าน: ช่างที่ผิดมา 14 ครั้งแล้ว (ผ่านทางใบงาน) ผิดอีกที่ QR ร้าน = ล็อก 1 ชม. ไม่ใช่ locked_office · ต่อให้ผิดซ้ำคร่อมเที่ยงคืน (งบรีเซ็ต) ก็ไม่ถึง
+    update analytics.worker set failed_attempts = 14, failed_window_start = now(), locked_until = null where id = pg_temp.fx('wM');   -- fixture (UPDATE ตรง)
+    r := pg_temp.pin_in(pg_temp.fx('wM'), '0001');
+    v := v || pg_temp.chk('P8f', 'ผิดครั้งที่ 15 ผ่าน QR ร้าน = locked 3600 (ไม่ใช่ locked_office) · locked_until ไม่ใช่ infinity', r ->> 'code' = 'locked' and (r ->> 'retry_after_seconds')::int = 3600
+      and (select locked_until <> 'infinity'::timestamptz from analytics.worker where id = pg_temp.fx('wM')));
+    s1 := '';
+    for i in 1..21 loop
+      -- 3 "วัน" × 7 ครั้ง: ลบแถวงบ sf: = จำลองวันใหม่ (window_start เปลี่ยนตอนเที่ยงคืนไทย) · ปลดล็อกรายคนระหว่างทาง (fixture)
+      if i in (8, 15) then delete from analytics.worker_rate_limit where key = 'sf:' || left(tokh, 32); end if;
+      update analytics.worker set locked_until = null where id = pg_temp.fx('wM');
+      r := pg_temp.pin_in(pg_temp.fx('wM'), '0001');
+      s1 := s1 || coalesce(r ->> 'code', 'ok') || ' ';
+    end loop;
+    v := v || pg_temp.chk('P8g', 'ผิดต่อเนื่อง 21 ครั้งคร่อม 3 "วัน" (งบรีเซ็ต) ผ่าน QR ร้าน: ไม่มี locked_office เลย · locked_until ไม่เป็น infinity — ได้: ' || s1,
+      s1 not like '%locked_office%' and (select locked_until is distinct from 'infinity'::timestamptz from analytics.worker where id = pg_temp.fx('wM')));
+    -- ควบคุม: ทาง QR ใบงานที่ attempts = 14 → ครั้งที่ 15 ถึงล็อกถาวรตามบันไดเดิม
+    update analytics.worker set failed_attempts = 14, failed_window_start = now(), locked_until = null where id = pg_temp.fx('wM2');
+    r2 := pg_temp.pin_job(jobh, pg_temp.fx('wM2'), '0001');
+    v := v || pg_temp.chk('P8h', 'ควบคุม: ทาง QR ใบงาน ผิดครั้งที่ 15 = locked_office (บันไดเดิมไม่เปลี่ยน)', r2 ->> 'code' = 'locked_office');
+    raise exception 'rb_187';
+  exception when others then
+    if sqlerrm <> 'rb_187' then v := v || pg_temp.chk('P8f-crash', sqlstate || ' ' || sqlerrm, false); end if;
+  end;
+
 
   -- P5 ทางเดิม /w/<token>: งบผิด/วัน/token ยังทำงาน (เต็มแล้วใส่ถูกก็เข้าไม่ได้) · ล็อกต่อช่างยังตรงเดิม
   begin
@@ -507,7 +598,7 @@ begin
     r := pg_temp.pin_job(jobh, pg_temp.fx('wM2'), '1357');
     v := v || pg_temp.chk('P5a', 'QR ใบงาน: งบผิดเต็ม 20 → token_budget_exhausted แม้ใส่ PIN ถูก (ทางเดิมไม่เปลี่ยน)', r ->> 'code' = 'token_budget_exhausted');
     r := pg_temp.pin_in(pg_temp.fx('wM2'), '1357');
-    v := v || pg_temp.chk('P5b', 'แต่ QR ร้าน ไม่ติดงบนี้ — ช่างคนเดียวกันเข้าทางร้านได้ตามปกติ', r ->> 'ok' = 'true');
+    v := v || pg_temp.chk('P5b', 'แต่ QR ร้านมีงบของตัวเอง (sf: ไม่ใช่ pf:) — งบเต็มของ QR ใบงานไม่กระทบ ช่างคนเดียวกันเข้าทางร้านได้ตามปกติ', r ->> 'ok' = 'true');
     raise exception 'rb_187';
   exception when others then
     if sqlerrm <> 'rb_187' then v := v || pg_temp.chk('P5-crash', sqlstate || ' ' || sqlerrm, false); end if;
@@ -559,7 +650,7 @@ $c$;
 create function pg_temp.g_hub() returns text
  language plpgsql as $c$
 declare
-  v text := ''; a uuid := pg_temp.fx('A'); r jsonb; r2 jsonb; i int; idx int; s text; n int;
+  v text := ''; a uuid := pg_temp.fx('A'); r jsonb; r2 jsonb; r3 jsonb; i int; idx int; s text; n int;
   sM text := pg_temp.kv('sM'); sN text := pg_temp.kv('sN');
 begin
   -- H1 ไม่มี session: รายชื่อ = เฉพาะช่าง active ที่ can_open_job ของร้านนี้ (มติ Q8) · id + ชื่อเท่านั้น
@@ -570,7 +661,9 @@ begin
       r ->> 'state' = 'identify' and s = 'ZZ-M ผู้จัดการ,ZZ-M2 ผู้จัดการสอง');
     select string_agg(distinct k, ',' order by k) into s from jsonb_array_elements(r -> 'workers') x, jsonb_object_keys(x) k;
     v := v || pg_temp.chk('H1b', 'แต่ละคนมี key เฉพาะ id + display_name (ไม่มีขั้นที่ทำ/สิทธิ์/PIN/สถานะล็อก)', s = 'display_name,id' and pg_temp.badkeys(r) = '');
-    v := v || pg_temp.chk('H1c', 'profile_ready + gold_profile_ready = true (ร้านทดสอบ seed แบบการบันทึกแล้ว)', (r ->> 'profile_ready')::boolean and (r ->> 'gold_profile_ready')::boolean);
+    r2 := pg_temp.hub(pg_temp.kv('sM'));
+    v := v || pg_temp.chk('H1c', 'ยังไม่ login (identify): ไม่ส่ง profile_ready/gold_profile_ready (สถานะตั้งค่าร้านเปิดเผยหลังระบุตัวเท่านั้น) · ระบุตัวแล้ว (ready) ส่งทั้งคู่ = true (ร้านทดสอบ seed แบบการบันทึกแล้ว)',
+      not (r ? 'profile_ready') and not (r ? 'gold_profile_ready') and (r2 ->> 'profile_ready')::boolean and (r2 ->> 'gold_profile_ready')::boolean);
     raise exception 'rb_187';
   exception when others then
     if sqlerrm <> 'rb_187' then v := v || pg_temp.chk('H1-crash', sqlstate || ' ' || sqlerrm, false); end if;
@@ -589,10 +682,10 @@ begin
   -- H3 profile_ready/gold_profile_ready ตามสถานะจริง
   begin
     update analytics.job_record_profile set is_default_gold = false where shop_id = a and is_default_gold;   -- fixture: ปิดแบบทองค่าเริ่ม (UPDATE ตรง — ยกเว้นที่บอกตรงๆ)
-    r := pg_temp.hub(null);
+    r := pg_temp.hub(pg_temp.kv('sM'));
     v := v || pg_temp.chk('H3a', 'ไม่มีแบบทองค่าเริ่ม: gold_profile_ready=false · profile_ready ยัง true', (r ->> 'profile_ready')::boolean and not (r ->> 'gold_profile_ready')::boolean);
     update analytics.job_record_profile set is_default = false where shop_id = a and is_default;
-    r := pg_temp.hub(null);
+    r := pg_temp.hub(pg_temp.kv('sM'));
     v := v || pg_temp.chk('H3b', 'ไม่มีแบบค่าเริ่มเลย: ทั้งสองเป็น false', not (r ->> 'profile_ready')::boolean and not (r ->> 'gold_profile_ready')::boolean);
     raise exception 'rb_187';
   exception when others then
@@ -614,17 +707,52 @@ begin
     if sqlerrm <> 'rb_187' then v := v || pg_temp.chk('H4-crash', sqlstate || ' ' || sqlerrm, false); end if;
   end;
 
-  -- H5 rate limit hub: siv: 120/10 นาที
+  -- H5 rate limit hub: siv: 120/10 นาที ต่อ token — นับเฉพาะคำขอที่มี session valid (security L1)
   begin
     idx := 0;
     for i in 1..130 loop
-      r := pg_temp.hub(null);
+      r := pg_temp.hub(sM);
       if r ->> 'code' = 'rate_limited' then idx := i; exit; end if;
     end loop;
-    v := v || pg_temp.chk('H5', 'hub เกิน 120/10 นาที ต่อ token → rate_limited (โดนที่ครั้งที่ ' || idx || ' · คาด 121)', idx = 121);
+    v := v || pg_temp.chk('H5', 'hub (มี session valid) เกิน 120/10 นาที ต่อ token → rate_limited (โดนที่ครั้งที่ ' || idx || ' · คาด 121)', idx = 121);
     raise exception 'rb_187';
   exception when others then
     if sqlerrm <> 'rb_187' then v := v || pg_temp.chk('H5-crash', sqlstate || ' ' || sqlerrm, false); end if;
+  end;
+
+  -- H6 (security L1 + QA): คนถือ QR ปลอม cookie ยิงรัว ต้องเผาถังต่อ token ของผู้จัดการตัวจริงไม่ได้ — ถังต่อ token นับหลังพบ session valid · ไม่มี session นับ ipv: ต่อ IP (hub) · pin นับตามเดิม
+  begin
+    s := '';
+    for i in 1..260 loop
+      r := pg_temp.hub(analytics.job_sha256_hex('forged-' || i));
+      if r ->> 'state' is distinct from 'identify' then s := s || 'hub' || i || ':' || coalesce(r ->> 'code', '?') || ' '; end if;
+    end loop;
+    for i in 1..25 loop
+      r := pg_temp.opn(analytics.job_sha256_hex('forged-open-' || i), jsonb_build_object('product', pg_temp.fx('fixa'), 'rl', '1'));
+      if r ->> 'code' is distinct from 'session_required' then s := s || 'open' || i || ':' || coalesce(r ->> 'code', '?') || ' '; end if;
+      r := pg_temp.srch(analytics.job_sha256_hex('forged-search-' || i), 'ZZ');
+      if r ->> 'code' is distinct from 'session_required' then s := s || 'search' || i || ':' || coalesce(r ->> 'code', '?') || ' '; end if;
+    end loop;
+    v := v || pg_temp.chk('H6a', 'session ปลอม: hub ×260 (ไม่มี IP) คืน identify ทุกครั้ง · open/search ×25 คืน session_required ทุกครั้ง ไม่มี rate_limited — ผิด: ' || coalesce(nullif(s, ''), 'ไม่มี'), s = '');
+    v := v || pg_temp.chk('H6b', 'ถังต่อ token siv:/sis:/sio:/wo: ไม่ถูกเผาโดย session ปลอม (ไม่มีแถว) — ถังที่เผาได้มีเฉพาะคนที่พิสูจน์ตัวแล้ว',
+      not exists (select 1 from analytics.worker_rate_limit where key in ('siv:' || left(pg_temp.th(), 32), 'sis:' || left(pg_temp.th(), 32), 'sio:' || left(pg_temp.th(), 32))) and not exists (select 1 from analytics.worker_rate_limit where key like 'wo:%'));
+    r := pg_temp.hub(sM); r2 := pg_temp.opn(sM, jsonb_build_object('product', pg_temp.fx('fixa'), 'rl', '1')); r3 := pg_temp.srch(sM, 'ZZ187');
+    v := v || pg_temp.chk('H6c', 'หลังโดนยิงด้วย session ปลอม: ผู้จัดการตัวจริงยังเปิดใบ/ค้น/ดู hub ได้ (ไม่โดน rate_limited)', r ->> 'state' = 'ready' and r2 ->> 'ok' = 'true' and r3 ->> 'items' is not null);
+    raise exception 'rb_187';
+  exception when others then
+    if sqlerrm <> 'rb_187' then v := v || pg_temp.chk('H6-crash', sqlstate || ' ' || sqlerrm, false); end if;
+  end;
+  begin
+    -- hub ไม่มี session + มี IP: ถังต่อ IP ipv: 240 (คนยิงจาก IP เดียวโดนเอง · ไม่กระทบ token)
+    idx := 0;
+    for i in 1..250 loop
+      r := pg_temp.hub(null, null, analytics.job_sha256_hex('ip-hub-v187'));
+      if r ->> 'code' = 'rate_limited' then idx := i; exit; end if;
+    end loop;
+    v := v || pg_temp.chk('H6d', 'hub ไม่มี session จาก IP เดียวเกิน 240/10 นาที → rate_limited (ครั้งที่ ' || idx || ' · คาด 241) · ผู้จัดการตัวจริง (token เดียวกัน) ไม่กระทบ', idx = 241 and pg_temp.hub(sM) ->> 'state' = 'ready');
+    raise exception 'rb_187';
+  exception when others then
+    if sqlerrm <> 'rb_187' then v := v || pg_temp.chk('H6d-crash', sqlstate || ' ' || sqlerrm, false); end if;
   end;
   return v;
 end;
@@ -833,6 +961,20 @@ begin
       if r3 ->> 'code' is distinct from 'idem_invalid' then s := s || '[' || left(x, 10) || ':' || coalesce(r3 ->> 'code', 'ok') || '] '; end if;
     end loop;
     v := v || pg_temp.chk('O9d', 'idem key รูปแบบผิด (สั้น · ช่องว่าง · ยาว 65 · อักขระต้องห้าม · ไทย) → idem_invalid · หลุด: ' || coalesce(nullif(s, ''), 'ไม่มี'), s = '' and pg_temp.shop_state(a) = s0);
+    -- O9e replay ของใบที่ยกเลิกแล้ว → คืนสถานะจริงจาก DB (cancelled) ไม่ใช่ "เปิดไว้แล้ว" · ทุกค่ามาจาก DB ไม่ใช่ค่าที่ส่งซ้ำมา (security L4)
+    k := pg_temp.ik();
+    r := pg_temp.opn(sM, jsonb_build_object('idem', k, 'label', 'ใบที่จะยกเลิก', 'metal', 'silver', 'qty', 7));
+    v := v || pg_temp.chk('O9e0', 'เปิดใหม่: คืน status=open', r ->> 'status' = 'open');
+    r2 := pg_temp.opn(sM, jsonb_build_object('idem', k, 'label', 'ชื่ออื่นที่ส่งซ้ำ', 'metal', 'gold', 'purity', 0.9, 'qty', 99));
+    v := v || pg_temp.chk('O9e1', 'replay ด้วยพารามิเตอร์ต่าง: ค่าที่คืนมาจาก DB (ชื่อเดิม · จำนวน 7 · เงิน) ไม่ใช่ค่าที่ส่งซ้ำ · status=open', r2 ->> 'already' = 'true' and r2 ->> 'design_label' = 'ใบที่จะยกเลิก' and (r2 ->> 'qty_order')::int = 7 and r2 ->> 'metal' = 'silver' and r2 ->> 'status' = 'open' and r2 ->> 'sku_pending' = 'true');
+    perform analytics.job_cancel(a, (pg_temp.jr(r ->> 'job_no') ->> 'id')::uuid, 'verify O9e', pg_temp.act());
+    r2 := pg_temp.opn(sM, jsonb_build_object('idem', k, 'label', 'ใบที่จะยกเลิก', 'metal', 'silver', 'qty', 7));
+    v := v || pg_temp.chk('O9e', 'ใบงานถูกยกเลิกแล้ว กดซ้ำด้วย key เดิม → already=true + status=cancelled (หน้าจอบอก "ใบนี้ถูกยกเลิกแล้ว") · ไม่มี token · ไม่เปิดใบใหม่', r2 ->> 'already' = 'true' and r2 ->> 'status' = 'cancelled' and not (r2 ? 'token') and r2 ->> 'job_no' = r ->> 'job_no');
+    k := pg_temp.ik();
+    r := pg_temp.opn(sM, jsonb_build_object('idem', k, 'label', 'ใบผลิตที่จะยกเลิก', 'metal', 'silver'));
+    perform analytics.production_order_cancel(a, (pg_temp.por(r ->> 'order_no') ->> 'id')::uuid, 'verify O9f');
+    r2 := pg_temp.opn(sM, jsonb_build_object('idem', k, 'label', 'ใบผลิตที่จะยกเลิก', 'metal', 'silver'));
+    v := v || pg_temp.chk('O9f', 'ยกเลิกทั้งใบผลิต (ใบงานยังไม่ถูกยกเลิก) แล้วกดซ้ำ → status=cancelled ตามใบผลิต', r2 ->> 'already' = 'true' and r2 ->> 'status' = 'cancelled');
     raise exception 'rb_187';
   exception when others then
     if sqlerrm <> 'rb_187' then v := v || pg_temp.chk('O9-crash', sqlstate || ' ' || sqlerrm, false); end if;
@@ -1239,6 +1381,9 @@ begin
     v := v || pg_temp.chk('B3a', 'รายการทอง ผูก SKU spot-เงิน (metal_known): ok + metal_mismatch=true (item gold · sku silver) — เตือน ไม่บล็อก', r ->> 'ok' = 'true' and r ->> 'metal_mismatch' = 'true' and r ->> 'item_metal' = 'gold' and r ->> 'sku_metal' = 'silver' and r ->> 'sku_metal_known' = 'true');
     v := v || pg_temp.chk('B3b', 'ค่าที่มีผลหลังผูก (production_item_spec) = ก่อนผูก: gold · 0.75 · 5.5 input — SKU ไม่ทับ · น้ำหนัก 10 g ของ SKU เงินไม่รั่วมาเป็นน้ำหนักทอง · weight_filled=false',
       eff.metal = 'gold' and eff.purity = 0.75 and eff.weight_g = 5.5 and eff.weight_source = 'input' and r ->> 'weight_filled' = 'false');
+    v := v || pg_temp.chk('B3b2', 'v_production_order_item (M3): metal_mismatch=true คำนวณที่ DB · effective_metal/purity/weight = gold/0.75/5.5 · sku_metal_known=true · sku_metal=silver', (select metal_mismatch and effective_metal = 'gold' and effective_purity = 0.75 and effective_weight_g = 5.5 and sku_metal_known and sku_metal = 'silver' from analytics.v_production_order_item where id = item));
+    o2 := pg_temp.open_label('ไม่มีรหัส B3b3');
+    v := v || pg_temp.chk('B3b3', 'รายการที่ยังไม่มี SKU: metal_mismatch=false (ไม่มีอะไรให้เทียบ)', (select not metal_mismatch from analytics.v_production_order_item where id = (o2 ->> 'item')::uuid));
     o := pg_temp.open_label('เงินไม่มีน้ำหนัก B3'); item := (o ->> 'item')::uuid;
     r := pg_temp.bind(a, item, w35);
     it := pg_temp.itr(o ->> 'order_no');
@@ -1251,6 +1396,7 @@ begin
     r := pg_temp.bind(a, item, w35);
     it := pg_temp.itr(o ->> 'order_no');
     v := v || pg_temp.chk('B3e', 'ทองเหลืองน้ำหนักว่าง + SKU เงินมีน้ำหนัก: ไม่ประทับ (น้ำหนัก SKU ใช้เฉพาะเงิน) · เนื้อ 1.0 คงเดิม', it -> 'weight_g' = 'null'::jsonb and (it ->> 'purity')::numeric = 1 and r ->> 'weight_filled' = 'false' and it ->> 'metal' = 'brass');
+    v := v || pg_temp.chk('B3f', 'v_production_order_item: SKU ไม่ระบุโลหะ (fixed/เงินมีน้ำหนัก ไม่ใช่ spot/make_spec) → metal_mismatch=false แม้โลหะรายการต่าง (ทองเหลือง) — ไม่เตือนผิด (UX P1)', (select not metal_mismatch and not sku_metal_known and effective_metal = 'brass' from analytics.v_production_order_item where id = item));
     raise exception 'rb_187';
   exception when others then
     if sqlerrm <> 'rb_187' then v := v || pg_temp.chk('B3-crash', sqlstate || ' ' || sqlerrm, false); end if;
@@ -1768,8 +1914,8 @@ begin
     jsonb_build_object('id', 'MU2', 'what', 'job_worker_open: ไม่เช็ค can_open_job', 'sig', 'analytics.job_worker_open(text,text,text,uuid,text,text,numeric,numeric,integer,integer,date,boolean,text,text,text)', 'from', 'if not (v_a ->> ''can_open'')::boolean then', 'to', 'if false then', 'groups', jsonb_build_array('g_open'), 'expect', jsonb_build_array('O1a', 'O1b')),
     jsonb_build_object('id', 'MU3', 'what', 'job_guard: created_by กลับไปใช้ <> (null หลุด)', 'sig', 'analytics.job_guard()', 'from', 'or new.created_by is distinct from old.created_by or new.opened_by_worker_id is distinct from old.opened_by_worker_id then', 'to', 'or new.created_by <> old.created_by then', 'groups', jsonb_build_array('g_bind'), 'expect', jsonb_build_array('B5i', 'B5j', 'B5k')),
     jsonb_build_object('id', 'MU4', 'what', 'close gate: ไม่เช็ค ack', 'sig', 'analytics.production_order_close_gate()', 'from', 'if new.opened_via = ''shopfloor'' and new.acknowledged_at is null then', 'to', 'if false then', 'groups', jsonb_build_array('g_ack', 'g_cycle'), 'expect', jsonb_build_array('K4a', 'Y5')),
-    jsonb_build_object('id', 'MU5', 'what', 'worker_pin_verify_core: ไม่เช็ค can_open_job ที่ QR ร้าน', 'sig', 'analytics.worker_pin_verify_core(uuid,uuid,text,text,text,text,boolean)', 'from', 'if p_require_open and not v_w.can_open_job then', 'to', 'if false then', 'groups', jsonb_build_array('g_pin'), 'expect', jsonb_build_array('P3a', 'P3b')),
-    jsonb_build_object('id', 'MU6', 'what', 'worker_pin_verify_intake: ใช้งบผิด 20/วัน/token ของ QR ใบงานกับ QR ร้าน', 'sig', 'analytics.worker_pin_verify_intake(text,uuid,text,text,text)', 'from', 'p_ip_hash, null, true);', 'to', 'p_ip_hash, ''pf:'' || left(p_token_hash, 32), true);', 'groups', jsonb_build_array('g_pin'), 'expect', jsonb_build_array('P2b', 'P4e', 'P5b')),
+    jsonb_build_object('id', 'MU5', 'what', 'worker_pin_verify_core: ไม่เช็ค can_open_job ที่ QR ร้าน', 'sig', 'analytics.worker_pin_verify_core(uuid,uuid,text,text,text,text,boolean,integer,boolean)', 'from', 'if p_require_open and not v_w.can_open_job then', 'to', 'if false then', 'groups', jsonb_build_array('g_pin'), 'expect', jsonb_build_array('P3a', 'P3b')),
+    jsonb_build_object('id', 'MU6', 'what', 'worker_pin_verify_intake: ไม่ใช้งบผิด 7 ครั้ง/วัน ของ QR ร้าน (งบ null)', 'sig', 'analytics.worker_pin_verify_intake(text,uuid,text,text,text)', 'from', 'p_ip_hash, ''sf:'' || left(p_token_hash, 32), true, 7, false);', 'to', 'p_ip_hash, null, true, 7, false);', 'groups', jsonb_build_array('g_pin'), 'expect', jsonb_build_array('P2b', 'P8a', 'P8b')),
     jsonb_build_object('id', 'MU7', 'what', 'job_guard: ช่องผูก SKU ไม่ตรวจ GUC (ใครก็แก้ product_id ที่ว่างได้ถ้ารายการตรง)', 'sig', 'analytics.job_guard()', 'from', 'current_setting(''analytics.job_bind_item'', true) is not distinct from old.production_order_item_id::text', 'to', 'true', 'groups', jsonb_build_array('g_bind'), 'expect', jsonb_build_array('B5a', 'B5f')),
     jsonb_build_object('id', 'MU8', 'what', 'production_order_item_deny_mutation: ไม่เทียบโลหะที่มีผลตอน product_id เปลี่ยน', 'sig', 'analytics.production_order_item_deny_mutation()', 'from', '(new.metal is distinct from old.metal or new.product_id is distinct from old.product_id)', 'to', 'new.metal is distinct from old.metal', 'groups', jsonb_build_array('g_bind'), 'expect', jsonb_build_array('B4a')),
     jsonb_build_object('id', 'MU9', 'what', 'job_worker_open: idem key ของช่างอื่นไม่ถูกปฏิเสธ', 'sig', 'analytics.job_worker_open(text,text,text,uuid,text,text,numeric,numeric,integer,integer,date,boolean,text,text,text)', 'from', 'if v_po.opened_by_worker_id is distinct from v_wid then', 'to', 'if false then', 'groups', jsonb_build_array('g_open'), 'expect', jsonb_build_array('O9c')),
@@ -1781,7 +1927,11 @@ begin
     jsonb_build_object('id', 'MU15', 'what', 'shop_intake_auth: เพดานเปิดใบต่อ token 20 → 2000', 'sig', 'analytics.shop_intake_auth(text,text,text,boolean,text)', 'from', 'else 20 end;', 'to', 'else 2000 end;', 'groups', jsonb_build_array('g_open'), 'expect', jsonb_build_array('O10b')),
     jsonb_build_object('id', 'MU16', 'what', 'job_worker_open: ไม่บล็อก SKU ที่มีใบงานเปิดอยู่', 'sig', 'analytics.job_worker_open(text,text,text,uuid,text,text,numeric,numeric,integer,integer,date,boolean,text,text,text)', 'from', 'if v_dup_no is not null then', 'to', 'if false then', 'groups', jsonb_build_array('g_open'), 'expect', jsonb_build_array('O7a', 'O7b')),
     jsonb_build_object('id', 'MU17', 'what', 'job_worker_open: ไม่จำกัดอัตราต่อช่าง', 'sig', 'analytics.job_worker_open(text,text,text,uuid,text,text,numeric,numeric,integer,integer,date,boolean,text,text,text)', 'from', 'if not analytics.job_rate_limit_hit(''wo:'' || v_wid::text, 10) then', 'to', 'if false then', 'groups', jsonb_build_array('g_open'), 'expect', jsonb_build_array('O10a')),
-    jsonb_build_object('id', 'MU18', 'what', 'worker_pin_verify_core: ล็อก 15 นาทีเลื่อนไปครั้งที่ 6 (บันไดเพี้ยน)', 'sig', 'analytics.worker_pin_verify_core(uuid,uuid,text,text,text,text,boolean)', 'from', 'when v_att = 5 then now() + interval ''15 minutes''', 'to', 'when v_att = 6 then now() + interval ''15 minutes''', 'groups', jsonb_build_array('g_pin'), 'expect', jsonb_build_array('P4a', 'P4b'))
+    jsonb_build_object('id', 'MU18', 'what', 'worker_pin_verify_core: ล็อก 15 นาทีเลื่อนไปครั้งที่ 6 (บันไดเพี้ยน)', 'sig', 'analytics.worker_pin_verify_core(uuid,uuid,text,text,text,text,boolean,integer,boolean)', 'from', 'when v_att = 5 then now() + interval ''15 minutes''', 'to', 'when v_att = 6 then now() + interval ''15 minutes''', 'groups', jsonb_build_array('g_pin'), 'expect', jsonb_build_array('P4a', 'P4b')),
+    jsonb_build_object('id', 'MU19', 'what', 'worker_pin_verify_core: QR ร้านถึงล็อกถาวรได้ (ไม่เช็ค p_allow_permanent_lock)', 'sig', 'analytics.worker_pin_verify_core(uuid,uuid,text,text,text,text,boolean,integer,boolean)', 'from', 'v_att >= 15 and p_allow_permanent_lock then', 'to', 'v_att >= 15 then', 'groups', jsonb_build_array('g_pin'), 'expect', jsonb_build_array('P8f', 'P8g')),
+    jsonb_build_object('id', 'MU20', 'what', 'shop_intake_auth: นับถังต่อ token ก่อนพบ session valid (session ปลอมเผาถังผู้จัดการจริงได้)', 'sig', 'analytics.shop_intake_auth(text,text,text,boolean,text)', 'from', 'if v_w.id is not null then', 'to', 'if true then', 'groups', jsonb_build_array('g_hub'), 'expect', jsonb_build_array('H6a', 'H6b')),
+    jsonb_build_object('id', 'MU21', 'what', 'worker_pin_verify_core: งบร้านเพิ่มเป็น 20 (ไม่ใช้ p_budget_max)', 'sig', 'analytics.worker_pin_verify_core(uuid,uuid,text,text,text,text,boolean,integer,boolean)', 'from', 'analytics.job_budget_take(p_budget_key, v_day, p_budget_max)', 'to', 'analytics.job_budget_take(p_budget_key, v_day, 20)', 'groups', jsonb_build_array('g_pin'), 'expect', jsonb_build_array('P8a', 'P2b')),
+    jsonb_build_object('id', 'MU22', 'what', 'job_worker_open: replay ของใบที่ยกเลิกแล้วไม่คืนสถานะจริง (แจ้งว่าเปิดอยู่)', 'sig', 'analytics.job_worker_open(text,text,text,uuid,text,text,numeric,numeric,integer,integer,date,boolean,text,text,text)', 'from', 'case when v_po.status = ''cancelled'' then ''cancelled'' else v_jobrow.status end', 'to', '''open''', 'groups', jsonb_build_array('g_open'), 'expect', jsonb_build_array('O9e'))
   );
   total := jsonb_array_length(muts);
   for k in 0 .. total - 1 loop

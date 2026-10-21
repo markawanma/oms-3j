@@ -801,9 +801,11 @@ end;
 $function$;
 
 -- 3.3 ตรวจ PIN — core เดียวสองทางเข้า (QR ใบงาน = worker_pin_verify · QR ร้าน = worker_pin_verify_intake) ⇒ นโยบายล็อกเดียว (ผิด 5 = 15 นาที · ≥10 = 1 ชม. · 15 = ถาวร)
---     p_budget_key: ทางใบงานส่ง 'pf:<token>' ⇒ งบผิด 20/วัน/token เหมือนเดิม · ทางร้านส่ง null ⇒ ไม่มีงบนี้ (QR ร้านเป็นของร่วม — ใครสแกนก็ผิดจนล็อกทั้งร้านได้ · พึ่งล็อกต่อช่าง + เพดานต่อ IP)
+--     p_budget_key/p_budget_max: ทางใบงานส่ง 'pf:<token>' + 20 ⇒ งบผิด 20/วัน/token เหมือนเดิม · ทางร้านส่ง 'sf:<token>' + 7 ⇒ งบผิด 7 ครั้ง/วัน "รวมทั้งร้าน" (มติเจ้าของ 21 ต.ค.: ไม่ห้าม PIN เดาง่าย ใช้จำกัดจำนวนครั้งแทน ·
+--       QR ร้านเป็นของร่วม — ใครสแกนก็พิมพ์ผิดได้ ⇒ เต็ม 7 = ทั้งร้านเข้าทาง QR นี้ไม่ได้ทั้งวัน จนออฟฟิศออก QR ร้านใหม่ (hash ใหม่ = งบใหม่) · เจ้าของรับความเสี่ยง: PIN เดาง่ายของผู้จัดการเดาได้ ≤ 7 ครั้ง/วัน)
+--     p_allow_permanent_lock: ทางร้านส่ง false ⇒ ผิดครั้งที่ ≥ 15 = ล็อก 1 ชม. ไม่ใช่ถาวร (คนแปลกหน้าถือ QR ร้านห้ามทำให้ผู้จัดการล็อกจนออฟฟิศปลด) · ทางใบงานบันไดเดิมครบ (5 = 15 นาที · ≥10 = 1 ชม. · 15 = ถาวร)
 --     p_require_open: ทางร้านรับเฉพาะช่างที่ can_open_job — ช่างอื่นตอบ bad_credentials เหมือนใส่ผิด และ "ไม่นับครั้งผิด" (กันคนยิง id มั่วมาล็อกช่างที่ไม่เกี่ยว)
-create or replace function analytics.worker_pin_verify_core(p_shop_id uuid, p_worker_id uuid, p_pin text, p_user_agent text, p_ip_hash text, p_budget_key text, p_require_open boolean)
+create or replace function analytics.worker_pin_verify_core(p_shop_id uuid, p_worker_id uuid, p_pin text, p_user_agent text, p_ip_hash text, p_budget_key text, p_require_open boolean, p_budget_max integer DEFAULT 20, p_allow_permanent_lock boolean DEFAULT true)
  returns jsonb
  language plpgsql
  set search_path to 'public', 'analytics', 'extensions', 'pg_temp'
@@ -841,7 +843,10 @@ begin
   -- งบผิดต่อ token ต่อวัน (<= 20) แบบ atomic: จองช่องก่อนตรวจ PIN (insert .. on conflict .. where hits < max returning) — พร้อมกันกี่ตัวก็ไม่เกิน 20 ·
   -- เต็มแล้ว token นี้ verify ไม่ได้แม้ใส่ถูก · ใส่ถูกคืนช่อง (นับเฉพาะครั้งที่ผิด) · 0187: p_budget_key null = ไม่ใช้งบ (ทาง QR ร้าน)
   if p_budget_key is not null then
-    v_spent := analytics.job_budget_take(p_budget_key, v_day, 20);
+    if p_budget_max is null or not (p_budget_max between 1 and 1000) then
+      raise exception 'worker_pin_verify_core: p_budget_max ต้องอยู่ระหว่าง 1-1000' using errcode = '22023';
+    end if;
+    v_spent := analytics.job_budget_take(p_budget_key, v_day, p_budget_max);
     if v_spent is null then
       return analytics.job_fail('token_budget_exhausted', 'ใส่ PIN ผิดครบกำหนดของใบงานนี้ในวันนี้แล้ว — ให้ออฟฟิศพิมพ์ใบงานใหม่');
     end if;
@@ -866,7 +871,7 @@ begin
   -- PIN ผิด: นับสะสมในหน้าต่าง 24 ชม. ที่ยึดครั้งแรก (เว้นระยะนานแค่ไหนก็ยังนับ) · ล็อก 15 นาทีที่ครั้งที่ 5 · >= 10 ล็อก 1 ชม. · 15 ล็อกถาวร
   v_new := v_w.failed_window_start is null or v_w.failed_window_start < now() - interval '24 hours';
   v_att := case when v_new then 1 else v_w.failed_attempts + 1 end;
-  v_lock := case when v_att >= 15 then 'infinity'::timestamptz
+  v_lock := case when v_att >= 15 and p_allow_permanent_lock then 'infinity'::timestamptz
                  when v_att >= 10 then now() + interval '1 hour'
                  when v_att = 5 then now() + interval '15 minutes'
                  else null end;
@@ -883,7 +888,7 @@ begin
   return analytics.job_fail('bad_credentials', 'ชื่อหรือ PIN ไม่ถูกต้อง',
     jsonb_build_object('attempts_left', case when v_att < 5 then 5 - v_att when v_att < 10 then 10 - v_att else 1 end,
                        'attempts_until_office', 15 - v_att)
-    || case when v_spent is not null then jsonb_build_object('token_budget_left', greatest(0, 20 - v_spent)) else '{}'::jsonb end);
+    || case when v_spent is not null then jsonb_build_object('token_budget_left', greatest(0, p_budget_max - v_spent)) else '{}'::jsonb end);
 end;
 $function$;
 
@@ -1074,7 +1079,8 @@ $function$;
 --    session เดิม (worker_session · cookie w_session) ใช้ร่วมได้ทั้งสองทาง: ล็อกอินที่ hub แล้วสแกนใบงานได้ และกลับกัน (shop ต้องตรง)
 --    ด่านจริงของทุก RPC ฝั่งช่าง = shop_intake_auth: token ร้าน active + (ถ้าบังคับ) session ช่าง active ร้านเดียวกัน — crm_require_owner_admin ปล่อย service_role ผ่านอยู่แล้ว จึงไม่ใช่ด่านของทางนี้
 --    เพดาน (ทีมตั้ง ไม่ใช่ค่าเจ้าของ · หน้าต่าง 10 นาที): siv hub 120 · sis ค้นสินค้า 240 · sip PIN 60 (+ ipp ต่อ IP 100 ร่วมกับ QR ใบงาน) · sio เปิดใบ 20 (+ ipw ต่อ IP 300) · wo ต่อช่าง 10
---    ไม่มีงบ "ผิด 20/วัน/token" ที่ QR ร้าน — ใครก็ล็อกทั้งร้านได้ (พึ่งล็อกต่อช่าง + rate limit ต่อ IP)
+--    งบผิดของ QR ร้าน = 7 ครั้ง/วัน รวมทั้งร้าน (sf:<token> — อยู่ใน worker_pin_verify_core · มติเจ้าของ 21 ต.ค.) + ไม่ถึงล็อกถาวรจากทางนี้ (ล็อก 1 ชม. สูงสุด)
+--    ถัง siv/sis/sio นับ "หลังพบ session valid" (security L1) · hub ไม่มี session นับ ipv: 240 ต่อ IP
 -- ============================================================================
 create or replace function analytics.shop_intake_auth(p_token_hash text, p_session_hash text, p_ip_hash text, p_require_session boolean, p_class text)
  returns jsonb
@@ -1106,7 +1112,8 @@ begin
   end if;
   v_key := case p_class when 'hub' then 'siv:' when 'search' then 'sis:' when 'pin' then 'sip:' else 'sio:' end || left(p_token_hash, 32);
   v_max := case p_class when 'hub' then 120 when 'search' then 240 when 'pin' then 60 else 20 end;
-  if not analytics.job_rate_limit_hit(v_key, v_max) then
+  -- PIN: ไม่มี session ในทางนี้ — นับถังต่อ token ทันทีตามเดิม (ก่อนตรวจเพิกถอน)
+  if p_class = 'pin' and not analytics.job_rate_limit_hit(v_key, v_max) then
     return analytics.job_fail('rate_limited', 'ลองบ่อยเกินไป กรุณารอสักครู่แล้วลองใหม่');
   end if;
   if v_tok.revoked_at is not null then
@@ -1119,6 +1126,19 @@ begin
       join analytics.worker w on w.id = s.worker_id and w.shop_id = s.shop_id
      where s.session_hash = p_session_hash and s.revoked_at is null and s.expires_at > now()
        and w.is_active and w.shop_id = v_tok.shop_id;
+  end if;
+  -- security L1: ถังต่อ token ของ hub/ค้นสินค้า/เปิดใบ นับ "หลัง" พบ session ที่ valid เท่านั้น — คนถือ QR ปลอม cookie ยิงรัวต้องเผาถังของผู้จัดการตัวจริงไม่ได้ (ถังต่อ IP ของ open คงเดิมด้านบน)
+  -- hub ที่ยังไม่มี session (รายชื่อผู้จัดการ · อ่านอย่างเดียว) นับถังต่อ IP ipv: 240 แทน (ไม่มี IP = ไม่นับ — ไม่มีอะไรให้เผา)
+  if p_class <> 'pin' then
+    if v_w.id is not null then
+      if not analytics.job_rate_limit_hit(v_key, v_max) then
+        return analytics.job_fail('rate_limited', 'ลองบ่อยเกินไป กรุณารอสักครู่แล้วลองใหม่');
+      end if;
+    elsif p_class = 'hub' and p_ip_hash is not null and p_ip_hash ~ '^[0-9a-f]{64}$' then
+      if not analytics.job_rate_limit_hit('ipv:' || left(p_ip_hash, 32), 240) then
+        return analytics.job_fail('rate_limited', 'ลองบ่อยเกินไป กรุณารอสักครู่แล้วลองใหม่');
+      end if;
+    end if;
   end if;
   if p_require_session and v_w.id is null then
     return analytics.job_fail('session_required', 'กรุณาเลือกชื่อและใส่ PIN ก่อน');
@@ -1149,17 +1169,17 @@ begin
     return v_a;
   end if;
   v_shop := (v_a ->> 'shop_id')::uuid;
-  v_pr := analytics.job_profile_default_for(v_shop, 'silver') is not null;
-  v_gr := analytics.job_profile_default_for(v_shop, 'gold') is not null;
   if nullif(v_a ->> 'worker_id', '') is null then
+    -- ยังไม่ login: ไม่ส่ง profile_ready/gold_profile_ready (สถานะการตั้งค่าร้านเปิดเผยหลังระบุตัวเท่านั้น — คนถือ QR ปลอมไม่ควรรู้) · เหลือรายชื่อผู้จัดการ (id+ชื่อ) ตามมติ Q8
     select coalesce(jsonb_agg(jsonb_build_object('id', x.id, 'display_name', x.display_name) order by x.display_name), '[]'::jsonb)
       into v_workers
       from (select w.id, w.display_name from analytics.worker w
              where w.shop_id = v_shop and w.is_active and w.can_open_job
              order by w.display_name limit 50) x;
-    return jsonb_build_object('ok', true, 'state', 'identify', 'workers', v_workers,
-                              'profile_ready', v_pr, 'gold_profile_ready', v_gr, 'session_expired', (v_a ->> 'session_expired')::boolean);
+    return jsonb_build_object('ok', true, 'state', 'identify', 'workers', v_workers, 'session_expired', (v_a ->> 'session_expired')::boolean);
   end if;
+  v_pr := analytics.job_profile_default_for(v_shop, 'silver') is not null;
+  v_gr := analytics.job_profile_default_for(v_shop, 'gold') is not null;
   return jsonb_build_object('ok', true, 'state', 'ready',
                             'worker', jsonb_build_object('id', v_a ->> 'worker_id', 'display_name', v_a ->> 'worker_name'),
                             'open_allowed', (v_a ->> 'can_open')::boolean,
@@ -1167,7 +1187,7 @@ begin
 end;
 $function$;
 
--- 6.2 ตรวจ PIN ทาง QR ร้าน — core เดียวกับ QR ใบงาน (นโยบายล็อกเดียว) · รับเฉพาะช่างที่ can_open_job · ไม่มีงบผิด/วัน/token
+-- 6.2 ตรวจ PIN ทาง QR ร้าน — core เดียวกับ QR ใบงาน (นโยบายล็อกเดียว) · รับเฉพาะช่างที่ can_open_job · งบผิด 7 ครั้ง/วัน รวมทั้งร้าน (sf:) · ไม่ถึงล็อกถาวร
 create or replace function analytics.worker_pin_verify_intake(p_token_hash text, p_worker_id uuid, p_pin text, p_user_agent text DEFAULT NULL::text, p_ip_hash text DEFAULT NULL::text)
  returns jsonb
  language plpgsql
@@ -1181,7 +1201,7 @@ begin
   if not (v_a ->> 'ok')::boolean then
     return v_a;
   end if;
-  return analytics.worker_pin_verify_core((v_a ->> 'shop_id')::uuid, p_worker_id, p_pin, p_user_agent, p_ip_hash, null, true);
+  return analytics.worker_pin_verify_core((v_a ->> 'shop_id')::uuid, p_worker_id, p_pin, p_user_agent, p_ip_hash, 'sf:' || left(p_token_hash, 32), true, 7, false);
 end;
 $function$;
 
@@ -1353,8 +1373,12 @@ begin
     select j.* into v_jobrow
       from analytics.job j join analytics.production_order_item i on i.id = j.production_order_item_id
      where i.production_order_id = v_po.id and j.parent_job_id is null order by j.created_at limit 1;
+    -- replay: ทุกค่ามาจาก DB (ไม่เชื่อค่าที่ client ส่งซ้ำมา) · status = สถานะจริงของใบ (ใบงานหรือใบผลิตถูกยกเลิกแล้ว = cancelled → หน้าจอบอก "ใบนี้ถูกยกเลิกแล้ว" ไม่ใช่ "เปิดไว้แล้ว")
     return jsonb_build_object('ok', true, 'already', true, 'order_no', v_po.po_no, 'job_no', v_jobrow.job_no,
-                              'design_label', v_jobrow.design_label, 'metal', v_jobrow.metal, 'qty_order', v_jobrow.qty_order);
+                              'design_label', v_jobrow.design_label, 'metal', v_jobrow.metal, 'qty_order', v_jobrow.qty_order, 'qty_planned', v_jobrow.qty_planned,
+                              'sku', v_jobrow.sku_snapshot, 'sku_pending', v_jobrow.product_id is null, 'due_date', v_jobrow.due_date,
+                              'is_new_design', coalesce((select i.is_new_design from analytics.production_order_item i where i.id = v_jobrow.production_order_item_id), false),
+                              'status', case when v_po.status = 'cancelled' then 'cancelled' else v_jobrow.status end);
   end if;
 
   begin
@@ -1420,7 +1444,7 @@ begin
   return jsonb_build_object('ok', true, 'already', false, 'order_no', v_po.po_no, 'job_no', v_jobrow.job_no, 'token', v_tok ->> 'token',
                             'design_label', v_jobrow.design_label, 'sku', v_jobrow.sku_snapshot, 'sku_pending', v_jobrow.product_id is null,
                             'metal', v_jobrow.metal, 'qty_order', v_jobrow.qty_order, 'qty_planned', v_jobrow.qty_planned,
-                            'is_new_design', v_new, 'due_date', v_jobrow.due_date);
+                            'is_new_design', v_new, 'due_date', v_jobrow.due_date, 'status', v_jobrow.status);
 end;
 $function$;
 
@@ -1532,6 +1556,47 @@ create or replace view analytics.v_production_order with (security_invoker = tru
            from analytics.production_order_item
           group by production_order_item.production_order_id) i on i.production_order_id = po.id
      left join analytics.worker w on w.id = po.opened_by_worker_id and w.shop_id = po.shop_id;
+
+-- 8b. view รายการใบผลิต (OfficeAck/หน้ารายละเอียดใช้) — ต่อท้าย metal_mismatch (M3): โลหะของรายการ ≠ โลหะของ SKU ที่ระบุโลหะชัด (make_spec.metal หรือโหมด spot) · คำนวณที่ DB ให้หน้าจอไม่ต้องคิดเอง
+--     effective_metal/purity/weight_g (+source) มีอยู่แล้วตั้งแต่ 0186 (คอลัมน์ที่ 21–24) · ลอก select list จาก DB สด (0186) แล้วต่อท้ายคอลัมน์เดียว · รายการไม่มี SKU/SKU ไม่ระบุโลหะ = false
+create or replace view analytics.v_production_order_item with (security_invoker = true) as
+ select poi.id,
+    poi.shop_id,
+    poi.production_order_id,
+    po.po_no,
+    po.status as order_status,
+    poi.product_id,
+    p.sku,
+    p.name as product_name,
+    p.cost_type as current_cost_type,
+    p.unit_cost as current_unit_cost,
+    poi.qty_planned,
+    poi.qty_done,
+    poi.unit_cost as stamped_unit_cost,
+    poi.prev_cost_type,
+    poi.prev_unit_cost,
+    poi.created_at,
+    poi.updated_at,
+    poi.pending_product_label,
+    poi.metal,
+    poi.purity,
+    poi.weight_g,
+    poi.weight_source,
+    eff.metal as effective_metal,
+    eff.purity as effective_purity,
+    eff.weight_g as effective_weight_g,
+    eff.weight_source as effective_weight_source,
+    skud.metal as sku_metal,
+    skud.purity as sku_purity,
+    skud.weight_g as sku_weight_g,
+    coalesce(p.id is not null and (((p.make_spec ->> 'metal'::text) = any (array['silver'::text, 'gold'::text, 'brass'::text])) or p.cost_type = 'spot'::text), false) as sku_metal_known,
+    coalesce(p.id is not null and (((p.make_spec ->> 'metal'::text) = any (array['silver'::text, 'gold'::text, 'brass'::text])) or p.cost_type = 'spot'::text)
+             and skud.metal is distinct from eff.metal, false) as metal_mismatch
+   from analytics.production_order_item poi
+     join analytics.production_order po on po.id = poi.production_order_id
+     left join product p on p.id = poi.product_id
+     cross join lateral analytics.production_item_spec(poi.*, p.*, true) eff(metal, purity, weight_g, weight_source)
+     cross join lateral analytics.production_item_spec(null::analytics.production_order_item, p.*, true) skud(metal, purity, weight_g, weight_source);
 
 -- ============================================================================
 -- 9. ออฟฟิศ — ผูก SKU ทีหลัง + แก้ชื่อแบบก่อนผูก (R2) สำหรับรายการที่ช่างเปิดโดยไม่มี SKU
@@ -1715,6 +1780,8 @@ begin
   execute 'grant execute on function analytics.production_order_deny_mutation() to service_role';
   execute 'grant execute on function analytics.production_order_item_deny_mutation() to service_role';
   -- view ที่ replace
+  revoke all on analytics.v_production_order_item from public, anon, authenticated, service_role;
+  grant select on analytics.v_production_order_item to service_role;
   revoke all on analytics.v_production_order from public, anon, authenticated, service_role;
   grant select on analytics.v_production_order to service_role;
   -- ห้ามมี overload (ข้อ 1) ในชื่อที่ไฟล์นี้แตะ

@@ -29,7 +29,7 @@ vi.mock("@/lib/images/signing", () => ({
   signJobPhotoPaths: async () => new Map<string, string>(),
 }));
 
-import { intakeLogin, intakeOpen, intakeSearch } from "./job-worker";
+import { intakeLogin, intakeOpen, intakeSearch, workerLogin } from "./job-worker";
 import type { IntakeOpenActionInput } from "./job-worker";
 import { loadIntakeHub } from "@/lib/jobs/worker-server";
 
@@ -46,7 +46,7 @@ const params = (i = 0) => rpcMock.mock.calls[i][1] as Record<string, unknown>;
 const fnOf = (i = 0) => rpcMock.mock.calls[i][0] as string;
 const allLogged = () => JSON.stringify(errSpy.mock.calls);
 
-const HUB_IDENTIFY = { ok: true, state: "identify", workers: [{ id: WID, display_name: "หัวหน้าช่าง" }], profile_ready: true, gold_profile_ready: false, session_expired: false };
+const HUB_IDENTIFY = { ok: true, state: "identify", workers: [{ id: WID, display_name: "หัวหน้าช่าง" }], session_expired: false };
 const HUB_READY = { ok: true, state: "ready", worker: { id: WID, display_name: "หัวหน้าช่าง" }, open_allowed: true, profile_ready: true, gold_profile_ready: true };
 
 describe("loadIntakeHub", () => {
@@ -139,6 +139,20 @@ describe("intakeLogin", () => {
     expect(cookieSet).not.toHaveBeenCalled();
   });
 
+  it("งบผิดของ QR ร้าน (7 ครั้ง/วัน ทั้งร้าน): เหลือ ≤3 บอกจำนวน (ไม่พูดถึงใบงาน) · เต็ม = ข้อความขอ QR ร้านใหม่ · ไม่ถึงล็อกถาวรทางนี้", async () => {
+    rpcMock.mockResolvedValue({ data: { ok: false, code: "bad_credentials", message: "x", attempts_left: 3, attempts_until_office: 12, token_budget_left: 2 }, error: null });
+    const a = await intakeLogin(TOKEN, WID, "0001");
+    expect(a).toMatchObject({ ok: false, code: "bad_credentials", error: "ชื่อหรือ PIN ไม่ถูกต้อง · วันนี้ใส่ PIN ผิดได้อีก 2 ครั้ง (ทั้งร้านใช้ร่วมกัน)" });
+    expect(!a.ok && a.error).not.toContain("ใบ");
+    rpcMock.mockResolvedValue({ data: { ok: false, code: "bad_credentials", message: "x", attempts_left: 4, attempts_until_office: 14, token_budget_left: 6 }, error: null });
+    expect(await intakeLogin(TOKEN, WID, "0001")).toMatchObject({ error: "ชื่อหรือ PIN ไม่ถูกต้อง" });
+    rpcMock.mockResolvedValue({ data: { ok: false, code: "token_budget_exhausted", message: "x" }, error: null });
+    expect(await intakeLogin(TOKEN, WID, "0001")).toMatchObject({ ok: false, code: "token_budget_exhausted", error: "วันนี้ใส่ PIN ผิดครบกำหนดแล้ว — ขอ QR ร้านใหม่จากออฟฟิศ" });
+    // QR ใบงานเดิมไม่เปลี่ยนข้อความ
+    rpcMock.mockResolvedValue({ data: { ok: false, code: "token_budget_exhausted", message: "x" }, error: null });
+    expect(await workerLogin(TOKEN, WID, "0001")).toMatchObject({ code: "token_budget_exhausted", error: "ใบนี้ใส่ PIN ผิดเกินกำหนด ขอพิมพ์ใบใหม่จากออฟฟิศ" });
+  });
+
   it("ผลจาก DB ไม่มี session_token รูปถูก → ไม่ตั้ง cookie · ข้อความกลาง", async () => {
     rpcMock.mockResolvedValue({ data: { ok: true, session_token: "bad value" }, error: null });
     expect((await intakeLogin(TOKEN, WID, "4831")).ok).toBe(false);
@@ -202,7 +216,7 @@ describe("intakeSearch", () => {
 
 const GOOD: IntakeOpenActionInput = { idemKey: IDEM, productId: PID, qty: 3 };
 const GOOD_NEW: IntakeOpenActionInput = { idemKey: IDEM, label: "แหวนลายใบไม้", metal: "silver", qty: "30" };
-const OPEN_OK = { ok: true, already: false, order_no: "PO-0034", job_no: "JB-0031", token: JOBTOK, design_label: "แหวนลายใบไม้", sku: null, sku_pending: true, metal: "silver", qty_order: 30, qty_planned: 30, is_new_design: false, due_date: null };
+const OPEN_OK = { ok: true, already: false, order_no: "PO-0034", job_no: "JB-0031", token: JOBTOK, design_label: "แหวนลายใบไม้", sku: null, sku_pending: true, metal: "silver", qty_order: 30, qty_planned: 30, is_new_design: false, due_date: null, status: "open" };
 
 describe("ขอบเขตช่องทางสาธารณะ (static)", () => {
   it("โค้ดฝั่งช่างไม่ส่ง p_shop_id/p_actor ให้ RPC ใดเลย (ร้านมาจาก token ร้านที่ DB ตรวจ)", async () => {
@@ -317,14 +331,29 @@ describe("intakeOpen — ส่ง DB เฉพาะที่ระบุ + แ
 
   it("ผลสำเร็จ: map แบบ allowlist (token ครั้งเดียว · jobNo · ชื่อ · sku_pending) — ไม่มี order_no/ราคาหลุดไปหน้าจอ", async () => {
     const r = await intakeOpen(TOKEN, GOOD_NEW);
-    expect(r).toEqual({ ok: true, result: { already: false, jobNo: "JB-0031", token: JOBTOK, designLabel: "แหวนลายใบไม้", sku: null, skuPending: true, metal: "silver", qtyOrder: 30, qtyPlanned: 30, isNewDesign: false, dueDate: null } });
+    expect(r).toEqual({ ok: true, result: { already: false, jobNo: "JB-0031", token: JOBTOK, designLabel: "แหวนลายใบไม้", sku: null, skuPending: true, metal: "silver", qtyOrder: 30, qtyPlanned: 30, isNewDesign: false, dueDate: null, status: "open" } });
     expect(JSON.stringify(r)).not.toContain("PO-0034");
   });
 
   it("กดซ้ำ (already) → ไม่มี token · เลขใบเดิม", async () => {
-    rpcMock.mockResolvedValue({ data: { ok: true, already: true, order_no: "PO-0034", job_no: "JB-0031", design_label: "แหวน", metal: "silver", qty_order: 30 }, error: null });
+    rpcMock.mockResolvedValue({ data: { ok: true, already: true, order_no: "PO-0034", job_no: "JB-0031", design_label: "แหวน", metal: "silver", qty_order: 30, qty_planned: 30, status: "open" }, error: null });
     const r = await intakeOpen(TOKEN, GOOD_NEW);
-    expect(r).toMatchObject({ ok: true, result: { already: true, token: null, jobNo: "JB-0031" } });
+    expect(r).toMatchObject({ ok: true, result: { already: true, token: null, jobNo: "JB-0031", status: "open" } });
+  });
+
+  it("กดซ้ำของใบที่ถูกยกเลิก → status cancelled (หน้าจอบอก ใบนี้ถูกยกเลิกแล้ว) · ค่ามาจาก DB เท่านั้น ไม่ fallback ไปค่าที่ client ส่งมา", async () => {
+    rpcMock.mockResolvedValue({ data: { ok: true, already: true, order_no: "PO-0034", job_no: "JB-0031", design_label: "ชื่อใน DB", metal: "silver", qty_order: 7, qty_planned: 7, status: "cancelled" }, error: null });
+    const r = await intakeOpen(TOKEN, { ...GOOD_NEW, label: "ชื่อที่ส่งซ้ำ", qty: 99 });
+    expect(r).toMatchObject({ ok: true, result: { already: true, token: null, status: "cancelled", designLabel: "ชื่อใน DB", qtyOrder: 7 } });
+    // ขาดค่าจาก DB (qty/ชื่อ/สถานะ) = ไม่เอาค่าที่ client ส่งมาแทน
+    for (const miss of ["qty_order", "design_label", "status"]) {
+      const d: Record<string, unknown> = { ok: true, already: true, order_no: "PO-1", job_no: "JB-0031", design_label: "x", metal: "silver", qty_order: 7, qty_planned: 7, status: "open" };
+      delete d[miss];
+      rpcMock.mockResolvedValue({ data: d, error: null });
+      expect((await intakeOpen(TOKEN, GOOD_NEW)).ok, miss).toBe(false);
+    }
+    rpcMock.mockResolvedValue({ data: { ok: true, already: true, job_no: "JB-0031", design_label: "x", metal: "silver", qty_order: 7, status: "weird" }, error: null });
+    expect((await intakeOpen(TOKEN, GOOD_NEW)).ok).toBe(false);
   });
 
   it("ผลดิบผิดรูป (job_no/token/โลหะ) หรือมี key ต้องห้าม → ข้อความกลาง ไม่ส่งต่อ", async () => {
