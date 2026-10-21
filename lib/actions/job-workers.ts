@@ -13,6 +13,7 @@ import type { JobResult } from "@/lib/jobs/office-server";
 import { logJobFailure } from "@/lib/jobs/log";
 import { GENERIC_JOB_ERROR } from "@/lib/jobs/messages";
 import { currentAppOrigin } from "@/lib/jobs/origin-server";
+import { ORIGIN_UNKNOWN } from "@/lib/jobs/origin";
 import { renderQrSvg, shopUrl } from "@/lib/jobs/qr";
 
 type Raw = Record<string, unknown>;
@@ -136,9 +137,10 @@ export async function unlockWorker(workerId: string): Promise<JobResult<null>> {
 // ---------------------------------------------------------------------------
 export interface ShopIntakeStatus {
   active: boolean;
+  /** เวลาออกของ QR ใบล่าสุด (active = ใบที่ใช้อยู่ · ไม่ active = ใบล่าสุดที่เคยออก) · null = ไม่เคยออกเลย */
   issuedAt: string | null;
-  /** เวลาที่ QR ล่าสุดถูกเพิกถอน (0188 shop_intake_token_status.revoked_at) — null/ไม่มี = ไม่เคยออก หรือ DB ยังไม่ส่งค่านี้ (UI ห้ามสรุปว่า "ไม่เคยออก") */
-  revokedAt?: string | null;
+  /** เวลาเพิกถอนของใบล่าสุด · null = ใบที่ใช้อยู่ หรือไม่เคยออก — หน้าจอแยก "ถูกเพิกถอน" (active=false + revokedAt) ออกจาก "ไม่เคยออก" (issuedAt=null) (0188) */
+  revokedAt: string | null;
 }
 
 export async function getShopIntakeStatus(): Promise<JobResult<ShopIntakeStatus>> {
@@ -166,11 +168,14 @@ export interface ShopIntakeIssued {
   revokedPrevious: number;
 }
 
-/** ข้อความเมื่อไม่ใช่ production จริง — กันกดจาก preview/localhost แล้วเพิกถอน QR จริงที่ติดอยู่ (ออกใหม่ = เพิกถอนของเก่าใน DB · QR แสดงครั้งเดียว) */
-const SHOP_QR_PROD_ONLY = "ออก QR ร้านได้เฉพาะที่ app.3jthailand.com";
+// code ที่ผล fail ของ issueShopIntakeToken คืน (หน้าจอแยกข้อความตาม code — ไม่เทียบข้อความ):
+//   prod_only      = ไม่ใช่ production จริง (preview/dev) หรือยังไม่ได้ตั้ง APP_ORIGIN — กันกดจาก preview แล้วเพิกถอน QR จริงที่ติดอยู่ (ออกใหม่ = เพิกถอนของเก่าใน DB · QR แสดงครั้งเดียว)
+//   origin_invalid = ตั้งค่า APP_ORIGIN ผิด (ผิดรูปแบบ · ไม่ใช่ https เช่น localhost ที่ NODE_ENV=production · ไม่รู้ที่อยู่เว็บ) — เรื่องการตั้งค่า แจ้งผู้ดูแลระบบ
+const MSG_ORIGIN_UNSET = "ยังไม่ได้ตั้งค่า APP_ORIGIN — เป็นเรื่องการตั้งค่าของระบบ แจ้งผู้ดูแลระบบ";
+const MSG_ORIGIN_NOT_HTTPS = "ตั้งค่า APP_ORIGIN ไม่ถูกต้อง — QR ร้านต้องชี้ที่ https:// เท่านั้น แจ้งผู้ดูแลระบบ";
 
 /**
- * ออก QR ร้าน — 🔴 origin ใน QR มาจาก APP_ORIGIN (env) เท่านั้น และต้องเป็น production จริง (ไม่งั้นปฏิเสธ "ก่อน" เรียก RPC → ไม่เพิกถอนของเดิม)
+ * ออก QR ร้าน — 🔴 origin ใน QR มาจาก APP_ORIGIN (env) เท่านั้น ต้องเป็น https:// และ production จริง (ไม่งั้นปฏิเสธ "ก่อน" เรียก RPC → ไม่เพิกถอนของเดิม · มี code ให้หน้าจอแยกข้อความ)
  * เหตุผล: ถ้าประกอบ URL ฝั่ง client จาก window.location.origin แล้วเปิดจาก preview → ได้ QR ชี้ preview + QR เดิมที่ติดผนังถูกเพิกถอนไปแล้ว (ทั้งร้านเปิดงานไม่ได้)
  * ประกอบ URL + render SVG ที่นี่ · คืนเฉพาะ SVG (token ดิบไม่ออกจาก server) — pattern เดียวกับ issueJobQr
  */
@@ -178,8 +183,13 @@ export async function issueShopIntakeToken(): Promise<JobResult<ShopIntakeIssued
   const g = await guard();
   if (g) return g;
   const origin = await currentAppOrigin();
-  if (!origin.ok) return fail(origin.error);
-  if (!origin.fromEnv || origin.env !== "production") return fail(SHOP_QR_PROD_ONLY);
+  if (!origin.ok) return fail(origin.error === ORIGIN_UNKNOWN ? MSG_ORIGIN_UNSET : origin.error, "origin_invalid");
+  // กันค่าตั้งผิดที่ผ่านตัวตรวจรูปแบบ (http://localhost ได้เพื่อ dev) แต่ห้ามเป็นที่อยู่ที่ติดผนัง
+  if (!origin.origin.startsWith("https://")) return fail(MSG_ORIGIN_NOT_HTTPS, "origin_invalid");
+  if (!origin.fromEnv || origin.env !== "production") {
+    // ข้อความอ้าง host จาก APP_ORIGIN (ไม่ hardcode โดเมน) · ไม่มี env = บอกว่าต้องตั้งค่า
+    return fail(origin.fromEnv ? `ออก QR ร้านได้เฉพาะที่ ${origin.host} (เว็บ production)` : "ออก QR ร้านได้เฉพาะบนเว็บ production ที่ตั้งค่า APP_ORIGIN แล้ว — แจ้งผู้ดูแลระบบ", "prod_only");
+  }
   const r = await callOffice<Raw>("shop_intake_token_issue", {});
   if (!r.ok) return r;
   const token = r.data.token;

@@ -48,31 +48,64 @@ afterEach(() => {
   }
 });
 
-const REFUSE = "ออก QR ร้านได้เฉพาะที่ app.3jthailand.com";
-
-describe("ห้ามผ่าน — ไม่เรียก RPC (ไม่เพิกถอนของเดิม) ไม่ render QR", () => {
-  const cases: [string, () => void][] = [
-    ["ไม่ตั้ง APP_ORIGIN (ถอยไปใช้ Host) แม้ production", () => set({ APP_ORIGIN: undefined, VERCEL_ENV: "production" })],
-    ["APP_ORIGIN ว่าง", () => set({ APP_ORIGIN: "  ", VERCEL_ENV: "production" })],
-    ["VERCEL_ENV = preview", () => set({ APP_ORIGIN: "https://app.example.test", VERCEL_ENV: "preview" })],
-    ["VERCEL_ENV = development", () => set({ APP_ORIGIN: "https://app.example.test", VERCEL_ENV: "development" })],
-    ["ไม่ใช่ Vercel + NODE_ENV = development", () => set({ APP_ORIGIN: "https://app.example.test", VERCEL_ENV: undefined, NODE_ENV: "development" })],
+describe("ห้ามผ่าน — ไม่เรียก RPC (ไม่เพิกถอนของเดิม) ไม่ render QR · คืน code ให้หน้าจอแยกข้อความ", () => {
+  // prod_only = ไม่ใช่ production จริง/ไม่ได้ตั้ง APP_ORIGIN (ข้อความอ้าง host จาก APP_ORIGIN ถ้ามี — ไม่ hardcode โดเมน)
+  const prodOnly: [string, () => void, RegExp][] = [
+    ["ไม่ตั้ง APP_ORIGIN (ถอยไปใช้ Host) แม้ production", () => set({ APP_ORIGIN: undefined, VERCEL_ENV: "production" }), /ตั้งค่า APP_ORIGIN/],
+    ["APP_ORIGIN ว่าง", () => set({ APP_ORIGIN: "  ", VERCEL_ENV: "production" }), /ตั้งค่า APP_ORIGIN/],
+    ["VERCEL_ENV = preview", () => set({ APP_ORIGIN: "https://app.example.test", VERCEL_ENV: "preview" }), /app\.example\.test/],
+    ["VERCEL_ENV = development", () => set({ APP_ORIGIN: "https://app.example.test", VERCEL_ENV: "development" }), /app\.example\.test/],
+    ["ไม่ใช่ Vercel + NODE_ENV = development", () => set({ APP_ORIGIN: "https://app.example.test", VERCEL_ENV: undefined, NODE_ENV: "development" }), /app\.example\.test/],
   ];
-  it.each(cases)("%s", async (_n, setup) => {
+  it.each(prodOnly)("prod_only: %s", async (_n, setup, msg) => {
     setup();
     const r = await issueShopIntakeToken();
-    expect(r).toEqual({ ok: false, error: REFUSE });
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.code).toBe("prod_only");
+      expect(r.error).toMatch(msg);
+      expect(r.error).not.toContain("3jthailand"); // ไม่ hardcode โดเมนจริง
+    }
     expect(rpcMock).not.toHaveBeenCalled();
     expect(rendered).toHaveLength(0);
   });
 
-  it("APP_ORIGIN ผิดรูป (มี path / ท้าย /) → ปฏิเสธด้วยข้อความ origin เดิม · ไม่เรียก RPC", async () => {
+  it("origin_invalid: APP_ORIGIN ผิดรูป (มี path / ท้าย /) → ข้อความเรื่องการตั้งค่า · ไม่เรียก RPC", async () => {
     for (const bad of ["https://app.example.test/", "https://app.example.test/x", "ftp://x.test", "app.example.test"]) {
       set({ APP_ORIGIN: bad, VERCEL_ENV: "production" });
       const r = await issueShopIntakeToken();
       expect(r.ok, bad).toBe(false);
+      if (!r.ok) {
+        expect(r.code, bad).toBe("origin_invalid");
+        expect(r.error, bad).toContain("APP_ORIGIN");
+        expect(r.error, bad).toContain("แจ้งผู้ดูแลระบบ");
+      }
       expect(rpcMock).not.toHaveBeenCalled();
     }
+  });
+
+  it("security L-1: http://localhost ที่ NODE_ENV=production / VERCEL_ENV=production (ผ่านตัวตรวจรูปแบบ) ต้องไม่ผ่าน — origin_invalid ต้อง https เท่านั้น", async () => {
+    for (const o of ["http://localhost:3000", "http://127.0.0.1:3000", "http://localhost"]) {
+      set({ APP_ORIGIN: o, VERCEL_ENV: undefined, NODE_ENV: "production" });
+      const r = await issueShopIntakeToken();
+      expect(r.ok, o).toBe(false);
+      if (!r.ok) {
+        expect(r.code, o).toBe("origin_invalid");
+        expect(r.error).toContain("https://");
+      }
+      set({ APP_ORIGIN: o, VERCEL_ENV: "production" });
+      expect((await issueShopIntakeToken()).ok, o).toBe(false);
+    }
+    expect(rpcMock).not.toHaveBeenCalled();
+    expect(rendered).toHaveLength(0);
+  });
+
+  it("ไม่รู้ที่อยู่เว็บเลย (ไม่มี APP_ORIGIN และไม่มี Host) → origin_invalid บอกว่าเป็นเรื่องการตั้งค่า", async () => {
+    set({ APP_ORIGIN: undefined, VERCEL_ENV: "production" });
+    hostHeader = null;
+    const r = await issueShopIntakeToken();
+    expect(r).toEqual({ ok: false, error: "ยังไม่ได้ตั้งค่า APP_ORIGIN — เป็นเรื่องการตั้งค่าของระบบ แจ้งผู้ดูแลระบบ", code: "origin_invalid" });
+    expect(rpcMock).not.toHaveBeenCalled();
   });
 
   it("Host ปลอม/เป็น preview ไม่มีผลต่อ origin ใน QR (ใช้ APP_ORIGIN เสมอ)", async () => {

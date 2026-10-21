@@ -74,7 +74,7 @@ import {
 } from "@/lib/production/types";
 import { fetchAllRows } from "@/lib/supabase/query-limits";
 import { readErrorCode, readErrorMessage, redactUrls } from "@/lib/supabase/postgrest-error";
-import { ackErrorFromHint, cleanAckError } from "@/lib/production/office-ack";
+import { ackErrorFromHint, cleanAckError, orderNotOpenError } from "@/lib/production/office-ack";
 
 const SCHEMA = "analytics";
 
@@ -997,6 +997,9 @@ export async function cancelProductionOrder(input: {
 // ============================================================================
 
 /** ออฟฟิศรับทราบใบที่เปิดจากหน้างาน — ครั้งเดียว (ซ้ำ = error) · ใบออฟฟิศ = error · "ผลิตเสร็จ" ของใบหน้างานต้องรับทราบก่อน (ด่านที่ trigger) */
+/** hint ของ error จาก RPC (postgrest-js คืน error เป็น object ธรรมดา) — ไม่ใช่ string = undefined */
+const errHint = (err: unknown): unknown => (typeof err === "object" && err !== null ? (err as { hint?: unknown }).hint : undefined);
+
 export async function acknowledgeProductionOrder(input: { productionOrderId: string }): Promise<ActionResult<ProductionOrderAckResult>> {
   const gateErr = await requireOwnerAdmin();
   if (gateErr) return gateErr;
@@ -1020,8 +1023,7 @@ export async function acknowledgeProductionOrder(input: { productionOrderId: str
   } catch (err) {
     logRpcFailure("acknowledgeProductionOrder", err);
     // map จาก hint ของ RPC (ไทยล้วน) ก่อน — ข้อความ DB ของ order_not_open มีคำอังกฤษของ status ("สถานะ cancelled แล้ว")
-    const hint = typeof err === "object" && err !== null ? (err as { hint?: unknown }).hint : undefined;
-    return { ok: false, error: ackErrorFromHint(hint) ?? cleanAckError(humanizeProductionError(err, "รับทราบใบผลิตไม่สำเร็จ ลองใหม่อีกครั้ง")) };
+    return { ok: false, error: ackErrorFromHint(errHint(err)) ?? cleanAckError(humanizeProductionError(err, "รับทราบใบผลิตไม่สำเร็จ ลองใหม่อีกครั้ง")) };
   }
 }
 
@@ -1067,7 +1069,7 @@ export async function bindProductionItemProduct(input: { productionOrderId: stri
     };
   } catch (err) {
     logRpcFailure("bindProductionItemProduct", err);
-    return { ok: false, error: humanizeProductionError(err, "ผูก SKU ไม่สำเร็จ ลองใหม่อีกครั้ง") };
+    return { ok: false, error: orderNotOpenError(errHint(err)) ?? humanizeProductionError(err, "ผูก SKU ไม่สำเร็จ ลองใหม่อีกครั้ง") };
   }
 }
 
@@ -1094,6 +1096,6 @@ export async function setProductionItemLabel(input: { productionOrderId: string;
     return { ok: true, data: { label: r.pending_product_label } };
   } catch (err) {
     logRpcFailure("setProductionItemLabel", err);
-    return { ok: false, error: humanizeProductionError(err, "แก้ชื่อแบบไม่สำเร็จ ลองใหม่อีกครั้ง") };
+    return { ok: false, error: orderNotOpenError(errHint(err)) ?? humanizeProductionError(err, "แก้ชื่อแบบไม่สำเร็จ ลองใหม่อีกครั้ง") };
   }
 }

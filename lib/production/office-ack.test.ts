@@ -2,7 +2,7 @@
 // ต้องถูก: เฉพาะใบ shopfloor+open+ยังไม่รับทราบ · ค้างนับวันปฏิทินไทย (ข้ามเที่ยงคืนไทย ไม่ใช่ UTC) · read-back เนื้อทองในข้อความปุ่ม
 // ต้องไม่พัง: ใบ office ไม่มีวันติดด่านรับทราบ · closeBlockers เดิม (ไม่ส่ง opts) เหมือนเดิมเป๊ะ
 import { describe, expect, it } from "vitest";
-import { MSG_ACK_FAIL, MSG_ACK_NOT_OPEN, ackErrorFromHint, cleanAckError } from "./office-ack";
+import { MSG_ACK_FAIL, MSG_ACK_NOT_OPEN, ackErrorFromHint, cleanAckError, orderNotOpenError } from "./office-ack";
 import { ACK_CARD_ID, STALE_CALENDAR_DAYS, ackButtonLabel, ackPending, ackSummary, calendarDaysOpen, effectivePurityPct, isShopfloor, isStale, metalPurityText, relativeThai } from "./office-ack";
 import { ACK_BLOCKER_MESSAGE, closeBlockers } from "./metal-ui";
 import type { ProductionOrderItemRow } from "./types";
@@ -118,5 +118,12 @@ describe("ข้อความ error ของปุ่มรับทราบ
     expect(cleanAckError(null)).toBe(MSG_ACK_FAIL);
     expect(cleanAckError("ใบนี้ไม่ได้เปิดอยู่แล้ว — โหลดหน้าใหม่")).toBe("ใบนี้ไม่ได้เปิดอยู่แล้ว — โหลดหน้าใหม่");
     expect(cleanAckError("ใบผลิต PO-0034 รับทราบไปแล้ว")).toBe("ใบผลิต PO-0034 รับทราบไปแล้ว");
+  });
+});
+
+describe("orderNotOpenError (bind/label)", () => {
+  it("เฉพาะ order_not_open · hint อื่น/ไม่ใช่ string = null", () => {
+    expect(orderNotOpenError("order_not_open")).toBe(MSG_ACK_NOT_OPEN);
+    for (const h of ["sku_duplicate", "already_bound", "", undefined, null, 1]) expect(orderNotOpenError(h), String(h)).toBeNull();
   });
 });

@@ -42,8 +42,8 @@ export function ShopQrCard({ status, statusError }: { status: ShopIntakeStatus |
     setErr(null);
     const r = await run(() => issueShopIntakeToken(), { success: "ออก QR ร้านแล้ว" });
     if (!r.ok) {
-      // ข้อความที่ server ตั้งใจให้เห็น (ไม่ใช่ production → ไม่มีการเพิกถอน) แสดงตามจริง · อย่างอื่นใช้ข้อความกลาง
-      setErr(r.error.startsWith("ออก QR ร้านได้เฉพาะที่") ? r.error : MSG_ISSUE_FAIL);
+      // แยกตาม code ที่ server ส่ง (ไม่เทียบข้อความ): prod_only/origin_invalid = ข้อความของ server (ไม่มีการเพิกถอน — เรื่องการตั้งค่า/สภาพแวดล้อม) · อย่างอื่นใช้ข้อความกลาง
+      setErr(r.code === "prod_only" || r.code === "origin_invalid" ? r.error : MSG_ISSUE_FAIL);
       setDlg(null);
       return;
     }

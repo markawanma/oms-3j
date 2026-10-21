@@ -143,16 +143,24 @@ describe("QR ร้าน (ออฟฟิศ)", () => {
   });
 
   it("สถานะ: เรียกแบบไม่มี p_actor (RPC อ่านอย่างเดียว) · ไม่มี token ในผล · เพิกถอน: shop+actor", async () => {
-    rpcMock.mockResolvedValue({ data: { active: true, issued_at: "2026-10-20T03:00:00Z" }, error: null });
+    rpcMock.mockResolvedValue({ data: { active: true, issued_at: "2026-10-20T03:00:00Z", revoked_at: null }, error: null });
     const s = await getShopIntakeStatus();
     expect(lastRpc()).toEqual(["shop_intake_token_status", { p_shop_id: SHOP }]);
     expect(s).toEqual({ ok: true, data: { active: true, issuedAt: "2026-10-20T03:00:00Z", revokedAt: null } });
-    // 0188: revoked_at (ถ้า DB ส่งมา) ผ่านไปให้การ์ดแสดงสถานะ "ถูกเพิกถอน" โดยไม่พึ่ง issued_at
-    rpcMock.mockResolvedValue({ data: { active: false, issued_at: null, revoked_at: "2026-10-21T01:00:00Z" }, error: null });
-    expect(await getShopIntakeStatus()).toEqual({ ok: true, data: { active: false, issuedAt: null, revokedAt: "2026-10-21T01:00:00Z" } });
     rpcMock.mockResolvedValue({ data: { revoked: 1 }, error: null });
     expect(await revokeShopIntakeToken()).toEqual({ ok: true, data: { revoked: 1 } });
     expect(lastRpc()).toEqual(["shop_intake_token_revoke", { p_shop_id: SHOP, p_actor: USER }]);
+  });
+
+  it("สถานะ (0188): เพิกถอนแล้ว = active=false + issuedAt/revokedAt ของใบล่าสุด · ไม่เคยออก = null ทั้งคู่ · DB เก่าที่ไม่มี revoked_at/ค่าผิดชนิด = null (ไม่พัง · ไม่ส่งต่อค่าแปลก)", async () => {
+    rpcMock.mockResolvedValue({ data: { active: false, issued_at: "2026-10-20T03:00:00Z", revoked_at: "2026-10-21T04:00:00Z" }, error: null });
+    expect(await getShopIntakeStatus()).toEqual({ ok: true, data: { active: false, issuedAt: "2026-10-20T03:00:00Z", revokedAt: "2026-10-21T04:00:00Z" } });
+    rpcMock.mockResolvedValue({ data: { active: false, issued_at: null, revoked_at: null }, error: null });
+    expect(await getShopIntakeStatus()).toEqual({ ok: true, data: { active: false, issuedAt: null, revokedAt: null } });
+    rpcMock.mockResolvedValue({ data: { active: false, issued_at: "2026-10-20T03:00:00Z" }, error: null });
+    expect(await getShopIntakeStatus()).toEqual({ ok: true, data: { active: false, issuedAt: "2026-10-20T03:00:00Z", revokedAt: null } });
+    rpcMock.mockResolvedValue({ data: { active: false, issued_at: 5, revoked_at: { x: 1 } }, error: null });
+    expect(await getShopIntakeStatus()).toEqual({ ok: true, data: { active: false, issuedAt: null, revokedAt: null } });
   });
 
   it("ไม่มี session user → ไม่เรียก DB (actor_required ฝั่ง server)", async () => {
@@ -192,6 +200,29 @@ describe("acknowledgeProductionOrder", () => {
     rpcMock.mockResolvedValue({ data: null, error: { code: "XX000", message: "relation analytics.production_order boom" } });
     const r = await acknowledgeProductionOrder({ productionOrderId: PO });
     expect(r).toEqual({ ok: false, error: "รับทราบใบผลิตไม่สำเร็จ ลองใหม่อีกครั้ง" });
+  });
+});
+
+describe("ข้อ 3 — bind/label: order_not_open ไทยล้วน (ไม่ให้ 'สถานะ cancelled' หลุดถึงจอ)", () => {
+  const NOT_OPEN_BIND = { code: "22023", message: "ใบผลิต PO-0034 สถานะ cancelled แล้ว ผูก SKU ไม่ได้", hint: "order_not_open" };
+  const NOT_OPEN_LABEL = { code: "22023", message: "ใบผลิต PO-0034 สถานะ done แล้ว แก้ชื่อแบบไม่ได้", hint: "order_not_open" };
+  it("bind: order_not_open → 'ใบนี้ไม่ได้เปิดอยู่แล้ว — โหลดหน้าใหม่'", async () => {
+    rpcMock.mockResolvedValue({ data: null, error: NOT_OPEN_BIND });
+    const r = await bindProductionItemProduct({ productionOrderId: PO, itemId: ITEM, productId: PROD });
+    expect(r).toEqual({ ok: false, error: "ใบนี้ไม่ได้เปิดอยู่แล้ว — โหลดหน้าใหม่" });
+    expect(JSON.stringify(r)).not.toMatch(/cancelled|done/);
+  });
+  it("label: order_not_open → ข้อความเดียวกัน", async () => {
+    rpcMock.mockResolvedValue({ data: null, error: NOT_OPEN_LABEL });
+    const r = await setProductionItemLabel({ productionOrderId: PO, itemId: ITEM, label: "แหวน" });
+    expect(r).toEqual({ ok: false, error: "ใบนี้ไม่ได้เปิดอยู่แล้ว — โหลดหน้าใหม่" });
+    expect(JSON.stringify(r)).not.toMatch(/cancelled|done/);
+  });
+  it("hint อื่น (sku_duplicate/label_duplicate) ยังได้ข้อความ DB เดิม (มีรหัส SKU อังกฤษได้ ไม่ถูกตัดทิ้ง)", async () => {
+    rpcMock.mockResolvedValue({ data: null, error: { code: "22023", message: "SKU ZZQA-FIXA อยู่ในใบผลิตนี้แล้ว (รายการอื่น)", hint: "sku_duplicate" } });
+    expect(await bindProductionItemProduct({ productionOrderId: PO, itemId: ITEM, productId: PROD })).toEqual({ ok: false, error: "SKU ZZQA-FIXA อยู่ในใบผลิตนี้แล้ว (รายการอื่น)" });
+    rpcMock.mockResolvedValue({ data: null, error: { code: "22023", message: "มีรายการชื่อ \"แหวน\" ในใบนี้อยู่แล้ว", hint: "label_duplicate" } });
+    expect((await setProductionItemLabel({ productionOrderId: PO, itemId: ITEM, label: "แหวน" })).ok).toBe(false);
   });
 });
 

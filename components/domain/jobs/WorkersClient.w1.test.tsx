@@ -184,13 +184,13 @@ describe("การ์ด QR ร้าน — สภาพ", () => {
     expect(screen.queryByRole("region", { name: "QR ร้าน" })).toBeNull();
   });
   it("empty (ไม่มี QR ที่ใช้งานอยู่): ข้อความ + ปุ่มหลัก 'ออก QR ร้าน'", () => {
-    wrap(<WorkersClient data={data()} intake={intake({ active: false, issuedAt: null })} />);
+    wrap(<WorkersClient data={data()} intake={intake({ active: false, issuedAt: null, revokedAt: null })} />);
     expect(qrCard()).toHaveTextContent("ยังไม่มี QR ร้านที่ใช้งานอยู่ — ช่างยังเปิดงานจากมือถือไม่ได้");
     expect(within(qrCard()).getByRole("button", { name: "ออก QR ร้าน" })).toBeInTheDocument();
     expect(within(qrCard()).queryByRole("button", { name: "เพิกถอน" })).toBeNull();
   });
   it("ใช้งานอยู่: ป้าย + วันที่ออก + ปุ่ม ออกใหม่ / เพิกถอน + คำอธิบาย ดูซ้ำไม่ได้ + พิมพ์ผิดครบ 7 ครั้งต่อวัน → ออก QR ใหม่", () => {
-    wrap(<WorkersClient data={data()} intake={intake({ active: true, issuedAt: ISSUED_AT })} />);
+    wrap(<WorkersClient data={data()} intake={intake({ active: true, issuedAt: ISSUED_AT, revokedAt: null })} />);
     const c = qrCard();
     expect(within(c).getByText("ใช้งานอยู่")).toBeInTheDocument();
     expect(c).toHaveTextContent(/ออกเมื่อ 20 ต\.ค\. 09:12/);
@@ -216,7 +216,7 @@ describe("การ์ด QR ร้าน — สภาพ", () => {
 
 describe("ออก QR ร้าน", () => {
   it("ออกครั้งแรก: ไม่ถามยืนยัน → กล่อง 'QR ร้านใหม่' มี QR + เตือนแสดงครั้งเดียว · token ไม่ลง storage/URL/DOM เป็นข้อความ", async () => {
-    wrap(<WorkersClient data={data()} intake={intake({ active: false, issuedAt: null })} />);
+    wrap(<WorkersClient data={data()} intake={intake({ active: false, issuedAt: null, revokedAt: null })} />);
     await userEvent.click(within(qrCard()).getByRole("button", { name: "ออก QR ร้าน" }));
     const dlg = await screen.findByRole("dialog", { name: "QR ร้านใหม่" });
     expect(a.issue).toHaveBeenCalledTimes(1);
@@ -231,7 +231,7 @@ describe("ออก QR ร้าน", () => {
   });
 
   it("ภาพ QR = SVG ที่ server ส่งมา (ลิงก์ประกอบที่ server จาก APP_ORIGIN) · client ไม่มี token ดิบ", async () => {
-    wrap(<WorkersClient data={data()} intake={intake({ active: false, issuedAt: null })} />);
+    wrap(<WorkersClient data={data()} intake={intake({ active: false, issuedAt: null, revokedAt: null })} />);
     await userEvent.click(within(qrCard()).getByRole("button", { name: "ออก QR ร้าน" }));
     const dlg = await screen.findByRole("dialog", { name: "QR ร้านใหม่" });
     expect(within(dlg).getByRole("img", { name: "QR ร้าน" }).querySelector("svg[data-from=server]")).not.toBeNull();
@@ -239,7 +239,7 @@ describe("ออก QR ร้าน", () => {
   });
 
   it("ออกใหม่ (มี QR เดิม): ต้องยืนยันก่อน · ยกเลิก = ไม่เรียก DB · ยืนยัน = ออก", async () => {
-    wrap(<WorkersClient data={data()} intake={intake({ active: true, issuedAt: ISSUED_AT })} />);
+    wrap(<WorkersClient data={data()} intake={intake({ active: true, issuedAt: ISSUED_AT, revokedAt: null })} />);
     await userEvent.click(within(qrCard()).getByRole("button", { name: "ออกใหม่ (เปลี่ยน QR)" }));
     const conf = await screen.findByRole("dialog", { name: "ออก QR ใหม่?" });
     expect(conf).toHaveTextContent("QR เดิมที่ติดอยู่จะใช้ไม่ได้ทันที — พร้อมพิมพ์และเปลี่ยนที่ติดแล้วใช่ไหม");
@@ -253,7 +253,7 @@ describe("ออก QR ร้าน", () => {
 
   it("ออกไม่สำเร็จ: 'ออก QR ไม่สำเร็จ — ลองอีกครั้ง' (role=alert) ไม่มีกล่อง QR · กดซ้ำได้", async () => {
     a.issue.mockResolvedValueOnce({ ok: false, error: "ทำรายการไม่สำเร็จ ลองใหม่อีกครั้ง" });
-    wrap(<WorkersClient data={data()} intake={intake({ active: false, issuedAt: null })} />);
+    wrap(<WorkersClient data={data()} intake={intake({ active: false, issuedAt: null, revokedAt: null })} />);
     await userEvent.click(within(qrCard()).getByRole("button", { name: "ออก QR ร้าน" }));
     expect(await within(qrCard()).findByRole("alert")).toHaveTextContent("ออก QR ไม่สำเร็จ — ลองอีกครั้ง");
     expect(screen.queryByRole("dialog")).toBeNull();
@@ -264,7 +264,7 @@ describe("ออก QR ร้าน", () => {
   it("loading: ปุ่มออก QR ถูกปิดระหว่างทำ (กันกดซ้ำ) — เรียก action ครั้งเดียว", async () => {
     let resolve: (v: unknown) => void = () => {};
     a.issue.mockReturnValue(new Promise((r) => (resolve = r)));
-    wrap(<WorkersClient data={data()} intake={intake({ active: false, issuedAt: null })} />);
+    wrap(<WorkersClient data={data()} intake={intake({ active: false, issuedAt: null, revokedAt: null })} />);
     const btn = within(qrCard()).getByRole("button", { name: "ออก QR ร้าน" });
     await userEvent.click(btn);
     await waitFor(() => expect(btn).toBeDisabled());
@@ -277,7 +277,7 @@ describe("ออก QR ร้าน", () => {
 
 describe("พิมพ์โปสเตอร์ + ปิดกล่อง", () => {
   async function openIssued() {
-    wrap(<WorkersClient data={data()} intake={intake({ active: false, issuedAt: null })} />);
+    wrap(<WorkersClient data={data()} intake={intake({ active: false, issuedAt: null, revokedAt: null })} />);
     await userEvent.click(within(qrCard()).getByRole("button", { name: "ออก QR ร้าน" }));
     return screen.findByRole("dialog", { name: "QR ร้านใหม่" });
   }
@@ -299,7 +299,7 @@ describe("พิมพ์โปสเตอร์ + ปิดกล่อง", (
   });
 
   it("root ซ่อนทุกอย่างยกเว้นโปสเตอร์ตอนพิมพ์ (data-print-keep)", async () => {
-    const { container } = wrap(<WorkersClient data={data()} intake={intake({ active: false, issuedAt: null })} />);
+    const { container } = wrap(<WorkersClient data={data()} intake={intake({ active: false, issuedAt: null, revokedAt: null })} />);
     expect((container.firstElementChild as HTMLElement).className).toContain("print:[&>*:not([data-print-keep])]:hidden");
   });
 
@@ -330,7 +330,7 @@ describe("พิมพ์โปสเตอร์ + ปิดกล่อง", (
 
 describe("เพิกถอน", () => {
   it("ยืนยันก่อน (บอกผล: ช่างเปิดงานจากมือถือไม่ได้ · ใบงาน/QR ใบงานเดิมไม่กระทบ) → revoke", async () => {
-    wrap(<WorkersClient data={data()} intake={intake({ active: true, issuedAt: ISSUED_AT })} />);
+    wrap(<WorkersClient data={data()} intake={intake({ active: true, issuedAt: ISSUED_AT, revokedAt: null })} />);
     await userEvent.click(within(qrCard()).getByRole("button", { name: "เพิกถอน" }));
     const dlg = await screen.findByRole("dialog", { name: "เพิกถอน QR ร้าน?" });
     expect(dlg).toHaveTextContent("ช่างทุกคนจะเปิดงานจากมือถือไม่ได้ทันที จนกว่าจะออก QR ใหม่");
@@ -342,14 +342,14 @@ describe("เพิกถอน", () => {
     expect(refresh).toHaveBeenCalled();
   });
   it("ยกเลิกที่กล่องยืนยัน = ไม่เพิกถอน", async () => {
-    wrap(<WorkersClient data={data()} intake={intake({ active: true, issuedAt: ISSUED_AT })} />);
+    wrap(<WorkersClient data={data()} intake={intake({ active: true, issuedAt: ISSUED_AT, revokedAt: null })} />);
     await userEvent.click(within(qrCard()).getByRole("button", { name: "เพิกถอน" }));
     await userEvent.click(within(await screen.findByRole("dialog", { name: "เพิกถอน QR ร้าน?" })).getByRole("button", { name: "ยกเลิก" }));
     expect(a.revoke).not.toHaveBeenCalled();
   });
   it("เพิกถอนล้ม: ข้อความ role=alert ในการ์ด · กล่องปิด", async () => {
     a.revoke.mockResolvedValue({ ok: false, error: "x" });
-    wrap(<WorkersClient data={data()} intake={intake({ active: true, issuedAt: ISSUED_AT })} />);
+    wrap(<WorkersClient data={data()} intake={intake({ active: true, issuedAt: ISSUED_AT, revokedAt: null })} />);
     await userEvent.click(within(qrCard()).getByRole("button", { name: "เพิกถอน" }));
     await userEvent.click(within(await screen.findByRole("dialog", { name: "เพิกถอน QR ร้าน?" })).getByRole("button", { name: "เพิกถอน" }));
     expect(await within(qrCard()).findByRole("alert")).toHaveTextContent("เพิกถอนไม่สำเร็จ — ลองอีกครั้ง");

@@ -126,3 +126,11 @@ export function cleanAckError(error: string | null | undefined): string {
   const t = (error ?? "").trim();
   return t === "" || /[A-Za-z]{4,}/.test(t) ? MSG_ACK_FAIL : t;
 }
+
+/**
+ * bind SKU / แก้ชื่อแบบ: hint order_not_open (ใบถูกยกเลิก/ปิดไประหว่างเปิดหน้า) → ไทยล้วนแบบเดียวกับปุ่มรับทราบ — ข้อความ DB มีคำอังกฤษของ status ("สถานะ cancelled แล้ว")
+ * hint อื่น (sku_duplicate · label_duplicate ฯลฯ) = null → ใช้ข้อความ DB เดิม (มีรหัส SKU เป็นอังกฤษได้ จึงไม่ใช้ cleanAckError กับเส้นนี้)
+ */
+export function orderNotOpenError(hint: unknown): string | null {
+  return hint === "order_not_open" ? MSG_ACK_NOT_OPEN : null;
+}
