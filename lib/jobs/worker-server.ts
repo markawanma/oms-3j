@@ -24,16 +24,16 @@ export const WORKER_SESSION_MAX_AGE_S = 12 * 60 * 60;
 export type WorkerFail = { ok: false; code: string; error: string; retryAfterSeconds?: number; jobNo?: string; budgetLeft?: number };
 export type WorkerOk<T> = { ok: true; data: T };
 
-const fail = (code: string, error?: string): WorkerFail => ({ ok: false, code, error: error ?? workerFailMessage(code, null) });
+export const fail = (code: string, error?: string): WorkerFail => ({ ok: false, code, error: error ?? workerFailMessage(code, null) });
 
-interface Caller {
+export interface Caller {
   tokenHash: string | null;
   sessionHash: string | null;
   ipHash: string | null;
   userAgent: string | null;
 }
 
-async function readCaller(token: unknown): Promise<Caller> {
+export async function readCaller(token: unknown): Promise<Caller> {
   const [c, h] = await Promise.all([cookies(), headers()]);
   return {
     tokenHash: tokenHashOrNull(token),
@@ -43,9 +43,9 @@ async function readCaller(token: unknown): Promise<Caller> {
   };
 }
 
-const isFail = (r: Record<string, unknown> | WorkerFail): r is WorkerFail => r.ok === false && typeof (r as WorkerFail).error === "string";
+export const isFail = (r: Record<string, unknown> | WorkerFail): r is WorkerFail => r.ok === false && typeof (r as WorkerFail).error === "string";
 
-const finite = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
+export const finite = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
 const shortText = (v: unknown, max = 60): string | null => (typeof v === "string" && v !== "" ? v.slice(0, max) : null);
 
 /** ตัวเลข/ชื่อที่ RPC แนบมากับ {ok:false} (0173) — กรองชนิดและตัดความยาวก่อนใช้ประกอบข้อความ */
@@ -63,7 +63,7 @@ function failExtra(r: Record<string, unknown>): WorkerFailExtra {
  * เรียก RPC ฝั่งช่าง · คืน data (ok:true) หรือ WorkerFail เสมอ — ทั้งกรณี {ok:false, code, message} ของ DB และ error ระบบ
  * error ระบบ → ข้อความกลาง (ไม่ log ข้อความดิบ) · ผลที่ไม่ใช่ object → ข้อความกลาง
  */
-async function callWorkerRpc(fn: string, params: Record<string, unknown>, opts: { keepJobNo?: boolean; intake?: boolean } = {}): Promise<Record<string, unknown> | WorkerFail> {
+export async function callWorkerRpc(fn: string, params: Record<string, unknown>, opts: { keepJobNo?: boolean; intake?: boolean } = {}): Promise<Record<string, unknown> | WorkerFail> {
   let data: unknown;
   try {
     const res = await getServiceClient().schema("analytics").rpc(fn, params);
@@ -321,7 +321,7 @@ const INTAKE_CODE_TH: Record<string, string> = {
   // งบผิด 7 ครั้ง/วัน รวมทั้งร้าน (มติเจ้าของ 21 ต.ค.) — ไม่พูดถึงใบงาน (ข้อความของ QR ใบงานคนละบริบท)
   token_budget_exhausted: "วันนี้ใส่ PIN ผิดครบกำหนดแล้ว — ขอ QR ร้านใหม่จากออฟฟิศ",
 };
-const intakeFail = (f: WorkerFail): WorkerFail => {
+export const intakeFail = (f: WorkerFail): WorkerFail => {
   const own = Object.prototype.hasOwnProperty.call(INTAKE_CODE_TH, f.code) ? INTAKE_CODE_TH[f.code] : null;
   if (f.code === "job_exists") return { ...f, error: f.jobNo ? `SKU นี้มีใบงาน ${f.jobNo} เปิดอยู่แล้ว — ถ้าต้องการเพิ่มจำนวน แจ้งออฟฟิศ หรือเลือกสินค้าอื่น` : "SKU นี้มีใบงานเปิดอยู่แล้ว — ถ้าต้องการเพิ่มจำนวน แจ้งออฟฟิศ หรือเลือกสินค้าอื่น" };
   // PIN ผิดใกล้งบของร้านหมด (เหลือ ≤ 3) — บอกให้รู้ตัว (ทั้งร้านใช้งบร่วมกัน)
@@ -335,7 +335,7 @@ const hasExtraForbiddenKey = (v: unknown, depth = 0): boolean => {
   if (Array.isArray(v)) return v.some((x) => hasExtraForbiddenKey(x, depth + 1));
   return Object.entries(v as Record<string, unknown>).some(([k, x]) => INTAKE_EXTRA_FORBIDDEN.test(k) || hasExtraForbiddenKey(x, depth + 1));
 };
-const intakeClean = (r: Record<string, unknown>, fn: string): WorkerFail | null => {
+export const intakeClean = (r: Record<string, unknown>, fn: string): WorkerFail | null => {
   if (findForbiddenKeys(r).length > 0 || hasExtraForbiddenKey(r)) {
     logJobFailure(fn, new Error("intake response had forbidden keys"));
     return fail("error", GENERIC_JOB_ERROR);

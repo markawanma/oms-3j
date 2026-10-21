@@ -9,6 +9,9 @@ import { cookies } from "next/headers";
 import { INVISIBLE_RE, TARGET_PIECE_MAX_G, parseBufferText, parseCount, parseDate, parseLabel, parsePieces, parsePin, parseQtyText, parseScrapReason, parseSeq, parseText, parseWeight, parseWeightOrZero, isUuid } from "@/lib/jobs/input";
 import { WORKER_SESSION_COOKIE, openIntakeJob, revokeWorkerSession, searchIntakeProducts, verifyIntakePin, verifyWorkerPin, workerArriveDiscrepancy, workerCancelLot, workerReceive, workerResolveDiscrepancy, workerSend } from "@/lib/jobs/worker-server";
 import type { IntakeMetal, IntakeOpenResult, IntakeProduct, WorkerFail } from "@/lib/jobs/worker-server";
+import { JOB_PHOTO_FILE_CODE, JOB_PHOTO_FILE_ERROR_TH } from "@/lib/jobs/photos";
+import { listIntakePhotos, listMyIntakeJobs, removeIntakePhoto, uploadIntakePhoto } from "@/lib/jobs/shop-photo-server";
+import type { IntakeJobRef, IntakePhotoList, IntakeUploadResult, MyIntakeList } from "@/lib/jobs/shop-photo-server";
 import { purityPctIssue, purityPctToFraction } from "@/lib/units/purity";
 import { WORKER_CODE_TH } from "@/lib/jobs/messages";
 
@@ -337,4 +340,64 @@ export async function intakeOpen(token: string, input: IntakeOpenActionInput): P
     qtyOrder: q.value, qtyPlanned: planned, dueDate: due, isNewDesign: input.isNewDesign === true, note,
   });
   return r.ok ? { ok: true, result: r.data } : failOf(r);
+}
+
+// ---------------------------------------------------------------------------
+// 0189 W2 — ผู้จัดการแนบรูปสั่งงานจากหน้างาน (QR ร้าน + PIN · ไม่ login) · ≤ 3 รูป/ใบ · เพิ่ม/ลบของตัวเองได้จนช่างเริ่มรับงาน
+// 🔴 ด่านจริงทั้งหมดอยู่ที่ DB (RPC job_worker_photo_*) — action นี้ตรวจรูปร่าง input ก่อนถึง DB แล้วให้ lib/jobs/shop-photo-server ทำตามลำดับ "ผ่าน DB ก่อนแตะ bucket"
+// 🔴 ไม่รับ shop id / path / ที่มา / ชื่อไฟล์ จาก client — มีแค่ idemKey หรือ jobId (DB ตรวจว่าเป็นใบที่ช่างใน session เปิดเอง) + ไฟล์ md/sm
+// ---------------------------------------------------------------------------
+
+const photoRef = (idemKey: unknown, jobId: unknown): IntakeJobRef | null => {
+  const hasIdem = idemKey !== null && idemKey !== undefined && idemKey !== "";
+  const hasJob = jobId !== null && jobId !== undefined && jobId !== "";
+  if (hasIdem === hasJob) return null; // อย่างใดอย่างหนึ่งเท่านั้น
+  if (hasIdem) return typeof idemKey === "string" && IDEM_RE.test(idemKey) ? { idemKey } : null;
+  return typeof jobId === "string" && isUuid(jobId) ? { jobId } : null;
+};
+
+export type IntakePhotoUploadActionResult = ({ ok: true } & IntakeUploadResult) | IntakeActionFail;
+
+/**
+ * แนบรูป 1 รูป — FormData { idemKey | jobId, md: File, sm: File, isPrimary?: "true" } (client ย่อ+re-encode เป็น JPEG ด้วย lib/images/client มาแล้ว แต่ server ไม่เชื่อ: ตรวจ bytes + ตัด Exif ซ้ำ)
+ * อัปโหลดทีละรูป (เน็ตสะดุดเสียแค่รูปเดียว) · ผลคือ signed URL 15 นาที — ไม่มี path
+ */
+export async function intakeUploadPhoto(token: string, fd: FormData): Promise<IntakePhotoUploadActionResult> {
+  if (!(fd instanceof FormData)) return intakeBad("ข้อมูลไม่ถูกต้อง");
+  const ref = photoRef(fd.get("idemKey"), fd.get("jobId"));
+  if (!ref) return intakeBad("ข้อมูลไม่ครบ — โหลดหน้าใหม่แล้วลองอีกครั้ง", "key");
+  const md = fd.get("md");
+  const sm = fd.get("sm");
+  if (!(md instanceof File) || !(sm instanceof File)) return { ok: false, error: JOB_PHOTO_FILE_ERROR_TH.missing, code: JOB_PHOTO_FILE_CODE.missing };
+  const prim = fd.get("isPrimary");
+  const r = await uploadIntakePhoto(token, { ref, md, sm, isPrimary: prim === "true" || prim === "1" });
+  return r.ok ? { ok: true, ...r.data } : failOf(r);
+}
+
+export type IntakePhotoRemoveActionResult = { ok: true; promotedPhotoId: string | null; already: boolean } | IntakeActionFail;
+
+/** ลบรูปของตัวเอง (ได้จนช่างเริ่มรับงาน) — ลบซ้ำ = สำเร็จ (already) */
+export async function intakeRemovePhoto(token: string, photoId: string): Promise<IntakePhotoRemoveActionResult> {
+  if (typeof photoId !== "string" || !isUuid(photoId)) return intakeBad("ข้อมูลไม่ถูกต้อง");
+  const r = await removeIntakePhoto(token, photoId);
+  return r.ok ? { ok: true, ...r.data } : failOf(r);
+}
+
+export type IntakePhotoListActionResult = ({ ok: true } & IntakePhotoList) | IntakeActionFail;
+
+/** รูปของใบ (อ้างด้วย idemKey หรือ jobId อย่างใดอย่างหนึ่ง) — สำหรับหน้าจอ "รูปที่แนบแล้ว" */
+export async function intakeListPhotos(token: string, ref: { idemKey?: string | null; jobId?: string | null }): Promise<IntakePhotoListActionResult> {
+  if (typeof ref !== "object" || ref === null) return intakeBad("ข้อมูลไม่ถูกต้อง");
+  const rr = photoRef(ref.idemKey, ref.jobId);
+  if (!rr) return intakeBad("ข้อมูลไม่ครบ — โหลดหน้าใหม่แล้วลองอีกครั้ง", "key");
+  const r = await listIntakePhotos(token, rr);
+  return r.ok ? { ok: true, ...r.data } : failOf(r);
+}
+
+export type IntakeMyJobsActionResult = ({ ok: true } & MyIntakeList) | IntakeActionFail;
+
+/** "ใบที่ฉันเปิด" บน hub QR ร้าน — ใบที่ยังไม่ปิด/ไม่ยกเลิก ภายใน 14 วัน ≤ 20 ใบ (เฉพาะของช่างใน session · DB กรอง) */
+export async function intakeMyJobs(token: string): Promise<IntakeMyJobsActionResult> {
+  const r = await listMyIntakeJobs(token);
+  return r.ok ? { ok: true, ...r.data } : failOf(r);
 }

@@ -73,3 +73,7 @@ export const JOB_PHOTO_SIGNED_URL_TTL_S = 15 * 60;
 /** caption ต่อรูป / เหตุผลที่ลบ (ตรงกับ CHECK ของ analytics.job_photo) */
 export const JOB_PHOTO_CAPTION_MAX = 60;
 export const JOB_PHOTO_REASON_MAX = 300;
+
+/** รูปที่ผู้จัดการแนบจากหน้างาน (source = shopfloor · QR ร้าน + PIN · 0189) ต่อใบ — มติเจ้าของ 21 ต.ค. 69 (อยู่ภายใต้เพดาน MAX_REFERENCE_PHOTOS ไม่ใช่เพิ่มจากมัน)
+ * 🔴 2 ที่เช่นกัน: ที่นี่ + migration 0189 (job_worker_photo_begin/add: v_sf >= 3 · trigger job_photo_guard: >= 3 · key 'max' ในผลของ RPC) — ขยับครึ่งเดียว = หน้าจอเสนอช่องที่ DB ปฏิเสธ */
+export const MAX_SHOPFLOOR_PHOTOS = 3;

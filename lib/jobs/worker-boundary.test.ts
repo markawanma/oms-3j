@@ -25,6 +25,8 @@ const WORKER_FILES = [
   join(ROOT, "lib", "jobs", "worker-view.ts"),
   // 0187 W1: ตรรกะ pure ของหน้าผู้จัดการ /w/s/ (ฟอร์ม · ข้อความ error · payload) — อยู่ในกราฟสาธารณะเหมือนกัน
   join(ROOT, "lib", "jobs", "shop-open.ts"),
+  // 0189 W2: ชั้น server ของ "แนบรูปจากหน้างาน" (เขียน storage ผ่าน lib/images/job-photo-storage — ไฟล์นอกรายการนี้ เพราะมี `.storage.from(` ตามแบบ lib/images/signing.ts)
+  join(ROOT, "lib", "jobs", "shop-photo-server.ts"),
 ];
 
 // import ที่ห้ามมีในกราฟหน้าช่าง

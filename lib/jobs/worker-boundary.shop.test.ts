@@ -80,6 +80,27 @@ describe("หน้า /w/s/<shopToken> — กราฟ import ทั้งเ�
     expect(rels.filter((r) => r.startsWith("lib/actions/"))).toEqual(["lib/actions/job-worker.ts"]);
   });
 
+  // 0189 W2: ทางแนบรูปจากหน้างาน "เขียน storage" — กราฟ static ของหน้านี้ต้องไม่ลากโค้ดตัด Exif ฝั่ง server (lib/images/server: โหลดด้วย dynamic import ใน shop-photo-server เท่านั้น)
+  // และ lib/images/client (ย่อรูปด้วย canvas · browser-only) ผ่อนให้แคบที่สุด: เฉพาะไฟล์ใน allowlist ด้านล่างเท่านั้นที่ import ได้ (ไฟล์ UI ใหม่ที่ต้องใช้จริง — เพิ่มชื่อที่นี่ทีละไฟล์พร้อมเหตุผล)
+  const IMAGES_CLIENT_ALLOWED_IMPORTERS: string[] = [];
+  it("W2: กราฟ static ไม่มี lib/images/server · มีชั้น shop-photo-server + job-photo-storage (กันเทสต์ว่างเปล่า)", () => {
+    expect(rels).toContain("lib/jobs/shop-photo-server.ts");
+    expect(rels).toContain("lib/images/job-photo-storage.ts");
+    expect(rels).not.toContain("lib/images/server.ts");
+  });
+  it("W2: lib/images/client อยู่ในกราฟได้เฉพาะผ่านไฟล์ใน allowlist (ค่าเริ่ม = ไม่มี)", () => {
+    for (const f of files) {
+      if (!/\.(ts|tsx)$/.test(f)) continue;
+      const imports = runtimeImports(readFileSync(f, "utf8")).map((spec) => resolveSpec(spec, f)).filter((x): x is string => x !== null).map(norm);
+      if (imports.some((x) => x.startsWith("lib/images/client"))) expect(IMAGES_CLIENT_ALLOWED_IMPORTERS, `${norm(f)} import lib/images/client`).toContain(norm(f));
+    }
+  });
+  it("W2: lib/images/server ถูกโหลดแบบ dynamic import เท่านั้น (ไม่มี static import ที่ไหนในไฟล์ของ shop-photo-server)", () => {
+    const src = readFileSync(join(ROOT, "lib", "jobs", "shop-photo-server.ts"), "utf8");
+    expect(runtimeImports(src).some((s) => s.startsWith("@/lib/images/server"))).toBe(false);
+    expect(src).toMatch(/await import\("@\/lib\/images\/server"\)/);
+  });
+
   it("ตัวจับกราฟทำงานจริง: จำลองไฟล์ที่ import production จะถูกจับ", () => {
     // ตรวจที่ตัวแยก import เอง (ไม่เขียนไฟล์ลง repo): `import type` ไม่นับ · import ธรรมดานับ
     expect(runtimeImports(`import type { X } from "@/lib/production/types";`)).toEqual([]);
