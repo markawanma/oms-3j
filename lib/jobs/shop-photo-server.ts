@@ -93,6 +93,9 @@ const PHOTO_CODE_TH: Record<string, string> = {
   photo_bytes_invalid: "ไฟล์รูปไม่ถูกต้อง (ใหญ่เกินกำหนดหรือว่างเปล่า)",
   photo_dims_invalid: "ขนาดภาพไม่ถูกต้อง ลองถ่ายรูปใหม่",
   photo_conflict: "รูปหลักของใบเปลี่ยนไปพร้อมกัน — ลองอีกครั้ง",
+  job_closed: "ใบนี้ปิดแล้ว — ออก QR ใหม่ไม่ได้",
+  token_cap: "ใบนี้มี QR ที่ใช้งานอยู่ครบ 5 ใบแล้ว — แจ้งออฟฟิศให้เพิกถอนก่อน",
+  token_not_issued: "ออก QR ไม่ได้ตอนนี้ — แจ้งออฟฟิศ",
 };
 
 /** ผลล้มของ RPC → ข้อความไทยของทางแนบรูป (ตาราง QR ร้านก่อน แล้วตารางรูป) */
@@ -178,6 +181,35 @@ export async function listMyIntakeJobs(token: unknown): Promise<WorkerOk<MyIntak
     return [{ jobId, orderNo, jobNo, designLabel: label, metal, qty: intOr0(o.qty), createdAt, status, photosCount: intOr0(o.photos_count), myPhotosCount: intOr0(o.my_photos_count), editable: o.editable === true }];
   });
   return { ok: true, data: { openAllowed: r.open_allowed === true, jobs, maxPhotos: MAX_SHOPFLOOR_PHOTOS } };
+}
+
+// ---------------------------------------------------------------------------
+// ออก QR ใหม่ของใบที่ฉันเปิด (มติ 21 ต.ค.)
+// ---------------------------------------------------------------------------
+
+export interface IntakeReissueResult {
+  /** QR ใบงานดิบ — แสดงครั้งเดียว (ผู้เรียกห้าม log/เก็บ) */
+  token: string;
+  printNo: number;
+  jobNo: string;
+}
+
+const TOKEN_RE = /^[A-Za-z0-9_-]{16,64}$/;
+
+export async function reissueIntakeToken(token: unknown, jobId: unknown): Promise<WorkerOk<IntakeReissueResult> | WorkerFail> {
+  if (typeof jobId !== "string" || !isUuid(jobId)) return photoFail(fail("order_not_found"));
+  const a = await authed(token);
+  if ("f" in a) return a.f;
+  const r = await callWorkerRpc("job_worker_token_reissue", { p_token_hash: a.c.tokenHash, p_session_hash: a.c.sessionHash, p_job_id: jobId, p_ip_hash: a.c.ipHash });
+  if (isFail(r)) return photoFail(r);
+  // ผลดิบมี token ดิบ (ตั้งใจ) — ตรวจ key ต้องห้ามบนสำเนาที่ไม่มี token (ไม่ log ผลดิบเด็ดขาด)
+  const { token: raw, ...rest } = r;
+  const bad = intakeClean(rest, "job_worker_token_reissue");
+  if (bad) return bad;
+  const jobNo = typeof rest.job_no === "string" ? rest.job_no.slice(0, 20) : "";
+  const printNo = finite(rest.print_no);
+  if (typeof raw !== "string" || !TOKEN_RE.test(raw) || !/^JB-\d{1,8}$/.test(jobNo) || printNo === null || !Number.isInteger(printNo) || printNo < 1 || printNo > 1000) return fail("error", GENERIC_JOB_ERROR);
+  return { ok: true, data: { token: raw, printNo, jobNo } };
 }
 
 // ---------------------------------------------------------------------------

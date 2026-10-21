@@ -10,8 +10,8 @@ import { INVISIBLE_RE, TARGET_PIECE_MAX_G, parseBufferText, parseCount, parseDat
 import { WORKER_SESSION_COOKIE, openIntakeJob, revokeWorkerSession, searchIntakeProducts, verifyIntakePin, verifyWorkerPin, workerArriveDiscrepancy, workerCancelLot, workerReceive, workerResolveDiscrepancy, workerSend } from "@/lib/jobs/worker-server";
 import type { IntakeMetal, IntakeOpenResult, IntakeProduct, WorkerFail } from "@/lib/jobs/worker-server";
 import { JOB_PHOTO_FILE_CODE, JOB_PHOTO_FILE_ERROR_TH } from "@/lib/jobs/photos";
-import { listIntakePhotos, listMyIntakeJobs, removeIntakePhoto, uploadIntakePhoto } from "@/lib/jobs/shop-photo-server";
-import type { IntakeJobRef, IntakePhotoList, IntakeUploadResult, MyIntakeList } from "@/lib/jobs/shop-photo-server";
+import { listIntakePhotos, listMyIntakeJobs, reissueIntakeToken, removeIntakePhoto, uploadIntakePhoto } from "@/lib/jobs/shop-photo-server";
+import type { IntakeJobRef, IntakePhotoList, IntakeReissueResult, IntakeUploadResult, MyIntakeList } from "@/lib/jobs/shop-photo-server";
 import { purityPctIssue, purityPctToFraction } from "@/lib/units/purity";
 import { WORKER_CODE_TH } from "@/lib/jobs/messages";
 
@@ -394,7 +394,18 @@ export async function intakeListPhotos(token: string, ref: { idemKey?: string | 
   return r.ok ? { ok: true, ...r.data } : failOf(r);
 }
 
-export type IntakeMyJobsActionResult = ({ ok: true } & MyIntakeList) | IntakeActionFail;
+export type IntakeReissueActionResult = ({ ok: true } & IntakeReissueResult) | IntakeActionFail;
+
+/**
+ * "ออก QR ใหม่" ของใบที่ฉันเปิดเอง (DB ตรวจเจ้าของ/สถานะ/เพดาน 5 ใบ) — คืน QR ดิบครั้งเดียวให้หน้าจอวาด (ห้าม log/เก็บ) · QR เดิมยังใช้ได้ (ไม่เพิกถอน)
+ */
+export async function intakeReissueToken(token: string, jobId: string): Promise<IntakeReissueActionResult> {
+  if (typeof jobId !== "string" || !isUuid(jobId)) return intakeBad("ข้อมูลไม่ถูกต้อง");
+  const r = await reissueIntakeToken(token, jobId);
+  return r.ok ? { ok: true, ...r.data } : failOf(r);
+}
+
+export type IntakeMyJobsActionResult =({ ok: true } & MyIntakeList) | IntakeActionFail;
 
 /** "ใบที่ฉันเปิด" บน hub QR ร้าน — ใบที่ยังไม่ปิด/ไม่ยกเลิก ภายใน 14 วัน ≤ 20 ใบ (เฉพาะของช่างใน session · DB กรอง) */
 export async function intakeMyJobs(token: string): Promise<IntakeMyJobsActionResult> {

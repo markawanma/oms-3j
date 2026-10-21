@@ -41,7 +41,7 @@ vi.mock("@/lib/supabase/server", () => ({
   }),
 }));
 
-import { intakeListPhotos, intakeMyJobs, intakeRemovePhoto, intakeUploadPhoto } from "./job-worker";
+import { intakeListPhotos, intakeMyJobs, intakeReissueToken, intakeRemovePhoto, intakeUploadPhoto } from "./job-worker";
 
 // ---- JPEG สังเคราะห์ (โครง marker ถูกต้อง) ----
 const ascii = (s: string): number[] => Array.from(s, (c) => c.charCodeAt(0));
@@ -410,6 +410,54 @@ describe("intakeRemovePhoto", () => {
     rpcMock.mockResolvedValueOnce({ data: { ok: true, storage_path: "../../etc/passwd", variant_sm_path: `${SHOP}/${JOB}/x.png`, promoted_photo_id: null }, error: null });
     expect((await intakeRemovePhoto(TOKEN, PH)).ok).toBe(true);
     expect(removeMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("intakeReissueToken — ออก QR ใหม่ของใบที่ฉันเปิด", () => {
+  const RAW = "Rw9-_xYz0123456789AbCdEfGhIjKlMnOpQrStUvWx";
+  const okRes = (o: Record<string, unknown> = {}) => ({ data: { ok: true, token: RAW, print_no: 2, job_no: "JB-0007", job_id: JOB, ...o }, error: null });
+
+  it("ok: ส่ง p_job_id (ไม่ส่ง shop id) · คืน token ดิบครั้งเดียว + printNo + jobNo · ไม่ log token", async () => {
+    rpcMock.mockResolvedValueOnce(okRes());
+    const r = await intakeReissueToken(TOKEN, JOB);
+    expect(r).toEqual({ ok: true, token: RAW, printNo: 2, jobNo: "JB-0007" });
+    const p = fn("job_worker_token_reissue")[0][1] as Record<string, unknown>;
+    expect(Object.keys(p).sort()).toEqual(["p_ip_hash", "p_job_id", "p_session_hash", "p_token_hash"]);
+    expect(p.p_job_id).toBe(JOB);
+    expect(JSON.stringify(errSpy.mock.calls)).not.toContain(RAW);
+  });
+
+  it("ปฏิเสธ (ใบคนอื่น/ออฟฟิศ/ปิด/ยกเลิก/เกิน 5/ถอนสิทธิ์/rate limit/QR ร้าน revoked/session หมด) → ข้อความไทย ไม่มี token", async () => {
+    const codes = ["order_not_found", "job_closed", "job_cancelled", "token_cap", "not_allowed", "rate_limited", "invalid_token", "session_required", "token_not_issued"];
+    for (const code of codes) {
+      rpcMock.mockResolvedValueOnce(fail(code));
+      const r = await intakeReissueToken(TOKEN, JOB);
+      expect(r).toMatchObject({ ok: false, code });
+      if (!r.ok) {
+        expect(r.error).toMatch(/[ก-๙]/);
+        expect(r.error).not.toContain("ข้อความของ DB");
+      }
+      expect(JSON.stringify(r)).not.toContain(RAW);
+    }
+  });
+
+  it("ก่อนถึง DB: jobId ไม่ใช่ uuid/null · ไม่มี session · token ผิดรูป → ไม่เรียก RPC", async () => {
+    expect(await intakeReissueToken(TOKEN, "nope")).toMatchObject({ ok: false });
+    expect(await intakeReissueToken(TOKEN, null as unknown as string)).toMatchObject({ ok: false });
+    hasSession = false;
+    expect(await intakeReissueToken(TOKEN, JOB)).toMatchObject({ ok: false, code: "session_required" });
+    hasSession = true;
+    expect(await intakeReissueToken("short", JOB)).toMatchObject({ ok: false, code: "invalid_token" });
+    expect(rpcMock).not.toHaveBeenCalled();
+  });
+
+  it("ผลผิดสัญญา (token ผิดรูป/ไม่มี · job_no ผิดรูป · print_no ผิด) → ข้อความกลาง ไม่ส่ง token ต่อ · ผลที่มี key เงินแอบมา = ทิ้ง", async () => {
+    for (const bad of [{ token: "short" }, { token: undefined }, { job_no: "X" }, { print_no: 0 }, { print_no: 1.5 }, { unit_cost_thb: 3 }]) {
+      rpcMock.mockResolvedValueOnce(okRes(bad));
+      const r = await intakeReissueToken(TOKEN, JOB);
+      expect(r.ok).toBe(false);
+      expect(JSON.stringify(r)).not.toContain(RAW);
+    }
   });
 });
 
