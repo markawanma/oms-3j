@@ -181,15 +181,14 @@ export interface ProductionOrderRow {
   itemCount: number;
   qtyPlannedTotal: number;
   qtyDoneTotal: number;
-  /** 0186 (PM-B): จำนวนรายการที่ยังไม่ผูก SKU (product_id null) — v_production_order ไม่มีคอลัมน์นี้ อ่านจากตารางรายการเป็น side-channel ·
-   * 0 เมื่ออ่านไม่ได้ (ป้ายหายเงียบ ไม่ล้มทั้งหน้ารายการ) · มีความหมายเฉพาะใบ open */
+  /** จำนวนรายการที่ยังไม่ผูก SKU (product_id null) — 0187: มาจาก v_production_order.unbound_item_count ที่เดียว (นับที่ DB) · มีความหมายเฉพาะใบ open */
   unboundItemCount: number;
   /** 0187: ที่มาของใบ — office (ออฟฟิศเปิด · ทุกใบเดิม) | shopfloor (ผู้จัดการเปิดจากมือถือ — ต้องรับทราบก่อนปิดใบ) */
-  openedVia?: "office" | "shopfloor";
+  openedVia: "office" | "shopfloor";
   /** ชื่อผู้จัดการที่เปิด (เฉพาะ shopfloor) */
-  openedByWorkerName?: string | null;
+  openedByWorkerName: string | null;
   /** เวลาที่ออฟฟิศรับทราบ · null = ยังไม่รับทราบ (shopfloor เท่านั้นที่ต้องมี) */
-  acknowledgedAt?: string | null;
+  acknowledgedAt: string | null;
 }
 
 export interface ProductionOrderItemRow {
@@ -221,8 +220,8 @@ export interface ProductionOrderItemRow {
   skuWeightG: number | null;
   /** 0186: true เฉพาะ SKU ที่ "ระบุโลหะจริง" (make_spec.metal หรือโหมด spot) — กัน warning "ต่างจาก SKU" ผิดทุกครั้งที่เปิดงานทอง (UX P1) */
   skuMetalKnown: boolean;
-  /** 0187: โลหะของรายการ ≠ โลหะของ SKU ที่ระบุโลหะชัด (คำนวณที่ DB · v_production_order_item.metal_mismatch) — เตือน ไม่บล็อก · ไม่มี SKU/SKU ไม่ระบุโลหะ = false · optional เพื่อ fixture เดิม */
-  metalMismatch?: boolean;
+  /** 0187: โลหะของรายการ ≠ โลหะของ SKU ที่ระบุโลหะชัด (คำนวณที่ DB · v_production_order_item.metal_mismatch) — เตือน ไม่บล็อก · ไม่มี SKU/SKU ไม่ระบุโลหะ = false */
+  metalMismatch: boolean;
   qtyPlanned: number;
   qtyDone: number | null;
   /** unit_cost stamped by production_order_done — null until this item's

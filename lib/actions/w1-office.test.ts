@@ -207,6 +207,29 @@ describe("setProductionItemLabel", () => {
   });
 });
 
+describe("log redaction (S3) — error จาก DB/fetch ที่มี URL ต้องไม่ถึง log", () => {
+  const URL_ERR = { code: "XX000", message: "fetch failed https://udqmamplbymxnknkjnkz.supabase.co/rest/v1/rpc/production_order_acknowledge?id=eq.SECRET-ID retry" };
+  const cases: [string, () => Promise<unknown>][] = [
+    ["acknowledgeProductionOrder", () => acknowledgeProductionOrder({ productionOrderId: PO })],
+    ["bindProductionItemProduct", () => bindProductionItemProduct({ productionOrderId: PO, itemId: ITEM, productId: PROD })],
+    ["setProductionItemLabel", () => setProductionItemLabel({ productionOrderId: PO, itemId: ITEM, label: "แหวน" })],
+  ];
+  it.each(cases)("%s: log เฉพาะ {code, message} ที่ลบ URL แล้ว · ผลที่คืนผู้ใช้เป็นข้อความกลาง", async (name, run) => {
+    rpcMock.mockResolvedValue({ data: null, error: URL_ERR });
+    const r = (await run()) as { ok: boolean; error?: string };
+    expect(r.ok).toBe(false);
+    expect(errSpy.mock.calls).toHaveLength(1);
+    const [label, payload] = errSpy.mock.calls[0] as [string, Record<string, unknown>];
+    expect(label).toBe(`${name} failed`);
+    expect(Object.keys(payload).sort()).toEqual(["code", "message"]);
+    expect(payload.code).toBe("XX000");
+    expect(String(payload.message)).toContain("<url>");
+    const logged = JSON.stringify(errSpy.mock.calls);
+    for (const leak of ["https://", "udqmamplbymxnknkjnkz", "SECRET-ID", "supabase.co"]) expect(logged, leak).not.toContain(leak);
+    expect(JSON.stringify(r)).not.toMatch(/https?:|supabase|SECRET/);
+  });
+});
+
 describe("getProductionOrders — ที่มาของใบ (0187)", () => {
   it("map opened_via/ผู้เปิด/รับทราบ · ค่าว่าง/แปลก = office (ใบเดิมทุกใบ)", async () => {
     const base = { note: null, spot_override_thb_per_gram: null, done_at: null, cancelled_at: null, cancel_reason: null, created_at: "2026-10-20T01:00:00Z", updated_at: "2026-10-20T01:00:00Z", item_count: 1, qty_planned_total: 3, qty_done_total: 0, status: "open" };

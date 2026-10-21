@@ -12,7 +12,7 @@ afterEach(cleanup);
 function order(over: Partial<ProductionOrderRow> = {}): ProductionOrderRow {
   return {
     id: "po-1", poNo: "PO-0034", status: "open", note: null, spotOverrideThbPerGram: null, doneAt: null, cancelledAt: null, cancelReason: null,
-    createdAt: "2026-10-20T02:12:00Z", updatedAt: "2026-10-20T02:12:00Z", itemCount: 2, qtyPlannedTotal: 30, qtyDoneTotal: 0, unboundItemCount: 0, ...over,
+    createdAt: "2026-10-20T02:12:00Z", updatedAt: "2026-10-20T02:12:00Z", itemCount: 2, qtyPlannedTotal: 30, qtyDoneTotal: 0, unboundItemCount: 0, openedVia: "office", openedByWorkerName: null, acknowledgedAt: null, ...over,
   };
 }
 

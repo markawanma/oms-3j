@@ -50,7 +50,7 @@ function row(over: Partial<ProductionOrderItemRow> = {}): ProductionOrderItemRow
     skuMetal: "silver",
     skuPurity: 0.925,
     skuWeightG: 3.2,
-    skuMetalKnown: false,
+    skuMetalKnown: false, metalMismatch: false,
     qtyPlanned: 30,
     qtyDone: null,
     stampedUnitCost: null,

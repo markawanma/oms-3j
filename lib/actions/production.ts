@@ -157,7 +157,7 @@ export async function getProductionOrders(): Promise<ActionResult<GetProductionO
         .from("v_production_order")
         .select(
           // 0187: ต่อท้าย opened_via/opened_by_worker_name/acknowledged_at (ต้อง apply 0187 ก่อน deploy — DB เดียว)
-          "id, po_no, status, note, spot_override_thb_per_gram, done_at, cancelled_at, cancel_reason, created_at, updated_at, item_count, qty_planned_total, qty_done_total, opened_via, opened_by_worker_name, acknowledged_at",
+          "id, po_no, status, note, spot_override_thb_per_gram, done_at, cancelled_at, cancel_reason, created_at, updated_at, item_count, qty_planned_total, qty_done_total, opened_via, opened_by_worker_name, acknowledged_at, unbound_item_count",
           { count: "exact" }
         )
         .eq("shop_id", shopId)
@@ -184,6 +184,7 @@ export async function getProductionOrders(): Promise<ActionResult<GetProductionO
         opened_via: string | null;
         opened_by_worker_name: string | null;
         acknowledged_at: string | null;
+        unbound_item_count: number | null;
       }[]
     ).map((r) => ({
       id: r.id,
@@ -199,41 +200,12 @@ export async function getProductionOrders(): Promise<ActionResult<GetProductionO
       itemCount: Number(r.item_count) || 0,
       qtyPlannedTotal: Number(r.qty_planned_total) || 0,
       qtyDoneTotal: Number(r.qty_done_total) || 0,
-      unboundItemCount: 0,
+      // 0187: จำนวนรายการที่ยังไม่ผูก SKU มาจาก v_production_order ที่เดียว (นับที่ DB — ไม่นับเองฝั่ง TS อีก)
+      unboundItemCount: Number(r.unbound_item_count) || 0,
       openedVia: r.opened_via === "shopfloor" ? "shopfloor" : "office",
       openedByWorkerName: r.opened_by_worker_name ?? null,
       acknowledgedAt: r.acknowledged_at ?? null,
     }));
-
-    // PM-B: จำนวนรายการที่ยังไม่ผูก SKU ต่อใบ (ป้าย "ยังไม่ผูก SKU n" บนรายการ) — v_production_order ไม่มีคอลัมน์นี้ (0186 ไม่ได้ขยาย view)
-    // อ่านตรงจากตารางรายการ (service_role มี select อยู่แล้ว — แพทเทิร์นเดียวกับ getProductionOrder) · อ่านไม่ได้ = ไม่มีป้าย ไม่ล้มทั้งหน้า
-    // เฉพาะใบ open ที่อยู่ในรายการนี้ (done/cancelled ไม่มีอะไรให้จัดการ) · แบ่ง .in() ทีละ 100 id (กัน URL ยาวเกิน) · แต่ละก้อนอ่านผ่าน fetchAllRows
-    // (PostgREST ตัดที่ 1,000 แถวเงียบๆ — บทเรียน 27 ส.ค.) ORDER BY id เป็นคีย์ unique กันแถวซ้ำ/หายระหว่างหน้า
-    try {
-      const openIds = rows.filter((r) => r.status === "open").map((r) => r.id);
-      const counts = new Map<string, number>();
-      for (let i = 0; i < openIds.length; i += 100) {
-        const chunk = openIds.slice(i, i + 100);
-        const res = await fetchAllRows((pageFrom, pageTo) =>
-          supabase
-            .schema(SCHEMA)
-            .from("production_order_item")
-            .select("id, production_order_id", { count: "exact" })
-            .eq("shop_id", shopId)
-            .is("product_id", null)
-            .in("production_order_id", chunk)
-            .order("id", { ascending: true })
-            .range(pageFrom, pageTo)
-        );
-        if (res.truncated) console.error("getProductionOrders: unbound item count truncated (badge may under-count)");
-        for (const u of res.rows as { production_order_id: string }[]) {
-          counts.set(u.production_order_id, (counts.get(u.production_order_id) ?? 0) + 1);
-        }
-      }
-      for (const row of rows) row.unboundItemCount = counts.get(row.id) ?? 0;
-    } catch (err) {
-      console.error("getProductionOrders: unbound item count failed (badge hidden)", err);
-    }
 
     return { ok: true, data: { rows, totalCount: result.totalCount, truncated: result.truncated } };
   } catch (err) {
@@ -266,7 +238,7 @@ export async function getProductionOrder(id: string): Promise<ActionResult<Produ
         .schema(SCHEMA)
         .from("v_production_order")
         .select(
-          "id, po_no, status, note, spot_override_thb_per_gram, done_at, cancelled_at, cancel_reason, created_at, updated_at, item_count, qty_planned_total, qty_done_total, opened_via, opened_by_worker_name, acknowledged_at"
+          "id, po_no, status, note, spot_override_thb_per_gram, done_at, cancelled_at, cancel_reason, created_at, updated_at, item_count, qty_planned_total, qty_done_total, opened_via, opened_by_worker_name, acknowledged_at, unbound_item_count"
         )
         .eq("id", id)
         .eq("shop_id", shopId)
@@ -360,6 +332,7 @@ export async function getProductionOrder(id: string): Promise<ActionResult<Produ
       opened_via: string | null;
       opened_by_worker_name: string | null;
       acknowledged_at: string | null;
+      unbound_item_count: number | null;
     };
 
     const order: ProductionOrderRow = {
@@ -376,7 +349,7 @@ export async function getProductionOrder(id: string): Promise<ActionResult<Produ
       itemCount: Number(o.item_count) || 0,
       qtyPlannedTotal: Number(o.qty_planned_total) || 0,
       qtyDoneTotal: Number(o.qty_done_total) || 0,
-      unboundItemCount: (itemsRes.data ?? []).filter((r) => (r as { product_id: string | null }).product_id === null).length,
+      unboundItemCount: Number(o.unbound_item_count) || 0,
       openedVia: o.opened_via === "shopfloor" ? "shopfloor" : "office",
       openedByWorkerName: o.opened_by_worker_name ?? null,
       acknowledgedAt: o.acknowledged_at ?? null,
