@@ -29,11 +29,12 @@ export function ShopPhotoQrPair({
   if (svg === null) return null;
   return (
     <figure className="m-0 space-y-1">
-      <div className="flex justify-center gap-2">
+      {/* 128 + 8 + 184 = 320px: จอ ≥ 360 (เนื้อหา 328) วางคู่ · จอแคบกว่า (เช่น 320 → เนื้อหา 288) ซ้อนแนวตั้ง ไม่ล้นออกขวา */}
+      <div className="flex flex-col items-center justify-center gap-2 min-[360px]:flex-row min-[360px]:items-start">
         <div className="relative h-32 w-32 shrink-0 overflow-hidden rounded-xl border-2 border-zinc-300 bg-zinc-100" data-testid="qr-pair-photo">
           {primaryUrl ? (
             // eslint-disable-next-line @next/next/no-img-element -- blob URL ในเครื่อง (ย่อแล้ว)
-            <img src={primaryUrl} alt="รูปหลักของใบงาน" draggable={false} className="h-full w-full object-cover" />
+            <img src={primaryUrl} alt="รูปหลักของใบงาน" referrerPolicy="no-referrer" draggable={false} className="h-full w-full object-cover" />
           ) : (
             <span className="flex h-full w-full items-center justify-center text-zinc-700">
               <ImageOff className="h-8 w-8" aria-hidden="true" />

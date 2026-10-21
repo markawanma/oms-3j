@@ -30,9 +30,12 @@ export interface ShopPhotoItem {
   retryable: boolean;
   /** ล้มเพราะ session หมดเวลา — ต้องใส่ PIN ใหม่ก่อนลองใหม่ */
   needsPin: boolean;
+  /** คำขอส่งหลุดกลางทาง (ไม่รู้ว่าถึง server ไหม) — "เอาออก" จากจอนี้ไม่ลบรูปที่อาจถึงแล้ว: บอกผู้ใช้ว่าไปลบได้ที่ "ใบที่ฉันเปิด" */
+  maybeSent: boolean;
 }
 
-export type ShopPhotoLock = "locked" | "closed" | "not_owner";
+/** locked = ช่างรับงานแล้ว · closed = ใบปิด/ยกเลิก · not_open = ใบไม่อยู่สถานะที่แก้รูปได้ (ไม่ใช่ปิด/ยกเลิก — ใช้คำกลาง) · not_owner = ไม่ใช่ผู้เปิดใบ */
+export type ShopPhotoLock = "locked" | "closed" | "not_open" | "not_owner";
 
 // ============================================================================
 // ข้อความ (ไทยล้วน · UX §9)
@@ -73,6 +76,12 @@ export const SHOP_PHOTO_TH = {
   failShopBudget: "พื้นที่รูปจากหน้างานเต็มแล้ว — แจ้งออฟฟิศ",
   failDailyCap: "วันนี้แนบรูปครบกำหนดแล้ว",
   failClosed: "ใบนี้ปิดหรือยกเลิกแล้ว — ส่งรูปไม่ได้",
+  failNotOpen: "ใบนี้แก้ไม่ได้ตอนนี้ — แจ้งออฟฟิศ",
+  failCapRef: "ใบนี้มีรูปครบ 5 รูปแล้ว — แจ้งออฟฟิศ",
+  failCapTotal: "ใบนี้มีรูปครบกำหนดแล้ว — แจ้งออฟฟิศ",
+  /** ป้ายสถานะการ์ด "ใบที่ฉันเปิด" เมื่อ editable=false — ไม่ระบุสาเหตุ (อาจเป็นช่างรับงาน/ใบไม่อยู่สถานะแก้ได้) */
+  cardNotEditable: "แก้รูปไม่ได้ตอนนี้",
+  removedMaybeSent: "ถ้ารูปนี้ส่งถึงแล้ว จะอยู่ใน \"ใบที่ฉันเปิด\" — ลบได้ที่นั่น",
   failNotOwner: "แก้รูปได้เฉพาะคนที่เปิดใบนี้",
   failQr: "QR ร้านนี้ใช้ไม่ได้แล้ว — ขอออฟฟิศออก QR ใหม่",
   locked: "ช่างรับงานแล้ว แก้รูปไม่ได้ — แจ้งออฟฟิศ",
@@ -151,7 +160,7 @@ export interface PhotoErrorView {
 }
 
 const FILE_CODES: ReadonlySet<string> = new Set(Object.values(JOB_PHOTO_FILE_CODE));
-const CLOSED_CODES: ReadonlySet<string> = new Set(["job_cancelled", "job_not_open", "job_closed"]);
+const CLOSED_CODES: ReadonlySet<string> = new Set(["job_cancelled", "job_closed"]);
 const NOT_OWNER_CODES: ReadonlySet<string> = new Set(["not_allowed", "order_not_found"]);
 
 /** code จาก action (job-worker) → ข้อความไทยของแถวรูป · ตัดสินจาก code ไม่ใช่ข้อความ (แก้ข้อความแล้วด่านไม่พัง) */
@@ -161,8 +170,11 @@ export function photoErrorView(f: PhotoFail): PhotoErrorView {
   if (code === "rate_limited") return { message: SHOP_PHOTO_TH.failRate, retryable: true };
   if (code === "job_locked") return { message: SHOP_PHOTO_TH.lockedUnsent, retryable: false, lock: "locked" };
   if (CLOSED_CODES.has(code)) return { message: SHOP_PHOTO_TH.failClosed, retryable: false, lock: "closed" };
+  if (code === "job_not_open") return { message: SHOP_PHOTO_TH.failNotOpen, retryable: false, lock: "not_open" };
   if (NOT_OWNER_CODES.has(code)) return { message: SHOP_PHOTO_TH.failNotOwner, retryable: false, lock: "not_owner" };
-  if (code === "photo_cap_shopfloor" || code === "photo_cap_ref" || code === "photo_cap_total") return { message: SHOP_PHOTO_TH.failCap, retryable: false };
+  if (code === "photo_cap_shopfloor") return { message: SHOP_PHOTO_TH.failCap, retryable: false };
+  if (code === "photo_cap_ref") return { message: SHOP_PHOTO_TH.failCapRef, retryable: false };
+  if (code === "photo_cap_total") return { message: SHOP_PHOTO_TH.failCapTotal, retryable: false };
   // clientPhotoKey ซ้ำกับรูปที่ลบแล้ว/ใบอื่น — เอารูปนี้ออกแล้วเลือกใหม่ (ลองใหม่ด้วย key เดิมได้ผลเดิม)
   if (code === "photo_key_used") return { message: SHOP_PHOTO_TH.failKeyUsed, retryable: false };
   if (code === "photo_budget_shopfloor") return { message: SHOP_PHOTO_TH.failShopBudget, retryable: false, quota: true };
@@ -183,6 +195,7 @@ export function photoActionErrorMessage(f: PhotoFail, fallback: string): string 
   if (v.needsPin) return SHOP_PHOTO_TH.failPin;
   if (v.lock === "locked") return SHOP_PHOTO_TH.locked;
   if (v.lock === "closed") return SHOP_PHOTO_TH.failClosed;
+  if (v.lock === "not_open") return SHOP_PHOTO_TH.failNotOpen;
   if (v.lock === "not_owner") return SHOP_PHOTO_TH.failNotOwner;
   if (f.code === "rate_limited") return SHOP_PHOTO_TH.failRate;
   return isCleanMessage(f.error) && (f.code ?? "") !== "" && f.code !== "error" ? f.error : fallback;
@@ -209,7 +222,7 @@ export const REISSUE_TH = {
   generic: "ออก QR ใหม่ไม่สำเร็จ — ลองอีกครั้ง",
 } as const;
 
-const REISSUE_CLOSED: ReadonlySet<string> = new Set(["job_closed", "job_cancelled", "job_not_open"]);
+const REISSUE_CLOSED: ReadonlySet<string> = new Set(["job_closed", "job_cancelled"]);
 
 /** ผลล้มของ action ออก QR ใหม่ → ข้อความไทย (ตัดสินจาก code) · needsPin = ต้องใส่ PIN ใหม่ */
 export function reissueErrorView(f: PhotoFail): { message: string; needsPin: boolean; final: boolean } {
@@ -217,6 +230,7 @@ export function reissueErrorView(f: PhotoFail): { message: string; needsPin: boo
   if (code === "session_required") return { message: SHOP_PHOTO_TH.failPin, needsPin: true, final: false };
   if (code === "rate_limited") return { message: "ส่งถี่เกินไป — รอสักครู่แล้วลองอีกครั้ง", needsPin: false, final: false };
   if (code === "token_cap") return { message: "ใบนี้มี QR ที่ใช้งานอยู่ครบ 5 ใบแล้ว — แจ้งออฟฟิศให้เพิกถอนก่อน", needsPin: false, final: true };
+  if (code === "job_not_open") return { message: SHOP_PHOTO_TH.failNotOpen, needsPin: false, final: true };
   if (REISSUE_CLOSED.has(code)) return { message: "ใบนี้ปิดหรือยกเลิกแล้ว — ออก QR ใหม่ไม่ได้", needsPin: false, final: true };
   if (NOT_OWNER_CODES.has(code)) return { message: SHOP_PHOTO_TH.failNotOwner, needsPin: false, final: true };
   if (code === "token_not_issued") return { message: "ออก QR ไม่ได้ตอนนี้ — แจ้งออฟฟิศ", needsPin: false, final: true };

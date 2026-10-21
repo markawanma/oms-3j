@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // QA W2-UI (R2-D2 · 21 ต.ค. 69) — เคสขอบของ useShopPhotos ที่เทสต์เดิมยังไม่ครอบ
 //  • ต้องไม่พัง: ผู้จัดการย้าย ★ ไปรูปที่ยังไม่ส่งระหว่างที่รูปหลักเดิมกำลังบิน → server จบที่รูปหลักตามที่เลือกล่าสุด และ UI ตรงกับ server
-//  • KNOWN-GAP (it.fails): ช่องโหว่ที่เจอจากการอ่านโค้ด — เขียนเป็น it.fails เพื่อบันทึกพฤติกรรมที่ "ควรเป็น": ตอนแก้โค้ดแล้ว it.fails จะแดง → ให้เปลี่ยนเป็น it ธรรมดา
+//  • เคยเป็น KNOWN-GAP (it.fails) 2 ข้อ — แก้โค้ดแล้ว (loadServer merge · ★ ย้อนไปรูปหลักจริงเมื่อรูปถูกล็อก) จึงเปลี่ยนเป็น it ปกติ
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import { useShopPhotos } from "./useShopPhotos";
@@ -39,7 +39,7 @@ function deferredIo() {
   const io: ShopPhotoIo = {
     upload: vi.fn(
       (fd: FormData) =>
-        new Promise((resolve) => {
+        new Promise<Awaited<ReturnType<ShopPhotoIo["upload"]>>>((resolve) => {
           pending.push({ fd, resolve });
         }),
     ),
@@ -84,8 +84,8 @@ describe("ต้องไม่พัง — ย้าย ★ ระหว่า
   });
 });
 
-describe("KNOWN-GAP (it.fails) — พฤติกรรมที่ควรเป็น แต่ตอนนี้ยังไม่เป็น", () => {
-  it.fails("W-10: รายการจาก server ที่อ่านก่อนอัปโหลดเสร็จ (ขอลิงก์รูปใหม่เงียบๆ ตอน URL หมดอายุ) ไม่ควรทำให้รูปที่เพิ่งส่งสำเร็จหายจากจอ", async () => {
+describe("เคยเป็น KNOWN-GAP (it.fails) — แก้แล้วในรอบ review/QA: เปลี่ยนเป็น it ปกติ", () => {
+  it("W-10: รายการจาก server ที่อ่านก่อนอัปโหลดเสร็จ (ขอลิงก์รูปใหม่เงียบๆ ตอน URL หมดอายุ) ไม่ควรทำให้รูปที่เพิ่งส่งสำเร็จหายจากจอ", async () => {
     const { io, pending } = deferredIo();
     const { result } = renderHook(() => useShopPhotos({ io, enforcePrimary: false, resize: async (f) => variants(f.name) }));
     act(() => result.current.loadServer({ photos: [sp("m1", { isPrimary: true })], locked: false, lockCode: null }));
@@ -104,7 +104,7 @@ describe("KNOWN-GAP (it.fails) — พฤติกรรมที่ควรเ
     expect(result.current.items.map((i) => i.serverId)).toContain("m2");
   });
 
-  it.fails("W-8: ช่างรับงานแล้วระหว่างที่รูปที่ผู้จัดการติด ★ ยังไม่ถูกส่ง — ★ ไม่ควรค้างอยู่ที่รูป locked (ที่ช่างจะไม่ได้เห็น) ขณะที่รูปอื่นที่ส่งแล้วเป็นหลักจริงบน server", async () => {
+  it("W-8: ช่างรับงานแล้วระหว่างที่รูปที่ผู้จัดการติด ★ ยังไม่ถูกส่ง — ★ ไม่ควรค้างอยู่ที่รูป locked (ที่ช่างจะไม่ได้เห็น) ขณะที่รูปอื่นที่ส่งแล้วเป็นหลักจริงบน server", async () => {
     const { io, pending } = deferredIo();
     const { result } = renderHook(() => useShopPhotos({ io, resize: async (f) => variants(f.name) }));
     act(() => result.current.pick([file("a"), file("b")]));

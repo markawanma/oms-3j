@@ -13,7 +13,7 @@ import "server-only";
 import { JOB_PHOTO_DIM_SLACK_PX, MAX_BYTES, MAX_SHOPFLOOR_PHOTOS, MD_MAX_PX, SM_MAX_PX } from "@/lib/images/constants";
 import { deleteJobPhotoObjects, uploadJobPhotoPair } from "@/lib/images/job-photo-storage";
 import { signJobPhotoPaths } from "@/lib/images/signing";
-import { isUuid } from "@/lib/jobs/input";
+import { IDEM_KEY_RE as IDEM_RE, isUuid } from "@/lib/jobs/input";
 import { logJobFailure } from "@/lib/jobs/log";
 import { GENERIC_JOB_ERROR } from "@/lib/jobs/messages";
 import { JOB_PHOTO_FILE_CODE, JOB_PHOTO_FILE_ERROR_TH, JOB_PHOTO_PATH_RE } from "@/lib/jobs/photos";
@@ -74,7 +74,6 @@ export interface MyIntakeList {
 /** อ้างใบ: idem key (เพิ่งเปิดใบในเซสชันนี้) หรือ job id (จากรายการ "ใบที่ฉันเปิด") — อย่างใดอย่างหนึ่ง */
 export type IntakeJobRef = { idemKey: string } | { jobId: string };
 
-const IDEM_RE = /^[A-Za-z0-9_-]{16,64}$/;
 
 /** ข้อความของ code ที่ RPC แนบรูปคืน (ไทยล้วน ไม่มีตัวเลขภายใน) — ทับข้อความตาราง/DB เพื่อให้คงที่ */
 const PHOTO_CODE_TH: Record<string, string> = {

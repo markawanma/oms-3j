@@ -6,7 +6,7 @@
 // session ช่าง: cookie httpOnly · secure (production) · sameSite=lax · path=/w · อายุตาม DB (≤ 12 ชม.) · เก็บ session token ดิบ (DB เก็บแค่ sha256)
 
 import { cookies } from "next/headers";
-import { INVISIBLE_RE, TARGET_PIECE_MAX_G, parseBufferText, parseCount, parseDate, parseLabel, parsePieces, parsePin, parseQtyText, parseScrapReason, parseSeq, parseText, parseWeight, parseWeightOrZero, isUuid } from "@/lib/jobs/input";
+import { IDEM_KEY_RE as IDEM_RE, INVISIBLE_RE, TARGET_PIECE_MAX_G, parseBufferText, parseCount, parseDate, parseLabel, parsePieces, parsePin, parseQtyText, parseScrapReason, parseSeq, parseText, parseWeight, parseWeightOrZero, isUuid } from "@/lib/jobs/input";
 import { WORKER_SESSION_COOKIE, openIntakeJob, revokeWorkerSession, searchIntakeProducts, verifyIntakePin, verifyWorkerPin, workerArriveDiscrepancy, workerCancelLot, workerReceive, workerResolveDiscrepancy, workerSend } from "@/lib/jobs/worker-server";
 import type { IntakeMetal, IntakeOpenResult, IntakeProduct, WorkerFail } from "@/lib/jobs/worker-server";
 import { JOB_PHOTO_FILE_CODE, JOB_PHOTO_FILE_ERROR_TH } from "@/lib/jobs/photos";
@@ -271,7 +271,6 @@ export interface IntakeOpenActionInput {
 
 export type IntakeOpenActionResult = { ok: true; result: IntakeOpenResult } | IntakeActionFail;
 
-const IDEM_RE = /^[A-Za-z0-9_-]{16,64}$/;
 
 /**
  * เปิดใบผลิต + ใบงาน + QR ใบงาน (ครั้งเดียว) — DB ทำทั้งก้อนในทรานแซกชันเดียว

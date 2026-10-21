@@ -8,8 +8,8 @@
 //   • token ใบงานดิบ (QR) อยู่ใน state นี้เท่านั้น — ไม่เขียน storage/URL/log · ออกจากจอสำเร็จ = หาย
 //   • ไม่มีตัวเลขเงิน/ราคา · ไม่มีลิงก์ออกนอกแอปช่าง
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { intakeListPhotos, intakeOpen, intakeRemovePhoto, intakeSetPrimaryPhoto, intakeUploadPhoto } from "@/lib/actions/job-worker";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { intakeOpen } from "@/lib/actions/job-worker";
 import { bkkDateOf } from "@/lib/jobs/dates";
 import {
   MSG_NETWORK, backToSearch, buildIntakeInput, newForm, newIdemKey, purityLabel, shopErrorView, shopOpenIssues, stepProgress, stepsFor,
@@ -22,8 +22,8 @@ import type { ShopProfileReady } from "@/components/domain/jobs/worker/shop/Shop
 import { ShopMetalStep } from "@/components/domain/jobs/worker/shop/ShopMetalStep";
 import { ShopOpenSuccess } from "@/components/domain/jobs/worker/shop/ShopOpenSuccess";
 import { ShopPhotoStep } from "@/components/domain/jobs/worker/shop/ShopPhotoStep";
+import { useIntakePhotoIo } from "@/components/domain/jobs/worker/shop/useIntakePhotoIo";
 import { useShopPhotos } from "@/components/domain/jobs/worker/shop/useShopPhotos";
-import type { ShopPhotoIo } from "@/components/domain/jobs/worker/shop/useShopPhotos";
 import { LABEL_FIELD_ID, ShopProductSearch } from "@/components/domain/jobs/worker/shop/ShopProductSearch";
 import { ShopQtyStep } from "@/components/domain/jobs/worker/shop/ShopQtyStep";
 import { ShopReview } from "@/components/domain/jobs/worker/shop/ShopReview";
@@ -65,16 +65,7 @@ export function ShopOpenFlow({
   const headRef = useRef<HTMLHeadingElement>(null);
   const [today] = useState(todayBkk);
   // 0189 W2: รูปจากหน้างาน — state เดียวกับฟอร์ม (ล้างพร้อมฟอร์ม · ไม่ unmount ตอนแผ่น PIN ซ้อน) · action ฉีดเข้า hook (hook ไม่ import server action เอง)
-  const photoIo = useMemo<ShopPhotoIo>(
-    () => ({
-      upload: (fd) => intakeUploadPhoto(token, fd),
-      remove: (photoId) => intakeRemovePhoto(token, photoId),
-      list: (ref) => intakeListPhotos(token, ref),
-      setPrimary: (ref, photoId) => intakeSetPrimaryPhoto(token, { ...("idemKey" in ref ? { idemKey: ref.idemKey } : { jobId: ref.jobId }), photoId }),
-    }),
-    [token],
-  );
-  const photos = useShopPhotos({ io: photoIo });
+  const photos = useShopPhotos({ io: useIntakePhotoIo(token) });
   const resetPhotos = photos.reset;
 
   // เปลี่ยนขั้น → โฟกัสหัวขั้น (screen reader อ่านหัวใหม่) + เลื่อนขึ้นบน

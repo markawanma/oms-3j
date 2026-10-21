@@ -112,7 +112,7 @@ export function ShopReview({
                             <li key={p.key} className="relative h-14 w-14 overflow-hidden rounded-lg border border-zinc-300 bg-zinc-100">
                               {p.smUrl && (
                                 // eslint-disable-next-line @next/next/no-img-element -- blob URL ในเครื่อง
-                                <img src={p.smUrl} alt={`รูปที่ ${i + 1} จาก ${photos.length}`} draggable={false} className="h-full w-full object-cover" />
+                                <img src={p.smUrl} alt={`รูปที่ ${i + 1} จาก ${photos.length}`} referrerPolicy="no-referrer" draggable={false} className="h-full w-full object-cover" />
                               )}
                               {p.isPrimary && (
                                 <span aria-hidden="true" className="absolute left-0.5 top-0.5 rounded bg-white px-0.5 text-sm leading-none font-bold text-zinc-900 shadow">

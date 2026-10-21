@@ -26,6 +26,7 @@ import { getJobPhotos, pullJobPhotoFromCatalog, removeJobPhoto, reorderJobPhotos
 import { MAX_REFERENCE_PHOTOS } from "@/lib/images/constants";
 import type { ImageVariants } from "@/lib/images/client";
 import { GENERIC_JOB_ERROR } from "@/lib/jobs/messages";
+import { PHOTO_SOURCE_FROM_TH, photoSourceTag } from "@/lib/jobs/photos";
 import type { JobPhotoRow } from "@/lib/jobs/photos";
 
 const toView = (p: JobPhotoRow): PhotoView => ({ id: p.id, smUrl: p.smUrl, mdUrl: p.mdUrl, isPrimary: p.isPrimary, fromCatalog: p.source === "product" });
@@ -258,8 +259,7 @@ export function JobPhotosCard({
   const canPull = sku !== null && photos !== null && remaining > 0 && !list.some((p) => p.source === "product");
   // 0189 W2: ใบมีรูปจากหน้างาน + ที่มาอื่นปนกัน = ป้ายที่มาต่อภาพ (ออฟฟิศต้องแยกรูปของผู้จัดการออกจากรูปที่ตัวเองถ่าย) · ไม่มีรูปหน้างาน = พฤติกรรมเดิม (ป้าย "จากแคตตาล็อก" อย่างเดียว)
   const mixedSources = list.some((p) => p.source === "shopfloor") && new Set(list.map((p) => p.source)).size > 1;
-  const tagOf = (p: JobPhotoRow): "shopfloor" | "office" | "catalog" | null => (!mixedSources ? null : p.source === "shopfloor" ? "shopfloor" : p.source === "product" ? "catalog" : "office");
-  const SOURCE_LABEL = { shopfloor: "จากหน้างาน", office: "จากออฟฟิศ", catalog: "จากแคตตาล็อก" } as const;
+  const tagOf = (p: JobPhotoRow) => (mixedSources ? photoSourceTag(p.source) : null);
 
   const inflight = up.items.filter((i) => i.phase !== "error").length;
   const failed = up.items.length - inflight;
@@ -357,7 +357,7 @@ export function JobPhotosCard({
                     isPrimary={p.isPrimary}
                     fromCatalog={p.source === "product"}
                     sourceTag={tagOf(p)}
-                    label={`รูปที่ ${i + 1} จาก ${list.length} · ${p.isPrimary ? "รูปหลัก · " : ""}แตะเพื่อดู${tagOf(p) ? ` · ${SOURCE_LABEL[tagOf(p) as "shopfloor" | "office" | "catalog"]}` : p.source === "product" ? " · จากแคตตาล็อก" : ""}`}
+                    label={`รูปที่ ${i + 1} จาก ${list.length} · ${p.isPrimary ? "รูปหลัก · " : ""}แตะเพื่อดู${tagOf(p) ? ` · ${PHOTO_SOURCE_FROM_TH[photoSourceTag(p.source)]}` : p.source === "product" ? " · จากแคตตาล็อก" : ""}`}
                     onClick={() => setViewerId(p.id)}
                     onRetryLoad={(r) => void refreshUrls(r)}
                   />

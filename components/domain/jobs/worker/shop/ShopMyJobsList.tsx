@@ -3,7 +3,7 @@
 // ShopMyJobsList — W-9 "ใบที่ฉันเปิด" บน hub หลัง PIN (UX §5A.1 · มติ Q1=B) · มือถือ 360
 // เฉพาะใบที่ผู้จัดการคนนี้เปิดและยังไม่ปิด (server กรองที่ DB — เราแค่แสดง) · ล่าสุดก่อน · แสดง 5 ใบแรก + "ดูทั้งหมด (n)" ขยายในหน้าเดิม (5 = ค่าตั้งต้นของ UX ไม่ใช่มติเจ้าของ)
 // การ์ดมีแค่: ชื่อแบบ · JB · ป้ายโลหะ · จำนวน · รูป n/3 · ป้ายสถานะ (✎ แก้ได้ / 🔒 ช่างรับงานแล้ว — ไอคอน+คำ ไม่พึ่งสี) — ไม่มีเนื้อ%/น้ำหนัก/เงิน/เวลาเปิด/ชื่อลูกค้า (type ก็ไม่มี field พวกนี้)
-// ป้ายสถานะเป็นค่า ณ ตอนโหลดรายการ (อาจเก่า) — W-10 โหลดซ้ำเสมอ และ server เป็นด่านจริง · การ์ดล็อกยังแตะได้ (ดูรูป/ยืนยันว่าใบไหน)
+// ป้ายสถานะ: "✎ แก้ได้" / "🔒 แก้รูปไม่ได้ตอนนี้" (คำกลาง — editable=false อาจเป็นช่างรับงาน หรือใบไม่อยู่สถานะที่แก้ได้ ไม่เหมารวมว่า "ช่างรับงานแล้ว") · ป้ายเป็นค่า ณ ตอนโหลดรายการ (อาจเก่า) — W-10 โหลดซ้ำเสมอ และ server เป็นด่านจริง · การ์ดล็อกยังแตะได้ (ดูรูป/ยืนยันว่าใบไหน)
 // 4 state: loading (skeleton 2 การ์ด — ไม่บล็อกปุ่ม "เปิดงานใหม่") · empty (บรรทัดเดียว) · error (ลองอีกครั้ง — ปุ่มเปิดงานใหม่ใช้ได้ตามเดิม) · success
 // session หมดเวลา → onSessionLost (แผ่น PIN เดิม) · โหลดใหม่เมื่อ mount (เข้า hub/กลับจาก W-8/W-10) หรือกด รีเฟรช · ไม่ poll
 
@@ -11,7 +11,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Lock, Pencil, RefreshCw } from "lucide-react";
 import { intakeMyJobs } from "@/lib/actions/job-worker";
 import { ShopMetalTag } from "@/components/domain/jobs/worker/shop/ShopMetalTag";
-import { SHOP_PHOTO_MAX } from "@/lib/jobs/shop-photos";
+import { SHOP_PHOTO_MAX, SHOP_PHOTO_TH } from "@/lib/jobs/shop-photos";
 import type { MyIntakeJob } from "@/lib/jobs/shop-photo-server";
 
 export const MSG_MYJOBS_ERROR = "โหลดรายการใบไม่ได้ — เช็คสัญญาณแล้วลองอีกครั้ง";
@@ -32,7 +32,7 @@ function Card({ job, onOpen }: { job: MyIntakeJob; onOpen: () => void }) {
         ) : (
           <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-zinc-200 px-2 py-0.5 text-base font-semibold text-zinc-900">
             <Lock className="h-4 w-4" aria-hidden="true" />
-            ช่างรับงานแล้ว
+            {SHOP_PHOTO_TH.cardNotEditable}
           </span>
         )}
       </span>

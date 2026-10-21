@@ -77,13 +77,14 @@ const dropUrl = (u: string): void => {
   }
 };
 
-const blank = (key: string): ShopPhotoItem => ({ key, phase: "resizing", isPrimary: false, serverPrimary: false, saved: false, serverId: null, smUrl: null, mdUrl: null, message: null, retryable: true, needsPin: false });
+const blank = (key: string): ShopPhotoItem => ({ key, phase: "resizing", isPrimary: false, serverPrimary: false, saved: false, serverId: null, smUrl: null, mdUrl: null, message: null, retryable: true, needsPin: false, maybeSent: false });
 
-const LOCK_MESSAGE: Record<ShopPhotoLock, string> = { locked: SHOP_PHOTO_TH.lockedUnsent, closed: SHOP_PHOTO_TH.failClosed, not_owner: SHOP_PHOTO_TH.failNotOwner };
+const LOCK_MESSAGE: Record<ShopPhotoLock, string> = { locked: SHOP_PHOTO_TH.lockedUnsent, closed: SHOP_PHOTO_TH.failClosed, not_open: SHOP_PHOTO_TH.failNotOpen, not_owner: SHOP_PHOTO_TH.failNotOwner };
 
 /** lock_code ของ list → ชนิดล็อก */
 function lockKindOf(code: string | null): ShopPhotoLock {
-  if (code === "job_cancelled" || code === "job_not_open" || code === "job_closed") return "closed";
+  if (code === "job_cancelled" || code === "job_closed") return "closed";
+  if (code === "job_not_open") return "not_open"; // ไม่ใช่ปิด/ยกเลิก — คำกลาง "แก้ไม่ได้ตอนนี้"
   return "locked";
 }
 
@@ -147,7 +148,15 @@ export function useShopPhotos({
   const lockAll = useCallback(
     (kind: ShopPhotoLock) => {
       setLock(kind);
-      mutate((cur) => cur.map((i) => (i.serverId === null && i.phase !== "resizing" ? { ...i, phase: "locked", message: LOCK_MESSAGE[kind], retryable: false, needsPin: false } : i)));
+      mutate((cur) => {
+        // ★ ที่ติดอยู่กับรูปที่ไม่มีวันถึง server (locked) ต้องย้อนไปรูปหลักจริงบน server (ถ้ามี) — ไม่งั้นจอบอกว่าช่างจะเห็นรูปที่ไม่เคยถึงเขา
+        const realPrimary = cur.find((i) => i.serverId !== null && i.serverPrimary);
+        const next = cur.map((i) => {
+          if (i.serverId !== null || i.phase === "resizing") return i;
+          return { ...i, phase: "locked" as const, message: LOCK_MESSAGE[kind], retryable: false, needsPin: false, isPrimary: realPrimary ? false : i.isPrimary };
+        });
+        return realPrimary && !next.some((i) => i.isPrimary) ? next.map((i) => (i.key === realPrimary.key ? { ...i, isPrimary: true } : i)) : next;
+      });
     },
     [mutate, setLock],
   );
@@ -204,10 +213,11 @@ export function useShopPhotos({
         res = await fns.current.io.upload(fd);
       } catch {
         if (g !== gen.current) return;
-        patch(key, { phase: "error", message: typeof navigator !== "undefined" && navigator.onLine === false ? SHOP_PHOTO_TH.failNet : SHOP_PHOTO_TH.failGeneric, retryable: true });
+        patch(key, { phase: "error", message: typeof navigator !== "undefined" && navigator.onLine === false ? SHOP_PHOTO_TH.failNet : SHOP_PHOTO_TH.failGeneric, retryable: true, maybeSent: true });
         return;
       }
       if (g !== gen.current || !alive.current) return;
+      patch(key, { maybeSent: false }); // server ตอบแล้ว = รู้ผลชัดเจน (สำเร็จหรือปฏิเสธ)
       if (res.ok) {
         // res.already = key เดิมเคยแนบสำเร็จแล้ว (คำขอก่อนหน้าถึง server แต่ตอบไม่ถึง) → ถือว่าสำเร็จ รูปเดิมไม่ซ้ำ
         markDone(key, res.photo);
@@ -269,7 +279,10 @@ export function useShopPhotos({
           err = e;
         }
         files.current.delete(key);
-        if (!alive.current || g !== gen.current) return;
+        if (!alive.current) return;
+        // reset ระหว่างย่อ (ล้างฟอร์ม/เปลี่ยนคน/เปิดอีกใบ): ผลของรูปเก่าทิ้ง แต่ต้อง "ทำต่อ" ไม่ใช่ return — ไม่งั้น flag resizing ถูกปล่อยโดยไม่มีใครเดินคิว
+        // ของรูปที่เพิ่งเลือกใหม่หลัง reset (คิวใหม่ค้างที่ "กำลังย่อรูป…" ตลอดไป — pick() เรียก pumpResize แล้วเจอ flag ยังเป็น true จึงไม่เริ่มเอง)
+        if (g !== gen.current) continue;
         if (!itemsRef.current.some((i) => i.key === key)) continue; // เอาออกระหว่างย่อ
         if (!v) {
           reject(key, describeShopResizeError(err));
@@ -280,7 +293,8 @@ export function useShopPhotos({
         const md = makeUrl(v.md.blob);
         urls.current.set(key, [sm, md].filter((u): u is string => u !== null));
         const phase = lockRef.current ? "locked" : refRef.current ? "queued" : "ready";
-        patch(key, { phase, smUrl: sm, mdUrl: md, message: phase === "locked" ? LOCK_MESSAGE[lockRef.current as ShopPhotoLock] : null, retryable: phase !== "locked" });
+        const hasRealPrimary = itemsRef.current.some((i) => i.serverId !== null && i.serverPrimary);
+        patch(key, { phase, smUrl: sm, mdUrl: md, message: phase === "locked" ? LOCK_MESSAGE[lockRef.current as ShopPhotoLock] : null, retryable: phase !== "locked", ...(phase === "locked" && hasRealPrimary ? { isPrimary: false } : {}) });
         if (phase === "queued") void pump();
       }
     } finally {
@@ -396,33 +410,53 @@ export function useShopPhotos({
       const fn = fns.current.io.setPrimary;
       const ref = refRef.current;
       if (!fn || !ref) return { ok: false, message: SHOP_PHOTO_TH.primaryFail };
-      const before = itemsRef.current;
+      // ย้อนเฉพาะ "ฟิลด์ดาว" ของรูปที่มีอยู่ตอนกด — ห้าม commit snapshot ทั้งก้อน (รูปอื่นที่ส่งเสร็จ/ล้ม/ถูกลบระหว่างรอ server จะย้อนกลับเป็นสถานะเก่าไปด้วย)
+      const flags = new Map(itemsRef.current.map((i) => [i.key, { isPrimary: i.isPrimary, serverPrimary: i.serverPrimary }]));
+      const rollback = () => mutate((cur) => cur.map((i) => (flags.has(i.key) ? { ...i, ...flags.get(i.key) } : i)));
       mutate((cur) => cur.map((i) => ({ ...i, isPrimary: i.key === key, serverPrimary: i.key === key })));
       let r: Awaited<ReturnType<NonNullable<ShopPhotoIo["setPrimary"]>>>;
       try {
         r = await fn(ref, it.serverId);
       } catch {
-        commit(before);
+        rollback();
         return { ok: false, message: SHOP_PHOTO_TH.primaryFail };
       }
       if (!r.ok) {
-        commit(before);
+        rollback();
         const v = photoErrorView(r as PhotoFail);
         if (v.lock) lockAll(v.lock);
         return { ok: false, message: photoActionErrorMessage(r as PhotoFail, SHOP_PHOTO_TH.primaryFail) };
       }
       return { ok: true };
     },
-    [commit, lockAll, mutate],
+    [lockAll, mutate],
   );
 
-  /** จอแก้รูป W-10: โหลดรูปจาก server (เฉพาะของตัวเอง) แทนที่รูปที่ server รู้จักแล้ว · รูปในเครื่องที่ยังไม่ส่งคงไว้ */
+  /**
+   * จอแก้รูป W-10: รวมรายการจาก server (เฉพาะของตัวเอง) เข้ากับของในเครื่อง — "merge" ไม่ใช่ replace
+   * • รูปที่ server รู้จัก (saved) = ใช้ของ server (ลิงก์ใหม่ · ถูกลบที่อื่นแล้วหาย)
+   * • รูปที่เพิ่งส่งสำเร็จในจอนี้แต่ยังไม่อยู่ใน list (list อ่านที่ server ก่อนรูปลงทะเบียน แล้วผลมาถึงช้ากว่า) = ต้องไม่หาย — ไม่งั้นตัวนับ n/3 ผิดแล้วผู้จัดการเพิ่มรูปที่ 4 ที่ DB ไม่รับ
+   * • รูปในเครื่องที่ยังไม่ส่ง คงไว้
+   */
   const loadServer = useCallback(
     (res: { photos: ServerPhoto[]; locked: boolean; lockCode: string | null }) => {
       const mine = res.photos.filter((p) => p.mine);
-      for (const i of itemsRef.current) if (i.serverId !== null) releaseUrls(i.key);
-      const saved: ShopPhotoItem[] = mine.map((p) => ({ ...blank(`srv-${p.id}`), phase: "done", saved: true, serverId: p.id, smUrl: p.smUrl, mdUrl: p.mdUrl, isPrimary: p.isPrimary, serverPrimary: p.isPrimary, retryable: false }));
-      mutate((cur) => [...saved, ...cur.filter((i) => i.serverId === null)]);
+      const listIds = new Set(mine.map((p) => p.id));
+      const cur = itemsRef.current;
+      const sessionDone = cur.filter((i) => i.serverId !== null && !i.saved);
+      const staleMissing = sessionDone.filter((i) => !listIds.has(i.serverId as string));
+      const localById = new Map(sessionDone.filter((i) => listIds.has(i.serverId as string)).map((i) => [i.serverId as string, i]));
+      // รูปที่ server รู้จัก: ถ้าเพิ่งส่งในจอนี้ ใช้ภาพในเครื่องต่อ (ไม่กระพริบ ไม่เปลี่ยน blob) แต่ดาวตาม server · ไม่งั้นใช้ของ server
+      const merged: ShopPhotoItem[] = mine.map((p) => {
+        const local = localById.get(p.id);
+        if (local) return { ...local, isPrimary: p.isPrimary, serverPrimary: p.isPrimary };
+        return { ...blank(`srv-${p.id}`), phase: "done", saved: true, serverId: p.id, smUrl: p.smUrl, mdUrl: p.mdUrl, isPrimary: p.isPrimary, serverPrimary: p.isPrimary, retryable: false };
+      });
+      for (const i of cur) if (i.serverId !== null && i.saved) releaseUrls(i.key);
+      // list เก่า: รูปที่เพิ่งส่งถือดาวอยู่ → ดาวของ list ที่ไม่ตรงถูกถอน (ไม่ให้มีสองดวง)
+      const keepStar = staleMissing.some((i) => i.isPrimary);
+      const listPart = keepStar ? merged.map((i) => (i.isPrimary ? { ...i, isPrimary: false } : i)) : merged;
+      mutate((now) => [...listPart, ...staleMissing.map((s) => now.find((i) => i.key === s.key) ?? s), ...now.filter((i) => i.serverId === null)]);
       if (res.locked) lockAll(lockKindOf(res.lockCode));
       else setLock(null);
     },

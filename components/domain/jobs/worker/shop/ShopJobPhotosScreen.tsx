@@ -1,15 +1,15 @@
 "use client";
 
 // ShopJobPhotosScreen — W-10 จอแก้รูปของใบที่ฉันเปิด (UX §5A.2 · มติ Q1=B) + ปุ่ม "ออก QR ใหม่" (มติ 21 ต.ค. ทับ Q8-ก)
-// ใช้ ShopPhotoUploadPanel ตัวเดียวกับ W-8 (โหมด edit): รูปโหลดจาก server (signed URL 15 นาที) แทนไฟล์ในเครื่อง · รูปที่บันทึกแล้วไม่โชว์ "ส่งแล้ว" · รูปใหม่ = ย่อ → ส่งทีละรูปด้วย jobId (ไม่มี idem key ใบแล้ว)
+// ใช้ ShopPhotoUploadPanel ตัวเดียวกับ W-8 (โหมด edit): รูปโหลดจาก server (signed URL 15 นาที) แทนไฟล์ในเครื่อง · รูปที่บันทึกแล้วไม่โชว์ "ส่งแล้ว" · รูปใหม่ = ย่อ → ส่งทีละรูปอ้างใบด้วย jobId (ไม่มี idem key ของใบแล้ว) + clientPhotoKey ต่อรูป (กันซ้ำตอนลองใหม่)
 // แก้ได้จนช่างเริ่มรับงาน (server เป็นด่านจริง — ป้าย "แก้ได้" ในรายการอาจเก่า จอนี้โหลดซ้ำเสมอและรับ locked จาก server ทั้งตอนโหลด/ส่ง/ลบ)
-// ออก QR ใหม่: ไม่เพิกถอน QR เดิม · เพดาน 5 ใบ/ใบงาน (DB) · token ดิบแปลงเป็น SVG ทันทีแล้วทิ้ง (ไม่เก็บ state/storage/log) · กันกดซ้ำ (ไม่มี idem key — กดซ้ำ = กินโควตา)
+// ออก QR ใหม่: ไม่เพิกถอน QR เดิม · เพดาน 5 ใบ/ใบงาน (DB) · token ดิบแปลงเป็น SVG ทันทีแล้วทิ้ง (ไม่เก็บ state/storage/log) · กันกดซ้ำด้วย inflight + idem key ต่อการออก (key เดิมข้ามการลองใหม่ → server ตอบ already ไม่กินโควตาเพิ่ม · ได้ผลชัดเจนแล้วเปลี่ยน key)
 // 4 state: loading (skeleton) · empty (0 รูป: แก้ได้/ล็อก คนละข้อความ — ในการ์ดรูป) · error (โหลดไม่ได้ + ลองอีกครั้ง/ใส่ PIN ใหม่ · ส่ง/ลบ/ล้ม ในแถว) · success (แถวรูป + ปุ่มเพิ่ม หรือแถบล็อก)
 // ใบปิด/ยกเลิกระหว่างเปิดจอ: แถบ info + "กลับไปรายการ" · session หมดเวลา: แถวล้ม/ข้อความ + แผ่น PIN (หน้านี้คง mount ผ่าน ShopIntakeApp — ผ่านแล้วกลับมาที่จอเดิม)
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronLeft } from "lucide-react";
-import { intakeListPhotos, intakeReissueToken, intakeRemovePhoto, intakeSetPrimaryPhoto, intakeUploadPhoto } from "@/lib/actions/job-worker";
+import { intakeListPhotos, intakeReissueToken } from "@/lib/actions/job-worker";
 import { Modal } from "@/components/ui/Modal";
 import { BigButton } from "@/components/domain/jobs/worker/WorkerParts";
 import { ShopExitGuard } from "@/components/domain/jobs/worker/shop/ShopExitGuard";
@@ -17,8 +17,8 @@ import { ShopMetalTag } from "@/components/domain/jobs/worker/shop/ShopMetalTag"
 import { ShopPhotoQrPair } from "@/components/domain/jobs/worker/shop/ShopPhotoQrPair";
 import { ShopPhotoUploadPanel } from "@/components/domain/jobs/worker/shop/ShopPhotoUploadPanel";
 import { orderedItems } from "@/components/domain/jobs/worker/shop/ShopPhotoViewerHost";
+import { useIntakePhotoIo } from "@/components/domain/jobs/worker/shop/useIntakePhotoIo";
 import { useShopPhotos } from "@/components/domain/jobs/worker/shop/useShopPhotos";
-import type { ShopPhotoIo } from "@/components/domain/jobs/worker/shop/useShopPhotos";
 import { useRefreshGate } from "@/components/domain/jobs/photos/useRefreshGate";
 import type { RetryReason } from "@/components/domain/jobs/photos/types";
 import { renderQrSvgClient, workerPageUrl } from "@/lib/jobs/qr-client";
@@ -33,15 +33,7 @@ const MSG_QR_DRAW_FAIL = "สร้างภาพ QR ไม่สำเร็�
 type Load = { kind: "loading" } | { kind: "error"; message: string; pin: boolean } | { kind: "ready" };
 
 export function ShopJobPhotosScreen({ token, job, onBack, onSessionLost }: { token: string; job: MyIntakeJob; onBack: () => void; onSessionLost: () => void }) {
-  const io = useMemo<ShopPhotoIo>(
-    () => ({
-      upload: (fd) => intakeUploadPhoto(token, fd),
-      remove: (photoId) => intakeRemovePhoto(token, photoId),
-      list: (ref) => intakeListPhotos(token, ref),
-      setPrimary: (ref, photoId) => intakeSetPrimaryPhoto(token, { ...("idemKey" in ref ? { idemKey: ref.idemKey } : { jobId: ref.jobId }), photoId }),
-    }),
-    [token],
-  );
+  const io = useIntakePhotoIo(token);
   // รูปหลักอาจเป็นของออฟฟิศ/แคตตาล็อก — ไม่บังคับดาวที่รูปของผู้จัดการ (ตามที่ server บอก)
   const photos = useShopPhotos({ io, enforcePrimary: false });
   const { loadServer, start } = photos;
@@ -169,7 +161,8 @@ export function ShopJobPhotosScreen({ token, job, onBack, onSessionLost }: { tok
 
   // ---------- จอผลลัพธ์ QR ใหม่ (แสดงครั้งเดียว) ----------
   if (qr !== null) {
-    const primary = list.find((i) => i.isPrimary && i.smUrl) ?? list.find((i) => i.smUrl) ?? null;
+    // คู่รูป+QR เฉพาะเมื่อรู้ "รูปหลักจริง" (ดาวจาก server) — ไม่เลือกรูปอื่นมาแทนแล้วติดป้าย "รูปหลัก" · รูปหลักเป็นของออฟฟิศ/ไม่มีรูปหลักของเรา = QR เดี่ยว
+    const primary = list.find((i) => i.isPrimary && i.smUrl) ?? null;
     return (
       <div className="space-y-4 text-center">
         <h1 ref={headRef} tabIndex={-1} className="text-2xl font-bold text-zinc-900 focus:outline-none">
@@ -184,9 +177,9 @@ export function ShopJobPhotosScreen({ token, job, onBack, onSessionLost }: { tok
           </div>
         )}
         <p className="text-[17px] font-bold text-zinc-900">
-          ให้ช่างขั้นแรกสแกนจากจอนี้
+          ให้ช่างสแกน QR นี้จากจอ
           <br />
-          เพื่อรับงานได้เลย
+          เพื่อเปิดใบงานนี้
         </p>
         <p role="note" className="rounded-xl border-2 border-amber-400 bg-amber-50 p-3 text-left text-base text-amber-950">
           {REISSUE_TH.once}

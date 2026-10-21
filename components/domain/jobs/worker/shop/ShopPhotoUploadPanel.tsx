@@ -104,7 +104,7 @@ export function ShopPhotoUploadPanel({
   const { items, lock } = photos;
   const [expanded, setExpanded] = useState(false);
   const [openKey, setOpenKey] = useState<string | null>(null);
-  const [status, setStatus] = useStatusLine();
+  const [status, setStatus] = useStatusLine(8000); // 8 วิ — ข้อความ "ถ้ารูปนี้ส่งถึงแล้ว…" ยาวกว่าข้อความทั่วไป
   const [wasOffline, setWasOffline] = useState(false);
   const fullRef = useRef<HTMLParagraphElement>(null);
   const prevRemaining = useRef(photos.remaining);
@@ -158,7 +158,7 @@ export function ShopPhotoUploadPanel({
                 <button type="button" onClick={() => setOpenKey(it.key)} aria-label={`รูปที่ ${i + 1} จาก ${total}${it.isPrimary ? " · รูปหลัก" : ""} · แตะเพื่อดู`} className="relative block h-10 w-10 overflow-hidden rounded-md border border-zinc-300 bg-zinc-100 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary-300">
                   {it.smUrl ? (
                     // eslint-disable-next-line @next/next/no-img-element -- blob URL ในเครื่อง
-                    <img src={it.smUrl} alt="" draggable={false} className="h-full w-full object-cover" />
+                    <img src={it.smUrl} alt="" referrerPolicy="no-referrer" draggable={false} className="h-full w-full object-cover" />
                   ) : (
                     <ImageOff className="m-auto h-5 w-5 text-zinc-700" aria-hidden="true" />
                   )}
@@ -195,7 +195,7 @@ export function ShopPhotoUploadPanel({
 
       {lock !== null && (
         <p role="note" className="rounded-xl border-2 border-sky-300 bg-sky-50 p-3 text-lg font-semibold text-sky-950">
-          {lock === "locked" ? `🔒 ${SHOP_PHOTO_TH.locked}` : lock === "closed" ? SHOP_PHOTO_TH.failClosed : SHOP_PHOTO_TH.failNotOwner}
+          {lock === "locked" ? `🔒 ${SHOP_PHOTO_TH.locked}` : lock === "closed" ? SHOP_PHOTO_TH.failClosed : lock === "not_open" ? SHOP_PHOTO_TH.failNotOpen : SHOP_PHOTO_TH.failNotOwner}
         </p>
       )}
 
@@ -220,13 +220,17 @@ export function ShopPhotoUploadPanel({
       )}
 
       {total === 0 && mode === "edit" && (
-        <p className="rounded-xl border-2 border-dashed border-zinc-300 p-3 text-lg text-zinc-800">{lock !== null ? "ใบนี้ไม่มีรูป — ช่างรับงานแล้ว เพิ่มไม่ได้" : "ยังไม่มีรูป — ถ่ายให้ช่างดูได้จนช่างเริ่มรับงาน"}</p>
+        <p className="rounded-xl border-2 border-dashed border-zinc-300 p-3 text-lg text-zinc-800">{lock === "locked" ? "ใบนี้ไม่มีรูป — ช่างรับงานแล้ว เพิ่มไม่ได้" : lock !== null ? "ใบนี้ไม่มีรูป — เพิ่มไม่ได้" : "ยังไม่มีรูป — ถ่ายให้ช่างดูได้จนช่างเริ่มรับงาน"}</p>
       )}
 
       {total > 0 && (
         <ul className="space-y-2">
           {list.map((it, i) => (
-            <Row key={it.key} item={it} index={i + 1} total={total} onOpen={() => setOpenKey(it.key)} onRetry={() => photos.retry(it.key)} onRemove={() => void photos.remove(it.key)} onRetryLoad={onRetryLoad} />
+            <Row key={it.key} item={it} index={i + 1} total={total} onOpen={() => setOpenKey(it.key)} onRetry={() => photos.retry(it.key)} onRemove={() => {
+                // ส่งล้มแบบไม่รู้ผล: รูปอาจถึง server แล้ว — เอาออกจากจอนี้ไม่ลบที่ server · บอกว่าไปลบที่ "ใบที่ฉันเปิด"
+                if (it.maybeSent) setStatus(SHOP_PHOTO_TH.removedMaybeSent);
+                void photos.remove(it.key);
+              }} onRetryLoad={onRetryLoad} />
           ))}
         </ul>
       )}

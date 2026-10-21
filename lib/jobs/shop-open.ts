@@ -72,7 +72,7 @@ export interface ShopForm {
   note: string;
 }
 
-/** คีย์กันกดซ้ำ 36 ตัว [0-9a-f-] — ตรง IDEM_RE (16–64 ตัว [A-Za-z0-9_-]) ของ action · เรียกฝั่ง client ตอนเปิดฟอร์มเท่านั้น */
+/** คีย์กันกดซ้ำ 36 ตัว [0-9a-f-] — ตรง IDEM_KEY_RE (lib/jobs/input · 16–64 ตัว [A-Za-z0-9_-]) ของ action · เรียกฝั่ง client ตอนเปิดฟอร์มเท่านั้น */
 export function newIdemKey(): string {
   const c = globalThis.crypto;
   if (c && typeof c.randomUUID === "function") return c.randomUUID();

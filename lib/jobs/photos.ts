@@ -6,6 +6,14 @@ import { JOB_PHOTO_CAPTION_MAX, MAX_JOB_PHOTOS, MAX_REFERENCE_PHOTOS } from "@/l
 
 export type JobPhotoSource = "office" | "shopfloor" | "product";
 
+/** ที่มาของรูปที่แสดงเป็นป้าย (0189 W2): หน้างาน = ผู้จัดการแนบผ่านมือถือ · ออฟฟิศ · แคตตาล็อก (รูปจาก SKU) — ที่เดียวของการแปลง source → ป้าย/คำ ใช้ร่วมการ์ดหน้าใบงานและแถบ OfficeAck */
+export type PhotoSourceTag = "shopfloor" | "office" | "catalog";
+export const photoSourceTag = (s: JobPhotoSource): PhotoSourceTag => (s === "shopfloor" ? "shopfloor" : s === "product" ? "catalog" : "office");
+/** ป้ายบนภาพ (สั้น) */
+export const PHOTO_SOURCE_TAG_TH: Record<PhotoSourceTag, string> = { shopfloor: "หน้างาน", office: "ออฟฟิศ", catalog: "แคตตาล็อก" };
+/** ใช้ต่อท้าย aria-label ของภาพ */
+export const PHOTO_SOURCE_FROM_TH: Record<PhotoSourceTag, string> = { shopfloor: "จากหน้างาน", office: "จากออฟฟิศ", catalog: "จากแคตตาล็อก" };
+
 export interface JobPhotoRow {
   id: string;
   /** signed URL ของรูปย่อ (sm 480px) · null = เซ็นไม่สำเร็จ (UI แสดงไอคอนพัง + ปุ่มโหลดใหม่) */

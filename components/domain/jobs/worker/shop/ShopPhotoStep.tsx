@@ -38,7 +38,7 @@ function Tile({ item, index, total, onOpen }: { item: ShopPhotoItem; index: numb
     >
       {item.smUrl ? (
         // eslint-disable-next-line @next/next/no-img-element -- blob URL ในเครื่อง (ย่อแล้ว) ไม่ผ่าน next/image
-        <img src={item.smUrl} alt="" draggable={false} className="absolute inset-0 h-full w-full object-cover" />
+        <img src={item.smUrl} alt="" referrerPolicy="no-referrer" draggable={false} className="absolute inset-0 h-full w-full object-cover" />
       ) : (
         <span className="absolute inset-0 flex items-center justify-center text-zinc-700">
           <ImageOff className="h-7 w-7" aria-hidden="true" />

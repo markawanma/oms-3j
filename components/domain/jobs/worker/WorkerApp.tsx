@@ -144,6 +144,8 @@ export function WorkerApp({ token, view }: { token: string; view: WorkerView }) 
             <JobPhotoThumb
               smUrl={photos[0].mdUrl ?? photos[0].smUrl}
               size="hero"
+              keepPrevious
+              stableKey={photos[0].id}
               label={`รูปงาน ${j.jobNo} ${photos.length > 1 ? `${photos.length} รูป ` : ""}แตะเพื่อดูเต็มจอ`}
               countChip={photos.length}
               onClick={() => setViewerAt(0)}

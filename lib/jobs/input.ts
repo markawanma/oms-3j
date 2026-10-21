@@ -7,6 +7,8 @@ const bad = <T = never,>(error: string): Parsed<T> => ({ ok: false, error });
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const isUuid = (v: unknown): v is string => typeof v === "string" && UUID_RE.test(v);
+/** idem key (16–64 ตัว [A-Za-z0-9_-]) — ที่เดียวของ action ช่าง/ชั้น server รูป/ฟอร์ม (shop-open.newIdemKey สร้างค่าที่ตรงรูปแบบนี้) */
+export const IDEM_KEY_RE = /^[A-Za-z0-9_-]{16,64}$/;
 
 /**
  * จุลภาคในช่องน้ำหนัก (BUG-J1-01: "95,5" เคยถูกตัดทิ้งเป็น 955 = ผิด 10 เท่าโดยไม่เตือน)

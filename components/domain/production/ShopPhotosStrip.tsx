@@ -21,13 +21,11 @@ import { Skeleton } from "@/components/ui/Skeleton";
 import { useToast } from "@/components/ui/Toast";
 import { formatBangkokTime } from "@/lib/format";
 import { GENERIC_JOB_ERROR } from "@/lib/jobs/messages";
+import { PHOTO_SOURCE_FROM_TH, photoSourceTag } from "@/lib/jobs/photos";
 import type { JobPhotoRow } from "@/lib/jobs/photos";
 
 export const MSG_STRIP_EMPTY = "ผู้เปิดไม่ได้แนบรูปจากหน้างาน";
 export const MSG_STRIP_ERROR = "โหลดรูปไม่ได้ — ตรวจรูปที่หน้าใบงานได้";
-
-const SOURCE_TAG = (s: JobPhotoRow["source"]): "shopfloor" | "office" | "catalog" => (s === "shopfloor" ? "shopfloor" : s === "product" ? "catalog" : "office");
-const SOURCE_TH = { shopfloor: "จากหน้างาน", office: "จากออฟฟิศ", catalog: "จากแคตตาล็อก" } as const;
 
 /** รูปหลักขึ้นหน้า (loader เรียงแบบนี้อยู่แล้ว — ใช้ตอนแก้ในเครื่องแบบ optimistic) */
 const primaryFirst = (l: readonly JobPhotoRow[]): JobPhotoRow[] => [...l.filter((p) => p.isPrimary), ...l.filter((p) => !p.isPrimary)];
@@ -158,8 +156,8 @@ export function ShopPhotosStrip({ jobId, jobNo, openedByName }: { jobId: string;
                   size="tile"
                   isPrimary={p.isPrimary}
                   fromCatalog={p.source === "product"}
-                  sourceTag={allShop ? null : SOURCE_TAG(p.source)}
-                  label={`รูปที่ ${i + 1} จาก ${list.length} · ${p.isPrimary ? "รูปหลัก · " : ""}${allShop ? "" : `${SOURCE_TH[SOURCE_TAG(p.source)]} · `}แตะเพื่อดู`}
+                  sourceTag={allShop ? null : photoSourceTag(p.source)}
+                  label={`รูปที่ ${i + 1} จาก ${list.length} · ${p.isPrimary ? "รูปหลัก · " : ""}${allShop ? "" : `${PHOTO_SOURCE_FROM_TH[photoSourceTag(p.source)]} · `}แตะเพื่อดู`}
                   onClick={() => setViewerId(p.id)}
                   onRetryLoad={refreshUrls}
                 />

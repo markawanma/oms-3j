@@ -180,7 +180,8 @@ describe("W-9 ใบที่ฉันเปิด", () => {
     expect(within(a).getByText("แก้ได้")).toBeInTheDocument();
     expect(a).toHaveClass("min-h-[88px]");
     const b = screen.getByRole("button", { name: /JB-0030/ });
-    expect(within(b).getByText("ช่างรับงานแล้ว")).toBeInTheDocument();
+    expect(within(b).getByText("แก้รูปไม่ได้ตอนนี้")).toBeInTheDocument(); // คำกลาง (editable=false อาจไม่ใช่เพราะช่างรับงาน)
+    expect(within(b).queryByText("ช่างรับงานแล้ว")).not.toBeInTheDocument();
     expect(within(b).getByText("ไม่มีรูป")).toBeInTheDocument();
     expect(within(b).getByText("เงิน")).toBeInTheDocument();
     expect(b).toBeEnabled(); // แตะได้ (ดูอย่างเดียว)

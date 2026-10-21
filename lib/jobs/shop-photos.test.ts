@@ -8,7 +8,7 @@ import {
 import type { ShopPhotoItem } from "@/lib/jobs/shop-photos";
 
 const it_ = (o: Partial<ShopPhotoItem> = {}): ShopPhotoItem => ({
-  key: "k", phase: "ready", isPrimary: false, serverPrimary: false, saved: false, serverId: null, smUrl: null, mdUrl: null, message: null, retryable: true, needsPin: false, ...o,
+  key: "k", phase: "ready", isPrimary: false, serverPrimary: false, saved: false, serverId: null, smUrl: null, mdUrl: null, message: null, retryable: true, needsPin: false, maybeSent: false, ...o,
 });
 
 describe("เพดาน", () => {
@@ -33,12 +33,16 @@ describe("photoErrorView — ตัดสินจาก code ไม่ใช่
     expect(v.retryable).toBe(false);
     expect(v.message).toBe("ไม่ได้ส่ง — ช่างรับงานแล้ว");
   });
-  it("job_cancelled / job_not_open / job_closed → ใบปิดหรือยกเลิก", () => {
-    for (const code of ["job_cancelled", "job_not_open", "job_closed"]) {
+  it("job_cancelled / job_closed → ใบปิดหรือยกเลิก · job_not_open → คำกลาง 'ใบนี้แก้ไม่ได้ตอนนี้' (ไม่ใช่ปิด/ยกเลิก — ห้ามบอกผิดเหตุ)", () => {
+    for (const code of ["job_cancelled", "job_closed"]) {
       const v = photoErrorView({ code });
       expect(v.lock, code).toBe("closed");
       expect(v.message, code).toBe("ใบนี้ปิดหรือยกเลิกแล้ว — ส่งรูปไม่ได้");
     }
+    const n = photoErrorView({ code: "job_not_open", error: "ใบนี้ไม่อยู่ในสถานะที่แนบรูปได้ — แจ้งออฟฟิศ" });
+    expect(n).toEqual({ message: "ใบนี้แก้ไม่ได้ตอนนี้ — แจ้งออฟฟิศ", retryable: false, lock: "not_open" });
+    expect(n.message).not.toMatch(/ปิด|ยกเลิก/);
+    expect(photoActionErrorMessage({ code: "job_not_open" }, "x")).toBe("ใบนี้แก้ไม่ได้ตอนนี้ — แจ้งออฟฟิศ");
   });
   it("not_allowed / order_not_found → ไม่ใช่ผู้เปิด (ข้อความเดียวกัน ไม่บอกว่าใบมีจริงไหม)", () => {
     for (const code of ["not_allowed", "order_not_found"]) {
@@ -47,11 +51,10 @@ describe("photoErrorView — ตัดสินจาก code ไม่ใช่
       expect(v.message, code).toBe("แก้รูปได้เฉพาะคนที่เปิดใบนี้");
     }
   });
-  it("ครบเพดานรูป → ลองใหม่ไม่ช่วย (ไม่ล็อกทั้งใบ — ลบรูปเก่าแล้วเพิ่มได้)", () => {
-    for (const code of ["photo_cap_shopfloor", "photo_cap_ref", "photo_cap_total"]) {
-      const v = photoErrorView({ code });
-      expect(v, code).toEqual({ message: "ใบนี้มีรูปจากหน้างานครบ 3 รูปแล้ว", retryable: false });
-    }
+  it("ครบเพดานรูป → ลองใหม่ไม่ช่วย (ไม่ล็อกทั้งใบ) · เพดานหน้างาน = 3 · เพดานรวม reference = 5 (ข้อความตัวเลขตรงของจริง — ไม่ใช้ข้อความ 3 รูปกับเพดาน 5)", () => {
+    expect(photoErrorView({ code: "photo_cap_shopfloor" })).toEqual({ message: "ใบนี้มีรูปจากหน้างานครบ 3 รูปแล้ว", retryable: false });
+    expect(photoErrorView({ code: "photo_cap_ref" })).toEqual({ message: "ใบนี้มีรูปครบ 5 รูปแล้ว — แจ้งออฟฟิศ", retryable: false });
+    expect(photoErrorView({ code: "photo_cap_total" })).toEqual({ message: "ใบนี้มีรูปครบกำหนดแล้ว — แจ้งออฟฟิศ", retryable: false });
   });
   it("โควตา M1 (พื้นที่รูปหน้างานของร้านเต็ม / ช่างแนบครบต่อ 24 ชม.) → ข้อความตรงกับ server · ลองใหม่ไม่ช่วย · quota=true (หยุดคิวทั้งชุด) · ไม่มีตัวเลขโควตาบนจอ", () => {
     expect(photoErrorView({ code: "photo_budget_shopfloor", error: "x" })).toEqual({ message: "พื้นที่รูปจากหน้างานเต็มแล้ว — แจ้งออฟฟิศ", retryable: false, quota: true });
@@ -106,7 +109,8 @@ describe("reissueErrorView — ออก QR ใหม่", () => {
   it("แต่ละ code → ข้อความไทย + ต้องใส่ PIN/จบ (ลองซ้ำไม่ช่วย)", () => {
     expect(reissueErrorView({ code: "session_required" })).toEqual({ message: "หมดเวลาแล้ว — ใส่ PIN ใหม่", needsPin: true, final: false });
     expect(reissueErrorView({ code: "token_cap" })).toEqual({ message: "ใบนี้มี QR ที่ใช้งานอยู่ครบ 5 ใบแล้ว — แจ้งออฟฟิศให้เพิกถอนก่อน", needsPin: false, final: true });
-    for (const code of ["job_closed", "job_cancelled", "job_not_open"]) expect(reissueErrorView({ code }), code).toEqual({ message: "ใบนี้ปิดหรือยกเลิกแล้ว — ออก QR ใหม่ไม่ได้", needsPin: false, final: true });
+    for (const code of ["job_closed", "job_cancelled"]) expect(reissueErrorView({ code }), code).toEqual({ message: "ใบนี้ปิดหรือยกเลิกแล้ว — ออก QR ใหม่ไม่ได้", needsPin: false, final: true });
+    expect(reissueErrorView({ code: "job_not_open" })).toEqual({ message: "ใบนี้แก้ไม่ได้ตอนนี้ — แจ้งออฟฟิศ", needsPin: false, final: true });
     for (const code of ["not_allowed", "order_not_found"]) expect(reissueErrorView({ code }).message, code).toBe("แก้รูปได้เฉพาะคนที่เปิดใบนี้");
     expect(reissueErrorView({ code: "token_not_issued" }).final).toBe(true);
     expect(reissueErrorView({ code: "rate_limited" })).toMatchObject({ final: false, needsPin: false });
