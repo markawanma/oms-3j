@@ -1353,7 +1353,7 @@ begin
     select j.* into v_jobrow
       from analytics.job j join analytics.production_order_item i on i.id = j.production_order_item_id
      where i.production_order_id = v_po.id and j.parent_job_id is null order by j.created_at limit 1;
-    return jsonb_build_object('ok', true, 'already', true, 'po_no', v_po.po_no, 'job_no', v_jobrow.job_no,
+    return jsonb_build_object('ok', true, 'already', true, 'order_no', v_po.po_no, 'job_no', v_jobrow.job_no,
                               'design_label', v_jobrow.design_label, 'metal', v_jobrow.metal, 'qty_order', v_jobrow.qty_order);
   end if;
 
@@ -1417,7 +1417,7 @@ begin
       case when v_code = 'job_exists' and v_dup_no is not null then jsonb_build_object('job_no', v_dup_no) else '{}'::jsonb end);
   end;
 
-  return jsonb_build_object('ok', true, 'already', false, 'po_no', v_po.po_no, 'job_no', v_jobrow.job_no, 'token', v_tok ->> 'token',
+  return jsonb_build_object('ok', true, 'already', false, 'order_no', v_po.po_no, 'job_no', v_jobrow.job_no, 'token', v_tok ->> 'token',
                             'design_label', v_jobrow.design_label, 'sku', v_jobrow.sku_snapshot, 'sku_pending', v_jobrow.product_id is null,
                             'metal', v_jobrow.metal, 'qty_order', v_jobrow.qty_order, 'qty_planned', v_jobrow.qty_planned,
                             'is_new_design', v_new, 'due_date', v_jobrow.due_date);

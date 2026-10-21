@@ -140,7 +140,7 @@ end;
 $c$;
 create function pg_temp.badkeys(j jsonb) returns text
  language sql as $c$
-  select coalesce(string_agg(distinct k, ','), '') from pg_temp.keys_deep(j) k where k ~* '(cost|price|thb|margin|unit_cost|customer|target_piece_g)' $c$;
+  select coalesce(string_agg(distinct k, ','), '') from pg_temp.keys_deep(j) k where k ~* '(cost|price|thb|margin|unit_cost|customer|target_piece_g|profit|buyer|client|quote_?no|po_?no|invoice|receipt|deposit|paid|grand_?total|subtotal|vat|tax_?id|phone|email|address|nre_|baht)' $c$;
 create function pg_temp.ik() returns text language sql as $c$ select 'ik' || replace(gen_random_uuid()::text, '-', '') $c$;
 create function pg_temp.ctr(p_shop uuid) returns text language sql as $c$
   select coalesce((select last_no from analytics.job_counter where shop_id = p_shop), 0) || '/' || coalesce((select last_no from analytics.production_order_counter where shop_id = p_shop), 0) $c$;
@@ -822,7 +822,7 @@ begin
     s0 := pg_temp.shop_state(a);
     r2 := pg_temp.opn(sM, jsonb_build_object('idem', k, 'label', 'กดซ้ำ', 'metal', 'silver'));
     v := v || pg_temp.chk('O9a', 'key เดิมจากช่างเดิม → already=true · เลขใบ/เลขใบผลิตเดิม · ไม่มี token ในผล (ไม่ออก QR ซ้ำ) · PO/ใบงาน/QR/event/ตัวนับไม่ขยับ',
-      r ->> 'already' = 'false' and r2 ->> 'ok' = 'true' and r2 ->> 'already' = 'true' and r2 ->> 'job_no' = r ->> 'job_no' and r2 ->> 'po_no' = r ->> 'po_no' and not (r2 ? 'token') and pg_temp.shop_state(a) = s0);
+      r ->> 'already' = 'false' and r2 ->> 'ok' = 'true' and r2 ->> 'already' = 'true' and r2 ->> 'job_no' = r ->> 'job_no' and r2 ->> 'order_no' = r ->> 'order_no' and not (r2 ? 'token') and pg_temp.shop_state(a) = s0);
     select count(*) into n from analytics.production_order where shop_id = a and intake_idem_key = k;
     v := v || pg_temp.chk('O9b', 'ใบผลิตที่ถือ key นี้มีใบเดียว · QR ใบงาน active ของใบนี้ = 1', n = 1 and (select count(*) from analytics.job_token t join analytics.job j on j.id = t.job_id where j.job_no = r ->> 'job_no' and j.shop_id = a and t.revoked_at is null) = 1);
     r3 := pg_temp.opn(sM2, jsonb_build_object('idem', k, 'label', 'กดซ้ำ', 'metal', 'silver'));
@@ -895,7 +895,7 @@ begin
   begin
     k := pg_temp.ik();
     r := pg_temp.opn(sM, jsonb_build_object('idem', k, 'product', fixa, 'qty', 3));
-    j := pg_temp.jr(r ->> 'job_no'); po := pg_temp.por(r ->> 'po_no'); it := pg_temp.itr(r ->> 'po_no');
+    j := pg_temp.jr(r ->> 'job_no'); po := pg_temp.por(r ->> 'order_no'); it := pg_temp.itr(r ->> 'order_no');
     v := v || pg_temp.chk('OK1a', 'ผลสำเร็จ: ok · already=false · token 43 ตัว · sku=ZZ187-FIXA · sku_pending=false · metal=silver · qty 3/3 · ชื่อแบบ = ชื่อสินค้า',
       r ->> 'ok' = 'true' and r ->> 'already' = 'false' and (r ->> 'token') ~ '^[A-Za-z0-9_-]{43}$' and r ->> 'sku' = 'ZZ187-FIXA' and r ->> 'sku_pending' = 'false' and r ->> 'metal' = 'silver'
       and (r ->> 'qty_order')::int = 3 and (r ->> 'qty_planned')::int = 3 and r ->> 'design_label' = 'แหวนทดสอบ A');
@@ -925,7 +925,7 @@ begin
   -- OK2 ไม่มี SKU · เงิน ไม่ใส่เนื้อ/น้ำหนัก (เนื้อ 92.50 ค่าเริ่ม)
   begin
     r := pg_temp.opn(sM, jsonb_build_object('label', 'แหวนลายใบไม้ (ยังไม่มีรหัส)', 'metal', 'silver', 'qty', 30));
-    j := pg_temp.jr(r ->> 'job_no'); it := pg_temp.itr(r ->> 'po_no');
+    j := pg_temp.jr(r ->> 'job_no'); it := pg_temp.itr(r ->> 'order_no');
     v := v || pg_temp.chk('OK2a', 'ไม่มี SKU: sku=null · sku_pending=true · ชื่อแบบ = ที่พิมพ์ · ใบงาน product_id/sku_snapshot ว่าง', r ->> 'ok' = 'true' and r -> 'sku' = 'null'::jsonb and r ->> 'sku_pending' = 'true' and r ->> 'design_label' = 'แหวนลายใบไม้ (ยังไม่มีรหัส)' and j -> 'product_id' = 'null'::jsonb and j -> 'sku_snapshot' = 'null'::jsonb);
     v := v || pg_temp.chk('OK2b', 'รายการ: product_id ว่าง · pending_product_label ตรง · เงิน เนื้อ 0.925 (92.50 ค่าเริ่ม) · น้ำหนักว่าง · แบบ default (ไม่ใช่แบบทอง)', it -> 'product_id' = 'null'::jsonb and it ->> 'pending_product_label' = 'แหวนลายใบไม้ (ยังไม่มีรหัส)' and it ->> 'metal' = 'silver'
       and (it ->> 'purity')::numeric = 0.925 and it -> 'weight_g' = 'null'::jsonb and (j ->> 'profile_id')::uuid = def_prof);
@@ -937,7 +937,7 @@ begin
   -- OK3 ไม่มี SKU · ทอง 75% + น้ำหนัก 5.5 → ใบงาน profile ทอง · น้ำหนักทองไม่โชว์ช่าง (N1)
   begin
     r := pg_temp.opn(sM, jsonb_build_object('label', 'แหวนทอง 75% ไม่มีรหัส', 'metal', 'gold', 'purity', 0.75, 'weight', 5.5, 'qty', 3));
-    j := pg_temp.jr(r ->> 'job_no'); it := pg_temp.itr(r ->> 'po_no');
+    j := pg_temp.jr(r ->> 'job_no'); it := pg_temp.itr(r ->> 'order_no');
     v := v || pg_temp.chk('OK3a', 'ทอง: ใบงาน metal=gold · แบบการบันทึก = แบบทองค่าเริ่ม (ชั่งทุกขั้น) · รายการเนื้อ 0.75 น้ำหนัก 5.5 (source input)',
       r ->> 'ok' = 'true' and j ->> 'metal' = 'gold' and (j ->> 'profile_id')::uuid = gold_prof and (it ->> 'purity')::numeric = 0.75 and (it ->> 'weight_g')::numeric = 5.5 and it ->> 'weight_source' = 'input');
     v := v || pg_temp.chk('OK3b', 'ผลตอนเปิดไม่มีน้ำหนัก/เนื้อ/ราคา (N1): ไม่มี key weight_g/purity/target_piece_g และข้อความทั้งก้อนไม่มี "5.5"', not (r ? 'weight_g') and not (r ? 'purity') and pg_temp.badkeys(r) = '' and position('5.5' in r::text) = 0);
@@ -951,10 +951,10 @@ begin
   -- OK4 ทองเหลือง (เนื้อล็อก 100) · SKU override โลหะ · ขอบจำนวน · เผื่อ/กำหนด/แบบใหม่/หมายเหตุ/น้ำหนักเงิน
   begin
     r := pg_temp.opn(sM, jsonb_build_object('label', 'ทองเหลืองไม่ใส่เนื้อ', 'metal', 'brass'));
-    it := pg_temp.itr(r ->> 'po_no');
+    it := pg_temp.itr(r ->> 'order_no');
     v := v || pg_temp.chk('OK4a', 'ทองเหลืองไม่ส่งเนื้อ → ล็อก 1.0000 (100%)', r ->> 'ok' = 'true' and (it ->> 'purity')::numeric = 1 and it ->> 'metal' = 'brass');
     r := pg_temp.opn(sM, jsonb_build_object('product', fixa, 'metal', 'brass'));
-    it := pg_temp.itr(r ->> 'po_no');
+    it := pg_temp.itr(r ->> 'order_no');
     v := v || pg_temp.chk('OK4b', 'SKU เงิน + override โลหะเป็นทองเหลือง: รายการ metal=brass เนื้อ 1.0 · ใบงาน metal=brass', r ->> 'ok' = 'true' and it ->> 'metal' = 'brass' and (it ->> 'purity')::numeric = 1 and r ->> 'metal' = 'brass');
     raise exception 'rb_187';
   exception when others then
@@ -962,7 +962,7 @@ begin
   end;
   begin
     r := pg_temp.opn(sM, jsonb_build_object('label', 'งานเต็มรูปแบบ', 'metal', 'silver', 'purity', 0.999, 'weight', 2.5, 'qty', 10, 'planned', 12, 'due', (pg_temp.today() + 5)::text, 'newd', 'true', 'note', 'ลูกค้ารอ ขอด่วน'));
-    j := pg_temp.jr(r ->> 'job_no'); it := pg_temp.itr(r ->> 'po_no'); po := pg_temp.por(r ->> 'po_no');
+    j := pg_temp.jr(r ->> 'job_no'); it := pg_temp.itr(r ->> 'order_no'); po := pg_temp.por(r ->> 'order_no');
     v := v || pg_temp.chk('OK4c', 'เผื่อ: จำนวนสั่ง 10 · เริ่มผลิต 12 (job) · รายการใบผลิต qty 10 · กำหนด วันนี้+5 · หมายเหตุ ลงใบงาน+ใบผลิต · เนื้อเงิน 0.999 (แก้ค่าเริ่มได้) น้ำหนัก 2.5 (input)',
       (j ->> 'qty_order')::int = 10 and (j ->> 'qty_planned')::int = 12 and (it ->> 'qty_planned')::int = 10 and (j ->> 'due_date')::date = pg_temp.today() + 5 and j ->> 'note' = 'ลูกค้ารอ ขอด่วน' and po ->> 'note' = 'ลูกค้ารอ ขอด่วน'
       and (it ->> 'purity')::numeric = 0.999 and (it ->> 'weight_g')::numeric = 2.5 and it ->> 'weight_source' = 'input' and (r ->> 'qty_planned')::int = 12);
@@ -1012,7 +1012,7 @@ declare r jsonb;
 begin
   r := pg_temp.opn(coalesce(p_sess, pg_temp.kv('sM')), jsonb_build_object('label', p_label, 'metal', 'silver', 'qty', 2) || p_extra);
   if r ->> 'ok' is distinct from 'true' then raise exception 'open_label ล้ม: %', r::text; end if;
-  return r || jsonb_build_object('po', (pg_temp.por(r ->> 'po_no') ->> 'id'), 'item', (pg_temp.itr(r ->> 'po_no') ->> 'id'), 'job', (pg_temp.jr(r ->> 'job_no') ->> 'id'));
+  return r || jsonb_build_object('po', (pg_temp.por(r ->> 'order_no') ->> 'id'), 'item', (pg_temp.itr(r ->> 'order_no') ->> 'id'), 'job', (pg_temp.jr(r ->> 'job_no') ->> 'id'));
 end;
 $c$;
 
@@ -1031,7 +1031,7 @@ begin
     r2 := pg_temp.hub(sess);
     v := v || pg_temp.chk('Y1', 'hub → PIN → hub: state=ready · open_allowed=true', r ->> 'ok' = 'true' and r2 ->> 'state' = 'ready' and r2 ->> 'open_allowed' = 'true' and (r2 ->> 'gold_profile_ready')::boolean);
     r := pg_temp.opn(sess, jsonb_build_object('label', 'แหวนทอง 75% วงจรเต็ม', 'metal', 'gold', 'purity', 0.75, 'weight', 5.5, 'qty', 3));
-    j := pg_temp.jr(r ->> 'job_no'); po := (pg_temp.por(r ->> 'po_no') ->> 'id')::uuid; item := (pg_temp.itr(r ->> 'po_no') ->> 'id')::uuid; job := (j ->> 'id')::uuid;
+    j := pg_temp.jr(r ->> 'job_no'); po := (pg_temp.por(r ->> 'order_no') ->> 'id')::uuid; item := (pg_temp.itr(r ->> 'order_no') ->> 'id')::uuid; job := (j ->> 'id')::uuid;
     v := v || pg_temp.chk('Y2', 'เปิดไม่มี SKU ทอง 75%: ใบงาน metal=gold · แบบทองค่าเริ่ม · SKU ว่าง · ชื่อแบบตามที่พิมพ์', r ->> 'ok' = 'true' and j ->> 'metal' = 'gold' and (j ->> 'profile_id')::uuid = gold_prof and j -> 'product_id' = 'null'::jsonb and j ->> 'design_label' = 'แหวนทอง 75% วงจรเต็ม');
     -- ปิดก่อนผูก SKU: done ตก sku_required (ด่านเดิมของ 0186) · ไม่มีอะไรเข้าสต็อก
     st0 := pg_temp.stock(fixb);
@@ -1040,7 +1040,7 @@ begin
     -- ผูก SKU (fixed ต้นทุนแคตตาล็อก 50 — ผู้จัดการไม่เคยเห็นตัวเลขนี้)
     b := pg_temp.bind(a, item, fixb);
     v := v || pg_temp.chk('Y4a', 'ผูก SKU สำเร็จ: ok · jobs_updated=1 · ไม่เตือนโลหะ (SKU fixed ไม่ระบุโลหะ = ข้อความกลาง)', b ->> 'ok' = 'true' and (b ->> 'jobs_updated')::int = 1 and b ->> 'metal_mismatch' = 'false' and b ->> 'sku' = 'ZZ187-FIXB');
-    j := pg_temp.jr(r ->> 'job_no'); it := pg_temp.itr(r ->> 'po_no');
+    j := pg_temp.jr(r ->> 'job_no'); it := pg_temp.itr(r ->> 'order_no');
     v := v || pg_temp.chk('Y4b', 'ผูกแล้ว: ใบงาน product_id/sku_snapshot ตรง · ชื่อแบบของใบงานไม่เปลี่ยน · รายการ product_id ตรง ชื่อรอหาย · โลหะ/เนื้อ/น้ำหนักที่กรอกไว้ไม่ถูกทับ (gold · 0.75 · 5.5 input)',
       (j ->> 'product_id')::uuid = fixb and j ->> 'sku_snapshot' = 'ZZ187-FIXB' and j ->> 'design_label' = 'แหวนทอง 75% วงจรเต็ม' and (it ->> 'product_id')::uuid = fixb and it -> 'pending_product_label' = 'null'::jsonb
       and it ->> 'metal' = 'gold' and (it ->> 'purity')::numeric = 0.75 and (it ->> 'weight_g')::numeric = 5.5 and it ->> 'weight_source' = 'input');
@@ -1052,7 +1052,7 @@ begin
     ak := pg_temp.ack(a, po);
     v := v || pg_temp.chk('Y6', 'รับทราบ: ok · บันทึกลงประวัติใบงาน 1 ใบ', ak ->> 'ok' = 'true' and (ak ->> 'jobs_logged')::int = 1 and exists (select 1 from analytics.job_event where job_id = job and event_type = 'ack'));
     d := pg_temp.dn(a, po);
-    pw := pg_temp.por(r ->> 'po_no');
+    pw := pg_temp.por(r ->> 'order_no');
     v := v || pg_temp.chk('Y7a', 'ครบเงื่อนไข: done สำเร็จ (status=done) · lot 1 · สต็อก +3', d ->> 'status' = 'done' and pg_temp.lots(po) = 1 and pg_temp.stock(fixb) = st0 + 3);
     select l.unit_cost into c from analytics.stock_lot l join analytics.production_order_item i on i.id = l.production_order_item_id where i.production_order_id = po limit 1;
     v := v || pg_temp.chk('Y7b', 'ต้นทุน lot = ต้นทุนแคตตาล็อกของ SKU ที่ผูก (50) — เส้นต้นทุนไม่ถูกแตะ (ใบทองที่ผูก SKU fixed)', c = 50);
@@ -1195,7 +1195,7 @@ begin
     o := pg_temp.open_label('แหวนไม่มีรหัส B1', jsonb_build_object('metal', 'gold', 'purity', 0.9, 'weight', 4.25));
     po := (o ->> 'po')::uuid; item := (o ->> 'item')::uuid; job := (o ->> 'job')::uuid;
     r := pg_temp.bind(a, item, fixb);
-    j := pg_temp.jr(o ->> 'job_no'); it := pg_temp.itr(o ->> 'po_no');
+    j := pg_temp.jr(o ->> 'job_no'); it := pg_temp.itr(o ->> 'order_no');
     v := v || pg_temp.chk('B1a', 'ผูกสำเร็จ: ok · jobs_updated=1 · sku/name ตรง · คืนชื่อแบบเดิม (UX R2) = แหวนไม่มีรหัส B1', r ->> 'ok' = 'true' and (r ->> 'jobs_updated')::int = 1 and r ->> 'sku' = 'ZZ187-FIXB' and r ->> 'pending_product_label_before' = 'แหวนไม่มีรหัส B1');
     v := v || pg_temp.chk('B1b', 'รายการ: product_id ตรง · ชื่อรอเป็น null · gold/0.9/4.25 (input) ไม่ถูกทับ · ใบงาน product_id/sku ตรง · design_label เดิม · ชื่อ SKU ไม่รั่วลง label',
       (it ->> 'product_id')::uuid = fixb and it -> 'pending_product_label' = 'null'::jsonb and it ->> 'metal' = 'gold' and (it ->> 'purity')::numeric = 0.9 and (it ->> 'weight_g')::numeric = 4.25 and it ->> 'weight_source' = 'input'
@@ -1204,7 +1204,7 @@ begin
     v := v || pg_temp.chk('B1c', 'event edit 1 รายการ: field=sku · before=null · after=ZZ187-FIXB · label_before · actor=ออฟฟิศ', (select count(*) from analytics.job_event where job_id = job and event_type = 'edit') = 1
       and ev like '%"field": "sku"%' and ev like '%"after": "ZZ187-FIXB"%' and ev like '%"before": null%' and ev like '%แหวนไม่มีรหัส B1%' and (select actor from analytics.job_event where job_id = job and event_type = 'edit') = pg_temp.act());
     r2 := pg_temp.bind(a, item, fixc);
-    v := v || pg_temp.chk('B1d', 'ผูกแล้วแก้ไม่ได้: ผูกซ้ำ (แม้ SKU เดิม/อื่น) → already_bound · ค่าเดิมคงอยู่', pg_temp.hint(r2) = '22023|already_bound' and pg_temp.hint(pg_temp.bind(a, item, fixb)) = '22023|already_bound' and (pg_temp.itr(o ->> 'po_no') ->> 'product_id')::uuid = fixb);
+    v := v || pg_temp.chk('B1d', 'ผูกแล้วแก้ไม่ได้: ผูกซ้ำ (แม้ SKU เดิม/อื่น) → already_bound · ค่าเดิมคงอยู่', pg_temp.hint(r2) = '22023|already_bound' and pg_temp.hint(pg_temp.bind(a, item, fixb)) = '22023|already_bound' and (pg_temp.itr(o ->> 'order_no') ->> 'product_id')::uuid = fixb);
     raise exception 'rb_187';
   exception when others then
     if sqlerrm <> 'rb_187' then v := v || pg_temp.chk('B1-crash', sqlstate || ' ' || sqlerrm, false); end if;
@@ -1221,7 +1221,7 @@ begin
     v := v || pg_temp.chk('B2d', 'รายการของร้าน A แต่ส่ง shop B → item_not_found · รายการสุ่ม → item_not_found · อาร์กิวเมนต์ว่าง → 22023',
       pg_temp.hint(pg_temp.bind(b, item, pg_temp.fx('bsku'))) = '22023|item_not_found' and pg_temp.hint(pg_temp.bind(a, gen_random_uuid(), fixa)) = '22023|item_not_found'
       and pg_temp.q('select analytics.production_order_item_bind_product(null, null, null)') ->> '_state' = '22023');
-    v := v || pg_temp.chk('B2e', 'ทุกข้อที่ถูกปฏิเสธ: รายการยังไม่มี SKU · ใบงานยังไม่มี SKU · state ไม่ขยับ', (pg_temp.itr(o ->> 'po_no') -> 'product_id') = 'null'::jsonb and (pg_temp.jr(o ->> 'job_no') -> 'product_id') = 'null'::jsonb and pg_temp.shop_state(a) = st);
+    v := v || pg_temp.chk('B2e', 'ทุกข้อที่ถูกปฏิเสธ: รายการยังไม่มี SKU · ใบงานยังไม่มี SKU · state ไม่ขยับ', (pg_temp.itr(o ->> 'order_no') -> 'product_id') = 'null'::jsonb and (pg_temp.jr(o ->> 'job_no') -> 'product_id') = 'null'::jsonb and pg_temp.shop_state(a) = st);
     perform analytics.production_order_cancel(a, po, 'verify');
     v := v || pg_temp.chk('B2f', 'ใบผลิตไม่ open (ยกเลิกแล้ว) → order_not_open', pg_temp.hint(pg_temp.bind(a, item, fixa)) = '22023|order_not_open');
     raise exception 'rb_187';
@@ -1234,22 +1234,22 @@ begin
     o := pg_temp.open_label('ทองไม่มีรหัส B3', jsonb_build_object('metal', 'gold', 'purity', 0.75, 'weight', 5.5));
     item := (o ->> 'item')::uuid;
     r := pg_temp.bind(a, item, spot);
-    it := pg_temp.itr(o ->> 'po_no');
+    it := pg_temp.itr(o ->> 'order_no');
     select s2.metal, s2.purity, s2.weight_g, s2.weight_source into eff from analytics.production_item_spec(jsonb_populate_record(null::analytics.production_order_item, it), (select p from public.product p where p.id = spot)) s2;
     v := v || pg_temp.chk('B3a', 'รายการทอง ผูก SKU spot-เงิน (metal_known): ok + metal_mismatch=true (item gold · sku silver) — เตือน ไม่บล็อก', r ->> 'ok' = 'true' and r ->> 'metal_mismatch' = 'true' and r ->> 'item_metal' = 'gold' and r ->> 'sku_metal' = 'silver' and r ->> 'sku_metal_known' = 'true');
     v := v || pg_temp.chk('B3b', 'ค่าที่มีผลหลังผูก (production_item_spec) = ก่อนผูก: gold · 0.75 · 5.5 input — SKU ไม่ทับ · น้ำหนัก 10 g ของ SKU เงินไม่รั่วมาเป็นน้ำหนักทอง · weight_filled=false',
       eff.metal = 'gold' and eff.purity = 0.75 and eff.weight_g = 5.5 and eff.weight_source = 'input' and r ->> 'weight_filled' = 'false');
     o := pg_temp.open_label('เงินไม่มีน้ำหนัก B3'); item := (o ->> 'item')::uuid;
     r := pg_temp.bind(a, item, w35);
-    it := pg_temp.itr(o ->> 'po_no');
+    it := pg_temp.itr(o ->> 'order_no');
     v := v || pg_temp.chk('B3c', 'เงินน้ำหนักว่าง + SKU มีน้ำหนักเงิน 3.5: ประทับ 3.5 (source=product) ลงรายการอย่างเปิดเผย · weight_filled=true — ไม่ปล่อยให้ค่าที่มีผลเปลี่ยนเงียบๆ', (it ->> 'weight_g')::numeric = 3.5 and it ->> 'weight_source' = 'product' and r ->> 'weight_filled' = 'true' and (it ->> 'purity')::numeric = 0.925);
     o := pg_temp.open_label('เงินน้ำหนักกรอกเอง B3', jsonb_build_object('weight', 2.0)); item := (o ->> 'item')::uuid;
     r := pg_temp.bind(a, item, w35);
-    it := pg_temp.itr(o ->> 'po_no');
+    it := pg_temp.itr(o ->> 'order_no');
     v := v || pg_temp.chk('B3d', 'เงินที่กรอกน้ำหนัก 2.0 ไว้แล้ว: ผูก SKU น้ำหนัก 3.5 ไม่ทับ (2.0 input) · weight_filled=false', (it ->> 'weight_g')::numeric = 2.0 and it ->> 'weight_source' = 'input' and r ->> 'weight_filled' = 'false');
     o := pg_temp.open_label('ทองเหลืองไม่มีน้ำหนัก B3', jsonb_build_object('metal', 'brass')); item := (o ->> 'item')::uuid;
     r := pg_temp.bind(a, item, w35);
-    it := pg_temp.itr(o ->> 'po_no');
+    it := pg_temp.itr(o ->> 'order_no');
     v := v || pg_temp.chk('B3e', 'ทองเหลืองน้ำหนักว่าง + SKU เงินมีน้ำหนัก: ไม่ประทับ (น้ำหนัก SKU ใช้เฉพาะเงิน) · เนื้อ 1.0 คงเดิม', it -> 'weight_g' = 'null'::jsonb and (it ->> 'purity')::numeric = 1 and r ->> 'weight_filled' = 'false' and it ->> 'metal' = 'brass');
     raise exception 'rb_187';
   exception when others then
@@ -1323,7 +1323,7 @@ begin
     o := pg_temp.open_label('แหวนไม่มีรหัส B6'); item := (o ->> 'item')::uuid; job := (o ->> 'job')::uuid;
     perform analytics.job_cancel(a, job, 'verify', pg_temp.act());
     r := pg_temp.bind(a, item, fixb);
-    v := v || pg_temp.chk('B6a', 'ใบงานยกเลิกแล้ว: ผูก SKU ที่รายการสำเร็จ แต่ไม่แตะใบงานที่ยกเลิก (jobs_updated=0 · ใบงานยังไม่มี SKU)', r ->> 'ok' = 'true' and (r ->> 'jobs_updated')::int = 0 and (pg_temp.jr(o ->> 'job_no') -> 'product_id') = 'null'::jsonb and (pg_temp.itr(o ->> 'po_no') ->> 'product_id')::uuid = fixb);
+    v := v || pg_temp.chk('B6a', 'ใบงานยกเลิกแล้ว: ผูก SKU ที่รายการสำเร็จ แต่ไม่แตะใบงานที่ยกเลิก (jobs_updated=0 · ใบงานยังไม่มี SKU)', r ->> 'ok' = 'true' and (r ->> 'jobs_updated')::int = 0 and (pg_temp.jr(o ->> 'job_no') -> 'product_id') = 'null'::jsonb and (pg_temp.itr(o ->> 'order_no') ->> 'product_id')::uuid = fixb);
     raise exception 'rb_187';
   exception when others then
     if sqlerrm <> 'rb_187' then v := v || pg_temp.chk('B6a-crash', sqlstate || ' ' || sqlerrm, false); end if;
@@ -1353,7 +1353,7 @@ begin
     o := pg_temp.open_label('แหวนชื่อเดิม B7'); po := (o ->> 'po')::uuid; item := (o ->> 'item')::uuid; job := (o ->> 'job')::uuid;
     o2 := pg_temp.open_label('แหวนอีกรายการ B7');   -- คนละใบผลิต (ไม่ชนชื่อ)
     r := pg_temp.q(format('select analytics.production_order_item_label_set(%L, %L, %L, %L)', a, item, '  แหวน   ชื่อใหม่  B7 ', pg_temp.act()));
-    v := v || pg_temp.chk('B7a', 'แก้ชื่อแบบ: ok · ช่องว่างหัวท้าย/ซ้อนถูกยุบ = "แหวน ชื่อใหม่ B7" · ใบงานไม่เปลี่ยน design_label', r ->> 'pending_product_label' = 'แหวน ชื่อใหม่ B7' and (pg_temp.itr(o ->> 'po_no') ->> 'pending_product_label') = 'แหวน ชื่อใหม่ B7' and (pg_temp.jr(o ->> 'job_no') ->> 'design_label') = 'แหวนชื่อเดิม B7');
+    v := v || pg_temp.chk('B7a', 'แก้ชื่อแบบ: ok · ช่องว่างหัวท้าย/ซ้อนถูกยุบ = "แหวน ชื่อใหม่ B7" · ใบงานไม่เปลี่ยน design_label', r ->> 'pending_product_label' = 'แหวน ชื่อใหม่ B7' and (pg_temp.itr(o ->> 'order_no') ->> 'pending_product_label') = 'แหวน ชื่อใหม่ B7' and (pg_temp.jr(o ->> 'job_no') ->> 'design_label') = 'แหวนชื่อเดิม B7');
     perform pg_temp.iset(a, po, null, 1, 'ชื่อรายการที่สอง B7', 'silver');
     r := pg_temp.q(format('select analytics.production_order_item_label_set(%L, %L, %L, %L)', a, item, 'ชื่อรายการที่สอง B7', pg_temp.act()));
     r2 := pg_temp.q(format('select analytics.production_order_item_label_set(%L, %L, %L, %L)', a, item, 'ชื่อรายการที่สอง b7', pg_temp.act()));
@@ -1363,7 +1363,7 @@ begin
       r := pg_temp.q(format('select analytics.production_order_item_label_set(%L, %L, %L, %L)', a, item, x, pg_temp.act()));
       if r ->> '_state' is distinct from '22023' then s := s || '[' || left(replace(x, E'\n', '\n'), 8) || '] '; end if;
     end loop;
-    v := v || pg_temp.chk('B7c', 'ชื่อแบบ control/bidi/ล่องหน/<>/ว่าง/ไม่มีตัวอักษรจริง/ยาวเกิน → 22023 · หลุด: ' || coalesce(nullif(s, ''), 'ไม่มี'), s = '' and (pg_temp.itr(o ->> 'po_no') ->> 'pending_product_label') = 'แหวน ชื่อใหม่ B7');
+    v := v || pg_temp.chk('B7c', 'ชื่อแบบ control/bidi/ล่องหน/<>/ว่าง/ไม่มีตัวอักษรจริง/ยาวเกิน → 22023 · หลุด: ' || coalesce(nullif(s, ''), 'ไม่มี'), s = '' and (pg_temp.itr(o ->> 'order_no') ->> 'pending_product_label') = 'แหวน ชื่อใหม่ B7');
     perform pg_temp.bind(a, item, fixb);
     r := pg_temp.q(format('select analytics.production_order_item_label_set(%L, %L, %L, %L)', a, item, 'หลังผูก', pg_temp.act()));
     v := v || pg_temp.chk('B7d', 'รายการที่ผูก SKU แล้วแก้ชื่อแบบไม่ได้ → already_bound', pg_temp.hint(r) = '22023|already_bound');
@@ -1506,7 +1506,7 @@ begin
       and (select reloptions::text from pg_class where oid = 'analytics.v_production_order'::regclass) like '%security_invoker=true%');
     v := v || pg_temp.chk('C6e', 'v_production_order: service_role อ่านได้ · anon/authenticated ไม่ได้ · จำนวนแถว = ตาราง', has_table_privilege('service_role', 'analytics.v_production_order', 'select') and not has_table_privilege('anon', 'analytics.v_production_order', 'select')
       and not has_table_privilege('authenticated', 'analytics.v_production_order', 'select') and (select count(*) from analytics.v_production_order) = (select count(*) from analytics.production_order));
-    o := pg_temp.open_label('แหวน C6'); r := (select to_jsonb(vx) from analytics.v_production_order vx where vx.po_no = o ->> 'po_no' and vx.shop_id = a);
+    o := pg_temp.open_label('แหวน C6'); r := (select to_jsonb(vx) from analytics.v_production_order vx where vx.po_no = o ->> 'order_no' and vx.shop_id = a);
     v := v || pg_temp.chk('C6f', 'view แสดงใบหน้างาน: opened_via=shopfloor · ชื่อผู้เปิด · ยังไม่รับทราบ · unbound_item_count=1', r ->> 'opened_via' = 'shopfloor' and r ->> 'opened_by_worker_name' = 'ZZ-M ผู้จัดการ' and r -> 'acknowledged_at' = 'null'::jsonb and (r ->> 'unbound_item_count')::int = 1);
     raise exception 'rb_187';
   exception when others then
