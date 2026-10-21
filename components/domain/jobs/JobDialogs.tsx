@@ -4,7 +4,7 @@
 // ค่าที่กรอกค้างเมื่อ DB ปฏิเสธ (error ไทยใต้ปุ่ม) · ปุ่ม ≥ 44px · ไม่ตัดสินกติกาเอง — DB เป็นด่านจริง (ตรวจเฉพาะรูปแบบก่อนส่ง)
 
 import { useState } from "react";
-import type { ReactNode } from "react";
+import type { ReactNode, Ref } from "react";
 import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { useOfficeRun } from "@/components/domain/jobs/useOfficeRun";
@@ -39,15 +39,25 @@ export function ErrorLine({ message }: { message: string | null }) {
   ) : null;
 }
 
-export function DialogButtons({ busy, ready, confirm, onClose, danger }: { busy: boolean; ready: boolean; confirm: string; onClose: () => void; danger?: boolean }) {
+/**
+ * softDisabled (0189 W2): ปุ่มยืนยันที่ยังไม่พร้อมใช้ aria-disabled แทน disabled (กดได้ — ผู้เรียกบอกเหตุ "ใส่เหตุผลก่อนลบ" ไม่ใช่ disabled เงียบ) · ไม่ส่ง = disabled เหมือนเดิม
+ * cancelRef: ให้ผู้เรียกย้าย focus ไป "ยกเลิก" (กล่องที่มีช่องกรอก/ชิปก่อนปุ่ม)
+ */
+export function DialogButtons({ busy, ready, confirm, onClose, danger, softDisabled, cancelRef }: { busy: boolean; ready: boolean; confirm: string; onClose: () => void; danger?: boolean; softDisabled?: boolean; cancelRef?: Ref<HTMLButtonElement> }) {
   return (
     <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-      <Button type="button" variant="secondary" onClick={onClose} disabled={busy}>
+      <Button ref={cancelRef} type="button" variant="secondary" onClick={onClose} disabled={busy}>
         ยกเลิก
       </Button>
-      <Button type="submit" variant={danger ? "danger" : "primary"} loading={busy} disabled={!ready || busy}>
-        {confirm}
-      </Button>
+      {softDisabled ? (
+        <Button type="submit" variant={danger ? "danger" : "primary"} loading={busy} aria-disabled={!ready ? true : undefined} className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50">
+          {confirm}
+        </Button>
+      ) : (
+        <Button type="submit" variant={danger ? "danger" : "primary"} loading={busy} disabled={!ready || busy}>
+          {confirm}
+        </Button>
+      )}
     </div>
   );
 }

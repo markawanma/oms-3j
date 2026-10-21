@@ -154,6 +154,7 @@ export function ProductionOrderDetailClient({
   skuOptions,
   skuOptionsError,
   activeJobs,
+  ackJob,
 }: {
   order: ProductionOrderRow;
   items: ProductionOrderItemRow[];
@@ -161,6 +162,8 @@ export function ProductionOrderDetailClient({
   skuOptionsError: string | null;
   /** itemId → เลขใบงานที่ยังเดินอยู่ (ล็อกโลหะของรายการนั้น — UX A.3.2) · ว่าง/ไม่ส่ง = ไม่รู้/ไม่มี (DB ยังกันซ้ำที่ metal_locked) */
   activeJobs?: Record<string, string>;
+  /** 0189 W2: ใบงานของใบผลิตหน้างานนี้ (id + เลข) — ให้การ์ด OfficeAck แสดงรูปจากหน้างาน · ไม่ส่ง = ไม่มีแถบรูป */
+  ackJob?: { jobId: string; jobNo: string } | null;
 }) {
   const router = useRouter();
   const toast = useToast();
@@ -291,7 +294,7 @@ export function ProductionOrderDetailClient({
         </p>
       )}
 
-      <ProductionOfficeAckCard order={order} items={items} dirty={dirtyIds.size > 0} onAcked={refresh} />
+      <ProductionOfficeAckCard order={order} items={items} dirty={dirtyIds.size > 0} onAcked={refresh} photosJob={ackJob ?? null} />
 
       {isOpen && <ProductionCloseChecklist blockers={blockers} />}
 

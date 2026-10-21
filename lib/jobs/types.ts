@@ -482,6 +482,9 @@ export function summarizeEvent(type: string, payload: unknown): string | null {
     return `${nameOf(p.before)} → ${nameOf(p.after)}`;
   }
   if (type === "token_issue") return num(p.print_no) !== null ? `ใบที่ ${num(p.print_no)}` : null;
+  // 0189 W2: ผู้จัดการแนบ/ลบรูปจากหน้างาน (payload.source = 'shopfloor') · ออฟฟิศลบรูป = เหตุผลที่ใส่ (บังคับเมื่อลบรูปจากหน้างานผ่านหน้าจอ) — ไม่ dump payload อื่น (photo_id/bytes)
+  if (type === "photo_add") return p.source === "shopfloor" ? "จากหน้างาน" : null;
+  if (type === "photo_remove") return reason ? `เหตุผล: ${reason}` : p.source === "shopfloor" ? "จากหน้างาน" : null;
   return null;
 }
 

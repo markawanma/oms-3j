@@ -17,6 +17,7 @@ export function JobPhotoManageBar({
   onSetPrimary,
   onMove,
   onDelete,
+  showMove = true,
 }: {
   isPrimary: boolean;
   canMoveBefore: boolean;
@@ -25,6 +26,8 @@ export function JobPhotoManageBar({
   onSetPrimary: () => void;
   onMove: (dir: -1 | 1) => void;
   onDelete: () => void;
+  /** false = ไม่มีปุ่มเลื่อน (แถบรูปจากหน้างานของ OfficeAck: ≤ 3 รูป ใช้ ★ ตัวเดียว) · ไม่ส่ง = เหมือนเดิม */
+  showMove?: boolean;
 }) {
   return (
     <div className="mx-auto flex max-w-2xl flex-col gap-2" role="group" aria-label="จัดการรูปนี้">
@@ -32,7 +35,7 @@ export function JobPhotoManageBar({
         <Star className="h-5 w-5" aria-hidden="true" />
         {isPrimary ? "เป็นรูปหลักอยู่แล้ว" : "ตั้งเป็นรูปหลัก"}
       </button>
-      {isPrimary ? (
+      {!showMove ? null : isPrimary ? (
         <p className="text-sm text-zinc-700">รูปหลักอยู่ลำดับแรกเสมอ — ไม่ต้องเลื่อน</p>
       ) : (
         <div className="grid grid-cols-2 gap-2">

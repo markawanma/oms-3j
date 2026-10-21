@@ -46,11 +46,16 @@ export default async function ProductionOrderDetailPage({ params }: { params: Pr
 
   // PM-B: ใบงานที่ยังเดินอยู่ของแต่ละรายการ → ล็อกช่องโลหะบนการ์ด (UX A.3.2) · อ่านไม่ได้ = ไม่ล็อกบนจอ (DB ยังกันซ้ำที่ metal_locked) ไม่ล้มทั้งหน้า
   const activeJobs: Record<string, string> = {};
+  // 0189 W2: ใบงานของใบผลิตหน้างาน (1 รายการ 1 ใบงาน) — ให้การ์ด OfficeAck แสดงรูปจากหน้างาน · อ่านไม่ได้/ไม่ใช่ใบหน้างาน = ไม่มีแถบรูป
+  let ackJob: { jobId: string; jobNo: string } | null = null;
   if (detailResult.data.order.status === "open" && detailResult.data.items.length > 0) {
     try {
       const jobsResult = await getJobsForSourceItems("production", detailResult.data.items.map((it) => it.id));
       if (jobsResult.ok) {
-        for (const j of jobsResult.data) if (!(j.itemId in activeJobs)) activeJobs[j.itemId] = j.jobNo;
+        for (const j of jobsResult.data) {
+          if (!(j.itemId in activeJobs)) activeJobs[j.itemId] = j.jobNo;
+          if (ackJob === null) ackJob = { jobId: j.jobId, jobNo: j.jobNo };
+        }
       } else console.error("getJobsForSourceItems failed:", jobsResult.error);
     } catch (err) {
       console.error("getJobsForSourceItems threw:", err);
@@ -65,6 +70,7 @@ export default async function ProductionOrderDetailPage({ params }: { params: Pr
         skuOptions={skuOptions}
         skuOptionsError={skuOptionsError}
         activeJobs={activeJobs}
+        ackJob={ackJob}
       />
       {detailResult.data.order.status === "open" && <JobCreatePanel kind="production" items={jobItems} />}
     </>
