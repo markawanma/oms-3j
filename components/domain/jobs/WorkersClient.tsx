@@ -72,7 +72,15 @@ function EditDialog({ worker, stages, retired, onClose, onShown, onSetPin }: { w
     (name !== worker.displayName || codes.length !== worker.stageCodes.length || codes.some((c) => !worker.stageCodes.includes(c)) || canOpenJob !== worker.canOpenJob || canExternal !== worker.canExternal);
 
   async function submit() {
-    const r = await run(() => saveWorker({ id: worker?.id ?? null, displayName: name, stageCodes: codes, pin: worker ? null : pin || null, canOpenJob, canExternal }), { success: worker ? "บันทึกแล้ว" : "เพิ่มช่างแล้ว" });
+    const r = await run(() => saveWorker({
+        id: worker?.id ?? null,
+        displayName: name,
+        stageCodes: codes,
+        pin: worker ? null : pin || null,
+        // ส่งสิทธิ์เฉพาะที่เปลี่ยนจริง (เป็น boolean ชัด — ถอนสิทธิ์ส่ง false) · ไม่เปลี่ยน = ไม่ส่ง (DB ไม่แตะค่าเดิม · ช่างใหม่ที่ไม่ติ๊ก = ค่าเริ่มของ DB คือปิด)
+        ...(canOpenJob !== (worker?.canOpenJob ?? false) ? { canOpenJob } : {}),
+        ...(canExternal !== (worker?.canExternal ?? false) ? { canExternal } : {}),
+      }), { success: worker ? "บันทึกแล้ว" : "เพิ่มช่างแล้ว" });
     if (!r.ok) return;
     onClose();
     if (r.data.pin) onShown(name.trim(), r.data.pin);

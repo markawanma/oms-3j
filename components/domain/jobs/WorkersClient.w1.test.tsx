@@ -77,23 +77,25 @@ describe("สิทธิ์เพิ่มเติมในกล่องแ�
     expect(within(dlg2).getByRole("checkbox", { name: /ดูแลงานนอกร้าน/ })).toBeChecked();
   });
 
-  it("ติ๊กเปิดงานได้ → ยังไม่บันทึกจนกดปุ่ม 'บันทึก' (ไม่ใช่สวิตช์ทันที) → saveWorker ส่ง canOpenJob/canExternal เป็น boolean ชัด", async () => {
+  it("ติ๊กเปิดงานได้ → ยังไม่บันทึกจนกดปุ่ม 'บันทึก' (ไม่ใช่สวิตช์ทันที) → saveWorker ส่งเฉพาะสิทธิ์ที่เปลี่ยน (boolean ชัด)", async () => {
     wrap(<WorkersClient data={data()} />);
     const dlg = await openEdit("ช่างเอ");
     await userEvent.click(within(dlg).getByRole("checkbox", { name: /เปิดงานได้/ }));
     expect(a.saveWorker).not.toHaveBeenCalled();
     await userEvent.click(within(dlg).getByRole("button", { name: "บันทึก" }));
     await waitFor(() => expect(a.saveWorker).toHaveBeenCalledTimes(1));
-    expect(a.saveWorker.mock.calls[0][0]).toMatchObject({ id: W1, displayName: "ช่างเอ", stageCodes: ["finish"], canOpenJob: true, canExternal: false });
+    expect(a.saveWorker.mock.calls[0][0]).toMatchObject({ id: W1, displayName: "ช่างเอ", stageCodes: ["finish"], canOpenJob: true });
+    expect("canExternal" in a.saveWorker.mock.calls[0][0]).toBe(false); // ไม่เปลี่ยน = ไม่ส่ง (DB ไม่แตะ)
   });
 
-  it("ถอนสิทธิ์ (เอาติ๊กออก) ส่ง false ชัด — ไม่ใช่ undefined (กัน DB ไม่แตะค่าเดิม)", async () => {
+  it("ถอนสิทธิ์ (เอาติ๊กออก) ส่ง false ชัด — ไม่ใช่ undefined (ไม่งั้น DB ไม่แตะค่าเดิม = ถอนไม่สำเร็จเงียบๆ)", async () => {
     wrap(<WorkersClient data={data()} />);
     const dlg = await openEdit("หัวหน้าช่าง");
     await userEvent.click(within(dlg).getByRole("checkbox", { name: /เปิดงานได้/ }));
     await userEvent.click(within(dlg).getByRole("button", { name: "บันทึก" }));
     await waitFor(() => expect(a.saveWorker).toHaveBeenCalled());
-    expect(a.saveWorker.mock.calls[0][0]).toMatchObject({ canOpenJob: false, canExternal: true });
+    expect(a.saveWorker.mock.calls[0][0]).toMatchObject({ canOpenJob: false });
+    expect("canExternal" in a.saveWorker.mock.calls[0][0]).toBe(false);
   });
 
   it("เพิ่มช่างใหม่ + ติ๊กสิทธิ์ → ส่งไปด้วย · ไม่เลือกขั้น = บันทึกไม่ได้ (ไม่ผ่อน stages_required)", async () => {
@@ -106,7 +108,8 @@ describe("สิทธิ์เพิ่มเติมในกล่องแ�
     await userEvent.click(within(dlg).getByRole("checkbox", { name: "แต่ง" }));
     await userEvent.click(within(dlg).getByRole("button", { name: "บันทึก" }));
     await waitFor(() => expect(a.saveWorker).toHaveBeenCalled());
-    expect(a.saveWorker.mock.calls[0][0]).toMatchObject({ id: null, canOpenJob: true, canExternal: false });
+    expect(a.saveWorker.mock.calls[0][0]).toMatchObject({ id: null, canOpenJob: true });
+    expect("canExternal" in a.saveWorker.mock.calls[0][0]).toBe(false);
   });
 
   it("DB ปฏิเสธ (เช่น ต้องมีขั้น): ข้อความ role=alert · กล่องไม่ปิด · ค่าที่ติ๊กคงอยู่", async () => {
@@ -117,6 +120,17 @@ describe("สิทธิ์เพิ่มเติมในกล่องแ�
     await userEvent.click(within(dlg).getByRole("button", { name: "บันทึก" }));
     expect(await within(dlg).findByRole("alert")).toHaveTextContent("ผู้จัดการต้องมีขั้นที่ทำอย่างน้อย 1 ขั้น");
     expect(within(dlg).getByRole("checkbox", { name: /เปิดงานได้/ })).toBeChecked();
+  });
+
+  it("ไม่แตะสิทธิ์เลย → ไม่ส่ง canOpenJob/canExternal ไปกับ saveWorker (พฤติกรรมเดิมเป๊ะ)", async () => {
+    wrap(<WorkersClient data={data()} />);
+    const dlg = await openEdit("หัวหน้าช่าง");
+    await userEvent.click(within(dlg).getByRole("checkbox", { name: "ขัด" }));
+    await userEvent.click(within(dlg).getByRole("button", { name: "บันทึก" }));
+    await waitFor(() => expect(a.saveWorker).toHaveBeenCalled());
+    const input = a.saveWorker.mock.calls[0][0];
+    expect("canOpenJob" in input).toBe(false);
+    expect("canExternal" in input).toBe(false);
   });
 
   it("แก้สิทธิ์แล้วกด 'ตั้ง PIN เอง' = ถามก่อนทิ้ง (สิทธิ์นับเป็นค่าที่แก้ค้าง)", async () => {
