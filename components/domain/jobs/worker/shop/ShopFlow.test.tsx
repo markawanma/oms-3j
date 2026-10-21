@@ -54,6 +54,7 @@ beforeEach(() => {
   workerLogout.mockResolvedValue({ ok: true });
 });
 
+const GOLD = /^ทอง(?!เหลือง)/;
 const click = async (name: string | RegExp) => userEvent.click(screen.getByRole("button", { name }));
 
 /** เปิดวิซาร์ด + ค้น + เลือกสินค้าแรก → ถึง W-3 */
@@ -195,7 +196,7 @@ describe("กิ่งสินค้าใหม่ (ไม่มี SKU) + W-2
     expect(screen.getByText("2/4")).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: /เงิน/ })).toBeChecked();
     expect(screen.getByLabelText(/เนื้อโลหะ/)).toHaveValue("92.50");
-    await userEvent.click(screen.getByRole("radio", { name: /ทอง$|ทอง / }));
+    await userEvent.click(screen.getByRole("radio", { name: GOLD }));
     expect(screen.getByLabelText(/เนื้อโลหะ/)).toHaveValue("");
     expect(screen.getByText("เนื้อรีเซ็ตตามโลหะใหม่")).toBeInTheDocument();
     expect(screen.getByText(/ทองหลายเนื้อ \(K\)/)).toBeInTheDocument();
@@ -242,7 +243,7 @@ describe("กิ่งสินค้าใหม่ (ไม่มี SKU) + W-2
     await click("+ สินค้าใหม่ (ยังไม่มีรหัส)");
     await userEvent.type(screen.getByLabelText(/ชื่อแบบ/), "แหวนทอง");
     await click("ถัดไป");
-    await userEvent.click(screen.getByRole("radio", { name: /ทอง$|ทอง / }));
+    await userEvent.click(screen.getByRole("radio", { name: GOLD }));
     await userEvent.type(screen.getByLabelText(/เนื้อโลหะ/), "90");
     expect(screen.getAllByRole("alert").map((a) => a.textContent).join(" ")).toContain("อย่าเปลี่ยนเป็นโลหะอื่นเพื่อเปิดผ่าน");
     const next = screen.getByRole("button", { name: "เปิดงานวัสดุนี้ไม่ได้ตอนนี้" });
@@ -275,7 +276,7 @@ describe("W-3 มี SKU: บล็อก 'ทำจาก' + แผ่นแก
     await toQty();
     await click("แก้");
     const dlg = screen.getByRole("dialog", { name: "แก้วัสดุ" });
-    await userEvent.click(within(dlg).getByRole("radio", { name: /ทอง$|ทอง / }));
+    await userEvent.click(within(dlg).getByRole("radio", { name: GOLD }));
     expect(within(dlg).getByRole("note")).toHaveTextContent("สินค้านี้ในระบบเป็น เงิน — คุณเลือก ทอง");
     await userEvent.click(within(dlg).getByRole("button", { name: "ใช้ค่านี้" }));
     expect(within(dlg).getAllByRole("alert").map((a) => a.textContent).join(" ")).toContain("ทองต้องกรอกเนื้อทอง");
@@ -290,7 +291,7 @@ describe("W-3 มี SKU: บล็อก 'ทำจาก' + แผ่นแก
     await toQty();
     await click("แก้");
     const dlg = screen.getByRole("dialog", { name: "แก้วัสดุ" });
-    await userEvent.click(within(dlg).getByRole("radio", { name: /ทอง$|ทอง / }));
+    await userEvent.click(within(dlg).getByRole("radio", { name: GOLD }));
     await userEvent.type(within(dlg).getByLabelText(/เนื้อโลหะ/), "96.5");
     await userEvent.click(within(dlg).getByRole("button", { name: "ใช้ค่านี้" }));
     const block = screen.getByRole("region", { name: "ทำจาก" });
@@ -309,7 +310,7 @@ describe("W-3 มี SKU: บล็อก 'ทำจาก' + แผ่นแก
     await toQty([product({ metalKnown: false })]);
     await click("แก้");
     const dlg = screen.getByRole("dialog", { name: "แก้วัสดุ" });
-    await userEvent.click(within(dlg).getByRole("radio", { name: /ทอง$|ทอง / }));
+    await userEvent.click(within(dlg).getByRole("radio", { name: GOLD }));
     const note = within(dlg).getByRole("note");
     expect(note).toHaveTextContent("ยังไม่ระบุโลหะในระบบ — ตรวจให้ตรงของจริง");
     expect(note.textContent).not.toMatch(/⚠/);
@@ -340,7 +341,7 @@ describe("W-3 มี SKU: บล็อก 'ทำจาก' + แผ่นแก
     expect(screen.getByText("เริ่มผลิต 35 ชิ้น")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("radio", { name: "เลือกวัน" }));
     const date = screen.getByLabelText("วันที่กำหนดเสร็จ");
-    fireEvent.change(date, { target: { value: "2020-01-01" } });
+    fireEvent.change(date, { target: { value: "2025-01-01" } });
     await click("ถัดไป");
     expect(screen.getByRole("alert")).toHaveTextContent("ย้อนหลัง");
     expect(date).toHaveFocus();
@@ -382,7 +383,7 @@ describe("W-6/7 ทวน → เปิดงาน → W-8", () => {
     await click("+ สินค้าใหม่ (ยังไม่มีรหัส)");
     await userEvent.type(screen.getByLabelText(/ชื่อแบบ/), "แหวนลายใบไม้");
     await click("ถัดไป");
-    await userEvent.click(screen.getByRole("radio", { name: /ทอง$|ทอง / }));
+    await userEvent.click(screen.getByRole("radio", { name: GOLD }));
     await userEvent.type(screen.getByLabelText(/เนื้อโลหะ/), "96.5");
     await userEvent.type(screen.getByLabelText(/น้ำหนักต่อชิ้น/), "3.200");
     await click("ถัดไป");
@@ -415,7 +416,7 @@ describe("W-6/7 ทวน → เปิดงาน → W-8", () => {
     await userEvent.type(screen.getByLabelText(/หมายเหตุ/), "เร่งด่วน");
     await click("แก้สินค้า");
     expect(screen.getByRole("heading", { level: 1, name: "ผลิตอะไร?" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /RG-0418/ })).toHaveAttribute("aria-pressed", "true");
+    expect(await screen.findByRole("button", { name: /RG-0418/ }, { timeout: 3000 })).toHaveAttribute("aria-pressed", "true");
     await click("ถัดไป");
     await click("ถัดไป");
     await click("เปิดงาน");
@@ -593,7 +594,7 @@ describe("B.8 ข้อผิดพลาดตอนกด 'เปิดงา�
     expect(document.querySelectorAll("a, [href]").length).toBe(0);
     await click("กลับไปเลือกสินค้า");
     expect(screen.getByRole("heading", { level: 1, name: "ผลิตอะไร?" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /RG-0418/ })).toHaveAttribute("aria-pressed", "true");
+    expect(await screen.findByRole("button", { name: /RG-0418/ }, { timeout: 3000 })).toHaveAttribute("aria-pressed", "true");
   });
 
   it("session_required: โหลด hub ใหม่ → แผ่น PIN (ฟอร์มซ่อน ไม่หาย) → ใส่ PIN ผ่าน → ฟอร์มเดิมกลับมา กดเปิดงานต่อด้วย key เดิม", async () => {

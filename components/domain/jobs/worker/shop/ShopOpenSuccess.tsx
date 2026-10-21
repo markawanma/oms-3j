@@ -45,7 +45,7 @@ export function ShopOpenSuccess({ result, purityLabel, onAnother, onFinish }: { 
         )}
       </div>
       <h1 ref={headRef} tabIndex={-1} className="space-y-1 focus:outline-none">
-        <span className={`block text-lg font-bold ${tone}`}>{title}</span>
+        <span className={`block text-lg font-bold ${tone}`}>{title}</span>{" "}
         <span className="block text-[44px] leading-tight font-extrabold tracking-tight text-zinc-900">{result.jobNo}</span>
       </h1>
 
