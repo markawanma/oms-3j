@@ -149,9 +149,9 @@ describe("โหมด 'มี SKU'", () => {
     await waitFor(() => expect(addBtn()).toBeDisabled());
   });
 
-  it("server ปฏิเสธ → error role=alert ตัดชื่อฟังก์ชัน · ค่าที่กรอกคงอยู่ · ฟอร์มไม่ล้าง", async () => {
+  it("server ปฏิเสธ → error role=alert แสดงข้อความที่ action ส่งมา · ค่าที่กรอกคงอยู่ · ฟอร์มไม่ล้าง", async () => {
     prefillMock.mockResolvedValue(prefill());
-    setItem.mockResolvedValue({ ok: false, error: "production_order_item_set: SKU SV-0001 ปิดใช้งานแล้ว ใส่ในใบผลิตไม่ได้" });
+    setItem.mockResolvedValue({ ok: false, error: "SKU SV-0001 ปิดใช้งานแล้ว ใส่ในใบผลิตไม่ได้" });
     const { onAdded } = renderForm();
     await pickSku();
     await waitFor(() => expect(purityBox()).toBeInTheDocument());
@@ -176,7 +176,7 @@ describe("โหมด 'มี SKU'", () => {
     expect(setItem.mock.calls[0][0]).toMatchObject({ productId: P2, isNewDesign: true });
   });
 
-  it("empty: ไม่มี SKU ให้เลือก → ข้อความเดิม + ชี้ทางเลือก 'ไม่มี SKU' · ช่องค้นปิด", () => {
+  it("empty: ไม่มี SKU ให้เลือก → ข้อความเดิม · ช่องค้นปิด", () => {
     renderForm({ skuOptions: [] });
     expect(screen.getByText(/ยังไม่มี SKU ที่เลือกได้/)).toBeInTheDocument();
     expect(skuBox()).toBeDisabled();
@@ -188,67 +188,70 @@ describe("โหมด 'มี SKU'", () => {
   });
 });
 
-describe("โหมด 'ไม่มี SKU — ใส่ชื่อแบบ'", () => {
-  async function toNoSku() {
-    await userEvent.click(screen.getByRole("radio", { name: "ไม่มี SKU — ใส่ชื่อแบบ" }));
-  }
-
-  it("สลับโหมด: ซ่อนช่องค้น SKU/ปุ่มสินค้าใหม่ · การ์ดร่างขึ้นทันที ค่าเริ่มเงิน 92.50 · ไม่มีช่อง 'แบบใหม่' · บอกว่าจะมีป้ายยังไม่ผูก SKU", async () => {
+// มติ Tech Lead 21 ต.ค.: ซ่อนตัวเลือก "ไม่มี SKU" ฝั่งออฟฟิศไว้ก่อน (ALLOW_UNBOUND_ITEM_OFFICE = false) — ทางตัน ไม่มีปุ่มผูก SKU จนถึง W1
+describe("flag ALLOW_UNBOUND_ITEM_OFFICE = false (ค่าปัจจุบัน)", () => {
+  it("ไม่มี segmented / ไม่มีตัวเลือก 'ไม่มี SKU — ใส่ชื่อแบบ' / ไม่มีช่องชื่อแบบ — เหลือโหมดมี SKU โหมดเดียว", () => {
     renderForm();
-    await toNoSku();
-    expect(screen.queryByRole("combobox", { name: "ค้นหา SKU" })).toBeNull();
-    expect(screen.queryByRole("button", { name: /สินค้าใหม่/ })).toBeNull();
-    expect(screen.getByRole("radio", { name: "เงิน" })).toBeChecked();
-    expect(purityBox().value).toBe("92.50");
-    expect(screen.queryByRole("checkbox", { name: /แบบใหม่/ })).toBeNull();
-    expect(screen.getByText(/ยังไม่ผูก SKU/)).toBeInTheDocument();
-    expect(prefillMock).not.toHaveBeenCalled();
+    expect(screen.queryByRole("radiogroup", { name: "รูปแบบรายการ" })).toBeNull();
+    expect(screen.queryByRole("radio", { name: /ไม่มี SKU/ })).toBeNull();
+    expect(screen.queryByRole("textbox", { name: /ชื่อแบบ/ })).toBeNull();
+    expect(skuBox()).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /สินค้าใหม่/ })).toBeInTheDocument();
   });
+  it("ไม่มี SKU ให้เลือก → ข้อความ empty ไม่ชี้ไปทางเลือก 'ไม่มี SKU' ที่ซ่อนอยู่", () => {
+    renderForm({ skuOptions: [] });
+    expect(screen.getByText(/ยังไม่มี SKU ที่เลือกได้/)).toBeInTheDocument();
+    expect(screen.queryByText(/ไม่มี SKU — ใส่ชื่อแบบ/)).toBeNull();
+  });
+});
 
-  it("ไม่กรอกชื่อแบบ → error + focus · ไม่ยิง server", async () => {
+describe("ป้าย 'จาก SKU / แก้ในใบนี้' ในการ์ดร่าง (ฟังก์ชันเดียวกับการ์ดรายการ)", () => {
+  it("prefill = ค่า SKU → 'จาก SKU' · แก้เนื้อแล้วป้ายเนื้อหาย (เป็น 'แก้ในใบนี้') · แก้น้ำหนักแล้วป้ายน้ำหนักเปลี่ยนตาม", async () => {
+    prefillMock.mockResolvedValue(prefill());
     renderForm();
-    await toNoSku();
-    await userEvent.click(addBtn());
-    expect(setItem).not.toHaveBeenCalled();
-    expect(await screen.findByText("กรอกชื่อแบบ")).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByRole("textbox", { name: /ชื่อแบบ/ })).toHaveFocus());
+    await pickSku();
+    await waitFor(() => expect(purityBox().value).toBe("92.50"));
+    expect(screen.getAllByText("จาก SKU", { selector: "span" })).toHaveLength(2);
+    await userEvent.clear(purityBox());
+    await userEvent.type(purityBox(), "90");
+    expect(screen.getAllByText("จาก SKU", { selector: "span" })).toHaveLength(1);
+    await userEvent.clear(weightBox());
+    await userEvent.type(weightBox(), "4.5");
+    expect(screen.queryByText("จาก SKU", { selector: "span" })).toBeNull();
+    expect(screen.getAllByText("แก้ในใบนี้", { selector: "span" })).toHaveLength(2);
   });
+});
 
-  it("เพิ่ม: ส่ง pendingProductLabel + metal + purity (ไม่ส่ง productId · น้ำหนักว่างไม่ส่ง)", async () => {
-    setItem.mockResolvedValue({ ok: true, data: { id: "i-9", productId: null, sku: null, name: "แหวนทดลองลายใบไม้", pendingProductLabel: "แหวนทดลองลายใบไม้", qtyPlanned: 1, isNewDesign: false, metal: "silver", purity: 0.925, weightG: null, weightSource: null } });
-    const { onAdded } = renderForm();
-    await toNoSku();
-    await userEvent.type(screen.getByRole("textbox", { name: /ชื่อแบบ/ }), "แหวนทดลองลายใบไม้");
+describe("เนื้อเงินว่าง = ใช้ 92.50 + ข้อความใต้ช่อง + loading", () => {
+  it("เงินล้างช่องเนื้อแล้วเพิ่ม → ไม่ error · ส่ง purity 0.925 ชัดเจน · ข้อความ 'ว่าง = 92.50' และน้ำหนัก 'ว่าง = ใช้น้ำหนักจาก SKU' แสดงอยู่", async () => {
+    prefillMock.mockResolvedValue(prefill({ weightG: null, weightSource: null }));
+    setItem.mockResolvedValue({ ok: true, data: { id: "i-1", productId: P1, sku: "SV-0001", name: "x", pendingProductLabel: null, qtyPlanned: 1, isNewDesign: false, metal: "silver", purity: 0.925, weightG: null, weightSource: null } });
+    renderForm();
+    await pickSku();
+    await waitFor(() => expect(purityBox()).toBeInTheDocument());
+    expect(screen.getByText(/ว่าง = 92.50/)).toBeInTheDocument();
+    expect(screen.getByText(/ว่าง = ใช้น้ำหนักจาก SKU/)).toBeInTheDocument();
+    await userEvent.clear(purityBox());
     await userEvent.click(addBtn());
     await waitFor(() => expect(setItem).toHaveBeenCalled());
-    expect(setItem.mock.calls[0][0]).toEqual({ productionOrderId: "po-1", pendingProductLabel: "แหวนทดลองลายใบไม้", qtyPlanned: 1, metal: "silver", purity: 0.925 });
-    await waitFor(() => expect(onAdded).toHaveBeenCalled());
-    expect(await screen.findByText("เพิ่ม แหวนทดลองลายใบไม้ จำนวน 1 ชิ้นแล้ว")).toBeInTheDocument();
+    expect(setItem.mock.calls[0][0]).toEqual({ productionOrderId: "po-1", productId: P1, qtyPlanned: 1, metal: "silver", purity: 0.925 });
   });
 
-  it("ชื่อแบบซ้ำกับรายการที่มีอยู่ (ยุบช่องว่าง/ไม่สนตัวพิมพ์) → บล็อก", async () => {
-    renderForm({ existingLabels: ["แหวน  Test"] });
-    await toNoSku();
-    await userEvent.type(screen.getByRole("textbox", { name: /ชื่อแบบ/ }), "แหวน test");
-    expect(await screen.findByText("ชื่อแบบนี้มีอยู่ในใบผลิตนี้แล้ว — แก้ที่การ์ดเดิมแทน")).toBeInTheDocument();
+  it("loading: ระหว่างเพิ่ม ช่องเนื้อ/น้ำหนัก/จำนวน disabled ทั้งสามช่อง · ปุ่มเพิ่ม disabled", async () => {
+    prefillMock.mockResolvedValue(prefill());
+    let resolve!: (v: unknown) => void;
+    setItem.mockReturnValue(new Promise((r) => (resolve = r)));
+    renderForm();
+    await pickSku();
+    await waitFor(() => expect(purityBox()).toBeInTheDocument());
+    await userEvent.click(addBtn());
+    await waitFor(() => expect(qtyBox()).toBeDisabled());
+    expect(purityBox()).toBeDisabled();
+    expect(weightBox()).toBeDisabled();
     expect(addBtn()).toBeDisabled();
-  });
-
-  it("สลับกลับ 'มี SKU' = ล้างฟอร์ม (ไม่พกชื่อแบบ/ค่าค้างข้ามโหมด)", async () => {
-    renderForm();
-    await toNoSku();
-    await userEvent.type(screen.getByRole("textbox", { name: /ชื่อแบบ/ }), "abc");
-    await userEvent.click(screen.getByRole("radio", { name: "มี SKU" }));
-    expect(screen.queryByRole("textbox", { name: /ชื่อแบบ/ })).toBeNull();
-    await toNoSku();
-    expect((screen.getByRole("textbox", { name: /ชื่อแบบ/ }) as HTMLInputElement).value).toBe("");
+    resolve({ ok: false, error: "x" });
+    await waitFor(() => expect(purityBox()).toBeEnabled());
+    expect(weightBox()).toBeEnabled();
   });
 });
 
-describe("a11y", () => {
-  it("segmented เป็น radiogroup มีชื่อ · ช่องทุกช่องมี label (เข้าถึงด้วยชื่อได้)", () => {
-    renderForm();
-    expect(screen.getByRole("radiogroup", { name: "รูปแบบรายการ" })).toBeInTheDocument();
-    expect(screen.getByRole("radio", { name: "มี SKU" })).toBeChecked();
-  });
-});

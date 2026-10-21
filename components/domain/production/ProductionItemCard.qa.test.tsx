@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // QA (R2-D2) — characterization ของ 2 พฤติกรรมที่ผู้ใช้จะเจอเงียบๆ (DB ตัดสินแล้ว UI ต้องไม่โกหก):
-//  Q-A) การ์ดเงินที่บันทึกแล้ว ผู้ใช้ "ล้างช่องเนื้อ" แล้วกดบันทึก → ไม่ส่ง purity → server คงค่าเดิม (ไม่ใช่ 92.50) → ช่องต้องโชว์ค่าที่ server เก็บ ไม่ค้างว่าง
+//  Q-A) การ์ดเงินที่บันทึกแล้ว ผู้ใช้ "ล้างช่องเนื้อ" แล้วกดบันทึก → ส่ง 0.925 ชัดเจน (มติ: เงินว่าง = ใช้ 92.50 — เดิม QA ล็อกว่า "ไม่ส่ง/server คงค่าเดิม" ซึ่งเงียบเกินไป) → ช่องโชว์ค่าที่ server เก็บ
 //  Q-B) SKU เงินที่มีน้ำหนัก: ล้างช่องน้ำหนัก → ส่ง clearWeight แต่ DB ยัง fallback ไป silver_weight_g ของ SKU → หลัง refresh ช่องต้องกลับมาเป็นค่า SKU (ไม่ค้างว่างหลอกว่า "ไม่ระบุ")
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
@@ -18,7 +18,9 @@ import { ToastProvider } from "@/components/ui/Toast";
 import { ProductionItemCard } from "./ProductionItemCard";
 
 afterEach(cleanup);
-beforeEach(() => setItem.mockReset());
+beforeEach(() => {
+  setItem.mockReset();
+});
 
 function row(over: Partial<ProductionOrderItemRow> = {}): ProductionOrderItemRow {
   return {
@@ -40,18 +42,18 @@ const purityBox = () => screen.getByRole("textbox", { name: /ความบร�
 const weightBox = () => screen.getByRole("textbox", { name: /น้ำหนัก\/ชิ้น/ }) as HTMLInputElement;
 const saveBtn = () => screen.getByRole("button", { name: "บันทึกรายการ" });
 
-describe("QA Q-A: เงินล้างช่องเนื้อ แล้วบันทึก", () => {
-  it("ไม่ error · ไม่ส่ง purity · ช่องกลับเป็นค่าที่ server เก็บ (80.00) และไม่ dirty", async () => {
-    setItem.mockResolvedValue({ ok: true, data: { id: "i-1", productId: "p-1", sku: "GR-0007", name: "x", pendingProductLabel: null, qtyPlanned: 30, isNewDesign: false, metal: "silver", purity: 0.8, weightG: null, weightSource: null } });
+describe("QA Q-A (แก้ตามมติ — Tech Lead 21 ต.ค.): เงินล้างช่องเนื้อ แล้วบันทึก = 'ใช้ 92.50'", () => {
+  it("ไม่ error · ส่ง purity 0.925 ชัดเจน (ไม่ใช่ไม่ส่ง/คงค่าเดิมเงียบ) · ช่องกลับเป็นค่าที่ server เก็บ (92.50) และไม่ dirty", async () => {
+    setItem.mockResolvedValue({ ok: true, data: { id: "i-1", productId: "p-1", sku: "GR-0007", name: "x", pendingProductLabel: null, qtyPlanned: 30, isNewDesign: false, metal: "silver", purity: 0.925, weightG: null, weightSource: null } });
     render(wrap(row()));
     expect(purityBox().value).toBe("80.00");
     await userEvent.clear(purityBox());
     expect(saveBtn()).toBeEnabled();
     await userEvent.click(saveBtn());
     await waitFor(() => expect(setItem).toHaveBeenCalledTimes(1));
-    expect(setItem.mock.calls[0][0]).not.toHaveProperty("purity");
+    expect(setItem.mock.calls[0][0]).toMatchObject({ purity: 0.925 });
     expect(setItem.mock.calls[0][0]).not.toHaveProperty("metal");
-    await waitFor(() => expect(purityBox().value).toBe("80.00"));
+    await waitFor(() => expect(purityBox().value).toBe("92.50"));
     expect(saveBtn()).toBeDisabled();
   });
 });

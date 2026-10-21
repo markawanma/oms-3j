@@ -47,6 +47,7 @@ export function MetalRadioRows({
                 name={`${uid}-metal`}
                 value={m}
                 checked={checked}
+                aria-disabled={locked || busy ? true : undefined}
                 onChange={() => {
                   if (locked || busy) return;
                   onChange(m);

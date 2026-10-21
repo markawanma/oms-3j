@@ -64,6 +64,19 @@ describe("ป้าย/หน่วยตามมติเจ้าของ 20
   });
 });
 
+describe("placeholder ไม่ใช่ราคาที่ดูจริง (กันลอกตัวเลขตัวอย่างไปกรอก)", () => {
+  it("ช่องทอง 'กรอกราคาบาทละ' · ช่องทองเหลือง 'กรอกราคาต่อกิโลกรัม' · ไม่มีตัวเลขเลย · error ทองเหลืองช่องว่างก็ไม่มีตัวอย่างราคา", async () => {
+    renderSection();
+    expect(goldBox()).toHaveAttribute("placeholder", "กรอกราคาบาทละ");
+    expect(brassBox()).toHaveAttribute("placeholder", "กรอกราคาต่อกิโลกรัม");
+    for (const b of [goldBox(), brassBox()]) expect(b.getAttribute("placeholder")).not.toMatch(/\d/);
+    await userEvent.click(saveBrass());
+    const err = await screen.findByRole("alert");
+    expect(err).toHaveTextContent("กรอกราคาต่อกิโลกรัมเป็นตัวเลข");
+    expect(err.textContent).not.toMatch(/\d/);
+  });
+});
+
 describe("preview สด (ไม่คิดสูตรใหม่ — ฟังก์ชัน pure ตัวเดียวกับ server)", () => {
   it("ทอง 29,420.92 (ขอบล่าง) → 2,000.00 บาท/กรัม (ทอง 100% · ÷ 15.244 ÷ 0.965) · รับ , ที่วางมาจากเว็บสมาคม", async () => {
     renderSection();
@@ -123,10 +136,12 @@ describe("ขอบช่วง (golden ตาม A.8.1) — ปฏิเสธ�
     await userEvent.click(saveBrass());
     await waitFor(() => expect(saveInput).toHaveBeenCalledWith({ metal: "brass", inputValue: "100" }));
   });
-  it("ว่าง → 'กรอกราคาเป็นตัวเลข' · ทศนิยม 3 ตำแหน่ง → 'ทศนิยมไม่เกิน 2 ตำแหน่ง'", async () => {
+  it("ว่าง → 'กรอกราคาบาทละเป็นตัวเลข' (ไม่มีตัวอย่างราคา) · ทศนิยม 3 ตำแหน่ง → 'ทศนิยมไม่เกิน 2 ตำแหน่ง'", async () => {
     renderSection();
     await userEvent.click(saveGold());
-    expect(await screen.findByRole("alert")).toHaveTextContent(/กรอกราคาเป็นตัวเลข/);
+    const empty = await screen.findByRole("alert");
+    expect(empty).toHaveTextContent("กรอกราคาบาทละเป็นตัวเลข");
+    expect(empty.textContent).not.toMatch(/\d/);
     await userEvent.type(goldBox(), "41250.123");
     await waitFor(() => expect(screen.getByRole("alert")).toHaveTextContent("ทศนิยมไม่เกิน 2 ตำแหน่ง"));
     expect(saveInput).not.toHaveBeenCalled();

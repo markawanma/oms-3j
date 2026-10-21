@@ -116,7 +116,10 @@ describe("เช็คลิสต์ + aria-disabled", () => {
   it("empty: ไม่มีรายการ → EmptyState + ปุ่มผลิตเสร็จ aria-disabled 'ยังไม่มีรายการ' · ยังเพิ่มรายการได้", () => {
     renderPage([]);
     expect(screen.getByText("ยังไม่มีรายการในใบนี้", { selector: "p" })).toBeInTheDocument();
-    expect(screen.getByText(/เพิ่มรายการด้านล่างได้เลย \(มี SKU หรือไม่มี SKU ก็ได้\)/)).toBeInTheDocument();
+    // flag ALLOW_UNBOUND_ITEM_OFFICE ปิด — ไม่ชวนเลือก "ไม่มี SKU" ที่ซ่อนอยู่
+    expect(screen.getByText("เพิ่มรายการด้านล่างได้เลย")).toBeInTheDocument();
+    expect(screen.queryByText(/ไม่มี SKU ก็ได้/)).toBeNull();
+    expect(screen.queryByRole("radio", { name: /ไม่มี SKU/ })).toBeNull();
     expect(doneBtn()).toHaveAttribute("aria-disabled", "true");
     expect(screen.getByRole("region", { name: "เพิ่มรายการ" })).toBeInTheDocument();
   });
@@ -151,6 +154,34 @@ describe("เช็คลิสต์ + aria-disabled", () => {
   });
 });
 
+describe("ลิงก์ '← กลับ' เมื่อมีการ์ดแก้ค้าง", () => {
+  const back = () => screen.getByRole("link", { name: /กลับไปรายการใบผลิต/ });
+  it("ไม่มีการ์ดแก้ค้าง → ไม่ถาม (ไม่ขัดการนำทาง)", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    renderPage([row()]);
+    const evt = new MouseEvent("click", { bubbles: true, cancelable: true });
+    back().dispatchEvent(evt);
+    expect(confirm).not.toHaveBeenCalled();
+    expect(evt.defaultPrevented).toBe(false);
+  });
+  it("มีการ์ดแก้ค้าง → confirm ก่อนออก · ตอบ 'ไม่' = ยกเลิกการนำทาง (preventDefault) · ตอบ 'ตกลง' = ออกได้", async () => {
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    renderPage([row()]);
+    const qty = screen.getByRole("spinbutton", { name: /จำนวน \(ชิ้น\)/ });
+    await userEvent.clear(qty);
+    await userEvent.type(qty, "31");
+    await waitFor(() => expect(screen.getByRole("region", { name: "ก่อนกดผลิตเสร็จ" })).toBeInTheDocument());
+    const stay = new MouseEvent("click", { bubbles: true, cancelable: true });
+    back().dispatchEvent(stay);
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining("แก้ไว้แต่ยังไม่บันทึก"));
+    expect(stay.defaultPrevented).toBe(true);
+    confirm.mockReturnValue(true);
+    const leave = new MouseEvent("click", { bubbles: true, cancelable: true });
+    back().dispatchEvent(leave);
+    expect(leave.defaultPrevented).toBe(false);
+  });
+});
+
 describe("ล็อกโลหะด้วยใบงาน", () => {
   it("activeJobs ส่งเลขใบงานลงการ์ดของรายการนั้นเท่านั้น", () => {
     renderPage([row(), row({ id: "i-2", productId: "p-2", sku: "GR-2" })], {}, { activeJobs: { "i-2": "JB-0031" } });
@@ -170,8 +201,8 @@ describe("ลบรายการ", () => {
     await waitFor(() => expect(removeById).toHaveBeenCalledWith({ productionOrderId: "po-1", itemId: "i-ns" }));
     await waitFor(() => expect(refresh).toHaveBeenCalled());
   });
-  it("ลบไม่ได้ (job_history — ใบงานที่ยกเลิกแล้ว): แสดงข้อความ server พร้อมทางออก 'ยกเลิกทั้งใบผลิตแล้วเปิดใหม่' ตัดชื่อฟังก์ชัน · ไม่ refresh", async () => {
-    removeById.mockResolvedValue({ ok: false, error: "production_order_item_remove_by_id: ลบรายการไม่ได้ — เคยมีใบงาน JB-0040 (ยกเลิกแล้ว แต่เก็บไว้เป็นหลักฐาน) — ถ้ารายการนี้ไม่ใช้แล้วให้ยกเลิกทั้งใบผลิตแล้วเปิดใบใหม่" });
+  it("ลบไม่ได้ (job_history — ใบงานที่ยกเลิกแล้ว): แสดงข้อความที่ action ส่งมา (ตัดชื่อฟังก์ชันที่ humanizeProductionError แล้ว) พร้อมทางออก 'ยกเลิกทั้งใบผลิตแล้วเปิดใหม่' · ไม่ refresh", async () => {
+    removeById.mockResolvedValue({ ok: false, error: "ลบรายการไม่ได้ — เคยมีใบงาน JB-0040 (ยกเลิกแล้ว แต่เก็บไว้เป็นหลักฐาน) — ถ้ารายการนี้ไม่ใช้แล้วให้ยกเลิกทั้งใบผลิตแล้วเปิดใบใหม่" });
     vi.spyOn(window, "confirm").mockReturnValue(true);
     renderPage([noSku()]);
     await userEvent.click(screen.getByRole("button", { name: "ลบ แหวนลายใบไม้ทดลอง" }));

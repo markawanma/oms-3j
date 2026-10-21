@@ -21,7 +21,7 @@ import {
   itemDisplayName,
   itemShortName,
   metalSpecIssues,
-  stripFnPrefix,
+  skuSourceBadges,
   weightTextFromNumber,
 } from "@/lib/production/metal-ui";
 import type { ItemDraft, MetalSpecFieldErrors } from "@/lib/production/metal-ui";
@@ -119,11 +119,19 @@ export function ProductionItemCard({
       return;
     }
     setSaving(true);
-    const result = await setProductionOrderItem(built.input);
-    setSaving(false);
+    let result: Awaited<ReturnType<typeof setProductionOrderItem>>;
+    try {
+      result = await setProductionOrderItem(built.input);
+    } catch {
+      // เครือข่าย/server action ล้ม — ค่าที่กรอกคงอยู่ · saving ต้องไม่ค้าง (finally)
+      setCardError("บันทึกไม่สำเร็จ ลองอีกครั้ง (ค่าที่กรอกยังอยู่)");
+      return;
+    } finally {
+      setSaving(false);
+    }
     if (!result.ok) {
       // ค่าที่กรอกคงอยู่ — ไม่ reset ช่อง
-      setCardError(stripFnPrefix(result.error));
+      setCardError(result.error);
       return;
     }
     // โชว์ค่าที่ server "เก็บจริง" (ไม่ใช่ค่าที่ส่งไป) — ช่องที่ server ไม่คืน (null) คงค่าเดิมที่เห็นอยู่
@@ -148,18 +156,17 @@ export function ProductionItemCard({
   const showSpecCard = order.status === "done" && row.currentCostType === "spec" && row.costCalc;
 
   // ป้ายเทียบกับค่า SKU (แสดงผลอย่างเดียว ไม่ตัดสิน) — น้ำหนัก/เนื้อของ SKU คือของเงิน ใช้เทียบเมื่อรายการเป็นเงินเท่านั้น
-  const weightBadge =
-    hasSku && draft.metal === "silver" && row.skuWeightG != null && draft.weightText.trim() !== ""
-      ? Number(draft.weightText) === row.skuWeightG
-        ? "จาก SKU"
-        : "แก้ในใบนี้"
-      : null;
-  const purityBadge =
-    hasSku && draft.metal === "silver" && row.skuPurity != null && draft.purityText.trim() !== ""
-      ? purityFractionToPct(row.skuPurity) === Number(draft.purityText).toFixed(2)
-        ? "จาก SKU"
-        : "แก้ในใบนี้"
-      : null;
+  const badges = skuSourceBadges({
+    hasSku,
+    metal: draft.metal,
+    skuMetal: row.skuMetal,
+    skuPurity: row.skuPurity,
+    skuWeightG: row.skuWeightG,
+    purityText: draft.purityText,
+    weightText: draft.weightText,
+  });
+  const weightBadge = badges.weight;
+  const purityBadge = badges.purity;
 
   const costLine = !hasSku ? (
     <p className="text-sm text-zinc-700">ต้นทุน: ยังคิดไม่ได้ — ต้องผูก SKU ก่อน</p>

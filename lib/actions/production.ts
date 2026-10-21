@@ -192,18 +192,28 @@ export async function getProductionOrders(): Promise<ActionResult<GetProductionO
 
     // PM-B: จำนวนรายการที่ยังไม่ผูก SKU ต่อใบ (ป้าย "ยังไม่ผูก SKU n" บนรายการ) — v_production_order ไม่มีคอลัมน์นี้ (0186 ไม่ได้ขยาย view)
     // อ่านตรงจากตารางรายการ (service_role มี select อยู่แล้ว — แพทเทิร์นเดียวกับ getProductionOrder) · อ่านไม่ได้ = ไม่มีป้าย ไม่ล้มทั้งหน้า
+    // เฉพาะใบ open ที่อยู่ในรายการนี้ (done/cancelled ไม่มีอะไรให้จัดการ) · แบ่ง .in() ทีละ 100 id (กัน URL ยาวเกิน) · แต่ละก้อนอ่านผ่าน fetchAllRows
+    // (PostgREST ตัดที่ 1,000 แถวเงียบๆ — บทเรียน 27 ส.ค.) ORDER BY id เป็นคีย์ unique กันแถวซ้ำ/หายระหว่างหน้า
     try {
-      const unboundRes = await supabase
-        .schema(SCHEMA)
-        .from("production_order_item")
-        .select("production_order_id")
-        .eq("shop_id", shopId)
-        .is("product_id", null)
-        .limit(5000);
-      if (unboundRes.error) throw unboundRes.error;
+      const openIds = rows.filter((r) => r.status === "open").map((r) => r.id);
       const counts = new Map<string, number>();
-      for (const u of (unboundRes.data ?? []) as { production_order_id: string }[]) {
-        counts.set(u.production_order_id, (counts.get(u.production_order_id) ?? 0) + 1);
+      for (let i = 0; i < openIds.length; i += 100) {
+        const chunk = openIds.slice(i, i + 100);
+        const res = await fetchAllRows((pageFrom, pageTo) =>
+          supabase
+            .schema(SCHEMA)
+            .from("production_order_item")
+            .select("id, production_order_id", { count: "exact" })
+            .eq("shop_id", shopId)
+            .is("product_id", null)
+            .in("production_order_id", chunk)
+            .order("id", { ascending: true })
+            .range(pageFrom, pageTo)
+        );
+        if (res.truncated) console.error("getProductionOrders: unbound item count truncated (badge may under-count)");
+        for (const u of res.rows as { production_order_id: string }[]) {
+          counts.set(u.production_order_id, (counts.get(u.production_order_id) ?? 0) + 1);
+        }
       }
       for (const row of rows) row.unboundItemCount = counts.get(row.id) ?? 0;
     } catch (err) {

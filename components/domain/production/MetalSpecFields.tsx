@@ -117,7 +117,7 @@ export function MetalSpecFields({
                 </span>
               </div>
             ) : (
-              <PurityPctInput id={purityId} value={purityText} onChange={onPurityChange} className={inputCls.replace("mt-1 ", "")} issue={errors?.purity ?? undefined} forceShow={forceShow} />
+              <PurityPctInput id={purityId} value={purityText} onChange={onPurityChange} className={inputCls.replace("mt-1 ", "")} issue={errors?.purity ?? undefined} forceShow={forceShow} disabled={busy} />
             )}
           </div>
           {brass ? (
@@ -126,7 +126,7 @@ export function MetalSpecFields({
             </p>
           ) : (
             <p className="mt-1 text-xs text-zinc-500">
-              {metal === "silver" ? "ค่าเริ่ม 92.50 แก้ได้ · " : ""}ขั้นต่ำ 37.50{metal === "gold" ? " · ทอง = ว่างเสมอ ต้องกรอกเอง" : ""}
+              {metal === "silver" ? "ค่าเริ่ม 92.50 แก้ได้ · ว่าง = 92.50 · " : ""}ขั้นต่ำ 37.50{metal === "gold" ? " · ทอง = ว่างเสมอ ต้องกรอกเอง" : ""}
               {purityBadge && <span className="ml-1.5 rounded-sm bg-zinc-100 px-1 py-0.5 text-[0.7rem] text-zinc-700">{purityBadge}</span>}
             </p>
           )}
@@ -138,6 +138,7 @@ export function MetalSpecFields({
           </label>
           <input
             id={weightId}
+            disabled={busy}
             type="text"
             inputMode="decimal"
             autoComplete="off"
@@ -155,7 +156,7 @@ export function MetalSpecFields({
             </p>
           ) : (
             <p className="mt-1 text-xs text-zinc-500">
-              ไม่บังคับตอนสร้าง · ห้ามเดาจากชื่อสินค้า
+              {skuMetal !== null && metal === "silver" ? "ไม่บังคับ · ว่าง = ใช้น้ำหนักจาก SKU" : "ไม่บังคับ · ห้ามเดาจากชื่อสินค้า"}
               {weightBadge && <span className="ml-1.5 rounded-sm bg-zinc-100 px-1 py-0.5 text-[0.7rem] text-zinc-700">{weightBadge}</span>}
             </p>
           )}

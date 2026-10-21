@@ -18,7 +18,10 @@ import { ToastProvider } from "@/components/ui/Toast";
 import { ProductionItemCard } from "./ProductionItemCard";
 
 afterEach(cleanup);
-beforeEach(() => setItem.mockReset());
+// ห้าม return mock จาก beforeEach (mockReset คืนตัว mock เอง — vitest จะเอาไปเรียกเป็น teardown หลังเทสต์ทุกครั้ง)
+beforeEach(() => {
+  setItem.mockReset();
+});
 
 function row(over: Partial<ProductionOrderItemRow> = {}): ProductionOrderItemRow {
   return {
@@ -122,16 +125,16 @@ describe("เปลี่ยนโลหะ", () => {
     expect(screen.getByText("ทองเหลืองล็อกเนื้อ 100%")).toBeInTheDocument();
   });
 
-  it("ทอง→เงิน: เติม 92.50 ในช่องให้เห็นชัด + ข้อความ 'ค่าเริ่ม 92.50 แก้ได้' · เงินเว้นว่างบันทึกได้ไม่ error (ไม่ส่ง purity)", async () => {
+  it("ทอง→เงิน: เติม 92.50 ในช่องให้เห็นชัด + ข้อความ 'ค่าเริ่ม 92.50 แก้ได้ · ว่าง = 92.50' · เงินเว้นว่างบันทึกได้ไม่ error และส่ง 0.925 ชัดเจน", async () => {
     setItem.mockResolvedValue({ ok: true, data: { id: "i-1", productId: "p-1", sku: "GR-0007", name: "x", pendingProductLabel: null, qtyPlanned: 30, isNewDesign: false, metal: "silver", purity: 0.925, weightG: null, weightSource: null } });
     renderCard(row({ effectiveMetal: "gold", effectivePurity: 0.9, effectiveWeightG: null, effectiveWeightSource: null }));
     await userEvent.click(metalRadio("เงิน"));
     expect(purityBox().value).toBe("92.50");
-    expect(screen.getByText(/ค่าเริ่ม 92.50 แก้ได้/)).toBeInTheDocument();
+    expect(screen.getByText(/ค่าเริ่ม 92.50 แก้ได้ · ว่าง = 92.50/)).toBeInTheDocument();
     await userEvent.clear(purityBox());
     await userEvent.click(saveBtn());
     await waitFor(() => expect(setItem).toHaveBeenCalled());
-    expect(setItem.mock.calls[0][0]).toEqual({ productionOrderId: "po-1", productId: "p-1", qtyPlanned: 30, metal: "silver" });
+    expect(setItem.mock.calls[0][0]).toEqual({ productionOrderId: "po-1", productId: "p-1", qtyPlanned: 30, metal: "silver", purity: 0.925 });
     expect(screen.queryByText(/กรอกเนื้อเงิน/)).toBeNull();
     // หลังบันทึก หน้าจอโชว์ค่าที่ server เก็บ (92.50) ไม่ใช่ช่องว่าง
     await waitFor(() => expect(purityBox().value).toBe("92.50"));
@@ -228,7 +231,7 @@ describe("บันทึก — payload + success + error", () => {
     expect(setItem.mock.calls[0][0]).toEqual({ productionOrderId: "po-1", productId: "p-1", qtyPlanned: 40 });
   });
 
-  it("loading: ระหว่างบันทึกปุ่ม loading (disabled) + ช่องจำนวน disabled + ปุ่มลบ disabled", async () => {
+  it("loading: ระหว่างบันทึกปุ่ม loading (disabled) + ช่องเนื้อ/น้ำหนัก/จำนวนทั้งสามช่อง disabled + ปุ่มลบ disabled + radio โลหะ aria-disabled · จบแล้วกลับมาแก้ได้", async () => {
     let resolve!: (v: unknown) => void;
     setItem.mockReturnValue(new Promise((r) => (resolve = r)));
     renderCard(row());
@@ -236,22 +239,92 @@ describe("บันทึก — payload + success + error", () => {
     await userEvent.type(qtyBox(), "40");
     await userEvent.click(saveBtn());
     await waitFor(() => expect(qtyBox()).toBeDisabled());
+    expect(purityBox()).toBeDisabled();
+    expect(weightBox()).toBeDisabled();
     expect(saveBtn()).toBeDisabled();
     expect(screen.getByRole("button", { name: "ลบ GR-0007" })).toBeDisabled();
+    expect(screen.getByRole("radiogroup", { name: "วัสดุ" })).toHaveAttribute("aria-disabled", "true");
+    for (const r of screen.getAllByRole("radio")) expect(r).toHaveAttribute("aria-disabled", "true");
     resolve({ ok: false, error: "x" });
     await waitFor(() => expect(qtyBox()).toBeEnabled());
+    expect(purityBox()).toBeEnabled();
+    expect(weightBox()).toBeEnabled();
   });
 
-  it("error จาก server: กล่อง role=alert บนการ์ด ตัดชื่อฟังก์ชันออก · ค่าที่กรอกคงอยู่ · ยัง dirty บันทึกซ้ำได้", async () => {
-    setItem.mockResolvedValue({ ok: false, error: "production_order_item_set: เปลี่ยนโลหะไม่ได้ — มีใบงาน JB-0031 เดินอยู่ ยกเลิกใบงานก่อน แล้วแก้โลหะ" });
+  it("error จาก server: กล่อง role=alert บนการ์ด แสดงข้อความที่ action ส่งมาตรงๆ (ตัดชื่อฟังก์ชันที่ humanizeProductionError แล้ว) · ค่าที่กรอกคงอยู่ · ยัง dirty บันทึกซ้ำได้", async () => {
+    setItem.mockResolvedValue({ ok: false, error: "เปลี่ยนโลหะไม่ได้ — มีใบงาน JB-0031 เดินอยู่ ยกเลิกใบงานก่อน แล้วแก้โลหะ" });
     renderCard(row());
     await userEvent.click(metalRadio("ทองเหลือง"));
     await userEvent.click(saveBtn());
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("เปลี่ยนโลหะไม่ได้ — มีใบงาน JB-0031 เดินอยู่ ยกเลิกใบงานก่อน แล้วแก้โลหะ");
-    expect(alert).not.toHaveTextContent("production_order_item_set");
     expect(metalRadio("ทองเหลือง").checked).toBe(true);
     expect(saveBtn()).toBeEnabled();
+  });
+
+  it("server action throw (เครือข่ายล้ม): saving ไม่ค้าง — ช่อง/ปุ่มกลับมาใช้ได้ + ข้อความ alert · ค่าที่กรอกคงอยู่ (try/finally)", async () => {
+    setItem.mockImplementation(async () => {
+      throw new Error("network down");
+    });
+    renderCard(row());
+    await userEvent.clear(qtyBox());
+    await userEvent.type(qtyBox(), "40");
+    await userEvent.click(saveBtn());
+    expect(await screen.findByRole("alert")).toHaveTextContent("บันทึกไม่สำเร็จ ลองอีกครั้ง (ค่าที่กรอกยังอยู่)");
+    expect(qtyBox()).toBeEnabled();
+    expect(qtyBox().value).toBe("40");
+    expect(saveBtn()).toBeEnabled();
+  });
+});
+
+describe("ป้าย 'จาก SKU / แก้ในใบนี้' + ข้อความใต้ช่อง", () => {
+  it("ค่าเท่า SKU → 'จาก SKU' ทั้งสองช่อง · แก้เนื้อแล้วป้ายเนื้อ 'จาก SKU' หาย (เปลี่ยนเป็น 'แก้ในใบนี้') แต่ป้ายน้ำหนักยังอยู่", async () => {
+    renderCard(row());
+    expect(screen.getAllByText("จาก SKU", { selector: "span" })).toHaveLength(2);
+    await userEvent.clear(purityBox());
+    await userEvent.type(purityBox(), "90");
+    expect(screen.getAllByText("จาก SKU", { selector: "span" })).toHaveLength(1);
+    expect(screen.getByText("แก้ในใบนี้", { selector: "span" })).toBeInTheDocument();
+    await userEvent.clear(weightBox());
+    await userEvent.type(weightBox(), "4.5");
+    expect(screen.queryByText("จาก SKU", { selector: "span" })).toBeNull();
+    expect(screen.getAllByText("แก้ในใบนี้", { selector: "span" })).toHaveLength(2);
+  });
+
+  it("ข้อความใต้ช่อง: เนื้อเงิน 'ว่าง = 92.50' · น้ำหนักของ SKU เงิน 'ว่าง = ใช้น้ำหนักจาก SKU' · ทอง/ไม่มี SKU ไม่ใช้ข้อความ SKU", async () => {
+    renderCard(row());
+    expect(screen.getByText(/ว่าง = 92.50/)).toBeInTheDocument();
+    expect(screen.getByText(/ว่าง = ใช้น้ำหนักจาก SKU/)).toBeInTheDocument();
+    await userEvent.click(metalRadio("ทอง"));
+    expect(screen.queryByText(/ว่าง = 92.50/)).toBeNull();
+    expect(screen.queryByText(/ว่าง = ใช้น้ำหนักจาก SKU/)).toBeNull();
+  });
+});
+
+describe("rerender: การ์ดอื่นบันทึกแล้ว refresh — การ์ดที่แก้ค้างอยู่ไม่ถูกรีเซ็ต", () => {
+  it("การ์ด A แก้ค้าง (จำนวน 31) · รับ row ใหม่ของ B (A เท่าเดิม) → A ยังเป็น 31 และ dirty · ถ้า A เองเปลี่ยนจริง (updatedAt ใหม่) → A ตั้ง baseline ใหม่", async () => {
+    const rowA = row({ id: "i-a", sku: "AA-1" });
+    const rowB = row({ id: "i-b", sku: "BB-1", productId: "p-2" });
+    const onDirtyA = vi.fn();
+    const ui = (a: ProductionOrderItemRow, b: ProductionOrderItemRow) => (
+      <ToastProvider>
+        <ProductionItemCard order={openOrder} row={a} onDirtyChange={onDirtyA} />
+        <ProductionItemCard order={openOrder} row={b} />
+      </ToastProvider>
+    );
+    const { rerender } = render(ui(rowA, rowB));
+    const qtyA = () => screen.getAllByRole("spinbutton", { name: /จำนวน \(ชิ้น\)/ })[0] as HTMLInputElement;
+    await userEvent.clear(qtyA());
+    await userEvent.type(qtyA(), "31");
+    await waitFor(() => expect(onDirtyA).toHaveBeenLastCalledWith("i-a", true));
+    // B บันทึกแล้ว refresh: ได้ object row ใหม่ของ A (เนื้อหาเท่าเดิม) + B เปลี่ยน
+    rerender(ui({ ...rowA }, { ...rowB, updatedAt: "2026-10-21T02:00:00Z", qtyPlanned: 99 }));
+    expect(qtyA().value).toBe("31");
+    expect(onDirtyA).toHaveBeenLastCalledWith("i-a", true);
+    // A เองเปลี่ยนจริง → baseline ใหม่ (ไม่ dirty)
+    rerender(ui({ ...rowA, updatedAt: "2026-10-21T03:00:00Z", qtyPlanned: 31 }, rowB));
+    await waitFor(() => expect(qtyA().value).toBe("31"));
+    await waitFor(() => expect(onDirtyA).toHaveBeenLastCalledWith("i-a", false));
   });
 });
 
@@ -262,6 +335,8 @@ describe("โลหะล็อกเมื่อมีใบงาน (A.3.2)",
     expect(group).toHaveAttribute("aria-disabled", "true");
     const reason = screen.getByText(/เปลี่ยนโลหะไม่ได้ — มีใบงาน JB-0031 เดินอยู่ · ยกเลิกใบงานก่อน แล้วแก้โลหะ/);
     expect(group.getAttribute("aria-describedby")).toBe(reason.id);
+    // radio แต่ละตัวบอก aria-disabled ด้วย (ไม่ใช่แค่กลุ่ม — screen reader บางตัวอ่านที่ตัวเลือก)
+    for (const r of screen.getAllByRole("radio")) expect(r).toHaveAttribute("aria-disabled", "true");
     await userEvent.click(metalRadio("ทอง"));
     expect(metalRadio("เงิน").checked).toBe(true);
     expect(purityBox()).toBeEnabled();

@@ -37,10 +37,11 @@ export const MSG_LABEL_REQUIRED = "กรอกชื่อแบบ";
 export const MSG_METAL_RESET_PURITY = "เนื้อรีเซ็ตตามโลหะใหม่";
 export const MSG_WEIGHT_CLEARED_FROM_SKU = "ล้างน้ำหนักจากสินค้าแล้ว (ใช้กับเงินเท่านั้น)";
 
-/** ตัดคำนำหน้า "production_order_item_set: " ออกจากข้อความ error ของ DB (22023 ที่ตั้งใจพูดกับผู้ใช้ — ชื่อฟังก์ชันไม่ใช่เรื่องของผู้ใช้) */
-export function stripFnPrefix(message: string): string {
-  return message.replace(/^[a-z][a-z0-9_]*:\s+/i, "");
-}
+/**
+ * ตัวเลือก "ไม่มี SKU — ใส่ชื่อแบบ" ในฟอร์มเพิ่มรายการฝั่งออฟฟิศ — ซ่อนไว้ก่อน (ทางตัน: ยังไม่มีปุ่ม/RPC ผูก SKU ให้รายการแบบนี้ ใบที่มีรายการไม่มี SKU ผลิตเสร็จไม่ได้)
+ * เปิดเมื่อ W1 มี RPC ผูก SKU (production_order_item_bind_product) · การ์ดที่มีรายการไม่มี SKU อยู่แล้ว (เช่นเปิดจากหน้างานในอนาคต) ยังแสดงป้าย/เช็คลิสต์ตามเดิม
+ */
+export const ALLOW_UNBOUND_ITEM_OFFICE = false;
 
 // ============================================================================
 // ตรวจรูปร่างช่อง (ข้อความไทยต่อช่อง) — ด่านจริงอยู่ที่ DB ซ้ำกัน ไม่ใช่แทน
@@ -181,12 +182,52 @@ export function applyMetalChange(
 // Payload ของ setProductionOrderItem
 // ============================================================================
 
+/**
+ * ค่าเนื้อ (สัดส่วน 0..1) ที่จะส่ง server — ทองเหลือง = 1 · เงินที่ช่องว่าง = "ใช้ 92.50" ส่ง 0.925 ชัดเจน (มติเจ้าของ: ค่าเริ่มเงิน 92.50 ไม่บังคับกรอก — ไม่ปล่อยให้ "คงค่าเดิมเงียบๆ") ·
+ * ทองว่าง/ค่าผิดรูป = null (ผู้เรียกต้องปฏิเสธ — ทองไม่มี default)
+ */
+export function purityFractionToSend(metal: ProductionMetal, purityText: string): number | null {
+  if (metal === "brass") return 1;
+  const text = metal === "silver" && purityText.trim() === "" ? defaultPurityText("silver") : purityText;
+  return purityPctToFraction(text);
+}
+
 export type BuildSaveResult = { ok: true; input: SetProductionOrderItemInput } | { ok: false; errors: MetalSpecFieldErrors; formError?: string };
 
 /** ที่มาของน้ำหนัก: "product" เฉพาะเมื่อ รายการมี SKU + โลหะเงิน + ตัวเลขตรงกับน้ำหนักใน SKU เป๊ะ (DB ตรวจซ้ำ — ไม่ให้ป้ายเท็จ) · นอกนั้น "input" */
 export function weightSourceFor(args: { hasSku: boolean; metal: ProductionMetal; weightText: string; skuWeightG: number | null }): ProductionWeightSource {
   const n = Number(args.weightText.trim());
   return args.hasSku && args.metal === "silver" && args.skuWeightG != null && Number.isFinite(n) && n === args.skuWeightG ? "product" : "input";
+}
+
+export const BADGE_FROM_SKU = "จาก SKU";
+export const BADGE_EDITED = "แก้ในใบนี้";
+
+/**
+ * ป้ายใต้ช่องเนื้อ/น้ำหนัก: "จาก SKU" เมื่อค่าในช่อง "เท่ากับ" ค่าของ SKU จริง · ต่างกัน = "แก้ในใบนี้" · ช่องว่าง/ไม่มีค่าของ SKU/ไม่มี SKU = ไม่มีป้าย
+ * (แสดงผลอย่างเดียว ไม่ตัดสิน) — ใช้ฟังก์ชันเดียวทั้งการ์ดรายการและฟอร์มเพิ่มรายการ ไม่มีเงื่อนไขซ้ำสองที่ (เดิมฟอร์มเพิ่มขึ้น "จาก SKU" ค้างแม้แก้เนื้อแล้ว)
+ *  • เนื้อเทียบเมื่อโลหะในช่อง = โลหะที่ค่าเนื้อของ SKU เป็นของ (skuMetal · null = เงิน เหมือน helper ฝั่ง DB)
+ *  • น้ำหนักของ SKU ใช้กับเงินเท่านั้น (silver_weight_g) — โลหะอื่นไม่มีป้าย
+ */
+export function skuSourceBadges(args: {
+  hasSku: boolean;
+  metal: ProductionMetal;
+  skuMetal: ProductionMetal | null;
+  skuPurity: number | null;
+  skuWeightG: number | null;
+  purityText: string;
+  weightText: string;
+}): { purity: string | null; weight: string | null } {
+  const out: { purity: string | null; weight: string | null } = { purity: null, weight: null };
+  if (!args.hasSku) return out;
+  if (args.skuPurity != null && args.metal === (args.skuMetal ?? "silver") && args.metal !== "brass" && args.purityText.trim() !== "") {
+    const typed = purityPctToFraction(args.purityText);
+    out.purity = typed !== null && purityFractionToPct(typed) === purityFractionToPct(args.skuPurity) ? BADGE_FROM_SKU : BADGE_EDITED;
+  }
+  if (args.skuWeightG != null && args.metal === "silver" && args.weightText.trim() !== "") {
+    out.weight = normalizeWeightText(args.weightText) === normalizeWeightText(String(args.skuWeightG)) ? BADGE_FROM_SKU : BADGE_EDITED;
+  }
+  return out;
 }
 
 /**
@@ -220,14 +261,9 @@ export function buildItemSaveInput(args: {
 
   if (!hasSku || metalChanged) input.metal = draft.metal;
   if (metalChanged || purityChanged) {
-    if (draft.metal === "brass") input.purity = 1;
-    else if (draft.metal === "silver" && draft.purityText.trim() === "") {
-      // เงินเว้นว่าง = ไม่บังคับกรอก (มติเจ้าของ: ค่าเริ่ม 92.50) — ไม่ส่ง purity ให้ server ใช้ค่าเริ่มของโลหะ (เปลี่ยนโลหะ → รีเซ็ต · ไม่เปลี่ยน → คงเดิม) แล้วหน้าจอโชว์ค่าที่ server เก็บ
-    } else {
-      const f = purityPctToFraction(draft.purityText);
-      if (f === null) return { ok: false, errors: { purity: MSG_GOLD_PURITY_REQUIRED } };
-      input.purity = f;
-    }
+    const f = purityFractionToSend(draft.metal, draft.purityText);
+    if (f === null) return { ok: false, errors: { purity: MSG_GOLD_PURITY_REQUIRED } };
+    input.purity = f;
   }
   if (weightChanged) {
     if (draft.weightText.trim() === "") input.clearWeight = true;
@@ -264,11 +300,8 @@ export function buildNewItemInput(args: {
   if (productId) input.productId = productId;
   else input.pendingProductLabel = label;
 
-  if (draft.metal === "brass") input.purity = 1;
-  else if (draft.metal === "silver" && draft.purityText.trim() === "") {
-    // เงินเว้นว่างไม่บังคับ — ไม่ส่ง purity ให้ server เติมค่าเริ่ม (SKU/92.50) แล้วการ์ดที่เพิ่มโชว์ค่าที่เก็บจริง
-  } else {
-    const f = purityPctToFraction(draft.purityText);
+  {
+    const f = purityFractionToSend(draft.metal, draft.purityText);
     if (f === null) return { ok: false, errors: { purity: MSG_GOLD_PURITY_REQUIRED } };
     input.purity = f;
   }

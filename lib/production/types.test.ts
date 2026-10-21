@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   humanizeProductionError,
+  PRICE_CHANGED_MARKER,
   parseMetalPrices,
   parseMissingPrices,
   parseProductionSpecCostCalc,
@@ -25,12 +26,23 @@ describe("humanizeProductionError — 0186 gold/brass price missing", () => {
     expect(msg).toContain("ราคาเงินเฉพาะใบนี้");
     expect(msg).not.toContain("/oem/rates");
   });
-  it("sku_required / metal_locked / job_exists messages (Thai, 22023) pass through unmodified; non-22023 still falls back", () => {
+  it("sku_required / metal_locked / job_exists messages (Thai, 22023) pass through with the DB function-name prefix stripped; non-22023 still falls back", () => {
     const skuReq = { code: "22023", message: "production_order_done: ใบ PO-0034 มีรายการที่ยังไม่ผูก SKU — ผูก SKU ให้ครบก่อนผลิตเสร็จ" };
-    expect(humanizeProductionError(skuReq, "fallback")).toBe(skuReq.message);
+    expect(humanizeProductionError(skuReq, "fallback")).toBe("ใบ PO-0034 มีรายการที่ยังไม่ผูก SKU — ผูก SKU ให้ครบก่อนผลิตเสร็จ");
     const locked = { code: "22023", message: "production_order_item_set: เปลี่ยนโลหะไม่ได้ — มีใบงาน JB-0031 เดินอยู่ ยกเลิกใบงานก่อน แล้วแก้โลหะ" };
-    expect(humanizeProductionError(locked, "fallback")).toBe(locked.message);
+    expect(humanizeProductionError(locked, "fallback")).toBe("เปลี่ยนโลหะไม่ได้ — มีใบงาน JB-0031 เดินอยู่ ยกเลิกใบงานก่อน แล้วแก้โลหะ");
     expect(humanizeProductionError({ code: "23514", message: "new row violates check constraint production_order_item_gold_purity_ck" }, "fallback")).toBe("fallback");
+  });
+
+  it("คำนำหน้าชื่อฟังก์ชัน: ตัดเฉพาะรูป snake_case ตัวพิมพ์เล็กที่ตามด้วย ': ' · ข้อความไทย/ที่ไม่มีคำนำหน้า/มี ':' กลางประโยคคงเดิม · ตัดแล้วว่าง → fallback", () => {
+    const h = (message: string) => humanizeProductionError({ code: "22023", message }, "fallback");
+    expect(h("production_cost_calc: SKU SV-1 ยังไม่ระบุน้ำหนัก")).toBe("SKU SV-1 ยังไม่ระบุน้ำหนัก");
+    expect(h("production_order_item_remove_by_id: ไม่พบรายการนี้ในใบ")).toBe("ไม่พบรายการนี้ในใบ");
+    expect(h("ราคาทองไม่ถูกต้อง: ลองใหม่")).toBe("ราคาทองไม่ถูกต้อง: ลองใหม่");
+    expect(h("SKU: ซ้ำ")).toBe("SKU: ซ้ำ");
+    expect(h("error: อะไรสักอย่าง")).toBe("error: อะไรสักอย่าง"); // ไม่มี _ = ไม่ใช่ชื่อฟังก์ชันของเรา
+    expect(h("production_order_done: ")).toBe("fallback");
+    expect(h("ราคาโลหะ A: production_order_done: ซ้อน")).toBe("ราคาโลหะ A: production_order_done: ซ้อน");
   });
 });
 
@@ -102,9 +114,12 @@ describe("humanizeProductionError", () => {
     expect(msg).not.toContain("/oem/rates");
   });
 
-  it("passes every other 0131 error message straight through unmodified (already Thai + specific)", () => {
+  // 0186 PM-B: คำนำหน้าชื่อฟังก์ชัน ("production_xxx: ") ถูกตัดที่ humanizeProductionError ที่เดียว (UI ไม่ตัดเอง) — ข้อความไทยส่วนที่เหลือต้องไม่ถูกแตะ
+  const dropPrefix = (m: string) => m.slice(m.indexOf(": ") + 2);
+
+  it("passes every other 0131 error message straight through (already Thai + specific) — only the DB function-name prefix is dropped", () => {
     const err = { code: "22023", message: "production_order_item_set: SKU live0.5 เป็น SKU เฉพาะไลฟ์ (live*) ไม่นับสต็อก ใส่ในใบผลิตไม่ได้" };
-    expect(humanizeProductionError(err, "fallback")).toBe(err.message);
+    expect(humanizeProductionError(err, "fallback")).toBe("SKU live0.5 เป็น SKU เฉพาะไลฟ์ (live*) ไม่นับสต็อก ใส่ในใบผลิตไม่ได้");
   });
 
   it("passes the 'spot mode SKU has no weight' message through as-is (already tells the user to go to /catalog)", () => {
@@ -112,7 +127,7 @@ describe("humanizeProductionError", () => {
       code: "22023",
       message: "production_cost_calc: SKU R-0099 เป็นโหมด spot แต่ยังไม่กรอกน้ำหนักเงิน (silver_weight_g) — กรอกที่ /catalog ก่อนสั่งผลิต",
     };
-    expect(humanizeProductionError(err, "fallback")).toBe(err.message);
+    expect(humanizeProductionError(err, "fallback")).toBe(dropPrefix(err.message));
   });
 
   // 0132 M1 — the "spot price moved between preview and done" raise already
@@ -126,7 +141,7 @@ describe("humanizeProductionError", () => {
       message:
         "production_order_done: ราคาเงินเปลี่ยนไประหว่างที่เปิดหน้าต่างนี้ค้างไว้ (ตอนเปิดหน้าต่างเห็นราคา 70 บาท/กรัม แต่ตอนนี้ระบบคำนวณได้ 71 บาท/กรัม) — ปิดหน้าต่างยืนยันนี้แล้วเปิดใบผลิตใหม่อีกครั้งเพื่อดูราคาล่าสุดก่อนยืนยัน",
     };
-    expect(humanizeProductionError(err, "fallback")).toBe(err.message);
+    expect(humanizeProductionError(err, "fallback")).toBe(dropPrefix(err.message));
   });
 
   // 0186 รอบ 3: ข้อความปิดใบของทอง/ทองเหลืองใช้ชื่อไทย (ไม่ใช่รหัส gold/brass) — ต้องผ่านเข้าหน้าจอครบ ไม่ถูก rewrite และไม่มีคำผิด
@@ -135,8 +150,12 @@ describe("humanizeProductionError", () => {
     "production_order_done: ราคาทองเหลืองเปลี่ยนไประหว่างที่เปิดหน้าต่างนี้ค้างไว้ (ตอนเปิดหน้าต่างเห็นราคา 0.35 บาท/กรัม แต่ตอนนี้ระบบคำนวณได้ 0.36 บาท/กรัม) — ปิดหน้าต่างยืนยันนี้แล้วเปิดใบผลิตใหม่อีกครั้งเพื่อดูราคาล่าสุดก่อนยืนยัน",
     "production_order_done: ไม่มีราคาทองที่หน้าจอเห็นมาด้วย (p_expected_metal_prices) — ปิดหน้าต่างแล้วเปิดใบผลิตใหม่อีกครั้ง",
   ])("passes the gold/brass done messages (0186 round 3, Thai metal names) through as-is: %s", (message) => {
-    expect(humanizeProductionError({ code: "22023", message }, "fallback")).toBe(message);
+    const shown = humanizeProductionError({ code: "22023", message }, "fallback");
+    expect(shown).toBe(dropPrefix(message));
+    expect(shown).not.toMatch(/^production_/);
     expect(message).not.toMatch(/gold|brass|ไปประหว่าง/);
+    // ข้อความ "ราคาโลหะเปลี่ยน" ยังมี marker ที่ UI ใช้แยกกรณีหลังตัดคำนำหน้า
+    if (message.includes("เปลี่ยนไประหว่าง")) expect(shown).toContain(PRICE_CHANGED_MARKER);
   });
 
   it("falls back when there is no usable message at all", () => {

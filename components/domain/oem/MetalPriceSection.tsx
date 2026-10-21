@@ -237,7 +237,7 @@ const INPUT_CELL: Record<
   gold: {
     title: "ราคาสมาคมฯ ทองคำแท่ง 96.5% ขายออก (บาทละ)",
     unitHint: "บาท/บาททอง",
-    placeholder: "เช่น 41,250.00",
+    placeholder: "กรอกราคาบาทละ",
     saveLabel: "บันทึกราคาทอง",
     basisLabel: "ระบบแปลงเป็น ทอง 100%",
     rangeHint: "ช่วงที่รับ 2,000–8,000 บาท/กรัม (ทอง 100%)",
@@ -247,7 +247,7 @@ const INPUT_CELL: Record<
   brass: {
     title: "ราคาทองเหลือง (บาท/กก.)",
     unitHint: "บาท/กก.",
-    placeholder: "เช่น 350.00",
+    placeholder: "กรอกราคาต่อกิโลกรัม",
     saveLabel: "บันทึกราคาทองเหลือง",
     basisLabel: "ระบบแปลงเป็น",
     rangeHint: "ช่วงที่รับ 100–1,000 บาท/กก.",

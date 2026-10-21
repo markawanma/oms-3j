@@ -153,6 +153,22 @@ describe("read-back + ส่งราคาอ้างอิงเดียว�
     expect(toastPush).toHaveBeenCalledWith(expect.stringContaining("บันทึกผลิตเสร็จ PO-TEST-1 แล้ว"));
   });
 
+  it("กดยืนยันแล้วระหว่างรอ server: ปุ่ม/ช่องจำนวน disabled และกดซ้ำไม่ยิง done สองรอบ (งานล็อกต้นทุน+เข้าสต็อก) · จบแล้ว (error) กลับมากดได้", async () => {
+    previewMock.mockResolvedValue(previewWith({ metalPrices: {}, items: [previewItem({ costType: "fixed", spotPriceThbPerGram: null })] }));
+    let resolve!: (v: unknown) => void;
+    doneMock.mockReturnValue(new Promise((r) => (resolve = r)));
+    render(<ProductionDoneDialog order={order} items={items} onClose={() => {}} onDone={() => {}} />);
+    await waitFor(() => expect(confirmBtn()).not.toHaveAttribute("aria-disabled"));
+    await userEvent.click(confirmBtn());
+    await waitFor(() => expect(confirmBtn()).toBeDisabled());
+    await userEvent.click(confirmBtn());
+    expect(doneMock).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "ยกเลิก" })).toBeDisabled();
+    resolve({ ok: false, error: "บันทึกผลิตเสร็จไม่สำเร็จ ลองใหม่อีกครั้ง" });
+    await screen.findByText("บันทึกผลิตเสร็จไม่สำเร็จ ลองใหม่อีกครั้ง");
+    await waitFor(() => expect(confirmBtn()).not.toBeDisabled());
+  });
+
   it("ราคาเปลี่ยนระหว่างเปิด dialog (DB fail-closed) → ข้อความ spec + ตรวจอีกครั้ง · ปุ่มยืนยัน aria-disabled จนกว่าจะตรวจ", async () => {
     previewMock.mockResolvedValue(previewWith({ metalPrices: { gold: 2804.1271 }, items: [previewItem({ metal: "gold" })] }));
     doneMock.mockResolvedValue({ ok: false, error: "production_order_done: ราคาทองเปลี่ยนไประหว่างที่เปิดหน้าต่างนี้ค้างไว้ (ตอนเปิดหน้าต่างเห็นราคา 2804.1271 บาท/กรัม แต่ตอนนี้ระบบคำนวณได้ 2900 บาท/กรัม)" });

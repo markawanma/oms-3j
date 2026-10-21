@@ -15,7 +15,7 @@
 // "+ สินค้าใหม่" reuses OEM's CreateSkuDialog as-is (explicitly allowed by
 // the P1b brief) — no seed weight/purity/category is passed, never guessed.
 
-import { useCallback, useEffect, useId, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Plus } from "lucide-react";
 import { getProductionItemPrefill, setProductionOrderItem } from "@/lib/actions/production";
 import type { ProductionItemPrefill, ProductionSkuOption } from "@/lib/production/types";
@@ -27,8 +27,9 @@ import {
   labelKey,
   metalSpecIssues,
   MSG_LABEL_REQUIRED,
-  stripFnPrefix,
+  skuSourceBadges,
   weightTextFromNumber,
+  ALLOW_UNBOUND_ITEM_OFFICE,
 } from "@/lib/production/metal-ui";
 import type { ItemDraft, MetalSpecFieldErrors } from "@/lib/production/metal-ui";
 import { purityFractionToPct } from "@/lib/units/purity";
@@ -89,7 +90,7 @@ export function ProductionAddItemForm({
   const [prefill, setPrefill] = useState<PrefillState>({ s: "idle" });
   const [attempted, setAttempted] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [pending, startTransition] = useTransition();
+  const [pending, setPending] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
 
   // Loaded on demand (only when the "+ สินค้าใหม่" dialog is actually opened)
@@ -206,21 +207,41 @@ export function ProductionAddItemForm({
       if (id) setTimeout(() => document.getElementById(id)?.focus(), 0);
       return;
     }
-    startTransition(async () => {
-      const result = await setProductionOrderItem(built.input);
+    void (async () => {
+      // state saving ของเราเอง (ไม่ใช้ useTransition: React 18 ไม่ถือ pending ข้าม await — ช่องจะไม่ถูก disable ระหว่างบันทึกจริง)
+      setPending(true);
+      let result: Awaited<ReturnType<typeof setProductionOrderItem>>;
+      try {
+        result = await setProductionOrderItem(built.input);
+      } catch {
+        setError("เพิ่มรายการไม่สำเร็จ ลองอีกครั้ง (ค่าที่กรอกยังอยู่)");
+        return;
+      } finally {
+        setPending(false);
+      }
       if (!result.ok) {
         // ค่าที่กรอกคงอยู่ — ไม่ล้างฟอร์ม
-        setError(stripFnPrefix(result.error));
-        toast.push(stripFnPrefix(result.error), "error");
+        setError(result.error);
+        toast.push(result.error, "error");
         return;
       }
       toast.push(`เพิ่ม ${result.data.sku ?? result.data.name} จำนวน ${result.data.qtyPlanned} ชิ้นแล้ว`);
       resetAll();
       onAdded();
-    });
+    })();
   }
 
   const disablePicker = !!skuOptionsError || skuOptions.length === 0;
+  // ป้าย "จาก SKU / แก้ในใบนี้" — ฟังก์ชันเดียวกับการ์ดรายการ (เทียบค่าจริงในช่องกับค่า SKU)
+  const badges = skuSourceBadges({
+    hasSku: mode === "sku" && prefillData !== null,
+    metal: draft.metal,
+    skuMetal: prefillData?.metal ?? null,
+    skuPurity: prefillData?.purity ?? null,
+    skuWeightG: prefillData?.weightG ?? null,
+    purityText: draft.purityText,
+    weightText: draft.weightText,
+  });
 
   return (
     <section aria-label="เพิ่มรายการ" className="rounded-lg border border-dashed border-zinc-300 bg-zinc-50 p-3">
@@ -238,24 +259,27 @@ export function ProductionAddItemForm({
         )}
       </div>
 
-      <div role="radiogroup" aria-label="รูปแบบรายการ" className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
-        {(
-          [
-            ["sku", "มี SKU"],
-            ["nosku", "ไม่มี SKU — ใส่ชื่อแบบ"],
-          ] as const
-        ).map(([value, text2]) => (
-          <label
-            key={value}
-            className={`flex min-h-11 cursor-pointer items-center justify-center rounded-md border px-3 text-sm font-medium has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-primary-600 ${
-              mode === value ? "border-primary-600 bg-primary-100 text-primary-700" : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50"
-            }`}
-          >
-            <input type="radio" name={`${idBase}-mode`} value={value} checked={mode === value} onChange={() => switchMode(value)} className="sr-only" />
-            {text2}
-          </label>
-        ))}
-      </div>
+      {/* ซ่อนตัวเลือก "ไม่มี SKU" ไว้ก่อน (ALLOW_UNBOUND_ITEM_OFFICE = false) — ทางตัน: ยังไม่มีปุ่มผูก SKU จนถึง W1 · เหลือโหมด "มี SKU" โหมดเดียว ไม่แสดง segmented */}
+      {ALLOW_UNBOUND_ITEM_OFFICE && (
+        <div role="radiogroup" aria-label="รูปแบบรายการ" className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+          {(
+            [
+              ["sku", "มี SKU"],
+              ["nosku", "ไม่มี SKU — ใส่ชื่อแบบ"],
+            ] as const
+          ).map(([value, text2]) => (
+            <label
+              key={value}
+              className={`flex min-h-11 cursor-pointer items-center justify-center rounded-md border px-3 text-sm font-medium has-[:focus-visible]:outline has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-2 has-[:focus-visible]:outline-primary-600 ${
+                mode === value ? "border-primary-600 bg-primary-100 text-primary-700" : "border-zinc-300 bg-white text-zinc-700 hover:bg-zinc-50"
+              }`}
+            >
+              <input type="radio" name={`${idBase}-mode`} value={value} checked={mode === value} onChange={() => switchMode(value)} className="sr-only" />
+              {text2}
+            </label>
+          ))}
+        </div>
+      )}
 
       <CreateSkuDialog
         open={createOpen}
@@ -298,7 +322,7 @@ export function ProductionAddItemForm({
           </datalist>
           {!skuOptionsError && skuOptions.length === 0 && (
             <p className="mt-1 text-xs text-zinc-600">
-              ยังไม่มี SKU ที่เลือกได้ (ต้อง active และไม่ใช่ SKU เฉพาะไลฟ์) — สร้างใหม่ได้ที่ปุ่ม &quot;สินค้าใหม่&quot; หรือเลือก &quot;ไม่มี SKU — ใส่ชื่อแบบ&quot;
+              ยังไม่มี SKU ที่เลือกได้ (ต้อง active และไม่ใช่ SKU เฉพาะไลฟ์) — สร้างใหม่ได้ที่ปุ่ม &quot;สินค้าใหม่&quot;{ALLOW_UNBOUND_ITEM_OFFICE ? <> หรือเลือก &quot;ไม่มี SKU — ใส่ชื่อแบบ&quot;</> : null}
             </p>
           )}
           {duplicateSku && (
@@ -365,14 +389,8 @@ export function ProductionAddItemForm({
             errors={errors}
             forceShow={attempted}
             metalNotes={metalNotes}
-            purityBadge={mode === "sku" && prefillData?.purity != null && draft.metal === prefillData.metal ? "จาก SKU" : null}
-            weightBadge={
-              mode === "sku" && prefillData?.weightG != null && draft.weightText.trim() !== ""
-                ? Number(draft.weightText) === prefillData.weightG && draft.metal === "silver"
-                  ? "จาก SKU"
-                  : "แก้ในใบนี้"
-                : null
-            }
+            purityBadge={badges.purity}
+            weightBadge={badges.weight}
             extra={
               <div>
                 <label htmlFor={`${idBase}-qty`} className={labelCls}>

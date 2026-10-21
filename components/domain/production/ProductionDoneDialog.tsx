@@ -25,7 +25,6 @@
 // ปุ่มยืนยัน aria-disabled + เหตุผล (ไม่ใช่ disabled เฉยๆ)
 
 import { useEffect, useId, useMemo, useState } from "react";
-import { useTransition } from "react";
 import { AlertTriangle } from "lucide-react";
 import { doneProductionOrder, previewProductionOrder } from "@/lib/actions/production";
 import type {
@@ -36,7 +35,7 @@ import type {
   ProductionOrderPreviewItem,
   ProductionOrderRow,
 } from "@/lib/production/types";
-import { PRODUCTION_COST_TYPE_LABEL_TH, PRODUCTION_METAL_LABEL_TH } from "@/lib/production/types";
+import { PRICE_CHANGED_MARKER, PRODUCTION_COST_TYPE_LABEL_TH, PRODUCTION_METAL_LABEL_TH } from "@/lib/production/types";
 import { formatTHB } from "@/lib/format";
 import { brassPerGramToKgText } from "@/lib/oem/metal-price";
 import { effectiveDateBangkok, formatThaiDateOnly } from "@/lib/tiktok/format";
@@ -65,7 +64,6 @@ interface DoneRow {
 }
 
 const DEBOUNCE_MS = 350;
-const PRICE_CHANGED_MARKER = "เปลี่ยนไประหว่างที่เปิดหน้าต่างนี้ค้างไว้";
 
 function parsedQty(input: string): number | null {
   const n = Number(input);
@@ -125,7 +123,7 @@ export function ProductionDoneDialog({
   const [previewLoading, setPreviewLoading] = useState(true);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
-  const [pending, startTransition] = useTransition();
+  const [pending, setPending] = useState(false);
 
   /** built once per (rows × qtyByProductId) change — the EXACT array sent to
    * both preview (below) and done (submit()), so what's shown is provably
@@ -225,14 +223,24 @@ export function ProductionDoneDialog({
   function submit() {
     if (!canSubmit) return;
     setSubmitError(null);
-    startTransition(async () => {
-      const result = await doneProductionOrder({
-        productionOrderId: order.id,
-        items: doneItems.items,
-        // 0132 M1 → 0186 ต่อโลหะ — ราคาที่ preview ตัวนี้เห็นจริงตอนเปิดหน้าต่าง (หลังพิมพ์จำนวนล่าสุดแล้ว) ส่งกลับให้ DB เทียบกับราคาที่ resolve ได้จริง ณ ตอน
-        // กดยืนยัน (กันราคาเลื่อนระหว่างที่หน้าต่างนี้เปิดค้างไว้) — อ็อบเจกต์เดียวกับที่ preview คืน (มีเฉพาะโลหะที่ใบใช้จริง · ใบ fixed ล้วน = {})
-        expectedMetalPrices: preview?.metalPrices ?? null,
-      });
+    void (async () => {
+      // state pending ของเราเอง (ไม่ใช้ useTransition: React 18 ไม่ถือ pending ข้าม await — ปุ่มยืนยันจะกดซ้ำได้ระหว่างรอ server ทั้งที่เป็นงานล็อกต้นทุน+เข้าสต็อก)
+      setPending(true);
+      let result: Awaited<ReturnType<typeof doneProductionOrder>>;
+      try {
+        result = await doneProductionOrder({
+          productionOrderId: order.id,
+          items: doneItems.items,
+          // 0132 M1 → 0186 ต่อโลหะ — ราคาที่ preview ตัวนี้เห็นจริงตอนเปิดหน้าต่าง (หลังพิมพ์จำนวนล่าสุดแล้ว) ส่งกลับให้ DB เทียบกับราคาที่ resolve ได้จริง ณ ตอน
+          // กดยืนยัน (กันราคาเลื่อนระหว่างที่หน้าต่างนี้เปิดค้างไว้) — อ็อบเจกต์เดียวกับที่ preview คืน (มีเฉพาะโลหะที่ใบใช้จริง · ใบ fixed ล้วน = {})
+          expectedMetalPrices: preview?.metalPrices ?? null,
+        });
+      } catch {
+        setSubmitError("บันทึกผลิตเสร็จไม่สำเร็จ ลองใหม่อีกครั้ง");
+        return;
+      } finally {
+        setPending(false);
+      }
       if (!result.ok) {
         setSubmitError(result.error);
         toast.push(result.error, "error");
@@ -240,7 +248,7 @@ export function ProductionDoneDialog({
       }
       toast.push(`บันทึกผลิตเสร็จ ${result.data.poNo} แล้ว — ของเข้าสต็อกและล็อกต้นทุนของรอบผลิตนี้แล้ว`);
       onDone();
-    });
+    })();
   }
 
   return (

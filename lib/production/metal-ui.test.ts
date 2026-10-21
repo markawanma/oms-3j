@@ -18,7 +18,9 @@ import {
   MSG_WEIGHT_INVALID,
   normalizeWeightText,
   purityFieldIssue,
-  stripFnPrefix,
+  ALLOW_UNBOUND_ITEM_OFFICE,
+  purityFractionToSend,
+  skuSourceBadges,
   weightFieldIssue,
   weightSourceFor,
 } from "./metal-ui";
@@ -195,24 +197,38 @@ describe("buildItemSaveInput — ส่งเฉพาะช่องที่�
     if (!res.ok) expect(res.errors.purity).toBe(MSG_GOLD_PURITY_REQUIRED);
   });
 
-  it("ทอง→เงิน: เติม 92.50 ในช่อง (มองเห็น) แล้วส่ง purity 0.925 ชัดเจน · ผู้ใช้ลบช่องเงินจนว่าง = ไม่บังคับ ไม่ส่ง purity (server ใช้ค่าเริ่ม)", () => {
+  it("ทอง→เงิน: เติม 92.50 ในช่อง (มองเห็น) แล้วส่ง purity 0.925 ชัดเจน · ช่องเงินว่าง = 'ใช้ 92.50' ส่ง 0.925 เหมือนกัน (ไม่ใช่ไม่ส่ง/คงค่าเดิมเงียบ)", () => {
     const goldRow = row({ effectiveMetal: "gold", effectivePurity: 0.9, effectiveWeightG: null, effectiveWeightSource: null });
     const gBase = draftFromRow(goldRow);
     const toSilver = applyMetalChange(gBase, "silver", gBase, null).draft;
     expect(toSilver.purityText).toBe("92.50");
-    const filled = buildItemSaveInput({ orderId: "po-1", row: goldRow, draft: toSilver, base: gBase });
-    expect(filled).toEqual({ ok: true, input: { productionOrderId: "po-1", productId: "p-1", qtyPlanned: 30, metal: "silver", purity: 0.925 } });
-    const blank = buildItemSaveInput({ orderId: "po-1", row: goldRow, draft: { ...toSilver, purityText: "" }, base: gBase });
-    expect(blank).toEqual({ ok: true, input: { productionOrderId: "po-1", productId: "p-1", qtyPlanned: 30, metal: "silver" } });
+    const expected = { ok: true, input: { productionOrderId: "po-1", productId: "p-1", qtyPlanned: 30, metal: "silver", purity: 0.925 } };
+    expect(buildItemSaveInput({ orderId: "po-1", row: goldRow, draft: toSilver, base: gBase })).toEqual(expected);
+    expect(buildItemSaveInput({ orderId: "po-1", row: goldRow, draft: { ...toSilver, purityText: "" }, base: gBase })).toEqual(expected);
   });
 
-  it("เงินเว้นว่างตอนเพิ่มรายการ: ไม่ error · ไม่ส่ง purity (server เติมค่าเริ่ม) · ทองเว้นว่าง = ปฏิเสธ", () => {
+  it("การ์ดเงินที่บันทึกแล้ว (โลหะไม่เปลี่ยน) ล้างช่องเนื้อ = ส่ง 0.925 ชัดเจน — ไม่ใช่ไม่ส่ง (server คงค่าเก่าเงียบๆ เช่น 80.00)", () => {
+    const r80 = row({ effectivePurity: 0.8 });
+    const res = buildItemSaveInput({ orderId: "po-1", row: r80, draft: { ...draftFromRow(r80), purityText: "" }, base: draftFromRow(r80) });
+    expect(res).toEqual({ ok: true, input: { productionOrderId: "po-1", productId: "p-1", qtyPlanned: 30, purity: 0.925 } });
+  });
+
+  it("เงินเว้นว่างตอนเพิ่มรายการ: ไม่ error · ส่ง purity 0.925 ชัดเจน · ทองเว้นว่าง = ปฏิเสธ", () => {
     const d = { metal: "silver" as const, purityText: "", weightText: "", qtyText: "2", isNewDesign: false };
     expect(buildNewItemInput({ orderId: "po-1", productId: "p-1", label: null, draft: d, skuWeightG: null, isSpecSku: false })).toEqual({
       ok: true,
-      input: { productionOrderId: "po-1", productId: "p-1", qtyPlanned: 2, metal: "silver" },
+      input: { productionOrderId: "po-1", productId: "p-1", qtyPlanned: 2, metal: "silver", purity: 0.925 },
     });
     expect(buildNewItemInput({ orderId: "po-1", productId: "p-1", label: null, draft: { ...d, metal: "gold" }, skuWeightG: null, isSpecSku: false }).ok).toBe(false);
+  });
+
+  it("purityFractionToSend: ทองเหลือง 1 · เงินว่าง 0.925 · เงินที่พิมพ์ใช้ค่าที่พิมพ์ · ทองว่าง/ผิดรูป null", () => {
+    expect(purityFractionToSend("brass", "abc")).toBe(1);
+    expect(purityFractionToSend("silver", "  ")).toBe(0.925);
+    expect(purityFractionToSend("silver", "80")).toBe(0.8);
+    expect(purityFractionToSend("gold", "")).toBeNull();
+    expect(purityFractionToSend("gold", "96.5")).toBe(0.965);
+    expect(purityFractionToSend("silver", "0.925")).toBeNull();
   });
 
   it("ทองเหลือง: ส่ง purity = 1 เสมอ", () => {
@@ -288,6 +304,32 @@ describe("buildNewItemInput — การ์ดร่างตอนเพิ่
   });
 });
 
+describe("skuSourceBadges — เทียบค่าจริงในช่องกับ SKU (ฟังก์ชันเดียวทั้งการ์ดและฟอร์มเพิ่ม)", () => {
+  const base = { hasSku: true, metal: "silver" as const, skuMetal: "silver" as const, skuPurity: 0.925, skuWeightG: 3.2, purityText: "92.50", weightText: "3.2" };
+  it("ค่าเท่า SKU เป๊ะ → 'จาก SKU' ทั้งสองช่อง (92.5 ≡ 92.50 · 3.20 ≡ 3.2)", () => {
+    expect(skuSourceBadges(base)).toEqual({ purity: "จาก SKU", weight: "จาก SKU" });
+    expect(skuSourceBadges({ ...base, purityText: "92.5", weightText: "3.20" })).toEqual({ purity: "จาก SKU", weight: "จาก SKU" });
+  });
+  it("แก้เนื้อแล้วป้าย 'จาก SKU' หาย → 'แก้ในใบนี้' · แก้น้ำหนักก็เช่นกัน (ต่างช่องต่างอิสระ)", () => {
+    expect(skuSourceBadges({ ...base, purityText: "90" })).toEqual({ purity: "แก้ในใบนี้", weight: "จาก SKU" });
+    expect(skuSourceBadges({ ...base, weightText: "4.5" })).toEqual({ purity: "จาก SKU", weight: "แก้ในใบนี้" });
+    expect(skuSourceBadges({ ...base, purityText: "92.51" }).purity).toBe("แก้ในใบนี้");
+  });
+  it("ช่องว่าง / ค่าที่ยังพิมพ์ไม่เสร็จ: ว่าง = ไม่มีป้าย · เนื้อผิดรูป = 'แก้ในใบนี้' (ไม่ใช่ 'จาก SKU')", () => {
+    expect(skuSourceBadges({ ...base, purityText: "", weightText: "" })).toEqual({ purity: null, weight: null });
+    expect(skuSourceBadges({ ...base, purityText: "0.925" }).purity).toBe("แก้ในใบนี้");
+  });
+  it("ไม่มี SKU / SKU ไม่มีค่า → ไม่มีป้าย · โลหะอื่นที่ไม่ใช่โลหะของ SKU → ไม่มีป้าย (น้ำหนัก SKU ใช้กับเงินเท่านั้น)", () => {
+    expect(skuSourceBadges({ ...base, hasSku: false })).toEqual({ purity: null, weight: null });
+    expect(skuSourceBadges({ ...base, skuPurity: null, skuWeightG: null })).toEqual({ purity: null, weight: null });
+    expect(skuSourceBadges({ ...base, metal: "gold", purityText: "90", weightText: "3.2" })).toEqual({ purity: null, weight: null });
+    expect(skuSourceBadges({ ...base, metal: "brass", purityText: "100.00" }).purity).toBeNull();
+  });
+  it("skuMetal null = เงิน (เหมือน helper ฝั่ง DB)", () => {
+    expect(skuSourceBadges({ ...base, skuMetal: null }).purity).toBe("จาก SKU");
+  });
+});
+
 describe("weightSourceFor", () => {
   it("product เฉพาะ มี SKU + เงิน + ตัวเลขตรงเป๊ะ", () => {
     expect(weightSourceFor({ hasSku: true, metal: "silver", weightText: "3.2", skuWeightG: 3.2 })).toBe("product");
@@ -329,9 +371,8 @@ describe("closeBlockers — 4 ข้อ + ลำดับ (① dirty ③ ไม�
 });
 
 describe("อื่นๆ", () => {
-  it("stripFnPrefix ตัดชื่อฟังก์ชันหน้าข้อความ DB · ข้อความที่ไม่มีคำนำหน้าคงเดิม", () => {
-    expect(stripFnPrefix("production_order_item_set: เปลี่ยนโลหะไม่ได้ — มีใบงาน JB-0031 เดินอยู่")).toBe("เปลี่ยนโลหะไม่ได้ — มีใบงาน JB-0031 เดินอยู่");
-    expect(stripFnPrefix("ราคาทองไม่ถูกต้อง: ลองใหม่")).toBe("ราคาทองไม่ถูกต้อง: ลองใหม่");
+  it("ALLOW_UNBOUND_ITEM_OFFICE ปิดอยู่ (ทางตัน: ยังไม่มี RPC ผูก SKU จนถึง W1) — เปิดต้องแก้ค่าคงที่นี้ที่เดียว", () => {
+    expect(ALLOW_UNBOUND_ITEM_OFFICE).toBe(false);
   });
   it("itemDisplayName ไม่พิมพ์ 'null' · labelKey ยุบช่องว่าง+พิมพ์เล็ก", () => {
     expect(itemDisplayName({ sku: "A-1", productName: "แหวน", pendingProductLabel: null })).toBe("A-1 · แหวน");

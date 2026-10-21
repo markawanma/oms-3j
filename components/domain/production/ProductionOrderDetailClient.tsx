@@ -25,7 +25,7 @@ import {
   PRODUCTION_SPOT_OVERRIDE_MAX,
   PRODUCTION_SPOT_OVERRIDE_MIN,
 } from "@/lib/production/types";
-import { closeBlockers, closeReasonLine, itemShortName, stripFnPrefix } from "@/lib/production/metal-ui";
+import { ALLOW_UNBOUND_ITEM_OFFICE, closeBlockers, closeReasonLine, itemShortName } from "@/lib/production/metal-ui";
 import { formatBangkokTime } from "@/lib/format";
 import { Badge } from "@/components/ui/Badge";
 import type { BadgeTone } from "@/components/ui/Badge";
@@ -217,7 +217,7 @@ export function ProductionOrderDetailClient({
     removeProductionOrderItemById({ productionOrderId: order.id, itemId: item.id }).then((result) => {
       setRemovingItemId(null);
       if (!result.ok) {
-        toast.push(stripFnPrefix(result.error), "error");
+        toast.push(result.error, "error");
         return;
       }
       toast.push(`ลบ ${itemShortName(item)} แล้ว`);
@@ -227,7 +227,14 @@ export function ProductionOrderDetailClient({
 
   return (
     <div className="space-y-4">
-      <Link href="/production" className="inline-flex items-center gap-1 text-sm text-zinc-500 hover:text-zinc-700">
+      <Link
+        href="/production"
+        onClick={(e) => {
+          // การ์ดที่แก้ค้างยังไม่บันทึก → ถามก่อนออก (ลิงก์ในหน้านี้ไม่ผ่าน beforeunload — การนำทางของ Next เป็น client-side) · ลิงก์ใน sidebar จดเป็นหนี้
+          if (dirtyIds.size > 0 && !window.confirm("มีรายการที่แก้ไว้แต่ยังไม่บันทึก — ออกจากหน้านี้แล้วค่าที่แก้จะหาย ต้องการออกไหม?")) e.preventDefault();
+        }}
+        className="inline-flex items-center gap-1 text-sm text-zinc-500 hover:text-zinc-700"
+      >
         <ArrowLeft className="h-4 w-4" aria-hidden="true" />
         กลับไปรายการใบผลิต
       </Link>
@@ -299,7 +306,7 @@ export function ProductionOrderDetailClient({
           <div className="mt-2">
             <EmptyState
               title="ยังไม่มีรายการในใบนี้"
-              description={isOpen ? "เพิ่มรายการด้านล่างได้เลย (มี SKU หรือไม่มี SKU ก็ได้)" : undefined}
+              description={isOpen ? (ALLOW_UNBOUND_ITEM_OFFICE ? "เพิ่มรายการด้านล่างได้เลย (มี SKU หรือไม่มี SKU ก็ได้)" : "เพิ่มรายการด้านล่างได้เลย") : undefined}
             />
           </div>
         ) : (
