@@ -13,6 +13,8 @@ import { ShopFieldError } from "@/components/domain/jobs/worker/shop/ShopMetalFi
 import { ShopMetalRow } from "@/components/domain/jobs/worker/shop/ShopMetalSummary";
 import { dueLabel, noteIssue, qtySummary } from "@/lib/jobs/shop-open";
 import type { ShopErrorView, ShopForm } from "@/lib/jobs/shop-open";
+import { SHOP_PHOTO_TH } from "@/lib/jobs/shop-photos";
+import type { ShopPhotoItem } from "@/lib/jobs/shop-photos";
 
 const ROW = "flex items-start gap-3";
 const DT = "w-24 shrink-0 pt-0.5 text-base font-semibold text-zinc-700";
@@ -30,6 +32,8 @@ export function ShopReview({
   onEditProduct,
   onEditMetal,
   onBack,
+  photos,
+  onEditPhotos,
 }: {
   form: ShopForm;
   setForm: Dispatch<SetStateAction<ShopForm>>;
@@ -44,6 +48,10 @@ export function ShopReview({
   onEditMetal: () => void;
   /** แก้จากข้อผิดพลาด: กลับไปช่อง/ขั้นที่ผิด */
   onBack: () => void;
+  /** 0189 W2: รูปที่เลือกไว้ (ยังอยู่ในเครื่อง ยังไม่ส่ง) — ไม่ส่ง = ไม่มีแถว "รูป" */
+  photos?: readonly ShopPhotoItem[];
+  /** กลับไป W-5 (รูปคงอยู่) */
+  onEditPhotos?: () => void;
 }) {
   const unbound = form.mode === "new";
   const name = unbound ? form.label.replace(/\s+/g, " ").trim() : (form.product?.name ?? "");
@@ -91,6 +99,45 @@ export function ShopReview({
               <p className={DT}>แบบใหม่</p>
               <p className={DD}>{form.isNewDesign ? "ใช่" : "ไม่ใช่"}</p>
             </div>
+            {photos && onEditPhotos && (
+              // แถวสุดท้ายของการ์ด (ไม่แทรกก่อน "ทำจาก/จำนวน" — โลหะ/เนื้อ/จำนวนคือจุดตรวจสำคัญสุด ไม่ควรถูกดันลง)
+              <div className={ROW}>
+                <p className={DT}>รูป</p>
+                <div className="min-w-0 flex-1">
+                  {photos.length > 0 ? (
+                    <>
+                      <div className="flex items-center gap-2">
+                        <ul className="flex gap-1.5">
+                          {[...photos.filter((p) => p.isPrimary), ...photos.filter((p) => !p.isPrimary)].map((p, i) => (
+                            <li key={p.key} className="relative h-14 w-14 overflow-hidden rounded-lg border border-zinc-300 bg-zinc-100">
+                              {p.smUrl && (
+                                // eslint-disable-next-line @next/next/no-img-element -- blob URL ในเครื่อง
+                                <img src={p.smUrl} alt={`รูปที่ ${i + 1} จาก ${photos.length}`} draggable={false} className="h-full w-full object-cover" />
+                              )}
+                              {p.isPrimary && (
+                                <span aria-hidden="true" className="absolute left-0.5 top-0.5 rounded bg-white px-0.5 text-sm leading-none font-bold text-zinc-900 shadow">
+                                  ★
+                                </span>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                        <p className="text-lg font-semibold text-zinc-900">{photos.length} รูป</p>
+                      </div>
+                      <p className="mt-1 text-base text-zinc-700">{SHOP_PHOTO_TH.reviewWillSend}</p>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-lg font-semibold text-zinc-900">{SHOP_PHOTO_TH.reviewNone}</p>
+                      {unbound && <p className="mt-1 inline-block rounded-md bg-[#FFF1C2] px-2 py-0.5 text-base font-semibold text-[#5A3D00]">{SHOP_PHOTO_TH.reviewNoSkuNone}</p>}
+                    </>
+                  )}
+                </div>
+                <button type="button" onClick={onEditPhotos} aria-label={photos.length > 0 ? "แก้รูป" : "เพิ่มรูป"} className="min-h-11 shrink-0 rounded-lg px-3 text-lg font-semibold text-primary-800 underline focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary-300 disabled:opacity-40">
+                  {photos.length > 0 ? "แก้" : "เพิ่ม"}
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="space-y-1.5">
@@ -120,6 +167,7 @@ export function ShopReview({
         </fieldset>
 
         <p className="text-base text-zinc-700">เปิดแล้วช่างเริ่มได้ทันที · ออฟฟิศจะ &ldquo;รับทราบ&rdquo; และพิมพ์ใบ A5 ให้</p>
+        {photos && photos.length > 0 && <p className="text-base font-semibold text-zinc-900">{SHOP_PHOTO_TH.reviewFooter(photos.length)}</p>}
         {error && <ShopErrorBanner view={error} waitLeft={waitLeft} busy={busy} onRetry={onSubmit} onBack={onBack} />}
         <p role="status" className="sr-only">
           {readyNote ?? ""}

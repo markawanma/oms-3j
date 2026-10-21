@@ -67,9 +67,11 @@ async function toQty(items: IntakeProduct[] = [product()]) {
   await userEvent.click(row);
   await click("ถัดไป");
 }
+/** กรอกจำนวน → W-5 รูป (ข้าม ไม่ใส่รูป) → ถึง W-6/7 ทวน */
 async function fillQtyAndNext(qty = "30") {
   await userEvent.type(screen.getByLabelText("ต้องการเข้าสต็อก (ชิ้น)"), qty);
   await click("ถัดไป");
+  await click("ข้าม ไม่ใส่รูป");
 }
 const submitBtn = () => screen.getByRole("button", { name: /^(เปิดงาน|รอ \d+ วิ…|กำลังเปิดงาน…|เปิดงานไม่ได้)$/ });
 
@@ -194,7 +196,7 @@ describe("กิ่งสินค้าใหม่ (ไม่มี SKU) + W-2
     await userEvent.type(screen.getByLabelText(/ชื่อแบบ/), "แหวนลายใบไม้");
     await click("ถัดไป");
     expect(screen.getByRole("heading", { level: 1, name: "ทำจากอะไร?" })).toBeInTheDocument();
-    expect(screen.getByText("2/4")).toBeInTheDocument();
+    expect(screen.getByText("2/5")).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: /เงิน/ })).toBeChecked();
     expect(screen.getByLabelText(/เนื้อโลหะ/)).toHaveValue("92.50");
     await userEvent.click(screen.getByRole("radio", { name: GOLD }));
@@ -235,7 +237,7 @@ describe("กิ่งสินค้าใหม่ (ไม่มี SKU) + W-2
     await userEvent.type(w, "3.2");
     await click("ถัดไป");
     expect(screen.getByRole("heading", { level: 1, name: "เท่าไร · เสร็จเมื่อไร" })).toBeInTheDocument();
-    expect(screen.getByText("3/4")).toBeInTheDocument();
+    expect(screen.getByText("3/5")).toBeInTheDocument();
   });
 
   it("pre-check โปรไฟล์ทอง (R1): ไม่มีแบบทอง → กล่องเดียวกันทันที + ถัดไป aria-disabled + ไม่มีปุ่มเปลี่ยนโลหะให้", async () => {
@@ -260,7 +262,7 @@ describe("W-3 มี SKU: บล็อก 'ทำจาก' + แผ่นแก
   it("แสดงบล็อกทำจาก (ป้ายเงิน · เนื้อ 92.50% · น้ำหนัก ยังไม่ระบุ · ค่าจากสินค้าในระบบ) · จำนวนเริ่มว่าง · เผื่อค่าเริ่มปิด · กำหนดเสร็จค่าเริ่มยังไม่กำหนด · แบบใหม่ไม่ติ๊ก", async () => {
     render(<ShopIntakeApp token={TOKEN} initial={readyHub()} />);
     await toQty();
-    expect(screen.getByText("2/3")).toBeInTheDocument();
+    expect(screen.getByText("2/4")).toBeInTheDocument();
     const block = screen.getByRole("region", { name: "ทำจาก" });
     expect(within(block).getByText("เงิน")).toBeInTheDocument();
     expect(within(block).getByText("เนื้อ 92.50%")).toBeInTheDocument();
@@ -355,7 +357,7 @@ describe("W-6/7 ทวน → เปิดงาน → W-8", () => {
     await toQty();
     await fillQtyAndNext("30");
     expect(screen.getByRole("heading", { level: 1, name: "ทวนก่อนเปิดงาน" })).toBeInTheDocument();
-    expect(screen.getByText("3/3")).toBeInTheDocument();
+    expect(screen.getByText("4/4")).toBeInTheDocument();
     expect(screen.getByText("30 ชิ้น · ไม่เผื่อ")).toBeInTheDocument();
     expect(screen.getAllByText("ยังไม่กำหนด").length).toBeGreaterThan(0);
     expect(screen.getByText("เปิดแล้วช่างเริ่มได้ทันที · ออฟฟิศจะ “รับทราบ” และพิมพ์ใบ A5 ให้")).toBeInTheDocument();
@@ -413,6 +415,7 @@ describe("W-6/7 ทวน → เปิดงาน → W-8", () => {
     await userEvent.click(screen.getByRole("radio", { name: /^7 วัน/ }));
     await userEvent.click(screen.getByRole("checkbox", { name: /แบบใหม่/ }));
     await click("ถัดไป");
+    await click("ข้าม ไม่ใส่รูป");
     expect(screen.getByText("สั่ง 30 + เผื่อ 5 = เริ่มผลิต 35 ชิ้น")).toBeInTheDocument();
     await userEvent.type(screen.getByLabelText(/หมายเหตุ/), "เร่งด่วน");
     await click("แก้สินค้า");
@@ -420,6 +423,7 @@ describe("W-6/7 ทวน → เปิดงาน → W-8", () => {
     expect(await screen.findByRole("button", { name: /RG-0418/ }, { timeout: 3000 })).toHaveAttribute("aria-pressed", "true");
     await click("ถัดไป");
     await click("ถัดไป");
+    await click("ข้าม ไม่ใส่รูป");
     await click("เปิดงาน");
     await waitFor(() => expect(intakeOpen).toHaveBeenCalledTimes(1));
     expect(intakeOpen.mock.calls[0][1]).toMatchObject({ qty: "30", buffer: "5", isNewDesign: true, note: "เร่งด่วน" });

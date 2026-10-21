@@ -82,13 +82,15 @@ describe("หน้า /w/s/<shopToken> — กราฟ import ทั้งเ�
 
   // 0189 W2: ทางแนบรูปจากหน้างาน "เขียน storage" — กราฟ static ของหน้านี้ต้องไม่ลากโค้ดตัด Exif ฝั่ง server (lib/images/server: โหลดด้วย dynamic import ใน shop-photo-server เท่านั้น)
   // และ lib/images/client (ย่อรูปด้วย canvas · browser-only) ผ่อนให้แคบที่สุด: เฉพาะไฟล์ใน allowlist ด้านล่างเท่านั้นที่ import ได้ (ไฟล์ UI ใหม่ที่ต้องใช้จริง — เพิ่มชื่อที่นี่ทีละไฟล์พร้อมเหตุผล)
-  const IMAGES_CLIENT_ALLOWED_IMPORTERS: string[] = [];
+  // 0189 W2 UI: ไฟล์เดียวที่ย่อรูปในเบราว์เซอร์ = hook ของรูปจากหน้างาน (component อื่น/lib/jobs/shop-photos.ts รับรูปที่ย่อแล้วหรือจับ error ด้วยชื่อ class — ไม่ import client)
+  const IMAGES_CLIENT_ALLOWED_IMPORTERS: string[] = ["components/domain/jobs/worker/shop/useShopPhotos.ts"];
   it("W2: กราฟ static ไม่มี lib/images/server · มีชั้น shop-photo-server + job-photo-storage (กันเทสต์ว่างเปล่า)", () => {
     expect(rels).toContain("lib/jobs/shop-photo-server.ts");
     expect(rels).toContain("lib/images/job-photo-storage.ts");
     expect(rels).not.toContain("lib/images/server.ts");
   });
-  it("W2: lib/images/client อยู่ในกราฟได้เฉพาะผ่านไฟล์ใน allowlist (ค่าเริ่ม = ไม่มี)", () => {
+  it("W2: lib/images/client อยู่ในกราฟได้เฉพาะผ่านไฟล์ใน allowlist (แคบสุด = useShopPhotos.ts ไฟล์เดียว)", () => {
+    expect(IMAGES_CLIENT_ALLOWED_IMPORTERS).toEqual(["components/domain/jobs/worker/shop/useShopPhotos.ts"]);
     for (const f of files) {
       if (!/\.(ts|tsx)$/.test(f)) continue;
       const imports = runtimeImports(readFileSync(f, "utf8")).map((spec) => resolveSpec(spec, f)).filter((x): x is string => x !== null).map(norm);

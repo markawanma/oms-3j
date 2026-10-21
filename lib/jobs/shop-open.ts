@@ -51,7 +51,8 @@ export const SHOP_LABEL_MAX = 60;
 // ============================================================================
 
 export type ShopDue = { kind: "none" } | { kind: "days"; days: 3 | 7 } | { kind: "date"; date: string };
-export type ShopStep = "search" | "metal" | "qty" | "review";
+/** 0189 W2: "photos" = W-5 ใส่รูปให้ช่างดู (ไม่บังคับ · ก่อนทวน) */
+export type ShopStep = "search" | "metal" | "qty" | "photos" | "review";
 
 export interface ShopForm {
   /** คีย์กันกดซ้ำ — สร้างครั้งเดียวต่อฟอร์ม · ใช้ซ้ำทุกครั้งที่ "ลองใหม่" (เปลี่ยนเฉพาะเมื่อ DB บอกว่าคีย์ชน/ผิดรูป) */
@@ -132,7 +133,7 @@ export function changeMetal(form: ShopForm, next: ShopMetal): { form: ShopForm; 
 
 /** ลำดับขั้นจริงของฟอร์ม — ตัวนับ n/N คำนวณจากรายการนี้ (ขั้นพลอย/รูปที่เพิ่มทีหลังไม่ต้องแก้ตัวนับ) */
 export function stepsFor(form: Pick<ShopForm, "mode">): ShopStep[] {
-  return form.mode === "new" ? ["search", "metal", "qty", "review"] : ["search", "qty", "review"];
+  return form.mode === "new" ? ["search", "metal", "qty", "photos", "review"] : ["search", "qty", "photos", "review"];
 }
 
 export function stepProgress(form: Pick<ShopForm, "mode">, step: ShopStep): { n: number; total: number } {

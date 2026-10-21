@@ -60,11 +60,12 @@ describe("skuMetalNote (P1 — ตัวหลัก)", () => {
 });
 
 describe("ขั้น/ความคืบหน้า", () => {
-  it("มี SKU 3 ขั้น · สินค้าใหม่ 4 ขั้น — n/N จากรายการขั้นจริง", () => {
-    expect(stepsFor({ mode: "sku" })).toEqual(["search", "qty", "review"]);
-    expect(stepsFor({ mode: "new" })).toEqual(["search", "metal", "qty", "review"]);
-    expect(stepProgress({ mode: "new" }, "qty")).toEqual({ n: 3, total: 4 });
-    expect(stepProgress({ mode: "sku" }, "qty")).toEqual({ n: 2, total: 3 });
+  it("มี SKU 4 ขั้น · สินค้าใหม่ 5 ขั้น (W2: เพิ่มขั้นรูปก่อนทวน) — n/N จากรายการขั้นจริง", () => {
+    expect(stepsFor({ mode: "sku" })).toEqual(["search", "qty", "photos", "review"]);
+    expect(stepsFor({ mode: "new" })).toEqual(["search", "metal", "qty", "photos", "review"]);
+    expect(stepProgress({ mode: "new" }, "qty")).toEqual({ n: 3, total: 5 });
+    expect(stepProgress({ mode: "sku" }, "qty")).toEqual({ n: 2, total: 4 });
+    expect(stepProgress({ mode: "sku" }, "photos")).toEqual({ n: 3, total: 4 });
   });
 });
 
