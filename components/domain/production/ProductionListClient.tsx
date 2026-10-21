@@ -107,6 +107,12 @@ export function ProductionListClient({ orders }: { orders: ProductionOrderRow[] 
                     <Link href={`/production/${o.id}`} className="text-primary-700 hover:underline">
                       {o.poNo}
                     </Link>
+                    {/* PM-B: รายการที่ยังไม่ผูก SKU (งานจากหน้างาน/ออฟฟิศพิมพ์ชื่อแบบ) — ใบ open เท่านั้นที่ต้องจัดการ · amber + ⚑ (ข้อความเสมอ ไม่พึ่งสี) */}
+                    {o.status === "open" && o.unboundItemCount > 0 && (
+                      <Badge tone="amber" className="ml-2">
+                        <span aria-hidden="true">⚑</span> ยังไม่ผูก SKU {o.unboundItemCount}
+                      </Badge>
+                    )}
                   </td>
                   <td className="py-2 pr-3">
                     <Badge tone={STATUS_TONE[o.status]}>{PRODUCTION_ORDER_STATUS_LABEL_TH[o.status]}</Badge>

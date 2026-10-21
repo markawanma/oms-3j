@@ -181,6 +181,9 @@ export interface ProductionOrderRow {
   itemCount: number;
   qtyPlannedTotal: number;
   qtyDoneTotal: number;
+  /** 0186 (PM-B): จำนวนรายการที่ยังไม่ผูก SKU (product_id null) — v_production_order ไม่มีคอลัมน์นี้ อ่านจากตารางรายการเป็น side-channel ·
+   * 0 เมื่ออ่านไม่ได้ (ป้ายหายเงียบ ไม่ล้มทั้งหน้ารายการ) · มีความหมายเฉพาะใบ open */
+  unboundItemCount: number;
 }
 
 export interface ProductionOrderItemRow {
@@ -511,6 +514,10 @@ const NO_SPOT_PRICE_MARKER = "ยังไม่มีราคาเงิน�
 // 0186: ทอง/ทองเหลืองไม่มี feed จึงไม่ล็อกชีต → ทางออกคือกรอกราคาของวันนี้ที่ /oem/rates (ต่างจากเงินที่ห้ามชี้ไป /oem/rates) · ไม่มีราคาเฉพาะใบ (มติ Q6/Q3)
 const NO_GOLD_PRICE_MARKER = "ยังไม่มีราคาทองของวันนี้";
 const NO_BRASS_PRICE_MARKER = "ยังไม่มีราคาทองเหลืองของวันนี้";
+/** 0186 M1 ต่อโลหะ: ข้อความของ production_order_done เมื่อราคาโลหะเปลี่ยนระหว่างที่ dialog เปิดค้าง (hint metal_price_changed) — UI ใช้แยกกรณี "ตรวจราคาใหม่" */
+export const PRICE_CHANGED_MARKER = "เปลี่ยนไประหว่างที่เปิดหน้าต่างนี้ค้างไว้";
+/** คำนำหน้าชื่อฟังก์ชันของ RAISE ฝั่ง DB เช่น "production_order_item_set: " — ไม่ใช่เรื่องของผู้ใช้ · regex แคบ (ตัวพิมพ์เล็ก + มี _ อย่างน้อย 1 ตัว + ต้องตามด้วย ": ") กันตัดข้อความไทย/ข้อความที่ไม่มีคำนำหน้า */
+const DB_FN_PREFIX_RE = /^[a-z]+(?:_[a-z0-9]+)+:\s+/;
 
 export function parseProductionMetal(v: unknown): ProductionMetal | null {
   return parseMetal(v);
@@ -566,5 +573,7 @@ export function humanizeProductionError(err: unknown, fallback: string): string 
     const metal = msg.includes(NO_BRASS_PRICE_MARKER) ? "ทองเหลือง" : "ทอง";
     return `ยังไม่มีราคา${metal}ของวันนี้ — ต้องกรอกราคา${metal}ของวันนี้ที่หน้าราคาโลหะ (/oem/rates) ก่อน (ไม่มีราคาเฉพาะใบ · ห้ามใช้ราคาเก่า) แล้วกดตรวจอีกครั้ง`;
   }
-  return msg;
+  // ตัดคำนำหน้าชื่อฟังก์ชัน (เช่น "production_order_item_set: ") — เหลือแต่ข้อความไทยที่ตั้งใจพูดกับผู้ใช้ · ตัดแล้วว่าง = ใช้ fallback
+  const stripped = msg.replace(DB_FN_PREFIX_RE, "").trim();
+  return stripped === "" ? fallback : stripped;
 }

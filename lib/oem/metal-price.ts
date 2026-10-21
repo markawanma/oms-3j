@@ -194,7 +194,8 @@ export function metalPricePerGramRangeMessage(metal: MetalPriceMetal): string {
 /** ข้อความ error ของด่านราคาที่กรอกหน้างานจริง (ทอง = ราคาสมาคมบาทละ · ทองเหลือง = บาท/กก.) — แสดงค่าที่แปลงแล้วเสมอ (UX §A.8.1 / P4) */
 export function metalPriceInputIssueMessage(metal: MetalPriceInputMetal, result: Extract<MetalPriceConvertResult, { ok: false }>): string {
   if (result.issue === "invalid") {
-    return metal === "gold" ? "กรอกราคาเป็นตัวเลข เช่น 41,250.00" : "กรอกราคาเป็นตัวเลข เช่น 350.00";
+    // ไม่ยกตัวอย่างตัวเลขราคา (ตัวเลขที่ดูจริงอาจถูกลอกไปกรอก) — บอกหน่วยแทน
+    return metal === "gold" ? "กรอกราคาบาทละเป็นตัวเลข" : "กรอกราคาต่อกิโลกรัมเป็นตัวเลข";
   }
   if (result.issue === "decimals") return "ทศนิยมไม่เกิน 2 ตำแหน่ง";
   if (metal === "gold") {

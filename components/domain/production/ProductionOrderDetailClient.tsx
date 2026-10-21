@@ -7,22 +7,26 @@
 // orders render read-only, matching the P1b brief's item 5 ("ใบที่
 // done/cancelled = อ่านอย่างเดียว — DB ปฏิเสธอยู่แล้ว แต่ UI ต้องไม่หลอกให้กด").
 //
+// PM-B (UX spec A.2–A.3): รายการเป็นการ์ด ProductionItemCard (โลหะ/เนื้อ/น้ำหนัก/ชิ้นต่อรายการ) แทนตาราง ·
+// เช็คลิสต์ก่อนผลิตเสร็จ + ปุ่ม aria-disabled พร้อมเหตุผล · การ์ดที่แก้ค้างยังไม่บันทึก = ข้อติด + beforeunload เตือน
+// (DB อ่านเฉพาะค่าที่บันทึกแล้ว — ปล่อยผ่านจะคิดต้นทุนจากค่าเก่าเงียบๆ)
+//
 // 🔴 No "คงเหลือ"/"สต็อกคงเหลือ" wording anywhere in this file (P1b brief
 // item 1) — every quantity shown is a fact about THIS order only.
 
-import { Fragment, useEffect, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { ArrowLeft, Trash2 } from "lucide-react";
-import { removeProductionOrderItemById, saveProductionOrder, setProductionOrderItem } from "@/lib/actions/production";
+import { ArrowLeft } from "lucide-react";
+import { removeProductionOrderItemById, saveProductionOrder } from "@/lib/actions/production";
 import type { ProductionOrderItemRow, ProductionOrderRow, ProductionOrderStatus, ProductionSkuOption } from "@/lib/production/types";
 import {
-  PRODUCTION_COST_TYPE_LABEL_TH,
   PRODUCTION_ORDER_STATUS_LABEL_TH,
   PRODUCTION_SPOT_OVERRIDE_MAX,
   PRODUCTION_SPOT_OVERRIDE_MIN,
 } from "@/lib/production/types";
-import { formatBangkokTime, formatTHB } from "@/lib/format";
+import { ALLOW_UNBOUND_ITEM_OFFICE, closeBlockers, closeReasonLine, itemShortName } from "@/lib/production/metal-ui";
+import { formatBangkokTime } from "@/lib/format";
 import { Badge } from "@/components/ui/Badge";
 import type { BadgeTone } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -31,7 +35,8 @@ import { useToast } from "@/components/ui/Toast";
 import { ProductionAddItemForm } from "./ProductionAddItemForm";
 import { ProductionDoneDialog } from "./ProductionDoneDialog";
 import { ProductionCancelDialog } from "./ProductionCancelDialog";
-import { ProductionSpecCostCard } from "./ProductionSpecCostCard";
+import { ProductionItemCard } from "./ProductionItemCard";
+import { CLOSE_CHECKLIST_ID, ProductionCloseChecklist } from "./ProductionCloseChecklist";
 
 const STATUS_TONE: Record<ProductionOrderStatus, BadgeTone> = {
   open: "blue",
@@ -41,11 +46,6 @@ const STATUS_TONE: Record<ProductionOrderStatus, BadgeTone> = {
 
 const inputCls = "mt-1 min-h-11 w-full rounded-md border border-zinc-300 px-2.5 text-base text-zinc-900";
 const labelCls = "block text-sm font-medium text-zinc-700";
-
-/** 0186: รายการไม่มี SKU ไม่มีรหัส — แสดงชื่อแบบแทน (หน้าจอเต็มรูปแบบของ PM-B จะมาแทนที่ตารางนี้ · ตรงนี้กันแค่ไม่ให้พิมพ์ "null") */
-function itemSkuText(item: ProductionOrderItemRow): string {
-  return item.sku ?? item.pendingProductLabel ?? "ยังไม่ผูก SKU";
-}
 
 function ProductionOrderMetaForm({ order }: { order: ProductionOrderRow }) {
   const toast = useToast();
@@ -130,8 +130,8 @@ function ProductionOrderMetaForm({ order }: { order: ProductionOrderRow }) {
         className={inputCls}
         placeholder="ไม่กรอก = ใช้ราคาเงินของวันนี้อัตโนมัติ"
       />
-      <p className="mt-1 text-xs text-zinc-400">
-        ใช้เฉพาะใบนี้ — ถ้าราคาเงินวันนี้ยังไม่เข้าระบบ กรอกราคาที่ซื้อมาจริงตรงนี้แทนได้ (ไม่กระทบราคาใบเสนอราคา OEM)
+      <p className="mt-1 text-xs text-zinc-500">
+        ใช้เฉพาะใบนี้ (ราคาเงินเท่านั้น — ทอง/ทองเหลืองไม่มีราคาเฉพาะใบ) — ถ้าราคาเงินวันนี้ยังไม่เข้าระบบ กรอกราคาที่ซื้อมาจริงตรงนี้แทนได้ (ไม่กระทบราคาใบเสนอราคา OEM)
         ลบตัวเลขออกแล้วกดบันทึก = เลิกใช้ราคานี้ กลับไปใช้ราคาเงินของวันนี้อัตโนมัติ
       </p>
       {error && (
@@ -151,74 +151,90 @@ export function ProductionOrderDetailClient({
   items,
   skuOptions,
   skuOptionsError,
+  activeJobs,
 }: {
   order: ProductionOrderRow;
   items: ProductionOrderItemRow[];
   skuOptions: ProductionSkuOption[];
   skuOptionsError: string | null;
+  /** itemId → เลขใบงานที่ยังเดินอยู่ (ล็อกโลหะของรายการนั้น — UX A.3.2) · ว่าง/ไม่ส่ง = ไม่รู้/ไม่มี (DB ยังกันซ้ำที่ metal_locked) */
+  activeJobs?: Record<string, string>;
 }) {
   const router = useRouter();
   const toast = useToast();
+  const reasonId = useId();
   const [doneDialogOpen, setDoneDialogOpen] = useState(false);
   const [cancelDialogOpen, setCancelDialogOpen] = useState(false);
   const [removingItemId, setRemovingItemId] = useState<string | null>(null);
-  const [togglingNewDesignProductId, setTogglingNewDesignProductId] = useState<string | null>(null);
+  const [dirtyIds, setDirtyIds] = useState<ReadonlySet<string>>(() => new Set());
 
   const isOpen = order.status === "open";
 
-  function refresh() {
+  const refresh = useCallback(() => {
     router.refresh();
-  }
+  }, [router]);
 
-  // 0144 — ติ๊ก/ถอดติ๊ก "แบบใหม่" ของรายการที่มีอยู่แล้ว: บันทึกทันทีผ่าน RPC
-  // เดียวกับฟอร์มเพิ่มรายการ (qtyPlanned ส่งค่าเดิมของแถวนั้นกลับไป ไม่แตะ —
-  // upsert (production_order_id, product_id) จะแก้เฉพาะ is_new_design) แล้ว
-  // router.refresh() ให้ตาราง + การ์ด breakdown ที่ /production/[id] เห็นค่า
-  // ใหม่ทันที. ต่างจากฟอร์มเพิ่มรายการที่ไม่ส่ง `false` เลยเวลาไม่ติ๊ก (กันรีเซ็ต
-  // ค่าที่อาจมีอยู่ก่อนโดยไม่ตั้งใจ) — ที่นี่การกดคือการ "ตั้งใจสั่งค่านี้ตรงๆ"
-  // สำหรับ item ตัวเดียวที่รู้ id ชัดเจนอยู่แล้ว จึงส่ง true/false ตรงตัวได้ปลอดภัย
-  function toggleNewDesign(item: ProductionOrderItemRow, checked: boolean) {
-    // 0186: ช่องติ๊กนี้มีเฉพาะรายการ spec (ต้องมี SKU เสมอ) — กันซ้ำให้ type แคบลงเป็น string
-    if (item.productId === null) return;
-    setTogglingNewDesignProductId(item.productId);
-    setProductionOrderItem({
-      productionOrderId: order.id,
-      productId: item.productId,
-      qtyPlanned: item.qtyPlanned,
-      isNewDesign: checked,
-    }).then((result) => {
-      setTogglingNewDesignProductId(null);
-      if (!result.ok) {
-        toast.push(result.error, "error");
-        return;
-      }
-      toast.push(
-        checked
-          ? `ติ๊ก "แบบใหม่" ${itemSkuText(item)} แล้ว — ค่าออกแบบจะถูกคิดตอนกดผลิตเสร็จ`
-          : `ถอดติ๊ก "แบบใหม่" ${itemSkuText(item)} แล้ว`
-      );
-      refresh();
+  const handleDirtyChange = useCallback((itemId: string, dirty: boolean) => {
+    setDirtyIds((prev) => {
+      if (prev.has(itemId) === dirty) return prev;
+      const next = new Set(prev);
+      if (dirty) next.add(itemId);
+      else next.delete(itemId);
+      return next;
     });
+  }, []);
+
+  // การ์ดที่แก้ค้างยังไม่บันทึก → เตือนก่อนปิดแท็บ/รีโหลด (UX A.3 trade-off ของการบันทึกด้วยปุ่ม)
+  useEffect(() => {
+    if (dirtyIds.size === 0) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [dirtyIds]);
+
+  const blockers = isOpen ? closeBlockers(items, dirtyIds) : [];
+  const blocked = blockers.length > 0;
+  const reason = closeReasonLine(blockers);
+
+  function onDoneClick() {
+    if (blocked) {
+      // aria-disabled: กดแล้วพาไปเช็คลิสต์ ไม่เปิด dialog (ผู้ใช้คีย์บอร์ดได้ยินเหตุผลผ่าน aria-describedby)
+      const el = document.getElementById(CLOSE_CHECKLIST_ID);
+      el?.scrollIntoView?.({ behavior: "smooth", block: "center" });
+      el?.focus({ preventScroll: true });
+      return;
+    }
+    setDoneDialogOpen(true);
   }
 
   function removeItem(item: ProductionOrderItemRow) {
-    if (!window.confirm(`ลบ ${itemSkuText(item)} ออกจากใบผลิต ${order.poNo}?`)) return;
+    if (!window.confirm(`ลบ ${itemShortName(item)} ออกจากใบผลิต ${order.poNo}?`)) return;
     setRemovingItemId(item.id);
-    // 0186: ลบด้วย id ทุกกรณี (รายการไม่มี SKU ลบด้วย productId ไม่ได้) — มีใบงานผูกอยู่ DB ตอบ job_exists พร้อมเลขใบงาน
+    // 0186: ลบด้วย id ทุกกรณี (รายการไม่มี SKU ลบด้วย productId ไม่ได้) — มีใบงานผูกอยู่ DB ตอบ job_exists/job_history พร้อมเลขใบงานและทางออก
     removeProductionOrderItemById({ productionOrderId: order.id, itemId: item.id }).then((result) => {
       setRemovingItemId(null);
       if (!result.ok) {
         toast.push(result.error, "error");
         return;
       }
-      toast.push(`ลบ ${itemSkuText(item)} แล้ว`);
+      toast.push(`ลบ ${itemShortName(item)} แล้ว`);
       refresh();
     });
   }
 
   return (
     <div className="space-y-4">
-      <Link href="/production" className="inline-flex items-center gap-1 text-sm text-zinc-500 hover:text-zinc-700">
+      <Link
+        href="/production"
+        onClick={(e) => {
+          // การ์ดที่แก้ค้างยังไม่บันทึก → ถามก่อนออก (ลิงก์ในหน้านี้ไม่ผ่าน beforeunload — การนำทางของ Next เป็น client-side) · ลิงก์ใน sidebar จดเป็นหนี้
+          if (dirtyIds.size > 0 && !window.confirm("มีรายการที่แก้ไว้แต่ยังไม่บันทึก — ออกจากหน้านี้แล้วค่าที่แก้จะหาย ต้องการออกไหม?")) e.preventDefault();
+        }}
+        className="inline-flex items-center gap-1 text-sm text-zinc-500 hover:text-zinc-700"
+      >
         <ArrowLeft className="h-4 w-4" aria-hidden="true" />
         กลับไปรายการใบผลิต
       </Link>
@@ -233,19 +249,28 @@ export function ProductionOrderDetailClient({
         </div>
 
         {isOpen && (
-          <div className="flex gap-2">
-            <Button type="button" variant="secondary" size="sm" onClick={() => setCancelDialogOpen(true)}>
-              ยกเลิกใบ
-            </Button>
-            <Button
-              type="button"
-              variant="primary"
-              size="sm"
-              disabled={items.length === 0}
-              onClick={() => setDoneDialogOpen(true)}
-            >
-              ผลิตเสร็จ
-            </Button>
+          <div className="flex flex-col items-stretch gap-1 sm:items-end">
+            <div className="flex gap-2">
+              <Button type="button" variant="secondary" size="sm" onClick={() => setCancelDialogOpen(true)}>
+                ยกเลิกใบ
+              </Button>
+              <Button
+                type="button"
+                variant="primary"
+                size="sm"
+                aria-disabled={blocked ? true : undefined}
+                aria-describedby={blocked ? reasonId : undefined}
+                className="aria-disabled:cursor-not-allowed aria-disabled:bg-zinc-300 aria-disabled:hover:bg-zinc-300"
+                onClick={onDoneClick}
+              >
+                ผลิตเสร็จ
+              </Button>
+            </div>
+            {reason && (
+              <p id={reasonId} className="max-w-md text-sm text-amber-900 sm:text-right">
+                {reason}
+              </p>
+            )}
           </div>
         )}
       </div>
@@ -262,6 +287,8 @@ export function ProductionOrderDetailClient({
         </p>
       )}
 
+      {isOpen && <ProductionCloseChecklist blockers={blockers} />}
+
       {isOpen ? (
         <ProductionOrderMetaForm order={order} />
       ) : (
@@ -274,170 +301,30 @@ export function ProductionOrderDetailClient({
       )}
 
       <div>
-        <h2 className="text-sm font-bold text-zinc-800">รายการ SKU</h2>
+        <h2 className="text-sm font-bold text-zinc-800">รายการ ({items.length})</h2>
         {items.length === 0 ? (
           <div className="mt-2">
-            <EmptyState title="ยังไม่มีรายการในใบนี้" description={isOpen ? "เพิ่ม SKU ด้านล่างได้เลย" : undefined} />
+            <EmptyState
+              title="ยังไม่มีรายการในใบนี้"
+              description={isOpen ? (ALLOW_UNBOUND_ITEM_OFFICE ? "เพิ่มรายการด้านล่างได้เลย (มี SKU หรือไม่มี SKU ก็ได้)" : "เพิ่มรายการด้านล่างได้เลย") : undefined}
+            />
           </div>
         ) : (
-          <div className="mt-2 overflow-x-auto rounded-lg border border-zinc-200 bg-white shadow-sm">
-            <table className="w-full min-w-[640px] text-left text-sm">
-              <thead>
-                <tr className="border-b border-zinc-200 text-xs font-semibold text-zinc-500">
-                  <th scope="col" className="py-2 pl-3.5 pr-3">SKU</th>
-                  <th scope="col" className="py-2 pr-3 text-right">แผนผลิต</th>
-                  {!isOpen && <th scope="col" className="py-2 pr-3 text-right">ผลิตเข้าแล้ว</th>}
-                  <th scope="col" className="py-2 pr-3">โหมด</th>
-                  {/* หัวคอลัมน์สั้น + title เป็น tooltip ของคำอธิบายเต็ม (ต่างจาก
-                      ฟอร์มเพิ่มรายการที่มีแค่ 1 แถวเลยเขียนคำอธิบายเต็มใต้ช่องได้
-                      ตรงๆ — ตารางนี้มีหลายแถว ขึ้นซ้ำทุกแถวจะรก) */}
-                  <th scope="col" className="py-2 pr-3" title="ติ๊กเฉพาะรอบที่ออกแบบใหม่ — ผลิตซ้ำแบบเดิมไม่ต้องติ๊ก (มีผลเฉพาะโหมดคำนวณจากสเปค)">
-                    แบบใหม่
-                  </th>
-                  {/* ใบยัง open = ตัวเลขนี้คือต้นทุนปัจจุบันใน /catalog "อ้างอิง" เท่านั้น
-                      ยังไม่ใช่ค่าที่จะถูกล็อก (SKU โหมด spot จะคิดใหม่ตามราคาเงินตอนกด
-                      ผลิตเสร็จ) — หัวคอลัมน์เดิมเขียนว่า "ต้นทุน/ชิ้น" เฉยๆ ซึ่งชวนให้
-                      เข้าใจว่าเป็นค่าที่ล็อกแล้ว · ใบที่ปิดแล้วถึงจะเป็นค่าที่ stamp จริง */}
-                  <th scope="col" className="py-2 pr-3 text-right">
-                    {isOpen
-                      ? "ต้นทุนปัจจุบัน (อ้างอิง)"
-                      : order.status === "done"
-                        ? "ต้นทุนที่ล็อกไว้"
-                        : "ต้นทุน (ไม่ได้ผลิต)"}
-                  </th>
-                  {isOpen && <th scope="col" className="py-2 pr-3.5" />}
-                </tr>
-              </thead>
-              <tbody>
-                {items.map((item) => {
-                  const costChanged =
-                    item.stampedUnitCost != null &&
-                    item.prevUnitCost != null &&
-                    Math.abs(item.stampedUnitCost - item.prevUnitCost) > 0.005;
-                  // ใบ done + บรรทัดโหมด spec = แสดงการ์ดสเปค/breakdown ที่ถูกล็อกไว้
-                  // จริง (item.costCalc คือ snapshot จาก production_order_item.cost_calc
-                  // — ไม่ใช่คำนวณสดอีกรอบ) task brief 2c ต้องเห็นที่มาแม้ย้อนดูทีหลัง
-                  const showSpecCard = order.status === "done" && item.currentCostType === "spec" && item.costCalc;
-                  return (
-                    <Fragment key={item.id}>
-                      <tr className="border-b border-zinc-100 last:border-0">
-                        <td className="py-2 pl-3.5 pr-3">
-                          <span className="font-medium text-zinc-800">{itemSkuText(item)}</span>{" "}
-                          {item.productId === null ? (
-                            <Badge tone="amber">ยังไม่ผูก SKU</Badge>
-                          ) : (
-                            <span className="text-zinc-500">· {item.productName}</span>
-                          )}
-                        </td>
-                        <td className="py-2 pr-3 text-right tabular-nums text-zinc-700">
-                          {item.qtyPlanned.toLocaleString("en-US")}
-                        </td>
-                        {!isOpen && (
-                          <td className="py-2 pr-3 text-right tabular-nums text-zinc-700">
-                            {item.qtyDone != null ? item.qtyDone.toLocaleString("en-US") : "—"}
-                          </td>
-                        )}
-                        <td className="py-2 pr-3">
-                          {item.currentCostType === null ? (
-                            <span className="text-zinc-300">—</span>
-                          ) : (
-                            <Badge tone={item.currentCostType === "spot" ? "cyan" : item.currentCostType === "spec" ? "indigo" : "slate"}>
-                              {PRODUCTION_COST_TYPE_LABEL_TH[item.currentCostType]}
-                            </Badge>
-                          )}
-                        </td>
-                        <td className="py-2 pr-3">
-                          {item.currentCostType !== "spec" ? (
-                            // ค่าออกแบบมีผลเฉพาะโหมด spec (production_cost_calc
-                            // อ่าน is_new_design เฉพาะ branch 'spec') — ซ่อนช่องติ๊ก
-                            // ทิ้งไปเลยสำหรับ fixed/spot แทนโชว์แบบ disabled+หมายเหตุ
-                            // ต่อแถว เพราะตารางนี้มีหลายแถวพร้อมกัน "—" เทียบกับแถว
-                            // spec ข้างๆ ที่มีช่องติ๊กจริงชัดเจนกว่าอยู่แล้วว่าไม่มีผล
-                            <span className="text-zinc-300">—</span>
-                          ) : isOpen ? (
-                            <label className="inline-flex items-center gap-1.5">
-                              <input
-                                type="checkbox"
-                                checked={item.isNewDesign}
-                                disabled={togglingNewDesignProductId === item.productId}
-                                onChange={(e) => toggleNewDesign(item, e.target.checked)}
-                                aria-label={`แบบใหม่ (คิดค่าออกแบบ) ${item.sku}`}
-                                className="h-5 w-5 rounded border-zinc-300 disabled:opacity-50"
-                              />
-                              {togglingNewDesignProductId === item.productId && (
-                                <span className="text-xs text-zinc-400">กำลังบันทึก…</span>
-                              )}
-                            </label>
-                          ) : item.isNewDesign ? (
-                            <Badge tone="indigo">แบบใหม่</Badge>
-                          ) : (
-                            <span className="text-zinc-300">—</span>
-                          )}
-                        </td>
-                        <td className="py-2 pr-3 text-right tabular-nums text-zinc-700">
-                          {order.status === "done" ? (
-                            item.stampedUnitCost != null ? (
-                              costChanged && item.prevUnitCost != null ? (
-                                <>
-                                  <span className="text-zinc-400 line-through">{formatTHB(item.prevUnitCost)}</span>{" "}
-                                  <span className="font-semibold text-zinc-800">{formatTHB(item.stampedUnitCost)}</span>
-                                </>
-                              ) : (
-                                <span className="font-semibold text-zinc-800">{formatTHB(item.stampedUnitCost)}</span>
-                              )
-                            ) : (
-                              "—"
-                            )
-                          ) : item.currentCostType === "spot" || item.currentCostType === "spec" ? (
-                            // security review M5: SKU โหมด spot/spec — `product.unit_cost`
-                            // ดิบ เป็นเลข manual เก่าที่มักล้าสมัย/เป็น null และ **ไม่ตรงกับ
-                            // ที่ /catalog แสดง** (คำนวณจากน้ำหนัก × ราคาเงิน หรือจากสเปค)
-                            // ⇒ ห้ามโชว์ตัวเลขที่จะทำให้ตัดสินใจผิดว่าจะผลิตไหม
-                            <span className="text-zinc-400">คำนวณตอนกดผลิตเสร็จ</span>
-                          ) : item.currentUnitCost != null ? (
-                            <span title="ต้นทุนคงที่ที่ตั้งไว้ใน /catalog">
-                              {formatTHB(item.currentUnitCost)}
-                            </span>
-                          ) : (
-                            "—"
-                          )}
-                        </td>
-                        {isOpen && (
-                          <td className="py-2 pr-3.5 text-right">
-                            <button
-                              type="button"
-                              onClick={() => removeItem(item)}
-                              disabled={removingItemId === item.id}
-                              aria-label={`ลบ ${itemSkuText(item)}`}
-                              className="inline-flex h-9 w-9 items-center justify-center rounded-md text-zinc-400 hover:bg-red-50 hover:text-red-600 disabled:opacity-50"
-                            >
-                              <Trash2 className="h-4 w-4" aria-hidden="true" />
-                            </button>
-                          </td>
-                        )}
-                      </tr>
-                      {showSpecCard && (
-                        <tr className="border-b border-zinc-100 last:border-0">
-                          {/* 6 คอลัมน์เสมอ: SKU, แผนผลิต, [ผลิตเข้าแล้ว|ลบ] (มีเสมอ
-                              1 ใน 2), โหมด, แบบใหม่, ต้นทุน — colSpan คงที่ได้เพราะ
-                              แถว spec card render เฉพาะ order.status==='done' ซึ่ง
-                              isOpen เป็น false เสมอ (คอลัมน์ "ลบ" ไม่โผล่ตอนนั้น) */}
-                          <td colSpan={6} className="px-3.5 pb-2.5">
-                            <ProductionSpecCostCard
-                              makeSpec={item.makeSpec}
-                              silverWeightG={item.currentSilverWeightG}
-                              silverPurity={item.currentSilverPurity}
-                              costCalc={item.costCalc!}
-                            />
-                          </td>
-                        </tr>
-                      )}
-                    </Fragment>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+          <ul className="mt-2 space-y-3">
+            {items.map((item) => (
+              <li key={item.id}>
+                <ProductionItemCard
+                  order={order}
+                  row={item}
+                  activeJobNo={activeJobs?.[item.id] ?? null}
+                  removing={removingItemId === item.id}
+                  onRemove={removeItem}
+                  onSaved={refresh}
+                  onDirtyChange={handleDirtyChange}
+                />
+              </li>
+            ))}
+          </ul>
         )}
       </div>
 
@@ -446,6 +333,8 @@ export function ProductionOrderDetailClient({
           productionOrderId={order.id}
           skuOptions={skuOptions}
           skuOptionsError={skuOptionsError}
+          existingProductIds={items.flatMap((i) => (i.productId ? [i.productId] : []))}
+          existingLabels={items.flatMap((i) => (i.pendingProductLabel ? [i.pendingProductLabel] : []))}
           onAdded={refresh}
         />
       )}

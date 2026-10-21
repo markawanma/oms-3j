@@ -19,6 +19,8 @@ export function PurityPctInput({
   placeholder = PURITY_PCT_EXAMPLE,
   issue,
   forceShow,
+  id,
+  disabled,
 }: {
   value: string;
   onChange: (next: string) => void;
@@ -29,6 +31,10 @@ export function PurityPctInput({
   issue?: string | null;
   /** แสดง error ทันทีโดยไม่รอ blur — ผู้เรียกตั้ง true หลังผู้ใช้พยายามบันทึกขณะค่าผิด */
   forceShow?: boolean;
+  /** id ของ <input> — ให้ผู้เรียกผูก <label htmlFor> / โฟกัสช่องเมื่อบันทึกไม่ผ่าน (ไม่ส่ง = ไม่มี id เหมือนเดิม DOM ไม่เปลี่ยน) */
+  id?: string;
+  /** ปิดช่อง (เช่น ระหว่างบันทึก) — ไม่ส่ง = ไม่มี attribute เหมือนเดิม DOM ไม่เปลี่ยน */
+  disabled?: boolean;
 }) {
   const errorId = useId();
   const [touched, setTouched] = useState(false);
@@ -38,6 +44,8 @@ export function PurityPctInput({
     <div>
       <div className="relative">
         <input
+          id={id}
+          disabled={disabled}
           type="text"
           inputMode="decimal"
           autoComplete="off"
