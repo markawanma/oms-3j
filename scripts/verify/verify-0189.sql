@@ -803,11 +803,19 @@ begin
   begin
     perform analytics.shop_intake_token_revoke(a, pg_temp.act());
     v := v || pg_temp.chk('H9', 'QR ร้าน revoked → list invalid_token', (pg_temp.pmy(sM) ->> 'code') = 'invalid_token');
-    v := v || pg_temp.chk('H10', 'ช่างทั่วไป (N) → รายการว่าง/ไม่สิทธิ์ · session ร้านอื่น → session_required',
-      true and (pg_temp.pmy(sMB) ->> 'code') = 'session_required');
     raise exception 'rb_189';
   exception when others then
     if sqlerrm <> 'rb_189' then v := v || pg_temp.chk('H9-crash', sqlstate || ' ' || sqlerrm, false); end if;
+  end;
+  begin
+    -- H10 (แก้: ของเดิมวางต่อจากการเพิกถอน QR ร้านในบล็อกเดียวกัน — token ถูกตรวจก่อน session จึงได้ invalid_token ไม่ใช่ session_required · verify เขียนผิด ไม่ใช่ RPC ผิด)
+    -- session ร้าน B ใช้กับ QR ร้าน A (QR ยัง active) → session_required · ใช้กับ QR ร้าน B ของตัวเอง → ต้องได้ ok (ต้องไม่พัง)
+    v := v || pg_temp.chk('H10', 'session ร้านอื่น (MB) ใช้กับ QR ร้าน A → session_required · ใช้กับ QR ร้าน B ของตัวเอง → ok · ผลไม่มีใบของร้าน A',
+      (pg_temp.pmy(sMB) ->> 'code') = 'session_required' and (pg_temp.pmy(sMB, '{}'::jsonb, tokb) ->> 'ok') = 'true'
+      and jsonb_array_length(pg_temp.pmy(sMB, '{}'::jsonb, tokb) -> 'jobs') = 0);
+    raise exception 'rb_189';
+  exception when others then
+    if sqlerrm <> 'rb_189' then v := v || pg_temp.chk('H10-crash', sqlstate || ' ' || sqlerrm, false); end if;
   end;
   begin
     r := pg_temp.pmy(sN);
@@ -996,7 +1004,9 @@ begin
   muts := jsonb_build_array(
     jsonb_build_object('id', 'MU1', 'what', 'remove ไม่เช็คเจ้าของรูป (worker_id) → ลบรูปของคนอื่นได้', 'steps', jsonb_build_array(jsonb_build_array(sg_rm, 'and ph.worker_id = v_wid and ph.source = ''shopfloor''', 'and ph.source = ''shopfloor''')), 'expect', jsonb_build_array('B14')),
     jsonb_build_object('id', 'MU2', 'what', 'lookup ใบไม่ผูก opened_by_worker_id → ใช้ key/job_id ของช่างอื่นได้', 'steps', jsonb_build_array(jsonb_build_array(sg_job, 'and po.opened_by_worker_id = p_worker_id', '')), 'expect', jsonb_build_array('B1', 'G3')),
-    jsonb_build_object('id', 'MU3', 'what', 'ไม่นับขั้น received/sent เป็นล็อก', 'steps', jsonb_build_array(jsonb_build_array(sg_blk, 's.status in (''received'', ''sent'')', 's.status in (''zz'')')), 'expect', jsonb_build_array('B4')),
+    -- ล็อกมี 2 ชั้นที่ตั้งใจ: (ก) ขั้น received/sent (ข) job.status in_progress/done — บน DB จริง job_core_receive ตั้ง job เป็น in_progress ตอนรับขั้น ⇒ ถอดชั้น (ก) ชั้นเดียวเป็น mutant "เทียบเท่า" (ชั้น ข จับแทน · ผลยังเป็น job_locked)
+    -- (PGlite ที่จำลอง job ไม่เปลี่ยนสถานะ จึงเห็นชั้น ก ชั้นเดียว) → mutant ที่มีความหมายต้องถอดทั้งสองชั้น: ใบที่ช่างรับแล้วต้องตกที่ job_not_open (ไม่ใช่ job_locked) = B4 ล้ม
+    jsonb_build_object('id', 'MU3', 'what', 'ไม่นับขั้น received/sent และ job in_progress/done เป็นล็อก (ถอดทั้งสองชั้น)', 'steps', jsonb_build_array(jsonb_build_array(sg_blk, 's.status in (''received'', ''sent'')', 's.status in (''zz'')'), jsonb_build_array(sg_blk, 'v_job.status in (''in_progress'', ''done'')', 'v_job.status in (''zz'')')), 'expect', jsonb_build_array('B4')),
     jsonb_build_object('id', 'MU4a', 'what', 'begin ไม่เช็คเพดานหน้างาน 3', 'steps', jsonb_build_array(jsonb_build_array(sg_begin, 'if v_sf >= 3 then', 'if false then')), 'expect', jsonb_build_array('A6a')),
     jsonb_build_object('id', 'MU4b', 'what', 'add + guard ไม่เช็คเพดานหน้างาน 3 (ถอดทั้งสองชั้น) → รูปที่ 4 เข้าได้', 'steps', jsonb_build_array(jsonb_build_array(sg_guard, ') >= 3 then', ') >= 99 then'), jsonb_build_array(sg_add, 'if v_sf >= 3 then', 'if v_sf >= 99 then')), 'expect', jsonb_build_array('A6b')),
     jsonb_build_object('id', 'MU5', 'what', 'add ไม่เช็ค path md ตรง photo_id (เหลือ CHECK ของตาราง)', 'steps', jsonb_build_array(jsonb_build_array(sg_add, 'if p_storage_path is distinct from v_prefix || ''_md.jpg''', 'if false and p_storage_path is distinct from v_prefix || ''_md.jpg''')), 'expect', jsonb_build_array('B9')),
