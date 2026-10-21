@@ -29,9 +29,23 @@ import { ShopStepHeader } from "@/components/domain/jobs/worker/shop/ShopStepHea
 export const todayBkk = (): string => bkkDateOf(new Date().toISOString()) ?? new Date().toISOString().slice(0, 10);
 
 const TITLE: Record<ShopStep, string> = { search: "ผลิตอะไร?", metal: "ทำจากอะไร?", qty: "เท่าไร · เสร็จเมื่อไร", review: "ทวนก่อนเปิดงาน" };
+export const MSG_FORM_CLEARED = "เปลี่ยนคนแล้ว — ล้างฟอร์มเดิมเพื่อไม่ให้เปิดงานในชื่อคนใหม่โดยไม่ตั้งใจ เริ่มกรอกใหม่ได้เลย";
 export const MSG_READY_AGAIN = "พร้อมแล้ว — กด \"เปิดงาน\" อีกครั้งได้";
 
-export function ShopOpenFlow({ token, ready, onExit, onSessionLost }: { token: string; ready: ShopProfileReady; onExit: () => void; onSessionLost: () => void }) {
+export function ShopOpenFlow({
+  token,
+  ready,
+  workerId,
+  onExit,
+  onSessionLost,
+}: {
+  token: string;
+  ready: ShopProfileReady;
+  /** ผู้จัดการที่ระบุตัวอยู่ตอนนี้ (null = hub กำลังให้ใส่ PIN) — ฟอร์มเป็นของคนที่เริ่มกรอก: คนอื่น login แทน = ล้างฟอร์ม */
+  workerId: string | null;
+  onExit: () => void;
+  onSessionLost: () => void;
+}) {
   const [form, setForm] = useState<ShopForm>(() => newForm());
   const [step, setStep] = useState<ShopStep>("search");
   const [query, setQuery] = useState("");
@@ -42,6 +56,8 @@ export function ShopOpenFlow({ token, ready, onExit, onSessionLost }: { token: s
   const [waitLeft, setWaitLeft] = useState(0);
   const [readyNote, setReadyNote] = useState<string | null>(null);
   const [done, setDone] = useState<{ result: IntakeOpenResult; purity: string } | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const ownerRef = useRef<string | null>(workerId);
   const inflight = useRef(false);
   const headRef = useRef<HTMLHeadingElement>(null);
   const [today] = useState(todayBkk);
@@ -75,7 +91,28 @@ export function ShopOpenFlow({ token, ready, onExit, onSessionLost }: { token: s
     }
   }, [error, waitLeft]);
 
+  // session หมดเวลา → PIN ผ่านแล้วกลับมา: คนเดิม = ฟอร์มต่อ + banner "หมดเวลาแล้ว" หายไป · คนอื่นกด "ไม่ใช่ฉัน" แล้ว login แทน = ล้างฟอร์มทั้งก้อน (ไม่ให้ฟอร์มของคนเดิมเดินต่อในชื่อคนใหม่เงียบๆ)
+  useEffect(() => {
+    if (workerId === null) return; // hub กำลังให้ใส่ PIN (ฟอร์มซ่อนอยู่)
+    if (ownerRef.current !== null && ownerRef.current !== workerId) {
+      setForm(newForm());
+      setStep("search");
+      setQuery("");
+      setShowLabelError(false);
+      setSheet(null);
+      setDone(null);
+      setError(null);
+      setWaitLeft(0);
+      setReadyNote(null);
+      setNotice(MSG_FORM_CLEARED);
+    } else {
+      setError((prev) => (prev?.action === "pin" ? null : prev));
+    }
+    ownerRef.current = workerId;
+  }, [workerId]);
+
   const go = useCallback((s: ShopStep) => {
+    setNotice(null);
     setError(null);
     setReadyNote(null);
     setStep(s);
@@ -137,18 +174,19 @@ export function ShopOpenFlow({ token, ready, onExit, onSessionLost }: { token: s
 
   async function submit() {
     if (inflight.current) return;
-    const issues = shopOpenIssues(form, todayBkk());
+    const issues = shopOpenIssues(form, today);
     if (issues.length > 0) {
       setError({ message: issues[0].message, action: "back", field: issues[0].field });
       return;
     }
     inflight.current = true;
     setBusy(true);
+    setNotice(null);
     setError(null);
     setReadyNote(null);
     let r: Awaited<ReturnType<typeof intakeOpen>> | null = null;
     try {
-      r = await intakeOpen(token, buildIntakeInput(form, todayBkk()));
+      r = await intakeOpen(token, buildIntakeInput(form, today));
     } catch {
       r = null; // เน็ตหลุด/ไม่ทราบผล — คีย์เดิมกดซ้ำได้ (DB ไม่เปิดซ้ำ)
     } finally {
@@ -197,6 +235,11 @@ export function ShopOpenFlow({ token, ready, onExit, onSessionLost }: { token: s
   return (
     <div className="space-y-2">
       <div hidden={sheet !== null}>
+        {notice && (
+          <p role="status" className="mb-2 rounded-xl border-2 border-amber-300 bg-amber-50 p-3 text-lg font-semibold text-amber-950">
+            {notice}
+          </p>
+        )}
         <ShopStepHeader ref={headRef} title={step === "search" && form.mode === "new" ? "สินค้าใหม่" : TITLE[step]} context={context} n={prog.n} total={prog.total} onBack={back} disabled={busy} />
         {step === "search" && (
           <ShopProductSearch

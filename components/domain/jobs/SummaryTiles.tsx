@@ -18,16 +18,20 @@ const TILES: TileDef[] = [
   { signal: "unacked", label: "รอรับทราบ", icon: ClipboardCheck, tone: "amber", n: (s) => s.unacked, toneOf: (s) => (s.unackedStale > 0 ? "red" : "amber") },
 ];
 
-export function SummaryTiles({ summary, signal, onSelect }: { summary: BoardSummary; signal: Signal | null; onSelect: (s: Signal | null) => void }) {
+/** อ่านสถานะรับทราบไม่ได้ — ห้ามโชว์ 0 (จะเข้าใจว่าไม่มีใบค้าง) */
+export const UNACKED_UNKNOWN_TITLE = "อ่านสถานะรับทราบไม่ได้";
+
+export function SummaryTiles({ summary, signal, onSelect, unackedUnknown = false }: { summary: BoardSummary; signal: Signal | null; onSelect: (s: Signal | null) => void; unackedUnknown?: boolean }) {
   return (
     <section aria-label="สรุป" className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
       {TILES.map((t) => {
         const n = t.n(summary);
+        const unknown = t.signal === "unacked" && unackedUnknown;
         const selected = t.signal === signal;
         const Icon = t.icon;
         // tile "ทั้งหมด" = ล้างตัวกรอง signal: เลือกอยู่เมื่อไม่มี signal · กดแล้วไม่มีอะไรเปลี่ยนถ้าไม่ได้กรองอยู่ (ไม่ disable เมื่อ n>0)
-        const disabled = n === 0 && !selected;
-        const toneKey = n > 0 ? (t.toneOf ? t.toneOf(summary) : t.tone) : null;
+        const disabled = (n === 0 || unknown) && !selected;
+        const toneKey = n > 0 && !unknown ? (t.toneOf ? t.toneOf(summary) : t.tone) : null;
         const tone = toneKey ? STATUS_TONE[toneKey] : "border-zinc-200 bg-white text-zinc-900";
         const dim = disabled ? "cursor-not-allowed border-zinc-200 bg-zinc-50 text-zinc-600" : tone;
         return (
@@ -36,6 +40,7 @@ export function SummaryTiles({ summary, signal, onSelect }: { summary: BoardSumm
             type="button"
             aria-pressed={selected}
             disabled={disabled}
+            title={unknown ? UNACKED_UNKNOWN_TITLE : undefined}
             onClick={() => onSelect(t.signal === null || selected ? null : t.signal)}
             className={`relative min-h-16 rounded-lg border px-3 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-600 focus-visible:ring-offset-1 ${dim} ${selected && t.signal !== null ? "ring-2 ring-primary-600 ring-offset-1" : ""} ${disabled ? "" : "hover:brightness-95"}`}
           >
@@ -43,7 +48,8 @@ export function SummaryTiles({ summary, signal, onSelect }: { summary: BoardSumm
               <Icon className="h-4 w-4 shrink-0" aria-hidden="true" />
               {t.label}
             </span>
-            <span className="block text-2xl font-bold tabular-nums">{n}</span>
+            <span className="block text-2xl font-bold tabular-nums">{unknown ? "—" : n}</span>
+            {unknown && <span className="sr-only">{UNACKED_UNKNOWN_TITLE}</span>}
             {selected && t.signal !== null && <Check className="absolute right-2 top-2 h-4 w-4" aria-hidden="true" />}
           </button>
         );

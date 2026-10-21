@@ -58,10 +58,8 @@ export function ShopReview({
     <>
       <form
         className="mt-4 space-y-4"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (!busy && !blocked) onSubmit();
-        }}
+        // 🔴 ฟอร์มนี้ไม่มีทาง submit ด้วยคีย์บอร์ด/Enter — เปิดงาน (เขียน DB) ได้ทางปุ่ม "เปิดงาน" ที่กดชัดเจนเท่านั้น (Enter ในช่องหมายเหตุเคยเปิดใบเงียบๆ)
+        onSubmit={(e) => e.preventDefault()}
       >
         <fieldset disabled={busy} aria-busy={busy} className="space-y-4">
           <legend className="sr-only">สรุปงานที่จะเปิด</legend>
@@ -106,6 +104,13 @@ export function ShopReview({
               enterKeyHint="done"
               value={form.note}
               onChange={(e) => setForm((f) => ({ ...f, note: e.target.value }))}
+              onKeyDown={(e) => {
+                // Enter = "เสร็จช่องนี้" (ปิดแป้นพิมพ์) ไม่ใช่เปิดงาน
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  (e.currentTarget as HTMLInputElement).blur();
+                }
+              }}
               aria-invalid={nErr ? true : undefined}
               aria-describedby={nErr ? "shop-note-err" : undefined}
               className={`min-h-14 w-full rounded-xl border-2 border-zinc-400 bg-white px-4 text-xl text-zinc-900 focus:border-primary-600 focus:outline-none focus:ring-4 focus:ring-primary-200 ${nErr ? "ring-2 ring-red-500" : ""}`}

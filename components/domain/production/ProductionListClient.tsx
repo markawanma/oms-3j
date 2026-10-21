@@ -15,7 +15,7 @@ import Link from "next/link";
 import { ClipboardList, PlusCircle, Search } from "lucide-react";
 import type { ProductionOrderRow, ProductionOrderStatus } from "@/lib/production/types";
 import { PRODUCTION_ORDER_STATUS_LABEL_TH } from "@/lib/production/types";
-import { NEED_FILTER_LABEL, STALE_CALENDAR_DAYS, ackPending, calendarDaysOpen, matchesNeed, needCounts, needEmptyText } from "@/lib/production/office-ack";
+import { NEED_FILTER_LABEL, ackPending, calendarDaysOpen, isStale, matchesNeed, needCounts, needEmptyText } from "@/lib/production/office-ack";
 import type { NeedFilter } from "@/lib/production/office-ack";
 import { bkkDateOf } from "@/lib/jobs/dates";
 import { formatBangkokTime } from "@/lib/format";
@@ -168,7 +168,7 @@ export function ProductionListClient({ orders }: { orders: ProductionOrderRow[] 
               {visible.map((o) => {
                 const pending = ackPending(o);
                 const days = pending && today !== null ? calendarDaysOpen(o.createdAt, today) : null;
-                const stale = days !== null && days >= STALE_CALENDAR_DAYS;
+                const stale = today !== null && isStale(o, today);
                 const showUnbound = o.status === "open" && o.unboundItemCount > 0;
                 const fromShop = o.openedVia === "shopfloor";
                 return (

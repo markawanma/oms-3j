@@ -1,7 +1,7 @@
 // lib/production/office-ack.ts — ตรรกะ pure ของการ์ดรับทราบใบที่เปิดจากหน้างาน + ป้าย "จากหน้างาน/รอรับทราบ/ค้าง 3 วัน" (W1 · UX B.10.1–B.10.3)
 // 🔴 ไม่มีการคิดเงิน · ไม่แตะต้นทุน — แค่ตัดสินว่าใบไหนต้องรับทราบ/ค้างนานแค่ไหน + สรุปโลหะเป็นข้อความ (read-back ในปุ่มรับทราบ)
 // ค้าง = นับวันปฏิทินไทย (มติ Q10): เปิดวันจันทร์ → พุธ = ค้าง 3 วัน (นับวันที่เปิดเป็นวันที่ 1) — ตรงตัวอย่างในมติ "เปิดวันจันทร์ → พุธเตือน"
-//   [ต้องยืนยัน] ถ้าเจ้าของหมายถึง "ผ่านไป 3 วันเต็ม" (จันทร์ → พฤหัส) ให้เปลี่ยนค่าเดียวที่ STALE_CALENDAR_DAYS
+//   ยืนยันแล้ว (Tech Lead 21 ต.ค.) — ค่า/วิธีนับอยู่ที่เดียว: lib/jobs/intake-ack.ts
 
 import { STALE_CALENDAR_DAYS, calendarDaysOpen } from "@/lib/jobs/intake-ack";
 import { PRODUCTION_METAL_LABEL_TH } from "@/lib/production/types";
@@ -99,4 +99,30 @@ export function needCounts(orders: readonly NeedOrderLike[]): Record<NeedFilter,
 export function needEmptyText(active: readonly NeedFilter[]): string {
   if (active.length === 1) return active[0] === "unacked" ? "ไม่มีใบที่รอรับทราบ" : "ไม่มีรายการที่ยังไม่ผูก SKU";
   return "ไม่มีใบที่ตรงทุกเงื่อนไขที่เลือก";
+}
+
+// ---------------------------------------------------------------------------
+// ข้อผิดพลาดของปุ่ม "รับทราบ" — map จาก hint ของ RPC เป็นไทยล้วน (ข้อความ DB มีคำอังกฤษของ status เช่น "สถานะ cancelled แล้ว")
+// ---------------------------------------------------------------------------
+
+export const MSG_ACK_FAIL = "รับทราบไม่สำเร็จ — ลองอีกครั้ง";
+export const MSG_ACK_NOT_OPEN = "ใบนี้ไม่ได้เปิดอยู่แล้ว — โหลดหน้าใหม่";
+
+const ACK_HINT_TH: Record<string, string> = {
+  order_not_open: MSG_ACK_NOT_OPEN,
+  already_acknowledged: "ใบนี้รับทราบไปแล้ว — โหลดหน้าใหม่",
+  not_shopfloor: "ใบนี้ออฟฟิศเปิดเอง ไม่ต้องรับทราบ",
+  order_not_found: "ไม่พบใบผลิตนี้ — โหลดหน้าใหม่",
+  actor_required: "ต้องเข้าสู่ระบบก่อนทำรายการ",
+};
+
+/** hint ของ production_order_acknowledge → ข้อความไทย · ไม่รู้จัก = null (ผู้เรียกใช้ข้อความกลาง — ไม่ส่งข้อความดิบของ DB) */
+export function ackErrorFromHint(hint: unknown): string | null {
+  return typeof hint === "string" && Object.prototype.hasOwnProperty.call(ACK_HINT_TH, hint) ? ACK_HINT_TH[hint] : null;
+}
+
+/** ด่านซ้ำฝั่งหน้าจอ: ข้อความที่ยังมีคำอังกฤษ (≥ 4 ตัวอักษรติดกัน เช่น cancelled/done) = ไม่โชว์ ใช้ข้อความกลางแทน · เลข PO (PO-0034) ผ่าน */
+export function cleanAckError(error: string | null | undefined): string {
+  const t = (error ?? "").trim();
+  return t === "" || /[A-Za-z]{4,}/.test(t) ? MSG_ACK_FAIL : t;
 }

@@ -2,11 +2,12 @@
 
 // ShopQrCard — การ์ด QR ร้าน บน /jobs/workers (W1 · UX B.10.4) · เจ้าของ/แอดมินเท่านั้น (หน้าเดิมกันสิทธิ์แล้ว)
 // สภาพ: ยังไม่เคยออก · ใช้งานอยู่ · ถูกเพิกถอน · อ่านสถานะล้ม (error) · กำลังออก/เพิกถอน (ปุ่ม loading) — ครบ 4 state
-// 🔴 ค่าดิบของ QR ร้านอยู่ใน state ของคอมโพเนนต์นี้เท่านั้น (ไม่ลง storage/URL/log) · ปิดกล่อง = หาย · DB เก็บ hash — ดูซ้ำไม่ได้ ถ้าทำหายให้ออกใหม่
+// 🔴 URL + ภาพ QR ประกอบที่ server จาก APP_ORIGIN (production เท่านั้น — ไม่งั้น server ปฏิเสธก่อนเพิกถอนของเดิม) · client ได้แค่ SVG ไม่เห็น token ดิบ/ไม่ใช้ window.location.origin
+//   SVG อยู่ใน state ของคอมโพเนนต์นี้เท่านั้น (ไม่ลง storage/URL/log) · ปิดกล่อง = หาย · DB เก็บ hash — ดูซ้ำไม่ได้ ถ้าทำหายให้ออกใหม่
 //   ออกใหม่ = QR เดิมใช้ไม่ได้ทันที (DB เพิกถอนในทรานแซกชันเดียวกัน — ออกไม่ผ่านไม่เพิกถอนของเก่า)
 // พิมพ์: โปสเตอร์ A4 (ShopQrPoster) เป็นลูกตรงของ root ของ WorkersClient ที่ติด data-print-keep — ส่วนอื่นของหน้าถูกซ่อนตอนพิมพ์ด้วย print:[&>*:not([data-print-keep])]:hidden
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { QrCode } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -16,7 +17,6 @@ import { ShopQrPoster } from "@/components/domain/jobs/ShopQrPoster";
 import { issueShopIntakeToken, revokeShopIntakeToken } from "@/lib/actions/job-workers";
 import type { ShopIntakeStatus } from "@/lib/actions/job-workers";
 import { thaiDateTime } from "@/lib/jobs/dates";
-import { renderQrSvgClient, shopPageUrl } from "@/lib/jobs/qr-client";
 
 export const MSG_ISSUE_FAIL = "ออก QR ไม่สำเร็จ — ลองอีกครั้ง";
 export const MSG_REVOKE_FAIL = "เพิกถอนไม่สำเร็จ — ลองอีกครั้ง";
@@ -27,31 +27,27 @@ type Dlg = "reissue" | "revoke" | "issued" | null;
 export function ShopQrCard({ status, statusError }: { status: ShopIntakeStatus | null; statusError: string | null }) {
   const { run, busy } = useOfficeRun();
   const [dlg, setDlg] = useState<Dlg>(null);
-  const [issued, setIssued] = useState<{ token: string; issuedAt: string } | null>(null);
+  const [issued, setIssued] = useState<{ svg: string; issuedAt: string; warning: string | null } | null>(null);
   const [printed, setPrinted] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
-  const svg = useMemo(() => {
-    if (!issued) return null;
-    try {
-      return renderQrSvgClient(shopPageUrl(window.location.origin, issued.token));
-    } catch {
-      return null;
-    }
-  }, [issued]);
+  const svg = issued?.svg ?? null;
 
   const active = status?.active === true;
-  const revoked = status !== null && !status.active && status.issuedAt !== null;
+  // ถูกเพิกถอน = DB ส่งเวลาเพิกถอน (revokedAt) — ไม่เดาจาก issuedAt · ไม่มีข้อมูล = "ไม่มี QR ที่ใช้งานอยู่" (ไม่ยืนยันว่าไม่เคยออก)
+  const revokedAt = status?.revokedAt ?? null;
+  const revoked = status !== null && !status.active && revokedAt !== null;
 
   async function issue() {
     setErr(null);
     const r = await run(() => issueShopIntakeToken(), { success: "ออก QR ร้านแล้ว" });
     if (!r.ok) {
-      setErr(MSG_ISSUE_FAIL);
+      // ข้อความที่ server ตั้งใจให้เห็น (ไม่ใช่ production → ไม่มีการเพิกถอน) แสดงตามจริง · อย่างอื่นใช้ข้อความกลาง
+      setErr(r.error.startsWith("ออก QR ร้านได้เฉพาะที่") ? r.error : MSG_ISSUE_FAIL);
       setDlg(null);
       return;
     }
-    setIssued({ token: r.data.token, issuedAt: r.data.issuedAt });
+    setIssued({ svg: r.data.svg, issuedAt: r.data.issuedAt, warning: r.data.warning });
     setPrinted(false);
     setDlg("issued");
   }
@@ -96,10 +92,10 @@ export function ShopQrCard({ status, statusError }: { status: ShopIntakeStatus |
               </>
             ) : revoked ? (
               <p className="text-sm text-zinc-800">
-                <Badge tone="slate">ถูกเพิกถอน</Badge> <span className="ml-1">(ออกเมื่อ {thaiDateTime(status?.issuedAt)}) — ช่างเปิดงานจากมือถือไม่ได้</span>
+                <Badge tone="slate">ถูกเพิกถอน</Badge> <span className="ml-1">เมื่อ {thaiDateTime(revokedAt)} — ช่างเปิดงานจากมือถือไม่ได้</span>
               </p>
             ) : (
-              <p className="text-sm text-zinc-800">ยังไม่มี QR ร้าน — ช่างยังเปิดงานจากมือถือไม่ได้</p>
+              <p className="text-sm text-zinc-800">ยังไม่มี QR ร้านที่ใช้งานอยู่ — ช่างยังเปิดงานจากมือถือไม่ได้</p>
             )}
             {!statusError && (
               <p className="text-xs text-zinc-600">
@@ -168,6 +164,11 @@ export function ShopQrCard({ status, statusError }: { status: ShopIntakeStatus |
       {dlg === "issued" && issued && (
         <Modal open onClose={closeIssued} title="QR ร้านใหม่" confirmBeforeClose={() => printed || window.confirm(MSG_NOT_PRINTED)}>
           <div className="space-y-3">
+            {issued.warning && (
+              <p role="alert" className="rounded-md border border-amber-300 bg-amber-50 p-2.5 text-sm text-amber-950">
+                {issued.warning}
+              </p>
+            )}
             {svg ? (
               <div className="flex justify-center">
                 {/* SVG สร้างในเบราว์เซอร์จากไลบรารี vendored (ดำบนขาว ไม่มีสคริปต์) จากลิงก์ของ QR ที่เพิ่งออก — ไม่ใช่ข้อมูลจากผู้ใช้ */}

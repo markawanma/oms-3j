@@ -49,6 +49,7 @@ describe("getJobBoard — intake ของใบจากหน้างาน",
     if (!r.ok) throw new Error("board failed");
     const [a, b, c] = r.data.rows;
     expect(a.intake).toEqual({ ackPending: true, openedAt: "2026-10-19T02:00:00Z", metalMismatch: true });
+    expect("intakeFailed" in r.data).toBe(false); // อ่านได้ = ไม่มี key
     expect(b.intake).toBeUndefined();
     expect(c.intake).toBeUndefined();
     // query ป้ายถามเฉพาะ po ของใบงาน production ที่มี source_ref (ไม่ถาม OEM)
@@ -69,6 +70,7 @@ describe("getJobBoard — intake ของใบจากหน้างาน",
     const r = await getJobBoard();
     expect(r.ok).toBe(true);
     expect(r.ok && r.data.rows[0].intake).toBeUndefined();
+    expect(r.ok && r.data.intakeFailed).toBe(true); // ข้อ 4: ให้ tile ขึ้น "—" ไม่ใช่ 0
     expect(JSON.stringify(r)).not.toContain("relation");
   });
 

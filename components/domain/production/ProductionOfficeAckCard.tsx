@@ -11,11 +11,10 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { acknowledgeProductionOrder } from "@/lib/actions/production";
-import { ACK_CARD_ID, ackButtonLabel, calendarDaysOpen, effectiveMetalOf, effectivePurityPct, isShopfloor, relativeThai } from "@/lib/production/office-ack";
+import { ACK_CARD_ID, MSG_ACK_FAIL, ackButtonLabel, cleanAckError, calendarDaysOpen, effectiveMetalOf, effectivePurityPct, isShopfloor, isStale, relativeThai } from "@/lib/production/office-ack";
 import { bkkDateOf } from "@/lib/jobs/dates";
 import { PRODUCTION_METAL_LABEL_TH } from "@/lib/production/types";
 import type { ProductionOrderItemRow, ProductionOrderRow } from "@/lib/production/types";
-import { STALE_CALENDAR_DAYS } from "@/lib/production/office-ack";
 import { formatBangkokTime } from "@/lib/format";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -55,7 +54,7 @@ export function ProductionOfficeAckCard({
   const rel = now === null ? "" : relativeThai(order.createdAt, now);
   const today = now === null ? null : bkkDateOf(new Date(now).toISOString());
   const days = today === null ? null : calendarDaysOpen(order.createdAt, today);
-  const stale = days !== null && days >= STALE_CALENDAR_DAYS;
+  const stale = today !== null && isStale(order, today);
 
   // ---- หลังรับทราบ / ใบปิดแล้ว: แถบเดียว ----
   if (order.acknowledgedAt !== null || order.status !== "open") {
@@ -96,13 +95,13 @@ export function ProductionOfficeAckCard({
     try {
       r = await acknowledgeProductionOrder({ productionOrderId: order.id });
     } catch {
-      setError("รับทราบไม่สำเร็จ — ลองอีกครั้ง");
+      setError(MSG_ACK_FAIL);
       return;
     } finally {
       setBusy(false);
     }
     if (!r.ok) {
-      setError(r.error || "รับทราบไม่สำเร็จ — ลองอีกครั้ง");
+      setError(cleanAckError(r.error)); // ด่านซ้ำ: ข้อความที่ยังมีคำอังกฤษของ DB ไม่ถึงจอ
       return;
     }
     toast.push(`รับทราบ ${order.poNo} แล้ว`);

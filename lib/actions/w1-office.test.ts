@@ -37,8 +37,12 @@ import { acknowledgeProductionOrder, bindProductionItemProduct, getProductionOrd
 import { mapWorkerRow, WORKER_COLUMNS } from "@/lib/jobs/types";
 
 let errSpy: ReturnType<typeof vi.spyOn>;
+const ENV0 = { APP_ORIGIN: process.env.APP_ORIGIN, VERCEL_ENV: process.env.VERCEL_ENV };
 beforeEach(() => {
   vi.clearAllMocks();
+  // QR ร้านออกได้เฉพาะ production + APP_ORIGIN (security H1) — เคส preview/ไม่ตั้ง env อยู่ใน shop-qr-issue.test.ts
+  process.env.APP_ORIGIN = "https://app.example.test";
+  process.env.VERCEL_ENV = "production";
   listRows = [];
   roleMock.mockResolvedValue("owner");
   sessionUserMock.mockResolvedValue({ id: USER, email: "o@example.test" });
@@ -46,7 +50,13 @@ beforeEach(() => {
   rpcMock.mockResolvedValue({ data: { ok: true }, error: null });
   errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 });
-afterEach(() => errSpy.mockRestore());
+afterEach(() => {
+  errSpy.mockRestore();
+  for (const [k, v] of Object.entries(ENV0)) {
+    if (v === undefined) delete process.env[k];
+    else process.env[k] = v;
+  }
+});
 
 const lastRpc = () => rpcMock.mock.calls.at(-1) as [string, Record<string, unknown>];
 
@@ -109,11 +119,17 @@ describe("saveWorker — สิทธิ์ผู้จัดการ/ผู้
 });
 
 describe("QR ร้าน (ออฟฟิศ)", () => {
-  it("ออก: ส่ง shop + actor จาก server · คืนค่าดิบครั้งเดียวเมื่อรูปถูก · ไม่ log ค่าดิบ", async () => {
+  it("ออก: ส่ง shop + actor จาก server · คืน SVG (ไม่คืนค่าดิบของ token) เมื่อรูปถูก · ไม่ log ค่าดิบ", async () => {
     rpcMock.mockResolvedValue({ data: { token: RAW, issued_at: "2026-10-20T03:00:00Z", revoked_previous: 1 }, error: null });
     const r = await issueShopIntakeToken();
     expect(lastRpc()).toEqual(["shop_intake_token_issue", { p_shop_id: SHOP, p_actor: USER }]);
-    expect(r).toEqual({ ok: true, data: { token: RAW, issuedAt: "2026-10-20T03:00:00Z", revokedPrevious: 1 } });
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(Object.keys(r.data).sort()).toEqual(["issuedAt", "revokedPrevious", "svg", "warning"]);
+      expect(r.data).toMatchObject({ issuedAt: "2026-10-20T03:00:00Z", revokedPrevious: 1, warning: null });
+      expect(r.data.svg.startsWith("<svg")).toBe(true);
+    }
+    expect(JSON.stringify(r)).not.toContain(RAW);
     expect(JSON.stringify(errSpy.mock.calls)).not.toContain(RAW);
   });
 
@@ -130,7 +146,10 @@ describe("QR ร้าน (ออฟฟิศ)", () => {
     rpcMock.mockResolvedValue({ data: { active: true, issued_at: "2026-10-20T03:00:00Z" }, error: null });
     const s = await getShopIntakeStatus();
     expect(lastRpc()).toEqual(["shop_intake_token_status", { p_shop_id: SHOP }]);
-    expect(s).toEqual({ ok: true, data: { active: true, issuedAt: "2026-10-20T03:00:00Z" } });
+    expect(s).toEqual({ ok: true, data: { active: true, issuedAt: "2026-10-20T03:00:00Z", revokedAt: null } });
+    // 0188: revoked_at (ถ้า DB ส่งมา) ผ่านไปให้การ์ดแสดงสถานะ "ถูกเพิกถอน" โดยไม่พึ่ง issued_at
+    rpcMock.mockResolvedValue({ data: { active: false, issued_at: null, revoked_at: "2026-10-21T01:00:00Z" }, error: null });
+    expect(await getShopIntakeStatus()).toEqual({ ok: true, data: { active: false, issuedAt: null, revokedAt: "2026-10-21T01:00:00Z" } });
     rpcMock.mockResolvedValue({ data: { revoked: 1 }, error: null });
     expect(await revokeShopIntakeToken()).toEqual({ ok: true, data: { revoked: 1 } });
     expect(lastRpc()).toEqual(["shop_intake_token_revoke", { p_shop_id: SHOP, p_actor: USER }]);
@@ -159,9 +178,17 @@ describe("acknowledgeProductionOrder", () => {
     expect(r).toEqual({ ok: true, data: { productionOrderId: PO, poNo: "PO-0034", acknowledgedAt: "2026-10-20T03:00:00Z", jobsLogged: 1 } });
   });
 
-  it("DB ปฏิเสธ (รับทราบซ้ำ/ใบออฟฟิศ) → ข้อความไทยของ DB ผ่าน (22023) · error อื่น → ข้อความกลาง ไม่รั่วรหัส", async () => {
+  it("DB ปฏิเสธ (รับทราบซ้ำ/ใบออฟฟิศ/ใบไม่เปิดแล้ว) → map จาก hint เป็นไทยล้วน · error อื่น → ข้อความกลาง ไม่รั่วรหัส", async () => {
     rpcMock.mockResolvedValue({ data: null, error: { code: "22023", message: "ใบผลิต PO-0034 รับทราบไปแล้ว", hint: "already_acknowledged" } });
-    expect(await acknowledgeProductionOrder({ productionOrderId: PO })).toEqual({ ok: false, error: "ใบผลิต PO-0034 รับทราบไปแล้ว" });
+    expect(await acknowledgeProductionOrder({ productionOrderId: PO })).toEqual({ ok: false, error: "ใบนี้รับทราบไปแล้ว — โหลดหน้าใหม่" });
+    // ข้อ 6: ใบถูกยกเลิก — ข้อความ DB มีคำอังกฤษของ status ("cancelled") ต้องไม่ถึงจอ
+    rpcMock.mockResolvedValue({ data: null, error: { code: "22023", message: "ใบผลิต PO-0034 สถานะ cancelled แล้ว รับทราบไม่ได้", hint: "order_not_open" } });
+    const c = await acknowledgeProductionOrder({ productionOrderId: PO });
+    expect(c).toEqual({ ok: false, error: "ใบนี้ไม่ได้เปิดอยู่แล้ว — โหลดหน้าใหม่" });
+    expect(JSON.stringify(c)).not.toMatch(/cancelled/);
+    // hint ไม่รู้จัก + ข้อความมีคำอังกฤษ → ด่านซ้ำใช้ข้อความกลาง
+    rpcMock.mockResolvedValue({ data: null, error: { code: "22023", message: "ใบผลิต PO-0034 สถานะ done แล้ว", hint: "something_new" } });
+    expect(await acknowledgeProductionOrder({ productionOrderId: PO })).toEqual({ ok: false, error: "รับทราบไม่สำเร็จ — ลองอีกครั้ง" });
     rpcMock.mockResolvedValue({ data: null, error: { code: "XX000", message: "relation analytics.production_order boom" } });
     const r = await acknowledgeProductionOrder({ productionOrderId: PO });
     expect(r).toEqual({ ok: false, error: "รับทราบใบผลิตไม่สำเร็จ ลองใหม่อีกครั้ง" });

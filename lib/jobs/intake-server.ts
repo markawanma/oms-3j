@@ -1,7 +1,7 @@
 // lib/jobs/intake-server.ts — ข้อมูลประกอบ "ใบที่เปิดจากหน้างาน" ให้บอร์ดใบงาน (W1 · UX B.10.3) · server-only · ไม่ใช่ "use server"
 // เรียกต่อจาก guard() ของ getJobBoard เท่านั้น (ไม่มี guard ในตัว) · query .eq("shop_id") เองทุกตัว · มี .limit() เสมอ
 // ใบงานเชื่อมใบผลิตด้วย source_ref = เลข PO (source_kind = production) · ค่าทุกตัวมาจาก v_production_order / v_production_order_item ที่ DB ตัดสินแล้ว (opened_via · acknowledged_at · metal_mismatch)
-// ล้ม/อ่านไม่ได้ = map ว่าง (บอร์ดแสดงแบบเดิม ไม่พังทั้งหน้า) + log เฉพาะ code · 🔴 ไม่ส่งชื่อผู้เปิด/เงิน/ต้นทุน — มีแค่ธง + เวลา
+// ล้ม/อ่านไม่ได้ = { map ว่าง, failed: true } (บอร์ดแสดงแบบเดิม ไม่พังทั้งหน้า — แต่ tile "รอรับทราบ" ต้องขึ้น "—" ไม่ใช่ 0: ศูนย์ที่มาจากการอ่านล้มทำให้เจ้าของเชื่อว่าไม่มีใบค้าง) + log เฉพาะ code · 🔴 ไม่ส่งชื่อผู้เปิด/เงิน/ต้นทุน — มีแค่ธง + เวลา
 
 import "server-only";
 import type { BoardIntake } from "@/lib/jobs/types";
@@ -11,11 +11,17 @@ import { logJobFailure } from "@/lib/jobs/log";
 const rows = (d: unknown): Record<string, unknown>[] => (Array.isArray(d) ? (d as Record<string, unknown>[]) : []);
 const CHUNK = 100;
 
-/** po_no → ข้อมูลใบที่เปิดจากหน้างาน (เฉพาะใบผลิต opened_via = shopfloor) */
-export async function loadBoardIntake(poNos: readonly string[]): Promise<Map<string, BoardIntake>> {
+export interface BoardIntakeResult {
+  /** po_no → ข้อมูลใบที่เปิดจากหน้างาน (เฉพาะใบผลิต opened_via = shopfloor) */
+  map: Map<string, BoardIntake>;
+  /** true = อ่านสถานะไม่สำเร็จ (map ว่างไม่ได้แปลว่าไม่มีใบ) */
+  failed: boolean;
+}
+
+export async function loadBoardIntake(poNos: readonly string[]): Promise<BoardIntakeResult> {
   const out = new Map<string, BoardIntake>();
   const uniq = [...new Set(poNos.filter((p) => typeof p === "string" && p !== ""))];
-  if (uniq.length === 0) return out;
+  if (uniq.length === 0) return { map: out, failed: false };
   try {
     const shop = shopId();
     const chunks: string[][] = [];
@@ -36,7 +42,7 @@ export async function loadBoardIntake(poNos: readonly string[]): Promise<Map<str
         });
       }
     }
-    if (orders.size === 0) return out;
+    if (orders.size === 0) return { map: out, failed: false };
 
     // รายการที่โลหะต่างจาก SKU (ที่ระบุโลหะชัด) — DB คำนวณเป็นคอลัมน์ metal_mismatch (ไม่เทียบเองฝั่ง TS)
     const mismatched = new Set<string>();
@@ -52,9 +58,9 @@ export async function loadBoardIntake(poNos: readonly string[]): Promise<Map<str
     for (const [po, o] of orders) {
       out.set(po, { ackPending: o.status === "open" && o.ackedAt === null, openedAt: o.createdAt, metalMismatch: mismatched.has(o.id) });
     }
-    return out;
+    return { map: out, failed: false };
   } catch (err) {
     logJobFailure("loadBoardIntake", err);
-    return new Map();
+    return { map: new Map(), failed: true };
   }
 }

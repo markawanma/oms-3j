@@ -8,11 +8,6 @@ export function workerPageUrl(origin: string, token: string): string {
   return `${origin.replace(/\/+$/, "")}/w/${token}`;
 }
 
-/** QR ร้าน (hub ที่ผู้จัดการสแกนเปิดใบ) — /w/s/<token ร้าน> · token ดิบแสดงครั้งเดียวตอนออก (ออฟฟิศ) */
-export function shopPageUrl(origin: string, token: string): string {
-  return `${origin.replace(/\/+$/, "")}/w/s/${token}`;
-}
-
 export function renderQrSvgClient(text: string): string {
   return renderSVG(text, { ecc: "H", border: 2, whiteColor: "#ffffff", blackColor: "#000000", pixelSize: 8 });
 }

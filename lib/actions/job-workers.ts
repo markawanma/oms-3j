@@ -12,6 +12,8 @@ import { callOffice, db, fail, guard, shopId } from "@/lib/jobs/office-server";
 import type { JobResult } from "@/lib/jobs/office-server";
 import { logJobFailure } from "@/lib/jobs/log";
 import { GENERIC_JOB_ERROR } from "@/lib/jobs/messages";
+import { currentAppOrigin } from "@/lib/jobs/origin-server";
+import { renderQrSvg, shopUrl } from "@/lib/jobs/qr";
 
 type Raw = Record<string, unknown>;
 
@@ -135,6 +137,8 @@ export async function unlockWorker(workerId: string): Promise<JobResult<null>> {
 export interface ShopIntakeStatus {
   active: boolean;
   issuedAt: string | null;
+  /** เวลาที่ QR ล่าสุดถูกเพิกถอน (0188 shop_intake_token_status.revoked_at) — null/ไม่มี = ไม่เคยออก หรือ DB ยังไม่ส่งค่านี้ (UI ห้ามสรุปว่า "ไม่เคยออก") */
+  revokedAt?: string | null;
 }
 
 export async function getShopIntakeStatus(): Promise<JobResult<ShopIntakeStatus>> {
@@ -142,28 +146,54 @@ export async function getShopIntakeStatus(): Promise<JobResult<ShopIntakeStatus>
   if (g) return g;
   const r = await callOffice<Raw>("shop_intake_token_status", {}, { noActor: true }); // RPC อ่านอย่างเดียว ไม่มี p_actor
   if (!r.ok) return r;
-  return { ok: true, data: { active: r.data.active === true, issuedAt: typeof r.data.issued_at === "string" ? r.data.issued_at : null } };
+  return {
+    ok: true,
+    data: {
+      active: r.data.active === true,
+      issuedAt: typeof r.data.issued_at === "string" ? r.data.issued_at : null,
+      revokedAt: typeof r.data.revoked_at === "string" ? r.data.revoked_at : null,
+    },
+  };
 }
 
 export interface ShopIntakeIssued {
-  /** ค่าดิบ — แสดง/พิมพ์ครั้งเดียว · ลิงก์ที่ผู้จัดการสแกน = <APP_ORIGIN>/w/s/<token> */
-  token: string;
+  /** ภาพ QR (SVG ประกอบฝั่ง server จาก APP_ORIGIN) — ค่าดิบของ token ไม่คืนให้ client เลย · แสดง/พิมพ์ครั้งเดียว */
+  svg: string;
   issuedAt: string;
+  /** เตือนจาก origin (เช่น host ที่เปิดหน้าไม่ตรง APP_ORIGIN) — null = ไม่มี */
+  warning: string | null;
   /** จำนวน QR ร้านเดิมที่ถูกเพิกถอนพร้อมกัน (0 หรือ 1) */
   revokedPrevious: number;
 }
 
+/** ข้อความเมื่อไม่ใช่ production จริง — กันกดจาก preview/localhost แล้วเพิกถอน QR จริงที่ติดอยู่ (ออกใหม่ = เพิกถอนของเก่าใน DB · QR แสดงครั้งเดียว) */
+const SHOP_QR_PROD_ONLY = "ออก QR ร้านได้เฉพาะที่ app.3jthailand.com";
+
+/**
+ * ออก QR ร้าน — 🔴 origin ใน QR มาจาก APP_ORIGIN (env) เท่านั้น และต้องเป็น production จริง (ไม่งั้นปฏิเสธ "ก่อน" เรียก RPC → ไม่เพิกถอนของเดิม)
+ * เหตุผล: ถ้าประกอบ URL ฝั่ง client จาก window.location.origin แล้วเปิดจาก preview → ได้ QR ชี้ preview + QR เดิมที่ติดผนังถูกเพิกถอนไปแล้ว (ทั้งร้านเปิดงานไม่ได้)
+ * ประกอบ URL + render SVG ที่นี่ · คืนเฉพาะ SVG (token ดิบไม่ออกจาก server) — pattern เดียวกับ issueJobQr
+ */
 export async function issueShopIntakeToken(): Promise<JobResult<ShopIntakeIssued>> {
   const g = await guard();
   if (g) return g;
+  const origin = await currentAppOrigin();
+  if (!origin.ok) return fail(origin.error);
+  if (!origin.fromEnv || origin.env !== "production") return fail(SHOP_QR_PROD_ONLY);
   const r = await callOffice<Raw>("shop_intake_token_issue", {});
   if (!r.ok) return r;
   const token = r.data.token;
   const issuedAt = r.data.issued_at;
   if (typeof token !== "string" || !/^[A-Za-z0-9_-]{16,64}$/.test(token) || typeof issuedAt !== "string") return fail(GENERIC_JOB_ERROR);
+  let svg: string;
+  try {
+    svg = renderQrSvg(shopUrl(origin.origin, token));
+  } catch {
+    return fail("สร้าง QR ไม่สำเร็จ ลองใหม่อีกครั้ง");
+  }
   const prev = typeof r.data.revoked_previous === "number" && Number.isInteger(r.data.revoked_previous) ? r.data.revoked_previous : 0;
   revalidatePath("/jobs/workers");
-  return { ok: true, data: { token, issuedAt, revokedPrevious: prev } };
+  return { ok: true, data: { svg, issuedAt, revokedPrevious: prev, warning: origin.warning } };
 }
 
 export async function revokeShopIntakeToken(): Promise<JobResult<{ revoked: number }>> {

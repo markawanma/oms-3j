@@ -87,24 +87,28 @@ export function ShopQtyStep({
 
         <section aria-label="จำนวน" className="space-y-3 rounded-2xl border-2 border-zinc-300 bg-white p-4">
           <QtyStepper id="shop-qty" label="ต้องการเข้าสต็อก (ชิ้น)" value={form.qtyText} onChange={(v) => setForm((f) => ({ ...f, qtyText: v }))} max={100000} error={showErr ? qErr : null} />
-          <div className="flex items-center justify-between gap-3">
-            <div className="min-w-0">
-              <p id="shop-buffer-label" className="text-lg font-semibold text-zinc-900">
+          {/* ทั้งแถวเป็นสวิตช์ (พื้นที่แตะ ≥ 56px) — ไม่ใช่แค่ตัวเลื่อนเล็กด้านขวา */}
+          <button
+            type="button"
+            role="switch"
+            aria-checked={form.bufferOn}
+            aria-labelledby="shop-buffer-label"
+            aria-describedby="shop-buffer-hint"
+            onClick={() => setForm((f) => ({ ...f, bufferOn: !f.bufferOn }))}
+            className="flex min-h-14 w-full items-center justify-between gap-3 rounded-xl text-left focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary-300"
+          >
+            <span className="min-w-0">
+              <span id="shop-buffer-label" className="block text-lg font-semibold text-zinc-900">
                 เผื่อของเสีย
-              </p>
-              <p className="text-base text-zinc-700">{form.bufferOn ? "เปิดอยู่ · ใส่จำนวนที่เผื่อ" : "ไม่บังคับ · ปิดอยู่ = ผลิตเท่าที่สั่ง"}</p>
-            </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={form.bufferOn}
-              aria-labelledby="shop-buffer-label"
-              onClick={() => setForm((f) => ({ ...f, bufferOn: !f.bufferOn }))}
-              className={`relative h-9 w-16 shrink-0 rounded-full border-2 transition-colors focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary-300 ${form.bufferOn ? "border-zinc-900 bg-zinc-900" : "border-zinc-400 bg-zinc-200"}`}
-            >
-              <span aria-hidden="true" className={`absolute top-0.5 h-7 w-7 rounded-full bg-white shadow transition-all ${form.bufferOn ? "left-8" : "left-0.5"}`} />
-            </button>
-          </div>
+              </span>
+              <span id="shop-buffer-hint" className="block text-base text-zinc-700">
+                {form.bufferOn ? "เปิดอยู่ · ใส่จำนวนที่เผื่อ" : "ไม่บังคับ · ปิดอยู่ = ผลิตเท่าที่สั่ง"}
+              </span>
+            </span>
+            <span aria-hidden="true" className={`relative h-9 w-16 shrink-0 rounded-full border-2 transition-colors ${form.bufferOn ? "border-zinc-900 bg-zinc-900" : "border-zinc-400 bg-zinc-200"}`}>
+              <span className={`absolute top-0.5 h-7 w-7 rounded-full bg-white shadow transition-all ${form.bufferOn ? "left-8" : "left-0.5"}`} />
+            </span>
+          </button>
           {form.bufferOn && (
             <QtyStepper
               id="shop-buffer"

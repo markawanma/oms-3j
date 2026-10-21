@@ -169,6 +169,12 @@ export function ShopProductSearch({
           />
         </div>
 
+        {form.product && (
+          <p role="status" className="rounded-xl border-2 border-zinc-900 bg-zinc-50 p-3 text-lg text-zinc-900">
+            <span aria-hidden="true">✓ </span>เลือกแล้ว: <strong className="break-words">{form.product.name}</strong> <span className="text-base text-zinc-700">({form.product.sku})</span>
+          </p>
+        )}
+
         <div id="shop-results" aria-busy={state.status === "loading"}>
           {state.status === "idle" && <p className="text-lg text-zinc-700">พิมพ์ชื่อสินค้าหรือรหัส</p>}
           {state.status === "loading" && (

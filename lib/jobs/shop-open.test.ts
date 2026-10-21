@@ -1,15 +1,20 @@
 // lib/jobs/shop-open.test.ts — ตรรกะ pure ของหน้าผู้จัดการเปิดใบ (W1)
 // ต้องถูก: skuMetalNote 3 กรณี (P1) · ทอง+เนื้อว่างไม่ผ่าน · ทองเหลืองล็อก 100 · เปลี่ยนโลหะรีเซ็ตเนื้อ · payload ส่งเฉพาะที่แก้ · ข้อความ error ทุกเคสไม่มีรหัส/เงิน
 // ต้องไม่พัง: เงินเว้นเนื้อว่างได้ · SKU ที่ไม่แก้อะไรส่งแค่ productId
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
-  MSG_NETWORK, SHOP_METAL_TAG, SHOP_METALS, backToSearch, bufferIssue, buildIntakeInput, changeMetal, defaultPurityText, dueIssue, dueLabel, effectivePurityText, isCleanMessage, labelIssue,
+  MSG_NETWORK, SHOP_METALS, backToSearch, bufferIssue, buildIntakeInput, changeMetal, defaultPurityText, dueIssue, dueLabel, effectivePurityText, isCleanMessage, labelIssue,
   metalIssues, newForm, newIdemKey, profileBlockMessage, purityIssue, purityLabel, qtyIssue, qtySummary, resolveDue, searchErrorMessage, selectProduct, shopErrorView, shopOpenIssues,
   skuMetalNote, skuNoteOf, specEdited, specOfProduct, startNewProduct, stepProgress, stepsFor, weightIssue, weightLabel,
 } from "@/lib/jobs/shop-open";
 import type { ShopForm } from "@/lib/jobs/shop-open";
 import type { IntakeProduct } from "@/lib/jobs/worker-server";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import * as METAL_UI from "@/lib/production/metal-ui";
 import { METAL_TAG } from "@/lib/production/metal-ui";
+import * as LEAF from "@/lib/units/metal-tag";
+import { PRODUCTION_METAL_LABEL_TH } from "@/lib/production/types";
 import { OEM_DEFAULT_PURITY } from "@/lib/oem/quoteForm";
 import { INTAKE_CODE_PROBE } from "./shop-open.test-helpers";
 
@@ -19,9 +24,19 @@ const prod = (o: Partial<IntakeProduct["prefill"]> = {}, rest: Partial<IntakePro
   prefill: { metal: "silver", purity: 0.925, weightG: 3.2, metalKnown: true, ...o }, ...rest,
 });
 
-describe("สี/ค่าเริ่มของโลหะ — ตรงกับจอใบผลิต (ไฟล์เราแยกสำเนาเพื่อไม่ลาก lib/production เข้ากราฟสาธารณะ)", () => {
-  it("ป้ายสี/ข้อความ/glyph ตรง METAL_TAG ทุกตัว", () => {
-    for (const m of SHOP_METALS) expect(SHOP_METAL_TAG[m], m).toEqual(METAL_TAG[m]);
+describe("สี/ค่าเริ่มของโลหะ — ที่เดียว (leaf module lib/units/metal-tag.ts) ใช้ร่วมกับจอใบผลิต", () => {
+  it("metal-ui re-export ตัวเดียวกัน (identity) ไม่ใช่สำเนา · ชื่อไทยตรง PRODUCTION_METAL_LABEL_TH", () => {
+    expect(METAL_TAG).toBe(LEAF.METAL_TAG);
+    expect(METAL_UI.MSG_METAL_RESET_PURITY).toBe(LEAF.MSG_METAL_RESET_PURITY);
+    expect(METAL_UI.MSG_WEIGHT_CLEARED_FROM_SKU).toBe(LEAF.MSG_WEIGHT_CLEARED_FROM_SKU);
+    for (const m of SHOP_METALS) {
+      expect(LEAF.METAL_TAG[m].label, m).toBe(PRODUCTION_METAL_LABEL_TH[m]);
+      expect(METAL_UI.defaultPurityText(m), m).toBe(defaultPurityText(m));
+    }
+  });
+  it("leaf module ไม่มี import เลย (ไม่ลาก lib/production · lib/oem เข้ากราฟสาธารณะ)", () => {
+    const src = readFileSync(join(process.cwd(), "lib", "units", "metal-tag.ts"), "utf8").replace(/\/\/.*$/gm, "");
+    expect(/\bimport\b|\brequire\(/.test(src)).toBe(false);
   });
   it("ค่าเริ่มเนื้อ: เงิน 92.50 · ทอง ว่าง · ทองเหลือง 100.00 ตรง OEM_DEFAULT_PURITY", () => {
     for (const m of SHOP_METALS) expect(defaultPurityText(m), m).toBe(OEM_DEFAULT_PURITY[m]);
@@ -243,6 +258,25 @@ describe("buildIntakeInput — ส่งเฉพาะที่ต้องส�
     const f = { ...startNewProduct(f0()), label: "แหวน" };
     expect(backToSearch(f).label).toBe("แหวน");
     expect(backToSearch(f).mode).toBe("sku");
+  });
+});
+
+describe("idem key — ไม่มี crypto = ล้มดังๆ (ไม่ใช้ค่าคงที่)", () => {
+  it("ไม่มีทั้ง randomUUID และ getRandomValues → throw", () => {
+    vi.stubGlobal("crypto", {});
+    expect(() => newIdemKey()).toThrow("crypto_unavailable");
+    vi.stubGlobal("crypto", undefined);
+    expect(() => newIdemKey()).toThrow("crypto_unavailable");
+    vi.unstubAllGlobals();
+  });
+  it("มีแค่ getRandomValues → คีย์สุ่ม 32 hex ไม่ซ้ำ ตรง IDEM_RE", () => {
+    let n = 0;
+    vi.stubGlobal("crypto", { getRandomValues: (b: Uint8Array) => (b.fill(++n), b) });
+    const a = newIdemKey();
+    const b = newIdemKey();
+    expect(a).toMatch(/^[0-9a-f]{32}$/);
+    expect(a).not.toBe(b);
+    vi.unstubAllGlobals();
   });
 });
 

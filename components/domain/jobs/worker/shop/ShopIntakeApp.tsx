@@ -12,7 +12,7 @@ import { ShopHub } from "@/components/domain/jobs/worker/shop/ShopHub";
 import type { ShopInitial } from "@/components/domain/jobs/worker/shop/ShopHub";
 import { ShopOpenFlow } from "@/components/domain/jobs/worker/shop/ShopOpenFlow";
 
-export const MSG_FORM_KEPT = "ข้อมูลที่กรอกยังอยู่ — ใส่ PIN แล้วกด \"เปิดงาน\" ต่อ";
+export const MSG_FORM_KEPT = "ข้อมูลที่กรอกยังอยู่ถ้าคนเดิมใส่ PIN (เปลี่ยนคนจะล้างฟอร์ม)";
 
 export function ShopIntakeApp({ token, initial }: { token: string; initial: ShopInitial }) {
   const router = useRouter();
@@ -47,7 +47,7 @@ export function ShopIntakeApp({ token, initial }: { token: string; initial: Shop
       {busyView && <PanelSkeleton />}
       {flowActive && (
         <div hidden={!showFlow}>
-          <ShopOpenFlow token={token} ready={profile} onExit={exitFlow} onSessionLost={refresh} />
+          <ShopOpenFlow token={token} ready={profile} workerId={hub?.worker?.id ?? null} onExit={exitFlow} onSessionLost={refresh} />
         </div>
       )}
       {!busyView && !showFlow && (

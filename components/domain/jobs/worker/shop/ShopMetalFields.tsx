@@ -8,7 +8,8 @@ import { useId, useState } from "react";
 import { Check } from "lucide-react";
 import { PurityPctInput } from "@/components/ui/PurityPctInput";
 import { ShopMetalTag } from "@/components/domain/jobs/worker/shop/ShopMetalTag";
-import { SHOP_METALS, SHOP_METAL_HINT, SHOP_METAL_TAG } from "@/lib/jobs/shop-open";
+import { SHOP_METALS, SHOP_METAL_HINT } from "@/lib/jobs/shop-open";
+import { METAL_TAG } from "@/lib/units/metal-tag";
 import type { ShopMetal, ShopMetalIssues, SkuMetalNote } from "@/lib/jobs/shop-open";
 
 const FIELD = "min-h-14 w-full rounded-xl border-2 border-zinc-400 bg-white px-4 text-2xl font-semibold tabular-nums text-zinc-900 focus:border-primary-600 focus:outline-none focus:ring-4 focus:ring-primary-200 disabled:bg-zinc-100 disabled:text-zinc-600";
@@ -72,7 +73,7 @@ export function ShopMetalFields({
         <legend className="text-lg font-bold text-zinc-900">
           วัสดุ <span className="text-primary-700">*</span>
         </legend>
-        <div role="radiogroup" aria-label="วัสดุ" className="space-y-2">
+        <div className="space-y-2">
           {SHOP_METALS.map((m) => {
             const checked = metal === m;
             return (
@@ -103,7 +104,7 @@ export function ShopMetalFields({
 
       {skuNote === "warn" && skuMetal && (
         <p role="note" className="rounded-xl border-2 border-amber-400 bg-amber-50 p-3 text-lg text-amber-950">
-          ⚠ สินค้านี้ในระบบเป็น {SHOP_METAL_TAG[skuMetal].label} — คุณเลือก {SHOP_METAL_TAG[metal].label} · เปิดงานได้ ออฟฟิศจะเห็นคำเตือนนี้ ตรวจให้ตรงของจริง
+          ⚠ สินค้านี้ในระบบเป็น {METAL_TAG[skuMetal].label} — คุณเลือก {METAL_TAG[metal].label} · เปิดงานได้ ออฟฟิศจะเห็นคำเตือนนี้ ตรวจให้ตรงของจริง
         </p>
       )}
       {skuNote === "neutral" && (

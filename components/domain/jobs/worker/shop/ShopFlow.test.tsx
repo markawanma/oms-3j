@@ -36,6 +36,7 @@ const readyHub = (o: Partial<IntakeHubView> = {}): ShopInitial => ({
   kind: "hub",
   hub: { state: "ready", workers: [], worker: { id: WA, displayName: "หัวหน้าช่าง" }, openAllowed: true, profileReady: true, goldProfileReady: true, sessionExpired: false, ...o },
 });
+const WB = "55555555-5555-4555-8555-555555555555";
 const identifyHub = (): ShopInitial => ({ kind: "hub", hub: { state: "identify", workers: [{ id: WA, displayName: "หัวหน้าช่าง" }], worker: null, openAllowed: false, profileReady: true, goldProfileReady: true, sessionExpired: true } });
 
 const product = (o: Partial<IntakeProduct["prefill"]> = {}, rest: Partial<IntakeProduct> = {}): IntakeProduct => ({
@@ -612,10 +613,95 @@ describe("B.8 ข้อผิดพลาดตอนกด 'เปิดงา�
     rerender(<ShopIntakeApp token={TOKEN} initial={readyHub()} />);
     expect(screen.getByRole("heading", { level: 1, name: "ทวนก่อนเปิดงาน" })).toBeInTheDocument();
     stillThere();
+    // ข้อ 3: banner "หมดเวลาแล้ว" ต้องหายหลัง PIN ผ่าน (คนเดิม) — ไม่ค้างอยู่บนฟอร์ม
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.queryByText("หมดเวลาแล้ว — ใส่ PIN ใหม่")).toBeNull();
     intakeOpen.mockResolvedValueOnce(okResult());
     await click("เปิดงาน");
     await waitFor(() => expect(intakeOpen).toHaveBeenCalledTimes(2));
     expect(intakeOpen.mock.calls[1][1].idemKey).toBe(intakeOpen.mock.calls[0][1].idemKey);
+  });
+
+  it("ข้อ 3: คนอื่นกด 'ไม่ใช่ฉัน' แล้ว login แทน → ฟอร์มเดิมถูกล้าง (ไม่เดินต่อในชื่อคนใหม่) + ข้อความ + ไม่เรียก intakeOpen + idem key ใหม่", async () => {
+    intakeOpen.mockResolvedValueOnce({ ok: false, error: "x", code: "session_required" });
+    const { rerender } = render(<ShopIntakeApp token={TOKEN} initial={readyHub()} />);
+    await toQty();
+    await fillQtyAndNext("30");
+    await click("เปิดงาน");
+    await waitFor(() => expect(refresh).toHaveBeenCalled());
+    const key1 = intakeOpen.mock.calls[0][1].idemKey;
+    rerender(<ShopIntakeApp token={TOKEN} initial={identifyHub()} />);
+    // คนใหม่ (WB) ใส่ PIN ผ่าน
+    rerender(<ShopIntakeApp token={TOKEN} initial={readyHub({ worker: { id: WB, displayName: "คนใหม่" } })} />);
+    expect(await screen.findByRole("heading", { level: 1, name: "ผลิตอะไร?" })).toBeInTheDocument();
+    expect(screen.getByText(/เปลี่ยนคนแล้ว — ล้างฟอร์มเดิม/)).toBeInTheDocument();
+    expect(screen.queryByText("30 ชิ้น · ไม่เผื่อ")).toBeNull();
+    expect(screen.queryByRole("button", { name: "เปิดงาน" })).toBeNull();
+    expect(intakeOpen).toHaveBeenCalledTimes(1); // ไม่มีการเปิดใบซ้ำในชื่อคนใหม่
+    // กรอกใหม่ → คีย์ใหม่ (ไม่ใช้คีย์ของฟอร์มเดิม)
+    await userEvent.type(screen.getByLabelText("ค้นชื่อสินค้าหรือรหัส"), "แหวน");
+    await userEvent.click(await screen.findByRole("button", { name: /RG-0418/ }, { timeout: 3000 }));
+    await click("ถัดไป");
+    await fillQtyAndNext("5");
+    intakeOpen.mockResolvedValueOnce(okResult());
+    await click("เปิดงาน");
+    await waitFor(() => expect(intakeOpen).toHaveBeenCalledTimes(2));
+    expect(intakeOpen.mock.calls[1][1].idemKey).not.toBe(key1);
+  });
+
+  it("ข้อ 2: Enter ในช่องหมายเหตุ ไม่เปิดใบ (intakeOpen ไม่ถูกเรียก) · ช่องเสียโฟกัส · ฟอร์มยังอยู่ · กดปุ่ม 'เปิดงาน' ยังเปิดได้", async () => {
+    render(<ShopIntakeApp token={TOKEN} initial={readyHub()} />);
+    await toQty();
+    await fillQtyAndNext("30");
+    const note = screen.getByLabelText(/หมายเหตุ/);
+    await userEvent.type(note, "x{Enter}");
+    expect(intakeOpen).not.toHaveBeenCalled();
+    expect(note).not.toHaveFocus();
+    expect(note).toHaveValue("x");
+    expect(screen.getByRole("heading", { level: 1, name: "ทวนก่อนเปิดงาน" })).toBeInTheDocument();
+    await userEvent.type(note, "{Enter}");
+    expect(intakeOpen).not.toHaveBeenCalled();
+    await click("เปิดงาน");
+    await waitFor(() => expect(intakeOpen).toHaveBeenCalledTimes(1));
+    expect(intakeOpen.mock.calls[0][1].note).toBe("x");
+  });
+
+  it("ข้อ 8: สวิตช์เผื่อของเสียทั้งแถวกดได้ (แตะข้อความก็สลับ) · แถว min-h-14 · ชื่ออ่านออกเสียงคือ 'เผื่อของเสีย'", async () => {
+    render(<ShopIntakeApp token={TOKEN} initial={readyHub()} />);
+    await toQty();
+    const sw = screen.getByRole("switch", { name: "เผื่อของเสีย" });
+    expect(sw.className).toMatch(/min-h-14/);
+    expect(sw.className).toMatch(/w-full/);
+    await userEvent.click(screen.getByText("ไม่บังคับ · ปิดอยู่ = ผลิตเท่าที่สั่ง"));
+    expect(sw).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByLabelText("เผื่อเพิ่มกี่ชิ้น")).toBeInTheDocument();
+    await userEvent.click(sw);
+    expect(sw).toHaveAttribute("aria-checked", "false");
+  });
+
+  it("ข้อ 9: ค้นสินค้า — เปลี่ยนคำค้นแล้วยังเห็น 'เลือกแล้ว: …' (ไม่ลืมว่าเลือกอะไรไว้)", async () => {
+    render(<ShopIntakeApp token={TOKEN} initial={readyHub()} />);
+    await click("เปิดงานใหม่");
+    await userEvent.type(screen.getByLabelText("ค้นชื่อสินค้าหรือรหัส"), "แหวน");
+    await userEvent.click(await screen.findByRole("button", { name: /RG-0418/ }, { timeout: 3000 }));
+    expect(screen.getByText(/เลือกแล้ว:/)).toHaveTextContent("แหวนโกเมนไข่");
+    intakeSearch.mockResolvedValue({ ok: true, items: [] });
+    await userEvent.clear(screen.getByLabelText("ค้นชื่อสินค้าหรือรหัส"));
+    await userEvent.type(screen.getByLabelText("ค้นชื่อสินค้าหรือรหัส"), "ซซซ");
+    await screen.findByText(/ไม่พบ/, {}, { timeout: 3000 });
+    expect(screen.getByText(/เลือกแล้ว:/)).toHaveTextContent("RG-0418");
+    expect(screen.getByRole("button", { name: "ถัดไป" })).not.toHaveAttribute("aria-disabled");
+  });
+
+  it("ข้อ 9: กลุ่มวัสดุเป็น fieldset+legend เดียว ไม่มี radiogroup ซ้อน (ทั้ง W-2b และแผ่นแก้)", async () => {
+    render(<ShopIntakeApp token={TOKEN} initial={readyHub()} />);
+    await click("เปิดงานใหม่");
+    await click("+ สินค้าใหม่ (ยังไม่มีรหัส)");
+    await userEvent.type(screen.getByLabelText(/ชื่อแบบ/), "แหวน");
+    await click("ถัดไป");
+    expect(screen.getByRole("group", { name: /วัสดุ/ })).toBeInTheDocument();
+    expect(screen.queryByRole("radiogroup", { name: "วัสดุ" })).toBeNull();
+    expect(screen.getAllByRole("radio")).toHaveLength(3);
   });
 
   it("invalid_token ระหว่างกรอก: ข้อความ 'ถูกยกเลิกแล้ว' + ปุ่มเปิดงาน aria-disabled + ฟอร์มคงอยู่ · ลองอีกครั้งได้", async () => {

@@ -1,7 +1,7 @@
 // lib/jobs/shop-open.ts — ตรรกะ pure ของหน้าผู้จัดการเปิดใบจากมือถือ /w/s/<token> (W1 · UX ส่วน B)
 //
-// 🔴 อยู่ในกราฟหน้าช่าง (สาธารณะ): ห้าม import lib/production · lib/oem · lib/catalog (worker-boundary.test) — จึงมี "ป้ายสีโลหะ/ค่าเริ่มเนื้อ" ของตัวเอง
-//    และมีเทสต์ล็อกให้ตรงกับของจอใบผลิต (shop-open.test.ts เทียบกับ METAL_TAG / OEM_DEFAULT_PURITY — ไฟล์เทสต์ไม่อยู่ในกราฟ)
+// 🔴 อยู่ในกราฟหน้าช่าง (สาธารณะ): ห้าม import lib/production · lib/oem · lib/catalog (worker-boundary.test) — ป้ายสีโลหะ/ค่าเริ่มเนื้อ/ข้อความ reset
+//    import ตรงจาก leaf module lib/units/metal-tag.ts (ไม่มี import) ที่จอใบผลิต re-export — ที่เดียว ไม่มีสำเนา
 // 🔴 ไม่มีตัวเลขเงิน/ต้นทุน/ราคาในไฟล์นี้เลย (ตั้งแต่ type) · ไม่มีการคิดเงิน · น้ำหนักทองไม่ถูกส่งกลับมาแสดงหลังเปิด (N1)
 // ค่าที่ตัดสินจริง (เนื้อเริ่ม/โปรไฟล์/ด่านต่างๆ) อยู่ที่ DB — ไฟล์นี้แค่ประกอบ payload + ตรวจรูปร่างช่อง + เลือกข้อความ error
 
@@ -9,25 +9,20 @@ import type { IntakeOpenActionInput } from "@/lib/actions/job-worker";
 import type { IntakeProduct } from "@/lib/jobs/worker-server";
 import { addDays, thaiDate } from "@/lib/jobs/dates";
 import { INVISIBLE_MSG, INVISIBLE_RE, LABEL_ANGLE_MSG, LABEL_ANGLE_RE, TARGET_PIECE_MAX_G, parseBufferText, parseDate, parseQtyText, parseWeight } from "@/lib/jobs/input";
+import { DEFAULT_PURITY_PCT, MSG_METAL_RESET_PURITY, MSG_WEIGHT_CLEARED_FROM_SKU } from "@/lib/units/metal-tag";
+import type { MetalKey } from "@/lib/units/metal-tag";
 import { purityFractionToPct, purityPctIssue, purityPctToFraction } from "@/lib/units/purity";
 
 // ============================================================================
 // โลหะ — ป้ายสี + ค่าเริ่ม
 // ============================================================================
 
-export type ShopMetal = "silver" | "gold" | "brass";
+export type ShopMetal = MetalKey;
 export const SHOP_METALS: readonly ShopMetal[] = ["silver", "gold", "brass"];
 
-/** ชื่อสั้น เงิน/ทอง/ทองเหลือง (ไม่ใช่ "เงิน 925") · glyph = ไม่พึ่งสีอย่างเดียว · class ตรงกับ METAL_TAG ของจอใบผลิต (เทสต์ล็อก) */
-export const SHOP_METAL_TAG: Record<ShopMetal, { label: string; glyph: string; className: string }> = {
-  silver: { label: "เงิน", glyph: "◇", className: "bg-slate-200 text-slate-900 border border-slate-500" },
-  gold: { label: "ทอง", glyph: "◆", className: "bg-yellow-300 text-yellow-950 border border-yellow-600" },
-  brass: { label: "ทองเหลือง", glyph: "▲", className: "bg-orange-300 text-orange-950 border border-orange-600" },
-};
-
-/** ค่าเริ่มช่อง "เนื้อโลหะ (%)": เงิน 92.50 (มติเจ้าของ · แก้ได้) · ทอง ว่าง (บังคับกรอก) · ทองเหลือง 100.00 (ล็อก) */
+/** ค่าเริ่มช่อง "เนื้อโลหะ (%)": เงิน 92.50 (มติเจ้าของ · แก้ได้) · ทอง ว่าง (บังคับกรอก) · ทองเหลือง 100.00 (ล็อก) — จาก leaf module */
 export function defaultPurityText(metal: ShopMetal): string {
-  return metal === "silver" ? purityFractionToPct(0.925) : metal === "brass" ? purityFractionToPct(1) : "";
+  return DEFAULT_PURITY_PCT[metal];
 }
 
 /** ข้อความใต้ตัวเลือกโลหะ (W-2b) */
@@ -47,8 +42,6 @@ export const MSG_QTY_REQUIRED = "ใส่จำนวนชิ้นที่�
 export const MSG_LABEL_REQUIRED = "ใส่ชื่อแบบก่อน";
 export const MSG_LABEL_LINE = "ชื่อแบบห้ามขึ้นบรรทัดใหม่หรือแท็บ";
 export const MSG_LABEL_LONG = "ชื่อแบบยาวเกิน 60 ตัวอักษร";
-export const MSG_METAL_RESET = "เนื้อรีเซ็ตตามโลหะใหม่";
-export const MSG_WEIGHT_CLEARED = "ล้างน้ำหนักจากสินค้าแล้ว (ใช้กับเงินเท่านั้น)";
 export const MSG_NO_GOLD_PROFILE = "เปิดงานทองไม่ได้ตอนนี้ — ยังไม่มีแบบการบันทึกสำหรับงานทอง แจ้งออฟฟิศให้ตั้งก่อน · อย่าเปลี่ยนเป็นโลหะอื่นเพื่อเปิดผ่าน";
 export const MSG_NO_DEFAULT_PROFILE = "เปิดงานไม่ได้ตอนนี้ — ร้านยังไม่ได้ตั้งแบบการบันทึกงาน แจ้งออฟฟิศให้ตั้งก่อน แล้วกลับมากด \"เปิดงาน\" อีกครั้ง";
 export const SHOP_LABEL_MAX = 60;
@@ -82,9 +75,13 @@ export interface ShopForm {
 export function newIdemKey(): string {
   const c = globalThis.crypto;
   if (c && typeof c.randomUUID === "function") return c.randomUUID();
-  const bytes = new Uint8Array(16);
-  if (c && typeof c.getRandomValues === "function") c.getRandomValues(bytes);
-  return [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+  if (c && typeof c.getRandomValues === "function") {
+    const bytes = new Uint8Array(16);
+    c.getRandomValues(bytes);
+    return [...bytes].map((b) => b.toString(16).padStart(2, "0")).join("");
+  }
+  // ไม่มี crypto = คีย์กันกดซ้ำไม่ปลอดภัย (ค่าคงที่/Math.random ทำให้ใบของคนละคนชนกัน) → ล้มดังๆ ดีกว่าเปิดใบด้วยคีย์ที่เดาได้
+  throw new Error("crypto_unavailable");
 }
 
 export function newForm(idemKey: string = newIdemKey()): ShopForm {
@@ -123,13 +120,13 @@ export function changeMetal(form: ShopForm, next: ShopMetal): { form: ShopForm; 
   if (next === form.metal) return { form, notes: [] };
   const notes: string[] = [];
   const base = form.mode === "sku" && form.product ? specOfProduct(form.product) : null;
-  if (base && next === base.metal) return { form: { ...form, metal: next, purityText: base.purityText, weightText: base.weightText }, notes: [MSG_METAL_RESET] };
+  if (base && next === base.metal) return { form: { ...form, metal: next, purityText: base.purityText, weightText: base.weightText }, notes: [MSG_METAL_RESET_PURITY] };
   let weightText = form.weightText;
   if (base && base.weightText !== "" && form.weightText.trim() === base.weightText) {
     weightText = "";
-    notes.push(MSG_WEIGHT_CLEARED);
+    notes.push(MSG_WEIGHT_CLEARED_FROM_SKU);
   }
-  notes.unshift(MSG_METAL_RESET);
+  notes.unshift(MSG_METAL_RESET_PURITY);
   return { form: { ...form, metal: next, purityText: defaultPurityText(next), weightText }, notes };
 }
 

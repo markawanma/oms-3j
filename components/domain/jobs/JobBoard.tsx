@@ -183,7 +183,7 @@ export function JobBoard({ initial }: { initial: BoardData }) {
         <EmptyState title="ยังไม่มีใบงานที่เปิดอยู่" description="สร้างใบงานจากใบเสนอราคา OEM ที่ได้งานแล้ว หรือจากใบผลิตเข้าสต็อก" />
       ) : (
         <>
-          <SummaryTiles summary={summary} signal={signal} onSelect={setSignal} />
+          <SummaryTiles summary={summary} signal={signal} onSelect={setSignal} unackedUnknown={data.intakeFailed === true} />
 
           <div>
             <button

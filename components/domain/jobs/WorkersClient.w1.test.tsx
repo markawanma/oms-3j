@@ -42,7 +42,8 @@ const ISSUED_AT = "2026-10-20T02:12:00Z";
 const intake = (status: ShopIntakeStatus | null, error: string | null = null) => ({ status, error });
 const rowOf = (name: string) => screen.getByText(name).closest("li") as HTMLElement;
 const qrCard = () => screen.getByRole("region", { name: "QR ร้าน" });
-const RAW = "Zz9-_xYz0123456789AbCdEfGhIjKlMnOpQrStUvWx9";
+const RAW = "Zz9-_xYz0123456789AbCdEfGhIjKlMnOpQrStUvWx9"; // token ดิบ — ต้องไม่เห็นที่ฝั่ง client เลย
+const SVG = "<svg xmlns='http://www.w3.org/2000/svg' data-from='server'></svg>";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -51,7 +52,7 @@ beforeEach(() => {
   window.print = vi.fn();
   a.saveWorker.mockResolvedValue({ ok: true, data: { id: W1, pin: null } });
   a.setWorkerActive.mockResolvedValue({ ok: true, data: null });
-  a.issue.mockResolvedValue({ ok: true, data: { token: RAW, issuedAt: ISSUED_AT, revokedPrevious: 0 } });
+  a.issue.mockResolvedValue({ ok: true, data: { svg: SVG, issuedAt: ISSUED_AT, revokedPrevious: 0, warning: null } });
   a.revoke.mockResolvedValue({ ok: true, data: { revoked: 1 } });
 });
 
@@ -182,9 +183,9 @@ describe("การ์ด QR ร้าน — สภาพ", () => {
     wrap(<WorkersClient data={data()} />);
     expect(screen.queryByRole("region", { name: "QR ร้าน" })).toBeNull();
   });
-  it("empty (ยังไม่เคยออก): ข้อความ + ปุ่มหลัก 'ออก QR ร้าน'", () => {
+  it("empty (ไม่มี QR ที่ใช้งานอยู่): ข้อความ + ปุ่มหลัก 'ออก QR ร้าน'", () => {
     wrap(<WorkersClient data={data()} intake={intake({ active: false, issuedAt: null })} />);
-    expect(qrCard()).toHaveTextContent("ยังไม่มี QR ร้าน — ช่างยังเปิดงานจากมือถือไม่ได้");
+    expect(qrCard()).toHaveTextContent("ยังไม่มี QR ร้านที่ใช้งานอยู่ — ช่างยังเปิดงานจากมือถือไม่ได้");
     expect(within(qrCard()).getByRole("button", { name: "ออก QR ร้าน" })).toBeInTheDocument();
     expect(within(qrCard()).queryByRole("button", { name: "เพิกถอน" })).toBeNull();
   });
@@ -200,7 +201,7 @@ describe("การ์ด QR ร้าน — สภาพ", () => {
     expect(within(c).getByRole("button", { name: "เพิกถอน" })).toBeInTheDocument();
   });
   it("ถูกเพิกถอน: ข้อความ + ปุ่ม ออก QR ร้าน", () => {
-    wrap(<WorkersClient data={data()} intake={intake({ active: false, issuedAt: ISSUED_AT })} />);
+    wrap(<WorkersClient data={data()} intake={intake({ active: false, issuedAt: null, revokedAt: "2026-10-21T01:00:00Z" })} />);
     expect(qrCard()).toHaveTextContent("ถูกเพิกถอน");
     expect(qrCard()).toHaveTextContent("ช่างเปิดงานจากมือถือไม่ได้");
     expect(within(qrCard()).getByRole("button", { name: "ออก QR ร้าน" })).toBeInTheDocument();
@@ -229,9 +230,12 @@ describe("ออก QR ร้าน", () => {
     expect(refresh).toHaveBeenCalled();
   });
 
-  it("QR ในภาพ = ลิงก์ /w/s/<token> ของ origin ปัจจุบัน (เทียบจากโครง SVG ที่ถอดรหัสไม่ได้ จึงตรวจที่ฟังก์ชันสร้างลิงก์)", async () => {
-    const { shopPageUrl } = await import("@/lib/jobs/qr-client");
-    expect(shopPageUrl("https://app.example.test/", RAW)).toBe(`https://app.example.test/w/s/${RAW}`);
+  it("ภาพ QR = SVG ที่ server ส่งมา (ลิงก์ประกอบที่ server จาก APP_ORIGIN) · client ไม่มี token ดิบ", async () => {
+    wrap(<WorkersClient data={data()} intake={intake({ active: false, issuedAt: null })} />);
+    await userEvent.click(within(qrCard()).getByRole("button", { name: "ออก QR ร้าน" }));
+    const dlg = await screen.findByRole("dialog", { name: "QR ร้านใหม่" });
+    expect(within(dlg).getByRole("img", { name: "QR ร้าน" }).querySelector("svg[data-from=server]")).not.toBeNull();
+    await expect(a.issue.mock.results[0].value).resolves.not.toHaveProperty("data.token");
   });
 
   it("ออกใหม่ (มี QR เดิม): ต้องยืนยันก่อน · ยกเลิก = ไม่เรียก DB · ยืนยัน = ออก", async () => {
@@ -266,7 +270,7 @@ describe("ออก QR ร้าน", () => {
     await waitFor(() => expect(btn).toBeDisabled());
     await userEvent.click(btn);
     expect(a.issue).toHaveBeenCalledTimes(1);
-    resolve({ ok: true, data: { token: RAW, issuedAt: ISSUED_AT, revokedPrevious: 1 } });
+    resolve({ ok: true, data: { svg: SVG, issuedAt: ISSUED_AT, revokedPrevious: 1, warning: null } });
     expect(await screen.findByRole("dialog", { name: "QR ร้านใหม่" })).toBeInTheDocument();
   });
 });

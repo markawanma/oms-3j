@@ -2,7 +2,7 @@
 // ต้องถูก: นับวันปฏิทินไทย · rank 1.5 ระหว่างเลยกำหนดกับครบใน 3 วัน · tile นับ = ตัวกรองให้ผลเท่ากัน
 // ต้องไม่พัง: ใบเดิม (ไม่มี intake) ได้ป้าย/ลำดับ/ตัวนับเดิมเป๊ะ
 import { describe, expect, it } from "vitest";
-import { ATTENTION_MAX_RANK, applySignal, attentionCount, compareBySeverity, describeFilters, matchesSignal, primaryStatus, secondaryStatuses, statusSignals, summarize, unackedDays } from "./board";
+import { ATTENTION_MAX_RANK, applySignal, attentionCount, compareBySeverity, describeFilters, isUnackedStale, matchesSignal, primaryStatus, secondaryStatuses, statusSignals, summarize, unackedDays } from "./board";
 import { calendarDaysOpen, isAckStale, STALE_CALENDAR_DAYS } from "./intake-ack";
 import type { BoardIntake, BoardRow } from "./types";
 
@@ -29,6 +29,15 @@ describe("intake-ack (ที่เดียวของกติกาค้า�
     expect(calendarDaysOpen("2026-10-19T18:00:00Z", WED)).toBe(2);
     expect(isAckStale("2026-10-19T18:00:00Z", WED)).toBe(false);
     expect(calendarDaysOpen(null, WED)).toBeNull();
+  });
+});
+
+describe("isUnackedStale (ที่เดียวกับ /production)", () => {
+  it("ใช้ isAckStale เดียวกัน: ครบ 3 วันปฏิทินไทย = ค้าง · รับทราบแล้ว/ไม่มี intake = ไม่", () => {
+    expect(isUnackedStale(row({ intake: intake() }), TUE)).toBe(false);
+    expect(isUnackedStale(row({ intake: intake() }), WED)).toBe(true);
+    expect(isUnackedStale(row({ intake: intake({ ackPending: false }) }), "2026-12-01")).toBe(false);
+    expect(isUnackedStale(row(), "2026-12-01")).toBe(false);
   });
 });
 

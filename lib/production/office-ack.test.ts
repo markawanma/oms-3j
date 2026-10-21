@@ -2,6 +2,7 @@
 // ต้องถูก: เฉพาะใบ shopfloor+open+ยังไม่รับทราบ · ค้างนับวันปฏิทินไทย (ข้ามเที่ยงคืนไทย ไม่ใช่ UTC) · read-back เนื้อทองในข้อความปุ่ม
 // ต้องไม่พัง: ใบ office ไม่มีวันติดด่านรับทราบ · closeBlockers เดิม (ไม่ส่ง opts) เหมือนเดิมเป๊ะ
 import { describe, expect, it } from "vitest";
+import { MSG_ACK_FAIL, MSG_ACK_NOT_OPEN, ackErrorFromHint, cleanAckError } from "./office-ack";
 import { ACK_CARD_ID, STALE_CALENDAR_DAYS, ackButtonLabel, ackPending, ackSummary, calendarDaysOpen, effectivePurityPct, isShopfloor, isStale, metalPurityText, relativeThai } from "./office-ack";
 import { ACK_BLOCKER_MESSAGE, closeBlockers } from "./metal-ui";
 import type { ProductionOrderItemRow } from "./types";
@@ -98,5 +99,24 @@ describe("closeBlockers + ack", () => {
   });
   it("ไม่มีรายการ = ข้อ empty ข้อเดียว (ack ไม่โผล่ซ้อน)", () => {
     expect(closeBlockers([], new Set(), { ackPending: true }).map((x) => x.code)).toEqual(["empty"]);
+  });
+});
+
+describe("ข้อความ error ของปุ่มรับทราบ (ข้อ 6)", () => {
+  it("map hint → ไทยล้วน · ไม่รู้จัก/ไม่ใช่ string = null (ใช้ข้อความกลาง)", () => {
+    expect(ackErrorFromHint("order_not_open")).toBe(MSG_ACK_NOT_OPEN);
+    expect(MSG_ACK_NOT_OPEN).toBe("ใบนี้ไม่ได้เปิดอยู่แล้ว — โหลดหน้าใหม่");
+    expect(ackErrorFromHint("already_acknowledged")).toContain("รับทราบไปแล้ว");
+    expect(ackErrorFromHint("toString")).toBeNull(); // ไม่ไหลไปถึง prototype
+    expect(ackErrorFromHint(undefined)).toBeNull();
+    expect(ackErrorFromHint(42)).toBeNull();
+  });
+  it("ข้อความที่มีคำอังกฤษ ≥ 4 ตัว (cancelled/done) ไม่ผ่าน · ไทยล้วน/เลข PO ผ่าน", () => {
+    expect(cleanAckError("ใบผลิต PO-0034 สถานะ cancelled แล้ว รับทราบไม่ได้")).toBe(MSG_ACK_FAIL);
+    expect(cleanAckError("สถานะ done")).toBe(MSG_ACK_FAIL);
+    expect(cleanAckError("")).toBe(MSG_ACK_FAIL);
+    expect(cleanAckError(null)).toBe(MSG_ACK_FAIL);
+    expect(cleanAckError("ใบนี้ไม่ได้เปิดอยู่แล้ว — โหลดหน้าใหม่")).toBe("ใบนี้ไม่ได้เปิดอยู่แล้ว — โหลดหน้าใหม่");
+    expect(cleanAckError("ใบผลิต PO-0034 รับทราบไปแล้ว")).toBe("ใบผลิต PO-0034 รับทราบไปแล้ว");
   });
 });

@@ -129,6 +129,18 @@ describe("การ์ดรับทราบ (ก่อนรับทรา�
     expect(refresh).toHaveBeenCalled();
   });
 
+  it("ข้อ 6: ใบถูกยกเลิกระหว่างเปิดหน้า → 'ใบนี้ไม่ได้เปิดอยู่แล้ว — โหลดหน้าใหม่' · ข้อความ DB ที่มีคำอังกฤษไม่ถึงจอ", async () => {
+    ack.mockResolvedValue({ ok: false, error: "ใบผลิต PO-0040 สถานะ cancelled แล้ว รับทราบไม่ได้" });
+    renderPage([row({ metalMismatch: false })]);
+    await userEvent.click(within(card()).getByRole("button", { name: /^รับทราบ/ }));
+    const a = await within(card()).findByRole("alert");
+    expect(a).not.toHaveTextContent(/cancelled/);
+    expect(a).toHaveTextContent("รับทราบไม่สำเร็จ — ลองอีกครั้ง");
+    ack.mockResolvedValue({ ok: false, error: "ใบนี้ไม่ได้เปิดอยู่แล้ว — โหลดหน้าใหม่" });
+    await userEvent.click(within(card()).getByRole("button", { name: /^รับทราบ/ }));
+    await waitFor(() => expect(within(card()).getByRole("alert")).toHaveTextContent("ใบนี้ไม่ได้เปิดอยู่แล้ว — โหลดหน้าใหม่"));
+  });
+
   it("เครือข่ายล้ม (throw) → 'รับทราบไม่สำเร็จ — ลองอีกครั้ง' · ปุ่มกลับมากดได้", async () => {
     ack.mockRejectedValue(new Error("net"));
     renderPage([row({ metalMismatch: false })]);

@@ -40,6 +40,8 @@ export interface BoardData {
   stages: StageDef[];
   truncated: boolean;
   workers: Pick<WorkerRow, "id" | "displayName">[];
+  /** W1: อ่านสถานะ "จากหน้างาน/รอรับทราบ" ไม่สำเร็จ — tile "รอรับทราบ" ต้องขึ้น "—" ไม่ใช่ 0 (ไม่มี key = อ่านได้/ไม่ต้องอ่าน) */
+  intakeFailed?: boolean;
 }
 
 /** บอร์ด: ใบงานที่ยังไม่ปิด (open/in_progress/on_hold) + ทะเบียนขั้น (คอลัมน์) + ช่าง (ตัวกรอง) */
@@ -69,9 +71,11 @@ export async function getJobBoard(): Promise<JobResult<BoardData>> {
     }
     // W1 (0187): ใบงานที่ใบผลิตต้นทางเปิดจากหน้างาน → ป้าย "จากหน้างาน/รอรับทราบ" (อ่านไม่ได้ = บอร์ดแสดงแบบเดิม ไม่พังทั้งหน้า)
     const poRefs = mapped.filter((r) => r.sourceKind === "production" && r.sourceRef).map((r) => r.sourceRef as string);
+    let intakeFailed = false;
     if (poRefs.length > 0) {
       const intake = await loadBoardIntake(poRefs);
-      if (intake.size > 0) mapped = mapped.map((r) => (r.sourceKind === "production" && r.sourceRef && intake.has(r.sourceRef) ? { ...r, intake: intake.get(r.sourceRef) } : r));
+      intakeFailed = intake.failed;
+      if (intake.map.size > 0) mapped = mapped.map((r) => (r.sourceKind === "production" && r.sourceRef && intake.map.has(r.sourceRef) ? { ...r, intake: intake.map.get(r.sourceRef) } : r));
     }
     return {
       ok: true,
@@ -81,6 +85,7 @@ export async function getJobBoard(): Promise<JobResult<BoardData>> {
         // 0184: ทะเบียนทุกแถว (รวมเลิกใช้) → visibleBoardStages เก็บขั้นเลิกใช้เฉพาะที่ยังมีใบอยู่ (ใบเก่าที่ค้างขั้น polish ต้องไม่ตกคอลัมน์ "ยังไม่เริ่ม")
         stages: visibleBoardStages(rows(defs.data).map(mapStageDef).filter((s): s is StageDef => s !== null), mapped),
         truncated: rows(board.data).length >= BOARD_LIMIT,
+        ...(intakeFailed ? { intakeFailed: true } : {}),
         workers: rows(workers.data).flatMap((w) => (typeof w.id === "string" && typeof w.display_name === "string" ? [{ id: w.id, displayName: w.display_name }] : [])),
       },
     };

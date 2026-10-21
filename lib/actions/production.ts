@@ -74,6 +74,7 @@ import {
 } from "@/lib/production/types";
 import { fetchAllRows } from "@/lib/supabase/query-limits";
 import { readErrorCode, readErrorMessage, redactUrls } from "@/lib/supabase/postgrest-error";
+import { ackErrorFromHint, cleanAckError } from "@/lib/production/office-ack";
 
 const SCHEMA = "analytics";
 
@@ -1018,7 +1019,9 @@ export async function acknowledgeProductionOrder(input: { productionOrderId: str
     };
   } catch (err) {
     logRpcFailure("acknowledgeProductionOrder", err);
-    return { ok: false, error: humanizeProductionError(err, "รับทราบใบผลิตไม่สำเร็จ ลองใหม่อีกครั้ง") };
+    // map จาก hint ของ RPC (ไทยล้วน) ก่อน — ข้อความ DB ของ order_not_open มีคำอังกฤษของ status ("สถานะ cancelled แล้ว")
+    const hint = typeof err === "object" && err !== null ? (err as { hint?: unknown }).hint : undefined;
+    return { ok: false, error: ackErrorFromHint(hint) ?? cleanAckError(humanizeProductionError(err, "รับทราบใบผลิตไม่สำเร็จ ลองใหม่อีกครั้ง")) };
   }
 }
 

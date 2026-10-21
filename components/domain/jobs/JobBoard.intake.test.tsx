@@ -26,7 +26,7 @@ const row = (o: Partial<BoardRow> = {}): BoardRow => {
   };
 };
 const intake = (o: Partial<BoardIntake> = {}): BoardIntake => ({ ackPending: true, openedAt: "2026-10-21T02:00:00Z", metalMismatch: false, ...o });
-const board = (rows: BoardRow[]): BoardData => ({ todayTh: TODAY, rows, stages: STAGES, truncated: false, workers: [] });
+const board = (rows: BoardRow[], extra: Partial<BoardData> = {}): BoardData => ({ todayTh: TODAY, rows, stages: STAGES, truncated: false, workers: [], ...extra });
 
 beforeEach(() => {
   n = 0;
@@ -68,6 +68,25 @@ describe("tile 'รอรับทราบ'", () => {
     render(<JobBoard initial={board([row(), row()])} />);
     expect(tileN(/รอรับทราบ/)).toBe(0);
     expect(tile(/รอรับทราบ/)).toBeDisabled();
+  });
+});
+
+describe("ข้อ 4: อ่านสถานะรับทราบล้ม → tile ขึ้น '—' ไม่ใช่ 0", () => {
+  it("intakeFailed → ตัวเลข '—' + title/ข้อความ 'อ่านสถานะรับทราบไม่ได้' · กดไม่ได้ (ไม่มีตัวเลขให้กรอง) · tile อื่นยังนับปกติ", () => {
+    render(<JobBoard initial={board([row(), row()], { intakeFailed: true })} />);
+    const t = tile(/รอรับทราบ/);
+    expect(t).toHaveTextContent("—");
+    expect(t).not.toHaveTextContent(/\b0\b/);
+    expect(t).toHaveAttribute("title", "อ่านสถานะรับทราบไม่ได้");
+    expect(t).toHaveTextContent("อ่านสถานะรับทราบไม่ได้");
+    expect(t).toBeDisabled();
+    expect(t.className).not.toMatch(/amber|red/);
+    expect(tileN(/ใบงานที่เปิดอยู่/)).toBe(2);
+  });
+  it("อ่านได้ปกติ (ไม่มี key) แต่ไม่มีใบรอรับทราบ → ยังเป็น 0 จริง (แยกจากอ่านล้ม)", () => {
+    render(<JobBoard initial={board([row(), row()])} />);
+    expect(tile(/รอรับทราบ/)).toHaveTextContent("0");
+    expect(tile(/รอรับทราบ/)).not.toHaveAttribute("title");
   });
 });
 

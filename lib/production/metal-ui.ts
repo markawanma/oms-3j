@@ -6,8 +6,8 @@
 //    ที่ที่ฟอร์มรู้ "ค่าเริ่มต่อโลหะ" (เงิน 92.50 · ทองเหลือง 100.00 · ทองว่าง) คือกติการ้านเดียวกับหน้า OEM (OEM_DEFAULT_PURITY) ไม่ใช่สูตรใหม่
 
 import type { ProductionCostType, ProductionMetal, ProductionOrderItemRow, ProductionWeightSource, SetProductionOrderItemInput } from "./types";
-import { PRODUCTION_METAL_LABEL_TH, PRODUCTION_WEIGHT_MAX_G, productionItemInputIssue } from "./types";
-import { OEM_DEFAULT_PURITY } from "@/lib/oem/quoteForm";
+import { PRODUCTION_WEIGHT_MAX_G, productionItemInputIssue } from "./types";
+import { DEFAULT_PURITY_PCT, METAL_TAG, MSG_METAL_RESET_PURITY, MSG_WEIGHT_CLEARED_FROM_SKU } from "@/lib/units/metal-tag";
 import { purityFractionToPct, purityPctIssue, purityPctToFraction } from "@/lib/units/purity";
 
 // ============================================================================
@@ -15,11 +15,8 @@ import { purityFractionToPct, purityPctIssue, purityPctToFraction } from "@/lib/
 // ใช้ชื่อสั้น (เงิน/ทอง/ทองเหลือง) ไม่ใช่ "เงิน 925" — เงินแท่งเนื้อ 99.90% จะผิดทันที · เนื้อ % อยู่ช่องแยกเสมอ
 // ============================================================================
 
-export const METAL_TAG: Record<ProductionMetal, { label: string; glyph: string; className: string }> = {
-  silver: { label: PRODUCTION_METAL_LABEL_TH.silver, glyph: "◇", className: "bg-slate-200 text-slate-900 border border-slate-500" },
-  gold: { label: PRODUCTION_METAL_LABEL_TH.gold, glyph: "◆", className: "bg-yellow-300 text-yellow-950 border border-yellow-600" },
-  brass: { label: PRODUCTION_METAL_LABEL_TH.brass, glyph: "▲", className: "bg-orange-300 text-orange-950 border border-orange-600" },
-};
+// ค่าอยู่ใน leaf module lib/units/metal-tag.ts (ไม่มี import — จอผู้จัดการบนมือถือ import ตรงโดยไม่ลาก lib/production/lib/oem) · ที่นี่ re-export (เทสต์ล็อกว่าชื่อตรง PRODUCTION_METAL_LABEL_TH)
+export { METAL_TAG, MSG_METAL_RESET_PURITY, MSG_WEIGHT_CLEARED_FROM_SKU };
 
 // ============================================================================
 // ค่าเริ่ม + ข้อความ
@@ -27,15 +24,13 @@ export const METAL_TAG: Record<ProductionMetal, { label: string; glyph: string; 
 
 /** ค่าเริ่มของช่อง "ความบริสุทธิ์ (%)" ต่อโลหะ — เงิน 92.50 · ทองเหลือง 100.00 · ทอง "" (บังคับกรอก) · ตรงกับ OEM_DEFAULT_PURITY ทุกตัว */
 export function defaultPurityText(metal: ProductionMetal): string {
-  return OEM_DEFAULT_PURITY[metal];
+  return DEFAULT_PURITY_PCT[metal];
 }
 
 export const MSG_GOLD_PURITY_REQUIRED = "ทองต้องกรอกเนื้อทอง (%) — ขั้นต่ำ 37.50%";
 export const MSG_WEIGHT_INVALID = "น้ำหนักต้องมากกว่า 0 และไม่เกิน 10,000 กรัม (ทศนิยมไม่เกิน 3 ตำแหน่ง)";
 export const MSG_QTY_INVALID = "จำนวนที่วางแผนผลิตต้องเป็นจำนวนเต็ม 1-100000";
 export const MSG_LABEL_REQUIRED = "กรอกชื่อแบบ";
-export const MSG_METAL_RESET_PURITY = "เนื้อรีเซ็ตตามโลหะใหม่";
-export const MSG_WEIGHT_CLEARED_FROM_SKU = "ล้างน้ำหนักจากสินค้าแล้ว (ใช้กับเงินเท่านั้น)";
 
 /**
  * ตัวเลือก "ไม่มี SKU — ใส่ชื่อแบบ" ในฟอร์มเพิ่มรายการฝั่งออฟฟิศ — เปิดแล้ว (W1 UI): การ์ดรายการไม่มี SKU มีปุ่ม "ผูก SKU" (bindProductionItemProduct · production_order_item_bind_product)

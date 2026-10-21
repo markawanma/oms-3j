@@ -3,7 +3,7 @@
 // ที่นี่คำนวณเฉพาะ "ครบกำหนดใน 3 วัน" (ข้อมูลประกอบ จากวันที่ไทยของ server) และจัดกลุ่ม
 
 import { addDays, daysBetween } from "@/lib/jobs/dates";
-import { STALE_CALENDAR_DAYS, calendarDaysOpen } from "@/lib/jobs/intake-ack";
+import { calendarDaysOpen, isAckStale } from "@/lib/jobs/intake-ack";
 import { GOLD_GAP_TOLERANCE_G } from "@/lib/jobs/lots";
 import { retiredStageLabel } from "@/lib/jobs/types";
 import type { BoardRow, StageDef } from "@/lib/jobs/types";
@@ -96,7 +96,7 @@ export function summarize(rows: readonly BoardRow[], todayTh: string): BoardSumm
     stale: rows.filter((r) => matchesSignal(r, "stale", todayTh)).length,
     depositMissing: rows.filter((r) => r.depositMissing).length,
     unacked: rows.filter((r) => matchesSignal(r, "unacked", todayTh)).length,
-    unackedStale: rows.filter((r) => (unackedDays(r, todayTh) ?? 0) >= STALE_CALENDAR_DAYS).length,
+    unackedStale: rows.filter((r) => isUnackedStale(r, todayTh)).length,
   };
 }
 
@@ -164,6 +164,11 @@ export function holderOptions(rows: readonly BoardRow[]): string[] {
 /** ตัวกรองจาก tile (ทำงานต่อจาก dropdown) */
 export type Signal = "overdue" | "dueSoon" | "stale" | "unacked";
 
+/** W1: ค้างรับทราบครบกำหนดเตือน (ที่เดียว = isAckStale ของ intake-ack.ts — ใช้ร่วมกับ /production) · ไม่ใช่ใบรอรับทราบ = false */
+export function isUnackedStale(r: BoardRow, todayTh: string): boolean {
+  return r.intake?.ackPending === true && isAckStale(r.intake.openedAt, todayTh);
+}
+
 /** W1: ใบงานจากหน้างานที่ยังไม่รับทราบ → ค้างกี่วันปฏิทินไทย (วันเปิด = 1) · ไม่ใช่ใบรอรับทราบ = null */
 export function unackedDays(r: BoardRow, todayTh: string): number | null {
   if (!r.intake?.ackPending) return null;
@@ -215,7 +220,7 @@ export function statusSignals(r: BoardRow, todayTh: string): StatusSignal[] {
   // W1: ใบจากหน้างานที่ยังไม่รับทราบ — ต้องดู (rank 1.5 ระหว่างเลยกำหนดกับครบใน 3 วัน · แดงเมื่อค้างครบกำหนดเตือน)
   const ackDays = unackedDays(r, todayTh);
   if (r.intake?.ackPending) {
-    const stale = (ackDays ?? 0) >= STALE_CALENDAR_DAYS;
+    const stale = isUnackedStale(r, todayTh);
     out.push({ key: "unacked", rank: 1.5, label: stale ? `รอรับทราบ ค้าง ${ackDays} วัน` : "รอรับทราบ", tone: stale ? "red" : "amber" });
   }
   if (isDueSoon(r, todayTh)) {

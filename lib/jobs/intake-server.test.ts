@@ -25,8 +25,8 @@ beforeEach(() => {
 
 describe("loadBoardIntake", () => {
   it("ไม่มี po → ไม่ query เลย", async () => {
-    expect((await loadBoardIntake([])).size).toBe(0);
-    expect((await loadBoardIntake(["", ""])).size).toBe(0);
+    expect(await loadBoardIntake([])).toEqual({ map: new Map(), failed: false });
+    expect((await loadBoardIntake(["", ""])).failed).toBe(false);
     expect(calls).toHaveLength(0);
   });
 
@@ -40,7 +40,8 @@ describe("loadBoardIntake", () => {
       error: null,
     };
     results.v_production_order_item = { data: [{ production_order_id: "o1", metal_mismatch: true }], error: null };
-    const m = await loadBoardIntake(["PO-1", "PO-2", "PO-3", "PO-1"]);
+    const { map: m, failed } = await loadBoardIntake(["PO-1", "PO-2", "PO-3", "PO-1"]);
+    expect(failed).toBe(false);
     expect(m.get("PO-1")).toEqual({ ackPending: true, openedAt: "2026-10-19T02:00:00Z", metalMismatch: true });
     expect(m.get("PO-2")).toEqual({ ackPending: false, openedAt: "2026-10-19T02:00:00Z", metalMismatch: false });
     expect(m.get("PO-3")).toMatchObject({ ackPending: false });
@@ -55,24 +56,27 @@ describe("loadBoardIntake", () => {
 
   it("ไม่มีใบจากหน้างานเลย → ไม่ query รายการ (ไม่เสียรอบ)", async () => {
     results.v_production_order = { data: [], error: null };
-    expect((await loadBoardIntake(["PO-9"])).size).toBe(0);
+    const r = await loadBoardIntake(["PO-9"]);
+    expect(r.map.size).toBe(0);
+    expect(r.failed).toBe(false); // อ่านได้ ไม่มีใบจากหน้างานจริงๆ = ไม่ใช่ล้ม
     expect(calls.some((c) => c.table === "v_production_order_item")).toBe(false);
   });
 
   it("ผลไม่ตรงรูป (ไม่มี po_no/id) ถูกข้ามเงียบ", async () => {
     results.v_production_order = { data: [{ id: 5, po_no: "PO-1" }, { id: "o9" }, null], error: null };
-    expect((await loadBoardIntake(["PO-1"])).size).toBe(0);
+    expect((await loadBoardIntake(["PO-1"])).map.size).toBe(0);
   });
 
   it("อ่านล้ม (error จาก DB) → map ว่าง ไม่ throw (บอร์ดแสดงแบบเดิม)", async () => {
     results.v_production_order = { data: null, error: { code: "42501", message: "denied" } };
-    await expect(loadBoardIntake(["PO-1"])).resolves.toEqual(new Map());
+    // failed = true (ไม่ใช่แค่ map ว่าง) — ให้ tile "รอรับทราบ" ขึ้น "—" ไม่ใช่ 0
+    await expect(loadBoardIntake(["PO-1"])).resolves.toEqual({ map: new Map(), failed: true });
   });
 
   it("รายการล้มหลังใบผลิตสำเร็จ → ทั้งก้อนเป็น map ว่าง (ไม่โชว์ข้อมูลครึ่งเดียว)", async () => {
     results.v_production_order = { data: [{ id: "o1", po_no: "PO-1", status: "open", opened_via: "shopfloor", acknowledged_at: null, created_at: "x" }], error: null };
     results.v_production_order_item = { data: null, error: { code: "XX", message: "boom" } };
-    expect((await loadBoardIntake(["PO-1"])).size).toBe(0);
+    expect(await loadBoardIntake(["PO-1"])).toEqual({ map: new Map(), failed: true });
   });
 
   it("po เกิน 100 → แบ่ง chunk (ไม่ทะลุเพดาน URL)", async () => {
