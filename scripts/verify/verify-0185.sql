@@ -1,5 +1,7 @@
 -- scripts/verify/verify-0185.sql
 -- ตรวจ supabase/migrations/0185_worker_pin_relax.sql (ผ่อนกฎ PIN ช่าง: ตัวเลข 4 หลักอย่างเดียว · เจ้าของ 20 ต.ค. 69)
+-- ⚠ PARTIALLY SUPERSEDED โดย 0187 (21 ต.ค. 69): P7a ล็อก md5 ของ worker_pin_verify (bf7bdec6…) และ worker_upsert (0329dd31…) — หลัง apply 0187 สองตัวนี้ถูก replace (worker_pin_verify ตัดเนื้อเข้า worker_pin_verify_core ใช้ร่วมกับ QR ร้าน ·
+--   worker_upsert รับ p_can_open_job/p_can_external) ⇒ P7a ตกเป็นเรื่องปกติ ไม่ใช่บั๊ก · นโยบายล็อก 5/10/15 ยังเท่าเดิม — verify-0187 P4a/P4b ยิงบันไดซ้ำทั้งสองทาง (QR ร้าน vs QR ใบงาน ลำดับผลต้องเท่ากันเป๊ะ) แทนการล็อก md5
 -- self-rolling-back (3j-migration-traps ข้อ 11) · ผลออกทาง error message · [FAIL] >= 1 = ไม่ผ่าน
 -- ทดสอบผ่าน RPC ของระบบ (worker_upsert / worker_pin_set / worker_pin_verify) · ข้อยกเว้นที่บอกตรงๆ (ในทรานแซกชันที่ถอยกลับ):
 --   · ใบเสนอราคา OEM = โคลนจากรายการจริงด้วย INSERT (แบบเดียวกับ verify-0172..0184) เพื่อได้ใบงาน/QR ให้ช่าง login · P4 ตั้งสถานะล็อกช่างด้วย UPDATE ตรง (จำลองช่างโดนล็อก)

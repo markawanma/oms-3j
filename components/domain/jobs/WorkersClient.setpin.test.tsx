@@ -28,7 +28,7 @@ import type { WorkerRow } from "@/lib/jobs/types";
 const wrap = (ui: ReactElement) => render(<ToastProvider>{ui}</ToastProvider>);
 const W1 = "11111111-1111-4111-8111-111111111111";
 const worker = (o: Partial<WorkerRow> & { id: string; displayName: string }): WorkerRow => ({
-  stageCodes: ["finish"], isActive: true, lockedUntil: null, createdAt: null, lockState: "none", failedAttempts: 0, pinWarning: false, ...o,
+  stageCodes: ["finish"], isActive: true, lockedUntil: null, createdAt: null, lockState: "none", failedAttempts: 0, pinWarning: false, canOpenJob: false, canExternal: false, ...o,
 });
 const data = (): WorkersData => ({ workers: [worker({ id: W1, displayName: "ช่างเอ" })], stages: [{ code: "finish", nameTh: "แต่ง" }, { code: "buff", nameTh: "ขัด" }], retiredStages: [] });
 const row = () => screen.getByText("ช่างเอ").closest("li") as HTMLElement;

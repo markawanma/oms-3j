@@ -67,6 +67,10 @@ export const EVENT_TYPE_LABEL: Record<string, string> = {
   discrepancy_resolve: "ชี้แจงส่วนต่าง",
   // 0183: ส่วนต่างทางที่ 3 "ได้รับเพิ่มแล้ว" (ของนับผิด/ส่งตามมาทีหลัง → ส่วนใหม่)
   discrepancy_arrive: "ได้รับเพิ่มแล้ว (ส่วนต่าง)",
+  // 0187 W1: ผู้จัดการเปิดงานจากมือถือ · ออฟฟิศรับทราบ · แก้ข้อมูลของใบ (ผูก SKU) — ป้ายไม่มีตัวเลข/เงิน
+  intake_open: "ผู้จัดการเปิดงานจากมือถือ",
+  ack: "ออฟฟิศรับทราบ",
+  edit: "แก้ข้อมูลใบงาน",
 };
 
 export const CHANNEL_LABEL: Record<string, string> = {
@@ -506,6 +510,10 @@ export interface WorkerRow {
   failedAttempts: number;
   /** 0174 v_worker_lock.pin_warning: ผิด >= 3 ครั้งในหน้าต่าง 24 ชม. (ตัวนับไม่ล้างเมื่อ login สำเร็จแล้ว) */
   pinWarning: boolean;
+  /** 0187: ผู้จัดการ — เปิดใบผลิต/ใบงานจากมือถือ (QR ร้าน + PIN) ได้ · ยังต้องมีขั้นที่ทำอย่างน้อย 1 (stages_required) */
+  canOpenJob: boolean;
+  /** 0181/0187: ผู้ดูแลงานนอกร้าน (ชี้แจงส่วนต่างของงานส่งออก) — ตั้งผ่าน worker_upsert */
+  canExternal: boolean;
 }
 
 export const WORKER_LOCK_COLUMNS = "worker_id, lock_state, failed_attempts, in_window, pin_warning";
@@ -517,7 +525,8 @@ export function mapLockRow(r: Record<string, unknown>): { workerId: string; lock
   return { workerId: id, lockState: st, failedAttempts: r.in_window === true ? (num(r.failed_attempts) ?? 0) : 0, pinWarning: r.pin_warning === true };
 }
 
-export const WORKER_COLUMNS = "id, display_name, stage_codes, is_active, locked_until, created_at";
+// 0187: can_open_job/can_external — ต้อง apply 0187 ก่อน deploy โค้ดนี้ (DB เดียว ไม่มี dev/prod แยก — select คอลัมน์ที่ยังไม่มีจะทำให้หน้าทะเบียนช่าง/สร้างใบงานล้ม)
+export const WORKER_COLUMNS = "id, display_name, stage_codes, is_active, locked_until, created_at, can_open_job, can_external";
 
 export function mapWorkerRow(r: Record<string, unknown>, lock?: { lockState: LockState; failedAttempts: number; pinWarning: boolean }): WorkerRow | null {
   const id = str(r.id);
@@ -533,6 +542,8 @@ export function mapWorkerRow(r: Record<string, unknown>, lock?: { lockState: Loc
     lockState: lock?.lockState ?? "none",
     failedAttempts: lock?.failedAttempts ?? 0,
     pinWarning: lock?.pinWarning ?? false,
+    canOpenJob: r.can_open_job === true,
+    canExternal: r.can_external === true,
   };
 }
 

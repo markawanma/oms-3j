@@ -39,12 +39,54 @@ describe("isExemptPath — /w ที่ห้ามหลุด gate (traversal 
   });
 });
 
+// 0187 W1 — QR ร้าน /w/s/<token>: exempt "เฉพาะ w/s/ + หนึ่งเซกเมนต์ base64url" (ผู้จัดการเปิดใบโดยไม่ login · พิสูจน์ตัวที่ DB ด้วย token ร้าน + PIN)
+describe("isExemptPath — /w/s/<token> (QR ร้าน) ต้อง exempt", () => {
+  it.each([`/w/s/${TOKEN}`, `/w/s/${TOKEN}/`, "/w/s/abc", "/w/s/A", "/w/s/a-b_c-D"])("%s", (p) => {
+    expect(isExemptPath(p)).toBe(true);
+  });
+});
+
+describe("isExemptPath — /w/s ที่ห้ามหลุด gate (traversal · look-alike · เซกเมนต์ซ้อน)", () => {
+  it.each([
+    ["/w/s//", "slash ซ้อน"],
+    [`/w/s/${TOKEN}/x`, "เซกเมนต์ซ้อนหลัง token (ไม่มีหน้าในแอปที่ต้อง exempt)"],
+    [`/w/s/${TOKEN}/jobs`, "ต่อท้ายหลัง token"],
+    ["/w/s/../oem", "traversal"],
+    ["/w/s/../../oem/quotes", "traversal ลึก"],
+    ["/w/s/%2e%2e/oem", "traversal แบบเข้ารหัส"],
+    ["/w/s/%2E%2E/jobs", "traversal แบบเข้ารหัสตัวใหญ่"],
+    ["/w/s/./jobs", "จุดเดียว"],
+    ["/w/s/abc%2Fdef", "slash เข้ารหัส"],
+    ["/w/s/abc def", "ช่องว่าง"],
+    ["/w/s/abc?x=1", "query ติดอยู่ในพาธ"],
+    ["/w/sx/abc", "look-alike: s ไม่ใช่ตัวเดียวเป๊ะ"],
+    ["/w/ss/abc", "look-alike: ss"],
+    ["/w/S/abc", "ตัวพิมพ์ใหญ่ (ไม่ใช่ /w/s/)"],
+    ["/jobs/w/s/abc", "ซ้อนใต้หน้าอื่น"],
+    ["/oem/w/s/abc", "ซ้อนใต้หน้าอื่น"],
+    ["/x/w/s/abc", "ซ้อนใต้หน้าอื่น"],
+    ["/w/s/abc/def/ghi", "เซกเมนต์ซ้อนหลายชั้น"],
+  ])("%s (%s)", (p) => {
+    expect(isExemptPath(p)).toBe(false);
+  });
+  it("/w/s (ไม่มี token) = ตรง alternative เดิม w/<token> (token ชื่อ 's') — พฤติกรรมเดิมไม่เปลี่ยน · หน้าช่างแสดง 'ใช้ไม่ได้'", () => {
+    expect(isExemptPath("/w/s")).toBe(true);
+    expect(isExemptPath("/w/s/")).toBe(true);
+  });
+});
+
 describe("middleware.ts matcher ตรงกับ exempt-path.ts (ไม่ drift)", () => {
   const mw = readFileSync(join(process.cwd(), "middleware.ts"), "utf8");
   const ex = readFileSync(join(process.cwd(), "lib/auth/exempt-path.ts"), "utf8");
   it("ทั้งสองไฟล์มี alternative ของ /w/ ตัวเดียวกัน", () => {
     expect(mw).toContain("w/[A-Za-z0-9_-]+/?$");
     expect(ex).toContain("w\\/[A-Za-z0-9_-]+\\/?$");
+  });
+  it("ทั้งสองไฟล์มี alternative ของ /w/s/ (QR ร้าน) ตัวเดียวกัน — แคบ: ต้องไม่มี wildcard/subtree", () => {
+    expect(mw).toContain("w/s/[A-Za-z0-9_-]+/?$");
+    expect(ex).toContain("w\\/s\\/[A-Za-z0-9_-]+\\/?$");
+    expect(mw).not.toMatch(/w\/s(?:\/|\(\?:)[^|]*\.\*/);
+    expect(mw).not.toContain("w/s(?:/|$)");
   });
   it("ไม่มีปีกกา {n,m} ใน matcher (path-to-regexp ตีความผิดได้)", () => {
     const m = /matcher:\s*\[\s*"([^"]+)"/.exec(mw)!;

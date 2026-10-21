@@ -859,8 +859,10 @@ begin
   -- J4 N1: น้ำหนักงานทองไม่โชว์ช่าง — ฝั่งช่าง (job_worker_*) ต้องไม่อ้าง target_piece_g เลย (กฎเดิม · ทดสอบว่า 0186 ไม่ทำให้รั่ว)
   select count(*) into v_n from pg_proc p where p.pronamespace = 'analytics'::regnamespace and p.proname like 'job\_worker%' and p.prosrc ilike '%target_piece_g%';
   v := v || pg_temp.chk('J4a', 'N1: ไม่มีฟังก์ชัน job_worker_* ที่อ้าง target_piece_g (น้ำหนักเป้าของทอง ไม่ไหลไปจอช่าง) — พบ ' || v_n || ' ตัว', v_n = 0);
-  select count(*) into v_n from pg_proc p where p.pronamespace = 'analytics'::regnamespace and p.proname like 'job\_worker%' and p.prosrc ilike '%production_order_item%' and p.prosrc ilike '%weight_g%';
-  v := v || pg_temp.chk('J4b', 'N1: ฟังก์ชัน job_worker_* ไม่อ่านน้ำหนักจากรายการใบผลิต (weight_g) — พบ ' || v_n || ' ตัว', v_n = 0);
+  -- 0187 (QA J4b): job_worker_open รับ p_weight_g จากผู้จัดการแล้วส่งเข้า production_order_item_set (เขียนลงรายการ — ไม่ใช่การอ่านน้ำหนักมาโชว์ช่าง) จึงยกเว้นตัวเดียวนี้ ·
+  -- N1 ของ job_worker_open พิสูจน์ด้วยเทสต์พฤติกรรมแทนการ grep ซอร์ส: verify-0187-qa (QA-D1–D8: ผลลัพธ์/หน้าช่างของใบทองไม่มีน้ำหนัก 7.771 ในทุก RPC ฝั่งช่าง) + verify-0187 OK3b/OK3c
+  select count(*) into v_n from pg_proc p where p.pronamespace = 'analytics'::regnamespace and p.proname like 'job\_worker%' and p.proname <> 'job_worker_open' and p.prosrc ilike '%production_order_item%' and p.prosrc ilike '%weight_g%';
+  v := v || pg_temp.chk('J4b', 'N1: ฟังก์ชัน job_worker_* (ยกเว้น job_worker_open — เขียนไม่ใช่อ่าน · ดู verify-0187-qa D1–D8) ไม่อ่านน้ำหนักจากรายการใบผลิต (weight_g) — พบ ' || v_n || ' ตัว', v_n = 0);
   return v;
 end;
 $c$;

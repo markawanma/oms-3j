@@ -43,8 +43,10 @@ import type {
   DoneItemInput,
   DoneProductionOrderInput,
   ProductionCostType,
+  ProductionItemBindResult,
   ProductionItemPrefill,
   ProductionMetal,
+  ProductionOrderAckResult,
   ProductionOrderCancelResult,
   ProductionOrderDoneResult,
   ProductionOrderItemRow,
@@ -71,6 +73,7 @@ import {
   productionItemInputIssue,
 } from "@/lib/production/types";
 import { fetchAllRows } from "@/lib/supabase/query-limits";
+import { readErrorCode, readErrorMessage, redactUrls } from "@/lib/supabase/postgrest-error";
 
 const SCHEMA = "analytics";
 
@@ -120,6 +123,11 @@ async function getActorId(): Promise<string | null> {
   }
 }
 
+/** log เฉพาะ code + message ที่ลบ URL แล้ว (บทเรียน supabase-error-logging-trap: ห้าม log error ทั้งก้อน — มี PII/URL) */
+function logRpcFailure(label: string, err: unknown): void {
+  console.error(`${label} failed`, { code: readErrorCode(err), message: redactUrls(readErrorMessage(err)) });
+}
+
 function revalidateProduction(id?: string) {
   revalidatePath("/production");
   if (id) revalidatePath(`/production/${id}`);
@@ -148,7 +156,8 @@ export async function getProductionOrders(): Promise<ActionResult<GetProductionO
         .schema(SCHEMA)
         .from("v_production_order")
         .select(
-          "id, po_no, status, note, spot_override_thb_per_gram, done_at, cancelled_at, cancel_reason, created_at, updated_at, item_count, qty_planned_total, qty_done_total",
+          // 0187: ต่อท้าย opened_via/opened_by_worker_name/acknowledged_at (ต้อง apply 0187 ก่อน deploy — DB เดียว)
+          "id, po_no, status, note, spot_override_thb_per_gram, done_at, cancelled_at, cancel_reason, created_at, updated_at, item_count, qty_planned_total, qty_done_total, opened_via, opened_by_worker_name, acknowledged_at, unbound_item_count",
           { count: "exact" }
         )
         .eq("shop_id", shopId)
@@ -172,6 +181,10 @@ export async function getProductionOrders(): Promise<ActionResult<GetProductionO
         item_count: number;
         qty_planned_total: number;
         qty_done_total: number;
+        opened_via: string | null;
+        opened_by_worker_name: string | null;
+        acknowledged_at: string | null;
+        unbound_item_count: number | null;
       }[]
     ).map((r) => ({
       id: r.id,
@@ -187,38 +200,12 @@ export async function getProductionOrders(): Promise<ActionResult<GetProductionO
       itemCount: Number(r.item_count) || 0,
       qtyPlannedTotal: Number(r.qty_planned_total) || 0,
       qtyDoneTotal: Number(r.qty_done_total) || 0,
-      unboundItemCount: 0,
+      // 0187: จำนวนรายการที่ยังไม่ผูก SKU มาจาก v_production_order ที่เดียว (นับที่ DB — ไม่นับเองฝั่ง TS อีก)
+      unboundItemCount: Number(r.unbound_item_count) || 0,
+      openedVia: r.opened_via === "shopfloor" ? "shopfloor" : "office",
+      openedByWorkerName: r.opened_by_worker_name ?? null,
+      acknowledgedAt: r.acknowledged_at ?? null,
     }));
-
-    // PM-B: จำนวนรายการที่ยังไม่ผูก SKU ต่อใบ (ป้าย "ยังไม่ผูก SKU n" บนรายการ) — v_production_order ไม่มีคอลัมน์นี้ (0186 ไม่ได้ขยาย view)
-    // อ่านตรงจากตารางรายการ (service_role มี select อยู่แล้ว — แพทเทิร์นเดียวกับ getProductionOrder) · อ่านไม่ได้ = ไม่มีป้าย ไม่ล้มทั้งหน้า
-    // เฉพาะใบ open ที่อยู่ในรายการนี้ (done/cancelled ไม่มีอะไรให้จัดการ) · แบ่ง .in() ทีละ 100 id (กัน URL ยาวเกิน) · แต่ละก้อนอ่านผ่าน fetchAllRows
-    // (PostgREST ตัดที่ 1,000 แถวเงียบๆ — บทเรียน 27 ส.ค.) ORDER BY id เป็นคีย์ unique กันแถวซ้ำ/หายระหว่างหน้า
-    try {
-      const openIds = rows.filter((r) => r.status === "open").map((r) => r.id);
-      const counts = new Map<string, number>();
-      for (let i = 0; i < openIds.length; i += 100) {
-        const chunk = openIds.slice(i, i + 100);
-        const res = await fetchAllRows((pageFrom, pageTo) =>
-          supabase
-            .schema(SCHEMA)
-            .from("production_order_item")
-            .select("id, production_order_id", { count: "exact" })
-            .eq("shop_id", shopId)
-            .is("product_id", null)
-            .in("production_order_id", chunk)
-            .order("id", { ascending: true })
-            .range(pageFrom, pageTo)
-        );
-        if (res.truncated) console.error("getProductionOrders: unbound item count truncated (badge may under-count)");
-        for (const u of res.rows as { production_order_id: string }[]) {
-          counts.set(u.production_order_id, (counts.get(u.production_order_id) ?? 0) + 1);
-        }
-      }
-      for (const row of rows) row.unboundItemCount = counts.get(row.id) ?? 0;
-    } catch (err) {
-      console.error("getProductionOrders: unbound item count failed (badge hidden)", err);
-    }
 
     return { ok: true, data: { rows, totalCount: result.totalCount, truncated: result.truncated } };
   } catch (err) {
@@ -251,7 +238,7 @@ export async function getProductionOrder(id: string): Promise<ActionResult<Produ
         .schema(SCHEMA)
         .from("v_production_order")
         .select(
-          "id, po_no, status, note, spot_override_thb_per_gram, done_at, cancelled_at, cancel_reason, created_at, updated_at, item_count, qty_planned_total, qty_done_total"
+          "id, po_no, status, note, spot_override_thb_per_gram, done_at, cancelled_at, cancel_reason, created_at, updated_at, item_count, qty_planned_total, qty_done_total, opened_via, opened_by_worker_name, acknowledged_at, unbound_item_count"
         )
         .eq("id", id)
         .eq("shop_id", shopId)
@@ -262,7 +249,7 @@ export async function getProductionOrder(id: string): Promise<ActionResult<Produ
         .select(
           // 0186: v_production_order_item ต่อท้าย 13 คอลัมน์ (pending_product_label … sku_metal_known — left join product: รายการไม่มี SKU ไม่หายจากวิว)
           // ⚠ ต้องเป็น string literal เดียว (ห้ามต่อสตริงด้วย +) — type ของ supabase-js parse select จาก literal ถ้าต่อสตริงจะกลายเป็น GenericStringError
-          "id, production_order_id, po_no, order_status, product_id, sku, product_name, current_cost_type, current_unit_cost, qty_planned, qty_done, stamped_unit_cost, prev_cost_type, prev_unit_cost, created_at, updated_at, pending_product_label, metal, purity, weight_g, weight_source, effective_metal, effective_purity, effective_weight_g, effective_weight_source, sku_metal, sku_purity, sku_weight_g, sku_metal_known"
+          "id, production_order_id, po_no, order_status, product_id, sku, product_name, current_cost_type, current_unit_cost, qty_planned, qty_done, stamped_unit_cost, prev_cost_type, prev_unit_cost, created_at, updated_at, pending_product_label, metal, purity, weight_g, weight_source, effective_metal, effective_purity, effective_weight_g, effective_weight_source, sku_metal, sku_purity, sku_weight_g, sku_metal_known, metal_mismatch"
         )
         .eq("production_order_id", id)
         .eq("shop_id", shopId)
@@ -342,6 +329,10 @@ export async function getProductionOrder(id: string): Promise<ActionResult<Produ
       item_count: number;
       qty_planned_total: number;
       qty_done_total: number;
+      opened_via: string | null;
+      opened_by_worker_name: string | null;
+      acknowledged_at: string | null;
+      unbound_item_count: number | null;
     };
 
     const order: ProductionOrderRow = {
@@ -358,7 +349,10 @@ export async function getProductionOrder(id: string): Promise<ActionResult<Produ
       itemCount: Number(o.item_count) || 0,
       qtyPlannedTotal: Number(o.qty_planned_total) || 0,
       qtyDoneTotal: Number(o.qty_done_total) || 0,
-      unboundItemCount: (itemsRes.data ?? []).filter((r) => (r as { product_id: string | null }).product_id === null).length,
+      unboundItemCount: Number(o.unbound_item_count) || 0,
+      openedVia: o.opened_via === "shopfloor" ? "shopfloor" : "office",
+      openedByWorkerName: o.opened_by_worker_name ?? null,
+      acknowledgedAt: o.acknowledged_at ?? null,
     };
 
     const items: ProductionOrderItemRow[] = (
@@ -392,6 +386,7 @@ export async function getProductionOrder(id: string): Promise<ActionResult<Produ
         sku_purity: number | string | null;
         sku_weight_g: number | string | null;
         sku_metal_known: boolean | null;
+        metal_mismatch: boolean | null;
       }[]
     ).map((r) => {
       const spec = r.product_id === null ? undefined : specByProductId.get(r.product_id);
@@ -418,6 +413,8 @@ export async function getProductionOrder(id: string): Promise<ActionResult<Produ
         skuPurity: parseProductionNumber(r.sku_purity),
         skuWeightG: parseProductionNumber(r.sku_weight_g),
         skuMetalKnown: r.sku_metal_known === true,
+        // 0187: DB คำนวณ (โลหะรายการ ≠ โลหะ SKU ที่ระบุชัด) — ห้าม client คิดเอง
+        metalMismatch: r.metal_mismatch === true,
         qtyPlanned: Number(r.qty_planned) || 0,
         qtyDone: r.qty_done == null ? null : Number(r.qty_done),
         stampedUnitCost: r.stamped_unit_cost == null ? null : Number(r.stamped_unit_cost),
@@ -990,5 +987,110 @@ export async function cancelProductionOrder(input: {
   } catch (err) {
     console.error("cancelProductionOrder failed", err);
     return { ok: false, error: humanizeProductionError(err, "ยกเลิกใบผลิตไม่สำเร็จ ลองใหม่อีกครั้ง") };
+  }
+}
+
+// ============================================================================
+// 0187 W1 — ใบที่ผู้จัดการเปิดจากหน้างาน: ออฟฟิศรับทราบ · ผูก SKU ทีหลัง · แก้ชื่อแบบก่อนผูก
+// ทุก action: owner/admin เท่านั้น · actor จาก session ฝั่ง server (ห้ามรับจาก client) · ไม่คิดเงินที่นี่ (ต้นทุนอยู่ที่ production_order_done ซึ่ง 0187 ไม่แตะ)
+// ============================================================================
+
+/** ออฟฟิศรับทราบใบที่เปิดจากหน้างาน — ครั้งเดียว (ซ้ำ = error) · ใบออฟฟิศ = error · "ผลิตเสร็จ" ของใบหน้างานต้องรับทราบก่อน (ด่านที่ trigger) */
+export async function acknowledgeProductionOrder(input: { productionOrderId: string }): Promise<ActionResult<ProductionOrderAckResult>> {
+  const gateErr = await requireOwnerAdmin();
+  if (gateErr) return gateErr;
+  if (typeof input !== "object" || input === null || !UUID_RE.test(String(input.productionOrderId ?? ""))) return { ok: false, error: "ไม่พบใบผลิตที่ต้องการ" };
+  const actor = await getActorId();
+  if (!actor) return { ok: false, error: "ต้องเข้าสู่ระบบก่อนทำรายการ" };
+  try {
+    const { data, error } = await getServiceClient().schema(SCHEMA).rpc("production_order_acknowledge", {
+      p_shop_id: getDevShopId(),
+      p_id: input.productionOrderId,
+      p_actor: actor,
+    });
+    if (error) throw error;
+    const row = data as { production_order_id: string; po_no: string; acknowledged_at: string; jobs_logged: number };
+    revalidateProduction(input.productionOrderId);
+    revalidatePath("/jobs");
+    return {
+      ok: true,
+      data: { productionOrderId: row.production_order_id, poNo: row.po_no, acknowledgedAt: row.acknowledged_at, jobsLogged: Number(row.jobs_logged) || 0 },
+    };
+  } catch (err) {
+    logRpcFailure("acknowledgeProductionOrder", err);
+    return { ok: false, error: humanizeProductionError(err, "รับทราบใบผลิตไม่สำเร็จ ลองใหม่อีกครั้ง") };
+  }
+}
+
+/**
+ * ผูก SKU ให้รายการที่ยังไม่มี SKU (ใบ open · SKU active ไม่ใช่ live* · ไม่ซ้ำในใบ · ผูกแล้วแก้ไม่ได้)
+ * ไม่ทับโลหะ/เนื้อ/น้ำหนักที่กรอกไว้ · metalMismatch = เตือน (SKU ระบุโลหะชัดแต่ต่างจากรายการ) ไม่บล็อก
+ */
+export async function bindProductionItemProduct(input: { productionOrderId: string; itemId: string; productId: string }): Promise<ActionResult<ProductionItemBindResult>> {
+  const gateErr = await requireOwnerAdmin();
+  if (gateErr) return gateErr;
+  if (typeof input !== "object" || input === null || !UUID_RE.test(String(input.itemId ?? ""))) return { ok: false, error: "ไม่พบรายการที่ต้องการ" };
+  if (!UUID_RE.test(String(input.productId ?? ""))) return { ok: false, error: "เลือก SKU ไม่ถูกต้อง" };
+  const actor = await getActorId();
+  if (!actor) return { ok: false, error: "ต้องเข้าสู่ระบบก่อนทำรายการ" };
+  try {
+    const { data, error } = await getServiceClient().schema(SCHEMA).rpc("production_order_item_bind_product", {
+      p_shop_id: getDevShopId(),
+      p_item_id: input.itemId,
+      p_product_id: input.productId,
+      p_actor: actor,
+    });
+    if (error) throw error;
+    const r = data as Record<string, unknown>;
+    if (typeof r.item_id !== "string" || typeof r.product_id !== "string" || typeof r.sku !== "string") throw new Error("bind: unexpected shape");
+    if (UUID_RE.test(String(input.productionOrderId ?? ""))) revalidateProduction(input.productionOrderId);
+    else revalidatePath("/production");
+    revalidatePath("/jobs");
+    return {
+      ok: true,
+      data: {
+        itemId: r.item_id,
+        productId: r.product_id,
+        sku: r.sku,
+        name: typeof r.name === "string" ? r.name : null,
+        pendingLabelBefore: typeof r.pending_product_label_before === "string" ? r.pending_product_label_before : null,
+        jobsUpdated: Number(r.jobs_updated) || 0,
+        itemMetal: parseProductionMetal(r.item_metal),
+        skuMetal: parseProductionMetal(r.sku_metal),
+        skuMetalKnown: r.sku_metal_known === true,
+        metalMismatch: r.metal_mismatch === true,
+        weightFilled: r.weight_filled === true,
+      },
+    };
+  } catch (err) {
+    logRpcFailure("bindProductionItemProduct", err);
+    return { ok: false, error: humanizeProductionError(err, "ผูก SKU ไม่สำเร็จ ลองใหม่อีกครั้ง") };
+  }
+}
+
+/** แก้ชื่อแบบของรายการที่ยังไม่มี SKU (ก่อนผูก) — ชื่อผ่านด่านเดียวกับตอนเพิ่มรายการ · ไม่แตะชื่อบนใบงาน */
+export async function setProductionItemLabel(input: { productionOrderId: string; itemId: string; label: string }): Promise<ActionResult<{ label: string }>> {
+  const gateErr = await requireOwnerAdmin();
+  if (gateErr) return gateErr;
+  if (typeof input !== "object" || input === null || !UUID_RE.test(String(input.itemId ?? ""))) return { ok: false, error: "ไม่พบรายการที่ต้องการ" };
+  if (typeof input.label !== "string" || input.label.trim() === "") return { ok: false, error: "ต้องระบุชื่อแบบ" };
+  const actor = await getActorId();
+  if (!actor) return { ok: false, error: "ต้องเข้าสู่ระบบก่อนทำรายการ" };
+  try {
+    const { data, error } = await getServiceClient().schema(SCHEMA).rpc("production_order_item_label_set", {
+      p_shop_id: getDevShopId(),
+      p_item_id: input.itemId,
+      p_label: input.label,
+      p_actor: actor,
+    });
+    if (error) throw error;
+    const r = data as { pending_product_label?: unknown };
+    if (typeof r.pending_product_label !== "string") throw new Error("label_set: unexpected shape");
+    if (UUID_RE.test(String(input.productionOrderId ?? ""))) revalidateProduction(input.productionOrderId);
+    else revalidatePath("/production");
+    return { ok: true, data: { label: r.pending_product_label } };
+  } catch (err) {
+    logRpcFailure("setProductionItemLabel", err);
+    return { ok: false, error: humanizeProductionError(err, "แก้ชื่อแบบไม่สำเร็จ ลองใหม่อีกครั้ง") };
   }
 }

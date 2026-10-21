@@ -6,8 +6,10 @@
 // session ช่าง: cookie httpOnly · secure (production) · sameSite=lax · path=/w · อายุตาม DB (≤ 12 ชม.) · เก็บ session token ดิบ (DB เก็บแค่ sha256)
 
 import { cookies } from "next/headers";
-import { parseCount, parsePieces, parsePin, parseScrapReason, parseSeq, parseText, parseWeight, parseWeightOrZero, isUuid } from "@/lib/jobs/input";
-import { WORKER_SESSION_COOKIE, revokeWorkerSession, verifyWorkerPin, workerArriveDiscrepancy, workerCancelLot, workerReceive, workerResolveDiscrepancy, workerSend } from "@/lib/jobs/worker-server";
+import { INVISIBLE_RE, TARGET_PIECE_MAX_G, parseBufferText, parseCount, parseDate, parseLabel, parsePieces, parsePin, parseQtyText, parseScrapReason, parseSeq, parseText, parseWeight, parseWeightOrZero, isUuid } from "@/lib/jobs/input";
+import { WORKER_SESSION_COOKIE, openIntakeJob, revokeWorkerSession, searchIntakeProducts, verifyIntakePin, verifyWorkerPin, workerArriveDiscrepancy, workerCancelLot, workerReceive, workerResolveDiscrepancy, workerSend } from "@/lib/jobs/worker-server";
+import type { IntakeMetal, IntakeOpenResult, IntakeProduct, WorkerFail } from "@/lib/jobs/worker-server";
+import { purityPctIssue, purityPctToFraction } from "@/lib/units/purity";
 import { WORKER_CODE_TH } from "@/lib/jobs/messages";
 
 export type WorkerActionResult =
@@ -196,4 +198,143 @@ export async function workerCancelLotAction(token: string, lotJobId: string, rea
   if (!why.ok) return bad(why.error);
   const r = await workerCancelLot(token, lotJobId, why.value);
   return r.ok ? { ok: true } : { ok: false, error: r.error, code: r.code, retryAfterSeconds: r.retryAfterSeconds };
+}
+
+// ---------------------------------------------------------------------------
+// 0187 W1 — ผู้จัดการเปิดใบจากมือถือ (QR ร้าน /w/s/<token> + PIN · ไม่ login)
+// ไฟล์นี้เป็น "use server" ไฟล์เดียวที่หน้า /w/ ใช้ได้ — ทุก action ตรวจชนิด/ช่วงก่อนถึง DB (ไม่ส่งค่าผิดรูปไปให้ RPC) แล้วส่งเฉพาะที่ระบุ
+// 🔴 ไม่รับ shop id จาก client (ร้านมาจาก token ร้านที่ DB ตรวจ) · ไม่รับ stage/profile/ราคา/ต้นทุนจาก client เลย · ผลลัพธ์ผ่าน allowlist ใน worker-server
+// ---------------------------------------------------------------------------
+
+/** ช่องที่ผิด (ให้หน้าจอพา focus ไปช่องนั้น) */
+export type IntakeField = "label" | "product" | "metal" | "purity" | "weight" | "qty" | "buffer" | "due" | "note" | "key";
+export type IntakeActionFail = { ok: false; error: string; code?: string; retryAfterSeconds?: number; field?: IntakeField };
+
+const intakeBad = (error: string, field?: IntakeField): IntakeActionFail => (field ? { ok: false, error, field } : { ok: false, error });
+const failOf = (r: WorkerFail): IntakeActionFail => ({ ok: false, error: r.error, code: r.code, retryAfterSeconds: r.retryAfterSeconds });
+
+/** ระบุตัวที่ QR ร้าน: ชื่อ + PIN → ตั้ง cookie session (cookie เดียวกับ QR ใบงาน: ล็อกอินทางไหนก็ใช้อีกทางได้) */
+export async function intakeLogin(token: string, workerId: string, pin: string): Promise<WorkerActionResult> {
+  if (!isUuid(workerId)) return bad(WORKER_CODE_TH.bad_credentials);
+  const p = parsePin(pin);
+  if (!p.ok) return bad(p.error);
+  const r = await verifyIntakePin(token, workerId, p.value);
+  if (!r.ok) return { ok: false, error: r.error, code: r.code, retryAfterSeconds: r.retryAfterSeconds };
+  const jar = await cookies();
+  jar.set(WORKER_SESSION_COOKIE, r.data.sessionToken, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/w",
+    maxAge: r.data.maxAgeSeconds,
+  });
+  return { ok: true };
+}
+
+export type IntakeSearchResult = { ok: true; items: IntakeProduct[] } | IntakeActionFail;
+
+/** ค้นสินค้า (เฉพาะผู้จัดการ) — คำค้น 1–60 ตัว · ว่าง = ผลว่าง ไม่ถึง DB */
+export async function intakeSearch(token: string, q: string): Promise<IntakeSearchResult> {
+  if (typeof q !== "string") return intakeBad("คำค้นไม่ถูกต้อง");
+  const t = q.trim();
+  if (t === "") return { ok: true, items: [] };
+  // eslint-disable-next-line no-control-regex
+  if (t.length > 60 || /[\u0000-\u001f\u007f<>]/.test(t) || INVISIBLE_RE.test(t)) return intakeBad("คำค้นไม่ถูกต้อง");
+  const r = await searchIntakeProducts(token, t);
+  return r.ok ? { ok: true, items: r.data } : failOf(r);
+}
+
+/** ข้อมูลจากฟอร์มหน้างาน — ทุกช่องเป็นข้อความ/ตัวเลขดิบจากผู้ใช้ (ยังไม่แปลงหน่วย) */
+export interface IntakeOpenActionInput {
+  /** คีย์กันกดซ้ำ (สร้างครั้งเดียวตอนเปิดฟอร์ม · ใช้ซ้ำตอนลองใหม่) */
+  idemKey: string;
+  /** มี SKU = ส่ง productId · ไม่มี SKU = ส่ง label (อย่างใดอย่างหนึ่ง) */
+  productId?: string | null;
+  label?: string | null;
+  /** silver | gold | brass — สินค้าใหม่ต้องส่ง · มี SKU ส่งเมื่อแก้โลหะจากค่าของ SKU */
+  metal?: string | null;
+  /** เนื้อโลหะเป็น % ข้อความ เช่น "92.50" · ทองต้องกรอก · ทองเหลืองเว้นว่างหรือ 100 */
+  purityPct?: string | null;
+  /** น้ำหนักต่อชิ้น (กรัม) ไม่บังคับ */
+  weight?: string | number | null;
+  qty: number | string;
+  /** เผื่อเพิ่มกี่ชิ้น (สวิตช์เผื่อของเสียเปิดอยู่) — ว่าง/ไม่ส่ง = ไม่เผื่อ */
+  buffer?: number | string | null;
+  /** YYYY-MM-DD ไม่บังคับ */
+  dueDate?: string | null;
+  isNewDesign?: boolean;
+  note?: string | null;
+}
+
+export type IntakeOpenActionResult = { ok: true; result: IntakeOpenResult } | IntakeActionFail;
+
+const IDEM_RE = /^[A-Za-z0-9_-]{16,64}$/;
+
+/**
+ * เปิดใบผลิต + ใบงาน + QR ใบงาน (ครั้งเดียว) — DB ทำทั้งก้อนในทรานแซกชันเดียว
+ * ผลสำเร็จมี token ดิบ "ครั้งเดียว" (already=true = กดซ้ำ ไม่มี token) · ฟอร์มและค่าที่กรอกไม่หายทุกกรณี (หน้าจอเก็บเอง)
+ */
+export async function intakeOpen(token: string, input: IntakeOpenActionInput): Promise<IntakeOpenActionResult> {
+  if (typeof input !== "object" || input === null) return intakeBad("ข้อมูลไม่ถูกต้อง");
+  if (typeof input.idemKey !== "string" || !IDEM_RE.test(input.idemKey)) return intakeBad("ข้อมูลไม่ครบ — โหลดหน้าใหม่แล้วลองอีกครั้ง", "key");
+  const hasProduct = input.productId !== null && input.productId !== undefined && input.productId !== "";
+  const hasLabel = input.label !== null && input.label !== undefined && String(input.label).trim() !== "";
+  if (hasProduct === hasLabel) return intakeBad("ต้องเลือกสินค้า หรือพิมพ์ชื่อแบบอย่างใดอย่างหนึ่ง", hasProduct ? "product" : "label");
+  if (hasProduct && !isUuid(input.productId)) return intakeBad("เลือกสินค้าไม่ถูกต้อง", "product");
+  let label: string | null = null;
+  if (hasLabel) {
+    // ชื่อบรรทัดเดียว: ขึ้นบรรทัดใหม่/แท็บ = ปฏิเสธ (parseText ยุบเป็นช่องว่างเงียบๆ — DB ปฏิเสธเหมือนกัน ไม่ให้สองชั้นตีความต่างกัน)
+    if (typeof input.label === "string" && /[\r\n\t]/.test(input.label)) return intakeBad("ชื่อแบบห้ามขึ้นบรรทัดใหม่หรือแท็บ", "label");
+    const l = parseLabel(input.label, "ชื่อแบบ", 200, true);
+    if (!l.ok) return intakeBad(l.error, "label");
+    label = l.value;
+  }
+  let metal: IntakeMetal | null = null;
+  if (input.metal !== null && input.metal !== undefined && input.metal !== "") {
+    if (input.metal !== "silver" && input.metal !== "gold" && input.metal !== "brass") return intakeBad("เลือกวัสดุเป็นเงิน ทอง หรือทองเหลือง", "metal");
+    metal = input.metal;
+  }
+  if (!hasProduct && metal === null) return intakeBad("สินค้าใหม่ต้องเลือกวัสดุ", "metal");
+  // เนื้อ: ทองบังคับ (ไม่มีค่าเริ่ม) · เงินว่างได้ (DB ใช้ 92.50) · ทองเหลืองล็อก 100 (ว่างหรือ 100 เท่านั้น) — DB เป็นด่านจริง ที่นี่กันก่อนถึง DB
+  const pctText = typeof input.purityPct === "string" ? input.purityPct.trim() : input.purityPct === null || input.purityPct === undefined ? "" : null;
+  if (pctText === null) return intakeBad("เนื้อโลหะไม่ถูกต้อง", "purity");
+  let purity: number | null = null;
+  if (metal === "gold" && pctText === "") return intakeBad("ทองต้องใส่เนื้อทอง (ขั้นต่ำ 37.50%)", "purity");
+  if (metal === "brass") {
+    if (pctText !== "" && purityPctToFraction(pctText) !== 1) return intakeBad("ทองเหลืองเนื้อ 100% (ไม่ต้องกรอก)", "purity");
+  } else if (pctText !== "") {
+    const issue = purityPctIssue(pctText);
+    const frac = purityPctToFraction(pctText);
+    if (issue !== null || frac === null) return intakeBad(issue ?? "เนื้อโลหะไม่ถูกต้อง", "purity");
+    purity = frac;
+  }
+  const w = parseWeight(input.weight ?? null, "น้ำหนักต่อชิ้น", { max: TARGET_PIECE_MAX_G });
+  if (!w.ok) return intakeBad(w.error, "weight");
+  const q = parseQtyText(input.qty);
+  if (!q.ok) return intakeBad(q.error, "qty");
+  let planned: number | null = null;
+  if (input.buffer !== null && input.buffer !== undefined && input.buffer !== "") {
+    const b = parseBufferText(input.buffer, q.value);
+    if (!b.ok) return intakeBad(b.error, "buffer");
+    planned = b.value > 0 ? q.value + b.value : null;
+  }
+  let due: string | null = null;
+  if (input.dueDate !== null && input.dueDate !== undefined && input.dueDate !== "") {
+    const d = parseDate(input.dueDate, "กำหนดเสร็จ");
+    if (!d.ok) return intakeBad(d.error, "due");
+    due = d.value;
+  }
+  let note: string | null = null;
+  if (input.note !== null && input.note !== undefined) {
+    if (typeof input.note === "string" && INVISIBLE_RE.test(input.note)) return intakeBad("หมายเหตุมีอักขระที่มองไม่เห็นหรืออักขระควบคุมทิศทาง", "note");
+    if (typeof input.note === "string" && /[\r\n\t]/.test(input.note)) return intakeBad("หมายเหตุห้ามขึ้นบรรทัดใหม่หรือแท็บ", "note");
+    const n = parseText(input.note, "หมายเหตุ", 500, false);
+    if (!n.ok) return intakeBad(n.error, "note");
+    note = n.value;
+  }
+  const r = await openIntakeJob(token, {
+    idemKey: input.idemKey, productId: hasProduct ? (input.productId as string) : null, pendingLabel: label, metal, purity, weightG: w.value,
+    qtyOrder: q.value, qtyPlanned: planned, dueDate: due, isNewDesign: input.isNewDesign === true, note,
+  });
+  return r.ok ? { ok: true, result: r.data } : failOf(r);
 }

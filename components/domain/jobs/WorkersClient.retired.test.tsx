@@ -29,7 +29,7 @@ const wrap = (ui: ReactElement) => render(<ToastProvider>{ui}</ToastProvider>);
 const W1 = "11111111-1111-4111-8111-111111111111";
 const W2 = "22222222-2222-4222-8222-222222222222";
 const worker = (o: Partial<WorkerRow> & { id: string; displayName: string }): WorkerRow => ({
-  stageCodes: [], isActive: true, lockedUntil: null, createdAt: null, lockState: "none", failedAttempts: 0, pinWarning: false, ...o,
+  stageCodes: [], isActive: true, lockedUntil: null, createdAt: null, lockState: "none", failedAttempts: 0, pinWarning: false, canOpenJob: false, canExternal: false, ...o,
 });
 const STAGES = [
   { code: "cut_sprue", nameTh: "ตัดต้น" },

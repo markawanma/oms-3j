@@ -216,6 +216,6 @@ export const config = {
   // of truth; lib/auth/exempt-path.test.ts is what actually proves they
   // agree.
   matcher: [
-    "/((?!_next/static|_next/image|favicon\\.ico|api/webhooks(?:/|$)|api/gem-quiz/submit/?$|shop(?:/|$)|gem-quiz/?$|stock/hero(?:/|$)|w/[A-Za-z0-9_-]+/?$|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
+    "/((?!_next/static|_next/image|favicon\\.ico|api/webhooks(?:/|$)|api/gem-quiz/submit/?$|shop(?:/|$)|gem-quiz/?$|stock/hero(?:/|$)|w/[A-Za-z0-9_-]+/?$|w/s/[A-Za-z0-9_-]+/?$|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
   ],
 };

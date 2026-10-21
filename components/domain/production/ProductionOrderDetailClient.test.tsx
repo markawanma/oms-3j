@@ -35,7 +35,7 @@ afterEach(cleanup);
 
 const baseOrder: ProductionOrderRow = {
   id: "po-1", poNo: "PO-0034", status: "open", note: null, spotOverrideThbPerGram: null, doneAt: null, cancelledAt: null, cancelReason: null,
-  createdAt: "2026-10-20T02:12:00Z", updatedAt: "2026-10-20T02:12:00Z", itemCount: 1, qtyPlannedTotal: 30, qtyDoneTotal: 0, unboundItemCount: 0,
+  createdAt: "2026-10-20T02:12:00Z", updatedAt: "2026-10-20T02:12:00Z", itemCount: 1, qtyPlannedTotal: 30, qtyDoneTotal: 0, unboundItemCount: 0, openedVia: "office", openedByWorkerName: null, acknowledgedAt: null,
 };
 
 function row(over: Partial<ProductionOrderItemRow> = {}): ProductionOrderItemRow {
@@ -43,7 +43,7 @@ function row(over: Partial<ProductionOrderItemRow> = {}): ProductionOrderItemRow
     id: "i-1", productionOrderId: "po-1", poNo: "PO-0034", orderStatus: "open", productId: "p-1", sku: "GR-0007", productName: "แหวนลายใบไม้", pendingProductLabel: null,
     currentCostType: "fixed", currentUnitCost: 120, metal: null, purity: null, weightG: null, weightSource: null,
     effectiveMetal: "silver", effectivePurity: 0.925, effectiveWeightG: 3.2, effectiveWeightSource: "product",
-    skuMetal: "silver", skuPurity: 0.925, skuWeightG: 3.2, skuMetalKnown: false, qtyPlanned: 30, qtyDone: null, stampedUnitCost: null, prevCostType: null, prevUnitCost: null,
+    skuMetal: "silver", skuPurity: 0.925, skuWeightG: 3.2, skuMetalKnown: false, metalMismatch: false, qtyPlanned: 30, qtyDone: null, stampedUnitCost: null, prevCostType: null, prevUnitCost: null,
     createdAt: "2026-10-20T00:00:00Z", updatedAt: "2026-10-20T00:00:00Z", makeSpec: null, currentSilverWeightG: 3.2, currentSilverPurity: 0.925, isNewDesign: false, costCalc: null, ...over,
   };
 }

@@ -33,8 +33,13 @@
 // (ไม่มี /w/ ล้วน · ไม่มีเซกเมนต์ซ้อน · ไม่มี ".." / "%2e" / "." — traversal อย่าง /w/../oem ไม่ผ่านรูปแบบนี้ จึงยังถูก gate)
 // token จริง 43 ตัว · ความยาว/รูปแบบที่ผิดไปตกที่หน้าช่างซึ่งแสดง "ลิงก์ใช้ไม่ได้" โดยไม่แตะข้อมูลใด
 // ไม่ใช้ `{n,m}` ใน matcher เพราะ Next แปลง matcher ด้วย path-to-regexp (ปีกกาในกลุ่ม regex เสี่ยงตีความผิด) — ตรวจความยาวที่หน้าแทน
+//
+// w/s/<token> เพิ่ม 20 ต.ค. 69 (W1 — ผู้จัดการเปิดใบจากมือถือด้วย QR ร้าน + PIN · design-job-lots-shopfloor.md §7.1):
+// 🔴 แคบเท่าเดิม: ยอมเฉพาะ "w/s/ + หนึ่งเซกเมนต์ base64url ล้วน + จบ" — ไม่มี /w/s/ ล้วน · ไม่มีเซกเมนต์ซ้อน (/w/s/<token>/x) · ไม่มี ".." / "%2e" / "." · `s` ต้องเป็นตัวเดียวเป๊ะ (ไม่ใช่ /w/sx/<token>)
+// (หมายเหตุ: /w/s เองตรงกับ alternative เดิม w/<token> เพราะ "s" เป็นอักขระ base64url — หน้าช่างแสดง "ลิงก์ใช้ไม่ได้" ตามเดิม ไม่แตะข้อมูลใด)
+// ต้องแก้คู่กับ middleware.ts matcher แล้วรัน exempt-path.worker.test.ts
 const EXEMPT_PATTERN =
-  /^(?:_next\/static|_next\/image|favicon\.ico|api\/webhooks(?:\/|$)|api\/gem-quiz\/submit\/?$|shop(?:\/|$)|gem-quiz\/?$|stock\/hero(?:\/|$)|w\/[A-Za-z0-9_-]+\/?$|.*\.(?:svg|png|jpg|jpeg|gif|webp|ico)$)/;
+  /^(?:_next\/static|_next\/image|favicon\.ico|api\/webhooks(?:\/|$)|api\/gem-quiz\/submit\/?$|shop(?:\/|$)|gem-quiz\/?$|stock\/hero(?:\/|$)|w\/[A-Za-z0-9_-]+\/?$|w\/s\/[A-Za-z0-9_-]+\/?$|.*\.(?:svg|png|jpg|jpeg|gif|webp|ico)$)/;
 
 /** true if `pathname` bypasses the auth gate entirely (middleware.ts never
  * runs for it) — mirrors config.matcher's negative-lookahead exactly. */
