@@ -23,6 +23,8 @@ const WORKER_FILES = [
   join(ROOT, "lib", "jobs", "worker-server.ts"),
   join(ROOT, "lib", "actions", "job-worker.ts"),
   join(ROOT, "lib", "jobs", "worker-view.ts"),
+  // 0187 W1: ตรรกะ pure ของหน้าผู้จัดการ /w/s/ (ฟอร์ม · ข้อความ error · payload) — อยู่ในกราฟสาธารณะเหมือนกัน
+  join(ROOT, "lib", "jobs", "shop-open.ts"),
 ];
 
 // import ที่ห้ามมีในกราฟหน้าช่าง
@@ -42,6 +44,11 @@ const FORBIDDEN_IMPORTS: [RegExp, string][] = [
 describe("กราฟหน้าช่าง /w/ — import ต้องห้าม", () => {
   it("พบไฟล์ในกราฟ (กันเทสต์ว่างเปล่า)", () => {
     expect(WORKER_FILES.length).toBeGreaterThanOrEqual(8);
+    // 0187 W1: หน้า /w/s/<shopToken> + โฟลเดอร์ components/.../worker/shop ต้องถูกกวาดเข้ากราฟ (ถ้าไม่ — ไฟล์ใหม่ไม่ถูกตรวจ)
+    const rels = WORKER_FILES.map((f) => relative(ROOT, f).replace(/\\/g, "/"));
+    expect(rels).toContain("app/(worker)/w/s/[shopToken]/page.tsx");
+    expect(rels).toContain("components/domain/jobs/worker/shop/ShopIntakeApp.tsx");
+    expect(rels).toContain("lib/jobs/shop-open.ts");
   });
   for (const f of WORKER_FILES) {
     const rel = relative(ROOT, f).replace(/\\/g, "/");
