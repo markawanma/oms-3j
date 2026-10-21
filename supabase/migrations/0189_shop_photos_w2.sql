@@ -13,7 +13,8 @@
 --     (a) ต้องมาจาก RPC ช่าง: GUC analytics.shop_photo_id = id ของแถวนั้นในทรานแซกชันเดียวกัน (b) นับรูปหน้างานที่ยังไม่ลบของใบ ≥ 3 = photo_cap_shopfloor (กำแพงที่ DB แม้ RPC ถูกแก้ผิด)
 --     ออฟฟิศ (source office/product) · kind stage · แถวที่ผิด CHECK = พฤติกรรมเดิมเป๊ะ (ด่านใหม่อยู่ท้ายสุดของสาย INSERT และเปิดเฉพาะ reference+shopfloor+worker — verify-0182 ยิง shopfloor ตรงเฉพาะ kind stage / ไม่มี worker)
 --  2. helper ภายใน (ไม่ grant ใคร): shop_intake_photo_auth · job_worker_photo_job · job_worker_photo_block
---  3. RPC ช่าง 5 ตัว (security definer · service_role เท่านั้น): job_worker_photo_begin · job_worker_photo_add · job_worker_photo_remove · job_worker_photo_list · job_worker_my_intake_list ("ใบที่ฉันเปิด" บน hub — มติ 21 ต.ค.)
+--  3. RPC ช่าง 6 ตัว (security definer · service_role เท่านั้น): job_worker_photo_begin · job_worker_photo_add · job_worker_photo_remove · job_worker_photo_list · job_worker_my_intake_list ("ใบที่ฉันเปิด" บน hub — มติ 21 ต.ค.)
+--     · job_worker_token_reissue ("ออก QR ใหม่" ของใบที่ฉันเปิด — ใช้ job_token_issue_core · ไม่เพิกถอน QR เดิม · เพดาน 5 · ได้แม้ช่างรับงานแล้วตราบใดที่ใบยังไม่ปิด/ยกเลิก)
 --     begin/add/list อ้างใบได้ 2 ทาง "อย่างใดอย่างหนึ่ง": p_idem_key (เพิ่งเปิดใบ) หรือ p_job_id (จากรายการใบของฉัน) — ผ่านเงื่อนไขเดียวกัน: ใบผลิต opened_via=shopfloor ∧ opened_by_worker_id = ช่างใน session ∧ ร้านจาก token ·
 --     job_id ของคนอื่น/ใบออฟฟิศ/ร้านอื่น/ส่วนย่อย = order_not_found (ไม่ใช่แค่รู้ uuid แล้วเข้าได้) · ทั้งสองทางหรือไม่ส่งสักทาง = idem_invalid
 --  ไม่มี trigger ใหม่บน job_photo (verify-0182 นับ trigger = 3) · ไม่แตะ job_photo_enforce_cap / job_photo_add (ออฟฟิศ) / job_worker_resolve (แสดงรูป reference ทุก source อยู่แล้ว) / production_order_done
@@ -66,7 +67,8 @@ begin
      or to_regprocedure('analytics.job_rate_limit_hit(text,integer)') is null
      or to_regprocedure('analytics.job_event_write(uuid,uuid,text,date,uuid,uuid,text,text,jsonb)') is null
      or to_regprocedure('analytics.job_device_hint(text,text)') is null
-     or to_regprocedure('analytics.job_today()') is null then
+     or to_regprocedure('analytics.job_today()') is null
+     or to_regprocedure('analytics.job_token_issue_core(analytics.job,boolean,uuid,uuid,text,uuid)') is null then
     raise exception '0189: ไม่พบฟังก์ชันที่ต้องใช้ (job_worker_open · job_fail · job_rate_limit_hit · job_event_write · job_device_hint · job_today) — ตรวจ 0172/0187';
   end if;
   if not exists (select 1 from information_schema.columns where table_schema = 'analytics' and table_name = 'worker' and column_name = 'can_open_job')
@@ -589,6 +591,66 @@ begin
 end;
 $f$;
 
+-- token_reissue: "ออก QR ใหม่" ของใบที่ฉันเปิดเอง (มติ 21 ต.ค.) — ใช้ job_token_issue_core (0187) ด้วย p_worker_id (issued_by_worker_id) · ได้แม้ช่างรับงานแล้ว ตราบใดที่ใบยังไม่ปิด/ไม่ยกเลิก
+-- ด่าน: token ร้าน + session + can_open_job สด + ใบที่ช่างคนนี้เปิดเอง (job_id อ้างผ่าน helper เดียวกับรูป — ของคนอื่น/ใบออฟฟิศ/ร้านอื่น/ส่วนย่อย = order_not_found) + ใบ/ใบผลิตไม่ done/cancelled + เพดาน 5 QR ที่ใช้อยู่ต่อใบ (core: token_cap)
+-- rate limit: ถัง wp: (ร่วมกับรูป) + ถังเฉพาะออก QR wt:<ช่าง> 10/10 นาที (นับหลังพบ session ที่มีสิทธิ์ · ก่อนแตะข้อมูล)
+-- ตัดสินเอง: ไม่เพิกถอน QR เดิม (p_revoke_previous = false) — QR เดิมที่ติดที่ชิ้นงานต้องยังใช้ได้ · เพดาน 5 ใบจึงมีความหมาย (เกิน = token_cap · ออฟฟิศเพิกถอนที่ /jobs/[id]) · ถ้าเจ้าของอยากให้ "ออกใหม่ = เก่าใช้ไม่ได้" เปลี่ยนเป็น true จุดเดียว
+-- คืน raw token ครั้งเดียว (UI วาด QR · ห้าม log/เก็บ) — DB เก็บ sha256 เท่านั้น · event token_issue เขียนโดย core (actor null · worker_id = ช่าง · channel worker_qr)
+create or replace function analytics.job_worker_token_reissue(p_token_hash text, p_session_hash text, p_job_id uuid, p_ip_hash text default null)
+ returns jsonb
+ language plpgsql
+ security definer
+ set search_path to 'public', 'analytics', 'extensions', 'pg_temp'
+as $f$
+declare
+  v_a      jsonb;
+  v_shop   uuid;
+  v_wid    uuid;
+  v_job_id uuid;
+  v_job    analytics.job%rowtype;
+  v_po     text;
+  v_res    jsonb;
+  v_hint   text;
+begin
+  v_a := analytics.shop_intake_photo_auth(p_token_hash, p_session_hash, p_ip_hash, 'write');
+  if not (v_a ->> 'ok')::boolean then
+    return v_a;
+  end if;
+  v_shop := (v_a ->> 'shop_id')::uuid;
+  v_wid := (v_a ->> 'worker_id')::uuid;
+  if not analytics.job_rate_limit_hit('wt:' || v_wid::text, 10) then
+    return analytics.job_fail('rate_limited', 'ส่งถี่เกินไป — รอสักครู่แล้วลองใหม่');
+  end if;
+  v_job_id := analytics.job_worker_photo_job(v_shop, v_wid, null, p_job_id);
+  if v_job_id is null then
+    return analytics.job_fail('order_not_found', 'ไม่พบใบงานที่เปิดไว้ — โหลดหน้าใหม่แล้วลองอีกครั้ง');
+  end if;
+  select * into v_job from analytics.job where id = v_job_id and shop_id = v_shop for update;
+  if not found then
+    return analytics.job_fail('order_not_found', 'ไม่พบใบงานที่เปิดไว้ — โหลดหน้าใหม่แล้วลองอีกครั้ง');
+  end if;
+  select po.status into v_po
+    from analytics.production_order_item i join analytics.production_order po on po.id = i.production_order_id
+   where i.id = v_job.production_order_item_id;
+  if v_job.status = 'cancelled' or v_po = 'cancelled' then
+    return analytics.job_fail('job_cancelled', 'ใบนี้ถูกยกเลิกแล้ว — ออก QR ใหม่ไม่ได้');
+  end if;
+  if v_job.status = 'done' or v_po is distinct from 'open' then
+    return analytics.job_fail('job_closed', 'ใบนี้ปิดแล้ว — ออก QR ใหม่ไม่ได้');
+  end if;
+  begin
+    v_res := analytics.job_token_issue_core(v_job, false, null, v_wid, 'traveler', null);
+  exception when sqlstate '22023' then
+    get stacked diagnostics v_hint = pg_exception_hint;
+    if v_hint = 'token_cap' then
+      return analytics.job_fail('token_cap', 'ใบนี้มี QR ที่ใช้งานอยู่ครบ 5 ใบแล้ว — แจ้งออฟฟิศให้เพิกถอนก่อน');
+    end if;
+    return analytics.job_fail('token_not_issued', 'ออก QR ไม่ได้ตอนนี้ — แจ้งออฟฟิศ');
+  end;
+  return jsonb_build_object('ok', true, 'token', v_res ->> 'token', 'print_no', (v_res ->> 'print_no')::int, 'job_no', v_job.job_no, 'job_id', v_job.id);
+end;
+$f$;
+
 -- ============================================================================
 -- 4. สิทธิ์ (ข้อ 2 · 18.1): ถอนทั้ง 4 ชื่อ แล้ว grant เฉพาะ RPC ช่างให้ service_role — helper/trigger function ไม่ให้ใคร
 -- ============================================================================
@@ -597,8 +659,8 @@ declare
   r record;
   v_touched constant text[] := array[
     'job_photo_guard', 'shop_intake_photo_auth', 'job_worker_photo_job', 'job_worker_photo_block',
-    'job_worker_photo_begin', 'job_worker_photo_add', 'job_worker_photo_remove', 'job_worker_photo_list', 'job_worker_my_intake_list'];
-  v_rpc constant text[] := array['job_worker_photo_begin', 'job_worker_photo_add', 'job_worker_photo_remove', 'job_worker_photo_list', 'job_worker_my_intake_list'];
+    'job_worker_photo_begin', 'job_worker_photo_add', 'job_worker_photo_remove', 'job_worker_photo_list', 'job_worker_my_intake_list', 'job_worker_token_reissue'];
+  v_rpc constant text[] := array['job_worker_photo_begin', 'job_worker_photo_add', 'job_worker_photo_remove', 'job_worker_photo_list', 'job_worker_my_intake_list', 'job_worker_token_reissue'];
   v_n int;
 begin
   for r in
@@ -627,7 +689,7 @@ declare
   v_changed text;
   v_new text;
   v_touched constant text[] := array['job_photo_guard'];
-  v_added constant text[] := array['shop_intake_photo_auth', 'job_worker_photo_job', 'job_worker_photo_block', 'job_worker_photo_begin', 'job_worker_photo_add', 'job_worker_photo_remove', 'job_worker_photo_list', 'job_worker_my_intake_list'];
+  v_added constant text[] := array['shop_intake_photo_auth', 'job_worker_photo_job', 'job_worker_photo_block', 'job_worker_photo_begin', 'job_worker_photo_add', 'job_worker_photo_remove', 'job_worker_photo_list', 'job_worker_my_intake_list', 'job_worker_token_reissue'];
 begin
   -- (1) ฟังก์ชันเดิมนอกรายการ md5 ต้องเท่าเดิมเป๊ะ (ทุกตัวในสคีมา — รวม job_photo_enforce_cap · job_photo_add · job_worker_resolve · production_order_done)
   select string_agg(b.sig, ', ') into v_changed
@@ -684,7 +746,7 @@ begin
   select string_agg(p.proname, ', ') into v_new
     from pg_proc p
    where p.pronamespace = 'analytics'::regnamespace and p.proname = any (v_added)
-     and (has_function_privilege('service_role', p.oid, 'execute')) <> (p.proname in ('job_worker_photo_begin', 'job_worker_photo_add', 'job_worker_photo_remove', 'job_worker_photo_list', 'job_worker_my_intake_list'));
+     and (has_function_privilege('service_role', p.oid, 'execute')) <> (p.proname in ('job_worker_photo_begin', 'job_worker_photo_add', 'job_worker_photo_remove', 'job_worker_photo_list', 'job_worker_my_intake_list', 'job_worker_token_reissue'));
   if v_new is not null then
     raise exception '0189: สิทธิ์ service_role ของฟังก์ชันใหม่ผิด (RPC ช่างต้อง execute ได้ · helper ต้องไม่ได้): %', v_new;
   end if;
