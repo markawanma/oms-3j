@@ -127,13 +127,24 @@ describe("QR ร้าน (ออฟฟิศ)", () => {
   });
 
   it("สถานะ: เรียกแบบไม่มี p_actor (RPC อ่านอย่างเดียว) · ไม่มี token ในผล · เพิกถอน: shop+actor", async () => {
-    rpcMock.mockResolvedValue({ data: { active: true, issued_at: "2026-10-20T03:00:00Z" }, error: null });
+    rpcMock.mockResolvedValue({ data: { active: true, issued_at: "2026-10-20T03:00:00Z", revoked_at: null }, error: null });
     const s = await getShopIntakeStatus();
     expect(lastRpc()).toEqual(["shop_intake_token_status", { p_shop_id: SHOP }]);
-    expect(s).toEqual({ ok: true, data: { active: true, issuedAt: "2026-10-20T03:00:00Z" } });
+    expect(s).toEqual({ ok: true, data: { active: true, issuedAt: "2026-10-20T03:00:00Z", revokedAt: null } });
     rpcMock.mockResolvedValue({ data: { revoked: 1 }, error: null });
     expect(await revokeShopIntakeToken()).toEqual({ ok: true, data: { revoked: 1 } });
     expect(lastRpc()).toEqual(["shop_intake_token_revoke", { p_shop_id: SHOP, p_actor: USER }]);
+  });
+
+  it("สถานะ (0188): เพิกถอนแล้ว = active=false + issuedAt/revokedAt ของใบล่าสุด · ไม่เคยออก = null ทั้งคู่ · DB เก่าที่ไม่มี revoked_at/ค่าผิดชนิด = null (ไม่พัง · ไม่ส่งต่อค่าแปลก)", async () => {
+    rpcMock.mockResolvedValue({ data: { active: false, issued_at: "2026-10-20T03:00:00Z", revoked_at: "2026-10-21T04:00:00Z" }, error: null });
+    expect(await getShopIntakeStatus()).toEqual({ ok: true, data: { active: false, issuedAt: "2026-10-20T03:00:00Z", revokedAt: "2026-10-21T04:00:00Z" } });
+    rpcMock.mockResolvedValue({ data: { active: false, issued_at: null, revoked_at: null }, error: null });
+    expect(await getShopIntakeStatus()).toEqual({ ok: true, data: { active: false, issuedAt: null, revokedAt: null } });
+    rpcMock.mockResolvedValue({ data: { active: false, issued_at: "2026-10-20T03:00:00Z" }, error: null });
+    expect(await getShopIntakeStatus()).toEqual({ ok: true, data: { active: false, issuedAt: "2026-10-20T03:00:00Z", revokedAt: null } });
+    rpcMock.mockResolvedValue({ data: { active: false, issued_at: 5, revoked_at: { x: 1 } }, error: null });
+    expect(await getShopIntakeStatus()).toEqual({ ok: true, data: { active: false, issuedAt: null, revokedAt: null } });
   });
 
   it("ไม่มี session user → ไม่เรียก DB (actor_required ฝั่ง server)", async () => {

@@ -134,7 +134,10 @@ export async function unlockWorker(workerId: string): Promise<JobResult<null>> {
 // ---------------------------------------------------------------------------
 export interface ShopIntakeStatus {
   active: boolean;
+  /** เวลาออกของ QR ใบล่าสุด (active = ใบที่ใช้อยู่ · ไม่ active = ใบล่าสุดที่เคยออก) · null = ไม่เคยออกเลย */
   issuedAt: string | null;
+  /** เวลาเพิกถอนของใบล่าสุด · null = ใบที่ใช้อยู่ หรือไม่เคยออก — หน้าจอแยก "ถูกเพิกถอน" (active=false + revokedAt) ออกจาก "ไม่เคยออก" (issuedAt=null) (0188) */
+  revokedAt: string | null;
 }
 
 export async function getShopIntakeStatus(): Promise<JobResult<ShopIntakeStatus>> {
@@ -142,7 +145,14 @@ export async function getShopIntakeStatus(): Promise<JobResult<ShopIntakeStatus>
   if (g) return g;
   const r = await callOffice<Raw>("shop_intake_token_status", {}, { noActor: true }); // RPC อ่านอย่างเดียว ไม่มี p_actor
   if (!r.ok) return r;
-  return { ok: true, data: { active: r.data.active === true, issuedAt: typeof r.data.issued_at === "string" ? r.data.issued_at : null } };
+  return {
+    ok: true,
+    data: {
+      active: r.data.active === true,
+      issuedAt: typeof r.data.issued_at === "string" ? r.data.issued_at : null,
+      revokedAt: typeof r.data.revoked_at === "string" ? r.data.revoked_at : null,
+    },
+  };
 }
 
 export interface ShopIntakeIssued {
