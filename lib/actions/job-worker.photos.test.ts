@@ -41,7 +41,7 @@ vi.mock("@/lib/supabase/server", () => ({
   }),
 }));
 
-import { intakeListPhotos, intakeMyJobs, intakeReissueToken, intakeRemovePhoto, intakeUploadPhoto } from "./job-worker";
+import { intakeListPhotos, intakeMyJobs, intakeReissueToken, intakeRemovePhoto, intakeSetPrimaryPhoto, intakeUploadPhoto } from "./job-worker";
 
 // ---- JPEG สังเคราะห์ (โครง marker ถูกต้อง) ----
 const ascii = (s: string): number[] => Array.from(s, (c) => c.charCodeAt(0));
@@ -56,8 +56,9 @@ const EXIF_GPS = seg(0xe1, [...ascii("Exif"), 0, 0, 0x49, 0x49, 0x2a, 0, 8, 0, 0
 const XMP = seg(0xe1, [...ascii("http://ns.adobe.com/xap/1.0/"), 0, ...ascii("<exif:GPSLatitude>13.7563</exif:GPSLatitude>")]);
 const file = (bytes: Uint8Array | string, name = "photo.jpg", type = "image/jpeg") => new File([bytes as BlobPart], name, { type });
 
-function form(o: { idemKey?: string | null; jobId?: string | null; md?: unknown; sm?: unknown; isPrimary?: string } = {}): FormData {
+function form(o: { idemKey?: string | null; jobId?: string | null; md?: unknown; sm?: unknown; isPrimary?: string; extra?: Record<string, string> } = {}): FormData {
   const fd = new FormData();
+  for (const [k, v] of Object.entries(o.extra ?? {})) fd.set(k, v);
   if (o.idemKey !== null) fd.set("idemKey", o.idemKey ?? IDEM);
   if (o.jobId) fd.set("jobId", o.jobId);
   if (o.md !== null) fd.set("md", (o.md ?? file(cleanJpeg())) as Blob | string);
@@ -429,7 +430,7 @@ describe("intakeReissueToken — ออก QR ใหม่ของใบที�
   it("ok: ส่ง p_job_id (ไม่ส่ง shop id) · คืน token ดิบครั้งเดียว + printNo + jobNo · ไม่ log token", async () => {
     rpcMock.mockResolvedValueOnce(okRes());
     const r = await intakeReissueToken(TOKEN, JOB);
-    expect(r).toEqual({ ok: true, token: RAW, printNo: 2, jobNo: "JB-0007" });
+    expect(r).toEqual({ ok: true, already: false, token: RAW, printNo: 2, jobNo: "JB-0007" });
     const p = fn("job_worker_token_reissue")[0][1] as Record<string, unknown>;
     expect(Object.keys(p).sort()).toEqual(["p_ip_hash", "p_job_id", "p_session_hash", "p_token_hash"]);
     expect(p.p_job_id).toBe(JOB);
@@ -467,6 +468,119 @@ describe("intakeReissueToken — ออก QR ใหม่ของใบที�
       expect(r.ok).toBe(false);
       expect(JSON.stringify(r)).not.toContain(RAW);
     }
+  });
+});
+
+describe("intakeSetPrimaryPhoto — ตั้งรูปหลักหลังส่งแล้ว", () => {
+  it("ok: ส่ง photo id + ref (idemKey หรือ jobId อย่างใดอย่างหนึ่ง) · ไม่ส่ง shop id · changed ส่งต่อ", async () => {
+    rpcMock.mockResolvedValueOnce({ data: { ok: true, photo_id: PH, is_primary: true, changed: true }, error: null });
+    expect(await intakeSetPrimaryPhoto(TOKEN, { idemKey: IDEM, photoId: PH })).toEqual({ ok: true, changed: true });
+    const p = fn("job_worker_photo_set_primary")[0][1] as Record<string, unknown>;
+    expect(Object.keys(p).sort()).toEqual(["p_idem_key", "p_ip_hash", "p_job_id", "p_photo_id", "p_session_hash", "p_token_hash"]);
+    expect(p).toMatchObject({ p_photo_id: PH, p_idem_key: IDEM, p_job_id: null });
+    rpcMock.mockResolvedValueOnce({ data: { ok: true, photo_id: PH, is_primary: true, changed: false }, error: null });
+    expect(await intakeSetPrimaryPhoto(TOKEN, { jobId: JOB, photoId: PH })).toEqual({ ok: true, changed: false });
+    expect(fn("job_worker_photo_set_primary")[1][1]).toMatchObject({ p_idem_key: null, p_job_id: JOB });
+  });
+
+  it("ปฏิเสธ: รูปคนอื่น/ใบล็อก/ยกเลิก/ถอนสิทธิ์/primary_locked (ออฟฟิศตั้งหลักไว้) → ข้อความไทย code ส่งต่อ", async () => {
+    for (const code of ["photo_not_found", "order_not_found", "job_locked", "job_cancelled", "not_allowed", "primary_locked", "already_deleted", "rate_limited", "invalid_token", "session_required"]) {
+      rpcMock.mockResolvedValueOnce(fail(code));
+      const r = await intakeSetPrimaryPhoto(TOKEN, { idemKey: IDEM, photoId: PH });
+      expect(r).toMatchObject({ ok: false, code });
+      if (!r.ok) expect(r.error).toMatch(/[ก-๙]/);
+    }
+    rpcMock.mockResolvedValueOnce(fail("primary_locked"));
+    expect(await intakeSetPrimaryPhoto(TOKEN, { idemKey: IDEM, photoId: PH })).toMatchObject({ error: "รูปหลักตั้งโดยออฟฟิศแล้ว — เปลี่ยนไม่ได้ ถ้าต้องแก้ แจ้งออฟฟิศ" });
+  });
+
+  it("ก่อนถึง DB: photoId ผิดรูป · ref ไม่ครบ/ซ้อน · ไม่มี session → ไม่เรียก RPC", async () => {
+    for (const input of [{ idemKey: IDEM, photoId: "nope" }, { photoId: PH }, { idemKey: IDEM, jobId: JOB, photoId: PH }, { idemKey: "short", photoId: PH }]) {
+      expect((await intakeSetPrimaryPhoto(TOKEN, input as never)).ok).toBe(false);
+    }
+    hasSession = false;
+    expect(await intakeSetPrimaryPhoto(TOKEN, { idemKey: IDEM, photoId: PH })).toMatchObject({ ok: false, code: "session_required" });
+    expect(rpcMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("clientPhotoKey — idempotency ของอัปโหลด", () => {
+  const KEY = "dddddddd-dddd-4ddd-8ddd-dddddddddddd";
+  const photoFromList = { id: NEWPH, sm_path: sm(NEWPH), md_path: md(NEWPH), is_primary: true, mine: true };
+
+  it("ส่ง clientPhotoKey → p_client_key ไปทั้ง begin และ add (ตัวพิมพ์เล็ก) · ไม่ส่ง = ไม่มี p_client_key", async () => {
+    expect((await intakeUploadPhoto(TOKEN, form({ extra: { clientPhotoKey: KEY.toUpperCase() } }))).ok).toBe(true);
+    expect((fn("job_worker_photo_begin")[0][1] as Record<string, unknown>).p_client_key).toBe(KEY);
+    expect((fn("job_worker_photo_add")[0][1] as Record<string, unknown>).p_client_key).toBe(KEY);
+    rpcMock.mockClear();
+    expect((await intakeUploadPhoto(TOKEN, form())).ok).toBe(true);
+    expect("p_client_key" in (fn("job_worker_photo_begin")[0][1] as Record<string, unknown>)).toBe(false);
+  });
+
+  it("begin ตอบ already (key เดิมแนบแล้ว) → คืนรูปเดิมจาก list · ไม่อ่านไฟล์ ไม่ upload ไม่ add ไม่ลบ object", async () => {
+    beginResult = { data: { ok: true, already: true, job_id: JOB, shop_id: SHOP, photo_id: NEWPH, count: 1, max: 3 }, error: null };
+    const r = await intakeUploadPhoto(TOKEN, form({ extra: { clientPhotoKey: KEY } }));
+    expect(r).toMatchObject({ ok: true, already: true, count: 1, max: 3, photo: { id: NEWPH, isPrimary: true, mine: true } });
+    expect(uploadMock).not.toHaveBeenCalled();
+    expect(removeMock).not.toHaveBeenCalled();
+    expect(fn("job_worker_photo_add")).toHaveLength(0);
+    expect(fn("job_worker_photo_list")).toHaveLength(1);
+  });
+
+  it("add ตอบ already (ส่งซ้ำพร้อมกัน: รูปเดิม id อื่น) → ลบ object ที่เพิ่งอัป (ของซ้ำ) แล้วคืนรูปเดิม", async () => {
+    addResult = { data: { ok: true, already: true, photo_id: PH2, is_primary: false, count: 1, max: 3 }, error: null };
+    listResult = { data: { ok: true, locked: false, lock_code: null, count: 1, max: 3, photos: [{ ...photoFromList, id: PH2, md_path: md(PH2), sm_path: sm(PH2), is_primary: false }] }, error: null };
+    const r = await intakeUploadPhoto(TOKEN, form({ extra: { clientPhotoKey: KEY } }));
+    expect(r).toMatchObject({ ok: true, already: true, photo: { id: PH2 } });
+    expect(removeMock).toHaveBeenCalledTimes(1);
+    expect(removeMock.mock.calls[0][1]).toEqual([md(NEWPH), sm(NEWPH)]);
+  });
+
+  it("photo_key_used (key ของรูปที่ลบแล้ว/ใบอื่น) จาก begin → ไม่ upload · จาก add → ลบ object · ข้อความไทย", async () => {
+    beginResult = fail("photo_key_used");
+    expect(await intakeUploadPhoto(TOKEN, form({ extra: { clientPhotoKey: KEY } }))).toMatchObject({ ok: false, code: "photo_key_used", error: "รูปนี้ถูกใช้ไปแล้ว — เลือกรูปใหม่" });
+    expect(uploadMock).not.toHaveBeenCalled();
+    beginResult = { data: { ok: true, job_id: JOB, shop_id: SHOP, photo_id: NEWPH, count: 0, max: 3 }, error: null };
+    addResult = fail("photo_key_used");
+    expect(await intakeUploadPhoto(TOKEN, form({ extra: { clientPhotoKey: KEY } }))).toMatchObject({ ok: false, code: "photo_key_used" });
+    expect(removeMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("clientPhotoKey ไม่ใช่ uuid → ปฏิเสธก่อน RPC", async () => {
+    for (const bad of ["abc", "../x", "dddddddd-dddd-4ddd-8ddd-dddddddddddz"]) {
+      expect((await intakeUploadPhoto(TOKEN, form({ extra: { clientPhotoKey: bad } }))).ok, bad).toBe(false);
+    }
+    expect(rpcMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("intakeReissueToken — idemKey", () => {
+  const RAW2 = "Rw9-_xYz0123456789AbCdEfGhIjKlMnOpQrStUvWx";
+  const IK = "reissue-key-0123456789";
+
+  it("ส่ง idemKey → p_idem_key ไป RPC · ไม่ส่ง = ไม่มี p_idem_key (พฤติกรรมเดิม)", async () => {
+    rpcMock.mockResolvedValueOnce({ data: { ok: true, already: false, token: RAW2, print_no: 3, job_no: "JB-0007", job_id: JOB }, error: null });
+    expect(await intakeReissueToken(TOKEN, JOB, IK)).toEqual({ ok: true, already: false, token: RAW2, printNo: 3, jobNo: "JB-0007" });
+    expect((fn("job_worker_token_reissue")[0][1] as Record<string, unknown>).p_idem_key).toBe(IK);
+    rpcMock.mockResolvedValueOnce({ data: { ok: true, already: false, token: RAW2, print_no: 4, job_no: "JB-0007", job_id: JOB }, error: null });
+    await intakeReissueToken(TOKEN, JOB);
+    expect("p_idem_key" in (fn("job_worker_token_reissue")[1][1] as Record<string, unknown>)).toBe(false);
+  });
+
+  it("key เดิมออกไปแล้ว → already:true · token/printNo เป็น null (ไม่เก็บ QR ดิบ ส่งซ้ำไม่ได้)", async () => {
+    rpcMock.mockResolvedValueOnce({ data: { ok: true, already: true, job_no: "JB-0007", job_id: JOB }, error: null });
+    const r = await intakeReissueToken(TOKEN, JOB, IK);
+    expect(r).toEqual({ ok: true, already: true, token: null, printNo: null, jobNo: "JB-0007" });
+  });
+
+  it("already แต่ DB แอบส่ง token มา (ผิดสัญญา) → ข้อความกลาง ไม่ส่งต่อ token · idemKey ผิดรูป → ไม่ถึง RPC", async () => {
+    rpcMock.mockResolvedValueOnce({ data: { ok: true, already: true, token: RAW2, job_no: "JB-0007", job_id: JOB }, error: null });
+    const r = await intakeReissueToken(TOKEN, JOB, IK);
+    expect(r.ok).toBe(false);
+    expect(JSON.stringify(r)).not.toContain(RAW2);
+    rpcMock.mockClear();
+    for (const bad of ["short", "has space 0123456789", "x".repeat(65)]) expect((await intakeReissueToken(TOKEN, JOB, bad)).ok, bad).toBe(false);
+    expect(rpcMock).not.toHaveBeenCalled();
   });
 });
 

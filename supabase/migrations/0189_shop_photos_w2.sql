@@ -46,7 +46,7 @@ create temp table _m189_row_base on commit drop as
 select 'job'::text as t, count(*) as n, coalesce(md5(string_agg(j::text, '|' order by j.id)), '') as h from analytics.job j
 union all select 'job_stage', count(*), coalesce(md5(string_agg(s::text, '|' order by s.id)), '') from analytics.job_stage s
 union all select 'job_event', count(*), coalesce(md5(string_agg(e::text, '|' order by e.id)), '') from analytics.job_event e
-union all select 'job_photo', count(*), coalesce(md5(string_agg(ph::text, '|' order by ph.id)), '') from analytics.job_photo ph
+union all select 'job_photo', count(*), coalesce(md5(string_agg((to_jsonb(ph) - 'client_key')::text, '|' order by ph.id)), '') from analytics.job_photo ph
 union all select 'production_order', count(*), coalesce(md5(string_agg(po::text, '|' order by po.id)), '') from analytics.production_order po
 union all select 'worker', count(*), coalesce(md5(string_agg(w::text, '|' order by w.id)), '') from analytics.worker w
 union all select 'worker_session', count(*), coalesce(md5(string_agg(s::text, '|' order by s.id)), '') from analytics.worker_session s
@@ -101,6 +101,17 @@ begin
        and position('shop_photo_id' in v_def) = 0) then
     raise exception '0189: def ของ job_photo_guard บน DB ไม่ใช่ฉบับ 0182 ที่ลอกมา — มีคนแก้นอก migration · หยุด ห้าม replace ทับ';
   end if;
+  -- job_photo_remove (ออฟฟิศ): ฉบับที่ลอกมา = 0182 (มีข้อความ/ลำดับเฉพาะของ 0182 ครบ · ยังไม่มี reason_required) หรือฉบับ 0189 แล้ว (รันซ้ำ)
+  select count(*) into v_n from pg_proc where pronamespace = 'analytics'::regnamespace and proname = 'job_photo_remove';
+  if v_n <> 1 then
+    raise exception '0189: job_photo_remove มี % signature (ต้องมี 1) — หยุดตรวจ overload ก่อน', v_n;
+  end if;
+  select pg_get_functiondef(p.oid) into v_def from pg_proc p where p.pronamespace = 'analytics'::regnamespace and p.proname = 'job_photo_remove';
+  if position('reason_required' in v_def) = 0 and not (
+       position('ไม่พบรูปนี้ในร้านนี้' in v_def) > 0 and position('job_office_begin(''job_photo_remove''' in v_def) > 0
+       and position('promoted_photo_id' in v_def) > 0 and position('v_next' in v_def) > 0 and position('ถูกลบไปแล้ว' in v_def) > 0) then
+    raise exception '0189: def ของ job_photo_remove บน DB ไม่ใช่ฉบับ 0182 ที่ลอกมา — มีคนแก้นอก migration · หยุด ห้าม replace ทับ';
+  end if;
   raise notice '0189: รูปใบงานเดิม % แถว · ใบผลิตจากหน้างาน % ใบ (ไม่มี UPDATE แถวเดิมในไฟล์นี้)',
     (select count(*) from analytics.job_photo), (select count(*) from analytics.production_order where opened_via = 'shopfloor');
 end;
@@ -117,6 +128,11 @@ create or replace function analytics.job_shopfloor_photo_quota()
  immutable
  set search_path to 'pg_catalog', 'pg_temp'
 as $f$ select jsonb_build_object('shop_bytes_max', 80 * 1024 * 1024, 'worker_24h_max', 60) $f$;
+
+-- idempotency ของการอัปโหลดรูปหน้างาน: uuid ต่อรูปจาก client (clientPhotoKey) — key เดิมของช่างคนเดิม = คืนรูปเดิม ไม่สร้างซ้ำ ไม่อัปซ้ำ · unique ต่อ (ช่าง, key) · ไม่ใช่ id ของรูป (id ยังออกโดย DB เสมอ)
+-- additive: add column (null) ไม่ยิง trigger ไม่ UPDATE แถวเดิม · guard ล็อกไม่ให้แก้ค่านี้ภายหลัง (อยู่ในชุด immutable)
+alter table analytics.job_photo add column if not exists client_key uuid;
+create unique index if not exists uq_job_photo_client_key on analytics.job_photo (worker_id, client_key) where client_key is not null;
 
 -- ต่อช่าง/24 ชม. (นับรวมที่ลบแล้ว) — ให้การนับของ guard/begin ไม่ต้องกวาดทั้งตาราง
 create index if not exists idx_job_photo_shopfloor_worker on analytics.job_photo (worker_id, created_at) where source = 'shopfloor';
@@ -175,9 +191,9 @@ begin
     end if;
   else
     -- UPDATE: แก้ได้เฉพาะ is_primary · sort_order · caption · deleted_at/by/reason · product_image_id เปลี่ยนได้ทางเดียวคือเป็น null (FK on delete set null ตอนแคตตาล็อกลบรูป)
-    if (new.id, new.shop_id, new.job_id, new.kind, new.job_stage_id, new.source, new.storage_path, new.variant_sm_path, new.bytes, new.width, new.height, new.uploaded_by, new.worker_id, new.created_at)
+    if (new.id, new.shop_id, new.job_id, new.kind, new.job_stage_id, new.source, new.storage_path, new.variant_sm_path, new.bytes, new.width, new.height, new.uploaded_by, new.worker_id, new.created_at, new.client_key)
        is distinct from
-       (old.id, old.shop_id, old.job_id, old.kind, old.job_stage_id, old.source, old.storage_path, old.variant_sm_path, old.bytes, old.width, old.height, old.uploaded_by, old.worker_id, old.created_at) then
+       (old.id, old.shop_id, old.job_id, old.kind, old.job_stage_id, old.source, old.storage_path, old.variant_sm_path, old.bytes, old.width, old.height, old.uploaded_by, old.worker_id, old.created_at, old.client_key) then
       raise exception 'analytics.job_photo: ฟิลด์ตัวตน/ไฟล์ของรูปแก้ไม่ได้ (อัปโหลดรูปใหม่แทน)' using errcode = '42501';
     end if;
     if new.product_image_id is distinct from old.product_image_id and new.product_image_id is not null then
@@ -320,7 +336,7 @@ $f$;
 -- ============================================================================
 
 -- begin: ผ่านด่านทุกชั้น "ก่อนแตะ bucket" แล้วออก uuid ให้ server ใช้สร้าง path — ไม่เขียนข้อมูลใด (นอกจากนับถัง rate limit)
-create or replace function analytics.job_worker_photo_begin(p_token_hash text, p_session_hash text, p_idem_key text, p_ip_hash text default null, p_job_id uuid default null)
+create or replace function analytics.job_worker_photo_begin(p_token_hash text, p_session_hash text, p_idem_key text, p_ip_hash text default null, p_job_id uuid default null, p_client_key uuid default null)
  returns jsonb
  language plpgsql
  security definer
@@ -336,6 +352,7 @@ declare
   v_ref   int;
   v_bytes bigint;
   v_day   int;
+  v_ex    analytics.job_photo%rowtype;
 begin
   v_a := analytics.shop_intake_photo_auth(p_token_hash, p_session_hash, p_ip_hash, 'write');
   if not (v_a ->> 'ok')::boolean then
@@ -356,6 +373,16 @@ begin
   end if;
   select count(*) filter (where p.source = 'shopfloor' and p.kind = 'reference'), count(*) filter (where p.kind = 'reference') into v_sf, v_ref
     from analytics.job_photo p where p.job_id = v_job and p.deleted_at is null;
+  -- idempotency (clientPhotoKey): key เดิมของช่างคนเดิม = คืนรูปเดิม (already) — ก่อนเช็คเพดาน/โควตา (รูปเดิมถูกนับอยู่แล้ว ส่งซ้ำต้องสำเร็จ ไม่ใช่ติดเพดาน) · key ที่เคยใช้กับใบอื่น/รูปที่ลบแล้ว = photo_key_used
+  if p_client_key is not null then
+    select * into v_ex from analytics.job_photo p where p.worker_id = v_wid and p.client_key = p_client_key;
+    if found then
+      if v_ex.job_id <> v_job or v_ex.deleted_at is not null then
+        return analytics.job_fail('photo_key_used', 'รูปนี้ถูกใช้ไปแล้ว — เลือกรูปใหม่');
+      end if;
+      return jsonb_build_object('ok', true, 'already', true, 'job_id', v_job, 'shop_id', v_shop, 'photo_id', v_ex.id, 'count', v_sf, 'max', 3);
+    end if;
+  end if;
   if v_sf >= 3 then
     return analytics.job_fail('photo_cap_shopfloor', 'แนบรูปจากหน้างานได้สูงสุด 3 รูปต่อใบ — ลบรูปเก่าก่อนเพิ่ม');
   end if;
@@ -379,7 +406,7 @@ $f$;
 create or replace function analytics.job_worker_photo_add(
   p_token_hash text, p_session_hash text, p_idem_key text, p_photo_id uuid, p_storage_path text, p_variant_sm_path text,
   p_bytes integer, p_width integer default null, p_height integer default null, p_is_primary boolean default false,
-  p_user_agent text default null, p_ip_hash text default null, p_job_id uuid default null)
+  p_user_agent text default null, p_ip_hash text default null, p_job_id uuid default null, p_client_key uuid default null)
  returns jsonb
  language plpgsql
  security definer
@@ -391,6 +418,8 @@ declare
   v_wid     uuid;
   v_job_id  uuid;
   v_job     analytics.job%rowtype;
+  v_ex      analytics.job_photo%rowtype;
+  v_exn     int;
   v_block   jsonb;
   v_prefix  text;
   v_sf      int;
@@ -434,6 +463,17 @@ begin
   if v_block is not null then
     return v_block;
   end if;
+  -- idempotency (clientPhotoKey): ใต้ล็อกแถวใบแล้ว (ส่งซ้ำพร้อมกัน 2 คำขอเรียงคิวที่นี่) — key เดิมของช่างคนเดิมในใบเดียวกัน = คืนรูปเดิม ไม่ INSERT ซ้ำ (server ลบ object ที่เพิ่งอัปซ้ำ) · key ที่เคยใช้กับใบอื่น/รูปที่ลบแล้ว = photo_key_used
+  if p_client_key is not null then
+    select * into v_ex from analytics.job_photo p where p.worker_id = v_wid and p.client_key = p_client_key;
+    if found then
+      if v_ex.job_id <> v_job_id or v_ex.deleted_at is not null then
+        return analytics.job_fail('photo_key_used', 'รูปนี้ถูกใช้ไปแล้ว — เลือกรูปใหม่');
+      end if;
+      select count(*) into v_exn from analytics.job_photo p where p.job_id = v_job_id and p.source = 'shopfloor' and p.kind = 'reference' and p.deleted_at is null;
+      return jsonb_build_object('ok', true, 'already', true, 'photo_id', v_ex.id, 'is_primary', v_ex.is_primary, 'count', v_exn, 'max', 3);
+    end if;
+  end if;
   -- path ต้องตรง <shop>/<job>/<photo_id>_md.jpg|_sm.jpg เป๊ะ (uuid พิมพ์เล็ก — shop/job จาก DB ไม่ใช่ client)
   v_prefix := v_shop::text || '/' || v_job_id::text || '/' || p_photo_id::text;
   if p_storage_path is distinct from v_prefix || '_md.jpg' or p_variant_sm_path is distinct from v_prefix || '_sm.jpg' then
@@ -458,13 +498,16 @@ begin
       v_primary := true;
     end if;
     perform set_config('analytics.shop_photo_id', p_photo_id::text, true);
-    insert into analytics.job_photo (id, shop_id, job_id, kind, source, storage_path, variant_sm_path, bytes, width, height, is_primary, sort_order, worker_id)
-    values (p_photo_id, v_shop, v_job_id, 'reference', 'shopfloor', p_storage_path, p_variant_sm_path, p_bytes, p_width, p_height, v_primary, v_sort, v_wid);
+    insert into analytics.job_photo (id, shop_id, job_id, kind, source, storage_path, variant_sm_path, bytes, width, height, is_primary, sort_order, worker_id, client_key)
+    values (p_photo_id, v_shop, v_job_id, 'reference', 'shopfloor', p_storage_path, p_variant_sm_path, p_bytes, p_width, p_height, v_primary, v_sort, v_wid, p_client_key);
   exception
     when unique_violation then
       get stacked diagnostics v_con = constraint_name;
       if v_con = 'job_photo_one_primary_uq' then
         return analytics.job_fail('photo_conflict', 'รูปหลักของใบเปลี่ยนไปพร้อมกัน — ลองอีกครั้ง');
+      end if;
+      if v_con = 'uq_job_photo_client_key' then
+        return analytics.job_fail('photo_key_used', 'รูปนี้ถูกใช้ไปแล้ว — เลือกรูปใหม่');
       end if;
       return analytics.job_fail('photo_path_dup', 'รูปนี้ถูกบันทึกไปแล้ว — โหลดหน้าใหม่');
     when sqlstate 'P0001' or sqlstate 'P0002' or sqlstate 'P0003' then
@@ -547,6 +590,76 @@ begin
   perform analytics.job_event_write(v_job_id, null, 'photo_remove', analytics.job_today(), null, v_wid, 'worker_qr', analytics.job_device_hint(p_user_agent, p_ip_hash),
     jsonb_build_object('photo_id', p_photo_id, 'source', 'shopfloor'));
   return jsonb_build_object('ok', true, 'storage_path', v_ph.storage_path, 'variant_sm_path', v_ph.variant_sm_path, 'promoted_photo_id', v_next);
+end;
+$f$;
+
+-- set_primary: ผู้จัดการตั้ง "รูปหลัก" หลังอัปโหลดแล้ว (มติ 21 ต.ค.) — ด่านเดียวกับ remove (รูปของตัวเอง · ใบของตัวเอง · ยังไม่มีขั้นถูกรับ) + อ้างใบด้วย idem key หรือ job_id (ต้องเป็นใบเดียวกับรูป)
+-- สลับได้เฉพาะเมื่อ "รูปหลักปัจจุบันเป็นรูปหน้างาน หรือใบยังไม่มีรูปหลัก" — ไม่ล้มรูปหลักที่ออฟฟิศ/แคตตาล็อกตั้งไว้ (มติ A7 เดิม) → primary_locked · เป็นหลักอยู่แล้ว = ok (ไม่ใช่ error · ไม่มี event)
+create or replace function analytics.job_worker_photo_set_primary(p_token_hash text, p_session_hash text, p_photo_id uuid, p_ip_hash text default null, p_idem_key text default null, p_job_id uuid default null)
+ returns jsonb
+ language plpgsql
+ security definer
+ set search_path to 'public', 'analytics', 'extensions', 'pg_temp'
+as $f$
+declare
+  v_a        jsonb;
+  v_shop     uuid;
+  v_wid      uuid;
+  v_job_id   uuid;
+  v_job      analytics.job%rowtype;
+  v_block    jsonb;
+  v_ph       analytics.job_photo%rowtype;
+  v_prim_id  uuid;
+  v_prim_src text;
+begin
+  v_a := analytics.shop_intake_photo_auth(p_token_hash, p_session_hash, p_ip_hash, 'write');
+  if not (v_a ->> 'ok')::boolean then
+    return v_a;
+  end if;
+  v_shop := (v_a ->> 'shop_id')::uuid;
+  v_wid := (v_a ->> 'worker_id')::uuid;
+  if num_nonnulls(p_idem_key, p_job_id) <> 1 or (p_idem_key is not null and p_idem_key !~ '^[A-Za-z0-9_-]{16,64}$') then
+    return analytics.job_fail('idem_invalid', 'ข้อมูลไม่ครบ — โหลดหน้าใหม่แล้วลองอีกครั้ง');
+  end if;
+  if p_photo_id is null then
+    return analytics.job_fail('photo_not_found', 'ไม่พบรูปนี้ — โหลดหน้าใหม่');
+  end if;
+  v_job_id := analytics.job_worker_photo_job(v_shop, v_wid, p_idem_key, p_job_id);
+  if v_job_id is null then
+    return analytics.job_fail('order_not_found', 'ไม่พบใบงานที่เปิดด้วยรหัสนี้ — โหลดหน้าใหม่แล้วลองอีกครั้ง');
+  end if;
+  -- ของคนอื่น/ของออฟฟิศ/รูปแคตตาล็อก/อยู่คนละใบ/ไม่มีจริง = ข้อความเดียวกัน
+  if not exists (select 1 from analytics.job_photo ph
+                  where ph.id = p_photo_id and ph.job_id = v_job_id and ph.shop_id = v_shop and ph.worker_id = v_wid and ph.source = 'shopfloor' and ph.kind = 'reference') then
+    return analytics.job_fail('photo_not_found', 'ไม่พบรูปนี้ — โหลดหน้าใหม่');
+  end if;
+  select * into v_job from analytics.job where id = v_job_id and shop_id = v_shop for update;
+  if not found then
+    return analytics.job_fail('photo_not_found', 'ไม่พบรูปนี้ — โหลดหน้าใหม่');
+  end if;
+  v_block := analytics.job_worker_photo_block(v_job_id);
+  if v_block is not null then
+    return v_block;
+  end if;
+  select * into v_ph from analytics.job_photo where id = p_photo_id for update;
+  if v_ph.deleted_at is not null then
+    return analytics.job_fail('already_deleted', 'รูปนี้ถูกลบไปแล้ว — โหลดหน้าใหม่');
+  end if;
+  if v_ph.is_primary then
+    return jsonb_build_object('ok', true, 'photo_id', p_photo_id, 'is_primary', true, 'changed', false);
+  end if;
+  select p.id, p.source into v_prim_id, v_prim_src from analytics.job_photo p where p.job_id = v_job_id and p.is_primary and p.deleted_at is null;
+  if v_prim_id is not null and v_prim_src <> 'shopfloor' then
+    return analytics.job_fail('primary_locked', 'รูปหลักตั้งโดยออฟฟิศแล้ว — เปลี่ยนไม่ได้ ถ้าต้องแก้ แจ้งออฟฟิศ');
+  end if;
+  -- ล้างตัวเก่าก่อนตั้งตัวใหม่ (partial unique index ตรวจทันทีทุกคำสั่ง)
+  if v_prim_id is not null then
+    update analytics.job_photo set is_primary = false where id = v_prim_id;
+  end if;
+  update analytics.job_photo set is_primary = true where id = p_photo_id;
+  perform analytics.job_event_write(v_job_id, null, 'photo_primary', analytics.job_today(), null, v_wid, 'worker_qr', null,
+    jsonb_build_object('photo_id', p_photo_id, 'previous_photo_id', v_prim_id));
+  return jsonb_build_object('ok', true, 'photo_id', p_photo_id, 'is_primary', true, 'changed', true);
 end;
 $f$;
 
@@ -643,7 +756,7 @@ $f$;
 -- rate limit: ถัง wp: (ร่วมกับรูป) + ถังเฉพาะออก QR wt:<ช่าง> 10/10 นาที (นับหลังพบ session ที่มีสิทธิ์ · ก่อนแตะข้อมูล)
 -- ตัดสินเอง: ไม่เพิกถอน QR เดิม (p_revoke_previous = false) — QR เดิมที่ติดที่ชิ้นงานต้องยังใช้ได้ · เพดาน 5 ใบจึงมีความหมาย (เกิน = token_cap · ออฟฟิศเพิกถอนที่ /jobs/[id]) · ถ้าเจ้าของอยากให้ "ออกใหม่ = เก่าใช้ไม่ได้" เปลี่ยนเป็น true จุดเดียว
 -- คืน raw token ครั้งเดียว (UI วาด QR · ห้าม log/เก็บ) — DB เก็บ sha256 เท่านั้น · event token_issue เขียนโดย core (actor null · worker_id = ช่าง · channel worker_qr)
-create or replace function analytics.job_worker_token_reissue(p_token_hash text, p_session_hash text, p_job_id uuid, p_ip_hash text default null)
+create or replace function analytics.job_worker_token_reissue(p_token_hash text, p_session_hash text, p_job_id uuid, p_ip_hash text default null, p_idem_key text default null)
  returns jsonb
  language plpgsql
  security definer
@@ -658,6 +771,8 @@ declare
   v_po     text;
   v_res    jsonb;
   v_hint   text;
+  v_rk     text;
+  v_win    timestamptz := to_timestamp(floor(extract(epoch from now()) / 600) * 600);
 begin
   v_a := analytics.shop_intake_photo_auth(p_token_hash, p_session_hash, p_ip_hash, 'write');
   if not (v_a ->> 'ok')::boolean then
@@ -667,6 +782,9 @@ begin
   v_wid := (v_a ->> 'worker_id')::uuid;
   if not analytics.job_rate_limit_hit('wt:' || v_wid::text, 10) then
     return analytics.job_fail('rate_limited', 'ส่งถี่เกินไป — รอสักครู่แล้วลองใหม่');
+  end if;
+  if p_idem_key is not null and p_idem_key !~ '^[A-Za-z0-9_-]{16,64}$' then
+    return analytics.job_fail('idem_invalid', 'ข้อมูลไม่ครบ — โหลดหน้าใหม่แล้วลองอีกครั้ง');
   end if;
   v_job_id := analytics.job_worker_photo_job(v_shop, v_wid, null, p_job_id);
   if v_job_id is null then
@@ -685,6 +803,15 @@ begin
   if v_job.status = 'done' or v_po is distinct from 'open' then
     return analytics.job_fail('job_closed', 'ใบนี้ปิดแล้ว — ออก QR ใหม่ไม่ได้');
   end if;
+  -- idempotency (p_idem_key): key เดิมของช่างคนเดิมกับใบนี้ภายใน 10–20 นาที (หน้าต่างปัจจุบัน + ก่อนหน้า) = ไม่ออกใหม่ → already
+  --   🔴 ไม่เก็บ raw token (DB เก็บ sha256 เท่านั้น) จึงส่ง token เดิมซ้ำไม่ได้ — ตอบ already:true ให้หน้าจอบอก "ออกไปแล้ว ถ้าไม่เห็น QR ให้กดออกใหม่อีกครั้ง (key ใหม่)"
+  --   ร่องรอยการเคยออก = แถว ri: ใน worker_rate_limit (key = ช่าง + hash ของ (idem:job) 24 ตัว — ไม่มีค่าดิบ) · เขียนเฉพาะหลังออกสำเร็จ (ล้ม/ติดเพดาน = ไม่เผา key · ลองซ้ำด้วย key เดิมได้)
+  if p_idem_key is not null then
+    v_rk := 'ri:' || v_wid::text || ':' || left(analytics.job_sha256_hex(p_idem_key || ':' || v_job_id::text), 24);
+    if exists (select 1 from analytics.worker_rate_limit r where r.key = v_rk and r.window_start >= v_win - interval '10 minutes') then
+      return jsonb_build_object('ok', true, 'already', true, 'job_no', v_job.job_no, 'job_id', v_job.id);
+    end if;
+  end if;
   begin
     v_res := analytics.job_token_issue_core(v_job, false, null, v_wid, 'traveler', null);
   exception when sqlstate '22023' then
@@ -694,7 +821,61 @@ begin
     end if;
     return analytics.job_fail('token_not_issued', 'ออก QR ไม่ได้ตอนนี้ — แจ้งออฟฟิศ');
   end;
-  return jsonb_build_object('ok', true, 'token', v_res ->> 'token', 'print_no', (v_res ->> 'print_no')::int, 'job_no', v_job.job_no, 'job_id', v_job.id);
+  if v_rk is not null then
+    insert into analytics.worker_rate_limit (key, window_start, hits) values (v_rk, v_win, 1) on conflict (key, window_start) do nothing;
+  end if;
+  return jsonb_build_object('ok', true, 'already', false, 'token', v_res ->> 'token', 'print_no', (v_res ->> 'print_no')::int, 'job_no', v_job.job_no, 'job_id', v_job.id);
+end;
+$f$;
+
+-- ============================================================================
+-- 3.5 job_photo_remove (ออฟฟิศ · replace · signature เดิม) — ลอกเนื้อจาก 0182 (ไม่มี migration ไหนแก้ต่อ · dry-run ยืนยัน md5 ของ def สดเท่ากับ 0182 ก่อนทับ) + เพิ่มเฉพาะ: ลบรูป source='shopfloor' ต้องมีเหตุผล (ผู้จัดการแนบมาเอง — ออฟฟิศลบต้องบอกเหตุผล · มติ 21 ต.ค.)
+--   reason ว่าง/สั้นกว่า 2 ตัวอักษร/ไม่มีตัวอักษรหรือตัวเลขจริง → 22023 hint reason_required (ก่อน UPDATE — แถวไม่ขยับ) · รูปออฟฟิศ/แคตตาล็อก = พฤติกรรมเดิมเป๊ะ (เหตุผลไม่บังคับ)
+-- ============================================================================
+create or replace function analytics.job_photo_remove(p_shop_id uuid, p_photo_id uuid, p_reason text default null, p_actor uuid default null)
+ returns jsonb
+ language plpgsql
+ security definer
+ set search_path to 'public', 'analytics', 'extensions', 'pg_temp'
+as $f$
+declare
+  v_actor  uuid := coalesce(p_actor, auth.uid());
+  v_job_id uuid;
+  v_ph     analytics.job_photo%rowtype;
+  v_reason text;
+  v_next   uuid;
+begin
+  if p_shop_id is null or p_photo_id is null then
+    raise exception 'job_photo_remove: p_shop_id และ p_photo_id จำเป็น' using errcode = '22023';
+  end if;
+  perform analytics.crm_require_owner_admin(p_shop_id);
+  select ph.job_id into v_job_id from analytics.job_photo ph where ph.id = p_photo_id and ph.shop_id = p_shop_id;
+  if v_job_id is null then
+    raise exception 'ไม่พบรูปนี้ในร้านนี้' using errcode = '22023', hint = 'photo_not_found';
+  end if;
+  perform analytics.job_office_begin('job_photo_remove', p_shop_id, v_job_id, v_actor, true);
+  select * into v_ph from analytics.job_photo where id = p_photo_id for update;
+  if v_ph.deleted_at is not null then
+    raise exception 'รูปนี้ถูกลบไปแล้ว' using errcode = '22023', hint = 'already_deleted';
+  end if;
+  v_reason := analytics.job_text_clean(p_reason, 'เหตุผลที่ลบรูป', 300, false);
+  -- 0189: รูปที่ผู้จัดการแนบจากหน้างาน — ออฟฟิศลบต้องมีเหตุผลที่มีตัวอักษร/ตัวเลขจริง ≥ 2 ตัว (whitelist ตามข้อ 6.2 ของ oem-invariants: ห้าม blacklist)
+  if v_ph.source = 'shopfloor' and (v_reason is null or length(v_reason) < 2 or not analytics.oem_note_present(v_reason)) then
+    raise exception 'ลบรูปที่ผู้จัดการแนบจากหน้างานต้องระบุเหตุผล (อย่างน้อย 2 ตัวอักษร)' using errcode = '22023', hint = 'reason_required';
+  end if;
+  update analytics.job_photo set deleted_at = now(), deleted_by = v_actor, delete_reason = v_reason, is_primary = false where id = p_photo_id;
+  -- ลบรูปหลัก ⇒ เลื่อนรูป active ถัดไปขึ้นเป็นหลัก (ใบที่ยังมีรูปต้องมีรูปหลักเสมอ)
+  if v_ph.is_primary then
+    select p.id into v_next from analytics.job_photo p
+     where p.job_id = v_ph.job_id and p.deleted_at is null and p.kind = 'reference' order by p.sort_order, p.created_at, p.id limit 1;
+    if v_next is not null then
+      update analytics.job_photo set is_primary = true where id = v_next;
+    end if;
+  end if;
+  perform analytics.job_event_write(v_ph.job_id, null, 'photo_remove', analytics.job_today(), v_actor, null, 'job_page', null,
+    jsonb_build_object('photo_id', p_photo_id, 'reason', v_reason));
+  -- path ส่งกลับให้ server ลบ object ใน bucket (ไปถึง client ไม่ได้ — server action ไม่ส่งต่อ)
+  return jsonb_build_object('ok', true, 'storage_path', v_ph.storage_path, 'variant_sm_path', v_ph.variant_sm_path, 'promoted_photo_id', v_next);
 end;
 $f$;
 
@@ -706,8 +887,8 @@ declare
   r record;
   v_touched constant text[] := array[
     'job_photo_guard', 'job_shopfloor_photo_quota', 'shop_intake_photo_auth', 'job_worker_photo_job', 'job_worker_photo_block',
-    'job_worker_photo_begin', 'job_worker_photo_add', 'job_worker_photo_remove', 'job_worker_photo_list', 'job_worker_my_intake_list', 'job_worker_token_reissue'];
-  v_rpc constant text[] := array['job_worker_photo_begin', 'job_worker_photo_add', 'job_worker_photo_remove', 'job_worker_photo_list', 'job_worker_my_intake_list', 'job_worker_token_reissue'];
+    'job_worker_photo_begin', 'job_worker_photo_add', 'job_worker_photo_remove', 'job_worker_photo_list', 'job_worker_my_intake_list', 'job_worker_token_reissue', 'job_worker_photo_set_primary', 'job_photo_remove'];
+  v_rpc constant text[] := array['job_worker_photo_begin', 'job_worker_photo_add', 'job_worker_photo_remove', 'job_worker_photo_list', 'job_worker_my_intake_list', 'job_worker_token_reissue', 'job_worker_photo_set_primary', 'job_photo_remove'];
   v_n int;
 begin
   for r in
@@ -735,8 +916,8 @@ do $c$
 declare
   v_changed text;
   v_new text;
-  v_touched constant text[] := array['job_photo_guard'];
-  v_added constant text[] := array['job_shopfloor_photo_quota', 'shop_intake_photo_auth', 'job_worker_photo_job', 'job_worker_photo_block', 'job_worker_photo_begin', 'job_worker_photo_add', 'job_worker_photo_remove', 'job_worker_photo_list', 'job_worker_my_intake_list', 'job_worker_token_reissue'];
+  v_touched constant text[] := array['job_photo_guard', 'job_photo_remove'];
+  v_added constant text[] := array['job_worker_photo_set_primary', 'job_shopfloor_photo_quota', 'shop_intake_photo_auth', 'job_worker_photo_job', 'job_worker_photo_block', 'job_worker_photo_begin', 'job_worker_photo_add', 'job_worker_photo_remove', 'job_worker_photo_list', 'job_worker_my_intake_list', 'job_worker_token_reissue'];
 begin
   -- (1) ฟังก์ชันเดิมนอกรายการ md5 ต้องเท่าเดิมเป๊ะ (ทุกตัวในสคีมา — รวม job_photo_enforce_cap · job_photo_add · job_worker_resolve · production_order_done)
   select string_agg(b.sig, ', ') into v_changed
@@ -752,6 +933,9 @@ begin
                     and position('photo_budget_shopfloor' in pg_get_functiondef(p.oid)) > 0 and position('photo_daily_cap' in pg_get_functiondef(p.oid)) > 0) then
     raise exception '0189: job_photo_guard ยังไม่ใช่ฉบับ 0189';
   end if;
+  if not exists (select 1 from pg_proc p where p.pronamespace = 'analytics'::regnamespace and p.proname = 'job_photo_remove' and position('reason_required' in pg_get_functiondef(p.oid)) > 0) then
+    raise exception '0189: job_photo_remove ยังไม่ใช่ฉบับ 0189';
+  end if;
   select string_agg(p.oid::regprocedure::text, ', ') into v_new
     from pg_proc p
    where p.pronamespace = 'analytics'::regnamespace and p.prokind = 'f'
@@ -766,7 +950,7 @@ begin
     join (select 'job'::text as t, count(*) as n, coalesce(md5(string_agg(j::text, '|' order by j.id)), '') as h from analytics.job j
           union all select 'job_stage', count(*), coalesce(md5(string_agg(s::text, '|' order by s.id)), '') from analytics.job_stage s
           union all select 'job_event', count(*), coalesce(md5(string_agg(e::text, '|' order by e.id)), '') from analytics.job_event e
-          union all select 'job_photo', count(*), coalesce(md5(string_agg(ph::text, '|' order by ph.id)), '') from analytics.job_photo ph
+          union all select 'job_photo', count(*), coalesce(md5(string_agg((to_jsonb(ph) - 'client_key')::text, '|' order by ph.id)), '') from analytics.job_photo ph
           union all select 'production_order', count(*), coalesce(md5(string_agg(po::text, '|' order by po.id)), '') from analytics.production_order po
           union all select 'worker', count(*), coalesce(md5(string_agg(w::text, '|' order by w.id)), '') from analytics.worker w
           union all select 'worker_session', count(*), coalesce(md5(string_agg(s::text, '|' order by s.id)), '') from analytics.worker_session s
@@ -794,7 +978,7 @@ begin
   select string_agg(p.proname, ', ') into v_new
     from pg_proc p
    where p.pronamespace = 'analytics'::regnamespace and p.proname = any (v_added)
-     and (has_function_privilege('service_role', p.oid, 'execute')) <> (p.proname in ('job_worker_photo_begin', 'job_worker_photo_add', 'job_worker_photo_remove', 'job_worker_photo_list', 'job_worker_my_intake_list', 'job_worker_token_reissue'));
+     and (has_function_privilege('service_role', p.oid, 'execute')) <> (p.proname in ('job_worker_photo_begin', 'job_worker_photo_add', 'job_worker_photo_remove', 'job_worker_photo_list', 'job_worker_my_intake_list', 'job_worker_token_reissue', 'job_worker_photo_set_primary'));
   if v_new is not null then
     raise exception '0189: สิทธิ์ service_role ของฟังก์ชันใหม่ผิด (RPC ช่างต้อง execute ได้ · helper ต้องไม่ได้): %', v_new;
   end if;
@@ -803,9 +987,9 @@ begin
 end;
 $c$;
 
-comment on function analytics.job_worker_photo_begin(text, text, text, text, uuid) is
+comment on function analytics.job_worker_photo_begin(text, text, text, text, uuid, uuid) is
   '0189 W2: ผ่านด่านทุกชั้น (QR ร้าน + session ผู้จัดการ + ใบที่ช่างคนนี้เปิดเอง + ยังไม่มีขั้นถูกรับ + เพดาน 3/5) ก่อน server แตะ bucket · ออก uuid ให้ path · ไม่เขียนข้อมูล';
-comment on function analytics.job_worker_photo_add(text, text, text, uuid, text, text, integer, integer, integer, boolean, text, text, uuid) is
+comment on function analytics.job_worker_photo_add(text, text, text, uuid, text, text, integer, integer, integer, boolean, text, text, uuid, uuid) is
   '0189 W2: ลงทะเบียนรูป source=shopfloor (ตรวจทุกด่านซ้ำใต้ล็อกแถวใบ · path ต้องตรง <shop>/<job>/<photo_id>) · guard บน job_photo บังคับว่า INSERT shopfloor มาจากฟังก์ชันนี้เท่านั้น (GUC)';
 comment on function analytics.job_worker_photo_remove(text, text, uuid, text, text) is
   '0189 W2: ลบรูปของตัวเองจนช่างเริ่มรับงาน (soft delete · event photo_remove actor=ช่าง) · คืน path ให้ server ลบ object';

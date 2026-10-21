@@ -14,6 +14,9 @@
 --   token ร้าน revoked                        -> B6 · mutant MU9
 --   session หมดอายุ/เพิกถอน(ออกจากระบบ)/ข้ามร้าน/ไม่มี/ช่างถูกปิดใช้ -> B7b (หมดอายุ expires_at) · B7 (เพิกถอน) · B7c (null/hash ผิดรูป · token ผิดรูป) · B7d (is_active=false) · B7e (ข้ามร้าน) · mutant MU8 MU10 MU27 (expires_at) MU28 (is_active)
 --   โควตาหน้างาน M1 (security 21 ต.ค.)        -> M1a M1a2 (พื้นที่รวมต่อร้านที่ add + ขอบ) M1b (begin ปฏิเสธเมื่อเต็ม) M1c (ลบคืนพื้นที่) M1e (กำแพง guard ตรง) M1f (ร้านอื่นไม่โดน) · M1d1 M1d M1d2 M1d3 (ต่อช่าง/24 ชม. · นับรวมที่ลบ · หน้าต่างเวลา) · mutant MU22-MU26
+--  set_primary หลังส่ง -> SP1 SP2 SP3 SP3b (รูปคนละใบ) SP4 (primary_locked) SP5 (ไม่มีหลัก) SP6 (ช่างรับแล้ว) SP7 (cancelled) SP8 (ถอนสิทธิ์/QR revoked) SP10 (รูปออฟฟิศ) · mutant MU31-MU33
+--  clientPhotoKey (idempotency อัปโหลด) -> CK1-CK8 · mutant MU34 MU35 · token_reissue idem -> RI1-RI8 (ไม่เก็บ raw token) · mutant MU36-MU38
+--  ออฟฟิศลบรูป shopfloor ต้องมีเหตุผล (job_photo_remove) -> RR1 RR2 RR3 (ต้องไม่พัง: รูปออฟฟิศไม่บังคับ) · mutant MU39 MU40 · ❌ ไม่มีเทสต์ SQL: การดักข้อความ/UI ฝั่งออฟฟิศ (TS: job-photos.test.ts)
 --   L1 ล็อกก่อนนับเพดาน (ลำดับล็อกในนิยาม) -> L1 · mutant MU29 · L2 นับเฉพาะ kind=reference -> L2 · mutant MU30
 --   can_open_job=false หลังเปิดใบ              -> B8 B8c (ช่างทั่วไป) · mutant MU6 · list ว่าง H8
 --   path ไม่ตรง photo_id/ใบ/ร้าน               -> B9 (8 แบบ) B9b · mutant MU5 · (กำแพงที่สามคือ CHECK job_photo_path_ck: B9c)
@@ -314,7 +317,8 @@ create function pg_temp.nph_all(p_shop uuid) returns int language sql as $c$ sel
 -- ล้างถังจำกัดอัตราก่อนทุกครั้งที่เรียก (เคสที่วัด rate limit ส่ง rl=1 เพื่อไม่ให้ล้าง)
 create function pg_temp.rlclear(p jsonb) returns void language plpgsql as $c$
 begin
-  if coalesce(p ->> 'rl', '0') <> '1' then delete from analytics.worker_rate_limit; end if;
+  -- ล้างถังจำกัดอัตรา "ยกเว้นร่องรอย idempotency ของออก QR (ri:)" — เคส idem ของ token_reissue ต้องมีร่องรอยข้ามคำเรียก
+  if coalesce(p ->> 'rl', '0') <> '1' then delete from analytics.worker_rate_limit where key not like 'ri:%'; end if;
 end;
 $c$;
 -- p: {job: uuid อ้างใบด้วย job_id · ip · rl}
@@ -322,7 +326,7 @@ create function pg_temp.pb(p_sess text, p_idem text, p jsonb default '{}'::jsonb
  language plpgsql as $c$
 begin
   perform pg_temp.rlclear(p);
-  return pg_temp.q(format('select analytics.job_worker_photo_begin(%L, %L, %L, %L, %L)', coalesce(p_tokh, pg_temp.th()), p_sess, p_idem, p ->> 'ip', p ->> 'job'));
+  return pg_temp.q(format('select analytics.job_worker_photo_begin(%L, %L, %L, %L, %L, %L)', coalesce(p_tokh, pg_temp.th()), p_sess, p_idem, p ->> 'ip', p ->> 'job', p ->> 'key'));
 end;
 $c$;
 -- p: {md · sm · bytes · w · h · prim · job · ip · rl}
@@ -330,9 +334,9 @@ create function pg_temp.pa(p_sess text, p_idem text, p_pid uuid, p_shop uuid, p_
  language plpgsql as $c$
 begin
   perform pg_temp.rlclear(p);
-  return pg_temp.q(format('select analytics.job_worker_photo_add(%L, %L, %L, %L, %L, %L, %L, %L, %L, %L, %L, %L, %L)',
+  return pg_temp.q(format('select analytics.job_worker_photo_add(%L, %L, %L, %L, %L, %L, %L, %L, %L, %L, %L, %L, %L, %L)',
     coalesce(p_tokh, pg_temp.th()), p_sess, p_idem, p_pid, coalesce(p ->> 'md', pg_temp.pmd(p_shop, p_job, p_pid)), coalesce(p ->> 'sm', pg_temp.psm(p_shop, p_job, p_pid)),
-    coalesce(p ->> 'bytes', '1000'), coalesce(p ->> 'w', '1200'), coalesce(p ->> 'h', '800'), coalesce(p ->> 'prim', 'false'), 'verify-ua/1.0', p ->> 'ip', p ->> 'job'));
+    coalesce(p ->> 'bytes', '1000'), coalesce(p ->> 'w', '1200'), coalesce(p ->> 'h', '800'), coalesce(p ->> 'prim', 'false'), 'verify-ua/1.0', p ->> 'ip', p ->> 'job', p ->> 'key'));
 end;
 $c$;
 create function pg_temp.prm(p_sess text, p_pid uuid, p jsonb default '{}'::jsonb, p_tokh text default null) returns jsonb
@@ -356,11 +360,22 @@ begin
   return pg_temp.q(format('select analytics.job_worker_my_intake_list(%L, %L, %L)', coalesce(p_tokh, pg_temp.th()), p_sess, p ->> 'ip'));
 end;
 $c$;
+-- ตั้งรูปหลัก: p = {idem | job · ip · rl}
+create function pg_temp.psp(p_sess text, p_photo uuid, p jsonb default '{}'::jsonb, p_tokh text default null) returns jsonb
+ language plpgsql as $c$
+begin
+  perform pg_temp.rlclear(p);
+  return pg_temp.q(format('select analytics.job_worker_photo_set_primary(%L, %L, %L, %L, %L, %L)', coalesce(p_tokh, pg_temp.th()), p_sess, p_photo, p ->> 'ip', p ->> 'idem', p ->> 'job'));
+end;
+$c$;
+-- ออฟฟิศลบรูป (RPC เดิม job_photo_remove)
+create function pg_temp.offrm(p_shop uuid, p_photo uuid, p_reason text) returns jsonb
+ language sql as $c$ select pg_temp.q(format('select analytics.job_photo_remove(%L, %L, %L, %L)', p_shop, p_photo, p_reason, pg_temp.act())) $c$;
 create function pg_temp.trs(p_sess text, p_job uuid, p jsonb default '{}'::jsonb, p_tokh text default null) returns jsonb
  language plpgsql as $c$
 begin
   perform pg_temp.rlclear(p);
-  return pg_temp.q(format('select analytics.job_worker_token_reissue(%L, %L, %L, %L)', coalesce(p_tokh, pg_temp.th()), p_sess, p_job, p ->> 'ip'));
+  return pg_temp.q(format('select analytics.job_worker_token_reissue(%L, %L, %L, %L, %L)', coalesce(p_tokh, pg_temp.th()), p_sess, p_job, p ->> 'ip', p ->> 'idem'));
 end;
 $c$;
 -- เปิดใบแบบไม่มี SKU ด้วย idem ที่กำหนด (ช่าง = session ที่ส่งมา) → {job, po, item, job_no, token, ...}
@@ -401,7 +416,7 @@ declare
   tokb text := pg_temp.kv('tokh_b');
   o jsonb; o2 jsonb; oo jsonb; r jsonb; r2 jsonb; r3 jsonb; l jsonb; rc jsonb;
   j uuid; j2 uuid; ik text; ik2 text; p1 uuid; p2 uuid; p3 uuid; p4 uuid; pid uuid; q1 uuid;
-  n0 int; n1 int; st text; t text; ev analytics.job_event; s text; def text; k int; bad text; stg uuid; sid uuid;
+  n0 int; n1 int; st text; t text; ev analytics.job_event; s text; def text; k int; bad text; stg uuid; sid uuid; ck uuid; ck2 uuid; kk text; kc text;
 begin
   -- A. ใช้งานปกติ + เพดาน 3 รูป/ใบ
   begin
@@ -929,6 +944,176 @@ begin
     if sqlerrm <> 'rb_189' then v := v || pg_temp.chk('L2-crash', sqlstate || ' ' || sqlerrm, false); end if;
   end;
 
+  -- SP. ตั้งรูปหลักหลังส่งแล้ว (job_worker_photo_set_primary)
+  begin
+    ik := pg_temp.ik(); o := pg_temp.open_ik(ik); j := (o ->> 'job')::uuid;
+    p1 := (pg_temp.pb(sM, ik) ->> 'photo_id')::uuid; perform pg_temp.pa(sM, ik, p1, a, j);
+    p2 := (pg_temp.pb(sM, ik) ->> 'photo_id')::uuid; perform pg_temp.pa(sM, ik, p2, a, j);
+    r := pg_temp.psp(sM, p2, jsonb_build_object('idem', ik));
+    select * into ev from pg_temp.ev(j, 'photo_primary') limit 1;
+    v := v || pg_temp.chk('SP1', 'ตั้งรูปที่ 2 เป็นหลัก (หลักเดิมเป็นของหน้างาน) → ok changed true · หลักมีตัวเดียว = รูปที่ 2 · event photo_primary actor null worker M ช่อง worker_qr · previous = รูปที่ 1',
+      r ->> 'ok' = 'true' and (r ->> 'changed')::boolean and (select count(*) from analytics.job_photo x where x.job_id = j and x.is_primary and x.deleted_at is null) = 1
+      and (select x.id from analytics.job_photo x where x.job_id = j and x.is_primary and x.deleted_at is null) = p2
+      and ev.actor is null and ev.worker_id = wM and ev.channel = 'worker_qr' and (ev.payload ->> 'previous_photo_id')::uuid = p1);
+    n0 := (select count(*)::int from pg_temp.ev(j, 'photo_primary'));
+    r2 := pg_temp.psp(sM, p2, jsonb_build_object('job', j));
+    v := v || pg_temp.chk('SP2', 'เป็นหลักอยู่แล้ว → ok changed false · ไม่มี event เพิ่ม · อ้างด้วย job_id ได้', r2 ->> 'ok' = 'true' and not (r2 ->> 'changed')::boolean and (select count(*)::int from pg_temp.ev(j, 'photo_primary')) = n0);
+    st := coalesce(pg_temp.psp(sM2, p1, jsonb_build_object('idem', ik)) ->> 'code', '-') || ',' || coalesce(pg_temp.psp(sM2, p1, jsonb_build_object('job', j)) ->> 'code', '-') || ','
+       || coalesce(pg_temp.psp(sM, p1, jsonb_build_object('idem', ik, 'job', j)) ->> 'code', '-') || ',' || coalesce(pg_temp.psp(sM, p1) ->> 'code', '-') || ','
+       || coalesce(pg_temp.psp(sM, gen_random_uuid(), jsonb_build_object('idem', ik)) ->> 'code', '-') || ',' || coalesce(pg_temp.psp(sM, null, jsonb_build_object('idem', ik)) ->> 'code', '-');
+    v := v || pg_temp.chk('SP3', 'ช่างอื่น (ใช้ idem/job ของ M) · ส่ง ref ทั้งสอง/ไม่ส่ง · รูปไม่มีจริง · photo null → ปฏิเสธ · หลักไม่ขยับ · ได้: ' || st,
+      st = 'order_not_found,order_not_found,idem_invalid,idem_invalid,photo_not_found,photo_not_found' and (select x.id from analytics.job_photo x where x.job_id = j and x.is_primary and x.deleted_at is null) = p2);
+    o2 := pg_temp.open_ik(pg_temp.ik()); j2 := (o2 ->> 'job')::uuid; ik2 := pg_temp.ik();
+    v := v || pg_temp.chk('SP3b', 'รูปของใบ A แต่ ref ชี้ใบ B (ของตัวเองทั้งคู่) → photo_not_found', (pg_temp.psp(sM, p1, jsonb_build_object('job', j2)) ->> 'code') = 'photo_not_found');
+    p3 := gen_random_uuid(); perform pg_temp.offadd(a, j, p3);
+    v := v || pg_temp.chk('SP10', 'ตั้ง "รูปออฟฟิศ" ในใบตัวเองเป็นหลัก → photo_not_found (ตั้งได้เฉพาะรูปหน้างานของตัวเอง)', (pg_temp.psp(sM, p3, jsonb_build_object('idem', ik)) ->> 'code') = 'photo_not_found');
+    raise exception 'rb_189';
+  exception when others then
+    if sqlerrm <> 'rb_189' then v := v || pg_temp.chk('SP-crash', sqlstate || ' ' || sqlerrm, false); end if;
+  end;
+  begin
+    -- หลักปัจจุบันเป็นของออฟฟิศ → primary_locked · ไม่มีรูปหลักเลย → ตั้งได้
+    ik := pg_temp.ik(); o := pg_temp.open_ik(ik); j := (o ->> 'job')::uuid; p3 := gen_random_uuid(); perform pg_temp.offadd(a, j, p3);
+    p1 := (pg_temp.pb(sM, ik) ->> 'photo_id')::uuid; perform pg_temp.pa(sM, ik, p1, a, j);
+    r := pg_temp.psp(sM, p1, jsonb_build_object('idem', ik));
+    v := v || pg_temp.chk('SP4', 'หลักปัจจุบันเป็นของออฟฟิศ → primary_locked · หลักยังเป็นรูปออฟฟิศ (มติ A7) · ได้: ' || coalesce(r ->> 'code', '-'),
+      r ->> 'code' = 'primary_locked' and (select x.id from analytics.job_photo x where x.job_id = j and x.is_primary and x.deleted_at is null) = p3);
+    update analytics.job_photo set is_primary = false where job_id = j and is_primary;
+    r := pg_temp.psp(sM, p1, jsonb_build_object('idem', ik));
+    v := v || pg_temp.chk('SP5', 'ใบไม่มีรูปหลักเลย → ตั้งได้ (changed true)', r ->> 'ok' = 'true' and (r ->> 'changed')::boolean and (select x.id from analytics.job_photo x where x.job_id = j and x.is_primary and x.deleted_at is null) = p1);
+    raise exception 'rb_189';
+  exception when others then
+    if sqlerrm <> 'rb_189' then v := v || pg_temp.chk('SP4-crash', sqlstate || ' ' || sqlerrm, false); end if;
+  end;
+  begin
+    ik := pg_temp.ik(); o := pg_temp.open_ik(ik); j := (o ->> 'job')::uuid;
+    p1 := (pg_temp.pb(sM, ik) ->> 'photo_id')::uuid; perform pg_temp.pa(sM, ik, p1, a, j);
+    p2 := (pg_temp.pb(sM, ik) ->> 'photo_id')::uuid; perform pg_temp.pa(sM, ik, p2, a, j);
+    perform pg_temp.rcv(a, j);
+    v := v || pg_temp.chk('SP6', 'ช่างรับงานแล้ว → job_locked · หลักไม่ขยับ · received = ' || pg_temp.received(j)::text,
+      pg_temp.received(j) and (pg_temp.psp(sM, p2, jsonb_build_object('idem', ik)) ->> 'code') = 'job_locked' and (select x.id from analytics.job_photo x where x.job_id = j and x.is_primary and x.deleted_at is null) = p1);
+    raise exception 'rb_189';
+  exception when others then
+    if sqlerrm <> 'rb_189' then v := v || pg_temp.chk('SP6-crash', sqlstate || ' ' || sqlerrm, false); end if;
+  end;
+  begin
+    ik := pg_temp.ik(); o := pg_temp.open_ik(ik); j := (o ->> 'job')::uuid;
+    p1 := (pg_temp.pb(sM, ik) ->> 'photo_id')::uuid; perform pg_temp.pa(sM, ik, p1, a, j);
+    p2 := (pg_temp.pb(sM, ik) ->> 'photo_id')::uuid; perform pg_temp.pa(sM, ik, p2, a, j);
+    perform analytics.job_cancel(a, j, 'verify W2 SP7', pg_temp.act());
+    v := v || pg_temp.chk('SP7', 'ใบ cancelled → job_cancelled', (pg_temp.psp(sM, p2, jsonb_build_object('idem', ik)) ->> 'code') = 'job_cancelled');
+    raise exception 'rb_189';
+  exception when others then
+    if sqlerrm <> 'rb_189' then v := v || pg_temp.chk('SP7-crash', sqlstate || ' ' || sqlerrm, false); end if;
+  end;
+  begin
+    ik := pg_temp.ik(); o := pg_temp.open_ik(ik); j := (o ->> 'job')::uuid;
+    p1 := (pg_temp.pb(sM, ik) ->> 'photo_id')::uuid; perform pg_temp.pa(sM, ik, p1, a, j);
+    p2 := (pg_temp.pb(sM, ik) ->> 'photo_id')::uuid; perform pg_temp.pa(sM, ik, p2, a, j);
+    perform pg_temp.wu(a, 'ZZ-M ผู้จัดการ', null, wM, '{qc}', false, null);
+    st := coalesce(pg_temp.psp(sM, p2, jsonb_build_object('idem', ik)) ->> 'code', '-');
+    perform pg_temp.wu(a, 'ZZ-M ผู้จัดการ', null, wM, '{qc}', true, null);
+    perform analytics.shop_intake_token_revoke(a, pg_temp.act());
+    v := v || pg_temp.chk('SP8', 'ถอน can_open_job → not_allowed · QR ร้าน revoked → invalid_token · หลักไม่ขยับ · ได้: ' || st,
+      st = 'not_allowed' and (pg_temp.psp(sM, p2, jsonb_build_object('idem', ik)) ->> 'code') = 'invalid_token' and (select x.id from analytics.job_photo x where x.job_id = j and x.is_primary and x.deleted_at is null) = p1);
+    raise exception 'rb_189';
+  exception when others then
+    if sqlerrm <> 'rb_189' then v := v || pg_temp.chk('SP8-crash', sqlstate || ' ' || sqlerrm, false); end if;
+  end;
+
+  -- CK. clientPhotoKey (idempotency ของอัปโหลด)
+  begin
+    ik := pg_temp.ik(); o := pg_temp.open_ik(ik); j := (o ->> 'job')::uuid; ck := gen_random_uuid();
+    r := pg_temp.pb(sM, ik, jsonb_build_object('key', ck)); p1 := (r ->> 'photo_id')::uuid;
+    r2 := pg_temp.pa(sM, ik, p1, a, j, jsonb_build_object('key', ck));
+    v := v || pg_temp.chk('CK1', 'begin + add พร้อม key → ok (ไม่ใช่ already) · แถวเก็บ client_key', r ->> 'ok' = 'true' and r ->> 'already' is null and r2 ->> 'ok' = 'true' and r2 ->> 'already' is null
+      and (select x.client_key from analytics.job_photo x where x.id = p1) = ck);
+    r := pg_temp.pb(sM, ik, jsonb_build_object('key', ck));
+    v := v || pg_temp.chk('CK2', 'begin ซ้ำ key เดิม → already:true photo_id เดิม (ไม่ออก id ใหม่) · ไม่เกิดแถว', r ->> 'ok' = 'true' and (r ->> 'already')::boolean and (r ->> 'photo_id')::uuid = p1 and pg_temp.nph(j) = 1);
+    p4 := gen_random_uuid();
+    r2 := pg_temp.pa(sM, ik, p4, a, j, jsonb_build_object('key', ck));
+    v := v || pg_temp.chk('CK3', 'add ซ้ำ key เดิม (photo id/path ใหม่) → already:true คืนรูปเดิม · ไม่ INSERT ซ้ำ · ไม่มีแถว id ใหม่', r2 ->> 'ok' = 'true' and (r2 ->> 'already')::boolean and (r2 ->> 'photo_id')::uuid = p1
+      and pg_temp.nph(j) = 1 and not exists (select 1 from analytics.job_photo x where x.id = p4));
+    p2 := (pg_temp.pb(sM, ik) ->> 'photo_id')::uuid; perform pg_temp.pa(sM, ik, p2, a, j);
+    p3 := (pg_temp.pb(sM, ik) ->> 'photo_id')::uuid; perform pg_temp.pa(sM, ik, p3, a, j);
+    v := v || pg_temp.chk('CK4', 'ใบครบ 3 รูปแล้ว: begin key เดิม → already (ไม่ติดเพดาน) · key ใหม่ → photo_cap_shopfloor',
+      (pg_temp.pb(sM, ik, jsonb_build_object('key', ck)) ->> 'already') = 'true' and (pg_temp.pb(sM, ik, jsonb_build_object('key', gen_random_uuid())) ->> 'code') = 'photo_cap_shopfloor');
+    perform pg_temp.prm(sM, p1);
+    v := v || pg_temp.chk('CK5', 'รูปที่ลบแล้วใช้ key เดิมซ้ำ → photo_key_used ทั้ง begin และ add · ไม่คืนชีพรูป',
+      (pg_temp.pb(sM, ik, jsonb_build_object('key', ck)) ->> 'code') = 'photo_key_used' and (pg_temp.pa(sM, ik, gen_random_uuid(), a, j, jsonb_build_object('key', ck)) ->> 'code') = 'photo_key_used'
+      and exists (select 1 from analytics.job_photo x where x.id = p1 and x.deleted_at is not null));
+    raise exception 'rb_189';
+  exception when others then
+    if sqlerrm <> 'rb_189' then v := v || pg_temp.chk('CK-crash', sqlstate || ' ' || sqlerrm, false); end if;
+  end;
+  begin
+    ik := pg_temp.ik(); o := pg_temp.open_ik(ik); j := (o ->> 'job')::uuid; ik2 := pg_temp.ik(); o2 := pg_temp.open_ik(ik2); j2 := (o2 ->> 'job')::uuid; ck2 := gen_random_uuid();
+    r := pg_temp.pb(sM, ik, jsonb_build_object('key', ck2)); perform pg_temp.pa(sM, ik, (r ->> 'photo_id')::uuid, a, j, jsonb_build_object('key', ck2));
+    v := v || pg_temp.chk('CK6', 'key เดียวกันใช้กับอีกใบของช่างเดียวกัน → photo_key_used ทั้ง begin และ add',
+      (pg_temp.pb(sM, ik2, jsonb_build_object('key', ck2)) ->> 'code') = 'photo_key_used' and (pg_temp.pa(sM, ik2, gen_random_uuid(), a, j2, jsonb_build_object('key', ck2)) ->> 'code') = 'photo_key_used');
+    ik2 := pg_temp.ik(); o2 := pg_temp.open_ik(ik2, sM2); j2 := (o2 ->> 'job')::uuid;
+    r2 := pg_temp.pb(sM2, ik2, jsonb_build_object('key', ck2));
+    v := v || pg_temp.chk('CK7', 'ต้องไม่พัง: ช่างอื่น (M2) ใช้ key เดียวกันได้ (unique ต่อช่าง) → ok ใหม่', r2 ->> 'ok' = 'true' and r2 ->> 'already' is null
+      and (pg_temp.pa(sM2, ik2, (r2 ->> 'photo_id')::uuid, a, j2, jsonb_build_object('key', ck2)) ->> 'ok') = 'true');
+    st := pg_temp.err(format('update analytics.job_photo set client_key = %L where job_id = %L and client_key is not null', gen_random_uuid(), j));
+    v := v || pg_temp.chk('CK8', 'client_key แก้ภายหลังไม่ได้ (guard) → 42501 · ได้: ' || st, st like '42501%');
+    raise exception 'rb_189';
+  exception when others then
+    if sqlerrm <> 'rb_189' then v := v || pg_temp.chk('CK6-crash', sqlstate || ' ' || sqlerrm, false); end if;
+  end;
+
+  -- RI. idempotency ของ "ออก QR ใหม่" (ไม่เก็บ raw token)
+  begin
+    ik := pg_temp.ik(); o := pg_temp.open_ik(ik); j := (o ->> 'job')::uuid; kk := pg_temp.ik(); kc := pg_temp.ik();
+    n0 := (select count(*)::int from analytics.job_token x where x.job_id = j);
+    r := pg_temp.trs(sM, j, jsonb_build_object('idem', kk)); r2 := pg_temp.trs(sM, j, jsonb_build_object('idem', kk));
+    v := v || pg_temp.chk('RI1', 'key เดิมซ้ำ → already:true ไม่มี token ดิบ · ไม่ออกใหม่ (token +1 เท่านั้น) · ครั้งแรก already:false มี token',
+      r ->> 'ok' = 'true' and not (r ->> 'already')::boolean and length(r ->> 'token') = 43 and r2 ->> 'ok' = 'true' and (r2 ->> 'already')::boolean and not (r2 ? 'token')
+      and (select count(*)::int from analytics.job_token x where x.job_id = j) = n0 + 1);
+    r := pg_temp.trs(sM, j, jsonb_build_object('idem', pg_temp.ik()));
+    v := v || pg_temp.chk('RI2', 'key ใหม่ → ออกใหม่ (token +2)', r ->> 'ok' = 'true' and not (r ->> 'already')::boolean and (select count(*)::int from analytics.job_token x where x.job_id = j) = n0 + 2);
+    r := pg_temp.trs(sM, j); r2 := pg_temp.trs(sM, j);
+    v := v || pg_temp.chk('RI3', 'ต้องไม่พัง: ไม่ส่ง key = พฤติกรรมเดิม ออกทุกครั้ง (token +4) · already:false ทั้งคู่', not (r ->> 'already')::boolean and not (r2 ->> 'already')::boolean and (select count(*)::int from analytics.job_token x where x.job_id = j) = n0 + 4);
+    v := v || pg_temp.chk('RI4', 'idem รูปแบบผิด → idem_invalid', (pg_temp.trs(sM, j, jsonb_build_object('idem', 'short')) ->> 'code') = 'idem_invalid');
+    r := pg_temp.trs(sM, j, jsonb_build_object('idem', kc));
+    v := v || pg_temp.chk('RI5', 'ติดเพดาน 5 (token_cap) ไม่เผา key: ไม่มีร่องรอยของ key นี้ใน worker_rate_limit (ลองซ้ำหลังเพิกถอนได้) · ได้: ' || coalesce(r ->> 'code', 'ok'),
+      r ->> 'code' = 'token_cap' and not exists (select 1 from analytics.worker_rate_limit w where w.key = 'ri:' || wM::text || ':' || left(analytics.job_sha256_hex(kc || ':' || j::text), 24)));
+    o2 := pg_temp.open_ik(pg_temp.ik()); j2 := (o2 ->> 'job')::uuid;
+    r2 := pg_temp.trs(sM, j2, jsonb_build_object('idem', kk));
+    v := v || pg_temp.chk('RI6', 'key เดียวกันแต่คนละใบ → ออกได้ (key ผูกกับใบ)', r2 ->> 'ok' = 'true' and not (r2 ->> 'already')::boolean);
+    v := v || pg_temp.chk('RI8', 'ร่องรอยไม่มีค่าดิบ: key ใน worker_rate_limit ไม่มี idem key ดิบและไม่มี token', not exists (select 1 from analytics.worker_rate_limit w where w.key like 'ri:%' and (w.key like '%' || kk || '%' or w.key like '%' || (r ->> 'token') || '%')));
+    update analytics.worker_rate_limit set window_start = window_start - interval '25 minutes' where key like 'ri:%';
+    n1 := (select count(*)::int from analytics.job_token x where x.job_id = j2);
+    r2 := pg_temp.trs(sM, j2, jsonb_build_object('idem', kk));
+    v := v || pg_temp.chk('RI7', 'key เก่ากว่า 20 นาที → ออกใหม่ได้ (หน้าต่างหมด) · token +1', r2 ->> 'ok' = 'true' and not (r2 ->> 'already')::boolean and (select count(*)::int from analytics.job_token x where x.job_id = j2) = n1 + 1);
+    raise exception 'rb_189';
+  exception when others then
+    if sqlerrm <> 'rb_189' then v := v || pg_temp.chk('RI-crash', sqlstate || ' ' || sqlerrm, false); end if;
+  end;
+
+  -- RR. ออฟฟิศลบรูป source=shopfloor ต้องมีเหตุผล (job_photo_remove)
+  begin
+    ik := pg_temp.ik(); o := pg_temp.open_ik(ik); j := (o ->> 'job')::uuid;
+    p1 := (pg_temp.pb(sM, ik) ->> 'photo_id')::uuid; perform pg_temp.pa(sM, ik, p1, a, j);
+    p3 := gen_random_uuid(); perform pg_temp.offadd(a, j, p3);
+    st := '';
+    foreach t in array array['', '   ', 'x', '..', '—'] loop
+      st := st || pg_temp.hint(pg_temp.offrm(a, p1, t)) || ',';
+    end loop;
+    st := st || pg_temp.hint(pg_temp.q(format('select analytics.job_photo_remove(%L, %L, null, %L)', a, p1, pg_temp.act()))) || ',';
+    v := v || pg_temp.chk('RR1', 'ออฟฟิศลบรูป shopfloor: เหตุผล ว่าง/ช่องว่าง/1 ตัว/สัญลักษณ์ล้วน/null → 22023 reason_required ทุกแบบ · รูปยัง active · ได้: ' || st,
+      st = repeat('22023|reason_required,', 6) and exists (select 1 from analytics.job_photo x where x.id = p1 and x.deleted_at is null));
+    r := pg_temp.offrm(a, p1, 'ซ้ำกับรูปของออฟฟิศ');
+    select * into ev from pg_temp.ev(j, 'photo_remove') where actor is not null limit 1;
+    v := v || pg_temp.chk('RR2', 'มีเหตุผลที่มีตัวอักษรจริง → ลบได้ · คืน path ให้ลบ object · delete_reason เก็บ · event actor = ออฟฟิศ', r ->> 'ok' = 'true' and r ->> 'storage_path' = pg_temp.pmd(a, j, p1)
+      and exists (select 1 from analytics.job_photo x where x.id = p1 and x.deleted_at is not null and x.delete_reason = 'ซ้ำกับรูปของออฟฟิศ') and ev.actor = pg_temp.act());
+    r2 := pg_temp.q(format('select analytics.job_photo_remove(%L, %L, null, %L)', a, p3, pg_temp.act()));
+    v := v || pg_temp.chk('RR3', 'ต้องไม่พัง: รูปออฟฟิศลบโดยไม่ระบุเหตุผลได้เหมือนเดิม (พฤติกรรมเดิมเป๊ะ)', r2 ->> 'ok' = 'true');
+    raise exception 'rb_189';
+  exception when others then
+    if sqlerrm <> 'rb_189' then v := v || pg_temp.chk('RR-crash', sqlstate || ' ' || sqlerrm, false); end if;
+  end;
+
   -- T. ออก QR ใหม่ของใบที่ฉันเปิด (job_worker_token_reissue)
   begin
     ik := pg_temp.ik(); o := pg_temp.open_ik(ik); j := (o ->> 'job')::uuid; o2 := pg_temp.open_ik(pg_temp.ik(), sM2); j2 := (o2 ->> 'job')::uuid;
@@ -941,7 +1126,7 @@ begin
       and ev.actor is null and ev.worker_id = wM and ev.channel = 'worker_qr');
     v := v || pg_temp.chk('T1b', 'ไม่เพิกถอน QR เดิม: QR ใบแรก (ตอนเปิดใบ) ยังใช้ได้ · จำนวนที่ใช้อยู่ = 2',
       n0 = 2 and (pg_temp.q(format('select analytics.job_worker_resolve(%L, null, null)', analytics.job_sha256_hex(o ->> 'token'))) ->> 'next_action') = 'identify');
-    v := v || pg_temp.chk('T2b', 'ผลมีเฉพาะ ok/token/print_no/job_no/job_id · ไม่มี key เงิน/ต้นทุน', (select string_agg(k2, ',' order by k2) from jsonb_object_keys(r) k2) = 'job_id,job_no,ok,print_no,token' and pg_temp.badkeys(r - 'token') = '');
+    v := v || pg_temp.chk('T2b', 'ผลมีเฉพาะ ok/already/token/print_no/job_no/job_id · ไม่มี key เงิน/ต้นทุน', (select string_agg(k2, ',' order by k2) from jsonb_object_keys(r) k2) = 'already,job_id,job_no,ok,print_no,token' and pg_temp.badkeys(r - 'token') = '');
     for k in 1 .. 3 loop r := pg_temp.trs(sM, j); end loop;
     n1 := (select count(*)::int from analytics.job_token x where x.job_id = j and x.revoked_at is null);
     r2 := pg_temp.trs(sM, j);
@@ -1020,7 +1205,7 @@ begin
       and (select string_agg(k2, ',' order by k2) from jsonb_array_elements(r -> 'job' -> 'photos') e, jsonb_object_keys(e) k2 where (e ->> 'id')::uuid = p1) = 'caption,id,is_primary,md_path,sm_path');
     r2 := pg_temp.q(format('select analytics.job_worker_resolve(%L, null, null)', s));
     v := v || pg_temp.chk('R2', 'ก่อนใส่ PIN (ไม่มี session) ไม่มีรูปใดใน payload (มติ security เดิม)', position(p1::text in r2::text) = 0 and not (r2 -> 'job' ? 'photos'));
-    def := pg_get_functiondef('analytics.job_worker_photo_add(text,text,text,uuid,text,text,integer,integer,integer,boolean,text,text,uuid)'::regprocedure);
+    def := pg_get_functiondef('analytics.job_worker_photo_add(text,text,text,uuid,text,text,integer,integer,integer,boolean,text,text,uuid,uuid)'::regprocedure);
     v := v || pg_temp.chk('R3', 'นิยาม add: ล็อกแถวใบ (for update) ก่อนเช็คสถานะ (job_worker_photo_block) ก่อน INSERT',
       position('for update' in def) > 0 and position('job_worker_photo_block' in def) > position('for update' in def) and position('insert into analytics.job_photo' in def) > position('job_worker_photo_block' in def));
     raise exception 'rb_189';
@@ -1039,22 +1224,23 @@ create function pg_temp.g_189_perm() returns text
 declare
   v text := ''; st text; sg text; s text;
   c_rpc constant text[] := array[
-    'analytics.job_worker_photo_begin(text,text,text,text,uuid)',
-    'analytics.job_worker_photo_add(text,text,text,uuid,text,text,integer,integer,integer,boolean,text,text,uuid)',
+    'analytics.job_worker_photo_begin(text,text,text,text,uuid,uuid)',
+    'analytics.job_worker_photo_add(text,text,text,uuid,text,text,integer,integer,integer,boolean,text,text,uuid,uuid)',
     'analytics.job_worker_photo_remove(text,text,uuid,text,text)',
     'analytics.job_worker_photo_list(text,text,text,text,uuid)',
     'analytics.job_worker_my_intake_list(text,text,text)',
-    'analytics.job_worker_token_reissue(text,text,uuid,text)'];
+    'analytics.job_worker_token_reissue(text,text,uuid,text,text)',
+    'analytics.job_worker_photo_set_primary(text,text,uuid,text,text,uuid)'];
   c_int constant text[] := array[
     'analytics.shop_intake_photo_auth(text,text,text,text)', 'analytics.job_worker_photo_job(uuid,uuid,text,uuid)', 'analytics.job_worker_photo_block(uuid)', 'analytics.job_photo_guard()', 'analytics.job_shopfloor_photo_quota()'];
-  c_names constant text[] := array['job_worker_photo_begin', 'job_worker_photo_add', 'job_worker_photo_remove', 'job_worker_photo_list', 'job_worker_my_intake_list', 'job_worker_token_reissue', 'shop_intake_photo_auth', 'job_worker_photo_job', 'job_worker_photo_block', 'job_photo_guard', 'job_shopfloor_photo_quota'];
+  c_names constant text[] := array['job_worker_photo_begin', 'job_worker_photo_add', 'job_worker_photo_remove', 'job_worker_photo_list', 'job_worker_my_intake_list', 'job_worker_token_reissue', 'job_worker_photo_set_primary', 'shop_intake_photo_auth', 'job_worker_photo_job', 'job_worker_photo_block', 'job_photo_guard', 'job_shopfloor_photo_quota'];
 begin
-  v := v || pg_temp.chk('E1', 'ฟังก์ชันของ 0189: 1 signature ต่อชื่อ (11 ชื่อ · ไม่มี overload) · signature ตรงที่ประกาศ',
-    (select count(*) from pg_proc where pronamespace = 'analytics'::regnamespace and proname = any (c_names)) = 11
+  v := v || pg_temp.chk('E1', 'ฟังก์ชันของ 0189: 1 signature ต่อชื่อ (12 ชื่อ · ไม่มี overload) · signature ตรงที่ประกาศ',
+    (select count(*) from pg_proc where pronamespace = 'analytics'::regnamespace and proname = any (c_names)) = 12
     and (select bool_and(to_regprocedure(x) is not null) from unnest(c_rpc || c_int) x));
   v := v || pg_temp.chk('E2', 'anon/authenticated ไม่มี EXECUTE ทั้ง 9 ตัว (has_function_privilege)',
     not exists (select 1 from unnest(c_rpc || c_int) x where has_function_privilege('anon', x, 'execute') or has_function_privilege('authenticated', x, 'execute')));
-  v := v || pg_temp.chk('E3', 'service_role: RPC 6 ตัว execute ได้ · helper 3 ตัว + guard ไม่ได้ (ไม่เปิดให้ใคร)',
+  v := v || pg_temp.chk('E3', 'service_role: RPC 7 ตัว execute ได้ · helper 3 ตัว + guard ไม่ได้ (ไม่เปิดให้ใคร)',
     (select bool_and(has_function_privilege('service_role', x, 'execute')) from unnest(c_rpc) x) and not exists (select 1 from unnest(c_int) x where has_function_privilege('service_role', x, 'execute')));
   v := v || pg_temp.chk('E4', 'proacl ทั้งสคีมา analytics: ไม่มี PUBLIC/anon/authenticated ถือ EXECUTE ฟังก์ชันใดเลย (aclexplode)',
     not exists (select 1 from pg_proc p cross join lateral aclexplode(p.proacl) a where p.pronamespace = 'analytics'::regnamespace and a.privilege_type = 'EXECUTE' and (a.grantee = 0 or a.grantee = 'anon'::regrole or a.grantee = 'authenticated'::regrole)));
@@ -1068,11 +1254,12 @@ begin
       'select analytics.job_worker_photo_remove(null, null, null, null, null)',
       'select analytics.job_worker_photo_list(null, null, null, null, null)',
       'select analytics.job_worker_my_intake_list(null, null, null)',
-      'select analytics.job_worker_token_reissue(null, null, null)'] loop
+      'select analytics.job_worker_token_reissue(null, null, null)',
+      'select analytics.job_worker_photo_set_primary(null, null, null)'] loop
       st := st || pg_temp.asrole('authenticated', s) || ',';
     end loop;
     execute 'revoke usage on schema analytics from authenticated';
-    v := v || pg_temp.chk('E5', 'authenticated ยิง RPC ทั้ง 6 (args null) แม้สคีมาเปิด → 42501 ทุกตัว · ได้: ' || st, st = repeat('42501,', 6));
+    v := v || pg_temp.chk('E5', 'authenticated ยิง RPC ทั้ง 7 (args null) แม้สคีมาเปิด → 42501 ทุกตัว · ได้: ' || st, st = repeat('42501,', 7));
     raise exception 'rb_189';
   exception when others then
     if sqlerrm <> 'rb_189' then v := v || pg_temp.chk('E5-crash', sqlstate || ' ' || sqlerrm, false); end if;
@@ -1094,15 +1281,17 @@ create function pg_temp.g_189_mut() returns text
  language plpgsql as $c$
 declare
   v text := ''; s text; k int; muts jsonb; m jsonb; st jsonb; hit int; i text; killed int := 0; total int;
-  sg_begin constant text := 'analytics.job_worker_photo_begin(text,text,text,text,uuid)';
-  sg_add constant text := 'analytics.job_worker_photo_add(text,text,text,uuid,text,text,integer,integer,integer,boolean,text,text,uuid)';
+  sg_begin constant text := 'analytics.job_worker_photo_begin(text,text,text,text,uuid,uuid)';
+  sg_add constant text := 'analytics.job_worker_photo_add(text,text,text,uuid,text,text,integer,integer,integer,boolean,text,text,uuid,uuid)';
   sg_rm constant text := 'analytics.job_worker_photo_remove(text,text,uuid,text,text)';
   sg_job constant text := 'analytics.job_worker_photo_job(uuid,uuid,text,uuid)';
   sg_blk constant text := 'analytics.job_worker_photo_block(uuid)';
   sg_auth constant text := 'analytics.shop_intake_photo_auth(text,text,text,text)';
   sg_guard constant text := 'analytics.job_photo_guard()';
   sg_my constant text := 'analytics.job_worker_my_intake_list(text,text,text)';
-  sg_rei constant text := 'analytics.job_worker_token_reissue(text,text,uuid,text)';
+  sg_sp constant text := 'analytics.job_worker_photo_set_primary(text,text,uuid,text,text,uuid)';
+  sg_orm constant text := 'analytics.job_photo_remove(uuid,uuid,text,uuid)';
+  sg_rei constant text := 'analytics.job_worker_token_reissue(text,text,uuid,text,text)';
 begin
   muts := jsonb_build_array(
     jsonb_build_object('id', 'MU1', 'what', 'remove ไม่เช็คเจ้าของรูป (worker_id) → ลบรูปของคนอื่นได้', 'steps', jsonb_build_array(jsonb_build_array(sg_rm, 'and ph.worker_id = v_wid and ph.source = ''shopfloor''', 'and ph.source = ''shopfloor''')), 'expect', jsonb_build_array('B14')),
@@ -1137,7 +1326,17 @@ begin
     jsonb_build_object('id', 'MU27', 'what', 'session หมดอายุแล้วยังใช้ได้ (ไม่เช็ค expires_at)', 'steps', jsonb_build_array(jsonb_build_array(sg_auth, 's.expires_at > now()', 'true')), 'expect', jsonb_build_array('B7b')),
     jsonb_build_object('id', 'MU28', 'what', 'ช่างที่ถูกปิดใช้ยังใช้ session ได้ (ไม่เช็ค is_active)', 'steps', jsonb_build_array(jsonb_build_array(sg_auth, 'and w.is_active and w.shop_id = v_tok.shop_id', 'and w.shop_id = v_tok.shop_id')), 'expect', jsonb_build_array('B7d')),
     jsonb_build_object('id', 'MU29', 'what', 'guard ไม่ล็อกต่อใบก่อนนับเพดาน (L1)', 'steps', jsonb_build_array(jsonb_build_array(sg_guard, 'perform pg_advisory_xact_lock(hashtextextended(new.job_id::text, 2));', 'perform 1;')), 'expect', jsonb_build_array('L1')),
-    jsonb_build_object('id', 'MU30', 'what', 'guard นับเพดาน 3 รวม kind stage (L2)', 'steps', jsonb_build_array(jsonb_build_array(sg_guard, 'p.source = ''shopfloor'' and p.kind = ''reference'' and p.deleted_at is null) >= 3', 'p.source = ''shopfloor'' and p.deleted_at is null) >= 3')), 'expect', jsonb_build_array('L2')));
+    jsonb_build_object('id', 'MU30', 'what', 'guard นับเพดาน 3 รวม kind stage (L2)', 'steps', jsonb_build_array(jsonb_build_array(sg_guard, 'p.source = ''shopfloor'' and p.kind = ''reference'' and p.deleted_at is null) >= 3', 'p.source = ''shopfloor'' and p.deleted_at is null) >= 3')), 'expect', jsonb_build_array('L2')),
+    jsonb_build_object('id', 'MU31', 'what', 'set_primary ตั้งรูปที่ไม่ใช่ของหน้างานของตัวเอง (ถอนเงื่อนไขเจ้าของ+ที่มา)', 'steps', jsonb_build_array(jsonb_build_array(sg_sp, 'and ph.worker_id = v_wid and ph.source = ''shopfloor''', '')), 'expect', jsonb_build_array('SP10')),
+    jsonb_build_object('id', 'MU32', 'what', 'set_primary ล้มรูปหลักที่ออฟฟิศตั้งไว้ (ถอด primary_locked)', 'steps', jsonb_build_array(jsonb_build_array(sg_sp, 'if v_prim_id is not null and v_prim_src <> ''shopfloor'' then', 'if false then')), 'expect', jsonb_build_array('SP4')),
+    jsonb_build_object('id', 'MU33', 'what', 'set_primary ไม่เช็คล็อกใบ (ช่างรับงานแล้ว)', 'steps', jsonb_build_array(jsonb_build_array(sg_sp, 'v_block := analytics.job_worker_photo_block(v_job_id);', 'v_block := null;')), 'expect', jsonb_build_array('SP6')),
+    jsonb_build_object('id', 'MU34', 'what', 'begin ไม่สนใจ clientPhotoKey (ไม่คืนรูปเดิม)', 'steps', jsonb_build_array(jsonb_build_array(sg_begin, 'if p_client_key is not null then', 'if false then')), 'expect', jsonb_build_array('CK2', 'CK4')),
+    jsonb_build_object('id', 'MU35', 'what', 'add ไม่สนใจ clientPhotoKey (INSERT ซ้ำ)', 'steps', jsonb_build_array(jsonb_build_array(sg_add, 'if p_client_key is not null then', 'if false then')), 'expect', jsonb_build_array('CK3')),
+    jsonb_build_object('id', 'MU36', 'what', 'reissue ไม่ dedupe ตาม idem key', 'steps', jsonb_build_array(jsonb_build_array(sg_rei, 'r.window_start >= v_win - interval ''10 minutes'') then', 'r.window_start >= v_win - interval ''10 minutes'') and false then')), 'expect', jsonb_build_array('RI1')),
+    jsonb_build_object('id', 'MU37', 'what', 'reissue ไม่บันทึกร่องรอยหลังออกสำเร็จ (key ไม่ถูกจำ)', 'steps', jsonb_build_array(jsonb_build_array(sg_rei, 'insert into analytics.worker_rate_limit (key, window_start, hits) values (v_rk, v_win, 1) on conflict (key, window_start) do nothing;', 'perform 1;')), 'expect', jsonb_build_array('RI1')),
+    jsonb_build_object('id', 'MU38', 'what', 'reissue key ไม่ผูกกับใบ (key เดียวกันคนละใบถูกถือว่าซ้ำ)', 'steps', jsonb_build_array(jsonb_build_array(sg_rei, 'p_idem_key || '':'' || v_job_id::text', 'p_idem_key')), 'expect', jsonb_build_array('RI6')),
+    jsonb_build_object('id', 'MU39', 'what', 'ออฟฟิศลบรูป shopfloor โดยไม่ต้องมีเหตุผล', 'steps', jsonb_build_array(jsonb_build_array(sg_orm, 'if v_ph.source = ''shopfloor'' and (v_reason is null or length(v_reason) < 2 or not analytics.oem_note_present(v_reason)) then', 'if false then')), 'expect', jsonb_build_array('RR1')),
+    jsonb_build_object('id', 'MU40', 'what', 'เหตุผลเป็นสัญลักษณ์ล้วนผ่าน (ถอด oem_note_present)', 'steps', jsonb_build_array(jsonb_build_array(sg_orm, 'or not analytics.oem_note_present(v_reason)', '')), 'expect', jsonb_build_array('RR1')));
   total := jsonb_array_length(muts);
   for k in 0 .. total - 1 loop
     m := muts -> k; s := '';
