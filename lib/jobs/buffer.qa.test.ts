@@ -97,7 +97,9 @@ describe("static guards: create path never uses the suggestion", () => {
     // ฟังก์ชันนั้นรับจำนวนจากผู้เรียกตรงๆ ไม่อ่านค่าแนะนำเลย ⇒ เจตนาของด่านนี้ยังครบ
     // allow เฉพาะคู่ "ไฟล์:ฟังก์ชัน" ที่ตรวจแล้ว — migration อื่นที่แตะ job_create_* ต้องล้ม แล้วมาทบทวนก่อนเพิ่มคู่ที่นี่
     // 0187 (W1): job_create_insert เพิ่ม p_worker_id (ท้ายสุด default null) · job_create_from_production_item ตัดเนื้อไป _core (ช่างหน้างานใช้ร่วม) — ทั้งสามไม่อ่านค่าแนะนำ (จำนวนเริ่มผลิต = ที่ผู้เปิดส่งมา/เท่าจำนวนสั่ง)
-    const ALLOW = ["0186_production_item_metal.sql:job_create_insert", "0187_shop_intake_w1.sql:job_create_insert", "0187_shop_intake_w1.sql:job_create_from_production_item_core", "0187_shop_intake_w1.sql:job_create_from_production_item"];
+    const ALLOW = ["0186_production_item_metal.sql:job_create_insert", "0187_shop_intake_w1.sql:job_create_insert", "0187_shop_intake_w1.sql:job_create_from_production_item_core", "0187_shop_intake_w1.sql:job_create_from_production_item",
+      // 0190 (G1a พลอย): ทั้ง 4 ตัวเพิ่ม p_gem_lines/p_gem_force (default null/false) ต่อท้าย + ส่งต่อไป job_create_insert (คัดลอกแม่แบบพลอยเมื่อใบมีขั้นฝัง) — ไม่อ่านค่าแนะนำ (จำนวนเริ่มผลิต/น้ำหนักเป้าหมาย/แผนโลหะตรรกะเดิมทุกบรรทัด)
+      "0190_gems_g1a.sql:job_create_insert", "0190_gems_g1a.sql:job_create_from_quote_item", "0190_gems_g1a.sql:job_create_from_production_item", "0190_gems_g1a.sql:job_create_from_production_item_core"];
     const later = readdirSync(join(root, "supabase", "migrations")).filter((f) => /^\d{4}_.*\.sql$/.test(f) && Number(f.slice(0, 4)) > 176);
     expect(later.length).toBeGreaterThan(0);
     const startRe = /create or replace function analytics\.(job_create\w*)/gi;

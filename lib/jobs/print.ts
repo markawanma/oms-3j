@@ -7,6 +7,7 @@ import { METAL_LABEL, SOURCE_LABEL } from "@/lib/jobs/types";
 import type { JobDetail, StageRow } from "@/lib/jobs/types";
 import type { LotPart } from "@/lib/jobs/lots";
 import { isJobPhotoSignedUrl } from "@/lib/jobs/photos";
+import type { GemsState, JobGemsSummary } from "@/lib/jobs/gems";
 
 export interface PrintableJobStage {
   seq: number;
@@ -15,6 +16,14 @@ export interface PrintableJobStage {
   /** 0176: ขั้นนี้ถามชิ้นเสีย / น้ำหนักเศษ (ใบเดิมไม่มีแบบ: ใบพิมพ์ไม่ใช้ค่านี้ — พิมพ์ทุกคอลัมน์เหมือนเดิม) */
   scrapQtyAsk: boolean;
   scrapWeightAsk: boolean;
+}
+
+/** 0190 G1a: แถวพลอยบนใบ A5 — ประกอบทีละ field · 🔴 ไม่มีราคา/เผื่อแตก/ผู้ขาย/รหัสรายการ/ที่มา */
+export interface PrintableJobGem {
+  label: string;
+  qtyPerPiece: number;
+  qtyTotal: number;
+  position: string | null;
 }
 
 export interface PrintableJob {
@@ -39,11 +48,14 @@ export interface PrintableJob {
    * ผ่านด่านรูปร่าง URL (isJobPhotoSignedUrl) — ค่าอื่นที่ไม่ใช่ signed URL ของ bucket job-photos ถูกทิ้งเป็น null
    */
   primaryPhotoUrl: string | null;
+  /** 0190: ตารางพลอย (ว่าง = ไม่มี — ใบที่ไม่มีขั้นฝังและไม่มีพลอยต้องพิมพ์เหมือนเดิมเป๊ะ) · gemsState: not_needed | specified | unspecified (มีขั้นฝังแต่ยังไม่ระบุ → ใบพิมพ์ขึ้นบรรทัดเตือน) */
+  gems: PrintableJobGem[];
+  gemsState: GemsState;
   stages: PrintableJobStage[];
 }
 
 /** ขั้นที่ยังต้องผ่าน (ไม่นับที่ข้ามแล้ว) — ใบงานพิมพ์เฉพาะแถวที่ช่างต้องเซ็น */
-export function toPrintableJob(job: JobDetail, stages: readonly StageRow[], primaryPhotoUrl: string | null = null): PrintableJob {
+export function toPrintableJob(job: JobDetail, stages: readonly StageRow[], primaryPhotoUrl: string | null = null, gems: JobGemsSummary | null | undefined = undefined): PrintableJob {
   // 🔴 ทอง: น้ำหนักทอง = มูลค่า — ใบงานติดถุงงานที่ช่าง/คนนอกเห็น ห้ามมีแผนโลหะ/น้ำหนักเป้าหมาย/น้ำหนักตั้งต้น (security M1 · ช่างทองต้องชั่งแบบไม่รู้คำตอบ)
   // ตัดที่ type boundary นี้ ไม่ใช่ที่ component — field ที่ไม่ถูกประกอบจะไม่ถึงเบราว์เซอร์
   const isGold = job.metal === "gold";
@@ -62,6 +74,9 @@ export function toPrintableJob(job: JobDetail, stages: readonly StageRow[], prim
     weightStartG: isGold ? null : job.weightStartG,
     profileName: job.profileName,
     primaryPhotoUrl: isJobPhotoSignedUrl(primaryPhotoUrl) ? primaryPhotoUrl : null,
+    // 0190: ประกอบทีละ field (ไม่ spread) · อ่านพลอยไม่ได้ (null/undefined) = ไม่มีตาราง (ใบพิมพ์เดิม — หน้าพิมพ์แจ้งเตือนฝั่งจอจาก res.data.gems === null)
+    gems: (gems?.gems ?? []).map((g) => ({ label: g.label, qtyPerPiece: g.qtyPerPiece, qtyTotal: g.qtyTotal, position: g.position })),
+    gemsState: gems?.state ?? "not_needed",
     stages: stages.filter((s) => s.status !== "skipped").map((s) => ({ seq: s.seq, name: s.name, weighRequired: s.weighRequired, scrapQtyAsk: s.scrapQtyAsk, scrapWeightAsk: s.scrapWeightAsk })),
   };
 }

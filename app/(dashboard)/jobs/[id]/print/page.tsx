@@ -50,5 +50,6 @@ export default async function JobPrintPage({ params, searchParams }: { params: P
     return <SublotPrintClient sub={sub} qrTarget={qr} />;
   }
   const splitJob = (res.data.lots?.parts.length ?? 0) > 1;
-  return <JobPrintClient job={toPrintableJob(res.data.job, res.data.stages, photoUrl)} qr={qr} defaultKeep={splitJob} />;
+  // 0190: พลอยของใบ (null = อ่านไม่ได้ → ตารางพลอยไม่ขึ้น · ไม่มี key = ส่วนย่อย) — toPrintableJob ประกอบทีละ field
+  return <JobPrintClient job={toPrintableJob(res.data.job, res.data.stages, photoUrl, res.data.gems)} qr={qr} defaultKeep={splitJob} />;
 }

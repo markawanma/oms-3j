@@ -1,3 +1,4 @@
+-- ⚠️ หนี้ baseline ข้อมูลจริง (22 ต.ค. 69 · พบตอน G1a 0190): E5b/E5c ล้มบนข้อมูลจริงตอนนี้ ไม่เกี่ยวกับโค้ด — มีใบผลิต PO-0035 ที่ผู้จัดการเปิดจากหน้างานแบบไม่มี SKU (W1 ใช้งานจริงแล้ว) ซึ่งเทสต์สมมติว่า "ก่อน W1 ไม่มีรายการไม่มี SKU" · ยืนยันแล้วว่าล้มเท่ากันเมื่อรันเดี่ยวๆ โดยไม่ต่อ 0190 · แก้ด้วยการกรอง fixture ให้ยกเว้น PO จริงหลัง W1 (ยังไม่ทำ)
 -- scripts/verify/verify-0187.sql
 -- ตรวจ supabase/migrations/0187_shop_intake_w1.sql (W1: ผู้จัดการเปิดใบผลิต+ใบงานจากมือถือด้วย QR ร้าน + PIN · ack · ผูก SKU ทีหลัง · ด่านปิดใบ · ช่องสาธารณะที่ "สร้างข้อมูล" → security บังคับก่อน merge)
 -- self-rolling-back (3j-migration-traps ข้อ 11): ทุกเคสอยู่ในทรานแซกชันเดียว จบด้วย `raise exception` เสมอ ⇒ ถอยทั้งก้อน · อ่านผลจาก error message · exit 1 คือผลที่คาด · [FAIL] >= 1 = ไม่ผ่าน · [SKIP] ไม่นับเป็นผ่าน
@@ -1630,9 +1631,9 @@ begin
     v := v || pg_temp.chk('C4a', 'ทุกชื่อที่ไฟล์นี้สร้าง/แก้มี 1 แถวใน pg_proc (ไม่มี overload) · ผิด: ' || coalesce(nullif(s, ''), 'ไม่มี'), s = '');
     v := v || pg_temp.chk('C4b', 'signature เดิมถูก drop: worker_upsert 6 arg · job_create_insert 21 arg = ไม่มี', to_regprocedure('analytics.worker_upsert(uuid,uuid,text,text[],text,uuid)') is null
       and to_regprocedure('analytics.job_create_insert(uuid,text,uuid,uuid,integer,uuid,uuid,text,text,text,integer,date,text,text,text[],boolean,uuid,integer,numeric,jsonb,uuid)') is null);
-    v := v || pg_temp.chk('C4c', 'signature ใหม่: worker_upsert มี p_can_open_job/p_can_external · job_create_insert ลงท้าย p_worker_id',
+    v := v || pg_temp.chk('C4c', 'signature ใหม่: worker_upsert มี p_can_open_job/p_can_external · job_create_insert มี p_worker_id ต่อจาก p_profile_id (0190 เพิ่ม p_gem_lines/p_gem_force ต่อท้าย)',
       (select pg_get_function_identity_arguments(oid) from pg_proc where pronamespace = 'analytics'::regnamespace and proname = 'worker_upsert') like '%p_can_open_job boolean, p_can_external boolean'
-      and (select pg_get_function_identity_arguments(oid) from pg_proc where pronamespace = 'analytics'::regnamespace and proname = 'job_create_insert') like '%p_profile_id uuid, p_worker_id uuid');
+      and (select pg_get_function_identity_arguments(oid) from pg_proc where pronamespace = 'analytics'::regnamespace and proname = 'job_create_insert') like '%p_profile_id uuid, p_worker_id uuid%');   -- 0190: ต่อท้าย p_gem_lines/p_gem_force ได้ (เช็คว่า p_worker_id ยังตามหลัง p_profile_id)
     s := '';
     foreach x in array c_names loop
       if exists (select 1 from pg_proc p where p.pronamespace = 'analytics'::regnamespace and p.proname = x and not exists (select 1 from unnest(coalesce(p.proconfig, '{}')) c where c like 'search_path=%')) then s := s || x || ' '; end if;

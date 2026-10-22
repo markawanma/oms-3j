@@ -11,9 +11,12 @@ import { getSessionUser, requireSessionIfGateOn } from "@/lib/auth/session";
 import { canManageJobs } from "@/lib/jobs/page-gate";
 import { logJobFailure } from "@/lib/jobs/log";
 import { GENERIC_JOB_ERROR, officeErrorMessage, safeLogShape } from "@/lib/jobs/messages";
+import { parseGemRpcError } from "@/lib/jobs/gems";
+import type { GemErrorInfo } from "@/lib/jobs/gems";
 
 /** code = hint ของ RPC (snake_case สั้นๆ เช่น name_dup · profile_invalid · started) — ให้หน้าจอแยกเคสโดยไม่ต้องเทียบข้อความไทย · ไม่ใส่ = ข้อผิดพลาดที่ไม่มี hint */
-export type JobResult<T> = { ok: true; data: T } | { ok: false; error: string; code?: string };
+/** gem (0190) = รายละเอียดข้อผิดพลาดของแถวพลอย/ตัวดักชื่อคล้าย (row · field · similar[]) — มีเฉพาะ error ของ RPC พลอย */
+export type JobResult<T> = { ok: true; data: T } | { ok: false; error: string; code?: string; gem?: GemErrorInfo };
 export const fail = (error: string, code?: string): { ok: false; error: string; code?: string } => (code ? { ok: false, error, code } : { ok: false, error });
 
 export const NOT_ALLOWED = "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่ใช้งานระบบใบงานได้";
@@ -66,6 +69,11 @@ export async function callOffice<T>(fn: string, params: Record<string, unknown>,
     logJobFailure(fn, err);
     // hint ที่รูปร่างปลอดภัยเท่านั้น (ผ่านไปถึง client — ห้ามเป็นข้อความดิบ)
     const hint = safeLogShape(err).hint;
-    return fail(officeErrorMessage(err, GENERIC_JOB_ERROR), hint !== null && /^[a-z][a-z0-9_]{1,40}$/.test(hint) ? hint : undefined);
+    const failed = fail(officeErrorMessage(err, GENERIC_JOB_ERROR), hint !== null && /^[a-z][a-z0-9_]{1,40}$/.test(hint) ? hint : undefined);
+    // 0190: error ของพลอยพา row/field/similar กลับไปด้วย (detail ของ DB ผ่านด่านตรวจรูปร่างใน parseGemRpcError) — error อื่นเหมือนเดิมทุกประการ
+    // hint บางตัว (qty_invalid · date_invalid · kind_invalid ฯลฯ) ใช้ร่วมกับ RPC อื่น — แนบ gem เฉพาะ RPC พลอย หรือเมื่อ DB ส่ง detail ของแถว/ตัวดักคล้ายมาด้วย (การสร้างใบ) · error ของ RPC อื่นเหมือนเดิมทุกประการ
+    const gem = parseGemRpcError(err);
+    const gemFn = /^(gem_|product_gem_bom_|job_gem_bom_)/.test(fn);
+    return gem && (gemFn || gem.row !== undefined || gem.similar !== undefined) ? { ...failed, gem } : failed;
   }
 }

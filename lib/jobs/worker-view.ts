@@ -49,6 +49,17 @@ export interface WorkerPhoto {
   caption: string | null;
 }
 
+/**
+ * 0190 G1a: พลอยที่ต้องใช้ของใบ (เฉพาะช่างที่ระบุตัวแล้ว) — ฉลาก snapshot ณ ตอนสั่ง + จำนวน/ชิ้น + รวมทั้งใบ + ตำแหน่ง
+ * 🔴 ประกอบทีละ key จาก {label, qty_per_piece, qty_total, position} เท่านั้น — ไม่มีราคา/เผื่อแตก/tier/ผู้ขาย/รหัสรายการ (key อื่นที่ DB ส่งมาถูกทิ้ง) · เทสต์ล็อก key list
+ */
+export interface WorkerGem {
+  label: string;
+  qtyPerPiece: number;
+  qtyTotal: number;
+  position: string | null;
+}
+
 export const MY_ACTION_KINDS = ["send", "receive", "explain", "arrive"] as const;
 export type MyActionKind = (typeof MY_ACTION_KINDS)[number];
 
@@ -95,6 +106,9 @@ export interface WorkerView {
     hasProfile?: boolean;
     /** 0182: ไม่มี key = ใบไม่มีรูป/ยังไม่ระบุตัว/เซ็น URL ไม่ได้ทุกรูป (หน้าช่างเดิมเป๊ะ) */
     photos?: WorkerPhoto[];
+    /** 0190: ไม่มี key = ใบไม่มีขั้นฝังและไม่มีพลอย/ยังไม่ระบุตัว (หน้าช่างเดิมเป๊ะ) · มี = specified (gems ≥ 1 รายการ) หรือ unspecified (มีขั้นฝังแต่ยังไม่ระบุพลอย · gems = []) */
+    gemsState?: "specified" | "unspecified";
+    gems?: WorkerGem[];
   };
   viewer: { workerId: string; displayName: string } | null;
   sessionExpired: boolean;
@@ -159,6 +173,16 @@ function mapPhoto(raw: unknown): WorkerPhoto | null {
   const md = isJobPhotoSignedUrl(raw.md_url) ? raw.md_url : null;
   if (!id || (!sm && !md)) return null;
   return { id, smUrl: (sm ?? md) as string, mdUrl: (md ?? sm) as string, isPrimary: raw.is_primary === true, caption: text(raw.caption, 60) };
+}
+
+/** 0190: แถวพลอยจาก DB → WorkerGem · รูปไม่ถูกต้อง (ฉลากว่าง/จำนวนนอกช่วง) = ทิ้งแถวนั้น · key อื่น (รวมทุกชื่อที่ดูเป็นราคา) ไม่ถูกอ่านเลย */
+function mapGem(raw: unknown): WorkerGem | null {
+  if (!isObj(raw)) return null;
+  const label = text(raw.label, 200);
+  const qpp = numOrNull(raw.qty_per_piece);
+  const total = numOrNull(raw.qty_total);
+  if (!label || qpp === null || !Number.isInteger(qpp) || qpp < 1 || qpp > 1000 || total === null || !Number.isInteger(total) || total < 0 || total > 1e9) return null;
+  return { label, qtyPerPiece: qpp, qtyTotal: total, position: text(raw.position, 40) };
 }
 
 function mapPart(raw: unknown): WorkerPart | null {
@@ -236,6 +260,13 @@ export function sanitizeWorkerView(raw: unknown): WorkerView | null {
   if (viewer && "design_label" in j && Array.isArray(j.photos)) {
     const photos = j.photos.map(mapPhoto).filter((p): p is WorkerPhoto => p !== null).slice(0, 20);
     if (photos.length > 0) job.photos = photos;
+  }
+
+  // 0190: พลอยเฉพาะช่างที่ระบุตัวแล้ว (เหมือนรูป) — DB ไม่ส่ง key ก่อน PIN/เมื่อไม่มีขั้นฝังและไม่มีพลอย · ค่า state นอก enum = ไม่ใส่ key (view เดิมไม่เปลี่ยนรูป)
+  if (viewer && "design_label" in j && (j.gems_state === "specified" || j.gems_state === "unspecified")) {
+    const gems = (Array.isArray(j.gems) ? j.gems : []).map(mapGem).filter((g): g is WorkerGem => g !== null).slice(0, 30);
+    job.gemsState = j.gems_state; // ค่าจาก DB ตรงๆ — แถวผิดรูปที่ถูกทิ้งไม่เปลี่ยน state (specified ที่แถวอ่านไม่ได้ ≠ ยังไม่ระบุ)
+    job.gems = gems;
   }
 
   // 0173: ไม่มี 'none' แล้ว — ค่านอก enum (เช่น เวอร์ชัน DB ใหม่กว่าแอป) = ปฏิเสธทั้ง view ดีกว่าเดาว่าเป็นปุ่มอะไร

@@ -25,6 +25,9 @@ import { logJobFailure } from "@/lib/jobs/log";
 import { GENERIC_JOB_ERROR } from "@/lib/jobs/messages";
 import type { JobPhotoRow } from "@/lib/jobs/photos";
 import { copyCatalogPhotoToJob, loadJobPhotos } from "@/lib/jobs/photos-server";
+import { loadJobGemsSummary } from "@/lib/jobs/gems-server";
+import { toWireGemLines, wireFailResult } from "@/lib/jobs/gems";
+import type { JobGemsSummary } from "@/lib/jobs/gems";
 
 const BOARD_LIMIT = 400;
 const EVENT_LIMIT = 150;
@@ -162,6 +165,11 @@ export interface JobDetailData {
    * undefined = อ่านรูปไม่ได้ (ไม่ใช่ "ไม่มีรูป" — UI แสดงสถานะผิดพลาด + ปุ่มโหลดใหม่ แต่หน้าใบงานทั้งหน้ายังเปิดได้)
    */
   photos?: JobPhotoRow[];
+  /**
+   * 0190 G1a: พลอยของใบแม่ (ฉลาก snapshot · จำนวน · ตำแหน่ง · state) — ไม่มีราคา/เผื่อแตก ·
+   * null = อ่านไม่ได้ (ไม่ใช่ "ไม่มีพลอย" — จอแสดงสถานะผิดพลาด หน้าใบงานยังเปิดได้) · ไม่มี key = ส่วนย่อย (พลอยอยู่ที่ใบแม่)
+   */
+  gems?: JobGemsSummary | null;
 }
 
 export async function getJobDetail(jobId: string): Promise<JobResult<JobDetailData | null>> {
@@ -226,6 +234,17 @@ export async function getJobDetail(jobId: string): Promise<JobResult<JobDetailDa
       }
     }
 
+    // 0190: พลอยของใบแม่ (ส่วนย่อยไม่มี) · อ่านไม่ได้ไม่ล้มทั้งหน้า
+    let gems: JobGemsSummary | null | undefined;
+    if (!partOf) {
+      try {
+        gems = await loadJobGemsSummary(job.id, job.qtyPlanned);
+      } catch (err) {
+        logJobFailure("getJobDetail.gems", err);
+        gems = null;
+      }
+    }
+
     return {
       ok: true,
       data: {
@@ -233,6 +252,7 @@ export async function getJobDetail(jobId: string): Promise<JobResult<JobDetailDa
         lots,
         partOf,
         photos,
+        ...(gems === undefined ? {} : { gems }),
         board: boardRes.data ? mapBoardRow(boardRes.data as unknown as Record<string, unknown>) : null,
         stages,
         loss,
@@ -424,6 +444,13 @@ export interface CreateJobInput {
   metalPlanReason?: string | null;
   /** 0176: แบบการบันทึกที่เลือก (ไม่ส่ง = DB ใช้ค่าเริ่มตามโลหะ) */
   profileId?: string | null;
+  /**
+   * 0190 G1a: พลอยต่อชิ้น — ไม่ส่ง (undefined) = คัดลอกแม่แบบ SKU เมื่อใบมีขั้นฝังพลอย · [] = ระบุว่าไม่มีพลอย · แถว = พลอยที่ระบุ (ชื่อใหม่เข้าแคตตาล็อกในทรานแซกชันเดียวกับใบ · ผิดแถวไหน = ไม่เปิดใบเลย)
+   * ผ่าน allowlist เข้มก่อนถึง DB (key แปลก เช่น price = ปฏิเสธ)
+   */
+  gemLines?: unknown;
+  /** ยืนยันเพิ่มชื่อใหม่ที่ "คล้าย" ชื่อที่มี (ข้ามตัวดัก — ชื่อที่ซ้ำเป๊ะยังถูกใช้ตัวเดิมเสมอ) */
+  gemForce?: boolean;
 }
 
 export async function createJob(input: CreateJobInput): Promise<JobResult<{ jobId: string; jobNo: string; planMissing: string[] }>> {
@@ -471,6 +498,14 @@ export async function createJob(input: CreateJobInput): Promise<JobResult<{ jobI
     if (!isUuid(input.profileId)) return fail("แบบที่เลือกถูกปิดใช้หรือแก้ไปแล้ว — เลือกใหม่");
     planArgs.p_profile_id = input.profileId;
   }
+
+  // 0190: พลอย — ใส่ arg เฉพาะเมื่อมีค่า (ไม่ส่ง = DB คัดลอกแม่แบบถ้ามีขั้นฝัง)
+  if (input.gemLines !== undefined) {
+    const w = toWireGemLines(input.gemLines);
+    if (!w.ok) return wireFailResult(w);
+    planArgs.p_gem_lines = w.value;
+  }
+  if (input.gemForce === true) planArgs.p_gem_force = true;
 
   const r =
     input.kind === "oem"
