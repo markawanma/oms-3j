@@ -26,8 +26,8 @@ import { GENERIC_JOB_ERROR } from "@/lib/jobs/messages";
 import type { JobPhotoRow } from "@/lib/jobs/photos";
 import { copyCatalogPhotoToJob, loadJobPhotos } from "@/lib/jobs/photos-server";
 import { loadJobGemsSummary } from "@/lib/jobs/gems-server";
-import { toWireGemLines, wireFailResult } from "@/lib/jobs/gems";
-import type { JobGemsSummary } from "@/lib/jobs/gems";
+import { mapGemBomLine, mapGemSaveSummary, toWireGemLines, wireFailResult } from "@/lib/jobs/gems";
+import type { GemBomLine, GemSaveSummary, JobGemsSummary } from "@/lib/jobs/gems";
 
 const BOARD_LIMIT = 400;
 const EVENT_LIMIT = 150;
@@ -373,6 +373,8 @@ export interface JobPlanSuggestion {
   /** basis ที่ DB คำนวณ (target_piece_g · qty_planned · sprue_loss_pct · formula · computed_g · override_g · missing[]) */
   metalPlanBasis: Record<string, unknown> | null;
   missing: string[];
+  /** 0190: แม่แบบพลอยของ SKU (ฉลาก + จำนวน/ชิ้น + ตำแหน่ง) · [] = ไม่มี SKU/ไม่มีแม่แบบ — 🔴 ไม่มีราคา (ฟอร์มนี้ staff ใช้ได้) · key อื่นที่ DB ส่งมาถูกทิ้งที่ mapGemBomLine */
+  gemBom: GemBomLine[];
 }
 
 const numOrNull = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
@@ -425,6 +427,7 @@ export async function getJobPlanSuggest(kind: string, itemId: string, input: Pla
       metalPlanG: numOrNull(d.metal_plan_g),
       metalPlanBasis: basis !== null && typeof basis === "object" && !Array.isArray(basis) ? (basis as Record<string, unknown>) : null,
       missing: Array.isArray(d.missing) ? d.missing.filter((m): m is string => typeof m === "string") : [],
+      gemBom: (Array.isArray(d.gem_bom) ? d.gem_bom : []).map(mapGemBomLine).filter((l): l is GemBomLine => l !== null).slice(0, 30),
     },
   };
 }
@@ -453,7 +456,7 @@ export interface CreateJobInput {
   gemForce?: boolean;
 }
 
-export async function createJob(input: CreateJobInput): Promise<JobResult<{ jobId: string; jobNo: string; planMissing: string[] }>> {
+export async function createJob(input: CreateJobInput): Promise<JobResult<{ jobId: string; jobNo: string; planMissing: string[]; /** 0190: มีเมื่อส่ง/คัดลอกพลอย — ชื่อใหม่ที่ DB สร้าง + "ใช้ตัวเดิมให้" */ gemSummary?: GemSaveSummary }>> {
   const g = await guard();
   if (g) return g;
   if (typeof input !== "object" || input === null || (input.kind !== "oem" && input.kind !== "production") || !isUuid(input.itemId)) return fail("ข้อมูลไม่ถูกต้อง");
@@ -525,5 +528,7 @@ export async function createJob(input: CreateJobInput): Promise<JobResult<{ jobI
   revalidatePath(input.kind === "oem" ? "/oem/quotes" : "/production");
   // plan_missing[] (0175): แผนโลหะที่ DB คำนวณให้ไม่ได้ (เช่น ไม่มีอัตราก้านต้น) — ฟอร์มใช้ต่อท้าย toast
   const planMissing = Array.isArray(r.data.plan_missing) ? r.data.plan_missing.filter((m): m is string => typeof m === "string") : [];
-  return { ok: true, data: { jobId: id, jobNo: no, planMissing } };
+  // 0190: สรุปพลอยที่ DB บันทึก (ชื่อใหม่ที่สร้าง / "ใช้ตัวเดิมให้") — ไม่มีสรุป (ไม่ได้ส่งพลอย) = null
+  const gemSummary = r.data.gem_summary !== null && typeof r.data.gem_summary === "object" ? mapGemSaveSummary({ summary: r.data.gem_summary, changed: true, count: r.data.gem_lines }) : null;
+  return { ok: true, data: { jobId: id, jobNo: no, planMissing, ...(gemSummary ? { gemSummary } : {}) } };
 }

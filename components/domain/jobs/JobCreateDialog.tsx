@@ -17,9 +17,15 @@ import type { PlanFieldsValue } from "@/components/domain/jobs/PlanFields";
 import { ProfilePicker, needsGoldAck } from "@/components/domain/jobs/ProfilePicker";
 import { QtyFields } from "@/components/domain/jobs/QtyFields";
 import { usePlanPreview } from "@/components/domain/jobs/usePlanPreview";
+import { JobCreateGems } from "@/components/domain/jobs/JobCreateGems";
+import { GemServerSimilar, useGemFail } from "@/components/domain/gems/useGemFail";
+import { useGemOptions } from "@/components/domain/gems/useGemOptions";
 import { useToast } from "@/components/ui/Toast";
 import { createJob, suggestJob } from "@/lib/actions/job-office";
 import type { CreateJobInput, JobSuggestion } from "@/lib/actions/job-office";
+import { GEM_STAGE_CODE, draftRowsToInputs, gemCreateDecision, rowFromBomLine } from "@/lib/jobs/gem-draft";
+import type { GemDraftRow } from "@/lib/jobs/gem-draft";
+import { reusedNotices } from "@/lib/jobs/gem-save";
 import { GENERIC_JOB_ERROR } from "@/lib/jobs/messages";
 import { METAL_LABEL } from "@/lib/jobs/types";
 
@@ -44,11 +50,24 @@ export function JobCreateDialog({ kind, itemId, itemLabel, onClose, onCreated }:
   const [ack, setAck] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // 0190 พลอย: แถวที่กำลังกรอก · touched = ผู้ใช้แตะส่วนพลอยแล้ว (ยังไม่แตะ = ไม่ส่ง gemLines ให้ DB คัดลอกแม่แบบเอง) · force = ยืนยันเพิ่มชื่อที่ "คล้าย"
+  const [gemRows, setGemRows] = useState<GemDraftRow[]>([]);
+  const [gemTouched, setGemTouched] = useState(false);
+  const [gemShowIssues, setGemShowIssues] = useState(false);
+  const [gemTickNote, setGemTickNote] = useState(false);
+  const gemFail = useGemFail();
+  const gemOpts = useGemOptions();
 
   useEffect(() => {
     let cancelled = false;
     // itemId เปลี่ยนระหว่าง/หลังโหลด → กลับเป็น loading ทันที: ปุ่มสร้าง/ฟอร์มหายจนกว่าข้อมูลรายการใหม่มา (กันส่ง itemId ใหม่ด้วยจำนวน/เผื่อของรายการเก่า)
     setLoad({ s: "loading" });
+    setGemRows([]);
+    setGemTouched(false);
+    setGemShowIssues(false);
+    setGemTickNote(false);
+    gemFail.reset();
+    gemFail.setForce(false);
     setBufferOn(false);
     setBufferText("0");
     (async () => {
@@ -98,6 +117,31 @@ export function JobCreateDialog({ kind, itemId, itemLabel, onClose, onCreated }:
   // กล่องแนะนำจำนวนใช้คำตอบล่าสุดแม้กำลังถามใหม่ (ไม่กระพริบ) · ค่าที่ใส่ลงช่องใช้เฉพาะ planData ที่ตอบครบ
   const hintPlan = planData ?? (preview.s === "loading" ? (preview.prev ?? null) : null);
 
+  // 0190 พลอย: แม่แบบ SKU มาจาก preview ของ DB (ไม่มีราคา) — ยังไม่แตะส่วนพลอย = แสดงแม่แบบเป็นแถว (ป้าย "จากแม่แบบ") · แตะแล้ว = ค่าของผู้ใช้ชนะ ไม่ถูกเขียนทับ
+  const template = hintPlan?.gemBom ?? [];
+  const templateSig = template.map((l) => `${l.gemItemId}:${l.qtyPerPiece}:${l.position ?? ""}`).join("|");
+  useEffect(() => {
+    if (gemTouched) return;
+    setGemRows(template.map((l) => rowFromBomLine(l, "template")));
+    // templateSig แทน template (array ใหม่ทุก render) · gemTouched เปลี่ยนเป็น true แล้วไม่แตะอีก
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [templateSig, gemTouched]);
+  const hasGemStage = data !== null && data.stages.some((s) => s.code === GEM_STAGE_CODE);
+  const gemTicked = codes.includes(GEM_STAGE_CODE);
+  const gemDecision = gemCreateDecision({ touched: gemTouched, rows: gemRows, gemTicked, hasGemStage, templateCount: template.length });
+  const gemOptsState = gemOpts.state.s;
+  const gemQtyNote = bufferOn && bufferValue !== null && bufferValue > 0 && data ? `สั่ง ${data.qty} + เผื่อ ${bufferValue}` : null;
+  function onGemRows(next: GemDraftRow[]) {
+    // เพิ่มแถวแรก (ว่าง → มีแถว) แล้วขั้นฝังพลอยยังไม่ติ๊ก → ติ๊กให้ + บอก (ผู้ใช้เอาติ๊กออกทีหลังได้ → เตือน ไม่บล็อก)
+    if (gemRows.length === 0 && next.length > 0 && hasGemStage && !gemTicked) {
+      setCodes((p) => (p.includes(GEM_STAGE_CODE) ? p : [...p, GEM_STAGE_CODE]));
+      setGemTickNote(true);
+    }
+    setGemTouched(true);
+    setGemRows(next);
+    gemFail.reset();
+  }
+
   // แบบการบันทึก (0176): ขั้นที่ติ๊ก × แบบ — ใบทองที่มีขั้นโลหะไม่ชั่งต้องติ๊กรับทราบก่อน · ไม่มีแบบ/ค่าเริ่ม = สร้างไม่ได้
   const pickerStages = data ? data.stages.filter((s) => codes.includes(s.code)).map((s) => ({ code: s.code, nameTh: s.nameTh, metalPresent: s.metalPresent })) : [];
   const allNames = data ? Object.fromEntries(data.stages.map((s) => [s.code, s.nameTh])) : {};
@@ -125,10 +169,18 @@ export function JobCreateDialog({ kind, itemId, itemLabel, onClose, onCreated }:
   }
   const toggle = (c: string) => setCodes((p) => (p.includes(c) ? p.filter((x) => x !== c) : [...p, c]));
 
-  async function submit() {
+  async function submit(o: { force?: boolean; rows?: GemDraftRow[] } = {}) {
     if (busy || !data || qtyValue === null) return;
+    const rowsNow = o.rows ?? gemRows;
+    const dec = o.rows ? gemCreateDecision({ touched: true, rows: rowsNow, gemTicked, hasGemStage, templateCount: template.length }) : gemDecision;
+    // พลอยแถวที่ยังไม่ครบ/ซ้ำ → ไม่ส่ง · แสดงปัญหาที่แถว (ไม่ส่งไป DB เพื่อให้ตอบกลับทีหลัง)
+    if (dec.blocking) {
+      setGemShowIssues(true);
+      return;
+    }
     setBusy(true);
     setError(null);
+    gemFail.reset();
     try {
       // เรียงตามลำดับที่ DB เสนอ (ไม่ใช่ลำดับที่ติ๊ก) — ลำดับขั้นของช่างต้องคงที่
       const ordered = data.stages.filter((s) => codes.includes(s.code)).map((s) => s.code);
@@ -140,6 +192,11 @@ export function JobCreateDialog({ kind, itemId, itemLabel, onClose, onCreated }:
         input.metalPlanOverrideG = plan.overrideText.trim();
         input.metalPlanReason = plan.overrideReason.trim();
       }
+      // 0190: ส่งพลอยทั้งชุดเฉพาะเมื่อผู้ใช้แตะส่วนพลอย ([] = ระบุว่าไม่มีพลอย) · ชื่อใหม่เข้าแคตตาล็อกในธุรกรรมเดียวกับใบ — แถวไหนผิด = ไม่เปิดใบเลย (ฟอร์มคงอยู่)
+      if (dec.send) {
+        input.gemLines = draftRowsToInputs(rowsNow);
+        if (o.force || gemFail.force) input.gemForce = true;
+      }
       const r = await createJob(input);
       if (!r.ok) {
         if (r.code === "profile_invalid") {
@@ -147,9 +204,17 @@ export function JobCreateDialog({ kind, itemId, itemLabel, onClose, onCreated }:
           void refreshProfiles();
           return;
         }
+        if (r.gem) {
+          // error ของพลอย: ตัวดักชื่อคล้าย → ถามผู้ใช้ · ผิดแถวไหน → กล่องแดงที่แถวนั้น · อื่นๆ → ในส่วนพลอย (ไม่ใช่ error ระดับฟอร์ม)
+          gemFail.fail(r, rowsNow);
+          setGemShowIssues(true);
+          return;
+        }
         return setError(r.error);
       }
       toast.push(`สร้างใบงาน ${r.data.jobNo} แล้ว${r.data.planMissing.length > 0 ? " · ยังไม่มีแผนโลหะ" : ""}`);
+      // DB "ใช้ตัวเดิมให้" เมื่อชื่อที่พิมพ์ซ้ำกับของที่มี (เช่น 2 คนพิมพ์ชื่อเดียวกันพร้อมกัน) — แจ้งเป็นข้อมูล ไม่ใช่ error
+      for (const m of reusedNotices(r.data.gemSummary?.reused ?? [])) toast.push(m);
       onCreated();
       onClose();
       // 0182: สร้างเสร็จพาไปการ์ดรูปงาน (ถ่าย/ดูรูปก่อนพิมพ์) — เติม hash เท่านั้น ไม่ใส่ช่องรูปในฟอร์ม (มติ ux Q2)
@@ -202,6 +267,27 @@ export function JobCreateDialog({ kind, itemId, itemLabel, onClose, onCreated }:
               />
               <PlanFields idPrefix="jc" metal={data.metal} value={plan} onChange={setPlan} preview={preview} onRetry={retry} defaultSource={data.targetPieceGSource} defaultTargetText={defaultTarget} disabled={busy} />
             </fieldset>
+            <JobCreateGems
+              rows={gemRows}
+              onRows={onGemRows}
+              templateCount={template.length}
+              sku={null}
+              templateLoading={preview.s === "loading" && !gemTouched && hintPlan === null}
+              gemTickNote={gemTickNote}
+              warnings={gemDecision.warnings}
+              blocking={gemDecision.blocking}
+              showIssues={gemShowIssues}
+              rowErrors={gemFail.rowErrors}
+              generalError={gemFail.generalError}
+              options={gemOpts.options}
+              optionsState={gemOptsState}
+              optionsError={gemOpts.state.s === "error" ? gemOpts.state.message : null}
+              onRetryOptions={() => void gemOpts.reload()}
+              qtyPlanned={qtyValue}
+              qtyNote={gemQtyNote}
+              onForceSimilar={() => gemFail.setForce(true)}
+              disabled={busy || data.existingJob !== null}
+            />
             <fieldset className="space-y-1">
               <legend className="text-sm font-medium text-zinc-800">ขั้นตอน (ติ๊กที่ต้องผ่าน)</legend>
               {data.stages.map((s) => (
@@ -256,6 +342,20 @@ export function JobCreateDialog({ kind, itemId, itemLabel, onClose, onCreated }:
           </Button>
         </div>
       </form>
+      <GemServerSimilar
+        hit={gemFail.similar}
+        rows={gemRows}
+        options={gemOpts.options}
+        onRows={(rs) => {
+          setGemTouched(true);
+          setGemRows(rs);
+        }}
+        onClose={gemFail.clearSimilar}
+        onResubmit={(o) => {
+          if (o.force) gemFail.setForce(true);
+          void submit({ force: o.force, rows: o.rows });
+        }}
+      />
     </Modal>
   );
 }

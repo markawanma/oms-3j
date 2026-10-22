@@ -9,6 +9,7 @@ import {
   draftTotals,
   emptyGemRow,
   findDuplicateRows,
+  gemCreateDecision,
   gemRowIssues,
   mergeDraftRows,
   newNameIssue,
@@ -231,5 +232,39 @@ describe("diffGemLines", () => {
   });
   it("เหมือนกัน = ว่าง · ตำแหน่ง null กับ '' ถือว่าเท่ากัน", () => {
     expect(diffGemLines([L("A", 1, null)], [L("A", 1, "")])).toEqual([]);
+  });
+});
+
+describe('gemCreateDecision — ฟอร์มสร้างใบงาน: ส่งพลอยไหม · เตือน · บล็อก', () => {
+  const base = { touched: false, rows: [] as GemDraftRow[], gemTicked: false, hasGemStage: true, templateCount: 0 };
+  it('ไม่แตะ = ไม่ส่ง (DB คัดลอกแม่แบบเอง) · ไม่เตือนถ้าไม่ได้ติ๊กขั้นฝังและไม่มีแม่แบบ', () => {
+    expect(gemCreateDecision(base)).toEqual({ send: false, blocking: null, warnings: [] });
+  });
+  it('ไม่แตะ + มีแม่แบบ + ไม่ติ๊กขั้นฝัง = เตือนว่าแม่แบบจะไม่ถูกคัดลอก', () => {
+    const d = gemCreateDecision({ ...base, templateCount: 3 });
+    expect(d.send).toBe(false);
+    expect(d.warnings[0]).toContain('แม่แบบพลอย 3 รายการ');
+  });
+  it('ไม่แตะ + ติ๊กขั้นฝัง + ไม่มีแม่แบบ = เตือน ยังไม่ระบุพลอย (ไม่บล็อก)', () => {
+    const d = gemCreateDecision({ ...base, gemTicked: true });
+    expect(d.blocking).toBeNull();
+    expect(d.warnings[0]).toContain('ยังไม่ระบุพลอย');
+  });
+  it('แตะแล้วแถวไม่ครบ = บล็อกพร้อมเหตุผลของแถว · แถวซ้ำ = บล็อกให้รวม', () => {
+    expect(gemCreateDecision({ ...base, touched: true, rows: [emptyGemRow()] }).blocking).toBe('พลอยแถว 1 ยังไม่ครบ — เลือกหรือพิมพ์ชนิดพลอย');
+    const dup = gemCreateDecision({ ...base, touched: true, rows: [row(), row()], gemTicked: true });
+    expect(dup.blocking).toContain('ซ้ำกับแถว 1');
+  });
+  it('แตะแล้วครบ = ส่ง · มีพลอยแต่ไม่ติ๊กขั้นฝัง = เตือน (ไม่บล็อก) · ไม่มีขั้นฝังให้เลือก = เตือนเรื่องออฟฟิศเพิ่มขั้น', () => {
+    const d = gemCreateDecision({ ...base, touched: true, rows: [row()] });
+    expect(d.send).toBe(true);
+    expect(d.blocking).toBeNull();
+    expect(d.warnings[0]).toContain('ไม่ได้ติ๊กขั้น');
+    expect(gemCreateDecision({ ...base, touched: true, rows: [row()], hasGemStage: false }).warnings[0]).toContain('ไม่มีขั้น');
+  });
+  it('แตะแล้วลบหมด ([]) = ส่ง [] (ระบุว่าไม่มีพลอย) · ติ๊กขั้นฝังอยู่ = เตือน', () => {
+    const d = gemCreateDecision({ ...base, touched: true, rows: [], gemTicked: true });
+    expect(d.send).toBe(true);
+    expect(d.warnings).toHaveLength(1);
   });
 });

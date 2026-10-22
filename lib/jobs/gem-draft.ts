@@ -229,6 +229,35 @@ export function newNameIssue(raw: string): string | null {
   return c.ok ? null : c.message;
 }
 
+/** รหัสขั้นฝังพลอยบน DB (design §9.1 — `gem_set` ไม่ใช่ `setting`) */
+export const GEM_STAGE_CODE = "gem_set";
+
+/**
+ * ฟอร์มสร้างใบงาน: ตัดสินว่าจะส่งพลอยไหม + เตือนอะไร (pure — ทดสอบได้)
+ *  - ยังไม่แตะส่วนพลอย (touched=false) → ไม่ส่ง gemLines (DB คัดลอกแม่แบบ SKU เองเมื่อใบมีขั้นฝัง · ไม่มีขั้นฝัง = ไม่คัดลอก)
+ *  - แตะแล้ว → ส่งทั้งชุด ([] = ระบุว่าไม่มีพลอย) · แถวไม่ครบ/แถวซ้ำ = บล็อก (blocking ข้อความ)
+ *  - ผูกกับขั้น: ระบบไม่เพิ่มขั้นให้เอง — มีพลอยแต่ไม่ติ๊กขั้นฝัง / ติ๊กขั้นฝังแต่ไม่มีพลอย = เตือน (ไม่บล็อก — มติเจ้าของ 22 ต.ค.)
+ */
+export function gemCreateDecision(a: { touched: boolean; rows: readonly GemDraftRow[]; gemTicked: boolean; hasGemStage: boolean; templateCount: number }): { send: boolean; blocking: string | null; warnings: string[] } {
+  const warnings: string[] = [];
+  const { touched, rows, gemTicked, hasGemStage, templateCount } = a;
+  if (!touched) {
+    if (templateCount > 0 && !gemTicked) warnings.push(`แม่แบบพลอย ${templateCount} รายการของ SKU นี้จะไม่ถูกคัดลอก เพราะไม่ได้ติ๊กขั้น “ฝังพลอย”`);
+    if (templateCount === 0 && gemTicked) warnings.push("ยังไม่ระบุพลอย — หน้าช่างจะเตือนให้ถามออฟฟิศก่อนฝัง (ไม่บล็อกการสร้างใบ)");
+    return { send: false, blocking: null, warnings };
+  }
+  let blocking: string | null = null;
+  const bad = rows.findIndex((r) => gemRowIssues(r).length > 0);
+  if (bad >= 0) blocking = `พลอยแถว ${bad + 1} ยังไม่ครบ — ${rowIncompleteReason(rows[bad])}`;
+  else {
+    const dup = [...findDuplicateRows(rows)][0];
+    if (dup) blocking = `พลอยแถว ${dup[0] + 1} ซ้ำกับแถว ${dup[1] + 1} — กด “รวมเข้าแถว ${dup[1] + 1}” หรือแก้ให้ต่างกัน`;
+  }
+  if (rows.length > 0 && !gemTicked) warnings.push(hasGemStage ? "มีพลอยแต่ไม่ได้ติ๊กขั้น “ฝังพลอย” — พลอยจะไม่อยู่ในขั้นไหน" : "ใบนี้ไม่มีขั้น “ฝังพลอย” ให้เลือก — พลอยจะถูกบันทึกแต่ไม่อยู่ในขั้นไหน (ออฟฟิศต้องเพิ่มขั้นเอง)");
+  if (rows.length === 0 && gemTicked) warnings.push("ติ๊กขั้น “ฝังพลอย” แต่ไม่มีพลอย — หน้าช่างจะเตือนว่ายังไม่ระบุพลอย (ไม่บล็อกการสร้างใบ)");
+  return { send: true, blocking, warnings };
+}
+
 // ---------------------------------------------------------------------------
 // สรุปการเปลี่ยนแปลง (+เพิ่ม −ลบ ~แก้) ก่อนบันทึก / เทียบกับแม่แบบ — เทียบด้วยฉลาก (snapshot) ไม่ใช่ id
 // ---------------------------------------------------------------------------
