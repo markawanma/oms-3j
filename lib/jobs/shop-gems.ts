@@ -154,7 +154,7 @@ export function mergeDuplicateGemRows<T extends { qtyPerPiece: number; position?
       continue;
     }
     const prev = out[i];
-    const pos = [prev.position, r.position].filter((p): p is string => typeof p === "string" && p !== "");
+    const pos = [...(prev.position ?? "").split(", "), r.position ?? ""].filter((p) => p !== "");
     out[i] = { ...prev, qtyPerPiece: prev.qtyPerPiece + r.qtyPerPiece, position: [...new Set(pos)].join(", ") || null };
   }
   return out;
