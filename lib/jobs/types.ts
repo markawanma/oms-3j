@@ -71,6 +71,8 @@ export const EVENT_TYPE_LABEL: Record<string, string> = {
   intake_open: "ผู้จัดการเปิดงานจากมือถือ",
   ack: "ออฟฟิศรับทราบ",
   edit: "แก้ข้อมูลใบงาน",
+  // 0190 G1a: แก้รายการพลอยของใบ (ตอนสร้าง/ออฟฟิศแก้ · ผู้จัดการแก้จากมือถือ = W3) — before/after = ฉลาก+จำนวน+ตำแหน่ง ไม่มีราคา
+  bom_change: "แก้รายการพลอย",
 };
 
 export const CHANNEL_LABEL: Record<string, string> = {
@@ -485,6 +487,13 @@ export function summarizeEvent(type: string, payload: unknown): string | null {
   // 0189 W2: ผู้จัดการแนบ/ลบรูปจากหน้างาน (payload.source = 'shopfloor') · ออฟฟิศลบรูป = เหตุผลที่ใส่ (บังคับเมื่อลบรูปจากหน้างานผ่านหน้าจอ) — ไม่ dump payload อื่น (photo_id/bytes)
   if (type === "photo_add") return p.source === "shopfloor" ? "จากหน้างาน" : null;
   if (type === "photo_remove") return reason ? `เหตุผล: ${reason}` : p.source === "shopfloor" ? "จากหน้างาน" : null;
+  // 0190: พลอย — นับรายการก่อน→หลัง + เหตุผล (ไม่ dump ฉลาก/จำนวนดิบ)
+  if (type === "bom_change") {
+    const nb = Array.isArray(p.before) ? p.before.length : 0;
+    const na = Array.isArray(p.after) ? p.after.length : 0;
+    const head = p.phase === "create" ? `พลอยตอนสร้างใบ ${na} รายการ` : `พลอย ${nb} → ${na} รายการ`;
+    return reason ? `${head} · เหตุผล: ${reason}` : head;
+  }
   return null;
 }
 

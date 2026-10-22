@@ -4,6 +4,7 @@
 // ข้อความที่ผ่านฟังก์ชันนี้ต้องไม่มี: snake_case · ชื่อตาราง/ฟังก์ชัน · SQL · token/PIN ใดๆ
 
 import { JOB_PHOTO_ERROR_TH } from "@/lib/jobs/photos";
+import { GEM_ERROR_TH } from "@/lib/jobs/gems";
 
 export const WORKER_CODE_TH: Record<string, string> = {
   invalid_token: "ลิงก์หรือ QR นี้ใช้ไม่ได้ — ขอพิมพ์ใบงานใหม่จากออฟฟิศ",
@@ -224,7 +225,9 @@ const OFFICE_HINT_BASE: Record<string, string> = {
 };
 
 /** + 0182: ข้อความสำรองของ hint รูปใบงาน (photo_* · lot_no_photo · already_deleted · caption_invalid ฯลฯ — ตารางเดียวกับ JOB_PHOTO_ERROR_TH) */
-export const OFFICE_HINT_TH: Record<string, string> = { ...OFFICE_HINT_BASE, ...JOB_PHOTO_ERROR_TH };
+/** + 0190: ข้อความสำรองของ hint พลอย — เฉพาะ key ที่ยังไม่มีในตารางเดิม (qty_invalid · name_invalid ฯลฯ ใช้ถ้อยคำเดิม — ข้อความ DB ที่สะอาดชนะอยู่แล้ว) */
+const GEM_ADDED: Record<string, string> = Object.fromEntries(Object.entries(GEM_ERROR_TH).filter(([k]) => !(k in OFFICE_HINT_BASE) && !(k in JOB_PHOTO_ERROR_TH)));
+export const OFFICE_HINT_TH: Record<string, string> = { ...OFFICE_HINT_BASE, ...JOB_PHOTO_ERROR_TH, ...GEM_ADDED };
 
 export const GENERIC_JOB_ERROR = "ทำรายการไม่สำเร็จ ลองใหม่อีกครั้ง";
 const NO_PERMISSION = "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่ใช้งานส่วนนี้ได้";
