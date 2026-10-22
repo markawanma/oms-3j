@@ -12,13 +12,17 @@
 --  1. job_photo_guard (replace · signature เดิม · def ลอกจาก 0182 — ไม่มี migration ไหนแก้ต่อ · pre-check ยืนยันเครื่องหมายของ 0182): + ด่านบน INSERT ที่ source='shopfloor' ∧ kind='reference' ∧ มี worker_id
 --     (a) ต้องมาจาก RPC ช่าง: GUC analytics.shop_photo_id = id ของแถวนั้นในทรานแซกชันเดียวกัน (b) นับรูปหน้างานที่ยังไม่ลบของใบ ≥ 3 = photo_cap_shopfloor (กำแพงที่ DB แม้ RPC ถูกแก้ผิด)
 --     ออฟฟิศ (source office/product) · kind stage · แถวที่ผิด CHECK = พฤติกรรมเดิมเป๊ะ (ด่านใหม่อยู่ท้ายสุดของสาย INSERT และเปิดเฉพาะ reference+shopfloor+worker — verify-0182 ยิง shopfloor ตรงเฉพาะ kind stage / ไม่มี worker)
---  2. helper ภายใน (ไม่ grant ใคร): shop_intake_photo_auth · job_worker_photo_job · job_worker_photo_block
---  3. RPC ช่าง 6 ตัว (security definer · service_role เท่านั้น): job_worker_photo_begin · job_worker_photo_add · job_worker_photo_remove · job_worker_photo_list · job_worker_my_intake_list ("ใบที่ฉันเปิด" บน hub — มติ 21 ต.ค.)
+--  2. helper ภายใน 4 ตัว (ไม่ grant ใคร): job_shopfloor_photo_quota (ค่ากำหนดโควตา) · shop_intake_photo_auth · job_worker_photo_job · job_worker_photo_block
+--  3. RPC ช่าง 7 ตัว (security definer · service_role เท่านั้น): job_worker_photo_begin · job_worker_photo_add · job_worker_photo_remove · job_worker_photo_set_primary (ตั้งรูปหลักหลังส่ง — primary_locked เมื่อออฟฟิศ/แคตตาล็อกตั้งไว้)
+--     · job_worker_photo_list · job_worker_my_intake_list ("ใบที่ฉันเปิด" บน hub — มติ 21 ต.ค.)
 --     · job_worker_token_reissue ("ออก QR ใหม่" ของใบที่ฉันเปิด — ใช้ job_token_issue_core · ไม่เพิกถอน QR เดิม · เพดาน 5 · ได้แม้ช่างรับงานแล้วตราบใดที่ใบยังไม่ปิด/ยกเลิก)
 --     begin/add/list อ้างใบได้ 2 ทาง "อย่างใดอย่างหนึ่ง": p_idem_key (เพิ่งเปิดใบ) หรือ p_job_id (จากรายการใบของฉัน) — ผ่านเงื่อนไขเดียวกัน: ใบผลิต opened_via=shopfloor ∧ opened_by_worker_id = ช่างใน session ∧ ร้านจาก token ·
 --     job_id ของคนอื่น/ใบออฟฟิศ/ร้านอื่น/ส่วนย่อย = order_not_found (ไม่ใช่แค่รู้ uuid แล้วเข้าได้) · ทั้งสองทางหรือไม่ส่งสักทาง = idem_invalid
 --  4. โควตาหน้างาน (security M1 · 21 ต.ค.): ฟังก์ชันค่ากำหนด job_shopfloor_photo_quota() ที่เดียว — พื้นที่รวมรูป shopfloor ที่ยังไม่ลบต่อร้าน ≤ 80 MB · ต่อช่าง ≤ 60 รูป/24 ชม. (นับรวมที่ลบแล้ว กันวน add/remove) ·
 --     บังคับที่ guard (ล็อกใบ seed 2 → ร้าน seed 3 → ช่าง seed 4 · L1) + เช็คก่อนแตะ bucket ที่ begin · hint photo_budget_shopfloor / photo_daily_cap · นับเพดาน 3 เฉพาะ kind='reference' ตรงกันทุกจุด (L2) · index idx_job_photo_shopfloor_worker
+--  5. job_photo_remove (ออฟฟิศ · replace · signature เดิม · def ลอกจาก 0182): + ลบรูป source='shopfloor' ต้องมีเหตุผล (≥ 2 ตัวที่มีตัวอักษร/ตัวเลขจริง · hint reason_required) — รูปออฟฟิศ/แคตตาล็อก = พฤติกรรมเดิมเป๊ะ
+--     pre-check ของ job_photo_guard/job_photo_remove ใช้ position() หาเครื่องหมายใน def สด (ฉบับ 0182 หรือฉบับ 0189 เมื่อรันซ้ำ) — ไม่ใช่เทียบ md5
+--  6. job_photo.client_key (uuid · null ได้ · unique ต่อ (worker_id, client_key)) = idempotency ต่อรูปจาก client (clientPhotoKey) · อยู่ในชุด immutable ของ guard · index idx_job_photo_shopfloor_worker ให้การนับโควตา
 --  ไม่มี trigger ใหม่บน job_photo (verify-0182 นับ trigger = 3) · ไม่แตะ job_photo_enforce_cap / job_photo_add (ออฟฟิศ) / job_worker_resolve (แสดงรูป reference ทุก source อยู่แล้ว) / production_order_done
 --
 -- ตัดสินเอง (นอก design — เหตุผล)
@@ -829,7 +833,7 @@ end;
 $f$;
 
 -- ============================================================================
--- 3.5 job_photo_remove (ออฟฟิศ · replace · signature เดิม) — ลอกเนื้อจาก 0182 (ไม่มี migration ไหนแก้ต่อ · dry-run ยืนยัน md5 ของ def สดเท่ากับ 0182 ก่อนทับ) + เพิ่มเฉพาะ: ลบรูป source='shopfloor' ต้องมีเหตุผล (ผู้จัดการแนบมาเอง — ออฟฟิศลบต้องบอกเหตุผล · มติ 21 ต.ค.)
+-- 3.5 job_photo_remove (ออฟฟิศ · replace · signature เดิม) — ลอกเนื้อจาก 0182 (ไม่มี migration ไหนแก้ต่อ · pre-check ข้อ 0 ยืนยันด้วย position() ว่า def สดมีเครื่องหมายของ 0182 ครบก่อนทับ — ไม่ใช่เทียบ md5) + เพิ่มเฉพาะ: ลบรูป source='shopfloor' ต้องมีเหตุผล (ผู้จัดการแนบมาเอง — ออฟฟิศลบต้องบอกเหตุผล · มติ 21 ต.ค.)
 --   reason ว่าง/สั้นกว่า 2 ตัวอักษร/ไม่มีตัวอักษรหรือตัวเลขจริง → 22023 hint reason_required (ก่อน UPDATE — แถวไม่ขยับ) · รูปออฟฟิศ/แคตตาล็อก = พฤติกรรมเดิมเป๊ะ (เหตุผลไม่บังคับ)
 -- ============================================================================
 create or replace function analytics.job_photo_remove(p_shop_id uuid, p_photo_id uuid, p_reason text default null, p_actor uuid default null)
@@ -967,7 +971,7 @@ begin
      or exists (select 1 from pg_policies p where p.schemaname = 'storage' and p.tablename in ('objects', 'buckets') and (coalesce(p.qual, '') || coalesce(p.with_check, '')) like '%job-photos%') then
     raise exception '0189: bucket job-photos ต้อง private · 1 MB · image/jpeg และไม่มี storage policy (ไฟล์นี้ไม่แตะ bucket)';
   end if;
-  -- (5) สิทธิ์: ไม่มี PUBLIC/anon/authenticated ถือ EXECUTE ฟังก์ชันใดในสคีมา · RPC ช่าง 4 ตัวเป็นของ service_role · helper 3 ตัวไม่เปิดให้ใคร
+  -- (5) สิทธิ์: ไม่มี PUBLIC/anon/authenticated ถือ EXECUTE ฟังก์ชันใดในสคีมา · RPC ช่าง 7 ตัวเป็นของ service_role · helper 4 ตัวไม่เปิดให้ใคร
   select string_agg(p.oid::regprocedure::text, ', ') into v_new
     from pg_proc p cross join lateral aclexplode(p.proacl) a
    where p.pronamespace = 'analytics'::regnamespace and a.privilege_type = 'EXECUTE'
@@ -982,7 +986,7 @@ begin
   if v_new is not null then
     raise exception '0189: สิทธิ์ service_role ของฟังก์ชันใหม่ผิด (RPC ช่างต้อง execute ได้ · helper ต้องไม่ได้): %', v_new;
   end if;
-  raise notice '0189: ฟังก์ชันเดิม % ตัว md5 เท่าเดิมทั้งหมด (ยกเว้น job_photo_guard) · ฟังก์ชันใหม่ % ตัว · แถวเดิมไม่ขยับ',
+  raise notice '0189: ฟังก์ชันเดิม % ตัว md5 เท่าเดิมทั้งหมด (ยกเว้น job_photo_guard · job_photo_remove) · ฟังก์ชันใหม่ % ตัว · แถวเดิมไม่ขยับ',
     (select count(*) from _m189_fn_base) - (select count(*) from _m189_fn_base where proname = any (v_touched)), cardinality(v_added);
 end;
 $c$;
@@ -993,5 +997,13 @@ comment on function analytics.job_worker_photo_add(text, text, text, uuid, text,
   '0189 W2: ลงทะเบียนรูป source=shopfloor (ตรวจทุกด่านซ้ำใต้ล็อกแถวใบ · path ต้องตรง <shop>/<job>/<photo_id>) · guard บน job_photo บังคับว่า INSERT shopfloor มาจากฟังก์ชันนี้เท่านั้น (GUC)';
 comment on function analytics.job_worker_photo_remove(text, text, uuid, text, text) is
   '0189 W2: ลบรูปของตัวเองจนช่างเริ่มรับงาน (soft delete · event photo_remove actor=ช่าง) · คืน path ให้ server ลบ object';
+comment on function analytics.job_worker_photo_set_primary(text, text, uuid, text, text, uuid) is
+  '0189 W2: ตั้งรูป (ของตัวเอง) เป็นรูปหลักหลังส่ง — ด่านเดียวกับ remove · สลับได้เฉพาะเมื่อรูปหลักปัจจุบันเป็นรูปหน้างานหรือยังไม่มี (primary_locked เมื่อออฟฟิศ/แคตตาล็อกตั้งไว้) · เป็นหลักอยู่แล้ว = ok changed:false';
+comment on function analytics.job_worker_photo_list(text, text, text, text, uuid) is
+  '0189 W2: รายการรูป active ของใบที่ช่างคนนี้เปิดเอง (อ้างด้วย idem key หรือ job id) + locked/lock_code · คืน path ให้ server เซ็น URL แล้วทิ้ง (ไม่ถึง client)';
+comment on function analytics.job_worker_my_intake_list(text, text, text) is
+  '0189 W2: "ใบที่ฉันเปิด" บน hub QR ร้าน — เฉพาะใบของช่างใน session ที่ยังไม่ปิด/ยกเลิก (≤ 20 ใบ · 14 วัน) · editable คำนวณที่ DB · ไม่คืนเนื้อ/น้ำหนัก/เงิน/ชื่อลูกค้า';
+comment on function analytics.job_worker_token_reissue(text, text, uuid, text, text) is
+  '0189 W2: ออก QR ใบงานใหม่ของใบที่ช่างคนนี้เปิดเอง (ไม่เพิกถอน QR เดิม · เพดาน 5 ใบ · ได้แม้ช่างรับงานแล้วตราบใดที่ใบยังไม่ปิด/ยกเลิก) · idem key เดิมภายในช่วงสั้น = already ไม่มี token';
 
 notify pgrst, 'reload schema';
