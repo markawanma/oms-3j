@@ -17,6 +17,7 @@ export function Modal({
   title,
   children,
   confirmBeforeClose,
+  wide = false,
 }: {
   open: boolean;
   onClose: () => void;
@@ -34,6 +35,8 @@ export function Modal({
    * i.e. every existing call site keeps its old behavior unchanged.
    */
   confirmBeforeClose?: () => boolean;
+  /** ตารางกว้าง (เช่น แถวพลอย 12 คอลัมน์) — md ขึ้นไปกว้าง 3xl · ไม่ส่ง = max-w-lg เหมือนเดิมทุกจอ */
+  wide?: boolean;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const previouslyFocused = useRef<HTMLElement | null>(null);
@@ -87,7 +90,7 @@ export function Modal({
         aria-modal="true"
         aria-labelledby="modal-title"
         tabIndex={-1}
-        className="relative z-10 w-full max-w-lg rounded-t-lg bg-white p-5 shadow-xl md:rounded-lg focus:outline-none max-h-[90vh] overflow-y-auto"
+        className={`relative z-10 w-full ${wide ? "max-w-lg md:max-w-3xl" : "max-w-lg"} rounded-t-lg bg-white p-5 shadow-xl md:rounded-lg focus:outline-none max-h-[90vh] overflow-y-auto`}
       >
         <div className="flex items-center justify-between">
           <h2 id="modal-title" className="text-lg font-semibold text-zinc-900">
