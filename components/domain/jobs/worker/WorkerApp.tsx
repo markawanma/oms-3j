@@ -12,6 +12,7 @@ import { IdentifyPanel, ReceivePanel, SendPanel } from "@/components/domain/jobs
 import type { DoneTone, SplitResultInfo } from "@/components/domain/jobs/worker/WorkerPanels";
 import { MultiPanel, SplitDone } from "@/components/domain/jobs/worker/WorkerLots";
 import { BigButton, PanelSkeleton, StageStrip, useHydrated } from "@/components/domain/jobs/worker/WorkerParts";
+import { WorkerGemsCard } from "@/components/domain/jobs/worker/WorkerGemsCard";
 import { JobPhotoThumb } from "@/components/domain/jobs/photos/JobPhotoThumb";
 import { JobPhotoViewer } from "@/components/domain/jobs/photos/JobPhotoViewer";
 import { useRefreshGate } from "@/components/domain/jobs/photos/useRefreshGate";
@@ -170,6 +171,9 @@ export function WorkerApp({ token, view }: { token: string; view: WorkerView }) 
       )}
 
       {!isMultiView(view) && view.nextAction !== "held_by_other" && view.heldBy && view.heldBy !== view.viewer?.displayName && <p className="rounded-xl bg-zinc-100 p-3 text-lg text-zinc-900">ตอนนี้อยู่กับ <strong>{view.heldBy}</strong></p>}
+
+      {/* 0190 G1a: พลอยที่ต้องใช้ (เฉพาะช่างที่ระบุตัวแล้ว — DB ไม่ส่ง key ก่อน PIN/เมื่อไม่มีขั้นฝังและไม่มีพลอย = จอเดิมเป๊ะ) · ขั้นฝัง = กางเต็ม · ขั้นอื่น = พับ · ไม่บล็อกปุ่มรับ/ส่ง */}
+      {j.gemsState && <WorkerGemsCard state={j.gemsState} gems={j.gems ?? []} onGemStage={view.actionStage?.code === "gem_set"} />}
 
       {!ready || waiting ? (
         <PanelSkeleton />

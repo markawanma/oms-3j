@@ -21,6 +21,7 @@ vi.mock("@/lib/actions/job-office", () => ({
   getJobPlanSuggest: (...a: unknown[]) => getJobPlanSuggest(...a),
 }));
 vi.mock("@/lib/actions/job-office-write", () => ({}));
+vi.mock("@/lib/actions/gems", () => ({ getGemOptions: () => Promise.resolve({ ok: true, data: { types: [], shapes: [], items: [] } }) })); // G1a: ฟอร์มสร้างใบงานโหลดรายการพลอย (ไม่มีราคา)
 
 import { ToastProvider } from "@/components/ui/Toast";
 import { JobCreateDialog } from "./JobCreateDialog";

@@ -4,7 +4,7 @@
 // ข้อความที่ผ่านฟังก์ชันนี้ต้องไม่มี: snake_case · ชื่อตาราง/ฟังก์ชัน · SQL · token/PIN ใดๆ
 
 import { JOB_PHOTO_ERROR_TH } from "@/lib/jobs/photos";
-import { GEM_ERROR_TH } from "@/lib/jobs/gems";
+import { GEM_ERROR_TH } from "@/lib/jobs/gem-errors";
 
 export const WORKER_CODE_TH: Record<string, string> = {
   invalid_token: "ลิงก์หรือ QR นี้ใช้ไม่ได้ — ขอพิมพ์ใบงานใหม่จากออฟฟิศ",

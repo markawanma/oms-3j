@@ -28,6 +28,8 @@ import type { LotDialogSpec } from "@/components/domain/jobs/JobLotsSection";
 // 0181: แผงส่วนย่อย/dialog โหลดเมื่อใช้จริงเท่านั้น (ใบเดี่ยวที่ไม่เคยแยกไม่โหลดโค้ดชุดนี้ · ระหว่างโหลดแสดง skeleton)
 const LotsPanel = lazy(() => import("@/components/domain/jobs/JobLotsSection").then((m) => ({ default: m.LotsPanel })));
 const LotDialogs = lazy(() => import("@/components/domain/jobs/JobLotsSection").then((m) => ({ default: m.LotDialogs })));
+// 0190: การ์ดพลอย (ใบแม่เท่านั้น — ไม่มี key gems = ไม่โหลดโค้ดชุดนี้) · แก้พลอย/แม่แบบเป็นกล่องที่เปิดเมื่อใช้
+const JobGemsCard = lazy(() => import("@/components/domain/jobs/JobGemsCard").then((m) => ({ default: m.JobGemsCard })));
 
 type Dlg =
   | { t: "reason"; spec: ReasonKind }
@@ -173,7 +175,14 @@ export function JobDetailClient({ data }: { data: JobDetailData }) {
 
       {/* 2 คอลัมน์บนจอใหญ่: แผนโลหะ (ซ้าย) · รูปงาน (ขวา) — จอเล็กเรียงบนลงล่าง และรูปงานขึ้นก่อนแผนโลหะ (รูปเป็นสิ่งที่ต้องทำก่อนพิมพ์) */}
       <div className="grid gap-4 lg:grid-cols-2 lg:items-start">
-        <PlanCard job={job} board={board} stages={stages} onEditQty={() => setDlg({ t: "qty" })} onEditPlan={() => setDlg({ t: "plan" })} onDecideSurplus={() => setDlg({ t: "surplus" })} />
+        <div className="space-y-4">
+          <PlanCard job={job} board={board} stages={stages} onEditQty={() => setDlg({ t: "qty" })} onEditPlan={() => setDlg({ t: "plan" })} onDecideSurplus={() => setDlg({ t: "surplus" })} />
+          {data.gems !== undefined && (
+            <Suspense fallback={<p role="status" aria-busy="true" className="rounded-lg border border-zinc-200 bg-white p-4 text-sm text-zinc-700">กำลังโหลดพลอย…</p>}>
+              <JobGemsCard jobId={job.id} sku={job.sku} closed={closed} activeTokens={data.activeTokens} gems={data.gems} />
+            </Suspense>
+          )}
+        </div>
         <JobPhotosCard jobId={job.id} jobNo={job.jobNo} sku={job.sku} sourceKind={job.sourceKind} activeTokens={data.activeTokens} photos={data.photos} />
       </div>
 

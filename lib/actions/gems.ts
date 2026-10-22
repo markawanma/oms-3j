@@ -167,6 +167,7 @@ export async function mergeGem(input: { kind: "type" | "shape"; fromId: string; 
 // ราคา (🔴 ต้นทุน — owner/admin เท่านั้น ทั้งชั้นแอปและ DB)
 // ---------------------------------------------------------------------------
 const PRICE_RE = /^\d{1,7}(?:\.\d{1,4})?$/;
+const PRICE_COMMA_MSG = "ใส่ราคาเป็นตัวเลขไม่มีจุลภาค เช่น 1000 หรือ 12.50";
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
 export interface SetGemPriceInput {
@@ -183,7 +184,10 @@ export async function setGemPrice(input: SetGemPriceInput): Promise<JobResult<{ 
   const g = await guard();
   if (g) return g;
   if (!isObj(input) || !isUuid(input.itemId)) return fail(BAD_INPUT);
-  const text = typeof input.price === "number" ? (Number.isFinite(input.price) ? String(input.price) : "") : typeof input.price === "string" ? input.price.trim().replace(",", ".") : "";
+  // 🔴 ราคา: ห้ามจุลภาคเด็ดขาด — "1,000" ที่คนไทยพิมพ์เป็นหลักพัน ถ้าตีเป็นทศนิยมจะกลายเป็น 1 บาท (ต่ำกว่าจริง 1,000 เท่า แล้ว audit เก็บเป็นราคาจริง) · ขนาดพลอย (มม.) ยังรับ "," เป็นจุดได้ (ไม่มีหลักพัน)
+  const raw = typeof input.price === "number" ? (Number.isFinite(input.price) ? String(input.price) : "") : typeof input.price === "string" ? input.price.trim() : "";
+  if (raw.includes(",")) return fail(PRICE_COMMA_MSG, "price_invalid");
+  const text = raw;
   const priceMsg = "ราคาต้องเป็นตัวเลขมากกว่า 0 และไม่เกิน 1,000,000 บาท (ทศนิยมไม่เกิน 4 ตำแหน่ง)";
   if (!PRICE_RE.test(text)) return fail(priceMsg, "price_invalid");
   const price = Number(text);

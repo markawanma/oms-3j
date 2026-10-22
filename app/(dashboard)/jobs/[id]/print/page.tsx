@@ -51,5 +51,6 @@ export default async function JobPrintPage({ params, searchParams }: { params: P
   }
   const splitJob = (res.data.lots?.parts.length ?? 0) > 1;
   // 0190: พลอยของใบ (null = อ่านไม่ได้ → ตารางพลอยไม่ขึ้น · ไม่มี key = ส่วนย่อย) — toPrintableJob ประกอบทีละ field
-  return <JobPrintClient job={toPrintableJob(res.data.job, res.data.stages, photoUrl, res.data.gems)} qr={qr} defaultKeep={splitJob} />;
+  // gems === null = อ่านพลอยไม่ได้ (ไม่ใช่ "ไม่มีพลอย") → ส่งแค่ boolean ให้จอเตือน (print:hidden) — ไม่ส่งข้อมูลดิบเข้า client
+  return <JobPrintClient job={toPrintableJob(res.data.job, res.data.stages, photoUrl, res.data.gems)} qr={qr} defaultKeep={splitJob} gemsReadFailed={res.data.gems === null} />;
 }

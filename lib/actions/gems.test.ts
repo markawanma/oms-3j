@@ -76,13 +76,18 @@ describe("สิทธิ์: ทุก action ต้อง owner/admin — role
 describe("พารามิเตอร์ที่ส่ง RPC: shop/actor จาก server · ชื่อ arg ตรง migration", () => {
   it("setGemPrice → gem_price_set ด้วย p_price เป็นตัวเลข · p_actor = session ไม่ใช่ค่าจาก client", async () => {
     rpcMock.mockResolvedValue({ data: { effective_from: "2026-10-22", replaced: false }, error: null });
-    const r = await gems.setGemPrice({ itemId: ITEM, price: "7391,2468", effectiveFrom: "2026-10-22", supplier: "ร้านเอ", note: null, ...({ p_actor: "evil", p_shop_id: "evil" } as object) } as never);
+    const r = await gems.setGemPrice({ itemId: ITEM, price: "7391.2468", effectiveFrom: "2026-10-22", supplier: "ร้านเอ", note: null, ...({ p_actor: "evil", p_shop_id: "evil" } as object) } as never);
     expect(r).toEqual({ ok: true, data: { effectiveFrom: "2026-10-22", replaced: false } });
     expect(rpcMock).toHaveBeenCalledWith("gem_price_set", { p_item_id: ITEM, p_price: 7391.2468, p_effective_from: "2026-10-22", p_supplier: "ร้านเอ", p_note: null, p_shop_id: SHOP, p_actor: USER });
   });
   it.each([0, -1, "NaN", "Infinity", 1_000_001, "1.23456", "", "abc", Number.NaN, null])("ราคา %j ปฏิเสธก่อนถึง DB (price_invalid)", async (p) => {
     const r = await gems.setGemPrice({ itemId: ITEM, price: p as never });
     expect(r.ok === false && r.code === "price_invalid").toBe(true);
+    expect(rpcMock).not.toHaveBeenCalled();
+  });
+  it.each(["1,000", "1,250", "1,000.50", "3,5", "12,500.50", ",5", "1,"])("🔴 ราคา %j มีจุลภาค → ปฏิเสธที่ action (price_invalid · ข้อความ ไม่มีจุลภาค) ไม่ถูกตีเป็นทศนิยม/ไม่เรียก DB", async (p) => {
+    const r = await gems.setGemPrice({ itemId: ITEM, price: p });
+    expect(r.ok === false && r.code === "price_invalid" && r.error === "ใส่ราคาเป็นตัวเลขไม่มีจุลภาค เช่น 1000 หรือ 12.50").toBe(true);
     expect(rpcMock).not.toHaveBeenCalled();
   });
   it("ขอบ: 1,000,000 และ 0.0001 ผ่าน · วันที่ผิดรูปแบบ → date_invalid", async () => {

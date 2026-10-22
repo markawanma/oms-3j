@@ -15,6 +15,7 @@ vi.mock("next/link", () => ({ default: ({ href, children, ...r }: { href: string
 
 const issueJobQr = vi.fn();
 vi.mock("@/lib/actions/job-office-write", () => ({ issueJobQr: (...a: unknown[]) => issueJobQr(...a) }));
+vi.mock("@/lib/actions/gems", () => ({ getGemOptions: () => Promise.resolve({ ok: true, data: { types: [], shapes: [], items: [] } }) })); // G1a: ฟอร์มสร้างใบงานโหลดรายการพลอย (ไม่มีราคา)
 const getJobsForSourceItems = vi.fn();
 const suggestJob = vi.fn();
 const PF = [{ id: "99999999-0000-4000-8000-000000000001", name: "แบบ 1", note: null, requireFinalWeight: false, isActive: true, seq: 10, isDefault: true, isDefaultGold: false, stages: [], jobsOpen: 0 }];
