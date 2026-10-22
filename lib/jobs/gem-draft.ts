@@ -64,7 +64,7 @@ export function unlockRow(row: GemDraftRow, options: GemOptions | null): GemDraf
   };
 }
 
-export type RowField = "type" | "shape" | "size_a" | "size_b" | "qty_per_piece" | "position";
+export type RowField = "type" | "shape" | "size_a" | "size_b" | "size_big" | "qty_per_piece" | "position";
 export interface RowIssue {
   field: RowField;
   message: string;
@@ -103,7 +103,7 @@ export function gemRowIssues(r: GemDraftRow): RowIssue[] {
       }
       const sz = rowSizes(r);
       if (sz && gemSizeNeedsConfirm(sz.a, sz.b) && !r.bigConfirmed) {
-        out.push({ field: "size_a", message: `ขนาดใหญ่ผิดปกติสำหรับพลอยเครื่องประดับ — ตรวจว่าเป็นมิลลิเมตร แล้วติ๊กยืนยัน` });
+        out.push({ field: "size_big", message: "ขนาดใหญ่ผิดปกติสำหรับพลอยเครื่องประดับ — ตรวจว่าเป็นมิลลิเมตร แล้วติ๊กยืนยัน" });
       }
     }
   }
@@ -138,27 +138,48 @@ export function rowLabelPreview(r: GemDraftRow): string | null {
   return gemLabelPreview(r.type.name, r.shape.name, sz.a, sz.b);
 }
 
-/** คีย์ตรวจแถวซ้ำ (ชนิด+รูปทรง+ขนาด) — แถว itemId ใช้ id · ยังไม่ครบ = null (ไม่ตรวจ) */
-export function rowDupKey(r: GemDraftRow): string | null {
-  if (r.itemId !== null) return `item:${r.itemId}`;
+/** ฉลากเทียบแถวซ้ำ — ช่องว่างซ้ำยุบ (ฉลากของ DB ประกอบ "ชนิด · รูปทรง · ขนาด มม." เหมือน gemLabelPreview) */
+const lbl = (t: string | null): string | null => (t === null ? null : t.replace(/\s+/g, " ").trim());
+
+/**
+ * คีย์ตรวจแถวซ้ำ (ชนิด+รูปทรง+ขนาด) — แถวรายการเดิม (itemId): ถ้ามี options และพบรายการ → ใช้ชนิด/รูปทรง/ขนาดของรายการ (แถวเดียวกับที่เลือกจากรายการได้) · ไม่พบ = item:<canonical id> ·
+ * ยังไม่ครบ = null (ไม่ตรวจ) · ใช้ canonicalId (รายการที่ถูกรวมชื่อแล้วชี้ตัวปลายทาง)
+ */
+export function rowDupKey(r: GemDraftRow, options?: GemOptions | null): string | null {
+  const struct = (t: string, sh: string, a: number, b: number | null) => `${t}|${sh}|${gemSizeLabel(a, b)}`;
+  if (r.itemId !== null) {
+    const it = options ? options.items.find((i) => i.gemItemId === (r.canonicalId ?? r.itemId) || i.gemItemId === r.itemId) : undefined;
+    if (it) return struct(`t:${it.typeId}`, `s:${it.shapeId}`, it.sizeA, it.sizeB);
+    return `item:${r.canonicalId ?? r.itemId}`;
+  }
   const sz = rowSizes(r);
   if (!r.type || !r.shape || !sz) return null;
   const t = r.type.kind === "existing" ? `t:${r.type.id}` : `tn:${normalizeGemName(r.type.name)}`;
-  const s = r.shape.kind === "existing" ? `s:${r.shape.id}` : `sn:${normalizeGemName(r.shape.name)}`;
-  return `${t}|${s}|${gemSizeLabel(sz.a, sz.b)}`;
+  const s2 = r.shape.kind === "existing" ? `s:${r.shape.id}` : `sn:${normalizeGemName(r.shape.name)}`;
+  return struct(t, s2, sz.a, sz.b);
 }
 
-/** แถวที่ซ้ำกับแถวก่อนหน้า: index → index ของแถวแรกที่ซ้ำด้วย (0-based) */
-export function findDuplicateRows(rows: readonly GemDraftRow[]): Map<number, number> {
-  const first = new Map<string, number>();
+/**
+ * แถวที่ซ้ำกับแถวก่อนหน้า: index → index ของแถวแรกที่ซ้ำด้วย (0-based)
+ * จับ 3 แบบ: (1) key เดียวกัน (2) รายการเดิมสองแถวชี้ตัวปลายทางเดียวกัน (3) แถวรายการเดิม (รู้แค่ id + ฉลาก) กับแถวที่เลือกชนิด/รูปทรง/ขนาดเดียวกัน — เทียบด้วยฉลากเมื่อไม่มี options
+ * (DB รวมแถวซ้ำให้เงียบๆ ถ้าจอไม่จับ — ต้องให้ผู้ใช้กด "รวมเข้าแถว n" เอง)
+ */
+export function findDuplicateRows(rows: readonly GemDraftRow[], options?: GemOptions | null): Map<number, number> {
   const out = new Map<number, number>();
-  rows.forEach((r, i) => {
-    const k = rowDupKey(r);
-    if (k === null) return;
-    const f = first.get(k);
-    if (f === undefined) first.set(k, i);
-    else out.set(i, f);
-  });
+  const keys = rows.map((r) => rowDupKey(r, options));
+  const labels = rows.map((r) => lbl(r.itemId !== null ? r.label : rowLabelPreview(r)));
+  for (let i = 0; i < rows.length; i++) {
+    for (let j = 0; j < i; j++) {
+      const sameKey = keys[i] !== null && keys[i] === keys[j];
+      // เทียบฉลาก เฉพาะคู่ "รายการเดิม vs แถวที่ประกอบเอง" (รายการเดิมสองแถวที่ id ต่างกัน = คนละรายการ ถึงฉลากเหมือนกัน)
+      const mixed = (rows[i].itemId !== null) !== (rows[j].itemId !== null);
+      const sameLabel = mixed && labels[i] !== null && labels[i] === labels[j];
+      if (sameKey || sameLabel) {
+        out.set(i, j);
+        break;
+      }
+    }
+  }
   return out;
 }
 
@@ -238,7 +259,18 @@ export const GEM_STAGE_CODE = "gem_set";
  *  - แตะแล้ว → ส่งทั้งชุด ([] = ระบุว่าไม่มีพลอย) · แถวไม่ครบ/แถวซ้ำ = บล็อก (blocking ข้อความ)
  *  - ผูกกับขั้น: ระบบไม่เพิ่มขั้นให้เอง — มีพลอยแต่ไม่ติ๊กขั้นฝัง / ติ๊กขั้นฝังแต่ไม่มีพลอย = เตือน (ไม่บล็อก — มติเจ้าของ 22 ต.ค.)
  */
-export function gemCreateDecision(a: { touched: boolean; rows: readonly GemDraftRow[]; gemTicked: boolean; hasGemStage: boolean; templateCount: number }): { send: boolean; blocking: string | null; warnings: string[] } {
+/**
+ * เหตุที่ห้ามบันทึกชุดแถวนี้ (null = บันทึกได้): แถวแรกที่ยังไม่ครบ · แถวซ้ำ (ให้กด "รวมเข้าแถว n" เอง ไม่รวมเงียบ) — คำนวณจาก rows ทุกครั้ง (รวมตอนส่งซ้ำหลังแก้แถวจาก DB) ใช้ร่วมทุกจอ
+ * options (ถ้ามี) ช่วยจับแถวซ้ำระหว่าง "รายการเดิม" กับแถวที่เลือกชนิด/รูปทรง/ขนาดเดียวกัน
+ */
+export function gemRowsBlocking(rows: readonly GemDraftRow[], options?: GemOptions | null): string | null {
+  const bad = rows.findIndex((r) => gemRowIssues(r).length > 0);
+  if (bad >= 0) return `พลอยแถว ${bad + 1} ยังไม่ครบ — ${rowIncompleteReason(rows[bad])}`;
+  const dup = [...findDuplicateRows(rows, options)][0];
+  return dup ? `พลอยแถว ${dup[0] + 1} ซ้ำกับแถว ${dup[1] + 1} — กด “รวมเข้าแถว ${dup[1] + 1}” หรือแก้ให้ต่างกัน` : null;
+}
+
+export function gemCreateDecision(a: { touched: boolean; rows: readonly GemDraftRow[]; gemTicked: boolean; hasGemStage: boolean; templateCount: number; options?: GemOptions | null }): { send: boolean; blocking: string | null; warnings: string[] } {
   const warnings: string[] = [];
   const { touched, rows, gemTicked, hasGemStage, templateCount } = a;
   if (!touched) {
@@ -246,40 +278,46 @@ export function gemCreateDecision(a: { touched: boolean; rows: readonly GemDraft
     if (templateCount === 0 && gemTicked) warnings.push("ยังไม่ระบุพลอย — หน้าช่างจะเตือนให้ถามออฟฟิศก่อนฝัง (ไม่บล็อกการสร้างใบ)");
     return { send: false, blocking: null, warnings };
   }
-  let blocking: string | null = null;
-  const bad = rows.findIndex((r) => gemRowIssues(r).length > 0);
-  if (bad >= 0) blocking = `พลอยแถว ${bad + 1} ยังไม่ครบ — ${rowIncompleteReason(rows[bad])}`;
-  else {
-    const dup = [...findDuplicateRows(rows)][0];
-    if (dup) blocking = `พลอยแถว ${dup[0] + 1} ซ้ำกับแถว ${dup[1] + 1} — กด “รวมเข้าแถว ${dup[1] + 1}” หรือแก้ให้ต่างกัน`;
-  }
+  const blocking = gemRowsBlocking(rows, a.options);
   if (rows.length > 0 && !gemTicked) warnings.push(hasGemStage ? "มีพลอยแต่ไม่ได้ติ๊กขั้น “ฝังพลอย” — พลอยจะไม่อยู่ในขั้นไหน" : "ใบนี้ไม่มีขั้น “ฝังพลอย” ให้เลือก — พลอยจะถูกบันทึกแต่ไม่อยู่ในขั้นไหน (ออฟฟิศต้องเพิ่มขั้นเอง)");
   if (rows.length === 0 && gemTicked) warnings.push("ติ๊กขั้น “ฝังพลอย” แต่ไม่มีพลอย — หน้าช่างจะเตือนว่ายังไม่ระบุพลอย (ไม่บล็อกการสร้างใบ)");
   return { send: true, blocking, warnings };
 }
 
 // ---------------------------------------------------------------------------
-// สรุปการเปลี่ยนแปลง (+เพิ่ม −ลบ ~แก้) ก่อนบันทึก / เทียบกับแม่แบบ — เทียบด้วยฉลาก (snapshot) ไม่ใช่ id
+// สรุปการเปลี่ยนแปลง (+เพิ่ม −ลบ ~แก้) ก่อนบันทึก / เทียบกับแม่แบบ — เทียบด้วย key (รายการจริง = canonical id ถ้ามี) ไม่งั้นด้วยฉลาก (snapshot)
 // ---------------------------------------------------------------------------
 export interface DiffLine {
   label: string;
   qtyPerPiece: number;
   position: string | null;
+  /** รายการจริงหลังตามการรวมชื่อ (canonical id) — มี = เทียบด้วยตัวนี้ (ชื่อถูกเปลี่ยน/รวมทีหลังไม่ทำให้เหมือนลบ+เพิ่ม) · ไม่มี = เทียบด้วยฉลาก */
+  key?: string;
 }
 export type DiffEntry = { op: "add"; to: DiffLine } | { op: "remove"; from: DiffLine } | { op: "change"; from: DiffLine; to: DiffLine };
 
 export function diffGemLines(before: readonly DiffLine[], after: readonly DiffLine[]): DiffEntry[] {
   const out: DiffEntry[] = [];
-  const left = new Map<string, DiffLine>(before.map((l) => [l.label, l]));
+  const k = (l: DiffLine) => l.key ?? l.label;
+  const left = new Map<string, DiffLine>(before.map((l) => [k(l), l]));
   for (const a of after) {
-    const b = left.get(a.label);
+    const b = left.get(k(a));
     if (!b) {
       out.push({ op: "add", to: a });
       continue;
     }
-    left.delete(a.label);
-    if (b.qtyPerPiece !== a.qtyPerPiece || (b.position ?? "") !== (a.position ?? "")) out.push({ op: "change", from: b, to: a });
+    left.delete(k(a));
+    if (b.qtyPerPiece !== a.qtyPerPiece || (b.position ?? "") !== (a.position ?? "") || b.label !== a.label) out.push({ op: "change", from: b, to: a });
   }
   for (const b of left.values()) out.push({ op: "remove", from: b });
   return out;
+}
+
+/** ข้อความหนึ่งบรรทัดของการเปลี่ยน: "+ เพิ่ม …" · "− ลบ …" · "~ แก้ …" */
+export function gemDiffText(d: DiffEntry): string {
+  const q = (n: number) => `${n}/ชิ้น`;
+  if (d.op === "add") return `+ เพิ่ม ${d.to.label} · ${q(d.to.qtyPerPiece)}${d.to.position ? ` · ${d.to.position}` : ""}`;
+  if (d.op === "remove") return `− ลบ ${d.from.label} · ${q(d.from.qtyPerPiece)}`;
+  const name = d.from.label === d.to.label ? d.to.label : `${d.from.label} → ${d.to.label}`;
+  return `~ แก้ ${name} : ${q(d.from.qtyPerPiece)}${d.from.position ? ` (${d.from.position})` : ""} → ${q(d.to.qtyPerPiece)}${d.to.position ? ` (${d.to.position})` : ""}`;
 }

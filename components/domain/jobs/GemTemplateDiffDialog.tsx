@@ -7,9 +7,8 @@ import { Modal } from "@/components/ui/Modal";
 import { Button } from "@/components/ui/Button";
 import { useOfficeRun } from "@/components/domain/jobs/useOfficeRun";
 import { GemErrorLine } from "@/components/domain/gems/ui";
-import { diffText } from "@/components/domain/jobs/JobGemsEditDialog";
 import { makeSkuGemTemplateFromJob } from "@/lib/actions/gems";
-import { diffGemLines } from "@/lib/jobs/gem-draft";
+import { diffGemLines, gemDiffText } from "@/lib/jobs/gem-draft";
 import type { GemBomLine } from "@/lib/jobs/gems";
 
 const line = (l: GemBomLine) => `${l.label} · ${l.qtyPerPiece}/ชิ้น${l.position ? ` · ${l.position}` : ""}`;
@@ -17,7 +16,9 @@ const line = (l: GemBomLine) => `${l.label} · ${l.qtyPerPiece}/ชิ้น${l.
 export function GemTemplateDiffDialog({ jobId, sku, template, lines, onClose }: { jobId: string; sku: string; template: GemBomLine[]; lines: GemBomLine[]; onClose: () => void }) {
   const { run, busy, error } = useOfficeRun();
   const isNew = template.length === 0;
-  const diff = diffGemLines(template, lines);
+  // เทียบด้วยรายการจริง (canonical id) — ชื่อที่ถูกเปลี่ยน/รวมทีหลังไม่ทำให้เหมือน "ลบ+เพิ่ม"
+  const toDiff = (l: GemBomLine) => ({ label: l.label, qtyPerPiece: l.qtyPerPiece, position: l.position, key: l.canonicalItemId });
+  const diff = diffGemLines(template.map(toDiff), lines.map(toDiff));
 
   async function submit() {
     const r = await run(() => makeSkuGemTemplateFromJob(jobId), { success: `ตั้งเป็นแม่แบบพลอยของ ${sku} แล้ว` });
@@ -72,7 +73,7 @@ export function GemTemplateDiffDialog({ jobId, sku, template, lines, onClose }: 
             <ul className="mt-1 space-y-0.5 text-sm text-zinc-900" data-testid="gem-tpl-diff">
               {diff.map((d, i) => (
                 <li key={i} className="break-words">
-                  {diffText(d)}
+                  {gemDiffText(d)}
                 </li>
               ))}
             </ul>

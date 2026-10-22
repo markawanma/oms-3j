@@ -72,9 +72,12 @@ beforeEach(() => {
 });
 
 describe("pure helpers", () => {
-  it("priceIssue: 0 · ติดลบ · NaN · ทศนิยม 5 ตำแหน่ง · > 1,000,000 ปฏิเสธ · 0.0001 และ 1,000,000 ผ่าน · รับ , เป็นจุด", () => {
+  it("priceIssue: 0 · ติดลบ · NaN · ทศนิยม 5 ตำแหน่ง · > 1,000,000 ปฏิเสธ · 0.0001 และ 1,000,000 ผ่าน", () => {
     for (const bad of ["", "0", "0.0000", "-1", "abc", "NaN", "1e3", "0.12345", "1000000.01", "10000000"]) expect(priceIssue(bad), bad).not.toBeNull();
-    for (const ok of ["0.0001", "12.5", "1000000", "3,5"]) expect(priceIssue(ok), ok).toBeNull();
+    for (const ok of ["0.0001", "12.5", "1000000", "1000", "12.50"]) expect(priceIssue(ok), ok).toBeNull();
+  });
+  it("🔴 จุลภาคในช่องราคาถูกปฏิเสธทุกแบบ (1,000 ต้องไม่กลายเป็น 1 บาท): 1,000 · 1,250 · 1,000.50 · 3,5 · 12,500.50 · ,5 · 1,", () => {
+    for (const bad of ["1,000", "1,250", "1,000.50", "3,5", "12,500.50", ",5", "1,"]) expect(priceIssue(bad), bad).toBe("ใส่ราคาเป็นตัวเลขไม่มีจุลภาค เช่น 1000 หรือ 12.50");
   });
   it("dateIssue: ก่อน 2020 · เกินหนึ่งปีข้างหน้า · รูปแบบผิด ปฏิเสธ", () => {
     expect(dateIssue("2019-12-31", TODAY)).not.toBeNull();
@@ -196,6 +199,24 @@ describe("ตั้งราคา", () => {
       expect((price as HTMLInputElement).value).toBe(bad);
     }
     expect(A.setGemPrice).not.toHaveBeenCalled();
+  });
+  it("🔴 พิมพ์ 1,000: เตือนทันที (ไม่รอกดบันทึก) · ไม่ส่ง DB · ไม่โชว์ค่าที่อ่านได้ · พิมพ์ 1000 โชว์ '= ฿1,000.00' ก่อนบันทึก", async () => {
+    A.setGemPrice.mockResolvedValue({ ok: true, data: { effectiveFrom: TODAY, replaced: false } });
+    const user = await openPrice();
+    const price = screen.getByLabelText(/ราคาใหม่/);
+    await user.type(price, "1,000");
+    expect(screen.getByText(/ใส่ราคาเป็นตัวเลขไม่มีจุลภาค เช่น 1000 หรือ 12.50/)).toBeInTheDocument();
+    expect(screen.queryByTestId("gem-price-parsed")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "บันทึกราคา" }));
+    expect(A.setGemPrice).not.toHaveBeenCalled();
+    await user.clear(price);
+    await user.type(price, "1000");
+    expect(screen.getByTestId("gem-price-parsed")).toHaveTextContent("= ฿1,000.00 ต่อเม็ด");
+    await user.clear(price);
+    await user.type(price, "12.5");
+    expect(screen.getByTestId("gem-price-parsed")).toHaveTextContent("= ฿12.50 ต่อเม็ด");
+    await user.click(screen.getByRole("button", { name: "บันทึกราคา" }));
+    await waitFor(() => expect(A.setGemPrice).toHaveBeenCalledTimes(1));
   });
   it("วันที่ก่อน 2020: ปฏิเสธ", async () => {
     const user = await openPrice();

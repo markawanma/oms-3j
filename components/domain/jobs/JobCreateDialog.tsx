@@ -25,7 +25,7 @@ import { createJob, suggestJob } from "@/lib/actions/job-office";
 import type { CreateJobInput, JobSuggestion } from "@/lib/actions/job-office";
 import { GEM_STAGE_CODE, draftRowsToInputs, gemCreateDecision, rowFromBomLine } from "@/lib/jobs/gem-draft";
 import type { GemDraftRow } from "@/lib/jobs/gem-draft";
-import { reusedNotices } from "@/lib/jobs/gem-save";
+import { saveNotices } from "@/lib/jobs/gem-save";
 import { GENERIC_JOB_ERROR } from "@/lib/jobs/messages";
 import { METAL_LABEL } from "@/lib/jobs/types";
 
@@ -67,7 +67,6 @@ export function JobCreateDialog({ kind, itemId, itemLabel, onClose, onCreated }:
     setGemShowIssues(false);
     setGemTickNote(false);
     gemFail.reset();
-    gemFail.setForce(false);
     setBufferOn(false);
     setBufferText("0");
     (async () => {
@@ -128,7 +127,7 @@ export function JobCreateDialog({ kind, itemId, itemLabel, onClose, onCreated }:
   }, [templateSig, gemTouched]);
   const hasGemStage = data !== null && data.stages.some((s) => s.code === GEM_STAGE_CODE);
   const gemTicked = codes.includes(GEM_STAGE_CODE);
-  const gemDecision = gemCreateDecision({ touched: gemTouched, rows: gemRows, gemTicked, hasGemStage, templateCount: template.length });
+  const gemDecision = gemCreateDecision({ touched: gemTouched, rows: gemRows, gemTicked, hasGemStage, templateCount: template.length, options: gemOpts.options });
   const gemOptsState = gemOpts.state.s;
   const gemQtyNote = bufferOn && bufferValue !== null && bufferValue > 0 && data ? `สั่ง ${data.qty} + เผื่อ ${bufferValue}` : null;
   function onGemRows(next: GemDraftRow[]) {
@@ -172,7 +171,8 @@ export function JobCreateDialog({ kind, itemId, itemLabel, onClose, onCreated }:
   async function submit(o: { force?: boolean; rows?: GemDraftRow[] } = {}) {
     if (busy || !data || qtyValue === null) return;
     const rowsNow = o.rows ?? gemRows;
-    const dec = o.rows ? gemCreateDecision({ touched: true, rows: rowsNow, gemTicked, hasGemStage, templateCount: template.length }) : gemDecision;
+    // คำนวณจาก rows ที่จะส่งจริงทุกครั้ง (รวมตอนส่งซ้ำหลังแก้แถวจาก "ใช้ตัวที่มี" — แถวที่แก้ให้ต้องไม่หลุดด่านซ้ำ/ไม่ครบ)
+    const dec = gemCreateDecision({ touched: gemTouched || o.rows !== undefined, rows: rowsNow, gemTicked, hasGemStage, templateCount: template.length, options: gemOpts.options });
     // พลอยแถวที่ยังไม่ครบ/ซ้ำ → ไม่ส่ง · แสดงปัญหาที่แถว (ไม่ส่งไป DB เพื่อให้ตอบกลับทีหลัง)
     if (dec.blocking) {
       setGemShowIssues(true);
@@ -195,7 +195,8 @@ export function JobCreateDialog({ kind, itemId, itemLabel, onClose, onCreated }:
       // 0190: ส่งพลอยทั้งชุดเฉพาะเมื่อผู้ใช้แตะส่วนพลอย ([] = ระบุว่าไม่มีพลอย) · ชื่อใหม่เข้าแคตตาล็อกในธุรกรรมเดียวกับใบ — แถวไหนผิด = ไม่เปิดใบเลย (ฟอร์มคงอยู่)
       if (dec.send) {
         input.gemLines = draftRowsToInputs(rowsNow);
-        if (o.force || gemFail.force) input.gemForce = true;
+        // force ใช้กับคำขอที่ผู้ใช้เพิ่งยืนยัน "เพิ่มใหม่จริงๆ" เท่านั้น (ไม่ค้างข้ามคำขอ — ชื่อคล้ายตัวอื่นที่ยังไม่เคยถูกถามต้องถูกถามเอง)
+        if (o.force === true) input.gemForce = true;
       }
       const r = await createJob(input);
       if (!r.ok) {
@@ -214,7 +215,7 @@ export function JobCreateDialog({ kind, itemId, itemLabel, onClose, onCreated }:
       }
       toast.push(`สร้างใบงาน ${r.data.jobNo} แล้ว${r.data.planMissing.length > 0 ? " · ยังไม่มีแผนโลหะ" : ""}`);
       // DB "ใช้ตัวเดิมให้" เมื่อชื่อที่พิมพ์ซ้ำกับของที่มี (เช่น 2 คนพิมพ์ชื่อเดียวกันพร้อมกัน) — แจ้งเป็นข้อมูล ไม่ใช่ error
-      for (const m of reusedNotices(r.data.gemSummary?.reused ?? [])) toast.push(m);
+      for (const m of saveNotices(r.data.gemSummary ?? { reused: [], mergedRows: [] })) toast.push(m);
       onCreated();
       onClose();
       // 0182: สร้างเสร็จพาไปการ์ดรูปงาน (ถ่าย/ดูรูปก่อนพิมพ์) — เติม hash เท่านั้น ไม่ใส่ช่องรูปในฟอร์ม (มติ ux Q2)
@@ -271,7 +272,7 @@ export function JobCreateDialog({ kind, itemId, itemLabel, onClose, onCreated }:
               rows={gemRows}
               onRows={onGemRows}
               templateCount={template.length}
-              sku={null}
+              sku={data.sku ?? null}
               templateLoading={preview.s === "loading" && !gemTouched && hintPlan === null}
               gemTickNote={gemTickNote}
               warnings={gemDecision.warnings}
@@ -285,7 +286,6 @@ export function JobCreateDialog({ kind, itemId, itemLabel, onClose, onCreated }:
               onRetryOptions={() => void gemOpts.reload()}
               qtyPlanned={qtyValue}
               qtyNote={gemQtyNote}
-              onForceSimilar={() => gemFail.setForce(true)}
               disabled={busy || data.existingJob !== null}
             />
             <fieldset className="space-y-1">
@@ -352,7 +352,6 @@ export function JobCreateDialog({ kind, itemId, itemLabel, onClose, onCreated }:
         }}
         onClose={gemFail.clearSimilar}
         onResubmit={(o) => {
-          if (o.force) gemFail.setForce(true);
           void submit({ force: o.force, rows: o.rows });
         }}
       />

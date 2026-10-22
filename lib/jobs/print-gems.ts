@@ -12,7 +12,9 @@ export const PRINT_CONTENT_HEIGHT_MM = 194;
 export type GemPrintStep = "normal" | "noPhoto" | "compact" | "page2";
 
 /** ขั้นถัดไปของบันได เมื่อวัดแล้วล้น · ไม่มีรูปหลัก = ข้ามขั้น "ตัดรูป" · page2 คือขั้นสุดท้าย (คืนตัวเอง) */
-export function nextGemPrintStep(cur: GemPrintStep, hasPhoto: boolean): GemPrintStep {
+export function nextGemPrintStep(cur: GemPrintStep, hasPhoto: boolean, hasRows = true): GemPrintStep {
+  // ยังไม่ระบุพลอย (มีแต่บรรทัดเตือนบรรทัดเดียว — ไม่มีแถวให้บีบ/ย้าย): ทำได้แค่ตัดรูป · พ้นนั้นล้นก็ล้น (ผู้เรียกขึ้นแถบเตือน)
+  if (!hasRows) return cur === "normal" && hasPhoto ? "noPhoto" : cur;
   switch (cur) {
     case "normal":
       return hasPhoto ? "noPhoto" : "compact";
@@ -38,5 +40,5 @@ export const GEM_PRINT_NOTICE: Record<GemPrintStep, string | null> = {
   page2: "ใบนี้พิมพ์ 2 แผ่น — ติดแผ่น 2 ไว้กับถุงงาน (แผ่น 2 ไม่มี QR)",
 };
 
-/** ใบที่ต้องวัดความสูง (มีตารางพลอยจริง) — ใบไม่มีพลอยไม่ถูกวัด/ไม่เปลี่ยนอะไรเลย */
-export const needsGemFit = (gems: readonly unknown[]): boolean => gems.length > 0;
+/** ใบที่ต้องวัดความสูง = มีตารางพลอย หรือมีบรรทัด "พลอย: ยังไม่ระบุ" (ก็กินที่) — ใบไม่มีพลอยและไม่ใช่ unspecified ไม่ถูกวัด/ไม่เปลี่ยนอะไรเลย */
+export const needsGemFit = (gems: readonly unknown[], state: "not_needed" | "specified" | "unspecified" = "not_needed"): boolean => gems.length > 0 || state === "unspecified";

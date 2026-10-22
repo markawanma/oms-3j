@@ -57,3 +57,19 @@ export function applySimilarChoice(rows: readonly GemDraftRow[], hit: GemSimilar
 export function reusedNotices(reused: readonly { row: number; kind: "type" | "shape"; typed: string; name: string }[]): string[] {
   return reused.map((x) => `${x.kind === "type" ? "ชนิด" : "รูปทรง"} “${x.typed}” มีในระบบอยู่แล้ว — ใช้ตัวเดิม “${x.name}” ให้`);
 }
+
+/**
+ * ระบบรวมแถวซ้ำให้ (ชนิด+รูปทรง+ขนาดเดียวกัน → บวกจำนวน) — แจ้งผู้ใช้ว่าเกิดอะไรขึ้น ไม่เงียบ
+ * mergedRows = [[1,2],[4,5,6]] (เลขแถวตอนส่ง · 1-based) — เฉพาะกลุ่มที่มี ≥ 2 แถวถึงนับ
+ */
+export function mergedNotices(mergedRows: readonly (readonly number[])[]): string[] {
+  const groups = mergedRows.filter((g) => g.length >= 2);
+  if (groups.length === 0) return [];
+  const n = groups.reduce((s, g) => s + g.length - 1, 0);
+  return [`รวมแถวซ้ำ ${n} แถว (${groups.map((g) => `แถว ${g.join(", ")}`).join(" · ")}) — จำนวนต่อชิ้นถูกบวกกันให้แล้ว`];
+}
+
+/** ข้อความแจ้งผลสรุปจากระบบหลังบันทึก: ชื่อที่ใช้ตัวเดิมให้ + แถวซ้ำที่ถูกรวม */
+export function saveNotices(s: { reused: readonly { row: number; kind: "type" | "shape"; typed: string; name: string }[]; mergedRows: readonly (readonly number[])[] }): string[] {
+  return [...reusedNotices(s.reused), ...mergedNotices(s.mergedRows)];
+}

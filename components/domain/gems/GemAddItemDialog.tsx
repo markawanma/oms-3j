@@ -41,7 +41,7 @@ export function GemAddItemDialog({ onClose }: { onClose: () => void }) {
     if (busy || gemRowIssues(r).some((i) => i.field !== "qty_per_piece" && i.field !== "position")) return;
     fail.reset();
     setError(null);
-    const res = await run(() => createGemItem(draftRowToInput(r), opts.force === true || fail.force), { refresh: true });
+    const res = await run(() => createGemItem(draftRowToInput(r), opts.force === true), { refresh: true });
     if (res.ok) {
       onClose();
       return;
@@ -77,7 +77,6 @@ export function GemAddItemDialog({ onClose }: { onClose: () => void }) {
             describedBy={err("type") ? "ga-type-err" : undefined}
             value={row.type}
             onSelect={(v) => setRow({ ...row, type: v })}
-            onForceSimilar={() => fail.setForce(true)}
             onNotice={setNotice}
           />
           {err("type") && <FieldMsg id="ga-type-err">{err("type")!.message}</FieldMsg>}
@@ -98,7 +97,6 @@ export function GemAddItemDialog({ onClose }: { onClose: () => void }) {
             describedBy={err("shape") ? "ga-shape-err" : undefined}
             value={row.shape}
             onSelect={(v) => setRow({ ...row, shape: v, sizeB: v.hasLength ? row.sizeB : "", bigConfirmed: false })}
-            onForceSimilar={() => fail.setForce(true)}
             onNotice={setNotice}
           />
           {err("shape") && <FieldMsg id="ga-shape-err">{err("shape")!.message}</FieldMsg>}
@@ -133,7 +131,6 @@ export function GemAddItemDialog({ onClose }: { onClose: () => void }) {
         onRows={(rs) => setRow(rs[0])}
         onClose={fail.clearSimilar}
         onResubmit={(o) => {
-          if (o.force) fail.setForce(true);
           void submit({ force: o.force, row: o.rows?.[0] });
         }}
       />

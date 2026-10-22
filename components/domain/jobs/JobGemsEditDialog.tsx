@@ -15,11 +15,11 @@ import { useGemOptions } from "@/components/domain/gems/useGemOptions";
 import { GEM_FIELD, GemErrorLine } from "@/components/domain/gems/ui";
 import { useOfficeRun } from "@/components/domain/jobs/useOfficeRun";
 import { getJobGems, saveJobGems } from "@/lib/actions/gems";
-import { diffGemLines, draftRowsToInputs, findDuplicateRows, gemRowIssues, rowFromBomLine, rowIncompleteReason, rowLabelPreview } from "@/lib/jobs/gem-draft";
-import type { DiffEntry, GemDraftRow } from "@/lib/jobs/gem-draft";
-import { reusedNotices } from "@/lib/jobs/gem-save";
+import { diffGemLines, draftRowsToInputs, gemDiffText, gemRowsBlocking, rowFromBomLine, rowLabelPreview } from "@/lib/jobs/gem-draft";
+import type { GemDraftRow } from "@/lib/jobs/gem-draft";
+import { gemReasonIssue } from "@/lib/jobs/gem-reason";
+import { saveNotices } from "@/lib/jobs/gem-save";
 import { GENERIC_JOB_ERROR } from "@/lib/jobs/messages";
-import { oemNotePresent } from "@/lib/oem/display";
 import { useToast } from "@/components/ui/Toast";
 import type { JobGems } from "@/lib/jobs/gems";
 
@@ -29,13 +29,6 @@ const WINDOW_BANNER: Record<string, { tone: "amber" | "sky"; text: string } | un
   office_free: { tone: "amber", text: "ช่างเริ่มทำงานแล้ว — การแก้ครั้งนี้ผู้จัดการจะไม่เห็นว่าแก้ไว้จนกว่าสแกนใหม่" },
   reason_required: { tone: "amber", text: "ช่างฝังรับงานแล้ว — พลอยที่เปลี่ยนอาจไม่ตรงกับที่ฝังไปแล้ว" },
 };
-
-export function diffText(d: DiffEntry): string {
-  const q = (n: number) => `${n}/ชิ้น`;
-  if (d.op === "add") return `+ เพิ่ม ${d.to.label} · ${q(d.to.qtyPerPiece)}${d.to.position ? ` · ${d.to.position}` : ""}`;
-  if (d.op === "remove") return `− ลบ ${d.from.label} · ${q(d.from.qtyPerPiece)}`;
-  return `~ แก้ ${d.to.label} : ${q(d.from.qtyPerPiece)}${d.from.position ? ` (${d.from.position})` : ""} → ${q(d.to.qtyPerPiece)}${d.to.position ? ` (${d.to.position})` : ""}`;
-}
 
 export function JobGemsEditDialog({ jobId, onClose }: { jobId: string; onClose: () => void }) {
   const toast = useToast();
@@ -47,6 +40,8 @@ export function JobGemsEditDialog({ jobId, onClose }: { jobId: string; onClose: 
   const [reason, setReason] = useState("");
   const [showIssues, setShowIssues] = useState(false);
   const [dirty, setDirty] = useState(false);
+  // DB ตอบ reason_required ระหว่างแก้ (ช่างฝังรับงานขณะที่เปิดกล่องค้างไว้) → ขึ้นช่องเหตุผลทันที ค่าที่แก้ไม่หาย
+  const [serverNeedReason, setServerNeedReason] = useState(false);
 
   const fetchJob = useCallback(async () => {
     setLoad({ s: "loading" });
@@ -66,15 +61,17 @@ export function JobGemsEditDialog({ jobId, onClose }: { jobId: string; onClose: 
 
   const data = load.s === "ready" ? load.data : null;
   const win = data?.window ?? null;
-  const needReason = win === "reason_required";
-  const reasonOk = !needReason || oemNotePresent(reason);
+  const needReason = win === "reason_required" || serverNeedReason;
+  const reasonIssue = needReason ? gemReasonIssue(reason) : null;
+  const reasonOk = reasonIssue === null;
   const closed = win === "closed";
 
-  const beforeLines = data ? data.lines.map((l) => ({ label: l.label, qtyPerPiece: l.qtyPerPiece, position: l.position })) : [];
+  const beforeLines = data ? data.lines.map((l) => ({ label: l.label, qtyPerPiece: l.qtyPerPiece, position: l.position, key: l.canonicalItemId })) : [];
   const afterLines = useMemo(
     () =>
       rows.map((r) => ({
         label: r.itemId !== null ? (r.label ?? "") : (rowLabelPreview(r) ?? "(ยังไม่ครบ)"),
+        key: r.itemId !== null ? (r.canonicalId ?? r.itemId) : undefined,
         qtyPerPiece: Number(r.qty.trim()) || 0,
         position: r.position.trim() === "" ? null : r.position.trim(),
       })),
@@ -82,10 +79,8 @@ export function JobGemsEditDialog({ jobId, onClose }: { jobId: string; onClose: 
   );
   const changes = useMemo(() => diffGemLines(beforeLines, afterLines), [beforeLines, afterLines]);
 
-  const bad = rows.findIndex((r) => gemRowIssues(r).length > 0);
-  const dup = [...findDuplicateRows(rows)][0];
-  const blocking = bad >= 0 ? `พลอยแถว ${bad + 1} ยังไม่ครบ — ${rowIncompleteReason(rows[bad])}` : dup ? `พลอยแถว ${dup[0] + 1} ซ้ำกับแถว ${dup[1] + 1} — กด “รวมเข้าแถว ${dup[1] + 1}” หรือแก้ให้ต่างกัน` : null;
-  const reasonWhy = !reasonOk ? "ใส่เหตุผลที่แก้ (ต้องมีตัวอักษรหรือตัวเลขจริง)" : null;
+  const blocking = gemRowsBlocking(rows, opts.options);
+  const reasonWhy = reasonIssue;
   const nothing = data !== null && !dirty;
 
   function onRows(next: GemDraftRow[]) {
@@ -97,7 +92,8 @@ export function JobGemsEditDialog({ jobId, onClose }: { jobId: string; onClose: 
   async function submit(o: { force?: boolean; rows?: GemDraftRow[] } = {}) {
     if (busy || !data || closed || (!dirty && !o.rows)) return;
     const rs = o.rows ?? rows;
-    if (blocking && !o.rows) {
+    // คำนวณจากแถวที่จะส่งจริงทุกครั้ง (รวมตอนส่งซ้ำหลังแก้แถวจาก "ใช้ตัวที่มี")
+    if (gemRowsBlocking(rs, opts.options)) {
       setShowIssues(true);
       return;
     }
@@ -107,13 +103,14 @@ export function JobGemsEditDialog({ jobId, onClose }: { jobId: string; onClose: 
     }
     setError(null);
     fail.reset();
-    const r = await run(() => saveJobGems({ jobId, lines: draftRowsToInputs(rs), reason: reason.trim() || null, force: o.force === true || fail.force }), { success: "บันทึกพลอยแล้ว" });
+    const r = await run(() => saveJobGems({ jobId, lines: draftRowsToInputs(rs), reason: reason.trim() || null, force: o.force === true }), { success: "บันทึกพลอยแล้ว" });
     if (r.ok) {
-      for (const m of reusedNotices(r.data.summary.reused)) toast.push(m);
+      for (const m of saveNotices(r.data.summary)) toast.push(m);
       setDirty(false);
       onClose();
       return;
     }
+    if (r.code === "reason_required" || r.gem?.code === "reason_required") setServerNeedReason(true);
     fail.fail(r, rs);
     setShowIssues(true);
   }
@@ -141,9 +138,9 @@ export function JobGemsEditDialog({ jobId, onClose }: { jobId: string; onClose: 
             ใบนี้ปิดหรือยกเลิกแล้ว — แก้พลอยไม่ได้
           </p>
         )}
-        {data && !closed && win && WINDOW_BANNER[win] && (
+        {data && !closed && win && WINDOW_BANNER[serverNeedReason ? "reason_required" : win] && (
           <p role="status" className="rounded-md border border-amber-300 bg-amber-50 p-2.5 text-sm font-medium text-amber-950" data-testid="gem-edit-banner">
-            {WINDOW_BANNER[win]!.text}
+            {WINDOW_BANNER[serverNeedReason ? "reason_required" : win]!.text}
           </p>
         )}
         {data && (
@@ -158,7 +155,6 @@ export function JobGemsEditDialog({ jobId, onClose }: { jobId: string; onClose: 
             qtyPlanned={data.qtyPlanned}
             showIssues={showIssues}
             serverErrors={fail.rowErrors}
-            onForceSimilar={() => fail.setForce(true)}
             disabled={busy || closed}
             emptyText="ใบนี้ไม่มีพลอย — เพิ่มได้ถ้ายังอยู่ในหน้าต่างที่แก้ได้"
             layout="grid"
@@ -183,7 +179,7 @@ export function JobGemsEditDialog({ jobId, onClose }: { jobId: string; onClose: 
             <ul className="mt-1 space-y-0.5 text-sm text-zinc-900" data-testid="gem-edit-summary">
               {changes.map((c, i) => (
                 <li key={i} className="break-words">
-                  {diffText(c)}
+                  {gemDiffText(c)}
                 </li>
               ))}
             </ul>
@@ -221,7 +217,6 @@ export function JobGemsEditDialog({ jobId, onClose }: { jobId: string; onClose: 
         }}
         onClose={fail.clearSimilar}
         onResubmit={(o) => {
-          if (o.force) fail.setForce(true);
           void submit({ force: o.force, rows: o.rows });
         }}
       />

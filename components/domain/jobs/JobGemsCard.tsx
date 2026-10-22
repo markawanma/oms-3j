@@ -6,15 +6,15 @@
 // 🔴 ไม่มีราคา/เผื่อแตก — การ์ดนี้ staff-safe โดยชนิดข้อมูล (JobGemsSummary/JobGems ไม่มีฟิลด์ราคา)
 // state: loading (เฉพาะส่วนเสริม) · empty (ไม่ระบุ / ไม่มีขั้นฝัง) · error (อ่านพลอยไม่ได้ → ไม่ทำให้หน้าใบงานล้ม) · success (ตาราง + ป้าย)
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { GemTemplateDiffDialog } from "@/components/domain/jobs/GemTemplateDiffDialog";
-import { JobGemsEditDialog, diffText } from "@/components/domain/jobs/JobGemsEditDialog";
+import { JobGemsEditDialog } from "@/components/domain/jobs/JobGemsEditDialog";
 import { getJobGems } from "@/lib/actions/gems";
 import { thaiDateTime } from "@/lib/jobs/dates";
-import { diffGemLines } from "@/lib/jobs/gem-draft";
+import { diffGemLines, gemDiffText } from "@/lib/jobs/gem-draft";
 import type { JobGems, JobGemsSummary } from "@/lib/jobs/gems";
 
 type Extra = { s: "loading" } | { s: "error" } | { s: "ready"; data: JobGems };
@@ -27,13 +27,16 @@ export function JobGemsCard({ jobId, sku, closed, activeTokens, gems }: { jobId:
 
   // ส่วนเสริมโหลดใหม่ทุกครั้งที่พลอยของใบเปลี่ยน (หลังบันทึก → router.refresh ส่ง gems ใหม่มา)
   const sig = gems ? gems.gems.map((g) => `${g.label}:${g.qtyPerPiece}:${g.position ?? ""}`).join("|") + gems.state : "x";
+  const seq = useRef(0);
   const fetchExtra = useCallback(async () => {
+    // คำตอบเก่าที่มาช้ากว่าคำขอใหม่ถูกทิ้ง (พลอยเปลี่ยนติดกัน/ปิดกล่องแล้ว refresh)
+    const my = ++seq.current;
     setExtra({ s: "loading" });
     try {
       const r = await getJobGems(jobId);
-      setExtra(r.ok ? { s: "ready", data: r.data } : { s: "error" });
+      if (my === seq.current) setExtra(r.ok ? { s: "ready", data: r.data } : { s: "error" });
     } catch {
-      setExtra({ s: "error" });
+      if (my === seq.current) setExtra({ s: "error" });
     }
   }, [jobId]);
   useEffect(() => {
@@ -161,7 +164,7 @@ export function JobGemsCard({ jobId, sku, closed, activeTokens, gems }: { jobId:
                 <li key={`${h.at}-${i}`} className="break-words">
                   <span className="font-medium">{thaiDateTime(h.at)}</span>
                   {h.reason ? ` · เหตุผล: ${h.reason}` : ""}
-                  {d.length === 0 ? <span className="block text-zinc-700">{h.before.length === 0 && h.after.length === 0 ? "ไม่มีพลอย" : "ไม่มีความต่าง"}</span> : <ul className="mt-0.5">{d.map((c, k) => <li key={k}>{diffText(c)}</li>)}</ul>}
+                  {d.length === 0 ? <span className="block text-zinc-700">{h.before.length === 0 && h.after.length === 0 ? "ไม่มีพลอย" : "ไม่มีความต่าง"}</span> : <ul className="mt-0.5">{d.map((c, k) => <li key={k}>{gemDiffText(c)}</li>)}</ul>}
                 </li>
               );
             })}

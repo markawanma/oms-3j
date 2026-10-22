@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // QA G1a UI (R2-D2 · 22 ต.ค. 69) — บันไดล้นหน้า A5 x สถานะรูปหลัก (usePrintPhoto): ตัดรูปโดยบันได (noPhoto/compact) ต้องไม่ทำให้ปุ่มพิมพ์ค้าง/ขึ้นข้อความ "โหลดรูปไม่ได้" ผิดๆ
-//  it.fails = ช่องที่ QA รายงาน (ผ่านเมื่อพฤติกรรมยังเป็นอย่างที่รายงาน · แก้แล้วจะล้ม → เปลี่ยนเป็น it ธรรมดา)
+//  เดิม it.fails (ช่องที่ QA รายงาน) — แก้โค้ดแล้วจึงเปลี่ยนเป็น it ธรรมดา
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
@@ -38,13 +38,13 @@ describe("บันไดล้นหน้า: ตัดรูป (noPhoto) ก
     expect(screen.getAllByTestId("sheet-gem-row")).toHaveLength(2);
   });
 
-  it.fails("บันไดเป็นฝ่ายตัดรูปเอง (รูปไม่เคยโหลดเสร็จ) -> ปุ่ม 'ออก QR และพิมพ์' ต้องกดได้ทันที ไม่ต้องรอ timeout 8 วินาที (วันนี้ <img> ถูกถอดก่อน onLoad -> status ค้าง loading -> ปุ่ม disabled)", () => {
+  it("บันไดเป็นฝ่ายตัดรูปเอง (รูปไม่เคยโหลดเสร็จ) -> ปุ่ม 'ออก QR และพิมพ์' ต้องกดได้ทันที ไม่ต้องรอ timeout 8 วินาที (วันนี้ <img> ถูกถอดก่อน onLoad -> status ค้าง loading -> ปุ่ม disabled)", () => {
     render(<JobPrintClient job={job()} measureMm={() => (screen.queryByTestId("print-photo") ? 205 : 190)} />);
     expect(printBtn()).toHaveTextContent("ออก QR และพิมพ์");
     expect(printBtn()).toBeEnabled();
   });
 
-  it.fails("บันไดตัดรูปเอง แล้วรอเกิน timeout -> ต้องไม่ขึ้นแถบเหลือง 'โหลดรูปหลักไม่ได้' (ขัดกับแถบ 'ตัดรูปออกเพื่อให้ตารางพลอยพอดี' ที่ขึ้นพร้อมกัน — ผู้ใช้เข้าใจว่ารูปเสีย)", () => {
+  it("บันไดตัดรูปเอง แล้วรอเกิน timeout -> ต้องไม่ขึ้นแถบเหลือง 'โหลดรูปหลักไม่ได้' (ขัดกับแถบ 'ตัดรูปออกเพื่อให้ตารางพลอยพอดี' ที่ขึ้นพร้อมกัน — ผู้ใช้เข้าใจว่ารูปเสีย)", () => {
     render(<JobPrintClient job={job()} measureMm={() => (screen.queryByTestId("print-photo") ? 205 : 190)} />);
     act(() => {
       vi.advanceTimersByTime(PRINT_PHOTO_TIMEOUT_MS + 200);

@@ -11,6 +11,9 @@ const ROOT = process.cwd();
 const rel = (p: string) => relative(ROOT, p).replace(/\\/g, "/");
 const strip = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "").replace(/([^:"'`])\/\/.*$/gm, "$1");
 
+/** directive "use server" ต้องอยู่ต้นไฟล์ (หลังคอมเมนต์ได้) — ไม่ใช่โผล่บรรทัดไหนก็ได้ (กันข้อความในคอมเมนต์/สตริงถูกนับเป็น directive แล้วตัดกราฟทิ้งเงียบๆ) */
+const isUseServer = (src: string): boolean => /^(?:\s*\/\/[^\n]*\n|\s*\/\*[\s\S]*?\*\/)*\s*["']use server["']/.test(src);
+
 /** import แบบ runtime (ไม่นับ `import type` / `export type`) — alias "@/" และ relative เท่านั้น */
 function runtimeImports(src: string): string[] {
   const out: string[] = [];
@@ -47,7 +50,7 @@ function closure(entry: string): Set<string> {
     seen.add(f);
     const src = readFileSync(f, "utf8");
     // ไฟล์ "use server": ฝั่ง client ได้แค่ตัวอ้างอิง action (stub) — โค้ดและ import ข้างในไม่ขึ้น bundle ของ client → ไม่เดินต่อ
-    if (/^\s*["']use server["']/m.test(src)) continue;
+    if (isUseServer(src)) continue;
     for (const spec of runtimeImports(src)) {
       const r = resolveSpec(spec, f);
       if (r) stack.push(r);
@@ -125,6 +128,37 @@ describe("จอราคา import ได้จากหน้า /oem/gems เ
   });
 });
 
+describe("worker-view.ts: ส่วนพลอย (WorkerGem · mapGem) ไม่มี field ราคา", () => {
+  // ไฟล์นี้มีรายชื่อ key ต้องห้าม (findForbiddenKeys) ที่มีคำเรื่องราคาอยู่แล้วโดยตั้งใจ — ตรวจเฉพาะท่อนของพลอย
+  const src = strip(readFileSync(join(ROOT, "lib/jobs/worker-view.ts"), "utf8"));
+  const slice = (from: string, to: string) => {
+    const a = src.indexOf(from);
+    const b = src.indexOf(to, a);
+    expect(a, from).toBeGreaterThan(-1);
+    expect(b, to).toBeGreaterThan(a);
+    return src.slice(a, b);
+  };
+  it("interface WorkerGem = 4 key เท่านั้น", () => {
+    const body = slice("export interface WorkerGem", "export const MY_ACTION_KINDS");
+    expect(body.match(/^\s*(\w+)\??:/gm)?.map((m) => m.replace(/[\s?:]/g, ""))).toEqual(["label", "qtyPerPiece", "qtyTotal", "position"]);
+  });
+  it("mapGem อ่านเฉพาะ label · qty_per_piece · qty_total · position", () => {
+    const body = slice("function mapGem", "function mapPart");
+    const read = [...body.matchAll(/raw\.(\w+)/g)].map((m) => m[1]);
+    expect([...new Set(read)].sort()).toEqual(["label", "position", "qty_per_piece", "qty_total"]);
+  });
+});
+
+describe("ตัวจับ directive 'use server' ต้องอยู่ต้นไฟล์", () => {
+  it("จับของจริง (หลังคอมเมนต์หัวไฟล์ได้) · ไม่จับข้อความในคอมเมนต์/สตริงกลางไฟล์", () => {
+    expect(isUseServer('"use server";\nimport x from "y";')).toBe(true);
+    expect(isUseServer('// หัวไฟล์\n/* บล็อก */\n"use server";\nexport {}')).toBe(true);
+    expect(isUseServer('import x from "y";\n// "use server" ในคอมเมนต์\nconst s = 1;')).toBe(false);
+    expect(isUseServer('import x from "y";\n"use server";\n')).toBe(false);
+    expect(isUseServer('const note = `\n"use server"\n`;')).toBe(false);
+  });
+});
+
 describe("ไฟล์ส่วนพลอยของใบ/ช่าง/A5 ไม่มี field ราคา", () => {
   const FILES = [
     "components/domain/jobs/worker/WorkerGemsCard.tsx",
@@ -138,6 +172,10 @@ describe("ไฟล์ส่วนพลอยของใบ/ช่าง/A5 �
     "components/domain/gems/GemPicker.tsx",
     "lib/jobs/gem-draft.ts",
     "lib/jobs/print-gems.ts",
+    // ชั้นที่ประกอบข้อมูลพลอยส่งให้ช่าง/ใบพิมพ์/การ์ดใบงาน (type boundary) — ห้ามมีชื่อ field ราคา
+    "lib/jobs/print.ts",
+    "lib/jobs/gems-server.ts",
+    "components/domain/jobs/JobPrintClient.tsx",
   ];
   for (const f of FILES) {
     it(f, () => {

@@ -179,13 +179,20 @@ export function GemPicker(props: TypeProps | ShapeProps) {
   const panelBase = presentation === "sheet" ? "fixed inset-0 z-50 flex flex-col bg-white" : "absolute left-0 z-30 mt-1 w-72 max-w-[90vw] rounded-md border border-zinc-300 bg-white shadow-lg";
 
   return (
-    <div ref={root} className="relative">
+    <div
+      ref={root}
+      className="relative"
+      // popover: โฟกัสออกนอกกรอบ (Tab ไปช่องอื่น) = ปิด · กล่องซ้อน (Modal ถามชื่อคล้าย/ถามขนาด) อยู่ใน DOM ของกรอบนี้ จึงไม่นับเป็น "ออก"
+      onBlur={(e) => {
+        if (open && presentation === "popover" && !root.current?.contains(e.relatedTarget as Node | null) && e.relatedTarget !== null) close(false);
+      }}
+    >
       <button
         ref={trigger}
         type="button"
         id={`${id}-btn`}
         disabled={disabled}
-        aria-haspopup="listbox"
+        aria-haspopup={presentation === "sheet" ? "dialog" : "listbox"}
         aria-expanded={open}
         aria-label={`${label}${display ? `: ${display}` : ""}`}
         aria-invalid={invalid || undefined}
@@ -201,7 +208,16 @@ export function GemPicker(props: TypeProps | ShapeProps) {
       </button>
 
       {open && (
-        <div className={panelBase} data-testid={`${id}-panel`} onKeyDown={onKey}>
+        <div
+          className={panelBase}
+          data-testid={`${id}-panel`}
+          onKeyDown={onKey}
+          // คลิกในแผ่น (พื้นที่ว่าง/หัวกลุ่ม/แถบเลื่อน) ไม่ให้ช่องค้นหาเสียโฟกัส — ไม่งั้นถูกนับว่าออกนอกกรอบแล้วปิด
+          onMouseDown={(e) => {
+            if (e.target !== input.current && !(e.target as HTMLElement).closest("button")) e.preventDefault();
+          }}
+          {...(presentation === "sheet" ? { role: "dialog", "aria-modal": true, "aria-label": `เลือก${KIND_TH[kind]}` } : {})}
+        >
           <div className={presentation === "sheet" ? "flex items-center gap-2 border-b border-zinc-200 p-2" : "p-2"}>
             {presentation === "sheet" && (
               <button type="button" onClick={() => close()} className="min-h-14 min-w-14 text-lg font-semibold text-zinc-900" aria-label="กลับ">

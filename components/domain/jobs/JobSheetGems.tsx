@@ -28,7 +28,7 @@ function GemTable({ gems, compact }: { gems: readonly PrintableJobGem[]; compact
       </thead>
       <tbody>
         {gems.map((g, i) => (
-          <tr key={`${g.label}-${i}`} className={compact ? "" : "h-[5.5mm]"} data-testid="sheet-gem-row">
+          <tr key={`${g.label}-${i}`} className={`break-inside-avoid ${compact ? "" : "h-[5.5mm]"}`} data-testid="sheet-gem-row">
             <th scope="row" className={`${CELL} text-left font-semibold ${WRAP}`}>
               {g.label}
               {compact && g.position && <span className="ml-1 text-[8pt] font-normal text-zinc-700"> · {g.position}</span>}

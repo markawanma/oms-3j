@@ -101,9 +101,10 @@ describe("ยังไม่ระบุพลอย / ไม่มีพลอ�
     expect(btn).not.toHaveAttribute("aria-disabled", "true");
     expect(screen.queryByTestId("worker-gems-card")).not.toBeInTheDocument();
   });
-  it("unspecified ขั้นอื่นก็เตือน (ไม่แสดงรายการ)", () => {
-    render(<WorkerApp token={TOKEN} view={view({ state: "unspecified", stageCode: "cast" })} />);
-    expect(screen.getByTestId("worker-gems-unspecified")).toBeInTheDocument();
+  it("unspecified ขั้นอื่น (หล่อ/ขัด): ไม่แสดงกล่องเตือน (เตือน 'ถามออฟฟิศก่อนฝัง' เฉพาะขั้นฝัง)", () => {
+    const { container } = render(<WorkerApp token={TOKEN} view={view({ state: "unspecified", stageCode: "cast" })} />);
+    expect(screen.queryByTestId("worker-gems-unspecified")).not.toBeInTheDocument();
+    expect(container.textContent).not.toContain("ยังไม่ระบุพลอย");
   });
   it("ไม่มี gemsState (ใบไม่มีขั้นฝัง/ไม่มีพลอย): ไม่ render อะไรเลย — จอเดิมเป๊ะ", () => {
     const { container } = render(<WorkerApp token={TOKEN} view={view()} />);

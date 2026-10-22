@@ -10,6 +10,7 @@ import type { GemDraftRow } from "@/lib/jobs/gem-draft";
 import { toWireGemLines, mapGemBomLine, mapGemCatalog, mapGemMergePlan, mapGemOptions, mapGemPriceHistory, mapGemSaveSummary, mapJobGems, parseGemRpcError } from "@/lib/jobs/gems";
 import { findForbiddenKeys, sanitizeWorkerView } from "@/lib/jobs/worker-view";
 import { oemNotePresent } from "@/lib/oem/display";
+import { gemReasonIssue } from "@/lib/jobs/gem-reason";
 
 const PRICEY = /price|cost|thb|supplier|margin|profit|tier|breakage/i;
 function deepKeys(v: unknown, out: string[] = []): string[] {
@@ -167,9 +168,15 @@ describe("เหตุผลแก้พลอยหลังขั้นฝั�
     });
   }
   // KNOWN-GAP (ต่ำ): จอปล่อยผ่านเหตุผลที่มีอักขระล่องหนปน -> DB ตีกลับ "ต้องระบุเหตุผลที่มีตัวอักษรหรือตัวเลขจริง" ทั้งที่ผู้ใช้พิมพ์ x/1 (ข้อความงง) · JobGemsEditDialog ไม่ใช้ approvalNoteIssue
+  // แก้แล้ว (22 ต.ค. รอบ review): JobGemsEditDialog ใช้ gemReasonIssue (oemNotePresent + approvalNoteIssue) → ปฏิเสธเหตุผลที่มีอักขระล่องหนปนก่อนส่ง ตรงกับ DB
   for (const c of DB_REJECTS_INVISIBLE_MIXED) {
-    it.fails(`KNOWN-GAP: ${c.id} DB ปฏิเสธ แต่ oemNotePresent บอกว่ามีเหตุผล`, () => {
-      expect(oemNotePresent(c.text)).toBe(false);
+    it(`แก้แล้ว: ${c.id} DB ปฏิเสธ → gemReasonIssue ปฏิเสธด้วย (ข้อความบอกเรื่องอักขระล่องหน)`, () => {
+      expect(gemReasonIssue(c.text)).not.toBeNull();
+    });
+  }
+  for (const c of DB_REASON) {
+    it(`gemReasonIssue เหมือน DB: ${c.id} -> ${c.ok ? "รับ" : "ปฏิเสธ"}`, () => {
+      expect(gemReasonIssue(c.text) === null).toBe(c.ok);
     });
   }
 });
@@ -187,7 +194,7 @@ describe("แถวซ้ำที่ DB รวมให้เงียบๆ �
     sizeB: "6",
     qty: "2",
   };
-  it.fails("KNOWN-GAP: แถวจากแม่แบบ (รู้แค่ gem_item_id) + แถวที่ผู้ใช้เลือก ชนิด/รูปทรง/ขนาดเดียวกัน ต้องถูกจับเป็นแถวซ้ำ (ให้กด 'รวมเข้าแถว n' เอง ไม่รวมเงียบ)", () => {
+  it("แก้แล้ว: แถวจากแม่แบบ (รู้แค่ gem_item_id + ฉลาก) + แถวที่ผู้ใช้เลือก ชนิด/รูปทรง/ขนาดเดียวกัน ถูกจับเป็นแถวซ้ำ (ให้กด รวมเข้าแถว n เอง ไม่รวมเงียบ)", () => {
     // ใช้ options ที่รู้ว่า item นี้คือชนิด/รูปทรง/ขนาดอะไร จึงควรเทียบได้ — วันนี้ rowDupKey ใช้ `item:<id>` กับ `t:..|s:..|size` ไม่มีทางเท่ากัน
     expect(findDuplicateRows([tpl, manual]).size).toBe(1);
   });

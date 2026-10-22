@@ -6,9 +6,10 @@ import "@testing-library/jest-dom/vitest";
 
 afterEach(cleanup);
 
-const role = vi.fn();
+const role = vi.fn(); // = canManageJobs()
 const catalog = vi.fn();
-vi.mock("@/lib/auth/role", () => ({ getEffectiveRole: () => role() }));
+// ด่านสิทธิ์ = canManageJobs (owner|admin allowlist — ทดสอบตัวมันเองที่ lib/jobs/page-gate.test.ts)
+vi.mock("@/lib/jobs/page-gate", () => ({ canManageJobs: () => role() }));
 vi.mock("@/lib/actions/gems", () => ({ getGemCatalog: (...a: unknown[]) => catalog(...a) }));
 vi.mock("@/components/domain/gems/GemCatalogClient", () => ({
   GemCatalogClient: ({ catalog: c, initialTab, todayBkk }: { catalog: { items: unknown[] }; initialTab: string; todayBkk: string }) => (
@@ -27,7 +28,7 @@ const renderPage = async (sp?: { tab?: string | string[] }) => render(await OemG
 
 beforeEach(() => {
   vi.clearAllMocks();
-  role.mockResolvedValue("owner");
+  role.mockResolvedValue(true);
   catalog.mockResolvedValue({ ok: true, data: { types: [], shapes: [], items: [1, 2, 3] } });
 });
 
@@ -38,8 +39,8 @@ describe("หน้า /oem/gems", () => {
     expect(catalog).toHaveBeenCalledWith(true);
     expect(screen.getByTestId("catalog").getAttribute("data-today")).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
-  it("🔴 staff: 'หน้านี้จำกัดสิทธิ์' และไม่เรียก action แคตตาล็อก/ราคาเลย", async () => {
-    role.mockResolvedValue("staff");
+  it("🔴 canManageJobs=false (staff · role แปลก · ไม่มี session): 'หน้านี้จำกัดสิทธิ์' และไม่เรียก action แคตตาล็อก/ราคาเลย", async () => {
+    role.mockResolvedValue(false);
     await renderPage();
     expect(screen.getByText("หน้านี้จำกัดสิทธิ์")).toBeInTheDocument();
     expect(catalog).not.toHaveBeenCalled();

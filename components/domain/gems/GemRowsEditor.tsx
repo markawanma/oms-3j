@@ -70,6 +70,13 @@ export function GemRowsEditor({
   const [focusKey, setFocusKey] = useState<string | null>(null);
   const addRef = useRef<HTMLButtonElement>(null);
 
+  // ข้อความแจ้ง (ใช้ตัวเดิมให้/ลบแถว/รวมแถว) หายเองหลัง 6 วินาที — ไม่ค้างหน้าจอจนเข้าใจผิดว่าเกี่ยวกับการกระทำถัดไป
+  useEffect(() => {
+    if (!notice) return;
+    const t = setTimeout(() => setNotice(null), 6000);
+    return () => clearTimeout(t);
+  }, [notice]);
+
   // โฟกัสช่องชนิดของแถวใหม่ หลัง render
   useEffect(() => {
     if (!focusKey) return;
@@ -81,7 +88,7 @@ export function GemRowsEditor({
   const shapeOptions: PickerOption[] = options ? options.shapes.map((s) => ({ id: s.id, name: s.name, hasLength: s.hasLength })) : [];
   const pendingTypes = pendingNewNames(rows, "type");
   const pendingShapes = pendingNewNames(rows, "shape");
-  const dups = findDuplicateRows(rows);
+  const dups = findDuplicateRows(rows, options);
   const { lineTotals, total } = draftTotals(rows, qtyPlanned);
 
   function patch(i: number, p: Partial<GemDraftRow>) {

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 // QA G1a UI (R2-D2 · 22 ต.ค. 69) — เคสนอกชุดของ dev: ช่องที่ QA เจอตอนอ่านโค้ด/ยิง RPC จริง
 //  ปกติ (it)      = พฤติกรรมที่ต้องไม่พัง
-//  KNOWN-GAP (it.fails) = ข้อบกพร่องที่รายงานแล้ว: ผ่านเมื่อพฤติกรรมยังเป็นอย่างที่ QA รายงาน · เมื่อแก้แล้วจะ "ล้ม" ให้เปลี่ยนเป็น it ธรรมดา
+//  เดิม KNOWN-GAP (it.fails) — แก้โค้ดแล้วจึงเปลี่ยนเป็น it ธรรมดา (ถ้ากลับมาพัง เทสต์จะแดง)
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render, renderHook, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -88,13 +88,13 @@ describe("ฟอร์มสร้างใบงาน — ลบแถวแ�
   });
 });
 
-describe("KNOWN-GAP: force ('ไม่ใช่ — เพิ่มใหม่') ค้างทั้งฟอร์ม", () => {
+describe("แก้แล้ว (รอบ review/QA 22 ต.ค.): force ('ไม่ใช่ — เพิ่มใหม่') ค้างทั้งฟอร์ม", () => {
   async function pickNewType(user: ReturnType<typeof userEvent.setup>, name: string, rowLabelRe: RegExp) {
     await user.click(within(gems()).getByRole("button", { name: rowLabelRe }));
     await user.type(screen.getByRole("combobox", { name: /ค้นหาหรือพิมพ์ชื่อชนิดพลอย/ }), name);
     await user.click(screen.getByRole("option", { name: new RegExp(`เพิ่ม “${name}”`) }));
   }
-  it.fails("ยืนยัน 'เพิ่มใหม่' ให้ชื่อ X แล้วเปลี่ยนแถวเป็นชื่อใหม่ Y ที่ไม่เคยถูกถาม -> คำขอถัดไปต้องไม่พก gemForce (ตอนนี้ force ค้าง = ชื่อคล้ายตัวที่ 2 ผ่านโดยไม่ถูกถาม)", async () => {
+  it("ยืนยัน 'เพิ่มใหม่' ให้ชื่อ X แล้วเปลี่ยนแถวเป็นชื่อใหม่ Y ที่ไม่เคยถูกถาม -> คำขอถัดไปต้องไม่พก gemForce (ตอนนี้ force ค้าง = ชื่อคล้ายตัวที่ 2 ผ่านโดยไม่ถูกถาม)", async () => {
     createJob
       .mockResolvedValueOnce({ ok: false, error: "พบชื่อที่คล้ายกัน", code: "gem_similar", gem: { code: "gem_similar", similar: [{ kind: "type", name: "โกเมนต์", rows: [1], matches: [{ id: T, name: "โกเมน" }] }] } })
       .mockResolvedValueOnce({ ok: false, error: "ขนาดต้องเป็นตัวเลขมากกว่า 0", code: "size_invalid", gem: { code: "size_invalid", row: 1, field: "size_a" } })
@@ -122,7 +122,7 @@ describe("KNOWN-GAP: force ('ไม่ใช่ — เพิ่มใหม่'
     expect(createJob.mock.calls[2][0]).not.toHaveProperty("gemForce");
   });
 
-  it.fails("useGemFail: reset() หลังผู้ใช้แก้แถว ควรล้าง force ด้วย (วันนี้ reset ไม่แตะ force — ล้างได้เฉพาะตอนเปลี่ยน itemId)", () => {
+  it("useGemFail: reset() หลังผู้ใช้แก้แถว ควรล้าง force ด้วย (วันนี้ reset ไม่แตะ force — ล้างได้เฉพาะตอนเปลี่ยน itemId)", () => {
     const { result } = renderHook(() => useGemFail());
     act(() => result.current.setForce(true));
     act(() => result.current.reset());
@@ -165,8 +165,8 @@ describe("GemPicker popover ในฟอร์มสร้างใบงาน"
   });
 });
 
-describe("KNOWN-GAP: Modal ซ้อนกัน — Esc ปิดทุกชั้นพร้อมกัน", () => {
-  it.fails("กด Esc ที่กล่องถามชื่อคล้าย (ซ้อนบนฟอร์มสร้างใบงาน) ต้องปิดแค่กล่องถาม — ฟอร์มสร้างใบงาน (พร้อมแถวพลอยที่กรอก) ต้องไม่ถูกปิดตาม", async () => {
+describe("แก้แล้ว (รอบ review/QA 22 ต.ค.): Modal ซ้อนกัน — Esc ปิดทุกชั้นพร้อมกัน", () => {
+  it("กด Esc ที่กล่องถามชื่อคล้าย (ซ้อนบนฟอร์มสร้างใบงาน) ต้องปิดแค่กล่องถาม — ฟอร์มสร้างใบงาน (พร้อมแถวพลอยที่กรอก) ต้องไม่ถูกปิดตาม", async () => {
     createJob.mockResolvedValueOnce({ ok: false, error: "พบชื่อที่คล้ายกัน", code: "gem_similar", gem: { code: "gem_similar", similar: [{ kind: "type", name: "โกเมนต์", rows: [1], matches: [{ id: T, name: "โกเมน" }] }] } });
     A.getGemOptions.mockResolvedValue({ ok: true, data: { types: [], shapes: [{ id: S_ROUND, name: "กลม", hasLength: false }], items: [] } });
     const user = userEvent.setup();
@@ -191,13 +191,13 @@ describe("KNOWN-GAP: Modal ซ้อนกัน — Esc ปิดทุกช�
   });
 });
 
-describe("KNOWN-GAP: กล่องแก้พลอย — หน้าต่างเปลี่ยนเป็น reason_required ระหว่างแก้", () => {
+describe("แก้แล้ว (รอบ review/QA 22 ต.ค.): กล่องแก้พลอย — หน้าต่างเปลี่ยนเป็น reason_required ระหว่างแก้", () => {
   const bl = (id: string, label: string, q: number): GemBomLine => ({ id: `r-${id}`, gemItemId: id, canonicalItemId: id, label, qtyPerPiece: q, qtyTotal: q * 35, position: null, source: "manual", renamed: false, via: null });
   const jobGems = (window: JobGems["window"]): { ok: true; data: JobGems } => ({
     ok: true,
     data: { jobId: JOB, jobNo: "JB-0031", qtyPlanned: 35, window, state: "specified", gemStage: "pending", lines: [bl(ITEM_GEM, "โกเมน · ไข่ · 4×6 มม.", 2)], template: null, differsFromTemplate: null, history: [], },
   });
-  it.fails("เปิดตอน free_before_start แล้วช่างฝังรับขณะที่แก้ (DB ตอบ reason_required) -> กล่องควรแสดงช่องเหตุผลให้กรอกต่อได้ (วันนี้มีแต่ข้อความผิด ไม่มีช่อง ต้องปิดแล้วเปิดใหม่ = ค่าที่แก้หาย)", async () => {
+  it("เปิดตอน free_before_start แล้วช่างฝังรับขณะที่แก้ (DB ตอบ reason_required) -> กล่องควรแสดงช่องเหตุผลให้กรอกต่อได้ (วันนี้มีแต่ข้อความผิด ไม่มีช่อง ต้องปิดแล้วเปิดใหม่ = ค่าที่แก้หาย)", async () => {
     A.getJobGems.mockResolvedValue(jobGems("free_before_start"));
     A.saveJobGems.mockResolvedValue({ ok: false, error: "ต้องระบุเหตุผลที่มีตัวอักษรหรือตัวเลขจริง", code: "reason_required", gem: { code: "reason_required" } });
     const user = userEvent.setup();
@@ -212,11 +212,12 @@ describe("KNOWN-GAP: กล่องแก้พลอย — หน้าต่
   });
 });
 
-describe("KNOWN-GAP: ช่องราคาพลอยตีความ ',' เป็นจุดทศนิยมเสมอ", () => {
-  it("รับ ',' เป็นทศนิยมตามที่ออกแบบ: '1,5' -> ราคา 1.5 บาท ผ่าน", () => {
-    expect(priceIssue("1,5")).toBeNull();
+describe("แก้แล้ว (รอบ review/QA 22 ต.ค.): ช่องราคาพลอยตีความ ',' เป็นจุดทศนิยมเสมอ", () => {
+  it("มติ review (22 ต.ค.): ช่องราคาห้ามจุลภาคทุกแบบ รวม '1,5' (เดิมรับเป็น 1.5) — ใช้จุดเท่านั้น", () => {
+    expect(priceIssue("1,5")).not.toBeNull();
+    expect(priceIssue("1.5")).toBeNull();
   });
-  it.fails("'1,250' (คั่นหลักพันแบบที่คนไทยพิมพ์ — เจตนา 1,250 บาท/เม็ด) ต้องไม่ผ่านเงียบๆ (วันนี้กลายเป็น 1.250 = 1.25 บาท ต่ำกว่าที่ตั้งใจ 1,000 เท่า แล้ว audit เก็บเป็นราคาจริง)", () => {
+  it("'1,250' (คั่นหลักพันแบบที่คนไทยพิมพ์ — เจตนา 1,250 บาท/เม็ด) ต้องไม่ผ่านเงียบๆ (วันนี้กลายเป็น 1.250 = 1.25 บาท ต่ำกว่าที่ตั้งใจ 1,000 เท่า แล้ว audit เก็บเป็นราคาจริง)", () => {
     expect(priceIssue("1,250")).not.toBeNull();
   });
   it("'12,500.50' ถูกปฏิเสธ (มีจุดและจุลภาค) · '1250' ผ่าน", () => {

@@ -20,6 +20,8 @@ export function useGemFail() {
     setRowErrors({});
     setGeneralError(null);
     setSimilar(null);
+    // force เป็นของคำขอที่ถามครั้งนั้นเท่านั้น — แก้แถวแล้ว/ส่งใหม่ต้องไม่พกค่าค้าง
+    setForce(false);
   }, []);
 
   /** บันทึกผลล้ม → state · คืน key ของแถวที่ควรโฟกัส (ถ้ามี) */

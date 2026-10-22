@@ -193,16 +193,24 @@ export function JobPrintClient({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [issued, setIssued] = useState<IssuedQr | null>(null);
-  // 0182: รอรูปหลักโหลดก่อนพิมพ์ (ไม่พิมพ์กรอบว่าง) · โหลดไม่ได้/หมดเวลา 8 วินาที = ตัดรูปออกแล้วพิมพ์ต่อ
-  const photo = usePrintPhoto(job.primaryPhotoUrl);
-  const photoLoading = photo.status === "loading";
-
   // 0190: ตารางพลอยล้นหน้า A5 → บันได (UX §8.3): ตัดรูป → บีบเป็นโหมดกระชับ → ย้ายตารางทั้งก้อนไปแผ่นที่ 2 · ห้ามตัดแถวพลอย · ทุกขั้นมีแถบ print:hidden บอก
-  // ใบไม่มีพลอยไม่ถูกวัดและไม่เปลี่ยนอะไรเลย
+  // ใบที่ไม่มีพลอยและไม่ใช่ "ยังไม่ระบุ" ไม่ถูกวัดและไม่เปลี่ยนอะไรเลย
   const sheetRef = useRef<HTMLElement>(null);
   const [step, setStep] = useState<GemPrintStep>("normal");
   const [fontsTick, setFontsTick] = useState(0);
-  const photoOnSheet = job.primaryPhotoUrl !== null && photo.status !== "failed";
+  const [overflow, setOverflow] = useState(false);
+  const photoCut = step === "noPhoto" || step === "compact";
+  // 0182: รอรูปหลักโหลดก่อนพิมพ์ (ไม่พิมพ์กรอบว่าง) · โหลดไม่ได้/หมดเวลา 8 วินาที = ตัดรูปออกแล้วพิมพ์ต่อ
+  // รูปที่บันไดตัดออกจากแผ่นแล้ว (photoCut) ไม่ต้องรอโหลดและไม่ขึ้น "โหลดรูปหลักไม่ได้" — ส่ง url=null ให้ hook (ไม่มี <img> ให้รอ event · ไม่เดิน timeout)
+  const photo = usePrintPhoto(photoCut ? null : job.primaryPhotoUrl);
+  const photoLoading = photo.status === "loading";
+  // รูปเคยโหลดไม่ได้ (จำไว้แม้ถูกตัดออก — hook ลืมเมื่อ url เป็น null) · ใช้ตัดสินว่ามีรูปบนแผ่นไหมตอนไล่บันได
+  const [photoBroken, setPhotoBroken] = useState(false);
+  useEffect(() => {
+    if (photo.status === "failed") setPhotoBroken(true);
+  }, [photo.status]);
+  const hasPhoto = job.primaryPhotoUrl !== null && !photoBroken;
+  const hasRows = job.gems.length > 0;
   useEffect(() => {
     // ฟอนต์โหลดเสร็จแล้วความสูงอาจเปลี่ยน → วัดซ้ำครั้งเดียว
     let live = true;
@@ -214,15 +222,31 @@ export function JobPrintClient({
       live = false;
     };
   }, []);
+  // ฟอนต์โหลดเสร็จ/รูปพัง = ความสูงเปลี่ยนจากที่ตัดสินไว้ → ไล่ใหม่จากขั้นแรก (ไม่ค้างขั้นที่เคยล้นด้วยเหตุที่หายไปแล้ว)
+  const first = useRef(true);
+  useEffect(() => {
+    if (first.current) {
+      first.current = false;
+      return;
+    }
+    setStep("normal");
+  }, [fontsTick, photoBroken]);
   useLayoutEffect(() => {
-    if (!needsGemFit(job.gems) || step === "page2") return;
+    if (!needsGemFit(job.gems, job.gemsState)) return;
     const el = sheetRef.current;
     if (!el) return;
     const h = measureMm(el);
-    if (h !== null && h > PRINT_CONTENT_HEIGHT_MM) setStep(nextGemPrintStep(step, photoOnSheet));
-  }, [job.gems, step, photoOnSheet, fontsTick, measureMm]);
+    if (h === null) return;
+    if (h > PRINT_CONTENT_HEIGHT_MM) {
+      const next = nextGemPrintStep(step, hasPhoto, hasRows);
+      // หมดบันไดแล้ว (แผ่น 1 ยังล้น / ไม่มีแถวให้บีบ) = เตือนบนจอ ไม่เงียบ
+      if (next !== step) setStep(next);
+      else setOverflow(true);
+    } else setOverflow(false);
+  }, [job.gems, job.gemsState, step, hasPhoto, hasRows, fontsTick, measureMm]);
   // ตัดรูปเฉพาะขั้น noPhoto/compact · พอตารางย้ายไปแผ่น 2 แผ่นที่ 1 โล่งแล้ว รูปกลับมา (ไม่ทิ้งข้อมูลเกินจำเป็น)
-  const showPhoto = photo.status !== "failed" && (step === "normal" || step === "page2");
+  const showPhoto = !photoBroken && photo.status !== "failed" && !photoCut;
+  const photoDropped = photoCut && job.primaryPhotoUrl !== null && !photoBroken;
   const gemNotice = GEM_PRINT_NOTICE[step];
 
   // พิมพ์หลัง React วาด QR แล้วเท่านั้น (ไม่พิมพ์ใบที่ยังไม่มี QR) และหลังรูปหลักโหลดเสร็จ/ตัดสินแล้ว
@@ -270,7 +294,7 @@ export function JobPrintClient({
             {qr.error ?? error}
           </p>
         )}
-        <PrintPhotoStatus status={photo.status} url={job.primaryPhotoUrl} addHref={`/jobs/${job.jobId}#job-photos`} />
+        {!photoDropped && <PrintPhotoStatus status={photoBroken ? "failed" : photo.status} url={job.primaryPhotoUrl} addHref={`/jobs/${job.jobId}#job-photos`} />}
         {/* 0190: แถบเตือนพลอย (บนจอเท่านั้น) — อ่านพลอยไม่ได้ · ยังไม่ระบุพลอย · ขั้นของบันไดล้นหน้า (ห้ามตัดสินเงียบ) */}
         {gemsReadFailed && (
           <p role="alert" data-testid="print-gems-read-failed" className="rounded-md border-2 border-amber-400 bg-amber-50 p-2.5 text-sm font-semibold text-amber-950">
@@ -285,6 +309,11 @@ export function JobPrintClient({
         {gemNotice && (
           <p role="status" data-testid="print-gems-notice" className="rounded-md border border-sky-300 bg-sky-50 p-2.5 text-sm font-medium text-sky-950">
             {gemNotice}
+          </p>
+        )}
+        {overflow && (
+          <p role="alert" data-testid="print-gems-overflow" className="rounded-md border-2 border-amber-400 bg-amber-50 p-2.5 text-sm font-semibold text-amber-950">
+            แผ่นที่ 1 ยังล้นหน้า A5 แม้ปรับตามขั้นแล้ว — เช็คตัวอย่างก่อนพิมพ์ (ลดจำนวนขั้นของใบ หรือย่อชื่อแบบ/หมายเหตุ) กระดาษอาจถูกตัดท้ายใบ
           </p>
         )}
         <div className="flex flex-wrap gap-2">

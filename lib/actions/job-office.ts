@@ -324,6 +324,8 @@ export interface JobSuggestion {
   /** 0176: แบบการบันทึกที่ใช้งานอยู่ + ค่าเริ่มที่ server resolve ตามโลหะแล้ว (null = ร้านไม่มีค่าเริ่ม → ฟอร์มต้องบล็อก ไม่เดา) */
   profiles: RecordProfile[];
   defaultProfileId: string | null;
+  /** รหัส SKU ของรายการ (ถ้ามี) — ใช้ป้าย "จากแม่แบบ SKU …" ในส่วนพลอยของฟอร์ม · ไม่มี key = ไม่มี SKU */
+  sku?: string;
 }
 
 export async function suggestJob(kind: string, itemId: string): Promise<JobResult<JobSuggestion>> {
@@ -348,6 +350,7 @@ export async function suggestJob(kind: string, itemId: string): Promise<JobResul
       depositMissing: d.deposit_missing === true,
       existingJob: ex && typeof ex.id === "string" && typeof ex.job_no === "string" ? { id: ex.id, jobNo: ex.job_no } : null,
       stages,
+      ...(typeof d.sku === "string" && d.sku !== "" ? { sku: d.sku.slice(0, 100) } : {}),
       targetPieceG: typeof d.target_piece_g === "number" ? d.target_piece_g : null,
       targetPieceGSource: d.target_piece_g_source === "quote" || d.target_piece_g_source === "product" || d.target_piece_g_source === "input" ? d.target_piece_g_source : null,
       profiles,

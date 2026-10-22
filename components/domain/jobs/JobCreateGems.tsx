@@ -30,7 +30,6 @@ export function JobCreateGems({
   onRetryOptions,
   qtyPlanned,
   qtyNote,
-  onForceSimilar,
   disabled,
 }: {
   rows: GemDraftRow[];
@@ -51,7 +50,6 @@ export function JobCreateGems({
   onRetryOptions?: () => void;
   qtyPlanned: number | null;
   qtyNote: string | null;
-  onForceSimilar: () => void;
   disabled?: boolean;
 }) {
   return (
@@ -77,7 +75,6 @@ export function JobCreateGems({
         qtyNote={qtyNote}
         showIssues={showIssues}
         serverErrors={rowErrors}
-        onForceSimilar={onForceSimilar}
         disabled={disabled}
         layout="card"
       />

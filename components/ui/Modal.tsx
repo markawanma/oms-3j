@@ -4,6 +4,27 @@ import { useEffect, useRef } from "react";
 import type { ReactNode } from "react";
 import { X } from "lucide-react";
 
+interface ModalEntry {
+  el: () => HTMLElement | null;
+}
+/** stack ระดับโมดูลของ Modal ที่เปิดอยู่ — ให้ Esc ปิดทีละชั้น */
+const modalStack: ModalEntry[] = [];
+
+/**
+ * ชั้นบนสุด = ตัวล่าสุดที่เปิด ในบรรดา Modal ที่ "ไม่มี Modal อื่นซ้อนอยู่ข้างใน" (DOM)
+ * (effect ของลูกรันก่อนพ่อ — ถ้าพ่อกับลูกเปิดใน commit เดียวกัน ลำดับ push จะกลับ จึงดู DOM ซ้อนด้วย ไม่ใช้ลำดับ push อย่างเดียว)
+ */
+function topModal(): ModalEntry | undefined {
+  const leaves = modalStack.filter((m) => {
+    const mine = m.el();
+    return !modalStack.some((o) => {
+      const other = o.el();
+      return o !== m && mine !== null && other !== null && mine.contains(other);
+    });
+  });
+  return leaves[leaves.length - 1];
+}
+
 /**
  * Responsive modal: renders as a centered dialog on md+ screens and a
  * bottom sheet on mobile (per ux-ui design — "Modal/BottomSheet
@@ -68,12 +89,20 @@ export function Modal({
     previouslyFocused.current = document.activeElement as HTMLElement;
     panelRef.current?.focus();
 
+    // Esc: เฉพาะ Modal ชั้นบนสุดของ stack (Modal ซ้อนกัน — เช่น กล่องถามชื่อคล้ายบนฟอร์มสร้างใบงาน — ปิดทีละชั้น ไม่ปิดทุกชั้นพร้อมกันจนฟอร์มที่กรอกค้างหาย)
+    // และเคารพ e.defaultPrevented: ตัวที่รับ Esc ไปแล้ว (เช่น popover/combobox ภายใน) preventDefault ไว้ = Modal ไม่ปิดตาม
+    const me: ModalEntry = { el: () => panelRef.current };
+    modalStack.push(me);
     function onKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") requestClose();
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      if (topModal() !== me) return;
+      requestClose();
     }
     document.addEventListener("keydown", onKeyDown);
     return () => {
       document.removeEventListener("keydown", onKeyDown);
+      const i = modalStack.indexOf(me);
+      if (i >= 0) modalStack.splice(i, 1);
       previouslyFocused.current?.focus();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional: see onCloseRef comment above
@@ -97,6 +126,7 @@ export function Modal({
             {title}
           </h2>
           <button
+            type="button"
             onClick={requestClose}
             aria-label="ปิด"
             className="flex h-11 w-11 items-center justify-center rounded-md text-zinc-500 hover:bg-zinc-100"

@@ -35,7 +35,7 @@ export function GemSizeFields({
 }) {
   const two = row.shape?.hasLength === true;
   const sz = rowSizes(row);
-  const errA = issues.find((i) => i.field === "size_a" && !i.message.startsWith("ขนาดใหญ่ผิดปกติ"));
+  const errA = issues.find((i) => i.field === "size_a"); // กรณีขนาดใหญ่ (size_big) แสดงเป็นกล่อง amber + ติ๊กยืนยันด้านล่างแทน
   const errB = issues.find((i) => i.field === "size_b");
   const needBig = sz !== null && gemSizeNeedsConfirm(sz.a, sz.b);
   const bigWhich = sz ? (sz.b !== null && sz.b > GEM_LIMITS.sizeWarn ? sz.b : sz.a) : null;

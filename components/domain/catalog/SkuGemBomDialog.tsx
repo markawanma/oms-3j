@@ -16,9 +16,9 @@ import { useGemOptions } from "@/components/domain/gems/useGemOptions";
 import { GemErrorLine } from "@/components/domain/gems/ui";
 import { useOfficeRun } from "@/components/domain/jobs/useOfficeRun";
 import { getSkuGemTemplate, saveSkuGemTemplate } from "@/lib/actions/gems";
-import { draftRowsToInputs, findDuplicateRows, gemRowIssues, rowFromBomLine, rowIncompleteReason } from "@/lib/jobs/gem-draft";
+import { draftRowsToInputs, gemRowsBlocking, rowFromBomLine } from "@/lib/jobs/gem-draft";
 import type { GemDraftRow } from "@/lib/jobs/gem-draft";
-import { reusedNotices } from "@/lib/jobs/gem-save";
+import { saveNotices } from "@/lib/jobs/gem-save";
 import { GENERIC_JOB_ERROR } from "@/lib/jobs/messages";
 import { useToast } from "@/components/ui/Toast";
 
@@ -52,9 +52,7 @@ export function SkuGemBomDialog({ productId, sku, name, onClose }: { productId: 
   }, [fetchTemplate]);
 
   const ready = load.s === "ready" ? load : null;
-  const bad = rows.findIndex((r) => gemRowIssues(r).length > 0);
-  const dup = [...findDuplicateRows(rows)][0];
-  const blocking = bad >= 0 ? `พลอยแถว ${bad + 1} ยังไม่ครบ — ${rowIncompleteReason(rows[bad])}` : dup ? `พลอยแถว ${dup[0] + 1} ซ้ำกับแถว ${dup[1] + 1} — กด “รวมเข้าแถว ${dup[1] + 1}” หรือแก้ให้ต่างกัน` : null;
+  const blocking = gemRowsBlocking(rows, opts.options);
 
   function onRows(next: GemDraftRow[]) {
     setRows(next);
@@ -65,7 +63,8 @@ export function SkuGemBomDialog({ productId, sku, name, onClose }: { productId: 
   async function save(o: { force?: boolean; rows?: GemDraftRow[]; confirmed?: boolean } = {}) {
     if (busy || !ready || (!dirty && !o.rows)) return;
     const rs = o.rows ?? rows;
-    if (blocking && !o.rows) {
+    // คำนวณจากแถวที่จะส่งจริงทุกครั้ง (รวมตอนส่งซ้ำหลังแก้แถวจาก "ใช้ตัวที่มี")
+    if (gemRowsBlocking(rs, opts.options)) {
       setShowIssues(true);
       return;
     }
@@ -76,9 +75,9 @@ export function SkuGemBomDialog({ productId, sku, name, onClose }: { productId: 
     }
     setError(null);
     fail.reset();
-    const r = await run(() => saveSkuGemTemplate({ productId, lines: draftRowsToInputs(rs), force: o.force === true || fail.force }), { success: `บันทึกแม่แบบพลอย ${sku} แล้ว`, refresh: false });
+    const r = await run(() => saveSkuGemTemplate({ productId, lines: draftRowsToInputs(rs), force: o.force === true }), { success: `บันทึกแม่แบบพลอย ${sku} แล้ว`, refresh: false });
     if (r.ok) {
-      for (const m of reusedNotices(r.data.summary.reused)) toast.push(m);
+      for (const m of saveNotices(r.data.summary)) toast.push(m);
       setDirty(false);
       onClose();
       return;
@@ -123,7 +122,6 @@ export function SkuGemBomDialog({ productId, sku, name, onClose }: { productId: 
               showTotals={false}
               showIssues={showIssues}
               serverErrors={fail.rowErrors}
-              onForceSimilar={() => fail.setForce(true)}
               disabled={busy}
               emptyText="SKU นี้ยังไม่มีแม่แบบพลอย"
               layout="grid"
@@ -174,7 +172,6 @@ export function SkuGemBomDialog({ productId, sku, name, onClose }: { productId: 
         }}
         onClose={fail.clearSimilar}
         onResubmit={(o) => {
-          if (o.force) fail.setForce(true);
           void save({ force: o.force, rows: o.rows });
         }}
       />

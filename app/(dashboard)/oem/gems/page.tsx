@@ -1,6 +1,6 @@
 import { Lock } from "lucide-react";
 import { getGemCatalog } from "@/lib/actions/gems";
-import { getEffectiveRole } from "@/lib/auth/role";
+import { canManageJobs } from "@/lib/jobs/page-gate";
 import { effectiveDateBangkok } from "@/lib/tiktok/format";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
@@ -10,9 +10,10 @@ import { parseGemTab } from "@/lib/jobs/gem-tabs";
 export const dynamic = "force-dynamic";
 
 // /oem/gems — แคตตาล็อกพลอย (G1a · UX ux-gems.md §7) — 🔴 ราคาพลอย = ต้นทุน: เฉพาะ owner/admin (เหมือน /oem/rates)
-// ชั้นแอป: staff → EmptyState จำกัดสิทธิ์ (ไม่เรียก action ราคาเลย) · ชั้น DB: gem_catalog_list/gem_price_* ตรวจ actor owner/admin ซ้ำ (gem_require_office)
+// ชั้นแอป: ไม่ใช่ owner/admin → EmptyState จำกัดสิทธิ์ (ไม่เรียก action ราคาเลย) · ชั้น DB: gem_catalog_list/gem_price_* ตรวจ actor owner/admin ซ้ำ (gem_require_office)
 export default async function OemGemsPage({ searchParams }: { searchParams?: Promise<{ tab?: string | string[] }> }) {
-  if ((await getEffectiveRole()) === "staff") {
+  // allowlist owner | admin (role แปลก/อนาคต/ไม่มี session ไม่ผ่านโดยปริยาย — ไม่ใช่ "ไม่ใช่ staff")
+  if (!(await canManageJobs())) {
     return <EmptyState icon={Lock} title="หน้านี้จำกัดสิทธิ์" description="เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่ดูและแก้ไขแคตตาล็อกพลอยและราคาได้" />;
   }
   const tabParam = (await searchParams)?.tab;
