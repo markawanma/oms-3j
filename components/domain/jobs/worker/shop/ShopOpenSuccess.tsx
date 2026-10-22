@@ -31,9 +31,13 @@ function AddPhotoRow({ photos }: { photos: ShopPhotosApi }) {
   const [open, setOpen] = useState(false);
   if (!open) {
     return (
-      <BigButton type="button" tone="secondary" onClick={() => setOpen(true)}>
-        {SHOP_PHOTO_TH.addAfter}
-      </BigButton>
+      <div className="space-y-2 text-left">
+        {/* notice ยังต้องเห็นแม้การ์ดรูปหายไปแล้ว (เช่น "ถ้ารูปนี้ส่งถึงแล้ว จะอยู่ใน ใบที่ฉันเปิด — ลบได้ที่นั่น" หลังเอารูปสุดท้ายออก) */}
+        <ShopPhotoRejections rejections={photos.rejections} notice={photos.notice} onDismiss={photos.dismissRejection} />
+        <BigButton type="button" tone="secondary" onClick={() => setOpen(true)}>
+          {SHOP_PHOTO_TH.addAfter}
+        </BigButton>
+      </div>
     );
   }
   return (

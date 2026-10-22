@@ -370,6 +370,8 @@ export function useShopPhotos({
       if (it.phase === "uploading") return { ok: false, message: SHOP_PHOTO_TH.uploading };
       if (it.serverId === null) {
         dropLocal(key);
+        // ส่งหลุดกลางทางไม่รู้ผล: รูปอาจถึง server แล้ว — เอาออกจากจอนี้ไม่ลบที่ server · บอกว่าไปลบที่ "ใบที่ฉันเปิด" (ผ่าน notice — ยังเห็นแม้การ์ดรูปหายไปเพราะไม่เหลือรูป)
+        if (it.maybeSent) setNotice(SHOP_PHOTO_TH.removedMaybeSent);
         return { ok: true };
       }
       const g = gen.current;

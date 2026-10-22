@@ -449,6 +449,53 @@ describe("W-10 จอแก้รูปของใบ", () => {
   });
 });
 
+describe("รอบแก้ review/QA", () => {
+  it("S5: job_not_open (ใบไม่อยู่สถานะที่แก้ได้ — ไม่ใช่ปิด/ยกเลิก) → 'ใบนี้แก้ไม่ได้ตอนนี้ — แจ้งออฟฟิศ' · ไม่พูดว่า ปิดหรือยกเลิก · ซ่อนเพิ่ม · empty = 'ใบนี้ไม่มีรูป — เพิ่มไม่ได้'", async () => {
+    intakeListPhotos.mockResolvedValue(photosRes([], { locked: true, lockCode: "job_not_open" }));
+    await toW10({ jobs: [job({ editable: false })] });
+    expect(screen.getByText("ใบนี้แก้ไม่ได้ตอนนี้ — แจ้งออฟฟิศ")).toBeInTheDocument();
+    expect(screen.getByText("ใบนี้ไม่มีรูป — เพิ่มไม่ได้")).toBeInTheDocument();
+    expect(screen.queryByText(/ปิดหรือยกเลิก/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "ถ่ายรูป" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "ออก QR ใหม่" })).toBeInTheDocument(); // ไม่ใช่ใบปิด — จอยังใช้ได้
+  });
+
+  it("ส่งรูปใหม่แล้วได้ job_not_open → แถบกลาง (ไม่ใช่ 'ปิดหรือยกเลิก') · photo_cap_ref → 'ใบนี้มีรูปครบ 5 รูปแล้ว — แจ้งออฟฟิศ'", async () => {
+    intakeUploadPhoto.mockResolvedValueOnce({ ok: false, error: "x", code: "job_not_open" });
+    const { unmount } = await toW10();
+    pick(["z"]);
+    await waitFor(() => expect(screen.getAllByText("ใบนี้แก้ไม่ได้ตอนนี้ — แจ้งออฟฟิศ").length).toBeGreaterThan(0));
+    expect(screen.queryByText(/ปิดหรือยกเลิก/)).not.toBeInTheDocument();
+    unmount();
+    intakeUploadPhoto.mockResolvedValueOnce({ ok: false, error: "x", code: "photo_cap_ref" });
+    await toW10();
+    pick(["y"]);
+    await waitFor(() => expect(screen.getByText("⚠ ใบนี้มีรูปครบ 5 รูปแล้ว — แจ้งออฟฟิศ")).toBeInTheDocument());
+    expect(screen.queryByText(/ใบนี้มีรูปจากหน้างานครบ 3/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "ลองใหม่" })).not.toBeInTheDocument();
+  });
+
+  it("จอ QR ใหม่: ไม่พูด 'ช่างขั้นแรก' (ออกหลังช่างรับงานแล้วก็ได้) · รูปหลักจริงมีดาว = คู่รูป+QR · รูปหลักเป็นของออฟฟิศ (ไม่มีดาวที่รูปเรา) = QR เดี่ยว ไม่หยิบรูปอื่นมาติดป้าย 'รูปหลัก'", async () => {
+    const { unmount } = await toW10();
+    await click("ออก QR ใหม่");
+    await userEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "ออก QR ใหม่" }));
+    await screen.findByRole("heading", { level: 1, name: "QR ใหม่ JB-0031" });
+    expect(document.body.textContent).not.toMatch(/ช่างขั้นแรก/);
+    expect(screen.getByText(/ให้ช่างสแกน QR นี้จากจอ/)).toBeInTheDocument();
+    expect(screen.getByTestId("qr-pair-photo")).toBeInTheDocument();
+    unmount();
+    // รูปหลักเป็นของออฟฟิศ: รูปของเราไม่มีดาว
+    intakeListPhotos.mockResolvedValue(photosRes([sp("m1"), sp("m2"), sp("office", { mine: false, isPrimary: true })]));
+    await toW10();
+    await click("ออก QR ใหม่");
+    await userEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "ออก QR ใหม่" }));
+    await screen.findByRole("heading", { level: 1, name: "QR ใหม่ JB-0031" });
+    expect(screen.queryByTestId("qr-pair-photo")).not.toBeInTheDocument();
+    expect(screen.queryByText(/★ รูปหลัก/)).not.toBeInTheDocument();
+    expect(screen.getByRole("img", { name: "QR ใบงาน JB-0031" })).toHaveClass("h-[200px]", "w-[200px]");
+  });
+});
+
 describe("ออก QR ใหม่", () => {
   it("ปุ่ม + ข้อความ (QR ใบงานแสดงซ้ำไม่ได้ · QR เดิมยังใช้ได้) · กดแล้วมีกล่องยืนยัน (ไม่ออกทันที) · ยกเลิกไม่เรียก server", async () => {
     await toW10();

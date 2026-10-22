@@ -820,6 +820,62 @@ describe("ลบรูปที่ส่งแล้ว (หลังเปิ�
   });
 });
 
+describe("รอบแก้ review/QA", () => {
+  it("QA🐞3 เอาออกแถวที่ส่งล้มแบบไม่รู้ผล (คำขอหลุดกลางทาง) → ข้อความ 'ถ้ารูปนี้ส่งถึงแล้ว จะอยู่ใน ใบที่ฉันเปิด — ลบได้ที่นั่น' · ล้มแบบ server ตอบปฏิเสธ = ไม่มีข้อความนี้", async () => {
+    intakeUploadPhoto.mockImplementation(async () => {
+      uploadN += 1;
+      if (uploadN === 1) throw new Error("net"); // ไม่รู้ผล
+      return { ok: false, error: "ไฟล์ไม่ใช่ JPEG จริง", code: "photo_file_not_jpeg" }; // server ตอบชัดเจน
+    });
+    render(<ShopIntakeApp token={TOKEN} initial={hubOf()} />);
+    await openWithPhotos(["a", "b"]);
+    await waitFor(() => expect(screen.getByText("⚠ ส่งไม่สำเร็จ — ลองอีกครั้ง")).toBeInTheDocument());
+    const notice = 'ถ้ารูปนี้ส่งถึงแล้ว จะอยู่ใน "ใบที่ฉันเปิด" — ลบได้ที่นั่น';
+    expect(screen.queryByText(notice)).not.toBeInTheDocument();
+    const rowsNow = within(screen.getByRole("region", { name: "รูปจากหน้างาน" })).getAllByRole("listitem");
+    const uncertain = rowsNow.find((r) => r.textContent?.includes("ส่งไม่สำเร็จ — ลองอีกครั้ง"))!;
+    const definite = rowsNow.find((r) => r.textContent?.includes("ไฟล์"))!;
+    await userEvent.click(within(definite).getByRole("button", { name: "เอาออก" }));
+    expect(screen.queryByText(notice)).not.toBeInTheDocument(); // server ปฏิเสธชัดเจน = รูปไม่อยู่ที่ server
+    await userEvent.click(within(uncertain).getByRole("button", { name: "เอาออก" }));
+    expect(await screen.findByText(notice)).toBeInTheDocument();
+    expect(intakeRemovePhoto).not.toHaveBeenCalled();
+  });
+
+  it("security L1: <img> ใหม่ทุกจอรูปมี referrerpolicy=no-referrer (W-5 ภาพย่อ · ทวน · การ์ด/แถบพับ · รูปหลักคู่ QR)", async () => {
+    const { container } = render(<ShopIntakeApp token={TOKEN} initial={hubOf()} />);
+    const all = () => [...container.querySelectorAll("img")];
+    const ok = () => {
+      expect(all().length).toBeGreaterThan(0);
+      for (const im of all()) expect(im.getAttribute("referrerpolicy"), im.outerHTML.slice(0, 60)).toBe("no-referrer");
+    };
+    await toPhotos();
+    pick(["a", "b"]);
+    await waitTrue(() => tiles().length === 2);
+    ok();
+    await click("ถัดไป");
+    ok();
+    await click("เปิดงาน");
+    await screen.findByRole("heading", { level: 1, name: /เปิดงานแล้ว/ });
+    await waitFor(() => expect(screen.getByText("✓ ส่งรูปแล้ว 2 รูป")).toBeInTheDocument());
+    ok();
+    expect(screen.getByTestId("qr-pair-photo").querySelector("img")?.getAttribute("referrerpolicy")).toBe("no-referrer");
+    await click(/จัดการ/);
+    ok();
+  });
+
+  it("คู่รูปหลัก+QR ไม่ล้นที่จอ 320: ซ้อนแนวตั้ง (flex-col) ต่ำกว่า 360px · วางคู่ (flex-row) ตั้งแต่ 360px (128+8+184 = 320 ≤ เนื้อหา 328)", async () => {
+    render(<ShopIntakeApp token={TOKEN} initial={hubOf()} />);
+    await openWithPhotos(["a"]);
+    await waitFor(() => expect(screen.getByText("✓ ส่งรูปแล้ว 1 รูป")).toBeInTheDocument());
+    const wrap = screen.getByTestId("qr-pair-photo").parentElement!;
+    expect(wrap.className).toContain("flex-col");
+    expect(wrap.className).toContain("min-[360px]:flex-row");
+    expect(wrap.className).toContain("items-center");
+    expect(screen.getByTestId("qr-pair-photo")).toHaveClass("h-32", "w-32", "shrink-0");
+  });
+});
+
 describe("🔴 ไม่มีเงิน/น้ำหนักทอง/ลิงก์ ทุกจอรูป", () => {
   it("W-5 · W-6/7 · W-8 (ระหว่างส่ง/ส่งครบ/ล้ม)", async () => {
     const { container } = render(<ShopIntakeApp token={TOKEN} initial={hubOf()} />);

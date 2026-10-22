@@ -104,7 +104,7 @@ export function ShopPhotoUploadPanel({
   const { items, lock } = photos;
   const [expanded, setExpanded] = useState(false);
   const [openKey, setOpenKey] = useState<string | null>(null);
-  const [status, setStatus] = useStatusLine(8000); // 8 วิ — ข้อความ "ถ้ารูปนี้ส่งถึงแล้ว…" ยาวกว่าข้อความทั่วไป
+  const [status, setStatus] = useStatusLine();
   const [wasOffline, setWasOffline] = useState(false);
   const fullRef = useRef<HTMLParagraphElement>(null);
   const prevRemaining = useRef(photos.remaining);
@@ -226,11 +226,7 @@ export function ShopPhotoUploadPanel({
       {total > 0 && (
         <ul className="space-y-2">
           {list.map((it, i) => (
-            <Row key={it.key} item={it} index={i + 1} total={total} onOpen={() => setOpenKey(it.key)} onRetry={() => photos.retry(it.key)} onRemove={() => {
-                // ส่งล้มแบบไม่รู้ผล: รูปอาจถึง server แล้ว — เอาออกจากจอนี้ไม่ลบที่ server · บอกว่าไปลบที่ "ใบที่ฉันเปิด"
-                if (it.maybeSent) setStatus(SHOP_PHOTO_TH.removedMaybeSent);
-                void photos.remove(it.key);
-              }} onRetryLoad={onRetryLoad} />
+            <Row key={it.key} item={it} index={i + 1} total={total} onOpen={() => setOpenKey(it.key)} onRetry={() => photos.retry(it.key)} onRemove={() => void photos.remove(it.key)} onRetryLoad={onRetryLoad} />
           ))}
         </ul>
       )}

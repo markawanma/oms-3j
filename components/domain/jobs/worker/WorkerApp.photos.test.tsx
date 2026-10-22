@@ -136,6 +136,45 @@ describe("viewer หน้าช่าง", () => {
   });
 });
 
+describe("hero กันกระพริบหลัง refresh (ลิงก์ใหม่ของรูปเดิม)", () => {
+  it("ลิงก์ใหม่ของรูปเดิม (id เดิม): ภาพเก่าค้างใต้ภาพใหม่จนภาพใหม่โหลดเสร็จ · ไม่กลับไปเป็นกรอบ pulse · พอภาพใหม่โหลดแล้วภาพเก่าถูกถอด", () => {
+    const { container, rerender } = render(<WorkerApp token={TOKEN} view={view([photo(1, "a")])} />);
+    const first = container.querySelector("img")!;
+    fireEvent.load(first); // ภาพแรกโหลดสำเร็จ
+    expect(container.querySelector(".animate-pulse")).toBeNull();
+    rerender(<WorkerApp token={TOKEN} view={view([photo(1, "b")])} />); // router.refresh → ลิงก์ใหม่ (id เดิม)
+    const imgs = [...container.querySelectorAll("img")];
+    expect(imgs).toHaveLength(2);
+    expect(imgs.map((i) => i.getAttribute("src"))).toEqual([u(1, "md", "a"), u(1, "md", "b")]); // เก่าอยู่ใต้ ใหม่อยู่บน
+    expect(imgs[0].getAttribute("aria-hidden")).toBe("true");
+    expect(container.querySelector(".animate-pulse")).toBeNull(); // ไม่กระพริบ
+    fireEvent.load(imgs[1]);
+    const after = [...container.querySelectorAll("img")];
+    expect(after).toHaveLength(1);
+    expect(after[0].getAttribute("src")).toBe(u(1, "md", "b"));
+  });
+
+  it("เปลี่ยนเป็นรูปอื่น (id ต่าง) = ไม่คงภาพเก่า (ไม่โชว์ผิดชิ้น) · ใบที่ภาพแรกยังไม่เคยโหลด = pulse ตามเดิม", () => {
+    const { container, rerender } = render(<WorkerApp token={TOKEN} view={view([photo(1, "a")])} />);
+    expect(container.querySelector(".animate-pulse")).not.toBeNull(); // ยังไม่เคยโหลด
+    fireEvent.load(container.querySelector("img")!);
+    rerender(<WorkerApp token={TOKEN} view={view([photo(2, "a")])} />);
+    expect(container.querySelectorAll("img")).toHaveLength(1);
+    expect(container.querySelector("img")!.getAttribute("src")).toBe(u(2, "md", "a"));
+    expect(container.querySelector(".animate-pulse")).not.toBeNull();
+  });
+
+  it("ภาพใหม่โหลดล้ม → สถานะ 'โหลดรูปไม่ได้ แตะลองใหม่' ตามเดิม (ไม่ค้างภาพเก่าเงียบๆ)", () => {
+    const { container, rerender } = render(<WorkerApp token={TOKEN} view={view([photo(1, "a")])} />);
+    fireEvent.load(container.querySelector("img")!);
+    rerender(<WorkerApp token={TOKEN} view={view([photo(1, "b")])} />);
+    const imgs = [...container.querySelectorAll("img")];
+    fireEvent.error(imgs[1]);
+    expect(screen.getByRole("button", { name: "โหลดรูปไม่ได้ แตะเพื่อลองใหม่" })).toBeInTheDocument();
+    expect(container.querySelectorAll("img")).toHaveLength(0);
+  });
+});
+
 describe("ลิงก์รูปหมดอายุ (15 นาที · เซสชันช่าง 12 ชม.)", () => {
   it("S2: อัตโนมัติ ≤ 2 ครั้ง (ลิงก์ใหม่พังซ้ำ) แล้วหยุด · แตะ = ขอทันทีและรีเซ็ต", async () => {
     let t = 5_000_000;
