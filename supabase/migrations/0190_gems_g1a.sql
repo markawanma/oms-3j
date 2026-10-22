@@ -1050,7 +1050,7 @@ begin
           perform analytics.gem_line_fail(v_row, 'shape', 'shape_new_invalid', 'รูปทรงใหม่ต้องระบุชื่อและจำนวนค่าขนาด');
         end if;
         select k into v_bad from jsonb_object_keys(v_el -> 'new_shape') k where k <> all (array['name', 'has_length']) limit 1;
-        if v_bad is not null or jsonb_typeof(v_el -> 'new_shape' -> 'name') <> 'string' or jsonb_typeof(v_el -> 'new_shape' -> 'has_length') <> 'boolean' then
+        if v_bad is not null or coalesce(jsonb_typeof(v_el -> 'new_shape' -> 'name'), '') <> 'string' or coalesce(jsonb_typeof(v_el -> 'new_shape' -> 'has_length'), '') <> 'boolean' then
           perform analytics.gem_line_fail(v_row, 'shape', 'shape_new_invalid', 'รูปทรงใหม่ต้องระบุชื่อและจำนวนค่าขนาด (1 หรือ 2 ค่า)');
         end if;
         v_err := null;
@@ -1877,12 +1877,13 @@ begin
     raise exception 'ชนิดข้อมูลต้องเป็น type · shape · item' using errcode = '22023', hint = 'kind_invalid';
   end if;
   if p_kind = 'type' then
-    select t.merged_into, t.is_active, true into v_merged, v_cur, v_found from analytics.gem_type t where t.id = p_id and t.shop_id = p_shop_id for update;
+    select t.merged_into, t.is_active into v_merged, v_cur from analytics.gem_type t where t.id = p_id and t.shop_id = p_shop_id for update;
   elsif p_kind = 'shape' then
-    select s.merged_into, s.is_active, true into v_merged, v_cur, v_found from analytics.gem_shape s where s.id = p_id and s.shop_id = p_shop_id for update;
+    select s.merged_into, s.is_active into v_merged, v_cur from analytics.gem_shape s where s.id = p_id and s.shop_id = p_shop_id for update;
   else
-    select i.merged_into, i.is_active, true into v_merged, v_cur, v_found from analytics.gem_item i where i.id = p_id and i.shop_id = p_shop_id for update;
+    select i.merged_into, i.is_active into v_merged, v_cur from analytics.gem_item i where i.id = p_id and i.shop_id = p_shop_id for update;
   end if;
+  v_found := found;   -- ไม่ใช้ "select ..., true into" (ไม่พบแถว = ค่าเป็น NULL ไม่ใช่ false — ด่านจะตาบอด: ข้อ 13)
   if not v_found then
     raise exception 'ไม่พบรายการนี้ในร้านนี้' using errcode = '22023', hint = 'gem_not_found';
   end if;
@@ -1928,15 +1929,18 @@ begin
     raise exception 'ชนิดข้อมูลต้องเป็น type · shape · item' using errcode = '22023', hint = 'kind_invalid';
   end if;
   if p_kind = 'type' then
-    select t.name, true into v_name, v_found from analytics.gem_type t where t.id = p_id and t.shop_id = p_shop_id for update;
+    select t.name into v_name from analytics.gem_type t where t.id = p_id and t.shop_id = p_shop_id for update;
+    v_found := found;
     select count(*) into v_items from analytics.gem_item i where i.gem_type_id = p_id;
     select count(*) into v_merged from analytics.gem_type t where t.merged_into = p_id;
   elsif p_kind = 'shape' then
-    select s.name, true into v_name, v_found from analytics.gem_shape s where s.id = p_id and s.shop_id = p_shop_id for update;
+    select s.name into v_name from analytics.gem_shape s where s.id = p_id and s.shop_id = p_shop_id for update;
+    v_found := found;
     select count(*) into v_items from analytics.gem_item i where i.gem_shape_id = p_id;
     select count(*) into v_merged from analytics.gem_shape s where s.merged_into = p_id;
   else
-    select i.size_label, true into v_name, v_found from analytics.gem_item i where i.id = p_id and i.shop_id = p_shop_id for update;
+    select i.size_label into v_name from analytics.gem_item i where i.id = p_id and i.shop_id = p_shop_id for update;
+    v_found := found;
     select count(*) into v_tpl from analytics.product_gem_bom b where b.gem_item_id = p_id;
     select count(distinct g.job_id) into v_jobs from analytics.job_gem_bom g where g.gem_item_id = p_id;
     select count(*) into v_merged from analytics.gem_item i where i.merged_into = p_id;
@@ -2227,6 +2231,7 @@ declare
   v_window text;
   v_reason text;
   v_res    jsonb;
+  v_bad_reason boolean := false;
 begin
   v_job := analytics.job_office_begin('job_gem_bom_set', p_shop_id, p_job_id, p_actor);
   if v_job.parent_job_id is not null then
@@ -2236,9 +2241,22 @@ begin
     raise exception 'รายการพลอยต้องเป็นรายการ (array) — ส่ง [] ถ้าไม่มีพลอย' using errcode = '22023', hint = 'lines_invalid';
   end if;
   v_window := analytics.job_gem_edit_window(v_job.id);
-  v_reason := analytics.job_text_clean(p_reason, 'เหตุผล', 300, false);
+  -- เหตุผล: whitelist (oem_note_present = ต้องมีตัวอักษร/ตัวเลขจริง) · อักขระล่องหน/ควบคุม/ขึ้นบรรทัดใหม่/< > = ไม่นับเป็นเหตุผล (hint เดียวกับ "ไม่ใส่") · ยาวเกิน 300 = reason_invalid
+  if char_length(coalesce(p_reason, '')) > 300 then
+    raise exception 'เหตุผลยาวเกิน 300 ตัวอักษร' using errcode = '22023', hint = 'reason_invalid';
+  end if;
+  begin
+    v_reason := analytics.job_text_clean(p_reason, 'เหตุผล', 300, false);
+  exception when sqlstate '22023' then
+    v_reason := null;
+    v_bad_reason := true;
+  end;
   if v_reason is not null and (v_reason ~ '[<>]' or not analytics.oem_note_present(v_reason)) then
-    raise exception 'เหตุผลต้องมีตัวอักษรหรือตัวเลขจริง และห้ามมีเครื่องหมาย < >' using errcode = '22023', hint = 'reason_required';
+    v_reason := null;
+    v_bad_reason := true;
+  end if;
+  if v_bad_reason then
+    raise exception 'เหตุผลต้องมีตัวอักษรหรือตัวเลขจริง (ห้ามอักขระล่องหน/ขึ้นบรรทัดใหม่/เครื่องหมาย < >)' using errcode = '22023', hint = 'reason_required';
   end if;
   if v_window = 'reason_required' and v_reason is null then
     raise exception 'ช่างฝังรับงานแล้ว — แก้พลอยต้องระบุเหตุผล' using errcode = '22023', hint = 'reason_required';
