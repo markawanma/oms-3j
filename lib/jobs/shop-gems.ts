@@ -19,10 +19,15 @@ export const GEM_LIMITS = {
   reasonMax: 300,
 } as const;
 
-/** กุญแจเทียบชื่อซ้ำ — ตรงกับ analytics.gem_name_norm: ลบอักขระล่องหน → NFKC → ตัวเล็ก → ลบช่องว่าง/วรรคตอน/สัญลักษณ์ (สระ/วรรณยุกต์ไทยอยู่) */
+/**
+ * กุญแจเทียบชื่อซ้ำ — ตรงกับ analytics.gem_name_norm: ลบอักขระล่องหน → NFKC → ตัวเล็ก → ลบช่องว่าง/วรรคตอน (สระ/วรรณยุกต์ไทยอยู่)
+ * 🔴 DB ตัดแค่ [[:space:][:punct:]] = \p{P} ไม่ตัดสัญลักษณ์ (\p{S}: $ + < = > ^ ` | ~ ¢ £ © ...) — TS ต้องตรงเป๊ะ (name_norm เป็น stored generated + unique)
+ * พิสูจน์ด้วยการกวาดทุกจุดรหัส U+0001-1FFFF + U+E0000-E00FF เทียบ DB จริง (shop-gems.qa.test.ts): ต่างเฉพาะ U+1C-1F/U+85 (ใส่ในนิพจน์ด้านล่าง) ·
+ * ล่องหน (stripInvisibleText) · จุดรหัสวรรคตอนใหม่ของ Unicode 16 ที่ PostgreSQL รุ่นนี้ยังไม่รู้ 14 ตัว (ไม่ใช่ตัวอักษรที่ใช้ตั้งชื่อพลอย)
+ */
 export function normalizeGemName(raw: unknown): string {
   if (typeof raw !== "string") return "";
-  return stripInvisibleText(raw).normalize("NFKC").toLowerCase().replace(/[\s\p{P}\p{S}]/gu, "");
+  return stripInvisibleText(raw).normalize("NFKC").toLowerCase().replace(/[\s\p{P}\u001c-\u001f\u0085]/gu, "");
 }
 
 /** ระยะแก้ไขต่ออักขระ (code point) — ตรงกับ analytics.gem_name_lev */
@@ -86,9 +91,12 @@ export function findSimilarGemNames(name: string, existing: readonly NamedRow[],
 }
 
 export type GemNameCheck = { ok: true; value: string } | { ok: false; code: "name_invalid"; message: string };
-const NAME_MSG = "ชื่อต้องมี 2-40 ตัวอักษร ไม่ใช่ตัวเลขล้วน (ทุกระบบเลข — ๑๒ · ١٢ · １２ ก็ไม่ผ่าน) และห้ามมีเครื่องหมาย < >";
+const NAME_MSG = "ชื่อต้องมี 2-40 ตัวอักษร และมีตัวอักษรจริงอย่างน้อย 1 ตัว (เลขล้วนทุกระบบเลข เช่น 12 · ๑๒ · ١٢ · １２ หรือเครื่องหมายล้วน ไม่ผ่าน) และห้ามมีเครื่องหมาย < >";
 
-/** ตัดหัวท้าย · ยุบช่องว่างซ้ำ · ผ่านกติกาเดียวกับ DB (gem_name_ok) — ล้ม = name_invalid (ข้อความไทย) */
+/**
+ * ตัดหัวท้าย · ยุบช่องว่างซ้ำ · ผ่านกติกาเดียวกับ DB (gem_name_ok: 2-40 · ไม่มี < > · ไม่มีอักขระล่องหน/ควบคุม · norm ≥ 2 ตัว และมีตัวอักษรจริง ≥ 1 ตัว
+ * = [[:alpha:]] ของ DB ↔ \p{L} ใน norm ฝั่งนี้) — ล้ม = name_invalid (ข้อความไทย)
+ */
 export function cleanGemName(raw: unknown): GemNameCheck {
   if (typeof raw !== "string") return { ok: false, code: "name_invalid", message: NAME_MSG };
   const hasControl = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f\t\r\n]/.test(raw);
@@ -97,7 +105,7 @@ export function cleanGemName(raw: unknown): GemNameCheck {
   const v = raw.replace(/[\s 　]+/g, " ").trim();
   const norm = normalizeGemName(v);
   const len = Array.from(v).length;
-  if (len < GEM_LIMITS.nameMin || len > GEM_LIMITS.nameMax || /[<>]/.test(v) || !/[\p{L}\p{N}]/u.test(v) || Array.from(norm).length < 2 || /^\p{Nd}+$/u.test(norm)) {
+  if (len < GEM_LIMITS.nameMin || len > GEM_LIMITS.nameMax || /[<>]/.test(v) || Array.from(norm).length < 2 || !/\p{L}/u.test(norm)) {
     return { ok: false, code: "name_invalid", message: NAME_MSG };
   }
   return { ok: true, value: v };

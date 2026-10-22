@@ -4,7 +4,7 @@ import { EVENT_TYPE_LABEL, mapJobDetail, summarizeEvent } from "./types";
 import { toPrintableJob } from "./print";
 import { findForbiddenKeys } from "./worker-view";
 import { OFFICE_HINT_TH, officeErrorMessage } from "./messages";
-import { GEM_ERROR_TH, GEM_HINTS, mapGemPriceHistory, mapGemCatalog, mapGemOptions, mapGemSaveSummary, mapJobGems, parseGemRpcError, toWireGemLines } from "./gems";
+import { GEM_ERROR_TH, GEM_HINTS, mapGemPriceHistory, mapGemCatalog, mapGemOptions, mapGemSaveSummary, mapJobGems, mapGemMergePlan, parseGemRpcError, toWireGemLines, wireFailResult } from "./gems";
 
 const U = (n: number) => `${String(n).padStart(8, "0")}-0000-4000-8000-000000000000`;
 
@@ -136,6 +136,37 @@ describe("PrintableJob.gems — ประกอบทีละ field · ไม�
   });
   it("unspecified ผ่านเป็น state (ใบพิมพ์ขึ้นเตือน)", () => {
     expect(toPrintableJob(job, [], null, { state: "unspecified", gems: [] }).gemsState).toBe("unspecified");
+  });
+});
+
+describe("wireFailResult — ที่เดียวของผลล้มจาก toWireGemLines (review S6)", () => {
+  it("พา code/row/field ที่รูปปลอดภัยกลับ · field รูป camelCase/แปลก (ชื่อ key ของ client) ไม่ถูกสะท้อน · ไม่มี row = ไม่ใส่ row", () => {
+    const bad = toWireGemLines([{ price: 5 }]);
+    expect(bad.ok).toBe(false);
+    if (bad.ok) return;
+    expect(wireFailResult(bad)).toEqual({ ok: false, error: bad.error, code: "line_invalid", gem: { code: "line_invalid", row: 1, field: "price" } });
+    const camel = toWireGemLines([{ typeId: 5 }]);
+    if (camel.ok) throw new Error("expected fail");
+    const r = wireFailResult(camel);
+    expect(r.gem.row).toBe(1);
+    expect("field" in r.gem).toBe(false); // "typeId" ไม่ผ่านรูป [a-z_]
+    const noRow = toWireGemLines("x");
+    if (noRow.ok) throw new Error("expected fail");
+    expect(wireFailResult(noRow).gem).toEqual({ code: "lines_invalid" });
+  });
+});
+
+describe("mapGemMergePlan — พา overflow/products มาด้วย (review N6)", () => {
+  const U1 = "11111111-1111-4111-8111-111111111111";
+  const U2 = "22222222-2222-4222-8222-222222222222";
+  it("template_qty_overflow + template_products (เฉพาะ uuid ถูกรูป) · ไม่มี key = 0 / []", () => {
+    const base = { from: { id: U1, name: "ก" }, into: { id: U2, name: "ข" } };
+    const m = mapGemMergePlan({ ...base, items_moved: 1, template_lines_summed: 2, template_qty_overflow: 1, template_products: [U1, "x", 5, U2] })!;
+    expect(m.templateQtyOverflow).toBe(1);
+    expect(m.templateProducts).toEqual([U1, U2]);
+    const d = mapGemMergePlan(base)!;
+    expect(d.templateQtyOverflow).toBe(0);
+    expect(d.templateProducts).toEqual([]);
   });
 });
 

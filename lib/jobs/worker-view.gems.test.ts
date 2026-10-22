@@ -47,13 +47,13 @@ describe("sanitizeWorkerView — พลอย (0190)", () => {
     expect(v.job.gemsState).toBe("unspecified");
     expect(v.job.gems).toEqual([]);
   });
-  it("state ที่ไม่รู้จัก (not_needed/อื่น) = ไม่ใส่ key · แถวที่ไม่ผ่าน (จำนวน 0/1.5/1001/ฉลากว่าง/ไม่ใช่ object) ถูกทิ้ง · specified แต่ไม่เหลือแถว = unspecified (ไม่โชว์ว่างเป็น 'ระบุแล้ว')", () => {
+  it("state ที่ไม่รู้จัก (not_needed/อื่น) = ไม่ใส่ key · แถวที่ไม่ผ่าน (จำนวน 0/1.5/1001/ฉลากว่าง/ไม่ใช่ object) ถูกทิ้ง · specified แต่ไม่เหลือแถว = ยัง specified ตาม DB (ไม่แปลงเป็น unspecified — จอจะไม่บอกช่างว่า 'ยังไม่ระบุพลอย' ทั้งที่ออฟฟิศระบุแล้ว)", () => {
     expect("gems" in sanitizeWorkerView(raw({ gems_state: "not_needed", gems: [gemRow()] }))!.job).toBe(false);
     expect("gems" in sanitizeWorkerView(raw({ gems_state: "weird", gems: [gemRow()] }))!.job).toBe(false);
     const bad = [gemRow({ qty_per_piece: 0 }), gemRow({ qty_per_piece: 1.5 }), gemRow({ qty_per_piece: 1001 }), gemRow({ label: "" }), gemRow({ qty_total: -1 }), "x", null];
     const v = sanitizeWorkerView(raw({ gems_state: "specified", gems: bad }))!;
     expect(v.job.gems).toEqual([]);
-    expect(v.job.gemsState).toBe("unspecified");
+    expect(v.job.gemsState).toBe("specified");
   });
   it("ตำแหน่งว่าง = null · ไม่เกิน 30 แถว", () => {
     const many = Array.from({ length: 40 }, (_, i) => gemRow({ label: `พลอย ${i} · กลม · ${i + 1} มม.`, position: "" }));

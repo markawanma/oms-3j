@@ -2,7 +2,7 @@
 
 // lib/actions/gems.ts — พลอย G1a (ออฟฟิศ owner/admin): แคตตาล็อก · ราคา · รวมชื่อ · แม่แบบ SKU · พลอยต่อใบ
 // guard() บรรทัดแรกทุก action · p_shop_id/p_actor ใส่ฝั่ง server หลัง spread (callOffice) · ตรวจรูปร่าง input ก่อนถึง DB · DB (migration 0190) เป็นด่านจริง — ตรวจ actor owner/admin ซ้ำที่ RPC ราคา/แคตตาล็อก
-// 🔴 ราคาพลอย = ต้นทุน (ไม่ให้ role ฝั่งแอปอ่านตารางราคา/audit ตรง — role ระดับแพลตฟอร์มอ่านได้ คุมที่องค์กร): อ่าน/เขียนผ่าน getGemCatalog · setGemPrice · getGemPriceHistory เท่านั้น — action อื่นไม่คืนราคา · หน้าช่าง (/w/) ห้าม import ไฟล์นี้ (worker-boundary.test)
+// 🔴 ราคาพลอย = ต้นทุน (ไม่ให้ role ฝั่งแอปอ่านตารางราคา/audit ตรง — role ระดับแพลตฟอร์มอ่านได้: postgres · supabase_admin · supabase_etl_admin · supabase_read_only_user — คุมที่องค์กร): อ่าน/เขียนผ่าน getGemCatalog · setGemPrice · getGemPriceHistory เท่านั้น — action อื่นไม่คืนราคา · หน้าช่าง (/w/) ห้าม import ไฟล์นี้ (worker-boundary.test)
 // ข้อผิดพลาดของแถวพลอย/ตัวดักชื่อคล้ายพา gem {code,row,field,similar[]} กลับไปด้วย (result.gem) ให้หน้าจอพากลับแถวที่ผิด
 // ไฟล์ "use server": export ได้เฉพาะ async function
 
@@ -11,7 +11,7 @@ import { isUuid } from "@/lib/jobs/input";
 import { callOffice, fail, guard } from "@/lib/jobs/office-server";
 import type { JobResult } from "@/lib/jobs/office-server";
 import { GENERIC_JOB_ERROR } from "@/lib/jobs/messages";
-import { GEM_KINDS, mapGemCatalog, mapGemMergePlan, mapGemOptions, mapGemPriceHistory, mapGemSaveSummary, mapJobGems, mapGemBomLine, toWireGemLines } from "@/lib/jobs/gems";
+import { GEM_KINDS, wireFailResult, mapGemCatalog, mapGemMergePlan, mapGemOptions, mapGemPriceHistory, mapGemSaveSummary, mapJobGems, mapGemBomLine, toWireGemLines } from "@/lib/jobs/gems";
 import type { GemCatalog, GemKind, GemMergePlan, GemOptions, GemPriceHistory, GemSaveSummary, GemBomLine, JobGems } from "@/lib/jobs/gems";
 
 type Raw = Record<string, unknown>;
@@ -81,7 +81,7 @@ export async function createGemItem(line: unknown, force = false): Promise<JobRe
   if (g) return g;
   if (!isObj(line)) return fail(BAD_INPUT);
   const w = toWireGemLines([{ ...line, qtyPerPiece: 1 }]);
-  if (!w.ok) return { ok: false, error: w.error, code: w.code, gem: { code: w.code, ...(w.field ? { field: w.field } : {}) } };
+  if (!w.ok) return wireFailResult(w);
   const { qty_per_piece: _q, ...wireLine } = w.value[0];
   void _q;
   const r = await callOffice<Raw>("gem_item_create", { p_line: wireLine, p_force: force === true });
@@ -260,7 +260,7 @@ export async function saveJobGems(input: SaveJobGemsInput): Promise<JobResult<Sa
   if (g) return g;
   if (!isObj(input) || !isUuid(input.jobId)) return fail("ไม่พบใบงาน");
   const w = toWireGemLines(input.lines);
-  if (!w.ok) return { ok: false, error: w.error, code: w.code, gem: { code: w.code, ...(w.row !== null ? { row: w.row } : {}), ...(w.field ? { field: w.field } : {}) } };
+  if (!w.ok) return wireFailResult(w);
   if (input.reason !== undefined && input.reason !== null && (typeof input.reason !== "string" || input.reason.length > 300)) return fail("เหตุผลยาวเกิน 300 ตัวอักษร", "reason_invalid");
   const r = await callOffice<Raw>("job_gem_bom_set", { p_job_id: input.jobId, p_gem_lines: w.value, p_reason: input.reason ?? null, p_force: input.force === true });
   if (!r.ok) return r;
@@ -285,7 +285,7 @@ export async function saveSkuGemTemplate(input: { productId: string; lines: unkn
   if (g) return g;
   if (!isObj(input) || !isUuid(input.productId)) return fail(BAD_INPUT);
   const w = toWireGemLines(input.lines);
-  if (!w.ok) return { ok: false, error: w.error, code: w.code, gem: { code: w.code, ...(w.row !== null ? { row: w.row } : {}), ...(w.field ? { field: w.field } : {}) } };
+  if (!w.ok) return wireFailResult(w);
   const r = await callOffice<Raw>("product_gem_bom_set", { p_product_id: input.productId, p_gem_lines: w.value, p_force: input.force === true });
   if (!r.ok) return r;
   const out = saveResult(r.data);

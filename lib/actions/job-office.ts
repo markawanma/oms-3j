@@ -26,7 +26,7 @@ import { GENERIC_JOB_ERROR } from "@/lib/jobs/messages";
 import type { JobPhotoRow } from "@/lib/jobs/photos";
 import { copyCatalogPhotoToJob, loadJobPhotos } from "@/lib/jobs/photos-server";
 import { loadJobGemsSummary } from "@/lib/jobs/gems-server";
-import { toWireGemLines } from "@/lib/jobs/gems";
+import { toWireGemLines, wireFailResult } from "@/lib/jobs/gems";
 import type { JobGemsSummary } from "@/lib/jobs/gems";
 
 const BOARD_LIMIT = 400;
@@ -238,7 +238,7 @@ export async function getJobDetail(jobId: string): Promise<JobResult<JobDetailDa
     let gems: JobGemsSummary | null | undefined;
     if (!partOf) {
       try {
-        gems = await loadJobGemsSummary(job.id, job.qtyPlanned, stages.map((s) => ({ code: s.code, status: s.status })));
+        gems = await loadJobGemsSummary(job.id, job.qtyPlanned);
       } catch (err) {
         logJobFailure("getJobDetail.gems", err);
         gems = null;
@@ -502,7 +502,7 @@ export async function createJob(input: CreateJobInput): Promise<JobResult<{ jobI
   // 0190: พลอย — ใส่ arg เฉพาะเมื่อมีค่า (ไม่ส่ง = DB คัดลอกแม่แบบถ้ามีขั้นฝัง)
   if (input.gemLines !== undefined) {
     const w = toWireGemLines(input.gemLines);
-    if (!w.ok) return { ok: false, error: w.error, code: w.code, gem: { code: w.code, ...(w.row !== null ? { row: w.row } : {}), ...(w.field !== null && /^[a-z][a-z_]{0,30}$/.test(w.field) ? { field: w.field } : {}) } };
+    if (!w.ok) return wireFailResult(w);
     planArgs.p_gem_lines = w.value;
   }
   if (input.gemForce === true) planArgs.p_gem_force = true;

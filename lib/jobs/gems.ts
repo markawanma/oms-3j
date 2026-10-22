@@ -185,6 +185,19 @@ export const GEM_ERROR_TH: Record<string, string> = {
 
 const FIELD_RE = /^[a-z][a-z_]{0,30}$/;
 
+/**
+ * toWireGemLines ล้ม → ผลลัพธ์ของ server action (ที่เดียว — actions/gems.ts · job-office createJob ใช้ตัวนี้)
+ * field ผ่านเฉพาะรูปปลอดภัย (ตัวเล็ก/ขีดล่าง) — ไม่สะท้อนชื่อ key แปลกของ client กลับไป
+ */
+export function wireFailResult(w: Extract<WireResult, { ok: false }>): { ok: false; error: string; code: string; gem: GemErrorInfo } {
+  return {
+    ok: false,
+    error: w.error,
+    code: w.code,
+    gem: { code: w.code, ...(w.row !== null ? { row: w.row } : {}), ...(w.field !== null && FIELD_RE.test(w.field) ? { field: w.field } : {}) },
+  };
+}
+
 function mapSimilar(raw: unknown): GemSimilarHit[] {
   if (!Array.isArray(raw)) return [];
   const out: GemSimilarHit[] = [];
@@ -514,6 +527,10 @@ export interface GemMergePlan {
   collapsedMissingPriceOnTarget: number;
   templateLinesRepointed: number;
   templateLinesSummed: number;
+  /** แม่แบบที่รวมแล้วจำนวนต่อชิ้นเกิน 1,000 (> 0 = รวมไม่ได้ — DB ปฏิเสธ merge_qty_overflow) */
+  templateQtyOverflow: number;
+  /** SKU ที่แม่แบบใช้รายการของชื่อที่จะรวม (ให้จอบอกว่ากระทบ SKU ไหน) */
+  templateProducts: string[];
   jobsOpenUsing: number;
   jobsUsingTotal: number;
 }
@@ -532,6 +549,8 @@ export function mapGemMergePlan(raw: unknown): GemMergePlan | null {
     collapsedMissingPriceOnTarget: int(raw.collapsed_missing_price_on_target) ?? 0,
     templateLinesRepointed: int(raw.template_lines_repointed) ?? 0,
     templateLinesSummed: int(raw.template_lines_summed) ?? 0,
+    templateQtyOverflow: int(raw.template_qty_overflow) ?? 0,
+    templateProducts: (Array.isArray(raw.template_products) ? raw.template_products : []).flatMap((p) => { const id = uuid(p); return id ? [id] : []; }).slice(0, 500),
     jobsOpenUsing: int(raw.jobs_open_using) ?? 0,
     jobsUsingTotal: int(raw.jobs_using_total) ?? 0,
   };

@@ -265,7 +265,7 @@ export function sanitizeWorkerView(raw: unknown): WorkerView | null {
   // 0190: พลอยเฉพาะช่างที่ระบุตัวแล้ว (เหมือนรูป) — DB ไม่ส่ง key ก่อน PIN/เมื่อไม่มีขั้นฝังและไม่มีพลอย · ค่า state นอก enum = ไม่ใส่ key (view เดิมไม่เปลี่ยนรูป)
   if (viewer && "design_label" in j && (j.gems_state === "specified" || j.gems_state === "unspecified")) {
     const gems = (Array.isArray(j.gems) ? j.gems : []).map(mapGem).filter((g): g is WorkerGem => g !== null).slice(0, 30);
-    job.gemsState = gems.length === 0 && j.gems_state === "specified" ? "unspecified" : j.gems_state;
+    job.gemsState = j.gems_state; // ค่าจาก DB ตรงๆ — แถวผิดรูปที่ถูกทิ้งไม่เปลี่ยน state (specified ที่แถวอ่านไม่ได้ ≠ ยังไม่ระบุ)
     job.gems = gems;
   }
 

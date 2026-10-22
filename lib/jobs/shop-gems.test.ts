@@ -27,7 +27,7 @@ describe("gemNameSimilar — ชุดเคส UX §3.4 (เหมือน ver
 
 describe("cleanGemName — ตรงกับ gem_name_ok", () => {
   it.each(["โกเมน", "CZ", "6 เหลี่ยม", "ไข่"])("ผ่าน: %s", (n) => expect(cleanGemName(n).ok).toBe(true));
-  it.each(["a", "", "12", "1.5", "..", "๑๒", "١٢", "１２", "²³", "ab<c", "x\ty", "ก​ข", "​​", "😀😀", "ก".repeat(41), "x>", "   "])("ไม่ผ่าน: %j", (n) => expect(cleanGemName(n).ok).toBe(false));
+  it.each(["a", "", "12", "1.5", "..", "๑๒", "١٢", "１２", "²³", "+1", "$$", "ิิ", "ab<c", "x\ty", "ก​ข", "​​", "😀😀", "ก".repeat(41), "x>", "   "])("ไม่ผ่าน: %j", (n) => expect(cleanGemName(n).ok).toBe(false));
   it("ยุบช่องว่างซ้ำ + ตัดหัวท้าย · ข้อความไทย", () => {
     expect(cleanGemName("  โกเมน   สด ")).toEqual({ ok: true, value: "โกเมน สด" });
     const bad = cleanGemName("1");

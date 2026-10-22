@@ -18,7 +18,11 @@
 --  7. views v_product_gem_bom · v_job_gem_requirement (ไม่มีคอลัมน์ราคา · ไม่เรียกฟังก์ชันของ schema — อ่านด้วย service_role ได้)
 --  8. gem_item_price_audit (append-only · สิทธิ์ชุดเดียวกับตารางราคา): gem_price_set บันทึก old/new ก่อน upsert ทุกครั้ง · แก้ทับวันเดิม หรือ effective_from ย้อนหลัง (< วันนี้ไทย) = บังคับ note ที่มีตัวอักษรจริง (note_required) · gem_price_history คืนแถว audit
 --  9. idempotent: รันซ้ำได้ (post-check เทียบ golden โดยตัด key gem_template_count · เช็ค "ไม่มีข้อมูลหลัง apply" เฉพาะรอบแรก) — verify ด้วยการต่อไฟล์ซ้ำสองรอบใน dry-run
---  ⚠️ role ระดับแพลตฟอร์ม (postgres · supabase_admin) อ่านตารางราคา/audit ได้เสมอ — คุมที่สิทธิ์องค์กร/dashboard ไม่ใช่ที่ DB (บันทึกหนี้ security L1)
+-- 10. รอบแก้ตาม review 22 ต.ค. (Blocker 1 + S1-S6): replace_core จับคู่แถวเดิมโดยตัด NULL ออกจาก v_map (แถวใหม่นำหน้าแล้วแถวเดิมไม่ถูกลบ-แทรก) · gem_similar_hits ตัวเดียว (prepare · create · rename) ·
+--     job_gem_state ตัวเดียว = นิยาม "ยังไม่ระบุพลอย" (job_gem_bom_get · job_worker_resolve · getJobDetail/ใบพิมพ์อ่านผ่าน RPC) · รวมตำแหน่งทีละคำ (ไม่ใช่ substring) ทั้งบันทึกใบและรวมชื่อ ·
+--     gem_name_ok = ต้องมี [[:alpha:]] ≥ 1 ตัว (แทนรายการระบบเลข) · CHECK ของ audit: insert ย้อนหลังต้องมี note · ถอด p_require_qty/v_i ที่ไม่ได้ใช้ · ต้องตรงกับ TS: lib/jobs/shop-gems.ts (norm = ตัดเฉพาะ \p{P})
+--  ⚠️ role ระดับแพลตฟอร์มอ่านตารางราคา/audit ได้เสมอ (ไม่ต้องมี grant): postgres (เจ้าของ) · supabase_admin (superuser) · และสมาชิก pg_read_all_data: supabase_etl_admin · supabase_read_only_user (ตรวจบน DB จริง 22 ต.ค. 69 — ทั้งหมด bypassrls)
+--     — คุมที่สิทธิ์องค์กร/dashboard/การเก็บ key ไม่ใช่ที่ DB · service_role/anon/authenticated อ่านตรงไม่ได้ (บันทึกหนี้ security L1)
 --
 -- ตัดสินเอง (นอก design/brief — เหตุผล)
 --  (1) type_id/shape_id ที่ถูกรวมแล้ว (merged_into) → resolve ไปตัวปลายทางแล้วไปต่อ ไม่ปฏิเสธ (UX A3/A6: ใบที่ค้างระหว่างรวมชื่อต้องไม่ล้ม) · ปฏิเสธเฉพาะ: ร้านอื่น/ไม่พบ/ตัวปลายทางปิดใช้งาน · merge ลงตัวเอง/ลงตัวที่ถูกรวมแล้ว/จากตัวที่ถูกรวมแล้ว
@@ -157,10 +161,11 @@ $p$;
 
 -- ============================================================================
 -- 1. ฟังก์ชันบริสุทธิ์ (immutable · ไม่แตะตาราง · ไม่ grant ใคร — เรียกจาก RPC definer และ CHECK/generated column)
---    ชุดเคส "เตือน/ไม่เตือน" ของ UX §3.4 อยู่ใน verify-0190 (N1-N14) · TS ใช้กติกาเดียวกัน (lib/jobs/gem-names.ts) — ขยับพร้อมกัน
+--    ชุดเคส "เตือน/ไม่เตือน" ของ UX §3.4 อยู่ใน verify-0190 (N1-N17) · TS ใช้กติกาเดียวกัน (lib/jobs/shop-gems.ts — พิสูจน์ parity กับ DB ใน lib/jobs/shop-gems.qa.test.ts) — ขยับพร้อมกัน
 -- ============================================================================
 
--- norm = กุญแจเทียบชื่อซ้ำ: ลบอักขระล่องหน → NFKC (ตัวเต็มความกว้าง/ลิเกเจอร์ → ปกติ) → ตัวเล็ก → ลบช่องว่าง/วรรคตอนทุกชนิด
+-- norm = กุญแจเทียบชื่อซ้ำ: ลบอักขระล่องหน → NFKC (ตัวเต็มความกว้าง/ลิเกเจอร์ → ปกติ) → ตัวเล็ก → ลบช่องว่าง/วรรคตอน
+--   🔴 [[:punct:]] ของ DB นี้ = \p{P} เท่านั้น — "สัญลักษณ์" (\p{S}: $ + < = > ^ ` | ~ ¢ £ © ...) อยู่ใน norm ต่อไป · TS (normalizeGemName) ต้องตรงเป๊ะ (กวาดทุกจุดรหัสเทียบแล้ว — ดู shop-gems.qa.test.ts)
 --   "CZ" = "cz" = "C Z" · "ไพลิน " = "ไพลิน" · สระ/วรรณยุกต์ไทยอยู่ในผล (ไม่ถูกตัดเป็นวรรคตอน — พิสูจน์แล้วบน DB: '[[:punct:]]' ไม่จับ U+0E34/U+0E4C)
 create or replace function analytics.gem_name_norm(p_val text)
  returns text
@@ -228,7 +233,8 @@ end;
 $f$;
 
 -- ชื่อที่เก็บได้: ตัดหัวท้ายแล้ว · ช่องว่างมีแต่ U+0020 ตัวเดียวคั่น · 2-40 ตัวอักษร · ไม่มี < > · ไม่มีอักขระควบคุม/ล่องหน (oem_note_valid) · มีตัวอักษร/ตัวเลขจริง (oem_note_present — whitelist)
---   · norm ยาว ≥ 2 และไม่ใช่ตัวเลขล้วนของทุกระบบเลข ("10" · "1.5" · "๑๒" · "١٢" · "１２" · "²³" ไม่ผ่าน — ต้องมีอักขระที่ไม่ใช่หลักเลขอย่างน้อย 1 ตัว) — ใช้ใน CHECK ของ gem_type/gem_shape (กำแพงที่ตาราง แม้ RPC ถูกแก้ผิด)
+--   · norm ยาว ≥ 2 และ "มีตัวอักษรจริงอย่างน้อย 1 ตัว" ([[:alpha:]] — พิสูจน์บน DB นี้: พยัญชนะไทย/ละติน/จีน ผ่าน · เลขทุกระบบ (ASCII/ไทย/อารบิก/เต็มความกว้าง/ยกกำลัง) ไม่ผ่าน · สระ-วรรณยุกต์ลอยๆ ไม่ผ่าน · "+1" "$$" ไม่ผ่าน) —
+--     แทนการไล่รายการระบบเลข (ระบบเลขใหม่ของ Unicode ไม่หลุด) · ใช้ใน CHECK ของ gem_type/gem_shape (กำแพงที่ตาราง แม้ RPC ถูกแก้ผิด)
 create or replace function analytics.gem_name_ok(p_name text)
  returns boolean
  language sql
@@ -243,7 +249,7 @@ as $f$
      and analytics.oem_note_valid(p_name)
      and analytics.oem_note_present(p_name)
      and char_length(analytics.gem_name_norm(p_name)) >= 2
-     and analytics.gem_name_norm(p_name) ~ '[^0-9٠-٩۰-۹०-९০-৯๐-๙໐-໙༠-༩၀-၉០-៩０-９]'
+     and analytics.gem_name_norm(p_name) ~ '[[:alpha:]]'
 $f$;
 
 -- ฉลากขนาด: "1.5" · "4×6" (ตัดศูนย์ท้าย) — DB ประกอบเอง ไม่ให้คนพิมพ์คนละแบบ (4.0×6.0)
@@ -289,7 +295,7 @@ declare
 begin
   v := regexp_replace(v, '[[:space:]]+', ' ', 'g');
   if not analytics.gem_name_ok(v) then
-    raise exception '%ต้องมี 2-40 ตัวอักษร ไม่ใช่ตัวเลขล้วน และห้ามมีเครื่องหมาย < >', p_label using errcode = '22023', hint = 'gem_name_invalid';
+    raise exception '%ต้องมี 2-40 ตัวอักษร (ต้องมีตัวอักษรจริง ไม่ใช่ตัวเลขล้วน) และห้ามมีเครื่องหมาย < >', p_label using errcode = '22023', hint = 'gem_name_invalid';
   end if;
   return v;
 end;
@@ -411,7 +417,10 @@ create table if not exists analytics.gem_item_price_audit (
   note           text check (note is null or (char_length(note) between 1 and 300 and analytics.oem_note_valid(note) and analytics.oem_note_present(note) and note !~ '[<>]')),
   actor          uuid not null,
   recorded_at    timestamptz not null default now(),
-  constraint gem_item_price_audit_ck check ((action = 'insert' and old_price is null) or (action = 'update' and old_price is not null and note is not null))
+  -- กำแพงที่ตาราง (แม้ RPC ถูกแก้ผิด): update = ต้องมี old_price + note · insert = ไม่มี old_price และถ้าวันที่มีผลย้อนหลัง (ก่อนวันนี้ไทย ณ เวลาบันทึก) ต้องมี note
+  constraint gem_item_price_audit_ck check (
+    (action = 'insert' and old_price is null and (note is not null or effective_from >= (recorded_at at time zone 'Asia/Bangkok')::date))
+    or (action = 'update' and old_price is not null and note is not null))
 );
 create index if not exists idx_gem_item_price_audit_item on analytics.gem_item_price_audit (shop_id, gem_item_id, recorded_at);
 
@@ -874,6 +883,34 @@ begin
 end;
 $f$;
 
+-- ชื่อที่ "คล้าย" ในแคตตาล็อกที่ใช้งานอยู่ (ไม่ถูกรวม · ไม่ปิด) — ≤ 5 รายการ เรียงชื่อ · [] ถ้าไม่มี · p_exclude = ตัวที่กำลังเปลี่ยนชื่อ (ไม่เทียบกับตัวเอง)
+--   ใช้ที่เดียวกันทุกทาง: gem_lines_prepare (ชนิด/รูปทรงใหม่) · gem_catalog_create · gem_catalog_rename — กติกา "ใครคล้ายใคร" มีที่เดียว
+create or replace function analytics.gem_similar_hits(p_shop_id uuid, p_kind text, p_name text, p_exclude uuid default null)
+ returns jsonb
+ language plpgsql
+ stable
+ set search_path to 'pg_catalog', 'analytics', 'pg_temp'
+as $f$
+declare
+  v jsonb;
+begin
+  if p_kind = 'type' then
+    select coalesce(jsonb_agg(jsonb_build_object('id', m.id, 'name', m.name) order by m.name), '[]'::jsonb) into v
+      from (select t.id, t.name from analytics.gem_type t
+             where t.shop_id = p_shop_id and t.merged_into is null and t.is_active and (p_exclude is null or t.id <> p_exclude) and analytics.gem_name_similar(p_name, t.name)
+             order by t.name limit 5) m;
+  elsif p_kind = 'shape' then
+    select coalesce(jsonb_agg(jsonb_build_object('id', m.id, 'name', m.name) order by m.name), '[]'::jsonb) into v
+      from (select s.id, s.name from analytics.gem_shape s
+             where s.shop_id = p_shop_id and s.merged_into is null and s.is_active and (p_exclude is null or s.id <> p_exclude) and analytics.gem_name_similar(p_name, s.name)
+             order by s.name limit 5) m;
+  else
+    raise exception 'gem_similar_hits: kind ต้องเป็น type หรือ shape' using errcode = '22023';
+  end if;
+  return v;
+end;
+$f$;
+
 -- ============================================================================
 -- 4.1 gem_lines_prepare — แปลง/ตรวจแถวพลอยจาก client → รายการที่ resolve แล้ว (+สร้างชื่อใหม่เข้าแคตตาล็อกในทรานแซกชันของผู้เรียก)
 --   รูปแถว (ต้องมีเฉพาะ key เหล่านี้ — key อื่น เช่น price = ปฏิเสธ):
@@ -884,7 +921,7 @@ $f$;
 -- ============================================================================
 create or replace function analytics.gem_lines_prepare(
   p_shop_id uuid, p_lines jsonb, p_force boolean, p_actor uuid, p_worker_id uuid,
-  p_allow_item_ids uuid[] default '{}'::uuid[], p_require_qty boolean default true)
+  p_allow_item_ids uuid[] default '{}'::uuid[])
  returns jsonb
  language plpgsql
  set search_path to 'public', 'analytics', 'extensions', 'pg_temp'
@@ -948,13 +985,9 @@ begin
       perform analytics.gem_line_fail(v_row, v_bad, 'line_invalid', 'แถวพลอยมีข้อมูลที่ไม่รองรับ');
     end if;
     -- จำนวนต่อชิ้น: เลขเต็ม 1-1,000
-    if p_require_qty then
-      v_qty := analytics.gem_int_parse(v_el -> 'qty_per_piece');
-      if v_qty is null or not (v_qty between 1 and 1000) then
-        perform analytics.gem_line_fail(v_row, 'qty_per_piece', 'qty_invalid', 'จำนวนต่อชิ้นต้องเป็นเลขเต็ม 1–1,000');
-      end if;
-    else
-      v_qty := 1;
+    v_qty := analytics.gem_int_parse(v_el -> 'qty_per_piece');
+    if v_qty is null or not (v_qty between 1 and 1000) then
+      perform analytics.gem_line_fail(v_row, 'qty_per_piece', 'qty_invalid', 'จำนวนต่อชิ้นต้องเป็นเลขเต็ม 1–1,000');
     end if;
     -- ตำแหน่ง (ไม่บังคับ · ≤ 40 ตัวอักษร · ห้าม < > ล่องหน)
     v_pos := null;
@@ -1162,7 +1195,7 @@ begin
       v_pos := v_e ->> 'position'; v_pos2 := v_pr ->> 'position';
       if v_pos2 is not null and v_pos is null then
         v_pos := v_pos2;
-      elsif v_pos2 is not null and v_pos2 is distinct from v_pos and position(v_pos2 in v_pos) = 0 then
+      elsif v_pos2 is not null and not (v_pos2 = any (string_to_array(v_pos, ', '))) then
         v_pos := v_pos || ', ' || v_pos2;
         if char_length(v_pos) > 40 then
           perform analytics.gem_line_fail((v_pr ->> 'row')::int, 'position', 'position_invalid', 'ตำแหน่งของแถวที่รวมกันยาวเกิน 40 ตัวอักษร — ตัดให้สั้นลง');
@@ -1188,11 +1221,7 @@ begin
       from jsonb_array_elements(v_merged) with ordinality as e(value, ordinality) where (e.value ->> 'shape_new')::boolean
      order by e.value ->> 'shape_norm', e.ordinality) d;
   for v_e in select value from jsonb_array_elements(v_newt) loop
-    select coalesce(jsonb_agg(jsonb_build_object('id', m.id, 'name', m.name) order by m.name), '[]'::jsonb) into v_m
-      from (select t.id, t.name from analytics.gem_type t
-             where t.shop_id = p_shop_id and t.merged_into is null and t.is_active and analytics.gem_name_similar(v_e ->> 'name', t.name)
-             order by t.name limit 5) m;
-    v_m := v_m || coalesce((select jsonb_agg(jsonb_build_object('id', null, 'name', o2.value ->> 'name'))
+    v_m := analytics.gem_similar_hits(p_shop_id, 'type', v_e ->> 'name') || coalesce((select jsonb_agg(jsonb_build_object('id', null, 'name', o2.value ->> 'name'))
                               from jsonb_array_elements(v_newt) o2
                              where o2.value ->> 'norm' <> v_e ->> 'norm' and analytics.gem_name_similar(v_e ->> 'name', o2.value ->> 'name')), '[]'::jsonb);
     if jsonb_array_length(v_m) > 0 then
@@ -1200,11 +1229,7 @@ begin
     end if;
   end loop;
   for v_e in select value from jsonb_array_elements(v_news) loop
-    select coalesce(jsonb_agg(jsonb_build_object('id', m.id, 'name', m.name) order by m.name), '[]'::jsonb) into v_m
-      from (select s.id, s.name from analytics.gem_shape s
-             where s.shop_id = p_shop_id and s.merged_into is null and s.is_active and analytics.gem_name_similar(v_e ->> 'name', s.name)
-             order by s.name limit 5) m;
-    v_m := v_m || coalesce((select jsonb_agg(jsonb_build_object('id', null, 'name', o2.value ->> 'name'))
+    v_m := analytics.gem_similar_hits(p_shop_id, 'shape', v_e ->> 'name') || coalesce((select jsonb_agg(jsonb_build_object('id', null, 'name', o2.value ->> 'name'))
                               from jsonb_array_elements(v_news) o2
                              where o2.value ->> 'norm' <> v_e ->> 'norm' and analytics.gem_name_similar(v_e ->> 'name', o2.value ->> 'name')), '[]'::jsonb);
     if jsonb_array_length(v_m) > 0 then
@@ -1301,6 +1326,24 @@ begin
 end;
 $f$;
 
+-- สถานะ "ระบุพลอยแล้วไหม" ของใบแม่ — นิยามเดียวของทั้งระบบ (job_gem_bom_get · job_worker_resolve · getJobDetail/ใบพิมพ์ใน TS อ่านจากที่นี่ ไม่คิดซ้ำ)
+--   specified = มีแถวพลอย · unspecified = ไม่มีแถว แต่ในใบแม่+ส่วนย่อยมีขั้นฝัง (gem_set) ที่ยังไม่ปิด (pending/received) · not_needed = นอกนั้น (ไม่มีขั้นฝัง · ขั้นฝังส่งต่อ/ข้ามแล้ว)
+--   ไม่ใช่ gate — หน้าจอแค่เตือน (มติเจ้าของ 22 ต.ค.) · กรองด้วย shop เสมอ (RPC ให้ service_role เรียก — ใบร้านอื่น = not_needed)
+create or replace function analytics.job_gem_state(p_shop_id uuid, p_root_job_id uuid)
+ returns text
+ language sql
+ stable
+ security definer
+ set search_path to 'public', 'analytics', 'pg_temp'
+as $f$
+  select case
+    when exists (select 1 from analytics.job_gem_bom g where g.shop_id = p_shop_id and g.job_id = p_root_job_id) then 'specified'
+    when exists (select 1 from analytics.job_stage gs join analytics.job gj on gj.id = gs.job_id
+                  where gj.shop_id = p_shop_id and (gj.id = p_root_job_id or gj.parent_job_id = p_root_job_id)
+                    and gs.stage_code = 'gem_set' and gs.status in ('pending', 'received')) then 'unspecified'
+    else 'not_needed' end
+$f$;
+
 -- ============================================================================
 -- 4.2 หน้าต่างแก้พลอยของใบ (ตาราง UX §5.3) — ผู้จัดการ (W3) ใช้เฉพาะ 'free_before_start' · ออฟฟิศ: closed = แก้ไม่ได้ · reason_required = ต้องมีเหตุผล
 --   closed (ใบ done/cancelled) · reason_required (ขั้นฝัง gem_set ในต้นไม้ใบถูกรับแล้ว) · office_free (มีขั้นใดถูกรับแล้วแต่ยังไม่ถึงขั้นฝัง) · free_before_start (ยังไม่มีขั้นใดถูกรับ)
@@ -1365,7 +1408,6 @@ declare
   v_summary jsonb;
   v_map     uuid[] := '{}'::uuid[];   -- แถวเดิมที่จับคู่กับแต่ละแถวใหม่ (ตำแหน่งเดียวกับ v_lines · null = แถวใหม่)
   v_mid     uuid;
-  v_i       int := 0;
   v_byid    uuid[];                   -- canonical ของแถวที่ผู้เรียกส่งมา "ด้วย gem_item_id" (ไม่ใช่พิมพ์ชื่อ) — ใช้จับคู่ข้ามการรวมชื่อ
 begin
   if p_source is null or p_source not in ('product', 'manual', 'shopfloor') then
@@ -1402,7 +1444,7 @@ begin
   for v_ln in select value from jsonb_array_elements(v_lines) loop
     v_mid := null;
     select g.id into v_mid from analytics.job_gem_bom g
-     where g.job_id = p_job_id and not (g.id = any (v_map))
+     where g.job_id = p_job_id and g.id <> all (array_remove(v_map, null))   -- 🔴 array_remove: v_map มี NULL (แถวใหม่ไม่มีคู่) — `not (id = any(v_map))` เจอ NULL = ไม่เลือกอะไรเลย → แถวเดิมที่ตามมาถูกลบ-แทรกใหม่ ฉลาก snapshot ถูกทับ (review B1)
        and (g.gem_item_id = (v_ln ->> 'gem_item_id')::uuid or analytics.gem_item_canonical(g.gem_item_id) = (v_ln ->> 'gem_item_id')::uuid)
        and (g.gem_item_id = (v_ln ->> 'gem_item_id')::uuid or (v_ln ->> 'gem_item_id')::uuid = any (v_byid))
      order by (g.gem_item_id = (v_ln ->> 'gem_item_id')::uuid) desc, g.line_seq
@@ -1571,14 +1613,8 @@ begin
     raise exception 'มีชื่อ "%" อยู่แล้ว — ใช้ตัวที่มี', v_dup.name using errcode = '22023', hint = 'name_exists',
       detail = jsonb_build_object('id', v_dup.id, 'name', v_dup.name)::text;
   end if;
-  if p_kind = 'type' then
-    select jsonb_agg(jsonb_build_object('id', m.id, 'name', m.name) order by m.name) into v_hits
-      from (select t.id, t.name from analytics.gem_type t where t.shop_id = p_shop_id and t.merged_into is null and t.is_active and analytics.gem_name_similar(v_name, t.name) order by t.name limit 5) m;
-  else
-    select jsonb_agg(jsonb_build_object('id', m.id, 'name', m.name) order by m.name) into v_hits
-      from (select s.id, s.name from analytics.gem_shape s where s.shop_id = p_shop_id and s.merged_into is null and s.is_active and analytics.gem_name_similar(v_name, s.name) order by s.name limit 5) m;
-  end if;
-  if v_hits is not null and not coalesce(p_force, false) then
+  v_hits := analytics.gem_similar_hits(p_shop_id, p_kind, v_name);
+  if jsonb_array_length(v_hits) > 0 and not coalesce(p_force, false) then
     raise exception 'พบชื่อที่คล้ายกับที่มีอยู่แล้ว — ใช้ตัวที่มี หรือยืนยันเพิ่มเป็นชื่อใหม่' using errcode = '22023', hint = 'gem_similar',
       detail = jsonb_build_object('similar', jsonb_build_array(jsonb_build_object('kind', p_kind, 'name', v_name, 'rows', '[]'::jsonb, 'matches', v_hits)))::text;
   end if;
@@ -1659,14 +1695,8 @@ begin
     raise exception 'มีชื่อ "%" อยู่แล้ว — ใช้ "รวมชื่อ" แทนการเปลี่ยนชื่อให้ซ้ำ', v_dup.name using errcode = '22023', hint = 'name_exists',
       detail = jsonb_build_object('id', v_dup.id, 'name', v_dup.name)::text;
   end if;
-  if p_kind = 'type' then
-    select jsonb_agg(jsonb_build_object('id', m.id, 'name', m.name) order by m.name) into v_hits
-      from (select t.id, t.name from analytics.gem_type t where t.shop_id = p_shop_id and t.id <> p_id and t.merged_into is null and t.is_active and analytics.gem_name_similar(v_name, t.name) order by t.name limit 5) m;
-  else
-    select jsonb_agg(jsonb_build_object('id', m.id, 'name', m.name) order by m.name) into v_hits
-      from (select s.id, s.name from analytics.gem_shape s where s.shop_id = p_shop_id and s.id <> p_id and s.merged_into is null and s.is_active and analytics.gem_name_similar(v_name, s.name) order by s.name limit 5) m;
-  end if;
-  if v_hits is not null and not coalesce(p_force, false) then
+  v_hits := analytics.gem_similar_hits(p_shop_id, p_kind, v_name, p_id);
+  if jsonb_array_length(v_hits) > 0 and not coalesce(p_force, false) then
     raise exception 'พบชื่อที่คล้ายกับที่มีอยู่แล้ว — ตรวจก่อน หรือยืนยันเปลี่ยนชื่อ' using errcode = '22023', hint = 'gem_similar',
       detail = jsonb_build_object('similar', jsonb_build_array(jsonb_build_object('kind', p_kind, 'name', v_name, 'rows', '[]'::jsonb, 'matches', v_hits)))::text;
   end if;
@@ -1888,7 +1918,7 @@ begin
         if found then
           update analytics.product_gem_bom
              set qty_per_piece = v_lb.qty_per_piece + l.qty_per_piece,
-                 position_note = case when l.position_note is null or position(l.position_note in coalesce(v_lb.position_note, '')) > 0 then v_lb.position_note
+                 position_note = case when l.position_note is null or l.position_note = any (string_to_array(coalesce(v_lb.position_note, ''), ', ')) then v_lb.position_note
                                       when v_lb.position_note is null then l.position_note
                                       when char_length(v_lb.position_note || ', ' || l.position_note) <= 40 then v_lb.position_note || ', ' || l.position_note
                                       else v_lb.position_note end,
@@ -2283,7 +2313,7 @@ begin
   return jsonb_build_object(
     'job', jsonb_build_object('id', v_root.id, 'job_no', v_root.job_no, 'status', v_root.status, 'qty_planned', v_root.qty_planned, 'product_id', v_root.product_id),
     'window', analytics.job_gem_edit_window(v_root.id), 'gem_stage', v_gstage, 'lines', v_lines,
-    'state', case when jsonb_array_length(v_lines) > 0 then 'specified' when v_gstage in ('pending', 'started') then 'unspecified' else 'not_needed' end,
+    'state', analytics.job_gem_state(p_shop_id, v_root.id),
     'template', v_tpl,
     'differs_from_template', case when v_tpl is null then null
       else (select coalesce(jsonb_agg(jsonb_build_array(x ->> 'canonical_item_id', x ->> 'qty_per_piece', coalesce(x ->> 'position', '')) order by x ->> 'canonical_item_id'), '[]'::jsonb) from jsonb_array_elements(v_lines) x)
@@ -2872,12 +2902,7 @@ begin
       into v_gems
       from analytics.job_gem_bom g join analytics.job rj on rj.id = g.job_id
      where g.job_id = coalesce(v_job.parent_job_id, v_job.id);
-    v_gems_state := case
-      when v_gems is not null then 'specified'
-      when exists (select 1 from analytics.job_stage gs join analytics.job gj on gj.id = gs.job_id
-                    where (gj.id = coalesce(v_job.parent_job_id, v_job.id) or gj.parent_job_id = coalesce(v_job.parent_job_id, v_job.id))
-                      and gs.stage_code = 'gem_set' and gs.status in ('pending', 'received')) then 'unspecified'
-      else 'not_needed' end;
+    v_gems_state := analytics.job_gem_state(v_job.shop_id, coalesce(v_job.parent_job_id, v_job.id));   -- นิยามเดียวกับ job_gem_bom_get / getJobDetail
   end if;
 
   select * into v_hold from analytics.job_stage where job_id = v_job.id and status = 'received' limit 1;
@@ -3111,12 +3136,12 @@ declare
     'gem_options_list', 'gem_catalog_list', 'gem_catalog_create', 'gem_item_create', 'gem_catalog_rename', 'gem_shape_set_has_length',
     'gem_merge_preview', 'gem_merge', 'gem_catalog_set_active', 'gem_catalog_remove', 'gem_price_set', 'gem_price_history',
     'product_gem_bom_get', 'product_gem_bom_set', 'product_gem_bom_from_job', 'job_gem_bom_get', 'job_gem_bom_set',
-    'job_create_from_quote_item', 'job_create_from_production_item', 'job_plan_suggest', 'job_worker_resolve'];
+    'job_create_from_quote_item', 'job_create_from_production_item', 'job_plan_suggest', 'job_worker_resolve', 'job_gem_state'];
   v_internal constant text[] := array[
     'gem_name_norm', 'gem_name_lev', 'gem_name_similar', 'gem_name_ok', 'gem_size_label', 'gem_label_compose', 'gem_line_fail', 'gem_name_clean',
     'gem_type_guard', 'gem_shape_guard', 'gem_item_guard', 'gem_item_live', 'product_gem_bom_guard', 'job_gem_bom_guard',
     'gem_shape_ensure', 'gem_type_canonical', 'gem_shape_canonical', 'gem_item_canonical', 'gem_item_json', 'gem_num_parse', 'gem_int_parse',
-    'gem_require_office', 'gem_lines_prepare', 'job_gem_edit_window', 'job_gem_bom_replace_core', 'gem_merge_check', 'gem_merge_plan',
+    'gem_require_office', 'gem_lines_prepare', 'job_gem_edit_window', 'job_gem_bom_replace_core', 'gem_merge_check', 'gem_merge_plan', 'gem_similar_hits',
     'job_source_info', 'job_create_insert', 'job_create_from_production_item_core'];
   v_dup text;
   v_n int;
@@ -3175,7 +3200,7 @@ declare
     'gem_name_norm', 'gem_name_lev', 'gem_name_similar', 'gem_name_ok', 'gem_size_label', 'gem_label_compose', 'gem_line_fail', 'gem_name_clean',
     'gem_type_guard', 'gem_shape_guard', 'gem_item_guard', 'gem_item_live', 'product_gem_bom_guard', 'job_gem_bom_guard',
     'gem_shape_ensure', 'gem_type_canonical', 'gem_shape_canonical', 'gem_item_canonical', 'gem_item_json', 'gem_num_parse', 'gem_int_parse',
-    'gem_require_office', 'gem_lines_prepare', 'job_gem_edit_window', 'job_gem_bom_replace_core', 'gem_merge_check', 'gem_merge_plan',
+    'gem_require_office', 'gem_lines_prepare', 'job_gem_edit_window', 'job_gem_bom_replace_core', 'gem_merge_check', 'gem_merge_plan', 'gem_similar_hits', 'job_gem_state',
     'gem_options_list', 'gem_catalog_list', 'gem_catalog_create', 'gem_item_create', 'gem_catalog_rename', 'gem_shape_set_has_length',
     'gem_merge_preview', 'gem_merge', 'gem_catalog_set_active', 'gem_catalog_remove', 'gem_price_set', 'gem_price_history',
     'product_gem_bom_get', 'product_gem_bom_set', 'product_gem_bom_from_job', 'job_gem_bom_get', 'job_gem_bom_set'];

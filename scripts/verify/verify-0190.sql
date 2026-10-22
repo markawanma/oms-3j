@@ -42,6 +42,15 @@
 --   วิวอ่านด้วย service_role ได้ (security M2)                                                     -> V1
 --   เลขล้วนทุกระบบเลข ("๑๒" · "١٢" · "１２" · "²³") ตก (QA NC1) · seed บาแก็ตต์                       -> N16y1-y8 · C0b · mutant MU13 MU13b
 --   ❌ ไม่มีเทสต์ใน verify นี้: idempotent (รัน 0190 ซ้ำได้) — ทำเป็นขั้นตอน dry-run: ต่อไฟล์ 0190 สองรอบ (รอบสองเปลี่ยนชื่อ temp table _m190_ → _m190b_) ผ่านแล้ว · gem_merge_blocked (ไม่มีทางเข้าในสถานะปกติหลังแก้ trigger — กันไว้เป็นข้อความชัดเท่านั้น)
+--  รอบแก้ตาม review 22 ต.ค. (Blocker 1 + S1-S6)
+--   B1 replace_core: ส่ง [แถวใหม่นำหน้า, แถวเดิมด้วย gem_item_id] → แถวเดิมคง id/ฉลาก/source/created_at                    -> M5g M5h · mutant MU23
+--   S1 TS norm ตัดเฉพาะ \p{P} ตรง DB (DB เก็บสัญลักษณ์ $ + < = > ^ ` | ~ ใน norm)                                    -> N15b (+ shop-gems.qa.test.ts กวาดทุกจุดรหัส U+0001-1FFFF เทียบ DB จริง)
+--   S2 รวมตำแหน่งทีละคำ (ไม่ใช่ substring) ทั้ง gem_lines_prepare และ gem_merge (แม่แบบ SKU)                           -> S2a S2b S2b2 S2c · mutant MU24 MU25
+--   S3 นิยาม "ยังไม่ระบุพลอย" ที่เดียว analytics.job_gem_state (get · resolve · getJobDetail/ใบพิมพ์)                  -> S3a-S3e (+ R2b เดิม) · mutant MU26 MU27 MU28
+--   S4 gem_similar_hits ตัวเดียว (prepare · catalog_create · catalog_rename)                                         -> C3a C4c (prepare) · ชุด N เดิม · ที่เหลือครอบโดยชุดเก่าของ create/rename
+--   L2 gem_name_ok = ต้องมี [[:alpha:]] อย่างน้อย 1 ตัว (แทนรายการระบบเลข) · สระ/วรรณยุกต์ลอยๆ/"+1"/"$$" ตก          -> N16y9-N16y13 · mutant MU13 MU13b
+--   audit CHECK ที่ตาราง: insert ย้อนหลังต้องมี note                                                                 -> P7f
+--   N1 ถอด p_require_qty · N2 ถอด v_i                                                                              -> (ไม่มีเทสต์แยก — ชุดเดิมทั้งหมดยังผ่าน)
 -- ไม่มีเทสต์ครอบ (บอกตรงๆ):
 --   · การแข่งกันจริงของ 2 connection (2 คนพิมพ์ชื่อเดียวกันพร้อมกัน → ได้ตัวเดียว · merge กับสร้างใบพร้อมกัน) — do-block เป็น connection เดียว · พิสูจน์ได้เฉพาะโครงสร้าง: unique index uq_gem_type_norm + ON CONFLICT DO NOTHING + re-select อยู่ในนิยาม (C9c ยิง unique ตรงต้องชน) และ guard ล็อก FOR SHARE ชนิด/รูปทรง (trigger) vs gem_merge ล็อก FOR UPDATE · ต้องลอง UAT 2 มือถือ
 --   · ส่วนย่อย (lot child) ห้ามมี BOM — trigger job_gem_bom_guard + RPC (lot_no_gems) มีในโค้ด แต่ไม่มี fixture แบ่งล็อตในชุดนี้ (ต้องมีใบที่ช่างส่งต่อบางส่วน)
@@ -368,6 +377,10 @@ begin
   v := v || pg_temp.chk('N15', 'gem_name_norm: "  C  Z " · "C.Z" · "ＣＺ" → cz · "ไพลิน " ไม่ตัดสระ · null → ว่าง',
     analytics.gem_name_norm('  C  Z ') = 'cz' and analytics.gem_name_norm('C.Z') = 'cz' and analytics.gem_name_norm('ＣＺ') = 'cz'
     and analytics.gem_name_norm('ไพลิน ') = 'ไพลิน' and analytics.gem_name_norm(null) = '');
+  -- 🔴 S1: [[:punct:]] ของ DB = วรรคตอน (\p{P}) เท่านั้น — สัญลักษณ์ ($ + < = > ^ ` | ~) อยู่ใน norm (TS normalizeGemName ตรงกัน — shop-gems.qa.test.ts กวาดทุกจุดรหัสเทียบแล้ว)
+  v := v || pg_temp.chk('N15b', 'gem_name_norm: "C$Z" → c$z · "CZ+" → cz+ · "C-Z" → cz · "C.Z." → cz · "CZ·" (U+00B7) → cz · "(CZ)" → cz',
+    analytics.gem_name_norm('C$Z') = 'c$z' and analytics.gem_name_norm('CZ+') = 'cz+' and analytics.gem_name_norm('C-Z') = 'cz' and analytics.gem_name_norm('C.Z.') = 'cz'
+    and analytics.gem_name_norm(E'CZ\u00b7') = 'cz' and analytics.gem_name_norm('(CZ)') = 'cz');
   -- ชื่อที่เก็บได้ (gem_name_ok) — ต้องผ่าน / ต้องไม่ผ่าน
   v := v || coalesce((select string_agg(pg_temp.chk('N16' || t.id, format('gem_name_ok(%L) = %s', left(t.a, 24), t.e), analytics.gem_name_ok(t.a) is not distinct from t.e), '')
     from (values
@@ -376,7 +389,8 @@ begin
       ('l', '1.5', false), ('m', '..', false), ('n', 'ab<c', false), ('o', E'x\ty', false), ('p', E'ก​ข', false), ('q', E'​​', false),
       ('r', '😀😀', false), ('s', repeat('ก', 41), false), ('t', E'⠀⠀', false), ('u', E'\u0085\u0085', false), ('v', 'x>', false),
       ('w', E'ab cd', false), ('x', E'  ', false),
-      ('y1', '๑๒', false), ('y2', '١٢', false), ('y3', '１２', false), ('y4', '²³', false), ('y5', '๑๒๓๔', false), ('y6', '๑ก', true), ('y7', 'A๑', true), ('y8', '6 เหลี่ยม', true)
+      ('y1', '๑๒', false), ('y2', '١٢', false), ('y3', '１２', false), ('y4', '²³', false), ('y5', '๑๒๓๔', false), ('y6', '๑ก', true), ('y7', 'A๑', true), ('y8', '6 เหลี่ยม', true),
+      ('y9', E'ิิ', false), ('y10', 'ก็', true), ('y11', '+1', false), ('y12', '$$', false), ('y13', '日本', true)
     ) as t(id, a, e)), '');
   v := v || pg_temp.chk('N17', 'gem_size_label: 4.00×6.00 → "4×6" · 1.50 → "1.5" · 2.25 → "2.25" · 100.00 → "100"',
     analytics.gem_size_label(4.00, 6.00) = '4×6' and analytics.gem_size_label(1.50, null) = '1.5' and analytics.gem_size_label(2.25, null) = '2.25' and analytics.gem_size_label(100.00, null) = '100'
@@ -695,6 +709,11 @@ begin
     and pg_temp.err(format('insert into analytics.gem_item_price_audit (shop_id, gem_item_id, effective_from, action, old_price, new_price, actor) values (%L, %L, %L, %L, 1, 2, %L)', a, it, today, 'update', pg_temp.own())) = '23514|'
     and not has_table_privilege('service_role', 'analytics.gem_item_price_audit', 'select') and not has_table_privilege('anon', 'analytics.gem_item_price_audit', 'select') and not has_table_privilege('authenticated', 'analytics.gem_item_price_audit', 'select')
     and pg_temp.asrole('service_role', 'select count(*) from analytics.gem_item_price_audit') = '42501');
+  -- P7f: CHECK ที่ตาราง audit: insert ย้อนหลัง (ก่อนวันนี้ไทย) ไม่มี note → 23514 · insert วันนี้ไม่มี note ผ่าน · insert ย้อนหลังมี note ผ่าน (RPC ตรวจซ้ำอีกชั้น แต่กำแพงอยู่ที่ตาราง)
+  v := v || pg_temp.chk('P7f', 'audit insert ย้อนหลังไม่มี note ตรง → 23514 · insert วันนี้ไม่มี note → OK · insert ย้อนหลังมี note → OK',
+    pg_temp.err(format('insert into analytics.gem_item_price_audit (shop_id, gem_item_id, effective_from, action, new_price, actor) values (%L, %L, %L, %L, 2, %L)', a, it, today - 1, 'insert', pg_temp.own())) = '23514|'
+    and pg_temp.err(format('insert into analytics.gem_item_price_audit (shop_id, gem_item_id, effective_from, action, new_price, actor) values (%L, %L, %L, %L, 2, %L)', a, it, today + 1, 'insert', pg_temp.own())) = 'OK'
+    and pg_temp.err(format('insert into analytics.gem_item_price_audit (shop_id, gem_item_id, effective_from, action, new_price, note, actor) values (%L, %L, %L, %L, 2, %L, %L)', a, it, today - 2, 'insert', 'ย้อนหลัง', pg_temp.own())) = 'OK');
   delete from analytics.gem_item_price where gem_item_id = it2;
 
   -- P3: ผู้ทำรายการต้องเป็นสมาชิก owner/admin ของร้านจริง (staff / ไม่ใช่สมาชิก / ว่าง = ปฏิเสธ — แม้ผู้เรียกเป็น service_role) · admin ผ่าน
@@ -1470,12 +1489,12 @@ declare
     'gem_options_list', 'gem_catalog_list', 'gem_catalog_create', 'gem_item_create', 'gem_catalog_rename', 'gem_shape_set_has_length',
     'gem_merge_preview', 'gem_merge', 'gem_catalog_set_active', 'gem_catalog_remove', 'gem_price_set', 'gem_price_history',
     'product_gem_bom_get', 'product_gem_bom_set', 'product_gem_bom_from_job', 'job_gem_bom_get', 'job_gem_bom_set',
-    'job_create_from_quote_item', 'job_create_from_production_item', 'job_plan_suggest', 'job_worker_resolve'];
+    'job_create_from_quote_item', 'job_create_from_production_item', 'job_plan_suggest', 'job_worker_resolve', 'job_gem_state'];
   c_int constant text[] := array[
     'gem_name_norm', 'gem_name_lev', 'gem_name_similar', 'gem_name_ok', 'gem_size_label', 'gem_label_compose', 'gem_line_fail', 'gem_name_clean',
     'gem_type_guard', 'gem_shape_guard', 'gem_item_guard', 'gem_item_live', 'product_gem_bom_guard', 'job_gem_bom_guard',
     'gem_shape_ensure', 'gem_type_canonical', 'gem_shape_canonical', 'gem_item_canonical', 'gem_item_json', 'gem_num_parse', 'gem_int_parse',
-    'gem_require_office', 'gem_lines_prepare', 'job_gem_edit_window', 'job_gem_bom_replace_core', 'gem_merge_check', 'gem_merge_plan',
+    'gem_require_office', 'gem_lines_prepare', 'job_gem_edit_window', 'job_gem_bom_replace_core', 'gem_merge_check', 'gem_merge_plan', 'gem_similar_hits',
     'job_source_info', 'job_create_insert', 'job_create_from_production_item_core'];
 begin
   -- S1: ฟังก์ชัน RPC → service_role เท่านั้น (anon/authenticated/PUBLIC ไม่มี) · helper ภายใน → ไม่มี role ไหนเลย
@@ -1527,6 +1546,85 @@ begin
 end;
 $c$;
 -- ============================================================================
+-- R3. รอบแก้ตาม review (22 ต.ค. · Blocker 1 + S2 + S3): replace_core จับคู่แถวเดิมเมื่อมีแถวใหม่นำหน้า · รวมตำแหน่งทีละคำ · นิยาม "ยังไม่ระบุพลอย" ที่เดียว
+-- ============================================================================
+create function pg_temp.g_r3() returns text
+ language plpgsql as $c$
+declare
+  v text := '';
+  a uuid := pg_temp.fx('A'); b uuid := pg_temp.fx('B');
+  rnd uuid := pg_temp.shp(a, 'กลม');
+  jm uuid := pg_temp.fx('Jm');
+  pA1 uuid := pg_temp.fx('pA1'); pA2 uuid := pg_temp.fx('pA2'); pA3 uuid := pg_temp.fx('pA3');
+  r jsonb; r2 jsonb; j jsonb; g jsonb;
+  s0 text; c0 text; src0 text; lbl0 text; iold uuid; seq0 int;
+  tP uuid; tQ uuid; iP uuid; iQ uuid;
+  jn uuid; jn2 uuid; jn3 uuid; jx uuid;
+  nb int;
+begin
+  -- B1 🔴 (review): ใบมีแถว A (ฉลาก snapshot เก่า) → ส่ง [แถวใหม่ B นำหน้า, {gem_item_id: A}] → แถว A ต้องได้ id/ฉลาก/source/created_at เดิม (ไม่ลบ-แทรกใหม่)
+  select id::text, created_at::text, source, gem_label, gem_item_id into s0, c0, src0, lbl0, iold from analytics.job_gem_bom where job_id = jm;
+  r := pg_temp.bset(a, jm, jsonb_build_array(
+         jsonb_build_object('new_type_name', 'ZZB1 พลอยใหม่', 'shape_id', rnd, 'size_a', 7, 'qty_per_piece', 1),
+         jsonb_build_object('gem_item_id', iold, 'qty_per_piece', 5, 'position', 'ซ้าย')), pg_temp.own());
+  v := v || pg_temp.chk('M5g', 'B1: ส่ง [แถวใหม่นำหน้า, แถวเดิมด้วย gem_item_id] → แถวเดิมคง id/ฉลาก snapshot เดิม/source/created_at · line_seq ขยับเป็น 2 · แถวใหม่ได้ฉลากปัจจุบัน',
+    r ->> '_err' is null and pg_temp.n_bom(jm) = 2
+    and exists (select 1 from analytics.job_gem_bom x where x.job_id = jm and x.id::text = s0 and x.gem_item_id = iold and x.gem_label = lbl0 and x.source = src0 and x.created_at::text = c0 and x.line_seq = 2 and x.qty_per_piece = 5)
+    and exists (select 1 from analytics.job_gem_bom x where x.job_id = jm and x.line_seq = 1 and x.gem_label = 'ZZB1 พลอยใหม่ · กลม · 7 มม.'));
+  r := pg_temp.bset(a, jm, jsonb_build_array(jsonb_build_object('gem_item_id', iold, 'qty_per_piece', 5, 'position', 'ซ้าย')), pg_temp.own());
+  v := v || pg_temp.chk('M5h', 'B1 (ต้องไม่พัง): ถอนแถวใหม่ออก เหลือแถวเดิมแถวเดียว → id/ฉลากเดิมยังอยู่ · แถวใหม่ถูกลบ',
+    r ->> '_err' is null and pg_temp.n_bom(jm) = 1 and exists (select 1 from analytics.job_gem_bom x where x.job_id = jm and x.id::text = s0 and x.gem_label = lbl0 and x.line_seq = 1));
+
+  -- S2: รวมตำแหน่งทีละคำ ไม่ใช่ substring ("ซ้าย" อยู่ใน "ซ้ายบน" ≠ ซ้ำ) — ตรงกับ mergeDuplicateGemRows ฝั่ง TS
+  tP := (pg_temp.ccreate(a, 'type', 'ZZS2 พี', null, true) ->> 'id')::uuid;
+  tQ := (pg_temp.ccreate(a, 'type', 'ZZS2 คิว', null, true) ->> 'id')::uuid;
+  iP := (pg_temp.icreate(a, jsonb_build_object('type_id', tP, 'shape_id', rnd, 'size_a', 6), true) -> 'item' ->> 'gem_item_id')::uuid;
+  iQ := (pg_temp.icreate(a, jsonb_build_object('type_id', tQ, 'shape_id', rnd, 'size_a', 6), true) -> 'item' ->> 'gem_item_id')::uuid;
+  v := v || pg_temp.chk('S2z', 'fixture: ชนิด ZZS2 พี/คิว · รายการกลม 6 มม. ของแต่ละชนิด', iP is not null and iQ is not null and iP <> iQ);
+  r := pg_temp.bset(a, jm, jsonb_build_array(jsonb_build_object('gem_item_id', iP, 'qty_per_piece', 1, 'position', 'ซ้ายบน'), jsonb_build_object('gem_item_id', iP, 'qty_per_piece', 1, 'position', 'ซ้าย')), pg_temp.own());
+  v := v || pg_temp.chk('S2a', 'แถวซ้ำ ตำแหน่ง "ซ้ายบน" + "ซ้าย" → "ซ้ายบน, ซ้าย" (ไม่กลืน "ซ้าย" เพราะอยู่ใน "ซ้ายบน") · จำนวนรวม 2 · 1 แถว',
+    r ->> '_err' is null and pg_temp.n_bom(jm) = 1 and (select position_note from analytics.job_gem_bom where job_id = jm) = 'ซ้ายบน, ซ้าย' and (select qty_per_piece from analytics.job_gem_bom where job_id = jm) = 2);
+  r := pg_temp.bset(a, jm, jsonb_build_array(jsonb_build_object('gem_item_id', iP, 'qty_per_piece', 1, 'position', 'ซ้าย, ขวา'), jsonb_build_object('gem_item_id', iP, 'qty_per_piece', 1, 'position', 'ขวา')), pg_temp.own());
+  v := v || pg_temp.chk('S2b', '(ต้องไม่พัง) "ซ้าย, ขวา" + "ขวา" → ยัง "ซ้าย, ขวา" (ซ้ำจริง ไม่ต่อซ้ำ) · จำนวนรวม 2',
+    r ->> '_err' is null and (select position_note from analytics.job_gem_bom where job_id = jm) = 'ซ้าย, ขวา' and (select qty_per_piece from analytics.job_gem_bom where job_id = jm) = 2);
+  r := pg_temp.bset(a, jm, jsonb_build_array(jsonb_build_object('gem_item_id', iP, 'qty_per_piece', 1, 'position', 'ซ้าย'), jsonb_build_object('gem_item_id', iP, 'qty_per_piece', 1, 'position', 'ซ้าย')), pg_temp.own());
+  v := v || pg_temp.chk('S2b2', '(ต้องไม่พัง) "ซ้าย" + "ซ้าย" → "ซ้าย" · จำนวนรวม 2',
+    r ->> '_err' is null and (select position_note from analytics.job_gem_bom where job_id = jm) = 'ซ้าย' and (select qty_per_piece from analytics.job_gem_bom where job_id = jm) = 2);
+  -- คืนใบ jm เป็นแถวเดิม (M5 ใช้ต่อ)
+  r := pg_temp.bset(a, jm, jsonb_build_array(jsonb_build_object('gem_item_id', iold, 'qty_per_piece', 5, 'position', 'ซ้าย')), pg_temp.own());
+  -- แม่แบบ SKU ตอนรวมชื่อ: A "ซ้าย" รวมเข้า B "ซ้ายบน" → "ซ้ายบน, ซ้าย" (ไม่กลืน)
+  r := pg_temp.tset(a, pA2, jsonb_build_array(jsonb_build_object('gem_item_id', iP, 'qty_per_piece', 1, 'position', 'ซ้ายบน'), jsonb_build_object('gem_item_id', iQ, 'qty_per_piece', 1, 'position', 'ซ้าย')));
+  r2 := pg_temp.mrg(a, 'type', tQ, tP);
+  g := pg_temp.q(format('select analytics.product_gem_bom_get(%L, %L)', a, pA2));
+  v := v || pg_temp.chk('S2c', 'รวมชื่อ ZZS2 คิว→พี: แม่แบบ SKU 2 แถวชนกัน → 1 แถว จำนวน 2 · ตำแหน่ง "ซ้ายบน, ซ้าย" (ไม่กลืนด้วย substring)',
+    r ->> '_err' is null and r2 ->> '_err' is null and jsonb_array_length(g -> 'lines') = 1 and (g -> 'lines' -> 0 ->> 'qty_per_piece') = '2' and (g -> 'lines' -> 0 ->> 'position') = 'ซ้ายบน, ซ้าย');
+
+  -- S3: นิยาม "ยังไม่ระบุพลอย" = analytics.job_gem_state ที่เดียว (get · resolve · getJobDetail อ่านจากที่นี่)
+  j := pg_temp.mkjob(a, pA3, pg_temp.stdg(), '[]'::jsonb); jn := (j ->> 'job')::uuid;
+  g := pg_temp.q(format('select analytics.job_gem_bom_get(%L, %L)', a, jn));
+  v := v || pg_temp.chk('S3a', 'ใบมีขั้นฝัง (pending) ไม่มีพลอย → unspecified · job_gem_bom_get.state เท่ากัน', analytics.job_gem_state(a, jn) = 'unspecified' and g ->> 'state' = 'unspecified');
+  j := pg_temp.mkjob(a, pA3, pg_temp.stdg(), '[]'::jsonb); jn3 := (j ->> 'job')::uuid;
+  perform pg_temp.walk_to(a, jn3, 'gem_set');
+  perform pg_temp.step(a, jn3, false);
+  g := pg_temp.q(format('select analytics.job_gem_bom_get(%L, %L)', a, jn3));
+  v := v || pg_temp.chk('S3b', 'ขั้นฝังรับแล้ว (received) ยังไม่ส่ง · ไม่มีพลอย → ยัง unspecified · get เท่ากัน',
+    (select status from analytics.job_stage where job_id = jn3 and stage_code = 'gem_set') = 'received' and analytics.job_gem_state(a, jn3) = 'unspecified' and g ->> 'state' = 'unspecified');
+  j := pg_temp.mkjob(a, pA3, pg_temp.stdg(), '[]'::jsonb); jn2 := (j ->> 'job')::uuid;
+  perform pg_temp.walk_to(a, jn2, 'qc');
+  g := pg_temp.q(format('select analytics.job_gem_bom_get(%L, %L)', a, jn2));
+  v := v || pg_temp.chk('S3c', 'ขั้นฝังส่งต่อแล้ว (sent) ไม่มีพลอย → not_needed (ไม่ใช่ unspecified — นิยามเดียวกับหน้าช่าง) · get เท่ากัน',
+    (select status from analytics.job_stage where job_id = jn2 and stage_code = 'gem_set') = 'sent' and analytics.job_gem_state(a, jn2) = 'not_needed' and g ->> 'state' = 'not_needed');
+  j := pg_temp.mkjob(a, pA1, pg_temp.std()); jx := (j ->> 'job')::uuid;
+  g := pg_temp.q(format('select analytics.job_gem_bom_get(%L, %L)', a, jx));
+  v := v || pg_temp.chk('S3d', 'ใบไม่มีขั้นฝัง ไม่มีพลอย → not_needed · ใบที่มีพลอย (jm) → specified · get เท่ากัน ทั้งสอง',
+    analytics.job_gem_state(a, jx) = 'not_needed' and g ->> 'state' = 'not_needed' and analytics.job_gem_state(a, jm) = 'specified'
+    and (pg_temp.q(format('select analytics.job_gem_bom_get(%L, %L)', a, jm)) ->> 'state') = 'specified');
+  v := v || pg_temp.chk('S3e', 'ข้ามร้าน: เรียกด้วย shop B กับใบของ shop A → not_needed (ไม่รั่วว่าใบนั้นมีขั้นฝัง/พลอย) · id มั่ว → not_needed',
+    analytics.job_gem_state(b, jn) = 'not_needed' and analytics.job_gem_state(b, jm) = 'not_needed' and analytics.job_gem_state(a, '00000000-0000-0000-0000-00000000dead') = 'not_needed');
+  return v;
+end;
+$c$;
+-- ============================================================================
 -- รวมกลุ่มเทสต์หลัก (ใช้ซ้ำใน mutant) · snapshot ตารางจริง · mutant · runner
 -- ============================================================================
 create function pg_temp.g_all() returns text
@@ -1542,6 +1640,7 @@ begin
   v := v || pg_temp.g_job();
   v := v || pg_temp.g_merge();
   v := v || pg_temp.g_res();
+  v := v || pg_temp.g_r3();
   v := v || pg_temp.g_w1();
   return v;
 end;
@@ -1571,7 +1670,7 @@ create function pg_temp.g_mut() returns text
 declare
   v text := ''; s text; k int; muts jsonb; m jsonb; st jsonb; hit int; i text; killed int := 0; total int;
   sg_sim constant text := 'analytics.gem_name_similar(text,text)';
-  sg_prep constant text := 'analytics.gem_lines_prepare(uuid,jsonb,boolean,uuid,uuid,uuid[],boolean)';
+  sg_prep constant text := 'analytics.gem_lines_prepare(uuid,jsonb,boolean,uuid,uuid,uuid[])';
   sg_off constant text := 'analytics.gem_require_office(uuid,uuid)';
   sg_set constant text := 'analytics.job_gem_bom_set(uuid,uuid,jsonb,uuid,text,boolean)';
   sg_res constant text := 'analytics.job_worker_resolve(text,text,text)';
@@ -1599,8 +1698,8 @@ begin
     jsonb_build_object('id', 'MU10', 'what', '🔴 รายการ dropdown (gem_options_list) แอบแนบราคา', 'steps', jsonb_build_array(jsonb_build_array(sg_opt, '''size_label'', x.size_label) order by x.size_a', '''size_label'', x.size_label, ''price'', (select max(p.price_thb_per_unit) from analytics.gem_item_price p where p.gem_item_id = x.id)) order by x.size_a')), 'expect', jsonb_build_array('P5')),
     jsonb_build_object('id', 'MU11', 'what', 'trigger ของ job_gem_bom ไม่กันใบ done/cancelled (กำแพงที่ตารางถูกถอด)', 'steps', jsonb_build_array(jsonb_build_array(sg_grd, '  if v_job.status in (''done'', ''cancelled'') then', '  if false then')), 'expect', jsonb_build_array('J4d')),
     jsonb_build_object('id', 'MU12', 'what', 'ใบที่ไม่มีขั้นฝังก็คัดลอกแม่แบบ (ถอนเงื่อนไข gem_set)', 'steps', jsonb_build_array(jsonb_build_array(sg_ins, 'elsif p_product_id is not null and ''gem_set'' = any (p_codes)', 'elsif p_product_id is not null and true')), 'expect', jsonb_build_array('T3')),
-    jsonb_build_object('id', 'MU13', 'what', 'ชื่อที่เป็นตัวเลขล้วนผ่าน (ถอดด่านเลขล้วนทุกระบบเลข)', 'steps', jsonb_build_array(jsonb_build_array(sg_ok, '     and analytics.gem_name_norm(p_name) ~ ''[^0-9٠-٩۰-۹०-९০-৯๐-๙໐-໙༠-༩၀-၉០-៩０-９]''', '')), 'expect', jsonb_build_array('N16k', 'N16l', 'N16y1', 'N16y2', 'C6-n2', 'C6-n7')),
-    jsonb_build_object('id', 'MU13b', 'what', 'ด่านเลขล้วนรู้จักแต่เลข ASCII (เลขไทย/อารบิก-อินดิกหลุด)', 'steps', jsonb_build_array(jsonb_build_array(sg_ok, '~ ''[^0-9٠-٩۰-۹०-९০-৯๐-๙໐-໙༠-༩၀-၉០-៩０-９]''', '~ ''[^0-9]''')), 'expect', jsonb_build_array('N16y1', 'N16y2', 'N16y5')),
+    jsonb_build_object('id', 'MU13', 'what', 'ชื่อที่เป็นตัวเลขล้วนผ่าน (ถอดด่านเลขล้วนทุกระบบเลข)', 'steps', jsonb_build_array(jsonb_build_array(sg_ok, '     and analytics.gem_name_norm(p_name) ~ ''[[:alpha:]]''', '')), 'expect', jsonb_build_array('N16k', 'N16l', 'N16y1', 'N16y2', 'N16y11', 'C6-n2', 'C6-n7')),
+    jsonb_build_object('id', 'MU13b', 'what', 'ด่านตัวอักษรจริงเหลือแค่ "ไม่ใช่เลข ASCII" (เลขไทย/อารบิก-อินดิกหลุด)', 'steps', jsonb_build_array(jsonb_build_array(sg_ok, '~ ''[[:alpha:]]''', '~ ''[^0-9]''')), 'expect', jsonb_build_array('N16y1', 'N16y2', 'N16y5')),
     jsonb_build_object('id', 'MU14', 'what', 'SKU ที่มีแม่แบบไม่ถูกเสนอขั้นฝัง (job_source_info)', 'steps', jsonb_build_array(jsonb_build_array(sg_src, '      if v_tpl > 0 then v_codes := v_codes || ''gem_set''::text; end if;', '      null;')), 'expect', jsonb_build_array('T6a', 'W1b')),
     jsonb_build_object('id', 'MU15', 'what', 'ตั้งแม่แบบ SKU ไม่เขียน audit log', 'steps', jsonb_build_array(jsonb_build_array(sg_tset, E'  if v_changed then\n    insert into analytics.catalog_audit_log', E'  if false then\n    insert into analytics.catalog_audit_log')), 'expect', jsonb_build_array('T1')),
     jsonb_build_object('id', 'MU16', 'what', 'รวมชื่อแล้วแม่แบบ SKU ไม่ย้ายตามไปรายการปลายทาง', 'steps', jsonb_build_array(jsonb_build_array(sg_mrg, 'update analytics.product_gem_bom set gem_item_id = r.b_id, updated_at = now() where id = l.id;', 'null;')), 'expect', jsonb_build_array('M2t')),
@@ -1609,6 +1708,12 @@ begin
     jsonb_build_object('id', 'MU20', 'what', 'ไม่บันทึก audit ก่อน upsert ราคา', 'steps', jsonb_build_array(jsonb_build_array(sg_price, 'values (p_shop_id, p_item_id, v_eff, case when v_had then ''update'' else ''insert'' end, v_old.price_thb_per_unit, p_price, v_old.supplier, v_sup, v_note, p_actor);', 'select p_shop_id, p_item_id, v_eff, ''insert'', null::numeric, p_price, null, null, null, p_actor where false;')), 'expect', jsonb_build_array('P7a', 'P7d')),
     jsonb_build_object('id', 'MU21', 'what', 'trigger ของ gem_item ตรวจ "ปิดใช้งาน" ทั้งสองฝั่งตอนย้าย (รวมชื่อล้มเมื่ออีกฝั่งปิด)', 'steps', jsonb_build_array(jsonb_build_array(sg_ng, '    v_chk_t := new.gem_type_id is distinct from old.gem_type_id;', '    v_chk_t := true;'), jsonb_build_array(sg_ng, '    v_chk_s := new.gem_shape_id is distinct from old.gem_shape_id;', '    v_chk_s := true;')), 'expect', jsonb_build_array('M9a', 'M9b')),
     jsonb_build_object('id', 'MU22', 'what', 'แก้ใบหลังรวมชื่อ: ไม่จับคู่แถวเดิมด้วย canonical (ลบ-แทรกใหม่ ฉลาก snapshot ถูกเขียนทับ)', 'steps', jsonb_build_array(jsonb_build_array('analytics.job_gem_bom_replace_core(uuid,jsonb,boolean,uuid,uuid,text,text,text,uuid[])', ' or analytics.gem_item_canonical(g.gem_item_id) = (v_ln ->> ''gem_item_id'')::uuid)', ' or false)')), 'expect', jsonb_build_array('M5e')),
+    jsonb_build_object('id', 'MU23', 'what', '🔴 B1: จับคู่แถวเดิมด้วย not(id = any(v_map)) — v_map มี NULL ทำให้แถวเดิมที่ตามหลังแถวใหม่ถูกลบ-แทรกใหม่ (ฉลาก snapshot ถูกทับ)', 'steps', jsonb_build_array(jsonb_build_array('analytics.job_gem_bom_replace_core(uuid,jsonb,boolean,uuid,uuid,text,text,text,uuid[])', 'and g.id <> all (array_remove(v_map, null))   --', 'and not (g.id = any (v_map))   --')), 'expect', jsonb_build_array('M5g')),
+    jsonb_build_object('id', 'MU24', 'what', 'S2: รวมแถวซ้ำตอนบันทึกใบใช้ substring (ตำแหน่ง "ซ้าย" กลืนหายใน "ซ้ายบน")', 'steps', jsonb_build_array(jsonb_build_array(sg_prep, 'not (v_pos2 = any (string_to_array(v_pos, '', '')))', 'position(v_pos2 in v_pos) = 0')), 'expect', jsonb_build_array('S2a')),
+    jsonb_build_object('id', 'MU25', 'what', 'S2: รวมชื่อแล้วแม่แบบ SKU รวมตำแหน่งด้วย substring', 'steps', jsonb_build_array(jsonb_build_array(sg_mrg, 'l.position_note = any (string_to_array(coalesce(v_lb.position_note, ''''), '', ''))', 'position(l.position_note in coalesce(v_lb.position_note, '''')) > 0')), 'expect', jsonb_build_array('S2c')),
+    jsonb_build_object('id', 'MU26', 'what', 'S3: job_gem_state ไม่นับขั้นฝังที่รับแล้ว (received) เป็น "ยังไม่ระบุ"', 'steps', jsonb_build_array(jsonb_build_array('analytics.job_gem_state(uuid,uuid)', 'gs.status in (''pending'', ''received'')', 'gs.status in (''pending'')')), 'expect', jsonb_build_array('S3b')),
+    jsonb_build_object('id', 'MU27', 'what', 'S3: job_gem_state ไม่กรองร้าน (ใบร้านอื่นรั่วว่ามีขั้นฝัง)', 'steps', jsonb_build_array(jsonb_build_array('analytics.job_gem_state(uuid,uuid)', 'where gj.shop_id = p_shop_id and (gj.id', 'where (gj.id')), 'expect', jsonb_build_array('S3e')),
+    jsonb_build_object('id', 'MU28', 'what', 'S3: job_gem_state ไม่ดูแถวพลอย (มีพลอยก็ยังบอก unspecified)', 'steps', jsonb_build_array(jsonb_build_array('analytics.job_gem_state(uuid,uuid)', 'g.shop_id = p_shop_id and g.job_id = p_root_job_id) then ''specified''', 'false) then ''specified''')), 'expect', jsonb_build_array('S3d')),
     jsonb_build_object('id', 'MU18', 'what', 'trigger ของ gem_item ไม่เช็ค size_b ตรงกับ has_length (กำแพงที่ตาราง)', 'steps', jsonb_build_array(jsonb_build_array(sg_ng, '  if v_s.has_length is distinct from (new.size_b is not null) then', '  if false then')), 'expect', jsonb_build_array('C9a')));
   total := jsonb_array_length(muts);
   for k in 0 .. total - 1 loop
