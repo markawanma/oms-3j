@@ -86,7 +86,7 @@ export function findSimilarGemNames(name: string, existing: readonly NamedRow[],
 }
 
 export type GemNameCheck = { ok: true; value: string } | { ok: false; code: "name_invalid"; message: string };
-const NAME_MSG = "ชื่อต้องมี 2-40 ตัวอักษร ไม่ใช่ตัวเลขล้วน และห้ามมีเครื่องหมาย < >";
+const NAME_MSG = "ชื่อต้องมี 2-40 ตัวอักษร ไม่ใช่ตัวเลขล้วน (ทุกระบบเลข — ๑๒ · ١٢ · １２ ก็ไม่ผ่าน) และห้ามมีเครื่องหมาย < >";
 
 /** ตัดหัวท้าย · ยุบช่องว่างซ้ำ · ผ่านกติกาเดียวกับ DB (gem_name_ok) — ล้ม = name_invalid (ข้อความไทย) */
 export function cleanGemName(raw: unknown): GemNameCheck {
@@ -97,7 +97,7 @@ export function cleanGemName(raw: unknown): GemNameCheck {
   const v = raw.replace(/[\s 　]+/g, " ").trim();
   const norm = normalizeGemName(v);
   const len = Array.from(v).length;
-  if (len < GEM_LIMITS.nameMin || len > GEM_LIMITS.nameMax || /[<>]/.test(v) || !/[\p{L}\p{N}]/u.test(v) || Array.from(norm).length < 2 || /^[0-9]+$/.test(norm)) {
+  if (len < GEM_LIMITS.nameMin || len > GEM_LIMITS.nameMax || /[<>]/.test(v) || !/[\p{L}\p{N}]/u.test(v) || Array.from(norm).length < 2 || /^\p{Nd}+$/u.test(norm)) {
     return { ok: false, code: "name_invalid", message: NAME_MSG };
   }
   return { ok: true, value: v };

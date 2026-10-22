@@ -5,17 +5,20 @@
 -- design: docs/3j-jewelry/oms/design-job-plan-metal-gems.md §2.4–2.5 (เดิม) + §9 (มติ 21 ต.ค. ทับ) · UX: docs/3j-jewelry/oms/ux-gems.md
 --
 -- ทำไม (ภาษาคน): ช่างฝังต้องรู้ว่า "ใบนี้ใช้พลอยอะไร เท่าไร ตรงไหน" ก่อนลงมือ · เจ้าของให้ผู้จัดการพิมพ์ชนิด/รูปทรงใหม่ได้เลยหน้างาน (ไม่ต้องรอออฟฟิศยืนยัน) แล้วชื่อนั้นเข้าแคตตาล็อกเอง — ราคาไม่ถึงมือผู้จัดการ/ช่าง
---   ⇒ DB ต้องกันชื่อขยะ (ชื่อสั้น/ตัวเลขล้วน/ล่องหน) + กันชื่อซ้ำ/เกือบซ้ำ (ตัวดัก "คล้าย" ที่ server ตัดสิน) + ให้ออฟฟิศรวมชื่อซ้ำทีหลังได้โดยใบเก่าไม่เปลี่ยน (snapshot) + ราคาอยู่คนละตารางที่ไม่มี role ไหนอ่านตรง
+--   ⇒ DB ต้องกันชื่อขยะ (ชื่อสั้น/ตัวเลขล้วน/ล่องหน) + กันชื่อซ้ำ/เกือบซ้ำ (ตัวดัก "คล้าย" ที่ server ตัดสิน) + ให้ออฟฟิศรวมชื่อซ้ำทีหลังได้โดยใบเก่าไม่เปลี่ยน (snapshot) + ราคาอยู่คนละตารางที่ไม่ให้ role ฝั่งแอป (anon/authenticated/service_role) อ่านตรง
 --
 -- สิ่งที่ไฟล์นี้ทำ
 --  1. ฟังก์ชันบริสุทธิ์: gem_name_norm (ตัด ช่องว่าง/วรรคตอน/อักขระล่องหน · NFKC · ตัวเล็ก) · gem_name_similar (ระยะแก้ไขตามความยาวชื่อ · ชื่อ ≤ 3 ตัวอักษรเทียบเท่ากันเท่านั้น) · gem_size_label · gem_label_compose ("โกเมน · ไข่ · 4×6 มม.") · gem_name_clean
---  2. ตาราง analytics: gem_shape · gem_type · gem_item (ชนิด+รูปทรง+ขนาด a/b) · gem_item_price (ไม่มี role ไหนอ่านตรง) · gem_catalog_event (append-only) · product_gem_bom (แม่แบบ SKU) · job_gem_bom (สำเนาต่อใบ + gem_label snapshot) — RLS เปิดไม่มี policy · service_role select ได้เฉพาะตารางที่ไม่มีราคา
+--  2. ตาราง analytics: gem_shape · gem_type · gem_item (ชนิด+รูปทรง+ขนาด a/b) · gem_item_price (ไม่ให้ role ฝั่งแอป (anon/authenticated/service_role) อ่านตรง) · gem_catalog_event (append-only) · product_gem_bom (แม่แบบ SKU) · job_gem_bom (สำเนาต่อใบ + gem_label snapshot) — RLS เปิดไม่มี policy · service_role select ได้เฉพาะตารางที่ไม่มีราคา
 --  3. job_event: + bom_change (ลอกรายการจาก DB สด) · seed รูปทรงมาตรฐาน 12 แบบ (ไม่ seed ชนิด · ไม่ seed ราคา)
 --  4. catalog RPC (ออฟฟิศ owner/admin): gem_catalog_list (มีราคา) · gem_options_list (ไม่มีราคา) · gem_catalog_create · gem_item_create · gem_catalog_rename · gem_shape_set_has_length · gem_merge_preview · gem_merge · gem_catalog_set_active · gem_catalog_remove · gem_price_set · gem_price_history
 --  5. BOM RPC: product_gem_bom_get/set · product_gem_bom_from_job · job_gem_bom_get/set + core (job_gem_bom_replace_core — W3 ผู้จัดการแก้จากมือถือต่อได้โดยไม่ replace ซ้ำ) + job_gem_edit_window
 --  6. replace (ลอก def สดจาก DB 22 ต.ค. 69 แล้วแก้เฉพาะจุด · md5 ตรวจใน pre-check): job_source_info (+ขั้นฝังเมื่อ SKU มีแม่แบบ) · job_create_insert/_from_quote_item/_from_production_item/_core (+p_gem_lines/p_gem_force · drop signature เดิม) · job_plan_suggest (+gem_bom[]) · job_worker_resolve (+job.gems[]/gems_state)
 --     ไม่แตะ job_stage_suggest (ได้ขั้นฝังผ่าน job_source_info) · ไม่แตะ job_worker_open (W1 เรียก core ด้วย 13 args เดิม → ได้ค่า default ของ arg ใหม่ · SKU มีแม่แบบ = ได้ขั้นฝัง+BOM คัดลอกมา) · ไม่แตะ production_order_done (💰)
---  7. views v_product_gem_bom · v_job_gem_requirement (ไม่มีคอลัมน์ราคา)
+--  7. views v_product_gem_bom · v_job_gem_requirement (ไม่มีคอลัมน์ราคา · ไม่เรียกฟังก์ชันของ schema — อ่านด้วย service_role ได้)
+--  8. gem_item_price_audit (append-only · สิทธิ์ชุดเดียวกับตารางราคา): gem_price_set บันทึก old/new ก่อน upsert ทุกครั้ง · แก้ทับวันเดิม หรือ effective_from ย้อนหลัง (< วันนี้ไทย) = บังคับ note ที่มีตัวอักษรจริง (note_required) · gem_price_history คืนแถว audit
+--  9. idempotent: รันซ้ำได้ (post-check เทียบ golden โดยตัด key gem_template_count · เช็ค "ไม่มีข้อมูลหลัง apply" เฉพาะรอบแรก) — verify ด้วยการต่อไฟล์ซ้ำสองรอบใน dry-run
+--  ⚠️ role ระดับแพลตฟอร์ม (postgres · supabase_admin) อ่านตารางราคา/audit ได้เสมอ — คุมที่สิทธิ์องค์กร/dashboard ไม่ใช่ที่ DB (บันทึกหนี้ security L1)
 --
 -- ตัดสินเอง (นอก design/brief — เหตุผล)
 --  (1) type_id/shape_id ที่ถูกรวมแล้ว (merged_into) → resolve ไปตัวปลายทางแล้วไปต่อ ไม่ปฏิเสธ (UX A3/A6: ใบที่ค้างระหว่างรวมชื่อต้องไม่ล้ม) · ปฏิเสธเฉพาะ: ร้านอื่น/ไม่พบ/ตัวปลายทางปิดใช้งาน · merge ลงตัวเอง/ลงตัวที่ถูกรวมแล้ว/จากตัวที่ถูกรวมแล้ว
@@ -23,13 +26,19 @@
 --  (3) ชื่อใหม่ที่ norm เท่ากับของที่มี → ใช้ตัวเดิมเงียบๆ (ไม่ใช่ error · ตอบ reused[]) แม้ p_force=true — force ใช้ข้ามเฉพาะ "คล้าย" · การสร้างชื่อตรงๆ (gem_catalog_create/rename) norm ซ้ำ = ปฏิเสธเสมอ (name_exists)
 --  (4) error ของแถวพลอย = 22023 + hint เป็นรหัส + detail เป็น json {row, field, code} (แถวที่ผิด) · ตัวดักคล้าย = hint gem_similar + detail {similar:[...]} — ไม่เขียนอะไรเลย (ทรานแซกชันเดียว)
 --  (5) พลอยในใบ: ไม่มีแถว ↔ ไม่มีขั้นฝัง ผูกกันแบบ "ไม่บังคับ": คัดลอกแม่แบบ SKU เฉพาะเมื่อใบมีขั้น gem_set · p_gem_lines = '[]' = ระบุว่าไม่มีพลอย · ไม่ส่ง (null) = คัดลอกแม่แบบถ้ามีขั้นฝัง · ระบบไม่เพิ่ม/ลบขั้นให้เอง
---  (6) ไม่ทำ gate "ช่างฝังรับงานไม่ได้เมื่อไม่มีพลอย" (UX A8): ใบที่เดินอยู่ตอนนี้มีขั้นฝังแต่ไม่มี BOM ทุกใบ → gate จะล็อกงานจริง · resolve ส่ง gems_state='unspecified' ให้จอเตือนแล้ว · gate ต้องมีกติกา grandfather — รอเจ้าของ
+--  (6) gate "ช่างฝังรับงานไม่ได้เมื่อไม่มีพลอย" (UX A8): เจ้าของตัดสิน 22 ต.ค. = **ไม่บล็อก แค่เตือน** — resolve ส่ง gems_state='unspecified' ให้จอเตือน (ไม่มี gate ที่ DB)
 --  (7) actor ของ RPC ราคา/แคตตาล็อก ต้องเป็นสมาชิก owner/admin ของร้านจริง (แม้ผู้เรียกเป็น service_role) — เพราะ role ฝั่ง server ตรวจที่ชั้นแอป (staff ผ่าน crm_require_owner_admin ไม่ได้อยู่แล้วถ้า session จริง แต่ service_role ผ่านเสมอ) · RPC ใบงาน/แม่แบบ (ไม่มีราคา) ใช้ job_office_begin เดิม
 --  (8) ไม่มี unit (กะรัต) · ไม่มี oem_tier · ไม่มี breakage_allow_pct (เผื่อแตกอยู่ G1b ฝั่งสั่งซื้อ) · ไม่มี gem_type.code/gem_shape.code (ชื่อพิมพ์เองได้ → ตัวตนคือ id + name_norm)
 --
--- seed รูปทรง (12 — design §2.4): has_length ของ "หัวใจ" = false (1 ค่า) · "คุชชั่น" = true (2 ค่า) [ต้องยืนยัน — ค่าเริ่มของ design · เปลี่ยนได้ด้วย gem_shape_set_has_length ตราบที่ยังไม่มีรายการใช้] · ชื่อไทยของ 12 รูปทรงเป็นข้อเสนอ [ต้องยืนยัน] — แก้ชื่อได้ด้วย gem_catalog_rename
+-- seed รูปทรง (12 — design §2.4): เจ้าของยืนยันแล้ว 22 ต.ค.: "หัวใจ" = 1 ค่า · "คุชชั่น" = 2 ค่า · ชื่อ "บาแก็ตต์" ตามเอกสารเจ้าของ (workflow) — แก้ชื่อได้ด้วย gem_catalog_rename · แก้ has_length ได้ด้วย gem_shape_set_has_length ตราบที่ยังไม่มีรายการใช้
 --
 -- post-check ล็อก: ฟังก์ชันเดิมนอกรายการ md5 เท่าเดิม (รวม production_order_done) · แถวเดิมไม่ขยับ (job/job_stage/job_event/job_token/production_order*/product/worker) · golden job_source_info ทุก item จริงเท่าเดิมเมื่อไม่มีแม่แบบ · ไม่มี overload · ไม่มีสิทธิ์ anon/authenticated/PUBLIC
+
+-- 🔴 ตอน apply: ไฟล์นี้ + verify ยาวกว่า statement_timeout ปกติ (security เจอ 57014 ตอนซ้อมรวม verify) — ตั้งไม่จำกัดในทรานแซกชันนี้เท่านั้น (local)
+set local statement_timeout = '0';
+
+-- รอบแรก (ยังไม่มีตาราง gem_item) หรือรันซ้ำ — post-check "ไม่มีชนิด/รายการ/ราคา/BOM หลัง apply" ตรวจเฉพาะรอบแรก
+create temp table _m190_first on commit drop as select to_regclass('analytics.gem_item') is null as first;
 
 -- baseline: ฟังก์ชันทุกตัวในสคีมา (md5) + ตัวชี้วัดแถว
 create temp table _m190_fn_base on commit drop as
@@ -219,7 +228,7 @@ end;
 $f$;
 
 -- ชื่อที่เก็บได้: ตัดหัวท้ายแล้ว · ช่องว่างมีแต่ U+0020 ตัวเดียวคั่น · 2-40 ตัวอักษร · ไม่มี < > · ไม่มีอักขระควบคุม/ล่องหน (oem_note_valid) · มีตัวอักษร/ตัวเลขจริง (oem_note_present — whitelist)
---   · norm ยาว ≥ 2 และไม่ใช่ตัวเลขล้วน ("10" · "1.5" ไม่ผ่าน) — ใช้ใน CHECK ของ gem_type/gem_shape (กำแพงที่ตาราง แม้ RPC ถูกแก้ผิด)
+--   · norm ยาว ≥ 2 และไม่ใช่ตัวเลขล้วนของทุกระบบเลข ("10" · "1.5" · "๑๒" · "١٢" · "１２" · "²³" ไม่ผ่าน — ต้องมีอักขระที่ไม่ใช่หลักเลขอย่างน้อย 1 ตัว) — ใช้ใน CHECK ของ gem_type/gem_shape (กำแพงที่ตาราง แม้ RPC ถูกแก้ผิด)
 create or replace function analytics.gem_name_ok(p_name text)
  returns boolean
  language sql
@@ -234,7 +243,7 @@ as $f$
      and analytics.oem_note_valid(p_name)
      and analytics.oem_note_present(p_name)
      and char_length(analytics.gem_name_norm(p_name)) >= 2
-     and analytics.gem_name_norm(p_name) !~ '^[0-9]+$'
+     and analytics.gem_name_norm(p_name) ~ '[^0-9٠-٩۰-۹०-९০-৯๐-๙໐-໙༠-༩၀-၉០-៩０-９]'
 $f$;
 
 -- ฉลากขนาด: "1.5" · "4×6" (ตัดศูนย์ท้าย) — DB ประกอบเอง ไม่ให้คนพิมพ์คนละแบบ (4.0×6.0)
@@ -373,7 +382,7 @@ create index if not exists idx_gem_item_type on analytics.gem_item (gem_type_id)
 create index if not exists idx_gem_item_shape on analytics.gem_item (gem_shape_id);
 create index if not exists idx_gem_item_merged on analytics.gem_item (merged_into) where merged_into is not null;
 
--- 🔴 ราคา = ต้นทุน: ตารางนี้ "ไม่มี role ไหนอ่านตรง" (revoke all จากทุก role รวม service_role) — อ่าน/เขียนได้ทาง RPC ออฟฟิศ 3 ตัวเท่านั้น (gem_catalog_list · gem_price_set · gem_price_history)
+-- 🔴 ราคา = ต้นทุน: ตารางนี้ "ไม่ให้ role ฝั่งแอป (anon/authenticated/service_role) อ่านตรง" (revoke all จากทุก role รวม service_role) — อ่าน/เขียนได้ทาง RPC ออฟฟิศ 3 ตัวเท่านั้น (gem_catalog_list · gem_price_set · gem_price_history)
 --   RPC ช่าง/ผู้จัดการ/resolve/print ไม่ join ตารางนี้ · ประวัติแบบ oem_cost_rate (effective_from อยู่ใน PK) · ไม่มีราคา = ไม่มีแถว (ไม่ใช่ 0)
 create table if not exists analytics.gem_item_price (
   gem_item_id        uuid not null,
@@ -387,6 +396,24 @@ create table if not exists analytics.gem_item_price (
   primary key (gem_item_id, effective_from),
   constraint gem_item_price_item_fk foreign key (gem_item_id, shop_id) references analytics.gem_item (id, shop_id) on delete cascade
 );
+
+-- 🔴 audit การแก้ราคา (security M1): ทุก gem_price_set บันทึก old/new ก่อน upsert · append-only · สิทธิ์ชุดเดียวกับตารางราคา (ไม่มีสิทธิ์ให้ role ฝั่งแอป) · แก้ทับวันเดิม/ย้อนหลัง = ต้องมี note (CHECK ที่ตาราง ไม่พึ่ง RPC อย่างเดียว) · ไม่มี FK ไปรายการ (รายการที่ลบแล้ว audit ยังอยู่)
+create table if not exists analytics.gem_item_price_audit (
+  id             uuid primary key default gen_random_uuid(),
+  shop_id        uuid not null references public.shop (id) on delete restrict,
+  gem_item_id    uuid not null,
+  effective_from date not null,
+  action         text not null check (action in ('insert', 'update')),
+  old_price      numeric(12,4) check (old_price is null or (old_price > 0 and old_price <= 1000000)),
+  new_price      numeric(12,4) not null check (new_price > 0 and new_price <= 1000000),
+  old_supplier   text,
+  new_supplier   text,
+  note           text check (note is null or (char_length(note) between 1 and 300 and analytics.oem_note_valid(note) and analytics.oem_note_present(note) and note !~ '[<>]')),
+  actor          uuid not null,
+  recorded_at    timestamptz not null default now(),
+  constraint gem_item_price_audit_ck check ((action = 'insert' and old_price is null) or (action = 'update' and old_price is not null and note is not null))
+);
+create index if not exists idx_gem_item_price_audit_item on analytics.gem_item_price_audit (shop_id, gem_item_id, recorded_at);
 
 -- ประวัติงานดูแลแคตตาล็อก (รวมชื่อ/เปลี่ยนชื่อ/ปิด-เปิด/ลบ/แก้ has_length) — append-only · payload ไม่มีราคา
 create table if not exists analytics.gem_catalog_event (
@@ -449,6 +476,7 @@ alter table analytics.gem_shape enable row level security;
 alter table analytics.gem_type enable row level security;
 alter table analytics.gem_item enable row level security;
 alter table analytics.gem_item_price enable row level security;
+alter table analytics.gem_item_price_audit enable row level security;
 alter table analytics.gem_catalog_event enable row level security;
 alter table analytics.product_gem_bom enable row level security;
 alter table analytics.job_gem_bom enable row level security;
@@ -465,6 +493,10 @@ drop trigger if exists trg_gem_type_deny_truncate on analytics.gem_type;
 create trigger trg_gem_type_deny_truncate before truncate on analytics.gem_type for each statement execute function analytics.job_deny_truncate();
 drop trigger if exists trg_gem_item_deny_truncate on analytics.gem_item;
 create trigger trg_gem_item_deny_truncate before truncate on analytics.gem_item for each statement execute function analytics.job_deny_truncate();
+drop trigger if exists trg_gem_item_price_audit_append_only on analytics.gem_item_price_audit;
+create trigger trg_gem_item_price_audit_append_only before update or delete on analytics.gem_item_price_audit for each row execute function analytics.job_append_only();
+drop trigger if exists trg_gem_item_price_audit_deny_truncate on analytics.gem_item_price_audit;
+create trigger trg_gem_item_price_audit_deny_truncate before truncate on analytics.gem_item_price_audit for each statement execute function analytics.job_deny_truncate();
 drop trigger if exists trg_gem_item_price_deny_truncate on analytics.gem_item_price;
 create trigger trg_gem_item_price_deny_truncate before truncate on analytics.gem_item_price for each statement execute function analytics.job_deny_truncate();
 drop trigger if exists trg_product_gem_bom_deny_truncate on analytics.product_gem_bom;
@@ -560,12 +592,16 @@ declare
   v_t analytics.gem_type%rowtype;
   v_s analytics.gem_shape%rowtype;
   v_merge boolean := coalesce(current_setting('analytics.gem_merge', true), '') = 'on';
+  v_chk_t boolean := true;     -- ตรวจ "ใช้งานอยู่/ไม่ถูกรวม" ของชนิด: INSERT เสมอ · UPDATE (ย้ายตอนรวมชื่อ) เฉพาะเมื่อชนิดเปลี่ยน
+  v_chk_s boolean := true;
 begin
   if tg_op = 'INSERT' then
     if new.merged_into is not null then
       raise exception 'รายการพลอยใหม่ต้องไม่ถูกสร้างในสถานะที่ถูกรวมแล้ว' using errcode = '22023', hint = 'gem_merge_invalid';
     end if;
   else
+    v_chk_t := new.gem_type_id is distinct from old.gem_type_id;
+    v_chk_s := new.gem_shape_id is distinct from old.gem_shape_id;
     if (new.id, new.shop_id, new.size_a, new.size_b, new.created_by, new.created_by_worker_id, new.created_at)
        is distinct from (old.id, old.shop_id, old.size_a, old.size_b, old.created_by, old.created_by_worker_id, old.created_at) then
       raise exception 'analytics.gem_item: ตัวตน/ขนาดของรายการแก้ไม่ได้ (สร้างรายการใหม่แทน)' using errcode = '42501';
@@ -588,12 +624,13 @@ begin
     end if;
   end if;
   -- ชนิด/รูปทรงต้องเป็นตัวจริง ใช้งานอยู่ (ล็อก share กันรวมชื่อแทรกกลาง — gem_merge ล็อก for update ก่อนย้าย) และจำนวนค่าขนาดตรงกับรูปทรง
+  -- ฝั่งที่ไม่เปลี่ยน (เช่น รวมชนิดแต่รูปทรงของรายการถูกปิดใช้ไปแล้ว) ยอมให้ปิดใช้อยู่ — ปิด = ซ่อนจาก dropdown ไม่ใช่ล็อกการดูแลแคตตาล็อก (QA N1/N2)
   select * into v_t from analytics.gem_type t where t.id = new.gem_type_id and t.shop_id = new.shop_id for share;
-  if not found or v_t.merged_into is not null or not v_t.is_active then
+  if not found or (v_chk_t and (v_t.merged_into is not null or not v_t.is_active)) then
     raise exception 'ชนิดพลอยของรายการต้องเป็นชนิดที่ใช้งานอยู่และไม่ถูกรวม' using errcode = '22023', hint = 'gem_ref_inactive';
   end if;
   select * into v_s from analytics.gem_shape s where s.id = new.gem_shape_id and s.shop_id = new.shop_id for share;
-  if not found or v_s.merged_into is not null or not v_s.is_active then
+  if not found or (v_chk_s and (v_s.merged_into is not null or not v_s.is_active)) then
     raise exception 'รูปทรงของรายการต้องเป็นรูปทรงที่ใช้งานอยู่และไม่ถูกรวม' using errcode = '22023', hint = 'gem_ref_inactive';
   end if;
   if v_s.has_length is distinct from (new.size_b is not null) then
@@ -703,7 +740,7 @@ create trigger trg_job_gem_bom_guard before insert or update or delete on analyt
 -- ============================================================================
 
 -- seed รูปทรงมาตรฐาน 12 แบบ — เฉพาะร้านที่ยังไม่มีรูปทรงเลย (เจ้าของลบ/เปลี่ยนชื่อแล้วไม่ฟื้นกลับ) · ไม่ seed ชนิด/ราคา (มติ 21 ต.ค.)
--- [ต้องยืนยัน] has_length: หัวใจ = 1 ค่า · คุชชั่น = 2 ค่า (ค่าเริ่มของ design §2.4) · ชื่อไทยเป็นข้อเสนอ
+-- เจ้าของยืนยันแล้ว 22 ต.ค.: 12 แบบ · หัวใจ = 1 ค่า · คุชชั่น = 2 ค่า · "บาแก็ตต์" ตามเอกสารเจ้าของ
 create or replace function analytics.gem_shape_ensure(p_shop_id uuid)
  returns void
  language plpgsql
@@ -721,7 +758,7 @@ begin
   select p_shop_id, v.name, v.has_length, true
     from (values
       ('กลม', false), ('สี่เหลี่ยมจัตุรัส', false), ('6 เหลี่ยม', false), ('สามเหลี่ยม', false), ('หัวใจ', false),
-      ('ไข่', true), ('เอมเมอรัลด์', true), ('คุชชั่น', true), ('หยดน้ำ', true), ('มาร์คีส์', true), ('บาเกต', true), ('สี่เหลี่ยมผืนผ้า', true)
+      ('ไข่', true), ('เอมเมอรัลด์', true), ('คุชชั่น', true), ('หยดน้ำ', true), ('มาร์คีส์', true), ('บาแก็ตต์', true), ('สี่เหลี่ยมผืนผ้า', true)
     ) as v(name, has_length);
 end;
 $f$;
@@ -1326,6 +1363,10 @@ declare
   v_old     analytics.job_gem_bom%rowtype;
   v_changed boolean;
   v_summary jsonb;
+  v_map     uuid[] := '{}'::uuid[];   -- แถวเดิมที่จับคู่กับแต่ละแถวใหม่ (ตำแหน่งเดียวกับ v_lines · null = แถวใหม่)
+  v_mid     uuid;
+  v_i       int := 0;
+  v_byid    uuid[];                   -- canonical ของแถวที่ผู้เรียกส่งมา "ด้วย gem_item_id" (ไม่ใช่พิมพ์ชื่อ) — ใช้จับคู่ข้ามการรวมชื่อ
 begin
   if p_source is null or p_source not in ('product', 'manual', 'shopfloor') then
     raise exception 'job_gem_bom_replace_core: source ไม่ถูกต้อง' using errcode = '22023';
@@ -1354,13 +1395,28 @@ begin
   v_lines := v_prep -> 'lines';
   v_summary := v_prep -> 'summary';
 
-  delete from analytics.job_gem_bom g
-   where g.job_id = p_job_id
-     and not exists (select 1 from jsonb_array_elements(v_lines) l where (l ->> 'gem_item_id')::uuid = g.gem_item_id);
+  -- จับคู่แถวใหม่กับแถวเดิม: id ตรงกัน หรือ (เฉพาะแถวที่ผู้เรียกส่งมาด้วย gem_item_id) แถวเดิมชี้รายการที่ถูกรวมแล้วซึ่ง canonical = รายการของแถวใหม่
+  -- (จอส่งกลับ id เดิมของ snapshot) → แถวเดิมอยู่ต่อ (ฉลาก snapshot เดิม) ไม่ลบ-แทรกใหม่ · แถวที่ "พิมพ์ชื่อ" = เจตนาใหม่ → ฉลากใหม่ตามชื่อปัจจุบัน (QA M3)
+  select coalesce(array_agg(analytics.gem_item_canonical((e.value ->> 'gem_item_id')::uuid)), '{}'::uuid[]) into v_byid
+    from jsonb_array_elements(p_lines) e where jsonb_typeof(e.value -> 'gem_item_id') = 'string';
+  for v_ln in select value from jsonb_array_elements(v_lines) loop
+    v_mid := null;
+    select g.id into v_mid from analytics.job_gem_bom g
+     where g.job_id = p_job_id and not (g.id = any (v_map))
+       and (g.gem_item_id = (v_ln ->> 'gem_item_id')::uuid or analytics.gem_item_canonical(g.gem_item_id) = (v_ln ->> 'gem_item_id')::uuid)
+       and (g.gem_item_id = (v_ln ->> 'gem_item_id')::uuid or (v_ln ->> 'gem_item_id')::uuid = any (v_byid))
+     order by (g.gem_item_id = (v_ln ->> 'gem_item_id')::uuid) desc, g.line_seq
+     limit 1;
+    v_map := array_append(v_map, v_mid);
+  end loop;
+  delete from analytics.job_gem_bom g where g.job_id = p_job_id and g.id <> all (array_remove(v_map, null));
   for v_ln in select value from jsonb_array_elements(v_lines) loop
     v_seq := v_seq + 1;
-    select * into v_old from analytics.job_gem_bom g where g.job_id = p_job_id and g.gem_item_id = (v_ln ->> 'gem_item_id')::uuid;
-    if found then
+    v_old := null;
+    if v_map[v_seq] is not null then
+      select * into v_old from analytics.job_gem_bom g where g.id = v_map[v_seq];
+    end if;
+    if v_old.id is not null then
       if (v_old.line_seq, v_old.qty_per_piece, v_old.position_note) is distinct from (v_seq, (v_ln ->> 'qty_per_piece')::int, v_ln ->> 'position') then
         update analytics.job_gem_bom
            set line_seq = v_seq, qty_per_piece = (v_ln ->> 'qty_per_piece')::int, position_note = v_ln ->> 'position', updated_at = now()
@@ -1786,6 +1842,7 @@ declare
   r       record;
   l       record;
   v_lb    analytics.product_gem_bom%rowtype;
+  v_h     text;
 begin
   if p_shop_id is null then
     raise exception 'gem_merge: p_shop_id จำเป็น' using errcode = '22023';
@@ -1811,11 +1868,19 @@ begin
   loop
     if r.b_id is null then
       -- ไม่ชน: รายการย้ายไปอยู่ใต้ปลายทาง (ราคาตามรายการไป)
-      if p_kind = 'type' then
-        update analytics.gem_item set gem_type_id = p_into, updated_at = now() where id = r.a_id;
-      else
-        update analytics.gem_item set gem_shape_id = p_into, updated_at = now() where id = r.a_id;
-      end if;
+      -- trigger ตรวจเฉพาะฝั่งที่เปลี่ยน (ฝั่งที่ปิดใช้อยู่แล้วยอม) — ถ้ายังติดเงื่อนไขอื่น บอกรายการ+สาเหตุ ไม่ใช่ gem_ref_inactive ลอยๆ (security L5)
+      begin
+        if p_kind = 'type' then
+          update analytics.gem_item set gem_type_id = p_into, updated_at = now() where id = r.a_id;
+        else
+          update analytics.gem_item set gem_shape_id = p_into, updated_at = now() where id = r.a_id;
+        end if;
+      exception when sqlstate '22023' then
+        get stacked diagnostics v_h = pg_exception_hint;
+        raise exception 'รวมชื่อไม่ได้ — รายการ "%" ติดเงื่อนไข (%): ตรวจรายการนี้ก่อนรวม',
+          (select i.size_label from analytics.gem_item i where i.id = r.a_id), coalesce(v_h, 'ไม่ทราบสาเหตุ') using errcode = '22023', hint = 'gem_merge_blocked',
+          detail = jsonb_build_object('item', r.a_id, 'cause', coalesce(v_h, ''))::text;
+      end;
     else
       -- ชนกัน: แม่แบบ SKU ที่ใช้รายการ A ย้ายไป B (SKU ที่มีทั้งสองแถว = บวกจำนวน) แล้ว A ชี้ merged_into=B (ราคาของ A อยู่กับ A ไม่ย้าย)
       for l in select * from analytics.product_gem_bom p where p.gem_item_id = r.a_id order by p.id loop
@@ -1980,6 +2045,7 @@ declare
   v_sup   text;
   v_note  text;
   v_had   boolean;
+  v_old   analytics.gem_item_price%rowtype;
 begin
   if p_shop_id is null or p_item_id is null then
     raise exception 'gem_price_set: p_shop_id และ p_item_id จำเป็น' using errcode = '22023';
@@ -2005,7 +2071,14 @@ begin
   if v_item.merged_into is not null then
     raise exception 'รายการนี้ถูกรวมแล้ว — ตั้งราคาที่รายการปลายทาง' using errcode = '22023', hint = 'gem_merged_locked';
   end if;
-  select exists (select 1 from analytics.gem_item_price p where p.gem_item_id = p_item_id and p.effective_from = v_eff) into v_had;
+  select * into v_old from analytics.gem_item_price p where p.gem_item_id = p_item_id and p.effective_from = v_eff for update;
+  v_had := v_old.gem_item_id is not null;
+  -- 🔴 audit (security M1): แก้ทับวันเดิม หรือวันที่มีผลย้อนหลัง (< วันนี้ไทย) = ต้องมี note ที่มีตัวอักษรจริง (whitelist) — ราคาต้นทุนย้อนหลังแก้เงียบๆ ไม่ได้
+  if (v_had or v_eff < v_today) and (v_note is null or not analytics.oem_note_present(v_note)) then
+    raise exception 'แก้ราคาทับวันเดิม หรือตั้งราคาย้อนหลัง ต้องระบุหมายเหตุ (เหตุผลที่แก้)' using errcode = '22023', hint = 'note_required';
+  end if;
+  insert into analytics.gem_item_price_audit (shop_id, gem_item_id, effective_from, action, old_price, new_price, old_supplier, new_supplier, note, actor)
+  values (p_shop_id, p_item_id, v_eff, case when v_had then 'update' else 'insert' end, v_old.price_thb_per_unit, p_price, v_old.supplier, v_sup, v_note, p_actor);
   insert into analytics.gem_item_price as p (gem_item_id, shop_id, effective_from, price_thb_per_unit, supplier, note, updated_by)
   values (p_item_id, p_shop_id, v_eff, p_price, v_sup, v_note, p_actor)
   on conflict (gem_item_id, effective_from) do update
@@ -2032,7 +2105,10 @@ begin
   return jsonb_build_object('gem_item_id', p_item_id,
     'rows', (select coalesce(jsonb_agg(jsonb_build_object('effective_from', p.effective_from, 'price', p.price_thb_per_unit, 'supplier', p.supplier, 'note', p.note,
                                                           'updated_by', p.updated_by, 'updated_at', p.updated_at) order by p.effective_from desc), '[]'::jsonb)
-               from analytics.gem_item_price p where p.gem_item_id = p_item_id));
+               from analytics.gem_item_price p where p.gem_item_id = p_item_id),
+    'audit', (select coalesce(jsonb_agg(jsonb_build_object('action', a.action, 'effective_from', a.effective_from, 'old_price', a.old_price, 'new_price', a.new_price,
+                                                          'note', a.note, 'actor', a.actor, 'recorded_at', a.recorded_at) order by a.recorded_at desc, a.id), '[]'::jsonb)
+               from analytics.gem_item_price_audit a where a.shop_id = p_shop_id and a.gem_item_id = p_item_id));
 end;
 $f$;
 
@@ -2985,7 +3061,7 @@ $f$;
 create or replace view analytics.v_product_gem_bom as
 select b.shop_id, b.product_id, p.sku, p.name as product_name, b.line_seq, b.gem_item_id,
        t.name as type_name, s.name as shape_name, s.has_length, i.size_a, i.size_b, i.size_label,
-       analytics.gem_label_compose(t.name, s.name, i.size_label) as gem_label,
+       (t.name || ' · ' || s.name || ' · ' || i.size_label || ' มม.') as gem_label,   -- ไม่เรียกฟังก์ชันของ schema: service_role อ่านวิวได้ (security M2)
        b.qty_per_piece, b.position_note, i.is_active as item_active
   from analytics.product_gem_bom b
   join public.product p on p.id = b.product_id
@@ -3000,7 +3076,8 @@ select g.shop_id, g.job_id, j.job_no, j.status as job_status, j.qty_planned, g.l
        (select s2.status from analytics.job_stage s2 where s2.job_id = j.id and s2.stage_code = 'gem_set' limit 1) as gem_set_status
   from analytics.job_gem_bom g
   join analytics.job j on j.id = g.job_id and j.shop_id = g.shop_id
-  join analytics.gem_item ci on ci.id = analytics.gem_item_canonical(g.gem_item_id) and ci.shop_id = g.shop_id
+  join analytics.gem_item gi on gi.id = g.gem_item_id and gi.shop_id = g.shop_id
+  join analytics.gem_item ci on ci.id = coalesce(gi.merged_into, gi.id) and ci.shop_id = g.shop_id   -- ห่วงโซ่ merged_into ถูกยุบเหลือชั้นเดียวเสมอ (security M2: ไม่เรียก gem_item_canonical ในวิว)
   join analytics.gem_type t on t.id = ci.gem_type_id and t.shop_id = ci.shop_id
   join analytics.gem_shape s on s.id = ci.gem_shape_id and s.shop_id = ci.shop_id;
 
@@ -3018,9 +3095,9 @@ $s$;
 
 -- ============================================================================
 -- 10. สิทธิ์ — service_role เท่านั้น (migration-traps ข้อ 2, 7, 18) · ปิดทุกอย่างก่อนแล้วเปิดเฉพาะที่ตั้งใจ
---     🔴 gem_item_price: ไม่มี role ไหนอ่านตรง (ราคา = ต้นทุน) — อ่านผ่าน RPC ออฟฟิศ 3 ตัวที่ตรวจ actor owner/admin เท่านั้น
+--     🔴 gem_item_price: ไม่ให้ role ฝั่งแอป (anon/authenticated/service_role) อ่านตรง (ราคา = ต้นทุน) — อ่านผ่าน RPC ออฟฟิศ 3 ตัวที่ตรวจ actor owner/admin เท่านั้น
 -- ============================================================================
-revoke all on analytics.gem_shape, analytics.gem_type, analytics.gem_item, analytics.gem_item_price, analytics.gem_catalog_event,
+revoke all on analytics.gem_shape, analytics.gem_type, analytics.gem_item, analytics.gem_item_price, analytics.gem_item_price_audit, analytics.gem_catalog_event,
               analytics.product_gem_bom, analytics.job_gem_bom, analytics.v_product_gem_bom, analytics.v_job_gem_requirement
   from public, anon, authenticated, service_role;
 grant select on analytics.gem_shape, analytics.gem_type, analytics.gem_item, analytics.gem_catalog_event,
@@ -3070,7 +3147,9 @@ end;
 $g$;
 
 comment on table analytics.gem_item_price is
-  '0190: ราคาพลอยต่อเม็ด (THB · ทศนิยม ≤ 4) = ต้นทุน — ไม่มี role ไหนอ่านตรง · อ่าน/เขียนผ่าน gem_catalog_list / gem_price_set / gem_price_history เท่านั้น (ตรวจ actor owner/admin) · ห้าม join จาก RPC ช่าง/ผู้จัดการ/resolve/print';
+  '0190: ราคาพลอยต่อเม็ด (THB · ทศนิยม ≤ 4) = ต้นทุน — ไม่ให้ role ฝั่งแอป (anon/authenticated/service_role) อ่านตรง · อ่าน/เขียนผ่าน gem_catalog_list / gem_price_set / gem_price_history เท่านั้น (ตรวจ actor owner/admin) · ห้าม join จาก RPC ช่าง/ผู้จัดการ/resolve/print';
+comment on table analytics.gem_item_price_audit is
+  '0190: audit การแก้ราคาพลอย (old/new/note/actor) — append-only · เขียนโดย gem_price_set เท่านั้น · อ่านผ่าน gem_price_history · สิทธิ์ชุดเดียวกับ gem_item_price';
 comment on table analytics.job_gem_bom is
   '0190: พลอยต่อใบงาน (ใบแม่) — gem_label = snapshot ณ ตอนสั่ง (merge/rename ไม่แตะ) · qty_total คำนวณตอนอ่าน = qty_per_piece × job.qty_planned · แก้ผ่าน job_gem_bom_replace_core เท่านั้น (ใบ done/cancelled แก้ไม่ได้)';
 comment on table analytics.product_gem_bom is
@@ -3145,9 +3224,9 @@ begin
     raise exception '0190: แถวเดิมขยับในตาราง: %', v_changed;
   end if;
   -- (4) golden: job_source_info ของทุกรายการจริง (OEM + ใบผลิต) เท่าเดิมเมื่อไม่มีแม่แบบพลอย (ตัด key ใหม่ gem_template_count ที่ต้องเป็น 0) — error ก็ต้องเหมือนเดิม
-  for r in select kind, item_id, shop_id, res from _m190_src loop
+  -- รันซ้ำ (ฟังก์ชันเป็นฉบับ 0190 อยู่แล้ว) → baseline มี key gem_template_count แล้ว: ตัดออกจากทั้งสองฝั่งก่อนเทียบ · เช็ค "แม่แบบ = 0" เฉพาะรอบแรก (รอบหลังมีแม่แบบจริงได้ ขั้นฝังที่เสนอก็เปลี่ยนตามอย่างตั้งใจ — baseline รอบหลังจึงเท่ากับผลปัจจุบันเสมอ)
+  for r in select kind, item_id, shop_id, case when res like 'ERR:%' then res else ((res::jsonb) - 'gem_template_count')::text end as res from _m190_src loop
     begin
-      v_cur := analytics.job_source_info(r.shop_id, r.kind, r.item_id)::text;
       if (analytics.job_source_info(r.shop_id, r.kind, r.item_id) ->> 'gem_template_count') is distinct from '0' then
         v_tpl_nonzero := v_tpl_nonzero + 1;
       end if;
@@ -3159,11 +3238,11 @@ begin
       raise exception '0190: golden job_source_info เปลี่ยน (% %): ก่อน % · หลัง %', r.kind, r.item_id, left(r.res, 300), left(v_cur, 300);
     end if;
   end loop;
-  if v_tpl_nonzero > 0 then
+  if v_tpl_nonzero > 0 and (select first from _m190_first) then
     raise exception '0190: gem_template_count ต้องเป็น 0 ทุกรายการ (ยังไม่มีแม่แบบพลอย) แต่พบ % รายการ', v_tpl_nonzero;
   end if;
-  -- (5) ตารางใหม่: RLS เปิด ไม่มี policy · ไม่มีสิทธิ์ anon/authenticated · ราคาไม่มี role ไหนอ่านตรง · trigger ครบ
-  foreach v_tbl in array array['gem_shape', 'gem_type', 'gem_item', 'gem_item_price', 'gem_catalog_event', 'product_gem_bom', 'job_gem_bom'] loop
+  -- (5) ตารางใหม่: RLS เปิด ไม่มี policy · ไม่มีสิทธิ์ anon/authenticated · ราคาไม่ให้ role ฝั่งแอป (anon/authenticated/service_role) อ่านตรง · trigger ครบ
+  foreach v_tbl in array array['gem_shape', 'gem_type', 'gem_item', 'gem_item_price', 'gem_item_price_audit', 'gem_catalog_event', 'product_gem_bom', 'job_gem_bom'] loop
     if not (select c.relrowsecurity from pg_class c where c.oid = ('analytics.' || v_tbl)::regclass)
        or exists (select 1 from pg_policy where polrelid = ('analytics.' || v_tbl)::regclass) then
       raise exception '0190: % ต้องเปิด RLS และไม่มี policy', v_tbl;
@@ -3174,8 +3253,11 @@ begin
       raise exception '0190: สิทธิ์ % ผิด (ต้อง service_role select อย่างเดียว)', v_tbl;
     end if;
   end loop;
+  if has_table_privilege('service_role', 'analytics.gem_item_price_audit', 'select') or has_table_privilege('authenticated', 'analytics.gem_item_price_audit', 'select') or has_table_privilege('anon', 'analytics.gem_item_price_audit', 'select') then
+    raise exception '0190: gem_item_price_audit ต้องไม่มีสิทธิ์อ่านตรงของ role ฝั่งแอป';
+  end if;
   if has_table_privilege('service_role', 'analytics.gem_item_price', 'select') or has_table_privilege('service_role', 'analytics.gem_item_price', 'references') then
-    raise exception '0190: gem_item_price ต้องไม่มี role ไหนอ่านตรง (รวม service_role)';
+    raise exception '0190: gem_item_price ต้องไม่ให้ role ฝั่งแอป (anon/authenticated/service_role) อ่านตรง (รวม service_role)';
   end if;
   if has_table_privilege('anon', 'analytics.v_job_gem_requirement', 'select') or has_table_privilege('authenticated', 'analytics.v_job_gem_requirement', 'select')
      or has_table_privilege('anon', 'analytics.v_product_gem_bom', 'select') or has_table_privilege('authenticated', 'analytics.v_product_gem_bom', 'select') then
@@ -3196,7 +3278,7 @@ begin
   if v_bad > 0 then
     raise exception '0190: มีร้าน % ร้านที่รูปทรง seed ไม่ครบ 12', v_bad;
   end if;
-  if exists (select 1 from analytics.gem_type) or exists (select 1 from analytics.gem_item) or exists (select 1 from analytics.gem_item_price) or exists (select 1 from analytics.job_gem_bom) or exists (select 1 from analytics.product_gem_bom) then
+  if (select first from _m190_first) and (exists (select 1 from analytics.gem_type) or exists (select 1 from analytics.gem_item) or exists (select 1 from analytics.gem_item_price) or exists (select 1 from analytics.job_gem_bom) or exists (select 1 from analytics.product_gem_bom) or exists (select 1 from analytics.gem_item_price_audit)) then
     raise exception '0190: ต้องไม่มีชนิด/รายการ/ราคา/BOM หลัง apply (ไม่ seed)';
   end if;
   -- (7) trigger guard ครบ

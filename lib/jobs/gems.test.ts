@@ -4,7 +4,7 @@ import { EVENT_TYPE_LABEL, mapJobDetail, summarizeEvent } from "./types";
 import { toPrintableJob } from "./print";
 import { findForbiddenKeys } from "./worker-view";
 import { OFFICE_HINT_TH, officeErrorMessage } from "./messages";
-import { GEM_ERROR_TH, GEM_HINTS, mapGemCatalog, mapGemOptions, mapGemSaveSummary, mapJobGems, parseGemRpcError, toWireGemLines } from "./gems";
+import { GEM_ERROR_TH, GEM_HINTS, mapGemPriceHistory, mapGemCatalog, mapGemOptions, mapGemSaveSummary, mapJobGems, parseGemRpcError, toWireGemLines } from "./gems";
 
 const U = (n: number) => `${String(n).padStart(8, "0")}-0000-4000-8000-000000000000`;
 
@@ -136,6 +136,34 @@ describe("PrintableJob.gems — ประกอบทีละ field · ไม�
   });
   it("unspecified ผ่านเป็น state (ใบพิมพ์ขึ้นเตือน)", () => {
     expect(toPrintableJob(job, [], null, { state: "unspecified", gems: [] }).gemsState).toBe("unspecified");
+  });
+});
+
+describe("ประวัติราคา + audit (0190 security M1)", () => {
+  it("history = rows + audit (old/new/note/actor) · แถว audit ผิดรูป (action แปลก/ไม่มีวันที่) ถูกทิ้ง · รูปไม่ถูกต้อง = null", () => {
+    const h = mapGemPriceHistory({
+      rows: [{ effective_from: "2026-10-22", price: 7391.2468, supplier: null, note: "x", updated_at: "2026-10-22T00:00:00Z" }],
+      audit: [
+        { action: "update", effective_from: "2026-10-22", old_price: 5555.1111, new_price: 7391.2468, note: "แก้ราคาจริง", actor: U(9), recorded_at: "2026-10-22T01:00:00Z" },
+        { action: "insert", effective_from: "2026-10-22", old_price: null, new_price: 5555.1111, note: null, actor: U(9), recorded_at: "2026-10-22T00:00:00Z" },
+        { action: "delete", effective_from: "2026-10-22", new_price: 1 },
+        { action: "update", new_price: 1 },
+      ],
+    })!;
+    expect(h.rows).toHaveLength(1);
+    expect(h.audit).toEqual([
+      { action: "update", effectiveFrom: "2026-10-22", oldPrice: 5555.1111, newPrice: 7391.2468, note: "แก้ราคาจริง", actor: U(9), recordedAt: "2026-10-22T01:00:00Z" },
+      { action: "insert", effectiveFrom: "2026-10-22", oldPrice: null, newPrice: 5555.1111, note: null, actor: U(9), recordedAt: "2026-10-22T00:00:00Z" },
+    ]);
+    expect(mapGemPriceHistory({ rows: "x" })).toBeNull();
+    expect(mapGemPriceHistory({ rows: [] })).toEqual({ rows: [], audit: [] });
+  });
+  it("hint ใหม่ note_required / gem_merge_blocked อยู่ใน GEM_HINTS และมีข้อความไทย", () => {
+    for (const h of ["note_required", "gem_merge_blocked"]) {
+      expect(GEM_HINTS.has(h)).toBe(true);
+      expect(GEM_ERROR_TH[h]).toMatch(/[ก-๛]/);
+    }
+    expect(parseGemRpcError({ code: "22023", hint: "note_required", message: "x" })).toEqual({ code: "note_required" });
   });
 });
 

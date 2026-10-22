@@ -2,7 +2,7 @@
 //  - toWireGemLines: แถวพลอยจาก client (camelCase · ไม่น่าเชื่อ) → แถวส่ง RPC (snake_case) ผ่าน allowlist เข้ม — key แปลก (price · cost ฯลฯ) = ปฏิเสธ ไม่ถูกทิ้งเงียบ (DB ปฏิเสธซ้ำ line_invalid)
 //  - parseGemRpcError: error ของ RPC พลอย (22023 + hint + detail json) → {code, row, field, similar[]} ให้หน้าจอพากลับแถว/ช่องที่ผิด · รูปร่างตรวจเข้ม (detail มาจาก DB แต่ผ่านด่านซ้ำ)
 //  - mapper ของผลลัพธ์: ไม่มีราคาในทุก type ยกเว้น GemCatalogItem (หน้า /oem/gems — ออฟฟิศ owner/admin เท่านั้น)
-// 🔴 ราคาพลอย = ต้นทุน: type อื่นนอกจาก GemCatalogItem/GemPriceRow ห้ามมีฟิลด์ราคา (เทสต์ gems.test.ts ล็อก key)
+// 🔴 ราคาพลอย = ต้นทุน: type อื่นนอกจาก GemCatalogItem/GemPriceRow/GemPriceAuditRow ห้ามมีฟิลด์ราคา (เทสต์ gems.test.ts ล็อก key)
 
 export const GEM_KINDS = ["type", "shape", "item"] as const;
 export type GemKind = (typeof GEM_KINDS)[number];
@@ -129,7 +129,7 @@ export interface GemErrorInfo {
 export const GEM_HINTS: ReadonlySet<string> = new Set([
   "line_invalid", "lines_invalid", "too_many_lines", "qty_invalid", "size_invalid", "size_required", "size_b_required", "size_b_unexpected", "size_b_mismatch",
   "type_required", "shape_required", "gem_type_invalid", "gem_shape_invalid", "gem_item_invalid", "gem_inactive", "name_invalid", "gem_name_invalid", "shape_new_invalid", "position_invalid",
-  "gem_similar", "name_exists", "reason_required", "reason_invalid", "gem_in_use", "gem_merged_locked", "gem_merge_self", "gem_merge_from_merged", "gem_merge_into_merged",
+  "gem_similar", "name_exists", "reason_required", "reason_invalid", "note_required", "gem_merge_blocked", "gem_in_use", "gem_merged_locked", "gem_merge_self", "gem_merge_from_merged", "gem_merge_into_merged",
   "gem_merge_into_inactive", "gem_merge_invalid", "has_length_mismatch", "has_length_locked", "merge_qty_overflow", "price_invalid", "date_invalid", "text_invalid",
   "gem_actor_forbidden", "gem_not_found", "no_product", "lot_no_gems", "gem_product_invalid", "gem_ref_inactive", "kind_invalid",
 ]);
@@ -169,6 +169,8 @@ export const GEM_ERROR_TH: Record<string, string> = {
   has_length_mismatch: "รวมรูปทรงที่ใส่ขนาดจำนวนค่าต่างกันไม่ได้ (1 ค่า กับ 2 ค่า)",
   has_length_locked: "แก้จำนวนค่าขนาดของรูปทรงนี้ไม่ได้ — มีรายการพลอยใช้อยู่แล้ว",
   merge_qty_overflow: "รวมแล้วแม่แบบ SKU บางตัวมีจำนวนต่อชิ้นเกิน 1,000 — แก้แม่แบบเหล่านั้นก่อนรวม",
+  note_required: "แก้ราคาทับวันเดิม หรือตั้งราคาย้อนหลัง ต้องระบุหมายเหตุ (เหตุผลที่แก้)",
+  gem_merge_blocked: "รวมชื่อไม่ได้ — มีรายการที่ติดเงื่อนไข ตรวจรายการนั้นก่อนรวม",
   price_invalid: "ราคาต้องเป็นตัวเลขมากกว่า 0 และไม่เกิน 1,000,000 บาท (ทศนิยมไม่เกิน 4 ตำแหน่ง)",
   date_invalid: "วันที่มีผลต้องอยู่ระหว่างปี 2020 ถึงไม่เกิน 1 ปีข้างหน้า",
   text_invalid: "ผู้ขาย/หมายเหตุต้องมีตัวอักษรหรือตัวเลขจริง และห้ามมีเครื่องหมาย < >",
@@ -469,14 +471,37 @@ export interface GemPriceRow {
   updatedAt: string | null;
 }
 
-export function mapGemPriceHistory(raw: unknown): GemPriceRow[] | null {
+/** audit การแก้ราคา (old/new/note/actor) — append-only ที่ DB · 🔴 ราคา = ต้นทุน: ใช้เฉพาะหน้า /oem/gems (owner/admin) */
+export interface GemPriceAuditRow {
+  action: "insert" | "update";
+  effectiveFrom: string;
+  oldPrice: number | null;
+  newPrice: number;
+  note: string | null;
+  actor: string | null;
+  recordedAt: string | null;
+}
+
+export interface GemPriceHistory {
+  rows: GemPriceRow[];
+  audit: GemPriceAuditRow[];
+}
+
+export function mapGemPriceHistory(raw: unknown): GemPriceHistory | null {
   if (!isObj(raw) || !Array.isArray(raw.rows)) return null;
-  return raw.rows.flatMap((r): GemPriceRow[] => {
+  const rows = raw.rows.flatMap((r): GemPriceRow[] => {
     if (!isObj(r)) return [];
     const d = str(r.effective_from, 10);
     const p = num(r.price);
     return d && p !== null ? [{ effectiveFrom: d, price: p, supplier: str(r.supplier, 120), note: str(r.note, 300), updatedAt: str(r.updated_at, 40) }] : [];
   }).slice(0, 500);
+  const audit = (Array.isArray(raw.audit) ? raw.audit : []).flatMap((a): GemPriceAuditRow[] => {
+    if (!isObj(a) || (a.action !== "insert" && a.action !== "update")) return [];
+    const d = str(a.effective_from, 10);
+    const np = num(a.new_price);
+    return d && np !== null ? [{ action: a.action, effectiveFrom: d, oldPrice: num(a.old_price), newPrice: np, note: str(a.note, 300), actor: uuid(a.actor), recordedAt: str(a.recorded_at, 40) }] : [];
+  }).slice(0, 500);
+  return { rows, audit };
 }
 
 export interface GemMergePlan {

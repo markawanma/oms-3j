@@ -2,7 +2,7 @@
 
 // lib/actions/gems.ts — พลอย G1a (ออฟฟิศ owner/admin): แคตตาล็อก · ราคา · รวมชื่อ · แม่แบบ SKU · พลอยต่อใบ
 // guard() บรรทัดแรกทุก action · p_shop_id/p_actor ใส่ฝั่ง server หลัง spread (callOffice) · ตรวจรูปร่าง input ก่อนถึง DB · DB (migration 0190) เป็นด่านจริง — ตรวจ actor owner/admin ซ้ำที่ RPC ราคา/แคตตาล็อก
-// 🔴 ราคาพลอย = ต้นทุน: อ่าน/เขียนผ่าน getGemCatalog · setGemPrice · getGemPriceHistory เท่านั้น — action อื่นไม่คืนราคา · หน้าช่าง (/w/) ห้าม import ไฟล์นี้ (worker-boundary.test)
+// 🔴 ราคาพลอย = ต้นทุน (ไม่ให้ role ฝั่งแอปอ่านตารางราคา/audit ตรง — role ระดับแพลตฟอร์มอ่านได้ คุมที่องค์กร): อ่าน/เขียนผ่าน getGemCatalog · setGemPrice · getGemPriceHistory เท่านั้น — action อื่นไม่คืนราคา · หน้าช่าง (/w/) ห้าม import ไฟล์นี้ (worker-boundary.test)
 // ข้อผิดพลาดของแถวพลอย/ตัวดักชื่อคล้ายพา gem {code,row,field,similar[]} กลับไปด้วย (result.gem) ให้หน้าจอพากลับแถวที่ผิด
 // ไฟล์ "use server": export ได้เฉพาะ async function
 
@@ -12,7 +12,7 @@ import { callOffice, fail, guard } from "@/lib/jobs/office-server";
 import type { JobResult } from "@/lib/jobs/office-server";
 import { GENERIC_JOB_ERROR } from "@/lib/jobs/messages";
 import { GEM_KINDS, mapGemCatalog, mapGemMergePlan, mapGemOptions, mapGemPriceHistory, mapGemSaveSummary, mapJobGems, mapGemBomLine, toWireGemLines } from "@/lib/jobs/gems";
-import type { GemCatalog, GemKind, GemMergePlan, GemOptions, GemPriceRow, GemSaveSummary, GemBomLine, JobGems } from "@/lib/jobs/gems";
+import type { GemCatalog, GemKind, GemMergePlan, GemOptions, GemPriceHistory, GemSaveSummary, GemBomLine, JobGems } from "@/lib/jobs/gems";
 
 type Raw = Record<string, unknown>;
 const isObj = (v: unknown): v is Raw => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -173,7 +173,7 @@ export interface SetGemPriceInput {
   itemId: string;
   /** บาทต่อเม็ด (ทศนิยม ≤ 4 · 0 < x ≤ 1,000,000) */
   price: number | string;
-  /** วันที่มีผล YYYY-MM-DD (ว่าง = วันนี้ไทย) */
+  /** วันที่มีผล YYYY-MM-DD (ว่าง = วันนี้ไทย) — ย้อนหลัง (ก่อนวันนี้ไทย) หรือแก้ทับวันเดิม ต้องมี note ที่มีตัวอักษรจริง (note_required) */
   effectiveFrom?: string | null;
   supplier?: string | null;
   note?: string | null;
@@ -209,7 +209,8 @@ export async function setGemPrice(input: SetGemPriceInput): Promise<JobResult<{ 
   return { ok: true, data: { effectiveFrom: typeof d === "string" ? d.slice(0, 10) : (eff ?? ""), replaced: r.data.replaced === true } };
 }
 
-export async function getGemPriceHistory(itemId: string): Promise<JobResult<GemPriceRow[]>> {
+/** ประวัติราคา + audit การแก้ (old/new/note/actor) */
+export async function getGemPriceHistory(itemId: string): Promise<JobResult<GemPriceHistory>> {
   const g = await guard();
   if (g) return g;
   if (!isUuid(itemId)) return fail(BAD_INPUT);
