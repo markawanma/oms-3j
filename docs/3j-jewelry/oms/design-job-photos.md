@@ -242,6 +242,14 @@ server action uploadJobPhoto                                     worker-server: 
 
 ---
 
+### 10.2 มติเจ้าของ 21 ต.ค. 69 — W2 ผู้จัดการแนบรูปจากหน้างาน (implement แล้วใน migration 0189 · รายละเอียดจริง: `design-job-lots-shopfloor.md` §7.5)
+| # | มติ |
+|---|---|
+| W2-1 | รูปจากหน้างาน (source = shopfloor) **≤ 3 รูป/ใบ** · เพดาน 5 reference/ใบเดิมยังอยู่ (หน้างานใช้ได้ 3 ในนั้น) |
+| W2-2 | ผู้จัดการเพิ่ม/ลบรูปของตัวเองได้ **จนช่างเริ่มรับงาน** (มีขั้น received/sent = ล็อก) — ไม่ใช่จนออฟฟิศรับทราบ · ออฟฟิศลบรูปหน้างานได้ด้วย RPC ออฟฟิศเดิม (`removeJobPhoto` + เหตุผล) |
+| W2-3 | ไม่ใช้ signed upload URL (bucket ไม่มี storage policy · ตัด Exif/XMP ที่ server เป็น load-bearing) → server action อัปโหลดผ่าน begin → ตัด/ตรวจ → upload → add |
+| W2-4 | รูปมากับ QR: หน้าช่างเห็นรูปหลัก (signed URL 15 นาที) **หลังใส่ PIN** — คงมติ security เดิม (ก่อน PIN ไม่มีรูป) |
+
 ## 11. สิ่งที่ตัดทิ้ง (อย่าเสนอซ้ำโดยไม่มีเหตุใหม่)
 - bucket public / URL ถาวร (0105) · re-encode ฝั่ง server ด้วย `sharp` (0105 — จนกว่าจะต้องฝังรูปในอีเมลลูกค้า) · proxy route ผ่าน Next · ช่างอัปโหลดในรอบนี้ (รอ W2b/W1 ที่มี RPC ช่างแยก + rate limit `ipw:`) · link รูป SKU แทน copy · hard delete · ใส่รูปทุกใบในแถบ A5 (มีแค่รูปหลัก — จ3) · บังคับถ่ายรูป (จ4 ①)
 

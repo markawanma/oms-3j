@@ -11,7 +11,9 @@ import { useState } from "react";
 import { AlertTriangle, Info, WifiOff } from "lucide-react";
 import { IdentifyPanel } from "@/components/domain/jobs/worker/WorkerPanels";
 import { BigButton } from "@/components/domain/jobs/worker/WorkerParts";
+import { ShopMyJobsList } from "@/components/domain/jobs/worker/shop/ShopMyJobsList";
 import { intakeLogin, workerLogout } from "@/lib/actions/job-worker";
+import type { MyIntakeJob } from "@/lib/jobs/shop-photo-server";
 import type { IntakeHubView } from "@/lib/jobs/worker-server";
 
 /** สิ่งที่หน้า server ส่งให้ client — hub ปกติ · QR ใช้ไม่ได้ · โหลดล้ม */
@@ -45,6 +47,8 @@ export function ShopHub({
   onLoggedIn,
   onReload,
   onOpen,
+  onOpenJob,
+  onSessionLost,
   resumeNote,
 }: {
   token: string;
@@ -53,6 +57,10 @@ export function ShopHub({
   onLoggedIn: () => void;
   onReload: () => void;
   onOpen: () => void;
+  /** 0189 W2 (W-9): แตะการ์ด "ใบที่ฉันเปิด" → จอแก้รูป (W-10) · ไม่ส่ง = ไม่แสดงรายการ */
+  onOpenJob?: (job: MyIntakeJob) => void;
+  /** session หมดเวลาตอนโหลดรายการ → แผ่น PIN เดิม */
+  onSessionLost?: () => void;
   /** มีฟอร์มค้างอยู่ (session หมดเวลาระหว่างกรอก) — บอกว่าข้อมูลยังอยู่ */
   resumeNote?: string | null;
 }) {
@@ -162,6 +170,8 @@ export function ShopHub({
       <BigButton type="button" className="min-h-[60px]" onClick={onOpen}>
         เปิดงานใหม่
       </BigButton>
+      {/* ใช้ได้ทันทีไม่รอรายการโหลด · key ตามคน — เปลี่ยนคน = รายการของคนก่อนไม่ค้าง (กันรั่วข้ามคน) */}
+      {onOpenJob && <ShopMyJobsList key={hub.worker?.id ?? "none"} token={token} onOpenJob={onOpenJob} onSessionLost={onSessionLost ?? onReload} />}
       <NotMeButton onNotMe={() => void notMe()} busy={outBusy} tone="link" />
     </div>
   );

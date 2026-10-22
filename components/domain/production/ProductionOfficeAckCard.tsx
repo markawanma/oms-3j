@@ -20,6 +20,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { useToast } from "@/components/ui/Toast";
 import { MetalTag } from "./MetalTag";
+import { ShopPhotosStrip } from "./ShopPhotosStrip";
 
 const HELP = "ผิดโลหะ? ยกเลิกใบงานแล้วเปิดใหม่ (โลหะล็อกพร้อมใบงาน) · เนื้อ/น้ำหนักแก้ได้ที่การ์ดรายการด้านล่าง";
 
@@ -32,12 +33,15 @@ export function ProductionOfficeAckCard({
   items,
   dirty,
   onAcked,
+  photosJob = null,
 }: {
   order: Pick<ProductionOrderRow, "id" | "poNo" | "status" | "openedVia" | "openedByWorkerName" | "acknowledgedAt" | "createdAt">;
   items: readonly ProductionOrderItemRow[];
   /** มีการ์ดรายการที่แก้ค้างยังไม่บันทึก */
   dirty: boolean;
   onAcked?: () => void;
+  /** 0189 W2: ใบงานของใบผลิตนี้ (ใบผลิตหน้างาน = 1 รายการ 1 ใบงาน) — มี = แสดงแถบ "รูปจากหน้างาน" ในการ์ดเต็ม · ไม่มี = ไม่มีแถบ (การ์ดเดิมเป๊ะ) */
+  photosJob?: { jobId: string; jobNo: string } | null;
 }) {
   const toast = useToast();
   const router = useRouter();
@@ -152,6 +156,8 @@ export function ProductionOfficeAckCard({
           </tbody>
         </table>
       </div>
+
+      {photosJob && <ShopPhotosStrip jobId={photosJob.jobId} jobNo={photosJob.jobNo} openedByName={by} />}
 
       <div className="mt-3 space-y-1.5 text-sm">
         {mismatched.map((i) => (

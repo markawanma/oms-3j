@@ -26,6 +26,7 @@ import { getJobPhotos, pullJobPhotoFromCatalog, removeJobPhoto, reorderJobPhotos
 import { MAX_REFERENCE_PHOTOS } from "@/lib/images/constants";
 import type { ImageVariants } from "@/lib/images/client";
 import { GENERIC_JOB_ERROR } from "@/lib/jobs/messages";
+import { PHOTO_SOURCE_FROM_TH, photoSourceTag } from "@/lib/jobs/photos";
 import type { JobPhotoRow } from "@/lib/jobs/photos";
 
 const toView = (p: JobPhotoRow): PhotoView => ({ id: p.id, smUrl: p.smUrl, mdUrl: p.mdUrl, isPrimary: p.isPrimary, fromCatalog: p.source === "product" });
@@ -223,9 +224,9 @@ export function JobPhotosCard({
     }
   }
 
-  /** คืน null = ลบสำเร็จ · ข้อความ = ล้ม (แสดงในกล่องยืนยัน) */
-  async function confirmDelete(p: JobPhotoRow): Promise<string | null> {
-    const r = await removeJobPhoto(p.id);
+  /** คืน null = ลบสำเร็จ · ข้อความ = ล้ม (แสดงในกล่องยืนยัน) · reason มีเฉพาะรูปจากหน้างาน (บังคับเหตุผล — กล่องตรวจก่อนส่ง) · ไม่มี = เรียกเหมือนเดิมเป๊ะ */
+  async function confirmDelete(p: JobPhotoRow, reason: string | null): Promise<string | null> {
+    const r = reason === null ? await removeJobPhoto(p.id) : await removeJobPhoto(p.id, reason);
     if (!r.ok) return r.error;
     const at = list.findIndex((x) => x.id === p.id);
     const promoted = r.data.promotedPhotoId;
@@ -256,6 +257,9 @@ export function JobPhotosCard({
   const viewerIdx = viewerId ? list.findIndex((p) => p.id === viewerId) : -1;
   const deleting = deleteId ? list.find((p) => p.id === deleteId) : undefined;
   const canPull = sku !== null && photos !== null && remaining > 0 && !list.some((p) => p.source === "product");
+  // 0189 W2: ใบมีรูปจากหน้างาน + ที่มาอื่นปนกัน = ป้ายที่มาต่อภาพ (ออฟฟิศต้องแยกรูปของผู้จัดการออกจากรูปที่ตัวเองถ่าย) · ไม่มีรูปหน้างาน = พฤติกรรมเดิม (ป้าย "จากแคตตาล็อก" อย่างเดียว)
+  const mixedSources = list.some((p) => p.source === "shopfloor") && new Set(list.map((p) => p.source)).size > 1;
+  const tagOf = (p: JobPhotoRow) => (mixedSources ? photoSourceTag(p.source) : null);
 
   const inflight = up.items.filter((i) => i.phase !== "error").length;
   const failed = up.items.length - inflight;
@@ -352,7 +356,8 @@ export function JobPhotosCard({
                     size="tile"
                     isPrimary={p.isPrimary}
                     fromCatalog={p.source === "product"}
-                    label={`รูปที่ ${i + 1} จาก ${list.length} · ${p.isPrimary ? "รูปหลัก · " : ""}แตะเพื่อดู${p.source === "product" ? " · จากแคตตาล็อก" : ""}`}
+                    sourceTag={tagOf(p)}
+                    label={`รูปที่ ${i + 1} จาก ${list.length} · ${p.isPrimary ? "รูปหลัก · " : ""}แตะเพื่อดู${tagOf(p) ? ` · ${PHOTO_SOURCE_FROM_TH[photoSourceTag(p.source)]}` : p.source === "product" ? " · จากแคตตาล็อก" : ""}`}
                     onClick={() => setViewerId(p.id)}
                     onRetryLoad={(r) => void refreshUrls(r)}
                   />
@@ -387,7 +392,15 @@ export function JobPhotosCard({
         />
       )}
       {deleting && (
-        <JobPhotoDeleteDialog jobNo={jobNo} count={list.length} isPrimary={deleting.isPrimary} fromCatalog={deleting.source === "product"} onConfirm={() => confirmDelete(deleting)} onCancel={() => setDeleteId(null)} />
+        <JobPhotoDeleteDialog
+          jobNo={jobNo}
+          count={list.length}
+          isPrimary={deleting.isPrimary}
+          fromCatalog={deleting.source === "product"}
+          requireReason={deleting.source === "shopfloor"}
+          onConfirm={(reason) => confirmDelete(deleting, reason)}
+          onCancel={() => setDeleteId(null)}
+        />
       )}
     </section>
   );

@@ -6,6 +6,14 @@ import { JOB_PHOTO_CAPTION_MAX, MAX_JOB_PHOTOS, MAX_REFERENCE_PHOTOS } from "@/l
 
 export type JobPhotoSource = "office" | "shopfloor" | "product";
 
+/** ที่มาของรูปที่แสดงเป็นป้าย (0189 W2): หน้างาน = ผู้จัดการแนบผ่านมือถือ · ออฟฟิศ · แคตตาล็อก (รูปจาก SKU) — ที่เดียวของการแปลง source → ป้าย/คำ ใช้ร่วมการ์ดหน้าใบงานและแถบ OfficeAck */
+export type PhotoSourceTag = "shopfloor" | "office" | "catalog";
+export const photoSourceTag = (s: JobPhotoSource): PhotoSourceTag => (s === "shopfloor" ? "shopfloor" : s === "product" ? "catalog" : "office");
+/** ป้ายบนภาพ (สั้น) */
+export const PHOTO_SOURCE_TAG_TH: Record<PhotoSourceTag, string> = { shopfloor: "หน้างาน", office: "ออฟฟิศ", catalog: "แคตตาล็อก" };
+/** ใช้ต่อท้าย aria-label ของภาพ */
+export const PHOTO_SOURCE_FROM_TH: Record<PhotoSourceTag, string> = { shopfloor: "จากหน้างาน", office: "จากออฟฟิศ", catalog: "จากแคตตาล็อก" };
+
 export interface JobPhotoRow {
   id: string;
   /** signed URL ของรูปย่อ (sm 480px) · null = เซ็นไม่สำเร็จ (UI แสดงไอคอนพัง + ปุ่มโหลดใหม่) */
@@ -77,6 +85,8 @@ export const JOB_PHOTO_ERROR_TH: Record<string, string> = {
   photo_not_yet: "ยังไม่เปิดใช้รูปชนิดนี้",
   caption_invalid: `ป้ายรูปไม่ถูกต้อง — ห้ามขึ้นบรรทัดใหม่/อักขระล่องหน และยาวไม่เกิน ${JOB_PHOTO_CAPTION_MAX} ตัวอักษร`,
   reason_invalid: "เหตุผลที่ลบมีอักขระที่ไม่อนุญาตหรือยาวเกินไป",
+  // 0189: รูปที่ผู้จัดการแนบจากหน้างาน ออฟฟิศลบต้องระบุเหตุผล (DB บังคับที่ job_photo_remove)
+  reason_required: "รูปนี้ผู้จัดการแนบจากหน้างาน — ต้องระบุเหตุผลที่ลบ (อย่างน้อย 2 ตัวอักษร)",
 };
 
 export const JOB_PHOTO_GENERIC_ERROR = "ทำรายการกับรูปไม่สำเร็จ ลองใหม่อีกครั้ง";

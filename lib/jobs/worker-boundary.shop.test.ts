@@ -80,6 +80,29 @@ describe("หน้า /w/s/<shopToken> — กราฟ import ทั้งเ�
     expect(rels.filter((r) => r.startsWith("lib/actions/"))).toEqual(["lib/actions/job-worker.ts"]);
   });
 
+  // 0189 W2: ทางแนบรูปจากหน้างาน "เขียน storage" — กราฟ static ของหน้านี้ต้องไม่ลากโค้ดตัด Exif ฝั่ง server (lib/images/server: โหลดด้วย dynamic import ใน shop-photo-server เท่านั้น)
+  // และ lib/images/client (ย่อรูปด้วย canvas · browser-only) ผ่อนให้แคบที่สุด: เฉพาะไฟล์ใน allowlist ด้านล่างเท่านั้นที่ import ได้ (ไฟล์ UI ใหม่ที่ต้องใช้จริง — เพิ่มชื่อที่นี่ทีละไฟล์พร้อมเหตุผล)
+  // 0189 W2 UI: ไฟล์เดียวที่ย่อรูปในเบราว์เซอร์ = hook ของรูปจากหน้างาน (component อื่น/lib/jobs/shop-photos.ts รับรูปที่ย่อแล้วหรือจับ error ด้วยชื่อ class — ไม่ import client)
+  const IMAGES_CLIENT_ALLOWED_IMPORTERS: string[] = ["components/domain/jobs/worker/shop/useShopPhotos.ts"];
+  it("W2: กราฟ static ไม่มี lib/images/server · มีชั้น shop-photo-server + job-photo-storage (กันเทสต์ว่างเปล่า)", () => {
+    expect(rels).toContain("lib/jobs/shop-photo-server.ts");
+    expect(rels).toContain("lib/images/job-photo-storage.ts");
+    expect(rels).not.toContain("lib/images/server.ts");
+  });
+  it("W2: lib/images/client อยู่ในกราฟได้เฉพาะผ่านไฟล์ใน allowlist (แคบสุด = useShopPhotos.ts ไฟล์เดียว)", () => {
+    expect(IMAGES_CLIENT_ALLOWED_IMPORTERS).toEqual(["components/domain/jobs/worker/shop/useShopPhotos.ts"]);
+    for (const f of files) {
+      if (!/\.(ts|tsx)$/.test(f)) continue;
+      const imports = runtimeImports(readFileSync(f, "utf8")).map((spec) => resolveSpec(spec, f)).filter((x): x is string => x !== null).map(norm);
+      if (imports.some((x) => x.startsWith("lib/images/client"))) expect(IMAGES_CLIENT_ALLOWED_IMPORTERS, `${norm(f)} import lib/images/client`).toContain(norm(f));
+    }
+  });
+  it("W2: lib/images/server ถูกโหลดแบบ dynamic import เท่านั้น (ไม่มี static import ที่ไหนในไฟล์ของ shop-photo-server)", () => {
+    const src = readFileSync(join(ROOT, "lib", "jobs", "shop-photo-server.ts"), "utf8");
+    expect(runtimeImports(src).some((s) => s.startsWith("@/lib/images/server"))).toBe(false);
+    expect(src).toMatch(/await import\("@\/lib\/images\/server"\)/);
+  });
+
   it("ตัวจับกราฟทำงานจริง: จำลองไฟล์ที่ import production จะถูกจับ", () => {
     // ตรวจที่ตัวแยก import เอง (ไม่เขียนไฟล์ลง repo): `import type` ไม่นับ · import ธรรมดานับ
     expect(runtimeImports(`import type { X } from "@/lib/production/types";`)).toEqual([]);
@@ -114,5 +137,36 @@ describe("โฟลเดอร์ shop + shop-open.ts — ไม่มีเร
     const hits = code.split("\n").filter((l) => MONEY.test(l));
     expect(hits.length).toBe(1);
     expect(hits[0]).toMatch(/\.test\(t\)/);
+  });
+});
+
+// 0189 W2 UI: หน้าช่าง /w/<token> ขยายรูปหลักใหญ่บนหัวจอ — เป็นการ "แสดงผล" ล้วน (ภาพ md ที่ server เซ็นมาแล้ว): กราฟต้องไม่ลากโค้ดย่อรูป/ตัด Exif/อัปโหลดเข้ามา และไม่แตะโมดูลออฟฟิศ
+describe("หน้า /w/<token> — กราฟ import ทั้งเส้น (transitive) หลังขยายรูปหลัก", () => {
+  const files = closure(join(ROOT, "app", "(worker)", "w", "[token]", "page.tsx"));
+  const rels = [...files].map(norm);
+
+  it("พบหน้า + WorkerApp + ภาพย่อ/viewer ในกราฟ (กันเทสต์ว่างเปล่า)", () => {
+    expect(rels).toContain("app/(worker)/w/[token]/page.tsx");
+    expect(rels).toContain("components/domain/jobs/worker/WorkerApp.tsx");
+    expect(rels).toContain("components/domain/jobs/photos/JobPhotoThumb.tsx");
+    expect(rels).toContain("components/domain/jobs/photos/JobPhotoViewer.tsx");
+  });
+  it("ไม่มีโมดูลใบผลิต/OEM/แคตตาล็อก/ออฟฟิศ/session แอป ในกราฟ · 'use server' = job-worker ไฟล์เดียว", () => {
+    for (const r of rels) for (const p of FORBIDDEN_PREFIX) expect(r.startsWith(p), `${r} อยู่ในกราฟสาธารณะ — ห้าม (${p})`).toBe(false);
+    const servers = [...files].filter((f) => /\.(ts|tsx)$/.test(f) && /^\s*["']use server["']/m.test(readFileSync(f, "utf8"))).map(norm);
+    expect(servers).toEqual(["lib/actions/job-worker.ts"]);
+    expect(rels.filter((r) => r.startsWith("lib/actions/"))).toEqual(["lib/actions/job-worker.ts"]);
+  });
+  it("🔴 ไม่ลาก lib/images/client (ย่อรูปด้วย canvas) และ lib/images/server (ตัด Exif) เข้ากราฟ static — รูปหลักใหญ่เป็นการแสดงผลล้วน", () => {
+    expect(rels.some((r) => r.startsWith("lib/images/client"))).toBe(false);
+    expect(rels).not.toContain("lib/images/server.ts");
+  });
+  it("รูปหลักใหญ่ = JobPhotoThumb size hero · สูงจำกัดด้วย min(vh, rem) (ไม่ใช่ค่าตายตัว) และใช้ภาพกลาง md", () => {
+    const thumb = readFileSync(join(ROOT, "components", "domain", "jobs", "photos", "JobPhotoThumb.tsx"), "utf8");
+    expect(thumb).toMatch(/hero:\s*"[^"]*h-\[min\(30vh,13rem\)\][^"]*w-full/);
+    const app = readFileSync(join(ROOT, "components", "domain", "jobs", "worker", "WorkerApp.tsx"), "utf8");
+    expect(app).toMatch(/size="hero"/);
+    expect(app).toMatch(/photos\[0\]\.mdUrl \?\? photos\[0\]\.smUrl/);
+    expect(app).not.toMatch(/size=\{80\}/);
   });
 });

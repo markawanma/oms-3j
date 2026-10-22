@@ -27,6 +27,17 @@ vi.mock("@/lib/actions/production", () => ({
 }));
 vi.mock("@/lib/actions/catalog-sku", () => ({ listSkuPrefixes: () => Promise.resolve({ ok: true, data: [] }), createCatalogSku: vi.fn() }));
 vi.mock("@/lib/actions/oem", () => ({}));
+vi.mock("@/lib/actions/job-office-write", () => ({}));
+vi.mock("@/lib/actions/job-office", () => ({ getJobPlanSuggest: vi.fn() }));
+vi.mock("@/lib/actions/job-profiles", () => ({ listProfiles: vi.fn(), changeJobProfile: vi.fn() }));
+const getJobPhotos = vi.fn();
+const setPrimaryJobPhoto = vi.fn();
+const removeJobPhoto = vi.fn();
+vi.mock("@/lib/actions/job-photos", () => ({
+  getJobPhotos: (...a: unknown[]) => getJobPhotos(...a),
+  setPrimaryJobPhoto: (...a: unknown[]) => setPrimaryJobPhoto(...a),
+  removeJobPhoto: (...a: unknown[]) => removeJobPhoto(...a),
+}));
 
 import { ToastProvider } from "@/components/ui/Toast";
 import { ProductionOrderDetailClient } from "./ProductionOrderDetailClient";

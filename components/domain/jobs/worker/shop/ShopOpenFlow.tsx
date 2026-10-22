@@ -21,6 +21,9 @@ import { ShopMetalSheet } from "@/components/domain/jobs/worker/shop/ShopMetalSu
 import type { ShopProfileReady } from "@/components/domain/jobs/worker/shop/ShopMetalSummary";
 import { ShopMetalStep } from "@/components/domain/jobs/worker/shop/ShopMetalStep";
 import { ShopOpenSuccess } from "@/components/domain/jobs/worker/shop/ShopOpenSuccess";
+import { ShopPhotoStep } from "@/components/domain/jobs/worker/shop/ShopPhotoStep";
+import { useIntakePhotoIo } from "@/components/domain/jobs/worker/shop/useIntakePhotoIo";
+import { useShopPhotos } from "@/components/domain/jobs/worker/shop/useShopPhotos";
 import { LABEL_FIELD_ID, ShopProductSearch } from "@/components/domain/jobs/worker/shop/ShopProductSearch";
 import { ShopQtyStep } from "@/components/domain/jobs/worker/shop/ShopQtyStep";
 import { ShopReview } from "@/components/domain/jobs/worker/shop/ShopReview";
@@ -28,7 +31,7 @@ import { ShopStepHeader } from "@/components/domain/jobs/worker/shop/ShopStepHea
 
 export const todayBkk = (): string => bkkDateOf(new Date().toISOString()) ?? new Date().toISOString().slice(0, 10);
 
-const TITLE: Record<ShopStep, string> = { search: "ผลิตอะไร?", metal: "ทำจากอะไร?", qty: "เท่าไร · เสร็จเมื่อไร", review: "ทวนก่อนเปิดงาน" };
+const TITLE: Record<ShopStep, string> = { search: "ผลิตอะไร?", metal: "ทำจากอะไร?", qty: "เท่าไร · เสร็จเมื่อไร", photos: "ใส่รูปให้ช่างดู", review: "ทวนก่อนเปิดงาน" };
 export const MSG_FORM_CLEARED = "เปลี่ยนคนแล้ว — ล้างฟอร์มเดิมเพื่อไม่ให้เปิดงานในชื่อคนใหม่โดยไม่ตั้งใจ เริ่มกรอกใหม่ได้เลย";
 export const MSG_READY_AGAIN = "พร้อมแล้ว — กด \"เปิดงาน\" อีกครั้งได้";
 
@@ -61,6 +64,9 @@ export function ShopOpenFlow({
   const inflight = useRef(false);
   const headRef = useRef<HTMLHeadingElement>(null);
   const [today] = useState(todayBkk);
+  // 0189 W2: รูปจากหน้างาน — state เดียวกับฟอร์ม (ล้างพร้อมฟอร์ม · ไม่ unmount ตอนแผ่น PIN ซ้อน) · action ฉีดเข้า hook (hook ไม่ import server action เอง)
+  const photos = useShopPhotos({ io: useIntakePhotoIo(token) });
+  const resetPhotos = photos.reset;
 
   // เปลี่ยนขั้น → โฟกัสหัวขั้น (screen reader อ่านหัวใหม่) + เลื่อนขึ้นบน
   useEffect(() => {
@@ -104,12 +110,13 @@ export function ShopOpenFlow({
       setError(null);
       setWaitLeft(0);
       setReadyNote(null);
+      resetPhotos(); // รูปเป็นของคนที่เริ่มกรอก — หายพร้อมฟอร์ม (revoke blob ทุกอัน)
       setNotice(MSG_FORM_CLEARED);
     } else {
       setError((prev) => (prev?.action === "pin" ? null : prev));
     }
     ownerRef.current = workerId;
-  }, [workerId]);
+  }, [workerId, resetPhotos]);
 
   const go = useCallback((s: ShopStep) => {
     setNotice(null);
@@ -184,6 +191,7 @@ export function ShopOpenFlow({
     setNotice(null);
     setError(null);
     setReadyNote(null);
+    const usedKey = form.idemKey; // รูปอ้างใบด้วย idem key เดียวกับที่เปิดใบ
     let r: Awaited<ReturnType<typeof intakeOpen>> | null = null;
     try {
       r = await intakeOpen(token, buildIntakeInput(form, today));
@@ -199,6 +207,9 @@ export function ShopOpenFlow({
     }
     if (r.ok) {
       setDone({ result: r.result, purity: purityLabel(form.metal, form.purityText) });
+      // ใบเปิดสำเร็จ → ส่งรูปที่เก็บไว้ทีละรูป (หลักก่อน) · ใบที่ถูกยกเลิกไปแล้ว = ไม่ส่ง รูปหายพร้อมหน้า
+      if (r.result.status === "cancelled") photos.reset();
+      else photos.start({ idemKey: usedKey });
       return;
     }
     const view = shopErrorView(r);
@@ -213,7 +224,10 @@ export function ShopOpenFlow({
       <ShopOpenSuccess
         result={done.result}
         purityLabel={done.purity}
+        photos={photos}
+        onSessionLost={onSessionLost}
         onAnother={() => {
+          photos.reset();
           setDone(null);
           setForm(newForm());
           setQuery("");
@@ -222,6 +236,7 @@ export function ShopOpenFlow({
           setStep("search");
         }}
         onFinish={() => {
+          photos.reset();
           setDone(null);
           onExit();
         }}
@@ -256,6 +271,7 @@ export function ShopOpenFlow({
         )}
         {step === "metal" && <ShopMetalStep form={form} setForm={setForm} ready={ready} onNext={nextStep} />}
         {step === "qty" && <ShopQtyStep form={form} setForm={setForm} ready={ready} today={today} onNext={nextStep} onEditMetal={() => editMetal(false)} onNeedPurity={() => editMetal(true)} />}
+        {step === "photos" && <ShopPhotoStep photos={photos} unbound={form.mode === "new"} onNext={nextStep} />}
         {step === "review" && (
           <ShopReview
             form={form}
@@ -269,6 +285,8 @@ export function ShopOpenFlow({
             onEditProduct={() => go("search")}
             onEditMetal={() => editMetal(false)}
             onBack={() => goToField(error?.field)}
+            photos={photos.items}
+            onEditPhotos={() => go("photos")}
           />
         )}
       </div>

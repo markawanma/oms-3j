@@ -645,3 +645,53 @@ describe("ข้อความช่วย + หน้าใบงาน (JobDe
     await waitFor(() => expect(act_.uploadJobPhoto).toHaveBeenCalledTimes(1));
   });
 });
+
+// 0189 W2: รูปจากหน้างาน (source = shopfloor) บนการ์ดหน้าใบงาน — ป้ายที่มาเมื่อปน + ลบแล้วบังคับเหตุผล
+describe("รูปจากหน้างาน (W2)", () => {
+  const shop = (n: number, o: Partial<JobPhotoRow> = {}) => row(n, { source: "shopfloor", ...o });
+
+  it("ใบมีรูปหน้างานปนที่มาอื่น: ป้ายต่อภาพ หน้างาน/ออฟฟิศ/แคตตาล็อก + ชื่อปุ่มบอกที่มา · รูปหน้างานล้วน/ไม่มีรูปหน้างาน = ไม่มีป้ายที่มา (พฤติกรรมเดิม)", () => {
+    const a = card({ photos: [shop(1), row(2), row(3, { source: "product" })] });
+    const items = within(section()).getAllByRole("listitem");
+    expect(within(items[0]).getByText("หน้างาน")).toBeInTheDocument();
+    expect(within(items[1]).getByText("ออฟฟิศ")).toBeInTheDocument();
+    expect(within(items[2]).getByText("แคตตาล็อก")).toBeInTheDocument();
+    expect(tile(1, 3)).toHaveAccessibleName("รูปที่ 1 จาก 3 · รูปหลัก · แตะเพื่อดู · จากหน้างาน");
+    expect(within(items[2]).queryByText("จากแคตตาล็อก")).not.toBeInTheDocument(); // ป้ายเก่าถูกแทนด้วยป้ายที่มาชุดใหม่
+    a.unmount();
+    const b = card({ photos: [shop(1), shop(2)] });
+    expect(within(section()).queryByText("หน้างาน", { exact: true })).not.toBeInTheDocument();
+    b.unmount();
+    card({ photos: [row(1), row(2, { source: "product" })] });
+    expect(within(section()).getByText("จากแคตตาล็อก")).toBeInTheDocument(); // เดิม
+    expect(within(section()).queryByText("ออฟฟิศ")).not.toBeInTheDocument();
+  });
+
+  it("ลบรูปหน้างาน = บังคับเหตุผล: ปุ่มลบ aria-disabled จนมีเหตุผลจริง → removeJobPhoto(id, เหตุผล)", async () => {
+    card({ photos: [shop(1), shop(2)] });
+    await userEvent.click(tile(2, 2));
+    await userEvent.click(within(viewer()).getByRole("button", { name: "ลบรูปนี้" }));
+    const d = await screen.findByRole("dialog", { name: "ลบรูปนี้ออกจากใบงาน JB-0034?" });
+    const del = within(d).getByRole("button", { name: "ลบรูป" });
+    expect(del).toHaveAttribute("aria-disabled", "true");
+    await userEvent.click(del);
+    expect(act_.removeJobPhoto).not.toHaveBeenCalled();
+    await userEvent.type(within(d).getByLabelText("เหตุผล (บังคับ)"), "   ");
+    await userEvent.click(del);
+    expect(act_.removeJobPhoto).not.toHaveBeenCalled();
+    await userEvent.click(within(d).getByRole("button", { name: "ภาพไม่ชัด" }));
+    await userEvent.click(within(d).getByRole("button", { name: "ลบรูป" }));
+    await waitFor(() => expect(act_.removeJobPhoto).toHaveBeenCalledWith("p2", "ภาพไม่ชัด"));
+  });
+
+  it("ลบรูปออฟฟิศในใบที่มีรูปหน้างานด้วย = ไม่บังคับเหตุผล (กล่องเดิม) · เรียก removeJobPhoto(id) เหมือนเดิม", async () => {
+    card({ photos: [shop(1), row(2)] });
+    await userEvent.click(tile(2, 2));
+    await userEvent.click(within(viewer()).getByRole("button", { name: "ลบรูปนี้" }));
+    const d = await screen.findByRole("dialog", { name: /ลบรูปนี้ออกจากใบงาน/ });
+    expect(within(d).queryByLabelText("เหตุผล (บังคับ)")).not.toBeInTheDocument();
+    await userEvent.click(within(d).getByRole("button", { name: "ลบรูป" }));
+    await waitFor(() => expect(act_.removeJobPhoto).toHaveBeenCalledTimes(1));
+    expect(act_.removeJobPhoto.mock.calls[0]).toEqual(["p2"]);
+  });
+});

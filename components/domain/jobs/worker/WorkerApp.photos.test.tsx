@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// หน้าช่าง + รูปใบงาน (0182): ภาพย่อ 80px มุมขวาบนข้างเลขใบงาน · แตะเต็มจอ ปัดดู · ไม่มีรูป = จอเดิม · ลิงก์หมดอายุ → ขอ view ใหม่ ไม่ค้างรูปแตก
+// หน้าช่าง + รูปใบงาน (0182 · 0189 W2): รูปหลักใหญ่เกือบเต็มความกว้างบนหัวจอ (เดิมภาพย่อ 80px) · แตะเต็มจอ ปัดดู · ไม่มีรูป = จอเดิม · ลิงก์หมดอายุ → ขอ view ใหม่ ไม่ค้างรูปแตก
 // 🔴 ต้องไม่มี: ปุ่มจัดการ/อัปโหลด · ลิงก์ · ป้าย "จากแคตตาล็อก" · ตัวเลขเงิน · ชื่อลูกค้า/ชื่อผู้อัปโหลด
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
@@ -41,23 +41,41 @@ beforeEach(() => vi.clearAllMocks());
 const thumb = () => screen.getByRole("button", { name: /^รูปงาน JB-0007 .*แตะเพื่อดูเต็มจอ$/ });
 const viewer = () => screen.getByRole("dialog", { name: "รูปงาน JB-0007" });
 
-describe("ภาพย่อหัวใบงาน", () => {
-  it("มีรูป: ภาพย่อ 80×80px อยู่แถวเดียวกับเลขใบงาน (ขวา) · ชิป '3 รูป' · ชื่อ/จำนวนอยู่ใต้เต็มความกว้าง · ใช้รูปแรก (รูปหลัก)", () => {
+describe("รูปหลักใหญ่บนหัวจอ (W2 — มติ 21 ต.ค. แทนภาพย่อ 80px)", () => {
+  it("มีรูป: รูปหลักเต็มความกว้างอยู่บนสุดของ <header> เหนือเลขใบงาน · สูงจำกัด min(30vh,13rem) + object-contain (ไม่ดันปุ่ม sticky · ไม่ตัดชิ้นงาน) · ชิป '3 รูป' · ใช้รูปแรก (รูปหลัก) ภาพกลาง md", () => {
     const { container } = render(<WorkerApp token={TOKEN} view={view([photo(1), photo(2), photo(3)])} />);
     const t = thumb();
     expect(t).toHaveAccessibleName("รูปงาน JB-0007 3 รูป แตะเพื่อดูเต็มจอ");
-    expect(t.className).toContain("h-20");
-    expect(t.className).toContain("w-20");
+    expect(t.className).toContain("w-full");
+    expect(t.className).toContain("h-[min(30vh,13rem)]");
+    expect(t.className).not.toContain("h-20"); // ไม่ใช่ภาพย่อ 80px แล้ว
     expect(within(t).getByText("3 รูป")).toBeInTheDocument();
-    expect(t.querySelector("img")).toHaveAttribute("src", u(1, "sm"));
-    expect(t.querySelector("img")).toHaveAttribute("loading", "lazy");
-    const row = t.parentElement!;
-    expect(row.className).toContain("justify-between");
-    expect(within(row).getByRole("heading", { level: 1, name: "JB-0007" })).toBeInTheDocument();
-    // ชื่อ/จำนวนอยู่นอกแถวรูป (เต็มความกว้าง ไม่ถูกรูปบีบ)
-    const name = screen.getByText("แหวนลาย A");
-    expect(row.contains(name)).toBe(false);
-    expect(container.querySelector("header")!.contains(name)).toBe(true);
+    const img = t.querySelector("img")!;
+    expect(img).toHaveAttribute("src", u(1, "md")); // md ให้ชัดบนจอ 3x (sm 480px จะเบลอ)
+    expect(img.className).toContain("object-contain");
+    expect(img).toHaveAttribute("referrerpolicy", "no-referrer");
+    // อยู่ใน <header> ก่อน h1 (ลำดับ DOM = ลำดับบนจอ) · ชื่อ/จำนวนอยู่ใต้เต็มความกว้าง
+    const header = container.querySelector("header")!;
+    const h1 = within(header).getByRole("heading", { level: 1, name: "JB-0007" });
+    expect(header.contains(t)).toBe(true);
+    expect(t.compareDocumentPosition(h1) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(h1.parentElement).toBe(header);
+    expect(header.contains(screen.getByText("แหวนลาย A"))).toBe(true);
+  });
+
+  it("🔴 ปุ่มหลัก sticky (รับงาน) ยังอยู่ใน StickyAction (sticky bottom-0) และมาหลังรูป · ใบไม่มีรูป = ไม่มีกล่องรูป", () => {
+    const { container } = render(<WorkerApp token={TOKEN} view={view([photo(1)])} />);
+    const btn = screen.getByRole("button", { name: "รับงาน" });
+    const sticky = btn.closest(".sticky");
+    expect(sticky).not.toBeNull();
+    expect(sticky!.className).toContain("bottom-0");
+    expect(thumb().compareDocumentPosition(btn) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // ภาพที่สูงที่สุดที่ CSS ยอมให้ (13rem = 208px) + ช่องไฟ — ต้องไม่ใช่ค่าตายตัวที่เกินจอ 640
+    expect(thumb().className).toMatch(/h-\[min\(30vh,13rem\)\]/);
+    cleanup();
+    const plain = render(<WorkerApp token={TOKEN} view={view()} />);
+    expect(plain.container.querySelector("[class*='min(30vh']")).toBeNull();
+    expect(container).toBeDefined();
   });
 
   it("รูปเดียว: ไม่มีชิป 'n รูป' · ป้ายสำหรับ screen reader ไม่มีจำนวน", () => {
@@ -118,6 +136,45 @@ describe("viewer หน้าช่าง", () => {
   });
 });
 
+describe("hero กันกระพริบหลัง refresh (ลิงก์ใหม่ของรูปเดิม)", () => {
+  it("ลิงก์ใหม่ของรูปเดิม (id เดิม): ภาพเก่าค้างใต้ภาพใหม่จนภาพใหม่โหลดเสร็จ · ไม่กลับไปเป็นกรอบ pulse · พอภาพใหม่โหลดแล้วภาพเก่าถูกถอด", () => {
+    const { container, rerender } = render(<WorkerApp token={TOKEN} view={view([photo(1, "a")])} />);
+    const first = container.querySelector("img")!;
+    fireEvent.load(first); // ภาพแรกโหลดสำเร็จ
+    expect(container.querySelector(".animate-pulse")).toBeNull();
+    rerender(<WorkerApp token={TOKEN} view={view([photo(1, "b")])} />); // router.refresh → ลิงก์ใหม่ (id เดิม)
+    const imgs = [...container.querySelectorAll("img")];
+    expect(imgs).toHaveLength(2);
+    expect(imgs.map((i) => i.getAttribute("src"))).toEqual([u(1, "md", "a"), u(1, "md", "b")]); // เก่าอยู่ใต้ ใหม่อยู่บน
+    expect(imgs[0].getAttribute("aria-hidden")).toBe("true");
+    expect(container.querySelector(".animate-pulse")).toBeNull(); // ไม่กระพริบ
+    fireEvent.load(imgs[1]);
+    const after = [...container.querySelectorAll("img")];
+    expect(after).toHaveLength(1);
+    expect(after[0].getAttribute("src")).toBe(u(1, "md", "b"));
+  });
+
+  it("เปลี่ยนเป็นรูปอื่น (id ต่าง) = ไม่คงภาพเก่า (ไม่โชว์ผิดชิ้น) · ใบที่ภาพแรกยังไม่เคยโหลด = pulse ตามเดิม", () => {
+    const { container, rerender } = render(<WorkerApp token={TOKEN} view={view([photo(1, "a")])} />);
+    expect(container.querySelector(".animate-pulse")).not.toBeNull(); // ยังไม่เคยโหลด
+    fireEvent.load(container.querySelector("img")!);
+    rerender(<WorkerApp token={TOKEN} view={view([photo(2, "a")])} />);
+    expect(container.querySelectorAll("img")).toHaveLength(1);
+    expect(container.querySelector("img")!.getAttribute("src")).toBe(u(2, "md", "a"));
+    expect(container.querySelector(".animate-pulse")).not.toBeNull();
+  });
+
+  it("ภาพใหม่โหลดล้ม → สถานะ 'โหลดรูปไม่ได้ แตะลองใหม่' ตามเดิม (ไม่ค้างภาพเก่าเงียบๆ)", () => {
+    const { container, rerender } = render(<WorkerApp token={TOKEN} view={view([photo(1, "a")])} />);
+    fireEvent.load(container.querySelector("img")!);
+    rerender(<WorkerApp token={TOKEN} view={view([photo(1, "b")])} />);
+    const imgs = [...container.querySelectorAll("img")];
+    fireEvent.error(imgs[1]);
+    expect(screen.getByRole("button", { name: "โหลดรูปไม่ได้ แตะเพื่อลองใหม่" })).toBeInTheDocument();
+    expect(container.querySelectorAll("img")).toHaveLength(0);
+  });
+});
+
 describe("ลิงก์รูปหมดอายุ (15 นาที · เซสชันช่าง 12 ชม.)", () => {
   it("S2: อัตโนมัติ ≤ 2 ครั้ง (ลิงก์ใหม่พังซ้ำ) แล้วหยุด · แตะ = ขอทันทีและรีเซ็ต", async () => {
     let t = 5_000_000;
@@ -156,7 +213,7 @@ describe("ลิงก์รูปหมดอายุ (15 นาที · เ�
     expect(screen.getByRole("button", { name: "รับงาน" })).toBeInTheDocument();
     // server ส่ง view ใหม่ (ลิงก์ใหม่) → รูปกลับมาเอง ไม่ค้างรูปแตก
     rerender(<WorkerApp token={TOKEN} view={view([photo(1, "fresh"), photo(2, "fresh")])} />);
-    expect(container.querySelector("img")).toHaveAttribute("src", u(1, "sm", "fresh"));
+    expect(container.querySelector("img")).toHaveAttribute("src", u(1, "md", "fresh"));
     expect(screen.queryByText(/โหลดรูปไม่ได้/)).not.toBeInTheDocument();
     // ล้มอีกครั้งทันที → ไม่ยิงอัตโนมัติซ้ำ แต่แตะได้
     fireEvent.error(container.querySelector("img")!);

@@ -27,6 +27,18 @@ describe("v_worker_lock.pin_warning", () => {
   });
 });
 
+describe("summarizeEvent — รูปจากหน้างาน (0189 W2)", () => {
+  it("ผู้จัดการแนบ/ลบรูปจากหน้างาน = 'จากหน้างาน' · ออฟฟิศลบพร้อมเหตุผล = 'เหตุผล: …' · ไม่ dump payload อื่น (photo_id/bytes)", () => {
+    expect(summarizeEvent("photo_add", { photo_id: "x", kind: "reference", source: "shopfloor", bytes: 123, is_primary: true })).toBe("จากหน้างาน");
+    expect(summarizeEvent("photo_add", { photo_id: "x", source: "office" })).toBeNull();
+    expect(summarizeEvent("photo_remove", { photo_id: "x", source: "shopfloor" })).toBe("จากหน้างาน");
+    expect(summarizeEvent("photo_remove", { photo_id: "x", reason: "ภาพไม่ชัด" })).toBe("เหตุผล: ภาพไม่ชัด");
+    expect(summarizeEvent("photo_remove", { photo_id: "x", reason: null })).toBeNull();
+    expect(summarizeEvent("photo_remove", null)).toBeNull();
+    expect(String(summarizeEvent("photo_add", { source: "shopfloor", bytes: 999 }))).not.toMatch(/999|photo_id/);
+  });
+});
+
 describe("summarizeEvent — weigh/handoff_mismatch", () => {
   it("แสดงน้ำหนักที่ช่างใส่/ขั้นก่อนส่ง/ส่วนต่าง (หน้า owner/admin)", () => {
     const s = summarizeEvent("weigh", { kind: "handoff_mismatch", weight_in_g: 10.2, prev_weight_out_g: 10.5, gap_g: -0.3 });
