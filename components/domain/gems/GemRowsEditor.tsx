@@ -41,6 +41,7 @@ export function GemRowsEditor({
   emptyText = "ยังไม่มีพลอยในใบนี้",
   layout = "card",
   presentation = "popover",
+  showTotals = true,
 }: {
   idPrefix: string;
   rows: GemDraftRow[];
@@ -61,6 +62,8 @@ export function GemRowsEditor({
   emptyText?: string;
   layout?: "card" | "grid";
   presentation?: "popover" | "sheet";
+  /** false = ไม่แสดง "รวม" (แม่แบบ SKU — ไม่มีจำนวนผลิต) */
+  showTotals?: boolean;
 }) {
   const [touched, setTouched] = useState<Set<string>>(new Set());
   const [notice, setNotice] = useState<string | null>(null);
@@ -182,7 +185,7 @@ export function GemRowsEditor({
                       </button>
                     </p>
                   </div>
-                  <QtyAndPos i={i} base={base} r={r} disabled={disabled} issues={issues} grid={grid} lineTotal={lineTotals[i]} onPatch={(p) => patch(i, p)} />
+                  <QtyAndPos i={i} base={base} r={r} disabled={disabled} issues={issues} grid={grid} showTotals={showTotals} lineTotal={lineTotals[i]} onPatch={(p) => patch(i, p)} />
                 </div>
               ) : (
                 <div className={`grid gap-2 ${grid ? "md:grid-cols-12" : "sm:grid-cols-2"}`}>
@@ -248,7 +251,7 @@ export function GemRowsEditor({
                       onBlur={() => touch(r.key)}
                     />
                   </div>
-                  <QtyAndPos i={i} base={base} r={r} disabled={disabled} issues={issues} grid={grid} lineTotal={lineTotals[i]} onPatch={(p) => patch(i, p)} />
+                  <QtyAndPos i={i} base={base} r={r} disabled={disabled} issues={issues} grid={grid} showTotals={showTotals} lineTotal={lineTotals[i]} onPatch={(p) => patch(i, p)} />
                 </div>
               )}
 
@@ -304,7 +307,7 @@ export function GemRowsEditor({
         </button>
         {rows.length > 0 && (
           <p role="status" aria-live="polite" className="ml-auto text-base font-bold text-zinc-900 tabular-nums" data-testid="gem-grand-total">
-            รวม {rows.length} รายการ{total !== null ? ` · ${fmt(total)} เม็ด` : ""}
+            รวม {rows.length} รายการ{showTotals && total !== null ? ` · ${fmt(total)} เม็ด` : ""}
           </p>
         )}
       </div>
@@ -313,7 +316,7 @@ export function GemRowsEditor({
           กรอกแถว {rows.length} ให้ครบก่อน — {lastIncomplete}
         </p>
       )}
-      {qtyPlanned !== null && rows.length > 0 && (
+      {showTotals && qtyPlanned !== null && rows.length > 0 && (
         <p className="text-xs text-zinc-700" data-testid="gem-multiplier">
           คูณด้วยจำนวนที่จะผลิต {fmt(qtyPlanned)} ชิ้น{qtyNote ? ` (${qtyNote})` : ""} · ตัวเลขสุดท้ายระบบคำนวณซ้ำตอนบันทึก
         </p>
@@ -332,6 +335,7 @@ function QtyAndPos({
   disabled,
   issues,
   grid,
+  showTotals,
   lineTotal,
   onPatch,
 }: {
@@ -341,6 +345,7 @@ function QtyAndPos({
   disabled?: boolean;
   issues: RowIssue[];
   grid: boolean;
+  showTotals: boolean;
   lineTotal: number | null;
   onPatch: (p: Partial<GemDraftRow>) => void;
 }) {
@@ -381,11 +386,13 @@ function QtyAndPos({
         />
         {pErr && <FieldMsg id={`${base}-pos-err`}>{pErr.message}</FieldMsg>}
       </div>
-      <div className={`${grid ? "md:col-span-3" : ""} flex items-end`}>
-        <p className="min-h-11 text-base font-bold text-zinc-900 tabular-nums" data-testid={`gem-line-total-${i + 1}`}>
-          {lineTotal !== null ? `รวม ${fmt(lineTotal)} เม็ด` : "รวม —"}
-        </p>
-      </div>
+      {showTotals && (
+        <div className={`${grid ? "md:col-span-3" : ""} flex items-end`}>
+          <p className="min-h-11 text-base font-bold text-zinc-900 tabular-nums" data-testid={`gem-line-total-${i + 1}`}>
+            {lineTotal !== null ? `รวม ${fmt(lineTotal)} เม็ด` : "รวม —"}
+          </p>
+        </div>
+      )}
     </>
   );
 }
