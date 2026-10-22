@@ -154,7 +154,7 @@ export function GemRowsEditor({
           if (r.type?.kind === "new" || r.shape?.kind === "new") badges.push({ text: "ใหม่", tone: "bg-sky-100 text-sky-950", icon: true });
           const grid = layout === "grid";
           return (
-            <li key={r.key} className={`rounded-md border p-3 ${srv ? "border-red-400 bg-red-50/40" : "border-zinc-300 bg-white"}`} data-testid={`gem-row-${i + 1}`} onBlur={() => touch(r.key)}>
+            <li key={r.key} className={`rounded-md border p-3 ${srv ? "border-red-400 bg-red-50/40" : "border-zinc-300 bg-white"}`} data-testid={`gem-row-${i + 1}`} onBlur={(e) => { if (!e.currentTarget.contains(e.relatedTarget as Node | null)) touch(r.key); }}>
               <div className="mb-2 flex flex-wrap items-center gap-2">
                 <span className="text-sm font-semibold text-zinc-900">แถว {i + 1}</span>
                 {badges.map((b) => (
@@ -248,7 +248,6 @@ export function GemRowsEditor({
                       chips={sizeChips(r)}
                       onSize={(a, b) => patch(i, { sizeA: a, sizeB: b, bigConfirmed: false })}
                       onConfirmBig={(v) => patch(i, { bigConfirmed: v })}
-                      onBlur={() => touch(r.key)}
                     />
                   </div>
                   <QtyAndPos i={i} base={base} r={r} disabled={disabled} issues={issues} grid={grid} showTotals={showTotals} lineTotal={lineTotals[i]} onPatch={(p) => patch(i, p)} />

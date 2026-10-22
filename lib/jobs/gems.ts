@@ -125,63 +125,9 @@ export interface GemErrorInfo {
   usage?: Record<string, number>;
 }
 
-/** hint ของ RPC พลอย (migration 0190) — ใช้กรองว่า error นี้เป็นของพลอย */
-export const GEM_HINTS: ReadonlySet<string> = new Set([
-  "line_invalid", "lines_invalid", "too_many_lines", "qty_invalid", "size_invalid", "size_required", "size_b_required", "size_b_unexpected", "size_b_mismatch",
-  "type_required", "shape_required", "gem_type_invalid", "gem_shape_invalid", "gem_item_invalid", "gem_inactive", "name_invalid", "gem_name_invalid", "shape_new_invalid", "position_invalid",
-  "gem_similar", "name_exists", "reason_required", "reason_invalid", "note_required", "gem_merge_blocked", "gem_in_use", "gem_merged_locked", "gem_merge_self", "gem_merge_from_merged", "gem_merge_into_merged",
-  "gem_merge_into_inactive", "gem_merge_invalid", "has_length_mismatch", "has_length_locked", "merge_qty_overflow", "price_invalid", "date_invalid", "text_invalid",
-  "gem_actor_forbidden", "gem_not_found", "no_product", "lot_no_gems", "gem_product_invalid", "gem_ref_inactive", "kind_invalid",
-]);
-
-/** ข้อความสำรอง (ไทย) เมื่อข้อความ DB ไม่สะอาด — ไม่มีตัวเลขเงิน/ชื่อตาราง */
-export const GEM_ERROR_TH: Record<string, string> = {
-  line_invalid: "แถวพลอยไม่ถูกต้อง",
-  lines_invalid: "รายการพลอยไม่ถูกต้อง",
-  too_many_lines: "พลอยต่อใบมีได้ไม่เกิน 30 รายการ",
-  qty_invalid: "จำนวนต่อชิ้นต้องเป็นเลข 1–1,000",
-  size_invalid: "ขนาดต้องเป็นตัวเลขมากกว่า 0 ไม่เกิน 100 มม. (ทศนิยมไม่เกิน 2 ตำแหน่ง)",
-  size_required: "ใส่ขนาด (มม.)",
-  size_b_required: "ใส่ทั้งกว้างและยาว (มม.)",
-  size_b_unexpected: "รูปทรงนี้ใส่ขนาดค่าเดียว — ไม่ต้องใส่ด้านที่สอง",
-  size_b_mismatch: "จำนวนค่าขนาดไม่ตรงกับรูปทรง",
-  type_required: "เลือกหรือพิมพ์ชนิดพลอย",
-  shape_required: "เลือกหรือพิมพ์รูปทรง",
-  gem_type_invalid: "ไม่พบชนิดพลอยที่เลือก",
-  gem_shape_invalid: "ไม่พบรูปทรงที่เลือก",
-  gem_item_invalid: "ไม่พบรายการพลอยที่เลือก",
-  gem_inactive: "รายการนี้ถูกปิดใช้งานแล้ว — เลือกอย่างอื่น หรือแจ้งออฟฟิศ",
-  name_invalid: "ชื่อต้องมี 2-40 ตัวอักษร ไม่ใช่ตัวเลขล้วน และห้ามมีเครื่องหมาย < >",
-  gem_name_invalid: "ชื่อต้องมี 2-40 ตัวอักษร ไม่ใช่ตัวเลขล้วน และห้ามมีเครื่องหมาย < >",
-  shape_new_invalid: "รูปทรงใหม่ต้องระบุชื่อและจำนวนค่าขนาด (1 หรือ 2 ค่า)",
-  position_invalid: "ตำแหน่งต้องไม่เกิน 40 ตัวอักษรและห้ามมีเครื่องหมาย < >",
-  gem_similar: "พบชื่อที่คล้ายกับที่มีอยู่แล้ว — ใช้ตัวที่มี หรือยืนยันเพิ่มเป็นชื่อใหม่",
-  name_exists: "มีชื่อนี้อยู่แล้ว — ใช้ตัวที่มี",
-  reason_required: "ต้องระบุเหตุผลที่มีตัวอักษรหรือตัวเลขจริง",
-  reason_invalid: "เหตุผลยาวเกิน 300 ตัวอักษร",
-  gem_in_use: "ลบไม่ได้ — ถูกใช้อยู่ (ปิดใช้งานแทนได้)",
-  gem_merged_locked: "รายการนี้ถูกรวมแล้ว แก้ไม่ได้ (ย้อนกลับไม่ได้)",
-  gem_merge_self: "รวมชื่อเข้ากับตัวเองไม่ได้",
-  gem_merge_from_merged: "ชื่อที่จะเลิกใช้ถูกรวมไปแล้ว",
-  gem_merge_into_merged: "ชื่อปลายทางถูกรวมไปที่อื่นแล้ว — เลือกตัวจริง",
-  gem_merge_into_inactive: "ชื่อปลายทางปิดใช้งานอยู่ — เปิดใช้ก่อนรวม",
-  gem_merge_invalid: "รวมชื่อไม่ได้ — ตรวจชื่อที่เลือก",
-  has_length_mismatch: "รวมรูปทรงที่ใส่ขนาดจำนวนค่าต่างกันไม่ได้ (1 ค่า กับ 2 ค่า)",
-  has_length_locked: "แก้จำนวนค่าขนาดของรูปทรงนี้ไม่ได้ — มีรายการพลอยใช้อยู่แล้ว",
-  merge_qty_overflow: "รวมแล้วแม่แบบ SKU บางตัวมีจำนวนต่อชิ้นเกิน 1,000 — แก้แม่แบบเหล่านั้นก่อนรวม",
-  note_required: "แก้ราคาทับวันเดิม หรือตั้งราคาย้อนหลัง ต้องระบุหมายเหตุ (เหตุผลที่แก้)",
-  gem_merge_blocked: "รวมชื่อไม่ได้ — มีรายการที่ติดเงื่อนไข ตรวจรายการนั้นก่อนรวม",
-  price_invalid: "ราคาต้องเป็นตัวเลขมากกว่า 0 และไม่เกิน 1,000,000 บาท (ทศนิยมไม่เกิน 4 ตำแหน่ง)",
-  date_invalid: "วันที่มีผลต้องอยู่ระหว่างปี 2020 ถึงไม่เกิน 1 ปีข้างหน้า",
-  text_invalid: "ผู้ขาย/หมายเหตุต้องมีตัวอักษรหรือตัวเลขจริง และห้ามมีเครื่องหมาย < >",
-  gem_actor_forbidden: "แคตตาล็อกพลอยและราคาใช้ได้เฉพาะเจ้าของร้าน/แอดมิน",
-  gem_not_found: "ไม่พบรายการนี้",
-  no_product: "ใบนี้ไม่มี SKU — ตั้งเป็นแม่แบบไม่ได้",
-  lot_no_gems: "ส่วนย่อยไม่มีพลอยของตัวเอง — พลอยอยู่ที่ใบแม่",
-  gem_product_invalid: "ไม่พบ SKU ในร้านนี้",
-  gem_ref_inactive: "รายการพลอยปิดใช้งาน/ถูกรวม/ไม่พบ — เลือกรายการอื่น",
-  kind_invalid: "ชนิดข้อมูลไม่ถูกต้อง",
-};
+// GEM_HINTS / GEM_ERROR_TH อยู่ใน lib/jobs/gem-errors.ts (ไม่มีราคา — หน้าช่างอ่านข้อความผ่าน messages.ts) · re-export ให้ import เดิมใช้ต่อ
+export { GEM_ERROR_TH, GEM_HINTS } from "@/lib/jobs/gem-errors";
+import { GEM_HINTS } from "@/lib/jobs/gem-errors";
 
 const FIELD_RE = /^[a-z][a-z_]{0,30}$/;
 

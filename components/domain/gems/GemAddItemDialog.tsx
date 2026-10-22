@@ -105,7 +105,7 @@ export function GemAddItemDialog({ onClose }: { onClose: () => void }) {
         </div>
         <div className="space-y-1">
           <p className="text-sm font-medium text-zinc-800">ขนาด (มม.) *</p>
-          <GemSizeFields idBase="ga-size" row={row} issues={shown} disabled={busy} chips={chips} onSize={(a, b) => setRow({ ...row, sizeA: a, sizeB: b, bigConfirmed: false })} onConfirmBig={(v) => setRow({ ...row, bigConfirmed: v })} onBlur={() => setTouched(true)} />
+          <GemSizeFields idBase="ga-size" row={row} issues={shown} disabled={busy} chips={chips} onSize={(a, b) => setRow({ ...row, sizeA: a, sizeB: b, bigConfirmed: false })} onConfirmBig={(v) => setRow({ ...row, bigConfirmed: v })} />
         </div>
         <p aria-live="polite" className="min-h-4 text-xs font-medium text-zinc-800">
           {notice}

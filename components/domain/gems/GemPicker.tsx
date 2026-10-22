@@ -264,6 +264,7 @@ export function GemPicker(props: TypeProps | ShapeProps) {
                     role="option"
                     aria-selected={i === active}
                     onMouseEnter={() => setActive(i)}
+                    onMouseDown={(e) => e.preventDefault()} // ไม่ให้ช่องค้นหาเสียโฟกัสตอนคลิกตัวเลือก (combobox มาตรฐาน — กันถูกนับว่า "ออกจากแถว")
                     onClick={() => (e.t === "add" ? addNew(e.name) : choose({ id: e.id, name: e.name, hasLength: e.hasLength }))}
                     className={`flex min-h-11 cursor-pointer items-center gap-2 px-3 py-2 text-base break-words [overflow-wrap:anywhere] ${i === active ? "bg-primary-100 text-zinc-900" : "text-zinc-900 hover:bg-zinc-50"} ${e.t === "add" ? "border-t border-dashed border-zinc-300 font-medium" : ""} ${presentation === "sheet" ? "min-h-14" : ""}`}
                   >

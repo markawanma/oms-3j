@@ -7,6 +7,7 @@ import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
 
 import { GemRowsEditor } from "@/components/domain/gems/GemRowsEditor";
+import { GemPicker } from "@/components/domain/gems/GemPicker";
 import type { GemRowServerErrors } from "@/components/domain/gems/GemRowsEditor";
 import { emptyGemRow } from "@/lib/jobs/gem-draft";
 import type { GemDraftRow } from "@/lib/jobs/gem-draft";
@@ -374,5 +375,45 @@ describe("🔴 ฟอร์มพลอยไม่มีราคา/ต้น�
     const text = container.textContent ?? "";
     expect(text).not.toMatch(/ราคา|ต้นทุน|บาท|฿|เผื่อแตก|price|cost/i);
     expect(container.innerHTML).not.toMatch(/price|cost|thb/i);
+  });
+});
+
+describe("ข้อความผิดโผล่เมื่อออกจากแถวเท่านั้น (ไม่ดุตั้งแต่เปิดตัวเลือกแรก)", () => {
+  it("เปิดตัวเลือกชนิด/เลือกชนิด: ยังไม่ขึ้น error ของช่องอื่น · ออกจากแถว (tab ไปปุ่มลบ/นอกแถว) แล้วจึงขึ้น", async () => {
+    const user = userEvent.setup();
+    render(
+      <div>
+        <Harness />
+        <button type="button">นอกแถว</button>
+      </div>,
+    );
+    await user.click(addBtn());
+    await pick(user, /ชนิดพลอยแถว 1/, "โกเมน");
+    expect(document.querySelector('[id$="-shape-err"]')).toBeNull();
+    expect(document.querySelector('[id$="-qty-err"]')).toBeNull();
+    await user.click(screen.getByRole("button", { name: "นอกแถว" }));
+    await waitFor(() => expect(document.querySelector('[id$="-shape-err"]')).not.toBeNull());
+    expect(document.querySelector('[id$="-qty-err"]')).toHaveTextContent("จำนวนต่อชิ้นต้องเป็นเลข 1–1,000");
+  });
+});
+
+describe("GemPicker presentation=sheet (สำหรับหน้างานมือถือ W3)", () => {
+  it("เปิดเป็นแผ่นเต็มจอ (fixed inset-0) · ปุ่มกลับ · ช่องค้นหา/แถวตัวเลือก ≥ 56px · เลือกแล้วปิด + โฟกัสกลับปุ่ม", async () => {
+    const user = userEvent.setup();
+    const onSelect = vi.fn();
+    render(<GemPicker kind="type" id="sheet" label="ชนิดพลอย" options={[{ id: T_GOMEN, name: "โกเมน" }]} pending={[]} presentation="sheet" value={null} onSelect={onSelect} />);
+    const btn = screen.getByRole("button", { name: "ชนิดพลอย" });
+    expect(btn.className).toContain("min-h-14");
+    await user.click(btn);
+    const panel = screen.getByTestId("sheet-panel");
+    expect(panel.className).toContain("fixed inset-0");
+    expect(within(panel).getByRole("button", { name: "กลับ" })).toBeInTheDocument();
+    expect(within(panel).getByRole("combobox").className).toContain("min-h-14");
+    const opt = within(panel).getByRole("option", { name: "โกเมน" });
+    expect(opt.className).toContain("min-h-14");
+    await user.click(opt);
+    expect(onSelect).toHaveBeenCalledWith({ kind: "existing", id: T_GOMEN, name: "โกเมน" });
+    expect(screen.queryByTestId("sheet-panel")).not.toBeInTheDocument();
+    expect(btn).toHaveFocus();
   });
 });

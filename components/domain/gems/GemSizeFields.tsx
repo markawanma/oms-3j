@@ -23,7 +23,6 @@ export function GemSizeFields({
   chips,
   onSize,
   onConfirmBig,
-  onBlur,
 }: {
   idBase: string;
   row: GemDraftRow;
@@ -33,7 +32,6 @@ export function GemSizeFields({
   chips: SizeChip[];
   onSize: (a: string, b: string) => void;
   onConfirmBig: (v: boolean) => void;
-  onBlur?: () => void;
 }) {
   const two = row.shape?.hasLength === true;
   const sz = rowSizes(row);
@@ -54,7 +52,6 @@ export function GemSizeFields({
           aria-invalid={errA ? true : undefined}
           aria-describedby={errA ? `${idBase}-a-err` : undefined}
           onChange={(e) => onSize(e.target.value, row.sizeB)}
-          onBlur={onBlur}
           className={`${GEM_FIELD} min-w-0 tabular-nums`}
         />
         {two && (
@@ -72,7 +69,6 @@ export function GemSizeFields({
               aria-invalid={errB ? true : undefined}
               aria-describedby={errB ? `${idBase}-b-err` : undefined}
               onChange={(e) => onSize(row.sizeA, e.target.value)}
-              onBlur={onBlur}
               className={`${GEM_FIELD} min-w-0 tabular-nums`}
             />
           </>
@@ -97,7 +93,7 @@ export function GemSizeFields({
         </div>
       )}
       {chips.length > 0 && (
-        <div className="mt-1 flex flex-wrap items-center gap-1.5" aria-label="ขนาดที่เคยใช้">
+        <div role="group" className="mt-1 flex flex-wrap items-center gap-1.5" aria-label="ขนาดที่เคยใช้">
           <span className="text-xs text-zinc-700">เคยใช้:</span>
           {chips.slice(0, 6).map((c) => (
             <button
