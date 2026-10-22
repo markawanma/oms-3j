@@ -71,7 +71,9 @@ export async function callOffice<T>(fn: string, params: Record<string, unknown>,
     const hint = safeLogShape(err).hint;
     const failed = fail(officeErrorMessage(err, GENERIC_JOB_ERROR), hint !== null && /^[a-z][a-z0-9_]{1,40}$/.test(hint) ? hint : undefined);
     // 0190: error ของพลอยพา row/field/similar กลับไปด้วย (detail ของ DB ผ่านด่านตรวจรูปร่างใน parseGemRpcError) — error อื่นเหมือนเดิมทุกประการ
+    // hint บางตัว (qty_invalid · date_invalid · kind_invalid ฯลฯ) ใช้ร่วมกับ RPC อื่น — แนบ gem เฉพาะ RPC พลอย หรือเมื่อ DB ส่ง detail ของแถว/ตัวดักคล้ายมาด้วย (การสร้างใบ) · error ของ RPC อื่นเหมือนเดิมทุกประการ
     const gem = parseGemRpcError(err);
-    return gem ? { ...failed, gem } : failed;
+    const gemFn = /^(gem_|product_gem_bom_|job_gem_bom_)/.test(fn);
+    return gem && (gemFn || gem.row !== undefined || gem.similar !== undefined) ? { ...failed, gem } : failed;
   }
 }
