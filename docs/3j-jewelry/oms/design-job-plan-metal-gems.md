@@ -5,6 +5,7 @@
 > อ่านคู่: `design-own-production-costing.md` (make_spec · oem_cost_calc) · `design-production-order.md` · skill `oem-quote-invariants` · skill `3j-migration-traps` · memory `spec-cost-mode` · `production-order-and-spot-cost`
 > 🔴 เอกสารนี้ไม่มีตัวเลขต้นทุน/ราคาจริงโดยตั้งใจ — ตัวเลขอยู่ใน DB เท่านั้น (ค่า % ใน §6 เป็นคำถาม ไม่ใช่ค่าที่ตั้ง)
 > 🔁 §2.2 / §2.3 / §3 ข้อ 21–30 / §4 แถวโลหะ ถูก **§8** ทับด้วยมติ Q7 (14 ต.ค.) — อ่าน §8 เป็นหลักสำหรับ M1 · ส่วนพลอย (§2.4–2.5 · G1) ยังเป็นปัจจุบัน
+> 🔁 **22 ต.ค. 69 — G1a พลอย = migration 0190 (ไม่ใช่ 0176) · มติ 21 ต.ค. (พิมพ์ชื่อใหม่เข้าแคตตาล็อกเอง · รวมชื่อ · ไม่ seed ชนิด) ทับ §2.4–2.5 และแถว G1 — อ่าน §9 ท้ายไฟล์เป็นหลัก**
 > ⏸ **15 ต.ค. 69 — เจ้าของสั่งพัก "ระบบเบิกโลหะ" (ledger + สูตรอัลลอย = 0176 ใน §8) ไว้ก่อน** · 0175 (จำนวน/เผื่อ/แผนโลหะ/ของเหลือ) เดินต่อ · ช่องเลข 0176 กลายเป็น **แบบการบันทึก (record profile)** → `design-job-record-profile.md` · ส่วน ledger ใน §8 ติดป้าย ⏸ ห้ามลบ
 
 ## 0. โจทย์เจ้าของ (13 ต.ค. 69 — สรุปคำพูด) → อะไรมีแล้วใน J1 / อะไรต้องเพิ่ม
@@ -515,3 +516,36 @@ def ล่าสุด 0141 บ.446–700: `qty_done` ตรวจแค่ `0 �
 |---|---|---|
 | Q11 | **ทอง**: ผสมจาก 99.99 + อัลลอยทองเอง หรือซื้อ 18K/14K สำเร็จ — และช่วง % อัลลอยทองที่อยากให้เตือน | seed ทั้งสองทาง · ไม่เตือน (null) |
 | Q12 | ช่าง **ยกเลิกรายการที่กรอกผิดเองไม่ได้** ต้องแจ้งออฟฟิศ (มีจอยืนยันก่อนบันทึก + เตือนน้ำหนักผิดปกติ) — รับได้ไหม | รับได้ (audit ชัดกว่า) |
+
+## 9. G1a พลอย — สิ่งที่ทำจริงใน migration 0190 (22 ต.ค. 69 · 🔁 ทับ §2.4–2.5 และแถว G1 ในตาราง phase ตามมติเจ้าของ 21 ต.ค.)
+
+> เลข migration = **0190** (ไม่ใช่ 0176 ใน §5) · UX: `ux-gems.md` · ไฟล์: `supabase/migrations/0190_gems_g1a.sql` + `scripts/verify/verify-0190.sql` (209 เคส · mutant 18/18) · TS: `lib/jobs/{shop-gems,gems,gems-server}.ts` · `lib/actions/gems.ts`
+> สถานะ: dry-run ผ่าน · **ยังไม่ apply** · รอ security 💰 + QA L ก่อน merge · UI (หน้า /oem/gems · W-4 · การ์ดใบงาน · A5) ทำแยก
+
+### 9.1 มติ 21 ต.ค. ที่ทับ design เดิม
+| เรื่อง | เดิม (§2.4–2.5) | ตอนนี้ (0190) |
+|---|---|---|
+| ชนิด/รูปทรงใหม่ | ออฟฟิศยืนยันก่อน (`gem_item_upsert` owner/admin) | **พิมพ์ได้เลยตอนบันทึกใบ/BOM → เข้าแคตตาล็อกเอง** (get-or-create ด้วย `name_norm` ในทรานแซกชันเดียวกับใบ · 2 คนพิมพ์ชื่อเดียวกันพร้อมกัน = ได้ตัวเดียว) · ไม่มีสถานะรอยืนยัน |
+| ตัวตนของชื่อ | `code` ตายตัว (`cz` · `oval`) | ไม่มี code — id + `name_norm` (unique ต่อร้าน รวมแถวที่ถูกรวมแล้ว) · seed เฉพาะ **รูปทรง 12 แบบ** (heart = 1 ค่า · cushion = 2 ค่า `[ต้องยืนยัน]`) · **ไม่ seed ชนิด/ราคา** |
+| ชื่อซ้ำ | ไม่มี | norm เท่ากัน = ใช้ตัวเดิมเงียบๆ (แม้ force) · **คล้าย** (`gem_name_similar`: ระยะแก้ไข 1/2/3 ตามความยาว · ชื่อ ≤ 3 ตัวอักษรเทียบเท่ากันอย่างเดียว) = คืน `gem_similar` + `similar[]` ถ้าไม่ส่ง `p_force` · สร้าง/เปลี่ยนชื่อตรงๆ ที่ norm ซ้ำ = `name_exists` เสมอ |
+| รวมชื่อ | ไม่มี | `gem_merge_preview/gem_merge` A→B ย้อนกลับไม่ได้: รายการของ A ย้ายใต้ B (ขนาดชนกัน = รวมเป็นของ B) · **ราคาของ A ไม่ย้าย** · แม่แบบ SKU ตามไป (แถวชนกัน = บวกจำนวน ≤ 1,000) · **ไม่แตะ `job_gem_bom`** (snapshot) |
+| ขนาด | `size_mm_a/b` + หน่วย piece/carat | ขนาดละ 1 แถว · `size_a ≤ size_b` (สลับให้) · ทศนิยม ≤ 2 · 0 < x ≤ 100 · **ไม่มี unit** (เม็ดทั้งหมด) · `has_length` แก้ไม่ได้เมื่อมีรายการใช้ |
+| ราคา | `gem_item_price` ใน `/oem/rates` | ตารางเดียวกันแต่ **ไม่มี role ไหนอ่านตรง** (ถอน service_role ด้วย) — อ่าน/เขียนผ่าน `gem_catalog_list/gem_price_set/gem_price_history` เท่านั้น · actor ต้องเป็นสมาชิก owner/admin จริง (`gem_require_office`) · ทศนิยม ≤ 4 · วันที่มีผล 2020 ถึง +1 ปี (วันไทย) |
+| BOM ต่อใบ | `job_gem_bom` มี `breakage_allow_pct` + `qty_total` | ไม่มีเผื่อแตก (G1b) · `qty_total` ไม่เก็บ = ต่อชิ้น × `job.qty_planned` ตอนอ่าน (ไม่ drift) · `gem_label` snapshot · อยู่ที่ใบแม่เท่านั้น · ≤ 30 แถว · `source` product/manual/shopfloor |
+| หน้าต่างแก้ | "จน gem_set ถูกรับ" | `job_gem_edit_window`: free_before_start (ยังไม่มีขั้นใดรับ — ผู้จัดการ W3 ใช้) · office_free · **reason_required** (ขั้นฝังรับแล้ว — เหตุผล whitelist `oem_note_present`) · closed (done/cancelled) |
+| ขั้นฝัง | ใบ OEM เพิ่มเมื่อ `gem_count > 0` | + SKU ที่มีแม่แบบ = ระบบ **เสนอ** ขั้น `gem_set` (`job_source_info`) · ใบที่ไม่มีขั้นฝัง = ไม่คัดลอกแม่แบบ · ระบบไม่เพิ่ม/ลบขั้นให้เอง · `p_gem_lines`: null = คัดลอกแม่แบบ (ถ้ามีขั้นฝัง) · `[]` = ไม่มีพลอย |
+
+รหัสขั้นฝังพลอยบน DB = `gem_set` (design ถูก · ที่ UX A9 ว่า `setting` ตรวจแล้วไม่พบใน DB) · `bom_change` เพิ่มเป็น event_type (ป้ายใน `EVENT_TYPE_LABEL`).
+
+### 9.2 สิ่งที่ DB ให้ (RPC ทั้งหมด security definer · service_role เท่านั้น)
+ออฟฟิศ catalog: `gem_options_list` (ไม่มีราคา) · `gem_catalog_list` · `gem_catalog_create` · `gem_item_create` · `gem_catalog_rename` · `gem_shape_set_has_length` · `gem_merge_preview` · `gem_merge` · `gem_catalog_set_active` · `gem_catalog_remove` (เฉพาะไม่ถูกใช้เลย) · `gem_price_set` · `gem_price_history`
+BOM: `product_gem_bom_get/set` · `product_gem_bom_from_job` · `job_gem_bom_get/set` · core `job_gem_bom_replace_core(p_job_id, p_lines, p_force, p_actor, p_worker_id, p_reason, p_source, p_phase)` — **W3 (ผู้จัดการแก้จากมือถือ) เรียก core นี้ด้วย `p_worker_id` หลังตรวจเงื่อนไขของตัวเอง (ผู้เปิด ∧ window = free_before_start)** ไม่ต้อง replace ซ้ำ
+replace: `job_source_info` · `job_plan_suggest` (+`gem_bom[]` ไม่มีราคา) · `job_create_insert/_from_quote_item/_from_production_item/_core` (+`p_gem_lines`/`p_gem_force` · drop signature เดิม) · `job_worker_resolve` (+`job.gems[]`/`gems_state` เฉพาะช่างระบุตัวแล้ว)
+error ของแถวพลอย = 22023 + hint + detail json `{row, field, code}` · ตัวดักคล้าย = hint `gem_similar` + detail `{similar:[…]}` (ไม่เขียนอะไรเลย)
+
+### 9.3 ที่ยังไม่ทำ / ตัดสินเอง (อ่านก่อน merge)
+- **gate "ช่างฝังรับงานไม่ได้เมื่อไม่มีพลอย" (UX A8) ยังไม่ทำ** — ใบที่เดินอยู่มีขั้นฝังแต่ไม่มี BOM ทุกใบ gate จะล็อกงานจริง · resolve ส่ง `gems_state='unspecified'` ให้จอเตือนแล้ว · ต้องมีกติกา grandfather (เสนอ: gate เฉพาะใบที่สร้างหลัง 0190) — รอเจ้าของ/Tech Lead
+- **type_id/shape_id ที่ถูกรวมแล้ว = resolve ไปปลายทาง ไม่ปฏิเสธ** (UX A3/A6) · ปฏิเสธเฉพาะร้านอื่น/ไม่พบ/ปิดใช้งาน
+- W1 `job_worker_open` ไม่แตะ แต่ SKU ที่มีแม่แบบจะได้ขั้นฝัง + BOM คัดลอกมาเอง (ผ่านค่า default ของ `_core`) — W3 ค่อยให้ผู้จัดการแก้ได้
+- ไม่มี `unit`/`oem_tier`/`breakage_allow_pct`/สรุปสั่งซื้อ (`v_gem_purchase_summary` = G1b) · ไม่มีรูปพลอย · G3 (เข้าเครื่องคิดต้นทุน) ไม่แตะ
+- ไม่มีเทสต์ 2 connection พร้อมกัน (race ของ get-or-create/merge) — พิสูจน์ได้เฉพาะโครงสร้าง (unique + ON CONFLICT + lock) · ต้อง UAT 2 มือถือ
