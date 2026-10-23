@@ -268,6 +268,9 @@ trigger BEFORE UPDATE บน `production_order`: `old.status='open' and new.stat
 
 **ผล dry-run บน DB จริง (21 ต.ค. 69 · ROLLBACK ไม่ commit):** 0189 + verify-0189 = OK 190 · FAIL 0 (mutant 41/41) · + check-analytics-grants ผ่าน · + verify-0188 = 36/0 · + verify-0187 = 313/0 · + verify-0182 (ฉบับ QA แก้ให้ใช้ได้หลัง 0184) = FAIL 0 · ทดสอบ logic เพิ่มบน Postgres จริงแบบ WASM (PGlite · schema จำลอง) 132 เคส · vitest ทั้ง suite + typecheck ผ่าน · **ยังไม่ apply**
 
+### 7.6 W3 — ผู้จัดการกรอก/แก้พลอยจากมือถือ (migration 0191 · 23 ต.ค. 69 · ยังไม่ apply)
+`job_worker_open` เปลี่ยน signature (+`p_gem_lines/p_gem_answer/p_gem_force` — drop 15 args เดิม + สร้าง 18 args) · `job_worker_my_intake_list` เพิ่ม `gem_*` ต่อใบ · RPC ใหม่ `job_worker_gem_set/get/catalog` (ด่านเดียวกับรูป W2: token ร้าน + session + `can_open_job` สด + ใบที่ช่างคนนี้เปิดเอง + ยังไม่มีขั้นถูกรับ) — รายละเอียดทั้งหมด/ตัดสินเอง/ข้อจำกัด = `docs/3j-jewelry/oms/design-job-plan-metal-gems.md` §9.5 · ผลต่อ verify เดิม: ซิกเนเจอร์ `job_worker_open` ใน verify-0187/0187-qa/0188 ถูกอัปเป็น 18 args
+
 ## 8. มติ 18 ต.ค. "เผื่อของเสียไม่บังคับ ค่าเริ่มปิด" → แก้อะไร
 - **DB (0175): ไม่แก้** — `job_create_from_production_item/quote_item` ใช้ `coalesce(p_qty_planned, qty_order)` อยู่แล้ว · `job_plan_suggest.qty_planned_suggest` ยังคืนคำแนะนำ (rate ว่าง = null ไม่เดา) · `under_planned` ป้ายเดิม
 - **UI ฟอร์มออฟฟิศ M1** (`JobCreateDialog/Panel`): สวิตช์ "เผื่อของเสีย" ค่าเริ่ม **ปิด** ⇒ ส่ง `p_qty_planned = null` · เปิด ⇒ ช่อง "เผื่อเพิ่มกี่ชิ้น" ค่าเริ่ม = `suggest − qty_order` (ถ้ามี) + ป้าย "จาก reject rate หล่อ/ขัด/ชุบ · แค่คำแนะนำ" · ข้อความสรุป `qtyOrderPlannedText` ตัวเดียว (X6) · สเปกจอ: `ux-review-job-lots.md` §3

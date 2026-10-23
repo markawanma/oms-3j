@@ -29,6 +29,8 @@ const WORKER_FILES = [
   join(ROOT, "lib", "jobs", "shop-photos.ts"),
   // 0189 W2: ชั้น server ของ "แนบรูปจากหน้างาน" (เขียน storage ผ่าน lib/images/job-photo-storage — ไฟล์นอกรายการนี้ เพราะมี `.storage.from(` ตามแบบ lib/images/signing.ts)
   join(ROOT, "lib", "jobs", "shop-photo-server.ts"),
+  // 0191 W3: allowlist แถวพลอย (pure · ไม่มีราคา) ที่ action ของผู้จัดการใช้ — อยู่ในกราฟสาธารณะ
+  join(ROOT, "lib", "jobs", "gem-wire.ts"),
 ];
 
 // import ที่ห้ามมีในกราฟหน้าช่าง

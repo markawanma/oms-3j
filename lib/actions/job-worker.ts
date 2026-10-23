@@ -7,8 +7,10 @@
 
 import { cookies } from "next/headers";
 import { IDEM_KEY_RE as IDEM_RE, INVISIBLE_RE, TARGET_PIECE_MAX_G, parseBufferText, parseCount, parseDate, parseLabel, parsePieces, parsePin, parseQtyText, parseScrapReason, parseSeq, parseText, parseWeight, parseWeightOrZero, isUuid } from "@/lib/jobs/input";
-import { WORKER_SESSION_COOKIE, openIntakeJob, revokeWorkerSession, searchIntakeProducts, verifyIntakePin, verifyWorkerPin, workerArriveDiscrepancy, workerCancelLot, workerReceive, workerResolveDiscrepancy, workerSend } from "@/lib/jobs/worker-server";
-import type { IntakeMetal, IntakeOpenResult, IntakeProduct, WorkerFail } from "@/lib/jobs/worker-server";
+import { WORKER_SESSION_COOKIE, loadIntakeGemCatalog, loadIntakeJobGems, openIntakeJob, revokeWorkerSession, searchIntakeProducts, setIntakeJobGems, verifyIntakePin, verifyWorkerPin, workerArriveDiscrepancy, workerCancelLot, workerReceive, workerResolveDiscrepancy, workerSend } from "@/lib/jobs/worker-server";
+import type { GemFailInfo, GemSimilar, IntakeGemCatalog, IntakeGemSetResult, IntakeGemsParam, IntakeJobGems, IntakeMetal, IntakeOpenResult, IntakeProduct, WorkerFail } from "@/lib/jobs/worker-server";
+import { toWireGemForce, toWireGemLines } from "@/lib/jobs/gem-wire";
+import type { GemForceItem, GemLineInput } from "@/lib/jobs/gem-wire";
 import { JOB_PHOTO_FILE_CODE, JOB_PHOTO_FILE_ERROR_TH } from "@/lib/jobs/photos";
 import { listIntakePhotos, listMyIntakeJobs, reissueIntakeToken, removeIntakePhoto, setPrimaryIntakePhoto, uploadIntakePhoto } from "@/lib/jobs/shop-photo-server";
 import type { IntakeJobRef, IntakePhotoList, IntakeReissueResult, IntakeUploadResult, MyIntakeList } from "@/lib/jobs/shop-photo-server";
@@ -210,11 +212,12 @@ export async function workerCancelLotAction(token: string, lotJobId: string, rea
 // ---------------------------------------------------------------------------
 
 /** ช่องที่ผิด (ให้หน้าจอพา focus ไปช่องนั้น) */
-export type IntakeField = "label" | "product" | "metal" | "purity" | "weight" | "qty" | "buffer" | "due" | "note" | "key";
-export type IntakeActionFail = { ok: false; error: string; code?: string; retryAfterSeconds?: number; field?: IntakeField };
+export type IntakeField = "label" | "product" | "metal" | "purity" | "weight" | "qty" | "buffer" | "due" | "note" | "key" | "gems";
+/** gem: (0191 W3) ผิดแถว/ช่องไหนของพลอย (code = รหัสของ GEM_ERROR_TH · row 1-based · field type/shape/size_a/size_b/qty_per_piece/position/…) · similar: ชื่อที่ DB ถามว่าคล้ายของเดิม (ส่งกลับพร้อม force ของชื่อที่ผู้ใช้ยืนยัน) */
+export type IntakeActionFail = { ok: false; error: string; code?: string; retryAfterSeconds?: number; field?: IntakeField; gem?: GemFailInfo; similar?: GemSimilar[] };
 
 const intakeBad = (error: string, field?: IntakeField): IntakeActionFail => (field ? { ok: false, error, field } : { ok: false, error });
-const failOf = (r: WorkerFail): IntakeActionFail => ({ ok: false, error: r.error, code: r.code, retryAfterSeconds: r.retryAfterSeconds });
+const failOf = (r: WorkerFail): IntakeActionFail => ({ ok: false, error: r.error, code: r.code, retryAfterSeconds: r.retryAfterSeconds, ...(r.gem ? { gem: r.gem } : {}), ...(r.similar ? { similar: r.similar } : {}) });
 
 /** ระบุตัวที่ QR ร้าน: ชื่อ + PIN → ตั้ง cookie session (cookie เดียวกับ QR ใบงาน: ล็อกอินทางไหนก็ใช้อีกทางได้) */
 export async function intakeLogin(token: string, workerId: string, pin: string): Promise<WorkerActionResult> {
@@ -267,6 +270,45 @@ export interface IntakeOpenActionInput {
   dueDate?: string | null;
   isNewDesign?: boolean;
   note?: string | null;
+  /**
+   * 0191 W3: พลอยของใบ — ไม่ส่ง = W1 เดิม (DB: SKU ที่มีแม่แบบได้ขั้นฝัง+พลอยคัดลอกมา · ที่เหลือไม่มีขั้นฝัง)
+   * หน้า W-4 ส่งเสมอ: "none" = ไม่มีพลอย (ไม่มีขั้นฝัง) · "template" = ตามแม่แบบ SKU (DB ปฏิเสธถ้า SKU ไม่มีแม่แบบ — gem_answer_required) · "has" = มีพลอย (ต้อง lines 1-30 แถว)
+   * force = ชื่อที่ผู้ใช้ยืนยัน "ใช้ชื่อใหม่แม้คล้ายของเดิม" — ต้องมาจาก similar[] ที่ DB เพิ่งถาม (ชื่อที่ไม่ถูกถามไม่มีผล · boolean/รูปแปลก = ปฏิเสธ) · มีเฉพาะ "has"
+   */
+  gems?: IntakeGemsInput;
+}
+
+export type IntakeGemsInput =
+  | { answer: "none" }
+  | { answer: "template" }
+  | { answer: "has"; lines: GemLineInput[]; force?: GemForceItem[] | null };
+
+/** gems ของฟอร์ม → พารามิเตอร์ที่ผ่าน allowlist (ผิดรูป = ไม่ถึง DB · ผิดเนื้อหา DB ตัดสินซ้ำ) */
+function parseIntakeGems(raw: unknown, hasProduct: boolean): { ok: true; value: IntakeGemsParam } | IntakeActionFail {
+  // code ชั้นนอกตรงกับที่ DB ใช้ (gem_line_invalid = แถวผิด · gem_lines_required = has แต่ไม่มีแถว) · รหัสเหตุผลจริงอยู่ใน gem.code (ตาราง GEM_ERROR_TH)
+  const gfail = (error: string, gcode: string, field?: string, row?: number): IntakeActionFail => ({
+    ok: false, error, code: gcode === "gem_lines_required" ? "gem_lines_required" : "gem_line_invalid", field: "gems",
+    gem: { code: gcode, ...(row !== undefined ? { row } : {}), ...(field && /^[a-z][a-z_]{0,30}$/.test(field) ? { field } : {}) },
+  });
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return intakeBad("ข้อมูลพลอยไม่ถูกต้อง — โหลดหน้าใหม่แล้วลองอีกครั้ง", "gems");
+  const g = raw as Record<string, unknown>;
+  const answer = g.answer;
+  if (answer !== "none" && answer !== "template" && answer !== "has") return intakeBad("เลือกก่อนว่าใบนี้ฝังพลอยไหม", "gems");
+  if (answer === "template") {
+    if (!hasProduct) return intakeBad("สินค้านี้ยังไม่มีแม่แบบพลอย — เลือกก่อนว่าฝังพลอยหรือไม่ฝังพลอย", "gems");
+    if (g.lines !== undefined && g.lines !== null) return intakeBad("ข้อมูลพลอยไม่ถูกต้อง — โหลดหน้าใหม่แล้วลองอีกครั้ง", "gems");
+  }
+  if (answer === "none" && g.lines !== undefined && g.lines !== null && !(Array.isArray(g.lines) && g.lines.length === 0)) return intakeBad("ตอบว่า \"ไม่มีพลอย\" แต่มีรายการพลอยมาด้วย — ตรวจแล้วลองอีกครั้ง", "gems");
+  const force = toWireGemForce(g.force);
+  if (!force.ok) return intakeBad(force.error, "gems");
+  if (answer !== "has") {
+    if (force.value !== null) return intakeBad("ข้อมูลพลอยไม่ถูกต้อง — โหลดหน้าใหม่แล้วลองอีกครั้ง", "gems");
+    return { ok: true, value: { answer } };
+  }
+  const lines = toWireGemLines(g.lines);
+  if (!lines.ok) return gfail(lines.error, lines.code, lines.field ?? undefined, lines.row ?? undefined);
+  if (lines.value.length === 0) return gfail("เพิ่มพลอยอย่างน้อย 1 รายการ หรือเลือก \"ไม่มีพลอย\"", "gem_lines_required");
+  return { ok: true, value: { answer: "has", lines: lines.value, force: force.value } };
 }
 
 export type IntakeOpenActionResult = { ok: true; result: IntakeOpenResult } | IntakeActionFail;
@@ -334,9 +376,16 @@ export async function intakeOpen(token: string, input: IntakeOpenActionInput): P
     if (!n.ok) return intakeBad(n.error, "note");
     note = n.value;
   }
+  // 0191 W3: พลอย (ไม่ส่ง = W1 เดิม) — ตรวจรูปร่างก่อนถึง DB · ผิด = กลับ W-4 (field "gems" + gem.row/gem.field)
+  let gems: IntakeGemsParam | undefined;
+  if (input.gems !== undefined) {
+    const g = parseIntakeGems(input.gems, hasProduct);
+    if (!g.ok) return g;
+    gems = g.value;
+  }
   const r = await openIntakeJob(token, {
     idemKey: input.idemKey, productId: hasProduct ? (input.productId as string) : null, pendingLabel: label, metal, purity, weightG: w.value,
-    qtyOrder: q.value, qtyPlanned: planned, dueDate: due, isNewDesign: input.isNewDesign === true, note,
+    qtyOrder: q.value, qtyPlanned: planned, dueDate: due, isNewDesign: input.isNewDesign === true, note, ...(gems ? { gems } : {}),
   });
   return r.ok ? { ok: true, result: r.data } : failOf(r);
 }
@@ -433,5 +482,60 @@ export type IntakeMyJobsActionResult =({ ok: true } & MyIntakeList) | IntakeActi
 /** "ใบที่ฉันเปิด" บน hub QR ร้าน — ใบที่ยังไม่ปิด/ไม่ยกเลิก ภายใน 14 วัน ≤ 20 ใบ (เฉพาะของช่างใน session · DB กรอง) */
 export async function intakeMyJobs(token: string): Promise<IntakeMyJobsActionResult> {
   const r = await listMyIntakeJobs(token);
+  return r.ok ? { ok: true, ...r.data } : failOf(r);
+}
+
+// ---------------------------------------------------------------------------
+// 0191 W3 — ผู้จัดการกรอก/แก้พลอยจากมือถือ (QR ร้าน + PIN · ไม่ login)
+// 🔴 ด่านจริงทั้งหมดอยู่ที่ DB (RPC job_worker_gem_*: ผู้เปิดใบ · ขั้นแรกยังไม่รับ · ใบ open · มีขั้นฝัง · CAS · ตัวดักชื่อคล้าย · rate limit) — action นี้ตรวจรูปร่าง input ก่อนถึง DB เท่านั้น
+// 🔴 ไม่รับ shop id จาก client · ไม่มีราคา/ต้นทุน/เผื่อแตกในอินพุตและผลลัพธ์ (type ไม่มี field ราคา) · แถวพลอยผ่าน allowlist เดียวกับออฟฟิศ (toWireGemLines — key แปลกเช่น price = ปฏิเสธ ไม่ทิ้งเงียบ)
+// ---------------------------------------------------------------------------
+
+export type IntakeGemCatalogActionResult = ({ ok: true } & IntakeGemCatalog) | IntakeActionFail;
+
+/**
+ * ชนิด/รูปทรงที่ใช้ได้ + ขนาดที่เคยใช้ (≤ 6 ต่อคู่) + แม่แบบพลอยของ SKU (ส่ง productId) — เรียกตอนเข้า W-4 และตอนเลือก/เปลี่ยน SKU
+ * SKU ที่ DB ไม่ให้ใช้ (ร้านอื่น/ปิดใช้/live (ขึ้นต้น live)/ไม่พบ) = hasTemplate false เหมือนไม่มีแม่แบบ (ไม่เปิดเผยว่ามี SKU นั้น)
+ */
+export async function intakeGemCatalog(token: string, productId?: string | null): Promise<IntakeGemCatalogActionResult> {
+  if (productId !== undefined && productId !== null && productId !== "" && !isUuid(productId)) return intakeBad("เลือกสินค้าไม่ถูกต้อง", "product");
+  const r = await loadIntakeGemCatalog(token, productId ? productId : null);
+  return r.ok ? { ok: true, ...r.data } : failOf(r);
+}
+
+export type IntakeJobGemsActionResult = ({ ok: true } & IntakeJobGems) | IntakeActionFail;
+
+/** พลอยของใบที่ฉันเปิด (W-10) + แก้ได้ไหม (editable/lockCode) + rev สำหรับบันทึก — ใบคนอื่น/ออฟฟิศ/ส่วนย่อย = order_not_found จาก DB */
+export async function intakeJobGems(token: string, jobId: string): Promise<IntakeJobGemsActionResult> {
+  if (typeof jobId !== "string" || !isUuid(jobId)) return intakeBad("ข้อมูลไม่ถูกต้อง");
+  const r = await loadIntakeJobGems(token, jobId);
+  return r.ok ? { ok: true, ...r.data } : failOf(r);
+}
+
+export interface IntakeSetJobGemsInput {
+  jobId: string;
+  /** แถวพลอยทั้งชุด (แถวเดิมส่ง gemItemId + qtyPerPiece + position · แถวใหม่ส่งชนิด/รูปทรง/ขนาด) — [] = ล้างพลอย (ใบยังมีขั้นฝัง = state unspecified) */
+  lines: GemLineInput[];
+  /** rev จาก intakeJobGems (กัน 2 เครื่องทับกัน — เปลี่ยนไปแล้ว = code gem_conflict) */
+  expectedRev: string;
+  /** ชื่อที่ผู้ใช้ยืนยันหลัง DB ถามว่าคล้าย (similar[] ของคำขอก่อน) */
+  force?: GemForceItem[] | null;
+}
+
+export type IntakeSetJobGemsActionResult = ({ ok: true } & IntakeGemSetResult) | IntakeActionFail;
+
+/**
+ * แก้พลอยทั้งชุดครั้งเดียว (all-or-nothing) จนช่างเริ่มรับงาน — ผิดแถวใด = ไม่เขียนอะไร (gem.row/gem.field) · ชื่อคล้าย = code gem_similar + similar[] (ไม่เขียน — ส่งซ้ำพร้อม force)
+ * ล็อก = job_locked/job_cancelled/job_closed/job_not_open/no_gem_stage · ใบไม่ใช่ของฉัน = order_not_found · เครื่องอื่นแก้ไปก่อน = gem_conflict (โหลดใหม่)
+ */
+export async function intakeSetJobGems(token: string, input: IntakeSetJobGemsInput): Promise<IntakeSetJobGemsActionResult> {
+  if (typeof input !== "object" || input === null) return intakeBad("ข้อมูลไม่ถูกต้อง");
+  if (typeof input.jobId !== "string" || !isUuid(input.jobId)) return intakeBad("ข้อมูลไม่ถูกต้อง");
+  if (typeof input.expectedRev !== "string" || !/^([0-9a-f]{32}|empty)$/.test(input.expectedRev)) return intakeBad("ข้อมูลพลอยของใบนี้เปลี่ยนไป — โหลดหน้าใหม่แล้วลองอีกครั้ง", "key");
+  const lines = toWireGemLines(input.lines);
+  if (!lines.ok) return { ok: false, error: lines.error, code: "gem_line_invalid", field: "gems", gem: { code: lines.code, ...(lines.row !== null ? { row: lines.row } : {}), ...(lines.field !== null && /^[a-z][a-z_]{0,30}$/.test(lines.field) ? { field: lines.field } : {}) } };
+  const force = toWireGemForce(input.force);
+  if (!force.ok) return intakeBad(force.error, "gems");
+  const r = await setIntakeJobGems(token, { jobId: input.jobId, lines: lines.value, expectedRev: input.expectedRev, force: force.value });
   return r.ok ? { ok: true, ...r.data } : failOf(r);
 }

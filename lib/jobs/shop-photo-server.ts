@@ -17,8 +17,8 @@ import { IDEM_KEY_RE as IDEM_RE, isUuid } from "@/lib/jobs/input";
 import { logJobFailure } from "@/lib/jobs/log";
 import { GENERIC_JOB_ERROR } from "@/lib/jobs/messages";
 import { JOB_PHOTO_FILE_CODE, JOB_PHOTO_FILE_ERROR_TH, JOB_PHOTO_PATH_RE } from "@/lib/jobs/photos";
-import { callWorkerRpc, fail, finite, intakeClean, intakeFail, isFail, readCaller } from "@/lib/jobs/worker-server";
-import type { Caller, WorkerFail, WorkerOk } from "@/lib/jobs/worker-server";
+import { callWorkerRpc, fail, finite, intakeClean, intakeFail, isFail, parseGemState, readCaller } from "@/lib/jobs/worker-server";
+import type { Caller, GemState, WorkerFail, WorkerOk } from "@/lib/jobs/worker-server";
 import { getServiceClient } from "@/lib/supabase/server";
 
 /** รูปที่ถึง client: signed URL (15 นาที) + สถานะเท่านั้น — ไม่มี path/id ของใบ/ชื่อไฟล์ */
@@ -63,6 +63,13 @@ export interface MyIntakeJob {
   photosCount: number;
   myPhotosCount: number;
   editable: boolean;
+  /** 0191 W3 (W-9): บรรทัดพลอยของใบ — specified = มีรายการ · unspecified = มีขั้นฝังแต่ยังไม่มีรายการ (⚑ amber) · not_needed = ไม่มีพลอย · null = DB รุ่นก่อน 0191 (ไม่ส่งมา) · ไม่มีราคา */
+  gemState: GemState | null;
+  gemCount: number;
+  /** รวมเม็ดทั้งใบ = จำนวน/ชิ้น x จำนวนที่เริ่มผลิต (DB คำนวณ) */
+  gemPieces: number;
+  /** แก้พลอยได้ตอนนี้ (ตัดสินที่ DB เดียวกับ job_worker_gem_set — แยกจาก editable ของรูป) */
+  gemEditable: boolean;
 }
 
 export interface MyIntakeList {
@@ -183,7 +190,11 @@ export async function listMyIntakeJobs(token: unknown): Promise<WorkerOk<MyIntak
     const status = typeof o.status === "string" ? o.status.slice(0, 20) : "";
     if (!jobId || !jobNo || !label || !status) return [];
     const metal = typeof o.metal === "string" && (METALS as readonly string[]).includes(o.metal) ? (o.metal as MyIntakeJob["metal"]) : null;
-    return [{ jobId, orderNo, jobNo, designLabel: label, metal, qty: intOr0(o.qty), createdAt, status, photosCount: intOr0(o.photos_count), myPhotosCount: intOr0(o.my_photos_count), editable: o.editable === true }];
+    const gemPieces = finite(o.gem_pieces);
+    return [{
+      jobId, orderNo, jobNo, designLabel: label, metal, qty: intOr0(o.qty), createdAt, status, photosCount: intOr0(o.photos_count), myPhotosCount: intOr0(o.my_photos_count), editable: o.editable === true,
+      gemState: parseGemState(o.gem_state), gemCount: Math.min(intOr0(o.gem_count), 30), gemPieces: gemPieces !== null && Number.isInteger(gemPieces) && gemPieces >= 0 && gemPieces <= 1e12 ? gemPieces : 0, gemEditable: o.gem_editable === true,
+    }];
   });
   return { ok: true, data: { openAllowed: r.open_allowed === true, jobs, maxPhotos: MAX_SHOPFLOOR_PHOTOS } };
 }

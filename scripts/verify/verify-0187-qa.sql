@@ -689,7 +689,7 @@ begin
     raise exception 'rb_qa';
   exception when others then if sqlerrm <> 'rb_qa' then v := v || pg_temp.chk('QA-MU2-crash', sqlstate || ' ' || sqlerrm, false); end if; end;
   begin
-    perform pg_temp.mutate('analytics.job_worker_open(text,text,text,uuid,text,text,numeric,numeric,integer,integer,date,boolean,text,text,text)', '''ชื่อแบบ'', 200)', '''ชื่อแบบ'', 2000)');
+    perform pg_temp.mutate('analytics.job_worker_open(text,text,text,uuid,text,text,numeric,numeric,integer,integer,date,boolean,text,text,text,jsonb,text,jsonb)', '''ชื่อแบบ'', 200)', '''ชื่อแบบ'', 2000)');
     out := pg_temp.qa_input();
     v := v || pg_temp.chk('QA-MU3', 'mutant: เพดานชื่อแบบ 200 -> 2000 -> QA-C1 ต้อง FAIL', position('[FAIL] QA-C1' in out) > 0);
     raise exception 'rb_qa';

@@ -615,7 +615,7 @@ describe("intakeListPhotos / intakeMyJobs", () => {
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.jobs).toHaveLength(2);
-    expect(r.jobs[0]).toEqual({ jobId: JOB, orderNo: "PO-2610-001", jobNo: "JB-0001", designLabel: "แหวนลาย A", metal: "silver", qty: 3, createdAt: "2026-10-21T02:00:00Z", status: "open", photosCount: 2, myPhotosCount: 1, editable: true });
+    expect(r.jobs[0]).toEqual({ jobId: JOB, orderNo: "PO-2610-001", jobNo: "JB-0001", designLabel: "แหวนลาย A", metal: "silver", qty: 3, createdAt: "2026-10-21T02:00:00Z", status: "open", photosCount: 2, myPhotosCount: 1, editable: true, gemState: null, gemCount: 0, gemPieces: 0, gemEditable: false });
     expect(r.jobs[1]).toMatchObject({ jobId: PH2, editable: false, metal: null });
     rpcMock.mockResolvedValueOnce({ data: { ok: true, open_allowed: false, jobs: [] }, error: null });
     expect(await intakeMyJobs(TOKEN)).toMatchObject({ ok: true, openAllowed: false, jobs: [] });
