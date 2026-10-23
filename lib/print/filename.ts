@@ -10,7 +10,7 @@ export const FILE_TITLE_PART_MAX = 40;
 /** ทั้งชื่อไฟล์ ยาวสุด */
 export const FILE_TITLE_TOTAL_MAX = 100;
 
-/** อักขระต้องห้ามในชื่อไฟล์ Windows/macOS/Linux — ตัดทิ้ง (ไม่แทนด้วยช่องว่าง) */
+/** อักขระต้องห้ามในชื่อไฟล์ Windows/macOS/Linux — แทนด้วยช่องว่าง (แล้วยุบซ้ำ + แปลงเป็น `-` รวมกับช่องว่างอื่น) ไม่ให้สองคำติดกัน */
 const FORBIDDEN = /[\\/:*?"<>|]/g;
 /** ตัวคั่นบรรทัด/แท็บ → นับเป็นช่องว่าง (ไม่ใช่ตัดทิ้ง ไม่งั้น "a\nb" ติดกัน) */
 const LINE_BREAKS = /[\t\n\r\v\f\u{0085}\u{2028}\u{2029}]/gu;
@@ -59,13 +59,13 @@ function truncate(s: string, max: number): string {
 
 /**
  * ทำความสะอาดหนึ่งส่วนของชื่อไฟล์:
- * ตัด `\ / : * ? " < > |` · ตัวควบคุม/ขึ้นบรรทัด/ล่องหน · ยุบช่องว่างซ้อนเป็น 1 แล้วแทนด้วย `-` · ตัด `.`/`-`/ช่องว่างหัวท้าย
+ * `\ / : * ? " < > |` และช่องว่างทุกชนิด → ยุบซ้อนเป็น 1 แล้วแทนด้วย `-` (ต่างหู/แหวน → ต่างหู-แหวน) · ตัดตัวควบคุม/ล่องหนทิ้ง · ตัด `.`/`-`/ช่องว่างหัวท้าย
  * ถ้าเกิน maxChars (ค่าเริ่ม 40) ตัดตามตัวอักษรที่ตาเห็น (ไม่ตัดกลางสระ/วรรณยุกต์ไทย)
  * ไม่ใช่ string / ว่างหลังทำความสะอาด = ""
  */
 export function sanitizeFileTitlePart(input: unknown, maxChars: number = FILE_TITLE_PART_MAX): string {
   if (typeof input !== "string") return "";
-  let s = input.normalize("NFC").replace(LINE_BREAKS, " ").replace(INVISIBLE, "").replace(FORBIDDEN, "");
+  let s = input.normalize("NFC").replace(LINE_BREAKS, " ").replace(INVISIBLE, "").replace(FORBIDDEN, " ");
   s = s.replace(WHITESPACE, " ").trim().replace(/ /g, "-");
   s = trimEdges(s);
   if (s === "") return "";
@@ -76,13 +76,14 @@ const DATE_ONLY = /^(\d{4})-(\d{2})-(\d{2})$/;
 const BKK_FMT = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok", year: "numeric", month: "2-digit", day: "2-digit" });
 
 /**
- * วันที่ตามเวลาไทยเป็น YYMMDD (ปี ค.ศ. 2 หลัก) — 2026-10-21 → "261021"
+ * วันที่ตามเวลาไทยเป็น "YYYY-MM-DD" — ที่เดียวของทั้งชื่อไฟล์ PDF และวันที่ที่พิมพ์บนเอกสาร (ต้องตรงกัน)
  *  · "YYYY-MM-DD" ล้วน = วันที่นั้นเลย (ไม่เลื่อนโซนเวลา — เป็นวันของเอกสารอยู่แล้ว)
- *  · timestamp ISO (มี Z/offset) หรือ Date = แปลงเป็นเวลาไทย: 2026-10-21T17:30:00Z → "261022"
+ *  · timestamp ISO (มี Z/offset) หรือ Date = แปลงเป็นเวลาไทย: 2026-10-21T17:30:00Z → "2026-10-22"
  *  · timestamp ที่ไม่มี offset ถือเป็น UTC (PostgREST ส่ง offset เสมอ — กันเครื่องผู้ใช้ตีความเป็นเวลาท้องถิ่น)
  *  · ว่าง/อ่านไม่ได้/วันที่ไม่มีจริง (2026-02-31) = ""
+ * 🔴 ห้ามใช้ `ts.slice(0, 10)` กับ timestamptz — ได้วัน UTC ซึ่งเลื่อนไป 1 วันช่วง 00:00-07:00 เวลาไทย
  */
-export function bkkYYMMDD(input: string | Date | null | undefined): string {
+export function bkkDateISO(input: string | Date | null | undefined): string {
   if (input === null || input === undefined) return "";
   let t: Date;
   if (input instanceof Date) {
@@ -94,7 +95,7 @@ export function bkkYYMMDD(input: string | Date | null | undefined): string {
       const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
       const probe = new Date(Date.UTC(y, mo - 1, d));
       if (probe.getUTCFullYear() !== y || probe.getUTCMonth() !== mo - 1 || probe.getUTCDate() !== d) return "";
-      return `${m[1].slice(2)}${m[2]}${m[3]}`;
+      return s;
     }
     if (!/^\d{4}-\d{2}-\d{2}[T ]/.test(s)) return "";
     // Postgres อาจส่ง offset แบบสั้น (+00 / +0700) ซึ่ง JS Date อ่านไม่ได้ → ทำเป็น ±HH:MM ก่อน
@@ -115,7 +116,13 @@ export function bkkYYMMDD(input: string | Date | null | undefined): string {
   const g = (k: string) => parts.find((p) => p.type === k)?.value ?? "";
   const y = g("year");
   if (y.length !== 4) return "";
-  return `${y.slice(2)}${g("month")}${g("day")}`;
+  return `${y}-${g("month")}-${g("day")}`;
+}
+
+/** วันที่ตามเวลาไทยเป็น YYMMDD (ปี ค.ศ. 2 หลัก) — 2026-10-21 → "261021" · กติกาอินพุตเดียวกับ bkkDateISO · อ่านไม่ได้ = "" */
+export function bkkYYMMDD(input: string | Date | null | undefined): string {
+  const d = bkkDateISO(input);
+  return d === "" ? "" : `${d.slice(2, 4)}${d.slice(5, 7)}${d.slice(8, 10)}`;
 }
 
 export interface PrintFileTitleInput {

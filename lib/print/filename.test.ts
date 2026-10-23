@@ -1,7 +1,28 @@
 // ชื่อไฟล์ PDF หน้าพิมพ์ — helper pure (มติเจ้าของ 23 ต.ค. 69: YYMMDD_<เลขเอกสาร>_<ชื่อ> · ปี ค.ศ. 2 หลัก · วันที่ไทย)
 // อักขระล่องหน/ตัวคั่นบรรทัดในเทสต์เขียนเป็น \u{XXXX} เสมอ (ไม่ฝังตัวจริงลงซอร์ส)
 import { describe, expect, it } from "vitest";
-import { FILE_TITLE_PART_MAX, FILE_TITLE_TOTAL_MAX, bkkYYMMDD, printFileTitle, sanitizeFileTitlePart } from "./filename";
+import { FILE_TITLE_PART_MAX, FILE_TITLE_TOTAL_MAX, bkkDateISO, bkkYYMMDD, printFileTitle, sanitizeFileTitlePart } from "./filename";
+
+describe("bkkDateISO — วันไทย YYYY-MM-DD (ตัวเดียวกับที่พิมพ์บนเอกสาร)", () => {
+  it("createdAt 2026-10-20T18:00Z → 2026-10-21 (ไม่ใช่ slice UTC = 2026-10-20)", () => {
+    expect(bkkDateISO("2026-10-20T18:00:00+00:00")).toBe("2026-10-21");
+    expect("2026-10-20T18:00:00+00:00".slice(0, 10)).toBe("2026-10-20"); // พฤติกรรมเดิมที่ผิด
+  });
+  it("date ล้วน คืนเดิม · ขอบ 16:59Z/17:00Z · ข้ามปี · Date · อ่านไม่ได้ = ''", () => {
+    expect(bkkDateISO("2026-10-16")).toBe("2026-10-16");
+    expect(bkkDateISO("2026-10-20T16:59:59Z")).toBe("2026-10-20");
+    expect(bkkDateISO("2026-10-20T17:00:00Z")).toBe("2026-10-21");
+    expect(bkkDateISO("2026-12-31T20:00:00+00")).toBe("2027-01-01");
+    expect(bkkDateISO(new Date("2026-10-20T18:00:00Z"))).toBe("2026-10-21");
+    for (const bad of [null, undefined, "", "x", "2026-02-31"]) expect(bkkDateISO(bad as never)).toBe("");
+  });
+  it("bkkYYMMDD สอดคล้องกับ bkkDateISO ทุกอินพุต", () => {
+    for (const s of ["2026-10-20T18:00:00+00:00", "2026-10-16", "2099-12-31T20:00:00Z", "2026-01-05T00:00:00+07:00"]) {
+      const d = bkkDateISO(s);
+      expect(bkkYYMMDD(s)).toBe(`${d.slice(2, 4)}${d.slice(5, 7)}${d.slice(8, 10)}`);
+    }
+  });
+});
 
 const len = (s: string) => Array.from(new Intl.Segmenter(undefined, { granularity: "grapheme" }).segment(s)).length;
 const FORBIDDEN_ALL = /[\\/:*?"<>|]/;
@@ -56,9 +77,13 @@ describe("sanitizeFileTitlePart", () => {
     expect(sanitizeFileTitlePart("แหวน Pinky 925 ขนาด 7")).toBe("แหวน-Pinky-925-ขนาด-7");
     expect(sanitizeFileTitlePart("บริษัท ABC จำกัด (มหาชน)")).toBe("บริษัท-ABC-จำกัด-(มหาชน)");
   });
-  it("ตัด \\ / : * ? \" < > | ทุกตัว (ตัดทิ้ง ไม่แทนด้วยช่องว่าง)", () => {
-    expect(sanitizeFileTitlePart('a\\b/c:d*e?f"g<h>i|j')).toBe("abcdefghij");
-    expect(sanitizeFileTitlePart("ต่างหู/แหวน")).toBe("ต่างหูแหวน");
+  it("\\ / : * ? \" < > | แทนด้วย - (ยุบซ้ำ) ไม่ตัดให้คำสองคำติดกัน", () => {
+    expect(sanitizeFileTitlePart('a\\b/c:d*e?f"g<h>i|j')).toBe("a-b-c-d-e-f-g-h-i-j");
+    expect(sanitizeFileTitlePart("ต่างหู/แหวน")).toBe("ต่างหู-แหวน");
+    expect(sanitizeFileTitlePart("ต่างหู // แหวน")).toBe("ต่างหู-แหวน");
+    expect(sanitizeFileTitlePart("a///b???c")).toBe("a-b-c");
+    expect(sanitizeFileTitlePart("a / b")).toBe("a-b");
+    expect(sanitizeFileTitlePart("/ab/")).toBe("ab");
     expect(sanitizeFileTitlePart('"ร้านทอง": สาขา 1?')).toBe("ร้านทอง-สาขา-1");
     expect(sanitizeFileTitlePart('\\/:*?"<>|')).toBe("");
   });
@@ -180,6 +205,6 @@ describe("printFileTitle", () => {
   it("ผลสุดท้ายไม่เคยมีอักขระต้องห้าม แม้ทุกส่วนเป็นขยะ", () => {
     const t = printFileTitle({ date: "261021", docNo: "JB/0:1*", name: 'ชื่อ "ลูกค้า" <ห้าม> | \\ ?' });
     expect(t).not.toMatch(FORBIDDEN_ALL);
-    expect(t).toBe("261021_JB01_ชื่อ-ลูกค้า-ห้าม");
+    expect(t).toBe("261021_JB-0-1_ชื่อ-ลูกค้า-ห้าม");
   });
 });

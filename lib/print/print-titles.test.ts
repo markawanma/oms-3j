@@ -32,7 +32,7 @@ describe("ใบงาน A5 / ใบย่อย", () => {
     expect(jobPrintTitle({ ...JOB, createdAt: "not-a-date" })).toBe("JB-0034_ต่างหู");
   });
   it("ชื่อแบบมีอักขระต้องห้าม/ยาว", () => {
-    expect(jobPrintTitle({ ...JOB, designLabel: 'แหวน "Pinky" 1/2 นิ้ว' })).toBe("261021_JB-0034_แหวน-Pinky-12-นิ้ว");
+    expect(jobPrintTitle({ ...JOB, designLabel: 'แหวน "Pinky" 1/2 นิ้ว' })).toBe("261021_JB-0034_แหวน-Pinky-1-2-นิ้ว");
     expect(jobPrintTitle({ ...JOB, designLabel: "ก".repeat(100) })).toBe(`261021_JB-0034_${"ก".repeat(40)}`);
   });
 });

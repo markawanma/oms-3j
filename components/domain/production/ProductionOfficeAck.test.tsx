@@ -44,10 +44,17 @@ import { ProductionOrderDetailClient } from "./ProductionOrderDetailClient";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // fixture ลงวันที่ 21 ต.ค. 69 — การ์ดอ่าน "วันนี้" จาก Date.now() (ค้าง ≥ N วัน = ป้ายแดง "ค้าง N วัน" แทน "ยังไม่รับทราบ")
+  // ล็อกเฉพาะ Date ที่เวลาหลังเปิดใบ 3 ชม. (ไม่ fake timer อื่น — userEvent/waitFor ยังเดินปกติ) · ไม่ผูกกับเวลาจริงของเครื่องที่รันเทสต์
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(new Date("2026-10-21T05:00:00Z"));
   Element.prototype.scrollIntoView = vi.fn();
   ack.mockResolvedValue({ ok: true, data: { productionOrderId: "po-1", poNo: "PO-0040", acknowledgedAt: "2026-10-21T03:00:00Z", jobsLogged: 1 } });
 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
 
 const order = (o: Partial<ProductionOrderRow> = {}): ProductionOrderRow => ({
   id: "po-1", poNo: "PO-0040", status: "open", note: null, spotOverrideThbPerGram: null, doneAt: null, cancelledAt: null, cancelReason: null,
