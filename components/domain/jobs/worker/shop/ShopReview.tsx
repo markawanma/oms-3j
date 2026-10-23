@@ -11,6 +11,7 @@ import { StickyAction } from "@/components/domain/jobs/worker/WorkerPanels";
 import { ShopErrorBanner } from "@/components/domain/jobs/worker/shop/ShopErrorBanner";
 import { ShopFieldError } from "@/components/domain/jobs/worker/shop/ShopMetalFields";
 import { ShopMetalRow } from "@/components/domain/jobs/worker/shop/ShopMetalSummary";
+import { ShopReviewGemsRow } from "@/components/domain/jobs/worker/shop/ShopReviewGemsRow";
 import { dueLabel, noteIssue, qtySummary } from "@/lib/jobs/shop-open";
 import type { ShopErrorView, ShopForm } from "@/lib/jobs/shop-open";
 import { SHOP_PHOTO_TH } from "@/lib/jobs/shop-photos";
@@ -31,6 +32,7 @@ export function ShopReview({
   onSubmit,
   onEditProduct,
   onEditMetal,
+  onEditGems,
   onBack,
   photos,
   onEditPhotos,
@@ -46,6 +48,8 @@ export function ShopReview({
   onSubmit: () => void;
   onEditProduct: () => void;
   onEditMetal: () => void;
+  /** 0191 W3: กลับไป W-4 พลอย (แถวที่กรอกคงอยู่) */
+  onEditGems: () => void;
   /** แก้จากข้อผิดพลาด: กลับไปช่อง/ขั้นที่ผิด */
   onBack: () => void;
   /** 0189 W2: รูปที่เลือกไว้ (ยังอยู่ในเครื่อง ยังไม่ส่ง) — ไม่ส่ง = ไม่มีแถว "รูป" */
@@ -91,6 +95,7 @@ export function ShopReview({
               <p className={DT}>จำนวนผลิต</p>
               <p className={DD}>{qtySummary(form)}</p>
             </div>
+            <ShopReviewGemsRow form={form} onEdit={onEditGems} disabled={busy} />
             <div className={ROW}>
               <p className={DT}>กำหนดเสร็จ</p>
               <p className={DD}>{dueLabel(form.due, today)}</p>

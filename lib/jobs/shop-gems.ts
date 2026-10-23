@@ -3,7 +3,8 @@
 //    ต้องขยับพร้อม DB เสมอ: ชุดเคส UX §3.4 อยู่ทั้งใน verify-0190.sql (N1-N17) และ shop-gems.test.ts (parity) · ผลต่างขอบๆ ของ Unicode (NBSP/สัญลักษณ์แปลก) ให้ถือ DB เป็นหลัก
 // ไม่มีราคา/ต้นทุน/เผื่อแตกในไฟล์นี้ — จำนวนเต็ม × จำนวนเต็มเท่านั้น (ไม่มีปัดเศษ — UX P10)
 
-import { stripInvisibleText } from "@/lib/oem/display";
+// leaf module (ไม่ใช่ lib/oem/display) — ไฟล์นี้อยู่ในกราฟหน้างาน /w/s/ ที่ห้ามลาก lib/oem/* (worker-boundary.shop.test)
+import { stripInvisibleText } from "@/lib/text/invisible";
 
 /** เพดานกติกา (ตรงกับ DB 0190: gem_name_ok · CHECK ขนาด · qty 1-1000 · ≤ 30 แถว · ตำแหน่ง ≤ 40 · เหตุผล ≤ 300) */
 export const GEM_LIMITS = {

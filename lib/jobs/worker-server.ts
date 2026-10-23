@@ -539,8 +539,8 @@ export interface IntakeOpenInput {
   dueDate: string | null;
   isNewDesign: boolean;
   note: string | null;
-  /** 0191 W3: พลอยของใบ (ไม่ส่ง = W1 เดิม) — answer: none = ไม่มีพลอย (ไม่มีขั้นฝัง) · has = มีพลอย (ต้องมี lines) · template = ตามแม่แบบ SKU (DB บังคับว่า SKU ต้องมีแม่แบบ) */
-  gems?: IntakeGemsParam;
+  /** 0191 W3 (S3): พลอยของใบ — บังคับ (ไม่มีทาง null: เรียก RPC ด้วย p_gem_answer เสมอ) · answer: none = ไม่มีพลอย (ไม่มีขั้นฝัง) · has = มีพลอย (ต้องมี lines) · template = ตามแม่แบบ SKU (DB บังคับว่า SKU ต้องมีแม่แบบ) */
+  gems: IntakeGemsParam;
 }
 
 /** payload ที่ผ่าน allowlist แล้ว (toWireGemLines/toWireGemForce) — ชั้นนี้ไม่แปลงซ้ำ */
@@ -622,6 +622,9 @@ export function mapGemSummary(raw: unknown): IntakeGemSummary | null {
 
 /** เปิดใบผลิต + ใบงาน + QR ทรานแซกชันเดียว — ส่งเฉพาะที่ระบุ (null = ไม่ส่ง · ค่าเริ่มของ RPC เป็น null ทั้งหมด) */
 export async function openIntakeJob(token: unknown, i: IntakeOpenInput): Promise<WorkerOk<IntakeOpenResult> | WorkerFail> {
+  // 0191 W3 (S3 · security L1): กันซ้ำชั้น server — ไม่มี gems.answer ที่ถูก (action ปฏิเสธไปแล้ว ที่นี่กันผู้เรียกอื่น/ทางลัด) = ล้มก่อนเรียก RPC · ไม่มีทางส่ง p_gem_answer ว่าง/แปลก (= ไม่มีทางไปทาง null ของ W1)
+  const answer = (i.gems as { answer?: unknown } | null | undefined)?.answer;
+  if (answer !== "none" && answer !== "has" && answer !== "template") return gemFail(fail("gem_answer_invalid"), "open");
   const c = await readCaller(token);
   if (!c.tokenHash) return intakeFail(fail("invalid_token"));
   if (!c.sessionHash) return intakeFail(fail("session_required"));
@@ -632,8 +635,8 @@ export async function openIntakeJob(token: unknown, i: IntakeOpenInput): Promise
       ...(i.productId ? { p_product_id: i.productId } : {}), ...(i.pendingLabel ? { p_pending_label: i.pendingLabel } : {}), ...(i.metal ? { p_metal: i.metal } : {}),
       ...(i.purity !== null ? { p_purity: i.purity } : {}), ...(i.weightG !== null ? { p_weight_g: i.weightG } : {}), ...(i.qtyPlanned !== null ? { p_qty_planned: i.qtyPlanned } : {}),
       ...(i.dueDate ? { p_due_date: i.dueDate } : {}), ...(i.note ? { p_note: i.note } : {}),
-      // 0191 W3: ส่งเฉพาะที่ระบุ — ไม่ส่งพลอย = เรียก RPC ด้วย params ชุดเดิมเป๊ะ (DB ทำงานแบบ W1) · 'none'/'template' ไม่ส่ง lines · force ส่งเฉพาะที่มี (รายการชื่อที่ถูกถาม)
-      ...(i.gems ? { p_gem_answer: i.gems.answer, ...(i.gems.lines ? { p_gem_lines: i.gems.lines } : {}), ...(i.gems.force && i.gems.force.length > 0 ? { p_gem_force: i.gems.force } : {}) } : {}),
+      // 0191 W3 (S3): ส่ง p_gem_answer เสมอ (ไม่มีทาง null) · 'none'/'template' ไม่ส่ง lines · force ส่งเฉพาะที่มี (รายการชื่อที่ถูกถาม)
+      p_gem_answer: i.gems.answer, ...(i.gems.lines ? { p_gem_lines: i.gems.lines } : {}), ...(i.gems.force && i.gems.force.length > 0 ? { p_gem_force: i.gems.force } : {}),
     },
     { keepJobNo: true, gem: true },
   );
@@ -686,7 +689,8 @@ const GEM_CODE_TH: Record<string, string> = {
   gem_args_invalid: "ข้อมูลพลอยไม่ถูกต้อง — โหลดหน้าใหม่แล้วลองอีกครั้ง",
   gem_lines_required: "เพิ่มพลอยอย่างน้อย 1 รายการ หรือเลือก \"ไม่มีพลอย\"",
   gem_force_invalid: "ข้อมูลยืนยันชื่อพลอยไม่ถูกต้อง — โหลดหน้าใหม่แล้วลองอีกครั้ง",
-  gem_name_cap: "เพิ่มชื่อพลอยใหม่ถี่เกินไป — รอสักครู่ หรือใช้ชื่อที่มีในรายการ",
+  // hint เดียวกันครอบทั้ง "เพดานชื่อใหม่ (ชนิด/รูปทรง)" และ "เพดานรายการใหม่ (ขนาดใหม่)" ต่อผู้จัดการต่อ 24 ชม. — ข้อความกลาง ห้ามบอกว่าเป็นเรื่องชื่ออย่างเดียว
+  gem_name_cap: "เพิ่มพลอยใหม่ถี่เกินไปวันนี้ — เลือกจากรายการที่มี หรือแจ้งออฟฟิศ",
   gem_similar: GEM_ERROR_TH.gem_similar,
   gem_line_invalid: "ข้อมูลพลอยไม่ถูกต้อง — ตรวจแถวที่ระบุแล้วลองอีกครั้ง",
 };

@@ -214,8 +214,8 @@ describe("intakeSearch", () => {
   });
 });
 
-const GOOD: IntakeOpenActionInput = { idemKey: IDEM, productId: PID, qty: 3 };
-const GOOD_NEW: IntakeOpenActionInput = { idemKey: IDEM, label: "แหวนลายใบไม้", metal: "silver", qty: "30" };
+const GOOD: IntakeOpenActionInput = { idemKey: IDEM, productId: PID, qty: 3, gems: { answer: "none" } };
+const GOOD_NEW: IntakeOpenActionInput = { idemKey: IDEM, label: "แหวนลายใบไม้", metal: "silver", qty: "30", gems: { answer: "none" } };
 const OPEN_OK = { ok: true, already: false, order_no: "PO-0034", job_no: "JB-0031", token: JOBTOK, design_label: "แหวนลายใบไม้", sku: null, sku_pending: true, metal: "silver", qty_order: 30, qty_planned: 30, is_new_design: false, due_date: null, status: "open" };
 
 describe("ขอบเขตช่องทางสาธารณะ (static)", () => {
@@ -247,14 +247,14 @@ describe("intakeOpen — input ผิดไม่ถึง DB (ด่านก�
     ["idem key มีช่องว่าง", { ...GOOD, idemKey: "has space in key 0123456789abc" }, "key"],
     ["idem key ยาว 65", { ...GOOD, idemKey: "k".repeat(65) }, "key"],
     ["มีทั้ง SKU และชื่อ", { ...GOOD, label: "แหวน", metal: "silver" }, "product"],
-    ["ไม่มีทั้ง SKU และชื่อ", { idemKey: IDEM, qty: 1 }, "label"],
+    ["ไม่มีทั้ง SKU และชื่อ", { idemKey: IDEM, qty: 1, gems: { answer: "none" } }, "label"],
     ["SKU ไม่ใช่ uuid", { ...GOOD, productId: "RING-1" }, "product"],
     ["ชื่อมี < >", { ...GOOD_NEW, label: "<b>แหวน</b>" }, "label"],
     ["ชื่อมีอักขระล่องหน", { ...GOOD_NEW, label: "แหวน​ลาย" }, "label"],
     ["ชื่อมี bidi", { ...GOOD_NEW, label: "แหวน‮ลาย" }, "label"],
     ["ชื่อมีขึ้นบรรทัดใหม่", { ...GOOD_NEW, label: "แหวน\nลาย" }, "label"],
     ["ชื่อยาว 201", { ...GOOD_NEW, label: "ก".repeat(201) }, "label"],
-    ["สินค้าใหม่ไม่เลือกโลหะ", { idemKey: IDEM, label: "แหวน", qty: 1 }, "metal"],
+    ["สินค้าใหม่ไม่เลือกโลหะ", { idemKey: IDEM, label: "แหวน", qty: 1, gems: { answer: "none" } }, "metal"],
     ["โลหะนอกชุด", { ...GOOD_NEW, metal: "platinum" }, "metal"],
     ["ทองไม่มีเนื้อ", { ...GOOD_NEW, metal: "gold" }, "purity"],
     ["ทองเนื้อว่างเปล่า", { ...GOOD_NEW, metal: "gold", purityPct: "  " }, "purity"],
@@ -311,14 +311,14 @@ describe("intakeOpen — ส่ง DB เฉพาะที่ระบุ + แ
   it("มี SKU ค่าเริ่มทั้งหมด: ส่ง hash + key + SKU + จำนวน + แบบใหม่=false เท่านั้น (ไม่มี metal/purity/weight/planned/due/note) · ไม่มี shop id/ราคา/ต้นทุน/stage/profile", async () => {
     const r = await intakeOpen(TOKEN, GOOD);
     expect(fnOf()).toBe("job_worker_open");
-    expect(params()).toEqual({ p_token_hash: sha(TOKEN), p_session_hash: sha(SESSION), p_idem_key: IDEM, p_qty_order: 3, p_is_new_design: false, p_user_agent: "Mozilla/5.0 test", p_ip_hash: sha("203.0.113.9"), p_product_id: PID });
+    expect(params()).toEqual({ p_token_hash: sha(TOKEN), p_session_hash: sha(SESSION), p_idem_key: IDEM, p_qty_order: 3, p_is_new_design: false, p_user_agent: "Mozilla/5.0 test", p_ip_hash: sha("203.0.113.9"), p_product_id: PID, p_gem_answer: "none" });
     expect(Object.keys(params()).some((k) => /shop|price|cost|stage|profile|actor/i.test(k))).toBe(false);
     expect(JSON.stringify(params())).not.toContain(TOKEN);
     expect(r.ok).toBe(true);
   });
 
   it("ไม่มี SKU ทอง 75% น้ำหนัก 5.5 เผื่อ 3 กำหนด+แบบใหม่+หมายเหตุ: เนื้อ % → สัดส่วน 0.75 · planned = qty+buffer · เว้นช่องว่างหัวท้าย", async () => {
-    await intakeOpen(TOKEN, { idemKey: IDEM, label: "  แหวนทอง   ใหม่ ", metal: "gold", purityPct: "75", weight: "5.5", qty: 10, buffer: "3", dueDate: "2026-11-30", isNewDesign: true, note: "  ด่วน " });
+    await intakeOpen(TOKEN, { idemKey: IDEM, label: "  แหวนทอง   ใหม่ ", metal: "gold", purityPct: "75", weight: "5.5", qty: 10, buffer: "3", dueDate: "2026-11-30", isNewDesign: true, note: "  ด่วน ", gems: { answer: "none" } });
     expect(params()).toMatchObject({ p_pending_label: "แหวนทอง ใหม่", p_metal: "gold", p_purity: 0.75, p_weight_g: 5.5, p_qty_order: 10, p_qty_planned: 13, p_due_date: "2026-11-30", p_is_new_design: true, p_note: "ด่วน" });
     expect(params().p_product_id).toBeUndefined();
   });

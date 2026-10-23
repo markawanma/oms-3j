@@ -1,6 +1,6 @@
 "use client";
 
-// ShopJobPhotosScreen — W-10 จอแก้รูปของใบที่ฉันเปิด (UX §5A.2 · มติ Q1=B) + ปุ่ม "ออก QR ใหม่" (มติ 21 ต.ค. ทับ Q8-ก)
+// ShopJobPhotosScreen — W-10 จอ "แก้ JB-xxxx" ของใบที่ฉันเปิด: ส่วนพลอย (ShopJobGemsSection · 0191 W3) บน + ส่วนรูป (W2) ล่าง · เดิม "จอแก้รูป" (UX §5A.2 · มติ Q1=B) + ปุ่ม "ออก QR ใหม่" (มติ 21 ต.ค. ทับ Q8-ก)
 // ใช้ ShopPhotoUploadPanel ตัวเดียวกับ W-8 (โหมด edit): รูปโหลดจาก server (signed URL 15 นาที) แทนไฟล์ในเครื่อง · รูปที่บันทึกแล้วไม่โชว์ "ส่งแล้ว" · รูปใหม่ = ย่อ → ส่งทีละรูปอ้างใบด้วย jobId (ไม่มี idem key ของใบแล้ว) + clientPhotoKey ต่อรูป (กันซ้ำตอนลองใหม่)
 // แก้ได้จนช่างเริ่มรับงาน (server เป็นด่านจริง — ป้าย "แก้ได้" ในรายการอาจเก่า จอนี้โหลดซ้ำเสมอและรับ locked จาก server ทั้งตอนโหลด/ส่ง/ลบ)
 // ออก QR ใหม่: ไม่เพิกถอน QR เดิม · เพดาน 5 ใบ/ใบงาน (DB) · token ดิบแปลงเป็น SVG ทันทีแล้วทิ้ง (ไม่เก็บ state/storage/log) · กันกดซ้ำด้วย inflight + idem key ต่อการออก (key เดิมข้ามการลองใหม่ → server ตอบ already ไม่กินโควตาเพิ่ม · ได้ผลชัดเจนแล้วเปลี่ยน key)
@@ -13,6 +13,7 @@ import { intakeListPhotos, intakeReissueToken } from "@/lib/actions/job-worker";
 import { Modal } from "@/components/ui/Modal";
 import { BigButton } from "@/components/domain/jobs/worker/WorkerParts";
 import { ShopExitGuard } from "@/components/domain/jobs/worker/shop/ShopExitGuard";
+import { ShopJobGemsSection } from "@/components/domain/jobs/worker/shop/ShopJobGemsSection";
 import { ShopMetalTag } from "@/components/domain/jobs/worker/shop/ShopMetalTag";
 import { ShopPhotoQrPair } from "@/components/domain/jobs/worker/shop/ShopPhotoQrPair";
 import { ShopPhotoUploadPanel } from "@/components/domain/jobs/worker/shop/ShopPhotoUploadPanel";
@@ -24,6 +25,7 @@ import type { RetryReason } from "@/components/domain/jobs/photos/types";
 import { renderQrSvgClient, workerPageUrl } from "@/lib/jobs/qr-client";
 import { newIdemKey } from "@/lib/jobs/shop-open";
 import { REISSUE_TH, SHOP_PHOTO_TH, leaveGuard, positions, reissueErrorView } from "@/lib/jobs/shop-photos";
+import { SHOP_GEM_TH } from "@/lib/jobs/shop-gem-flow";
 import type { MyIntakeJob } from "@/lib/jobs/shop-photo-server";
 
 export const MSG_JOBPHOTOS_LOAD_FAIL = "โหลดรูปไม่ได้ — เช็คสัญญาณแล้วลองอีกครั้ง";
@@ -203,7 +205,7 @@ export function ShopJobPhotosScreen({ token, job, onBack, onSessionLost }: { tok
           <p className="text-base font-semibold text-zinc-700">ใบที่ฉันเปิด</p>
         </div>
         <h1 ref={headRef} tabIndex={-1} className="text-2xl font-bold text-zinc-900 focus:outline-none">
-          แก้รูป {job.jobNo}
+          {SHOP_GEM_TH.editTitle(job.jobNo)}
         </h1>
         <p className="flex flex-wrap items-center gap-x-2 gap-y-1 text-lg text-zinc-900">
           <span className="font-semibold break-words">{job.designLabel}</span>
@@ -211,6 +213,9 @@ export function ShopJobPhotosScreen({ token, job, onBack, onSessionLost }: { tok
           <span className="tabular-nums">· {job.qty.toLocaleString("en-US")} ชิ้น</span>
         </p>
       </header>
+
+      {/* W-10 = "แก้ใบ": พลอย (บน) → รูป (ล่าง — ของ W2 ไม่เปลี่ยน) · หน้าต่างแก้เดียวกัน (จนช่างเริ่มรับงาน) */}
+      <ShopJobGemsSection token={token} job={job} onSessionLost={onSessionLost} />
 
       {load.kind === "loading" && (
         <div role="status" aria-busy="true" aria-label="กำลังโหลดรูป" className="animate-pulse space-y-2">

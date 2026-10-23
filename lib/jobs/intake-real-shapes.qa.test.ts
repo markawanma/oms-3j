@@ -84,7 +84,7 @@ describe("real shapes — hub / ค้นสินค้า", () => {
 });
 
 describe("real shapes — เปิดใบ", () => {
-  const sku = (): Parameters<typeof intakeOpen>[1] => ({ idemKey: IDEM, productId: PID, qty: "30", isNewDesign: false });
+  const sku = (): Parameters<typeof intakeOpen>[1] => ({ idemKey: IDEM, productId: PID, qty: "30", isNewDesign: false, gems: { answer: "none" } });
 
   it("เปิดสำเร็จ (SKU เดียว) → result ครบ + token รูปจริง 43 ตัวผ่านด่าน · ส่งเฉพาะ arg ที่ RPC รู้จัก", async () => {
     rpcMock.mockResolvedValue({ data: REAL_OPEN_OK, error: null });
@@ -92,7 +92,7 @@ describe("real shapes — เปิดใบ", () => {
     expect(r).toMatchObject({ ok: true, result: { already: false, status: "open", jobNo: "JB-0001", token: JOBTOK, sku: "ZZQA-FIXA", skuPending: false, metal: "silver", qtyOrder: 30, qtyPlanned: 30, isNewDesign: false, dueDate: null } });
     const p = rpcMock.mock.calls[0][1] as Record<string, unknown>;
     expect(rpcMock.mock.calls[0][0]).toBe("job_worker_open");
-    expect(Object.keys(p).sort()).toEqual(["p_idem_key", "p_ip_hash", "p_is_new_design", "p_product_id", "p_qty_order", "p_session_hash", "p_token_hash", "p_user_agent"].sort());
+    expect(Object.keys(p).sort()).toEqual(["p_gem_answer", "p_idem_key", "p_ip_hash", "p_is_new_design", "p_product_id", "p_qty_order", "p_session_hash", "p_token_hash", "p_user_agent"].sort());
     expect(p.p_token_hash).toBe(sha(TOKEN));
   });
 
@@ -104,7 +104,7 @@ describe("real shapes — เปิดใบ", () => {
 
   it("สินค้าใหม่ทอง เผื่อ 35 + กำหนด + แบบใหม่ → result.qtyPlanned/dueDate/skuPending จริง · ไม่มีเลขน้ำหนักทองในผลที่ส่งให้ UI", async () => {
     rpcMock.mockResolvedValue({ data: REAL_OPEN_NEWGOLD, error: null });
-    const r = await intakeOpen(TOKEN, { idemKey: IDEM, label: "แหวนทอง QA", metal: "gold", purityPct: "96.50", weight: "3.2", qty: "30", buffer: "5", dueDate: "2026-10-24", isNewDesign: true });
+    const r = await intakeOpen(TOKEN, { idemKey: IDEM, label: "แหวนทอง QA", metal: "gold", purityPct: "96.50", weight: "3.2", qty: "30", buffer: "5", dueDate: "2026-10-24", isNewDesign: true, gems: { answer: "none" } });
     expect(r).toMatchObject({ ok: true, result: { metal: "gold", qtyOrder: 30, qtyPlanned: 35, dueDate: "2026-10-24", skuPending: true, sku: null, isNewDesign: true } });
     const p = rpcMock.mock.calls[0][1] as Record<string, unknown>;
     expect(p).toMatchObject({ p_pending_label: "แหวนทอง QA", p_metal: "gold", p_purity: 0.965, p_weight_g: 3.2, p_qty_order: 30, p_qty_planned: 35, p_due_date: "2026-10-24", p_is_new_design: true });
@@ -146,7 +146,7 @@ describe("real shapes — ข้อความ error ทุก code ที่ D
   for (const f of REAL_FAILS) {
     it(`${f.code}: ผ่าน openIntakeJob → shopErrorView สะอาด · action=${f.action}${f.field ? ` · ช่อง=${f.field}` : ""}`, async () => {
       rpcMock.mockResolvedValue({ data: { ok: false, code: f.code, message: f.message }, error: null });
-      const r = await intakeOpen(TOKEN, { idemKey: IDEM, productId: PID, qty: "5", isNewDesign: false });
+      const r = await intakeOpen(TOKEN, { idemKey: IDEM, productId: PID, qty: "5", isNewDesign: false, gems: { answer: "none" } });
       expect(r.ok).toBe(false);
       if (r.ok) return;
       const v = shopErrorView(r);
@@ -163,10 +163,10 @@ describe("real shapes — ข้อความ error ทุก code ที่ D
 
   it("rate_limited จริง (ไม่มี retry_after) → กดซ้ำได้ · มี retry_after → นับถอยหลัง", async () => {
     rpcMock.mockResolvedValue({ data: { ok: false, code: "rate_limited", message: "ส่งถี่เกินไป — รอสักครู่แล้วลองใหม่" }, error: null });
-    const r = await intakeOpen(TOKEN, { idemKey: IDEM, productId: PID, qty: "5", isNewDesign: false });
+    const r = await intakeOpen(TOKEN, { idemKey: IDEM, productId: PID, qty: "5", isNewDesign: false, gems: { answer: "none" } });
     expect(r.ok === false && shopErrorView(r).action).toBe("retry");
     rpcMock.mockResolvedValue({ data: { ok: false, code: "rate_limited", message: "x", retry_after_seconds: 42.2 }, error: null });
-    const r2 = await intakeOpen(TOKEN, { idemKey: IDEM, productId: PID, qty: "5", isNewDesign: false });
+    const r2 = await intakeOpen(TOKEN, { idemKey: IDEM, productId: PID, qty: "5", isNewDesign: false, gems: { answer: "none" } });
     expect(r2.ok === false && shopErrorView(r2)).toMatchObject({ action: "wait", waitSeconds: 43 });
   });
 });

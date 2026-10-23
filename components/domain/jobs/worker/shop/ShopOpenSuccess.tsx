@@ -24,6 +24,7 @@ import type { ShopPhotosApi } from "@/components/domain/jobs/worker/shop/useShop
 import { PhotoAddButtons } from "@/components/domain/jobs/photos/PhotoAddButtons";
 import { renderQrSvgClient, workerPageUrl } from "@/lib/jobs/qr-client";
 import { SHOP_PHOTO_TH, leaveGuard, positions } from "@/lib/jobs/shop-photos";
+import { SHOP_GEM_TH, gemSummaryNotices } from "@/lib/jobs/shop-gem-flow";
 import type { IntakeOpenResult } from "@/lib/jobs/worker-server";
 
 /** ไม่เลือกรูปไว้เลย: แถวเดียว "＋ เพิ่มรูป" → กางเป็นปุ่มถ่าย/เลือก (เพิ่มแล้วการ์ดรูปขึ้นแทน · QR คงอยู่) */
@@ -145,6 +146,22 @@ export function ShopOpenSuccess({
           <p className="mx-auto inline-block rounded-md bg-[#FFF1C2] px-2.5 py-1 text-base font-semibold text-[#5A3D00]">⚑ ยังไม่มีรหัสสินค้า — ออฟฟิศจะผูกให้</p>
         )}
       </div>
+
+      {!cancelled && result.gem && (
+        <div className="space-y-2" data-testid="done-gems">
+          {result.gem.state === "specified" && result.gem.count > 0 && (
+            <p className="text-lg font-semibold tabular-nums text-zinc-900">
+              พลอย {result.gem.count.toLocaleString("en-US")} รายการ · รวม {result.gem.total.toLocaleString("en-US")} เม็ด
+            </p>
+          )}
+          {result.gem.state === "unspecified" && <p className="text-lg font-semibold text-amber-900">⚑ {SHOP_GEM_TH.w10Unspecified}</p>}
+          {gemSummaryNotices(result.gem).map((m, i) => (
+            <p key={`${i}-${m}`} role="note" className="rounded-xl border-2 border-sky-300 bg-sky-50 p-3 text-left text-base text-sky-950">
+              ⓘ {m}
+            </p>
+          ))}
+        </div>
+      )}
 
       {photos && hasPhotos && <ShopPhotoUploadPanel photos={photos} jobNo={result.jobNo} mode="open" onSessionLost={onSessionLost ?? (() => undefined)} />}
 

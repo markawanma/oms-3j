@@ -12,11 +12,19 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { intakeOpen } from "@/lib/actions/job-worker";
 import { bkkDateOf } from "@/lib/jobs/dates";
 import {
-  MSG_NETWORK, backToSearch, buildIntakeInput, newForm, newIdemKey, purityLabel, shopErrorView, shopOpenIssues, stepProgress, stepsFor,
+  MSG_GEM_GENERIC, MSG_NETWORK, backToSearch, buildIntakeInput, isCleanMessage, newForm, newIdemKey, purityLabel, shopErrorView, shopOpenIssues, stepProgress, stepsFor,
 } from "@/lib/jobs/shop-open";
 import type { ShopErrorView, ShopFieldKey, ShopForm, ShopStep } from "@/lib/jobs/shop-open";
-import type { IntakeOpenResult } from "@/lib/jobs/worker-server";
+import type { GemDraftRow } from "@/lib/jobs/gem-draft";
+import { addForce, gemStepIssue, interpretIntakeGemFail, pruneForce } from "@/lib/jobs/shop-gem-flow";
+import type { GemRowErrors } from "@/lib/jobs/shop-gem-flow";
+import type { GemForceItem } from "@/lib/jobs/gem-wire";
+import type { GemSimilar, IntakeOpenResult } from "@/lib/jobs/worker-server";
 import { focusField } from "@/components/domain/jobs/worker/WorkerPanels";
+import { GemServerSimilar } from "@/components/domain/gems/useGemFail";
+import { ShopGemStep } from "@/components/domain/jobs/worker/shop/ShopGemStep";
+import type { ShopGemFocusRequest } from "@/components/domain/jobs/worker/shop/ShopGemEditor";
+import { useShopGemCatalog } from "@/components/domain/jobs/worker/shop/useShopGemCatalog";
 import { ShopMetalSheet } from "@/components/domain/jobs/worker/shop/ShopMetalSummary";
 import type { ShopProfileReady } from "@/components/domain/jobs/worker/shop/ShopMetalSummary";
 import { ShopMetalStep } from "@/components/domain/jobs/worker/shop/ShopMetalStep";
@@ -31,7 +39,7 @@ import { ShopStepHeader } from "@/components/domain/jobs/worker/shop/ShopStepHea
 
 export const todayBkk = (): string => bkkDateOf(new Date().toISOString()) ?? new Date().toISOString().slice(0, 10);
 
-const TITLE: Record<ShopStep, string> = { search: "ผลิตอะไร?", metal: "ทำจากอะไร?", qty: "เท่าไร · เสร็จเมื่อไร", photos: "ใส่รูปให้ช่างดู", review: "ทวนก่อนเปิดงาน" };
+const TITLE: Record<ShopStep, string> = { search: "ผลิตอะไร?", metal: "ทำจากอะไร?", qty: "เท่าไร · เสร็จเมื่อไร", gems: "พลอย", photos: "ใส่รูปให้ช่างดู", review: "ทวนก่อนเปิดงาน" };
 export const MSG_FORM_CLEARED = "เปลี่ยนคนแล้ว — ล้างฟอร์มเดิมเพื่อไม่ให้เปิดงานในชื่อคนใหม่โดยไม่ตั้งใจ เริ่มกรอกใหม่ได้เลย";
 export const MSG_READY_AGAIN = "พร้อมแล้ว — กด \"เปิดงาน\" อีกครั้งได้";
 
@@ -60,6 +68,12 @@ export function ShopOpenFlow({
   const [readyNote, setReadyNote] = useState<string | null>(null);
   const [done, setDone] = useState<{ result: IntakeOpenResult; purity: string } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  // 0191 W3 (W-4): error ของพลอยจาก server (ต่อแถว/ทั้งขั้น) · พาไปแถว/ช่องที่ผิด · ชื่อที่ DB ถามว่าคล้ายของเดิม
+  const [gemErrors, setGemErrors] = useState<GemRowErrors>({});
+  const [gemGeneral, setGemGeneral] = useState<string | null>(null);
+  const [gemFocus, setGemFocus] = useState<ShopGemFocusRequest | null>(null);
+  const [gemSimilar, setGemSimilar] = useState<GemSimilar | null>(null);
+  const gemNonce = useRef(0);
   const ownerRef = useRef<string | null>(workerId);
   const inflight = useRef(false);
   const headRef = useRef<HTMLHeadingElement>(null);
@@ -67,6 +81,13 @@ export function ShopOpenFlow({
   // 0189 W2: รูปจากหน้างาน — state เดียวกับฟอร์ม (ล้างพร้อมฟอร์ม · ไม่ unmount ตอนแผ่น PIN ซ้อน) · action ฉีดเข้า hook (hook ไม่ import server action เอง)
   const photos = useShopPhotos({ io: useIntakePhotoIo(token) });
   const resetPhotos = photos.reset;
+  // รายการชนิด/รูปทรง/แม่แบบ SKU: โหลดครั้งแรกที่เข้า W-4 (ต่อ SKU) · ถือไว้ที่นี่เพื่อไม่โหลดซ้ำทุกครั้งที่กลับมาขั้นนี้
+  const catalogProductId = form.mode === "sku" ? (form.product?.id ?? null) : null;
+  const gemCatalog = useShopGemCatalog({ token, productId: catalogProductId, enabled: step === "gems", onSessionLost });
+  const clearGemErrors = useCallback(() => {
+    setGemErrors({});
+    setGemGeneral(null);
+  }, []);
 
   // เปลี่ยนขั้น → โฟกัสหัวขั้น (screen reader อ่านหัวใหม่) + เลื่อนขึ้นบน
   useEffect(() => {
@@ -110,6 +131,10 @@ export function ShopOpenFlow({
       setError(null);
       setWaitLeft(0);
       setReadyNote(null);
+      setGemErrors({});
+      setGemGeneral(null);
+      setGemFocus(null);
+      setGemSimilar(null);
       resetPhotos(); // รูปเป็นของคนที่เริ่มกรอก — หายพร้อมฟอร์ม (revoke blob ทุกอัน)
       setNotice(MSG_FORM_CLEARED);
     } else {
@@ -174,14 +199,31 @@ export function ShopOpenFlow({
       case "note":
         setTimeout(() => focusField("shop-note"), 0);
         return;
+      case "gems": {
+        // พลอยผิด → กลับ W-4 แถว/ช่องที่ผิด (ฟอร์ม/รูป/แถวอื่นคงอยู่) · แถวมาจาก gem.row ของ DB ไม่งั้นแถวแรกที่ยังไม่ครบ
+        setStep("gems");
+        const n = error?.gem?.row;
+        const fromServer = typeof n === "number" && n >= 1 && n <= form.gems.rows.length ? form.gems.rows[n - 1].key : null;
+        const key = fromServer ?? gemStepIssue(form.gems, gemCatalog.options)?.rowKey ?? null;
+        if (key) setGemFocus({ rowKey: key, field: fromServer ? (error?.gem?.field ?? null) : null, nonce: ++gemNonce.current });
+        return;
+      }
       default:
         return;
     }
   }
 
-  async function submit() {
+  /** override: ส่งซ้ำหลังผู้ใช้ตอบ "ชื่อคล้าย" (ใช้ตัวที่มี = แถวใหม่ · เพิ่มใหม่จริงๆ = force เฉพาะชื่อที่ DB ถาม) — state ยังไม่ทัน re-render จึงส่งค่าเข้าตรงๆ */
+  async function submit(override?: { rows?: GemDraftRow[]; addForce?: GemForceItem }) {
     if (inflight.current) return;
-    const issues = shopOpenIssues(form, today);
+    let f = form;
+    if (override) {
+      const rows = override.rows ?? form.gems.rows;
+      const force = pruneForce(override.addForce ? addForce(form.gems.force, override.addForce) : form.gems.force, rows);
+      f = { ...form, gems: { ...form.gems, rows, force } };
+      setForm(f);
+    }
+    const issues = shopOpenIssues(f, today);
     if (issues.length > 0) {
       setError({ message: issues[0].message, action: "back", field: issues[0].field });
       return;
@@ -191,10 +233,10 @@ export function ShopOpenFlow({
     setNotice(null);
     setError(null);
     setReadyNote(null);
-    const usedKey = form.idemKey; // รูปอ้างใบด้วย idem key เดียวกับที่เปิดใบ
+    const usedKey = f.idemKey; // รูปอ้างใบด้วย idem key เดียวกับที่เปิดใบ
     let r: Awaited<ReturnType<typeof intakeOpen>> | null = null;
     try {
-      r = await intakeOpen(token, buildIntakeInput(form, today));
+      r = await intakeOpen(token, buildIntakeInput(f, today));
     } catch {
       r = null; // เน็ตหลุด/ไม่ทราบผล — คีย์เดิมกดซ้ำได้ (DB ไม่เปิดซ้ำ)
     } finally {
@@ -206,13 +248,26 @@ export function ShopOpenFlow({
       return;
     }
     if (r.ok) {
-      setDone({ result: r.result, purity: purityLabel(form.metal, form.purityText) });
+      setGemErrors({});
+      setGemGeneral(null);
+      setDone({ result: r.result, purity: purityLabel(f.metal, f.purityText) });
       // ใบเปิดสำเร็จ → ส่งรูปที่เก็บไว้ทีละรูป (หลักก่อน) · ใบที่ถูกยกเลิกไปแล้ว = ไม่ส่ง รูปหายพร้อมหน้า
       if (r.result.status === "cancelled") photos.reset();
       else photos.start({ idemKey: usedKey });
       return;
     }
     const view = shopErrorView(r);
+    if (view.field === "gems") {
+      // พลอยผิด = ใบไม่เปิดทั้งก้อน: ชื่อคล้าย → ถามบนหน้านี้ (ไม่ใช่ error) · แถวผิด → ผูกกับแถวนั้น (กลับไปแก้ที่ W-4)
+      // ข้อความที่แสดงผ่านด่านเดียวกับแบนเนอร์ (isCleanMessage) — ไม่แสดงข้อความดิบที่มีรหัส/คำเกี่ยวกับเงิน
+      const fv = interpretIntakeGemFail(r, f.gems.rows, (m) => (isCleanMessage(m) ? m : MSG_GEM_GENERIC));
+      if (fv.similar) {
+        setGemSimilar(fv.similar);
+        return;
+      }
+      setGemErrors(fv.rowErrors);
+      setGemGeneral(fv.generalError);
+    }
     if (view.newKey) setForm((f) => ({ ...f, idemKey: newIdemKey() }));
     if (view.action === "wait") setWaitLeft(view.waitSeconds ?? 0);
     if (view.action === "pin") onSessionLost();
@@ -229,6 +284,9 @@ export function ShopOpenFlow({
         onAnother={() => {
           photos.reset();
           setDone(null);
+          setGemErrors({});
+          setGemGeneral(null);
+          setGemFocus(null);
           setForm(newForm());
           setQuery("");
           setShowLabelError(false);
@@ -271,6 +329,18 @@ export function ShopOpenFlow({
         )}
         {step === "metal" && <ShopMetalStep form={form} setForm={setForm} ready={ready} onNext={nextStep} />}
         {step === "qty" && <ShopQtyStep form={form} setForm={setForm} ready={ready} today={today} onNext={nextStep} onEditMetal={() => editMetal(false)} onNeedPurity={() => editMetal(true)} />}
+        {step === "gems" && (
+          <ShopGemStep
+            form={form}
+            setForm={setForm}
+            catalog={gemCatalog}
+            onNext={nextStep}
+            serverErrors={gemErrors}
+            generalError={gemGeneral}
+            focusRequest={gemFocus}
+            onEdited={clearGemErrors}
+          />
+        )}
         {step === "photos" && <ShopPhotoStep photos={photos} unbound={form.mode === "new"} onNext={nextStep} />}
         {step === "review" && (
           <ShopReview
@@ -284,12 +354,23 @@ export function ShopOpenFlow({
             onSubmit={() => void submit()}
             onEditProduct={() => go("search")}
             onEditMetal={() => editMetal(false)}
+            onEditGems={() => goToField("gems")}
             onBack={() => goToField(error?.field)}
             photos={photos.items}
             onEditPhotos={() => go("photos")}
           />
         )}
       </div>
+      {gemSimilar && (
+        <GemServerSimilar
+          hit={gemSimilar}
+          rows={form.gems.rows}
+          options={gemCatalog.options}
+          onRows={(rows) => setForm((cur) => ({ ...cur, gems: { ...cur.gems, rows, force: pruneForce(cur.gems.force, rows) } }))}
+          onClose={() => setGemSimilar(null)}
+          onResubmit={({ force, rows }) => void submit({ rows, addForce: force ? { kind: gemSimilar.kind, name: gemSimilar.name } : undefined })}
+        />
+      )}
       {sheet && (
         <ShopMetalSheet
           form={form}

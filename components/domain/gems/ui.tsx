@@ -8,6 +8,10 @@ import type { ReactNode, RefObject } from "react";
 export const GEM_FIELD =
   "min-h-11 w-full rounded-md border border-zinc-300 bg-white px-2.5 text-base text-zinc-900 focus:border-primary-600 focus:outline-none focus:ring-1 focus:ring-primary-600 aria-[invalid=true]:border-red-500 disabled:bg-zinc-100 disabled:text-zinc-500";
 
+/** ช่องกรอกของหน้างานมือถือ (W3 · presentation "sheet"): สูง ≥ 56px · ตัวอักษร ≥ 20px · ขอบ 2px — แยกจาก GEM_FIELD ของออฟฟิศ (ไม่ซ้อน class ที่ขัดกัน) */
+export const GEM_FIELD_WORKER =
+  "min-h-14 w-full rounded-xl border-2 border-zinc-400 bg-white px-4 text-xl text-zinc-900 focus:border-primary-600 focus:outline-none focus:ring-4 focus:ring-primary-200 aria-[invalid=true]:border-red-600 disabled:bg-zinc-100 disabled:text-zinc-500";
+
 export function GemErrorLine({ message, id }: { message: string | null | undefined; id?: string }) {
   return message ? (
     <p id={id} role="alert" className="rounded-md border border-red-200 bg-red-50 p-2.5 text-sm font-medium text-red-800 break-words">

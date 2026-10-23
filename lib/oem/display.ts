@@ -3,6 +3,7 @@
 // arithmetic lives here — see lib/oem/types.ts header and 0062's own header
 // comment for why that rule matters.
 
+import { OEM_INVISIBLE_RE, stripInvisibleText } from "@/lib/text/invisible";
 import { OEM_METAL_LABEL_TH } from "./types";
 import type { OemBarSize, OemCustomerAddress, OemInputUnit, OemMetal, OemScopeKind } from "./types";
 
@@ -227,18 +228,9 @@ export function hasAnyContact(a: string | null | undefined, b: string | null | u
 /** 0164: เพดานความยาวของชื่อลูกค้า/ช่องทางติดต่อบนใบเสนอราคา (DB บังคับซ้ำที่ oem_quote_set_customer) */
 export const OEM_CUSTOMER_TEXT_MAX = 200;
 
-/** 0165: อักขระล่องหน/bidi/zero-width ที่ห้ามอยู่ในข้อความที่ขึ้นเอกสาร (ชื่อลูกค้า/ช่องทางติดต่อ/เหตุผลราคาพิเศษ)
- * ชุดเดียวกับ analytics.oem_text_strip_invisible (0165) — แก้ที่หนึ่งต้องแก้อีกที่ · ไม่รวม U+FE00-FE0F (emoji VS16)
- * ZWJ (U+200D) ผ่านเฉพาะที่คั่นระหว่างสัญลักษณ์/อีโมจิสองตัว (อีโมจิครอบครัว) ZWJ ที่อื่นถือเป็นล่องหน */
-const OEM_INVISIBLE_RE =
-  /[\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180B-\u180F\u200B\u200C\u200E\u200F\u2028-\u202E\u2060-\u206F\u3164\uFEFF\uFFA0\uFFF9-\uFFFB\u{1BCA0}-\u{1BCA3}\u{1D173}-\u{1D17A}\u{E0000}-\u{E007F}\u{E0100}-\u{E01EF}]|(?<![\u2600-\u27BF\u2B00-\u2BFF\u{1F000}-\u{1FAFF}\uFE0F])\u200D|\u200D(?![\u2600-\u27BF\u2B00-\u2BFF\u{1F000}-\u{1FAFF}])/u;
-const OEM_INVISIBLE_RE_G = new RegExp(OEM_INVISIBLE_RE.source, "gu");
+// 0165: ชุดอักขระล่องหน + stripInvisibleText ย้ายไป lib/text/invisible.ts (leaf — กราฟหน้างาน /w/s/ ต้องใช้ตรวจชื่อพลอยโดยไม่ลาก lib/oem) · re-export ให้ import เดิมใช้ต่อ
+export { stripInvisibleText };
 const OEM_CONTROL_RE = /[\u0000-\u001F\u007F-\u009F]/;
-
-/** 0165 L2: ลบอักขระล่องหน/bidi ออกจากข้อความ (ใช้กับเหตุผลราคาพิเศษ — ว่างหลังลบ = ไม่มีเหตุผล) · ไม่ใช่ string = "" */
-export function stripInvisibleText(value: unknown): string {
-  return typeof value === "string" ? value.replace(OEM_INVISIBLE_RE_G, "") : "";
-}
 
 /** 0164/0165: ตรวจชื่อลูกค้า / ช่องทางติดต่อ (หลัง trim) ก่อนส่งไป oem_quote_save / oem_quote_set_customer — null = ใช้ได้
  * (ว่าง = ล้างค่า). กฎเดียวกับ DB (analytics.oem_customer_text_clean): ไม่เกิน 200 ตัวอักษร · ห้าม control/ขึ้นบรรทัดใหม่/tab ·

@@ -13,7 +13,7 @@ import { ChevronDown, Plus } from "lucide-react";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { GemNewShapeAsk } from "@/components/domain/gems/GemNewShapeAsk";
 import { GemSimilarPrompt } from "@/components/domain/gems/GemSimilarPrompt";
-import { GEM_FIELD } from "@/components/domain/gems/ui";
+import { GEM_FIELD, GEM_FIELD_WORKER } from "@/components/domain/gems/ui";
 import type { DraftShape, DraftType } from "@/lib/jobs/gem-draft";
 import { cleanGemName, findSimilarGemNames, normalizeGemName } from "@/lib/jobs/shop-gems";
 
@@ -41,8 +41,8 @@ interface Common {
   disabled?: boolean;
   invalid?: boolean;
   describedBy?: string;
-  /** ผู้ใช้เลือก "เพิ่มใหม่จริงๆ" ข้ามตัวดักชื่อคล้าย → ฟอร์มส่ง force ตอนบันทึก */
-  onForceSimilar?: () => void;
+  /** ผู้ใช้เลือก "เพิ่มใหม่จริงๆ" ข้ามตัวดักชื่อคล้าย → ฟอร์มส่ง force ตอนบันทึก (info = ชนิด + ชื่อที่ผู้ใช้ยืนยัน — W3 ส่ง force เฉพาะชื่อนี้) */
+  onForceSimilar?: (info: { kind: "type" | "shape"; name: string }) => void;
   /** ข้อความแจ้ง (เช่น “ใช้ตัวเดิมให้”) */
   onNotice?: (message: string) => void;
 }
@@ -198,7 +198,7 @@ export function GemPicker(props: TypeProps | ShapeProps) {
         aria-invalid={invalid || undefined}
         aria-describedby={describedBy}
         onClick={() => (open ? close() : setOpen(true))}
-        className={`${GEM_FIELD} flex items-center justify-between gap-2 text-left ${presentation === "sheet" ? "min-h-14" : ""}`}
+        className={`${presentation === "sheet" ? GEM_FIELD_WORKER : GEM_FIELD} flex items-center justify-between gap-2 text-left`}
       >
         <span className={`min-w-0 break-words [overflow-wrap:anywhere] ${display ? "" : "text-zinc-600"}`}>
           {display ?? `เลือก${KIND_TH[kind]}`}
@@ -240,7 +240,7 @@ export function GemPicker(props: TypeProps | ShapeProps) {
               }}
               placeholder={kind === "type" ? "ค้นหาหรือพิมพ์ชื่อ เช่น โกเมน" : "ค้นหาหรือพิมพ์ชื่อ เช่น กลม"}
               maxLength={80}
-              className={`${GEM_FIELD} ${presentation === "sheet" ? "min-h-14" : ""}`}
+              className={presentation === "sheet" ? GEM_FIELD_WORKER : GEM_FIELD}
             />
           </div>
 
@@ -274,7 +274,7 @@ export function GemPicker(props: TypeProps | ShapeProps) {
                   : null;
               return (
                 <li key={e.key} role="presentation">
-                  {head && <p className="px-3 pt-2 text-xs font-semibold text-zinc-700">{head}</p>}
+                  {head && <p className={`px-3 pt-2 font-semibold text-zinc-700 ${presentation === "sheet" ? "text-base" : "text-xs"}`}>{head}</p>}
                   <div
                     id={`${listId}-${i}`}
                     role="option"
@@ -282,7 +282,7 @@ export function GemPicker(props: TypeProps | ShapeProps) {
                     onMouseEnter={() => setActive(i)}
                     onMouseDown={(e) => e.preventDefault()} // ไม่ให้ช่องค้นหาเสียโฟกัสตอนคลิกตัวเลือก (combobox มาตรฐาน — กันถูกนับว่า "ออกจากแถว")
                     onClick={() => (e.t === "add" ? addNew(e.name) : choose({ id: e.id, name: e.name, hasLength: e.hasLength }))}
-                    className={`flex min-h-11 cursor-pointer items-center gap-2 px-3 py-2 text-base break-words [overflow-wrap:anywhere] ${i === active ? "bg-primary-100 text-zinc-900" : "text-zinc-900 hover:bg-zinc-50"} ${e.t === "add" ? "border-t border-dashed border-zinc-300 font-medium" : ""} ${presentation === "sheet" ? "min-h-14" : ""}`}
+                    className={`flex min-h-11 cursor-pointer items-center gap-2 px-3 py-2 break-words [overflow-wrap:anywhere] ${presentation === "sheet" ? "min-h-14 text-lg" : "text-base"} ${i === active ? "bg-primary-100 text-zinc-900" : "text-zinc-900 hover:bg-zinc-50"} ${e.t === "add" ? "border-t border-dashed border-zinc-300 font-medium" : ""}`}
                   >
                     {e.t === "add" ? (
                       <>
@@ -336,7 +336,7 @@ export function GemPicker(props: TypeProps | ShapeProps) {
           onForce={() => {
             const typed = similar.typed;
             setSimilar(null);
-            onForceSimilar?.();
+            onForceSimilar?.({ kind, name: typed });
             finishNew(typed);
           }}
           onCancel={() => setSimilar(null)}

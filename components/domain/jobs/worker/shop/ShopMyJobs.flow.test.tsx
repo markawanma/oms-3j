@@ -22,7 +22,13 @@ const intakeListPhotos = vi.fn();
 const intakeMyJobs = vi.fn();
 const intakeReissueToken = vi.fn();
 const intakeSetPrimaryPhoto = vi.fn();
+const intakeJobGems = vi.fn();
+const intakeSetJobGems = vi.fn();
+const intakeGemCatalog = vi.fn();
 vi.mock("@/lib/actions/job-worker", () => ({
+  intakeJobGems: (...a: unknown[]) => intakeJobGems(...a),
+  intakeSetJobGems: (...a: unknown[]) => intakeSetJobGems(...a),
+  intakeGemCatalog: (...a: unknown[]) => intakeGemCatalog(...a),
   intakeSetPrimaryPhoto: (...a: unknown[]) => intakeSetPrimaryPhoto(...a),
   intakeLogin: (...a: unknown[]) => intakeLogin(...a),
   workerLogout: (...a: unknown[]) => workerLogout(...a),
@@ -91,6 +97,12 @@ beforeEach(() => {
   workerLogout.mockResolvedValue({ ok: true });
   intakeSetPrimaryPhoto.mockResolvedValue({ ok: true, changed: true });
   intakeMyJobs.mockResolvedValue(list([job()]));
+  // W3: ส่วนพลอยของจอ "แก้ JB-xxxx" (ค่าเริ่ม = แก้ได้ มี 1 แถว) — เทสต์ของส่วนพลอยอยู่ใน ShopGems.flow.test.tsx
+  intakeJobGems.mockResolvedValue({
+    ok: true, job: { jobId: J1, jobNo: "JB-0031", designLabel: "แหวนลายใบไม้", status: "open", qtyPlanned: 30 }, state: "specified", editable: true, lockCode: null, hasGemStage: true, rev: "a".repeat(32), maxLines: 30,
+    lines: [{ gemItemId: "11111111-aaaa-4111-8111-111111111111", label: "โกเมน · ไข่ · 4×6 มม.", typeId: null, typeName: null, shapeId: null, shapeName: null, hasLength: null, sizeA: null, sizeB: null, qtyPerPiece: 2, position: null, qtyTotal: 60 }],
+  });
+  intakeGemCatalog.mockResolvedValue({ ok: true, types: [], shapes: [], sizes: [], hasTemplate: false, template: [], maxLines: 30 });
   intakeListPhotos.mockResolvedValue(photosRes([sp("m1", { isPrimary: true }), sp("m2")]));
   intakeRemovePhoto.mockResolvedValue({ ok: true, promotedPhotoId: null, already: false });
   intakeUploadPhoto.mockImplementation(async (_t: string, fd: FormData) => {
@@ -118,7 +130,7 @@ async function toW10(opts: { jobs?: MyIntakeJob[] } = {}) {
   const view = render(<ShopIntakeApp token={TOKEN} initial={hubOf()} />);
   const card = await screen.findByRole("button", { name: /JB-0031/ });
   await userEvent.click(card);
-  await screen.findByRole("heading", { level: 1, name: /แก้รูป JB-0031/ });
+  await screen.findByRole("heading", { level: 1, name: /แก้ JB-0031/ });
   await waitFor(() => expect(screen.queryByRole("status", { name: "กำลังโหลดรูป" })).not.toBeInTheDocument());
   return view;
 }
@@ -177,10 +189,10 @@ describe("W-9 ใบที่ฉันเปิด", () => {
     expect(within(a).getByText("ทอง")).toBeInTheDocument();
     expect(within(a).getByText(/30 ชิ้น/)).toBeInTheDocument();
     expect(within(a).getByText("รูป 2/3")).toBeInTheDocument();
-    expect(within(a).getByText("แก้ได้")).toBeInTheDocument();
+    expect(within(a).getByText("แก้รูปได้")).toBeInTheDocument(); // gemEditable=false → ไม่บอกว่าแก้พลอยได้
     expect(a).toHaveClass("min-h-[88px]");
     const b = screen.getByRole("button", { name: /JB-0030/ });
-    expect(within(b).getByText("แก้รูปไม่ได้ตอนนี้")).toBeInTheDocument(); // คำกลาง (editable=false อาจไม่ใช่เพราะช่างรับงาน)
+    expect(within(b).getByText("แก้ไม่ได้ตอนนี้")).toBeInTheDocument(); // คำกลาง (ทั้งรูปและพลอยล็อก — อาจไม่ใช่เพราะช่างรับงาน)
     expect(within(b).queryByText("ช่างรับงานแล้ว")).not.toBeInTheDocument();
     expect(within(b).getByText("ไม่มีรูป")).toBeInTheDocument();
     expect(within(b).getByText("เงิน")).toBeInTheDocument();
@@ -230,14 +242,14 @@ describe("W-9 ใบที่ฉันเปิด", () => {
 });
 
 describe("W-10 จอแก้รูปของใบ", () => {
-  it("เข้าจอ: loading skeleton (ปุ่มกลับใช้ได้) → แถวรูป · หัว 'แก้รูป JB-0031' + แบบ/โลหะ/จำนวน · แถบ sky 'แก้ได้จนช่างเริ่มรับงาน' · รูปที่บันทึกแล้วไม่โชว์ 'ส่งแล้ว' · รูปออฟฟิศ (mine=false) ไม่ขึ้น · ตัวนับ 2/3", async () => {
+  it("เข้าจอ: loading skeleton (ปุ่มกลับใช้ได้) → แถวรูป · หัว 'แก้ JB-0031' + แบบ/โลหะ/จำนวน · แถบ sky 'แก้ได้จนช่างเริ่มรับงาน' · รูปที่บันทึกแล้วไม่โชว์ 'ส่งแล้ว' · รูปออฟฟิศ (mine=false) ไม่ขึ้น · ตัวนับ 2/3", async () => {
     let resolve: (v: unknown) => void = () => undefined;
     intakeListPhotos.mockReturnValue(new Promise((r) => (resolve = r)));
     render(<ShopIntakeApp token={TOKEN} initial={hubOf()} />);
     await userEvent.click(await screen.findByRole("button", { name: /JB-0031/ }));
     expect(await screen.findByRole("status", { name: "กำลังโหลดรูป" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "กลับไปใบที่ฉันเปิด" })).toBeEnabled();
-    expect(screen.getByRole("heading", { level: 1, name: "แก้รูป JB-0031" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "แก้ JB-0031" })).toBeInTheDocument();
     expect(intakeListPhotos).toHaveBeenCalledWith(TOKEN, { jobId: J1 });
     await act(async () => resolve(photosRes([sp("m1", { isPrimary: true }), sp("m2"), sp("office", { mine: false, isPrimary: false })])));
     await waitFor(() => expect(rows()).toHaveLength(2));
@@ -309,7 +321,7 @@ describe("W-10 จอแก้รูปของใบ", () => {
     expect(screen.getAllByRole("alert", { hidden: true })).toHaveLength(2);
     expect(screen.getAllByRole("alert")).toHaveLength(1);
     rerender(<ShopIntakeApp token={TOKEN} initial={hubOf(WA)} />);
-    await screen.findByRole("heading", { level: 1, name: "แก้รูป JB-0031" });
+    await screen.findByRole("heading", { level: 1, name: "แก้ JB-0031" });
     expect(screen.getByRole("alert")).toHaveTextContent("หมดเวลาแล้ว — ใส่ PIN ใหม่");
     await click("ลองอีกครั้ง");
     await waitFor(() => expect(rows()).toHaveLength(2));
@@ -321,7 +333,7 @@ describe("W-10 จอแก้รูปของใบ", () => {
     await screen.findByRole("heading", { level: 1, name: "ใครกำลังเปิดงาน?" });
     rerender(<ShopIntakeApp token={TOKEN} initial={hubOf(WB)} />);
     expect(await screen.findByRole("heading", { level: 2, name: "ใบที่ฉันเปิด" })).toBeInTheDocument();
-    expect(screen.queryByRole("heading", { level: 1, name: /แก้รูป/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("heading", { level: 1, name: /แก้ JB-/ })).not.toBeInTheDocument();
   });
 
   it("เพิ่มรูป: ย่อ → ส่งด้วย jobId (ไม่มี idemKey) → แถว '✓ ส่งแล้ว' · ตัวนับ 3/3 · ครบ 3 ปุ่มเพิ่มหายแทนด้วยกล่อง", async () => {
@@ -408,7 +420,7 @@ describe("W-10 จอแก้รูปของใบ", () => {
     // รอบสอง: มีรูปส่งล้มค้าง
     intakeUploadPhoto.mockRejectedValue(new Error("net"));
     await userEvent.click(await screen.findByRole("button", { name: /JB-0031/ }));
-    await screen.findByRole("heading", { level: 1, name: /แก้รูป JB-0031/ });
+    await screen.findByRole("heading", { level: 1, name: /แก้ JB-0031/ });
     await waitFor(() => expect(rows()).toHaveLength(2));
     pick(["z"]);
     await waitFor(() => expect(screen.getByText("⚠ ส่งไม่สำเร็จ — ลองอีกครั้ง")).toBeInTheDocument());
@@ -418,7 +430,7 @@ describe("W-10 จอแก้รูปของใบ", () => {
     expect(within(g).queryByText(/QR/)).not.toBeInTheDocument();
     expect(within(g).queryByText(/ใบนี้ยังอยู่ใน/)).not.toBeInTheDocument();
     await userEvent.click(within(g).getByRole("button", { name: "กลับไปส่งรูปต่อ" }));
-    expect(screen.getByRole("heading", { level: 1, name: /แก้รูป JB-0031/ })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: /แก้ JB-0031/ })).toBeInTheDocument();
     await click("กลับ");
     await userEvent.click(screen.getByRole("button", { name: "ออกเลย — ทิ้งรูปที่ยังไม่ส่ง" }));
     expect(await screen.findByRole("heading", { level: 2, name: "ใบที่ฉันเปิด" })).toBeInTheDocument();
@@ -436,7 +448,7 @@ describe("W-10 จอแก้รูปของใบ", () => {
     rerender(<ShopIntakeApp token={TOKEN} initial={identifyHub()} />);
     await screen.findByRole("heading", { level: 1, name: "ใครกำลังเปิดงาน?" });
     rerender(<ShopIntakeApp token={TOKEN} initial={hubOf(WA)} />);
-    await screen.findByRole("heading", { level: 1, name: "แก้รูป JB-0031" });
+    await screen.findByRole("heading", { level: 1, name: "แก้ JB-0031" });
     await click("ลองใหม่");
     await waitFor(() => expect(screen.getByText("✓ ส่งแล้ว")).toBeInTheDocument());
   });
@@ -522,7 +534,7 @@ describe("ออก QR ใหม่", () => {
     expect(screen.getByText("⚠ QR นี้แสดงครั้งเดียว — ออกจากหน้านี้แล้วจะหายจากจอ")).toBeInTheDocument();
     expect(document.body.innerHTML).not.toContain(RAW_QR);
     await click("เสร็จแล้ว");
-    expect(screen.getByRole("heading", { level: 1, name: "แก้รูป JB-0031" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "แก้ JB-0031" })).toBeInTheDocument();
     expect(screen.queryByRole("img", { name: "QR ใบงาน JB-0031" })).not.toBeInTheDocument();
     expect(document.body.innerHTML).not.toContain(RAW_QR);
   });
@@ -589,7 +601,7 @@ describe("ออก QR ใหม่", () => {
     rerender(<ShopIntakeApp token={TOKEN} initial={identifyHub()} />);
     await screen.findByRole("heading", { level: 1, name: "ใครกำลังเปิดงาน?" });
     rerender(<ShopIntakeApp token={TOKEN} initial={hubOf(WA)} />);
-    await screen.findByRole("heading", { level: 1, name: "แก้รูป JB-0031" });
+    await screen.findByRole("heading", { level: 1, name: "แก้ JB-0031" });
     await click("ออก QR ใหม่");
     await userEvent.click(within(screen.getByRole("dialog")).getByRole("button", { name: "ออก QR ใหม่" }));
     await screen.findByRole("heading", { level: 1, name: "QR ใหม่ JB-0031" });

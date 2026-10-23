@@ -31,6 +31,9 @@ const WORKER_FILES = [
   join(ROOT, "lib", "jobs", "shop-photo-server.ts"),
   // 0191 W3: allowlist แถวพลอย (pure · ไม่มีราคา) ที่ action ของผู้จัดการใช้ — อยู่ในกราฟสาธารณะ
   join(ROOT, "lib", "jobs", "gem-wire.ts"),
+  // 0191 W3 UI: ตรรกะ pure ของพลอยบนมือถือผู้จัดการ (W-4 · ทวน · W-9 · W-10) + โมเดลแถว/ตัวตรวจชื่อ/ขนาด + leaf อักขระล่องหน — อยู่ในกราฟสาธารณะ (ห้าม lib/oem · gems.ts แบบ runtime)
+  join(ROOT, "lib", "jobs", "shop-gem-flow.ts"),
+  join(ROOT, "lib", "text", "invisible.ts"),
 ];
 
 // import ที่ห้ามมีในกราฟหน้าช่าง
