@@ -2,6 +2,7 @@
 -- ตรวจ supabase/migrations/0188_w1_followups.sql (W1 ตามหลัง 0187: close_gate ข้อความ old.po_no · shop_intake_token_status คืน issued_at/revoked_at · job_worker_open ล็อกต่อ (ร้าน, SKU) + ข้อความ name_invalid กลาง)
 -- self-rolling-back (3j-migration-traps ข้อ 11): ทุกเคสอยู่ในทรานแซกชันเดียว จบด้วย `raise exception` เสมอ ⇒ ถอยทั้งก้อน · อ่านผลจาก error message · exit 1 คือผลที่คาด · [FAIL] >= 1 = ไม่ผ่าน
 -- ต้องมี 0187 อยู่ใน DB แล้ว (apply แล้ว) · dry-run: ต่อ 0188 + ไฟล์นี้ · หลัง apply 0188: รันไฟล์นี้เดี่ยวๆ ได้
+-- ⚠️ หลัง 0191 (W3) ไฟล์นี้อ้างซิกเนเจอร์ job_worker_open 18 args → รันได้เฉพาะเมื่อ 0191 อยู่ใน DB แล้ว (หรือต่อ 0191 ไว้หน้าไฟล์ใน dry-run) · ก่อน 0191 ใช้เวอร์ชันของ commit ก่อนหน้า
 -- ข้อมูลทดสอบ: ร้านสังเคราะห์ ZZ TEST verify-0188 (insert public.shop ตรง ตามแพทเทิร์น verify-0187/0186 — ข้อยกเว้นเดียวที่ไม่ผ่าน RPC) · SKU/ช่าง/QR ร้าน/ใบผลิต/ผูก SKU/ack/done สร้างผ่าน RPC ของระบบทั้งหมด
 -- 🔴 ไม่แตะตัวนับเอกสารภาษี · production_order_done ต้อง md5 เดิม (G3)
 --

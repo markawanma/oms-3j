@@ -2,27 +2,31 @@
 -- ตรวจ supabase/migrations/0191_gems_w3.sql (W3: ผู้จัดการกรอก/แก้พลอยจากมือถือ · QR ร้าน + PIN · เปิดใบพร้อมพลอย · แก้พลอยของใบที่ตัวเองเปิดจนช่างเริ่มรับงาน · อ่านพลอย · แคตตาล็อกสำหรับหน้างาน · "ใบที่ฉันเปิด" + บรรทัดพลอย)
 -- self-rolling-back (3j-migration-traps ข้อ 11): ทุกเคสอยู่ในทรานแซกชันเดียว จบด้วย `raise exception` เสมอ ⇒ ถอยทั้งก้อน · อ่านผลจาก error message · exit 1 คือผลที่คาด · [FAIL] >= 1 = ไม่ผ่าน
 -- ต้องมี 0172-0190 อยู่ใน DB แล้ว · dry-run: ต่อ 0191 + ไฟล์นี้ (ไฟล์ LF — ข้อ 20) เป็นไฟล์เดียวแล้วรันไม่ใส่ --commit · หลัง apply: รันไฟล์นี้เดี่ยวๆ ได้
+-- 🔴 รันนอกเวลาทำงานเท่านั้น และห้ามรันพร้อม session/agent อื่น: ไฟล์นี้ `alter table ... disable trigger` (user trigger) บน analytics.worker และ analytics.worker_session ในทรานแซกชันเพื่อจำลอง session หมดอายุ/ช่างปิดใช้ — คำสั่งนี้ขอล็อก SHARE ROW EXCLUSIVE ของสองตารางนี้ และล็อกค้างจนทรานแซกชันจบ (หลายนาที เพราะมี mutant ต่อท้าย) ⇒ การเขียนตาราง worker/worker_session ของคนอื่นระหว่างนั้น (ช่างล็อกอิน PIN · ผู้จัดการเปิดใบมือถือ) จะค้างรอจนไฟล์จบ · อ่านได้ปกติ · ไฟล์ถอยกลับเองเสมอ ไม่ทิ้งรอย (verify-0191-qa.sql ใช้คำสั่งเดียวกัน ข้อควรระวังเหมือนกัน)
 -- ข้อมูลทดสอบ: ร้านสังเคราะห์ ZZ TEST verify-0191 A/B (insert public.shop + public.shop_member ตรง ตามแพทเทิร์น verify-0189/0190 — ข้อยกเว้นเดียวที่ไม่ผ่าน RPC · ยืม auth user จริงของร้านเป็นสมาชิกร้านสังเคราะห์ในทรานแซกชันนี้เท่านั้น)
 --   ช่าง/QR ร้าน/SKU/ใบผลิต/ใบงาน/ชนิด/รูปทรง/ราคา/แม่แบบ/พลอยในใบ สร้างผ่าน RPC ของระบบทั้งหมด · ข้อยกเว้น (บอกตรงๆ): UPDATE worker_session.expires_at (จำลอง session หมดอายุ) · DELETE worker_rate_limit (ล้างถัง) · ทั้งสองเป็นการ์ดของ fixture ในทรานแซกชันที่ถอยกลับ
 -- 🔴 ไม่แตะตัวนับเอกสารภาษี · production_order_done ต้อง md5 เดิม (Z1) · ราคาทดสอบเป็นเลขแปลกที่ไม่ซ้ำกับค่าอื่น (7391.2468 · 9999.9999 · 1234.5678) เพื่อ grep หาการรั่วในทุก response
 --
 -- ============ ตารางแมป "ข้อในบรีฟ → เทสต์ที่ครอบ" (ข้อไหนไม่มีเทสต์ครอบ = เขียนว่า "ไม่มี" พร้อมเหตุผล) ============
 --  เคสห้ามผ่าน (ด่านที่ตก)
---   ไม่มี session / หมด / ช่าง inactive / ถอน can_open (ด่าน shop_intake_gem_auth · open: shop_intake_auth) -> เปิดใบ O13a-O13e · แก้ G8a-G8f · อ่าน/แคตตาล็อก R6 C2 · mutant MU12 MU13 MU14 MU15
---   token ร้านเพิกถอน (invalid_token)                                                                    -> O13d G8g R6 C2 · mutant MU14
---   ใบของช่างอื่น / ใบออฟฟิศ / ร้านอื่น / ไม่พบ (order_not_found ข้อความเดียวกัน · ด่านที่ job_worker_photo_job) -> G3a G3b G3c G3d G3e · อ่าน R3 · mutant MU2 MU16
+--   ไม่มี session / หมด / ช่าง inactive / ถอน can_open (ด่าน shop_intake_gem_auth · open: shop_intake_auth) -> เปิดใบ O13a O13b O13c O13e O13f · แก้ G8a G8b G8c G8d G8e · อ่าน/แคตตาล็อก (gem_get · gem_catalog) ตกด่านเดียวกัน: G8a G8d G8e G8g · ถังไม่เผาของผู้จัดการ G8h G8r3 · mutant MU12 MU13 MU13b MU13c MU15 MU15c
+--   token ร้านเพิกถอน (invalid_token)                                                                    -> O13d G8g G8i (แก้+อ่าน+แคตตาล็อกครบ) · mutant MU14
+--   ใบของช่างอื่น / ใบออฟฟิศ / ร้านอื่น / ไม่พบ (order_not_found ข้อความเดียวกัน · ด่านที่ job_worker_photo_job) -> G3a G3b G3c G3d G3e (G3a-G3d ยิงทั้ง gem_set และ gem_get · G3e เฉพาะ gem_set) · mutant MU2 MU16
 --   ส่วนย่อย (lot child)                                                                                 -> G3f (id ของส่วนย่อยถูกปฏิเสธ) · ❌ ไม่มีเทสต์ trigger job_gem_bom_guard ฝั่งส่วนย่อย (ของ 0190 — ต้องเปิดแบ่งล็อต)
 --   ใบ done / cancelled                                                                                   -> G4c (cancelled) G4d (done = ใบผลิตปิด) · mutant MU21 · ❌ on_hold: ไม่มี RPC ที่ตั้งสถานะนี้ (ถึงไม่ได้) จึงไม่มีเทสต์ — โค้ด job_not_open อยู่ใน job_worker_gem_block
---   ขั้นแรกรับแล้ว (รวม race "รับระหว่างแก้": get editable → รับ → บันทึก)                                  -> G4a G4b G4e · mutant MU1 · ❌ race จริง 2 connection ไม่มีเทสต์ (do-block เป็น connection เดียว · ล็อกแถวใบพิสูจน์ได้แค่ว่าอยู่ในนิยาม: G4f)
---   ใบไม่มีขั้นฝัง (no_gem_stage)                                                                         -> G5a G5b G5c · mutant MU4
+--   ขั้นแรกรับแล้ว (รวม race "รับระหว่างแก้": get editable → รับ → บันทึก)                                  -> G4a (รวมลำดับ get → รับ → บันทึก) G4b · mutant MU1 MU23 · ❌ race จริง 2 connection ไม่มีเทสต์ (do-block เป็น connection เดียว · ล็อกแถวใบพิสูจน์ได้แค่ว่าอยู่ในนิยาม: G4f)
+--   ใบไม่มีขั้นฝัง (no_gem_stage)                                                                         -> G5a G5b · mutant MU4
 --   แถวผิด: qty 0/NaN/>1000/ไม่ใช่เลขเต็ม · ขนาดผิด · has_length ไม่ตรง · >30 แถว · ชนิด/รูปทรง/รายการร้านอื่น · ปิดใช้งาน · คีย์แปลก (price) · ชื่อผิด · ตำแหน่งผิด
 --        -> เปิดใบ O8q O8s O8h O8l O8t O8k O8n O8p O8x (ไม่มีอะไรถูกสร้าง O8z) · แก้ G6q G6s G6h G6l G6t G6k G6n G6p G6z (BOM/event ไม่ขยับ) · "merged" = resolve ไปปลายทาง (ตามมติ G1a design §9.3 — ตัดสินเอง) O8m1 O8m2 · mutant MU17
 --   force โดยไม่ถูกถาม / blanket / ชื่อซ้ำเป๊ะ + force                                                    -> เปิดใบ O9c O9d O9e O9f O9g · แก้ G7c G7d G7e G7f · mutant MU5 MU6 MU7
 --   'has' แต่ 0 แถว · SKU ไม่มีแม่แบบไม่ตอบ ('template') · answer/args ผิด                                    -> O7 O6 O12 · mutant MU10 MU11
---   พลอยผิดตอนเปิด → ไม่มี PO/ใบงาน/ตัวนับ/QR/event/ชื่อใหม่เกิด                                            -> O8z O9a O11 O12 O13 (allst เท่าเดิม: PO/job/token/event/ตัวนับ/ชนิด/รูปทรง/รายการ/BOM)
+--   พลอยผิดตอนเปิด → ไม่มี PO/ใบงาน/ตัวนับ/QR/event/ชื่อใหม่เกิด                                            -> O8z O9a O11 O12 O13a-O13f (allst เท่าเดิม: PO/job/token/event/ตัวนับ/ชนิด/รูปทรง/รายการ/BOM)
 --   ราคาไม่อยู่ในทุก response (ตั้งราคาเลขแปลกแล้ว grep ทุกผลลัพธ์ + key)                                    -> X1 (เปิด/replay/get/catalog/set ok/similar/invalid/conflict/list/resolve หน้าช่าง) X1b (event) X1c (ราคายังอยู่ทาง RPC ราคา = เทสต์รั่วมีความหมาย)
 --   ใบมีพลอยแต่ไม่มีขั้นฝัง (ขั้น gem_set ถูกปิดใช้ในร้าน → has/template ต้องถอยทั้งก้อน not_ready ไม่ใช่สำเร็จเงียบๆ) -> O15a O15b · mutant MU29
---   ชื่อพลอยใหม่ท่วมแคตตาล็อก (เพดาน 40 ชื่อ/ผู้จัดการ/24 ชม. — ตัดสินเอง ไม่ได้อยู่ในบรีฟ) -> เปิดใบ O14a-O14f · แก้ G9a-G9d · mutant MU26 MU27 MU28
+--   ชื่อพลอยใหม่ท่วมแคตตาล็อก (เพดาน 40 ชื่อ/ผู้จัดการ/24 ชม. — ตัดสินเอง ไม่ได้อยู่ในบรีฟ) -> เปิดใบ O14a-O14e (รวมต่อใบ) · O14f (นับต่อผู้จัดการ: ชนิด) O14g (นับต่อผู้จัดการ: รูปทรง) · แก้ G9a-G9d · mutant MU26 MU27 (ชนิด) MU27b (รูปทรง) MU28
+--   รายการพลอยใหม่ท่วมตาราง gem_item ด้วยขนาดขยะ (เพดาน 120 รายการ/ผู้จัดการ/24 ชม. — security M1) -> เปิดใบ O16a-O16d · แก้ G10a-G10d · mutant MU30 (MU28 ครอบการแปลง gem_name_cap ของทั้งชื่อและรายการ)
+--   รายการที่ออฟฟิศปิดใช้ทีหลังและอยู่ในใบอยู่แล้ว ต้องไม่ทำให้ผู้จัดการแก้ใบนั้นไม่ได้ (ต้องไม่พัง) + รายการปิดใช้ที่ไม่อยู่ในใบต้องยังถูกปฏิเสธ gem_inactive (security M2) -> G11a G11b (ไม่พัง) G11c G11d (ห้ามผ่าน) · mutant MU31
+--   (เทสต์ฟีเจอร์ปกติที่ไม่ได้ผูกกับเคสห้ามผ่านข้อใดโดยตรง) -> R1 R1b (อ่าน) · G1-G1f (แก้จริง) · G2b G2c (CAS เพิ่มเติม) · O1-O4 O1b-O1e O3b O10b (เปิดใบพร้อมพลอยทุกคำตอบ) · O9a-O9g2 · C1-C1e (แคตตาล็อก) · L1a-L1e (ใบที่ฉันเปิด + บรรทัดพลอย) · X1a · G4pre G6u G6x · S0 (setup) · K0 (ไม่ทิ้งรอย) · MX MY (สรุป mutant / md5 ฟังก์ชันเท่าเดิม)
 --   anon/authenticated execute · overload · service_role เฉพาะ RPC                                         -> P1 P2 P3 P4 P5 (18.5) · mutant — (ครอบด้วย post-check ของ migration + P1-P5 · ไม่มี mutant — เหตุ: สิทธิ์เป็นผลของ grant ไม่ใช่ตรรกะในนิยามฟังก์ชัน)
 --  ต้องไม่พัง
 --   job_worker_open เดิมทุกแบบเมื่อไม่ส่งพลอย (ไม่มีแม่แบบ/ไม่มี SKU/มีแม่แบบ → ได้ขั้นฝัง+คัดลอก) / replay เดิม      -> O0 O0b O0c O10 (+ รัน verify-0187/0188/0189/0190 แยก — ต้อง 0 FAIL)
@@ -333,6 +337,9 @@ create function pg_temp.newnames(p_n int, p_off int, p_shapes boolean default fa
     then jsonb_build_object('type_id', pg_temp.fx('tC'), 'new_shape', jsonb_build_object('name', 'S' || translate(md5(i::text || ':' || p_off::text), '0123456789', 'ghijklmnop'), 'has_length', false), 'size_a', 3, 'qty_per_piece', 1)
     else jsonb_build_object('new_type_name', 'N' || translate(md5(i::text || ':' || p_off::text), '0123456789', 'ghijklmnop'), 'shape_id', pg_temp.fx('sRound'), 'size_a', 3, 'qty_per_piece', 1) end)
     from generate_series(1, p_n) i $c$;
+-- แถวที่ใช้ชนิด/รูปทรงที่มีอยู่ แต่ "ขนาดใหม่" n แถว (ไม่สร้างชื่อใหม่ — สร้างแค่รายการ) · p_off แยกชุดขนาด (ขนาด = g + p_off/100 มม. · ไม่ซ้ำข้ามชุด)
+create function pg_temp.newitems(p_n int, p_off int) returns jsonb language sql as $c$
+  select jsonb_agg(pg_temp.gl(pg_temp.fx('tC'), pg_temp.fx('sRound'), (g + 40 + p_off / 100.0)::numeric(5, 2), null, 1)) from generate_series(1, p_n) g $c$;
 -- ชุดเคสแถวผิด → คืนรายการเคสที่ "ไม่ตรงคาด" (ว่าง = ตรงคาดทุกเคส) · p_call = 'open' | 'set' · เคส = {id, lines, code, row, field}
 create function pg_temp.run_bad(p_call text, p_sess text, p_job uuid, p_rev text, p_cases jsonb) returns text
  language plpgsql as $c$
@@ -853,11 +860,50 @@ begin
     v := v || pg_temp.chk('O14d', 'ชื่อที่ 41 → gem_name_cap · ไม่มีอะไรเกิด', o ->> 'code' = 'gem_name_cap' and pg_temp.allst(a) = s0);
     o := pg_temp.go(sM, jsonb_build_object('label', 'แหวน O14e', 'ga', 'has', 'gl', jsonb_build_array(jsonb_build_object('new_type_name', (select t.name from analytics.gem_type t where t.shop_id = a and t.name like 'N%' order by t.name limit 1), 'shape_id', sRound, 'size_a', 5, 'qty_per_piece', 1))));
     v := v || pg_temp.chk('O14e', 'ถึงเพดานแล้ว พิมพ์ชื่อที่มีอยู่ (ใช้ตัวเดิม — ไม่นับเป็นชื่อใหม่) → ยัง ok', o ->> 'ok' = 'true' and pg_temp.n_type(a) + pg_temp.n_shape(a) = n0 + 40);
-    o := pg_temp.go(sM2, jsonb_build_object('label', 'แหวน O14f', 'ga', 'has', 'gl', pg_temp.newnames(5, 9)));
-    v := v || pg_temp.chk('O14f', 'เพดานนับ "ต่อผู้จัดการ" (ผู้จัดการอีกคนสร้างชื่อใหม่ได้ · ชื่อที่ออฟฟิศสร้างไม่นับ)', o ->> 'ok' = 'true');
     raise exception 'rb_191';
   exception when others then
     if sqlerrm <> 'rb_191' then v := v || pg_temp.chk('O14-crash', sqlstate || ' ' || sqlerrm, false); end if;
+  end;
+  -- O14f/O14g: เพดานนับ "ต่อผู้จัดการ" (assert จริงในบล็อกของตัวเอง — ผู้จัดการ M ใช้ชื่อใหม่ครบ 40 ชื่อแล้ว ผู้จัดการ M2 ต้องสร้างชื่อใหม่ได้) · แยกชนิด (O14f) / รูปทรง (O14g) เพื่อให้ mutant ของแต่ละ subquery ถูกจับด้วย id ของตัวเอง
+  begin
+    perform pg_temp.opn(sM, jsonb_build_object('label', 'M-30', 'metal', 'silver', 'ga', 'has', 'gl', pg_temp.newnames(30, 31)));
+    perform pg_temp.opn(sM, jsonb_build_object('label', 'M-10', 'metal', 'silver', 'ga', 'has', 'gl', pg_temp.newnames(10, 32)));
+    o2 := pg_temp.opn(sM, jsonb_build_object('label', 'M-ต้องตก', 'metal', 'silver', 'ga', 'has', 'gl', pg_temp.newnames(1, 33)));
+    o := pg_temp.opn(sM2, jsonb_build_object('label', 'แหวน O14f', 'metal', 'silver', 'ga', 'has', 'gl', pg_temp.newnames(5, 39)));
+    v := v || pg_temp.chk('O14f', 'เพดานนับต่อผู้จัดการ (ชนิด): M ใช้ครบ 40 ชื่อ (ชื่อที่ 41 ตก ' || coalesce(o2 ->> 'code', 'ผ่าน') || ') แต่ M2 สร้างชื่อใหม่ได้ · ชื่อที่ออฟฟิศสร้างไม่นับ', o2 ->> 'code' = 'gem_name_cap' and o ->> 'ok' = 'true');
+    raise exception 'rb_191';
+  exception when others then
+    if sqlerrm <> 'rb_191' then v := v || pg_temp.chk('O14f-crash', sqlstate || ' ' || sqlerrm, false); end if;
+  end;
+  begin
+    perform pg_temp.opn(sM, jsonb_build_object('label', 'M-30s', 'metal', 'silver', 'ga', 'has', 'gl', pg_temp.newnames(30, 41, true)));
+    perform pg_temp.opn(sM, jsonb_build_object('label', 'M-10s', 'metal', 'silver', 'ga', 'has', 'gl', pg_temp.newnames(10, 42, true)));
+    o2 := pg_temp.opn(sM, jsonb_build_object('label', 'M-ต้องตก', 'metal', 'silver', 'ga', 'has', 'gl', pg_temp.newnames(1, 43, true)));
+    o := pg_temp.opn(sM2, jsonb_build_object('label', 'แหวน O14g', 'metal', 'silver', 'ga', 'has', 'gl', pg_temp.newnames(5, 49, true)));
+    v := v || pg_temp.chk('O14g', 'เพดานนับต่อผู้จัดการ (รูปทรง): M ใช้ครบ 40 รูปทรง (ชื่อที่ 41 ตก ' || coalesce(o2 ->> 'code', 'ผ่าน') || ') แต่ M2 สร้างรูปทรงใหม่ได้', o2 ->> 'code' = 'gem_name_cap' and o ->> 'ok' = 'true');
+    raise exception 'rb_191';
+  exception when others then
+    if sqlerrm <> 'rb_191' then v := v || pg_temp.chk('O14g-crash', sqlstate || ' ' || sqlerrm, false); end if;
+  end;
+
+  -- O16: เพดานรายการพลอยใหม่ 120 รายการ/ผู้จัดการ/24 ชม. (security M1) — ขนาดใหม่ล้วน ไม่สร้างชื่อใหม่ แต่สร้างรายการ
+  begin
+    n0 := pg_temp.n_item(a);
+    for k in 1 .. 4 loop
+      o := pg_temp.opn(sM, jsonb_build_object('label', 'O16-' || k, 'metal', 'silver', 'ga', 'has', 'gl', pg_temp.newitems(30, k)));
+      if o ->> 'ok' is distinct from 'true' then exit; end if;
+    end loop;
+    v := v || pg_temp.chk('O16a', '4 ใบ x 30 รายการใหม่ (ขนาดใหม่ ไม่มีชื่อใหม่) = 120 พอดี → ok ทั้งหมด · เกิด 120 รายการ · ชนิด/รูปทรงไม่เพิ่ม', o ->> 'ok' = 'true' and pg_temp.n_item(a) = n0 + 120);
+    s0 := pg_temp.allst(a);
+    o := pg_temp.opn(sM, jsonb_build_object('label', 'x', 'metal', 'silver', 'ga', 'has', 'gl', pg_temp.newitems(1, 5)));
+    v := v || pg_temp.chk('O16b', 'รายการที่ 121 → gem_name_cap · ไม่มีอะไรเกิด (allst เท่าเดิม)', o ->> 'code' = 'gem_name_cap' and pg_temp.allst(a) = s0);
+    o := pg_temp.go(sM, jsonb_build_object('label', 'O16-reuse', 'ga', 'has', 'gl', pg_temp.newitems(30, 4)));
+    v := v || pg_temp.chk('O16c', 'ถึงเพดานแล้ว ใช้รายการที่มีอยู่ (ไม่ใช่รายการใหม่) → ยัง ok (ต้องไม่พัง)', o ->> 'ok' = 'true' and pg_temp.n_item(a) = n0 + 120);
+    o := pg_temp.opn(sM2, jsonb_build_object('label', 'O16-M2', 'metal', 'silver', 'ga', 'has', 'gl', pg_temp.newitems(30, 7)));
+    v := v || pg_temp.chk('O16d', 'เพดานนับต่อผู้จัดการ: M2 สร้างรายการใหม่ได้ (รายการที่ออฟฟิศสร้างไม่นับ)', o ->> 'ok' = 'true');
+    raise exception 'rb_191';
+  exception when others then
+    if sqlerrm <> 'rb_191' then v := v || pg_temp.chk('O16-crash', sqlstate || ' ' || sqlerrm, false); end if;
   end;
 
   -- O15: ร้านปิดใช้งานขั้นฝัง (job_stage_def gem_set is_active=false → ระบบเสนอ/เรียงขั้นนี้ไม่ได้) → has/template ต้องไม่ได้ "ใบมีพลอยแต่ไม่มีขั้นฝัง" เงียบๆ = ถอยทั้งก้อน (not_ready)
@@ -891,7 +937,7 @@ declare
   wM uuid := pg_temp.fx('wM'); wM2 uuid := pg_temp.fx('wM2'); wN uuid := pg_temp.fx('wN');
   tG uuid := pg_temp.fx('tG'); tC uuid := pg_temp.fx('tC'); tB uuid := pg_temp.fx('tB'); tIn uuid := pg_temp.fx('tIn');
   sOval uuid := pg_temp.fx('sOval'); sRound uuid := pg_temp.fx('sRound'); sRoundB uuid := pg_temp.fx('sRoundB');
-  pN uuid := pg_temp.fx('pN'); iB uuid := pg_temp.fx('iB'); jOff uuid := pg_temp.fx('jOff');
+  pN uuid := pg_temp.fx('pN'); iB uuid := pg_temp.fx('iB'); jOff uuid := pg_temp.fx('jOff'); pT uuid := pg_temp.fx('pT'); iG1 uuid := pg_temp.fx('iG1');
   o jsonb; r0 jsonb; r jsonb; r1 jsonb; r2 jsonb; g jsonb; l jsonb; j uuid; j2 uuid; s0 text; s1 text; h0 text; h1 text; bad text; n0 int; cases jsonb; ev analytics.job_event; pl jsonb;
   st text; k int; rev0 text; item uuid; po uuid; sq int; lot uuid; st_keys text;
 begin
@@ -1306,6 +1352,56 @@ begin
   exception when others then
     if sqlerrm <> 'rb_191' then v := v || pg_temp.chk('G9-crash', sqlstate || ' ' || sqlerrm, false); end if;
   end;
+
+  -- G10: เพดานรายการพลอยใหม่ 120 รายการ/ผู้จัดการ/24 ชม. ตอนแก้ (security M1) — ขนาดใหม่ล้วน
+  begin
+    o := pg_temp.go(sM, jsonb_build_object('label', 'แหวน G10', 'ga', 'has', 'gl', pg_temp.std2())); j := (o ->> 'job')::uuid;
+    n0 := pg_temp.n_item(a);
+    for k in 1 .. 4 loop
+      g := pg_temp.ggt(sM, j);
+      r := pg_temp.gst(sM, j, pg_temp.newitems(30, 10 + k), g ->> 'rev');
+      if r ->> 'ok' is distinct from 'true' then exit; end if;
+    end loop;
+    v := v || pg_temp.chk('G10a', 'แก้ 4 ครั้ง x 30 รายการใหม่ (ขนาดใหม่) = 120 พอดี → ok ทั้งหมด · เกิด 120 รายการ', r ->> 'ok' = 'true' and pg_temp.n_item(a) = n0 + 120);
+    g := pg_temp.ggt(sM, j); h0 := pg_temp.bomhash(j); s0 := pg_temp.allst(a);
+    r := pg_temp.gst(sM, j, pg_temp.newitems(1, 20), g ->> 'rev');
+    v := v || pg_temp.chk('G10b', 'รายการที่ 121 → gem_name_cap · BOM/รายการ ไม่ขยับ', r ->> 'code' = 'gem_name_cap' and pg_temp.bomhash(j) = h0 and pg_temp.allst(a) = s0);
+    r1 := pg_temp.gst(sM, j, pg_temp.back(g), g ->> 'rev');
+    v := v || pg_temp.chk('G10c', 'ถึงเพดานแล้ว แก้ที่ไม่สร้างรายการใหม่ (ส่งชุดเดิมกลับ) ยังทำได้ (ต้องไม่พัง)', r1 ->> 'ok' = 'true');
+    o := pg_temp.go(sM2, jsonb_build_object('label', 'แหวน G10-M2', 'ga', 'has', 'gl', pg_temp.std2())); j2 := (o ->> 'job')::uuid;
+    g := pg_temp.ggt(sM2, j2);
+    r2 := pg_temp.gst(sM2, j2, pg_temp.newitems(30, 30), g ->> 'rev');
+    v := v || pg_temp.chk('G10d', 'เพดานนับต่อผู้จัดการ: M2 สร้างรายการใหม่ได้ตอนแก้ (รายการที่ M/ออฟฟิศสร้างไม่นับ)', r2 ->> 'ok' = 'true');
+    raise exception 'rb_191';
+  exception when others then
+    if sqlerrm <> 'rb_191' then v := v || pg_temp.chk('G10-crash', sqlstate || ' ' || sqlerrm, false); end if;
+  end;
+
+  -- G11: ออฟฟิศปิดใช้รายการที่อยู่ในใบอยู่แล้ว → ผู้จัดการยังแก้ใบนั้นได้ (security M2) แต่ปิดแล้วที่ "ไม่ได้อยู่ในใบ" ยังใช้ไม่ได้
+  begin
+    o := pg_temp.go(sM, jsonb_build_object('product', pT, 'ga', 'template')); j := (o ->> 'job')::uuid;
+    r0 := pg_temp.sact(a, 'item', iG1, false);
+    g := pg_temp.ggt(sM, j);
+    r := pg_temp.gst(sM, j, pg_temp.back(g), g ->> 'rev');
+    v := v || pg_temp.chk('G11a', 'รายการในใบถูกออฟฟิศปิดใช้ทีหลัง → ผู้จัดการส่งชุดเดิมกลับ (แก้จำนวนได้) ต้อง ok ไม่ติด gem_inactive · ปิดใช้สำเร็จจริง',
+      (r0 ->> 'is_active')::boolean = false and not exists (select 1 from analytics.gem_item where id = iG1 and is_active) and g ->> 'ok' = 'true' and r ->> 'ok' = 'true');
+    g := pg_temp.ggt(sM, j);
+    r := pg_temp.gst(sM, j, jsonb_build_array(jsonb_build_object('gem_item_id', g #>> '{lines,0,gem_item_id}', 'qty_per_piece', 4)), g ->> 'rev');
+    v := v || pg_temp.chk('G11b', 'แก้จำนวนของรายการที่ถูกปิดใช้ + ลบอีกแถว → ok · แถวที่ปิดใช้ยังอยู่ในใบ', r ->> 'ok' = 'true' and exists (select 1 from analytics.job_gem_bom where job_id = j and gem_item_id = iG1 and qty_per_piece = 4));
+    o := pg_temp.go(sM, jsonb_build_object('label', 'แหวน G11-อื่น', 'ga', 'has', 'gl', jsonb_build_array(pg_temp.gl(tC, sRound, 1.5, null, 5)))); j2 := (o ->> 'job')::uuid;
+    g := pg_temp.ggt(sM, j2); h0 := pg_temp.bomhash(j2);
+    r1 := pg_temp.gst(sM, j2, jsonb_build_array(jsonb_build_object('gem_item_id', iG1, 'qty_per_piece', 1)), g ->> 'rev');
+    v := v || pg_temp.chk('G11c', 'ปิดใช้แล้วและ "ไม่ได้อยู่ในใบนี้" (อยู่ในใบอื่น) → ยัง gem_inactive · BOM ใบนี้ไม่ขยับ', r1 ->> 'code' = 'gem_line_invalid' and r1 ->> 'gem_code' = 'gem_inactive' and pg_temp.bomhash(j2) = h0);
+    r := pg_temp.icreate(a, jsonb_build_object('type_id', tC, 'shape_id', sRound, 'size_a', 7, 'qty_per_piece', 1)); item := (r -> 'item' ->> 'gem_item_id')::uuid;
+    r0 := pg_temp.sact(a, 'item', item, false);
+    g := pg_temp.ggt(sM, j); h1 := pg_temp.bomhash(j);
+    r2 := pg_temp.gst(sM, j, pg_temp.back(g) || jsonb_build_array(jsonb_build_object('gem_item_id', item, 'qty_per_piece', 1)), g ->> 'rev');
+    v := v || pg_temp.chk('G11d', 'ส่งชุดเดิมของใบ + รายการอื่นที่ปิดใช้ (ไม่ได้อยู่ในใบ) → gem_inactive · ข้อยกเว้นแคบเฉพาะรายการที่อยู่ในใบ · BOM ไม่ขยับ',
+      (r0 ->> 'is_active')::boolean = false and r2 ->> 'code' = 'gem_line_invalid' and r2 ->> 'gem_code' = 'gem_inactive' and pg_temp.bomhash(j) = h1);
+    raise exception 'rb_191';
+  exception when others then
+    if sqlerrm <> 'rb_191' then v := v || pg_temp.chk('G11-crash', sqlstate || ' ' || sqlerrm, false); end if;
+  end;
   return v;
 end;
 $c$;
@@ -1497,19 +1593,19 @@ create function pg_temp.g_191_perm() returns text
 declare
   v text := ''; s text; st text := ''; x text; n int;
   rpc constant text[] := array['job_worker_open', 'job_worker_my_intake_list', 'job_worker_gem_catalog', 'job_worker_gem_get', 'job_worker_gem_set'];
-  helper constant text[] := array['shop_intake_gem_auth', 'job_worker_gem_block', 'job_gem_rev', 'job_worker_gem_force', 'job_worker_gem_fail', 'job_worker_gem_summary', 'job_worker_gem_name_cap'];
+  helper constant text[] := array['shop_intake_gem_auth', 'job_worker_gem_block', 'job_gem_rev', 'job_worker_gem_precheck', 'job_worker_gem_fail', 'job_worker_gem_summary', 'job_worker_gem_name_cap', 'job_worker_gem_item_cap'];
 begin
   v := v || pg_temp.chk('P1', 'RPC ช่าง 5 ตัว: service_role execute ได้ · anon/authenticated ไม่ได้ · เป็น security definer · pin search_path',
     (select bool_and(has_function_privilege('service_role', p.oid, 'execute') and not has_function_privilege('anon', p.oid, 'execute') and not has_function_privilege('authenticated', p.oid, 'execute') and p.prosecdef
                      and exists (select 1 from unnest(p.proconfig) c2 where c2 like 'search_path=%'))
        from pg_proc p where p.pronamespace = 'analytics'::regnamespace and p.proname = any (rpc)));
-  v := v || pg_temp.chk('P2', 'helper 7 ตัว: ไม่มี role ฝั่งแอปถือ execute (service_role/anon/authenticated ไม่ได้) · pin search_path',
+  v := v || pg_temp.chk('P2', 'helper 8 ตัว: ไม่มี role ฝั่งแอปถือ execute (service_role/anon/authenticated ไม่ได้) · pin search_path',
     (select bool_and(not has_function_privilege('service_role', p.oid, 'execute') and not has_function_privilege('anon', p.oid, 'execute') and not has_function_privilege('authenticated', p.oid, 'execute')
                      and exists (select 1 from unnest(p.proconfig) c2 where c2 like 'search_path=%'))
        from pg_proc p where p.pronamespace = 'analytics'::regnamespace and p.proname = any (helper)));
-  v := v || pg_temp.chk('P3', 'ไม่มีฟังก์ชันใดในสคีมา analytics ที่ PUBLIC (grantee 0) ถือ EXECUTE · ไม่มี overload ของ 12 ชื่อ (หนึ่งแถวต่อชื่อ)',
+  v := v || pg_temp.chk('P3', 'ไม่มีฟังก์ชันใดในสคีมา analytics ที่ PUBLIC (grantee 0) ถือ EXECUTE · ไม่มี overload ของ 13 ชื่อ (หนึ่งแถวต่อชื่อ)',
     not exists (select 1 from pg_proc p cross join lateral aclexplode(p.proacl) a2 where p.pronamespace = 'analytics'::regnamespace and a2.privilege_type = 'EXECUTE' and (a2.grantee = 0 or a2.grantee = 'anon'::regrole or a2.grantee = 'authenticated'::regrole))
-    and (select count(*) from pg_proc where pronamespace = 'analytics'::regnamespace and proname = any (rpc || helper)) = 12);
+    and (select count(*) from pg_proc where pronamespace = 'analytics'::regnamespace and proname = any (rpc || helper)) = 13);
   begin
     execute 'grant usage on schema analytics to authenticated';
     execute 'grant usage on schema analytics to anon';
@@ -1527,13 +1623,14 @@ begin
       'select analytics.shop_intake_gem_auth(null, null, null, null)',
       'select analytics.job_worker_gem_block(null)',
       'select analytics.job_gem_rev(null)',
-      'select analytics.job_worker_gem_force(null, null, null, null)',
+      'select analytics.job_worker_gem_precheck(null, null, null, null)',
       'select analytics.job_worker_gem_fail(null, null)',
       'select analytics.job_worker_gem_summary(null)',
-      'select analytics.job_worker_gem_name_cap()'] loop
+      'select analytics.job_worker_gem_name_cap()',
+      'select analytics.job_worker_gem_item_cap()'] loop
       st := st || pg_temp.asrole('authenticated', s) || '/' || pg_temp.asrole('service_role', s) || ',';
     end loop;
-    v := v || pg_temp.chk('P5', 'helper ทั้ง 7: authenticated และ service_role ยิงตรง = 42501 (ไม่มีทางเรียก helper ข้ามด่านของ RPC) · ได้: ' || st, st = repeat('42501/42501,', 7));
+    v := v || pg_temp.chk('P5', 'helper ทั้ง 8: authenticated และ service_role ยิงตรง = 42501 (ไม่มีทางเรียก helper ข้ามด่านของ RPC) · ได้: ' || st, st = repeat('42501/42501,', 8));
     raise exception 'rb_191P';
   exception when others then
     if sqlerrm <> 'rb_191P' then v := v || pg_temp.chk('P4-crash', sqlstate || ' ' || sqlerrm, false); end if;
@@ -1579,7 +1676,7 @@ declare
   sg_cat constant text := 'analytics.job_worker_gem_catalog(text,text,text,uuid)';
   sg_blk constant text := 'analytics.job_worker_gem_block(uuid)';
   sg_auth constant text := 'analytics.shop_intake_gem_auth(text,text,text,text)';
-  sg_force constant text := 'analytics.job_worker_gem_force(uuid,uuid,jsonb,jsonb)';
+  sg_force constant text := 'analytics.job_worker_gem_precheck(uuid,uuid,jsonb,jsonb,uuid[])';
   sg_fail constant text := 'analytics.job_worker_gem_fail(text,text)';
   sg_my constant text := 'analytics.job_worker_my_intake_list(text,text,text)';
 begin
@@ -1590,7 +1687,7 @@ begin
     jsonb_build_object('id', 'MU4', 'what', 'block: ไม่ตรวจว่าใบมีขั้นฝัง (ใบไม่มีขั้นฝังแก้พลอยได้)', 'steps', jsonb_build_array(jsonb_build_array(sg_blk, 'and gs.stage_code = ''gem_set'' and gs.status = ''pending'') then', 'and gs.stage_code = ''gem_set'' and gs.status = ''pending'') and false then')), 'expect', jsonb_build_array('G5a', 'G5b')),
     jsonb_build_object('id', 'MU5', 'what', 'force: ชื่อที่ไม่ถูกถามก็ผ่าน (ถอดการเช็คครอบคลุม — blanket)', 'steps', jsonb_build_array(jsonb_build_array(sg_force, 'if not v_covered then', 'if false then')), 'expect', jsonb_build_array('O9c', 'O9d', 'G7c', 'G7d')),
     jsonb_build_object('id', 'MU6', 'what', 'force: จับคู่ด้วย kind อย่างเดียว ไม่เทียบชื่อ (force ชื่ออื่นปลดคำถาม)', 'steps', jsonb_build_array(jsonb_build_array(sg_force, 'and analytics.gem_name_norm(f.value ->> ''name'') = analytics.gem_name_norm(v_el ->> ''name''));', ');')), 'expect', jsonb_build_array('O9c', 'G7c')),
-    jsonb_build_object('id', 'MU7', 'what', 'open: ไม่ผ่านตัวดักชื่อคล้าย/force (ส่ง force=false เสมอ) → force ที่ถูกต้องก็ไม่ผ่าน', 'steps', jsonb_build_array(jsonb_build_array(sg_open, 'v_gforce := analytics.job_worker_gem_force(v_shop, v_wid, p_gem_lines, p_gem_force);', 'v_gforce := false;')), 'expect', jsonb_build_array('O9b')),
+    jsonb_build_object('id', 'MU7', 'what', 'open: ไม่ผ่านตัวดักชื่อคล้าย/force (ส่ง force=false เสมอ) → force ที่ถูกต้องก็ไม่ผ่าน', 'steps', jsonb_build_array(jsonb_build_array(sg_open, 'v_gforce := analytics.job_worker_gem_precheck(v_shop, v_wid, p_gem_lines, p_gem_force);', 'v_gforce := false;')), 'expect', jsonb_build_array('O9b')),
     jsonb_build_object('id', 'MU8', 'what', 'open: ตอบ none แล้วขั้นฝังยังอยู่', 'steps', jsonb_build_array(jsonb_build_array(sg_open, 'v_codes := array_remove(v_codes, ''gem_set'');', 'v_codes := v_codes;')), 'expect', jsonb_build_array('O3')),
     jsonb_build_object('id', 'MU9', 'what', 'open: ตอบ has แต่ไม่เพิ่มขั้นฝัง (ขั้นไม่เกิดจากพลอย) → ใบถอยทั้งก้อน (gem_stage_missing) — ด่านหลังกันใบมีพลอยแต่ไม่มีขั้น', 'steps', jsonb_build_array(jsonb_build_array(sg_open, 'v_codes := analytics.job_sort_stage_codes(v_shop, v_codes || ''gem_set''::text);', 'v_codes := v_codes;')), 'expect', jsonb_build_array('O1-crash')),
     jsonb_build_object('id', 'MU10', 'what', 'open: template + SKU ไม่มีแม่แบบก็ผ่าน (ไม่บังคับให้ตอบ)', 'steps', jsonb_build_array(jsonb_build_array(sg_open, 'if p_product_id is null or not exists (select 1 from analytics.product_gem_bom b where b.shop_id = v_shop and b.product_id = p_product_id) then', 'if false then')), 'expect', jsonb_build_array('O6')),
@@ -1615,7 +1712,10 @@ begin
     jsonb_build_object('id', 'MU24', 'what', 'open: ไม่ตรวจคำตอบ answer ที่ไม่รู้จัก', 'steps', jsonb_build_array(jsonb_build_array(sg_open, 'if p_gem_answer is not null and p_gem_answer not in (''none'', ''has'', ''template'') then', 'if false then')), 'expect', jsonb_build_array('O12')),
     jsonb_build_object('id', 'MU25', 'what', 'gem_get: ไม่ปิดด่านสิทธิ์ read (ใช้ bucket write ผิด) — ถอดถังอ่านต่อช่าง', 'steps', jsonb_build_array(jsonb_build_array(sg_auth, 'case p_bucket when ''write'' then 20 else 120 end', 'case p_bucket when ''write'' then 20 else 99999 end')), 'expect', jsonb_build_array('G8r4')),
     jsonb_build_object('id', 'MU26', 'what', 'force: ไม่มีเพดานชื่อพลอยใหม่ต่อวัน (ท่วมแคตตาล็อกด้วยชื่อขยะได้)', 'steps', jsonb_build_array(jsonb_build_array(sg_force, 'if v_exist + v_newn > analytics.job_worker_gem_name_cap() then', 'if false then')), 'expect', jsonb_build_array('O14b', 'O14d', 'G9b')),
-    jsonb_build_object('id', 'MU27', 'what', 'force: เพดานนับชื่อของคนอื่นด้วย (ไม่ผูกกับผู้จัดการคนที่สร้าง) → ผู้จัดการอีกคนโดนด้วย (O14c ล้มกลางทางเพราะเพดานนับของคนอื่น — จับได้ที่ O14-crash)', 'steps', jsonb_build_array(jsonb_build_array(sg_force, 'where t.shop_id = p_shop_id and t.created_by_worker_id = p_worker_id and t.created_at', 'where t.shop_id = p_shop_id and t.created_at')), 'expect', jsonb_build_array('O14-crash')),
+    jsonb_build_object('id', 'MU27', 'what', 'precheck: เพดานนับ "ชนิด" ของคนอื่นด้วย (ไม่ผูกกับผู้จัดการคนที่สร้าง) → ผู้จัดการอีกคนโดนด้วย', 'steps', jsonb_build_array(jsonb_build_array(sg_force, 'where t.shop_id = p_shop_id and t.created_by_worker_id = p_worker_id and t.created_at', 'where t.shop_id = p_shop_id and t.created_at')), 'expect', jsonb_build_array('O14f')),
+    jsonb_build_object('id', 'MU27b', 'what', 'precheck: เพดานนับ "รูปทรง" ของคนอื่นด้วย (subquery ของรูปทรงไม่ผูกผู้สร้าง)', 'steps', jsonb_build_array(jsonb_build_array(sg_force, 'where s.shop_id = p_shop_id and s.created_by_worker_id = p_worker_id and s.created_at', 'where s.shop_id = p_shop_id and s.created_at')), 'expect', jsonb_build_array('O14g')),
+    jsonb_build_object('id', 'MU30', 'what', 'precheck: ไม่มีเพดานรายการพลอยใหม่ (ท่วมตาราง gem_item ด้วยขนาดขยะได้ — security M1)', 'steps', jsonb_build_array(jsonb_build_array(sg_force, 'if v_exist + v_newi > analytics.job_worker_gem_item_cap() then', 'if false then')), 'expect', jsonb_build_array('O16b', 'G10b')),
+    jsonb_build_object('id', 'MU31', 'what', 'set: ไม่ส่งรายการที่ใบถืออยู่แล้วเข้า precheck (รายการที่ออฟฟิศปิดใช้ทีหลังทำให้ผู้จัดการแก้ใบไม่ได้ — security M2)', 'steps', jsonb_build_array(jsonb_build_array(sg_set, 'p_force, array(select g.gem_item_id from analytics.job_gem_bom g where g.job_id = v_job));', 'p_force, ''{}''::uuid[]);')), 'expect', jsonb_build_array('G11a')),
     jsonb_build_object('id', 'MU29', 'what', 'open: ไม่ตรวจว่าได้ขั้นฝังจริงหลังสร้าง (has/template ที่ขั้นถูกปิดใช้ → ใบมีพลอยแต่ไม่มีขั้นเงียบๆ)', 'steps', jsonb_build_array(jsonb_build_array(sg_open, 'if p_gem_answer in (''has'', ''template'') and not exists (select 1 from analytics.job_stage s where s.job_id = v_jobrow.id and s.stage_code = ''gem_set'') then', 'if false then')), 'expect', jsonb_build_array('O15a', 'O15b')),
     jsonb_build_object('id', 'MU28', 'what', 'fail: ไม่แปลง gem_name_cap (หลุดเป็นข้อผิดพลาดทั่วไป)', 'steps', jsonb_build_array(jsonb_build_array(sg_fail, 'if p_hint = ''gem_name_cap'' then', 'if false then')), 'expect', jsonb_build_array('O14b', 'G9b')));
   total := jsonb_array_length(muts);

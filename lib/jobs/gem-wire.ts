@@ -35,7 +35,7 @@ export function toWireGemLines(raw: unknown): WireResult {
     const l = raw[i];
     if (!isObj(l)) return wireBad("แถวพลอยไม่ถูกต้อง", "line_invalid", row);
     for (const k of Object.keys(l)) {
-      // ชื่อ key ที่ไม่รู้จักไม่สะท้อนกลับไป client (ยกเว้นที่รูปร่างปลอดภัย — บอกให้รู้ว่าแถวมีข้อมูลแปลก) — ใช้บอกว่าแถวไหนมีข้อมูลแปลก
+      // ชื่อ key ที่ไม่รู้จักไม่สะท้อนกลับไป client (ยกเว้นที่รูปร่างปลอดภัย — บอกให้รู้ว่าแถวไหนมีข้อมูลแปลก)
       if (!LINE_KEYS.has(k)) return wireBad("แถวพลอยมีข้อมูลที่ไม่รองรับ", "line_invalid", row, /^[a-z][a-zA-Z_]{0,30}$/.test(k) ? k : null);
     }
     const w: Record<string, unknown> = {};

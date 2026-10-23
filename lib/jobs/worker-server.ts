@@ -592,14 +592,9 @@ export interface IntakeGemSummary {
 const gemInt = (v: unknown, max: number): number | null => (typeof v === "number" && Number.isInteger(v) && v >= 0 && v <= max ? v : null);
 const strList = (v: unknown, n = 30): string[] => (Array.isArray(v) ? v.slice(0, n).flatMap((x) => { const s = shortText(x, 80); return s ? [s] : []; }) : []);
 
-/** สรุปผล create/replay → IntakeGemSummary (ประกอบทีละ field · รูปร่างผิด = null) */
-export function mapGemSummary(raw: unknown): IntakeGemSummary | null {
-  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
-  const o = raw as Record<string, unknown>;
-  const count = gemInt(o.count, 30);
-  const total = gemInt(o.total, 1e12);
-  const state = parseGemState(o.state);
-  if (count === null || total === null || state === null) return null;
+/** ส่วนรายชื่อของสรุปพลอย (ชื่อใหม่ · ชื่อที่ใช้ตัวเดิมให้ · แถวที่รวมให้) — ใช้ร่วมกันทั้งตอนเปิดใบและตอนแก้ · รูปร่างผิดทีละรายการ = ทิ้งรายการนั้น */
+export function mapGemNames(raw: unknown): Pick<IntakeGemSummary, "createdTypes" | "createdShapes" | "reused" | "mergedRows"> {
+  const o: Record<string, unknown> = typeof raw === "object" && raw !== null && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
   const reused = (Array.isArray(o.reused) ? o.reused.slice(0, 60) : []).flatMap((x): IntakeGemSummary["reused"] => {
     if (typeof x !== "object" || x === null || Array.isArray(x)) return [];
     const r = x as Record<string, unknown>;
@@ -611,7 +606,18 @@ export function mapGemSummary(raw: unknown): IntakeGemSummary | null {
     const rows = (Array.isArray(x) ? x : []).filter((n): n is number => typeof n === "number" && Number.isInteger(n) && n >= 1 && n <= 31).slice(0, 31);
     return rows.length > 0 ? [rows] : [];
   });
-  return { count, total, state, createdTypes: strList(o.created_types), createdShapes: strList(o.created_shapes), reused, mergedRows };
+  return { createdTypes: strList(o.created_types), createdShapes: strList(o.created_shapes), reused, mergedRows };
+}
+
+/** สรุปผล create/replay → IntakeGemSummary (ประกอบทีละ field · รูปร่างผิด = null) */
+export function mapGemSummary(raw: unknown): IntakeGemSummary | null {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
+  const o = raw as Record<string, unknown>;
+  const count = gemInt(o.count, 30);
+  const total = gemInt(o.total, 1e12);
+  const state = parseGemState(o.state);
+  if (count === null || total === null || state === null) return null;
+  return { count, total, state, ...mapGemNames(o) };
 }
 
 /** เปิดใบผลิต + ใบงาน + QR ทรานแซกชันเดียว — ส่งเฉพาะที่ระบุ (null = ไม่ส่ง · ค่าเริ่มของ RPC เป็น null ทั้งหมด) */
@@ -817,11 +823,14 @@ export async function loadIntakeJobGems(token: unknown, jobId: unknown): Promise
   const status = j ? shortText(j.status, 20) : null;
   const qtyPlanned = j ? gemInt(j.qty_planned, 100000) : null;
   if (!j || !isUuid(j.job_id) || !jobNo || !/^JB-\d{1,8}$/.test(jobNo) || !designLabel || !status || qtyPlanned === null || state === null || rev === null) return fail("error", GENERIC_JOB_ERROR);
-  const lines = (Array.isArray(r.lines) ? r.lines.slice(0, 30) : []).flatMap((x) => {
+  // 🔴 ห้ามทิ้งแถวผิดรูปเงียบๆ: หน้าแก้ส่งชุดนี้กลับเป็น replace-all — แถวที่หายไปจากจอ = ถูกลบจริงตอนบันทึก (review S2) → จำนวนแถวที่ map ได้ต้องเท่าที่ DB ส่ง ไม่งั้นล้มปลอดภัย
+  if (!Array.isArray(r.lines) || r.lines.length > 30) return fail("error", GENERIC_JOB_ERROR);
+  const lines = r.lines.flatMap((x) => {
     const l = mapGemLine(x);
     const t = typeof x === "object" && x !== null ? gemInt((x as Record<string, unknown>).qty_total, 1e9) : null;
     return l && t !== null ? [{ ...l, qtyTotal: t }] : [];
   });
+  if (lines.length !== r.lines.length) return fail("error", GENERIC_JOB_ERROR);
   const lockCode = typeof r.lock_code === "string" && (LOCK_CODES as readonly string[]).includes(r.lock_code) ? r.lock_code : null;
   return {
     ok: true,
@@ -876,14 +885,7 @@ export async function setIntakeJobGems(token: unknown, i: IntakeGemSetInput): Pr
     const total = gemInt(o.qty_total, 1e9);
     return gemItemId && label && qty !== null && qty >= 1 && total !== null ? [{ gemItemId, label, qtyPerPiece: qty, qtyTotal: total, position: shortText(o.position, 40) }] : [];
   });
-  const sm = mapGemSummary({ ...(typeof r.summary === "object" && r.summary !== null && !Array.isArray(r.summary) ? (r.summary as Record<string, unknown>) : {}), count, total: 0, state });
-  return {
-    ok: true,
-    data: {
-      changed: r.changed, count, lines, state, rev,
-      summary: sm ? { createdTypes: sm.createdTypes, createdShapes: sm.createdShapes, reused: sm.reused, mergedRows: sm.mergedRows } : { createdTypes: [], createdShapes: [], reused: [], mergedRows: [] },
-    },
-  };
+  return { ok: true, data: { changed: r.changed, count, lines, state, rev, summary: mapGemNames(r.summary) } };
 }
 
 /** ออกจากระบบ: เพิกถอน session ใน DB (ถ้ามี cookie) — ผู้เรียกลบ cookie เอง */

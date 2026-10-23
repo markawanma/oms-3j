@@ -9,8 +9,8 @@
 --   ⇒ พลอยต้องไปพร้อมใบ "ผ่านทั้งหมดหรือไม่เปิดเลย" (P11) · ทุกด่านอยู่ที่ DB: ร้านมาจาก token เท่านั้น · สิทธิ์ can_open_job ตรวจสดทุกครั้ง · แก้ได้เฉพาะใบที่ช่างคนนี้เปิดเอง ∧ ยังไม่มีขั้นใดถูกรับ ∧ ใบ open ∧ ใบมีขั้นฝัง
 --
 -- สิ่งที่ไฟล์นี้ทำ
---  1. helper ภายใน 7 ตัว (ไม่ grant ใคร): shop_intake_gem_auth (ด่านกลางของ RPC พลอยฝั่งช่าง · ถังต่อช่างแยกจากรูป) · job_worker_gem_block (ใบนี้แก้พลอยได้ไหม — นิยามเดียว) · job_gem_rev (ลายนิ้วมือของพลอยใบ = CAS กัน 2 เครื่อง) ·
---     job_worker_gem_force (ตัวดักชื่อคล้าย: force ต่อ "ชื่อที่ถูกถาม" ไม่ใช่ blanket + เพดานชื่อใหม่ต่อวัน) · job_worker_gem_name_cap (ค่าเพดาน 40 ชื่อ/ผู้จัดการ/24 ชม.) · job_worker_gem_fail (error พลอย → ผลฝั่งช่าง ไม่ส่งข้อความดิบของ DB) · job_worker_gem_summary (สรุปชื่อใหม่/ชื่อที่ใช้ตัวเดิมให้ — ไม่มีราคา)
+--  1. helper ภายใน 8 ตัว (ไม่ grant ใคร): shop_intake_gem_auth (ด่านกลางของ RPC พลอยฝั่งช่าง · ถังต่อช่างแยกจากรูป) · job_worker_gem_block (ใบนี้แก้พลอยได้ไหม — นิยามเดียว) · job_gem_rev (ลายนิ้วมือของพลอยใบ = CAS กัน 2 เครื่อง) ·
+--     job_worker_gem_precheck (ตัวดักชื่อคล้าย: force ต่อ "ชื่อที่ถูกถาม" ไม่ใช่ blanket + เพดานชื่อใหม่ต่อวัน) · job_worker_gem_name_cap (เพดาน 40 ชื่อ/ผู้จัดการ/24 ชม.) · job_worker_gem_item_cap (เพดาน 120 รายการใหม่/ผู้จัดการ/24 ชม.) · job_worker_gem_fail (error พลอย → ผลฝั่งช่าง ไม่ส่งข้อความดิบของ DB) · job_worker_gem_summary (สรุปชื่อใหม่/ชื่อที่ใช้ตัวเดิมให้ — ไม่มีราคา)
 --  2. job_worker_open (drop signature เดิม 15 args + สร้างใหม่ 18 args + re-grant): + p_gem_lines jsonb · p_gem_answer text ('none' | 'has' | 'template' | null) · p_gem_force jsonb — ไม่ส่งพลอย = ทำงานเดิมเป๊ะ (verify-0187/0188/0189/0190 ผ่านเท่าเดิม)
 --  3. job_worker_gem_set (แก้พลอยทั้งชุด) · job_worker_gem_get (อ่านพลอยของใบตัวเอง + rev + window) · job_worker_gem_catalog (ชนิด/รูปทรงที่ใช้ได้ + ขนาดที่เคยใช้ + แม่แบบ SKU — ไม่มีราคา)
 --  4. job_worker_my_intake_list (replace · signature เดิม): + gem_state · gem_count · gem_pieces · gem_editable ต่อใบ (W-9)
@@ -31,8 +31,11 @@
 --  (5) job_worker_gem_catalog รับ p_product_id (ไม่บังคับ) คืนแม่แบบ SKU (ไม่มีราคา) ให้หน้าจอรู้ว่า SKU มีแม่แบบไหม (ตัดสินว่าจะถาม "ฝังพลอยไหม" หรือไม่) — เพิ่มจากบรีฟ (บรีฟระบุแค่ token+session)
 --  (6) ถังจำกัดอัตราแยกจากรูป: เขียน (gem_set) wg:<ช่าง> 20/10 นาที · อ่าน (get/catalog) wgr:<ช่าง> 120/10 นาที — นับหลังพบ session ที่ valid และ can_open_job · ต่อ IP ใช้ ipw: 300 (เขียน · ถังเดียวกับเปิดใบ/รูป) · ipr: 240 (อ่าน) · ค่าเพดานทีมตั้ง ไม่ใช่ค่าเจ้าของ
 --  (7) ไม่รับ p_user_agent ใน job_worker_gem_set (บรีฟระบุไว้): job_gem_bom_replace_core เขียน event bom_change โดยไม่มี device hint และบรีฟสั่งไม่ replace core → พารามิเตอร์นี้จะไม่มีที่ใช้ (ตายเปล่า) · event ยังบันทึกผู้ทำ = ช่าง (worker_id · channel worker_qr · actor null)
---  (9) เพดานชื่อพลอยใหม่ 40 ชื่อ (ชนิด+รูปทรง) ต่อผู้จัดการต่อ 24 ชม. (gem_name_cap · นับเฉพาะชื่อที่เกิดใหม่จริงจาก created_by_worker_id — ใช้ตัวเดิม/ออฟฟิศสร้าง ไม่นับ): บรีฟไม่ได้สั่งแต่ช่องสาธารณะนี้ "สร้างชื่อเข้าแคตตาล็อกเองได้" (มติ 21 ต.ค.) — ไม่มีเพดาน = ผู้ถือ PIN ผู้จัดการ (หรือคนเดา PIN 1234 ที่เจ้าของรับความเสี่ยง) ท่วมแคตตาล็อกด้วยชื่อขยะได้ 30 ชื่อต่อใบ · ux §3.6/Q3 ระบุ "[เพดานให้ architect]" ไว้แล้ว · ค่า 40 ทีมตั้ง ปรับที่ job_worker_gem_name_cap() ที่เดียว
 --  (8) race "ช่างรับขั้นแรกระหว่างแก้": ล็อกแถวใบ (for update) แล้วค่อยตรวจหน้าต่าง (เหมือนรูป W2) — รับที่ commit ก่อน = เห็นและปฏิเสธ · รับที่ยัง in-flight = เรียงต่อท้ายแก้ (ผลเท่ากับ "แก้ก่อนรับ") · ไม่ล็อกแถว job_stage (ลำดับล็อกกลับกับ job_core_receive → เสี่ยง deadlock) · ไม่มีเทสต์ 2 connection (do-block เป็น connection เดียว)
+--  (9) เพดานชื่อพลอยใหม่ 40 ชื่อ (ชนิด+รูปทรง) ต่อผู้จัดการต่อ 24 ชม. (gem_name_cap · นับเฉพาะชื่อที่เกิดใหม่จริงจาก created_by_worker_id — ใช้ตัวเดิม/ออฟฟิศสร้าง ไม่นับ): บรีฟไม่ได้สั่งแต่ช่องสาธารณะนี้ "สร้างชื่อเข้าแคตตาล็อกเองได้" (มติ 21 ต.ค.) — ไม่มีเพดาน = ผู้ถือ PIN ผู้จัดการ (หรือคนเดา PIN 1234 ที่เจ้าของรับความเสี่ยง) ท่วมแคตตาล็อกด้วยชื่อขยะได้ 30 ชื่อต่อใบ · ux §3.6/Q3 ระบุ "[เพดานให้ architect]" ไว้แล้ว · ค่า 40 ทีมตั้ง ปรับที่ job_worker_gem_name_cap() ที่เดียว
+--  (10) เพดานรายการพลอยใหม่ 120 รายการ (ชนิด x รูปทรง x ขนาด) ต่อผู้จัดการต่อ 24 ชม. (hint เดียวกับเพดานชื่อ gem_name_cap · นับ gem_item.created_by_worker_id) — security M1: เพดานชื่ออย่างเดียวไม่กัน "ขนาดสุ่ม 30 แถว x แก้ซ้ำ" ที่สร้างรายการได้ไม่จำกัดโดยไม่สร้างชื่อใหม่
+--  (11) precheck รับ p_allow_item_ids (รายการที่ใบถืออยู่แล้ว) — security M2: ใบที่คัดลอกแม่แบบแล้วออฟฟิศปิดใช้รายการ ผู้จัดการต้องบันทึกแถวเดิมต่อได้ (เหมือน core) · id ปิดใช้ที่ "ไม่อยู่ในใบ" ยังตก gem_inactive
+--  (12) ชื่อฟังก์ชัน job_worker_gem_precheck (เดิม _force) — ทำหน้าที่ probe ทั้งชื่อคล้าย/force/เพดาน ไม่ใช่แค่ force
 --
 -- ไม่มีเงิน/ต้นทุนในไฟล์นี้ · ไม่ UPDATE แถวเดิมใดๆ (ไม่ยิง trigger ของตารางใด — ข้อ 19) · post-check ล็อก: ฟังก์ชันเดิมนอกรายการ md5 เท่าเดิม (รวม production_order_done · job_gem_bom_replace_core · gem_lines_prepare) · แถวตารางเท่าเดิม · ไม่มี overload · ไม่มีสิทธิ์ anon/authenticated/PUBLIC
 
@@ -93,16 +96,17 @@ begin
      or to_regprocedure('analytics.job_today()') is null then
     raise exception '0191: ไม่พบฟังก์ชันที่ต้องใช้ (job_gem_bom_replace_core · gem_lines_prepare · job_gem_state · job_gem_edit_window · gem_item_* · job_worker_photo_job · shop_intake_auth · job_create_from_production_item_core ฯลฯ) — ตรวจ 0187-0190';
   end if;
-  -- คอลัมน์ที่ฟังก์ชันใหม่อ่าน (plpgsql ไม่ตรวจชื่อคอลัมน์ตอน create — ตรวจที่นี่ให้ล้มก่อน DDL)
+  -- คอลัมน์ที่ฟังก์ชันใหม่อ่าน (job / job_gem_bom / product_gem_bom / job_stage / gem_item + created_by_worker_id/created_at ของ gem_type/gem_shape ที่เพดานนับ) (plpgsql ไม่ตรวจชื่อคอลัมน์ตอน create — ตรวจที่นี่ให้ล้มก่อน DDL)
   select count(*) into v_n from information_schema.columns
    where table_schema = 'analytics'
      and ((table_name = 'job' and column_name in ('id', 'shop_id', 'status', 'parent_job_id', 'qty_planned', 'job_no', 'design_label', 'production_order_item_id'))
        or (table_name = 'job_gem_bom' and column_name in ('job_id', 'gem_item_id', 'gem_label', 'qty_per_piece', 'position_note', 'line_seq'))
        or (table_name = 'product_gem_bom' and column_name in ('shop_id', 'product_id', 'gem_item_id', 'qty_per_piece', 'position_note', 'line_seq'))
        or (table_name = 'job_stage' and column_name in ('job_id', 'stage_code', 'status'))
-       or (table_name = 'gem_item' and column_name in ('shop_id', 'gem_type_id', 'gem_shape_id', 'size_a', 'size_b', 'created_at')));
-  if v_n <> 8 + 6 + 6 + 3 + 6 then
-    raise exception '0191: คอลัมน์ของ job / job_gem_bom / product_gem_bom / job_stage / gem_item ไม่ครบตามที่ใช้ (พบ % จาก 29)', v_n;
+       or (table_name = 'gem_item' and column_name in ('shop_id', 'gem_type_id', 'gem_shape_id', 'size_a', 'size_b', 'created_at', 'created_by_worker_id'))
+       or (table_name in ('gem_type', 'gem_shape') and column_name in ('shop_id', 'created_by_worker_id', 'created_at')));
+  if v_n <> 8 + 6 + 6 + 3 + 7 + 3 + 3 then
+    raise exception '0191: คอลัมน์ของ job / job_gem_bom / product_gem_bom / job_stage / gem_item / gem_type / gem_shape ไม่ครบตามที่ใช้ (พบ % จาก 36)', v_n;
   end if;
   -- ฟังก์ชันที่ replace: ต้องมี signature เดียว และ def บน DB = ฉบับที่ลอก (md5 · ลอกสดจาก DB 23 ต.ค. 69) หรือเป็นฉบับ 0191 แล้ว (รันซ้ำ)
   for r in select * from (values
@@ -119,7 +123,7 @@ begin
   end loop;
   -- ชื่อ object ใหม่ต้องยังไม่ถูกใช้ผิดประเภท (รันซ้ำได้ — มีอยู่แล้วต้องเป็นของไฟล์นี้)
   select count(*) into v_n from pg_proc p where p.pronamespace = 'analytics'::regnamespace
-     and p.proname in ('shop_intake_gem_auth', 'job_worker_gem_block', 'job_gem_rev', 'job_worker_gem_force', 'job_worker_gem_fail', 'job_worker_gem_summary', 'job_worker_gem_name_cap', 'job_worker_gem_set', 'job_worker_gem_get', 'job_worker_gem_catalog')
+     and p.proname in ('shop_intake_gem_auth', 'job_worker_gem_block', 'job_gem_rev', 'job_worker_gem_precheck', 'job_worker_gem_fail', 'job_worker_gem_summary', 'job_worker_gem_name_cap', 'job_worker_gem_item_cap', 'job_worker_gem_set', 'job_worker_gem_get', 'job_worker_gem_catalog')
      and position('0191' in pg_get_functiondef(p.oid)) = 0;
   if v_n > 0 then
     raise exception '0191: มีฟังก์ชันชื่อเดียวกับของไฟล์นี้อยู่แล้วแต่ไม่ใช่ของ 0191 (% ตัว) — หยุด', v_n;
@@ -238,7 +242,7 @@ $f$;
 -- ตัวดักชื่อคล้าย: คืน p_force boolean ที่ส่งต่อให้ core — true เฉพาะเมื่อ "ทุกชื่อที่ DB รายงานว่าคล้าย (ในคำขอนี้)" อยู่ในรายการ force (kind + norm ตรงกัน)
 --   รายการ force ผิดรูป/boolean/เกิน 60 = 22023 gem_force_invalid · ชื่อใน force ที่ไม่ตรงชื่อที่ถูกถามจริง = ไม่มีผล (ไม่ปลดคำถามของชื่ออื่น) · ยังมีชื่อที่ไม่ถูก force = raise gem_similar เดิม (ไม่เขียนอะไร)
 --   probe = gem_lines_prepare แบบ p_force=false ใน subtransaction ที่ถอยกลับเสมอ (SQLSTATE W3P01 = ผ่านโดยไม่มีชื่อคล้าย) · แถวผิดอื่นๆ raise ต่อด้วย hint/detail เดิม · ใช้ก่อนสร้างอะไรทั้งสิ้น (open) หรือก่อนแก้ (gem_set)
-create or replace function analytics.job_worker_gem_force(p_shop_id uuid, p_worker_id uuid, p_lines jsonb, p_force jsonb)
+create or replace function analytics.job_worker_gem_precheck(p_shop_id uuid, p_worker_id uuid, p_lines jsonb, p_force jsonb, p_allow_item_ids uuid[] default '{}'::uuid[])
  returns boolean
  language plpgsql
  set search_path to 'public', 'analytics', 'extensions', 'pg_temp'
@@ -254,6 +258,7 @@ declare
   v_covered boolean;
   v_prep    jsonb;
   v_newn    int := 0;
+  v_newi    int := 0;
   v_fa      boolean := false;
   v_try     int;
   v_exist   int;
@@ -278,13 +283,15 @@ begin
     v_state := 'ok';
     v_detail := null;
     begin
-      v_prep := analytics.gem_lines_prepare(p_shop_id, p_lines, v_fa, null, p_worker_id);
+      v_prep := analytics.gem_lines_prepare(p_shop_id, p_lines, v_fa, null, p_worker_id, coalesce(p_allow_item_ids, '{}'::uuid[]));
       v_newn := jsonb_array_length(coalesce(v_prep -> 'summary' -> 'created_types', '[]'::jsonb)) + jsonb_array_length(coalesce(v_prep -> 'summary' -> 'created_shapes', '[]'::jsonb));
-      raise exception 'probe' using errcode = 'W3P01', detail = v_newn::text;
+      v_newi := jsonb_array_length(coalesce(v_prep -> 'summary' -> 'created_items', '[]'::jsonb));
+      raise exception 'probe' using errcode = 'W3P01', detail = v_newn::text || ',' || v_newi::text;
     exception
       when sqlstate 'W3P01' then
         get stacked diagnostics v_detail = pg_exception_detail;
-        v_newn := coalesce(nullif(v_detail, '')::int, 0);
+        v_newn := coalesce(nullif(split_part(v_detail, ',', 1), '')::int, 0);
+        v_newi := coalesce(nullif(split_part(v_detail, ',', 2), '')::int, 0);
         v_state := 'ok';
       when sqlstate '22023' then
         get stacked diagnostics v_hint = pg_exception_hint, v_detail = pg_exception_detail, v_msg = message_text;
@@ -323,8 +330,26 @@ begin
       raise exception 'เพิ่มชื่อพลอยใหม่ถี่เกินไป' using errcode = '22023', hint = 'gem_name_cap';
     end if;
   end if;
+  -- เพดานรายการพลอยใหม่ (ชนิด x รูปทรง x ขนาด) — ขนาดสุ่ม 30 แถว x แก้ซ้ำ = รายการเกิดไม่จำกัดโดยไม่สร้างชื่อใหม่ (security M1) · ใช้ hint เดียวกับเพดานชื่อ
+  if v_newi > 0 then
+    select count(*) into v_exist from analytics.gem_item i where i.shop_id = p_shop_id and i.created_by_worker_id = p_worker_id and i.created_at > now() - interval '24 hours';
+    if v_exist + v_newi > analytics.job_worker_gem_item_cap() then
+      raise exception 'เพิ่มรายการพลอยใหม่ถี่เกินไป' using errcode = '22023', hint = 'gem_name_cap';
+    end if;
+  end if;
   return v_fa;
 end;
+$f$;
+
+-- เพดานรายการพลอยใหม่ต่อผู้จัดการ ต่อ 24 ชม. — ค่าที่ทีมตั้ง (security M1 · 23 ต.ค.) · แก้ที่นี่ที่เดียว
+create or replace function analytics.job_worker_gem_item_cap()
+ returns int
+ language sql
+ immutable
+ set search_path to 'pg_catalog', 'pg_temp'
+as $f$
+  -- 0191 W3: เพดานรายการใหม่ต่อวัน
+  select 120
 $f$;
 
 -- เพดานชื่อพลอยใหม่ (ชนิด+รูปทรงรวมกัน) ต่อผู้จัดการ ต่อ 24 ชม. — ค่าที่ทีมตั้ง (ไม่ใช่ค่าเจ้าของ · ux §3.6 [เพดานให้ architect]) · แก้ที่นี่ที่เดียว
@@ -555,7 +580,7 @@ begin
   -- 0191: ตัวดักชื่อคล้าย + ตรวจพลอยทุกแถว "ก่อนสร้างอะไรทั้งสิ้น" (probe ถอยกลับเสมอ) · พลอยผิด/ชื่อคล้ายที่ยังไม่ถูก force = คืน code ที่นี่ — ไม่มี PO/ใบงาน/QR/ตัวนับขยับ
   if p_gem_answer = 'has' then
     begin
-      v_gforce := analytics.job_worker_gem_force(v_shop, v_wid, p_gem_lines, p_gem_force);
+      v_gforce := analytics.job_worker_gem_precheck(v_shop, v_wid, p_gem_lines, p_gem_force);
     exception when sqlstate '22023' then
       get stacked diagnostics v_hint = pg_exception_hint, v_detail = pg_exception_detail;
       v_gfail := analytics.job_worker_gem_fail(v_hint, v_detail);
@@ -831,7 +856,8 @@ begin
     return analytics.job_fail('gem_conflict', 'มีการแก้พลอยของใบนี้ไปแล้ว (อาจจากอีกเครื่อง) — โหลดหน้าใหม่แล้วแก้อีกครั้ง');
   end if;
   begin
-    v_force := analytics.job_worker_gem_force(v_shop, v_wid, p_lines, p_force);
+    -- allow = รายการที่ใบนี้ถืออยู่แล้ว (ออฟฟิศอาจปิดใช้รายการหลังคัดลอกแม่แบบ — แถวเดิมต้องบันทึกต่อได้เหมือนที่ core ยอม · id ปิดใช้ที่ไม่อยู่ในใบยังตก gem_inactive) (security M2)
+    v_force := analytics.job_worker_gem_precheck(v_shop, v_wid, p_lines, p_force, array(select g.gem_item_id from analytics.job_gem_bom g where g.job_id = v_job));
     v_res := analytics.job_gem_bom_replace_core(v_job, p_lines, v_force, null, v_wid, null, 'shopfloor', 'free_before_start');
   exception when sqlstate '22023' then
     get stacked diagnostics v_hint = pg_exception_hint, v_detail = pg_exception_detail;
@@ -916,7 +942,7 @@ do $g$
 declare
   r record;
   v_touched constant text[] := array[
-    'shop_intake_gem_auth', 'job_worker_gem_block', 'job_gem_rev', 'job_worker_gem_force', 'job_worker_gem_fail', 'job_worker_gem_summary', 'job_worker_gem_name_cap',
+    'shop_intake_gem_auth', 'job_worker_gem_block', 'job_gem_rev', 'job_worker_gem_precheck', 'job_worker_gem_fail', 'job_worker_gem_summary', 'job_worker_gem_name_cap', 'job_worker_gem_item_cap',
     'job_worker_open', 'job_worker_my_intake_list', 'job_worker_gem_catalog', 'job_worker_gem_get', 'job_worker_gem_set'];
   v_rpc constant text[] := array['job_worker_open', 'job_worker_my_intake_list', 'job_worker_gem_catalog', 'job_worker_gem_get', 'job_worker_gem_set'];
   v_n int;
@@ -947,7 +973,7 @@ declare
   v_changed text;
   v_new text;
   v_touched constant text[] := array['job_worker_open', 'job_worker_my_intake_list'];
-  v_added constant text[] := array['shop_intake_gem_auth', 'job_worker_gem_block', 'job_gem_rev', 'job_worker_gem_force', 'job_worker_gem_fail', 'job_worker_gem_summary', 'job_worker_gem_name_cap', 'job_worker_gem_catalog', 'job_worker_gem_get', 'job_worker_gem_set'];
+  v_added constant text[] := array['shop_intake_gem_auth', 'job_worker_gem_block', 'job_gem_rev', 'job_worker_gem_precheck', 'job_worker_gem_fail', 'job_worker_gem_summary', 'job_worker_gem_name_cap', 'job_worker_gem_item_cap', 'job_worker_gem_catalog', 'job_worker_gem_get', 'job_worker_gem_set'];
 begin
   -- (1) ฟังก์ชันเดิมนอกรายการ md5 ต้องเท่าเดิมเป๊ะ (ทุกตัวในสคีมา — รวม job_gem_bom_replace_core · gem_lines_prepare · job_create_* · job_worker_resolve · production_order_done)
   select string_agg(b.sig, ', ') into v_changed

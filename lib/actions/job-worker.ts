@@ -217,6 +217,12 @@ export type IntakeField = "label" | "product" | "metal" | "purity" | "weight" | 
 export type IntakeActionFail = { ok: false; error: string; code?: string; retryAfterSeconds?: number; field?: IntakeField; gem?: GemFailInfo; similar?: GemSimilar[] };
 
 const intakeBad = (error: string, field?: IntakeField): IntakeActionFail => (field ? { ok: false, error, field } : { ok: false, error });
+/** แถวพลอยผิดรูปจาก allowlist ฝั่ง TS → IntakeActionFail (code ชั้นนอกตรงกับที่ DB ใช้ · รหัสเหตุผลจริงอยู่ใน gem.code · ชื่อ field ที่รูปร่างแปลกไม่สะท้อนกลับ) */
+const GEM_FIELD_NAME_RE = /^[a-z][a-z_]{0,30}$/;
+const gemWireFail = (error: string, gcode: string, field?: string | null, row?: number | null): IntakeActionFail => ({
+  ok: false, error, code: gcode === "gem_lines_required" ? "gem_lines_required" : "gem_line_invalid", field: "gems",
+  gem: { code: gcode, ...(row != null ? { row } : {}), ...(field && GEM_FIELD_NAME_RE.test(field) ? { field } : {}) },
+});
 const failOf = (r: WorkerFail): IntakeActionFail => ({ ok: false, error: r.error, code: r.code, retryAfterSeconds: r.retryAfterSeconds, ...(r.gem ? { gem: r.gem } : {}), ...(r.similar ? { similar: r.similar } : {}) });
 
 /** ระบุตัวที่ QR ร้าน: ชื่อ + PIN → ตั้ง cookie session (cookie เดียวกับ QR ใบงาน: ล็อกอินทางไหนก็ใช้อีกทางได้) */
@@ -285,11 +291,8 @@ export type IntakeGemsInput =
 
 /** gems ของฟอร์ม → พารามิเตอร์ที่ผ่าน allowlist (ผิดรูป = ไม่ถึง DB · ผิดเนื้อหา DB ตัดสินซ้ำ) */
 function parseIntakeGems(raw: unknown, hasProduct: boolean): { ok: true; value: IntakeGemsParam } | IntakeActionFail {
-  // code ชั้นนอกตรงกับที่ DB ใช้ (gem_line_invalid = แถวผิด · gem_lines_required = has แต่ไม่มีแถว) · รหัสเหตุผลจริงอยู่ใน gem.code (ตาราง GEM_ERROR_TH)
-  const gfail = (error: string, gcode: string, field?: string, row?: number): IntakeActionFail => ({
-    ok: false, error, code: gcode === "gem_lines_required" ? "gem_lines_required" : "gem_line_invalid", field: "gems",
-    gem: { code: gcode, ...(row !== undefined ? { row } : {}), ...(field && /^[a-z][a-z_]{0,30}$/.test(field) ? { field } : {}) },
-  });
+  // gem_line_invalid = แถวผิด · gem_lines_required = has แต่ไม่มีแถว · รหัสเหตุผลจริงอยู่ใน gem.code (ตาราง GEM_ERROR_TH)
+  const gfail = gemWireFail;
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return intakeBad("ข้อมูลพลอยไม่ถูกต้อง — โหลดหน้าใหม่แล้วลองอีกครั้ง", "gems");
   const g = raw as Record<string, unknown>;
   const answer = g.answer;
@@ -533,7 +536,7 @@ export async function intakeSetJobGems(token: string, input: IntakeSetJobGemsInp
   if (typeof input.jobId !== "string" || !isUuid(input.jobId)) return intakeBad("ข้อมูลไม่ถูกต้อง");
   if (typeof input.expectedRev !== "string" || !/^([0-9a-f]{32}|empty)$/.test(input.expectedRev)) return intakeBad("ข้อมูลพลอยของใบนี้เปลี่ยนไป — โหลดหน้าใหม่แล้วลองอีกครั้ง", "key");
   const lines = toWireGemLines(input.lines);
-  if (!lines.ok) return { ok: false, error: lines.error, code: "gem_line_invalid", field: "gems", gem: { code: lines.code, ...(lines.row !== null ? { row: lines.row } : {}), ...(lines.field !== null && /^[a-z][a-z_]{0,30}$/.test(lines.field) ? { field: lines.field } : {}) } };
+  if (!lines.ok) return gemWireFail(lines.error, lines.code, lines.field, lines.row);
   const force = toWireGemForce(input.force);
   if (!force.ok) return intakeBad(force.error, "gems");
   const r = await setIntakeJobGems(token, { jobId: input.jobId, lines: lines.value, expectedRev: input.expectedRev, force: force.value });

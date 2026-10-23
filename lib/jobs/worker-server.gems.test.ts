@@ -261,10 +261,17 @@ describe("loadIntakeJobGems", () => {
     expect(await loadIntakeJobGems(TOKEN, JOB)).toMatchObject({ ok: true, data: { rev: "empty", lines: [] } });
   });
 
-  it("แถวผิดรูป (id/label/qty) ถูกกรอง · key ราคาในแถว → ไม่ส่งต่อทั้งผล", async () => {
-    rpcMock.mockResolvedValue({ data: { ...GET, lines: [...GET.lines, { gem_item_id: "bad", label: "x", qty_per_piece: 1, qty_total: 1 }, { ...GET.lines[0], qty_per_piece: 0 }] }, error: null });
-    const r = await loadIntakeJobGems(TOKEN, JOB);
-    expect(r.ok && r.data.lines).toHaveLength(1);
+  it("แถวผิดรูป (id/label/qty/qty_total) แม้แถวเดียว → ล้มปลอดภัยทั้งผล (ห้ามทิ้งเงียบ — หน้าแก้ส่งกลับเป็น replace-all จะลบแถวนั้นจริง) · lines ไม่ใช่ array/เกิน 30 = ล้ม · key ราคาในแถว → ไม่ส่งต่อทั้งผล", async () => {
+    for (const bad of [{ gem_item_id: "bad", label: "x", qty_per_piece: 1, qty_total: 1 }, { ...GET.lines[0], qty_per_piece: 0 }, { ...GET.lines[0], qty_total: "x" }, { ...GET.lines[0], label: "" }, "x", null]) {
+      rpcMock.mockResolvedValue({ data: { ...GET, lines: [...GET.lines, bad] }, error: null });
+      expect((await loadIntakeJobGems(TOKEN, JOB)).ok, JSON.stringify(bad)).toBe(false);
+    }
+    rpcMock.mockResolvedValue({ data: { ...GET, lines: "x" }, error: null });
+    expect((await loadIntakeJobGems(TOKEN, JOB)).ok).toBe(false);
+    rpcMock.mockResolvedValue({ data: { ...GET, lines: Array.from({ length: 31 }, () => GET.lines[0]) }, error: null });
+    expect((await loadIntakeJobGems(TOKEN, JOB)).ok).toBe(false);
+    rpcMock.mockResolvedValue({ data: { ...GET, lines: GET.lines }, error: null });
+    expect((await loadIntakeJobGems(TOKEN, JOB)).ok).toBe(true);
     rpcMock.mockResolvedValue({ data: { ...GET, lines: [{ ...GET.lines[0], price_per_unit: 5 }] }, error: null });
     expect((await loadIntakeJobGems(TOKEN, JOB)).ok).toBe(false);
   });
