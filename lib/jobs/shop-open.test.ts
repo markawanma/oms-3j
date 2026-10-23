@@ -2,6 +2,7 @@
 // ต้องถูก: skuMetalNote 3 กรณี (P1) · ทอง+เนื้อว่างไม่ผ่าน · ทองเหลืองล็อก 100 · เปลี่ยนโลหะรีเซ็ตเนื้อ · payload ส่งเฉพาะที่แก้ · ข้อความ error ทุกเคสไม่มีรหัส/เงิน
 // ต้องไม่พัง: เงินเว้นเนื้อว่างได้ · SKU ที่ไม่แก้อะไรส่งแค่ productId
 import { describe, expect, it, vi } from "vitest";
+import { emptyShopGems } from "@/lib/jobs/shop-gem-flow";
 import {
   MSG_NETWORK, SHOP_METALS, backToSearch, bufferIssue, buildIntakeInput, changeMetal, defaultPurityText, dueIssue, dueLabel, effectivePurityText, isCleanMessage, labelIssue,
   metalIssues, newForm, newIdemKey, profileBlockMessage, purityIssue, purityLabel, qtyIssue, qtySummary, resolveDue, searchErrorMessage, selectProduct, shopErrorView, shopOpenIssues,
@@ -60,12 +61,14 @@ describe("skuMetalNote (P1 — ตัวหลัก)", () => {
 });
 
 describe("ขั้น/ความคืบหน้า", () => {
-  it("มี SKU 4 ขั้น · สินค้าใหม่ 5 ขั้น (W2: เพิ่มขั้นรูปก่อนทวน) — n/N จากรายการขั้นจริง", () => {
-    expect(stepsFor({ mode: "sku" })).toEqual(["search", "qty", "photos", "review"]);
-    expect(stepsFor({ mode: "new" })).toEqual(["search", "metal", "qty", "photos", "review"]);
-    expect(stepProgress({ mode: "new" }, "qty")).toEqual({ n: 3, total: 5 });
-    expect(stepProgress({ mode: "sku" }, "qty")).toEqual({ n: 2, total: 4 });
-    expect(stepProgress({ mode: "sku" }, "photos")).toEqual({ n: 3, total: 4 });
+  it("มี SKU 5 ขั้น · สินค้าใหม่ 6 ขั้น (W2: ขั้นรูปก่อนทวน · W3: ขั้นพลอยหลังจำนวน ก่อนรูป) — n/N จากรายการขั้นจริง", () => {
+    expect(stepsFor({ mode: "sku" })).toEqual(["search", "qty", "gems", "photos", "review"]);
+    expect(stepsFor({ mode: "new" })).toEqual(["search", "metal", "qty", "gems", "photos", "review"]);
+    expect(stepProgress({ mode: "new" }, "qty")).toEqual({ n: 3, total: 6 });
+    expect(stepProgress({ mode: "new" }, "gems")).toEqual({ n: 4, total: 6 });
+    expect(stepProgress({ mode: "sku" }, "qty")).toEqual({ n: 2, total: 5 });
+    expect(stepProgress({ mode: "sku" }, "gems")).toEqual({ n: 3, total: 5 });
+    expect(stepProgress({ mode: "sku" }, "photos")).toEqual({ n: 4, total: 5 });
   });
 });
 
@@ -190,10 +193,11 @@ describe("ตรวจช่องอื่น", () => {
   });
   it("shopOpenIssues: ฟอร์มว่างทุกช่องที่บังคับ", () => {
     const f = newForm("d".repeat(20));
-    expect(shopOpenIssues(f, TODAY).map((i) => i.field)).toEqual(["product", "qty"]);
+    expect(shopOpenIssues(f, TODAY).map((i) => i.field)).toEqual(["product", "qty", "gems"]);
     const n = startNewProduct(f);
-    expect(shopOpenIssues({ ...n, metal: "gold", purityText: "" }, TODAY).map((i) => i.field)).toEqual(["label", "purity", "qty"]);
-    const ok = { ...selectProduct(f, prod()), qtyText: "30" };
+    expect(shopOpenIssues({ ...n, metal: "gold", purityText: "" }, TODAY).map((i) => i.field)).toEqual(["label", "purity", "qty", "gems"]);
+    // W3: ยังไม่ตอบ "ฝังพลอยไหม" = ไปต่อไม่ได้ (ไม่เดาเป็นไม่มีพลอย) · ตอบแล้ว (ไม่มีพลอย) = ผ่าน
+    const ok = { ...selectProduct(f, prod()), qtyText: "30", gems: { ...emptyShopGems(), answer: "none" as const } };
     expect(shopOpenIssues(ok, TODAY)).toEqual([]);
   });
 });
@@ -213,10 +217,11 @@ describe("pre-check โปรไฟล์ (R1)", () => {
 describe("buildIntakeInput — ส่งเฉพาะที่ต้องส่ง", () => {
   const f0 = (): ShopForm => ({ ...newForm("e".repeat(24)), qtyText: "30" });
   it("มี SKU ไม่แก้อะไร → ส่งแค่ productId (+ จำนวน/คีย์) ไม่ส่ง metal/purity/weight", () => {
-    const f = selectProduct(f0(), prod());
+    const f = { ...selectProduct(f0(), prod()), gems: { ...emptyShopGems(), answer: "none" as const } };
     expect(specEdited(f)).toBe(false);
     const i = buildIntakeInput(f, TODAY);
-    expect(i).toEqual({ idemKey: "e".repeat(24), qty: "30", isNewDesign: false, dueDate: null, note: null, productId: f.product?.id });
+    // S3: gems ไปเสมอ (none = ไม่มีพลอย) — ไม่มีทางไม่ส่ง
+    expect(i).toEqual({ idemKey: "e".repeat(24), qty: "30", isNewDesign: false, dueDate: null, note: null, productId: f.product?.id, gems: { answer: "none" } });
     expect("metal" in i).toBe(false);
     expect("label" in i).toBe(false);
   });

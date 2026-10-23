@@ -92,7 +92,7 @@ describe("real shapes — เปิดใบ", () => {
     expect(r).toMatchObject({ ok: true, result: { already: false, status: "open", jobNo: "JB-0001", token: JOBTOK, sku: "ZZQA-FIXA", skuPending: false, metal: "silver", qtyOrder: 30, qtyPlanned: 30, isNewDesign: false, dueDate: null } });
     const p = rpcMock.mock.calls[0][1] as Record<string, unknown>;
     expect(rpcMock.mock.calls[0][0]).toBe("job_worker_open");
-    expect(Object.keys(p).sort()).toEqual(["p_idem_key", "p_ip_hash", "p_is_new_design", "p_product_id", "p_qty_order", "p_session_hash", "p_token_hash", "p_user_agent"].sort());
+    expect(Object.keys(p).sort()).toEqual(["p_gem_answer", "p_idem_key", "p_ip_hash", "p_is_new_design", "p_product_id", "p_qty_order", "p_session_hash", "p_token_hash", "p_user_agent"].sort());
     expect(p.p_token_hash).toBe(sha(TOKEN));
   });
 

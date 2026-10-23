@@ -7,7 +7,7 @@
 import type { IntakeGemsInput } from "@/lib/actions/job-worker";
 import type { GemOptions } from "@/lib/jobs/gems";
 import type { GemForceItem } from "@/lib/jobs/gem-wire";
-import type { GemSimilar, GemState, IntakeGemLine } from "@/lib/jobs/worker-server";
+import type { GemSimilar, GemState, IntakeGemLine, IntakeGemSummary } from "@/lib/jobs/worker-server";
 import { draftRowsToInputs, draftTotals, emptyGemRow, findDuplicateRows, gemRowIssues, parseGemQty, rowIncompleteReason, rowLabelPreview } from "@/lib/jobs/gem-draft";
 import type { GemDraftRow } from "@/lib/jobs/gem-draft";
 import { GEM_LIMITS, gemSizeLabel, normalizeGemName } from "@/lib/jobs/shop-gems";
@@ -289,6 +289,26 @@ export function gemFieldDomId(idPrefix: string, rowKey: string, field: string | 
     default:
       return `${base}-qty`;
   }
+}
+
+// ============================================================================
+// สรุปผลจาก DB หลังเปิดใบ (W-8) / หลังบันทึกพลอย (W-10)
+// ============================================================================
+
+/**
+ * ข้อความแจ้งผลที่ระบบทำให้ (ไม่เงียบ): ชื่อที่ "ใช้ตัวเดิมให้" · แถวซ้ำที่ถูกรวม · ชื่อใหม่ที่เข้าแคตตาล็อก — จากสรุปของ DB เท่านั้น
+ */
+export function gemSummaryNotices(g: Pick<IntakeGemSummary, "createdTypes" | "createdShapes" | "reused" | "mergedRows">): string[] {
+  const out: string[] = [];
+  for (const x of g.reused) out.push(`${x.kind === "type" ? "ชนิด" : "รูปทรง"} “${x.typed}” มีในระบบอยู่แล้ว — ใช้ตัวเดิม “${x.name}” ให้`);
+  const groups = g.mergedRows.filter((m) => m.length >= 2);
+  if (groups.length > 0) {
+    const n = groups.reduce((s, m) => s + m.length - 1, 0);
+    out.push(`รวมแถวซ้ำ ${n} แถว (${groups.map((m) => `แถว ${m.join(", ")}`).join(" · ")}) — จำนวนต่อชิ้นถูกบวกกันให้แล้ว`);
+  }
+  const created = [...g.createdTypes, ...g.createdShapes];
+  if (created.length > 0) out.push(`เพิ่มเข้ารายการพลอยของร้านแล้ว: ${created.join(" · ")}`);
+  return out;
 }
 
 // ============================================================================

@@ -12,6 +12,7 @@ import { Lock, Pencil, RefreshCw } from "lucide-react";
 import { intakeMyJobs } from "@/lib/actions/job-worker";
 import { ShopMetalTag } from "@/components/domain/jobs/worker/shop/ShopMetalTag";
 import { SHOP_PHOTO_MAX, SHOP_PHOTO_TH } from "@/lib/jobs/shop-photos";
+import { myJobGemLine } from "@/lib/jobs/shop-gem-flow";
 import type { MyIntakeJob } from "@/lib/jobs/shop-photo-server";
 
 export const MSG_MYJOBS_ERROR = "โหลดรายการใบไม่ได้ — เช็คสัญญาณแล้วลองอีกครั้ง";
@@ -20,6 +21,8 @@ export const MSG_MYJOBS_EMPTY_HINT = "ใบที่เปิดจากมื
 const SHOW_FIRST = 5;
 
 function Card({ job, onOpen }: { job: MyIntakeJob; onOpen: () => void }) {
+  // บรรทัดพลอย (ค่าจาก DB ไม่คำนวณใน UI): "พลอย n รายการ · รวม m เม็ด" / "ไม่มีพลอย" / "⚑ ยังไม่ระบุพลอย" (amber — ใบมีขั้นฝังแต่ไม่มีรายการ)
+  const gem = myJobGemLine(job);
   return (
     <button type="button" onClick={onOpen} className="flex min-h-[88px] w-full flex-col gap-1 rounded-2xl border-2 border-zinc-300 bg-white p-3 text-left focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary-300 active:bg-zinc-50">
       <span className="flex items-start justify-between gap-2">
@@ -47,6 +50,12 @@ function Card({ job, onOpen }: { job: MyIntakeJob; onOpen: () => void }) {
           ›
         </span>
       </span>
+      {gem && (
+        <span className={`text-base tabular-nums ${gem.warn ? "font-semibold text-amber-900" : "text-zinc-800"}`} data-testid="mycard-gems">
+          {gem.warn && <span aria-hidden="true">⚑ </span>}
+          {gem.text}
+        </span>
+      )}
     </button>
   );
 }

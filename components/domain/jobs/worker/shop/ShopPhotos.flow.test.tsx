@@ -22,7 +22,9 @@ const intakeListPhotos = vi.fn();
 const intakeMyJobs = vi.fn();
 const intakeReissueToken = vi.fn();
 const intakeSetPrimaryPhoto = vi.fn();
+const intakeGemCatalog = vi.fn();
 vi.mock("@/lib/actions/job-worker", () => ({
+  intakeGemCatalog: (...a: unknown[]) => intakeGemCatalog(...a),
   intakeSetPrimaryPhoto: (...a: unknown[]) => intakeSetPrimaryPhoto(...a),
   intakeLogin: (...a: unknown[]) => intakeLogin(...a),
   workerLogout: (...a: unknown[]) => workerLogout(...a),
@@ -94,6 +96,7 @@ beforeEach(() => {
   workerLogout.mockResolvedValue({ ok: true });
   intakeSetPrimaryPhoto.mockResolvedValue({ ok: true, changed: true });
   intakeMyJobs.mockResolvedValue({ ok: true, openAllowed: true, jobs: [], maxPhotos: 3 });
+  intakeGemCatalog.mockResolvedValue({ ok: true, types: [], shapes: [], sizes: [], hasTemplate: false, template: [], maxLines: 30 });
   intakeRemovePhoto.mockResolvedValue({ ok: true, promotedPhotoId: null, already: false });
   intakeListPhotos.mockResolvedValue({ ok: true, photos: [], count: 0, max: 3, locked: false, lockCode: null });
   resizeMock.mockImplementation(async (f: File) => variants(f.name));
@@ -111,7 +114,12 @@ const waitTrue = (pred: () => boolean, timeout = 3000) =>
     { timeout },
   );
 
-/** เปิดวิซาร์ด → เลือก SKU → จำนวน → ถึง W-5 */
+/** W-4 พลอย: ตอบ "ไม่มีพลอย" แล้วไปต่อ (ไม่มีแม่แบบ = ต้องตอบก่อน) */
+async function answerNoGems() {
+  await userEvent.click(await screen.findByRole("radio", { name: "ไม่มีพลอย" }));
+  await click("ถัดไป");
+}
+/** เปิดวิซาร์ด → เลือก SKU → จำนวน → พลอย (ไม่มี) → ถึง W-5 */
 async function toPhotos(qty = "30") {
   await click("เปิดงานใหม่");
   await userEvent.type(screen.getByLabelText("ค้นชื่อสินค้าหรือรหัส"), "แหวน");
@@ -119,6 +127,7 @@ async function toPhotos(qty = "30") {
   await click("ถัดไป");
   await userEvent.type(screen.getByLabelText("ต้องการเข้าสต็อก (ชิ้น)"), qty);
   await click("ถัดไป");
+  await answerNoGems();
   expect(screen.getByRole("heading", { level: 1, name: "ใส่รูปให้ช่างดู" })).toBeInTheDocument();
 }
 async function toPhotosNew() {
@@ -129,14 +138,15 @@ async function toPhotosNew() {
   await click("ถัดไป");
   await userEvent.type(screen.getByLabelText("ต้องการเข้าสต็อก (ชิ้น)"), "30");
   await click("ถัดไป");
+  await answerNoGems();
 }
 const tiles = () => within(screen.getByRole("list")).queryAllByRole("button");
 
 describe("W-5 ใส่รูปให้ช่างดู", () => {
-  it("เข้าขั้น: หัวขั้น + 'ไม่บังคับ · ใส่ได้สูงสุด 3 รูป' + ตัวนับ n/N ขยับเอง (มี SKU 3/4) · ว่าง = ข้อความมี SKU · ปุ่ม sticky = ข้าม (secondary)", async () => {
+  it("เข้าขั้น: หัวขั้น + 'ไม่บังคับ · ใส่ได้สูงสุด 3 รูป' + ตัวนับ n/N ขยับเอง (มี SKU 4/5) · ว่าง = ข้อความมี SKU · ปุ่ม sticky = ข้าม (secondary)", async () => {
     render(<ShopIntakeApp token={TOKEN} initial={hubOf()} />);
     await toPhotos();
-    expect(screen.getByText("3/4")).toBeInTheDocument();
+    expect(screen.getByText("4/5")).toBeInTheDocument();
     expect(screen.getByText("ไม่บังคับ · ใส่ได้สูงสุด 3 รูป")).toBeInTheDocument();
     expect(screen.getByText("รูป 0/3")).toBeInTheDocument();
     expect(screen.getByText("ยังไม่มีรูป — ไม่บังคับ ช่างดูจากชื่อและรหัสสินค้าได้")).toBeInTheDocument();
@@ -151,10 +161,10 @@ describe("W-5 ใส่รูปให้ช่างดู", () => {
     expect(intakeOpen).not.toHaveBeenCalled(); // ขั้นนี้ไม่ใช้เน็ต ไม่ส่งอะไรไป
   });
 
-  it("สินค้าใหม่ไม่มีรหัส: ข้อความ empty หนักกว่า (ตัวหนา) · ไม่บล็อก — ข้ามได้ · ตัวนับ 4/5", async () => {
+  it("สินค้าใหม่ไม่มีรหัส: ข้อความ empty หนักกว่า (ตัวหนา) · ไม่บล็อก — ข้ามได้ · ตัวนับ 5/6", async () => {
     render(<ShopIntakeApp token={TOKEN} initial={hubOf()} />);
     await toPhotosNew();
-    expect(screen.getByText("4/5")).toBeInTheDocument();
+    expect(screen.getByText("5/6")).toBeInTheDocument();
     const msg = screen.getByText("สินค้าใหม่ไม่มีรหัส — ถ่ายรูปให้ช่างรู้ว่าทำชิ้นไหน");
     expect(msg).toHaveClass("font-bold");
     await click("ข้าม ไม่ใส่รูป");
