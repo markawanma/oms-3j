@@ -14,9 +14,11 @@ import { Button } from "@/components/ui/Button";
 import { Modal } from "@/components/ui/Modal";
 import { useOfficeRun } from "@/components/domain/jobs/useOfficeRun";
 import { ShopQrPoster } from "@/components/domain/jobs/ShopQrPoster";
+import { PrintFileTitle } from "@/components/ui/PrintFileTitle";
 import { issueShopIntakeToken, revokeShopIntakeToken } from "@/lib/actions/job-workers";
 import type { ShopIntakeStatus } from "@/lib/actions/job-workers";
 import { thaiDateTime } from "@/lib/jobs/dates";
+import { shopQrPrintTitle } from "@/lib/jobs/print-title";
 
 export const MSG_ISSUE_FAIL = "ออก QR ไม่สำเร็จ — ลองอีกครั้ง";
 export const MSG_REVOKE_FAIL = "เพิกถอนไม่สำเร็จ — ลองอีกครั้ง";
@@ -208,7 +210,13 @@ export function ShopQrCard({ status, statusError }: { status: ShopIntakeStatus |
         </Modal>
       )}
 
-      {issued && svg && <ShopQrPoster svg={svg} />}
+      {issued && svg && (
+        <>
+          {/* ชื่อไฟล์ PDF ของโปสเตอร์: ตั้งเฉพาะตอนพิมพ์ (เปิด modal เฉยๆ ต้องไม่เปลี่ยน title ของหน้า /jobs/workers) */}
+          <PrintFileTitle title={shopQrPrintTitle(issued.issuedAt)} printOnly />
+          <ShopQrPoster svg={svg} />
+        </>
+      )}
     </>
   );
 }

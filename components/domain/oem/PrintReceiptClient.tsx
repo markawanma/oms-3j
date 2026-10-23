@@ -33,6 +33,7 @@ import { OEM_PAYMENT_METHOD_LABEL_TH, OEM_RECEIPT_KIND_LABEL_TH } from "@/lib/oe
 import { fmtPct, formatOemAddressLines } from "@/lib/oem/display";
 import { formatTHB } from "@/lib/format";
 import { formatThaiDateOnly } from "@/lib/tiktok/format";
+import { bkkDateISO } from "@/lib/print/filename";
 import { Button } from "@/components/ui/Button";
 
 export function PrintReceiptClient({ receipt }: { receipt: PrintableReceipt }) {
@@ -80,7 +81,7 @@ export function PrintReceiptClient({ receipt }: { receipt: PrintableReceipt }) {
               ส่งลูกค้า (บทเรียนเดิม: เคยหลุดมาแล้วกับข้อความ "ตรวจสอบมัดจำก่อน
               ส่งเอกสารนี้ให้ลูกค้า" — ดู oem-quote-invariants §8) */}
           <span>
-            ใบนี้ถูกยกเลิกแล้ว{receipt.voidedAt ? ` เมื่อ ${formatThaiDateOnly(receipt.voidedAt.slice(0, 10))}` : ""}
+            ใบนี้ถูกยกเลิกแล้ว{receipt.voidedAt ? ` เมื่อ ${formatThaiDateOnly(bkkDateISO(receipt.voidedAt) || null)}` : ""}
           </span>
           {receipt.voidReason && <span className="print:hidden"> — เหตุผล (ดูจอเท่านั้น): {receipt.voidReason}</span>}
         </div>

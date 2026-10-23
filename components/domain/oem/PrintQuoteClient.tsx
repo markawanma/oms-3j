@@ -70,6 +70,7 @@ import { missingSellerFields, previewSellerProfile } from "@/lib/oem/sellerProfi
 import { fmtPct, formatOemAddressLines } from "@/lib/oem/display";
 import { formatBangkokTimeOnly, formatTHB } from "@/lib/format";
 import { formatThaiDateOnly } from "@/lib/tiktok/format";
+import { bkkDateISO } from "@/lib/print/filename";
 import { Button } from "@/components/ui/Button";
 import { Badge } from "@/components/ui/Badge";
 
@@ -245,7 +246,7 @@ export function PrintQuoteClient({ quote, sellerProfile }: { quote: PrintableQuo
             <h1 className="text-xl font-bold text-zinc-900">ใบเสนอราคา</h1>
             <p className="text-xs font-medium uppercase tracking-wide text-zinc-500">Quotation</p>
             <p className="mt-2 text-sm font-semibold text-zinc-800">เลขที่ {quote.quoteNo}</p>
-            <p className="text-xs text-zinc-600">วันที่ออก {formatThaiDateOnly(quote.createdAt.slice(0, 10))}</p>
+            <p className="text-xs text-zinc-600">วันที่ออก {formatThaiDateOnly(bkkDateISO(quote.createdAt) || null)}</p>
             {quote.quoteValidUntil && <p className="text-xs text-zinc-600">ยืนราคาถึง {formatThaiDateOnly(quote.quoteValidUntil)}</p>}
             {quote.parentQuoteNo && <p className="text-xs text-zinc-600">อ้างอิงใบเดิมเลขที่ {quote.parentQuoteNo}</p>}
           </div>
