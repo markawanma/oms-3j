@@ -277,11 +277,11 @@ export interface IntakeOpenActionInput {
   isNewDesign?: boolean;
   note?: string | null;
   /**
-   * 0191 W3: พลอยของใบ — ไม่ส่ง = W1 เดิม (DB: SKU ที่มีแม่แบบได้ขั้นฝัง+พลอยคัดลอกมา · ที่เหลือไม่มีขั้นฝัง)
-   * หน้า W-4 ส่งเสมอ: "none" = ไม่มีพลอย (ไม่มีขั้นฝัง) · "template" = ตามแม่แบบ SKU (DB ปฏิเสธถ้า SKU ไม่มีแม่แบบ — gem_answer_required) · "has" = มีพลอย (ต้อง lines 1-30 แถว)
+   * 0191 W3 (S3): พลอยของใบ — 🔴 บังคับส่งเสมอ (ไม่ส่ง/null = ปฏิเสธที่ action · ไม่ถึง DB — ปิดทาง null ของ W1 เดิมที่ปล่อยใบไม่มีขั้นฝังโดยไม่มีใครตอบ)
+   * "none" = ไม่มีพลอย (ไม่มีขั้นฝัง) · "template" = ตามแม่แบบ SKU (DB ปฏิเสธถ้า SKU ไม่มีแม่แบบ — gem_answer_required) · "has" = มีพลอย (ต้อง lines 1-30 แถว)
    * force = ชื่อที่ผู้ใช้ยืนยัน "ใช้ชื่อใหม่แม้คล้ายของเดิม" — ต้องมาจาก similar[] ที่ DB เพิ่งถาม (ชื่อที่ไม่ถูกถามไม่มีผล · boolean/รูปแปลก = ปฏิเสธ) · มีเฉพาะ "has"
    */
-  gems?: IntakeGemsInput;
+  gems: IntakeGemsInput;
 }
 
 export type IntakeGemsInput =
@@ -379,16 +379,13 @@ export async function intakeOpen(token: string, input: IntakeOpenActionInput): P
     if (!n.ok) return intakeBad(n.error, "note");
     note = n.value;
   }
-  // 0191 W3: พลอย (ไม่ส่ง = W1 เดิม) — ตรวจรูปร่างก่อนถึง DB · ผิด = กลับ W-4 (field "gems" + gem.row/gem.field)
-  let gems: IntakeGemsParam | undefined;
-  if (input.gems !== undefined) {
-    const g = parseIntakeGems(input.gems, hasProduct);
-    if (!g.ok) return g;
-    gems = g.value;
-  }
+  // 0191 W3 (S3): พลอย "บังคับ" — ไม่ส่ง/null/ผิดรูป = ปฏิเสธที่นี่ (ไม่ส่ง null ไป DB: ทางนั้นเปิดใบได้โดยไม่มีใครตอบว่าฝังพลอยไหม) · ผิด = กลับ W-4 (field "gems" + gem.row/gem.field)
+  if (input.gems === undefined || input.gems === null) return intakeBad("เลือกก่อนว่าใบนี้ฝังพลอยไหม", "gems");
+  const g = parseIntakeGems(input.gems, hasProduct);
+  if (!g.ok) return g;
   const r = await openIntakeJob(token, {
     idemKey: input.idemKey, productId: hasProduct ? (input.productId as string) : null, pendingLabel: label, metal, purity, weightG: w.value,
-    qtyOrder: q.value, qtyPlanned: planned, dueDate: due, isNewDesign: input.isNewDesign === true, note, ...(gems ? { gems } : {}),
+    qtyOrder: q.value, qtyPlanned: planned, dueDate: due, isNewDesign: input.isNewDesign === true, note, gems: g.value,
   });
   return r.ok ? { ok: true, result: r.data } : failOf(r);
 }

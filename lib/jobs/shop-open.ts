@@ -8,6 +8,8 @@
 import type { IntakeOpenActionInput } from "@/lib/actions/job-worker";
 import type { IntakeProduct } from "@/lib/jobs/worker-server";
 import { addDays, thaiDate } from "@/lib/jobs/dates";
+import { emptyShopGems, gemStepIssue, gemsInputOf } from "@/lib/jobs/shop-gem-flow";
+import type { ShopGemState } from "@/lib/jobs/shop-gem-flow";
 import { INVISIBLE_MSG, INVISIBLE_RE, LABEL_ANGLE_MSG, LABEL_ANGLE_RE, TARGET_PIECE_MAX_G, parseBufferText, parseDate, parseQtyText, parseWeight } from "@/lib/jobs/input";
 import { DEFAULT_PURITY_PCT, MSG_METAL_RESET_PURITY, MSG_WEIGHT_CLEARED_FROM_SKU } from "@/lib/units/metal-tag";
 import type { MetalKey } from "@/lib/units/metal-tag";
@@ -51,8 +53,8 @@ export const SHOP_LABEL_MAX = 60;
 // ============================================================================
 
 export type ShopDue = { kind: "none" } | { kind: "days"; days: 3 | 7 } | { kind: "date"; date: string };
-/** 0189 W2: "photos" = W-5 ใส่รูปให้ช่างดู (ไม่บังคับ · ก่อนทวน) */
-export type ShopStep = "search" | "metal" | "qty" | "photos" | "review";
+/** 0189 W2: "photos" = W-5 ใส่รูปให้ช่างดู (ไม่บังคับ · ก่อนทวน) · 0191 W3: "gems" = W-4 พลอย (บังคับตอบ "ฝังพลอยไหม" · หลังจำนวน ก่อนรูป) */
+export type ShopStep = "search" | "metal" | "qty" | "gems" | "photos" | "review";
 
 export interface ShopForm {
   /** คีย์กันกดซ้ำ — สร้างครั้งเดียวต่อฟอร์ม · ใช้ซ้ำทุกครั้งที่ "ลองใหม่" (เปลี่ยนเฉพาะเมื่อ DB บอกว่าคีย์ชน/ผิดรูป) */
@@ -70,6 +72,8 @@ export interface ShopForm {
   due: ShopDue;
   isNewDesign: boolean;
   note: string;
+  /** 0191 W3 (W-4): คำตอบ "ฝังพลอยไหม" + แถวพลอยที่กำลังกรอก (ล้างเมื่อเปลี่ยนสินค้า) */
+  gems: ShopGemState;
 }
 
 /** คีย์กันกดซ้ำ 36 ตัว [0-9a-f-] — ตรง IDEM_KEY_RE (lib/jobs/input · 16–64 ตัว [A-Za-z0-9_-]) ของ action · เรียกฝั่ง client ตอนเปิดฟอร์มเท่านั้น */
@@ -90,6 +94,7 @@ export function newForm(idemKey: string = newIdemKey()): ShopForm {
     idemKey, mode: "sku", product: null, label: "",
     metal: "silver", purityText: defaultPurityText("silver"), weightText: "",
     qtyText: "", bufferOn: false, bufferText: "", due: { kind: "none" }, isNewDesign: false, note: "",
+    gems: emptyShopGems(),
   };
 }
 
@@ -105,15 +110,15 @@ export function specOfProduct(p: IntakeProduct): MetalSpec {
 
 export function selectProduct(form: ShopForm, product: IntakeProduct): ShopForm {
   const s = specOfProduct(product);
-  return { ...form, mode: "sku", product, metal: s.metal, purityText: s.purityText, weightText: s.weightText };
+  return { ...form, mode: "sku", product, metal: s.metal, purityText: s.purityText, weightText: s.weightText, gems: emptyShopGems() };
 }
 
 export function startNewProduct(form: ShopForm): ShopForm {
-  return { ...form, mode: "new", product: null, metal: "silver", purityText: defaultPurityText("silver"), weightText: "" };
+  return { ...form, mode: "new", product: null, metal: "silver", purityText: defaultPurityText("silver"), weightText: "", gems: emptyShopGems() };
 }
 
 export function backToSearch(form: ShopForm): ShopForm {
-  return { ...form, mode: "sku", product: null, metal: "silver", purityText: defaultPurityText("silver"), weightText: "" };
+  return { ...form, mode: "sku", product: null, metal: "silver", purityText: defaultPurityText("silver"), weightText: "", gems: emptyShopGems() };
 }
 
 /** เปลี่ยนโลหะ: เนื้อรีเซ็ตตามโลหะใหม่ · น้ำหนักที่มาจากสินค้า (เงินเท่านั้น) ล้างเมื่อย้ายไปโลหะอื่น · กลับมาที่โลหะเดิมของสินค้า = คืนค่าของสินค้า — คืนข้อความบอกว่าอะไรถูกเปลี่ยน (ไม่เงียบ) */
@@ -131,9 +136,9 @@ export function changeMetal(form: ShopForm, next: ShopMetal): { form: ShopForm; 
   return { form: { ...form, metal: next, purityText: defaultPurityText(next), weightText }, notes };
 }
 
-/** ลำดับขั้นจริงของฟอร์ม — ตัวนับ n/N คำนวณจากรายการนี้ (ขั้นพลอย/รูปที่เพิ่มทีหลังไม่ต้องแก้ตัวนับ) */
+/** ลำดับขั้นจริงของฟอร์ม — ตัวนับ n/N คำนวณจากรายการนี้ (ขั้นพลอย/รูปที่เพิ่มทีหลังไม่ต้องแก้ตัวนับ) · W-4 พลอยอยู่หลังจำนวน (รวมทั้งใบต้องรู้จำนวนผลิตก่อน) ก่อนรูป (รูปอยู่ใกล้ปลายทางที่สุด — เรียกกล้อง) */
 export function stepsFor(form: Pick<ShopForm, "mode">): ShopStep[] {
-  return form.mode === "new" ? ["search", "metal", "qty", "photos", "review"] : ["search", "qty", "photos", "review"];
+  return form.mode === "new" ? ["search", "metal", "qty", "gems", "photos", "review"] : ["search", "qty", "gems", "photos", "review"];
 }
 
 export function stepProgress(form: Pick<ShopForm, "mode">, step: ShopStep): { n: number; total: number } {
@@ -235,7 +240,7 @@ export function noteIssue(note: string): string | null {
   return null;
 }
 
-export type ShopFieldKey = "label" | "product" | "metal" | "purity" | "weight" | "qty" | "buffer" | "due" | "note";
+export type ShopFieldKey = "label" | "product" | "metal" | "purity" | "weight" | "qty" | "buffer" | "due" | "note" | "gems";
 
 /** ปัญหาทั้งฟอร์ม (ลำดับ = ลำดับช่องบนจอ) — ว่าง = ส่งได้ */
 export function shopOpenIssues(form: ShopForm, today: string): { field: ShopFieldKey; message: string }[] {
@@ -255,6 +260,9 @@ export function shopOpenIssues(form: ShopForm, today: string): { field: ShopFiel
   }
   const d = dueIssue(form.due, today);
   if (d) out.push({ field: "due", message: d });
+  // 0191 W3: พลอย — ต้องตอบ "ฝังพลอยไหม" · มีพลอย = ≥ 1 แถวครบและไม่ซ้ำ (ด่านจริงอยู่ที่ DB — นี่คือกันก่อนส่ง/กันลืม)
+  const g = gemStepIssue(form.gems);
+  if (g) out.push({ field: "gems", message: g.message });
   const n = noteIssue(form.note);
   if (n) out.push({ field: "note", message: n });
   return out;
@@ -292,6 +300,16 @@ export function qtySummary(form: Pick<ShopForm, "qtyText" | "bufferOn" | "buffer
   const b = parseBufferText(form.bufferText.trim() === "" ? "0" : form.bufferText, q.value);
   if (!b.ok || b.value === 0) return `${q.value.toLocaleString("en-US")} ชิ้น · ไม่เผื่อ`;
   return `สั่ง ${q.value.toLocaleString("en-US")} + เผื่อ ${b.value.toLocaleString("en-US")} = เริ่มผลิต ${(q.value + b.value).toLocaleString("en-US")} ชิ้น`;
+}
+
+/** จำนวนที่จะเริ่มผลิต (สั่ง + เผื่อ) เป็นจำนวนเต็ม — null = ยังไม่รู้/ผิด · ใช้คูณ "รวมทั้งใบ" ของพลอย (จำนวนเต็ม × จำนวนเต็ม ไม่มีปัดเศษ · DB คำนวณซ้ำและชนะ) */
+export function plannedQtyOf(form: Pick<ShopForm, "qtyText" | "bufferOn" | "bufferText">): { qty: number | null; note: string | null } {
+  const q = parseQtyText(form.qtyText);
+  if (!q.ok) return { qty: null, note: null };
+  if (!form.bufferOn) return { qty: q.value, note: null };
+  const b = parseBufferText(form.bufferText.trim() === "" ? "0" : form.bufferText, q.value);
+  if (!b.ok || b.value === 0) return { qty: q.value, note: null };
+  return { qty: q.value + b.value, note: `สั่ง ${q.value.toLocaleString("en-US")} + เผื่อ ${b.value.toLocaleString("en-US")}` };
 }
 
 export function resolveDue(due: ShopDue, today: string): string | null {
@@ -340,6 +358,8 @@ export function buildIntakeInput(form: ShopForm, today: string): IntakeOpenActio
     isNewDesign: form.isNewDesign,
     dueDate: resolveDue(form.due, today),
     note: form.note.trim() === "" ? null : form.note.trim(),
+    // 0191 W3 (S3): พลอยบังคับส่งเสมอ — ไม่มีทาง null (ยังไม่ตอบ = รูปที่ action ปฏิเสธ ไม่เดาเป็น "ไม่มีพลอย")
+    gems: gemsInputOf(form.gems, form.mode === "sku" ? (form.product?.id ?? null) : null),
   };
   if (form.bufferOn) out.buffer = form.bufferText.trim() === "" ? "0" : form.bufferText.trim();
   const sendSpec = () => {
@@ -364,7 +384,7 @@ export function buildIntakeInput(form: ShopForm, today: string): IntakeOpenActio
 // ============================================================================
 
 /** ผลล้มของ action (รูปเดียวกับ IntakeActionFail) */
-export interface ShopFail { error: string; code?: string; retryAfterSeconds?: number; field?: string }
+export interface ShopFail { error: string; code?: string; retryAfterSeconds?: number; field?: string; gem?: { code: string; row?: number; field?: string }; similar?: unknown[] }
 
 export type ShopErrorAction =
   | "retry"        // กด "เปิดงาน" ซ้ำได้ (คีย์เดิม)
@@ -385,6 +405,8 @@ export interface ShopErrorView {
   newKey?: boolean;
   /** แสดงปุ่มรอง "ลองอีกครั้ง" (ยังไม่ตั้งแบบการบันทึก / QR เพิ่งถูกยกเลิกและออฟฟิศอาจออกใหม่แล้ว) */
   retryButton?: boolean;
+  /** 0191 W3: field = "gems" — แถว/ช่องของพลอยที่ DB ระบุ (row 1-based) ให้ W-4 เปิดแถวนั้น */
+  gem?: { row?: number; field?: string };
 }
 
 export const MSG_NETWORK = "ส่งไม่สำเร็จ — เช็คสัญญาณแล้วกด \"เปิดงาน\" อีกครั้ง (กดซ้ำได้ ระบบไม่เปิดซ้ำซ้อน)";
@@ -394,6 +416,8 @@ const FIELD_OF_CODE: Record<string, ShopFieldKey> = {
   name_invalid: "label", sku_or_label: "label", sku_invalid: "product",
   metal_required: "metal", metal_invalid: "metal", gold_purity_required: "purity", purity_invalid: "purity",
   weight_invalid: "weight", qty_invalid: "qty", due_invalid: "due", note_invalid: "note",
+  // 0191 W3: ทุกความผิดของพลอยพากลับ W-4 (ฟอร์ม/รูปคงอยู่)
+  gem_line_invalid: "gems", gem_lines_required: "gems", gem_answer_required: "gems", gem_answer_invalid: "gems", gem_args_invalid: "gems", gem_force_invalid: "gems", gem_name_cap: "gems", gem_similar: "gems",
 };
 
 /** ข้อความ DB ที่ "สะอาดพอ" ถึงจะส่งต่อ — ไม่มี snake_case/ชื่อตาราง/SQL/คำเกี่ยวกับเงิน */
@@ -407,7 +431,8 @@ export function isCleanMessage(s: unknown): s is string {
   return true;
 }
 
-const FIELD_KEYS: readonly string[] = ["label", "product", "metal", "purity", "weight", "qty", "buffer", "due", "note"];
+const FIELD_KEYS: readonly string[] = ["label", "product", "metal", "purity", "weight", "qty", "buffer", "due", "note", "gems"];
+export const MSG_GEM_GENERIC = "ข้อมูลพลอยไม่ถูกต้อง — ตรวจพลอยแล้วลองอีกครั้ง";
 
 export function shopErrorView(f: ShopFail): ShopErrorView {
   const code = f.code ?? "";
@@ -443,6 +468,10 @@ export function shopErrorView(f: ShopFail): ShopErrorView {
   if (f.field === "key") return { message: NEW_KEY_MSG, action: "retry", newKey: true };
   const byCode = FIELD_OF_CODE[code];
   const field = byCode ?? (typeof f.field === "string" && FIELD_KEYS.includes(f.field) ? (f.field as ShopFieldKey) : undefined);
+  if (field === "gems") {
+    // พลอยผิด = ใบไม่เปิดทั้งก้อน → พากลับ W-4 แถว/ช่องที่ผิด (gem.row/gem.field จาก DB)
+    return { message: isCleanMessage(f.error) ? f.error : MSG_GEM_GENERIC, action: "back", field, ...(f.gem ? { gem: { ...(typeof f.gem.row === "number" ? { row: f.gem.row } : {}), ...(typeof f.gem.field === "string" ? { field: f.gem.field } : {}) } } : {}) };
+  }
   if (field) return { message: isCleanMessage(f.error) ? f.error : "ข้อมูลที่กรอกไม่ถูกต้อง — ตรวจช่องที่กรอกแล้วลองอีกครั้ง", action: "back", field };
   if (isCleanMessage(f.error)) return { message: f.error, action: "retry" };
   return { message: MSG_NETWORK, action: "retry" };

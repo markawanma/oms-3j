@@ -45,15 +45,16 @@ const fnOf = (i = 0) => rpcMock.mock.calls[i][0] as string;
 const allLogged = () => JSON.stringify(errSpy.mock.calls);
 
 const OPEN_OK = { ok: true, already: false, order_no: "PO-2610-001", job_no: "JB-0031", token: "Qq7-_xYz0123456789AbCdEfGhIjKlMnOpQrStUvWxY", design_label: "แหวน", sku: null, sku_pending: true, metal: "silver", qty_order: 3, qty_planned: 5, is_new_design: false, due_date: null, status: "open" };
-const baseOpen = (o: Partial<IntakeOpenInput> = {}): IntakeOpenInput => ({ idemKey: IDEM, productId: null, pendingLabel: "แหวน", metal: "silver", purity: null, weightG: null, qtyOrder: 3, qtyPlanned: 5, dueDate: null, isNewDesign: false, note: null, ...o });
+const baseOpen = (o: Partial<IntakeOpenInput> = {}): IntakeOpenInput => ({ idemKey: IDEM, productId: null, pendingLabel: "แหวน", metal: "silver", purity: null, weightG: null, qtyOrder: 3, qtyPlanned: 5, dueDate: null, isNewDesign: false, note: null, gems: { answer: "none" }, ...o });
 const LINES = [{ type_id: T1, shape_id: S1, size_a: 4, size_b: 6, qty_per_piece: 2, position: "ล้อมรอบ" }];
 
 describe("openIntakeJob — พลอย (p_gem_*)", () => {
-  it("ไม่ส่งพลอย = พารามิเตอร์ชุดเดิมเป๊ะ (ไม่มี p_gem_*) · ผลเดิมไม่มี key gem", async () => {
+  it("S3: ไม่มีทาง null — ทุกคำขอส่ง p_gem_answer เสมอ (none = ไม่มีพลอย) · ผลที่ DB ไม่ส่ง gem = ไม่มี key gem", async () => {
     rpcMock.mockResolvedValue({ data: OPEN_OK, error: null });
     const r = await openIntakeJob(TOKEN, baseOpen());
     expect(fnOf()).toBe("job_worker_open");
-    expect(Object.keys(params()).filter((k) => k.startsWith("p_gem"))).toEqual([]);
+    expect(Object.keys(params()).filter((k) => k.startsWith("p_gem"))).toEqual(["p_gem_answer"]);
+    expect(params().p_gem_answer).toBe("none");
     expect(r.ok && "gem" in r.data).toBe(false);
   });
 
@@ -152,7 +153,7 @@ describe("openIntakeJob — พลอย (p_gem_*)", () => {
       ["gem_lines_required", "เพิ่มพลอยอย่างน้อย 1 รายการ หรือเลือก \"ไม่มีพลอย\""],
       ["gem_answer_invalid", "เลือกก่อนว่าใบนี้ฝังพลอยไหม"],
       ["gem_force_invalid", "ข้อมูลยืนยันชื่อพลอยไม่ถูกต้อง — โหลดหน้าใหม่แล้วลองอีกครั้ง"],
-      ["gem_name_cap", "เพิ่มชื่อพลอยใหม่ถี่เกินไป — รอสักครู่ หรือใช้ชื่อที่มีในรายการ"],
+      ["gem_name_cap", "เพิ่มพลอยใหม่ถี่เกินไปวันนี้ — เลือกจากรายการที่มี หรือแจ้งออฟฟิศ"],
       ["not_allowed", "บัญชีนี้ไม่มีสิทธิ์เปิดงานใหม่ — แจ้งออฟฟิศ"],
     ];
     for (const [code, msg] of expectations) {

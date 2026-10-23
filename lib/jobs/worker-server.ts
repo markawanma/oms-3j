@@ -539,8 +539,8 @@ export interface IntakeOpenInput {
   dueDate: string | null;
   isNewDesign: boolean;
   note: string | null;
-  /** 0191 W3: พลอยของใบ (ไม่ส่ง = W1 เดิม) — answer: none = ไม่มีพลอย (ไม่มีขั้นฝัง) · has = มีพลอย (ต้องมี lines) · template = ตามแม่แบบ SKU (DB บังคับว่า SKU ต้องมีแม่แบบ) */
-  gems?: IntakeGemsParam;
+  /** 0191 W3 (S3): พลอยของใบ — บังคับ (ไม่มีทาง null: เรียก RPC ด้วย p_gem_answer เสมอ) · answer: none = ไม่มีพลอย (ไม่มีขั้นฝัง) · has = มีพลอย (ต้องมี lines) · template = ตามแม่แบบ SKU (DB บังคับว่า SKU ต้องมีแม่แบบ) */
+  gems: IntakeGemsParam;
 }
 
 /** payload ที่ผ่าน allowlist แล้ว (toWireGemLines/toWireGemForce) — ชั้นนี้ไม่แปลงซ้ำ */
@@ -633,7 +633,7 @@ export async function openIntakeJob(token: unknown, i: IntakeOpenInput): Promise
       ...(i.purity !== null ? { p_purity: i.purity } : {}), ...(i.weightG !== null ? { p_weight_g: i.weightG } : {}), ...(i.qtyPlanned !== null ? { p_qty_planned: i.qtyPlanned } : {}),
       ...(i.dueDate ? { p_due_date: i.dueDate } : {}), ...(i.note ? { p_note: i.note } : {}),
       // 0191 W3: ส่งเฉพาะที่ระบุ — ไม่ส่งพลอย = เรียก RPC ด้วย params ชุดเดิมเป๊ะ (DB ทำงานแบบ W1) · 'none'/'template' ไม่ส่ง lines · force ส่งเฉพาะที่มี (รายการชื่อที่ถูกถาม)
-      ...(i.gems ? { p_gem_answer: i.gems.answer, ...(i.gems.lines ? { p_gem_lines: i.gems.lines } : {}), ...(i.gems.force && i.gems.force.length > 0 ? { p_gem_force: i.gems.force } : {}) } : {}),
+      p_gem_answer: i.gems.answer, ...(i.gems.lines ? { p_gem_lines: i.gems.lines } : {}), ...(i.gems.force && i.gems.force.length > 0 ? { p_gem_force: i.gems.force } : {}),
     },
     { keepJobNo: true, gem: true },
   );
@@ -686,7 +686,8 @@ const GEM_CODE_TH: Record<string, string> = {
   gem_args_invalid: "ข้อมูลพลอยไม่ถูกต้อง — โหลดหน้าใหม่แล้วลองอีกครั้ง",
   gem_lines_required: "เพิ่มพลอยอย่างน้อย 1 รายการ หรือเลือก \"ไม่มีพลอย\"",
   gem_force_invalid: "ข้อมูลยืนยันชื่อพลอยไม่ถูกต้อง — โหลดหน้าใหม่แล้วลองอีกครั้ง",
-  gem_name_cap: "เพิ่มชื่อพลอยใหม่ถี่เกินไป — รอสักครู่ หรือใช้ชื่อที่มีในรายการ",
+  // hint เดียวกันครอบทั้ง "เพดานชื่อใหม่ (ชนิด/รูปทรง)" และ "เพดานรายการใหม่ (ขนาดใหม่)" ต่อผู้จัดการต่อ 24 ชม. — ข้อความกลาง ห้ามบอกว่าเป็นเรื่องชื่ออย่างเดียว
+  gem_name_cap: "เพิ่มพลอยใหม่ถี่เกินไปวันนี้ — เลือกจากรายการที่มี หรือแจ้งออฟฟิศ",
   gem_similar: GEM_ERROR_TH.gem_similar,
   gem_line_invalid: "ข้อมูลพลอยไม่ถูกต้อง — ตรวจแถวที่ระบุแล้วลองอีกครั้ง",
 };

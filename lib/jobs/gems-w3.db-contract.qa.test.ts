@@ -38,7 +38,7 @@ beforeEach(() => {
 });
 const reply = (k: string) => rpcMock.mockResolvedValue({ data: FX[k], error: null });
 const base = (o: Partial<IntakeOpenInput> = {}): IntakeOpenInput => ({
-  idemKey: IDEM, productId: null, pendingLabel: "แหวน FX", metal: "silver", purity: null, weightG: null, qtyOrder: 3, qtyPlanned: 4, dueDate: null, isNewDesign: false, note: null, ...o,
+  idemKey: IDEM, productId: null, pendingLabel: "แหวน FX", metal: "silver", purity: null, weightG: null, qtyOrder: 3, qtyPlanned: 4, dueDate: null, isNewDesign: false, note: null, gems: { answer: "none" }, ...o,
 });
 const THAI = /[฀-๿]/;
 /** ข้อความที่ถึงผู้ใช้ต้องเป็นไทย ไม่มีรหัส/ชื่อฟังก์ชัน/ตาราง/ราคา */
@@ -108,7 +108,7 @@ describe("real shapes W3 — เปิดใบพร้อมพลอย", () 
     expect(n.ok && n.data.gem?.count === 0 && n.data.gem.state === "not_needed" && n.data.gem.total === 0).toBe(true);
   });
 
-  it("เปิดใบแบบไม่ส่งคำตอบ (W1 เดิม) ได้ผลจริงที่ map ได้ · gem ว่าง ไม่ล้ม", async () => {
+  it("เปิดใบตอบ none (ไม่มีขั้นฝัง) ได้ผลจริงที่ map ได้ · gem ว่าง ไม่ล้ม", async () => {
     reply("open_noanswer_nostage");
     const r = await openIntakeJob(TOKEN, base());
     expect(r.ok).toBe(true);

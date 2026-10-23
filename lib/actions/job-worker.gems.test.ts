@@ -39,15 +39,25 @@ const params = (i = 0) => rpcMock.mock.calls[i][1] as Record<string, unknown>;
 const fnOf = (i = 0) => rpcMock.mock.calls[i][0] as string;
 
 const OPEN_OK = { ok: true, already: false, order_no: "PO-1", job_no: "JB-0031", token: "Qq7-_xYz0123456789AbCdEfGhIjKlMnOpQrStUvWxY", design_label: "แหวน", sku: null, sku_pending: true, metal: "silver", qty_order: 3, qty_planned: 3, is_new_design: false, due_date: null, status: "open", gem: { count: 1, total: 6, state: "specified", created_types: [], created_shapes: [], reused: [], merged_rows: [] } };
-const open = (o: Partial<IntakeOpenActionInput> = {}): IntakeOpenActionInput => ({ idemKey: IDEM, label: "แหวน", metal: "silver", qty: 3, ...o });
+const open = (o: Partial<IntakeOpenActionInput> = {}): IntakeOpenActionInput => ({ idemKey: IDEM, label: "แหวน", metal: "silver", qty: 3, gems: { answer: "none" }, ...o });
 const LINE = { typeId: T1, shapeId: S1, sizeA: "4", sizeB: "6", qtyPerPiece: 2, position: "ล้อมรอบ" };
 
 describe("intakeOpen — พลอย (gems)", () => {
-  it("ไม่ส่ง gems = ไม่มี p_gem_* (W1 เดิม) · ผลไม่มี gem ถ้า DB ไม่ส่ง", async () => {
+  it("S3: gems บังคับ — ไม่ส่ง/undefined/null = ปฏิเสธที่ action (field gems) ไม่ถึง DB · ไม่มีทาง null ไป RPC", async () => {
+    rpcMock.mockResolvedValue({ data: OPEN_OK, error: null });
+    const base = { idemKey: IDEM, label: "แหวน", metal: "silver", qty: 3 };
+    for (const input of [base, { ...base, gems: undefined }, { ...base, gems: null }]) {
+      expect(await intakeOpen(TOKEN, input as unknown as IntakeOpenActionInput)).toMatchObject({ ok: false, field: "gems", error: "เลือกก่อนว่าใบนี้ฝังพลอยไหม" });
+    }
+    expect(rpcMock).not.toHaveBeenCalled();
+  });
+
+  it("none: ส่ง p_gem_answer = none อย่างเดียว (ไม่มี p_gem_lines/p_gem_force) · ผลมี gem ถ้า DB ส่ง · ไม่มี p_gem_answer ที่เป็น null", async () => {
     rpcMock.mockResolvedValue({ data: { ...OPEN_OK, gem: undefined }, error: null });
     const r = await intakeOpen(TOKEN, open());
     expect(r.ok).toBe(true);
-    expect(Object.keys(params()).filter((k) => k.startsWith("p_gem"))).toEqual([]);
+    expect(Object.keys(params()).filter((k) => k.startsWith("p_gem"))).toEqual(["p_gem_answer"]);
+    expect(params().p_gem_answer).toBe("none");
   });
 
   it("has: แถว camelCase → payload snake_case ผ่าน allowlist · ขนาด ',' → '.' · ส่ง p_gem_answer + p_gem_lines · ผลมี gem", async () => {
