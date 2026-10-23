@@ -11,6 +11,8 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { JobPrintClient } from "@/components/domain/jobs/JobPrintClient";
 import { SublotPrintClient } from "@/components/domain/jobs/SublotPrintClient";
+import { PrintFileTitle } from "@/components/ui/PrintFileTitle";
+import { jobPrintTitle } from "@/lib/jobs/print-title";
 
 export const dynamic = "force-dynamic";
 
@@ -47,10 +49,21 @@ export default async function JobPrintPage({ params, searchParams }: { params: P
     if (!isUuid(lotParam)) return <EmptyState title="ไม่พบส่วนย่อยนี้" />;
     const sub = toPrintableSublot(res.data.job, res.data.lots?.parts.find((p) => p.jobId === lotParam), res.data.todayTh, photoUrl);
     if (!sub) return <EmptyState title="พิมพ์ใบย่อยของส่วนนี้ไม่ได้" description="ส่วนนี้ไม่มี หรือปิด/ยกเลิกแล้ว" />;
-    return <SublotPrintClient sub={sub} qrTarget={qr} />;
+    // ชื่อไฟล์ PDF: วันเปิดใบแม่ + เลขใบแม่-ส่วนN + ชื่อแบบ (ข้อมูลชุดเดียวกับที่โหลดแล้ว ไม่ query เพิ่ม)
+    return (
+      <>
+        <PrintFileTitle title={jobPrintTitle(res.data.job, sub.lotSeq)} />
+        <SublotPrintClient sub={sub} qrTarget={qr} />
+      </>
+    );
   }
   const splitJob = (res.data.lots?.parts.length ?? 0) > 1;
   // 0190: พลอยของใบ (null = อ่านไม่ได้ → ตารางพลอยไม่ขึ้น · ไม่มี key = ส่วนย่อย) — toPrintableJob ประกอบทีละ field
   // gems === null = อ่านพลอยไม่ได้ (ไม่ใช่ "ไม่มีพลอย") → ส่งแค่ boolean ให้จอเตือน (print:hidden) — ไม่ส่งข้อมูลดิบเข้า client
-  return <JobPrintClient job={toPrintableJob(res.data.job, res.data.stages, photoUrl, res.data.gems)} qr={qr} defaultKeep={splitJob} gemsReadFailed={res.data.gems === null} />;
+  return (
+    <>
+      <PrintFileTitle title={jobPrintTitle(res.data.job)} />
+      <JobPrintClient job={toPrintableJob(res.data.job, res.data.stages, photoUrl, res.data.gems)} qr={qr} defaultKeep={splitJob} gemsReadFailed={res.data.gems === null} />
+    </>
+  );
 }
