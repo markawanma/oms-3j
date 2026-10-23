@@ -66,7 +66,7 @@
 - scheduled tasks (นอก repo `~/.claude/scheduled-tasks/`): `weekly-marketing-brief` · `daily-trend-radar`
 
 ## 8. Gem quiz (หน้าสาธารณะ /gem-quiz)
-- docs: `docs/3j-jewelry/analytics/design-gem-quiz.md` (v1 — §1/§2/§5/§6 ยังมีผล) · `docs/3j-jewelry/analytics/design-gem-quiz-v2-reconcile.md` · `docs/3j-jewelry/analytics/gem-quiz-v2-handoff/` (ห้ามแก้)
+- docs: `docs/3j-jewelry/oms/workflow-ring-size-tool.md` (เครื่องมือวัดไซส์แหวน — หน้าสาธารณะ ต่อไปเกมพลอย) · `docs/3j-jewelry/analytics/design-gem-quiz.md` (v1 — §1/§2/§5/§6 ยังมีผล) · `docs/3j-jewelry/analytics/design-gem-quiz-v2-reconcile.md` · `docs/3j-jewelry/analytics/gem-quiz-v2-handoff/` (ห้ามแก้)
 - migrations: `0154-0157`
 - code: `app/(quiz)/gem-quiz/` · `app/api/gem-quiz/submit/route.ts` · `lib/gem-quiz/` · `middleware.ts` (matcher exempt — exact path เท่านั้น) · `app/(dashboard)/marketing/gem-quiz/` · `components/domain/marketing/GemQuizStats.tsx` · `public/gem-quiz/` · `scripts/gen-gem-quiz-og.cjs`
 - ข้อห้ามที่พังง่าย: ห้าม `"use server"` ใน graph ของ `app/(quiz)/` (มี test บังคับ) · ห้ามเพิ่ม sub-route ใต้ /gem-quiz (middleware เด้ง /login) · env `GEM_QUIZ_TOKEN_SECRET` ≥32 ตัว
