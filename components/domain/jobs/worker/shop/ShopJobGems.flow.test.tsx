@@ -403,6 +403,22 @@ describe("W-10 · แผ่น 'แก้พลอย' (บันทึกทั
     expect(within(dlg).getByTestId("shop-gem-row-1")).toBeInTheDocument();
   });
 
+  it.each([
+    ["order_not_found", "ไม่พบใบงานที่เปิดไว้ — โหลดหน้าใหม่แล้วลองอีกครั้ง"],
+    ["not_allowed", "บัญชีนี้ไม่มีสิทธิ์จัดการใบงานจากหน้างาน — แจ้งออฟฟิศ"],
+    ["rate_limited", "ส่งถี่เกินไป — รอสักครู่แล้วลองอีกครั้ง"],
+  ])("code อื่นของ DB (%s): ข้อความไทยตายตัวในแผ่น · แผ่นไม่ปิด ค่าคงอยู่ · ไม่มีรหัสดิบ", async (code, msg) => {
+    intakeSetJobGems.mockResolvedValue({ ok: false, code, error: msg });
+    await toW10();
+    const dlg = await openSheet();
+    await userEvent.click(within(dlg).getByRole("button", { name: "บันทึกพลอย" }));
+    const alert = await within(dlg).findByRole("alert");
+    expect(alert).toHaveTextContent(msg);
+    expect(alert.textContent).not.toMatch(/[a-z]+_[a-z_]+/);
+    expect(within(dlg).getByTestId("shop-gem-row-1")).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "แก้พลอย JB-0031" })).toBeInTheDocument();
+  });
+
   it("session หมดเวลาตอนบันทึก: ข้อความ + ขอแผ่น PIN (แผ่นแก้ไม่ถูกถอด ค่าไม่หาย) · เน็ตหลุด: ข้อความ กดซ้ำได้", async () => {
     intakeSetJobGems.mockResolvedValueOnce({ ok: false, code: "session_required", error: "หมดเวลาแล้ว — ใส่ PIN ใหม่" });
     const view = await toW10();
