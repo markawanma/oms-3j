@@ -2,35 +2,38 @@
 
 // ShopGemEditSheet — แผ่นเต็มจอ "แก้พลอย" ของใบที่ฉันเปิด (W-10 · UX §4.4) — ตัวแก้ชุดเดียวกับ W-4 (ShopGemEditor) โหมดบันทึกแล้ว
 //  - บันทึกทั้งชุดครั้งเดียว (all-or-nothing เหมือน RPC job_worker_gem_set) ไม่บันทึกทีละแถว · expectedRev (CAS) กัน 2 เครื่องทับกัน
-//  - ผล: ok → ปิดแผ่น + ผู้เรียกโหลดพลอยใหม่ · ถูกล็อก (ช่างรับงาน/ปิด/ยกเลิก/ไม่มีขั้นฝัง) → ปิดแผ่นพร้อมข้อความ (ค่าที่พิมพ์ไม่ถูกบันทึก) · gem_conflict → โหลดใหม่ ·
-//    แถวผิด → กล่องแดงที่แถวนั้น · ชื่อคล้าย → ถาม (ใช้ตัวที่มี / เพิ่มใหม่จริงๆ ส่งซ้ำพร้อม force เฉพาะชื่อที่ DB ถาม) · ไม่มีสัญญาณ/session หมด → ข้อความ ฟอร์มคงอยู่
-//  - เหลือ 0 แถวได้ แต่เตือนก่อนบันทึก (ขั้นฝังพลอยยังอยู่ ใบจะขึ้นเตือนยังไม่ระบุพลอยจนออฟฟิศถอดขั้น) · ออกขณะมีแก้ยังไม่บันทึก → กล่องยืนยัน "ทิ้งการแก้พลอย?"
+//  - ผล: ok → ปิดแผ่น + ส่ง rev/แถวจากผลบันทึกให้ผู้เรียกตั้ง state ทันที (ไม่พึ่งโหลดซ้ำ) · ถูกล็อก (ช่างรับงาน/ปิด/ยกเลิก/ไม่มีขั้นฝัง) → ปิดแผ่นพร้อมข้อความ (ค่าที่พิมพ์ไม่ถูกบันทึก) ·
+//    gem_conflict → กล่อง conflict + "โหลดพลอยใหม่" ค้างไว้จนกด (แก้แถวต่อก็ไม่หาย — ไม่ผูกกับ error) · แถวผิด → กล่องแดงที่แถวนั้น ·
+//    ชื่อคล้าย → ถาม (ใช้ตัวที่มี / เพิ่มใหม่จริงๆ ส่งซ้ำพร้อม force เฉพาะชื่อที่ DB ถาม) · ไม่มีสัญญาณ/session หมด → ข้อความ ฟอร์มคงอยู่
+//  - เหลือ 0 แถวได้ แต่เตือนก่อนบันทึก (ขั้นฝังพลอยยังอยู่ ใบจะขึ้นเตือนยังไม่ระบุพลอยจนออฟฟิศถอดขั้น) · ออกขณะมีแก้ = ยืนยัน "ทิ้งการแก้พลอย?"
+//  - แผ่นถูกซ่อนตอนแผ่น PIN ซ้อนขึ้น (ancestor hidden) — Esc ต้องไม่ทำงานตอนซ่อน
 //  - 🔴 ไม่มีราคา/ตัวเลขเงิน · เรียกได้เฉพาะ action ใน lib/actions/job-worker.ts (ด่านจริงอยู่ที่ DB)
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronLeft } from "lucide-react";
 import { intakeSetJobGems } from "@/lib/actions/job-worker";
-import { Modal } from "@/components/ui/Modal";
 import { BigButton } from "@/components/domain/jobs/worker/WorkerParts";
 import { GemServerSimilar } from "@/components/domain/gems/useGemFail";
-import { useFocusAfterOpen } from "@/components/domain/gems/ui";
+import { ShopConfirmBox } from "@/components/domain/jobs/worker/shop/ShopConfirmBox";
 import { ShopGemEditor } from "@/components/domain/jobs/worker/shop/ShopGemEditor";
 import type { ShopGemFocusRequest } from "@/components/domain/jobs/worker/shop/ShopGemEditor";
 import { useShopGemCatalog } from "@/components/domain/jobs/worker/shop/useShopGemCatalog";
 import { draftRowsToInputs } from "@/lib/jobs/gem-draft";
 import type { GemDraftRow } from "@/lib/jobs/gem-draft";
 import type { GemForceItem } from "@/lib/jobs/gem-wire";
-import { GEM_LOCK_CODES, SHOP_GEM_TH, addForce, gemOptionsOf, gemStepIssue, interpretIntakeGemFail, isGemConflict, pruneForce, rowFromIntakeLine } from "@/lib/jobs/shop-gem-flow";
+import { GEM_LOCK_CODES, SHOP_GEM_TH, addForce, gemStepIssue, interpretIntakeGemFail, isGemConflict, issueFocusField, pruneForce, rowFromIntakeLine } from "@/lib/jobs/shop-gem-flow";
 import type { GemRowErrors } from "@/lib/jobs/shop-gem-flow";
-import type { GemSimilar, IntakeGemSummary, IntakeJobGems } from "@/lib/jobs/worker-server";
+import { MSG_GEM_GENERIC, isCleanMessage } from "@/lib/jobs/shop-open";
+import type { IntakeGemSetResult, GemSimilar, IntakeJobGems } from "@/lib/jobs/worker-server";
 
 const MSG_NET = "ส่งไม่สำเร็จ — เช็คสัญญาณแล้วกด “บันทึกพลอย” อีกครั้ง";
 const ID_PREFIX = "shop-jobgem";
+const clean = (m: string): string => (isCleanMessage(m) ? m : MSG_GEM_GENERIC);
 const sig = (rows: readonly GemDraftRow[]): string => JSON.stringify(rows.map((r) => [r.itemId, r.type?.name ?? null, r.shape?.name ?? null, r.sizeA, r.sizeB, r.qty, r.position]));
 
 export type GemSheetClose =
   | { kind: "cancel" }
-  | { kind: "saved"; summary: Pick<IntakeGemSummary, "createdTypes" | "createdShapes" | "reused" | "mergedRows"> }
+  | { kind: "saved"; result: Pick<IntakeGemSetResult, "summary" | "lines" | "rev" | "state"> }
   | { kind: "locked"; code: string }
   | { kind: "reload" };
 
@@ -40,6 +43,7 @@ export function ShopGemEditSheet({ token, data, onClose, onSessionLost }: { toke
   const [force, setForce] = useState<GemForceItem[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** ชนกับอีกเครื่อง — ค้างไว้จนกดโหลดใหม่ (ไม่ถูกล้างเมื่อแก้แถว: ปุ่มโหลดใหม่คือทางออกเดียวที่เหลือ) */
   const [conflict, setConflict] = useState(false);
   const [rowErrors, setRowErrors] = useState<GemRowErrors>({});
   const [focusReq, setFocusReq] = useState<ShopGemFocusRequest | null>(null);
@@ -49,12 +53,12 @@ export function ShopGemEditSheet({ token, data, onClose, onSessionLost }: { toke
   const [discard, setDiscard] = useState(false);
   const inflight = useRef(false);
   const nonce = useRef(0);
+  const rootRef = useRef<HTMLDivElement>(null);
   const headRef = useRef<HTMLHeadingElement>(null);
   const baseSig = useRef(sig(initial));
-  const catalog = useShopGemCatalog({ token, productId: null, enabled: true, onSessionLost });
+  const catalog = useShopGemCatalog({ token, productId: null, enabled: true, onSessionLost, extraLines: data.lines });
+  const { options } = catalog;
   const ready = catalog.state.s === "ready" ? catalog.state.data : null;
-  const options = useMemo(() => (ready ? gemOptionsOf(ready.types, ready.shapes, data.lines) : null), [ready, data.lines]);
-  const optionsState: "loading" | "error" | "ready" = catalog.state.s === "ready" ? "ready" : catalog.state.s === "error" ? "error" : "loading";
   const dirty = sig(rows) !== baseSig.current;
 
   useEffect(() => {
@@ -67,10 +71,12 @@ export function ShopGemEditSheet({ token, data, onClose, onSessionLost }: { toke
     else onClose({ kind: "cancel" });
   }, [busy, dirty, onClose]);
 
-  // Esc = ยกเลิก (ผ่านด่านยืนยันถ้ามีแก้) — Modal/GemPicker ที่เปิดซ้อนอยู่รับ Esc ของตัวเองก่อน (preventDefault)
+  // Esc = ยกเลิก (ผ่านด่านยืนยันถ้ามีแก้) — Modal/GemPicker ที่เปิดซ้อนอยู่รับ Esc ของตัวเองก่อน (preventDefault) · ตอนแผ่นถูกซ่อน (แผ่น PIN ขึ้น) ไม่ทำงาน
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape" && !e.defaultPrevented && !zeroWarn && !discard && similar === null) tryClose();
+      if (e.key !== "Escape" || e.defaultPrevented || zeroWarn || discard || similar !== null) return;
+      if (rootRef.current?.closest("[hidden]")) return;
+      tryClose();
     }
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
@@ -80,7 +86,7 @@ export function ShopGemEditSheet({ token, data, onClose, onSessionLost }: { toke
     setRows(next);
     setForce((f) => pruneForce(f, next));
     setRowErrors({});
-    setError(null);
+    setError(null); // conflict ไม่ถูกล้าง (ดูคอมเมนต์ที่ state)
   }
 
   async function save(o?: { rows?: GemDraftRow[]; addForce?: GemForceItem; confirmedZero?: boolean }) {
@@ -97,7 +103,7 @@ export function ShopGemEditSheet({ token, data, onClose, onSessionLost }: { toke
     if (issue) {
       setAttempted(true);
       setError(issue.message);
-      if (issue.rowKey) setFocusReq({ rowKey: issue.rowKey, field: null, nonce: ++nonce.current });
+      if (issue.rowKey) setFocusReq({ rowKey: issue.rowKey, field: issueFocusField(cur.find((r) => r.key === issue.rowKey)), nonce: ++nonce.current });
       return;
     }
     inflight.current = true;
@@ -118,7 +124,7 @@ export function ShopGemEditSheet({ token, data, onClose, onSessionLost }: { toke
       return;
     }
     if (r.ok) {
-      onClose({ kind: "saved", summary: r.summary });
+      onClose({ kind: "saved", result: { summary: r.summary, lines: r.lines, rev: r.rev, state: r.state } });
       return;
     }
     if (r.similar && r.similar.length > 0) {
@@ -132,18 +138,17 @@ export function ShopGemEditSheet({ token, data, onClose, onSessionLost }: { toke
     }
     if (isGemConflict(code)) {
       setConflict(true);
-      setError(r.error);
       return;
     }
     if (code === "session_required") onSessionLost();
-    const fv = interpretIntakeGemFail(r, cur);
+    const fv = interpretIntakeGemFail(r, cur, clean);
     setRowErrors(fv.rowErrors);
     setError(fv.generalError);
     if (fv.focusRowKey) setFocusReq({ rowKey: fv.focusRowKey, field: fv.focusField, nonce: ++nonce.current });
   }
 
   return (
-    <div role="dialog" aria-modal="true" aria-labelledby="shop-gemsheet-h" className="fixed inset-0 z-40 overflow-y-auto bg-white" data-testid="shop-gem-sheet">
+    <div ref={rootRef} role="dialog" aria-modal="true" aria-labelledby="shop-gemsheet-h" className="fixed inset-0 z-40 overflow-y-auto bg-white" data-testid="shop-gem-sheet">
       <div className="mx-auto flex min-h-full max-w-md flex-col px-4 pt-3">
         <header className="space-y-2">
           <div className="flex items-center gap-2">
@@ -167,7 +172,7 @@ export function ShopGemEditSheet({ token, data, onClose, onSessionLost }: { toke
             onChange={edited}
             options={options}
             sizes={ready ? ready.sizes : []}
-            optionsState={optionsState}
+            optionsState={catalog.optionsState}
             onRetryOptions={catalog.reload}
             qtyPlanned={data.job.qtyPlanned}
             showIssues={attempted}
@@ -177,17 +182,20 @@ export function ShopGemEditSheet({ token, data, onClose, onSessionLost }: { toke
             onForceSimilar={(info) => setForce((f) => addForce(f, info))}
             emptyText="ใบนี้ยังไม่มีพลอย — กด “เพิ่มพลอย” หรือบันทึกโดยไม่มีพลอย"
           />
-          {error && (
-            <div className="space-y-2" data-testid="shop-gemsheet-error">
+          {conflict && (
+            <div className="space-y-2" data-testid="shop-gemsheet-conflict">
               <p role="alert" className="rounded-xl border-2 border-red-200 bg-red-50 p-3 text-lg font-semibold break-words text-red-800">
-                {error}
+                {SHOP_GEM_TH.conflict}
               </p>
-              {conflict && (
-                <BigButton type="button" tone="secondary" onClick={() => onClose({ kind: "reload" })}>
-                  {SHOP_GEM_TH.conflictReload}
-                </BigButton>
-              )}
+              <BigButton type="button" tone="secondary" onClick={() => onClose({ kind: "reload" })}>
+                {SHOP_GEM_TH.conflictReload}
+              </BigButton>
             </div>
+          )}
+          {error && (
+            <p role="alert" className="rounded-xl border-2 border-red-200 bg-red-50 p-3 text-lg font-semibold break-words text-red-800" data-testid="shop-gemsheet-error">
+              {error}
+            </p>
           )}
         </div>
 
@@ -201,8 +209,8 @@ export function ShopGemEditSheet({ token, data, onClose, onSessionLost }: { toke
         </div>
       </div>
 
-      {zeroWarn && <ConfirmBox title={SHOP_GEM_TH.zeroWarnTitle} body={SHOP_GEM_TH.zeroWarnBody} safe={SHOP_GEM_TH.zeroWarnBack} risky={SHOP_GEM_TH.zeroWarnSave} onSafe={() => setZeroWarn(false)} onRisky={() => { setZeroWarn(false); void save({ confirmedZero: true }); }} testId="shop-gem-zero-warn" />}
-      {discard && <ConfirmBox title={SHOP_GEM_TH.w10DiscardTitle} body={SHOP_GEM_TH.w10DiscardBody} safe={SHOP_GEM_TH.w10KeepEditing} risky={SHOP_GEM_TH.w10Discard} onSafe={() => setDiscard(false)} onRisky={() => { setDiscard(false); onClose({ kind: "cancel" }); }} testId="shop-gem-discard" />}
+      {zeroWarn && <ShopConfirmBox title={SHOP_GEM_TH.zeroWarnTitle} body={SHOP_GEM_TH.zeroWarnBody} safe={SHOP_GEM_TH.zeroWarnBack} risky={SHOP_GEM_TH.zeroWarnSave} onSafe={() => setZeroWarn(false)} onRisky={() => { setZeroWarn(false); void save({ confirmedZero: true }); }} testId="shop-gem-zero-warn" />}
+      {discard && <ShopConfirmBox title={SHOP_GEM_TH.w10DiscardTitle} body={SHOP_GEM_TH.w10DiscardBody} safe={SHOP_GEM_TH.w10KeepEditing} risky={SHOP_GEM_TH.w10Discard} onSafe={() => setDiscard(false)} onRisky={() => { setDiscard(false); onClose({ kind: "cancel" }); }} testId="shop-gem-discard" />}
       {similar && (
         <GemServerSimilar
           hit={similar}
@@ -214,26 +222,5 @@ export function ShopGemEditSheet({ token, data, onClose, onSessionLost }: { toke
         />
       )}
     </div>
-  );
-}
-
-/** กล่องยืนยัน 2 ปุ่ม — focus เริ่มที่ปุ่มปลอดภัย (ปุ่มหลักสี primary = ทางปลอดภัย · อีกปุ่มเป็นรอง) */
-function ConfirmBox({ title, body, safe, risky, onSafe, onRisky, testId }: { title: string; body: string; safe: string; risky: string; onSafe: () => void; onRisky: () => void; testId: string }) {
-  const ref = useRef<HTMLButtonElement>(null);
-  useFocusAfterOpen(ref);
-  return (
-    <Modal open onClose={onSafe} title={title}>
-      <div className="space-y-3" data-testid={testId}>
-        <p className="text-lg text-zinc-900">{body}</p>
-        <div className="flex flex-col gap-2">
-          <button ref={ref} type="button" onClick={onSafe} className="inline-flex min-h-14 w-full items-center justify-center rounded-xl bg-primary-600 px-5 text-xl font-bold text-white focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary-300">
-            {safe}
-          </button>
-          <BigButton type="button" tone="secondary" onClick={onRisky}>
-            {risky}
-          </BigButton>
-        </div>
-      </div>
-    </Modal>
   );
 }

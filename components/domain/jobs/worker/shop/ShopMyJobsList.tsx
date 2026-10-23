@@ -12,7 +12,7 @@ import { Lock, Pencil, RefreshCw } from "lucide-react";
 import { intakeMyJobs } from "@/lib/actions/job-worker";
 import { ShopMetalTag } from "@/components/domain/jobs/worker/shop/ShopMetalTag";
 import { SHOP_PHOTO_MAX, SHOP_PHOTO_TH } from "@/lib/jobs/shop-photos";
-import { myJobGemLine } from "@/lib/jobs/shop-gem-flow";
+import { myJobEditBadge, myJobGemLine } from "@/lib/jobs/shop-gem-flow";
 import type { MyIntakeJob } from "@/lib/jobs/shop-photo-server";
 
 export const MSG_MYJOBS_ERROR = "โหลดรายการใบไม่ได้ — เช็คสัญญาณแล้วลองอีกครั้ง";
@@ -23,19 +23,21 @@ const SHOW_FIRST = 5;
 function Card({ job, onOpen }: { job: MyIntakeJob; onOpen: () => void }) {
   // บรรทัดพลอย (ค่าจาก DB ไม่คำนวณใน UI): "พลอย n รายการ · รวม m เม็ด" / "ไม่มีพลอย" / "⚑ ยังไม่ระบุพลอย" (amber — ใบมีขั้นฝังแต่ไม่มีรายการ)
   const gem = myJobGemLine(job);
+  // ป้ายบอกว่าแก้อะไรได้: รูป (editable) · พลอย (gemEditable จาก DB — ใบ "ไม่มีพลอย"/ไม่มีขั้นฝังเป็น false) · ทั้งคู่ล็อก = 🔒
+  const badge = myJobEditBadge(job);
   return (
     <button type="button" onClick={onOpen} className="flex min-h-[88px] w-full flex-col gap-1 rounded-2xl border-2 border-zinc-300 bg-white p-3 text-left focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary-300 active:bg-zinc-50">
       <span className="flex items-start justify-between gap-2">
         <span className="line-clamp-2 min-w-0 flex-1 text-lg font-bold break-words text-zinc-900">{job.designLabel}</span>
-        {job.editable ? (
-          <span className="inline-flex shrink-0 items-center gap-1 rounded-md border border-sky-300 bg-sky-100 px-2 py-0.5 text-base font-semibold text-sky-950">
+        {badge.editable ? (
+          <span className="inline-flex shrink-0 items-center gap-1 rounded-md border border-sky-300 bg-sky-100 px-2 py-0.5 text-base font-semibold text-sky-950" data-testid="mycard-badge">
             <Pencil className="h-4 w-4" aria-hidden="true" />
-            แก้ได้
+            {badge.text}
           </span>
         ) : (
-          <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-zinc-200 px-2 py-0.5 text-base font-semibold text-zinc-900">
+          <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-zinc-200 px-2 py-0.5 text-base font-semibold text-zinc-900" data-testid="mycard-badge">
             <Lock className="h-4 w-4" aria-hidden="true" />
-            {SHOP_PHOTO_TH.cardNotEditable}
+            {badge.text}
           </span>
         )}
       </span>

@@ -797,3 +797,78 @@ describe("🔴 ไม่มีเงิน/ราคา/ต้นทุน/เ�
     expect(container.querySelectorAll("a, [href]").length).toBe(0);
   });
 });
+
+describe("รอบแก้ review/QA 24 ต.ค. — W-4", () => {
+  async function toGemsWithSlowCatalog() {
+    let release: (v: unknown) => void = () => {};
+    intakeGemCatalog.mockImplementation(() => new Promise((r) => (release = r)));
+    render(<ShopIntakeApp token={TOKEN} initial={readyHub()} />);
+    await toGems();
+    return { release: (v: unknown) => release(v) };
+  }
+
+  it("[5] แม่แบบมาช้า: กด 'มีพลอย' ก่อน catalog โหลด (แถวเปล่า) → แม่แบบมาถึงแล้วเติมให้ (ป้าย 'จากแม่แบบ') · ไม่แตะอะไร = ส่ง 'template' (ไม่ใช่ has เงียบๆ)", async () => {
+    const h = await toGemsWithSlowCatalog();
+    await answerHas();
+    expect(screen.getAllByTestId(/^shop-gem-row-\d+$/)).toHaveLength(1);
+    await act(async () => h.release(catalog({ hasTemplate: true, template: TEMPLATE })));
+    await waitFor(() => expect(screen.getAllByTestId(/^shop-gem-row-\d+$/)).toHaveLength(2));
+    expect(screen.getAllByText("จากแม่แบบ")).toHaveLength(2);
+    await toReviewFromGems();
+    await click("เปิดงาน");
+    await waitFor(() => expect(intakeOpen).toHaveBeenCalledTimes(1));
+    expect(submitCall().gems).toEqual({ answer: "template" });
+  });
+
+  it("[5] แม่แบบมาช้า แต่ผู้ใช้เริ่มกรอกแถวไปแล้ว → ไม่ทับสิ่งที่พิมพ์ (ส่ง 'has' ตามที่กรอก)", async () => {
+    const h = await toGemsWithSlowCatalog();
+    await answerHas();
+    await userEvent.type(screen.getByLabelText("จำนวนต่อชิ้น"), "3");
+    await act(async () => h.release(catalog({ hasTemplate: true, template: TEMPLATE })));
+    await waitFor(() => expect(intakeGemCatalog).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 50));
+    expect(screen.getAllByTestId(/^shop-gem-row-\d+$/)).toHaveLength(1);
+    expect(screen.getByLabelText("จำนวนต่อชิ้น")).toHaveValue("3");
+    expect(screen.queryByText("จากแม่แบบ")).not.toBeInTheDocument();
+  });
+
+  it("[7] ข้อความ error ของพลอยที่ DB ส่งมาไม่สะอาด (มีรหัส) → ใช้ข้อความกลาง ทั้งแบนเนอร์ · กล่องแดงที่แถว · ข้อความทั้งขั้น", async () => {
+    const GEN = "ข้อมูลพลอยไม่ถูกต้อง — ตรวจพลอยแล้วลองอีกครั้ง";
+    intakeOpen.mockResolvedValueOnce({ ok: false, error: "พลอยแถว 1: gem_size_bad", code: "gem_line_invalid", field: "gems", gem: { code: "size_invalid", row: 1, field: "size_a" } });
+    render(<ShopIntakeApp token={TOKEN} initial={readyHub()} />);
+    await toGems();
+    await answerHas();
+    await fillRound(1);
+    await toReviewFromGems();
+    await click("เปิดงาน");
+    expect(await screen.findByText(GEN, { selector: "p[role=alert]" })).toBeInTheDocument();
+    await click("กลับไปแก้");
+    expect(screen.getByTestId("shop-gem-server-error-1")).toHaveTextContent(`พลอยแถว 1: ${GEN}`);
+    expect(document.body.textContent).not.toMatch(/gem_size_bad/);
+    // ข้อความทั้งขั้น (ไม่มีแถว)
+    intakeOpen.mockResolvedValueOnce({ ok: false, error: "gem_cap_raw price", code: "gem_name_cap", field: "gems" });
+    await userEvent.type(screen.getByLabelText(/ตำแหน่ง/), "ก");
+    await click("เสร็จแถวนี้");
+    await toReviewFromGems();
+    await click("เปิดงาน");
+    await screen.findByText(GEN, { selector: "p[role=alert]" });
+    await click("กลับไปแก้");
+    expect(screen.getByTestId("shop-gem-general-error")).toHaveTextContent(GEN);
+    expect(document.body.textContent).not.toMatch(/gem_cap_raw|price/);
+  });
+
+  it("[8] W-8: ชื่อที่ 'ใช้ตัวเดิมให้' ซ้ำหลายแถว → แสดงครั้งเดียว (ไม่มี key ซ้ำ/ข้อความซ้ำ)", async () => {
+    const err = vi.spyOn(console, "error").mockImplementation(() => {});
+    intakeOpen.mockResolvedValue(okResult({ gem: { count: 2, total: 100, state: "specified", createdTypes: [], createdShapes: [], reused: [{ row: 1, kind: "type", typed: "cz", name: "CZ" }, { row: 2, kind: "type", typed: "cz", name: "CZ" }], mergedRows: [] } }));
+    render(<ShopIntakeApp token={TOKEN} initial={readyHub()} />);
+    await toGems();
+    await answerHas();
+    await fillRound(1);
+    await toReviewFromGems();
+    await click("เปิดงาน");
+    await screen.findByRole("heading", { level: 1, name: /เปิดงานแล้ว JB-0031/ });
+    expect(within(screen.getByTestId("done-gems")).getAllByText(/ใช้ตัวเดิม “CZ” ให้/)).toHaveLength(1);
+    expect(err.mock.calls.some((c) => String(c[0]).includes("same key"))).toBe(false);
+    err.mockRestore();
+  });
+});

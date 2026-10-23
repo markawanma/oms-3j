@@ -7,7 +7,7 @@
 import type { IntakeGemsInput } from "@/lib/actions/job-worker";
 import type { GemOptions } from "@/lib/jobs/gems";
 import type { GemForceItem } from "@/lib/jobs/gem-wire";
-import type { GemSimilar, GemState, IntakeGemLine, IntakeGemSummary } from "@/lib/jobs/worker-server";
+import type { GemSimilar, GemState, IntakeGemLine, IntakeGemSetResult, IntakeGemSummary, IntakeJobGems } from "@/lib/jobs/worker-server";
 import { draftRowsToInputs, draftTotals, emptyGemRow, findDuplicateRows, gemRowIssues, parseGemQty, rowIncompleteReason, rowLabelPreview } from "@/lib/jobs/gem-draft";
 import type { GemDraftRow } from "@/lib/jobs/gem-draft";
 import { GEM_LIMITS, gemSizeLabel, normalizeGemName } from "@/lib/jobs/shop-gems";
@@ -31,8 +31,6 @@ export const SHOP_GEM_TH = {
   catalogError: "โหลดรายการพลอยไม่ได้ — พิมพ์ชื่อเองได้ แต่ระบบยังเช็คชื่อซ้ำให้ไม่ได้",
   retry: "ลองอีกครั้ง",
   loadingCatalog: "กำลังโหลดรายการพลอย",
-  /** ใบถูกเปิดโดย session หมดเวลา — ผู้ใช้ใส่ PIN แล้วกลับมาที่จอเดิม */
-  sessionLost: "หมดเวลาแล้ว — ใส่ PIN ใหม่ แล้วกดอีกครั้ง",
   reviewNewNames: "ชื่อใหม่จะเข้ารายการพลอยของร้านเมื่อเปิดงาน",
   reviewNone: "ไม่มี",
   addRow: "เพิ่มพลอย",
@@ -45,7 +43,8 @@ export const SHOP_GEM_TH = {
   onlyThisJob: "เฉพาะใบนี้",
   // W-10
   editTitle: (jobNo: string) => `แก้ ${jobNo}`,
-  w10EditableBar: "แก้ได้จนช่างเริ่มรับงาน",
+  /** แถบ ✎ ของส่วนพลอย (ไม่ซ้ำข้อความกับแถบของส่วนรูป "แก้ได้จนช่างเริ่มรับงาน") */
+  w10EditableBar: "แก้พลอยได้จนช่างเริ่มรับงาน",
   w10EmptyEditable: "ใบนี้ไม่มีพลอย — เพิ่มได้จนช่างเริ่มรับงาน",
   w10EmptyLocked: "ใบนี้ไม่มีพลอย",
   w10Unspecified: "ยังไม่ระบุพลอย",
@@ -254,19 +253,29 @@ export interface GemFailView {
   focusField: string | null;
 }
 
+/** แถวที่ผู้ใช้กรอกอะไรไว้แล้ว (แถวเปล่าที่เพิ่งกด "มีพลอย" ไม่นับ — ล้าง/แทนด้วยแม่แบบได้โดยไม่ต้องถาม) */
+export const gemRowHasContent = (r: GemDraftRow): boolean => r.itemId !== null || r.type !== null || r.shape !== null || r.sizeA.trim() !== "" || r.sizeB.trim() !== "" || r.qty.trim() !== "" || r.position.trim() !== "";
+
+/** ช่องที่ควร focus ของแถวที่ยังไม่ครบ (ช่องแรกที่ผิดจริง — ใช้ร่วม W-4 และแผ่นแก้) · size_big → ช่องขนาดแรก · ไม่ผิด = null */
+export function issueFocusField(row: GemDraftRow | undefined): string | null {
+  if (!row) return null;
+  const f = gemRowIssues(row)[0]?.field ?? null;
+  return f === "size_big" ? "size_a" : f;
+}
+
 /** "พลอยแถว 2: …" → "…" (หัวแถวจอแสดงเอง — กันขึ้นซ้ำสองชั้น) */
 export const stripRowPrefix = (message: string): string => message.replace(/^พลอยแถว\s*\d+\s*[:：]\s*/, "");
 
-export function interpretIntakeGemFail(r: IntakeGemFailLike, rows: readonly GemDraftRow[]): GemFailView {
+export function interpretIntakeGemFail(r: IntakeGemFailLike, rows: readonly GemDraftRow[], sanitize: (message: string) => string = (m) => m): GemFailView {
   const none: GemFailView = { rowErrors: {}, generalError: null, similar: null, focusRowKey: null, focusField: null };
   if (r.similar && r.similar.length > 0) return { ...none, similar: r.similar[0] };
   const row = r.gem?.row;
   if (typeof row === "number" && Number.isInteger(row) && row >= 1 && row <= rows.length) {
     const key = rows[row - 1].key;
     const field = r.gem?.field ?? null;
-    return { ...none, rowErrors: { [key]: { field, message: stripRowPrefix(r.error) } }, focusRowKey: key, focusField: field };
+    return { ...none, rowErrors: { [key]: { field, message: sanitize(stripRowPrefix(r.error)) } }, focusRowKey: key, focusField: field };
   }
-  return { ...none, generalError: r.error };
+  return { ...none, generalError: sanitize(r.error) };
 }
 
 /** id ของช่องในแถว (focus จากผล error) — field ของ DB: type · shape · size_a · size_b · qty_per_piece · position · อื่นๆ = ช่องแรกของแถว */
@@ -300,7 +309,11 @@ export function gemFieldDomId(idPrefix: string, rowKey: string, field: string | 
  */
 export function gemSummaryNotices(g: Pick<IntakeGemSummary, "createdTypes" | "createdShapes" | "reused" | "mergedRows">): string[] {
   const out: string[] = [];
-  for (const x of g.reused) out.push(`${x.kind === "type" ? "ชนิด" : "รูปทรง"} “${x.typed}” มีในระบบอยู่แล้ว — ใช้ตัวเดิม “${x.name}” ให้`);
+  // หลายแถวพิมพ์ชื่อเดียวกัน (ขนาดต่าง) ถูก "ใช้ตัวเดิมให้" ทั้งคู่ → ข้อความเดียวกัน แสดงครั้งเดียว (ไม่ซ้ำ — ใช้เป็น key ของ React ได้)
+  for (const x of g.reused) {
+    const m = `${x.kind === "type" ? "ชนิด" : "รูปทรง"} “${x.typed}” มีในระบบอยู่แล้ว — ใช้ตัวเดิม “${x.name}” ให้`;
+    if (!out.includes(m)) out.push(m);
+  }
   const groups = g.mergedRows.filter((m) => m.length >= 2);
   if (groups.length > 0) {
     const n = groups.reduce((s, m) => s + m.length - 1, 0);
@@ -323,8 +336,11 @@ export function myJobGemLine(j: { gemState: GemState | null; gemCount: number; g
   return null;
 }
 
-/** ข้อความล็อกของ W-10 จาก lockCode ที่ DB ส่งมา (หรือไม่มีขั้นฝัง) — null = แก้ได้ */
-export function gemLockMessage(lockCode: string | null, hasGemStage: boolean): string | null {
+/**
+ * ข้อความล็อกของ W-10 จาก lockCode ที่ DB ส่งมา (หรือไม่มีขั้นฝัง) — null = แก้ได้
+ * editable = DB บอกว่าแก้ได้ไหม: false แต่ไม่มี lockCode ที่รู้จัก = ยังต้องมีเหตุผลเสมอ (ไม่ปล่อยให้ปุ่มหายเงียบๆ)
+ */
+export function gemLockMessage(lockCode: string | null, hasGemStage: boolean, editable = true): string | null {
   switch (lockCode) {
     case "job_locked":
       return SHOP_GEM_TH.lockedStarted;
@@ -336,8 +352,33 @@ export function gemLockMessage(lockCode: string | null, hasGemStage: boolean): s
     case "no_gem_stage":
       return SHOP_GEM_TH.noGemStage;
     default:
-      return hasGemStage ? null : SHOP_GEM_TH.noGemStage;
+      if (!hasGemStage) return SHOP_GEM_TH.noGemStage;
+      return editable ? null : SHOP_GEM_TH.lockedNotOpen;
   }
+}
+
+/**
+ * ผลบันทึกพลอยสำเร็จ → ข้อมูล W-10 ใหม่ทันที (rev + แถวจากผลบันทึก) — ไม่พึ่งการโหลดซ้ำ (โหลดซ้ำล้ม = ไม่ค้างค่าเก่า/rev เก่า ที่จะชน gem_conflict รอบถัดไป)
+ * ชนิด/รูปทรง/ขนาดของแถวเดิมคงจากข้อมูลก่อนหน้า (ผลบันทึกไม่ส่งมา) — แถวใหม่ไม่มี (โหลดซ้ำเงียบๆ ตามมาเติมให้)
+ */
+export function applySavedGems(prev: IntakeJobGems, saved: Pick<IntakeGemSetResult, "lines" | "rev" | "state">): IntakeJobGems {
+  const old = new Map(prev.lines.map((l) => [l.gemItemId, l]));
+  const lines = saved.lines.map((l) => {
+    const o = old.get(l.gemItemId);
+    return {
+      gemItemId: l.gemItemId, label: l.label, qtyPerPiece: l.qtyPerPiece, qtyTotal: l.qtyTotal, position: l.position,
+      typeId: o?.typeId ?? null, typeName: o?.typeName ?? null, shapeId: o?.shapeId ?? null, shapeName: o?.shapeName ?? null, hasLength: o?.hasLength ?? null, sizeA: o?.sizeA ?? null, sizeB: o?.sizeB ?? null,
+    };
+  });
+  return { ...prev, lines, rev: saved.rev, state: saved.state };
+}
+
+/** ป้ายสถานะการ์ด W-9: บอกว่าแก้อะไรได้ (รูป/พลอย) — ใบ "ไม่มีพลอย" (gemEditable=false) ต้องไม่ทำให้เข้าใจว่าแก้พลอยได้ */
+export function myJobEditBadge(j: { editable: boolean; gemEditable: boolean }): { editable: boolean; text: string } {
+  if (j.editable && j.gemEditable) return { editable: true, text: "แก้รูป·พลอยได้" };
+  if (j.editable) return { editable: true, text: "แก้รูปได้" };
+  if (j.gemEditable) return { editable: true, text: "แก้พลอยได้" };
+  return { editable: false, text: "แก้ไม่ได้ตอนนี้" };
 }
 
 /** code ล้มของ intakeSetJobGems ที่แปลว่า "ถูกล็อกแล้ว" (ปิดแผ่นแก้ + แสดงข้อความล็อก) */

@@ -155,8 +155,8 @@ export function ShopOpenSuccess({
             </p>
           )}
           {result.gem.state === "unspecified" && <p className="text-lg font-semibold text-amber-900">⚑ {SHOP_GEM_TH.w10Unspecified}</p>}
-          {gemSummaryNotices(result.gem).map((m) => (
-            <p key={m} role="note" className="rounded-xl border-2 border-sky-300 bg-sky-50 p-3 text-left text-base text-sky-950">
+          {gemSummaryNotices(result.gem).map((m, i) => (
+            <p key={`${i}-${m}`} role="note" className="rounded-xl border-2 border-sky-300 bg-sky-50 p-3 text-left text-base text-sky-950">
               ⓘ {m}
             </p>
           ))}

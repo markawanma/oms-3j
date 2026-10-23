@@ -12,7 +12,7 @@ import { intakeJobGems } from "@/lib/actions/job-worker";
 import { BigButton } from "@/components/domain/jobs/worker/WorkerParts";
 import { ShopGemEditSheet } from "@/components/domain/jobs/worker/shop/ShopGemEditSheet";
 import type { GemSheetClose } from "@/components/domain/jobs/worker/shop/ShopGemEditSheet";
-import { SHOP_GEM_TH, gemLineText, gemLockMessage, gemSummaryNotices } from "@/lib/jobs/shop-gem-flow";
+import { SHOP_GEM_TH, applySavedGems, gemLineText, gemLockMessage, gemSummaryNotices } from "@/lib/jobs/shop-gem-flow";
 import type { IntakeJobGems } from "@/lib/jobs/worker-server";
 import type { MyIntakeJob } from "@/lib/jobs/shop-photo-server";
 
@@ -52,7 +52,8 @@ export function ShopJobGemsSection({ token, job, onSessionLost }: { token: strin
       }
       if (silent) return; // โหลดซ้ำเงียบๆ ล้ม — ข้อมูลเดิมยังอยู่ (บันทึกจริง DB ตรวจซ้ำ)
       if (r !== null && r.code === "session_required") lost.current();
-      setLoad({ kind: "error", message: SHOP_GEM_TH.w10LoadError });
+      // ใบของคนอื่น/ออฟฟิศ/ส่วนย่อย (order_not_found) = บอกเหตุผลตรงๆ ไม่ใช่ "เช็คสัญญาณ"
+      setLoad({ kind: "error", message: r !== null && r.code === "order_not_found" ? SHOP_GEM_TH.notOwner : SHOP_GEM_TH.w10LoadError });
     },
     [token, job.jobId],
   );
@@ -69,7 +70,9 @@ export function ShopJobGemsSection({ token, job, onSessionLost }: { token: strin
     setSheet(false);
     setTimeout(() => openBtn.current?.focus(), 0);
     if (r.kind === "saved") {
-      setNotes([SHOP_GEM_TH.w10Saved, ...gemSummaryNotices(r.summary)]);
+      setNotes([SHOP_GEM_TH.w10Saved, ...gemSummaryNotices(r.result.summary)]);
+      // ตั้งค่าจากผลบันทึกทันที (rev ใหม่ + แถวใหม่) แล้วค่อยโหลดซ้ำเงียบๆ — โหลดซ้ำล้มก็ไม่ค้างค่าเก่า/rev เก่า
+      setLoad((cur) => (cur.kind === "ready" ? { kind: "ready", data: applySavedGems(cur.data, r.result) } : cur));
       void loadGems(true);
     } else if (r.kind === "locked") {
       setNotes([]);
@@ -113,7 +116,7 @@ export function ShopJobGemsSection({ token, job, onSessionLost }: { token: strin
       {notes.length > 0 && (
         <div role="status" className="space-y-1" data-testid="shop-jobgems-notes">
           {notes.map((m, i) => (
-            <p key={m} className={i === 0 ? "text-lg font-semibold text-green-800" : "rounded-xl border-2 border-sky-300 bg-sky-50 p-3 text-base text-sky-950"}>
+            <p key={`${i}-${m}`} className={i === 0 ? "text-lg font-semibold text-green-800" : "rounded-xl border-2 border-sky-300 bg-sky-50 p-3 text-base text-sky-950"}>
               {i === 0 ? "✓ " : "ⓘ "}
               {m}
             </p>
@@ -127,7 +130,8 @@ export function ShopJobGemsSection({ token, job, onSessionLost }: { token: strin
 }
 
 function Body({ data, lockNow, openBtn, onEdit }: { data: IntakeJobGems; lockNow: string | null; openBtn: RefObject<HTMLButtonElement>; onEdit: () => void }) {
-  const lock = lockNow !== null ? gemLockMessage(lockNow, data.hasGemStage) : gemLockMessage(data.lockCode, data.hasGemStage);
+  // ทุกกรณีที่แก้ไม่ได้ต้องมีเหตุผลบนจอ (DB บอกไม่ได้แต่ไม่มี lockCode ที่รู้จัก = "ไม่อยู่ในสถานะที่แก้พลอยได้")
+  const lock = gemLockMessage(lockNow ?? data.lockCode, data.hasGemStage, data.editable && lockNow === null);
   const editable = data.editable && lockNow === null && lock === null;
   return (
     <>
@@ -148,6 +152,12 @@ function Body({ data, lockNow, openBtn, onEdit }: { data: IntakeJobGems; lockNow
       ) : (
         <p className="text-lg text-zinc-900" data-testid="shop-jobgems-empty">
           {editable ? SHOP_GEM_TH.w10EmptyEditable : SHOP_GEM_TH.w10EmptyLocked}
+        </p>
+      )}
+
+      {editable && (
+        <p role="note" className="rounded-xl border-2 border-sky-300 bg-sky-50 p-3 text-lg font-semibold text-sky-950" data-testid="shop-jobgems-editable">
+          ✎ {SHOP_GEM_TH.w10EditableBar}
         </p>
       )}
 

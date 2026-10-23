@@ -1,6 +1,6 @@
 // lib/text/invisible.ts — อักขระล่องหน/bidi/zero-width (leaf module · ไม่มี import · ใช้ได้ทั้งฝั่งออฟฟิศและกราฟสาธารณะของหน้างาน)
 // แยกออกมาจาก lib/oem/display.ts (W3 UI): lib/jobs/shop-gems.ts (ตัวตรวจชื่อพลอย) ต้องอยู่ในกราฟหน้า /w/s/ ซึ่งห้ามลาก lib/oem/* (worker-boundary.shop.test)
-// lib/oem/display.ts re-export ของเดิมทุกตัว — import เดิมใช้ต่อได้ · ค่า regex ย้ายมาทั้งก้อน ไม่แก้ (มีเทสต์ lib/text/invisible.test.ts เทียบกับที่ฝัง)
+// lib/oem/display.ts re-export ของเดิมทุกตัว — import เดิมใช้ต่อได้ · ค่า regex ย้ายมาทั้งก้อน ไม่แก้ (เทสต์ lib/text/invisible.test.ts ล็อก identity ของ re-export + พฤติกรรมลบ/ไม่ลบ + ไม่มี import)
 
 /** 0165: อักขระล่องหน/bidi/zero-width ที่ห้ามอยู่ในข้อความที่ขึ้นเอกสาร (ชื่อลูกค้า/ช่องทางติดต่อ/เหตุผลราคาพิเศษ/ชื่อพลอย)
  * ชุดเดียวกับ analytics.oem_text_strip_invisible (0165) — แก้ที่หนึ่งต้องแก้อีกที่ · ไม่รวม U+FE00-FE0F (emoji VS16)

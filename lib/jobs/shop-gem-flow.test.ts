@@ -5,8 +5,8 @@ import { describe, expect, it } from "vitest";
 import { emptyGemRow } from "@/lib/jobs/gem-draft";
 import type { GemDraftRow } from "@/lib/jobs/gem-draft";
 import {
-  GEM_LOCK_CODES, SHOP_GEM_TH, addForce, emptyShopGems, gemFieldDomId, gemLineText, gemLockMessage, gemOptionsOf, gemReviewOf, gemStepIssue, gemSummaryNotices, gemsInputOf, interpretIntakeGemFail,
-  isGemConflict, isTemplateUntouched, myJobGemLine, pruneForce, rowFromIntakeLine, seedFromTemplate, stripRowPrefix,
+  GEM_LOCK_CODES, SHOP_GEM_TH, addForce, applySavedGems, emptyShopGems, gemFieldDomId, gemLineText, gemLockMessage, gemOptionsOf, gemReviewOf, gemRowHasContent, gemStepIssue, gemSummaryNotices, gemsInputOf,
+  interpretIntakeGemFail, isGemConflict, isTemplateUntouched, issueFocusField, myJobEditBadge, myJobGemLine, pruneForce, rowFromIntakeLine, seedFromTemplate, stripRowPrefix,
 } from "@/lib/jobs/shop-gem-flow";
 import type { ShopGemState } from "@/lib/jobs/shop-gem-flow";
 import type { IntakeGemLine } from "@/lib/jobs/worker-server";
@@ -219,5 +219,55 @@ describe("🔴 ข้อความของพลอยบนหน้าง�
   it("SHOP_GEM_TH ทุกข้อความ", () => {
     const all = JSON.stringify(Object.values(SHOP_GEM_TH).map((v) => (typeof v === "function" ? v(1 as never) : v)));
     expect(all).not.toMatch(/บาท|฿|ราคา|ต้นทุน|margin|price|cost|เผื่อแตก/i);
+  });
+});
+
+describe("รอบแก้ review/QA 24 ต.ค. — pure", () => {
+  it("myJobEditBadge: รูปอย่างเดียว · พลอยอย่างเดียว · ทั้งคู่ · ล็อก — ใบ 'ไม่มีพลอย' (gemEditable=false) ไม่ทำให้เข้าใจว่าแก้พลอยได้", () => {
+    expect(myJobEditBadge({ editable: true, gemEditable: false })).toEqual({ editable: true, text: "แก้รูปได้" });
+    expect(myJobEditBadge({ editable: true, gemEditable: true })).toEqual({ editable: true, text: "แก้รูป·พลอยได้" });
+    expect(myJobEditBadge({ editable: false, gemEditable: true })).toEqual({ editable: true, text: "แก้พลอยได้" });
+    expect(myJobEditBadge({ editable: false, gemEditable: false })).toEqual({ editable: false, text: "แก้ไม่ได้ตอนนี้" });
+  });
+  it("gemLockMessage: DB บอกแก้ไม่ได้แต่ไม่มี lockCode ที่รู้จัก = ยังมีเหตุผลเสมอ (ไม่ปล่อยปุ่มหายเงียบๆ) · แก้ได้ = null", () => {
+    expect(gemLockMessage(null, true, false)).toBe(SHOP_GEM_TH.lockedNotOpen);
+    expect(gemLockMessage("อะไรสักอย่าง", true, false)).toBe(SHOP_GEM_TH.lockedNotOpen);
+    expect(gemLockMessage(null, true, true)).toBeNull();
+    expect(gemLockMessage(null, true)).toBeNull();
+  });
+  it("applySavedGems: ใช้ rev/แถวจากผลบันทึกทันที · แถวเดิมคงชนิด/รูปทรง/ขนาด · แถวใหม่ไม่มี (โหลดซ้ำเติมให้) · field อื่นของใบไม่เปลี่ยน", () => {
+    const prev = { job: { jobId: "j", jobNo: "JB-0001", designLabel: "x", status: "open", qtyPlanned: 35 }, state: "specified" as const, editable: true, lockCode: null, hasGemStage: true, rev: "a".repeat(32), maxLines: 30, lines: [{ ...line(), qtyTotal: 70 }] };
+    const out = applySavedGems(prev, { rev: "b".repeat(32), state: "specified", lines: [{ gemItemId: I1, label: "โกเมน · ไข่ · 4×6 มม.", qtyPerPiece: 5, qtyTotal: 175, position: null }, { gemItemId: I2, label: "CZ · กลม · 1.5 มม.", qtyPerPiece: 1, qtyTotal: 35, position: "ล้อมรอบ" }] });
+    expect(out.rev).toBe("b".repeat(32));
+    expect(out.lines.map((l) => [l.gemItemId, l.qtyPerPiece, l.qtyTotal, l.position])).toEqual([[I1, 5, 175, null], [I2, 1, 35, "ล้อมรอบ"]]);
+    expect(out.lines[0]).toMatchObject({ typeId: T1, shapeId: S2, sizeA: 4, sizeB: 6 });
+    expect(out.lines[1]).toMatchObject({ typeId: null, sizeA: null });
+    expect(out).toMatchObject({ editable: true, hasGemStage: true, job: prev.job });
+  });
+  it("gemSummaryNotices: ชื่อที่ถูก 'ใช้ตัวเดิมให้' ซ้ำหลายแถว → ข้อความไม่ซ้ำ (ใช้เป็น key ได้)", () => {
+    const n = gemSummaryNotices({ createdTypes: [], createdShapes: [], reused: [{ row: 1, kind: "type", typed: "cz", name: "CZ" }, { row: 2, kind: "type", typed: "cz", name: "CZ" }], mergedRows: [] });
+    expect(n).toEqual(["ชนิด “cz” มีในระบบอยู่แล้ว — ใช้ตัวเดิม “CZ” ให้"]);
+  });
+  it("gemRowHasContent: แถวเปล่าไม่นับ · มีอะไรสักอย่างนับ", () => {
+    expect(gemRowHasContent(emptyGemRow("manual"))).toBe(false);
+    expect(gemRowHasContent({ ...emptyGemRow("manual"), qty: "1" })).toBe(true);
+    expect(gemRowHasContent({ ...emptyGemRow("manual"), position: " " })).toBe(false);
+    expect(gemRowHasContent(rowFromIntakeLine(line(), "template"))).toBe(true);
+  });
+  it("issueFocusField: ช่องแรกที่ขาดจริง (ชนิด → รูปทรง → ขนาด → จำนวน) · ขนาดใหญ่ผิดปกติ → ช่องขนาด · ครบ = null", () => {
+    const r = emptyGemRow("manual");
+    expect(issueFocusField(r)).toBe("type");
+    expect(issueFocusField({ ...r, type: { kind: "existing", id: T1, name: "โกเมน" } })).toBe("shape");
+    expect(issueFocusField({ ...done(), shape: done().shape, sizeA: "" })).toBe("size_a");
+    expect(issueFocusField({ ...done(), qty: "" })).toBe("qty_per_piece");
+    expect(issueFocusField(done({ sizeA: "35" }))).toBe("size_a");
+    expect(issueFocusField(done())).toBeNull();
+    expect(issueFocusField(undefined)).toBeNull();
+  });
+  it("interpretIntakeGemFail: sanitize ครอบทั้งข้อความแถวและข้อความทั้งขั้น", () => {
+    const rows = [done()];
+    const s = (m: string) => (m.includes("_") ? "กลาง" : m);
+    expect(interpretIntakeGemFail({ error: "พลอยแถว 1: gem_x_y", gem: { code: "x", row: 1, field: "type" } }, rows, s).rowErrors[rows[0].key].message).toBe("กลาง");
+    expect(interpretIntakeGemFail({ error: "raw_code" }, rows, s).generalError).toBe("กลาง");
   });
 });

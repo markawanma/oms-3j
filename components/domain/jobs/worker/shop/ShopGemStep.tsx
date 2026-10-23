@@ -7,32 +7,28 @@
 //  - 4 state: loading (catalog — กรอกได้ทันทีไม่รอ) · empty (ยังไม่ตอบ / ไม่มีพลอย) · error (catalog โหลดไม่ได้ ไม่บล็อก · error ต่อแถว/ทั้งขั้น) · success (แถวพับ + รวม + ถัดไป)
 //  - 🔴 ไม่มีตัวเลขเงิน/ราคา · state อยู่ใน ShopForm.gems (ผู้เรียกถือ) — จอนี้ไม่เรียก server เอง (catalog มาจาก useShopGemCatalog ของผู้เรียก)
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
-import { Modal } from "@/components/ui/Modal";
 import { BigButton } from "@/components/domain/jobs/worker/WorkerParts";
 import { StickyAction } from "@/components/domain/jobs/worker/WorkerPanels";
+import { ShopConfirmBox } from "@/components/domain/jobs/worker/shop/ShopConfirmBox";
 import { ShopGemEditor } from "@/components/domain/jobs/worker/shop/ShopGemEditor";
 import type { ShopGemFocusRequest } from "@/components/domain/jobs/worker/shop/ShopGemEditor";
-import type { ShopGemCatalogState } from "@/components/domain/jobs/worker/shop/useShopGemCatalog";
-import { useFocusAfterOpen } from "@/components/domain/gems/ui";
-import { emptyGemRow, gemRowIssues } from "@/lib/jobs/gem-draft";
+import type { ShopGemCatalog } from "@/components/domain/jobs/worker/shop/useShopGemCatalog";
+import { emptyGemRow } from "@/lib/jobs/gem-draft";
 import type { GemDraftRow } from "@/lib/jobs/gem-draft";
-import { SHOP_GEM_TH, addForce, gemOptionsOf, gemStepIssue, pruneForce, seedFromTemplate } from "@/lib/jobs/shop-gem-flow";
+import { SHOP_GEM_TH, addForce, gemRowHasContent, gemStepIssue, issueFocusField, pruneForce, seedFromTemplate } from "@/lib/jobs/shop-gem-flow";
 import type { GemAnswer, GemRowErrors } from "@/lib/jobs/shop-gem-flow";
 import { plannedQtyOf } from "@/lib/jobs/shop-open";
 import type { ShopForm } from "@/lib/jobs/shop-open";
 
 const ID_PREFIX = "shop-gem";
 const fmt = (n: number) => n.toLocaleString("en-US");
-/** แถวที่ผู้ใช้กรอกอะไรไว้แล้ว (แถวเปล่าที่เพิ่งกด "มีพลอย" ไม่นับ — ล้างได้โดยไม่ต้องถาม) */
-const hasContent = (r: GemDraftRow): boolean => r.itemId !== null || r.type !== null || r.shape !== null || r.sizeA.trim() !== "" || r.sizeB.trim() !== "" || r.qty.trim() !== "" || r.position.trim() !== "";
 
 export function ShopGemStep({
   form,
   setForm,
   catalog,
-  onReloadCatalog,
   onNext,
   serverErrors,
   generalError,
@@ -41,8 +37,8 @@ export function ShopGemStep({
 }: {
   form: ShopForm;
   setForm: Dispatch<SetStateAction<ShopForm>>;
-  catalog: ShopGemCatalogState;
-  onReloadCatalog: () => void;
+  /** รายการชนิด/รูปทรง/แม่แบบ (ผู้เรียกถือ — ไม่โหลดซ้ำทุกครั้งที่กลับมาขั้นนี้) */
+  catalog: ShopGemCatalog;
   onNext: () => void;
   /** error ต่อแถวที่ server ปฏิเสธตอนกด "เปิดงาน" (key ของแถว) */
   serverErrors: GemRowErrors;
@@ -63,16 +59,22 @@ export function ShopGemStep({
   const radioRef = useRef<HTMLButtonElement>(null);
   const planned = plannedQtyOf(form);
 
-  const ready = catalog.s === "ready" ? catalog.data : null;
-  const options = useMemo(() => (ready ? gemOptionsOf(ready.types, ready.shapes, ready.template) : null), [ready]);
-  const optionsState: "loading" | "error" | "ready" = catalog.s === "ready" ? "ready" : catalog.s === "error" ? "error" : "loading";
+  const { options, optionsState } = catalog;
+  const ready = catalog.state.s === "ready" ? catalog.state.data : null;
+  const onReloadCatalog = catalog.reload;
 
   // SKU ที่มีแม่แบบ: เริ่ม "มีพลอย" + แถวจากแม่แบบ (ครั้งเดียวต่อ SKU — seed ล้างเมื่อเปลี่ยนสินค้า) · ไม่มีแม่แบบ = ไม่มีค่าเริ่ม
+  // แม่แบบมาช้า: ผู้ใช้กด "มีพลอย" ไปก่อน catalog โหลดเสร็จ (ได้แถวเปล่า) → เติมแม่แบบเมื่อมาถึง ถ้ายังมีแต่แถวเปล่าที่ไม่ได้กรอก (ไม่ทับสิ่งที่พิมพ์ · ไม่ทับ "ไม่มีพลอย")
+  // แถวเท่าแม่แบบเป๊ะ = ส่ง "template" (ไม่ใช่ has แทนเงียบๆ) — seed เป็นตัวบอก (isTemplateUntouched)
+  const blank = g.rows.every((r) => !gemRowHasContent(r));
   useEffect(() => {
-    if (ready && productId !== null && g.answer === "unset" && g.seed === null && ready.hasTemplate && ready.template.length > 0) {
-      setForm((f) => (f.gems.answer === "unset" && f.gems.seed === null && f.mode === "sku" && f.product?.id === productId ? { ...f, gems: seedFromTemplate(productId, ready.template) } : f));
-    }
-  }, [ready, productId, g.answer, g.seed, setForm]);
+    if (!ready || productId === null || g.seed !== null || !ready.hasTemplate || ready.template.length === 0) return;
+    const seedable = (gs: ShopForm["gems"]) => gs.seed === null && (gs.answer === "unset" || (gs.answer === "has" && gs.rows.every((r) => !gemRowHasContent(r))));
+    if (!seedable(g)) return;
+    setForm((f) => (seedable(f.gems) && f.mode === "sku" && f.product?.id === productId ? { ...f, gems: seedFromTemplate(productId, ready.template) } : f));
+    // g เป็นวัตถุใหม่ทุก render — ใช้ field ที่ตัดสินจริงเป็น dependency
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ready, productId, g.answer, g.seed, blank, setForm]);
 
   function setRows(rows: GemDraftRow[]) {
     setForm((f) => ({ ...f, gems: { ...f.gems, rows, force: pruneForce(f.gems.force, rows) } }));
@@ -105,7 +107,7 @@ export function ShopGemStep({
       setChanging(false);
       return;
     }
-    if (g.rows.some(hasContent)) setConfirmClear(true);
+    if (g.rows.some(gemRowHasContent)) setConfirmClear(true);
     else applyNone();
   }
 
@@ -119,9 +121,7 @@ export function ShopGemStep({
       return;
     }
     if (issue.rowKey) {
-      const row = g.rows.find((r) => r.key === issue.rowKey);
-      const f = row ? (gemRowIssues(row)[0]?.field ?? null) : null;
-      setLocalFocus({ rowKey: issue.rowKey, field: f === "size_big" ? "size_a" : f, nonce: ++nonce.current });
+      setLocalFocus({ rowKey: issue.rowKey, field: issueFocusField(g.rows.find((r) => r.key === issue.rowKey)), nonce: ++nonce.current });
       return;
     }
     radioRef.current?.focus();
@@ -174,13 +174,13 @@ export function ShopGemStep({
         )}
 
         {/* รายการพลอยของร้าน/แม่แบบ SKU กำลังโหลด หรือโหลดไม่ได้ — บอกตั้งแต่ยังไม่ได้ตอบ (SKU ที่มีแม่แบบจะได้แถวมาให้หลังโหลดเสร็จ) · ไม่บล็อกการตอบ (ตอนตอบ "มีพลอย" ตัวแก้แสดงสถานะเดียวกันเอง) */}
-        {g.answer !== "has" && (catalog.s === "idle" || catalog.s === "loading") && (
+        {g.answer !== "has" && (catalog.state.s === "idle" || catalog.state.s === "loading") && (
           <div role="status" aria-label={SHOP_GEM_TH.loadingCatalog} className="space-y-2" data-testid="shop-gem-catalog-loading">
             <div className="h-5 w-56 animate-pulse rounded bg-zinc-200" />
             <span className="sr-only">{SHOP_GEM_TH.loadingCatalog}…</span>
           </div>
         )}
-        {g.answer !== "has" && catalog.s === "error" && (
+        {g.answer !== "has" && catalog.state.s === "error" && (
           <div role="status" className="space-y-2 rounded-xl border-2 border-amber-300 bg-amber-50 p-3 text-amber-950" data-testid="shop-gem-catalog-error">
             <p className="text-lg font-semibold">{SHOP_GEM_TH.catalogError}</p>
             <button type="button" onClick={onReloadCatalog} className="min-h-12 rounded-xl border-2 border-amber-600 bg-white px-5 text-lg font-bold focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary-300">
@@ -240,28 +240,10 @@ export function ShopGemStep({
         </BigButton>
       </StickyAction>
 
-      {confirmClear && <ClearConfirm count={g.rows.filter(hasContent).length} onClear={applyNone} onKeep={() => setConfirmClear(false)} />}
+      {/* ล้างพลอยออกจากใบ — focus เริ่มที่ปุ่มปลอดภัย "ไม่ล้าง" */}
+      {confirmClear && (
+        <ShopConfirmBox title={SHOP_GEM_TH.clearConfirmTitle} body={SHOP_GEM_TH.clearConfirm(g.rows.filter(gemRowHasContent).length)} safe={SHOP_GEM_TH.clearNo} risky={SHOP_GEM_TH.clearYes} onSafe={() => setConfirmClear(false)} onRisky={applyNone} testId="shop-gem-clear-confirm" />
+      )}
     </>
-  );
-}
-
-/** กล่องยืนยันก่อนล้างพลอยออกจากใบ — focus เริ่มที่ปุ่มปลอดภัย "ไม่ล้าง" */
-function ClearConfirm({ count, onClear, onKeep }: { count: number; onClear: () => void; onKeep: () => void }) {
-  const safe = useRef<HTMLButtonElement>(null);
-  useFocusAfterOpen(safe);
-  return (
-    <Modal open onClose={onKeep} title={SHOP_GEM_TH.clearConfirmTitle}>
-      <div className="space-y-3" data-testid="shop-gem-clear-confirm">
-        <p className="text-lg text-zinc-900">{SHOP_GEM_TH.clearConfirm(count)}</p>
-        <div className="flex flex-col gap-2">
-          <button ref={safe} type="button" onClick={onKeep} className="inline-flex min-h-14 w-full items-center justify-center rounded-xl bg-primary-600 px-5 text-xl font-bold text-white focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary-300">
-            {SHOP_GEM_TH.clearNo}
-          </button>
-          <BigButton type="button" tone="secondary" onClick={onClear}>
-            {SHOP_GEM_TH.clearYes}
-          </BigButton>
-        </div>
-      </div>
-    </Modal>
   );
 }

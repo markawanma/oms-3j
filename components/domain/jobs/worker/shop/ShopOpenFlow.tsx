@@ -8,15 +8,15 @@
 //   • token ใบงานดิบ (QR) อยู่ใน state นี้เท่านั้น — ไม่เขียน storage/URL/log · ออกจากจอสำเร็จ = หาย
 //   • ไม่มีตัวเลขเงิน/ราคา · ไม่มีลิงก์ออกนอกแอปช่าง
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { intakeOpen } from "@/lib/actions/job-worker";
 import { bkkDateOf } from "@/lib/jobs/dates";
 import {
-  MSG_NETWORK, backToSearch, buildIntakeInput, newForm, newIdemKey, purityLabel, shopErrorView, shopOpenIssues, stepProgress, stepsFor,
+  MSG_GEM_GENERIC, MSG_NETWORK, backToSearch, buildIntakeInput, isCleanMessage, newForm, newIdemKey, purityLabel, shopErrorView, shopOpenIssues, stepProgress, stepsFor,
 } from "@/lib/jobs/shop-open";
 import type { ShopErrorView, ShopFieldKey, ShopForm, ShopStep } from "@/lib/jobs/shop-open";
 import type { GemDraftRow } from "@/lib/jobs/gem-draft";
-import { addForce, gemOptionsOf, gemStepIssue, interpretIntakeGemFail, pruneForce } from "@/lib/jobs/shop-gem-flow";
+import { addForce, gemStepIssue, interpretIntakeGemFail, pruneForce } from "@/lib/jobs/shop-gem-flow";
 import type { GemRowErrors } from "@/lib/jobs/shop-gem-flow";
 import type { GemForceItem } from "@/lib/jobs/gem-wire";
 import type { GemSimilar, IntakeOpenResult } from "@/lib/jobs/worker-server";
@@ -84,8 +84,6 @@ export function ShopOpenFlow({
   // รายการชนิด/รูปทรง/แม่แบบ SKU: โหลดครั้งแรกที่เข้า W-4 (ต่อ SKU) · ถือไว้ที่นี่เพื่อไม่โหลดซ้ำทุกครั้งที่กลับมาขั้นนี้
   const catalogProductId = form.mode === "sku" ? (form.product?.id ?? null) : null;
   const gemCatalog = useShopGemCatalog({ token, productId: catalogProductId, enabled: step === "gems", onSessionLost });
-  const gemCatalogData = gemCatalog.state.s === "ready" ? gemCatalog.state.data : null;
-  const gemOptions = useMemo(() => (gemCatalogData ? gemOptionsOf(gemCatalogData.types, gemCatalogData.shapes, gemCatalogData.template) : null), [gemCatalogData]);
   const clearGemErrors = useCallback(() => {
     setGemErrors({});
     setGemGeneral(null);
@@ -206,7 +204,7 @@ export function ShopOpenFlow({
         setStep("gems");
         const n = error?.gem?.row;
         const fromServer = typeof n === "number" && n >= 1 && n <= form.gems.rows.length ? form.gems.rows[n - 1].key : null;
-        const key = fromServer ?? gemStepIssue(form.gems, gemOptions)?.rowKey ?? null;
+        const key = fromServer ?? gemStepIssue(form.gems, gemCatalog.options)?.rowKey ?? null;
         if (key) setGemFocus({ rowKey: key, field: fromServer ? (error?.gem?.field ?? null) : null, nonce: ++gemNonce.current });
         return;
       }
@@ -261,7 +259,8 @@ export function ShopOpenFlow({
     const view = shopErrorView(r);
     if (view.field === "gems") {
       // พลอยผิด = ใบไม่เปิดทั้งก้อน: ชื่อคล้าย → ถามบนหน้านี้ (ไม่ใช่ error) · แถวผิด → ผูกกับแถวนั้น (กลับไปแก้ที่ W-4)
-      const fv = interpretIntakeGemFail(r, f.gems.rows);
+      // ข้อความที่แสดงผ่านด่านเดียวกับแบนเนอร์ (isCleanMessage) — ไม่แสดงข้อความดิบที่มีรหัส/คำเกี่ยวกับเงิน
+      const fv = interpretIntakeGemFail(r, f.gems.rows, (m) => (isCleanMessage(m) ? m : MSG_GEM_GENERIC));
       if (fv.similar) {
         setGemSimilar(fv.similar);
         return;
@@ -334,8 +333,7 @@ export function ShopOpenFlow({
           <ShopGemStep
             form={form}
             setForm={setForm}
-            catalog={gemCatalog.state}
-            onReloadCatalog={gemCatalog.reload}
+            catalog={gemCatalog}
             onNext={nextStep}
             serverErrors={gemErrors}
             generalError={gemGeneral}
@@ -367,7 +365,7 @@ export function ShopOpenFlow({
         <GemServerSimilar
           hit={gemSimilar}
           rows={form.gems.rows}
-          options={gemOptions}
+          options={gemCatalog.options}
           onRows={(rows) => setForm((cur) => ({ ...cur, gems: { ...cur.gems, rows, force: pruneForce(cur.gems.force, rows) } }))}
           onClose={() => setGemSimilar(null)}
           onResubmit={({ force, rows }) => void submit({ rows, addForce: force ? { kind: gemSimilar.kind, name: gemSimilar.name } : undefined })}

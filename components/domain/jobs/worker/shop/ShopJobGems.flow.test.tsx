@@ -480,3 +480,118 @@ describe("🔴 ไม่มีเงิน/ราคา/ต้นทุน/เ�
     money();
   });
 });
+
+describe("รอบแก้ review/QA 24 ต.ค. — W-9 / W-10", () => {
+  const savedLines = (qty1: number) => [
+    { gemItemId: I1, label: "โกเมน · ไข่ · 4×6 มม.", qtyPerPiece: qty1, qtyTotal: qty1 * 35, position: "ล้อมรอบ" },
+    { gemItemId: I2, label: "CZ · กลม · 1.5 มม.", qtyPerPiece: 30, qtyTotal: 1050, position: null },
+  ];
+
+  it("[1] gem_conflict แล้วแก้แถวต่อ: กล่อง conflict + 'โหลดพลอยใหม่' ไม่หาย (ผูกกับ conflict ไม่ใช่ error) · กดโหลดใหม่ได้ → ปิดแผ่นโหลดใหม่", async () => {
+    intakeSetJobGems.mockResolvedValue({ ok: false, code: "gem_conflict", error: "x_y" });
+    intakeJobGems.mockResolvedValueOnce(gemsRes()).mockResolvedValueOnce(gemsRes({ rev: REV2 }));
+    await toW10();
+    const dlg = await openSheet();
+    await userEvent.click(within(dlg).getByRole("button", { name: "บันทึกพลอย" }));
+    expect(await within(dlg).findByTestId("shop-gemsheet-conflict")).toHaveTextContent("มีการแก้พลอยของใบนี้ไปแล้ว");
+    await userEvent.click(within(dlg).getByRole("button", { name: /แถว 1/ }));
+    const qty = within(dlg).getByLabelText("จำนวนต่อชิ้น");
+    await userEvent.clear(qty);
+    await userEvent.type(qty, "4");
+    await userEvent.click(within(dlg).getByRole("button", { name: "เสร็จแถวนี้" }));
+    expect(within(dlg).getByTestId("shop-gemsheet-conflict")).toBeInTheDocument();
+    await userEvent.click(within(dlg).getByRole("button", { name: "โหลดพลอยใหม่" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "แก้พลอย JB-0031" })).not.toBeInTheDocument());
+    await waitFor(() => expect(intakeJobGems).toHaveBeenCalledTimes(2));
+  });
+
+  it("[2] บันทึกสำเร็จแล้วโหลดซ้ำล้ม: จอใช้แถว/rev จากผลบันทึกทันที · เปิดแผ่นอีกครั้งเห็นค่าใหม่ และบันทึกต่อด้วย rev ใหม่ (ไม่ชน gem_conflict)", async () => {
+    intakeJobGems.mockResolvedValueOnce(gemsRes()).mockRejectedValue(new Error("offline"));
+    intakeSetJobGems.mockResolvedValueOnce({ ...SET_OK, lines: savedLines(5), rev: REV2 }).mockResolvedValueOnce({ ...SET_OK, lines: savedLines(6), rev: "c".repeat(32) });
+    await toW10();
+    let dlg = await openSheet();
+    await userEvent.click(within(dlg).getByRole("button", { name: /แถว 1/ }));
+    const qty = within(dlg).getByLabelText("จำนวนต่อชิ้น");
+    await userEvent.clear(qty);
+    await userEvent.type(qty, "5");
+    await userEvent.click(within(dlg).getByRole("button", { name: "เสร็จแถวนี้" }));
+    await userEvent.click(within(dlg).getByRole("button", { name: "บันทึกพลอย" }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "แก้พลอย JB-0031" })).not.toBeInTheDocument());
+    await waitFor(() => expect(intakeJobGems).toHaveBeenCalledTimes(2)); // โหลดซ้ำเงียบๆ (ล้ม)
+    expect(section().getByText("5/ชิ้น → 175")).toBeInTheDocument();
+    expect(section().queryByText("2/ชิ้น → 70")).not.toBeInTheDocument();
+    dlg = await openSheet();
+    expect(within(dlg).getByTestId("shop-gem-row-1")).toHaveTextContent("5 เม็ด/ชิ้น");
+    await userEvent.click(within(dlg).getByRole("button", { name: "บันทึกพลอย" }));
+    await waitFor(() => expect(intakeSetJobGems).toHaveBeenCalledTimes(2));
+    expect(setCall(1).expectedRev).toBe(REV2);
+    expect(setCall(1).lines[0]).toMatchObject({ gemItemId: I1, qtyPerPiece: 5 });
+  });
+
+  it("[3] ป้าย W-9 บอกว่าแก้อะไรได้: รูปอย่างเดียว · พลอยอย่างเดียว · ทั้งคู่ · ล็อก 🔒 (ใบ 'ไม่มีพลอย' ไม่บอกว่าแก้พลอยได้)", async () => {
+    intakeMyJobs.mockResolvedValue(
+      list([
+        job({ jobId: "a1", jobNo: "JB-0001", editable: true, gemEditable: false, gemState: "not_needed" }),
+        job({ jobId: "a2", jobNo: "JB-0002", editable: true, gemEditable: true, gemState: "specified", gemCount: 1, gemPieces: 60 }),
+        job({ jobId: "a3", jobNo: "JB-0003", editable: false, gemEditable: true, gemState: "specified", gemCount: 1, gemPieces: 60 }),
+        job({ jobId: "a4", jobNo: "JB-0004", editable: false, gemEditable: false, gemState: "specified", gemCount: 1, gemPieces: 60 }),
+      ]),
+    );
+    render(<ShopIntakeApp token={TOKEN} initial={hubOf()} />);
+    await screen.findByRole("button", { name: /JB-0001/ });
+    const badge = (n: string) => within(screen.getByRole("button", { name: new RegExp(n) })).getByTestId("mycard-badge");
+    expect(badge("JB-0001")).toHaveTextContent("แก้รูปได้");
+    expect(badge("JB-0001")).not.toHaveTextContent("พลอย");
+    expect(badge("JB-0002")).toHaveTextContent("แก้รูป·พลอยได้");
+    expect(badge("JB-0003")).toHaveTextContent("แก้พลอยได้");
+    expect(badge("JB-0004")).toHaveTextContent("แก้ไม่ได้ตอนนี้");
+    expect(badge("JB-0004").className).toContain("bg-zinc-200"); // 🔒 (ไอคอน + คำ)
+  });
+
+  it("[4] ทุกกรณีแก้ไม่ได้มีเหตุผล: DB บอก editable=false แต่ไม่มี lockCode ที่รู้จัก → 'ใบนี้ไม่อยู่ในสถานะที่แก้พลอยได้' · แก้ได้ = แถบ ✎ 'แก้พลอยได้จนช่างเริ่มรับงาน' (ล็อก = ไม่มีแถบ)", async () => {
+    const v = await toW10();
+    expect(section().getByTestId("shop-jobgems-editable")).toHaveTextContent("✎ แก้พลอยได้จนช่างเริ่มรับงาน");
+    expect(section().queryByTestId("shop-jobgems-lock")).not.toBeInTheDocument();
+    v.unmount();
+    intakeJobGems.mockResolvedValue(gemsRes({ editable: false, lockCode: null }));
+    await toW10();
+    expect(section().getByTestId("shop-jobgems-lock")).toHaveTextContent("ใบนี้ไม่อยู่ในสถานะที่แก้พลอยได้ — แจ้งออฟฟิศ");
+    expect(section().queryByTestId("shop-jobgems-editable")).not.toBeInTheDocument();
+    expect(section().queryByRole("button", { name: "แก้พลอย" })).not.toBeInTheDocument();
+  });
+
+  it("[4] ใบของคนอื่น/ออฟฟิศ (order_not_found ตอนโหลด) → 'แก้พลอยได้เฉพาะคนที่เปิดใบนี้' (ไม่ใช่ 'เช็คสัญญาณ')", async () => {
+    intakeJobGems.mockResolvedValue({ ok: false, code: "order_not_found", error: "x" });
+    await toW10();
+    expect(section().getByText("แก้พลอยได้เฉพาะคนที่เปิดใบนี้")).toBeInTheDocument();
+    expect(section().queryByText(/เช็คสัญญาณ/)).not.toBeInTheDocument();
+  });
+
+  it("[10] ตรวจก่อนบันทึกไม่ผ่าน: focus ไปช่องที่ขาดจริง (เลือกชนิดแล้ว → ช่องรูปทรง)", async () => {
+    await toW10();
+    const dlg = await openSheet();
+    await userEvent.click(within(dlg).getByRole("button", { name: "เพิ่มพลอย" }));
+    await userEvent.click(within(dlg).getByRole("button", { name: /^ชนิดพลอยแถว 3/ }));
+    await userEvent.click(within(await screen.findByRole("dialog", { name: "เลือกชนิดพลอย" })).getByRole("option", { name: /^โกเมน/ }));
+    await userEvent.click(within(dlg).getByRole("button", { name: "บันทึกพลอย" }));
+    await waitFor(() => expect(within(dlg).getByRole("button", { name: /^รูปทรงแถว 3/ })).toHaveFocus());
+    expect(intakeSetJobGems).not.toHaveBeenCalled();
+  });
+
+  it("[10] แผ่นแก้ถูกซ่อนตอนแผ่น PIN ขึ้น: Esc ไม่ทำงาน (ไม่เด้ง 'ทิ้งการแก้พลอย?') · กลับมามองเห็นแล้ว Esc ทำงานตามปกติ", async () => {
+    intakeSetJobGems.mockResolvedValueOnce({ ok: false, code: "session_required", error: "หมดเวลาแล้ว — ใส่ PIN ใหม่" });
+    const v = await toW10();
+    const dlg = await openSheet();
+    await userEvent.click(within(dlg).getByRole("button", { name: /แถว 1/ }));
+    const qty = within(dlg).getByLabelText("จำนวนต่อชิ้น");
+    await userEvent.clear(qty);
+    await userEvent.type(qty, "4");
+    await userEvent.click(within(dlg).getByRole("button", { name: "บันทึกพลอย" }));
+    await waitFor(() => expect(refresh).toHaveBeenCalled()); // hub โหลดใหม่ → จอซ้อนถูกซ่อน (ไม่ถูกถอด)
+    await userEvent.keyboard("{Escape}");
+    expect(screen.queryByRole("dialog", { name: "ทิ้งการแก้พลอย?", hidden: true })).not.toBeInTheDocument();
+    v.rerender(<ShopIntakeApp token={TOKEN} initial={hubOf()} />);
+    await userEvent.keyboard("{Escape}");
+    expect(await screen.findByRole("dialog", { name: "ทิ้งการแก้พลอย?" })).toBeInTheDocument();
+  });
+});

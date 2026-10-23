@@ -1,18 +1,43 @@
 "use client";
 
 // useShopGemCatalog — ชนิด/รูปทรง/ขนาดที่เคยใช้ + แม่แบบพลอยของ SKU (ไม่มีราคา) สำหรับ W-4 และแผ่นแก้พลอย (W-10)
+// คืน { state, options, optionsState, reload } — options = ชุดตัวเลือกของ GemPicker/ตัวตรวจแถวซ้ำ (types/shapes จากแคตตาล็อก · items จากแม่แบบ + extraLines เช่นพลอยที่บันทึกในใบ) ใช้ร่วมทุกจอ
 // loading / error(+ลองใหม่) / ready · error ไม่บล็อกการกรอก (พิมพ์ชื่อเองได้ แต่ตัวดักชื่อซ้ำฝั่งจอทำงานไม่ได้ — DB ยังดักเสมอ)
 // เรียกได้เฉพาะ action ใน lib/actions/job-worker.ts (ไม่ใช่ useGemOptions ของออฟฟิศ — นั่นลาก action ฝั่งออฟฟิศ)
 // โหลดตอน enabled และ key (SKU) เปลี่ยน · ผลของ SKU เก่าไม่ถูกใช้กับ SKU ใหม่ (state ผูกกับ key) · ผลเก่าที่มาช้ากว่าไม่ทับผลใหม่ (seq) · session หมดเวลา → onSessionLost (แผ่น PIN) แต่ฟอร์มคงอยู่
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { intakeGemCatalog } from "@/lib/actions/job-worker";
-import { SHOP_GEM_TH } from "@/lib/jobs/shop-gem-flow";
-import type { IntakeGemCatalog } from "@/lib/jobs/worker-server";
+import type { GemOptions } from "@/lib/jobs/gems";
+import { SHOP_GEM_TH, gemOptionsOf } from "@/lib/jobs/shop-gem-flow";
+import type { IntakeGemCatalog, IntakeGemLine } from "@/lib/jobs/worker-server";
 
 export type ShopGemCatalogState = { s: "idle" } | { s: "loading" } | { s: "error"; message: string } | { s: "ready"; data: IntakeGemCatalog };
 
-export function useShopGemCatalog({ token, productId, enabled, onSessionLost }: { token: string; productId: string | null; enabled: boolean; onSessionLost?: () => void }) {
+export interface ShopGemCatalog {
+  state: ShopGemCatalogState;
+  /** null = ยังไม่พร้อม (loading/error) */
+  options: GemOptions | null;
+  optionsState: "loading" | "error" | "ready";
+  reload: () => Promise<void>;
+}
+
+const NO_LINES: readonly IntakeGemLine[] = [];
+
+export function useShopGemCatalog({
+  token,
+  productId,
+  enabled,
+  onSessionLost,
+  extraLines = NO_LINES,
+}: {
+  token: string;
+  productId: string | null;
+  enabled: boolean;
+  onSessionLost?: () => void;
+  /** แถวที่รู้ id เพิ่ม (พลอยที่บันทึกในใบ) — ให้ "เปลี่ยนรายการ"/ตรวจแถวซ้ำรู้จัก · ต้องเป็นอ้างอิงเสถียร */
+  extraLines?: readonly IntakeGemLine[];
+}): ShopGemCatalog {
   const [box, setBox] = useState<{ key: string; st: ShopGemCatalogState }>({ key: "", st: { s: "idle" } });
   const seq = useRef(0);
   const alive = useRef(true);
@@ -62,5 +87,8 @@ export function useShopGemCatalog({ token, productId, enabled, onSessionLost }: 
 
   // ผลของ SKU อื่น (ยังไม่ทันโหลดใหม่) = ยังไม่มีผล — ห้ามเอาแม่แบบของ SKU เก่ามาใช้กับ SKU ใหม่
   const state: ShopGemCatalogState = box.key === key ? box.st : { s: "idle" };
-  return { state, reload: load };
+  const data = state.s === "ready" ? state.data : null;
+  const options = useMemo(() => (data ? gemOptionsOf(data.types, data.shapes, [...data.template, ...extraLines]) : null), [data, extraLines]);
+  const optionsState: "loading" | "error" | "ready" = state.s === "ready" ? "ready" : state.s === "error" ? "error" : "loading";
+  return { state, options, optionsState, reload: load };
 }

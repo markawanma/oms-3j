@@ -189,10 +189,10 @@ describe("W-9 ใบที่ฉันเปิด", () => {
     expect(within(a).getByText("ทอง")).toBeInTheDocument();
     expect(within(a).getByText(/30 ชิ้น/)).toBeInTheDocument();
     expect(within(a).getByText("รูป 2/3")).toBeInTheDocument();
-    expect(within(a).getByText("แก้ได้")).toBeInTheDocument();
+    expect(within(a).getByText("แก้รูปได้")).toBeInTheDocument(); // gemEditable=false → ไม่บอกว่าแก้พลอยได้
     expect(a).toHaveClass("min-h-[88px]");
     const b = screen.getByRole("button", { name: /JB-0030/ });
-    expect(within(b).getByText("แก้รูปไม่ได้ตอนนี้")).toBeInTheDocument(); // คำกลาง (editable=false อาจไม่ใช่เพราะช่างรับงาน)
+    expect(within(b).getByText("แก้ไม่ได้ตอนนี้")).toBeInTheDocument(); // คำกลาง (ทั้งรูปและพลอยล็อก — อาจไม่ใช่เพราะช่างรับงาน)
     expect(within(b).queryByText("ช่างรับงานแล้ว")).not.toBeInTheDocument();
     expect(within(b).getByText("ไม่มีรูป")).toBeInTheDocument();
     expect(within(b).getByText("เงิน")).toBeInTheDocument();

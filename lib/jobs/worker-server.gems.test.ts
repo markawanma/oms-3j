@@ -49,6 +49,14 @@ const baseOpen = (o: Partial<IntakeOpenInput> = {}): IntakeOpenInput => ({ idemK
 const LINES = [{ type_id: T1, shape_id: S1, size_a: 4, size_b: 6, qty_per_piece: 2, position: "ล้อมรอบ" }];
 
 describe("openIntakeJob — พลอย (p_gem_*)", () => {
+  it("S3 (security L1): กันซ้ำชั้น server — gems ไม่มี/null/answer แปลก = ล้มก่อนเรียก RPC (gem_answer_invalid) · ไม่มีทางไป null path", async () => {
+    for (const gems of [undefined, null, {}, { answer: "maybe" }, { answer: null }, { answer: "NONE" }, "none", [] as unknown]) {
+      const r = await openIntakeJob(TOKEN, baseOpen({ gems: gems as never }));
+      expect(r, JSON.stringify(gems)).toMatchObject({ ok: false, code: "gem_answer_invalid", error: "เลือกก่อนว่าใบนี้ฝังพลอยไหม" });
+    }
+    expect(rpcMock).not.toHaveBeenCalled();
+  });
+
   it("S3: ไม่มีทาง null — ทุกคำขอส่ง p_gem_answer เสมอ (none = ไม่มีพลอย) · ผลที่ DB ไม่ส่ง gem = ไม่มี key gem", async () => {
     rpcMock.mockResolvedValue({ data: OPEN_OK, error: null });
     const r = await openIntakeJob(TOKEN, baseOpen());

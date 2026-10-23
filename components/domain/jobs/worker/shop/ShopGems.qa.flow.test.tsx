@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // QA (R2-D2 · 24 ต.ค. 69) — W3 UI: ช่องที่เทสต์ของทีมไม่ครอบ (หาจากการอ่านโค้ดแบบ "คนกดจริง")
-// `it.fails` = บั๊กที่ยืนยันแล้ว: เทสต์อธิบายพฤติกรรมที่ "ควรเป็น" และตอนนี้ล้ม (ผ่านใน suite เพราะ it.fails) — เมื่อ dev แก้ เทสต์จะกลับเป็นแดง ให้ลบ .fails
+// BUG-1..4 เดิมเป็น `it.fails` — frontend แก้แล้ว (รอบแก้ review/QA 24 ต.ค.) จึงเปลี่ยนเป็น `it` ธรรมดา (ถ้ากลับมาพัง เทสต์จะแดง)
 // ที่เหลือ = characterization ของพฤติกรรมที่เป็นอยู่ (ล็อกไว้ไม่ให้เปลี่ยนเงียบ)
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
@@ -114,7 +114,7 @@ async function openSheet() {
 describe("W-10 · แผ่นแก้พลอย: gem_conflict", () => {
   const CONFLICT = { ok: false, code: "gem_conflict", error: "มีการแก้พลอยของใบนี้ไปแล้ว (อาจจากอีกเครื่อง) — โหลดหน้าใหม่แล้วแก้อีกครั้ง" };
 
-  it.fails("BUG-1 (เจอถ้าซวย): ชน conflict แล้วแก้ช่องต่อ → ข้อความ+ปุ่ม 'โหลดพลอยใหม่' หายไป แต่ 'บันทึกพลอย' ยัง aria-disabled = ทางตัน (ต้องกดยกเลิก→ทิ้ง→เปิดใหม่) · ควรมีทางไปต่ออย่างน้อยหนึ่งทาง", async () => {
+  it("BUG-1 (เจอถ้าซวย): ชน conflict แล้วแก้ช่องต่อ → ข้อความ+ปุ่ม 'โหลดพลอยใหม่' หายไป แต่ 'บันทึกพลอย' ยัง aria-disabled = ทางตัน (ต้องกดยกเลิก→ทิ้ง→เปิดใหม่) · ควรมีทางไปต่ออย่างน้อยหนึ่งทาง", async () => {
     intakeSetJobGems.mockResolvedValue(CONFLICT);
     await toW10();
     const dlg = await openSheet();
@@ -139,7 +139,7 @@ describe("W-10 · แผ่นแก้พลอย: gem_conflict", () => {
 });
 
 describe("W-10 · หลังบันทึกสำเร็จแล้วโหลดซ้ำล้ม", () => {
-  it.fails("BUG-2 (เจอถ้าซวย): บันทึกสำเร็จ → โหลดซ้ำแบบเงียบล้ม (เน็ตกระตุก) → จอยังโชว์ค่าเก่า + 'บันทึกพลอยแล้ว' · ค่าที่ถูกต้อง (rev ใหม่) มีอยู่ในผลบันทึกแต่ไม่ถูกใช้ → เปิดแผ่นอีกครั้งเห็นจำนวนเก่าและส่ง rev เก่า (จะชน gem_conflict)", async () => {
+  it("BUG-2 (เจอถ้าซวย): บันทึกสำเร็จ → โหลดซ้ำแบบเงียบล้ม (เน็ตกระตุก) → จอยังโชว์ค่าเก่า + 'บันทึกพลอยแล้ว' · ค่าที่ถูกต้อง (rev ใหม่) มีอยู่ในผลบันทึกแต่ไม่ถูกใช้ → เปิดแผ่นอีกครั้งเห็นจำนวนเก่าและส่ง rev เก่า (จะชน gem_conflict)", async () => {
     const saved = [gline(I1, "โกเมน · ไข่ · 4×6 มม.", 5, "ล้อมรอบ", T1, S2, true, 4, 6, 175), LINES[1]];
     intakeJobGems.mockResolvedValueOnce(gemsRes()).mockRejectedValue(new Error("offline"));
     intakeSetJobGems.mockResolvedValue({ ...SET_OK, lines: saved.map((l) => ({ gemItemId: l.gemItemId, label: l.label, qtyPerPiece: l.qtyPerPiece, qtyTotal: l.qtyTotal, position: l.position })), rev: REV2 });
@@ -158,13 +158,14 @@ describe("W-10 · หลังบันทึกสำเร็จแล้ว�
   });
 });
 
-describe("W-9 ป้ายสถานะการ์ด ↔ ส่วนพลอยของ W-10 (editable ของรูป ไม่ใช่ gemEditable)", () => {
-  it("characterization: ใบที่ตอบ 'ไม่มีพลอย' (ไม่มีขั้นฝัง) → การ์ดขึ้น '✎ แก้ได้' (รูปแก้ได้) แต่ส่วนพลอยใน W-10 ล็อก 'แจ้งออฟฟิศเพิ่มขั้นฝังพลอย' · ป้ายไม่บอกว่าแก้อะไรได้ — ล็อกพฤติกรรมไว้ ถ้าจะแยกป้ายต้องแก้เทสต์นี้", async () => {
+describe("W-9 ป้ายสถานะการ์ด ↔ ส่วนพลอยของ W-10 (editable ของรูป + gemEditable ของพลอย)", () => {
+  it("ใบที่ตอบ 'ไม่มีพลอย' (ไม่มีขั้นฝัง): การ์ดขึ้น '✎ แก้รูปได้' (ไม่บอกว่าแก้พลอยได้) ตรงกับส่วนพลอยใน W-10 ที่ล็อก 'แจ้งออฟฟิศเพิ่มขั้นฝังพลอย'", async () => {
     intakeMyJobs.mockResolvedValue({ ok: true, openAllowed: true, jobs: [job({ editable: true, gemState: "not_needed", gemEditable: false })], maxPhotos: 3 });
     intakeJobGems.mockResolvedValue(gemsRes({ state: "not_needed", editable: false, lockCode: "no_gem_stage", hasGemStage: false, lines: [] }));
     render(<ShopIntakeApp token={TOKEN} initial={hubOf()} />);
     const card = await screen.findByRole("button", { name: /JB-0031/ });
-    expect(within(card).getByText("แก้ได้")).toBeInTheDocument();
+    expect(within(card).getByTestId("mycard-badge")).toHaveTextContent("แก้รูปได้");
+    expect(within(card).getByTestId("mycard-badge")).not.toHaveTextContent("พลอย");
     expect(within(card).getByTestId("mycard-gems")).toHaveTextContent("ไม่มีพลอย");
     await userEvent.click(card);
     await screen.findByRole("heading", { level: 1, name: "แก้ JB-0031" });
@@ -172,12 +173,12 @@ describe("W-9 ป้ายสถานะการ์ด ↔ ส่วนพล�
     expect(within(screen.getByTestId("shop-jobgems")).queryByRole("button", { name: /แก้พลอย|เพิ่มพลอย/ })).not.toBeInTheDocument();
   });
 
-  it("ล็อกที่ DB (editable=false · gemEditable=false): ป้ายการ์ด 🔒 'แก้รูปไม่ได้ตอนนี้' ตรงกับส่วนพลอยที่ล็อก (ไม่ขัดกัน)", async () => {
+  it("ล็อกที่ DB (editable=false · gemEditable=false): ป้ายการ์ด 🔒 'แก้ไม่ได้ตอนนี้' ตรงกับส่วนพลอยที่ล็อก (ไม่ขัดกัน)", async () => {
     intakeMyJobs.mockResolvedValue({ ok: true, openAllowed: true, jobs: [job({ editable: false, gemState: "specified", gemCount: 2, gemPieces: 1120, gemEditable: false })], maxPhotos: 3 });
     intakeJobGems.mockResolvedValue(gemsRes({ editable: false, lockCode: "job_locked" }));
     render(<ShopIntakeApp token={TOKEN} initial={hubOf()} />);
     const card = await screen.findByRole("button", { name: /JB-0031/ });
-    expect(within(card).getByText(/แก้รูปไม่ได้ตอนนี้/)).toBeInTheDocument();
+    expect(within(card).getByTestId("mycard-badge")).toHaveTextContent("แก้ไม่ได้ตอนนี้");
     await userEvent.click(card);
     await screen.findByRole("heading", { level: 1, name: "แก้ JB-0031" });
     expect(await within(screen.getByTestId("shop-jobgems")).findByTestId("shop-jobgems-lock")).toHaveTextContent("ช่างรับงานแล้ว แก้พลอยไม่ได้");
@@ -200,7 +201,7 @@ describe("W-4 · แข่งกับการโหลดแม่แบบข
     return { release: (v: unknown) => release(v) };
   }
 
-  it.fails("BUG-3 (ต่ำ · เน็ตช้า): SKU ที่มีแม่แบบ — กด 'มีพลอย' ก่อนแม่แบบโหลดเสร็จ → ได้แถวเปล่า และแม่แบบที่มาทีหลังไม่ถูกเติมเลย (ผู้ใช้เข้าใจว่า SKU นี้ไม่มีแม่แบบ) · ควรเติมแม่แบบเมื่อแถวที่มีอยู่ยังเปล่า", async () => {
+  it("BUG-3 (ต่ำ · เน็ตช้า): SKU ที่มีแม่แบบ — กด 'มีพลอย' ก่อนแม่แบบโหลดเสร็จ → ได้แถวเปล่า และแม่แบบที่มาทีหลังไม่ถูกเติมเลย (ผู้ใช้เข้าใจว่า SKU นี้ไม่มีแม่แบบ) · ควรเติมแม่แบบเมื่อแถวที่มีอยู่ยังเปล่า", async () => {
     const h = await toGemsWithSlowCatalog();
     await userEvent.click(screen.getByRole("radio", { name: "มีพลอย" }));
     expect(screen.getAllByTestId(/^shop-gem-row-\d+$/)).toHaveLength(1); // แถวเปล่า 1 แถว
@@ -222,7 +223,7 @@ describe("W-4 · แข่งกับการโหลดแม่แบบข
 });
 
 describe("gemSummaryNotices — ข้อความซ้ำ = React key ซ้ำ", () => {
-  it.fails("BUG-4 (ต่ำมาก): สองแถวที่พิมพ์ชื่อเดียวกัน (ขนาดต่างกัน) ถูก DB 'ใช้ตัวเดิมให้' ทั้งคู่ → ข้อความเหมือนกัน 2 บรรทัด → ShopOpenSuccess/ShopJobGemsSection ใช้ข้อความเป็น key (key ซ้ำ) · ควรไม่ซ้ำ (รวมหรือใส่เลขแถว)", () => {
+  it("BUG-4 (ต่ำมาก): สองแถวที่พิมพ์ชื่อเดียวกัน (ขนาดต่างกัน) ถูก DB 'ใช้ตัวเดิมให้' ทั้งคู่ → ข้อความเหมือนกัน 2 บรรทัด → ShopOpenSuccess/ShopJobGemsSection ใช้ข้อความเป็น key (key ซ้ำ) · ควรไม่ซ้ำ (รวมหรือใส่เลขแถว)", () => {
     const notices = gemSummaryNotices({ createdTypes: [], createdShapes: [], reused: [{ row: 1, kind: "type", typed: "cz", name: "CZ" }, { row: 2, kind: "type", typed: "cz", name: "CZ" }], mergedRows: [] });
     expect(new Set(notices).size).toBe(notices.length);
   });

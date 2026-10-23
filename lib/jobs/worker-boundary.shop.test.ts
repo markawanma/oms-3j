@@ -189,6 +189,21 @@ describe("W3 พลอยบน /w/s/<shopToken> — กราฟ import (transi
     expect(runtimeImports(src)).toContain("@/lib/text/invisible");
   });
 
+  it("🔴 dynamic import() ในไฟล์ของกราฟ (lazy chunk ก็ลากเข้า bundle) ต้องไม่ชี้ไปตัวแปลงราคา/แคตตาล็อกออฟฟิศ/lib/oem · ยกเว้น lib/images/server ที่ shop-photo-server โหลดฝั่ง server (เทสต์ด้านบนล็อกแล้ว)", () => {
+    const BAD = ["lib/jobs/gems.ts", "lib/actions/gems.ts", "lib/jobs/gems-server.ts", "components/domain/gems/GemPriceDialog.tsx", "components/domain/gems/GemItemsTable.tsx", "components/domain/gems/GemItemDetailDialog.tsx", "components/domain/gems/GemCatalogClient.tsx", "components/domain/gems/GemRowsEditor.tsx"];
+    let seen = 0;
+    for (const f of files) {
+      if (!/\.(ts|tsx)$/.test(f)) continue;
+      for (const m of readFileSync(f, "utf8").matchAll(/import\(\s*["']([^"']+)["']\s*\)/g)) {
+        seen++;
+        const r = resolveSpec(m[1], f);
+        const rel = r ? norm(r) : m[1];
+        expect(rel.startsWith("lib/oem/") || BAD.includes(rel), `${norm(f)} dynamic import("${m[1]}")`).toBe(false);
+      }
+    }
+    expect(seen).toBeGreaterThan(0); // ตัวจับเห็นของจริง (shop-photo-server โหลด lib/images/server แบบ dynamic) — กันเทสต์ว่างเปล่า
+  });
+
   it("'use server' ในกราฟยังมีไฟล์เดียว (job-worker) · action ที่หน้านี้ import ได้ยังมีตัวเดียว", () => {
     const servers = [...files].filter((f) => /\.(ts|tsx)$/.test(f) && /^\s*["']use server["']/m.test(readFileSync(f, "utf8"))).map(norm);
     expect(servers).toEqual(["lib/actions/job-worker.ts"]);
