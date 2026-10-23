@@ -185,6 +185,47 @@ describe("W-10 → intakeSetJobGems params", () => {
   });
 });
 
+describe("re-QA · openIntakeJob ไม่เรียก RPC เมื่อ gems ผิด (ด่านชั้น server กันผู้เรียกอื่น/ทางลัด)", () => {
+  const base = { idemKey: IDEM, productId: null, pendingLabel: "แหวน", metal: "silver", purity: null, weightG: null, qtyOrder: 3, qtyPlanned: 3, dueDate: null, isNewDesign: false, note: null };
+  it.each([
+    ["undefined", undefined],
+    ["null", null],
+    ["{}", {}],
+    ["answer เป็น null", { answer: null }],
+    ["answer แปลก", { answer: "yes" }],
+    ["answer boolean", { answer: true }],
+    ["ภาษาไทย", { answer: "ไม่มี" }],
+    ["กลับเป็น string", "none"],
+  ])("gems = %s → ล้มก่อน RPC · ข้อความไทยสะอาด", async (_n, gems) => {
+    const { openIntakeJob } = await import("@/lib/jobs/worker-server");
+    rpcMock.mockClear();
+    const r = await openIntakeJob(TOKEN, { ...base, gems } as never);
+    expect(r.ok).toBe(false);
+    expect(rpcMock).not.toHaveBeenCalled();
+    if (!r.ok) expect(/[฀-๿]/.test(r.error) && !/[a-z]+_[a-z_]+|analytics|select /.test(r.error)).toBe(true);
+  });
+  it("gems ถูก (none) = ยังเรียก RPC ตามเดิม พร้อม p_gem_answer", async () => {
+    const { openIntakeJob } = await import("@/lib/jobs/worker-server");
+    rpcMock.mockClear();
+    await openIntakeJob(TOKEN, { ...base, gems: { answer: "none" } } as never);
+    expect(rpcMock).toHaveBeenCalledTimes(1);
+    expect((rpcMock.mock.calls[0][1] as Record<string, unknown>).p_gem_answer).toBe("none");
+  });
+});
+
+describe("re-QA · ป้าย W-9 ครบ 4 แบบ ตรงกับค่าจริงจาก DB (verify-0191-qa-ui-wire.sql: W2 · L3 · L2)", () => {
+  // DB จริง (ผล rollback): ใบมีขั้นฝัง ยังไม่รับ = editable true / gem_editable true (W2) · ใบ none ไม่มีขั้นฝัง = true/false (L3) · รับขั้นแรกแล้ว = false/false (L2) · false/true = DB ทำไม่ได้ (พลอยล็อกเข้มกว่ารูปเสมอ) แต่ป้ายต้องไม่ล้ม
+  it.each([
+    [true, true, "แก้รูป·พลอยได้", true],
+    [true, false, "แก้รูปได้", true],
+    [false, false, "แก้ไม่ได้ตอนนี้", false],
+    [false, true, "แก้พลอยได้", true],
+  ])("editable=%s gemEditable=%s → %s", async (e, g, text, ed) => {
+    const { myJobEditBadge } = await import("@/lib/jobs/shop-gem-flow");
+    expect(myJobEditBadge({ editable: e, gemEditable: g })).toEqual({ editable: ed, text });
+  });
+});
+
 describe("dump (เฉพาะเมื่อตั้ง QA_WIRE_DUMP) — ส่งออก params เป็น JSON ให้ไฟล์ SQL", () => {
   it("เขียนไฟล์เมื่อมี env · ไม่ตั้ง = ข้าม", () => {
     const out = process.env.QA_WIRE_DUMP;

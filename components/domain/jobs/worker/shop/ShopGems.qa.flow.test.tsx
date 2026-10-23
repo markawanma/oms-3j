@@ -228,3 +228,68 @@ describe("gemSummaryNotices — ข้อความซ้ำ = React key ซ�
     expect(new Set(notices).size).toBe(notices.length);
   });
 });
+
+describe("re-QA (24 ต.ค.) · แม่แบบมาช้า → payload ที่ส่งจริง", () => {
+  async function toGemsSlow() {
+    let release: (v: unknown) => void = () => {};
+    intakeGemCatalog.mockImplementation(() => new Promise((r) => (release = r)));
+    intakeMyJobs.mockResolvedValue({ ok: true, openAllowed: true, jobs: [], maxPhotos: 3 });
+    render(<ShopIntakeApp token={TOKEN} initial={hubOf()} />);
+    await click("เปิดงานใหม่");
+    await userEvent.type(screen.getByLabelText("ค้นชื่อสินค้าหรือรหัส"), "แหวน");
+    await userEvent.click(await screen.findByRole("button", { name: /RG-0418/ }, { timeout: 3000 }));
+    await click("ถัดไป");
+    await userEvent.type(screen.getByLabelText("ต้องการเข้าสต็อก (ชิ้น)"), "30");
+    await click("ถัดไป");
+    await screen.findByRole("heading", { level: 1, name: "พลอย" });
+    return { release: (v: unknown) => release(v) };
+  }
+  const rowsNow = () => screen.queryAllByTestId(/^shop-gem-row-\d+$/);
+
+  it("กด 'มีพลอย' (แถวเปล่า) ก่อนแม่แบบมา → แม่แบบเติมแทน → ไม่แตะอะไร → เปิดงานส่ง { answer: 'template' } (ไม่ใช่ has + lines) · ตรงกับ U1 ใน verify-0191-qa-ui-wire.sql", async () => {
+    intakeOpen.mockResolvedValue({ ok: true, result: { already: false, status: "open", jobNo: "JB-0031", token: "Zz9-_xYz0123456789AbCdEfGhIjKlMnOpQrStUvWx9", designLabel: "แหวน", sku: "RG-0418", skuPending: false, metal: "silver", qtyOrder: 30, qtyPlanned: null, isNewDesign: false, dueDate: null } });
+    const h = await toGemsSlow();
+    await userEvent.click(screen.getByRole("radio", { name: "มีพลอย" }));
+    expect(rowsNow()).toHaveLength(1);
+    h.release(catalog({ hasTemplate: true, template: TEMPLATE }));
+    await waitFor(() => expect(rowsNow()).toHaveLength(2));
+    expect(screen.getAllByText("จากแม่แบบ")).toHaveLength(2);
+    await click("ถัดไป");
+    await click("ข้าม ไม่ใส่รูป");
+    await screen.findByRole("heading", { level: 1, name: "ทวนก่อนเปิดงาน" });
+    await click("เปิดงาน");
+    await waitFor(() => expect(intakeOpen).toHaveBeenCalledTimes(1));
+    expect(intakeOpen.mock.calls[0][1].gems).toEqual({ answer: "template" });
+  });
+
+  it("ผู้ใช้เริ่มกรอกแถวเปล่าแล้ว (พิมพ์จำนวน) ก่อนแม่แบบมา → แม่แบบไม่ทับสิ่งที่พิมพ์ (ยังเป็น 1 แถว · จำนวนคงอยู่)", async () => {
+    const h = await toGemsSlow();
+    await userEvent.click(screen.getByRole("radio", { name: "มีพลอย" }));
+    await userEvent.type(screen.getByLabelText("จำนวนต่อชิ้น"), "7");
+    h.release(catalog({ hasTemplate: true, template: TEMPLATE }));
+    await waitFor(() => expect(intakeGemCatalog).toHaveBeenCalled());
+    await new Promise((r) => setTimeout(r, 80));
+    expect(rowsNow()).toHaveLength(1);
+    expect(screen.getByLabelText("จำนวนต่อชิ้น")).toHaveValue("7");
+    expect(screen.queryByText("จากแม่แบบ")).not.toBeInTheDocument();
+  });
+
+  it("ลบแม่แบบจนเหลือ 0 แถวแล้ว (seed ถูกใช้ไปแล้ว) แม่แบบไม่งอกกลับมาเอง", async () => {
+    intakeGemCatalog.mockResolvedValue(catalog({ hasTemplate: true, template: TEMPLATE }));
+    intakeMyJobs.mockResolvedValue({ ok: true, openAllowed: true, jobs: [], maxPhotos: 3 });
+    render(<ShopIntakeApp token={TOKEN} initial={hubOf()} />);
+    await click("เปิดงานใหม่");
+    await userEvent.type(screen.getByLabelText("ค้นชื่อสินค้าหรือรหัส"), "แหวน");
+    await userEvent.click(await screen.findByRole("button", { name: /RG-0418/ }, { timeout: 3000 }));
+    await click("ถัดไป");
+    await userEvent.type(screen.getByLabelText("ต้องการเข้าสต็อก (ชิ้น)"), "30");
+    await click("ถัดไป");
+    await waitFor(() => expect(rowsNow()).toHaveLength(2));
+    for (let n = 2; n >= 1; n--) {
+      await userEvent.click(within(screen.getByTestId(`shop-gem-row-${n}`)).getByRole("button", { name: new RegExp(`แถว ${n}`) }));
+      await click(`ลบพลอยแถว ${n}`);
+    }
+    await new Promise((r) => setTimeout(r, 80));
+    expect(rowsNow()).toHaveLength(0);
+  });
+});
