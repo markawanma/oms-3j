@@ -14,14 +14,29 @@ import { logJobFailure } from "@/lib/jobs/log";
 import { isUuid } from "@/lib/jobs/input";
 import { GENERIC_JOB_ERROR, WORKER_ARRIVE_CODE_TH, WORKER_RECEIVE_LOCK_TH, workerFailMessage } from "@/lib/jobs/messages";
 import type { WorkerFailExtra } from "@/lib/jobs/messages";
+import { GEM_ERROR_TH } from "@/lib/jobs/gem-errors";
+import type { GemForceItem } from "@/lib/jobs/gem-wire";
 import { findForbiddenKeys, sanitizeWorkerView } from "@/lib/jobs/worker-view";
 import type { WorkerView } from "@/lib/jobs/worker-view";
 
 export const WORKER_SESSION_COOKIE = "w_session";
 export const WORKER_SESSION_MAX_AGE_S = 12 * 60 * 60;
 
-/** jobNo: เฉพาะช่องทางเปิดใบ (0187) — เลขใบงานที่ชน (job_exists) เพื่อบอกผู้จัดการ · ช่องทางอื่นไม่ใส่ (รูปเดิมไม่เปลี่ยน) */
-export type WorkerFail = { ok: false; code: string; error: string; retryAfterSeconds?: number; jobNo?: string; budgetLeft?: number };
+/** 0191 W3: ชื่อที่ DB ถามว่า "คล้ายของที่มี" — kind ชนิด/รูปทรง · name ที่พิมพ์ · rows แถวที่พิมพ์ · matches ชื่อที่มีอยู่ (id null = ชื่อใหม่อีกตัวในคำขอเดียวกัน) */
+export interface GemSimilar {
+  kind: "type" | "shape";
+  name: string;
+  rows: number[];
+  matches: { id: string | null; name: string }[];
+}
+/** 0191 W3: รายละเอียดของ error พลอยที่ DB ระบุแถว/ช่อง (row 1-based · 0 = ทั้งรายการ · 31 = เกินเพดาน) */
+export interface GemFailInfo {
+  code: string;
+  row?: number;
+  field?: string;
+}
+/** jobNo: เฉพาะช่องทางเปิดใบ (0187) — เลขใบงานที่ชน (job_exists) เพื่อบอกผู้จัดการ · ช่องทางอื่นไม่ใส่ (รูปเดิมไม่เปลี่ยน) · gem/similar: เฉพาะช่องทางพลอย (0191) */
+export type WorkerFail = { ok: false; code: string; error: string; retryAfterSeconds?: number; jobNo?: string; budgetLeft?: number; gem?: GemFailInfo; similar?: GemSimilar[] };
 export type WorkerOk<T> = { ok: true; data: T };
 
 export const fail = (code: string, error?: string): WorkerFail => ({ ok: false, code, error: error ?? workerFailMessage(code, null) });
@@ -63,7 +78,7 @@ function failExtra(r: Record<string, unknown>): WorkerFailExtra {
  * เรียก RPC ฝั่งช่าง · คืน data (ok:true) หรือ WorkerFail เสมอ — ทั้งกรณี {ok:false, code, message} ของ DB และ error ระบบ
  * error ระบบ → ข้อความกลาง (ไม่ log ข้อความดิบ) · ผลที่ไม่ใช่ object → ข้อความกลาง
  */
-export async function callWorkerRpc(fn: string, params: Record<string, unknown>, opts: { keepJobNo?: boolean; intake?: boolean } = {}): Promise<Record<string, unknown> | WorkerFail> {
+export async function callWorkerRpc(fn: string, params: Record<string, unknown>, opts: { keepJobNo?: boolean; intake?: boolean; gem?: boolean } = {}): Promise<Record<string, unknown> | WorkerFail> {
   let data: unknown;
   try {
     const res = await getServiceClient().schema("analytics").rpc(fn, params);
@@ -89,6 +104,49 @@ export async function callWorkerRpc(fn: string, params: Record<string, unknown>,
   if (retry !== null && Number.isFinite(retry) && retry > 0) out.retryAfterSeconds = Math.min(Math.ceil(retry), 3600);
   const jn = opts.keepJobNo ? shortText(r.job_no, 20) : null;
   if (jn !== null && /^JB-\d{1,8}$/.test(jn)) out.jobNo = jn;
+  // 0191 W3: รายละเอียด error พลอย (รหัส/แถว/ช่อง/ชื่อคล้าย) — ผ่านรูปร่างตรวจเข้มทีละ field · ไม่ส่งข้อความดิบของ DB
+  if (opts.gem) {
+    const gem = parseGemFail(r);
+    if (gem) out.gem = gem;
+    const similar = mapGemSimilar(r.similar);
+    if (similar.length > 0) out.similar = similar;
+  }
+  return out;
+}
+
+const GEM_CODE_RE = /^[a-z][a-z_]{0,39}$/;
+const GEM_FIELD_RE = /^[a-z][a-z_]{0,30}$/;
+
+/** gem_code/gem_row/gem_field ที่ RPC แนบมากับ {ok:false, code:'gem_line_invalid'} → GemFailInfo (รูปร่างผิด = null) */
+export function parseGemFail(r: Record<string, unknown>): GemFailInfo | null {
+  const code = typeof r.gem_code === "string" && GEM_CODE_RE.test(r.gem_code) ? r.gem_code : null;
+  if (!code) return null;
+  const info: GemFailInfo = { code };
+  const row = typeof r.gem_row === "number" && Number.isInteger(r.gem_row) && r.gem_row >= 0 && r.gem_row <= 31 ? r.gem_row : null;
+  if (row !== null) info.row = row;
+  if (typeof r.gem_field === "string" && GEM_FIELD_RE.test(r.gem_field)) info.field = r.gem_field;
+  return info;
+}
+
+/** similar[] ของ DB → รายการที่รูปร่างถูก (kind · ชื่อ ≤ 80 · แถว 1-31 · ชื่อที่มี ≤ 5) — ที่เหลือทิ้ง */
+export function mapGemSimilar(raw: unknown): GemSimilar[] {
+  if (!Array.isArray(raw)) return [];
+  const out: GemSimilar[] = [];
+  for (const h of raw.slice(0, 20)) {
+    if (typeof h !== "object" || h === null || Array.isArray(h)) continue;
+    const o = h as Record<string, unknown>;
+    if (o.kind !== "type" && o.kind !== "shape") continue;
+    const name = shortText(o.name, 80);
+    if (!name) continue;
+    const rows = (Array.isArray(o.rows) ? o.rows : []).filter((n): n is number => typeof n === "number" && Number.isInteger(n) && n >= 1 && n <= 31).slice(0, 31);
+    const matches = (Array.isArray(o.matches) ? o.matches : []).slice(0, 5).flatMap((m): { id: string | null; name: string }[] => {
+      if (typeof m !== "object" || m === null || Array.isArray(m)) return [];
+      const mo = m as Record<string, unknown>;
+      const n = shortText(mo.name, 80);
+      return n ? [{ id: isUuid(mo.id) ? mo.id : null, name: n }] : [];
+    });
+    out.push({ kind: o.kind, name, rows, matches });
+  }
   return out;
 }
 
@@ -481,6 +539,15 @@ export interface IntakeOpenInput {
   dueDate: string | null;
   isNewDesign: boolean;
   note: string | null;
+  /** 0191 W3: พลอยของใบ (ไม่ส่ง = W1 เดิม) — answer: none = ไม่มีพลอย (ไม่มีขั้นฝัง) · has = มีพลอย (ต้องมี lines) · template = ตามแม่แบบ SKU (DB บังคับว่า SKU ต้องมีแม่แบบ) */
+  gems?: IntakeGemsParam;
+}
+
+/** payload ที่ผ่าน allowlist แล้ว (toWireGemLines/toWireGemForce) — ชั้นนี้ไม่แปลงซ้ำ */
+export interface IntakeGemsParam {
+  answer: "none" | "has" | "template";
+  lines?: Record<string, unknown>[] | null;
+  force?: GemForceItem[] | null;
 }
 
 const JOB_STATUSES = ["open", "in_progress", "on_hold", "done", "cancelled"] as const;
@@ -502,6 +569,55 @@ export interface IntakeOpenResult {
   qtyPlanned: number | null;
   isNewDesign: boolean;
   dueDate: string | null;
+  /** 0191 W3: สรุปพลอยของใบ (จาก DB — รวม replay) · ไม่มี = ผลเดิม */
+  gem?: IntakeGemSummary;
+}
+
+export type GemState = "specified" | "unspecified" | "not_needed";
+const GEM_STATES = ["specified", "unspecified", "not_needed"] as const;
+export const parseGemState = (v: unknown): GemState | null => (typeof v === "string" && (GEM_STATES as readonly string[]).includes(v) ? (v as GemState) : null);
+
+/** สรุปพลอยของใบที่เพิ่งเปิด — ชื่อใหม่ที่เข้าแคตตาล็อก · ชื่อที่ "ใช้ตัวเดิมให้" · แถวที่รวมให้ · 🔴 ไม่มีราคา/ผู้ขาย/ผู้สร้าง */
+export interface IntakeGemSummary {
+  count: number;
+  /** รวมเม็ดทั้งใบ = จำนวน/ชิ้น x จำนวนที่เริ่มผลิต (DB คำนวณ) */
+  total: number;
+  state: GemState;
+  createdTypes: string[];
+  createdShapes: string[];
+  reused: { row: number | null; kind: "type" | "shape"; typed: string; name: string }[];
+  mergedRows: number[][];
+}
+
+const gemInt = (v: unknown, max: number): number | null => (typeof v === "number" && Number.isInteger(v) && v >= 0 && v <= max ? v : null);
+const strList = (v: unknown, n = 30): string[] => (Array.isArray(v) ? v.slice(0, n).flatMap((x) => { const s = shortText(x, 80); return s ? [s] : []; }) : []);
+
+/** ส่วนรายชื่อของสรุปพลอย (ชื่อใหม่ · ชื่อที่ใช้ตัวเดิมให้ · แถวที่รวมให้) — ใช้ร่วมกันทั้งตอนเปิดใบและตอนแก้ · รูปร่างผิดทีละรายการ = ทิ้งรายการนั้น */
+export function mapGemNames(raw: unknown): Pick<IntakeGemSummary, "createdTypes" | "createdShapes" | "reused" | "mergedRows"> {
+  const o: Record<string, unknown> = typeof raw === "object" && raw !== null && !Array.isArray(raw) ? (raw as Record<string, unknown>) : {};
+  const reused = (Array.isArray(o.reused) ? o.reused.slice(0, 60) : []).flatMap((x): IntakeGemSummary["reused"] => {
+    if (typeof x !== "object" || x === null || Array.isArray(x)) return [];
+    const r = x as Record<string, unknown>;
+    const typed = shortText(r.typed, 80);
+    const name = shortText(r.name, 80);
+    return (r.kind === "type" || r.kind === "shape") && typed && name ? [{ row: gemInt(r.row, 31), kind: r.kind, typed, name }] : [];
+  });
+  const mergedRows = (Array.isArray(o.merged_rows) ? o.merged_rows.slice(0, 30) : []).flatMap((x): number[][] => {
+    const rows = (Array.isArray(x) ? x : []).filter((n): n is number => typeof n === "number" && Number.isInteger(n) && n >= 1 && n <= 31).slice(0, 31);
+    return rows.length > 0 ? [rows] : [];
+  });
+  return { createdTypes: strList(o.created_types), createdShapes: strList(o.created_shapes), reused, mergedRows };
+}
+
+/** สรุปผล create/replay → IntakeGemSummary (ประกอบทีละ field · รูปร่างผิด = null) */
+export function mapGemSummary(raw: unknown): IntakeGemSummary | null {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return null;
+  const o = raw as Record<string, unknown>;
+  const count = gemInt(o.count, 30);
+  const total = gemInt(o.total, 1e12);
+  const state = parseGemState(o.state);
+  if (count === null || total === null || state === null) return null;
+  return { count, total, state, ...mapGemNames(o) };
 }
 
 /** เปิดใบผลิต + ใบงาน + QR ทรานแซกชันเดียว — ส่งเฉพาะที่ระบุ (null = ไม่ส่ง · ค่าเริ่มของ RPC เป็น null ทั้งหมด) */
@@ -516,10 +632,12 @@ export async function openIntakeJob(token: unknown, i: IntakeOpenInput): Promise
       ...(i.productId ? { p_product_id: i.productId } : {}), ...(i.pendingLabel ? { p_pending_label: i.pendingLabel } : {}), ...(i.metal ? { p_metal: i.metal } : {}),
       ...(i.purity !== null ? { p_purity: i.purity } : {}), ...(i.weightG !== null ? { p_weight_g: i.weightG } : {}), ...(i.qtyPlanned !== null ? { p_qty_planned: i.qtyPlanned } : {}),
       ...(i.dueDate ? { p_due_date: i.dueDate } : {}), ...(i.note ? { p_note: i.note } : {}),
+      // 0191 W3: ส่งเฉพาะที่ระบุ — ไม่ส่งพลอย = เรียก RPC ด้วย params ชุดเดิมเป๊ะ (DB ทำงานแบบ W1) · 'none'/'template' ไม่ส่ง lines · force ส่งเฉพาะที่มี (รายการชื่อที่ถูกถาม)
+      ...(i.gems ? { p_gem_answer: i.gems.answer, ...(i.gems.lines ? { p_gem_lines: i.gems.lines } : {}), ...(i.gems.force && i.gems.force.length > 0 ? { p_gem_force: i.gems.force } : {}) } : {}),
     },
-    { keepJobNo: true },
+    { keepJobNo: true, gem: true },
   );
-  if (isFail(r)) return intakeFail(r);
+  if (isFail(r)) return gemFail(r, "open");
   const bad = intakeClean(r, "job_worker_open");
   if (bad) return bad;
   const jobNo = shortText(r.job_no, 20);
@@ -534,14 +652,240 @@ export async function openIntakeJob(token: unknown, i: IntakeOpenInput): Promise
   const qtyOrder = intOrNull(r.qty_order);
   const designLabel = shortText(r.design_label, 200);
   if (status === null || qtyOrder === null || !designLabel) return fail("error", GENERIC_JOB_ERROR);
+  const gem = mapGemSummary(r.gem);
   return {
     ok: true,
     data: {
       already, jobNo, token: already ? null : (raw as string), status,
       designLabel, sku: shortText(r.sku, 100), skuPending: r.sku_pending === true, metal,
       qtyOrder, qtyPlanned: intOrNull(r.qty_planned), isNewDesign: r.is_new_design === true, dueDate: due,
+      ...(gem ? { gem } : {}),
     },
   };
+}
+
+// ---------------------------------------------------------------------------
+// 0191 W3 — ผู้จัดการกรอก/แก้พลอยจากมือถือ (QR ร้าน + PIN) · อ่านแคตตาล็อก · อ่านพลอยของใบตัวเอง · แก้ทั้งชุด
+// 🔴 ราคาพลอย = ต้นทุน: ไม่มี field ราคา/ผู้ขาย/ผู้สร้าง/เผื่อแตกใน type ใดของส่วนนี้ · ผลดิบผ่าน intakeClean (key ต้องห้ามทิ้ง) แล้วประกอบทีละ field (ไม่ spread)
+// 🔴 ไม่มี shop id ในพารามิเตอร์ (ร้านมาจาก token ร้านที่ DB ตรวจ) · ด่านจริง (ผู้เปิดใบ · ขั้นแรกยังไม่รับ · ใบ open · มีขั้นฝัง · CAS) อยู่ที่ DB (RPC job_worker_gem_*)
+// ---------------------------------------------------------------------------
+
+/** ข้อความไทยตายตัวของ code ในช่องทางพลอย (ทับตาราง QR ร้านที่เขียนเรื่องรูป/ใบงาน) — ไม่มีตัวเลขเงิน/ชื่อตาราง/รหัสดิบ */
+const GEM_CODE_TH: Record<string, string> = {
+  gem_conflict: "มีการแก้พลอยของใบนี้ไปแล้ว (อาจจากอีกเครื่อง) — โหลดหน้าใหม่แล้วแก้อีกครั้ง",
+  gem_rev_invalid: "ข้อมูลพลอยของใบนี้เปลี่ยนไป — โหลดหน้าใหม่แล้วลองอีกครั้ง",
+  no_gem_stage: "ใบนี้ไม่มีขั้นฝังพลอย — แจ้งออฟฟิศให้เพิ่มขั้นก่อน",
+  job_locked: "ช่างรับงานแล้ว แก้พลอยไม่ได้ — แจ้งออฟฟิศ",
+  job_cancelled: "ใบนี้ถูกยกเลิกแล้ว — แก้พลอยไม่ได้",
+  job_closed: "ใบนี้ปิดแล้ว — แก้พลอยไม่ได้",
+  job_not_open: "ใบนี้ไม่อยู่ในสถานะที่แก้พลอยได้ — แจ้งออฟฟิศ",
+  order_not_found: "ไม่พบใบงานที่เปิดไว้ — โหลดหน้าใหม่แล้วลองอีกครั้ง",
+  not_allowed: "บัญชีนี้ไม่มีสิทธิ์จัดการใบงานจากหน้างาน — แจ้งออฟฟิศ",
+  gem_answer_required: "สินค้านี้ยังไม่มีแม่แบบพลอย — เลือกก่อนว่าฝังพลอยหรือไม่ฝังพลอย",
+  gem_answer_invalid: "เลือกก่อนว่าใบนี้ฝังพลอยไหม",
+  gem_args_invalid: "ข้อมูลพลอยไม่ถูกต้อง — โหลดหน้าใหม่แล้วลองอีกครั้ง",
+  gem_lines_required: "เพิ่มพลอยอย่างน้อย 1 รายการ หรือเลือก \"ไม่มีพลอย\"",
+  gem_force_invalid: "ข้อมูลยืนยันชื่อพลอยไม่ถูกต้อง — โหลดหน้าใหม่แล้วลองอีกครั้ง",
+  gem_name_cap: "เพิ่มชื่อพลอยใหม่ถี่เกินไป — รอสักครู่ หรือใช้ชื่อที่มีในรายการ",
+  gem_similar: GEM_ERROR_TH.gem_similar,
+  gem_line_invalid: "ข้อมูลพลอยไม่ถูกต้อง — ตรวจแถวที่ระบุแล้วลองอีกครั้ง",
+};
+
+/** ผลล้มของช่องทางพลอย → ข้อความไทย: แถวผิด = "พลอยแถว n: เหตุผล" (เหตุผลจาก GEM_ERROR_TH ตามรหัสที่ DB ระบุ) · code อื่นใช้ตารางด้านบน แล้วตกไป intakeFail */
+export const gemFail = (f: WorkerFail, ctx: "open" | "gem" = "gem"): WorkerFail => {
+  const base = intakeFail(f);
+  if (f.code === "gem_line_invalid" && f.gem) {
+    const reason = Object.prototype.hasOwnProperty.call(GEM_ERROR_TH, f.gem.code) ? GEM_ERROR_TH[f.gem.code] : GEM_CODE_TH.gem_line_invalid;
+    return { ...base, error: typeof f.gem.row === "number" && f.gem.row >= 1 && f.gem.row <= 30 ? `พลอยแถว ${f.gem.row}: ${reason}` : reason };
+  }
+  if (f.code === "idem_conflict" || f.code === "job_exists") return base;
+  // ช่องทางเปิดใบ (open) ใช้ข้อความเดิมของ W1 กับ code ที่ W1 มีอยู่แล้ว (not_allowed ฯลฯ) — ทับเฉพาะ code ใหม่ของพลอย (gem_*) · ช่องทาง catalog/get/set ใช้ตารางเต็ม
+  if (ctx === "open" && !f.code.startsWith("gem_")) return base;
+  return Object.prototype.hasOwnProperty.call(GEM_CODE_TH, f.code) ? { ...base, error: GEM_CODE_TH[f.code] } : base;
+};
+
+const num2 = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) && v > 0 && v <= 100 ? v : null);
+const optUuid = (v: unknown): string | null => (isUuid(v) ? v : null);
+
+export interface GemCatalogType { id: string; name: string }
+export interface GemCatalogShape { id: string; name: string; hasLength: boolean }
+/** ขนาดที่เคยใช้ (≤ 6 ต่อ ชนิด x รูปทรง) — ให้ chip "เคยใช้" */
+export interface GemCatalogSize { typeId: string; shapeId: string; sizeA: number; sizeB: number | null }
+/** แถวแม่แบบ SKU (หรือแถวของใบ) — ชนิด/รูปทรง/ขนาดตามรายการปัจจุบัน · label = ฉลากที่ DB ประกอบ */
+export interface IntakeGemLine {
+  gemItemId: string;
+  label: string;
+  typeId: string | null;
+  typeName: string | null;
+  shapeId: string | null;
+  shapeName: string | null;
+  hasLength: boolean | null;
+  sizeA: number | null;
+  sizeB: number | null;
+  qtyPerPiece: number;
+  position: string | null;
+}
+export interface IntakeGemCatalog {
+  types: GemCatalogType[];
+  shapes: GemCatalogShape[];
+  sizes: GemCatalogSize[];
+  /** SKU ที่ส่ง productId มีแม่แบบพลอยไหม (ไม่ผ่านเงื่อนไข SKU = false เหมือนไม่มีแม่แบบ — ไม่เปิดเผยว่ามี SKU นั้น) */
+  hasTemplate: boolean;
+  template: IntakeGemLine[];
+  maxLines: number;
+}
+
+function mapGemLine(x: unknown): IntakeGemLine | null {
+  if (typeof x !== "object" || x === null || Array.isArray(x)) return null;
+  const o = x as Record<string, unknown>;
+  const gemItemId = optUuid(o.gem_item_id);
+  const label = shortText(o.label, 200);
+  const qty = gemInt(o.qty_per_piece, 1000);
+  if (!gemItemId || !label || qty === null || qty < 1) return null;
+  return {
+    gemItemId, label,
+    typeId: optUuid(o.type_id), typeName: shortText(o.type_name, 80), shapeId: optUuid(o.shape_id), shapeName: shortText(o.shape_name, 80),
+    hasLength: typeof o.has_length === "boolean" ? o.has_length : null, sizeA: num2(o.size_a), sizeB: num2(o.size_b),
+    qtyPerPiece: qty, position: shortText(o.position, 40),
+  };
+}
+
+/** ตัวเรียก RPC ที่ต้องมี token + session (ไม่มี = ไม่ส่งไป DB เลย) */
+async function gemCaller(token: unknown): Promise<{ c: Caller & { tokenHash: string; sessionHash: string } } | { f: WorkerFail }> {
+  const c = await readCaller(token);
+  if (!c.tokenHash) return { f: intakeFail(fail("invalid_token")) };
+  if (!c.sessionHash) return { f: intakeFail(fail("session_required")) };
+  return { c: { ...c, tokenHash: c.tokenHash, sessionHash: c.sessionHash } };
+}
+
+/** ชนิด/รูปทรงที่ใช้ได้ + ขนาดที่เคยใช้ + (ถ้าส่ง productId) แม่แบบพลอยของ SKU — เฉพาะผู้จัดการ (can_open_job) · ไม่มีราคา */
+export async function loadIntakeGemCatalog(token: unknown, productId: string | null): Promise<WorkerOk<IntakeGemCatalog> | WorkerFail> {
+  if (productId !== null && !isUuid(productId)) return gemFail(fail("sku_invalid"));
+  const a = await gemCaller(token);
+  if ("f" in a) return a.f;
+  const r = await callWorkerRpc("job_worker_gem_catalog", { p_token_hash: a.c.tokenHash, p_session_hash: a.c.sessionHash, p_ip_hash: a.c.ipHash, ...(productId ? { p_product_id: productId } : {}) }, { gem: true });
+  if (isFail(r)) return gemFail(r);
+  const bad = intakeClean(r, "job_worker_gem_catalog");
+  if (bad) return bad;
+  const types = (Array.isArray(r.types) ? r.types.slice(0, 1000) : []).flatMap((t): GemCatalogType[] => {
+    if (typeof t !== "object" || t === null || Array.isArray(t)) return [];
+    const o = t as Record<string, unknown>;
+    const name = shortText(o.name, 80);
+    return isUuid(o.id) && name ? [{ id: o.id, name }] : [];
+  });
+  const shapes = (Array.isArray(r.shapes) ? r.shapes.slice(0, 300) : []).flatMap((s): GemCatalogShape[] => {
+    if (typeof s !== "object" || s === null || Array.isArray(s)) return [];
+    const o = s as Record<string, unknown>;
+    const name = shortText(o.name, 80);
+    return isUuid(o.id) && name ? [{ id: o.id, name, hasLength: o.has_length === true }] : [];
+  });
+  const sizes = (Array.isArray(r.sizes) ? r.sizes.slice(0, 600) : []).flatMap((z): GemCatalogSize[] => {
+    if (typeof z !== "object" || z === null || Array.isArray(z)) return [];
+    const o = z as Record<string, unknown>;
+    const a2 = num2(o.size_a);
+    return isUuid(o.type_id) && isUuid(o.shape_id) && a2 !== null ? [{ typeId: o.type_id, shapeId: o.shape_id, sizeA: a2, sizeB: num2(o.size_b) }] : [];
+  });
+  const template = (Array.isArray(r.template) ? r.template.slice(0, 30) : []).flatMap((x) => { const l = mapGemLine(x); return l ? [l] : []; });
+  return { ok: true, data: { types, shapes, sizes, hasTemplate: r.has_template === true && template.length > 0, template, maxLines: 30 } };
+}
+
+export interface IntakeJobGems {
+  job: { jobId: string; jobNo: string; designLabel: string; status: string; qtyPlanned: number };
+  state: GemState;
+  /** แก้ได้ตอนนี้ (ผู้เปิด · ขั้นแรกยังไม่รับ · ใบ open · มีขั้นฝัง) — DB ตัดสิน · บันทึกจริงตรวจซ้ำใต้ล็อกแถวใบ */
+  editable: boolean;
+  /** เหตุที่แก้ไม่ได้: job_locked · job_cancelled · job_closed · job_not_open · no_gem_stage */
+  lockCode: string | null;
+  hasGemStage: boolean;
+  /** ลายนิ้วมือของพลอยใบ (CAS) — ส่งกลับตอนบันทึก */
+  rev: string;
+  lines: (IntakeGemLine & { qtyTotal: number })[];
+  maxLines: number;
+}
+
+const REV_RE = /^([0-9a-f]{32}|empty)$/;
+const LOCK_CODES = ["job_locked", "job_cancelled", "job_closed", "job_not_open", "no_gem_stage"] as const;
+
+/** พลอยของใบที่ช่างคนนี้เปิดเอง (W-10) — ใบคนอื่น/ออฟฟิศ/ส่วนย่อย/ร้านอื่น = order_not_found จาก DB · อ่านได้แม้ถูกล็อก */
+export async function loadIntakeJobGems(token: unknown, jobId: unknown): Promise<WorkerOk<IntakeJobGems> | WorkerFail> {
+  if (typeof jobId !== "string" || !isUuid(jobId)) return gemFail(fail("order_not_found"));
+  const a = await gemCaller(token);
+  if ("f" in a) return a.f;
+  const r = await callWorkerRpc("job_worker_gem_get", { p_token_hash: a.c.tokenHash, p_session_hash: a.c.sessionHash, p_job_id: jobId, p_ip_hash: a.c.ipHash }, { gem: true });
+  if (isFail(r)) return gemFail(r);
+  const bad = intakeClean(r, "job_worker_gem_get");
+  if (bad) return bad;
+  const j = typeof r.job === "object" && r.job !== null && !Array.isArray(r.job) ? (r.job as Record<string, unknown>) : null;
+  const state = parseGemState(r.state);
+  const rev = typeof r.rev === "string" && REV_RE.test(r.rev) ? r.rev : null;
+  const jobNo = j ? shortText(j.job_no, 20) : null;
+  const designLabel = j ? shortText(j.design_label, 200) : null;
+  const status = j ? shortText(j.status, 20) : null;
+  const qtyPlanned = j ? gemInt(j.qty_planned, 100000) : null;
+  if (!j || !isUuid(j.job_id) || !jobNo || !/^JB-\d{1,8}$/.test(jobNo) || !designLabel || !status || qtyPlanned === null || state === null || rev === null) return fail("error", GENERIC_JOB_ERROR);
+  // 🔴 ห้ามทิ้งแถวผิดรูปเงียบๆ: หน้าแก้ส่งชุดนี้กลับเป็น replace-all — แถวที่หายไปจากจอ = ถูกลบจริงตอนบันทึก (review S2) → จำนวนแถวที่ map ได้ต้องเท่าที่ DB ส่ง ไม่งั้นล้มปลอดภัย
+  if (!Array.isArray(r.lines) || r.lines.length > 30) return fail("error", GENERIC_JOB_ERROR);
+  const lines = r.lines.flatMap((x) => {
+    const l = mapGemLine(x);
+    const t = typeof x === "object" && x !== null ? gemInt((x as Record<string, unknown>).qty_total, 1e9) : null;
+    return l && t !== null ? [{ ...l, qtyTotal: t }] : [];
+  });
+  if (lines.length !== r.lines.length) return fail("error", GENERIC_JOB_ERROR);
+  const lockCode = typeof r.lock_code === "string" && (LOCK_CODES as readonly string[]).includes(r.lock_code) ? r.lock_code : null;
+  return {
+    ok: true,
+    data: {
+      job: { jobId: j.job_id, jobNo, designLabel, status, qtyPlanned },
+      state, editable: r.editable === true && lockCode === null, lockCode, hasGemStage: r.has_gem_stage === true, rev, lines, maxLines: 30,
+    },
+  };
+}
+
+export interface IntakeGemSetInput {
+  jobId: string;
+  /** ผ่าน toWireGemLines แล้ว (allowlist) */
+  lines: Record<string, unknown>[];
+  /** rev จาก loadIntakeJobGems (CAS) — ว่าง/ผิดรูป = ไม่ถึง DB */
+  expectedRev: string;
+  /** ชื่อที่ผู้ใช้ยืนยันหลัง DB ถาม (gem_similar) */
+  force?: GemForceItem[] | null;
+}
+export interface IntakeGemSetResult {
+  changed: boolean;
+  count: number;
+  lines: { gemItemId: string; label: string; qtyPerPiece: number; qtyTotal: number; position: string | null }[];
+  summary: Pick<IntakeGemSummary, "createdTypes" | "createdShapes" | "reused" | "mergedRows">;
+  state: GemState;
+  rev: string;
+}
+
+/** แก้พลอยทั้งชุด (all-or-nothing) — ล้ม = ไม่เขียนอะไร · ผิดแถว = gem.row/gem.field · ชื่อคล้าย = similar[] (ส่งกลับพร้อม force ที่ผู้ใช้ยืนยัน) */
+export async function setIntakeJobGems(token: unknown, i: IntakeGemSetInput): Promise<WorkerOk<IntakeGemSetResult> | WorkerFail> {
+  if (typeof i.jobId !== "string" || !isUuid(i.jobId)) return gemFail(fail("order_not_found"));
+  if (typeof i.expectedRev !== "string" || !REV_RE.test(i.expectedRev)) return gemFail(fail("gem_rev_invalid"));
+  const a = await gemCaller(token);
+  if ("f" in a) return a.f;
+  const r = await callWorkerRpc("job_worker_gem_set", {
+    p_token_hash: a.c.tokenHash, p_session_hash: a.c.sessionHash, p_job_id: i.jobId, p_lines: i.lines, p_expected_rev: i.expectedRev, p_ip_hash: a.c.ipHash,
+    ...(i.force && i.force.length > 0 ? { p_force: i.force } : {}),
+  }, { gem: true });
+  if (isFail(r)) return gemFail(r);
+  const bad = intakeClean(r, "job_worker_gem_set");
+  if (bad) return bad;
+  const state = parseGemState(r.state);
+  const rev = typeof r.rev === "string" && REV_RE.test(r.rev) ? r.rev : null;
+  const count = gemInt(r.count, 30);
+  if (state === null || rev === null || count === null || typeof r.changed !== "boolean") return fail("error", GENERIC_JOB_ERROR);
+  const lines = (Array.isArray(r.lines) ? r.lines.slice(0, 30) : []).flatMap((x) => {
+    if (typeof x !== "object" || x === null || Array.isArray(x)) return [];
+    const o = x as Record<string, unknown>;
+    const gemItemId = optUuid(o.gem_item_id);
+    const label = shortText(o.label, 200);
+    const qty = gemInt(o.qty_per_piece, 1000);
+    const total = gemInt(o.qty_total, 1e9);
+    return gemItemId && label && qty !== null && qty >= 1 && total !== null ? [{ gemItemId, label, qtyPerPiece: qty, qtyTotal: total, position: shortText(o.position, 40) }] : [];
+  });
+  return { ok: true, data: { changed: r.changed, count, lines, state, rev, summary: mapGemNames(r.summary) } };
 }
 
 /** ออกจากระบบ: เพิกถอน session ใน DB (ถ้ามี cookie) — ผู้เรียกลบ cookie เอง */

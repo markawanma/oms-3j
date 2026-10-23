@@ -2,6 +2,7 @@
 -- ตรวจ supabase/migrations/0189_shop_photos_w2.sql (W2: ผู้จัดการแนบรูปสั่งงานจากหน้างาน · QR ร้าน + PIN · ≤ 3 รูป/ใบ · เพิ่ม/ลบของตัวเองได้จนช่างเริ่มรับงาน · รายการ "ใบที่ฉันเปิด" · อ้างใบด้วย job_id)
 -- self-rolling-back (3j-migration-traps ข้อ 11): ทุกเคสอยู่ในทรานแซกชันเดียว จบด้วย `raise exception` เสมอ ⇒ ถอยทั้งก้อน · อ่านผลจาก error message · exit 1 คือผลที่คาด · [FAIL] >= 1 = ไม่ผ่าน
 -- ต้องมี 0182 + 0187 + 0188 อยู่ใน DB แล้ว · dry-run: ต่อ 0189 + ไฟล์นี้ (ไฟล์ LF — ข้อ 20) แล้วรันไม่ใส่ --commit · หลัง apply: รันไฟล์นี้เดี่ยวๆ ได้
+-- ⚠️ หลัง 0191 (W3) ไฟล์นี้อ้างซิกเนเจอร์ job_worker_open 18 args → รันได้เฉพาะเมื่อ 0191 อยู่ใน DB แล้ว (หรือต่อ 0191 ไว้หน้าไฟล์ใน dry-run) · ก่อน 0191 ใช้เวอร์ชันของ commit ก่อนหน้า
 -- ข้อมูลทดสอบ: ร้านสังเคราะห์ ZZ TEST verify-0189 (insert public.shop ตรง ตามแพทเทิร์น verify-0188 — ข้อยกเว้นเดียวที่ไม่ผ่าน RPC) · ช่าง/QR ร้าน/ใบผลิต/ใบงาน/รูปออฟฟิศ สร้างผ่าน RPC ของระบบทั้งหมด
 -- 🔴 ไม่แตะตัวนับเอกสารภาษี · production_order_done ต้อง md5 เดิม (G3) · storage (bucket) ทดสอบใน SQL ไม่ได้ → ครอบด้วย vitest lib/actions/job-worker.photos.test.ts (mock storage)
 --
@@ -760,8 +761,8 @@ begin
       r ->> 'ok' = 'true' and exists (select 1 from jsonb_array_elements(r -> 'jobs') e where (e ->> 'job_id')::uuid = j)
       and not exists (select 1 from jsonb_array_elements(r -> 'jobs') e where (e ->> 'job_id')::uuid in (j2, pg_temp.fx('jt_job'))));
     select e into o from jsonb_array_elements(r -> 'jobs') e where (e ->> 'job_id')::uuid = j;
-    v := v || pg_temp.chk('H2', 'แถวมีเฉพาะ field ที่ระบุ (ไม่มีเงิน/น้ำหนัก) · photos_count 1 · my_photos_count 1 · editable true · status open',
-      (select string_agg(k2, ',' order by k2) from jsonb_object_keys(o) k2) = 'created_at,design_label,editable,job_id,job_no,metal,my_photos_count,order_no,photos_count,qty,status'
+    v := v || pg_temp.chk('H2', 'แถวมีเฉพาะ field ที่ระบุ (ไม่มีเงิน/น้ำหนัก · ไม่นับ gem_* ที่ 0191 เพิ่ม — ตรวจใน verify-0191 L1e) · photos_count 1 · my_photos_count 1 · editable true · status open',
+      (select string_agg(k2, ',' order by k2) from jsonb_object_keys(o - 'gem_state' - 'gem_count' - 'gem_pieces' - 'gem_editable') k2) = 'created_at,design_label,editable,job_id,job_no,metal,my_photos_count,order_no,photos_count,qty,status'
       and (o ->> 'photos_count')::int = 1 and (o ->> 'my_photos_count')::int = 1 and (o ->> 'editable')::boolean and o ->> 'status' = 'open');
     r2 := pg_temp.pmy(sM2);
     v := v || pg_temp.chk('H3', 'รายการของ M2: ไม่เห็นใบของ M · เห็นใบของตัวเอง', not exists (select 1 from jsonb_array_elements(r2 -> 'jobs') e where (e ->> 'job_id')::uuid = j) and exists (select 1 from jsonb_array_elements(r2 -> 'jobs') e where (e ->> 'job_id')::uuid = j2));

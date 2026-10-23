@@ -58,7 +58,7 @@ const hubOf = (id = WA): ShopInitial => ({ kind: "hub", hub: { state: "ready", w
 const identifyHub = (): ShopInitial => ({ kind: "hub", hub: { state: "identify", workers: [{ id: WA, displayName: "หัวหน้าช่าง" }], worker: null, openAllowed: false, profileReady: true, goldProfileReady: true, sessionExpired: true } });
 
 const job = (o: Partial<MyIntakeJob> = {}): MyIntakeJob => ({
-  jobId: J1, orderNo: "PO-2610-001", jobNo: "JB-0031", designLabel: "แหวนลายใบไม้", metal: "gold", qty: 30, createdAt: "2026-10-21T02:00:00Z", status: "open", photosCount: 2, myPhotosCount: 2, editable: true, ...o,
+  jobId: J1, orderNo: "PO-2610-001", jobNo: "JB-0031", designLabel: "แหวนลายใบไม้", metal: "gold", qty: 30, createdAt: "2026-10-21T02:00:00Z", status: "open", photosCount: 2, myPhotosCount: 2, editable: true, gemState: null, gemCount: 0, gemPieces: 0, gemEditable: false, ...o,
 });
 const list = (jobs: MyIntakeJob[]) => ({ ok: true, openAllowed: true, jobs, maxPhotos: 3 });
 const sp = (id: string, o: Record<string, unknown> = {}) => ({ id, smUrl: `https://s/${id}_sm`, mdUrl: `https://s/${id}_md`, isPrimary: false, mine: true, ...o });

@@ -171,6 +171,7 @@ describe("ไฟล์ส่วนพลอยของใบ/ช่าง/A5 �
     "components/domain/gems/GemRowsEditor.tsx",
     "components/domain/gems/GemPicker.tsx",
     "lib/jobs/gem-draft.ts",
+    "lib/jobs/gem-wire.ts",
     "lib/jobs/print-gems.ts",
     // ชั้นที่ประกอบข้อมูลพลอยส่งให้ช่าง/ใบพิมพ์/การ์ดใบงาน (type boundary) — ห้ามมีชื่อ field ราคา
     "lib/jobs/print.ts",
@@ -183,4 +184,24 @@ describe("ไฟล์ส่วนพลอยของใบ/ช่าง/A5 �
       expect(/\bprice\b|unit_cost|unitCost|breakage|supplier|oem_tier|\bcost\b|priceEffectiveFrom|hasPrice/i.test(code), `${f} มีชื่อ field ราคา`).toBe(false);
     });
   }
+});
+
+// 0191 W3: ชั้นสาธารณะของหน้างาน (QR ร้าน + PIN — action/ชั้น server ที่ผู้จัดการกรอกพลอย) ต้องไม่ import ตัวแปลงราคา/แคตตาล็อกฝั่งออฟฟิศ แม้แต่ import type
+// (allowlist แถวพลอยย้ายไป lib/jobs/gem-wire.ts เพื่อเหตุนี้ — gems.ts มี mapGemCatalog/mapGemPriceHistory)
+describe("W3: ชั้นสาธารณะของหน้างานไม่ import ตัวแปลงราคา (gems.ts · actions/gems.ts · gems-server.ts)", () => {
+  const PUBLIC_GEM_FILES = ["lib/actions/job-worker.ts", "lib/jobs/worker-server.ts", "lib/jobs/shop-photo-server.ts", "lib/jobs/gem-wire.ts"];
+  for (const f of PUBLIC_GEM_FILES) {
+    it(`${f} — ไม่มี import ตัวแปลงราคา`, () => {
+      const code = strip(readFileSync(join(ROOT, f), "utf8"));
+      expect(/from\s+["']@\/lib\/(?:jobs\/gems|actions\/gems|jobs\/gems-server)["']|import\(\s*["']@\/lib\/(?:jobs\/gems|actions\/gems|jobs\/gems-server)["']\s*\)/.test(code), `${f} import ตัวแปลงราคา/แคตตาล็อกออฟฟิศ`).toBe(false);
+    });
+  }
+  it("ตัวจับจริง: lib/actions/gems.ts (ฝั่งออฟฟิศ) import lib/jobs/gems — เทสต์ข้างบนไม่ว่างเปล่า", () => {
+    const code = strip(readFileSync(join(ROOT, "lib/actions/gems.ts"), "utf8"));
+    expect(/from\s+["']@\/lib\/jobs\/gems["']/.test(code)).toBe(true);
+  });
+  it("gem-wire.ts ไม่ import อะไรเลย (pure ล้วน) · gems.ts re-export toWireGemLines จากที่นี่ (import เดิมของออฟฟิศใช้ต่อได้)", () => {
+    expect(runtimeImports(readFileSync(join(ROOT, "lib/jobs/gem-wire.ts"), "utf8"))).toEqual([]);
+    expect(/export\s*\{\s*toWireGemLines\s*\}\s*from\s*["']@\/lib\/jobs\/gem-wire["']/.test(readFileSync(join(ROOT, "lib/jobs/gems.ts"), "utf8"))).toBe(true);
+  });
 });

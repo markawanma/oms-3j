@@ -2,6 +2,7 @@
 -- ตรวจ supabase/migrations/0188_w1_followups.sql (W1 ตามหลัง 0187: close_gate ข้อความ old.po_no · shop_intake_token_status คืน issued_at/revoked_at · job_worker_open ล็อกต่อ (ร้าน, SKU) + ข้อความ name_invalid กลาง)
 -- self-rolling-back (3j-migration-traps ข้อ 11): ทุกเคสอยู่ในทรานแซกชันเดียว จบด้วย `raise exception` เสมอ ⇒ ถอยทั้งก้อน · อ่านผลจาก error message · exit 1 คือผลที่คาด · [FAIL] >= 1 = ไม่ผ่าน
 -- ต้องมี 0187 อยู่ใน DB แล้ว (apply แล้ว) · dry-run: ต่อ 0188 + ไฟล์นี้ · หลัง apply 0188: รันไฟล์นี้เดี่ยวๆ ได้
+-- ⚠️ หลัง 0191 (W3) ไฟล์นี้อ้างซิกเนเจอร์ job_worker_open 18 args → รันได้เฉพาะเมื่อ 0191 อยู่ใน DB แล้ว (หรือต่อ 0191 ไว้หน้าไฟล์ใน dry-run) · ก่อน 0191 ใช้เวอร์ชันของ commit ก่อนหน้า
 -- ข้อมูลทดสอบ: ร้านสังเคราะห์ ZZ TEST verify-0188 (insert public.shop ตรง ตามแพทเทิร์น verify-0187/0186 — ข้อยกเว้นเดียวที่ไม่ผ่าน RPC) · SKU/ช่าง/QR ร้าน/ใบผลิต/ผูก SKU/ack/done สร้างผ่าน RPC ของระบบทั้งหมด
 -- 🔴 ไม่แตะตัวนับเอกสารภาษี · production_order_done ต้อง md5 เดิม (G3)
 --
@@ -410,7 +411,7 @@ begin
     r := pg_temp.opn(sM, jsonb_build_object('product', fixa, 'qty', 1));
     r2 := pg_temp.opn(sM2, jsonb_build_object('product', fixc, 'qty', 1));
     v := v || pg_temp.chk('C6', 'ต้องไม่พัง: คนละ SKU เปิดได้ทั้งคู่ (ล็อกต่อ SKU ไม่ใช่ทั้งร้าน) · ใบคนละเลข', r ->> 'ok' = 'true' and r2 ->> 'ok' = 'true' and r ->> 'job_no' <> r2 ->> 'job_no');
-    def := pg_get_functiondef('analytics.job_worker_open(text,text,text,uuid,text,text,numeric,numeric,integer,integer,date,boolean,text,text,text)'::regprocedure);
+    def := pg_get_functiondef('analytics.job_worker_open(text,text,text,uuid,text,text,numeric,numeric,integer,integer,date,boolean,text,text,text,jsonb,text,jsonb)'::regprocedure);
     p_idem := position('hashtextextended(''intake:'' || v_shop::text || '':'' || p_idem_key' in def);
     p_prod := position('hashtextextended(''intake:product:'' || v_shop::text' in def);
     v := v || pg_temp.chk('C7', 'ลำดับล็อกคงที่ในนิยาม: idem key มาก่อน SKU เสมอ (กัน deadlock) · SKU lock อยู่ก่อนเช็ค job_exists',
@@ -444,7 +445,7 @@ create function pg_temp.g_188_mut() returns text
  language plpgsql as $c$
 declare
   v text := ''; s text; k int; muts jsonb; m jsonb; hit int; i text; killed int := 0; total int;
-  sigo text := 'analytics.job_worker_open(text,text,text,uuid,text,text,numeric,numeric,integer,integer,date,boolean,text,text,text)';
+  sigo text := 'analytics.job_worker_open(text,text,text,uuid,text,text,numeric,numeric,integer,integer,date,boolean,text,text,text,jsonb,text,jsonb)';
 begin
   muts := jsonb_build_array(
     jsonb_build_object('id', 'MA', 'what', 'close gate: ข้อความ ack_required กลับไปใช้ new.po_no (NULL)', 'sig', 'analytics.production_order_close_gate()',
@@ -506,13 +507,13 @@ begin
       (select count(*) from pg_proc where pronamespace = 'analytics'::regnamespace and proname in ('production_order_close_gate', 'shop_intake_token_status', 'job_worker_open')) = 3
       and to_regprocedure('analytics.shop_intake_token_status(uuid)') is not null
       and to_regprocedure('analytics.production_order_close_gate()') is not null
-      and to_regprocedure('analytics.job_worker_open(text,text,text,uuid,text,text,numeric,numeric,integer,integer,date,boolean,text,text,text)') is not null);
+      and to_regprocedure('analytics.job_worker_open(text,text,text,uuid,text,text,numeric,numeric,integer,integer,date,boolean,text,text,text,jsonb,text,jsonb)') is not null);
     v_msg := v_msg || pg_temp.chk('G2', 'สิทธิ์: status/open เปิดแค่ service_role (anon/authenticated/public ไม่ได้) · close_gate ไม่เปิดใครเลย (trigger function)',
       has_function_privilege('service_role', 'analytics.shop_intake_token_status(uuid)', 'execute')
-      and has_function_privilege('service_role', 'analytics.job_worker_open(text,text,text,uuid,text,text,numeric,numeric,integer,integer,date,boolean,text,text,text)', 'execute')
+      and has_function_privilege('service_role', 'analytics.job_worker_open(text,text,text,uuid,text,text,numeric,numeric,integer,integer,date,boolean,text,text,text,jsonb,text,jsonb)', 'execute')
       and not has_function_privilege('anon', 'analytics.shop_intake_token_status(uuid)', 'execute') and not has_function_privilege('authenticated', 'analytics.shop_intake_token_status(uuid)', 'execute')
-      and not has_function_privilege('anon', 'analytics.job_worker_open(text,text,text,uuid,text,text,numeric,numeric,integer,integer,date,boolean,text,text,text)', 'execute')
-      and not has_function_privilege('authenticated', 'analytics.job_worker_open(text,text,text,uuid,text,text,numeric,numeric,integer,integer,date,boolean,text,text,text)', 'execute')
+      and not has_function_privilege('anon', 'analytics.job_worker_open(text,text,text,uuid,text,text,numeric,numeric,integer,integer,date,boolean,text,text,text,jsonb,text,jsonb)', 'execute')
+      and not has_function_privilege('authenticated', 'analytics.job_worker_open(text,text,text,uuid,text,text,numeric,numeric,integer,integer,date,boolean,text,text,text,jsonb,text,jsonb)', 'execute')
       and not has_function_privilege('service_role', 'analytics.production_order_close_gate()', 'execute') and not has_function_privilege('anon', 'analytics.production_order_close_gate()', 'execute')
       and not has_function_privilege('authenticated', 'analytics.production_order_close_gate()', 'execute'));
     v_msg := v_msg || pg_temp.chk('G3', 'production_order_done (ฟังก์ชัน 💰) ไม่ถูกแตะ: md5 ตรงค่าที่ล็อกไว้ใน 0187', pg_temp.done_md5() = pg_temp.done_md5_before());
