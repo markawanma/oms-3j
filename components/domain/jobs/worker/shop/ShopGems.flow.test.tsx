@@ -201,9 +201,42 @@ describe("W-4 · state: loading / error ของรายการพลอย 
     // hub กำลังโหลดใหม่ (แผ่น PIN) — วิซาร์ดถูกซ่อนไม่ถูกถอด: ฟอร์ม/แถวยังอยู่
     expect(screen.getByRole("button", { name: /^ชนิดพลอยแถว 1/, hidden: true })).toBeInTheDocument();
   });
+
+  it("ยังไม่ได้ตอบ + กำลังโหลดรายการ: skeleton ใต้คำถาม (ตอบได้ทันที ไม่รอ) · โหลดไม่ได้: แถบ amber + ลองอีกครั้ง (SKU ที่มีแม่แบบจะรู้ว่าแม่แบบยังไม่มา)", async () => {
+    let resolve: (v: unknown) => void = () => {};
+    intakeGemCatalog.mockReturnValueOnce(new Promise((r) => (resolve = r)));
+    render(<ShopIntakeApp token={TOKEN} initial={readyHub()} />);
+    await toGems();
+    expect(screen.getByTestId("shop-gem-catalog-loading")).toBeInTheDocument();
+    expect(radio("มีพลอย")).toBeEnabled();
+    await act(async () => resolve({ ok: false, error: "x_y", code: "error" }));
+    const bar = await screen.findByTestId("shop-gem-catalog-error");
+    expect(bar).toHaveTextContent("โหลดรายการพลอยไม่ได้ — พิมพ์ชื่อเองได้ แต่ระบบยังเช็คชื่อซ้ำให้ไม่ได้");
+    expect(screen.queryByTestId("shop-gem-catalog-loading")).not.toBeInTheDocument();
+    await userEvent.click(within(bar).getByRole("button", { name: "ลองอีกครั้ง" }));
+    await waitFor(() => expect(screen.queryByTestId("shop-gem-catalog-error")).not.toBeInTheDocument());
+    expect(intakeGemCatalog).toHaveBeenCalledTimes(2);
+  });
 });
 
 describe("W-4 · กรอกแถวพลอย", () => {
+  it("เปลี่ยนจำนวนผลิต (ย้อนไป W-3 แล้วกลับมา): รวมทั้งใบอัปเดตตามจำนวนใหม่ (คำนวณจาก state ไม่ cache)", async () => {
+    render(<ShopIntakeApp token={TOKEN} initial={readyHub()} />);
+    await toGems("30");
+    await answerHas();
+    await fillRound(1, { qty: "2" });
+    await click("เสร็จแถวนี้");
+    expect(screen.getByTestId("shop-gem-grand-total")).toHaveTextContent("รวมพลอยทั้งใบ 1 รายการ · 60 เม็ด");
+    await click("ย้อนกลับ");
+    const q = screen.getByLabelText("ต้องการเข้าสต็อก (ชิ้น)");
+    await userEvent.clear(q);
+    await userEvent.type(q, "40");
+    await click("ถัดไป");
+    await screen.findByRole("heading", { level: 1, name: "พลอย" });
+    expect(screen.getByTestId("shop-gem-multiplier")).toHaveTextContent("คูณด้วยจำนวนที่จะผลิต 40 ชิ้น");
+    expect(screen.getByTestId("shop-gem-grand-total")).toHaveTextContent("รวมพลอยทั้งใบ 1 รายการ · 80 เม็ด");
+  });
+
   it("แถวครบ: ตัวอย่างชื่อ · รวมแถว (จำนวน × จำนวนผลิต) · เสร็จแถวนี้ → พับเป็นสรุป · รวมพลอยทั้งใบ · ไป W-5 · หน้าทวนมีแถวพลอย · ส่ง gems = has + lines", async () => {
     render(<ShopIntakeApp token={TOKEN} initial={readyHub()} />);
     await toGems("30");

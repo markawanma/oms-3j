@@ -173,6 +173,22 @@ export function ShopGemStep({
           </div>
         )}
 
+        {/* รายการพลอยของร้าน/แม่แบบ SKU กำลังโหลด หรือโหลดไม่ได้ — บอกตั้งแต่ยังไม่ได้ตอบ (SKU ที่มีแม่แบบจะได้แถวมาให้หลังโหลดเสร็จ) · ไม่บล็อกการตอบ (ตอนตอบ "มีพลอย" ตัวแก้แสดงสถานะเดียวกันเอง) */}
+        {g.answer !== "has" && (catalog.s === "idle" || catalog.s === "loading") && (
+          <div role="status" aria-label={SHOP_GEM_TH.loadingCatalog} className="space-y-2" data-testid="shop-gem-catalog-loading">
+            <div className="h-5 w-56 animate-pulse rounded bg-zinc-200" />
+            <span className="sr-only">{SHOP_GEM_TH.loadingCatalog}…</span>
+          </div>
+        )}
+        {g.answer !== "has" && catalog.s === "error" && (
+          <div role="status" className="space-y-2 rounded-xl border-2 border-amber-300 bg-amber-50 p-3 text-amber-950" data-testid="shop-gem-catalog-error">
+            <p className="text-lg font-semibold">{SHOP_GEM_TH.catalogError}</p>
+            <button type="button" onClick={onReloadCatalog} className="min-h-12 rounded-xl border-2 border-amber-600 bg-white px-5 text-lg font-bold focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary-300">
+              {SHOP_GEM_TH.retry}
+            </button>
+          </div>
+        )}
+
         {generalError && (
           <p role="alert" className="rounded-xl border-2 border-red-200 bg-red-50 p-3 text-lg font-semibold break-words text-red-800" data-testid="shop-gem-general-error">
             {generalError}

@@ -235,7 +235,6 @@ export function ShopGemEditor({
                     type="button"
                     id={`${base}-head`}
                     aria-expanded={false}
-                    aria-controls={`${base}-body`}
                     disabled={disabled}
                     onClick={() => setOpenKey(r.key)}
                     className="flex min-h-[72px] w-full items-start justify-between gap-3 rounded-xl text-left focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-primary-300"
