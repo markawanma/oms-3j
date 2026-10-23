@@ -140,6 +140,69 @@ describe("โฟลเดอร์ shop + shop-open.ts — ไม่มีเร
   });
 });
 
+// 0191 W3 UI: พลอยบนมือถือผู้จัดการ (W-4 · แถวพลอยหน้าทวน · W-9 · W-10) — เขียนข้อมูลผ่านช่องสาธารณะ (QR ร้าน + PIN) · ราคาพลอย = ต้นทุน ห้ามถึงหน้านี้
+describe("W3 พลอยบน /w/s/<shopToken> — กราฟ import (transitive) ไม่ลากตัวแปลงราคา/แคตตาล็อกออฟฟิศ/lib/oem", () => {
+  const files = closure(ENTRY);
+  const rels = [...files].map(norm);
+
+  it("พบจอพลอยทั้งชุดในกราฟ (กันเทสต์ว่างเปล่า)", () => {
+    for (const f of [
+      "components/domain/jobs/worker/shop/ShopGemStep.tsx",
+      "components/domain/jobs/worker/shop/ShopGemEditor.tsx",
+      "components/domain/jobs/worker/shop/ShopGemEditSheet.tsx",
+      "components/domain/jobs/worker/shop/ShopJobGemsSection.tsx",
+      "components/domain/jobs/worker/shop/ShopReviewGemsRow.tsx",
+      "components/domain/jobs/worker/shop/useShopGemCatalog.ts",
+      "components/domain/gems/GemPicker.tsx",
+      "components/domain/gems/useGemFail.tsx",
+      "lib/jobs/shop-gem-flow.ts",
+      "lib/jobs/gem-draft.ts",
+      "lib/jobs/shop-gems.ts",
+      "lib/jobs/gem-wire.ts",
+      "lib/text/invisible.ts",
+    ]) {
+      expect(rels, f).toContain(f);
+    }
+  });
+
+  it("🔴 ไม่ลาก lib/jobs/gems.ts (ตัวแปลงราคา/แคตตาล็อก) · lib/actions/gems.ts · lib/jobs/gems-server.ts · จอราคา/แคตตาล็อกออฟฟิศ · ตัวแก้ของออฟฟิศ (GemRowsEditor · useGemOptions)", () => {
+    for (const bad of [
+      "lib/jobs/gems.ts",
+      "lib/actions/gems.ts",
+      "lib/jobs/gems-server.ts",
+      "components/domain/gems/GemPriceDialog.tsx",
+      "components/domain/gems/GemItemsTable.tsx",
+      "components/domain/gems/GemItemDetailDialog.tsx",
+      "components/domain/gems/GemCatalogClient.tsx",
+      "components/domain/gems/GemRowsEditor.tsx",
+      "components/domain/gems/useGemOptions.ts",
+    ]) {
+      expect(rels, `หน้า /w/s/ ลาก ${bad}`).not.toContain(bad);
+    }
+  });
+
+  it("🔴 ไม่มีโมดูล lib/oem ในกราฟ (shop-gems ใช้ leaf lib/text/invisible — ไม่ใช่ lib/oem/display) · ไม่มี lib/images/server", () => {
+    expect(rels.some((r) => r.startsWith("lib/oem/"))).toBe(false);
+    expect(rels).not.toContain("lib/oem/display.ts");
+    const src = readFileSync(join(ROOT, "lib", "jobs", "shop-gems.ts"), "utf8");
+    expect(runtimeImports(src).some((s) => s.includes("lib/oem"))).toBe(false);
+    expect(runtimeImports(src)).toContain("@/lib/text/invisible");
+  });
+
+  it("'use server' ในกราฟยังมีไฟล์เดียว (job-worker) · action ที่หน้านี้ import ได้ยังมีตัวเดียว", () => {
+    const servers = [...files].filter((f) => /\.(ts|tsx)$/.test(f) && /^\s*["']use server["']/m.test(readFileSync(f, "utf8"))).map(norm);
+    expect(servers).toEqual(["lib/actions/job-worker.ts"]);
+    expect(rels.filter((r) => r.startsWith("lib/actions/"))).toEqual(["lib/actions/job-worker.ts"]);
+  });
+
+  it("จอพลอยเรียก server ผ่าน action ของ job-worker เท่านั้น (hook/ส่วนแก้ import จาก @/lib/actions/job-worker ไม่ใช่ actions/gems)", () => {
+    for (const f of ["useShopGemCatalog.ts", "ShopGemEditSheet.tsx", "ShopJobGemsSection.tsx"]) {
+      const imports = runtimeImports(readFileSync(join(ROOT, "components", "domain", "jobs", "worker", "shop", f), "utf8")).filter((s) => s.startsWith("@/lib/actions/"));
+      expect(imports, f).toEqual(["@/lib/actions/job-worker"]);
+    }
+  });
+});
+
 // 0189 W2 UI: หน้าช่าง /w/<token> ขยายรูปหลักใหญ่บนหัวจอ — เป็นการ "แสดงผล" ล้วน (ภาพ md ที่ server เซ็นมาแล้ว): กราฟต้องไม่ลากโค้ดย่อรูป/ตัด Exif/อัปโหลดเข้ามา และไม่แตะโมดูลออฟฟิศ
 describe("หน้า /w/<token> — กราฟ import ทั้งเส้น (transitive) หลังขยายรูปหลัก", () => {
   const files = closure(join(ROOT, "app", "(worker)", "w", "[token]", "page.tsx"));

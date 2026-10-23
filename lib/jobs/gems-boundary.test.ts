@@ -88,6 +88,19 @@ describe("ราคาพลอยไม่เข้า bundle หน้าช�
   });
 });
 
+describe("W3 UI: หน้า /w/s/<shopToken> (ผู้จัดการ) — กราฟ runtime ไม่ลากราคา/แคตตาล็อกออฟฟิศ", () => {
+  const entry = "app/(worker)/w/s/[shopToken]/page.tsx";
+  it(`${entry} — ไม่มี ${PRICE_MODULES.join(" · ")} · จอราคา · ตัวแก้ของออฟฟิศ (GemRowsEditor)`, () => {
+    const files = [...closure(join(ROOT, entry))].map(rel);
+    expect(files, entry).toContain(entry);
+    expect(files).toContain("components/domain/jobs/worker/shop/ShopGemStep.tsx");
+    expect(files).toContain("components/domain/gems/GemPicker.tsx"); // ใช้ซ้ำได้ (ไม่มีราคา)
+    for (const bad of [...PRICE_MODULES, ...PRICE_SCREENS, "components/domain/gems/GemRowsEditor.tsx", "components/domain/gems/useGemOptions.ts"]) {
+      expect(files, `${entry} ลาก ${bad}`).not.toContain(bad);
+    }
+  });
+});
+
 describe("ฟอร์มที่ staff ใช้ได้ไม่ import จอราคา", () => {
   for (const entry of [
     "components/domain/gems/GemRowsEditor.tsx",
@@ -173,6 +186,14 @@ describe("ไฟล์ส่วนพลอยของใบ/ช่าง/A5 �
     "lib/jobs/gem-draft.ts",
     "lib/jobs/gem-wire.ts",
     "lib/jobs/print-gems.ts",
+    // 0191 W3 UI: จอพลอยบนมือถือผู้จัดการ (ช่องสาธารณะ) — ไม่มีชื่อ field ราคา
+    "lib/jobs/shop-gem-flow.ts",
+    "components/domain/jobs/worker/shop/ShopGemEditor.tsx",
+    "components/domain/jobs/worker/shop/ShopGemStep.tsx",
+    "components/domain/jobs/worker/shop/ShopGemEditSheet.tsx",
+    "components/domain/jobs/worker/shop/ShopJobGemsSection.tsx",
+    "components/domain/jobs/worker/shop/ShopReviewGemsRow.tsx",
+    "components/domain/jobs/worker/shop/useShopGemCatalog.ts",
     // ชั้นที่ประกอบข้อมูลพลอยส่งให้ช่าง/ใบพิมพ์/การ์ดใบงาน (type boundary) — ห้ามมีชื่อ field ราคา
     "lib/jobs/print.ts",
     "lib/jobs/gems-server.ts",
