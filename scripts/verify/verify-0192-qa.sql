@@ -134,8 +134,12 @@ create function pg_temp.sm(p_shop uuid, p_actor uuid default null) returns jsonb
  language sql as $c$ select pg_temp.q(format('select analytics.gem_purchase_summary(%L, %L)', p_shop, coalesce(p_actor, pg_temp.own()))) $c$;
 create function pg_temp.cs(p_shop uuid, p_actor uuid default null) returns jsonb
  language sql as $c$ select pg_temp.q(format('select analytics.gem_purchase_summary_cost(%L, %L)', p_shop, coalesce(p_actor, pg_temp.own()))) $c$;
+-- 0192 (security UI M2): ติ๊ก (ordered=true) ต้องส่ง p_expected = ยอดที่จอเห็นของทุกแถว — helper นี้ส่งยอดที่ต้องใช้ ณ ตอนเรียก (แถวที่ไม่มีจริง = 1 เพื่อให้ถึงด่าน not_found/ร้านอื่น) · ความเข้มของเคสเดิมไม่ลด · เคสยอดเก่า/ผิดรูปอยู่ใน verify-0192.sql (Q*)
+create function pg_temp.expn(p_ids uuid[]) returns jsonb
+ language sql as $c$
+  select coalesce(jsonb_object_agg(x::text, coalesce((select g.qty_per_piece::bigint * j.qty_planned from analytics.job_gem_bom g join analytics.job j on j.id = g.job_id where g.id = x), 1)), '{}'::jsonb) from unnest(p_ids) x $c$;
 create function pg_temp.mk(p_shop uuid, p_ids uuid[], p_ordered boolean, p_actor uuid default null) returns jsonb
- language sql as $c$ select pg_temp.q(format('select analytics.gem_purchase_mark(%L, %L::uuid[], %L, %L)', p_shop, p_ids, p_ordered, coalesce(p_actor, pg_temp.own()))) $c$;
+ language sql as $c$ select pg_temp.q(format('select analytics.gem_purchase_mark(%L, %L::uuid[], %L, %L, %L::jsonb)', p_shop, p_ids, p_ordered, coalesce(p_actor, pg_temp.own()), pg_temp.expn(p_ids))) $c$;
 create function pg_temp.grp(p_sm jsonb, p_item uuid) returns jsonb
  language sql as $c$ select g from jsonb_array_elements(p_sm -> 'groups') g where g ->> 'canonical_item_id' = p_item::text $c$;
 create function pg_temp.cgrp(p_c jsonb, p_item uuid) returns jsonb
@@ -760,7 +764,7 @@ create function pg_temp.q_mut() returns text
  language plpgsql as $c$
 declare
   v text := ''; s text; k int; muts jsonb; m jsonb; st jsonb; hit int; i text; killed int := 0; total int;
-  sg_mark constant text := 'analytics.gem_purchase_mark(uuid,uuid[],boolean,uuid)';
+  sg_mark constant text := 'analytics.gem_purchase_mark(uuid,uuid[],boolean,uuid,jsonb)';
   sg_cost constant text := 'analytics.gem_purchase_summary_cost(uuid,uuid)';
 begin
   muts := jsonb_build_array(

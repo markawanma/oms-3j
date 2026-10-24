@@ -39,12 +39,12 @@ describe("wire: ชื่อพารามิเตอร์ที่ action �
   it("signature ใน 0192 อ่านได้ครบ 3 ตัว (กัน regex เสียแล้วเทสต์ผ่านเปล่า)", () => {
     expect(signature("gem_purchase_summary")).toEqual(["p_shop_id", "p_actor"]);
     expect(signature("gem_purchase_summary_cost")).toEqual(["p_shop_id", "p_actor"]);
-    expect(signature("gem_purchase_mark")).toEqual(["p_shop_id", "p_line_ids", "p_ordered", "p_actor"]);
+    expect(signature("gem_purchase_mark")).toEqual(["p_shop_id", "p_line_ids", "p_ordered", "p_actor", "p_expected"]);
   });
   it.each([
     ["gem_purchase_summary", () => gems.getGemPurchaseSummary()],
     ["gem_purchase_summary_cost", () => gems.getGemPurchaseCost()],
-    ["gem_purchase_mark", () => gems.markGemPurchase({ lineIds: [L1], ordered: true })],
+    ["gem_purchase_mark", () => gems.markGemPurchase({ lineIds: [L1], ordered: true, expected: { [L1]: 6 } })],
   ] as [string, () => Promise<unknown>][])("%s: key ที่ส่งตรง signature", async (fn, run) => {
     await run();
     expect(rpcMock).toHaveBeenCalledTimes(1);
@@ -52,17 +52,27 @@ describe("wire: ชื่อพารามิเตอร์ที่ action �
     expect(name).toBe(fn);
     expect(Object.keys(args).sort()).toEqual([...signature(fn)].sort());
   });
-  it("p_line_ids เป็น array ของ string uuid · p_ordered เป็น boolean จริง (ไม่ใช่ string) — PostgREST cast uuid[]/boolean ได้", async () => {
+  it("p_line_ids เป็น array ของ string uuid · p_ordered เป็น boolean จริง (ไม่ใช่ string) — PostgREST cast uuid[]/boolean ได้ · ยกเลิกติ๊กไม่ส่ง p_expected (DB ignore)", async () => {
     await gems.markGemPurchase({ lineIds: [L1], ordered: false });
     const args = rpcMock.mock.calls[0][1] as Record<string, unknown>;
     expect(Array.isArray(args.p_line_ids) && (args.p_line_ids as unknown[]).every((x) => typeof x === "string")).toBe(true);
     expect(args.p_ordered).toBe(false);
+    expect("p_expected" in args).toBe(false);
   });
-  it("RPC ทั้ง 3 ตัวไม่มี overload/พารามิเตอร์ default ใน 0192 (ส่งครบทุกตัวเสมอ) และ service_role เท่านั้นที่ได้ execute", () => {
+  it("ติ๊ก: p_expected เป็น object ของ line_id → จำนวนเต็ม (jsonb) · key ตรง p_line_ids", async () => {
+    await gems.markGemPurchase({ lineIds: [L1], ordered: true, expected: { [L1]: 6 } });
+    const args = rpcMock.mock.calls[0][1] as Record<string, unknown>;
+    expect(args.p_expected).toEqual({ [L1]: 6 });
+    expect(Object.keys(args.p_expected as object)).toEqual(args.p_line_ids);
+  });
+  it("RPC ทั้ง 3 ตัวไม่มี overload ใน 0192 · มี default เฉพาะ p_expected ของ gem_purchase_mark (ตัวอื่นส่งครบเสมอ) · drop signature 4 อาร์กิวเมนต์เดิมก่อนสร้าง · service_role เท่านั้นที่ได้ execute", () => {
     for (const fn of ["gem_purchase_summary", "gem_purchase_mark", "gem_purchase_summary_cost"]) {
       expect(sql.match(new RegExp(`create or replace function analytics\\.${fn}\\(`, "g"))).toHaveLength(1);
-      expect(new RegExp(`create or replace function analytics\\.${fn}\\([^)]*\\bdefault\\b`).test(sql)).toBe(false);
+      const hasDefault = new RegExp(`create or replace function analytics\\.${fn}\\([^)]*\\bdefault\\b`).test(sql);
+      expect(hasDefault).toBe(fn === "gem_purchase_mark");
     }
+    expect(sql).toMatch(/create or replace function analytics\.gem_purchase_mark\([^)]*p_expected jsonb default null\)/);
+    expect(sql).toMatch(/drop function if exists analytics\.gem_purchase_mark\(uuid, uuid\[\], boolean, uuid\);/);
     expect(sql).toMatch(/grant execute on function %s to service_role/);
     expect(sql).not.toMatch(/grant execute on function[^;]*to (anon|authenticated|public)/i);
   });
@@ -114,7 +124,7 @@ describe("mapper รับ JSON จริงจาก DB (fixture จาก dry-
     rpcMock.mockResolvedValueOnce({ data: fixture.mark, error: null });
     expect((await gems.getGemPurchaseSummary()).ok).toBe(true);
     expect((await gems.getGemPurchaseCost()).ok).toBe(true);
-    expect((await gems.markGemPurchase({ lineIds: [L1], ordered: true })).ok).toBe(true);
+    expect((await gems.markGemPurchase({ lineIds: [L1], ordered: true, expected: { [L1]: 6 } })).ok).toBe(true);
   });
   it("ผลจริงที่ถูกบิดเล็กน้อยต้องถูกปฏิเสธ (null) ไม่ใช่แสดงยอดที่ตรวจไม่ได้: ลบคีย์ totals · id ใบเสีย · จำนวนทศนิยม", () => {
     const s = structuredClone(fixture.summary) as { totals: Record<string, unknown>; groups: { jobs: Record<string, unknown>[]; qty_needed_now: unknown }[] };

@@ -333,7 +333,13 @@ end;
 $f$;
 
 -- ติ๊ก/ยกเลิกติ๊ก "สั่งแล้ว" ของแถว (job × รายการ) — ติ๊กทั้งแถวสรุป = ส่ง line_ids ของทุกใบในรายการนั้น · all-or-nothing · ส่งซ้ำไม่ error ไม่เขียน log · คืนสถานะสดของทุกแถวที่ส่งมา
-create or replace function analytics.gem_purchase_mark(p_shop_id uuid, p_line_ids uuid[], p_ordered boolean, p_actor uuid)
+-- 🔴 (security UI M2) p_expected = { line_id: qty_needed_now ที่ "จอเห็น/คัดลอกส่งร้านพลอย" } บังคับเมื่อ p_ordered = true:
+--   ติ๊กบันทึกยอดตอนกด — ถ้าเปิดหน้าทิ้งไว้แล้ว W3/ออฟฟิศแก้ 20 → 30 ผู้ใช้ส่ง "20 เม็ด" ให้ร้านแล้วกดติ๊ก DB จะบันทึก 30 (ที่เหลือ 0 = ขาด 10 เม็ดเงียบ)
+--   → ทุกแถวใน p_line_ids ต้องมี key และค่าเท่ากับยอดที่ต้องใช้ ณ ตอนนี้ ไม่ตรงแม้แถวเดียว = ล้มทั้งชุด (qty_changed → จอโหลดใหม่) · key ขาด/เกิน/ไม่ใช่ uuid/ค่าไม่ใช่จำนวนเต็มบวก = purchase_lines_invalid
+--   ยกเลิกติ๊ก (p_ordered = false) "ไม่ใช้และไม่ตรวจ" p_expected เลย (เลือก ignore): การย้อนต้องสำเร็จเสมอและ idempotent — expected ที่ค้างเก่าทำอันตรายอะไรกับการล้างติ๊กไม่ได้ ตรวจไปมีแต่เพิ่มทางล้มของ undo
+-- signature เปลี่ยน (เพิ่ม p_expected) → drop ตัว 4 อาร์กิวเมนต์ก่อน (0192 ยังไม่ลง DB ไม่มีของเก่า — กัน overload ถ้ามีคน apply ฉบับก่อนหน้า)
+drop function if exists analytics.gem_purchase_mark(uuid, uuid[], boolean, uuid);
+create or replace function analytics.gem_purchase_mark(p_shop_id uuid, p_line_ids uuid[], p_ordered boolean, p_actor uuid, p_expected jsonb default null)
  returns jsonb
  language plpgsql
  security definer
@@ -345,6 +351,7 @@ declare
   v_found   int;
   v_bad     text;
   v_changed int := 0;
+  v_prev    jsonb;
 begin
   if p_shop_id is null then
     raise exception 'gem_purchase_mark: p_shop_id จำเป็น' using errcode = '22023';
@@ -358,6 +365,19 @@ begin
   end if;
   select array_agg(distinct x) into v_ids from unnest(p_line_ids) as x;
   v_n := cardinality(v_ids);
+  if p_ordered then
+    -- รูปร่างของ p_expected (ตรวจก่อนแตะตาราง): object · key = uuid · ค่า = จำนวนเต็มบวกไม่เกิน 9 หลัก (เลขทศนิยม 6.0/6.5 · ข้อความ · null · ติดลบ · 0 ตก) · key ตรงกับ line ids ทุกแถวพอดี (ไม่ขาด ไม่เกิน)
+    if p_expected is null or jsonb_typeof(p_expected) <> 'object'
+       or exists (select 1 from jsonb_each(p_expected) e
+                   where e.key !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+                      or jsonb_typeof(e.value) <> 'number' or (e.value #>> '{}') !~ '^[1-9][0-9]{0,8}$') then
+      raise exception 'ติ๊ก "สั่งแล้ว" ต้องส่งยอดที่จอเห็น (expected) เป็น object ของ line_id → จำนวนเต็มบวก' using errcode = '22023', hint = 'purchase_lines_invalid';
+    end if;
+    if (select count(*) from jsonb_object_keys(p_expected)) <> v_n
+       or exists (select 1 from jsonb_object_keys(p_expected) k where k::uuid <> all (v_ids)) then
+      raise exception 'ยอดที่จอเห็น (expected) ต้องมี key ตรงกับ line ids ทุกแถว ไม่ขาดไม่เกิน' using errcode = '22023', hint = 'purchase_lines_invalid';
+    end if;
+  end if;
 
   -- ล็อกตามลำดับเดียวกับ job_gem_bom_replace_core (ใบก่อน แล้วแถวพลอย) กัน deadlock · ใบล็อก share: สถานะใบนิ่งตลอดทรานแซกชันนี้
   perform 1 from analytics.job j
@@ -381,6 +401,18 @@ begin
   if v_bad is not null then
     raise exception 'ขั้นฝังพลอยของใบ % รับงานแล้ว หรือไม่อยู่ในรายการ — ติ๊กไม่ได้', v_bad using errcode = '22023', hint = 'gem_stage_started';
   end if;
+  -- 🔴 (security UI M2) ยอดที่จอเห็นต้องเท่ายอดที่ต้องใช้ ณ ตอนนี้ทุกแถว (ตรวจหลังด่านใบปิด/ขั้นฝัง/ไม่พบ — ไม่เปิดเผยยอดของแถวร้านอื่นหรือใบปิด) · แถวเดียวไม่ตรง = ล้มทั้งชุด
+  if p_ordered then
+    select string_agg(distinct j.job_no, ', ' order by j.job_no) into v_bad
+      from analytics.job_gem_bom g join analytics.job j on j.id = g.job_id
+     where g.id = any (v_ids) and (p_expected ->> g.id::text)::bigint <> g.qty_per_piece::bigint * j.qty_planned;
+    if v_bad is not null then
+      raise exception 'ยอดพลอยของใบ % เปลี่ยนไปหลังโหลดหน้า — โหลดใหม่แล้วตรวจยอดก่อนติ๊ก', v_bad using errcode = '22023', hint = 'qty_changed';
+    end if;
+  end if;
+  -- ยอดที่ติ๊กไว้ก่อนหน้า (null = ไม่เคยติ๊ก) — ไว้ตอบ prev_ordered_qty ต่อแถว (security M1 ทางยาว: จอตัดสินปุ่มย้อนจากผล server)
+  select coalesce(jsonb_object_agg(g.id::text, g.ordered_qty), '{}'::jsonb) into v_prev
+    from analytics.job_gem_bom g where g.id = any (v_ids);
 
   -- เปิดสวิตช์ให้ trigger job_gem_bom_ordered_only ผ่าน (local ต่อทรานแซกชัน) แล้วปิดทันทีหลังเขียนเสร็จ
   perform set_config('analytics.gem_purchase_mark', 'on', true);
@@ -414,7 +446,9 @@ begin
     'lines', (select coalesce(jsonb_agg(jsonb_build_object(
                 'line_id', l.line_id, 'job_id', l.job_id, 'job_no', l.job_no, 'canonical_item_id', l.canonical_item_id, 'is_ordered', l.is_ordered,
                 'qty_needed_now', l.qty_total, 'qty_ordered', l.qty_ordered, 'qty_remaining', l.qty_remaining, 'qty_excess', l.qty_excess,
-                'changed_after_order', l.changed_after_order) order by l.job_no, l.line_seq), '[]'::jsonb)
+                'changed_after_order', l.changed_after_order,
+                'prev_ordered_qty', (v_prev ->> l.line_id::text)::bigint,
+                'new_ordered_qty', case when l.is_ordered then l.qty_ordered end) order by l.job_no, l.line_seq), '[]'::jsonb)
                from analytics.v_gem_purchase_line l where l.shop_id = p_shop_id and l.line_id = any (v_ids)));
 end;
 $f$;

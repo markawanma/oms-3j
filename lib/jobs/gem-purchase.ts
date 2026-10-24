@@ -251,6 +251,13 @@ export interface GemPurchaseMarkedLine {
   qtyRemaining: number;
   qtyExcess: number;
   changedAfterOrder: boolean;
+  /**
+   * ยอดที่ติ๊กไว้ "ก่อน" คำสั่งนี้ (null = ไม่เคยติ๊ก) — ปุ่มย้อน (undo) ตัดสินจากค่านี้ของผล server:
+   * ย้อนได้ (ยกเลิกติ๊กแล้วกลับสภาพเดิมเป๊ะ) เฉพาะเมื่อทุกแถวที่เปลี่ยนมี prev = null · ห้ามตัดสินจาก is_ordered ระดับใบของ summary (bool_and — ใบผสมตัดสินผิด)
+   */
+  prevOrderedQty: number | null;
+  /** ยอดที่ติ๊กไว้ "หลัง" คำสั่งนี้ (null = ไม่ได้ติ๊กอยู่) */
+  newOrderedQty: number | null;
 }
 
 export interface GemPurchaseMarkResult {
@@ -273,7 +280,12 @@ export function mapGemPurchaseMark(raw: unknown): GemPurchaseMarkResult | null {
     const lineId = uuid(l.line_id), jobId = uuid(l.job_id), jobNo = str(l.job_no, 20), canonicalItemId = uuid(l.canonical_item_id);
     const needed = qty(l.qty_needed_now), ordered = qty(l.qty_ordered), remaining = qty(l.qty_remaining), excess = qty(l.qty_excess);
     if (!lineId || !jobId || !jobNo || !canonicalItemId || needed === null || ordered === null || remaining === null || excess === null) return null;
-    lines.push({ lineId, jobId, jobNo, canonicalItemId, isOrdered: l.is_ordered === true, qtyNeededNow: needed, qtyOrdered: ordered, qtyRemaining: remaining, qtyExcess: excess, changedAfterOrder: l.changed_after_order === true });
+    // prev/new ต้องมี key เสมอ (null = ไม่เคยติ๊ก/ไม่ได้ติ๊กอยู่) · ค่าที่ไม่ใช่ null ต้องเป็นจำนวนเต็มบวก — ขาด key/ผิดรูป = ผลผิดรูป (ไม่เดาว่า "ไม่เคยติ๊ก" แล้วเปิดปุ่มย้อนผิด)
+    if (!("prev_ordered_qty" in l) || !("new_ordered_qty" in l)) return null;
+    const prevQ = l.prev_ordered_qty === null ? null : typeof l.prev_ordered_qty === "number" ? qty(l.prev_ordered_qty) : -1;
+    const newQ = l.new_ordered_qty === null ? null : typeof l.new_ordered_qty === "number" ? qty(l.new_ordered_qty) : -1;
+    if ((l.prev_ordered_qty !== null && (prevQ === null || prevQ < 1)) || (l.new_ordered_qty !== null && (newQ === null || newQ < 1))) return null;
+    lines.push({ lineId, jobId, jobNo, canonicalItemId, isOrdered: l.is_ordered === true, qtyNeededNow: needed, qtyOrdered: ordered, qtyRemaining: remaining, qtyExcess: excess, changedAfterOrder: l.changed_after_order === true, prevOrderedQty: prevQ, newOrderedQty: newQ });
   }
   return { requested, changed, unchanged, ordered: raw.ordered, lines };
 }
