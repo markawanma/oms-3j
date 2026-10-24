@@ -106,18 +106,20 @@ describe("คนใหม่ ทางเหรียญ 7 จอ (R0 R1Pick R2C
 
     // R5A: ค่าเริ่ม 14.0 · ปุ่มปิด
     expect(btn("ขยับค่าก่อน จึงกดได้")).toBeDisabled();
-    expect(screen.getByText(/ผ่านศูนย์กลาง 14\.0 มม\. · เส้นรอบวง 44\.0 มม\. · เบอร์ 44/)).toBeInTheDocument();
+    expect(screen.getByText(/เส้นผ่านศูนย์กลาง 14\.0 มม\. · เส้นรอบวง 44\.0 มม\. · เบอร์ 44/)).toBeInTheDocument();
     await u.click(btn("เพิ่มขนาดวงกลมทีละนิด"));
-    expect(screen.getByText(/ผ่านศูนย์กลาง 14\.1 มม\. · เส้นรอบวง 44\.3 มม\. · เบอร์ 45/)).toBeInTheDocument();
+    // วิธีแหวน (มติเจ้าของ 24 ต.ค. 69): 44.3 → ใกล้สุด 44 (เดิมเอนใหญ่ได้ 45) — เบอร์ 44 นอกช่วงร้าน 45–68
+    expect(screen.getByText(/เส้นผ่านศูนย์กลาง 14\.1 มม\. · เส้นรอบวง 44\.3 มม\. · เบอร์ 44/)).toBeInTheDocument();
     await u.click(btn("ใช้ค่านี้"));
 
-    // R6 (ระหว่างเบอร์ 44–45 → แนะนำ 45 · อยู่ในช่วงร้าน)
-    expect(screen.getByTestId("result-size")).toHaveTextContent("45");
+    // R6: เบอร์เดียว 44 (ไม่มีระหว่างเบอร์ในวิธีแหวน) · นอกช่วงร้าน → R6Out
+    expect(screen.getByTestId("result-size")).toHaveTextContent("44");
     expect(counter("ขั้นที่ 3 จาก 3")).toHaveTextContent("03 / 03");
     expect(screen.getByText("เส้นรอบวงด้านในประมาณ 44.3 มม.")).toBeInTheDocument();
-    expect(screen.getByText("อยู่ระหว่างเบอร์ 44 กับ 45 · แนะนำเบอร์ 45")).toBeInTheDocument();
+    expect(screen.queryByText(/อยู่ระหว่างเบอร์/)).toBeNull();
+    expect(screen.getByText("เบอร์ 44 อยู่นอกช่วงที่ร้านทำ")).toBeInTheDocument();
     expect(screen.getByText("เบอร์ตามตารางของร้าน 3J (เส้นรอบวงด้านใน มม.)")).toBeInTheDocument();
-    expect(screen.getByText("อยู่ในช่วงเบอร์ที่ร้านทำ (45–68)")).toBeInTheDocument();
+    expect(screen.queryByText(/อยู่ในช่วงเบอร์ที่ร้านทำ/)).toBeNull();
     expect(screen.getByText("วัดด้วยแหวนวงเดิม")).toBeInTheDocument();
     expect(stored(LAST_RESULT_STORAGE_KEY)).toMatchObject({ circ: 44.3, method: "A", ref: "coin", version: 1 });
     hasNoTodoMarkers();

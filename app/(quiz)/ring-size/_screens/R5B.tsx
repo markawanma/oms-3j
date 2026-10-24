@@ -85,7 +85,7 @@ export function R5B({
     }
   };
 
-  const rec = circToRec(mm);
+  const rec = circToRec(mm, "B");
   const disabled = !touched || zoomed;
   const ctaLabel = zoomed ? COPY.g1.cta : touched ? COPY.r5b.ctaOn : COPY.r5b.ctaOff;
 

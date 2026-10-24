@@ -1,10 +1,14 @@
 // lib/ring-size/size.ts — แปลงขนาดที่วัดได้ → เส้นรอบวง → เบอร์แหวน (pure · ไม่แตะ DOM)
 //
 // ระบบเบอร์ = เส้นรอบวงด้านใน (มม.) ตามมติเจ้าของ
-// กฎ (build spec ข้อ 6 B4 / workflow §3 R6): ปัดเส้นรอบวงเป็น 0.1 มม. "ก่อน" แล้ว rec = ceil(c − 0.25)
-//   ระวัง: 54.25 ปัด 0.1 ก่อน = 54.3 → เบอร์ 55 (ไม่ใช่ 54) · 54.2499 → 54.2 → 54
-// "ระหว่างเบอร์" = ห่างเบอร์ที่ใกล้สุดเกิน 0.25 มม. (ค่า 1 ทศนิยมจึงไม่มีทางตกขอบพอดี)
-import { MEASURE, ROUND_BIAS, SHOP_RING_SIZES } from "./config";
+// กฎเป็น "ต่อวิธีวัด" (SIZE_RULE ใน config.ts — มติเจ้าของ 24 ต.ค. 69):
+//   วิธี B (กระดาษพันนิ้ว) = biasUp: ปัดเส้นรอบวงเป็น 0.1 มม. "ก่อน" แล้ว rec = ceil(c − 0.25) (build spec ข้อ 6 B4 / workflow §3 R6)
+//     ระวัง: 54.25 ปัด 0.1 ก่อน = 54.3 → เบอร์ 55 (ไม่ใช่ 54) · 54.2499 → 54.2 → 54
+//     "ระหว่างเบอร์" = ห่างเบอร์ที่ใกล้สุดเกิน 0.25 มม. (ค่า 1 ทศนิยมจึงไม่มีทางตกขอบพอดี)
+//   วิธี A (แหวนวงเดิม) = nearest: ปัด 0.1 ก่อน แล้วปัดใกล้สุดที่เบอร์เต็ม (.5 ขึ้น): 60.4 → 60 · 60.5 → 61 · 59.6 → 60 · ไม่มี "ระหว่างเบอร์"
+//     เหตุ: แหวนวงเดิมที่ใส่พอดีคือเบอร์นั้นอยู่แล้ว ไม่ต้องเผื่อใหญ่ขึ้น
+// ทุกพื้นผิว (การ์ดสดบนจอวัด · R6 · ข้อความ LINE · ผลล่าสุด · การ์ดแชร์ · ข้อความคัดลอก) เรียก circToRec(c, method) ตัวเดียวกัน (B16)
+import { MEASURE, ROUND_BIAS, SHOP_RING_SIZES, SIZE_RULE, type Method } from "./config";
 
 /** ปัดเป็นทศนิยม 1 ตำแหน่ง (ปัดครึ่งขึ้น) */
 export function roundTenth(x: number): number {
@@ -21,18 +25,29 @@ export interface SizeRec {
   circ: number;
   /** เบอร์แนะนำ (เต็มเบอร์) */
   rec: number;
-  /** ไม่ null เมื่ออยู่ระหว่างเบอร์ · rec = hi เสมอเมื่อ between */
+  /** ไม่ null เมื่ออยู่ระหว่างเบอร์ (เฉพาะวิธี B) · rec = hi เสมอเมื่อ between · วิธี A เป็น null เสมอ */
   between: { lo: number; hi: number } | null;
 }
 
-/** เส้นรอบวงดิบ (มม.) → เบอร์ · ค่าไม่ใช่ตัวเลขจำกัด = null (ห้ามสร้างเบอร์จาก NaN) */
-export function circToRec(rawCirc: number): SizeRec | null {
+/** ตัวกฎ — circ = เส้นรอบวงที่ปัด 0.1 แล้ว */
+const RULES: Record<"nearest" | "biasUp", (circ: number) => Pick<SizeRec, "rec" | "between">> = {
+  // วิธีแหวนวงเดิม: ใกล้สุด (.5 ขึ้น) ไม่มีระหว่างเบอร์
+  nearest: (circ) => ({ rec: Math.round(circ), between: null }),
+  // วิธีกระดาษ: เอนใหญ่ + ระหว่างเบอร์เมื่อห่างเบอร์ใกล้สุด > ROUND_BIAS
+  biasUp: (circ) => {
+    const nearest = Math.round(circ);
+    return {
+      rec: Math.ceil(circ - ROUND_BIAS),
+      between: Math.abs(circ - nearest) > ROUND_BIAS ? { lo: Math.floor(circ), hi: Math.floor(circ) + 1 } : null,
+    };
+  },
+};
+
+/** เส้นรอบวงดิบ (มม.) → เบอร์ ตามกฎของวิธีวัดนั้น (SIZE_RULE) · ค่าไม่ใช่ตัวเลขจำกัด = null (ห้ามสร้างเบอร์จาก NaN) */
+export function circToRec(rawCirc: number, method: Method): SizeRec | null {
   if (!Number.isFinite(rawCirc)) return null;
   const circ = roundTenth(rawCirc);
-  const rec = Math.ceil(circ - ROUND_BIAS);
-  const nearest = Math.round(circ);
-  const between = Math.abs(circ - nearest) > ROUND_BIAS ? { lo: Math.floor(circ), hi: Math.floor(circ) + 1 } : null;
-  return { circ, rec, between };
+  return { circ, ...RULES[SIZE_RULE[method]](circ) };
 }
 
 /** G4: เส้นรอบวงอยู่ในช่วงที่สมเหตุสมผลสำหรับแหวนผู้ใหญ่ (ตัดสินด้วยค่าที่ปัด 0.1 แล้ว) */

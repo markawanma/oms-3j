@@ -161,13 +161,13 @@ describe("B1: หมุนจอกลางจอวัด — ค่า มม
   it("R5A: ปรับเป็น 17.3 แล้วหมุนเป็นแนวนอน (resize) → ค่ายังเป็น 17.3 · ไม่เด้ง G5 · กด 'ใช้ค่านี้' ได้ผลเดิม", async () => {
     const u = await toR5A();
     fireEvent.change(screen.getByRole("slider"), { target: { value: "17.3" } });
-    expect(screen.getByText(/ผ่านศูนย์กลาง 17\.3 มม\. · เส้นรอบวง 54\.3 มม\. · เบอร์ 55/)).toBeInTheDocument();
+    expect(screen.getByText(/เส้นผ่านศูนย์กลาง 17\.3 มม\. · เส้นรอบวง 54\.3 มม\. · เบอร์ 54/)).toBeInTheDocument(); // วิธีแหวน: ใกล้สุด (มติเจ้าของ 24 ต.ค. 69)
     setViewport({ innerWidth: 844, innerHeight: 390 });
     fireEvent(window, new Event("resize"));
     expect(screen.queryByText(COPY.g5.bar)).toBeNull();
-    expect(screen.getByText(/ผ่านศูนย์กลาง 17\.3 มม\. · เส้นรอบวง 54\.3 มม\. · เบอร์ 55/)).toBeInTheDocument();
+    expect(screen.getByText(/เส้นผ่านศูนย์กลาง 17\.3 มม\. · เส้นรอบวง 54\.3 มม\. · เบอร์ 54/)).toBeInTheDocument(); // วิธีแหวน: ใกล้สุด (มติเจ้าของ 24 ต.ค. 69)
     await u.click(btn("ใช้ค่านี้"));
-    expect(screen.getByTestId("result-size")).toHaveTextContent("55");
+    expect(screen.getByTestId("result-size")).toHaveTextContent("54");
     expect(screen.getByText("เส้นรอบวงด้านในประมาณ 54.3 มม.")).toBeInTheDocument();
   });
 
@@ -188,7 +188,7 @@ describe("B1: หมุนจอกลางจอวัด — ค่า มม
 });
 
 describe("B16: ตัวเลขชุดเดียวกันทุกที่ (live · R6 · LINE · ข้อความคัดลอก) ผ่าน flow จริง", () => {
-  it("R5A d=17.3 → c=54.3 → เบอร์ 55 (ระหว่าง 54–55): ทุกพื้นผิวตรงกัน", async () => {
+  it("R5A d=17.3 → c=54.3 → เบอร์ 54 (วิธีแหวน: ใกล้สุด ไม่มีระหว่างเบอร์): ทุกพื้นผิวตรงกัน", async () => {
     const writes: string[] = [];
     const u = user(); // userEvent.setup() ติดตั้ง clipboard ของตัวเอง → ต้อง stub ทับ "หลัง" setup
     Object.defineProperty(navigator, "clipboard", { value: { writeText: vi.fn(async (t: string) => void writes.push(t)) }, configurable: true });
@@ -196,18 +196,38 @@ describe("B16: ตัวเลขชุดเดียวกันทุกท�
     fireEvent.change(screen.getByRole("slider"), { target: { value: "17.3" } });
     await u.click(btn("ใช้ค่านี้"));
     const body = document.body.textContent ?? "";
-    expect(screen.getByTestId("result-size")).toHaveTextContent("55");
+    expect(screen.getByTestId("result-size")).toHaveTextContent("54");
     expect(body).toContain("เส้นรอบวงด้านในประมาณ 54.3 มม.");
-    expect(body).toContain("อยู่ระหว่างเบอร์ 54 กับ 55 · แนะนำเบอร์ 55");
+    expect(body).not.toContain("อยู่ระหว่างเบอร์");
     // LINE: ปุ่มหลักคัดลอกข้อความ
     await u.click(btn(/สั่ง\/ถามแหวนไซส์นี้ทาง LINE/));
     await waitFor(() => expect(writes).toHaveLength(1));
     expect(writes[0]).toContain("~54.3 มม.");
-    expect(writes[0]).toContain("อยู่ระหว่างเบอร์ 54-55 ระบบแนะนำเบอร์ 55");
+    expect(writes[0]).toContain("ฉันวัดไซส์แหวนได้เบอร์ 54 (เส้นรอบวงด้านใน ~54.3 มม.");
+    expect(writes[0]).not.toContain("ระหว่างเบอร์");
     expect(writes[0]).toContain("วิธี: แหวนวงเดิม");
     expect(writes[0]).toContain("เทียบจอด้วย: เหรียญ 10 บาท");
     // ผลล่าสุดที่เก็บ = ค่าหลังปัด 0.1 (ตรงที่แสดง)
     expect(stored("ringSize:lastResult:v1")).toMatchObject({ circ: 54.3, method: "A" });
+  });
+
+  it("R5B 54.5 มม. → เบอร์ 55 (ระหว่าง 54–55 · กฎเดิมของกระดาษ): live · R6 · LINE · ผลล่าสุด ตรงกันทุกพื้นผิว", async () => {
+    const writes: string[] = [];
+    const u = user();
+    Object.defineProperty(navigator, "clipboard", { value: { writeText: vi.fn(async (t: string) => void writes.push(t)) }, configurable: true });
+    await toR5B(u);
+    for (let i = 0; i < 9; i++) fireEvent.click(btn("เพิ่ม 0.5 มม.")); // 50.0 → 54.5
+    expect(screen.getByText("เบอร์ 55")).toBeInTheDocument();
+    await u.click(btn("ใช้ค่านี้"));
+    const body = document.body.textContent ?? "";
+    expect(screen.getByTestId("result-size")).toHaveTextContent("55");
+    expect(body).toContain("เส้นรอบวงด้านในประมาณ 54.5 มม.");
+    expect(body).toContain("อยู่ระหว่างเบอร์ 54 กับ 55 · แนะนำเบอร์ 55");
+    await u.click(btn(/สั่ง\/ถามแหวนไซส์นี้ทาง LINE/));
+    await waitFor(() => expect(writes).toHaveLength(1));
+    expect(writes[0]).toContain("~54.5 มม. อยู่ระหว่างเบอร์ 54-55 ระบบแนะนำเบอร์ 55");
+    expect(writes[0]).toContain("วิธี: กระดาษพันนิ้ว");
+    expect(stored("ringSize:lastResult:v1")).toMatchObject({ circ: 54.5, method: "B" });
   });
 
   it("R5B 54.0 มม. → เบอร์ 54 (ไม่ between) · live ตรงกับ R6 · เส้นรอบวง 1 ทศนิยมแม้เป็นจำนวนเต็ม", async () => {

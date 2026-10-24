@@ -28,7 +28,7 @@ beforeEach(() => {
 const MEASURED_AT = new Date(2026, 9, 24, 12).getTime();
 
 function renderR6(c: number, method: "A" | "B" = "A") {
-  const size = circToRec(c)!;
+  const size = circToRec(c, method)!;
   return render(<R6 step={{ current: 3, total: 3 }} size={size} method={method} refKind="coin" measuredAt={MEASURED_AT} onBack={() => {}} onRemeasure={() => {}} onOtherMethod={() => {}} />);
 }
 
@@ -50,12 +50,43 @@ describe("R6 / R6Between / R6Out — ช่วงร้านตัดสิน�
     }
   });
 
-  it("ใช้เบอร์หลังปัด ceil(c−0.25): 44.2 → 44 นอกช่วง · 44.3 → 45 ในช่วง", () => {
-    renderR6(44.2);
+  // มติเจ้าของ 24 ต.ค. 69: วิธีแหวนวงเดิม (A) ปัดใกล้สุด ไม่ระหว่างเบอร์ · วิธีกระดาษ (B) คงกฎเดิม
+  it("วิธีแหวน (A): ไม่มีจอ 'ระหว่างเบอร์' เลย — ขึ้นเบอร์เดียว: 60.3 → 60 · 54.4 → 54 · 54.5 → 55", () => {
+    for (const [c, n] of [[60.3, 60], [54.4, 54], [54.5, 55], [44.4, 44], [44.5, 45]] as const) {
+      renderR6(c, "A");
+      expect(screen.getByTestId("result-size")).toHaveTextContent(String(n));
+      expect(screen.queryByText(/อยู่ระหว่างเบอร์/)).toBeNull();
+      expect(screen.queryByText("ใหญ่กว่า (แนะนำ)")).toBeNull();
+      expect(screen.queryByText("เบอร์แหวนที่แนะนำ")).toBeNull();
+      expect(screen.getByText("เบอร์แหวนของคุณ")).toBeInTheDocument();
+      cleanup();
+    }
+  });
+  it("วิธีกระดาษ (B) ที่ค่าเดียวกัน 60.3 ยังเป็น 61 และมีจอระหว่างเบอร์ 60–61 (กฎเดิมไม่เปลี่ยน)", () => {
+    renderR6(60.3, "B");
+    expect(screen.getByTestId("result-size")).toHaveTextContent("61");
+    expect(screen.getByText("อยู่ระหว่างเบอร์ 60 กับ 61 · แนะนำเบอร์ 61")).toBeInTheDocument();
+  });
+  it("วิธีแหวน: ขอบร้านใช้เบอร์หลังปัดใกล้สุด — 68.4 → 68 chip · 68.5 → 69 นอกช่วง · 44.4 → 44 นอก · 44.5 → 45 chip", () => {
+    renderR6(68.4, "A");
+    expect(screen.getByText("อยู่ในช่วงเบอร์ที่ร้านทำ (45–68)")).toBeInTheDocument();
+    cleanup();
+    renderR6(68.5, "A");
+    expect(screen.getByText("เบอร์ 69 อยู่นอกช่วงที่ร้านทำ")).toBeInTheDocument();
+    cleanup();
+    renderR6(44.4, "A");
+    expect(screen.getByText("เบอร์ 44 อยู่นอกช่วงที่ร้านทำ")).toBeInTheDocument();
+    cleanup();
+    renderR6(44.5, "A");
+    expect(screen.getByText("อยู่ในช่วงเบอร์ที่ร้านทำ (45–68)")).toBeInTheDocument();
+  });
+
+  it("ใช้เบอร์หลังปัด ceil(c−0.25) (วิธี B): 44.2 → 44 นอกช่วง · 44.3 → 45 ในช่วง", () => {
+    renderR6(44.2, "B");
     expect(screen.getByTestId("result-size")).toHaveTextContent("44");
     expect(screen.getByText("เบอร์ 44 อยู่นอกช่วงที่ร้านทำ")).toBeInTheDocument();
     cleanup();
-    renderR6(44.3);
+    renderR6(44.3, "B");
     expect(screen.getByTestId("result-size")).toHaveTextContent("45");
     expect(screen.getByText("อยู่ในช่วงเบอร์ที่ร้านทำ (45–68)")).toBeInTheDocument();
   });
@@ -96,7 +127,7 @@ describe("R6 / R6Between / R6Out — ช่วงร้านตัดสิน�
   });
 
   it("ปุ่ม LINE หลัก: R6Between ติดขอบล่าง (sticky) · R6 ปกติ/R6Out อยู่ในกระแส ไม่ sticky (ข้อ 3.2.4)", () => {
-    renderR6(54.4);
+    renderR6(54.4, "B");
     expect(screen.getByRole("button", { name: "สั่ง/ถามแหวนไซส์นี้ทาง LINE" }).closest(".sticky")).not.toBeNull();
     cleanup();
     renderR6(54);
@@ -132,7 +163,7 @@ describe("R6 / R6Between / R6Out — ช่วงร้านตัดสิน�
 });
 
 describe("LineCta — ปุ่ม LINE หลัก + ทางสำรอง", () => {
-  const input = { size: circToRec(54)!, method: "A" as const, ref: "coin" as const };
+  const input = { size: circToRec(54, "A")!, method: "A" as const, ref: "coin" as const };
   const message = buildLineMessage(input);
 
   function stubClipboard(impl: (t: string) => Promise<void>) {

@@ -37,8 +37,9 @@ import { R6 } from "../_screens/R6";
 
 afterEach(cleanup);
 
-function r6(c: number) {
-  return render(<R6 step={null} size={circToRec(c)!} method="A" refKind="card" measuredAt={1} onBack={() => {}} onRemeasure={() => {}} onOtherMethod={() => {}} />);
+// ค่าเริ่มวิธี B (กระดาษ) เพราะ "ระหว่างเบอร์" มีเฉพาะวิธีนี้ (มติเจ้าของ 24 ต.ค. 69: วิธีแหวนไม่ปัดขึ้น)
+function r6(c: number, method: "A" | "B" = "B") {
+  return render(<R6 step={null} size={circToRec(c, method)!} method={method} refKind="card" measuredAt={1} onBack={() => {}} onRemeasure={() => {}} onOtherMethod={() => {}} />);
 }
 
 describe("flag เปิด → ค่าที่ซ่อนอยู่โผล่ (พิสูจน์ว่าเป็น flag จริง ไม่ใช่ข้อความที่ลืมใส่)", () => {

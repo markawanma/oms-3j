@@ -16,7 +16,7 @@ afterEach(cleanup);
 
 describe("SHOP_RING_SIZES = null", () => {
   it.each([30.5, 44, 54, 60, 90])("c=%s → ไม่มี chip ไม่มีกล่องนอกช่วง · ปุ่ม LINE ปกติ", (c) => {
-    render(<R6 step={null} size={circToRec(c)!} method="A" refKind="coin" measuredAt={1} onBack={() => {}} onRemeasure={() => {}} onOtherMethod={() => {}} />);
+    render(<R6 step={null} size={circToRec(c, "A")!} method="A" refKind="coin" measuredAt={1} onBack={() => {}} onRemeasure={() => {}} onOtherMethod={() => {}} />);
     expect(screen.queryByText(/อยู่ในช่วงเบอร์ที่ร้านทำ/)).toBeNull();
     expect(screen.queryByText(/อยู่นอกช่วงที่ร้านทำ/)).toBeNull();
     expect(screen.queryByText(/ร้านทำเบอร์/)).toBeNull();

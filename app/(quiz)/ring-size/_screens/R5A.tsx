@@ -44,7 +44,7 @@ export function R5A({
   const [touched, setTouched] = useState(initialMm !== null);
   const zoomed = useVisualViewportZoomed();
 
-  const rec = circToRec(diameterToCirc(d));
+  const rec = circToRec(diameterToCirc(d), "A");
   const atLimit = touched && (d <= MEASURE.D_MIN + EPS || d >= MEASURE.D_MAX - EPS);
 
   const change = (v: number) => {

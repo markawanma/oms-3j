@@ -104,49 +104,76 @@ describe("ก้าว −/+ และแถบเลื่อน (literal)", ()
   });
 });
 
-describe("R5A: เส้นผ่านศูนย์กลาง d → เส้นรอบวง c → เบอร์ (ตารางคำนวณมือ)", () => {
-  // [d มม., c ปัด 0.1, เบอร์, between ("lo-hi" | null), G4 (นอก 40–75)]
-  const rows: Array<[number, string, number, string | null, boolean]> = [
-    [12.0, "37.7", 38, "37-38", true], // < 40 → G4 ทิศเล็ก
-    [12.7, "39.9", 40, null, true], // 39.898 → 39.9 → ต่ำกว่า 40 → G4
-    [12.8, "40.2", 40, null, false], // 40.212 → ขอบล่างผ่าน
-    [14.0, "44.0", 44, null, false], // ค่าเริ่มของ R5A → นอกช่วงร้าน (44 < 45)
-    [14.07, "44.2", 44, null, false], // 44.2022 → เศษ .2 ลง → 44
-    [14.1, "44.3", 45, "44-45", false], // 44.2965 → .3 ขึ้น → 45 ระหว่าง
-    [17.2, "54.0", 54, null, false], // 54.0354
-    [17.25, "54.2", 54, null, false], // 54.1925
-    [17.27, "54.3", 55, "54-55", false], // 54.2553 → ข้ามเกณฑ์ 54.25 → 55 (ตัวอย่างในสั่งงาน)
-    [17.3, "54.3", 55, "54-55", false], // 54.3496
-    [17.4, "54.7", 55, "54-55", false], // 54.6637
-    [17.5, "55.0", 55, null, false], // 54.9779
-    [17.6, "55.3", 56, "55-56", false], // 55.2920
-    [21.6, "67.9", 68, null, false], // 67.8584 → ในช่วงร้าน (68)
-    [21.7, "68.2", 68, null, false], // 68.1726 → ยัง 68 (ในช่วง)
-    [21.75, "68.3", 69, "68-69", false], // 68.3296 → 69 นอกช่วงร้าน
-    [21.8, "68.5", 69, "68-69", false], // 68.4867
-    [23.8, "74.8", 75, null, false], // 74.7699
-    [23.87, "75.0", 75, null, false], // 74.9898 → ขอบบนผ่าน
-    [23.9, "75.1", 75, null, true], // 75.0841 → เกิน 75 → G4 ทิศใหญ่
-    [24.0, "75.4", 76, "75-76", true], // 75.3982
+describe("R5A: เส้นผ่านศูนย์กลาง d → เส้นรอบวง c → เบอร์ (ตารางคำนวณมือ · มติเจ้าของ 24 ต.ค. 69: วิธีแหวนวงเดิม ปัดใกล้สุด ไม่ปัดขึ้น ไม่มีระหว่างเบอร์)", () => {
+  // [d มม., c ปัด 0.1, เบอร์ (ใกล้สุด .5 ขึ้น), G4 (นอก 40–75)] — between เป็น null ทุกแถว
+  const rows: Array<[number, string, number, boolean]> = [
+    [12.0, "37.7", 38, true], // < 40 → G4 ทิศเล็ก
+    [12.7, "39.9", 40, true], // 39.898 → 39.9 → ต่ำกว่า 40 → G4
+    [12.8, "40.2", 40, false], // 40.212 → ขอบล่างผ่าน
+    [14.0, "44.0", 44, false], // ค่าเริ่มของ R5A → นอกช่วงร้าน (44 < 45)
+    [14.07, "44.2", 44, false], // 44.2022
+    [14.1, "44.3", 44, false], // 44.2965 → .3 → ใกล้สุดคือ 44 (เดิมวิธีเอนใหญ่ได้ 45)
+    [17.2, "54.0", 54, false], // 54.0354
+    [17.25, "54.2", 54, false], // 54.1925
+    [17.27, "54.3", 54, false], // 54.2553 → 54.3 → ใกล้สุด 54 (เดิม 55)
+    [17.3, "54.3", 54, false], // 54.3496
+    [17.4, "54.7", 55, false], // 54.6637
+    [17.5, "55.0", 55, false], // 54.9779
+    [17.6, "55.3", 55, false], // 55.2920 (เดิม 56)
+    [21.6, "67.9", 68, false], // 67.8584 → ในช่วงร้าน (68)
+    [21.7, "68.2", 68, false], // 68.1726
+    [21.75, "68.3", 68, false], // 68.3296 → 68 ในช่วง (เดิม 69 นอกช่วง)
+    [21.8, "68.5", 69, false], // 68.4867 → 68.5 → .5 ขึ้น → 69 นอกช่วงร้าน
+    [23.8, "74.8", 75, false], // 74.7699
+    [23.87, "75.0", 75, false], // 74.9898 → ขอบบนผ่าน
+    [23.9, "75.1", 75, true], // 75.0841 → เกิน 75 → G4 ทิศใหญ่
+    [24.0, "75.4", 75, true], // 75.3982
   ];
-  it.each(rows)("d=%s → c=%s → เบอร์ %s · ระหว่าง=%s · G4=%s", (d, c, rec, between, g4) => {
+  it.each(rows)("d=%s → c=%s → เบอร์ %s · ไม่มีระหว่างเบอร์ · G4=%s", (d, c, rec, g4) => {
     const raw = diameterToCirc(d);
-    const r = circToRec(raw)!;
+    const r = circToRec(raw, "A")!;
     expect(formatMm(r.circ)).toBe(c);
     expect(r.rec).toBe(rec);
-    expect(r.between ? `${r.between.lo}-${r.between.hi}` : null).toBe(between);
+    expect(r.between).toBeNull();
     expect(!isPlausibleCirc(raw)).toBe(g4);
   });
 
-  it("ตัวอย่างจากสั่งงาน: 14.0 → 44.0 → 44 · 17.2 → 54.0 → 54 · 17.27 → 54.3 → 55 (ระหว่างเบอร์)", () => {
-    expect([formatMm(circToRec(diameterToCirc(14.0))!.circ), circToRec(diameterToCirc(14.0))!.rec]).toEqual(["44.0", 44]);
-    expect([formatMm(circToRec(diameterToCirc(17.2))!.circ), circToRec(diameterToCirc(17.2))!.rec]).toEqual(["54.0", 54]);
-    const r = circToRec(diameterToCirc(17.27))!;
-    expect([formatMm(r.circ), r.rec, r.between]).toEqual(["54.3", 55, { lo: 54, hi: 55 }]);
+  it("ตัวอย่างจากสั่งงาน: 14.0 → 44.0 → 44 · 17.2 → 54.0 → 54 · 17.27 → 54.3 → 54 (วิธีแหวน ไม่มีระหว่างเบอร์)", () => {
+    expect([formatMm(circToRec(diameterToCirc(14.0), "A")!.circ), circToRec(diameterToCirc(14.0), "A")!.rec]).toEqual(["44.0", 44]);
+    expect([formatMm(circToRec(diameterToCirc(17.2), "A")!.circ), circToRec(diameterToCirc(17.2), "A")!.rec]).toEqual(["54.0", 54]);
+    const r = circToRec(diameterToCirc(17.27), "A")!;
+    expect([formatMm(r.circ), r.rec, r.between]).toEqual(["54.3", 54, null]);
+  });
+
+  // ค่าเส้นรอบวงตรงๆ ตามมติเจ้าของ (60.3 → 60 เพราะแหวนวงเดิมที่ใส่พอดีคือเบอร์นั้นอยู่แล้ว)
+  const owner: Array<[number, number, boolean]> = [
+    [44.4, 44, false],
+    [44.5, 45, true], // ขอบล่างร้าน: ปัดขึ้นเป็น 45 → ในช่วง
+    [54.3, 54, true],
+    [54.5, 55, true],
+    [59.6, 60, true],
+    [60.3, 60, true],
+    [60.4, 60, true],
+    [60.5, 61, true],
+    [68.4, 68, true], // ขอบบนร้าน: ยัง 68 ในช่วง
+    [68.5, 69, false], // ปัดขึ้นเป็น 69 → นอกช่วง
+  ];
+  it.each(owner)("วิธีแหวน c=%s → เบอร์ %s · ในช่วงร้าน=%s · ไม่มีระหว่างเบอร์", (c, rec, inRange) => {
+    const r = circToRec(c, "A")!;
+    expect(r.rec).toBe(rec);
+    expect(r.between).toBeNull();
+    expect(inShopRange(r.rec)).toBe(inRange);
+  });
+
+  it("ค่าดิบที่ปัด 0.1 ก่อน: 60.449 → 60.4 → 60 · 60.45 → 60.5 → 61 · 59.55 → 59.6 → 60 · 59.549 → 59.5 → 60 (.5 ขึ้น)", () => {
+    expect(circToRec(60.449, "A")!.rec).toBe(60);
+    expect(circToRec(60.45, "A")!.rec).toBe(61);
+    expect(circToRec(59.55, "A")!.rec).toBe(60);
+    expect(circToRec(59.549, "A")!.rec).toBe(60);
   });
 });
 
-describe("R5B: ความยาวกระดาษ (มม.) → เบอร์ (ก้าว 0.5) · ขอบ 45/68 · G4 40/75", () => {
+describe("R5B: ความยาวกระดาษ (มม.) → เบอร์ (ก้าว 0.5) · ขอบ 45/68 · G4 40/75 — คงกฎเดิม ceil(c−0.25) + ระหว่างเบอร์ (ไม่เปลี่ยนตามมติวิธีแหวน)", () => {
   // [ความยาว, เบอร์, between, ในช่วงร้าน 45–68]
   const rows: Array<[number, number, string | null, boolean]> = [
     [43.5, 44, "43-44", false],
@@ -163,7 +190,7 @@ describe("R5B: ความยาวกระดาษ (มม.) → เบอ�
     [69.0, 69, null, false],
   ];
   it.each(rows)("%s มม. → เบอร์ %s · ระหว่าง=%s · ในช่วงร้าน=%s", (len, rec, between, inRange) => {
-    const r = circToRec(len)!;
+    const r = circToRec(len, "B")!;
     expect(r.rec).toBe(rec);
     expect(r.between ? `${r.between.lo}-${r.between.hi}` : null).toBe(between);
     expect(inShopRange(r.rec)).toBe(inRange);
@@ -181,13 +208,13 @@ describe("R5B: ความยาวกระดาษ (มม.) → เบอ�
   });
 
   it("ขอบ 45/68 ด้วยเส้นรอบวงละเอียด: 44.2 → 44 นอก · 44.3 → 45 ใน · 68.2 → 68 ใน · 68.3 → 69 นอก", () => {
-    expect([44.2, 44.3, 68.2, 68.3].map((c) => inShopRange(circToRec(c)!.rec))).toEqual([false, true, true, false]);
+    expect([44.2, 44.3, 68.2, 68.3].map((c) => inShopRange(circToRec(c, "B")!.rec))).toEqual([false, true, true, false]);
   });
 });
 
 describe("ค่าเสีย — ไม่สร้างเบอร์จาก NaN/Infinity/ติดลบ", () => {
   it.each([Number.NaN, Infinity, -Infinity])("%s → null", (x) => {
-    expect(circToRec(x)).toBeNull();
+    expect(circToRec(x, "B")).toBeNull();
     expect(isPlausibleCirc(x)).toBe(false);
   });
   it("ติดลบ/ศูนย์ → G4 (ไม่ใช่ผลลัพธ์)", () => {

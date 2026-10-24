@@ -17,7 +17,7 @@ afterEach(cleanup);
 
 describe("flag เปิดแต่ไม่มีข้อความ → ไม่ render", () => {
   it("R6: ไม่มีส่วนเคล็ดลับ ไม่มีหัวข้อเปล่า", () => {
-    render(<R6 step={null} size={circToRec(54)!} method="A" refKind="coin" measuredAt={1} onBack={() => {}} onRemeasure={() => {}} onOtherMethod={() => {}} />);
+    render(<R6 step={null} size={circToRec(54, "A")!} method="A" refKind="coin" measuredAt={1} onBack={() => {}} onRemeasure={() => {}} onOtherMethod={() => {}} />);
     expect(screen.queryByText("เคล็ดลับก่อนสั่ง")).toBeNull();
     expect(screen.queryByRole("region", { name: /เคล็ดลับ/ })).toBeNull();
     expect(document.querySelector("details")).toBeNull();

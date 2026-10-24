@@ -336,7 +336,7 @@ export function RingSizeClient() {
   };
 
   const finishMeasure = (m: Method, rawCirc: number, diameterMm: number | null = null) => {
-    const rec = circToRec(rawCirc);
+    const rec = circToRec(rawCirc, m);
     if (!rec || !isPlausibleCirc(rawCirc) || !calib) {
       setInvalid({ circ: roundTenth(Number.isFinite(rawCirc) ? rawCirc : 0), method: m, diameterMm });
       navigate("G4");
@@ -378,7 +378,7 @@ export function RingSizeClient() {
       body = (
         <R0
           loaded={loaded}
-          lastResultSize={lastResult ? (circToRec(lastResult.circ)?.rec ?? null) : null}
+          lastResultSize={lastResult ? (circToRec(lastResult.circ, lastResult.method)?.rec ?? null) : null}
           calibrated={!!calib && !stale}
           onStart={start}
           onViewLastResult={viewLastResult}
@@ -470,7 +470,7 @@ export function RingSizeClient() {
       ) : null;
       break;
     case "R6": {
-      const size = result ? circToRec(result.circ) : null;
+      const size = result ? circToRec(result.circ, result.method) : null;
       body =
         result && size ? (
           <R6
