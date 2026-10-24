@@ -63,6 +63,7 @@ export function toGemsToBuyView(summary: GemPurchaseSummary, viewerId: string | 
         orderedAt: j.orderedAt,
         orderedBy: who(j.orderedBy),
         lineIds: [...j.lineIds],
+        lines: j.lines.map((l) => ({ lineId: l.lineId, qtyNeededNow: l.qtyNeededNow, orderedQty: l.orderedQty })),
       })),
     })),
   };
@@ -251,17 +252,22 @@ export function lineIdsOfRows(rows: GtbRow[]): string[] {
 // ติ๊ก / undo
 // ---------------------------------------------------------------------------
 /**
- * 🔴 ยอดที่จอเห็น/ส่งร้านต่อ line (ส่งเข้า markGemPurchase.expected เมื่อติ๊ก) = qty_needed_now ระดับใบ×รายการ
- * ใช้ได้ "เฉพาะเมื่อใบมี line เดียวของรายการนั้น" — summary ส่งยอดรวมต่อใบ×รายการ ถ้าใบมีหลาย line (เช่น หลังรวมชื่อ) ยอดต่อ line ไม่รู้
- * → null (ไม่แบ่งยอดเดา — ค่า expected ผิดแปลว่า DB ล้ม qty_changed หรือที่แย่กว่าคือผ่านด้วยค่าเดา) · ผู้เรียกต้องไม่ยิง
+ * 🔴 ยอดที่จอเห็น/ส่งร้านต่อ line (ส่งเข้า markGemPurchase.expected เมื่อติ๊ก) = `jobs[].lines[].qtyNeededNow` ที่ DB ส่งมา (ยอดเดียวกับที่ DB เทียบ)
+ * ใช้ได้แม้ใบมีหลาย line ของรายการเดียวกัน (หลังรวมชื่อ) · ไม่แบ่ง/ไม่คำนวณยอดเอง
+ * null = ข้อมูลไม่ครบ (ไม่มี line · ids ไม่ตรงกับ lineIds · ยอดไม่ใช่จำนวนเต็มบวก · line ซ้ำ) → ผู้เรียกต้องไม่ยิง
  */
-export function expectedForJobs(jobs: ReadonlyArray<Pick<GtbJob, "lineIds" | "qtyNeededNow">>): Record<string, number> | null {
+export function expectedForJobs(jobs: ReadonlyArray<Pick<GtbJob, "lineIds" | "lines">>): Record<string, number> | null {
   const out: Record<string, number> = {};
+  let total = 0;
   for (const j of jobs) {
-    if (j.lineIds.length !== 1 || !Number.isSafeInteger(j.qtyNeededNow) || j.qtyNeededNow < 1) return null;
-    out[j.lineIds[0]] = j.qtyNeededNow;
+    if (j.lines.length === 0 || j.lines.length !== j.lineIds.length || !j.lines.every((l) => j.lineIds.includes(l.lineId))) return null;
+    for (const l of j.lines) {
+      if (!Number.isSafeInteger(l.qtyNeededNow) || l.qtyNeededNow < 1 || l.lineId in out) return null;
+      out[l.lineId] = l.qtyNeededNow;
+      total += 1;
+    }
   }
-  return Object.keys(out).length === jobs.length && jobs.length > 0 ? out : null;
+  return total > 0 && Object.keys(out).length === total ? out : null;
 }
 
 export interface UndoPlan {
@@ -290,7 +296,7 @@ const CHANGED_CODES: ReadonlySet<string> = new Set(["job_closed", "gem_stage_sta
 export const MARK_CHANGED_MESSAGE = "มีรายการที่เปลี่ยนไป — โหลดข้อมูลใหม่แล้ว ไม่ได้ทำเครื่องหมายรายการใดเลย ลองอีกครั้ง";
 export const MARK_QTY_CHANGED_MESSAGE = "ยอดพลอยของใบเปลี่ยนหลังโหลดหน้า — โหลดข้อมูลใหม่แล้ว ไม่ได้ทำเครื่องหมายรายการใดเลย ตรวจยอดแล้วติ๊กใหม่";
 export const MARK_QTY_CHANGED_AFTER_COPY_MESSAGE = "ยอดเปลี่ยนหลังคัดลอก — คัดลอกใหม่แล้วส่งร้านส่วนต่าง (ยังไม่ได้ทำเครื่องหมายอะไรเลย)";
-export const MARK_MULTI_LINE_MESSAGE = "ใบนี้มีหลายแถวของพลอยรายการเดียวกัน — ติ๊กจากหน้านี้ไม่ได้ (ยังไม่มียอดต่อแถวให้ตรวจ) ใช้ทางอื่นหรือแจ้งผู้ดูแลระบบ";
+export const MARK_MULTI_LINE_MESSAGE = "ข้อมูลยอดต่อแถวของใบนี้ไม่ครบ — ติ๊กจากหน้านี้ไม่ได้ โหลดหน้าใหม่แล้วลองอีกครั้ง หรือแจ้งผู้ดูแลระบบ";
 export const MARK_FAILED_MESSAGE = "บันทึกไม่สำเร็จ ลองอีกครั้ง";
 export const MARK_TOO_MANY_GROUP_MESSAGE = `รายการนี้มีเกิน ${GTB_MAX_LINES_PER_MARK} แถว — ติ๊กทีละใบ (กด ▾ ดูใบ แล้วกด สั่งแล้ว ที่แต่ละใบ)`;
 export const MARK_TOO_MANY_BULK_MESSAGE = `เลือกรวมกันเกิน ${GTB_MAX_LINES_PER_MARK} แถว — ลดจำนวนที่เลือก หรือติ๊กทีละรายการ`;

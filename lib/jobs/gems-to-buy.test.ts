@@ -29,7 +29,8 @@ import type { GtbGroup, GtbJob } from "./gems-to-buy";
 const U = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const ME = U(900);
 
-const job = (n: number, o: Partial<GtbJob> = {}): GtbJob => ({
+const withLines = (j: Omit<GtbJob, "lines"> & { lines?: GtbJob["lines"] }): GtbJob => ({ ...j, lines: j.lines ?? j.lineIds.map((id) => ({ lineId: id, qtyNeededNow: Math.floor(j.qtyNeededNow / j.lineIds.length), orderedQty: null })) });
+const job = (n: number, o: Partial<GtbJob> = {}): GtbJob => withLines({
   jobId: U(1000 + n), jobNo: `JB-${String(n).padStart(4, "0")}`, designLabel: `แบบ ${n}`, dueDate: "2026-11-10", qtyNeededNow: 10, qtyOrdered: 0, qtyRemaining: 10, qtyExcess: 0,
   isOrdered: false, changedAfterOrder: false, orderedAt: null, orderedBy: null, lineIds: [U(2000 + n)], ...o,
 });
@@ -60,8 +61,8 @@ describe("toGemsToBuyView", () => {
       canonical_item_id: U(1), type_id: U(100), type_name: "โกเมน", shape_id: U(200), shape_name: "ไข่", size_a: 4, size_b: 6, size_label: "4×6", label: "โกเมน · ไข่ · 4×6 มม.",
       qty_needed_now: 20, qty_ordered: 10, qty_remaining: 10, qty_excess: 0, job_count: 2, earliest_due: "2026-10-22", earliest_due_remaining: "2026-10-28", line_ids: [U(11), U(12)],
       jobs: [
-        { job_id: U(21), job_no: "JB-0021", design_label: "ก", due_date: "2026-10-22", qty_needed_now: 10, qty_ordered: 10, qty_remaining: 0, qty_excess: 0, is_ordered: true, changed_after_order: false, ordered_at: "2026-10-23T03:00:00+00:00", ordered_by: ME, line_ids: [U(11)] },
-        { job_id: U(22), job_no: "JB-0022", design_label: "ข", due_date: "2026-10-28", qty_needed_now: 10, qty_ordered: 0, qty_remaining: 10, qty_excess: 0, is_ordered: false, changed_after_order: false, ordered_at: null, ordered_by: null, line_ids: [U(12)] },
+        { job_id: U(21), job_no: "JB-0021", design_label: "ก", due_date: "2026-10-22", qty_needed_now: 10, qty_ordered: 10, qty_remaining: 0, qty_excess: 0, is_ordered: true, changed_after_order: false, ordered_at: "2026-10-23T03:00:00+00:00", ordered_by: ME, line_ids: [U(11)], lines: [{ line_id: U(11), qty_needed_now: 10, ordered_qty: 10 }] },
+        { job_id: U(22), job_no: "JB-0022", design_label: "ข", due_date: "2026-10-28", qty_needed_now: 10, qty_ordered: 0, qty_remaining: 10, qty_excess: 0, is_ordered: false, changed_after_order: false, ordered_at: null, ordered_by: null, line_ids: [U(12)], lines: [{ line_id: U(12), qty_needed_now: 10, ordered_qty: null }] },
       ],
     }],
     unspecified_jobs: [], removed_after_order: [], totals: { groups: 1, jobs: 2, qty_needed_now: 20, qty_ordered: 10, qty_remaining: 10, qty_excess: 0, unspecified_jobs: 0 },

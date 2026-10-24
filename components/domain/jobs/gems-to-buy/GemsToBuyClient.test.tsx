@@ -26,7 +26,9 @@ import type { GemsToBuyView, GtbGroup, GtbJob, GtbTab } from "@/lib/jobs/gems-to
 const U = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const TODAY = "2026-10-24";
 
-const J = (n: number, o: Partial<GtbJob> = {}): GtbJob => ({
+/** ใบทดสอบ: ไม่ระบุ lines = แบ่งยอดเท่ากันตามจำนวน lineIds (ใบ line เดียว = ยอดของใบ) */
+const withLines = (j: Omit<GtbJob, "lines"> & { lines?: GtbJob["lines"] }): GtbJob => ({ ...j, lines: j.lines ?? j.lineIds.map((id) => ({ lineId: id, qtyNeededNow: Math.floor(j.qtyNeededNow / j.lineIds.length), orderedQty: null })) });
+const J = (n: number, o: Partial<GtbJob> = {}): GtbJob => withLines({
   jobId: U(1000 + n), jobNo: `JB-${String(n).padStart(4, "0")}`, designLabel: `แบบ ${n}`, dueDate: null, qtyNeededNow: 10, qtyOrdered: 0, qtyRemaining: 10, qtyExcess: 0,
   isOrdered: false, changedAfterOrder: false, orderedAt: null, orderedBy: null, lineIds: [U(2000 + n)], ...o,
 });

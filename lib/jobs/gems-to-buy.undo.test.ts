@@ -19,7 +19,8 @@ import {
 import type { GtbGroup, GtbJob } from "./gems-to-buy";
 
 const U = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
-const job = (n: number, o: Partial<GtbJob> = {}): GtbJob => ({
+const withLines = (j: Omit<GtbJob, "lines"> & { lines?: GtbJob["lines"] }): GtbJob => ({ ...j, lines: j.lines ?? j.lineIds.map((id) => ({ lineId: id, qtyNeededNow: Math.floor(j.qtyNeededNow / j.lineIds.length), orderedQty: null })) });
+const job = (n: number, o: Partial<GtbJob> = {}): GtbJob => withLines({
   jobId: U(1000 + n), jobNo: `JB-${String(n).padStart(4, "0")}`, designLabel: null, dueDate: null, qtyNeededNow: 10, qtyOrdered: 0, qtyRemaining: 10, qtyExcess: 0,
   isOrdered: false, changedAfterOrder: false, orderedAt: null, orderedBy: null, lineIds: [U(2000 + n)], ...o,
 });
@@ -86,18 +87,25 @@ describe("expectedForJobs — ยอดต่อ line ที่จอเห็�
   it("ใบละ 1 line = qtyNeededNow ของใบ (ยอด 'ต้องใช้' ไม่ใช่ยอดที่เหลือ)", () => {
     expect(expectedForJobs([job(1, { qtyNeededNow: 90, qtyRemaining: 20, qtyOrdered: 70, isOrdered: true }), job(2, { qtyNeededNow: 5, qtyRemaining: 5 })])).toEqual({ [U(2001)]: 90, [U(2002)]: 5 });
   });
-  it("ใบที่มีหลาย line ของรายการเดียวกัน = null (ไม่แบ่งยอดเดา)", () => {
-    expect(expectedForJobs([job(1, { lineIds: [U(1), U(2)], qtyNeededNow: 20 })])).toBeNull();
-    expect(expectedForJobs([job(1), job(2, { lineIds: [U(7), U(8)] })])).toBeNull();
+  it("ใบหลาย line ของรายการเดียวกัน (หลังรวมชื่อ): ใช้ยอดต่อ line จาก lines — ไม่ใช่ยอดรวมของใบ ไม่แบ่งเอง (12 + 8 ไม่ใช่ 10 + 10)", () => {
+    const multi = job(1, { lineIds: [U(1), U(2)], qtyNeededNow: 20, lines: [{ lineId: U(1), qtyNeededNow: 12, orderedQty: null }, { lineId: U(2), qtyNeededNow: 8, orderedQty: null }] });
+    expect(expectedForJobs([multi])).toEqual({ [U(1)]: 12, [U(2)]: 8 });
+    expect(expectedForJobs([multi, job(2)])).toEqual({ [U(1)]: 12, [U(2)]: 8, [U(2002)]: 10 });
   });
-  it("ว่าง / ยอดไม่ใช่จำนวนเต็มบวก / ไม่มี line = null", () => {
+  it("ใบ line เดียวเหมือนเดิม: ยอดต่อ line = ยอด 'ต้องใช้' ของใบ (ไม่ใช่ยอดที่เหลือ)", () => {
+    const j = job(1, { qtyNeededNow: 90, qtyRemaining: 20, qtyOrdered: 70, isOrdered: true, lines: [{ lineId: U(2001), qtyNeededNow: 90, orderedQty: 70 }] });
+    expect(expectedForJobs([j])).toEqual({ [U(2001)]: 90 });
+  });
+  it("ข้อมูลไม่ครบ = null: ว่าง · ไม่มี lines · lines ไม่ตรง lineIds (ขาด/เกิน/id ต่าง) · ยอดไม่ใช่จำนวนเต็มบวก", () => {
     expect(expectedForJobs([])).toBeNull();
-    expect(expectedForJobs([job(1, { qtyNeededNow: 0 })])).toBeNull();
-    expect(expectedForJobs([job(1, { qtyNeededNow: 1.5 })])).toBeNull();
-    expect(expectedForJobs([job(1, { lineIds: [] })])).toBeNull();
+    expect(expectedForJobs([job(1, { lines: [] })])).toBeNull();
+    expect(expectedForJobs([job(1, { lineIds: [U(1), U(2)], lines: [{ lineId: U(1), qtyNeededNow: 20, orderedQty: null }] })])).toBeNull();
+    expect(expectedForJobs([job(1, { lineIds: [U(1)], lines: [{ lineId: U(9), qtyNeededNow: 10, orderedQty: null }] })])).toBeNull();
+    expect(expectedForJobs([job(1, { lines: [{ lineId: U(2001), qtyNeededNow: 0, orderedQty: null }] })])).toBeNull();
+    expect(expectedForJobs([job(1, { lines: [{ lineId: U(2001), qtyNeededNow: 1.5, orderedQty: null }] })])).toBeNull();
   });
-  it("line เดียวกันซ้ำ (ผิดปกติ) = null — key ต้องเท่ากับจำนวนใบ", () => {
-    expect(expectedForJobs([job(1, { lineIds: [U(1)] }), job(2, { lineIds: [U(1)] })])).toBeNull();
+  it("line เดียวกันซ้ำข้ามใบ (ผิดปกติ) = null — key ต้องเท่ากับจำนวน line", () => {
+    expect(expectedForJobs([job(1, { lineIds: [U(1)], lines: [{ lineId: U(1), qtyNeededNow: 10, orderedQty: null }] }), job(2, { lineIds: [U(1)], lines: [{ lineId: U(1), qtyNeededNow: 10, orderedQty: null }] })])).toBeNull();
   });
 });
 
@@ -142,7 +150,7 @@ describe("toGemsToBuyView — ประกอบทีละ field (security L1)
     groups: [{
       canonical_item_id: U(1), type_id: U(100), type_name: "โกเมน", shape_id: U(200), shape_name: "ไข่", size_a: 4, size_b: 6, size_label: "4×6", label: "โกเมน · ไข่ · 4×6 มม.",
       qty_needed_now: 10, qty_ordered: 0, qty_remaining: 10, qty_excess: 0, job_count: 1, earliest_due: null, earliest_due_remaining: null, line_ids: [U(11)],
-      jobs: [{ job_id: U(21), job_no: "JB-0021", design_label: "ก", due_date: null, qty_needed_now: 10, qty_ordered: 0, qty_remaining: 10, qty_excess: 0, is_ordered: false, changed_after_order: false, ordered_at: null, ordered_by: U(900), line_ids: [U(11)] }],
+      jobs: [{ job_id: U(21), job_no: "JB-0021", design_label: "ก", due_date: null, qty_needed_now: 10, qty_ordered: 0, qty_remaining: 10, qty_excess: 0, is_ordered: false, changed_after_order: false, ordered_at: null, ordered_by: U(900), line_ids: [U(11)], lines: [{ line_id: U(11), qty_needed_now: 10, ordered_qty: null }] }],
     }],
     unspecified_jobs: [], removed_after_order: [], totals: { groups: 1, jobs: 1, qty_needed_now: 10, qty_ordered: 0, qty_remaining: 10, qty_excess: 0, unspecified_jobs: 0 },
   };
@@ -152,10 +160,17 @@ describe("toGemsToBuyView — ประกอบทีละ field (security L1)
     // จำลอง field ใหม่ที่ mapper อนุญาตผ่านมา
     (s as unknown as { groups: { jobs: Record<string, unknown>[] }[] }).groups[0].jobs[0].futureField = "SECRET_VALUE";
     const v = toGemsToBuyView(s!, U(900));
-    expect(Object.keys(v.groups[0].jobs[0]).sort()).toEqual(["changedAfterOrder", "designLabel", "dueDate", "isOrdered", "jobId", "jobNo", "lineIds", "orderedAt", "orderedBy", "qtyExcess", "qtyNeededNow", "qtyOrdered", "qtyRemaining"].sort());
+    expect(Object.keys(v.groups[0].jobs[0]).sort()).toEqual(["changedAfterOrder", "designLabel", "dueDate", "isOrdered", "jobId", "jobNo", "lineIds", "lines", "orderedAt", "orderedBy", "qtyExcess", "qtyNeededNow", "qtyOrdered", "qtyRemaining"].sort());
     expect(JSON.stringify(v)).not.toContain("SECRET_VALUE");
     expect(JSON.stringify(v)).not.toContain(U(900));
     expect(v.groups[0].jobs[0].orderedBy).toBe("me");
+  });
+  it("lines (ยอดต่อ line) ประกอบทีละ field เช่นกัน — field แปลกปลอมในแถว line ไม่หลุด · ยอดผ่านครบ", () => {
+    const s = mapGemPurchaseSummary(raw)!;
+    (s.groups[0].jobs[0].lines[0] as unknown as Record<string, unknown>).futureLineField = "LEAK";
+    const v = toGemsToBuyView(s, null);
+    expect(v.groups[0].jobs[0].lines).toEqual([{ lineId: U(11), qtyNeededNow: 10, orderedQty: null }]);
+    expect(JSON.stringify(v)).not.toContain("LEAK");
   });
   it("lineIds ของ view เป็นสำเนา (แก้ view ไม่ย้อนไปแก้ต้นทาง)", () => {
     const s = mapGemPurchaseSummary(raw)!;

@@ -26,7 +26,9 @@ import type { GemsToBuyView, GtbGroup, GtbJob, GtbTab } from "@/lib/jobs/gems-to
 
 const U = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const TODAY = "2026-10-24";
-const J = (n: number, o: Partial<GtbJob> = {}): GtbJob => ({
+/** ใบทดสอบ: ไม่ระบุ lines = แบ่งยอดเท่ากันตามจำนวน lineIds (ใบ line เดียว = ยอดของใบ) */
+const withLines = (j: Omit<GtbJob, "lines"> & { lines?: GtbJob["lines"] }): GtbJob => ({ ...j, lines: j.lines ?? j.lineIds.map((id) => ({ lineId: id, qtyNeededNow: Math.floor(j.qtyNeededNow / j.lineIds.length), orderedQty: null })) });
+const J = (n: number, o: Partial<GtbJob> = {}): GtbJob => withLines({
   jobId: U(1000 + n), jobNo: `JB-${String(n).padStart(4, "0")}`, designLabel: `แบบ ${n}`, dueDate: null, qtyNeededNow: 10, qtyOrdered: 0, qtyRemaining: 10, qtyExcess: 0,
   isOrdered: false, changedAfterOrder: false, orderedAt: null, orderedBy: null, lineIds: [U(2000 + n)], ...o,
 });
@@ -159,15 +161,55 @@ describe("🔴 expected ทุกครั้งที่ติ๊ก (security 
     expect(A.markGemPurchase).toHaveBeenCalledTimes(1);
     expect(refresh).toHaveBeenCalled();
   });
-  it("ใบที่มีหลาย line ของรายการเดียวกัน: ไม่มียอดต่อ line → ไม่ยิง (ไม่แบ่งยอดเดา) + บอกเหตุผล · ยกเลิกติ๊กยังทำได้", async () => {
+  // ใบที่มี 2 line ของรายการเดียวกัน (หลังรวมชื่อ): ยอดต่อ line 12 + 8 = 20 (ยอดของใบ) · ยอดต่อ line มาจาก DB ไม่ใช่ใจจอ
+  const MULTI = () => G(1, [J(1, { lineIds: [U(2001), U(2101)], qtyNeededNow: 20, qtyRemaining: 20, lines: [{ lineId: U(2001), qtyNeededNow: 12, orderedQty: null }, { lineId: U(2101), qtyNeededNow: 8, orderedQty: null }] })]);
+  it("ใบหลาย line: ปุ่มแถว/ใบ ติ๊กได้ · expected ต่อ line ถูก (12 + 8 — ไม่แบ่ง 10 + 10)", async () => {
     const user = userEvent.setup();
-    const multi = G(1, [J(1, { lineIds: [U(2001), U(2101)], qtyNeededNow: 20, qtyRemaining: 20 })]);
-    const r = mount(view([multi]));
+    mount(view([MULTI()]));
+    await user.click(table().getByRole("button", { name: /^สั่งแล้ว — โกเมน/ }));
+    expect(A.markGemPurchase).toHaveBeenCalledTimes(1);
+    expect(A.markGemPurchase.mock.calls[0][0]).toEqual({ lineIds: [U(2001), U(2101)], ordered: true, expected: { [U(2001)]: 12, [U(2101)]: 8 } });
+    expect(screen.queryByText(MARK_MULTI_LINE_MESSAGE)).not.toBeInTheDocument();
+    await user.click(table().getByRole("button", { name: /ดูใบ — โกเมน/ }));
+    await user.click(table().getByRole("button", { name: /^สั่งแล้ว — JB-0001/ }));
+    expect(A.markGemPurchase.mock.calls[1][0]).toEqual({ lineIds: [U(2001), U(2101)], ordered: true, expected: { [U(2001)]: 12, [U(2101)]: 8 } });
+  });
+  it("ใบหลาย line + ใบ line เดียวใน bulk เดียวกัน: expected ครบทุก line ตรงกับ lineIds", async () => {
+    const user = userEvent.setup();
+    mount(view([MULTI(), G2()]));
+    await user.click(screen.getByRole("checkbox", { name: "เลือกที่เห็นทั้งหมด" }));
+    await user.click(screen.getByRole("button", { name: "สั่งแล้ว (2)" }));
+    const arg = A.markGemPurchase.mock.calls[0][0];
+    expect(arg.expected).toEqual({ [U(2001)]: 12, [U(2101)]: 8, [U(2003)]: 120 });
+    expect(new Set(Object.keys(arg.expected))).toEqual(new Set(arg.lineIds));
+  });
+  it("ใบหลาย line: snapshot หลังคัดลอกเก็บยอดต่อ line (ติ๊กจากแถบส่ง 12 + 8)", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);
+    mount(view([MULTI()]));
+    await user.click(screen.getByRole("button", { name: "คัดลอกไปส่งร้านพลอย (1)" }));
+    await user.click(await screen.findByRole("button", { name: "ทำเครื่องหมายว่าสั่งแล้ว (1)" }));
+    expect(A.markGemPurchase.mock.calls[0][0]).toEqual({ lineIds: [U(2001), U(2101)], ordered: true, expected: { [U(2001)]: 12, [U(2101)]: 8 } });
+  });
+  it("ใบหลาย line: ปุ่มย้อนกลับใช้ได้เมื่อผล server บอกทุก line เดิมไม่เคยติ๊ก · ยกเลิกติ๊กส่งแค่ lineIds", async () => {
+    const user = userEvent.setup();
+    mount(view([MULTI()]));
+    await user.click(table().getByRole("button", { name: /^สั่งแล้ว — โกเมน/ }));
+    await user.click(await screen.findByRole("button", { name: "ย้อนกลับ" }));
+    await waitFor(() => expect(A.markGemPurchase).toHaveBeenCalledTimes(2));
+    expect(A.markGemPurchase.mock.calls[1][0]).toEqual({ lineIds: [U(2001), U(2101)], ordered: false });
+  });
+  it("ข้อมูลยอดต่อ line ไม่ครบ (lines ว่าง/ไม่ตรง lineIds — ไม่ควรเกิดหลัง mapper) = ไม่ยิง + บอกเหตุผล (กันค่าเดา)", async () => {
+    const user = userEvent.setup();
+    const bad = G(1, [J(1, { lineIds: [U(2001), U(2101)], qtyNeededNow: 20, qtyRemaining: 20, lines: [{ lineId: U(2001), qtyNeededNow: 20, orderedQty: null }] })]);
+    mount(view([bad]));
     await user.click(table().getByRole("button", { name: /^สั่งแล้ว — โกเมน/ }));
     expect(A.markGemPurchase).not.toHaveBeenCalled();
     expect(await screen.findByText(MARK_MULTI_LINE_MESSAGE)).toBeInTheDocument();
-    r.unmount();
-    const ordered = G(1, [J(1, { lineIds: [U(2001), U(2101)], qtyNeededNow: 20, qtyOrdered: 20, qtyRemaining: 0, isOrdered: true })]);
+  });
+  it("ยกเลิกติ๊กใบหลาย line ทำได้ตามเดิม (ไม่ส่ง expected)", async () => {
+    const user = userEvent.setup();
+    const ordered = G(1, [J(1, { lineIds: [U(2001), U(2101)], qtyNeededNow: 20, qtyOrdered: 20, qtyRemaining: 0, isOrdered: true, lines: [{ lineId: U(2001), qtyNeededNow: 12, orderedQty: 12 }, { lineId: U(2101), qtyNeededNow: 8, orderedQty: 8 }] })]);
     mount(view([ordered]), "ordered");
     await user.click(table().getByRole("button", { name: /^ยกเลิกสั่งแล้ว — โกเมน/ }));
     expect(A.markGemPurchase).toHaveBeenCalledTimes(1);
