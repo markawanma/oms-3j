@@ -9,6 +9,8 @@ export const GEM_HINTS: ReadonlySet<string> = new Set([
   "gem_similar", "name_exists", "reason_required", "reason_invalid", "note_required", "gem_merge_blocked", "gem_in_use", "gem_merged_locked", "gem_merge_self", "gem_merge_from_merged", "gem_merge_into_merged",
   "gem_merge_into_inactive", "gem_merge_invalid", "has_length_mismatch", "has_length_locked", "merge_qty_overflow", "price_invalid", "date_invalid", "text_invalid",
   "gem_actor_forbidden", "gem_not_found", "no_product", "lot_no_gems", "gem_product_invalid", "gem_ref_inactive", "kind_invalid",
+  // 0192 G1b: ติ๊ก "สั่งแล้ว"
+  "purchase_lines_invalid", "purchase_line_not_found", "gem_stage_started", "ordered_invalid",
 ]);
 
 /** ข้อความสำรอง (ไทย) เมื่อข้อความ DB ไม่สะอาด — ไม่มีตัวเลขเงิน/ชื่อตาราง */
@@ -58,4 +60,8 @@ export const GEM_ERROR_TH: Record<string, string> = {
   gem_product_invalid: "ไม่พบ SKU ในร้านนี้",
   gem_ref_inactive: "รายการพลอยปิดใช้งาน/ถูกรวม/ไม่พบ — เลือกรายการอื่น",
   kind_invalid: "ชนิดข้อมูลไม่ถูกต้อง",
+  purchase_lines_invalid: "รายการที่จะติ๊กต้องมี 1-200 แถว และไม่มีค่าว่าง",
+  purchase_line_not_found: "ไม่พบรายการพลอยที่จะติ๊กในร้านนี้ — โหลดหน้าใหม่",
+  gem_stage_started: "ขั้นฝังพลอยของใบนี้รับงานแล้ว หรือไม่อยู่ในรายการ — ติ๊กไม่ได้ โหลดหน้าใหม่",
+  ordered_invalid: "ต้องระบุว่าจะติ๊กหรือยกเลิกติ๊ก \"สั่งแล้ว\"",
 };

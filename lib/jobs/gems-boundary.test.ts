@@ -59,7 +59,7 @@ function closure(entry: string): Set<string> {
   return seen;
 }
 
-const PRICE_MODULES = ["lib/jobs/gems.ts", "lib/actions/gems.ts", "lib/jobs/gems-server.ts"];
+const PRICE_MODULES = ["lib/jobs/gems.ts", "lib/actions/gems.ts", "lib/jobs/gems-server.ts", "lib/jobs/gem-purchase.ts"];
 const PRICE_SCREENS = ["components/domain/gems/GemPriceDialog.tsx", "components/domain/gems/GemItemsTable.tsx", "components/domain/gems/GemItemDetailDialog.tsx", "components/domain/gems/GemCatalogClient.tsx"];
 
 function walk(dir: string, out: string[] = []): string[] {
