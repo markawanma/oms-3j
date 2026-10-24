@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { LINE_OA_HANDLE, LINE_OA_URL } from "@/lib/shop/line";
 
 // Public route group — ไม่มี dashboard chrome / internal nav / auth gate ใดๆ
 // (ดู docs/3j-jewelry/web/shop-route-design.md §1) ห้าม import จาก (dashboard)
@@ -18,12 +19,12 @@ export default function PublicLayout({ children }: { children: ReactNode }) {
         <p>
           3J Jewelry · เงินแท้ 92.5 · LINE:{" "}
           <a
-            href="https://line.me/R/ti/p/@3jsilver"
+            href={LINE_OA_URL}
             target="_blank"
             rel="noopener noreferrer"
             className="text-[#A2191D] hover:underline"
           >
-            @3jsilver
+            {LINE_OA_HANDLE}
           </a>
         </p>
         <p className="mt-1">ราคาอาจมีการเปลี่ยนแปลง กรุณาทักแชทยืนยันราคาก่อนสั่งซื้อ</p>
