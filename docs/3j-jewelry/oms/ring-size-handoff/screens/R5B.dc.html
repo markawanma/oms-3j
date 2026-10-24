@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<title>ไม้บรรทัดบนจอ</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+Thai:wght@500;600;700&amp;family=IBM+Plex+Sans+Thai:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#a2191d}a:hover{color:#7d1316}
+button{font:inherit;color:inherit}
+.serif{font-family:'Noto Serif Thai',serif}
+.back{width:44px;height:44px;border-radius:99px;display:flex;align-items:center;justify-content:center;color:#2B1E1E;margin-left:-8px}
+.pm{min-width:56px;height:56px;padding:0 10px;border-radius:16px;border:1px solid #E0D3C8;background:#fff;font-size:14px;font-weight:600;cursor:pointer;flex:none;color:#2B1E1E}
+.pm:active{background:#F6E7E3}
+.cta{display:flex;align-items:center;justify-content:center;width:100%;min-height:56px;border-radius:16px;background:#a2191d;color:#fff;font-size:18px;font-weight:600;text-decoration:none;box-shadow:0 8px 20px rgba(162,25,29,.22)}
+.cta.off{background:#E5D9D3;color:#7A6B67;box-shadow:none;pointer-events:none}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; font-family: 'IBM Plex Sans Thai', system-ui, sans-serif; line-height: 1.6; color: #2B1E1E; background: #FBF7F2; display: flex; flex-direction: column">
+  <header style="display: flex; align-items: center; justify-content: space-between; padding: 6px 22px 2px">
+    <a class="back" href="R4B.dc.html" aria-label="ย้อนกลับ"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg></a>
+    <span class="serif" style="font-size: 14px; letter-spacing: .18em; color: #6A5B58">02 / 03</span>
+    <img src="../assets/3j-mark.png" alt="3J" style="height: 28px; width: auto">
+  </header>
+
+  <section aria-label="ไม้บรรทัด ลากเส้นแดงขึ้นลงได้" onPointerDown="{{drag}}" onPointerMove="{{drag}}" style="position: relative; height: 504px; background: #FFFFFF; border-top: 1px solid #EADFD6; border-bottom: 1px solid #EADFD6; overflow: hidden; touch-action: none; cursor: ns-resize">
+    <div aria-hidden="true" style="position: absolute; left: 64px; top: 12px; width: 1.5px; height: 480px; background: #2B1E1E"></div>
+    <sc-for list="{{ticks}}" as="t" hint-placeholder-count="81">
+      <div aria-hidden="true" style="position: absolute; height: 1px; background: #2B1E1E; top: {{t.top}}px; left: {{t.left}}px; width: {{t.len}}px"></div>
+      <sc-if value="{{t.label}}" hint-placeholder-val="{{false}}">
+        <div aria-hidden="true" style="position: absolute; left: 6px; width: 26px; text-align: right; font-size: 11px; line-height: 1; color: #2B1E1E; top: {{t.labelTop}}px">{{t.mm}}</div>
+      </sc-if>
+    </sc-for>
+    <div aria-hidden="true" style="position: absolute; left: 74px; top: 12px; width: 26px; height: 345px; background: #FDF6EC; border: 1px solid #D9C3A0; box-sizing: border-box"></div>
+    <div aria-hidden="true" style="position: absolute; left: 70px; top: 356px; width: 34px; height: 2px; background: #6A5B58"></div>
+    <div aria-hidden="true" style="position: absolute; left: 112px; top: 18px; font-size: 11px; color: #6A5B58; line-height: 1.4">ภาพจำลองกระดาษ<br>ปลายไม่มีรอยชิดเลข 0</div>
+    <div aria-hidden="true" style="position: absolute; left: 0; right: 0; height: 2px; background: #a2191d; top: {{lineTop}}px"></div>
+    <div aria-hidden="true" style="position: absolute; left: 8px; width: 40px; height: 40px; border-radius: 99px; background: #a2191d; box-shadow: 0 2px 8px rgba(0,0,0,.25); display: flex; align-items: center; justify-content: center; margin-top: -20px; top: {{lineTop}}px"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M8 9l4-4 4 4M8 15l4 4 4-4"></path></svg></div>
+  </section>
+
+  <div style="flex: 1; padding: 10px 22px 18px; display: flex; flex-direction: column; gap: 8px">
+    <p style="margin: 0; font-size: 14px; font-weight: 500; line-height: 1.5">วางปลายกระดาษที่ไม่มีรอยให้ตรงเลข 0 แล้วลากเส้นแดงไปตรงรอยดินสอ</p>
+    <div style="display: flex; align-items: center; gap: 8px">
+      <button class="pm" onClick="{{dec}}">ลด 0.5</button>
+      <div aria-live="polite" style="flex: 1; min-width: 0; text-align: center; line-height: 1.3"><div style="font-size: 13px; color: #6A5B58">ความยาว <strong style="color: #2B1E1E">{{lenText}} มม.</strong></div><div class="serif" style="font-size: 24px; font-weight: 700; color: #7d1316">เบอร์ {{size}}</div></div>
+      <button class="pm" onClick="{{inc}}">เพิ่ม 0.5</button>
+    </div>
+    <a class="{{ctaCls}}" href="R6Between.dc.html" aria-disabled="{{notTouched}}">ใช้ค่านี้</a>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { L: 50, touched: false }; }
+  renderVals() {
+    var self = this;
+    var ppm = 6, top0 = 12;
+    var L = this.state.L;
+    function set(v) { v = Math.max(0, Math.min(80, v)); self.setState({ L: Math.round(v * 2) / 2, touched: true }); }
+    var ticks = [];
+    for (var i = 0; i <= 80; i++) {
+      var ten = i % 10 === 0, five = i % 5 === 0;
+      var len = ten ? 22 : (five ? 15 : 9);
+      ticks.push({ top: top0 + i * ppm, left: 64 - len, len: len, label: five, labelTop: top0 + i * ppm - 6, mm: ten || i === 0 ? String(i) : '' });
+    }
+    var c = Math.round(L * 10) / 10;
+    return {
+      ticks: ticks,
+      lineTop: top0 + L * ppm,
+      lenText: L.toFixed(1),
+      size: Math.ceil(c - 0.25),
+      ctaCls: this.state.touched ? 'cta' : 'cta off',
+      notTouched: this.state.touched ? 'false' : 'true',
+      drag: function (e) {
+        if (e.type === 'pointermove' && !e.buttons) return;
+        var r = e.currentTarget.getBoundingClientRect();
+        set((e.clientY - r.top - top0) / ppm);
+      },
+      dec: function () { set(L - 0.5); },
+      inc: function () { set(L + 0.5); }
+    };
+  }
+}
+</script>
+</body>
+</html>

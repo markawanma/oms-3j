@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<title>ปรับเส้นให้ชิดขอบบัตร</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+Thai:wght@500;600;700&amp;family=IBM+Plex+Sans+Thai:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#a2191d}a:hover{color:#7d1316}
+button{font:inherit;color:inherit}
+.serif{font-family:'Noto Serif Thai',serif}
+.back{width:44px;height:44px;border-radius:99px;display:flex;align-items:center;justify-content:center;color:#2B1E1E;margin-left:-8px}
+.pm{width:56px;height:56px;border-radius:16px;border:1px solid #E0D3C8;background:#fff;font-size:26px;font-weight:500;cursor:pointer;flex:none;color:#2B1E1E}
+.pm:active{background:#F6E7E3}
+input[type=range]{flex:1;min-width:0;height:44px;accent-color:#a2191d;margin:0}
+.cta{display:flex;align-items:center;justify-content:center;width:100%;min-height:56px;border:0;border-radius:16px;background:#a2191d;color:#fff;font-size:18px;font-weight:600;cursor:pointer;box-shadow:0 8px 20px rgba(162,25,29,.22)}
+.cta:disabled{background:#E5D9D3;color:#7A6B67;box-shadow:none;cursor:not-allowed}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; font-family: 'IBM Plex Sans Thai', system-ui, sans-serif; line-height: 1.6; color: #2B1E1E; background: #FBF7F2; display: flex; flex-direction: column">
+  <header style="display: flex; align-items: center; justify-content: space-between; padding: 10px 22px 6px">
+    <a class="back" href="R1.dc.html" aria-label="ย้อนกลับ"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg></a>
+    <span class="serif" style="font-size: 14px; letter-spacing: .18em; color: #6A5B58">01 / 03</span>
+    <img src="../assets/3j-mark.png" alt="3J" style="height: 30px; width: auto">
+  </header>
+
+  <section aria-label="เวทีเทียบบัตร" style="position: relative; height: 380px; background: #FFFFFF; border-top: 1px solid #EADFD6; border-bottom: 1px solid #EADFD6; overflow: hidden; touch-action: none">
+    <div aria-hidden="true" style="position: absolute; top: -20px; left: 38px; width: 313px; height: 330px; border-radius: 14px; background: rgba(200,167,119,.55); box-shadow: inset 0 0 0 1px rgba(125,19,22,.25)"></div>
+    <div aria-hidden="true" style="position: absolute; top: 0; bottom: 0; width: 3px; background: #a2191d; left: {{leftPx}}px"></div>
+    <div aria-hidden="true" style="position: absolute; top: 0; bottom: 0; width: 3px; background: #a2191d; left: {{rightPx}}px"></div>
+    <div style="position: absolute; left: 0; right: 0; bottom: 10px; text-align: center; font-size: 12px; color: #6A5B58">ภาพจำลองบัตร · ของจริงวางบัตรทับจอตรงนี้</div>
+  </section>
+
+  <div style="flex: 1; padding: 16px 22px 22px; display: flex; flex-direction: column; gap: 12px">
+    <p class="serif" style="margin: 0; font-size: 18px; font-weight: 600; line-height: 1.5">เลื่อนจนเส้นแดงชิดขอบบัตรทั้ง 2 ข้างพอดี</p>
+    <div style="display: flex; align-items: center; gap: 10px">
+      <button class="pm" aria-label="ลดทีละนิด" onClick="{{dec}}">−</button>
+      <input type="range" aria-label="ปรับความกว้างเส้นเทียบบัตร" min="3" max="6.6" step="0.01" value="{{ppm}}" onInput="{{slide}}">
+      <button class="pm" aria-label="เพิ่มทีละนิด" onClick="{{inc}}">+</button>
+    </div>
+    <div style="font-size: 13px; color: #6A5B58; text-align: center">เส้นถูกบัตรทับ = แคบไป · มีช่องว่าง = กว้างไป<br>ปุ่ม −/+ ปรับทีละ ~0.1 มม. · มองตรงจากด้านบน</div>
+    <div style="flex: 1"></div>
+    <button class="cta" disabled="{{notTouched}}" onClick="{{noop}}">เส้นชิดขอบบัตรแล้ว</button>
+    <a href="#" style="text-align: center; font-size: 14px; font-weight: 500; min-height: 32px; display: flex; align-items: center; justify-content: center">ปรับไม่ได้? ให้แอดมินช่วยวัดทาง LINE</a>
+    <a href="R2Coin.dc.html" style="text-align: center; font-size: 14px; font-weight: 500; min-height: 32px; display: flex; align-items: center; justify-content: center">ใช้เหรียญ 10 บาทแทน</a>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { ppm: 5.2, touched: false }; }
+  renderVals() {
+    var self = this;
+    var ppm = this.state.ppm;
+    var w = 53.98 * ppm;
+    var c = 195;
+    function set(v) { v = Math.max(3, Math.min(6.6, v)); self.setState({ ppm: Math.round(v * 1000) / 1000, touched: true }); }
+    var step = 0.1 / 53.98 * 6;
+    return {
+      ppm: ppm,
+      leftPx: Math.round(c - w / 2 - 3),
+      rightPx: Math.round(c + w / 2),
+      notTouched: !this.state.touched,
+      slide: function (e) { set(parseFloat(e.target.value)); },
+      dec: function () { set(ppm - step); },
+      inc: function () { set(ppm + step); },
+      noop: function () {}
+    };
+  }
+}
+</script>
+</body>
+</html>
