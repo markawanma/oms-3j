@@ -26,6 +26,13 @@ nextConfig.headers = async () => [
       { key: "Content-Security-Policy", value: "frame-ancestors 'none'" },
     ],
   },
+  // เครื่องมือวัดไซส์แหวน /ring-size (หน้าสาธารณะ): คำสัญญา "ไม่ใช้กล้อง" ต้องมีด่านที่ระดับเบราว์เซอร์ด้วย
+  // ไม่ใช่แค่ไม่มีโค้ดเรียกกล้อง — exact path เท่านั้น (ไม่ใช่ /ring-size/:path*) · header เดียว ไม่แตะ CSP/header อื่น
+  // (Next ถือ "/ring-size/" เป็นหน้าเดียวกัน — ดูเทสต์ lib/ring-size/headers.test.ts)
+  {
+    source: "/ring-size",
+    headers: [{ key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" }],
+  },
 ];
 
 export default nextConfig;

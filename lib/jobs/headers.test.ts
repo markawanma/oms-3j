@@ -8,9 +8,11 @@ async function rules() {
 const val = (hs: { key: string; value: string }[], k: string) => hs.find((h) => h.key.toLowerCase() === k.toLowerCase())?.value;
 
 describe("headers ของ /w/:path*", () => {
-  it("มีกฎเดียวที่ source = /w/:path* (ไม่กระทบหน้าออฟฟิศ)", async () => {
+  it("มีกฎของหน้าช่างเดียวที่ source = /w/:path* (ไม่กระทบหน้าออฟฟิศ) + กฎ exact /ring-size ของเครื่องมือวัดไซส์ (24 ต.ค. 69 — ดู lib/ring-size/headers.test.ts)", async () => {
     const r = await rules();
-    expect(r.map((x) => x.source)).toEqual(["/w/:path*"]);
+    expect(r.map((x) => x.source)).toEqual(["/w/:path*", "/ring-size"]);
+    // กฎ /ring-size ต้องไม่ลามมาเป็น header ของหน้าช่าง (Permissions-Policy มีเฉพาะ /ring-size)
+    expect(r[0].headers.some((h) => h.key.toLowerCase() === "permissions-policy")).toBe(false);
   });
   it("Referrer-Policy no-referrer · noindex · no-store · nosniff", async () => {
     const hs = (await rules())[0].headers;
