@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<title>ขยายวงกลมให้เต็มรูแหวน</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+Thai:wght@500;600;700&amp;family=IBM+Plex+Sans+Thai:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#a2191d}a:hover{color:#7d1316}
+button{font:inherit;color:inherit}
+.serif{font-family:'Noto Serif Thai',serif}
+.back{width:44px;height:44px;border-radius:99px;display:flex;align-items:center;justify-content:center;color:#2B1E1E;margin-left:-8px}
+.pm{width:56px;height:56px;border-radius:16px;border:1px solid #E0D3C8;background:#fff;font-size:26px;font-weight:500;cursor:pointer;flex:none;color:#2B1E1E}
+.pm:active{background:#F6E7E3}
+input[type=range]{flex:1;min-width:0;height:44px;accent-color:#a2191d;margin:0}
+.cta{display:flex;align-items:center;justify-content:center;width:100%;min-height:56px;border:0;border-radius:16px;background:#a2191d;color:#fff;font-size:18px;font-weight:600;cursor:pointer;text-decoration:none;box-shadow:0 8px 20px rgba(162,25,29,.22)}
+.cta.off{background:#E5D9D3;color:#7A6B67;box-shadow:none;pointer-events:none}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; font-family: 'IBM Plex Sans Thai', system-ui, sans-serif; line-height: 1.6; color: #2B1E1E; background: #FBF7F2; display: flex; flex-direction: column">
+  <header style="display: flex; align-items: center; justify-content: space-between; padding: 10px 22px 6px">
+    <a class="back" href="R4A.dc.html" aria-label="ย้อนกลับ"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg></a>
+    <span class="serif" style="font-size: 14px; letter-spacing: .18em; color: #6A5B58">02 / 03</span>
+    <img src="../assets/3j-mark.png" alt="3J" style="height: 30px; width: auto">
+  </header>
+
+  <section aria-label="เวทีวัดแหวน" style="position: relative; height: 300px; background: #FFFFFF; border-top: 1px solid #EADFD6; border-bottom: 1px solid #EADFD6; overflow: hidden; touch-action: none">
+    <div aria-hidden="true" style="position: absolute; left: 50%; top: 50%; width: 168px; height: 168px; margin: -84px 0 0 -84px; border-radius: 999px; box-sizing: border-box; border: 32px solid rgba(200,167,119,.55)"></div>
+    <div aria-hidden="true" style="position: absolute; left: 50%; top: 50%; border-radius: 999px; background: #a2191d; width: {{dPx}}px; height: {{dPx}}px; margin-left: {{offPx}}px; margin-top: {{offPx}}px"></div>
+    <div aria-hidden="true" style="position: absolute; left: 50%; top: 24px; bottom: 24px; width: 1px; background: rgba(43,30,30,.35)"></div>
+    <div aria-hidden="true" style="position: absolute; top: 50%; left: 80px; right: 80px; height: 1px; background: rgba(43,30,30,.35)"></div>
+    <div style="position: absolute; left: 0; right: 0; bottom: 8px; text-align: center; font-size: 12px; color: #6A5B58">ภาพจำลองแหวน · ของจริงวางแหวนทับวงกลม</div>
+  </section>
+
+  <div style="flex: 1; padding: 14px 22px 22px; display: flex; flex-direction: column; gap: 10px">
+    <p class="serif" style="margin: 0; font-size: 17px; font-weight: 600; line-height: 1.5">ขยายวงกลมจนไม่เหลือช่องว่างระหว่างวงสีแดงกับขอบด้านในของแหวน</p>
+    <div style="display: flex; align-items: center; gap: 10px">
+      <button class="pm" aria-label="ลด 0.1 มม." onClick="{{dec}}">−</button>
+      <input type="range" aria-label="ขนาดวงกลม" aria-valuetext="{{valueText}}" min="12" max="24" step="0.1" value="{{d}}" onInput="{{slide}}">
+      <button class="pm" aria-label="เพิ่ม 0.1 มม." onClick="{{inc}}">+</button>
+    </div>
+    <div aria-live="polite" style="display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 16px; border-radius: 18px; background: #fff; border: 1px solid #EADFD6">
+      <div style="font-size: 13px; color: #6A5B58; line-height: 1.5">ผ่านศูนย์กลาง <strong style="color: #2B1E1E">{{dText}} มม.</strong><br>เส้นรอบวง <strong style="color: #2B1E1E">{{cText}} มม.</strong></div>
+      <div style="text-align: right"><div style="font-size: 12px; color: #6A5B58">เบอร์</div><div class="serif" style="font-size: 34px; font-weight: 700; line-height: 1; color: #7d1316">{{size}}</div></div>
+    </div>
+    <div style="font-size: 13px; color: #6A5B58; text-align: center">ขยับแหวนให้ช่องว่างเท่ากันทุกด้านก่อน แล้วค่อยปรับขนาด</div>
+    <div style="flex: 1"></div>
+    <a class="{{ctaCls}}" href="R6.dc.html" aria-disabled="{{notTouched}}">ใช้ค่านี้</a>
+    <div style="font-size: 12px; color: #6A5B58; text-align: center">แหวนต้องนอนราบสนิทกับจอ และไม่บิดงอ</div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { d: 14, touched: false }; }
+  renderVals() {
+    var self = this;
+    var d = this.state.d;
+    var ppm = 6;
+    var c = Math.round(Math.PI * d * 10) / 10;
+    var rec = Math.ceil(c - 0.25);
+    function set(v) { v = Math.max(12, Math.min(24, v)); self.setState({ d: Math.round(v * 10) / 10, touched: true }); }
+    var px = Math.round(d * ppm);
+    return {
+      d: d,
+      dPx: px,
+      offPx: -Math.round(px / 2),
+      dText: d.toFixed(1),
+      cText: c.toFixed(1),
+      size: rec,
+      valueText: 'ผ่านศูนย์กลาง ' + d.toFixed(1) + ' มม. เบอร์ ' + rec,
+      notTouched: this.state.touched ? 'false' : 'true',
+      ctaCls: this.state.touched ? 'cta' : 'cta off',
+      slide: function (e) { set(parseFloat(e.target.value)); },
+      dec: function () { set(d - 0.1); },
+      inc: function () { set(d + 0.1); }
+    };
+  }
+}
+</script>
+</body>
+</html>

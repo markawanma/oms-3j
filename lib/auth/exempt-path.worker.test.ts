@@ -88,6 +88,16 @@ describe("middleware.ts matcher ตรงกับ exempt-path.ts (ไม่ dri
     expect(mw).not.toMatch(/w\/s(?:\/|\(\?:)[^|]*\.\*/);
     expect(mw).not.toContain("w/s(?:/|$)");
   });
+  it("ทั้งสองไฟล์มี alternative ของ /ring-size ตัวเดียวกัน — exact path: ต้องไม่มี wildcard/subtree/(?:/|$)", () => {
+    expect(mw).toContain("|ring-size/?$|");
+    expect(ex).toContain("|ring-size\\/?$|");
+    expect(mw).not.toMatch(/ring-size(?:\(\?:|\/\.|\.\*|\/\*)/);
+    expect(mw).not.toContain("ring-size(?:/|$)");
+    expect(ex).not.toContain("ring-size(?:\\/|$)");
+    expect(mw.match(/ring-size/g)!.length).toBeGreaterThan(0);
+    const m = /matcher:\s*\[\s*"([^"]+)"/.exec(mw)!;
+    expect(m[1].match(/ring-size/g)).toHaveLength(1); // alternative เดียวใน matcher จริง
+  });
   it("ไม่มีปีกกา {n,m} ใน matcher (path-to-regexp ตีความผิดได้)", () => {
     const m = /matcher:\s*\[\s*"([^"]+)"/.exec(mw)!;
     expect(m[1]).not.toMatch(/\{\d/);

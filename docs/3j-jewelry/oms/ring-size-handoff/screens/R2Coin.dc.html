@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<title>ปรับวงกลมให้เท่าเหรียญ</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+Thai:wght@500;600;700&amp;family=IBM+Plex+Sans+Thai:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#a2191d}a:hover{color:#7d1316}
+button{font:inherit;color:inherit}
+.serif{font-family:'Noto Serif Thai',serif}
+.back{width:44px;height:44px;border-radius:99px;display:flex;align-items:center;justify-content:center;color:#2B1E1E;margin-left:-8px}
+.pm{width:56px;height:56px;border-radius:16px;border:1px solid #E0D3C8;background:#fff;font-size:26px;font-weight:500;cursor:pointer;flex:none;color:#2B1E1E}
+.pm:active{background:#F6E7E3}
+input[type=range]{flex:1;min-width:0;height:44px;accent-color:#a2191d;margin:0}
+.cta{display:flex;align-items:center;justify-content:center;width:100%;min-height:56px;border-radius:16px;background:#a2191d;color:#fff;font-size:18px;font-weight:600;text-decoration:none;box-shadow:0 8px 20px rgba(162,25,29,.22);box-sizing:border-box}
+.cta:hover{background:#7d1316;color:#fff}
+.cta.off{background:#E5D9D3;color:#7A6B67;box-shadow:none;pointer-events:none}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; font-family: 'IBM Plex Sans Thai', system-ui, sans-serif; line-height: 1.6; color: #2B1E1E; background: #FBF7F2; display: flex; flex-direction: column">
+  <header style="display: flex; align-items: center; justify-content: space-between; padding: 10px 22px 6px">
+    <a class="back" href="R1Coin.dc.html" aria-label="ย้อนกลับ"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg></a>
+    <span class="serif" style="font-size: 14px; letter-spacing: .18em; color: #6A5B58">01 / 03</span>
+    <img src="../assets/3j-mark.png" alt="3J" style="height: 30px; width: auto">
+  </header>
+
+  <section aria-label="เวทีเทียบเหรียญ" style="position: relative; height: 380px; background: #FFFFFF; border-top: 1px solid #EADFD6; border-bottom: 1px solid #EADFD6; overflow: hidden; touch-action: none">
+    <div aria-hidden="true" style="position: absolute; left: 50%; top: 50%; width: 151px; height: 151px; margin: -76px 0 0 -76px; border-radius: 999px; background: radial-gradient(circle, #D8B66A 0 58%, #A88536 58% 59.5%, #D9D9DE 59.5% 97%, #8E8E96 97%); box-shadow: 0 6px 14px rgba(0,0,0,.18); display: flex; align-items: center; justify-content: center; font-size: 30px; font-weight: 700; color: #6E5420">10</div>
+    <div aria-hidden="true" style="position: absolute; left: 50%; top: 50%; border-radius: 999px; border: 3px solid #a2191d; width: {{dPx}}px; height: {{dPx}}px; margin-left: {{offPx}}px; margin-top: {{offPx}}px"></div>
+    <div style="position: absolute; left: 0; right: 0; bottom: 10px; text-align: center; font-size: 12px; color: #6A5B58">ภาพจำลองเหรียญ · ของจริงวางเหรียญกลางวงกลมนี้</div>
+  </section>
+
+  <div style="flex: 1; padding: 16px 22px 22px; display: flex; flex-direction: column; gap: 12px">
+    <p class="serif" style="margin: 0; font-size: 18px; font-weight: 600; line-height: 1.5">ปรับวงแดงจนล้อมขอบเหรียญพอดีรอบวง</p>
+    <div style="display: flex; align-items: center; gap: 10px">
+      <button class="pm" aria-label="ย่อวงกลมทีละนิด" onClick="{{dec}}">−</button>
+      <input type="range" aria-label="ปรับขนาดวงกลมเทียบเหรียญ" min="3" max="6.6" step="0.01" value="{{ppm}}" onInput="{{slide}}">
+      <button class="pm" aria-label="ขยายวงกลมทีละนิด" onClick="{{inc}}">+</button>
+    </div>
+    <div style="font-size: 13px; color: #6A5B58; text-align: center">วงแดงถูกเหรียญทับ = เล็กไป · เห็นช่องขาว = ใหญ่ไป<br>ถ้าเหรียญเบี้ยว ขยับเหรียญให้อยู่กลางวงก่อน · มองตรงจากด้านบน</div>
+    <div style="flex: 1"></div>
+    <a class="{{ctaCls}}" href="R3.dc.html" aria-disabled="{{notTouched}}">วงกลมเท่าเหรียญแล้ว</a>
+    <a href="R1.dc.html" style="text-align: center; font-size: 14px; font-weight: 500; min-height: 32px; display: flex; align-items: center; justify-content: center">ใช้บัตรแทน</a>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { ppm: 4.6, touched: false }; }
+  renderVals() {
+    var self = this;
+    var COIN_MM = 26; // เหรียญ 10 บาท Ø 26 มม. ทุกรุ่น (2531–ปัจจุบัน)
+    var ppm = this.state.ppm;
+    var d = Math.round(COIN_MM * ppm);
+    function set(v) { v = Math.max(3, Math.min(6.6, v)); self.setState({ ppm: Math.round(v * 1000) / 1000, touched: true }); }
+    var step = 0.1 / COIN_MM * 6;
+    return {
+      ppm: ppm,
+      dPx: d,
+      offPx: -Math.round(d / 2 + 3),
+      notTouched: !this.state.touched,
+      ctaCls: this.state.touched ? 'cta' : 'cta off',
+      slide: function (e) { set(parseFloat(e.target.value)); },
+      dec: function () { set(ppm - step); },
+      inc: function () { set(ppm + step); }
+    };
+  }
+}
+</script>
+</body>
+</html>
