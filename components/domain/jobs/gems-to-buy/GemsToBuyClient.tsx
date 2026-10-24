@@ -24,6 +24,7 @@ import {
   GTB_MAX_LINES_PER_MARK,
   MARK_FAILED_MESSAGE,
   MARK_MULTI_LINE_MESSAGE,
+  MARK_NOTHING_MESSAGE,
   MARK_TOO_MANY_BULK_MESSAGE,
   MARK_TOO_MANY_GROUP_MESSAGE,
   applyFilters,
@@ -31,9 +32,9 @@ import {
 
   countUrgent,
   distinctJobCount,
-  expectedForJobs,
+
   hasActiveFilter,
-  lineIdsOfRows,
+  markTargetForJobs,
 
   markFailureMessage,
   resolveScope,
@@ -152,11 +153,6 @@ export function GemsToBuyClient({ view, initialTab, initialFilters }: { view: Ge
     window.history.replaceState(window.history.state, "", url);
   }, [tab, filters]);
 
-  // ข้อมูลหน้าเปลี่ยน (โหลดใหม่) = แถบถามหลังคัดลอกหมดอายุ — ยอดบนจอไม่ตรงกับที่คัดลอกแล้ว (ปุ่มติ๊กจะส่งยอดเก่า) · ต้องคัดลอกใหม่
-  useEffect(() => {
-    setCopied(null);
-  }, [view]);
-
   // ข้อมูลใหม่: ตัดรายการที่เลือกแต่หายไปจากแท็บนี้แล้ว (กัน "ติ๊กของที่ไม่ได้ตั้งใจหลังข้อมูลเปลี่ยน")
   useEffect(() => {
     setSelected((prev) => {
@@ -187,7 +183,12 @@ export function GemsToBuyClient({ view, initialTab, initialFilters }: { view: Ge
   // ติ๊ก / ยกเลิก / ย้อนกลับ
   // ---------------------------------------------------------------------------
   async function runMark(o: MarkOpts): Promise<void> {
-    if (o.lineIds.length === 0) return;
+    if (o.lineIds.length === 0) {
+      // ไม่มี line เข้าเงื่อนไข: expected = null แปลว่าข้อมูลยอดต่อ line ไม่ครบ · ไม่ใช่ = ไม่มีอะไรต้องทำแล้ว (ข้อมูลบนจอเก่า) → โหลดใหม่
+      push(o.expected === null ? MARK_MULTI_LINE_MESSAGE : MARK_NOTHING_MESSAGE, "error");
+      refresh();
+      return;
+    }
     if (o.lineIds.length > GTB_MAX_LINES_PER_MARK) {
       push(o.tooMany, "error");
       return;
@@ -214,7 +215,8 @@ export function GemsToBuyClient({ view, initialTab, initialFilters }: { view: Ge
     }
     const d = res.data;
     focusTarget.current = o.focus ?? { prefer: null, fallback: null };
-    setCopied(null);
+    // แถบหลังคัดลอกอยู่ต่อจนผู้ใช้กด/ปิดเอง/คัดลอกใหม่ (snapshot + expected + qty_changed กันยอดเก่าเองแล้ว) — หายเมื่อกดติ๊กจากแถบนั้นสำเร็จเท่านั้น
+    if (o.afterCopy) setCopied(null);
     if (o.clearKeys) setSelected((p) => removeAll(p, o.clearKeys as string[]));
     refresh();
     const verb = o.ordered ? "ทำเครื่องหมายสั่งแล้ว" : "ยกเลิกสั่งแล้ว";
@@ -232,41 +234,44 @@ export function GemsToBuyClient({ view, initialTab, initialFilters }: { view: Ge
   };
   const markTo = tab === "pending";
 
+  // 🔴 ทุกทางเรียก markTargetForJobs ตัวเดียว → { lineIds, expected } ชุดเดียวกันเป๊ะ (เฉพาะ line ที่เข้าเงื่อนไขของแท็บนั้น)
   function actRow(row: GtbRow) {
+    const t = markTargetForJobs(row.jobs, markTo);
     void runMark({
-      lineIds: row.lineIds,
+      lineIds: t.lineIds,
       ordered: markTo,
       busy: [row.key],
       subject: `${row.group.label} (${row.jobs.length} ใบ)`,
       tooMany: MARK_TOO_MANY_GROUP_MESSAGE,
       clearKeys: [row.key],
       focus: { prefer: row.key, fallback: nextKeyAfter(row.key) },
-      expected: markTo ? expectedForJobs(row.jobs) : undefined,
+      expected: t.expected,
     });
   }
   function actJob(row: GtbRow, job: GtbJob) {
+    const t = markTargetForJobs([job], markTo);
     void runMark({
-      lineIds: job.lineIds,
+      lineIds: t.lineIds,
       ordered: markTo,
       busy: [`${row.key}:${job.jobId}`],
       subject: `${job.jobNo} · ${row.group.label}`,
       tooMany: MARK_TOO_MANY_GROUP_MESSAGE,
       focus: { prefer: row.key, fallback: nextKeyAfter(row.key) },
-      expected: markTo ? expectedForJobs([job]) : undefined,
+      expected: t.expected,
     });
   }
   function actSelected() {
     const rows = selectedVisible;
-    const lineIds = lineIdsOfRows(rows);
+    const t = markTargetForJobs(rows.flatMap((r) => r.jobs), markTo);
     void runMark({
-      lineIds,
+      lineIds: t.lineIds,
       ordered: markTo,
       busy: ["*"],
       subject: `${rows.length} รายการ (${distinctJobCount(rows)} ใบ)`,
       tooMany: MARK_TOO_MANY_BULK_MESSAGE,
       clearKeys: rows.map((r) => r.key),
       focus: { prefer: null, fallback: null },
-      expected: markTo ? expectedForJobs(rows.flatMap((r) => r.jobs)) : undefined,
+      expected: t.expected,
     });
   }
 
@@ -278,7 +283,8 @@ export function GemsToBuyClient({ view, initialTab, initialFilters }: { view: Ge
     const text = buildGemOrderText(toGemOrderLines(rows), { dateLabel: gemOrderDateLabel(view.todayBkk) });
     if (text === "") return;
     // snapshot ยอดต่อ line ณ ตอนคัดลอก (= ยอดที่ส่งร้านจริง) — ปุ่มติ๊กในแถบถามใช้ยอดนี้ ไม่ใช่ยอดสดตอนกด
-    const snapshot: CopiedSnapshot = { lineIds: lineIdsOfRows(rows), expected: expectedForJobs(rows.flatMap((r) => r.jobs)), count: rows.length };
+    const target = markTargetForJobs(rows.flatMap((r) => r.jobs), true);
+    const snapshot: CopiedSnapshot = { lineIds: target.lineIds, expected: target.expected ?? null, count: rows.length };
     const ok = await copy(text);
     if (!ok) {
       // modal "คัดลอกเอง" เปิดแล้ว — ถามว่าส่งแล้วหรือยังตอนผู้ใช้ปิด modal (ถือว่าคัดลอกเองแล้ว)

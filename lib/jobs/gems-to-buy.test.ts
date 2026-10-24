@@ -29,7 +29,7 @@ import type { GtbGroup, GtbJob } from "./gems-to-buy";
 const U = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const ME = U(900);
 
-const withLines = (j: Omit<GtbJob, "lines"> & { lines?: GtbJob["lines"] }): GtbJob => ({ ...j, lines: j.lines ?? j.lineIds.map((id) => ({ lineId: id, qtyNeededNow: Math.floor(j.qtyNeededNow / j.lineIds.length), orderedQty: null })) });
+const withLines = (j: Omit<GtbJob, "lines"> & { lines?: GtbJob["lines"] }): GtbJob => ({ ...j, lines: j.lines ?? j.lineIds.map((id) => ({ lineId: id, qtyNeededNow: Math.floor(j.qtyNeededNow / j.lineIds.length), orderedQty: j.qtyOrdered > 0 ? Math.floor(j.qtyOrdered / j.lineIds.length) : null })) });
 const job = (n: number, o: Partial<GtbJob> = {}): GtbJob => withLines({
   jobId: U(1000 + n), jobNo: `JB-${String(n).padStart(4, "0")}`, designLabel: `แบบ ${n}`, dueDate: "2026-11-10", qtyNeededNow: 10, qtyOrdered: 0, qtyRemaining: 10, qtyExcess: 0,
   isOrdered: false, changedAfterOrder: false, orderedAt: null, orderedBy: null, lineIds: [U(2000 + n)], ...o,

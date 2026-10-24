@@ -7,7 +7,6 @@ import {
   MARK_FAILED_MESSAGE,
   MARK_QTY_CHANGED_AFTER_COPY_MESSAGE,
   MARK_QTY_CHANGED_MESSAGE,
-  expectedForJobs,
   jobItemKey,
   markFailureMessage,
   removedQtyByJobItem,
@@ -19,7 +18,7 @@ import {
 import type { GtbGroup, GtbJob } from "./gems-to-buy";
 
 const U = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
-const withLines = (j: Omit<GtbJob, "lines"> & { lines?: GtbJob["lines"] }): GtbJob => ({ ...j, lines: j.lines ?? j.lineIds.map((id) => ({ lineId: id, qtyNeededNow: Math.floor(j.qtyNeededNow / j.lineIds.length), orderedQty: null })) });
+const withLines = (j: Omit<GtbJob, "lines"> & { lines?: GtbJob["lines"] }): GtbJob => ({ ...j, lines: j.lines ?? j.lineIds.map((id) => ({ lineId: id, qtyNeededNow: Math.floor(j.qtyNeededNow / j.lineIds.length), orderedQty: j.qtyOrdered > 0 ? Math.floor(j.qtyOrdered / j.lineIds.length) : null })) });
 const job = (n: number, o: Partial<GtbJob> = {}): GtbJob => withLines({
   jobId: U(1000 + n), jobNo: `JB-${String(n).padStart(4, "0")}`, designLabel: null, dueDate: null, qtyNeededNow: 10, qtyOrdered: 0, qtyRemaining: 10, qtyExcess: 0,
   isOrdered: false, changedAfterOrder: false, orderedAt: null, orderedBy: null, lineIds: [U(2000 + n)], ...o,
@@ -80,32 +79,6 @@ describe("mapper ของผลติ๊ก: prev/new ต้องมี key (�
     const { prev_ordered_qty: _p, ...noPrev } = dbLine(1);
     void _p;
     expect(mapGemPurchaseMark({ requested: 1, changed: 1, unchanged: 0, ordered: true, lines: [noPrev] })).toBeNull();
-  });
-});
-
-describe("expectedForJobs — ยอดต่อ line ที่จอเห็น", () => {
-  it("ใบละ 1 line = qtyNeededNow ของใบ (ยอด 'ต้องใช้' ไม่ใช่ยอดที่เหลือ)", () => {
-    expect(expectedForJobs([job(1, { qtyNeededNow: 90, qtyRemaining: 20, qtyOrdered: 70, isOrdered: true }), job(2, { qtyNeededNow: 5, qtyRemaining: 5 })])).toEqual({ [U(2001)]: 90, [U(2002)]: 5 });
-  });
-  it("ใบหลาย line ของรายการเดียวกัน (หลังรวมชื่อ): ใช้ยอดต่อ line จาก lines — ไม่ใช่ยอดรวมของใบ ไม่แบ่งเอง (12 + 8 ไม่ใช่ 10 + 10)", () => {
-    const multi = job(1, { lineIds: [U(1), U(2)], qtyNeededNow: 20, lines: [{ lineId: U(1), qtyNeededNow: 12, orderedQty: null }, { lineId: U(2), qtyNeededNow: 8, orderedQty: null }] });
-    expect(expectedForJobs([multi])).toEqual({ [U(1)]: 12, [U(2)]: 8 });
-    expect(expectedForJobs([multi, job(2)])).toEqual({ [U(1)]: 12, [U(2)]: 8, [U(2002)]: 10 });
-  });
-  it("ใบ line เดียวเหมือนเดิม: ยอดต่อ line = ยอด 'ต้องใช้' ของใบ (ไม่ใช่ยอดที่เหลือ)", () => {
-    const j = job(1, { qtyNeededNow: 90, qtyRemaining: 20, qtyOrdered: 70, isOrdered: true, lines: [{ lineId: U(2001), qtyNeededNow: 90, orderedQty: 70 }] });
-    expect(expectedForJobs([j])).toEqual({ [U(2001)]: 90 });
-  });
-  it("ข้อมูลไม่ครบ = null: ว่าง · ไม่มี lines · lines ไม่ตรง lineIds (ขาด/เกิน/id ต่าง) · ยอดไม่ใช่จำนวนเต็มบวก", () => {
-    expect(expectedForJobs([])).toBeNull();
-    expect(expectedForJobs([job(1, { lines: [] })])).toBeNull();
-    expect(expectedForJobs([job(1, { lineIds: [U(1), U(2)], lines: [{ lineId: U(1), qtyNeededNow: 20, orderedQty: null }] })])).toBeNull();
-    expect(expectedForJobs([job(1, { lineIds: [U(1)], lines: [{ lineId: U(9), qtyNeededNow: 10, orderedQty: null }] })])).toBeNull();
-    expect(expectedForJobs([job(1, { lines: [{ lineId: U(2001), qtyNeededNow: 0, orderedQty: null }] })])).toBeNull();
-    expect(expectedForJobs([job(1, { lines: [{ lineId: U(2001), qtyNeededNow: 1.5, orderedQty: null }] })])).toBeNull();
-  });
-  it("line เดียวกันซ้ำข้ามใบ (ผิดปกติ) = null — key ต้องเท่ากับจำนวน line", () => {
-    expect(expectedForJobs([job(1, { lineIds: [U(1)], lines: [{ lineId: U(1), qtyNeededNow: 10, orderedQty: null }] }), job(2, { lineIds: [U(1)], lines: [{ lineId: U(1), qtyNeededNow: 10, orderedQty: null }] })])).toBeNull();
   });
 });
 

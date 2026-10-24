@@ -252,22 +252,35 @@ export function lineIdsOfRows(rows: GtbRow[]): string[] {
 // ติ๊ก / undo
 // ---------------------------------------------------------------------------
 /**
- * 🔴 ยอดที่จอเห็น/ส่งร้านต่อ line (ส่งเข้า markGemPurchase.expected เมื่อติ๊ก) = `jobs[].lines[].qtyNeededNow` ที่ DB ส่งมา (ยอดเดียวกับที่ DB เทียบ)
- * ใช้ได้แม้ใบมีหลาย line ของรายการเดียวกัน (หลังรวมชื่อ) · ไม่แบ่ง/ไม่คำนวณยอดเอง
- * null = ข้อมูลไม่ครบ (ไม่มี line · ids ไม่ตรงกับ lineIds · ยอดไม่ใช่จำนวนเต็มบวก · line ซ้ำ) → ผู้เรียกต้องไม่ยิง
+ * 🔴 ชุด { lineIds, expected } ชุดเดียวที่ใช้ทุกทาง (ปุ่มแถว/ใบ/bulk/snapshot หลังคัดลอก) — ไม่ประกอบแยกกันคนละที่
+ *  - ติ๊ก (ordered=true): เฉพาะ line ที่ยังต้องสั่ง = `orderedQty === null || orderedQty < qtyNeededNow` (line ที่ติ๊กครบแล้วไม่ถูกส่งซ้ำ → ผลย้อนกลับของแถวที่ส่งจริงสะอาด)
+ *    expected[line] = `lines[].qtyNeededNow` ที่ DB ส่งมา (ยอดเดียวกับที่ DB เทียบ) · ไม่แบ่ง/ไม่คำนวณยอดเอง · ใช้ได้แม้ใบมีหลาย line ของรายการเดียวกัน
+ *  - ยกเลิก (ordered=false): เฉพาะ line ที่ติ๊กอยู่ (`orderedQty !== null`) · expected = undefined (ไม่ส่ง)
+ *  - ข้อมูลไม่ครบ (ไม่มี line · ids ไม่ตรง lineIds · ยอดไม่ใช่จำนวนเต็มบวก · line ซ้ำ) = { lineIds: [], expected: null } → ผู้เรียกต้องไม่ยิง
+ *  - lineIds ว่างโดยข้อมูลปกติ (ไม่มี line ที่เข้าเงื่อนไข) = ไม่มีอะไรให้ทำ
  */
-export function expectedForJobs(jobs: ReadonlyArray<Pick<GtbJob, "lineIds" | "lines">>): Record<string, number> | null {
-  const out: Record<string, number> = {};
-  let total = 0;
+export interface MarkTarget {
+  lineIds: string[];
+  expected: Record<string, number> | null | undefined;
+}
+
+export function markTargetForJobs(jobs: ReadonlyArray<Pick<GtbJob, "lineIds" | "lines">>, ordered: boolean): MarkTarget {
+  const BAD: MarkTarget = { lineIds: [], expected: null };
+  const lineIds: string[] = [];
+  const expected: Record<string, number> = {};
+  const seen = new Set<string>();
   for (const j of jobs) {
-    if (j.lines.length === 0 || j.lines.length !== j.lineIds.length || !j.lines.every((l) => j.lineIds.includes(l.lineId))) return null;
+    if (j.lines.length === 0 || j.lines.length !== j.lineIds.length || !j.lines.every((l) => j.lineIds.includes(l.lineId))) return BAD;
     for (const l of j.lines) {
-      if (!Number.isSafeInteger(l.qtyNeededNow) || l.qtyNeededNow < 1 || l.lineId in out) return null;
-      out[l.lineId] = l.qtyNeededNow;
-      total += 1;
+      if (seen.has(l.lineId) || !Number.isSafeInteger(l.qtyNeededNow) || l.qtyNeededNow < 1) return BAD;
+      seen.add(l.lineId);
+      const pick = ordered ? l.orderedQty === null || l.orderedQty < l.qtyNeededNow : l.orderedQty !== null;
+      if (!pick) continue;
+      lineIds.push(l.lineId);
+      expected[l.lineId] = l.qtyNeededNow;
     }
   }
-  return total > 0 && Object.keys(out).length === total ? out : null;
+  return { lineIds, expected: ordered ? expected : undefined };
 }
 
 export interface UndoPlan {
@@ -296,6 +309,7 @@ const CHANGED_CODES: ReadonlySet<string> = new Set(["job_closed", "gem_stage_sta
 export const MARK_CHANGED_MESSAGE = "มีรายการที่เปลี่ยนไป — โหลดข้อมูลใหม่แล้ว ไม่ได้ทำเครื่องหมายรายการใดเลย ลองอีกครั้ง";
 export const MARK_QTY_CHANGED_MESSAGE = "ยอดพลอยของใบเปลี่ยนหลังโหลดหน้า — โหลดข้อมูลใหม่แล้ว ไม่ได้ทำเครื่องหมายรายการใดเลย ตรวจยอดแล้วติ๊กใหม่";
 export const MARK_QTY_CHANGED_AFTER_COPY_MESSAGE = "ยอดเปลี่ยนหลังคัดลอก — คัดลอกใหม่แล้วส่งร้านส่วนต่าง (ยังไม่ได้ทำเครื่องหมายอะไรเลย)";
+export const MARK_NOTHING_MESSAGE = "ไม่มีแถวที่ต้องทำเครื่องหมายแล้ว — โหลดข้อมูลใหม่แล้ว";
 export const MARK_MULTI_LINE_MESSAGE = "ข้อมูลยอดต่อแถวของใบนี้ไม่ครบ — ติ๊กจากหน้านี้ไม่ได้ โหลดหน้าใหม่แล้วลองอีกครั้ง หรือแจ้งผู้ดูแลระบบ";
 export const MARK_FAILED_MESSAGE = "บันทึกไม่สำเร็จ ลองอีกครั้ง";
 export const MARK_TOO_MANY_GROUP_MESSAGE = `รายการนี้มีเกิน ${GTB_MAX_LINES_PER_MARK} แถว — ติ๊กทีละใบ (กด ▾ ดูใบ แล้วกด สั่งแล้ว ที่แต่ละใบ)`;

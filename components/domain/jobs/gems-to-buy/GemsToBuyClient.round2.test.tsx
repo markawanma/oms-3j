@@ -27,7 +27,7 @@ import type { GemsToBuyView, GtbGroup, GtbJob, GtbTab } from "@/lib/jobs/gems-to
 const U = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const TODAY = "2026-10-24";
 /** ใบทดสอบ: ไม่ระบุ lines = แบ่งยอดเท่ากันตามจำนวน lineIds (ใบ line เดียว = ยอดของใบ) */
-const withLines = (j: Omit<GtbJob, "lines"> & { lines?: GtbJob["lines"] }): GtbJob => ({ ...j, lines: j.lines ?? j.lineIds.map((id) => ({ lineId: id, qtyNeededNow: Math.floor(j.qtyNeededNow / j.lineIds.length), orderedQty: null })) });
+const withLines = (j: Omit<GtbJob, "lines"> & { lines?: GtbJob["lines"] }): GtbJob => ({ ...j, lines: j.lines ?? j.lineIds.map((id) => ({ lineId: id, qtyNeededNow: Math.floor(j.qtyNeededNow / j.lineIds.length), orderedQty: j.qtyOrdered > 0 ? Math.floor(j.qtyOrdered / j.lineIds.length) : null })) });
 const J = (n: number, o: Partial<GtbJob> = {}): GtbJob => withLines({
   jobId: U(1000 + n), jobNo: `JB-${String(n).padStart(4, "0")}`, designLabel: `แบบ ${n}`, dueDate: null, qtyNeededNow: 10, qtyOrdered: 0, qtyRemaining: 10, qtyExcess: 0,
   isOrdered: false, changedAfterOrder: false, orderedAt: null, orderedBy: null, lineIds: [U(2000 + n)], ...o,
@@ -80,15 +80,60 @@ beforeEach(() => {
 });
 
 describe("🔴 ปุ่มย้อนกลับตัดสินจากผล server (security M1)", () => {
-  it("ใบผสม: บางแถวเคยติ๊กไว้แล้ว (prev 70) ปนกับแถวใหม่ → ไม่มีปุ่มย้อน แม้ summary จะบอก isOrdered=false ทั้งใบ", async () => {
+  // ใบผสม: ใบเดียว 2 line ของรายการเดียว — line A ยังไม่ติ๊ก (ต้องใช้ 10) · line B ติ๊กครบแล้ว (20/20)
+  const MIXED = (b: { ordered: number; needed: number } = { ordered: 20, needed: 20 }) =>
+    G(1, [J(1, { lineIds: [U(2001), U(2002)], qtyNeededNow: 10 + b.needed, qtyOrdered: b.ordered, qtyRemaining: 10 + Math.max(b.needed - b.ordered, 0), isOrdered: false,
+      lines: [{ lineId: U(2001), qtyNeededNow: 10, orderedQty: null }, { lineId: U(2002), qtyNeededNow: b.needed, orderedQty: b.ordered }] })]);
+  it("ใบผสม (line หนึ่งติ๊กครบแล้ว อีก line ยังไม่ติ๊ก): ส่งเฉพาะ line ที่ยังต้องสั่ง → prev null ทั้งหมด = มีปุ่มย้อน · ย้อน = ยกเลิกเฉพาะ line ที่ส่งจริง", async () => {
     const user = userEvent.setup();
-    // ใบเดียว 2 line ของรายการเดียว (ใบผสม) — ข้อมูลระดับใบบอก isOrdered=false (bool_and) · ผล server บอกแถวที่ 2 เคยติ๊ก 70
-    const mixed = G(1, [J(1, { lineIds: [U(2001)], qtyNeededNow: 10, qtyRemaining: 10 }), J(2, { lineIds: [U(2002)], qtyNeededNow: 20, qtyRemaining: 20 })]);
-    A.markGemPurchase.mockImplementation(markImpl({ prev: (i) => (i === 1 ? 70 : null) }));
-    mount(view([mixed]));
+    mount(view([MIXED()]));
     await user.click(table().getByRole("button", { name: /^สั่งแล้ว — โกเมน/ }));
+    expect(A.markGemPurchase.mock.calls[0][0]).toEqual({ lineIds: [U(2001)], ordered: true, expected: { [U(2001)]: 10 } });
+    await user.click(await screen.findByRole("button", { name: "ย้อนกลับ" }));
+    await waitFor(() => expect(A.markGemPurchase).toHaveBeenCalledTimes(2));
+    expect(A.markGemPurchase.mock.calls[1][0]).toEqual({ lineIds: [U(2001)], ordered: false }); // ไม่แตะ line B ที่ติ๊กไว้ก่อนหน้า
+  });
+  it("ใบผสมที่ line B ยอดเปลี่ยนหลังสั่ง (ติ๊ก 70 ใช้ 90): ส่ง A + B (expected 10 และ 90) · ผล server บอก B เคยติ๊ก 70 → ไม่มีปุ่มย้อน", async () => {
+    const user = userEvent.setup();
+    A.markGemPurchase.mockImplementation(markImpl({ prev: (i) => (i === 1 ? 70 : null) }));
+    mount(view([MIXED({ ordered: 70, needed: 90 })]));
+    await user.click(table().getByRole("button", { name: /^สั่งแล้ว — โกเมน/ }));
+    expect(A.markGemPurchase.mock.calls[0][0]).toEqual({ lineIds: [U(2001), U(2002)], ordered: true, expected: { [U(2001)]: 10, [U(2002)]: 90 } });
     expect(await screen.findByText(/ย้อนกลับด้วยปุ่มไม่ได้/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "ย้อนกลับ" })).not.toBeInTheDocument();
+  });
+  it("ใบผสมแท็บสั่งแล้ว: ยกเลิกส่งเฉพาะ line ที่ติ๊กอยู่ (A ที่ไม่เคยติ๊กไม่ถูกส่ง)", async () => {
+    const user = userEvent.setup();
+    mount(view([MIXED()]), "ordered");
+    await user.click(table().getByRole("button", { name: /^ยกเลิกสั่งแล้ว — โกเมน/ }));
+    expect(A.markGemPurchase.mock.calls[0][0]).toEqual({ lineIds: [U(2002)], ordered: false });
+  });
+  it("ปุ่มระดับใบกับ bulk ใช้ชุดเดียวกัน: ใบผสมส่งเฉพาะ line A ทั้งสองทาง · bulk ปนใบอื่นรวมครบ", async () => {
+    const user = userEvent.setup();
+    mount(view([MIXED(), G2()]));
+    await user.click(table().getByRole("button", { name: /ดูใบ — โกเมน/ }));
+    await user.click(table().getByRole("button", { name: /^สั่งแล้ว — JB-0001/ }));
+    expect(A.markGemPurchase.mock.calls[0][0]).toEqual({ lineIds: [U(2001)], ordered: true, expected: { [U(2001)]: 10 } });
+    await user.click(screen.getByRole("checkbox", { name: "เลือกที่เห็นทั้งหมด" }));
+    await user.click(screen.getByRole("button", { name: "สั่งแล้ว (2)" }));
+    expect(A.markGemPurchase.mock.calls[1][0]).toEqual({ lineIds: [U(2001), U(2003)], ordered: true, expected: { [U(2001)]: 10, [U(2003)]: 120 } });
+  });
+  it("snapshot หลังคัดลอกใช้ชุดเดียวกัน: ใบผสมส่งเฉพาะ line A", async () => {
+    const user = userEvent.setup();
+    vi.spyOn(navigator.clipboard, "writeText").mockResolvedValue(undefined);
+    mount(view([MIXED()]));
+    await user.click(screen.getByRole("button", { name: "คัดลอกไปส่งร้านพลอย (1)" }));
+    await user.click(await screen.findByRole("button", { name: "ทำเครื่องหมายว่าสั่งแล้ว (1)" }));
+    expect(A.markGemPurchase.mock.calls[0][0]).toEqual({ lineIds: [U(2001)], ordered: true, expected: { [U(2001)]: 10 } });
+  });
+  it("ไม่มี line เข้าเงื่อนไข (ข้อมูลบนจอเก่า: ทุก line ติ๊กครบแล้ว) = ไม่ยิง · แจ้ง + โหลดใหม่", async () => {
+    const user = userEvent.setup();
+    const stale = G(1, [J(1, { qtyNeededNow: 10, qtyRemaining: 10, lines: [{ lineId: U(2001), qtyNeededNow: 10, orderedQty: 10 }] })]);
+    mount(view([stale]));
+    await user.click(table().getByRole("button", { name: /^สั่งแล้ว — โกเมน/ }));
+    expect(A.markGemPurchase).not.toHaveBeenCalled();
+    expect(await screen.findByText(/ไม่มีแถวที่ต้องทำเครื่องหมายแล้ว/)).toBeInTheDocument();
+    expect(refresh).toHaveBeenCalled();
   });
   it("ทุกแถว prev null = มีปุ่มย้อน → กด = ยกเลิกด้วย lineIds เดิม ไม่ส่ง expected", async () => {
     const user = userEvent.setup();
@@ -236,13 +281,27 @@ describe("แถบถามหลังคัดลอก — snapshot / หม
     await user.click(await screen.findByRole("button", { name: "ทำเครื่องหมายว่าสั่งแล้ว (1)" }));
     expect(await screen.findByText(MARK_QTY_CHANGED_AFTER_COPY_MESSAGE)).toBeInTheDocument();
   });
-  it("ข้อมูลหน้าเปลี่ยน (view ใหม่) = แถบหายทันที (ยอดบนจอไม่ตรงกับที่คัดลอกแล้ว)", async () => {
+  it("ข้อมูลหน้าเปลี่ยน (view ใหม่ ยอดต่างจากที่คัดลอก) = แถบอยู่ต่อ · กดติ๊กส่ง expected ของ snapshot เดิม (ยอดที่ส่งร้านไปจริง) ไม่ใช่ยอดสด", async () => {
     const user = userEvent.setup();
     clipSpy();
-    const r = mount(view([G1()]));
+    const r = mount(view([G1()])); // ยอดตอนคัดลอก 30 + 40
     await user.click(screen.getByRole("button", { name: "คัดลอกไปส่งร้านพลอย (1)" }));
     expect(await screen.findByText(/ส่งร้านพลอยแล้วใช่ไหม/)).toBeInTheDocument();
-    r.rerender(el(view([G1()])));
+    // หน้าโหลดใหม่: ใบเพิ่มจำนวนเป็น 50 + 60
+    r.rerender(el(view([G(1, [J(1, { qtyNeededNow: 50, qtyRemaining: 50 }), J(2, { qtyNeededNow: 60, qtyRemaining: 60 })])])));
+    await waitFor(() => expect(table().getByText("110")).toBeInTheDocument());
+    expect(screen.getByText(/ส่งร้านพลอยแล้วใช่ไหม/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "ทำเครื่องหมายว่าสั่งแล้ว (1)" }));
+    expect(A.markGemPurchase.mock.calls[0][0]).toEqual({ lineIds: [U(2001), U(2002)], ordered: true, expected: { [U(2001)]: 30, [U(2002)]: 40 } });
+  });
+  it("แถบอยู่ต่อแม้ติ๊กแถวอื่นด้วยปุ่มในตาราง (หายเมื่อกดติ๊กจากแถบสำเร็จ/ปิดเอง/คัดลอกใหม่)", async () => {
+    const user = userEvent.setup();
+    clipSpy();
+    mount(view([G1(), G2()]));
+    await user.click(screen.getByRole("button", { name: "คัดลอกไปส่งร้านพลอย (2)" }));
+    await user.click(table().getByRole("button", { name: /^สั่งแล้ว — ไพลิน/ }));
+    expect(screen.getByText(/ส่งร้านพลอยแล้วใช่ไหม/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "ทำเครื่องหมายว่าสั่งแล้ว (2)" }));
     await waitFor(() => expect(screen.queryByText(/ส่งร้านพลอยแล้วใช่ไหม/)).not.toBeInTheDocument());
   });
   it("N9: คัดลอกไม่ได้ → ปิด modal 'คัดลอกเอง' แล้วแถบถามขึ้น (ใช้ snapshot ของที่แสดงใน modal)", async () => {
