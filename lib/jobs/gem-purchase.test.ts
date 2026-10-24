@@ -14,7 +14,7 @@ const group = (over: Record<string, unknown> = {}) => ({
   line_ids: [U(10)], jobs: [job()], ...over,
 });
 const summary = (over: Record<string, unknown> = {}) => ({
-  server_now: "2026-10-24T14:00:00+07:00", today_bkk: "2026-10-24", groups: [group()], unspecified_jobs: [],
+  server_now: "2026-10-24T14:00:00+07:00", today_bkk: "2026-10-24", groups: [group()], unspecified_jobs: [], removed_after_order: [],
   totals: { groups: 1, jobs: 1, qty_needed_now: 6, qty_ordered: 0, qty_remaining: 6, qty_excess: 0, unspecified_jobs: 0 }, ...over,
 });
 
@@ -37,8 +37,23 @@ describe("mapGemPurchaseSummary", () => {
     expect(m?.groups).toEqual([]);
     expect(m?.unspecifiedJobs).toEqual([{ jobId: U(5), jobNo: "JB-0005", designLabel: "x", dueDate: null }]);
   });
+  it("removed_after_order ผ่าน (ติ๊กแล้วแถวถูกลบ) · ไม่มีราคา · label null ได้", () => {
+    const raw = summary({ removed_after_order: [
+      { job_id: U(1), job_no: "JB-0001", canonical_item_id: U(2), label: "โกเมน · ไข่ · 4×6 มม.", qty: 3, removed_at: "2026-10-24T01:00:00+00:00", price: 5 },
+      { job_id: U(5), job_no: "JB-0005", canonical_item_id: U(6), label: null, qty: 7, removed_at: null },
+    ] });
+    const m = mapGemPurchaseSummary(raw);
+    expect(m?.removedAfterOrder).toEqual([
+      { jobId: U(1), jobNo: "JB-0001", canonicalItemId: U(2), label: "โกเมน · ไข่ · 4×6 มม.", qty: 3, removedAt: "2026-10-24T01:00:00+00:00" },
+      { jobId: U(5), jobNo: "JB-0005", canonicalItemId: U(6), label: null, qty: 7, removedAt: null },
+    ]);
+    expect(JSON.stringify(m)).not.toMatch(/price/i);
+  });
   it.each([
     ["ไม่ใช่ object", null],
+    ["ไม่มี removed_after_order (DB เก่า/ผลผิดรูป)", { ...summary(), removed_after_order: undefined }],
+    ["removed_after_order แถวเสีย → ทิ้งทั้งก้อน", summary({ removed_after_order: [{ job_id: "x", job_no: "JB-1", canonical_item_id: U(2), qty: 1 }] })],
+    ["removed_after_order qty 0", summary({ removed_after_order: [{ job_id: U(1), job_no: "JB-1", canonical_item_id: U(2), qty: 0 }] })],
     ["groups ไม่ใช่ array", summary({ groups: {} })],
     ["ไม่มี server_now", summary({ server_now: null })],
     ["today_bkk ผิดรูป", summary({ today_bkk: "24/10/2026" })],

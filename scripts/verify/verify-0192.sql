@@ -5,7 +5,7 @@
 -- 🔴 อย่ารันพร้อม agent/session อื่น (สร้างข้อมูลทดสอบจริงในทรานแซกชันที่ถอยกลับ + ล็อกแถวใบ/พลอยของร้านสังเคราะห์เท่านั้น — ไม่แตะร้านจริง ยกเว้น golden ไม่มีในไฟล์นี้)
 -- ข้อมูลทดสอบ: ร้านสังเคราะห์ ZZ TEST verify-0192 A/B (insert public.shop + public.shop_member ตรง ตามแพทเทิร์น verify-0190 — ข้อยกเว้นเดียวที่ไม่ผ่าน RPC · ยืม auth user จริงเป็นสมาชิกร้านสังเคราะห์ในทรานแซกชันนี้เท่านั้น) ·
 --   SKU/ใบผลิต/ใบงาน/ชนิด/รายการ/ราคา/พลอยในใบ/การติ๊ก สร้างผ่าน RPC ของระบบทั้งหมด · ราคาทดสอบใช้เลขแปลกที่ไม่ซ้ำกับค่าอื่นเพื่อ grep หาการรั่ว (7391.2468 · 9999.9999)
--- ⚠️ ไฟล์นี้เขียนโดยไม่ได้รันกับ DB จริง (worktree ของผู้เขียนไม่มี SUPABASE_DB_URL) — dry-run รอบแรกอาจเจอ FAIL/crash จากการเขียนเทสต์ผิด (ไม่ใช่ตัว migration) ต้องไล่ดูทีละ id
+-- ผล dry-run 24 ต.ค. 69 (ต่อ 0192 + ไฟล์นี้ · ROLLBACK): OK 81 · FAIL 0 · SKIP 0 · mutant 15/15 · หมายเหตุเขียนเทสต์: subquery ในคำสั่งเดียวกับที่เรียกฟังก์ชัน volatile มองไม่เห็นผลที่ฟังก์ชันเขียน (snapshot ของคำสั่งนอก) — แยกเป็นคำสั่งๆ · ห้ามตั้งชื่อตัวแปร plpgsql ชนคีย์เวิร์ด (iN/iF)
 --
 -- ============ ตารางแมป "ข้อในบรีฟ → เทสต์ที่ครอบ" (ข้อไหนไม่มีเทสต์ครอบ = เขียนว่า "ไม่มี" พร้อมเหตุผล) ============
 --  เคสห้ามผ่าน
@@ -30,6 +30,12 @@
 --   H8 ตรวจ owner/admin ซ้ำที่ DB                                -> P1 P1b P1c
 --   แก้พลอยใบภายหลัง (replace_core): แถวเดิมคง id → คงติ๊ก · แถวที่ติ๊กถูกลบ → log -> M6 M7
 --   audit event (ทุกการติ๊ก/ยกเลิก/แถวถูกลบ · append-only)        -> M1 M4 M6 P8
+--  รอบแก้ตาม security (Mace 24 ต.ค.: ไม่มี Critical/High)
+--   M1 ติ๊กซ้ำทับยอดลงไม่ได้ (สั่งไว้ 10 ใบลดเหลือ 5 ติ๊กซ้ำ/ติ๊กทั้งรายการ = ยัง 10 · log เก็บ prev_qty)      -> M5b M5e M5f · mutant MU12
+--   M2 แถวที่ติ๊กไว้ถูกลบ/เพิ่มกลับ → removed_after_order (ใบปิด/ร้านอื่นไม่โผล่ · ติ๊กใหม่แล้วหาย · ไม่มีราคา)   -> R1 R1b R2 R3 · mutant MU14 MU15
+--   L1 เขียน ordered_* นอก gem_purchase_mark ไม่ได้ (UPDATE ตรงในนาม postgres = 42501 · replace_core/W3 ผ่านปกติ)   -> P10 P6 M7 M5a · mutant MU13
+--   L2 view ทั้ง 3 security_invoker + RPC definer ยังอ่านได้                                                      -> P4b
+--   L3/L4 (race ติ๊กชนช่างรับขั้นฝัง = แถวหายเอง ไม่เสียหาย · log line_removed ไม่มี actor ต้องจับคู่ job_event bom_change) -> ❌ ไม่มีเทสต์ (บันทึกเป็นข้อจำกัด design §9.7)
 --  ต้องไม่พัง
 --   job_gem_bom_get / หน้าช่าง (resolve) / A5 ไม่มี key ติ๊ก       -> M8 M9 · แก้พลอยผ่าน job_gem_bom_set ตอนมีติ๊กยังใช้ได้ (M7)
 --   verify-0190 / verify-0191 ผ่าน                                -> รันแยกต่อ 0192 (ดูสรุปส่งมอบ) — ไม่รวมในไฟล์นี้
@@ -158,9 +164,9 @@ create function pg_temp.icreate(p_shop uuid, p_line jsonb, p_actor uuid default 
  language sql as $c$ select pg_temp.q(format('select analytics.gem_item_create(%L, %L, %L::jsonb, %L)', p_shop, coalesce(p_actor, pg_temp.own()), p_line, true)) $c$;
 create function pg_temp.price(p_shop uuid, p_item uuid, p_price text, p_eff text default null) returns jsonb
  language sql as $c$ select pg_temp.q(format('select analytics.gem_price_set(%L, %L, %L, %L::numeric, %L::date, %L, %L)', p_shop, pg_temp.own(), p_item, p_price, p_eff, null, null)) $c$;
-create function pg_temp.bset(p_shop uuid, p_job uuid, p_lines jsonb, p_reason text default null) returns jsonb
+create function pg_temp.bset(p_shop uuid, p_job uuid, p_lines jsonb, p_reason text default null, p_actor uuid default null) returns jsonb
  language sql as $c$
-  select pg_temp.q(format('select analytics.job_gem_bom_set(p_shop_id=>%L, p_job_id=>%L, p_gem_lines=>%L::jsonb, p_actor=>%L, p_reason=>%L, p_force=>%L)', p_shop, p_job, p_lines, pg_temp.own(), p_reason, true)) $c$;
+  select pg_temp.q(format('select analytics.job_gem_bom_set(p_shop_id=>%L, p_job_id=>%L, p_gem_lines=>%L::jsonb, p_actor=>%L, p_reason=>%L, p_force=>%L)', p_shop, p_job, p_lines, coalesce(p_actor, pg_temp.own()), p_reason, true)) $c$;
 create function pg_temp.mrg(p_shop uuid, p_kind text, p_from uuid, p_into uuid) returns jsonb
  language sql as $c$ select pg_temp.q(format('select analytics.gem_merge(%L, %L, %L, %L, %L)', p_shop, pg_temp.own(), p_kind, p_from, p_into)) $c$;
 create function pg_temp.ln(p_item uuid, p_qty int, p_pos text default null) returns jsonb
@@ -256,7 +262,7 @@ declare
   u1 uuid; u2 uuid; u3 uuid;
   p uuid; r jsonb;
   rnd uuid; tR uuid; tG uuid; tN uuid; tF uuid; tQ1 uuid; tQ2 uuid; tA uuid; tB uuid; tBt uuid;
-  iR uuid; iG uuid; iN uuid; iF uuid; iQ1 uuid; iQ2 uuid; iA uuid; iB uuid; iBt uuid;
+  iR uuid; iG uuid; iNp uuid; iFt uuid; iQ1 uuid; iQ2 uuid; iA uuid; iB uuid; iBt uuid;
   j uuid; jd uuid; ok boolean; bshape uuid;
 begin
   insert into public.shop (id, name) values (a, 'ZZ TEST verify-0192 A'), (b, 'ZZ TEST verify-0192 B');
@@ -289,23 +295,23 @@ begin
   tBt := (pg_temp.ccreate(b, 'ZZ192 บีทับทิม', u2) ->> 'id')::uuid;
   iR := (pg_temp.icreate(a, jsonb_build_object('type_id', tR, 'shape_id', rnd, 'size_a', 3)) -> 'item' ->> 'gem_item_id')::uuid;
   iG := (pg_temp.icreate(a, jsonb_build_object('type_id', tG, 'shape_id', rnd, 'size_a', 4)) -> 'item' ->> 'gem_item_id')::uuid;
-  iN := (pg_temp.icreate(a, jsonb_build_object('type_id', tN, 'shape_id', rnd, 'size_a', 8)) -> 'item' ->> 'gem_item_id')::uuid;
-  iF := (pg_temp.icreate(a, jsonb_build_object('type_id', tF, 'shape_id', rnd, 'size_a', 2)) -> 'item' ->> 'gem_item_id')::uuid;
+  iNp := (pg_temp.icreate(a, jsonb_build_object('type_id', tN, 'shape_id', rnd, 'size_a', 8)) -> 'item' ->> 'gem_item_id')::uuid;
+  iFt := (pg_temp.icreate(a, jsonb_build_object('type_id', tF, 'shape_id', rnd, 'size_a', 2)) -> 'item' ->> 'gem_item_id')::uuid;
   iQ1 := (pg_temp.icreate(a, jsonb_build_object('type_id', tQ1, 'shape_id', rnd, 'size_a', 1.5)) -> 'item' ->> 'gem_item_id')::uuid;
   iQ2 := (pg_temp.icreate(a, jsonb_build_object('type_id', tQ2, 'shape_id', rnd, 'size_a', 1.5)) -> 'item' ->> 'gem_item_id')::uuid;
   iA := (pg_temp.icreate(a, jsonb_build_object('type_id', tA, 'shape_id', rnd, 'size_a', 5)) -> 'item' ->> 'gem_item_id')::uuid;
   iB := (pg_temp.icreate(a, jsonb_build_object('type_id', tB, 'shape_id', rnd, 'size_a', 5)) -> 'item' ->> 'gem_item_id')::uuid;
   iBt := (pg_temp.icreate(b, jsonb_build_object('type_id', tBt, 'shape_id', bshape, 'size_a', 3), u2) -> 'item' ->> 'gem_item_id')::uuid;
   perform pg_temp.setfx('tA', tA); perform pg_temp.setfx('tB', tB);
-  perform pg_temp.setfx('iR', iR); perform pg_temp.setfx('iG', iG); perform pg_temp.setfx('iN', iN); perform pg_temp.setfx('iF', iF);
+  perform pg_temp.setfx('iR', iR); perform pg_temp.setfx('iG', iG); perform pg_temp.setfx('iNp', iNp); perform pg_temp.setfx('iFt', iFt);
   perform pg_temp.setfx('iQ1', iQ1); perform pg_temp.setfx('iQ2', iQ2); perform pg_temp.setfx('iA', iA); perform pg_temp.setfx('iB', iB); perform pg_temp.setfx('iBt', iBt);
-  -- ราคา (เลขแปลก — ต้องไม่โผล่นอกทาง RPC ต้นทุน) · iN ไม่มีราคา · iF มีเฉพาะราคาที่มีผลในอนาคต
+  -- ราคา (เลขแปลก — ต้องไม่โผล่นอกทาง RPC ต้นทุน) · iNp ไม่มีราคา · iFt มีเฉพาะราคาที่มีผลในอนาคต
   perform pg_temp.price(a, iR, '7391.2468'); perform pg_temp.price(a, iG, '9999.9999');
   perform pg_temp.price(a, iA, '111.1111'); perform pg_temp.price(a, iB, '222.2222');
   perform pg_temp.price(a, iQ1, '0.3333'); perform pg_temp.price(a, iQ2, '0.3333');
-  perform pg_temp.price(a, iF, '50', (analytics.job_today() + 30)::text);
-  v := v || pg_temp.chk('S0', 'setup: ร้าน A/B · สมาชิก owner/admin/staff · SKU · ชนิด/รายการ 9 รายการ (ร้าน B 1) · ราคา 7 รายการ (iN ไม่มี · iF อนาคตอย่างเดียว)',
-    iR is not null and iG is not null and iN is not null and iF is not null and iQ1 is not null and iQ2 is not null and iA is not null and iB is not null and iBt is not null
+  perform pg_temp.price(a, iFt, '50', (analytics.job_today() + 30)::text);
+  v := v || pg_temp.chk('S0', 'setup: ร้าน A/B · สมาชิก owner/admin/staff · SKU · ชนิด/รายการ 9 รายการ (ร้าน B 1) · ราคา 7 รายการ (iNp ไม่มี · iFt อนาคตอย่างเดียว)',
+    iR is not null and iG is not null and iNp is not null and iFt is not null and iQ1 is not null and iQ2 is not null and iA is not null and iB is not null and iBt is not null
     and (select count(*) from analytics.gem_item_price where shop_id = a) = 7);
 
   -- ใบงานร้าน A (ทุกสถานะที่ต้องแยกให้ถูก) · ขั้นฝังจริงคือ gem_set (UX H7)
@@ -343,8 +349,8 @@ begin
     v := v || pg_temp.skip('S4', 'ทำใบ done จริงไม่ได้ (' || sqlerrm || ') — ใช้ cancelled เป็นตัวแทน "ใบปิดแล้ว"');
   end;
   j := pg_temp.newjob(a, pg_temp.fx('pA3'), pg_temp.stdg(), '[]'::jsonb, 2, 6); perform pg_temp.setfx('J9', j);                                                -- ยังไม่ระบุพลอย
-  j := pg_temp.newjob(a, pg_temp.fx('pA2'), pg_temp.stdg(), jsonb_build_array(pg_temp.ln(iN, 5)), 2, 7); perform pg_temp.setfx('J10', j);                       -- ไม่มีราคา · 10
-  j := pg_temp.newjob(a, pg_temp.fx('pA2'), pg_temp.stdg(), jsonb_build_array(pg_temp.ln(iF, 2)), 3, 8); perform pg_temp.setfx('J11', j);                       -- ราคาอนาคตอย่างเดียว · 6
+  j := pg_temp.newjob(a, pg_temp.fx('pA2'), pg_temp.stdg(), jsonb_build_array(pg_temp.ln(iNp, 5)), 2, 7); perform pg_temp.setfx('J10', j);                       -- ไม่มีราคา · 10
+  j := pg_temp.newjob(a, pg_temp.fx('pA2'), pg_temp.stdg(), jsonb_build_array(pg_temp.ln(iFt, 2)), 3, 8); perform pg_temp.setfx('J11', j);                       -- ราคาอนาคตอย่างเดียว · 6
   j := pg_temp.newjob(a, pg_temp.fx('pA2'), pg_temp.stdg(), jsonb_build_array(pg_temp.ln(iQ1, 1), pg_temp.ln(iQ2, 1)), 7, 9); perform pg_temp.setfx('J12', j);  -- ปัดเศษ · 7 + 7
   -- รวมชื่อ A→B ราคาต่าง: ใบ JA ใช้ iA (snapshot A) · ใบ JBm ใช้ iB — ยังไม่รวมตอนนี้ (รวมใน g_cost)
   j := pg_temp.newjob(a, pg_temp.fx('pA5'), pg_temp.stdg(), jsonb_build_array(pg_temp.ln(iA, 3)), 2, 4); perform pg_temp.setfx('JA', j);                        -- iA 6
@@ -372,7 +378,7 @@ begin
   s := pg_temp.sm(a);
   v := v || pg_temp.chk('A0', 'สรุปเรียกได้ (owner) · ไม่ error', s ->> '_err' is null and jsonb_typeof(s -> 'groups') = 'array');
   gR := pg_temp.grp(s, iR); gG := pg_temp.grp(s, iG);
-  -- ก่อนรวมชื่อ: iA และ iB เป็นคนละกลุ่ม → กลุ่ม = iR iG iN iF iQ1 iQ2 iA iB = 8 · ใบ = J1 J2 J3b J10 J11 J12 JA JBm = 8 · ที่ต้องใช้ = 19+3+10+6+7+7+6+4 = 62
+  -- ก่อนรวมชื่อ: iA และ iB เป็นคนละกลุ่ม → กลุ่ม = iR iG iNp iFt iQ1 iQ2 iA iB = 8 · ใบ = J1 J2 J3b J10 J11 J12 JA JBm = 8 · ที่ต้องใช้ = 19+3+10+6+7+7+6+4 = 62
   v := v || pg_temp.chk('A1', 'กลุ่ม 8 · ใบ 8 · ต้องใช้รวม 62 เม็ด · สั่งแล้ว 0 · เหลือ 62 · เกิน 0 (ไม่เผื่อแตก: ต่อชิ้น × จำนวนเริ่มผลิตเท่านั้น)',
     (s -> 'totals' ->> 'groups') = '8' and (s -> 'totals' ->> 'jobs') = '8' and (s -> 'totals' ->> 'qty_needed_now') = '62' and (s -> 'totals' ->> 'qty_ordered') = '0'
     and (s -> 'totals' ->> 'qty_remaining') = '62' and (s -> 'totals' ->> 'qty_excess') = '0');
@@ -438,17 +444,17 @@ declare
 begin
   c := pg_temp.cs(a);
   gR := (select g from jsonb_array_elements(c -> 'groups') g where g ->> 'canonical_item_id' = pg_temp.fx('iR')::text);
-  gN := (select g from jsonb_array_elements(c -> 'groups') g where g ->> 'canonical_item_id' = pg_temp.fx('iN')::text);
-  gF := (select g from jsonb_array_elements(c -> 'groups') g where g ->> 'canonical_item_id' = pg_temp.fx('iF')::text);
+  gN := (select g from jsonb_array_elements(c -> 'groups') g where g ->> 'canonical_item_id' = pg_temp.fx('iNp')::text);
+  gF := (select g from jsonb_array_elements(c -> 'groups') g where g ->> 'canonical_item_id' = pg_temp.fx('iFt')::text);
   gQ1 := (select g from jsonb_array_elements(c -> 'groups') g where g ->> 'canonical_item_id' = pg_temp.fx('iQ1')::text);
   gQ2 := (select g from jsonb_array_elements(c -> 'groups') g where g ->> 'canonical_item_id' = pg_temp.fx('iQ2')::text);
   v := v || pg_temp.chk('C1', 'ต้นทุนที่เหลือ: ทับทิม 19 × 7391.2468 = 140433.69 (ปัด 2 ตำแหน่งที่ DB) · โกเมน 3 × 9999.9999 = 30000.00 · สั่งแล้ว 0 → cost_ordered = 0 (ไม่ใช่ null)',
     c ->> '_err' is null and (gR ->> 'cost_remaining_thb')::numeric = 140433.69 and (gR ->> 'cost_ordered_thb')::numeric = 0 and (gR ->> 'missing_price') = 'false'
     and ((select g from jsonb_array_elements(c -> 'groups') g where g ->> 'canonical_item_id' = pg_temp.fx('iG')::text) ->> 'cost_remaining_thb')::numeric = 30000.00);
-  v := v || pg_temp.chk('C2', '🔴 ไม่มีราคา (iN) = cost null + missing_price (ไม่เดา · ไม่ใช่ 0) · totals.complete = false · groups_missing_price นับถูก (iN + iF = 2)',
+  v := v || pg_temp.chk('C2', '🔴 ไม่มีราคา (iNp) = cost null + missing_price (ไม่เดา · ไม่ใช่ 0) · totals.complete = false · groups_missing_price นับถูก (iNp + iFt = 2)',
     (gN -> 'cost_remaining_thb') = 'null'::jsonb and (gN ->> 'missing_price_remaining') = 'true' and (gN ->> 'missing_price') = 'true'
     and (c -> 'totals' ->> 'complete') = 'false' and (c -> 'totals' ->> 'groups_missing_price') = '2');
-  v := v || pg_temp.chk('C3', '🔴 ราคาที่มีผลในอนาคตอย่างเดียว (iF effective_from = วันนี้ + 30) = ยังไม่มีราคา (null + missing_price) — ราคา ณ วันนี้ไทย ไม่ใช่ราคาล่าสุดที่ตั้งไว้',
+  v := v || pg_temp.chk('C3', '🔴 ราคาที่มีผลในอนาคตอย่างเดียว (iFt effective_from = วันนี้ + 30) = ยังไม่มีราคา (null + missing_price) — ราคา ณ วันนี้ไทย ไม่ใช่ราคาล่าสุดที่ตั้งไว้',
     (gF -> 'cost_remaining_thb') = 'null'::jsonb and (gF ->> 'missing_price') = 'true');
   -- C4: รวมชื่อ A→B ที่ราคาต่าง (111.1111 vs 222.2222) — ต้นทุนต้องคิดจาก gem_item_id ใน snapshot ของแถว ไม่ใช่ canonical
   r := pg_temp.mrg(a, 'type', pg_temp.fx('tA'), pg_temp.fx('tB'));
@@ -480,10 +486,11 @@ create function pg_temp.g_mark() returns text
 declare
   v text := '';
   a uuid := pg_temp.fx('A');
-  iR uuid := pg_temp.fx('iR'); iG uuid := pg_temp.fx('iG'); iN uuid := pg_temp.fx('iN');
+  iR uuid := pg_temp.fx('iR'); iG uuid := pg_temp.fx('iG'); iNp uuid := pg_temp.fx('iNp');
   j1 uuid := pg_temp.fx('J1'); j2 uuid := pg_temp.fx('J2'); j3b uuid := pg_temp.fx('J3b');
   l1 uuid; l2 uuid; l3 uuid; lg uuid; ids uuid[];
-  r jsonb; s jsonb; gR jsonb; c jsonb; n_log int; l1_old uuid; jn uuid; ok boolean; tokh text; tk jsonb; res jsonb; raw jsonb;
+  r jsonb; s jsonb; s2 jsonb; gR jsonb; c jsonb; n_log int; l1_old uuid; jn uuid; ok boolean; tokh text; tk jsonb; res jsonb; raw jsonb;
+  b uuid := pg_temp.fx('B'); j13 uuid; jby uuid; lq uuid; lbb uuid;
 begin
   l1 := pg_temp.lid(j1, iR); l2 := pg_temp.lid(j2, iR); l3 := pg_temp.lid(j3b, iR); lg := pg_temp.lid(j1, iG);
   -- M1: ติ๊กแถวเดียว (R ของ J1 = 6 เม็ด)
@@ -529,13 +536,27 @@ begin
   r := pg_temp.mk(a, array[l2], true);
   s := pg_temp.sm(a); gR := pg_temp.grp(s, iR);
   v := v || pg_temp.chk('M5b', 'ติ๊กซ้ำหลังยอดเปลี่ยน: ปรับ ordered_qty เป็น 10 (สั่งส่วนต่างแล้ว) · changed 1 · เหลือ 0 · changed_after_order = false · log ordered +1',
-    (r ->> 'changed') = '1' and (select ordered_qty from analytics.job_gem_bom where id = l2) = 10 and (pg_temp.gjob(gR, j2) ->> 'qty_remaining') = '0' and (pg_temp.gjob(gR, j2) ->> 'changed_after_order') = 'false');
+    (r ->> 'changed') = '1' and (select ordered_qty from analytics.job_gem_bom where id = l2) = 10 and (pg_temp.gjob(gR, j2) ->> 'qty_remaining') = '0' and (pg_temp.gjob(gR, j2) ->> 'changed_after_order') = 'false'
+    and exists (select 1 from analytics.gem_purchase_mark_log where line_id = l2 and action = 'ordered' and qty = 10 and prev_qty = 5)
+    and exists (select 1 from analytics.gem_purchase_mark_log where line_id = l2 and action = 'ordered' and qty = 5 and prev_qty is null));
   r := pg_temp.bset(a, j2, jsonb_build_array(pg_temp.ln(iR, 1)));
   s := pg_temp.sm(a); gR := pg_temp.grp(s, iR);
   v := v || pg_temp.chk('M5c', 'ใบลดกลับเป็น 1/ชิ้น (ต้องใช้ 5) หลังสั่ง 10: สั่งเกิน 5 (qty_excess) · เหลือ 0 · changed_after_order = true · totals.qty_excess = 5',
     (pg_temp.gjob(gR, j2) ->> 'qty_needed_now') = '5' and (pg_temp.gjob(gR, j2) ->> 'qty_ordered') = '10' and (pg_temp.gjob(gR, j2) ->> 'qty_excess') = '5' and (pg_temp.gjob(gR, j2) ->> 'qty_remaining') = '0'
     and (pg_temp.gjob(gR, j2) ->> 'changed_after_order') = 'true' and (s -> 'totals' ->> 'qty_excess') = '5');
-  perform pg_temp.mk(a, array[l2], false);
+  -- M5e 🔴 (security M1): สั่งไว้ 10 ใบลดเหลือ 5 แล้ว "ติ๊กซ้ำ" (เช่น ติ๊กทั้งรายการ) — ต้องไม่ทับยอดลง: ordered_qty ยัง 10 · changed 0 · excess 5 และ changed_after_order ยัง true · ไม่มี log ใหม่
+  n_log := pg_temp.nlog(a, 'ordered');
+  r := pg_temp.mk(a, array[l2], true);
+  s := pg_temp.sm(a); gR := pg_temp.grp(s, iR);
+  v := v || pg_temp.chk('M5e', '🔴 ติ๊กซ้ำหลังยอดลด (สั่งไว้ 10 ต้องใช้ 5): ordered_qty ยัง 10 (ไม่ทับลง) · changed 0 · qty_excess ยัง 5 · changed_after_order ยัง true · ไม่มี log ใหม่',
+    (r ->> 'changed') = '0' and (select ordered_qty from analytics.job_gem_bom where id = l2) = 10 and (pg_temp.gjob(gR, j2) ->> 'qty_excess') = '5'
+    and (pg_temp.gjob(gR, j2) ->> 'changed_after_order') = 'true' and pg_temp.nlog(a, 'ordered') = n_log);
+  -- ติ๊ก "ทั้งรายการ" (ids ของทั้งกลุ่มรวมแถว l2 ที่ยอดลด) — แถว l2 ต้องไม่ถูกทับลง (แยกคำสั่ง: subquery ในคำสั่งเดียวกันไม่เห็นผลของฟังก์ชันที่เขียนก่อนหน้า)
+  ids := array(select (x #>> '{}')::uuid from jsonb_array_elements(pg_temp.grp(pg_temp.sm(a), iR) -> 'line_ids') x);
+  r := pg_temp.mk(a, ids, true);
+  ok := (select ordered_qty from analytics.job_gem_bom where id = l2) = 10 and (select count(*) from analytics.job_gem_bom where id = any (ids) and ordered_at is not null) = 3;
+  v := v || pg_temp.chk('M5f', '🔴 ติ๊ก "ทั้งรายการ" ที่รวมแถวยอดลดแล้ว: แถว l2 ยัง ordered_qty 10 (ไม่ทับเป็น 5) · แถวอื่นของกลุ่มถูกติ๊กครบ 3 แถว · changed = 2 (l2 ไม่ถูกแตะ)', ok and (r ->> 'changed') = '2');
+  perform pg_temp.mk(a, ids, false);
   -- M5d: เปลี่ยนจำนวนเริ่มผลิต (qty_planned) หลังติ๊ก — ผ่าน job_qty_planned_set (ถ้า RPC ยอมรับ)
   begin
     perform pg_temp.mk(a, array[l2], true);
@@ -564,6 +585,16 @@ begin
   v := v || pg_temp.chk('M6b', 'เพิ่มโกเมนกลับ: แถวใหม่ (id ใหม่) ไม่มีติ๊ก — ติ๊กเก่าไม่ฟื้น · โกเมนเหลือ 3 สั่งแล้ว 0',
     pg_temp.lid(j1, iG) is not null and pg_temp.lid(j1, iG) <> lg and (pg_temp.grp(s, iG) ->> 'qty_remaining') = '3' and (pg_temp.grp(s, iG) ->> 'qty_ordered') = '0');
   lg := pg_temp.lid(j1, iG);
+  -- R1 🔴 (security M2): แถวที่ติ๊กไว้ถูกลบแล้วเพิ่มกลับ (แถวใหม่ไม่มีติ๊ก) → summary เตือนผ่าน removed_after_order (J1 · โกเมน · 3 เม็ด · มีฉลาก) · ไม่มีราคา · ติ๊กแถวใหม่แล้วคำเตือนหาย
+  s := pg_temp.sm(a);
+  v := v || pg_temp.chk('R1', 'removed_after_order มีรายการ J1/โกเมน qty 3 พร้อมฉลาก · ไม่มีคีย์ราคา · หลังติ๊กแถวใหม่ของรายการเดียวกัน คำเตือนหาย (ไม่เตือนซ้ำเมื่อสั่งใหม่แล้ว)',
+    exists (select 1 from jsonb_array_elements(s -> 'removed_after_order') e where e ->> 'job_id' = j1::text and e ->> 'canonical_item_id' = iG::text and (e ->> 'qty') = '3' and e ->> 'label' = 'ZZ192 โกเมน · กลม · 4 มม.' and e ->> 'removed_at' is not null)
+    and pg_temp.badkeys(s) = '' and not pg_temp.has_px(s));
+  perform pg_temp.mk(a, array[lg], true);
+  s := pg_temp.sm(a);
+  ok := not exists (select 1 from jsonb_array_elements(s -> 'removed_after_order') e where e ->> 'job_id' = j1::text and e ->> 'canonical_item_id' = iG::text);
+  perform pg_temp.mk(a, array[lg], false);
+  v := v || pg_temp.chk('R1b', 'ติ๊กแถวโกเมนใหม่ของ J1 → คำเตือน removed_after_order ของรายการนั้นหาย', ok);
   -- M7: แก้เฉพาะตำแหน่ง (จำนวนเท่าเดิม) → แถวเดิมคง id และคงติ๊ก · job_gem_bom_set ตอนมีติ๊กยังใช้ได้
   perform pg_temp.mk(a, array[l1], true);
   r := pg_temp.bset(a, j1, jsonb_build_array(pg_temp.ln(iR, 2, 'ซ้าย'), pg_temp.ln(iG, 1)));
@@ -589,15 +620,35 @@ begin
   v := v || pg_temp.chk('P8', 'gem_purchase_mark_log append-only: UPDATE/DELETE ตรงถูกปฏิเสธ · TRUNCATE ถูกปฏิเสธ',
     pg_temp.err('update analytics.gem_purchase_mark_log set qty = qty + 1') <> 'OK' and pg_temp.err('delete from analytics.gem_purchase_mark_log') <> 'OK'
     and pg_temp.err('truncate analytics.gem_purchase_mark_log') <> 'OK');
+  -- R2: ใบที่ปิดแล้ว (cancelled) ไม่โผล่ใน removed_after_order · R3: ร้านอื่นไม่โผล่
+  j13 := pg_temp.newjob(a, pg_temp.fx('pA3'), pg_temp.stdg(), jsonb_build_array(pg_temp.ln(iG, 1)), 2, 12);
+  lq := pg_temp.lid(j13, iG);
+  perform pg_temp.mk(a, array[lq], true);
+  r := pg_temp.bset(a, j13, '[]'::jsonb);
+  s := pg_temp.sm(a);
+  ok := r ->> '_err' is null and exists (select 1 from jsonb_array_elements(s -> 'removed_after_order') e where e ->> 'job_id' = j13::text and (e ->> 'qty') = '2');
+  perform analytics.job_cancel(a, j13, 'verify 0192 ปิดใบเพื่อทดสอบ removed_after_order', pg_temp.nom());
+  s2 := pg_temp.sm(a);
+  v := v || pg_temp.chk('R2', 'ใบ J13 ติ๊กแล้วลบแถวออก → โผล่ใน removed_after_order (ใบยังเปิด) · ยกเลิกใบแล้ว → หายจากรายการ (ใบปิดไม่โผล่)',
+    ok and not exists (select 1 from jsonb_array_elements(s2 -> 'removed_after_order') e where e ->> 'job_id' = j13::text));
+  jby := pg_temp.newjob(b, pg_temp.fx('pB1'), pg_temp.stdg(), jsonb_build_array(pg_temp.ln(pg_temp.fx('iBt'), 1)), 1, 4);
+  lbb := pg_temp.lid(jby, pg_temp.fx('iBt'));
+  perform pg_temp.mk(b, array[lbb], true, pg_temp.stf());
+  r := pg_temp.bset(b, jby, '[]'::jsonb, null, pg_temp.stf());
+  s := pg_temp.sm(a);
+  s2 := pg_temp.sm(b, pg_temp.stf());
+  v := v || pg_temp.chk('R3', '🔴 ร้านอื่น: ใบ JBy (ร้าน B) ติ๊กแล้วลบแถว → โผล่ใน removed_after_order ของร้าน B เท่านั้น · สรุปของร้าน A ไม่เห็น',
+    r ->> '_err' is null and exists (select 1 from jsonb_array_elements(s2 -> 'removed_after_order') e where e ->> 'job_id' = jby::text)
+    and not exists (select 1 from jsonb_array_elements(s -> 'removed_after_order') e where e ->> 'job_id' = jby::text));
   -- C7: กลุ่มที่ติ๊กครบแล้วไม่มีราคา: ส่วนที่เหลือ = 0 ไม่ต้องมีราคา (cost_remaining = 0 ไม่ใช่ null) · ส่วนสั่งแล้ว = null + missing (ไม่เดา)
-  perform pg_temp.mk(a, array[pg_temp.lid(pg_temp.fx('J10'), iN)], true);
+  perform pg_temp.mk(a, array[pg_temp.lid(pg_temp.fx('J10'), iNp)], true);
   c := pg_temp.cs(a);
-  v := v || pg_temp.chk('C7', 'iN (ไม่มีราคา) ติ๊กครบ: cost_remaining = 0 และ missing_price_remaining = false (ส่วนที่จำนวน 0 ไม่ต้องมีราคา) · ส่วนสั่งแล้ว = null + missing_price_ordered (ไม่เดา) — ต้องไม่พัง',
-    ((select g from jsonb_array_elements(c -> 'groups') g where g ->> 'canonical_item_id' = iN::text) ->> 'cost_remaining_thb')::numeric = 0
-    and ((select g from jsonb_array_elements(c -> 'groups') g where g ->> 'canonical_item_id' = iN::text) ->> 'missing_price_remaining') = 'false'
-    and ((select g from jsonb_array_elements(c -> 'groups') g where g ->> 'canonical_item_id' = iN::text) -> 'cost_ordered_thb') = 'null'::jsonb
-    and ((select g from jsonb_array_elements(c -> 'groups') g where g ->> 'canonical_item_id' = iN::text) ->> 'missing_price_ordered') = 'true');
-  perform pg_temp.mk(a, array[pg_temp.lid(pg_temp.fx('J10'), iN)], false);
+  v := v || pg_temp.chk('C7', 'iNp (ไม่มีราคา) ติ๊กครบ: cost_remaining = 0 และ missing_price_remaining = false (ส่วนที่จำนวน 0 ไม่ต้องมีราคา) · ส่วนสั่งแล้ว = null + missing_price_ordered (ไม่เดา) — ต้องไม่พัง',
+    ((select g from jsonb_array_elements(c -> 'groups') g where g ->> 'canonical_item_id' = iNp::text) ->> 'cost_remaining_thb')::numeric = 0
+    and ((select g from jsonb_array_elements(c -> 'groups') g where g ->> 'canonical_item_id' = iNp::text) ->> 'missing_price_remaining') = 'false'
+    and ((select g from jsonb_array_elements(c -> 'groups') g where g ->> 'canonical_item_id' = iNp::text) -> 'cost_ordered_thb') = 'null'::jsonb
+    and ((select g from jsonb_array_elements(c -> 'groups') g where g ->> 'canonical_item_id' = iNp::text) ->> 'missing_price_ordered') = 'true');
+  perform pg_temp.mk(a, array[pg_temp.lid(pg_temp.fx('J10'), iNp)], false);
   -- L1c: ผลติ๊กไม่รั่วราคา
   r := pg_temp.mk(a, array[l1], true);
   v := v || pg_temp.chk('L1c', '🔴 ผลของ gem_purchase_mark ไม่มีคีย์ราคา/ต้นทุน และไม่มีเลขราคาจริง',
@@ -668,6 +719,7 @@ declare
   a uuid := pg_temp.fx('A'); b uuid := pg_temp.fx('B');
   l1 uuid := pg_temp.lid(pg_temp.fx('J1'), pg_temp.fx('iR'));
   s0 text; r record; who text; sql_ text; bad text := ''; n int; ok boolean; w text; x uuid;
+  p_sm jsonb; p_cs jsonb; p_mk jsonb; p_un jsonb; p_by uuid;
   c_rpc constant text[] := array['gem_purchase_summary', 'gem_purchase_mark', 'gem_purchase_summary_cost'];
 begin
   s0 := pg_temp.msnap();
@@ -685,10 +737,14 @@ begin
     and pg_temp.err(format('select analytics.gem_purchase_summary(%L, null)', a)) = '22023|actor_required'
     and pg_temp.err(format('select analytics.gem_purchase_mark(%L, ARRAY[%L::uuid], true, null)', a, l1)) = '22023|actor_required');
   -- P1b: admin ผ่านทั้ง 3 (ต้องไม่พัง) — ติ๊กแล้วยกเลิกคืน
-  v := v || pg_temp.chk('P1b', 'admin (สมาชิกระดับ admin) ใช้ได้ทั้ง 3 RPC: สรุป · ติ๊ก · ต้นทุน (ต้องไม่พัง — ตรงกับ "owner/admin เท่านั้น")',
-    pg_temp.sm(a, pg_temp.adm()) ->> '_err' is null and pg_temp.cs(a, pg_temp.adm()) ->> '_err' is null
-    and (pg_temp.mk(a, array[l1], true, pg_temp.adm()) ->> 'changed') = '1' and (select ordered_by from analytics.job_gem_bom where id = l1) = pg_temp.adm()
-    and (pg_temp.mk(a, array[l1], false, pg_temp.adm()) ->> 'changed') = '1');
+  -- แยกเป็นคำสั่งๆ (ไม่ใส่ในนิพจน์เดียว): subquery ในคำสั่งเดียวกันมองไม่เห็นผลที่ฟังก์ชัน volatile เขียนไปก่อนหน้า (snapshot ของคำสั่งนอก)
+  p_sm := pg_temp.sm(a, pg_temp.adm());
+  p_cs := pg_temp.cs(a, pg_temp.adm());
+  p_mk := pg_temp.mk(a, array[l1], true, pg_temp.adm());
+  p_by := (select b2.ordered_by from analytics.job_gem_bom b2 where b2.id = l1);
+  p_un := pg_temp.mk(a, array[l1], false, pg_temp.adm());
+  v := v || pg_temp.chk('P1b', 'admin (สมาชิกระดับ admin) ใช้ได้ทั้ง 3 RPC: สรุป · ติ๊ก (ordered_by = admin) · ยกเลิกติ๊ก · ต้นทุน (ต้องไม่พัง — ตรงกับ "owner/admin เท่านั้น")',
+    p_sm ->> '_err' is null and p_cs ->> '_err' is null and (p_mk ->> 'changed') = '1' and p_by = pg_temp.adm() and (p_un ->> 'changed') = '1');
   -- P2: 18.5 จำลองกำแพงสคีมาหลุด แล้วยิงทั้ง 3 RPC ด้วย null ทุกพารามิเตอร์ในฐานะ anon/authenticated → ตก 42501 (Postgres เช็ค EXECUTE ก่อน body)
   grant usage on schema analytics to anon, authenticated;
   bad := '';
@@ -711,9 +767,9 @@ begin
     ok and pg_temp.asrole('service_role', 'update analytics.job_gem_bom set ordered_at = now()') = '42501'
     and pg_temp.asrole('service_role', 'delete from analytics.gem_purchase_mark_log') = '42501');
   -- P4: ไม่มี overload · definer pin search_path · EXECUTE: RPC = service_role เท่านั้น · helper trigger ไม่มี role ไหน · ทั้งสคีมาไม่มี PUBLIC/anon/authenticated
-  select count(*) into n from pg_proc p where p.pronamespace = 'analytics'::regnamespace and p.proname = any (c_rpc || array['job_gem_bom_ordered_log']);
+  select count(*) into n from pg_proc p where p.pronamespace = 'analytics'::regnamespace and p.proname = any (c_rpc || array['job_gem_bom_ordered_log', 'job_gem_bom_ordered_only']);
   bad := '';
-  for r in select p.oid, p.proname, p.prosecdef, p.proconfig, p.proacl from pg_proc p where p.pronamespace = 'analytics'::regnamespace and p.proname = any (c_rpc || array['job_gem_bom_ordered_log']) loop
+  for r in select p.oid, p.proname, p.prosecdef, p.proconfig, p.proacl from pg_proc p where p.pronamespace = 'analytics'::regnamespace and p.proname = any (c_rpc || array['job_gem_bom_ordered_log', 'job_gem_bom_ordered_only']) loop
     if has_function_privilege('anon', r.oid, 'execute') or has_function_privilege('authenticated', r.oid, 'execute') or r.proacl is null
        or exists (select 1 from aclexplode(r.proacl) a2 where a2.grantee = 0 and a2.privilege_type = 'EXECUTE')
        or has_function_privilege('service_role', r.oid, 'execute') is distinct from (r.proname = any (c_rpc))
@@ -721,14 +777,27 @@ begin
       bad := bad || r.proname || '; ';
     end if;
   end loop;
-  v := v || pg_temp.chk('P4', 'ฟังก์ชันใหม่ 4 ตัว: ไม่มี overload (ชื่อละ 1 signature) · RPC security definer + pin search_path · EXECUTE = service_role เท่านั้น (trigger function ไม่มี role ไหน) · ที่ผิด: ' || coalesce(nullif(bad, ''), 'ไม่มี'),
-    bad = '' and n = 4 and not exists (select 1 from pg_proc p cross join lateral aclexplode(p.proacl) a3 where p.pronamespace = 'analytics'::regnamespace and a3.privilege_type = 'EXECUTE' and (a3.grantee = 0 or a3.grantee = 'anon'::regrole or a3.grantee = 'authenticated'::regrole)));
+  v := v || pg_temp.chk('P4', 'ฟังก์ชันใหม่ 5 ตัว: ไม่มี overload (ชื่อละ 1 signature) · RPC security definer + pin search_path · EXECUTE = service_role เท่านั้น (trigger function ไม่มี role ไหน) · ที่ผิด: ' || coalesce(nullif(bad, ''), 'ไม่มี'),
+    bad = '' and n = 5 and not exists (select 1 from pg_proc p cross join lateral aclexplode(p.proacl) a3 where p.pronamespace = 'analytics'::regnamespace and a3.privilege_type = 'EXECUTE' and (a3.grantee = 0 or a3.grantee = 'anon'::regrole or a3.grantee = 'authenticated'::regrole)));
   -- P6: กำแพงที่ตาราง (CHECK): ordered ทั้งสามค่าไป/มาพร้อมกัน · qty > 0
+  v := v || pg_temp.chk('P4b', '🔴 (security L2) view ทั้ง 3 เป็น security_invoker=true · RPC (definer เจ้าของวิว) ยังอ่านได้ (สรุป/ต้นทุนไม่ error)',
+    (select count(*) from pg_class c where c.relnamespace = 'analytics'::regnamespace and c.relname in ('v_gem_purchase_job', 'v_gem_purchase_line', 'v_gem_purchase_summary') and 'security_invoker=true' = any (c.reloptions)) = 3
+    and pg_temp.sm(a) ->> '_err' is null and pg_temp.cs(a) ->> '_err' is null);
+  -- P10 🔴 (security L1): เขียน ordered_* ตรงโดยไม่ผ่าน gem_purchase_mark (ในนาม postgres ที่รันไฟล์นี้) → 42501 · INSERT ที่มีค่าติ๊กก็ไม่ได้ · GUC ไม่ค้าง on หลัง RPC
+  v := v || pg_temp.chk('P10', '🔴 UPDATE ordered_at/by/qty ตรงโดยไม่ตั้ง GUC → 42501/gem_purchase_direct (แม้เป็น postgres) · UPDATE จำนวน/ตำแหน่ง (ไม่แตะ ordered_*) ผ่านปกติ · GUC analytics.gem_purchase_mark ไม่ค้างเป็น on หลังเรียก RPC',
+    pg_temp.err(format('update analytics.job_gem_bom set ordered_at = now(), ordered_by = %L, ordered_qty = 6 where id = %L', pg_temp.own(), l1)) = '42501|gem_purchase_direct'
+    and pg_temp.err(format('update analytics.job_gem_bom set ordered_by = %L where id = %L', pg_temp.own(), l1)) = '42501|gem_purchase_direct'
+    and pg_temp.err(format('update analytics.job_gem_bom set position_note = %L where id = %L', 'ซ้าย', l1)) = 'OK'
+    and pg_temp.err(format('update analytics.job_gem_bom set position_note = null where id = %L', l1)) = 'OK'
+    and coalesce(current_setting('analytics.gem_purchase_mark', true), '') <> 'on');
+  -- P6: กำแพง CHECK (เปิด GUC เฉพาะช่วงทดสอบนี้เพื่อให้ถึง CHECK — ปกติ trigger กันก่อน)
+  perform set_config('analytics.gem_purchase_mark', 'on', true);
   v := v || pg_temp.chk('P6', 'CHECK ที่ตาราง: ตั้ง ordered_at ค่าเดียว → 23514 · ordered_qty = 0 → 23514 · ตั้งครบสามค่าผ่าน (แล้วถอยกลับด้วยการล้าง — ต้องไม่พัง)',
     pg_temp.err(format('update analytics.job_gem_bom set ordered_at = now() where id = %L', l1)) = '23514|'
     and pg_temp.err(format('update analytics.job_gem_bom set ordered_at = now(), ordered_by = %L, ordered_qty = 0 where id = %L', pg_temp.own(), l1)) = '23514|'
     and pg_temp.err(format('update analytics.job_gem_bom set ordered_at = now(), ordered_by = %L, ordered_qty = 6 where id = %L', pg_temp.own(), l1)) = 'OK'
     and pg_temp.err(format('update analytics.job_gem_bom set ordered_at = null, ordered_by = null, ordered_qty = null where id = %L', l1)) = 'OK');
+  perform set_config('analytics.gem_purchase_mark', 'off', true);
   -- P7: ใบ cancelled: UPDATE ตรงที่ตั้ง ordered_* ตก job_closed (กำแพงที่ตาราง ผ่าน job_gem_bom_guard — แม้ RPC ถูกแก้ผิด)
   v := v || pg_temp.chk('P7', 'ใบ cancelled (J3): UPDATE job_gem_bom ตั้ง ordered_* ตรง → 22023/job_closed (กำแพงที่ตาราง)',
     pg_temp.err(format('update analytics.job_gem_bom set ordered_at = now(), ordered_by = %L, ordered_qty = 8 where job_id = %L', pg_temp.own(), pg_temp.fx('J3'))) = '22023|job_closed');
@@ -793,11 +862,17 @@ begin
     jsonb_build_object('id', 'MU6', 'what', 'RPC ต้นทุนไม่ตรวจ actor owner/admin (staff อ่านต้นทุนได้)', 'steps', jsonb_build_array(jsonb_build_array('f', sg_cost, E'  perform analytics.gem_require_office(p_shop_id, p_actor);\n  with lp as (', E'  with lp as (')), 'expect', jsonb_build_array('P1c')),
     jsonb_build_object('id', 'MU7', 'what', '🔴 ไม่มีราคา → นับเป็น 0 (ตัวเลขเดา) แทน null + missing_price', 'steps', jsonb_build_array(jsonb_build_array('f', sg_cost, 'case when g.missing_price_remaining then null else round(coalesce(g.raw_remaining, 0), 2) end as cost_remaining_thb', 'round(coalesce(g.raw_remaining, 0), 2) as cost_remaining_thb')), 'expect', jsonb_build_array('C2', 'C3')),
     jsonb_build_object('id', 'MU8', 'what', 'ราคาที่มีผลในอนาคตถูกใช้ (ไม่จำกัด effective_from <= วันนี้ไทย)', 'steps', jsonb_build_array(jsonb_build_array('f', sg_cost, ' and p.effective_from <= v_today', '')), 'expect', jsonb_build_array('C3')),
-    jsonb_build_object('id', 'MU9', 'what', 'ติ๊กซ้ำไม่ idempotent (เขียนทับ+log ทุกครั้ง)', 'steps', jsonb_build_array(jsonb_build_array('f', sg_mark, 'and (g.ordered_at is null or g.ordered_qty is distinct from g.qty_per_piece::bigint * j.qty_planned)', 'and true')), 'expect', jsonb_build_array('M2')),
+    jsonb_build_object('id', 'MU9', 'what', 'ติ๊กซ้ำไม่ idempotent (เขียนทับ+log ทุกครั้ง)', 'steps', jsonb_build_array(jsonb_build_array('f', sg_mark, 'and (g.ordered_at is null or g.ordered_qty < g.qty_per_piece::bigint * j.qty_planned)', 'and true')), 'expect', jsonb_build_array('M2')),
     jsonb_build_object('id', 'MU10', 'what', 'ใบ cancelled/done นับในยอด (view นับสถานะปิด · R8 นับซ้ำ)', 'steps', jsonb_build_array(jsonb_build_array('v', 'analytics.v_gem_purchase_job', '''on_hold''::text\]', '''on_hold''::text, ''cancelled''::text]')), 'expect', jsonb_build_array('A2', 'A3')),
     jsonb_build_object('id', 'MU11', 'what', 'ขั้นฝังที่รับแล้ว (received) ยังนับเป็น "ยังไม่รับ" (view)', 'steps', jsonb_build_array(
         jsonb_build_array('v', 'analytics.v_gem_purchase_job', 'gs\.status = ''pending''::text', 'gs.status = ANY (ARRAY[''pending''::text, ''received''::text])'),
-        jsonb_build_array('v', 'analytics.v_gem_purchase_job', 'ARRAY\[''received''::text, ''sent''::text\]', 'ARRAY[''sent''::text]')), 'expect', jsonb_build_array('A3', 'A4')));
+        jsonb_build_array('v', 'analytics.v_gem_purchase_job', 'ARRAY\[''received''::text, ''sent''::text\]', 'ARRAY[''sent''::text]')), 'expect', jsonb_build_array('A3', 'A4')),
+    jsonb_build_object('id', 'MU12', 'what', '🔴 (security M1) ติ๊กซ้ำทับ ordered_qty ลง (ถอด greatest + เงื่อนไข "ที่ต้องใช้ > ที่ติ๊กไว้")', 'steps', jsonb_build_array(
+        jsonb_build_array('f', sg_mark, 'ordered_qty = greatest(coalesce(o.ordered_qty, 0), g.qty_per_piece::bigint * j.qty_planned)', 'ordered_qty = g.qty_per_piece::bigint * j.qty_planned'),
+        jsonb_build_array('f', sg_mark, 'g.ordered_qty < g.qty_per_piece::bigint * j.qty_planned)', 'g.ordered_qty is distinct from g.qty_per_piece::bigint * j.qty_planned)')), 'expect', jsonb_build_array('M5e', 'M5f')),
+    jsonb_build_object('id', 'MU13', 'what', '🔴 (security L1) trigger กันเขียน ordered_* นอก gem_purchase_mark ถูกถอด (ผ่านทุกกรณี)', 'steps', jsonb_build_array(jsonb_build_array('f', 'analytics.job_gem_bom_ordered_only()', 'if coalesce(current_setting(''analytics.gem_purchase_mark'', true), '''') = ''on'' then', 'if true then')), 'expect', jsonb_build_array('P10')),
+    jsonb_build_object('id', 'MU14', 'what', '(security M2) removed_after_order ไม่อ่าน log line_removed (เตือนไม่ขึ้น)', 'steps', jsonb_build_array(jsonb_build_array('f', sg_sum, 'and ml.action = ''line_removed''', 'and ml.action = ''nothing''')), 'expect', jsonb_build_array('R1')),
+    jsonb_build_object('id', 'MU15', 'what', '🔴 removed_after_order ไม่กรองร้านของผู้เรียก (เห็น log ของร้านอื่น)', 'steps', jsonb_build_array(jsonb_build_array('f', sg_sum, 'where ml.shop_id = p_shop_id and ml.action = ''line_removed''', 'where ml.action = ''line_removed''')), 'expect', jsonb_build_array('R3')));
   total := jsonb_array_length(muts);
   for k in 0 .. total - 1 loop
     m := muts -> k; s := '';
@@ -836,7 +911,7 @@ $c$;
 do $v192$
 declare
   v_msg text := E'\n=== verify 0192 ===\n';
-  v_snap0 text; v_hit int; v_fail int; v_ok int; v_skip int;
+  v_snap0 text; v_hit int; v_fail int; v_ok int; v_skip int; v_ctx text;
 begin
   perform set_config('request.jwt.claims', '{"role":"service_role"}', true);
   create temp table _v192_orig on commit drop as
@@ -854,7 +929,8 @@ begin
       position('cancelled' in pg_get_viewdef('analytics.v_gem_purchase_job'::regclass, true)) = 0 and position('received' in pg_get_viewdef('analytics.v_gem_purchase_job'::regclass, true)) > 0);
     raise exception 'V192_ROLLBACK';
   exception when others then
-    if sqlerrm <> 'V192_ROLLBACK' then v_msg := v_msg || format('[FAIL] S1-crash  ชุดหลัก raise นอกกลุ่ม: %s %s', sqlstate, sqlerrm) || E'\n'; end if;
+    get stacked diagnostics v_ctx = pg_exception_context;
+    if sqlerrm <> 'V192_ROLLBACK' then v_msg := v_msg || format('[FAIL] S1-crash  ชุดหลัก raise นอกกลุ่ม: %s %s | %s', sqlstate, sqlerrm, left(replace(v_ctx, E'\n', ' <- '), 600)) || E'\n'; end if;
   end;
   v_msg := v_msg || pg_temp.chk('K0', 'ชุดทดสอบไม่ทิ้งรอย: snapshot (job/ใบผลิต/ตัวนับ/QR/ช่าง/session/product/shop/สมาชิก/ตารางพลอยทั้งหมด/log การติ๊ก/audit) เท่าเดิมหลังถอยกลับ', pg_temp.snap() = v_snap0);
   v_fail := (length(v_msg) - length(replace(v_msg, '[FAIL]', ''))) / length('[FAIL]');

@@ -38,6 +38,11 @@
 --  (7) ordered_by = id ผู้ใช้ (uuid) ไม่ใช่ชื่อแสดง — shop_member ไม่มีชื่อ และไม่อ่าน auth.users (อีเมล = PII) ใน RPC · จอแสดง "โดยคุณ/คนอื่น" เทียบกับ session หรือขอ map ชื่อแยก
 --  (8) ใบที่ถูกยกเลิก/สร้างใหม่ (R8): ติ๊กของใบเก่าไม่ย้ายไปใบใหม่ — ใบใหม่ต้องติ๊กเอง (ระบบไม่รู้ว่าพลอยที่สั่งไปแล้วเป็นของใบเก่า) · หนี้ที่รู้ ระบุในรายงาน
 --
+--  (9) [security M1] ติ๊กซ้ำทับยอดลงไม่ได้: ordered_qty = max(ที่ติ๊กไว้, ที่ต้องใช้ตอนนี้) · อัปเดตเฉพาะ (ยังไม่ติ๊ก หรือ ที่ต้องใช้ > ที่ติ๊กไว้) · log เก็บ prev_qty · ใบลดจาก 90 เป็น 70 แล้วกด "ติ๊กทั้งรายการ" = ยังสั่งไว้ 90 (qty_excess 20 ไม่หายเงียบ)
+--  (10) [security M2] ติ๊กไว้แล้วแถวถูกลบ (replace_core/W3) แล้วเพิ่มกลับ = แถวใหม่ไม่มีติ๊ก → gem_purchase_summary คืน removed_after_order[] (จาก log line_removed ของใบที่ยังอยู่ · ไม่แสดงถ้ามีแถวรายการเดียวกันที่ติ๊กแล้ว) ให้จอเตือน — ข้อ (8) ใบยกเลิกแล้วสร้างใหม่ยังเป็นหนี้
+--  (11) [security L1] ordered_* เขียนได้ทางเดียวคือ gem_purchase_mark: trigger job_gem_bom_ordered_only (GUC analytics.gem_purchase_mark = on แบบ local) — UPDATE/INSERT ตรง แม้ในนาม postgres = 42501
+--  (12) [security L2] view ทั้ง 3 security_invoker=true
+--
 -- 🔴 ไม่มีราคา/ต้นทุน (แม้เป็น null) ใน object ใดนอกจาก gem_purchase_summary_cost · post-check บังคับว่า view/ตารางไหนมีคอลัมน์ราคา = ล้ม
 
 -- baseline: ฟังก์ชันทุกตัวในสคีมา (md5) + ตัวชี้วัดแถวของตารางที่เกี่ยวข้อง (เฉพาะคอลัมน์เดิม — ADD COLUMN ไม่แตะค่าเดิม)
@@ -101,7 +106,7 @@ begin
     raise exception '0192: ไม่พบรหัสขั้น gem_set ใน job_stage_def — รหัสขั้นฝังพลอยบน DB ไม่ตรงกับที่ view ผูกไว้ · หยุด';
   end if;
   -- ชื่อ object ใหม่ต้องยังไม่ถูกใช้ผิดประเภท · ห้ามมี overload ค้างของ RPC ใหม่
-  for r in select * from (values ('gem_purchase_summary'), ('gem_purchase_mark'), ('gem_purchase_summary_cost'), ('job_gem_bom_ordered_log')) as t(fname) loop
+  for r in select * from (values ('gem_purchase_summary'), ('gem_purchase_mark'), ('gem_purchase_summary_cost'), ('job_gem_bom_ordered_log'), ('job_gem_bom_ordered_only')) as t(fname) loop
     select count(*) into v_n from pg_proc p where p.pronamespace = 'analytics'::regnamespace and p.proname = r.fname;
     if v_n > 1 then
       raise exception '0192: % มี % signature (ต้องไม่เกิน 1) — หยุดตรวจ overload ก่อน', r.fname, v_n;
@@ -144,7 +149,8 @@ create table if not exists analytics.gem_purchase_mark_log (
   line_id     uuid not null,
   gem_item_id uuid not null,
   qty         bigint not null check (qty > 0),
-  action      text not null check (action in ('ordered', 'unordered', 'line_removed')),
+  prev_qty    bigint check (prev_qty is null or prev_qty > 0),   -- เฉพาะ ordered: ยอดที่ติ๊กไว้ก่อนหน้า (null = ติ๊กครั้งแรก) — security M1
+  action     text not null check (action in ('ordered', 'unordered', 'line_removed')),
   actor       uuid,
   recorded_at timestamptz not null default now(),
   constraint gem_purchase_mark_log_job_fk foreign key (job_id, shop_id) references analytics.job (id, shop_id) on delete restrict,
@@ -180,6 +186,28 @@ $f$;
 drop trigger if exists trg_job_gem_bom_ordered_log on analytics.job_gem_bom;
 create trigger trg_job_gem_bom_ordered_log before delete on analytics.job_gem_bom for each row execute function analytics.job_gem_bom_ordered_log();
 
+-- 🔴 (security L1) คอลัมน์ติ๊ก ordered_at/ordered_by/ordered_qty เขียนได้ทางเดียวคือ gem_purchase_mark (ตั้ง GUC analytics.gem_purchase_mark = on แบบ local ก่อน update แล้ว off หลังเสร็จ)
+--   ทางอื่น (UPDATE ตรง แม้ในนาม postgres/migration/RPC อื่นที่ถูกแก้ผิด) = 42501 · INSERT ที่มีค่าติ๊กก็ไม่ได้ · replace_core/W3 แก้จำนวน/ตำแหน่ง (ไม่แตะ ordered_*) ผ่านปกติ
+--   ชื่อไม่ลงท้าย _guard (verify-0190 นับ trigger *_guard = 5) · ทำงานหลัง trg_job_gem_bom_guard (ลำดับตามชื่อ) — ใบ done/cancelled ได้ job_closed ก่อน
+create or replace function analytics.job_gem_bom_ordered_only()
+ returns trigger
+ language plpgsql
+ set search_path to 'public', 'analytics', 'pg_temp'
+as $f$
+begin
+  if coalesce(current_setting('analytics.gem_purchase_mark', true), '') = 'on' then
+    return new;
+  end if;
+  if (tg_op = 'INSERT' and (new.ordered_at is not null or new.ordered_by is not null or new.ordered_qty is not null))
+     or (tg_op = 'UPDATE' and (new.ordered_at is distinct from old.ordered_at or new.ordered_by is distinct from old.ordered_by or new.ordered_qty is distinct from old.ordered_qty)) then
+    raise exception 'ติ๊ก "สั่งแล้ว" แก้ได้ทางเดียวคือ gem_purchase_mark' using errcode = '42501', hint = 'gem_purchase_direct';
+  end if;
+  return new;
+end;
+$f$;
+drop trigger if exists trg_job_gem_bom_ordered_only on analytics.job_gem_bom;
+create trigger trg_job_gem_bom_ordered_only before insert or update on analytics.job_gem_bom for each row execute function analytics.job_gem_bom_ordered_only();
+
 -- ============================================================================
 -- 4. views (ไม่มีคอลัมน์ราคา · ไม่เรียกฟังก์ชันของ schema — canonical = coalesce(merged_into, id) เพราะห่วงโซ่การรวมชื่อถูกยุบเหลือชั้นเดียวเสมอ)
 --    v_gem_purchase_job  = ใบที่ขั้นฝัง "ยังไม่รับ" (นิยามที่ส่วนหัวไฟล์ — ที่เดียว) · has_bom บอกว่ามีแถวพลอยไหม (ไม่มี = unspecified_jobs)
@@ -187,7 +215,7 @@ create trigger trg_job_gem_bom_ordered_log before delete on analytics.job_gem_bo
 --    v_gem_purchase_summary = รวมต่อ canonical gem_item (ชนิด·รูปทรง·ขนาด ปัจจุบัน ไม่ใช่ฉลาก snapshot)
 --    ไม่ให้ role ฝั่งแอปอ่านตรง (อ่านผ่าน RPC ที่ตรวจ actor)
 -- ============================================================================
-create or replace view analytics.v_gem_purchase_job as
+create or replace view analytics.v_gem_purchase_job with (security_invoker = true) as
 select j.shop_id, j.id as job_id, j.job_no, j.design_label, j.status as job_status, j.due_date, j.qty_planned,
        exists (select 1 from analytics.job_gem_bom b where b.job_id = j.id and b.shop_id = j.shop_id) as has_bom
   from analytics.job j
@@ -198,7 +226,7 @@ select j.shop_id, j.id as job_id, j.job_no, j.design_label, j.status as job_stat
    and not exists (select 1 from analytics.job_stage gs join analytics.job gj on gj.id = gs.job_id
                     where gj.shop_id = j.shop_id and (gj.id = j.id or gj.parent_job_id = j.id) and gs.stage_code = 'gem_set' and gs.status in ('received', 'sent'));
 
-create or replace view analytics.v_gem_purchase_line as
+create or replace view analytics.v_gem_purchase_line with (security_invoker = true) as
 select g.shop_id, g.id as line_id, g.job_id, pj.job_no, pj.design_label, pj.job_status, pj.due_date, pj.qty_planned, g.line_seq,
        g.gem_item_id as snapshot_item_id, ci.id as canonical_item_id,
        t.id as type_id, t.name as type_name, s.id as shape_id, s.name as shape_name, ci.size_a, ci.size_b, ci.size_label,
@@ -217,7 +245,7 @@ select g.shop_id, g.id as line_id, g.job_id, pj.job_no, pj.design_label, pj.job_
   join analytics.gem_type t on t.id = ci.gem_type_id and t.shop_id = ci.shop_id
   join analytics.gem_shape s on s.id = ci.gem_shape_id and s.shop_id = ci.shop_id;
 
-create or replace view analytics.v_gem_purchase_summary as
+create or replace view analytics.v_gem_purchase_summary with (security_invoker = true) as
 with pj as (
   select l.shop_id, l.canonical_item_id, l.type_id, l.type_name, l.shape_id, l.shape_name, l.size_a, l.size_b, l.size_label,
          l.job_id, l.job_no, l.design_label, l.due_date,
@@ -283,6 +311,23 @@ begin
     'unspecified_jobs', (select coalesce(jsonb_agg(jsonb_build_object('job_id', u.job_id, 'job_no', u.job_no, 'design_label', u.design_label, 'due_date', u.due_date)
                                                    order by u.due_date nulls last, u.job_no), '[]'::jsonb)
                            from analytics.v_gem_purchase_job u where u.shop_id = p_shop_id and not u.has_bom),
+    -- 🔴 (security M2) แถวที่ติ๊กไว้แล้วถูกลบตอนแก้พลอย (replace_core/W3) — ถ้าเพิ่มรายการกลับ แถวใหม่ไม่มีติ๊ก เสี่ยงสั่งซ้ำ → แสดงให้จอเตือน (จาก log line_removed ของใบที่ยังอยู่ในรายการเท่านั้น)
+    --   ไม่แสดงถ้าใบนั้นมีแถวรายการเดียวกัน (canonical) ที่ติ๊กอยู่แล้ว · ไม่มีราคา · ใบปิด/ร้านอื่นไม่โผล่ (join v_gem_purchase_job ของร้านนี้)
+    'removed_after_order', (select coalesce(jsonb_agg(jsonb_build_object('job_id', x.job_id, 'job_no', x.job_no, 'canonical_item_id', x.canon, 'label', x.label, 'qty', x.qty, 'removed_at', x.recorded_at)
+                                                       order by x.recorded_at desc, x.job_no), '[]'::jsonb)
+                              from (select ml.job_id, pj.job_no, coalesce(gi.merged_into, gi.id, ml.gem_item_id) as canon,
+                                           case when ci.id is not null then (t.name || ' · ' || s.name || ' · ' || ci.size_label || ' มม.') end as label,
+                                           ml.qty, ml.recorded_at
+                                      from analytics.gem_purchase_mark_log ml
+                                      join analytics.v_gem_purchase_job pj on pj.job_id = ml.job_id and pj.shop_id = ml.shop_id
+                                      left join analytics.gem_item gi on gi.id = ml.gem_item_id and gi.shop_id = ml.shop_id
+                                      left join analytics.gem_item ci on ci.id = coalesce(gi.merged_into, gi.id) and ci.shop_id = ml.shop_id
+                                      left join analytics.gem_type t on t.id = ci.gem_type_id and t.shop_id = ci.shop_id
+                                      left join analytics.gem_shape s on s.id = ci.gem_shape_id and s.shop_id = ci.shop_id
+                                     where ml.shop_id = p_shop_id and ml.action = 'line_removed'
+                                       and not exists (select 1 from analytics.v_gem_purchase_line l
+                                                        where l.job_id = ml.job_id and l.canonical_item_id = coalesce(gi.merged_into, gi.id, ml.gem_item_id) and l.is_ordered)
+                                     order by ml.recorded_at desc limit 200) x),
     'totals', jsonb_build_object(
       'groups', (select count(*) from analytics.v_gem_purchase_summary s where s.shop_id = p_shop_id),
       'jobs', (select count(distinct l.job_id) from analytics.v_gem_purchase_line l where l.shop_id = p_shop_id),
@@ -344,16 +389,20 @@ begin
     raise exception 'ขั้นฝังพลอยของใบ % รับงานแล้ว หรือไม่อยู่ในรายการ — ติ๊กไม่ได้', v_bad using errcode = '22023', hint = 'gem_stage_started';
   end if;
 
+  -- เปิดสวิตช์ให้ trigger job_gem_bom_ordered_only ผ่าน (local ต่อทรานแซกชัน) แล้วปิดทันทีหลังเขียนเสร็จ
+  perform set_config('analytics.gem_purchase_mark', 'on', true);
   if p_ordered then
+    -- 🔴 (security M1) ติ๊กซ้ำ "ทับยอดลงไม่ได้": ordered_qty = max(ที่ติ๊กไว้, ที่ต้องใช้ตอนนี้) · อัปเดตเฉพาะแถวที่ยังไม่ติ๊ก หรือที่ต้องใช้ตอนนี้ > ที่ติ๊กไว้
+    --   สั่งไว้ 90 ใบลดเหลือ 70 แล้วกด "ติ๊กทั้งรายการ" → ยังเป็น 90 (qty_excess 20 ไม่หายเงียบ) · ยกเลิกติ๊ก (p_ordered=false) เท่านั้นที่ล้างยอด
     with upd as (
       update analytics.job_gem_bom g
-         set ordered_at = now(), ordered_by = p_actor, ordered_qty = g.qty_per_piece::bigint * j.qty_planned
-        from analytics.job j
-       where g.id = any (v_ids) and g.shop_id = p_shop_id and j.id = g.job_id
-         and (g.ordered_at is null or g.ordered_qty is distinct from g.qty_per_piece::bigint * j.qty_planned)
-      returning g.id as line_id, g.job_id, g.gem_item_id, g.ordered_qty as new_qty)
-    insert into analytics.gem_purchase_mark_log (shop_id, job_id, line_id, gem_item_id, qty, action, actor)
-    select p_shop_id, u.job_id, u.line_id, u.gem_item_id, u.new_qty, 'ordered', p_actor from upd u;
+         set ordered_at = now(), ordered_by = p_actor, ordered_qty = greatest(coalesce(o.ordered_qty, 0), g.qty_per_piece::bigint * j.qty_planned)
+        from analytics.job j, analytics.job_gem_bom o
+       where o.id = g.id and g.id = any (v_ids) and g.shop_id = p_shop_id and j.id = g.job_id
+         and (g.ordered_at is null or g.ordered_qty < g.qty_per_piece::bigint * j.qty_planned)
+      returning g.id as line_id, g.job_id, g.gem_item_id, g.ordered_qty as new_qty, o.ordered_qty as old_qty)
+    insert into analytics.gem_purchase_mark_log (shop_id, job_id, line_id, gem_item_id, qty, prev_qty, action, actor)
+    select p_shop_id, u.job_id, u.line_id, u.gem_item_id, u.new_qty, u.old_qty, 'ordered', p_actor from upd u;
     get diagnostics v_changed = row_count;
   else
     with upd as (
@@ -366,6 +415,7 @@ begin
     select p_shop_id, u.job_id, u.line_id, u.gem_item_id, u.old_qty, 'unordered', p_actor from upd u;
     get diagnostics v_changed = row_count;
   end if;
+  perform set_config('analytics.gem_purchase_mark', 'off', true);
   return jsonb_build_object(
     'requested', v_n, 'changed', v_changed, 'unchanged', v_n - v_changed, 'ordered', p_ordered,
     'lines', (select coalesce(jsonb_agg(jsonb_build_object(
@@ -445,7 +495,7 @@ do $g$
 declare
   r record;
   v_rpc constant text[] := array['gem_purchase_summary', 'gem_purchase_mark', 'gem_purchase_summary_cost'];
-  v_internal constant text[] := array['job_gem_bom_ordered_log'];
+  v_internal constant text[] := array['job_gem_bom_ordered_log', 'job_gem_bom_ordered_only'];
   v_dup text;
   v_n int;
 begin
@@ -492,7 +542,7 @@ declare
   v_changed text;
   v_new text;
   v_bad text;
-  v_added constant text[] := array['job_gem_bom_ordered_log', 'gem_purchase_summary', 'gem_purchase_mark', 'gem_purchase_summary_cost'];
+  v_added constant text[] := array['job_gem_bom_ordered_log', 'job_gem_bom_ordered_only','gem_purchase_summary', 'gem_purchase_mark', 'gem_purchase_summary_cost'];
 begin
   -- (1) ฟังก์ชันเดิมทุกตัว md5 เท่าเดิมเป๊ะ (ไฟล์นี้ไม่ replace ฟังก์ชันเดิม — job_gem_bom_get / replace_core / resolve / job_gem_state ไม่ขยับ)
   select string_agg(b.sig, ', ') into v_changed
@@ -559,7 +609,7 @@ begin
   select string_agg(p.oid::regprocedure::text, ', ') into v_bad
     from pg_proc p
    where p.pronamespace = 'analytics'::regnamespace and p.proname = any (v_added)
-     and (has_function_privilege('service_role', p.oid, 'execute') is distinct from (p.proname <> 'job_gem_bom_ordered_log')
+     and (has_function_privilege('service_role', p.oid, 'execute') is distinct from (p.proname <> all (array['job_gem_bom_ordered_log', 'job_gem_bom_ordered_only']))
           or has_function_privilege('anon', p.oid, 'execute') or has_function_privilege('authenticated', p.oid, 'execute'));
   if v_bad is not null then
     raise exception '0192: สิทธิ์ execute ของฟังก์ชันใหม่ผิด: %', v_bad;
@@ -580,6 +630,16 @@ begin
   end if;
   if not exists (select 1 from pg_trigger t where t.tgrelid = 'analytics.job_gem_bom'::regclass and t.tgname = 'trg_job_gem_bom_ordered_log' and not t.tgisinternal and t.tgenabled in ('O', 'A')) then
     raise exception '0192: trigger trg_job_gem_bom_ordered_log ต้องเปิดอยู่';
+  end if;
+  if not exists (select 1 from pg_trigger t where t.tgrelid = 'analytics.job_gem_bom'::regclass and t.tgname = 'trg_job_gem_bom_ordered_only' and not t.tgisinternal and t.tgenabled in ('O', 'A')) then
+    raise exception '0192: trigger trg_job_gem_bom_ordered_only ต้องเปิดอยู่';
+  end if;
+  -- (7) 🔴 view ทั้ง 3 เป็น security_invoker (อ่านด้วยสิทธิ์ผู้เรียก ไม่ใช่เจ้าของวิว — role ฝั่งแอปไม่มีสิทธิ์ตารางอยู่แล้ว · RPC definer เป็นเจ้าของ จึงยังอ่านได้)
+  select string_agg(c.relname, ', ') into v_bad from pg_class c
+   where c.relnamespace = 'analytics'::regnamespace and c.relname in ('v_gem_purchase_job', 'v_gem_purchase_line', 'v_gem_purchase_summary')
+     and not coalesce('security_invoker=true' = any (c.reloptions), false);
+  if v_bad is not null then
+    raise exception '0192: view ต้องเป็น security_invoker: %', v_bad;
   end if;
   if (select count(*) from pg_trigger t where t.tgrelid in ('analytics.gem_shape'::regclass, 'analytics.gem_type'::regclass, 'analytics.gem_item'::regclass,
         'analytics.product_gem_bom'::regclass, 'analytics.job_gem_bom'::regclass) and not t.tgisinternal and t.tgenabled in ('O', 'A') and t.tgname like '%\_guard') <> 5 then

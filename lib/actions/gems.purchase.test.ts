@@ -60,7 +60,7 @@ describe("สิทธิ์: ทุก action ของหน้าสั่ง
 
 describe("พารามิเตอร์ที่ส่ง RPC: shop/actor จาก server · ชื่อ arg ตรง migration 0192", () => {
   it("getGemPurchaseSummary → gem_purchase_summary เฉพาะ p_shop_id + p_actor · ไม่เรียก RPC ต้นทุนเลย (ต้นทุนแยก action)", async () => {
-    rpcMock.mockResolvedValue({ data: { server_now: "2026-10-24T14:00:00+07:00", today_bkk: "2026-10-24", groups: [], unspecified_jobs: [], totals: { groups: 0, jobs: 0, qty_needed_now: 0, qty_ordered: 0, qty_remaining: 0, qty_excess: 0, unspecified_jobs: 0 } }, error: null });
+    rpcMock.mockResolvedValue({ data: { server_now: "2026-10-24T14:00:00+07:00", today_bkk: "2026-10-24", groups: [], unspecified_jobs: [], removed_after_order: [], totals: { groups: 0, jobs: 0, qty_needed_now: 0, qty_ordered: 0, qty_remaining: 0, qty_excess: 0, unspecified_jobs: 0 } }, error: null });
     const r = await gems.getGemPurchaseSummary();
     expect(r.ok).toBe(true);
     expect(rpcMock).toHaveBeenCalledTimes(1);

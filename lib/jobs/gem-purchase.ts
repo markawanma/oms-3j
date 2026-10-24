@@ -76,6 +76,21 @@ export interface GemPurchaseUnspecifiedJob {
   dueDate: string | null;
 }
 
+/**
+ * แถวที่เคยติ๊ก "สั่งแล้ว" แล้วถูกลบตอนแก้พลอยของใบ (ใบยังเปิดอยู่) — ถ้าเพิ่มรายการกลับ แถวใหม่ไม่มีติ๊ก เสี่ยงสั่งซ้ำ → จอเตือน
+ * (หายเองเมื่อใบนั้นมีแถวรายการเดียวกันที่ติ๊กแล้ว) · ไม่มีราคา
+ */
+export interface GemPurchaseRemovedAfterOrder {
+  jobId: string;
+  jobNo: string;
+  canonicalItemId: string;
+  /** ฉลากปัจจุบันของรายการ (null = รายการถูกลบจากแคตตาล็อกแล้ว) */
+  label: string | null;
+  /** ยอดที่ติ๊กสั่งไว้ของแถวที่ถูกลบ */
+  qty: number;
+  removedAt: string | null;
+}
+
 export interface GemPurchaseTotals {
   groups: number;
   jobs: number;
@@ -93,6 +108,8 @@ export interface GemPurchaseSummary {
   groups: GemPurchaseGroup[];
   /** ใบเปิด + ขั้นฝังยังไม่รับ + ไม่มีแถวพลอย — แสดงเตือนเสมอ แม้ groups ว่าง */
   unspecifiedJobs: GemPurchaseUnspecifiedJob[];
+  /** ติ๊กแล้วแถวถูกลบ (เตือนสั่งซ้ำ) — แสดงเสมอ แม้ groups ว่าง */
+  removedAfterOrder: GemPurchaseRemovedAfterOrder[];
   totals: GemPurchaseTotals;
 }
 
@@ -171,7 +188,7 @@ function mapGroup(raw: unknown): GemPurchaseGroup | null {
  * กลุ่ม/ใบที่แปลงไม่ได้ = null ทั้งก้อน (ไม่ทิ้งเงียบแล้วแสดงยอดที่ขาด — "ยอดไม่ครบ" อันตรายกว่า "โหลดไม่ได้")
  */
 export function mapGemPurchaseSummary(raw: unknown): GemPurchaseSummary | null {
-  if (!isObj(raw) || !Array.isArray(raw.groups) || !Array.isArray(raw.unspecified_jobs) || !isObj(raw.totals)) return null;
+  if (!isObj(raw) || !Array.isArray(raw.groups) || !Array.isArray(raw.unspecified_jobs) || !Array.isArray(raw.removed_after_order) || !isObj(raw.totals)) return null;
   const serverNow = str(raw.server_now, 40);
   const todayBkk = isoDate(raw.today_bkk);
   if (!serverNow || !todayBkk) return null;
@@ -185,6 +202,13 @@ export function mapGemPurchaseSummary(raw: unknown): GemPurchaseSummary | null {
     if (!jobId || !jobNo) return null;
     unspecified.push({ jobId, jobNo, designLabel: str(u.design_label, 200), dueDate: isoDate(u.due_date) });
   }
+  const removed: GemPurchaseRemovedAfterOrder[] = [];
+  for (const e of raw.removed_after_order) {
+    if (!isObj(e)) return null;
+    const jobId = uuid(e.job_id), jobNo = str(e.job_no, 20), canonicalItemId = uuid(e.canonical_item_id), q = qty(e.qty);
+    if (!jobId || !jobNo || !canonicalItemId || q === null || q < 1) return null;
+    removed.push({ jobId, jobNo, canonicalItemId, label: str(e.label, 200), qty: q, removedAt: str(e.removed_at, 40) });
+  }
   const t = raw.totals;
   const tg = qty(t.groups), tj = qty(t.jobs), tn = qty(t.qty_needed_now), to = qty(t.qty_ordered), tr = qty(t.qty_remaining), te = qty(t.qty_excess), tu = qty(t.unspecified_jobs);
   if (tg === null || tj === null || tn === null || to === null || tr === null || te === null || tu === null) return null;
@@ -193,6 +217,7 @@ export function mapGemPurchaseSummary(raw: unknown): GemPurchaseSummary | null {
     todayBkk,
     groups: groups as GemPurchaseGroup[],
     unspecifiedJobs: unspecified,
+    removedAfterOrder: removed,
     totals: { groups: tg, jobs: tj, qtyNeededNow: tn, qtyOrdered: to, qtyRemaining: tr, qtyExcess: te, unspecifiedJobs: tu },
   };
 }
