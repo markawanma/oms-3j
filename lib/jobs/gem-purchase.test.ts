@@ -6,7 +6,7 @@ const U = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}
 
 const job = (over: Record<string, unknown> = {}) => ({
   job_id: U(1), job_no: "JB-0001", design_label: "แหวนทดสอบ", due_date: "2026-11-01", qty_needed_now: 6, qty_ordered: 0, qty_remaining: 6, qty_excess: 0,
-  is_ordered: false, changed_after_order: false, ordered_at: null, ordered_by: null, line_ids: [U(10)], ...over,
+  is_ordered: false, changed_after_order: false, ordered_at: null, ordered_by: null, line_ids: [U(10)], lines: [{ line_id: U(10), qty_needed_now: 6, ordered_qty: null }], ...over,
 });
 const group = (over: Record<string, unknown> = {}) => ({
   canonical_item_id: U(2), type_id: U(3), type_name: "โกเมน", shape_id: U(4), shape_name: "ไข่", size_a: 4, size_b: 6, size_label: "4×6", label: "โกเมน · ไข่ · 4×6 มม.",
@@ -28,9 +28,18 @@ describe("mapGemPurchaseSummary", () => {
     expect(m?.totals).toEqual({ groups: 1, jobs: 1, qtyNeededNow: 6, qtyOrdered: 0, qtyRemaining: 6, qtyExcess: 0, unspecifiedJobs: 0 });
   });
   it("ใบที่ติ๊กแล้วแต่ยอดเปลี่ยน: ordered/ที่เหลือ/เกิน/ธง changed ผ่านครบ", () => {
-    const j = job({ qty_needed_now: 90, qty_ordered: 70, qty_remaining: 20, is_ordered: true, changed_after_order: true, ordered_at: "2026-10-24T01:00:00+00:00", ordered_by: U(99) });
+    const j = job({ qty_needed_now: 90, qty_ordered: 70, qty_remaining: 20, is_ordered: true, changed_after_order: true, ordered_at: "2026-10-24T01:00:00+00:00", ordered_by: U(99), lines: [{ line_id: U(10), qty_needed_now: 90, ordered_qty: 70 }] });
     const m = mapGemPurchaseSummary(summary({ groups: [group({ jobs: [j], qty_needed_now: 90, qty_ordered: 70, qty_remaining: 20 })] }));
     expect(m?.groups[0].jobs[0]).toMatchObject({ qtyOrdered: 70, qtyRemaining: 20, isOrdered: true, changedAfterOrder: true, orderedBy: U(99) });
+  });
+  it("ใบหลาย line ของรายการเดียวกัน (หลังรวมชื่อ): ยอดต่อ line ผ่านครบ · ผลรวม = ยอดของใบ · ใช้เป็น expected ของ markGemPurchase ได้ตรงๆ", () => {
+    const j = job({ qty_needed_now: 8, qty_remaining: 5, qty_ordered: 3, line_ids: [U(10), U(11)], lines: [{ line_id: U(10), qty_needed_now: 6, ordered_qty: 3 }, { line_id: U(11), qty_needed_now: 2, ordered_qty: null }] });
+    const m = mapGemPurchaseSummary(summary({ groups: [group({ jobs: [j], line_ids: [U(10), U(11)], qty_needed_now: 8, qty_remaining: 5, qty_ordered: 3 })] }));
+    const lines = m?.groups[0].jobs[0].lines;
+    expect(lines).toEqual([{ lineId: U(10), qtyNeededNow: 6, orderedQty: 3 }, { lineId: U(11), qtyNeededNow: 2, orderedQty: null }]);
+    expect(lines?.reduce((n, l) => n + l.qtyNeededNow, 0)).toBe(m?.groups[0].jobs[0].qtyNeededNow);
+    const expected = Object.fromEntries((lines ?? []).map((l) => [l.lineId, l.qtyNeededNow]));
+    expect(expected).toEqual({ [U(10)]: 6, [U(11)]: 2 });
   });
   it("ใบ unspecified ผ่าน · ว่างได้แม้ groups ว่าง", () => {
     const m = mapGemPurchaseSummary(summary({ groups: [], unspecified_jobs: [{ job_id: U(5), job_no: "JB-0005", design_label: "x", due_date: null }], totals: { groups: 0, jobs: 0, qty_needed_now: 0, qty_ordered: 0, qty_remaining: 0, qty_excess: 0, unspecified_jobs: 1 } }));
@@ -58,7 +67,19 @@ describe("mapGemPurchaseSummary", () => {
     ["N6: line_ids ของกลุ่มมีค่าที่ไม่ใช่ uuid → null (ไม่ทิ้งเงียบ)", summary({ groups: [group({ line_ids: [U(10), "x"] })] })],
     ["N6: line_ids ของกลุ่มว่าง → null", summary({ groups: [group({ line_ids: [] })] })],
     ["N6: line_ids ของใบเกิน 30 → null", summary({ groups: [group({ jobs: [job({ line_ids: Array.from({ length: 31 }, (_v, i) => U(i + 1)) })] })] })],
-    ["N6: line_ids ของใบมีค่าเสีย → null", summary({ groups: [group({ jobs: [job({ line_ids: [U(10), 5] })] })] })],
+    ["lines ต่อ line: ขาด lines → null", summary({ groups: [group({ jobs: [{ ...job(), lines: undefined }] })] })],
+    ["lines ว่าง → null", summary({ groups: [group({ jobs: [job({ lines: [] })] })] })],
+    ["lines: line_id ไม่ใช่ uuid → null", summary({ groups: [group({ jobs: [job({ lines: [{ line_id: "x", qty_needed_now: 6, ordered_qty: null }] })] })] })],
+    ["lines: ยอดเป็นข้อความ → null (ไม่ coerce)", summary({ groups: [group({ jobs: [job({ lines: [{ line_id: U(10), qty_needed_now: "6", ordered_qty: null }] })] })] })],
+    ["lines: ยอด 0/ทศนิยม → null", summary({ groups: [group({ jobs: [job({ lines: [{ line_id: U(10), qty_needed_now: 0, ordered_qty: null }] })] })] })],
+    ["lines: ordered_qty ผิดรูป (0 · ข้อความ · ขาด key) → null", summary({ groups: [group({ jobs: [job({ lines: [{ line_id: U(10), qty_needed_now: 6, ordered_qty: 0 }] })] })] })],
+    ["lines: ordered_qty เป็นข้อความ → null", summary({ groups: [group({ jobs: [job({ lines: [{ line_id: U(10), qty_needed_now: 6, ordered_qty: "5" }] })] })] })],
+    ["lines: ขาด key ordered_qty → null", summary({ groups: [group({ jobs: [job({ lines: [{ line_id: U(10), qty_needed_now: 6 }] })] })] })],
+    ["lines: id ไม่ตรง line_ids → null", summary({ groups: [group({ jobs: [job({ lines: [{ line_id: U(11), qty_needed_now: 6, ordered_qty: null }] })] })] })],
+    ["lines: ผลรวมยอด ≠ ยอดของใบ → null", summary({ groups: [group({ jobs: [job({ lines: [{ line_id: U(10), qty_needed_now: 5, ordered_qty: null }] })] })] })],
+    ["lines: line_id ซ้ำ → null", summary({ groups: [group({ jobs: [job({ line_ids: [U(10), U(10)], qty_needed_now: 12, lines: [{ line_id: U(10), qty_needed_now: 6, ordered_qty: null }, { line_id: U(10), qty_needed_now: 6, ordered_qty: null }] })] })] })],
+    ["lines เกิน 30 → null", summary({ groups: [group({ jobs: [job({ lines: Array.from({ length: 31 }, (_v, i) => ({ line_id: U(i + 1), qty_needed_now: 1, ordered_qty: null })) })] })] })],
+    ["N6: line_ids ของใบมีค่าเสีย → null",summary({ groups: [group({ jobs: [job({ line_ids: [U(10), 5] })] })] })],
     ["groups ไม่ใช่ array", summary({ groups: {} })],
     ["ไม่มี server_now", summary({ server_now: null })],
     ["today_bkk ผิดรูป", summary({ today_bkk: "24/10/2026" })],

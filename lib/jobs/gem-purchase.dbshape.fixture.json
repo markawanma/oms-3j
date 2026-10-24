@@ -11,6 +11,9 @@
       "line_ids": [
        "50b65f6a-a926-4228-b1ca-46e9c73c3918"
       ],
+      "lines": [
+       { "line_id": "50b65f6a-a926-4228-b1ca-46e9c73c3918", "ordered_qty": 3, "qty_needed_now": 3 }
+      ],
       "is_ordered": true,
       "ordered_at": "2026-10-24T06:24:52.047445+00:00",
       "ordered_by": "99999999-9999-4999-8999-999999999991",
@@ -51,6 +54,9 @@
       "line_ids": [
        "7112748c-33da-4115-98d4-14398c2b4009"
       ],
+      "lines": [
+       { "line_id": "7112748c-33da-4115-98d4-14398c2b4009", "ordered_qty": 6, "qty_needed_now": 9 }
+      ],
       "is_ordered": true,
       "ordered_at": "2026-10-24T06:24:52.047445+00:00",
       "ordered_by": "99999999-9999-4999-8999-999999999991",
@@ -90,6 +96,9 @@
       "due_date": "2026-10-29",
       "line_ids": [
        "5dba25c3-ff61-4f6a-89bf-67ce11d2155a"
+      ],
+      "lines": [
+       { "line_id": "5dba25c3-ff61-4f6a-89bf-67ce11d2155a", "ordered_qty": null, "qty_needed_now": 4 }
       ],
       "is_ordered": false,
       "ordered_at": null,

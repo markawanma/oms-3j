@@ -94,6 +94,20 @@ describe("mapper รับ JSON จริงจาก DB (fixture จาก dry-
     expect(m!.groups.reduce((n, g) => n + g.qtyOrdered, 0)).toBe(m!.totals.qtyOrdered);
     expect(m!.serverNow).toMatch(/\+07:00$/);
   });
+  it("jobs[].lines (ยอดต่อ line) จาก DB จริง: ผลรวม = qty_needed_now ของใบ · id ตรง line_ids · ใช้เป็น expected ของ markGemPurchase ได้ → ส่ง p_expected ตรง", async () => {
+    const m = mapGemPurchaseSummary(fixture.summary);
+    const jobs = m!.groups.flatMap((g) => g.jobs);
+    expect(jobs.length).toBeGreaterThanOrEqual(3);
+    for (const j of jobs) {
+      expect(j.lines.reduce((n, l) => n + l.qtyNeededNow, 0)).toBe(j.qtyNeededNow);
+      expect(j.lines.map((l) => l.lineId).sort()).toEqual([...j.lineIds].sort());
+    }
+    const j = jobs[0];
+    const expected = Object.fromEntries(j.lines.map((l) => [l.lineId, l.qtyNeededNow]));
+    rpcMock.mockResolvedValue({ data: fixture.mark, error: null });
+    await gems.markGemPurchase({ lineIds: j.lineIds, ordered: true, expected });
+    expect((rpcMock.mock.calls[0][1] as Record<string, unknown>).p_expected).toEqual(expected);
+  });
   it("summary จริง: ไม่มีคีย์ราคา/ต้นทุน/ผู้ขายทั้งใน JSON ดิบและใน output ของ mapper", () => {
     const bad = /price|cost|thb|supplier|margin/i;
     expect(JSON.stringify(fixture.summary)).not.toMatch(bad);
