@@ -45,23 +45,11 @@
 --
 -- 🔴 ไม่มีราคา/ต้นทุน (แม้เป็น null) ใน object ใดนอกจาก gem_purchase_summary_cost · post-check บังคับว่า view/ตารางไหนมีคอลัมน์ราคา = ล้ม
 
--- baseline: ฟังก์ชันทุกตัวในสคีมา (md5) + ตัวชี้วัดแถวของตารางที่เกี่ยวข้อง (เฉพาะคอลัมน์เดิม — ADD COLUMN ไม่แตะค่าเดิม)
+-- baseline: ฟังก์ชันทุกตัวในสคีมา (md5) — ตัวชี้วัดแถวของ job_gem_bom เก็บหลัง ALTER TABLE (ถือ ACCESS EXCLUSIVE แล้ว ไม่มีใครเขียนแทรก) · ไม่ hash ตาราง job/job_stage/gem_item_price (ไฟล์นี้ไม่มี DML กับตารางเหล่านั้น — hash จะล้มปลอมถ้ามีคนใช้งานตอน apply)
 create temp table _m192_fn_base on commit drop as
 select p.oid::regprocedure::text as sig, p.proname, md5(pg_get_functiondef(p.oid)) as h
 from pg_proc p
 where p.pronamespace = 'analytics'::regnamespace and p.prokind = 'f';
-
-create temp table _m192_row_base on commit drop as
-select 'job_gem_bom'::text as t, count(*) as n, count(distinct g.updated_at) as d,
-       coalesce(md5(string_agg(g.id::text || '|' || g.shop_id::text || '|' || g.job_id::text || '|' || g.line_seq::text || '|' || g.gem_item_id::text || '|' || g.gem_label || '|' || g.qty_per_piece::text
-                               || '|' || coalesce(g.position_note, '') || '|' || g.source || '|' || g.created_at::text || '|' || g.updated_at::text, ',' order by g.id)), '') as h
-  from analytics.job_gem_bom g
-union all
-select 'job', count(*), count(distinct j.updated_at), coalesce(md5(string_agg(j::text, '|' order by j.id)), '') from analytics.job j
-union all
-select 'job_stage', count(*), count(distinct s.updated_at), coalesce(md5(string_agg(s::text, '|' order by s.id)), '') from analytics.job_stage s
-union all
-select 'gem_item_price', count(*), 0, coalesce(md5(string_agg(p::text, '|' order by p.gem_item_id, p.effective_from)), '') from analytics.gem_item_price p;
 
 -- ============================================================================
 -- 0. pre-check
@@ -137,6 +125,13 @@ begin
   end if;
 end;
 $k$;
+
+-- baseline แถว job_gem_bom (เฉพาะคอลัมน์เดิม — ADD COLUMN ไม่แตะค่าเดิม) เก็บตอนถือล็อกตารางนี้แล้ว · post-check เทียบ count/updated_at/hash
+create temp table _m192_row_base on commit drop as
+select 'job_gem_bom'::text as t, count(*) as n, count(distinct g.updated_at) as d,
+       coalesce(md5(string_agg(g.id::text || '|' || g.shop_id::text || '|' || g.job_id::text || '|' || g.line_seq::text || '|' || g.gem_item_id::text || '|' || g.gem_label || '|' || g.qty_per_piece::text
+                               || '|' || coalesce(g.position_note, '') || '|' || g.source || '|' || g.created_at::text || '|' || g.updated_at::text, ',' order by g.id)), '') as h
+  from analytics.job_gem_bom g;
 
 -- ============================================================================
 -- 2. gem_purchase_mark_log — ประวัติการติ๊ก (append-only · ไม่มี FK ไปรายการ/แถว: รายการที่ลบแล้ว log ยังอยู่ · ไม่มีราคา)
@@ -269,7 +264,6 @@ select p.shop_id, p.canonical_item_id, p.type_id, p.type_name, p.shape_id, p.sha
        count(*)::int as job_count,
        min(p.due_date) as earliest_due,
        min(p.due_date) filter (where p.qty_remaining > 0) as earliest_due_remaining,
-       array_agg(p.job_no order by p.due_date nulls last, p.job_no) as job_nos,
        (select array_agg(l2.line_id order by l2.due_date nulls last, l2.job_no, l2.line_seq)
           from analytics.v_gem_purchase_line l2 where l2.shop_id = p.shop_id and l2.canonical_item_id = p.canonical_item_id) as line_ids,
        jsonb_agg(jsonb_build_object('job_id', p.job_id, 'job_no', p.job_no, 'design_label', p.design_label, 'due_date', p.due_date,
@@ -328,14 +322,13 @@ begin
                                        and not exists (select 1 from analytics.v_gem_purchase_line l
                                                         where l.job_id = ml.job_id and l.canonical_item_id = coalesce(gi.merged_into, gi.id, ml.gem_item_id) and l.is_ordered)
                                      order by ml.recorded_at desc limit 200) x),
-    'totals', jsonb_build_object(
-      'groups', (select count(*) from analytics.v_gem_purchase_summary s where s.shop_id = p_shop_id),
-      'jobs', (select count(distinct l.job_id) from analytics.v_gem_purchase_line l where l.shop_id = p_shop_id),
-      'qty_needed_now', (select coalesce(sum(l.qty_total), 0) from analytics.v_gem_purchase_line l where l.shop_id = p_shop_id),
-      'qty_ordered', (select coalesce(sum(l.qty_ordered), 0) from analytics.v_gem_purchase_line l where l.shop_id = p_shop_id),
-      'qty_remaining', (select coalesce(sum(l.qty_remaining), 0) from analytics.v_gem_purchase_line l where l.shop_id = p_shop_id),
-      'qty_excess', (select coalesce(sum(l.qty_excess), 0) from analytics.v_gem_purchase_line l where l.shop_id = p_shop_id),
-      'unspecified_jobs', (select count(*) from analytics.v_gem_purchase_job u where u.shop_id = p_shop_id and not u.has_bom)));
+    -- สแกน v_gem_purchase_line รอบเดียว (กลุ่ม = canonical item ไม่ซ้ำ ตรงกับจำนวนกลุ่มของ v_gem_purchase_summary)
+    'totals', (select jsonb_build_object(
+                 'groups', count(distinct l.canonical_item_id), 'jobs', count(distinct l.job_id),
+                 'qty_needed_now', coalesce(sum(l.qty_total), 0), 'qty_ordered', coalesce(sum(l.qty_ordered), 0),
+                 'qty_remaining', coalesce(sum(l.qty_remaining), 0), 'qty_excess', coalesce(sum(l.qty_excess), 0),
+                 'unspecified_jobs', (select count(*) from analytics.v_gem_purchase_job u where u.shop_id = p_shop_id and not u.has_bom))
+                 from analytics.v_gem_purchase_line l where l.shop_id = p_shop_id));
 end;
 $f$;
 
@@ -560,19 +553,13 @@ begin
   if v_new is not null then
     raise exception '0192: มีฟังก์ชันใหม่นอกรายการที่ประกาศ: %', v_new;
   end if;
-  -- (2) แถวเดิมไม่ขยับ (ไฟล์นี้ไม่มี UPDATE — ตรวจ updated_at ทั้งก้อนด้วย: ข้อ 19)
+  -- (2) แถว job_gem_bom เดิมไม่ขยับ (ไฟล์นี้ไม่มี UPDATE — ตรวจ updated_at ทั้งก้อนด้วย: ข้อ 19) · ตาราง job/job_stage/gem_item_price ไม่ hash (ไม่มี DML — ดู baseline)
   select string_agg(b.t, ', ') into v_changed
     from _m192_row_base b
     join (select 'job_gem_bom'::text as t, count(*) as n, count(distinct g.updated_at) as d,
                  coalesce(md5(string_agg(g.id::text || '|' || g.shop_id::text || '|' || g.job_id::text || '|' || g.line_seq::text || '|' || g.gem_item_id::text || '|' || g.gem_label || '|' || g.qty_per_piece::text
                                          || '|' || coalesce(g.position_note, '') || '|' || g.source || '|' || g.created_at::text || '|' || g.updated_at::text, ',' order by g.id)), '') as h
-            from analytics.job_gem_bom g
-          union all
-          select 'job', count(*), count(distinct j.updated_at), coalesce(md5(string_agg(j::text, '|' order by j.id)), '') from analytics.job j
-          union all
-          select 'job_stage', count(*), count(distinct s.updated_at), coalesce(md5(string_agg(s::text, '|' order by s.id)), '') from analytics.job_stage s
-          union all
-          select 'gem_item_price', count(*), 0, coalesce(md5(string_agg(p::text, '|' order by p.gem_item_id, p.effective_from)), '') from analytics.gem_item_price p) a on a.t = b.t
+            from analytics.job_gem_bom g) a on a.t = b.t
    where a.n <> b.n or a.d <> b.d or a.h <> b.h;
   if v_changed is not null then
     raise exception '0192: แถวเดิมขยับในตาราง: %', v_changed;

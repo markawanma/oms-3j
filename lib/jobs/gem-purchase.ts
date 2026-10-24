@@ -113,17 +113,30 @@ export interface GemPurchaseSummary {
   totals: GemPurchaseTotals;
 }
 
-const uuidList = (v: unknown, max = 500): string[] => (Array.isArray(v) ? v.flatMap((x) => { const u = uuid(x); return u ? [u] : []; }).slice(0, max) : []);
+/** line ids: ไม่ใช่ array / มีค่าที่ไม่ใช่ uuid / เกินเพดาน = null (ไม่ตัดเงียบ — ตัดแล้วติ๊ก "ทั้งรายการ" จะไม่ครบโดยไม่มีสัญญาณ) */
+const uuidList = (v: unknown, max: number): string[] | null => {
+  if (!Array.isArray(v) || v.length > max) return null;
+  const out: string[] = [];
+  for (const x of v) {
+    const u = uuid(x);
+    if (!u) return null;
+    out.push(u);
+  }
+  return out;
+};
+/** เพดาน line ids ต่อกลุ่ม (ผลจาก DB เกินนี้ = ผลผิดรูป) */
+export const GEM_PURCHASE_MAX_GROUP_LINES = 500;
 
 function mapJob(raw: unknown): GemPurchaseJob | null {
   if (!isObj(raw)) return null;
   const jobId = uuid(raw.job_id);
   const jobNo = str(raw.job_no, 20);
+  const jobLineIds = uuidList(raw.line_ids, 30);
   const needed = qty(raw.qty_needed_now);
   const ordered = qty(raw.qty_ordered);
   const remaining = qty(raw.qty_remaining);
   const excess = qty(raw.qty_excess);
-  if (!jobId || !jobNo || needed === null || ordered === null || remaining === null || excess === null) return null;
+  if (!jobId || !jobNo || !jobLineIds || jobLineIds.length === 0 || needed === null || ordered === null || remaining === null || excess === null) return null;
   return {
     jobId,
     jobNo,
@@ -137,7 +150,7 @@ function mapJob(raw: unknown): GemPurchaseJob | null {
     changedAfterOrder: raw.changed_after_order === true,
     orderedAt: str(raw.ordered_at, 40),
     orderedBy: uuid(raw.ordered_by),
-    lineIds: uuidList(raw.line_ids, 30),
+    lineIds: jobLineIds,
   };
 }
 
@@ -161,6 +174,8 @@ function mapGroup(raw: unknown): GemPurchaseGroup | null {
   const jobs = (Array.isArray(raw.jobs) ? raw.jobs : []).map(mapJob).filter((j): j is GemPurchaseJob => j !== null);
   // ใบในกลุ่มแปลงไม่ได้สักใบ/ไม่ครบ = ทิ้งกลุ่มนี้ (ไม่แสดงยอดที่ตรวจที่มาไม่ได้)
   if (jobs.length !== (Array.isArray(raw.jobs) ? raw.jobs.length : 0) || jobs.length === 0) return null;
+  const groupLineIds = uuidList(raw.line_ids, GEM_PURCHASE_MAX_GROUP_LINES);
+  if (!groupLineIds || groupLineIds.length === 0) return null;
   return {
     canonicalItemId,
     typeId,
@@ -178,7 +193,7 @@ function mapGroup(raw: unknown): GemPurchaseGroup | null {
     jobCount,
     earliestDue: isoDate(raw.earliest_due),
     earliestDueRemaining: isoDate(raw.earliest_due_remaining),
-    lineIds: uuidList(raw.line_ids),
+    lineIds: groupLineIds,
     jobs,
   };
 }
@@ -307,7 +322,7 @@ export function mapGemPurchaseCost(raw: unknown): GemPurchaseCost | null {
     // ค่ากับธง "ไม่มีราคา" ต้องสอดคล้องกัน — ขัดกัน = ผลผิดรูป (ไม่เดาว่าอันไหนจริง)
     if ((missRem && costRem !== null) || (!missRem && costRem === null) || (missOrd && costOrd !== null) || (!missOrd && costOrd === null)) return null;
     if ((costRem !== null && costRem < 0) || (costOrd !== null && costOrd < 0)) return null;
-    groups.push({ canonicalItemId, qtyRemaining: qr, qtyOrdered: qo, costRemainingThb: costRem, costOrderedThb: costOrd, missingPriceRemaining: missRem, missingPriceOrdered: missOrd, missingPrice: g.missing_price === true });
+    groups.push({ canonicalItemId, qtyRemaining: qr, qtyOrdered: qo, costRemainingThb: costRem, costOrderedThb: costOrd, missingPriceRemaining: missRem, missingPriceOrdered: missOrd, missingPrice: missRem || missOrd });
   }
   const t = raw.totals;
   const tg = qty(t.groups), tm = qty(t.groups_missing_price), cr = num(t.cost_remaining_thb), co = num(t.cost_ordered_thb);

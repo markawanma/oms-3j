@@ -54,6 +54,11 @@ describe("mapGemPurchaseSummary", () => {
     ["ไม่มี removed_after_order (DB เก่า/ผลผิดรูป)", { ...summary(), removed_after_order: undefined }],
     ["removed_after_order แถวเสีย → ทิ้งทั้งก้อน", summary({ removed_after_order: [{ job_id: "x", job_no: "JB-1", canonical_item_id: U(2), qty: 1 }] })],
     ["removed_after_order qty 0", summary({ removed_after_order: [{ job_id: U(1), job_no: "JB-1", canonical_item_id: U(2), qty: 0 }] })],
+    ["N6: line_ids ของกลุ่มเกินเพดาน 500 → null (ไม่ตัดเงียบ)", summary({ groups: [group({ line_ids: Array.from({ length: 501 }, (_v, i) => U(i + 1)) })] })],
+    ["N6: line_ids ของกลุ่มมีค่าที่ไม่ใช่ uuid → null (ไม่ทิ้งเงียบ)", summary({ groups: [group({ line_ids: [U(10), "x"] })] })],
+    ["N6: line_ids ของกลุ่มว่าง → null", summary({ groups: [group({ line_ids: [] })] })],
+    ["N6: line_ids ของใบเกิน 30 → null", summary({ groups: [group({ jobs: [job({ line_ids: Array.from({ length: 31 }, (_v, i) => U(i + 1)) })] })] })],
+    ["N6: line_ids ของใบมีค่าเสีย → null", summary({ groups: [group({ jobs: [job({ line_ids: [U(10), 5] })] })] })],
     ["groups ไม่ใช่ array", summary({ groups: {} })],
     ["ไม่มี server_now", summary({ server_now: null })],
     ["today_bkk ผิดรูป", summary({ today_bkk: "24/10/2026" })],
@@ -96,6 +101,15 @@ describe("mapGemPurchaseCost", () => {
       groups: [{ canonicalItemId: U(2), qtyRemaining: 6, qtyOrdered: 0, costRemainingThb: 12.5, costOrderedThb: 0, missingPriceRemaining: false, missingPriceOrdered: false, missingPrice: false }],
       totals: { groups: 1, groupsMissingPrice: 0, costRemainingThb: 12.5, costOrderedThb: 0, complete: true },
     });
+  });
+  it("N7: missingPrice = missingPriceRemaining || missingPriceOrdered (ไม่เชื่อธง missing_price ที่ DB ส่งแยก)", () => {
+    const m = mapGemPurchaseCost(cost({
+      groups: [cg({ cost_ordered_thb: null, missing_price_ordered: true, missing_price: false })],
+      totals: { groups: 1, groups_missing_price: 1, cost_remaining_thb: 12.5, cost_ordered_thb: 0, complete: false },
+    }));
+    expect(m?.groups[0].missingPrice).toBe(true);
+    const m2 = mapGemPurchaseCost(cost({ groups: [cg({ missing_price: true })] }));
+    expect(m2?.groups[0].missingPrice).toBe(false);
   });
   it("ไม่มีราคา = null + ธง (ไม่เดาเป็น 0) · complete=false", () => {
     const m = mapGemPurchaseCost(cost({
