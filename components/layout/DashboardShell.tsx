@@ -116,6 +116,7 @@ const NAV_GROUPS: NavGroup[] = [
     label: "ใบงาน",
     items: [
       { href: "/jobs", label: "ใบงานผลิต", icon: ClipboardCheck },
+      { href: "/jobs/gems-to-buy", label: "พลอยที่ต้องสั่ง", icon: Diamond },
       { href: "/jobs/workers", label: "ทะเบียนช่าง", icon: HardHat },
     ],
   },

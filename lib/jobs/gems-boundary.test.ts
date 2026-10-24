@@ -226,3 +226,55 @@ describe("W3: ชั้นสาธารณะของหน้างานไ
     expect(/export\s*\{\s*toWireGemLines\s*\}\s*from\s*["']@\/lib\/jobs\/gem-wire["']/.test(readFileSync(join(ROOT, "lib/jobs/gems.ts"), "utf8"))).toBe(true);
   });
 });
+
+// G1b UI (/jobs/gems-to-buy): ข้อความคัดลอก "ไม่มีราคา" กันที่โครงสร้าง — ต้นทุนอยู่ไฟล์เดียว (useGemCost.ts) และหน้า server ไม่ prefetch
+describe("G1b UI: ข้อความคัดลอก/ตรรกะหน้า ไม่แตะโมดูลราคาและไม่มีชื่อ field ราคา", () => {
+  const TEXT_SIDE = ["lib/jobs/gem-order-text.ts", "lib/jobs/gems-to-buy.ts", "components/domain/jobs/gems-to-buy/useCopyText.tsx"];
+  const COST_SIDE = ["components/domain/jobs/gems-to-buy/useGemCost.ts", "components/domain/jobs/gems-to-buy/GemCostCell.tsx"];
+  for (const entry of TEXT_SIDE) {
+    it(`${entry} — กราฟ runtime ไม่มี ${PRICE_MODULES.join(" · ")} · จอราคา · ไฟล์ต้นทุน`, () => {
+      const files = [...closure(join(ROOT, entry))].map(rel);
+      expect(files, entry).toContain(entry);
+      for (const bad of [...PRICE_MODULES, ...PRICE_SCREENS, ...COST_SIDE]) expect(files, `${entry} ลาก ${bad}`).not.toContain(bad);
+    });
+    it(`${entry} — โค้ดไม่มีชื่อ field/คำเรื่องราคา-ต้นทุน`, () => {
+      const code = strip(readFileSync(join(ROOT, entry), "utf8"));
+      expect(/\bprice\b|unit_cost|unitCost|\bcost\b|supplier|ราคา|ต้นทุน|฿|บาท/i.test(code), `${entry} มีคำเรื่องราคา`).toBe(false);
+    });
+  }
+  it("gem-order-text.ts import เฉพาะ lib/jobs/dates (pure) — ไม่ import gem-purchase.ts แม้เป็น type", () => {
+    const src = strip(readFileSync(join(ROOT, "lib/jobs/gem-order-text.ts"), "utf8"));
+    expect([...src.matchAll(/from\s*["']([^"']+)["']/g)].map((m) => m[1])).toEqual(["@/lib/jobs/dates"]);
+  });
+  it("หน้า server (page.tsx · loading.tsx) ไม่อ้างถึงต้นทุน — ไม่ prefetch → ตอนสวิตช์ปิด RSC/HTML ไม่มีเลขราคา", () => {
+    for (const f of ["app/(dashboard)/jobs/gems-to-buy/page.tsx", "app/(dashboard)/jobs/gems-to-buy/loading.tsx"]) {
+      const code = strip(readFileSync(join(ROOT, f), "utf8"));
+      expect(/getGemPurchaseCost|gem_purchase_summary_cost|useGemCost|GemCostCell|GemPurchaseCost/.test(code), `${f} อ้างถึงต้นทุน`).toBe(false);
+    }
+    expect(strip(readFileSync(join(ROOT, "app/(dashboard)/jobs/gems-to-buy/page.tsx"), "utf8"))).toContain("getGemPurchaseSummary");
+  });
+  it("getGemPurchaseCost ถูกเรียกจากไฟล์เดียวนอก lib/actions/gems.ts: useGemCost.ts (เรียกเมื่อเปิดสวิตช์เท่านั้น)", () => {
+    const files = [...walk(join(ROOT, "app")), ...walk(join(ROOT, "components")), ...walk(join(ROOT, "lib"))].map(rel);
+    const users = files.filter((r) => r !== "lib/actions/gems.ts" && strip(readFileSync(join(ROOT, r), "utf8")).includes("getGemPurchaseCost"));
+    expect(users).toEqual(["components/domain/jobs/gems-to-buy/useGemCost.ts"]);
+  });
+  it("useGemCost.ts เรียก action เฉพาะหลัง guard enabled (ไม่มีการเรียกตอน mount เมื่อสวิตช์ปิด)", () => {
+    const code = strip(readFileSync(join(ROOT, "components/domain/jobs/gems-to-buy/useGemCost.ts"), "utf8"));
+    expect(/if\s*\(!enabled\)\s*return;[\s\S]*getGemPurchaseCost\(\)/.test(code)).toBe(true);
+  });
+  it("จอ /jobs/gems-to-buy ไม่ลากจอราคาของ /oem/gems และไม่ใช้ตัวจัดรูปราคาของแคตตาล็อก (fmtGemPrice)", () => {
+    const files = [...closure(join(ROOT, "components/domain/jobs/gems-to-buy/GemsToBuyClient.tsx"))].map(rel);
+    expect(files).toContain("components/domain/jobs/gems-to-buy/useGemCost.ts");
+    for (const bad of PRICE_SCREENS) expect(files, `GemsToBuyClient ลาก ${bad}`).not.toContain(bad);
+    for (const f of files.filter((x) => x.startsWith("components/domain/jobs/gems-to-buy/"))) {
+      expect(strip(readFileSync(join(ROOT, f), "utf8")).includes("fmtGemPrice"), `${f} ใช้ fmtGemPrice`).toBe(false);
+    }
+  });
+  it("หน้าช่าง/ใบพิมพ์/หน้างานผู้จัดการไม่ลากไฟล์ของหน้านี้เข้า bundle", () => {
+    const mine = [...TEXT_SIDE, ...COST_SIDE, "components/domain/jobs/gems-to-buy/GemsToBuyClient.tsx"];
+    for (const entry of ["components/domain/jobs/worker/WorkerApp.tsx", "components/domain/jobs/JobPrintClient.tsx", "app/(worker)/w/s/[shopToken]/page.tsx"]) {
+      const files = [...closure(join(ROOT, entry))].map(rel);
+      for (const bad of mine) expect(files, `${entry} ลาก ${bad}`).not.toContain(bad);
+    }
+  });
+});

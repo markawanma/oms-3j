@@ -7,6 +7,7 @@
 
 import { useState } from "react";
 import type { KeyboardEvent } from "react";
+import Link from "next/link";
 import { Button } from "@/components/ui/Button";
 import { GemAddItemDialog } from "@/components/domain/gems/GemAddItemDialog";
 import { GemItemDetailDialog } from "@/components/domain/gems/GemItemDetailDialog";
@@ -57,9 +58,15 @@ export function GemCatalogClient({ catalog, todayBkk, initialTab }: { catalog: G
           <h1 className="text-lg font-bold text-zinc-900">แคตตาล็อกพลอย</h1>
           <p className="mt-0.5 text-sm text-zinc-700">ชนิด รูปทรง ขนาด และราคาต่อเม็ด (บาท) — รายการส่วนใหญ่เข้ามาเองเมื่อหน้างานหรือออฟฟิศใส่พลอยในใบงาน</p>
         </div>
-        <Button type="button" variant="secondary" onClick={() => setDlg({ t: "add" })}>
-          ＋ เพิ่มรายการ
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          {/* ลิงก์ข้ามกับหน้า "พลอยที่ต้องสั่ง" (ux-gems-to-buy.md §1) — คนนึกถึง "พลอย" แล้วมาเมนูนี้ก็เจอ */}
+          <Link href="/jobs/gems-to-buy" className="inline-flex min-h-11 items-center rounded-md px-3 text-sm font-semibold text-primary-700 underline-offset-2 hover:bg-zinc-100 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-600">
+            พลอยที่ต้องสั่ง →
+          </Link>
+          <Button type="button" variant="secondary" onClick={() => setDlg({ t: "add" })}>
+            ＋ เพิ่มรายการ
+          </Button>
+        </div>
       </div>
 
       <div role="tablist" aria-label="หมวดแคตตาล็อกพลอย" className="flex gap-1 border-b border-zinc-200">
