@@ -74,8 +74,8 @@ beforeEach(() => {
 const btn = (name: string | RegExp) => screen.getByRole("button", { name });
 
 describe("QA-3: history ของหน้านี้ต้องคงตัวบ่งชี้ของ Next App Router (__NA) ไม่งั้น Back = reload", () => {
-  // it.fails: ผ่านตราบที่บั๊กยังอยู่ (assert ล้ม) · ถ้า Luke แก้แล้วเทสต์จะ "ล้ม" → เปลี่ยนเป็น it
-  it.fails("QA-3a หลัง mount: history.state ยังมี __NA (ไม่ถูก replaceState ของหน้าทับทิ้ง)", async () => {
+  // (เดิมเป็น it.fails ตอน QA เจอบั๊ก) แก้แล้ว: nextHistoryState() ใน RingSizeClient.tsx คงของเดิมใน history.state (__NA + tree) ทุกครั้งที่ push/replace
+  it("QA-3a หลัง mount: history.state ยังมี __NA (ไม่ถูก replaceState ของหน้าทับทิ้ง)", async () => {
     render(
       <NextLikeRouter>
         <RingSizeClient />
@@ -85,7 +85,7 @@ describe("QA-3: history ของหน้านี้ต้องคงตั�
     expect((window.history.state as Record<string, unknown>).__NA).toBe(true);
   });
 
-  it.fails("QA-3b กดเริ่ม → R1Pick → ปุ่มย้อนบนจอ → ต้องไม่ทำให้ Next สั่ง reload หน้า", async () => {
+  it("QA-3b กดเริ่ม → R1Pick → ปุ่มย้อนบนจอ → ต้องไม่ทำให้ Next สั่ง reload หน้า", async () => {
     const u = userEvent.setup();
     render(
       <NextLikeRouter>

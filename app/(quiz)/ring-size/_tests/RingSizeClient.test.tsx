@@ -313,6 +313,16 @@ describe("G5: ค่าเก่าอาจไม่ตรงเครื่อ
     expect(screen.getByText("ปรับวงแดงจนล้อมขอบเหรียญพอดีรอบวง")).toBeInTheDocument();
   });
 
+  it("portraitWidth ใช้ความกว้างเลย์เอาต์ (documentElement.clientWidth) — pinch ที่ทำให้ innerWidth เปลี่ยนแต่เลย์เอาต์เท่าเดิม ไม่ใช่ stale", async () => {
+    seedCalibration({ ref: "coin", pxPerMm: 6 });
+    expect(JSON.parse(window.localStorage.getItem(CALIBRATION_STORAGE_KEY) ?? "{}").portraitWidth).toBe(390);
+    Object.defineProperty(window, "innerWidth", { value: 200, configurable: true, writable: true }); // innerWidth แกว่งตาม pinch
+    const u = user();
+    render(<RingSizeClient />);
+    await u.click(await screen.findByRole("button", { name: "เริ่มวัดไซส์" }));
+    expect(heading("ขั้นที่ 2 เลือกวิธีวัด")).toBeInTheDocument(); // clientWidth ยัง 390 → ใช้ค่าเทียบเดิมได้
+  });
+
   it("หมุนเป็นแนวนอน (innerWidth > innerHeight) ไม่ทำให้ค่า stale (ไม่เทียบ portraitWidth)", async () => {
     seedCalibration({ ref: "coin", pxPerMm: 6, portraitWidth: 390 });
     setViewport({ innerWidth: 844, innerHeight: 390 });
@@ -410,7 +420,10 @@ describe("G4: ค่าวัดนอกช่วง 40–75 (A3) · ปลา�
     fireEvent.change(screen.getByRole("slider", { name: "ปรับขนาดวงกลมให้เท่ารูแหวน" }), { target: { value: "12" } });
     await u.click(btn("ใช้ค่านี้"));
     expect(screen.getByRole("alert")).toHaveTextContent("ค่านี้อยู่นอกช่วงที่เครื่องมือวัดได้");
-    expect(screen.getByText(/ค่าที่วัดได้ \(37\.7 มม\.\) เล็กกว่าช่วงที่เครื่องมือนี้วัดได้ \(40–75 มม\.\)/)).toBeInTheDocument();
+    // วิธีแหวน: บอกทั้งเส้นผ่านศูนย์กลางที่ผู้ใช้เห็นบนจอและเส้นรอบวง (ช่วง 40–75 เป็นของเส้นรอบวง)
+    expect(
+      screen.getByText("ค่าที่วัดได้ (เส้นผ่านศูนย์กลาง 12.0 มม. = เส้นรอบวง 37.7 มม.) เล็กกว่าช่วงที่เครื่องมือนี้วัดได้ (เส้นรอบวง 40–75 มม.) ลองวัดใหม่อีกครั้ง หรือทักแอดมินให้ช่วยดู")
+    ).toBeInTheDocument();
     expect(screen.queryByTestId("result-size")).toBeNull();
     expect(screen.getByText("ตอนเทียบจอใช้บัตรขนาดมาตรฐานแบบบัตร ATM หรือเหรียญ 10 บาทหมุนเวียนสองสี")).toBeInTheDocument();
     expect(screen.getByText("วัดที่ขอบด้านในของแหวน")).toBeInTheDocument();
@@ -674,17 +687,23 @@ describe("R5B + G2 (B9 B10)", () => {
     expect(screen.getByText(/50\.5 มม\./)).toBeInTheDocument(); // ค่าไม่หาย
   });
 
-  it("ขอบ G2 ใช้ความสูงบล็อกบนที่วัดจริง (52 px): viewport 556 = 504 + 52 ยังวัดได้ · 555 → G2", async () => {
+  it("ขอบ G2 ใช้ความสูงบล็อกบนที่ \"วัดจริง\" (mock คืน 60 px ต่างจากค่าตั้งต้น 52): viewport 564 = 504 + 60 ยังวัดได้ · 563 → G2 · 556 (ที่ 52 จะพอ) ต้องเป็น G2", async () => {
     seedCalibration({ pxPerMm: 6 });
     const u = user();
-    setViewport({ innerHeight: 556 });
+    setViewport({ innerHeight: 564 });
     render(<RingSizeClient />);
     await u.click(await screen.findByRole("button", { name: "เริ่มวัดไซส์" }));
     await u.click(btn(/พันกระดาษรอบนิ้ว/));
     await u.click(btn("พร้อมแล้ว เริ่มวัด"));
     expect(screen.getByText(/วางปลายกระดาษที่ไม่มีรอยให้ตรงเลข 0/)).toBeInTheDocument();
     expect(screen.queryByText("จอนี้เล็กเกินไปสำหรับขั้นตอนนี้")).toBeNull();
-    setViewport({ innerHeight: 555 });
+    setViewport({ innerHeight: 563 });
+    fireEvent(window, new Event("resize"));
+    await waitFor(() => expect(screen.getByText("จอนี้เล็กเกินไปสำหรับขั้นตอนนี้")).toBeInTheDocument());
+    setViewport({ innerHeight: 564 });
+    fireEvent(window, new Event("resize"));
+    await waitFor(() => expect(screen.getByText(/วางปลายกระดาษที่ไม่มีรอยให้ตรงเลข 0/)).toBeInTheDocument());
+    setViewport({ innerHeight: 556 });
     fireEvent(window, new Event("resize"));
     await waitFor(() => expect(screen.getByText("จอนี้เล็กเกินไปสำหรับขั้นตอนนี้")).toBeInTheDocument());
     // G2 ไม่ซ้อน header สองชั้น (บล็อกบนของ R5B ยังอยู่ตัวเดียว)

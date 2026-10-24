@@ -2,18 +2,25 @@
 import { vi } from "vitest";
 import { CALIBRATION_STORAGE_KEY, CALIBRATION_VERSION, LAST_RESULT_STORAGE_KEY, currentFingerprint, type Calibration, type LastResult } from "@/lib/ring-size/calibration";
 
+/** ความสูงบล็อกบน (header+แถบ G1) ที่ mock คืนให้ R5B — Hruler ที่ ppm 6 = 504 → ขอบ G2 = 564 px */
+export const R5B_TOP_BLOCK_PX = 60;
+
 /** jsdom ไม่มี layout — ทุก element ได้ขนาดเท่ากัน เพื่อให้เวทีมีขนาดที่วัดได้ */
 export function mockRects(width = 390, height = 300) {
   return vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
-    // บล็อกบนของ R5B (header) สูงตามจริง 52 px — องค์ประกอบอื่นได้ขนาดเดียวกันหมด
-    const h = this.hasAttribute("data-rs-top") ? 52 : height;
+    // บล็อกบนของ R5B (header) — จงใจให้ต่างจากค่าตั้งต้นในโค้ด (HEADER_PX = 52) เพื่อพิสูจน์ว่าใช้ "ค่าที่วัดจริง" ไม่ใช่ fallback บังเอิญเท่ากัน
+    const h = this.hasAttribute("data-rs-top") ? R5B_TOP_BLOCK_PX : height;
     return { width, height: h, top: 0, left: 0, right: width, bottom: h, x: 0, y: 0, toJSON() {} } as DOMRect;
   });
 }
 
 export function setViewport(opts: { innerHeight?: number; innerWidth?: number }) {
   if (opts.innerHeight !== undefined) Object.defineProperty(window, "innerHeight", { value: opts.innerHeight, configurable: true, writable: true });
-  if (opts.innerWidth !== undefined) Object.defineProperty(window, "innerWidth", { value: opts.innerWidth, configurable: true, writable: true });
+  if (opts.innerWidth !== undefined) {
+    Object.defineProperty(window, "innerWidth", { value: opts.innerWidth, configurable: true, writable: true });
+    // ความกว้างเลย์เอาต์ (ที่ fingerprint ใช้) — jsdom คืน 0 ถ้าไม่ตั้ง
+    Object.defineProperty(document.documentElement, "clientWidth", { value: opts.innerWidth, configurable: true });
+  }
 }
 
 export function setVisualViewport(vv: Partial<VisualViewport> | undefined) {

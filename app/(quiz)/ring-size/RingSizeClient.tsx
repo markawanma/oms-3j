@@ -61,9 +61,30 @@ interface ResultState {
   measuredAt: number;
 }
 
+/** ระยะที่ถือว่า "กำลังย้อน" สูงสุด (ms) ถ้า popstate ไม่มา */
+const BACK_PENDING_MS = 800;
+
 interface HistState {
   rs: ScreenId;
   i: number;
+}
+
+/**
+ * state ของ history entry ใหม่ = state เดิม + { rs, i }  (QA-3: ห้ามเขียนทับทั้งก้อน)
+ *
+ * Next App Router ใส่ { __NA: true, __PRIVATE_NEXTJS_INTERNALS_TREE } ใน history.state ทุก entry (next@15.5 app-router.js)
+ * และ onPopState จะสั่ง window.location.reload() ทันทีถ้า event.state มีค่าแต่ไม่มี __NA
+ * Router ครอบ pushState/replaceState ให้คัดลอก __NA ให้เองก็จริง แต่ React รัน effect "ลูกก่อนแม่" — effect ตอน mount ของหน้านี้
+ * จึงเรียก replaceState ตัวจริงของเบราว์เซอร์ก่อน patch ติดตั้ง → ทับ __NA ทิ้ง → ปุ่ม Back ทุกจอ = reload (ค่าที่วัดหาย)
+ * วิธีที่ถูก: ใช้ window.history.pushState/replaceState (ตัว Next patch ไว้ — เป็นแนวทางที่เอกสาร Next ระบุสำหรับ
+ * "Native History API" ซิงก์กับ usePathname/useSearchParams) แต่ส่ง state ที่ "คงของเดิมไว้" ไม่ว่า patch จะติดตั้งแล้วหรือยัง
+ * (state ที่มี __NA ถูกส่งผ่านตรงๆ ไม่ถูกแก้ซ้ำ — ดู app-router.js)
+ * ทางอื่นที่ไม่เลือก: router.push/replace (ยิง RSC request + render ใหม่ทุกจอ ทั้งที่จอพวกนี้เป็น state ฝั่ง client ล้วน) · hash (#R3) (ไม่ผ่านระบบ history ของ Next และแชร์ลิงก์เข้าจอกลางทางได้ซึ่งไม่มีข้อมูลรองรับ)
+ */
+function nextHistoryState(rs: ScreenId, i: number): Record<string, unknown> {
+  const cur = window.history.state as unknown;
+  const base = cur && typeof cur === "object" && !Array.isArray(cur) ? (cur as Record<string, unknown>) : {};
+  return { ...base, rs, i } satisfies Record<string, unknown>;
 }
 
 function readHistState(): HistState | null {
@@ -109,17 +130,21 @@ export function RingSizeClient() {
   const [measure, setMeasure] = useState<{ A: number | null; B: number | null }>({ A: null, B: null });
   const [result, setResult] = useState<ResultState | null>(null);
   const [resultFromHome, setResultFromHome] = useState(false);
-  const [invalid, setInvalid] = useState<{ circ: number; method: Method } | null>(null);
+  const [invalid, setInvalid] = useState<{ circ: number; method: Method; diameterMm: number | null } | null>(null);
   const [g3, setG3] = useState<{ kind: RefKind; ppm: number } | null>(null);
 
   const rootRef = useRef<HTMLDivElement>(null);
   const stackRef = useRef<ScreenId[]>(["R0"]);
   const idxRef = useRef(0);
   const firstRender = useRef(true);
+  // QA-2: ปุ่มย้อนบนจอเรียก history.back() (async — popstate มาทีหลัง) · กดรัวก่อน popstate = back() ซ้ำ = ออกนอกหน้า
+  // จึงมี flag "กำลังย้อน" จน popstate มาถึง (หรือครบ BACK_PENDING_MS กันค้างถ้า popstate ไม่มา)
+  const backPendingRef = useRef(false);
+  const backTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   // popstate handler ถูกผูกครั้งเดียวตอน mount — อ่านผลวัดล่าสุดผ่าน ref (ไม่ใช่ closure เก่า)
   const resultRef = useRef<ResultState | null>(null);
   resultRef.current = result;
-  const invalidRef = useRef<{ circ: number; method: Method } | null>(null);
+  const invalidRef = useRef<{ circ: number; method: Method; diameterMm: number | null } | null>(null);
   invalidRef.current = invalid;
 
   // ───── history: ทุกจอ = 1 entry ─────
@@ -129,12 +154,12 @@ export function RingSizeClient() {
     try {
       if (opts?.replace) {
         stackRef.current[idxRef.current] = next;
-        window.history.replaceState({ rs: next, i: idxRef.current } satisfies HistState, "");
+        window.history.replaceState(nextHistoryState(next, idxRef.current), "");
       } else {
         stackRef.current = stackRef.current.slice(0, idxRef.current + 1);
         stackRef.current.push(next);
         idxRef.current += 1;
-        window.history.pushState({ rs: next, i: idxRef.current } satisfies HistState, "");
+        window.history.pushState(nextHistoryState(next, idxRef.current), "");
       }
     } catch {
       // history ใช้ไม่ได้ — จอยังเปลี่ยนได้ (เสียแค่ปุ่ม Back ของเครื่อง)
@@ -145,12 +170,20 @@ export function RingSizeClient() {
   /** ปุ่มย้อนบนจอ: ถ้า entry ก่อนหน้าคือปลายทางที่ต้องไป → history.back() (ไม่สะสม entry) · ไม่ใช่ → ไปปลายทางด้วย push */
   const goBack = useCallback(
     (dest: ScreenId) => {
+      if (backPendingRef.current) return; // กำลังย้อนอยู่ — กดซ้ำไม่นับ
       const i = idxRef.current;
+      if (dest === stackRef.current[i]) return; // ปลายทางคือจอนี้เอง (กดรัวหลัง navigate) — ไม่ push entry ซ้ำ
       if (i > 0 && stackRef.current[i - 1] === dest) {
         try {
+          backPendingRef.current = true;
+          if (backTimerRef.current) clearTimeout(backTimerRef.current);
+          backTimerRef.current = setTimeout(() => {
+            backPendingRef.current = false;
+          }, BACK_PENDING_MS);
           window.history.back();
           return;
         } catch {
+          backPendingRef.current = false;
           // ตกไป navigate ปกติ
         }
       }
@@ -174,7 +207,7 @@ export function RingSizeClient() {
       stackRef.current = [];
       stackRef.current[i] = "R0";
       idxRef.current = i;
-      window.history.replaceState({ rs: "R0", i } satisfies HistState, "");
+      window.history.replaceState(nextHistoryState("R0", i), "");
     } catch {
       // ไม่มี history API
     }
@@ -183,6 +216,11 @@ export function RingSizeClient() {
       const s = e.state as { rs?: unknown; i?: unknown } | null;
       const rs: ScreenId = s && isScreenId(s.rs) ? s.rs : "R0";
       const i = s && typeof s.i === "number" && Number.isInteger(s.i) && s.i >= 0 ? s.i : 0;
+      backPendingRef.current = false;
+      if (backTimerRef.current) {
+        clearTimeout(backTimerRef.current);
+        backTimerRef.current = null;
+      }
       idxRef.current = i;
       stackRef.current[i] = rs;
       setG3(null);
@@ -201,6 +239,7 @@ export function RingSizeClient() {
     return () => {
       window.removeEventListener("popstate", onPop);
       html.style.overflow = prevOverflow;
+      if (backTimerRef.current) clearTimeout(backTimerRef.current);
     };
   }, []);
 
@@ -296,10 +335,10 @@ export function RingSizeClient() {
     navigate(m === "A" ? "R4A" : "R4B");
   };
 
-  const finishMeasure = (m: Method, rawCirc: number) => {
+  const finishMeasure = (m: Method, rawCirc: number, diameterMm: number | null = null) => {
     const rec = circToRec(rawCirc);
     if (!rec || !isPlausibleCirc(rawCirc) || !calib) {
-      setInvalid({ circ: roundTenth(Number.isFinite(rawCirc) ? rawCirc : 0), method: m });
+      setInvalid({ circ: roundTenth(Number.isFinite(rawCirc) ? rawCirc : 0), method: m, diameterMm });
       navigate("G4");
       return;
     }
@@ -325,8 +364,11 @@ export function RingSizeClient() {
   // ───── แสดงจอ ─────
   const kind: RefKind = shown === "R2Coin" ? "coin" : "card";
   const draftPpm = drafts[kind];
+  // QA-1: G5 ต้องนับตั้งแต่รอบ render ที่เด้งมาจอเทียบ (staleBlocked) ไม่ใช่รอรอบหลัง effect ตั้ง g5 —
+  // ไม่งั้น Calibrate mount ด้วย "ปรับแล้ว" จาก draft เดิม ปุ่มยืนยันกดได้ทันทีด้วย ppm ที่ยังไม่ตรวจซ้ำ
+  const g5Active = (g5 || staleBlocked) && !!calib && calib.ref === kind;
   const calibInitialPpm =
-    g5 && calib && calib.ref === kind
+    g5Active && calib
       ? startPpmFromDpr(calib, currentFingerprint().dpr)
       : draftPpm ?? CALIBRATION.PPM_START;
 
@@ -358,8 +400,8 @@ export function RingSizeClient() {
           kind={kind}
           step={counter}
           initialPpm={calibInitialPpm}
-          initiallyTouched={draftPpm !== null}
-          g5={g5 && !!calib && calib.ref === kind}
+          initiallyTouched={draftPpm !== null && !g5Active}
+          g5={g5Active}
           onBack={() => back(shown)}
           onDraft={(ppm) => setDrafts((d) => ({ ...d, [kind]: ppm }))}
           onConfirm={(ppm) => confirmCalibration(kind, ppm)}
@@ -405,7 +447,7 @@ export function RingSizeClient() {
           initialMm={measure.A}
           onBack={() => back("R5A")}
           onChange={(mm) => setMeasure((m) => ({ ...m, A: mm }))}
-          onConfirm={(mm) => finishMeasure("A", diameterToCirc(mm))}
+          onConfirm={(mm) => finishMeasure("A", diameterToCirc(mm), mm)}
           onHowTo={() => goBack("R4A")}
         />
       ) : null;
@@ -453,6 +495,7 @@ export function RingSizeClient() {
         <G4
           step={counter}
           circ={invalid.circ}
+          diameterMm={invalid.diameterMm}
           method={invalid.method}
           onBack={() => back("G4")}
           onRemeasure={() => goBack(remeasureDestination(invalid.method))}

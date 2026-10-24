@@ -7,6 +7,7 @@
 //   - อ่านใน useEffect เท่านั้น (ไฟล์นี้ไม่อ่านเองตอน import/render — ผู้เรียกต้องเรียกจาก effect/handler)
 import { CALIBRATION, type RefKind } from "./config";
 
+// key ไม่เปลี่ยนชื่อตอนยกเป็น version 2 — เวอร์ชันอยู่ใน field `version` (parseCalibration ทิ้งค่าที่ version ไม่ตรง แล้วถูกเขียนทับเมื่อเทียบใหม่)
 export const CALIBRATION_STORAGE_KEY = "ringSize:calibration:v1";
 export const LAST_RESULT_STORAGE_KEY = "ringSize:lastResult:v1";
 /** v2 (24 ต.ค. 69): เพิ่ม portraitWidth กัน Safari "aA" page zoom ที่ไม่เปลี่ยน dpr — ค่า v1 ที่เก็บไว้ก่อนหน้านี้ถูกทิ้ง */
@@ -225,7 +226,10 @@ export function currentFingerprint(): ScreenFingerprint {
     w = 1;
     h = 1;
   }
-  const iw = window.innerWidth;
+  // ความกว้างเลย์เอาต์จริง: documentElement.clientWidth ไม่ขึ้นกับ pinch-zoom (innerWidth บางเบราว์เซอร์เปลี่ยนตามการ pinch)
+  // ไม่รู้ค่า (0 — เช่น jsdom/webview แปลก) → ตกไป innerWidth
+  const cw = typeof document !== "undefined" ? document.documentElement.clientWidth : 0;
+  const iw = isFiniteNumber(cw) && cw > 0 ? cw : window.innerWidth;
   const ih = window.innerHeight;
   const portrait = isFiniteNumber(iw) && isFiniteNumber(ih) && iw > 0 && ih >= iw;
   return { dpr, screenShort: Math.min(w, h), screenLong: Math.max(w, h), portraitWidth: portrait ? iw : null };

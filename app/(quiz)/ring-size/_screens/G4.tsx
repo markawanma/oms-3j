@@ -12,6 +12,7 @@ import { CARD, FOCUS, SERIF, TEXT, TEXT_3 } from "../_components/styles";
 export function G4({
   step,
   circ,
+  diameterMm = null,
   method,
   onBack,
   onRemeasure,
@@ -20,6 +21,8 @@ export function G4({
   step: { current: number; total: number } | null;
   /** เส้นรอบวงที่ปัด 0.1 แล้ว */
   circ: number;
+  /** วิธีแหวน: เส้นผ่านศูนย์กลางที่ผู้ใช้เห็น (มม.) — ใช้บอกในข้อความคู่กับเส้นรอบวง */
+  diameterMm?: number | null;
   method: Method;
   onBack: () => void;
   onRemeasure: () => void;
@@ -36,7 +39,9 @@ export function G4({
         </span>
         <div role="alert" className="flex flex-col items-center gap-3">
           <h1 className={`${SERIF} m-0 text-[24px] font-semibold leading-snug ${TEXT}`}>{COPY.g4.title}</h1>
-          <p className={`m-0 text-[15px] leading-relaxed ${TEXT_3}`}>{COPY.g4.body(formatMm(circ), side, MEASURE.G4[0], MEASURE.G4[1])}</p>
+          <p className={`m-0 text-[15px] leading-relaxed ${TEXT_3}`}>{method === "A" && diameterMm !== null
+              ? COPY.g4.bodyDiameter(formatMm(diameterMm), formatMm(circ), side, MEASURE.G4[0], MEASURE.G4[1])
+              : COPY.g4.body(formatMm(circ), side, MEASURE.G4[0], MEASURE.G4[1])}</p>
         </div>
 
         <section className={`${CARD} w-full p-4 text-left`} aria-label={COPY.g4.checklistTitle}>

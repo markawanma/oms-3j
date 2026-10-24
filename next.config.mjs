@@ -27,7 +27,7 @@ nextConfig.headers = async () => [
     ],
   },
   // เครื่องมือวัดไซส์แหวน /ring-size (หน้าสาธารณะ): คำสัญญา "ไม่ใช้กล้อง" ต้องมีด่านที่ระดับเบราว์เซอร์ด้วย
-  // ไม่ใช่แค่ไม่มีโค้ดเรียกกล้อง — exact path เท่านั้น (ไม่ใช่ /ring-size/:path*) · header เดียว ไม่แตะ CSP/header อื่น
+  // ไม่ใช่แค่ไม่มีโค้ดเรียกกล้อง — exact path เท่านั้น (ไม่ใช่ /ring-size/:path*) · 3 header: Permissions-Policy + X-Frame-Options + CSP frame-ancestors (ไม่มี CSP ตัวอื่น)
   // (Next ถือ "/ring-size/" เป็นหน้าเดียวกัน — regex ที่ build ได้คือ ^/ring-size(?:/)?$ · ดูเทสต์ lib/ring-size/headers.test.ts)
   // security L1: ห้ามถูกฝังใน iframe (clickjacking) — ทั้ง X-Frame-Options และ CSP frame-ancestors (เหมือนหน้าช่างด้านบน)
   //   ตอนนี้ยังไม่มีแผนฝังใน Wix — ถ้าวันหน้าจะฝัง ต้องเปลี่ยนสองค่านี้ (และให้ security ตรวจ) ไม่ใช่ลบทิ้งเงียบๆ
