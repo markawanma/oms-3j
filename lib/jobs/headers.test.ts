@@ -8,11 +8,14 @@ async function rules() {
 const val = (hs: { key: string; value: string }[], k: string) => hs.find((h) => h.key.toLowerCase() === k.toLowerCase())?.value;
 
 describe("headers ของ /w/:path*", () => {
-  it("มีกฎของหน้าช่างเดียวที่ source = /w/:path* (ไม่กระทบหน้าออฟฟิศ) + กฎ exact /ring-size ของเครื่องมือวัดไซส์ (24 ต.ค. 69 — ดู lib/ring-size/headers.test.ts)", async () => {
+  // รายการ source เต็มของ headers() ยืนยันที่ lib/ring-size/headers.test.ts ที่เดียว — ที่นี่เช็กเฉพาะกฎของหน้าช่าง
+  it("มีกฎของหน้าช่างที่ source = /w/:path* ตัวเดียว · ไม่มีกฎอื่นชี้ /w (ไม่กระทบหน้าออฟฟิศ) · ไม่มี Permissions-Policy ลามมาจากกฎ /ring-size", async () => {
     const r = await rules();
-    expect(r.map((x) => x.source)).toEqual(["/w/:path*", "/ring-size"]);
-    // กฎ /ring-size ต้องไม่ลามมาเป็น header ของหน้าช่าง (Permissions-Policy มีเฉพาะ /ring-size)
-    expect(r[0].headers.some((h) => h.key.toLowerCase() === "permissions-policy")).toBe(false);
+    expect(r.filter((x) => x.source === "/w/:path*")).toHaveLength(1);
+    expect(r.filter((x) => x.source.startsWith("/w"))).toHaveLength(1);
+    const w = r.find((x) => x.source === "/w/:path*")!;
+    expect(w.headers.some((h) => h.key.toLowerCase() === "permissions-policy")).toBe(false);
+    expect(r[0].source).toBe("/w/:path*"); // กฎอื่นต่อท้ายเท่านั้น ไม่เปลี่ยนลำดับ/ตัวเดิม
   });
   it("Referrer-Policy no-referrer · noindex · no-store · nosniff", async () => {
     const hs = (await rules())[0].headers;

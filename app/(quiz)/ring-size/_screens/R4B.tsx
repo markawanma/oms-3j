@@ -42,7 +42,7 @@ export function R4B({
           ))}
         </ol>
 
-        {SHOW_KNUCKLE_RULE ? (
+        {SHOW_KNUCKLE_RULE && COPY.r4b.knuckle ? (
           <div className="rounded-[16px] bg-[var(--rs-warn)] px-3.5 py-3 text-[15px] leading-relaxed text-[var(--rs-warn-text)]">{COPY.r4b.knuckle}</div>
         ) : null}
       </div>

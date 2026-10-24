@@ -16,6 +16,19 @@ vi.mock("@/lib/ring-size/config", async (importOriginal) => {
     BETWEEN_REASON: "TEST_ONLY_BETWEEN_REASON",
     RING_TOOL_DESTINATIONS: { shop: { label: "TEST_ONLY_SHOP_BUTTON", href: "https://example.invalid/shop" } },
     TRACK_ENABLED: true,
+    // ข้อความจริงไม่อยู่ใน bundle (L3) — เทสต์ฉีดสตริงทดสอบเข้าไป เพื่อพิสูจน์ว่า flag + ข้อความต้องมีพร้อมกันจึงจะ render
+    COPY: {
+      ...orig.COPY,
+      r4b: { ...orig.COPY.r4b, knuckle: "TEST_ONLY_KNUCKLE_TEXT" },
+      r6: {
+        ...orig.COPY.r6,
+        tipsTitle: "TEST_ONLY_TIPS_TITLE",
+        tips: [
+          { q: "TEST_ONLY_Q1", a: "TEST_ONLY_A1" },
+          { q: "TEST_ONLY_Q2", a: "TEST_ONLY_A2" },
+        ],
+      },
+    },
   };
 });
 
@@ -29,11 +42,11 @@ function r6(c: number) {
 }
 
 describe("flag เปิด → ค่าที่ซ่อนอยู่โผล่ (พิสูจน์ว่าเป็น flag จริง ไม่ใช่ข้อความที่ลืมใส่)", () => {
-  it("SHOW_FINGER_TIPS: ส่วน 'เคล็ดลับก่อนสั่ง' โผล่ (2 ข้อ ไม่มีข้อหน้ากว้าง)", () => {
+  it("SHOW_FINGER_TIPS + มีข้อความ: ส่วนเคล็ดลับโผล่ตามข้อความที่ฉีด", () => {
     r6(54);
-    expect(screen.getByText("เคล็ดลับก่อนสั่ง")).toBeInTheDocument();
-    expect(screen.getByText("นิ้วขนาดไม่เท่ากันตลอดวัน")).toBeInTheDocument();
-    expect(screen.getByText("ข้อนิ้วใหญ่กว่าโคนนิ้ว")).toBeInTheDocument();
+    expect(screen.getByText("TEST_ONLY_TIPS_TITLE", { selector: "h2" })).toBeInTheDocument();
+    expect(screen.getByText("TEST_ONLY_Q1")).toBeInTheDocument();
+    expect(screen.getByText("TEST_ONLY_Q2")).toBeInTheDocument();
     expect(document.body.textContent).not.toMatch(/หน้ากว้าง/);
   });
 
@@ -57,7 +70,7 @@ describe("flag เปิด → ค่าที่ซ่อนอยู่โผ
 
   it("R4B: SHOW_KNUCKLE_RULE โผล่กล่องข้อนิ้ว · PAPER_SIZE_HINT แทนข้อความไม่มีตัวเลข", () => {
     render(<R4B step={null} onBack={() => {}} onNext={() => {}} onSwitchA={() => {}} />);
-    expect(screen.getByText(/ลองสวมแถบกระดาษผ่านข้อนิ้ว/)).toBeInTheDocument();
+    expect(screen.getByText("TEST_ONLY_KNUCKLE_TEXT")).toBeInTheDocument();
     expect(screen.getByText("TEST_ONLY_PAPER_HINT")).toBeInTheDocument();
     expect(screen.queryByText(/ตัดกระดาษเป็นแถบยาวพอพันรอบนิ้ว/)).toBeNull();
   });

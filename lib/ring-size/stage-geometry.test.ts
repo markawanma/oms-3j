@@ -19,11 +19,14 @@ describe("วงเหรียญ: ขอบในของเส้น = ข�
     // และอ่านกลับเป็น ppm เดิม (วงเข้า-ออกไม่คลาด)
     expect(computePxPerMm("coin", ringInnerDiameterPx(r, CALIBRATION.STROKE_PX))).toBeCloseTo(ppm, 10);
   });
-  it("กับดัก border-box: ถ้าใช้ border 3px + width d ได้ d − 6 px (เทียบเป็น มม. ผิดเกิน 1 มม. ที่เหรียญ)", () => {
-    const d = 26 * 6;
-    const wrong = d - 2 * 3;
-    expect((d - wrong) / 6).toBeGreaterThanOrEqual(1); // นี่คือความผิดที่ SVG กันไว้
+  it.each([
+    [4.5, 59.5],
+    [6.0, 79],
+    [7.5, 98.5],
+  ])("ค่าตายตัวที่คำนวณมือ: ppm=%s → r = %s (26 × ppm ÷ 2 + 1)", (ppm, r) => {
+    expect(circleRadiusFor(26, ppm, 2)).toBeCloseTo(r, 10);
   });
+  // (กับดัก border-box ของ Tailwind กันด้วย "ไม่มี border บนองค์ประกอบวัด" ที่ copy-guard.test.ts + parts.test.tsx ไม่ใช่ที่นี่)
 });
 
 describe("เส้นบัตร: ขอบในของเส้นห่างกัน 53.98 × ppm", () => {
@@ -33,6 +36,14 @@ describe("เส้นบัตร: ขอบในของเส้นห่�
     expect(xr - 195).toBeCloseTo(162.94, 10);
     expect(xr - xl - 2).toBeCloseTo(53.98 * 6, 10); // หักครึ่งความหนาเส้นสองข้าง
     expect(computePxPerMm("card", xr - xl - 2)).toBeCloseTo(6, 10);
+  });
+  it.each([
+    [4.5, 122.455],
+    [7.5, 203.425],
+  ])("ค่าตายตัวที่คำนวณมือ: ppm=%s → ห่างจากกลาง %s px (53.98 × ppm ÷ 2 + 1)", (ppm, off) => {
+    const [xl, xr] = cardLineXs(200, 53.98, ppm, 2);
+    expect(200 - xl).toBeCloseTo(off, 9);
+    expect(xr - 200).toBeCloseTo(off, 9);
   });
   it.each([4.5, 6.0, 7.5])("ที่ ppm=%s อ่านกลับได้ ppm เดิม", (ppm) => {
     const [xl, xr] = cardLineXs(200, 53.98, ppm, 2);

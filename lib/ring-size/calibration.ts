@@ -1,15 +1,16 @@
 // lib/ring-size/calibration.ts — ค่าเทียบจอ (px ต่อ มม.) · อ่าน/เขียน/ตรวจใน localStorage
 //
 // กติกา (build spec ข้อ 3.3):
-//   - เก็บ { pxPerMm, ref, dpr, screenShort, screenLong, savedAt, version: 1 } เท่านั้น · ไม่เก็บอย่างอื่น
-//   - ref นอก whitelist · version ≠ 1 · ค่าไม่ใช่ตัวเลข/นอก 2.0–12.0 → ทิ้งทั้งก้อน เหมือนไม่มี
+//   - เก็บ { pxPerMm, ref, dpr, screenShort, screenLong, portraitWidth, savedAt, version: 2 } เท่านั้น · ไม่เก็บอย่างอื่น
+//   - ref นอก whitelist · version ≠ 2 (ค่า v1 เดิมที่ไม่มี portraitWidth = ทิ้ง ถือว่ายังไม่เทียบ) · ค่าไม่ใช่ตัวเลข/นอก 2.0–12.0 → ทิ้งทั้งก้อน เหมือนไม่มี
 //   - localStorage ทุกจุด try/catch (webview TikTok/LINE บล็อกได้) — ล้ม = ทำงานต่อโดยไม่จำ ไม่ throw
 //   - อ่านใน useEffect เท่านั้น (ไฟล์นี้ไม่อ่านเองตอน import/render — ผู้เรียกต้องเรียกจาก effect/handler)
 import { CALIBRATION, type RefKind } from "./config";
 
 export const CALIBRATION_STORAGE_KEY = "ringSize:calibration:v1";
 export const LAST_RESULT_STORAGE_KEY = "ringSize:lastResult:v1";
-export const CALIBRATION_VERSION = 1;
+/** v2 (24 ต.ค. 69): เพิ่ม portraitWidth กัน Safari "aA" page zoom ที่ไม่เปลี่ยน dpr — ค่า v1 ที่เก็บไว้ก่อนหน้านี้ถูกทิ้ง */
+export const CALIBRATION_VERSION = 2;
 
 export interface Calibration {
   pxPerMm: number;
@@ -17,14 +18,21 @@ export interface Calibration {
   dpr: number;
   screenShort: number;
   screenLong: number;
+  /** innerWidth ตอนเทียบ ถ้าถืออยู่แนวตั้ง · null = ตอนนั้นถือแนวนอน (ไม่ใช้เทียบ) */
+  portraitWidth: number | null;
   savedAt: number;
-  version: 1;
+  version: 2;
 }
 
 export interface ScreenFingerprint {
   dpr: number;
   screenShort: number;
   screenLong: number;
+  /**
+   * ความกว้างหน้าเว็บ (CSS px) เมื่อถือแนวตั้ง — Safari "aA" (ขยายตัวอักษร/page zoom 115%) เปลี่ยน px/มม. จริง
+   * โดย devicePixelRatio ไม่เปลี่ยน แต่ innerWidth เปลี่ยน · แนวนอน = null (กว้างเปลี่ยนตามการหมุน เทียบไม่ได้)
+   */
+  portraitWidth: number | null;
 }
 
 /** ที่เก็บแบบ minimal เพื่อให้ฉีด fake ในเทสต์ได้ (Storage ของจริงใช้ได้ตรงๆ) */
@@ -50,12 +58,15 @@ export function parseCalibration(raw: unknown): Calibration | null {
   if (!isFiniteNumber(o.screenShort) || o.screenShort <= 0) return null;
   if (!isFiniteNumber(o.screenLong) || o.screenLong <= 0) return null;
   if (!isFiniteNumber(o.savedAt) || o.savedAt <= 0) return null;
+  // ต้องเป็นตัวเลขบวกหรือ null (ไม่มี field = ทิ้ง)
+  if (o.portraitWidth !== null && (!isFiniteNumber(o.portraitWidth) || o.portraitWidth <= 0)) return null;
   return {
     pxPerMm: o.pxPerMm,
     ref: o.ref,
     dpr: o.dpr,
     screenShort: o.screenShort,
     screenLong: o.screenLong,
+    portraitWidth: o.portraitWidth,
     savedAt: o.savedAt,
     version: CALIBRATION_VERSION,
   };
@@ -90,6 +101,7 @@ export function writeCalibration(c: Calibration, storage: StorageLike | null = d
       dpr: c.dpr,
       screenShort: c.screenShort,
       screenLong: c.screenLong,
+      portraitWidth: c.portraitWidth,
       savedAt: c.savedAt,
       version: CALIBRATION_VERSION,
     };
@@ -191,6 +203,8 @@ export function isStaleCalibration(c: Calibration, now: ScreenFingerprint): bool
   if (Math.abs(c.dpr - now.dpr) / c.dpr > 0.01) return true;
   if (Math.abs(c.screenShort - now.screenShort) > 2) return true;
   if (Math.abs(c.screenLong - now.screenLong) > 2) return true;
+  // Safari aA / page zoom: dpr เท่าเดิมแต่ความกว้างหน้าเปลี่ยน (เทียบเฉพาะเมื่อทั้งสองครั้งถือแนวตั้ง)
+  if (c.portraitWidth !== null && now.portraitWidth !== null && Math.abs(c.portraitWidth - now.portraitWidth) > 2) return true;
   return false;
 }
 
@@ -211,5 +225,8 @@ export function currentFingerprint(): ScreenFingerprint {
     w = 1;
     h = 1;
   }
-  return { dpr, screenShort: Math.min(w, h), screenLong: Math.max(w, h) };
+  const iw = window.innerWidth;
+  const ih = window.innerHeight;
+  const portrait = isFiniteNumber(iw) && isFiniteNumber(ih) && iw > 0 && ih >= iw;
+  return { dpr, screenShort: Math.min(w, h), screenLong: Math.max(w, h), portraitWidth: portrait ? iw : null };
 }

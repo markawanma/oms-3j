@@ -9,7 +9,8 @@ function pad2(n: number): string {
   return n < 10 ? `0${n}` : String(n);
 }
 
-export const HEADER_PX = 56;
+/** ความสูงจริงของ header = pt-1.5 (6) + ปุ่มย้อน h-11 (44) + pb-0.5 (2) — ใช้เป็นค่าตั้งต้นก่อนวัดจริง (R5B วัดบล็อกบนรวมแถบ G1 เอง) */
+export const HEADER_PX = 52;
 
 export function RsHeader({ step, onBack }: { step?: { current: number; total: number } | null; onBack?: () => void }) {
   return (

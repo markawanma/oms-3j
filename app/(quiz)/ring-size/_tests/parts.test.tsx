@@ -36,6 +36,8 @@ describe("CoinCalibrationStage — รัศมีจริงจาก attribut
     const r = Number(circle.getAttribute("r"));
     const sw = Number(circle.getAttribute("stroke-width"));
     expect(sw).toBe(2);
+    // ค่าตายตัวที่คำนวณมือ (ไม่ใช้สูตรเดียวกับโค้ด): 26 × ppm ÷ 2 + sw ÷ 2
+    expect(r).toBeCloseTo({ 4.5: 59.5, 6: 79, 7.5: 98.5 }[ppm as 4.5 | 6 | 7.5], 10);
     expect(r).toBeCloseTo(circleRadiusFor(26, ppm, 2), 10);
     expect(ringInnerDiameterPx(r, sw)).toBeCloseTo(26 * ppm, 10);
     expect(circle.getAttribute("cx")).toBe("195");
@@ -62,6 +64,10 @@ describe("CalibrationStage — พิกัดเส้นบัตร", () => {
     expect(lines).toHaveLength(2);
     const [xl, xr] = [Number(lines[0].getAttribute("x1")), Number(lines[1].getAttribute("x1"))];
     expect(xr - xl - 2).toBeCloseTo(53.98 * ppm, 10);
+    // ค่าตายตัวที่คำนวณมือ: ห่างจากกลาง 53.98 × ppm ÷ 2 + 1
+    const off = { 4.5: 122.455, 6: 162.94, 7.5: 203.425 }[ppm as 4.5 | 6 | 7.5];
+    expect(200 - xl).toBeCloseTo(off, 9);
+    expect(xr - 200).toBeCloseTo(off, 9);
     const [exl, exr] = cardLineXs(200, 53.98, ppm, 2);
     expect(xl).toBeCloseTo(exl, 10);
     expect(xr).toBeCloseTo(exr, 10);

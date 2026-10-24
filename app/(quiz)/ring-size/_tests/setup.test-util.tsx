@@ -1,11 +1,13 @@
 // ตัวช่วยของเทสต์ component ring-size (jsdom) — ไม่ถูกส่งขึ้นจริง
 import { vi } from "vitest";
-import { CALIBRATION_STORAGE_KEY, LAST_RESULT_STORAGE_KEY, currentFingerprint, type Calibration, type LastResult } from "@/lib/ring-size/calibration";
+import { CALIBRATION_STORAGE_KEY, CALIBRATION_VERSION, LAST_RESULT_STORAGE_KEY, currentFingerprint, type Calibration, type LastResult } from "@/lib/ring-size/calibration";
 
 /** jsdom ไม่มี layout — ทุก element ได้ขนาดเท่ากัน เพื่อให้เวทีมีขนาดที่วัดได้ */
 export function mockRects(width = 390, height = 300) {
   return vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
-    return { width, height, top: 0, left: 0, right: width, bottom: height, x: 0, y: 0, toJSON() {} } as DOMRect;
+    // บล็อกบนของ R5B (header) สูงตามจริง 52 px — องค์ประกอบอื่นได้ขนาดเดียวกันหมด
+    const h = this.hasAttribute("data-rs-top") ? 52 : height;
+    return { width, height: h, top: 0, left: 0, right: width, bottom: h, x: 0, y: 0, toJSON() {} } as DOMRect;
   });
 }
 
@@ -21,7 +23,7 @@ export function setVisualViewport(vv: Partial<VisualViewport> | undefined) {
 /** ค่าเทียบจอที่ "ตรงกับเครื่องนี้" (ไม่ stale) */
 export function seedCalibration(over: Partial<Calibration> = {}): Calibration {
   const fp = currentFingerprint();
-  const c: Calibration = { pxPerMm: 6, ref: "coin", ...fp, savedAt: Date.now(), version: 1, ...over };
+  const c: Calibration = { pxPerMm: 6, ref: "coin", ...fp, savedAt: Date.now(), version: CALIBRATION_VERSION, ...over };
   window.localStorage.setItem(CALIBRATION_STORAGE_KEY, JSON.stringify(c));
   return c;
 }
@@ -43,7 +45,8 @@ export function resetBrowserState() {
   window.localStorage.clear();
   window.history.replaceState(null, "");
   setVisualViewport(undefined);
-  setViewport({ innerHeight: 768, innerWidth: 1024 });
+  // ถือแนวตั้งเป็นค่าเริ่ม (portraitWidth ใน fingerprint ถูกใช้งานจริงในเทสต์)
+  setViewport({ innerHeight: 844, innerWidth: 390 });
 }
 
 /** เลข/ข้อความตัวอย่างจาก mockup ที่ห้ามโผล่ใน screen ตอนยังไม่มีผลวัดจริง (A12) */

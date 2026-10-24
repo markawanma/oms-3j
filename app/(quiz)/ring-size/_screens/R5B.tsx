@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { COPY, MEASURE } from "@/lib/ring-size/config";
 import { circToRec, formatMm } from "@/lib/ring-size/size";
 import { rulerHeightPx, rulerMmFromY } from "@/lib/ring-size/stage-geometry";
+import { useElementSize } from "@/lib/ring-size/use-element-size";
 import { useViewportHeight } from "@/lib/ring-size/use-viewport-height";
 import { useVisualViewportZoomed } from "@/lib/ring-size/use-visual-viewport-scale";
 import { FineAdjuster } from "../_components/FineAdjuster";
@@ -45,8 +46,12 @@ export function R5B({
   const vh = useViewportHeight();
   const dragging = useRef(false);
 
+  // ความสูงบล็อกบนจริง (header + แถบ G1 ถ้ามี) วัดด้วย getBoundingClientRect · ยังไม่วัด = ความสูง header ที่ตายตัว (52)
+  const { ref: topRef, size: topSize } = useElementSize<HTMLDivElement>();
+  const topPx = topSize ? topSize.height : HEADER_PX;
+
   const hRuler = rulerHeightPx(ppm, MEASURE.RULER_MM);
-  const tooShort = vh !== null && vh - HEADER_PX < hRuler;
+  const tooShort = vh !== null && vh - topPx < hRuler;
 
   const snap = (v: number) => {
     const clamped = Math.min(Math.max(v, 0), MEASURE.RULER_MM);
@@ -80,25 +85,28 @@ export function R5B({
     }
   };
 
-  if (tooShort) return <G2 step={step} onBack={onBack} onUseRing={onUseRing} />;
-
   const rec = circToRec(mm);
   const disabled = !touched || zoomed;
   const ctaLabel = zoomed ? COPY.g1.cta : touched ? COPY.r5b.ctaOn : COPY.r5b.ctaOff;
 
   return (
     <div className="flex flex-1 flex-col">
-      <RsHeader step={step} onBack={onBack} />
+      <div ref={topRef} data-rs-top="">
+        <RsHeader step={step} onBack={onBack} />
 
-      {zoomed ? (
-        <div className="px-[22px] pb-2">
-          <NoticeBar tone="warn" role="alert">
-            {COPY.g1.bar}
-          </NoticeBar>
-        </div>
-      ) : null}
+        {zoomed ? (
+          <div className="px-[22px] pb-2">
+            <NoticeBar tone="warn" role="alert">
+              {COPY.g1.bar}
+            </NoticeBar>
+          </div>
+        ) : null}
+      </div>
 
-      {/* ความสูงขั้นต่ำ = Hruler (ไม้บรรทัด 80 มม. ย่อไม่ได้) · ถ้าจอสูงไม่พอ G2 ขึ้นแทนก่อนถึงตรงนี้ · style เฉพาะค่าที่คำนวณจาก ppm */}
+      {/* จอสูงไม่พอ → G2 แทนตัวจอวัด (บล็อกบนยังอยู่ — ค่า mm ใน state นี้ไม่หาย) · ความสูงขั้นต่ำ = Hruler (80 มม. ย่อไม่ได้) style เฉพาะค่าที่คำนวณจาก ppm */}
+      {tooShort ? (
+        <G2 withHeader={false} onUseRing={onUseRing} />
+      ) : (
       <div className="flex flex-1 overflow-hidden border-t border-[var(--rs-border)] bg-[var(--rs-surface)]" style={{ minHeight: hRuler }}>
         {/* คอลัมน์ซ้าย: ไม้บรรทัด + ที่จับ (แตะ/ลากได้ทั้งคอลัมน์) */}
         <div
@@ -169,6 +177,7 @@ export function R5B({
           </div>
         </div>
       </div>
+      )}
     </div>
   );
 }

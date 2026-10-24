@@ -91,11 +91,11 @@ describe("A11: ความแม่นชุดเดียว (มติ Q1: �
     const hits = UI_SOURCES.filter((f) => /±|คลาดเคลื่อน/.test(readStripped(f))).map(rel);
     expect(hits).toEqual([]);
   });
-  it("ทุกข้อความใน COPY ที่มี ± คือถ้อยคำความแม่นชุดเดียว (หรือบรรทัดการ์ดแชร์ที่ spec กำหนดแยก)", () => {
+  it("ทุกข้อความใน COPY ที่มี ± ต้องอ้าง ACCURACY_SHORT/NOTE (ถ้อยคำเดียว — ไม่มีสำเนาที่พิมพ์ซ้ำ รวมการ์ดแชร์)", () => {
     const withPm = collectStrings(COPY).filter((s) => s.includes("±"));
     expect(withPm.length).toBeGreaterThan(0);
     for (const s of withPm) {
-      expect(s.includes(ACCURACY_SHORT) || s === COPY.share.footer, s).toBe(true);
+      expect(s.includes(ACCURACY_SHORT), s).toBe(true);
       expect(s).not.toMatch(/ครึ่ง/); // ไม่มี ±ครึ่งเบอร์ ที่ใดเลย
     }
   });
@@ -131,6 +131,30 @@ describe("A13: ค่าที่ยังไม่ยืนยัน = ปิ�
   });
   it("COPY ไม่มี marker ค้าง [ต้องยืนยัน / [รอผ่านด่าน", () => {
     for (const s of collectStrings(COPY)) expect(s).not.toMatch(/\[ต้องยืนยัน|\[รอผ่านด่าน/);
+  });
+  it("L3: ข้อความที่ยังไม่ผ่านด่านข้อเท็จจริงไม่อยู่ใน bundle เลย (ไม่ใช่แค่ซ่อนด้วย flag): knuckle = null · tips = [] · tipsTitle = null", () => {
+    expect(COPY.r4b.knuckle).toBeNull();
+    expect(COPY.r6.tips).toEqual([]);
+    expect(COPY.r6.tipsTitle).toBeNull();
+    const SENTENCES = [
+      "ลองสวมแถบกระดาษผ่านข้อนิ้ว",
+      "ใช้ค่าที่ใหญ่กว่า",
+      "นิ้วขนาดไม่เท่ากันตลอดวัน",
+      "บวมตอนเย็น",
+      "หลังออกกำลังกาย",
+      "ควรวัดช่วงบ่าย",
+      "ข้อนิ้วใหญ่กว่าโคนนิ้ว",
+      "ผ่านข้อนิ้วได้โดยไม่ฝืด",
+      "เคล็ดลับก่อนสั่ง",
+    ];
+    // ทั้ง config และซอร์ส UI/ลอจิกที่ส่งถึงลูกค้า (ตัดคอมเมนต์แล้ว) ต้องไม่มีสตริงเหล่านี้
+    const hits: string[] = [];
+    for (const f of [...APP_SOURCES, ...LIB_SOURCES]) {
+      const code = readStripped(f);
+      for (const t of SENTENCES) if (code.includes(t)) hits.push(`${rel(f)}: ${t}`);
+    }
+    expect(hits).toEqual([]);
+    for (const s of collectStrings(COPY)) for (const t of SENTENCES) expect(s.includes(t), `${t} ใน COPY`).toBe(false);
   });
   it("ไม่มีข้อความเคล็ดลับ 'หน้ากว้าง' (รอกฎช่าง Q12) อยู่ใน config เลย", () => {
     for (const s of collectStrings(COPY)) expect(s).not.toMatch(/หน้ากว้าง|ครึ่งถึง 1 เบอร์/);

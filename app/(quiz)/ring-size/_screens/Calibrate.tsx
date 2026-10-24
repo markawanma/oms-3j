@@ -124,7 +124,8 @@ export function Calibrate({ kind, step, initialPpm, initiallyTouched, g5, onBack
         />
 
         {kind === "card" && (atScreenLimit || cannotReachCard) ? (
-          <NoticeBar tone="warn" role="status">
+          // ปุ่ม "ใช้เหรียญ 10 บาทแทน" แสดงเสมอเมื่อบัตรไม่พอ (ทางออกที่ผู้ใช้ทำเองได้ทันที — ไม่ต้องรอแอดมิน)
+          <NoticeBar tone="warn" role="status" action={{ label: COPY.card.useCoin, onClick: onSwitchKind }}>
             {COPY.card.tooSmall}
           </NoticeBar>
         ) : null}

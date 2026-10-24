@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CALIBRATION, type Method, type RefKind } from "@/lib/ring-size/config";
 import {
+  CALIBRATION_VERSION,
   currentFingerprint,
   isStaleCalibration,
   isTypicalPxPerMm,
@@ -75,6 +76,24 @@ function readHistState(): HistState | null {
   return null;
 }
 
+/** method ของจอ (ใช้ตอน popstate) — จอวัด/สอนบอกเอง · R6/G4 ตามผลที่ค้างอยู่ · จออื่น = ไม่เปลี่ยน */
+function methodForScreen(rs: ScreenId, result: ResultState | null, invalid: { method: Method } | null): Method | null {
+  switch (rs) {
+    case "R4A":
+    case "R5A":
+      return "A";
+    case "R4B":
+    case "R5B":
+      return "B";
+    case "R6":
+      return result ? result.method : null;
+    case "G4":
+      return invalid ? invalid.method : null;
+    default:
+      return null;
+  }
+}
+
 export function RingSizeClient() {
   // ───── state เริ่มต้น deterministic (ตรงกับ SSR) ─────
   const [screen, setScreen] = useState<ScreenId>("R0");
@@ -97,6 +116,11 @@ export function RingSizeClient() {
   const stackRef = useRef<ScreenId[]>(["R0"]);
   const idxRef = useRef(0);
   const firstRender = useRef(true);
+  // popstate handler ถูกผูกครั้งเดียวตอน mount — อ่านผลวัดล่าสุดผ่าน ref (ไม่ใช่ closure เก่า)
+  const resultRef = useRef<ResultState | null>(null);
+  resultRef.current = result;
+  const invalidRef = useRef<{ circ: number; method: Method } | null>(null);
+  invalidRef.current = invalid;
 
   // ───── history: ทุกจอ = 1 entry ─────
   const navigate = useCallback((next: ScreenId, opts?: { replace?: boolean; keepNotice?: boolean }) => {
@@ -139,7 +163,7 @@ export function RingSizeClient() {
   useEffect(() => {
     const c = readCalibration();
     setCalib(c);
-    setStale(c ? isStaleCalibration(c, currentFingerprint()) : false);
+    setStale(c ? isStaleCalibration(c, currentFingerprint()) : false); // คำนวณพร้อม calib ในรอบเดียว (กันการ์ด "เทียบไว้แล้ว" กะพริบ)
     setLastResult(readLastResult());
     setLoaded(true);
 
@@ -162,6 +186,9 @@ export function RingSizeClient() {
       idxRef.current = i;
       stackRef.current[i] = rs;
       setG3(null);
+      // method เป็นฟังก์ชันของจอที่ย้อนไปถึง: R6 → ลองวิธีอื่น → Back ต้องได้ method ของผลนั้นคืน (ไม่ค้างเป็นวิธีอื่น)
+      const m = methodForScreen(rs, resultRef.current, invalidRef.current);
+      if (m) setMethod(m);
       setScreen(rs);
     };
     window.addEventListener("popstate", onPop);
@@ -179,12 +206,9 @@ export function RingSizeClient() {
 
   // ───── G5: ค่าเทียบไม่ตรงเครื่อง/การซูมตอนนี้ (DPR เปลี่ยนกลางทาง) ─────
   useEffect(() => {
-    if (!calib) {
-      setStale(false);
-      return;
-    }
+    if (!calib) return;
+    // ตรวจเฉพาะเมื่อหน้าต่างเปลี่ยน (ซูม/aA/หมุน) — ค่าเริ่มต้นคำนวณตอน mount และตอนบันทึกค่าใหม่ (finishCalibration) แล้ว
     const check = () => setStale(isStaleCalibration(calib, currentFingerprint()));
-    check();
     window.addEventListener("resize", check);
     return () => window.removeEventListener("resize", check);
   }, [calib]);
@@ -249,7 +273,7 @@ export function RingSizeClient() {
 
   const finishCalibration = (kind: RefKind, ppm: number) => {
     const fp = currentFingerprint();
-    const c: Calibration = { pxPerMm: ppm, ref: kind, ...fp, savedAt: Date.now(), version: 1 };
+    const c: Calibration = { pxPerMm: ppm, ref: kind, ...fp, savedAt: Date.now(), version: CALIBRATION_VERSION };
     writeCalibration(c); // เขียนไม่ได้ = ทำงานต่อโดยไม่จำ (ไม่แจ้งผู้ใช้)
     setCalib(c);
     setStale(false);

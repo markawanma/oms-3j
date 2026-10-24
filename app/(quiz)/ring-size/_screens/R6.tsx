@@ -104,7 +104,7 @@ export function R6({ step, size, method, refKind, measuredAt, onBack, onRemeasur
 
         <div className="rounded-[16px] bg-[var(--rs-blush)] px-3.5 py-3 text-[14px] leading-relaxed text-[var(--rs-blush-text)]">{ACCURACY_NOTE}</div>
 
-        {SHOW_FINGER_TIPS ? (
+        {SHOW_FINGER_TIPS && COPY.r6.tipsTitle && COPY.r6.tips.length > 0 ? (
           <section aria-label={COPY.r6.tipsTitle} className={`${CARD} rounded-[20px] px-4 py-1.5`}>
             <h2 className={`${SERIF} m-0 pb-1 pt-2 text-[16px] font-semibold ${TEXT}`}>{COPY.r6.tipsTitle}</h2>
             {COPY.r6.tips.map((t, i) => (

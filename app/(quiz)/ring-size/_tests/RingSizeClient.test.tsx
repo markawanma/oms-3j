@@ -94,9 +94,9 @@ describe("คนใหม่ ทางเหรียญ 7 จอ (R0 R1Pick R2C
     expect(counter("ขั้นที่ 2 จาก 3")).toHaveTextContent("02 / 03");
     expect(screen.getByText("เทียบหน้าจอเรียบร้อย")).toBeInTheDocument();
     const saved = stored(CALIBRATION_STORAGE_KEY);
-    expect(saved).toMatchObject({ ref: "coin", version: 1 });
+    expect(saved).toMatchObject({ ref: "coin", version: 2, portraitWidth: 390 });
     expect(saved.pxPerMm).toBeGreaterThan(6);
-    expect(Object.keys(saved).sort()).toEqual(["dpr", "pxPerMm", "ref", "savedAt", "screenLong", "screenShort", "version"]);
+    expect(Object.keys(saved).sort()).toEqual(["dpr", "portraitWidth", "pxPerMm", "ref", "savedAt", "screenLong", "screenShort", "version"]);
     // R3 ไม่มี pill ความแม่น/เวลา (มติ Q1)
     expect(document.body.textContent).not.toMatch(/~30 วินาที|±ครึ่ง|คลาดเคลื่อนมากกว่า/);
 
@@ -227,10 +227,12 @@ describe("คนกลับมา (มีค่าเทียบที่ใ�
 
 describe("A4: storage เสีย/ถูกบล็อก (B2)", () => {
   it.each([
-    ["ref นอก whitelist", JSON.stringify({ pxPerMm: 6, ref: "ruler", dpr: 1, screenShort: 768, screenLong: 1024, savedAt: 1, version: 1 })],
-    ["version ผิด", JSON.stringify({ pxPerMm: 6, ref: "coin", dpr: 1, screenShort: 768, screenLong: 1024, savedAt: 1, version: 2 })],
+    ["ref นอก whitelist", JSON.stringify({ pxPerMm: 6, ref: "ruler", dpr: 1, screenShort: 390, screenLong: 844, portraitWidth: 390, savedAt: 1, version: 2 })],
+    ["version ผิด", JSON.stringify({ pxPerMm: 6, ref: "coin", dpr: 1, screenShort: 390, screenLong: 844, portraitWidth: 390, savedAt: 1, version: 3 })],
+    ["ค่า v1 เดิม (ก่อนมี portraitWidth) — ถือว่ายังไม่เทียบ ไม่ใช้ค่าที่ไม่รู้ว่าซูม aA ไหม", JSON.stringify({ pxPerMm: 6, ref: "coin", dpr: 1, screenShort: 390, screenLong: 844, savedAt: 1, version: 1 })],
+    ["v2 แต่ไม่มี portraitWidth", JSON.stringify({ pxPerMm: 6, ref: "coin", dpr: 1, screenShort: 390, screenLong: 844, savedAt: 1, version: 2 })],
     ["ข้อความธรรมดา", "banana"],
-    ["ตัวเลขนอกช่วง", JSON.stringify({ pxPerMm: 99, ref: "coin", dpr: 1, screenShort: 768, screenLong: 1024, savedAt: 1, version: 1 })],
+    ["ตัวเลขนอกช่วง", JSON.stringify({ pxPerMm: 99, ref: "coin", dpr: 1, screenShort: 390, screenLong: 844, portraitWidth: 390, savedAt: 1, version: 2 })],
   ])("%s → ทำเหมือนไม่มีค่า ไม่ crash ไปเริ่มที่ R1Pick", async (_l, raw) => {
     window.localStorage.setItem(CALIBRATION_STORAGE_KEY, raw);
     const u = user();
@@ -284,6 +286,40 @@ describe("G5: ค่าเก่าอาจไม่ตรงเครื่อ
     await u.click(btn("เริ่มวัดไซส์"));
     expect(screen.getByText("เลื่อนจนเส้นแดงชิดขอบบัตรทั้ง 2 ข้างพอดี")).toBeInTheDocument();
     expect(screen.getByText(/ดูเหมือนหน้าจอหรือการซูมเปลี่ยนไป/)).toBeInTheDocument();
+  });
+
+  it("S2 Safari aA page zoom: dpr เท่าเดิมแต่ความกว้างหน้าแนวตั้งเปลี่ยน (390 → 339) → G5 ไม่ใช้ค่าเก่าเงียบๆ", async () => {
+    seedCalibration({ ref: "coin", pxPerMm: 6, portraitWidth: 390 }); // เทียบตอนความกว้าง 390 (jsdom dpr = 1 เท่าเดิม)
+    setViewport({ innerWidth: 339, innerHeight: 844 }); // 115% → เลย์เอาต์แคบลง
+    const u = user();
+    render(<RingSizeClient />);
+    await waitFor(() => expect(screen.getByRole("button", { name: "เริ่มวัดไซส์" })).toBeInTheDocument());
+    expect(screen.queryByText(/เทียบหน้าจอไว้แล้ว/)).toBeNull();
+    await u.click(btn("เริ่มวัดไซส์"));
+    expect(screen.queryByRole("heading", { name: "ขั้นที่ 2 เลือกวิธีวัด" })).toBeNull();
+    expect(screen.getByText("ดูเหมือนหน้าจอหรือการซูมเปลี่ยนไป เช็กค่าอีกครั้ง ใช้เวลา 10 วินาที")).toBeInTheDocument();
+    expect(btn("ปรับวงกลมก่อน จึงกดได้")).toBeDisabled();
+  });
+
+  it("S2 กลางทาง: ปรับ aA หลังเทียบเสร็จ (resize) ขณะอยู่ที่ R3 → เด้งไปจอเทียบ ไม่ปล่อยวัดด้วยค่าเก่า", async () => {
+    seedCalibration({ ref: "coin", pxPerMm: 6, portraitWidth: 390 });
+    const u = user();
+    render(<RingSizeClient />);
+    await u.click(await screen.findByRole("button", { name: "เริ่มวัดไซส์" }));
+    expect(heading("ขั้นที่ 2 เลือกวิธีวัด")).toBeInTheDocument();
+    setViewport({ innerWidth: 339, innerHeight: 844 });
+    fireEvent(window, new Event("resize"));
+    await waitFor(() => expect(screen.getByText("ดูเหมือนหน้าจอหรือการซูมเปลี่ยนไป เช็กค่าอีกครั้ง ใช้เวลา 10 วินาที")).toBeInTheDocument());
+    expect(screen.getByText("ปรับวงแดงจนล้อมขอบเหรียญพอดีรอบวง")).toBeInTheDocument();
+  });
+
+  it("หมุนเป็นแนวนอน (innerWidth > innerHeight) ไม่ทำให้ค่า stale (ไม่เทียบ portraitWidth)", async () => {
+    seedCalibration({ ref: "coin", pxPerMm: 6, portraitWidth: 390 });
+    setViewport({ innerWidth: 844, innerHeight: 390 });
+    const u = user();
+    render(<RingSizeClient />);
+    await u.click(await screen.findByRole("button", { name: "เริ่มวัดไซส์" }));
+    expect(heading("ขั้นที่ 2 เลือกวิธีวัด")).toBeInTheDocument();
   });
 
   it("หลังเทียบใหม่ → R3 (ค่าใหม่ถูกบันทึกและใช้ได้ ไม่ stale)", async () => {
@@ -419,6 +455,31 @@ describe("G4: ค่าวัดนอกช่วง 40–75 (A3) · ปลา�
     expect(screen.getByTestId("result-size")).toHaveTextContent("40");
     expect(screen.getByText("เบอร์ 40 อยู่นอกช่วงที่ร้านทำ")).toBeInTheDocument(); // ในช่วงวัดได้ แต่ร้านไม่ได้ทำเบอร์นี้
   });
+
+  it("S4 ขอบบน: เส้นรอบวง 75.0 ขึ้นผล (ไม่ใช่ G4) · 75.5 → G4 ทิศ ใหญ่", async () => {
+    seedCalibration();
+    const u = user();
+    render(<RingSizeClient />);
+    await u.click(await screen.findByRole("button", { name: "เริ่มวัดไซส์" }));
+    await u.click(btn(/พันกระดาษรอบนิ้ว/));
+    await u.click(btn("พร้อมแล้ว เริ่มวัด"));
+    const ruler = screen.getByRole("slider", { name: "ไม้บรรทัด ลากเส้นแดงขึ้นลงได้" });
+    fireEvent.keyDown(ruler, { key: "Home" });
+    for (let i = 0; i < 150; i++) fireEvent.keyDown(ruler, { key: "ArrowDown" }); // 0 → 75.0
+    expect(ruler).toHaveAttribute("aria-valuenow", "75");
+    await u.click(btn("ใช้ค่านี้"));
+    expect(screen.queryByText("ค่านี้อยู่นอกช่วงที่เครื่องมือวัดได้")).toBeNull();
+    expect(screen.getByTestId("result-size")).toHaveTextContent("75");
+    expect(screen.getByText("เส้นรอบวงด้านในประมาณ 75.0 มม.")).toBeInTheDocument();
+    expect(stored(LAST_RESULT_STORAGE_KEY)).toMatchObject({ circ: 75, method: "B" });
+    // ขยับเกินขอบบนครึ่งมิลลิเมตร → G4
+    await u.click(btn("ย้อนกลับ"));
+    await waitFor(() => expect(screen.getByRole("slider", { name: "ไม้บรรทัด ลากเส้นแดงขึ้นลงได้" })).toBeInTheDocument());
+    fireEvent.keyDown(screen.getByRole("slider", { name: "ไม้บรรทัด ลากเส้นแดงขึ้นลงได้" }), { key: "ArrowDown" });
+    await u.click(btn("ใช้ค่านี้"));
+    expect(screen.getByRole("alert")).toHaveTextContent("ค่านี้อยู่นอกช่วงที่เครื่องมือวัดได้");
+    expect(screen.getByText(/ค่าที่วัดได้ \(75\.5 มม\.\) ใหญ่กว่า/)).toBeInTheDocument();
+  });
 });
 
 describe("Back ของเครื่อง: ย้อนทีละจอ ไม่ปิดหน้า ค่าไม่หาย (B3)", () => {
@@ -438,6 +499,26 @@ describe("Back ของเครื่อง: ย้อนทีละจอ �
     await u.click(btn("พร้อมแล้ว เริ่มวัด"));
     expect(screen.getByText(/ผ่านศูนย์กลาง 14\.2 มม\./)).toBeInTheDocument();
     expect(btn("ใช้ค่านี้")).toBeEnabled();
+  });
+
+  it("Back ของเครื่องคืน method ด้วย: R6 (แหวน) → ลองวิธีอื่น (กระดาษ) → Back → R6 → ปุ่มย้อนบนจอไป R5A ไม่ใช่ R5B", async () => {
+    seedCalibration();
+    const u = user();
+    render(<RingSizeClient />);
+    await u.click(await screen.findByRole("button", { name: "เริ่มวัดไซส์" }));
+    await u.click(btn(/วางแหวนวงเดิมบนจอ/));
+    await u.click(btn("พร้อมแล้ว เริ่มวัด"));
+    await u.click(btn("เพิ่มขนาดวงกลมทีละนิด"));
+    await u.click(btn("ใช้ค่านี้"));
+    expect(screen.getByText("วัดด้วยแหวนวงเดิม")).toBeInTheDocument();
+    await u.click(btn("ลองวิธีอื่น")); // → R4B (method = B)
+    expect(heading("วัดด้วยกระดาษพันนิ้ว")).toBeInTheDocument();
+    window.history.back(); // Back ของเครื่อง → R6 ของแหวน
+    await waitFor(() => expect(screen.getByTestId("result-size")).toBeInTheDocument());
+    await u.click(btn("ย้อนกลับ"));
+    // ถ้า method ค้างเป็น B จะไปจอไม้บรรทัด · ที่ถูกคือจอวงกลมของวิธีแหวน
+    await waitFor(() => expect(screen.getByText(/ขยายวงกลมจนไม่เหลือช่องว่าง/)).toBeInTheDocument());
+    expect(screen.queryByText(/วางปลายกระดาษที่ไม่มีรอยให้ตรงเลข 0/)).toBeNull();
   });
 
   it("ปุ่มย้อนบนจอ ใช้ history เดียวกัน (ไม่สะสม entry): R3 → R4A → ย้อน → R3 → ย้อน → R0", async () => {
@@ -593,6 +674,23 @@ describe("R5B + G2 (B9 B10)", () => {
     expect(screen.getByText(/50\.5 มม\./)).toBeInTheDocument(); // ค่าไม่หาย
   });
 
+  it("ขอบ G2 ใช้ความสูงบล็อกบนที่วัดจริง (52 px): viewport 556 = 504 + 52 ยังวัดได้ · 555 → G2", async () => {
+    seedCalibration({ pxPerMm: 6 });
+    const u = user();
+    setViewport({ innerHeight: 556 });
+    render(<RingSizeClient />);
+    await u.click(await screen.findByRole("button", { name: "เริ่มวัดไซส์" }));
+    await u.click(btn(/พันกระดาษรอบนิ้ว/));
+    await u.click(btn("พร้อมแล้ว เริ่มวัด"));
+    expect(screen.getByText(/วางปลายกระดาษที่ไม่มีรอยให้ตรงเลข 0/)).toBeInTheDocument();
+    expect(screen.queryByText("จอนี้เล็กเกินไปสำหรับขั้นตอนนี้")).toBeNull();
+    setViewport({ innerHeight: 555 });
+    fireEvent(window, new Event("resize"));
+    await waitFor(() => expect(screen.getByText("จอนี้เล็กเกินไปสำหรับขั้นตอนนี้")).toBeInTheDocument());
+    // G2 ไม่ซ้อน header สองชั้น (บล็อกบนของ R5B ยังอยู่ตัวเดียว)
+    expect(screen.getAllByRole("button", { name: "ย้อนกลับ" })).toHaveLength(1);
+  });
+
   it("G2 'ใช้วิธีแหวนวงเดิมแทน' → R4A", async () => {
     seedCalibration({ pxPerMm: 6 });
     const u = user();
@@ -627,26 +725,52 @@ describe("R5B + G2 (B9 B10)", () => {
   });
 });
 
-describe("R2 บัตร: แถบเลื่อนสุดแต่จอเล็ก", () => {
-  it("เวทีแคบ → ppm สูงสุดถูกจำกัด → แถบแจ้ง 'จอนี้เล็กเกินกว่าจะเทียบด้านนี้' + ลิงก์ LINE", async () => {
-    mockRects(300, 300);
+describe("R2 บัตร: จอเล็ก (S1) — ลดเว้นขอบเหลือ 8 px · แถบ tooSmall มีปุ่มเหรียญเสมอ", () => {
+  async function toCardCalibration(width: number) {
+    mockRects(width, 300);
     const u = user();
     render(<RingSizeClient />);
     await u.click(btn("เริ่มวัดไซส์"));
     await u.click(btn(/บัตร 1 ใบ/));
     await u.click(btn("เข้าใจแล้ว เริ่มเทียบ"));
-    // (300 − 34) ÷ 53.98 = 4.93 < 6.0 ค่าเริ่มถูก clamp ลงมา = ถึงขอบแถบเลื่อนทันที
+    return u;
+  }
+
+  it("S1 iPhone SE/6-8 กว้าง 375 px · ~6.42 px/มม.: ปรับถึงได้ (ไม่ถูก clamp) · ไม่ขึ้น tooSmall · บันทึกค่า 6.42 ได้", async () => {
+    const u = await toCardCalibration(375);
+    const slider = screen.getByRole("slider", { name: "ปรับความกว้างเส้นเทียบบัตร" });
+    // max = (375 − 2×8 − 2×2) ÷ 53.98 = 6.5765… ≥ 6.42
+    expect(Number(slider.getAttribute("max"))).toBeCloseTo(6.5765, 4);
+    expect(Number(slider.getAttribute("max"))).toBeGreaterThanOrEqual(6.42);
+    fireEvent.change(slider, { target: { value: "6.42" } });
+    expect(Number(screen.getByRole("slider").getAttribute("max"))).toBeGreaterThanOrEqual(6.42);
+    expect(screen.getByRole("slider")).toHaveValue("6.42"); // ไม่ถูกลดลงเพราะเกินจอ
+    // เส้นสองข้างอยู่ในจอ: ขอบนอกของเส้น = กลาง ± (53.98 × 6.42 ÷ 2 + 2) = ± 175.3 → 0 < x < 375
+    const lines = document.querySelectorAll('[data-testid^="card-line"]');
+    const xs = Array.from(lines).map((l) => Number(l.getAttribute("x1")));
+    expect(Math.min(...xs) - 1).toBeGreaterThan(0);
+    expect(Math.max(...xs) + 1).toBeLessThan(375);
+    expect(screen.queryByText(/จอนี้เล็กเกินกว่าจะเทียบด้านนี้/)).toBeNull();
+    await u.click(btn("เส้นชิดขอบบัตรแล้ว"));
+    expect(heading("ขั้นที่ 2 เลือกวิธีวัด")).toBeInTheDocument();
+    expect(stored(CALIBRATION_STORAGE_KEY).pxPerMm).toBeCloseTo(6.42, 10);
+  });
+
+  it("กว้าง 320 px (เล็กกว่าบัตรที่ 6.42 px/มม.): ขึ้น tooSmall + ปุ่ม 'ใช้เหรียญ 10 บาทแทน' · กดแล้วไปจอเหรียญ", async () => {
+    const u = await toCardCalibration(320);
+    // (320 − 20) ÷ 53.98 = 5.5576 < 6.42 → ค่าเริ่ม 6.0 ถูก clamp ลง = ถึงขอบแถบเลื่อนทันที
     expect(await screen.findByText("จอนี้เล็กเกินกว่าจะเทียบด้านนี้ — ให้แอดมินช่วยวัดทาง LINE แทน")).toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: "ปรับไม่ได้? ให้แอดมินช่วยวัดทาง LINE" }).length).toBeGreaterThan(0);
-    expect(screen.getByRole("slider")).toHaveAttribute("max", String((300 - 34) / 53.98));
+    expect(Number(screen.getByRole("slider").getAttribute("max"))).toBeCloseTo(5.5576, 4);
+    const switchBtn = btn("ใช้เหรียญ 10 บาทแทน");
+    await u.click(switchBtn);
+    expect(screen.getByText("ปรับวงแดงจนล้อมขอบเหรียญพอดีรอบวง")).toBeInTheDocument();
   });
-  it("เวทีกว้างพอ → ไม่มีแถบแจ้ง", async () => {
-    const u = user();
-    render(<RingSizeClient />);
-    await u.click(btn("เริ่มวัดไซส์"));
-    await u.click(btn(/บัตร 1 ใบ/));
-    await u.click(btn("เข้าใจแล้ว เริ่มเทียบ"));
+
+  it("เวทีกว้างพอ → ไม่มีแถบแจ้ง และไม่มีปุ่ม 'ใช้เหรียญ 10 บาทแทน' บนจอบัตร", async () => {
+    await toCardCalibration(390);
     expect(screen.queryByText(/จอนี้เล็กเกินกว่าจะเทียบด้านนี้/)).toBeNull();
+    expect(screen.queryByRole("button", { name: "ใช้เหรียญ 10 บาทแทน" })).toBeNull();
   });
 });
 

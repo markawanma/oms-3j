@@ -21,9 +21,20 @@ describe("next.config headers() — /ring-size", () => {
     expect(rs[0].source).not.toMatch(/[:*(]/);
   });
 
-  it("header เดียว: Permissions-Policy ปิดกล้อง ไมค์ ตำแหน่ง — ไม่มี CSP/header อื่นถูกเพิ่ม", async () => {
+  it("header ของ /ring-size ครบ 3 ตัวเท่านั้น: Permissions-Policy ปิดกล้อง/ไมค์/ตำแหน่ง · กันฝังใน iframe (X-Frame-Options + CSP frame-ancestors) — ไม่มี header อื่นแอบเพิ่ม", async () => {
     const rule = (await rules()).find((r) => r.source === "/ring-size")!;
-    expect(rule.headers).toEqual([{ key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" }]);
+    expect(rule.headers).toEqual([
+      { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
+      { key: "X-Frame-Options", value: "DENY" },
+      { key: "Content-Security-Policy", value: "frame-ancestors 'none'" },
+    ]);
+  });
+
+  it("CSP ของ /ring-size มีแค่ frame-ancestors (ไม่ใส่ script-src/default-src ที่อาจทำหน้าพัง)", async () => {
+    const rule = (await rules()).find((r) => r.source === "/ring-size")!;
+    const csp = rule.headers.find((h) => h.key === "Content-Security-Policy")!.value;
+    expect(csp).toBe("frame-ancestors 'none'");
+    expect(csp).not.toMatch(/script-src|default-src|style-src|connect-src/);
   });
 
   it("ไม่มี rule อื่นใดผูก Permissions-Policy (ไม่กระทบหน้าอื่น)", async () => {
@@ -45,6 +56,7 @@ describe("next.config headers() — /ring-size", () => {
     ]);
   });
 
+  // รายการ source ทั้งหมดของ headers() ยืนยัน "ที่เดียว" ที่นี่ (lib/jobs/headers.test.ts ไม่เทียบรายการเต็มแล้ว — กันต้องแก้สองไฟล์ทุกครั้งที่เพิ่ม rule)
   it("sources ทั้งหมดมีแค่ 2 rule (หน้าช่าง + ring-size)", async () => {
     expect((await rules()).map((r) => r.source)).toEqual(["/w/:path*", "/ring-size"]);
   });
