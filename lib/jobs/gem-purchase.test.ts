@@ -76,12 +76,28 @@ describe("mapGemPurchaseSummary", () => {
 });
 
 describe("mapGemPurchaseMark", () => {
-  const ok = { requested: 2, changed: 1, unchanged: 1, ordered: true, lines: [{ line_id: U(10), job_id: U(1), job_no: "JB-0001", canonical_item_id: U(2), is_ordered: true, qty_needed_now: 6, qty_ordered: 6, qty_remaining: 0, qty_excess: 0, changed_after_order: false }] };
+  const ok = { requested: 2, changed: 1, unchanged: 1, ordered: true, lines: [{ line_id: U(10), job_id: U(1), job_no: "JB-0001", canonical_item_id: U(2), is_ordered: true, qty_needed_now: 6, qty_ordered: 6, qty_remaining: 0, qty_excess: 0, changed_after_order: false, prev_ordered_qty: null, new_ordered_qty: 6 }] };
   it("แปลงครบ + ไม่มีราคา", () => {
     const m = mapGemPurchaseMark({ ...ok, price: 5 });
     expect(m).toMatchObject({ requested: 2, changed: 1, unchanged: 1, ordered: true });
     expect(m?.lines[0]).toMatchObject({ lineId: U(10), isOrdered: true, qtyRemaining: 0 });
     expect(JSON.stringify(m)).not.toMatch(/price|cost/i);
+  });
+  it("M1 ทางยาว: prev_ordered_qty (null = ไม่เคยติ๊ก) / new_ordered_qty ผ่านครบ · ยกเลิกติ๊ก: prev มีค่า new = null", () => {
+    const mk = (over: Record<string, unknown>) => ({ ...ok, lines: [{ ...ok.lines[0], ...over }] });
+    expect(mapGemPurchaseMark(mk({ prev_ordered_qty: null, new_ordered_qty: 6 }))?.lines[0]).toMatchObject({ prevOrderedQty: null, newOrderedQty: 6 });
+    expect(mapGemPurchaseMark(mk({ prev_ordered_qty: 5, new_ordered_qty: 10 }))?.lines[0]).toMatchObject({ prevOrderedQty: 5, newOrderedQty: 10 });
+    expect(mapGemPurchaseMark(mk({ prev_ordered_qty: 6, new_ordered_qty: null }))?.lines[0]).toMatchObject({ prevOrderedQty: 6, newOrderedQty: null });
+  });
+  it.each([
+    ["ขาด key prev_ordered_qty (ไม่เดาว่าไม่เคยติ๊ก — จะเปิดปุ่มย้อนผิด)", (() => { const { prev_ordered_qty: _p, ...rest } = ok.lines[0]; void _p; return { ...ok, lines: [rest] }; })()],
+    ["ขาด key new_ordered_qty", (() => { const { new_ordered_qty: _n, ...rest } = ok.lines[0]; void _n; return { ...ok, lines: [rest] }; })()],
+    ["prev = 0", { ...ok, lines: [{ ...ok.lines[0], prev_ordered_qty: 0 }] }],
+    ["prev ทศนิยม", { ...ok, lines: [{ ...ok.lines[0], prev_ordered_qty: 1.5 }] }],
+    ["new ติดลบ", { ...ok, lines: [{ ...ok.lines[0], new_ordered_qty: -1 }] }],
+    ["prev เป็นข้อความ", { ...ok, lines: [{ ...ok.lines[0], prev_ordered_qty: "5" }] }],
+  ])("ผลผิดรูป → null: %s", (_n, raw) => {
+    expect(mapGemPurchaseMark(raw)).toBeNull();
   });
   it.each([["ordered ไม่ใช่ boolean", { ...ok, ordered: "true" }], ["lines ไม่ใช่ array", { ...ok, lines: null }], ["changed ติดลบ", { ...ok, changed: -1 }], ["แถวเสีย", { ...ok, lines: [{ ...ok.lines[0], line_id: "x" }] }]])("ผิดรูป → null: %s", (_n, raw) => {
     expect(mapGemPurchaseMark(raw)).toBeNull();

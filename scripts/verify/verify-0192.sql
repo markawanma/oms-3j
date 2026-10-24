@@ -5,7 +5,7 @@
 -- 🔴 อย่ารันพร้อม agent/session อื่น (สร้างข้อมูลทดสอบจริงในทรานแซกชันที่ถอยกลับ + ล็อกแถวใบ/พลอยของร้านสังเคราะห์เท่านั้น — ไม่แตะร้านจริง ยกเว้น golden ไม่มีในไฟล์นี้)
 -- ข้อมูลทดสอบ: ร้านสังเคราะห์ ZZ TEST verify-0192 A/B (insert public.shop + public.shop_member ตรง ตามแพทเทิร์น verify-0190 — ข้อยกเว้นเดียวที่ไม่ผ่าน RPC · ยืม auth user จริงเป็นสมาชิกร้านสังเคราะห์ในทรานแซกชันนี้เท่านั้น) ·
 --   SKU/ใบผลิต/ใบงาน/ชนิด/รายการ/ราคา/พลอยในใบ/การติ๊ก สร้างผ่าน RPC ของระบบทั้งหมด · ราคาทดสอบใช้เลขแปลกที่ไม่ซ้ำกับค่าอื่นเพื่อ grep หาการรั่ว (7391.2468 · 9999.9999)
--- ผล dry-run 24 ต.ค. 69 (ต่อ 0192 + ไฟล์นี้ · ROLLBACK): OK 90 · FAIL 0 · SKIP 0 · mutant 18/18 (รอบหลัง code review/QA) · หมายเหตุเขียนเทสต์: subquery ในคำสั่งเดียวกับที่เรียกฟังก์ชัน volatile มองไม่เห็นผลที่ฟังก์ชันเขียน (snapshot ของคำสั่งนอก) — แยกเป็นคำสั่งๆ · ห้ามตั้งชื่อตัวแปร plpgsql ชนคีย์เวิร์ด (iN/iF)
+-- ผล dry-run 24 ต.ค. 69 (ต่อ 0192 + ไฟล์นี้ · ROLLBACK): OK 102 · FAIL 0 · SKIP 0 · mutant 22/22 (รอบหลัง code review/QA + p_expected) · หมายเหตุเขียนเทสต์: subquery ในคำสั่งเดียวกับที่เรียกฟังก์ชัน volatile มองไม่เห็นผลที่ฟังก์ชันเขียน (snapshot ของคำสั่งนอก) — แยกเป็นคำสั่งๆ · ห้ามตั้งชื่อตัวแปร plpgsql ชนคีย์เวิร์ด (iN/iF)
 --
 -- ============ ตารางแมป "ข้อในบรีฟ → เทสต์ที่ครอบ" (ข้อไหนไม่มีเทสต์ครอบ = เขียนว่า "ไม่มี" พร้อมเหตุผล) ============
 --  เคสห้ามผ่าน
@@ -41,6 +41,10 @@
 --   S2 ติ๊กข้ามการรวมชื่อ (merged_into): แถว snapshot iA เข้ากลุ่ม canonical iB · ติ๊กทั้งกลุ่ม · removed_after_order ชี้ canonical -> S2a S2b S2c · mutant MU17 MU18
 --   S3 ส่วนอ่านอย่างเดียวกับข้อมูลร้านจริง (traps ข้อ 17): parity job_gem_bom_get ↔ view · summary/cost ไม่ error · ไม่เขียนอะไร -> Z1 Z2 Z3 (SKIP ถ้าไม่มีร้านจริงที่มีใบ)
 --   N9 A4: gem_stage ว่าง/null = bad                                                                      -> A4
+--  รอบเพิ่มจาก security UI
+--   M2 ติ๊กต้องส่ง p_expected (ยอดที่จอเห็น): ตรง → ผ่าน · ยอดเปลี่ยนหลังโหลด → qty_changed ทั้งชุด แถวดีไม่ขยับ · รูปผิดทุกแบบ → purchase_lines_invalid -> Q0 Q1 Q1b Q2 Q2b · mutant MU19 MU20 MU22
+--      ยกเลิกติ๊ก "ไม่ใช้/ไม่ตรวจ" expected (ตัดสินแล้ว: undo ต้องสำเร็จเสมอ)                                                  -> Q5
+--   M1 ทางยาว prev_ordered_qty/new_ordered_qty ต่อแถวในผลของ mark (prev null = ไม่เคยติ๊ก)                           -> Q0 Q4 Q5 · mutant MU21
 --  ต้องไม่พัง
 --   job_gem_bom_get / หน้าช่าง (resolve) / A5 ไม่มี key ติ๊ก       -> M8 M9 · แก้พลอยผ่าน job_gem_bom_set ตอนมีติ๊กยังใช้ได้ (M7)
 --   verify-0190 / verify-0191 ผ่าน                                -> รันแยกต่อ 0192 (ดูสรุปส่งมอบ) — ไม่รวมในไฟล์นี้
@@ -183,8 +187,15 @@ create function pg_temp.sm(p_shop uuid, p_actor uuid default null) returns jsonb
  language sql as $c$ select pg_temp.q(format('select analytics.gem_purchase_summary(%L, %L)', p_shop, coalesce(p_actor, pg_temp.own()))) $c$;
 create function pg_temp.cs(p_shop uuid, p_actor uuid default null) returns jsonb
  language sql as $c$ select pg_temp.q(format('select analytics.gem_purchase_summary_cost(%L, %L)', p_shop, coalesce(p_actor, pg_temp.own()))) $c$;
+-- expected "ที่จอเห็น" = ยอดที่ต้องใช้ ณ ตอนนี้ของแต่ละแถว (qty_per_piece × qty_planned · แถวที่ไม่มีจริง = 1 เพื่อให้ถึงด่าน not_found/ร้านอื่น) — เทสต์ที่ต้องการยอดเก่า/ผิดรูปเรียก mkx ตรงๆ
+create function pg_temp.expn(p_ids uuid[]) returns jsonb
+ language sql as $c$
+  select coalesce(jsonb_object_agg(x::text, coalesce((select g.qty_per_piece::bigint * j.qty_planned from analytics.job_gem_bom g join analytics.job j on j.id = g.job_id where g.id = x), 1)), '{}'::jsonb) from unnest(p_ids) x $c$;
 create function pg_temp.mk(p_shop uuid, p_ids uuid[], p_ordered boolean, p_actor uuid default null) returns jsonb
- language sql as $c$ select pg_temp.q(format('select analytics.gem_purchase_mark(%L, %L::uuid[], %L, %L)', p_shop, p_ids, p_ordered, coalesce(p_actor, pg_temp.own()))) $c$;
+ language sql as $c$ select pg_temp.q(format('select analytics.gem_purchase_mark(%L, %L::uuid[], %L, %L, %L::jsonb)', p_shop, p_ids, p_ordered, coalesce(p_actor, pg_temp.own()), pg_temp.expn(p_ids))) $c$;
+-- mkx: ส่ง p_expected ตามที่กำหนดเอง (null = ไม่ส่ง/ส่ง null)
+create function pg_temp.mkx(p_shop uuid, p_ids uuid[], p_ordered boolean, p_expected text, p_actor uuid default null) returns jsonb
+ language sql as $c$ select pg_temp.q(format('select analytics.gem_purchase_mark(%L, %L::uuid[], %L, %L, %L::jsonb)', p_shop, p_ids, p_ordered, coalesce(p_actor, pg_temp.own()), p_expected)) $c$;
 create function pg_temp.grp(p_sm jsonb, p_item uuid) returns jsonb
  language sql as $c$ select g from jsonb_array_elements(p_sm -> 'groups') g where g ->> 'canonical_item_id' = p_item::text $c$;
 create function pg_temp.gjob(p_grp jsonb, p_job uuid) returns jsonb
@@ -712,6 +723,89 @@ end;
 $c$;
 
 -- ============================================================================
+-- Q. 🔴 (security UI M2 + M1 ทางยาว) p_expected = ยอดที่จอเห็น: ติ๊กด้วยยอดตรง · ยอดเปลี่ยนหลังโหลด = qty_changed ทั้งชุด · รูปผิด = invalid · prev_ordered_qty/new_ordered_qty ตามจริง
+--    (คำสั่งแยกทีละบรรทัด — subquery ในคำสั่งเดียวกับฟังก์ชัน volatile ไม่เห็นผลที่เขียน)
+-- ============================================================================
+create function pg_temp.g_exp() returns text
+ language plpgsql as $c$
+declare
+  v text := '';
+  a uuid := pg_temp.fx('A');
+  iR uuid := pg_temp.fx('iR');
+  j1 uuid := pg_temp.fx('J1'); j2 uuid := pg_temp.fx('J2');
+  l1 uuid; l2 uuid;
+  e1 int; e2 int; s0 text; s1 text; r jsonb; r2 jsonb; ok boolean; bad text := ''; x text; forms text[];
+begin
+  l1 := pg_temp.lid(j1, iR); l2 := pg_temp.lid(j2, iR);
+  e1 := (pg_temp.expn(array[l1]) ->> l1::text)::int; e2 := (pg_temp.expn(array[l2]) ->> l2::text)::int;
+  s0 := pg_temp.msnap();
+  v := v || pg_temp.chk('Q00', format('สถานะตั้งต้น: l1 ต้องใช้ %s (คาด 6) · l2 ต้องใช้ %s (คาด 5) · ไม่มีแถวไหนถูกติ๊กค้าง', e1, e2),
+    e1 = 6 and e2 = 5 and not exists (select 1 from analytics.job_gem_bom where id in (l1, l2) and ordered_at is not null));
+  -- Q0: ติ๊กด้วย expected ตรง → ผ่าน · prev = null ทั้งสองแถว (ไม่เคยติ๊ก) · new = ยอดที่ติ๊ก
+  r := pg_temp.mkx(a, array[l1, l2], true, format('{"%s": 6, "%s": 5}', l1, l2));
+  ok := r ->> '_err' is null and (r ->> 'changed') = '2'
+        and not exists (select 1 from jsonb_array_elements(r -> 'lines') e where e -> 'prev_ordered_qty' is distinct from 'null'::jsonb)
+        and (select e ->> 'new_ordered_qty' from jsonb_array_elements(r -> 'lines') e where e ->> 'line_id' = l1::text) = '6'
+        and (select e ->> 'new_ordered_qty' from jsonb_array_elements(r -> 'lines') e where e ->> 'line_id' = l2::text) = '5';
+  v := v || pg_temp.chk('Q0', 'ติ๊กด้วย expected ตรง {l1:6, l2:5}: ผ่าน · changed 2 · prev_ordered_qty = null ทั้งสองแถว (ไม่เคยติ๊ก) · new_ordered_qty = 6 / 5', ok);
+  -- Q5: ยกเลิกติ๊ก: ไม่ใช้ expected (ส่งขยะ/ไม่ส่งก็ผ่าน) · prev = ยอดที่ติ๊กไว้ · new = null
+  r := pg_temp.mkx(a, array[l1, l2], false, '[1, "x"]');
+  ok := r ->> '_err' is null and (r ->> 'changed') = '2'
+        and (select e ->> 'prev_ordered_qty' from jsonb_array_elements(r -> 'lines') e where e ->> 'line_id' = l1::text) = '6'
+        and (select e ->> 'prev_ordered_qty' from jsonb_array_elements(r -> 'lines') e where e ->> 'line_id' = l2::text) = '5'
+        and not exists (select 1 from jsonb_array_elements(r -> 'lines') e where e -> 'new_ordered_qty' is distinct from 'null'::jsonb);
+  r2 := pg_temp.mkx(a, array[l1, l2], false, null);
+  v := v || pg_temp.chk('Q5', 'ยกเลิกติ๊กไม่ใช้ expected (ส่งขยะ ["1","x"] หรือ null ก็ไม่ error): changed 2 · prev = 6 / 5 · new = null ทั้งสองแถว · ยกเลิกซ้ำ changed 0', ok and r2 ->> '_err' is null and (r2 ->> 'changed') = '0');
+  -- Q1: ยอดเปลี่ยนหลังโหลด — จอเห็น l2 = 5 (expected เก่า) แต่ใบถูกแก้เป็น 2/ชิ้น (ต้องใช้ 10) → qty_changed ทั้งชุด · แถวดี (l1) ไม่ขยับ
+  r := pg_temp.bset(a, j2, jsonb_build_array(pg_temp.ln(iR, 2)));
+  s1 := pg_temp.msnap();
+  r2 := pg_temp.mkx(a, array[l1, l2], true, format('{"%s": 6, "%s": 5}', l1, l2));
+  v := v || pg_temp.chk('Q1', '🔴 ยอดเปลี่ยนหลังโหลดหน้า (จอเห็น l2 = 5 แต่ DB ต้องใช้ 10): ติ๊กแถวที่ถูกต้อง (l1) + แถวยอดเก่า (l2) → 22023/qty_changed ทั้งชุด · l1 ไม่ถูกติ๊ก · ไม่มี log ใหม่ · state ไม่ขยับ',
+    r ->> '_err' is null and pg_temp.hint(r2) = '22023|qty_changed' and pg_temp.msnap() = s1 and (select ordered_at from analytics.job_gem_bom where id = l1) is null);
+  -- ยอดใหม่ที่จอโหลดแล้วตรง → ผ่าน (ต้องไม่พัง)
+  r := pg_temp.mkx(a, array[l1, l2], true, format('{"%s": 6, "%s": 10}', l1, l2));
+  v := v || pg_temp.chk('Q1b', 'โหลดใหม่แล้วส่ง expected ตรง {l1:6, l2:10} → ผ่าน changed 2 (ต้องไม่พัง)', r ->> '_err' is null and (r ->> 'changed') = '2');
+  -- Q4: prev ถูก: l1 ติ๊กแล้ว 6 (ไม่เปลี่ยน) · l2 ติ๊กไว้ 10 แล้วใบเพิ่มเป็น 15 → ติ๊กซ้ำ prev 10 new 15 · ติ๊กซ้ำอีกครั้ง prev = new = 15 changed 0
+  r := pg_temp.bset(a, j2, jsonb_build_array(pg_temp.ln(iR, 3)));
+  r := pg_temp.mkx(a, array[l1, l2], true, format('{"%s": 6, "%s": 15}', l1, l2));
+  ok := r ->> '_err' is null and (r ->> 'changed') = '1' and (r ->> 'unchanged') = '1'
+        and (select e ->> 'prev_ordered_qty' from jsonb_array_elements(r -> 'lines') e where e ->> 'line_id' = l1::text) = '6'
+        and (select e ->> 'new_ordered_qty' from jsonb_array_elements(r -> 'lines') e where e ->> 'line_id' = l1::text) = '6'
+        and (select e ->> 'prev_ordered_qty' from jsonb_array_elements(r -> 'lines') e where e ->> 'line_id' = l2::text) = '10'
+        and (select e ->> 'new_ordered_qty' from jsonb_array_elements(r -> 'lines') e where e ->> 'line_id' = l2::text) = '15';
+  r2 := pg_temp.mkx(a, array[l2], true, format('{"%s": 15}', l2));
+  v := v || pg_temp.chk('Q4', 'prev_ordered_qty ตามจริง: l1 (ติ๊กแล้ว ไม่เปลี่ยน) prev 6 → new 6 · l2 (ใบเพิ่ม 10 → 15) prev 10 → new 15 · ติ๊กซ้ำอีกครั้ง changed 0 prev = new = 15 — จอตัดสินปุ่มย้อนจากผลนี้ (ย้อนได้เฉพาะแถวที่ prev = null)',
+    ok and (r2 ->> 'changed') = '0' and (r2 -> 'lines' -> 0 ->> 'prev_ordered_qty') = '15' and (r2 -> 'lines' -> 0 ->> 'new_ordered_qty') = '15');
+  perform pg_temp.mkx(a, array[l1, l2], false, null);
+  r := pg_temp.bset(a, j2, jsonb_build_array(pg_temp.ln(iR, 1)));
+  -- Q2: รูปร่าง expected ผิด → purchase_lines_invalid ทุกแบบ · ไม่เขียนอะไร · (ids ซ้ำ [l1,l1,l2] กับ key 2 ตัว = ผ่าน)
+  s0 := pg_temp.msnap();
+  forms := array[
+    null,                                                                 -- ไม่ส่ง
+    'null', '[6, 5]', '6', '"x"',                                         -- ไม่ใช่ object
+    format('{"%s": 6}', l1),                                              -- key ขาด
+    format('{"%s": 6, "%s": 5, "%s": 1}', l1, l2, gen_random_uuid()),     -- key เกิน
+    format('{"%s": 6, "%s": 5}', l1, gen_random_uuid()),                  -- key ไม่ตรง
+    '{"abc": 6, "def": 5}',                                               -- key ไม่ใช่ uuid
+    format('{"%s": -6, "%s": 5}', l1, l2), format('{"%s": 0, "%s": 5}', l1, l2),
+    format('{"%s": 6.5, "%s": 5}', l1, l2), format('{"%s": 6.0, "%s": 5}', l1, l2),
+    format('{"%s": "6", "%s": 5}', l1, l2), format('{"%s": null, "%s": 5}', l1, l2),
+    format('{"%s": true, "%s": 5}', l1, l2), format('{"%s": 1000000000, "%s": 5}', l1, l2)];
+  foreach x in array forms loop
+    r := pg_temp.mkx(a, array[l1, l2], true, x);
+    if pg_temp.hint(r) <> '22023|purchase_lines_invalid' then bad := bad || coalesce(left(x, 40), 'NULL') || ' → ' || pg_temp.hint(r) || '; '; end if;
+  end loop;
+  v := v || pg_temp.chk('Q2', '🔴 expected รูปผิดทุกแบบ (ไม่ส่ง/null/array/scalar/key ขาด-เกิน-ไม่ตรง-ไม่ใช่ uuid/ค่าติดลบ-0-ทศนิยม 6.5 และ 6.0-ข้อความ-null-boolean-เกินเพดาน) → 22023/purchase_lines_invalid · ไม่เขียนอะไร · ที่หลุด: ' || coalesce(nullif(bad, ''), 'ไม่มี'),
+    bad = '' and pg_temp.msnap() = s0);
+  r := pg_temp.mkx(a, array[l1, l1, l2], true, format('{"%s": 6, "%s": 5}', l1, l2));
+  ok := r ->> '_err' is null and (r ->> 'requested') = '2';
+  perform pg_temp.mkx(a, array[l1, l2], false, null);
+  v := v || pg_temp.chk('Q2b', 'line ids ซ้ำ [l1,l1,l2] กับ expected 2 key → ผ่าน (dedupe ก่อนเทียบ key) requested 2 (ต้องไม่พัง)', ok);
+  return v;
+end;
+$c$;
+
+-- ============================================================================
 -- F. เคสห้ามผ่านของการติ๊ก: ใบปิด · ขั้นฝังรับแล้ว · ไม่มีขั้นฝัง/ข้าม · ร้านอื่น (IDOR) · ชุดผสม · input ผิด — ทุกข้อ state ต้องไม่ขยับ
 -- ============================================================================
 create function pg_temp.g_forbid() returns text
@@ -922,6 +1016,7 @@ begin
   v := v || pg_temp.g_sum();
   v := v || pg_temp.g_cost();
   v := v || pg_temp.g_mark();
+  v := v || pg_temp.g_exp();
   v := v || pg_temp.g_forbid();
   v := v || pg_temp.g_perm();
   return v;
@@ -952,7 +1047,7 @@ create function pg_temp.g_mut() returns text
  language plpgsql as $c$
 declare
   v text := ''; s text; k int; muts jsonb; m jsonb; st jsonb; hit int; i text; killed int := 0; total int;
-  sg_mark constant text := 'analytics.gem_purchase_mark(uuid,uuid[],boolean,uuid)';
+  sg_mark constant text := 'analytics.gem_purchase_mark(uuid,uuid[],boolean,uuid,jsonb)';
   sg_sum constant text := 'analytics.gem_purchase_summary(uuid,uuid)';
   sg_cost constant text := 'analytics.gem_purchase_summary_cost(uuid,uuid)';
 begin
@@ -980,7 +1075,11 @@ begin
         jsonb_build_array('f', sg_cost, 'round(coalesce(g.raw_remaining, 0), 2) end as cost_remaining_thb', 'round(coalesce(g.raw_remaining, 0), 4) end as cost_remaining_thb'),
         jsonb_build_array('f', sg_cost, '''cost_remaining_thb'', coalesce(sum(r.cost_remaining_thb), 0),', '''cost_remaining_thb'', round(coalesce(sum(r.cost_remaining_thb), 0), 2),')), 'expect', jsonb_build_array('C5')),
     jsonb_build_object('id', 'MU17', 'what', '(QA S2) removed_after_order ใช้ gem_item_id ดิบของ snapshot แทน canonical (รายการที่ถูกรวมชื่อแล้ว)', 'steps', jsonb_build_array(jsonb_build_array('f', sg_sum, 'coalesce(gi.merged_into, gi.id, ml.gem_item_id)', 'ml.gem_item_id')), 'expect', jsonb_build_array('S2c')),
-    jsonb_build_object('id', 'MU18', 'what', '(QA S2) view จัดกลุ่มด้วย gem_item_id ดิบของ snapshot แทน canonical (ไม่ตาม merged_into — กลุ่มแตก/ติ๊กข้ามการรวมชื่อไม่เข้ากลุ่ม)', 'steps', jsonb_build_array(jsonb_build_array('v', 'analytics.v_gem_purchase_line', '(?i)coalesce\(gi\.merged_into, gi\.id\)', 'gi.id')), 'expect', jsonb_build_array('C4b', 'S2a')));
+    jsonb_build_object('id', 'MU18', 'what', '(QA S2) view จัดกลุ่มด้วย gem_item_id ดิบของ snapshot แทน canonical (ไม่ตาม merged_into — กลุ่มแตก/ติ๊กข้ามการรวมชื่อไม่เข้ากลุ่ม)', 'steps', jsonb_build_array(jsonb_build_array('v', 'analytics.v_gem_purchase_line', '(?i)coalesce\(gi\.merged_into, gi\.id\)', 'gi.id')), 'expect', jsonb_build_array('C4b', 'S2a')),
+    jsonb_build_object('id', 'MU19', 'what', '🔴 (security UI M2) ติ๊กไม่เทียบ expected กับยอดที่ต้องใช้ ณ ตอนกด (ยอดเปลี่ยนหลังโหลดก็บันทึกยอดใหม่เงียบๆ)', 'steps', jsonb_build_array(jsonb_build_array('f', sg_mark, 'and (p_expected ->> g.id::text)::bigint <> g.qty_per_piece::bigint * j.qty_planned', 'and false')), 'expect', jsonb_build_array('Q1')),
+    jsonb_build_object('id', 'MU20', 'what', '(security UI M2) ไม่ตรวจว่า key ของ expected อยู่ใน line ids (key ไม่ตรงผ่านเมื่อจำนวน key เท่ากัน)', 'steps', jsonb_build_array(jsonb_build_array('f', sg_mark, 'or exists (select 1 from jsonb_object_keys(p_expected) k where k::uuid <> all (v_ids))', '')), 'expect', jsonb_build_array('Q2')),
+    jsonb_build_object('id', 'MU21', 'what', '(security M1 ทางยาว) prev_ordered_qty ไม่ส่งยอดเดิม (จอตัดสินปุ่มย้อนผิด)', 'steps', jsonb_build_array(jsonb_build_array('f', sg_mark, '''prev_ordered_qty'', (v_prev ->> l.line_id::text)::bigint,', '''prev_ordered_qty'', null::bigint,')), 'expect', jsonb_build_array('Q4', 'Q5')),
+    jsonb_build_object('id', 'MU22', 'what', '(security UI M2) ไม่ตรวจชนิด/รูปค่าของ expected (ข้อความ/ทศนิยม/ติดลบ/0 ผ่านด่านรูปร่าง)', 'steps', jsonb_build_array(jsonb_build_array('f', sg_mark, ' or jsonb_typeof(e.value) <> ''number'' or (e.value #>> ''{}'') !~ ''^[1-9][0-9]{0,8}$'')', ')')), 'expect', jsonb_build_array('Q2')));
   total := jsonb_array_length(muts);
   for k in 0 .. total - 1 loop
     m := muts -> k; s := '';

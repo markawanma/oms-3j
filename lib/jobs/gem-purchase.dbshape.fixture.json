@@ -171,6 +171,8 @@
     "qty_remaining": 0,
     "qty_needed_now": 3,
     "canonical_item_id": "99397093-0ce6-4b1d-86f7-9faea9e279ea",
+    "new_ordered_qty": 3,
+    "prev_ordered_qty": null,
     "changed_after_order": false
    }
   ],

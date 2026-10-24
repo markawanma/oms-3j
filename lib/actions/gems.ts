@@ -343,9 +343,14 @@ export interface MarkGemPurchaseInput {
   lineIds: string[];
   /** true = ติ๊ก "สั่งแล้ว" · false = ยกเลิกติ๊ก (undo = เรียกด้วย lineIds เดิมและค่าตรงข้าม) */
   ordered: boolean;
+  /**
+   * 🔴 บังคับเมื่อ ordered = true: { line_id: qty_needed_now ที่จอเห็น/คัดลอกส่งร้านพลอย } ครบทุก lineIds (key ตรงเป๊ะ · ค่าเป็นจำนวนเต็มบวก)
+   * ยอดไม่ตรงกับ DB ณ ตอนกด (ใบถูกแก้หลังโหลดหน้า) = ล้มทั้งชุดด้วย code `qty_changed` → จอโหลดใหม่ · ยกเลิกติ๊ก (ordered = false) ไม่ส่ง/ไม่ตรวจ
+   */
+  expected?: Record<string, number>;
 }
 
-/** ติ๊ก/ยกเลิกติ๊ก all-or-nothing · ส่งซ้ำไม่ error (changed = 0) · ใบปิด/ขั้นฝังรับแล้ว/ไม่พบ = ล้มทั้งชุด (จอโหลดใหม่) */
+/** ติ๊ก/ยกเลิกติ๊ก all-or-nothing · ส่งซ้ำไม่ error (changed = 0) · ใบปิด/ขั้นฝังรับแล้ว/ไม่พบ/ยอดเปลี่ยน (qty_changed) = ล้มทั้งชุด (จอโหลดใหม่) */
 export async function markGemPurchase(input: MarkGemPurchaseInput): Promise<JobResult<GemPurchaseMarkResult>> {
   const g = await guard();
   if (g) return g;
@@ -354,7 +359,18 @@ export async function markGemPurchase(input: MarkGemPurchaseInput): Promise<JobR
   if (ids.length < 1 || ids.length > GEM_PURCHASE_MAX_LINES || !ids.every((x) => typeof x === "string" && isUuid(x))) {
     return fail("รายการที่จะติ๊กต้องมี 1-200 แถว", "purchase_lines_invalid");
   }
-  const r = await callOffice<unknown>("gem_purchase_mark", { p_line_ids: [...new Set(ids)], p_ordered: input.ordered });
+  const unique = [...new Set(ids)];
+  const params: Record<string, unknown> = { p_line_ids: unique, p_ordered: input.ordered };
+  if (input.ordered) {
+    // ตรวจรูปร่างก่อนถึง DB (DB ตรวจซ้ำ): object · key = lineIds ตรงเป๊ะ (ไม่ขาด ไม่เกิน) · ค่า = จำนวนเต็มบวก
+    const e = input.expected;
+    const keys = isObj(e) ? Object.keys(e) : [];
+    if (!isObj(e) || keys.length !== unique.length || !keys.every((k) => unique.includes(k)) || !keys.every((k) => Number.isSafeInteger(e[k]) && (e[k] as number) > 0 && (e[k] as number) <= 999_999_999)) {
+      return fail("ติ๊ก \"สั่งแล้ว\" ต้องส่งยอดที่จอเห็นของทุกแถว (จำนวนเต็มบวก)", "purchase_lines_invalid");
+    }
+    params.p_expected = Object.fromEntries(unique.map((k) => [k, e[k]]));
+  }
+  const r = await callOffice<unknown>("gem_purchase_mark", params);
   if (!r.ok) return r;
   const m = mapGemPurchaseMark(r.data);
   if (!m) return fail(GENERIC_JOB_ERROR);

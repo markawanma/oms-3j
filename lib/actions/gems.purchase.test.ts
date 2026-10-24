@@ -21,7 +21,7 @@ vi.mock("next/cache", () => ({ revalidatePath: (...a: unknown[]) => revalidateMo
 import * as gems from "./gems";
 
 const U = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
-const markOk = { requested: 1, changed: 1, unchanged: 0, ordered: true, lines: [{ line_id: L1, job_id: U(1), job_no: "JB-0001", canonical_item_id: U(2), is_ordered: true, qty_needed_now: 6, qty_ordered: 6, qty_remaining: 0, qty_excess: 0, changed_after_order: false }] };
+const markOk = { requested: 1, changed: 1, unchanged: 0, ordered: true, lines: [{ line_id: L1, job_id: U(1), job_no: "JB-0001", canonical_item_id: U(2), is_ordered: true, qty_needed_now: 6, qty_ordered: 6, qty_remaining: 0, qty_excess: 0, changed_after_order: false, prev_ordered_qty: null, new_ordered_qty: 6 }] };
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -36,7 +36,7 @@ describe("สิทธิ์: ทุก action ของหน้าสั่ง
   const calls: [string, () => Promise<unknown>][] = [
     ["getGemPurchaseSummary", () => gems.getGemPurchaseSummary()],
     ["getGemPurchaseCost", () => gems.getGemPurchaseCost()],
-    ["markGemPurchase", () => gems.markGemPurchase({ lineIds: [L1], ordered: true })],
+    ["markGemPurchase", () => gems.markGemPurchase({ lineIds: [L1], ordered: true, expected: { [L1]: 6 } })],
   ];
   it.each(calls)("%s: staff/ไม่ระบุ role/viewer → ok:false · ไม่เรียก RPC", async (_n, run) => {
     for (const role of ["staff", undefined, "viewer"]) {
@@ -52,7 +52,7 @@ describe("สิทธิ์: ทุก action ของหน้าสั่ง
   });
   it("ไม่มี actor (session user) → ไม่เรียก RPC", async () => {
     sessionUserMock.mockResolvedValue(null);
-    expect((await gems.markGemPurchase({ lineIds: [L1], ordered: true })).ok).toBe(false);
+    expect((await gems.markGemPurchase({ lineIds: [L1], ordered: true, expected: { [L1]: 6 } })).ok).toBe(false);
     expect((await gems.getGemPurchaseSummary()).ok).toBe(false);
     expect(rpcMock).not.toHaveBeenCalled();
   });
@@ -74,9 +74,9 @@ describe("พารามิเตอร์ที่ส่ง RPC: shop/actor �
   });
   it("markGemPurchase: p_line_ids ไม่ซ้ำ · p_ordered · shop/actor ทับค่าที่ client ยัดมา · revalidate หน้า", async () => {
     rpcMock.mockResolvedValue({ data: markOk, error: null });
-    const r = await gems.markGemPurchase({ lineIds: [L1, L1, L2], ordered: true, ...({ p_actor: "evil", p_shop_id: "evil" } as object) } as never);
-    expect(r.ok && r.data.changed === 1 && r.data.lines[0].lineId === L1).toBe(true);
-    expect(rpcMock).toHaveBeenCalledWith("gem_purchase_mark", { p_line_ids: [L1, L2], p_ordered: true, p_shop_id: SHOP, p_actor: USER });
+    const r = await gems.markGemPurchase({ lineIds: [L1, L1, L2], ordered: true, expected: { [L1]: 6, [L2]: 4 }, ...({ p_actor: "evil", p_shop_id: "evil" } as object) } as never);
+    expect(r.ok && r.data.changed === 1 && r.data.lines[0].lineId === L1 && r.data.lines[0].prevOrderedQty === null && r.data.lines[0].newOrderedQty === 6).toBe(true);
+    expect(rpcMock).toHaveBeenCalledWith("gem_purchase_mark", { p_line_ids: [L1, L2], p_ordered: true, p_expected: { [L1]: 6, [L2]: 4 }, p_shop_id: SHOP, p_actor: USER });
     expect(revalidateMock).toHaveBeenCalledWith("/jobs/gems-to-buy");
   });
   it("ยกเลิกติ๊ก (undo) ส่ง p_ordered=false", async () => {
@@ -104,9 +104,43 @@ describe("input ผิด → ปฏิเสธก่อนถึง DB (purcha
   });
   it("200 แถวพอดีผ่าน (ต้องไม่พัง)", async () => {
     rpcMock.mockResolvedValue({ data: markOk, error: null });
-    const r = await gems.markGemPurchase({ lineIds: Array.from({ length: 200 }, (_v, i) => U(i + 1)), ordered: true });
+    const ids200 = Array.from({ length: 200 }, (_v, i) => U(i + 1));
+    const r = await gems.markGemPurchase({ lineIds: ids200, ordered: true, expected: Object.fromEntries(ids200.map((k) => [k, 3])) });
     expect(r.ok).toBe(true);
     expect(rpcMock).toHaveBeenCalledTimes(1);
+  });
+  describe("🔴 expected (ยอดที่จอเห็น) บังคับเมื่อ ordered=true — ผิดรูปไม่ถึง DB (purchase_lines_invalid)", () => {
+    const badExp: [string, unknown][] = [
+      ["ไม่ส่ง expected", undefined],
+      ["expected = null", null],
+      ["expected เป็น array", [6]],
+      ["key ขาด (ส่ง 2 แถว มี key เดียว)", { [L1]: 6 }],
+      ["key เกิน", { [L1]: 6, [L2]: 4, [U(9)]: 1 }],
+      ["key ไม่ตรง lineIds", { [L1]: 6, [U(9)]: 1 }],
+      ["ค่า 0", { [L1]: 0, [L2]: 4 }],
+      ["ค่าติดลบ", { [L1]: -1, [L2]: 4 }],
+      ["ค่าทศนิยม", { [L1]: 6.5, [L2]: 4 }],
+      ["ค่าเป็นข้อความ", { [L1]: "6", [L2]: 4 }],
+      ["ค่า NaN", { [L1]: Number.NaN, [L2]: 4 }],
+      ["ค่า Infinity", { [L1]: Number.POSITIVE_INFINITY, [L2]: 4 }],
+      ["ค่าเกินเพดาน", { [L1]: 1_000_000_000, [L2]: 4 }],
+    ];
+    it.each(badExp)("%s", async (_n, expected) => {
+      const r = await gems.markGemPurchase({ lineIds: [L1, L2], ordered: true, expected } as never);
+      expect(r.ok === false && r.code === "purchase_lines_invalid").toBe(true);
+      expect(rpcMock).not.toHaveBeenCalled();
+    });
+    it("ยกเลิกติ๊ก (ordered=false) ไม่ต้องส่ง expected · ถ้าส่งมาก็ไม่ถูกส่งต่อ (DB ไม่ใช้)", async () => {
+      rpcMock.mockResolvedValue({ data: { ...markOk, ordered: false }, error: null });
+      await gems.markGemPurchase({ lineIds: [L1], ordered: false, expected: { [L1]: 6 } });
+      expect(rpcMock).toHaveBeenCalledWith("gem_purchase_mark", { p_line_ids: [L1], p_ordered: false, p_shop_id: SHOP, p_actor: USER });
+    });
+    it("ยอดเปลี่ยนหลังโหลด (DB ตอบ qty_changed) → ok:false code qty_changed + ข้อความไทย ไม่ revalidate", async () => {
+      rpcMock.mockResolvedValue({ data: null, error: { code: "22023", hint: "qty_changed", message: "ยอดพลอยของใบ JB-0001 เปลี่ยนไปหลังโหลดหน้า — โหลดใหม่แล้วตรวจยอดก่อนติ๊ก" } });
+      const r = await gems.markGemPurchase({ lineIds: [L1], ordered: true, expected: { [L1]: 20 } });
+      expect(r.ok === false && r.code === "qty_changed" && /[ก-๛]/.test(r.error)).toBe(true);
+      expect(revalidateMock).not.toHaveBeenCalled();
+    });
   });
 });
 
@@ -117,7 +151,7 @@ describe("error ของ DB → ข้อความไทย + code (ไม�
     ["purchase_line_not_found", "22023"],
   ])("hint %s → ok:false พร้อม code เดียวกัน", async (hint, code) => {
     rpcMock.mockResolvedValue({ data: null, error: { code, hint, message: "ใบงาน JB-0001 ปิดหรือยกเลิกแล้ว — ติ๊กสั่งแล้วไม่ได้" } });
-    const r = await gems.markGemPurchase({ lineIds: [L1], ordered: true });
+    const r = await gems.markGemPurchase({ lineIds: [L1], ordered: true, expected: { [L1]: 6 } });
     expect(r.ok === false && r.code === hint && /[ก-๛]/.test(r.error)).toBe(true);
     expect(revalidateMock).not.toHaveBeenCalled();
   });
@@ -131,7 +165,7 @@ describe("error ของ DB → ข้อความไทย + code (ไม�
     rpcMock.mockResolvedValue({ data: { groups: "x" }, error: null });
     expect((await gems.getGemPurchaseSummary()).ok).toBe(false);
     rpcMock.mockResolvedValue({ data: { nope: 1 }, error: null });
-    expect((await gems.markGemPurchase({ lineIds: [L1], ordered: true })).ok).toBe(false);
+    expect((await gems.markGemPurchase({ lineIds: [L1], ordered: true, expected: { [L1]: 6 } })).ok).toBe(false);
     expect((await gems.getGemPurchaseCost()).ok).toBe(false);
   });
 });
