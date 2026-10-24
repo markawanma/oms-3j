@@ -206,8 +206,10 @@ export function currentFingerprint(): ScreenFingerprint {
     // ไม่มี screen — ใช้ขนาดหน้าต่างแทน
   }
   if (!(w > 0) || !(h > 0)) {
-    w = window.innerWidth;
-    h = window.innerHeight;
+    // ไม่รู้ขนาดจอจริง (webview บางตัว) → ใช้ค่าคงที่ ให้ไม่นับขนาดจอเป็นเหตุ stale
+    // (ห้ามใช้ innerWidth/innerHeight แทน: เปลี่ยนตามแถบเบราว์เซอร์หด/ขยาย → G5 ขึ้นมั่ว)
+    w = 1;
+    h = 1;
   }
   return { dpr, screenShort: Math.min(w, h), screenLong: Math.max(w, h) };
 }
