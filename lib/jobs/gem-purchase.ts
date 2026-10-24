@@ -42,8 +42,21 @@ export interface GemPurchaseJob {
   orderedAt: string | null;
   /** id ผู้ติ๊ก (ไม่ใช่ชื่อ — ระบบไม่มีชื่อแสดงของผู้ใช้) */
   orderedBy: string | null;
-  /** line ids ของใบนี้ในรายการนี้ (ส่งเข้า markGemPurchase) */
+  /** line ids ของใบนี้ในรายการนี้ (ส่งเข้า markGemPurchase) — ตรงกับ lines[].lineId เสมอ (mapper ตรวจ) */
   lineIds: string[];
+  /**
+   * ยอดต่อ line (ใบ × gem_item_id ใน snapshot) — ใช้เป็น `expected` ของ markGemPurchase ได้ตรงๆ (ยอดเดียวกับที่ DB เทียบ) แม้ใบมีหลาย line ของรายการเดียวกัน (หลังรวมชื่อ)
+   * ผลรวม qtyNeededNow ของ lines = qtyNeededNow ของใบ (mapper ตรวจ)
+   */
+  lines: GemPurchaseJobLine[];
+}
+
+export interface GemPurchaseJobLine {
+  lineId: string;
+  /** ยอดที่ line นี้ต้องใช้ตอนนี้ (qty_per_piece × จำนวนเริ่มผลิต) */
+  qtyNeededNow: number;
+  /** ยอดที่ติ๊กสั่งไว้ของ line นี้ (null = ยังไม่ติ๊ก) */
+  orderedQty: number | null;
 }
 
 export interface GemPurchaseGroup {
@@ -137,6 +150,19 @@ function mapJob(raw: unknown): GemPurchaseJob | null {
   const remaining = qty(raw.qty_remaining);
   const excess = qty(raw.qty_excess);
   if (!jobId || !jobNo || !jobLineIds || jobLineIds.length === 0 || needed === null || ordered === null || remaining === null || excess === null) return null;
+  // lines (ยอดต่อ line): ต้องมี · ผิดรูปแม้แถวเดียว = null ทั้งก้อน · id ตรงกับ line_ids · ผลรวมยอด = ยอดของใบ (ไม่เดา/ไม่คำนวณแทน DB)
+  if (!Array.isArray(raw.lines) || raw.lines.length === 0 || raw.lines.length > 30) return null;
+  const lines: GemPurchaseJobLine[] = [];
+  for (const l of raw.lines) {
+    if (!isObj(l)) return null;
+    const lineId = uuid(l.line_id);
+    const nn = typeof l.qty_needed_now === "number" ? qty(l.qty_needed_now) : null;
+    const oq = l.ordered_qty === null ? null : typeof l.ordered_qty === "number" ? qty(l.ordered_qty) : -1;
+    if (!lineId || nn === null || nn < 1 || !("ordered_qty" in l) || (l.ordered_qty !== null && (oq === null || oq < 1))) return null;
+    lines.push({ lineId, qtyNeededNow: nn, orderedQty: oq });
+  }
+  if (lines.length !== jobLineIds.length || new Set(lines.map((x) => x.lineId)).size !== lines.length || !lines.every((x) => jobLineIds.includes(x.lineId))) return null;
+  if (lines.reduce((n, x) => n + x.qtyNeededNow, 0) !== needed) return null;
   return {
     jobId,
     jobNo,
@@ -151,6 +177,7 @@ function mapJob(raw: unknown): GemPurchaseJob | null {
     orderedAt: str(raw.ordered_at, 40),
     orderedBy: uuid(raw.ordered_by),
     lineIds: jobLineIds,
+    lines,
   };
 }
 

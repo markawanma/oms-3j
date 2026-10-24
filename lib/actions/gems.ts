@@ -359,16 +359,20 @@ export async function markGemPurchase(input: MarkGemPurchaseInput): Promise<JobR
   if (ids.length < 1 || ids.length > GEM_PURCHASE_MAX_LINES || !ids.every((x) => typeof x === "string" && isUuid(x))) {
     return fail("รายการที่จะติ๊กต้องมี 1-200 แถว", "purchase_lines_invalid");
   }
-  const unique = [...new Set(ids)];
+  // uuid ไม่สนตัวพิมพ์: lowercase ก่อน dedupe (ตัวพิมพ์ต่างกันของ id เดียวกัน = แถวเดียว) · key ของ expected ก็ lowercase ก่อนเทียบ — DB เทียบกับ id ตัวเล็ก
+  const unique = [...new Set(ids.map((x) => x.toLowerCase()))];
   const params: Record<string, unknown> = { p_line_ids: unique, p_ordered: input.ordered };
   if (input.ordered) {
-    // ตรวจรูปร่างก่อนถึง DB (DB ตรวจซ้ำ): object · key = lineIds ตรงเป๊ะ (ไม่ขาด ไม่เกิน) · ค่า = จำนวนเต็มบวก
+    // ตรวจรูปร่างก่อนถึง DB (DB ตรวจซ้ำ): object · key (lowercase แล้ว ซ้ำต่างตัวพิมพ์ = ตก) = lineIds ตรงเป๊ะ (ไม่ขาด ไม่เกิน) · ค่า = จำนวนเต็มบวก
     const e = input.expected;
-    const keys = isObj(e) ? Object.keys(e) : [];
-    if (!isObj(e) || keys.length !== unique.length || !keys.every((k) => unique.includes(k)) || !keys.every((k) => Number.isSafeInteger(e[k]) && (e[k] as number) > 0 && (e[k] as number) <= 999_999_999)) {
+    const rawKeys = isObj(e) ? Object.keys(e) : [];
+    const lowered = new Map<string, unknown>();
+    for (const k of rawKeys) lowered.set(k.toLowerCase(), (e as Raw)[k]);
+    if (!isObj(e) || lowered.size !== rawKeys.length || lowered.size !== unique.length || !unique.every((k) => lowered.has(k))
+      || !unique.every((k) => Number.isSafeInteger(lowered.get(k)) && (lowered.get(k) as number) > 0 && (lowered.get(k) as number) <= 999_999_999)) {
       return fail("ติ๊ก \"สั่งแล้ว\" ต้องส่งยอดที่จอเห็นของทุกแถว (จำนวนเต็มบวก)", "purchase_lines_invalid");
     }
-    params.p_expected = Object.fromEntries(unique.map((k) => [k, e[k]]));
+    params.p_expected = Object.fromEntries(unique.map((k) => [k, lowered.get(k)]));
   }
   const r = await callOffice<unknown>("gem_purchase_mark", params);
   if (!r.ok) return r;

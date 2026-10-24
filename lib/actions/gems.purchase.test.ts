@@ -5,6 +5,9 @@ const SHOP = "a7c850ee-6776-4c3e-ba72-ba9e8caba2b7";
 const USER = "99999999-9999-4999-8999-999999999999";
 const L1 = "11111111-1111-4111-8111-111111111111";
 const L2 = "22222222-2222-4222-8222-222222222222";
+// uuid ที่มีตัวอักษร a-f (ไว้ทดสอบตัวพิมพ์ใหญ่/เล็ก — L1/L2 เป็นตัวเลขล้วน toUpperCase ไม่เปลี่ยนค่า)
+const UA = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const UB = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 
 const roleMock = vi.fn();
 const sessionUserMock = vi.fn();
@@ -127,6 +130,17 @@ describe("input ผิด → ปฏิเสธก่อนถึง DB (purcha
     ];
     it.each(badExp)("%s", async (_n, expected) => {
       const r = await gems.markGemPurchase({ lineIds: [L1, L2], ordered: true, expected } as never);
+      expect(r.ok === false && r.code === "purchase_lines_invalid").toBe(true);
+      expect(rpcMock).not.toHaveBeenCalled();
+    });
+    it("🔴 M-1: lineIds/expected key ตัวพิมพ์ใหญ่ → lowercase ก่อนส่ง (DB เทียบกับ id ตัวเล็ก) · id ซ้ำต่างตัวพิมพ์ = แถวเดียว", async () => {
+      rpcMock.mockResolvedValue({ data: markOk, error: null });
+      const r = await gems.markGemPurchase({ lineIds: [UA.toUpperCase(), UA, UB.toUpperCase()], ordered: true, expected: { [UA.toUpperCase()]: 6, [UB.toUpperCase()]: 4 } });
+      expect(r.ok).toBe(true);
+      expect(rpcMock).toHaveBeenCalledWith("gem_purchase_mark", { p_line_ids: [UA, UB], p_ordered: true, p_expected: { [UA]: 6, [UB]: 4 }, p_shop_id: SHOP, p_actor: USER });
+    });
+    it("🔴 M-1: key ของ expected ซ้ำต่างตัวพิมพ์ (id เดียวกัน ตัวเล็กและตัวใหญ่) → purchase_lines_invalid ไม่ถึง DB", async () => {
+      const r = await gems.markGemPurchase({ lineIds: [UA, UB], ordered: true, expected: { [UA]: 6, [UA.toUpperCase()]: 7, [UB]: 4 } });
       expect(r.ok === false && r.code === "purchase_lines_invalid").toBe(true);
       expect(rpcMock).not.toHaveBeenCalled();
     });

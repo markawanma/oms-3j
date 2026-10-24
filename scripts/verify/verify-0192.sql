@@ -472,7 +472,7 @@ create function pg_temp.g_cost() returns text
 declare
   v text := '';
   a uuid := pg_temp.fx('A');
-  gBs jsonb; idsB uuid[]; lJAa uuid; lJMa uuid; lJMb uuid; ok boolean;
+  gBs jsonb; idsB uuid[]; lJAa uuid; lJMa uuid; lJMb uuid; ok boolean; jmj jsonb; exJM jsonb;
   c jsonb; gR jsonb; gN jsonb; gF jsonb; gQ1 jsonb; gQ2 jsonb; gB jsonb; sm jsonb; r jsonb; sumg numeric;
 begin
   c := pg_temp.cs(a);
@@ -523,6 +523,23 @@ begin
     cardinality(idsB) = 4 and (r ->> 'changed') = '3' and (r ->> 'unchanged') = '1' and (gBs ->> 'qty_remaining') = '0' and (gBs ->> 'qty_ordered') = '13'
     and (pg_temp.gjob(gBs, pg_temp.fx('JM')) ->> 'is_ordered') = 'true');
   perform pg_temp.mk(a, idsB, false);
+  -- S2d (security UI): ใบหลาย line ของรายการเดียวกัน (JM: iA 2 + iB 1 หลังรวมชื่อ) — summary ส่งยอดต่อ line (jobs[].lines) · ผลรวม = qty_needed_now ของใบ · ใช้เป็น p_expected ตรงๆ แล้วติ๊กผ่าน
+  sm := pg_temp.sm(a); gBs := pg_temp.grp(sm, pg_temp.fx('iB'));
+  jmj := pg_temp.gjob(gBs, pg_temp.fx('JM'));
+  exJM := (select jsonb_object_agg(e ->> 'line_id', e -> 'qty_needed_now') from jsonb_array_elements(jmj -> 'lines') e);
+  ok := jsonb_array_length(jmj -> 'lines') = 2 and (jmj ->> 'qty_needed_now') = '3'
+        and (select sum((e ->> 'qty_needed_now')::int) from jsonb_array_elements(jmj -> 'lines') e) = 3
+        and (select e ->> 'qty_needed_now' from jsonb_array_elements(jmj -> 'lines') e where e ->> 'line_id' = pg_temp.lid(pg_temp.fx('JM'), pg_temp.fx('iA'))::text) = '2'
+        and (select e ->> 'qty_needed_now' from jsonb_array_elements(jmj -> 'lines') e where e ->> 'line_id' = pg_temp.lid(pg_temp.fx('JM'), pg_temp.fx('iB'))::text) = '1'
+        and not exists (select 1 from jsonb_array_elements(jmj -> 'lines') e where e -> 'ordered_qty' is distinct from 'null'::jsonb)
+        and (select count(*) from jsonb_array_elements(jmj -> 'lines') e) = jsonb_array_length(jmj -> 'line_ids');
+  r := pg_temp.mkx(a, array(select (x #>> '{}')::uuid from jsonb_array_elements(jmj -> 'line_ids') x), true, exJM::text);
+  sm := pg_temp.sm(a); jmj := pg_temp.gjob(pg_temp.grp(sm, pg_temp.fx('iB')), pg_temp.fx('JM'));
+  v := v || pg_temp.chk('S2d', 'jobs[JM].lines (ใบมี 2 line ของรายการ canonical เดียวกัน): ยอดต่อ line iA = 2 · iB = 1 · ผลรวม = 3 = qty_needed_now ของใบ · line_ids ตรงกับ lines · ยังไม่ติ๊ก (ordered_qty null) · ติ๊กด้วย expected ที่สร้างจาก lines → ผ่าน changed 2 แล้ว lines.ordered_qty = 2 / 1',
+    ok and r ->> '_err' is null and (r ->> 'changed') = '2'
+    and (select e ->> 'ordered_qty' from jsonb_array_elements(jmj -> 'lines') e where e ->> 'line_id' = pg_temp.lid(pg_temp.fx('JM'), pg_temp.fx('iA'))::text) = '2'
+    and (select e ->> 'ordered_qty' from jsonb_array_elements(jmj -> 'lines') e where e ->> 'line_id' = pg_temp.lid(pg_temp.fx('JM'), pg_temp.fx('iB'))::text) = '1');
+  perform pg_temp.mk(a, array[pg_temp.lid(pg_temp.fx('JM'), pg_temp.fx('iA')), pg_temp.lid(pg_temp.fx('JM'), pg_temp.fx('iB'))], false);
   -- S2c: ใบ JM มีแถว iA (ติ๊ก) + iB (ไม่ติ๊ก) · ลบแถว iA ตอนแก้พลอย → removed_after_order.canonical_item_id = iB (ไม่ใช่ iA ดิบ) · ติ๊กแถว iB แล้วคำเตือนหาย
   lJMa := pg_temp.lid(pg_temp.fx('JM'), pg_temp.fx('iA')); lJMb := pg_temp.lid(pg_temp.fx('JM'), pg_temp.fx('iB'));
   perform pg_temp.mk(a, array[lJMa], true);
@@ -801,6 +818,23 @@ begin
   ok := r ->> '_err' is null and (r ->> 'requested') = '2';
   perform pg_temp.mkx(a, array[l1, l2], false, null);
   v := v || pg_temp.chk('Q2b', 'line ids ซ้ำ [l1,l1,l2] กับ expected 2 key → ผ่าน (dedupe ก่อนเทียบ key) requested 2 (ต้องไม่พัง)', ok);
+  -- Q6 🔴 (security M-1): key ของ expected เป็น uuid ตัวพิมพ์ใหญ่ — ผ่านด่านรูปร่าง (regex ไม่สนตัวพิมพ์) แต่เดิมเทียบยอดด้วย id ตัวเล็กได้ null → `null <> ยอด` = null → ด่าน qty_changed ถูกข้ามเงียบ
+  r := pg_temp.bset(a, j2, jsonb_build_array(pg_temp.ln(iR, 2)));      -- ต้องใช้ l2 = 10 · จอเห็น 5 (เก่า)
+  s1 := pg_temp.msnap();
+  r2 := pg_temp.mkx(a, array[l1, l2], true, format('{"%s": 6, "%s": 5}', upper(l1::text), upper(l2::text)));
+  v := v || pg_temp.chk('Q6a', '🔴 key ตัวพิมพ์ใหญ่ + ยอดไม่ตรง (l2 จอเห็น 5 แต่ต้องใช้ 10) → 22023/qty_changed ห้ามผ่าน (OK) เงียบ · ไม่เขียนอะไร · l1 ไม่ถูกติ๊ก',
+    pg_temp.hint(r2) = '22023|qty_changed' and pg_temp.msnap() = s1 and (select ordered_at from analytics.job_gem_bom where id = l1) is null);
+  r2 := pg_temp.mkx(a, array[l1, l2], true, format('{"%s": 6, "%s": 10}', upper(l1::text), upper(l2::text)));
+  ok := r2 ->> '_err' is null and (r2 ->> 'changed') = '2';
+  perform pg_temp.mkx(a, array[l1, l2], false, null);
+  v := v || pg_temp.chk('Q6b', 'key ตัวพิมพ์ใหญ่ + ยอดตรง {L1:6, L2:10} → ผ่าน changed 2 (ต้องไม่พัง — normalize เป็นตัวเล็กก่อนเทียบ)', ok);
+  r := pg_temp.bset(a, j2, jsonb_build_array(pg_temp.ln(iR, 1)));      -- คืนค่า (ต้องใช้ l2 = 5)
+  s1 := pg_temp.msnap();
+  r2 := pg_temp.mkx(a, array[l1], true, format('{"%s": 6, "%s": 6}', l1, upper(l1::text)));
+  v := v || pg_temp.chk('Q6c', 'key ซ้ำต่างตัวพิมพ์ (id เดียวกันตัวเล็ก+ตัวใหญ่ · line ids 1 แถว จำนวน key เท่ากับ 2 ก่อนยุบ) → 22023/purchase_lines_invalid · ไม่เขียนอะไร',
+    pg_temp.hint(r2) = '22023|purchase_lines_invalid' and pg_temp.msnap() = s1);
+  r2 := pg_temp.mkx(a, array[l1, l2], true, (select jsonb_object_agg(gen_random_uuid()::text, 1)::text from generate_series(1, 201)));
+  v := v || pg_temp.chk('Q6d', 'expected > 200 key → 22023/purchase_lines_invalid (ด่านจำนวน key ก่อนวนตรวจ) · ไม่เขียนอะไร', pg_temp.hint(r2) = '22023|purchase_lines_invalid' and pg_temp.msnap() = s1);
   return v;
 end;
 $c$;
@@ -1076,10 +1110,16 @@ begin
         jsonb_build_array('f', sg_cost, '''cost_remaining_thb'', coalesce(sum(r.cost_remaining_thb), 0),', '''cost_remaining_thb'', round(coalesce(sum(r.cost_remaining_thb), 0), 2),')), 'expect', jsonb_build_array('C5')),
     jsonb_build_object('id', 'MU17', 'what', '(QA S2) removed_after_order ใช้ gem_item_id ดิบของ snapshot แทน canonical (รายการที่ถูกรวมชื่อแล้ว)', 'steps', jsonb_build_array(jsonb_build_array('f', sg_sum, 'coalesce(gi.merged_into, gi.id, ml.gem_item_id)', 'ml.gem_item_id')), 'expect', jsonb_build_array('S2c')),
     jsonb_build_object('id', 'MU18', 'what', '(QA S2) view จัดกลุ่มด้วย gem_item_id ดิบของ snapshot แทน canonical (ไม่ตาม merged_into — กลุ่มแตก/ติ๊กข้ามการรวมชื่อไม่เข้ากลุ่ม)', 'steps', jsonb_build_array(jsonb_build_array('v', 'analytics.v_gem_purchase_line', '(?i)coalesce\(gi\.merged_into, gi\.id\)', 'gi.id')), 'expect', jsonb_build_array('C4b', 'S2a')),
-    jsonb_build_object('id', 'MU19', 'what', '🔴 (security UI M2) ติ๊กไม่เทียบ expected กับยอดที่ต้องใช้ ณ ตอนกด (ยอดเปลี่ยนหลังโหลดก็บันทึกยอดใหม่เงียบๆ)', 'steps', jsonb_build_array(jsonb_build_array('f', sg_mark, 'and (p_expected ->> g.id::text)::bigint <> g.qty_per_piece::bigint * j.qty_planned', 'and false')), 'expect', jsonb_build_array('Q1')),
-    jsonb_build_object('id', 'MU20', 'what', '(security UI M2) ไม่ตรวจว่า key ของ expected อยู่ใน line ids (key ไม่ตรงผ่านเมื่อจำนวน key เท่ากัน)', 'steps', jsonb_build_array(jsonb_build_array('f', sg_mark, 'or exists (select 1 from jsonb_object_keys(p_expected) k where k::uuid <> all (v_ids))', '')), 'expect', jsonb_build_array('Q2')),
+    jsonb_build_object('id', 'MU19', 'what', '🔴 (security UI M2) ติ๊กไม่เทียบ expected กับยอดที่ต้องใช้ ณ ตอนกด (ยอดเปลี่ยนหลังโหลดก็บันทึกยอดใหม่เงียบๆ)', 'steps', jsonb_build_array(jsonb_build_array('f', sg_mark, 'and (v_exp ->> g.id::text)::bigint is distinct from g.qty_per_piece::bigint * j.qty_planned', 'and false')), 'expect', jsonb_build_array('Q1')),
+    jsonb_build_object('id', 'MU20', 'what', '(security UI M2) ไม่ตรวจว่า key ของ expected อยู่ใน line ids (key ไม่ตรงผ่านเมื่อจำนวน key เท่ากัน)', 'steps', jsonb_build_array(jsonb_build_array('f', sg_mark, 'or exists (select 1 from jsonb_object_keys(v_exp) k where k::uuid <> all (v_ids))', '')), 'expect', jsonb_build_array('Q2')),
     jsonb_build_object('id', 'MU21', 'what', '(security M1 ทางยาว) prev_ordered_qty ไม่ส่งยอดเดิม (จอตัดสินปุ่มย้อนผิด)', 'steps', jsonb_build_array(jsonb_build_array('f', sg_mark, '''prev_ordered_qty'', (v_prev ->> l.line_id::text)::bigint,', '''prev_ordered_qty'', null::bigint,')), 'expect', jsonb_build_array('Q4', 'Q5')),
-    jsonb_build_object('id', 'MU22', 'what', '(security UI M2) ไม่ตรวจชนิด/รูปค่าของ expected (ข้อความ/ทศนิยม/ติดลบ/0 ผ่านด่านรูปร่าง)', 'steps', jsonb_build_array(jsonb_build_array('f', sg_mark, ' or jsonb_typeof(e.value) <> ''number'' or (e.value #>> ''{}'') !~ ''^[1-9][0-9]{0,8}$'')', ')')), 'expect', jsonb_build_array('Q2')));
+    jsonb_build_object('id', 'MU22', 'what', '(security UI M2) ไม่ตรวจชนิด/รูปค่าของ expected (ข้อความ/ทศนิยม/ติดลบ/0 ผ่านด่านรูปร่าง)', 'steps', jsonb_build_array(jsonb_build_array('f', sg_mark, ' or jsonb_typeof(e.value) <> ''number'' or (e.value #>> ''{}'') !~ ''^[1-9][0-9]{0,8}$'')', ')')), 'expect', jsonb_build_array('Q2')),
+    jsonb_build_object('id', 'MU23', 'what', '🔴 (security M-1) กลับไปแบบเดิม: ไม่ lower key และเทียบยอดด้วย <> (key ตัวพิมพ์ใหญ่ → ได้ null → ยอดไม่ตรงถูกข้ามเงียบ)', 'steps', jsonb_build_array(
+        jsonb_build_array('f', sg_mark, 'jsonb_object_agg(lower(e.key), e.value)', 'jsonb_object_agg(e.key, e.value)'),
+        jsonb_build_array('f', sg_mark, '(v_exp ->> g.id::text)::bigint is distinct from g.qty_per_piece::bigint * j.qty_planned', '(v_exp ->> g.id::text)::bigint <> g.qty_per_piece::bigint * j.qty_planned')), 'expect', jsonb_build_array('Q6a')),
+    jsonb_build_object('id', 'MU24', 'what', '(security M-1) ไม่ lower key (แต่ยังใช้ is distinct from → key ตัวพิมพ์ใหญ่ที่ยอดตรงถูกปฏิเสธผิด)', 'steps', jsonb_build_array(jsonb_build_array('f', sg_mark, 'jsonb_object_agg(lower(e.key), e.value)', 'jsonb_object_agg(e.key, e.value)')), 'expect', jsonb_build_array('Q6b')),
+    jsonb_build_object('id', 'MU25', 'what', '(security M-1) ไม่ตรวจ key ซ้ำต่างตัวพิมพ์ (ยุบแล้วจำนวนเท่า line ids ก็ผ่าน)', 'steps', jsonb_build_array(jsonb_build_array('f', sg_mark, E'(select count(*) from jsonb_object_keys(v_exp)) <> (select count(*) from jsonb_object_keys(p_expected))\n       or ', '')), 'expect', jsonb_build_array('Q6c')),
+    jsonb_build_object('id', 'MU26', 'what', '(security UI) ยอดต่อ line ใน summary (jobs[].lines) ไม่ตรงกับยอดที่ mark เทียบ (บวกเกิน) — จอใช้เป็น expected แล้วติ๊กไม่ผ่าน/ผลรวมไม่เท่ายอดใบ', 'steps', jsonb_build_array(jsonb_build_array('v', 'analytics.v_gem_purchase_summary', '(?i)''qty_needed_now'', l\.qty_total', '''qty_needed_now'', l.qty_total + 1')), 'expect', jsonb_build_array('S2d')));
   total := jsonb_array_length(muts);
   for k in 0 .. total - 1 loop
     m := muts -> k; s := '';

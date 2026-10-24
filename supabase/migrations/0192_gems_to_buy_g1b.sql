@@ -249,6 +249,8 @@ with pj as (
          sum(l.qty_remaining)::bigint as qty_remaining,
          sum(l.qty_excess)::bigint as qty_excess,
          array_agg(l.line_id order by l.line_seq) as line_ids,
+         -- ยอดต่อ line (ใช้ยอดเดียวกับที่ gem_purchase_mark เทียบ = qty_per_piece × qty_planned) — จอส่งเป็น p_expected ได้ตรงๆ แม้ใบมีหลาย line ของรายการเดียวกัน (หลังรวมชื่อ) · ordered_qty null = ยังไม่ติ๊ก
+         jsonb_agg(jsonb_build_object('line_id', l.line_id, 'qty_needed_now', l.qty_total, 'ordered_qty', case when l.is_ordered then l.qty_ordered end) order by l.line_seq) as lines,
          bool_and(l.is_ordered) as is_ordered,
          bool_or(l.changed_after_order) as changed_after_order,
          max(l.ordered_at) as ordered_at,
@@ -270,7 +272,7 @@ select p.shop_id, p.canonical_item_id, p.type_id, p.type_name, p.shape_id, p.sha
                                     'qty_needed_now', p.qty_needed, 'qty_ordered', p.qty_ordered, 'qty_remaining', p.qty_remaining, 'qty_excess', p.qty_excess,
                                     'is_ordered', p.is_ordered, 'changed_after_order', p.changed_after_order,
                                     'ordered_at', case when p.qty_ordered > 0 then p.ordered_at end, 'ordered_by', case when p.qty_ordered > 0 then p.ordered_by end,
-                                    'line_ids', to_jsonb(p.line_ids))
+                                    'line_ids', to_jsonb(p.line_ids), 'lines', p.lines)
                  order by p.due_date nulls last, p.job_no) as jobs
   from pj p
  group by p.shop_id, p.canonical_item_id, p.type_id, p.type_name, p.shape_id, p.shape_name, p.size_a, p.size_b, p.size_label;
@@ -352,6 +354,7 @@ declare
   v_bad     text;
   v_changed int := 0;
   v_prev    jsonb;
+  v_exp     jsonb;   -- p_expected หลัง lower(key) (ใช้เทียบยอดเท่านั้น)
 begin
   if p_shop_id is null then
     raise exception 'gem_purchase_mark: p_shop_id จำเป็น' using errcode = '22023';
@@ -367,15 +370,23 @@ begin
   v_n := cardinality(v_ids);
   if p_ordered then
     -- รูปร่างของ p_expected (ตรวจก่อนแตะตาราง): object · key = uuid · ค่า = จำนวนเต็มบวกไม่เกิน 9 หลัก (เลขทศนิยม 6.0/6.5 · ข้อความ · null · ติดลบ · 0 ตก) · key ตรงกับ line ids ทุกแถวพอดี (ไม่ขาด ไม่เกิน)
-    if p_expected is null or jsonb_typeof(p_expected) <> 'object'
+    if p_expected is null or jsonb_typeof(p_expected) <> 'object' then
+      raise exception 'ติ๊ก "สั่งแล้ว" ต้องส่งยอดที่จอเห็น (expected) เป็น object ของ line_id → จำนวนเต็มบวก' using errcode = '22023', hint = 'purchase_lines_invalid';
+    end if;
+    -- ด่านแรก: จำนวน key ≤ 200 (เพดานเดียวกับ line ids — ก่อนวนตรวจทีละ key)
+    if (select count(*) from jsonb_object_keys(p_expected)) > 200
        or exists (select 1 from jsonb_each(p_expected) e
                    where e.key !~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
                       or jsonb_typeof(e.value) <> 'number' or (e.value #>> '{}') !~ '^[1-9][0-9]{0,8}$') then
       raise exception 'ติ๊ก "สั่งแล้ว" ต้องส่งยอดที่จอเห็น (expected) เป็น object ของ line_id → จำนวนเต็มบวก' using errcode = '22023', hint = 'purchase_lines_invalid';
     end if;
-    if (select count(*) from jsonb_object_keys(p_expected)) <> v_n
-       or exists (select 1 from jsonb_object_keys(p_expected) k where k::uuid <> all (v_ids)) then
-      raise exception 'ยอดที่จอเห็น (expected) ต้องมี key ตรงกับ line ids ทุกแถว ไม่ขาดไม่เกิน' using errcode = '22023', hint = 'purchase_lines_invalid';
+    -- 🔴 (security M-1) key ผ่าน regex แบบไม่สนตัวพิมพ์ (uuid ตัวพิมพ์ใหญ่ก็ผ่าน) แต่ตอนเทียบยอดใช้ g.id::text (ตัวเล็ก) — ถ้าไม่ normalize `p_expected ->> id` ได้ null แล้ว `null <> ยอด` = null (ไม่ถูกนับว่าไม่ตรง) → ด่าน qty_changed ถูกข้ามเงียบ
+    --   จึง lower(key) ก่อนเสมอ · key ซ้ำต่างตัวพิมพ์ยุบเหลือตัวเดียว (จำนวน key หลังยุบ ≠ ก่อนยุบ = ตก) · key ต้องตรง line ids พอดี · เทียบยอดด้วย is distinct from (ไม่มีค่า/ตรวจไม่ได้ = ตก ไม่ใช่ผ่าน)
+    select jsonb_object_agg(lower(e.key), e.value) into v_exp from jsonb_each(p_expected) e;
+    if (select count(*) from jsonb_object_keys(v_exp)) <> (select count(*) from jsonb_object_keys(p_expected))
+       or (select count(*) from jsonb_object_keys(v_exp)) <> v_n
+       or exists (select 1 from jsonb_object_keys(v_exp) k where k::uuid <> all (v_ids)) then
+      raise exception 'ยอดที่จอเห็น (expected) ต้องมี key ตรงกับ line ids ทุกแถว ไม่ขาดไม่เกิน ไม่ซ้ำ' using errcode = '22023', hint = 'purchase_lines_invalid';
     end if;
   end if;
 
@@ -405,7 +416,7 @@ begin
   if p_ordered then
     select string_agg(distinct j.job_no, ', ' order by j.job_no) into v_bad
       from analytics.job_gem_bom g join analytics.job j on j.id = g.job_id
-     where g.id = any (v_ids) and (p_expected ->> g.id::text)::bigint <> g.qty_per_piece::bigint * j.qty_planned;
+     where g.id = any (v_ids) and (v_exp ->> g.id::text)::bigint is distinct from g.qty_per_piece::bigint * j.qty_planned;
     if v_bad is not null then
       raise exception 'ยอดพลอยของใบ % เปลี่ยนไปหลังโหลดหน้า — โหลดใหม่แล้วตรวจยอดก่อนติ๊ก', v_bad using errcode = '22023', hint = 'qty_changed';
     end if;
