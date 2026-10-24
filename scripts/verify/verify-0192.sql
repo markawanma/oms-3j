@@ -5,7 +5,7 @@
 -- 🔴 อย่ารันพร้อม agent/session อื่น (สร้างข้อมูลทดสอบจริงในทรานแซกชันที่ถอยกลับ + ล็อกแถวใบ/พลอยของร้านสังเคราะห์เท่านั้น — ไม่แตะร้านจริง ยกเว้น golden ไม่มีในไฟล์นี้)
 -- ข้อมูลทดสอบ: ร้านสังเคราะห์ ZZ TEST verify-0192 A/B (insert public.shop + public.shop_member ตรง ตามแพทเทิร์น verify-0190 — ข้อยกเว้นเดียวที่ไม่ผ่าน RPC · ยืม auth user จริงเป็นสมาชิกร้านสังเคราะห์ในทรานแซกชันนี้เท่านั้น) ·
 --   SKU/ใบผลิต/ใบงาน/ชนิด/รายการ/ราคา/พลอยในใบ/การติ๊ก สร้างผ่าน RPC ของระบบทั้งหมด · ราคาทดสอบใช้เลขแปลกที่ไม่ซ้ำกับค่าอื่นเพื่อ grep หาการรั่ว (7391.2468 · 9999.9999)
--- ผล dry-run 24 ต.ค. 69 (ต่อ 0192 + ไฟล์นี้ · ROLLBACK): OK 81 · FAIL 0 · SKIP 0 · mutant 15/15 · หมายเหตุเขียนเทสต์: subquery ในคำสั่งเดียวกับที่เรียกฟังก์ชัน volatile มองไม่เห็นผลที่ฟังก์ชันเขียน (snapshot ของคำสั่งนอก) — แยกเป็นคำสั่งๆ · ห้ามตั้งชื่อตัวแปร plpgsql ชนคีย์เวิร์ด (iN/iF)
+-- ผล dry-run 24 ต.ค. 69 (ต่อ 0192 + ไฟล์นี้ · ROLLBACK): OK 90 · FAIL 0 · SKIP 0 · mutant 18/18 (รอบหลัง code review/QA) · หมายเหตุเขียนเทสต์: subquery ในคำสั่งเดียวกับที่เรียกฟังก์ชัน volatile มองไม่เห็นผลที่ฟังก์ชันเขียน (snapshot ของคำสั่งนอก) — แยกเป็นคำสั่งๆ · ห้ามตั้งชื่อตัวแปร plpgsql ชนคีย์เวิร์ด (iN/iF)
 --
 -- ============ ตารางแมป "ข้อในบรีฟ → เทสต์ที่ครอบ" (ข้อไหนไม่มีเทสต์ครอบ = เขียนว่า "ไม่มี" พร้อมเหตุผล) ============
 --  เคสห้ามผ่าน
@@ -28,14 +28,19 @@
 --   H6 server_now + today_bkk (เวลาไทยจาก DB)                    -> A6
 --   H7 รหัสขั้นฝัง gem_set จริง + ใบที่มีขั้นฝังจริงต้องโผล่        -> A7 (ใบที่ gem_set pending โผล่) A4
 --   H8 ตรวจ owner/admin ซ้ำที่ DB                                -> P1 P1b P1c
---   แก้พลอยใบภายหลัง (replace_core): แถวเดิมคง id → คงติ๊ก · แถวที่ติ๊กถูกลบ → log -> M6 M7
---   audit event (ทุกการติ๊ก/ยกเลิก/แถวถูกลบ · append-only)        -> M1 M4 M6 P8
+--   แก้พลอยใบภายหลัง (replace_core): แถวเดิมคง id → คงติ๊ก · แถวที่ติ๊กถูกลบ → log -> M6a M6b M7
+--   audit event (ทุกการติ๊ก/ยกเลิก/แถวถูกลบ · append-only)        -> M1 M4 M6a P8
 --  รอบแก้ตาม security (Mace 24 ต.ค.: ไม่มี Critical/High)
 --   M1 ติ๊กซ้ำทับยอดลงไม่ได้ (สั่งไว้ 10 ใบลดเหลือ 5 ติ๊กซ้ำ/ติ๊กทั้งรายการ = ยัง 10 · log เก็บ prev_qty)      -> M5b M5e M5f · mutant MU12
 --   M2 แถวที่ติ๊กไว้ถูกลบ/เพิ่มกลับ → removed_after_order (ใบปิด/ร้านอื่นไม่โผล่ · ติ๊กใหม่แล้วหาย · ไม่มีราคา)   -> R1 R1b R2 R3 · mutant MU14 MU15
 --   L1 เขียน ordered_* นอก gem_purchase_mark ไม่ได้ (UPDATE ตรงในนาม postgres = 42501 · replace_core/W3 ผ่านปกติ)   -> P10 P6 M7 M5a · mutant MU13
 --   L2 view ทั้ง 3 security_invoker + RPC definer ยังอ่านได้                                                      -> P4b
 --   L3/L4 (race ติ๊กชนช่างรับขั้นฝัง = แถวหายเอง ไม่เสียหาย · log line_removed ไม่มี actor ต้องจับคู่ job_event bom_change) -> ❌ ไม่มีเทสต์ (บันทึกเป็นข้อจำกัด design §9.7)
+--  รอบแก้ตาม code review/QA (C-3PO · R2)
+--   S1 ปัดต่อกลุ่มแล้วรวม ≠ รวมดิบแล้วปัด (3 กลุ่ม × 1 เม็ด × 0.0049: ต่อกลุ่ม 0.00 · รวมดิบ 0.0147)        -> C5 · mutant MU16
+--   S2 ติ๊กข้ามการรวมชื่อ (merged_into): แถว snapshot iA เข้ากลุ่ม canonical iB · ติ๊กทั้งกลุ่ม · removed_after_order ชี้ canonical -> S2a S2b S2c · mutant MU17 MU18
+--   S3 ส่วนอ่านอย่างเดียวกับข้อมูลร้านจริง (traps ข้อ 17): parity job_gem_bom_get ↔ view · summary/cost ไม่ error · ไม่เขียนอะไร -> Z1 Z2 Z3 (SKIP ถ้าไม่มีร้านจริงที่มีใบ)
+--   N9 A4: gem_stage ว่าง/null = bad                                                                      -> A4
 --  ต้องไม่พัง
 --   job_gem_bom_get / หน้าช่าง (resolve) / A5 ไม่มี key ติ๊ก       -> M8 M9 · แก้พลอยผ่าน job_gem_bom_set ตอนมีติ๊กยังใช้ได้ (M7)
 --   verify-0190 / verify-0191 ผ่าน                                -> รันแยกต่อ 0192 (ดูสรุปส่งมอบ) — ไม่รวมในไฟล์นี้
@@ -46,6 +51,9 @@
 --   · เวลาไทย 00:00-07:00: today_bkk/ราคา ณ วันนี้ใช้ analytics.job_today() — ไม่ได้จำลองนาฬิกา (A6 เทียบกับ job_today() และวันไทยจาก now() เท่านั้น)
 --   · ผู้ใช้ owner/admin จริงของระบบ (ยืมเป็นสมาชิกร้านสังเคราะห์) — ไม่ได้ทดสอบ JWT ของผู้ใช้จริง · หน้าเว็บ/คัดลอกข้อความ/ใบพิมพ์ = TS/UI ไม่ใช่ SQL
 
+-- ⚠️ ถ้ารันในเวลางาน (มีคนใช้ระบบ): K0 (snapshot ทั้งตาราง job/job_stage/ฯลฯ เท่าเดิมหลังถอยกลับ) อาจ FAIL ปลอมได้เพราะข้อมูลจริงขยับระหว่างรัน — ไม่ใช่ความผิดของชุดทดสอบ/migration · ตรวจซ้ำนอกเวลางานก่อนสรุป
+-- lock_timeout สั้น: รอล็อกของ session อื่นเกิน 8 วินาทีให้ล้มทันที (กันค้างถือล็อก/รอไม่รู้จบ) · ล้ม 55P03 = มี session อื่นถือล็อกตาราง รายงานแล้วรันใหม่ ห้ามฆ่า session
+set local lock_timeout = '8s';
 set local statement_timeout = '30min';
 
 create temp table _v192_fx (k text primary key, id uuid not null) on commit drop;
@@ -264,6 +272,7 @@ declare
   rnd uuid; tR uuid; tG uuid; tN uuid; tF uuid; tQ1 uuid; tQ2 uuid; tA uuid; tB uuid; tBt uuid;
   iR uuid; iG uuid; iNp uuid; iFt uuid; iQ1 uuid; iQ2 uuid; iA uuid; iB uuid; iBt uuid;
   j uuid; jd uuid; ok boolean; bshape uuid;
+  tT1 uuid; tT2 uuid; tT3 uuid; iT1 uuid; iT2 uuid; iT3 uuid;
 begin
   insert into public.shop (id, name) values (a, 'ZZ TEST verify-0192 A'), (b, 'ZZ TEST verify-0192 B');
   perform pg_temp.setfx('A', a); perform pg_temp.setfx('B', b);
@@ -302,6 +311,13 @@ begin
   iA := (pg_temp.icreate(a, jsonb_build_object('type_id', tA, 'shape_id', rnd, 'size_a', 5)) -> 'item' ->> 'gem_item_id')::uuid;
   iB := (pg_temp.icreate(a, jsonb_build_object('type_id', tB, 'shape_id', rnd, 'size_a', 5)) -> 'item' ->> 'gem_item_id')::uuid;
   iBt := (pg_temp.icreate(b, jsonb_build_object('type_id', tBt, 'shape_id', bshape, 'size_a', 3), u2) -> 'item' ->> 'gem_item_id')::uuid;
+  -- S1 (QA): 3 รายการ × 1 เม็ด × ราคา 0.0049 — ปัดต่อกลุ่ม = 0.00 ทุกกลุ่ม · ผลรวมดิบ 0.0147 → 0.01 · ทำให้ "ปัดต่อกลุ่มแล้วรวม" ต่างจาก "รวมดิบแล้วปัด" จริง (ยอดรวมทั้งหมดต่างกัน 0.0147 → ข้ามเลข .91 ไป .93)
+  tT1 := (pg_temp.ccreate(a, 'ZZ192 ไข่มุก') ->> 'id')::uuid; tT2 := (pg_temp.ccreate(a, 'ZZ192 โอปอล') ->> 'id')::uuid; tT3 := (pg_temp.ccreate(a, 'ZZ192 เทอร์ควอยซ์') ->> 'id')::uuid;
+  iT1 := (pg_temp.icreate(a, jsonb_build_object('type_id', tT1, 'shape_id', rnd, 'size_a', 2.5)) -> 'item' ->> 'gem_item_id')::uuid;
+  iT2 := (pg_temp.icreate(a, jsonb_build_object('type_id', tT2, 'shape_id', rnd, 'size_a', 2.5)) -> 'item' ->> 'gem_item_id')::uuid;
+  iT3 := (pg_temp.icreate(a, jsonb_build_object('type_id', tT3, 'shape_id', rnd, 'size_a', 2.5)) -> 'item' ->> 'gem_item_id')::uuid;
+  perform pg_temp.setfx('iT1', iT1); perform pg_temp.setfx('iT2', iT2); perform pg_temp.setfx('iT3', iT3);
+  perform pg_temp.price(a, iT1, '0.0049'); perform pg_temp.price(a, iT2, '0.0049'); perform pg_temp.price(a, iT3, '0.0049');
   perform pg_temp.setfx('tA', tA); perform pg_temp.setfx('tB', tB);
   perform pg_temp.setfx('iR', iR); perform pg_temp.setfx('iG', iG); perform pg_temp.setfx('iNp', iNp); perform pg_temp.setfx('iFt', iFt);
   perform pg_temp.setfx('iQ1', iQ1); perform pg_temp.setfx('iQ2', iQ2); perform pg_temp.setfx('iA', iA); perform pg_temp.setfx('iB', iB); perform pg_temp.setfx('iBt', iBt);
@@ -310,9 +326,9 @@ begin
   perform pg_temp.price(a, iA, '111.1111'); perform pg_temp.price(a, iB, '222.2222');
   perform pg_temp.price(a, iQ1, '0.3333'); perform pg_temp.price(a, iQ2, '0.3333');
   perform pg_temp.price(a, iFt, '50', (analytics.job_today() + 30)::text);
-  v := v || pg_temp.chk('S0', 'setup: ร้าน A/B · สมาชิก owner/admin/staff · SKU · ชนิด/รายการ 9 รายการ (ร้าน B 1) · ราคา 7 รายการ (iNp ไม่มี · iFt อนาคตอย่างเดียว)',
+  v := v || pg_temp.chk('S0', 'setup: ร้าน A/B · สมาชิก owner/admin/staff · SKU · ชนิด/รายการ 9 รายการ (ร้าน B 1) · ราคา 10 รายการ (iNp ไม่มี · iFt อนาคตอย่างเดียว)',
     iR is not null and iG is not null and iNp is not null and iFt is not null and iQ1 is not null and iQ2 is not null and iA is not null and iB is not null and iBt is not null
-    and (select count(*) from analytics.gem_item_price where shop_id = a) = 7);
+    and (select count(*) from analytics.gem_item_price where shop_id = a) = 10);
 
   -- ใบงานร้าน A (ทุกสถานะที่ต้องแยกให้ถูก) · ขั้นฝังจริงคือ gem_set (UX H7)
   j := pg_temp.newjob(a, pg_temp.fx('pA1'), pg_temp.stdg(), jsonb_build_array(pg_temp.ln(iR, 2), pg_temp.ln(iG, 1)), 3, 10); perform pg_temp.setfx('J1', j);   -- R 6 · G 3
@@ -354,7 +370,11 @@ begin
   j := pg_temp.newjob(a, pg_temp.fx('pA2'), pg_temp.stdg(), jsonb_build_array(pg_temp.ln(iQ1, 1), pg_temp.ln(iQ2, 1)), 7, 9); perform pg_temp.setfx('J12', j);  -- ปัดเศษ · 7 + 7
   -- รวมชื่อ A→B ราคาต่าง: ใบ JA ใช้ iA (snapshot A) · ใบ JBm ใช้ iB — ยังไม่รวมตอนนี้ (รวมใน g_cost)
   j := pg_temp.newjob(a, pg_temp.fx('pA5'), pg_temp.stdg(), jsonb_build_array(pg_temp.ln(iA, 3)), 2, 4); perform pg_temp.setfx('JA', j);                        -- iA 6
-  j := pg_temp.newjob(a, pg_temp.fx('pA5'), pg_temp.stdg(), jsonb_build_array(pg_temp.ln(iB, 1)), 4, 4); perform pg_temp.setfx('JBm', j);                       -- iB 4
+  j := pg_temp.newjob(a, pg_temp.fx('pA5'), pg_temp.stdg(), jsonb_build_array(pg_temp.ln(iB, 1)), 4, 4); perform pg_temp.setfx('JBm', j);
+  -- JM (QA S2): ใบเดียวมีทั้งแถว iA และ iB ก่อนรวมชื่อ (หลังรวม = snapshot คนละ id แต่ canonical เดียวกัน) · JT (QA S1): 3 รายการ × 1 เม็ด ราคา 0.0049
+  j := pg_temp.newjob(a, pg_temp.fx('pA5'), pg_temp.stdg(), jsonb_build_array(pg_temp.ln(iA, 2), pg_temp.ln(iB, 1)), 1, 4); perform pg_temp.setfx('JM', j);
+  j := pg_temp.newjob(a, pg_temp.fx('pA2'), pg_temp.stdg(), jsonb_build_array(pg_temp.ln(iT1, 1), pg_temp.ln(iT2, 1), pg_temp.ln(iT3, 1)), 1, 9); perform pg_temp.setfx('JT', j);
+                       -- iB 4
   -- ร้าน B: ใบ + พลอย (ต้องไม่โผล่ในร้าน A · ใช้ทดสอบ IDOR)
   j := pg_temp.newjob(b, pg_temp.fx('pB1'), pg_temp.stdg(), jsonb_build_array(pg_temp.ln(iBt, 4)), 2, 5); perform pg_temp.setfx('JBx', j);
   v := v || pg_temp.chk('S5', 'fixture ใบงาน: ร้าน A 12 ใบ (ตามสถานะ) · ร้าน B 1 ใบ · แถวพลอยทุกแถวยังไม่มีการติ๊ก',
@@ -378,10 +398,10 @@ begin
   s := pg_temp.sm(a);
   v := v || pg_temp.chk('A0', 'สรุปเรียกได้ (owner) · ไม่ error', s ->> '_err' is null and jsonb_typeof(s -> 'groups') = 'array');
   gR := pg_temp.grp(s, iR); gG := pg_temp.grp(s, iG);
-  -- ก่อนรวมชื่อ: iA และ iB เป็นคนละกลุ่ม → กลุ่ม = iR iG iNp iFt iQ1 iQ2 iA iB = 8 · ใบ = J1 J2 J3b J10 J11 J12 JA JBm = 8 · ที่ต้องใช้ = 19+3+10+6+7+7+6+4 = 62
-  v := v || pg_temp.chk('A1', 'กลุ่ม 8 · ใบ 8 · ต้องใช้รวม 62 เม็ด · สั่งแล้ว 0 · เหลือ 62 · เกิน 0 (ไม่เผื่อแตก: ต่อชิ้น × จำนวนเริ่มผลิตเท่านั้น)',
-    (s -> 'totals' ->> 'groups') = '8' and (s -> 'totals' ->> 'jobs') = '8' and (s -> 'totals' ->> 'qty_needed_now') = '62' and (s -> 'totals' ->> 'qty_ordered') = '0'
-    and (s -> 'totals' ->> 'qty_remaining') = '62' and (s -> 'totals' ->> 'qty_excess') = '0');
+  -- ก่อนรวมชื่อ: iA และ iB เป็นคนละกลุ่ม → กลุ่ม = iR iG iNp iFt iQ1 iQ2 iA iB iT1 iT2 iT3 = 11 · ใบ = J1 J2 J3b J10 J11 J12 JA JBm JM JT = 10 · ที่ต้องใช้ = 19+3+10+6+7+7+6+4+3 (JM: iA 2 + iB 1)+3 (JT) = 68
+  v := v || pg_temp.chk('A1', 'กลุ่ม 11 · ใบ 10 · ต้องใช้รวม 68 เม็ด · สั่งแล้ว 0 · เหลือ 68 · เกิน 0 (ไม่เผื่อแตก: ต่อชิ้น × จำนวนเริ่มผลิตเท่านั้น)',
+    (s -> 'totals' ->> 'groups') = '11' and (s -> 'totals' ->> 'jobs') = '10' and (s -> 'totals' ->> 'qty_needed_now') = '68' and (s -> 'totals' ->> 'qty_ordered') = '0'
+    and (s -> 'totals' ->> 'qty_remaining') = '68' and (s -> 'totals' ->> 'qty_excess') = '0');
   v := v || pg_temp.chk('A2', 'กลุ่มทับทิม (iR): ต้องใช้ 19 = J1 6 + J2 5 + J3b 8 (ใบ cancelled J3 ที่ BOM ยังอยู่ไม่นับซ้ำ — R8) · 3 ใบ · line_ids 3 · due เร็วสุด = J2 · มี job_no/design_label/due/qty ต่อใบ · โกเมน (iG) 3',
     (gR ->> 'qty_needed_now') = '19' and (gR ->> 'job_count') = '3' and jsonb_array_length(gR -> 'line_ids') = 3
     and (gR ->> 'earliest_due') = (analytics.job_today() + 3)::text and (gR ->> 'earliest_due_remaining') = (analytics.job_today() + 3)::text
@@ -400,6 +420,7 @@ begin
   -- A4: parity กับ gem_stage ของ job_gem_bom_get (นิยามเดียว) ทุกใบของร้าน A + นิยามเดียวกับ job_gem_state เมื่อมีแถว/ไม่มีแถว
   for r in select j.id, j.status, j.parent_job_id from analytics.job j where j.shop_id = a loop
     gs := pg_temp.q(format('select analytics.job_gem_bom_get(%L, %L)', a, r.id)) ->> 'gem_stage';
+    if gs is null then bad := bad || r.id::text || ' (job_gem_bom_get ไม่คืน gem_stage — error/คีย์หาย นับเป็น bad ไม่ใช่ "ไม่ใช่ pending"); '; end if;
     exp_in := r.parent_job_id is null and r.status in ('open', 'in_progress', 'on_hold') and gs = 'pending';
     act_in := exists (select 1 from analytics.v_gem_purchase_job x where x.job_id = r.id);
     if exp_in is distinct from act_in then bad := bad || r.id::text || ' (gem_stage=' || coalesce(gs, 'null') || ' status=' || r.status || ' ใน view=' || act_in::text || '); '; end if;
@@ -440,6 +461,7 @@ create function pg_temp.g_cost() returns text
 declare
   v text := '';
   a uuid := pg_temp.fx('A');
+  gBs jsonb; idsB uuid[]; lJAa uuid; lJMa uuid; lJMb uuid; ok boolean;
   c jsonb; gR jsonb; gN jsonb; gF jsonb; gQ1 jsonb; gQ2 jsonb; gB jsonb; sm jsonb; r jsonb; sumg numeric;
 begin
   c := pg_temp.cs(a);
@@ -462,16 +484,46 @@ begin
   gB := (select g from jsonb_array_elements(c -> 'groups') g where g ->> 'canonical_item_id' = pg_temp.fx('iB')::text);
   v := v || pg_temp.chk('C4a', 'รวมชื่อ อเมทิสต์เอ→บี สำเร็จ: iA ชี้ iB (merged_into) · ใบ JA ยังอ้าง iA ใน snapshot (BOM ไม่ถูกแตะ)',
     r ->> '_err' is null and (select merged_into from analytics.gem_item where id = pg_temp.fx('iA')) = pg_temp.fx('iB') and pg_temp.lid(pg_temp.fx('JA'), pg_temp.fx('iA')) is not null);
-  v := v || pg_temp.chk('C4b', 'หลังรวม: กลุ่ม canonical = iB รวม 2 ใบ ต้องใช้ 6 + 4 = 10 · กลุ่ม iA หายจากรายการ (ไม่นับซ้ำ) · กลุ่มรวม 7',
-    (pg_temp.grp(sm, pg_temp.fx('iB')) ->> 'qty_needed_now') = '10' and (pg_temp.grp(sm, pg_temp.fx('iB')) ->> 'job_count') = '2' and pg_temp.grp(sm, pg_temp.fx('iA')) is null
-    and (sm -> 'totals' ->> 'groups') = '7' and (sm -> 'totals' ->> 'qty_needed_now') = '62');
-  v := v || pg_temp.chk('C4', '🔴 ต้นทุนกลุ่มที่รวมชื่อ = 6 × ราคาของ iA (snapshot ของ JA) + 4 × ราคาของ iB = 666.6666 + 888.8888 = 1555.56 (ถ้าใช้ canonical ทั้งกลุ่ม = 10 × 222.2222 = 2222.22 ซึ่งผิด)',
-    (gB ->> 'cost_remaining_thb')::numeric = 1555.56 and (gB ->> 'cost_remaining_thb')::numeric <> 2222.22);
-  -- C5: ปัดเศษ: 7 × 0.3333 = 2.3331 → 2.33 ต่อกลุ่ม · ผลรวมทั้งหมด = Σ ค่าที่ปัดแล้วของกลุ่ม (ไม่ใช่ปัดผลรวม)
+  v := v || pg_temp.chk('C4b', 'หลังรวม: กลุ่ม canonical = iB รวม 3 ใบ (JA JBm JM) ต้องใช้ 6 + 4 + 3 = 13 · กลุ่ม iA หายจากรายการ (ไม่นับซ้ำ) · กลุ่มรวม 10',
+    (pg_temp.grp(sm, pg_temp.fx('iB')) ->> 'qty_needed_now') = '13' and (pg_temp.grp(sm, pg_temp.fx('iB')) ->> 'job_count') = '3' and pg_temp.grp(sm, pg_temp.fx('iA')) is null
+    and (sm -> 'totals' ->> 'groups') = '10' and (sm -> 'totals' ->> 'qty_needed_now') = '68');
+  v := v || pg_temp.chk('C4', '🔴 ต้นทุนกลุ่มที่รวมชื่อ = 8 เม็ด (JA 6 + JM 2) × ราคาของ iA (snapshot) + 5 เม็ด (JBm 4 + JM 1) × ราคาของ iB = 888.8888 + 1111.1110 = 1999.9998 → 2000.00 (ถ้าใช้ canonical ทั้งกลุ่ม = 13 × 222.2222 = 2888.89 ซึ่งผิด)',
+    (gB ->> 'cost_remaining_thb')::numeric = 2000.00 and (gB ->> 'cost_remaining_thb')::numeric <> 2888.89);
+  -- C5 (QA S1): ปัดต่อกลุ่ม แล้วรวม — ไม่ใช่รวมดิบแล้วปัด · fixture ที่ต่างกันจริง: 3 กลุ่ม × 1 เม็ด × 0.0049 (ต่อกลุ่ม 0.0049 → 0.00 · รวมดิบ 0.0147 → 0.01)
+  --   ยอดรวมทั้งหมด: Σ ค่าที่ปัดแล้ว = 140433.69 + 30000.00 + 2000.00 + 2.33 + 2.33 + 0.00 ×3 = 172438.35 · ถ้ารวมดิบแล้วปัด = 140433.6892 + 29999.9997 + 1999.9998 + 2.3331 + 2.3331 + 0.0147 = 172438.3696 → 172438.37 (ต่างกัน)
   select coalesce(sum((g ->> 'cost_remaining_thb')::numeric), 0) into sumg from jsonb_array_elements(c -> 'groups') g where (g ->> 'cost_remaining_thb') is not null;
-  v := v || pg_temp.chk('C5', 'ปัด 2 ตำแหน่งต่อกลุ่ม (สปิเนล/มูนสโตน 7 × 0.3333 = 2.3331 → 2.33 ทั้งคู่) · totals.cost_remaining_thb = Σ ค่ากลุ่มที่ปัดแล้วเป๊ะ (= 171993.91) ไม่ใช่ปัดผลรวมดิบ',
+  v := v || pg_temp.chk('C5', 'ปัด 2 ตำแหน่งต่อกลุ่ม (สปิเนล/มูนสโตน 7 × 0.3333 = 2.3331 → 2.33 · ไข่มุก/โอปอล/เทอร์ควอยซ์ 1 × 0.0049 → 0.00 ทุกกลุ่ม) · totals.cost_remaining_thb = Σ ค่ากลุ่มที่ปัดแล้วเป๊ะ = 172438.35 ไม่ใช่รวมดิบแล้วปัด (172438.37)',
     (gQ1 ->> 'cost_remaining_thb')::numeric = 2.33 and (gQ2 ->> 'cost_remaining_thb')::numeric = 2.33
-    and (c -> 'totals' ->> 'cost_remaining_thb')::numeric = sumg and sumg = 171993.91);
+    and (select count(*) from jsonb_array_elements(c -> 'groups') g where g ->> 'canonical_item_id' in (pg_temp.fx('iT1')::text, pg_temp.fx('iT2')::text, pg_temp.fx('iT3')::text)
+          and (g ->> 'cost_remaining_thb')::numeric = 0.00 and g ->> 'missing_price' = 'false') = 3
+    and (c -> 'totals' ->> 'cost_remaining_thb')::numeric = sumg and sumg = 172438.35);
+  -- S2 (QA): ติ๊กข้ามการรวมชื่อ — แถว JA (snapshot iA) ติ๊กได้ · ผลรวมเข้ากลุ่ม canonical iB · ติ๊กทั้งกลุ่มเปลี่ยนเฉพาะแถวที่ยังไม่ติ๊ก
+  lJAa := pg_temp.lid(pg_temp.fx('JA'), pg_temp.fx('iA'));
+  r := pg_temp.mk(a, array[lJAa], true);
+  sm := pg_temp.sm(a); gBs := pg_temp.grp(sm, pg_temp.fx('iB'));
+  v := v || pg_temp.chk('S2a', 'ติ๊กแถว JA (snapshot iA ที่ถูกรวมไป iB): changed 1 · กลุ่ม iB สั่งแล้ว 6 เหลือ 7 (ต้องใช้ 13) · jobs[JA] is_ordered มี qty_ordered 6 · jobs[JBm] ยังไม่ติ๊ก · jobs[JM] ยังไม่ติ๊ก',
+    r ->> '_err' is null and (r ->> 'changed') = '1' and (gBs ->> 'qty_ordered') = '6' and (gBs ->> 'qty_remaining') = '7' and (gBs ->> 'qty_needed_now') = '13'
+    and (pg_temp.gjob(gBs, pg_temp.fx('JA')) ->> 'is_ordered') = 'true' and (pg_temp.gjob(gBs, pg_temp.fx('JA')) ->> 'qty_ordered') = '6'
+    and (pg_temp.gjob(gBs, pg_temp.fx('JBm')) ->> 'is_ordered') = 'false' and (pg_temp.gjob(gBs, pg_temp.fx('JM')) ->> 'is_ordered') = 'false');
+  idsB := array(select (x #>> '{}')::uuid from jsonb_array_elements(gBs -> 'line_ids') x);
+  r := pg_temp.mk(a, idsB, true);
+  sm := pg_temp.sm(a); gBs := pg_temp.grp(sm, pg_temp.fx('iB'));
+  v := v || pg_temp.chk('S2b', 'ติ๊กทั้งกลุ่ม iB (4 แถว: JA iA · JBm iB · JM iA · JM iB): changed 3 (JA ติ๊กแล้ว ไม่ถูกแตะ) · เหลือ 0 สั่งแล้ว 13 · JM (สองแถว snapshot ต่างกัน) is_ordered = true',
+    cardinality(idsB) = 4 and (r ->> 'changed') = '3' and (r ->> 'unchanged') = '1' and (gBs ->> 'qty_remaining') = '0' and (gBs ->> 'qty_ordered') = '13'
+    and (pg_temp.gjob(gBs, pg_temp.fx('JM')) ->> 'is_ordered') = 'true');
+  perform pg_temp.mk(a, idsB, false);
+  -- S2c: ใบ JM มีแถว iA (ติ๊ก) + iB (ไม่ติ๊ก) · ลบแถว iA ตอนแก้พลอย → removed_after_order.canonical_item_id = iB (ไม่ใช่ iA ดิบ) · ติ๊กแถว iB แล้วคำเตือนหาย
+  lJMa := pg_temp.lid(pg_temp.fx('JM'), pg_temp.fx('iA')); lJMb := pg_temp.lid(pg_temp.fx('JM'), pg_temp.fx('iB'));
+  perform pg_temp.mk(a, array[lJMa], true);
+  r := pg_temp.bset(a, pg_temp.fx('JM'), jsonb_build_array(pg_temp.ln(pg_temp.fx('iB'), 1)));
+  sm := pg_temp.sm(a);
+  ok := r ->> '_err' is null and pg_temp.lid(pg_temp.fx('JM'), pg_temp.fx('iA')) is null
+        and exists (select 1 from jsonb_array_elements(sm -> 'removed_after_order') e where e ->> 'job_id' = pg_temp.fx('JM')::text and e ->> 'canonical_item_id' = pg_temp.fx('iB')::text and (e ->> 'qty') = '2');
+  perform pg_temp.mk(a, array[lJMb], true);
+  sm := pg_temp.sm(a);
+  v := v || pg_temp.chk('S2c', 'ลบแถว iA ที่ติ๊กไว้ (ใบ JM ยังมีแถว iB): removed_after_order ชี้ canonical = iB qty 2 · ติ๊กแถว iB ของ JM แล้วคำเตือนหาย (ไม่เตือนซ้ำเมื่อสั่งรายการเดียวกันแล้ว)',
+    ok and not exists (select 1 from jsonb_array_elements(sm -> 'removed_after_order') e where e ->> 'job_id' = pg_temp.fx('JM')::text));
+  perform pg_temp.mk(a, array[lJMb], false);
   v := v || pg_temp.chk('L1b', 'positive control: ราคาจริงโผล่ใน payload ต้นทุนได้ (RPC เดียวที่ผสมราคา) — ทำให้เทสต์ L1 ที่หาเลขราคาไม่เจอในสรุป "มีความหมาย"',
     position('140433.69' in c::text) > 0 and pg_temp.badkeys(c) <> '');
   return v;
@@ -490,8 +542,9 @@ declare
   j1 uuid := pg_temp.fx('J1'); j2 uuid := pg_temp.fx('J2'); j3b uuid := pg_temp.fx('J3b');
   l1 uuid; l2 uuid; l3 uuid; lg uuid; ids uuid[];
   r jsonb; s jsonb; s2 jsonb; gR jsonb; c jsonb; n_log int; l1_old uuid; jn uuid; ok boolean; tokh text; tk jsonb; res jsonb; raw jsonb;
-  b uuid := pg_temp.fx('B'); j13 uuid; jby uuid; lq uuid; lbb uuid;
+  b uuid := pg_temp.fx('B'); j13 uuid; jby uuid; lq uuid; lbb uuid; n0o int; n0u int;
 begin
+  n0o := pg_temp.nlog(a, 'ordered'); n0u := pg_temp.nlog(a, 'unordered');
   l1 := pg_temp.lid(j1, iR); l2 := pg_temp.lid(j2, iR); l3 := pg_temp.lid(j3b, iR); lg := pg_temp.lid(j1, iG);
   -- M1: ติ๊กแถวเดียว (R ของ J1 = 6 เม็ด)
   r := pg_temp.mk(a, array[l1], true);
@@ -502,9 +555,9 @@ begin
     and (pg_temp.gjob(gR, j1) ->> 'is_ordered') = 'true' and (pg_temp.gjob(gR, j1) ->> 'ordered_at') is not null and (pg_temp.gjob(gR, j1) ->> 'ordered_by') = pg_temp.own()::text
     and (pg_temp.gjob(gR, j2) ->> 'is_ordered') = 'false' and (pg_temp.gjob(gR, j2) ->> 'ordered_at') is null and (pg_temp.gjob(gR, j2) ->> 'ordered_by') is null
     and (pg_temp.grp(s, iG) ->> 'qty_remaining') = '3' and (select ordered_qty from analytics.job_gem_bom where id = l1) = 6 and (select ordered_by from analytics.job_gem_bom where id = l1) = pg_temp.own()
-    and pg_temp.nlog(a, 'ordered') = 1 and (gR ->> 'earliest_due_remaining') = (analytics.job_today() + 3)::text);
+    and pg_temp.nlog(a, 'ordered') = n0o + 1 and (gR ->> 'earliest_due_remaining') = (analytics.job_today() + 3)::text);
   c := pg_temp.cs(a); gR := (select g from jsonb_array_elements(c -> 'groups') g where g ->> 'canonical_item_id' = iR::text);
-  v := v || pg_temp.chk('M1c', 'ต้นทุนหลังติ๊กบางส่วน: สั่งแล้ว 6 × 7391.2468 = 44347.48 · ที่เหลือ 13 × 7391.2468 = 96086.21 · รวม = 140433.69 (ผลบวกส่วนที่ปัดแล้ว = ยอดเดิมเป๊ะ)',
+  v := v || pg_temp.chk('M1c', 'ต้นทุนหลังติ๊กบางส่วน: สั่งแล้ว 6 × 7391.2468 = 44347.48 · ที่เหลือ 13 × 7391.2468 = 96086.21 · รวม = 140433.69 (ตรงโดยบังเอิญของ fixture นี้ — ปัดแยกสองส่วนไม่รับประกันว่าผลบวก = ยอดเดิมเสมอ · ที่ DB รับประกันคือ totals = Σ ค่ากลุ่มที่ปัดแล้ว ดู C5)',
     (gR ->> 'cost_ordered_thb')::numeric = 44347.48 and (gR ->> 'cost_remaining_thb')::numeric = 96086.21 and (gR ->> 'cost_ordered_thb')::numeric + (gR ->> 'cost_remaining_thb')::numeric = 140433.69);
   -- M2: ติ๊กซ้ำ = ไม่ error ไม่เขียน log
   n_log := pg_temp.nlog(a, 'ordered');
@@ -515,16 +568,16 @@ begin
   ids := array(select (x #>> '{}')::uuid from jsonb_array_elements(pg_temp.grp(pg_temp.sm(a), iR) -> 'line_ids') x);
   r := pg_temp.mk(a, ids, true);
   s := pg_temp.sm(a); gR := pg_temp.grp(s, iR);
-  v := v || pg_temp.chk('M3', 'ติ๊กทั้งกลุ่มทับทิม (3 แถว): changed 2 unchanged 1 · เหลือ 0 สั่งแล้ว 19 · กลุ่มยังอยู่ในผล (ต้องหาเจอเพื่อยกเลิกติ๊ก) · totals.qty_remaining = 62 − 19 = 43 · log ordered รวม 3',
+  v := v || pg_temp.chk('M3', 'ติ๊กทั้งกลุ่มทับทิม (3 แถว): changed 2 unchanged 1 · เหลือ 0 สั่งแล้ว 19 · กลุ่มยังอยู่ในผล (ต้องหาเจอเพื่อยกเลิกติ๊ก) · totals.qty_remaining = 66 − 19 = 47 (JM เหลือ iB 1 หลังลบแถว iA ใน S2c) · log ordered รวม 3',
     (r ->> 'changed') = '2' and (r ->> 'unchanged') = '1' and jsonb_array_length(r -> 'lines') = 3 and gR is not null and (gR ->> 'qty_remaining') = '0' and (gR ->> 'qty_ordered') = '19'
-    and (s -> 'totals' ->> 'qty_remaining') = '43' and (s -> 'totals' ->> 'qty_ordered') = '19' and pg_temp.nlog(a, 'ordered') = 3 and (gR ->> 'earliest_due_remaining') is null);
+    and (s -> 'totals' ->> 'qty_remaining') = '47' and (s -> 'totals' ->> 'qty_ordered') = '19' and pg_temp.nlog(a, 'ordered') = n0o + 3 and (gR ->> 'earliest_due_remaining') is null);
   -- M4: undo ด้วยรายการเดิมและค่าตรงข้าม + undo ซ้ำ
   r := pg_temp.mk(a, ids, false);
   s := pg_temp.sm(a); gR := pg_temp.grp(s, iR);
   v := v || pg_temp.chk('M4', 'ยกเลิกติ๊กทั้งกลุ่ม (รายการเดิม · ค่าตรงข้าม): changed 3 · เหลือ 19 สั่งแล้ว 0 · ตาราง ordered_* เป็น null ทั้งสามคอลัมน์ · log unordered 3 · ยกเลิกซ้ำ = changed 0 ไม่มี log ใหม่',
     (r ->> 'changed') = '3' and (gR ->> 'qty_remaining') = '19' and (gR ->> 'qty_ordered') = '0'
     and not exists (select 1 from analytics.job_gem_bom where id = any (ids) and (ordered_at is not null or ordered_by is not null or ordered_qty is not null))
-    and pg_temp.nlog(a, 'unordered') = 3 and (pg_temp.mk(a, ids, false) ->> 'changed') = '0' and pg_temp.nlog(a, 'unordered') = 3);
+    and pg_temp.nlog(a, 'unordered') = n0u + 3 and (pg_temp.mk(a, ids, false) ->> 'changed') = '0' and pg_temp.nlog(a, 'unordered') = n0u + 3);
   -- M5: ยอดเปลี่ยนหลังติ๊ก (H1) — J2: 1/ชิ้น × 5 = 5 · ติ๊กไว้ 5 แล้วแก้เป็น 2/ชิ้น (10) · ติ๊กใหม่ · ลดกลับ · เปลี่ยนจำนวนเริ่มผลิต
   perform pg_temp.mk(a, array[l2], true);
   r := pg_temp.bset(a, j2, jsonb_build_array(pg_temp.ln(iR, 2)));
@@ -809,6 +862,56 @@ end;
 $c$;
 
 -- ============================================================================
+-- Z. (QA S3 · traps ข้อ 17) ส่วนอ่านอย่างเดียวยิงใส่ข้อมูลร้านจริงทุกร้าน — ไม่เขียนอะไร · ไม่พิมพ์ราคา/ชื่อจริง (สรุปเป็นจำนวนเท่านั้น)
+--   Z1 ทุกใบแม่ของร้านจริง: v_gem_purchase_job ตรงกับ gem_stage = pending ของ job_gem_bom_get (แบบ A4 · gem_stage ว่าง = นับเป็น mismatch)
+--   Z2 gem_purchase_summary / _cost ของร้านจริงด้วย owner จริงของร้านนั้น ไม่ error · totals.qty_needed_now = Σ qty_total ของ v_gem_purchase_line
+--   Z3 job_gem_bom + log การติ๊กเท่าเดิมก่อน/หลัง (ไม่เขียนอะไร) · ไม่ผ่าน g_all (ไม่ถูกรวมใน mutant — รันครั้งเดียวก่อนสร้างข้อมูลทดสอบ)
+-- ============================================================================
+create function pg_temp.g_real() returns text
+ language plpgsql as $c$
+declare
+  v text := '';
+  r record; j record; gs text; exp_in boolean; act_in boolean; sm jsonb; cs jsonb; actor uuid; need_sum numeric;
+  w0 text; w1 text;
+  n_shops int := 0; n_jobs int := 0; n_in int := 0; n_groups int := 0; n_unspec int := 0; n_mis int := 0; n_err int := 0; n_tot_mis int := 0;
+begin
+  select md5(coalesce((select string_agg(b::text, '|' order by b.id) from analytics.job_gem_bom b), '') || '#' || coalesce((select string_agg(l::text, '|' order by l.id) from analytics.gem_purchase_mark_log l), '')) into w0;
+  for r in select s.id from public.shop s where s.name not like 'ZZ TEST%' order by s.id loop
+    select m.user_id into actor from public.shop_member m where m.shop_id = r.id and m.role = 'owner' order by m.user_id limit 1;
+    if actor is null then continue; end if;
+    n_shops := n_shops + 1;
+    for j in select x.id, x.status from analytics.job x where x.shop_id = r.id and x.parent_job_id is null loop
+      gs := pg_temp.q(format('select analytics.job_gem_bom_get(%L, %L)', r.id, j.id)) ->> 'gem_stage';
+      exp_in := j.status in ('open', 'in_progress', 'on_hold') and gs = 'pending';
+      act_in := exists (select 1 from analytics.v_gem_purchase_job vj where vj.job_id = j.id);
+      n_jobs := n_jobs + 1;
+      if act_in then n_in := n_in + 1; end if;
+      if gs is null or exp_in is distinct from act_in then n_mis := n_mis + 1; end if;
+    end loop;
+    sm := pg_temp.sm(r.id, actor);
+    cs := pg_temp.cs(r.id, actor);
+    if sm ? '_err' or cs ? '_err' then
+      n_err := n_err + 1;
+    else
+      select coalesce(sum(l.qty_total), 0) into need_sum from analytics.v_gem_purchase_line l where l.shop_id = r.id;
+      if (sm -> 'totals' ->> 'qty_needed_now')::numeric is distinct from need_sum then n_tot_mis := n_tot_mis + 1; end if;
+      n_groups := n_groups + coalesce((sm -> 'totals' ->> 'groups')::int, 0);
+      n_unspec := n_unspec + coalesce((sm -> 'totals' ->> 'unspecified_jobs')::int, 0);
+    end if;
+  end loop;
+  select md5(coalesce((select string_agg(b::text, '|' order by b.id) from analytics.job_gem_bom b), '') || '#' || coalesce((select string_agg(l::text, '|' order by l.id) from analytics.gem_purchase_mark_log l), '')) into w1;
+  if n_shops = 0 or n_jobs = 0 then
+    return pg_temp.skip('Z1', format('ไม่มีร้านจริงที่มี owner + ใบแม่ให้ตรวจ (ร้าน %s · ใบ %s)', n_shops, n_jobs));
+  end if;
+  v := v || pg_temp.chk('Z1', format('ร้านจริง %s ร้าน · ใบแม่ %s ใบ (อยู่ในรายการสั่ง %s ใบ): v_gem_purchase_job ตรงกับ gem_stage = pending ของ job_gem_bom_get ทุกใบ · mismatch %s', n_shops, n_jobs, n_in, n_mis), n_mis = 0);
+  v := v || pg_temp.chk('Z2', format('gem_purchase_summary/_cost ของร้านจริง (owner จริงของร้านนั้น) ไม่ error · totals.qty_needed_now = Σ qty_total ของ v_gem_purchase_line ทุกร้าน (กลุ่มรวม %s · ใบยังไม่ระบุพลอย %s) · error %s · ยอดไม่ตรง %s', n_groups, n_unspec, n_err, n_tot_mis),
+    n_err = 0 and n_tot_mis = 0);
+  v := v || pg_temp.chk('Z3', 'ส่วนอ่านอย่างเดียวไม่เขียนอะไร: job_gem_bom + gem_purchase_mark_log เท่าเดิมก่อน/หลัง', w0 = w1);
+  return v;
+end;
+$c$;
+
+-- ============================================================================
 -- รวมกลุ่มเทสต์หลัก (ใช้ซ้ำใน mutant) · snapshot ตารางจริง · mutant · runner
 -- ============================================================================
 create function pg_temp.g_all() returns text
@@ -872,7 +975,12 @@ begin
         jsonb_build_array('f', sg_mark, 'g.ordered_qty < g.qty_per_piece::bigint * j.qty_planned)', 'g.ordered_qty is distinct from g.qty_per_piece::bigint * j.qty_planned)')), 'expect', jsonb_build_array('M5e', 'M5f')),
     jsonb_build_object('id', 'MU13', 'what', '🔴 (security L1) trigger กันเขียน ordered_* นอก gem_purchase_mark ถูกถอด (ผ่านทุกกรณี)', 'steps', jsonb_build_array(jsonb_build_array('f', 'analytics.job_gem_bom_ordered_only()', 'if coalesce(current_setting(''analytics.gem_purchase_mark'', true), '''') = ''on'' then', 'if true then')), 'expect', jsonb_build_array('P10')),
     jsonb_build_object('id', 'MU14', 'what', '(security M2) removed_after_order ไม่อ่าน log line_removed (เตือนไม่ขึ้น)', 'steps', jsonb_build_array(jsonb_build_array('f', sg_sum, 'and ml.action = ''line_removed''', 'and ml.action = ''nothing''')), 'expect', jsonb_build_array('R1')),
-    jsonb_build_object('id', 'MU15', 'what', '🔴 removed_after_order ไม่กรองร้านของผู้เรียก (เห็น log ของร้านอื่น)', 'steps', jsonb_build_array(jsonb_build_array('f', sg_sum, 'where ml.shop_id = p_shop_id and ml.action = ''line_removed''', 'where ml.action = ''line_removed''')), 'expect', jsonb_build_array('R3')));
+    jsonb_build_object('id', 'MU15', 'what', '🔴 removed_after_order ไม่กรองร้านของผู้เรียก (เห็น log ของร้านอื่น)', 'steps', jsonb_build_array(jsonb_build_array('f', sg_sum, 'where ml.shop_id = p_shop_id and ml.action = ''line_removed''', 'where ml.action = ''line_removed''')), 'expect', jsonb_build_array('R3')),
+    jsonb_build_object('id', 'MU16', 'what', '🔴 (QA S1) ต้นทุนไม่ปัดต่อกลุ่ม (เก็บ 4 ตำแหน่ง) แล้วปัดจากยอดรวมดิบตอนรวม — ผลรวม ≠ Σ ค่าที่แสดงของกลุ่ม', 'steps', jsonb_build_array(
+        jsonb_build_array('f', sg_cost, 'round(coalesce(g.raw_remaining, 0), 2) end as cost_remaining_thb', 'round(coalesce(g.raw_remaining, 0), 4) end as cost_remaining_thb'),
+        jsonb_build_array('f', sg_cost, '''cost_remaining_thb'', coalesce(sum(r.cost_remaining_thb), 0),', '''cost_remaining_thb'', round(coalesce(sum(r.cost_remaining_thb), 0), 2),')), 'expect', jsonb_build_array('C5')),
+    jsonb_build_object('id', 'MU17', 'what', '(QA S2) removed_after_order ใช้ gem_item_id ดิบของ snapshot แทน canonical (รายการที่ถูกรวมชื่อแล้ว)', 'steps', jsonb_build_array(jsonb_build_array('f', sg_sum, 'coalesce(gi.merged_into, gi.id, ml.gem_item_id)', 'ml.gem_item_id')), 'expect', jsonb_build_array('S2c')),
+    jsonb_build_object('id', 'MU18', 'what', '(QA S2) view จัดกลุ่มด้วย gem_item_id ดิบของ snapshot แทน canonical (ไม่ตาม merged_into — กลุ่มแตก/ติ๊กข้ามการรวมชื่อไม่เข้ากลุ่ม)', 'steps', jsonb_build_array(jsonb_build_array('v', 'analytics.v_gem_purchase_line', '(?i)coalesce\(gi\.merged_into, gi\.id\)', 'gi.id')), 'expect', jsonb_build_array('C4b', 'S2a')));
   total := jsonb_array_length(muts);
   for k in 0 .. total - 1 loop
     m := muts -> k; s := '';
@@ -919,6 +1027,7 @@ begin
       from pg_proc p where p.pronamespace = 'analytics'::regnamespace and p.prokind in ('f', 'p');
   v_snap0 := pg_temp.snap();
   begin
+    v_msg := v_msg || pg_temp.g_real();
     v_msg := v_msg || pg_temp.g_all();
     v_msg := v_msg || pg_temp.g_mut();
     select count(*) into v_hit from _v192_orig o join pg_proc p on p.pronamespace = 'analytics'::regnamespace and p.prokind in ('f', 'p') and p.oid::regprocedure::text = o.sig

@@ -136,10 +136,10 @@ describe("ขอบเขตที่ชั้น TS (ข้อสังเก�
     expect(r.ok === false && r.code === "purchase_lines_invalid").toBe(true);
     expect(rpcMock).not.toHaveBeenCalled();
   });
-  it("mapper ตัด groups[].line_ids เงียบๆ ที่ 500 (uuidList) — จอที่ส่งชุดนี้ไปติ๊กจะติ๊กไม่ครบโดยไม่รู้ตัว (บันทึกเป็น known gap · ยังไม่ใช่ข้อกำหนดที่ UI จริงชนได้ เพราะ 1 ใบ = ≤30 แถว)", () => {
+  it("N6: mapper ไม่ตัดเงียบ — groups[].line_ids เกิน 500 = null ทั้งผล (ตัดแล้วติ๊ก \"ทั้งรายการ\" จะไม่ครบโดยไม่มีสัญญาณ) · 500 พอดีผ่าน", () => {
     const g = (fixture.summary.groups as Record<string, unknown>[])[0];
-    const many = Array.from({ length: 600 }, (_v, i) => `00000000-0000-4000-8000-${String(i + 1).padStart(12, "0")}`);
-    const m = mapGemPurchaseSummary({ ...fixture.summary, groups: [{ ...g, line_ids: many }] });
-    expect(m?.groups[0].lineIds.length).toBe(500);
+    const ids = (n: number) => Array.from({ length: n }, (_v, i) => `00000000-0000-4000-8000-${String(i + 1).padStart(12, "0")}`);
+    expect(mapGemPurchaseSummary({ ...fixture.summary, groups: [{ ...g, line_ids: ids(600) }] })).toBeNull();
+    expect(mapGemPurchaseSummary({ ...fixture.summary, groups: [{ ...g, line_ids: ids(500) }] })?.groups[0].lineIds.length).toBe(500);
   });
 });
