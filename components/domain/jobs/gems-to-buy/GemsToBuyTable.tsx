@@ -19,6 +19,8 @@ export interface GemsListProps {
   expanded: ReadonlySet<string>;
   moreJobs: ReadonlySet<string>;
   busyKeys: ReadonlySet<string>;
+  /** ยอดที่เคยสั่งไว้ก่อนแถวถูกลบ ต่อ ใบ×รายการ (key = jobItemKey) — chip เตือนสั่งซ้ำที่บรรทัดใบ */
+  removedQty: ReadonlyMap<string, number>;
   cost: GemCostState;
   onToggleSelect: (key: string) => void;
   onToggleExpand: (key: string) => void;
@@ -48,7 +50,7 @@ export function GemsToBuyTable(p: GemsListProps) {
             <th scope="col" className={`${TH} text-right`}>{p.tab === "pending" ? "ต้องใช้ (เม็ด)" : "สั่งไว้ (เม็ด)"}</th>
             <th scope="col" className={TH}>จำนวนใบ</th>
             <th scope="col" className={TH}>{p.tab === "pending" ? "ครบกำหนดเร็วสุด" : "กำหนดเร็วสุด"}</th>
-            {showCost && <th scope="col" className={TH}>ต้นทุนประมาณ (ส่วนที่ยังไม่สั่ง)</th>}
+            {showCost && <th scope="col" className={`${TH} print:hidden`}>ต้นทุนประมาณ (ส่วนที่ยังไม่สั่ง)</th>}
             <th scope="col" className={TH}>
               <span className="sr-only">การกระทำ</span>
             </th>
@@ -81,7 +83,7 @@ export function GemsToBuyTable(p: GemsListProps) {
                     <GemDue due={row.earliestDue} todayBkk={p.todayBkk} />
                   </td>
                   {showCost && (
-                    <td className="px-3 py-3">
+                    <td className="px-3 py-3 print:hidden">
                       <GemCostCell cost={p.cost} row={row} />
                     </td>
                   )}
@@ -98,6 +100,7 @@ export function GemsToBuyTable(p: GemsListProps) {
                         tab={p.tab}
                         todayBkk={p.todayBkk}
                         busyKeys={p.busyKeys}
+                        removedQty={p.removedQty}
                         showAll={p.moreJobs.has(row.key)}
                         idPrefix={ID}
                         onShowAll={() => p.onShowAllJobs(row.key)}

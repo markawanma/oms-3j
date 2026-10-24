@@ -260,7 +260,7 @@ describe("G1b UI: ข้อความคัดลอก/ตรรกะหน�
   });
   it("useGemCost.ts เรียก action เฉพาะหลัง guard enabled (ไม่มีการเรียกตอน mount เมื่อสวิตช์ปิด)", () => {
     const code = strip(readFileSync(join(ROOT, "components/domain/jobs/gems-to-buy/useGemCost.ts"), "utf8"));
-    expect(/if\s*\(!enabled\)\s*return;[\s\S]*getGemPurchaseCost\(\)/.test(code)).toBe(true);
+    expect(/if\s*\(!enabled\)\s*\{[^}]*return;\s*\}[\s\S]*getGemPurchaseCost\(\)/.test(code)).toBe(true);
   });
   it("จอ /jobs/gems-to-buy ไม่ลากจอราคาของ /oem/gems และไม่ใช้ตัวจัดรูปราคาของแคตตาล็อก (fmtGemPrice)", () => {
     const files = [...closure(join(ROOT, "components/domain/jobs/gems-to-buy/GemsToBuyClient.tsx"))].map(rel);

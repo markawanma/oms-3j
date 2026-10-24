@@ -6,17 +6,15 @@ import { GEM_PURCHASE_MAX_LINES, mapGemPurchaseSummary } from "./gem-purchase";
 import {
   GTB_EMPTY_FILTERS,
   GTB_MAX_LINES_PER_MARK,
-  MARK_CHANGED_MESSAGE,
-  MARK_FAILED_MESSAGE,
+
+
   applyFilters,
   buildGtbQuery,
-  canUndoMark,
   copyButtonLabel,
   countUrgent,
   distinctJobCount,
   lineIdsOfRows,
-  lineMeta,
-  markFailureMessage,
+
   parseGtbParams,
   resolveScope,
   rowsForTab,
@@ -234,36 +232,3 @@ describe("scope ของคัดลอก/ติ๊ก — เลือก ∩
   });
 });
 
-describe("undo — เสนอเฉพาะแถวที่ย้อนแล้วกลับสภาพเดิมจริง", () => {
-  const clean = job(1, { lineIds: [U(1)] });
-  const reMark = job(2, { lineIds: [U(2)], isOrdered: true, qtyOrdered: 70, qtyNeededNow: 90, qtyRemaining: 20, changedAfterOrder: true });
-  const excess = job(3, { lineIds: [U(3)], isOrdered: true, qtyOrdered: 70, qtyNeededNow: 50, qtyRemaining: 0, qtyExcess: 20 });
-  const orderedClean = job(4, { lineIds: [U(4)], isOrdered: true, qtyOrdered: 10, qtyRemaining: 0 });
-  const meta = lineMeta([group(1, [clean, reMark, excess, orderedClean])]);
-
-  it("ติ๊กแถวที่ยังไม่เคยติ๊ก = ย้อนได้", () => {
-    expect(canUndoMark([U(1)], true, meta)).toBe(true);
-  });
-  it("ติ๊กซ้ำแถวที่ติ๊กไว้แล้ว (ปรับยอดขึ้น) = ย้อนไม่ได้ (ยกเลิกจะได้ 0 ไม่ใช่ 70 → สั่งซ้ำได้)", () => {
-    expect(canUndoMark([U(2)], true, meta)).toBe(false);
-    expect(canUndoMark([U(1), U(2)], true, meta)).toBe(false);
-  });
-  it("ยกเลิกแถวสะอาด = ย้อนได้ · ยกเลิกแถวที่ยอดเปลี่ยน/สั่งเกิน = ย้อนไม่ได้ (ติ๊กใหม่จะได้ยอดปัจจุบัน ไม่ใช่ยอดตอนสั่ง)", () => {
-    expect(canUndoMark([U(4)], false, meta)).toBe(true);
-    expect(canUndoMark([U(2)], false, meta)).toBe(false);
-    expect(canUndoMark([U(3)], false, meta)).toBe(false);
-  });
-  it("ไม่รู้จัก line / ว่าง = ย้อนไม่ได้", () => {
-    expect(canUndoMark([U(99)], true, meta)).toBe(false);
-    expect(canUndoMark([], true, meta)).toBe(false);
-  });
-});
-
-describe("ข้อความเมื่อติ๊กล้ม (all-or-nothing)", () => {
-  it("job_closed / gem_stage_started / purchase_line_not_found = รายการเปลี่ยน โหลดใหม่ · อย่างอื่น = บันทึกไม่สำเร็จ", () => {
-    for (const c of ["job_closed", "gem_stage_started", "purchase_line_not_found"]) expect(markFailureMessage(c)).toBe(MARK_CHANGED_MESSAGE);
-    expect(markFailureMessage(undefined)).toBe(MARK_FAILED_MESSAGE);
-    expect(markFailureMessage("whatever")).toBe(MARK_FAILED_MESSAGE);
-    expect(MARK_CHANGED_MESSAGE).toMatch(/ไม่ได้ทำเครื่องหมายรายการใดเลย/);
-  });
-});

@@ -6,7 +6,7 @@
 
 import { daysBetween } from "@/lib/jobs/dates";
 import { normalizeGemName } from "@/lib/jobs/shop-gems";
-import type { GemPurchaseGroup, GemPurchaseJob, GemPurchaseSummary } from "@/lib/jobs/gem-purchase";
+import type { GemPurchaseGroup, GemPurchaseJob, GemPurchaseMarkResult, GemPurchaseRemovedAfterOrder, GemPurchaseSummary } from "@/lib/jobs/gem-purchase";
 
 /** ตรงกับ GEM_PURCHASE_MAX_LINES (RPC gem_purchase_mark) — ค่าซ้ำโดยตั้งใจเพื่อไม่ลาก gem-purchase.ts เข้า bundle · เทสต์ gems-to-buy.test.ts ล็อกว่าเท่ากัน */
 export const GTB_MAX_LINES_PER_MARK = 200;
@@ -48,7 +48,22 @@ export function toGemsToBuyView(summary: GemPurchaseSummary, viewerId: string | 
       jobCount: g.jobCount,
       earliestDue: g.earliestDue,
       earliestDueRemaining: g.earliestDueRemaining,
-      jobs: g.jobs.map((j) => ({ ...j, orderedBy: who(j.orderedBy) })),
+      // ประกอบทีละ field ห้าม spread — field ใหม่ใน GemPurchaseJob (เช่น ordered_by uuid) ต้องไม่หลุดไป client เอง
+      jobs: g.jobs.map((j) => ({
+        jobId: j.jobId,
+        jobNo: j.jobNo,
+        designLabel: j.designLabel,
+        dueDate: j.dueDate,
+        qtyNeededNow: j.qtyNeededNow,
+        qtyOrdered: j.qtyOrdered,
+        qtyRemaining: j.qtyRemaining,
+        qtyExcess: j.qtyExcess,
+        isOrdered: j.isOrdered,
+        changedAfterOrder: j.changedAfterOrder,
+        orderedAt: j.orderedAt,
+        orderedBy: who(j.orderedBy),
+        lineIds: [...j.lineIds],
+      })),
     })),
   };
 }
@@ -145,6 +160,26 @@ export function sortRows(rows: GtbRow[], sort: GtbSort): GtbRow[] {
   });
 }
 
+// ---------------------------------------------------------------------------
+// "เคยสั่งไว้แต่แถวถูกลบ" (removed_after_order) — กันสั่งซ้ำเมื่อใบเพิ่มรายการเดียวกันกลับมา
+// ---------------------------------------------------------------------------
+export const jobItemKey = (jobId: string, canonicalItemId: string): string => `${jobId}:${canonicalItemId}`;
+
+type RemovedRef = Pick<GemPurchaseRemovedAfterOrder, "jobId" | "canonicalItemId" | "qty">;
+
+/** ยอดที่เคยสั่งไว้ก่อนถูกลบ ต่อ ใบ×รายการ (นับจำนวน — ไม่ใช่เงิน) */
+export function removedQtyByJobItem(removed: ReadonlyArray<RemovedRef>): Map<string, number> {
+  const m = new Map<string, number>();
+  for (const e of removed) m.set(jobItemKey(e.jobId, e.canonicalItemId), (m.get(jobItemKey(e.jobId, e.canonicalItemId)) ?? 0) + e.qty);
+  return m;
+}
+
+/** ใบ×รายการ ที่เคยสั่งแล้วถูกลบ และตอนนี้ใบนั้นมีแถวรายการเดียวกัน "ยังไม่สั่ง" อยู่ในแท็บยังไม่สั่ง = เสี่ยงสั่งซ้ำจริง → คำเตือนต้องโผล่แม้เคยปิดไว้ */
+export function removedWithPendingLine(removed: ReadonlyArray<RemovedRef>, pendingRows: ReadonlyArray<GtbRow>): Set<string> {
+  const pending = new Set(pendingRows.flatMap((r) => r.jobs.map((j) => jobItemKey(j.jobId, r.key))));
+  return new Set(removed.map((e) => jobItemKey(e.jobId, e.canonicalItemId)).filter((k) => pending.has(k)));
+}
+
 /** จำนวนใบไม่ซ้ำของแถวที่เห็น */
 export const distinctJobCount = (rows: GtbRow[]): number => new Set(rows.flatMap((r) => r.jobs.map((j) => j.jobId))).size;
 
@@ -215,40 +250,53 @@ export function lineIdsOfRows(rows: GtbRow[]): string[] {
 // ---------------------------------------------------------------------------
 // ติ๊ก / undo
 // ---------------------------------------------------------------------------
-export interface LineMeta {
-  isOrdered: boolean;
-  changedAfterOrder: boolean;
-  qtyExcess: number;
+/**
+ * 🔴 ยอดที่จอเห็น/ส่งร้านต่อ line (ส่งเข้า markGemPurchase.expected เมื่อติ๊ก) = qty_needed_now ระดับใบ×รายการ
+ * ใช้ได้ "เฉพาะเมื่อใบมี line เดียวของรายการนั้น" — summary ส่งยอดรวมต่อใบ×รายการ ถ้าใบมีหลาย line (เช่น หลังรวมชื่อ) ยอดต่อ line ไม่รู้
+ * → null (ไม่แบ่งยอดเดา — ค่า expected ผิดแปลว่า DB ล้ม qty_changed หรือที่แย่กว่าคือผ่านด้วยค่าเดา) · ผู้เรียกต้องไม่ยิง
+ */
+export function expectedForJobs(jobs: ReadonlyArray<Pick<GtbJob, "lineIds" | "qtyNeededNow">>): Record<string, number> | null {
+  const out: Record<string, number> = {};
+  for (const j of jobs) {
+    if (j.lineIds.length !== 1 || !Number.isSafeInteger(j.qtyNeededNow) || j.qtyNeededNow < 1) return null;
+    out[j.lineIds[0]] = j.qtyNeededNow;
+  }
+  return Object.keys(out).length === jobs.length && jobs.length > 0 ? out : null;
 }
 
-export function lineMeta(groups: GtbGroup[]): Map<string, LineMeta> {
-  const m = new Map<string, LineMeta>();
-  for (const g of groups) for (const j of g.jobs) for (const id of j.lineIds) m.set(id, { isOrdered: j.isOrdered, changedAfterOrder: j.changedAfterOrder, qtyExcess: j.qtyExcess });
-  return m;
+export interface UndoPlan {
+  /** ค่าที่ต้องส่งตอนย้อน */
+  ordered: boolean;
+  /** เฉพาะการย้อนที่เป็น "ติ๊ก" (ย้อนของการยกเลิก) — ยอดสดจากผล server */
+  expected?: Record<string, number>;
 }
 
 /**
- * ย้อนกลับด้วยคำสั่งตรงข้ามได้เฉพาะแถวที่ "สะอาด":
- *  - ติ๊กสั่งแล้ว: ทุกแถวต้องยังไม่เคยติ๊ก (ติ๊กซ้ำ = ปรับยอดสั่งขึ้นเป็นยอดปัจจุบัน → ยกเลิกแล้วจะได้ 0 ไม่ใช่ยอดเดิม → สั่งซ้ำได้)
- *  - ยกเลิกติ๊ก: ทุกแถวต้องไม่ใช่ "ยอดเปลี่ยนหลังสั่ง"/"สั่งเกิน" (ติ๊กใหม่จะได้ยอดปัจจุบัน ไม่ใช่ยอดตอนสั่งเดิม)
- * ไม่สะอาด = ไม่เสนอปุ่มย้อนกลับ (ทางสำรองคือแท็บฝั่งตรงข้าม)
+ * 🔴 ปุ่มย้อนกลับตัดสินจาก "ผลของ server" เท่านั้น (security M1) — ห้ามตัดสินจาก isOrdered ระดับใบของ summary (bool_and: ใบผสมแถวที่ติ๊กแล้ว+ยังไม่ติ๊ก ตัดสินผิด)
+ *  - หลังติ๊ก: ย้อน (ยกเลิก) ได้เมื่อ "ทุกแถว" เดิมไม่เคยติ๊ก (prevOrderedQty === null) — ถ้าเป็นการติ๊กซ้ำที่ปรับยอดขึ้น การยกเลิกจะได้ 0 ไม่ใช่ยอดเดิม → สั่งซ้ำได้
+ *  - หลังยกเลิก: ย้อน (ติ๊กใหม่) ได้เมื่อยอดที่ล้างไป = ยอดที่ต้องใช้ตอนนี้ทุกแถว (ติ๊กใหม่แล้วได้ยอดเดิมเป๊ะ)
+ *  - และต้อง "เปลี่ยนครบทุกแถวที่ส่ง" (ไม่งั้นย้อนจะไปแตะแถวที่คนอื่นทำไว้) · ไม่มี lines/จำนวนไม่ตรง = ไม่เสนอ
+ * null = ไม่เสนอปุ่ม (ทางสำรองคือแท็บฝั่งตรงข้าม)
  */
-export function canUndoMark(lineIds: string[], ordered: boolean, meta: ReadonlyMap<string, LineMeta>): boolean {
-  if (lineIds.length === 0) return false;
-  return lineIds.every((id) => {
-    const m = meta.get(id);
-    if (!m) return false;
-    return ordered ? !m.isOrdered : !m.changedAfterOrder && m.qtyExcess === 0;
-  });
+export function undoPlanFromResult(markedOrdered: boolean, r: GemPurchaseMarkResult): UndoPlan | null {
+  if (r.changed < 1 || r.changed !== r.requested || r.lines.length !== r.requested) return null;
+  if (markedOrdered) return r.lines.every((l) => l.prevOrderedQty === null && l.newOrderedQty !== null) ? { ordered: false } : null;
+  if (!r.lines.every((l) => l.prevOrderedQty !== null && l.prevOrderedQty === l.qtyNeededNow && l.newOrderedQty === null)) return null;
+  return { ordered: true, expected: Object.fromEntries(r.lines.map((l) => [l.lineId, l.qtyNeededNow])) };
 }
 
-/** ติ๊กชนกับคนอื่น/ใบปิด/ขั้นฝังรับแล้ว (all-or-nothing ล้ม) → แจ้ง + โหลดใหม่ */
-const CHANGED_CODES: ReadonlySet<string> = new Set(["job_closed", "gem_stage_started", "purchase_line_not_found"]);
+/** ติ๊กชนกับคนอื่น/ใบปิด/ขั้นฝังรับแล้ว/ยอดเปลี่ยน (all-or-nothing ล้ม) → แจ้ง + โหลดใหม่ */
+const CHANGED_CODES: ReadonlySet<string> = new Set(["job_closed", "gem_stage_started", "purchase_line_not_found", "qty_changed"]);
 export const MARK_CHANGED_MESSAGE = "มีรายการที่เปลี่ยนไป — โหลดข้อมูลใหม่แล้ว ไม่ได้ทำเครื่องหมายรายการใดเลย ลองอีกครั้ง";
+export const MARK_QTY_CHANGED_MESSAGE = "ยอดพลอยของใบเปลี่ยนหลังโหลดหน้า — โหลดข้อมูลใหม่แล้ว ไม่ได้ทำเครื่องหมายรายการใดเลย ตรวจยอดแล้วติ๊กใหม่";
+export const MARK_QTY_CHANGED_AFTER_COPY_MESSAGE = "ยอดเปลี่ยนหลังคัดลอก — คัดลอกใหม่แล้วส่งร้านส่วนต่าง (ยังไม่ได้ทำเครื่องหมายอะไรเลย)";
+export const MARK_MULTI_LINE_MESSAGE = "ใบนี้มีหลายแถวของพลอยรายการเดียวกัน — ติ๊กจากหน้านี้ไม่ได้ (ยังไม่มียอดต่อแถวให้ตรวจ) ใช้ทางอื่นหรือแจ้งผู้ดูแลระบบ";
 export const MARK_FAILED_MESSAGE = "บันทึกไม่สำเร็จ ลองอีกครั้ง";
 export const MARK_TOO_MANY_GROUP_MESSAGE = `รายการนี้มีเกิน ${GTB_MAX_LINES_PER_MARK} แถว — ติ๊กทีละใบ (กด ▾ ดูใบ แล้วกด สั่งแล้ว ที่แต่ละใบ)`;
 export const MARK_TOO_MANY_BULK_MESSAGE = `เลือกรวมกันเกิน ${GTB_MAX_LINES_PER_MARK} แถว — ลดจำนวนที่เลือก หรือติ๊กทีละรายการ`;
 
-export function markFailureMessage(code: string | undefined): string {
+/** afterCopy = ติ๊กจากแถบถามหลังคัดลอก — ยอดเปลี่ยน (qty_changed) แปลว่ายอดที่ส่งร้านไม่ตรงระบบแล้ว ต้องบอกให้คัดลอกใหม่ */
+export function markFailureMessage(code: string | undefined, afterCopy = false): string {
+  if (code === "qty_changed") return afterCopy ? MARK_QTY_CHANGED_AFTER_COPY_MESSAGE : MARK_QTY_CHANGED_MESSAGE;
   return code !== undefined && CHANGED_CODES.has(code) ? MARK_CHANGED_MESSAGE : MARK_FAILED_MESSAGE;
 }

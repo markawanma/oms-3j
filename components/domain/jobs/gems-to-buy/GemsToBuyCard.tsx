@@ -31,7 +31,7 @@ export function GemsToBuyCard(p: GemsListProps) {
                   <span className="whitespace-nowrap tabular-nums">{row.jobs.length} ใบ</span> · เร็วสุด <GemDue due={row.earliestDue} todayBkk={p.todayBkk} />
                 </p>
                 {showCost && (
-                  <p className="text-sm text-zinc-800">
+                  <p className="text-sm text-zinc-800 print:hidden">
                     ต้นทุนประมาณ (ส่วนที่ยังไม่สั่ง): <GemCostCell cost={p.cost} row={row} />
                   </p>
                 )}
@@ -42,6 +42,7 @@ export function GemsToBuyCard(p: GemsListProps) {
                     tab={p.tab}
                     todayBkk={p.todayBkk}
                     busyKeys={p.busyKeys}
+                    removedQty={p.removedQty}
                     showAll={p.moreJobs.has(row.key)}
                     idPrefix={ID}
                     onShowAll={() => p.onShowAllJobs(row.key)}

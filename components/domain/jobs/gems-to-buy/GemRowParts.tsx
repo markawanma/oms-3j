@@ -10,7 +10,7 @@ import { AlertTriangle, CheckCircle2, Clock } from "lucide-react";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { thaiDate, thaiDateTime } from "@/lib/jobs/dates";
-import { urgencyOf } from "@/lib/jobs/gems-to-buy";
+import { jobItemKey, urgencyOf } from "@/lib/jobs/gems-to-buy";
 import type { GtbJob, GtbRow, GtbTab } from "@/lib/jobs/gems-to-buy";
 
 export const fmtN = (n: number): string => n.toLocaleString("en-US");
@@ -135,6 +135,7 @@ export function GemOrderJobLines({
   tab,
   todayBkk,
   busyKeys,
+  removedQty,
   showAll,
   idPrefix,
   onShowAll,
@@ -144,6 +145,7 @@ export function GemOrderJobLines({
   tab: GtbTab;
   todayBkk: string;
   busyKeys: ReadonlySet<string>;
+  removedQty: ReadonlyMap<string, number>;
   showAll: boolean;
   idPrefix: string;
   onShowAll: () => void;
@@ -195,6 +197,9 @@ export function GemOrderJobLines({
                   <AmberChip>
                     ใบแก้จำนวนหลังสั่ง: สั่งไว้ {fmtN(j.qtyOrdered)} → ตอนนี้ {fmtN(j.qtyNeededNow)}
                   </AmberChip>
+                )}
+                {tab === "pending" && (removedQty.get(jobItemKey(j.jobId, row.key)) ?? 0) > 0 && (
+                  <AmberChip>เคยสั่งไว้ {fmtN(removedQty.get(jobItemKey(j.jobId, row.key)) as number)} เม็ดก่อนถูกลบ — ระวังสั่งซ้ำ</AmberChip>
                 )}
                 {tab === "ordered" && <OrderedMeta job={j} />}
               </div>

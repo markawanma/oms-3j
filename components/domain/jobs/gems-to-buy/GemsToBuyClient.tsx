@@ -5,7 +5,7 @@
 //  - ไม่มีใบพิมพ์ · ไม่มีสถานะ "ได้รับของ" · ไม่มี "ควรสั่งภายใน" (มติเจ้าของ)
 //  - ข้อมูลทั้งหมดมาจาก props (server) — ไม่ optimistic: ติ๊ก → รอ server → router.refresh() · ตัวเลขไม่ถูกแก้ใน client
 //  - ติ๊กด้วย line_ids · all-or-nothing: ล้ม = แจ้ง + โหลดใหม่ ไม่ข้ามแถวแล้วติ๊กที่เหลือ · เกิน 200 แถว = ไม่ยิง (ห้ามแบ่งหลายรอบ — จะไม่ all-or-nothing)
-//  - undo = คำสั่งตรงข้ามด้วย lineIds เดิม · เสนอเฉพาะเมื่อย้อนแล้วกลับสภาพเดิมจริง (ดู canUndoMark) · มีแท็บฝั่งตรงข้ามเป็นทางสำรองเสมอ
+//  - undo = คำสั่งตรงข้ามด้วย lineIds เดิม · เสนอเฉพาะเมื่อผล server บอกว่าย้อนแล้วกลับสภาพเดิมจริง (undoPlanFromResult · prevOrderedQty) · มีแท็บฝั่งตรงข้ามเป็นทางสำรองเสมอ
 //  - 🔴 ต้นทุนโหลดแยกเฉพาะเมื่อเปิดสวิตช์ (useGemCost) · ข้อความคัดลอกสร้างจาก GemOrderLine ที่ไม่มีฟิลด์ราคา
 
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
@@ -23,21 +23,26 @@ import {
   GTB_EMPTY_FILTERS,
   GTB_MAX_LINES_PER_MARK,
   MARK_FAILED_MESSAGE,
+  MARK_MULTI_LINE_MESSAGE,
   MARK_TOO_MANY_BULK_MESSAGE,
   MARK_TOO_MANY_GROUP_MESSAGE,
   applyFilters,
   buildGtbQuery,
-  canUndoMark,
+
   countUrgent,
   distinctJobCount,
+  expectedForJobs,
   hasActiveFilter,
   lineIdsOfRows,
-  lineMeta,
+
   markFailureMessage,
   resolveScope,
+  removedQtyByJobItem,
+  removedWithPendingLine,
   rowsForTab,
   serverClock,
   sortRows,
+  undoPlanFromResult,
   visibleSelected,
 } from "@/lib/jobs/gems-to-buy";
 import type { GemsToBuyView, GtbFilters, GtbJob, GtbRow, GtbTab } from "@/lib/jobs/gems-to-buy";
@@ -68,8 +73,20 @@ interface MarkOpts {
   clearKeys?: string[];
   /** แถวที่ focus ไปหลังข้อมูลโหลดใหม่ (prefer ถ้ายังอยู่ · ไม่งั้น fallback · ไม่มี = แท็บ) */
   focus?: { prefer: string | null; fallback: string | null };
-  /** ผู้เรียกตัดสินว่าสถานะก่อนติ๊ก "สะอาด" พอจะย้อนกลับได้ (canUndoMark) */
-  undoable: boolean;
+  /**
+   * 🔴 ยอดที่จอเห็น/ส่งร้าน ต่อ line (qty_needed_now) — บังคับเมื่อ ordered=true (DB ล้ม qty_changed ถ้ายอดในระบบเปลี่ยน)
+   * null = สร้างไม่ได้ (ใบมีหลาย line ของรายการเดียวกัน — ไม่มียอดต่อ line ให้ตรวจ) → ไม่ยิง · ยกเลิกติ๊ก (ordered=false) ไม่ใช้
+   */
+  expected?: Record<string, number> | null;
+  /** ติ๊กจากแถบหลังคัดลอก: ยอดเปลี่ยน = ยอดที่ส่งร้านไม่ตรงระบบ → ข้อความให้คัดลอกใหม่ */
+  afterCopy?: boolean;
+}
+
+interface CopiedSnapshot {
+  lineIds: string[];
+  /** ยอดต่อ line ณ ตอนคัดลอก (= ยอดที่ส่งร้านจริง) — ไม่ใช้ยอดสดตอนกดติ๊ก */
+  expected: Record<string, number> | null;
+  count: number;
 }
 
 const addAll = (s: ReadonlySet<string>, keys: string[]): Set<string> => new Set([...s, ...keys]);
@@ -85,13 +102,13 @@ export function GemsToBuyClient({ view, initialTab, initialFilters }: { view: Ge
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set());
   const [moreJobs, setMoreJobs] = useState<ReadonlySet<string>>(new Set());
   const [busyKeys, setBusyKeys] = useState<ReadonlySet<string>>(new Set());
-  const [copied, setCopied] = useState<{ lineIds: string[]; count: number } | null>(null);
+  const [copied, setCopied] = useState<CopiedSnapshot | null>(null);
   const [announce, setAnnounce] = useState("");
   const [costOn, setCostOn] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [refreshing, startRefresh] = useTransition();
   const focusTarget = useRef<{ prefer: string | null; fallback: string | null } | null>(null);
-  const runMarkRef = useRef<(o: MarkOpts) => Promise<void>>(async () => {});
+  const manualSnapshot = useRef<CopiedSnapshot | null>(null);
   const selectAllRef = useRef<HTMLInputElement>(null);
   const { copy, manualText, closeManual } = useCopyText();
 
@@ -122,7 +139,8 @@ export function GemsToBuyClient({ view, initialTab, initialFilters }: { view: Ge
   const filtered = hasActiveFilter(filters);
   const scope = resolveScope(visible, selected, tabRows.length, filtered);
   const selectedVisible = visibleSelected(selected, visible);
-  const meta = useMemo(() => lineMeta(view.groups), [view.groups]);
+  const removedQty = useMemo(() => removedQtyByJobItem(view.removedAfterOrder), [view.removedAfterOrder]);
+  const removedForce = useMemo(() => removedWithPendingLine(view.removedAfterOrder, rowsByTab.pending), [view.removedAfterOrder, rowsByTab.pending]);
   const typeOptions = useMemo(() => [...new Map(view.groups.map((g) => [g.typeId, g.typeName] as const)).entries()].sort((a, b) => a[1].localeCompare(b[1], "th")), [view.groups]);
   const shapeOptions = useMemo(() => [...new Map(view.groups.map((g) => [g.shapeId, g.shapeName] as const)).entries()].sort((a, b) => a[1].localeCompare(b[1], "th")), [view.groups]);
 
@@ -133,6 +151,11 @@ export function GemsToBuyClient({ view, initialTab, initialFilters }: { view: Ge
     url.search = buildGtbQuery(tab, filters);
     window.history.replaceState(window.history.state, "", url);
   }, [tab, filters]);
+
+  // ข้อมูลหน้าเปลี่ยน (โหลดใหม่) = แถบถามหลังคัดลอกหมดอายุ — ยอดบนจอไม่ตรงกับที่คัดลอกแล้ว (ปุ่มติ๊กจะส่งยอดเก่า) · ต้องคัดลอกใหม่
+  useEffect(() => {
+    setCopied(null);
+  }, [view]);
 
   // ข้อมูลใหม่: ตัดรายการที่เลือกแต่หายไปจากแท็บนี้แล้ว (กัน "ติ๊กของที่ไม่ได้ตั้งใจหลังข้อมูลเปลี่ยน")
   useEffect(() => {
@@ -169,18 +192,23 @@ export function GemsToBuyClient({ view, initialTab, initialFilters }: { view: Ge
       push(o.tooMany, "error");
       return;
     }
+    // ติ๊กต้องมี expected ครบทุก line — สร้างไม่ได้ (ใบหลาย line) = ไม่ยิง (ไม่แบ่งยอดเดา)
+    if (o.ordered && !o.expected) {
+      push(MARK_MULTI_LINE_MESSAGE, "error");
+      return;
+    }
     setBusyKeys((p) => addAll(p, o.busy));
     let res: Awaited<ReturnType<typeof markGemPurchase>> | null;
     try {
-      res = await markGemPurchase({ lineIds: o.lineIds, ordered: o.ordered });
+      res = await markGemPurchase(o.ordered ? { lineIds: o.lineIds, ordered: true, expected: o.expected as Record<string, number> } : { lineIds: o.lineIds, ordered: false });
     } catch {
       res = null;
     }
     setBusyKeys((p) => removeAll(p, o.busy));
     if (!res || !res.ok) {
-      // all-or-nothing ล้ม: ไม่มีแถวไหนถูกทำเครื่องหมาย → แจ้ง + โหลดข้อมูลใหม่ (ไม่ข้ามแถวแล้วทำที่เหลือ)
+      // all-or-nothing ล้ม (ใบปิด/ขั้นฝังรับแล้ว/ไม่พบ/ยอดเปลี่ยน): ไม่มีแถวไหนถูกทำเครื่องหมาย → แจ้ง + โหลดข้อมูลใหม่ (ไม่ข้ามแถวแล้วทำที่เหลือ)
       focusTarget.current = null;
-      push(res ? markFailureMessage(res.code) : MARK_FAILED_MESSAGE, "error");
+      push(res ? markFailureMessage(res.code, o.afterCopy === true) : MARK_FAILED_MESSAGE, "error");
       refresh();
       return;
     }
@@ -190,14 +218,13 @@ export function GemsToBuyClient({ view, initialTab, initialFilters }: { view: Ge
     if (o.clearKeys) setSelected((p) => removeAll(p, o.clearKeys as string[]));
     refresh();
     const verb = o.ordered ? "ทำเครื่องหมายสั่งแล้ว" : "ยกเลิกสั่งแล้ว";
-    // ย้อนกลับได้เฉพาะเมื่อ "เปลี่ยนครบทุกแถว" (ไม่งั้นย้อนจะไปแตะแถวที่คนอื่นทำไว้) และสถานะก่อนหน้าสะอาด (canUndoMark)
-    const canUndo = o.undoable && d.changed === d.requested && d.changed > 0;
+    // 🔴 ปุ่มย้อนตัดสินจาก "ผลของ server" (prevOrderedQty ต่อแถว + เปลี่ยนครบ) — ไม่ใช้ isOrdered ระดับใบของ summary (ใบผสมตัดสินผิด)
+    const plan = undoPlanFromResult(o.ordered, d);
     let message = `${verb}: ${o.subject}`;
     if (d.changed === 0) message += " — มีคนทำไว้แล้ว ไม่มีอะไรเปลี่ยน";
-    else if (!canUndo) message += ` — ย้อนกลับด้วยปุ่มไม่ได้ ใช้แท็บ${o.ordered ? "สั่งแล้ว" : "ยังไม่สั่ง"}แทน`;
-    push(message, "success", canUndo ? { action: { label: "ย้อนกลับ", onClick: () => void runMarkRef.current({ ...o, ordered: !o.ordered, undoable: true, clearKeys: undefined, focus: undefined }) } } : undefined);
+    else if (!plan) message += ` — ย้อนกลับด้วยปุ่มไม่ได้ ใช้แท็บ${o.ordered ? "สั่งแล้ว" : "ยังไม่สั่ง"}แทน`;
+    push(message, "success", plan ? { action: { label: "ย้อนกลับ", onClick: () => void runMark({ ...o, ordered: plan.ordered, expected: plan.expected, clearKeys: undefined, focus: undefined, afterCopy: false }) } } : undefined);
   }
-  runMarkRef.current = runMark;
 
   const nextKeyAfter = (key: string): string | null => {
     const i = visible.findIndex((r) => r.key === key);
@@ -214,7 +241,7 @@ export function GemsToBuyClient({ view, initialTab, initialFilters }: { view: Ge
       tooMany: MARK_TOO_MANY_GROUP_MESSAGE,
       clearKeys: [row.key],
       focus: { prefer: row.key, fallback: nextKeyAfter(row.key) },
-      undoable: canUndoMark(row.lineIds, markTo, meta),
+      expected: markTo ? expectedForJobs(row.jobs) : undefined,
     });
   }
   function actJob(row: GtbRow, job: GtbJob) {
@@ -225,7 +252,7 @@ export function GemsToBuyClient({ view, initialTab, initialFilters }: { view: Ge
       subject: `${job.jobNo} · ${row.group.label}`,
       tooMany: MARK_TOO_MANY_GROUP_MESSAGE,
       focus: { prefer: row.key, fallback: nextKeyAfter(row.key) },
-      undoable: canUndoMark(job.lineIds, markTo, meta),
+      expected: markTo ? expectedForJobs([job]) : undefined,
     });
   }
   function actSelected() {
@@ -239,7 +266,7 @@ export function GemsToBuyClient({ view, initialTab, initialFilters }: { view: Ge
       tooMany: MARK_TOO_MANY_BULK_MESSAGE,
       clearKeys: rows.map((r) => r.key),
       focus: { prefer: null, fallback: null },
-      undoable: canUndoMark(lineIds, markTo, meta),
+      expected: markTo ? expectedForJobs(rows.flatMap((r) => r.jobs)) : undefined,
     });
   }
 
@@ -250,9 +277,15 @@ export function GemsToBuyClient({ view, initialTab, initialFilters }: { view: Ge
     const rows = scope.rows;
     const text = buildGemOrderText(toGemOrderLines(rows), { dateLabel: gemOrderDateLabel(view.todayBkk) });
     if (text === "") return;
+    // snapshot ยอดต่อ line ณ ตอนคัดลอก (= ยอดที่ส่งร้านจริง) — ปุ่มติ๊กในแถบถามใช้ยอดนี้ ไม่ใช่ยอดสดตอนกด
+    const snapshot: CopiedSnapshot = { lineIds: lineIdsOfRows(rows), expected: expectedForJobs(rows.flatMap((r) => r.jobs)), count: rows.length };
     const ok = await copy(text);
-    if (!ok) return; // modal "คัดลอกเอง" เปิดแล้ว — ยังไม่ถามว่าส่งแล้วหรือยัง (ยังไม่ได้คัดลอกจริง)
-    setCopied({ lineIds: lineIdsOfRows(rows), count: rows.length });
+    if (!ok) {
+      // modal "คัดลอกเอง" เปิดแล้ว — ถามว่าส่งแล้วหรือยังตอนผู้ใช้ปิด modal (ถือว่าคัดลอกเองแล้ว)
+      manualSnapshot.current = snapshot;
+      return;
+    }
+    setCopied(snapshot);
     const msg = scope.kind === "filtered" ? `คัดลอก ${rows.length} จาก ${scope.total} รายการ (ตามตัวกรอง)` : scope.kind === "selected" ? `คัดลอกที่เลือก ${rows.length} รายการแล้ว` : `คัดลอก ${rows.length} รายการแล้ว`;
     push(msg);
   }
@@ -266,8 +299,16 @@ export function GemsToBuyClient({ view, initialTab, initialFilters }: { view: Ge
       tooMany: MARK_TOO_MANY_BULK_MESSAGE,
       clearKeys: undefined,
       focus: { prefer: null, fallback: null },
-      undoable: canUndoMark(copied.lineIds, true, meta),
+      expected: copied.expected,
+      afterCopy: true,
     });
+  }
+  function closeManualCopy() {
+    closeManual();
+    if (manualSnapshot.current) {
+      setCopied(manualSnapshot.current);
+      manualSnapshot.current = null;
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -315,6 +356,7 @@ export function GemsToBuyClient({ view, initialTab, initialFilters }: { view: Ge
     expanded,
     moreJobs,
     busyKeys,
+    removedQty,
     cost,
     onToggleSelect: toggleSelect,
     onToggleExpand: (k: string) => setExpanded((p) => toggleIn(p, k)),
@@ -395,7 +437,7 @@ export function GemsToBuyClient({ view, initialTab, initialFilters }: { view: Ge
         )}
       </div>
 
-      <RemovedAfterOrderNotice items={view.removedAfterOrder} />
+      <RemovedAfterOrderNotice items={view.removedAfterOrder} forceShowKeys={removedForce} />
 
       <div role="tablist" aria-label="สถานะการสั่งพลอย" className="flex gap-1 border-b border-zinc-200">
         {TABS.map((t, i) => (
@@ -464,7 +506,7 @@ export function GemsToBuyClient({ view, initialTab, initialFilters }: { view: Ge
       <p role="status" className="sr-only">
         {announce}
       </p>
-      <ManualCopyDialog text={manualText} onClose={closeManual} />
+      <ManualCopyDialog text={manualText} onClose={closeManualCopy} />
     </div>
   );
 }

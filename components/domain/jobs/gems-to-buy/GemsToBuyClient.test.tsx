@@ -54,13 +54,31 @@ const mount = (v: GemsToBuyView, tab: GtbTab = "pending") =>
   );
 const table = () => within(screen.getByTestId("gems-table"));
 const dataRows = () => table().getAllByRole("row").filter((r) => r.hasAttribute("aria-label"));
-const okMark = (changed: number, requested = changed) => ({ ok: true, data: { requested, changed, unchanged: requested - changed, ordered: true, lines: [] } });
+type MarkIn = { lineIds: string[]; ordered: boolean; expected?: Record<string, number> };
+/** ผลของ gem_purchase_mark ตามรูปที่ DB ส่ง (lines ต่อแถวพร้อม prevOrderedQty/newOrderedQty) — prev: ยอดที่ติ๊กไว้ก่อนคำสั่ง (null = ไม่เคยติ๊ก) */
+const markImpl = (o: { changed?: number; prev?: number | null } = {}) => async (input: MarkIn) => {
+  const n = input.lineIds.length;
+  const changed = o.changed ?? n;
+  return {
+    ok: true,
+    data: {
+      requested: n, changed, unchanged: n - changed, ordered: input.ordered,
+      lines: input.lineIds.map((id) => {
+        const needed = input.expected?.[id] ?? 10;
+        return {
+          lineId: id, jobId: U(1), jobNo: "JB-0001", canonicalItemId: U(1), isOrdered: input.ordered, qtyNeededNow: needed, qtyOrdered: input.ordered ? needed : 0, qtyRemaining: input.ordered ? 0 : needed, qtyExcess: 0, changedAfterOrder: false,
+          prevOrderedQty: input.ordered ? (o.prev ?? null) : o.prev === undefined ? needed : o.prev, newOrderedQty: input.ordered ? needed : null,
+        };
+      }),
+    },
+  };
+};
 
 beforeEach(() => {
   vi.clearAllMocks();
   window.localStorage.clear();
   window.history.replaceState(null, "", "/jobs/gems-to-buy");
-  A.markGemPurchase.mockResolvedValue(okMark(1));
+  A.markGemPurchase.mockImplementation(markImpl());
 });
 
 describe("หน้า — success", () => {
@@ -217,7 +235,7 @@ describe("แท็บ สั่งแล้ว", () => {
   });
   it("ยกเลิกสั่งแล้ว (n) เมื่อเลือก → markGemPurchase ordered:false ด้วย lineIds ของแถวที่เลือก", async () => {
     const user = userEvent.setup();
-    A.markGemPurchase.mockResolvedValue({ ok: true, data: { requested: 2, changed: 2, unchanged: 0, ordered: false, lines: [] } });
+    A.markGemPurchase.mockImplementation(markImpl());
     mount(ordered, "ordered");
     await user.click(table().getByRole("checkbox", { name: "เลือก โกเมน · ไข่ · 4×6 มม." }));
     await user.click(screen.getByRole("button", { name: "ยกเลิกสั่งแล้ว (1)" }));
@@ -229,10 +247,10 @@ describe("แท็บ สั่งแล้ว", () => {
 describe("ติ๊ก 'สั่งแล้ว' + ย้อนกลับ", () => {
   it("ปุ่มระดับรายการ → lineIds ของใบที่ยังไม่สั่งเท่านั้น · ไม่มีกล่องยืนยัน · toast พร้อมปุ่มย้อนกลับ · โหลดข้อมูลใหม่", async () => {
     const user = userEvent.setup();
-    A.markGemPurchase.mockResolvedValue(okMark(2));
+    A.markGemPurchase.mockImplementation(markImpl());
     mount(BASE);
     await user.click(table().getByRole("button", { name: /^สั่งแล้ว — โกเมน · ไข่ · 4×6 มม\./ }));
-    expect(A.markGemPurchase).toHaveBeenCalledWith({ lineIds: [U(2001), U(2002)], ordered: true });
+    expect(A.markGemPurchase).toHaveBeenCalledWith({ lineIds: [U(2001), U(2002)], ordered: true, expected: { [U(2001)]: 30, [U(2002)]: 40 } });
     expect(await screen.findByText(/ทำเครื่องหมายสั่งแล้ว: โกเมน · ไข่ · 4×6 มม\. \(2 ใบ\)/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "ย้อนกลับ" })).toBeInTheDocument();
     expect(refresh).toHaveBeenCalled();
@@ -240,7 +258,7 @@ describe("ติ๊ก 'สั่งแล้ว' + ย้อนกลับ", (
   });
   it("ย้อนกลับ = คำสั่งตรงข้ามด้วย lineIds เดิม (ไม่ใช่ 'undo ล่าสุด') แล้วมี toast ย้อนของการย้อน", async () => {
     const user = userEvent.setup();
-    A.markGemPurchase.mockResolvedValue(okMark(2));
+    A.markGemPurchase.mockImplementation(markImpl());
     mount(BASE);
     await user.click(table().getByRole("button", { name: /^สั่งแล้ว — โกเมน · ไข่ · 4×6 มม\./ }));
     await user.click(await screen.findByRole("button", { name: "ย้อนกลับ" }));
@@ -254,10 +272,11 @@ describe("ติ๊ก 'สั่งแล้ว' + ย้อนกลับ", (
     mount(BASE);
     await user.click(table().getByRole("button", { name: /ดูใบ — โกเมน/ }));
     await user.click(table().getByRole("button", { name: /^สั่งแล้ว — JB-0002/ }));
-    expect(A.markGemPurchase).toHaveBeenCalledWith({ lineIds: [U(2002)], ordered: true });
+    expect(A.markGemPurchase).toHaveBeenCalledWith({ lineIds: [U(2002)], ordered: true, expected: { [U(2002)]: 40 } });
   });
-  it("ติ๊กซ้ำใบที่ยอดเปลี่ยนหลังสั่ง: ไม่เสนอปุ่มย้อนกลับ (ยกเลิกจะได้ 0 ไม่ใช่ยอดเดิม → สั่งซ้ำ) + บอกเหตุผล", async () => {
+  it("ติ๊กซ้ำใบที่ยอดเปลี่ยนหลังสั่ง (server บอก prev 70): ไม่เสนอปุ่มย้อนกลับ (ยกเลิกจะได้ 0 ไม่ใช่ยอดเดิม → สั่งซ้ำ) + บอกเหตุผล · ตัดสินจากผล server", async () => {
     const user = userEvent.setup();
+    A.markGemPurchase.mockImplementation(markImpl({ prev: 70 }));
     mount(view([G(1, [J(1, { qtyNeededNow: 90, qtyOrdered: 70, qtyRemaining: 20, isOrdered: true, changedAfterOrder: true })])]));
     await user.click(table().getByRole("button", { name: /^สั่งแล้ว — โกเมน · ไข่ · 4×6 มม\./ }));
     expect(await screen.findByText(/ย้อนกลับด้วยปุ่มไม่ได้/)).toBeInTheDocument();
@@ -265,7 +284,7 @@ describe("ติ๊ก 'สั่งแล้ว' + ย้อนกลับ", (
   });
   it("คนอื่นติ๊กไว้แล้ว (changed 0) = ไม่ error · บอกว่ามีคนทำไว้ · ไม่เสนอย้อน (ไม่แตะของคนอื่น)", async () => {
     const user = userEvent.setup();
-    A.markGemPurchase.mockResolvedValue(okMark(0, 2));
+    A.markGemPurchase.mockImplementation(markImpl({ changed: 0 }));
     mount(BASE);
     await user.click(table().getByRole("button", { name: /^สั่งแล้ว — โกเมน · ไข่ · 4×6 มม\./ }));
     expect(await screen.findByText(/มีคนทำไว้แล้ว ไม่มีอะไรเปลี่ยน/)).toBeInTheDocument();
@@ -273,7 +292,7 @@ describe("ติ๊ก 'สั่งแล้ว' + ย้อนกลับ", (
   });
   it("เปลี่ยนไม่ครบทุกแถว (บางแถวคนอื่นทำไว้) = ไม่เสนอย้อน", async () => {
     const user = userEvent.setup();
-    A.markGemPurchase.mockResolvedValue(okMark(1, 2));
+    A.markGemPurchase.mockImplementation(markImpl({ changed: 1 }));
     mount(BASE);
     await user.click(table().getByRole("button", { name: /^สั่งแล้ว — โกเมน · ไข่ · 4×6 มม\./ }));
     await screen.findByText(/ทำเครื่องหมายสั่งแล้ว: โกเมน/);
@@ -309,7 +328,7 @@ describe("ติ๊ก 'สั่งแล้ว' + ย้อนกลับ", (
   });
   it("ติ๊กพอดี 200 แถว = ยิงครั้งเดียว", async () => {
     const user = userEvent.setup();
-    A.markGemPurchase.mockResolvedValue(okMark(200));
+    A.markGemPurchase.mockImplementation(markImpl());
     const jobs = Array.from({ length: 200 }, (_, i) => J(i + 1, { qtyNeededNow: 1, qtyRemaining: 1 }));
     mount(view([G(1, jobs)]));
     await user.click(table().getByRole("button", { name: /^สั่งแล้ว — โกเมน/ }));
@@ -399,7 +418,7 @@ describe("คัดลอก — scope + ไม่มีราคา", () => {
     await user.click(screen.getByRole("button", { name: "คัดลอกที่เลือก (1)" }));
     expect(spy.mock.calls[0][0]).not.toContain("ทับทิม");
     await user.click(screen.getByRole("button", { name: "สั่งแล้ว (1)" }));
-    expect(A.markGemPurchase).toHaveBeenCalledWith({ lineIds: [U(2003)], ordered: true });
+    expect(A.markGemPurchase).toHaveBeenCalledWith({ lineIds: [U(2003)], ordered: true, expected: { [U(2003)]: 120 } });
   });
   it("nudge: 'ทำเครื่องหมายว่าสั่งแล้ว (n)' ใช้ชุดรายการเดียวกับที่เพิ่งคัดลอก (ไม่ใช่ที่เลือกตอนนี้) · 'ยังไม่ได้ส่ง' ปิดแถบ", async () => {
     const user = userEvent.setup();

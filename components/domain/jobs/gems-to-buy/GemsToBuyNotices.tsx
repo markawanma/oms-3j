@@ -9,6 +9,7 @@ import { useEffect, useId, useState } from "react";
 import Link from "next/link";
 import { AlertTriangle } from "lucide-react";
 import { thaiDate } from "@/lib/jobs/dates";
+import { jobItemKey } from "@/lib/jobs/gems-to-buy";
 import type { GemPurchaseRemovedAfterOrder, GemPurchaseUnspecifiedJob } from "@/lib/jobs/gem-purchase";
 
 const BOX = "rounded-lg border border-amber-300 bg-amber-100 p-3 text-amber-950";
@@ -81,7 +82,7 @@ function writeDismissed(keys: ReadonlySet<string>): void {
  * รายการใหม่ (คีย์ใหม่) โผล่เองเสมอ · "แสดงที่ปิดไว้" เรียกกลับได้ · คีย์ที่ไม่มีในข้อมูลปัจจุบันถูกทิ้ง (storage ไม่โตเรื่อยๆ)
  * ค่าเริ่ม (ก่อนอ่าน storage/อ่านไม่ได้) = แสดงทุกรายการ — พลาดทางปลอดภัย (ดีกว่าซ่อนคำเตือนสั่งซ้ำโดยไม่รู้ตัว)
  */
-export function RemovedAfterOrderNotice({ items }: { items: ReadonlyArray<GemPurchaseRemovedAfterOrder> }) {
+export function RemovedAfterOrderNotice({ items, forceShowKeys }: { items: ReadonlyArray<GemPurchaseRemovedAfterOrder>; forceShowKeys?: ReadonlySet<string> }) {
   const [open, setOpen] = useState(false);
   const [dismissed, setDismissed] = useState<ReadonlySet<string>>(new Set());
   const [showDismissed, setShowDismissed] = useState(false);
@@ -97,8 +98,10 @@ export function RemovedAfterOrderNotice({ items }: { items: ReadonlyArray<GemPur
   }, [itemKeys]);
 
   if (items.length === 0) return null;
-  const hiddenCount = items.filter((e) => dismissed.has(removedKey(e))).length;
-  const shown = showDismissed ? items : items.filter((e) => !dismissed.has(removedKey(e)));
+  // forced = ใบนั้นมีแถวรายการเดียวกัน "ยังไม่สั่ง" อยู่ตอนนี้ (เสี่ยงสั่งซ้ำจริง) — แสดงเสมอ แม้เคยปิดไว้ · ปิดไม่ได้จนกว่าสถานการณ์จะหมด
+  const forced = (e: GemPurchaseRemovedAfterOrder): boolean => forceShowKeys?.has(jobItemKey(e.jobId, e.canonicalItemId)) === true;
+  const hiddenCount = items.filter((e) => dismissed.has(removedKey(e)) && !forced(e)).length;
+  const shown = showDismissed ? items : items.filter((e) => forced(e) || !dismissed.has(removedKey(e)));
 
   function dismiss(keys: string[]) {
     const next = new Set([...dismissed, ...keys]);
@@ -132,8 +135,8 @@ export function RemovedAfterOrderNotice({ items }: { items: ReadonlyArray<GemPur
           <Toggle open={open} onClick={() => setOpen((v) => !v)} controls={panelId}>
             {open ? "ซ่อนรายการ ▴" : "ดูรายการ ▾"}
           </Toggle>
-          {!showDismissed && (
-            <button type="button" onClick={() => dismiss(shown.map(removedKey))} className="min-h-11 shrink-0 rounded-md px-3 text-sm font-semibold underline underline-offset-2 hover:bg-amber-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-900">
+          {!showDismissed && shown.some((e) => !forced(e)) && (
+            <button type="button" onClick={() => dismiss(shown.filter((e) => !forced(e)).map(removedKey))} className="min-h-11 shrink-0 rounded-md px-3 text-sm font-semibold underline underline-offset-2 hover:bg-amber-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-900">
               ปิดคำเตือนทั้งหมด
             </button>
           )}
@@ -145,13 +148,13 @@ export function RemovedAfterOrderNotice({ items }: { items: ReadonlyArray<GemPur
             <li key={removedKey(e)} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 break-words [overflow-wrap:anywhere]">
               <span>
                 ใบ <b>{e.jobNo}</b> เคยสั่ง {e.label ?? "รายการที่ถูกลบจากแคตตาล็อกแล้ว"} ไว้ <span className="whitespace-nowrap">{e.qty.toLocaleString("en-US")} เม็ด</span> แต่รายการถูกลบ
-                {dismissed.has(removedKey(e)) && " (ปิดไว้แล้ว)"}
+                {forced(e) ? " — ใบนี้มีรายการนี้ที่ยังไม่สั่งอยู่ในแท็บยังไม่สั่งตอนนี้" : dismissed.has(removedKey(e)) && " (ปิดไว้แล้ว)"}
               </span>
               <span className="flex items-center gap-1">
                 <Link href={`/jobs/${e.jobId}`} className="inline-flex min-h-11 items-center font-semibold underline underline-offset-2">
                   เปิดใบ →
                 </Link>
-                {!dismissed.has(removedKey(e)) && (
+                {!dismissed.has(removedKey(e)) && !forced(e) && (
                   <button type="button" onClick={() => dismiss([removedKey(e)])} aria-label={`ปิดคำเตือน ใบ ${e.jobNo}`} className="min-h-11 rounded-md px-3 text-sm font-semibold underline underline-offset-2 hover:bg-amber-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-900">
                     ปิดรายการนี้
                   </button>

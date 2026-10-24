@@ -23,18 +23,23 @@ export type GemCostState =
     };
 
 export const OFF: GemCostState = { status: "off" };
+const LOADING: GemCostState = { status: "loading" };
 
 /** จัดรูปเลขบาทที่ DB ส่งมา (แสดงผลเท่านั้น — ไม่คำนวณ) */
 export const formatThb = (n: number): string => n.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 export function useGemCost(enabled: boolean, dataStamp: string): { state: GemCostState; retry: () => void } {
-  const [internal, setInternal] = useState<GemCostState>({ status: "loading" });
+  const [internal, setInternal] = useState<GemCostState>(LOADING);
   const [nonce, setNonce] = useState(0);
 
   useEffect(() => {
-    if (!enabled) return;
+    // ปิดสวิตช์ = ทิ้งเลขเก่าทันที (เปิดใหม่ต้องไม่โผล่เลขของรอบก่อนระหว่างรอ) · LOADING เป็นค่าคงที่ตัวเดียว ไม่ re-render ถ้าเป็นอยู่แล้ว
+    if (!enabled) {
+      setInternal(LOADING);
+      return;
+    }
     let cancelled = false;
-    setInternal({ status: "loading" });
+    setInternal(LOADING);
     (async () => {
       try {
         const res = await getGemPurchaseCost();
