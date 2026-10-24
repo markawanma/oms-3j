@@ -1,0 +1,224 @@
+{
+ "_note": "JSON จริงจาก DB (dry-run verify-0192-qa.sql · ร้านสังเคราะห์ ZZ TEST · ROLLBACK) — ไม่มี PII · ordered_by ถูกแทนด้วย uuid สมมติ",
+ "summary": {
+  "groups": [
+   {
+    "jobs": [
+     {
+      "job_id": "397d1094-993c-42a6-9481-826e66329a28",
+      "job_no": "JB-0001",
+      "due_date": "2026-10-26",
+      "line_ids": [
+       "50b65f6a-a926-4228-b1ca-46e9c73c3918"
+      ],
+      "is_ordered": true,
+      "ordered_at": "2026-10-24T06:24:52.047445+00:00",
+      "ordered_by": "99999999-9999-4999-8999-999999999991",
+      "qty_excess": 0,
+      "qty_ordered": 3,
+      "design_label": "แหวนทดสอบ QA 1",
+      "qty_remaining": 0,
+      "qty_needed_now": 3,
+      "changed_after_order": false
+     }
+    ],
+    "label": "ZZQ ชนิดสี่ · กลม · 6 มม.",
+    "size_a": 6,
+    "size_b": null,
+    "type_id": "488b43b2-8af1-430e-9fe0-d13225f0317c",
+    "line_ids": [
+     "50b65f6a-a926-4228-b1ca-46e9c73c3918"
+    ],
+    "shape_id": "69692ec5-f7ef-4959-8c61-9176a5b0ada9",
+    "job_count": 1,
+    "type_name": "ZZQ ชนิดสี่",
+    "qty_excess": 0,
+    "shape_name": "กลม",
+    "size_label": "6",
+    "qty_ordered": 3,
+    "earliest_due": "2026-10-26",
+    "qty_remaining": 0,
+    "qty_needed_now": 3,
+    "canonical_item_id": "99397093-0ce6-4b1d-86f7-9faea9e279ea",
+    "earliest_due_remaining": null
+   },
+   {
+    "jobs": [
+     {
+      "job_id": "397d1094-993c-42a6-9481-826e66329a28",
+      "job_no": "JB-0001",
+      "due_date": "2026-10-26",
+      "line_ids": [
+       "7112748c-33da-4115-98d4-14398c2b4009"
+      ],
+      "is_ordered": true,
+      "ordered_at": "2026-10-24T06:24:52.047445+00:00",
+      "ordered_by": "99999999-9999-4999-8999-999999999991",
+      "qty_excess": 0,
+      "qty_ordered": 6,
+      "design_label": "แหวนทดสอบ QA 1",
+      "qty_remaining": 3,
+      "qty_needed_now": 9,
+      "changed_after_order": true
+     }
+    ],
+    "label": "ZZQ ชนิดหนึ่ง · กลม · 3 มม.",
+    "size_a": 3,
+    "size_b": null,
+    "type_id": "9a3d9cf5-38e5-4089-adab-6eaff3a3dea0",
+    "line_ids": [
+     "7112748c-33da-4115-98d4-14398c2b4009"
+    ],
+    "shape_id": "69692ec5-f7ef-4959-8c61-9176a5b0ada9",
+    "job_count": 1,
+    "type_name": "ZZQ ชนิดหนึ่ง",
+    "qty_excess": 0,
+    "shape_name": "กลม",
+    "size_label": "3",
+    "qty_ordered": 6,
+    "earliest_due": "2026-10-26",
+    "qty_remaining": 3,
+    "qty_needed_now": 9,
+    "canonical_item_id": "e6487466-66a5-4c4b-80a0-650b3ce51ef3",
+    "earliest_due_remaining": "2026-10-26"
+   },
+   {
+    "jobs": [
+     {
+      "job_id": "b1ae9424-ed38-4d17-93cb-ee0c19d4c25f",
+      "job_no": "JB-0004",
+      "due_date": "2026-10-29",
+      "line_ids": [
+       "5dba25c3-ff61-4f6a-89bf-67ce11d2155a"
+      ],
+      "is_ordered": false,
+      "ordered_at": null,
+      "ordered_by": null,
+      "qty_excess": 0,
+      "qty_ordered": 0,
+      "design_label": "แหวนทดสอบ QA 4",
+      "qty_remaining": 4,
+      "qty_needed_now": 4,
+      "changed_after_order": false
+     }
+    ],
+    "label": "ZZQ ชนิดราคา · กลม · 7 มม.",
+    "size_a": 7,
+    "size_b": null,
+    "type_id": "e917662a-b4b2-4cc6-9a6f-7443d19ceb61",
+    "line_ids": [
+     "5dba25c3-ff61-4f6a-89bf-67ce11d2155a"
+    ],
+    "shape_id": "69692ec5-f7ef-4959-8c61-9176a5b0ada9",
+    "job_count": 1,
+    "type_name": "ZZQ ชนิดราคา",
+    "qty_excess": 0,
+    "shape_name": "กลม",
+    "size_label": "7",
+    "qty_ordered": 0,
+    "earliest_due": "2026-10-29",
+    "qty_remaining": 4,
+    "qty_needed_now": 4,
+    "canonical_item_id": "ba491a10-ed7d-421c-a971-38eccb666544",
+    "earliest_due_remaining": "2026-10-29"
+   }
+  ],
+  "totals": {
+   "jobs": 2,
+   "groups": 3,
+   "qty_excess": 0,
+   "qty_ordered": 9,
+   "qty_remaining": 7,
+   "qty_needed_now": 16,
+   "unspecified_jobs": 2
+  },
+  "today_bkk": "2026-10-24",
+  "server_now": "2026-10-24T13:24:52+07:00",
+  "unspecified_jobs": [
+   {
+    "job_id": "cc4e8dd8-79cb-4aa9-8e6c-57976e316108",
+    "job_no": "JB-0002",
+    "due_date": "2026-10-27",
+    "design_label": "แหวนทดสอบ QA 2"
+   },
+   {
+    "job_id": "fee733ae-ba12-469c-8edd-594730992e9f",
+    "job_no": "JB-0003",
+    "due_date": "2026-10-30",
+    "design_label": "แหวนทดสอบ QA 3"
+   }
+  ],
+  "removed_after_order": [
+   {
+    "qty": 2,
+    "label": "ZZQ ชนิดสาม · กลม · 5 มม.",
+    "job_id": "cc4e8dd8-79cb-4aa9-8e6c-57976e316108",
+    "job_no": "JB-0002",
+    "removed_at": "2026-10-24T06:24:52.047445+00:00",
+    "canonical_item_id": "24729e2b-f964-4859-847c-a4cf78cb5086"
+   }
+  ]
+ },
+ "mark": {
+  "lines": [
+   {
+    "job_id": "397d1094-993c-42a6-9481-826e66329a28",
+    "job_no": "JB-0001",
+    "line_id": "50b65f6a-a926-4228-b1ca-46e9c73c3918",
+    "is_ordered": true,
+    "qty_excess": 0,
+    "qty_ordered": 3,
+    "qty_remaining": 0,
+    "qty_needed_now": 3,
+    "canonical_item_id": "99397093-0ce6-4b1d-86f7-9faea9e279ea",
+    "changed_after_order": false
+   }
+  ],
+  "changed": 1,
+  "ordered": true,
+  "requested": 1,
+  "unchanged": 0
+ },
+ "cost": {
+  "groups": [
+   {
+    "qty_ordered": 3,
+    "missing_price": true,
+    "qty_remaining": 0,
+    "cost_ordered_thb": null,
+    "canonical_item_id": "99397093-0ce6-4b1d-86f7-9faea9e279ea",
+    "cost_remaining_thb": 0,
+    "missing_price_ordered": true,
+    "missing_price_remaining": false
+   },
+   {
+    "qty_ordered": 0,
+    "missing_price": false,
+    "qty_remaining": 4,
+    "cost_ordered_thb": 0,
+    "canonical_item_id": "ba491a10-ed7d-421c-a971-38eccb666544",
+    "cost_remaining_thb": 20800.89,
+    "missing_price_ordered": false,
+    "missing_price_remaining": false
+   },
+   {
+    "qty_ordered": 6,
+    "missing_price": true,
+    "qty_remaining": 3,
+    "cost_ordered_thb": null,
+    "canonical_item_id": "e6487466-66a5-4c4b-80a0-650b3ce51ef3",
+    "cost_remaining_thb": null,
+    "missing_price_ordered": true,
+    "missing_price_remaining": true
+   }
+  ],
+  "totals": {
+   "groups": 3,
+   "complete": false,
+   "cost_ordered_thb": 0,
+   "cost_remaining_thb": 20800.89,
+   "groups_missing_price": 2
+  },
+  "today_bkk": "2026-10-24"
+ }
+}
