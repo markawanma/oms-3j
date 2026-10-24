@@ -36,7 +36,7 @@ browser --GET /shop--> Next.js RSC (app/(public)/shop/page.tsx)
                           v
                 Supabase: SELECT * FROM public.shop_catalog  (view, allowlist columns)
                           v
-                grid card -- ปุ่ม "สั่งซื้อผ่าน LINE" -> line.me/R/oaMessage/@3jsilver/?msg
+                grid card -- ปุ่ม "สั่งซื้อผ่าน LINE" -> line.me/R/oaMessage/@3jjewelry/?msg
 ```
 
 - `/shop` เป็น **read-only 100%** - ไม่มี server action mutation, ไม่มี form
@@ -95,7 +95,7 @@ grant select on public.shop_catalog to anon, authenticated;
 ปุ่มต่อ card (สร้าง URL ใน `lib/shop/category.ts`):
 
 ```
-https://line.me/R/oaMessage/%403jsilver/?ENCODED_MSG
+https://line.me/R/oaMessage/%403jjewelry/?ENCODED_MSG
 ENCODED_MSG = encodeURIComponent("สนใจสั่งซื้อ: " + name + " (" + sku + ")")
 ```
 
@@ -140,7 +140,7 @@ ENCODED_MSG = encodeURIComponent("สนใจสั่งซื้อ: " + name
 
 1. `shop_id` ของร้าน 3J ค่าไหน (จาก getDevShopId / env) - hardcode ใน view หรืออ่านจาก setting?
 2. ราคา: ชิ้นเดียวต่อ SKU พอไหม หรือมีช่วงราคา (ไซซ์/ความยาวต่างราคา)? ถ้ามีต้องคิด variant ก่อน
-3. `@3jsilver` คือ LINE OA ID จริงไหม (ต้อง verify ก่อน hardcode)
+3. `@3jjewelry` = LINE OA ID จริง ✅ เจ้าของยืนยัน 24 ต.ค. 69 (เดิมเอกสารนี้ใช้ @3jsilver ซึ่งผิด)
 4. ต้องมีหน้า detail ต่อชิ้น (`/shop/[sku]`) เลยไหม หรือ grid เดียวพอ (แนะนำ: grid เดียวก่อน)
 
 ## 9. Deploy note (Vercel)
