@@ -138,6 +138,22 @@ describe("คนใหม่ ทางเหรียญ 7 จอ (R0 R1Pick R2C
   });
 });
 
+describe("โครงจอวัด (ข้อ 3.2.1 · B8 ส่วนที่ทดสอบใน jsdom ได้)", () => {
+  it("R2Coin: header + เวทีไม่เลื่อน · เนื้อหาเลื่อนในตัวเอง · ปุ่มหลักอยู่แถบ sticky ล่าง · ความสูงใช้ dvh", async () => {
+    await toCoinCalibration();
+    const cta = btn("ปรับวงกลมก่อน จึงกดได้");
+    expect(cta.closest(".sticky")).not.toBeNull();
+    expect(cta.closest(".overflow-y-auto")).toBeNull(); // ปุ่มไม่ถูกเลื่อนหนี
+    const slider = screen.getByRole("slider");
+    expect(slider.closest(".overflow-y-auto")).not.toBeNull(); // slider อยู่ในส่วนเนื้อหาที่เลื่อนได้
+    expect(btn("ย้อนกลับ").closest(".overflow-y-auto")).toBeNull(); // header ไม่เลื่อน
+    const root = slider.closest("[class*='h-[100dvh]']") as HTMLElement;
+    expect(root).not.toBeNull();
+    const stage = document.querySelector('[data-testid="coin-ring"]')!.closest("div[style]") as HTMLElement;
+    expect(stage.getAttribute("style")).toMatch(/clamp\(240px,.*100dvh.*540px.*380px\)/); // jsdom อาจย่อ calc() ใน clamp()
+  });
+});
+
 describe("ทางบัตร 8 จอ + สลับวิธีเทียบ (B14)", () => {
   it("R1Pick → R1 (สอน) → R2 → R3 · R1 ลิงก์ใช้เหรียญ → R2Coin · R2Coin 'ใช้บัตรแทน' → R1", async () => {
     const u = user();

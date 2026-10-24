@@ -19,6 +19,7 @@ export function LineCta({
   input,
   label,
   mode = LINE_PRIMARY_MODE,
+  stickyPrimary = false,
   navigate = (url) => {
     window.location.href = url;
   },
@@ -26,6 +27,8 @@ export function LineCta({
   input: LineMessageInput;
   label: string;
   mode?: LineMode;
+  /** ปุ่มหลัก + คำอธิบายติดขอบล่างจอ (R6Between — เนื้อหายาวกว่าจอ) · ส่วน "ส่งไม่ได้?" ยังอยู่ในกระแส */
+  stickyPrimary?: boolean;
   /** เปิดแชทหลังคัดลอก (ฉีดได้ในเทสต์) */
   navigate?: (url: string) => void;
 }) {
@@ -44,8 +47,8 @@ export function LineCta({
     }
   };
 
-  return (
-    <div className="flex flex-col gap-2">
+  const primary = (
+    <>
       {mode === "oaMessage" ? (
         <RsButton href={primaryLineHref(input, "oaMessage")} icon={<LineChatIcon />}>
           {label}
@@ -56,7 +59,11 @@ export function LineCta({
         </RsButton>
       )}
       <p className={`m-0 text-center text-[13px] ${TEXT_2}`}>{mode === "oaMessage" ? COPY.r6.ctaLineHint : COPY.r6.ctaLineHintCopy}</p>
+    </>
+  );
 
+  const fallback = (
+    <>
       <div className={`flex items-center justify-center gap-1.5 text-[14px] ${TEXT_2}`}>
         <span>{COPY.r6.cantSend}</span>
         <button type="button" onClick={() => void copy()} className={LINK}>
@@ -68,6 +75,21 @@ export function LineCta({
         </a>
       </div>
       <CopyStatusNote status={status} text={message} />
+    </>
+  );
+
+  if (stickyPrimary) {
+    return (
+      <>
+        <div className="sticky bottom-0 z-10 -mx-[22px] flex flex-col gap-2 border-t border-[var(--rs-border)] bg-[var(--rs-bg)] px-[22px] pb-[max(16px,env(safe-area-inset-bottom))] pt-3">{primary}</div>
+        <div className="flex flex-col gap-2">{fallback}</div>
+      </>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-2">
+      {primary}
+      {fallback}
     </div>
   );
 }

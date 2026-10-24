@@ -116,7 +116,7 @@ export function R6({ step, size, method, refKind, measuredAt, onBack, onRemeasur
           </section>
         ) : null}
 
-        <LineCta input={{ size, method, ref: refKind }} label={variant === "out" ? COPY.r6.ctaLineOut(size.rec) : COPY.r6.ctaLine} />
+        <LineCta input={{ size, method, ref: refKind }} label={variant === "out" ? COPY.r6.ctaLineOut(size.rec) : COPY.r6.ctaLine} stickyPrimary={variant === "between"} />
 
         <div className="flex flex-col gap-2.5">
           <RsButton variant="secondary" onClick={() => setSharing(true)} icon={<ShareIcon />}>

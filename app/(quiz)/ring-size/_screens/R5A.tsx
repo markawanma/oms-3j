@@ -59,7 +59,7 @@ export function R5A({
   const ctaLabel = zoomed ? COPY.g1.cta : touched ? COPY.r5a.ctaOn : COPY.r5a.ctaOff;
 
   return (
-    <div className="flex flex-1 flex-col">
+    <div className="flex h-[100dvh] flex-col">
       <RsHeader step={step} onBack={onBack} />
 
       {zoomed ? (
@@ -77,7 +77,7 @@ export function R5A({
         {(size) => <RingDiscStage width={size.width} height={size.height} ppm={ppm} diameterMm={d} />}
       </StageHost>
 
-      <div className="flex flex-1 flex-col gap-3 px-[22px] pb-4 pt-3.5">
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-[22px] pb-4 pt-3.5">
         <p className={`${SERIF} m-0 text-[18px] font-semibold leading-snug ${TEXT}`}>{COPY.r5a.instruction}</p>
 
         <FineAdjuster

@@ -65,7 +65,7 @@ export function Calibrate({ kind, step, initialPpm, initiallyTouched, g5, onBack
   const ctaLabel = zoomed ? COPY.g1.cta : touched ? C.ctaOn : C.ctaOff;
 
   return (
-    <div className="flex flex-1 flex-col">
+    <div className="flex h-[100dvh] flex-col">
       <RsHeader step={step} onBack={onBack} />
 
       {kind === "coin" ? (
@@ -106,7 +106,7 @@ export function Calibrate({ kind, step, initialPpm, initiallyTouched, g5, onBack
         </StageHost>
       </div>
 
-      <div className="flex flex-1 flex-col gap-3 px-[22px] pb-4 pt-3.5">
+      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-[22px] pb-4 pt-3.5">
         <p className={`${SERIF} m-0 text-[18px] font-semibold leading-snug ${TEXT}`}>{C.instruction}</p>
 
         <FineAdjuster

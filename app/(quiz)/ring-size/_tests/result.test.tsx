@@ -95,6 +95,17 @@ describe("R6 / R6Between / R6Out — ช่วงร้านตัดสิน�
     expect(screen.getByText("วัดด้วยกระดาษพันนิ้ว")).toBeInTheDocument();
   });
 
+  it("ปุ่ม LINE หลัก: R6Between ติดขอบล่าง (sticky) · R6 ปกติ/R6Out อยู่ในกระแส ไม่ sticky (ข้อ 3.2.4)", () => {
+    renderR6(54.4);
+    expect(screen.getByRole("button", { name: "สั่ง/ถามแหวนไซส์นี้ทาง LINE" }).closest(".sticky")).not.toBeNull();
+    cleanup();
+    renderR6(54);
+    expect(screen.getByRole("button", { name: "สั่ง/ถามแหวนไซส์นี้ทาง LINE" }).closest(".sticky")).toBeNull();
+    cleanup();
+    renderR6(42);
+    expect(screen.getByRole("button", { name: "ถามแอดมินเรื่องเบอร์ 42 ทาง LINE" }).closest(".sticky")).toBeNull();
+  });
+
   it("R6Out: หัวกล่อง/เนื้อ/ปุ่มตาม spec · ไม่มีปุ่มดูแหวนในร้าน · ไม่มีคำสัญญาปรับไซส์", () => {
     renderR6(42);
     expect(screen.getByText("เบอร์ 42 อยู่นอกช่วงที่ร้านทำ")).toBeInTheDocument();
