@@ -5,7 +5,7 @@
 //  - RemovedAfterOrderNotice (security M2 ของ 0192): ใบเคยติ๊กสั่งไว้แล้วรายการถูกลบจากใบ → ถ้าเพิ่มกลับจะนับเป็น "ยังไม่สั่ง" เสี่ยงสั่งซ้ำ
 // พับเป็นค่าเริ่ม · role="status" (ข้อมูลคงอยู่ ไม่ใช่การแจ้งเหตุฉุกเฉิน) · ลิงก์ไป /jobs/[id] แท็บเดียวกัน · 0 รายการ = ไม่ render
 
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import Link from "next/link";
 import { AlertTriangle } from "lucide-react";
 import { thaiDate } from "@/lib/jobs/dates";
@@ -55,34 +55,119 @@ export function UnspecifiedJobsNotice({ jobs }: { jobs: ReadonlyArray<GemPurchas
   );
 }
 
+export const REMOVED_DISMISSED_STORAGE_KEY = "gems-to-buy:removed-dismissed";
+/** คีย์ของรายการเตือน — รายการใหม่ (ใบ/รายการ/เวลาลบต่างจากเดิม) = คีย์ใหม่ = โผล่อีกเสมอ */
+export const removedKey = (e: GemPurchaseRemovedAfterOrder): string => `${e.jobId}:${e.canonicalItemId}:${e.removedAt ?? ""}`;
+
+function readDismissed(): Set<string> {
+  try {
+    const raw = window.localStorage.getItem(REMOVED_DISMISSED_STORAGE_KEY);
+    const v: unknown = raw === null ? [] : JSON.parse(raw);
+    return new Set(Array.isArray(v) ? v.filter((x): x is string => typeof x === "string") : []);
+  } catch {
+    return new Set();
+  }
+}
+function writeDismissed(keys: ReadonlySet<string>): void {
+  try {
+    window.localStorage.setItem(REMOVED_DISMISSED_STORAGE_KEY, JSON.stringify([...keys]));
+  } catch {
+    /* จำค่าไม่ได้ — ปิดได้เฉพาะรอบนี้ */
+  }
+}
+
+/**
+ * คำเตือนแถวที่ถูกลบหลังสั่ง อาจค้างตลอดอายุใบ (แถวที่ลบแล้วไม่เพิ่มกลับ) → ปิดได้ทีละรายการ/ทั้งหมด จำใน localStorage (try/catch)
+ * รายการใหม่ (คีย์ใหม่) โผล่เองเสมอ · "แสดงที่ปิดไว้" เรียกกลับได้ · คีย์ที่ไม่มีในข้อมูลปัจจุบันถูกทิ้ง (storage ไม่โตเรื่อยๆ)
+ * ค่าเริ่ม (ก่อนอ่าน storage/อ่านไม่ได้) = แสดงทุกรายการ — พลาดทางปลอดภัย (ดีกว่าซ่อนคำเตือนสั่งซ้ำโดยไม่รู้ตัว)
+ */
 export function RemovedAfterOrderNotice({ items }: { items: ReadonlyArray<GemPurchaseRemovedAfterOrder> }) {
   const [open, setOpen] = useState(false);
+  const [dismissed, setDismissed] = useState<ReadonlySet<string>>(new Set());
+  const [showDismissed, setShowDismissed] = useState(false);
   const panelId = useId();
+
+  const itemKeys = items.map(removedKey).join("|");
+  useEffect(() => {
+    const current = new Set(itemKeys === "" ? [] : itemKeys.split("|"));
+    const stored = readDismissed();
+    const kept = new Set([...stored].filter((k) => current.has(k)));
+    setDismissed(kept);
+    if (kept.size !== stored.size) writeDismissed(kept);
+  }, [itemKeys]);
+
   if (items.length === 0) return null;
+  const hiddenCount = items.filter((e) => dismissed.has(removedKey(e))).length;
+  const shown = showDismissed ? items : items.filter((e) => !dismissed.has(removedKey(e)));
+
+  function dismiss(keys: string[]) {
+    const next = new Set([...dismissed, ...keys]);
+    setDismissed(next);
+    writeDismissed(next);
+  }
+  function restore() {
+    setDismissed(new Set());
+    setShowDismissed(false);
+    writeDismissed(new Set());
+  }
+
+  if (shown.length === 0) {
+    return (
+      <p role="status" className="text-sm text-zinc-700">
+        ซ่อนคำเตือนสั่งซ้ำไว้ {hiddenCount} รายการ{" "}
+        <button type="button" onClick={() => setShowDismissed(true)} className="min-h-11 rounded-md px-2 font-semibold text-primary-700 underline underline-offset-2">
+          แสดงที่ปิดไว้
+        </button>
+      </p>
+    );
+  }
   return (
     <div role="status" className={BOX}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <p className="flex items-start gap-2 text-sm font-semibold">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-          <span>เคยสั่งพลอยไว้แต่รายการถูกลบออกจากใบ {items.length} รายการ — ถ้าเพิ่มกลับ ระบบจะนับเป็นยังไม่สั่ง ระวังสั่งซ้ำ</span>
+          <span>เคยสั่งพลอยไว้แต่รายการถูกลบออกจากใบ {shown.length} รายการ — ถ้าเพิ่มกลับ ระบบจะนับเป็นยังไม่สั่ง ระวังสั่งซ้ำ</span>
         </p>
-        <Toggle open={open} onClick={() => setOpen((v) => !v)} controls={panelId}>
-          {open ? "ซ่อนรายการ ▴" : "ดูรายการ ▾"}
-        </Toggle>
+        <div className="flex flex-wrap items-center gap-1">
+          <Toggle open={open} onClick={() => setOpen((v) => !v)} controls={panelId}>
+            {open ? "ซ่อนรายการ ▴" : "ดูรายการ ▾"}
+          </Toggle>
+          {!showDismissed && (
+            <button type="button" onClick={() => dismiss(shown.map(removedKey))} className="min-h-11 shrink-0 rounded-md px-3 text-sm font-semibold underline underline-offset-2 hover:bg-amber-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-900">
+              ปิดคำเตือนทั้งหมด
+            </button>
+          )}
+        </div>
       </div>
       {open && (
         <ul id={panelId} className="mt-2 space-y-1 text-sm">
-          {items.map((e) => (
-            <li key={`${e.jobId}:${e.canonicalItemId}:${e.removedAt ?? ""}`} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 break-words [overflow-wrap:anywhere]">
+          {shown.map((e) => (
+            <li key={removedKey(e)} className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1 break-words [overflow-wrap:anywhere]">
               <span>
                 ใบ <b>{e.jobNo}</b> เคยสั่ง {e.label ?? "รายการที่ถูกลบจากแคตตาล็อกแล้ว"} ไว้ <span className="whitespace-nowrap">{e.qty.toLocaleString("en-US")} เม็ด</span> แต่รายการถูกลบ
+                {dismissed.has(removedKey(e)) && " (ปิดไว้แล้ว)"}
               </span>
-              <Link href={`/jobs/${e.jobId}`} className="inline-flex min-h-11 items-center font-semibold underline underline-offset-2">
-                เปิดใบ →
-              </Link>
+              <span className="flex items-center gap-1">
+                <Link href={`/jobs/${e.jobId}`} className="inline-flex min-h-11 items-center font-semibold underline underline-offset-2">
+                  เปิดใบ →
+                </Link>
+                {!dismissed.has(removedKey(e)) && (
+                  <button type="button" onClick={() => dismiss([removedKey(e)])} aria-label={`ปิดคำเตือน ใบ ${e.jobNo}`} className="min-h-11 rounded-md px-3 text-sm font-semibold underline underline-offset-2 hover:bg-amber-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-900">
+                    ปิดรายการนี้
+                  </button>
+                )}
+              </span>
             </li>
           ))}
         </ul>
+      )}
+      {(showDismissed || hiddenCount > 0) && (
+        <p className="mt-2 text-xs">
+          {showDismissed ? "กำลังแสดงรายการที่ปิดไว้ด้วย " : `ซ่อนไว้อีก ${hiddenCount} รายการ `}
+          <button type="button" onClick={showDismissed ? restore : () => setShowDismissed(true)} className="min-h-11 rounded-md px-2 font-semibold underline underline-offset-2">
+            {showDismissed ? "เลิกปิดทั้งหมด" : "แสดงที่ปิดไว้"}
+          </button>
+        </p>
       )}
     </div>
   );
