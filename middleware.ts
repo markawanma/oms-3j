@@ -215,7 +215,28 @@ export const config = {
   // constant/template literal allowed), so the two can't share one source
   // of truth; lib/auth/exempt-path.test.ts is what actually proves they
   // agree.
+  //
+  // 🔴 Static-asset alternatives — security fix 25 ต.ค. 69 (extension-gate
+  // bypass). They USED to be one alternative, `.*\.(?:svg|png|...)$`, which
+  // matched at ANY depth: `/orders/x.png`, `/live/x.png` ... skipped
+  // middleware entirely, so the dynamic route (`live/[id]`, `orders/[id]` ...)
+  // rendered with id="x.png" for an anonymous caller, its page chunk exposed
+  // Server Action IDs, and a POST with `Next-Action` to that same URL ALSO
+  // skipped the gate — every action without its own in-function guard ran for
+  // an outsider (who resolves to role `staff`, lib/auth/role.ts). Confirmed on
+  // production with GET: /orders/x.png -> 200, /live/x -> 307 /login.
+  // Now only files that really exist under public/ are exempt:
+  //   [^/]+\.ext$           ROOT-level only (3j-logo.png/.svg, favicon.ico) —
+  //                         no "/" allowed, so nothing under a route matches
+  //   gem-quiz/[^/]+\.ext$  exactly one level (gem-quiz/og.png, the public
+  //                         quiz's Open Graph image) — /gem-quiz/deep/x.png
+  //                         stays gated
+  // Safe only while NO route lives at the root with a dynamic segment (no
+  // app/[slug]) — otherwise `/x.png` would reach it. A new folder under
+  // public/ must be added HERE and in lib/auth/exempt-path.ts on purpose;
+  // exempt-path.test.ts compiles this literal with Next's own matcher
+  // compiler and fails on drift.
   matcher: [
-    "/((?!_next/static|_next/image|favicon\\.ico|api/webhooks(?:/|$)|api/gem-quiz/submit/?$|shop(?:/|$)|gem-quiz/?$|stock/hero(?:/|$)|w/[A-Za-z0-9_-]+/?$|w/s/[A-Za-z0-9_-]+/?$|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
+    "/((?!_next/static|_next/image|favicon\\.ico|api/webhooks(?:/|$)|api/gem-quiz/submit/?$|shop(?:/|$)|gem-quiz/?$|stock/hero(?:/|$)|w/[A-Za-z0-9_-]+/?$|w/s/[A-Za-z0-9_-]+/?$|[^/]+\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$|gem-quiz/[^/]+\\.(?:svg|png|jpg|jpeg|webp)$).*)",
   ],
 };

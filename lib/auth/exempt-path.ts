@@ -38,8 +38,14 @@
 // 🔴 แคบเท่าเดิม: ยอมเฉพาะ "w/s/ + หนึ่งเซกเมนต์ base64url ล้วน + จบ" — ไม่มี /w/s/ ล้วน · ไม่มีเซกเมนต์ซ้อน (/w/s/<token>/x) · ไม่มี ".." / "%2e" / "." · `s` ต้องเป็นตัวเดียวเป๊ะ (ไม่ใช่ /w/sx/<token>)
 // (หมายเหตุ: /w/s เองตรงกับ alternative เดิม w/<token> เพราะ "s" เป็นอักขระ base64url — หน้าช่างแสดง "ลิงก์ใช้ไม่ได้" ตามเดิม ไม่แตะข้อมูลใด)
 // ต้องแก้คู่กับ middleware.ts matcher แล้วรัน exempt-path.worker.test.ts
+//
+// 🔴 static asset (แก้ 25 ต.ค. 69 — ช่อง extension-gate bypass): เดิมเป็น `.*\.(?:svg|png|jpg|...)$` ยอมนามสกุล "ที่ความลึกใดก็ได้"
+// → /orders/x.png · /live/x.png ฯลฯ หลุด middleware ทั้งที่เป็น dynamic route จริง (id="x.png") → หน้า render ให้คนนอก, chunk เผย Server Action ID,
+// และ POST Next-Action ไป URL เดียวกันก็ข้าม gate → action ที่ไม่มี guard ในตัวรันได้ (คนนอกถูกนับเป็น role staff)
+// ตอนนี้ยอมเฉพาะไฟล์ที่มีจริงใน public/: (1) ไฟล์ระดับ root เท่านั้น `[^/]+\.ext$` (ห้ามมี "/") (2) `gem-quiz/[^/]+\.ext$` ลึกหนึ่งชั้นพอดี (og.png)
+// ปลอดภัยตราบที่ไม่มี route ระดับ root ที่เป็น dynamic segment (ไม่มี app/[slug]) · เพิ่มโฟลเดอร์ใหม่ใต้ public/ = ต้องเพิ่มที่นี่ + middleware.ts โดยตั้งใจ
 const EXEMPT_PATTERN =
-  /^(?:_next\/static|_next\/image|favicon\.ico|api\/webhooks(?:\/|$)|api\/gem-quiz\/submit\/?$|shop(?:\/|$)|gem-quiz\/?$|stock\/hero(?:\/|$)|w\/[A-Za-z0-9_-]+\/?$|w\/s\/[A-Za-z0-9_-]+\/?$|.*\.(?:svg|png|jpg|jpeg|gif|webp|ico)$)/;
+  /^(?:_next\/static|_next\/image|favicon\.ico|api\/webhooks(?:\/|$)|api\/gem-quiz\/submit\/?$|shop(?:\/|$)|gem-quiz\/?$|stock\/hero(?:\/|$)|w\/[A-Za-z0-9_-]+\/?$|w\/s\/[A-Za-z0-9_-]+\/?$|[^/]+\.(?:svg|png|jpg|jpeg|gif|webp|ico)$|gem-quiz\/[^/]+\.(?:svg|png|jpg|jpeg|webp)$)/;
 
 /** true if `pathname` bypasses the auth gate entirely (middleware.ts never
  * runs for it) — mirrors config.matcher's negative-lookahead exactly. */
