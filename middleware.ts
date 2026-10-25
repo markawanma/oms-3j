@@ -188,11 +188,16 @@ export const config = {
   // app/api/gem-quiz/submit/route.ts and lib/gem-quiz/**, NOT a session —
   // lib/gem-quiz/** and app/(quiz)/** must never import a "use server" file,
   // see that design doc's §1.2 for why an exempt page importing one would
-  // bypass this very gate), /ring-size (public ring-size measuring tool — no
-  // DB, no API, no identity collected; exact page only, same anchoring as
-  // gem-quiz: /ring-sizes, /ring-size-admin, /ring-size/x, /api/ring-size-x
-  // stay gated — see lib/auth/exempt-path.test.ts), plus Next internals +
-  // static assets.
+  // bypass this very gate), /ring-size (public ring-size measuring tool —
+  // exact page only, same anchoring as gem-quiz: /ring-sizes,
+  // /ring-size-admin, /ring-size/x stay gated — see
+  // lib/auth/exempt-path.test.ts) + /api/ring-size/event (25 ต.ค. 69:
+  // anonymous usage stats for that tool — design-ring-size-analytics §2/§5;
+  // EXACT endpoint only, never the /api/ring-size subtree: /api/ring-size,
+  // /api/ring-size/event/x, /api/ring-size/events, /api/ring-size-x stay
+  // gated; no identity collected, auth = same-origin + 1 KB cap + allowlist +
+  // DB circuit breaker inside app/api/ring-size/event/route.ts), plus Next
+  // internals + static assets.
   //
   // "login" was excluded here in A1 (gate never branched, so there was
   // nothing for middleware to do on the login page). A2-lite needs the gate
@@ -220,6 +225,6 @@ export const config = {
   // of truth; lib/auth/exempt-path.test.ts is what actually proves they
   // agree.
   matcher: [
-    "/((?!_next/static|_next/image|favicon\\.ico|api/webhooks(?:/|$)|api/gem-quiz/submit/?$|shop(?:/|$)|gem-quiz/?$|ring-size/?$|stock/hero(?:/|$)|w/[A-Za-z0-9_-]+/?$|w/s/[A-Za-z0-9_-]+/?$|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
+    "/((?!_next/static|_next/image|favicon\\.ico|api/webhooks(?:/|$)|api/gem-quiz/submit/?$|api/ring-size/event/?$|shop(?:/|$)|gem-quiz/?$|ring-size/?$|stock/hero(?:/|$)|w/[A-Za-z0-9_-]+/?$|w/s/[A-Za-z0-9_-]+/?$|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
   ],
 };

@@ -1,6 +1,7 @@
 // lib/ring-size/qa-regression.test.ts — QA (24 ต.ค. 69) regression รอบรัศมีกระแทกของงาน /ring-size ที่แตะของกลาง 2 ตัว
 //   (1) middleware matcher (ด่าน auth กลาง): เทียบ "matcher ของ main ที่ตรึงไว้" กับ matcher ปัจจุบัน ทีละ path
-//       → ต้องต่างกัน "เฉพาะ /ring-size กับ /ring-size/" เท่านั้น · ที่เหลือ (gem-quiz · shop · /w/* · api · dashboard · static) เหมือนเดิมทุกตัว
+//       → ต้องต่างกัน "เฉพาะ /ring-size · /ring-size/ · /api/ring-size/event · /api/ring-size/event/" เท่านั้น
+//         (25 ต.ค. 69: baseline ขยายโดยตั้งใจ 2 path สำหรับ endpoint สถิติ — ห้ามผ่อน regex แล้วมาเพิ่มรายการในชุดนี้) · ที่เหลือ (gem-quiz · shop · /w/* · api · dashboard · static) เหมือนเดิมทุกตัว
 //   (2) next.config headers: คอมไพล์ source ด้วยตัวเดียวกับที่ `next build` ใช้ (buildCustomRoute) แล้วถามว่า path ไหนโดน rule ไหน
 //       → /w/* โดนเฉพาะ rule หน้าช่าง (6 header เดิม) · /ring-size โดนเฉพาะ rule ring-size · path อื่นไม่โดนอะไรเลย
 // ตั้งใจไม่ใช้สูตร/regex ชุดเดียวกับโค้ดที่ทดสอบ: baseline คือสตริงที่คัดลอกจาก main ตอน QA (frozen)
@@ -37,7 +38,7 @@ function runsFor(matcher: string): (p: string) => boolean {
 
 const TOKEN = "Ab3-_xYz0123456789AbCdEfGhIjKlMnOpQrStUvWxY";
 const BASES = [
-  "ring-size", "ring-sizes", "ring-size-admin", "gem-quiz", "gem-quizzes", "shop", "shopee-import", "w", `w/${TOKEN}`, "w/s", `w/s/${TOKEN}`,
+  "ring-size", "ring-sizes", "ring-size-admin", "api/ring-size", "api/ring-size/event", "api/ring-size/events", "api/ring-size/event/x", "api/ring-size-x", "api/ring-sizes/event", "gem-quiz", "gem-quizzes", "shop", "shopee-import", "w", `w/${TOKEN}`, "w/s", `w/s/${TOKEN}`,
   "stock/hero", "stock", "api/webhooks", "api/gem-quiz/submit", "api/gem-quiz", "api", "dashboard", "login", "register", "pending", "oem", "oem/quote",
   "catalog", "crm/import", "tiktok/upload", "settings/members", "_next/static", "_next/image", "favicon.ico", "",
 ];
@@ -45,7 +46,7 @@ const SUFFIXES = ["", "/", "/x", "/x/y", "//", "/..", "%2F", "%2f..", ".png", "/
 const CORPUS: string[] = [];
 for (const b of BASES) for (const s of SUFFIXES) CORPUS.push(`/${b}${s}`);
 // เพิ่มรูปแปลกๆ
-CORPUS.push("/Ring-Size", "/RING-SIZE/", "/ring%2Dsize", "/ring-size%00", "/ring-size\n", "/ring-size.", "/ring-size.html", "/x/ring-size", "/oem/ring-size", "/ring-size/ring-size");
+CORPUS.push("/api/ring-size/Event", "/api/RING-SIZE/event", "/api/ring-size/event.", "/api/ring-size/event%00", "/api/ring-size/event/api/ring-size/event", "/api/ring-size//event", "/Ring-Size", "/RING-SIZE/", "/ring%2Dsize", "/ring-size%00", "/ring-size\n", "/ring-size.", "/ring-size.html", "/x/ring-size", "/oem/ring-size", "/ring-size/ring-size");
 
 describe("middleware matcher: ต่างจาก main เฉพาะ /ring-size และ /ring-size/ (differential เทียบ baseline ที่ตรึงไว้)", () => {
   const before = runsFor(MAIN_MATCHER);
@@ -55,9 +56,9 @@ describe("middleware matcher: ต่างจาก main เฉพาะ /ring-s
     expect(CORPUS.length).toBeGreaterThan(400);
   });
 
-  it("path ที่พฤติกรรมเปลี่ยน = {/ring-size, /ring-size/} เท่านั้น · และเปลี่ยนจาก 'ถูก gate' เป็น 'ไม่ผ่าน middleware'", () => {
+  it("path ที่พฤติกรรมเปลี่ยน = {/ring-size, /ring-size/, /api/ring-size/event, /api/ring-size/event/} เท่านั้น · และเปลี่ยนจาก 'ถูก gate' เป็น 'ไม่ผ่าน middleware'", () => {
     const changed = CORPUS.filter((p) => before(p) !== after(p));
-    expect(new Set(changed)).toEqual(new Set(["/ring-size", "/ring-size/"]));
+    expect(new Set(changed)).toEqual(new Set(["/ring-size", "/ring-size/", "/api/ring-size/event", "/api/ring-size/event/"]));
     for (const p of changed) {
       expect(before(p), `${p} เดิมต้องถูก gate`).toBe(true);
       expect(after(p), `${p} ใหม่ต้อง exempt`).toBe(false);
@@ -65,7 +66,7 @@ describe("middleware matcher: ต่างจาก main เฉพาะ /ring-s
   });
 
   it("ของเดิมที่ต้องยัง exempt เหมือนเดิม: gem-quiz · shop · /w/* · api/webhooks · gem-quiz submit · stock/hero · static", () => {
-    for (const p of ["/gem-quiz", "/gem-quiz/", "/api/gem-quiz/submit", "/shop", "/shop/abc", `/w/${TOKEN}`, `/w/s/${TOKEN}`, "/stock/hero", "/api/webhooks/tiktok", "/_next/static/a.js", "/favicon.ico", "/x/logo.png"]) {
+    for (const p of ["/gem-quiz", "/gem-quiz/", "/api/gem-quiz/submit", "/api/ring-size/event", "/api/ring-size/event/", "/shop", "/shop/abc", `/w/${TOKEN}`, `/w/s/${TOKEN}`, "/stock/hero", "/api/webhooks/tiktok", "/_next/static/a.js", "/favicon.ico", "/x/logo.png"]) {
       expect(after(p), p).toBe(false);
     }
   });
@@ -75,6 +76,9 @@ describe("middleware matcher: ต่างจาก main เฉพาะ /ring-s
       "/dashboard", "/login", "/oem/quote", "/crm/import", "/tiktok/upload", "/settings/members", "/", "/api/gem-quiz", "/api/gem-quiz/stats",
       "/gem-quiz/admin", "/gem-quizzes", "/w", "/w/", "/w/abc/def", "/ring-sizes", "/ring-size-admin", "/ring-size/x", "/ring-size/x/y", "/api/ring-size", "/api/ring-size-x",
       "/RING-SIZE", "/Ring-Size", "/ring-size/..", "/ring-size%2Fx", "/x/ring-size", "/oem/ring-size",
+      // family ของ endpoint สถิติ: ยกเว้นเฉพาะ /api/ring-size/event(/) — ที่เหลือต้องถูก gate
+      "/api/ring-size/", "/api/ring-size/stats", "/api/ring-size/event/x", "/api/ring-size/event/x/y", "/api/ring-size/events", "/api/ring-size/event-x",
+      "/api/ring-size/Event", "/api/RING-SIZE/event", "/api/ring-sizes/event", "/api/ring-size/event//", "/api/ring-size/event%2F", "/api/ring-size/event/..",
     ]) {
       expect(after(p), p).toBe(true);
     }
@@ -103,7 +107,7 @@ describe("next.config headers: คอมไพล์ source แบบเดี�
   it("path อื่นทั้งหมดไม่โดน rule ไหนเลย (gem-quiz · shop · dashboard · look-alike · api)", async () => {
     for (const p of [
       "/gem-quiz", "/shop", "/shop/x", "/dashboard", "/oem/quote", "/", "/login", "/ring-sizes", "/ring-size-admin", "/ring-size/x", "/ring-size/x/y",
-      "/api/ring-size", "/api/ring-size-x", "/api/gem-quiz/submit", "/api/webhooks/tiktok", "/wx", "/wow/abc", "/x/w/abc", "/oem/ring-size", "/x/ring-size",
+      "/api/ring-size", "/api/ring-size-x", "/api/ring-size/event", "/api/ring-size/event/", "/api/ring-size/stats", "/api/gem-quiz/submit", "/api/webhooks/tiktok", "/wx", "/wow/abc", "/x/w/abc", "/oem/ring-size", "/x/ring-size",
     ]) {
       expect(await hit(p), p).toEqual([]);
     }

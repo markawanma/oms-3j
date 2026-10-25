@@ -31,6 +31,11 @@
 // ring-size/?$ เพิ่ม 24 ต.ค. 69 (เครื่องมือวัดไซส์แหวนสาธารณะ — ไม่มี DB/API/ข้อมูลส่วนตัว): exact path เท่านั้น แบบเดียวกับ gem-quiz
 // (/ring-sizes · /ring-size-admin · /ring-size/x · /api/ring-size-x ต้องยังถูก gate — ดู exempt-path.test.ts) · ต้องแก้คู่กับ middleware.ts matcher
 //
+// api/ring-size/event/?$ เพิ่ม 25 ต.ค. 69 (เก็บสถิติ /ring-size แบบไม่ระบุตัวตน — design-ring-size-analytics §2/§5 · F8):
+// 🔴 exact endpoint เท่านั้น แบบเดียวกับ api/gem-quiz/submit — ห้ามเป็น `api/ring-size(?:/|$)` (จะเปิดทั้ง subtree ให้ route ในอนาคต
+// เช่น stats/export โดยไม่มีใครรู้) · ต้องไม่หลุด: /api/ring-size · /api/ring-size/ · /api/ring-size/event/x · /api/ring-size/events ·
+// /api/ring-size/event-x · /api/ring-sizes/event · /api/ring-size-x · ตัวพิมพ์ใหญ่ · traversal (ดู exempt-path.test.ts) · ต้องแก้คู่กับ middleware.ts matcher
+//
 // w/<token> เพิ่ม 12 ต.ค. 69 (ระบบใบงาน J1 — หน้าช่างสแกน QR ไม่ login · design-job-tracking.md §5.5):
 // 🔴 เป็น "prefix /w/" แบบแคบที่สุด — ยอมเฉพาะ "หนึ่งเซกเมนต์ต่อท้าย /w/" ที่เป็นอักขระ base64url ล้วน [A-Za-z0-9_-]+ แล้วจบ
 // (ไม่มี /w/ ล้วน · ไม่มีเซกเมนต์ซ้อน · ไม่มี ".." / "%2e" / "." — traversal อย่าง /w/../oem ไม่ผ่านรูปแบบนี้ จึงยังถูก gate)
@@ -42,7 +47,7 @@
 // (หมายเหตุ: /w/s เองตรงกับ alternative เดิม w/<token> เพราะ "s" เป็นอักขระ base64url — หน้าช่างแสดง "ลิงก์ใช้ไม่ได้" ตามเดิม ไม่แตะข้อมูลใด)
 // ต้องแก้คู่กับ middleware.ts matcher แล้วรัน exempt-path.worker.test.ts
 const EXEMPT_PATTERN =
-  /^(?:_next\/static|_next\/image|favicon\.ico|api\/webhooks(?:\/|$)|api\/gem-quiz\/submit\/?$|shop(?:\/|$)|gem-quiz\/?$|ring-size\/?$|stock\/hero(?:\/|$)|w\/[A-Za-z0-9_-]+\/?$|w\/s\/[A-Za-z0-9_-]+\/?$|.*\.(?:svg|png|jpg|jpeg|gif|webp|ico)$)/;
+  /^(?:_next\/static|_next\/image|favicon\.ico|api\/webhooks(?:\/|$)|api\/gem-quiz\/submit\/?$|api\/ring-size\/event\/?$|shop(?:\/|$)|gem-quiz\/?$|ring-size\/?$|stock\/hero(?:\/|$)|w\/[A-Za-z0-9_-]+\/?$|w\/s\/[A-Za-z0-9_-]+\/?$|.*\.(?:svg|png|jpg|jpeg|gif|webp|ico)$)/;
 
 /** true if `pathname` bypasses the auth gate entirely (middleware.ts never
  * runs for it) — mirrors config.matcher's negative-lookahead exactly. */

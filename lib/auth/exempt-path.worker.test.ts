@@ -96,7 +96,19 @@ describe("middleware.ts matcher ตรงกับ exempt-path.ts (ไม่ dri
     expect(ex).not.toContain("ring-size(?:\\/|$)");
     expect(mw.match(/ring-size/g)!.length).toBeGreaterThan(0);
     const m = /matcher:\s*\[\s*"([^"]+)"/.exec(mw)!;
-    expect(m[1].match(/ring-size/g)).toHaveLength(1); // alternative เดียวใน matcher จริง
+    // matcher จริงมี ring-size 2 alternative เท่านั้น: หน้า (ring-size/?$) + endpoint สถิติ exact (api/ring-size/event/?$)
+    expect(m[1].match(/ring-size/g)).toHaveLength(2);
+    expect(m[1]).toContain("|ring-size/?$|");
+    expect(m[1]).toContain("|api/ring-size/event/?$|");
+  });
+  it("ทั้งสองไฟล์มี alternative ของ api/ring-size/event ตัวเดียวกัน — exact endpoint: ต้องไม่เป็น api/ring-size(?:/|$) หรือมี wildcard", () => {
+    expect(mw).toContain("|api/ring-size/event/?$|");
+    expect(ex).toContain("|api\\/ring-size\\/event\\/?$|");
+    expect(mw).not.toContain("api/ring-size(?:/|$)");
+    expect(ex).not.toContain("api\\/ring-size(?:\\/|$)");
+    expect(mw).not.toMatch(/api\/ring-size\/event(?:\(\?:|\/\.|\.\*|\/\*)/);
+    const m = /matcher:\s*\[\s*"([^"]+)"/.exec(mw)!;
+    expect(m[1].match(/api\/ring-size/g)).toHaveLength(1);
   });
   it("ไม่มีปีกกา {n,m} ใน matcher (path-to-regexp ตีความผิดได้)", () => {
     const m = /matcher:\s*\[\s*"([^"]+)"/.exec(mw)!;
