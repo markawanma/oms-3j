@@ -19,11 +19,14 @@ import { join, relative } from "node:path";
 const ROOT = process.cwd();
 
 // A guard = something that rejects an outsider before data is touched.
-//   member / session / owner / role-deny helpers, the job-office guard(), and the
+//   member / owner / role-deny helpers, the job-office guard(), and the
 //   `=== "staff"` early-deny used by crm/tiktok-dashboard. `getEffectiveRole()`
 //   on its own is NOT a guard (dashboard.ts only uses it to hide money fields).
+//   `requireSessionIfGateOn(` is deliberately NOT here: a session alone isn't
+//   approval (/register creates sessions for anyone). requireWriteAccess() is
+//   fine — it adds the owner/admin role check on top of the session.
 const GUARD =
-  /(denyIfNotMember\(|requireMemberIfGateOn\(|requireOwnerAdmin\(|requireOwnerSession\(|requireWriteAccess\(|requireSessionIfGateOn\(|\bguard\(\)|getEffectiveRole\(\)\)\s*===\s*"staff")/;
+  /(denyIfNotMember\(|requireMemberIfGateOn\(|requireOwnerAdmin\(|requireOwnerSession\(|requireWriteAccess\(|\bguard\(\)|getEffectiveRole\(\)\)\s*===\s*"staff")/;
 const DATA = /(getServiceClient\(|getUserClient\(|getPublicClient\(|\.rpc\(|\.from\(|\bsupabase\b|callOffice\(|\bdb\(\)|\bfetch\()/;
 
 /** file (posix, repo-relative) -> exports (or "*" = whole file) that are public/self-authenticating on purpose */
@@ -58,6 +61,15 @@ function useServerFiles(): string[] {
   const all: string[] = [];
   for (const d of ["app", "lib", "components"]) walk(join(ROOT, d), all);
   return all.filter((f) => /^\s*(?:\/\/[^\n]*\n|\/\*[\s\S]*?\*\/\s*)*["']use server["']/.test(readFileSync(f, "utf8").replace(/\r\n/g, "\n")));
+}
+
+/** normalize CRLF and drop whole-line comments, so a comment that mentions a guard can't count as a call */
+function stripCommentLines(src: string): string {
+  return src
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l))
+    .join("\n");
 }
 
 interface Exp {
@@ -129,6 +141,27 @@ describe("server action guard coverage", () => {
       }
     }
     expect(stale).toEqual([]);
+  });
+
+  it("every denyIfNotMember() call is checked: `const X = await denyIfNotMember(); if (X) return X;` (a dropped check = guard that guards nothing)", () => {
+    const offenders: string[] = [];
+    let totalCalls = 0;
+    for (const f of FILES) {
+      const code = stripCommentLines(readFileSync(f, "utf8"));
+      const calls = (code.match(/denyIfNotMember\(\)/g) ?? []).length;
+      const checked = (code.match(/const (\w+) = await denyIfNotMember\(\);\n\s*if \(\1\) return \1;/g) ?? []).length;
+      totalCalls += calls;
+      if (calls !== checked) offenders.push(`${relative(ROOT, f).split("\\").join("/")}: ${calls} calls, ${checked} checked`);
+    }
+    expect(totalCalls, "sanity — an empty scan would pass vacuously").toBeGreaterThanOrEqual(30);
+    expect(offenders).toEqual([]);
+  });
+
+  it('no "use server" file uses `export {`, `export default` or `export *` (the export scanner cannot see those forms)', () => {
+    const offenders = FILES.filter((f) => /^export\s*(\{|\*|default\b)/m.test(stripCommentLines(readFileSync(f, "utf8")))).map((f) =>
+      relative(ROOT, f).split("\\").join("/"),
+    );
+    expect(offenders).toEqual([]);
   });
 
   it("the public worker actions stay free of the member guard (workers have no account)", () => {

@@ -3,8 +3,9 @@
 // lib/actions/live.ts — server actions for "จดออเดอร์เร็วตอน TikTok Live"
 // (Phase A backend). Manages the live_session lifecycle; order-taking itself
 // lives in lib/actions/quick-order.ts. Same pattern as lib/actions/orders.ts:
-// service-role client + explicit shop_id filter (see lib/supabase/server.ts),
-// no auth in this MVP batch.
+// service-role client + explicit shop_id filter (see lib/supabase/server.ts).
+// Every action starts with the member guard (denyIfNotMember /
+// requireMemberIfGateOn, 25 ต.ค. 69) — a server action is a public POST endpoint.
 
 import { requireMemberIfGateOn } from "@/lib/auth/session";
 import { denyIfNotMember } from "@/lib/auth/action-guard";

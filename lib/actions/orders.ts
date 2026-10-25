@@ -3,7 +3,8 @@
 // lib/actions/orders.ts — server actions for the Unified Order Dashboard +
 // Order Detail screens. All reads/writes go through the service-role client
 // with an explicit `shop_id = getDevShopId()` filter (see
-// lib/supabase/server.ts header for why — no auth in this batch).
+// lib/supabase/server.ts header for why). Every action starts with the member
+// guard (denyIfNotMember, 25 ต.ค. 69) — a server action is a public POST endpoint.
 
 import { denyIfNotMember } from "@/lib/auth/action-guard";
 import { getServiceClient } from "@/lib/supabase/server";

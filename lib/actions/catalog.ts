@@ -10,12 +10,11 @@
 // the ONLY thing gating writes in this app today. Every write action calls it
 // first.
 
-import { denyIfNotMember } from "@/lib/auth/action-guard";
+import { denyIfNotMember, requireWriteAccess } from "@/lib/auth/action-guard";
 import { revalidatePath } from "next/cache";
 import { getServiceClient } from "@/lib/supabase/server";
 import { getDevShopId } from "@/lib/dev/context";
 import { getEffectiveRole } from "@/lib/auth/role";
-import { requireWriteAccess } from "@/lib/auth/action-guard";
 import type { ActionResult } from "@/lib/types";
 import { fetchAllRows } from "@/lib/supabase/query-limits";
 import { BUCKET as PRODUCT_IMAGES_BUCKET } from "@/lib/images/constants";
