@@ -27,6 +27,7 @@
 // เดิมเพราะงานคู่ขนานตอน 14 ก.ย. ตอนนี้งานนั้นจบแล้ว แต่ขอบเขตนี้ยังถือต่อ
 // เพราะ retention เป็น read layer แยก ไม่มีเหตุต้องแก้ของกลาง
 
+import { denyIfNotMember } from "@/lib/auth/action-guard";
 import { getServiceClient } from "@/lib/supabase/server";
 import { getDevShopId } from "@/lib/dev/context";
 import { getEffectiveRole } from "@/lib/auth/role";
@@ -163,6 +164,8 @@ function mapCohort(raw: CohortRaw): RepeatCohort {
 }
 
 export async function getCrmRetention(): Promise<ActionResult<CrmRetentionData>> {
+  const denied = await denyIfNotMember();
+  if (denied) return denied;
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();

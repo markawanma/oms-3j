@@ -11,6 +11,7 @@
 // actions) — a deliberately small, auditable surface for the one place role
 // actually has to be enforced for real in this phase.
 import "server-only";
+import { cache } from "react";
 import { createHash, createHmac } from "node:crypto";
 import { getServiceClient, getUserClient } from "@/lib/supabase/server";
 import { getDevShopId } from "@/lib/dev/context";
@@ -115,6 +116,60 @@ export async function requireSessionIfGateOn(): Promise<void> {
   if (process.env.AUTH_GATE !== "on") return;
   const user = await getSessionUser();
   if (!user) throw new Error("ไม่ได้เข้าสู่ระบบ");
+}
+
+type MemberAccess = "ok" | "no-session" | "not-member";
+
+/**
+ * Resolved once per request (React.cache — same lifetime as getEffectiveRole)
+ * so a page that renders several guarded actions pays for getUser + the
+ * shop_member lookup once, not per action. Returns a status instead of
+ * throwing so a failed check is never cached as a rejected promise and the
+ * caller picks its own failure shape. Every failure mode (no cookie, Supabase
+ * Auth env missing, shop_member lookup error) collapses to "denied" — this is
+ * a gate, so "couldn't confirm" must never read as "is a member". The error
+ * object is deliberately NOT logged (supabase-error-logging-trap).
+ */
+const resolveMemberAccess = cache(async (): Promise<MemberAccess> => {
+  let user: SessionUser | null;
+  try {
+    user = await getSessionUser();
+  } catch {
+    return "no-session";
+  }
+  if (!user) return "no-session";
+  try {
+    // getMembership is pinned to getDevShopId() and treats a missing row as
+    // null — a pending signup (valid session, no shop_member row) lands here.
+    return (await getMembership(user.id)) ? "ok" : "not-member";
+  } catch {
+    return "not-member";
+  }
+});
+
+/**
+ * Second auth layer INSIDE server actions (security fix 25 ต.ค. 69,
+ * extension-gate bypass). middleware.ts is the first layer, but it is a path
+ * matcher: any future matcher/exemption mistake leaves every action that has
+ * no guard of its own callable by an outsider (who resolves to role `staff`,
+ * lib/auth/role.ts noSessionRole()). Call this as the FIRST statement of
+ * every exported action that has no requireOwnerAdmin / requireWriteAccess /
+ * guard() / token check of its own.
+ *
+ * Stronger than requireSessionIfGateOn on purpose: /register lets anyone
+ * create a Supabase session, so "has a session" is not "is approved". This
+ * additionally requires a shop_member row for THIS shop (approved by an
+ * owner — approveMember inserts it; pending users never have one).
+ *
+ * AUTH_GATE !== "on" -> no-op (dev / rollback lever unchanged).
+ * Throws Error(...) — ActionResult-style callers use denyIfNotMember() in
+ * lib/auth/action-guard.ts instead; raw-data/throw-style callers use this.
+ */
+export async function requireMemberIfGateOn(): Promise<void> {
+  if (process.env.AUTH_GATE !== "on") return;
+  const access = await resolveMemberAccess();
+  if (access === "no-session") throw new Error("ไม่ได้เข้าสู่ระบบ");
+  if (access === "not-member") throw new Error("บัญชียังไม่ได้รับอนุมัติ");
 }
 
 /**

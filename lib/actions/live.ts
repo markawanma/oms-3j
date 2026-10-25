@@ -6,6 +6,8 @@
 // service-role client + explicit shop_id filter (see lib/supabase/server.ts),
 // no auth in this MVP batch.
 
+import { requireMemberIfGateOn } from "@/lib/auth/session";
+import { denyIfNotMember } from "@/lib/auth/action-guard";
 import { getServiceClient } from "@/lib/supabase/server";
 import { getDevShopId } from "@/lib/dev/context";
 import type {
@@ -23,6 +25,7 @@ const EXCLUDED_FROM_METRICS = ["cancelled", "oversold_hold"];
  * external_shop_id='manual-live'). Shared here and in quick-order.ts.
  */
 export async function getManualTiktokChannelAccountId(shopId: string): Promise<string> {
+  await requireMemberIfGateOn();
   const supabase = getServiceClient();
   const { data, error } = await supabase
     .from("channel_account")
@@ -52,6 +55,8 @@ function mapSessionRow(r: any): LiveSession {
 }
 
 export async function startLiveSession(input: { title?: string }): Promise<ActionResult<LiveSession>> {
+  const denied = await denyIfNotMember();
+  if (denied) return denied;
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();
@@ -84,6 +89,8 @@ export async function startLiveSession(input: { title?: string }): Promise<Actio
 }
 
 export async function closeLiveSession(id: string): Promise<ActionResult> {
+  const denied = await denyIfNotMember();
+  if (denied) return denied;
   if (!id) return { ok: false, error: "ไม่พบไลฟ์นี้" };
 
   try {
@@ -109,6 +116,8 @@ export async function closeLiveSession(id: string): Promise<ActionResult> {
 }
 
 export async function getOpenSession(): Promise<ActionResult<LiveSession | null>> {
+  const denied = await denyIfNotMember();
+  if (denied) return denied;
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();
@@ -129,6 +138,8 @@ export async function getOpenSession(): Promise<ActionResult<LiveSession | null>
 }
 
 export async function listLiveSessions(): Promise<ActionResult<LiveSession[]>> {
+  const denied = await denyIfNotMember();
+  if (denied) return denied;
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();
@@ -148,6 +159,8 @@ export async function listLiveSessions(): Promise<ActionResult<LiveSession[]>> {
 }
 
 export async function getLiveSessionStats(id: string): Promise<ActionResult<LiveSessionStats>> {
+  const denied = await denyIfNotMember();
+  if (denied) return denied;
   if (!id) return { ok: false, error: "ไม่พบไลฟ์นี้" };
 
   try {
@@ -195,6 +208,8 @@ export async function getLiveSessionStats(id: string): Promise<ActionResult<Live
  * not a performance concern.
  */
 export async function getTopSkus(id: string): Promise<ActionResult<LiveSessionTopSku[]>> {
+  const denied = await denyIfNotMember();
+  if (denied) return denied;
   if (!id) return { ok: false, error: "ไม่พบไลฟ์นี้" };
 
   try {

@@ -19,6 +19,7 @@
 // catalog.ts — reads stay open to "พนักงานหน้างาน" (frontline staff), only
 // writes are locked down.
 
+import { denyIfNotMember } from "@/lib/auth/action-guard";
 import { revalidatePath } from "next/cache";
 import { getServiceClient } from "@/lib/supabase/server";
 import { getDevShopId } from "@/lib/dev/context";
@@ -98,6 +99,8 @@ function parsePreviewSeedRow(data: unknown): { suggestedSeed: number; suggestedP
 export async function listSkuPrefixes({ withLastNo = false }: { withLastNo?: boolean } = {}): Promise<
   ActionResult<SkuPrefixRow[]>
 > {
+  const denied = await denyIfNotMember();
+  if (denied) return denied;
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();

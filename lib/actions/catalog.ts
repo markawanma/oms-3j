@@ -10,6 +10,7 @@
 // the ONLY thing gating writes in this app today. Every write action calls it
 // first.
 
+import { denyIfNotMember } from "@/lib/auth/action-guard";
 import { revalidatePath } from "next/cache";
 import { getServiceClient } from "@/lib/supabase/server";
 import { getDevShopId } from "@/lib/dev/context";
@@ -44,8 +45,10 @@ async function requireOwnerAdmin(): Promise<ActionResult<never> | null> {
 }
 
 // Every WRITE export below (upsert/delete/import) calls
-// requireWriteAccess(requireOwnerAdmin) FIRST — not the read exports
-// (getProducts/getSkuOrderAlerts/getShopSetting/getBlendedMarginSuggestion).
+// requireWriteAccess(requireOwnerAdmin) FIRST. The read exports
+// (getProducts/getSkuOrderAlerts/getShopSetting/getBlendedMarginSuggestion)
+// stay open to staff but start with denyIfNotMember() (25 ต.ค. 69) — any
+// approved member, never an outsider or a pending signup.
 // Security review 2026-09-16, C1(b): defense-in-depth alongside C1(a), which
 // stops /stock/hero from ever bundling these actions in the first place.
 // See lib/auth/action-guard.ts for the shared session+DEV_ROLE combo.
@@ -78,6 +81,8 @@ export interface GetProductsResult {
 }
 
 export async function getProducts(): Promise<ActionResult<GetProductsResult>> {
+  const denied = await denyIfNotMember();
+  if (denied) return denied;
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();
@@ -525,6 +530,8 @@ export async function deleteProduct(sku: string): Promise<ActionResult> {
 // ============================================================================
 
 export async function getSkuOrderAlerts(): Promise<ActionResult<SkuOrderAlert[]>> {
+  const denied = await denyIfNotMember();
+  if (denied) return denied;
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();
@@ -567,6 +574,8 @@ export async function getSkuOrderAlerts(): Promise<ActionResult<SkuOrderAlert[]>
 // ============================================================================
 
 export async function getShopSetting(): Promise<ActionResult<ShopSettingData>> {
+  const denied = await denyIfNotMember();
+  if (denied) return denied;
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();
@@ -600,6 +609,8 @@ export async function getShopSetting(): Promise<ActionResult<ShopSettingData>> {
 }
 
 export async function getBlendedMarginSuggestion(): Promise<ActionResult<BlendedMarginSuggestion>> {
+  const denied = await denyIfNotMember();
+  if (denied) return denied;
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();

@@ -2,11 +2,14 @@
 
 // lib/actions/stock.ts — server actions for the Central Stock screen.
 
+import { denyIfNotMember } from "@/lib/auth/action-guard";
 import { getServiceClient } from "@/lib/supabase/server";
 import { getDevShopId } from "@/lib/dev/context";
 import type { ActionResult, StockRow } from "@/lib/types";
 
 export async function listStock(search: string): Promise<ActionResult<StockRow[]>> {
+  const denied = await denyIfNotMember();
+  if (denied) return denied;
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();
@@ -56,6 +59,8 @@ export async function listStock(search: string): Promise<ActionResult<StockRow[]
  * time to avoid a stale-read race with whatever the sheet loaded earlier.
  */
 export async function adjustStock(productId: string, newOnHand: number): Promise<ActionResult<StockRow>> {
+  const denied = await denyIfNotMember();
+  if (denied) return denied;
   if (!Number.isInteger(newOnHand) || newOnHand < 0) {
     return { ok: false, error: "จำนวนสต็อกต้องเป็นจำนวนเต็มไม่ติดลบ" };
   }
