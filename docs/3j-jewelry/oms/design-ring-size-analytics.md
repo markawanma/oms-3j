@@ -203,3 +203,10 @@ Server Action จากหน้า (หน้า exempt gate) · event log ห�
 
 ## 13. ลำดับงาน
 P0 migration 0193 + verify → P1 endpoint + exempt + เทสต์ (security) → P2 track.ts + จุดเกาะ + copy + เปิด flag (QA L) → P3 ux-ui หน้าสรุป → action + page → code-reviewer → devops (apply 0193 ก่อน deploy โค้ดที่เรียก RPC · ไม่มี env ใหม่) · P1 กับ P2 ขนานได้ใน worktree แยก (`qa-regression.test.ts` ให้ P1 ถือ)
+
+### 12.1 มติเจ้าของ 25 ต.ค. 69 (ทับค่าเสนอ)
+- **O1** ถ้อยคำ §4.4 ใช้ตามร่าง
+- **O3 retention = 6 เดือน (180 วัน)** ไม่ใช่ 365 → cron ชื่อ `ring-size-retention-180d` · เทสต์ 179 วันอยู่ / 181 วันหาย
+- **O4** LINE broadcast ไม่เกิน 1,000 คน → cap 300 แถวใหม่/10 นาที/ร้าน ใช้ได้
+- **O5** เคารพ DNT/GPC (ไม่ส่ง)
+- O2 / O6 ไม่ได้ถาม — ใช้ค่าเสนอ (ช่องทาง direct/line/fb/web/tiktok/ig · เก็บ circ_mm ปัด 0.1)
