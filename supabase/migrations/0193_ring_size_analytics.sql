@@ -34,43 +34,10 @@
 set local lock_timeout = '8s';
 
 -- ============================================================================
--- 1. analytics.ring_size_src — lookup ช่องทาง (?src=) · เพิ่มช่องทาง = insert แถว
---    ไม่ต้องแก้ฟังก์ชัน/ไม่ต้อง migration (ต่างจาก check constraint ของ gem_quiz_response.src)
+-- 1. (ตัดออก — มติเจ้าของ 25 ต.ค. 69) ไม่แยกช่องทาง ?src= ในรอบนี้: ไม่มีตาราง lookup ช่องทาง ไม่มีคอลัมน์ src
+--    ไม่มี p_src ใน stats · "ยังไม่มีช่องทางเยอะ เก็บข้อมูลยาก" · คง in_app (bucket จาก user-agent ได้อัตโนมัติ
+--    ไม่ต้องแปะลิงก์แยก) · อยากเพิ่มช่องทางทีหลัง = migration ใหม่ (add column + lookup) ไม่ต้องเผื่อคอลัมน์ว่าง
 -- ============================================================================
-
-create table if not exists analytics.ring_size_src (
-  code        text primary key check (code ~ '^[a-z][a-z0-9_]{0,15}$'),
-  label_th    text not null,
-  sort_order  int not null default 100,
-  is_active   boolean not null default true
-);
-
-comment on table analytics.ring_size_src is
-  'Reference: ช่องทางที่คนเปิด /ring-size?src=<code> (ring_size_session.src อ้างรหัสจากที่นี่) — '
-  'รหัสที่ไม่อยู่ที่นี่หรือถูกปิด is_active=false จะถูกเก็บเป็น direct ตอนเขียน (ไม่ปฏิเสธคำขอ). '
-  'ปิดช่องทางที่เลิกใช้ด้วย is_active=false ห้ามลบแถว (ประวัติเก่ายังอ้างรหัสนี้ + FK).';
-
-alter table analytics.ring_size_src enable row level security;
-
-drop policy if exists read_all on analytics.ring_size_src;
-create policy read_all on analytics.ring_size_src
-  for select
-  using (true);
-
--- seed ตาม design §3.1 (O2 ใช้ค่าเสนอ — เจ้าของไม่ได้ถาม) · do nothing กัน apply ซ้ำทับป้ายที่แก้แล้ว
-insert into analytics.ring_size_src (code, label_th, sort_order) values
-  ('direct', 'เข้าตรง/ไม่ระบุ',   10),
-  ('line',   'LINE OA',           20),
-  ('fb',     'Facebook',          30),
-  ('web',    'เว็บร้าน',          40),
-  ('tiktok', 'TikTok (พิมพ์เอง)', 50),
-  ('ig',     'Instagram',         60)
-on conflict (code) do nothing;
-
-revoke all on analytics.ring_size_src from public, anon, authenticated;
-grant select on analytics.ring_size_src to service_role;
-revoke insert, update, delete, truncate, references, trigger, maintain
-  on analytics.ring_size_src from service_role;
 
 -- ============================================================================
 -- 2. analytics.ring_size_session — 1 แถว/session
@@ -81,8 +48,6 @@ create table if not exists analytics.ring_size_session (
   shop_id        uuid not null references public.shop (id) on delete cascade,
   created_at     timestamptz not null default now(),
   updated_at     timestamptz not null default now(),
-  -- ตั้งครั้งเดียวตอน insert · FK กันรหัสนอก lookup หลุดเข้าตาราง
-  src            text not null default 'direct' references analytics.ring_size_src (code),
   in_app         text not null default 'unknown'
                    check (in_app in ('line', 'tiktok', 'fb', 'ig', 'browser', 'unknown')),
   is_return      boolean not null default false,
@@ -201,14 +166,13 @@ declare
   v_cap constant int := 300;
   v_max_events constant int := 40;
   v_allowed constant text[] := array[
-    'src', 'in_app', 'is_return', 'stage', 'ref', 'method', 'circ_mm', 'size', 'between',
+    'in_app', 'is_return', 'stage', 'ref', 'method', 'circ_mm', 'size', 'between',
     'in_range', 'g1', 'g3', 'g4', 'g5', 'cta', 'used_a', 'used_b', 'saw_between'
   ];
 
   v_key text;
   v_num numeric;
   v_stage smallint;
-  v_src text := 'direct';
   v_in_app text;
   v_is_return boolean;
   v_ref text;
@@ -263,20 +227,6 @@ begin
     raise exception 'ring_size_session_upsert: stage ต้องเป็นจำนวนเต็ม 0-7' using errcode = '22023';
   end if;
   v_stage := v_num::smallint;
-
-  if p_snapshot ? 'src' then
-    if jsonb_typeof(p_snapshot -> 'src') is distinct from 'string'
-       or (p_snapshot ->> 'src') !~ '^[a-z][a-z0-9_]{0,15}$' then
-      raise exception 'ring_size_session_upsert: src รูปแบบไม่ถูกต้อง' using errcode = '22023';
-    end if;
-    -- รหัสที่รูปแบบถูกแต่ไม่อยู่ใน lookup (หรือถูกปิด) ⇒ direct ไม่ปฏิเสธ (คนพิมพ์ลิงก์เอง/ช่องทางใหม่ยังไม่ seed)
-    if exists (
-      select 1 from analytics.ring_size_src s
-      where s.code = (p_snapshot ->> 'src') and s.is_active
-    ) then
-      v_src := p_snapshot ->> 'src';
-    end if;
-  end if;
 
   if p_snapshot ? 'in_app' then
     if jsonb_typeof(p_snapshot -> 'in_app') is distinct from 'string'
@@ -458,13 +408,13 @@ begin
     end if;
 
     insert into analytics.ring_size_session (
-      id, shop_id, src, in_app, is_return, max_stage, ref, method,
+      id, shop_id, in_app, is_return, max_stage, ref, method,
       circ_mm, result_size, is_between, in_shop_range,
       measure_count, invalid_count, zoom_blocked, calib_warn, stale_recalib,
       used_a, used_b, saw_between,
       cta_line, cta_share, cta_shop, cta_gem_quiz, event_count
     ) values (
-      p_session_id, p_shop_id, v_src, coalesce(v_in_app, 'unknown'), coalesce(v_is_return, false), v_stage, v_ref, v_method,
+      p_session_id, p_shop_id, coalesce(v_in_app, 'unknown'), coalesce(v_is_return, false), v_stage, v_ref, v_method,
       v_circ, v_size, case when v_has_result then v_between end,
       case when v_size is null then null else analytics.ring_size_shop_range() @> v_size::int end,
       case when v_counts_measure then 1 else 0 end,
@@ -506,13 +456,12 @@ grant execute on function analytics.ring_size_session_upsert(uuid, uuid, jsonb)
 --    วันไทย inclusive ทั้งสองด้าน (#6) · ไม่คืนแถวดิบ (ลดความเสี่ยงจับคู่กับเวลาที่ลูกค้าทัก LINE)
 -- ============================================================================
 
-drop function if exists analytics.ring_size_stats(uuid, date, date, text);
+drop function if exists analytics.ring_size_stats(uuid, date, date);
 
 create function analytics.ring_size_stats(
   p_shop_id uuid,
   p_from date,
-  p_to date,
-  p_src text
+  p_to date
 ) returns jsonb
   language plpgsql
   security definer
@@ -527,7 +476,7 @@ begin
     raise exception 'ring_size_stats: p_shop_id/p_from/p_to เป็นค่าจำเป็น' using errcode = '22023';
   end if;
 
-  -- ด่านสิทธิ์ก่อน validate ช่วงวัน/src (กัน probe ด้วยพารามิเตอร์ก่อนรู้ว่าไม่มีสิทธิ์)
+  -- ด่านสิทธิ์ก่อน validate ช่วงวัน (กัน probe ด้วยพารามิเตอร์ก่อนรู้ว่าไม่มีสิทธิ์)
   perform analytics.crm_require_owner_admin(p_shop_id); -- [mut:owner]
 
   if p_from > p_to then
@@ -537,11 +486,6 @@ begin
   if (p_to - p_from) > 180 then
     raise exception 'ring_size_stats: ช่วงวันที่เกิน 180 วัน' using errcode = '22023';
   end if;
-  -- p_src null = ทุกช่องทาง · ไม่ null ต้องอยู่ใน lookup (รวมช่องที่ปิดแล้ว — ประวัติยังดูได้)
-  if p_src is not null and not exists (select 1 from analytics.ring_size_src s where s.code = p_src) then
-    raise exception 'ring_size_stats: p_src ไม่อยู่ใน lookup' using errcode = '22023';
-  end if;
-
   v_from_ts := p_from::timestamp at time zone 'Asia/Bangkok';
   v_to_ts   := (p_to + 1)::timestamp at time zone 'Asia/Bangkok';
 
@@ -551,32 +495,18 @@ begin
     where r.shop_id = p_shop_id
       and r.created_at >= v_from_ts
       and r.created_at < v_to_ts
-      and (p_src is null or r.src = p_src)
   )
   select jsonb_build_object(
     'sessions',  (select count(*) from scoped),
     'returning', (select count(*) from scoped where is_return),
     'measured',  (select count(*) from scoped where result_size is not null),
 
-    'by_src', (
-      select coalesce(jsonb_agg(jsonb_build_object(
-               'src', l.code, 'label_th', l.label_th, 'count', coalesce(c.cnt, 0)
-             ) order by l.sort_order, l.code), '[]'::jsonb)
-      from analytics.ring_size_src l
-      left join (select sc.src, count(*) as cnt from scoped sc group by sc.src) c on c.src = l.code
-      where l.is_active or coalesce(c.cnt, 0) > 0
-    ),
-    -- ตัวเลือก select ช่องทาง: lookup ที่ active ทั้งหมด (รวมช่องที่ช่วงนี้ไม่มีข้อมูล) เรียง sort_order
-    'src_options', (
-      select coalesce(jsonb_agg(jsonb_build_object('code', l.code, 'label_th', l.label_th) order by l.sort_order, l.code), '[]'::jsonb)
-      from analytics.ring_size_src l where l.is_active
-    ),
     -- ช่วงเบอร์ร้าน (แหล่งเดียวกับ in_shop_range) — UI ห้าม hardcode 45/68
     'shop_range', jsonb_build_object(
       'min', lower(analytics.ring_size_shop_range()),
       'max', upper(analytics.ring_size_shop_range()) - 1
     ),
-    -- วันไทยของแถวแรกสุดที่ยังอยู่ของร้านนี้ (ไม่ขึ้นกับตัวกรอง; null = ยังไม่มีข้อมูลเลย) — retention 180 วันทำให้เลื่อนไปข้างหน้าได้
+    -- วันไทยของแถวแรกสุดที่ยังอยู่ของร้านนี้ (ไม่ขึ้นกับช่วงวัน; null = ยังไม่มีข้อมูลเลย) — retention 180 วันทำให้เลื่อนไปข้างหน้าได้
     'data_since', (
       select to_char((min(d.created_at) at time zone 'Asia/Bangkok')::date, 'YYYY-MM-DD')
       from analytics.ring_size_session d where d.shop_id = p_shop_id
@@ -713,16 +643,16 @@ begin
 end;
 $$;
 
-comment on function analytics.ring_size_stats(uuid, date, date, text) is
+comment on function analytics.ring_size_stats(uuid, date, date) is
   'สถิติ /ring-size สำหรับ /marketing/ring-size — crm_require_owner_admin เป็นด่านแรก (ก่อน validate). '
-  'p_from/p_to วันไทย inclusive · p_to - p_from ≤ 180 วัน · p_src null = ทุกช่องทาง ไม่ null ต้องอยู่ใน ring_size_src. '
+  'p_from/p_to วันไทย inclusive · p_to - p_from ≤ 180 วัน · ไม่มีตัวกรองช่องทาง (มติ 25 ต.ค. 69). '
   'คืน jsonb ก้อนเดียว ไม่คืนแถวดิบ. invariant: sum(abandon_at)+funnel[7]=sessions. '
   'measured = มี result_size (ไม่ใช่ funnel[7] ซึ่งรวม G4). method{A,B} = วิธีล่าสุด · method_stats = ต่อวิธีจาก used_a/used_b '
-  '(นิยามอยู่ในคอมเมนต์ในตัวฟังก์ชัน) · cta.line = ทุกจุดที่ client ส่ง · data_since/shop_range/src_options ไม่ขึ้นกับตัวกรอง.';
+  '(นิยามอยู่ในคอมเมนต์ในตัวฟังก์ชัน) · cta.line = ทุกจุดที่ client ส่ง · data_since/shop_range ไม่ขึ้นกับช่วงวัน.';
 
-revoke execute on function analytics.ring_size_stats(uuid, date, date, text)
+revoke execute on function analytics.ring_size_stats(uuid, date, date)
   from public, anon, authenticated;
-grant execute on function analytics.ring_size_stats(uuid, date, date, text)
+grant execute on function analytics.ring_size_stats(uuid, date, date)
   to service_role;
 
 -- ============================================================================

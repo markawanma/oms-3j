@@ -18,9 +18,9 @@
 -- ============================================================================
 --  #1  POST ข้าม origin → 403                    : ไม่มีใน SQL — route.test.ts (R1)
 --  #2  body > 1 KB → 413                         : ไม่มีใน SQL — route.test.ts (R2)
---  #3  allowlist/ชนิด/NaN/stage 99/sid/src/in_app : T05 (RPC 22023 ~100 รูปแบบ) + T05b (null params)
+--  #3  allowlist/ชนิด/NaN/stage 99/sid/in_app : T05 (RPC 22023 ~100 รูปแบบ) + T05b (null params)
 --                                                  + track-schema.test.ts + route.test.ts (ด่านชั้น route)
---  #4  src นอก lookup → เก็บ direct               : T06
+--  #4  (เดิม: src นอก lookup → direct) ถูกตัด — มติ 25 ต.ค. 69 ไม่แยกช่องทาง : T03 (ไม่มีตาราง/คอลัมน์ src) + T06 (key src ⇒ 22023)
 --  #5  sid เดิม 100 ครั้ง → 1 แถว · หยุดที่ 40     : T07 · ค่าที่ลดลงไม่ทับ/ธง OR : T08 · mutant events : M3
 --  #6  sid ใหม่ > cap ใน 10 นาที → 429            : T16 · mutant breaker : M4
 --  #7  sid ของแถวร้านอื่น → 22023                  : T09 · mutant shop mismatch : M5
@@ -29,14 +29,14 @@
 --  #10 anon/authenticated เรียก RPC/select → 42501
 --      service_role INSERT ตรง → ปฏิเสธ           : T15 · mutant grants : M8
 --  #11 stats โดย staff/ไม่ใช่สมาชิก → ปฏิเสธ        : T13 · mutant owner/admin : M7
---      วันผิด/> 366/src นอก lookup → 22023         : T13
+--      วันผิด/> 180 วัน/พารามิเตอร์ null → 22023   : T13
 --  #12 ไม่มี DEV_SHOP_ID → 500 ไม่ echo            : ไม่มีใน SQL — route.test.ts
---  #13 diff ไม่มี IP/UA/cookie ถูกเก็บ              : T01 (รายชื่อคอลัมน์เป๊ะ 27 ตัว) + route.test.ts (RPC รับเฉพาะ 3 พารามิเตอร์)
+--  #13 diff ไม่มี IP/UA/cookie ถูกเก็บ              : T01 (รายชื่อคอลัมน์เป๊ะ 26 ตัว) + route.test.ts (RPC รับเฉพาะ 3 พารามิเตอร์)
 --  #14-15,#18-21 (ฝั่ง client/P2)               : ไม่มี — ไม่ใช่งานของ P0/P1
 --  #16 หน้ายัง static + header เดิม                : ไม่มีใน SQL — headers.test.ts (ไม่แตะ next.config.mjs) + ผล next build
 --  #17 gem-quiz/submit · /w/* · /shop matcher เดิม  : ไม่มีใน SQL — qa-regression.test.ts (differential) + exempt-path.matcher.test.ts
 --  UX-A1/A2 used_a/used_b/saw_between + method_stats/switched : T08c (derive + OR + client ส่งตรง) · T12k (ตัวเลข method_stats/switched/saw_between เทียบมือ) · mutant used OR : M10
---  UX-A3/A4 by_src.src+label_th · src_options · shop_range · data_since · cap 180 วัน : T12c/T12l/T12i/T12j · T13e/T13f · mutant cap : M11
+--  UX-A4    shop_range · data_since · cap 180 วัน : T12l/T12i/T12j · T13e/T13f · mutant cap : M11 (A3 by_src/src_options ถูกตัดตามมติไม่แยกช่องทาง)
 --  UX-4     measured = มี result_size (ไม่ใช่ funnel[7]) : T12a/T12d (F5 ถึง stage 7 ด้วย G4 แต่ไม่นับ measured)
 --  #22 stats ผลรวมสอดคล้อง · วันไทย 00:00-07:00     : T12 (invariant 5 ข้อ + fixture ข้ามเที่ยงคืนไทย)
 --  #23 retention 179 อยู่/181 หาย · cron ไม่ซ้ำ     : T14 · mutant retention : M9
@@ -78,10 +78,10 @@ end
 $f$;
 
 -- เรียก stats แล้วคืน 'OK' หรือ sqlstate
-create function pg_temp.st(p_shop uuid, p_from date, p_to date, p_src text) returns text
+create function pg_temp.st(p_shop uuid, p_from date, p_to date) returns text
 language plpgsql as $f$
 begin
-  perform analytics.ring_size_stats(p_shop, p_from, p_to, p_src);
+  perform analytics.ring_size_stats(p_shop, p_from, p_to);
   return 'OK';
 exception when others then
   return sqlstate;
@@ -129,7 +129,6 @@ language sql as $f$
 select (select coalesce(sum(x::int), 0) from jsonb_array_elements_text(s -> 'abandon_at') x) + (s -> 'funnel' ->> 7)::int = (s ->> 'sessions')::int
    and (s -> 'funnel' ->> 0)::int = (s ->> 'sessions')::int
    and (select coalesce(sum(x.value::int), 0) from jsonb_each_text(s -> 'by_in_app') x) = (s ->> 'sessions')::int
-   and (select coalesce(sum((e ->> 'count')::int), 0) from jsonb_array_elements(s -> 'by_src') e) = (s ->> 'sessions')::int
    and (select coalesce(sum((e ->> 'sessions')::int), 0) from jsonb_array_elements(s -> 'daily') e) = (s ->> 'sessions')::int
    and (select bool_and((s -> 'funnel' ->> (k + 1))::int <= (s -> 'funnel' ->> k)::int) from generate_series(0, 6) k)
 $f$;
@@ -164,7 +163,7 @@ language sql as $f$
 select count(*)::int
 from pg_class c
 cross join lateral aclexplode(c.relacl) a
-where c.oid in ('analytics.ring_size_session'::regclass, 'analytics.ring_size_src'::regclass)
+where c.oid = 'analytics.ring_size_session'::regclass
   and a.grantee <> c.relowner
   and (a.grantee = 0 or a.grantee = 'anon'::regrole or a.grantee = 'authenticated'::regrole
        or a.privilege_type <> 'SELECT')
@@ -217,7 +216,7 @@ declare
   v_def_rg text;
 
   v_expected_cols text[] := array[
-    'id', 'shop_id', 'created_at', 'updated_at', 'src', 'in_app', 'is_return', 'max_stage', 'ref', 'method',
+    'id', 'shop_id', 'created_at', 'updated_at', 'in_app', 'is_return', 'max_stage', 'ref', 'method',
     'circ_mm', 'result_size', 'is_between', 'in_shop_range', 'measure_count', 'invalid_count', 'zoom_blocked',
     'calib_warn', 'stale_recalib', 'used_a', 'used_b', 'saw_between', 'cta_line', 'cta_share', 'cta_shop', 'cta_gem_quiz', 'event_count'
   ];
@@ -236,7 +235,7 @@ begin
   end if;
 
   v_def_up := pg_get_functiondef('analytics.ring_size_session_upsert(uuid,uuid,jsonb)'::regprocedure);
-  v_def_st := pg_get_functiondef('analytics.ring_size_stats(uuid,date,date,text)'::regprocedure);
+  v_def_st := pg_get_functiondef('analytics.ring_size_stats(uuid,date,date)'::regprocedure);
   v_def_rt := pg_get_functiondef('analytics.ring_size_retention_apply()'::regprocedure);
   v_def_rg := pg_get_functiondef('analytics.ring_size_shop_range()'::regprocedure);
   v_md5_up := md5(v_def_up);
@@ -251,7 +250,7 @@ begin
   select array_agg(column_name::text order by column_name::text) into v_cols
   from information_schema.columns
   where table_schema = 'analytics' and table_name = 'ring_size_session';
-  perform pg_temp.chk('T01 (คอลัมน์ ring_size_session ตรงรายการ 27 ตัวเป๊ะ ไม่มี IP/UA/cookie/device/ข้อความอิสระ)',
+  perform pg_temp.chk('T01 (คอลัมน์ ring_size_session ตรงรายการ 26 ตัวเป๊ะ (ไม่มี src) ไม่มี IP/UA/cookie/device/ข้อความอิสระ)',
     v_cols = (select array_agg(x order by x) from unnest(v_expected_cols) x),
     'cols=' || coalesce(v_cols::text, 'null'));
 
@@ -267,12 +266,12 @@ begin
     v_cnt = 4 and v_num = 0 and v_cnt2 = 0, format('count=%s defaults=%s dup_names=%s', v_cnt, v_num, v_cnt2));
 
   -- --------------------------------------------------------------------
-  -- T03 — seed lookup ช่องทาง 6 รายการ (O2) · ทุกตัว active
+  -- T03 — มติเจ้าของ 25 ต.ค. 69: ไม่แยกช่องทาง ⇒ ไม่มีตาราง lookup ช่องทาง ไม่มีคอลัมน์ src ในตาราง session
   -- --------------------------------------------------------------------
-  select string_agg(code, ',' order by sort_order) into v_text from analytics.ring_size_src where is_active;
-  select count(*) into v_cnt from analytics.ring_size_src;
-  perform pg_temp.chk('T03 (seed ring_size_src = direct,line,fb,web,tiktok,ig · 6 แถว active ทั้งหมด)',
-    v_text = 'direct,line,fb,web,tiktok,ig' and v_cnt = 6, format('active=%s total=%s', v_text, v_cnt));
+  select count(*) into v_cnt from information_schema.columns
+  where table_schema = 'analytics' and table_name = 'ring_size_session' and column_name ~* 'src|source|channel';
+  perform pg_temp.chk('T03 (ไม่มีตาราง ring_size_src และไม่มีคอลัมน์ src/source/channel ใน ring_size_session — ตัดตามมติไม่แยกช่องทาง)',
+    to_regclass('analytics.ring_size_src') is null and v_cnt = 0, format('src_table=%s cols=%s', coalesce(to_regclass('analytics.ring_size_src')::text, 'none'), v_cnt));
 
   -- --------------------------------------------------------------------
   -- T04 — happy path: เดินครบ 7 ขั้นของ session เดียว → 1 แถว ค่าตรงทุกช่อง
@@ -280,7 +279,7 @@ begin
   v_sid := gen_random_uuid();
   v_states := '';
   foreach v_snap in array array[
-    '{"stage":0,"src":"line","in_app":"line","is_return":false}',
+    '{"stage":0,"in_app":"line","is_return":false}',
     '{"stage":1}',
     '{"stage":4,"ref":"coin"}',
     '{"stage":5,"method":"A"}',
@@ -291,9 +290,9 @@ begin
   end loop;
   select * into v_row from analytics.ring_size_session where id = v_sid;
   select count(*) into v_cnt from analytics.ring_size_session where id = v_sid;
-  perform pg_temp.chk('T04 (เดิน 6 ครั้ง → 1 แถว: stage 7 · src line · ref coin · method A · circ 54.0 · size 52 · in_shop_range true · measure 1 · events 6 · used_a จาก stage 6 + method เดิม)',
+  perform pg_temp.chk('T04 (เดิน 6 ครั้ง → 1 แถว: stage 7 · in_app line · ref coin · method A · circ 54.0 · size 52 · in_shop_range true · measure 1 · events 6 · used_a จาก stage 6 + method เดิม)',
     v_states = 'OK,OK,OK,OK,OK,OK,' and v_cnt = 1 and v_row.shop_id = v_shop and v_row.max_stage = 7
-      and v_row.src = 'line' and v_row.in_app = 'line' and v_row.is_return = false
+      and v_row.in_app = 'line' and v_row.is_return = false
       and v_row.ref = 'coin' and v_row.method = 'A' and v_row.circ_mm = 54.0 and v_row.result_size = 52
       and v_row.is_between = false and v_row.in_shop_range = true and v_row.measure_count = 1
       and v_row.invalid_count = 0 and v_row.event_count = 6
@@ -307,7 +306,7 @@ begin
     -- ไม่ใช่ object
     '[]', '"x"', 'null', '123', '[{"stage":1}]', '{}',
     -- stage
-    '{"src":"line"}', '{"stage":null}', '{"stage":99}', '{"stage":-1}', '{"stage":8}', '{"stage":1.5}',
+    '{"in_app":"line"}', '{"stage":null}', '{"stage":99}', '{"stage":-1}', '{"stage":8}', '{"stage":1.5}',
     '{"stage":"1"}', '{"stage":1e400}', '{"stage":true}', '{"stage":[1]}',
     -- key นอก allowlist / ชื่อคล้าย / key ที่ client ห้ามกำหนดเอง
     '{"stage":1,"ip":"1.2.3.4"}', '{"stage":1,"user_agent":"x"}', '{"stage":1,"shop_id":"11111111-1111-1111-1111-111111111111"}',
@@ -326,10 +325,8 @@ begin
     '{"stage":1,"ref":"x"}', '{"stage":1,"ref":"Card"}', '{"stage":1,"ref":1}',
     '{"stage":1,"method":"C"}', '{"stage":1,"method":"a"}', '{"stage":1,"method":"AB"}',
     '{"stage":1,"cta":"x"}', '{"stage":1,"cta":"LINE"}', '{"stage":1,"cta":true}', '{"stage":1,"cta":["line"]}',
-    -- src รูปแบบผิด (รูปแบบถูกแต่ไม่อยู่ใน lookup ไม่ปฏิเสธ — ดู T06)
-    '{"stage":1,"src":"LINE"}', '{"stage":1,"src":"a b"}', '{"stage":1,"src":"abcdefghijklmnopq"}', '{"stage":1,"src":"1abc"}',
-    '{"stage":1,"src":5}', '{"stage":1,"src":null}', '{"stage":1,"src":"line;drop"}', '{"stage":1,"src":""}',
-    '{"stage":1,"src":"ไทย"}', '{"stage":1,"src":"a-b"}',
+    -- key src ถูกตัดออกจาก allowlist (มติ 25 ต.ค. 69 ไม่แยกช่องทาง) ⇒ ส่งมา = key ไม่รู้จัก = ปฏิเสธ (allowlist เข้ม ไม่ ignore เงียบ)
+    '{"stage":1,"src":"line"}', '{"stage":1,"src":"direct"}', '{"stage":1,"src":null}', '{"stage":1,"src":5}', '{"stage":1,"source":"line"}',
     -- boolean ต้องเป็น JSON boolean จริง
     '{"stage":1,"is_return":"true"}', '{"stage":1,"is_return":1}', '{"stage":1,"is_return":null}',
     '{"stage":7,"between":"true"}', '{"stage":7,"between":0}', '{"stage":7,"in_range":1}', '{"stage":7,"in_range":"true"}',
@@ -346,7 +343,7 @@ begin
     end if;
   end loop;
   perform pg_temp.chk(format('T05 (snapshot ผิด %s รูปแบบ ⇒ 22023 ทุกตัว และไม่มีแถวหลุดเข้าตาราง)', cardinality(v_bad_snaps)),
-    v_fails = '' and cardinality(v_bad_snaps) >= 80, v_fails);
+    v_fails = '' and cardinality(v_bad_snaps) >= 75, v_fails);
 
   -- T05b — พารามิเตอร์ null
   v_sid := gen_random_uuid();
@@ -361,7 +358,7 @@ begin
   foreach v_snap in array array[
     '{"stage":0}', '{"stage":7}',
     '{"stage":7,"circ_mm":20,"size":30}', '{"stage":7,"circ_mm":120,"size":90}', '{"stage":7,"circ_mm":54.04,"size":52}',
-    '{"stage":1,"is_return":true,"in_app":"unknown","src":"direct"}',
+    '{"stage":1,"is_return":true,"in_app":"unknown"}',
     '{"stage":7,"g4":true,"g1":true,"g3":true,"g5":true,"cta":"gem_quiz"}',
     '{"stage":6,"method":"B","used_a":false,"used_b":true,"saw_between":false}'
   ] loop
@@ -371,32 +368,17 @@ begin
   perform pg_temp.chk('T05c (ค่าขอบที่ถูกต้อง 20/120/30/90 + ธงครบ ⇒ ต้องผ่าน ไม่ถูกปฏิเสธ)', v_fails = '', v_fails);
 
   -- --------------------------------------------------------------------
-  -- T06 — src: รูปแบบถูกแต่ไม่อยู่ใน lookup/ถูกปิด ⇒ direct (ไม่ปฏิเสธ) · ตั้งครั้งเดียว · in_app เติมได้เฉพาะ unknown
+  -- T06 — key src ถูกปฏิเสธ (ไม่รู้จัก) ทั้ง insert และ update · in_app เติมได้เฉพาะ unknown
   -- --------------------------------------------------------------------
-  v_sid := gen_random_uuid(); v_sid2 := gen_random_uuid(); v_sid3 := gen_random_uuid();
-  v_state := pg_temp.up(v_shop, v_sid, '{"stage":0,"src":"zzz"}');
-  select src into v_text from analytics.ring_size_session where id = v_sid;
-  perform pg_temp.chk('T06a (src รูปแบบถูกแต่ไม่อยู่ใน lookup ⇒ ไม่ปฏิเสธ เก็บเป็น direct)', v_state = 'OK' and v_text = 'direct', format('%s/%s', v_state, v_text));
-
-  v_state := pg_temp.up(v_shop, v_sid2, '{"stage":0}');
-  select src into v_text from analytics.ring_size_session where id = v_sid2;
-  perform pg_temp.chk('T06b (ไม่ส่ง src ⇒ direct)', v_state = 'OK' and v_text = 'direct', format('%s/%s', v_state, v_text));
-
-  update analytics.ring_size_src set is_active = false where code = 'ig';
-  v_sid3 := gen_random_uuid();
-  v_state := pg_temp.up(v_shop, v_sid3, '{"stage":0,"src":"ig"}');
-  select src into v_text from analytics.ring_size_session where id = v_sid3;
-  update analytics.ring_size_src set is_active = true where code = 'ig';
-  v_sid3 := gen_random_uuid();
-  v_state := pg_temp.up(v_shop, v_sid3, '{"stage":0,"src":"ig"}');
-  select src into v_text2 from analytics.ring_size_session where id = v_sid3;
-  perform pg_temp.chk('T06c (src ที่ถูกปิด is_active=false ⇒ direct · เปิดกลับ ⇒ ig)', v_text = 'direct' and v_text2 = 'ig', format('%s/%s', v_text, v_text2));
-
   v_sid := gen_random_uuid();
-  perform pg_temp.up(v_shop, v_sid, '{"stage":0,"src":"line"}');
-  v_state := pg_temp.up(v_shop, v_sid, '{"stage":1,"src":"fb"}');
-  select src into v_text from analytics.ring_size_session where id = v_sid;
-  perform pg_temp.chk('T06d (src ตั้งครั้งเดียวตอน insert — ส่งใหม่ภายหลังไม่ทับ)', v_state = 'OK' and v_text = 'line', format('%s/%s', v_state, v_text));
+  v_state := pg_temp.up(v_shop, v_sid, '{"stage":0,"src":"line"}');
+  select count(*) into v_cnt from analytics.ring_size_session where id = v_sid;
+  v_sid2 := gen_random_uuid();
+  perform pg_temp.up(v_shop, v_sid2, '{"stage":0}');
+  v_text := pg_temp.up(v_shop, v_sid2, '{"stage":1,"src":"fb"}');
+  select event_count into v_num from analytics.ring_size_session where id = v_sid2;
+  perform pg_temp.chk('T06a (key src ⇒ 22023 ทั้งตอนสร้างแถวใหม่ (ไม่มีแถวหลุด) และตอนอัปเดตแถวเดิม (event_count ไม่ขยับ = 1))',
+    v_state = '22023' and v_cnt = 0 and v_text = '22023' and v_num = 1, format('%s/%s/%s/%s', v_state, v_cnt, v_text, v_num));
 
   v_sid := gen_random_uuid();
   perform pg_temp.up(v_shop, v_sid, '{"stage":0}');
@@ -426,7 +408,7 @@ begin
   -- T08 — monotonic: ค่าที่ลดลงไม่ทับ · ธง OR · ผลวัดทับเป็นก้อน · measure_count/invalid_count
   -- --------------------------------------------------------------------
   v_sid := gen_random_uuid();
-  perform pg_temp.up(v_shop, v_sid, '{"stage":7,"src":"line","ref":"card","method":"B","circ_mm":54.0,"size":52,"between":true,"cta":"line","g1":true}');
+  perform pg_temp.up(v_shop, v_sid, '{"stage":7,"ref":"card","method":"B","circ_mm":54.0,"size":52,"between":true,"cta":"line","g1":true}');
   perform pg_temp.up(v_shop, v_sid, '{"stage":2}');                                -- stage ต่ำกว่า ไม่ทับ
   perform pg_temp.up(v_shop, v_sid, '{"stage":3,"g1":false,"g3":true}');           -- ธงเดิมไม่ถูกปิด · ธงใหม่ติด
   select * into v_row from analytics.ring_size_session where id = v_sid;
@@ -536,43 +518,40 @@ begin
   --   F4 03-10 12:00  F5 03-10 23:59:59  F6 03-10 15:00  F8 03-10 10:00  F9 03-10 13:00 (ผสม B→A)  F7 03-11 00:00:00 (UTC 17:00 ของ 03-10)
   -- --------------------------------------------------------------------
   perform pg_temp.fx(v_shop, timestamptz '2020-03-09 23:59:30+07',
-    '{"stage":7,"src":"line","in_app":"line","ref":"card","method":"A","circ_mm":50.2,"size":47}');
+    '{"stage":7,"in_app":"line","ref":"card","method":"A","circ_mm":50.2,"size":47}');
   v_sid := pg_temp.fx(v_shop, timestamptz '2020-03-10 00:30:00+07',
-    '{"stage":7,"src":"line","in_app":"line","is_return":true,"ref":"card","method":"A","circ_mm":54.0,"size":52,"cta":"line"}');
+    '{"stage":7,"in_app":"line","is_return":true,"ref":"card","method":"A","circ_mm":54.0,"size":52,"cta":"line"}');
   perform pg_temp.up(v_shop, v_sid, '{"stage":7,"circ_mm":54.0,"size":52,"g5":true}');              -- วัดรอบ 2 → remeasured + stale_recalib
   perform pg_temp.fx(v_shop, timestamptz '2020-03-10 06:59:00+07',
-    '{"stage":3,"src":"fb","in_app":"fb","ref":"coin"}');
+    '{"stage":3,"in_app":"fb","ref":"coin"}');
   perform pg_temp.fx(v_shop, timestamptz '2020-03-10 12:00:00+07',
-    '{"stage":7,"src":"direct","in_app":"browser","ref":"coin","method":"B","circ_mm":57.5,"size":40,"between":true,"g3":true,"cta":"share"}');
+    '{"stage":7,"in_app":"browser","ref":"coin","method":"B","circ_mm":57.5,"size":40,"between":true,"g3":true,"cta":"share"}');
   perform pg_temp.fx(v_shop, timestamptz '2020-03-10 23:59:59+07',
-    '{"stage":7,"src":"line","in_app":"tiktok","ref":"card","method":"B","g4":true,"g1":true}');
+    '{"stage":7,"in_app":"tiktok","ref":"card","method":"B","g4":true,"g1":true}');
   perform pg_temp.fx(v_shop, timestamptz '2020-03-10 15:00:00+07',
-    '{"stage":7,"src":"web","in_app":"browser","ref":"card","method":"A","circ_mm":65.0,"size":75,"cta":"shop"}');
+    '{"stage":7,"in_app":"browser","ref":"card","method":"A","circ_mm":65.0,"size":75,"cta":"shop"}');
   perform pg_temp.fx(v_shop, timestamptz '2020-03-10 10:00:00+07',
-    '{"stage":6,"src":"line","in_app":"line","ref":"card","method":"A","cta":"gem_quiz"}');
+    '{"stage":6,"in_app":"line","ref":"card","method":"A","cta":"gem_quiz"}');
   -- F9: ลองกระดาษ (B) ถึงหน้าวัด แล้วเปลี่ยนมาแหวนเดิม (A) ได้เบอร์ — ผสมสองวิธีใน session เดียว
   v_sid := pg_temp.fx(v_shop, timestamptz '2020-03-10 13:00:00+07',
-    '{"stage":6,"src":"direct","in_app":"browser","ref":"coin","method":"B"}');
+    '{"stage":6,"in_app":"browser","ref":"coin","method":"B"}');
   perform pg_temp.up(v_shop, v_sid, '{"stage":5,"method":"A"}');
   perform pg_temp.up(v_shop, v_sid, '{"stage":6}');
   perform pg_temp.up(v_shop, v_sid, '{"stage":7,"circ_mm":52.0,"size":50}');
   perform pg_temp.fx(v_shop, timestamptz '2020-03-11 00:00:00+07',
-    '{"stage":0,"src":"direct","in_app":"unknown"}');
+    '{"stage":0,"in_app":"unknown"}');
 
-  v_stats := analytics.ring_size_stats(v_shop, date '2020-03-10', date '2020-03-10', null);
+  v_stats := analytics.ring_size_stats(v_shop, date '2020-03-10', date '2020-03-10');
   perform pg_temp.chk('T12a (วันไทย 03-10 วันเดียว: sessions 7 (ไม่รวม F1 ของ 03-09 และ F7 ของ 03-11 แม้ UTC จะเหลื่อม) · returning 1 · measured 4 (F5 ถึง stage 7 ด้วย G4 แต่ไม่มีเบอร์ ⇒ ไม่นับ))',
     (v_stats ->> 'sessions')::int = 7 and (v_stats ->> 'returning')::int = 1 and (v_stats ->> 'measured')::int = 4,
     v_stats::text);
   perform pg_temp.chk('T12b (funnel=[7,7,7,7,6,6,6,5] · abandon_at=[0,0,0,1,0,0,1] · invariant ผลรวมสอดคล้อง 6 ข้อ)',
     v_stats -> 'funnel' = '[7,7,7,7,6,6,6,5]'::jsonb and v_stats -> 'abandon_at' = '[0,0,0,1,0,0,1]'::jsonb and pg_temp.inv(v_stats),
     v_stats::text);
-  select string_agg((e ->> 'src') || '=' || (e ->> 'count'), ',' order by ord) into v_text
-  from jsonb_array_elements(v_stats -> 'by_src') with ordinality as t(e, ord);
-  perform pg_temp.chk('T12c (by_src (key src + label_th) เรียงตาม sort_order: direct=2,line=3,fb=1,web=1,tiktok=0,ig=0 · by_in_app ตรง)',
-    v_text = 'direct=2,line=3,fb=1,web=1,tiktok=0,ig=0'
-      and (select bool_and(e ->> 'label_th' is not null) from jsonb_array_elements(v_stats -> 'by_src') e)
-      and v_stats -> 'by_in_app' = '{"line":2,"tiktok":1,"fb":1,"ig":0,"browser":3,"unknown":0}'::jsonb,
-    v_text || ' ' || (v_stats -> 'by_in_app')::text);
+  perform pg_temp.chk('T12c (by_in_app ตรงมือ: line=2 tiktok=1 fb=1 ig=0 browser=3 unknown=0 · ไม่มี key by_src/src_options ในผล)',
+    v_stats -> 'by_in_app' = '{"line":2,"tiktok":1,"fb":1,"ig":0,"browser":3,"unknown":0}'::jsonb
+      and not (v_stats ? 'by_src') and not (v_stats ? 'src_options'),
+    (v_stats -> 'by_in_app')::text);
   select string_agg((e ->> 'size') || 'x' || (e ->> 'count'), ',' order by (e ->> 'size')::int) into v_text
   from jsonb_array_elements(v_stats -> 'result_sizes') e;
   select string_agg((e ->> 'mm') || 'x' || (e ->> 'count'), ',' order by (e ->> 'mm')::int) into v_text2
@@ -597,34 +576,26 @@ begin
       and (v_stats ->> 'saw_between')::int = 1,
     (v_stats -> 'method_stats')::text || (v_stats -> 'switched')::text);
 
-  select string_agg(e ->> 'code', ',' order by ord) into v_text
-  from jsonb_array_elements(v_stats -> 'src_options') with ordinality as t(e, ord);
-  perform pg_temp.chk('T12l (src_options = lookup active ทั้งหมดเรียง sort_order แม้ช่องที่ช่วงนี้ไม่มีข้อมูล · shop_range {min:45,max:68} · data_since = วันไทยของแถวแรกสุดของร้าน 2020-03-09 ไม่ขึ้นกับตัวกรอง)',
-    v_text = 'direct,line,fb,web,tiktok,ig' and v_stats -> 'shop_range' = '{"min":45,"max":68}'::jsonb
-      and v_stats ->> 'data_since' = '2020-03-09',
-    v_text || ' ' || (v_stats -> 'shop_range')::text || ' ' || coalesce(v_stats ->> 'data_since', 'null'));
+  perform pg_temp.chk('T12l (shop_range {min:45,max:68} · data_since = วันไทยของแถวแรกสุดของร้าน 2020-03-09 ไม่ขึ้นกับช่วงวันที่ขอ)',
+    v_stats -> 'shop_range' = '{"min":45,"max":68}'::jsonb and v_stats ->> 'data_since' = '2020-03-09',
+    (v_stats -> 'shop_range')::text || ' ' || coalesce(v_stats ->> 'data_since', 'null'));
 
-  v_stats2 := analytics.ring_size_stats(v_shop, date '2020-03-09', date '2020-03-11', null);
+  v_stats2 := analytics.ring_size_stats(v_shop, date '2020-03-09', date '2020-03-11');
   select string_agg((e ->> 'date') || ':' || (e ->> 'sessions') || '/' || (e ->> 'measured'), ',' order by e ->> 'date') into v_text
   from jsonb_array_elements(v_stats2 -> 'daily') e;
   perform pg_temp.chk('T12g (ช่วง 03-09..03-11: sessions 9 · daily 03-09:1/1,03-10:7/4,03-11:1/0 — ถ้าใช้วัน UTC จะเหลื่อมและตัวเลขนี้ผิด · invariant ผ่าน)',
     (v_stats2 ->> 'sessions')::int = 9 and v_text = '2020-03-09:1/1,2020-03-10:7/4,2020-03-11:1/0' and pg_temp.inv(v_stats2),
     v_text);
 
-  v_stats2 := analytics.ring_size_stats(v_shop, date '2020-03-10', date '2020-03-10', 'line');
-  perform pg_temp.chk('T12h (กรอง src=line วัน 03-10 ⇒ sessions 3 (F2,F5,F8) · invariant ผ่าน)',
-    (v_stats2 ->> 'sessions')::int = 3 and pg_temp.inv(v_stats2), v_stats2::text);
-
-  v_stats2 := analytics.ring_size_stats(v_shop, date '2019-01-01', date '2019-01-03', 'ig');
-  perform pg_temp.chk('T12i (ต้องไม่พัง: ช่วงว่าง + src ที่มีใน lookup แต่ไม่มีข้อมูล ⇒ sessions 0 · shape ครบ · daily 3 วัน · funnel 8 ช่อง · invariant ผ่าน)',
+  v_stats2 := analytics.ring_size_stats(v_shop, date '2019-01-01', date '2019-01-03');
+  perform pg_temp.chk('T12i (ต้องไม่พัง: ช่วงที่ไม่มีข้อมูล ⇒ sessions 0 · shape ครบ · daily 3 วัน · funnel 8 ช่อง · invariant ผ่าน)',
     (v_stats2 ->> 'sessions')::int = 0 and jsonb_array_length(v_stats2 -> 'daily') = 3
       and jsonb_array_length(v_stats2 -> 'funnel') = 8 and jsonb_array_length(v_stats2 -> 'abandon_at') = 7
       and v_stats2 -> 'result_sizes' = '[]'::jsonb and v_stats2 -> 'circ_hist' = '[]'::jsonb and pg_temp.inv(v_stats2)
-      and v_stats2 -> 'method_stats' -> 'A' ->> 'picked' = '0' and v_stats2 -> 'switched' = '{"a_to_b":0,"b_to_a":0,"both":0}'::jsonb
-      and jsonb_array_length(v_stats2 -> 'src_options') = 6,
+      and v_stats2 -> 'method_stats' -> 'A' ->> 'picked' = '0' and v_stats2 -> 'switched' = '{"a_to_b":0,"b_to_a":0,"both":0}'::jsonb,
     v_stats2::text);
 
-  v_stats2 := analytics.ring_size_stats(v_other_shop, date '2020-03-10', date '2020-03-10', null);
+  v_stats2 := analytics.ring_size_stats(v_other_shop, date '2020-03-10', date '2020-03-10');
   perform pg_temp.chk('T12j (แยกร้าน: ร้านอื่นช่วงเดียวกัน ⇒ sessions 0 ไม่เห็นข้อมูลร้านนี้ · data_since เป็น null)',
     (v_stats2 ->> 'sessions')::int = 0 and v_stats2 -> 'data_since' = 'null'::jsonb, v_stats2::text);
 
@@ -635,20 +606,20 @@ begin
   select user_id into v_uid_staff from public.shop_member where shop_id = v_shop and role not in ('owner', 'admin') limit 1;
 
   perform set_config('request.jwt.claims', format('{"role":"authenticated","sub":"%s"}', gen_random_uuid()), true);
-  v_state := pg_temp.st(v_shop, date '2020-03-10', date '2020-03-10', null);
-  v_text := pg_temp.st(v_shop, date '2020-03-12', date '2020-03-10', 'zzz');   -- พารามิเตอร์ผิดทุกข้อ แต่ต้องตกที่สิทธิ์ก่อน
+  v_state := pg_temp.st(v_shop, date '2020-03-10', date '2020-03-10');
+  v_text := pg_temp.st(v_shop, date '2020-03-12', date '2020-03-10');   -- พารามิเตอร์ผิดทุกข้อ แต่ต้องตกที่สิทธิ์ก่อน
   perform pg_temp.chk('T13a (ผู้ใช้ที่ไม่ใช่สมาชิกร้าน ⇒ 42501 · พารามิเตอร์ผิดก็ตกที่สิทธิ์ก่อน 42501 ไม่ใช่ 22023 — กัน probe)',
     v_state = '42501' and v_text = '42501', v_state || '/' || v_text);
 
   perform set_config('request.jwt.claims', '{}', true);
-  v_state := pg_temp.st(v_shop, date '2020-03-10', date '2020-03-10', null);
+  v_state := pg_temp.st(v_shop, date '2020-03-10', date '2020-03-10');
   perform set_config('request.jwt.claims', '', true);
-  v_text := pg_temp.st(v_shop, date '2020-03-10', date '2020-03-10', null);
+  v_text := pg_temp.st(v_shop, date '2020-03-10', date '2020-03-10');
   perform pg_temp.chk('T13b (ไม่มี claim เลย ({} และสตริงว่าง) ⇒ 42501)', v_state = '42501' and v_text = '42501', v_state || '/' || v_text);
 
   if v_uid_staff is not null then
     perform set_config('request.jwt.claims', format('{"role":"authenticated","sub":"%s"}', v_uid_staff), true);
-    v_state := pg_temp.st(v_shop, date '2020-03-10', date '2020-03-10', null);
+    v_state := pg_temp.st(v_shop, date '2020-03-10', date '2020-03-10');
     perform pg_temp.chk('T13c (สมาชิก role staff ของร้าน ⇒ 42501)', v_state = '42501', v_state);
   else
     raise notice '[live] T13c = SKIP (ไม่มีสมาชิก role ที่ไม่ใช่ owner/admin ใน shop_member จริง — ไม่สร้าง fixture เพราะต้องแตะ auth.users)';
@@ -657,7 +628,7 @@ begin
 
   if v_uid_owner is not null then
     perform set_config('request.jwt.claims', format('{"role":"authenticated","sub":"%s"}', v_uid_owner), true);
-    v_state := pg_temp.st(v_shop, date '2020-03-10', date '2020-03-10', null);
+    v_state := pg_temp.st(v_shop, date '2020-03-10', date '2020-03-10');
     perform pg_temp.chk('T13d (ต้องไม่พัง: owner/admin จริงของร้านเรียกได้ ⇒ OK)', v_state = 'OK', v_state);
   else
     insert into _vr (name, ok, detail) values ('T13d (owner/admin จริงเรียกได้) — SKIP ไม่มี owner/admin ใน shop_member', true, 'skip');
@@ -666,20 +637,17 @@ begin
   perform set_config('request.jwt.claims', '{"role":"service_role"}', true);
   v_fails := '';
   -- ทุกเคสนี้ต้อง 22023 เมื่อมีสิทธิ์ (service_role)
-  if pg_temp.st(v_shop, date '2020-03-12', date '2020-03-10', null) <> '22023' then v_fails := v_fails || ' [from>to]'; end if;
-  if pg_temp.st(v_shop, date '2020-03-10' - 181, date '2020-03-10', null) <> '22023' then v_fails := v_fails || ' [เกิน 180 วัน]'; end if;
-  if pg_temp.st(v_shop, date '2019-03-10', date '2020-03-10', null) <> '22023' then v_fails := v_fails || ' [366 วัน — ค่าเก่าก่อนมติ 180]'; end if;
-  if pg_temp.st(v_shop, date '2020-03-10', date '2020-03-10', 'zzz') <> '22023' then v_fails := v_fails || ' [src นอก lookup]'; end if;
-  if pg_temp.st(v_shop, date '2020-03-10', date '2020-03-10', 'LINE') <> '22023' then v_fails := v_fails || ' [src ตัวพิมพ์ใหญ่]'; end if;
-  if pg_temp.st(null, date '2020-03-10', date '2020-03-10', null) <> '22023' then v_fails := v_fails || ' [shop null]'; end if;
-  if pg_temp.st(v_shop, null, date '2020-03-10', null) <> '22023' then v_fails := v_fails || ' [from null]'; end if;
-  if pg_temp.st(v_shop, date '2020-03-10', null, null) <> '22023' then v_fails := v_fails || ' [to null]'; end if;
-  perform pg_temp.chk('T13e (service_role: from>to · เกิน 180 วัน (181 และ 366) · src นอก lookup/ตัวพิมพ์ใหญ่ · พารามิเตอร์ null ⇒ 22023 ทุกตัว)', v_fails = '', v_fails);
+  if pg_temp.st(v_shop, date '2020-03-12', date '2020-03-10') <> '22023' then v_fails := v_fails || ' [from>to]'; end if;
+  if pg_temp.st(v_shop, date '2020-03-10' - 181, date '2020-03-10') <> '22023' then v_fails := v_fails || ' [เกิน 180 วัน]'; end if;
+  if pg_temp.st(v_shop, date '2019-03-10', date '2020-03-10') <> '22023' then v_fails := v_fails || ' [366 วัน — ค่าเก่าก่อนมติ 180]'; end if;
+  if pg_temp.st(null, date '2020-03-10', date '2020-03-10') <> '22023' then v_fails := v_fails || ' [shop null]'; end if;
+  if pg_temp.st(v_shop, null, date '2020-03-10') <> '22023' then v_fails := v_fails || ' [from null]'; end if;
+  if pg_temp.st(v_shop, date '2020-03-10', null) <> '22023' then v_fails := v_fails || ' [to null]'; end if;
+  perform pg_temp.chk('T13e (service_role: from>to · เกิน 180 วัน (181 และ 366) · พารามิเตอร์ null ⇒ 22023 ทุกตัว)', v_fails = '', v_fails);
 
-  v_ok := pg_temp.st(v_shop, date '2020-03-10' - 180, date '2020-03-10', null) = 'OK'      -- p_to - p_from = 180 พอดี ต้องผ่าน
-       and pg_temp.st(v_shop, date '2020-03-10', date '2020-03-10', 'ig') = 'OK'
-       and pg_temp.st(v_shop, date '2020-03-10', date '2020-03-10', 'direct') = 'OK';
-  perform pg_temp.chk('T13f (ต้องไม่พัง: ช่วง p_to-p_from = 180 พอดี · src ที่อยู่ใน lookup ⇒ OK)', v_ok);
+  v_ok := pg_temp.st(v_shop, date '2020-03-10' - 180, date '2020-03-10') = 'OK'      -- p_to - p_from = 180 พอดี ต้องผ่าน
+       and pg_temp.st(v_shop, date '2020-03-10', date '2020-03-10') = 'OK';
+  perform pg_temp.chk('T13f (ต้องไม่พัง: ช่วง p_to-p_from = 180 พอดี และวันเดียว ⇒ OK)', v_ok);
 
   -- --------------------------------------------------------------------
   -- T14 — retention 180 วัน (179 อยู่ · 181 หาย) + pg_cron ไม่ซ้ำ (เคส #23) · ต้องรันหลัง T12 (fixture ปี 2020 จะถูกลบ)
@@ -721,8 +689,7 @@ begin
     pg_temp.tbl_leaks() = 0
       and exists (select 1 from pg_class c cross join lateral aclexplode(c.relacl) a
                   where c.oid = 'analytics.ring_size_session'::regclass and a.grantee = 'service_role'::regrole and a.privilege_type = 'SELECT')
-      and exists (select 1 from pg_class c cross join lateral aclexplode(c.relacl) a
-                  where c.oid = 'analytics.ring_size_src'::regclass and a.grantee = 'service_role'::regrole and a.privilege_type = 'SELECT'),
+,
     'tbl_leaks=' || pg_temp.tbl_leaks());
   perform pg_temp.chk('T15b (ACL ฟังก์ชัน: ring_size_* ทั้ง 4 ตัว service_role มี EXECUTE · sweep ทั้งสคีมา analytics ไม่มี PUBLIC/anon/authenticated ถือ EXECUTE)',
     pg_temp.fn_missing_service() = 0 and pg_temp.fn_leaks() = 0,
@@ -739,7 +706,7 @@ begin
     begin perform analytics.ring_size_session_upsert(v_shop, gen_random_uuid(), '{"stage":0}'::jsonb); v_state := 'OK';
     exception when others then get stacked diagnostics v_state = returned_sqlstate; end;
     if v_state <> '42501' then v_fails := v_fails || format(' [%s upsert=%s]', v_text, v_state); end if;
-    begin perform analytics.ring_size_stats(v_shop, date '2020-03-10', date '2020-03-10', null); v_state := 'OK';
+    begin perform analytics.ring_size_stats(v_shop, date '2020-03-10', date '2020-03-10'); v_state := 'OK';
     exception when others then get stacked diagnostics v_state = returned_sqlstate; end;
     if v_state <> '42501' then v_fails := v_fails || format(' [%s stats=%s]', v_text, v_state); end if;
     begin perform analytics.ring_size_retention_apply(); v_state := 'OK';
@@ -751,13 +718,10 @@ begin
     begin perform 1 from analytics.ring_size_session limit 1; v_state := 'OK';
     exception when others then get stacked diagnostics v_state = returned_sqlstate; end;
     if v_state <> '42501' then v_fails := v_fails || format(' [%s select session=%s]', v_text, v_state); end if;
-    begin perform 1 from analytics.ring_size_src limit 1; v_state := 'OK';
-    exception when others then get stacked diagnostics v_state = returned_sqlstate; end;
-    if v_state <> '42501' then v_fails := v_fails || format(' [%s select src=%s]', v_text, v_state); end if;
     execute 'reset role';
   end loop;
   execute 'revoke usage on schema analytics from anon, authenticated';
-  perform pg_temp.chk('T15d (กำแพงชั้นนอกหลุด: anon/authenticated เรียก RPC ทั้ง 4 + select ตารางทั้ง 2 จริง ⇒ 42501 ทุกตัว)', v_fails = '', v_fails);
+  perform pg_temp.chk('T15d (กำแพงชั้นนอกหลุด: anon/authenticated เรียก RPC ทั้ง 4 + select ตารางจริง ⇒ 42501 ทุกตัว)', v_fails = '', v_fails);
 
   -- service_role: เขียนตรงเข้าตารางไม่ได้ · อ่านได้ · เรียก RPC ได้ (ต้องไม่พัง)
   execute 'set local role service_role';
@@ -774,17 +738,14 @@ begin
   begin truncate analytics.ring_size_session; v_state := 'OK';
   exception when others then get stacked diagnostics v_state = returned_sqlstate; end;
   if v_state <> '42501' then v_fails := v_fails || format(' [truncate=%s]', v_state); end if;
-  begin insert into analytics.ring_size_src (code, label_th) values ('evil', 'x'); v_state := 'OK';
-  exception when others then get stacked diagnostics v_state = returned_sqlstate; end;
-  if v_state <> '42501' then v_fails := v_fails || format(' [insert src=%s]', v_state); end if;
   begin perform 1 from analytics.ring_size_session limit 1; v_ok := true;
   exception when others then v_ok := false; end;
   begin perform analytics.ring_size_session_upsert(v_shop, gen_random_uuid(), '{"stage":0}'::jsonb); v_ok2 := true;
   exception when others then v_ok2 := false; end;
-  begin perform analytics.ring_size_stats(v_shop, date '2020-03-10', date '2020-03-10', null); v_ok3 := true;
+  begin perform analytics.ring_size_stats(v_shop, date '2020-03-10', date '2020-03-10'); v_ok3 := true;
   exception when others then v_ok3 := false; end;
   execute 'reset role';
-  perform pg_temp.chk('T15e (service_role: INSERT/UPDATE/DELETE/TRUNCATE ตรงเข้าตาราง และ insert lookup ⇒ 42501 · แต่ SELECT/เรียก upsert/stats ได้ปกติ)',
+  perform pg_temp.chk('T15e (service_role: INSERT/UPDATE/DELETE/TRUNCATE ตรงเข้าตาราง ⇒ 42501 · แต่ SELECT/เรียก upsert/stats ได้ปกติ)',
     v_fails = '' and v_ok and v_ok2 and v_ok3, format('%s select=%s upsert=%s stats=%s', v_fails, v_ok, v_ok2, v_ok3));
 
   -- --------------------------------------------------------------------
@@ -906,7 +867,7 @@ begin
   else
     execute v_mut;
     perform set_config('request.jwt.claims', format('{"role":"authenticated","sub":"%s"}', gen_random_uuid()), true);
-    v_state := pg_temp.st(v_shop, date '2020-03-10', date '2020-03-10', null);
+    v_state := pg_temp.st(v_shop, date '2020-03-10', date '2020-03-10');
     perform set_config('request.jwt.claims', '{"role":"service_role"}', true);
     execute v_def_st;
     perform pg_temp.chk('M7 (mutant: ตัดด่านสิทธิ์ ⇒ คนนอกร้านอ่านสถิติได้ (OK) ไม่ใช่ 42501 = T13a จับได้)', v_state = 'OK', 'mutant ให้ผล ' || v_state);
@@ -916,9 +877,9 @@ begin
   execute 'grant execute on function analytics.ring_size_session_upsert(uuid, uuid, jsonb) to anon';
   v_cnt := pg_temp.fn_leaks();
   execute 'revoke execute on function analytics.ring_size_session_upsert(uuid, uuid, jsonb) from public, anon, authenticated';
-  execute 'grant execute on function analytics.ring_size_stats(uuid, date, date, text) to public';
+  execute 'grant execute on function analytics.ring_size_stats(uuid, date, date) to public';
   v_cnt2 := pg_temp.fn_leaks();
-  execute 'revoke execute on function analytics.ring_size_stats(uuid, date, date, text) from public, anon, authenticated';
+  execute 'revoke execute on function analytics.ring_size_stats(uuid, date, date) from public, anon, authenticated';
   execute 'grant insert on analytics.ring_size_session to service_role';
   v_num := pg_temp.tbl_leaks();
   execute 'revoke insert on analytics.ring_size_session from service_role';
@@ -946,7 +907,7 @@ begin
     perform pg_temp.chk('M11 (mutant: เพดานช่วงวันกลับเป็น 366 ⇒ T13e ต้องล้ม)', false, 'needle ไม่เจอ');
   else
     execute v_mut;
-    v_state := pg_temp.st(v_shop, date '2020-03-10' - 181, date '2020-03-10', null);
+    v_state := pg_temp.st(v_shop, date '2020-03-10' - 181, date '2020-03-10');
     execute v_def_st;
     perform pg_temp.chk('M11 (mutant: เพดาน 366 ⇒ ช่วง 181 วันผ่าน (OK) ไม่ใช่ 22023 = T13e จับได้)', v_state = 'OK', 'mutant ให้ผล ' || v_state);
   end if;
@@ -970,7 +931,7 @@ begin
   -- --------------------------------------------------------------------
   perform pg_temp.chk('T17a (restore: md5 ของ upsert/stats/retention/shop_range เท่าก่อนทำ mutant ทุกตัว)',
     md5(pg_get_functiondef('analytics.ring_size_session_upsert(uuid,uuid,jsonb)'::regprocedure)) = v_md5_up
-    and md5(pg_get_functiondef('analytics.ring_size_stats(uuid,date,date,text)'::regprocedure)) = v_md5_st
+    and md5(pg_get_functiondef('analytics.ring_size_stats(uuid,date,date)'::regprocedure)) = v_md5_st
     and md5(pg_get_functiondef('analytics.ring_size_retention_apply()'::regprocedure)) = v_md5_rt
     and md5(pg_get_functiondef('analytics.ring_size_shop_range()'::regprocedure)) = v_md5_rg);
   select count(*) into v_cnt from pg_proc where pronamespace = 'analytics'::regnamespace and proname like 'ring\_size\_%';
@@ -981,7 +942,7 @@ begin
   -- --------------------------------------------------------------------
   -- Z1 — อ่านอย่างเดียวกับข้อมูลจริงของร้าน (ไม่พิมพ์ค่าออก): stats 30 วันล่าสุดต้องไม่ error และ invariant ผ่าน
   -- --------------------------------------------------------------------
-  v_stats := analytics.ring_size_stats(v_shop, (now() at time zone 'Asia/Bangkok')::date - 29, (now() at time zone 'Asia/Bangkok')::date, null);
+  v_stats := analytics.ring_size_stats(v_shop, (now() at time zone 'Asia/Bangkok')::date - 29, (now() at time zone 'Asia/Bangkok')::date);
   perform pg_temp.chk('Z1 (stats 30 วันล่าสุดบนข้อมูลจริง: ไม่ error · invariant ผ่าน · daily 30 วัน)',
     jsonb_typeof(v_stats) = 'object' and pg_temp.inv(v_stats) and jsonb_array_length(v_stats -> 'daily') = 30);
 
