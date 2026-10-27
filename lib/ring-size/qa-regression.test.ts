@@ -55,17 +55,22 @@ describe("middleware matcher: ต่างจาก main เฉพาะ /ring-s
     expect(CORPUS.length).toBeGreaterThan(400);
   });
 
-  it("path ที่พฤติกรรมเปลี่ยน = {/ring-size, /ring-size/} เท่านั้น · และเปลี่ยนจาก 'ถูก gate' เป็น 'ไม่ผ่าน middleware'", () => {
+  // 27 ต.ค. 69 (merge H1): matcher ถูกบีบเพิ่ม — เดิม `.*\.ext$` ยกเว้นนามสกุลรูป "ทุกความลึก" (ช่อง extension-gate bypass)
+  // จึงแยกสองทิศ: ทิศ "หลวมขึ้น" (gate → exempt) ต้องยังเป็น {/ring-size, /ring-size/} เท่านั้น ·
+  // ทิศ "แน่นขึ้น" (exempt → gate) ยอมเฉพาะ path ที่เคยหลุดเพราะลงท้ายนามสกุลรูป (= H1 ที่ตั้งใจปิด)
+  it("path ที่หลวมขึ้น = {/ring-size, /ring-size/} เท่านั้น · ที่แน่นขึ้นมีแต่ path ที่เคยหลุดด้วยนามสกุลรูป (H1)", () => {
     const changed = CORPUS.filter((p) => before(p) !== after(p));
-    expect(new Set(changed)).toEqual(new Set(["/ring-size", "/ring-size/"]));
-    for (const p of changed) {
-      expect(before(p), `${p} เดิมต้องถูก gate`).toBe(true);
-      expect(after(p), `${p} ใหม่ต้อง exempt`).toBe(false);
+    const loosened = changed.filter((p) => before(p) && !after(p));
+    const tightened = changed.filter((p) => !before(p) && after(p));
+    expect(new Set(loosened)).toEqual(new Set(["/ring-size", "/ring-size/"]));
+    expect(tightened.length).toBeGreaterThan(0);
+    for (const p of tightened) {
+      expect(p, `${p} แน่นขึ้นโดยไม่ใช่เคส H1`).toMatch(/\.(?:svg|png|jpg|jpeg|gif|webp|ico)$/);
     }
   });
 
   it("ของเดิมที่ต้องยัง exempt เหมือนเดิม: gem-quiz · shop · /w/* · api/webhooks · gem-quiz submit · stock/hero · static", () => {
-    for (const p of ["/gem-quiz", "/gem-quiz/", "/api/gem-quiz/submit", "/shop", "/shop/abc", `/w/${TOKEN}`, `/w/s/${TOKEN}`, "/stock/hero", "/api/webhooks/tiktok", "/_next/static/a.js", "/favicon.ico", "/x/logo.png"]) {
+    for (const p of ["/gem-quiz", "/gem-quiz/", "/api/gem-quiz/submit", "/shop", "/shop/abc", `/w/${TOKEN}`, `/w/s/${TOKEN}`, "/stock/hero", "/api/webhooks/tiktok", "/_next/static/a.js", "/favicon.ico", "/3j-logo.png", "/ring-size/3j-mark.png"]) {
       expect(after(p), p).toBe(false);
     }
   });
@@ -75,6 +80,7 @@ describe("middleware matcher: ต่างจาก main เฉพาะ /ring-s
       "/dashboard", "/login", "/oem/quote", "/crm/import", "/tiktok/upload", "/settings/members", "/", "/api/gem-quiz", "/api/gem-quiz/stats",
       "/gem-quiz/admin", "/gem-quizzes", "/w", "/w/", "/w/abc/def", "/ring-sizes", "/ring-size-admin", "/ring-size/x", "/ring-size/x/y", "/api/ring-size", "/api/ring-size-x",
       "/RING-SIZE", "/Ring-Size", "/ring-size/..", "/ring-size%2Fx", "/x/ring-size", "/oem/ring-size",
+      "/x/logo.png", "/orders/x.png", "/ring-size/x/y.png", // H1: นามสกุลรูปใต้ route ต้องถูก gate (เดิม /x/logo.png เคยอยู่ฝั่ง exempt)
     ]) {
       expect(after(p), p).toBe(true);
     }
