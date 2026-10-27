@@ -4,9 +4,24 @@
 
 import { getServiceClient } from "@/lib/supabase/server";
 import { getDevShopId } from "@/lib/dev/context";
+import { getEffectiveRole } from "@/lib/auth/role";
+import { requireMemberAccess, requireWriteAccess } from "@/lib/auth/action-guard";
 import type { ActionResult, StockRow } from "@/lib/types";
 
+// H1 Phase 3 (27 ต.ค. 69): a server action is a public POST endpoint, so each export
+// authenticates itself as its FIRST statement, outside try/catch.
+//   listStock   -> READ-member (any shop member incl. staff; /stock is not role-gated)
+//   adjustStock -> WRITE (owner/admin) — rewrites the on_hand ledger
+async function requireOwnerAdmin(): Promise<ActionResult<never> | null> {
+  if ((await getEffectiveRole()) === "staff") {
+    return { ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่ปรับสต็อกได้" };
+  }
+  return null;
+}
+
 export async function listStock(search: string): Promise<ActionResult<StockRow[]>> {
+  const gateErr = await requireMemberAccess();
+  if (gateErr) return gateErr;
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();
@@ -56,6 +71,8 @@ export async function listStock(search: string): Promise<ActionResult<StockRow[]
  * time to avoid a stale-read race with whatever the sheet loaded earlier.
  */
 export async function adjustStock(productId: string, newOnHand: number): Promise<ActionResult<StockRow>> {
+  const gateErr = await requireWriteAccess(requireOwnerAdmin);
+  if (gateErr) return gateErr;
   if (!Number.isInteger(newOnHand) || newOnHand < 0) {
     return { ok: false, error: "จำนวนสต็อกต้องเป็นจำนวนเต็มไม่ติดลบ" };
   }

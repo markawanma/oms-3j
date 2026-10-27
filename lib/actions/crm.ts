@@ -27,6 +27,7 @@ import { revalidatePath } from "next/cache";
 import { getServiceClient } from "@/lib/supabase/server";
 import { getDevShopId } from "@/lib/dev/context";
 import { getEffectiveRole } from "@/lib/auth/role";
+import { requireMemberAccess } from "@/lib/auth/action-guard";
 import type { ActionResult } from "@/lib/types";
 import { RFM_SEGMENTS, type RfmSegment, type ValueTier } from "@/lib/crm/segments";
 import type { CrmChannelOption, CrmProvinceOption, OrderOverrideInput } from "@/lib/crm/order-override";
@@ -165,7 +166,23 @@ function isValidDateStr(s: string): boolean {
   return !Number.isNaN(d.getTime());
 }
 
+// H1 Phase 2 (27 ต.ค. 69): the 7 member-level READ exports below
+// (getCrmOverview / getCrmCustomerDimensions / getCrmCustomers / getCrmOrders /
+// getCrmCustomerNotes / getCrmEditOptions / getCrmImportErrors) call
+// requireMemberAccess() as their FIRST statement, outside try/catch — a server
+// action is a public POST endpoint, the page gate doesn't cover it. Membership
+// only (staff members keep today's access; these pages aren't role-gated).
+// getCrmCustomerDetail ALSO gates with requireMemberAccess() first (QA, H1):
+// its getEffectiveRole() there only masks raw PII (phone/address) — the
+// customer-360 financials (revenue_sum/profit_sum, per-order revenue/profit/
+// bank) came back for any role, so a pending/anonymous direct POST (collapsed
+// to "staff") got them. Membership gate closes that; staff members still get
+// pii:null exactly as before. Audit/merge/every write use getEffectiveRole()
+// as a DENY (=== "staff" → error/[]), which is already fail-closed for
+// pending/anonymous, so those are untouched.
 export async function getCrmOverview(params?: GetCrmOverviewParams): Promise<ActionResult<CrmOverviewData>> {
+  const gateErr = await requireMemberAccess();
+  if (gateErr) return gateErr;
   let from = params?.from && isValidDateStr(params.from) ? params.from : null;
   let to = params?.to && isValidDateStr(params.to) ? params.to : null;
   // Swap if reversed rather than erroring — same call as tiktok-sales.ts
@@ -378,6 +395,8 @@ export interface GetCrmCustomerDimensionsParams {
 export async function getCrmCustomerDimensions(
   params?: GetCrmCustomerDimensionsParams
 ): Promise<ActionResult<{ all: CrmCustomerDimensions; range: CrmCustomerDimensions }>> {
+  const gateErr = await requireMemberAccess();
+  if (gateErr) return gateErr;
   const from = params?.from && isValidDateStr(params.from) ? params.from : null;
   const to = params?.to && isValidDateStr(params.to) ? params.to : null;
   const channelCode = params?.channelCode?.trim() || null;
@@ -444,6 +463,8 @@ export interface GetCrmCustomersResult {
 }
 
 export async function getCrmCustomers(): Promise<ActionResult<GetCrmCustomersResult>> {
+  const gateErr = await requireMemberAccess();
+  if (gateErr) return gateErr;
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();
@@ -589,6 +610,8 @@ export interface GetCrmOrdersResult {
 }
 
 export async function getCrmOrders(params?: GetCrmOrdersParams): Promise<ActionResult<GetCrmOrdersResult>> {
+  const gateErr = await requireMemberAccess();
+  if (gateErr) return gateErr;
   let from = params?.from && isValidDateStr(params.from) ? params.from : null;
   let to = params?.to && isValidDateStr(params.to) ? params.to : null;
   if (from && to && from > to) {
@@ -782,6 +805,8 @@ export interface CrmCustomerDetail {
 }
 
 export async function getCrmCustomerDetail(customerId: string): Promise<ActionResult<CrmCustomerDetail>> {
+  const gateErr = await requireMemberAccess();
+  if (gateErr) return gateErr;
   if (!customerId || typeof customerId !== "string") {
     return { ok: false, error: "ไม่พบรหัสลูกค้า" };
   }
@@ -1089,6 +1114,8 @@ export interface CrmNoteRow {
  * NOT owner/admin-only — unlike PII/audit, any dev role can read notes; only
  * add/edit/delete are gated. */
 export async function getCrmCustomerNotes(customerId: string): Promise<ActionResult<CrmNoteRow[]>> {
+  const gateErr = await requireMemberAccess();
+  if (gateErr) return gateErr;
   if (!customerId) return { ok: false, error: "ไม่พบรหัสลูกค้า" };
   try {
     const shopId = getDevShopId();
@@ -1316,6 +1343,8 @@ export async function getCrmCustomerAudit(customerId: string): Promise<ActionRes
 export async function getCrmEditOptions(): Promise<
   ActionResult<{ channels: CrmChannelOption[]; provinces: CrmProvinceOption[] }>
 > {
+  const gateErr = await requireMemberAccess();
+  if (gateErr) return gateErr;
   try {
     const supabase = getServiceClient();
 
@@ -1479,6 +1508,8 @@ export interface CrmImportErrorRow {
 }
 
 export async function getCrmImportErrors(): Promise<ActionResult<CrmImportErrorRow[]>> {
+  const gateErr = await requireMemberAccess();
+  if (gateErr) return gateErr;
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();

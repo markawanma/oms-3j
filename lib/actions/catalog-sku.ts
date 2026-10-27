@@ -15,14 +15,16 @@
 // catalog row — the day the UI grows a cost-entry field, an ungated action
 // here becomes a live hole, not a theoretical one.
 //
-// listSkuPrefixes (read-only) is NOT gated, matching getProducts in
-// catalog.ts — reads stay open to "พนักงานหน้างาน" (frontline staff), only
-// writes are locked down.
+// listSkuPrefixes (read-only) carries an owner-level read gate (session +
+// role) since H1 Phase 2 (27 ต.ค. 69): every caller (/catalog/sku-prefix,
+// /production/* ProductionAddItemForm, /oem/quote QuoteCalculatorClient) is
+// already owner/admin-only at the page.
 
 import { revalidatePath } from "next/cache";
 import { getServiceClient } from "@/lib/supabase/server";
 import { getDevShopId } from "@/lib/dev/context";
 import { getEffectiveRole } from "@/lib/auth/role";
+import { requireWriteAccess } from "@/lib/auth/action-guard";
 import type { ActionResult } from "@/lib/types";
 import type { CreateCatalogSkuInput, SkuPrefixRow, SkuWorkType, UpsertSkuPrefixInput } from "@/lib/catalog/sku-prefix";
 import { humanizeSkuRpcError, isValidSkuPrefix, SKU_CONTROLLED_ERROR_CODES } from "@/lib/catalog/sku-prefix";
@@ -98,6 +100,9 @@ function parsePreviewSeedRow(data: unknown): { suggestedSeed: number; suggestedP
 export async function listSkuPrefixes({ withLastNo = false }: { withLastNo?: boolean } = {}): Promise<
   ActionResult<SkuPrefixRow[]>
 > {
+  // owner-level read gate (session + role) — H1 Phase 2; requireWriteAccess is reused for its logic, not because this writes
+  const gateErr = await requireWriteAccess(requireOwnerAdmin);
+  if (gateErr) return gateErr;
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();

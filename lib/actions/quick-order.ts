@@ -8,7 +8,9 @@
 import { randomUUID } from "crypto";
 import { getServiceClient } from "@/lib/supabase/server";
 import { getDevShopId } from "@/lib/dev/context";
-import { getManualTiktokChannelAccountId } from "@/lib/actions/live";
+import { getManualTiktokChannelAccountId } from "@/lib/live/channel-account";
+import { getEffectiveRole } from "@/lib/auth/role";
+import { requireMemberAccess, requireWriteAccess } from "@/lib/auth/action-guard";
 import type {
   ActionResult,
   CreateQuickOrderInput,
@@ -18,6 +20,16 @@ import type {
 
 const MAX_ITEMS_PER_ORDER = 50;
 
+// H1 Phase 3 (27 ต.ค. 69): each export authenticates itself as its FIRST statement, outside
+// try/catch. searchProductsForLive -> READ-member · createQuickOrder -> WRITE (owner/admin;
+// same level as cancelOrder, which the live order-taking UI also calls).
+async function requireOwnerAdmin(): Promise<ActionResult<never> | null> {
+  if ((await getEffectiveRole()) === "staff") {
+    return { ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่จดออเดอร์ไลฟ์ได้" };
+  }
+  return null;
+}
+
 // Same defense-in-depth as lib/actions/orders.ts sanitizeSearchTerm — strip
 // PostgREST .or()/.ilike() filter syntax characters before building a filter
 // string from free-text input.
@@ -26,6 +38,8 @@ function sanitizeSearchTerm(term: string): string {
 }
 
 export async function searchProductsForLive(term: string): Promise<ActionResult<ProductSearchRow[]>> {
+  const gateErr = await requireMemberAccess();
+  if (gateErr) return gateErr;
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();
@@ -98,6 +112,8 @@ function validateInput(input: CreateQuickOrderInput): string | null {
 }
 
 export async function createQuickOrder(input: CreateQuickOrderInput): Promise<ActionResult<QuickOrderResult>> {
+  const gateErr = await requireWriteAccess(requireOwnerAdmin);
+  if (gateErr) return gateErr;
   const validationError = validateInput(input);
   if (validationError) return { ok: false, error: validationError };
 

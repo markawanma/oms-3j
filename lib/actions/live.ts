@@ -3,11 +3,23 @@
 // lib/actions/live.ts — server actions for "จดออเดอร์เร็วตอน TikTok Live"
 // (Phase A backend). Manages the live_session lifecycle; order-taking itself
 // lives in lib/actions/quick-order.ts. Same pattern as lib/actions/orders.ts:
-// service-role client + explicit shop_id filter (see lib/supabase/server.ts),
-// no auth in this MVP batch.
+// service-role client + explicit shop_id filter (see lib/supabase/server.ts).
+//
+// H1 Phase 3 (27 ต.ค. 69): each export authenticates itself as its FIRST statement,
+// outside try/catch (a server action is a public POST endpoint).
+//   startLiveSession / closeLiveSession -> WRITE (owner/admin)
+//   getOpenSession / listLiveSessions / getLiveSessionStats / getTopSkus -> READ-member
+//     (/live/* is not role-gated; getLiveSessionStats returns gmv but that is existing
+//     behaviour for staff — design §1.5)
+// getManualTiktokChannelAccountId used to be exported from here, which made it a public
+// action taking a client-supplied shopId — it lives in lib/live/channel-account.ts now
+// ("use server" files may only export actions).
 
 import { getServiceClient } from "@/lib/supabase/server";
 import { getDevShopId } from "@/lib/dev/context";
+import { getEffectiveRole } from "@/lib/auth/role";
+import { requireMemberAccess, requireWriteAccess } from "@/lib/auth/action-guard";
+import { getManualTiktokChannelAccountId } from "@/lib/live/channel-account";
 import type {
   ActionResult,
   LiveSession,
@@ -17,27 +29,11 @@ import type {
 
 const EXCLUDED_FROM_METRICS = ["cancelled", "oversold_hold"];
 
-/**
- * Every live-order action needs the shop's manual TikTok "channel" —
- * seeded in docs/dev-seed.sql as channel_account(channel=tiktok,
- * external_shop_id='manual-live'). Shared here and in quick-order.ts.
- */
-export async function getManualTiktokChannelAccountId(shopId: string): Promise<string> {
-  const supabase = getServiceClient();
-  const { data, error } = await supabase
-    .from("channel_account")
-    .select("id, channel:channel_id!inner(code)")
-    .eq("shop_id", shopId)
-    .eq("external_shop_id", "manual-live")
-    .eq("channel.code", "tiktok")
-    .maybeSingle();
-  if (error) throw error;
-  if (!data) {
-    throw new Error(
-      "ไม่พบ channel_account สำหรับ TikTok Live แบบ manual — ต้อง seed ก่อน (ดู docs/dev-seed.sql)"
-    );
+async function requireOwnerAdmin(): Promise<ActionResult<never> | null> {
+  if ((await getEffectiveRole()) === "staff") {
+    return { ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่เริ่ม/ปิดไลฟ์ได้" };
   }
-  return (data as any).id as string;
+  return null;
 }
 
 function mapSessionRow(r: any): LiveSession {
@@ -52,6 +48,8 @@ function mapSessionRow(r: any): LiveSession {
 }
 
 export async function startLiveSession(input: { title?: string }): Promise<ActionResult<LiveSession>> {
+  const gateErr = await requireWriteAccess(requireOwnerAdmin);
+  if (gateErr) return gateErr;
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();
@@ -84,6 +82,8 @@ export async function startLiveSession(input: { title?: string }): Promise<Actio
 }
 
 export async function closeLiveSession(id: string): Promise<ActionResult> {
+  const gateErr = await requireWriteAccess(requireOwnerAdmin);
+  if (gateErr) return gateErr;
   if (!id) return { ok: false, error: "ไม่พบไลฟ์นี้" };
 
   try {
@@ -109,6 +109,8 @@ export async function closeLiveSession(id: string): Promise<ActionResult> {
 }
 
 export async function getOpenSession(): Promise<ActionResult<LiveSession | null>> {
+  const gateErr = await requireMemberAccess();
+  if (gateErr) return gateErr;
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();
@@ -129,6 +131,8 @@ export async function getOpenSession(): Promise<ActionResult<LiveSession | null>
 }
 
 export async function listLiveSessions(): Promise<ActionResult<LiveSession[]>> {
+  const gateErr = await requireMemberAccess();
+  if (gateErr) return gateErr;
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();
@@ -148,6 +152,8 @@ export async function listLiveSessions(): Promise<ActionResult<LiveSession[]>> {
 }
 
 export async function getLiveSessionStats(id: string): Promise<ActionResult<LiveSessionStats>> {
+  const gateErr = await requireMemberAccess();
+  if (gateErr) return gateErr;
   if (!id) return { ok: false, error: "ไม่พบไลฟ์นี้" };
 
   try {
@@ -195,6 +201,8 @@ export async function getLiveSessionStats(id: string): Promise<ActionResult<Live
  * not a performance concern.
  */
 export async function getTopSkus(id: string): Promise<ActionResult<LiveSessionTopSku[]>> {
+  const gateErr = await requireMemberAccess();
+  if (gateErr) return gateErr;
   if (!id) return { ok: false, error: "ไม่พบไลฟ์นี้" };
 
   try {

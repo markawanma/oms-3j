@@ -3,7 +3,7 @@
 // กวาดไฟล์ที่ส่งขึ้นจริงใต้ app/(quiz)/ring-size/** + lib/ring-size/** ด้วย regex ต้องว่าง
 // + เดิน import graph จริงจาก entry ของหน้า (รวม dependency ที่ import เข้ามา) — ไฟล์ในโปรเจกต์ที่ถูกลากเข้ามา
 //   ต้องไม่มีโค้ดกล้องด้วย และแพ็กเกจภายนอกที่ import ได้มีแค่ react / next (กันไลบรารี QR/สแกนเนอร์หลุดเข้ามา)
-// รูปแบบเดียวกับ lib/gem-quiz/no-server-action-graph.test.ts
+// รูปแบบเดียวกับ lib/auth/exempt-graph.test.ts
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";

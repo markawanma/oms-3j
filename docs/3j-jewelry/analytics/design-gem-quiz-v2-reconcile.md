@@ -124,7 +124,7 @@ Branch: feature/gem-quiz-v2 แตกจาก feature/gem-quiz-ui (e645222) · 
 | lib/gem-quiz/result.ts(+test) | สร้าง |
 | lib/gem-quiz/validate.ts(+test) | แก้ |
 | lib/gem-quiz/stone-colors.ts | ลบ |
-| lib/gem-quiz/form-token.ts, no-server-action-graph.test.ts | ไม่แตะ |
+| lib/gem-quiz/form-token.ts · lib/auth/exempt-graph.test.ts (เดิม lib/gem-quiz/no-server-action-graph.test.ts — ย้าย/รวมเป็นตัวครอบทุกหน้า exempt ตอน H1 Phase 2) | ไม่แตะ |
 | app/api/gem-quiz/submit/route.ts | แก้เล็ก (ส่ง input รวม liked ให้ recommend) |
 | route.test.ts | แก้ fixture + เคส liked ว่าง/ไม่ครบ/ruby ⇒ 400 |
 | app/(quiz)/layout.tsx, gem-quiz/GemQuizClient.tsx(+test) | เขียนใหม่ |

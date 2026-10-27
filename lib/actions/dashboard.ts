@@ -16,6 +16,7 @@ import { getServiceClient } from "@/lib/supabase/server";
 import { formatCount, formatTHBCompact } from "@/lib/tiktok/format";
 import { getDevShopId } from "@/lib/dev/context";
 import { getEffectiveRole } from "@/lib/auth/role";
+import { requireMemberAccess } from "@/lib/auth/action-guard";
 import type { ActionResult } from "@/lib/types";
 import type {
   ChartCoverage,
@@ -138,7 +139,15 @@ function mapScope(raw: {
   };
 }
 
+// H1 Phase 2 (27 ต.ค. 69): both exports authenticate (membership) BEFORE
+// validateRange() and before the staff money mask. Order is deliberate:
+// requireMemberAccess() -> validateRange() -> getEffectiveRole() mask -> RPC.
+// Before this, an anonymous direct POST with AUTH_GATE=on got the masked
+// (staff) payload; now it gets {ok:false}. The p_include_money mask below is
+// unchanged.
 export async function getDashboard(params: GetDashboardParams): Promise<ActionResult<DashboardData>> {
+  const gateErr = await requireMemberAccess();
+  if (gateErr) return gateErr;
   const range = validateRange(params);
   if (!range) {
     return { ok: false, error: "ช่วงวันที่ไม่ถูกต้อง" };
@@ -227,6 +236,8 @@ export async function getDashboard(params: GetDashboardParams): Promise<ActionRe
 // trendSplit.{firstRepeat,rfm}'s revenue field / trendSplit.product) come
 // back []/null from the RPC itself for staff — never stripped client-side.
 export async function getDashboardCharts(params: GetDashboardParams): Promise<ActionResult<DashboardCharts>> {
+  const gateErr = await requireMemberAccess();
+  if (gateErr) return gateErr;
   const range = validateRange(params);
   if (!range) {
     return { ok: false, error: "ช่วงวันที่ไม่ถูกต้อง" };

@@ -7,7 +7,7 @@ import type { CSSProperties, ReactNode } from "react";
 //
 // 🔴 กฎโครงสร้างเดียวกับ gem quiz (design §1.2): ไฟล์ใต้ app/(quiz)/ring-size/** และ lib/ring-size/** ห้าม import
 // ไฟล์ "use server" / lib/actions ไม่ว่าทางตรงหรือทางอ้อม (หน้านี้ถูก exempt จาก auth gate ได้ — ถ้ามี Server Action หลุดเข้ามา
-// มันจะรันได้โดยไม่ผ่าน middleware) · test: lib/gem-quiz/no-server-action-graph.test.ts เดินทั้ง app/(quiz)/** ให้แล้ว
+// มันจะรันได้โดยไม่ผ่าน middleware) · test: lib/auth/exempt-graph.test.ts เดินทั้ง app/(quiz)/** ให้แล้ว
 //
 // เปลือกจอ: layout แม่ห่าง <main min-h-screen bg-white> (100vh + พื้นขาว + sm:การ์ดกลางจอ) ซึ่งเราแก้ไม่ได้ →
 // wrapper นี้ position:fixed inset-0 ความสูง 100dvh + overflow-y-auto + overscroll-contain + พื้น --rs-bg

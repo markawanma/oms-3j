@@ -5,7 +5,16 @@
 
 import { getServiceClient } from "@/lib/supabase/server";
 import { getDevShopId } from "@/lib/dev/context";
+import { getEffectiveRole } from "@/lib/auth/role";
+import { requireWriteAccess } from "@/lib/auth/action-guard";
 import type { ActionResult } from "@/lib/types";
+
+async function requireOwnerAdmin(): Promise<ActionResult<never> | null> {
+  if ((await getEffectiveRole()) === "staff") {
+    return { ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่เพิ่มสินค้าได้" };
+  }
+  return null;
+}
 
 export interface CreateProductInput {
   sku: string;
@@ -14,6 +23,9 @@ export interface CreateProductInput {
 }
 
 export async function createProduct(input: CreateProductInput): Promise<ActionResult<{ productId: string }>> {
+  // H1 Phase 3 (27 ต.ค. 69): WRITE gate, first statement — before input validation.
+  const gateErr = await requireWriteAccess(requireOwnerAdmin);
+  if (gateErr) return gateErr;
   const sku = input.sku.trim();
   const name = input.name.trim();
 

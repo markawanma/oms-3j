@@ -43,9 +43,12 @@ async function requireOwnerAdmin(): Promise<ActionResult<never> | null> {
   return null;
 }
 
-// Every WRITE export below (upsert/delete/import) calls
-// requireWriteAccess(requireOwnerAdmin) FIRST — not the read exports
-// (getProducts/getSkuOrderAlerts/getShopSetting/getBlendedMarginSuggestion).
+// Every export below calls requireWriteAccess(requireOwnerAdmin) FIRST. The
+// four READ exports (getProducts/getSkuOrderAlerts/getShopSetting/
+// getBlendedMarginSuggestion) use it as an owner-level read gate (session +
+// role) since H1 Phase 2 (27 ต.ค. 69): they return unit_cost/margin for every
+// SKU and every caller (/catalog, /settings, /marketing/copilot) is already
+// owner/admin-only at the page.
 // Security review 2026-09-16, C1(b): defense-in-depth alongside C1(a), which
 // stops /stock/hero from ever bundling these actions in the first place.
 // See lib/auth/action-guard.ts for the shared session+DEV_ROLE combo.
@@ -78,6 +81,9 @@ export interface GetProductsResult {
 }
 
 export async function getProducts(): Promise<ActionResult<GetProductsResult>> {
+  // owner-level read gate (session + role) — H1 Phase 2; requireWriteAccess is reused for its logic, not because this writes
+  const gateErr = await requireWriteAccess(requireOwnerAdmin);
+  if (gateErr) return gateErr;
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();
@@ -525,6 +531,9 @@ export async function deleteProduct(sku: string): Promise<ActionResult> {
 // ============================================================================
 
 export async function getSkuOrderAlerts(): Promise<ActionResult<SkuOrderAlert[]>> {
+  // owner-level read gate (session + role) — H1 Phase 2; requireWriteAccess is reused for its logic, not because this writes
+  const gateErr = await requireWriteAccess(requireOwnerAdmin);
+  if (gateErr) return gateErr;
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();
@@ -567,6 +576,9 @@ export async function getSkuOrderAlerts(): Promise<ActionResult<SkuOrderAlert[]>
 // ============================================================================
 
 export async function getShopSetting(): Promise<ActionResult<ShopSettingData>> {
+  // owner-level read gate (session + role) — H1 Phase 2; requireWriteAccess is reused for its logic, not because this writes
+  const gateErr = await requireWriteAccess(requireOwnerAdmin);
+  if (gateErr) return gateErr;
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();
@@ -600,6 +612,9 @@ export async function getShopSetting(): Promise<ActionResult<ShopSettingData>> {
 }
 
 export async function getBlendedMarginSuggestion(): Promise<ActionResult<BlendedMarginSuggestion>> {
+  // owner-level read gate (session + role) — H1 Phase 2; requireWriteAccess is reused for its logic, not because this writes
+  const gateErr = await requireWriteAccess(requireOwnerAdmin);
+  if (gateErr) return gateErr;
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();

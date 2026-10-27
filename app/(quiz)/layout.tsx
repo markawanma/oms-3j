@@ -9,7 +9,7 @@ import { Cormorant_Garamond, IBM_Plex_Sans_Thai, Noto_Serif_Thai } from "next/fo
 // ถูก exempt จาก auth gate ของ middleware.ts ถ้า Server Action หลุดเข้ามาใน
 // module graph ของหน้านี้ มันจะรันได้โดยไม่ผ่าน middleware เลย
 // code-reviewer: grep หา "use server" / "lib/actions" ใต้ app/(quiz)/ ต้องว่าง
-// เสมอ — มี automated test ยืนยันแล้วที่ lib/gem-quiz/no-server-action-graph.test.ts
+// เสมอ — มี automated test ยืนยันแล้วที่ lib/auth/exempt-graph.test.ts
 //
 // ไม่มี header/footer คงที่เหมือน v1 — แต่ละจอ (_screens/*) ออกแบบ header ของ
 // ตัวเองตาม mockup (QuizHeader สำหรับ Q1-Q5, custom header สำหรับ landing/

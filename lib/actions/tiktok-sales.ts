@@ -17,6 +17,7 @@
 
 import { getServiceClient } from "@/lib/supabase/server";
 import { getDevShopId } from "@/lib/dev/context";
+import { requireMemberAccess } from "@/lib/auth/action-guard";
 import type { ActionResult, ChannelCode, OrderStatus } from "@/lib/types";
 import type {
   ChannelSalesBreakdown,
@@ -121,7 +122,11 @@ function emptySummary(params: GetSalesSummaryParams, scopeChannels: ChannelCode[
   };
 }
 
+// H1 Phase 2 (27 ต.ค. 69): READ-member gate — /tiktok/sales is not role-gated at the
+// page, so any shop member (incl. staff) keeps access; anonymous/pending do not.
 export async function getSalesSummary(params: GetSalesSummaryParams): Promise<ActionResult<SalesSummary>> {
+  const gateErr = await requireMemberAccess();
+  if (gateErr) return gateErr;
   if (!isValidDateStr(params.from) || !isValidDateStr(params.to)) {
     return { ok: false, error: "ช่วงวันที่ไม่ถูกต้อง" };
   }

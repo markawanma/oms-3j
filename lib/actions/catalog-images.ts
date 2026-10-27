@@ -31,6 +31,7 @@ import { revalidatePath } from "next/cache";
 import { getServiceClient } from "@/lib/supabase/server";
 import { getDevShopId } from "@/lib/dev/context";
 import { getEffectiveRole } from "@/lib/auth/role";
+import { requireWriteAccess } from "@/lib/auth/action-guard";
 import type { ActionResult } from "@/lib/types";
 import { BUCKET, MAX_BYTES, MAX_IMAGES_PER_SKU } from "@/lib/images/constants";
 import { extractJpegDimensions, looksLikeJpeg } from "@/lib/images/server";
@@ -59,11 +60,16 @@ function revalidateCatalogPaths(): void {
 // no data to build the "existing images" panel from, and reorderProductImages
 // has nothing to reorder from the UI's perspective. Read-only, no schema
 // change, same low-risk shape as getSkuOrderAlerts()/getProducts() in
-// catalog.ts (no requireOwnerAdmin() gate — reads are open to every role).
+// catalog.ts. Since H1 Phase 2 (27 ต.ค. 69) it carries an owner-level read
+// gate (session + role): its only caller (ProductImageSection in /catalog) is
+// already owner/admin-only, and signed URLs shouldn't be mintable by anyone else.
 // Flagged in the handoff report as a decision beyond the literal design.
 // ============================================================================
 
 export async function getProductImages(productId: string): Promise<ActionResult<ProductImageRow[]>> {
+  // owner-level read gate (session + role) — H1 Phase 2; requireWriteAccess is reused for its logic, not because this writes
+  const gateErr = await requireWriteAccess(requireOwnerAdmin);
+  if (gateErr) return gateErr;
   const cleanProductId = (productId ?? "").trim();
   if (!cleanProductId) return { ok: false, error: "ไม่พบสินค้าที่จะดูรูป" };
 

@@ -30,6 +30,7 @@
 import { getServiceClient } from "@/lib/supabase/server";
 import { getDevShopId } from "@/lib/dev/context";
 import { getEffectiveRole } from "@/lib/auth/role";
+import { requireMemberAccess } from "@/lib/auth/action-guard";
 import { RECENCY_BUCKETS } from "@/lib/crm/retention";
 import type { ActionResult } from "@/lib/types";
 import type {
@@ -162,7 +163,13 @@ function mapCohort(raw: CohortRaw): RepeatCohort {
   };
 }
 
+// H1 Phase 2 (27 ต.ค. 69): membership gate first (outside try), THEN the
+// unchanged staff money mask below. No page imports this action today (dead
+// code, tracked as debt) — guarded anyway because a "use server" export is
+// reachable by a direct POST regardless of whether any UI calls it.
 export async function getCrmRetention(): Promise<ActionResult<CrmRetentionData>> {
+  const gateErr = await requireMemberAccess();
+  if (gateErr) return gateErr;
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();

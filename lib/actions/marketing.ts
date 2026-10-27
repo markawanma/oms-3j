@@ -23,6 +23,7 @@ import { revalidatePath } from "next/cache";
 import { getServiceClient } from "@/lib/supabase/server";
 import { getDevShopId } from "@/lib/dev/context";
 import { getEffectiveRole } from "@/lib/auth/role";
+import { requireWriteAccess } from "@/lib/auth/action-guard";
 import type { ActionResult } from "@/lib/types";
 import type {
   AddPromoAttributionInput,
@@ -65,10 +66,13 @@ async function requireOwnerAdmin(): Promise<ActionResult<never> | null> {
 // ============================================================================
 
 /** analytics.v_channel_perf_roas — month x channel spend/ROAS/CAC (0027 §2).
- * Read-only, NOT role-gated (mirrors ChannelPerfTable on /crm/overview, which
- * every dev role can see today) — only entering spend and the recommendation
- * feed are owner/admin actions per the design. */
+ * Owner-level read gate (H1 Phase 2, 27 ต.ค. 69): spend/ROAS/profit_roas are
+ * money, and its only caller (/marketing/copilot) is already owner/admin-only
+ * at the page, so gating the action itself changes nothing a real user can do. */
 export async function getChannelRoas(): Promise<ActionResult<MktChannelRoasRow[]>> {
+  // owner-level read gate (session + role) — H1 Phase 2; requireWriteAccess is reused for its logic, not because this writes
+  const gateErr = await requireWriteAccess(requireOwnerAdmin);
+  if (gateErr) return gateErr;
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();
@@ -124,8 +128,11 @@ export async function getChannelRoas(): Promise<ActionResult<MktChannelRoasRow[]
 }
 
 /** analytics.v_ad_spend_weekly — entry-history table (0027 §3). Same
- * not-role-gated reasoning as getChannelRoas above. */
+ * owner-level read gate as getChannelRoas above (/marketing/ad-spend is owner-only). */
 export async function getAdSpendWeekly(): Promise<ActionResult<MktAdSpendWeeklyRow[]>> {
+  // owner-level read gate (session + role) — H1 Phase 2; requireWriteAccess is reused for its logic, not because this writes
+  const gateErr = await requireWriteAccess(requireOwnerAdmin);
+  if (gateErr) return gateErr;
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();
