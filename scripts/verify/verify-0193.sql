@@ -36,6 +36,7 @@
 --  #11 stats โดย staff/ไม่ใช่สมาชิก → ปฏิเสธ        : T13 · mutant owner/admin : M7
 --      วันผิด/พารามิเตอร์ null → 22023             : T13e
 --      ช่วง < 7 วัน (5 ⇒ ปฏิเสธ · 6 ⇒ ผ่าน) / > 180 วัน (179 ⇒ ผ่าน · 180 ⇒ ปฏิเสธ · L1/N2) : T13e/T13f · mutant : M11 (max) · M16 (min)
+--      infinity / -infinity (QA r3 ข้อ 2) → 22023 ไม่ใช่ 22008 : T13g · mutant isfinite : M17
 --  #12 ไม่มี DEV_SHOP_ID → 500 ไม่ echo            : ไม่มีใน SQL — route.test.ts
 --  #13 diff ไม่มี IP/UA/cookie ถูกเก็บ              : T01 (รายชื่อคอลัมน์เป๊ะ 31 ตัว) + route.test.ts (RPC รับเฉพาะ 3 พารามิเตอร์)
 --  S1  session ใช้ 2 วิธี — ผล/G4/รอบวัดนับตามวิธีตอนเกิดเหตุ : T04/T08b/T08c/T11 (คอลัมน์ result_method · invalid_x · measure_count_x)
@@ -750,6 +751,14 @@ begin
       and pg_temp.st(v_shop, date '2020-03-10' - 179, date '2020-03-10') = 'OK';         -- diff 179 = เพดานพอดี
   perform pg_temp.chk('T13f (ต้องไม่พัง: p_to-p_from = 6 (7 วัน ขั้นต่ำ) และ 179 (180 วัน เพดาน) ⇒ OK ทั้งคู่)', v_ok);
 
+  -- T13g (QA r3 ข้อ 2): infinity / -infinity ⇒ 22023 ตัวเดียวกับ validation อื่น (ไม่ใช่ 22008 overflow) ทุกตำแหน่ง
+  v_fails := '';
+  if pg_temp.st(v_shop, 'infinity'::date, 'infinity'::date) <> '22023' then v_fails := v_fails || ' [inf/inf]'; end if;
+  if pg_temp.st(v_shop, '-infinity'::date, date '2020-03-16') <> '22023' then v_fails := v_fails || ' [-inf/d]'; end if;
+  if pg_temp.st(v_shop, date '2020-03-10', 'infinity'::date) <> '22023' then v_fails := v_fails || ' [d/inf]'; end if;
+  if pg_temp.st(v_shop, '-infinity'::date, 'infinity'::date) <> '22023' then v_fails := v_fails || ' [-inf/inf]'; end if;
+  perform pg_temp.chk('T13g (infinity/-infinity ทุกตำแหน่ง ⇒ 22023 ทุกตัว ไม่ใช่ 22008)', v_fails = '', v_fails);
+
   -- --------------------------------------------------------------------
   -- T14 — retention 180 วัน (179 อยู่ · 181 หาย) + pg_cron ไม่ซ้ำ (เคส #23) · ต้องรันหลัง T12 (fixture ปี 2020 จะถูกลบ)
   -- --------------------------------------------------------------------
@@ -1034,6 +1043,17 @@ begin
     execute v_def_st;
     perform pg_temp.chk('M16 (mutant: ตัดขั้นต่ำ 7 วัน ⇒ ช่วง diff 5 และวันเดียวผ่าน (OK) ไม่ใช่ 22023 = T13e จับได้)',
       v_state = 'OK' and v_text = 'OK', format('mutant ให้ผล %s/%s', v_state, v_text));
+  end if;
+
+  -- M17 QA r3 ข้อ 2: ตัดด่าน isfinite ⇒ infinity ตกที่ errcode อื่น (22008) ไม่ใช่ 22023 = T13g จับได้
+  v_mut := replace(v_def_st, 'if not (isfinite(p_from) and isfinite(p_to)) then', 'if false then');
+  if v_mut = v_def_st then
+    perform pg_temp.chk('M17 (mutant: ตัดด่าน isfinite ⇒ T13g ต้องล้ม)', false, 'needle ไม่เจอ');
+  else
+    execute v_mut;
+    v_state := pg_temp.st(v_shop, date '2020-03-10', 'infinity'::date);
+    execute v_def_st;
+    perform pg_temp.chk('M17 (mutant: ตัดด่าน isfinite ⇒ infinity ได้ sqlstate อื่นที่ไม่ใช่ 22023 = T13g จับได้)', v_state <> '22023', 'mutant ให้ผล ' || v_state);
   end if;
 
   -- M12 stats: ใช้ตรรกะเดิม (วัดจาก "วิธีล่าสุด" ไม่ใช่ result_method) ⇒ T12m ต้องจับได้

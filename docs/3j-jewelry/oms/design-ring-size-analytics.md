@@ -50,7 +50,7 @@ RingSizeClient ──(ถึงขั้นใหม่ / กดปุ่มส�
                                                │ TRACK_ENABLED && !DNT/GPC · dedupe · sendBeacon ‖ fetch keepalive · ไม่ await · ไม่ throw
                                                ▼
 POST /api/ring-size/event (route handler · exempt exact · service role)
-  same-origin → 403 · body ≤ 1 KB (อ่านแบบ stream ตัดทันที) → 413 · UTF-8 เสีย/allowlist/สัญญา event (lib/ring-size/track-schema.ts) → 400
+  same-origin → 403 · body ≤ 1 KB (อ่านแบบ stream ตัดทันที) → 413 · อ่านไม่เสร็จใน 5 วินาที (body หยดช้า) → 408 · UTF-8 เสีย/allowlist/สัญญา event (lib/ring-size/track-schema.ts) → 400
   RPC analytics.ring_size_session_upsert → 22023=400 · P0001=429 เงียบ · อื่น=500 (log แค่ code) · สำเร็จ 204
                                                ▼
 analytics.ring_size_session (1 แถว/sid · upsert monotonic) ◀── pg_cron ลบ > 180 วัน
@@ -155,6 +155,7 @@ mount หลัง loaded → stage 0 (in_app · is_return) · `start()` → 1 �
 **ส่ง Padmé ออกแบบ (ux-ui ก่อน frontend)**: แถวสรุป (เปิด/วัดได้/กด LINE) · กราฟเบอร์ (ช่วงร้านจาก `shop_range` ห้าม hardcode 45/68) + ต่ำกว่า/สูงกว่า + 3 อันดับ · แหวน vs กระดาษ (จาก `method_stats`) × เหรียญ vs บัตร · funnel 8 ขั้นภาษาคน + "เลิกที่ขั้นนี้" · ประเภทแอป (`by_in_app`) · จุดเสียดทาน G1/G3/G4/G5/วัดซ้ำ · ก้ำกึ่ง + กระจาย มม. · ช่วงวันที่ + รายวัน · ข้อความ "ไม่ระบุตัวตน · เปิดใหม่ = นับใหม่ · ตัวเลขปุ่มเป็นขั้นต่ำ (sendBeacon อาจหลุด)"
 
 ## 7. PDPA / ความเป็นส่วนตัว
+🔴 **ข้อจำกัดของ "ช่วงดูขั้นต่ำ 7 วัน" (QA/security r3 — จดไว้ตรง ๆ)**: ด่านนี้กันแค่ "การดูตรง ๆ ของวันเดียว" เท่านั้น — คนที่ถือสิทธิ์เรียก stats ได้เอา **สองช่วงที่เหลื่อมกัน 1 วัน** (เช่น 03-01..03-07 กับ 03-02..03-08) มาลบกัน ก็ได้ตัวเลขของวันเดียว (03-01 / 03-08) กลับมา ⇒ ขั้นต่ำ 7 วัน **ไม่ใช่ k-anonymity** · **ด่านจริงคือสิทธิ์ owner/admin** (ผู้เรียกต้องเป็นเจ้าของ/แอดมินร้านอยู่แล้ว และผ่าน `requireOwnerAdmin()` ในชั้นแอป §6) · เจ้าของ/ทีมยอมรับความเสี่ยงนี้ (ข้อมูลไม่ระบุตัวตน + ร้านเดียว + ผู้ที่เรียกได้คือเจ้าของ) ไม่ทำ k-anonymity/ปัดเศษ/ปิดช่วงเหลื่อมเพิ่ม · ถ้าวันหน้าเปิดหน้านี้ให้คนนอกวงเจ้าของ/แอดมิน ต้องทบทวนข้อนี้ก่อน
 เก็บ: random session id (อายุแท็บ) · เวลา · ประเภท webview · เบอร์/มม. · วิธี · ธงขั้น/ปุ่ม — ไม่มีตัวระบุย้อนกลับถึงบุคคล/เครื่อง · ความเสี่ยงเชื่อมโยงที่เหลือ (จับคู่เวลาที่ลูกค้าทัก LINE) ลดด้วย: หน้าสรุปไม่แสดงแถวรายตัว/เวลาระดับนาที · **ช่วงดูขั้นต่ำ 7 วัน** · ตารางไม่มี policy (ไม่เปิดแถวดิบทาง PostgREST) · ไม่มี export แถวดิบ · retention 180 วัน · **ทีมไม่ตอบคำถามกฎหมายเอง** — ถ้าต้องการความมั่นใจเชิง PDPA ให้ปรึกษาที่ปรึกษากฎหมายด้วยสรุป §3.2
 
 ## 8. ไฟล์ที่ต้องสร้าง/แก้
@@ -167,7 +168,7 @@ mount หลัง loaded → stage 0 (in_app · is_return) · `start()` → 1 �
 
 ### ต้องถูกปฏิเสธ
 1. POST ข้าม origin → route 403
-2. body > 1 KB (header โกหก/ไม่มี/chunked/stream ไม่รู้จบ) → 413 และหยุดอ่าน · UTF-8 เสีย → 400
+2. body > 1 KB (header โกหก/ไม่มี/chunked/stream ไม่รู้จบ) → 413 และหยุดอ่าน · UTF-8 เสีย → 400 · อ่าน body ไม่จบใน 5 วินาที (ค้าง/หยดทีละไบต์) → 408 และ cancel ต้นทาง
 3. ไม่ใช่ JSON / array / field นอก allowlist / ชนิดผิด / NaN-Infinity-1e9 / stage 99 / sid ไม่ใช่ UUID / in_app นอกชุด → route 400 และหลุดไป RPC 22023
 4. ~~src แปลก~~ → **ส่ง key `src` (หรือ `source`) มาเลย = 400 ที่ route และ 22023 ที่ RPC** (ไม่มี lookup ไม่มี fallback `direct`)
 5. sid เดิม 100 ครั้ง → 1 แถว · event_count หยุด 40 → 429 เงียบ · ค่าที่ลดลงไม่ทับ
@@ -176,7 +177,7 @@ mount หลัง loaded → stage 0 (in_app · is_return) · `start()` → 1 �
 8. `in_range=true` แต่ size=80 → DB ได้ false (รวมมี mutant ที่ให้ RPC เชื่อ `in_range` ของ client ต้องถูกจับ — ทั้งทาง insert และ update)
 9. GET/PUT/DELETE → 405 · `/api/ring-size`, `/api/ring-size/event/x`, `/api/ring-size-x`, `/ring-sizes` → ยัง gate
 10. anon/authenticated เรียก RPC / select ตาราง → 42501 · service_role INSERT ตรง → ปฏิเสธ · ตารางต้องไม่มี policy
-11. `ring_size_stats` โดย staff/ไม่ใช่สมาชิก → ปฏิเสธ · วันผิด / **ช่วง < 7 วัน (diff 5 ⇒ ปฏิเสธ · diff 6 ⇒ ผ่าน) / > 180 วัน (diff 179 ⇒ ผ่าน · diff 180 ⇒ ปฏิเสธ)** → 22023
+11. `ring_size_stats` โดย staff/ไม่ใช่สมาชิก → ปฏิเสธ · วันผิด / `infinity`/`-infinity` (22023 ไม่ใช่ 22008 — ตรวจ `isfinite` ก่อน) / **ช่วง < 7 วัน (diff 5 ⇒ ปฏิเสธ · diff 6 ⇒ ผ่าน) / > 180 วัน (diff 179 ⇒ ผ่าน · diff 180 ⇒ ปฏิเสธ)** → 22023
 12. ไม่มี env DEV_SHOP_ID → 500 ไม่ echo · log แค่ code
 13. diff ไม่มี IP/UA/cookie ถูกเก็บ · ไม่มีค่า LINE/URL/เบอร์ ที่แต่งใหม่
 14. **ผลวัด (`circ_mm`/`size`/`between`) ที่ stage ≠ 7 → 400 ที่ route · 22023 ที่ RPC** · invariant `measured <= funnel[7]`

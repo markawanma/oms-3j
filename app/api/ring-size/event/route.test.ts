@@ -1,6 +1,6 @@
 // app/api/ring-size/event/route.test.ts — เคส design-ring-size-analytics §9 ข้อ 1 · 2 · 3 · 5 (ฝั่ง route) · 9 · 12 · 13
 // lib/ring-size/track-schema.ts ไม่ mock (pure — ให้ coverage จริงว่า route ต่อกับตัวตรวจถูก) · mock เฉพาะ I/O: service client + getDevShopId
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { NextRequest } from "next/server";
 
 const rpcMock = vi.fn();
@@ -278,6 +278,86 @@ describe("เคส 2b: อ่าน body แบบ stream (L2) — chunked ไ�
     );
     expect(res.status).toBe(400);
     expect(rpcMock).not.toHaveBeenCalled();
+  });
+
+  describe("เส้นตายการอ่าน body 5 วินาที → 408 (กัน body หยดช้า)", () => {
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    async function runWithFakeClock(req: NextRequest, totalMs: number): Promise<Response> {
+      vi.useFakeTimers();
+      const pending = post(req);
+      // ขยับนาฬิกาทีละ 500 ms ให้ microtask ระหว่างทาง (import · getReader · ตั้ง timer) วิ่งทัน
+      for (let t = 0; t < totalMs; t += 500) await vi.advanceTimersByTimeAsync(500);
+      return pending;
+    }
+
+    it("stream ที่ค้างไม่ส่งอะไรเลย ⇒ 408 หลัง 5 วินาที · ต้นทางถูก cancel · ไม่เรียก RPC · no-store", async () => {
+      let cancelled = false;
+      const res = await runWithFakeClock(
+        streamRequest({
+          pull: () => new Promise<void>(() => {}), // ไม่ resolve ตลอดกาล
+          cancel() {
+            cancelled = true;
+          },
+        }),
+        6000
+      );
+      expect(res.status).toBe(408);
+      expect(res.headers.get("cache-control")).toBe("no-store");
+      expect(cancelled).toBe(true);
+      expect(rpcMock).not.toHaveBeenCalled();
+    });
+
+    it("body หยดทีละไบต์ทุก 1 วินาที (ไม่เคยเกิน 1 KB · ไม่เคย idle นาน) ⇒ ก็ยัง 408 เพราะเส้นตายรวม ไม่ใช่ idle timeout", async () => {
+      const body = enc.encode(JSON.stringify({ sid: SID, stage: 1 }));
+      let i = 0;
+      const res = await runWithFakeClock(
+        streamRequest({
+          pull(ctrl) {
+            return new Promise<void>((resolve) => {
+              setTimeout(() => {
+                try {
+                  ctrl.enqueue(body.slice(i, i + 1));
+                } catch {
+                  // ผู้อ่าน cancel ไปแล้ว (หมดเวลา) — timer ที่ค้างอยู่ยิงช้ากว่า ไม่ใช่ความผิดของ handler
+                }
+                i = (i + 1) % body.length;
+                resolve();
+              }, 1000);
+            });
+          },
+        }),
+        7000
+      );
+      expect(res.status).toBe(408);
+      expect(rpcMock).not.toHaveBeenCalled();
+    });
+
+    it("ต้องไม่พัง: body ที่มาถึงทันที ⇒ 204 · ไม่ทิ้ง timer ค้าง (clearTimeout) · body ที่ช้าแต่จบก่อน 5 วินาที ⇒ 204", async () => {
+      expect((await post(makeRequest())).status).toBe(204);
+      const body = enc.encode(JSON.stringify({ sid: SID, stage: 1 }));
+      let sent = false;
+      const res = await runWithFakeClock(
+        streamRequest({
+          pull(ctrl) {
+            return new Promise<void>((resolve) => {
+              setTimeout(() => {
+                if (!sent) {
+                  sent = true;
+                  ctrl.enqueue(body);
+                } else ctrl.close();
+                resolve();
+              }, 2000);
+            });
+          },
+        }),
+        6000
+      );
+      expect(res.status).toBe(204);
+      expect(vi.getTimerCount()).toBe(0);
+    });
   });
 
   it("POST ไม่มี body เลย ⇒ 400 (ไม่ใช่ 500) · ไม่เรียก RPC", async () => {

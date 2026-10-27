@@ -10,7 +10,7 @@
 // ลำดับด่าน:
 //   1) same-origin (Origin ต้องตรง host · ไม่มี Origin ต้องเป็น Sec-Fetch-Site: same-origin) → 403
 //   2) ขนาด body ≤ 1 KB: content-length header (เช็คเร็ว) + อ่านแบบ stream ตัดทันทีที่เกิน (ไบต์ ไม่ใช่ตัวอักษร) → 413
-//      แล้ว decode UTF-8 แบบ fatal (เสีย → 400)
+//      แล้ว decode UTF-8 แบบ fatal (เสีย → 400) · เส้นตายรวมการอ่าน 5 วินาที (body หยดช้า → 408)
 //   3) JSON object + allowlist/ชนิด/ช่วง/สัญญา event (lib/ring-size/track-schema.ts) → 400
 //   4) shop จาก env (getDevShopId) — ไม่รับ shop_id จาก client → ไม่มี env = 500 โดยไม่ echo
 //   5) RPC ผ่าน service role: 22023 → 400 · P0001 (เกินเพดาน/breaker) → 429 เงียบ · อื่น → 500 · สำเร็จ → 204
@@ -27,13 +27,14 @@ import { readErrorCode } from "@/lib/supabase/postgrest-error";
 import { parseRingTrackBody } from "@/lib/ring-size/track-schema";
 
 const MAX_BODY_BYTES = 1024;
+const BODY_READ_TIMEOUT_MS = 5000; // เส้นตายรวมของการอ่าน body (กัน body หยดช้า) — sendBeacon จริงมาถึงทันที
 const NO_STORE = { "Cache-Control": "no-store" } as const;
 
 function empty(status: 204 | 429): NextResponse {
   return new NextResponse(null, { status, headers: NO_STORE });
 }
 
-function fail(message: string, status: 400 | 403 | 413 | 500): NextResponse {
+function fail(message: string, status: 400 | 403 | 408 | 413 | 500): NextResponse {
   return NextResponse.json({ error: message }, { status, headers: NO_STORE });
 }
 
@@ -55,9 +56,10 @@ function isSameOrigin(request: NextRequest): boolean {
   return request.headers.get("sec-fetch-site") === "same-origin";
 }
 
-type BodyRead = { kind: "ok"; bytes: Uint8Array } | { kind: "too_large" } | { kind: "unreadable" };
+type BodyRead = { kind: "ok"; bytes: Uint8Array } | { kind: "too_large" } | { kind: "timeout" } | { kind: "unreadable" };
 
-/** อ่าน body ทีละ chunk สะสมจำนวนไบต์ — เกิน maxBytes ⇒ reader.cancel() แล้วคืน too_large (ไม่อ่านต่อ) · ไม่มี body ⇒ ว่าง */
+/** อ่าน body ทีละ chunk สะสมจำนวนไบต์ — เกิน maxBytes ⇒ reader.cancel() แล้วคืน too_large (ไม่อ่านต่อ) · ไม่มี body ⇒ ว่าง
+ * เส้นตายรวม BODY_READ_TIMEOUT_MS ตั้งแต่เริ่มอ่าน (ไม่ใช่ idle timeout) — body ที่หยดทีละไบต์ช้า ๆ ก็ค้าง handler ได้ไม่เกินเวลานี้ ⇒ timeout */
 async function readBodyLimited(request: NextRequest, maxBytes: number): Promise<BodyRead> {
   const stream = request.body;
   if (!stream) return { kind: "ok", bytes: new Uint8Array(0) };
@@ -65,21 +67,32 @@ async function readBodyLimited(request: NextRequest, maxBytes: number): Promise<
   const reader = stream.getReader();
   const chunks: Uint8Array[] = [];
   let total = 0;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<"timeout">((resolve) => {
+    timer = setTimeout(() => resolve("timeout"), BODY_READ_TIMEOUT_MS);
+  });
   try {
     for (;;) {
-      const { done, value } = await reader.read();
+      const next = await Promise.race([reader.read(), deadline]);
+      if (next === "timeout") {
+        void reader.cancel().catch(() => {}); // ไม่ await — ต้นทางที่ค้างอยู่ต้องไม่ฉุด handler ให้ค้างตาม
+        return { kind: "timeout" };
+      }
+      const { done, value } = next;
       if (done) break;
       if (!(value instanceof Uint8Array)) return { kind: "unreadable" };
       total += value.byteLength;
       if (total > maxBytes) {
-        // ตัดการอ่าน — ผู้ส่ง chunked ไม่รู้จบจะไม่ถูกรอ · cancel ล้มก็ไม่เป็นไร (ผลคือ 413 อยู่ดี)
-        await reader.cancel().catch(() => {});
+        // ตัดการอ่าน — ผู้ส่ง chunked ไม่รู้จบจะไม่ถูกรอ · cancel ล้ม/ค้างก็ไม่เป็นไร (ผลคือ 413 อยู่ดี)
+        void reader.cancel().catch(() => {});
         return { kind: "too_large" };
       }
       chunks.push(value);
     }
   } catch {
     return { kind: "unreadable" };
+  } finally {
+    clearTimeout(timer);
   }
 
   const bytes = new Uint8Array(total);
@@ -107,6 +120,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   // หรือ header โกหกจะไม่ทำให้เรากินหน่วยความจำ/เวลาตามที่ผู้ส่งอยากส่ง) · นับเป็นไบต์ ไม่ใช่ตัวอักษร
   const read = await readBodyLimited(request, MAX_BODY_BYTES);
   if (read.kind === "too_large") return fail("body ใหญ่เกินไป", 413);
+  if (read.kind === "timeout") return fail("อ่าน body ไม่ทันเวลา", 408);
   if (read.kind === "unreadable") return fail("อ่าน body ไม่สำเร็จ", 400);
 
   // UTF-8 เสีย = ปฏิเสธ (fatal) — ไม่ปล่อยให้ตัวแทน U+FFFD ผ่านเข้า JSON.parse เงียบ ๆ

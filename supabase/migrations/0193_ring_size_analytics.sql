@@ -530,6 +530,11 @@ begin
   -- ด่านสิทธิ์ก่อน validate ช่วงวัน (กัน probe ด้วยพารามิเตอร์ก่อนรู้ว่าไม่มีสิทธิ์)
   perform analytics.crm_require_owner_admin(p_shop_id); -- [mut:owner]
 
+  -- QA r3 ข้อ 2: date รับ 'infinity'/'-infinity' ได้ — ลบกัน/แปลงเป็น timestamp แล้วตก 22008 (datetime_field_overflow) คนละ errcode
+  -- กับ validation อื่น · ตรวจ isfinite ก่อนทำเลขวันที่ใด ๆ ⇒ 22023 เหมือนพารามิเตอร์ผิดตัวอื่น
+  if not (isfinite(p_from) and isfinite(p_to)) then -- [mut:finite]
+    raise exception 'ring_size_stats: p_from/p_to ต้องเป็นวันที่จริง (ไม่ใช่ infinity)' using errcode = '22023';
+  end if;
   if p_from > p_to then
     raise exception 'ring_size_stats: p_from ต้องไม่เกิน p_to' using errcode = '22023';
   end if;
