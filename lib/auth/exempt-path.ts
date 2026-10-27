@@ -28,8 +28,13 @@
 // /api/gem-quiz/ (e.g. a stats/export endpoint) public with no test catching
 // it. A new route under this prefix must earn its own exemption explicitly.
 //
-// ring-size/?$ เพิ่ม 24 ต.ค. 69 (เครื่องมือวัดไซส์แหวนสาธารณะ — ไม่มี DB/API/ข้อมูลส่วนตัว): exact path เท่านั้น แบบเดียวกับ gem-quiz
+// ring-size/?$ เพิ่ม 24 ต.ค. 69 (หน้าเครื่องมือวัดไซส์แหวนสาธารณะ — ตัวหน้าไม่มี DB/ข้อมูลส่วนตัว · การส่งสถิติไม่ระบุตัวตนอยู่ที่ endpoint แยกด้านล่าง): exact path เท่านั้น แบบเดียวกับ gem-quiz
 // (/ring-sizes · /ring-size-admin · /ring-size/x · /api/ring-size-x ต้องยังถูก gate — ดู exempt-path.test.ts) · ต้องแก้คู่กับ middleware.ts matcher
+//
+// api/ring-size/event/?$ เพิ่ม 25 ต.ค. 69 (เก็บสถิติ /ring-size แบบไม่ระบุตัวตน — design-ring-size-analytics §2/§5 · F8):
+// 🔴 exact endpoint เท่านั้น แบบเดียวกับ api/gem-quiz/submit — ห้ามเป็น `api/ring-size(?:/|$)` (จะเปิดทั้ง subtree ให้ route ในอนาคต
+// เช่น stats/export โดยไม่มีใครรู้) · ต้องไม่หลุด: /api/ring-size · /api/ring-size/ · /api/ring-size/event/x · /api/ring-size/events ·
+// /api/ring-size/event-x · /api/ring-sizes/event · /api/ring-size-x · ตัวพิมพ์ใหญ่ · traversal (ดู exempt-path.test.ts) · ต้องแก้คู่กับ middleware.ts matcher
 //
 // w/<token> เพิ่ม 12 ต.ค. 69 (ระบบใบงาน J1 — หน้าช่างสแกน QR ไม่ login · design-job-tracking.md §5.5):
 // 🔴 เป็น "prefix /w/" แบบแคบที่สุด — ยอมเฉพาะ "หนึ่งเซกเมนต์ต่อท้าย /w/" ที่เป็นอักขระ base64url ล้วน [A-Za-z0-9_-]+ แล้วจบ
@@ -48,7 +53,7 @@
 // ตอนนี้ยอมเฉพาะไฟล์ที่มีจริงใน public/: (1) ไฟล์ระดับ root เท่านั้น `[^/]+\.ext$` (ห้ามมี "/") (2) `gem-quiz/[^/]+\.ext$` ลึกหนึ่งชั้นพอดี (og.png) (3) `ring-size/[^/]+\.ext$` แบบเดียวกัน (3j-mark.png ของหน้า /ring-size — เพิ่ม 27 ต.ค. 69 ตอน merge ทับงาน ring-size)
 // ปลอดภัยตราบที่ไม่มี route ระดับ root ที่เป็น dynamic segment (ไม่มี app/[slug]) · เพิ่มโฟลเดอร์ใหม่ใต้ public/ = ต้องเพิ่มที่นี่ + middleware.ts โดยตั้งใจ
 const EXEMPT_PATTERN =
-  /^(?:_next\/static|_next\/image|favicon\.ico|api\/webhooks(?:\/|$)|api\/gem-quiz\/submit\/?$|shop(?:\/|$)|gem-quiz\/?$|ring-size\/?$|stock\/hero(?:\/|$)|w\/[A-Za-z0-9_-]+\/?$|w\/s\/[A-Za-z0-9_-]+\/?$|[^/]+\.(?:svg|png|jpg|jpeg|gif|webp|ico)$|gem-quiz\/[^/]+\.(?:svg|png|jpg|jpeg|webp)$|ring-size\/[^/]+\.(?:svg|png|jpg|jpeg|webp)$)/;
+  /^(?:_next\/static|_next\/image|favicon\.ico|api\/webhooks(?:\/|$)|api\/gem-quiz\/submit\/?$|api\/ring-size\/event\/?$|shop(?:\/|$)|gem-quiz\/?$|ring-size\/?$|stock\/hero(?:\/|$)|w\/[A-Za-z0-9_-]+\/?$|w\/s\/[A-Za-z0-9_-]+\/?$|[^/]+\.(?:svg|png|jpg|jpeg|gif|webp|ico)$|gem-quiz\/[^/]+\.(?:svg|png|jpg|jpeg|webp)$|ring-size\/[^/]+\.(?:svg|png|jpg|jpeg|webp)$)/;
 
 /** true if `pathname` bypasses the auth gate entirely (middleware.ts never
  * runs for it) — mirrors config.matcher's negative-lookahead exactly. */
