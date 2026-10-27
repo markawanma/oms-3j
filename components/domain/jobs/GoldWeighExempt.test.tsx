@@ -1,12 +1,16 @@
 // 0195 ใบทองไม่บังคับชั่งขั้นขัด (gold_weigh_exempt) — นิยามฝั่ง TS ต้องตรงกับ DB:
 // gold_unguarded = metal_present ∧ ¬gold_weigh_exempt ∧ ¬weigh_required ∧ status <> 'skipped'
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
-import { StageFlagChips } from "@/components/domain/jobs/StageFlagChips";
-import { profileSummaryParts } from "@/components/domain/jobs/ProfileSummary";
+// QA 27 ต.ค. 69: ย้ายจาก lib/jobs/ — vitest ไม่มี project ไหน include lib/**/*.test.tsx (node = *.test.ts · components = components/**/*.test.tsx) ⇒ ไฟล์เดิมไม่เคยถูกรันเลย ("No test files found")
+import { afterEach, describe, expect, it } from "vitest";
+import { cleanup, render, screen } from "@testing-library/react";
+import "@testing-library/jest-dom/vitest";
+import { StageFlagChips } from "./StageFlagChips";
+import { profileSummaryParts } from "./ProfileSummary";
 import { mapProfileStageDef } from "@/lib/jobs/profile";
 import { analyzePicker, goldUnguardedStages } from "@/lib/jobs/profile-summary";
 import { mapStageRow } from "@/lib/jobs/types";
+
+afterEach(cleanup);
 
 const st = (code: string, metalPresent: boolean, weigh: boolean, extra: { skipped?: boolean; goldWeighExempt?: boolean } = {}) => ({ code, metalPresent, weigh, ...extra });
 
