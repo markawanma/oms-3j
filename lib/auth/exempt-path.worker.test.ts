@@ -96,7 +96,10 @@ describe("middleware.ts matcher ตรงกับ exempt-path.ts (ไม่ dri
     expect(ex).not.toContain("ring-size(?:\\/|$)");
     expect(mw.match(/ring-size/g)!.length).toBeGreaterThan(0);
     const m = /matcher:\s*\[\s*"([^"]+)"/.exec(mw)!;
-    expect(m[1].match(/ring-size/g)).toHaveLength(1); // alternative เดียวใน matcher จริง
+    // 2 alternative พอดี: หน้า exact `ring-size/?$` + asset ลึกหนึ่งชั้นของหน้า `ring-size/[^/]+\.ext$` (3j-mark.png · เพิ่ม 27 ต.ค. 69)
+    expect(m[1].match(/ring-size/g)).toHaveLength(2);
+    expect(m[1].match(/\|ring-size\/\?\$\|/g)).toHaveLength(1);
+    expect(m[1]).toContain("|ring-size/[^/]+\\\\.(?:svg|png|jpg|jpeg|webp)$)");
   });
   it("ไม่มีปีกกา {n,m} ใน matcher (path-to-regexp ตีความผิดได้)", () => {
     const m = /matcher:\s*\[\s*"([^"]+)"/.exec(mw)!;

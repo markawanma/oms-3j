@@ -5,6 +5,7 @@
 // 0005/0006 hardening) — no new stock-mutation SQL is added here, per
 // CLAUDE.md ("ห้ามเขียน stock deduction ใหม่").
 
+import { denyIfNotMember } from "@/lib/auth/action-guard";
 import { randomUUID } from "crypto";
 import { getServiceClient } from "@/lib/supabase/server";
 import { getDevShopId } from "@/lib/dev/context";
@@ -26,6 +27,8 @@ function sanitizeSearchTerm(term: string): string {
 }
 
 export async function searchProductsForLive(term: string): Promise<ActionResult<ProductSearchRow[]>> {
+  const denied = await denyIfNotMember();
+  if (denied) return denied;
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();
@@ -98,6 +101,8 @@ function validateInput(input: CreateQuickOrderInput): string | null {
 }
 
 export async function createQuickOrder(input: CreateQuickOrderInput): Promise<ActionResult<QuickOrderResult>> {
+  const denied = await denyIfNotMember();
+  if (denied) return denied;
   const validationError = validateInput(input);
   if (validationError) return { ok: false, error: validationError };
 

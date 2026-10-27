@@ -26,6 +26,7 @@
 // instead, and the JPEG byte-parsing helpers live in lib/catalog/
 // lib/images/server.ts (also plain, and unit-testable there).
 
+import { denyIfNotMember } from "@/lib/auth/action-guard";
 import { randomUUID } from "crypto";
 import { revalidatePath } from "next/cache";
 import { getServiceClient } from "@/lib/supabase/server";
@@ -64,6 +65,8 @@ function revalidateCatalogPaths(): void {
 // ============================================================================
 
 export async function getProductImages(productId: string): Promise<ActionResult<ProductImageRow[]>> {
+  const denied = await denyIfNotMember();
+  if (denied) return denied;
   const cleanProductId = (productId ?? "").trim();
   if (!cleanProductId) return { ok: false, error: "ไม่พบสินค้าที่จะดูรูป" };
 
