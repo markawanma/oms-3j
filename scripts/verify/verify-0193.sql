@@ -1042,12 +1042,21 @@ begin
   if v_mut = v_def_st then
     perform pg_temp.chk('M12 (mutant: measured ต่อวิธีใช้วิธีล่าสุด ⇒ T12m ต้องล้ม)', false, 'needle ไม่เจอ');
   else
+    -- fixture ของ M12 สร้างใหม่เอง (T14 ลบ fixture ปี 2020 ของ T12m ไปแล้ว) ในช่วง 2020-05-10..05-16 (ว่างจากข้อมูลอื่น)
+    -- S1 = วัด B ได้เบอร์ → เลือก A → เลิก · S2 = วัดด้วย A ตรง ๆ ⇒ ของจริง A=1 B=1 · ตรรกะเดิมได้ A=2 B=0
+    v_sid := pg_temp.fx(v_shop, timestamptz '2020-05-12 12:00:00+07', '{"stage":6,"method":"B"}');
+    perform pg_temp.up(v_shop, v_sid, '{"stage":7,"circ_mm":55.0,"size":53}');
+    perform pg_temp.up(v_shop, v_sid, '{"stage":5,"method":"A"}');
+    perform pg_temp.up(v_shop, v_sid, '{"stage":6}');
+    perform pg_temp.fx(v_shop, timestamptz '2020-05-12 12:10:00+07', '{"stage":7,"method":"A","circ_mm":52.0,"size":50}');
+    v_stats := analytics.ring_size_stats(v_shop, date '2020-05-10', date '2020-05-16');        -- ของจริง
     execute v_mut;
-    v_stats2 := analytics.ring_size_stats(v_shop, date '2020-04-10', date '2020-04-16');
+    v_stats2 := analytics.ring_size_stats(v_shop, date '2020-05-10', date '2020-05-16');       -- mutant
     execute v_def_st;
-    perform pg_temp.chk('M12 (mutant: measured ต่อวิธีใช้วิธีล่าสุด ⇒ G1 (วัด B → เลือก A → เลิก) ถูกนับเป็น A: A=3 B=1 ไม่ใช่ 2/2 = T12m จับได้)',
-      v_stats2 -> 'method_stats' -> 'A' ->> 'measured' = '3' and v_stats2 -> 'method_stats' -> 'B' ->> 'measured' = '1',
-      (v_stats2 -> 'method_stats' -> 'A')::text || (v_stats2 -> 'method_stats' -> 'B')::text);
+    perform pg_temp.chk('M12 (mutant: measured ต่อวิธีใช้วิธีล่าสุด ⇒ S1 (วัด B → เลือก A → เลิก) ถูกนับเป็น A: ของจริง A=1 B=1 · mutant A=2 B=0 = T12m จับได้)',
+      v_stats -> 'method_stats' -> 'A' ->> 'measured' = '1' and v_stats -> 'method_stats' -> 'B' ->> 'measured' = '1'
+        and v_stats2 -> 'method_stats' -> 'A' ->> 'measured' = '2' and v_stats2 -> 'method_stats' -> 'B' ->> 'measured' = '0',
+      'real=' || (v_stats -> 'method_stats')::text || ' mutant=' || (v_stats2 -> 'method_stats')::text);
   end if;
 
   -- M13 RPC: ตั้ง result_method ทุก event (ไม่ใช่เฉพาะ event ที่พกผล) ⇒ fixture G1 ต้องจับได้
