@@ -190,7 +190,8 @@ export async function getJobDetail(jobId: string): Promise<JobResult<JobDetailDa
       db().from("v_job_stage_loss").select("job_stage_id, loss_g, loss_pct, warn, not_weighed, handoff_gap_g, handoff_gap_partial_g").eq("shop_id", shop).eq("job_id", jobId).limit(50),
       db().from("job_token").select("id", { count: "exact", head: true }).eq("shop_id", shop).eq("job_id", jobId).is("revoked_at", null),
       db().from("worker").select(WORKER_COLUMNS).eq("shop_id", shop).order("display_name", { ascending: true }).limit(60),
-      db().from("job_stage_def").select("code, name_th, metal_present, gold_weigh_exempt").eq("shop_id", shop).limit(50),
+      // 0195 M1: select * (ไม่ระบุ gold_weigh_exempt) — merge TS ก่อน apply 0195 ต้องไม่พัง (แถวไม่มี key = ไม่ exempt)
+      db().from("job_stage_def").select("*").eq("shop_id", shop).limit(50),
     ]);
     for (const r of [stRes, evRes, boardRes, lossRes, tokRes, wkRes, defRes]) if (r.error) throw r.error;
 

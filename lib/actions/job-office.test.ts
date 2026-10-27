@@ -148,6 +148,28 @@ describe("อ่าน: ทุก query กรอง shop_id + มี limit", ()
     expect(r.ok && r.data?.source).toEqual({ kind: "production", id: "44444444-4444-4444-8444-444444444444" });
     for (const c of calls) expect(c.ops, c.table).toContainEqual(["eq", "shop_id", SHOP]);
   });
+  it("0195 M1: อ่านทะเบียนขั้นแบบ select * (ไม่ระบุ gold_weigh_exempt) — แถวไม่มี key (ก่อน apply 0195) = ไม่ exempt · มี key true = exempt · merge ก่อน/หลัง apply ไม่พัง", async () => {
+    results.job = { data: { id: JOB, job_no: "JB-0001", metal: "gold", qty_planned: 3, status: "open", design_label: "แหวน", source_kind: "oem" }, error: null };
+    results.job_stage = { data: [
+      { id: "s1", seq: 1, stage_code: "gem_set", status: "pending", weigh_required: false },
+      { id: "s2", seq: 2, stage_code: "buff", status: "pending", weigh_required: false },
+    ], error: null };
+    results.job_stage_def = { data: [
+      { code: "gem_set", name_th: "ฝังพลอย", metal_present: true },
+      { code: "buff", name_th: "ขัด", metal_present: true },
+    ], error: null };
+    const before = await getJobDetail(JOB);
+    expect(before.ok && before.data?.stages.map((s) => [s.code, s.metalPresent, s.goldWeighExempt === true])).toEqual([["gem_set", true, false], ["buff", true, false]]);
+    const d = calls.find((c) => c.table === "job_stage_def")!;
+    expect(String(d.ops.find((o) => o[0] === "select")?.[1])).toBe("*");
+    calls.length = 0;
+    results.job_stage_def = { data: [
+      { code: "gem_set", name_th: "ฝังพลอย", metal_present: true, gold_weigh_exempt: false },
+      { code: "buff", name_th: "ขัด", metal_present: true, gold_weigh_exempt: true },
+    ], error: null };
+    const after = await getJobDetail(JOB);
+    expect(after.ok && after.data?.stages.map((s) => [s.code, s.goldWeighExempt === true])).toEqual([["gem_set", false], ["buff", true]]);
+  });
   it("ใบงานของร้านอื่น/ไม่มี → null", async () => {
     results.job = { data: null, error: null };
     expect(await getJobDetail(JOB)).toEqual({ ok: true, data: null });
