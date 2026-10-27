@@ -38,8 +38,15 @@
 // 🔴 แคบเท่าเดิม: ยอมเฉพาะ "w/s/ + หนึ่งเซกเมนต์ base64url ล้วน + จบ" — ไม่มี /w/s/ ล้วน · ไม่มีเซกเมนต์ซ้อน (/w/s/<token>/x) · ไม่มี ".." / "%2e" / "." · `s` ต้องเป็นตัวเดียวเป๊ะ (ไม่ใช่ /w/sx/<token>)
 // (หมายเหตุ: /w/s เองตรงกับ alternative เดิม w/<token> เพราะ "s" เป็นอักขระ base64url — หน้าช่างแสดง "ลิงก์ใช้ไม่ได้" ตามเดิม ไม่แตะข้อมูลใด)
 // ต้องแก้คู่กับ middleware.ts matcher แล้วรัน exempt-path.worker.test.ts
+// Static assets เพิ่ม 24 ต.ค. 69 (security review H1 — /ring-size review):
+// 🔴 เดิมเป็น blanket `.*\.(svg|png|jpg|jpeg|gif|webp|ico)$` = "ทุก path ที่ลงท้ายนามสกุลรูป" — แต่ dynamic segment ของ Next (`[id]` -> `/([^/]+?)/`) จับจุดได้
+// จึงทำให้ทุก dynamic route หลุด gate: /oem/quotes/x.png · /orders/123.png · /crm/customers/x.png · แม้ /settings/members.png · /dashboard.png
+// (บวกกับ action id เป็น global ของ Next — action-utils.ts createServerModuleMap/selectWorkerForForwarding — path ที่หลุดคือประตูตรงถึง "use server" action ที่ไม่มี guard ในตัว)
+// แก้: ไม่ยกเว้นตามนามสกุลเลย. public asset จริงมีแค่ 3 ไฟล์ที่หน้า anon (login/shop/gem-quiz/OG crawler) ต้องโหลดได้ — 3j-logo.png · 3j-logo.svg · gem-quiz/og.png — ใส่เป็น literal anchored ทีละตัว
+// เพราะ pattern anchor ด้วย `^` ชื่อไฟล์ literal จะ match ก็ต่อเมื่อ "ทั้ง path (จาก root) คือ asset นั้น" — /oem/quotes/3j-logo.png ขึ้นต้น "oem/" ไม่ใช่ "3j-logo" จึงลักไก่ไม่ได้
+// กฎ M3 เดิม: asset สาธารณะใหม่ต้องเพิ่ม exemption เองที่นี่ (+ middleware.ts matcher + เทส) ไม่ได้มาฟรีจาก wildcard · favicon.ico มี literal ของตัวเองอยู่แล้ว ไม่แตะ
 const EXEMPT_PATTERN =
-  /^(?:_next\/static|_next\/image|favicon\.ico|api\/webhooks(?:\/|$)|api\/gem-quiz\/submit\/?$|shop(?:\/|$)|gem-quiz\/?$|stock\/hero(?:\/|$)|w\/[A-Za-z0-9_-]+\/?$|w\/s\/[A-Za-z0-9_-]+\/?$|.*\.(?:svg|png|jpg|jpeg|gif|webp|ico)$)/;
+  /^(?:_next\/static|_next\/image|favicon\.ico|api\/webhooks(?:\/|$)|api\/gem-quiz\/submit\/?$|shop(?:\/|$)|gem-quiz\/?$|stock\/hero(?:\/|$)|w\/[A-Za-z0-9_-]+\/?$|w\/s\/[A-Za-z0-9_-]+\/?$|3j-logo\.(?:png|svg)$|gem-quiz\/og\.png$)/;
 
 /** true if `pathname` bypasses the auth gate entirely (middleware.ts never
  * runs for it) — mirrors config.matcher's negative-lookahead exactly. */

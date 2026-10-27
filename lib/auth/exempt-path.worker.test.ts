@@ -92,4 +92,49 @@ describe("middleware.ts matcher ตรงกับ exempt-path.ts (ไม่ dri
     const m = /matcher:\s*\[\s*"([^"]+)"/.exec(mw)!;
     expect(m[1]).not.toMatch(/\{\d/);
   });
+  // H1 (24 ต.ค. 69): asset exemption เป็น literal ของ 3 ไฟล์จริง ไม่ใช่ wildcard นามสกุล
+  // ดึงเฉพาะ "ตัว regex จริง" ออกมาก่อนตรวจ — คอมเมนต์อธิบายยกตัว pattern เก่ามาได้ ต้องไม่ให้เทสต์จับผิด
+  // เช็คด้วยตัวบ่งชี้ที่ไม่ขึ้นกับ escaping: ลิสต์นามสกุลเก่า "jpeg|gif|webp|ico" (unique ของ wildcard เดิม) ต้องหายจาก regex จริง + ต้องมี asset literal
+  it("🔴 ตัว matcher/pattern จริงยกเว้น asset ด้วย literal (ไม่ใช่ wildcard นามสกุล — ช่องโหว่ H1 เดิม)", () => {
+    const matcherBody = /matcher:\s*\[\s*"([^"]+)"/.exec(mw)![1];
+    const patternBody = /EXEMPT_PATTERN\s*=\s*(\/\^[^\n]+\/);/.exec(ex)![1];
+    expect(matcherBody).not.toContain("jpeg|gif|webp|ico");
+    expect(patternBody).not.toContain("jpeg|gif|webp|ico");
+    expect(matcherBody).toContain("3j-logo");
+    expect(matcherBody).toContain("gem-quiz/og");
+    expect(patternBody).toContain("3j-logo");
+    expect(patternBody).toContain("gem-quiz");
+  });
+
+  // H1 review (security + QA, 24 ต.ค. 69): drift-guard เดิมเช็คแค่ substring —
+  // พิสูจน์ "wildcard หาย + literal อยู่" แต่ไม่พิสูจน์ว่า matcher จริงของ middleware.ts
+  // เทียบเท่า EXEMPT_PATTERN เชิงพฤติกรรม (behavioral test ทั้งหมดรันบน mirror ตัวเดียว
+  // ไม่เคยรัน regex ของ matcher จริง). เทสต์นี้ดึง string literal ของ matcher ออกมา,
+  // eval เป็นค่า runtime ที่ Next ได้รับ (`\\.`→`\.`), สกัด negative-lookahead body
+  // แล้วประกอบเป็น RegExp จริง → รันเคสชุดเดียวกับ isExemptPath เทียบว่าตรงกันทุกเคส
+  // = จับ drift ของ "ทุก" alternative ไม่ใช่แค่ asset.
+  it("🔴 matcher จริงของ middleware.ts เทียบเท่า EXEMPT_PATTERN เชิงพฤติกรรม (ไม่ใช่แค่ substring)", () => {
+    const lit = /matcher:\s*\[\s*("(?:[^"\\]|\\.)*")/.exec(mw)![1];
+    // eslint-disable-next-line no-eval
+    const matcherStr: string = (0, eval)(lit); // ค่า string จริงที่ Next รับ (backslash ถูก unescape แล้ว)
+    const body = /\(\?!(.+)\)\.\*\)/.exec(matcherStr)![1];
+    const matcherRe = new RegExp("^(?:" + body + ")");
+    const cases = [
+      // ต้อง gate (bypass เดิม + ลักไก่)
+      "/oem/quotes/x.png", "/orders/123.png", "/crm/customers/x.png",
+      "/settings/members.png", "/dashboard.png", "/w/x.png", "/w/s/x.png",
+      "/3j-logo.png.evil", "/oem/quotes/3j-logo.png", "/x/gem-quiz/og.png",
+      "/3j-logo.jpg", "/gem-quiz/og.jpg",
+      // ต้อง exempt (asset จริง + route สาธารณะ)
+      "/3j-logo.png", "/3j-logo.svg", "/gem-quiz/og.png", "/favicon.ico",
+      "/shop", "/shop/x", "/gem-quiz", "/stock/hero", "/w/abc", "/w/s/abc",
+      "/_next/static/c.js",
+      // ปกติ gated + look-alike H3
+      "/dashboard", "/shopee-import", "/gem-quizzes", "/api/gem-quiz/stats",
+    ];
+    for (const p of cases) {
+      const rest = p.startsWith("/") ? p.slice(1) : p;
+      expect(matcherRe.test(rest), `matcher != mirror @ ${p}`).toBe(isExemptPath(p));
+    }
+  });
 });

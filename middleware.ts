@@ -188,7 +188,36 @@ export const config = {
   // app/api/gem-quiz/submit/route.ts and lib/gem-quiz/**, NOT a session —
   // lib/gem-quiz/** and app/(quiz)/** must never import a "use server" file,
   // see that design doc's §1.2 for why an exempt page importing one would
-  // bypass this very gate), plus Next internals + static assets.
+  // bypass this very gate), plus Next internals + the handful of real public
+  // static assets.
+  //
+  // Security review 2026-10-24 (H1, /ring-size review): the static-asset
+  // exemption USED to be a blanket `.*\.(?:svg|png|jpg|jpeg|gif|webp|ico)$` —
+  // "any path ending in an image extension." Next's dynamic segments match
+  // dots (`[id]` -> `/([^/]+?)/`, route-regex.ts), so `[id]` happily captures
+  // "x.png" — which meant EVERY dynamic route (/oem/quotes/x.png,
+  // /orders/123.png, /crm/customers/x.png, even /settings/members.png,
+  // /dashboard.png) matched the exemption and bypassed this gate entirely.
+  // Combined with Next's GLOBAL server-action dispatch (an action is looked
+  // up by its id across the whole app, not bound to the POSTed page — see
+  // action-utils.ts createServerModuleMap + selectWorkerForForwarding), a
+  // bypassed path is a live entry point to any "use server" action whose own
+  // in-action auth is the only thing left standing (Next's own Data Security
+  // guide: "a page-level authentication check does not extend to the Server
+  // Actions defined within it"). Proven locally against this very regex, not
+  // in prod.
+  //
+  // Fix: do NOT exempt by extension at all. There are exactly THREE real
+  // public image assets in /public that an unauthenticated page (/login,
+  // /shop, /gem-quiz, OG crawlers) must be able to load — 3j-logo.png,
+  // 3j-logo.svg, gem-quiz/og.png — so each is exempted as an anchored LITERAL
+  // path. Because EXEMPT_PATTERN is `^`-anchored, a literal filename only
+  // matches when the WHOLE path (from root) IS that asset — a dynamic route
+  // like /oem/quotes/3j-logo.png starts with "oem/", never "3j-logo", so it
+  // can no longer smuggle itself through. Same M3 rule as the gem-quiz/webhook
+  // exemptions: a NEW public asset earns its exemption explicitly here (and in
+  // lib/auth/exempt-path.ts + its tests), it is not granted by a wildcard.
+  // favicon.ico already had its own literal exemption above and is unchanged.
   //
   // "login" was excluded here in A1 (gate never branched, so there was
   // nothing for middleware to do on the login page). A2-lite needs the gate
@@ -216,6 +245,6 @@ export const config = {
   // of truth; lib/auth/exempt-path.test.ts is what actually proves they
   // agree.
   matcher: [
-    "/((?!_next/static|_next/image|favicon\\.ico|api/webhooks(?:/|$)|api/gem-quiz/submit/?$|shop(?:/|$)|gem-quiz/?$|stock/hero(?:/|$)|w/[A-Za-z0-9_-]+/?$|w/s/[A-Za-z0-9_-]+/?$|.*\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$).*)",
+    "/((?!_next/static|_next/image|favicon\\.ico|api/webhooks(?:/|$)|api/gem-quiz/submit/?$|shop(?:/|$)|gem-quiz/?$|stock/hero(?:/|$)|w/[A-Za-z0-9_-]+/?$|w/s/[A-Za-z0-9_-]+/?$|3j-logo\\.(?:png|svg)$|gem-quiz/og\\.png$).*)",
   ],
 };
