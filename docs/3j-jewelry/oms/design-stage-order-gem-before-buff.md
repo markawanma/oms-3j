@@ -187,3 +187,13 @@ end if;
 4. ข้อเสนอ rename แบบทอง (ข้อ 3) อยู่นอก brief — ถ้าไม่เอาบอกตรงๆ ไม่ต้องเดา
 
 ไฟล์ที่เกี่ยว: `supabase/migrations/0176_job_record_profile.sql` (ที่มา gold_unguarded · ห้ามลอก def จากนี่) · `lib/jobs/profile-summary.ts` · `lib/jobs/profile.ts` · `lib/actions/job-office.ts` · `lib/jobs/types.ts` · `components/domain/jobs/{ProfileEditor,JobProfileCard,ChangeProfileDialog,JobCreateDialog}.tsx`
+
+---
+
+# รอบแก้หลัง security (Mace) + QA (R2) — 27 ต.ค. 69
+
+- **M1** `getJobDetail` อ่านทะเบียนขั้นแบบ `select *` (ไม่ระบุ `gold_weigh_exempt`) — merge TS ก่อน/หลัง apply 0195 ไม่พัง (แถวไม่มี key = ไม่ exempt)
+- **M2 (Tech Lead ตัดสิน)** ของเสียทองที่ออกจากระบบต้องมีน้ำหนักเสมอ: `job_lot_cancel_core` (ใน 0195) บังคับชั่งเมื่อ "ส่วนถือโลหะแล้ว" (มีขั้น received/sent ที่ metal_present) แทนการผูกกับ weigh_required ของขั้น · เพดานน้ำหนักของส่วนที่ไม่เคยชั่งใช้น้ำหนักสูงสุดของใบแม่ · ส่วนที่แยกก่อนถึงขั้นมีโลหะยังยกเลิกเป็นของเสียโดยไม่ชั่งได้ (ไม่มีทองให้ชั่ง) · TS: `LotPart.holdsMetal` + ช่องน้ำหนักในกล่องยกเลิกส่วน · split weight_move / arrive ไม่เปลี่ยน (ไม่ใช่ของเสีย) · **ช่องเดิมที่ไม่ใช่ของงานนี้:** ของเสียตอนแยกส่วน (นับชิ้นเสีย) ไม่รับน้ำหนักทุกขั้น (มติ ค1 ของ 0181)
+- **L1** PART B ของ 0194: ใบที่มี job_discrepancy (ไม่ void) ชี้ขั้น buff/gem_set -> raise ไม่สลับ
+- **L2** pre-check 0195: มีแบบอื่นใช้ชื่อใหม่ของแบบทองปริยาย (ไม่สนตัวพิมพ์) -> raise ก่อนแตะอะไร
+- **CRLF** เทียบ md5 ของนิยามฟังก์ชัน/วิวใน 0194/0195/verify แบบตัด \r ทุกจุด · mutant ตัด \r ก่อนแทนข้อความ · หัวไฟล์สั่ง apply จากสำเนา LF (ข้อ 20 ของ 3j-migration-traps)

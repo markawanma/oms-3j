@@ -47,6 +47,27 @@ describe("loadJobLots", () => {
     }
   });
 
+  it("0195 M2: holdsMetal = มีขั้นที่ received/sent ที่โลหะอยู่ในมือ (ขัดไม่ชั่งก็นับ) · ขั้น skipped/pending ไม่นับ · ไม่ส่ง metalStages = ไม่ตั้งค่า", async () => {
+    results.v_job_tree = { data: [tree({}), tree({ job_id: L1, lot_seq: 1, label: "JB-0020 · ส่วนที่ 1", qty_planned: 4, qty_live: 4 })], error: null };
+    results.v_job_tree_summary = { data: { root_job_id: ROOT, qty_planned: 10, parts_count: 2, lots_open: 1, qty_pending_explanation: 0, sum_check: true }, error: null };
+    results.job_stage = {
+      data: [
+        { id: "a0", job_id: L1, seq: 1, stage_code: "wax", status: "skipped", weigh_required: false },
+        { id: "a1", job_id: L1, seq: 2, stage_code: "buff", status: "sent", weigh_required: false },
+        { id: "a2", job_id: L1, seq: 3, stage_code: "plating", status: "pending", weigh_required: true },
+        { id: "b1", job_id: ROOT, seq: 1, stage_code: "wax", status: "received", weigh_required: false },
+      ],
+      error: null,
+    };
+    const names = { wax: "เทียน", buff: "ขัด", plating: "ชุบ" };
+    const r = await loadJobLots(ROOT, names, new Set(["buff", "plating"]));
+    expect(r?.parts[1].holdsMetal).toBe(true); // ส่วนที่ 1: ขัด (sent · ไม่ชั่ง · โลหะอยู่ในมือ)
+    expect(r?.parts[1].hasWeighStage).toBe(false); // ไม่มีขั้นชั่งที่ชั่งแล้ว — เดิมจึงไม่บังคับชั่งของเสีย (ช่อง M2)
+    expect(r?.parts[0].holdsMetal).toBeUndefined(); // ใบแม่: ขั้นเทียนไม่มีโลหะ
+    const r2 = await loadJobLots(ROOT, names);
+    expect(r2?.parts[1].holdsMetal).toBeUndefined();
+  });
+
   it("หลายส่วน: ดึง summary + ขั้นที่ผ่านมาแล้วของแต่ละส่วน (ใบย่อยพิมพ์บรรทัดเดียว) + ส่วนต่างพร้อมชื่อขั้น/ป้ายส่วน", async () => {
     results.v_job_tree = { data: [tree({}), tree({ job_id: L1, lot_seq: 1, label: "JB-0020 · ส่วนที่ 1", qty_planned: 10, qty_live: 10 })], error: null };
     results.v_job_tree_summary = { data: { root_job_id: ROOT, qty_planned: 60, parts_count: 2, lots_open: 1, qty_pending_explanation: 3, sum_check: true }, error: null };

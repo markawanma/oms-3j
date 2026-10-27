@@ -13,7 +13,7 @@ const rows = (d: unknown): Record<string, unknown>[] => (Array.isArray(d) ? (d a
 const sortParts = (a: LotPart, b: LotPart) => a.lotSeq - b.lotSeq;
 
 /** ใบแม่ 1 ใบ → ส่วนทั้งหมด + ยอดรวม + ส่วนต่าง · ใบเดี่ยวที่ไม่เคยแยก = parts 1 แถว (ผู้เรียกใช้ hasLots() ตัดสินว่าจะแสดงแผงไหม) · null = อ่านไม่ได้ */
-export async function loadJobLots(rootJobId: string, stageNames: Record<string, string>): Promise<JobLotsData | null> {
+export async function loadJobLots(rootJobId: string, stageNames: Record<string, string>, metalStages: ReadonlySet<string> = new Set()): Promise<JobLotsData | null> {
   try {
     const shop = shopId();
     const [treeRes, discRes] = await Promise.all([
@@ -65,6 +65,8 @@ export async function loadJobLots(rootJobId: string, stageNames: Record<string, 
       }
       const wIn = typeof s.weight_in_g === "number" ? s.weight_in_g : null;
       const wOut = typeof s.weight_out_g === "number" ? s.weight_out_g : null;
+      // 0195 M2: ถือโลหะแล้ว = มีขั้นที่รับ/ส่งแล้วและโลหะอยู่ในมือที่ขั้นนั้น (ทอง + ของเสีย = ต้องชั่งเสมอ — ตรงกับ job_lot_cancel_core)
+      if ((s.status === "received" || s.status === "sent") && metalStages.has(code)) part.holdsMetal = true;
       // ขั้นชั่งที่ "ชั่งแล้ว" เท่านั้น (M-D) — ตั้งชั่งแต่ยังไม่มีน้ำหนักเลย = ยังไม่ถึงขั้นชั่ง
       if (s.weigh_required === true && s.status !== "skipped" && (wIn !== null || wOut !== null)) part.hasWeighStage = true;
       // น้ำหนักล่าสุด: ขั้นไม่ข้าม seq สูงสุดที่มีน้ำหนัก (เรียงตาม seq จาก query → ตัวหลังชนะ) — pre-check เท่านั้น

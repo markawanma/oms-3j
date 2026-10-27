@@ -711,6 +711,19 @@ describe("0181 security delta: ยกเลิกส่วนทองเป็�
     await waitFor(() => expect(lots.cancelJobLot).toHaveBeenCalledWith({ lotJobId: L1, reason: "ของแตก", disposition: "scrap", scrapReason: "broken" }));
   });
 
+  it("0195 M2: ส่วนทองที่ถือโลหะแล้วแต่ขั้นไม่ชั่ง (ขัด · hasWeighStage = false · holdsMetal = true): เลือกของเสียแล้วต้องชั่ง — ไม่ใส่น้ำหนักยกเลิกไม่ได้ · ใส่แล้วส่ง scrapWeightG", async () => {
+    wrap(<JobDetailClient data={detail(mk({ hasWeighStage: false, holdsMetal: true, latestWeightG: null }), { metal: "gold" })} />);
+    await userEvent.click(await screen.findByRole("button", { name: "ยกเลิก ส่วนที่ 1" }));
+    const d = within(await screen.findByRole("dialog", { name: /ยกเลิก ส่วนที่/ }));
+    await userEvent.type(d.getByLabelText("เหตุผลที่ยกเลิกส่วน"), "ของแตก");
+    await userEvent.click(d.getByRole("radio", { name: "นับเป็นของเสีย" }));
+    await userEvent.click(d.getByRole("radio", { name: "หัก" }));
+    expect(d.getByRole("button", { name: "ยกเลิกส่วน" })).toBeDisabled();
+    await userEvent.type(d.getByLabelText(/น้ำหนักเศษที่คืน/), "3.5");
+    await userEvent.click(d.getByRole("button", { name: "ยกเลิกส่วน" }));
+    await waitFor(() => expect(lots.cancelJobLot).toHaveBeenCalledWith({ lotJobId: L1, reason: "ของแตก", disposition: "scrap", scrapReason: "broken", scrapWeightG: "3.5" }));
+  });
+
   it("เงิน: ไม่มีช่องคำอธิบาย แม้ข้อมูลน้ำหนักมี · ช่องว่างล้วนในคำอธิบายไม่ผ่าน", async () => {
     const a = await open(mk({}), "silver");
     expect(a.queryByLabelText(/น้ำหนักเศษที่คืน/)).not.toBeInTheDocument();

@@ -401,7 +401,8 @@ export function CancelLotDialog({ part, onClose, gold = false }: { part: LotPart
   const [disp, setDisp] = useState<"return_to_parent" | "scrap">("return_to_parent");
   const [scrapReason, setScrapReason] = useState<string | null>(null);
   // M-C: ทอง + ส่วนมีขั้นชั่ง + นับเป็นของเสีย = ต้องชั่งน้ำหนักของเสียที่เลิกใช้ (> 0 · ทศนิยม ≤ 3) — DB ตรวจซ้ำ (scrap_weight_required / weight_over / weight_unexpected)
-  const needWeight = gold && part.hasWeighStage && disp === "scrap";
+  // 0195 M2: ของเสียทองต้องชั่งเสมอเมื่อส่วนถือโลหะแล้ว (holdsMetal) แม้ขั้นนั้นไม่ชั่ง (ขัด) — ตรงกับ DB (job_lot_cancel_core)
+  const needWeight = gold && (part.hasWeighStage || part.holdsMetal === true) && disp === "scrap";
   const [wText, setWText] = useState("");
   const wParsed = needWeight ? parseWeight(wText, "น้ำหนักเศษที่คืน") : null;
   const wBad = needWeight && (!wParsed || !wParsed.ok || wParsed.value === null || wParsed.value <= 0);

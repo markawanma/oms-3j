@@ -195,7 +195,7 @@ create function pg_temp.mutate(p_name text, p_from text, p_to text) returns void
 declare v_oid oid; v_def text; v_new text;
 begin
   select p.oid into strict v_oid from pg_proc p where p.pronamespace = 'analytics'::regnamespace and p.proname = p_name;
-  v_def := pg_get_functiondef(v_oid);
+  v_def := replace(pg_get_functiondef(v_oid), E'', '');
   v_new := replace(v_def, p_from, p_to);
   if v_new = v_def then
     raise exception 'MUTANT_NOT_APPLIED: % ไม่พบข้อความ [%]', p_name, p_from;
@@ -253,7 +253,7 @@ create function pg_temp.mutate_view(p_name text, p_from text, p_to text) returns
  language plpgsql as $c$
 declare v_def text; v_new text;
 begin
-  v_def := pg_get_viewdef(('analytics.' || p_name)::regclass, true);
+  v_def := replace(pg_get_viewdef(('analytics.' || p_name)::regclass, true), E'', '');
   v_new := replace(v_def, p_from, p_to);
   if v_new = v_def then
     raise exception 'MUTANT_NOT_APPLIED: view % ไม่พบข้อความ [%]', p_name, p_from;

@@ -22,6 +22,10 @@
 --   7 ใบที่สร้างก่อน 0195 (buff ชั่ง): ชั่ง buff ต่อได้ · gold_unguarded=false · เปลี่ยนแบบก่อนเริ่ม -> buff ไม่ชั่ง       -> E5 E6 E7  (จำลองด้วยแบบทองที่ชั่ง buff — ผลต่อ flag ของใบเหมือนกัน)
 --   8 ใบเงิน/ทุก status: gold_unguarded=false เหมือนเดิม · บอร์ดเปิดได้ · stage_suggest/profile_list คืน key ใหม่ครบ        -> F1 F2 F3 F4 · MV-6
 --   9 ใบทองเก่า profile_id null ไม่ error                                                                             -> F5 (SKIP ถ้าไม่มีใบแบบนี้บน DB — ตอนเขียนไม่มี)
+--  ข้อเพิ่มรอบแก้หลัง security/QA:
+--   M2 ของเสียทองต้องมีน้ำหนักเสมอ (job_lot_cancel_core): ใบทองแยกที่ขั้นขัด (ไม่ชั่ง) ยกเลิกเป็นของเสียโดยไม่มีน้ำหนัก = ปฏิเสธ · ใบเงินยกเลิกของเสียไม่ชั่ง = ผ่านเหมือนเดิม · ก่อนมีโลหะ/ชั้นชั่ง/คืนชิ้น ไม่เปลี่ยน -> M1 M1b M1c M2 M3 M4 M5 · MV-8 MV-9
+--   L2 rename แบบทองปริยายชนชื่อแบบอื่น -> pre-check raise                                                               -> D6 (ตัวตรวจ) + dry-run pre-check แยก (conflict)
+--   CRLF: md5 ตัด \r ทุกจุด · mutant ตัด \r (pg_temp.mutate / mutate_view) — รันจากสำเนา LF เหมือนเดิม (ข้อ 20 ของ 3j-migration-traps)
 --  K0: ชุดทดสอบทั้งชุดไม่ทิ้งรอย · MY: md5 ฟังก์ชันเท่าเดิมหลัง mutant · P1: ไม่มี overload/สิทธิ์
 --
 --  ❌ ไม่มีเทสต์ครอบ (บอกตรงๆ):
@@ -205,7 +209,8 @@ create function pg_temp.mutate(p_name text, p_from text, p_to text) returns void
 declare v_oid oid; v_def text; v_new text;
 begin
   select p.oid into strict v_oid from pg_proc p where p.pronamespace = 'analytics'::regnamespace and p.proname = p_name;
-  v_def := pg_get_functiondef(v_oid);
+  -- ตัด \r ก่อนแทนข้อความ: ฟังก์ชันที่ apply จากไฟล์ CRLF มี \r\n ใน body ⇒ ข้อความหลายบรรทัดของ mutant ไม่ตรง (MUTANT_NOT_APPLIED) · mutant ไม่ขึ้นกับ line ending
+  v_def := replace(pg_get_functiondef(v_oid), E'\r', '');
   v_new := replace(v_def, p_from, p_to);
   if v_new = v_def then
     raise exception 'MUTANT_NOT_APPLIED: % ไม่พบข้อความ [%]', p_name, p_from;
@@ -263,7 +268,7 @@ create function pg_temp.mutate_view(p_name text, p_from text, p_to text) returns
  language plpgsql as $c$
 declare v_def text; v_new text;
 begin
-  v_def := pg_get_viewdef(('analytics.' || p_name)::regclass, true);
+  v_def := replace(pg_get_viewdef(('analytics.' || p_name)::regclass, true), E'\r', '');
   v_new := replace(v_def, p_from, p_to);
   if v_new = v_def then
     raise exception 'MUTANT_NOT_APPLIED: view % ไม่พบข้อความ [%]', p_name, p_from;
@@ -368,6 +373,14 @@ begin
              coalesce((select string_agg(x::text, '|' order by x.id, x.stage_code) from analytics.job_record_profile_stage x where x.shop_id = p_shop), '') || '#' ||
              coalesce((select string_agg(x::text, '|' order by x.id) from analytics.job_record_profile x where x.shop_id = p_shop), '')) into m2;
   v := v || pg_temp.chk('D4', 'เคส 5: ensure ทะเบียน+แบบ ซ้ำบนร้านจริง = ไม่ขยับอะไร (md5 ทะเบียน/แบบ/ขั้นของแบบเท่าเดิม) · ทั้งไฟล์ migration รัน 2 รอบ = dry-run แยก (ตามรายงานส่งงาน)', m1 = m2);
+  -- L2: query เดียวกับ pre-check ของ 0195 — เจอแบบอื่นใช้ชื่อใหม่ (ไม่สนตัวพิมพ์) ขณะแบบทองปริยายยังชื่อเดิม = นับ > 0 (migration raise) · ไม่มีชนหรือ rename แล้ว = 0
+  update analytics.job_record_profile set name = 'ทอง — ชั่งทุกขั้นที่มีโลหะ + ชั่งสุทธิตอนปิด' where shop_id = p_shop and is_default_gold;
+  select count(*) into n from analytics.job_record_profile g join analytics.job_record_profile o on o.shop_id = g.shop_id and o.id <> g.id and lower(o.name) = lower('ทอง — ชั่งทุกขั้นที่มีโลหะ (ยกเว้นขัด) + ชั่งสุทธิตอนปิด')
+   where g.is_default_gold and g.name = 'ทอง — ชั่งทุกขั้นที่มีโลหะ + ชั่งสุทธิตอนปิด' and g.shop_id = p_shop;
+  insert into analytics.job_record_profile (shop_id, name, note, seq) values (p_shop, 'ทอง — ชั่งทุกขั้นที่มีโลหะ (ยกเว้นขัด) + ชั่งสุทธิตอนปิด', 'แบบชนชื่อ (ทดสอบ L2)', 99);
+  select count(*) into n2 from analytics.job_record_profile g join analytics.job_record_profile o on o.shop_id = g.shop_id and o.id <> g.id and lower(o.name) = lower('ทอง — ชั่งทุกขั้นที่มีโลหะ (ยกเว้นขัด) + ชั่งสุทธิตอนปิด')
+   where g.is_default_gold and g.name = 'ทอง — ชั่งทุกขั้นที่มีโลหะ + ชั่งสุทธิตอนปิด' and g.shop_id = p_shop;
+  v := v || pg_temp.chk('D6', 'L2: ตัวตรวจชนชื่อ — ไม่มีแบบอื่นใช้ชื่อใหม่ = 0 · มีแบบอื่นใช้ชื่อใหม่ = 1 (pre-check ของ 0195 จะ raise) — ' || n || '/' || n2, n = 0 and n2 = 1);
   -- แบบทองปริยายของร้านจริง: buff ไม่ชั่ง · ขั้นอื่นที่มีโลหะ (เปิดใช้งาน) ชั่ง
   select count(*) into n from analytics.job_record_profile_stage ps join analytics.job_record_profile p on p.id = ps.profile_id
    where p.shop_id = p_shop and p.is_default_gold and ps.stage_code = 'buff' and ps.weigh;
@@ -459,12 +472,102 @@ begin
 end;
 $c$;
 
+
+-- ===== M: ของเสียทองต้องมีน้ำหนักเสมอ (M2 · job_lot_cancel_core) =====
+create function pg_temp.lot(r jsonb) returns uuid language sql as $c$ select (r ->> 'lot_job_id')::uuid $c$;
+create function pg_temp.o_lcancel(p_shop uuid, p_lot uuid, p_reason text, p_disp text, p_sreason text default null, p_sw numeric default null) returns jsonb
+ language sql as $c$
+  select pg_temp.q(format('select analytics.job_lot_cancel(p_shop_id=>%L, p_lot_job_id=>%L, p_reason=>%L, p_disposition=>%L, p_scrap_reason=>%L, p_actor=>%L, p_scrap_weight_g=>%L)',
+    p_shop, p_lot, p_reason, p_disp, p_sreason, pg_temp.act(), p_sw)) $c$;
+create function pg_temp.o_split_raw(p_shop uuid, p_job uuid, p_seq int, p_qty int, p_scrap int, p_reason text, p_hold int, p_wmove numeric) returns jsonb
+ language sql as $c$
+  select pg_temp.q(format('select analytics.job_lot_split(p_shop_id=>%L, p_job_id=>%L, p_expected_seq=>%L, p_qty=>%L, p_qty_scrap=>%L, p_scrap_reason=>%L, p_qty_hold=>%L, p_actor=>%L, p_weight_move_g=>%L)',
+    p_shop, p_job, p_seq, p_qty, p_scrap, p_reason, p_hold, pg_temp.act(), p_wmove)) $c$;
+create function pg_temp.run_m(p_shop uuid, p_tpl uuid) returns text
+ language plpgsql as $c$
+declare
+  v text := ''; pf uuid; d jsonb; j uuid; rr jsonb; r jsonb; rs jsonb; lot uuid; r2 jsonb; r3 jsonb; v_today date := analytics.job_today(); st text; w numeric;
+begin
+  -- M1: ใบทอง (แบบที่ไม่ชั่งขัด) เดินถึงขัด รับขัดแล้วแยกส่วนที่ขัด (นับจำนวนอย่างเดียว) → ยกเลิกส่วนเป็นของเสียโดยไม่มีน้ำหนัก = ต้องถูกปฏิเสธ
+  pf := pg_temp.mkprof_gold(p_shop, 'v195-M2-ทองไม่ชั่งขัด', null);
+  d := pg_temp.mkp(p_shop, p_tpl, 'gold', pf, pg_temp.gold_codes(), 10);
+  j := pg_temp.jid(d);
+  rr := pg_temp.rwg(p_shop, j, 10, 7);
+  r := pg_temp.o_recv(p_shop, j, 8, v_today, null, null, 'verify');
+  rs := pg_temp.o_split(p_shop, j, 8, 4);
+  lot := pg_temp.lot(rs);
+  r2 := pg_temp.o_lcancel(p_shop, lot, 'ทดสอบ M2', 'scrap', 'broken', null);
+  select status into st from analytics.job where id = lot;
+  v := v || pg_temp.chk('M1', 'M2 (ห้ามผ่าน): ใบทองแยกที่ขั้นขัด (ไม่ชั่ง) แล้วยกเลิกเป็นของเสียโดยไม่มีน้ำหนัก = ปฏิเสธ scrap_weight_required · ส่วนยังไม่ถูกยกเลิก — ' || coalesce(pg_temp.codeof(r2), 'ผ่าน?') || ' · split ' || coalesce(pg_temp.codeof(rs), 'ok'),
+    pg_temp.okr(rr) and pg_temp.okr(r) and pg_temp.okr(rs) and lot is not null and pg_temp.codeof(r2) = 'scrap_weight_required' and st <> 'cancelled');
+  r3 := pg_temp.o_lcancel(p_shop, lot, 'ทดสอบ M2', 'scrap', 'broken', 3.5);
+  select status, cancel_scrap_weight_g into st, w from analytics.job where id = lot;
+  v := v || pg_temp.chk('M1b', 'ต้องไม่พัง: ใบเดียวกัน ใส่น้ำหนักของเสีย 3.5 g (ส่วนที่ไม่เคยชั่ง — เพดานใช้น้ำหนักสูงสุดของใบแม่ 10 g) = ผ่าน · เก็บ cancel_scrap_weight_g — ' || coalesce(pg_temp.codeof(r3), 'ok'),
+    pg_temp.okr(r3) and st = 'cancelled' and w = 3.5);
+  -- เกินน้ำหนักสูงสุดของใบแม่ = weight_over (เพดานยังทำงาน)
+  d := pg_temp.mkp(p_shop, p_tpl, 'gold', pf, pg_temp.gold_codes(), 10);
+  j := pg_temp.jid(d);
+  rr := pg_temp.rwg(p_shop, j, 10, 7);
+  r := pg_temp.o_recv(p_shop, j, 8, v_today, null, null, 'verify');
+  rs := pg_temp.o_split(p_shop, j, 8, 4);
+  lot := pg_temp.lot(rs);
+  r2 := pg_temp.o_lcancel(p_shop, lot, 'ทดสอบ M2', 'scrap', 'broken', 99);
+  v := v || pg_temp.chk('M1c', 'ห้ามผ่าน: น้ำหนักของเสีย 99 g มากกว่าน้ำหนักสูงสุดของใบแม่ (10 g) = weight_over — ' || coalesce(pg_temp.codeof(r2), 'ผ่าน?'), pg_temp.codeof(r2) = 'weight_over');
+  -- M2: ใบเงิน ยกเลิกส่วนเป็นของเสียโดยไม่ชั่ง = ผ่านเหมือนเดิม · ใส่น้ำหนักมา = weight_unexpected (เหมือนเดิม)
+  d := pg_temp.mkp(p_shop, p_tpl, 'silver', pg_temp.pid(p_shop, 'none'), pg_temp.gold_codes(), 10);
+  j := pg_temp.jid(d);
+  rr := pg_temp.rwg(p_shop, j, null, 7);
+  r := pg_temp.o_recv(p_shop, j, 8, v_today, null, null, 'verify');
+  rs := pg_temp.o_split(p_shop, j, 8, 4);
+  lot := pg_temp.lot(rs);
+  r2 := pg_temp.o_lcancel(p_shop, lot, 'ทดสอบ M2', 'scrap', 'broken', 1);
+  r3 := pg_temp.o_lcancel(p_shop, lot, 'ทดสอบ M2', 'scrap', 'broken', null);
+  select status into st from analytics.job where id = lot;
+  v := v || pg_temp.chk('M2', 'ต้องไม่พัง: ใบเงินยกเลิกส่วนเป็นของเสียโดยไม่ชั่ง = ผ่าน · ส่งน้ำหนักมา = weight_unexpected — ' || coalesce(pg_temp.codeof(r2), 'ok') || '/' || coalesce(pg_temp.codeof(r3), 'ok'),
+    pg_temp.codeof(r2) = 'weight_unexpected' and pg_temp.okr(r3) and st = 'cancelled');
+  -- M3: ใบทองแยกก่อนถึงขั้นมีโลหะ (ขั้นติดต้นเทียน) ยกเลิกเป็นของเสียโดยไม่ชั่ง = ผ่าน (ไม่มีทองให้ชั่ง · M-D เดิม)
+  d := pg_temp.mkp(p_shop, p_tpl, 'gold', pf, pg_temp.gold_codes(), 10);
+  j := pg_temp.jid(d);
+  rr := pg_temp.rwg(p_shop, j, 10, 1);
+  r := pg_temp.o_recv(p_shop, j, 2, v_today, null, null, 'verify');
+  rs := pg_temp.o_split(p_shop, j, 2, 4);
+  lot := pg_temp.lot(rs);
+  r2 := pg_temp.o_lcancel(p_shop, lot, 'ทดสอบ M2', 'scrap', 'broken', null);
+  select status into st from analytics.job where id = lot;
+  v := v || pg_temp.chk('M3', 'ต้องไม่พัง: ใบทองแยกที่ขั้นติดต้นเทียน (ยังไม่มีโลหะ) ยกเลิกเป็นของเสียโดยไม่ชั่ง = ผ่าน — ' || coalesce(pg_temp.codeof(rs), 'ok') || '/' || coalesce(pg_temp.codeof(r2), 'ok'),
+    pg_temp.okr(rr) and pg_temp.okr(r) and pg_temp.okr(rs) and pg_temp.okr(r2) and st = 'cancelled');
+  -- M4: ใบทองแยกที่ขั้นที่ชั่ง (ตัดต้น) ยังบังคับชั่งของเสียเหมือนเดิม
+  d := pg_temp.mkp(p_shop, p_tpl, 'gold', pf, pg_temp.gold_codes(), 10);
+  j := pg_temp.jid(d);
+  rr := pg_temp.rwg(p_shop, j, 10, 4);
+  r := pg_temp.o_recv(p_shop, j, 5, v_today, 10, null, 'verify');
+  rs := pg_temp.o_split_raw(p_shop, j, 5, 4, 0, null, 10, 3);
+  lot := pg_temp.lot(rs);
+  r2 := pg_temp.o_lcancel(p_shop, lot, 'ทดสอบ M2', 'scrap', 'broken', null);
+  v := v || pg_temp.chk('M4', 'ต้องไม่พัง (ยังห้าม): ใบทองแยกที่ขั้นตัดต้น (ชั่ง) ยกเลิกเป็นของเสียโดยไม่ชั่ง = ปฏิเสธ scrap_weight_required เหมือนเดิม — ' || coalesce(pg_temp.codeof(rs), 'ok') || '/' || coalesce(pg_temp.codeof(r2), 'ผ่าน?'),
+    pg_temp.okr(rs) and lot is not null and pg_temp.codeof(r2) = 'scrap_weight_required');
+  -- M5: คืนชิ้นให้ผู้ถือเดิม (ไม่ใช่ของเสีย) ของใบทองที่ขัดไม่ชั่ง = ไม่บังคับน้ำหนัก (ไม่เปลี่ยน)
+  d := pg_temp.mkp(p_shop, p_tpl, 'gold', pf, pg_temp.gold_codes(), 10);
+  j := pg_temp.jid(d);
+  rr := pg_temp.rwg(p_shop, j, 10, 7);
+  r := pg_temp.o_recv(p_shop, j, 8, v_today, null, null, 'verify');
+  rs := pg_temp.o_split(p_shop, j, 8, 4);
+  lot := pg_temp.lot(rs);
+  r2 := pg_temp.o_lcancel(p_shop, lot, 'ทดสอบ M2', 'return_to_parent', null, null);
+  select status into st from analytics.job where id = lot;
+  v := v || pg_temp.chk('M5', 'ต้องไม่พัง: ใบทองที่ขัดไม่ชั่ง ยกเลิกส่วนแบบ "คืนชิ้นให้ผู้ถือเดิม" (ไม่ใช่ของเสีย) = ผ่านโดยไม่ต้องมีน้ำหนัก — ' || coalesce(pg_temp.codeof(r2), 'ok'),
+    pg_temp.okr(r2) and st = 'cancelled');
+  return v;
+end;
+$c$;
+
 create function pg_temp.run_all(p_shop uuid, p_tpl uuid) returns text
  language sql as $c$
   select pg_temp.grp('C', format('select pg_temp.run_c(%L, %L)', p_shop, p_tpl))
       || pg_temp.grp('D', format('select pg_temp.run_d(%L)', p_shop))
       || pg_temp.grp('E', format('select pg_temp.run_e(%L, %L)', p_shop, p_tpl))
       || pg_temp.grp('F', format('select pg_temp.run_f(%L, %L)', p_shop, p_tpl))
+      || pg_temp.grp('M', format('select pg_temp.run_m(%L, %L)', p_shop, p_tpl))
 $c$;
 
 do $v195$
@@ -478,6 +581,9 @@ declare
     jsonb_build_object('id', 'MV-4', 'what', 'job_stage_def_ensure: buff ไม่ exempt ในร้านใหม่', 'fn', 'job_stage_def_ensure', 'from', '105, ''per_piece'', null,           false, true,  true)', 'to', '105, ''per_piece'', null,           false, true,  false)', 'expect', jsonb_build_array('D1')),
     jsonb_build_object('id', 'MV-5', 'what', 'job_record_profile_ensure: แบบทองร้านใหม่ seed buff ชั่ง (ไม่สน exempt)', 'fn', 'job_record_profile_ensure', 'from', 'd.metal_present and not d.gold_weigh_exempt', 'to', 'd.metal_present', 'expect', jsonb_build_array('D3')),
     jsonb_build_object('id', 'MV-6', 'what', 'job_stage_suggest: ไม่ส่ง key gold_weigh_exempt', 'fn', 'job_stage_suggest', 'from', ', ''gold_weigh_exempt'', d.gold_weigh_exempt', 'to', '', 'expect', jsonb_build_array('F4')),
+    jsonb_build_object('id', 'MV-8', 'what', 'job_lot_cancel_core: ไม่บังคับชั่งของเสียทอง (v_wreq เป็น false เสมอ — ช่องเดิมก่อน M2)', 'fn', 'job_lot_cancel_core', 'from', 'and x.status in (''received'', ''sent'') and d.metal_present)', 'to', 'and false)', 'expect', jsonb_build_array('M1', 'M4')),
+    jsonb_build_object('id', 'MV-9', 'what', 'job_lot_cancel_core: ถอดการตกกลับไปเพดานน้ำหนักใบแม่ (ส่วนที่ไม่เคยชั่งไม่มีเพดาน — น้ำหนักเกินใบแม่ผ่าน)', 'fn', 'job_lot_cancel_core', 'from', 'if coalesce(v_wbasis, 0) = 0 then', 'to', 'if false then', 'expect', jsonb_build_array('M1c')),
+    jsonb_build_object('id', 'MV-10', 'what', 'job_lot_cancel_core: เพดานกลับเป็นแบบเดิม (ไม่มีน้ำหนักฐาน = ใส่น้ำหนักไม่ได้เลย) + ไม่ตกกลับใบแม่', 'fn', 'job_lot_cancel_core', 'from', 'if coalesce(v_wbasis, 0) > 0 and p_scrap_weight > v_wbasis then', 'to', 'if p_scrap_weight > 0 then', 'expect', jsonb_build_array('M1b')),
     jsonb_build_object('id', 'MV-7', 'what', 'ข้อมูล: แบบทองปริยาย buff กลับไปชั่ง (UPDATE แบบไม่ครบ)', 'ddl', 'update analytics.job_record_profile_stage ps set weigh = true from analytics.job_record_profile p where p.id = ps.profile_id and p.is_default_gold and ps.stage_code = ''buff''', 'expect', jsonb_build_array('E1', 'D5', 'E4'))
   );
 begin
@@ -495,7 +601,7 @@ begin
   end if;
 
   create temp table _v195_orig on commit drop as
-    select p.oid::regprocedure::text as sig, md5(pg_get_functiondef(p.oid)) as h, p.proacl::text as acl
+    select p.oid::regprocedure::text as sig, md5(replace(pg_get_functiondef(p.oid), E'\r', '')) as h, p.proacl::text as acl
       from pg_proc p where p.pronamespace = 'analytics'::regnamespace and p.prokind in ('f', 'p');
   v_snap0 := pg_temp.snap();
 
@@ -544,7 +650,7 @@ begin
   end loop;
   v_log := v_log || pg_temp.chk('MX', format('mutant ถูกจับครบ %s/%s ตัว %s', v_killed, v_total, case when v_survived = '' then '' else 'รอด: ' || v_survived end), v_killed = v_total);
 
-  select count(*) into v_hit from _v195_orig o join pg_proc p on p.pronamespace = 'analytics'::regnamespace and p.prokind in ('f', 'p') and p.oid::regprocedure::text = o.sig where md5(pg_get_functiondef(p.oid)) = o.h and p.proacl::text is not distinct from o.acl;
+  select count(*) into v_hit from _v195_orig o join pg_proc p on p.pronamespace = 'analytics'::regnamespace and p.prokind in ('f', 'p') and p.oid::regprocedure::text = o.sig where md5(replace(pg_get_functiondef(p.oid), E'\r', '')) = o.h and p.proacl::text is not distinct from o.acl;
   v_log := v_log || pg_temp.chk('MY', format('หลัง mutant: md5 นิยาม + สิทธิ์ของฟังก์ชันทุกตัวในสคีมา analytics (%s ตัว) เท่าเดิมเป๊ะ', (select count(*) from _v195_orig)),
     v_hit = (select count(*) from _v195_orig) and (select count(*) from pg_proc where pronamespace = 'analytics'::regnamespace and prokind in ('f', 'p')) = (select count(*) from _v195_orig));
   v_log := v_log || pg_temp.chk('K0b', 'state ไม่ขยับหลังรัน mutant ทั้งหมด', pg_temp.snap() = v_snap0);

@@ -221,7 +221,8 @@ export async function getJobDetail(jobId: string): Promise<JobResult<JobDetailDa
       if (typeof id === "string") source = { kind: "production", id };
     }
 
-    const lots = await loadJobLots(jobId, names);
+    const metalStages = new Set(Object.entries(metalPresent).filter(([, f]) => f === true || (typeof f === "object" && f.metalPresent === true)).map(([c]) => c));
+    const lots = await loadJobLots(jobId, names, metalStages);
     // 0181: ใบนี้เป็น "ส่วนย่อย" (ไม่ใช่ใบแม่) → บอกใบแม่ให้หน้าเด้งไปที่ใบแม่ (anchor ที่ส่วนนั้น) — ถามเฉพาะเมื่อไม่มีต้นไม้ของใบนี้
     const partOf = lots === null ? await findLotRoot(jobId) : null;
     // 0182: รูปอ้างอิง (เฉพาะใบแม่ — ส่วนย่อยใช้รูปแม่) · อ่าน/เซ็นไม่ได้ไม่ล้มทั้งหน้า

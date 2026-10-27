@@ -1,6 +1,7 @@
 -- 0195_gold_weigh_exempt_buff.sql — ใบทองไม่บังคับชั่งขั้น "ขัด" (buff) · มติเจ้าของ 27 ต.ค. 69 (ต่อจาก 0194 "แต่ง → ฝังพลอย → ขัด")
 -- สถานะ: ยังไม่ apply · 🔴 ห้าม apply ก่อน 0194 (pre-check ไฟล์นี้ raise ถ้า job_stage_def_ensure ยังไม่ใช่ฉบับ 0194 หรือ buff ยังไม่อยู่ 105) · apply ด้วย node scripts/run-sql.mjs --commit --record เท่านั้น (ห้าม supabase db push)
 -- ชุดทดสอบ scripts/verify/verify-0195.sql · design ท้ายไฟล์ docs/3j-jewelry/oms/design-stage-order-gem-before-buff.md (ภาค 0195)
+-- 🔴 apply จากสำเนา LF เท่านั้น (git show <ref>:supabase/migrations/0195_... หรือ sed 's/\r$//') — working tree บน Windows เป็น CRLF ⇒ \r ติดเข้าไปใน body ฟังก์ชัน/วิว (ข้อ 20 ของ 3j-migration-traps) · ไฟล์นี้ทน \r แล้ว (เทียบ md5 ตัด \r ทุกจุด) แต่ prosrc จะไม่ตรงกับที่ลอกมา
 -- 🔴 มี alter table analytics.job_stage_def add column = ACCESS EXCLUSIVE บน job_stage_def (ทุก RPC/ตัวตรวจ/บอร์ดอ่านตารางนี้) ช่วงสั้น ⇒ รันนอกเวลางาน · lock_timeout 8s กันค้างคิว
 --
 -- ทำไม: ทองที่หายตอนขัด (ขัดหลังฝังพลอย — พลอยทำให้ weight_out รวมพลอยต่างกฎ "ชั่งทุกขั้นที่มีโลหะ") เจ้าของไม่ต้องการบังคับชั่งขั้นขัด · ทองที่หายจะเห็นที่ยอดรวมใบตอน job_done (weight_start − weight_final) + แถว buff "ไม่ได้ชั่ง" ใน v_job_stage_loss
@@ -9,12 +10,16 @@
 --  1. คอลัมน์ใหม่ job_stage_def.gold_weigh_exempt boolean not null default false = "ขั้นที่ทองไม่บังคับชั่ง" · default false ⇒ ทุกขั้นเดิม (gem_set/plating/qc/pack) เข้มเท่าเดิม ขั้นใหม่ในอนาคตก็เข้มโดยค่าเริ่ม · ตั้ง true เฉพาะ buff
 --     ไม่ใส่ CHECK (exempt -> metal_present): ขั้นที่ไม่มีโลหะไม่เข้านิพจน์อยู่แล้ว และ CHECK บนตารางที่มี on conflict (ensure) = กับดักข้อ 14
 --     นิยาม gold_unguarded (ต้องตรงกันคำต่อคำ DB 2 ที่ + TS 1 ที่): ใบทองยังไม่ปิด และมีขั้นที่ metal_present ∧ ¬gold_weigh_exempt ∧ ¬weigh_required ∧ status <> 'skipped'
---  2. replace 6 อย่าง (ลอกสดจาก DB ก่อนเขียน — md5 pre-check): job_stage_def_ensure (ลอกจากไฟล์ 0194 + คอลัมน์ใหม่ · buff = true) · job_profile_state (นิพจน์ gold_unguarded) · v_job_board (นิพจน์ pw.unguarded บรรทัดเดียว · คอลัมน์ 56 ตัวลำดับเดิม ตรวจก่อน/หลัง)
+--  2. replace 7 อย่าง (6 + job_lot_cancel_core ข้อ 4b) (ลอกสดจาก DB ก่อนเขียน — md5 pre-check): job_stage_def_ensure (ลอกจากไฟล์ 0194 + คอลัมน์ใหม่ · buff = true) · job_profile_state (นิพจน์ gold_unguarded) · v_job_board (นิพจน์ pw.unguarded บรรทัดเดียว · คอลัมน์ 56 ตัวลำดับเดิม ตรวจก่อน/หลัง)
 --     · job_stage_suggest / job_record_profile_list (เพิ่ม key gold_weigh_exempt ใน stages/stage_defs — additive) · job_record_profile_ensure (seed แบบทองร้านใหม่: weigh = metal_present ∧ ¬exempt + ชื่อ/note ใหม่)
 --     ไม่แตะ job_create_insert (แค่ส่งต่อค่าจาก job_profile_apply) · job_core_* / job_done (ไม่อ่าน gold_unguarded) · job_record_profile_upsert / _stage_guard (ติ๊กชั่ง buff ให้ทองยังทำได้ — exempt ≠ ห้าม)
 --  3. แบบทองปริยาย (is_default_gold) ที่ buff weigh=true -> false (UPDATE แคบ: เฉพาะแถว buff ของแบบทองปริยาย) · ไม่ UPDATE แถวแบบอื่น (แบบเงิน/แบบที่ผู้ใช้ตั้งเอง — ไม่ใช่เรื่องของมตินี้ แม้ติ๊กชั่ง buff ไว้)
 --     rename แบบทองปริยาย "ทอง — ชั่งทุกขั้นที่มีโลหะ + ชั่งสุทธิตอนปิด" -> "ทอง — ชั่งทุกขั้นที่มีโลหะ (ยกเว้นขัด) + ชั่งสุทธิตอนปิด" + note (Tech Lead เอา 27 ต.ค.) · job.profile_name ของใบเดิมเป็น snapshot ไม่เปลี่ยน (ตั้งใจ)
 --  4. ใบที่สร้างแล้ว: ไม่ backfill job_stage.weigh_required (flag เป็น snapshot ตอนสร้าง — 0176 หนี้ 9 · guard ห้ามเปลี่ยนหลังขั้นแรกถูกรับ) · ปัจจุบันไม่มีใบทองเปิด · ใบทองที่ยังไม่เริ่มในอนาคต -> ออฟฟิศกด "เปลี่ยนแบบ" เอง
+--  4b. [security M2 · Tech Lead ตัดสิน 27 ต.ค. 69] ของเสียทองที่ออกจากระบบต้องมีน้ำหนักเสมอ ไม่ผูกกับ weigh_required ของขั้น: job_lot_cancel_core (ลอกสดจาก DB) — v_wreq เดิมผูกกับ "มีขั้นชั่งที่ชั่งแล้ว" ⇒ ใบทองแยกที่ขั้นขัด (ไม่ชั่ง) แล้วยกเลิกเป็นของเสีย
+--     จะไม่ถูกบังคับชั่ง = ทองหายเงียบๆ · แก้: บังคับเมื่อส่วนนั้นถือโลหะแล้ว (มีขั้น received/sent ที่ metal_present) · ส่วนที่แยกก่อนถึงขั้นมีโลหะ (ขั้นเทียน) ไม่มีทองให้ชั่ง ยังยกเลิกเป็นของเสียโดยไม่ชั่งได้ (M-D เดิม) — ต่างจากสูตรตรง "scrap ∧ gold" เฉพาะกรณีไม่มีทองในมือ
+--     เพดานน้ำหนักของเสีย: ส่วนที่ไม่เคยชั่ง (ขัดไม่ชั่ง ⇒ ไม่มี weight_in/out ของตัวเอง) ใช้น้ำหนักสูงสุดของใบแม่แทน · ไม่มีน้ำหนักเลยทั้งต้นไม้ = ไม่มีเพดาน (ยังบังคับ > 0 และ ≤ 100,000) — ไม่งั้น "ต้องชั่ง" + "เพดาน 0" = ยกเลิกไม่ได้เลย
+--     ไม่แก้: split weight_move (0181) / arrive (0183) — ไม่ใช่ของเสีย (มติขัดไม่ชั่ง) · ของเสียตอนแยกส่วน (นับชิ้นเสีย p_qty_scrap) ไม่รับน้ำหนักอยู่แล้วทุกขั้น (0181 มติ ค1) = ช่องเดิมไม่ใช่ของ 0195 (บอกใน design)
 --  5. ป้าย gold_unguarded เป็นเตือนอย่างเดียว (ไม่มี RPC ไหนบล็อกจากมัน) ⇒ 0195 ไม่เปลี่ยนด่านรับ/ส่ง/ปิดงาน
 --
 -- หนี้: ไม่มี UI ตั้ง gold_weigh_exempt (เปลี่ยนต้องผ่าน migration — มติระดับร้าน) · ป้าย gold_unguarded จะไม่เตือนเรื่องทองหายตอนขัดอีก (ตั้งใจ)
@@ -30,14 +35,14 @@ create temp table _j195_def_base on commit drop as select * from analytics.job_s
 create temp table _j195_ps_base on commit drop as select * from analytics.job_record_profile_stage;
 create temp table _j195_prof_base on commit drop as select * from analytics.job_record_profile;
 create temp table _j195_fn_base on commit drop as
-  select p.oid::regprocedure::text as sig, md5(pg_get_functiondef(p.oid)) as h, coalesce(p.proacl::text, 'NULL') as acl
+  select p.oid::regprocedure::text as sig, md5(replace(pg_get_functiondef(p.oid), E'\r', '')) as h, coalesce(p.proacl::text, 'NULL') as acl
     from pg_proc p
    where p.pronamespace = 'analytics'::regnamespace and p.prokind in ('f', 'p')
-     and p.proname not in ('job_stage_def_ensure', 'job_profile_state', 'job_stage_suggest', 'job_record_profile_list', 'job_record_profile_ensure');
+     and p.proname not in ('job_stage_def_ensure', 'job_profile_state', 'job_stage_suggest', 'job_record_profile_list', 'job_record_profile_ensure', 'job_lot_cancel_core');
 create temp table _j195_acl_base on commit drop as
   select p.oid::regprocedure::text as sig, coalesce(p.proacl::text, 'NULL') as acl
     from pg_proc p where p.pronamespace = 'analytics'::regnamespace
-     and p.proname in ('job_stage_def_ensure', 'job_profile_state', 'job_stage_suggest', 'job_record_profile_list', 'job_record_profile_ensure');
+     and p.proname in ('job_stage_def_ensure', 'job_profile_state', 'job_stage_suggest', 'job_record_profile_list', 'job_record_profile_ensure', 'job_lot_cancel_core');
 create temp table _j195_view_base on commit drop as
   select c.relacl::text as acl, c.reloptions::text as ro,
          (select string_agg(a.ordinal_position || ':' || a.column_name, ',' order by a.ordinal_position) from information_schema.columns a where a.table_schema = 'analytics' and a.table_name = 'v_job_board') as cols
@@ -58,17 +63,25 @@ begin
       ('job_profile_state',          '0e355fc743e1c123a0723e607a0584cb', '2b1f27932e7e20da4edcd9afe08b7a3d'),
       ('job_stage_suggest',          '8600395a3ff129cece5a48088045c9b8', '2f96e27d7b67c550af0e9f0aabb8ce92'),
       ('job_record_profile_list',    'f65ed70bd17b035d656d9dc39149b28e', '49dd75e21529dd0320d71471067b71fb'),
-      ('job_record_profile_ensure',  'ac7757a8ccbacae0975157e3041e66e2', '3d15de020586f6da8482352e83901f09')
+      ('job_record_profile_ensure',  'ac7757a8ccbacae0975157e3041e66e2', '3d15de020586f6da8482352e83901f09'),
+      ('job_lot_cancel_core',        '8428cabb96839aa273be96873f89e79f', '1fb7a6384c050caf1c340847fa9ec872')
     ) as t(fn, h_old, h_new)
   loop
-    select md5(pg_get_functiondef(p.oid)) into v_h from pg_proc p where p.pronamespace = 'analytics'::regnamespace and p.proname = r.fn;
+    select md5(replace(pg_get_functiondef(p.oid), E'\r', '')) into v_h from pg_proc p where p.pronamespace = 'analytics'::regnamespace and p.proname = r.fn;
     if v_h is null or v_h not in (r.h_old, r.h_new) then
       raise exception '0195: % บน DB ไม่ใช่ฉบับที่ลอกมา (md5 %) — ถ้าเป็น job_stage_def_ensure แปลว่ายังไม่ apply 0194 · ถ้าตัวอื่นแปลว่ามีคน replace ทับ · ลอก definition สดใหม่ก่อน', r.fn, v_h;
     end if;
   end loop;
-  select md5(pg_get_viewdef(c.oid, true)) into v_h from pg_class c where c.relnamespace = 'analytics'::regnamespace and c.relname = 'v_job_board';
+  select md5(replace(pg_get_viewdef(c.oid, true), E'\r', '')) into v_h from pg_class c where c.relnamespace = 'analytics'::regnamespace and c.relname = 'v_job_board';
   if v_h is null or v_h not in ('e9da58a60dfb8a6aeb7293c1dc53cccb', 'b1e89853ffa04cf88c3adf84f23afb34') then
     raise exception '0195: v_job_board บน DB ไม่ใช่ฉบับที่ลอกมา (md5 %) — ลอก viewdef สดใหม่ก่อน', v_h;
+  end if;
+  -- L2: rename แบบทองปริยายต้องไม่ชนชื่อแบบอื่นในร้านเดียวกัน (unique ชื่อต่อร้าน · ไม่สนตัวพิมพ์) — raise ก่อนแตะอะไร
+  select count(*) into v_n from analytics.job_record_profile g
+    join analytics.job_record_profile o on o.shop_id = g.shop_id and o.id <> g.id and lower(o.name) = lower('ทอง — ชั่งทุกขั้นที่มีโลหะ (ยกเว้นขัด) + ชั่งสุทธิตอนปิด')
+   where g.is_default_gold and g.name = 'ทอง — ชั่งทุกขั้นที่มีโลหะ + ชั่งสุทธิตอนปิด';
+  if v_n > 0 then
+    raise exception '0195: มีแบบอื่นใช้ชื่อ "ทอง — ชั่งทุกขั้นที่มีโลหะ (ยกเว้นขัด) + ชั่งสุทธิตอนปิด" อยู่แล้ว % ร้าน — เปลี่ยนชื่อแบบนั้นก่อน (rename แบบทองปริยายจะชน unique)', v_n;
   end if;
   -- 0194 ต้องลงแล้ว: ทุกร้านที่มี buff ต้องอยู่ 105
   select count(*) into v_n from analytics.job_stage_def b where b.code = 'buff' and b.seq_default <> 105;
@@ -445,6 +458,143 @@ $function$
 revoke execute on function analytics.job_record_profile_ensure(uuid) from public, anon, authenticated;
 
 -- ============================================================================
+-- 7. job_lot_cancel_core (M2) — ของเสียทองต้องมีน้ำหนักเสมอเมื่อส่วนถือโลหะ (ลอกสดจาก DB · แก้ v_wreq + เพดานน้ำหนัก) · ไม่มีใครถือ EXECUTE (เหมือนเดิม)
+-- ============================================================================
+CREATE OR REPLACE FUNCTION analytics.job_lot_cancel_core(p_lot_job_id uuid, p_disposition text, p_reason text, p_scrap_reason text, p_scrap_weight numeric, p_worker_id uuid, p_channel text, p_actor uuid, p_device_hint text, p_enforce_splitter boolean)
+ RETURNS jsonb
+ LANGUAGE plpgsql
+ SET search_path TO 'public', 'analytics', 'extensions', 'pg_temp'
+AS $function$
+declare
+  v_l      analytics.job%rowtype;
+  v_ms     analytics.job_stage%rowtype;
+  v_ms2    analytics.job_stage%rowtype;
+  v_s2     analytics.job_stage%rowtype;
+  v_blk    text;
+  v_live   int;
+  v_today  date := analytics.job_today();
+  v_sreason text := null;
+  v_who    uuid;
+  v_wreq   boolean;
+  v_wbasis numeric;
+  v_wgap   numeric;
+begin
+  -- 0181 (M-C security: ทอง + ส่วนมีขั้นชั่ง + นับเป็นของเสีย ⇒ ต้องชั่งน้ำหนักของเสียที่เลิกใช้ ไม่งั้นทองหายจากยอดเงียบๆ)
+  select * into v_l from analytics.job where id = p_lot_job_id;
+  if not found or v_l.parent_job_id is null then
+    return analytics.job_fail('not_lot', 'ไม่พบส่วนย่อยนี้');
+  end if;
+  perform 1 from analytics.job where id = v_l.parent_job_id for update;
+  select * into v_l from analytics.job where id = p_lot_job_id;
+  if p_disposition is null or p_disposition not in ('return_to_parent', 'scrap') then
+    return analytics.job_fail('disposition_invalid', 'ต้องเลือกที่ไปของชิ้น: คืนให้ผู้ถือเดิม หรือนับเป็นของเสีย');
+  end if;
+  if v_l.status in ('done', 'cancelled') then
+    return analytics.job_fail('job_closed', 'ส่วนนี้ปิดหรือยกเลิกไปแล้ว');
+  end if;
+  if exists (select 1 from analytics.job_discrepancy d where d.job_id = p_lot_job_id and d.status = 'open'
+               and not exists (select 1 from analytics.job_discrepancy v where v.void_of_id = d.id)) then
+    return analytics.job_fail('discrepancy_open', 'ส่วนนี้มีส่วนต่างรอชี้แจง — ชี้แจงก่อนจึงยกเลิกได้');
+  end if;
+  if exists (select 1 from analytics.job_stage x join analytics.job c on c.id = x.job_id
+              where x.split_from_stage_id in (select s.id from analytics.job_stage s where s.job_id = p_lot_job_id)
+                and not (c.status = 'cancelled' and c.cancel_scrap_qty is null)) then
+    return analytics.job_fail('has_split', 'ส่วนนี้มีส่วนที่แยกต่อออกไปแล้ว — ยกเลิกส่วนนั้นก่อน');
+  end if;
+  select * into v_s2 from analytics.job_stage where job_id = p_lot_job_id and split_from_stage_id is not null;
+  select * into v_ms from analytics.job_stage where id = v_s2.split_from_stage_id;
+  -- M-D (security delta): บังคับชั่งของเสียเฉพาะส่วนที่มีขั้นชั่ง "ที่ชั่งแล้ว" — ส่วนที่ยังไม่ถึงขั้นชั่ง (แยกที่ขั้นเทียน ฯลฯ) ยังไม่มีน้ำหนักให้เทียบ ยกเลิกเป็นของเสียโดยไม่ชั่งได้
+  -- 0195 M2: ของเสียทองที่ออกจากระบบต้องมีน้ำหนักเสมอ ไม่ผูกกับ weigh_required ของขั้น (ขัดไม่ชั่ง ⇒ ไม่มีน้ำหนักให้เทียบ แต่ทองยังอยู่ในมือ) —
+  -- บังคับเมื่อส่วนนี้ถือโลหะแล้ว (มีขั้น received/sent ที่ metal_present) · ส่วนที่แยกก่อนถึงขั้นมีโลหะ (ขั้นเทียน) ไม่มีทองให้ชั่ง ยกเลิกเป็นของเสียโดยไม่ชั่งได้ (M-D เดิม)
+  v_wreq := p_disposition = 'scrap' and v_l.metal = 'gold'
+            and exists (select 1 from analytics.job_stage x join analytics.job_stage_def d on d.shop_id = x.shop_id and d.code = x.stage_code
+                         where x.job_id = p_lot_job_id and x.status in ('received', 'sent') and d.metal_present);
+  if p_scrap_weight is not null and not v_wreq then
+    return analytics.job_fail('weight_unexpected', 'ส่วนนี้ไม่ต้องระบุน้ำหนักของเสีย');
+  end if;
+
+  if p_disposition = 'return_to_parent' then
+    v_blk := analytics.job_lot_return_blocker(p_lot_job_id);
+    if v_blk is not null then
+      return analytics.job_fail(v_blk, case v_blk
+        when 'already_received' then 'มีคนรับส่วนนี้ไปแล้ว — ช่างยกเลิกเองไม่ได้ แจ้งออฟฟิศ'
+        when 'cannot_return' then 'ผู้ถือเดิมส่งต่อส่วนที่เหลือไปแล้ว คืนชิ้นไม่ได้ — แจ้งออฟฟิศ'
+        when 'scrap_recorded' then 'การแยกครั้งนี้มีของเสียที่บันทึกไว้ คืนชิ้นไม่ได้ — แจ้งออฟฟิศ (ยกเลิกเป็นของเสีย)'
+        when 'has_discrepancy' then 'ส่วนนี้มีส่วนต่างบันทึกอยู่ — แจ้งออฟฟิศ'
+        else 'ยกเลิกส่วนนี้ไม่ได้' end);
+    end if;
+    -- ช่าง: ยกเลิกได้เฉพาะส่วนที่ตัวเองแยก (ตาม event split) และยังเป็นผู้ถือขั้นแม่ — ออฟฟิศไม่ถูกจำกัด
+    if p_enforce_splitter then
+      select e.worker_id into v_who from analytics.job_event e
+       where e.job_id = v_ms.job_id and e.event_type = 'split' and e.payload ->> 'lot_job_id' = p_lot_job_id::text limit 1;
+      if v_who is distinct from p_worker_id or v_ms.worker_id is distinct from p_worker_id then
+        return analytics.job_fail('not_splitter', 'ยกเลิกได้เฉพาะส่วนที่คุณแยกเอง และยังเป็นผู้ถือขั้นนี้');
+      end if;
+    end if;
+  else
+    if p_enforce_splitter then
+      return analytics.job_fail('disposition_invalid', 'ช่างยกเลิกได้เฉพาะแบบคืนชิ้นให้ผู้ถือเดิม');
+    end if;
+    v_sreason := nullif(btrim(p_scrap_reason), '');
+    if v_sreason is null or not analytics.job_scrap_reason_valid(v_sreason) then
+      return analytics.job_fail('reason_required', 'ยกเลิกเป็นของเสียต้องระบุเหตุผล (รูพรุน/หัก/ผิดแบบ/หาย/อื่นๆ)');
+    end if;
+  end if;
+  if v_wreq then
+    if p_scrap_weight is null then
+      return analytics.job_fail('scrap_weight_required', 'ทอง: ยกเลิกเป็นของเสียต้องชั่งน้ำหนักของเสียที่เลิกใช้');
+    end if;
+    if p_scrap_weight <= 0 or not analytics.job_weight_ok(p_scrap_weight) then
+      return analytics.job_fail('weight_invalid', 'น้ำหนักของเสียต้องมากกว่า 0 และไม่เกิน 100,000 กรัม (ทศนิยมไม่เกิน 3 ตำแหน่ง)');
+    end if;
+    -- ไม่เกินน้ำหนักสูงสุดที่ส่วนนี้เคยมี (เข้า + เติมโลหะ / ออก ของทุกขั้น)
+    select max(greatest(coalesce(x.weight_in_g + x.metal_added_g, 0), coalesce(x.weight_out_g, 0))) into v_wbasis
+      from analytics.job_stage x where x.job_id = p_lot_job_id;
+    -- 0195 M2: ส่วนที่ไม่เคยชั่ง (ขัดไม่ชั่ง) ไม่มีน้ำหนักของตัวเอง — เพดานใช้น้ำหนักสูงสุดของใบแม่ · ไม่มีน้ำหนักเลยทั้งต้นไม้ = ไม่มีเพดาน (ยังบังคับ > 0 และ ≤ 100,000 ด้านบน)
+    if coalesce(v_wbasis, 0) = 0 then
+      select max(greatest(coalesce(x.weight_in_g + x.metal_added_g, 0), coalesce(x.weight_out_g, 0))) into v_wbasis
+        from analytics.job_stage x where x.job_id = v_l.parent_job_id;
+    end if;
+    if coalesce(v_wbasis, 0) > 0 and p_scrap_weight > v_wbasis then
+      return analytics.job_fail('weight_over', 'น้ำหนักของเสียมากกว่าน้ำหนักที่ส่วนนี้มีอยู่ — ชั่งใหม่');
+    end if;
+    -- L-new-1 (security delta): น้ำหนักเศษที่ชั่งน้อยกว่าน้ำหนักล่าสุดของส่วนเกิน 0.05 g = ทองส่วนต่างหายไปไหนไม่มีใครรู้ — ต้องมีคำอธิบายเป็นข้อความ (ไม่ใช่รหัสเหตุผลล้วน · ไม่เปิดตัวเลขให้ช่าง: ฝั่งออฟฟิศเท่านั้น)
+    v_wgap := analytics.job_latest_weight_g(p_lot_job_id) - p_scrap_weight;
+    if v_wgap > 0.05 and not analytics.job_note_is_free_text(v_sreason) then
+      return analytics.job_fail('gold_note_required', 'ทอง: น้ำหนักของเสียที่ชั่งน้อยกว่าน้ำหนักล่าสุดของส่วนนี้ — ต้องเขียนคำอธิบายเป็นข้อความ (ไม่ใช่แค่เลือกรหัสเหตุผล)');
+    end if;
+  end if;
+
+  v_live := analytics.job_live_qty(p_lot_job_id);
+  update analytics.job
+     set status = 'cancelled', cancelled_at = now(), cancel_reason = p_reason,
+         cancel_scrap_qty = case when p_disposition = 'scrap' then v_live end,
+         cancel_scrap_reason = case when p_disposition = 'scrap' then v_sreason end,
+         cancel_scrap_weight_g = case when v_wreq then p_scrap_weight end
+   where id = p_lot_job_id;
+  if p_disposition = 'return_to_parent' then
+    update analytics.job_stage set qty_split_out = qty_split_out - v_l.qty_planned, weight_split_out_g = weight_split_out_g - coalesce(v_s2.weight_out_g, 0) where id = v_ms.id returning * into v_ms2;
+  else
+    select * into v_ms2 from analytics.job_stage where id = v_ms.id;
+  end if;
+  perform analytics.job_event_write(p_lot_job_id, null, 'split_cancel', v_today, p_actor, p_worker_id, p_channel, p_device_hint,
+    jsonb_build_object('disposition', p_disposition, 'reason', p_reason, 'qty', v_l.qty_planned, 'live_qty', v_live, 'scrap_reason', v_sreason,
+                       'scrap_weight_g', case when v_wreq then p_scrap_weight end));
+  -- 0183: ส่วนที่เกิดจาก "ได้รับเพิ่มแล้ว" ไม่มีขั้นแยก (v_ms ว่าง) — event ฝั่งแม่เขียนที่ใบแม่โดยไม่ผูกขั้น · ส่วนที่แยกตามปกติ ผลเท่าเดิมเป๊ะ
+  perform analytics.job_event_write(coalesce(v_ms.job_id, v_l.parent_job_id), v_ms.id, 'split_cancel', v_today, p_actor, p_worker_id, p_channel, p_device_hint,
+    jsonb_build_object('lot_job_id', p_lot_job_id, 'lot_seq', v_l.lot_seq, 'disposition', p_disposition, 'qty', v_l.qty_planned, 'live_qty', v_live,
+                       'before', case when v_ms.id is not null then analytics.job_stage_state(v_ms) end,
+                       'after', case when v_ms.id is not null then analytics.job_stage_state(v_ms2) end)
+    || case when v_ms.id is null then jsonb_build_object('arrive_lot', true) else '{}'::jsonb end);
+  perform analytics.job_tree_check(p_lot_job_id);
+  return jsonb_build_object('ok', true, 'action', 'split_cancel', 'lot_job_id', p_lot_job_id, 'lot_seq', v_l.lot_seq,
+                            'disposition', p_disposition, 'qty', v_l.qty_planned, 'live_qty', v_live);
+end;
+$function$
+;
+revoke execute on function analytics.job_lot_cancel_core(uuid, text, text, text, numeric, uuid, text, uuid, text, boolean) from public, anon, authenticated;
+
+-- ============================================================================
 -- 8. แบบทองปริยาย: buff ไม่ชั่ง + rename (UPDATE แคบ — trigger บน job_record_profile_stage = _stage_guard (ตรวจ metal_present/ค่าที่ติ๊ก) · บน job_record_profile = _guard (ตั้ง updated_at ตอนแก้จริง) ·
 --    ข้อ 19: where ตรงเฉพาะแถวที่ค่าเปลี่ยนจริง ⇒ รันซ้ำไม่แตะ · ไม่ UPDATE แถวแบบเงิน/แบบที่ผู้ใช้ตั้งเอง)
 -- ============================================================================
@@ -518,18 +668,18 @@ begin
 
   -- ฟังก์ชัน: ไม่มี overload · สิทธิ์ 5 ตัวที่แก้เท่าเดิมเป๊ะ · ตัวอื่นทั้งสคีมา (นิยาม + สิทธิ์) เท่าเดิม · จำนวนเท่าเดิม
   if (select count(*) from pg_proc p where p.pronamespace = 'analytics'::regnamespace
-         and p.proname in ('job_stage_def_ensure', 'job_profile_state', 'job_stage_suggest', 'job_record_profile_list', 'job_record_profile_ensure')) <> 5 then
+         and p.proname in ('job_stage_def_ensure', 'job_profile_state', 'job_stage_suggest', 'job_record_profile_list', 'job_record_profile_ensure', 'job_lot_cancel_core')) <> 6 then
     raise exception '0195: ฟังก์ชันที่แก้ต้องมีอย่างละ 1 signature (overload หลุด?)';
   end if;
   if exists (select 1 from _j195_acl_base b join pg_proc p on p.oid::regprocedure::text = b.sig where coalesce(p.proacl::text, 'NULL') <> b.acl)
-     or (select count(*) from _j195_acl_base) <> 5 then
+     or (select count(*) from _j195_acl_base) <> 6 then
     raise exception '0195: proacl ของฟังก์ชันที่แก้เปลี่ยนไปจากก่อนรัน';
   end if;
   select count(*) into v_n
     from _j195_fn_base b join pg_proc p on p.pronamespace = 'analytics'::regnamespace and p.oid::regprocedure::text = b.sig
-   where md5(pg_get_functiondef(p.oid)) = b.h and coalesce(p.proacl::text, 'NULL') = b.acl;
+   where md5(replace(pg_get_functiondef(p.oid), E'\r', '')) = b.h and coalesce(p.proacl::text, 'NULL') = b.acl;
   if v_n <> (select count(*) from _j195_fn_base)
-     or (select count(*) from pg_proc where pronamespace = 'analytics'::regnamespace and prokind in ('f', 'p')) <> (select count(*) from _j195_fn_base) + 5 then
+     or (select count(*) from pg_proc where pronamespace = 'analytics'::regnamespace and prokind in ('f', 'p')) <> (select count(*) from _j195_fn_base) + 6 then
     raise exception '0195: ฟังก์ชันอื่นในสคีมา analytics ขยับ (ตรง % จาก %) หรือจำนวนฟังก์ชันเปลี่ยน', v_n, (select count(*) from _j195_fn_base);
   end if;
   -- ฟังก์ชันที่แก้ต้องมีนิยามใหม่จริง
@@ -537,7 +687,8 @@ begin
      or (select prosrc from pg_proc where pronamespace = 'analytics'::regnamespace and proname = 'job_record_profile_ensure') !~ 'not d\.gold_weigh_exempt'
      or (select prosrc from pg_proc where pronamespace = 'analytics'::regnamespace and proname = 'job_stage_suggest') !~ 'gold_weigh_exempt'
      or (select prosrc from pg_proc where pronamespace = 'analytics'::regnamespace and proname = 'job_record_profile_list') !~ 'gold_weigh_exempt'
-     or (select prosrc from pg_proc where pronamespace = 'analytics'::regnamespace and proname = 'job_stage_def_ensure') !~ 'gold_exempt' then
+     or (select prosrc from pg_proc where pronamespace = 'analytics'::regnamespace and proname = 'job_stage_def_ensure') !~ 'gold_exempt'
+     or (select prosrc from pg_proc where pronamespace = 'analytics'::regnamespace and proname = 'job_lot_cancel_core') !~ 'd\.metal_present' then
     raise exception '0195: นิยามฟังก์ชันที่แก้ไม่มี gold_weigh_exempt ครบ';
   end if;
 

@@ -196,7 +196,7 @@ create function pg_temp.mutate(p_name text, p_from text, p_to text) returns void
 declare v_oid oid; v_def text; v_new text;
 begin
   select p.oid into strict v_oid from pg_proc p where p.pronamespace = 'analytics'::regnamespace and p.proname = p_name;
-  v_def := pg_get_functiondef(v_oid);
+  v_def := replace(pg_get_functiondef(v_oid), E'', '');
   v_new := replace(v_def, p_from, p_to);
   if v_new = v_def then
     raise exception 'MUTANT_NOT_APPLIED: % ไม่พบข้อความ [%]', p_name, p_from;
@@ -399,8 +399,8 @@ create function pg_temp.run_r() returns text
 declare
   v text := ''; g text; e text;
 begin
-  select md5(pg_get_functiondef(p.oid)) into g from pg_proc p where p.pronamespace = 'analytics'::regnamespace and p.proname = 'job_stage_guard';
-  select md5(pg_get_functiondef(p.oid)) into e from pg_proc p where p.pronamespace = 'analytics'::regnamespace and p.proname = 'job_stage_def_ensure';
+  select md5(replace(pg_get_functiondef(p.oid), E'\r', '')) into g from pg_proc p where p.pronamespace = 'analytics'::regnamespace and p.proname = 'job_stage_guard';
+  select md5(replace(pg_get_functiondef(p.oid), E'\r', '')) into e from pg_proc p where p.pronamespace = 'analytics'::regnamespace and p.proname = 'job_stage_def_ensure';
   v := v || pg_temp.chk('R1a', 'md5 job_stage_guard หลัง 0194 = ค่า "ฉบับใหม่" ใน allow-list ของ pre-check 0194(รันซ้ำได้) · ไม่ตรง = ฟังก์ชันถูกสร้างจากไฟล์ CRLF (ต้อง apply จากไฟล์ LF) — ' || coalesce(g, 'null'), g = 'f78049fa169cfb0e9e1d689f4c0a3943');
   v := v || pg_temp.chk('R1b', 'md5 job_stage_def_ensure หลัง 0194 = ค่า "ฉบับใหม่" ของ 0194 และ "ฉบับเดิม" ที่ pre-check 0195 คาด (ไม่ตรง = 0195 raise ตอน apply · สาเหตุที่เจอจริง: apply จากไฟล์ CRLF) — ' || coalesce(e, 'null'), e = 'c751a76d5f18845c72f5aaf6497814e0');
   return v;
@@ -419,7 +419,7 @@ begin
     raise exception E'[FAIL] S0  ไม่มี oem_quote_item เงินจริงให้ใช้เป็นแม่แบบโคลน\n';
   end if;
   -- ต้องมี 0194 ส่วน A อยู่ในทรานแซกชัน (หรือ apply แล้ว) — ไม่งั้นทุกเคสผิดเพราะผังเก่า ไม่ใช่เพราะบั๊ก
-  select md5(pg_get_functiondef(p.oid)) into v_g from pg_proc p where p.pronamespace = 'analytics'::regnamespace and p.proname = 'job_stage_guard';
+  select md5(replace(pg_get_functiondef(p.oid), E'\r', '')) into v_g from pg_proc p where p.pronamespace = 'analytics'::regnamespace and p.proname = 'job_stage_guard';
   select seq_default into v_buff from analytics.job_stage_def where shop_id = v_shop and code = 'buff';
   if v_g = 'ea1258e01ab33739a5fefbd34cd4586b' or v_buff is distinct from 105 then
     raise exception E'[FAIL] S0  ยังไม่มี 0194 ส่วน A (guard md5 % · buff seq_default %) — ต่อไฟล์ migration (ตัด PART B) ก่อนไฟล์นี้\n', v_g, v_buff;
