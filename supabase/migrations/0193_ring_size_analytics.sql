@@ -6,6 +6,10 @@
 -- Additive only: create table/function ใหม่ล้วน ไม่แตะตาราง/ฟังก์ชันเดิมแม้แต่บรรทัดเดียว
 -- (ไม่มี UPDATE/ALTER ตารางอื่น — กับดัก #19 จึงไม่เกี่ยว)
 --
+-- รอบแก้ r2 (code review + security 26 ต.ค. 69) — migration นี้ "ยังไม่เคย apply" จึงแก้ในไฟล์เดิม ไม่ออกเลขใหม่:
+--   S1 result_method/invalid_a/invalid_b/measure_count_a/_b ให้ method_stats นับผลตามวิธีที่เกิดเหตุจริง ·
+--   S3 circ_mm/size/between ส่งได้เฉพาะ stage 7 · L1+N2 stats ช่วง 7-180 วัน · L4 ไม่มี policy บนตาราง · N1 ตัด size_summary.invalid_sessions
+--
 -- ============================================================================
 -- 🔴 กฎที่สำคัญที่สุดของไฟล์นี้: analytics.ring_size_session ห้ามมีคอลัมน์
 -- IP / IP hash / user-agent ดิบ / cookie / device id / ข้อความอิสระ / ชื่อ / เบอร์โทร / LINE
@@ -62,6 +66,14 @@ create table if not exists analytics.ring_size_session (
   in_shop_range  boolean,
   measure_count  smallint not null default 0 check (measure_count between 0 and 50),
   invalid_count  smallint not null default 0 check (invalid_count between 0 and 50),
+  -- วิธีของ "ผลล่าสุด" (circ_mm/result_size) — ตั้งเฉพาะเมื่อ snapshot นั้นพกผล · ต่างจาก method (วิธีที่เลือกล่าสุด)
+  -- session ที่วัดด้วย B ได้เบอร์ แล้วย้อนไปเลือก A แต่เลิก: method = A แต่ result_method = B (stats นับผลให้ B)
+  result_method  text check (result_method in ('A', 'B')),
+  -- G4 เกิดตอนวิธีไหน (OR monotonic) · measure_count_a/b = รอบวัดที่ได้เบอร์แยกตามวิธีตอนนั้น
+  invalid_a      boolean not null default false,
+  invalid_b      boolean not null default false,
+  measure_count_a smallint not null default 0 check (measure_count_a between 0 and 50),
+  measure_count_b smallint not null default 0 check (measure_count_b between 0 and 50),
   zoom_blocked   boolean not null default false,
   calib_warn     boolean not null default false,
   stale_recalib  boolean not null default false,
@@ -86,6 +98,17 @@ comment on table analytics.ring_size_session is
   'ring_size_session_upsert. retention 180 วัน (ring_size_retention_apply + pg_cron).';
 comment on column analytics.ring_size_session.method is
   'วิธีวัดล่าสุดที่ session นี้เลือก (ล่าสุดทับ) — ไม่ใช่ "เคยใช้วิธีไหน": ดู used_a/used_b';
+comment on column analytics.ring_size_session.result_method is
+  'วิธีของผลล่าสุด (A/B) — ตั้งเมื่อ snapshot พกผล (circ_mm/size) = วิธีที่ใช้อยู่ตอนนั้น (method ใน snapshot หรือที่เก็บไว้) · '
+  'ไม่เปลี่ยนเมื่อแค่สลับ method ทีหลัง · null ถ้าได้ผลโดยไม่รู้วิธี · stats ใช้เป็นฐานของ method_stats.x.measured';
+comment on column analytics.ring_size_session.invalid_a is
+  'เคยเกิด G4 (ค่าวัดผิดปกติ) ขณะวิธี A · OR monotonic — invalid_count รวมทุกวิธี';
+comment on column analytics.ring_size_session.invalid_b is
+  'เคยเกิด G4 (ค่าวัดผิดปกติ) ขณะวิธี B · OR monotonic';
+comment on column analytics.ring_size_session.measure_count_a is
+  'จำนวนรอบวัดที่ได้เบอร์ขณะวิธี A (stage 7 + มี size) · รวม A+B ≤ measure_count (ผลที่ไม่รู้วิธีนับเฉพาะ measure_count) · cap 50';
+comment on column analytics.ring_size_session.measure_count_b is
+  'จำนวนรอบวัดที่ได้เบอร์ขณะวิธี B · เหมือน measure_count_a';
 comment on column analytics.ring_size_session.used_a is
   'เคยเข้าหน้าวัดของวิธีแหวนวงเดิม (A) — OR monotonic · RPC derive จาก stage>=6 + method (หรือ client ส่ง used_a=true)';
 comment on column analytics.ring_size_session.used_b is
@@ -109,10 +132,11 @@ create index if not exists idx_ring_size_session_shop_created
 
 alter table analytics.ring_size_session enable row level security;
 
+-- 🔴 จงใจ "ไม่มี policy" (RLS เปิด + ไม่มี policy = deny ทุก role ที่ไม่ bypass RLS) — security r2 L4:
+-- policy tenant_isolation_select เดิมจะเปิดแถวรายตัวให้สมาชิกร้านที่เรียก PostgREST ตรงถ้าวันหนึ่งสคีมา analytics
+-- เปิด USAGE กลับ ขัดกับหลัก "หน้าสรุปไม่แสดงแถวดิบ" · ทางอ่านทางเดียว = ring_size_stats (service_role + owner/admin)
+-- drop if exists = ไฟล์รันซ้ำ/ลง policy ค้างจากร่างก่อนหน้าแล้วก็สะอาด · verify-0193 T15f ล็อกว่า pg_policies ว่าง
 drop policy if exists tenant_isolation_select on analytics.ring_size_session;
-create policy tenant_isolation_select on analytics.ring_size_session
-  for select
-  using (shop_id in (select shop_id from public.shop_member where user_id = auth.uid()));
 
 revoke all on analytics.ring_size_session from public, anon, authenticated;
 grant select on analytics.ring_size_session to service_role;
@@ -192,6 +216,9 @@ declare
   v_has_result boolean;
   v_counts_measure boolean;
   v_final_size smallint;
+  v_eff_method text;
+  v_is_a boolean;
+  v_is_b boolean;
 
   v_old analytics.ring_size_session%rowtype;
   v_old_found boolean;
@@ -345,6 +372,13 @@ begin
     v_saw_between := (p_snapshot ->> 'saw_between')::boolean;
   end if;
 
+  -- สัญญา event (security r2 S3): circ_mm/size/between = ผลวัด ส่งเฉพาะ event ที่ได้ผล (stage 7) เท่านั้น ·
+  -- มีที่ stage อื่น = client ไม่ตรงสัญญา ปฏิเสธ (ไม่งั้น event ระหว่างทางที่พกผลซ้ำจะทับผล/ทำ measured เกิน funnel[7])
+  if (p_snapshot ? 'circ_mm' or p_snapshot ? 'size' or p_snapshot ? 'between')
+     and v_stage <> 7 then -- [mut:result_stage]
+    raise exception 'ring_size_session_upsert: ผลวัด (circ_mm/size/between) ส่งได้เฉพาะ stage 7' using errcode = '22023';
+  end if;
+
   -- ผลวัดเป็นก้อนเดียว (circ · size · between ไปด้วยกัน): มี circ หรือ size ใน snapshot นี้ = ทับทั้งก้อน
   -- นับรอบวัดเมื่อถึง stage 7 พร้อมเบอร์ (G4 ถึง stage 7 แต่ไม่มีเบอร์ ⇒ ไม่นับ)
   v_has_result := v_circ is not null or v_size is not null;
@@ -366,6 +400,10 @@ begin
       end if;
 
       v_final_size := case when v_has_result then v_size else v_old.result_size end;
+      -- วิธีที่ใช้อยู่ ณ event นี้ (method ใน snapshot ทับของเดิม) — ใช้ตั้ง result_method / invalid_x / measure_count_x
+      v_eff_method := coalesce(v_method, v_old.method);
+      v_is_a := coalesce(v_eff_method = 'A', false);
+      v_is_b := coalesce(v_eff_method = 'B', false);
 
       update analytics.ring_size_session s
       set updated_at    = now(),
@@ -378,9 +416,14 @@ begin
           result_size   = v_final_size,
           is_between    = case when v_has_result then v_between else s.is_between end,
           in_shop_range = case when v_final_size is null then null
-                               else analytics.ring_size_shop_range() @> v_final_size::int end,
+                               else analytics.ring_size_shop_range() @> v_final_size::int end, -- [mut:in_range_u]
           measure_count = least(s.measure_count + case when v_counts_measure then 1 else 0 end, 50),
           invalid_count = least(s.invalid_count + case when coalesce(v_g4, false) then 1 else 0 end, 50),
+          result_method = case when v_has_result then v_eff_method else s.result_method end, -- [mut:result_method]
+          invalid_a     = s.invalid_a or (coalesce(v_g4, false) and v_is_a),
+          invalid_b     = s.invalid_b or (coalesce(v_g4, false) and v_is_b),
+          measure_count_a = least(s.measure_count_a + case when v_counts_measure and v_is_a then 1 else 0 end, 50),
+          measure_count_b = least(s.measure_count_b + case when v_counts_measure and v_is_b then 1 else 0 end, 50),
           zoom_blocked  = s.zoom_blocked or coalesce(v_g1, false),
           calib_warn    = s.calib_warn or coalesce(v_g3, false),
           stale_recalib = s.stale_recalib or coalesce(v_g5, false),
@@ -410,15 +453,21 @@ begin
     insert into analytics.ring_size_session (
       id, shop_id, in_app, is_return, max_stage, ref, method,
       circ_mm, result_size, is_between, in_shop_range,
-      measure_count, invalid_count, zoom_blocked, calib_warn, stale_recalib,
+      measure_count, invalid_count, result_method, invalid_a, invalid_b, measure_count_a, measure_count_b,
+      zoom_blocked, calib_warn, stale_recalib,
       used_a, used_b, saw_between,
       cta_line, cta_share, cta_shop, cta_gem_quiz, event_count
     ) values (
       p_session_id, p_shop_id, coalesce(v_in_app, 'unknown'), coalesce(v_is_return, false), v_stage, v_ref, v_method,
       v_circ, v_size, case when v_has_result then v_between end,
-      case when v_size is null then null else analytics.ring_size_shop_range() @> v_size::int end,
+      case when v_size is null then null else analytics.ring_size_shop_range() @> v_size::int end, -- [mut:in_range_i]
       case when v_counts_measure then 1 else 0 end,
       case when coalesce(v_g4, false) then 1 else 0 end,
+      case when v_has_result then v_method end,
+      coalesce(v_g4, false) and coalesce(v_method = 'A', false),
+      coalesce(v_g4, false) and coalesce(v_method = 'B', false),
+      case when v_counts_measure and coalesce(v_method = 'A', false) then 1 else 0 end,
+      case when v_counts_measure and coalesce(v_method = 'B', false) then 1 else 0 end,
       coalesce(v_g1, false), coalesce(v_g3, false), coalesce(v_g5, false),
       coalesce(v_used_a, false) or coalesce(v_stage >= 6 and v_method = 'A', false),
       coalesce(v_used_b, false) or coalesce(v_stage >= 6 and v_method = 'B', false),
@@ -442,7 +491,9 @@ $$;
 comment on function analytics.ring_size_session_upsert(uuid, uuid, jsonb) is
   'RPC สาธารณะ (เรียกจาก app/api/ring-size/event/route.ts ด้วย service role เท่านั้น — ไม่มีด่าน owner/admin '
   'โดยตั้งใจ ดูหัวไฟล์ 0193). 1 แถว/session upsert แบบ monotonic: max_stage=greatest · ธง=OR · ref/method=ล่าสุดทับ · '
-  'ผลวัด (circ/size/between)=ล่าสุดทับเป็นก้อน · used_a/used_b/saw_between=OR (derive จาก stage>=6+method และ client ส่งได้) · in_shop_range คำนวณใน DB · measure_count +1 เมื่อ stage 7 มีเบอร์. '
+  'ผลวัด (circ/size/between)=ล่าสุดทับเป็นก้อน และส่งได้เฉพาะ stage 7 (ที่อื่น=22023) · result_method=วิธีของผลล่าสุด · '
+  'used_a/used_b/saw_between=OR (derive จาก stage>=6+method และ client ส่งได้) · in_shop_range คำนวณใน DB · '
+  'measure_count (+ _a/_b ตามวิธีตอนนั้น) +1 เมื่อ stage 7 มีเบอร์ · invalid_a/invalid_b = G4 ตามวิธีตอนเกิด. '
   'errcode: validation ผิด/session ของร้านอื่น=22023 · event_count เกิน 40 หรือแถวใหม่เกิน 300/10 นาที/ร้าน=P0001.';
 
 revoke execute on function analytics.ring_size_session_upsert(uuid, uuid, jsonb)
@@ -482,8 +533,13 @@ begin
   if p_from > p_to then
     raise exception 'ring_size_stats: p_from ต้องไม่เกิน p_to' using errcode = '22023';
   end if;
-  -- เพดาน 180 วัน (p_to - p_from <= 180) ให้ตรงกับ retention 180 วัน — เกินนั้นไม่มีข้อมูลให้ดูอยู่แล้ว
-  if (p_to - p_from) > 180 then
+  -- ขั้นต่ำ 7 วันปฏิทิน (p_to - p_from >= 6) — security r2 L1: ช่วงวันเดียว/สั้นเกินไปให้ตัวเลขที่จับคู่กับเวลาที่ลูกค้าทัก LINE
+  -- ได้ง่าย (ข้อมูลไม่ระบุตัวตน แต่ session ละ 1 แถว วันที่เงียบ ๆ อาจมีไม่กี่แถว) · ต้องตรงกับ UI (ช่วงเลือกต่ำสุด 7 วัน)
+  if (p_to - p_from) < 6 then -- [mut:range_min]
+    raise exception 'ring_size_stats: ช่วงวันที่ต้องไม่ต่ำกว่า 7 วัน' using errcode = '22023';
+  end if;
+  -- เพดาน 180 วันปฏิทิน (p_to - p_from <= 179) ให้ตรงกับ retention 180 วัน — เกินนั้นไม่มีข้อมูลให้ดูอยู่แล้ว (N2: เดิม > 180 = 181 วัน)
+  if (p_to - p_from) > 179 then -- [mut:range_max]
     raise exception 'ring_size_stats: ช่วงวันที่เกิน 180 วัน' using errcode = '22023';
   end if;
   v_from_ts := p_from::timestamp at time zone 'Asia/Bangkok';
@@ -547,8 +603,7 @@ begin
                       where result_size is not null and analytics.ring_size_shop_range() @> result_size::int),
       'above_range', (select count(*) from scoped
                       where result_size is not null and result_size >= upper(analytics.ring_size_shop_range())),
-      'between_count',    (select count(*) from scoped where is_between),
-      'invalid_sessions', (select count(*) from scoped where invalid_count > 0)
+      'between_count',    (select count(*) from scoped where is_between)
     ),
     'circ_hist', (
       select coalesce(jsonb_agg(jsonb_build_object('mm', t.mm, 'count', t.cnt) order by t.mm), '[]'::jsonb)
@@ -562,29 +617,31 @@ begin
       'A', (select count(*) from scoped where method = 'A'),
       'B', (select count(*) from scoped where method = 'B')
     ),
-    -- method_stats[x] นับจาก used_x (เคยเข้าหน้าวัดวิธี x) — session ที่ลองทั้งสองวิธีนับ picked/invalid_sessions ทั้งสองฝั่ง:
+    -- method_stats[x] — ต่อวิธี (security r2 S1: นับตามวิธีที่เกิดเหตุจริง ไม่ใช่วิธีล่าสุดของ session) —
+    -- session ที่ลองทั้งสองวิธีนับ picked ทั้งสองฝั่ง แต่ผล/G4/รอบวัดนับกับวิธีตอนเกิดเหตุ:
     --   picked               = used_x
-    --   measured             = used_x และวิธีล่าสุด = x และมีเบอร์ (result_size)
-    --   abandoned_at_measure = used_x และวิธีล่าสุด = x และ max_stage = 6 (เข้าหน้าวัดแล้วไม่ได้ผล)
-    --   invalid_sessions     = used_x และ G4 อย่างน้อย 1 ครั้ง
-    --   remeasured           = used_x และวิธีล่าสุด = x และ measure_count >= 2
+    --   measured             = result_method = x และมีเบอร์ (result_size) — วัด B ได้เบอร์แล้วสลับไป A แล้วเลิก = นับเป็น B
+    --   abandoned_at_measure = used_x และวิธีล่าสุด = x และ max_stage = 6 (เข้าหน้าวัดแล้วไม่ได้ผลเลยสักครั้ง)
+    --   invalid_sessions     = invalid_x (G4 เกิดขณะวิธี x อย่างน้อย 1 ครั้ง)
+    --   remeasured           = measure_count_x >= 2 (วัดได้เบอร์ด้วยวิธี x ตั้งแต่ 2 รอบ)
     --   between              = B เท่านั้น: used_b และเคยได้ผลก้ำกึ่ง (saw_between) · A = null (วิธีแหวนวงเดิมปัดใกล้สุด ไม่มีก้ำกึ่ง)
-    -- ข้อจำกัด: วัดด้วย x ได้เบอร์ แล้วย้อนไปเลือกวิธีอื่นแต่ไม่ได้ผลใหม่ ผลเก่านับกับวิธีล่าสุด (ไม่มี result_method)
+    -- ตัวที่ UI ใช้ (N1): ต่อวิธี = method_stats เท่านั้น · รวมทุกวิธี = measured / friction.invalid / friction.remeasured / saw_between ·
+    -- size_summary.between_count = เฉพาะ session ที่ "ผลล่าสุด" ก้ำกึ่ง (ไม่ใช่เคยก้ำกึ่ง — อันนั้น saw_between) UI หลักไม่ใช้
     'method_stats', jsonb_build_object(
       'A', jsonb_build_object(
         'picked',               (select count(*) from scoped where used_a),
-        'measured',             (select count(*) from scoped where used_a and method = 'A' and result_size is not null),
+        'measured',             (select count(*) from scoped where result_method = 'A' and result_size is not null),
         'abandoned_at_measure', (select count(*) from scoped where used_a and method = 'A' and max_stage = 6),
-        'invalid_sessions',     (select count(*) from scoped where used_a and invalid_count > 0),
-        'remeasured',           (select count(*) from scoped where used_a and method = 'A' and measure_count >= 2),
+        'invalid_sessions',     (select count(*) from scoped where invalid_a),
+        'remeasured',           (select count(*) from scoped where measure_count_a >= 2),
         'between',              null
       ),
       'B', jsonb_build_object(
         'picked',               (select count(*) from scoped where used_b),
-        'measured',             (select count(*) from scoped where used_b and method = 'B' and result_size is not null),
+        'measured',             (select count(*) from scoped where result_method = 'B' and result_size is not null),
         'abandoned_at_measure', (select count(*) from scoped where used_b and method = 'B' and max_stage = 6),
-        'invalid_sessions',     (select count(*) from scoped where used_b and invalid_count > 0),
-        'remeasured',           (select count(*) from scoped where used_b and method = 'B' and measure_count >= 2),
+        'invalid_sessions',     (select count(*) from scoped where invalid_b),
+        'remeasured',           (select count(*) from scoped where measure_count_b >= 2),
         'between',              (select count(*) from scoped where used_b and saw_between)
       )
     ),
@@ -613,6 +670,7 @@ begin
       'shop',     (select count(*) from scoped where cta_shop),
       'gem_quiz', (select count(*) from scoped where cta_gem_quiz)
     ),
+    -- friction.invalid = จำนวน session ที่เคยเจอ G4 (ตัวเดียวของระบบ — size_summary ไม่มีสำเนา) · friction.remeasured รวมทุกวิธี (ต่อวิธีดู method_stats)
     'friction', jsonb_build_object(
       'zoom_blocked',  (select count(*) from scoped where zoom_blocked),
       'calib_warn',    (select count(*) from scoped where calib_warn),
@@ -645,10 +703,11 @@ $$;
 
 comment on function analytics.ring_size_stats(uuid, date, date) is
   'สถิติ /ring-size สำหรับ /marketing/ring-size — crm_require_owner_admin เป็นด่านแรก (ก่อน validate). '
-  'p_from/p_to วันไทย inclusive · p_to - p_from ≤ 180 วัน · ไม่มีตัวกรองช่องทาง (มติ 25 ต.ค. 69). '
-  'คืน jsonb ก้อนเดียว ไม่คืนแถวดิบ. invariant: sum(abandon_at)+funnel[7]=sessions. '
-  'measured = มี result_size (ไม่ใช่ funnel[7] ซึ่งรวม G4). method{A,B} = วิธีล่าสุด · method_stats = ต่อวิธีจาก used_a/used_b '
-  '(นิยามอยู่ในคอมเมนต์ในตัวฟังก์ชัน) · cta.line = ทุกจุดที่ client ส่ง · data_since/shop_range ไม่ขึ้นกับช่วงวัน.';
+  'p_from/p_to วันไทย inclusive · ช่วงต้อง 7-180 วันปฏิทิน (6 ≤ p_to - p_from ≤ 179 ไม่งั้น 22023) · ไม่มีตัวกรองช่องทาง (มติ 25 ต.ค. 69). '
+  'คืน jsonb ก้อนเดียว ไม่คืนแถวดิบ. invariant: sum(abandon_at)+funnel[7]=sessions · measured ≤ funnel[7]. '
+  'measured = มี result_size (ไม่ใช่ funnel[7] ซึ่งรวม G4). method{A,B} = วิธีล่าสุด · method_stats = ต่อวิธี: picked จาก used_x · '
+  'measured จาก result_method · invalid_sessions จาก invalid_x · remeasured จาก measure_count_x (นิยามอยู่ในคอมเมนต์ในตัวฟังก์ชัน) · '
+  'cta.line = ทุกจุดที่ client ส่ง · data_since/shop_range ไม่ขึ้นกับช่วงวัน.';
 
 revoke execute on function analytics.ring_size_stats(uuid, date, date)
   from public, anon, authenticated;
