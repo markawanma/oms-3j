@@ -186,7 +186,7 @@ function streamRequest(source: UnderlyingDefaultSource<Uint8Array>, extraHeaders
     headers: { host: HOST, origin: ORIGIN, ...extraHeaders },
     body: new ReadableStream<Uint8Array>(source),
     duplex: "half",
-  } as unknown as RequestInit);
+  } as unknown as ConstructorParameters<typeof NextRequest>[1]);
 }
 
 /** แบ่ง bytes เป็น chunk ขนาด size ไบต์ ส่งทีละก้อน */
