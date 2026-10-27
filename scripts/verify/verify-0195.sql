@@ -502,7 +502,7 @@ begin
     pg_temp.okr(rr) and pg_temp.okr(r) and pg_temp.okr(rs) and lot is not null and pg_temp.codeof(r2) = 'scrap_weight_required' and st <> 'cancelled');
   r3 := pg_temp.o_lcancel(p_shop, lot, 'ทดสอบ M2', 'scrap', 'broken', 3.5);
   select status, cancel_scrap_weight_g into st, w from analytics.job where id = lot;
-  v := v || pg_temp.chk('M1b', 'ต้องไม่พัง: ใบเดียวกัน ใส่น้ำหนักของเสีย 3.5 g (ส่วนที่ไม่เคยชั่ง — เพดานใช้น้ำหนักสูงสุดของใบแม่ 10 g) = ผ่าน · เก็บ cancel_scrap_weight_g — ' || coalesce(pg_temp.codeof(r3), 'ok'),
+  v := v || pg_temp.chk('M1b', 'ต้องไม่พัง: ใบเดียวกัน ใส่น้ำหนักของเสีย 3.5 g (ส่วน 4 จาก 10 ชิ้นที่ไม่เคยชั่ง — เพดานสัดส่วนชิ้น 10 g ÷ 10 ชิ้น × 4 = 4 g) = ผ่าน · เก็บ cancel_scrap_weight_g — ' || coalesce(pg_temp.codeof(r3), 'ok'),
     pg_temp.okr(r3) and st = 'cancelled' and w = 3.5);
   -- เกินน้ำหนักสูงสุดของใบแม่ = weight_over (เพดานยังทำงาน)
   d := pg_temp.mkp(p_shop, p_tpl, 'gold', pf, pg_temp.gold_codes(), 10);
@@ -512,7 +512,31 @@ begin
   rs := pg_temp.o_split(p_shop, j, 8, 4);
   lot := pg_temp.lot(rs);
   r2 := pg_temp.o_lcancel(p_shop, lot, 'ทดสอบ M2', 'scrap', 'broken', 99);
-  v := v || pg_temp.chk('M1c', 'ห้ามผ่าน: น้ำหนักของเสีย 99 g มากกว่าน้ำหนักสูงสุดของใบแม่ (10 g) = weight_over — ' || coalesce(pg_temp.codeof(r2), 'ผ่าน?'), pg_temp.codeof(r2) = 'weight_over');
+  v := v || pg_temp.chk('M1c', 'ห้ามผ่าน: น้ำหนักของเสีย 99 g มากกว่าเพดานสัดส่วนชิ้น (4 g) = weight_over — ' || coalesce(pg_temp.codeof(r2), 'ผ่าน?'), pg_temp.codeof(r2) = 'weight_over');
+  -- M1d: ส่วน 1 ชิ้นจากใบ 10 ชิ้น (เฉลี่ย 1 g/ชิ้น) ใส่ 5 g = เกินเพดานสัดส่วนชิ้น (ปล่อยผ่านถ้าเทียบน้ำหนักรวมใบแม่ 10 g) · กรอกตามจริง 1 g = ผ่าน
+  d := pg_temp.mkp(p_shop, p_tpl, 'gold', pf, pg_temp.gold_codes(), 10);
+  j := pg_temp.jid(d);
+  rr := pg_temp.rwg(p_shop, j, 10, 7);
+  r := pg_temp.o_recv(p_shop, j, 8, v_today, null, null, 'verify');
+  rs := pg_temp.o_split(p_shop, j, 8, 1);
+  lot := pg_temp.lot(rs);
+  r2 := pg_temp.o_lcancel(p_shop, lot, 'ทดสอบ M2', 'scrap', 'broken', 5);
+  r3 := pg_temp.o_lcancel(p_shop, lot, 'ทดสอบ M2', 'scrap', 'broken', 1);
+  select status into st from analytics.job where id = lot;
+  v := v || pg_temp.chk('M1d', 'ห้ามผ่าน/ต้องผ่าน: ส่วน 1 ชิ้นจากใบ 10 ชิ้น ใส่ 5 g (เพดาน ~1 g/ชิ้น) = weight_over · ใส่ 1 g ตามจริงต่อชิ้น = ผ่าน — ' || coalesce(pg_temp.codeof(r2), 'ผ่าน?') || '/' || coalesce(pg_temp.codeof(r3), 'ok'),
+    pg_temp.okr(rs) and pg_temp.codeof(r2) = 'weight_over' and pg_temp.okr(r3) and st = 'cancelled');
+  -- M1e (security): ส่วน 2 ชิ้นจากล็อต 500 g / 50 ชิ้น (เฉลี่ย 10 g/ชิ้น → เพดาน 20 g) ใส่ 120 g = weight_over · กรอก 15 g ตามจริง = ผ่าน
+  d := pg_temp.mkp(p_shop, p_tpl, 'gold', pf, pg_temp.gold_codes(), 50);
+  j := pg_temp.jid(d);
+  rr := pg_temp.rwg(p_shop, j, 500, 7);
+  r := pg_temp.o_recv(p_shop, j, 8, v_today, null, null, 'verify');
+  rs := pg_temp.o_split(p_shop, j, 8, 2);
+  lot := pg_temp.lot(rs);
+  r2 := pg_temp.o_lcancel(p_shop, lot, 'ทดสอบ M2', 'scrap', 'broken', 120);
+  r3 := pg_temp.o_lcancel(p_shop, lot, 'ทดสอบ M2', 'scrap', 'broken', 15);
+  select status into st from analytics.job where id = lot;
+  v := v || pg_temp.chk('M1e', 'ห้ามผ่าน/ต้องผ่าน: ส่วน 2 ชิ้นจากล็อต 500 g / 50 ชิ้น ใส่ 120 g (เพดาน 20 g) = weight_over · ใส่ 15 g ตามจริง = ผ่าน — ' || coalesce(pg_temp.codeof(r2), 'ผ่าน?') || '/' || coalesce(pg_temp.codeof(r3), 'ok'),
+    pg_temp.okr(rs) and pg_temp.codeof(r2) = 'weight_over' and pg_temp.okr(r3) and st = 'cancelled');
   -- M2: ใบเงิน ยกเลิกส่วนเป็นของเสียโดยไม่ชั่ง = ผ่านเหมือนเดิม · ใส่น้ำหนักมา = weight_unexpected (เหมือนเดิม)
   d := pg_temp.mkp(p_shop, p_tpl, 'silver', pg_temp.pid(p_shop, 'none'), pg_temp.gold_codes(), 10);
   j := pg_temp.jid(d);
@@ -584,6 +608,7 @@ declare
     jsonb_build_object('id', 'MV-8', 'what', 'job_lot_cancel_core: ไม่บังคับชั่งของเสียทอง (v_wreq เป็น false เสมอ — ช่องเดิมก่อน M2)', 'fn', 'job_lot_cancel_core', 'from', 'and x.status in (''received'', ''sent'') and d.metal_present)', 'to', 'and false)', 'expect', jsonb_build_array('M1', 'M4')),
     jsonb_build_object('id', 'MV-9', 'what', 'job_lot_cancel_core: ถอดการตกกลับไปเพดานน้ำหนักใบแม่ (ส่วนที่ไม่เคยชั่งไม่มีเพดาน — น้ำหนักเกินใบแม่ผ่าน)', 'fn', 'job_lot_cancel_core', 'from', 'if coalesce(v_wbasis, 0) = 0 then', 'to', 'if false then', 'expect', jsonb_build_array('M1c')),
     jsonb_build_object('id', 'MV-10', 'what', 'job_lot_cancel_core: เพดานกลับเป็นแบบเดิม (ไม่มีน้ำหนักฐาน = ใส่น้ำหนักไม่ได้เลย) + ไม่ตกกลับใบแม่', 'fn', 'job_lot_cancel_core', 'from', 'if coalesce(v_wbasis, 0) > 0 and p_scrap_weight > v_wbasis then', 'to', 'if p_scrap_weight > 0 then', 'expect', jsonb_build_array('M1b')),
+    jsonb_build_object('id', 'MV-11', 'what', 'job_lot_cancel_core: เพดานกลับเป็นน้ำหนักรวมใบแม่ (ไม่หารต่อชิ้น/ไม่คูณจำนวนชิ้นของส่วน)', 'fn', 'job_lot_cancel_core', 'from', '/ x.qty_in) * v_l.qty_planned into v_wbasis', 'to', ') into v_wbasis', 'expect', jsonb_build_array('M1d', 'M1e')),
     jsonb_build_object('id', 'MV-7', 'what', 'ข้อมูล: แบบทองปริยาย buff กลับไปชั่ง (UPDATE แบบไม่ครบ)', 'ddl', 'update analytics.job_record_profile_stage ps set weigh = true from analytics.job_record_profile p where p.id = ps.profile_id and p.is_default_gold and ps.stage_code = ''buff''', 'expect', jsonb_build_array('E1', 'D5', 'E4'))
   );
 begin
@@ -654,11 +679,11 @@ begin
   v_log := v_log || pg_temp.chk('MY', format('หลัง mutant: md5 นิยาม + สิทธิ์ของฟังก์ชันทุกตัวในสคีมา analytics (%s ตัว) เท่าเดิมเป๊ะ', (select count(*) from _v195_orig)),
     v_hit = (select count(*) from _v195_orig) and (select count(*) from pg_proc where pronamespace = 'analytics'::regnamespace and prokind in ('f', 'p')) = (select count(*) from _v195_orig));
   v_log := v_log || pg_temp.chk('K0b', 'state ไม่ขยับหลังรัน mutant ทั้งหมด', pg_temp.snap() = v_snap0);
-  v_log := v_log || pg_temp.chk('P1', 'ไม่มี overload 5 ฟังก์ชัน · ไม่มีใคร (public/anon/authenticated) ถือ EXECUTE ฟังก์ชันที่แก้ · v_job_board: authenticated/anon ไม่มี select · security_invoker เปิด',
-    (select count(*) from pg_proc p where p.pronamespace = 'analytics'::regnamespace and p.proname in ('job_stage_def_ensure', 'job_profile_state', 'job_stage_suggest', 'job_record_profile_list', 'job_record_profile_ensure')) = 5
+  v_log := v_log || pg_temp.chk('P1', 'ไม่มี overload 6 ฟังก์ชัน · ไม่มีใคร (public/anon/authenticated) ถือ EXECUTE ฟังก์ชันที่แก้ · v_job_board: authenticated/anon ไม่มี select · security_invoker เปิด',
+    (select count(*) from pg_proc p where p.pronamespace = 'analytics'::regnamespace and p.proname in ('job_stage_def_ensure', 'job_profile_state', 'job_stage_suggest', 'job_record_profile_list', 'job_record_profile_ensure', 'job_lot_cancel_core')) = 6
     and not exists (select 1 from pg_proc p cross join lateral aclexplode(coalesce(p.proacl, acldefault('f', p.proowner))) a
                      where p.pronamespace = 'analytics'::regnamespace and a.privilege_type = 'EXECUTE' and (a.grantee = 0 or a.grantee = 'anon'::regrole or a.grantee = 'authenticated'::regrole)
-                       and p.proname in ('job_stage_def_ensure', 'job_profile_state', 'job_stage_suggest', 'job_record_profile_list', 'job_record_profile_ensure'))
+                       and p.proname in ('job_stage_def_ensure', 'job_profile_state', 'job_stage_suggest', 'job_record_profile_list', 'job_record_profile_ensure', 'job_lot_cancel_core'))
     and not has_table_privilege('anon', 'analytics.v_job_board', 'select') and not has_table_privilege('authenticated', 'analytics.v_job_board', 'select')
     and (select coalesce(c.reloptions::text, '') like '%security_invoker=true%' from pg_class c where c.oid = 'analytics.v_job_board'::regclass));
 
