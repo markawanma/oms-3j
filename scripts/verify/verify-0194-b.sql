@@ -14,7 +14,9 @@
 --   5 รัน 2 รอบ รอบสองไม่เปลี่ยนอะไร (ส่วนสลับ)                       -> T1d
 --   9 ใบที่สลับแล้ว (แบบ JB-0040) เดินครบ · แยกที่ gem_set · drift=false -> T2a T2b
 --  13 trg_job_stage_guard กลับมา enabled                              -> T0 T1c K0 K0b · MB-3
---   ไม่แตะแถวอื่นของการสลับ                                          -> T1c · MB-5 (+ ด่านท้าย PART B ของ migration)
+--  L1 ส่วนต่าง (ไม่ void) ชี้ขั้นขัด/ฝังพลอย -> swap raise (ส่วนต่างที่ void แล้วไม่นับ)   -> T6a T6b · MB-7
+-- 🔴 รันจากสำเนา LF (git show <ref>:<path> หรือ sed 's/\r$//') — ไฟล์ทน \r (md5/mutant ตัด \r) แต่ prosrc ที่ได้จะไม่ตรงกับสำเนาที่ลอกมา (ข้อ 20 ของ 3j-migration-traps)
+--   ไม่แตะแถวอื่นของการสลับ                                        -> T1c · MB-5 (+ ด่านท้าย PART B ของ migration)
 --  ❌ ไม่มีเทสต์ครอบ: race 2 connection · trg_job_stage_sync ปรับ current_stage_code ของใบที่ขั้นแรกที่ pending เป็น buff/gem_set (ฟิกซ์เจอร์ทุกใบมีขั้นก่อนหน้า pending อยู่ — ไม่ใช่เคสนั้น) · ผลของล็อกต่อช่างจริง
 set local statement_timeout = '45min';
 set local lock_timeout = '8s';
@@ -193,7 +195,8 @@ create function pg_temp.mutate(p_name text, p_from text, p_to text) returns void
 declare v_oid oid; v_def text; v_new text;
 begin
   select p.oid into strict v_oid from pg_proc p where p.pronamespace = 'analytics'::regnamespace and p.proname = p_name;
-  v_def := pg_get_functiondef(v_oid);
+  -- ตัด \r ก่อนแทนข้อความ: ฟังก์ชันที่ apply จากไฟล์ CRLF มี \r\n ใน body ⇒ ข้อความหลายบรรทัดของ mutant ไม่ตรง (MUTANT_NOT_APPLIED) · mutant ไม่ขึ้นกับ line ending
+  v_def := replace(pg_get_functiondef(v_oid), E'\r', '');
   v_new := replace(v_def, p_from, p_to);
   if v_new = v_def then
     raise exception 'MUTANT_NOT_APPLIED: % ไม่พบข้อความ [%]', p_name, p_from;
@@ -319,6 +322,12 @@ begin
     if exists (select 1 from analytics.job k where k.parent_job_id = c.job_id) then
       raise exception '0194: ใบ % มีส่วนย่อย — สลับ seq ใบแม่อย่างเดียวไม่ได้ (ส่วนย่อยคัดลอก seq ใบแม่) ให้คนตัดสินใจ', c.job_no;
     end if;
+    -- ส่วนต่าง (job_discrepancy ที่ยังไม่ถูก void) ชี้ขั้น buff/gem_set ของใบนี้ = ผูกกับ seq/ลำดับขั้น — สลับเงียบๆ ไม่ได้ (ปกติเกิดไม่ได้กับขั้นที่ยัง pending ทั้งคู่ — กันไว้เป็นด่านสุดท้าย)
+    if exists (select 1 from analytics.job_discrepancy d
+                where d.status <> 'void' and (d.from_stage_id in (c.buff_id, c.gem_id) or d.to_stage_id in (c.buff_id, c.gem_id))
+                  and not exists (select 1 from analytics.job_discrepancy v where v.void_of_id = d.id)) then
+      raise exception '0194: ใบ % มีส่วนต่างที่ชี้ขั้นขัด/ฝังพลอย — สลับ seq ไม่ได้ ให้คนตัดสินใจ', c.job_no;
+    end if;
     if exists (select 1 from analytics.job_stage x where x.job_id = c.job_id and x.seq = 100) then
       raise exception '0194: ใบ % มีขั้น seq 100 อยู่แล้ว — ใช้เป็นค่ากลางตอนสลับไม่ได้', c.job_no;
     end if;
@@ -427,7 +436,7 @@ create function pg_temp.swap_mut(p_from text, p_to text) returns void
  language plpgsql as $c$
 declare v_def text; v_new text;
 begin
-  v_def := pg_get_functiondef('pg_temp.swap194()'::regprocedure);
+  v_def := replace(pg_get_functiondef('pg_temp.swap194()'::regprocedure), E'\r', '');
   v_new := replace(v_def, p_from, p_to);
   if v_new = v_def then
     raise exception 'MUTANT_NOT_APPLIED: swap194 ไม่พบข้อความ [%]', p_from;
@@ -577,6 +586,35 @@ begin
 end;
 $c$;
 
+-- tb6: ใบที่มีส่วนต่าง (ไม่ void) ชี้ขั้น buff/gem_set -> raise ไม่สลับ (L1) · ส่วนต่างที่ถูก void แล้วไม่นับ
+-- แถวส่วนต่างสร้างด้วย INSERT ตรง (ด้วย session_replication_role=replica ชั่วคราว ข้ามด่านผู้เขียน/FK) — ขั้น pending ทั้งคู่ไม่มีทางเกิดส่วนต่างผ่าน RPC (ด่านสุดท้ายของ migration จึงทดสอบด้วยแถวจัดฉาก)
+create function pg_temp.tb6(p_shop uuid, p_tpl uuid) returns text
+ language plpgsql as $c$
+declare v text := ''; j uuid; r text; r2 text; v_fin uuid; v_buff uuid; v_gem uuid; d1 uuid;
+begin
+  j := pg_temp.jid(pg_temp.mk_old_order(p_shop, p_tpl));
+  select id into v_fin from analytics.job_stage where job_id = j and stage_code = 'finish';
+  select id into v_buff from analytics.job_stage where job_id = j and stage_code = 'buff';
+  select id into v_gem from analytics.job_stage where job_id = j and stage_code = 'gem_set';
+  execute 'set local session_replication_role = replica';
+  insert into analytics.job_discrepancy (shop_id, root_job_id, job_id, from_stage_id, to_stage_id, qty, created_by_actor)
+  values (p_shop, j, j, v_fin, v_buff, 1, pg_temp.act()) returning id into d1;
+  execute 'set local session_replication_role = origin';
+  r := pg_temp.swap_run();
+  v := v || pg_temp.chk('T6a', 'L1 (ห้ามผ่าน): ใบมีส่วนต่างที่ชี้ขั้นขัด (ไม่ void) = swap raise "มีส่วนต่าง" · ไม่สลับ · guard enabled — ' || left(r, 90),
+    r like 'ERR:0194:%มีส่วนต่าง%' and pg_temp.sv(j, 7, 'stage_code') = 'buff' and pg_temp.guard_on_ok());
+  -- ส่วนต่างถูก void แล้ว (แถว void ชี้กลับ) = ไม่นับ → สลับได้
+  execute 'set local session_replication_role = replica';
+  insert into analytics.job_discrepancy (shop_id, root_job_id, job_id, from_stage_id, to_stage_id, qty, status, void_of_id, void_reason, created_by_actor)
+  values (p_shop, j, j, v_fin, v_buff, 1, 'void', d1, 'ยกเลิกเพื่อทดสอบ', pg_temp.act());
+  execute 'set local session_replication_role = origin';
+  r2 := pg_temp.swap_run();
+  v := v || pg_temp.chk('T6b', 'ต้องไม่พัง: ส่วนต่างที่ถูก void แล้วไม่นับ → ใบสลับได้ — ' || left(r2, 60),
+    r2 = 'OK' and pg_temp.sv(j, 7, 'stage_code') = 'gem_set' and pg_temp.sv(j, 8, 'stage_code') = 'buff');
+  return v;
+end;
+$c$;
+
 create function pg_temp.run_b_all(p_shop uuid, p_tpl uuid) returns text
  language sql as $c$
   select pg_temp.iso(format('select pg_temp.tb1(%L, %L)', p_shop, p_tpl))
@@ -584,6 +622,7 @@ create function pg_temp.run_b_all(p_shop uuid, p_tpl uuid) returns text
       || pg_temp.iso(format('select pg_temp.tb3(%L, %L)', p_shop, p_tpl))
       || pg_temp.iso(format('select pg_temp.tb4(%L, %L)', p_shop, p_tpl))
       || pg_temp.iso(format('select pg_temp.tb5(%L, %L)', p_shop, p_tpl))
+      || pg_temp.iso(format('select pg_temp.tb6(%L, %L)', p_shop, p_tpl))
 $c$;
 
 do $v194b$
@@ -597,6 +636,7 @@ declare
     jsonb_build_object('id', 'MB-4', 'what', 'swap194: ถอดเงื่อนไข pending ทั้งคู่ (ใบที่เริ่มแล้วเข้าเงื่อนไข)', 'swap', true, 'from', 'b.status = ''pending'' and g.status = ''pending'' and', 'to', '', 'expect', jsonb_build_array('T1a', 'T1b')),
     jsonb_build_object('id', 'MB-5', 'what', 'swap194: แตะขั้นอื่นของใบที่สลับ (qc updated_at) — ด่านหลังสลับต้องจับ', 'swap', true, 'from', 'insert into _j194_swapped values (c.job_id, c.buff_id, c.gem_id, c.buff_seq, c.gem_seq);',
        'to', 'update analytics.job_stage set updated_at = now() + interval ''1 second'' where job_id = c.job_id and stage_code = ''qc''; insert into _j194_swapped values (c.job_id, c.buff_id, c.gem_id, c.buff_seq, c.gem_seq);', 'expect', jsonb_build_array('T1a')),
+    jsonb_build_object('id', 'MB-7', 'what', 'swap194: ถอดด่านส่วนต่างที่ชี้ขั้นขัด/ฝังพลอย (L1)', 'swap', true, 'from', 'd.status <> ''void'' and (d.from_stage_id in (c.buff_id, c.gem_id) or d.to_stage_id in (c.buff_id, c.gem_id))', 'to', 'false', 'expect', jsonb_build_array('T6a')),
     jsonb_build_object('id', 'MB-6', 'what', 'job_stage_guard: ส่วนย่อยไม่ต้องตรง seq ใบแม่ (เช็คแค่รหัสขั้น)', 'fn', 'job_stage_guard', 'from', 'ps.stage_code = new.stage_code and ps.seq = new.seq', 'to', 'ps.stage_code = new.stage_code', 'expect', jsonb_build_array('T5b'))
   );
 begin
@@ -609,7 +649,7 @@ begin
     raise exception E'%', v_log;
   end if;
   create temp table _v194b_orig on commit drop as
-    select p.oid::regprocedure::text as sig, md5(pg_get_functiondef(p.oid)) as h, p.proacl::text as acl
+    select p.oid::regprocedure::text as sig, md5(replace(pg_get_functiondef(p.oid), E'\r', '')) as h, p.proacl::text as acl
       from pg_proc p where p.pronamespace = 'analytics'::regnamespace and p.prokind in ('f', 'p');
   v_snap0 := pg_temp.snap();
   v_log := v_log || pg_temp.chk('T0', 'ก่อนเริ่ม: trg_job_stage_guard enabled (เคส 13)', pg_temp.guard_on_ok());
@@ -650,7 +690,7 @@ begin
   end loop;
   v_log := v_log || pg_temp.chk('MX', format('mutant ถูกจับครบ %s/%s ตัว %s', v_killed, v_total, case when v_survived = '' then '' else 'รอด: ' || v_survived end), v_killed = v_total);
 
-  select count(*) into v_hit from _v194b_orig o join pg_proc p on p.pronamespace = 'analytics'::regnamespace and p.prokind in ('f', 'p') and p.oid::regprocedure::text = o.sig where md5(pg_get_functiondef(p.oid)) = o.h and p.proacl::text is not distinct from o.acl;
+  select count(*) into v_hit from _v194b_orig o join pg_proc p on p.pronamespace = 'analytics'::regnamespace and p.prokind in ('f', 'p') and p.oid::regprocedure::text = o.sig where md5(replace(pg_get_functiondef(p.oid), E'\r', '')) = o.h and p.proacl::text is not distinct from o.acl;
   v_log := v_log || pg_temp.chk('MY', format('หลัง mutant: md5 นิยาม + สิทธิ์ของฟังก์ชันทุกตัวในสคีมา analytics (%s ตัว) เท่าเดิมเป๊ะ', (select count(*) from _v194b_orig)),
     v_hit = (select count(*) from _v194b_orig) and (select count(*) from pg_proc where pronamespace = 'analytics'::regnamespace and prokind in ('f', 'p')) = (select count(*) from _v194b_orig));
   v_log := v_log || pg_temp.chk('K0b', 'state ไม่ขยับหลังรัน mutant ทั้งหมด · guard enabled', pg_temp.snap() = v_snap0 and pg_temp.guard_on_ok());

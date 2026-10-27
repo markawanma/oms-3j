@@ -1,6 +1,7 @@
 -- 0194_stage_order_gem_before_buff.sql — เรียงขั้นใหม่ "ตัดต้น -> แต่ง -> ฝังพลอย -> ขัด -> ชุบ -> QC -> แพ็ก" (ฝังพลอยมาก่อนขัด) · มติเจ้าของ 27 ต.ค. 69
 -- สถานะ: ยังไม่ apply · 🔴 ห้าม apply ก่อน 0192 และ 0193 (ไม่ใช่ข้อห้ามของ DB — แต่ verify-0192.std() สมมติ "ขัดก่อนฝังพลอย" ⇒ ลง 0194 ก่อน = ชุดทดสอบ 0192 FAIL · pre-check ไฟล์นี้เตือน (warning) ถ้ายังไม่เห็น 0192/0193 ในประวัติ ไม่ raise เพราะต้อง dry-run ได้ก่อน)
 -- apply ด้วย node scripts/run-sql.mjs --commit --record เท่านั้น (ห้าม supabase db push) · ชุดทดสอบ scripts/verify/verify-0194.sql (ส่วน A) + verify-0194-b.sql (ส่วน B)
+-- 🔴 apply จากสำเนา LF เท่านั้น (git show <ref>:supabase/migrations/0194_... หรือ sed 's/\r$//') — working tree บน Windows เป็น CRLF (core.autocrlf) ⇒ \r ติดเข้าไปใน body ฟังก์ชัน (ข้อ 20 ของ 3j-migration-traps) · ไฟล์นี้ทน \r แล้ว (เทียบ md5 แบบตัด \r ทุกจุด) แต่ prosrc จะไม่ตรงกับที่ลอกมา
 -- 🔴 ส่วน "สลับ seq ใบค้าง" (ระหว่างบรรทัด PART B BEGIN/END) มี alter table analytics.job_stage disable trigger ⇒ ล็อกตาราง job_stage ตลอดทรานแซกชัน ⇒ รันนอกเวลางานเท่านั้น (หลัง 23:00 ตอนช่างไม่กดงาน)
 --    ถ้าไม่มีใบค้างเข้าเงื่อนไข ส่วนนั้นไม่ล็อกอะไรเลย (ตรวจก่อนล็อก) · ส่วนที่เหลือของไฟล์ไม่มี disable trigger — dry-run กลางวันได้โดยตัดบล็อก PART B ออก
 --
@@ -37,7 +38,7 @@ set local lock_timeout = '8s';
 
 -- baseline: ฟังก์ชันอื่นทั้งสคีมา (md5 นิยาม + สิทธิ์) ต้องเท่าเดิมหลังไฟล์นี้ — ยกเว้น 2 ตัวที่ตั้งใจแก้
 create temp table _j194_fn_base on commit drop as
-  select p.oid::regprocedure::text as sig, md5(pg_get_functiondef(p.oid)) as h, coalesce(p.proacl::text, 'NULL') as acl
+  select p.oid::regprocedure::text as sig, md5(replace(pg_get_functiondef(p.oid), E'\r', '')) as h, coalesce(p.proacl::text, 'NULL') as acl
     from pg_proc p
    where p.pronamespace = 'analytics'::regnamespace and p.prokind in ('f', 'p') and p.proname not in ('job_stage_guard', 'job_stage_def_ensure');
 create temp table _j194_acl_base on commit drop as
@@ -54,8 +55,8 @@ declare
   v_e text;
   v_n int;
 begin
-  select md5(pg_get_functiondef(p.oid)) into v_g from pg_proc p where p.pronamespace = 'analytics'::regnamespace and p.proname = 'job_stage_guard';
-  select md5(pg_get_functiondef(p.oid)) into v_e from pg_proc p where p.pronamespace = 'analytics'::regnamespace and p.proname = 'job_stage_def_ensure';
+  select md5(replace(pg_get_functiondef(p.oid), E'\r', '')) into v_g from pg_proc p where p.pronamespace = 'analytics'::regnamespace and p.proname = 'job_stage_guard';
+  select md5(replace(pg_get_functiondef(p.oid), E'\r', '')) into v_e from pg_proc p where p.pronamespace = 'analytics'::regnamespace and p.proname = 'job_stage_def_ensure';
   if v_g is null or v_g not in ('ea1258e01ab33739a5fefbd34cd4586b', 'f78049fa169cfb0e9e1d689f4c0a3943') then
     raise exception '0194: job_stage_guard บน DB ไม่ใช่ฉบับที่ลอกมา (md5 %) — มีคน replace ทับหลัง 0183 · ลอก definition สดใหม่ก่อน', v_g;
   end if;
@@ -375,6 +376,12 @@ begin
     if exists (select 1 from analytics.job k where k.parent_job_id = c.job_id) then
       raise exception '0194: ใบ % มีส่วนย่อย — สลับ seq ใบแม่อย่างเดียวไม่ได้ (ส่วนย่อยคัดลอก seq ใบแม่) ให้คนตัดสินใจ', c.job_no;
     end if;
+    -- ส่วนต่าง (job_discrepancy ที่ยังไม่ถูก void) ชี้ขั้น buff/gem_set ของใบนี้ = ผูกกับ seq/ลำดับขั้น — สลับเงียบๆ ไม่ได้ (ปกติเกิดไม่ได้กับขั้นที่ยัง pending ทั้งคู่ — กันไว้เป็นด่านสุดท้าย)
+    if exists (select 1 from analytics.job_discrepancy d
+                where d.status <> 'void' and (d.from_stage_id in (c.buff_id, c.gem_id) or d.to_stage_id in (c.buff_id, c.gem_id))
+                  and not exists (select 1 from analytics.job_discrepancy v where v.void_of_id = d.id)) then
+      raise exception '0194: ใบ % มีส่วนต่างที่ชี้ขั้นขัด/ฝังพลอย — สลับ seq ไม่ได้ ให้คนตัดสินใจ', c.job_no;
+    end if;
     if exists (select 1 from analytics.job_stage x where x.job_id = c.job_id and x.seq = 100) then
       raise exception '0194: ใบ % มีขั้น seq 100 อยู่แล้ว — ใช้เป็นค่ากลางตอนสลับไม่ได้', c.job_no;
     end if;
@@ -501,7 +508,7 @@ begin
   end if;
   select count(*) into v_n
     from _j194_fn_base b join pg_proc p on p.pronamespace = 'analytics'::regnamespace and p.oid::regprocedure::text = b.sig
-   where md5(pg_get_functiondef(p.oid)) = b.h and coalesce(p.proacl::text, 'NULL') = b.acl;
+   where md5(replace(pg_get_functiondef(p.oid), E'\r', '')) = b.h and coalesce(p.proacl::text, 'NULL') = b.acl;
   if v_n <> (select count(*) from _j194_fn_base)
      or (select count(*) from pg_proc where pronamespace = 'analytics'::regnamespace and prokind in ('f', 'p')) <> (select count(*) from _j194_fn_base) + 2 then
     raise exception '0194: ฟังก์ชันอื่นในสคีมา analytics ขยับ (ตรง % จาก %) หรือจำนวนฟังก์ชันเปลี่ยน', v_n, (select count(*) from _j194_fn_base);

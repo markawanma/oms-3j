@@ -10,6 +10,7 @@
 -- 🔴 สร้างใบงานทดสอบหลายสิบใบ (ชุดหลัก + mutant 6 ตัว) — ล็อกแถว job_counter ช่วงรัน ⇒ รันตอนที่ไม่มีใครสร้างใบใหม่ · ไม่ล็อก job_stage ทั้งตาราง
 -- 🔴 กลุ่ม H (ทอง ค-1) ใช้ได้เฉพาะ "ก่อน 0195" — หลัง 0195 (ใบทองไม่ชั่งขัด) H2/H3/H4 จะ FAIL ตามที่ควร: แก้ให้ตรงกติกาใหม่ก่อนรันซ้ำ
 --
+-- 🔴 รันจากสำเนา LF (git show <ref>:<path> หรือ sed 's/\r$//') — ไฟล์ทน \r แล้ว (md5 ของนิยามตัด \r · mutant ตัด \r ก่อนแทนข้อความ ⇒ MU-1 ไม่รอดปลอมเมื่อ CRLF) แต่ prosrc ที่ได้จากไฟล์ CRLF ไม่ตรงกับสำเนาที่ลอกมา (ข้อ 20)
 -- รัน (หลัง apply):   node scripts/run-sql.mjs scripts/verify/verify-0194.sql
 -- dry-run ก่อน apply: ต่อไฟล์ migration (ตัดบล็อก PART B ออก ถ้ารันกลางวัน) + ไฟล์นี้ (LF) แล้วรันไม่ใส่ --commit
 --
@@ -213,7 +214,8 @@ create function pg_temp.mutate(p_name text, p_from text, p_to text) returns void
 declare v_oid oid; v_def text; v_new text;
 begin
   select p.oid into strict v_oid from pg_proc p where p.pronamespace = 'analytics'::regnamespace and p.proname = p_name;
-  v_def := pg_get_functiondef(v_oid);
+  -- ตัด \r ก่อนแทนข้อความ: ฟังก์ชันที่ apply จากไฟล์ CRLF มี \r\n ใน body ⇒ ข้อความหลายบรรทัดของ mutant ไม่ตรง (MUTANT_NOT_APPLIED) · mutant ไม่ขึ้นกับ line ending
+  v_def := replace(pg_get_functiondef(v_oid), E'\r', '');
   v_new := replace(v_def, p_from, p_to);
   if v_new = v_def then
     raise exception 'MUTANT_NOT_APPLIED: % ไม่พบข้อความ [%]', p_name, p_from;
@@ -583,7 +585,7 @@ begin
   end if;
 
   create temp table _v194_orig on commit drop as
-    select p.oid::regprocedure::text as sig, md5(pg_get_functiondef(p.oid)) as h, p.proacl::text as acl
+    select p.oid::regprocedure::text as sig, md5(replace(pg_get_functiondef(p.oid), E'\r', '')) as h, p.proacl::text as acl
       from pg_proc p where p.pronamespace = 'analytics'::regnamespace and p.prokind in ('f', 'p');
   v_snap0 := pg_temp.snap();
 
@@ -630,7 +632,7 @@ begin
   end loop;
   v_log := v_log || pg_temp.chk('MX', format('mutant ถูกจับครบ %s/%s ตัว %s', v_killed, v_total, case when v_survived = '' then '' else 'รอด: ' || v_survived end), v_killed = v_total);
 
-  select count(*) into v_hit from _v194_orig o join pg_proc p on p.pronamespace = 'analytics'::regnamespace and p.prokind in ('f', 'p') and p.oid::regprocedure::text = o.sig where md5(pg_get_functiondef(p.oid)) = o.h and p.proacl::text is not distinct from o.acl;
+  select count(*) into v_hit from _v194_orig o join pg_proc p on p.pronamespace = 'analytics'::regnamespace and p.prokind in ('f', 'p') and p.oid::regprocedure::text = o.sig where md5(replace(pg_get_functiondef(p.oid), E'\r', '')) = o.h and p.proacl::text is not distinct from o.acl;
   v_log := v_log || pg_temp.chk('MY', format('หลัง mutant: md5 นิยาม + สิทธิ์ของฟังก์ชันทุกตัวในสคีมา analytics (%s ตัว) เท่าเดิมเป๊ะ (เคส 12)', (select count(*) from _v194_orig)),
     v_hit = (select count(*) from _v194_orig) and (select count(*) from pg_proc where pronamespace = 'analytics'::regnamespace and prokind in ('f', 'p')) = (select count(*) from _v194_orig));
   v_log := v_log || pg_temp.chk('K0b', 'state ไม่ขยับหลังรัน mutant ทั้งหมด', pg_temp.snap() = v_snap0);
