@@ -90,3 +90,100 @@ end if;
 - ไม่มี TS hardcode ลำดับ (เรียงจาก seq_default/job_stage.seq)
 - `lib/oem/display.ts:81` `DEPT_ORDER` สลับ "ขัด","ฝังพลอย" ให้ตรงหน้างาน (cosmetic)
 - QA = L (แตะ `job_stage_guard` ด่านกลางทุก flow) · security แนะนำดู diff guard + disable trigger
+
+
+---
+
+# ภาค 0195 — "ทองไม่บังคับชั่งขั้นขัด" (ต่อจาก 0194 · design ต้นฉบับ Yoda 27 ต.ค. 69)
+
+> มติเจ้าของ 27 ต.ค. 69: ใบทองก็ไม่ชั่งขั้นขัด (เลือก ค-2 ทาง A) · Tech Lead ตัดสินข้อเปิด: rename แบบทองเอา · def ที่ 0194 replace ลอกจากไฟล์ 0194 · ตัวอื่นลอกสดจาก DB + md5 pre-check
+> ส่วนที่ทำต่างจาก design (Han): (1) UPDATE แบบบันทึกจำกัดเฉพาะแบบทองปริยาย (is_default_gold) ไม่ใช่ทุกแบบที่ buff ชั่ง (2) TS ใช้ field เป็น optional + key มีเฉพาะเมื่อ true (ไม่ต้องแก้ fixture 20+ ไฟล์) · mapStageRow รับ record หรือ boolean (3) เพิ่มป้ายสรุปแบบ "ทุกขั้นที่มีโลหะ (ยกเว้นขัด)" ใน ProfileSummary
+
+# Design 0195 — "ทองไม่บังคับชั่งขั้นขัด" (ต่อจาก 0194 ใน branch เดียวกัน)
+
+## ข้อเท็จจริงที่ตัดสินใจบนนั้น (DB สด 27 ต.ค.)
+
+- **ใบทองที่เปิดอยู่ = 0 ใบ** (ทอง 2 ใบ cancelled) ⇒ คำถาม "ใบทองค้างควรได้ค่าใหม่ไหม" ไม่มีของให้ตัดสิน — เขียนกติกาไว้เฉยๆ ไม่ backfill
+- แถว `job_record_profile_stage` ของ buff มี 3 แถว: `ทอง — ชั่งทุกขั้นที่มีโลหะ + ชั่งสุทธิตอนปิด` (active · is_default_gold · **weigh=true** ← แถวเดียวที่ต้องแก้) · `QA-M1C-เศษ` (inactive · weigh=false) · `แบบส่งงาน 3J` (weigh=false)
+- `gold_unguarded` คำนวณ 2 ที่ (`job_profile_state` · `v_job_board` — นิพจน์ซ้ำกัน) · `job_create_insert` แค่ส่งต่อค่าจาก `job_profile_apply` ⇒ **ไม่ต้องแก้** (brief บอก 3 ที่ — ของจริง 2 ที่ DB + 1 ที่ TS)
+- ป้ายทองเป็น **เตือนอย่างเดียว** (บอร์ด `goldUnguarded` rank 9 · การ์ดแบบ · ProfileEditor) ไม่มี RPC ไหนบล็อกจากมัน ⇒ 0195 ไม่เปลี่ยนด่านรับ/ส่ง/ปิดงาน
+- `job_record_profile_ensure` seed แบบทองร้านใหม่ด้วย `weigh = d.metal_present` ⇒ ร้านใหม่จะได้ buff:W อีก ถ้าไม่แก้
+
+## 1. กลไก — เลือก **คอลัมน์ใหม่ `job_stage_def.gold_weigh_exempt boolean not null default false`**
+
+นิยามใหม่ (ทั้ง DB และ TS ต้องตรงกันคำต่อคำ):
+> gold_unguarded = ใบทองยังไม่ปิด ∧ มีขั้นที่ `metal_present ∧ not gold_weigh_exempt ∧ not weigh_required ∧ status <> 'skipped'`
+
+| ทาง | ทำไม / trade-off |
+|---|---|
+| **A. คอลัมน์ใหม่ `gold_weigh_exempt` (default false)** — แนะนำ | ความหมายตรงมติ ("ขั้นที่ทองไม่บังคับชั่ง") · default false = ทุกขั้นเดิม (gem_set/plating/qc/pack) **เข้มเท่าเดิมโดยไม่ต้องทำอะไร** · ขั้นใหม่ในอนาคตเข้มโดยค่าเริ่ม · เปิด/ปิดได้ต่อร้านโดยไม่ต้อง migrate ซ้ำ (ยังไม่มี UI ตั้ง — ตั้งใจ ดูหนี้) · ราคา: 1 คอลัมน์ + ส่ง key เพิ่มใน 2 RPC ที่คืน stage_defs |
+| B. hardcode `stage_code <> 'buff'` 3 ที่ | ถูกวันนี้ แต่กติกาธุรกิจซ่อนในโค้ด 3 สำเนา · ถ้าเจ้าของเปลี่ยนใจหรือเพิ่มขั้น "ขัดละเอียด" ต้องไล่แก้ทุกที่ · TS ต้อง hardcode ซ้ำ — ตัดทิ้ง |
+| C. รีไซเคิล `weigh_default` (= "ขั้นที่ทองต้องชั่ง") | ทำให้ gem_set/plating/qc/pack (weigh_default=false) หลุดกฎทองทันที — ตรงที่ brief ห้าม · ตัดทิ้ง |
+| D. ย้ายกฎไปที่ profile (ทองไม่มีกฎกลาง ป้ายดูจาก is_default_gold) | ป้ายไร้ความหมายเพราะแบบทองคือคนตั้งเอง · เสียด่านเตือน "ลืมติ๊กชั่ง" — ตัดทิ้ง |
+
+**ไม่ใส่ CHECK** `gold_weigh_exempt → metal_present` — ขั้นที่ไม่มีโลหะไม่เข้านิพจน์อยู่แล้ว ใส่ CHECK เพิ่มความเสี่ยงข้อ 14 (`on conflict` ของ ensure) โดยไม่ได้อะไร
+
+## 2. จุดที่ต้องแก้ (ลอก def สดจาก DB **หลัง 0194 apply** — 0194 replace `job_stage_def_ensure`/`job_stage_guard` ก่อน · pre-check md5 ทุกตัวที่ replace)
+
+**DB (ไฟล์ `supabase/migrations/0195_gold_weigh_exempt_buff.sql` · LF · ไม่มี grant ให้ anon/authenticated)**
+
+| # | object | แก้อะไร |
+|---|---|---|
+| 1 | `alter table analytics.job_stage_def add column if not exists gold_weigh_exempt boolean not null default false` | ไม่มี trigger บนตาราง (ตรวจแล้ว) · `update ... set gold_weigh_exempt = true where code = 'buff' and not gold_weigh_exempt` (แคบ · idempotent) |
+| 2 | `job_stage_def_ensure(uuid)` | ลอกฉบับ 0194 · เพิ่มคอลัมน์ใน insert list + values: buff = true ที่เหลือ false · `on conflict do nothing` ⇒ ร้านเดิมไม่ขยับ · revoke 3 ชื่อ ไม่ grant |
+| 3 | `job_profile_state(uuid)` (SQL stable) | นิพจน์ `gold_unguarded`: `d.metal_present and not d.gold_weigh_exempt and not s.weigh_required and s.status <> 'skipped'` · re-grant ตาม proacl เดิม |
+| 4 | `v_job_board` | `create or replace view` — เปลี่ยนเฉพาะนิพจน์ใน subquery `pw.unguarded` (`bool_or(d2.metal_present and not d2.gold_weigh_exempt and ...)`) · **คอลัมน์ 56 ตัวลำดับเดิมเป๊ะ** (ตรวจ `information_schema.columns` ก่อน/หลัง = เท่ากัน — ข้อ 3) · ลอก viewdef สดทั้งก้อน แก้บรรทัดเดียว |
+| 5 | `job_stage_suggest` · `job_record_profile_list` | เพิ่ม key `'gold_weigh_exempt', d.gold_weigh_exempt` ใน `stage_defs`/`stages` (additive · PostgREST ไม่สน) · security definer เดิม · re-grant service_role |
+| 6 | `job_record_profile_ensure` | seed แบบทอง: `d.metal_present and not d.gold_weigh_exempt` (ร้านใหม่สอดคล้องกฎ) |
+| 7 | `update analytics.job_record_profile_stage set weigh = false where stage_code = 'buff' and weigh` | ข้อ 3 ด้านล่าง |
+
+ไม่แตะ: `job_create_insert` (forward) · `job_record_profile_upsert`/`_stage_guard` (ตรวจ metal_present เท่านั้น — ติ๊กชั่ง buff ให้ทองยัง**ทำได้**ถ้าอยาก = ถูกต้อง exempt ≠ ห้าม) · `job_core_*`/`job_done` (ไม่อ่าน gold_unguarded) · `job_profile_json`
+
+**TS**
+
+| ไฟล์ | แก้ |
+|---|---|
+| `lib/jobs/profile-summary.ts` | `GuardStage` + `goldWeighExempt: boolean` · `goldUnguardedStages`: `s.metalPresent && !s.goldWeighExempt && !s.weigh && !s.skipped` · `PickerStage` + `goldWeighExempt` · `analyzePicker` ส่งต่อ |
+| `lib/jobs/profile.ts:78` (`StageDef` map จาก `job_record_profile_list.stage_defs`) | + `goldWeighExempt: bool(r.gold_weigh_exempt)` (ไม่มี key = false — เข้มไว้ก่อน) |
+| `lib/actions/job-office.ts:217` (`job_stage_suggest.stages`) | + `goldWeighExempt: o.gold_weigh_exempt === true` |
+| `lib/actions/job-office.ts:101-114` + `lib/jobs/types.ts:230-245` (`mapStageRow` ของหน้า /jobs/[id]) | select เพิ่ม `gold_weigh_exempt` · ส่ง map ที่สอง หรือเปลี่ยน `metalPresent` map เป็น record `{metalPresent, goldWeighExempt}` — เลือกแบบหลัง (ชนิดเดียว ไม่เพิ่มพารามิเตอร์ตำแหน่ง) |
+| ผู้เรียก: `ProfileEditor.tsx:97` · `JobProfileCard.tsx:24` · `ChangeProfileDialog.tsx:57` · `JobCreateDialog.tsx:102` | ส่ง `goldWeighExempt` เข้า picker/guard |
+| `lib/jobs/board.ts` | ไม่แก้ — อ่าน `gold_unguarded` จาก view |
+| tests: `lib/jobs/profile.test.ts` · `profile-summary` (ถ้ามี) · `JobProfileCard.test.tsx` · `ProfilesPage.test.tsx` · `JobCreateProfile.test.tsx` · `board.*.test.ts` fixtures (+field) | เพิ่มเคส: buff exempt ไม่ติดป้าย · gem_set ไม่ exempt ติดป้าย · key หาย = false |
+
+ลำดับ deploy: apply 0195 → merge TS (TS เก่าอ่าน key ใหม่ไม่ได้ = ไม่พัง แค่ป้ายฝั่ง client ยังเข้มกว่า DB ชั่วคราว — ยอมรับได้)
+
+## 3. UPDATE แถวแบบ + ใบที่สร้างแล้ว
+
+- `update job_record_profile_stage set weigh=false where stage_code='buff' and weigh` → โดน **1 แถว** (แบบทอง active) · QA-M1C/แบบส่งงาน 3J เป็น false อยู่แล้วไม่ถูกแตะ (WHERE แคบตามข้อ 19) · trigger บนตารางนี้ = `_stage_guard` (ผ่าน) + deny_truncate · **ไม่ UPDATE `job_record_profile`** ⇒ `updated_at` ของแบบไม่ขยับ
+- ชื่อแบบ `ทอง — ชั่งทุกขั้นที่มีโลหะ + ชั่งสุทธิตอนปิด` จะโกหกหลัง 0195 — เสนอ rename เป็น `ทอง — ชั่งทุกขั้นที่มีโลหะ (ยกเว้นขัด) + ชั่งสุทธิตอนปิด` + แก้ note · `job_record_profile_guard` ตั้ง `updated_at=now()` (ถูกต้อง: แก้จริง) · `job.profile_name` ของ 2 ใบ cancelled เป็น snapshot ไม่เปลี่ยน (ตั้งใจ) · ถ้า Tech Lead ไม่อยากแตะ header ให้ตัดข้อนี้ — แต่ต้องบอกเจ้าของว่าชื่อไม่ตรงพฤติกรรม
+- ใบที่สร้างแล้ว: **ไม่ backfill** `job_stage.weigh_required` — flag เป็น snapshot ตอนสร้าง (0176 หนี้ (9) ตั้งใจ) และ guard ห้ามเปลี่ยนหลังขั้นแรกถูกรับ · ตอนนี้ไม่มีใบทองเปิด ⇒ ไม่มีผล · กติกาถ้ามีในอนาคต: ใบที่ยังไม่เริ่ม → ออฟฟิศกด "เปลี่ยนแบบ" (`job_profile_set`) เอง · ใบที่เริ่มแล้ว → เดินตาม flag เดิม (ชั่ง buff ต่อ — ไม่เสียหาย)
+- post-check ในไฟล์: `job_stage`/`job`/`job_event` md5 เท่าเดิม · `job_record_profile_stage` เปลี่ยนเฉพาะแถว (profile ทอง, buff) · ไม่มีแถว `gold_weigh_exempt=true` นอกจาก buff · ทุกร้านมี buff exempt · overload = 1 ต่อฟังก์ชัน · proacl เท่าเดิม · คอลัมน์ `v_job_board` 56 ลำดับเดิม
+
+## 4. verify-0195 · QA · security
+
+**ห้ามผ่าน**
+1. ใบทอง (แบบทองหลัง 0195) ขั้น **gem_set/plating/qc/pack** ไม่ติ๊กชั่ง → `gold_unguarded=true` ทั้ง `job_profile_state` และ `v_job_board` (mutant: ตั้ง exempt=true ที่ gem_set → เทสต์ต้องจับ)
+2. แบบทองใหม่ผ่าน `job_record_profile_upsert` ที่ไม่ติ๊ก cast → ติดป้าย (กฎเดิมไม่หลวม)
+3. `gold_weigh_exempt=true` แต่ `metal_present=false` → ไม่กระทบนิพจน์ (ไม่ติดป้ายเพราะไม่มีโลหะอยู่แล้ว) — assert ว่า exempt ไม่ทำให้ `job_record_profile_stage_guard` ยอมรับ weigh บนขั้นไม่มีโลหะ (`flag_not_applicable` ยังเกิด)
+4. `job_stage_def_ensure` ร้านใหม่: buff exempt · อื่น false · เรียกซ้ำไม่เพิ่ม/ไม่ขยับ · `job_record_profile_ensure` ร้านใหม่: แบบทอง buff weigh=false ที่เหลือ metal_present
+5. รัน migration 2 รอบ → รอบสองไม่แตะอะไร (md5 ตารางทั้งหมดเท่าเดิม)
+
+**ต้องไม่พัง**
+6. ใบทองใหม่จากแบบทอง: `job_stage.buff.weigh_required=false` · `gold_unguarded=false` · `has_weigh=true` · `job_done` ยังบังคับ `weight_final_g` (ทอง+มีขั้นชั่ง) · เดิน finish(W) → gem_set(W) → buff(-) → plating(W): รับ plating **ไม่เทียบ** น้ำหนักกับ buff (prev ไม่ชั่ง) · `v_job_stage_loss.buff.not_weighed=true`
+7. ใบทองที่สร้าง**ก่อน** 0195 ใน transaction (buff weigh=true) หลัง apply: ชั่ง buff ได้ต่อ · `gold_unguarded=false` · เปลี่ยนแบบก่อนเริ่ม → buff กลายเป็นไม่ชั่ง
+8. ใบเงิน (แบบส่งงาน 3J / แบบ 1) ทุก status ที่มีจริง: `gold_unguarded=false` เหมือนเดิม · บอร์ดเปิดได้ · `job_stage_suggest`/`job_record_profile_list` คืน key ใหม่ครบทุกขั้น
+9. ใบทองเก่า profile_id null (ถ้ามี — ตอนนี้ไม่มี) ไม่ error
+
+ไม่มีเทสต์ครอบ: ฝั่ง TS ป้ายบน ProfileEditor/JobCreateDialog = vitest ไม่ใช่ verify · race
+
+**QA = M** (flow: ฟอร์มสร้างใบ (picker ทอง) · หน้าแบบการบันทึก · การ์ดแบบใน /jobs/[id] · บอร์ดป้ายทอง + ข้างเคียง: สร้าง/รับ/ส่งใบทอง 1 ใบผ่าน buff) — ไม่ L เพราะไม่แตะ guard/receive/send · **security: ไม่บังคับ** (ไม่มีเงิน/ภาษี/สิทธิ์ · ป้ายเตือนอย่างเดียว · RPC ที่ replace เป็น security definer เดิมแค่เพิ่ม key — ให้ code-reviewer ดู grant ก็พอ) · **แต่เป็นงานที่ผ่อนด่านน้ำหนักทอง = มูลค่า** ⇒ ถ้า Tech Lead อยากให้ security ตรวจ 15 นาทีเฉพาะ "exempt หลุดไปขั้นอื่นได้ไหม" ก็คุ้ม
+
+## ความเสี่ยง / สิ่งที่คิดว่าควรบอก
+
+1. **ทองที่หายตอนขัดจะเห็นที่เดียว**: `weight_start_g − weight_final_g` ตอน `job_done` (ยอดรวมใบ ไม่รู้ว่าหายขั้นไหน) + แถว buff `not_weighed` ใน v_job_stage_loss — ตรงที่เจ้าของรับแล้ว · ป้าย `gold_unguarded` จะ**ไม่**เตือนเรื่องนี้อีก (ตั้งใจ)
+2. หนี้: ไม่มี UI ตั้ง `gold_weigh_exempt` — เปลี่ยนต้องผ่าน migration (ยอมรับ: มติระดับร้าน ไม่ใช่ของตั้งรายวัน) · จดใน design-job-tracking.md §2.1 คอลัมน์ใหม่
+3. ถ้า 0194 ของ Han ยังไม่ fix ชื่อ/seed ตามที่ออกแบบ (buff 105 · weigh_default=false) ให้ 0195 ลอกจาก DB หลัง 0194 apply จริง ไม่ลอกจากไฟล์ 0194 ใน branch
+4. ข้อเสนอ rename แบบทอง (ข้อ 3) อยู่นอก brief — ถ้าไม่เอาบอกตรงๆ ไม่ต้องเดา
+
+ไฟล์ที่เกี่ยว: `supabase/migrations/0176_job_record_profile.sql` (ที่มา gold_unguarded · ห้ามลอก def จากนี่) · `lib/jobs/profile-summary.ts` · `lib/jobs/profile.ts` · `lib/actions/job-office.ts` · `lib/jobs/types.ts` · `components/domain/jobs/{ProfileEditor,JobProfileCard,ChangeProfileDialog,JobCreateDialog}.tsx`
