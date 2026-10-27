@@ -9,6 +9,8 @@ export interface SummaryDef {
   code: string;
   nameTh: string;
   metalPresent: boolean;
+  /** 0195: ขั้นที่ใบทองไม่บังคับชั่ง (ขัด) — ไม่ระบุ = false */
+  goldWeighExempt?: boolean;
   /** ปิดใช้ในทะเบียน = ไม่นับเป็น "ทุกขั้น" (ไม่ระบุ = ใช้งาน) */
   isActive?: boolean;
 }
@@ -26,8 +28,13 @@ export function profileSummaryParts(defs: readonly SummaryDef[], flags: readonly
   const metal = live.filter((d) => d.metalPresent).map((d) => d.code);
   const all = live.map((d) => d.code);
   const pick = (k: "weigh" | "scrapQty" | "scrapWeight") => flags.filter((f) => f[k]).map((f) => f.stageCode);
+  // 0195: ชั่งครบทุกขั้นที่มีโลหะ ยกเว้นขั้น exempt (แบบทองปริยาย) → ป้ายตรงตามจริง แทนรายการขั้นยาว
+  const exempt = live.filter((d) => d.metalPresent && d.goldWeighExempt === true).map((d) => d.code);
+  const guarded = metal.filter((c) => !exempt.includes(c));
+  const weighed = pick("weigh");
+  const exceptAll = exempt.length > 0 && guarded.length > 0 && weighed.length === guarded.length && guarded.every((c) => weighed.includes(c));
   return {
-    weigh: summarizeFlags(pick("weigh"), metal, nameOf, "ทุกขั้นที่มีโลหะ"),
+    weigh: exceptAll ? `ทุกขั้นที่มีโลหะ (ยกเว้น${exempt.map(nameOf).join(", ")})` : summarizeFlags(weighed, metal, nameOf, "ทุกขั้นที่มีโลหะ"),
     scrapQty: summarizeFlags(pick("scrapQty"), all, nameOf, "ทุกขั้น"),
     scrapWeight: summarizeFlags(pick("scrapWeight"), metal, nameOf, "ทุกขั้นที่มีโลหะ"),
   };

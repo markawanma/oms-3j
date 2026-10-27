@@ -9,9 +9,9 @@ import type { StageRow } from "@/lib/jobs/types";
 const GRAY = "inline-flex items-center gap-1 rounded bg-zinc-100 px-1.5 py-0.5 text-xs font-medium text-zinc-800";
 const RED = "inline-flex items-center gap-1 rounded bg-red-100 px-1.5 py-0.5 text-xs font-semibold text-red-900";
 
-export function StageFlagChips({ stage, gold }: { stage: Pick<StageRow, "status" | "weighRequired" | "scrapQtyAsk" | "scrapWeightAsk" | "metalPresent">; gold: boolean }) {
-  // ใบทอง: โลหะอยู่ในมือแต่ไม่ชั่ง = ไม่มีด่านกันทองหาย (ขั้นที่ข้ามไม่นับ)
-  const unguarded = gold && stage.metalPresent && !stage.weighRequired && stage.status !== "skipped";
+export function StageFlagChips({ stage, gold }: { stage: Pick<StageRow, "status" | "weighRequired" | "scrapQtyAsk" | "scrapWeightAsk" | "metalPresent" | "goldWeighExempt">; gold: boolean }) {
+  // ใบทอง: โลหะอยู่ในมือแต่ไม่ชั่ง = ไม่มีด่านกันทองหาย (ขั้นที่ข้ามไม่นับ · 0195: ขั้นที่ gold_weigh_exempt (ขัด) ไม่นับ — นิยามเดียวกับ DB)
+  const unguarded = gold && stage.metalPresent && !stage.goldWeighExempt && !stage.weighRequired && stage.status !== "skipped";
   if (!stage.weighRequired && !stage.scrapQtyAsk && !stage.scrapWeightAsk && !unguarded) return null;
   return (
     <span className="ml-1 inline-flex flex-wrap items-center gap-1 align-middle">

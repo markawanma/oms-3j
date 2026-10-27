@@ -12,7 +12,7 @@ import { BOARD_COLUMNS, EVENT_COLUMNS, JOB_COLUMNS, STAGE_COLUMNS, WORKER_COLUMN
 import { visibleBoardStages } from "@/lib/jobs/board";
 import { mapRecordProfile } from "@/lib/jobs/profile";
 import type { RecordProfile } from "@/lib/jobs/profile";
-import type { BoardRow, EventRow, JobDetail, StageDef, StageLoss, StageRow, WorkerRow } from "@/lib/jobs/types";
+import type { BoardRow, EventRow, JobDetail, StageDef, StageDefFlag, StageLoss, StageRow, WorkerRow } from "@/lib/jobs/types";
 import { isUuid, parseCount, parseDate, parseLabel, parseStageCodes, parseText, parseWeight, TARGET_PIECE_MAX_G } from "@/lib/jobs/input";
 import { callOffice, db, fail, guard, shopId } from "@/lib/jobs/office-server";
 import type { JobResult } from "@/lib/jobs/office-server";
@@ -190,16 +190,16 @@ export async function getJobDetail(jobId: string): Promise<JobResult<JobDetailDa
       db().from("v_job_stage_loss").select("job_stage_id, loss_g, loss_pct, warn, not_weighed, handoff_gap_g, handoff_gap_partial_g").eq("shop_id", shop).eq("job_id", jobId).limit(50),
       db().from("job_token").select("id", { count: "exact", head: true }).eq("shop_id", shop).eq("job_id", jobId).is("revoked_at", null),
       db().from("worker").select(WORKER_COLUMNS).eq("shop_id", shop).order("display_name", { ascending: true }).limit(60),
-      db().from("job_stage_def").select("code, name_th, metal_present").eq("shop_id", shop).limit(50),
+      db().from("job_stage_def").select("code, name_th, metal_present, gold_weigh_exempt").eq("shop_id", shop).limit(50),
     ]);
     for (const r of [stRes, evRes, boardRes, lossRes, tokRes, wkRes, defRes]) if (r.error) throw r.error;
 
     const names: Record<string, string> = {};
-    const metalPresent: Record<string, boolean> = {};
+    const metalPresent: Record<string, StageDefFlag> = {};
     for (const d of rows(defRes.data)) {
       if (typeof d.code !== "string") continue;
       names[d.code] = typeof d.name_th === "string" ? d.name_th : d.code;
-      metalPresent[d.code] = d.metal_present === true;
+      metalPresent[d.code] = { metalPresent: d.metal_present === true, goldWeighExempt: d.gold_weigh_exempt === true };
     }
     const allWorkers = rows(wkRes.data).map((x) => mapWorkerRow(x)).filter((w): w is WorkerRow => w !== null);
     const workerNames = Object.fromEntries(allWorkers.map((w) => [w.id, w.displayName]));
@@ -310,6 +310,8 @@ export interface SuggestStage {
   defaultSelected: boolean;
   /** 0176: โลหะอยู่ในมือที่ขั้นนี้ (ชั่งได้) */
   metalPresent: boolean;
+  /** 0195: ขั้นที่ใบทองไม่บังคับชั่ง (ขัด) — key มีเฉพาะเมื่อ true */
+  goldWeighExempt?: boolean;
 }
 export interface JobSuggestion {
   metal: string;
@@ -338,7 +340,7 @@ export async function suggestJob(kind: string, itemId: string): Promise<JobResul
   const ex = d.existing_job as { id?: unknown; job_no?: unknown } | null;
   const stages: SuggestStage[] = (Array.isArray(d.stages) ? d.stages : []).flatMap((s: unknown) => {
     const o = s as Record<string, unknown>;
-    return typeof o.code === "string" && typeof o.name_th === "string" ? [{ code: o.code, nameTh: o.name_th, defaultSelected: o.default_selected === true, metalPresent: o.metal_present === true }] : [];
+    return typeof o.code === "string" && typeof o.name_th === "string" ? [{ code: o.code, nameTh: o.name_th, defaultSelected: o.default_selected === true, metalPresent: o.metal_present === true, ...(o.gold_weigh_exempt === true ? { goldWeighExempt: true } : {}) }] : [];
   });
   const profiles = (Array.isArray(d.profiles) ? d.profiles : []).map(mapRecordProfile).filter((p): p is RecordProfile => p !== null);
   return {

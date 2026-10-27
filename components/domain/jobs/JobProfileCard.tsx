@@ -21,7 +21,7 @@ interface Props {
 export function JobProfileCard({ job, stages, started, onChange }: Props) {
   const closed = job.status === "done" || job.status === "cancelled";
   const legacy = job.profileId === null;
-  const defs = stages.map((s) => ({ code: s.code, nameTh: s.name, metalPresent: s.metalPresent }));
+  const defs = stages.map((s) => ({ code: s.code, nameTh: s.name, metalPresent: s.metalPresent, goldWeighExempt: s.goldWeighExempt === true }));
   const flags = stages.map((s) => ({ stageCode: s.code, weigh: s.weighRequired, scrapQty: s.scrapQtyAsk, scrapWeight: s.scrapWeightAsk }));
   return (
     <section aria-labelledby="job-profile-h" className="space-y-1.5 rounded-lg border border-zinc-200 bg-white p-3">

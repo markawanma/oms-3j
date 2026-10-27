@@ -29,11 +29,16 @@ export interface GuardStage {
   weigh: boolean;
   /** ขั้นที่ข้ามไว้ไม่นับ */
   skipped?: boolean;
+  /** 0195: ขั้นที่ใบทองไม่บังคับชั่ง (def.gold_weigh_exempt — ขัด) — ไม่นับเป็น "ไม่มีด่าน" · ไม่มี key = false (เข้มไว้ก่อน) */
+  goldWeighExempt?: boolean;
 }
 
-/** ขั้นที่ "โลหะอยู่ในมือแต่ไม่ชั่ง" = ไม่มีด่านกันทองหายในขั้นนั้น (ใช้กับใบทองเท่านั้น — ผู้เรียกตัดสินโลหะ) · คืนรหัสตามลำดับที่ส่งมา */
+/**
+ * ขั้นที่ "โลหะอยู่ในมือแต่ไม่ชั่ง" = ไม่มีด่านกันทองหายในขั้นนั้น (ใช้กับใบทองเท่านั้น — ผู้เรียกตัดสินโลหะ) · คืนรหัสตามลำดับที่ส่งมา
+ * นิยามเดียวกับ DB (0195 job_profile_state / v_job_board): metal_present ∧ ¬gold_weigh_exempt ∧ ¬weigh ∧ ¬skipped
+ */
 export function goldUnguardedStages(stages: readonly GuardStage[]): string[] {
-  return stages.filter((s) => s.metalPresent && !s.weigh && !s.skipped).map((s) => s.code);
+  return stages.filter((s) => s.metalPresent && !s.goldWeighExempt && !s.weigh && !s.skipped).map((s) => s.code);
 }
 
 /** แบบนี้มีขั้นที่ต้องชั่งอย่างน้อย 1 ขั้นไหม */
@@ -50,6 +55,8 @@ export interface PickerStage {
   code: string;
   nameTh: string;
   metalPresent: boolean;
+  /** 0195: ขั้นที่ใบทองไม่บังคับชั่ง — ไม่มี key = false */
+  goldWeighExempt?: boolean;
 }
 
 export interface PickerAnalysis {
@@ -85,7 +92,7 @@ export function analyzePicker(
   const profileWeighs = profile.stages.some((s) => s.weigh);
   const goldUnguarded =
     metal === "gold"
-      ? goldUnguardedStages(stages.map((s) => ({ code: s.code, metalPresent: s.metalPresent, weigh: flag(s.code)?.weigh === true }))).map((c) => stages.find((s) => s.code === c)?.nameTh ?? c)
+      ? goldUnguardedStages(stages.map((s) => ({ code: s.code, metalPresent: s.metalPresent, goldWeighExempt: s.goldWeighExempt === true, weigh: flag(s.code)?.weigh === true }))).map((c) => stages.find((s) => s.code === c)?.nameTh ?? c)
       : [];
   return {
     weigh,
