@@ -28,7 +28,7 @@
 // /api/gem-quiz/ (e.g. a stats/export endpoint) public with no test catching
 // it. A new route under this prefix must earn its own exemption explicitly.
 //
-// ring-size/?$ เพิ่ม 24 ต.ค. 69 (เครื่องมือวัดไซส์แหวนสาธารณะ — ไม่มี DB/API/ข้อมูลส่วนตัว): exact path เท่านั้น แบบเดียวกับ gem-quiz
+// ring-size/?$ เพิ่ม 24 ต.ค. 69 (หน้าเครื่องมือวัดไซส์แหวนสาธารณะ — ตัวหน้าไม่มี DB/ข้อมูลส่วนตัว · การส่งสถิติไม่ระบุตัวตนอยู่ที่ endpoint แยกด้านล่าง): exact path เท่านั้น แบบเดียวกับ gem-quiz
 // (/ring-sizes · /ring-size-admin · /ring-size/x · /api/ring-size-x ต้องยังถูก gate — ดู exempt-path.test.ts) · ต้องแก้คู่กับ middleware.ts matcher
 //
 // api/ring-size/event/?$ เพิ่ม 25 ต.ค. 69 (เก็บสถิติ /ring-size แบบไม่ระบุตัวตน — design-ring-size-analytics §2/§5 · F8):

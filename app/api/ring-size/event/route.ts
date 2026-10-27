@@ -9,8 +9,9 @@
 //
 // ลำดับด่าน:
 //   1) same-origin (Origin ต้องตรง host · ไม่มี Origin ต้องเป็น Sec-Fetch-Site: same-origin) → 403
-//   2) ขนาด body ≤ 1 KB ทั้ง content-length header และความยาวจริงหลังอ่าน (ไบต์ ไม่ใช่ตัวอักษร) → 413
-//   3) JSON object + allowlist/ชนิด/ช่วง (lib/ring-size/track-schema.ts) → 400
+//   2) ขนาด body ≤ 1 KB: content-length header (เช็คเร็ว) + อ่านแบบ stream ตัดทันทีที่เกิน (ไบต์ ไม่ใช่ตัวอักษร) → 413
+//      แล้ว decode UTF-8 แบบ fatal (เสีย → 400)
+//   3) JSON object + allowlist/ชนิด/ช่วง/สัญญา event (lib/ring-size/track-schema.ts) → 400
 //   4) shop จาก env (getDevShopId) — ไม่รับ shop_id จาก client → ไม่มี env = 500 โดยไม่ echo
 //   5) RPC ผ่าน service role: 22023 → 400 · P0001 (เกินเพดาน/breaker) → 429 เงียบ · อื่น → 500 · สำเร็จ → 204
 //
@@ -54,6 +55,42 @@ function isSameOrigin(request: NextRequest): boolean {
   return request.headers.get("sec-fetch-site") === "same-origin";
 }
 
+type BodyRead = { kind: "ok"; bytes: Uint8Array } | { kind: "too_large" } | { kind: "unreadable" };
+
+/** อ่าน body ทีละ chunk สะสมจำนวนไบต์ — เกิน maxBytes ⇒ reader.cancel() แล้วคืน too_large (ไม่อ่านต่อ) · ไม่มี body ⇒ ว่าง */
+async function readBodyLimited(request: NextRequest, maxBytes: number): Promise<BodyRead> {
+  const stream = request.body;
+  if (!stream) return { kind: "ok", bytes: new Uint8Array(0) };
+
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!(value instanceof Uint8Array)) return { kind: "unreadable" };
+      total += value.byteLength;
+      if (total > maxBytes) {
+        // ตัดการอ่าน — ผู้ส่ง chunked ไม่รู้จบจะไม่ถูกรอ · cancel ล้มก็ไม่เป็นไร (ผลคือ 413 อยู่ดี)
+        await reader.cancel().catch(() => {});
+        return { kind: "too_large" };
+      }
+      chunks.push(value);
+    }
+  } catch {
+    return { kind: "unreadable" };
+  }
+
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const c of chunks) {
+    bytes.set(c, offset);
+    offset += c.byteLength;
+  }
+  return { kind: "ok", bytes };
+}
+
 export async function POST(request: NextRequest): Promise<NextResponse> {
   if (!isSameOrigin(request)) {
     return fail("origin ไม่ถูกต้อง", 403);
@@ -66,16 +103,18 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     if (Number.isFinite(bytes) && bytes > MAX_BODY_BYTES) return fail("body ใหญ่เกินไป", 413);
   }
 
+  // ขนาด body ส่วนที่ 2: อ่านเป็น stream แล้วตัดทันทีที่เกิน 1 KB (ไม่ buffer ทั้งก้อนก่อนวัด — chunked ที่ไม่มี content-length
+  // หรือ header โกหกจะไม่ทำให้เรากินหน่วยความจำ/เวลาตามที่ผู้ส่งอยากส่ง) · นับเป็นไบต์ ไม่ใช่ตัวอักษร
+  const read = await readBodyLimited(request, MAX_BODY_BYTES);
+  if (read.kind === "too_large") return fail("body ใหญ่เกินไป", 413);
+  if (read.kind === "unreadable") return fail("อ่าน body ไม่สำเร็จ", 400);
+
+  // UTF-8 เสีย = ปฏิเสธ (fatal) — ไม่ปล่อยให้ตัวแทน U+FFFD ผ่านเข้า JSON.parse เงียบ ๆ
   let rawBody: string;
   try {
-    rawBody = await request.text();
+    rawBody = new TextDecoder("utf-8", { fatal: true }).decode(read.bytes);
   } catch {
-    return fail("อ่าน body ไม่สำเร็จ", 400);
-  }
-
-  // ขนาด body ส่วนที่ 2: ความยาวจริงเป็นไบต์ — กัน header ที่ขาด/โกหก และอักขระหลายไบต์
-  if (Buffer.byteLength(rawBody, "utf-8") > MAX_BODY_BYTES) {
-    return fail("body ใหญ่เกินไป", 413);
+    return fail("ข้อมูลไม่ถูกต้อง", 400);
   }
 
   let parsedJson: unknown;

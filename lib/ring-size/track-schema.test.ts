@@ -12,6 +12,7 @@ import {
   RING_REF,
   RING_SIZE_RANGE,
   RING_SNAPSHOT_KEYS,
+  RING_STAGE_RESULT,
   RING_STAGES,
   inAppBucket,
   parseRingTrackBody,
@@ -45,6 +46,20 @@ describe("parseRingTrackBody — ต้องผ่าน (ต้องไม่
       { sid: SID, stage: 0 }, { sid: SID, stage: 7 },
       { sid: SID, stage: 7, circ_mm: 20, size: 30 }, { sid: SID, stage: 7, circ_mm: 120, size: 90 },
     ]) expect(ok(body).ok, JSON.stringify(body)).toBe(true);
+  });
+
+  it("S3 ฝั่งต้องไม่พัง: stage 7 พกผลได้ทุกรูปแบบ · stage อื่นที่ไม่พกผล (CTA · G1 · เลือกวิธี) ผ่านตามเดิม", () => {
+    for (const body of [
+      { sid: SID, stage: 7, circ_mm: 54, size: 52, between: true, method: "B" },
+      { sid: SID, stage: 7, between: false }, { sid: SID, stage: 7, circ_mm: 54 }, { sid: SID, stage: 7, size: 52 },
+      { sid: SID, stage: 7, g4: true, method: "A" }, { sid: SID, stage: 7, cta: "line" },
+      { sid: SID, stage: 6, method: "A", in_range: true }, { sid: SID, stage: 5, method: "B" }, { sid: SID, stage: 3, g1: true, g3: true },
+    ]) expect(ok(body).ok, JSON.stringify(body)).toBe(true);
+  });
+
+  it("S3: เหตุผลที่ปฏิเสธผลวัดผิด stage คือ result_stage (รหัสคงที่)", () => {
+    const r = ok({ sid: SID, stage: 6, circ_mm: 54 });
+    expect(r).toEqual({ ok: false, reason: "result_stage" });
   });
 
   it("sid ตัวพิมพ์ใหญ่ผ่านและถูก normalize เป็นตัวเล็ก", () => {
@@ -91,6 +106,11 @@ describe("parseRingTrackBody — ต้องปฏิเสธ (design §9 ข�
       [`${k}=null`, { sid: SID, stage: 1, [k]: null }] as [string, unknown],
     ]),
     ["key มากเกิน 20", Object.fromEntries([["sid", SID], ["stage", 1], ...Array.from({ length: 20 }, (_, i) => [`k${i}`, 1])])],
+    // S3 (security r2): ผลวัดค่าถูกต้องทุกตัว แต่ไม่ใช่ stage 7 = ไม่ตรงสัญญา event
+    ["circ_mm ที่ stage 6", { sid: SID, stage: 6, circ_mm: 54.0 }], ["size ที่ stage 1", { sid: SID, stage: 1, size: 50 }],
+    ["between ที่ stage 5", { sid: SID, stage: 5, between: true }], ["between=false ที่ stage 6", { sid: SID, stage: 6, between: false }],
+    ["ผลครบชุดที่ stage 6", { sid: SID, stage: 6, method: "A", circ_mm: 54.0, size: 52, between: false }],
+    ["size ที่ stage 0", { sid: SID, stage: 0, size: 50 }],
   ];
 
   it.each(bad)("%s", (_label, body) => {
@@ -154,6 +174,13 @@ describe("track-schema ตรงกับ migration 0193 (กัน drift)", () 
     const m = /in_app\s+text not null default 'unknown'\s*check \(in_app in \(([^)]*)\)\)/.exec(SQL);
     expect(m).not.toBeNull();
     expect([...m![1].matchAll(/'([^']*)'/g)].map((x) => x[1])).toEqual([...RING_IN_APP]);
+  });
+  it("in_app: array ที่ตรวจในฟังก์ชัน (ไม่ใช่แค่ CHECK ของตาราง) = RING_IN_APP (N7 — ฟังก์ชันกับ CHECK แก้แยกกันได้)", () => {
+    expect(sqlArray("p_snapshot ? 'in_app'")).toEqual([...RING_IN_APP]);
+  });
+  it("ด่าน result_stage ใน RPC ใช้ stage เดียวกับ RING_STAGE_RESULT", () => {
+    expect(SQL).toMatch(new RegExp(`and v_stage <> ${RING_STAGE_RESULT} then`));
+    expect(RING_STAGES[RING_STAGE_RESULT]).toBe("result");
   });
   it("cta · ref · method ในฟังก์ชัน = ชุดใน TS", () => {
     expect(sqlArray("p_snapshot ? 'cta'")).toEqual([...RING_CTA]);

@@ -48,7 +48,7 @@ for (const b of BASES) for (const s of SUFFIXES) CORPUS.push(`/${b}${s}`);
 // เพิ่มรูปแปลกๆ
 CORPUS.push("/api/ring-size/Event", "/api/RING-SIZE/event", "/api/ring-size/event.", "/api/ring-size/event%00", "/api/ring-size/event/api/ring-size/event", "/api/ring-size//event", "/Ring-Size", "/RING-SIZE/", "/ring%2Dsize", "/ring-size%00", "/ring-size\n", "/ring-size.", "/ring-size.html", "/x/ring-size", "/oem/ring-size", "/ring-size/ring-size");
 
-describe("middleware matcher: ต่างจาก main เฉพาะ /ring-size และ /ring-size/ (differential เทียบ baseline ที่ตรึงไว้)", () => {
+describe("middleware matcher: ต่างจาก main เฉพาะ /ring-size · /ring-size/ · /api/ring-size/event · /api/ring-size/event/ (differential เทียบ baseline ที่ตรึงไว้)", () => {
   const before = runsFor(MAIN_MATCHER);
   const after = runsFor(currentMatcher());
 

@@ -179,6 +179,115 @@ describe("เคส 2: body > 1 KB → 413 (ไม่เรียก RPC)", () =
   });
 });
 
+/** request ที่ body เป็น ReadableStream (chunked · ไม่มี content-length) — headers ผ่านด่าน same-origin แล้ว */
+function streamRequest(source: UnderlyingDefaultSource<Uint8Array>, extraHeaders: Record<string, string> = {}): NextRequest {
+  return new NextRequest(`https://${HOST}/api/ring-size/event`, {
+    method: "POST",
+    headers: { host: HOST, origin: ORIGIN, ...extraHeaders },
+    body: new ReadableStream<Uint8Array>(source),
+    duplex: "half",
+  } as unknown as RequestInit);
+}
+
+/** แบ่ง bytes เป็น chunk ขนาด size ไบต์ ส่งทีละก้อน */
+function chunkedSource(bytes: Uint8Array, size: number): UnderlyingDefaultSource<Uint8Array> {
+  let offset = 0;
+  return {
+    pull(ctrl) {
+      if (offset >= bytes.byteLength) {
+        ctrl.close();
+        return;
+      }
+      ctrl.enqueue(bytes.slice(offset, offset + size));
+      offset += size;
+    },
+  };
+}
+
+const enc = new TextEncoder();
+
+describe("เคส 2b: อ่าน body แบบ stream (L2) — chunked ไม่มี content-length · stream ไม่รู้จบ · UTF-8 เสีย", () => {
+  it("stream ที่ไม่รู้จบ (ไม่มี content-length) ⇒ 413 และหยุดอ่านเกือบทันที (ไม่ buffer ไม่รู้จบ) · ไม่เรียก RPC", async () => {
+    let pulled = 0;
+    let cancelled = false;
+    const res = await post(
+      streamRequest({
+        pull(ctrl) {
+          pulled++;
+          ctrl.enqueue(new Uint8Array(300).fill(0x20));
+        },
+        cancel() {
+          cancelled = true;
+        },
+      })
+    );
+    expect(res.status).toBe(413);
+    expect(rpcMock).not.toHaveBeenCalled();
+    // 300 ไบต์/chunk · เกิน 1024 ที่ chunk ที่ 4 · เผื่อ read-ahead ของ stream อีกไม่กี่ก้อน แต่ต้องไม่วิ่งต่อไม่หยุด
+    expect(pulled).toBeLessThanOrEqual(8);
+    expect(cancelled).toBe(true); // reader.cancel() ถูกเรียก — ต้นทางรู้ว่าเราเลิกรับแล้ว
+  });
+
+  it("chunked body ใหญ่ (ไม่มี content-length) แบ่งหลาย chunk ⇒ 413", async () => {
+    const res = await post(streamRequest(chunkedSource(enc.encode(bodyOfBytes(5000)), 700)));
+    expect(res.status).toBe(413);
+    expect(rpcMock).not.toHaveBeenCalled();
+  });
+
+  it("header content-length โกหก (บอกเล็ก) + stream จริงใหญ่ ⇒ 413", async () => {
+    const res = await post(streamRequest(chunkedSource(enc.encode(bodyOfBytes(MAX + 1)), 512), { "content-length": "10" }));
+    expect(res.status).toBe(413);
+  });
+
+  it("ขอบแบบ chunked: 1024 ไบต์พอดี (แบ่ง 512+512) ⇒ 204 · 1025 ไบต์ ⇒ 413", async () => {
+    expect((await post(streamRequest(chunkedSource(enc.encode(bodyOfBytes(MAX)), 512)))).status).toBe(204);
+    expect((await post(streamRequest(chunkedSource(enc.encode(bodyOfBytes(MAX + 1)), 512)))).status).toBe(413);
+  });
+
+  it("ต้องไม่พัง: JSON ปกติที่ถูกหั่นทีละ 1 ไบต์ ⇒ ประกอบกลับได้ 204 · RPC ได้ snapshot ครบ", async () => {
+    const res = await post(streamRequest(chunkedSource(enc.encode(JSON.stringify({ sid: SID, stage: 7, circ_mm: 54.1, size: 52 })), 1)));
+    expect(res.status).toBe(204);
+    expect(rpcMock).toHaveBeenCalledTimes(1);
+    expect((rpcMock.mock.calls[0] as [string, Record<string, unknown>])[1].p_snapshot).toEqual({ stage: 7, circ_mm: 54.1, size: 52 });
+  });
+
+  it("UTF-8 เสีย (ไบต์ 0xFF 0xFE) ⇒ 400 · ไม่เรียก RPC", async () => {
+    const res = await post(streamRequest(chunkedSource(new Uint8Array([0xff, 0xfe, 0xfd]), 3)));
+    expect(res.status).toBe(400);
+    expect(rpcMock).not.toHaveBeenCalled();
+  });
+
+  it("JSON ที่ถูกต้องแต่มีไบต์ UTF-8 เสียต่อท้าย (ตัวแทน U+FFFD จะไม่ถูกปล่อยให้ผ่านเงียบ ๆ) ⇒ 400", async () => {
+    const good = enc.encode(JSON.stringify({ sid: SID, stage: 1 }));
+    const bytes = new Uint8Array(good.byteLength + 1);
+    bytes.set(good, 0);
+    bytes[good.byteLength] = 0xc3; // ไบต์นำของอักขระ 2 ไบต์ที่ไม่มีไบต์ตาม
+    const res = await post(streamRequest(chunkedSource(bytes, 16)));
+    expect(res.status).toBe(400);
+    expect(rpcMock).not.toHaveBeenCalled();
+  });
+
+  it("stream พังกลางทาง ⇒ 400 (ไม่ throw ออกจาก handler)", async () => {
+    const res = await post(
+      streamRequest({
+        start(ctrl) {
+          ctrl.enqueue(enc.encode('{"sid":"'));
+          ctrl.error(new Error("socket hang up"));
+        },
+      })
+    );
+    expect(res.status).toBe(400);
+    expect(rpcMock).not.toHaveBeenCalled();
+  });
+
+  it("POST ไม่มี body เลย ⇒ 400 (ไม่ใช่ 500) · ไม่เรียก RPC", async () => {
+    const req = new NextRequest(`https://${HOST}/api/ring-size/event`, { method: "POST", headers: { host: HOST, origin: ORIGIN } });
+    const res = await post(req);
+    expect(res.status).toBe(400);
+    expect(rpcMock).not.toHaveBeenCalled();
+  });
+});
+
 describe("เคส 3: body ไม่ถูกต้อง → 400 (ไม่เรียก RPC) · ตอบข้อความทั่วไปไม่บอก schema", () => {
   const bad: Array<[string, string]> = [
     ["ไม่ใช่ JSON", "not json"],
@@ -195,6 +304,8 @@ describe("เคส 3: body ไม่ถูกต้อง → 400 (ไม่เ
     ["stage string", `{"sid":"${SID}","stage":"1"}`],
     ["key นอก allowlist", `{"sid":"${SID}","stage":1,"ip":"1.2.3.4"}`],
     ["src (ตัดออกตามมติ 25 ต.ค. 69)", `{"sid":"${SID}","stage":1,"src":"line"}`],
+    ["ผลวัดที่ stage 6 (ต้องมากับ stage 7 เท่านั้น — S3)", `{"sid":"${SID}","stage":6,"circ_mm":54,"size":52}`],
+    ["between ที่ stage 5 (S3)", `{"sid":"${SID}","stage":5,"between":true}`],
     ["circ 1e9", `{"sid":"${SID}","stage":7,"circ_mm":1e9}`],
     ["circ 'NaN' string", `{"sid":"${SID}","stage":7,"circ_mm":"NaN"}`],
     ["circ 'Infinity' string", `{"sid":"${SID}","stage":7,"circ_mm":"Infinity"}`],
