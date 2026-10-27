@@ -1,4 +1,5 @@
 set local lock_timeout = '8s';
+-- 🔴 รันจากสำเนา LF (git show <ref>:<path> หรือ sed 's/\r$//') — ไฟล์ทน \r แล้ว (md5 ของนิยามตัด \r · mutant ตัด \r ก่อนแทนข้อความ) แต่ prosrc ที่ได้จากไฟล์ CRLF ไม่ตรงกับสำเนาที่ลอกมา (ข้อ 20 ของ 3j-migration-traps)
 set local statement_timeout = '20min';
 -- scripts/verify/verify-0194-qa.sql  (QA R2-D2 27 ต.ค. 69 · เติมช่องที่ verify-0194.sql/-b ไม่ครอบ · ไม่แตะ trigger/คอลัมน์/โหมด replication ใดๆ — dry-run กลางวันได้)
 -- ตรวจ supabase/migrations/0194_stage_order_gem_before_buff.sql ส่วน A (ทะเบียน + job_stage_def_ensure + job_stage_guard) — ต้องรัน "หลังมี 0194 ส่วน A อยู่ในทรานแซกชันเดียวกัน หรือหลัง apply"
@@ -196,7 +197,7 @@ create function pg_temp.mutate(p_name text, p_from text, p_to text) returns void
 declare v_oid oid; v_def text; v_new text;
 begin
   select p.oid into strict v_oid from pg_proc p where p.pronamespace = 'analytics'::regnamespace and p.proname = p_name;
-  v_def := replace(pg_get_functiondef(v_oid), E'', '');
+  v_def := replace(pg_get_functiondef(v_oid), E'\r', '');
   v_new := replace(v_def, p_from, p_to);
   if v_new = v_def then
     raise exception 'MUTANT_NOT_APPLIED: % ไม่พบข้อความ [%]', p_name, p_from;

@@ -68,6 +68,22 @@ describe("loadJobLots", () => {
     expect(r2?.parts[1].holdsMetal).toBeUndefined();
   });
 
+  it("0195 M2: ส่วนที่มีแต่ขั้นโลหะที่ pending/skipped (ยังไม่เคยถือโลหะ) → holdsMetal ไม่ตั้ง (ต้องจับ mutant ที่ถอดเงื่อนไข status)", async () => {
+    results.v_job_tree = { data: [tree({}), tree({ job_id: L1, lot_seq: 1, label: "JB-0020 · ส่วนที่ 1", qty_planned: 4, qty_live: 4 })], error: null };
+    results.v_job_tree_summary = { data: { root_job_id: ROOT, qty_planned: 10, parts_count: 2, lots_open: 1, qty_pending_explanation: 0, sum_check: true }, error: null };
+    results.job_stage = {
+      data: [
+        { id: "a1", job_id: L1, seq: 1, stage_code: "buff", status: "skipped", weigh_required: false },
+        { id: "a2", job_id: L1, seq: 2, stage_code: "plating", status: "pending", weigh_required: true },
+        { id: "b1", job_id: ROOT, seq: 1, stage_code: "buff", status: "pending", weigh_required: false },
+      ],
+      error: null,
+    };
+    const r = await loadJobLots(ROOT, { buff: "ขัด", plating: "ชุบ" }, new Set(["buff", "plating"]));
+    expect(r?.parts[0].holdsMetal).toBeUndefined();
+    expect(r?.parts[1].holdsMetal).toBeUndefined();
+  });
+
   it("หลายส่วน: ดึง summary + ขั้นที่ผ่านมาแล้วของแต่ละส่วน (ใบย่อยพิมพ์บรรทัดเดียว) + ส่วนต่างพร้อมชื่อขั้น/ป้ายส่วน", async () => {
     results.v_job_tree = { data: [tree({}), tree({ job_id: L1, lot_seq: 1, label: "JB-0020 · ส่วนที่ 1", qty_planned: 10, qty_live: 10 })], error: null };
     results.v_job_tree_summary = { data: { root_job_id: ROOT, qty_planned: 60, parts_count: 2, lots_open: 1, qty_pending_explanation: 3, sum_check: true }, error: null };

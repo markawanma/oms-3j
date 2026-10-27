@@ -1,4 +1,5 @@
 set local lock_timeout = '8s';
+-- 🔴 รันจากสำเนา LF (git show <ref>:<path> หรือ sed 's/\r$//') — ไฟล์ทน \r แล้ว (md5 ของนิยามตัด \r · mutant ตัด \r ก่อนแทนข้อความ) แต่ prosrc ที่ได้จากไฟล์ CRLF ไม่ตรงกับสำเนาที่ลอกมา (ข้อ 20 ของ 3j-migration-traps)
 set local statement_timeout = '20min';
 -- scripts/verify/verify-0195-qa.sql  (QA R2-D2 27 ต.ค. 69 · เติมช่องที่ verify-0195.sql ไม่ครอบ)
 -- 🔴 ยังไม่เคยรันจริง (ต้องมี 0194 + 0195 — 0195 เพิ่มคอลัมน์ ⇒ ห้ามรันกลางวัน) · ผ่านการตรวจด้วยตา + helper ลอกจาก verify-0195.sql ที่ Han ส่งมา — ถ้า FAIL ให้ดูก่อนว่าเป็นสมมติฐานของไฟล์นี้ผิดหรือบั๊กจริง (ระบุสมมติฐานไว้ที่แต่ละเคส)
@@ -195,7 +196,7 @@ create function pg_temp.mutate(p_name text, p_from text, p_to text) returns void
 declare v_oid oid; v_def text; v_new text;
 begin
   select p.oid into strict v_oid from pg_proc p where p.pronamespace = 'analytics'::regnamespace and p.proname = p_name;
-  v_def := replace(pg_get_functiondef(v_oid), E'', '');
+  v_def := replace(pg_get_functiondef(v_oid), E'\r', '');
   v_new := replace(v_def, p_from, p_to);
   if v_new = v_def then
     raise exception 'MUTANT_NOT_APPLIED: % ไม่พบข้อความ [%]', p_name, p_from;
@@ -253,7 +254,7 @@ create function pg_temp.mutate_view(p_name text, p_from text, p_to text) returns
  language plpgsql as $c$
 declare v_def text; v_new text;
 begin
-  v_def := replace(pg_get_viewdef(('analytics.' || p_name)::regclass, true), E'', '');
+  v_def := replace(pg_get_viewdef(('analytics.' || p_name)::regclass, true), E'\r', '');
   v_new := replace(v_def, p_from, p_to);
   if v_new = v_def then
     raise exception 'MUTANT_NOT_APPLIED: view % ไม่พบข้อความ [%]', p_name, p_from;

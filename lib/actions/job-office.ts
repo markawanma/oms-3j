@@ -12,7 +12,7 @@ import { BOARD_COLUMNS, EVENT_COLUMNS, JOB_COLUMNS, STAGE_COLUMNS, WORKER_COLUMN
 import { visibleBoardStages } from "@/lib/jobs/board";
 import { mapRecordProfile } from "@/lib/jobs/profile";
 import type { RecordProfile } from "@/lib/jobs/profile";
-import type { BoardRow, EventRow, JobDetail, StageDef, StageDefFlag, StageLoss, StageRow, WorkerRow } from "@/lib/jobs/types";
+import type { BoardRow, EventRow, JobDetail, StageDef, StageLoss, StageRow, WorkerRow } from "@/lib/jobs/types";
 import { isUuid, parseCount, parseDate, parseLabel, parseStageCodes, parseText, parseWeight, TARGET_PIECE_MAX_G } from "@/lib/jobs/input";
 import { callOffice, db, fail, guard, shopId } from "@/lib/jobs/office-server";
 import type { JobResult } from "@/lib/jobs/office-server";
@@ -196,15 +196,15 @@ export async function getJobDetail(jobId: string): Promise<JobResult<JobDetailDa
     for (const r of [stRes, evRes, boardRes, lossRes, tokRes, wkRes, defRes]) if (r.error) throw r.error;
 
     const names: Record<string, string> = {};
-    const metalPresent: Record<string, StageDefFlag> = {};
+    const defFlags: Record<string, { metalPresent: boolean; goldWeighExempt: boolean }> = {};
     for (const d of rows(defRes.data)) {
       if (typeof d.code !== "string") continue;
       names[d.code] = typeof d.name_th === "string" ? d.name_th : d.code;
-      metalPresent[d.code] = { metalPresent: d.metal_present === true, goldWeighExempt: d.gold_weigh_exempt === true };
+      defFlags[d.code] = { metalPresent: d.metal_present === true, goldWeighExempt: d.gold_weigh_exempt === true };
     }
     const allWorkers = rows(wkRes.data).map((x) => mapWorkerRow(x)).filter((w): w is WorkerRow => w !== null);
     const workerNames = Object.fromEntries(allWorkers.map((w) => [w.id, w.displayName]));
-    const stages = rows(stRes.data).map((r) => mapStageRow(r, names, workerNames, metalPresent)).filter((s): s is StageRow => s !== null);
+    const stages = rows(stRes.data).map((r) => mapStageRow(r, names, workerNames, defFlags)).filter((s): s is StageRow => s !== null);
     const stageCodeById = Object.fromEntries(stages.map((s) => [s.id, s.code]));
     const events = rows(evRes.data).map((r) => mapEventRow(r, stageCodeById, workerNames)).filter((e): e is EventRow => e !== null);
     const loss: Record<string, StageLoss> = {};
@@ -221,7 +221,7 @@ export async function getJobDetail(jobId: string): Promise<JobResult<JobDetailDa
       if (typeof id === "string") source = { kind: "production", id };
     }
 
-    const metalStages = new Set(Object.entries(metalPresent).filter(([, f]) => f === true || (typeof f === "object" && f.metalPresent === true)).map(([c]) => c));
+    const metalStages = new Set(Object.entries(defFlags).filter(([, f]) => f.metalPresent).map(([c]) => c));
     const lots = await loadJobLots(jobId, names, metalStages);
     // 0181: ใบนี้เป็น "ส่วนย่อย" (ไม่ใช่ใบแม่) → บอกใบแม่ให้หน้าเด้งไปที่ใบแม่ (anchor ที่ส่วนนั้น) — ถามเฉพาะเมื่อไม่มีต้นไม้ของใบนี้
     const partOf = lots === null ? await findLotRoot(jobId) : null;
