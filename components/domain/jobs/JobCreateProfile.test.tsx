@@ -21,6 +21,7 @@ vi.mock("@/lib/actions/job-office", () => ({
   getJobPlanSuggest: (...a: unknown[]) => getJobPlanSuggest(...a),
 }));
 vi.mock("@/lib/actions/job-office-write", () => ({}));
+vi.mock("@/lib/actions/gems", () => ({ getGemOptions: () => Promise.resolve({ ok: true, data: { types: [], shapes: [], items: [] } }) })); // G1a: ฟอร์มสร้างใบงานโหลดรายการพลอย (ไม่มีราคา)
 
 import { ToastProvider } from "@/components/ui/Toast";
 import { JobCreateDialog } from "./JobCreateDialog";
@@ -125,7 +126,7 @@ describe("0176 ProfilePicker ในฟอร์มสร้างใบงาน
     await waitFor(() => expect(submitBtn()).toBeEnabled());
     await userEvent.click(submitBtn());
     expect(createJob).toHaveBeenCalledWith(expect.objectContaining({ profileId: PA }));
-    await waitFor(() => expect(push).toHaveBeenCalledWith("/jobs/J9"));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/jobs/J9#job-photos"));
     createJob.mockClear();
     cleanup();
     await open();
@@ -221,6 +222,30 @@ describe("0176 ไม่มีแบบ / ไม่มีค่าเริ่�
     expect(submitBtn()).toBeDisabled();
     await userEvent.selectOptions(select(), PB);
     await waitFor(() => expect(submitBtn()).toBeEnabled(), { timeout: 3000 });
+  });
+
+  // 0186 M1: ทองที่ร้านไม่มีแบบทองค่าเริ่ม — DB (job_profile_default_for) ไม่ fallback ไปแบบเงินแล้ว ส่ง default null มา → ฟอร์มต้องบังคับเลือกแบบเอง + บอกเหตุผล
+  it("ทอง + defaultProfileId = null (ไม่มีแบบทองค่าเริ่ม): ข้อความ 'ยังไม่มีแบบการบันทึกสำหรับทอง — เลือกแบบเอง…' · ไม่เลือกแบบให้ · ปุ่มสร้างปิดจนเลือก", async () => {
+    suggestJob.mockResolvedValue(suggestion({ metal: "gold", defaultProfileId: null }));
+    await open();
+    expect(screen.getByRole("status")).toHaveTextContent("ยังไม่มีแบบการบันทึกสำหรับทอง — เลือกแบบเอง หรือตั้งแบบทองค่าเริ่มที่หน้า");
+    expect(screen.getByRole("link", { name: /แบบการบันทึก/ })).toHaveAttribute("href", "/jobs/profiles");
+    expect(select().value).toBe("");
+    expect(submitBtn()).toBeDisabled();
+    expect(createJob).not.toHaveBeenCalled();
+    // เลือกแบบเอง (ไม่ชั่งเลย) → ยังต้อง ack กล่องแดงของทอง (ด่านเดิมไม่หลวม) แล้วถึงสร้างได้
+    await userEvent.selectOptions(select(), PC);
+    await waitFor(() => expect(submitBtn()).toBeEnabled(), { timeout: 3000 });
+  });
+
+  it("เงิน + defaultProfileId = null: ไม่มีข้อความของทอง (ข้อความเฉพาะงานทอง) · ทอง + มีค่าเริ่ม: ไม่มีข้อความด้วย (ต้องไม่พัง)", async () => {
+    suggestJob.mockResolvedValue(suggestion({ defaultProfileId: null }));
+    await open();
+    expect(screen.queryByText(/ยังไม่มีแบบการบันทึกสำหรับทอง/)).not.toBeInTheDocument();
+    cleanup();
+    suggestJob.mockResolvedValue(suggestion({ metal: "gold" }));
+    await open();
+    expect(screen.queryByText(/ยังไม่มีแบบการบันทึกสำหรับทอง/)).not.toBeInTheDocument();
   });
 
   it("DB ปฏิเสธ profile_invalid: ข้อความ 'เลือกใหม่' + ดึงรายการแบบใหม่ (suggest ซ้ำ) เก็บขั้นที่ติ๊ก · ไม่ปิดกล่อง", async () => {

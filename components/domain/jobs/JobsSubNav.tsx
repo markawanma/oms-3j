@@ -5,18 +5,19 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ClipboardList, HardHat, ListChecks } from "lucide-react";
+import { ClipboardList, HardHat, History, ListChecks } from "lucide-react";
 
 const TABS = [
   { href: "/jobs", label: "บอร์ดใบงาน", icon: ClipboardList, exact: false },
+  { href: "/jobs/history", label: "ประวัติงาน", icon: History, exact: true },
   { href: "/jobs/workers", label: "ทะเบียนช่าง", icon: HardHat, exact: true },
   { href: "/jobs/profiles", label: "แบบการบันทึก", icon: ListChecks, exact: true },
 ] as const;
 
 export function jobsTabActive(pathname: string | null, href: string): boolean {
   const p = pathname ?? "";
-  // แท็บ "บอร์ด" สว่างที่ /jobs และ /jobs/<id> เท่านั้น — ไม่สว่างที่แท็บพี่น้อง (workers / profiles)
-  if (href === "/jobs") return p === "/jobs" || (p.startsWith("/jobs/") && !p.startsWith("/jobs/workers") && !p.startsWith("/jobs/profiles"));
+  // แท็บ "บอร์ด" สว่างที่ /jobs และ /jobs/<id> เท่านั้น — ไม่สว่างที่แท็บพี่น้อง (history / workers / profiles)
+  if (href === "/jobs") return p === "/jobs" || (p.startsWith("/jobs/") && !/^\/jobs\/(workers|profiles|history)(\/|$)/.test(p));
   return p === href || p.startsWith(`${href}/`);
 }
 

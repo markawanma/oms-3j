@@ -8,6 +8,8 @@ import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { PrintInvoiceClient } from "@/components/domain/oem/PrintInvoiceClient";
 import { InvoicePrintBlocked } from "@/components/domain/oem/InvoicePrintBlocked";
+import { PrintFileTitle } from "@/components/ui/PrintFileTitle";
+import { invoicePrintTitle } from "@/lib/oem/print-title";
 
 export const dynamic = "force-dynamic";
 
@@ -52,5 +54,11 @@ export default async function OemInvoicePrintPage({ params }: { params: Promise<
     );
   }
 
-  return <PrintInvoiceClient invoice={toPrintableInvoice(row)} notices={notices} />;
+  const invoice = toPrintableInvoice(row);
+  return (
+    <>
+      <PrintFileTitle title={invoicePrintTitle(invoice)} />
+      <PrintInvoiceClient invoice={invoice} notices={notices} />
+    </>
+  );
 }

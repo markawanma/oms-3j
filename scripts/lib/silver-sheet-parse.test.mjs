@@ -4,12 +4,21 @@
 // buildBaseRows() below is a synthetic `values: string[][]` fixture shaped
 // like a real Google Sheets API response (and, before that, like the old CSV
 // parser's output — same shape, see header comment in silver-sheet-parse.mjs)
-// — self-consistent across all 6 mandatory cross-checks. Each negative test
-// mutates exactly one cell (or a matched pair) to isolate exactly one
-// cross-check failure, so a broken cross-check can be told apart from its
-// neighbors.
+// — self-consistent across all 7 mandatory cross-checks (all figures are
+// synthetic; the margin RATE is a made-up value, never the owner's real one).
+// Each negative test mutates exactly one cell (or a matched pair) to isolate
+// exactly one cross-check failure, so a broken cross-check can be told apart
+// from its neighbors.
 import { describe, expect, it } from "vitest";
-import { cellToNumber, parseSheet, parseSheetDate } from "./silver-sheet-parse.mjs";
+import { cellToNumber, findMarginColumn, parseSheet, parseSheetDate } from "./silver-sheet-parse.mjs";
+
+const BLOCK_FEE = 50;
+const BASE_RATE_PCT = 12.5; // synthetic
+
+/** Margin cell for a size, per the sheet formula: (silver + block fee) × rate. */
+function marginCell(silver, ratePct) {
+  return ((silver + BLOCK_FEE) * ratePct / 100).toFixed(2);
+}
 
 // Row layout (see parseSheet's anchor logic in silver-sheet-parse.mjs):
 //  0: top summary header   1: top summary values
@@ -17,16 +26,17 @@ import { cellToNumber, parseSheet, parseSheetDate } from "./silver-sheet-parse.m
 //  3-7: size rows 0.5/1/3/5/10 บาท
 //  8-10: kilo ขายออก / ขายออก Vat / ซื้อเข้า
 //  11: a cell holding a bare HH:MM (sheet_time, best-effort only)
-function buildBaseRows() {
+function buildBaseRows(ratePct = BASE_RATE_PCT) {
+  const m = (silver) => marginCell(silver, ratePct);
   return [
     ["Priece USD/kg", "USD/THB", "THB/kg", "ต่อบาท", "ค่าบล๊อค kg"],
     ["25.5", "35.8", "913.4", "1500", "50"],
-    ["31-Aug-2026", "ราคาเนื้อเงิน", "ราคาค่าบล๊อค", "11%", "Total", "Shopee", "ราคาซื้อคืน"],
-    ["0.5", "750", "50", "11", "800", "800", "735"],
-    ["1", "1500", "50", "11", "1560", "1560", "1470"],
-    ["3", "4500", "50", "11", "4600", "4600", "4410"],
-    ["5", "7500", "50", "11", "7600", "7600", "7350"],
-    ["10", "15000", "50", "11", "15200", "15200", "14700"],
+    ["31-Aug-2026", "ราคาเนื้อเงิน", "ราคาค่าบล๊อค", `${ratePct}%`, "Total", "Shopee", "ราคาซื้อคืน"],
+    ["0.5", "750", "50", m(750), "800", "800", "735"],
+    ["1", "1500", "50", m(1500), "1560", "1560", "1470"],
+    ["3", "4500", "50", m(4500), "4600", "4600", "4410"],
+    ["5", "7500", "50", m(7500), "7600", "7600", "7350"],
+    ["10", "15000", "50", m(15000), "15200", "15200", "14700"],
     ["ขายออก 1 กิโล", "1560000"],
     ["ขายออก Vat 1 กิโล", "1669200"],
     ["ซื้อเข้า 1 กิโล", "1470000"],
@@ -37,14 +47,14 @@ function buildBaseRows() {
 /** Deep-clones the base fixture and applies [rowIdx, colIdx, value] cell
  * overrides — keeps each negative test to a one-line diff from the happy
  * path instead of a full re-typed matrix. */
-function withCells(overrides) {
-  const rows = buildBaseRows().map((r) => [...r]);
+function withCells(overrides, ratePct = BASE_RATE_PCT) {
+  const rows = buildBaseRows(ratePct).map((r) => [...r]);
   for (const [rowIdx, colIdx, value] of overrides) rows[rowIdx][colIdx] = value;
   return rows;
 }
 
 describe("parseSheet — happy path", () => {
-  it("parses a well-formed sheet, passes all 6 cross-checks, and extracts every field", () => {
+  it("parses a well-formed sheet, passes all 7 cross-checks, and extracts every field", () => {
     const { data, problems, warnings, asOfDate, sheetTime } = parseSheet(buildBaseRows());
     expect(problems).toEqual([]);
     expect(warnings).toEqual([]);
@@ -64,6 +74,7 @@ describe("parseSheet — cross-check #1: 0.5-baht silver content must double int
     const rows = withCells([
       [3, 1, "700"], // silver content 0.5 บาท: 750 -> 700 (breaks 700*2=1400 vs c1=1500)
       [3, 6, "685"], // keep buy-back check (#2) passing for the 0.5 row: 700 - 30*0.5 = 685
+      [3, 3, marginCell(700, BASE_RATE_PCT)], // keep margin check (#7) passing for the 0.5 row
     ]);
     const { problems } = parseSheet(rows);
     expect(problems.some((p) => p.includes("0.5 บาท×2"))).toBe(true);
@@ -139,6 +150,123 @@ describe("parseSheet — structural failures (anchor/column not found) abort bef
     const { problems } = parseSheet(rows);
     expect(problems.some((p) => p.includes("หาคอลัมน์ในตารางราคาต่อขนาดไม่ครบ"))).toBe(true);
     expect(problems.some((p) => p.includes('หา header แถวตารางราคาต่อขนาด'))).toBe(false);
+  });
+});
+
+describe("parseSheet — cross-check #7: margin must equal (silver + block fee) × the rate in its header", () => {
+  it("rejects when a size's margin figure is far from the formula (likely a different column)", () => {
+    const rows = withCells([[4, 3, "300"]]); // 1-baht margin: 193.75 -> 300
+    const { problems } = parseSheet(rows);
+    expect(problems.some((p) => p.includes("ขนาด 1 บาท margin ไม่ตรง"))).toBe(true);
+    expect(problems.length).toBe(1); // isolates #7 — no other check fires
+  });
+
+  it("accepts a figure within the 2% tolerance and rejects just beyond it", () => {
+    // expected 1-baht margin = 193.75 -> tolerance max(1, 3.875) = 3.875
+    expect(parseSheet(withCells([[4, 3, "196.75"]])).problems).toEqual([]); // +3
+    expect(parseSheet(withCells([[4, 3, "199.75"]])).problems.length).toBe(1); // +6
+  });
+
+  it("rejects when the header rate disagrees with the numbers under it", () => {
+    // cells were built for the base rate, header claims a different one
+    const rows = withCells([[2, 3, "20%"]]);
+    const { problems } = parseSheet(rows);
+    expect(problems.some((p) => p.includes("margin ไม่ตรง"))).toBe(true);
+  });
+
+  it("fails closed when a margin cell is blank (cannot verify => not saved)", () => {
+    const { problems } = parseSheet(withCells([[5, 3, ""]]));
+    expect(problems.some((p) => p.includes("ขนาด 3 บาท") && p.includes("ตรวจสูตร margin ไม่ได้"))).toBe(true);
+  });
+
+  it("fails closed when a block-fee cell is blank", () => {
+    const { problems } = parseSheet(withCells([[6, 2, ""]]));
+    expect(problems.some((p) => p.includes("ขนาด 5 บาท") && p.includes("ตรวจสูตร margin ไม่ได้"))).toBe(true);
+  });
+});
+
+// Regression: the margin column's header IS the margin rate and the owner
+// retunes it. The parser used to hard-match one literal value, so a rate
+// change made the primary capture fail every run for 8 days (from ~21 Oct 2026).
+describe("parseSheet — margin column header is a retunable % label", () => {
+  it.each([12.5, 5.8, 20, 7.25])("accepts rate %s%% (margin cells computed for that rate) and reads the same data", (ratePct) => {
+    const { data, problems, asOfDate } = parseSheet(withCells([], ratePct));
+    expect(problems).toEqual([]);
+    expect(asOfDate).toBe("2026-08-31");
+    expect(data.margin_component_1).toBe(Number(marginCell(1500, ratePct)));
+    expect(data.sell_1).toBe(1560);
+  });
+
+  it("accepts a header with surrounding whitespace", () => {
+    expect(parseSheet(withCells([[2, 3, " 12.5% "]])).problems).toEqual([]);
+  });
+
+  it("rejects (writes nothing) when the % header is replaced by a non-% label", () => {
+    const { problems } = parseSheet(withCells([[2, 3, "margin"]]));
+    expect(problems.some((p) => p.includes("colMargin"))).toBe(true);
+  });
+
+  it("rejects when the % header is blank (never falls back to an empty/guessed column)", () => {
+    const { problems } = parseSheet(withCells([[2, 3, ""]]));
+    expect(problems.some((p) => p.includes("colMargin"))).toBe(true);
+  });
+
+  it("rejects a bare number with no % sign", () => {
+    const { problems } = parseSheet(withCells([[2, 3, "12.5"]]));
+    expect(problems.some((p) => p.includes("colMargin"))).toBe(true);
+  });
+
+  it("rejects when two header cells look like a % (ambiguous — never picks one)", () => {
+    const rows = withCells([]);
+    rows[2] = ["31-Aug-2026", "ราคาเนื้อเงิน", "ราคาค่าบล๊อค", "12.5%", "5%", "Total", "Shopee", "ราคาซื้อคืน"];
+    const { problems } = parseSheet(rows);
+    expect(problems.some((p) => p.includes("มากกว่า 1"))).toBe(true);
+  });
+
+  it("rejects when the only % cell sits outside the block-fee..Total span (layout moved)", () => {
+    const rows = withCells([]);
+    rows[2] = ["31-Aug-2026", "ราคาเนื้อเงิน", "ราคาค่าบล๊อค", "Total", "Shopee", "ราคาซื้อคืน", "12.5%"];
+    const { problems } = parseSheet(rows);
+    expect(problems.some((p) => p.includes("ไม่ได้อยู่ระหว่าง"))).toBe(true);
+  });
+
+  // Anchor tests — these fail if the ^ or $ of PERCENT_LABEL_RE is dropped.
+  it.each(["Partner 5.80%", "12.5% กำไร", "กำไร 12.5%"])("ignores the label %j that merely CONTAINS a % outside the span", (extra) => {
+    const rows = withCells([]);
+    rows[2].push(extra); // after "ราคาซื้อคืน", outside the span
+    const { problems } = parseSheet(rows);
+    expect(problems).toEqual([]);
+  });
+
+  it.each(["กำไร 12.5%", "12.5% กำไร", "Partner 5.80%"])("does not accept %j as the margin header (in span)", (label) => {
+    const { problems } = parseSheet(withCells([[2, 3, label]]));
+    expect(problems.some((p) => p.includes("colMargin"))).toBe(true);
+  });
+
+  it("still reads the as-of date when a column is missing (so the log isn't misleading)", () => {
+    const { asOfDateRaw, asOfDate, problems } = parseSheet(withCells([[2, 3, "margin"]]));
+    expect(problems.length).toBeGreaterThan(0);
+    expect(asOfDateRaw).toBe("31-Aug-2026");
+    expect(asOfDate).toBe("2026-08-31");
+  });
+
+  it("keeps the other cross-checks live after a rate change (bad buy-back still rejected)", () => {
+    const { problems } = parseSheet(withCells([[4, 6, "1000"]], 7.25));
+    expect(problems.some((p) => p.includes("ขนาด 1 บาท ราคาซื้อคืน"))).toBe(true);
+  });
+});
+
+describe("findMarginColumn", () => {
+  const header = ["", "x", "ราคาค่าบล๊อค", "12.5%", "Total"];
+  it("returns the column and the rate as a fraction", () => {
+    expect(findMarginColumn(header, 2, 4)).toEqual({ col: 3, rate: 0.125 });
+  });
+  it("rejects a zero rate", () => {
+    expect(findMarginColumn(["", "x", "ราคาค่าบล๊อค", "0%", "Total"], 2, 4).col).toBe(-1);
+  });
+  it("rejects when the neighbouring anchors were not found", () => {
+    expect(findMarginColumn(header, -1, 4).col).toBe(-1);
+    expect(findMarginColumn(header, 2, -1).col).toBe(-1);
   });
 });
 

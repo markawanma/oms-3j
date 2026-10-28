@@ -5,6 +5,8 @@ import { toPrintableReceipt } from "@/lib/oem/printableReceipt";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { PrintReceiptClient } from "@/components/domain/oem/PrintReceiptClient";
+import { PrintFileTitle } from "@/components/ui/PrintFileTitle";
+import { receiptPrintTitle } from "@/lib/oem/print-title";
 
 export const dynamic = "force-dynamic";
 
@@ -40,5 +42,11 @@ export default async function OemReceiptPrintPage({ params }: { params: Promise<
   }
   if (!receiptResult.ok) return <ErrorState message={receiptResult.error} />;
 
-  return <PrintReceiptClient receipt={toPrintableReceipt(receiptResult.data)} />;
+  const receipt = toPrintableReceipt(receiptResult.data);
+  return (
+    <>
+      <PrintFileTitle title={receiptPrintTitle(receipt)} />
+      <PrintReceiptClient receipt={receipt} />
+    </>
+  );
 }

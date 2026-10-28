@@ -10,6 +10,8 @@
 // (fashion prefixes not yet public, non_product, live_weight, ambiguous) —
 // or any SKU that doesn't match at all — falls through to "อื่นๆ" rather
 // than guessing (matches the ref doc's "ไม่เดา ไม่เงียบหาย" rule).
+import { lineOaMessageUrl } from "./line";
+
 export interface Category {
   key: string;
   label: string;
@@ -68,12 +70,7 @@ export function categoryOf(sku: string): Category {
 // — no server-side state/reservation, oversell is handled in-chat like the
 // existing flow.
 //
-// ⚠️ VERIFY BEFORE LAUNCH: '3jsilver' is the LINE OA ID used in the design
-// doc's example; it has NOT been confirmed against the real 3J Jewelry LINE
-// OA (see design §8 open question 3). Confirm the real ID before shipping.
-const LINE_OA_ID = "3jsilver";
-
+// OA ID comes from lib/shop/line.ts (owner-confirmed 24 Oct 2026: @3jjewelry).
 export function lineOrderUrl(name: string, sku: string): string {
-  const message = `สนใจสั่งซื้อ: ${name} (${sku})`;
-  return `https://line.me/R/oaMessage/%40${LINE_OA_ID}/?${encodeURIComponent(message)}`;
+  return lineOaMessageUrl(`สนใจสั่งซื้อ: ${name} (${sku})`);
 }

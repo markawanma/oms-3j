@@ -28,13 +28,27 @@
 // /api/gem-quiz/ (e.g. a stats/export endpoint) public with no test catching
 // it. A new route under this prefix must earn its own exemption explicitly.
 //
+// ring-size/?$ เพิ่ม 24 ต.ค. 69 (เครื่องมือวัดไซส์แหวนสาธารณะ — ไม่มี DB/API/ข้อมูลส่วนตัว): exact path เท่านั้น แบบเดียวกับ gem-quiz
+// (/ring-sizes · /ring-size-admin · /ring-size/x · /api/ring-size-x ต้องยังถูก gate — ดู exempt-path.test.ts) · ต้องแก้คู่กับ middleware.ts matcher
+//
 // w/<token> เพิ่ม 12 ต.ค. 69 (ระบบใบงาน J1 — หน้าช่างสแกน QR ไม่ login · design-job-tracking.md §5.5):
 // 🔴 เป็น "prefix /w/" แบบแคบที่สุด — ยอมเฉพาะ "หนึ่งเซกเมนต์ต่อท้าย /w/" ที่เป็นอักขระ base64url ล้วน [A-Za-z0-9_-]+ แล้วจบ
 // (ไม่มี /w/ ล้วน · ไม่มีเซกเมนต์ซ้อน · ไม่มี ".." / "%2e" / "." — traversal อย่าง /w/../oem ไม่ผ่านรูปแบบนี้ จึงยังถูก gate)
 // token จริง 43 ตัว · ความยาว/รูปแบบที่ผิดไปตกที่หน้าช่างซึ่งแสดง "ลิงก์ใช้ไม่ได้" โดยไม่แตะข้อมูลใด
 // ไม่ใช้ `{n,m}` ใน matcher เพราะ Next แปลง matcher ด้วย path-to-regexp (ปีกกาในกลุ่ม regex เสี่ยงตีความผิด) — ตรวจความยาวที่หน้าแทน
+//
+// w/s/<token> เพิ่ม 20 ต.ค. 69 (W1 — ผู้จัดการเปิดใบจากมือถือด้วย QR ร้าน + PIN · design-job-lots-shopfloor.md §7.1):
+// 🔴 แคบเท่าเดิม: ยอมเฉพาะ "w/s/ + หนึ่งเซกเมนต์ base64url ล้วน + จบ" — ไม่มี /w/s/ ล้วน · ไม่มีเซกเมนต์ซ้อน (/w/s/<token>/x) · ไม่มี ".." / "%2e" / "." · `s` ต้องเป็นตัวเดียวเป๊ะ (ไม่ใช่ /w/sx/<token>)
+// (หมายเหตุ: /w/s เองตรงกับ alternative เดิม w/<token> เพราะ "s" เป็นอักขระ base64url — หน้าช่างแสดง "ลิงก์ใช้ไม่ได้" ตามเดิม ไม่แตะข้อมูลใด)
+// ต้องแก้คู่กับ middleware.ts matcher แล้วรัน exempt-path.worker.test.ts
+//
+// 🔴 static asset (แก้ 25 ต.ค. 69 — ช่อง extension-gate bypass): เดิมเป็น `.*\.(?:svg|png|jpg|...)$` ยอมนามสกุล "ที่ความลึกใดก็ได้"
+// → /orders/x.png · /live/x.png ฯลฯ หลุด middleware ทั้งที่เป็น dynamic route จริง (id="x.png") → หน้า render ให้คนนอก, chunk เผย Server Action ID,
+// และ POST Next-Action ไป URL เดียวกันก็ข้าม gate → action ที่ไม่มี guard ในตัวรันได้ (คนนอกถูกนับเป็น role staff)
+// ตอนนี้ยอมเฉพาะไฟล์ที่มีจริงใน public/: (1) ไฟล์ระดับ root เท่านั้น `[^/]+\.ext$` (ห้ามมี "/") (2) `gem-quiz/[^/]+\.ext$` ลึกหนึ่งชั้นพอดี (og.png) (3) `ring-size/[^/]+\.ext$` แบบเดียวกัน (3j-mark.png ของหน้า /ring-size — เพิ่ม 27 ต.ค. 69 ตอน merge ทับงาน ring-size)
+// ปลอดภัยตราบที่ไม่มี route ระดับ root ที่เป็น dynamic segment (ไม่มี app/[slug]) · เพิ่มโฟลเดอร์ใหม่ใต้ public/ = ต้องเพิ่มที่นี่ + middleware.ts โดยตั้งใจ
 const EXEMPT_PATTERN =
-  /^(?:_next\/static|_next\/image|favicon\.ico|api\/webhooks(?:\/|$)|api\/gem-quiz\/submit\/?$|shop(?:\/|$)|gem-quiz\/?$|stock\/hero(?:\/|$)|w\/[A-Za-z0-9_-]+\/?$|.*\.(?:svg|png|jpg|jpeg|gif|webp|ico)$)/;
+  /^(?:_next\/static|_next\/image|favicon\.ico|api\/webhooks(?:\/|$)|api\/gem-quiz\/submit\/?$|shop(?:\/|$)|gem-quiz\/?$|ring-size\/?$|stock\/hero(?:\/|$)|w\/[A-Za-z0-9_-]+\/?$|w\/s\/[A-Za-z0-9_-]+\/?$|[^/]+\.(?:svg|png|jpg|jpeg|gif|webp|ico)$|gem-quiz\/[^/]+\.(?:svg|png|jpg|jpeg|webp)$|ring-size\/[^/]+\.(?:svg|png|jpg|jpeg|webp)$)/;
 
 /** true if `pathname` bypasses the auth gate entirely (middleware.ts never
  * runs for it) — mirrors config.matcher's negative-lookahead exactly. */

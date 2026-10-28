@@ -163,4 +163,124 @@ describe("saveMetalPrice", () => {
     const result = await saveMetalPrice({ metal: "silver", priceThbPerGram: 67.7 });
     expect(result).toEqual({ ok: false, error: "บันทึกราคาโลหะไม่สำเร็จ ลองใหม่อีกครั้ง" });
   });
+
+  // 0186 (PM-A): ช่วงที่เจ้าของเคาะ 20 ต.ค. — ทอง 100% 2,000–8,000 · ทองเหลือง 0.10–1.00 บาท/กรัม (= 100–1,000 บาท/กก.) · ด่านจริงอยู่ที่ RPC + CHECK ตาราง
+  it("0186: gold per-gram bounds — 2000/8000 pass · 1999.99/8000.01 fail with a message that names the unit (before any RPC)", async () => {
+    const { saveMetalPrice } = await import("./oem");
+    expect((await saveMetalPrice({ metal: "gold", priceThbPerGram: 2000 })).ok).toBe(true);
+    expect((await saveMetalPrice({ metal: "gold", priceThbPerGram: 8000 })).ok).toBe(true);
+    expect(rpcMock).toHaveBeenCalledTimes(2);
+    rpcMock.mockClear();
+    for (const bad of [1999.99, 8000.01, 41250]) {
+      const result = await saveMetalPrice({ metal: "gold", priceThbPerGram: bad });
+      expect(result.ok, String(bad)).toBe(false);
+      if (!result.ok) expect(result.error).toContain("2,000–8,000 บาท/กรัม");
+    }
+    expect(rpcMock).not.toHaveBeenCalled();
+  });
+
+  it("0186: brass per-gram bounds — 0.1/1 pass · 0.0999/1.0001/350 (a per-kg price typed as per-gram) fail", async () => {
+    const { saveMetalPrice } = await import("./oem");
+    expect((await saveMetalPrice({ metal: "brass", priceThbPerGram: 0.1 })).ok).toBe(true);
+    expect((await saveMetalPrice({ metal: "brass", priceThbPerGram: 1 })).ok).toBe(true);
+    rpcMock.mockClear();
+    for (const bad of [0.0999, 1.0001, 350]) {
+      const result = await saveMetalPrice({ metal: "brass", priceThbPerGram: bad });
+      expect(result.ok, String(bad)).toBe(false);
+      if (!result.ok) expect(result.error).toContain("100–1,000 บาท/กก.");
+    }
+    expect(rpcMock).not.toHaveBeenCalled();
+  });
+});
+
+// 0186: กรอกราคาทอง/ทองเหลืองด้วยหน่วยหน้างานจริง ให้ DB แปลง
+describe("saveMetalPriceInput", () => {
+  const RPC_OK = {
+    data: { metal: "gold", as_of_date: "2026-10-20", price_thb_per_gram: "2804.1271", input_value: "41250.00", input_unit: "assoc965_sell_per_baht" },
+    error: null,
+  };
+
+  it("rejects staff before any RPC call", async () => {
+    getEffectiveRoleMock.mockResolvedValue("staff");
+    const { saveMetalPriceInput } = await import("./oem");
+    const result = await saveMetalPriceInput({ metal: "gold", inputValue: 41250 });
+    expect(result.ok).toBe(false);
+    expect(rpcMock).not.toHaveBeenCalled();
+  });
+
+  it("sends exactly 4 args (no p_as_of — today only; no p_source) and returns what the SERVER stored (not the client preview)", async () => {
+    rpcMock.mockResolvedValue(RPC_OK);
+    const { saveMetalPriceInput } = await import("./oem");
+    const result = await saveMetalPriceInput({ metal: "gold", inputValue: " 41,250 " });
+    expect(rpcMock).toHaveBeenCalledWith("oem_metal_price_set_input", {
+      p_shop_id: "shop-1",
+      p_metal: "gold",
+      p_input_value: 41250,
+      p_input_unit: "assoc965_sell_per_baht",
+    });
+    expect(schemaMock).toHaveBeenCalledWith("analytics");
+    expect(result).toEqual({
+      ok: true,
+      data: { metal: "gold", asOfDate: "2026-10-20", priceThbPerGram: 2804.1271, inputValue: 41250, inputUnit: "assoc965_sell_per_baht" },
+    });
+  });
+
+  it("brass: sends thb_per_kg and the typed kg value", async () => {
+    rpcMock.mockResolvedValue({ data: { metal: "brass", as_of_date: "2026-10-20", price_thb_per_gram: 0.35, input_value: 350, input_unit: "thb_per_kg" }, error: null });
+    const { saveMetalPriceInput } = await import("./oem");
+    const result = await saveMetalPriceInput({ metal: "brass", inputValue: "350" });
+    expect(rpcMock).toHaveBeenCalledWith("oem_metal_price_set_input", { p_shop_id: "shop-1", p_metal: "brass", p_input_value: 350, p_input_unit: "thb_per_kg" });
+    expect(result.ok && result.data).toMatchObject({ priceThbPerGram: 0.35, inputUnit: "thb_per_kg" });
+  });
+
+  it("rejects every out-of-range / malformed price before any RPC — with the CONVERTED value in the message (UX P4)", async () => {
+    const { saveMetalPriceInput } = await import("./oem");
+    const cases: Array<[Parameters<typeof saveMetalPriceInput>[0], string]> = [
+      [{ metal: "gold", inputValue: "29420.91" }, "1999.9993"],
+      [{ metal: "gold", inputValue: "117683.69" }, "8000.0007"],
+      [{ metal: "gold", inputValue: 2800 }, "ต่ำกว่า 2,000"],
+      [{ metal: "brass", inputValue: "99.99" }, "100–1,000 บาท/กก."],
+      [{ metal: "brass", inputValue: "1000.01" }, "100–1,000 บาท/กก."],
+      [{ metal: "gold", inputValue: "" }, "ตัวเลข"],
+      [{ metal: "gold", inputValue: "NaN" }, "ตัวเลข"],
+      [{ metal: "gold", inputValue: -1 }, "ตัวเลข"],
+      [{ metal: "gold", inputValue: "41250.123" }, "ทศนิยม"],
+    ];
+    for (const [input, fragment] of cases) {
+      const result = await saveMetalPriceInput(input);
+      expect(result.ok, JSON.stringify(input)).toBe(false);
+      if (!result.ok) expect(result.error, JSON.stringify(input)).toContain(fragment);
+    }
+    // โลหะนอก gold/brass (เงิน/silver999/product) กรอกด้วยหน่วยหน้างานไม่ได้
+    for (const metal of ["silver", "silver999", "product"]) {
+      expect((await saveMetalPriceInput({ metal, inputValue: 72 } as never)).ok).toBe(false);
+    }
+    expect(rpcMock).not.toHaveBeenCalled();
+  });
+
+  it("boundary values that must pass: 29,420.92 · 117,683.68 · brass 100 · 1000", async () => {
+    rpcMock.mockResolvedValue(RPC_OK);
+    const { saveMetalPriceInput } = await import("./oem");
+    for (const input of [
+      { metal: "gold", inputValue: "29420.92" },
+      { metal: "gold", inputValue: "117683.68" },
+      { metal: "brass", inputValue: 100 },
+      { metal: "brass", inputValue: 1000 },
+    ] as const) {
+      expect((await saveMetalPriceInput(input)).ok, JSON.stringify(input)).toBe(true);
+    }
+    expect(rpcMock).toHaveBeenCalledTimes(4);
+  });
+
+  it("passes the DB's own Thai 22023 message through; any other error → generic (never leaks the raw DB error)", async () => {
+    const { saveMetalPriceInput } = await import("./oem");
+    rpcMock.mockResolvedValue({ data: null, error: { code: "22023", message: "แปลงแล้วได้ 1999.9993 บาท/กรัม (โลหะ 100%) อยู่นอกช่วงที่รับ 2,000-8,000 บาท/กรัม" } });
+    const a = await saveMetalPriceInput({ metal: "gold", inputValue: 41250 });
+    expect(a.ok).toBe(false);
+    if (!a.ok) expect(a.error).toContain("1999.9993");
+    rpcMock.mockResolvedValue({ data: null, error: { code: "XX000", message: "relation analytics.oem_metal_price does not exist" } });
+    const b = await saveMetalPriceInput({ metal: "gold", inputValue: 41250 });
+    expect(b.ok).toBe(false);
+    if (!b.ok) expect(b.error).not.toContain("oem_metal_price");
+  });
 });

@@ -88,7 +88,7 @@ export interface ProductRow {
   supplier: string | null;
   note: string | null;
   isActive: boolean;
-  /** SIGNED URL (1hr TTL, lib/catalog/image-signing.ts) for the md variant of
+  /** SIGNED URL (1hr TTL, lib/images/signing.ts) for the md variant of
    * the primary image — the product_image row with the lowest (sort_order,
    * created_at, id) for this product — or null if the SKU has no images yet
    * OR signing failed (never a hard error, see getProducts()). Render this
@@ -213,14 +213,14 @@ export interface ProductImportSummary {
 
 // ============================================================================
 // SKU product images (0104_product_images.sql) — public.product_image, up to
-// MAX_IMAGES_PER_SKU rows per product (lib/catalog/image-constants.ts).
+// MAX_IMAGES_PER_SKU rows per product (lib/images/constants.ts).
 // Written/read by lib/actions/catalog-images.ts.
 // ============================================================================
 
 export interface ProductImageRow {
   id: string;
   productId: string;
-  /** SIGNED URL (1hr TTL, lib/catalog/image-signing.ts) for the 'md' variant
+  /** SIGNED URL (1hr TTL, lib/images/signing.ts) for the 'md' variant
    * (long edge <= MD_MAX_PX) — render directly, e.g. `<img src={mdUrl}>`.
    * null only when signing failed server-side (never a hard error — see
    * getProductImages()); the bucket is PRIVATE (supabase/migrations/

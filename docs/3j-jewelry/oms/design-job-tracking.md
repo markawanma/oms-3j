@@ -62,8 +62,8 @@ oem_quote (draft→quoted→won) ──┐                      production_order
 ### 2.1 `job_stage_def` — ทะเบียนขั้นตอนต่อร้าน (seed 13 แถวใน migration · แก้ที่ `/jobs/stages` เฟสหลัง)
 | คอลัมน์ | ความหมาย |
 |---|---|
-| `shop_id, code` (PK) | code คงที่: `cad, print3d, mold, wax_inject, wax_tree, invest_burnout, cast, cut_sprue, polish, gem_set, plating, qc, pack` |
-| `name_th` · `seq_default int` | ชื่อบนจอ/กระดาษ · ลำดับมาตรฐาน (ใช้บังคับลำดับใน job) |
+| `shop_id, code` (PK) | code คงที่: `cad, print3d, mold, wax_inject, wax_tree, invest_burnout, cast, cut_sprue, polish, gem_set, plating, qc, pack` · 🔀 **20 ต.ค. 69 (0184)**: `polish` "แต่ง ขัด" แยกเป็น `finish` "แต่ง" → `buff` "ขัด" (หน้างานขอ) — `polish` **ปิดใช้งาน (`is_active=false`) ไม่ลบ/ไม่ rename** ใบเก่าเดินผ่านขั้นนี้ต่อได้ · ใบใหม่ใช้ finish+buff · ร้านใหม่ได้ 14 แถว (ไม่มี polish) |
+| `name_th` · `seq_default int` | ชื่อบนจอ/กระดาษ · ลำดับมาตรฐาน (ใช้บังคับลำดับใน job) · 🔀 0184: ช่วงห่าง x10 — cad 10 … cut_sprue 80 · polish 90 (ปิด) · finish 91 · buff 92 · gem_set 100 · plating 110 · qc 120 · pack 130 (แทรกขั้นใหม่ทีหลังได้โดยไม่ต้องเลื่อนทั้งทะเบียน) |
 | `cost_block text check in ('nre','per_piece','batch')` | ตาม pricing-floor §1.1 |
 | `batch_kind text null check in ('flask','plating_tank')` | ขั้นที่รวมหลายใบงานได้: `invest_burnout`,`cast` = flask · `plating` = tank |
 | `weigh_default boolean` | ขั้นนี้ต้องชั่งไหม (ทับด้วยกฎโลหะ §3 ข้อ 8) |

@@ -8,7 +8,7 @@
 3J Jewelry
 112, 203 ถนนเอกชัย (ระหว่างซอย 25/1 และ 27) แขวงบางขุนเทียน เขตจอมทอง กรุงเทพฯ 10150
 โทร: 02 893 2350
-LINE: @3jsilver
+LINE: @3jjewelry
 เว็บหลัก: 3jthailand.com  ·  เว็บรอง: 3jsilver.com
 เวลาทำการ: 09:00–20:00 น. (ทุกวัน)
 Google Map: https://maps.app.goo.gl/BPwDXR7jmwg71aZB9
@@ -21,7 +21,7 @@ Google Map: https://maps.app.goo.gl/BPwDXR7jmwg71aZB9
 | 1 | **Google Business Profile** | ชื่อ "3J Jewelry" · หมวดหลัก **"ร้านเครื่องประดับ"** + รอง "ผู้ผลิตเครื่องประดับ" · เว็บ 3jthailand.com · เวลา 09:00–20:00 · เพิ่มรูปสินค้า/หน้าร้าน · ใส่ LINE ในคำอธิบาย |
 | 2 | **3jthailand.com** (หลัก) | NAP ใน footer + ฝัง Google Map + ปุ่ม LINE + เบอร์ (ใช้ snippet ด้านล่าง) |
 | 3 | **3jsilver.com** (รอง) | footer NAP เหมือนกัน + ลิงก์ไปเว็บหลัก + Map + LINE |
-| 4 | **LINE OA @3jsilver** | ชื่อแสดง "3J Jewelry" + ที่อยู่/เบอร์/เวลา ในข้อมูลบัญชี |
+| 4 | **LINE OA @3jjewelry** | ชื่อแสดง "3J Jewelry" + ที่อยู่/เบอร์/เวลา ในข้อมูลบัญชี |
 | 5 | **TikTok @3jjewelry** | bio: ชื่อ + link (3jthailand.com / LINE) |
 | 6 | **Shopee** | ชื่อร้าน/ข้อมูลตรงกัน + ลิงก์ |
 | 7 | **Facebook** (ถ้ามี) | NAP ตรงกัน |
@@ -29,7 +29,7 @@ Google Map: https://maps.app.goo.gl/BPwDXR7jmwg71aZB9
 ## 🔗 เชื่อมกัน (cross-link)
 - **2 เว็บ** → footer ใส่ Google Map + LINE + เบอร์ + ลิงก์หากัน
 - **Google Profile** → เว็บหลัก 3jthailand.com · ใส่ LINE + 3jsilver ในคำอธิบาย
-- **TikTok / Shopee bio** → ลิงก์ไป 3jthailand.com + LINE @3jsilver
+- **TikTok / Shopee bio** → ลิงก์ไป 3jthailand.com + LINE @3jjewelry
 
 ---
 
@@ -50,7 +50,7 @@ Google Map: https://maps.app.goo.gl/BPwDXR7jmwg71aZB9
     </div>
     <div style="min-width:210px;font-size:14px;line-height:2;color:#4A4A4A;">
       <div>โทร: <a href="tel:028932350" style="color:#A2191D;text-decoration:none;font-weight:600;">02 893 2350</a></div>
-      <div>LINE: <a href="https://line.me/R/ti/p/@3jsilver" style="color:#A2191D;text-decoration:none;font-weight:600;">@3jsilver</a></div>
+      <div>LINE: <a href="https://lin.ee/PzIJl6j" style="color:#A2191D;text-decoration:none;font-weight:600;">@3jjewelry</a></div>
       <div>เวลาทำการ: 09:00–20:00 น.</div>
       <div style="margin-top:6px;">
         <a href="https://3jthailand.com" style="color:#343434;text-decoration:none;">3jthailand.com</a> ·

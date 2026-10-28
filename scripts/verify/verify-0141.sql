@@ -1,3 +1,7 @@
+-- 🔴 SUPERSEDED BY 0186 — ห้ามรันไฟล์นี้ซ้ำ (แปะ 20 ต.ค. 69)
+-- ไฟล์นี้เรียก (หรือมี create or replace ของ) ฟังก์ชันที่ 0186 เปลี่ยน signature: production_cost_calc 5 arg → 8 arg · production_order_done p_expected_spot_thb_per_gram numeric → p_expected_metal_prices jsonb —
+-- รันหลัง 0186 จะ error หรือสร้าง overload ซ้อนของเดิมกลับมา (แบบเดียวกับที่ verify-0131 เตือนไว้) · เก็บไว้เป็นหลักฐาน dry-run ของงวดนั้นเท่านั้น — ตัวที่ใช้ตรวจวันนี้คือ verify-0186.sql (ครอบเคสเดียวกันด้วย signature ใหม่)
+--
 -- scripts/verify-0141.sql
 --
 -- ชุดทดสอบของ supabase/migrations/0141_product_make_spec.sql (โหมดที่ 3 ของ

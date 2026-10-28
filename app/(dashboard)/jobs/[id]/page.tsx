@@ -1,4 +1,5 @@
 import { Lock } from "lucide-react";
+import { redirect } from "next/navigation";
 import { getJobDetail } from "@/lib/actions/job-office";
 import { canManageJobs } from "@/lib/jobs/page-gate";
 import { logJobFailure } from "@/lib/jobs/log";
@@ -23,5 +24,7 @@ export default async function JobDetailPage({ params }: { params: Promise<{ id: 
   }
   if (!res.ok) return <ErrorState message={res.error} />;
   if (!res.data) return <EmptyState title="ไม่พบใบงานนี้" description="ใบงานอาจไม่มีอยู่ หรือเป็นของร้านอื่น" />;
+  // 0181: ส่วนย่อยไม่มีหน้าของตัวเอง → ไปใบแม่ เลื่อนมาที่ส่วนนั้น
+  if (res.data.partOf) redirect(`/jobs/${res.data.partOf}#part-${id}`);
   return <JobDetailClient data={res.data} />;
 }

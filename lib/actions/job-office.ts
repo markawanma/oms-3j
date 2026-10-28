@@ -9,14 +9,25 @@
 import { revalidatePath } from "next/cache";
 import { effectiveDateBangkok } from "@/lib/tiktok/format";
 import { BOARD_COLUMNS, EVENT_COLUMNS, JOB_COLUMNS, STAGE_COLUMNS, WORKER_COLUMNS, mapBoardRow, mapEventRow, mapJobDetail, mapLossRow, mapStageDef, mapStageRow, mapWorkerRow } from "@/lib/jobs/types";
+import { visibleBoardStages } from "@/lib/jobs/board";
 import { mapRecordProfile } from "@/lib/jobs/profile";
 import type { RecordProfile } from "@/lib/jobs/profile";
 import type { BoardRow, EventRow, JobDetail, StageDef, StageLoss, StageRow, WorkerRow } from "@/lib/jobs/types";
 import { isUuid, parseCount, parseDate, parseLabel, parseStageCodes, parseText, parseWeight, TARGET_PIECE_MAX_G } from "@/lib/jobs/input";
 import { callOffice, db, fail, guard, shopId } from "@/lib/jobs/office-server";
 import type { JobResult } from "@/lib/jobs/office-server";
+import { findLotRoot, loadBoardLots, loadJobLots } from "@/lib/jobs/lots-server";
+import { loadBoardIntake } from "@/lib/jobs/intake-server";
+import type { JobLotsData } from "@/lib/jobs/lots";
+import { HISTORY_COLUMNS, HISTORY_LIMIT, HISTORY_TREE_COLUMNS, applyTreeTotals, mapHistoryRow } from "@/lib/jobs/history";
+import type { HistoryRow } from "@/lib/jobs/history";
 import { logJobFailure } from "@/lib/jobs/log";
 import { GENERIC_JOB_ERROR } from "@/lib/jobs/messages";
+import type { JobPhotoRow } from "@/lib/jobs/photos";
+import { copyCatalogPhotoToJob, loadJobPhotos } from "@/lib/jobs/photos-server";
+import { loadJobGemsSummary } from "@/lib/jobs/gems-server";
+import { mapGemBomLine, mapGemSaveSummary, toWireGemLines, wireFailResult } from "@/lib/jobs/gems";
+import type { GemBomLine, GemSaveSummary, JobGemsSummary } from "@/lib/jobs/gems";
 
 const BOARD_LIMIT = 400;
 const EVENT_LIMIT = 150;
@@ -32,6 +43,8 @@ export interface BoardData {
   stages: StageDef[];
   truncated: boolean;
   workers: Pick<WorkerRow, "id" | "displayName">[];
+  /** W1: อ่านสถานะ "จากหน้างาน/รอรับทราบ" ไม่สำเร็จ — tile "รอรับทราบ" ต้องขึ้น "—" ไม่ใช่ 0 (ไม่มี key = อ่านได้/ไม่ต้องอ่าน) */
+  intakeFailed?: boolean;
 }
 
 /** บอร์ด: ใบงานที่ยังไม่ปิด (open/in_progress/on_hold) + ทะเบียนขั้น (คอลัมน์) + ช่าง (ตัวกรอง) */
@@ -41,27 +54,92 @@ export async function getJobBoard(): Promise<JobResult<BoardData>> {
   try {
     const shop = shopId();
     const [board, defs, workers] = await Promise.all([
-      db().from("v_job_board").select(BOARD_COLUMNS).eq("shop_id", shop).in("status", ["open", "in_progress", "on_hold"]).order("is_overdue", { ascending: false }).order("due_date", { ascending: true, nullsFirst: false }).order("seq", { ascending: true }).limit(BOARD_LIMIT),
-      db().from("job_stage_def").select("code, name_th, seq_default").eq("shop_id", shop).eq("is_active", true).order("seq_default", { ascending: true }).limit(50),
+      // 0181: การ์ดต่อใบแม่ — ส่วนย่อย (parent_job_id ไม่ว่าง) ไม่ขึ้นบอร์ด (ยอดของส่วนรวมอยู่ในบรรทัดของใบแม่)
+      db().from("v_job_board").select(BOARD_COLUMNS).eq("shop_id", shop).in("status", ["open", "in_progress", "on_hold"]).is("parent_job_id", null).order("is_overdue", { ascending: false }).order("due_date", { ascending: true, nullsFirst: false }).order("seq", { ascending: true }).limit(BOARD_LIMIT),
+      db().from("job_stage_def").select("code, name_th, seq_default, is_active").eq("shop_id", shop).order("seq_default", { ascending: true }).limit(50),
       db().from("worker").select("id, display_name").eq("shop_id", shop).eq("is_active", true).order("display_name", { ascending: true }).limit(50),
     ]);
     if (board.error) throw board.error;
     if (defs.error) throw defs.error;
     if (workers.error) throw workers.error;
-    const mapped = rows(board.data).map(mapBoardRow).filter((r): r is BoardRow => r !== null);
+    let mapped = rows(board.data).map(mapBoardRow).filter((r): r is BoardRow => r !== null);
+    // 0181: ใบที่แยกส่วนแล้ว/มีส่วนต่างรอชี้แจง → บรรทัด "เสร็จ x/N · …" จาก v_job_tree_summary (อ่านไม่ได้ = บอร์ดแสดงแบบเดิม ไม่พังทั้งหน้า)
+    const split = mapped.filter((r) => (r.partsCount ?? 0) > 1 || (r.qtyPendingExplanation ?? 0) > 0).map((r) => r.id);
+    if (split.length > 0) {
+      const lots = await loadBoardLots(split);
+      mapped = mapped.map((r) => {
+        const l = lots.get(r.id);
+        return l ? { ...r, lotsLine: l.line, lotsSumOk: l.sumOk } : r;
+      });
+    }
+    // W1 (0187): ใบงานที่ใบผลิตต้นทางเปิดจากหน้างาน → ป้าย "จากหน้างาน/รอรับทราบ" (อ่านไม่ได้ = บอร์ดแสดงแบบเดิม ไม่พังทั้งหน้า)
+    const poRefs = mapped.filter((r) => r.sourceKind === "production" && r.sourceRef).map((r) => r.sourceRef as string);
+    let intakeFailed = false;
+    if (poRefs.length > 0) {
+      const intake = await loadBoardIntake(poRefs);
+      intakeFailed = intake.failed;
+      if (intake.map.size > 0) mapped = mapped.map((r) => (r.sourceKind === "production" && r.sourceRef && intake.map.has(r.sourceRef) ? { ...r, intake: intake.map.get(r.sourceRef) } : r));
+    }
     return {
       ok: true,
       data: {
         todayTh: effectiveDateBangkok(new Date().toISOString()),
         rows: mapped,
-        stages: rows(defs.data).map(mapStageDef).filter((s): s is StageDef => s !== null),
+        // 0184: ทะเบียนทุกแถว (รวมเลิกใช้) → visibleBoardStages เก็บขั้นเลิกใช้เฉพาะที่ยังมีใบอยู่ (ใบเก่าที่ค้างขั้น polish ต้องไม่ตกคอลัมน์ "ยังไม่เริ่ม")
+        stages: visibleBoardStages(rows(defs.data).map(mapStageDef).filter((s): s is StageDef => s !== null), mapped),
         truncated: rows(board.data).length >= BOARD_LIMIT,
+        ...(intakeFailed ? { intakeFailed: true } : {}),
         workers: rows(workers.data).flatMap((w) => (typeof w.id === "string" && typeof w.display_name === "string" ? [{ id: w.id, displayName: w.display_name }] : [])),
       },
     };
   } catch (err) {
     logJobFailure("getJobBoard", err);
     return fail("โหลดบอร์ดใบงานไม่สำเร็จ ลองใหม่อีกครั้ง");
+  }
+}
+
+export interface HistoryData {
+  todayTh: string;
+  rows: HistoryRow[];
+  truncated: boolean;
+}
+
+/** รหัสใบแม่ต่อ 1 คำขอสรุปต้นไม้ — IN list ยาวเกินจะทะลุเพดาน URL ของ PostgREST */
+const HISTORY_TREE_CHUNK = 100;
+
+/**
+ * ประวัติงาน: ใบแม่ที่ปิดแล้ว/ยกเลิก (ล่าสุดก่อน · ไม่เกิน 500) — whitelist คอลัมน์ ไม่มีราคา/ลูกค้า/source_ref
+ * ใบแม่ที่แบ่งส่วน/ได้รับเพิ่ม: ดี/เสีย = ของทั้งต้นไม้ (v_job_tree_summary) · อ่านสรุปไม่ได้ = ล้มทั้งคำขอ (ไม่โชว์ยอดครึ่งเดียวเงียบๆ)
+ */
+export async function getJobHistory(): Promise<JobResult<HistoryData>> {
+  const g = await guard();
+  if (g) return g;
+  try {
+    const shop = shopId();
+    const res = await db().from("job").select(HISTORY_COLUMNS).eq("shop_id", shop).in("status", ["done", "cancelled"]).is("parent_job_id", null).order("updated_at", { ascending: false }).limit(HISTORY_LIMIT);
+    if (res.error) throw res.error;
+    const raw = rows(res.data);
+    const mapped = raw.map(mapHistoryRow).filter((r): r is HistoryRow => r !== null);
+    const doneIds = mapped.filter((r) => r.status === "done").map((r) => r.id);
+    const tree = new Map<string, Record<string, unknown>>();
+    const chunks: string[][] = [];
+    for (let i = 0; i < doneIds.length; i += HISTORY_TREE_CHUNK) chunks.push(doneIds.slice(i, i + HISTORY_TREE_CHUNK));
+    const parts = await Promise.all(chunks.map((ids) => db().from("v_job_tree_summary").select(HISTORY_TREE_COLUMNS).eq("shop_id", shop).in("root_job_id", ids).limit(ids.length)));
+    for (const p of parts) {
+      if (p.error) throw p.error;
+      for (const t of rows(p.data)) if (typeof t.root_job_id === "string") tree.set(t.root_job_id, t);
+    }
+    return {
+      ok: true,
+      data: {
+        todayTh: effectiveDateBangkok(new Date().toISOString()),
+        rows: mapped.map((r) => applyTreeTotals(r, tree.get(r.id))),
+        truncated: raw.length >= HISTORY_LIMIT,
+      },
+    };
+  } catch (err) {
+    logJobFailure("getJobHistory", err);
+    return fail("โหลดประวัติงานไม่สำเร็จ ลองใหม่อีกครั้ง");
   }
 }
 
@@ -78,6 +156,20 @@ export interface JobDetailData {
   /** ลิงก์ไปใบเสนอราคา/ใบผลิตต้นทาง (id เท่านั้น) */
   source: { kind: "oem" | "production"; id: string } | null;
   todayTh: string;
+  /** 0181: ต้นไม้ส่วนย่อยของใบแม่ (ส่วน · ยอดรวม · ส่วนต่าง) — null/ไม่มี = อ่านไม่ได้ → หน้าใบงานแบบเดิม · ใบเดี่ยวที่ไม่เคยแยกมี parts 1 แถว (แผงส่วนย่อยไม่แสดง) */
+  lots?: JobLotsData | null;
+  /** 0181: ถ้าใบนี้เป็นส่วนย่อย = id ใบแม่ (หน้า /jobs/[id] redirect ไปใบแม่) · ไม่ใช่ส่วนย่อย = null/ไม่มี */
+  partOf?: string | null;
+  /**
+   * 0182: รูปอ้างอิง active ของใบ (รูปหลักก่อน · signed URL 15 นาที — ไม่มี path/ที่มา/ผู้อัปโหลด) · [] = ใบไม่มีรูป (การ์ดว่าง) ·
+   * undefined = อ่านรูปไม่ได้ (ไม่ใช่ "ไม่มีรูป" — UI แสดงสถานะผิดพลาด + ปุ่มโหลดใหม่ แต่หน้าใบงานทั้งหน้ายังเปิดได้)
+   */
+  photos?: JobPhotoRow[];
+  /**
+   * 0190 G1a: พลอยของใบแม่ (ฉลาก snapshot · จำนวน · ตำแหน่ง · state) — ไม่มีราคา/เผื่อแตก ·
+   * null = อ่านไม่ได้ (ไม่ใช่ "ไม่มีพลอย" — จอแสดงสถานะผิดพลาด หน้าใบงานยังเปิดได้) · ไม่มี key = ส่วนย่อย (พลอยอยู่ที่ใบแม่)
+   */
+  gems?: JobGemsSummary | null;
 }
 
 export async function getJobDetail(jobId: string): Promise<JobResult<JobDetailData | null>> {
@@ -95,7 +187,7 @@ export async function getJobDetail(jobId: string): Promise<JobResult<JobDetailDa
       db().from("job_stage").select(STAGE_COLUMNS).eq("shop_id", shop).eq("job_id", jobId).order("seq", { ascending: true }).limit(50),
       db().from("job_event").select(EVENT_COLUMNS).eq("shop_id", shop).eq("job_id", jobId).order("recorded_at", { ascending: false }).limit(EVENT_LIMIT),
       db().from("v_job_board").select(BOARD_COLUMNS).eq("shop_id", shop).eq("id", jobId).maybeSingle(),
-      db().from("v_job_stage_loss").select("job_stage_id, loss_g, loss_pct, warn, not_weighed, handoff_gap_g").eq("shop_id", shop).eq("job_id", jobId).limit(50),
+      db().from("v_job_stage_loss").select("job_stage_id, loss_g, loss_pct, warn, not_weighed, handoff_gap_g, handoff_gap_partial_g").eq("shop_id", shop).eq("job_id", jobId).limit(50),
       db().from("job_token").select("id", { count: "exact", head: true }).eq("shop_id", shop).eq("job_id", jobId).is("revoked_at", null),
       db().from("worker").select(WORKER_COLUMNS).eq("shop_id", shop).order("display_name", { ascending: true }).limit(60),
       db().from("job_stage_def").select("code, name_th, metal_present").eq("shop_id", shop).limit(50),
@@ -128,10 +220,39 @@ export async function getJobDetail(jobId: string): Promise<JobResult<JobDetailDa
       if (typeof id === "string") source = { kind: "production", id };
     }
 
+    const lots = await loadJobLots(jobId, names);
+    // 0181: ใบนี้เป็น "ส่วนย่อย" (ไม่ใช่ใบแม่) → บอกใบแม่ให้หน้าเด้งไปที่ใบแม่ (anchor ที่ส่วนนั้น) — ถามเฉพาะเมื่อไม่มีต้นไม้ของใบนี้
+    const partOf = lots === null ? await findLotRoot(jobId) : null;
+    // 0182: รูปอ้างอิง (เฉพาะใบแม่ — ส่วนย่อยใช้รูปแม่) · อ่าน/เซ็นไม่ได้ไม่ล้มทั้งหน้า
+    let photos: JobPhotoRow[] | undefined = [];
+    if (!partOf) {
+      try {
+        photos = await loadJobPhotos(jobId);
+      } catch (err) {
+        logJobFailure("getJobDetail.photos", err);
+        photos = undefined;
+      }
+    }
+
+    // 0190: พลอยของใบแม่ (ส่วนย่อยไม่มี) · อ่านไม่ได้ไม่ล้มทั้งหน้า
+    let gems: JobGemsSummary | null | undefined;
+    if (!partOf) {
+      try {
+        gems = await loadJobGemsSummary(job.id, job.qtyPlanned);
+      } catch (err) {
+        logJobFailure("getJobDetail.gems", err);
+        gems = null;
+      }
+    }
+
     return {
       ok: true,
       data: {
         job,
+        lots,
+        partOf,
+        photos,
+        ...(gems === undefined ? {} : { gems }),
         board: boardRes.data ? mapBoardRow(boardRes.data as unknown as Record<string, unknown>) : null,
         stages,
         loss,
@@ -164,7 +285,8 @@ export async function getJobsForSourceItems(kind: string, itemIds: string[]): Pr
   if (itemIds.length === 0) return { ok: true, data: [] };
   try {
     const col = kind === "oem" ? "oem_quote_item_id" : "production_order_item_id";
-    const { data, error } = await db().from("job").select(`id, job_no, status, ${col}`).eq("shop_id", shopId()).neq("status", "cancelled").in(col, itemIds).limit(100);
+    // 0181: ใบแม่เท่านั้น — ส่วนย่อยคัดลอก source จากแม่ (ชี้รายการเดียวกัน) ถ้าไม่กรองจะหยิบส่วนย่อยมาเป็น "ใบงานของรายการ" + limit(100) ตัดใบแม่ทิ้ง
+    const { data, error } = await db().from("job").select(`id, job_no, status, ${col}`).eq("shop_id", shopId()).is("parent_job_id", null).neq("status", "cancelled").in(col, itemIds).limit(100);
     if (error) throw error;
     const out: SourceJob[] = [];
     for (const r of rows(data)) {
@@ -198,10 +320,12 @@ export interface JobSuggestion {
   stages: SuggestStage[];
   /** 0175: น้ำหนักเป้าหมายต่อชิ้นจากต้นทาง (ใบเสนอราคา/สินค้า) + ที่มา · null = ไม่มีข้อมูล (ไม่เดา) */
   targetPieceG: number | null;
-  targetPieceGSource: "quote" | "product" | null;
+  targetPieceGSource: "quote" | "product" | "input" | null;
   /** 0176: แบบการบันทึกที่ใช้งานอยู่ + ค่าเริ่มที่ server resolve ตามโลหะแล้ว (null = ร้านไม่มีค่าเริ่ม → ฟอร์มต้องบล็อก ไม่เดา) */
   profiles: RecordProfile[];
   defaultProfileId: string | null;
+  /** รหัส SKU ของรายการ (ถ้ามี) — ใช้ป้าย "จากแม่แบบ SKU …" ในส่วนพลอยของฟอร์ม · ไม่มี key = ไม่มี SKU */
+  sku?: string;
 }
 
 export async function suggestJob(kind: string, itemId: string): Promise<JobResult<JobSuggestion>> {
@@ -226,8 +350,9 @@ export async function suggestJob(kind: string, itemId: string): Promise<JobResul
       depositMissing: d.deposit_missing === true,
       existingJob: ex && typeof ex.id === "string" && typeof ex.job_no === "string" ? { id: ex.id, jobNo: ex.job_no } : null,
       stages,
+      ...(typeof d.sku === "string" && d.sku !== "" ? { sku: d.sku.slice(0, 100) } : {}),
       targetPieceG: typeof d.target_piece_g === "number" ? d.target_piece_g : null,
-      targetPieceGSource: d.target_piece_g_source === "quote" || d.target_piece_g_source === "product" ? d.target_piece_g_source : null,
+      targetPieceGSource: d.target_piece_g_source === "quote" || d.target_piece_g_source === "product" || d.target_piece_g_source === "input" ? d.target_piece_g_source : null,
       profiles,
       // ค่าเริ่มต้องเป็นแบบที่ active อยู่ในรายการจริง — ไม่งั้นถือว่าไม่มี (ไม่เดา)
       defaultProfileId: typeof d.default_profile_id === "string" && profiles.some((p) => p.id === d.default_profile_id) ? d.default_profile_id : null,
@@ -251,6 +376,8 @@ export interface JobPlanSuggestion {
   /** basis ที่ DB คำนวณ (target_piece_g · qty_planned · sprue_loss_pct · formula · computed_g · override_g · missing[]) */
   metalPlanBasis: Record<string, unknown> | null;
   missing: string[];
+  /** 0190: แม่แบบพลอยของ SKU (ฉลาก + จำนวน/ชิ้น + ตำแหน่ง) · [] = ไม่มี SKU/ไม่มีแม่แบบ — 🔴 ไม่มีราคา (ฟอร์มนี้ staff ใช้ได้) · key อื่นที่ DB ส่งมาถูกทิ้งที่ mapGemBomLine */
+  gemBom: GemBomLine[];
 }
 
 const numOrNull = (v: unknown): number | null => (typeof v === "number" && Number.isFinite(v) ? v : null);
@@ -303,6 +430,7 @@ export async function getJobPlanSuggest(kind: string, itemId: string, input: Pla
       metalPlanG: numOrNull(d.metal_plan_g),
       metalPlanBasis: basis !== null && typeof basis === "object" && !Array.isArray(basis) ? (basis as Record<string, unknown>) : null,
       missing: Array.isArray(d.missing) ? d.missing.filter((m): m is string => typeof m === "string") : [],
+      gemBom: (Array.isArray(d.gem_bom) ? d.gem_bom : []).map(mapGemBomLine).filter((l): l is GemBomLine => l !== null).slice(0, 30),
     },
   };
 }
@@ -322,9 +450,16 @@ export interface CreateJobInput {
   metalPlanReason?: string | null;
   /** 0176: แบบการบันทึกที่เลือก (ไม่ส่ง = DB ใช้ค่าเริ่มตามโลหะ) */
   profileId?: string | null;
+  /**
+   * 0190 G1a: พลอยต่อชิ้น — ไม่ส่ง (undefined) = คัดลอกแม่แบบ SKU เมื่อใบมีขั้นฝังพลอย · [] = ระบุว่าไม่มีพลอย · แถว = พลอยที่ระบุ (ชื่อใหม่เข้าแคตตาล็อกในทรานแซกชันเดียวกับใบ · ผิดแถวไหน = ไม่เปิดใบเลย)
+   * ผ่าน allowlist เข้มก่อนถึง DB (key แปลก เช่น price = ปฏิเสธ)
+   */
+  gemLines?: unknown;
+  /** ยืนยันเพิ่มชื่อใหม่ที่ "คล้าย" ชื่อที่มี (ข้ามตัวดัก — ชื่อที่ซ้ำเป๊ะยังถูกใช้ตัวเดิมเสมอ) */
+  gemForce?: boolean;
 }
 
-export async function createJob(input: CreateJobInput): Promise<JobResult<{ jobId: string; jobNo: string; planMissing: string[] }>> {
+export async function createJob(input: CreateJobInput): Promise<JobResult<{ jobId: string; jobNo: string; planMissing: string[]; /** 0190: มีเมื่อส่ง/คัดลอกพลอย — ชื่อใหม่ที่ DB สร้าง + "ใช้ตัวเดิมให้" */ gemSummary?: GemSaveSummary }>> {
   const g = await guard();
   if (g) return g;
   if (typeof input !== "object" || input === null || (input.kind !== "oem" && input.kind !== "production") || !isUuid(input.itemId)) return fail("ข้อมูลไม่ถูกต้อง");
@@ -370,6 +505,14 @@ export async function createJob(input: CreateJobInput): Promise<JobResult<{ jobI
     planArgs.p_profile_id = input.profileId;
   }
 
+  // 0190: พลอย — ใส่ arg เฉพาะเมื่อมีค่า (ไม่ส่ง = DB คัดลอกแม่แบบถ้ามีขั้นฝัง)
+  if (input.gemLines !== undefined) {
+    const w = toWireGemLines(input.gemLines);
+    if (!w.ok) return wireFailResult(w);
+    planArgs.p_gem_lines = w.value;
+  }
+  if (input.gemForce === true) planArgs.p_gem_force = true;
+
   const r =
     input.kind === "oem"
       ? await callOffice<Record<string, unknown>>("job_create_from_quote_item", { p_quote_item_id: input.itemId, p_stage_codes: codes.value, p_due_date: due, p_start_gate_note: gate.value, p_design_label: label.value, p_note: note.value, ...planArgs })
@@ -378,9 +521,17 @@ export async function createJob(input: CreateJobInput): Promise<JobResult<{ jobI
   const id = r.data.job_id ?? r.data.id;
   const no = r.data.job_no;
   if (typeof id !== "string" || !isUuid(id) || typeof no !== "string") return fail(GENERIC_JOB_ERROR);
+  // 0182: รูปหลักของ SKU (ถ้ามี) = รูปหลักของใบอัตโนมัติ (copy เข้า bucket ใบงาน) — ไม่บล็อกการสร้างใบ: ไม่มี SKU/ไม่มีรูป/ล้มกลางทาง = ใบเกิดปกติ (ปุ่ม "ดึงรูปจากแคตตาล็อก" ทำซ้ำได้)
+  try {
+    await copyCatalogPhotoToJob(id);
+  } catch (err) {
+    logJobFailure("createJob.photo", err);
+  }
   revalidatePath("/jobs");
   revalidatePath(input.kind === "oem" ? "/oem/quotes" : "/production");
   // plan_missing[] (0175): แผนโลหะที่ DB คำนวณให้ไม่ได้ (เช่น ไม่มีอัตราก้านต้น) — ฟอร์มใช้ต่อท้าย toast
   const planMissing = Array.isArray(r.data.plan_missing) ? r.data.plan_missing.filter((m): m is string => typeof m === "string") : [];
-  return { ok: true, data: { jobId: id, jobNo: no, planMissing } };
+  // 0190: สรุปพลอยที่ DB บันทึก (ชื่อใหม่ที่สร้าง / "ใช้ตัวเดิมให้") — ไม่มีสรุป (ไม่ได้ส่งพลอย) = null
+  const gemSummary = r.data.gem_summary !== null && typeof r.data.gem_summary === "object" ? mapGemSaveSummary({ summary: r.data.gem_summary, changed: true, count: r.data.gem_lines }) : null;
+  return { ok: true, data: { jobId: id, jobNo: no, planMissing, ...(gemSummary ? { gemSummary } : {}) } };
 }

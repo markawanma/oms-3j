@@ -13,10 +13,19 @@
 // mandatory cross-checks) needed to change. The old `parseCsv()` function
 // was deleted as dead code: there is no more CSV text to parse.
 //
-// 🔴 Do not change the anchor-based column mapping or drop any of the 6
+// 🔴 Do not change the anchor-based column mapping or drop any of the 7
 // cross-checks below without re-reading the brief for feat/sheets-api-auth —
 // they exist specifically to catch silently-wrong column mapping (e.g.
 // grabbing the "Partner 5.80%" block whose values coincidentally look valid).
+//
+// 2026-10-29 (fix/silver-sheet-parser-v2): the margin column's header is the
+// margin RATE and the owner retunes it, so the column is now located by shape
+// (a single "<n>%" cell between "ราคาค่าบล๊อค" and "Total") via
+// findMarginColumn() instead of one literal value, and the rate it carries is
+// verified by a NEW 7th cross-check (margin ≈ (silver + block fee) × rate).
+// Net effect is STRICTER than before: 0 or 2+ candidates, a candidate outside
+// that span, or a rate that doesn't reproduce the column's numbers => problem
+// => nothing is written. Cross-checks 1-6 are unchanged.
 
 /** Strict cell -> number: strips thousands separators, requires the WHOLE
  * (trimmed) cell to be numeric — no free-form regex extraction from mixed
@@ -46,6 +55,55 @@ export function findAnchorRow(rows, mustInclude) {
  * labels (e.g. "ซื้อคืน kg" vs "ราคาซื้อคืน" both contain "ซื้อคืน"). */
 export function findColumnExact(row, label) {
   return row.findIndex((c) => (c ?? "").trim() === label);
+}
+
+/** A header cell that is JUST a percentage, e.g. "<n>%" / "<n>.<d>%". Anchored
+ * on both ends on purpose: "Partner 5.80%" or "<n>% กำไร" must NOT count. */
+const PERCENT_LABEL_RE = /^\d{1,3}(\.\d{1,2})?%$/;
+
+/**
+ * Locate the size-table "margin component" column. Its header is the margin
+ * RATE itself ("<n>%") and the owner retunes that rate over time, so matching
+ * one literal value silently breaks the whole capture every time it changes
+ * (it did on ~21 Oct 2026: the primary capture failed every run for 8 days
+ * while the Playwright fallback kept `silver_price_daily` looking healthy).
+ *
+ * Returns `{ col, rate }` (rate as a fraction, e.g. 12.5% -> 0.125) only when
+ * the match is unambiguous, otherwise `{ col: -1, rate: null, reason }` and the
+ * caller records a problem (=> nothing is written). Rules:
+ *   - exactly ONE percent-looking cell in the header row (0 => missing,
+ *     2+ => ambiguous: never pick one);
+ *   - it must sit strictly between "ราคาค่าบล๊อค" and "Total" — the position
+ *     this column has always had. A "%" cell anywhere else means the layout
+ *     moved and the column mapping can't be trusted;
+ *   - the rate itself is then verified against the column's values by
+ *     cross-check #7 in parseSheet (margin ≈ (silver + block fee) × rate).
+ */
+export function findMarginColumn(headerRow, colBlockFee, colTotal) {
+  if (colBlockFee === -1 || colTotal === -1) {
+    return { col: -1, rate: null, reason: 'ยังหา "ราคาค่าบล๊อค"/"Total" ไม่เจอ จึงระบุตำแหน่งคอลัมน์ % ไม่ได้' };
+  }
+  const hits = [];
+  headerRow.forEach((c, i) => {
+    if (PERCENT_LABEL_RE.test((c ?? "").trim())) hits.push(i);
+  });
+  if (hits.length === 0) return { col: -1, rate: null, reason: "ไม่พบหัวคอลัมน์ที่เป็น % ล้วนในแถว header" };
+  if (hits.length > 1) {
+    return {
+      col: -1,
+      rate: null,
+      reason: `พบหัวคอลัมน์ที่เป็น % มากกว่า 1 ตำแหน่ง (คอลัมน์ ${hits.map((h) => h + 1).join(", ")}) — ไม่เดาว่าอันไหน`,
+    };
+  }
+  const col = hits[0];
+  if (!(col > colBlockFee && col < colTotal)) {
+    return { col: -1, rate: null, reason: `คอลัมน์ % (คอลัมน์ ${col + 1}) ไม่ได้อยู่ระหว่าง "ราคาค่าบล๊อค" กับ "Total" — โครงตารางเปลี่ยน` };
+  }
+  const rate = Number(headerRow[col].trim().slice(0, -1)) / 100;
+  if (!Number.isFinite(rate) || rate <= 0) {
+    return { col: -1, rate: null, reason: "อัตรา % ในหัวคอลัมน์ไม่ใช่ตัวเลขบวก" };
+  }
+  return { col, rate };
 }
 
 const EN_MONTHS = [
@@ -115,6 +173,7 @@ export function parseSheet(rows) {
   ];
   const silverContentBySize = {}; // internal — used only for cross-checks below
   let asOfDateRaw = null;
+  let marginRate = null; // fraction from the margin column's header, used by cross-check #7
 
   if (sizeHeaderIdx === -1) {
     problems.push('หา header แถวตารางราคาต่อขนาด ("ราคาเนื้อเงิน"/"ราคาค่าบล๊อค"/"ซื้อคืน") ไม่เจอ');
@@ -122,22 +181,29 @@ export function parseSheet(rows) {
     const headerRow = rows[sizeHeaderIdx];
     const colSilver = findColumnExact(headerRow, "ราคาเนื้อเงิน");
     const colBlockFee = findColumnExact(headerRow, "ราคาค่าบล๊อค");
-    const colMargin = findColumnExact(headerRow, "11%");
     const colTotal = findColumnExact(headerRow, "Total");
     const colShopee = findColumnExact(headerRow, "Shopee");
     const colBuy = findColumnExact(headerRow, "ราคาซื้อคืน");
+    const marginLookup = findMarginColumn(headerRow, colBlockFee, colTotal);
+    const colMargin = marginLookup.col;
+    marginRate = marginLookup.rate;
     const requiredCols = { colSilver, colBlockFee, colMargin, colTotal, colShopee, colBuy };
     const missingCols = Object.entries(requiredCols)
       .filter(([, v]) => v === -1)
       .map(([k]) => k);
+
+    // as-of date sits right before "ราคาเนื้อเงิน" in the same header row
+    // (real layout observed: col0=blank/weight-label-elsewhere, col1=date,
+    // col2="ราคาเนื้อเงิน"). Read independently of the column check below so a
+    // column failure doesn't also print "date not found" and send the
+    // debugger after the wrong problem. Best-effort only — used solely for the
+    // legacy silver_price_daily upsert, never for silver_price_history.
+    if (colSilver > 0) asOfDateRaw = headerRow[colSilver - 1];
+
     if (missingCols.length > 0) {
-      problems.push(`หาคอลัมน์ในตารางราคาต่อขนาดไม่ครบ: ${missingCols.join(", ")}`);
+      const detail = marginLookup.reason ? ` (colMargin: ${marginLookup.reason})` : "";
+      problems.push(`หาคอลัมน์ในตารางราคาต่อขนาดไม่ครบ: ${missingCols.join(", ")}${detail}`);
     } else {
-      // as-of date sits right before "ราคาเนื้อเงิน" in the same header row
-      // (real layout observed: col0=blank/weight-label-elsewhere, col1=date,
-      // col2="ราคาเนื้อเงิน"). Best-effort only — used solely for the legacy
-      // silver_price_daily upsert, never for silver_price_history.
-      if (colSilver > 0) asOfDateRaw = headerRow[colSilver - 1];
 
       for (let i = 0; i < sizeSuffixes.length; i++) {
         const [label, suffix] = sizeSuffixes[i];
@@ -277,6 +343,30 @@ export function parseSheet(rows) {
     for (let i = 1; i < sellSeries.length; i++) {
       if (sellSeries[i - 1] !== undefined && sellSeries[i] !== undefined && sellSeries[i] <= sellSeries[i - 1]) {
         problems.push(`Cross-check ล้ม: ราคาขายไม่เรียงเพิ่มตามขนาด (${sizeSuffixes[i - 1][0]} บาท=${sellSeries[i - 1]}, ${sizeSuffixes[i][0]} บาท=${sellSeries[i]})`);
+      }
+    }
+
+    // 7) margin ต่อขนาด ≈ (เนื้อเงิน + ค่าบล๊อค) × อัตราในหัวคอลัมน์ — สูตรชีตตาม
+    //    supabase/migrations/0134_silver_bar_cost_from_kilo_price.sql. พิสูจน์ว่า
+    //    (ก) คอลัมน์ที่จับด้วยรูปแบบ "<n>%" คือคอลัมน์ margin จริง ไม่ใช่คอลัมน์อื่นที่
+    //    หัวบังเอิญเป็น % และ (ข) อัตราที่อ่านจากหัวสอดคล้องกับตัวเลขข้างล่าง.
+    //    fail-closed: อ่านค่าไม่ได้ = ตก (ไม่ใช่ข้าม)
+    for (const [label, suffix] of sizeSuffixes) {
+      const content = silverContentBySize[suffix];
+      const blockFee = data[`block_fee_${suffix}`];
+      const margin = data[`margin_component_${suffix}`];
+      if (!content) continue;
+      if (blockFee == null || margin == null || marginRate == null) {
+        problems.push(`Cross-check ล้ม: ขนาด ${label} บาท อ่านค่าบล๊อค/margin/อัตรา % ไม่ได้ จึงตรวจสูตร margin ไม่ได้`);
+        continue;
+      }
+      const expectedMargin = (content.value + blockFee) * marginRate;
+      const tolerance = Math.max(1, expectedMargin * 0.02);
+      if (Math.abs(margin - expectedMargin) > tolerance) {
+        problems.push(
+          // ไม่พิมพ์ตัวเลข margin/อัตรา ลง log โดยตั้งใจ (ข้อมูลภายใน)
+          `Cross-check ล้ม: ขนาด ${label} บาท margin ไม่ตรงกับ (เนื้อเงิน+ค่าบล๊อค)×อัตราในหัวคอลัมน์ เกิน tolerance — น่าจะอ่านผิดคอลัมน์ หรืออัตราในหัวไม่ตรงกับตัวเลข`
+        );
       }
     }
   }

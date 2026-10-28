@@ -82,6 +82,7 @@ function ActiveJobRow({
             <span className={`text-xs ${DUE_CLS[due.kind]}`}>{due.text}</span>
           </span>
           <span className="text-xs text-zinc-700">{meta}</span>
+          {row.lotsLine && <span className="text-xs font-medium tabular-nums text-zinc-900">{row.lotsLine}</span>}
           {secondary.map((s) => (
             <StatusChip key={s.key} status={s} />
           ))}

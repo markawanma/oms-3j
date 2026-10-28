@@ -5,6 +5,7 @@
 // follows the production sequence (§1.1), not alphabetical or DB order.
 
 import { useMemo } from "react";
+import Link from "next/link";
 import { CheckCircle2, ChevronRight } from "lucide-react";
 import type { OemMetalPriceMap, OemRateStatusRow, OemReadiness, OemSettingData } from "@/lib/oem/types";
 import type { SellerProfile } from "@/lib/oem/sellerProfile";
@@ -186,6 +187,15 @@ export function RatesPageClient({
 
       <MetalPriceSection prices={metalPrices} todayBkk={todayBkk} />
       <OemPolicySection setting={setting} />
+
+      {/* G1a: ราคาพลอยอยู่หน้าแคตตาล็อกของตัวเอง (ข้อมูลโตเรื่อยๆ ต้องกรอง/ค้น/รวมชื่อ) — หน้านี้ไม่ขยับนอกจากการ์ดลิงก์ */}
+      <Link
+        href="/oem/gems"
+        className="flex min-h-11 items-center justify-between gap-3 rounded-lg border border-zinc-200 bg-white p-3.5 text-sm font-semibold text-primary-700 shadow-sm hover:bg-zinc-50"
+      >
+        <span>แคตตาล็อกพลอย — ชนิด รูปทรง ขนาด และราคาต่อเม็ด</span>
+        <span aria-hidden="true">→</span>
+      </Link>
     </div>
   );
 }

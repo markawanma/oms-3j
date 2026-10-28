@@ -7,13 +7,12 @@
 // ปลายทางจริง — ตัดออกแทนที่จะส่งลิงก์ที่ไปไหนไม่ได้จริงให้ผู้ใช้กด).
 // CTA ปลายทาง (O4 ของ design doc §9) — เจ้าของเคาะแล้ว 5 ต.ค. 69 (หลังทดสอบจริง
 // บน production): LINE OA ID @3jjewelry ใช้ lin.ee shortlink ที่เจ้าของให้มาตรงๆ
-// (ของเดิม @3jsilver เป็น placeholder ผิดร้าน ไม่ใช่ความตั้งใจ).
+// (ของเดิมเป็น placeholder ผิดร้าน ไม่ใช่ความตั้งใจ) · ค่าอยู่ที่เดียว lib/shop/line.ts.
 import { GemIcon } from "../_components/GemIcon";
 import { PrimaryButton } from "../_components/PrimaryButton";
 import { GEM_QUIZ_STONE_BY_CODE, type GemQuizStoneCode } from "@/lib/gem-quiz/config";
 import type { GemQuizResultView } from "@/lib/gem-quiz/result";
-
-const LINE_OA_URL = "https://lin.ee/PzIJl6j";
+import { LINE_OA_URL } from "@/lib/shop/line";
 
 // code review S5: code เป็น GemQuizStoneCode (literal union) อยู่แล้ว — TS
 // การันตีว่ามีจริงใน GEM_QUIZ_STONE_BY_CODE ไม่ต้อง throw/`!` เหมือนของเดิม

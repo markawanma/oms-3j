@@ -9,6 +9,11 @@ export function workerUrl(origin: string, token: string): string {
   return `${origin.replace(/\/+$/, "")}/w/${token}`;
 }
 
+/** QR ร้าน (hub ที่ผู้จัดการสแกนเปิดใบ): <origin>/w/s/<token ร้าน> — ประกอบฝั่ง server เท่านั้น (origin มาจาก APP_ORIGIN ผ่าน currentAppOrigin) */
+export function shopUrl(origin: string, token: string): string {
+  return `${origin.replace(/\/+$/, "")}/w/s/${token}`;
+}
+
 export function renderQrSvg(text: string): string {
   return renderSVG(text, { ecc: "H", border: 2, whiteColor: "#ffffff", blackColor: "#000000", pixelSize: 8 });
 }

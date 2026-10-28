@@ -31,6 +31,7 @@ import { formatDueText } from "@/lib/oem/invoiceDisplay";
 import { fmtPct, formatOemAddressLines } from "@/lib/oem/display";
 import { formatTHB } from "@/lib/format";
 import { formatThaiDateOnly } from "@/lib/tiktok/format";
+import { bkkDateISO } from "@/lib/print/filename";
 import { Button } from "@/components/ui/Button";
 
 const dateTh = (iso: string) => formatThaiDateOnly(iso.slice(0, 10));
@@ -68,7 +69,7 @@ export function PrintInvoiceClient({ invoice, notices }: { invoice: PrintableInv
         <div role="status" className="mb-3 rounded-md border-2 border-red-400 bg-red-50 px-3 py-2 text-center text-sm text-red-700 print:hidden">
           <p className="font-bold">
             ใบนี้ถูกยกเลิกแล้ว
-            {invoice.voidedAt ? ` เมื่อ ${dateTh(invoice.voidedAt)}` : ""} — ดูได้บนจอเท่านั้น พิมพ์ไม่ได้
+            {invoice.voidedAt ? ` เมื่อ ${formatThaiDateOnly(bkkDateISO(invoice.voidedAt) || null)}` : ""} — ดูได้บนจอเท่านั้น พิมพ์ไม่ได้
           </p>
           {notices.voidReason && <p className="mt-0.5 text-xs">เหตุผล (ภายในร้าน): {notices.voidReason}</p>}
         </div>

@@ -4,7 +4,9 @@
 //    (RPC job_worker_resolve ก็ประกอบทีละ key อยู่แล้ว — ชั้นนี้คือด่านซ้ำฝั่งแอป เผื่อ RPC เปลี่ยนในอนาคต)
 // payload นี้ผ่าน RSC ไปถึง client component ทั้งก้อน → ต้องตรวจจากรูปที่ "ส่งออกจริง" (ดู worker-view.test.ts)
 
-export const NEXT_ACTIONS = ["identify", "receive", "send", "awaiting_deposit", "not_your_stage", "held_by_other", "prev_not_sent", "on_hold", "all_done"] as const;
+import { isJobPhotoSignedUrl } from "@/lib/jobs/photos";
+
+export const NEXT_ACTIONS = ["identify", "receive", "send", "awaiting_deposit", "not_your_stage", "held_by_other", "prev_not_sent", "on_hold", "all_done", "multi"] as const;
 export type NextAction = (typeof NEXT_ACTIONS)[number];
 
 export interface WorkerViewStage {
@@ -18,7 +20,75 @@ export interface WorkerViewStage {
   autoClosed?: boolean;
 }
 
+/** 0181: ส่วนหนึ่งของใบ (ใบแม่ = lotSeq 0) — ภาพรวมให้ช่างที่ระบุตัวแล้ว · ไม่มีราคา/ต้นทุน/ชื่อลูกค้า */
+export interface WorkerPart {
+  lotJobId: string;
+  label: string;
+  lotSeq: number;
+  status: string;
+  qtyPlanned: number;
+  qtyLive: number | null;
+  stageCode: string | null;
+  stageName: string | null;
+  holderName: string | null;
+  days: number | null;
+  isMine: boolean;
+  /** ช่างคนนี้ยกเลิกส่วนนี้เองได้ (ส่วนที่ตัวเองแยก · ยังไม่มีคนรับ · ผู้ถือเดิมยังไม่ส่งส่วนที่เหลือ) */
+  canCancelSplit: boolean;
+}
+
+/**
+ * 0182: รูปอ้างอิงของใบ (เฉพาะช่างที่ระบุตัวแล้ว) — signed URL 15 นาที (worker-server เซ็นจาก path ที่ RPC ส่งมา แล้วทิ้ง path) · รูปหลักมาก่อน
+ * 🔴 ไม่มี path/ชื่อไฟล์/ที่มา/ผู้อัปโหลด/product_image_id/ขนาดไฟล์ — ประกอบทีละ key จาก {id, sm_url, md_url, is_primary, caption} ที่ worker-server แปลงแล้วเท่านั้น
+ */
+export interface WorkerPhoto {
+  id: string;
+  smUrl: string;
+  mdUrl: string;
+  isPrimary: boolean;
+  caption: string | null;
+}
+
+/**
+ * 0190 G1a: พลอยที่ต้องใช้ของใบ (เฉพาะช่างที่ระบุตัวแล้ว) — ฉลาก snapshot ณ ตอนสั่ง + จำนวน/ชิ้น + รวมทั้งใบ + ตำแหน่ง
+ * 🔴 ประกอบทีละ key จาก {label, qty_per_piece, qty_total, position} เท่านั้น — ไม่มีราคา/เผื่อแตก/tier/ผู้ขาย/รหัสรายการ (key อื่นที่ DB ส่งมาถูกทิ้ง) · เทสต์ล็อก key list
+ */
+export interface WorkerGem {
+  label: string;
+  qtyPerPiece: number;
+  qtyTotal: number;
+  position: string | null;
+}
+
+export const MY_ACTION_KINDS = ["send", "receive", "explain", "arrive"] as const;
+export type MyActionKind = (typeof MY_ACTION_KINDS)[number];
+
+/** 0181: สิ่งที่ช่างคนนี้ทำได้ในต้นไม้ (ส่งส่วนที่ถือ · รับส่วนที่ขั้นถัดไปเป็นของฉัน · ชี้แจงส่วนต่างที่ฉันเป็นผู้ส่ง) */
+export interface WorkerAction {
+  lotJobId: string;
+  label: string;
+  action: MyActionKind;
+  stageSeq: number;
+  stageCode: string;
+  stageName: string;
+  weightRequired: boolean;
+  scrapQtyAsk: boolean;
+  scrapWeightAsk: boolean;
+  /** send: จำนวนที่ถืออยู่ (ส่ง p_qty_hold นี้กลับเมื่อแยกส่วน) */
+  qtyHold: number | null;
+  /** receive: จำนวนที่คาดว่าจะได้รับ (ผู้รับใส่จำนวนจริงได้ — น้อยกว่า = ส่วนต่างรอชี้แจง) */
+  qtyExpected: number | null;
+  /** explain · arrive (0183: ผู้รับของขั้นที่รับขาด กด "ได้รับเพิ่มแล้ว" — qty = ส่วนต่างที่ยังค้าง · weightRequired = ทองที่ขั้นชั่ง ต้องชั่งชิ้นที่มาถึง · ไม่มีน้ำหนักอื่นใดมากับ action นี้) */
+  discrepancyId: string | null;
+  /** explain: ส่วนต่างงานทองที่มีน้ำหนักเทียบ — ออฟฟิศชี้แจงเท่านั้น (H1) · ช่างกดแล้วได้ office_required */
+  officeOnly: boolean;
+  qty: number | null;
+}
+
 export interface WorkerView {
+  /** 0181: มีเมื่อช่างระบุตัวแล้วเท่านั้น (ก่อน PIN ไม่ส่ง) */
+  parts?: WorkerPart[];
+  myActions?: WorkerAction[];
   job: {
     jobNo: string;
     status: string;
@@ -34,6 +104,11 @@ export interface WorkerView {
      * 🔴 ไม่มีชื่อแบบ/ป้ายทอง/คำเตือนทองในช่องทางนี้ — ช่างเห็นแค่ "ช่องไหนต้องกรอก" (profile_name ที่ DB ส่งให้ช่างที่ระบุตัวแล้ว ถูกทิ้งที่ชั้นนี้)
      */
     hasProfile?: boolean;
+    /** 0182: ไม่มี key = ใบไม่มีรูป/ยังไม่ระบุตัว/เซ็น URL ไม่ได้ทุกรูป (หน้าช่างเดิมเป๊ะ) */
+    photos?: WorkerPhoto[];
+    /** 0190: ไม่มี key = ใบไม่มีขั้นฝังและไม่มีพลอย/ยังไม่ระบุตัว (หน้าช่างเดิมเป๊ะ) · มี = specified (gems ≥ 1 รายการ) หรือ unspecified (มีขั้นฝังแต่ยังไม่ระบุพลอย · gems = []) */
+    gemsState?: "specified" | "unspecified";
+    gems?: WorkerGem[];
   };
   viewer: { workerId: string; displayName: string } | null;
   sessionExpired: boolean;
@@ -88,6 +163,77 @@ function mapStage(raw: unknown): WorkerViewStage | null {
   return out;
 }
 
+const uuidOrNull = (v: unknown): string | null => (typeof v === "string" && UUID_RE.test(v) ? v : null);
+
+/** 0182: แถวรูปที่ worker-server เซ็นแล้ว ({id, sm_url, md_url, is_primary, caption}) → WorkerPhoto · URL ต้องเป็น signed URL ของ job-photos (ด่านซ้ำ) · ไม่มี URL ที่ใช้ได้ = ทิ้งรูปนั้น · path ดิบ (sm_path/md_path) ไม่ถูกอ่านเลย */
+function mapPhoto(raw: unknown): WorkerPhoto | null {
+  if (!isObj(raw)) return null;
+  const id = uuidOrNull(raw.id);
+  const sm = isJobPhotoSignedUrl(raw.sm_url) ? raw.sm_url : null;
+  const md = isJobPhotoSignedUrl(raw.md_url) ? raw.md_url : null;
+  if (!id || (!sm && !md)) return null;
+  return { id, smUrl: (sm ?? md) as string, mdUrl: (md ?? sm) as string, isPrimary: raw.is_primary === true, caption: text(raw.caption, 60) };
+}
+
+/** 0190: แถวพลอยจาก DB → WorkerGem · รูปไม่ถูกต้อง (ฉลากว่าง/จำนวนนอกช่วง) = ทิ้งแถวนั้น · key อื่น (รวมทุกชื่อที่ดูเป็นราคา) ไม่ถูกอ่านเลย */
+function mapGem(raw: unknown): WorkerGem | null {
+  if (!isObj(raw)) return null;
+  const label = text(raw.label, 200);
+  const qpp = numOrNull(raw.qty_per_piece);
+  const total = numOrNull(raw.qty_total);
+  if (!label || qpp === null || !Number.isInteger(qpp) || qpp < 1 || qpp > 1000 || total === null || !Number.isInteger(total) || total < 0 || total > 1e9) return null;
+  return { label, qtyPerPiece: qpp, qtyTotal: total, position: text(raw.position, 40) };
+}
+
+function mapPart(raw: unknown): WorkerPart | null {
+  if (!isObj(raw)) return null;
+  const lotJobId = uuidOrNull(raw.lot_job_id);
+  const label = text(raw.label, 60);
+  const lotSeq = numOrNull(raw.lot_seq);
+  const qtyPlanned = numOrNull(raw.qty_planned);
+  if (!lotJobId || !label || lotSeq === null || qtyPlanned === null) return null;
+  return {
+    lotJobId,
+    label,
+    lotSeq,
+    status: text(raw.status, 20) ?? "open",
+    qtyPlanned,
+    qtyLive: numOrNull(raw.qty_live),
+    stageCode: text(raw.stage_code, 40),
+    stageName: text(raw.stage_name, 80),
+    holderName: text(raw.holder_name, 60),
+    days: numOrNull(raw.days),
+    isMine: raw.is_mine === true,
+    canCancelSplit: raw.can_cancel_split === true,
+  };
+}
+
+function mapAction(raw: unknown): WorkerAction | null {
+  if (!isObj(raw)) return null;
+  const lotJobId = uuidOrNull(raw.lot_job_id);
+  const label = text(raw.label, 60);
+  const stageSeq = numOrNull(raw.stage_seq);
+  const stageCode = text(raw.stage_code, 40);
+  const action = typeof raw.action === "string" && (MY_ACTION_KINDS as readonly string[]).includes(raw.action) ? (raw.action as MyActionKind) : null;
+  if (!lotJobId || !label || stageSeq === null || !stageCode || !action) return null;
+  return {
+    lotJobId,
+    label,
+    action,
+    stageSeq,
+    stageCode,
+    stageName: text(raw.stage_name, 80) ?? stageCode,
+    weightRequired: raw.weight_required === true,
+    scrapQtyAsk: raw.scrap_qty_ask === true,
+    scrapWeightAsk: raw.scrap_weight_ask === true,
+    qtyHold: numOrNull(raw.qty_hold),
+    qtyExpected: numOrNull(raw.qty_expected),
+    discrepancyId: uuidOrNull(raw.discrepancy_id),
+    officeOnly: raw.office_only === true,
+    qty: numOrNull(raw.qty),
+  };
+}
+
 /** คืน null เมื่อรูปที่ได้ไม่ใช่ view ที่ใช้ได้ — ผู้เรียกแสดง "ลิงก์ใช้ไม่ได้" แทนการเดา */
 export function sanitizeWorkerView(raw: unknown): WorkerView | null {
   if (!isObj(raw) || raw.ok !== true || !isObj(raw.job)) return null;
@@ -110,6 +256,19 @@ export function sanitizeWorkerView(raw: unknown): WorkerView | null {
   const viewerId = isObj(v) && typeof v.worker_id === "string" && UUID_RE.test(v.worker_id) ? v.worker_id : null;
   const viewer = isObj(v) && viewerId ? { workerId: viewerId, displayName: text(v.display_name, 60) ?? "" } : null;
 
+  // 0182: รูปเฉพาะช่างที่ระบุตัวแล้ว (viewer) — DB ไม่ส่ง key ก่อน PIN · ถ้าส่งมาทั้งที่ไม่มี viewer ก็ทิ้ง (ด่านซ้ำ) · ไม่มีรูปที่ใช้ได้ = ไม่ใส่ key (view เดิมไม่เปลี่ยนรูป)
+  if (viewer && "design_label" in j && Array.isArray(j.photos)) {
+    const photos = j.photos.map(mapPhoto).filter((p): p is WorkerPhoto => p !== null).slice(0, 20);
+    if (photos.length > 0) job.photos = photos;
+  }
+
+  // 0190: พลอยเฉพาะช่างที่ระบุตัวแล้ว (เหมือนรูป) — DB ไม่ส่ง key ก่อน PIN/เมื่อไม่มีขั้นฝังและไม่มีพลอย · ค่า state นอก enum = ไม่ใส่ key (view เดิมไม่เปลี่ยนรูป)
+  if (viewer && "design_label" in j && (j.gems_state === "specified" || j.gems_state === "unspecified")) {
+    const gems = (Array.isArray(j.gems) ? j.gems : []).map(mapGem).filter((g): g is WorkerGem => g !== null).slice(0, 30);
+    job.gemsState = j.gems_state; // ค่าจาก DB ตรงๆ — แถวผิดรูปที่ถูกทิ้งไม่เปลี่ยน state (specified ที่แถวอ่านไม่ได้ ≠ ยังไม่ระบุ)
+    job.gems = gems;
+  }
+
   // 0173: ไม่มี 'none' แล้ว — ค่านอก enum (เช่น เวอร์ชัน DB ใหม่กว่าแอป) = ปฏิเสธทั้ง view ดีกว่าเดาว่าเป็นปุ่มอะไร
   const na = raw.next_action;
   if (typeof na !== "string" || !(NEXT_ACTIONS as readonly string[]).includes(na)) return null;
@@ -128,7 +287,13 @@ export function sanitizeWorkerView(raw: unknown): WorkerView | null {
     .filter((w) => w.id !== "" && w.displayName !== "")
     .slice(0, 50);
 
+  // 0181: parts/my_actions เฉพาะช่างที่ระบุตัวแล้ว (DB ส่ง null ก่อน PIN) — ไม่มี key = ไม่ใส่ในผลลัพธ์ (view เดิมไม่เปลี่ยนรูป)
+  const multi: Pick<WorkerView, "parts" | "myActions"> = {};
+  if (viewer && Array.isArray(raw.parts)) multi.parts = raw.parts.map(mapPart).filter((p): p is WorkerPart => p !== null).slice(0, 30);
+  if (viewer && Array.isArray(raw.my_actions)) multi.myActions = raw.my_actions.map(mapAction).filter((a): a is WorkerAction => a !== null).slice(0, 60);
+
   return {
+    ...multi,
     job,
     viewer,
     sessionExpired: raw.session_expired === true,
@@ -142,6 +307,9 @@ export function sanitizeWorkerView(raw: unknown): WorkerView | null {
     scrapReasons: (Array.isArray(raw.scrap_reasons) ? raw.scrap_reasons : []).filter((r): r is string => typeof r === "string" && SCRAP_REASONS.has(r)),
   };
 }
+
+/** DB ตอบ next_action='multi' (หลายส่วน/มีส่วนต่างรอชี้แจง) — ปุ่มส่ง/รับของส่วนต้องระบุส่วนเสมอ · ที่เดียวของ UI ทั้งหมด */
+export const isMultiView = (v: Pick<WorkerView, "nextAction">): boolean => v.nextAction === "multi";
 
 /** ชื่อขั้นก่อนหน้า (ไม่นับที่ข้าม) ของขั้นที่กำลังจะทำ — ใช้ข้อความ "ขั้นก่อน (X) ยังไม่ส่ง" */
 export function prevStageName(view: Pick<WorkerView, "job" | "actionStage">): string | null {

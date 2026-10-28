@@ -23,6 +23,7 @@
 // (lib/dev/context.ts) until real auth ships — see getCrmCustomerDetail()
 // below. Flagged prominently for security-auditor review.
 
+import { denyIfNotMember } from "@/lib/auth/action-guard";
 import { revalidatePath } from "next/cache";
 import { getServiceClient } from "@/lib/supabase/server";
 import { getDevShopId } from "@/lib/dev/context";
@@ -166,6 +167,8 @@ function isValidDateStr(s: string): boolean {
 }
 
 export async function getCrmOverview(params?: GetCrmOverviewParams): Promise<ActionResult<CrmOverviewData>> {
+  const denied = await denyIfNotMember();
+  if (denied) return denied;
   let from = params?.from && isValidDateStr(params.from) ? params.from : null;
   let to = params?.to && isValidDateStr(params.to) ? params.to : null;
   // Swap if reversed rather than erroring — same call as tiktok-sales.ts
@@ -378,6 +381,8 @@ export interface GetCrmCustomerDimensionsParams {
 export async function getCrmCustomerDimensions(
   params?: GetCrmCustomerDimensionsParams
 ): Promise<ActionResult<{ all: CrmCustomerDimensions; range: CrmCustomerDimensions }>> {
+  const denied = await denyIfNotMember();
+  if (denied) return denied;
   const from = params?.from && isValidDateStr(params.from) ? params.from : null;
   const to = params?.to && isValidDateStr(params.to) ? params.to : null;
   const channelCode = params?.channelCode?.trim() || null;
@@ -444,6 +449,8 @@ export interface GetCrmCustomersResult {
 }
 
 export async function getCrmCustomers(): Promise<ActionResult<GetCrmCustomersResult>> {
+  const denied = await denyIfNotMember();
+  if (denied) return denied;
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();
@@ -589,6 +596,8 @@ export interface GetCrmOrdersResult {
 }
 
 export async function getCrmOrders(params?: GetCrmOrdersParams): Promise<ActionResult<GetCrmOrdersResult>> {
+  const denied = await denyIfNotMember();
+  if (denied) return denied;
   let from = params?.from && isValidDateStr(params.from) ? params.from : null;
   let to = params?.to && isValidDateStr(params.to) ? params.to : null;
   if (from && to && from > to) {
@@ -782,6 +791,8 @@ export interface CrmCustomerDetail {
 }
 
 export async function getCrmCustomerDetail(customerId: string): Promise<ActionResult<CrmCustomerDetail>> {
+  const denied = await denyIfNotMember();
+  if (denied) return denied;
   if (!customerId || typeof customerId !== "string") {
     return { ok: false, error: "ไม่พบรหัสลูกค้า" };
   }
@@ -1089,6 +1100,8 @@ export interface CrmNoteRow {
  * NOT owner/admin-only — unlike PII/audit, any dev role can read notes; only
  * add/edit/delete are gated. */
 export async function getCrmCustomerNotes(customerId: string): Promise<ActionResult<CrmNoteRow[]>> {
+  const denied = await denyIfNotMember();
+  if (denied) return denied;
   if (!customerId) return { ok: false, error: "ไม่พบรหัสลูกค้า" };
   try {
     const shopId = getDevShopId();
@@ -1316,6 +1329,8 @@ export async function getCrmCustomerAudit(customerId: string): Promise<ActionRes
 export async function getCrmEditOptions(): Promise<
   ActionResult<{ channels: CrmChannelOption[]; provinces: CrmProvinceOption[] }>
 > {
+  const denied = await denyIfNotMember();
+  if (denied) return denied;
   try {
     const supabase = getServiceClient();
 
@@ -1479,6 +1494,8 @@ export interface CrmImportErrorRow {
 }
 
 export async function getCrmImportErrors(): Promise<ActionResult<CrmImportErrorRow[]>> {
+  const denied = await denyIfNotMember();
+  if (denied) return denied;
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();

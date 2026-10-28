@@ -1,0 +1,250 @@
+// 🔴 ขอบเขตของหน้า /w/s/<shopToken> (W1 — ช่องสาธารณะที่ "สร้างข้อมูล"):
+//   1) กราฟ import ทั้งเส้น (transitive) ของหน้านี้ต้องไม่ลากโมดูลใบผลิต/OEM/แคตตาล็อก/ออฟฟิศเข้ามา (เทสต์เดิมตรวจแค่ import ตรงของไฟล์ — ไม่จับ "ยืมผ่านไฟล์กลาง")
+//      เหตุผลที่ MetalSpecFields/MetalTag ของจอใบผลิตเอามาใช้ตรงไม่ได้: มันลาก lib/production/* + lib/oem/* (รูปร่างต้นทุน/margin) ขึ้น client bundle สาธารณะ
+//   2) "use server" ในกราฟ = lib/actions/job-worker.ts ไฟล์เดียว
+//   3) หน้านี้ import ได้แค่ lib/actions/job-worker.ts เป็น action (ไม่มี job-workers/production/job-office)
+//   4) type/โค้ดทั้งโฟลเดอร์ไม่มี field/ข้อความเกี่ยวกับเงิน (ราคา/ต้นทุน/margin/บาท/฿)
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { join, relative } from "node:path";
+import { describe, expect, it } from "vitest";
+
+const ROOT = process.cwd();
+const norm = (p: string) => relative(ROOT, p).replace(/\\/g, "/");
+const stripComments = (src: string) => src.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "").replace(/([^:"'`])\/\/.*$/gm, "$1");
+
+/** รวม import แบบ runtime (ไม่นับ `import type`) จากไฟล์ — คืนเฉพาะ alias "@/" และ relative */
+function runtimeImports(src: string): string[] {
+  const out: string[] = [];
+  for (const m of src.matchAll(/^\s*(import|export)\s+(type\s+)?([^;]*?)\s*from\s*["']([^"']+)["']/gm)) {
+    if (m[2]) continue; // import type — ถูกลบตอน compile ไม่เข้า bundle
+    out.push(m[4]);
+  }
+  for (const m of src.matchAll(/^\s*import\s+["']([^"']+)["']/gm)) out.push(m[1]);
+  return out;
+}
+
+function resolveSpec(spec: string, from: string): string | null {
+  let base: string;
+  if (spec.startsWith("@/")) base = join(ROOT, spec.slice(2));
+  else if (spec.startsWith(".")) base = join(from, "..", spec);
+  else return null; // package ภายนอก
+  for (const c of [base, `${base}.ts`, `${base}.tsx`, `${base}.mjs`, join(base, "index.ts"), join(base, "index.tsx"), join(base, "index.mjs")]) {
+    if (existsSync(c) && statSync(c).isFile()) return c;
+  }
+  return null;
+}
+
+function closure(entry: string): Set<string> {
+  const seen = new Set<string>();
+  const stack = [entry];
+  while (stack.length) {
+    const f = stack.pop() as string;
+    if (seen.has(f)) continue;
+    seen.add(f);
+    if (!/\.(ts|tsx|mjs)$/.test(f)) continue;
+    for (const spec of runtimeImports(readFileSync(f, "utf8"))) {
+      const r = resolveSpec(spec, f);
+      if (r) stack.push(r);
+    }
+  }
+  return seen;
+}
+
+const ENTRY = join(ROOT, "app", "(worker)", "w", "s", "[shopToken]", "page.tsx");
+const FORBIDDEN_PREFIX = ["lib/production/", "lib/oem/", "lib/catalog/", "components/domain/production/", "components/domain/oem/", "lib/auth/", "lib/dev/", "lib/jobs/office-server", "lib/jobs/page-gate", "lib/actions/job-office", "lib/actions/job-workers", "lib/actions/production", "lib/actions/oem"];
+
+describe("หน้า /w/s/<shopToken> — กราฟ import ทั้งเส้น (transitive)", () => {
+  const files = closure(ENTRY);
+  const rels = [...files].map(norm);
+
+  it("พบหน้า + วิซาร์ด + ตรรกะ pure ในกราฟ (กันเทสต์ว่างเปล่า)", () => {
+    expect(rels).toContain("app/(worker)/w/s/[shopToken]/page.tsx");
+    expect(rels).toContain("components/domain/jobs/worker/shop/ShopIntakeApp.tsx");
+    expect(rels).toContain("components/domain/jobs/worker/shop/ShopOpenFlow.tsx");
+    expect(rels).toContain("lib/jobs/shop-open.ts");
+    expect(rels).toContain("lib/actions/job-worker.ts");
+    expect(rels).toContain("lib/jobs/worker-server.ts");
+    expect(rels).toContain("components/ui/PurityPctInput.tsx");
+  });
+
+  it("ไม่มีไฟล์ใดในกราฟอยู่ใต้ lib/production · lib/oem · lib/catalog · components/domain/production|oem · session ของแอป · action ออฟฟิศ", () => {
+    for (const r of rels) for (const p of FORBIDDEN_PREFIX) expect(r.startsWith(p), `${r} อยู่ในกราฟสาธารณะ — ห้าม (${p})`).toBe(false);
+  });
+
+  it("'use server' ในกราฟ = lib/actions/job-worker.ts ไฟล์เดียว", () => {
+    const servers = [...files].filter((f) => /\.(ts|tsx)$/.test(f) && /^\s*["']use server["']/m.test(readFileSync(f, "utf8"))).map(norm);
+    expect(servers).toEqual(["lib/actions/job-worker.ts"]);
+  });
+
+  it("ไฟล์ใต้ lib/actions ที่หน้านี้ import ได้มีตัวเดียว (job-worker)", () => {
+    expect(rels.filter((r) => r.startsWith("lib/actions/"))).toEqual(["lib/actions/job-worker.ts"]);
+  });
+
+  // 0189 W2: ทางแนบรูปจากหน้างาน "เขียน storage" — กราฟ static ของหน้านี้ต้องไม่ลากโค้ดตัด Exif ฝั่ง server (lib/images/server: โหลดด้วย dynamic import ใน shop-photo-server เท่านั้น)
+  // และ lib/images/client (ย่อรูปด้วย canvas · browser-only) ผ่อนให้แคบที่สุด: เฉพาะไฟล์ใน allowlist ด้านล่างเท่านั้นที่ import ได้ (ไฟล์ UI ใหม่ที่ต้องใช้จริง — เพิ่มชื่อที่นี่ทีละไฟล์พร้อมเหตุผล)
+  // 0189 W2 UI: ไฟล์เดียวที่ย่อรูปในเบราว์เซอร์ = hook ของรูปจากหน้างาน (component อื่น/lib/jobs/shop-photos.ts รับรูปที่ย่อแล้วหรือจับ error ด้วยชื่อ class — ไม่ import client)
+  const IMAGES_CLIENT_ALLOWED_IMPORTERS: string[] = ["components/domain/jobs/worker/shop/useShopPhotos.ts"];
+  it("W2: กราฟ static ไม่มี lib/images/server · มีชั้น shop-photo-server + job-photo-storage (กันเทสต์ว่างเปล่า)", () => {
+    expect(rels).toContain("lib/jobs/shop-photo-server.ts");
+    expect(rels).toContain("lib/images/job-photo-storage.ts");
+    expect(rels).not.toContain("lib/images/server.ts");
+  });
+  it("W2: lib/images/client อยู่ในกราฟได้เฉพาะผ่านไฟล์ใน allowlist (แคบสุด = useShopPhotos.ts ไฟล์เดียว)", () => {
+    expect(IMAGES_CLIENT_ALLOWED_IMPORTERS).toEqual(["components/domain/jobs/worker/shop/useShopPhotos.ts"]);
+    for (const f of files) {
+      if (!/\.(ts|tsx)$/.test(f)) continue;
+      const imports = runtimeImports(readFileSync(f, "utf8")).map((spec) => resolveSpec(spec, f)).filter((x): x is string => x !== null).map(norm);
+      if (imports.some((x) => x.startsWith("lib/images/client"))) expect(IMAGES_CLIENT_ALLOWED_IMPORTERS, `${norm(f)} import lib/images/client`).toContain(norm(f));
+    }
+  });
+  it("W2: lib/images/server ถูกโหลดแบบ dynamic import เท่านั้น (ไม่มี static import ที่ไหนในไฟล์ของ shop-photo-server)", () => {
+    const src = readFileSync(join(ROOT, "lib", "jobs", "shop-photo-server.ts"), "utf8");
+    expect(runtimeImports(src).some((s) => s.startsWith("@/lib/images/server"))).toBe(false);
+    expect(src).toMatch(/await import\("@\/lib\/images\/server"\)/);
+  });
+
+  it("ตัวจับกราฟทำงานจริง: จำลองไฟล์ที่ import production จะถูกจับ", () => {
+    // ตรวจที่ตัวแยก import เอง (ไม่เขียนไฟล์ลง repo): `import type` ไม่นับ · import ธรรมดานับ
+    expect(runtimeImports(`import type { X } from "@/lib/production/types";`)).toEqual([]);
+    expect(runtimeImports(`import { X } from "@/lib/production/types";`)).toEqual(["@/lib/production/types"]);
+    expect(runtimeImports(`export { X } from "@/lib/oem/types";`)).toEqual(["@/lib/oem/types"]);
+  });
+});
+
+describe("โฟลเดอร์ shop + shop-open.ts — ไม่มีเรื่องเงินในโค้ด (ตั้งแต่ type)", () => {
+  function walk(dir: string, out: string[] = []): string[] {
+    for (const name of readdirSync(dir)) {
+      const p = join(dir, name);
+      if (statSync(p).isDirectory()) walk(p, out);
+      else if (/\.(ts|tsx)$/.test(name) && !/\.test\./.test(name)) out.push(p);
+    }
+    return out;
+  }
+  const shopFiles = [...walk(join(ROOT, "components", "domain", "jobs", "worker", "shop")), join(ROOT, "app", "(worker)", "w", "s", "[shopToken]", "page.tsx")];
+  const MONEY = /ราคา|ต้นทุน|บาท|฿|\bTHB\b|price|cost|margin|baht|unitCost|\bthb\b/i;
+
+  it("พบไฟล์ shop ครบ (กันเทสต์ว่างเปล่า)", () => {
+    expect(shopFiles.length).toBeGreaterThanOrEqual(12);
+  });
+  for (const f of shopFiles) {
+    it(norm(f), () => {
+      const code = stripComments(readFileSync(f, "utf8"));
+      expect(MONEY.test(code), `${norm(f)} มีคำ/field เกี่ยวกับเงิน`).toBe(false);
+    });
+  }
+  it("shop-open.ts: คำเกี่ยวกับเงินมีได้ที่เดียว = regex ตัวกรองข้อความ (isCleanMessage) ที่ใช้ปฏิเสธข้อความที่มีเงิน", () => {
+    const code = stripComments(readFileSync(join(ROOT, "lib", "jobs", "shop-open.ts"), "utf8"));
+    const hits = code.split("\n").filter((l) => MONEY.test(l));
+    expect(hits.length).toBe(1);
+    expect(hits[0]).toMatch(/\.test\(t\)/);
+  });
+});
+
+// 0191 W3 UI: พลอยบนมือถือผู้จัดการ (W-4 · แถวพลอยหน้าทวน · W-9 · W-10) — เขียนข้อมูลผ่านช่องสาธารณะ (QR ร้าน + PIN) · ราคาพลอย = ต้นทุน ห้ามถึงหน้านี้
+describe("W3 พลอยบน /w/s/<shopToken> — กราฟ import (transitive) ไม่ลากตัวแปลงราคา/แคตตาล็อกออฟฟิศ/lib/oem", () => {
+  const files = closure(ENTRY);
+  const rels = [...files].map(norm);
+
+  it("พบจอพลอยทั้งชุดในกราฟ (กันเทสต์ว่างเปล่า)", () => {
+    for (const f of [
+      "components/domain/jobs/worker/shop/ShopGemStep.tsx",
+      "components/domain/jobs/worker/shop/ShopGemEditor.tsx",
+      "components/domain/jobs/worker/shop/ShopGemEditSheet.tsx",
+      "components/domain/jobs/worker/shop/ShopJobGemsSection.tsx",
+      "components/domain/jobs/worker/shop/ShopReviewGemsRow.tsx",
+      "components/domain/jobs/worker/shop/useShopGemCatalog.ts",
+      "components/domain/gems/GemPicker.tsx",
+      "components/domain/gems/useGemFail.tsx",
+      "lib/jobs/shop-gem-flow.ts",
+      "lib/jobs/gem-draft.ts",
+      "lib/jobs/shop-gems.ts",
+      "lib/jobs/gem-wire.ts",
+      "lib/text/invisible.ts",
+    ]) {
+      expect(rels, f).toContain(f);
+    }
+  });
+
+  it("🔴 ไม่ลาก lib/jobs/gems.ts (ตัวแปลงราคา/แคตตาล็อก) · lib/actions/gems.ts · lib/jobs/gems-server.ts · จอราคา/แคตตาล็อกออฟฟิศ · ตัวแก้ของออฟฟิศ (GemRowsEditor · useGemOptions)", () => {
+    for (const bad of [
+      "lib/jobs/gems.ts",
+      "lib/actions/gems.ts",
+      "lib/jobs/gems-server.ts",
+      "components/domain/gems/GemPriceDialog.tsx",
+      "components/domain/gems/GemItemsTable.tsx",
+      "components/domain/gems/GemItemDetailDialog.tsx",
+      "components/domain/gems/GemCatalogClient.tsx",
+      "components/domain/gems/GemRowsEditor.tsx",
+      "components/domain/gems/useGemOptions.ts",
+    ]) {
+      expect(rels, `หน้า /w/s/ ลาก ${bad}`).not.toContain(bad);
+    }
+  });
+
+  it("🔴 ไม่มีโมดูล lib/oem ในกราฟ (shop-gems ใช้ leaf lib/text/invisible — ไม่ใช่ lib/oem/display) · ไม่มี lib/images/server", () => {
+    expect(rels.some((r) => r.startsWith("lib/oem/"))).toBe(false);
+    expect(rels).not.toContain("lib/oem/display.ts");
+    const src = readFileSync(join(ROOT, "lib", "jobs", "shop-gems.ts"), "utf8");
+    expect(runtimeImports(src).some((s) => s.includes("lib/oem"))).toBe(false);
+    expect(runtimeImports(src)).toContain("@/lib/text/invisible");
+  });
+
+  it("🔴 dynamic import() ในไฟล์ของกราฟ (lazy chunk ก็ลากเข้า bundle) ต้องไม่ชี้ไปตัวแปลงราคา/แคตตาล็อกออฟฟิศ/lib/oem · ยกเว้น lib/images/server ที่ shop-photo-server โหลดฝั่ง server (เทสต์ด้านบนล็อกแล้ว)", () => {
+    const BAD = ["lib/jobs/gems.ts", "lib/actions/gems.ts", "lib/jobs/gems-server.ts", "components/domain/gems/GemPriceDialog.tsx", "components/domain/gems/GemItemsTable.tsx", "components/domain/gems/GemItemDetailDialog.tsx", "components/domain/gems/GemCatalogClient.tsx", "components/domain/gems/GemRowsEditor.tsx"];
+    let seen = 0;
+    for (const f of files) {
+      if (!/\.(ts|tsx)$/.test(f)) continue;
+      for (const m of readFileSync(f, "utf8").matchAll(/import\(\s*["']([^"']+)["']\s*\)/g)) {
+        seen++;
+        const r = resolveSpec(m[1], f);
+        const rel = r ? norm(r) : m[1];
+        expect(rel.startsWith("lib/oem/") || BAD.includes(rel), `${norm(f)} dynamic import("${m[1]}")`).toBe(false);
+      }
+    }
+    expect(seen).toBeGreaterThan(0); // ตัวจับเห็นของจริง (shop-photo-server โหลด lib/images/server แบบ dynamic) — กันเทสต์ว่างเปล่า
+  });
+
+  it("'use server' ในกราฟยังมีไฟล์เดียว (job-worker) · action ที่หน้านี้ import ได้ยังมีตัวเดียว", () => {
+    const servers = [...files].filter((f) => /\.(ts|tsx)$/.test(f) && /^\s*["']use server["']/m.test(readFileSync(f, "utf8"))).map(norm);
+    expect(servers).toEqual(["lib/actions/job-worker.ts"]);
+    expect(rels.filter((r) => r.startsWith("lib/actions/"))).toEqual(["lib/actions/job-worker.ts"]);
+  });
+
+  it("จอพลอยเรียก server ผ่าน action ของ job-worker เท่านั้น (hook/ส่วนแก้ import จาก @/lib/actions/job-worker ไม่ใช่ actions/gems)", () => {
+    for (const f of ["useShopGemCatalog.ts", "ShopGemEditSheet.tsx", "ShopJobGemsSection.tsx"]) {
+      const imports = runtimeImports(readFileSync(join(ROOT, "components", "domain", "jobs", "worker", "shop", f), "utf8")).filter((s) => s.startsWith("@/lib/actions/"));
+      expect(imports, f).toEqual(["@/lib/actions/job-worker"]);
+    }
+  });
+});
+
+// 0189 W2 UI: หน้าช่าง /w/<token> ขยายรูปหลักใหญ่บนหัวจอ — เป็นการ "แสดงผล" ล้วน (ภาพ md ที่ server เซ็นมาแล้ว): กราฟต้องไม่ลากโค้ดย่อรูป/ตัด Exif/อัปโหลดเข้ามา และไม่แตะโมดูลออฟฟิศ
+describe("หน้า /w/<token> — กราฟ import ทั้งเส้น (transitive) หลังขยายรูปหลัก", () => {
+  const files = closure(join(ROOT, "app", "(worker)", "w", "[token]", "page.tsx"));
+  const rels = [...files].map(norm);
+
+  it("พบหน้า + WorkerApp + ภาพย่อ/viewer ในกราฟ (กันเทสต์ว่างเปล่า)", () => {
+    expect(rels).toContain("app/(worker)/w/[token]/page.tsx");
+    expect(rels).toContain("components/domain/jobs/worker/WorkerApp.tsx");
+    expect(rels).toContain("components/domain/jobs/photos/JobPhotoThumb.tsx");
+    expect(rels).toContain("components/domain/jobs/photos/JobPhotoViewer.tsx");
+  });
+  it("ไม่มีโมดูลใบผลิต/OEM/แคตตาล็อก/ออฟฟิศ/session แอป ในกราฟ · 'use server' = job-worker ไฟล์เดียว", () => {
+    for (const r of rels) for (const p of FORBIDDEN_PREFIX) expect(r.startsWith(p), `${r} อยู่ในกราฟสาธารณะ — ห้าม (${p})`).toBe(false);
+    const servers = [...files].filter((f) => /\.(ts|tsx)$/.test(f) && /^\s*["']use server["']/m.test(readFileSync(f, "utf8"))).map(norm);
+    expect(servers).toEqual(["lib/actions/job-worker.ts"]);
+    expect(rels.filter((r) => r.startsWith("lib/actions/"))).toEqual(["lib/actions/job-worker.ts"]);
+  });
+  it("🔴 ไม่ลาก lib/images/client (ย่อรูปด้วย canvas) และ lib/images/server (ตัด Exif) เข้ากราฟ static — รูปหลักใหญ่เป็นการแสดงผลล้วน", () => {
+    expect(rels.some((r) => r.startsWith("lib/images/client"))).toBe(false);
+    expect(rels).not.toContain("lib/images/server.ts");
+  });
+  it("รูปหลักใหญ่ = JobPhotoThumb size hero · สูงจำกัดด้วย min(vh, rem) (ไม่ใช่ค่าตายตัว) และใช้ภาพกลาง md", () => {
+    const thumb = readFileSync(join(ROOT, "components", "domain", "jobs", "photos", "JobPhotoThumb.tsx"), "utf8");
+    expect(thumb).toMatch(/hero:\s*"[^"]*h-\[min\(30vh,13rem\)\][^"]*w-full/);
+    const app = readFileSync(join(ROOT, "components", "domain", "jobs", "worker", "WorkerApp.tsx"), "utf8");
+    expect(app).toMatch(/size="hero"/);
+    expect(app).toMatch(/photos\[0\]\.mdUrl \?\? photos\[0\]\.smUrl/);
+    expect(app).not.toMatch(/size=\{80\}/);
+  });
+});

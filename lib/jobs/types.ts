@@ -46,6 +46,11 @@ export const EVENT_TYPE_LABEL: Record<string, string> = {
   hold: "พักงาน",
   resume: "ทำต่อ",
   photo_add: "เพิ่มรูป",
+  // 0182: ลบรูป (ตั้งรูปหลัก/เรียงรูปไม่เขียน event — design §5)
+  photo_remove: "ลบรูป",
+  // 0182 (security L4): ตั้งรูปหลัก/เรียงรูป เขียน event เมื่อเปลี่ยนจริง
+  photo_primary: "ตั้งรูปหลัก",
+  photo_reorder: "เรียงรูป",
   note: "หมายเหตุ",
   done: "ปิดงาน",
   cancel: "ยกเลิก",
@@ -55,6 +60,19 @@ export const EVENT_TYPE_LABEL: Record<string, string> = {
   // 0175: แก้จำนวนเริ่มผลิต/แผนโลหะ · ตัดสินของเหลือ (ครบทุก event_type ใน CHECK job_event_event_type_ck — เทสต์ events-labels ล้มถ้ามีตัวใหม่ที่ยังไม่แปล)
   plan_change: "แก้จำนวน/แผนโลหะ",
   surplus_set: "จัดการของเหลือ",
+  // 0181: ส่วนย่อย (ส่งต่อ n จาก N) + ส่วนต่างรอชี้แจง
+  split: "แยกส่วน",
+  split_cancel: "ยกเลิกส่วน",
+  discrepancy: "รับไม่ครบ (ส่วนต่าง)",
+  discrepancy_resolve: "ชี้แจงส่วนต่าง",
+  // 0183: ส่วนต่างทางที่ 3 "ได้รับเพิ่มแล้ว" (ของนับผิด/ส่งตามมาทีหลัง → ส่วนใหม่)
+  discrepancy_arrive: "ได้รับเพิ่มแล้ว (ส่วนต่าง)",
+  // 0187 W1: ผู้จัดการเปิดงานจากมือถือ · ออฟฟิศรับทราบ · แก้ข้อมูลของใบ (ผูก SKU) — ป้ายไม่มีตัวเลข/เงิน
+  intake_open: "ผู้จัดการเปิดงานจากมือถือ",
+  ack: "ออฟฟิศรับทราบ",
+  edit: "แก้ข้อมูลใบงาน",
+  // 0190 G1a: แก้รายการพลอยของใบ (ตอนสร้าง/ออฟฟิศแก้ · ผู้จัดการแก้จากมือถือ = W3) — before/after = ฉลาก+จำนวน+ตำแหน่ง ไม่มีราคา
+  bom_change: "แก้รายการพลอย",
 };
 
 export const CHANNEL_LABEL: Record<string, string> = {
@@ -86,6 +104,10 @@ export const BOARD_COLUMNS = [
   "quote_qty_mismatch", "quote_item_qty", "created_at", "board_column", "handoff_gap_g", "handoff_mismatch_count",
   "qty_order", "qty_surplus", "under_planned", "surplus_pending", "surplus_disposition", "target_piece_g", "metal_plan_g",
   "profile_name", "has_weigh", "gold_unguarded",
+  // 0181: บอร์ด 1 การ์ดต่อใบแม่ (กรอง parent_job_id is null ที่ loader) · จำนวนส่วน · ส่วนต่างรอชี้แจง · ขั้นที่มีชิ้นมากสุด (คอลัมน์ของใบที่ของกระจายหลายขั้น)
+  "parent_job_id", "parts_count", "parts_open", "qty_pending_explanation", "dominant_stage_code",
+  // 0181 (re-review M-A/M-B/L-1): เทียบน้ำหนักทั้งต้นไม้ — ใบแม่ + ส่วนย่อย (office เท่านั้น · ห้ามส่งให้ช่าง N1)
+  "tree_handoff_gap_g", "tree_handoff_gap_partial_g", "tree_handoff_mismatch_count", "tree_weight_gap_excess_g", "tree_lot_first_gap_sum_g",
 ].join(", ");
 
 export interface BoardRow {
@@ -140,6 +162,40 @@ export interface BoardRow {
   hasWeigh: boolean;
   /** 0176: ใบทองที่ยังไม่ปิดและมีขั้นที่โลหะอยู่ในมือแต่ไม่ชั่ง (ไม่มีด่านกันทองหาย) — DB ตัดสิน */
   goldUnguarded: boolean;
+  // 0181 (ทั้งหมด optional — ใบเดี่ยว/แถวที่ view ยังไม่ส่งคอลัมน์ใหม่ = ไม่มี key = บอร์ดเดิมทุกประการ)
+  /** ส่วนย่อยที่ยังไม่ยกเลิก (นับใบแม่) — > 1 = ใบที่แยกส่วนแล้ว */
+  partsCount?: number;
+  partsOpen?: number;
+  /** ส่วนต่างรอชี้แจง (ชิ้น) — DB */
+  qtyPendingExplanation?: number;
+  /** ขั้นที่มีชิ้นมากสุดของทั้งใบ — ตำแหน่งการ์ดในมุมมองคอลัมน์เมื่อแยกส่วนแล้ว */
+  dominantStageCode?: string | null;
+  /** บรรทัด "เสร็จ x/N · …" ประกอบที่ loader จาก v_job_tree_summary + v_job_tree */
+  lotsLine?: string | null;
+  /** ผลตรวจ sum_check ของ DB (ผลรวมทุกถัง = เริ่มผลิต) */
+  lotsSumOk?: boolean;
+  /** M-A: ส่วนต่างส่งมอบสูงสุด (|กรัม|) ทั้งต้นไม้ — handoffGapG เดิมนับเฉพาะใบตัวเอง จึงมองไม่เห็นขั้นแรกของส่วนย่อย · ไม่มี key = ไม่มีคู่น้ำหนัก */
+  treeHandoffGapG?: number;
+  /** M-A: เหมือนกัน แต่คู่ขั้นที่รับไม่ครบ (มีส่วนต่างจำนวนชิ้น) */
+  treeHandoffGapPartialG?: number;
+  /** M-A: จำนวนครั้งที่ช่างชั่งรับทองไม่ตรง ทั้งต้นไม้ (มี key เฉพาะเมื่อ > 0) */
+  treeHandoffMismatchCount?: number;
+  /** M-B: น้ำหนักที่หายเกินสัดส่วนชิ้นที่ขาด (g · ลบ = หายเกิน) รวมส่วนต่างที่ยังนับอยู่ทั้งต้นไม้ */
+  treeWeightGapExcessG?: number;
+  /** L-1: ผลรวม gap ขั้นแรกของทุกส่วนที่แยกจากขั้นเดียวกัน (ต่ำสุดของกลุ่ม · ลบเกิน 0.05 = ควรเตือน) */
+  treeLotFirstGapSumG?: number;
+  /** W1 (0187): มีเฉพาะใบงานที่ใบผลิตต้นทางเปิดจากหน้างาน — ประกอบที่ loader (lib/jobs/intake-server.ts) ไม่ใช่คอลัมน์ของ v_job_board · ไม่มี key = ใบเดิม (บอร์ดเดิมทุกประการ) */
+  intake?: BoardIntake;
+}
+
+/** ข้อมูลใบที่เปิดจากหน้างานที่บอร์ดต้องใช้ (ไม่มีชื่อผู้เปิด/เงิน) — ค้างกี่วันคำนวณที่ board.ts จากวันที่ไทยของ server */
+export interface BoardIntake {
+  /** ใบผลิตต้นทาง open + ยังไม่รับทราบ (DB ตัดสิน — acknowledged_at ว่าง) */
+  ackPending: boolean;
+  /** เวลาที่เปิดใบผลิต (ISO) — ใช้นับวันปฏิทินไทย */
+  openedAt: string | null;
+  /** รายการของใบผลิตต้นทางมีโลหะต่างจาก SKU ที่ระบุโลหะชัด (v_production_order_item.metal_mismatch) */
+  metalMismatch: boolean;
 }
 
 export function mapBoardRow(r: Record<string, unknown>): BoardRow | null {
@@ -189,7 +245,32 @@ export function mapBoardRow(r: Record<string, unknown>): BoardRow | null {
     profileName: str(r.profile_name),
     hasWeigh: bool(r.has_weigh),
     goldUnguarded: bool(r.gold_unguarded),
+    ...lotKeys(r),
   };
+}
+
+/** 0181: ใส่ key เฉพาะที่ view ส่งมา (คอลัมน์ใหม่) — ใบเดิม/view เก่าไม่มี key → BoardRow รูปเดิมเป๊ะ */
+function lotKeys(r: Record<string, unknown>): Partial<BoardRow> {
+  const out: Partial<BoardRow> = {};
+  const parts = num(r.parts_count);
+  if (parts !== null) out.partsCount = parts;
+  const open = num(r.parts_open);
+  if (open !== null) out.partsOpen = open;
+  const pend = num(r.qty_pending_explanation);
+  if (pend !== null && pend > 0) out.qtyPendingExplanation = pend;
+  const dom = str(r.dominant_stage_code);
+  if (dom !== null && (parts ?? 0) > 1) out.dominantStageCode = dom;
+  const tg = num(r.tree_handoff_gap_g);
+  if (tg !== null) out.treeHandoffGapG = tg;
+  const tgp = num(r.tree_handoff_gap_partial_g);
+  if (tgp !== null) out.treeHandoffGapPartialG = tgp;
+  const tmc = num(r.tree_handoff_mismatch_count);
+  if (tmc !== null && tmc > 0) out.treeHandoffMismatchCount = tmc;
+  const tex = num(r.tree_weight_gap_excess_g);
+  if (tex !== null) out.treeWeightGapExcessG = tex;
+  const tlg = num(r.tree_lot_first_gap_sum_g);
+  if (tlg !== null) out.treeLotFirstGapSumG = tlg;
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -215,6 +296,8 @@ export interface StageRow {
   qtyIn: number | null;
   qtyOut: number | null;
   qtyScrap: number;
+  /** 0181: ชิ้นที่แยกเป็นส่วนย่อยออกจากขั้นนี้ (ไม่มี key = 0) */
+  qtySplitOut?: number;
   scrapReason: string | null;
   weightInG: number | null;
   weightOutG: number | null;
@@ -225,7 +308,7 @@ export interface StageRow {
 }
 
 export const STAGE_COLUMNS =
-  "id, seq, stage_code, status, weigh_required, scrap_qty_ask, scrap_weight_ask, received_on, sent_on, worker_id, assignee_name, auto_closed, qty_in, qty_out, qty_scrap, scrap_reason, weight_in_g, weight_out_g, metal_added_g, scrap_weight_g, weight_note, skip_reason";
+  "id, seq, stage_code, status, weigh_required, scrap_qty_ask, scrap_weight_ask, received_on, sent_on, worker_id, assignee_name, auto_closed, qty_in, qty_out, qty_scrap, qty_split_out, scrap_reason, weight_in_g, weight_out_g, metal_added_g, scrap_weight_g, weight_note, skip_reason";
 
 export function mapStageRow(r: Record<string, unknown>, names: Record<string, string>, workerNames: Record<string, string>, metalPresent: Record<string, boolean> = {}): StageRow | null {
   const id = str(r.id);
@@ -251,6 +334,7 @@ export function mapStageRow(r: Record<string, unknown>, names: Record<string, st
     qtyIn: num(r.qty_in),
     qtyOut: num(r.qty_out),
     qtyScrap: num(r.qty_scrap) ?? 0,
+    ...(num(r.qty_split_out) !== null ? { qtySplitOut: num(r.qty_split_out) as number } : {}),
     scrapReason: str(r.scrap_reason),
     weightInG: num(r.weight_in_g),
     weightOutG: num(r.weight_out_g),
@@ -269,12 +353,15 @@ export interface StageLoss {
   lossPct: number | null;
   warn: boolean;
   notWeighed: boolean;
+  /** 0181 H1: รับไม่ครบ — ส่วนต่างน้ำหนักเทียบ (รับ − ส่ง) · เฉพาะหน้าออฟฟิศ (ห้ามส่งหน้าช่าง) · ไม่มี key = ไม่มีส่วนต่างบันทึก */
+  handoffGapPartialG?: number;
 }
 
 export function mapLossRow(r: Record<string, unknown>): { stageId: string; loss: StageLoss } | null {
   const id = str(r.job_stage_id);
   if (!id) return null;
-  return { stageId: id, loss: { handoffGapG: num(r.handoff_gap_g), lossG: num(r.loss_g), lossPct: num(r.loss_pct), warn: bool(r.warn), notWeighed: bool(r.not_weighed) } };
+  const partial = num(r.handoff_gap_partial_g);
+  return { stageId: id, loss: { handoffGapG: num(r.handoff_gap_g), lossG: num(r.loss_g), lossPct: num(r.loss_pct), warn: bool(r.warn), notWeighed: bool(r.not_weighed), ...(partial !== null ? { handoffGapPartialG: partial } : {}) } };
 }
 
 // ---------------------------------------------------------------------------
@@ -397,6 +484,16 @@ export function summarizeEvent(type: string, payload: unknown): string | null {
     return `${nameOf(p.before)} → ${nameOf(p.after)}`;
   }
   if (type === "token_issue") return num(p.print_no) !== null ? `ใบที่ ${num(p.print_no)}` : null;
+  // 0189 W2: ผู้จัดการแนบ/ลบรูปจากหน้างาน (payload.source = 'shopfloor') · ออฟฟิศลบรูป = เหตุผลที่ใส่ (บังคับเมื่อลบรูปจากหน้างานผ่านหน้าจอ) — ไม่ dump payload อื่น (photo_id/bytes)
+  if (type === "photo_add") return p.source === "shopfloor" ? "จากหน้างาน" : null;
+  if (type === "photo_remove") return reason ? `เหตุผล: ${reason}` : p.source === "shopfloor" ? "จากหน้างาน" : null;
+  // 0190: พลอย — นับรายการก่อน→หลัง + เหตุผล (ไม่ dump ฉลาก/จำนวนดิบ)
+  if (type === "bom_change") {
+    const nb = Array.isArray(p.before) ? p.before.length : 0;
+    const na = Array.isArray(p.after) ? p.after.length : 0;
+    const head = p.phase === "create" ? `พลอยตอนสร้างใบ ${na} รายการ` : `พลอย ${nb} → ${na} รายการ`;
+    return reason ? `${head} · เหตุผล: ${reason}` : head;
+  }
   return null;
 }
 
@@ -437,6 +534,10 @@ export interface WorkerRow {
   failedAttempts: number;
   /** 0174 v_worker_lock.pin_warning: ผิด >= 3 ครั้งในหน้าต่าง 24 ชม. (ตัวนับไม่ล้างเมื่อ login สำเร็จแล้ว) */
   pinWarning: boolean;
+  /** 0187: ผู้จัดการ — เปิดใบผลิต/ใบงานจากมือถือ (QR ร้าน + PIN) ได้ · ยังต้องมีขั้นที่ทำอย่างน้อย 1 (stages_required) */
+  canOpenJob: boolean;
+  /** 0181/0187: ผู้ดูแลงานนอกร้าน (ชี้แจงส่วนต่างของงานส่งออก) — ตั้งผ่าน worker_upsert */
+  canExternal: boolean;
 }
 
 export const WORKER_LOCK_COLUMNS = "worker_id, lock_state, failed_attempts, in_window, pin_warning";
@@ -448,7 +549,8 @@ export function mapLockRow(r: Record<string, unknown>): { workerId: string; lock
   return { workerId: id, lockState: st, failedAttempts: r.in_window === true ? (num(r.failed_attempts) ?? 0) : 0, pinWarning: r.pin_warning === true };
 }
 
-export const WORKER_COLUMNS = "id, display_name, stage_codes, is_active, locked_until, created_at";
+// 0187: can_open_job/can_external — ต้อง apply 0187 ก่อน deploy โค้ดนี้ (DB เดียว ไม่มี dev/prod แยก — select คอลัมน์ที่ยังไม่มีจะทำให้หน้าทะเบียนช่าง/สร้างใบงานล้ม)
+export const WORKER_COLUMNS = "id, display_name, stage_codes, is_active, locked_until, created_at, can_open_job, can_external";
 
 export function mapWorkerRow(r: Record<string, unknown>, lock?: { lockState: LockState; failedAttempts: number; pinWarning: boolean }): WorkerRow | null {
   const id = str(r.id);
@@ -464,17 +566,24 @@ export function mapWorkerRow(r: Record<string, unknown>, lock?: { lockState: Loc
     lockState: lock?.lockState ?? "none",
     failedAttempts: lock?.failedAttempts ?? 0,
     pinWarning: lock?.pinWarning ?? false,
+    canOpenJob: r.can_open_job === true,
+    canExternal: r.can_external === true,
   };
 }
+
+/** ป้ายชื่อขั้นที่เลิกใช้ (0184) — ใช้ที่เดียวกันทั้งบอร์ดและทะเบียนช่าง */
+export const retiredStageLabel = (nameTh: string): string => `${nameTh} (เลิกใช้)`;
 
 export interface StageDef {
   code: string;
   nameTh: string;
   seq: number;
+  /** is_active=false (เช่น polish "แต่ง ขัด" หลัง 0184) — ไม่มีคีย์นี้ = ขั้นที่ใช้งานอยู่ */
+  retired?: boolean;
 }
 
 export function mapStageDef(r: Record<string, unknown>): StageDef | null {
   const code = str(r.code);
   if (!code) return null;
-  return { code, nameTh: str(r.name_th) ?? code, seq: num(r.seq_default) ?? 0 };
+  return { code, nameTh: str(r.name_th) ?? code, seq: num(r.seq_default) ?? 0, ...(r.is_active === false ? { retired: true } : {}) };
 }

@@ -1,0 +1,129 @@
+// lib/jobs/qty-split.ts — สูตรจำนวนชิ้นบนจอ "ส่ง" / "รับ" หน้าช่าง (pure · v2 · ux-worker-send-receive-v2.md §4.4 §5.3 §9)
+// แสดงผลเท่านั้น — ด่านจริงอยู่ที่ DB (job_core_send/job_core_receive) · จำนวนชิ้น ไม่ใช่เงิน/น้ำหนัก (ไม่มีกรัมในไฟล์นี้)
+// ย้ายสูตร allCount/partial/keep ที่เคยฝังใน SendPanel ออกมา "ไม่เปลี่ยนสูตร": ส่งทั้งหมด = ถือ − เสีย (DB หักเสียเอง ไม่ส่ง qtySend) · น้อยกว่า = แยกส่วน (qtySend) · มากกว่า = ผิด
+// ศัพท์ชุดเดียว: ส่ง / ส่งไป / เหลือกับฉัน (ไม่ใช้ ส่งต่อ/ส่งออก/ค้าง/ถืออยู่/ส่วนใหม่ บนจอส่ง-รับ)
+
+/** scrapAll = ของเสียเท่าที่ถือ (ไม่เหลืออะไรให้ส่ง) — หน้าช่างห้ามแจ้งเสียหมดทั้งก้อน (ขั้นถัดไปรับ 0 ชิ้นไม่ได้ → ใบค้าง) ต้องให้ออฟฟิศยกเลิก/ปิดใบ */
+export type SplitState = "all" | "partial" | "empty" | "over" | "scrapAll";
+
+export interface SplitView {
+  /** ส่งหมดได้กี่ชิ้น = ถือ − เสีย (≥ 0) */
+  allCount: number;
+  /** ส่งไป (0 เมื่อ empty/over) */
+  send: number;
+  /** เหลือกับฉัน (0 เมื่อส่งหมด/empty/over) */
+  keep: number;
+  scrap: number;
+  state: SplitState;
+}
+
+/** n = จำนวนที่ส่ง · null = ว่าง/พิมพ์ไม่ผ่าน (empty) — โหมด "ส่งหมด" ให้ผู้เรียกส่ง n = ถือ − เสีย */
+export function splitView(i: { hold: number; scrap: number; n: number | null }): SplitView {
+  const scrap = Math.max(0, i.scrap);
+  const allCount = Math.max(0, i.hold - scrap);
+  if (allCount === 0) return { allCount, send: 0, keep: 0, scrap, state: "scrapAll" }; // เสียหมดทั้งก้อน — ไม่ส่งอะไรไป server
+  if (i.n === null) return { allCount, send: 0, keep: 0, scrap, state: "empty" };
+  if (i.n > allCount) return { allCount, send: 0, keep: 0, scrap, state: "over" };
+  if (i.n === allCount) return { allCount, send: allCount, keep: 0, scrap, state: "all" };
+  return { allCount, send: i.n, keep: allCount - i.n, scrap, state: "partial" };
+}
+
+/** เพิ่มของเสียจน allCount < n (n แตะเอง) → n = allCount · ถึง 0 = กลับโหมดส่งหมด (null) · n ว่าง/ไม่แตะ = คงเดิม */
+export function clampSendText(text: string | null, hold: number, scrap: number): string | null {
+  if (text === null) return null;
+  const all = Math.max(0, hold - scrap);
+  if (all <= 0) return null;
+  if (!/^\d+$/.test(text.trim())) return text;
+  return Number(text.trim()) > all ? String(all) : text;
+}
+
+/** เสียหมดทั้งก้อน: ปุ่มหลักปิด + ข้อความนี้ (ไม่มีการส่งอะไรไป server) */
+export const scrapAllMessage = (hold: number): string => `เสียหมดทั้ง ${hold} ชิ้น — แจ้งออฟฟิศให้ยกเลิก/ปิดใบ`;
+
+/** ปุ่มหลักจอส่ง — พูดผลลัพธ์ (ตาราง §4.4) */
+export function sendButtonLabel(v: SplitView & { hold: number }): string {
+  if (v.state === "empty") return "ใส่จำนวนที่ส่ง";
+  if (v.state === "over") return `ส่งได้ไม่เกิน ${v.allCount} ชิ้น`;
+  if (v.state === "scrapAll") return scrapAllMessage(v.hold);
+  if (v.hold === 1) return "ส่ง 1 ชิ้น";
+  if (v.state === "all") return v.scrap > 0 ? `ส่ง ${v.send} ชิ้น · เสีย ${v.scrap}` : `ส่งหมด ${v.send} ชิ้น`;
+  return v.scrap > 0 ? `ส่ง ${v.send} ชิ้น · เสีย ${v.scrap} · เหลือกับฉัน ${v.keep}` : `ส่ง ${v.send} ชิ้น · เหลือกับฉัน ${v.keep}`;
+}
+
+/** ปุ่มจอส่งปิดเมื่อเลขยังใช้ไม่ได้ (ว่าง/เกิน) หรือเสียหมดทั้งก้อน — ด่านอื่น (เหตุผลของเสีย/น้ำหนัก) แสดงข้อความใต้ช่องตอนกด ไม่ปิดปุ่ม */
+export const sendDisabled = (s: SplitState): boolean => s === "empty" || s === "over" || s === "scrapAll";
+
+// ---------------------------------------------------------------------------
+/** none = ขั้นก่อนเสียหมด (ที่ส่งมา 0 ชิ้น · ใบเก่า) — ไม่มีปุ่มรับ ให้แจ้งออฟฟิศ */
+export type ReceiveState = "all" | "short" | "empty" | "over" | "none";
+
+export interface ReceiveView {
+  /** ที่ส่งมา (E) */
+  expected: number;
+  /** ได้รับ (r) — 0 เมื่อ empty/over */
+  got: number;
+  /** ขาด = E − r */
+  missing: number;
+  state: ReceiveState;
+}
+
+/** r = จำนวนที่ได้รับ · null = ว่าง/พิมพ์ไม่ผ่าน */
+export function receiveView(i: { expected: number; r: number | null }): ReceiveView {
+  if (i.expected <= 0) return { expected: 0, got: 0, missing: 0, state: "none" };
+  if (i.r === null) return { expected: i.expected, got: 0, missing: 0, state: "empty" };
+  if (i.r > i.expected) return { expected: i.expected, got: 0, missing: 0, state: "over" };
+  if (i.r === i.expected) return { expected: i.expected, got: i.r, missing: 0, state: "all" };
+  return { expected: i.expected, got: i.r, missing: i.expected - i.r, state: "short" };
+}
+
+export const RECEIVE_NONE_MESSAGE = "ขั้นก่อนเสียหมด — แจ้งออฟฟิศ";
+
+/** ปุ่มหลักจอรับ (ตาราง §5.3) · expected = null (ไม่รู้จำนวน) = "รับงาน" เดิม */
+export function receiveButtonLabel(expected: number | null, v: ReceiveView | null): string {
+  if (expected === null || v === null) return "รับงาน";
+  if (v.state === "none") return RECEIVE_NONE_MESSAGE;
+  if (v.state === "empty") return "ใส่จำนวนที่ได้รับ";
+  if (v.state === "over") return `รับได้ไม่เกิน ${expected} ชิ้น`;
+  if (v.state === "short") return `รับ ${v.got} ชิ้น · ขาด ${v.missing}`;
+  return `รับ ${v.got} ชิ้น`;
+}
+
+// ---------------------------------------------------------------------------
+// ได้รับเพิ่มแล้ว (0183 · ส่วนต่างทางที่ 3) — ผู้รับของขั้นที่รับขาดบันทึกว่าชิ้นที่ขาดมาถึงแล้วกี่ชิ้น (open = ที่ยังค้าง · n = ได้รับเพิ่ม)
+// ใช้สูตรเดียวกับ receiveView (ได้รับ/ขาด) — ขาด = ยังค้าง · ไม่มีน้ำหนักใดๆ (N1)
+// ---------------------------------------------------------------------------
+export type ArriveState = "all" | "partial" | "empty" | "over";
+
+export interface ArriveView {
+  /** ยังค้างก่อนกด */
+  open: number;
+  /** ได้รับเพิ่ม (0 เมื่อ empty/over) */
+  got: number;
+  /** ยังค้างหลังกด (0 เมื่อ all/empty/over) */
+  remaining: number;
+  state: ArriveState;
+}
+
+export function arriveView(i: { open: number; n: number | null }): ArriveView {
+  if (i.n === null) return { open: i.open, got: 0, remaining: 0, state: "empty" };
+  if (i.n > i.open) return { open: i.open, got: 0, remaining: 0, state: "over" };
+  if (i.n === i.open) return { open: i.open, got: i.n, remaining: 0, state: "all" };
+  return { open: i.open, got: i.n, remaining: i.open - i.n, state: "partial" };
+}
+
+/** ปุ่มหลัก: "รับเพิ่ม n ชิ้น" · ว่าง/เกิน บอกเหตุที่ปิดปุ่ม */
+export function arriveButtonLabel(v: ArriveView): string {
+  if (v.state === "empty") return "ใส่จำนวนที่ได้รับเพิ่ม";
+  if (v.state === "over") return `ได้รับเพิ่มได้ไม่เกิน ${v.open} ชิ้น`;
+  return `รับเพิ่ม ${v.got} ชิ้น`;
+}
+
+export const arriveDisabled = (s: ArriveState): boolean => s === "empty" || s === "over";
+
+/** ข้อความหลังสำเร็จ (จอ ✓ เต็มจอ): ชิ้นที่มาถึงถืออยู่ที่ขั้นเดิม ส่งต่อได้ · ยังค้าง → บอกตัวเลข */
+export function arriveDoneMessage(qty: number, remaining: number, stageName: string): string {
+  const base = `รับเพิ่ม ${qty} ชิ้นแล้ว · ถืออยู่ที่ขั้น ${stageName} ส่งต่อได้`;
+  return remaining > 0 ? `${base} · ยังค้าง ${remaining} ชิ้น` : base;
+}
+
+export const receiveDisabled = (s: ReceiveState): boolean => s === "empty" || s === "over" || s === "none";

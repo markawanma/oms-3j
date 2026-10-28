@@ -211,7 +211,35 @@ export interface SaveMetalPriceInput {
 /** Latest known price per metal (analytics.oem_metal_price, one row per
  * metal — the shop's current answer, not history). null = never set.
  * OemProductionMetal (not OemMetal) — silver999 is never a key here. */
-export type OemMetalPriceMap = Record<OemProductionMetal, { priceThbPerGram: number; asOfDate: string; source: string } | null>;
+export type OemMetalPriceMap = Record<
+  OemProductionMetal,
+  {
+    /** บาท/กรัม ของโลหะ 100% (ที่ DB เก็บ — หน่วยเดียวกับสูตร weight × purity × price) */
+    priceThbPerGram: number;
+    asOfDate: string;
+    source: string;
+    /** 0186 (R4): ค่าที่ผู้ใช้กรอก (ทอง = ราคาสมาคมขายออกบาทละ · ทองเหลือง = บาท/กก.) + หน่วย — null เมื่อแถวมาจากการกรอกต่อกรัมตรง/แถวเก่าก่อน 0186 (ไม่แปลงย้อนกลับ — ห้ามอนุมานฐานจากตัวเลข) */
+    inputValue?: number | null;
+    inputUnit?: "assoc965_sell_per_baht" | "thb_per_kg" | null;
+  } | null
+>;
+
+/** input ของ saveMetalPriceInput (0186) — ทอง/ทองเหลืองเท่านั้น · กรอกด้วยหน่วยหน้างานจริง ให้ DB แปลง (วันที่ = วันนี้ไทยเสมอ ย้อนวันไม่ได้) */
+export interface SaveMetalPriceInputInput {
+  metal: "gold" | "brass";
+  /** ทอง = ราคาสมาคมฯ ทองคำแท่ง 96.5% ฝั่งขายออก บาทละ · ทองเหลือง = บาท/กก. · รับข้อความ (ตัด , ให้) หรือตัวเลข ทศนิยมไม่เกิน 2 ตำแหน่ง */
+  inputValue: string | number;
+}
+
+/** ผลของ saveMetalPriceInput — ค่าที่ "server เก็บจริง" (หน้าจอต้องโชว์ค่านี้ ไม่ใช่ค่า preview ฝั่ง client) */
+export interface SaveMetalPriceInputResult {
+  metal: "gold" | "brass";
+  asOfDate: string;
+  /** บาท/กรัม โลหะ 100% ที่ DB เก็บ (ปัด 4 ตำแหน่งแล้ว) */
+  priceThbPerGram: number;
+  inputValue: number;
+  inputUnit: "assoc965_sell_per_baht" | "thb_per_kg";
+}
 
 // ============================================================================
 // Price calc (oem_price_calc jsonb contract — mirrors the shape documented in

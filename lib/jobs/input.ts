@@ -7,6 +7,8 @@ const bad = <T = never,>(error: string): Parsed<T> => ({ ok: false, error });
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 export const isUuid = (v: unknown): v is string => typeof v === "string" && UUID_RE.test(v);
+/** idem key (16–64 ตัว [A-Za-z0-9_-]) — ที่เดียวของ action ช่าง/ชั้น server รูป/ฟอร์ม (shop-open.newIdemKey สร้างค่าที่ตรงรูปแบบนี้) */
+export const IDEM_KEY_RE = /^[A-Za-z0-9_-]{16,64}$/;
 
 /**
  * จุลภาคในช่องน้ำหนัก (BUG-J1-01: "95,5" เคยถูกตัดทิ้งเป็น 955 = ผิด 10 เท่าโดยไม่เตือน)
@@ -77,6 +79,16 @@ export function parseQtyText(raw: unknown, max = 100000): Parsed<number> {
 }
 
 /**
+ * จำนวนชิ้นจาก action (ส่วนย่อย 0181): number หรือ string ตัวเลขล้วน → จำนวนเต็ม 1–100,000 · ข้อความ error "<label>ต้องเป็นจำนวนเต็ม 1–100,000"
+ * ที่เดียวของ server action ทั้งหมด (job-lots · job-worker · job-office-write) — ห้ามกรองอักขระทิ้งเงียบ ("1,5" "3.5" "-2" = error)
+ */
+export function parsePieces(raw: unknown, label: string): Parsed<number> {
+  const n = typeof raw === "number" ? raw : typeof raw === "string" && /^\d+$/.test(raw.trim()) ? Number(raw.trim()) : NaN;
+  if (!Number.isSafeInteger(n) || n < 1 || n > 100000) return bad(`${label}ต้องเป็นจำนวนเต็ม 1–100,000`);
+  return ok(n);
+}
+
+/**
  * จำนวนเผื่อของเสีย "เพิ่มกี่ชิ้น" (สวิตช์เผื่อของเสียเปิดอยู่): จำนวนเต็ม >= 0 เท่านั้น — 0 ผ่าน (เปิดแล้วยังไม่เผื่อ)
  * 🔴 ห้ามกรองอักขระทิ้งเงียบ ("1,5" "3.5" "-2" "" "abc" = error) · รวมกับจำนวนสั่งต้องไม่เกินเพดานเริ่มผลิต (ค่าเดียวกับ parseQtyText · DB เป็นด่านจริง)
  */
@@ -122,9 +134,10 @@ export function parseText(raw: unknown, label: string, max: number, required: bo
   return ok(t);
 }
 
-/** PIN 4 หลัก — ตรวจรูปแบบเท่านั้น (เลขซ้ำ/เรียง/เดาง่ายให้ DB ปฏิเสธ — ข้อความไทยมาจาก hint pin_invalid) */
+/** PIN 4 หลัก — ตรวจรูปแบบเท่านั้น · 0185: เลขซ้ำ/เรียง/0000 ใช้ได้ (เจ้าของ 20 ต.ค. 69) · DB ตรวจรูปแบบซ้ำ (job_pin_ok) ข้อความไทยมาจาก hint pin_invalid */
+export const PIN_RE = /^[0-9]{4}$/;
 export function parsePin(raw: unknown): Parsed<string> {
-  if (typeof raw !== "string" || !/^[0-9]{4}$/.test(raw)) return bad("PIN ต้องเป็นตัวเลข 4 หลัก");
+  if (typeof raw !== "string" || !PIN_RE.test(raw)) return bad("PIN ต้องเป็นตัวเลข 4 หลัก");
   return ok(raw);
 }
 

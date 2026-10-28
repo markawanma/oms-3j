@@ -15,6 +15,7 @@ vi.mock("next/link", () => ({ default: ({ href, children, ...r }: { href: string
 
 const issueJobQr = vi.fn();
 vi.mock("@/lib/actions/job-office-write", () => ({ issueJobQr: (...a: unknown[]) => issueJobQr(...a) }));
+vi.mock("@/lib/actions/gems", () => ({ getGemOptions: () => Promise.resolve({ ok: true, data: { types: [], shapes: [], items: [] } }) })); // G1a: ฟอร์มสร้างใบงานโหลดรายการพลอย (ไม่มีราคา)
 const getJobsForSourceItems = vi.fn();
 const suggestJob = vi.fn();
 const PF = [{ id: "99999999-0000-4000-8000-000000000001", name: "แบบ 1", note: null, requireFinalWeight: false, isActive: true, seq: 10, isDefault: true, isDefaultGold: false, stages: [], jobsOpen: 0 }];
@@ -56,6 +57,9 @@ const U2 = "22222222-2222-4222-8222-222222222222";
 const printable: PrintableJob = {
   jobId: U1, jobNo: "JB-0007", designLabel: "แหวนลาย A", sku: "RG-001", metalLabel: "เงิน", qtyOrder: 12, qtyPlanned: 12, targetPieceG: null, metalPlanG: null, dueDate: "2026-10-30", sourceLabel: "งานลูกค้า", weightStartG: null,
   profileName: null,
+  primaryPhotoUrl: null,
+  gems: [],
+  gemsState: "not_needed",
   stages: [{ seq: 1, name: "หล่อ", weighRequired: true, scrapQtyAsk: true, scrapWeightAsk: false }, { seq: 2, name: "ขัด", weighRequired: false, scrapQtyAsk: true, scrapWeightAsk: false }],
 };
 
@@ -127,8 +131,8 @@ describe("JobPrintClient", () => {
 describe("WorkersClient", () => {
   const data = {
     workers: [
-      { id: U1, displayName: "ช่างเอ", stageCodes: ["cast"], isActive: true, lockedUntil: null, createdAt: null, lockState: "none" as const, failedAttempts: 0, pinWarning: false },
-      { id: U2, displayName: "ช่างบี", stageCodes: [], isActive: false, lockedUntil: null, createdAt: null, lockState: "none" as const, failedAttempts: 0, pinWarning: false },
+      { id: U1, displayName: "ช่างเอ", stageCodes: ["cast"], isActive: true, lockedUntil: null, createdAt: null, lockState: "none" as const, failedAttempts: 0, pinWarning: false, canOpenJob: false, canExternal: false },
+      { id: U2, displayName: "ช่างบี", stageCodes: [], isActive: false, lockedUntil: null, createdAt: null, lockState: "none" as const, failedAttempts: 0, pinWarning: false, canOpenJob: false, canExternal: false },
     ],
     stages: [{ code: "cast", nameTh: "หล่อ" }, { code: "polish", nameTh: "ขัด" }],
   };
@@ -202,7 +206,7 @@ describe("WorkersClient", () => {
 });
 
 describe("WorkersClient แท็บ ใช้งานอยู่ / ปิดใช้งาน", () => {
-  const mk = (id: string, displayName: string, isActive: boolean, over: Record<string, unknown> = {}) => ({ id, displayName, stageCodes: ["cast"], isActive, lockedUntil: null, createdAt: null, lockState: "none" as const, failedAttempts: 0, pinWarning: false, ...over });
+  const mk = (id: string, displayName: string, isActive: boolean, over: Record<string, unknown> = {}) => ({ id, displayName, stageCodes: ["cast"], isActive, lockedUntil: null, createdAt: null, lockState: "none" as const, failedAttempts: 0, pinWarning: false, canOpenJob: false, canExternal: false, ...over });
   const U3 = "33333333-3333-4333-8333-333333333333";
   const stages = [{ code: "cast", nameTh: "หล่อ" }, { code: "polish", nameTh: "ขัด" }];
   const data = { workers: [mk(U1, "ช่างเอ", true), mk(U2, "ช่างบี", false), mk(U3, "ช่างซี", true)], stages };
@@ -304,7 +308,7 @@ describe("JobCreatePanel", () => {
     await waitFor(() => expect(submit).toBeEnabled(), { timeout: 3000 });
     await userEvent.click(submit);
     expect(createJob).toHaveBeenCalledWith({ kind: "oem", itemId: U1, stageCodes: ["cast", "polish"], dueDate: null, startGateNote: "ลูกค้าประจำ", designLabel: "แหวนลาย A", profileId: PF[0].id });
-    await waitFor(() => expect(push).toHaveBeenCalledWith("/jobs/J9"));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/jobs/J9#job-photos"));
   });
 
   const suggestion = (o: Record<string, unknown> = {}) => ({
@@ -378,7 +382,7 @@ describe("JobPrintClient — ที่อยู่ QR และคำเตื�
 });
 
 describe("0174: ทะเบียนช่าง — คำเตือน PIN ผิด · ห้าม < > ในชื่อ", () => {
-  const w0 = { id: U1, displayName: "ช่างเอ", stageCodes: ["cast"], isActive: true, lockedUntil: null, createdAt: null, lockState: "none" as const, failedAttempts: 0, pinWarning: false };
+  const w0 = { id: U1, displayName: "ช่างเอ", stageCodes: ["cast"], isActive: true, lockedUntil: null, createdAt: null, lockState: "none" as const, failedAttempts: 0, pinWarning: false, canOpenJob: false, canExternal: false };
   const stages = [{ code: "cast", nameTh: "หล่อ" }, { code: "polish", nameTh: "ขัด" }];
 
   it("pin_warning: ป้ายเตือน 'มีคนใส่ PIN ผิด n ครั้ง' + คำอธิบาย 15 ครั้ง + ปุ่ม 'ปลดล็อก / รีเซ็ตตัวนับ' (ทั้งที่ยังไม่ล็อก)", async () => {

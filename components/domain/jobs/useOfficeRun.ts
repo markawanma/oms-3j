@@ -7,8 +7,10 @@ import { useCallback, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useToast } from "@/components/ui/Toast";
 import { GENERIC_JOB_ERROR } from "@/lib/jobs/messages";
+import type { GemErrorInfo } from "@/lib/jobs/gems";
 
-type Res<T> = { ok: true; data: T } | { ok: false; error: string; code?: string };
+/** gem (0190) = รายละเอียดข้อผิดพลาดของแถวพลอย/ตัวดักชื่อคล้าย — มีเฉพาะ action พลอย */
+type Res<T> = { ok: true; data: T } | { ok: false; error: string; code?: string; gem?: GemErrorInfo };
 
 export function useOfficeRun() {
   const router = useRouter();

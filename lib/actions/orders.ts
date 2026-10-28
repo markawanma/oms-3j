@@ -3,8 +3,10 @@
 // lib/actions/orders.ts — server actions for the Unified Order Dashboard +
 // Order Detail screens. All reads/writes go through the service-role client
 // with an explicit `shop_id = getDevShopId()` filter (see
-// lib/supabase/server.ts header for why — no auth in this batch).
+// lib/supabase/server.ts header for why). Every action starts with the member
+// guard (denyIfNotMember, 25 ต.ค. 69) — a server action is a public POST endpoint.
 
+import { denyIfNotMember } from "@/lib/auth/action-guard";
 import { getServiceClient } from "@/lib/supabase/server";
 import { getDevShopId } from "@/lib/dev/context";
 import {
@@ -78,6 +80,8 @@ function sortByPriority(rows: OrderListRow[]): OrderListRow[] {
 }
 
 export async function listOrders(params: ListOrdersParams): Promise<ActionResult<ListOrdersResult>> {
+  const denied = await denyIfNotMember();
+  if (denied) return denied;
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();
@@ -172,6 +176,8 @@ export async function listOrders(params: ListOrdersParams): Promise<ActionResult
 }
 
 export async function getPrioritySummary(): Promise<ActionResult<PrioritySummary>> {
+  const denied = await denyIfNotMember();
+  if (denied) return denied;
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();
@@ -200,6 +206,8 @@ export async function getPrioritySummary(): Promise<ActionResult<PrioritySummary
 }
 
 export async function countNewOrdersSince(sinceIso: string): Promise<ActionResult<number>> {
+  const denied = await denyIfNotMember();
+  if (denied) return denied;
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();
@@ -223,6 +231,8 @@ export async function countNewOrdersSince(sinceIso: string): Promise<ActionResul
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export async function getOrderDetail(orderId: string): Promise<ActionResult<OrderDetail>> {
+  const denied = await denyIfNotMember();
+  if (denied) return denied;
   try {
     if (!UUID_RE.test(orderId)) return { ok: false, error: "ไม่พบออเดอร์นี้" };
     const shopId = getDevShopId();
@@ -307,6 +317,8 @@ async function updateOrderStatus(orderId: string, shopId: string, from: OrderSta
 
 /** Advances an order to the next status in the happy path (no stock effect). */
 export async function advanceOrder(orderId: string, currentStatus: OrderStatus): Promise<ActionResult> {
+  const denied = await denyIfNotMember();
+  if (denied) return denied;
   const nextStatus = NEXT_STATUS[currentStatus];
   if (!nextStatus || nextStatus === "shipped") {
     // "shipped" transition needs commit_stock — routed through markShipped() instead.
@@ -324,6 +336,8 @@ export async function advanceOrder(orderId: string, currentStatus: OrderStatus):
 
 /** to_ship -> shipped: commits reserved stock (on_hand -n, reserved -n) per design §3. */
 export async function markShipped(orderId: string): Promise<ActionResult> {
+  const denied = await denyIfNotMember();
+  if (denied) return denied;
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();
@@ -363,6 +377,8 @@ const CANCELLABLE_STATUSES: OrderStatus[] = ["new", "confirmed", "to_ship", "ove
  * "new -> oversold_hold: reserve fail ... Stock effect: —").
  */
 export async function cancelOrder(orderId: string, reason: string): Promise<ActionResult> {
+  const denied = await denyIfNotMember();
+  if (denied) return denied;
   if (!reason || reason.trim().length === 0) {
     return { ok: false, error: "กรุณาระบุเหตุผลการยกเลิก" };
   }

@@ -22,6 +22,7 @@ vi.mock("@/lib/actions/job-office", () => ({
   getJobPlanSuggest: (...a: unknown[]) => getJobPlanSuggest(...a),
 }));
 vi.mock("@/lib/actions/job-office-write", () => ({}));
+vi.mock("@/lib/actions/gems", () => ({ getGemOptions: () => Promise.resolve({ ok: true, data: { types: [], shapes: [], items: [] } }) })); // G1a: ฟอร์มสร้างใบงานโหลดรายการพลอย (ไม่มีราคา)
 
 import { ToastProvider } from "@/components/ui/Toast";
 import { JobCreateDialog } from "./JobCreateDialog";
@@ -91,7 +92,7 @@ describe("เผื่อของเสียไม่บังคับ ค่
     expect(createJob.mock.calls[0][0]).not.toHaveProperty("qtyPlanned");
     // น้ำหนักไม่ถูกแก้ = ไม่ส่ง (DB ใช้ค่าจากต้นทาง ที่มายังเป็น "ใบเสนอราคา")
     expect(createJob.mock.calls[0][0]).not.toHaveProperty("targetPieceG");
-    await waitFor(() => expect(push).toHaveBeenCalledWith("/jobs/J9"));
+    await waitFor(() => expect(push).toHaveBeenCalledWith("/jobs/J9#job-photos"));
   });
 
   it("สวิตช์ปิด: rate ครบหรือไม่ครบ → ได้ผลเท่ากัน = ไม่ส่ง qtyPlanned (เท่าจำนวนสั่ง) · ไม่มีกล่องเหลือง/ฟ้าของจำนวน", async () => {

@@ -20,6 +20,22 @@ export function thaiDate(date: string | null | undefined, withYear = true): stri
   return `${d} ${MONTHS[m - 1]}${withYear ? ` ${y + 543}` : ""}`;
 }
 
+/** "ต.ค. 2569" จาก "YYYY-MM" — ไม่ใช่เดือนที่ถูกต้อง = "—" */
+export function thaiMonthYear(ym: string | null | undefined): string {
+  const m = typeof ym === "string" ? /^(\d{4})-(0[1-9]|1[0-2])$/.exec(ym) : null;
+  return m ? `${MONTHS[Number(m[2]) - 1]} ${Number(m[1]) + 543}` : "—";
+}
+
+/** วันที่ตามเวลาไทย (Asia/Bangkok) ของ timestamp ISO → "YYYY-MM-DD" · อ่านไม่ได้ = null (ไม่ผูก timezone เครื่อง) */
+export function bkkDateOf(iso: string | null | undefined): string | null {
+  if (!iso) return null;
+  const t = new Date(iso);
+  if (Number.isNaN(t.getTime())) return null;
+  const p = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Bangkok", year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(t);
+  const g = (k: string) => p.find((x) => x.type === k)?.value ?? "";
+  return `${g("year")}-${g("month")}-${g("day")}`;
+}
+
 /** เวลาไทยของ timestamp ISO → "12 ต.ค. 14:05" */
 export function thaiDateTime(iso: string | null | undefined): string {
   if (!iso) return "—";

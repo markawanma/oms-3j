@@ -15,6 +15,7 @@
 // numbers here don't get silently compared against the H1 file and look
 // "wrong".
 
+import { denyIfNotMember } from "@/lib/auth/action-guard";
 import { getServiceClient } from "@/lib/supabase/server";
 import { getDevShopId } from "@/lib/dev/context";
 import type { ActionResult, ChannelCode, OrderStatus } from "@/lib/types";
@@ -122,6 +123,8 @@ function emptySummary(params: GetSalesSummaryParams, scopeChannels: ChannelCode[
 }
 
 export async function getSalesSummary(params: GetSalesSummaryParams): Promise<ActionResult<SalesSummary>> {
+  const denied = await denyIfNotMember();
+  if (denied) return denied;
   if (!isValidDateStr(params.from) || !isValidDateStr(params.to)) {
     return { ok: false, error: "ช่วงวันที่ไม่ถูกต้อง" };
   }

@@ -3,6 +3,9 @@
 // ที่นี่คำนวณเฉพาะ "ครบกำหนดใน 3 วัน" (ข้อมูลประกอบ จากวันที่ไทยของ server) และจัดกลุ่ม
 
 import { addDays, daysBetween } from "@/lib/jobs/dates";
+import { calendarDaysOpen, isAckStale } from "@/lib/jobs/intake-ack";
+import { GOLD_GAP_TOLERANCE_G } from "@/lib/jobs/lots";
+import { retiredStageLabel } from "@/lib/jobs/types";
 import type { BoardRow, StageDef } from "@/lib/jobs/types";
 
 export const NO_STAGE = "__none__";
@@ -32,11 +35,22 @@ export interface BoardColumn {
 
 /** คอลัมน์ที่ใบนี้ควรอยู่ — ยึด board_column ของ DB (0173) · ไม่มีค่า/ไม่รู้จัก: ครบทุกขั้นแล้วแต่ไม่มีขั้นปัจจุบัน = รอปิดงาน (กันกรณีข้อมูลเก่า) ไม่งั้น "ยังไม่เริ่ม" */
 export function columnOf(r: BoardRow, known: ReadonlySet<string>): string {
-  const bc = r.boardColumn ?? r.stageCode;
+  // 0181: ใบที่แยกส่วนแล้ว (หลายส่วน) อยู่คอลัมน์ของขั้นที่มีชิ้นมากสุด (DB: dominant_stage_code) — current_stage_code ของใบแม่เป็นของ "ส่วนหลัก" เท่านั้น · ใบเดี่ยว = เดิมทุกประการ
+  const bc = (r.partsCount ?? 0) > 1 && r.dominantStageCode ? r.dominantStageCode : (r.boardColumn ?? r.stageCode);
   if (bc === AWAITING_CLOSE) return AWAITING_CLOSE;
   if (bc && known.has(bc)) return bc;
   if (!r.stageCode && r.stageCount > 0 && r.stageDoneCount >= r.stageCount) return AWAITING_CLOSE;
   return NO_STAGE;
+}
+
+/**
+ * ขั้นที่ขึ้นเป็นคอลัมน์บอร์ด (0184): ขั้นที่ใช้งานอยู่ทั้งหมด (แม้ไม่มีใบ) + ขั้นที่เลิกใช้ "เฉพาะเมื่อมีใบอยู่ที่ขั้นนั้น" ชื่อต่อท้าย "(เลิกใช้)"
+ * ไม่งั้นใบเก่าที่ยังเดินผ่านขั้น polish ตกคอลัมน์ "ยังไม่เริ่ม" (columnOf ไม่รู้จักรหัส) · เรียงตาม seq ของทะเบียน (defs ต้องเรียงมาแล้ว) · ขั้นเลิกใช้ที่ไม่มีใบ = ไม่แสดง
+ */
+export function visibleBoardStages(defs: readonly StageDef[], rows: readonly BoardRow[]): StageDef[] {
+  const all = new Set(defs.map((d) => d.code));
+  const used = new Set(rows.map((r) => columnOf(r, all)));
+  return defs.filter((d) => !d.retired || used.has(d.code)).map((d) => (d.retired ? { ...d, nameTh: retiredStageLabel(d.nameTh) } : d));
 }
 
 /** คอลัมน์ = "ยังไม่เริ่ม" (ข้อมูลที่ไม่มีขั้น) + ขั้นที่ใช้งาน (เรียงตามลำดับมาตรฐาน) + "รอปิดงาน" ท้ายสุด — ขั้นที่ไม่มีใบงานก็แสดง (เห็นภาพรวมสายผลิต) */
@@ -67,6 +81,10 @@ export interface BoardSummary {
   dueSoon: number;
   stale: number;
   depositMissing: number;
+  /** W1: ใบงานที่ใบผลิตต้นทางเปิดจากหน้างานและยังไม่รับทราบ */
+  unacked: number;
+  /** W1: ในนั้นค้างเกินกำหนดเตือน (วันปฏิทินไทย) — tile ขึ้นแดง */
+  unackedStale: number;
 }
 
 /** ครบกำหนดใน 3 วัน = วันนี้ ≤ due ≤ วันนี้+3 และยังไม่เลยกำหนด — ข้อมูลประกอบ */
@@ -77,6 +95,8 @@ export function summarize(rows: readonly BoardRow[], todayTh: string): BoardSumm
     dueSoon: rows.filter((r) => matchesSignal(r, "dueSoon", todayTh)).length,
     stale: rows.filter((r) => matchesSignal(r, "stale", todayTh)).length,
     depositMissing: rows.filter((r) => r.depositMissing).length,
+    unacked: rows.filter((r) => matchesSignal(r, "unacked", todayTh)).length,
+    unackedStale: rows.filter((r) => isUnackedStale(r, todayTh)).length,
   };
 }
 
@@ -142,7 +162,18 @@ export function holderOptions(rows: readonly BoardRow[]): string[] {
 // ---------------------------------------------------------------------------
 
 /** ตัวกรองจาก tile (ทำงานต่อจาก dropdown) */
-export type Signal = "overdue" | "dueSoon" | "stale";
+export type Signal = "overdue" | "dueSoon" | "stale" | "unacked";
+
+/** W1: ค้างรับทราบครบกำหนดเตือน (ที่เดียว = isAckStale ของ intake-ack.ts — ใช้ร่วมกับ /production) · ไม่ใช่ใบรอรับทราบ = false */
+export function isUnackedStale(r: BoardRow, todayTh: string): boolean {
+  return r.intake?.ackPending === true && isAckStale(r.intake.openedAt, todayTh);
+}
+
+/** W1: ใบงานจากหน้างานที่ยังไม่รับทราบ → ค้างกี่วันปฏิทินไทย (วันเปิด = 1) · ไม่ใช่ใบรอรับทราบ = null */
+export function unackedDays(r: BoardRow, todayTh: string): number | null {
+  if (!r.intake?.ackPending) return null;
+  return calendarDaysOpen(r.intake.openedAt, todayTh);
+}
 
 /** ครบกำหนดใน 3 วัน = วันนี้ ≤ due ≤ วันนี้+3 และยังไม่เลยกำหนด */
 function isDueSoon(r: BoardRow, todayTh: string): boolean {
@@ -155,6 +186,7 @@ function isDueSoon(r: BoardRow, todayTh: string): boolean {
 export function matchesSignal(r: BoardRow, signal: Signal, todayTh: string): boolean {
   if (signal === "overdue") return r.isOverdue;
   if (signal === "stale") return r.isStale;
+  if (signal === "unacked") return r.intake?.ackPending === true;
   return isDueSoon(r, todayTh);
 }
 
@@ -163,7 +195,7 @@ export function applySignal(rows: readonly BoardRow[], signal: Signal | null, to
 }
 
 export type StatusTone = BadgeTone | "green";
-export type StatusKey = "overdue" | "dueSoon" | "mismatch" | "handoff" | "stale" | "deposit" | "hold" | "normal" | "auto" | "qty" | "surplusPending" | "underPlanned" | "buffer" | "goldUnguarded";
+export type StatusKey = "overdue" | "unacked" | "unboundSku" | "metalDiff" | "fromShop" | "dueSoon" | "mismatch" | "handoff" | "stale" | "deposit" | "hold" | "normal" | "auto" | "qty" | "surplusPending" | "underPlanned" | "buffer" | "goldUnguarded" | "pendingExplain" | "partial" | "goldWeight";
 
 export interface StatusSignal {
   key: StatusKey;
@@ -185,12 +217,28 @@ export function statusSignals(r: BoardRow, todayTh: string): StatusSignal[] {
     const n = r.dueDate ? daysBetween(r.dueDate, todayTh) : 0;
     out.push({ key: "overdue", rank: 1, label: n > 0 ? `เลยกำหนด ${n} วัน` : "เลยกำหนด", tone: "red" });
   }
+  // W1: ใบจากหน้างานที่ยังไม่รับทราบ — ต้องดู (rank 1.5 ระหว่างเลยกำหนดกับครบใน 3 วัน · แดงเมื่อค้างครบกำหนดเตือน)
+  const ackDays = unackedDays(r, todayTh);
+  if (r.intake?.ackPending) {
+    const stale = isUnackedStale(r, todayTh);
+    out.push({ key: "unacked", rank: 1.5, label: stale ? `รอรับทราบ ค้าง ${ackDays} วัน` : "รอรับทราบ", tone: stale ? "red" : "amber" });
+  }
   if (isDueSoon(r, todayTh)) {
     const n = daysBetween(todayTh, r.dueDate as string);
     out.push({ key: "dueSoon", rank: 2, label: n === 0 ? "ครบวันนี้" : `ครบใน ${n} วัน`, tone: "amber" });
   }
-  if (r.handoffMismatchCount > 0) out.push({ key: "mismatch", rank: 3, label: `ชั่งไม่ตรง ${r.handoffMismatchCount} ครั้ง`, tone: "amber" });
-  if (r.handoffGapG !== null && r.handoffGapG > 0) out.push({ key: "handoff", rank: 4, label: `ส่วนต่างส่งมอบ ${Math.round(r.handoffGapG * 1000) / 1000} g`, tone: "amber" });
+  // 0181 M-A: ใบที่แยกส่วนแล้ว ใช้ตัวเลขทั้งต้นไม้ (ใบแม่ + ส่วนย่อย) แทนของใบแม่ที่มองไม่เห็นขั้นแรกของส่วนย่อย · ไม่มีค่า tree = ใช้ของใบเอง · ใบเดี่ยว = เดิมทุกประการ
+  const treeView = (r.partsCount ?? 0) > 1;
+  const mismatchN = treeView ? Math.max(r.handoffMismatchCount, r.treeHandoffMismatchCount ?? 0) : r.handoffMismatchCount;
+  const gapG = treeView ? (r.treeHandoffGapG ?? r.handoffGapG) : r.handoffGapG;
+  if (mismatchN > 0) out.push({ key: "mismatch", rank: 3, label: `ชั่งไม่ตรง ${mismatchN} ครั้ง`, tone: "amber" });
+  // 0181 M-A/M-B/L-1 (ทอง · ออฟฟิศเท่านั้น): น้ำหนักหายเกินสัดส่วนชิ้นที่ขาด หรือหลายส่วนหายสะสม — ใบทองที่แยกส่วนแล้วเท่านั้น (เงิน/ใบเดี่ยวไม่ขึ้น)
+  if (treeView && r.metal === "gold" && ((r.treeWeightGapExcessG ?? 0) < -GOLD_GAP_TOLERANCE_G || (r.treeLotFirstGapSumG ?? 0) < -GOLD_GAP_TOLERANCE_G)) {
+    out.push({ key: "goldWeight", rank: 3.6, label: "ทอง: น้ำหนักหายเกินสัดส่วน", tone: "amber" });
+  }
+  if (gapG !== null && gapG > 0) out.push({ key: "handoff", rank: 4, label: `ส่วนต่างส่งมอบ ${Math.round(gapG * 1000) / 1000} g`, tone: "amber" });
+  // 0181 (มติ Q5): ผู้รับรับได้น้อยกว่าที่ส่ง — ส่วนต่างรอผู้ส่งชี้แจง · ต้องดู (นับใน "ต้องดู") · n = ชิ้นจาก DB
+  if ((r.qtyPendingExplanation ?? 0) > 0) out.push({ key: "pendingExplain", rank: 3.5, label: `รอชี้แจง ${r.qtyPendingExplanation} ชิ้น`, tone: "amber" });
   if (r.isStale) out.push({ key: "stale", rank: 5, label: "นิ่งเกิน 3 วัน", tone: "amber" });
   if (r.depositMissing && r.status !== "done" && r.status !== "cancelled") out.push({ key: "deposit", rank: 6, label: r.startGateNotePresent ? "ยังไม่มีมัดจำ (เริ่มก่อนด้วยเหตุผล)" : "ยังไม่มีมัดจำ", tone: "amber" });
   // 0175: ใบ done ที่ของเหลือยังถือไว้ไม่ตัดสิน (ปกติไม่อยู่บนบอร์ด เพราะบอร์ดดึงเฉพาะใบที่ยังไม่ปิด — ขึ้นที่หน้ารายละเอียดใบงาน) · n = qty_surplus จาก DB
@@ -205,6 +253,14 @@ export function statusSignals(r: BoardRow, todayTh: string): StatusSignal[] {
   // เผื่อของเสีย (เริ่มผลิตมากกว่าที่สั่ง) — ข้อมูลประกอบ rank หลัง underPlanned · ส่วนต่างจำนวนชิ้น (ไม่ใช่เงิน/น้ำหนัก) · ใบที่เท่ากัน/น้อยกว่าไม่ขึ้น
   const buf = bufferQtyOf(r);
   if (buf > 0) out.push({ key: "buffer", rank: 10.2, label: bufferLabel(buf), tone: "blue" });
+  // 0181: ใบที่แยกส่วนแล้ว "n ส่วน" — ข้อมูลประกอบ (sky) · ใบเดี่ยวไม่ขึ้น
+  if ((r.partsCount ?? 0) > 1) out.push({ key: "partial", rank: 10.3, label: `${r.partsCount} ส่วน`, tone: "blue" });
+  // W1: ข้อมูลประกอบของใบจากหน้างาน (รอง — ไม่นับ "ต้องดู": ออฟฟิศจัดการที่หน้าใบผลิต) · ใบเดิมไม่มี intake = ไม่ขึ้นสักป้าย
+  if (r.intake) {
+    if (r.sku === null) out.push({ key: "unboundSku", rank: 9.5, label: "⚑ ยังไม่ผูก SKU", tone: "amber" });
+    if (r.intake.metalMismatch) out.push({ key: "metalDiff", rank: 9.6, label: "โลหะต่างจาก SKU", tone: "amber" });
+    out.push({ key: "fromShop", rank: 10.4, label: "จากหน้างาน", tone: "blue" });
+  }
   return out;
 }
 
@@ -264,7 +320,7 @@ export function hasFilters(f: BoardFilters, signal: Signal | null): boolean {
   return !!(f.metal || f.source || f.holder || f.overdueOnly || signal);
 }
 
-const SIGNAL_LABEL: Record<Signal, string> = { overdue: "เลยกำหนด", dueSoon: "ครบใน 3 วัน", stale: "นิ่งเกิน 3 วัน" };
+const SIGNAL_LABEL: Record<Signal, string> = { overdue: "เลยกำหนด", dueSoon: "ครบใน 3 วัน", stale: "นิ่งเกิน 3 วัน", unacked: "รอรับทราบ" };
 export const SIGNAL_TEXT = SIGNAL_LABEL;
 
 /** "เลยกำหนด · โลหะ ทอง · แหล่ง งาน OEM · ผู้ถือ ช่างเอ" — ป้ายชื่อโลหะ/แหล่งส่งเข้ามาเพื่อไม่ผูก lib นี้กับ types */

@@ -6,6 +6,8 @@ import { EMPTY_SELLER_PROFILE } from "@/lib/oem/sellerProfile";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { PrintQuoteClient } from "@/components/domain/oem/PrintQuoteClient";
+import { PrintFileTitle } from "@/components/ui/PrintFileTitle";
+import { quotePrintTitle } from "@/lib/oem/print-title";
 
 export const dynamic = "force-dynamic";
 
@@ -54,10 +56,12 @@ export default async function OemQuotePrintPage({ params }: { params: Promise<{ 
   // same safe "พิมพ์ไม่ได้" screen instead of a hard crash.
   if (!sellerResult.ok) console.error("getSellerProfile failed:", sellerResult.error);
 
+  // ชื่อไฟล์ PDF อ่านจาก PrintableQuote (ด่าน boundary เดิม) เท่านั้น — เลขที่ + วันออกใบ + ชื่อผู้ซื้อ ไม่มียอด/ต้นทุน
+  const quote = toPrintableQuote(quoteResult.data, itemsResult.data);
   return (
-    <PrintQuoteClient
-      quote={toPrintableQuote(quoteResult.data, itemsResult.data)}
-      sellerProfile={sellerResult.ok ? sellerResult.data : EMPTY_SELLER_PROFILE}
-    />
+    <>
+      <PrintFileTitle title={quotePrintTitle(quote)} />
+      <PrintQuoteClient quote={quote} sellerProfile={sellerResult.ok ? sellerResult.data : EMPTY_SELLER_PROFILE} />
+    </>
   );
 }

@@ -9,12 +9,18 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, CheckCircle2 } from "lucide-react";
 import { IdentifyPanel, ReceivePanel, SendPanel } from "@/components/domain/jobs/worker/WorkerPanels";
-import type { DoneTone } from "@/components/domain/jobs/worker/WorkerPanels";
+import type { DoneTone, SplitResultInfo } from "@/components/domain/jobs/worker/WorkerPanels";
+import { MultiPanel, SplitDone } from "@/components/domain/jobs/worker/WorkerLots";
 import { BigButton, PanelSkeleton, StageStrip, useHydrated } from "@/components/domain/jobs/worker/WorkerParts";
+import { WorkerGemsCard } from "@/components/domain/jobs/worker/WorkerGemsCard";
+import { JobPhotoThumb } from "@/components/domain/jobs/photos/JobPhotoThumb";
+import { JobPhotoViewer } from "@/components/domain/jobs/photos/JobPhotoViewer";
+import { useRefreshGate } from "@/components/domain/jobs/photos/useRefreshGate";
+import type { RetryReason } from "@/components/domain/jobs/photos/types";
 import { workerLogout } from "@/lib/actions/job-worker";
 import { WORKER_CODE_TH, prevNotSentMessage } from "@/lib/jobs/messages";
 import { METAL_LABEL } from "@/lib/jobs/types";
-import { prevStageName } from "@/lib/jobs/worker-view";
+import { isMultiView, prevStageName } from "@/lib/jobs/worker-view";
 import type { NextAction, WorkerView } from "@/lib/jobs/worker-view";
 
 const INFO: Partial<Record<NextAction, { tone: "amber" | "zinc"; text: string }>> = {
@@ -35,9 +41,25 @@ export function WorkerApp({ token, view }: { token: string; view: WorkerView }) 
   const ready = useHydrated();
   const [done, setDone] = useState<{ msg: string; tone: DoneTone } | null>(null);
   const [outBusy, setOutBusy] = useState(false);
+  // 0181: แยกส่วนสำเร็จ → จอ "แบ่งส่วนแล้ว" (QR ใบเดิมบนจอ + ยกเลิกการแยก) — ไม่ปิดเอง
+  const [split, setSplit] = useState<SplitResultInfo | null>(null);
   // N5: หลัง refresh ข้อมูลใหม่ยังไม่มา แผงเก่าห้ามกดได้ — โชว์ skeleton จนกว่า view ใหม่จะมาถึง (หรือครบ 8 วิ กันค้าง)
   const [waiting, setWaiting] = useState(false);
   const j = view.job;
+  // 0182: รูปอ้างอิง (มีเฉพาะช่างที่ระบุตัวแล้ว · รูปหลักก่อน) — 0189 W2: รูปหลักใหญ่บนหัวจอ (เดิมภาพย่อ 80px) · แตะ = เต็มจอ ปัดดู · ไม่มีรูป = ไม่ render อะไรเลย (จอเดิมเป๊ะ)
+  const photos = j.photos ?? [];
+  const [viewerAt, setViewerAt] = useState<number | null>(null);
+  // กันขอลิงก์ใหม่อัตโนมัติวนไม่จบ: อัตโนมัติ ≤ 2 ครั้ง (ห่าง ≥ 10 วินาที) จนช่างแตะ "ลองใหม่" แล้วรีเซ็ต (useRefreshGate)
+  const allowPhotoRefresh = useRefreshGate();
+  // signed URL หมดอายุ 15 นาที แต่เซสชันช่างอยู่ได้ 12 ชม. → รูปโหลดล้ม = ขอ view ใหม่ (ลิงก์ใหม่) · อัตโนมัติจำกัดด้วย useRefreshGate · แตะลองใหม่ได้เสมอ
+  // ใช้ router.refresh() ตรงๆ ไม่ใช่ refreshView: refreshView สลับแผงเป็น skeleton (ค่าที่ช่างกรอกค้างอยู่หาย) — รูปไม่ควรกระทบแผนรับ/ส่ง
+  const onPhotoRetry = useCallback(
+    (reason: RetryReason) => {
+      if (!allowPhotoRefresh(reason)) return;
+      router.refresh();
+    },
+    [router, allowPhotoRefresh],
+  );
 
   useEffect(() => {
     setWaiting(false);
@@ -61,6 +83,18 @@ export function WorkerApp({ token, view }: { token: string; view: WorkerView }) 
     }, done.tone === "warn" ? 4000 : 2000);
     return () => clearTimeout(t);
   }, [done, refreshView]);
+
+  if (split) {
+    return (
+      <SplitDone
+        token={token}
+        view={view}
+        info={split}
+        onFinish={() => { setSplit(null); refreshView(); }}
+        onCancelled={(msg) => { setSplit(null); setDone({ msg, tone: "ok" }); }}
+      />
+    );
+  }
 
   if (done) {
     const warn = done.tone === "warn";
@@ -90,13 +124,37 @@ export function WorkerApp({ token, view }: { token: string; view: WorkerView }) 
     }
   }
 
+  // 0181: ใบเดี่ยว — my_actions ของขั้นที่ action_stage ชี้ (ใช้เปิดช่อง "ส่งไม่ครบ?/ได้ไม่ครบ?") · ไม่มี = หน้าเดิมทุกประการ
+  const soloAction = (kind: "send" | "receive") => view.myActions?.find((a) => a.action === kind && a.stageSeq === view.actionStage?.seq);
   const info = view.nextAction === "prev_not_sent" ? { tone: "amber" as const, text: prevNotSentMessage(prevStageName(view)) } : INFO[view.nextAction];
+
+  const titleBlock = (
+    <>
+      <p className="text-base font-semibold text-zinc-700">ใบงาน</p>
+      <h1 className="text-4xl font-extrabold tracking-tight text-zinc-900">{j.jobNo}</h1>
+    </>
+  );
 
   return (
     <div className="space-y-4">
       <header className="space-y-0.5">
-        <p className="text-base font-semibold text-zinc-700">ใบงาน</p>
-        <h1 className="text-4xl font-extrabold tracking-tight text-zinc-900">{j.jobNo}</h1>
+        {photos.length > 0 && (
+          // 0189 W2 (มติ 21 ต.ค. "ช่างตรวจว่าถูกชิ้นจากรูป"): รูปหลักใหญ่เกือบเต็มความกว้างบนหัวจอ (เดิมภาพย่อ 80px) · แตะ = เต็มจอ ปัดดูทุกรูป
+          // 🔴 สูงจำกัด min(30vh, 13rem) + object-contain (ไม่ตัดชิ้นงาน) — กันดันปุ่มหลัก sticky (รับงาน/ส่งต่อ) ตกจอที่ 360×640 · ใช้ภาพกลาง (md) ให้ชัดบนจอ 3x · ไม่มีรูป = จอเดิมเป๊ะ
+          <div className="pb-2">
+            <JobPhotoThumb
+              smUrl={photos[0].mdUrl ?? photos[0].smUrl}
+              size="hero"
+              keepPrevious
+              stableKey={photos[0].id}
+              label={`รูปงาน ${j.jobNo} ${photos.length > 1 ? `${photos.length} รูป ` : ""}แตะเพื่อดูเต็มจอ`}
+              countChip={photos.length}
+              onClick={() => setViewerAt(0)}
+              onRetryLoad={onPhotoRetry}
+            />
+          </div>
+        )}
+        {titleBlock}
         {j.designLabel !== undefined && <p className="text-xl font-semibold break-words text-zinc-900">{j.designLabel}</p>}
         {j.designLabel !== undefined && (
           <p className="text-lg text-zinc-800">
@@ -112,15 +170,19 @@ export function WorkerApp({ token, view }: { token: string; view: WorkerView }) 
         </p>
       )}
 
-      {view.nextAction !== "held_by_other" && view.heldBy && view.heldBy !== view.viewer?.displayName && <p className="rounded-xl bg-zinc-100 p-3 text-lg text-zinc-900">ตอนนี้อยู่กับ <strong>{view.heldBy}</strong></p>}
+      {!isMultiView(view) && view.nextAction !== "held_by_other" && view.heldBy && view.heldBy !== view.viewer?.displayName && <p className="rounded-xl bg-zinc-100 p-3 text-lg text-zinc-900">ตอนนี้อยู่กับ <strong>{view.heldBy}</strong></p>}
+
+      {/* 0190 G1a: พลอยที่ต้องใช้ (เฉพาะช่างที่ระบุตัวแล้ว — DB ไม่ส่ง key ก่อน PIN/เมื่อไม่มีขั้นฝังและไม่มีพลอย = จอเดิมเป๊ะ) · ขั้นฝัง = กางเต็ม · ขั้นอื่น = พับ · ไม่บล็อกปุ่มรับ/ส่ง */}
+      {j.gemsState && <WorkerGemsCard state={j.gemsState} gems={j.gems ?? []} onGemStage={view.actionStage?.code === "gem_set"} />}
 
       {!ready || waiting ? (
         <PanelSkeleton />
       ) : (
         <>
           {view.nextAction === "identify" && <IdentifyPanel token={token} workers={view.workers} onDone={refreshView} />}
-          {view.nextAction === "receive" && view.actionStage && <ReceivePanel token={token} view={view} onDone={(msg, tone = "ok") => setDone({ msg, tone })} onReload={refreshView} />}
-          {view.nextAction === "send" && view.actionStage && <SendPanel token={token} view={view} onDone={(msg, tone = "ok") => setDone({ msg, tone })} onReload={refreshView} />}
+          {view.nextAction === "receive" && view.actionStage && <ReceivePanel token={token} view={view} action={soloAction("receive")} onDone={(msg, tone = "ok") => setDone({ msg, tone })} onReload={refreshView} />}
+          {view.nextAction === "send" && view.actionStage && <SendPanel token={token} view={view} action={soloAction("send")} onSplit={setSplit} onDone={(msg, tone = "ok") => setDone({ msg, tone })} onReload={refreshView} />}
+          {isMultiView(view) && <MultiPanel token={token} view={view} onDone={(msg, tone = "ok") => setDone({ msg, tone })} onReload={refreshView} onSplit={setSplit} onCancelled={(msg) => setDone({ msg, tone: "ok" })} />}
           {view.nextAction === "held_by_other" && (
             <p className="rounded-xl bg-zinc-100 p-4 text-xl text-zinc-900">ขั้น {view.actionStage?.name ?? "นี้"} ยังอยู่กับ {view.heldBy ?? "คนอื่น"} — รอเขาส่งต่อก่อน</p>
           )}
@@ -129,6 +191,18 @@ export function WorkerApp({ token, view }: { token: string; view: WorkerView }) 
       )}
 
       <StageStrip stages={j.stages} currentSeq={current} />
+
+      {viewerAt !== null && photos.length > 0 && (
+        <JobPhotoViewer
+          photos={photos.map((p) => ({ id: p.id, smUrl: p.smUrl, mdUrl: p.mdUrl, isPrimary: p.isPrimary }))}
+          index={viewerAt}
+          onIndexChange={setViewerAt}
+          onClose={() => setViewerAt(null)}
+          title={j.jobNo}
+          closeSize="worker"
+          onRetryLoad={onPhotoRetry}
+        />
+      )}
 
       {view.viewer && (
         <footer className="border-t border-zinc-200 pt-3">

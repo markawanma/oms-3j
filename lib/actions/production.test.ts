@@ -320,8 +320,189 @@ describe("setProductionOrderItem", () => {
     const result = await setProductionOrderItem({ productionOrderId: "po-1", productId: "11111111-1111-4111-8111-111111111111", qtyPlanned: 5, isNewDesign: true });
     expect(result).toEqual({
       ok: true,
-      data: { id: "item-1", productId: "11111111-1111-4111-8111-111111111111", sku: "R-0099", name: "แหวนเงินแท้", qtyPlanned: 5, isNewDesign: true },
+      data: {
+        id: "item-1",
+        productId: "11111111-1111-4111-8111-111111111111",
+        sku: "R-0099",
+        name: "แหวนเงินแท้",
+        pendingProductLabel: null,
+        qtyPlanned: 5,
+        isNewDesign: true,
+        // 0186: response ไม่มี key โลหะ/เนื้อ/น้ำหนัก (RPC เก่า) → null ไม่ throw
+        metal: null,
+        purity: null,
+        weightG: null,
+        weightSource: null,
+      },
     });
+  });
+
+  it("0186: old-style call (SKU + qty only) sends exactly the 5 pre-0186 args — works against the DB before and after apply", async () => {
+    rpcMock.mockResolvedValue(ITEM_SET_RPC_OK);
+    const { setProductionOrderItem } = await import("./production");
+    await setProductionOrderItem({ productionOrderId: "po-1", productId: "11111111-1111-4111-8111-111111111111", qtyPlanned: 5 });
+    expect(rpcMock).toHaveBeenCalledWith("production_order_item_set", {
+      p_shop_id: "shop-1",
+      p_production_order_id: "po-1",
+      p_product_id: "11111111-1111-4111-8111-111111111111",
+      p_qty_planned: 5,
+      p_is_new_design: null,
+    });
+  });
+
+  it("0186: sends metal/purity/weight/source only when provided, and maps the values the DB actually stored", async () => {
+    rpcMock.mockResolvedValue({
+      data: { ...ITEM_SET_RPC_OK.data, pending_product_label: null, metal: "gold", purity: "0.9000", weight_g: "3.200", weight_source: "input" },
+      error: null,
+    });
+    const { setProductionOrderItem } = await import("./production");
+    const result = await setProductionOrderItem({
+      productionOrderId: "po-1",
+      productId: "11111111-1111-4111-8111-111111111111",
+      qtyPlanned: 5,
+      metal: "gold",
+      purity: 0.9,
+      weightG: 3.2,
+      weightSource: "input",
+    });
+    expect(rpcMock).toHaveBeenCalledWith(
+      "production_order_item_set",
+      expect.objectContaining({ p_metal: "gold", p_purity: 0.9, p_weight_g: 3.2, p_weight_source: "input" })
+    );
+    expect(rpcMock.mock.calls[0][1]).not.toHaveProperty("p_pending_product_label");
+    expect(rpcMock.mock.calls[0][1]).not.toHaveProperty("p_clear_weight");
+    expect(result.ok && result.data).toMatchObject({ metal: "gold", purity: 0.9, weightG: 3.2, weightSource: "input" });
+  });
+
+  it("0186: item without SKU — sends p_product_id null + label, maps product_id null / name = label", async () => {
+    rpcMock.mockResolvedValue({
+      data: { id: "item-2", product_id: null, sku: null, name: "แหวนทดลอง", pending_product_label: "แหวนทดลอง", qty_planned: 4, is_new_design: false, metal: "silver", purity: "0.9250", weight_g: null, weight_source: null },
+      error: null,
+    });
+    const { setProductionOrderItem } = await import("./production");
+    const result = await setProductionOrderItem({ productionOrderId: "po-1", pendingProductLabel: "แหวนทดลอง", qtyPlanned: 4, metal: "silver" });
+    expect(rpcMock).toHaveBeenCalledWith(
+      "production_order_item_set",
+      expect.objectContaining({ p_product_id: null, p_pending_product_label: "แหวนทดลอง", p_metal: "silver" })
+    );
+    expect(result.ok && result.data).toMatchObject({ productId: null, sku: null, name: "แหวนทดลอง", pendingProductLabel: "แหวนทดลอง", purity: 0.925 });
+  });
+
+  it("0186: clearWeight is sent as p_clear_weight: true only when set", async () => {
+    rpcMock.mockResolvedValue(ITEM_SET_RPC_OK);
+    const { setProductionOrderItem } = await import("./production");
+    await setProductionOrderItem({ productionOrderId: "po-1", productId: "11111111-1111-4111-8111-111111111111", qtyPlanned: 5, clearWeight: true });
+    expect(rpcMock).toHaveBeenCalledWith("production_order_item_set", expect.objectContaining({ p_clear_weight: true }));
+  });
+
+  // เคสห้ามผ่านฝั่ง action (ด่านจริงอยู่ที่ DB — ซ้ำกัน ไม่ใช่แทน) — ตกก่อนถึง RPC ทุกเคส
+  it("0186: rejects bad input before any RPC call", async () => {
+    const { setProductionOrderItem } = await import("./production");
+    const sku = "11111111-1111-4111-8111-111111111111";
+    const cases: Array<Record<string, unknown>> = [
+      { productId: sku, pendingProductLabel: "ทั้งคู่" }, // มีทั้ง SKU และชื่อแบบ
+      { pendingProductLabel: "   ", metal: "silver" }, // ชื่อแบบว่าง
+      { pendingProductLabel: "แหวน<b>", metal: "silver" }, // < >
+      { pendingProductLabel: "ก".repeat(201), metal: "silver" }, // ยาวเกิน 200
+      { pendingProductLabel: "ไม่มีโลหะ" }, // รายการไม่มี SKU ไม่ระบุโลหะ
+      { productId: sku, metal: "platinum" },
+      { productId: sku, metal: "gold", purity: 0.374 },
+      { productId: sku, metal: "gold", purity: 1.0001 },
+      { productId: sku, metal: "gold", purity: Number.NaN },
+      { productId: sku, metal: "gold", purity: Number.POSITIVE_INFINITY },
+      { productId: sku, metal: "gold", purity: 0.37501 }, // ทศนิยมเกิน 4
+      { productId: sku, metal: "brass", purity: 0.925 }, // ทองเหลืองล็อก 1
+      { productId: sku, weightG: 0, weightSource: "input" },
+      { productId: sku, weightG: -1, weightSource: "input" },
+      { productId: sku, weightG: 10000.001, weightSource: "input" },
+      { productId: sku, weightG: 3.2001, weightSource: "input" },
+      { productId: sku, weightG: Number.NaN, weightSource: "input" },
+      { productId: sku, weightG: 3 }, // มี weight ไม่มี source
+      { productId: sku, weightSource: "input" }, // มี source ไม่มี weight
+      { productId: sku, weightG: 3, weightSource: "typed" },
+      { productId: sku, weightG: 3, weightSource: "input", clearWeight: true },
+      { productId: sku, qtyPlanned: 0 },
+      { productId: sku, qtyPlanned: 100001 },
+      { productId: sku, qtyPlanned: 1.5 },
+    ];
+    for (const c of cases) {
+      const result = await setProductionOrderItem({ productionOrderId: "po-1", qtyPlanned: 5, ...c } as never);
+      expect(result.ok, JSON.stringify(c)).toBe(false);
+    }
+    expect(rpcMock).not.toHaveBeenCalled();
+  });
+
+  it("0186: accepts the boundary values (purity 0.375 / 1 · weight 10000 / 0.001 · label 200 chars) — must not break", async () => {
+    rpcMock.mockResolvedValue(ITEM_SET_RPC_OK);
+    const { setProductionOrderItem } = await import("./production");
+    const sku = "11111111-1111-4111-8111-111111111111";
+    for (const c of [
+      { productId: sku, metal: "gold", purity: 0.375 },
+      { productId: sku, metal: "gold", purity: 1 },
+      { productId: sku, metal: "brass", purity: 1 },
+      { productId: sku, weightG: 10000, weightSource: "input" },
+      { productId: sku, weightG: 0.001, weightSource: "product" },
+      { pendingProductLabel: "ก".repeat(200), metal: "silver" },
+    ]) {
+      const result = await setProductionOrderItem({ productionOrderId: "po-1", qtyPlanned: 5, ...c } as never);
+      expect(result.ok, JSON.stringify(c)).toBe(true);
+    }
+  });
+});
+
+describe("removeProductionOrderItemById (0186)", () => {
+  it("rejects staff / bad uuid before any RPC; sends p_item_id on success", async () => {
+    const { removeProductionOrderItemById } = await import("./production");
+    expect((await removeProductionOrderItemById({ productionOrderId: "po-1", itemId: "not-a-uuid" })).ok).toBe(false);
+    expect(rpcMock).not.toHaveBeenCalled();
+    rpcMock.mockResolvedValue({ data: null, error: null });
+    const ok = await removeProductionOrderItemById({ productionOrderId: "po-1", itemId: "22222222-2222-4222-8222-222222222222" });
+    expect(ok.ok).toBe(true);
+    expect(rpcMock).toHaveBeenCalledWith("production_order_item_remove_by_id", {
+      p_shop_id: "shop-1",
+      p_production_order_id: "po-1",
+      p_item_id: "22222222-2222-4222-8222-222222222222",
+    });
+    getEffectiveRoleMock.mockResolvedValue("staff");
+    rpcMock.mockClear();
+    expect((await removeProductionOrderItemById({ productionOrderId: "po-1", itemId: "22222222-2222-4222-8222-222222222222" })).ok).toBe(false);
+    expect(rpcMock).not.toHaveBeenCalled();
+  });
+
+  it("surfaces the DB's job_exists message (with the job number) instead of the generic fallback", async () => {
+    rpcMock.mockResolvedValue({ data: null, error: { code: "22023", message: "production_order_item_remove_by_id: ลบรายการไม่ได้ — มีใบงาน JB-0031 ผูกอยู่ (ใบงานเก็บไว้เป็นหลักฐาน)" } });
+    const { removeProductionOrderItemById } = await import("./production");
+    const result = await removeProductionOrderItemById({ productionOrderId: "po-1", itemId: "22222222-2222-4222-8222-222222222222" });
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain("JB-0031");
+  });
+});
+
+describe("getProductionItemPrefill (0186)", () => {
+  it("rejects staff / bad uuid; maps the server-decided defaults incl. metalKnown (never computed client-side)", async () => {
+    const { getProductionItemPrefill } = await import("./production");
+    expect((await getProductionItemPrefill("nope")).ok).toBe(false);
+    expect(rpcMock).not.toHaveBeenCalled();
+    rpcMock.mockResolvedValue({
+      data: { product_id: "11111111-1111-4111-8111-111111111111", sku: "S-1bath", name: "แท่ง", cost_type: "spot", metal: "silver", purity: "0.9990", weight_g: "15.244", weight_source: "product", metal_known: true },
+      error: null,
+    });
+    const result = await getProductionItemPrefill("11111111-1111-4111-8111-111111111111");
+    expect(rpcMock).toHaveBeenCalledWith("production_item_prefill", { p_shop_id: "shop-1", p_product_id: "11111111-1111-4111-8111-111111111111" });
+    expect(result).toEqual({
+      ok: true,
+      data: { productId: "11111111-1111-4111-8111-111111111111", sku: "S-1bath", name: "แท่ง", costType: "spot", metal: "silver", purity: 0.999, weightG: 15.244, weightSource: "product", metalKnown: true },
+    });
+  });
+
+  it("metalKnown is false unless the RPC says exactly true (null/missing = neutral message, not a warning)", async () => {
+    rpcMock.mockResolvedValue({
+      data: { product_id: "11111111-1111-4111-8111-111111111111", sku: "R-1", name: "แหวน", cost_type: "fixed", metal: "silver", purity: 0.925, weight_g: null, weight_source: null, metal_known: null },
+      error: null,
+    });
+    const { getProductionItemPrefill } = await import("./production");
+    const result = await getProductionItemPrefill("11111111-1111-4111-8111-111111111111");
+    expect(result.ok && result.data).toMatchObject({ metalKnown: false, weightG: null, weightSource: null });
   });
 });
 
@@ -391,6 +572,8 @@ describe("doneProductionOrder", () => {
         poNo: "PO-0001",
         status: "done",
         alreadyDone: false,
+        // 0186: RPC เก่า/ใบ fixed ล้วนไม่มี metal_prices → {}
+        metalPrices: {},
         items: [
           {
             productId: "11111111-1111-4111-8111-111111111111",
@@ -404,17 +587,42 @@ describe("doneProductionOrder", () => {
             // spot-mode line — the RPC itself always returns null for
             // fixed/spot, see parseProductionSpecCostCalc's own null-input test).
             costCalc: null,
+            // 0186: ไม่มี key โลหะ/เนื้อ/น้ำหนักใน response (แถวเดิม/RPC เก่า) → null ทั้งหมด ไม่ throw
+            metal: null,
+            purity: null,
+            weightG: null,
           },
         ],
       },
     });
   });
 
-  // 0132 M1 — expectedSpotThbPerGram must reach the RPC verbatim (null when
-  // omitted, so old callers behave exactly like 0131), and be validated
-  // client-side just enough to reject non-finite garbage (NaN/Infinity)
-  // before it ever reaches the DB comparison.
-  it("passes expectedSpotThbPerGram through to p_expected_spot_thb_per_gram", async () => {
+  it("0186: maps metal/purity/weight_g per item + metal_prices of the order (the snapshot the RPC locked)", async () => {
+    rpcMock.mockResolvedValue({
+      data: {
+        production_order_id: "po-1",
+        po_no: "PO-0001",
+        status: "done",
+        already_done: false,
+        metal_prices: { silver: 72, gold: "2804.1271", platinum: 5 },
+        items: [
+          { product_id: "11111111-1111-4111-8111-111111111111", sku: "SKU-1", qty_done: 5, unit_cost: 1, prev_cost_type: "spot", prev_unit_cost: 1, cost_calc: null, metal: "gold", purity: "0.9000", weight_g: "3.200" },
+        ],
+      },
+      error: null,
+    });
+    const { doneProductionOrder } = await import("./production");
+    const result = await doneProductionOrder({ productionOrderId: "po-1", items: [{ productId: "11111111-1111-4111-8111-111111111111", qtyDone: 5 }] });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.metalPrices).toEqual({ silver: 72, gold: 2804.1271 }); // key นอก 3 โลหะถูกทิ้ง
+      expect(result.data.items[0]).toMatchObject({ metal: "gold", purity: 0.9, weightG: 3.2 });
+    }
+  });
+
+  // 0132 M1 → 0186 ต่อโลหะ — expectedMetalPrices ต้องถึง RPC ตรงตัว (ไม่เติมโลหะที่หน้าจอไม่ได้เห็น) · ช่องทางเดิม
+  // expectedSpotThbPerGram แปลงเป็น {silver} · validate แค่ให้ตัดค่าขยะ (NaN/Infinity/key แปลก/ศูนย์/ติดลบ) ก่อนถึง DB
+  it("passes expectedSpotThbPerGram (legacy channel) as p_expected_metal_prices = {silver}", async () => {
     rpcMock.mockResolvedValue(DONE_RPC_OK);
     const { doneProductionOrder } = await import("./production");
     await doneProductionOrder({
@@ -422,23 +630,53 @@ describe("doneProductionOrder", () => {
       items: [{ productId: "11111111-1111-4111-8111-111111111111", qtyDone: 5 }],
       expectedSpotThbPerGram: 70.25,
     });
-    expect(rpcMock).toHaveBeenCalledWith(
-      "production_order_done",
-      expect.objectContaining({ p_expected_spot_thb_per_gram: 70.25 })
-    );
+    expect(rpcMock).toHaveBeenCalledWith("production_order_done", expect.objectContaining({ p_expected_metal_prices: { silver: 70.25 } }));
+    // ไม่เหลือ arg เดิมที่ DB ไม่มีแล้ว (signature เดิมถูก drop — ส่งไปเท่ากับ PGRST202)
+    expect(rpcMock.mock.calls[0][1]).not.toHaveProperty("p_expected_spot_thb_per_gram");
   });
 
-  it("defaults p_expected_spot_thb_per_gram to null when expectedSpotThbPerGram is omitted", async () => {
+  it("passes expectedMetalPrices verbatim (per metal) and wins over expectedSpotThbPerGram", async () => {
+    rpcMock.mockResolvedValue(DONE_RPC_OK);
+    const { doneProductionOrder } = await import("./production");
+    await doneProductionOrder({
+      productionOrderId: "po-1",
+      items: [{ productId: "11111111-1111-4111-8111-111111111111", qtyDone: 5 }],
+      expectedMetalPrices: { silver: 72, gold: 2804.1271 },
+      expectedSpotThbPerGram: 1,
+    });
+    expect(rpcMock).toHaveBeenCalledWith("production_order_done", expect.objectContaining({ p_expected_metal_prices: { silver: 72, gold: 2804.1271 } }));
+  });
+
+  it("defaults p_expected_metal_prices to null when nothing is provided (DB fail-closes if the order needs a price)", async () => {
     rpcMock.mockResolvedValue(DONE_RPC_OK);
     const { doneProductionOrder } = await import("./production");
     await doneProductionOrder({
       productionOrderId: "po-1",
       items: [{ productId: "11111111-1111-4111-8111-111111111111", qtyDone: 5 }],
     });
-    expect(rpcMock).toHaveBeenCalledWith(
-      "production_order_done",
-      expect.objectContaining({ p_expected_spot_thb_per_gram: null })
-    );
+    expect(rpcMock).toHaveBeenCalledWith("production_order_done", expect.objectContaining({ p_expected_metal_prices: null }));
+  });
+
+  it("sends {} for a fixed-only order (preview.metalPrices = {}) — not null, not an invented silver price", async () => {
+    rpcMock.mockResolvedValue(DONE_RPC_OK);
+    const { doneProductionOrder } = await import("./production");
+    await doneProductionOrder({
+      productionOrderId: "po-1",
+      items: [{ productId: "11111111-1111-4111-8111-111111111111", qtyDone: 5 }],
+      expectedMetalPrices: {},
+    });
+    expect(rpcMock).toHaveBeenCalledWith("production_order_done", expect.objectContaining({ p_expected_metal_prices: {} }));
+  });
+
+  it("rejects malformed expectedMetalPrices (unknown metal / NaN / Infinity / 0 / negative / array) before calling the RPC", async () => {
+    const { doneProductionOrder } = await import("./production");
+    const items = [{ productId: "11111111-1111-4111-8111-111111111111", qtyDone: 5 }];
+    const bad: unknown[] = [{ platinum: 5 }, { gold: Number.NaN }, { gold: Number.POSITIVE_INFINITY }, { gold: 0 }, { silver: -1 }, { gold: "2804" }, [72]];
+    for (const expectedMetalPrices of bad) {
+      const result = await doneProductionOrder({ productionOrderId: "po-1", items, expectedMetalPrices: expectedMetalPrices as never });
+      expect(result.ok).toBe(false);
+    }
+    expect(rpcMock).not.toHaveBeenCalled();
   });
 
   it("rejects a non-finite expectedSpotThbPerGram (NaN/Infinity) before calling the RPC", async () => {
@@ -581,6 +819,44 @@ describe("previewProductionOrder", () => {
     expect(result.data.items[0]).toMatchObject({ qtyUsed: 5, isNewDesign: false, skipped: false, unitCost: 305.07 });
     expect(result.data.items[0].costCalc).toMatchObject({ isComplete: true, unitCost: 305.07, qty: 5 });
     expect(result.data.items[1]).toMatchObject({ qtyUsed: 0, unitCost: null, costCalc: null, skipped: true });
+    // 0186: RPC เก่า (ไม่มี metal_prices/missing_prices/metal ต่อรายการ) ต้องไม่ throw — ค่าใหม่ว่างทั้งหมด
+    expect(result.data.metalPrices).toEqual({});
+    expect(result.data.missingPrices).toEqual([]);
+    expect(result.data.items[0]).toMatchObject({ priceMissing: false, metal: null, purity: null, weightG: null, weightSource: null });
+  });
+
+  it("0186 (R3): maps metal_prices / missing_prices / per-item price_missing + metal/purity/weight — the gold line has NO invented cost", async () => {
+    rpcMock.mockResolvedValue({
+      data: {
+        production_order_id: "po-1",
+        po_no: "PO-0001",
+        spot_price_thb_per_gram: 72,
+        metal_prices: { silver: 72, platinum: 9 },
+        missing_prices: ["gold", "unobtanium"],
+        items: [
+          { item_id: "i-1", product_id: "11111111-1111-4111-8111-111111111111", sku: "S-1", cost_type: "spot", silver_weight_g: 10, silver_purity: 0.925, labor_cost: 20, spot_price_thb_per_gram: 72, prev_cost_type: "spot", prev_unit_cost: null, unit_cost: 686, qty_planned: 5, qty_used: 5, is_new_design: false, cost_calc: null, metal: "silver", purity: "0.9250", weight_g: "10.000", weight_source: "product" },
+          { item_id: "i-2", product_id: "22222222-2222-4222-8222-222222222222", sku: "G-1", cost_type: "spot", unit_cost: null, price_missing: true, qty_planned: 2, qty_used: 2, is_new_design: false, cost_calc: null, metal: "gold", purity: "0.9000", weight_g: "3.200", weight_source: "input" },
+        ],
+      },
+      error: null,
+    });
+    const { previewProductionOrder } = await import("./production");
+    const result = await previewProductionOrder("po-1");
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.metalPrices).toEqual({ silver: 72 }); // key นอก 3 โลหะถูกทิ้ง
+    expect(result.data.missingPrices).toEqual(["gold"]); // ค่านอก 3 โลหะถูกทิ้ง
+    expect(result.data.spotPriceThbPerGram).toBe(72);
+    expect(result.data.items[0]).toMatchObject({ unitCost: 686, priceMissing: false, metal: "silver", purity: 0.925, weightG: 10, weightSource: "product" });
+    expect(result.data.items[1]).toMatchObject({ unitCost: null, priceMissing: true, metal: "gold", purity: 0.9, weightG: 3.2, weightSource: "input" });
+  });
+
+  it("0186: surfaces the DB's sku_required message (Thai, 22023) instead of the generic fallback", async () => {
+    rpcMock.mockResolvedValue({ data: null, error: { code: "22023", message: "production_order_preview: ใบ PO-0034 มีรายการที่ยังไม่ผูก SKU — ผูก SKU ให้ครบก่อน ระบบถึงคิดต้นทุนและเข้าสต็อกได้" } });
+    const { previewProductionOrder } = await import("./production");
+    const result = await previewProductionOrder("po-1");
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.error).toContain("ยังไม่ผูก SKU");
   });
 });
 
@@ -697,6 +973,68 @@ describe("getProductionOrder — 0141 make_spec/cost_calc side-channel", () => {
     // share a product-table row shape — makeSpec is gated on currentCostType
     expect(fixed?.makeSpec).toBeNull();
     expect(fixed?.costCalc).toBeNull();
+  });
+
+  // 0186: แถวเดิมก่อน 0186 (คอลัมน์ใหม่ null) + รายการไม่มี SKU (product_id null) ผ่านวิวใหม่ (left join) มาถึงหน้าจอครบ
+  it("0186: maps pending-label items (product_id null) and legacy rows (new columns null) without throwing", async () => {
+    fromMock.mockImplementation((table: string) => {
+      if (table === "v_production_order") {
+        return queryBuilder({
+          data: { id: "po-1", po_no: "PO-0001", status: "open", note: null, spot_override_thb_per_gram: null, done_at: null, cancelled_at: null, cancel_reason: null, created_at: "2026-10-20T00:00:00Z", updated_at: "2026-10-20T00:00:00Z", item_count: 2, qty_planned_total: 7, qty_done_total: 0 },
+          error: null,
+        });
+      }
+      if (table === "v_production_order_item") {
+        return queryBuilder({
+          data: [
+            // แถวเดิม (ก่อน 0186): คอลัมน์ใหม่ null · effective มาจาก helper ฝั่ง DB
+            {
+              id: "item-1", production_order_id: "po-1", po_no: "PO-0001", order_status: "open", product_id: "11111111-1111-4111-8111-111111111111", sku: "S-10bath", product_name: "แท่ง 10 บาท",
+              current_cost_type: "spot", current_unit_cost: null, qty_planned: 5, qty_done: null, stamped_unit_cost: null, prev_cost_type: null, prev_unit_cost: null, created_at: "2026-10-20T00:00:00Z", updated_at: "2026-10-20T00:00:00Z",
+              pending_product_label: null, metal: null, purity: null, weight_g: null, weight_source: null,
+              effective_metal: "silver", effective_purity: "0.9990", effective_weight_g: "152.440", effective_weight_source: "product",
+              sku_metal: "silver", sku_purity: "0.9990", sku_weight_g: "152.440", sku_metal_known: true,
+            },
+            // รายการไม่มี SKU: product_id/sku/ชื่อ/ชนิดต้นทุน = null · มีชื่อแบบ + โลหะทอง
+            {
+              id: "item-2", production_order_id: "po-1", po_no: "PO-0001", order_status: "open", product_id: null, sku: null, product_name: null,
+              current_cost_type: null, current_unit_cost: null, qty_planned: 2, qty_done: null, stamped_unit_cost: null, prev_cost_type: null, prev_unit_cost: null, created_at: "2026-10-20T00:00:01Z", updated_at: "2026-10-20T00:00:01Z",
+              pending_product_label: "แหวนทองลายใบไม้", metal: "gold", purity: "0.9000", weight_g: "3.200", weight_source: "input",
+              effective_metal: "gold", effective_purity: "0.9000", effective_weight_g: "3.200", effective_weight_source: "input",
+              sku_metal: null, sku_purity: null, sku_weight_g: null, sku_metal_known: null,
+            },
+          ],
+          error: null,
+        });
+      }
+      if (table === "product") {
+        return queryBuilder({ data: [{ id: "11111111-1111-4111-8111-111111111111", make_spec: null, silver_weight_g: 152.44, silver_purity: 0.999 }], error: null });
+      }
+      return queryBuilder({ data: [], error: null });
+    });
+    const { getProductionOrder } = await import("./production");
+    const result = await getProductionOrder("po-1");
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const [legacy, pending] = result.data.items;
+    expect(legacy).toMatchObject({
+      productId: "11111111-1111-4111-8111-111111111111",
+      sku: "S-10bath",
+      pendingProductLabel: null,
+      metal: null, purity: null, weightG: null, weightSource: null,
+      effectiveMetal: "silver", effectivePurity: 0.999, effectiveWeightG: 152.44, effectiveWeightSource: "product",
+      skuMetal: "silver", skuPurity: 0.999, skuWeightG: 152.44, skuMetalKnown: true,
+      currentSilverWeightG: 152.44,
+    });
+    expect(pending).toMatchObject({
+      productId: null, sku: null, productName: null, currentCostType: null,
+      pendingProductLabel: "แหวนทองลายใบไม้",
+      metal: "gold", purity: 0.9, weightG: 3.2, weightSource: "input",
+      effectiveMetal: "gold", effectivePurity: 0.9, effectiveWeightG: 3.2,
+      skuMetal: null, skuPurity: null, skuWeightG: null,
+      skuMetalKnown: false, // null จาก DB ต้องเป็น false จริง (ไม่ใช่ undefined/null) — UI เทียบ === false ได้
+      makeSpec: null, currentSilverWeightG: null, currentSilverPurity: null,
+    });
   });
 });
 

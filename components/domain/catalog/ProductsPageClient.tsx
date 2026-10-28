@@ -5,9 +5,9 @@
 // gates before rendering). Reads are server-fetched; this component owns modal
 // + filter state and re-fetches via router.refresh() on any mutation.
 
-import { useState, useTransition } from "react";
+import { Suspense, lazy, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, Gem, ImageOff, Pencil, PlusCircle, Trash2, Upload } from "lucide-react";
+import { AlertTriangle, Diamond, Gem, ImageOff, Pencil, PlusCircle, Trash2, Upload } from "lucide-react";
 import type { ProductRow, SkuOrderAlert } from "@/lib/catalog/types";
 import { COST_TYPE_LABEL_TH } from "@/lib/catalog/types";
 import { deleteProduct } from "@/lib/actions/catalog";
@@ -18,6 +18,9 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { useToast } from "@/components/ui/Toast";
 import { ProductForm } from "./ProductForm";
 import { ProductImport } from "./ProductImport";
+
+// G1a: แม่แบบพลอยต่อชิ้นของ SKU — โหลดเมื่อกดปุ่มในแถวเท่านั้น (ไม่แตะ ProductForm · บันทึกคนละ RPC)
+const SkuGemBomDialog = lazy(() => import("./SkuGemBomDialog").then((m) => ({ default: m.SkuGemBomDialog })));
 
 function fmtBaht(n: number | null): string {
   if (n == null) return "—";
@@ -46,6 +49,7 @@ export function ProductsPageClient({
   const [editing, setEditing] = useState<ProductRow | undefined>(undefined);
   const [importOpen, setImportOpen] = useState(false);
   const [deleting, setDeleting] = useState<ProductRow | undefined>(undefined);
+  const [gemFor, setGemFor] = useState<ProductRow | undefined>(undefined);
   const [onlyActive, setOnlyActive] = useState(false);
   const [deletePending, startDelete] = useTransition();
   // Whether ProductImageSection (inside the ProductForm modal below) has an
@@ -238,6 +242,14 @@ export function ProductsPageClient({
                       <div className="inline-flex gap-1">
                         <button
                           type="button"
+                          onClick={() => setGemFor(p)}
+                          aria-label={`พลอยต่อชิ้นของ ${p.sku}`}
+                          className="inline-flex min-h-9 min-w-9 items-center justify-center rounded-md text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800"
+                        >
+                          <Diamond className="h-4 w-4" aria-hidden="true" />
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => openEdit(p)}
                           aria-label={`แก้ไข ${p.sku}`}
                           className="inline-flex min-h-9 min-w-9 items-center justify-center rounded-md text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800"
@@ -277,6 +289,12 @@ export function ProductsPageClient({
           onImagesBusyChange={setImagesBusy}
         />
       </Modal>
+
+      {gemFor && (
+        <Suspense fallback={null}>
+          <SkuGemBomDialog productId={gemFor.productId} sku={gemFor.sku} name={gemFor.name} onClose={() => setGemFor(undefined)} />
+        </Suspense>
+      )}
 
       <Modal open={importOpen} onClose={() => setImportOpen(false)} title="นำเข้าสินค้าจากไฟล์ CSV">
         <ProductImport onDone={() => setImportOpen(false)} />

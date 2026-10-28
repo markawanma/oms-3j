@@ -12,6 +12,7 @@
 // (same validation contract: malformed/unknown values are silently dropped,
 // never a 500 — these come straight from URL searchParams on /dashboard).
 
+import { denyIfNotMember } from "@/lib/auth/action-guard";
 import { getServiceClient } from "@/lib/supabase/server";
 import { formatCount, formatTHBCompact } from "@/lib/tiktok/format";
 import { getDevShopId } from "@/lib/dev/context";
@@ -139,6 +140,8 @@ function mapScope(raw: {
 }
 
 export async function getDashboard(params: GetDashboardParams): Promise<ActionResult<DashboardData>> {
+  const denied = await denyIfNotMember();
+  if (denied) return denied;
   const range = validateRange(params);
   if (!range) {
     return { ok: false, error: "ช่วงวันที่ไม่ถูกต้อง" };
@@ -227,6 +230,8 @@ export async function getDashboard(params: GetDashboardParams): Promise<ActionRe
 // trendSplit.{firstRepeat,rfm}'s revenue field / trendSplit.product) come
 // back []/null from the RPC itself for staff — never stripped client-side.
 export async function getDashboardCharts(params: GetDashboardParams): Promise<ActionResult<DashboardCharts>> {
+  const denied = await denyIfNotMember();
+  if (denied) return denied;
   const range = validateRange(params);
   if (!range) {
     return { ok: false, error: "ช่วงวันที่ไม่ถูกต้อง" };

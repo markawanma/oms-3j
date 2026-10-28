@@ -3,6 +3,7 @@
 // lib/actions/products.ts — server action for the "เพิ่มสินค้า" (manual add
 // product) screen.
 
+import { denyIfNotMember } from "@/lib/auth/action-guard";
 import { getServiceClient } from "@/lib/supabase/server";
 import { getDevShopId } from "@/lib/dev/context";
 import type { ActionResult } from "@/lib/types";
@@ -14,6 +15,8 @@ export interface CreateProductInput {
 }
 
 export async function createProduct(input: CreateProductInput): Promise<ActionResult<{ productId: string }>> {
+  const denied = await denyIfNotMember();
+  if (denied) return denied;
   const sku = input.sku.trim();
   const name = input.name.trim();
 

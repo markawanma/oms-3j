@@ -6,8 +6,32 @@
 // each action module (feature-specific message) and only the shared
 // session+DEV_ROLE combo moves here.
 import "server-only";
-import { requireSessionIfGateOn } from "@/lib/auth/session";
+import { requireMemberIfGateOn, requireSessionIfGateOn } from "@/lib/auth/session";
 import type { ActionResult } from "@/lib/types";
+
+/**
+ * ActionResult-style wrapper over requireMemberIfGateOn() (lib/auth/session.ts)
+ * — the second auth layer for actions that have no guard of their own:
+ *
+ *   const denied = await denyIfNotMember();
+ *   if (denied) return denied;
+ *
+ * Put it as the FIRST statement (before input validation too: an outsider
+ * shouldn't learn anything from validation messages). Actions that return
+ * raw data / throw call requireMemberIfGateOn() directly instead.
+ * One message for both "no session" and "pending, not approved" — the caller
+ * can't tell which, and doesn't need to. No-op while AUTH_GATE is off.
+ * The caught error is not logged (nothing in it is useful, and supabase
+ * errors carry host/PII — supabase-error-logging-trap).
+ */
+export async function denyIfNotMember(): Promise<ActionResult<never> | null> {
+  try {
+    await requireMemberIfGateOn();
+    return null;
+  } catch {
+    return { ok: false, error: "ต้องเข้าสู่ระบบก่อน" };
+  }
+}
 
 /**
  * Combines both auth layers active in this app right now:

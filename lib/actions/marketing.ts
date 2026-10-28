@@ -19,6 +19,7 @@
 // means getDevRole() below is the ONLY thing gating writes in this app today,
 // not the DB. Every write action must call it first.
 
+import { denyIfNotMember } from "@/lib/auth/action-guard";
 import { revalidatePath } from "next/cache";
 import { getServiceClient } from "@/lib/supabase/server";
 import { getDevShopId } from "@/lib/dev/context";
@@ -69,6 +70,8 @@ async function requireOwnerAdmin(): Promise<ActionResult<never> | null> {
  * every dev role can see today) — only entering spend and the recommendation
  * feed are owner/admin actions per the design. */
 export async function getChannelRoas(): Promise<ActionResult<MktChannelRoasRow[]>> {
+  const denied = await denyIfNotMember();
+  if (denied) return denied;
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();
@@ -126,6 +129,8 @@ export async function getChannelRoas(): Promise<ActionResult<MktChannelRoasRow[]
 /** analytics.v_ad_spend_weekly — entry-history table (0027 §3). Same
  * not-role-gated reasoning as getChannelRoas above. */
 export async function getAdSpendWeekly(): Promise<ActionResult<MktAdSpendWeeklyRow[]>> {
+  const denied = await denyIfNotMember();
+  if (denied) return denied;
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();

@@ -55,10 +55,10 @@ describe("summarize — ใช้ธงจาก DB · ครบกำหนด�
       row({ dueDate: "2026-10-12" }), row({ dueDate: "2026-10-15" }), row({ dueDate: "2026-10-16" }), row({ dueDate: null }),
       row({ isStale: true }), row({ depositMissing: true }),
     ];
-    expect(summarize(rows, "2026-10-12")).toEqual({ active: 7, overdue: 1, dueSoon: 2, stale: 1, depositMissing: 1 });
+    expect(summarize(rows, "2026-10-12")).toEqual({ active: 7, overdue: 1, dueSoon: 2, stale: 1, depositMissing: 1, unacked: 0, unackedStale: 0 });
   });
   it("ว่าง = ศูนย์ทุกตัว", () => {
-    expect(summarize([], "2026-10-12")).toEqual({ active: 0, overdue: 0, dueSoon: 0, stale: 0, depositMissing: 0 });
+    expect(summarize([], "2026-10-12")).toEqual({ active: 0, overdue: 0, dueSoon: 0, stale: 0, depositMissing: 0, unacked: 0, unackedStale: 0 });
   });
 });
 

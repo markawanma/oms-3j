@@ -149,3 +149,11 @@ describe("findForbiddenKeys / FORBIDDEN_KEY_PATTERN — ตัวตรวจท
     for (const k of okKeys) expect(FORBIDDEN_KEY_PATTERN.test(k), k).toBe(false);
   });
 });
+
+import { isMultiView } from "@/lib/jobs/worker-view";
+describe("isMultiView", () => {
+  it("true เฉพาะ next_action = multi", () => {
+    expect(isMultiView({ nextAction: "multi" })).toBe(true);
+    for (const a of ["send", "receive", "identify", "all_done"] as const) expect(isMultiView({ nextAction: a })).toBe(false);
+  });
+});
