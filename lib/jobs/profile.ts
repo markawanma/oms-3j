@@ -36,6 +36,8 @@ export interface ProfileStageDef {
   seq: number;
   metalPresent: boolean;
   isActive: boolean;
+  /** 0195: ขั้นที่ใบทองไม่บังคับชั่ง (ขัด) — key มีเฉพาะเมื่อ true (ไม่มี key = false) */
+  goldWeighExempt?: boolean;
 }
 
 export interface ProfilesData {
@@ -75,7 +77,7 @@ export function mapProfileStageDef(raw: unknown): ProfileStageDef | null {
   const r = obj(raw);
   const code = r ? str(r.code) : null;
   if (!r || !code) return null;
-  return { code, nameTh: str(r.name_th) ?? code, seq: int(r.seq_default), metalPresent: bool(r.metal_present), isActive: r.is_active !== false };
+  return { code, nameTh: str(r.name_th) ?? code, seq: int(r.seq_default), metalPresent: bool(r.metal_present), isActive: r.is_active !== false, ...(r.gold_weigh_exempt === true ? { goldWeighExempt: true } : {}) };
 }
 
 export function mapProfilesData(raw: unknown): ProfilesData {

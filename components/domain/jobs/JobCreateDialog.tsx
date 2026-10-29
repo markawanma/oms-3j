@@ -142,7 +142,7 @@ export function JobCreateDialog({ kind, itemId, itemLabel, onClose, onCreated }:
   }
 
   // แบบการบันทึก (0176): ขั้นที่ติ๊ก × แบบ — ใบทองที่มีขั้นโลหะไม่ชั่งต้องติ๊กรับทราบก่อน · ไม่มีแบบ/ค่าเริ่ม = สร้างไม่ได้
-  const pickerStages = data ? data.stages.filter((s) => codes.includes(s.code)).map((s) => ({ code: s.code, nameTh: s.nameTh, metalPresent: s.metalPresent })) : [];
+  const pickerStages = data ? data.stages.filter((s) => codes.includes(s.code)).map((s) => ({ code: s.code, nameTh: s.nameTh, metalPresent: s.metalPresent, goldWeighExempt: s.goldWeighExempt === true })) : [];
   const allNames = data ? Object.fromEntries(data.stages.map((s) => [s.code, s.nameTh])) : {};
   const profile = data?.profiles.find((p) => p.id === profileId) ?? null;
   const profileOk = profile !== null && (!needsGoldAck(profile, pickerStages, data?.metal ?? "") || ack);

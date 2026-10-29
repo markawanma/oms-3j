@@ -94,7 +94,7 @@ export function ProfileEditor({ profile, seed, defs, onDirtyChange, onSaved, onC
   const nameDup = error !== null && code === "name_dup";
 
   const nameOf = (c: string) => defs.find((d) => d.code === c)?.nameTh ?? c;
-  const unguardedNames = goldUnguardedStages(defs.filter((d) => d.isActive).map((d) => ({ code: d.code, metalPresent: d.metalPresent, weigh: flags[d.code]?.weigh === true }))).map(nameOf);
+  const unguardedNames = goldUnguardedStages(defs.filter((d) => d.isActive).map((d) => ({ code: d.code, metalPresent: d.metalPresent, goldWeighExempt: d.goldWeighExempt === true, weigh: flags[d.code]?.weigh === true }))).map(nameOf);
 
   const setFlag = (code: string, key: keyof GridFlag, v: boolean) => setFlags((p) => ({ ...p, [code]: { ...(p[code] ?? NO_FLAG), [key]: v } }));
 

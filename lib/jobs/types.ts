@@ -288,6 +288,8 @@ export interface StageRow {
   scrapWeightAsk: boolean;
   /** 0176: โลหะอยู่ในมือที่ขั้นนี้ (จากทะเบียนขั้น) — ใช้บอกว่า "ไม่ชั่ง" ในใบทองคือไม่มีด่าน */
   metalPresent: boolean;
+  /** 0195: ขั้นนี้ใบทองไม่บังคับชั่ง (def.gold_weigh_exempt — ขัด) → ไม่ติดป้าย "ไม่ชั่ง" · key มีเฉพาะเมื่อ true */
+  goldWeighExempt?: boolean;
   receivedOn: string | null;
   sentOn: string | null;
   workerId: string | null;
@@ -310,11 +312,16 @@ export interface StageRow {
 export const STAGE_COLUMNS =
   "id, seq, stage_code, status, weigh_required, scrap_qty_ask, scrap_weight_ask, received_on, sent_on, worker_id, assignee_name, auto_closed, qty_in, qty_out, qty_scrap, qty_split_out, scrap_reason, weight_in_g, weight_out_g, metal_added_g, scrap_weight_g, weight_note, skip_reason";
 
-export function mapStageRow(r: Record<string, unknown>, names: Record<string, string>, workerNames: Record<string, string>, metalPresent: Record<string, boolean> = {}): StageRow | null {
+/** ค่าจากทะเบียนขั้นต่อรหัส: boolean = metal_present อย่างเดียว (แบบเดิม) · object = + gold_weigh_exempt (0195) */
+export type StageDefFlag = boolean | { metalPresent: boolean; goldWeighExempt?: boolean };
+
+export function mapStageRow(r: Record<string, unknown>, names: Record<string, string>, workerNames: Record<string, string>, metalPresent: Record<string, StageDefFlag> = {}): StageRow | null {
   const id = str(r.id);
   const code = str(r.stage_code);
   if (!id || !code) return null;
   const workerId = str(r.worker_id);
+  const defFlag = metalPresent[code];
+  const exempt = typeof defFlag === "object" && defFlag !== null && defFlag.goldWeighExempt === true;
   return {
     id,
     seq: num(r.seq) ?? 0,
@@ -325,7 +332,8 @@ export function mapStageRow(r: Record<string, unknown>, names: Record<string, st
     // คอลัมน์ใหม่ที่ยังไม่มีในแถว = ค่าเริ่มของ DB (ถามชิ้นเสีย · ไม่ถามเศษ) ไม่ใช่ "ปิด"
     scrapQtyAsk: r.scrap_qty_ask === undefined || r.scrap_qty_ask === null ? true : r.scrap_qty_ask === true,
     scrapWeightAsk: bool(r.scrap_weight_ask),
-    metalPresent: metalPresent[code] === true,
+    metalPresent: defFlag === true || (typeof defFlag === "object" && defFlag !== null && defFlag.metalPresent === true),
+    ...(exempt ? { goldWeighExempt: true } : {}),
     receivedOn: date(r.received_on),
     sentOn: date(r.sent_on),
     workerId,
