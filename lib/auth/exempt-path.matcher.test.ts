@@ -43,6 +43,23 @@ const PATHS: string[] = [
   "/api/ring-size-x",
   "/api/ring-size",
   "/api/ring-size/track",
+  "/api/ring-size/",
+  "/api/ring-size/stats",
+  "/api/ring-size/event",
+  "/api/ring-size/event/",
+  "/api/ring-size/event/x",
+  "/api/ring-size/event/x/y",
+  "/api/ring-size/events",
+  "/api/ring-size/event-x",
+  "/api/ring-size/Event",
+  "/api/RING-SIZE/event",
+  "/api/ring-sizes/event",
+  "/api/ring-size/event//",
+  "/api/ring-size//event",
+  "/api/ring-size/event%2F",
+  "/api/ring-size/event/..",
+  "/api/ring-size/event/../../oem",
+  "/x/api/ring-size/event",
   "/RING-SIZE",
   "/Ring-Size",
   "/ring-size%2F..",
@@ -97,8 +114,9 @@ const PATHS: string[] = [
 ];
 
 describe("matcher จริงของ Next (getMiddlewareMatchers) ตัดสินตรงกับ isExemptPath ทุก path", () => {
-  it("มี matcher ตัวเดียวและมี alternative ของ ring-size", () => {
+  it("มี matcher ตัวเดียวและมี alternative ของ ring-size (หน้า) กับ api/ring-size/event (exact)", () => {
     expect(realMatcherSource()).toContain("ring-size/?$");
+    expect(realMatcherSource()).toContain("|api/ring-size/event/?$|");
   });
 
   it.each(PATHS)("%s", (p) => {
@@ -112,6 +130,26 @@ describe("matcher จริงของ Next (getMiddlewareMatchers) ตัด�
     for (const p of ["/ring-sizes", "/ring-size-admin", "/ring-size/x", "/api/ring-size-x", "/api/ring-size", "/ring-size%2F.."]) {
       expect(middlewareRuns(p), p).toBe(true);
     }
+  });
+
+  it("ยืนยันตรงๆ: /api/ring-size/event(/) ไม่ผ่าน middleware · ที่เหลือใน family เดียวกันถูก gate", () => {
+    expect(middlewareRuns("/api/ring-size/event")).toBe(false);
+    expect(middlewareRuns("/api/ring-size/event/")).toBe(false);
+    for (const p of [
+      "/api/ring-size", "/api/ring-size/", "/api/ring-size/stats", "/api/ring-size/event/x", "/api/ring-size/events", "/api/ring-size/event-x",
+      "/api/ring-size/Event", "/api/RING-SIZE/event", "/api/ring-sizes/event", "/api/ring-size/event//", "/api/ring-size/event%2F", "/api/ring-size/event/..",
+    ]) {
+      expect(middlewareRuns(p), p).toBe(true);
+    }
+  });
+
+  it("negative control: matcher ที่เปิดทั้ง subtree (api/ring-size(?:/|$)) จะปล่อย /api/ring-size/stats และ /api/ring-size/event/x หลุด gate — เทสต์นี้จับได้", () => {
+    const loose = realMatcherSource().replace("api/ring-size/event/?$", "api/ring-size(?:/|$)");
+    const [m] = getMiddlewareMatchers(loose, {} as never);
+    expect(new RegExp(m.regexp).test("/api/ring-size/stats")).toBe(false); // หลุด gate = middleware ไม่รัน
+    expect(new RegExp(m.regexp).test("/api/ring-size/event/x")).toBe(false);
+    expect(isExemptPath("/api/ring-size/stats")).toBe(false); // mirror จริงยัง gate — drift แบบนี้ทำให้เทสต์ข้างบนล้ม
+    expect(isExemptPath("/api/ring-size/event/x")).toBe(false);
   });
 
   it("negative control: เทสต์นี้จับ matcher ที่หลวมได้ (ถ้า alternative เป็น ring-size(?:/|$) จะเห็นว่า /ring-size/x หลุด)", () => {

@@ -91,7 +91,9 @@ export const ROUND_BIAS = 0.25;
  */
 export const SIZE_RULE: Record<Method, "nearest" | "biasUp"> = { A: "nearest", B: "biasUp" };
 
-/** ช่วงเบอร์ที่ร้านทำ (เจ้าของยืนยัน 24 ต.ค. 69) · null = ไม่แสดง chip และไม่แสดงกล่องนอกช่วง (ห้ามแต่งช่วงเอง) */
+/** ช่วงเบอร์ที่ร้านทำ (เจ้าของยืนยัน 24 ต.ค. 69) · null = ไม่แสดง chip และไม่แสดงกล่องนอกช่วง (ห้ามแต่งช่วงเอง)
+ * 🔴 อยู่ 2 ที่ ต้องแก้คู่เสมอ: ค่านี้ ⇔ analytics.ring_size_shop_range() ใน migration 0193 (DB ใช้คำนวณ in_shop_range ของสถิติ ·
+ * track-schema.test.ts เทียบสองฝั่งให้ — แก้ฝั่งเดียวเทสต์ล้ม) */
 export const SHOP_RING_SIZES: { min: number; max: number } | null = { min: 45, max: 68 };
 
 // ───────────────────────── ค่าที่ยังค้าง — production = ปิด (build spec ข้อ 5) ─────────────────────────
