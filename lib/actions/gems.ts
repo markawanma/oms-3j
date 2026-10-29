@@ -13,6 +13,8 @@ import type { JobResult } from "@/lib/jobs/office-server";
 import { GENERIC_JOB_ERROR } from "@/lib/jobs/messages";
 import { GEM_KINDS, wireFailResult, mapGemCatalog, mapGemMergePlan, mapGemOptions, mapGemPriceHistory, mapGemSaveSummary, mapJobGems, mapGemBomLine, toWireGemLines } from "@/lib/jobs/gems";
 import type { GemCatalog, GemKind, GemMergePlan, GemOptions, GemPriceHistory, GemSaveSummary, GemBomLine, JobGems } from "@/lib/jobs/gems";
+import { GEM_PURCHASE_MAX_LINES, mapGemPurchaseCost, mapGemPurchaseMark, mapGemPurchaseSummary } from "@/lib/jobs/gem-purchase";
+import type { GemPurchaseCost, GemPurchaseMarkResult, GemPurchaseSummary } from "@/lib/jobs/gem-purchase";
 
 type Raw = Record<string, unknown>;
 const isObj = (v: unknown): v is Raw => typeof v === "object" && v !== null && !Array.isArray(v);
@@ -310,4 +312,72 @@ export async function makeSkuGemTemplateFromJob(jobId: string): Promise<JobResul
   revalidatePath("/catalog");
   jobDone(jobId);
   return { ok: true, data: out };
+}
+
+// ---------------------------------------------------------------------------
+// พลอยที่ต้องสั่งซื้อ (G1b · migration 0192) — owner/admin เท่านั้น ทั้งชั้นแอปและ DB (gem_require_office)
+// getGemPurchaseSummary: ไม่มีราคา แม้เป็น null · getGemPurchaseCost: เรียกแยก เมื่อเปิดสวิตช์ต้นทุนเท่านั้น (ห้ามเรียกพร้อมกันตอนโหลดหน้า)
+// ยอด = ที่ใบงานต้องใช้ (gross · ไม่หักพลอยที่มีในร้าน · ไม่เผื่อแตก) · รายการหายเองเมื่อขั้นฝังพลอยถูกรับ (ไม่มีสถานะ "ได้รับของ")
+// ---------------------------------------------------------------------------
+export async function getGemPurchaseSummary(): Promise<JobResult<GemPurchaseSummary>> {
+  const g = await guard();
+  if (g) return g;
+  const r = await callOffice<unknown>("gem_purchase_summary", {});
+  if (!r.ok) return r;
+  const m = mapGemPurchaseSummary(r.data);
+  return m ? { ok: true, data: m } : fail(GENERIC_JOB_ERROR);
+}
+
+/** 🔴 ต้นทุนประมาณ (ราคา = ต้นทุน) — action แยกจาก getGemPurchaseSummary · ราคาของ gem_item_id ใน snapshot ของใบ (ไม่ใช่ชื่อที่รวมแล้ว) */
+export async function getGemPurchaseCost(): Promise<JobResult<GemPurchaseCost>> {
+  const g = await guard();
+  if (g) return g;
+  const r = await callOffice<unknown>("gem_purchase_summary_cost", {});
+  if (!r.ok) return r;
+  const m = mapGemPurchaseCost(r.data);
+  return m ? { ok: true, data: m } : fail(GENERIC_JOB_ERROR);
+}
+
+export interface MarkGemPurchaseInput {
+  /** line ids จาก getGemPurchaseSummary (groups[].lineIds หรือ jobs[].lineIds) — ติ๊กทั้งรายการ = ส่ง lineIds ของทั้งกลุ่ม */
+  lineIds: string[];
+  /** true = ติ๊ก "สั่งแล้ว" · false = ยกเลิกติ๊ก (undo = เรียกด้วย lineIds เดิมและค่าตรงข้าม) */
+  ordered: boolean;
+  /**
+   * 🔴 บังคับเมื่อ ordered = true: { line_id: qty_needed_now ที่จอเห็น/คัดลอกส่งร้านพลอย } ครบทุก lineIds (key ตรงเป๊ะ · ค่าเป็นจำนวนเต็มบวก)
+   * ยอดไม่ตรงกับ DB ณ ตอนกด (ใบถูกแก้หลังโหลดหน้า) = ล้มทั้งชุดด้วย code `qty_changed` → จอโหลดใหม่ · ยกเลิกติ๊ก (ordered = false) ไม่ส่ง/ไม่ตรวจ
+   */
+  expected?: Record<string, number>;
+}
+
+/** ติ๊ก/ยกเลิกติ๊ก all-or-nothing · ส่งซ้ำไม่ error (changed = 0) · ใบปิด/ขั้นฝังรับแล้ว/ไม่พบ/ยอดเปลี่ยน (qty_changed) = ล้มทั้งชุด (จอโหลดใหม่) */
+export async function markGemPurchase(input: MarkGemPurchaseInput): Promise<JobResult<GemPurchaseMarkResult>> {
+  const g = await guard();
+  if (g) return g;
+  if (!isObj(input) || typeof input.ordered !== "boolean" || !Array.isArray(input.lineIds)) return fail(BAD_INPUT, "purchase_lines_invalid");
+  const ids = input.lineIds;
+  if (ids.length < 1 || ids.length > GEM_PURCHASE_MAX_LINES || !ids.every((x) => typeof x === "string" && isUuid(x))) {
+    return fail("รายการที่จะติ๊กต้องมี 1-200 แถว", "purchase_lines_invalid");
+  }
+  // uuid ไม่สนตัวพิมพ์: lowercase ก่อน dedupe (ตัวพิมพ์ต่างกันของ id เดียวกัน = แถวเดียว) · key ของ expected ก็ lowercase ก่อนเทียบ — DB เทียบกับ id ตัวเล็ก
+  const unique = [...new Set(ids.map((x) => x.toLowerCase()))];
+  const params: Record<string, unknown> = { p_line_ids: unique, p_ordered: input.ordered };
+  if (input.ordered) {
+    // ตรวจรูปร่างก่อนถึง DB (DB ตรวจซ้ำ): object · key (lowercase แล้ว ซ้ำต่างตัวพิมพ์ = ตก) = lineIds ตรงเป๊ะ (ไม่ขาด ไม่เกิน) · ค่า = จำนวนเต็มบวก
+    const e = input.expected;
+    const rawKeys = isObj(e) ? Object.keys(e) : [];
+    const lowered = new Map<string, unknown>();
+    for (const k of rawKeys) lowered.set(k.toLowerCase(), (e as Raw)[k]);
+    if (!isObj(e) || lowered.size !== rawKeys.length || lowered.size !== unique.length || !unique.every((k) => lowered.has(k))
+      || !unique.every((k) => Number.isSafeInteger(lowered.get(k)) && (lowered.get(k) as number) > 0 && (lowered.get(k) as number) <= 999_999_999)) {
+      return fail("ติ๊ก \"สั่งแล้ว\" ต้องส่งยอดที่จอเห็นของทุกแถว (จำนวนเต็มบวก)", "purchase_lines_invalid");
+    }
+    params.p_expected = Object.fromEntries(unique.map((k) => [k, lowered.get(k)]));
+  }
+  const r = await callOffice<unknown>("gem_purchase_mark", params);
+  if (!r.ok) return r;
+  const m = mapGemPurchaseMark(r.data);
+  if (!m) return fail(GENERIC_JOB_ERROR);
+  revalidatePath("/jobs/gems-to-buy");
+  return { ok: true, data: m };
 }

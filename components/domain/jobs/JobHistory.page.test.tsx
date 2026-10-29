@@ -57,10 +57,10 @@ describe("หน้า /jobs/history", () => {
 });
 
 describe("JobsSubNav — แท็บ 'ประวัติงาน'", () => {
-  it("มีแท็บต่อจากบอร์ด (ลำดับ บอร์ด → ประวัติงาน → ทะเบียนช่าง → แบบการบันทึก) ลิงก์ /jobs/history", () => {
+  it("มีแท็บ (ลำดับ บอร์ด → พลอยที่ต้องสั่ง [G1b] → ประวัติงาน → ทะเบียนช่าง → แบบการบันทึก) ลิงก์ /jobs/history", () => {
     render(<JobsSubNav />);
     const links = screen.getAllByRole("link");
-    expect(links.map((l) => l.textContent)).toEqual(["บอร์ดใบงาน", "ประวัติงาน", "ทะเบียนช่าง", "แบบการบันทึก"]);
+    expect(links.map((l) => l.textContent)).toEqual(["บอร์ดใบงาน", "พลอยที่ต้องสั่ง", "ประวัติงาน", "ทะเบียนช่าง", "แบบการบันทึก"]);
     expect(screen.getByRole("link", { name: "ประวัติงาน" })).toHaveAttribute("href", "/jobs/history");
   });
   it("อยู่ที่ /jobs/history: สว่างเฉพาะ 'ประวัติงาน' (aria-current) · 'บอร์ดใบงาน' ไม่สว่างค้าง", () => {

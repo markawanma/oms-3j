@@ -5,10 +5,11 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ClipboardList, HardHat, History, ListChecks } from "lucide-react";
+import { ClipboardList, Diamond, HardHat, History, ListChecks } from "lucide-react";
 
 const TABS = [
   { href: "/jobs", label: "บอร์ดใบงาน", icon: ClipboardList, exact: false },
+  { href: "/jobs/gems-to-buy", label: "พลอยที่ต้องสั่ง", icon: Diamond, exact: true },
   { href: "/jobs/history", label: "ประวัติงาน", icon: History, exact: true },
   { href: "/jobs/workers", label: "ทะเบียนช่าง", icon: HardHat, exact: true },
   { href: "/jobs/profiles", label: "แบบการบันทึก", icon: ListChecks, exact: true },
@@ -16,8 +17,8 @@ const TABS = [
 
 export function jobsTabActive(pathname: string | null, href: string): boolean {
   const p = pathname ?? "";
-  // แท็บ "บอร์ด" สว่างที่ /jobs และ /jobs/<id> เท่านั้น — ไม่สว่างที่แท็บพี่น้อง (history / workers / profiles)
-  if (href === "/jobs") return p === "/jobs" || (p.startsWith("/jobs/") && !/^\/jobs\/(workers|profiles|history)(\/|$)/.test(p));
+  // แท็บ "บอร์ด" สว่างที่ /jobs และ /jobs/<id> เท่านั้น — ไม่สว่างที่แท็บพี่น้อง (gems-to-buy / history / workers / profiles)
+  if (href === "/jobs") return p === "/jobs" || (p.startsWith("/jobs/") && !/^\/jobs\/(workers|profiles|history|gems-to-buy)(\/|$)/.test(p));
   return p === href || p.startsWith(`${href}/`);
 }
 
