@@ -77,6 +77,9 @@ const client = new Client({
   ssl: { rejectUnauthorized: false },
   // ให้ NOTICE จาก raise notice ไหลกลับมาครบ (golden replay ใช้บอกผล)
   application_name: '3j-run-sql',
+  // ชุดทดสอบยาว 10+ นาทีไม่มีข้อมูลวิ่ง → เราเตอร์/NAT ตัด TCP เงียบๆ แล้ว client รอเก้อ ~1 ชม. (2 พ.ย. 69)
+  keepAlive: true,
+  keepAliveInitialDelayMillis: 10000,
 });
 
 client.on('notice', (n) => {
