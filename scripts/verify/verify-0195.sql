@@ -365,13 +365,13 @@ begin
     n = 7 and n2 = 1 and s = 'ทอง — ชั่งทุกขั้นที่มีโลหะ (ยกเว้นขัด) + ชั่งสุทธิตอนปิด');
   -- ร้านจริง: ensure ซ้ำ ไม่ขยับทะเบียน/แบบ
   select md5(coalesce((select string_agg(d::text, '|' order by d.code) from analytics.job_stage_def d where d.shop_id = p_shop), '') || '#' ||
-             coalesce((select string_agg(x::text, '|' order by x.id, x.stage_code) from analytics.job_record_profile_stage x where x.shop_id = p_shop), '') || '#' ||
-             coalesce((select string_agg(x::text, '|' order by x.id) from analytics.job_record_profile x where x.shop_id = p_shop), '')) into m1;
+             coalesce((select string_agg(x::text, '|' order by x::text) from analytics.job_record_profile_stage x where x.shop_id = p_shop), '') || '#' ||
+             coalesce((select string_agg(x::text, '|' order by x::text) from analytics.job_record_profile x where x.shop_id = p_shop), '')) into m1;
   perform analytics.job_stage_def_ensure(p_shop);
   perform analytics.job_record_profile_ensure(p_shop);
   select md5(coalesce((select string_agg(d::text, '|' order by d.code) from analytics.job_stage_def d where d.shop_id = p_shop), '') || '#' ||
-             coalesce((select string_agg(x::text, '|' order by x.id, x.stage_code) from analytics.job_record_profile_stage x where x.shop_id = p_shop), '') || '#' ||
-             coalesce((select string_agg(x::text, '|' order by x.id) from analytics.job_record_profile x where x.shop_id = p_shop), '')) into m2;
+             coalesce((select string_agg(x::text, '|' order by x::text) from analytics.job_record_profile_stage x where x.shop_id = p_shop), '') || '#' ||
+             coalesce((select string_agg(x::text, '|' order by x::text) from analytics.job_record_profile x where x.shop_id = p_shop), '')) into m2;
   v := v || pg_temp.chk('D4', 'เคส 5: ensure ทะเบียน+แบบ ซ้ำบนร้านจริง = ไม่ขยับอะไร (md5 ทะเบียน/แบบ/ขั้นของแบบเท่าเดิม) · ทั้งไฟล์ migration รัน 2 รอบ = dry-run แยก (ตามรายงานส่งงาน)', m1 = m2);
   -- L2: query เดียวกับ pre-check ของ 0195 — เจอแบบอื่นใช้ชื่อใหม่ (ไม่สนตัวพิมพ์) ขณะแบบทองปริยายยังชื่อเดิม = นับ > 0 (migration raise) · ไม่มีชนหรือ rename แล้ว = 0
   update analytics.job_record_profile set name = 'ทอง — ชั่งทุกขั้นที่มีโลหะ + ชั่งสุทธิตอนปิด' where shop_id = p_shop and is_default_gold;
