@@ -1,4 +1,6 @@
 // @vitest-environment jsdom
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
@@ -422,9 +424,12 @@ describe("layout (ข้อ 3.2.1 · 7.3)", () => {
 });
 
 describe("page metadata", () => {
-  it("noindex จนเจ้าของสั่งเปิด · ไม่อ้างไฟล์ OG ที่ยังไม่มี · ไม่ใช้ถ้อยคำต้องห้าม", () => {
+  it("noindex จนเจ้าของสั่งเปิด · อ้างเฉพาะไฟล์ OG ที่มีจริง (รายละเอียดใน page-og.test.tsx) · ไม่ใช้ถ้อยคำต้องห้าม", () => {
     expect(metadata.robots).toEqual({ index: false, follow: false });
-    expect(metadata.openGraph?.images).toBeUndefined();
+    // รอบ OG (3 พ.ย. 69): มี public/ring-size/og.png แล้ว — กฎเดิม "ห้ามอ้างไฟล์ที่ไม่มี" คงอยู่: ทุก path ใน openGraph.images ต้องมีไฟล์จริง
+    const imgs = (metadata.openGraph?.images ?? []) as Array<{ url: string }>;
+    expect(imgs.length).toBeGreaterThan(0);
+    for (const i of imgs) expect(existsSync(join(process.cwd(), "public", new URL(i.url, "https://x.invalid").pathname))).toBe(true);
     expect(String(metadata.title)).toBe("วัดไซส์แหวนด้วยมือถือ | 3J Jewelry");
     expect(metadata.description).not.toMatch(/แม่นยำ|ใน 1 นาที|มาตรฐานสากล/);
   });
