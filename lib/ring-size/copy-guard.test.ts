@@ -10,7 +10,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import * as config from "./config";
 import { ACCURACY_NOTE, ACCURACY_SHORT, COPY, NOINDEX } from "./config";
-import { RING_APP_DIR, RING_LIB_DIR, listSources, readStripped, rel } from "./source-scan.test-util";
+import { RING_APP_DIR, RING_LIB_DIR, listSources, readStripped, rel, stripComments } from "./source-scan.test-util";
 
 /** เก็บสตริงทุกตัวใน COPY — ฟังก์ชันเรียกด้วยชุดอาร์กิวเมนต์ตัวอย่างหลายชุดเพื่อให้ได้ข้อความทุกแบบ */
 function collectStrings(node: unknown, out: string[] = []): string[] {
@@ -248,6 +248,40 @@ describe("ข้อบังคับ implement (ซอร์ส UI)", () => {
     expect(code).not.toMatch(/https?:|\/\/[a-z0-9.-]+\.[a-z]{2,}/i);
     expect(code).toMatch(/TRACK_ENDPOINT/);
     expect(config.TRACK_ENDPOINT).toBe("/api/ring-size/event");
+  });
+  it("M1: trackMeasured( มี call site เดียวใต้ app/(quiz)/ring-size (ไม่นับ _tests) และอยู่ใน finishMeasure — ผลวัดส่งได้จุดเดียว", () => {
+    const calls = APP_SOURCES.flatMap((f) => {
+      const n = (readStripped(f).match(/\btrackMeasured\s*\(/g) ?? []).length;
+      return n > 0 ? [{ file: rel(f), n }] : [];
+    });
+    expect(calls).toEqual([{ file: "app/(quiz)/ring-size/RingSizeClient.tsx", n: 1 }]);
+    // ตำแหน่ง: อยู่ในตัว finishMeasure (หลัง const finishMeasure ก่อน const viewLastResult) — ไม่ใช่ viewLastResult/จอ R6
+    const client = readStripped(join(RING_APP_DIR, "RingSizeClient.tsx"));
+    const at = client.indexOf("trackMeasured(");
+    expect(at).toBeGreaterThan(client.indexOf("const finishMeasure"));
+    expect(at).toBeLessThan(client.indexOf("const viewLastResult"));
+    // lib: ไม่มีใครเรียก trackMeasured นอก track.ts (ตัว export อยู่ใน track.ts เอง)
+    const libCalls = LIB_SOURCES.filter((f) => rel(f) !== "lib/ring-size/track.ts" && /\btrackMeasured\s*\(/.test(readStripped(f))).map(rel);
+    expect(libCalls).toEqual([]);
+    // negative control: ตัวนับจับของจริงได้
+    expect("trackMeasured({ a: 1 })".match(/\btrackMeasured\s*\(/g)).toHaveLength(1);
+    expect("// trackMeasured( ในคอมเมนต์ถูกตัด".match(/\btrackMeasured\s*\(/g)).toHaveLength(1);
+    expect(stripComments("// trackMeasured( ในคอมเมนต์ถูกตัด\nconst x = 1;").match(/\btrackMeasured\s*\(/g)).toBeNull();
+  });
+  it("M1: track() รับ type ที่ไม่มีช่องผลวัด · track.ts ตัดผลทิ้งเสมอใน track() (allowResult=false)", () => {
+    const code = readStripped(join(RING_LIB_DIR, "track.ts"));
+    expect(code).toMatch(/export type TrackSnapshot = Omit<RingTrackSnapshot, "circ_mm" \| "size" \| "between">/);
+    expect(code).toMatch(/export function track\(snapshot: TrackSnapshot\)/);
+    expect(code).toMatch(/dispatch\(snapshot as RingTrackSnapshot, false\)/);
+    // dispatch(..., true) มีที่เดียว = ใน trackMeasured
+    expect(code.match(/,\s*true\s*\)/g)).toHaveLength(1);
+  });
+  it("L2: หน้า /ring-size ตั้ง metadata referrer = strict-origin (ไม่ใช่ no-referrer — Origin ของ beacon ต้องอยู่) และ fetch สำรองใช้ strict-origin", () => {
+    const page = readStripped(join(RING_APP_DIR, "page.tsx"));
+    expect(page).toMatch(/referrer:\s*"strict-origin"/);
+    expect(page).not.toMatch(/no-referrer/);
+    expect(readStripped(join(RING_LIB_DIR, "track.ts"))).toMatch(/referrerPolicy:\s*"strict-origin"/);
+    expect(readStripped(join(RING_LIB_DIR, "track.ts"))).not.toMatch(/referrerPolicy:\s*"no-referrer"/);
   });
   it("track.ts ไม่ import supabase/env/gem-quiz/next และไม่อ่านตัวตน (cookie · IP · query string · ชื่อ · เบอร์ · LINE)", () => {
     const code = readStripped(join(RING_LIB_DIR, "track.ts"));

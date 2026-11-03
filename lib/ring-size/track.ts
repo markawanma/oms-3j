@@ -5,14 +5,21 @@
 //
 // สัญญา:
 //   - track(snapshot): void — sync · ไม่ throw · ไม่ await · ล้มเงียบทุกกรณี (flow วัดต้องไม่รู้ว่ามีสถิติ)
+//   - ผลวัด (circ_mm/size/between) ส่งได้ทางเดียว = trackMeasured(...) — track() ตัดสามช่องนี้ทิ้ง "เสมอ" ทั้ง type และ runtime
+//     (กันด้วยโครงสร้าง ไม่พึ่ง call site: DB นับรอบวัด +1 ทุกครั้งที่ size โผล่ ⇒ call site ใหม่ที่พกผลมาจะนับเกินเงียบๆ)
 //   - ไม่ส่งเมื่อ: TRACK_ENABLED ปิด · SSR · DNT หรือ GPC เปิด (เคารพ — มติเจ้าของ O5) · ไม่มี crypto.randomUUID (ไม่ยอมสร้าง id เอง)
 //   - sid = crypto.randomUUID() เก็บ sessionStorage[SID_KEY] (ตายเมื่อปิดแท็บ) · เขียนไม่ได้ → ถือในหน่วยความจำ
-//   - ไม่ส่งตัวตน: ไม่อ่าน/ส่ง IP · UA ดิบ · cookie · ชื่อ · เบอร์โทร · LINE · query string · ไม่มี key `src`/`source`
+//   - ไม่ส่งตัวตน: โค้ดนี้ไม่อ่าน/ใส่ IP · UA ดิบ · cookie · ชื่อ · เบอร์โทร · LINE · query string · ไม่มี key `src`/`source`
 //     (หยิบ field ตามรายการ RING_SNAPSHOT_KEYS ทีละตัว แล้วผ่าน parseRingTrackBody ซ้ำก่อนส่ง — key แปลกจึงหลุดออกไปไม่ได้)
+//   - cookie (พูดตรงๆ): navigator.sendBeacon แนบ cookie ของเว็บเดียวกันเสมอตามสเปกเบราว์เซอร์ (ตั้ง credentials ไม่ได้) —
+//     แต่ route ไม่อ่าน cookie และ middleware ไม่รัน path นี้ (exempt exact) · ทางสำรอง fetch ตั้ง credentials: "omit"
+//     เลือกคง beacon เป็นทางหลักเพราะส่งรอดตอน navigate (LINE/แชร์/เกมพลอย) ดีกว่า fetch keepalive
+//   - Referer: หน้า /ring-size ตั้ง <meta name="referrer" content="strict-origin"> (page.tsx) ⇒ beacon ส่งแค่ origin ไม่ติด query
+//     (เช่น fbclid จาก in-app browser) · fetch สำรองตั้ง referrerPolicy "strict-origin" เอง (ไม่ใช้ no-referrer — บาง engine ทำ Origin เป็น "null" แล้ว route 403)
 //   - ห้าม import supabase / env / gem-quiz / next (module นี้ลากเข้าหน้า static)
 //
 // สัญญา event (ฝั่ง DB นับ "ทุกครั้งที่ field เหล่านี้โผล่" — client ต้อง sanitize ให้ครบ ดู sanitize()):
-//   - circ_mm/size/between มากับ stage 7 ของ "ได้ผลวัด" เท่านั้น · ที่อื่นถูกตัดทิ้งก่อนส่ง (ส่งไปก็ถูก route ปฏิเสธทั้ง event)
+//   - circ_mm/size/between มากับ stage 7 ของ "ได้ผลวัด" เท่านั้น (trackMeasured) · track() ตัดทิ้งเสมอ
 //   - event CTA = { stage, cta } เท่านั้น · g4 = event G4 เท่านั้น (stage 7 · ไม่พกเบอร์/มม.)
 import { TRACK_ENABLED, TRACK_ENDPOINT } from "./config";
 import {
@@ -22,8 +29,20 @@ import {
   RING_STAGE_RESULT,
   isRingSessionId,
   parseRingTrackBody,
+  type RingMethod,
   type RingTrackSnapshot,
 } from "./track-schema";
+
+/** snapshot ที่ track() รับ — ไม่มีช่องผลวัด (ผลส่งผ่าน trackMeasured เท่านั้น) */
+export type TrackSnapshot = Omit<RingTrackSnapshot, "circ_mm" | "size" | "between">;
+
+/** ผลวัดที่ได้จริง (finishMeasure สำเร็จ) — ก้อนเดียว ครบทุกช่อง */
+export interface MeasuredResult {
+  method: RingMethod;
+  circ_mm: number;
+  size: number;
+  between: boolean;
+}
 
 /** เก็บ session id ของแท็บนี้ (เวอร์ชันใน key เผื่อเปลี่ยนรูปแบบ) */
 export const SID_KEY = "ringSize:sid:v1";
@@ -98,7 +117,7 @@ function inRangeNumber(v: unknown, [lo, hi]: readonly [number, number]): v is nu
  *  - ลำดับสำคัญ: CTA → G4 → ผลวัด → in_range
  * คืน null = event นี้ไม่ควรส่ง
  */
-function sanitize(input: RingTrackSnapshot): Record<string, unknown> | null {
+function sanitize(input: RingTrackSnapshot, allowResult: boolean): Record<string, unknown> | null {
   if (typeof input !== "object" || input === null) return null;
   const src = input as unknown as Record<string, unknown>;
 
@@ -113,6 +132,8 @@ function sanitize(input: RingTrackSnapshot): Record<string, unknown> | null {
     if (v !== undefined && v !== null) out[k] = v;
   }
   delete out.in_range; // DB ไม่เชื่อ (คำนวณใหม่จาก size) — ไม่ส่งให้เสียไบต์
+  // track() ธรรมดา: ผลวัดถูกตัดทิ้งเสมอ (ต่อให้ call site ใช้ cast ยัดมา) · มีแต่ trackMeasured ที่ผ่านด่านนี้ไปได้
+  if (!allowResult) for (const k of RESULT_KEYS) delete out[k];
 
   const isResultStage = out.stage === RING_STAGE_RESULT;
 
@@ -183,13 +204,15 @@ function send(json: string): void {
   }
   try {
     if (typeof fetch !== "function") return;
-    // credentials omit = ไม่แนบ cookie · ไม่ตั้ง referrerPolicy no-referrer (บาง engine ทำ Origin เป็น "null" แล้ว route 403)
+    // credentials omit = ไม่แนบ cookie (ต่างจาก sendBeacon) · referrerPolicy strict-origin = Referer เหลือแค่ origin (ไม่ติด query) แต่ Origin ยังอยู่
+    // — ห้ามใช้ no-referrer: บาง engine ทำ header Origin เป็น "null" แล้ว route ปฏิเสธ 403
     void fetch(TRACK_ENDPOINT, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: json,
       keepalive: true,
       credentials: "omit",
+      referrerPolicy: "strict-origin",
     }).catch(() => {});
   } catch {
     // ส่งไม่ได้ = ข้าม
@@ -203,14 +226,13 @@ export function resetTrackStateForTests(): void {
   lastMeasureAt.clear();
 }
 
-/** ส่ง snapshot ของ state ณ ขณะนั้น — ดูสัญญาที่หัวไฟล์ · ไม่ throw ไม่ await */
-export function track(snapshot: RingTrackSnapshot): void {
+function dispatch(snapshot: RingTrackSnapshot, allowResult: boolean): void {
   try {
     if (!TRACK_ENABLED) return;
     if (typeof window === "undefined" || typeof navigator === "undefined") return;
     if (isOptedOut()) return;
 
-    const clean = sanitize(snapshot);
+    const clean = sanitize(snapshot, allowResult);
     if (!clean) return;
 
     // ตรวจรูปร่างด้วยตัวตรวจเดียวกับ route (ผิด = route จะปฏิเสธอยู่แล้ว → ไม่ส่งให้เสียเปล่า) — sid ใส่หลังสุด
@@ -224,4 +246,21 @@ export function track(snapshot: RingTrackSnapshot): void {
   } catch {
     // สถิติห้ามกระทบ flow วัด
   }
+}
+
+/** ส่ง snapshot ของ state ณ ขณะนั้น — ดูสัญญาที่หัวไฟล์ · ไม่ throw ไม่ await · ไม่ส่งผลวัด (ใช้ trackMeasured) */
+export function track(snapshot: TrackSnapshot): void {
+  dispatch(snapshot as RingTrackSnapshot, false);
+}
+
+/**
+ * ส่งผลวัด (stage 7 + method + circ_mm + size + between) — ทางเดียวที่ส่งผลได้ · DB นับรอบวัด +1 ทุกครั้ง
+ * เรียกจาก finishMeasure ที่ "ได้ผลสำเร็จ" ที่เดียวเท่านั้น (copy-guard.test.ts นับ call site ใต้ app/(quiz)/ring-size ต้อง = 1)
+ * หยิบทีละ field ไม่ spread
+ */
+export function trackMeasured(result: MeasuredResult): void {
+  dispatch(
+    { stage: RING_STAGE_RESULT, method: result.method, circ_mm: result.circ_mm, size: result.size, between: result.between },
+    true
+  );
 }

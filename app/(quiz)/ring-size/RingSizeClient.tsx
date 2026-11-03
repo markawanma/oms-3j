@@ -16,7 +16,7 @@
 //       0 mount (in_app · is_return) · 1 start() · 2 เห็น R1Pick · 3 เห็น R1/R2/R2Coin · 4 finishCalibration (+ref +g3/g5) ·
 //       5 pickMethod (+method) · 6 เห็น R5A/R5B (+method) · 7 finishMeasure สำเร็จ (+circ/size/between +method) หรือ G4 (+g4 +method ไม่พกเบอร์) ·
 //       G1 ซูมอยู่ที่จอเทียบ/วัด → g1 · viewLastResult ไม่ส่งอะไร (ไม่เพิ่มรอบวัด) · ปุ่มหน้าผล (cta) ยิงที่ R6/LineCta
-//     ผลวัด (circ/size/between) ส่งที่ finishMeasure จุดเดียวเท่านั้น — track.ts ตัดทิ้งเองถ้าโผล่ที่อื่น
+//     ผลวัด (circ/size/between) ส่งที่ finishMeasure จุดเดียวผ่าน trackMeasured — track() ธรรมดาตัดผลทิ้งเสมอ (type + runtime)
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CALIBRATION, type Method, type RefKind } from "@/lib/ring-size/config";
 import {
@@ -44,7 +44,7 @@ import {
   type ScreenId,
 } from "@/lib/ring-size/flow";
 import { circToRec, diameterToCirc, isPlausibleCirc, roundTenth } from "@/lib/ring-size/size";
-import { track } from "@/lib/ring-size/track";
+import { track, trackMeasured } from "@/lib/ring-size/track";
 import { RING_STAGE_RESULT, inAppBucket, type RingTrackSnapshot } from "@/lib/ring-size/track-schema";
 import { useVisualViewportZoomed } from "@/lib/ring-size/use-visual-viewport-scale";
 import { G3Sheet } from "./_components/G3Sheet";
@@ -398,8 +398,8 @@ export function RingSizeClient() {
     const saved: LastResult = { circ: r.circ, method: m, ref: r.ref, savedAt: now, version: 1 };
     writeLastResult(saved); // จำไม่ได้ก็ยังใช้ในเซสชันนี้ได้
     setLastResult(saved);
-    // ได้ผลวัด = stage 7 พร้อมผล — จุดเดียวที่ส่ง circ_mm/size/between (DB นับรอบวัด +1 ทุกครั้งที่ size โผล่)
-    track({ stage: RING_STAGE_RESULT, method: m, circ_mm: rec.circ, size: rec.rec, between: rec.between !== null });
+    // ได้ผลวัด = stage 7 พร้อมผล — trackMeasured เป็นทางเดียวที่ส่ง circ_mm/size/between และเรียกที่นี่ที่เดียว (DB นับรอบวัด +1 ทุกครั้งที่ size โผล่)
+    trackMeasured({ method: m, circ_mm: rec.circ, size: rec.rec, between: rec.between !== null });
     navigate("R6");
   };
 

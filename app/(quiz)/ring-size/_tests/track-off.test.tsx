@@ -11,7 +11,7 @@ vi.mock("@/lib/ring-size/config", async (importOriginal) => {
   return { ...orig, TRACK_ENABLED: false };
 });
 
-import { track } from "@/lib/ring-size/track";
+import { track, trackMeasured } from "@/lib/ring-size/track";
 import { R1Pick } from "../_screens/R1Pick";
 import { R6 } from "../_screens/R6";
 
@@ -40,7 +40,7 @@ describe("TRACK_ENABLED = false", () => {
     vi.stubGlobal("fetch", f);
     try {
       track({ stage: 0, in_app: "line", is_return: false });
-      track({ stage: 7, method: "A", circ_mm: 54, size: 54, between: false });
+      trackMeasured({ method: "A", circ_mm: 54, size: 54, between: false });
       track({ stage: 7, cta: "line" });
       expect(beacon).not.toHaveBeenCalled();
       expect(f).not.toHaveBeenCalled();

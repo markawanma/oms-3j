@@ -15,6 +15,9 @@ export const metadata: Metadata = {
   title: TITLE,
   description: DESCRIPTION,
   robots: { index: !NOINDEX, follow: !NOINDEX },
+  // <meta name="referrer"> — Referer ของ request ที่ออกจากหน้านี้ (beacon สถิติ · ลิงก์ LINE/ร้าน/เกมพลอย) เหลือแค่ origin ไม่ติด query
+  // (เช่น fbclid จาก in-app browser) · strict-origin ไม่ใช่ no-referrer: Origin header ของ beacon ที่ route ต้องใช้ยังอยู่ (ห้ามเปลี่ยนเป็น no-referrer)
+  referrer: "strict-origin",
   openGraph: { title: TITLE, description: DESCRIPTION },
 };
 
