@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { PercentBar } from "@/components/ui/PercentBar";
+import { RelativeBar } from "@/components/ui/RelativeBar";
 import { dailyNewestFirst, formatInt } from "@/lib/marketing/ring-size-format";
 import { thaiDate } from "@/lib/jobs/dates";
 import type { RingSizeStats } from "@/lib/marketing/ring-size-stats";
@@ -42,7 +42,7 @@ export function DailyList({ stats, from }: { stats: RingSizeStats; from: string 
         {shown.map((r) => (
           <li key={r.date} className="flex items-center gap-2 text-xs">
             <span className="w-14 shrink-0 tabular-nums text-zinc-600">{thaiDate(r.date, false)}</span>
-            <PercentBar value={r.sessions} max={max} className="flex-1" />
+            <RelativeBar value={r.sessions} max={max} className="flex-1" />
             <span className="shrink-0 whitespace-nowrap text-right tabular-nums text-zinc-700">
               {formatInt(r.sessions)} เปิด · {formatInt(r.measured)} ได้เบอร์
             </span>

@@ -3,7 +3,6 @@
 import { describe, expect, it } from "vitest";
 import {
   RING_STATS_MIN_N,
-  barWidthPct,
   countPct,
   countWithBase,
   dailyNewestFirst,
@@ -66,17 +65,6 @@ describe("countWithBase", () => {
     expect(formatInt(12345)).toBe("12,345");
     expect(formatInt(1_200_000)).toBe("1,200,000");
     expect(countWithBase(12345, 50000)).toContain("12,345");
-  });
-});
-
-describe("barWidthPct", () => {
-  it("เทียบค่ามากสุด · มีของเล็กน้อยยังเห็นแท่ง · 0 ⇒ 0 · max 0 ⇒ 0 (ไม่หาร 0)", () => {
-    expect(barWidthPct(50, 100)).toBe(50);
-    expect(barWidthPct(1, 1000)).toBe(2);
-    expect(barWidthPct(0, 100)).toBe(0);
-    expect(barWidthPct(5, 0)).toBe(0);
-    expect(barWidthPct(500, 100)).toBe(100);
-    expect(Number.isFinite(barWidthPct(NaN, NaN))).toBe(true);
   });
 });
 

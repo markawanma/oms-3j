@@ -306,6 +306,51 @@ describe("state: success — ครบทุก section", () => {
     expect(remeasured).toHaveTextContent("17");
   });
 
+  it("code review #1: วัดซ้ำ/ก้ำกึ่ง ฐาน = picked (ไม่ใช่ measured) — วัดกระดาษ 2 รอบแล้วไปจบที่แหวนเดิม ต้องไม่ทำ % กระดาษพอง/ถูก clamp", () => {
+    // B: picked 80 · measured 30 (ผลล่าสุดเป็นกระดาษแค่ 30) แต่ remeasured 40 / between 48 > measured (คนที่ไปจบที่แหวนเดิม = b_to_a)
+    renderPage(
+      stats({
+        methodStats: {
+          A: { picked: 125, measured: 98, abandonedAtMeasure: 12, invalidSessions: 5, remeasured: 25, between: null },
+          B: { picked: 80, measured: 30, abandonedAtMeasure: 9, invalidSessions: 8, remeasured: 40, between: 48 },
+        },
+      })
+    );
+    const sec = screen.getByRole("heading", { name: "วัดด้วยอะไร" }).closest("section") as HTMLElement;
+    const remeasured = within(sec).getByText("วัดซ้ำ 2 ครั้งขึ้นไป").closest("tr") as HTMLElement;
+    const rc = within(remeasured).getAllByRole("cell");
+    expect(rc[0]).toHaveTextContent("20%"); // 25/125
+    expect(rc[1]).toHaveTextContent("40");
+    expect(rc[1]).toHaveTextContent("50%"); // 40/80 — ฐานเดิม (measured 30) จะได้ 133% → clamp 100%
+    expect(rc[1].textContent).not.toMatch(/100%/);
+    const between = within(sec).getByText("ผลก้ำกึ่งระหว่างเบอร์").closest("tr") as HTMLElement;
+    const bc = within(between).getAllByRole("cell");
+    expect(bc[1]).toHaveTextContent("48");
+    expect(bc[1]).toHaveTextContent("60%"); // 48/80
+    expect(bc[1].textContent).not.toMatch(/100%/);
+    // ป้ายฐานบอกตรงกับที่คำนวณ
+    expect(remeasured).toHaveTextContent("ฐาน = ครั้งที่ใช้วิธีนั้น");
+    expect(between).toHaveTextContent("ฐาน = ครั้งที่ใช้กระดาษ");
+    expect(sec.textContent).not.toMatch(/ฐาน = วัดได้เบอร์/);
+  });
+
+  it("code review #1: ฐาน picked ต่อวิธี <30 ⇒ 'จาก N' (ต่อเซลล์) ทั้งวัดซ้ำและก้ำกึ่ง", () => {
+    renderPage(
+      stats({
+        methodStats: {
+          A: { picked: 125, measured: 98, abandonedAtMeasure: 12, invalidSessions: 5, remeasured: 25, between: null },
+          B: { picked: 29, measured: 10, abandonedAtMeasure: 1, invalidSessions: 2, remeasured: 14, between: 12 },
+        },
+      })
+    );
+    const sec = screen.getByRole("heading", { name: "วัดด้วยอะไร" }).closest("section") as HTMLElement;
+    for (const label of ["วัดซ้ำ 2 ครั้งขึ้นไป", "ผลก้ำกึ่งระหว่างเบอร์"]) {
+      const cells = within(within(sec).getByText(label).closest("tr") as HTMLElement).getAllByRole("cell");
+      expect(cells[1]).toHaveTextContent("จาก 29");
+      expect(cells[1].textContent).not.toMatch(/%/);
+    }
+  });
+
   it("วัดด้วยอะไร: ฐานต่อวิธี <30 ⇒ 'จาก N' (ต่อค่า) ไม่ใช่ % — กระดาษจะเล็กนานสุด", () => {
     renderPage(
       stats({

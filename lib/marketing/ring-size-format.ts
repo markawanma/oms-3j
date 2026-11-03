@@ -48,14 +48,6 @@ export function formatInt(n: number): string {
   return sane(n).toLocaleString("th-TH");
 }
 
-/** ความยาวแท่ง 0..100 (จำนวนเต็ม) เทียบค่าสูงสุด · มีของแต่เล็กมาก ⇒ อย่างน้อย 2 ให้เห็นแท่ง */
-export function barWidthPct(value: number, max: number): number {
-  const v = sane(value);
-  const m = sane(max);
-  if (v <= 0 || m <= 0) return 0;
-  return Math.max(2, Math.min(100, Math.round((v / m) * 100)));
-}
-
 /** พบมากสุด n อันดับ: count มาก→น้อย · เท่ากันเบอร์เล็กก่อน · ตัดแถวที่ count = 0 */
 export function topSizes(rows: readonly { size: number; count: number }[], n = 3): { size: number; count: number }[] {
   return rows

@@ -2,7 +2,7 @@
 //
 // ชุดคงที่ — key มาจาก lib/ring-size/track-schema.ts (ไม่ประกาศซ้ำ) · Record<..., string> บังคับให้ครบตอน compile
 // ห้ามคำ PDPA / "ปลอดภัยตามกฎหมาย" · ห้ามศัพท์ session/RPC/stage · ห้ามรหัส G1–G5 บนจอ (label ทั้งหมดในไฟล์นี้เป็นภาษาคน)
-import { RING_IN_APP, RING_STAGES, type RingInApp } from "@/lib/ring-size/track-schema";
+import { RING_IN_APP, RING_STAGES, type RingInApp, type RingMethod, type RingRef } from "@/lib/ring-size/track-schema";
 
 /** ป้ายขั้นที่ "ไปถึง" — index = stage 0..7 (เลขบนจอ = stage + 1 ผ่าน stageNumber เท่านั้น) */
 export const STAGE_REACHED_LABELS: Readonly<Record<(typeof RING_STAGES)[number], string>> = {
@@ -55,8 +55,8 @@ export function inAppLabel(code: string): string {
   return (RING_IN_APP as readonly string[]).includes(code) ? IN_APP_LABELS[code as RingInApp] : code;
 }
 
-export const METHOD_LABELS = { A: "แหวนวงเดิม", B: "พันกระดาษรอบนิ้ว" } as const;
-export const REF_LABELS = { coin: "เหรียญ 10 บาท", card: "บัตร" } as const;
+export const METHOD_LABELS: Readonly<Record<RingMethod, string>> = { A: "แหวนวงเดิม", B: "พันกระดาษรอบนิ้ว" };
+export const REF_LABELS: Readonly<Record<RingRef, string>> = { coin: "เหรียญ 10 บาท", card: "บัตร" };
 
 export interface FrictionRowDef {
   key: "zoomBlocked" | "calibWarn" | "invalid" | "staleRecalib";

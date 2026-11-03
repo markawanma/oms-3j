@@ -1,5 +1,5 @@
 import { Badge } from "@/components/ui/Badge";
-import { PercentBar } from "@/components/ui/PercentBar";
+import { RelativeBar } from "@/components/ui/RelativeBar";
 import { countWithBase, formatInt, pctText, sizeTableRows, topSizes } from "@/lib/marketing/ring-size-format";
 import type { RingSizeStats } from "@/lib/marketing/ring-size-stats";
 import { NoData, StatsCard } from "./StatsCard";
@@ -95,7 +95,7 @@ export function SizeDistribution({ stats }: { stats: RingSizeStats }) {
                 <tr key={r.key} className="border-t border-zinc-100 align-top">
                   <th scope="row" className="min-w-0 break-words py-1.5 pr-2 text-left font-medium text-zinc-700">
                     <span className="block">{r.label}</span>
-                    <PercentBar value={r.value} max={summaryMax} tone={r.tone} className="mt-1" />
+                    <RelativeBar value={r.value} max={summaryMax} tone={r.tone} className="mt-1" />
                   </th>
                   <CountPctCell count={r.value} base={stats.measured} />
                 </tr>
@@ -131,7 +131,7 @@ export function SizeDistribution({ stats }: { stats: RingSizeStats }) {
                       )}
                     </th>
                     <td className="w-full py-1">
-                      <PercentBar value={r.count} max={tableMax} />
+                      <RelativeBar value={r.count} max={tableMax} />
                     </td>
                     <CountPctCell count={r.count} base={stats.measured} />
                   </tr>

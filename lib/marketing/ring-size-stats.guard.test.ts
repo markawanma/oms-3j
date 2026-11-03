@@ -14,7 +14,7 @@ const p = (...parts: string[]) => join(ROOT, ...parts);
 
 const PAGE_DIR = p("app", "(dashboard)", "marketing", "ring-size");
 const COMPONENT_DIRS = [p("components", "domain", "marketing", "ring-size")];
-const COMPONENT_FILES = [p("components", "domain", "marketing", "RingSizeStats.tsx"), p("components", "ui", "PercentBar.tsx")];
+const COMPONENT_FILES = [p("components", "domain", "marketing", "RingSizeStats.tsx"), p("components", "ui", "RelativeBar.tsx")];
 const ACTION_FILE = p("lib", "actions", "ring-size-stats.ts");
 const LIB_FILES = ["ring-size-filters.ts", "ring-size-format.ts", "ring-size-labels.ts", "ring-size-stats.ts"].map((f) => p("lib", "marketing", f));
 
@@ -118,8 +118,8 @@ describe("UX/ถ้อยคำ — ไม่มี zinc-400 กับข้อ�
   });
   it("inline style ใช้เฉพาะ width ของแท่ง (ค่าไดนามิก) ที่เดียว", () => {
     const withStyle = UI_FILES.concat(PAGE_FILES).filter((f) => /\bstyle=\{\{/.test(readStripped(f)));
-    expect(withStyle.map(rel)).toEqual(["components/ui/PercentBar.tsx"]);
-    expect(readStripped(p("components", "ui", "PercentBar.tsx"))).toMatch(/style=\{\{\s*width:/);
+    expect(withStyle.map(rel)).toEqual(["components/ui/RelativeBar.tsx"]);
+    expect(readStripped(p("components", "ui", "RelativeBar.tsx"))).toMatch(/style=\{\{\s*width:/);
   });
 });
 

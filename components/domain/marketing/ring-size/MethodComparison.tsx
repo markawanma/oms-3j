@@ -1,4 +1,4 @@
-import { countPct, formatInt } from "@/lib/marketing/ring-size-format";
+import { formatInt, pctText } from "@/lib/marketing/ring-size-format";
 import { METHOD_LABELS, REF_LABELS } from "@/lib/marketing/ring-size-labels";
 import type { RingSizeStats } from "@/lib/marketing/ring-size-stats";
 import { NoData, StatsCard } from "./StatsCard";
@@ -8,6 +8,10 @@ import { NoData, StatsCard } from "./StatsCard";
 // 🔴 ไม่ไฮไลต์สี/ไม่ตั้งเกณฑ์ "สูง/ต่ำ" (Q3 = แสดงตัวเลขอย่างเดียว) · ตัวเลขทั้งหมดคือสัญญาณ "ยาก/ไม่มั่นใจ" ไม่ใช่ความแม่น
 // 🔴 "ก้ำกึ่ง" เทียบ A กับ B ไม่ได้ (แหวนวงเดิมปัดใกล้สุด ไม่มีก้ำกึ่ง) ⇒ แยกท้ายตาราง + ป้ายเตือน
 // "ใช้วิธีนี้" = ลองวิธีนั้นอย่างน้อยครั้ง (คนที่ลองทั้งสองวิธีนับทั้งสองฝั่ง) ⇒ แถวนี้โชว์จำนวนล้วน ไม่ทำ % (ฐานรวมสองฝั่งจะซ้ำคน)
+// 🔴 ฐานของ % ทุกแถว = picked (ครั้งที่ใช้วิธีนั้น) เพราะตัวตั้งทุกตัวเป็นข้อมูลระดับ session ที่เกิดระหว่างใช้วิธีนั้น (⊆ used_x):
+//    remeasured = measure_count_x>=2 · between = used_b and saw_between · invalid = invalid_x · abandoned = used_x and method=x ·
+//    ห้ามใช้ `measured` (= result_method ผลล่าสุด) เป็นฐานของสองแถวแรก — คนที่วัดกระดาษ 2 รอบแล้วไปจบที่แหวนเดิม (b_to_a)
+//    อยู่ในตัวตั้งของ B แต่ไม่อยู่ใน measured ของ B ⇒ % กระดาษพองเกินจริง (และ clamp 100% จะซ่อนอาการ)
 
 /** base: ตัวเลข = ฐานหาร (ใช้กฎ MIN_N) · null = โชว์จำนวนล้วน */
 type Cell = { count: number; base: number | null };
@@ -21,11 +25,7 @@ interface Row {
 
 function ValueCell({ cell }: { cell: Cell | null }) {
   if (!cell) return <td className="py-1.5 pl-2 text-right text-zinc-500">—</td>;
-  let sub: string | null = null;
-  if (cell.base !== null) {
-    const r = countPct(cell.count, cell.base);
-    sub = r.kind === "pct" ? r.label : r.kind === "low" ? `จาก ${formatInt(r.base)}` : "—";
-  }
+  const sub = cell.base === null ? null : pctText(cell.count, cell.base);
   return (
     <td className="py-1.5 pl-2 text-right align-top tabular-nums">
       <span className="block font-semibold text-zinc-800">{formatInt(cell.count)}</span>
@@ -71,15 +71,15 @@ export function MethodComparison({ stats }: { stats: RingSizeStats }) {
     },
     {
       label: "วัดซ้ำ 2 ครั้งขึ้นไป",
-      hint: "นับเมื่อได้ผลตั้งแต่ 2 ครั้ง · ฐาน = วัดได้เบอร์",
-      a: { count: A.remeasured, base: A.measured },
-      b: { count: B.remeasured, base: B.measured },
+      hint: "นับเมื่อได้ผลตั้งแต่ 2 ครั้ง · ฐาน = ครั้งที่ใช้วิธีนั้น",
+      a: { count: A.remeasured, base: A.picked },
+      b: { count: B.remeasured, base: B.picked },
     },
     {
       label: "ผลก้ำกึ่งระหว่างเบอร์",
-      hint: "เฉพาะกระดาษ · ฐาน = วัดได้เบอร์ด้วยกระดาษ · เทียบกับแหวนวงเดิมไม่ได้",
+      hint: "เฉพาะกระดาษ · ฐาน = ครั้งที่ใช้กระดาษ · เทียบกับแหวนวงเดิมไม่ได้",
       a: null,
-      b: B.between === null ? null : { count: B.between, base: B.measured },
+      b: B.between === null ? null : { count: B.between, base: B.picked },
     },
   ];
   const x = stats.methodXRef;

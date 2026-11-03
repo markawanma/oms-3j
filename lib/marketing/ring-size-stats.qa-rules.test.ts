@@ -19,7 +19,6 @@ import {
 } from "./ring-size-filters";
 import {
   RING_STATS_MIN_N,
-  barWidthPct,
   countPct,
   countWithBase,
   dailyNewestFirst,
@@ -249,8 +248,6 @@ describe("QA4 — กติกาตัวเลข: ฐาน 29 vs 30 · ห�
     expect(countPct(5, 0)).toEqual({ kind: "none" });
     expect(pctText(0, 0)).toBe("—");
     expect(countWithBase(7, 0)).toBe("—");
-    expect(barWidthPct(5, 0)).toBe(0);
-    expect(barWidthPct(0, 0)).toBe(0);
   });
 
   it("'<1%': มีของแต่ปัดเป็น 0 ⇒ '<1%' · ไม่มีของ ⇒ '0%' · ขอบ 0.5% ปัดเป็น 1%", () => {
@@ -276,8 +273,6 @@ describe("QA4 — กติกาตัวเลข: ฐาน 29 vs 30 · ห�
           expect(r.pct).toBeLessThanOrEqual(100);
           expect(Number.isFinite(r.pct)).toBe(true);
         }
-        const w = barWidthPct(c, b);
-        expect(Number.isInteger(w) && w >= 0 && w <= 100, `bar ${c}/${b}`).toBe(true);
       }
     }
   });
@@ -288,7 +283,7 @@ describe("QA4 — กติกาตัวเลข: ฐาน 29 vs 30 · ห�
       for (const b of [...junk, 100]) {
         const x = a as number;
         const y = b as number;
-        for (const s of [pctText(x, y), countWithBase(x, y), formatInt(x), String(barWidthPct(x, y)), JSON.stringify(countPct(x, y))]) {
+        for (const s of [pctText(x, y), countWithBase(x, y), formatInt(x), JSON.stringify(countPct(x, y))]) {
           expect(s, `${String(a)}/${String(b)}`).not.toMatch(/NaN|Infinity|undefined|\[object/);
         }
       }

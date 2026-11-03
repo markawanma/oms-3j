@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { CollapsibleSection } from "@/components/ui/CollapsibleSection";
-import { PercentBar } from "@/components/ui/PercentBar";
+import { RelativeBar } from "@/components/ui/RelativeBar";
 import { formatInt } from "@/lib/marketing/ring-size-format";
 import type { RingSizeStats } from "@/lib/marketing/ring-size-stats";
 import { NoData } from "./StatsCard";
@@ -44,7 +44,7 @@ export function CircHistogram({ stats }: { stats: RingSizeStats }) {
                   </th>
                   <td className="py-1 text-right tabular-nums text-zinc-800">{formatInt(r.count)}</td>
                   <td className="py-1 pl-3">
-                    <PercentBar value={r.count} max={max} />
+                    <RelativeBar value={r.count} max={max} />
                   </td>
                 </tr>
               ))}

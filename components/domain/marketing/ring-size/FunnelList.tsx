@@ -1,5 +1,5 @@
 import { Badge } from "@/components/ui/Badge";
-import { PercentBar } from "@/components/ui/PercentBar";
+import { RelativeBar } from "@/components/ui/RelativeBar";
 import { countWithBase, formatInt, maxAbandonStages, pctText } from "@/lib/marketing/ring-size-format";
 import { stageAbandonLabel, stageNumber, stageReachedLabel } from "@/lib/marketing/ring-size-labels";
 import type { RingSizeStats } from "@/lib/marketing/ring-size-stats";
@@ -39,7 +39,7 @@ export function FunnelList({ stats }: { stats: RingSizeStats }) {
                   <span className="text-zinc-600">{pctText(reached, sessions)}</span>
                 </p>
               </div>
-              <PercentBar value={reached} max={sessions} className="my-1.5" />
+              <RelativeBar value={reached} max={sessions} className="my-1.5" />
               <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-0.5 text-xs text-zinc-600">
                 {abandoned !== null && abandonLabel ? (
                   <p className="min-w-0 break-words">

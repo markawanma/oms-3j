@@ -1,4 +1,4 @@
-import { PercentBar } from "@/components/ui/PercentBar";
+import { RelativeBar } from "@/components/ui/RelativeBar";
 import { formatInt, pctText } from "@/lib/marketing/ring-size-format";
 import { inAppLabel } from "@/lib/marketing/ring-size-labels";
 import type { RingSizeStats } from "@/lib/marketing/ring-size-stats";
@@ -55,7 +55,7 @@ export function ChannelTable({ stats }: { stats: RingSizeStats }) {
                   {inAppLabel(r.code)}
                 </th>
                 <td className="w-1/3 py-1.5">
-                  <PercentBar value={r.count} max={max} />
+                  <RelativeBar value={r.count} max={max} />
                 </td>
                 <td className="py-1.5 text-right tabular-nums text-zinc-800">{formatInt(r.count)}</td>
                 <td className="py-1.5 pl-2 text-right tabular-nums text-zinc-600">{pctText(r.count, stats.sessions)}</td>

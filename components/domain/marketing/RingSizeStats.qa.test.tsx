@@ -218,10 +218,11 @@ describe("QA4 — ต่อเซลล์: คนละฐาน คนละ�
     const [aAb, bAb] = methodRow("เลิกที่หน้าวัด");
     expect(aAb).toBe("2จาก 8");
     expect(bAb).toBe("820%");
-    // วัดซ้ำใช้ฐาน = วัดได้เบอร์ (A: 3 ⇒ ต่ำ · B: 20 ⇒ ต่ำกว่า 30 เช่นกัน)
+    // วัดซ้ำใช้ฐาน = picked ของวิธีนั้น (code review #1: ตัวตั้ง measure_count_x>=2 เป็นระดับ session ครอบด้วย used_x ไม่ใช่ measured)
+    // A: 8 ⇒ ต่ำกว่า 30 · B: 40 ⇒ โชว์ % (5/40 = 13%)
     const [aRe, bRe] = methodRow("วัดซ้ำ 2 ครั้งขึ้นไป");
-    expect(aRe).toBe("0จาก 3");
-    expect(bRe).toBe("5จาก 20");
+    expect(aRe).toBe("0จาก 8");
+    expect(bRe).toBe("513%");
     expect(bodyText()).not.toMatch(BAD);
   });
 
@@ -387,9 +388,8 @@ describe("QA5 — ปุ่มนำทางใน empty state ต้องใ�
     expect(pushMock).toHaveBeenCalledWith("/marketing/ring-size?range=90d");
   });
 
-  // 🐞 BUG-QA-1 (ต่ำ · UX): ช่วง "กำหนดเอง" ที่ยาว ≥ 90 วันแล้วว่าง ⇒ ปุ่ม "ขยายเป็น 90 วัน" โผล่ (canExpand เช็คแค่ range ≠ 90d/180d)
-  //   ทั้งที่กดแล้ว "หดลง" (เช่น กำหนดเอง 150 วัน → 90 วันล่าสุด) · ต้นเหตุ: components/domain/marketing/RingSizeStats.tsx บรรทัด 184
-  //   `const canExpand = filters.range !== "90d" && filters.range !== "180d"` · it.fails = ผ่านตราบที่บั๊กยังอยู่ → พอแก้แล้วมันจะล้ม → ลบ .fails
+  // regression ของ BUG-QA-1 (แก้ใน 5572449): ช่วง "กำหนดเอง" ที่ยาว ≥ 90 วันแล้วว่าง ต้องไม่เสนอ "ขยายเป็น 90 วัน" (กดแล้วหดลง) —
+  //   canExpand นับจำนวนวันของช่วงปัจจุบัน (< 90) ไม่ใช่ดูแค่ชื่อ range (เดิมเป็น it.fails)
   it("[BUG-QA-1] custom 150 วันที่ว่าง ⇒ ไม่ควรเสนอ 'ขยายเป็น 90 วัน' (กดแล้วหดลง)", () => {
     renderRaw({ ...EMPTY_RAW, data_since: addDays(TODAY, -170) }, { from: addDays(TODAY, -149), to: TODAY, range: "custom" });
     expect(screen.queryByRole("button", { name: "ขยายเป็น 90 วัน" })).toBeNull();
