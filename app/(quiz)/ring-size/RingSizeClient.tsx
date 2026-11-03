@@ -10,9 +10,13 @@
 //   - ทุกจอ = 1 history entry (pushState) · Back ของเครื่องย้อนทีละจอ ไม่ปิดหน้า · ค่าที่วัดแล้วไม่หายเมื่อย้อน
 //     (ค่าเก็บเป็น มม./ppm ใน state ของ component นี้ — จอลูกอ่านค่าเริ่มจากที่นี่)
 //   - localStorage ทุกจุด try/catch (lib/ring-size/calibration.ts) · ค่าเสีย = ทิ้ง · เขียนไม่ได้ = ทำงานต่อโดยไม่จำ
-//   - ไม่ import "use server" / lib/actions · ไม่มีโค้ดกล้อง · ไม่มี network (ไม่มี API/DB)
+//   - ไม่ import "use server" / lib/actions · ไม่มีโค้ดกล้อง · ไม่มี network ในไฟล์นี้ (สถิติผ่าน lib/ring-size/track.ts ที่เดียว — sync ไม่ throw ไม่รอผล)
 //   - G5: ค่าเทียบเก่าไม่ตรงเครื่อง/การซูมตอนนี้ → ไม่ใช้เงียบๆ → พาไปจอเทียบของ ref เดิม (ข้าม R1Pick) พร้อมแถบแจ้ง
-//   - tracking ปิด (TRACK_ENABLED=false) — ไม่มี sink ในโค้ดชุดนี้
+//   - สถิติไม่ระบุตัวตน (design-ring-size-analytics §4.3) — จุดเกาะ:
+//       0 mount (in_app · is_return) · 1 start() · 2 เห็น R1Pick · 3 เห็น R1/R2/R2Coin · 4 finishCalibration (+ref +g3/g5) ·
+//       5 pickMethod (+method) · 6 เห็น R5A/R5B (+method) · 7 finishMeasure สำเร็จ (+circ/size/between +method) หรือ G4 (+g4 +method ไม่พกเบอร์) ·
+//       G1 ซูมอยู่ที่จอเทียบ/วัด → g1 · viewLastResult ไม่ส่งอะไร (ไม่เพิ่มรอบวัด) · ปุ่มหน้าผล (cta) ยิงที่ R6/LineCta
+//     ผลวัด (circ/size/between) ส่งที่ finishMeasure จุดเดียวเท่านั้น — track.ts ตัดทิ้งเองถ้าโผล่ที่อื่น
 import { useCallback, useEffect, useRef, useState } from "react";
 import { CALIBRATION, type Method, type RefKind } from "@/lib/ring-size/config";
 import {
@@ -40,6 +44,9 @@ import {
   type ScreenId,
 } from "@/lib/ring-size/flow";
 import { circToRec, diameterToCirc, isPlausibleCirc, roundTenth } from "@/lib/ring-size/size";
+import { track } from "@/lib/ring-size/track";
+import { RING_STAGE_RESULT, inAppBucket, type RingTrackSnapshot } from "@/lib/ring-size/track-schema";
+import { useVisualViewportZoomed } from "@/lib/ring-size/use-visual-viewport-scale";
 import { G3Sheet } from "./_components/G3Sheet";
 import { Calibrate } from "./_screens/Calibrate";
 import { G4 } from "./_screens/G4";
@@ -133,6 +140,8 @@ export function RingSizeClient() {
   const [invalid, setInvalid] = useState<{ circ: number; method: Method; diameterMm: number | null } | null>(null);
   const [g3, setG3] = useState<{ kind: RefKind; ppm: number } | null>(null);
 
+  const zoomed = useVisualViewportZoomed(); // G1 — ใช้ส่งสถิติ (จอเทียบ/วัดแสดงแถบเตือนเอง)
+
   const rootRef = useRef<HTMLDivElement>(null);
   const stackRef = useRef<ScreenId[]>(["R0"]);
   const idxRef = useRef(0);
@@ -195,10 +204,14 @@ export function RingSizeClient() {
   // ───── mount: อ่าน storage (ใน effect เท่านั้น) + ผูก history + ล็อก scroll ของ document ─────
   useEffect(() => {
     const c = readCalibration();
+    const last = readLastResult();
     setCalib(c);
     setStale(c ? isStaleCalibration(c, currentFingerprint()) : false); // คำนวณพร้อม calib ในรอบเดียว (กันการ์ด "เทียบไว้แล้ว" กะพริบ)
-    setLastResult(readLastResult());
+    setLastResult(last);
     setLoaded(true);
+
+    // stage 0: เปิดหน้า · in_app = bucket จาก UA (ไม่ส่ง UA ดิบ) · is_return = มีค่าเทียบ/ผลเดิมในเครื่องตอนเปิด
+    track({ stage: 0, in_app: inAppBucket(navigator.userAgent), is_return: c !== null || last !== null });
 
     // entry แรกของหน้านี้ = R0 (รีโหลดแล้ว history.state ค้างจอเก่า — ค่าที่วัดไม่อยู่แล้ว จึงเริ่ม R0 ใหม่)
     try {
@@ -268,6 +281,34 @@ export function RingSizeClient() {
     }
   }, [shown, screen, staleBlocked, guard.missingCalibration, navigate]);
 
+  // สถิติ: "เห็นจอ" ที่เป็นขั้นของ funnel (ใช้จอที่แสดงจริง `shown` — ไม่นับจอที่ถูก guard/G5 เด้งออก) · ซ้ำ = track.ts ทิ้งเอง
+  useEffect(() => {
+    switch (shown) {
+      case "R1Pick":
+        track({ stage: 2 });
+        break;
+      case "R1":
+      case "R2":
+      case "R2Coin":
+        track({ stage: 3 });
+        break;
+      case "R5A":
+        track({ stage: 6, method: "A" });
+        break;
+      case "R5B":
+        track({ stage: 6, method: "B" });
+        break;
+    }
+  }, [shown]);
+
+  // G1: ซูมอยู่ในจอที่แสดงแถบเตือน (เทียบจอ R2/R2Coin · วัด R5A/R5B) — stage ของจอนั้น ไม่ข้ามขั้น
+  useEffect(() => {
+    if (!zoomed) return;
+    if (shown === "R2" || shown === "R2Coin") track({ stage: 3, g1: true });
+    else if (shown === "R5A") track({ stage: 6, method: "A", g1: true });
+    else if (shown === "R5B") track({ stage: 6, method: "B", g1: true });
+  }, [zoomed, shown]);
+
   // เปลี่ยนจอ: โฟกัสไปที่เนื้อหา + เลื่อนกลับบนสุด (ไม่ทำตอน render ครั้งแรก)
   useEffect(() => {
     if (firstRender.current) {
@@ -288,6 +329,7 @@ export function RingSizeClient() {
   // ───── การกระทำ ─────
   const start = () => {
     const d = startDestination({ calibration: calib, stale });
+    track({ stage: 1 });
     setSkipped(d.skipped);
     setG5(d.g5);
     navigate(d.screen);
@@ -314,6 +356,10 @@ export function RingSizeClient() {
     const fp = currentFingerprint();
     const c: Calibration = { pxPerMm: ppm, ref: kind, ...fp, savedAt: Date.now(), version: CALIBRATION_VERSION };
     writeCalibration(c); // เขียนไม่ได้ = ทำงานต่อโดยไม่จำ (ไม่แจ้งผู้ใช้)
+    const snap: RingTrackSnapshot = { stage: 4, ref: kind };
+    if (!isTypicalPxPerMm(ppm)) snap.g3 = true; // ผู้ใช้กด "ถูกต้องแล้ว ใช้ค่านี้" ทั้งที่ค่านอกช่วงปกติ
+    if (g5 && !!calib && calib.ref === kind) snap.g5 = true; // เทียบใหม่เพราะค่าเก่าไม่ตรงเครื่อง/การซูม
+    track(snap);
     setCalib(c);
     setStale(false);
     setG5(false);
@@ -331,6 +377,7 @@ export function RingSizeClient() {
   };
 
   const pickMethod = (m: Method) => {
+    track({ stage: 5, method: m });
     setMethod(m);
     navigate(m === "A" ? "R4A" : "R4B");
   };
@@ -339,6 +386,7 @@ export function RingSizeClient() {
     const rec = circToRec(rawCirc, m);
     if (!rec || !isPlausibleCirc(rawCirc) || !calib) {
       setInvalid({ circ: roundTenth(Number.isFinite(rawCirc) ? rawCirc : 0), method: m, diameterMm });
+      track({ stage: RING_STAGE_RESULT, method: m, g4: true }); // G4 = stage 7 + g4 + method · ไม่พกเบอร์/มม.
       navigate("G4");
       return;
     }
@@ -350,6 +398,8 @@ export function RingSizeClient() {
     const saved: LastResult = { circ: r.circ, method: m, ref: r.ref, savedAt: now, version: 1 };
     writeLastResult(saved); // จำไม่ได้ก็ยังใช้ในเซสชันนี้ได้
     setLastResult(saved);
+    // ได้ผลวัด = stage 7 พร้อมผล — จุดเดียวที่ส่ง circ_mm/size/between (DB นับรอบวัด +1 ทุกครั้งที่ size โผล่)
+    track({ stage: RING_STAGE_RESULT, method: m, circ_mm: rec.circ, size: rec.rec, between: rec.between !== null });
     navigate("R6");
   };
 

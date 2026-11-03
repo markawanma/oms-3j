@@ -26,6 +26,11 @@ export type RingMethod = (typeof RING_METHOD)[number];
 /** session id = crypto.randomUUID() (v4) เท่านั้น */
 const UUID_V4_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
+/** sid ที่ client เก็บใน sessionStorage ต้องผ่านด่านเดียวกับที่ route ใช้ (ค่าที่ถูกแก้/เสีย = ทิ้งแล้วสร้างใหม่) */
+export function isRingSessionId(v: unknown): v is string {
+  return typeof v === "string" && UUID_V4_RE.test(v);
+}
+
 export const RING_CIRC_MM_RANGE = [20, 120] as const;
 export const RING_SIZE_RANGE = [30, 90] as const;
 
@@ -107,7 +112,7 @@ export function parseRingTrackBody(raw: unknown): RingTrackParse {
   }
 
   const sid = body.sid;
-  if (typeof sid !== "string" || !UUID_V4_RE.test(sid)) return { ok: false, reason: "bad_sid" };
+  if (!isRingSessionId(sid)) return { ok: false, reason: "bad_sid" };
 
   const stage = body.stage;
   if (typeof stage !== "number" || !Number.isInteger(stage) || stage < 0 || stage > RING_STAGE_MAX) {

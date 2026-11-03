@@ -110,9 +110,13 @@ describe("R6 / R6Between / R6Out — ช่วงร้านตัดสิน�
     expect(screen.getByText(ACCURACY_NOTE)).toBeInTheDocument();
     expect(screen.getByText("วัดด้วยแหวนวงเดิม")).toBeInTheDocument();
     expect(screen.queryByText(/อยู่ระหว่างเบอร์/)).toBeNull();
-    // ส่วนตัว: ข้อความใหม่ ไม่มี tracking
-    expect(screen.getByText("เบอร์ของคุณเก็บไว้ในเครื่องนี้ ร้านไม่ได้รับชื่อหรือข้อมูลส่วนตัวของคุณ จนกว่าคุณจะกดส่งทาง LINE เอง")).toBeInTheDocument();
-    expect(document.body.textContent).not.toContain("นับสถิติ");
+    // ส่วนตัว: P2 เปิดสถิติไม่ระบุตัวตนแล้ว (TRACK_ENABLED=true) → ถ้อยคำที่เจ้าของอนุมัติ · ไม่มีคำสัญญาเดิม
+    expect(
+      screen.getByText(
+        "เบอร์ของคุณเก็บไว้ในเครื่องนี้ · ร้านได้รับสถิติการใช้งานแบบไม่ระบุตัวตน เช่น เบอร์ที่วัดได้ วิธีวัด ปุ่มที่กด และประเภทแอปที่เปิด (เช่น LINE) · ร้านไม่เก็บชื่อ เบอร์โทร หรือรหัสเครื่อง และลบอัตโนมัติภายใน 6 เดือน"
+      )
+    ).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("จนกว่าคุณจะกดส่ง");
   });
 
   it("R6Between: เล็กกว่า/ใหญ่กว่า (แนะนำ) · ไม่มีเหตุผล 'ถอดง่ายกว่า/สวมสบายกว่า' (ยังไม่ยืนยัน)", () => {

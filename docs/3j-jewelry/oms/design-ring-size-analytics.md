@@ -1,7 +1,7 @@
 # Design: เก็บข้อมูลไซส์แหวนจาก `/ring-size` + หน้าสรุปเจ้าของ (`/marketing/ring-size`)
 
 > architect (Yoda) · 25 ต.ค. 69 · **เขียนทับตามมติเจ้าของ + ผล code review/security รอบ r2 (27 ต.ค. 69)**
-> **สถานะ: มีโค้ดแล้ว ยังไม่ apply** — P0 migration `0193` + `verify-0193` และ P1 endpoint `POST /api/ring-size/event` มีโค้ด/เทสต์แล้วบน branch `feature/ring-size-analytics` (+ `-r2`) · **ยังไม่ apply 0193 บน DB** · P2 client (`track.ts` + จุดเกาะ + copy) และ P3 หน้าสรุปยังไม่ทำ
+> **สถานะ (3 พ.ย. 69): P0 0193 apply บน prod แล้ว · P1 endpoint อยู่บน main · P2 client มีโค้ด/เทสต์แล้วบน branch `feature/ring-size-p2-track` (`track.ts` + จุดเกาะ + copy + เปิด `TRACK_ENABLED` — รอ QA/security/merge) · P3 หน้าสรุปยังไม่ทำ**
 > สเปคหน้า `/ring-size` ฉบับเดียว = `docs/3j-jewelry/oms/ux-ring-size-build.md` · pattern ที่ลอก = gem quiz (`docs/3j-jewelry/analytics/design-gem-quiz.md` §1.2/§2/§5 + migration 0154–0157)
 > โจทย์เจ้าของ 24 ต.ค.: "อยากรู้ว่าส่วนใหญ่ไซส์อะไร วิธีวัดทำด้วยอะไร จากวงเดิมหรือไม่" + คนเลิกกลางทางที่ขั้นไหน · มติ: เก็บทุกคน ไม่ระบุตัวตน · **ไม่แยกช่องทาง `?src=`** (มติ 25 ต.ค. รอบสอง — §12.1)
 
@@ -117,7 +117,7 @@ grant service_role เท่านั้น · jsonb (ไม่ชนเพด�
 ### 3.5 retention (มติเจ้าของ O3 = 6 เดือน)
 `analytics.ring_size_retention_apply()` ลบ `created_at` เก่ากว่า **180 วัน** + `cron.schedule('ring-size-retention-180d','45 3 * * *', ...)` ด้วย pattern unschedule-ใน-do-block ของ 0024 · เทสต์: 179 วันอยู่ / 181 วันหาย / cron job 1 แถวไม่ซ้ำเมื่อ apply ซ้ำ
 
-## 4. หน้า `/ring-size` — สิ่งที่เปลี่ยน (P2 — ยังไม่ทำ)
+## 4. หน้า `/ring-size` — สิ่งที่เปลี่ยน (P2 — มีโค้ดแล้ว รอ merge)
 
 ### 4.1 `lib/ring-size/track.ts` (ไฟล์เดียวที่มี network ใต้ ring-size)
 `track(snapshot): void` sync ไม่ throw ไม่ await · ไม่ส่งเมื่อ `!TRACK_ENABLED` / SSR / **DNT-GPC (เคารพ — มติเจ้าของ O5)** · sid ใน `sessionStorage["ringSize:sid:v1"]` (เขียนไม่ได้ → ถือในหน่วยความจำ · ไม่มี `crypto.randomUUID` → ไม่ส่ง) · dedupe ต่อ stage/cta · measure_done throttle 1 วิ · sendBeacon(Blob JSON) → fallback fetch keepalive `.catch(()=>{})` · body ~300 ไบต์ · ห้าม import supabase/env/gem-quiz · **ต้องทำตามสัญญา event (§0)**
@@ -161,7 +161,7 @@ mount หลัง loaded → stage 0 (in_app · is_return) · `start()` → 1 �
 ## 8. ไฟล์ที่ต้องสร้าง/แก้
 - **P0 DB** (backend-dev) ✅ มีโค้ด ยังไม่ apply: `supabase/migrations/0193_ring_size_analytics.sql` (ตาราง + RLS ไม่มี policy + grant/revoke · 2 RPC + shop_range · retention + cron · notify pgrst · LF) · `scripts/verify/verify-0193.sql` + ตารางแมปเคส→เทสต์ · หลัง apply `check-analytics-grants.sql`
 - **P1 endpoint** (backend-dev · security) ✅ มีโค้ด: `app/api/ring-size/event/route.ts` · `lib/ring-size/track-schema.ts` + test · แก้ `middleware.ts` + `lib/auth/exempt-path.ts` + `exempt-path.test.ts` + `exempt-path.matcher.test.ts` + `lib/ring-size/qa-regression.test.ts` · `route.test.ts`
-- **P2 client** (frontend-dev · worktree) ⏳: `lib/ring-size/track.ts` + test · แก้ `config.ts` (TRACK_ENABLED=true · endpoint · copy §4.4 · ลบคอมเมนต์ "ห้ามส่ง result_size") · `RingSizeClient.tsx` · `R6.tsx` · `LineCta.tsx` · `copy-guard.test.ts:229` allowlist path เป๊ะ · build spec §5/§7.1 · ไม่แตะ `next.config.mjs` / `(quiz)/layout.tsx`
+- **P2 client** (frontend-dev · worktree) ✅ มีโค้ด รอ QA/security/merge: `lib/ring-size/track.ts` + test · แก้ `config.ts` (TRACK_ENABLED=true · endpoint · copy §4.4 · ลบคอมเมนต์ "ห้ามส่ง result_size") · `RingSizeClient.tsx` · `R6.tsx` · `LineCta.tsx` · `copy-guard.test.ts:229` allowlist path เป๊ะ · build spec §5/§7.1 · ไม่แตะ `next.config.mjs` / `(quiz)/layout.tsx`
 - **P3 หน้าสรุป** (ux-ui → frontend/backend) ⏳: action (ข้อบังคับ §6) · page + loading · `RingSizeStats.tsx` · nav · memory
 
 ## 9. เคสสำหรับ security / QA

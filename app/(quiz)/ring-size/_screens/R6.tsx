@@ -13,6 +13,8 @@ import {
   type RefKind,
 } from "@/lib/ring-size/config";
 import { formatMm, inShopRange, type SizeRec } from "@/lib/ring-size/size";
+import { track } from "@/lib/ring-size/track";
+import { RING_STAGE_RESULT, type RingCta } from "@/lib/ring-size/track-schema";
 import { GemIcon, ShareIcon } from "../_components/Icons";
 import { LineCta } from "../_components/LineCta";
 import { RsButton } from "../_components/RsButton";
@@ -36,6 +38,14 @@ export interface R6Props {
   onBack: () => void;
   onRemeasure: () => void;
   onOtherMethod: () => void;
+}
+
+/**
+ * สถิติปุ่มหน้าผล: ยิงตอนกด "ก่อน" เบราว์เซอร์/handler ไปต่อ (sendBeacon sync — ไม่รอ network ไม่หน่วงการเปลี่ยนหน้า)
+ * event CTA พกแค่ stage + cta — ไม่พกเบอร์/ผลวัด (ผลนับครั้งเดียวตอน finishMeasure · design-ring-size-analytics §4.3)
+ */
+function trackCta(cta: RingCta): void {
+  track({ stage: RING_STAGE_RESULT, cta });
 }
 
 export function R6({ step, size, method, refKind, measuredAt, onBack, onRemeasure, onOtherMethod }: R6Props) {
@@ -119,16 +129,23 @@ export function R6({ step, size, method, refKind, measuredAt, onBack, onRemeasur
         <LineCta input={{ size, method, ref: refKind }} label={variant === "out" ? COPY.r6.ctaLineOut(size.rec) : COPY.r6.ctaLine} stickyPrimary={variant === "between"} />
 
         <div className="flex flex-col gap-2.5">
-          <RsButton variant="secondary" onClick={() => setSharing(true)} icon={<ShareIcon />}>
+          <RsButton
+            variant="secondary"
+            onClick={() => {
+              trackCta("share");
+              setSharing(true);
+            }}
+            icon={<ShareIcon />}
+          >
             {COPY.r6.share}
           </RsButton>
           {shop && variant !== "out" ? (
-            <RsButton variant="secondary" href={shop.href}>
+            <RsButton variant="secondary" href={shop.href} onClick={() => trackCta("shop")}>
               {shop.label}
             </RsButton>
           ) : null}
           {/* /gem-quiz ตรงๆ เท่านั้น — ห้ามแนบเบอร์/พารามิเตอร์ใดไปกับ URL */}
-          <RsButton variant="secondary" href="/gem-quiz" icon={<GemIcon />}>
+          <RsButton variant="secondary" href="/gem-quiz" onClick={() => trackCta("gem_quiz")} icon={<GemIcon />}>
             {COPY.r6.gemQuiz}
           </RsButton>
         </div>
@@ -143,8 +160,7 @@ export function R6({ step, size, method, refKind, measuredAt, onBack, onRemeasur
         </div>
 
         <p className={`m-0 text-center text-[13px] leading-relaxed ${TEXT_2}`}>
-          {COPY.r6.privacy}
-          {TRACK_ENABLED ? COPY.r6.privacyTracked : ""}
+          {TRACK_ENABLED ? COPY.r6.privacy : COPY.r6.privacyOff}
         </p>
       </div>
 

@@ -126,7 +126,8 @@ describe("A13: ค่าที่ยังไม่ยืนยัน = ปิ�
     expect(config.SHARE_CARD_URL).toBeNull();
     expect(config.LINE_HELP_MESSAGE).toBeNull();
     expect(config.LINE_PRIMARY_MODE).toBe("copyThenOpen");
-    expect(config.TRACK_ENABLED).toBe(false);
+    // TRACK_ENABLED เปิดแล้ว (P2 3 พ.ย. 69 — มติเจ้าของ + คู่กับถ้อยคำใหม่ในหัวข้อ "ความเป็นส่วนตัว" ด้านล่าง) · ไม่ใช่ "ค่าที่ยังไม่ยืนยัน"
+    expect(config.TRACK_ENABLED).toBe(true);
     expect(NOINDEX).toBe(true);
   });
   it("COPY ไม่มี marker ค้าง [ต้องยืนยัน / [รอผ่านด่าน", () => {
@@ -226,12 +227,35 @@ describe("ข้อบังคับ implement (ซอร์ส UI)", () => {
   it("B12: ปุ่มปิดใช้งานเป็น <button disabled> — ไม่มี <a aria-disabled>", () => {
     for (const f of UI_SOURCES) expect(readStripped(f), rel(f)).not.toMatch(/aria-disabled/);
   });
-  it("ไม่มี Server Action / lib/actions / network (fetch · XHR · sendBeacon · WebSocket) ในหน้านี้", () => {
+  it("ไม่มี Server Action / lib/actions / network (fetch · XHR · sendBeacon · WebSocket) ในหน้านี้ — ยกเว้นไฟล์เดียว lib/ring-size/track.ts (P2 สถิติไม่ระบุตัวตน)", () => {
+    const NETWORK_ALLOWED = "lib/ring-size/track.ts"; // path เป๊ะ — ไฟล์อื่น (รวมที่ชื่อคล้าย) ไม่ได้รับยกเว้น
     for (const f of [...APP_SOURCES, ...LIB_SOURCES]) {
       const raw = readFileSync(f, "utf8");
       expect(raw, rel(f)).not.toMatch(/^\s*["']use server["'];?\s*$/m);
-      expect(readStripped(f), rel(f)).not.toMatch(/lib\/actions|\bfetch\s*\(|XMLHttpRequest|sendBeacon|WebSocket|EventSource/);
+      const code = readStripped(f);
+      if (rel(f) === NETWORK_ALLOWED) {
+        // ไฟล์ที่ได้รับยกเว้นยังห้าม channel อื่น (ส่งได้แค่ sendBeacon/fetch) และห้ามลากโค้ดฝั่งเซิร์ฟเวอร์
+        expect(code, rel(f)).not.toMatch(/lib\/actions|XMLHttpRequest|WebSocket|EventSource/);
+      } else {
+        expect(code, rel(f)).not.toMatch(/lib\/actions|\bfetch\s*\(|XMLHttpRequest|sendBeacon|WebSocket|EventSource/);
+      }
     }
+  });
+  it("track.ts เป็นไฟล์เดียวที่มี network (ยืนยันว่ามีจริง + ยิงไป endpoint ในเว็บเดียวกันเท่านั้น ไม่มี URL ภายนอก)", () => {
+    const withNetwork = [...APP_SOURCES, ...LIB_SOURCES].filter((f) => /\bfetch\s*\(|sendBeacon/.test(readStripped(f))).map(rel);
+    expect(withNetwork).toEqual(["lib/ring-size/track.ts"]);
+    const code = readStripped(join(RING_LIB_DIR, "track.ts"));
+    expect(code).not.toMatch(/https?:|\/\/[a-z0-9.-]+\.[a-z]{2,}/i);
+    expect(code).toMatch(/TRACK_ENDPOINT/);
+    expect(config.TRACK_ENDPOINT).toBe("/api/ring-size/event");
+  });
+  it("track.ts ไม่ import supabase/env/gem-quiz/next และไม่อ่านตัวตน (cookie · IP · query string · ชื่อ · เบอร์ · LINE)", () => {
+    const code = readStripped(join(RING_LIB_DIR, "track.ts"));
+    expect(code).not.toMatch(/supabase|process\.env|gem-quiz|from ["']next|lib\/auth/);
+    expect(code).not.toMatch(/document\.cookie|location\.(search|href|hash)|URLSearchParams|userAgent|\.referrer|localStorage/);
+    // import ได้เฉพาะ ./config และ ./track-schema (ค่าคงที่/ชนิดเดียวกับที่ route ใช้ — ไม่ประกาศซ้ำ)
+    const imports = [...code.matchAll(/from\s+["']([^"']+)["']/g)].map((m) => m[1]).sort();
+    expect(imports).toEqual(["./config", "./track-schema"]);
   });
   it("ไม่มี dangerouslySetInnerHTML และไม่ใช้ eval/new Function", () => {
     for (const f of [...APP_SOURCES, ...LIB_SOURCES]) {
@@ -241,6 +265,77 @@ describe("ข้อบังคับ implement (ซอร์ส UI)", () => {
   it("ไม่แตะ DB/auth/env: ไม่ import supabase / lib/auth / process.env", () => {
     for (const f of [...APP_SOURCES, ...LIB_SOURCES]) {
       expect(readStripped(f), rel(f)).not.toMatch(/supabase|lib\/auth|process\.env/);
+    }
+  });
+});
+
+describe("ถ้อยคำความเป็นส่วนตัว (P2 — design-ring-size-analytics §4.4 · เจ้าของอนุมัติแล้ว)", () => {
+  const OLD_PROMISE = "จนกว่าคุณจะกดส่ง";
+  const R6_PRIVACY =
+    "เบอร์ของคุณเก็บไว้ในเครื่องนี้ · ร้านได้รับสถิติการใช้งานแบบไม่ระบุตัวตน เช่น เบอร์ที่วัดได้ วิธีวัด ปุ่มที่กด และประเภทแอปที่เปิด (เช่น LINE) · ร้านไม่เก็บชื่อ เบอร์โทร หรือรหัสเครื่อง และลบอัตโนมัติภายใน 6 เดือน";
+
+  /** ข้อความความเป็นส่วนตัวที่ screen เลือก render ตาม flag (ต้องตรงกับที่ R6.tsx / R1Pick.tsx เลือกจริง — เทสต์ซอร์สด้านล่างล็อก) */
+  const rendered = (trackEnabled: boolean) =>
+    trackEnabled ? [COPY.r6.privacy, COPY.pick.privacyBody, COPY.r0.privacy] : [COPY.r6.privacyOff, COPY.pick.privacyBodyOff, COPY.r0.privacy];
+
+  it("COPY.r6.privacy = ถ้อยคำที่เจ้าของอนุมัติ ลอกทั้งประโยค (ห้ามแก้คำ)", () => {
+    expect(COPY.r6.privacy).toBe(R6_PRIVACY);
+  });
+
+  it("เมื่อ TRACK_ENABLED เปิด: copy ที่ render ต้องไม่มี 'จนกว่าคุณจะกดส่ง' (คำสัญญาที่ไม่จริงอีกต่อไป)", () => {
+    expect(config.TRACK_ENABLED).toBe(true);
+    for (const s of rendered(config.TRACK_ENABLED)) expect(s).not.toContain(OLD_PROMISE);
+    for (const s of rendered(config.TRACK_ENABLED)) expect(s).not.toMatch(/ไม่ได้รับชื่อหรือข้อมูลส่วนตัว/);
+  });
+
+  it("negative control: ข้อความเดิมถูกจับได้จริง · ข้อความเดิมอยู่ได้เฉพาะใน key *Off (ใช้เมื่อปิดสถิติ) — ไม่หลุดไป key อื่นของ COPY", () => {
+    expect(rendered(false).some((s) => s.includes(OLD_PROMISE))).toBe(true);
+    const holders: string[] = [];
+    const walk = (node: unknown, path: string) => {
+      if (typeof node === "string") {
+        if (node.includes(OLD_PROMISE)) holders.push(path);
+      } else if (node && typeof node === "object" && !Array.isArray(node)) {
+        for (const [k, v] of Object.entries(node)) walk(v, `${path}.${k}`);
+      }
+    };
+    walk(COPY, "COPY");
+    expect(holders).toEqual(["COPY.r6.privacyOff"]);
+  });
+
+  it("ข้อความที่เจ้าของไม่ได้อนุมัติแก้ยังคงเดิม: r0.privacy (ไม่เปิดกล้อง ไม่ถ่ายรูป ไม่ต้องกรอกชื่อหรือเบอร์โทร)", () => {
+    expect(COPY.r0.privacy).toBe("ไม่เปิดกล้อง ไม่ถ่ายรูป ไม่ต้องกรอกชื่อหรือเบอร์โทร");
+  });
+
+  it("ไม่พูดเกินที่เก็บจริง: ข้อความเมื่อเปิดสถิติไม่อ้างว่า 'ไม่เก็บอะไร/ไม่ส่งอะไร' และไม่บอกว่าเก็บนานกว่า 6 เดือน หรือเก็บ IP/ช่องทาง/รหัสเครื่อง", () => {
+    for (const s of [COPY.r6.privacy, COPY.pick.privacyBody]) {
+      expect(s).not.toMatch(/ไม่เก็บอะไร|ไม่ส่งอะไร|ไม่มีข้อมูล|ไม่บันทึก|ทันที|ถาวร|ตลอดไป/);
+      expect(s).not.toMatch(/IP|ที่อยู่ไอพี|ลิงก์ที่|ช่องทาง|รหัสโฆษณา/);
+    }
+    // r6.privacy ระบุสิ่งที่เก็บ + สิ่งที่ไม่เก็บ + อายุข้อมูล ครบ 3 อย่าง
+    expect(COPY.r6.privacy).toMatch(/เบอร์ที่วัดได้/);
+    expect(COPY.r6.privacy).toMatch(/ร้านไม่เก็บชื่อ เบอร์โทร หรือรหัสเครื่อง/);
+    expect(COPY.r6.privacy).toMatch(/ลบอัตโนมัติภายใน 6 เดือน/);
+    // กล่อง R1Pick: ไม่ใช้กล้อง + ผล/ค่าจออยู่ในเครื่อง + สถิติไม่ระบุตัวตน (สอดคล้องกัน)
+    expect(COPY.pick.privacyBody).toMatch(/ไม่ใช้กล้อง/);
+    expect(COPY.pick.privacyBody).toMatch(/เก็บไว้ในเครื่องของคุณ/);
+    expect(COPY.pick.privacyBody).toMatch(/สถิติการใช้งานแบบไม่ระบุตัวตน/);
+    expect(COPY.pick.privacyBody).toMatch(/ไม่มีชื่อ เบอร์โทร หรือรหัสเครื่อง/);
+  });
+
+  it("screen เลือกข้อความตาม TRACK_ENABLED (R6 · R1Pick) — ไม่มีข้อความตายตัวที่ไม่ผ่านสวิตช์", () => {
+    const r6 = readStripped(join(RING_APP_DIR, "_screens", "R6.tsx"));
+    const pick = readStripped(join(RING_APP_DIR, "_screens", "R1Pick.tsx"));
+    expect(r6).toMatch(/TRACK_ENABLED \? COPY\.r6\.privacy : COPY\.r6\.privacyOff/);
+    expect(pick).toMatch(/TRACK_ENABLED \? COPY\.pick\.privacyBody : COPY\.pick\.privacyBodyOff/);
+    // ไม่มีสายต่อท้ายแบบเดิม (privacyTracked) เหลือใน COPY หรือซอร์ส
+    expect(Object.keys(COPY.r6)).not.toContain("privacyTracked");
+    for (const f of [...APP_SOURCES, ...LIB_SOURCES]) expect(readStripped(f), rel(f)).not.toMatch(/privacyTracked/);
+  });
+
+  it("ไม่มีถ้อยคำต้องห้าม/เลขตัวอย่างในข้อความใหม่ (กวาดด้วยกฎเดิม A10/A12)", () => {
+    for (const s of [COPY.r6.privacy, COPY.pick.privacyBody, COPY.pick.privacyBodyOff, COPY.r6.privacyOff]) {
+      for (const [re, label] of FORBIDDEN) expect(re.test(s), `${label} ใน ${s}`).toBe(false);
+      expect(s).not.toMatch(/(?<![\d.])(54|58|57\.5|43|54\.1|37\.7|2569)(?![\d])/);
     }
   });
 });

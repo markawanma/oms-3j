@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { COPY, LINE_OA_FALLBACK_URL, LINE_PRIMARY_MODE, type LineMode } from "@/lib/ring-size/config";
 import { buildLineMessage, primaryLineHref, type LineMessageInput } from "@/lib/ring-size/line-message";
+import { track } from "@/lib/ring-size/track";
+import { RING_STAGE_RESULT } from "@/lib/ring-size/track-schema";
 import { LineChatIcon } from "./Icons";
 import { RsButton } from "./RsButton";
 import { CopyStatusNote, useCopy } from "./useCopy";
@@ -36,8 +38,12 @@ export function LineCta({
   const { status, copy } = useCopy(message);
   const [busy, setBusy] = useState(false);
 
+  // สถิติ cta=line: ยิงตอนกด ก่อนคัดลอก/เปิดแชท (sync · ไม่รอ network) — event พกแค่ stage + cta
+  const trackLine = () => track({ stage: RING_STAGE_RESULT, cta: "line" });
+
   const primaryCopyThenOpen = async () => {
     if (busy) return;
+    trackLine();
     setBusy(true);
     try {
       const ok = await copy();
@@ -50,7 +56,7 @@ export function LineCta({
   const primary = (
     <>
       {mode === "oaMessage" ? (
-        <RsButton href={primaryLineHref(input, "oaMessage")} icon={<LineChatIcon />}>
+        <RsButton href={primaryLineHref(input, "oaMessage")} onClick={trackLine} icon={<LineChatIcon />}>
           {label}
         </RsButton>
       ) : (
@@ -70,7 +76,7 @@ export function LineCta({
           {COPY.r6.copy}
         </button>
         <span aria-hidden="true">·</span>
-        <a href={LINE_OA_FALLBACK_URL} className={LINK}>
+        <a href={LINE_OA_FALLBACK_URL} onClick={trackLine} className={LINK}>
           {COPY.r6.openChat}
         </a>
       </div>

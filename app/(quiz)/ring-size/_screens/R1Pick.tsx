@@ -1,4 +1,4 @@
-import { COPY, type RefKind } from "@/lib/ring-size/config";
+import { COPY, TRACK_ENABLED, type RefKind } from "@/lib/ring-size/config";
 import { CameraOffIcon, CardPickArt, CoinPickArt } from "../_components/Icons";
 import { NoticeBar } from "../_components/NoticeBar";
 import { OptionCard } from "../_components/OptionCard";
@@ -56,7 +56,7 @@ export function R1Pick({
           </span>
           <div className="text-[14px] leading-relaxed text-[var(--rs-text-3)]">
             <strong className={`${SERIF} block text-[15px] font-semibold ${TEXT}`}>{COPY.pick.privacyTitle}</strong>
-            {COPY.pick.privacyBody}
+            {TRACK_ENABLED ? COPY.pick.privacyBody : COPY.pick.privacyBodyOff}
           </div>
         </section>
 

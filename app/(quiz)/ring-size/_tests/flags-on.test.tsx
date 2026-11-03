@@ -4,7 +4,9 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import userEvent from "@testing-library/user-event";
 import { circToRec } from "@/lib/ring-size/size";
+import { resetTrackStateForTests } from "@/lib/ring-size/track";
 
 vi.mock("@/lib/ring-size/config", async (importOriginal) => {
   const orig = await importOriginal<typeof import("@/lib/ring-size/config")>();
@@ -64,9 +66,37 @@ describe("flag เปิด → ค่าที่ซ่อนอยู่โผ
     expect(screen.getByText(/TEST_ONLY_BETWEEN_REASON/)).toBeInTheDocument();
   });
 
-  it("TRACK_ENABLED: ต่อท้ายประโยคความเป็นส่วนตัวว่านับสถิติรวมแบบไม่ระบุตัวตน", () => {
+  it("TRACK_ENABLED: ท้ายหน้าผลเป็นถ้อยคำที่เจ้าของอนุมัติ (บอกสถิติไม่ระบุตัวตน) · ไม่มีคำสัญญาเดิม 'จนกว่าคุณจะกดส่ง'", () => {
     r6(54);
-    expect(screen.getByText(/ร้านนับสถิติรวมแบบไม่ระบุตัวตน/)).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "เบอร์ของคุณเก็บไว้ในเครื่องนี้ · ร้านได้รับสถิติการใช้งานแบบไม่ระบุตัวตน เช่น เบอร์ที่วัดได้ วิธีวัด ปุ่มที่กด และประเภทแอปที่เปิด (เช่น LINE) · ร้านไม่เก็บชื่อ เบอร์โทร หรือรหัสเครื่อง และลบอัตโนมัติภายใน 6 เดือน"
+      )
+    ).toBeInTheDocument();
+    expect(document.body.textContent).not.toContain("จนกว่าคุณจะกดส่ง");
+    expect(document.body.textContent).not.toContain("ร้านนับสถิติรวม");
+  });
+
+  it("TRACK_ENABLED: ปุ่ม 'ดูแหวนในร้าน' ยิง cta shop ก่อนลิงก์ไป (event พกแค่ stage + cta)", async () => {
+    const calls: Array<{ data: Blob }> = [];
+    Object.defineProperty(navigator, "sendBeacon", { value: (_u: string, data: Blob) => (calls.push({ data }), true), configurable: true, writable: true });
+    const block = (e: Event) => e.preventDefault(); // กัน jsdom นำทางจริง (React handler ทำงานก่อนที่ root)
+    document.addEventListener("click", block);
+    try {
+      resetTrackStateForTests();
+      r6(54);
+      await userEvent.setup().click(screen.getByRole("link", { name: "TEST_ONLY_SHOP_BUTTON" }));
+      expect(calls).toHaveLength(1);
+      const text = await new Promise<string>((resolve) => {
+        const fr = new FileReader();
+        fr.onload = () => resolve(String(fr.result));
+        fr.readAsText(calls[0].data);
+      });
+      expect(JSON.parse(text)).toEqual({ sid: expect.stringMatching(/^[0-9a-f-]{36}$/), stage: 7, cta: "shop" });
+    } finally {
+      document.removeEventListener("click", block);
+      delete (navigator as unknown as Record<string, unknown>).sendBeacon;
+    }
   });
 
   it("R4B: SHOW_KNUCKLE_RULE โผล่กล่องข้อนิ้ว · PAPER_SIZE_HINT แทนข้อความไม่มีตัวเลข", () => {
