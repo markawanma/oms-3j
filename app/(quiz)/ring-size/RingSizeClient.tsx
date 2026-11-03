@@ -44,8 +44,8 @@ import {
   type ScreenId,
 } from "@/lib/ring-size/flow";
 import { circToRec, diameterToCirc, isPlausibleCirc, roundTenth } from "@/lib/ring-size/size";
-import { track, trackMeasured } from "@/lib/ring-size/track";
-import { RING_STAGE_RESULT, inAppBucket, type RingTrackSnapshot } from "@/lib/ring-size/track-schema";
+import { track, trackMeasured, type TrackSnapshot } from "@/lib/ring-size/track";
+import { RING_STAGE_RESULT, inAppBucket } from "@/lib/ring-size/track-schema";
 import { useVisualViewportZoomed } from "@/lib/ring-size/use-visual-viewport-scale";
 import { G3Sheet } from "./_components/G3Sheet";
 import { Calibrate } from "./_screens/Calibrate";
@@ -103,6 +103,30 @@ function readHistState(): HistState | null {
   }
   return null;
 }
+
+/**
+ * สถิติ: จอ → snapshot "เห็นจอ" ของ funnel (null = จอนี้ไม่ใช่ขั้น) · ตารางเดียวใช้ทั้ง effect "เห็นจอ" และ G1
+ * 2 = เห็นจอเลือกอุปกรณ์เทียบ · 3 = เห็นจอปรับเทียบ · 6 = เห็นจอวัด (+method ตามจอ)
+ */
+function funnelSnapshot(screen: ScreenId): TrackSnapshot | null {
+  switch (screen) {
+    case "R1Pick":
+      return { stage: 2 };
+    case "R1":
+    case "R2":
+    case "R2Coin":
+      return { stage: 3 };
+    case "R5A":
+      return { stage: 6, method: "A" };
+    case "R5B":
+      return { stage: 6, method: "B" };
+    default:
+      return null;
+  }
+}
+
+/** จอที่แสดงแถบเตือน G1 (ซูม) — จอเทียบ R2/R2Coin และจอวัด R5A/R5B (R1 สอนบัตรไม่มีแถบ) */
+const G1_SCREENS: readonly ScreenId[] = ["R2", "R2Coin", "R5A", "R5B"];
 
 /** method ของจอ (ใช้ตอน popstate) — จอวัด/สอนบอกเอง · R6/G4 ตามผลที่ค้างอยู่ · จออื่น = ไม่เปลี่ยน */
 function methodForScreen(rs: ScreenId, result: ResultState | null, invalid: { method: Method } | null): Method | null {
@@ -283,30 +307,15 @@ export function RingSizeClient() {
 
   // สถิติ: "เห็นจอ" ที่เป็นขั้นของ funnel (ใช้จอที่แสดงจริง `shown` — ไม่นับจอที่ถูก guard/G5 เด้งออก) · ซ้ำ = track.ts ทิ้งเอง
   useEffect(() => {
-    switch (shown) {
-      case "R1Pick":
-        track({ stage: 2 });
-        break;
-      case "R1":
-      case "R2":
-      case "R2Coin":
-        track({ stage: 3 });
-        break;
-      case "R5A":
-        track({ stage: 6, method: "A" });
-        break;
-      case "R5B":
-        track({ stage: 6, method: "B" });
-        break;
-    }
+    const snap = funnelSnapshot(shown);
+    if (snap) track(snap);
   }, [shown]);
 
-  // G1: ซูมอยู่ในจอที่แสดงแถบเตือน (เทียบจอ R2/R2Coin · วัด R5A/R5B) — stage ของจอนั้น ไม่ข้ามขั้น
+  // G1: ซูมอยู่ในจอที่แสดงแถบเตือน — ส่ง snapshot ของจอนั้น (stage เดิม ไม่ข้ามขั้น) + g1
   useEffect(() => {
-    if (!zoomed) return;
-    if (shown === "R2" || shown === "R2Coin") track({ stage: 3, g1: true });
-    else if (shown === "R5A") track({ stage: 6, method: "A", g1: true });
-    else if (shown === "R5B") track({ stage: 6, method: "B", g1: true });
+    if (!zoomed || !G1_SCREENS.includes(shown)) return;
+    const snap = funnelSnapshot(shown);
+    if (snap) track({ ...snap, g1: true });
   }, [zoomed, shown]);
 
   // เปลี่ยนจอ: โฟกัสไปที่เนื้อหา + เลื่อนกลับบนสุด (ไม่ทำตอน render ครั้งแรก)
@@ -356,9 +365,9 @@ export function RingSizeClient() {
     const fp = currentFingerprint();
     const c: Calibration = { pxPerMm: ppm, ref: kind, ...fp, savedAt: Date.now(), version: CALIBRATION_VERSION };
     writeCalibration(c); // เขียนไม่ได้ = ทำงานต่อโดยไม่จำ (ไม่แจ้งผู้ใช้)
-    const snap: RingTrackSnapshot = { stage: 4, ref: kind };
+    const snap: TrackSnapshot = { stage: 4, ref: kind };
     if (!isTypicalPxPerMm(ppm)) snap.g3 = true; // ผู้ใช้กด "ถูกต้องแล้ว ใช้ค่านี้" ทั้งที่ค่านอกช่วงปกติ
-    if (g5 && !!calib && calib.ref === kind) snap.g5 = true; // เทียบใหม่เพราะค่าเก่าไม่ตรงเครื่อง/การซูม
+    if (g5 && calib?.ref === kind) snap.g5 = true; // เทียบใหม่เพราะค่าเก่าไม่ตรงเครื่อง/การซูม
     track(snap);
     setCalib(c);
     setStale(false);

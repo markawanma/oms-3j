@@ -18,7 +18,7 @@ vi.mock("./config", async (importOriginal) => {
   };
 });
 
-import { MEASURE_THROTTLE_MS, SID_KEY, resetTrackStateForTests, track, trackMeasured, type MeasuredResult, type TrackSnapshot } from "./track";
+import { MEASURE_THROTTLE_MS, SID_KEY, resetTrackStateForTests, track, trackCta, trackMeasured, type MeasuredResult, type TrackSnapshot } from "./track";
 import { parseRingTrackBody } from "./track-schema";
 
 type Json = Record<string, unknown>;
@@ -283,17 +283,14 @@ describe("A B C D F: สัญญา event — ตัดของที่ไม
       resetTrackStateForTests();
       trackMeasured({ method: "A", ...r } as unknown as MeasuredResult);
     }
-    // ผลที่ไม่ผ่านด่านถูกตัด → เหลือ stage 7 เปล่า → ทิ้งทั้ง event (ไม่ส่ง stage 7 ปลอมโดยไม่มีผล)
-    const bodies = await b.bodies();
-    expect(bodies).toHaveLength(0);
+    // ผลที่ไม่ผ่านด่านถูกตัด → เหลือ stage 7 เปล่า → ทิ้งทั้ง event (ไม่ส่ง stage 7 ปลอมโดยไม่มีผล) = ไม่มี body เลยสักก้อน
+    expect(b.fn).not.toHaveBeenCalled();
+    expect(await b.bodies()).toEqual([]);
     // ค่าที่ถูกต้องในเงื่อนไขเดียวกันส่งได้ (กันด่านแน่นเกินจนผลจริงหาย)
     trackMeasured({ method: "A", circ_mm: 54.4, size: 55, between: false });
-    expect(await b.bodies()).toHaveLength(1);
-    for (const body of bodies) {
-      expect(body, JSON.stringify(body)).not.toHaveProperty("circ_mm");
-      expect(body).not.toHaveProperty("size");
-      expect(body).not.toHaveProperty("between");
-    }
+    const bodies = await b.bodies();
+    expect(bodies).toHaveLength(1);
+    expect(bodies[0]).toMatchObject({ stage: 7, method: "A", circ_mm: 54.4, size: 55, between: false });
     await expectAllAcceptedByRoute(b);
   });
 
@@ -310,6 +307,19 @@ describe("A B C D F: สัญญา event — ตัดของที่ไม
       expect(body.stage).toBe(7);
     }
     await expectAllAcceptedByRoute(b);
+  });
+
+  it("N3: trackCta(cta) = { stage 7, cta } ทุกตัว · dedupe ต่อ cta · ผ่านด่านเดียวกับ track() (DNT = ไม่ส่ง)", async () => {
+    const b = installBeacon();
+    for (const cta of ["line", "share", "shop", "gem_quiz"] as const) trackCta(cta);
+    trackCta("line");
+    const bodies = await b.bodies();
+    expect(bodies.map((x) => [x.stage, x.cta])).toEqual([[7, "line"], [7, "share"], [7, "shop"], [7, "gem_quiz"]]);
+    for (const body of bodies) expect(Object.keys(body).sort()).toEqual(["cta", "sid", "stage"]);
+    setNav("doNotTrack", "1");
+    resetTrackStateForTests();
+    trackCta("line");
+    expect(b.fn).toHaveBeenCalledTimes(4);
   });
 
   it("C: g4 เฉพาะ event G4 (stage 7 · ไม่พกเบอร์/มม.) — ที่ stage อื่นตัด g4 ทิ้ง · g4:false ไม่ผ่าน", async () => {

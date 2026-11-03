@@ -31,6 +31,7 @@ import {
   RING_STAGE_RESULT,
   isRingSessionId,
   parseRingTrackBody,
+  type RingCta,
   type RingMethod,
   type RingTrackSnapshot,
 } from "./track-schema";
@@ -255,6 +256,14 @@ function dispatch(snapshot: RingTrackSnapshot, allowResult: boolean): void {
 /** ส่ง snapshot ของ state ณ ขณะนั้น — ดูสัญญาที่หัวไฟล์ · ไม่ throw ไม่ await · ไม่ส่งผลวัด (ใช้ trackMeasured) */
 export function track(snapshot: TrackSnapshot): void {
   dispatch(snapshot as RingTrackSnapshot, false);
+}
+
+/**
+ * ปุ่มหน้าผล (R6/LineCta) — event CTA พกแค่ stage 7 + cta · ยิงตอนกดก่อน navigate (sync ไม่รอ network)
+ * ที่เดียวที่ screen ใช้ส่ง cta (screen ไม่ต้องรู้เลข stage)
+ */
+export function trackCta(cta: RingCta): void {
+  track({ stage: RING_STAGE_RESULT, cta });
 }
 
 /**

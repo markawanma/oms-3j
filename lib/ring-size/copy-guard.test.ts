@@ -268,13 +268,9 @@ describe("ข้อบังคับ implement (ซอร์ส UI)", () => {
     expect("// trackMeasured( ในคอมเมนต์ถูกตัด".match(/\btrackMeasured\s*\(/g)).toHaveLength(1);
     expect(stripComments("// trackMeasured( ในคอมเมนต์ถูกตัด\nconst x = 1;").match(/\btrackMeasured\s*\(/g)).toBeNull();
   });
-  it("M1: track() รับ type ที่ไม่มีช่องผลวัด · track.ts ตัดผลทิ้งเสมอใน track() (allowResult=false)", () => {
+  it("M1: signature ของ track() รับ type ที่ไม่มีช่องผลวัด (พฤติกรรมตัดผลที่ runtime ล็อกใน track.test.ts กลุ่ม M1)", () => {
     const code = readStripped(join(RING_LIB_DIR, "track.ts"));
-    expect(code).toMatch(/export type TrackSnapshot = Omit<RingTrackSnapshot, "circ_mm" \| "size" \| "between">/);
     expect(code).toMatch(/export function track\(snapshot: TrackSnapshot\)/);
-    expect(code).toMatch(/dispatch\(snapshot as RingTrackSnapshot, false\)/);
-    // dispatch(..., true) มีที่เดียว = ใน trackMeasured
-    expect(code.match(/,\s*true\s*\)/g)).toHaveLength(1);
   });
   it("L2: หน้า /ring-size ตั้ง metadata referrer = strict-origin (ไม่ใช่ no-referrer — Origin ของ beacon ต้องอยู่) และ fetch สำรองใช้ strict-origin", () => {
     const page = readStripped(join(RING_APP_DIR, "page.tsx"));

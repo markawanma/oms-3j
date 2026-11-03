@@ -13,8 +13,7 @@ import {
   type RefKind,
 } from "@/lib/ring-size/config";
 import { formatMm, inShopRange, type SizeRec } from "@/lib/ring-size/size";
-import { track } from "@/lib/ring-size/track";
-import { RING_STAGE_RESULT, type RingCta } from "@/lib/ring-size/track-schema";
+import { trackCta } from "@/lib/ring-size/track";
 import { GemIcon, ShareIcon } from "../_components/Icons";
 import { LineCta } from "../_components/LineCta";
 import { RsButton } from "../_components/RsButton";
@@ -40,13 +39,8 @@ export interface R6Props {
   onOtherMethod: () => void;
 }
 
-/**
- * สถิติปุ่มหน้าผล: ยิงตอนกด "ก่อน" เบราว์เซอร์/handler ไปต่อ (sendBeacon sync — ไม่รอ network ไม่หน่วงการเปลี่ยนหน้า)
- * event CTA พกแค่ stage + cta — ไม่พกเบอร์/ผลวัด (ผลนับครั้งเดียวตอน finishMeasure · design-ring-size-analytics §4.3)
- */
-function trackCta(cta: RingCta): void {
-  track({ stage: RING_STAGE_RESULT, cta });
-}
+// สถิติปุ่มหน้าผล: trackCta ยิงตอนกด "ก่อน" เบราว์เซอร์/handler ไปต่อ (sendBeacon sync — ไม่รอ network ไม่หน่วงการเปลี่ยนหน้า)
+// event CTA พกแค่ stage + cta — ไม่พกเบอร์/ผลวัด (ผลนับครั้งเดียวตอน finishMeasure · design-ring-size-analytics §4.3)
 
 export function R6({ step, size, method, refKind, measuredAt, onBack, onRemeasure, onOtherMethod }: R6Props) {
   const [sharing, setSharing] = useState(false);

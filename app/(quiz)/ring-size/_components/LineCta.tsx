@@ -3,8 +3,7 @@
 import { useState } from "react";
 import { COPY, LINE_OA_FALLBACK_URL, LINE_PRIMARY_MODE, type LineMode } from "@/lib/ring-size/config";
 import { buildLineMessage, primaryLineHref, type LineMessageInput } from "@/lib/ring-size/line-message";
-import { track } from "@/lib/ring-size/track";
-import { RING_STAGE_RESULT } from "@/lib/ring-size/track-schema";
+import { trackCta } from "@/lib/ring-size/track";
 import { LineChatIcon } from "./Icons";
 import { RsButton } from "./RsButton";
 import { CopyStatusNote, useCopy } from "./useCopy";
@@ -38,8 +37,8 @@ export function LineCta({
   const { status, copy } = useCopy(message);
   const [busy, setBusy] = useState(false);
 
-  // สถิติ cta=line: ยิงตอนกด ก่อนคัดลอก/เปิดแชท (sync · ไม่รอ network) — event พกแค่ stage + cta
-  const trackLine = () => track({ stage: RING_STAGE_RESULT, cta: "line" });
+  // สถิติ cta=line: ยิงตอนกด ก่อนคัดลอก/เปิดแชท (sync · ไม่รอ network)
+  const trackLine = () => trackCta("line");
 
   const primaryCopyThenOpen = async () => {
     if (busy) return;
