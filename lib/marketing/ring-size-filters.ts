@@ -21,6 +21,9 @@ export const RING_STATS_PATH = "/marketing/ring-size";
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 
+/** วันที่ก่อนนี้ไม่รับ — ปี 0000 ผ่าน Date ของ JS แต่ Postgres ปฏิเสธ (22008 ไม่มีปี 0) · ข้อมูลของระบบนี้ไม่เก่าไปกว่านี้อยู่แล้ว */
+export const RING_STATS_MIN_DATE = "2000-01-01";
+
 /** วันนี้ตามเวลาไทย (Asia/Bangkok) "YYYY-MM-DD" — ไม่ใช้ UTC (เหลื่อมวัน 00:00–07:00 ไทย) */
 export function bangkokTodayISO(now: Date = new Date()): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -41,9 +44,10 @@ export function addDaysISO(date: string, days: number): string {
   return d.toISOString().slice(0, 10);
 }
 
-/** วันจริงในปฏิทิน (YYYY-MM-DD เท่านั้น) — "2026-02-30" / "infinity" / "2026-1-5" / มีช่องว่างท้าย = false */
+/** วันจริงในปฏิทิน (YYYY-MM-DD เท่านั้น · ไม่ก่อน 2000-01-01) — "2026-02-30" / "infinity" / "2026-1-5" / "0000-01-01" / มีช่องว่างท้าย = false */
 export function isRealDateISO(v: unknown): v is string {
   if (typeof v !== "string" || !DATE_RE.test(v)) return false;
+  if (v < RING_STATS_MIN_DATE) return false; // เทียบสตริงได้ เพราะรูปแบบ YYYY-MM-DD ความยาวคงที่
   const t = Date.parse(`${v}T00:00:00Z`);
   if (Number.isNaN(t)) return false;
   return new Date(t).toISOString().slice(0, 10) === v;

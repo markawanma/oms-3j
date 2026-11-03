@@ -154,6 +154,18 @@ describe("state: empty — 3 แบบ · แถบกรองอยู่ท�
     expect(pushMock).toHaveBeenCalledWith("/marketing/ring-size?range=90d");
   });
 
+  it("ค: ช่วงกำหนดเองสั้นกว่า 90 วัน ⇒ มีปุ่มขยาย · ยาว ≥ 90 วัน (กดแล้วหดลง) ⇒ ไม่มีปุ่ม", () => {
+    const empty = stats({ ...EMPTY, dataSince: "2026-01-01" });
+    renderPage(empty, { from: "2026-09-05", to: TODAY, range: "custom" }); // 60 วัน
+    expect(screen.getByRole("button", { name: "ขยายเป็น 90 วัน" })).toBeInTheDocument();
+    cleanup();
+    renderPage(empty, { from: "2026-08-06", to: TODAY, range: "custom" }); // 90 วันพอดี
+    expect(screen.queryByRole("button", { name: "ขยายเป็น 90 วัน" })).not.toBeInTheDocument();
+    cleanup();
+    renderPage(empty, { from: "2026-05-08", to: TODAY, range: "custom" }); // 180 วัน
+    expect(screen.queryByRole("button", { name: "ขยายเป็น 90 วัน" })).not.toBeInTheDocument();
+  });
+
   it("ค: ถ้าดู 90/180 วันอยู่แล้ว ไม่มีปุ่มขยาย", () => {
     renderPage(stats({ ...EMPTY, dataSince: "2026-05-01" }), { from: "2026-08-06", to: TODAY, range: "90d" });
     expect(screen.queryByRole("button", { name: "ขยายเป็น 90 วัน" })).not.toBeInTheDocument();

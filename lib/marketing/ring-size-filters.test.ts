@@ -19,8 +19,14 @@ import {
 const TODAY = "2026-11-03";
 
 describe("isRealDateISO", () => {
-  it.each(["2026-11-03", "2024-02-29", "2026-12-31", "0001-01-01"])("%s เป็นวันจริง", (s) => {
+  it.each(["2026-11-03", "2024-02-29", "2026-12-31", "2000-01-01"])("%s เป็นวันจริง", (s) => {
     expect(isRealDateISO(s)).toBe(true);
+  });
+  // security L3: ปี 0000 ผ่าน Date ของ JS แต่ Postgres ตก 22008 ⇒ ต้องถูกปฏิเสธที่ด่านแอป (ขอบ: 1999-12-31 ปฏิเสธ · 2000-01-01 ผ่าน)
+  it.each(["0000-01-01", "0001-01-01", "1999-12-31"])("%s ก่อน 2000-01-01 ⇒ ปฏิเสธ (กัน Postgres 22008)", (s) => {
+    expect(isRealDateISO(s)).toBe(false);
+    expect(checkRingStatsRange(s, "2026-11-03")).not.toBeNull();
+    expect(checkRingStatsRange("2026-10-01", s)).not.toBeNull();
   });
   it.each([
     "2026-02-30", // ไม่มีวันนี้

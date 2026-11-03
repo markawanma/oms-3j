@@ -3,6 +3,8 @@
 > ux-ui (Padmé) · 25 ต.ค. 69 · UX spec ก่อน frontend — ไม่มีโค้ด · ข้อมูลที่ใช้ = สิ่งที่ RPC `analytics.ring_size_stats` คืนตาม `design-ring-size-analytics.md` §3.4 + §12.1 (retention 180 วัน)
 > หน้าเทียบที่ลอก pattern: `app/(dashboard)/marketing/gem-quiz/page.tsx` · `components/domain/marketing/GemQuizStats.tsx` · chip filter: `components/domain/marketing/ChannelRoasFilter.tsx`
 > ตัวเลขในภาพ wireframe เป็น **ตัวอย่างวาง layout เท่านั้น ไม่ใช่ข้อมูลจริง** · ค่าที่ต้องมาจากเจ้าของ = `[ต้องยืนยัน]`
+>
+> **หมายเหตุ (3 พ.ย. 69 — ตอน frontend P3 ทำตาม spec นี้):** (1) §4 ตัวกรอง `src` และ §13 A3 (`by_src` / `src_options` / ตารางช่องทาง "ลิงก์ที่ร้านแปะ") **เลิกแล้ว** ตามมติ 25 ต.ค. — ส่วนช่องทางใช้ `by_in_app` ตารางเดียว (URL ที่มี `src=` ถูกเพิกเฉย) · (2) §13 A1 / A2 / A4 **อยู่ใน RPC 0193 แล้ว** (`method_stats` · `switched` · `saw_between` · `friction` · `data_since` · `shop_range` · `daily` ครบทุกวัน) — key จริงดู `supabase/migrations/0193_ring_size_analytics.sql` ส่วน 5 ไม่ต้องเดาจากตาราง §13 · (3) Q1 = เก็บแล้ว · Q2 = 30 วัน · Q3 = แสดงตัวเลขอย่างเดียว ไม่มีสีเตือน · ส่วนอื่นของ spec ไม่ได้เขียนใหม่ ถ้าขัดกับหมายเหตุนี้ให้ถือหมายเหตุนี้
 
 ## 0. TL;DR
 

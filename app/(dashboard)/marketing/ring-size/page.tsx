@@ -18,7 +18,9 @@ export const dynamic = "force-dynamic";
 // 🔴 searchParams ผิด/ขยะ ⇒ parseRingSizeFilters แปลงเป็นค่าเริ่มต้น + แจ้ง ไม่ throw · `src=` เพิกเฉย (ไม่มีตัวกรองช่องทางแล้ว)
 // 🔴 ไม่รับ/ไม่อ่าน shop id จาก URL — shop มาจาก env ฝั่ง server ใน action เท่านั้น
 export default async function RingSizeStatsPage({ searchParams }: { searchParams: Promise<RingSizeSearchParams> }) {
-  if ((await getEffectiveRole()) === "staff") {
+  // allowlist: มีแค่ owner/admin ที่ผ่าน — ค่าอื่นทุกชนิด (staff · undefined · null · ค่าประหลาด) ปฏิเสธ (fail-closed)
+  const role = await getEffectiveRole();
+  if (role !== "owner" && role !== "admin") {
     return (
       <EmptyState
         icon={Lock}

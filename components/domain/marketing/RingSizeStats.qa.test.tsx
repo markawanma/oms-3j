@@ -390,7 +390,7 @@ describe("QA5 — ปุ่มนำทางใน empty state ต้องใ�
   // 🐞 BUG-QA-1 (ต่ำ · UX): ช่วง "กำหนดเอง" ที่ยาว ≥ 90 วันแล้วว่าง ⇒ ปุ่ม "ขยายเป็น 90 วัน" โผล่ (canExpand เช็คแค่ range ≠ 90d/180d)
   //   ทั้งที่กดแล้ว "หดลง" (เช่น กำหนดเอง 150 วัน → 90 วันล่าสุด) · ต้นเหตุ: components/domain/marketing/RingSizeStats.tsx บรรทัด 184
   //   `const canExpand = filters.range !== "90d" && filters.range !== "180d"` · it.fails = ผ่านตราบที่บั๊กยังอยู่ → พอแก้แล้วมันจะล้ม → ลบ .fails
-  it.fails("[BUG-QA-1] custom 150 วันที่ว่าง ⇒ ไม่ควรเสนอ 'ขยายเป็น 90 วัน' (กดแล้วหดลง)", () => {
+  it("[BUG-QA-1] custom 150 วันที่ว่าง ⇒ ไม่ควรเสนอ 'ขยายเป็น 90 วัน' (กดแล้วหดลง)", () => {
     renderRaw({ ...EMPTY_RAW, data_since: addDays(TODAY, -170) }, { from: addDays(TODAY, -149), to: TODAY, range: "custom" });
     expect(screen.queryByRole("button", { name: "ขยายเป็น 90 วัน" })).toBeNull();
   });

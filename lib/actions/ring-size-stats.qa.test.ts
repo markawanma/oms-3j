@@ -136,7 +136,7 @@ describe("QA3 — ด่านสิทธิ์: เรียกพร้อม
   // (undefined/null/"viewer") ผ่านเข้า RPC ได้ · ปัจจุบัน role.ts คืนได้แค่ 3 ค่า (fail-closed เป็น staff) จึงยังไม่เกิดจริง
   // เหมือน gem-quiz-stats.ts ทุกประการ (ธรรมเนียม repo) · it.fails = เทสต์ผ่านตราบที่ช่องนี้ยังอยู่ · พอเปลี่ยนเป็น allowlist มันจะ "ล้ม"
   // → ให้ลบ .fails ออก
-  it.fails.each([[undefined], [null], ["viewer"], [""], ["OWNER"]])("[KNOWN-RISK] role=%s (ไม่ใช่ owner/admin) ควรถูกปฏิเสธ", async (role) => {
+  it.each([[undefined], [null], ["viewer"], [""], ["OWNER"]])("[KNOWN-RISK] role=%s (ไม่ใช่ owner/admin) ควรถูกปฏิเสธ", async (role) => {
     getEffectiveRoleMock.mockResolvedValue(role);
     const r = await call({ from: "2026-10-05", to: "2026-11-03" });
     expect(r.ok).toBe(false);

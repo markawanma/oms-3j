@@ -56,6 +56,15 @@ describe("เคส 1/2 — staff (รวมไม่ล็อกอิน/ไ�
     expect(getDevShopIdMock).not.toHaveBeenCalled();
   });
 
+  // security L1: ด่านเป็น allowlist — ค่า role อื่นทุกชนิดที่ไม่ใช่ owner/admin ต้องถูก lock (ไม่ใช่เฉพาะ "staff")
+  it.each([[undefined], [null], ["viewer"], [""], ["OWNER"]])("role=%s (ไม่ใช่ owner/admin) ⇒ lock ไม่เรียก action", async (role) => {
+    getEffectiveRoleMock.mockResolvedValue(role);
+    const el = await render();
+    expect(el.type).toBe(EmptyState);
+    expect(getRingSizeStatsMock).not.toHaveBeenCalled();
+    expect(getDevShopIdMock).not.toHaveBeenCalled();
+  });
+
   it.each(["owner", "admin"])("%s ⇒ เรียก action", async (role) => {
     getEffectiveRoleMock.mockResolvedValue(role);
     const el = await render();

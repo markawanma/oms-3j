@@ -33,7 +33,9 @@ const LOAD_FAILED = "โหลดสถิติไม่สำเร็จ ล�
 
 // คัดลอกตามธรรมเนียม repo (module-private ทุกไฟล์ — ไม่ share ข้ามโมดูล)
 async function requireOwnerAdmin(): Promise<ActionResult<never> | null> {
-  if ((await getEffectiveRole()) === "staff") {
+  // allowlist: มีแค่ owner/admin ที่ผ่าน — ค่าอื่นทุกชนิด (staff · undefined · null · ค่าประหลาด) ปฏิเสธ (fail-closed)
+  const role = await getEffectiveRole();
+  if (role !== "owner" && role !== "admin") {
     return { ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่ดูสถิติไซส์แหวนได้" };
   }
   return null;

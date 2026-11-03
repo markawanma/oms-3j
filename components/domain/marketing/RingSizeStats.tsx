@@ -14,7 +14,7 @@ import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { thaiDate } from "@/lib/jobs/dates";
 import { RING_STATS_MIN_N, formatInt } from "@/lib/marketing/ring-size-format";
-import { rangeFromDataSince, ringSizeHref, type RingSizeFilters } from "@/lib/marketing/ring-size-filters";
+import { inclusiveDays, rangeFromDataSince, ringSizeHref, type RingSizeFilters } from "@/lib/marketing/ring-size-filters";
 import type { RingSizeStats as RingSizeStatsData } from "@/lib/marketing/ring-size-stats";
 import { ChannelTable } from "@/components/domain/marketing/ring-size/ChannelTable";
 import { CircHistogram } from "@/components/domain/marketing/ring-size/CircHistogram";
@@ -26,6 +26,9 @@ import { ReadingNotes } from "@/components/domain/marketing/ring-size/ReadingNot
 import { RingSizeFilterBar } from "@/components/domain/marketing/ring-size/RingSizeFilterBar";
 import { SizeDistribution } from "@/components/domain/marketing/ring-size/SizeDistribution";
 import { SummaryTiles } from "@/components/domain/marketing/ring-size/SummaryTiles";
+
+/** ปลายทางของปุ่ม "ขยายเป็น 90 วัน" (ตรงกับ ringSizeHref({ range: "90d" })) */
+const EXPAND_TARGET_DAYS = 90;
 
 export type RingSizeStatsResult = { ok: true; data: RingSizeStatsData } | { ok: false; error: string };
 
@@ -181,7 +184,8 @@ function EmptyRange({
       />
     );
   }
-  const canExpand = filters.range !== "90d" && filters.range !== "180d";
+  // โชว์ปุ่มเฉพาะเมื่อขยายได้จริง: ช่วงปัจจุบัน (นับวัน รวมช่วง "กำหนดเอง") สั้นกว่า 90 วัน — ไม่งั้นกดแล้วหดลง
+  const canExpand = inclusiveDays(filters.from, filters.to) < EXPAND_TARGET_DAYS;
   return (
     <EmptyState
       icon={BarChart3}
