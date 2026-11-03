@@ -8,6 +8,11 @@
 //     DEV_SHOP_ID page keeps working exactly as before. This is the
 //     documented rollback lever — flip AUTH_GATE back off (or unset it), no
 //     redeploy-of-code needed, just an env var change.
+//     ⚠️ On a REAL deployment (VERCEL_ENV set and != development, or
+//     NODE_ENV=production) DEV_ROLE is ignored by lib/auth/role.ts (3 พ.ย. 69),
+//     so with the gate off every request without a session is 'staff' — owner
+//     included if Supabase Auth is down. This lever no longer hands back
+//     owner rights; it only stops redirecting.
 //   - AUTH_GATE === "on" -> hard-gate every page below:
 //       (a) no session          -> 302 /login?next=<sanitized original path>
 //       (b) session, no member  -> 302 /pending

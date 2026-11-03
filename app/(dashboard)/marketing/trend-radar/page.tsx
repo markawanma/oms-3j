@@ -2,6 +2,7 @@ import { Lock } from "lucide-react";
 import { getTrendRadarFeed } from "@/lib/actions/trend-radar";
 import { getContentTypes } from "@/lib/actions/content";
 import { getEffectiveRole } from "@/lib/auth/role";
+import { isOwnerOrAdmin } from "@/lib/auth/owner-admin";
 import { effectiveDateBangkok } from "@/lib/tiktok/format";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
@@ -22,7 +23,7 @@ export const dynamic = "force-dynamic";
 // dynamic = "force-dynamic" because every open of this page must show
 // today's actual GitHub content, never a cached render).
 export default async function TrendRadarPage() {
-  if ((await getEffectiveRole()) === "staff") {
+  if (!isOwnerOrAdmin(await getEffectiveRole())) {
     return (
       <EmptyState
         icon={Lock}

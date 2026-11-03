@@ -2,6 +2,7 @@ import { Lock } from "lucide-react";
 import { getImportBatches } from "@/lib/actions/import-orders";
 import { getOrphanBacklog, type OrphanBacklog } from "@/lib/actions/import-line-items";
 import { getEffectiveRole } from "@/lib/auth/role";
+import { isOwnerOrAdmin } from "@/lib/auth/owner-admin";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { OrderImportClient } from "@/components/domain/crm/OrderImportClient";
@@ -17,7 +18,7 @@ export const dynamic = "force-dynamic";
 // only (D5) — same getEffectiveRole() app-level gate as every other CRM page,
 // staff see an EmptyState instead of the form (not just a disabled button).
 export default async function CrmImportPage() {
-  if ((await getEffectiveRole()) === "staff") {
+  if (!isOwnerOrAdmin(await getEffectiveRole())) {
     return (
       <EmptyState
         icon={Lock}

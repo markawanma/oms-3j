@@ -1,6 +1,7 @@
 import { Lock } from "lucide-react";
 import { getContentEntryQueue, getContentTypes } from "@/lib/actions/content";
 import { getEffectiveRole } from "@/lib/auth/role";
+import { isOwnerOrAdmin } from "@/lib/auth/owner-admin";
 import { getDevShopId } from "@/lib/dev/context";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
@@ -35,7 +36,7 @@ const HEADER_DATE_FMT = new Intl.DateTimeFormat("th-TH", {
 // a possibly-flaky mobile connection at night). Same page shape as
 // /marketing/calendar (role gate owner/admin, dynamic = "force-dynamic").
 export default async function ContentEntryPage() {
-  if ((await getEffectiveRole()) === "staff") {
+  if (!isOwnerOrAdmin(await getEffectiveRole())) {
     return (
       <EmptyState
         icon={Lock}

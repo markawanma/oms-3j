@@ -10,6 +10,11 @@
 // pending gate) and lib/actions/members.ts (the owner-only approval
 // actions) — a deliberately small, auditable surface for the one place role
 // actually has to be enforced for real in this phase.
+//
+// ⚠️ Update 3 พ.ย. 69: the "DEV_ROLE page keeps working" statement above holds
+// for local dev only. On a REAL deployment (VERCEL_ENV set and != development,
+// or NODE_ENV=production) lib/auth/role.ts ignores DEV_ROLE — with no session
+// everyone is 'staff', including the owner if Supabase Auth is down.
 import "server-only";
 import { cache } from "react";
 import { createHash, createHmac } from "node:crypto";
@@ -106,6 +111,9 @@ export async function requireOwnerSession(): Promise<OwnerSession> {
  *
  * AUTH_GATE !== "on" -> no-op (matches every other A1 page/action: this
  * phase does not change behavior for the current dev/DEV_ROLE flow at all).
+ * (3 พ.ย. 69: on a real deployment turning the gate off no longer restores
+ * DEV_ROLE authority — see lib/auth/role.ts (e); the no-session caller is
+ * 'staff' there, so this lever cannot hand out owner rights any more.)
  * AUTH_GATE === "on" -> throws unless there's a real Supabase Auth session.
  * Deliberately does NOT check shop_member here (unlike requireOwnerSession)
  * — role/membership stays whatever lib/dev/context.ts's requireOwnerAdmin()

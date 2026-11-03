@@ -14,6 +14,7 @@
 import { getServiceClient } from "@/lib/supabase/server";
 import { getDevShopId } from "@/lib/dev/context";
 import { getEffectiveRole } from "@/lib/auth/role";
+import { isOwnerOrAdmin } from "@/lib/auth/owner-admin";
 import type { ActionResult } from "@/lib/types";
 import { readErrorCode, readErrorMessage, redactUrls } from "@/lib/supabase/postgrest-error";
 
@@ -23,7 +24,7 @@ const SCHEMA = "analytics";
 // กัน แต่คัดลอกตามธรรมเนียมเดิมของ repo (content.ts's header เขียนไว้ชัดว่า
 // "คัดลอกไม่ใช่ share" เพื่อไม่ให้ไฟล์นี้มี cross-module dependency)
 async function requireOwnerAdmin(): Promise<ActionResult<never> | null> {
-  if ((await getEffectiveRole()) === "staff") {
+  if (!isOwnerOrAdmin(await getEffectiveRole())) {
     return { ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่ดูสถิติแบบทดสอบพลอยได้" };
   }
   return null;

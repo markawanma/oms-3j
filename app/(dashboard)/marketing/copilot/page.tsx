@@ -5,6 +5,7 @@ import { getContentTypes } from "@/lib/actions/content";
 import { getWorkflowStepIds } from "@/lib/actions/content-pieces";
 import { getShopSetting } from "@/lib/actions/catalog";
 import { getEffectiveRole } from "@/lib/auth/role";
+import { isOwnerOrAdmin } from "@/lib/auth/owner-admin";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { CampaignBoard } from "@/components/domain/marketing/CampaignBoard";
@@ -17,7 +18,7 @@ export const dynamic = "force-dynamic"; // recommendations recompute live from m
 // owner/admin only, same gate + same reasoning as /marketing/ad-spend's page
 // header comment (not silently-empty: a staff visitor gets told plainly).
 export default async function MarketingCopilotPage() {
-  if ((await getEffectiveRole()) === "staff") {
+  if (!isOwnerOrAdmin(await getEffectiveRole())) {
     return (
       <EmptyState
         icon={Lock}

@@ -49,6 +49,7 @@ import { MARKETING_NAV, isWideMarketingPath } from "@/lib/marketing/nav";
 import { isWideJobsPath } from "@/lib/jobs/nav";
 import { signOut } from "@/lib/actions/auth";
 import { loadCollapsed, saveCollapsed } from "@/lib/nav/collapsed";
+import { isOwnerOrAdmin } from "@/lib/auth/owner-admin"; // pure, no server-only — safe in a client component
 
 interface NavItem {
   href: string;
@@ -266,7 +267,7 @@ export function DashboardShell({
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   // กลุ่ม "ใบงาน" ซ่อนจาก staff (role null = ยังไม่มี session จริง/DEV flow → แสดงเหมือนเมนูอื่น) — UI เท่านั้น ด่านจริงอยู่ที่ canManageJobs + requireOwnerAdmin
-  const visibleGroups = role === "staff" ? NAV_GROUPS.filter((g) => g.label !== "ใบงาน") : NAV_GROUPS;
+  const visibleGroups = role != null && !isOwnerOrAdmin(role) ? NAV_GROUPS.filter((g) => g.label !== "ใบงาน") : NAV_GROUPS;
   const navGroups: NavGroup[] =
     role === "owner"
       ? [

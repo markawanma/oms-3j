@@ -1,6 +1,7 @@
 import { Lock, PackageSearch } from "lucide-react";
 import { getMetalPrices, getOemSetting, getRateStatus, getSellerProfile } from "@/lib/actions/oem";
 import { getEffectiveRole } from "@/lib/auth/role";
+import { isOwnerOrAdmin } from "@/lib/auth/owner-admin";
 import { EMPTY_SELLER_PROFILE } from "@/lib/oem/sellerProfile";
 import { effectiveDateBangkok } from "@/lib/tiktok/format";
 import { ErrorState } from "@/components/ui/ErrorState";
@@ -13,7 +14,7 @@ export const dynamic = "force-dynamic";
 // floor.md §6). Owner/admin only: same reasoning as /catalog and /settings —
 // these are competitively-sensitive cost numbers, not general shop data.
 export default async function OemRatesPage() {
-  if ((await getEffectiveRole()) === "staff") {
+  if (!isOwnerOrAdmin(await getEffectiveRole())) {
     return (
       <EmptyState
         icon={Lock}

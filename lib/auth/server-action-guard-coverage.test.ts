@@ -20,13 +20,14 @@ const ROOT = process.cwd();
 
 // A guard = something that rejects an outsider before data is touched.
 //   member / owner / role-deny helpers, the job-office guard(), and the
-//   `=== "staff"` early-deny used by crm/tiktok-dashboard. `getEffectiveRole()`
+//   `!isOwnerOrAdmin(await getEffectiveRole())` early-deny (allowlist — the old
+//   `=== "staff"` denylist form is deliberately NOT recognised). `getEffectiveRole()`
 //   on its own is NOT a guard (dashboard.ts only uses it to hide money fields).
 //   `requireSessionIfGateOn(` is deliberately NOT here: a session alone isn't
 //   approval (/register creates sessions for anyone). requireWriteAccess() is
 //   fine — it adds the owner/admin role check on top of the session.
 const GUARD =
-  /(denyIfNotMember\(|requireMemberIfGateOn\(|requireOwnerAdmin\(|requireOwnerSession\(|requireWriteAccess\(|\bguard\(\)|getEffectiveRole\(\)\)\s*===\s*"staff")/;
+  /(denyIfNotMember\(|requireMemberIfGateOn\(|requireOwnerAdmin\(|requireOwnerSession\(|requireWriteAccess\(|\bguard\(\)|!isOwnerOrAdmin\(await getEffectiveRole\(\)\))/;
 const DATA = /(getServiceClient\(|getUserClient\(|getPublicClient\(|\.rpc\(|\.from\(|\bsupabase\b|callOffice\(|\bdb\(\)|\bfetch\()/;
 
 /** file (posix, repo-relative) -> exports (or "*" = whole file) that are public/self-authenticating on purpose */
@@ -154,6 +155,22 @@ describe("server action guard coverage", () => {
       if (calls !== checked) offenders.push(`${relative(ROOT, f).split("\\").join("/")}: ${calls} calls, ${checked} checked`);
     }
     expect(totalCalls, "sanity — an empty scan would pass vacuously").toBeGreaterThanOrEqual(30);
+    expect(offenders).toEqual([]);
+  });
+
+  // Round 2 (L2): the allowlist form is `if (!isOwnerOrAdmin(await getEffectiveRole())) {` + a bail-out.
+  // A bare `!isOwnerOrAdmin(...)` expression that is not an if-return guards nothing (and the GUARD regex above would still count it).
+  it("every `!isOwnerOrAdmin(await getEffectiveRole())` is an `if (...) {` whose block returns/throws (a guard that falls through guards nothing)", () => {
+    const offenders: string[] = [];
+    let total = 0;
+    for (const f of FILES) {
+      const code = stripCommentLines(readFileSync(f, "utf8"));
+      const all = (code.match(/!isOwnerOrAdmin\(await getEffectiveRole\(\)\)/g) ?? []).length;
+      const ok = (code.match(/if \(!isOwnerOrAdmin\(await getEffectiveRole\(\)\)\) \{\n\s*(?:return|throw)\b/g) ?? []).length;
+      total += all;
+      if (all !== ok) offenders.push(`${relative(ROOT, f).split("\\").join("/")}: ${all} uses, ${ok} are if-return/throw guards`);
+    }
+    expect(total, "sanity — an empty scan would pass vacuously").toBeGreaterThanOrEqual(15);
     expect(offenders).toEqual([]);
   });
 

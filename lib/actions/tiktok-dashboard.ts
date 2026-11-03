@@ -16,6 +16,7 @@
 import { getServiceClient } from "@/lib/supabase/server";
 import { getDevShopId } from "@/lib/dev/context";
 import { getEffectiveRole } from "@/lib/auth/role";
+import { isOwnerOrAdmin } from "@/lib/auth/owner-admin";
 import type { ActionResult } from "@/lib/types";
 import type { BreakdownRow, DailyDashboardData, DashboardMeta } from "@/lib/tiktok/types";
 import { formatCount, formatTHBCompact, effectiveDateBangkok } from "@/lib/tiktok/format";
@@ -191,7 +192,7 @@ export async function getDailyDashboard(dateISO?: string): Promise<ActionResult<
   // bypasses RLS entirely. Staff must not reach this money data at all, so
   // the check happens before the shop/client lookup, not as a field-level
   // filter after the fact.
-  if ((await getEffectiveRole()) === "staff") {
+  if (!isOwnerOrAdmin(await getEffectiveRole())) {
     return { ok: false, error: "ไม่มีสิทธิ์ดูข้อมูลนี้" };
   }
 

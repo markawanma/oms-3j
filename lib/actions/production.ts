@@ -36,6 +36,7 @@ import { revalidatePath } from "next/cache";
 import { getServiceClient } from "@/lib/supabase/server";
 import { getDevShopId } from "@/lib/dev/context";
 import { getEffectiveRole } from "@/lib/auth/role";
+import { isOwnerOrAdmin } from "@/lib/auth/owner-admin";
 import { getSessionUser } from "@/lib/auth/session";
 import type { ActionResult } from "@/lib/types";
 import { parseMakeSpec } from "@/lib/catalog/types";
@@ -103,7 +104,7 @@ function validateDoneItems(items: DoneItemInput[]): string | null {
 }
 
 async function requireOwnerAdmin(): Promise<ActionResult<never> | null> {
-  if ((await getEffectiveRole()) === "staff") {
+  if (!isOwnerOrAdmin(await getEffectiveRole())) {
     return { ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่ใช้งานใบผลิตเข้าสต็อกได้" };
   }
   return null;

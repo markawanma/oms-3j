@@ -25,6 +25,7 @@ import { revalidatePath } from "next/cache";
 import { getServiceClient } from "@/lib/supabase/server";
 import { getDevShopId } from "@/lib/dev/context";
 import { getEffectiveRole } from "@/lib/auth/role";
+import { isOwnerOrAdmin } from "@/lib/auth/owner-admin";
 import type { ActionResult } from "@/lib/types";
 import type { CreateCatalogSkuInput, SkuPrefixRow, SkuWorkType, UpsertSkuPrefixInput } from "@/lib/catalog/sku-prefix";
 import { humanizeSkuRpcError, isValidSkuPrefix, SKU_CONTROLLED_ERROR_CODES } from "@/lib/catalog/sku-prefix";
@@ -37,7 +38,7 @@ const SCHEMA = "analytics";
 const PREFIX_FORMAT_ERROR = "prefix ต้องเป็นตัวอักษร A-Z (พิมพ์ใหญ่) 1-5 ตัว ปิดท้ายด้วย - ได้หนึ่งตัว ไม่มีช่องว่าง";
 
 async function requireOwnerAdmin(): Promise<ActionResult<never> | null> {
-  if ((await getEffectiveRole()) === "staff") {
+  if (!isOwnerOrAdmin(await getEffectiveRole())) {
     return { ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่แก้ไข prefix/สินค้าได้" };
   }
   return null;

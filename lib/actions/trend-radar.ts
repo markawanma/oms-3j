@@ -43,6 +43,7 @@
 // thing for data that's shop-internal but not technically secret either).
 
 import { getEffectiveRole } from "@/lib/auth/role";
+import { isOwnerOrAdmin } from "@/lib/auth/owner-admin";
 import type { ActionResult } from "@/lib/types";
 import { extractDateFromFilename, parseTrendRadarDay, type TrendRadarDay } from "@/lib/marketing/trend-radar-parse";
 
@@ -122,7 +123,7 @@ function githubHeaders(accept: string): HeadersInit {
 // either (lib/actions/calendar.ts's own header explains why this repo copies
 // this one small function per action file instead of sharing it).
 async function requireOwnerAdmin(): Promise<ActionResult<never> | null> {
-  if ((await getEffectiveRole()) === "staff") {
+  if (!isOwnerOrAdmin(await getEffectiveRole())) {
     return { ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่ใช้งานส่วนการตลาดได้" };
   }
   return null;

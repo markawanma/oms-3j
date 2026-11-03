@@ -33,6 +33,7 @@ import { revalidatePath } from "next/cache";
 import { getServiceClient } from "@/lib/supabase/server";
 import { getDevShopId } from "@/lib/dev/context";
 import { getEffectiveRole } from "@/lib/auth/role";
+import { isOwnerOrAdmin } from "@/lib/auth/owner-admin";
 import type { ActionResult } from "@/lib/types";
 import {
   mapChannelFollowerUpsertRpcError,
@@ -46,7 +47,7 @@ const SCHEMA = "analytics";
 // convention เดิมของทุก "use server" action file ในโปรเจกต์นี้ (ไม่มี
 // cross-module import ของ gate helper — ดูคอมเมนต์หัว content.ts's ตัวเอง).
 async function requireOwnerAdmin(): Promise<ActionResult<never> | null> {
-  if ((await getEffectiveRole()) === "staff") {
+  if (!isOwnerOrAdmin(await getEffectiveRole())) {
     return { ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่บันทึกข้อมูลไลฟ์ได้" };
   }
   return null;

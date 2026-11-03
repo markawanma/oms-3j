@@ -4,8 +4,9 @@
 
 import "server-only";
 import { getEffectiveRole } from "@/lib/auth/role";
+import { isOwnerOrAdmin } from "@/lib/auth/owner-admin";
 
 export async function canManageJobs(): Promise<boolean> {
   const role = await getEffectiveRole();
-  return role === "owner" || role === "admin";
+  return isOwnerOrAdmin(role);
 }

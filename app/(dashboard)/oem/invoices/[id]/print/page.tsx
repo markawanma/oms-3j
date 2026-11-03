@@ -1,6 +1,7 @@
 import { Lock } from "lucide-react";
 import { getInvoice } from "@/lib/actions/oem";
 import { getEffectiveRole } from "@/lib/auth/role";
+import { isOwnerOrAdmin } from "@/lib/auth/owner-admin";
 import { toInvoicePrintNotices, toPrintableInvoice } from "@/lib/oem/printableInvoice";
 import { formatTHB } from "@/lib/format";
 import { formatThaiDateOnly } from "@/lib/tiktok/format";
@@ -20,7 +21,7 @@ export const dynamic = "force-dynamic";
 // ใบ stale (ออกอยู่แต่ยอดดีลเปลี่ยนแล้ว) = ไม่ render เอกสาร และไม่เรียก toPrintableInvoice เลย → การ์ดแดงบอกทางออก
 // ใบ void = PrintInvoiceClient แสดงบนจอ (เอกสาร print:hidden ไม่มีปุ่มพิมพ์)
 export default async function OemInvoicePrintPage({ params }: { params: Promise<{ id: string }> }) {
-  if ((await getEffectiveRole()) === "staff") {
+  if (!isOwnerOrAdmin(await getEffectiveRole())) {
     return (
       <EmptyState
         icon={Lock}

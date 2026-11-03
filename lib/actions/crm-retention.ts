@@ -31,6 +31,7 @@ import { denyIfNotMember } from "@/lib/auth/action-guard";
 import { getServiceClient } from "@/lib/supabase/server";
 import { getDevShopId } from "@/lib/dev/context";
 import { getEffectiveRole } from "@/lib/auth/role";
+import { isOwnerOrAdmin } from "@/lib/auth/owner-admin";
 import { RECENCY_BUCKETS } from "@/lib/crm/retention";
 import type { ActionResult } from "@/lib/types";
 import type {
@@ -177,8 +178,8 @@ export async function getCrmRetention(): Promise<ActionResult<CrmRetentionData>>
     // เท่านั้น **ห้ามเป็นด่าน** — action "ดึงรายชื่อ" ที่จะมาทีหลังต้องเช็ค
     // role ในตัวมันเองซ้ำเสมอ
     const role = await getEffectiveRole();
-    const includeMoney = role !== "staff";
-    const canPullList = role !== "staff";
+    const includeMoney = isOwnerOrAdmin(role);
+    const canPullList = isOwnerOrAdmin(role);
 
     // p_weeks left at the RPC's own default (26) — no UI control for it yet
     // (frontend-dev's page can pass one through later if the owner wants a

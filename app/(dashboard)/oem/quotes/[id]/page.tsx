@@ -1,6 +1,7 @@
 import { Lock } from "lucide-react";
 import { getInvoices, getOemProvinces, getQuote, getQuoteApprovalGates, getQuoteItems, getReceipts, getSellerProfile } from "@/lib/actions/oem";
 import { getEffectiveRole } from "@/lib/auth/role";
+import { isOwnerOrAdmin } from "@/lib/auth/owner-admin";
 import { EMPTY_SELLER_PROFILE } from "@/lib/oem/sellerProfile";
 import type { OemDepositMode } from "@/lib/oem/types";
 import { ErrorState } from "@/components/ui/ErrorState";
@@ -14,7 +15,7 @@ export const dynamic = "force-dynamic";
 // /oem/quotes/[id] — single saved OEM quote (T6). Owner/admin only, same
 // reasoning as the rest of the OEM module.
 export default async function OemQuoteDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  if ((await getEffectiveRole()) === "staff") {
+  if (!isOwnerOrAdmin(await getEffectiveRole())) {
     return (
       <EmptyState
         icon={Lock}

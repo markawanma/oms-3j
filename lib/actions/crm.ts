@@ -28,6 +28,7 @@ import { revalidatePath } from "next/cache";
 import { getServiceClient } from "@/lib/supabase/server";
 import { getDevShopId } from "@/lib/dev/context";
 import { getEffectiveRole } from "@/lib/auth/role";
+import { isOwnerOrAdmin } from "@/lib/auth/owner-admin";
 import type { ActionResult } from "@/lib/types";
 import { RFM_SEGMENTS, type RfmSegment, type ValueTier } from "@/lib/crm/segments";
 import type { CrmChannelOption, CrmProvinceOption, OrderOverrideInput } from "@/lib/crm/order-override";
@@ -818,7 +819,7 @@ export async function getCrmCustomerDetail(customerId: string): Promise<ActionRe
     if (masterErr) throw masterErr;
     if (!master) return { ok: false, error: "ไม่พบลูกค้ารายนี้" };
 
-    const wantsPii = (await getEffectiveRole()) !== "staff";
+    const wantsPii = isOwnerOrAdmin(await getEffectiveRole());
 
     const [segmentRes, ltvRes, ordersRes, identitiesRes, channelsRes, geoRes, piiRes] = await Promise.all([
       supabase
@@ -1010,7 +1011,7 @@ export async function crmEditCustomerName(customerId: string, displayName: strin
 
   // note/name edits are open to owner+admin (matches crm_require_owner_admin
   // in migration 0021 — only "staff" is blocked).
-  if ((await getEffectiveRole()) === "staff") {
+  if (!isOwnerOrAdmin(await getEffectiveRole())) {
     return { ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่แก้ไขได้" };
   }
 
@@ -1054,7 +1055,7 @@ export async function crmEditPii(customerId: string, input: CrmEditPiiInput): Pr
   // PII is owner/admin only per design §2.7 — same gate crm_require_owner_admin
   // enforces server-side; getDevRole() has no separate "admin can't touch PII"
   // tier, so this is identical to the name/note gate above.
-  if ((await getEffectiveRole()) === "staff") {
+  if (!isOwnerOrAdmin(await getEffectiveRole())) {
     return { ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่แก้ไขข้อมูลส่วนบุคคลได้" };
   }
 
@@ -1137,7 +1138,7 @@ export async function crmAddNote(customerId: string, body: string): Promise<Acti
   if (!customerId) return { ok: false, error: "ไม่พบรหัสลูกค้า" };
   const text = body.trim();
   if (!text) return { ok: false, error: "กรุณากรอกข้อความโน้ต" };
-  if ((await getEffectiveRole()) === "staff") {
+  if (!isOwnerOrAdmin(await getEffectiveRole())) {
     return { ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่เพิ่มโน้ตได้" };
   }
 
@@ -1187,7 +1188,7 @@ export async function crmEditNote(noteId: string, customerId: string, body: stri
   if (!noteId || !customerId) return { ok: false, error: "ไม่พบรหัสโน้ตหรือลูกค้า" };
   const text = body.trim();
   if (!text) return { ok: false, error: "กรุณากรอกข้อความโน้ต" };
-  if ((await getEffectiveRole()) === "staff") {
+  if (!isOwnerOrAdmin(await getEffectiveRole())) {
     return { ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่แก้โน้ตได้" };
   }
 
@@ -1211,7 +1212,7 @@ export async function crmEditNote(noteId: string, customerId: string, body: stri
 
 export async function crmDeleteNote(noteId: string, customerId: string): Promise<ActionResult> {
   if (!noteId || !customerId) return { ok: false, error: "ไม่พบรหัสโน้ตหรือลูกค้า" };
-  if ((await getEffectiveRole()) === "staff") {
+  if (!isOwnerOrAdmin(await getEffectiveRole())) {
     return { ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่ลบโน้ตได้" };
   }
 
@@ -1256,7 +1257,7 @@ export interface CrmAuditRow {
  * the next chunk). */
 export async function getCrmCustomerAudit(customerId: string): Promise<ActionResult<CrmAuditRow[]>> {
   if (!customerId) return { ok: false, error: "ไม่พบรหัสลูกค้า" };
-  if ((await getEffectiveRole()) === "staff") {
+  if (!isOwnerOrAdmin(await getEffectiveRole())) {
     return { ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่ดูประวัติการแก้ไขได้" };
   }
 
@@ -1408,7 +1409,7 @@ export async function crmSetOrderOverride(
   // Order edits are owner/admin only (matches crm_require_owner_admin in
   // migration 0021 — only "staff" is blocked), same gate as every other
   // write action in this file.
-  if ((await getEffectiveRole()) === "staff") {
+  if (!isOwnerOrAdmin(await getEffectiveRole())) {
     return { ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่แก้ไขออเดอร์ได้" };
   }
 
@@ -1457,7 +1458,7 @@ export async function crmSetOrderOverride(
 
 export async function crmClearOrderOverride(factOrderId: string, customerId: string): Promise<ActionResult> {
   if (!factOrderId || !customerId) return { ok: false, error: "ไม่พบรหัสออเดอร์หรือลูกค้า" };
-  if ((await getEffectiveRole()) === "staff") {
+  if (!isOwnerOrAdmin(await getEffectiveRole())) {
     return { ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่คืนค่าออเดอร์ได้" };
   }
 
@@ -1557,7 +1558,7 @@ function rowToSide(row: Record<string, unknown>, prefix: "customer_a" | "custome
  * returns an empty list rather than an error, same "quietly hide, don't
  * scare with a permission error" pattern used elsewhere for role-gated UI. */
 export async function getCrmMergeCandidates(): Promise<ActionResult<CrmMergeCandidateRow[]>> {
-  if ((await getEffectiveRole()) === "staff") {
+  if (!isOwnerOrAdmin(await getEffectiveRole())) {
     return { ok: true, data: [] };
   }
 
@@ -1596,7 +1597,7 @@ export async function crmMergeCustomer(survivorId: string, victimId: string): Pr
   // also verifies both customers belong to p_shop_id (tenant guard lives
   // server-side in crm_merge_customer per the handoff note), so p_shop_id
   // MUST come from getDevShopId() here, never from a client-supplied value.
-  if ((await getEffectiveRole()) === "staff") {
+  if (!isOwnerOrAdmin(await getEffectiveRole())) {
     return { ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่รวมลูกค้าได้" };
   }
 
@@ -1621,7 +1622,7 @@ export async function crmMergeCustomer(survivorId: string, victimId: string): Pr
 
 export async function crmDismissMergeCandidate(customerAId: string, customerBId: string): Promise<ActionResult> {
   if (!customerAId || !customerBId) return { ok: false, error: "ไม่พบรหัสลูกค้า" };
-  if ((await getEffectiveRole()) === "staff") {
+  if (!isOwnerOrAdmin(await getEffectiveRole())) {
     return { ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่ทำเครื่องหมายได้" };
   }
 

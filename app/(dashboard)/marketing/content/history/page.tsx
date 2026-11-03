@@ -1,6 +1,7 @@
 import { Lock } from "lucide-react";
 import { getContentPostHistory, getContentTypes } from "@/lib/actions/content";
 import { getEffectiveRole } from "@/lib/auth/role";
+import { isOwnerOrAdmin } from "@/lib/auth/owner-admin";
 import { getDevShopId } from "@/lib/dev/context";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
@@ -15,7 +16,7 @@ export const dynamic = "force-dynamic";
 // filter/search รอบนี้ (เพิ่มทีหลังถ้าจำเป็นจริง). Same page shape as
 // /marketing/content/entry (role gate owner/admin, dynamic = "force-dynamic").
 export default async function ContentHistoryPage() {
-  if ((await getEffectiveRole()) === "staff") {
+  if (!isOwnerOrAdmin(await getEffectiveRole())) {
     return (
       <EmptyState
         icon={Lock}
