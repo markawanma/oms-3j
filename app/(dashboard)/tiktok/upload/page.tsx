@@ -1,5 +1,6 @@
 import { getCrmEditOptions } from "@/lib/actions/crm";
 import { getEffectiveRole } from "@/lib/auth/role";
+import { isOwnerOrAdmin } from "@/lib/auth/owner-admin";
 import { UploadPageClient } from "@/components/domain/tiktok/UploadPageClient";
 
 // canEdit / provinces — same pattern as app/(dashboard)/crm/customers/[id]/
@@ -11,7 +12,7 @@ import { UploadPageClient } from "@/components/domain/tiktok/UploadPageClient";
 // accordingly (canEdit=false), same as requireOwnerAdmin() re-checks
 // server-side on every action anyway.
 export default async function TikTokUploadPage() {
-  const canEdit = (await getEffectiveRole()) !== "staff";
+  const canEdit = isOwnerOrAdmin(await getEffectiveRole());
   const editOptionsResult = canEdit ? await getCrmEditOptions() : null;
   const provinces = editOptionsResult && editOptionsResult.ok ? editOptionsResult.data.provinces : [];
 

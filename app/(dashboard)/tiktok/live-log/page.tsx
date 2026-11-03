@@ -1,6 +1,7 @@
 import { Lock } from "lucide-react";
 import { getChannelFollowerCount, getLiveSessionForDate } from "@/lib/actions/live-metrics";
 import { getEffectiveRole } from "@/lib/auth/role";
+import { isOwnerOrAdmin } from "@/lib/auth/owner-admin";
 import { getDevShopId } from "@/lib/dev/context";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
@@ -27,7 +28,7 @@ export const dynamic = "force-dynamic";
 // dynamic = "force-dynamic", fetch วันนี้ล่วงหน้าฝั่ง server เพื่อ pre-fill
 // รอบแรกโดยไม่ต้อง round-trip ซ้ำตอน client mount.
 export default async function LiveLogPage() {
-  if ((await getEffectiveRole()) === "staff") {
+  if (!isOwnerOrAdmin(await getEffectiveRole())) {
     return (
       <EmptyState
         icon={Lock}

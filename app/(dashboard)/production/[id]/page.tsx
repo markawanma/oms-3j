@@ -2,6 +2,7 @@ import { Lock } from "lucide-react";
 import { getProductionOrder, getProductionSkuOptions } from "@/lib/actions/production";
 import { getJobsForSourceItems } from "@/lib/actions/job-office";
 import { getEffectiveRole } from "@/lib/auth/role";
+import { isOwnerOrAdmin } from "@/lib/auth/owner-admin";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ProductionOrderDetailClient } from "@/components/domain/production/ProductionOrderDetailClient";
@@ -13,7 +14,7 @@ export const dynamic = "force-dynamic";
 // items (add/remove while open), ผลิตเสร็จ/ยกเลิก. Owner/admin only, same
 // reasoning as /production.
 export default async function ProductionOrderDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  if ((await getEffectiveRole()) === "staff") {
+  if (!isOwnerOrAdmin(await getEffectiveRole())) {
     return (
       <EmptyState
         icon={Lock}

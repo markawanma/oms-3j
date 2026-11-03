@@ -1,6 +1,7 @@
 import { Lock } from "lucide-react";
 import { listSkuPrefixes } from "@/lib/actions/catalog-sku";
 import { getEffectiveRole } from "@/lib/auth/role";
+import { isOwnerOrAdmin } from "@/lib/auth/owner-admin";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { SkuPrefixPageClient } from "@/components/domain/catalog/SkuPrefixPageClient";
@@ -16,7 +17,7 @@ export const dynamic = "force-dynamic";
 // hit the Thai permission error on submit. Gating here instead shows a
 // consistent EmptyState up front, matching /catalog's UX.
 export default async function SkuPrefixPage() {
-  if ((await getEffectiveRole()) === "staff") {
+  if (!isOwnerOrAdmin(await getEffectiveRole())) {
     return (
       <EmptyState
         icon={Lock}

@@ -1,6 +1,7 @@
 import { Lock } from "lucide-react";
 import { getAudience } from "@/lib/actions/marketing";
 import { getEffectiveRole } from "@/lib/auth/role";
+import { isOwnerOrAdmin } from "@/lib/auth/owner-admin";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { TruncatedDataNotice } from "@/components/ui/TruncatedDataNotice";
@@ -11,7 +12,7 @@ export const dynamic = "force-dynamic";
 // /marketing/audience (docs/3j-jewelry/marketing/campaign-plan-99-winback.md) —
 // owner/admin only: a customer list for broadcast targeting is sensitive.
 export default async function MarketingAudiencePage() {
-  if ((await getEffectiveRole()) === "staff") {
+  if (!isOwnerOrAdmin(await getEffectiveRole())) {
     return (
       <EmptyState
         icon={Lock}

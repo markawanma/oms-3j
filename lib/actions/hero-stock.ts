@@ -12,6 +12,7 @@ import { revalidatePath } from "next/cache";
 import { getServiceClient } from "@/lib/supabase/server";
 import { getDevShopId } from "@/lib/dev/context";
 import { getEffectiveRole } from "@/lib/auth/role";
+import { isOwnerOrAdmin } from "@/lib/auth/owner-admin";
 import { requireWriteAccess } from "@/lib/auth/action-guard";
 import type { ActionResult } from "@/lib/types";
 import type { HeroStockRow } from "@/lib/stock/types";
@@ -21,7 +22,7 @@ const SCHEMA = "analytics";
 const PAGE_PATH = "/stock/hero";
 
 async function requireOwnerAdmin(): Promise<ActionResult<never> | null> {
-  if ((await getEffectiveRole()) === "staff") {
+  if (!isOwnerOrAdmin(await getEffectiveRole())) {
     return { ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่ดูจอสต็อก Hero SKU ได้" };
   }
   return null;

@@ -2,6 +2,7 @@ import Link from "next/link";
 import { ArrowLeft, ExternalLink, FileQuestion, Lock } from "lucide-react";
 import { getContentPostKpiDetail, getContentTypes } from "@/lib/actions/content";
 import { getEffectiveRole } from "@/lib/auth/role";
+import { isOwnerOrAdmin } from "@/lib/auth/owner-admin";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { ContentTypeChip } from "@/components/domain/marketing/ContentTypeChip";
@@ -33,7 +34,7 @@ function fmtRatePercent(rate: number | null): string {
 // this screen's several sub-states need more room than a table row can give
 // on mobile without scroll-within-scroll).
 export default async function ContentPostKpiDetailPage({ params }: { params: Promise<{ postId: string }> }) {
-  if ((await getEffectiveRole()) === "staff") {
+  if (!isOwnerOrAdmin(await getEffectiveRole())) {
     return (
       <EmptyState
         icon={Lock}

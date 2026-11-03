@@ -12,6 +12,7 @@ import "server-only";
 import { getServiceClient } from "@/lib/supabase/server";
 import { getDevShopId } from "@/lib/dev/context";
 import { getEffectiveRole } from "@/lib/auth/role";
+import { isOwnerOrAdmin } from "@/lib/auth/owner-admin";
 import { describeRpcError, type RpcErrorOptions } from "@/lib/marketing/rpc-messages";
 import type { PieceResult } from "@/lib/marketing/piece-types";
 import { isUuid } from "@/lib/marketing/piece-input";
@@ -28,7 +29,7 @@ export { isUuid };
 export async function requireOwnerAdmin(): Promise<PieceResult<never> | null> {
   // allowlist (security L2): role ที่ไม่รู้จัก/อนาคตต้องไม่ผ่านโดยปริยาย — เฉพาะ owner/admin
   const role = await getEffectiveRole();
-  if (role !== "owner" && role !== "admin") {
+  if (!isOwnerOrAdmin(role)) {
     return { ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่ใช้งานส่วนนี้ได้" };
   }
   return null;

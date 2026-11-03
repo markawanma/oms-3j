@@ -1,6 +1,7 @@
 import { Lock } from "lucide-react";
 import { getProducts, getShopSetting, getSkuOrderAlerts } from "@/lib/actions/catalog";
 import { getEffectiveRole } from "@/lib/auth/role";
+import { isOwnerOrAdmin } from "@/lib/auth/owner-admin";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { TruncatedDataNotice } from "@/components/ui/TruncatedDataNotice";
@@ -13,7 +14,7 @@ export const dynamic = "force-dynamic"; // catalog + spot price change on save
 // editing it changes every profit/ROAS number downstream, so gate at the page
 // (same reasoning as /marketing/ad-spend).
 export default async function CatalogPage() {
-  if ((await getEffectiveRole()) === "staff") {
+  if (!isOwnerOrAdmin(await getEffectiveRole())) {
     return (
       <EmptyState
         icon={Lock}

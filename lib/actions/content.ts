@@ -16,6 +16,7 @@ import { revalidatePath } from "next/cache";
 import { getServiceClient } from "@/lib/supabase/server";
 import { getDevShopId } from "@/lib/dev/context";
 import { getEffectiveRole } from "@/lib/auth/role";
+import { isOwnerOrAdmin } from "@/lib/auth/owner-admin";
 import type { ActionResult } from "@/lib/types";
 import {
   PLATFORMS,
@@ -68,7 +69,7 @@ const POST_URL_TOO_LONG_ERROR = "ลิงก์ยาวผิดปกติ �
 // module-private there too) — same gate, copied rather than shared so this
 // file has no cross-module dependency, matching the existing convention.
 async function requireOwnerAdmin(): Promise<ActionResult<never> | null> {
-  if ((await getEffectiveRole()) === "staff") {
+  if (!isOwnerOrAdmin(await getEffectiveRole())) {
     return { ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่ใช้งานส่วนวัดผล content ได้" };
   }
   return null;

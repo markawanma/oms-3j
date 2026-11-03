@@ -1,6 +1,7 @@
 import { Lock } from "lucide-react";
 import { getGemQuizStats } from "@/lib/actions/gem-quiz-stats";
 import { getEffectiveRole } from "@/lib/auth/role";
+import { isOwnerOrAdmin } from "@/lib/auth/owner-admin";
 import { getDevShopId } from "@/lib/dev/context";
 import { readErrorCode } from "@/lib/supabase/postgrest-error";
 import { EmptyState } from "@/components/ui/EmptyState";
@@ -37,7 +38,7 @@ export default async function GemQuizStatsPage({
 }: {
   searchParams: Promise<{ from?: string; to?: string; retake?: string }>;
 }) {
-  if ((await getEffectiveRole()) === "staff") {
+  if (!isOwnerOrAdmin(await getEffectiveRole())) {
     return (
       <EmptyState
         icon={Lock}

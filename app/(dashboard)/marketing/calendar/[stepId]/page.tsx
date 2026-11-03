@@ -5,6 +5,7 @@ import { isWorkflowPiece } from "@/lib/actions/content-pieces";
 import { getCalendarTask } from "@/lib/actions/calendar";
 import { getContentPostsByArtifactIds, getContentTypes } from "@/lib/actions/content";
 import { getEffectiveRole } from "@/lib/auth/role";
+import { isOwnerOrAdmin } from "@/lib/auth/owner-admin";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { Badge } from "@/components/ui/Badge";
@@ -52,7 +53,7 @@ const STATUS_TONE: Record<EffectiveStatus, BadgeTone> = {
 // would scroll-within-scroll on mobile, and a modal can't be deep-linked —
 // this route is meant to be shareable, e.g. to a copywriter).
 export default async function CalendarTaskDetailPage({ params }: { params: Promise<{ stepId: string }> }) {
-  if ((await getEffectiveRole()) === "staff") {
+  if (!isOwnerOrAdmin(await getEffectiveRole())) {
     return (
       <EmptyState
         icon={Lock}

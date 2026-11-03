@@ -32,6 +32,7 @@ import { revalidatePath } from "next/cache";
 import { getServiceClient } from "@/lib/supabase/server";
 import { getDevShopId } from "@/lib/dev/context";
 import { getEffectiveRole } from "@/lib/auth/role";
+import { isOwnerOrAdmin } from "@/lib/auth/owner-admin";
 import type { ActionResult } from "@/lib/types";
 import { BUCKET, MAX_BYTES, MAX_IMAGES_PER_SKU } from "@/lib/images/constants";
 import { extractJpegDimensions, looksLikeJpeg } from "@/lib/images/server";
@@ -41,7 +42,7 @@ import type { ProductImageRow } from "@/lib/catalog/types";
 const JPEG_CONTENT_TYPE = "image/jpeg";
 
 async function requireOwnerAdmin(): Promise<ActionResult<never> | null> {
-  if ((await getEffectiveRole()) === "staff") {
+  if (!isOwnerOrAdmin(await getEffectiveRole())) {
     return { ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่จัดการรูปสินค้าได้" };
   }
   return null;

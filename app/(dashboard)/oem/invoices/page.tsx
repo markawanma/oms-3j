@@ -1,6 +1,7 @@
 import { Lock } from "lucide-react";
 import { getInvoices } from "@/lib/actions/oem";
 import { getEffectiveRole } from "@/lib/auth/role";
+import { isOwnerOrAdmin } from "@/lib/auth/owner-admin";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { TruncatedDataNotice } from "@/components/ui/TruncatedDataNotice";
@@ -11,7 +12,7 @@ export const dynamic = "force-dynamic";
 // /oem/invoices — ทะเบียนใบแจ้งหนี้ทั้งร้าน (0179 · ไม่ใช่ใบกำกับภาษี). Owner/admin only เหมือนทั้งโมดูล OEM
 // (แถวมีชื่อ/ที่อยู่ผู้ซื้อ). ไม่ส่ง quoteId = ทุกใบของร้าน (ดู getInvoices).
 export default async function OemInvoicesPage() {
-  if ((await getEffectiveRole()) === "staff") {
+  if (!isOwnerOrAdmin(await getEffectiveRole())) {
     return (
       <EmptyState
         icon={Lock}

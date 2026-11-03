@@ -1,6 +1,7 @@
 import { Lock } from "lucide-react";
 import { getProductionOrders } from "@/lib/actions/production";
 import { getEffectiveRole } from "@/lib/auth/role";
+import { isOwnerOrAdmin } from "@/lib/auth/owner-admin";
 import { ErrorState } from "@/components/ui/ErrorState";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { TruncatedDataNotice } from "@/components/ui/TruncatedDataNotice";
@@ -12,7 +13,7 @@ export const dynamic = "force-dynamic";
 // only: this module writes cost + stock in one transaction (0131 §12), same
 // sensitivity class as /marketing/audience and the rest of /oem.
 export default async function ProductionPage() {
-  if ((await getEffectiveRole()) === "staff") {
+  if (!isOwnerOrAdmin(await getEffectiveRole())) {
     return (
       <EmptyState
         icon={Lock}
