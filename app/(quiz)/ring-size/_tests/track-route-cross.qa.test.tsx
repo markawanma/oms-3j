@@ -359,8 +359,8 @@ describe("ข้ามชั้น: ทุก body ที่ client สร้า
   it("LINE หลัก (copyThenOpen) ผ่าน route · beacon ก่อน navigate", async () => {
     const order: string[] = [];
     const w = installWire();
-    const beacon = navigator.sendBeacon as unknown as ReturnType<typeof vi.fn>;
-    const orig = beacon.getMockImplementation()!;
+    const beacon = navigator.sendBeacon as unknown as { mockImplementation: (fn: (url: string, data: Blob) => boolean) => void; getMockImplementation: () => (url: string, data: Blob) => boolean };
+    const orig = beacon.getMockImplementation();
     beacon.mockImplementation((url: string, data: Blob) => {
       order.push("beacon");
       return orig(url, data);
