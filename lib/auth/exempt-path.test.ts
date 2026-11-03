@@ -93,6 +93,7 @@ describe("isExemptPath — must exempt (the real routes + their subpaths)", () =
     "/api/ring-size/event/",
     "/ring-size",
     "/ring-size/",
+    "/ring-size/og.png", // รูปตัวอย่างลิงก์ (og:image) ที่ LINE/Facebook crawler ดึงโดยไม่มี session — ใช้กฎ asset เดิม ไม่เพิ่ม exempt ใหม่
     "/ring-size/3j-mark.png", // static asset of the page (exempt by the ring-size/<file> asset rule, one level only)
     "/_next/static/chunk.js",
     "/_next/image?url=x",
@@ -104,7 +105,7 @@ describe("isExemptPath — must exempt (the real routes + their subpaths)", () =
 
 // ไฟล์ที่มีจริงใน public/ ต้องไม่พัง (logo ใช้ในหน้า login/print/QR poster · og.png ใช้ใน metadata ของหน้า quiz สาธารณะ)
 describe("isExemptPath — public/ assets ที่มีจริง ต้องยัง exempt (ห้ามพัง)", () => {
-  it.each(["/3j-logo.svg", "/3j-logo.png", "/gem-quiz/og.png", "/favicon.ico", "/root-file.png", "/a.webp", "/a.gif", "/a.jpeg"])(
+  it.each(["/3j-logo.svg", "/3j-logo.png", "/gem-quiz/og.png", "/ring-size/og.png", "/favicon.ico", "/root-file.png", "/a.webp", "/a.gif", "/a.jpeg"])(
     "%s",
     (path) => {
       expect(isExemptPath(path)).toBe(true);
@@ -176,7 +177,7 @@ describe("middleware.ts matcher (คอมไพล์ด้วย Next) ตร�
 
   const TOKEN = "Ab3-_xYz0123456789AbCdEfGhIjKlMnOpQrStUvWxY";
   const EXEMPT = [
-    "/3j-logo.svg", "/3j-logo.png", "/gem-quiz/og.png", "/favicon.ico",
+    "/3j-logo.svg", "/3j-logo.png", "/gem-quiz/og.png", "/ring-size/og.png", "/favicon.ico",
     "/_next/static/chunk.js", "/_next/image",
     "/shop", "/shop/some-product-slug", "/stock/hero", "/stock/hero/",
     "/api/webhooks/tiktok", "/api/webhooks/shopee",
@@ -189,6 +190,7 @@ describe("middleware.ts matcher (คอมไพล์ด้วย Next) ตร�
     "/gem-quiz/deep/x.png", "/shopee-import/x.png", "/oem/invoices/x.png", "/w/s/abc/x.png",
     "/gem-quiz/og.gif", "/gem-quiz/og.png.exe",
     "/ring-size/deep/x.png", "/ring-size/3j-mark.gif", "/ring-sizes/x.png",
+    "/ring-size/og.png.exe", "/ring-size/og.gif", "/ring-size/deep/og.png", "/ring-size-admin/og.png",
     // RSC / data suffix ที่ Next ต่อท้ายให้ — ห้ามกลายเป็นช่องใหม่
     "/orders/x.png.rsc", "/live/x.png.rsc", "/_next/data/BUILD/live/x.png.json",
     "/dashboard", "/catalog", "/settings/members", "/login", "/register", "/pending", "/",
