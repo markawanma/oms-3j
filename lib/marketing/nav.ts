@@ -1,4 +1,4 @@
-import { CalendarDays, ClipboardList, Gem, History, Inbox, Clapperboard, Layers, Lightbulb, Send, Megaphone, MessageCircleQuestion, Radar, Ticket, TrendingUp, Users2, Wallet } from "lucide-react";
+import { CalendarDays, ClipboardList, Gem, History, Inbox, Clapperboard, Layers, Lightbulb, Send, Megaphone, MessageCircleQuestion, Radar, Ruler, Ticket, TrendingUp, Users2, Wallet } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 
 /**
@@ -77,6 +77,7 @@ export const MARKETING_NAV: readonly MarketingNavItem[] = [
   { href: "/marketing/content/history", label: "ประวัติยอดโพสต์", icon: History, tab: "more", mobile: "more", sidebar: false },
   { href: "/marketing/trend-radar", label: "เทรนด์", icon: TrendingUp, tab: "more", mobile: "more", mobileLabel: "เทรนด์รายวัน", sidebar: false },
   { href: "/marketing/gem-quiz", label: "แบบทดสอบพลอย", icon: Gem, tab: "more", mobile: "more", sidebar: false },
+  { href: "/marketing/ring-size", label: "ไซส์แหวน", icon: Ruler, tab: "more", mobile: "more", sidebar: false },
 ];
 
 // ---------------------------------------------------------------------------

@@ -173,7 +173,13 @@ export default defineConfig({
           // gone unnoticed. Bracket-escaping each paren (not backslash —
           // picomatch's own escape char is inconsistent across its glob
           // modes) sidesteps the extglob grouping entirely.
-          include: ["components/**/*.test.tsx", "app/[(]quiz[)]/**/*.test.tsx"],
+          // "app/(dashboard)/marketing/ring-size" เพิ่ม 3 พ.ย. 69 (P3 หน้าสรุปสถิติ) — page.tsx มี JSX จึงต้องรันใน project นี้
+          // (project "node" ไม่ตั้ง oxc jsx automatic) · จำกัดเฉพาะโฟลเดอร์นี้ ไม่เปิดทั้ง app/(dashboard) · ใช้ [(] เหตุผลเดียวกับ (quiz)
+          include: [
+            "components/**/*.test.tsx",
+            "app/[(]quiz[)]/**/*.test.tsx",
+            "app/[(]dashboard[)]/marketing/ring-size/**/*.test.tsx",
+          ],
           // jsdom + userEvent พิมพ์ทีละตัวอักษรช้าเมื่อรันทั้ง suite พร้อมกันหลาย worker — 5 วินาทีเริ่มหมดแบบสุ่ม (10 ต.ค. 69: ผ่านเมื่อรันเดี่ยว ล้มเมื่อรันรวม)
           // เพิ่มเฉพาะเวลา ไม่ลดความเข้มของ assertion
           testTimeout: 20_000,
