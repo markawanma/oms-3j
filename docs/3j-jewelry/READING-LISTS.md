@@ -82,7 +82,7 @@
 - skill: `supabase-migrate` · `3j-migration-traps` (ข้อ 18 grant บน analytics)
 - docs: `docs/3j-jewelry/analytics/phase-auth-pii-hardening-design.md` · `docs/3j-jewelry/legal/` (ร่าง ห้ามเผยแพร่)
 - migrations: `0002` · `0004` · `0012` · `0018` · `0046` · `0103` · `0122-0124` (no REST for users) · `0130` · `0147` · `0155-0156`
-- code: `app/(auth)/` · `lib/auth/` · `middleware.ts` · `app/(dashboard)/settings/` · `scripts/provision-member.mjs` · `scripts/check-analytics-grants.sql`
+- code: `app/(auth)/` · `lib/auth/` · `lib/auth/deployment.ts` (isRealDeployment · actionGateEnforced — มติ A-แคบ 3 พ.ย. 69) · `middleware.ts` · `app/(dashboard)/settings/` · `scripts/provision-member.mjs` · `scripts/check-analytics-grants.sql`
 
 ## 10. เขียน/รีวิว migration (ทุกหัวข้อ)
 - memory: `run-migrations-from-file` (🔴 ห้าม supabase db push) · `migrations-0107-0109-off-main` · `migration-file-lost-0129` · `migration-replay-crlf-trap`

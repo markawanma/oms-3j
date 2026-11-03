@@ -14,12 +14,16 @@
 // ⚠️ Update 3 พ.ย. 69: the "DEV_ROLE page keeps working" statement above holds
 // for local dev only. On a REAL deployment (VERCEL_ENV set and != development,
 // or NODE_ENV=production) lib/auth/role.ts ignores DEV_ROLE — with no session
-// everyone is 'staff', including the owner if Supabase Auth is down.
+// everyone is 'staff', including the owner if Supabase Auth is down. The two
+// *IfGateOn guards below are likewise always enforced there (A-narrow decision,
+// see lib/auth/deployment.ts); AUTH_GATE only matters for local dev
+// for these two guards; middleware.ts still reads it on every environment.
 import "server-only";
 import { cache } from "react";
 import { createHash, createHmac } from "node:crypto";
 import { getServiceClient, getUserClient } from "@/lib/supabase/server";
 import { getDevShopId } from "@/lib/dev/context";
+import { actionGateEnforced } from "@/lib/auth/deployment";
 
 export type ShopRole = "owner" | "admin" | "staff";
 
@@ -109,19 +113,23 @@ export async function requireOwnerSession(): Promise<OwnerSession> {
  * this) can't reach a write with no session, even if it forgets to check
  * getDevRole() itself.
  *
- * AUTH_GATE !== "on" -> no-op (matches every other A1 page/action: this
- * phase does not change behavior for the current dev/DEV_ROLE flow at all).
- * (3 พ.ย. 69: on a real deployment turning the gate off no longer restores
- * DEV_ROLE authority — see lib/auth/role.ts (e); the no-session caller is
- * 'staff' there, so this lever cannot hand out owner rights any more.)
- * AUTH_GATE === "on" -> throws unless there's a real Supabase Auth session.
+ * Not enforced (no-op) ONLY in local dev with AUTH_GATE !== "on" (the A1
+ * dev/DEV_ROLE flow is unchanged there). On a real deployment
+ * (actionGateEnforced(), lib/auth/deployment.ts) it is ALWAYS enforced,
+ * whatever AUTH_GATE says — 3 พ.ย. 69 owner decision (A-narrow). The name
+ * keeps "IfGateOn" (renaming touches every caller); read it as "if the action
+ * gate is enforced". Direct callers are only requireWriteAccess()
+ * (lib/auth/action-guard.ts) and guard() (lib/jobs/office-server.ts) — every
+ * other action reaches it through those wrappers. Emergency lever is no longer
+ * an env flip: redeploy the previous Vercel deployment.
+ * Enforced -> throws unless there's a real Supabase Auth session.
  * Deliberately does NOT check shop_member here (unlike requireOwnerSession)
  * — role/membership stays whatever lib/dev/context.ts's requireOwnerAdmin()
  * already gates in that file; this only closes the "no session at all"
  * gap, same fail-closed shape as middleware.ts.
  */
 export async function requireSessionIfGateOn(): Promise<void> {
-  if (process.env.AUTH_GATE !== "on") return;
+  if (!actionGateEnforced()) return;
   const user = await getSessionUser();
   if (!user) throw new Error("ไม่ได้เข้าสู่ระบบ");
 }
@@ -169,12 +177,13 @@ const resolveMemberAccess = cache(async (): Promise<MemberAccess> => {
  * additionally requires a shop_member row for THIS shop (approved by an
  * owner — approveMember inserts it; pending users never have one).
  *
- * AUTH_GATE !== "on" -> no-op (dev / rollback lever unchanged).
+ * No-op ONLY in local dev with AUTH_GATE !== "on"; on a real deployment always
+ * enforced regardless of AUTH_GATE (actionGateEnforced(), lib/auth/deployment.ts).
  * Throws Error(...) — ActionResult-style callers use denyIfNotMember() in
  * lib/auth/action-guard.ts instead; raw-data/throw-style callers use this.
  */
 export async function requireMemberIfGateOn(): Promise<void> {
-  if (process.env.AUTH_GATE !== "on") return;
+  if (!actionGateEnforced()) return;
   const access = await resolveMemberAccess();
   if (access === "no-session") throw new Error("ไม่ได้เข้าสู่ระบบ");
   if (access === "not-member") throw new Error("บัญชียังไม่ได้รับอนุมัติ");

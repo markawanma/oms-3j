@@ -15,7 +15,7 @@
 // catalog row — the day the UI grows a cost-entry field, an ungated action
 // here becomes a live hole, not a theoretical one.
 //
-// listSkuPrefixes (read-only) is not owner/admin-gated, matching getProducts in
+// listSkuPrefixes (read-only) is not owner/admin-gated, matching getSkuOrderAlerts in
 // catalog.ts — reads stay open to "พนักงานหน้างาน" (frontline staff), only
 // writes are locked down. It still starts with denyIfNotMember() (25 ต.ค. 69):
 // any approved member, never an outsider or a pending signup.

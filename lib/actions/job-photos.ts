@@ -1,7 +1,7 @@
 "use server";
 
 // lib/actions/job-photos.ts — รูปอ้างอิงบนใบงาน ฝั่งออฟฟิศ (owner/admin) · ระบบใบงาน 0182 · design-job-photos.md §3-§6
-// ทุก action: guard() บรรทัดแรก (session จริงเมื่อ AUTH_GATE on + allowlist owner|admin) · shop/actor จาก server (callOffice ใส่ p_shop_id/p_actor หลัง spread — client ทับไม่ได้)
+// ทุก action: guard() บรรทัดแรก (session จริงบน deployment จริงเสมอ (local: เมื่อ AUTH_GATE on) + allowlist owner|admin) · shop/actor จาก server (callOffice ใส่ p_shop_id/p_actor หลัง spread — client ทับไม่ได้)
 // 🔴 ด่านที่ไม่ผ่อน (ทุกด่านรันทุกครั้ง — อย่าถอด):
 //    - action ไม่รับ path/ชื่อไฟล์/shop/ที่มา จาก FormData เลย — รับแค่ jobId + md + sm + caption · path สร้างที่ server จาก uuid ใหม่ + shop/job ที่ DB ยืนยัน
 //    - ไฟล์: ไม่ว่าง · ≤ 1 MB ต่อ variant · magic bytes เป็น JPEG จริง (ไม่เชื่อ Content-Type/นามสกุล) · server ตัด metadata ระดับ marker (Exif/XMP/APP13/COM/ท้าย EOI — GPS หาย) แล้วตรวจซ้ำก่อนเก็บ ·

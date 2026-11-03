@@ -43,11 +43,15 @@
 //       not exposing system env vars, and self-hosted `next start`). NODE_ENV
 //       === 'production' wins even over VERCEL_ENV='development' (fail-closed).
 //       Side effect: a local `next build && next start` also ignores DEV_ROLE.
-//       Security audit 3 พ.ย. 69: middleware.ts documents turning
+//       Security audit 3 พ.ย. 69: middleware.ts used to document turning
 //       AUTH_GATE off as the emergency fallback, and Vercel production has
 //       DEV_ROLE set — so on that day (c)/(d) alone would hand every
 //       anonymous request DEV_ROLE's authority (owner => money/tax docs).
 //       Preview counts: one DB, no dev/prod split, previews write real data.
+//       Owner decision 3 พ.ย. 69 (A-narrow): the action layer (session.ts
+//       requireSessionIfGateOn / requireMemberIfGateOn) uses the same
+//       actionGateEnforced() from lib/auth/deployment.ts, so on a real
+//       deployment AUTH_GATE no longer switches the action layer off either.
 //   (f) shop_member.role outside owner|admin|staff -> 'staff'. The DB enum may
 //       grow; a value this code doesn't know must never pass an owner/admin
 //       gate (see also isOwnerOrAdmin, lib/auth/owner-admin.ts).
@@ -55,18 +59,12 @@ import "server-only";
 import { cache } from "react";
 import { getSessionUser, getMembership, type SessionUser } from "@/lib/auth/session";
 import { getDevRole, type DevRole } from "@/lib/dev/context";
+import { actionGateEnforced } from "@/lib/auth/deployment";
 
-/** Fail-closed: a production build, or anything Vercel says is not exactly "development", is a real deployment. */
-function isRealDeployment(): boolean {
-  if (process.env.NODE_ENV === "production") return true;
-  const v = (process.env.VERCEL_ENV ?? "").trim();
-  return v !== "" && v !== "development";
-}
-
-/** (c)/(d)/(e) shared fallback: env only gets a vote when the gate is off AND we're not on a real deployment. */
+/** (c)/(d)/(e) shared fallback: env only gets a vote when the gate is off AND we're not on a real deployment.
+ * actionGateEnforced() = isRealDeployment() || AUTH_GATE=on (lib/auth/deployment.ts) — same truth table as before. */
 function noSessionRole(): DevRole {
-  if (isRealDeployment()) return "staff";
-  return process.env.AUTH_GATE === "on" ? "staff" : getDevRole();
+  return actionGateEnforced() ? "staff" : getDevRole();
 }
 
 /**

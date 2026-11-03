@@ -33,10 +33,12 @@ function memberChain() {
 }
 
 const originalGate = process.env.AUTH_GATE;
+const originalVercelEnv = process.env.VERCEL_ENV;
 
 beforeEach(() => {
   vi.clearAllMocks();
   vi.resetModules();
+  delete process.env.VERCEL_ENV; // เคสเดิมจำลอง local dev
   eqCalls.length = 0;
   memberResult = { data: null, error: null };
   getUserClientMock.mockImplementation(async () => ({ auth: { getUser: getUserMock } }));
@@ -47,6 +49,9 @@ beforeEach(() => {
 afterEach(() => {
   if (originalGate === undefined) delete process.env.AUTH_GATE;
   else process.env.AUTH_GATE = originalGate;
+  if (originalVercelEnv === undefined) delete process.env.VERCEL_ENV;
+  else process.env.VERCEL_ENV = originalVercelEnv;
+  vi.unstubAllEnvs(); // คืน NODE_ENV ("test") หลังเคส NODE_ENV=production
   vi.restoreAllMocks();
 });
 
@@ -161,5 +166,75 @@ describe("denyIfNotMember (ActionResult-style wrapper)", () => {
     const { denyIfNotMember } = await import("./action-guard");
     await denyIfNotMember();
     for (const s of spies) expect(s).not.toHaveBeenCalled();
+  });
+});
+
+// มติ 3 พ.ย. 69 (A-แคบ): บน deployment จริง ชั้น action บังคับเสมอ ไม่ฟัง AUTH_GATE
+describe("real deployment — requireMemberIfGateOn / denyIfNotMember บังคับเสมอ แม้ AUTH_GATE ไม่ตั้ง/off", () => {
+  const GATES: (string | undefined)[] = [undefined, "off"];
+
+  for (const gate of GATES) {
+    const label = `VERCEL_ENV=production AUTH_GATE=${JSON.stringify(gate)}`;
+    const arrange = () => {
+      process.env.VERCEL_ENV = "production";
+      if (gate === undefined) delete process.env.AUTH_GATE;
+      else process.env.AUTH_GATE = gate;
+    };
+
+    it(`${label} + ไม่มี session — requireMemberIfGateOn throws "ไม่ได้เข้าสู่ระบบ", ไม่แตะ shop_member`, async () => {
+      arrange();
+      getUserMock.mockResolvedValue({ data: { user: null }, error: null });
+      const { requireMemberIfGateOn } = await import("./session");
+      await expect(requireMemberIfGateOn()).rejects.toThrow("ไม่ได้เข้าสู่ระบบ");
+      expect(getServiceClientMock).not.toHaveBeenCalled();
+    });
+
+    it(`${label} + pending (session แต่ไม่มี shop_member) — throws "บัญชียังไม่ได้รับอนุมัติ"`, async () => {
+      arrange();
+      getUserMock.mockResolvedValue(SESSION);
+      memberResult = { data: null, error: null };
+      const { requireMemberIfGateOn } = await import("./session");
+      await expect(requireMemberIfGateOn()).rejects.toThrow("บัญชียังไม่ได้รับอนุมัติ");
+    });
+
+    it(`${label} + ไม่มี session — denyIfNotMember คืน { ok:false } ข้อความเดิม`, async () => {
+      arrange();
+      getUserMock.mockResolvedValue({ data: { user: null }, error: null });
+      const { denyIfNotMember } = await import("./action-guard");
+      await expect(denyIfNotMember()).resolves.toEqual({ ok: false, error: "ต้องเข้าสู่ระบบก่อน" });
+    });
+
+    it(`${label} + member (staff) — ผ่าน (ต้องไม่พัง: staff ที่ล็อกอินจริงใช้งานได้โดยไม่ต้องมี AUTH_GATE)`, async () => {
+      arrange();
+      getUserMock.mockResolvedValue(SESSION);
+      memberResult = { data: { shop_id: "shop-1", role: "staff" }, error: null };
+      const { requireMemberIfGateOn } = await import("./session");
+      await expect(requireMemberIfGateOn()).resolves.toBeUndefined();
+    });
+  }
+
+  it("NODE_ENV=production (ไม่มี VERCEL_ENV) AUTH_GATE unset + ไม่มี session — throws", async () => {
+    vi.stubEnv("NODE_ENV", "production");
+    delete process.env.AUTH_GATE;
+    getUserMock.mockResolvedValue({ data: { user: null }, error: null });
+    const { requireMemberIfGateOn } = await import("./session");
+    await expect(requireMemberIfGateOn()).rejects.toThrow("ไม่ได้เข้าสู่ระบบ");
+  });
+
+  it("VERCEL_ENV=production + Supabase Auth env หาย (getUserClient throws) — throws ไม่ fail-open", async () => {
+    process.env.VERCEL_ENV = "production";
+    delete process.env.AUTH_GATE;
+    getUserClientMock.mockRejectedValue(new Error("Missing NEXT_PUBLIC_SUPABASE_URL ..."));
+    const { requireMemberIfGateOn } = await import("./session");
+    await expect(requireMemberIfGateOn()).rejects.toThrow("ไม่ได้เข้าสู่ระบบ");
+  });
+
+  it("ต้องไม่พัง: local (VERCEL_ENV unset, NODE_ENV=test) + AUTH_GATE unset — ยัง no-op ไม่แตะ session/shop_member", async () => {
+    delete process.env.AUTH_GATE;
+    expect(process.env.NODE_ENV).toBe("test");
+    const { requireMemberIfGateOn } = await import("./session");
+    await expect(requireMemberIfGateOn()).resolves.toBeUndefined();
+    expect(getUserClientMock).not.toHaveBeenCalled();
+    expect(getServiceClientMock).not.toHaveBeenCalled();
   });
 });

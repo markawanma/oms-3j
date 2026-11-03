@@ -8,7 +8,7 @@
 // Same auth model as lib/actions/catalog.ts / labels.ts: getServiceClient()
 // uses the service role (BYPASSES RLS) — requireOwnerAdmin() is the only
 // application-level gate, and it only gates WRITES (reads are open to every
-// dev role, same as getProducts()/getSkuOrderAlerts() in catalog.ts).
+// dev role, same as getSkuOrderAlerts() in catalog.ts).
 //
 // ⚠️ This app has no real auth yet (middleware.ts gate is off, production is
 // publicly reachable — see memory "Prod exposure: accepted risk"). That
@@ -60,7 +60,7 @@ function revalidateCatalogPaths(): void {
 // a way to list a product's existing images, frontend-dev's next round has
 // no data to build the "existing images" panel from, and reorderProductImages
 // has nothing to reorder from the UI's perspective. Read-only, no schema
-// change, same low-risk shape as getSkuOrderAlerts()/getProducts() in
+// change, same low-risk shape as getSkuOrderAlerts() in
 // catalog.ts (no requireOwnerAdmin() gate — reads are open to every role).
 // Flagged in the handoff report as a decision beyond the literal design.
 // ============================================================================

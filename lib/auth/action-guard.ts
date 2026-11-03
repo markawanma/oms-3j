@@ -20,7 +20,8 @@ import type { ActionResult } from "@/lib/types";
  * shouldn't learn anything from validation messages). Actions that return
  * raw data / throw call requireMemberIfGateOn() directly instead.
  * One message for both "no session" and "pending, not approved" — the caller
- * can't tell which, and doesn't need to. No-op while AUTH_GATE is off.
+ * can't tell which, and doesn't need to. No-op only in local dev with AUTH_GATE
+ * off — always enforced on a real deployment (lib/auth/deployment.ts).
  * The caught error is not logged (nothing in it is useful, and supabase
  * errors carry host/PII — supabase-error-logging-trap).
  */
@@ -35,8 +36,8 @@ export async function denyIfNotMember(): Promise<ActionResult<never> | null> {
 
 /**
  * Combines both auth layers active in this app right now:
- * requireSessionIfGateOn() (real Supabase Auth session, only enforced once
- * AUTH_GATE=on — see lib/auth/session.ts) then a caller-supplied
+ * requireSessionIfGateOn() (real Supabase Auth session, enforced on any real
+ * deployment or when AUTH_GATE=on locally — see lib/auth/session.ts) then a caller-supplied
  * owner/admin check (the real-session-aware role gate — lib/auth/role.ts's
  * getEffectiveRole()). getServiceClient() bypasses RLS and short-circuits
  * crm_require_owner_admin() inside the RPCs, so this combo is the ONLY

@@ -39,16 +39,20 @@ const SCHEMA = "analytics";
 
 async function requireOwnerAdmin(): Promise<ActionResult<never> | null> {
   if (!isOwnerOrAdmin(await getEffectiveRole())) {
-    return { ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่แก้ไขสินค้า/ต้นทุนได้" };
+    return { ok: false, error: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้นที่ดูและแก้ไขสินค้า ต้นทุน และการตั้งค่าราคาได้" };
   }
   return null;
 }
 
 // Every WRITE export below (upsert/delete/import) calls
-// requireWriteAccess(requireOwnerAdmin) FIRST. The read exports
-// (getProducts/getSkuOrderAlerts/getShopSetting/getBlendedMarginSuggestion)
-// stay open to staff but start with denyIfNotMember() (25 ต.ค. 69) — any
-// approved member, never an outsider or a pending signup.
+// requireWriteAccess(requireOwnerAdmin) FIRST. Reads (L3, 3 พ.ย. 69, owner
+// decision): getProducts / getShopSetting / getBlendedMarginSuggestion carry
+// cost, margin and pricing settings, so they start with denyIfNotMember()
+// THEN requireOwnerAdmin() — an outsider gets the member message ("ต้องเข้าสู่
+// ระบบก่อน"), an approved staff gets the role message. getSkuOrderAlerts stays
+// member-level (denyIfNotMember only, 25 ต.ค. 69): it carries no cost. If a
+// staff page ever needs the silver spot price, add a separate action that
+// reads only the spot — never open getShopSetting to staff.
 // Security review 2026-09-16, C1(b): defense-in-depth alongside C1(a), which
 // stops /stock/hero from ever bundling these actions in the first place.
 // See lib/auth/action-guard.ts for the shared session+DEV_ROLE combo.
@@ -83,6 +87,8 @@ export interface GetProductsResult {
 export async function getProducts(): Promise<ActionResult<GetProductsResult>> {
   const denied = await denyIfNotMember();
   if (denied) return denied;
+  const roleErr = await requireOwnerAdmin();
+  if (roleErr) return roleErr;
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();
@@ -576,6 +582,8 @@ export async function getSkuOrderAlerts(): Promise<ActionResult<SkuOrderAlert[]>
 export async function getShopSetting(): Promise<ActionResult<ShopSettingData>> {
   const denied = await denyIfNotMember();
   if (denied) return denied;
+  const roleErr = await requireOwnerAdmin();
+  if (roleErr) return roleErr;
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();
@@ -611,6 +619,8 @@ export async function getShopSetting(): Promise<ActionResult<ShopSettingData>> {
 export async function getBlendedMarginSuggestion(): Promise<ActionResult<BlendedMarginSuggestion>> {
   const denied = await denyIfNotMember();
   if (denied) return denied;
+  const roleErr = await requireOwnerAdmin();
+  if (roleErr) return roleErr;
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();

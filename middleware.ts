@@ -3,19 +3,29 @@
 // and the owner decision log, 16 ก.ย. 69.
 //
 // GATE controlled by AUTH_GATE env var:
-//   - AUTH_GATE !== "on"  -> IDENTICAL to A1: refresh the session cookie if
-//     one exists, never redirect, never block anything. Every DEV_ROLE/
-//     DEV_SHOP_ID page keeps working exactly as before. This is the
-//     documented rollback lever — flip AUTH_GATE back off (or unset it), no
-//     redeploy-of-code needed, just an env var change.
-//     ⚠️ On a REAL deployment (VERCEL_ENV set and != development, or
-//     NODE_ENV=production) DEV_ROLE is ignored by lib/auth/role.ts (3 พ.ย. 69),
-//     so with the gate off every request without a session is 'staff' — owner
-//     included if Supabase Auth is down. This lever no longer hands back
-//     owner rights; it only stops redirecting.
+//   - AUTH_GATE !== "on"  -> this middleware refreshes the session cookie if
+//     one exists, never redirects, never blocks anything (identical to A1).
+//     ⚠️ Since 3 พ.ย. 69 (owner decision, A-narrow) that is ALL "off" means on
+//     a REAL deployment (VERCEL_ENV set and != development, or NODE_ENV=
+//     production): only this middleware stops redirecting. The action layer
+//     (lib/auth/session.ts requireSessionIfGateOn / requireMemberIfGateOn,
+//     lib/auth/deployment.ts actionGateEnforced) ignores AUTH_GATE there and
+//     still rejects everyone without session + shop_member, and
+//     lib/auth/role.ts ignores DEV_ROLE. So this is NOT a rollback lever for
+//     the action layer. Only local dev (not a real deployment) is fully open
+//     with the gate off.
+//     Real emergency path = redeploy the previous deployment on Vercel
+//     (changing an env var needs a redeploy anyway). Locked yourself out ->
+//     scripts/provision-member.mjs. Supabase Auth down = nobody gets in; there
+//     is deliberately no break-glass (accepted 3 พ.ย. 69).
+//     ⚠️ Keep AUTH_GATE=on on Vercel Production AND Preview: this middleware is
+//     the only reader of it on a real deployment, so removing it turns the
+//     whole middleware layer off (no /login /pending redirects) and leaves the
+//     action-layer guard as the single remaining defence. Only DEV_ROLE is
+//     safe to delete from Vercel (it has no effect on a real deployment).
 //   - AUTH_GATE === "on" -> hard-gate every page below:
-//       (a) no session          -> 302 /login?next=<sanitized original path>
-//       (b) session, no member  -> 302 /pending
+//       (a) no session          -> 307 /login?next=<sanitized original path>
+//       (b) session, no member  -> 307 /pending
 //       (c) session + member    -> pass through
 //     plus the reverse redirects so an already-authenticated user can't sit
 //     on /login, /register, or /pending: session+member on any of those

@@ -1,5 +1,5 @@
 // lib/jobs/office-server.ts — ชั้นกลางของ action ออฟฟิศระบบใบงาน (server-only · ไม่ใช่ "use server")
-//  - guard(): session จริง (ถ้า AUTH_GATE on) + allowlist owner|admin (ไม่ใช่ "ไม่ใช่ staff")
+//  - guard(): session จริงบน deployment จริงเสมอ (local: เมื่อ AUTH_GATE on) + allowlist owner|admin (ไม่ใช่ "ไม่ใช่ staff")
 //  - callOffice(): ใส่ p_shop_id (จาก server) + p_actor (session user id ฝั่ง server) "หลัง" spread ของพารามิเตอร์ธุรกิจ → client ทับไม่ได้
 //  - error: officeErrorMessage (ไทย) · log เฉพาะ code+hint (logJobFailure) — ไม่ log ทั้งก้อน/พารามิเตอร์
 // RPC ออฟฟิศ raise 22023/55000 + hint เมื่อผิดกติกา (หน้าจอแสดงข้อความ DB ที่สะอาดแล้ว) · 42501 = ไม่มีสิทธิ์

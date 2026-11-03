@@ -44,7 +44,7 @@ import type { ArtifactStatus, CampaignBoardStep } from "@/lib/marketing/campaign
 import { ARTIFACT_STATUSES } from "@/lib/marketing/campaign-types";
 import { CAMPAIGN_BOARD_SELECT, mapCampaignBoardRow } from "@/lib/marketing/campaign-board-mapper";
 import { fetchAllRows } from "@/lib/supabase/query-limits";
-import { readErrorCode, readErrorMessage } from "@/lib/supabase/postgrest-error";
+import { readErrorCode, readErrorMessage, redactUrls } from "@/lib/supabase/postgrest-error";
 
 const SCHEMA = "analytics";
 
@@ -67,12 +67,18 @@ async function requireOwnerAdmin(): Promise<ActionResult<never> | null> {
 // ============================================================================
 
 /** analytics.v_channel_perf_roas — month x channel spend/ROAS/CAC (0027 §2).
- * Read-only, NOT role-gated (mirrors ChannelPerfTable on /crm/overview, which
- * every dev role can see today) — only entering spend and the recommendation
- * feed are owner/admin actions per the design. */
+ * Read-only, owner/admin only (L3 follow-up, security H2, 3 พ.ย. 69): every row
+ * carries break_even_roas = 1 / blended_margin_pct and target_roas (which also
+ * exposes target_ad_gp_share) — the same pair getShopSetting() returns, and that
+ * one is owner/admin-only. Leaving this open to staff would hand them the shop
+ * margin back-calculated and make the getShopSetting gate pointless. Order:
+ * denyIfNotMember() first so an outsider gets the member message, not the role
+ * one. Only caller is /marketing/copilot, which is already owner/admin-gated. */
 export async function getChannelRoas(): Promise<ActionResult<MktChannelRoasRow[]>> {
   const denied = await denyIfNotMember();
   if (denied) return denied;
+  const roleErr = await requireOwnerAdmin();
+  if (roleErr) return roleErr;
   try {
     const shopId = getDevShopId();
     const supabase = getServiceClient();
@@ -122,13 +128,16 @@ export async function getChannelRoas(): Promise<ActionResult<MktChannelRoasRow[]
 
     return { ok: true, data: rows };
   } catch (err) {
-    console.error("getChannelRoas failed", err);
+    // never the whole error object: postgrest puts host/stack in details (supabase-error-logging-trap)
+    console.error("getChannelRoas failed", { code: readErrorCode(err), message: redactUrls(readErrorMessage(err)) });
     return { ok: false, error: "โหลดข้อมูล ROAS ไม่สำเร็จ ลองใหม่อีกครั้ง" };
   }
 }
 
 /** analytics.v_ad_spend_weekly — entry-history table (0027 §3). Same
- * not-role-gated reasoning as getChannelRoas above. */
+ * member-level on purpose (3 พ.ย. 69): selects only spend/impressions/clicks/
+ * days_entered — no margin and nothing derived from it (unlike getChannelRoas
+ * above, which is owner/admin). If a margin/ROAS column is ever added here, gate it. */
 export async function getAdSpendWeekly(): Promise<ActionResult<MktAdSpendWeeklyRow[]>> {
   const denied = await denyIfNotMember();
   if (denied) return denied;
