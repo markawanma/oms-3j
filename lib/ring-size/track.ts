@@ -5,6 +5,8 @@
 //
 // สัญญา:
 //   - track(snapshot): void — sync · ไม่ throw · ไม่ await · ล้มเงียบทุกกรณี (flow วัดต้องไม่รู้ว่ามีสถิติ)
+//   - stage 7 (ได้ผล) ส่งได้แค่ 3 แบบ: G4 (g4) · CTA (cta) · ผลวัด (trackMeasured) — event stage 7 แบบอื่นถูกทิ้งทั้ง event
+//     (funnel[7] ห้ามพองจาก call site ผิด เหตุผลเดียวกับผลวัด)
 //   - ผลวัด (circ_mm/size/between) ส่งได้ทางเดียว = trackMeasured(...) — track() ตัดสามช่องนี้ทิ้ง "เสมอ" ทั้ง type และ runtime
 //     (กันด้วยโครงสร้าง ไม่พึ่ง call site: DB นับรอบวัด +1 ทุกครั้งที่ size โผล่ ⇒ call site ใหม่ที่พกผลมาจะนับเกินเงียบๆ)
 //   - ไม่ส่งเมื่อ: TRACK_ENABLED ปิด · SSR · DNT หรือ GPC เปิด (เคารพ — มติเจ้าของ O5) · ไม่มี crypto.randomUUID (ไม่ยอมสร้าง id เอง)
@@ -234,6 +236,8 @@ function dispatch(snapshot: RingTrackSnapshot, allowResult: boolean): void {
 
     const clean = sanitize(snapshot, allowResult);
     if (!clean) return;
+    // stage 7 = "ได้ผล": ต้องเป็น G4 / CTA / ผลวัดที่ผ่านด่านครบเท่านั้น — อย่างอื่น (รวมผลวัดที่ถูกตัดเพราะค่าผิด) ทิ้งทั้ง event
+    if (clean.stage === RING_STAGE_RESULT && clean.cta === undefined && clean.g4 !== true && clean.size === undefined) return;
 
     // ตรวจรูปร่างด้วยตัวตรวจเดียวกับ route (ผิด = route จะปฏิเสธอยู่แล้ว → ไม่ส่งให้เสียเปล่า) — sid ใส่หลังสุด
     const sid = getSid();

@@ -254,12 +254,11 @@ describe("E: ไม่ส่งเมื่อผู้ใช้/ระบบป
 describe("A B C D F: สัญญา event — ตัดของที่ไม่ควรไปทิ้งก่อนส่ง (route จะปฏิเสธทั้ง event = ข้อมูลหาย)", () => {
   const RESULT = { circ_mm: 54.4, size: 55, between: true } as const;
 
-  it("A/M1: track() ธรรมดาตัดผลวัดทิ้งเสมอ ทุก stage 0-7 (แม้ cast ยัดมา) — event ยังไปแต่ไม่มี circ_mm/size/between", async () => {
+  it("A/M1: track() ธรรมดาตัดผลวัดทิ้งเสมอ stage 0-6 (แม้ cast ยัดมา) — event ยังไปแต่ไม่มี circ_mm/size/between · stage 7 แบบนี้ทิ้งทั้ง event", async () => {
     const b = installBeacon();
     for (let stage = 0; stage <= 7; stage++) track({ stage, ...RESULT, method: "B" } as unknown as TrackSnapshot);
     const bodies = await b.bodies();
-    expect(bodies).toHaveLength(8);
-    expect(bodies[7]).toEqual({ sid: bodies[7].sid, stage: 7, method: "B" });
+    expect(bodies).toHaveLength(7); // stage 7 ไม่ใช่ G4/cta → ไม่ส่ง
     for (const body of bodies) {
       expect(body, JSON.stringify(body)).not.toHaveProperty("circ_mm");
       expect(body).not.toHaveProperty("size");
@@ -281,11 +280,15 @@ describe("A B C D F: สัญญา event — ตัดของที่ไม
       { circ_mm: Infinity, size: 55 },
     ];
     for (const r of bad) {
-      resetTrackStateForTests(); // ผลถูกตัดแล้วเหลือ { stage: 7, method } เหมือนกันทุกเคส — ไม่ให้ dedupe บังว่าแต่ละเคสถูกส่งจริง
+      resetTrackStateForTests();
       trackMeasured({ method: "A", ...r } as unknown as MeasuredResult);
     }
+    // ผลที่ไม่ผ่านด่านถูกตัด → เหลือ stage 7 เปล่า → ทิ้งทั้ง event (ไม่ส่ง stage 7 ปลอมโดยไม่มีผล)
     const bodies = await b.bodies();
-    expect(bodies).toHaveLength(bad.length);
+    expect(bodies).toHaveLength(0);
+    // ค่าที่ถูกต้องในเงื่อนไขเดียวกันส่งได้ (กันด่านแน่นเกินจนผลจริงหาย)
+    trackMeasured({ method: "A", circ_mm: 54.4, size: 55, between: false });
+    expect(await b.bodies()).toHaveLength(1);
     for (const body of bodies) {
       expect(body, JSON.stringify(body)).not.toHaveProperty("circ_mm");
       expect(body).not.toHaveProperty("size");
@@ -315,14 +318,14 @@ describe("A B C D F: สัญญา event — ตัดของที่ไม
     now += 2 * MEASURE_THROTTLE_MS;
     track({ stage: 7, method: "A", g4: true, ...RESULT } as unknown as TrackSnapshot); // G4 พกผลมา → ตัดผล
     now += 2 * MEASURE_THROTTLE_MS;
-    track({ stage: 7, method: "A", g4: false }); // ไม่ใช่ G4
-    const [stage6, g4, notG4] = await b.bodies();
+    track({ stage: 7, method: "A", g4: false }); // ไม่ใช่ G4 → stage 7 เปล่า → ทิ้งทั้ง event
+    const [stage6, g4, ...rest] = await b.bodies();
+    expect(rest).toEqual([]);
     expect(stage6).not.toHaveProperty("g4");
     expect(g4).toMatchObject({ stage: 7, method: "A", g4: true });
     expect(g4).not.toHaveProperty("circ_mm");
     expect(g4).not.toHaveProperty("size");
     expect(g4).not.toHaveProperty("between");
-    expect(notG4).not.toHaveProperty("g4");
     await expectAllAcceptedByRoute(b);
   });
 
@@ -364,7 +367,7 @@ describe("A B C D F: สัญญา event — ตัดของที่ไม
 
   it("in_range ที่ client คำนวณมา ไม่ถูกส่ง (DB ไม่เชื่อ)", async () => {
     const b = installBeacon();
-    track({ stage: 7, method: "A", in_range: true });
+    track({ stage: 6, method: "A", in_range: true });
     const [body] = await b.bodies();
     expect(body).not.toHaveProperty("in_range");
   });
@@ -375,8 +378,9 @@ describe("M1: ผลวัดส่งได้ทางเดียว = trackM
     const b = installBeacon();
     track({ stage: 7, size: 60, circ_mm: 60 } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
     track({ stage: 7, method: "A", size: 60, circ_mm: 60, between: true } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
+    track({ stage: 6, method: "A", size: 60, circ_mm: 60, between: true } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
     const bodies = await b.bodies();
-    expect(bodies.length).toBeGreaterThan(0);
+    expect(bodies).toHaveLength(1); // เหลือ stage 6 ตัวเดียว (ตัดผลแล้ว) · สองตัวแรกเป็น stage 7 เปล่า → ทิ้ง
     for (const body of bodies) {
       expect(body, JSON.stringify(body)).not.toHaveProperty("size");
       expect(body).not.toHaveProperty("circ_mm");
@@ -415,6 +419,48 @@ describe("M1: ผลวัดส่งได้ทางเดียว = trackM
     flags.trackEnabled = false;
     trackMeasured(r);
     expect(b.fn).not.toHaveBeenCalled();
+  });
+});
+
+describe("stage 7 gate: funnel[7] ห้ามพองจาก call site ผิด — track() ที่ stage 7 ต้องเป็น g4 หรือ cta เท่านั้น", () => {
+  it("track({stage:7} as any) และ track({stage:7, method:'a'} as any) → ไม่ส่งเลย (ไม่เรียก beacon/fetch)", () => {
+    const b = installBeacon();
+    const f = installFetch();
+    track({ stage: 7 } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
+    track({ stage: 7, method: "a" } as any); // eslint-disable-line @typescript-eslint/no-explicit-any
+    expect(b.fn).not.toHaveBeenCalled();
+    expect(f).not.toHaveBeenCalled();
+  });
+
+  it("stage 7 แบบอื่นที่ไม่ใช่ G4/cta ก็ทิ้ง: method ปกติ · ธงอื่น (g1 g3 g5) · g4:false · ref · in_app · ผลที่ถูกตัด", () => {
+    const b = installBeacon();
+    for (const snap of [
+      { stage: 7, method: "A" },
+      { stage: 7, method: "B", ref: "coin" },
+      { stage: 7, g1: true },
+      { stage: 7, g3: true, g5: true },
+      { stage: 7, g4: false },
+      { stage: 7, in_app: "line", is_return: true },
+      { stage: 7, used_a: true, used_b: true, saw_between: true },
+      { stage: 7, method: "A", circ_mm: 54, size: 54, between: false },
+    ]) {
+      now += 2 * MEASURE_THROTTLE_MS;
+      track(snap as unknown as TrackSnapshot);
+    }
+    expect(b.fn).not.toHaveBeenCalled();
+  });
+
+  it("ต้องไม่พัง: G4 · cta (ทุกตัว) · trackMeasured ที่ถูกต้อง ยังส่งที่ stage 7 ได้ · stage 0-6 ไม่ถูกกระทบ", async () => {
+    const b = installBeacon();
+    track({ stage: 7, method: "A", g4: true });
+    for (const cta of ["line", "share", "shop", "gem_quiz"] as const) track({ stage: 7, cta });
+    now += 2 * MEASURE_THROTTLE_MS;
+    trackMeasured({ method: "B", circ_mm: 54.4, size: 55, between: true });
+    for (let stage = 0; stage <= 6; stage++) track({ stage });
+    const bodies = await b.bodies();
+    expect(bodies).toHaveLength(1 + 4 + 1 + 7);
+    expect(bodies.filter((x) => x.stage === 7).map((x) => (x.g4 ? "g4" : x.cta ? x.cta : "measured"))).toEqual(["g4", "line", "share", "shop", "gem_quiz", "measured"]);
+    await expectAllAcceptedByRoute(b);
   });
 });
 
