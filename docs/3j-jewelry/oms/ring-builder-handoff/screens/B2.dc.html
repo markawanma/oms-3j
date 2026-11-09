@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<title>ออกแบบแหวนแถว · ใส่พลอย</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+Thai:wght@500;600;700&amp;family=IBM+Plex+Sans+Thai:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#a2191d}a:hover{color:#7d1316}
+button{font:inherit;color:inherit;cursor:pointer}
+.serif{font-family:'Noto Serif Thai',serif}
+.back{width:44px;height:44px;border-radius:99px;display:flex;align-items:center;justify-content:center;color:#2B1E1E;margin-left:-10px}
+.seg{flex:1;display:flex;flex-direction:column;gap:4px;font-size:12px;color:#6A5B58}
+.seg i{display:block;height:4px;border-radius:99px;background:#E6DAD0}
+.seg.on{color:#7d1316;font-weight:600}.seg.on i{background:#a2191d}.seg.done i{background:#C98A8C}
+.stone{position:absolute;top:96px;width:44px;height:44px;margin-left:-22px;border-radius:99px;padding:0;border:0;background:none;display:flex;align-items:center;justify-content:center}
+.stone i{display:block;width:36px;height:36px;border-radius:99px;box-shadow:inset -4px -6px 8px rgba(0,0,0,.18),inset 4px 4px 6px rgba(255,255,255,.65)}
+.stone.sel{outline:3px solid #a2191d;outline-offset:1px}
+.pos{flex:1;min-width:0;min-height:68px;border-radius:14px;border:1.5px solid #E0D3C8;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:6px 2px}
+.pos.sel{border:2px solid #a2191d;background:#FBEFEC}
+.pos.target{border:2px dashed #1C4F9C;background:#EEF4FC}
+.pos b{font-size:15px;line-height:1.1}
+.pos small{font-size:11px;line-height:1.25;color:#4A3B38;text-align:center}
+.gem{display:flex;align-items:center;gap:10px;min-height:56px;padding:8px 10px;border-radius:14px;border:1.5px solid #E0D3C8;background:#fff;text-align:left}
+.gem.on{border:2px solid #a2191d;background:#FBEFEC}
+.sw{width:26px;height:26px;border-radius:99px;flex:none;box-shadow:inset -3px -4px 6px rgba(0,0,0,.18),inset 3px 3px 5px rgba(255,255,255,.6)}
+.tool{min-height:44px;padding:0 12px;border-radius:12px;border:1px solid #D9C9BD;background:#fff;font-size:14px;font-weight:500;display:inline-flex;align-items:center;gap:6px}
+.row{display:flex;justify-content:space-between;gap:12px;font-size:14px}
+.cta{display:flex;align-items:center;justify-content:center;gap:8px;min-height:52px;padding:0 20px;border-radius:14px;background:#a2191d;color:#fff;font-size:16px;font-weight:600;text-decoration:none}
+.cta:hover{background:#7d1316;color:#fff}
+</style>
+</helmet>
+<div style="width: 390px; height: 1240px; box-sizing: border-box; position: relative; font-family: 'IBM Plex Sans Thai', system-ui, sans-serif; line-height: 1.6; color: #2B1E1E; background: #FBF7F2; display: flex; flex-direction: column">
+  <div style="padding: 10px 20px 0">
+    <header style="display: flex; align-items: center; gap: 6px; min-height: 44px">
+      <a class="back" href="B1Style.dc.html" aria-label="กลับไปเลือกแบบ"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg></a>
+      <h1 class="serif" style="flex: 1; margin: 0; font-size: 19px; font-weight: 600">5 เม็ด · แบบ ก</h1>
+      <a href="B2ChangeDesign.dc.html" style="font-size: 14px; font-weight: 600; min-height: 44px; display: flex; align-items: center">เปลี่ยนแบบ</a>
+    </header>
+    <nav aria-label="ขั้นตอน" style="display: flex; gap: 6px; margin-top: 4px">
+      <span class="seg done"><i></i>แบบ</span><span class="seg on"><i></i>พลอย</span><span class="seg"><i></i>ไซซ์</span><span class="seg"><i></i>สรุป</span>
+    </nav>
+  </div>
+
+  <section aria-label="ภาพแหวน" style="position: relative; margin: 12px 16px 0; height: 210px; border-radius: 24px; background: radial-gradient(ellipse at 50% 45%, #FFFFFF 0%, #F6F0EA 55%, #E9DFD5 100%); overflow: hidden">
+    <span style="position: absolute; left: 12px; top: 10px; font-size: 12px; color: #5C4D49; background: rgba(255,255,255,.8); padding: 2px 10px; border-radius: 99px">ภาพจำลอง · พลอยกลม 2×2 มม.</span>
+    <svg aria-hidden="true" width="358" height="210" viewBox="0 0 358 210" style="position: absolute; left: 0; top: 0">
+      <defs><linearGradient id="band" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#F1F1F4"></stop><stop offset=".55" stop-color="#C9CAD2"></stop><stop offset="1" stop-color="#9FA1AB"></stop></linearGradient></defs>
+      <path d="M14 132c60-36 270-36 330 0v26c-60-34-270-34-330 0z" fill="url(#band)"></path>
+      <path d="M14 132c60-36 270-36 330 0" fill="none" stroke="#FFFFFF" stroke-width="1.5" opacity=".8"></path>
+    </svg>
+    <sc-for list="{{positions}}" as="p" hint-placeholder-count="5">
+      <button class="{{p.stoneCls}}" style="left: {{p.left}}px" aria-label="เม็ดที่ {{p.num}} {{p.name}}" onClick="{{p.pick}}"><i style="background: {{p.color}}; border: 1px solid {{p.edge}}"></i></button>
+    </sc-for>
+    <sc-for list="{{positions}}" as="p" hint-placeholder-count="5">
+      <span aria-hidden="true" style="position: absolute; top: 160px; width: 30px; margin-left: -15px; text-align: center; font-size: 13px; font-weight: 600; color: #5C4D49; left: {{p.left}}px">{{p.num}}</span>
+    </sc-for>
+  </section>
+
+  <div style="padding: 12px 16px 0; display: flex; flex-direction: column; gap: 12px">
+    <div>
+      <div style="display: flex; justify-content: space-between; font-size: 13px; color: #6A5B58; margin-bottom: 6px"><span>ตำแหน่ง (นับซ้ายไปขวา)</span><span>แตะเลือกเม็ด</span></div>
+      <div role="group" aria-label="ตำแหน่งพลอย" style="display: flex; gap: 6px">
+        <sc-for list="{{positions}}" as="p" hint-placeholder-count="5">
+          <button class="{{p.cls}}" aria-pressed="{{p.pressed}}" onClick="{{p.pick}}"><span style="width: 14px; height: 14px; border-radius: 99px; background: {{p.color}}; border: 1px solid {{p.edge}}"></span><b>{{p.num}}</b><small>{{p.name}}</small></button>
+        </sc-for>
+      </div>
+    </div>
+
+    <sc-if value="{{swapping}}" hint-placeholder-val="{{false}}">
+      <div role="status" style="display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 14px; background: #E4EEFB; color: #1C3F78; font-size: 14px">
+        <span style="flex: 1">แตะเลขตำแหน่งที่จะ<strong>สลับกับเม็ดที่ {{selNum}}</strong></span>
+        <button class="tool" onClick="{{cancelSwap}}">ยกเลิก</button>
+      </div>
+    </sc-if>
+
+    <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap">
+      <h2 class="serif" style="margin: 0; font-size: 17px; font-weight: 600">เม็ดที่ {{selNum}} · {{selName}}</h2>
+      <button class="tool" onClick="{{startSwap}}"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 7h12l-3-3M17 17H5l3 3"></path></svg>สลับตำแหน่ง</button>
+    </div>
+
+    <div role="radiogroup" aria-label="เลือกพลอยให้เม็ดที่ {{selNum}}" style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px">
+      <sc-for list="{{gems}}" as="g" hint-placeholder-count="7">
+        <button class="{{g.cls}}" role="radio" aria-checked="{{g.checked}}" onClick="{{g.pick}}">
+          <span class="sw" style="background: {{g.color}}; border: 1px solid {{g.edge}}"></span>
+          <span style="flex: 1; min-width: 0; line-height: 1.35"><span style="display: block; font-size: 15px; font-weight: 600">{{g.name}}</span><span style="display: block; font-size: 12px; color: #5C4D49">{{g.priceText}}</span></span>
+        </button>
+      </sc-for>
+    </div>
+
+    <div style="display: flex; gap: 8px; flex-wrap: wrap">
+      <button class="tool" onClick="{{fillAll}}">ใส่ {{selName}} ทุกเม็ด</button>
+      <button class="tool" onClick="{{clearAll}}">ล้างกลับเป็น CZ ขาว</button>
+    </div>
+    <p style="margin: 0; font-size: 13px; color: #5C4D49">CZ คือคิวบิกเซอร์โคเนีย ไม่ใช่เพชร · สีบนจออาจต่างจากของจริงเล็กน้อย</p>
+
+    <section aria-label="รายการราคา" style="background: #fff; border: 1px solid #EADFD6; border-radius: 18px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px">
+      <h2 class="serif" style="margin: 0 0 2px; font-size: 16px; font-weight: 600">รายการราคา</h2>
+      <div class="row"><span>ตัวเรือน 5 เม็ด แบบ ก</span><span>฿1,090</span></div>
+      <sc-for list="{{lines}}" as="l" hint-placeholder-count="2">
+        <div class="row"><span>{{l.label}}</span><span style="white-space: nowrap; color: {{l.tone}}">{{l.amount}}</span></div>
+      </sc-for>
+      <div style="height: 1px; background: #EADFD6; margin: 4px 0"></div>
+      <div class="row" style="font-size: 16px; font-weight: 600"><span>รวม</span><span>{{totalText}}</span></div>
+      <p style="margin: 0; font-size: 12px; color: #6A5B58">ราคา ณ วันนี้ · แอดมินยืนยันราคาอีกครั้งในแชท</p>
+    </section>
+  </div>
+
+  <div style="flex: 1"></div>
+
+  <sc-if value="{{hasToast}}" hint-placeholder-val="{{false}}">
+    <div role="status" style="position: absolute; left: 16px; right: 16px; bottom: 96px; display: flex; align-items: center; gap: 10px; padding: 10px 10px 10px 16px; border-radius: 14px; background: #2B1E1E; color: #fff; font-size: 14px; box-shadow: 0 8px 20px rgba(0,0,0,.2)">
+      <span style="flex: 1">{{toast}}</span>
+      <button onClick="{{undo}}" style="min-height: 40px; padding: 0 12px; border: 0; border-radius: 10px; background: rgba(255,255,255,.14); color: #fff; font-weight: 600">เลิกทำ</button>
+    </div>
+  </sc-if>
+
+  <div style="position: sticky; bottom: 0; display: flex; align-items: center; gap: 12px; padding: 12px 16px 18px; background: #FFFFFF; border-top: 1px solid #EADFD6">
+    <div style="flex: 1; line-height: 1.3"><div style="font-size: 12px; color: #6A5B58">ราคารวม</div><div class="serif" style="font-size: 22px; font-weight: 700; color: #7d1316">{{totalText}}</div></div>
+    <a class="cta" href="B3.dc.html">ต่อไป: เลือกไซซ์<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"></path></svg></a>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1240}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { gems: ['red', 'white', 'red', 'white', 'white'], sel: 1, swap: false, toast: '', prev: null };
+  }
+  renderVals() {
+    var self = this, st = this.state;
+    var GEMS = [
+      { id: 'white', name: 'CZ ขาว', color: '#F6F6F8', edge: '#9A9AA6', price: 0 },
+      { id: 'red', name: 'CZ แดง', color: '#C4162A', edge: '#7E0E1B', price: 80 },
+      { id: 'pink', name: 'CZ ชมพู', color: '#F07AA8', edge: '#B8467A', price: 80 },
+      { id: 'blue', name: 'CZ ฟ้า', color: '#3D8FE0', edge: '#1F5FA3', price: 80 },
+      { id: 'green', name: 'CZ เขียว', color: '#1E9E6A', edge: '#0F6B46', price: 90 },
+      { id: 'purple', name: 'CZ ม่วง', color: '#7B4FC9', edge: '#4F2E8C', price: 80 },
+      { id: 'yellow', name: 'CZ เหลือง', color: '#F2C230', edge: '#A57F10', price: 80 }
+    ];
+    var byId = {}; GEMS.forEach(function (g) { byId[g.id] = g; });
+    function fmt(n) { return '฿' + String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+    var gems = st.gems, n = gems.length, sel = st.sel;
+    var positions = gems.map(function (id, i) {
+      var g = byId[id];
+      var cls = 'pos' + (st.swap ? (i === sel ? ' sel' : ' target') : (i === sel ? ' sel' : ''));
+      return {
+        num: i + 1, name: g.name, color: g.color, edge: g.edge, left: 179 + (i - (n - 1) / 2) * 56,
+        cls: cls, pressed: i === sel ? 'true' : 'false', stoneCls: 'stone' + (i === sel ? ' sel' : ''),
+        pick: function () {
+          if (st.swap && i !== sel) {
+            var g2 = gems.slice(); var t = g2[sel]; g2[sel] = g2[i]; g2[i] = t;
+            self.setState({ prev: gems, gems: g2, swap: false, sel: i, toast: 'สลับเม็ดที่ ' + (sel + 1) + ' กับ ' + (i + 1) + ' แล้ว' });
+          } else { self.setState({ sel: i, swap: false }); }
+        }
+      };
+    });
+    var cur = byId[gems[sel]];
+    var gemList = GEMS.map(function (g) {
+      return {
+        name: g.name, color: g.color, edge: g.edge,
+        priceText: g.price ? '+' + fmt(g.price) + ' ต่อเม็ด' : 'รวมในตัวเรือน',
+        cls: 'gem' + (g.id === cur.id ? ' on' : ''), checked: g.id === cur.id ? 'true' : 'false',
+        pick: function () { var g2 = gems.slice(); g2[sel] = g.id; self.setState({ gems: g2, toast: '' }); }
+      };
+    });
+    var counts = {}; gems.forEach(function (id) { counts[id] = (counts[id] || 0) + 1; });
+    var total = 1090, lines = [];
+    GEMS.forEach(function (g) {
+      var c = counts[g.id]; if (!c) return;
+      if (g.price) { total += c * g.price; lines.push({ label: g.name + ' × ' + c + ' (' + fmt(g.price) + '/เม็ด)', amount: fmt(c * g.price), tone: '#2B1E1E' }); }
+      else lines.push({ label: g.name + ' × ' + c, amount: 'รวมในตัวเรือน', tone: '#5C4D49' });
+    });
+    return {
+      positions: positions, gems: gemList, lines: lines, totalText: fmt(total),
+      selNum: sel + 1, selName: cur.name, swapping: st.swap,
+      hasToast: !!st.toast, toast: st.toast,
+      startSwap: function () { self.setState({ swap: true, toast: '' }); },
+      cancelSwap: function () { self.setState({ swap: false }); },
+      fillAll: function () { self.setState({ prev: gems, gems: gems.map(function () { return cur.id; }), toast: 'ใส่ ' + cur.name + ' ทุกเม็ดแล้ว' }); },
+      clearAll: function () { self.setState({ prev: gems, gems: gems.map(function () { return 'white'; }), toast: 'ล้างกลับเป็น CZ ขาวทั้งหมดแล้ว' }); },
+      undo: function () { if (st.prev) self.setState({ gems: st.prev, prev: null, toast: '' }); else self.setState({ toast: '' }); }
+    };
+  }
+}
+</script>
+</body>
+</html>

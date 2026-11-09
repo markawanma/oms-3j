@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<title>ออกแบบแหวนแถว · สรุป</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+Thai:wght@500;600;700&amp;family=IBM+Plex+Sans+Thai:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#a2191d}a:hover{color:#7d1316}
+button{font:inherit;color:inherit;cursor:pointer}
+.serif{font-family:'Noto Serif Thai',serif}
+.back{width:44px;height:44px;border-radius:99px;display:flex;align-items:center;justify-content:center;color:#2B1E1E;margin-left:-10px}
+.seg{flex:1;display:flex;flex-direction:column;gap:4px;font-size:12px;color:#6A5B58}
+.seg i{display:block;height:4px;border-radius:99px;background:#E6DAD0}
+.seg.on{color:#7d1316;font-weight:600}.seg.on i{background:#a2191d}.seg.done i{background:#C98A8C}
+.stepn{width:28px;height:28px;border-radius:99px;background:#a2191d;color:#fff;font-size:14px;font-weight:600;display:flex;align-items:center;justify-content:center;flex:none}
+.sec{display:flex;align-items:center;justify-content:center;gap:8px;min-height:50px;border-radius:14px;border:1.5px solid #D9C9BD;background:#fff;font-size:16px;font-weight:600;width:100%}
+.cta{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;min-height:56px;border:0;border-radius:16px;background:#a2191d;color:#fff;font-size:17px;font-weight:600}
+.cta:hover{background:#7d1316}
+.li{display:flex;gap:8px;font-size:13px;color:#4A3B38;line-height:1.55}
+.ph{background:#FFF1C2;color:#5A3D00;padding:0 4px;border-radius:4px}
+</style>
+</helmet>
+<div style="width: 390px; height: 1580px; box-sizing: border-box; font-family: 'IBM Plex Sans Thai', system-ui, sans-serif; line-height: 1.6; color: #2B1E1E; background: #FBF7F2; display: flex; flex-direction: column; padding: 10px 20px 24px">
+  <header style="display: flex; align-items: center; gap: 6px; min-height: 44px">
+    <a class="back" href="B3.dc.html" aria-label="กลับไปเลือกไซซ์"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg></a>
+    <h1 class="serif" style="flex: 1; margin: 0; font-size: 19px; font-weight: 600">สรุปแหวนของคุณ</h1>
+  </header>
+  <nav aria-label="ขั้นตอน" style="display: flex; gap: 6px; margin-top: 4px">
+    <span class="seg done"><i></i>แบบ</span><span class="seg done"><i></i>พลอย</span><span class="seg done"><i></i>ไซซ์</span><span class="seg on"><i></i>สรุป</span>
+  </nav>
+
+  <div style="margin-top: 14px; padding: 12px 14px; border-radius: 16px; background: #FFF4E5; border: 1px solid #EBCB97; font-size: 14px; color: #4A3200; line-height: 1.55"><strong>ยังไม่ใช่การสั่งซื้อ</strong> — ส่งรูปนี้ให้แอดมินทาง LINE เพื่อยืนยันราคา ไซซ์ และการชำระเงิน</div>
+
+  <div style="display: flex; align-items: center; gap: 10px; margin-top: 18px">
+    <span class="stepn">1</span>
+    <div style="line-height: 1.4"><h2 class="serif" style="margin: 0; font-size: 18px; font-weight: 600">บันทึกรูปนี้ก่อน</h2><div style="font-size: 13px; color: #5C4D49">กดค้างที่รูป แล้วเลือก "บันทึกรูป"</div></div>
+  </div>
+
+  <figure style="margin: 12px auto 0; width: 300px; height: 533px; overflow: hidden; border-radius: 16px; box-shadow: 0 8px 24px rgba(43,30,30,.14), 0 0 0 1px #E3D1BD">
+    <div style="width: 1080px; height: 1920px; transform: scale(0.277778); transform-origin: 0 0">
+      <dc-import name="SummaryImage" hint-size="1080px,1920px"></dc-import>
+    </div>
+  </figure>
+  <div style="margin-top: 10px">
+    <button class="sec" onClick="{{save}}">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 19h14"></path></svg>{{saveLabel}}
+    </button>
+  </div>
+
+  <section aria-label="รหัสสั่งทำ" style="margin-top: 14px; display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 16px; background: #fff; border: 1px solid #EADFD6">
+    <div style="flex: 1; line-height: 1.35"><div style="font-size: 12px; color: #6A5B58">รหัสสั่งทำ (ตัวอย่าง)</div><div style="font-size: 20px; font-weight: 600; letter-spacing: .06em; font-family: ui-monospace, Menlo, monospace">3JR-7K2M-9XQP</div></div>
+    <button style="min-height: 44px; padding: 0 14px; border-radius: 12px; border: 1px solid #D9C9BD; background: #fff; font-weight: 600; font-size: 14px">คัดลอกรหัส</button>
+  </section>
+
+  <div style="margin-top: 12px; display: flex; flex-direction: column; gap: 4px">
+    <div class="li"><span aria-hidden="true" style="color: #a2191d">•</span><span>ผลิตแบบ pre-order ไม่เกิน 21 วัน แอดมินจะแจ้งถ้าเสร็จเร็วกว่านี้ <span class="ph">[ต้องยืนยัน: นับจากวันไหน · Q5]</span></span></div>
+    <div class="li"><span aria-hidden="true" style="color: #a2191d">•</span><span>ราคา ณ วันที่ 9 พ.ย. 2569 · แอดมินเป็นผู้ยืนยันราคาสุดท้าย</span></div>
+    <div class="li"><span aria-hidden="true" style="color: #a2191d">•</span><span>CZ คือคิวบิกเซอร์โคเนีย ไม่ใช่เพชร</span></div>
+    <div class="li"><span aria-hidden="true" style="color: #a2191d">•</span><span><span class="ph">[ต้องยืนยัน: วัสดุ/การชุบตัวเรือน · Q7]</span> <span class="ph">[ต้องยืนยัน: ราคารวมค่าส่งไหม · Q8]</span></span></div>
+  </div>
+
+  <div style="display: flex; align-items: center; gap: 10px; margin-top: 20px">
+    <span class="stepn">2</span>
+    <div style="line-height: 1.4"><h2 class="serif" style="margin: 0; font-size: 18px; font-weight: 600">ส่งให้แอดมินทาง LINE</h2><div style="font-size: 13px; color: #5C4D49">กดปุ่มล่าง ระบบคัดลอกข้อความให้ แล้วเปิดแชท @3jjewelry<br>ในแชท: วางข้อความ + ส่งรูปที่บันทึกไว้</div></div>
+  </div>
+
+  <details style="margin-top: 10px; background: #fff; border: 1px solid #EADFD6; border-radius: 14px; padding: 4px 14px">
+    <summary style="min-height: 44px; display: flex; align-items: center; font-size: 14px; font-weight: 600; cursor: pointer">ดูข้อความที่จะคัดลอก</summary>
+    <p style="margin: 0 0 12px; font-size: 13px; color: #4A3B38; white-space: pre-line; line-height: 1.6">สวัสดี ขอสั่งทำแหวนตามแบบนี้
+แบบ: แถว 5 เม็ด แบบ ก (พลอย 2×2 มม.)
+ไซซ์: เบอร์ 54
+พลอย (นับซ้ายไปขวา): 1 CZ แดง · 2 CZ ขาว · 3 CZ แดง · 4 CZ ขาว · 5 CZ ขาว
+ราคารวม ฿1,250 (ณ 9 พ.ย. 2569)
+รหัสสั่งทำ: 3JR-7K2M-9XQP
+รบกวนยืนยันราคาและขั้นตอนต่อไป</p>
+  </details>
+
+  <sc-if value="{{askSave}}" hint-placeholder-val="{{false}}">
+    <div role="alertdialog" aria-label="ยังไม่ได้บันทึกรูป" style="margin-top: 12px; padding: 14px; border-radius: 16px; background: #fff; border: 2px solid #a2191d; display: flex; flex-direction: column; gap: 10px">
+      <div style="font-size: 15px; line-height: 1.5"><strong>บันทึกรูปแล้วหรือยัง?</strong><br><span style="font-size: 13px; color: #5C4D49">เปิด LINE แล้วมักกลับมาที่หน้านี้ไม่ได้ ถ้ายังไม่บันทึก แอดมินจะได้แค่ข้อความ</span></div>
+      <div style="display: flex; gap: 8px">
+        <button class="sec" style="flex: 1" onClick="{{save}}">บันทึกรูปก่อน</button>
+        <button class="sec" style="flex: 1" onClick="{{goAnyway}}">ไปต่อเลย</button>
+      </div>
+    </div>
+  </sc-if>
+  <sc-if value="{{opened}}" hint-placeholder-val="{{false}}">
+    <div role="status" style="margin-top: 12px; padding: 12px 14px; border-radius: 14px; background: #EAF3EC; color: #1F5132; font-size: 14px">คัดลอกข้อความแล้ว · กำลังเปิดแชท LINE…</div>
+  </sc-if>
+
+  <div style="flex: 1"></div>
+  <button class="cta" onClick="{{send}}">
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round" aria-hidden="true"><path d="M12 4c5 0 9 3.1 9 7s-4 7-9 7c-.9 0-1.7-.1-2.5-.3L5 20l1-3.5C4.2 15.2 3 13.2 3 11c0-3.9 4-7 9-7z"></path></svg>คัดลอกข้อความ แล้วเปิด LINE
+  </button>
+  <a href="B2.dc.html" style="margin-top: 8px; min-height: 44px; display: flex; align-items: center; justify-content: center; font-size: 15px; font-weight: 600">แก้ไขแหวน</a>
+  <p style="margin: 6px 0 0; text-align: center; font-size: 12px; color: #6A5B58"><span class="ph">[ต้องยืนยัน: ข้อความความเป็นส่วนตัว — ขึ้นกับว่ารหัสถูกเก็บฝั่งเซิร์ฟเวอร์ไหม]</span></p>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1580}}'>
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { saved: false, ask: false, opened: false }; }
+  renderVals() {
+    var self = this, st = this.state;
+    return {
+      saveLabel: st.saved ? 'บันทึกรูปแล้ว' : 'บันทึกรูป',
+      askSave: st.ask, opened: st.opened,
+      save: function () { self.setState({ saved: true, ask: false }); },
+      goAnyway: function () { self.setState({ ask: false, opened: true }); },
+      send: function () { if (st.saved) self.setState({ opened: true }); else self.setState({ ask: true }); }
+    };
+  }
+}
+</script>
+</body>
+</html>

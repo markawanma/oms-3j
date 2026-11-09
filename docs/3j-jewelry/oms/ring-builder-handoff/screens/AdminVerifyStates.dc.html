@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<title>หลังบ้าน · ป้ายผลตรวจรหัส</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+button{font:inherit;color:inherit;cursor:pointer}
+.card{background:#fff;border:1px solid #E8E2E2;border-radius:14px;padding:16px 18px;display:flex;flex-direction:column;gap:8px}
+.badge{align-self:flex-start;font-size:13px;font-weight:600;padding:3px 10px;border-radius:6px}
+.card h2{margin:0;font-size:17px;font-weight:700}
+.card p{margin:0;font-size:14px;color:#3D3537}
+.act{font-size:13px;color:#5C5456}
+.btn{align-self:flex-start;min-height:40px;padding:0 14px;border-radius:10px;border:1px solid #D6CECE;background:#fff;font-size:14px;font-weight:600}
+</style>
+</helmet>
+<div style="min-height: 1000px; box-sizing: border-box; font-family: 'Noto Sans Thai', system-ui, sans-serif; line-height: 1.55; color: #2A2425; background: #F6F3F3; padding: 28px; display: flex; flex-direction: column; gap: 18px">
+  <div>
+    <h1 style="margin: 0; font-size: 24px; font-weight: 700">ผลตรวจรหัสสั่งทำ · ทุกแบบ</h1>
+    <p style="margin: 2px 0 0; font-size: 13px; color: #5C5456">แต่ละป้ายต้องแยกกันชัด โดยเฉพาะ "ระบบตรวจไม่ได้" ห้ามปนกับ "รหัสผิด"</p>
+  </div>
+  <div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 360px), 1fr)); gap: 14px">
+    <div class="card">
+      <span class="badge" style="background: #F0EBEB; color: #3D3537">ไม่พบรหัส</span>
+      <h2>ไม่พบรหัสในข้อความที่วาง</h2>
+      <p>ข้อความที่วางอาจไม่ครบ ลองวางใหม่ทั้งก้อน หรือพิมพ์รหัสจากรูป</p>
+      <span class="act">ยังไม่ใช่ "รหัสผิด" — ขอให้ตรวจว่าวางครบ</span>
+    </div>
+    <div class="card">
+      <span class="badge" style="background: #FDE4E1; color: #B42318">รูปแบบผิด</span>
+      <h2>รหัสไม่ผ่านการตรวจเลขท้าย</h2>
+      <p>อาจพิมพ์ผิดหรือถูกแก้ ลองเทียบกับรหัสในรูปที่ลูกค้าส่ง</p>
+      <span class="act">ถ้ายังไม่ผ่าน: ขอให้ลูกค้าส่งรูปหรือรหัสใหม่</span>
+    </div>
+    <div class="card">
+      <span class="badge" style="background: #FDE4E1; color: #B42318">ไม่ได้ออกโดยระบบ</span>
+      <h2>ระบบไม่ได้ออกรหัสนี้</h2>
+      <p>รูปแบบถูกต้อง แต่ระบบไม่เคยออกรหัสนี้ (ลายเซ็นไม่ตรง)</p>
+      <span class="act">ห้ามรับออเดอร์จากรหัสนี้ · ให้ลูกค้าออกแบบใหม่</span>
+    </div>
+    <div class="card">
+      <span class="badge" style="background: #E4EEFB; color: #1C4F9C">เวอร์ชันเก่า / แบบปิดแล้ว</span>
+      <h2>รหัสถูกต้อง แต่แบบนี้ปิดไปแล้ว</h2>
+      <p>แสดงรายละเอียดตามที่บันทึกไว้ตอนออกรหัส · แบบ "แถว 7 เม็ด" ปิดเมื่อ 1 พ.ย. 2569</p>
+      <span class="act">แอดมินตัดสินว่าจะรับทำหรือเสนอแบบอื่น</span>
+    </div>
+    <div class="card">
+      <span class="badge" style="background: #FFF1D6; color: #7A4B00">ราคา/พลอยเปลี่ยน</span>
+      <h2>รหัสถูกต้อง แต่ราคาหรือพลอยเปลี่ยนจากตอนสร้าง</h2>
+      <p>แสดงส่วนต่างรายบรรทัด และพลอยที่ปิดไปแล้ว · ไม่บล็อก</p>
+      <span class="act">ดูตัวอย่างเต็มในหน้า "ตรวจรหัสสั่งทำ"</span>
+    </div>
+    <div class="card" style="border: 1.5px dashed #5C5456">
+      <span class="badge" style="background: #2A2425; color: #fff">ระบบตรวจไม่ได้</span>
+      <h2>ตรวจไม่ได้ในตอนนี้ (ปัญหาฝั่งระบบ)</h2>
+      <p>ไม่ได้แปลว่ารหัสผิด — อย่าบอกลูกค้าว่ารหัสผิด ลองตรวจใหม่อีกครั้งในอีกสักครู่</p>
+      <button class="btn">ตรวจอีกครั้ง</button>
+    </div>
+    <div class="card">
+      <span class="badge" style="background: #F0EBEB; color: #3D3537">กำลังตรวจ</span>
+      <h2>กำลังตรวจรหัส…</h2>
+      <p>ปุ่ม "ตรวจ" ปิดชั่วคราวระหว่างรอ กันกดซ้ำ</p>
+    </div>
+    <div class="card">
+      <span class="badge" style="background: #F0EBEB; color: #3D3537">ยังว่าง</span>
+      <h2>ยังไม่ได้วางรหัส</h2>
+      <p>วางรหัส หรือข้อความจากแชทในกล่องด้านบน แล้วกด "ตรวจ" · หน้านี้ไม่เก็บประวัติการตรวจ</p>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

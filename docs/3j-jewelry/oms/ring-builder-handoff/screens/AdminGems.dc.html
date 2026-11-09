@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<title>หลังบ้าน · พลอยสำหรับออกแบบแหวน</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#a2191d}a:hover{color:#7d1316}
+button{font:inherit;color:inherit;cursor:pointer}
+input,select{font:inherit;color:inherit}
+.nav a{display:flex;align-items:center;min-height:40px;padding:0 12px;border-radius:10px;color:#2A2425;text-decoration:none;font-size:14px}
+.nav a.on{background:#F6E3E3;color:#7d1316;font-weight:600}
+.btn{min-height:40px;padding:0 16px;border-radius:10px;border:1px solid #D6CECE;background:#fff;font-size:14px;font-weight:600}
+.btn.pri{background:#a2191d;border-color:#a2191d;color:#fff}
+th{font-size:12px;font-weight:600;color:#5C5456;text-align:left;padding:10px 12px;border-bottom:1px solid #E8E2E2;white-space:nowrap}
+td{font-size:14px;padding:12px;border-bottom:1px solid #F0EBEB;vertical-align:middle}
+.sw{display:inline-block;width:18px;height:18px;border-radius:99px;vertical-align:-4px;margin-right:8px}
+.badge{display:inline-block;font-size:12px;font-weight:600;padding:2px 8px;border-radius:6px;white-space:nowrap}
+.fld{display:flex;flex-direction:column;gap:4px;font-size:13px;font-weight:600;color:#2A2425}
+.fld input,.fld select{min-height:40px;padding:0 10px;border-radius:10px;border:1px solid #D6CECE;font-size:14px;font-weight:400;background:#fff}
+</style>
+</helmet>
+<div style="min-height: 1000px; box-sizing: border-box; font-family: 'Noto Sans Thai', system-ui, sans-serif; line-height: 1.55; color: #2A2425; background: #F6F3F3; display: flex; flex-wrap: wrap">
+  <aside style="flex: 1 1 220px; max-width: 240px; background: #fff; border-right: 1px solid #E8E2E2; padding: 18px 12px; box-sizing: border-box">
+    <img src="../assets/3j-logo.png" alt="3J" style="height: 34px; width: auto; margin: 0 8px 14px">
+    <nav class="nav" aria-label="เมนู" style="display: flex; flex-direction: column; gap: 2px">
+      <div style="font-size: 12px; color: #5C5456; padding: 8px 12px 4px">ออกแบบแหวน</div>
+      <a class="on" href="AdminGems.dc.html" aria-current="page">พลอย (ราคาขาย)</a>
+      <a href="AdminDesigns.dc.html">แบบแหวน</a>
+      <a href="AdminVerify.dc.html">ตรวจรหัสสั่งทำ</a>
+    </nav>
+  </aside>
+
+  <main style="flex: 999 1 560px; min-width: 0; padding: 24px 28px; box-sizing: border-box; display: flex; flex-direction: column; gap: 16px">
+    <div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap">
+      <div>
+        <h1 style="margin: 0; font-size: 24px; font-weight: 700">พลอยสำหรับออกแบบแหวน (ราคาขาย)</h1>
+        <p style="margin: 2px 0 0; font-size: 13px; color: #5C5456">ราคาที่ลูกค้าเห็นบนหน้าออกแบบแหวน · แยกจากต้นทุนพลอยงานผลิต (/oem/gems)</p>
+      </div>
+      <button class="btn pri">+ เพิ่มพลอย</button>
+    </div>
+
+    <section aria-label="ทรงพลอย" style="background: #fff; border: 1px solid #E8E2E2; border-radius: 14px; padding: 14px 16px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap">
+      <div style="flex: 1 1 260px; line-height: 1.45"><div style="font-size: 15px; font-weight: 700">ทรงพลอย</div><div style="font-size: 12px; color: #5C5456">กรอกขนาดเป็น กว้าง × ยาว (มม.) ทุกทรง เช่น กลม 2×2 · ไข่ 4×3</div></div>
+      <div style="display: flex; gap: 8px; flex-wrap: wrap; align-items: center">
+        <span style="display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 14px; border-radius: 999px; background: #F6F3F3; border: 1px solid #E8E2E2; font-size: 14px; font-weight: 600"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.5" fill="#fff" stroke="#5C5456" stroke-width="1.5"></circle></svg>กลม · ใช้ใน 6 แบบ</span>
+        <span style="display: inline-flex; align-items: center; gap: 8px; min-height: 40px; padding: 0 14px; border-radius: 999px; background: #F6F3F3; border: 1px solid #E8E2E2; font-size: 14px; font-weight: 600"><svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><ellipse cx="8" cy="8" rx="4.8" ry="7" fill="#fff" stroke="#5C5456" stroke-width="1.5"></ellipse></svg>ไข่ · ใช้ใน 1 แบบ</span>
+        <button class="btn">+ เพิ่มทรง</button>
+      </div>
+    </section>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start">
+      <section aria-label="รายการพลอย" style="flex: 999 1 560px; min-width: 0; background: #fff; border: 1px solid #E8E2E2; border-radius: 14px">
+        <div style="display: flex; gap: 10px; padding: 12px; border-bottom: 1px solid #E8E2E2; flex-wrap: wrap">
+          <label for="gq" style="position: absolute; left: -9999px">ค้นหาพลอย</label>
+          <input id="gq" placeholder="ค้นหาชื่อพลอย" style="flex: 1; min-width: 180px; min-height: 40px; padding: 0 12px; border-radius: 10px; border: 1px solid #D6CECE">
+          <label for="gs" style="position: absolute; left: -9999px">กรองสถานะ</label>
+          <select id="gs" style="min-height: 40px; padding: 0 10px; border-radius: 10px; border: 1px solid #D6CECE; background: #fff"><option>ทุกสถานะ</option><option>เปิดขาย</option><option>ปิด</option></select>
+        </div>
+        <div style="overflow-x: auto">
+          <table style="width: 100%; border-collapse: collapse; min-width: 720px">
+            <thead><tr><th>ลำดับ</th><th>พลอย</th><th>ราคาตามทรงและขนาด</th><th>ขายได้ในแบบ</th><th>สถานะ</th><th></th></tr></thead>
+            <tbody>
+              <tr><td>0</td><td><span class="sw" style="background: #F6F6F8; border: 1px solid #9A9AA6"></span><strong>CZ ขาว</strong> <span class="badge" style="background: #F0EBEB; color: #5C5456">ค่าเริ่มต้น</span></td><td style="color: #5C5456">รวมในตัวเรือน</td><td>7/7 แบบ</td><td><span class="badge" style="background: #DDF3EA; color: #13613F">เปิดเสมอ</span></td><td></td></tr>
+              <tr><td>1</td><td><span class="sw" style="background: #C4162A"></span><strong>CZ แดง</strong></td><td>กลม 2×2 ฿80 · กลม 3×3 ฿110<br>ไข่ 4×3 ฿120</td><td>7/7 แบบ</td><td><span class="badge" style="background: #DDF3EA; color: #13613F">เปิดขาย</span></td><td><button class="btn">แก้ไข</button></td></tr>
+              <tr><td>2</td><td><span class="sw" style="background: #F07AA8"></span><strong>CZ ชมพู</strong></td><td>กลม 2×2 ฿80 · กลม 3×3 ฿110<br>ไข่ 4×3 ฿120</td><td>7/7 แบบ</td><td><span class="badge" style="background: #DDF3EA; color: #13613F">เปิดขาย</span></td><td><button class="btn">แก้ไข</button></td></tr>
+              <tr style="background: #FBF7F7"><td>3</td><td><span class="sw" style="background: #1E9E6A"></span><strong>CZ เขียว</strong></td><td>กลม 2×2 ฿90</td><td><span class="badge" style="background: #FFF1D6; color: #7A4B00">4/7 แบบ</span><div style="font-size: 12px; color: #5C5456; margin-top: 2px">ขาด 5 เม็ด แบบ ข · 7 เม็ด แบบ ข (ไม่มีราคา กลม 3×3)<br>ขาด 7 เม็ด แบบ ค (ไม่มีราคา ไข่ 4×3)</div></td><td><span class="badge" style="background: #DDF3EA; color: #13613F">เปิดขาย</span></td><td><button class="btn" style="border-color: #a2191d; color: #a2191d">กำลังแก้</button></td></tr>
+              <tr><td>4</td><td><span class="sw" style="background: #7B4FC9"></span><strong>CZ ม่วง</strong></td><td>กลม 2×2 ฿80 · กลม 3×3 ฿110</td><td style="color: #5C5456">— (ปิดอยู่)</td><td><span class="badge" style="background: #F0EBEB; color: #5C5456">ปิด</span></td><td><button class="btn">แก้ไข</button></td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p style="margin: 0; padding: 10px 12px; font-size: 12px; color: #5C5456">ชื่อพลอยในตารางเป็นตัวอย่าง · ชื่อจริงต้องตรงชนิดวัสดุ (รอ Q4)</p>
+      </section>
+
+      <section aria-label="แก้ไขพลอย" style="flex: 1 1 340px; max-width: 420px; background: #fff; border: 1px solid #E8E2E2; border-radius: 14px; padding: 18px; display: flex; flex-direction: column; gap: 12px; box-sizing: border-box">
+        <h2 style="margin: 0; font-size: 18px; font-weight: 700">แก้ไข · CZ เขียว</h2>
+        <div class="fld"><label for="g1">ชื่อพลอย (ลูกค้าเห็น)</label><input id="g1" value="CZ เขียว"></div>
+        <div class="fld"><label for="g2">สี (ข้อความที่ลูกค้าเห็น)</label><input id="g2" value="เขียว"></div>
+        <div class="fld"><label for="g3">สีที่ใช้แสดงในภาพแหวน</label><div style="display: flex; gap: 8px; align-items: center"><input id="g3" type="color" value="#1E9E6A" style="width: 56px; padding: 2px"><span style="font-size: 13px; font-weight: 400; color: #5C5456">#1E9E6A</span></div></div>
+        <div style="display: flex; flex-direction: column; gap: 6px">
+          <div style="font-size: 13px; font-weight: 600">ราคาต่อเม็ดตามทรงและขนาด</div>
+          <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; align-items: center; font-size: 12px; color: #5C5456"><span>ทรง</span><span>ขนาด (มม.)</span><span>ราคา (บาท)</span><span></span></div>
+          <div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; align-items: center">
+            <select aria-label="ทรงแถว 1" style="min-height: 40px; padding: 0 6px; border-radius: 10px; border: 1px solid #D6CECE; background: #fff"><option>กลม</option><option>ไข่</option></select><input aria-label="ขนาดแถว 1" value="2×2" style="min-height: 40px; padding: 0 10px; border-radius: 10px; border: 1px solid #D6CECE; min-width: 0"><input aria-label="ราคาแถว 1" value="90" style="min-height: 40px; padding: 0 10px; border-radius: 10px; border: 1px solid #D6CECE; min-width: 0"><button class="btn" style="padding: 0 8px">ลบ</button>
+            <select aria-label="ทรงแถว 2" style="min-height: 40px; padding: 0 6px; border-radius: 10px; border: 1px solid #D6CECE; background: #fff"><option>กลม</option><option>ไข่</option></select><input aria-label="ขนาดแถว 2" value="2×2" style="min-height: 40px; padding: 0 10px; border-radius: 10px; border: 1.5px solid #B42318; min-width: 0"><input aria-label="ราคาแถว 2" value="110" style="min-height: 40px; padding: 0 10px; border-radius: 10px; border: 1px solid #D6CECE; min-width: 0"><button class="btn" style="padding: 0 8px">ลบ</button>
+            <select aria-label="ทรงแถว 3" style="min-height: 40px; padding: 0 6px; border-radius: 10px; border: 1px solid #D6CECE; background: #fff"><option>ไข่</option><option>กลม</option></select><input aria-label="ขนาดแถว 3 กว้าง×ยาว" value="4×3" style="min-height: 40px; padding: 0 10px; border-radius: 10px; border: 1px solid #D6CECE; min-width: 0"><input aria-label="ราคาแถว 3" value="130" style="min-height: 40px; padding: 0 10px; border-radius: 10px; border: 1px solid #D6CECE; min-width: 0"><button class="btn" style="padding: 0 8px">ลบ</button>
+          </div>
+          <div role="alert" style="font-size: 12px; color: #B42318">กลม 2×2 ซ้ำ — แก้เป็น 3×3 เพื่อให้ขายได้ใน 5 เม็ด แบบ ข และ 7 เม็ด แบบ ข</div>
+          <div style="font-size: 12px; color: #5C5456">ทรง + ขนาดต้องตรงกับแบบแหวน พลอยจึงจะขึ้นให้ลูกค้าเลือก</div>
+          <button class="btn" style="align-self: flex-start">+ เพิ่มทรง/ขนาด</button>
+        </div>
+        <div style="display: flex; gap: 10px; flex-wrap: wrap">
+          <div class="fld" style="flex: 1"><label for="g4">ลำดับที่แสดง</label><input id="g4" value="3"></div>
+          <div class="fld" style="flex: 1"><label for="g5">สถานะ</label><select id="g5"><option>เปิดขาย</option><option>ปิด</option></select></div>
+        </div>
+        <div style="padding: 10px 12px; border-radius: 10px; background: #FFF8EC; font-size: 12px; color: #7A4B00">ถ้าปิด: ลูกค้าที่กำลังออกแบบต้องเลือกพลอยใหม่ · รหัสที่ออกไปแล้วยังตรวจได้ · แก้ราคา = มีผลกับการออกแบบหลังจากนี้ รหัสเก่าคงราคาเดิม</div>
+        <div style="display: flex; gap: 8px; justify-content: flex-end"><button class="btn">ยกเลิก</button><button class="btn pri">บันทึก</button></div>
+      </section>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>
