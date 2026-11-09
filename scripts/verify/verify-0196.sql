@@ -707,6 +707,37 @@ begin
   else
     perform pg_temp.skip('T19b (actor staff)', 'ไม่มีสมาชิก staff ในร้านนี้ให้ทดสอบ');
   end if;
+  -- T19e (QA เพิ่ม 10 พ.ย. 69 — อุด SKIP ของ T19b): ถ้าร้านไม่มี staff ให้ลดสิทธิ์ actor เป็น staff "ชั่วคราวในทรานแซกชันที่ rollback" แล้วลองหลาย RPC หลังบ้าน แล้วคืนสิทธิ์เดิม
+  --   (UPDATE shop_member ตรงเฉพาะเคสนี้ — ตั้งใจพิสูจน์ว่า actor ที่ role ไม่ใช่ owner/admin ถูกปฏิเสธ · ไม่ใช่ข้อมูลตัวนับ/เอกสารกฎหมาย · ถ้าลดสิทธิ์ไม่ได้ → SKIP ไม่ใช่ PASS)
+  if v_staff is null then
+    declare
+      v_orig_role text;
+      v_dem text;
+    begin
+      select m.role into v_orig_role from public.shop_member m where m.shop_id = v_shop and m.user_id = v_actor;
+      v_dem := pg_temp.t_try(format('update public.shop_member set role = %L where shop_id = %L and user_id = %L', 'staff', v_shop, v_actor));
+      if v_dem = 'OK' then
+        v_s := 'ok';
+        foreach v_txt in array array[
+          format('select analytics.rb_shape_upsert(%L,%L,null,%L,%L,0)', v_shop, v_actor, 'staff-' || v_sfx, 'round'),
+          format('select analytics.rb_offer_price_set(%L,%L,%L,99)', v_shop, v_actor, of_a_round),
+          format('select analytics.rb_design_price_set(%L,%L,%L,99)', v_shop, v_actor, d1),
+          format('select analytics.rb_design_publish(%L,%L,%L)', v_shop, v_actor, d3),
+          format('select analytics.rb_set_active(%L,%L,%L,%L,false)', v_shop, v_actor, 'stone', st_b),
+          format('select analytics.rb_admin_catalog(%L,%L)', v_shop, v_actor),
+          format('select analytics.rb_code_check(%L,%L,%s,54,array[0,0,0,0,0],now(),480)', v_shop, v_actor, n1)] loop
+          if pg_temp.t_try(v_txt) <> '42501:rb_actor_forbidden' then
+            v_s := v_s || ' miss: ' || left(v_txt, 40) || '=>' || pg_temp.t_try(v_txt);
+          end if;
+        end loop;
+        execute format('update public.shop_member set role = %L where shop_id = %L and user_id = %L', v_orig_role, v_shop, v_actor);
+        perform pg_temp.chk('T19e (actor ถูกลดเป็น staff ชั่วคราว → RPC หลังบ้านที่ลอง 7 ตัว = 42501 rb_actor_forbidden · คืนสิทธิ์เดิมแล้ว)',
+          v_s = 'ok' and (select m.role::text from public.shop_member m where m.shop_id = v_shop and m.user_id = v_actor) = v_orig_role, v_s);
+      else
+        perform pg_temp.skip('T19e (staff จำลอง)', 'ลดสิทธิ์ actor ไม่ได้ในทรานแซกชัน: ' || v_dem);
+      end if;
+    end;
+  end if;
   -- ผู้เรียกที่ไม่ใช่ service_role และไม่ใช่สมาชิก (authenticated ไร้ uid) → crm_require_owner_admin ปฏิเสธก่อน
   perform set_config('request.jwt.claims', '{"role":"authenticated"}', true);
   v_s := pg_temp.t_try(format('select analytics.rb_admin_catalog(%L,%L)', v_shop, v_actor));
