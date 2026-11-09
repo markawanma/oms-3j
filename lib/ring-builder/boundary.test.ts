@@ -67,8 +67,15 @@ const PUBLIC_ENTRIES = [
   "lib/ring-builder/mm.ts",
   "lib/ring-builder/last-size.ts",
 ];
-// หน้า/คอมโพเนนต์ของลูกค้า (frontend เพิ่มภายหลัง) — เทสต์นี้จะครอบเมื่อมีไฟล์
-const OPTIONAL_PUBLIC_DIRS = ["app/(quiz)/ring-builder"];
+/** path ของ page.tsx → URL (ตัด route group `(x)` ออก · ไม่ฮาร์ดโค้ดที่ตั้งของหน้า) · เช่น app/(dashboard)/catalog/ring-builder/page.tsx → /catalog/ring-builder */
+export function urlOfPage(file: string): string {
+  const segs = file.replace(/\\/g, "/").split("/").slice(1, -1).filter((s) => !/^\(.+\)$/.test(s));
+  return "/" + segs.join("/");
+}
+
+function pagesAt(url: string): string[] {
+  return walk(join(ROOT, "app")).map(rel).filter((f) => /\/page\.tsx$/.test(f) && urlOfPage(f) === url);
+}
 
 function walk(dir: string, out: string[] = []): string[] {
   if (!existsSync(dir)) return out;
@@ -88,12 +95,30 @@ const FORBIDDEN = (f: string): string | null => {
 };
 
 describe("กราฟ runtime ของหน้า/route สาธารณะ", () => {
-  const entries = [...PUBLIC_ENTRIES.map((e) => join(ROOT, e)), ...OPTIONAL_PUBLIC_DIRS.flatMap((d) => walk(join(ROOT, d)))];
+  // หน้าสาธารณะ /ring-builder หาจากโครงไฟล์ (ทุก page ที่ URL = /ring-builder ไม่ว่าอยู่ใต้ route group ไหน) + ไฟล์ทั้งโฟลเดอร์ของหน้านั้น
+  const publicPages = pagesAt("/ring-builder");
+  const pageDirFiles = publicPages.flatMap((p) => walk(join(ROOT, p, "..")));
+  const entries = [...PUBLIC_ENTRIES.map((e) => join(ROOT, e)), ...pageDirFiles];
   const files = [...closure(entries)].map(rel);
 
   it("ครบทุก entry และกราฟไม่ว่าง", () => {
     for (const e of PUBLIC_ENTRIES) expect(files).toContain(e);
     expect(files.length).toBeGreaterThan(10);
+  });
+  it("หน้า /ring-builder (ถ้ามี) ต้องไม่อยู่ใต้ (dashboard) หรือ route group ที่ผ่าน auth gate — มีได้เฉพาะกลุ่มสาธารณะ (quiz)", () => {
+    for (const p of publicPages) {
+      expect(p, p).not.toMatch(/\(dashboard\)/);
+    }
+  });
+  it("urlOfPage ตัด route group และไม่จับ /catalog/ring-builder ของหลังบ้านผิดเป็น /ring-builder", () => {
+    expect(urlOfPage("app/(quiz)/ring-builder/page.tsx")).toBe("/ring-builder");
+    expect(urlOfPage("app/ring-builder/page.tsx")).toBe("/ring-builder");
+    expect(urlOfPage("app/(dashboard)/ring-builder/page.tsx")).toBe("/ring-builder");
+    expect(urlOfPage("app/(dashboard)/catalog/ring-builder/page.tsx")).toBe("/catalog/ring-builder");
+    expect(urlOfPage("app/(dashboard)/catalog/ring-builder/[id]/page.tsx")).toBe("/catalog/ring-builder/[id]");
+    expect(urlOfPage("app/(quiz)/ring-builders/page.tsx")).toBe("/ring-builders");
+    // หน้าหลังบ้านไม่ถูกนับเป็นหน้าสาธารณะ
+    expect(pagesAt("/ring-builder").every((f) => !/\/catalog\//.test(f))).toBe(true);
   });
   it("ไม่ลาก lib/actions/** · lib/jobs/gems* · admin-server/admin-types", () => {
     const bad = files.map((f) => [f, FORBIDDEN(f)] as const).filter(([, why]) => why);

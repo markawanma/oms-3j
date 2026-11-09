@@ -1,6 +1,7 @@
 // lib/ring-builder/code-sign.ts — เซ็น/ตรวจรหัสสั่งทำด้วย HMAC-SHA256 (server-only)
 // secret = env RING_BUILDER_CODE_SECRET (≥ 32 ตัว · แยกจาก GEM_QUIZ_TOKEN_SECRET) — ไม่มี/สั้นเกิน = ไม่เซ็น ไม่ตรวจ (fail closed: route 503 · แอดมิน "ระบบตรวจไม่ได้" ไม่ใช่ "ถูก")
 // ข้อความที่เซ็น = "rb" ‖ ver(1 ไบต์) ‖ payload bits (เติม 0 ให้ครบไบต์) · tag = 60 บิตแรกของ digest · เทียบด้วย timingSafeEqual
+// 🔴 RUNBOOK: ห้ามเปลี่ยนค่า secret โดยไม่ขยับ ver (CODE_VERSION ใน code.ts) พร้อมรองรับ secret เก่าแบบตรวจอย่างเดียว — เปลี่ยนเฉยๆ = รหัสที่ลูกค้าถือค้างอยู่ทั้งหมดกลายเป็น "ไม่ได้ออกโดยระบบ" (not_issued) ทั้งที่ออกจริง
 // หมุน secret = รหัสเก่าตรวจไม่ได้ (ยอมรับตาม design §2 — ถ้าต้องหมุนจริงใช้ ver nibble) · ห้าม log secret/tag/ข้อความที่เซ็น
 import "server-only";
 import { createHmac, timingSafeEqual } from "node:crypto";

@@ -132,6 +132,11 @@ export interface CodeCheckView {
   ageDays: number;
   designActive: boolean;
   designClosedLabel: string | null;
+  /** ทรงพลอยของแบบนี้ยังเปิดอยู่ไหม (ทรงปิด = ขายแบบนี้ไม่ได้ แม้แบบเองยังเปิด) */
+  shapeActive: boolean;
+  /** วันที่ปิดของตัวที่ปิดจริง (แบบหรือทรง) · null = ขายได้อยู่ */
+  closedLabel: string | null;
+  closedBy: "design" | "shape" | null;
   lines: CodeCheckLine[];
   rows: CodeCheckRow[];
   creationTotalThb: number | null;

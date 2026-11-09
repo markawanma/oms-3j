@@ -84,6 +84,7 @@ export function parseQuoteOk(raw: Raw, expectedCount: number): ParsedQuote | nul
   const lines: QuoteLine[] = [];
   for (const l of raw.lines) {
     if (!isObj(l) || !isInt(l.pos, 1, 7) || !isInt(l.stone_no, 0, 1023) || !isInt(l.price, 0, 100000)) return null;
+    if (l.stone_no > 0 && l.price < 1) return null; // พลอยสีต้องมีราคา ≥ 1 (กันซ้ำกับ CHECK ใน DB)
     if (l.stone_no === 0) lines.push({ pos: l.pos, stoneNo: 0, name: CZ_WHITE.name, priceThb: 0 });
     else if (typeof l.name === "string") lines.push({ pos: l.pos, stoneNo: l.stone_no, name: l.name, priceThb: l.price });
     else return null;
@@ -141,7 +142,8 @@ export async function issueQuote(req: QuoteRequest): Promise<QuoteOutcome> {
   const pricedAtSec = pricedAtToSec(q.pricedAt);
   if (pricedAtSec === null) return { kind: "error", code: "shape" };
   const issued = issueCode({ designNo: req.design, size: req.size, positions: q.lines.map((l) => l.stoneNo), totalThb: q.total, pricedAtSec });
-  if (!issued.ok) return { kind: "secret" };
+  // L7: secret หาย (503) แยกจาก fields ผิด (บั๊กฝั่งเรา → 500) — ไม่ปนกัน
+  if (!issued.ok) return issued.reason === "secret" ? { kind: "secret" } : { kind: "error", code: "fields" };
   const pricedAtLabel = formatThaiDateBkk(q.pricedAt);
   return {
     kind: "ok",
