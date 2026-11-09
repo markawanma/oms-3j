@@ -3,8 +3,8 @@
 // รูปแบบที่รับ: ^\d{1,2}(\.\d{1,2})?$ (จุดเท่านั้น — "2,5" ปฏิเสธเพราะกำกวม) · ช่วง 0.50–20.00 มม. (50–2000)
 // ขนาดพลอย: "กว้าง×ยาว" รับ × x X * หรือเลขเดียว (2 = 2×2) · canonical: major ≥ minor เสมอ (4×3 = 3×4)
 
-export const MM100_MIN = 50;
-export const MM100_MAX = 2000;
+import { MM100_MAX, MM100_MIN } from "./config";
+export { MM100_MAX, MM100_MIN };
 
 const MM_RE = /^(\d{1,2})(?:\.(\d{1,2}))?$/;
 

@@ -19,8 +19,9 @@ import { MAX_BYTES, MD_MAX_PX, JOB_PHOTO_DIM_SLACK_PX } from "@/lib/images/const
 import { cleanJpegForStorage, extractJpegDimensions, looksLikeJpeg } from "@/lib/images/server";
 import { adminRpc, checkCodeText, mapAdminCatalog } from "@/lib/ring-builder/admin-server";
 import type { AdminCatalog, CodeCheckResult } from "@/lib/ring-builder/admin-types";
-import { RING_BUILDER_BUCKET } from "@/lib/ring-builder/config";
+import { MAX_BODY_PRICE_THB, MAX_DESIGN_NO, MAX_OFFER_PRICE_THB, RING_BUILDER_BUCKET, SORT_MAX, SORT_MIN } from "@/lib/ring-builder/config";
 import { parseStoneSize } from "@/lib/ring-builder/mm";
+import { cpLength, isInt, isObj, type Raw } from "@/lib/ring-builder/util";
 
 export type RingActionResult<T> = { ok: true; data: T } | { ok: false; error: string; code?: string };
 
@@ -29,11 +30,10 @@ const LOGIN_FIRST = "ต้องเข้าสู่ระบบก่อน";
 const BAD_INPUT = "ข้อมูลไม่ถูกต้อง";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_CHECK_TEXT = 4000;
+/** เพดานกันข้อความยักษ์ก่อนส่งถึง DB (ความยาวจริงของชื่อ DB เป็นด่าน: NAME_MAX ใน config) — นับเป็น code point (N4) */
+const NAME_INPUT_CAP = 200;
 
-type Raw = Record<string, unknown>;
-const isObj = (v: unknown): v is Raw => typeof v === "object" && v !== null && !Array.isArray(v);
 const isUuid = (v: unknown): v is string => typeof v === "string" && UUID_RE.test(v);
-const isInt = (v: unknown, lo: number, hi: number): v is number => typeof v === "number" && Number.isInteger(v) && v >= lo && v <= hi;
 const optStr = (v: unknown, max: number): string | null | undefined => (v === undefined || v === null ? null : typeof v === "string" && v.length <= max ? v : undefined);
 const bad = (): { ok: false; error: string } => ({ ok: false, error: BAD_INPUT });
 
@@ -74,10 +74,10 @@ export async function saveRingShape(input: { id?: string | null; name: string; r
     return { ok: false, error: NOT_ALLOWED };
   }
   if (!(await sessionOk())) return { ok: false, error: LOGIN_FIRST };
-  if (!isObj(input) || typeof input.name !== "string" || input.name.length > 100) return bad();
+  if (!isObj(input) || typeof input.name !== "string" || cpLength(input.name) > NAME_INPUT_CAP) return bad();
   if (input.id != null && !isUuid(input.id)) return bad();
   if (input.renderKind != null && input.renderKind !== "round" && input.renderKind !== "oval") return bad();
-  if (input.sort != null && !isInt(input.sort, -1000, 100000)) return bad();
+  if (input.sort != null && !isInt(input.sort, SORT_MIN, SORT_MAX)) return bad();
   const r = await adminRpc<Raw>("rb_shape_upsert", { p_id: input.id ?? null, p_name: input.name, p_render_kind: input.renderKind ?? null, p_sort: input.sort ?? null });
   if (!r.ok) return r;
   if (!isUuid(r.data.id)) return { ok: false, error: "ผลลัพธ์ไม่ถูกต้อง" };
@@ -93,9 +93,9 @@ export async function saveRingStone(input: { id?: string | null; name: string; s
     return { ok: false, error: NOT_ALLOWED };
   }
   if (!(await sessionOk())) return { ok: false, error: LOGIN_FIRST };
-  if (!isObj(input) || typeof input.name !== "string" || input.name.length > 200 || typeof input.shortName !== "string" || input.shortName.length > 50 || typeof input.colorHex !== "string" || input.colorHex.length > 20) return bad();
+  if (!isObj(input) || typeof input.name !== "string" || cpLength(input.name) > NAME_INPUT_CAP || typeof input.shortName !== "string" || cpLength(input.shortName) > NAME_INPUT_CAP || typeof input.colorHex !== "string" || input.colorHex.length > 20) return bad();
   if (input.id != null && !isUuid(input.id)) return bad();
-  if (input.sort != null && !isInt(input.sort, -1000, 100000)) return bad();
+  if (input.sort != null && !isInt(input.sort, SORT_MIN, SORT_MAX)) return bad();
   const r = await adminRpc<Raw>("rb_stone_upsert", { p_id: input.id ?? null, p_name_th: input.name, p_short_name: input.shortName, p_color_hex: input.colorHex, p_sort: input.sort ?? null });
   if (!r.ok) return r;
   if (!isUuid(r.data.id) || !isInt(r.data.stone_no, 1, 1023)) return { ok: false, error: "ผลลัพธ์ไม่ถูกต้อง" };
@@ -125,7 +125,7 @@ export async function setRingOfferPrice(input: { offerId: string; priceThb: numb
     return { ok: false, error: NOT_ALLOWED };
   }
   if (!(await sessionOk())) return { ok: false, error: LOGIN_FIRST };
-  if (!isObj(input) || !isUuid(input.offerId) || !isInt(input.priceThb, 1, 100000)) return bad();
+  if (!isObj(input) || !isUuid(input.offerId) || !isInt(input.priceThb, 1, MAX_OFFER_PRICE_THB)) return bad();
   const r = await adminRpc<Raw>("rb_offer_price_set", { p_offer_id: input.offerId, p_price_thb: input.priceThb });
   if (!r.ok) return r;
   done();
@@ -133,7 +133,7 @@ export async function setRingOfferPrice(input: { offerId: string; priceThb: numb
 }
 
 // ---------------------------------------------------------------------------
-// แบบแหวน — บันทึก (ร่าง/แก้) · ราคาตัวเรือนส่งมาพร้อมกันได้ (ตั้งเมื่อเปลี่ยนจากปัจจุบันเท่านั้น)
+// แบบแหวน — บันทึก (ร่าง/แก้) · ราคาตัวเรือนไปกับคำสั่งเดียว (S1: RPC เดียว ทรานแซกชันเดียว) · สร้างแบบใหม่ต้องมีราคา · แก้แบบเดิมไม่ส่งราคา = ไม่แตะราคา
 // ---------------------------------------------------------------------------
 export interface SaveRingDesignInput {
   id?: string | null;
@@ -155,27 +155,22 @@ export async function saveRingDesign(input: SaveRingDesignInput): Promise<RingAc
     return { ok: false, error: NOT_ALLOWED };
   }
   if (!(await sessionOk())) return { ok: false, error: LOGIN_FIRST };
-  if (!isObj(input) || typeof input.name !== "string" || input.name.length > 200 || !isUuid(input.shapeId) || !isInt(input.stoneCount, 3, 7)) return bad();
+  if (!isObj(input) || typeof input.name !== "string" || cpLength(input.name) > NAME_INPUT_CAP || !isUuid(input.shapeId) || !isInt(input.stoneCount, 3, 7)) return bad();
   if (input.id != null && !isUuid(input.id)) return bad();
   if (input.stoneAxis !== null && input.stoneAxis !== "along_row" && input.stoneAxis !== "across_row") return bad();
   if (!isInt(input.sizeMin, 1, 200) || !isInt(input.sizeMax, 1, 200)) return bad();
-  if (input.sort != null && !isInt(input.sort, -1000, 100000)) return bad();
-  if (input.bodyPriceThb != null && !isInt(input.bodyPriceThb, 1, 1_000_000)) return bad();
+  if (input.sort != null && !isInt(input.sort, SORT_MIN, SORT_MAX)) return bad();
+  if (input.bodyPriceThb != null && !isInt(input.bodyPriceThb, 1, MAX_BODY_PRICE_THB)) return bad();
+  // S1: สร้างแบบใหม่ต้องมีราคาตัวเรือนเสมอ (DB บังคับเหมือนกัน) — บันทึกแบบ+ราคาเป็นคำสั่งเดียวในทรานแซกชันเดียว ไม่มีแบบร่างค้างจากการกดซ้ำ/ราคาล้ม
+  if (input.id == null && input.bodyPriceThb == null) return { ok: false, error: "ต้องตั้งราคาตัวเรือนตอนสร้างแบบ", code: "price_required" };
   const size = parseStoneSize(input.size);
   if (!size.ok) return { ok: false, error: size.reason === "range" ? "ขนาดพลอยต้องอยู่ระหว่าง 0.50-20.00 มม." : "ขนาดพลอยไม่ถูกต้อง (ตัวอย่าง 2×2 · 4×3)", code: "size_invalid" };
   const r = await adminRpc<Raw>("rb_design_upsert", {
     p_id: input.id ?? null, p_name: input.name, p_stone_count: input.stoneCount, p_shape_id: input.shapeId, p_major_mm100: size.major, p_minor_mm100: size.minor,
-    p_axis: input.stoneAxis, p_size_min: input.sizeMin, p_size_max: input.sizeMax, p_sort: input.sort ?? null,
+    p_axis: input.stoneAxis, p_size_min: input.sizeMin, p_size_max: input.sizeMax, p_sort: input.sort ?? null, p_body_price_thb: input.bodyPriceThb ?? null,
   });
   if (!r.ok) return r;
-  if (!isUuid(r.data.id) || !isInt(r.data.design_no, 1, 4095)) return { ok: false, error: "ผลลัพธ์ไม่ถูกต้อง" };
-  if (input.bodyPriceThb != null) {
-    const p = await adminRpc<Raw>("rb_design_price_set", { p_design_id: r.data.id, p_price_thb: input.bodyPriceThb });
-    if (!p.ok) {
-      done();
-      return { ok: false, error: `บันทึกแบบแล้ว แต่ตั้งราคาตัวเรือนไม่สำเร็จ: ${p.error}`, code: p.code };
-    }
-  }
+  if (!isUuid(r.data.id) || !isInt(r.data.design_no, 1, MAX_DESIGN_NO)) return { ok: false, error: "ผลลัพธ์ไม่ถูกต้อง" };
   done();
   return { ok: true, data: { id: r.data.id, designNo: r.data.design_no, created: r.data.created === true } };
 }
@@ -185,7 +180,7 @@ export async function setRingDesignPrice(input: { designId: string; priceThb: nu
     return { ok: false, error: NOT_ALLOWED };
   }
   if (!(await sessionOk())) return { ok: false, error: LOGIN_FIRST };
-  if (!isObj(input) || !isUuid(input.designId) || !isInt(input.priceThb, 1, 1_000_000)) return bad();
+  if (!isObj(input) || !isUuid(input.designId) || !isInt(input.priceThb, 1, MAX_BODY_PRICE_THB)) return bad();
   const r = await adminRpc<Raw>("rb_design_price_set", { p_design_id: input.designId, p_price_thb: input.priceThb });
   if (!r.ok) return r;
   done();
@@ -296,7 +291,7 @@ export async function checkRingCode(text: string): Promise<RingActionResult<Code
     return { ok: false, error: NOT_ALLOWED };
   }
   if (!(await sessionOk())) return { ok: false, error: LOGIN_FIRST };
-  if (typeof text !== "string" || text.length > MAX_CHECK_TEXT) return { ok: false, error: "ข้อความยาวเกินหรือวางไม่ถูกต้อง", code: "bad_input" };
+  if (typeof text !== "string" || cpLength(text) > MAX_CHECK_TEXT) return { ok: false, error: "ข้อความยาวเกินหรือวางไม่ถูกต้อง", code: "bad_input" };
   return { ok: true, data: await checkCodeText(text) };
 }
 

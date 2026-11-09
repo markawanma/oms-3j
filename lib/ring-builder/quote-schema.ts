@@ -1,10 +1,10 @@
 // lib/ring-builder/quote-schema.ts — ตรวจรูปร่าง body ของ POST /api/ring-builder/quote ก่อนแตะ DB (pure)
 // strict: ต้องมี key ครบ 5 ตัวเป๊ะ ไม่รับ key อื่น (shop_id · ราคารายตำแหน่ง · pricedAt ถูกปฏิเสธ — ไม่รับจาก client เด็ดขาด)
 import { MAX_DESIGN_NO, MAX_STONE_NO, MAX_STONES, MIN_STONES, RING_BUILDER_SIZES } from "./config";
+import { isInt } from "./util";
 import type { QuoteRequest } from "./types";
 
 const KEYS = ["design", "expectedTotal", "positions", "size", "v"] as const;
-const isInt = (v: unknown, lo: number, hi: number): v is number => typeof v === "number" && Number.isInteger(v) && v >= lo && v <= hi;
 
 export function parseQuoteRequest(raw: unknown): { ok: true; data: QuoteRequest } | { ok: false } {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return { ok: false };

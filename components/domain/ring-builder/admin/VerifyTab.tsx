@@ -177,6 +177,10 @@ function Detail({ status, view }: { status: "ok" | "changed" | "design_closed"; 
   const { push } = useToast();
   const sizeText =
     view.sizeStatus === "admin_check" || view.size === null ? "ลูกค้าให้แอดมินช่วยเช็กไซซ์" : `เบอร์ ${view.size}`;
+  // N8: แยกตัวแปร (เดิมผสม ?? กับ ?: ในนิพจน์เดียว อ่านลำดับความสำคัญยาก) — วันที่ปิดตามตัวที่ปิดจริง (แบบ/ทรง)
+  const closedLabel = view.closedLabel ?? view.designClosedLabel;
+  // S8: ข้อความแจ้งราคาใหม่มีความหมายเมื่อ "ยอดต่างจริง" และ server ประกอบข้อความมาแล้วเท่านั้น (พลอยปิด/ไซซ์นอกช่วงอย่างเดียว = ไม่มีราคาใหม่ให้แจ้ง)
+  const canCopyPriceNotice = view.diffTotalThb !== null && view.diffTotalThb !== 0 && view.priceNoticeText.trim() !== "";
 
   async function copy(text: string, ok: string) {
     if (await copyText(text)) push(ok);
@@ -202,7 +206,7 @@ function Detail({ status, view }: { status: "ok" | "changed" | "design_closed"; 
           {view.closedBy === "shape"
             ? "รหัสถูกต้อง แต่ทรงพลอยของแบบนี้ปิดไปแล้ว"
             : "รหัสถูกต้อง แต่แบบนี้ปิดไปแล้ว"}
-          {view.closedLabel ?? view.designClosedLabel ? ` (${view.closedLabel ?? view.designClosedLabel})` : ""} — แสดงรายละเอียดตามที่บันทึกไว้ตอนออกรหัส · แอดมินตัดสินว่าจะรับทำหรือเสนอแบบอื่น
+          {closedLabel ? ` (${closedLabel})` : ""} — แสดงรายละเอียดตามที่บันทึกไว้ตอนออกรหัส · แอดมินตัดสินว่าจะรับทำหรือเสนอแบบอื่น
         </p>
       )}
       {status === "changed" && <p className="text-sm text-zinc-800">รหัสถูกต้อง แต่ราคาหรือพลอยเปลี่ยนจากตอนสร้าง — ไม่บล็อก แอดมินตัดสินว่าจะใช้ราคาไหน แล้วแจ้งลูกค้าในแชท</p>}
@@ -274,7 +278,7 @@ function Detail({ status, view }: { status: "ok" | "changed" | "design_closed"; 
         <Button type="button" variant="secondary" onClick={() => void copy(view.summaryText, "คัดลอกสรุปแล้ว")}>
           คัดลอกสรุปไปใบงาน
         </Button>
-        {status !== "ok" && (
+        {canCopyPriceNotice && (
           <Button type="button" variant="secondary" onClick={() => void copy(view.priceNoticeText, "คัดลอกข้อความแจ้งราคาใหม่แล้ว")}>
             คัดลอกข้อความแจ้งราคาใหม่
           </Button>

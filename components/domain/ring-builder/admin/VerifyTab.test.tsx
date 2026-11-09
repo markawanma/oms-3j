@@ -106,6 +106,23 @@ describe("ผลตรวจ 8 สถานะ", () => {
     expect(screen.queryByRole("button", { name: "คัดลอกข้อความแจ้งราคาใหม่" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "คัดลอกสรุปไปใบงาน" })).toBeInTheDocument();
   });
+  it("S8: changed จากพลอยปิด/ไซซ์นอกช่วงอย่างเดียว (ยอดต่าง 0) หรือไม่มีข้อความ → ไม่มีปุ่มแจ้งราคาใหม่ · ยอดต่างจริง + มีข้อความ → มีปุ่ม", async () => {
+    check.mockResolvedValue({ ok: true, data: { status: "changed", view: { ...checkView, diffTotalThb: 0, priceNoticeText: "ข้อความ" } } });
+    await submit();
+    expect(screen.queryByRole("button", { name: "คัดลอกข้อความแจ้งราคาใหม่" })).not.toBeInTheDocument();
+    cleanup();
+    check.mockResolvedValue({ ok: true, data: { status: "changed", view: { ...checkView, diffTotalThb: null, priceNoticeText: "ข้อความ" } } });
+    await submit();
+    expect(screen.queryByRole("button", { name: "คัดลอกข้อความแจ้งราคาใหม่" })).not.toBeInTheDocument();
+    cleanup();
+    check.mockResolvedValue({ ok: true, data: { status: "changed", view: { ...checkView, diffTotalThb: 20, priceNoticeText: "   " } } });
+    await submit();
+    expect(screen.queryByRole("button", { name: "คัดลอกข้อความแจ้งราคาใหม่" })).not.toBeInTheDocument();
+    cleanup();
+    check.mockResolvedValue({ ok: true, data: { status: "changed", view: { ...checkView, diffTotalThb: 20, priceNoticeText: "ข้อความแจ้งราคา" } } });
+    await submit();
+    expect(screen.getByRole("button", { name: "คัดลอกข้อความแจ้งราคาใหม่" })).toBeInTheDocument();
+  });
   it("unavailable (จาก action): 'ระบบตรวจไม่ได้' — ไม่ใช่รหัสผิด + บอกห้ามบอกลูกค้าว่ารหัสผิด + ตรวจอีกครั้งได้", async () => {
     check.mockResolvedValue({ ok: true, data: { status: "unavailable", view: null } });
     const u = await submit();

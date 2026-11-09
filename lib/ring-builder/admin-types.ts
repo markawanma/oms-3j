@@ -1,5 +1,5 @@
 // lib/ring-builder/admin-types.ts — type ที่หน้าหลังบ้าน (/catalog/ring-builder · 4 จอ) ใช้ร่วมกับ server action (pure · type อย่างเดียว · client import ได้)
-// ⚠️ ไฟล์นี้ "ห้าม" ถูก import จากกราฟของหน้าสาธารณะ (boundary.test.ts ตรวจเฉพาะ admin-server.ts แต่ข้อมูลหลังบ้านไม่ควรไปถึง bundle ลูกค้าอยู่แล้ว)
+// ⚠️ type อย่างเดียว (ไม่มี export ค่า — boundary.test.ts ตรวจ) · import ได้เฉพาะ action + หน้า/คอมโพเนนต์หลังบ้าน และต้องเป็น `import type` · ห้ามอยู่ในกราฟของหน้าสาธารณะ
 import type { ShapeKind, StoneAxis } from "./types";
 
 export interface AdminShape {
@@ -76,6 +76,8 @@ export interface AdminStone {
   colorHex: string;
   isActive: boolean;
   sort: number;
+  /** เคยมีแถวราคาขายแล้ว — ชื่อ/สีแก้ไม่ได้ (DB: stone_locked) · short_name/ลำดับ/เปิดปิดแก้ได้ */
+  nameLocked: boolean;
   offers: AdminOffer[];
   /** "ขายได้ x/y แบบ · ขาดเพราะ…" */
   coverage: { visibleDesigns: number; sellableDesigns: number; missing: AdminCoverageMissing[] };

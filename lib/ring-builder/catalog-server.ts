@@ -6,12 +6,10 @@ import { getServiceClient } from "@/lib/supabase/server";
 import { getDevShopId } from "@/lib/dev/context";
 import { readErrorCode } from "@/lib/supabase/postgrest-error";
 import { MAX_DESIGN_NO, MAX_STONE_NO, RING_BUILDER_SIZES } from "./config";
+import { isInt, isObj, type Raw } from "./util";
 import { stoneLabel } from "./mm";
 import type { PublicCatalog, PublicDesign, PublicOffer, PublicStone, ShapeKind, StoneAxis } from "./types";
 
-type Raw = Record<string, unknown>;
-const isObj = (v: unknown): v is Raw => typeof v === "object" && v !== null && !Array.isArray(v);
-const isInt = (v: unknown, lo: number, hi: number): v is number => typeof v === "number" && Number.isInteger(v) && v >= lo && v <= hi;
 const isStr = (v: unknown, max: number): v is string => typeof v === "string" && v.length >= 1 && v.length <= max;
 const CARD_PATH_RE = /^designs\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.jpg$/;
 const HEX_RE = /^#[0-9A-F]{6}$/;

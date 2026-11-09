@@ -54,7 +54,7 @@ const GENERIC_ERROR = "ทำรายการไม่สำเร็จ ล�
 
 /** ข้อความแสดงผู้ใช้จากผลล้มเหลวของ action — เรียงลำดับ: code ที่รู้จัก → error ที่ action ส่งมา → ข้อความกลาง (ไม่ echo ข้อความดิบ) */
 export function ringErrorText(res: { error?: string; code?: string } | null | undefined): string {
-  if (res?.code && RING_ERROR_MESSAGES[res.code]) return RING_ERROR_MESSAGES[res.code];
+  if (res?.code && Object.hasOwn(RING_ERROR_MESSAGES, res.code)) return RING_ERROR_MESSAGES[res.code];
   return res?.error && res.error.trim() !== "" ? res.error : GENERIC_ERROR;
 }
 

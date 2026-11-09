@@ -6,7 +6,7 @@
 import "server-only";
 import { createHmac, timingSafeEqual } from "node:crypto";
 import { CODE_SECRET_ENV, CODE_SECRET_MIN_LENGTH } from "./config";
-import { bitsToBytes, CODE_VERSION, decodeCode, encodeCode, extractCodes, packPayload, TAG_BITS, type CodeFields, type DecodeFail } from "./code";
+import { bitsToBytes, CODE_VERSION, decodeCode, decodeFromText, encodeCode, packPayload, TAG_BITS, type CodeFields, type DecodeFail, type DecodeResult } from "./code";
 
 export function getCodeSecret(): Buffer | null {
   const s = process.env[CODE_SECRET_ENV];
@@ -41,10 +41,9 @@ export type VerifyResult =
   | { status: "not_issued" }
   | { status: "valid"; fields: CodeFields; code: string };
 
-/** ตรวจรหัสเดี่ยว: รูปแบบ+check char → (ไม่มี secret = unavailable) → HMAC */
-export function verifyCode(text: string): VerifyResult {
-  const d = decodeCode(text);
-  if (!d.ok) return { status: "bad_format", reason: d.reason };
+
+/** HMAC ของรหัสที่ถอดรูปแบบ+check char ผ่านแล้ว (ไม่มี secret = unavailable · tag ไม่ตรง = not_issued) */
+function verifyDecoded(d: Extract<DecodeResult, { ok: true }>): VerifyResult {
   const secret = getCodeSecret();
   if (!secret) return { status: "unavailable" };
   const expected = Buffer.from(tagFor(d.payloadBits, secret));
@@ -53,10 +52,16 @@ export function verifyCode(text: string): VerifyResult {
   return { status: "valid", fields: d.fields, code: d.canonical };
 }
 
-/** ตรวจจากข้อความทั้งก้อน: ดึงรหัสแรกที่เจอ → verifyCode · ว่าง = empty · ไม่เจอ = not_found */
+/** ตรวจรหัสเดี่ยว: รูปแบบ+check char → (ไม่มี secret = unavailable) → HMAC */
+export function verifyCode(text: string): VerifyResult {
+  const d = decodeCode(text);
+  if (!d.ok) return { status: "bad_format", reason: d.reason };
+  return verifyDecoded(d);
+}
+
+/** ตรวจจากข้อความทั้งก้อน (S11: รหัสที่ถูกตัดบรรทัด/คั่นด้วยช่องว่างก็ได้) · ว่าง = empty · ไม่เจอ = not_found */
 export function verifyCodeFromText(text: string): VerifyResult {
-  if (typeof text !== "string" || text.trim() === "") return { status: "empty" };
-  const codes = extractCodes(text);
-  if (codes.length === 0) return { status: "not_found" };
-  return verifyCode(codes[0]);
+  const d = decodeFromText(text);
+  if (!d.ok) return d.reason === "empty" || d.reason === "not_found" ? { status: d.reason } : { status: "bad_format", reason: d.reason };
+  return verifyDecoded(d);
 }

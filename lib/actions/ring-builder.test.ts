@@ -139,15 +139,49 @@ describe("พารามิเตอร์ที่ส่งถึง RPC", () 
     await actions.saveRingOffer({ stoneId: UUID, shapeId: UUID, size: "2" });
     expect(rpc.mock.calls[0][1]).toMatchObject({ p_major_mm100: 200, p_minor_mm100: 200 });
   });
-  it("saveRingDesign: ตั้งราคาตัวเรือนต่อเมื่อส่งมา · ราคาล้ม = บอกว่าบันทึกแบบแล้วแต่ราคาไม่สำเร็จ", async () => {
-    rpc.mockResolvedValueOnce({ data: { id: UUID, design_no: 7, created: true }, error: null }).mockResolvedValueOnce({ data: null, error: { code: "22023", hint: "price_invalid" } });
+  const DESIGN = { name: "แบบ ก", stoneCount: 5, shapeId: UUID, size: "2", stoneAxis: null, sizeMin: 45, sizeMax: 68 } as const;
+  it("S1: saveRingDesign = RPC เดียว (บันทึกแบบ + ราคาตัวเรือนในทรานแซกชันเดียว) · ราคาไปกับ p_body_price_thb", async () => {
+    rpc.mockResolvedValue({ data: { id: UUID, design_no: 7, created: true }, error: null });
+    const res = await actions.saveRingDesign({ ...DESIGN, bodyPriceThb: 480 });
+    expect(res).toEqual({ ok: true, data: { id: UUID, designNo: 7, created: true } });
+    expect(rpc).toHaveBeenCalledTimes(1);
+    expect(rpc.mock.calls[0][0]).toBe("rb_design_upsert");
+    expect(rpc.mock.calls[0][1]).toMatchObject({ p_body_price_thb: 480 });
+  });
+  it("S1: สร้างแบบใหม่โดยไม่ส่งราคา → ปฏิเสธก่อนถึง DB (price_required) · แก้แบบเดิมไม่ส่งราคา = ผ่าน (p_body_price_thb null)", async () => {
+    const r1 = await actions.saveRingDesign({ ...DESIGN });
+    expect(r1).toMatchObject({ ok: false, code: "price_required" });
+    expect(rpc).not.toHaveBeenCalled();
+    rpc.mockResolvedValue({ data: { id: UUID, design_no: 7, created: false }, error: null });
+    const r2 = await actions.saveRingDesign({ ...DESIGN, id: UUID });
+    expect(r2.ok).toBe(true);
+    expect(rpc.mock.calls[0][1]).toMatchObject({ p_body_price_thb: null });
+  });
+  it("S1: ราคาล้มที่ DB = ล้มทั้งคำสั่ง (ไม่มีข้อความ 'บันทึกแล้วบางส่วน') · ราคานอกช่วงถูกปฏิเสธก่อนถึง DB", async () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
-    const res = await actions.saveRingDesign({ name: "แบบ ก", stoneCount: 5, shapeId: UUID, size: "2", stoneAxis: null, sizeMin: 45, sizeMax: 68, bodyPriceThb: 480 });
+    rpc.mockResolvedValue({ data: null, error: { code: "22023", hint: "price_invalid" } });
+    const res = await actions.saveRingDesign({ ...DESIGN, bodyPriceThb: 480 });
     spy.mockRestore();
-    expect(res.ok).toBe(false);
-    expect(!res.ok && res.error).toContain("บันทึกแบบแล้ว");
-    expect(!res.ok && res.code).toBe("price_invalid");
-    expect(rpc).toHaveBeenCalledTimes(2);
+    expect(res).toMatchObject({ ok: false, code: "price_invalid" });
+    expect(!res.ok && res.error).not.toContain("บันทึกแบบแล้ว");
+    rpc.mockClear();
+    for (const p of [0, -1, 1_000_001, 1.5, NaN]) expect((await actions.saveRingDesign({ ...DESIGN, bodyPriceThb: p })).ok).toBe(false);
+    expect(rpc).not.toHaveBeenCalled();
+  });
+  it("sec#4: hint ที่เป็นชื่อ prototype (__proto__ / constructor / toString) ได้ข้อความกลาง ไม่ใช่ค่าจาก prototype", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    for (const hint of ["constructor", "toString", "hasownproperty"]) {
+      rpc.mockResolvedValue({ data: null, error: { code: "22023", hint } });
+      const res = await actions.publishRingDesign(UUID);
+      expect(res.ok).toBe(false);
+      expect(!res.ok && res.error).toBe("ทำรายการไม่สำเร็จ ลองใหม่อีกครั้ง");
+    }
+    spy.mockRestore();
+  });
+  it("N4: ความยาวนับเป็น code point · ข้อความตรวจรหัสที่เป็น emoji 4000 ตัว (8000 UTF-16 unit) ไม่ถูกปัดตกเพราะนับ unit", async () => {
+    const res = await actions.checkRingCode("\u{1F600}".repeat(2500));
+    expect(res.ok).toBe(true);
+    expect((await actions.checkRingCode("\u{1F600}".repeat(4001))).ok).toBe(false);
   });
   it("revalidatePath('/ring-builder') หลังแก้ราคา/เปิดปิด/เปิดขาย", async () => {
     rpc.mockResolvedValue({ data: { unchanged: false, changed: true, affected_designs: 2, already: false }, error: null });
@@ -230,6 +264,7 @@ describe("checkRingCode — 8 สถานะ (ระบบตรวจไม่
     expect(r.view?.diffTotalThb).toBe(20);
     expect(r.view?.rows[1]).toMatchObject({ creationThb: 80, currentThb: 100, diffThb: 20 });
     expect(r.view?.priceNoticeText).toContain("฿740");
+    expect(r.view?.priceNoticeText).not.toMatch(/คะ|ครับ|ค่ะ|นะ/); // N7: ไม่มีคำลงท้ายระบุเพศ
     rpc.mockResolvedValue({ data: dbCheck({ closed_stones: [{ stone_no: 5, name: "ซิทริน" }] }), error: null });
     const r2 = await run(code());
     expect(r2.status).toBe("changed");

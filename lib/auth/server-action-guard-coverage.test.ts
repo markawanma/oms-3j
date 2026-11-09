@@ -28,7 +28,7 @@ const ROOT = process.cwd();
 //   fine — it adds the owner/admin role check on top of the session.
 const GUARD =
   /(denyIfNotMember\(|requireMemberIfGateOn\(|requireOwnerAdmin\(|requireOwnerSession\(|requireWriteAccess\(|\bguard\(\)|!isOwnerOrAdmin\(await getEffectiveRole\(\)\))/;
-const DATA = /(getServiceClient\(|getUserClient\(|getPublicClient\(|\.rpc\(|\.from\(|\bsupabase\b|callOffice\(|\bdb\(\)|\bfetch\()/;
+const DATA = /(\badminRpc\(|getServiceClient\(|getUserClient\(|getPublicClient\(|\.rpc\(|\.from\(|\bsupabase\b|callOffice\(|\bdb\(\)|\bfetch\()/;
 
 /** file (posix, repo-relative) -> exports (or "*" = whole file) that are public/self-authenticating on purpose */
 const PUBLIC_ON_PURPOSE: Record<string, { names: string[] | "*"; why: string }> = {

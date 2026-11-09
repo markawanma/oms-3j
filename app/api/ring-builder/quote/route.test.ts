@@ -32,7 +32,7 @@ const dbOk = (total = 720) => ({
     lines: [
       { pos: 1, stone_no: 3, name: "โกเมน", price: 80 },
       { pos: 2, stone_no: 0, name: null, price: 0 },
-      { pos: 3, stone_no: 5, name: "ซิทริน", price: 160 },
+      { pos: 3, stone_no: 5, name: "ซิทริน", price: total - 560 },
     ],
   },
   error: null,

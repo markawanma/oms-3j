@@ -1,7 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { circToRec } from "@/lib/ring-size/size";
 import { fitsDesignRange, getLastMeasuredSize } from "./last-size";
-import { buildGroups, buildLineText, formatBaht, formatThaiDateBkk, formatThaiDateTimeBkk, parseQuoteOk } from "./quote-server";
+import { buildGroups, buildLineText, formatThaiDateBkk, formatThaiDateTimeBkk, parseQuoteOk } from "./quote-server";
+import { cpLength, formatBaht } from "./util";
 
 describe("เวลาไทย (Asia/Bangkok = UTC+7 ไม่พึ่ง TZ ของเครื่อง)", () => {
   it("ขอบเที่ยงคืนไทย: 16:59:59Z = วันเดิม · 17:00:00Z = วันถัดไป", () => {
@@ -51,16 +52,42 @@ describe("groups / lineText", () => {
   });
 });
 
-describe("parseQuoteOk — ตรวจรูปร่างผลจาก DB", () => {
-  const good = { total: 720, body: 480, priced_at: "2026-11-09T20:12:37Z", design: { name: "ก", shape_name: "กลม", major_mm100: 200, minor_mm100: 200 }, lines: [{ pos: 1, stone_no: 0, name: null, price: 0 }] };
+describe("parseQuoteOk — ตรวจรูปร่างผลจาก DB + S10 (ตรงกับที่ขอ · ยอดบวกกลับได้)", () => {
+  const mk = (over: Record<string, unknown> = {}) => ({ total: 560, body: 480, priced_at: "2026-11-09T20:12:37Z", design: { name: "ก", shape_name: "กลม", major_mm100: 200, minor_mm100: 200 }, lines: [{ pos: 1, stone_no: 3, name: "โกเมน", price: 80 }, { pos: 2, stone_no: 0, name: null, price: 0 }], ...over });
+  const asked = [3, 0];
   it("ผ่าน · CZ ชื่อมาจากค่าคงที่ ไม่ใช่ DB", () => {
-    expect(parseQuoteOk(good, 1)?.lines[0]).toEqual({ pos: 1, stoneNo: 0, name: "CZ ขาว", priceThb: 0 });
+    expect(parseQuoteOk(mk(), asked)?.lines[1]).toEqual({ pos: 2, stoneNo: 0, name: "CZ ขาว", priceThb: 0 });
+    expect(parseQuoteOk(mk(), asked)?.total).toBe(560);
   });
   it.each([
-    ["total เป็นสตริง", { ...good, total: "720" }], ["total เกินเพดาน", { ...good, total: 262144 }], ["total NaN", { ...good, total: NaN }], ["ไม่มี design", { ...good, design: null }],
-    ["พลอยสีราคา 0 (ต้อง ≥ 1)", { ...good, lines: [{ pos: 1, stone_no: 3, name: "x", price: 0 }] }], ["พลอยไม่มีชื่อ", { ...good, lines: [{ pos: 1, stone_no: 3, name: null, price: 80 }] }], ["ราคาพลอยติดลบ", { ...good, lines: [{ pos: 1, stone_no: 3, name: "x", price: -1 }] }],
-  ])("%s ⇒ null", (_n, raw) => expect(parseQuoteOk(raw as Record<string, unknown>, 1)).toBeNull());
-  it("จำนวนบรรทัดไม่ตรง ⇒ null", () => expect(parseQuoteOk(good, 2)).toBeNull());
+    ["total เป็นสตริง", { total: "560" }], ["total เกินเพดาน", { total: 262144 }], ["total NaN", { total: NaN }], ["ไม่มี design", { design: null }],
+    ["พลอยสีราคา 0 (ต้อง ≥ 1)", { lines: [{ pos: 1, stone_no: 3, name: "x", price: 0 }, { pos: 2, stone_no: 0, name: null, price: 0 }], total: 480 }],
+    ["พลอยไม่มีชื่อ", { lines: [{ pos: 1, stone_no: 3, name: null, price: 80 }, { pos: 2, stone_no: 0, name: null, price: 0 }] }],
+    ["ราคาพลอยติดลบ", { lines: [{ pos: 1, stone_no: 3, name: "x", price: -1 }, { pos: 2, stone_no: 0, name: null, price: 0 }] }],
+    ["CZ ขาวมีราคา", { lines: [{ pos: 1, stone_no: 3, name: "x", price: 80 }, { pos: 2, stone_no: 0, name: null, price: 5 }], total: 565 }],
+  ])("%s ⇒ null", (_n, over) => expect(parseQuoteOk(mk(over), asked)).toBeNull());
+  it("S10: จำนวนบรรทัดไม่ตรง ⇒ null", () => expect(parseQuoteOk(mk(), [3, 0, 0])).toBeNull());
+  it("S10: stone_no ไม่ตรงกับที่ขอ (ผิดเม็ด/ผิดลำดับ) ⇒ null แม้ยอดรวมเท่าเดิม", () => {
+    expect(parseQuoteOk(mk(), [0, 3])).toBeNull();
+    expect(parseQuoteOk(mk(), [5, 0])).toBeNull();
+  });
+  it("S10: pos ไม่ใช่ 1..n ตามลำดับ ⇒ null", () => {
+    expect(parseQuoteOk(mk({ lines: [{ pos: 2, stone_no: 3, name: "x", price: 80 }, { pos: 1, stone_no: 0, name: null, price: 0 }] }), asked)).toBeNull();
+    expect(parseQuoteOk(mk({ lines: [{ pos: 1, stone_no: 3, name: "x", price: 80 }, { pos: 1, stone_no: 0, name: null, price: 0 }] }), asked)).toBeNull();
+  });
+  it("S10: total ≠ body + Σ price ⇒ null (ทั้งมากกว่าและน้อยกว่า)", () => {
+    expect(parseQuoteOk(mk({ total: 561 }), asked)).toBeNull();
+    expect(parseQuoteOk(mk({ total: 559 }), asked)).toBeNull();
+  });
+});
+
+describe("util", () => {
+  it("cpLength นับ code point (N4) — ไม่ใช่ UTF-16 unit", () => {
+    expect(cpLength("กขค")).toBe(3);
+    expect(cpLength("a\u{1D173}b")).toBe(3);
+    expect(cpLength("\u{1F600}".repeat(5))).toBe(5);
+    expect("\u{1F600}".repeat(5).length).toBe(10);
+  });
 });
 
 describe("last-size — อ่านผลวัดล่าสุดแบบ read-only โดยใช้กฎเบอร์เดียวกับ /ring-size", () => {

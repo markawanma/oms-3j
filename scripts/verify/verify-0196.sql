@@ -142,7 +142,7 @@ language plpgsql as $f$
 declare
   v_id uuid;
 begin
-  v_id := (analytics.rb_design_upsert(pg_temp.sh(), pg_temp.ac(), null, p_name, p_count, p_shape, p_major, p_minor, p_axis, p_smin, p_smax, 0) ->> 'id')::uuid;
+  v_id := (analytics.rb_design_upsert(pg_temp.sh(), pg_temp.ac(), null, p_name, p_count, p_shape, p_major, p_minor, p_axis, p_smin, p_smax, 0, p_body) ->> 'id')::uuid;
   if p_body is not null then
     perform analytics.rb_design_price_set(pg_temp.sh(), pg_temp.ac(), v_id, p_body);
   end if;
@@ -199,6 +199,7 @@ declare
   v_int int; v_int2 int;
   v_bool boolean; v_bool2 boolean; v_bool3 boolean;
   v_txt text;
+  v_int2_id uuid;
   r record;
 begin
   perform set_config('request.jwt.claims', '{"role":"service_role"}', true);
@@ -501,13 +502,13 @@ begin
   -- --------------------------------------------------------------------
   -- T11 — X12 ทรง × มิติ × ทิศ
   -- --------------------------------------------------------------------
-  v_s := pg_temp.t_try(format('select analytics.rb_design_upsert(%L,%L,null,%L,5,%L,300,200,null,45,68,0)', v_shop, v_actor, 'ผิด1-' || v_sfx, sh_round));
-  v_s2 := pg_temp.t_try(format('select analytics.rb_design_upsert(%L,%L,null,%L,5,%L,300,300,%L,45,68,0)', v_shop, v_actor, 'ผิด2-' || v_sfx, sh_oval, 'along_row'));
-  v_s3 := pg_temp.t_try(format('select analytics.rb_design_upsert(%L,%L,null,%L,5,%L,400,300,null,45,68,0)', v_shop, v_actor, 'ผิด3-' || v_sfx, sh_oval));
-  v_s4 := pg_temp.t_try(format('select analytics.rb_design_upsert(%L,%L,null,%L,5,%L,200,200,%L,45,68,0)', v_shop, v_actor, 'ผิด4-' || v_sfx, sh_round, 'along_row'));
+  v_s := pg_temp.t_try(format('select analytics.rb_design_upsert(%L,%L,null,%L,5,%L,300,200,null,45,68,0,500)', v_shop, v_actor, 'ผิด1-' || v_sfx, sh_round));
+  v_s2 := pg_temp.t_try(format('select analytics.rb_design_upsert(%L,%L,null,%L,5,%L,300,300,%L,45,68,0,500)', v_shop, v_actor, 'ผิด2-' || v_sfx, sh_oval, 'along_row'));
+  v_s3 := pg_temp.t_try(format('select analytics.rb_design_upsert(%L,%L,null,%L,5,%L,400,300,null,45,68,0,500)', v_shop, v_actor, 'ผิด3-' || v_sfx, sh_oval));
+  v_s4 := pg_temp.t_try(format('select analytics.rb_design_upsert(%L,%L,null,%L,5,%L,200,200,%L,45,68,0,500)', v_shop, v_actor, 'ผิด4-' || v_sfx, sh_round, 'along_row'));
   perform pg_temp.chk('T11a (X12: กลม major≠minor · ไข่ major=minor · ไข่ไม่มีทิศ · กลมมีทิศ → 22023)',
     v_s = '22023:shape_dims_invalid' and v_s2 = '22023:shape_dims_invalid' and v_s3 = '22023:axis_required' and v_s4 = '22023:axis_not_allowed', v_s || ' ' || v_s2 || ' ' || v_s3 || ' ' || v_s4);
-  v_j := analytics.rb_design_upsert(v_shop, v_actor, null, 'สลับ-' || v_sfx, 5, sh_oval, 300, 400, 'along_row', 45, 68, 0);
+  v_j := analytics.rb_design_upsert(v_shop, v_actor, null, 'สลับ-' || v_sfx, 5, sh_oval, 300, 400, 'along_row', 45, 68, 0, 500);
   select d.stone_major_mm100::int, d.stone_minor_mm100::int into v_int, v_int2 from analytics.rb_design d where d.id = (v_j ->> 'id')::uuid;
   perform pg_temp.chk('T11b (ไข่พิมพ์ 3×4 → เก็บ canonical major=400 minor=300)', v_int = 400 and v_int2 = 300, v_int || 'x' || v_int2);
   v_s := pg_temp.t_try(format('select analytics.rb_offer_upsert(%L,%L,%L,%L,300,400)', v_shop, v_actor, st_a, sh_round));
@@ -538,10 +539,10 @@ begin
   -- --------------------------------------------------------------------
   -- T13 — X14 ล็อกหลัง publish (RPC + UPDATE ตรง) · แก้ชื่อ/ช่วงไซซ์/ลำดับยังได้ · ห้ามลบ
   -- --------------------------------------------------------------------
-  v_s := pg_temp.t_try(format('select analytics.rb_design_upsert(%L,%L,%L,%L,6,%L,200,200,null,45,68,0)', v_shop, v_actor, d1, 'ทดสอบ-ก-' || v_sfx, sh_round));
-  v_s2 := pg_temp.t_try(format('select analytics.rb_design_upsert(%L,%L,%L,%L,5,%L,200,200,null,45,68,0)', v_shop, v_actor, d1, 'ทดสอบ-ก-' || v_sfx, sh_drop));
-  v_s3 := pg_temp.t_try(format('select analytics.rb_design_upsert(%L,%L,%L,%L,5,%L,250,250,null,45,68,0)', v_shop, v_actor, d1, 'ทดสอบ-ก-' || v_sfx, sh_round));
-  v_s4 := pg_temp.t_try(format('select analytics.rb_design_upsert(%L,%L,%L,%L,7,%L,400,300,%L,53,68,0)', v_shop, v_actor, d2, 'ทดสอบ-ข-' || v_sfx, sh_oval, 'along_row'));
+  v_s := pg_temp.t_try(format('select analytics.rb_design_upsert(%L,%L,%L,%L,6,%L,200,200,null,45,68,0,null)', v_shop, v_actor, d1, 'ทดสอบ-ก-' || v_sfx, sh_round));
+  v_s2 := pg_temp.t_try(format('select analytics.rb_design_upsert(%L,%L,%L,%L,5,%L,200,200,null,45,68,0,null)', v_shop, v_actor, d1, 'ทดสอบ-ก-' || v_sfx, sh_drop));
+  v_s3 := pg_temp.t_try(format('select analytics.rb_design_upsert(%L,%L,%L,%L,5,%L,250,250,null,45,68,0,null)', v_shop, v_actor, d1, 'ทดสอบ-ก-' || v_sfx, sh_round));
+  v_s4 := pg_temp.t_try(format('select analytics.rb_design_upsert(%L,%L,%L,%L,7,%L,400,300,%L,53,68,0,null)', v_shop, v_actor, d2, 'ทดสอบ-ข-' || v_sfx, sh_oval, 'along_row'));
   perform pg_temp.chk('T13a (X14: หลัง publish แก้ stone_count / ทรง / ขนาดเม็ด / ทิศเม็ด ผ่าน RPC → design_locked)',
     v_s = '55000:design_locked' and v_s2 <> 'OK' and v_s3 = '55000:design_locked' and v_s4 = '55000:design_locked', v_s || ' ' || v_s2 || ' ' || v_s3 || ' ' || v_s4);
   v_s := pg_temp.t_try(format('update analytics.rb_design set stone_count = 6 where id = %L', d1));
@@ -566,49 +567,51 @@ begin
   v_s3 := pg_temp.t_try(format('delete from analytics.rb_gem_shape where id = %L', sh_drop));
   v_s4 := pg_temp.t_try(format('delete from analytics.rb_stone_offer where id = %L', of_c_drop));
   perform pg_temp.chk('T13f (ห้ามลบแถวทุกตาราง (แม้ร่างที่ยังไม่ publish) — soft เท่านั้น)', v_s = '55000:no_delete' and v_s2 = '55000:no_delete' and v_s3 = '55000:no_delete' and v_s4 = '55000:no_delete', v_s || ' ' || v_s2 || ' ' || v_s3 || ' ' || v_s4);
-  v_j := analytics.rb_design_upsert(v_shop, v_actor, d1, 'ทดสอบ-ก-ใหม่-' || v_sfx, 5, sh_round, 200, 200, null, 50, 66, 7);
+  v_j := analytics.rb_design_upsert(v_shop, v_actor, d1, 'ทดสอบ-ก-ใหม่-' || v_sfx, 5, sh_round, 200, 200, null, 50, 66, 7, null);
   select d.name, d.size_min::int, d.size_max::int into v_txt, v_int, v_int2 from analytics.rb_design d where d.id = d1;
   perform pg_temp.chk('T13g (ต้องไม่พัง: หลัง publish แก้ชื่อ/ช่วงไซซ์/ลำดับได้ — ล็อกแค่ที่รหัสต้องพึ่ง)', v_txt like 'ทดสอบ-ก-ใหม่-%' and v_int = 50 and v_int2 = 66, v_txt);
-  v_j := analytics.rb_design_upsert(v_shop, v_actor, d3, 'ทดสอบ-ร่าง-' || v_sfx, 4, sh_round, 250, 250, null, 45, 68, 0);
+  v_j := analytics.rb_design_upsert(v_shop, v_actor, d3, 'ทดสอบ-ร่าง-' || v_sfx, 4, sh_round, 250, 250, null, 45, 68, 0, null);
   select d.stone_count::int, d.stone_major_mm100::int into v_int, v_int2 from analytics.rb_design d where d.id = d3;
   perform pg_temp.chk('T13h (ร่างที่ยังไม่ publish แก้ได้ทุกอย่าง: 3→4 เม็ด · 2.00→2.50)', v_int = 4 and v_int2 = 250, v_int || '/' || v_int2);
   -- คืนช่วงไซซ์ d1 (ใช้ต่อ)
-  perform analytics.rb_design_upsert(v_shop, v_actor, d1, 'ทดสอบ-ก-' || v_sfx, 5, sh_round, 200, 200, null, 45, 68, 0);
+  perform analytics.rb_design_upsert(v_shop, v_actor, d1, 'ทดสอบ-ก-' || v_sfx, 5, sh_round, 200, 200, null, 45, 68, 0, null);
 
   -- --------------------------------------------------------------------
   -- T14 — X15 ชื่อซ้ำของแบบที่เปิดอยู่ (ในจำนวนเม็ดเดียวกัน · ไม่สนตัวพิมพ์)
   -- --------------------------------------------------------------------
-  v_j := analytics.rb_design_upsert(v_shop, v_actor, null, upper('ทดสอบ-ก-' || v_sfx), 5, sh_round, 200, 200, null, 45, 68, 0);   -- ร่างชื่อซ้ำ (ตัวพิมพ์ต่างเฉพาะ latin) ได้
+  v_j := analytics.rb_design_upsert(v_shop, v_actor, null, upper('ทดสอบ-ก-' || v_sfx), 5, sh_round, 200, 200, null, 45, 68, 0, 500);   -- ร่างชื่อซ้ำ (ตัวพิมพ์ต่างเฉพาะ latin) ได้
   v_s := pg_temp.t_try(format('select analytics.rb_design_price_set(%L,%L,%L,500)', v_shop, v_actor, (v_j ->> 'id')::uuid));
   v_s2 := pg_temp.t_try(format('select analytics.rb_design_publish(%L,%L,%L)', v_shop, v_actor, (v_j ->> 'id')::uuid));
   perform pg_temp.chk('T14a (X15: เปิดขายแบบที่ชื่อซ้ำ (ไม่สนตัวพิมพ์) ในจำนวนเม็ดเดียวกับแบบที่เปิดอยู่ → name_dup)', v_s = 'OK' and v_s2 = '22023:name_dup', v_s || ' ' || v_s2);
-  v_j := analytics.rb_design_upsert(v_shop, v_actor, null, 'ทดสอบ-ก-' || v_sfx, 6, sh_round, 200, 200, null, 45, 68, 0);
+  v_j := analytics.rb_design_upsert(v_shop, v_actor, null, 'ทดสอบ-ก-' || v_sfx, 6, sh_round, 200, 200, null, 45, 68, 0, 500);
   perform analytics.rb_design_price_set(v_shop, v_actor, (v_j ->> 'id')::uuid, 500);
   v_s := pg_temp.t_try(format('select analytics.rb_design_publish(%L,%L,%L)', v_shop, v_actor, (v_j ->> 'id')::uuid));
   perform pg_temp.chk('T14b (ชื่อเดียวกันแต่ต่างจำนวนเม็ด เปิดได้)', v_s = 'OK', v_s);
   perform pg_temp.chk('T14c (publish ซ้ำแบบที่เคย publish แล้ว = already ไม่ error)',
     (analytics.rb_design_publish(v_shop, v_actor, d1) ->> 'already') = 'true');
-  v_j := analytics.rb_design_upsert(v_shop, v_actor, null, 'ไม่มีราคา-' || v_sfx, 5, sh_round, 200, 200, null, 45, 68, 0);
-  v_s := pg_temp.t_try(format('select analytics.rb_design_publish(%L,%L,%L)', v_shop, v_actor, (v_j ->> 'id')::uuid));
+  -- S1: RPC สร้างแบบไม่มีราคาไม่ได้แล้ว (T27) — ด่าน publish ยังต้องมี (กันแถวที่มาจากทางอื่น) จึงสร้างร่างไม่มีราคาด้วยการเขียนตรงในทรานแซกชันที่ rollback เพื่อพิสูจน์ด่าน
+  insert into analytics.rb_design (shop_id, design_no, name, stone_count, shape_id, stone_major_mm100, stone_minor_mm100, size_min, size_max)
+  values (v_shop, (select coalesce(max(design_no), 0) + 1 from analytics.rb_design where shop_id = v_shop), 'ไม่มีราคา-' || v_sfx, 5, sh_round, 200, 200, 45, 68) returning id into v_int2_id;
+  v_s := pg_temp.t_try(format('select analytics.rb_design_publish(%L,%L,%L)', v_shop, v_actor, v_int2_id));
   perform pg_temp.chk('T14d (เปิดขายโดยไม่มีราคาตัวเรือน → price_required)', v_s = '22023:price_required', v_s);
   perform analytics.rb_set_active(v_shop, v_actor, 'shape', sh_drop, false);
-  v_j := analytics.rb_design_upsert(v_shop, v_actor, null, 'ทรงปิด-' || v_sfx, 5, sh_drop, 400, 300, 'along_row', 45, 68, 0);
+  v_j := analytics.rb_design_upsert(v_shop, v_actor, null, 'ทรงปิด-' || v_sfx, 5, sh_drop, 400, 300, 'along_row', 45, 68, 0, 500);
   perform analytics.rb_design_price_set(v_shop, v_actor, (v_j ->> 'id')::uuid, 500);
   v_s := pg_temp.t_try(format('select analytics.rb_design_publish(%L,%L,%L)', v_shop, v_actor, (v_j ->> 'id')::uuid));
   perform pg_temp.chk('T14e (เปิดขายแบบที่ทรงปิดอยู่ → shape_inactive)', v_s = '22023:shape_inactive', v_s);
   perform analytics.rb_set_active(v_shop, v_actor, 'shape', sh_drop, true);
   v_s := pg_temp.t_try(format('select analytics.rb_set_active(%L,%L,%L,%L,true)', v_shop, v_actor, 'design', d3));
-  v_j := analytics.rb_design_upsert(v_shop, v_actor, null, 'ร่าง2-' || v_sfx, 5, sh_round, 200, 200, null, 45, 68, 0);
+  v_j := analytics.rb_design_upsert(v_shop, v_actor, null, 'ร่าง2-' || v_sfx, 5, sh_round, 200, 200, null, 45, 68, 0, 500);
   v_s2 := pg_temp.t_try(format('select analytics.rb_set_active(%L,%L,%L,%L,true)', v_shop, v_actor, 'design', (v_j ->> 'id')::uuid));
   perform pg_temp.chk('T14f (เปิดแบบที่ยังไม่เคย publish ด้วย set_active → not_published)', v_s2 = '22023:not_published', v_s2);
 
   -- --------------------------------------------------------------------
   -- T15 — X16/X5 ช่วงไซซ์ของแบบ
   -- --------------------------------------------------------------------
-  v_s := pg_temp.t_try(format('select analytics.rb_design_upsert(%L,%L,null,%L,5,%L,200,200,null,44,68,0)', v_shop, v_actor, 'ช1-' || v_sfx, sh_round));
-  v_s2 := pg_temp.t_try(format('select analytics.rb_design_upsert(%L,%L,null,%L,5,%L,200,200,null,45,69,0)', v_shop, v_actor, 'ช2-' || v_sfx, sh_round));
-  v_s3 := pg_temp.t_try(format('select analytics.rb_design_upsert(%L,%L,null,%L,5,%L,200,200,null,60,55,0)', v_shop, v_actor, 'ช3-' || v_sfx, sh_round));
-  v_s4 := pg_temp.t_try(format('select analytics.rb_design_upsert(%L,%L,null,%L,5,%L,200,200,null,null,68,0)', v_shop, v_actor, 'ช4-' || v_sfx, sh_round));
+  v_s := pg_temp.t_try(format('select analytics.rb_design_upsert(%L,%L,null,%L,5,%L,200,200,null,44,68,0,500)', v_shop, v_actor, 'ช1-' || v_sfx, sh_round));
+  v_s2 := pg_temp.t_try(format('select analytics.rb_design_upsert(%L,%L,null,%L,5,%L,200,200,null,45,69,0,500)', v_shop, v_actor, 'ช2-' || v_sfx, sh_round));
+  v_s3 := pg_temp.t_try(format('select analytics.rb_design_upsert(%L,%L,null,%L,5,%L,200,200,null,60,55,0,500)', v_shop, v_actor, 'ช3-' || v_sfx, sh_round));
+  v_s4 := pg_temp.t_try(format('select analytics.rb_design_upsert(%L,%L,null,%L,5,%L,200,200,null,null,68,0,500)', v_shop, v_actor, 'ช4-' || v_sfx, sh_round));
   v_s5 := pg_temp.t_try(format('insert into analytics.rb_design (shop_id, design_no, name, stone_count, shape_id, stone_major_mm100, stone_minor_mm100, size_min, size_max) values (%L, 4092, %L, 5, %L, 200, 200, 40, 68)', v_shop, 'ช5-' || v_sfx, sh_round));
   perform pg_temp.chk('T15a (ช่วงไซซ์ของแบบ: 44 · 69 · min>max · null · เขียนตรง 40 → ปฏิเสธ (22023 / CHECK 23514))',
     v_s = '22023:size_range_invalid' and v_s2 = '22023:size_range_invalid' and v_s3 = '22023:size_range_invalid' and v_s4 = '22023:size_range_invalid' and v_s5 like '23514:%',
@@ -620,8 +623,8 @@ begin
   v_s := pg_temp.t_try(format('select analytics.rb_offer_upsert(%L,%L,%L,%L,49,49)', v_shop, v_actor, st_a, sh_round));
   v_s2 := pg_temp.t_try(format('select analytics.rb_offer_upsert(%L,%L,%L,%L,2001,2001)', v_shop, v_actor, st_a, sh_round));
   v_s3 := pg_temp.t_try(format('select analytics.rb_offer_upsert(%L,%L,%L,%L,null,200)', v_shop, v_actor, st_a, sh_round));
-  v_s4 := pg_temp.t_try(format('select analytics.rb_design_upsert(%L,%L,null,%L,5,%L,2500,2500,null,45,68,0)', v_shop, v_actor, 'ม1-' || v_sfx, sh_round));
-  v_s5 := pg_temp.t_try(format('select analytics.rb_design_upsert(%L,%L,null,%L,2,%L,200,200,null,45,68,0)', v_shop, v_actor, 'ม2-' || v_sfx, sh_round));
+  v_s4 := pg_temp.t_try(format('select analytics.rb_design_upsert(%L,%L,null,%L,5,%L,2500,2500,null,45,68,0,500)', v_shop, v_actor, 'ม1-' || v_sfx, sh_round));
+  v_s5 := pg_temp.t_try(format('select analytics.rb_design_upsert(%L,%L,null,%L,2,%L,200,200,null,45,68,0,500)', v_shop, v_actor, 'ม2-' || v_sfx, sh_round));
   perform pg_temp.chk('T16a (ขนาดพลอย 49 · 2001 · null · 25 มม. · จำนวนเม็ด 2 → 22023)',
     v_s = '22023:size_invalid' and v_s2 = '22023:size_invalid' and v_s3 = '22023:size_invalid' and v_s4 = '22023:size_invalid' and v_s5 = '22023:stone_count_invalid', v_s || ' ' || v_s2 || ' ' || v_s3 || ' ' || v_s4 || ' ' || v_s5);
   v_s := pg_temp.t_try(format('select analytics.rb_offer_price_set(%L,%L,%L,0)', v_shop, v_actor, of_a_round));
@@ -639,9 +642,9 @@ begin
   -- --------------------------------------------------------------------
   -- T17 — X19 (ส่วนที่ครอบ): แก้ stone_count ขณะมี model ผูกอยู่ · model ต้องเป็น object
   -- --------------------------------------------------------------------
-  v_j := analytics.rb_design_upsert(v_shop, v_actor, null, 'โมเดล-' || v_sfx, 5, sh_round, 200, 200, null, 45, 68, 0);
+  v_j := analytics.rb_design_upsert(v_shop, v_actor, null, 'โมเดล-' || v_sfx, 5, sh_round, 200, 200, null, 45, 68, 0, 500);
   update analytics.rb_design set model = '{"kind":"glb"}'::jsonb where id = (v_j ->> 'id')::uuid;   -- P2 ยังไม่มี RPC ตั้ง model — เขียนตรงในทรานแซกชันนี้เพื่อพิสูจน์ด่าน
-  v_s := pg_temp.t_try(format('select analytics.rb_design_upsert(%L,%L,%L,%L,6,%L,200,200,null,45,68,0)', v_shop, v_actor, (v_j ->> 'id')::uuid, 'โมเดล-' || v_sfx, sh_round));
+  v_s := pg_temp.t_try(format('select analytics.rb_design_upsert(%L,%L,%L,%L,6,%L,200,200,null,45,68,0,null)', v_shop, v_actor, (v_j ->> 'id')::uuid, 'โมเดล-' || v_sfx, sh_round));
   v_s2 := pg_temp.t_try(format('update analytics.rb_design set model = %L::jsonb where id = %L', '[1]', (v_j ->> 'id')::uuid));
   perform pg_temp.chk('T17a (X19: แก้จำนวนเม็ดขณะมี model → 55000 model_bound · model ที่ไม่ใช่ object → CHECK 23514)', v_s = '55000:model_bound' and v_s2 like '23514:%', v_s || ' ' || v_s2);
   perform pg_temp.skip('T17b (X19: ตัวตรวจไฟล์ GLB — gem_1..N · 1 MB · extensionsRequired · bbox)', 'P2 ยังไม่ทำ — ไม่อยู่ในขอบเขตงานนี้');
@@ -683,7 +686,7 @@ begin
     format('select analytics.rb_stone_upsert(%L,%%L,null,%L,%L,%L,0)', v_shop, 'สิทธิ์-' || v_sfx, 'สิทธิ์', '#112233'),
     format('select analytics.rb_offer_upsert(%L,%%L,%L,%L,200,200)', v_shop, st_a, sh_round),
     format('select analytics.rb_offer_price_set(%L,%%L,%L,99)', v_shop, of_a_round),
-    format('select analytics.rb_design_upsert(%L,%%L,null,%L,5,%L,200,200,null,45,68,0)', v_shop, 'สิทธิ์-' || v_sfx, sh_round),
+    format('select analytics.rb_design_upsert(%L,%%L,null,%L,5,%L,200,200,null,45,68,0,500)', v_shop, 'สิทธิ์-' || v_sfx, sh_round),
     format('select analytics.rb_design_price_set(%L,%%L,%L,99)', v_shop, d1),
     format('select analytics.rb_design_card_set(%L,%%L,%L,null)', v_shop, d1),
     format('select analytics.rb_design_publish(%L,%%L,%L)', v_shop, d3),
@@ -813,8 +816,7 @@ begin
   -- --------------------------------------------------------------------
   select s.stone_no::int into v_int from analytics.rb_stone s where s.id = st_c;
   perform pg_temp.chk('T22a (เลขพลอยเพิ่มทีละ 1 ไม่ใช้ซ้ำ)', n_b = n_a + 1 and n_c = n_b + 1 and v_int = n_c);
-  v_j := analytics.rb_design_upsert(v_shop, v_actor, null, 'ใหม่4-' || v_sfx, 4, sh_round, 200, 200, null, 50, 68, 0);
-  perform analytics.rb_design_price_set(v_shop, v_actor, (v_j ->> 'id')::uuid, 700);
+  v_j := analytics.rb_design_upsert(v_shop, v_actor, null, 'ใหม่4-' || v_sfx, 4, sh_round, 200, 200, null, 50, 68, 0, 700);
   perform analytics.rb_design_publish(v_shop, v_actor, (v_j ->> 'id')::uuid);
   perform pg_sleep(1.2);
   v_cat := analytics.rb_public_catalog(v_shop);
@@ -885,6 +887,50 @@ begin
   perform analytics.rb_set_active(v_shop, v_actor, 'shape', sh_round, true);
   perform pg_temp.chk('T26f (M1: code_check ส่ง shape_active=false + shape_status_changed_at ของทรงที่ปิดจริง ขณะที่แบบเองยังเปิด)',
     (v_cc -> 'design' ->> 'shape_active') = 'false' and (v_cc -> 'design' ->> 'is_active') = 'true' and (v_cc -> 'design' ->> 'shape_status_changed_at') is not null, v_cc::text);
+
+  -- --------------------------------------------------------------------
+  -- T27 — รอบแก้รวม: S1 ราคาตัวเรือนในทรานแซกชันเดียว · S9 name_locked · S4 ล่องหน (escape) · N1 ชื่อสำเนา
+  -- --------------------------------------------------------------------
+  select count(*) into v_int from analytics.rb_design where shop_id = v_shop;
+  v_s := pg_temp.t_try(format('select analytics.rb_design_upsert(%L,%L,null,%L,5,%L,200,200,null,45,68,0,null)', v_shop, v_actor, 'ไม่มีราคา2-' || v_sfx, sh_round));
+  v_s2 := pg_temp.t_try(format('select analytics.rb_design_upsert(%L,%L,null,%L,5,%L,200,200,null,45,68,0,0)', v_shop, v_actor, 'ราคา0-' || v_sfx, sh_round));
+  v_s3 := pg_temp.t_try(format('select analytics.rb_design_upsert(%L,%L,null,%L,5,%L,200,200,null,45,68,0,1000001)', v_shop, v_actor, 'ราคาเกิน-' || v_sfx, sh_round));
+  v_s4 := pg_temp.t_try(format('select analytics.rb_design_upsert(%L,%L,null,%L,5,%L,200,200,null,45,68,0,500)', v_shop, v_actor, '', sh_round));
+  select count(*) into v_int2 from analytics.rb_design where shop_id = v_shop;
+  perform pg_temp.chk('T27a (S1: สร้างแบบโดยไม่ส่งราคา / ราคา 0 / เกินเพดาน / ชื่อผิด → ปฏิเสธและไม่เหลือแบบร่างค้าง)',
+    v_s = '22023:price_required' and v_s2 = '22023:price_invalid' and v_s3 = '22023:price_invalid' and v_s4 = '22023:name_invalid' and v_int = v_int2,
+    v_s || ' ' || v_s2 || ' ' || v_s3 || ' ' || v_s4 || ' ' || v_int || '/' || v_int2);
+  v_j := analytics.rb_design_upsert(v_shop, v_actor, null, 'ทรานแซกชันเดียว-' || v_sfx, 5, sh_round, 200, 200, null, 45, 68, 0, 777);
+  select count(*), max(body_price_thb) into v_int, v_int2 from analytics.rb_design_price where design_id = (v_j ->> 'id')::uuid;
+  perform pg_temp.chk('T27b (S1: สร้างพร้อมราคา = แถวราคา 1 แถว (777) ในคำสั่งเดียว)', v_int = 1 and v_int2 = 777, v_int || '/' || v_int2);
+  v_j := analytics.rb_design_upsert(v_shop, v_actor, (v_j ->> 'id')::uuid, 'ทรานแซกชันเดียว-' || v_sfx, 5, sh_round, 200, 200, null, 45, 68, 3, null);
+  select count(*) into v_int from analytics.rb_design_price where design_id = (v_j ->> 'id')::uuid;
+  perform pg_temp.chk('T27c (S1: แก้แบบโดยส่งราคา null = ไม่แตะราคา)', v_int = 1, 'rows=' || v_int);
+  v_j := analytics.rb_design_upsert(v_shop, v_actor, (v_j ->> 'id')::uuid, 'ทรานแซกชันเดียว-' || v_sfx, 5, sh_round, 200, 200, null, 45, 68, 3, 777);
+  select count(*) into v_int from analytics.rb_design_price where design_id = (v_j ->> 'id')::uuid;
+  perform pg_temp.chk('T27d (S1: ส่งราคาเท่าเดิม = ไม่เขียนแถวใหม่)', v_int = 1, 'rows=' || v_int);
+  perform pg_sleep(1.1);
+  v_j := analytics.rb_design_upsert(v_shop, v_actor, (v_j ->> 'id')::uuid, 'ทรานแซกชันเดียว-' || v_sfx, 5, sh_round, 200, 200, null, 45, 68, 3, 888);
+  select count(*) into v_int from analytics.rb_design_price where design_id = (v_j ->> 'id')::uuid;
+  v_s := pg_temp.t_try(format('select analytics.rb_design_upsert(%L,%L,%L,%L,5,%L,200,200,null,45,68,3,999)', v_shop, v_actor, (v_j ->> 'id')::uuid, 'ทรานแซกชันเดียว-' || v_sfx, sh_round));
+  perform pg_temp.chk('T27e (S1: เปลี่ยนราคา = แถวใหม่ · เปลี่ยนซ้ำในวินาทีเดียวกัน = price_too_fast ไม่ชน PK)', v_int = 2 and v_s = '22023:price_too_fast', v_int || ' ' || v_s);
+
+  v_adm := analytics.rb_admin_catalog(v_shop, v_actor);
+  select e into v_j from jsonb_array_elements(v_adm -> 'stones') e where (e ->> 'stone_no')::int = n_a;
+  select e into v_cc from jsonb_array_elements(v_adm -> 'stones') e where e ->> 'name_th' like 'แก้ได้-%';
+  perform pg_temp.chk('T27f (S9: name_locked = true เมื่อเคยมีแถวราคา (A) · false เมื่อยังไม่เคย)', (v_j ->> 'name_locked') = 'true' and (v_cc ->> 'name_locked') = 'false', coalesce(v_j ->> 'name_locked', 'null') || ' ' || coalesce(v_cc ->> 'name_locked', 'null'));
+
+  v_s := pg_temp.t_try(format('select analytics.rb_stone_upsert(%L,%L,null,%L,%L,%L,0)', v_shop, v_actor, 'ก' || chr(1564) || v_sfx, 'ข1', '#112233'));
+  v_s2 := pg_temp.t_try(format('select analytics.rb_stone_upsert(%L,%L,null,%L,%L,%L,0)', v_shop, v_actor, 'ก' || chr(65529) || v_sfx, 'ข2', '#112233'));
+  v_s3 := pg_temp.t_try(format('select analytics.rb_stone_upsert(%L,%L,null,%L,%L,%L,0)', v_shop, v_actor, 'ก' || chr(119155) || v_sfx, 'ข3', '#112233'));
+  v_s4 := pg_temp.t_try(format('select analytics.rb_stone_upsert(%L,%L,null,%L,%L,%L,0)', v_shop, v_actor, 'ก' || chr(917760) || v_sfx, 'ข4', '#112233'));
+  perform pg_temp.chk('T27g (S4: ALM U+061C · interlinear U+FFF9 · musical U+1D173 · variation selector sup. U+E0100 → name_invalid)',
+    v_s = '22023:name_invalid' and v_s2 = '22023:name_invalid' and v_s3 = '22023:name_invalid' and v_s4 = '22023:name_invalid', v_s || ' ' || v_s2 || ' ' || v_s3 || ' ' || v_s4);
+
+  v_j := analytics.rb_design_upsert(v_shop, v_actor, null, repeat('ก', 40), 6, sh_round, 200, 200, null, 45, 68, 0, 500);
+  v_j := analytics.rb_design_duplicate(v_shop, v_actor, (v_j ->> 'id')::uuid);
+  select d.name into v_txt from analytics.rb_design d where d.id = (v_j ->> 'id')::uuid;
+  perform pg_temp.chk('T27i (N1: ทำสำเนาต่อท้าย " (สำเนา)" · ชื่อ 40 ตัวถูกตัดให้พอดีเพดาน 40)', v_txt like '%' || ' (สำเนา)' and char_length(v_txt) <= 40 and analytics.rb_text_ok(v_txt, 1, 40), v_txt);
 
   -- --------------------------------------------------------------------
   -- T25 — หลังทดสอบทั้งหมด: ACL ยังสะอาด · ไม่มี overload (ไม่มีอะไรถูก create or replace ลบสิทธิ์)

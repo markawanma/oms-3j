@@ -91,10 +91,16 @@ function ConfirmBody({ children, confirmLabel, danger, onConfirm, onClose }: { c
   async function go() {
     setBusy(true);
     setErr(null);
-    const e = await onConfirm();
-    setBusy(false);
-    if (e) setErr(e);
-    else onClose();
+    // S7: action โยน (เครือข่ายหลุด/Server Action ล้ม) ต้องไม่ทำให้ปุ่มค้างสถานะ busy — จบด้วย finally เสมอ
+    try {
+      const e = await onConfirm();
+      if (e) setErr(e);
+      else onClose();
+    } catch {
+      setErr("ทำรายการไม่สำเร็จ ลองใหม่อีกครั้ง");
+    } finally {
+      setBusy(false);
+    }
   }
   return (
     <div className="space-y-3">

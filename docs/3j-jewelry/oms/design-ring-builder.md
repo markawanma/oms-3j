@@ -757,4 +757,21 @@ viewer **ไม่** fetch, ไม่รู้ราคา, ไม่รู้�
 - `C:\Users\Markawan's NoteBook\Downloads\AI Learning\ai-dev-team-files\dev-team\app\api\gem-quiz\submit\route.ts`
 - origin/main: `app/api/ring-size/event/route.ts`, `lib/jobs/gems-boundary.test.ts`, `lib/ring-size/share-card.ts`, `lib/shop/line.ts`, `lib/auth/owner-admin.ts`
 
+---
+
+## 17. หนี้ที่รู้ตัว + ข้อควรระวังตอน deploy (P1 backend · รอบแก้รวม 10 พ.ย. 69)
+
+**หนี้ (technical debt)**
+- **N6 · coverage ใน `rb_admin_catalog` เป็น O(พลอย × แบบ)** — CTE `cov` ทำ cross join พลอย × แบบทุกคู่ แล้ว left join offer + ราคา ตอนนี้พลอย/แบบหลักสิบ จึงไม่ช้า · ถ้าโตเป็นร้อย×ร้อย ให้เปลี่ยนเป็น join ตาม `(shape_id, major, minor)` ก่อน แล้วค่อยขยายเป็นรายแบบ หรือแคชผลต่อ `catalog_at`
+- **ความยาวแถวไม่เกินครึ่งเส้นรอบวง (§5.1)** ยังไม่ validate — ต้องมี gap/ความหนาตัวเรือน (P2) · ค้าง Q1 (7 เม็ดไข่ 4×3 ที่เบอร์ 45 ทำได้จริงไหม)
+- **Luhn mod 32 จุดบอดเดียว:** สลับ `0`↔`Z` ติดกันไม่ถูกจับที่ check char (ไปตกที่ HMAC — ไม่ใช่ช่องโหว่)
+- **ไม่มี rate limit ที่ route quote** (อ่านอย่างเดียว · มี same-origin + body cap) — ยกระดับด้วย Vercel WAF ถ้าเจอการยิงถล่ม
+- **เพิ่มทรง/ขนาด + ราคาพลอยยังเป็น 2 action** (`saveRingOffer` แล้ว `setRingOfferPrice`) — ล้มกลางทางได้ offer ที่ยังไม่มีราคา (หน้าจอบอกส่วนที่สำเร็จแล้ว · ไม่ถูกเสนอให้ลูกค้าเพราะไม่มีราคา) · ถ้าจะรวมเป็นทรานแซกชันเดียวให้ทำแบบเดียวกับ `rb_design_upsert(p_body_price_thb)`
+
+**Deploy / apply — ข้อควรระวัง**
+- **S5 · CRLF (migration-traps ข้อ 20):** git บน Windows ตั้ง `autocrlf=true` — working tree ของ `0196_ring_builder.sql` อาจเป็น CRLF แล้ว `\r` ติดเข้าไปใน body ของฟังก์ชัน (`pg_get_functiondef` ไม่ตรงกับไฟล์) · **apply จาก blob ใน git เท่านั้น:** `git show HEAD:supabase/migrations/0196_ring_builder.sql > <ไฟล์ชั่วคราว>` แล้วรัน `node scripts/run-sql.mjs <ไฟล์ชั่วคราว> --commit --record` · หรือ `sed 's/\r$//'` ตัด `\r` ก่อน · ตรวจก่อนรัน: `tr -dc '\r' < <ไฟล์> | wc -c` ต้องได้ 0 · ห้ามรันจาก working tree ตรงๆ
+- ซ้อมก่อน apply: ต่อไฟล์ migration + `scripts/verify/verify-0196.sql` เป็นไฟล์เดียว (ไม่ใส่ `--commit`) ห้ามช่วง 20:00–23:00 ไทย · เป้า FAIL 0 · หลัง apply รัน `scripts/check-analytics-grants.sql`
+- ตั้ง `RING_BUILDER_CODE_SECRET` (≥ 32 ตัว) บน Vercel แล้ว push commit เปล่า · **ห้ามเปลี่ยนค่านี้โดยไม่ขยับ ver ของรหัส** (รหัสที่ลูกค้าถือค้างจะตรวจเป็น "ไม่ได้ออกโดยระบบ" ทั้งหมด)
+- 0196 ยังไม่เคย apply — แก้ในไฟล์เดิมได้ · apply แล้วต้องออกเลขใหม่
+
 หมายเหตุ: branch ที่เช็คเอาต์อยู่ (`chore/weekly-brief-2026-10-19`) ตามหลัง origin/main (`lib/ring-size/config.ts` ยังเป็น `TRACK_ENABLED=false` และ matcher ยังไม่มี `api/ring-size/event`) — โค้ดใน brief ผมจึงอ้างจาก origin/main · implementer ควรแตก branch จาก origin/main

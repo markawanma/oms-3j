@@ -11,11 +11,11 @@ export const offerA1: AdminOffer = { id: ID.offerA1, shapeId: ID.round, shapeNam
 export const offerA2: AdminOffer = { id: ID.offerA2, shapeId: ID.oval, shapeName: "ไข่", stoneMm100: { major: 400, minor: 300 }, stoneLabel: "4×3", isActive: true, priceThb: 120 };
 
 export const stoneA: AdminStone = {
-  id: ID.stoneA, stoneNo: 1, nameTh: "พลอยทดสอบ A", shortName: "ทดA", colorHex: "#112233", isActive: true, sort: 1, offers: [offerA1, offerA2],
+  id: ID.stoneA, stoneNo: 1, nameTh: "พลอยทดสอบ A", shortName: "ทดA", colorHex: "#112233", isActive: true, sort: 1, nameLocked: true, offers: [offerA1, offerA2],
   coverage: { visibleDesigns: 3, sellableDesigns: 2, missing: [{ designNo: 2, designName: "แบบทดสอบ ข", stoneCount: 5, shapeName: "กลม", stoneLabel: "3×3", reason: "no_offer" }] },
 };
 export const stoneB: AdminStone = {
-  id: ID.stoneB, stoneNo: 2, nameTh: "พลอยทดสอบ B", shortName: "ทดB", colorHex: "#445566", isActive: false, sort: 2, offers: [],
+  id: ID.stoneB, stoneNo: 2, nameTh: "พลอยทดสอบ B", shortName: "ทดB", colorHex: "#445566", isActive: false, sort: 2, nameLocked: false, offers: [],
   coverage: { visibleDesigns: 0, sellableDesigns: 0, missing: [] },
 };
 

@@ -36,6 +36,8 @@ function StoneForm({ catalog, stone, onChanged, onClose, onSwitch }: { catalog: 
   const [err, setErr] = useState<string | null>(null);
   const [fieldErr, setFieldErr] = useState<{ name?: string; short?: string; color?: string; sort?: string }>({});
   const [confirmActive, setConfirmActive] = useState(false);
+  // S9: เคยมีแถวราคา = ชื่อ/สีแก้ไม่ได้ (DB: stone_locked) — ปิดช่องก่อนกดบันทึกแทนปล่อยให้ error ทีหลัง
+  const nameLocked = stone?.nameLocked ?? false;
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -49,12 +51,17 @@ function StoneForm({ catalog, stone, onChanged, onClose, onSwitch }: { catalog: 
     setErr(null);
     if (Object.keys(fe).length > 0) return;
     setBusy(true);
-    const res = await saveRingStone({ id: stone?.id ?? null, name: name.trim(), shortName: shortName.trim(), colorHex: color, sort: sort.trim() === "" ? null : Number.parseInt(sort.trim(), 10) });
-    setBusy(false);
-    if (!res.ok) return setErr(ringErrorText(res)); // ไม่ล้างฟอร์ม
-    push(res.data.created ? "เพิ่มพลอยแล้ว — ตั้งราคาตามทรง/ขนาดต่อได้เลย" : "บันทึกพลอยแล้ว");
-    await onChanged();
-    if (res.data.created) onSwitch(res.data.id); // เปิดต่อเป็นโหมดแก้ไข เพื่อเพิ่มราคา
+    try {
+      const res = await saveRingStone({ id: stone?.id ?? null, name: name.trim(), shortName: shortName.trim(), colorHex: color, sort: sort.trim() === "" ? null : Number.parseInt(sort.trim(), 10) });
+      if (!res.ok) return setErr(ringErrorText(res)); // ไม่ล้างฟอร์ม
+      push(res.data.created ? "เพิ่มพลอยแล้ว — ตั้งราคาตามทรง/ขนาดต่อได้เลย" : "บันทึกพลอยแล้ว");
+      await onChanged();
+      if (res.data.created) onSwitch(res.data.id); // เปิดต่อเป็นโหมดแก้ไข เพื่อเพิ่มราคา
+    } catch {
+      setErr("บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง"); // S7: busy ไม่ค้าง
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function toggleActive(): Promise<string | null> {
@@ -69,8 +76,9 @@ function StoneForm({ catalog, stone, onChanged, onClose, onSwitch }: { catalog: 
   return (
     <div className="space-y-4">
       <form onSubmit={submit} className="space-y-3" noValidate>
+        {nameLocked && <Note>พลอยนี้เคยมีราคาขายแล้ว — แก้ชื่อ/สีไม่ได้ (รหัสสั่งทำที่ออกไปแล้วอ้างชื่อและสีนี้) ถ้าต้องการเปลี่ยน ให้เพิ่มพลอยใหม่แทน · แก้ชื่อสั้นและลำดับได้</Note>}
         <Field label="ชื่อพลอย (ลูกค้าเห็น)" error={fieldErr.name} hint="ใช้ชื่อพลอยจริงตามชนิดวัสดุ">
-          {(p) => <input {...p} className={RB_FIELD} value={name} maxLength={40} onChange={(e) => setName(e.target.value)} />}
+          {(p) => <input {...p} className={RB_FIELD} value={name} maxLength={40} disabled={nameLocked} onChange={(e) => setName(e.target.value)} />}
         </Field>
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="ชื่อสั้น (บนแถบตำแหน่ง · ไม่เกิน 6 ตัวอักษร)" error={fieldErr.short}>
@@ -83,8 +91,8 @@ function StoneForm({ catalog, stone, onChanged, onClose, onSwitch }: { catalog: 
         <Field label="สีที่ใช้แสดงในภาพแหวน" error={fieldErr.color}>
           {(p) => (
             <div className="flex items-center gap-2">
-              <input aria-label="เลือกสี" type="color" className="h-11 w-14 rounded-md border border-zinc-300 bg-white p-1" value={HEX_RE.test(color) ? color : "#888888"} onChange={(e) => setColor(e.target.value)} />
-              <input {...p} className={`${RB_FIELD} max-w-36`} value={color} maxLength={7} onChange={(e) => setColor(e.target.value)} />
+              <input aria-label="เลือกสี" type="color" className="h-11 w-14 rounded-md border border-zinc-300 bg-white p-1" value={HEX_RE.test(color) ? color : "#888888"} disabled={nameLocked} onChange={(e) => setColor(e.target.value)} />
+              <input {...p} className={`${RB_FIELD} max-w-36`} value={color} maxLength={7} disabled={nameLocked} onChange={(e) => setColor(e.target.value)} />
             </div>
           )}
         </Field>
@@ -162,12 +170,30 @@ function OfferRow({ offer, onChanged }: { offer: AdminOffer; onChanged: () => Pr
     if (parsed === null) return;
     setBusy(true);
     setErr(null);
-    const res = await setRingOfferPrice({ offerId: offer.id, priceThb: parsed });
-    setBusy(false);
-    setConfirm(null);
-    if (!res.ok) return setErr(ringErrorText(res));
-    push(res.data.unchanged ? "ราคาเท่าเดิม ไม่มีการเปลี่ยน" : "บันทึกราคาแล้ว");
-    await onChanged();
+    try {
+      const res = await setRingOfferPrice({ offerId: offer.id, priceThb: parsed });
+      setConfirm(null);
+      if (!res.ok) return setErr(ringErrorText(res));
+      push(res.data.unchanged ? "ราคาเท่าเดิม ไม่มีการเปลี่ยน" : "บันทึกราคาแล้ว");
+      await onChanged();
+    } catch {
+      setConfirm(null);
+      setErr("บันทึกราคาไม่สำเร็จ ลองใหม่อีกครั้ง");
+    } finally {
+      setBusy(false);
+    }
+  }
+  /** เปิด offer ที่ปิดอยู่ (ไม่ต้องยืนยัน) — action โยนแล้วต้องไม่ปล่อยเป็น unhandled rejection */
+  async function reopen() {
+    setBusy(true);
+    try {
+      const e = await toggle();
+      if (e) setErr(e);
+    } catch {
+      setErr("ทำรายการไม่สำเร็จ ลองใหม่อีกครั้ง");
+    } finally {
+      setBusy(false);
+    }
   }
   async function toggle(): Promise<string | null> {
     const res = await setRingActive({ kind: "offer", id: offer.id, active: !offer.isActive });
@@ -192,7 +218,7 @@ function OfferRow({ offer, onChanged }: { offer: AdminOffer; onChanged: () => Pr
         <Button type="button" variant="secondary" size="sm" disabled={!dirty || busy} onClick={() => setConfirm("price")}>
           บันทึกราคา
         </Button>
-        <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => (offer.isActive ? setConfirm("close") : void toggle().then((e) => e && setErr(e)))}>
+        <Button type="button" variant="ghost" size="sm" disabled={busy} onClick={() => (offer.isActive ? setConfirm("close") : void reopen())}>
           {offer.isActive ? "ปิด" : "เปิด"}
         </Button>
       </div>
@@ -239,22 +265,25 @@ function NewOfferRow({ catalog, stone, onChanged }: { catalog: AdminCatalog; sto
     if (!canAdd || priceParsed === null) return;
     setBusy(true);
     setErr(null);
-    const o = await saveRingOffer({ stoneId: stone.id, shapeId, size: composeSize(w, round ? w : h) });
-    if (!o.ok) {
+    try {
+      const o = await saveRingOffer({ stoneId: stone.id, shapeId, size: composeSize(w, round ? w : h) });
+      if (!o.ok) return setErr(ringErrorText(o));
+      const p = await setRingOfferPrice({ offerId: o.data.offerId, priceThb: priceParsed });
+      if (!p.ok) {
+        // S2: บันทึกสำเร็จบางส่วน — เพิ่มทรง/ขนาดแล้วแต่ราคาไม่ติด → ข้อความบอกส่วนที่สำเร็จเสมอ (ไม่ให้ข้อความของ code ทับ) · รายการแสดงเป็น "ยังไม่ตั้งราคา" ให้ตั้งต่อ
+        await onChanged().catch(() => undefined);
+        return setErr(`เพิ่มทรง/ขนาดแล้ว แต่ตั้งราคาไม่สำเร็จ: ${ringErrorText(p)} — ตั้งราคาในรายการด้านบน`);
+      }
+      push(o.data.reactivated ? "เปิดราคาเดิมกลับมาและตั้งราคาแล้ว" : "เพิ่มราคาทรง/ขนาดแล้ว");
+      setW("");
+      setH("");
+      setPrice("");
+      await onChanged();
+    } catch {
+      setErr("ทำรายการไม่สำเร็จ ลองใหม่อีกครั้ง");
+    } finally {
       setBusy(false);
-      return setErr(ringErrorText(o));
     }
-    const p = await setRingOfferPrice({ offerId: o.data.offerId, priceThb: priceParsed });
-    setBusy(false);
-    if (!p.ok) {
-      await onChanged(); // เพิ่มทรง/ขนาดสำเร็จแล้ว แต่ราคาไม่ติด → แสดงในรายการเป็น "ยังไม่ตั้งราคา" ให้ตั้งต่อ
-      return setErr(`เพิ่มทรง/ขนาดแล้ว แต่ตั้งราคาไม่สำเร็จ: ${ringErrorText(p)} — ตั้งราคาในรายการด้านบน`);
-    }
-    push(o.data.reactivated ? "เปิดราคาเดิมกลับมาและตั้งราคาแล้ว" : "เพิ่มราคาทรง/ขนาดแล้ว");
-    setW("");
-    setH("");
-    setPrice("");
-    await onChanged();
   }
 
   if (shapes.length === 0) return <Note>ยังไม่มีทรงที่เปิดอยู่ — เพิ่มหรือเปิดทรงพลอยก่อนจึงตั้งราคาได้</Note>;

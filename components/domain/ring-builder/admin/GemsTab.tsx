@@ -222,12 +222,17 @@ function ShapeDialog({ shape, onChanged, onClose }: { shape: AdminShape | "new";
     if (name.trim() === "") return setErr("กรอกชื่อทรง");
     setBusy(true);
     setErr(null);
-    const res = await saveRingShape({ id: isNew ? null : shape.id, name: name.trim(), renderKind: isNew ? kind : null });
-    setBusy(false);
-    if (!res.ok) return setErr(ringErrorText(res)); // ค่าที่กรอกอยู่คงเดิม
-    push(isNew ? "เพิ่มทรงแล้ว" : "บันทึกชื่อทรงแล้ว");
-    await onChanged();
-    onClose();
+    try {
+      const res = await saveRingShape({ id: isNew ? null : shape.id, name: name.trim(), renderKind: isNew ? kind : null });
+      if (!res.ok) return setErr(ringErrorText(res)); // ค่าที่กรอกอยู่คงเดิม
+      push(isNew ? "เพิ่มทรงแล้ว" : "บันทึกชื่อทรงแล้ว");
+      await onChanged();
+      onClose();
+    } catch {
+      setErr("บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง"); // S7: busy ไม่ค้าง
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (

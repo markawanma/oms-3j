@@ -12,6 +12,18 @@ export const MAX_DESIGN_NO = 4095;
 export const MAX_STONE_NO = 1023;
 export const MAX_TOTAL_THB = 262143;
 
+// ขอบเขตที่ DB บังคับ (CHECK/RPC ใน 0196) — TS ใช้ค่าเดียวกันเป็น pre-check · config.test.ts เทียบกับข้อความ SQL (parity) ถ้าแก้ที่ไหนต้องแก้อีกที่
+/** ขนาดพลอย 1/100 มม.: 0.50–20.00 มม. */
+export const MM100_MIN = 50;
+export const MM100_MAX = 2000;
+/** เพดานเพดานราคา (ขอบเขตตรวจ ไม่ใช่ราคา): ตัวเรือน ≤ 1,000,000 · พลอยต่อเม็ด ≤ 100,000 (จำนวนเต็มบาท ≥ 1) */
+export const MAX_BODY_PRICE_THB = 1_000_000;
+export const MAX_OFFER_PRICE_THB = 100_000;
+/** ความยาวชื่อสูงสุด (code point) */
+export const NAME_MAX = { shape: 20, stone: 40, shortName: 6, design: 40 } as const;
+export const SORT_MIN = -1000;
+export const SORT_MAX = 100_000;
+
 /** รหัสสั่งทำ: prefix + ขีดทุก 5 ตัว (แสดงผลเท่านั้น — decoder ตัดขีดทิ้ง) */
 export const CODE_PREFIX = "3JR-";
 /** size_idx 31 = "ให้แอดมินช่วยเช็กไซซ์" (B3) · 24..30 = ปฏิเสธ */

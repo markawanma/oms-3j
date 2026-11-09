@@ -215,9 +215,8 @@ describe("DB ตอบผิดโครง/ผิดความคาดหว
     expect(r.status).toBe(400);
     expect(await r.json()).toEqual({ ok: false, reason: "stone_unavailable", stoneNos: [3, 7] });
   });
-  // [P3 defense-in-depth] quote-server.ts parseQuoteOk/issueQuote ไม่เทียบ line.pos/stone_no กับ positions ที่ขอ — rb_quote ใน 0196 สร้าง lines จาก unnest(...) with ordinality order by pos จึงไม่เกิดจริงวันนี้
-  // it.fails = บันทึกช่องไว้ให้เห็น · เมื่อ dev เพิ่มการเทียบแล้วเทสต์นี้จะ "ผ่านจริง" → vitest จะแจ้งว่า it.fails ผ่าน → ให้ถอด .fails ออก
-  it.fails("DB ตอบ 'บรรทัดที่ stone_no ไม่ตรงกับที่ขอ' (ผิดลำดับ/ผิดเม็ด) → ต้องไม่ออกรหัสเงียบๆ", async () => {
+  // S10 (แก้แล้ว): parseQuoteOk เทียบ pos/stone_no กับ positions ที่ขอ + total = body + Σ price — ไม่ตรง = 500 ไม่ออกรหัส
+  it("DB ตอบ 'บรรทัดที่ stone_no ไม่ตรงกับที่ขอ' (ผิดลำดับ/ผิดเม็ด) → ต้องไม่ออกรหัสเงียบๆ", async () => {
     // client ขอ [3,0,5] แต่ DB (จำลองบั๊ก) ตอบ [5,0,3] ราคารวมเท่าเดิม 720 — รหัสที่เซ็นต้องไม่เป็น 5,0,3 โดยไม่มีใครรู้
     rpc.mockResolvedValue(
       dbOk({
@@ -228,16 +227,18 @@ describe("DB ตอบผิดโครง/ผิดความคาดหว
         ],
       }),
     );
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     const r = await post();
-    const j = (await r.json()) as { ok: boolean; code?: string };
-    if (r.status === 200 && j.code) {
-      const v = verifyCode(j.code);
-      const positions = v.status === "valid" ? v.fields.positions : null;
-      // ถ้าออกรหัสแล้ว รหัสต้องตรงกับสิ่งที่ลูกค้าขอ ไม่ใช่สิ่งที่ DB ตอบมาผิด
-      expect(positions).toEqual(OK_BODY.positions);
-    } else {
-      expect(r.status).toBe(500);
-    }
+    spy.mockRestore();
+    expect(r.status).toBe(500);
+    expect(await r.json()).toEqual({ ok: false, reason: "server" });
+  });
+  it("S10: DB ตอบยอดรวมไม่เท่า body + Σ ราคาบรรทัด → 500 ไม่ออกรหัส", async () => {
+    rpc.mockResolvedValue(dbOk({ total: 721 }));
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const r = await post();
+    spy.mockRestore();
+    expect(r.status).toBe(500);
   });
 });
 
@@ -253,7 +254,7 @@ describe("พร้อมกัน (race) — ไม่มี state ร่วม
   });
   it("ยิงพร้อมกันคนละ input + ราคาเปลี่ยนกลางทาง → 200 และ 409 ไม่ปนกัน (ราคา/รหัสไม่ข้ามคำขอ)", async () => {
     let n = 0;
-    rpc.mockImplementation(async () => (n++ % 2 === 0 ? dbOk() : dbOk({ total: 740 })));
+    rpc.mockImplementation(async () => (n++ % 2 === 0 ? dbOk() : dbOk({ total: 740, lines: [{ pos: 1, stone_no: 3, name: "โกเมน", price: 80 }, { pos: 2, stone_no: 0, name: null, price: 0 }, { pos: 3, stone_no: 5, name: "ซิทริน", price: 180 }] })));
     const rs = await Promise.all(Array.from({ length: 10 }, () => POST(req(json(OK_BODY)))));
     for (const r of rs) {
       const j = (await r.json()) as { ok: boolean; reason?: string; total?: number; code?: string };

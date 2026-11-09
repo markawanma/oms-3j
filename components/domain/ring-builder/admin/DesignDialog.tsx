@@ -12,13 +12,13 @@ import { useToast } from "@/components/ui/Toast";
 import { clearRingCardImage, duplicateRingDesign, publishRingDesign, saveRingDesign, setRingActive, uploadRingCardImage } from "@/lib/actions/ring-builder";
 import type { AdminCatalog, AdminDesign } from "@/lib/ring-builder/admin-types";
 import { composeSize, fmtThb, HIDDEN_REASON_LABEL, parseWholeThb, ringErrorText } from "@/lib/ring-builder/admin-ui";
-import { MAX_STONES, MIN_STONES } from "@/lib/ring-builder/config";
+import { MAX_BODY_PRICE_THB, MAX_STONES, MIN_STONES } from "@/lib/ring-builder/config";
 import { formatMm100, parseStoneSize } from "@/lib/ring-builder/mm";
 import { MD_MAX_PX } from "@/lib/images/constants";
 import { ConfirmDialog, ErrorLine, Field, Note, RB_FIELD, SizeFields } from "./ui";
 import { RingDiagram } from "./RingDiagram";
 
-const BODY_MAX = 1_000_000;
+const BODY_MAX = MAX_BODY_PRICE_THB;
 const COUNTS = Array.from({ length: MAX_STONES - MIN_STONES + 1 }, (_, i) => MIN_STONES + i);
 
 export function DesignDialog({ catalog, designId, defaultCount, onChanged, onClose, onSwitch }: { catalog: AdminCatalog; designId: string | "new"; defaultCount: number | null; onChanged: () => Promise<void>; onClose: () => void; onSwitch: (id: string) => void }) {
@@ -42,8 +42,9 @@ function DesignForm({ catalog, design, defaultCount, onChanged, onClose, onSwitc
     w: design ? formatMm100(design.stoneMm100.major) : "",
     h: design ? formatMm100(design.stoneMm100.minor) : "",
     axis: design?.stoneAxis ?? "",
-    sizeMin: String(design?.sizeMin ?? catalog.sizes.min),
-    sizeMax: String(design?.sizeMax ?? catalog.sizes.max),
+    // S6: แบบใหม่เริ่มว่าง + บังคับกรอก (ไม่เดาว่าทำได้ทุกไซซ์ — ไซซ์เล็กบางแบบทำไม่ได้) · แบบเดิมคงค่า
+    sizeMin: design ? String(design.sizeMin) : "",
+    sizeMax: design ? String(design.sizeMax) : "",
     price: design?.bodyPriceThb == null ? "" : String(design.bodyPriceThb),
   };
   const [f, setF] = useState(initial);
@@ -70,8 +71,11 @@ function DesignForm({ catalog, design, defaultCount, onChanged, onClose, onSwitc
     if (!size.ok) e.size = size.reason === "range" ? "ขนาดต้องอยู่ระหว่าง 0.50-20.00 มม." : "กรอกกว้าง/ยาวเป็นตัวเลข (มม.)";
     const smin = /^\d{1,3}$/.test(f.sizeMin) ? Number.parseInt(f.sizeMin, 10) : NaN;
     const smax = /^\d{1,3}$/.test(f.sizeMax) ? Number.parseInt(f.sizeMax, 10) : NaN;
-    if (Number.isNaN(smin) || Number.isNaN(smax) || smin < catalog.sizes.min || smax > catalog.sizes.max || smin > smax) e.sizes = `ช่วงไซซ์ต้องอยู่ใน ${catalog.sizes.min}-${catalog.sizes.max} และต่ำสุดไม่เกินสูงสุด`;
+    if (f.sizeMin.trim() === "" || f.sizeMax.trim() === "") e.sizes = "กรอกช่วงไซซ์ที่ทำได้ (ต่ำสุด–สูงสุด) ของแบบนี้";
+    else if (Number.isNaN(smin) || Number.isNaN(smax) || smin < catalog.sizes.min || smax > catalog.sizes.max || smin > smax) e.sizes = `ช่วงไซซ์ต้องอยู่ใน ${catalog.sizes.min}-${catalog.sizes.max} และต่ำสุดไม่เกินสูงสุด`;
     if (f.price.trim() !== "" && priceParsed === null) e.price = "ราคาต้องเป็นจำนวนเต็มบาท";
+    // S1/S6: สร้างแบบใหม่ต้องมีราคาตัวเรือน (บันทึกพร้อมกันในคำสั่งเดียว)
+    else if (!design && priceParsed === null) e.price = "ตั้งราคาตัวเรือนตอนสร้างแบบ";
     if (shape?.renderKind === "oval" && f.axis === "") e.axis = "ทรงไข่ต้องระบุทิศเม็ด";
     setFe(e);
     return Object.keys(e).length > 0 ? { ok: false } : { ok: true, smin, smax };
@@ -82,19 +86,22 @@ function DesignForm({ catalog, design, defaultCount, onChanged, onClose, onSwitc
     if (!v.ok || !shape) return;
     setBusy(true);
     setErr(null);
-    const res = await saveRingDesign({
-      id: design?.id ?? null, name: f.name.trim(), stoneCount: countNum, shapeId: f.shapeId, size: composeSize(f.w, round ? f.w : f.h),
-      stoneAxis: round ? null : (f.axis as "along_row" | "across_row"), sizeMin: v.smin, sizeMax: v.smax, sort: design?.sort ?? null,
-      bodyPriceThb: priceChanged ? priceParsed : null,
-    });
-    setBusy(false);
-    if (!res.ok) {
-      await onChanged().catch(() => undefined); // กรณี "บันทึกแบบแล้วแต่ราคาไม่ติด" แบบถูกบันทึกจริง — รีโหลดให้เห็น · ค่าที่กรอกคงอยู่
-      return setErr(ringErrorText(res));
+    // S7: try/catch/finally — action โยนแล้ว busy ต้องไม่ค้าง · S1: บันทึกแบบ+ราคาเป็นคำสั่งเดียว ล้ม = ไม่มีอะไรถูกบันทึก (ค่าที่กรอกคงอยู่)
+    try {
+      const res = await saveRingDesign({
+        id: design?.id ?? null, name: f.name.trim(), stoneCount: countNum, shapeId: f.shapeId, size: composeSize(f.w, round ? f.w : f.h),
+        stoneAxis: round ? null : (f.axis as "along_row" | "across_row"), sizeMin: v.smin, sizeMax: v.smax, sort: design?.sort ?? null,
+        bodyPriceThb: !design || priceChanged ? priceParsed : null,
+      });
+      if (!res.ok) return setErr(ringErrorText(res));
+      push(res.data.created ? `เพิ่มแบบแล้ว (เป็นร่าง · แบบ #${res.data.designNo})` : "บันทึกแบบแล้ว");
+      await onChanged();
+      if (res.data.created) onSwitch(res.data.id);
+    } catch {
+      setErr("บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง");
+    } finally {
+      setBusy(false);
     }
-    push(res.data.created ? `เพิ่มแบบแล้ว (เป็นร่าง · แบบ #${res.data.designNo})` : "บันทึกแบบแล้ว");
-    await onChanged();
-    if (res.data.created) onSwitch(res.data.id);
   }
 
   function submit(e: FormEvent) {
@@ -124,12 +131,17 @@ function DesignForm({ catalog, design, defaultCount, onChanged, onClose, onSwitc
     if (!design) return;
     setBusy(true);
     setErr(null);
-    const res = await duplicateRingDesign(design.id);
-    setBusy(false);
-    if (!res.ok) return setErr(ringErrorText(res));
-    push(`ทำสำเนาแล้ว — แบบ #${res.data.designNo} (ร่าง) แก้จำนวนเม็ด/ทรง/ขนาดได้`);
-    await onChanged();
-    onSwitch(res.data.id);
+    try {
+      const res = await duplicateRingDesign(design.id);
+      if (!res.ok) return setErr(ringErrorText(res));
+      push(`ทำสำเนาแล้ว — แบบ #${res.data.designNo} (ร่าง) แก้จำนวนเม็ด/ทรง/ขนาดได้`);
+      await onChanged();
+      onSwitch(res.data.id);
+    } catch {
+      setErr("ทำสำเนาไม่สำเร็จ ลองใหม่อีกครั้ง");
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
@@ -185,7 +197,7 @@ function DesignForm({ catalog, design, defaultCount, onChanged, onClose, onSwitc
           <Field label="ไซซ์สูงสุด">
             {(p) => <input {...p} inputMode="numeric" className={RB_FIELD} value={f.sizeMax} onChange={(e) => set("sizeMax", e.target.value)} />}
           </Field>
-          <Field label="ราคาตัวเรือน (บาท · ทุกไซซ์)" error={fe.price} hint={design?.bodyPriceThb != null ? `ปัจจุบัน ${fmtThb(design.bodyPriceThb)}` : "ต้องตั้งก่อนเปิดขาย"}>
+          <Field label="ราคาตัวเรือน (บาท · ทุกไซซ์)" error={fe.price} hint={design?.bodyPriceThb != null ? `ปัจจุบัน ${fmtThb(design.bodyPriceThb)}` : "ต้องกรอกตอนสร้างแบบ"}>
             {(p) => <input {...p} inputMode="numeric" className={RB_FIELD} value={f.price} onChange={(e) => set("price", e.target.value)} />}
           </Field>
         </div>
@@ -278,11 +290,16 @@ function CardImage({ design, onChanged }: { design: AdminDesign; onChanged: () =
   async function clear() {
     setBusy(true);
     setErr(null);
-    const res = await clearRingCardImage(design.id);
-    setBusy(false);
-    if (!res.ok) return setErr(ringErrorText(res));
-    push("ลบรูปการ์ดแล้ว");
-    await onChanged();
+    try {
+      const res = await clearRingCardImage(design.id);
+      if (!res.ok) return setErr(ringErrorText(res));
+      push("ลบรูปการ์ดแล้ว");
+      await onChanged();
+    } catch {
+      setErr("ลบรูปไม่สำเร็จ ลองใหม่อีกครั้ง");
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (

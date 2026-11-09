@@ -144,32 +144,78 @@ describe("กราฟ runtime ของหน้า/route สาธารณะ
     expect(actionFiles).toContain("lib/actions/ring-builder.ts");
     expect(isUseServer(readFileSync(join(ROOT, "lib/actions/ring-builder.ts"), "utf8"))).toBe(true);
   });
-  it("ทั้งแอป: มีแค่ lib/actions/ring-builder.ts ที่ import admin-server (ไม่มีทางอื่นเข้า)", () => {
-    const importers: string[] = [];
-    for (const d of ["app", "lib", "components"]) {
-      for (const f of walk(join(ROOT, d))) {
-        const src = readFileSync(f, "utf8");
-        if (/ring-builder\/admin-server/.test(src) && !rel(f).startsWith("lib/ring-builder/")) importers.push(rel(f));
+});
+
+// sec#2: เทียบที่ "path ที่ resolve แล้ว" ไม่ใช่ข้อความในซอร์ส — ครอบ ./x · ../x · @/ · dynamic import · export … from · import ข้ามบรรทัด
+interface Imp {
+  spec: string;
+  /** import type / export type / ทุกชื่อที่ import ขึ้นต้น type — ถูกลบตอน compile */
+  typeOnly: boolean;
+}
+function allImports(src: string): Imp[] {
+  const out: Imp[] = [];
+  for (const m of src.matchAll(/^\s*(?:import|export)\s+(type\s+)?([^;]*?)\s*from\s*["']([^"']+)["']/gm)) {
+    const named = /^\{([^}]*)\}$/.exec(m[2].trim());
+    const allNamedType = !!named && named[1].split(",").map((s) => s.trim()).filter(Boolean).every((s) => s.startsWith("type "));
+    out.push({ spec: m[3], typeOnly: !!m[1] || allNamedType });
+  }
+  for (const m of src.matchAll(/^\s*import\s+["']([^"']+)["']/gm)) out.push({ spec: m[1], typeOnly: false });
+  for (const m of src.matchAll(/import\(\s*["']([^"']+)["']\s*\)/g)) out.push({ spec: m[1], typeOnly: false });
+  return out;
+}
+function resolveQuiet(spec: string, from: string): string | null {
+  try {
+    return resolveSpec(spec, from);
+  } catch {
+    return null;
+  }
+}
+/** ไฟล์ทั้งแอป (app/lib/components ไม่รวม test) ที่ import ไฟล์ปลายทางนี้ — ตาม path ที่ resolve แล้ว */
+function importersOf(target: string): { file: string; typeOnly: boolean }[] {
+  const abs = join(ROOT, target);
+  const out: { file: string; typeOnly: boolean }[] = [];
+  for (const d of ["app", "lib", "components"]) {
+    for (const f of walk(join(ROOT, d))) {
+      for (const i of allImports(readFileSync(f, "utf8"))) {
+        if (resolveQuiet(i.spec, f) === abs) out.push({ file: rel(f), typeOnly: i.typeOnly });
       }
     }
-    expect(importers.sort()).toEqual(["lib/actions/ring-builder.ts"]);
+  }
+  return out;
+}
+
+describe("importers ของไฟล์หลังบ้าน (resolve path ก่อนเทียบ)", () => {
+  it("admin-server.ts: มีแค่ lib/actions/ring-builder.ts ที่ import (ไม่มีทางอื่นเข้า — ไม่ว่าเขียน path แบบไหน)", () => {
+    expect([...new Set(importersOf("lib/ring-builder/admin-server.ts").map((i) => i.file))]).toEqual(["lib/actions/ring-builder.ts"]);
   });
-  // admin-types = type อย่างเดียว (ไม่มี runtime) — หน้าจอหลังบ้าน /catalog/ring-builder ต้องใช้ type ของ AdminCatalog · เปิดให้เฉพาะ 2 โฟลเดอร์ของหลังบ้าน และต้องเป็น `import type`
-  it("admin-types: import ได้เฉพาะ action + หน้า/คอมโพเนนต์หลังบ้าน (components/domain/ring-builder/admin · app/(dashboard)/catalog/ring-builder) และต้องเป็น import type", () => {
-    const allowed = (p: string) => p === "lib/actions/ring-builder.ts" || p.startsWith("components/domain/ring-builder/admin/") || p.startsWith("app/(dashboard)/catalog/ring-builder/");
+  // admin-types = type อย่างเดียว — หน้าจอหลังบ้านต้องใช้ type ของ AdminCatalog · เปิดให้เฉพาะ action + 2 โฟลเดอร์ของหลังบ้าน (+ ไฟล์ admin-* ในโฟลเดอร์ lib/ring-builder เอง) และต้องเป็น import type
+  it("admin-types.ts: import ได้เฉพาะ action + หลังบ้าน (components/domain/ring-builder/admin · app/(dashboard)/catalog/ring-builder · lib/ring-builder/admin-*) และต้องเป็น import type", () => {
+    const allowed = (p: string) =>
+      p === "lib/actions/ring-builder.ts" || p.startsWith("components/domain/ring-builder/admin/") || p.startsWith("app/(dashboard)/catalog/ring-builder/") || /^lib\/ring-builder\/admin-[a-z]+\.ts$/.test(p);
     const offenders: string[] = [];
-    for (const d of ["app", "lib", "components"]) {
-      for (const f of walk(join(ROOT, d))) {
-        const p = rel(f);
-        if (p.startsWith("lib/ring-builder/")) continue;
-        const src = readFileSync(f, "utf8");
-        for (const m of src.matchAll(/^\s*(?:import|export)\s+(type\s+)?[^;]*?from\s*["']([^"']*ring-builder\/admin-types)["']/gm)) {
-          if (!allowed(p)) offenders.push(`${p} (ไม่อยู่ในโฟลเดอร์หลังบ้าน)`);
-          else if (!m[1]) offenders.push(`${p} (ไม่ใช่ import type)`);
-        }
-      }
+    for (const i of importersOf("lib/ring-builder/admin-types.ts")) {
+      if (!allowed(i.file)) offenders.push(`${i.file} (ไม่อยู่ในโฟลเดอร์หลังบ้าน)`);
+      else if (!i.typeOnly) offenders.push(`${i.file} (ไม่ใช่ import type)`);
     }
     expect(offenders).toEqual([]);
+  });
+  it("admin-ui.ts (ตารางข้อความ + ตัวช่วยหลังบ้าน): ไม่อยู่ในกราฟสาธารณะ — importer เป็นหลังบ้าน/server admin เท่านั้น", () => {
+    const allowed = (p: string) => p.startsWith("components/domain/ring-builder/admin/") || p.startsWith("app/(dashboard)/catalog/ring-builder/") || /^lib\/ring-builder\/admin-[a-z]+\.ts$/.test(p);
+    expect(importersOf("lib/ring-builder/admin-ui.ts").map((i) => i.file).filter((f) => !allowed(f))).toEqual([]);
+  });
+  it("ตัวจับจริง (กันเทสต์หลวม): scanner เห็น importer ที่เขียนแบบ ./ และ dynamic import", () => {
+    expect(importersOf("lib/ring-builder/util.ts").map((i) => i.file)).toContain("lib/ring-builder/quote-server.ts"); // import แบบ "./util"
+    const imps = allImports('import type { A } from "../x";\nimport { type B, type C } from "./y";\nimport { D } from "./z";\nconst m = import("../w");\nexport * from "./v";\nimport {\n  E,\n} from "./u";');
+    expect(imps).toEqual([
+      { spec: "../x", typeOnly: true }, { spec: "./y", typeOnly: true }, { spec: "./z", typeOnly: false }, { spec: "./v", typeOnly: false }, { spec: "./u", typeOnly: false }, { spec: "../w", typeOnly: false },
+    ]);
+  });
+  // N2: admin-types ต้องไม่มี export ที่เป็นค่า (const/let/var/function/class/enum/default) — กัน runtime code หลุดเข้าไปในไฟล์ที่ client import
+  it("N2: admin-types.ts มีแต่ type/interface — ไม่มี export ค่า", () => {
+    const src = readFileSync(join(ROOT, "lib/ring-builder/admin-types.ts"), "utf8").replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+    expect(src.match(/^\s*export\s+(?:declare\s+)?(?:const|let|var|function|async|class|enum|default|\{|\*)/gm) ?? []).toEqual([]);
+    expect(src.match(/^\s*export\s+(?:type|interface)\s/gm)?.length).toBeGreaterThan(5);
+    expect(runtimeImports(src)).toEqual([]);
   });
 });
 

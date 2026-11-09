@@ -5,15 +5,13 @@ import "server-only";
 import { getServiceClient } from "@/lib/supabase/server";
 import { getDevShopId } from "@/lib/dev/context";
 import { readErrorCode } from "@/lib/supabase/postgrest-error";
-import { CZ_WHITE, LINE_COPY, MONTHS_TH, QUOTE_REASONS, type QuoteReason } from "./config";
+import { CZ_WHITE, LINE_COPY, MAX_BODY_PRICE_THB, MAX_OFFER_PRICE_THB, MAX_STONE_NO, MAX_TOTAL_THB, MM100_MAX, MM100_MIN, MONTHS_TH, QUOTE_REASONS, type QuoteReason } from "./config";
 import { pricedAtToSec } from "./code";
 import { issueCode, getCodeSecret } from "./code-sign";
 import { stoneLabel } from "./mm";
+import { formatBaht, isInt, isObj, type Raw } from "./util";
 import type { QuoteConflict, QuoteDesign, QuoteGroup, QuoteLine, QuoteOk, QuoteRejected, QuoteRequest } from "./types";
 
-type Raw = Record<string, unknown>;
-const isObj = (v: unknown): v is Raw => typeof v === "object" && v !== null && !Array.isArray(v);
-const isInt = (v: unknown, lo: number, hi: number): v is number => typeof v === "number" && Number.isInteger(v) && v >= lo && v <= hi;
 
 /** เวลาไทย (UTC+7 คงที่ ไม่มี DST) — ไม่พึ่ง Intl/TZ ของเครื่อง */
 function bkk(iso: string): { d: number; m: number; y: number; hh: number; mm: number } | null {
@@ -35,9 +33,6 @@ export function formatThaiDateTimeBkk(iso: string): string {
   return p ? `${p.d} ${MONTHS_TH[p.m]} ${p.y} ${String(p.hh).padStart(2, "0")}:${String(p.mm).padStart(2, "0")}` : "";
 }
 
-export function formatBaht(n: number): string {
-  return `฿${n.toLocaleString("en-US")}`;
-}
 
 /** จัดกลุ่มตามพลอย (ตามลำดับที่เจอครั้งแรก) — บวก/คูณจำนวนเต็มที่ DB คิดมาแล้ว ไม่มีสูตรใหม่ */
 export function buildGroups(lines: QuoteLine[]): QuoteGroup[] {
@@ -75,20 +70,33 @@ interface ParsedQuote {
   pricedAt: string;
 }
 
-/** แปลงผล rb_quote (ok:true) → ค่าที่ตรวจรูปร่างแล้ว · โครงผิด = null */
-export function parseQuoteOk(raw: Raw, expectedCount: number): ParsedQuote | null {
-  if (!isInt(raw.total, 0, 262143) || !isInt(raw.body, 1, 1_000_000) || typeof raw.priced_at !== "string" || !Array.isArray(raw.lines) || !isObj(raw.design)) return null;
+/**
+ * แปลงผล rb_quote (ok:true) → ค่าที่ตรวจรูปร่างแล้ว · โครงผิด = null (route ตอบ 500 ไม่ออกรหัส)
+ * S10 (defense-in-depth): รหัสที่เซ็นต้องตรงกับสิ่งที่ลูกค้าขอและยอดที่เซ็นต้องบวกกลับได้ ·
+ *   - lines[i].pos === i+1 และ lines[i].stone_no === positions[i] (ผิดลำดับ/ผิดเม็ด = ไม่เซ็น)
+ *   - total === body + Σ price (ยอดที่เซ็นห้ามเพี้ยนจากบรรทัด) · พลอยสี (stone_no > 0) ราคา ≥ 1 · CZ ขาวราคา 0
+ */
+export function parseQuoteOk(raw: Raw, positions: readonly number[]): ParsedQuote | null {
+  if (!isInt(raw.total, 0, MAX_TOTAL_THB) || !isInt(raw.body, 1, MAX_BODY_PRICE_THB) || typeof raw.priced_at !== "string" || !Array.isArray(raw.lines) || !isObj(raw.design)) return null;
   const d = raw.design;
-  if (typeof d.name !== "string" || typeof d.shape_name !== "string" || !isInt(d.major_mm100, 50, 2000) || !isInt(d.minor_mm100, 50, 2000)) return null;
-  if (raw.lines.length !== expectedCount) return null;
+  if (typeof d.name !== "string" || typeof d.shape_name !== "string" || !isInt(d.major_mm100, MM100_MIN, MM100_MAX) || !isInt(d.minor_mm100, MM100_MIN, MM100_MAX)) return null;
+  if (raw.lines.length !== positions.length) return null;
   const lines: QuoteLine[] = [];
-  for (const l of raw.lines) {
-    if (!isObj(l) || !isInt(l.pos, 1, 7) || !isInt(l.stone_no, 0, 1023) || !isInt(l.price, 0, 100000)) return null;
-    if (l.stone_no > 0 && l.price < 1) return null; // พลอยสีต้องมีราคา ≥ 1 (กันซ้ำกับ CHECK ใน DB)
-    if (l.stone_no === 0) lines.push({ pos: l.pos, stoneNo: 0, name: CZ_WHITE.name, priceThb: 0 });
-    else if (typeof l.name === "string") lines.push({ pos: l.pos, stoneNo: l.stone_no, name: l.name, priceThb: l.price });
-    else return null;
+  let sum = raw.body;
+  for (let i = 0; i < raw.lines.length; i++) {
+    const l = raw.lines[i];
+    if (!isObj(l) || !isInt(l.pos, 1, 7) || !isInt(l.stone_no, 0, MAX_STONE_NO) || !isInt(l.price, 0, MAX_OFFER_PRICE_THB)) return null;
+    if (l.pos !== i + 1 || l.stone_no !== positions[i]) return null;
+    sum += l.price;
+    if (l.stone_no === 0) {
+      if (l.price !== 0) return null;
+      lines.push({ pos: l.pos, stoneNo: 0, name: CZ_WHITE.name, priceThb: 0 });
+    } else {
+      if (l.price < 1 || typeof l.name !== "string") return null;
+      lines.push({ pos: l.pos, stoneNo: l.stone_no, name: l.name, priceThb: l.price });
+    }
   }
+  if (sum !== raw.total) return null;
   return {
     total: raw.total,
     body: raw.body,
@@ -131,7 +139,7 @@ export async function issueQuote(req: QuoteRequest): Promise<QuoteOutcome> {
     return { kind: "rejected", body };
   }
 
-  const q = parseQuoteOk(raw, req.positions.length);
+  const q = parseQuoteOk(raw, req.positions);
   if (!q) return { kind: "error", code: "shape" };
   const groups = buildGroups(q.lines);
 

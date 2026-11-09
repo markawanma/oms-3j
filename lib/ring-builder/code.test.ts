@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  ALPHABET, bitsToChars, checkChar, checkCharValid, decodeCode, encodeCode, extractCodes, formatCode, packPayload, payloadBitLength, pricedAtToSec, secToIso, TAG_BITS, type CodeFields,
+  ALPHABET, bitsToChars, checkChar, checkCharValid, decodeCode, decodeFromText, encodeCode, extractCodes, formatCode, packPayload, payloadBitLength, pricedAtToSec, secToIso, TAG_BITS, type CodeFields,
 } from "./code";
 
 const TAG = "101100111000111100001010110100110011101010111100001100110101".slice(0, TAG_BITS).padEnd(TAG_BITS, "1");
@@ -180,13 +180,47 @@ describe("extractCodes — ดึงรหัสจากข้อความ�
   const code = encodeFields(base);
   it("จากข้อความ LINE · ตัวพิมพ์เล็ก · ไม่ซ้ำ · ไม่เจอ = []", () => {
     const text = `สวัสดี ขอสั่งทำแหวนตามแบบนี้\nรหัสสั่งทำ: ${code.toLowerCase()}\nรบกวนยืนยัน\n${code}`;
-    expect(extractCodes(text)).toEqual([code.toLowerCase(), code]);
+    expect(extractCodes(text)).toEqual([code]); // ตัวพิมพ์เล็กกับใหญ่ = รหัสเดียวกัน → canonical หนึ่งรายการ
     expect(extractCodes("ไม่มีรหัส 3J-ABC")).toEqual([]);
     expect(extractCodes(undefined as unknown as string)).toEqual([]);
   });
   it("ดึงแล้ว decode ได้", () => {
     const [found] = extractCodes(`รหัสสั่งทำ: ${code}\nขอบคุณ`);
     expect(decodeCode(found).ok).toBe(true);
+  });
+});
+
+describe("S11 — รหัสที่ถูก LINE ตัดบรรทัด/คั่นด้วยช่องว่าง", () => {
+  const code = encodeFields(base);
+  const groups = code.slice(4).split("-");
+  const canon = decodeCode(code);
+  it.each([
+    ["คั่นด้วยช่องว่างแทนขีด", () => "3JR " + groups.join(" ")],
+    ["ตัดบรรทัดกลางรหัส", () => "3JR-" + groups.slice(0, 3).join("-") + "\n" + groups.slice(3).join("-")],
+    ["ตัดบรรทัดทุกกลุ่ม (CRLF)", () => "3JR-" + groups.join("\r\n")],
+    ["ขีดคู่/ช่องว่างหลายตัว", () => "3jr -  " + groups.join(" -  ")],
+    ["ปนข้อความไทยรอบข้าง", () => "รหัสสั่งทำ: 3JR-" + groups.join(" ") + "\nรบกวนยืนยัน"],
+    ["มีคำภาษาอังกฤษต่อท้ายทันที", () => "3JR-" + groups.join("-") + " OK thanks"],
+    ["มีคำภาษาอังกฤษต่อท้ายบรรทัดถัดไป", () => "3JR-" + groups.join("-") + "\nThanks"],
+  ])("%s ⇒ ถอดได้ ได้รหัสเดิม", (_n, mk) => {
+    const d = decodeFromText(mk());
+    expect(d.ok && d.canonical).toBe(code);
+    expect(canon.ok && d.ok && d.fields).toEqual(canon.ok ? canon.fields : null);
+    expect(extractCodes(mk())).toEqual([code]);
+  });
+  it("ไม่มีตัวคั่นหลัง 3JR (เช่น 3JRX) ไม่ถูกจับ · ข้อความว่าง = empty · ไม่เจอ = not_found", () => {
+    expect(decodeFromText("3JRABCDE")).toEqual({ ok: false, reason: "not_found" });
+    expect(decodeFromText("   ")).toEqual({ ok: false, reason: "empty" });
+    expect(decodeFromText("สวัสดี")).toEqual({ ok: false, reason: "not_found" });
+  });
+  it("พิมพ์ผิด 1 ตัวในรหัสที่คั่นด้วยช่องว่าง ⇒ check_char (ไม่ใช่ not_found)", () => {
+    const bad = groups.slice();
+    bad[1] = (bad[1][0] === "A" ? "B" : "A") + bad[1].slice(1);
+    expect(decodeFromText("3JR " + bad.join(" "))).toEqual({ ok: false, reason: "check_char" });
+  });
+  it("รหัสสองตัวในข้อความเดียว ⇒ ได้ทั้งสอง", () => {
+    const code2 = encodeFields({ ...base, designNo: 9 });
+    expect(extractCodes(`ก ${code} ข\n${code2.replace(/-/g, " ")}`)).toEqual([code, code2]);
   });
 });
 

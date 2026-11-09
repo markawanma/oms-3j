@@ -13,56 +13,23 @@ import { secToIso } from "./code";
 import { verifyCodeFromText } from "./code-sign";
 import { stoneLabel } from "./mm";
 import { cardImageUrl } from "./catalog-server";
-import { buildGroups, formatBaht, formatThaiDateBkk, formatThaiDateTimeBkk } from "./quote-server";
+import { buildGroups, formatThaiDateBkk, formatThaiDateTimeBkk } from "./quote-server";
+import { formatBaht, isObj, type Raw } from "./util";
+import { RING_ERROR_MESSAGES } from "./admin-ui";
 import type { QuoteLine } from "./types";
 import type {
   AdminCatalog, AdminCoverageMissing, AdminDesign, AdminOffer, AdminShape, AdminStone, CodeCheckResult, CodeCheckRow, CodeCheckView, CoverageReason, HiddenReason,
 } from "./admin-types";
 
-type Raw = Record<string, unknown>;
-const isObj = (v: unknown): v is Raw => typeof v === "object" && v !== null && !Array.isArray(v);
 const int = (v: unknown): number | null => (typeof v === "number" && Number.isInteger(v) ? v : null);
 const str = (v: unknown): string | null => (typeof v === "string" ? v : null);
 const bool = (v: unknown): boolean | null => (typeof v === "boolean" ? v : null);
 
 export type AdminResult<T> = { ok: true; data: T } | { ok: false; error: string; code?: string };
 const GENERIC = "ทำรายการไม่สำเร็จ ลองใหม่อีกครั้ง";
-
-/** hint ของ RPC (snake_case) → ข้อความไทย · ไม่รู้จัก = ข้อความกลาง (ไม่ echo ข้อความดิบของ DB) */
-const HINT_MESSAGES: Record<string, string> = {
-  name_invalid: "ชื่อไม่ถูกต้อง (ยาวเกิน/สั้นเกิน/มีอักขระซ่อน)",
-  short_name_invalid: "ชื่อสั้น (แถบตำแหน่ง) ต้องยาว 1-6 ตัวอักษร",
-  color_invalid: "สีต้องเป็นรหัส #RRGGBB",
-  name_dup: "มีรายการชื่อนี้อยู่แล้ว",
-  not_found: "ไม่พบรายการนี้",
-  size_invalid: "ขนาดต้องอยู่ระหว่าง 0.50-20.00 มม.",
-  size_range_invalid: "ช่วงไซซ์ต้องอยู่ใน 45-68 และต่ำสุดไม่เกินสูงสุด",
-  stone_count_invalid: "จำนวนเม็ดต้องเป็น 3-7",
-  shape_dims_invalid: "ขนาดไม่ตรงกับทรง (ทรงกลมต้องกว้าง = ยาว · ทรงไข่ต้องยาวกว่ากว้าง)",
-  axis_required: "ทรงไข่ต้องระบุทิศเม็ด",
-  axis_not_allowed: "ทรงกลมไม่มีทิศเม็ด",
-  design_locked: "แบบนี้เปิดขายแล้ว — แก้จำนวนเม็ด/ทรง/ขนาดเม็ด/ทิศเม็ดไม่ได้ ให้ทำสำเนาเป็นแบบใหม่",
-  model_bound: "แบบนี้มีโมเดลผูกอยู่ — แก้จำนวนเม็ดไม่ได้",
-  shape_kind_locked: "รูปร่างของทรงแก้ไม่ได้ (สร้างทรงใหม่)",
-  render_kind_invalid: "ต้องเลือกรูปร่างที่ระบบรองรับ (กลม/ไข่)",
-  price_invalid: "ราคาต้องเป็นจำนวนเต็มบาทในช่วงที่กำหนด",
-  price_too_fast: "ตั้งราคาถี่เกินไป รอสักครู่แล้วลองใหม่",
-  price_required: "ตั้งราคาตัวเรือนก่อนเปิดขาย",
-  shape_inactive: "ทรงพลอยของแบบนี้ปิดอยู่ — เปิดทรงก่อน",
-  not_published: "แบบนี้ยังไม่เคยเปิดขาย — ใช้ปุ่ม \"เปิดขาย\"",
-  path_invalid: "รูปการ์ดไม่ถูกต้อง",
-  design_no_exhausted: "เลขแบบเต็มแล้ว",
-  stone_no_exhausted: "เลขพลอยเต็มแล้ว",
-  actor_required: "ต้องเข้าสู่ระบบก่อนทำรายการ",
-  rb_actor_forbidden: "เฉพาะเจ้าของร้าน/แอดมินเท่านั้น",
-  invalid: "ข้อมูลไม่ถูกต้อง",
-  sort_invalid: "ลำดับไม่ถูกต้อง",
-  count_mismatch: "จำนวนเม็ดไม่ตรงกับแบบ",
-  stone_locked: "พลอยนี้เคยมีราคาขายแล้ว — แก้ชื่อ/สีไม่ได้ (เพิ่มพลอยใหม่แทน)",
-};
-
+/** hint ของ RPC → ข้อความไทย จากตารางเดียวใน admin-ui.ts (S3) · ไม่รู้จัก = ข้อความกลาง (ไม่ echo ข้อความดิบ) */
 export function adminErrorMessage(hint: string | null): string {
-  return (hint && HINT_MESSAGES[hint]) || GENERIC;
+  return hint && Object.hasOwn(RING_ERROR_MESSAGES, hint) ? RING_ERROR_MESSAGES[hint] : GENERIC;
 }
 
 function readHint(err: unknown): string | null {
@@ -150,7 +117,7 @@ function mapStone(r: unknown): AdminStone | null {
   if (!id || no === null || !name || !short || !color || active === null || sort === null || vis === null || sell === null) return null;
   if (!Array.isArray(r.offers) || !Array.isArray(r.coverage.missing)) return null;
   return {
-    id, stoneNo: no, nameTh: name, shortName: short, colorHex: color, isActive: active, sort,
+    id, stoneNo: no, nameTh: name, shortName: short, colorHex: color, isActive: active, sort, nameLocked: r.name_locked === true,
     offers: r.offers.map(mapOffer).filter((x): x is AdminOffer => x !== null),
     coverage: { visibleDesigns: vis, sellableDesigns: sell, missing: r.coverage.missing.map(mapMissing).filter((x): x is AdminCoverageMissing => x !== null) },
   };
@@ -268,7 +235,7 @@ export function buildCodeCheckResult(raw: unknown, code: string, signedTotal: nu
       `ราคา ณ ตอนสร้าง ${formatBaht(signedTotal)} (${pricedLabel})`,
     ].join("\n"),
     priceNoticeText: nTotal !== null
-      ? `ราคาแหวนตามแบบที่ออกแบบไว้ตอนนี้ ${formatBaht(nTotal)} (ตอนออกแบบ ${formatBaht(signedTotal)} ณ ${pricedLabel}) รบกวนยืนยันว่าจะให้ดำเนินการต่อไหมคะ/ครับ`
+      ? `ราคาแหวนตามแบบที่ออกแบบไว้ตอนนี้ ${formatBaht(nTotal)} (ตอนออกแบบ ${formatBaht(signedTotal)} ณ ${pricedLabel}) รบกวนยืนยันว่าจะดำเนินการต่อหรือไม่`
       : "",
   };
 

@@ -127,13 +127,41 @@ describe("แท็บ พลอย (ราคาขาย)", () => {
     mount();
     await u.click(screen.getByRole("button", { name: "แก้ไข พลอยทดสอบ A" }));
     const dlg = screen.getByRole("dialog");
-    const name = within(dlg).getByLabelText("ชื่อพลอย (ลูกค้าเห็น)");
-    await u.clear(name);
-    await u.type(name, "ชื่อใหม่ทดสอบ");
+    // S9: stoneA เคยมีแถวราคา → ชื่อ/สีถูกล็อก · ชื่อสั้นยังแก้ได้
+    const shortName = within(dlg).getByLabelText("ชื่อสั้น (บนแถบตำแหน่ง · ไม่เกิน 6 ตัวอักษร)");
+    await u.clear(shortName);
+    await u.type(shortName, "ใหม่ทด");
     await u.click(within(dlg).getByRole("button", { name: "บันทึก" }));
-    expect(A.saveRingStone).toHaveBeenCalledWith({ id: ID.stoneA, name: "ชื่อใหม่ทดสอบ", shortName: "ทดA", colorHex: "#112233", sort: 1 });
+    expect(A.saveRingStone).toHaveBeenCalledWith({ id: ID.stoneA, name: "พลอยทดสอบ A", shortName: "ใหม่ทด", colorHex: "#112233", sort: 1 });
     expect(await within(dlg).findByText("ชื่อสั้น (แถบตำแหน่ง) ต้องยาว 1-6 ตัวอักษร")).toBeInTheDocument();
-    expect(name).toHaveValue("ชื่อใหม่ทดสอบ");
+    expect(shortName).toHaveValue("ใหม่ทด");
+  });
+
+  it("S9: พลอยที่เคยมีราคา (name_locked) ปิดช่องชื่อ/สี + แสดงเหตุผล · พลอยที่ยังไม่เคยมีราคาแก้ได้", async () => {
+    const u = userEvent.setup();
+    mount();
+    await u.click(screen.getByRole("button", { name: "แก้ไข พลอยทดสอบ A" }));
+    let dlg = screen.getByRole("dialog");
+    expect(within(dlg).getByLabelText("ชื่อพลอย (ลูกค้าเห็น)")).toBeDisabled();
+    expect(within(dlg).getByLabelText("เลือกสี")).toBeDisabled();
+    expect(within(dlg).getByText(/เคยมีราคาขายแล้ว — แก้ชื่อ\/สีไม่ได้/)).toBeInTheDocument();
+    expect(within(dlg).getByLabelText("ชื่อสั้น (บนแถบตำแหน่ง · ไม่เกิน 6 ตัวอักษร)")).toBeEnabled();
+    await u.click(within(dlg).getByRole("button", { name: "ปิดหน้าต่าง" }));
+    await u.click(screen.getByRole("button", { name: "แก้ไข พลอยทดสอบ B" }));
+    dlg = screen.getByRole("dialog");
+    expect(within(dlg).getByLabelText("ชื่อพลอย (ลูกค้าเห็น)")).toBeEnabled();
+    expect(within(dlg).queryByText(/เคยมีราคาขายแล้ว/)).toBeNull();
+  });
+
+  it("S7: action โยน (เครือข่ายหลุด) ตอนบันทึกพลอย → แสดงข้อผิดพลาด · ปุ่มไม่ค้าง busy", async () => {
+    const u = userEvent.setup();
+    A.saveRingStone.mockRejectedValue(new Error("network"));
+    mount();
+    await u.click(screen.getByRole("button", { name: "แก้ไข พลอยทดสอบ A" }));
+    const dlg = screen.getByRole("dialog");
+    await u.click(within(dlg).getByRole("button", { name: "บันทึก" }));
+    expect(await within(dlg).findByText("บันทึกไม่สำเร็จ ลองใหม่อีกครั้ง")).toBeInTheDocument();
+    expect(within(dlg).getByRole("button", { name: "บันทึก" })).toBeEnabled();
   });
 
   it("เพิ่มราคาทรง/ขนาด: ขนาด 2 ช่อง กว้าง/ยาว → ส่ง '3×2' แล้วตั้งราคา", async () => {
@@ -286,11 +314,46 @@ describe("แท็บ แบบแหวน", () => {
     const dlg = screen.getByRole("dialog");
     await u.type(within(dlg).getByLabelText("ชื่อแบบ (ลูกค้าเห็น)"), "แบบทดสอบ ใหม่");
     await u.type(within(dlg).getByLabelText("กว้าง (มม.)"), "2");
+    await u.type(within(dlg).getByLabelText("ไซซ์ต่ำสุด"), "45");
+    await u.type(within(dlg).getByLabelText("ไซซ์สูงสุด"), "68");
     await u.type(within(dlg).getByLabelText("ราคาตัวเรือน (บาท · ทุกไซซ์)"), "480");
     await u.click(within(dlg).getByRole("button", { name: "บันทึกเป็นร่าง" }));
     expect(A.saveRingDesign).toHaveBeenCalledWith({
       id: null, name: "แบบทดสอบ ใหม่", stoneCount: 5, shapeId: ID.round, size: "2×2", stoneAxis: null, sizeMin: 45, sizeMax: 68, sort: null, bodyPriceThb: 480,
     });
+  });
+
+  it("S6: แบบใหม่ — ช่องไซซ์ต่ำสุด/สูงสุดเริ่มว่างและบังคับกรอก · ราคาตัวเรือนบังคับตอนสร้าง · แบบเดิมคงค่า", async () => {
+    const u = userEvent.setup();
+    mount({ tab: "designs" });
+    await u.click(screen.getByRole("button", { name: "＋ เพิ่มแบบ" }));
+    const dlg = screen.getByRole("dialog");
+    expect(within(dlg).getByLabelText("ไซซ์ต่ำสุด")).toHaveValue("");
+    expect(within(dlg).getByLabelText("ไซซ์สูงสุด")).toHaveValue("");
+    await u.type(within(dlg).getByLabelText("ชื่อแบบ (ลูกค้าเห็น)"), "แบบทดสอบ ใหม่");
+    await u.type(within(dlg).getByLabelText("กว้าง (มม.)"), "2");
+    await u.click(within(dlg).getByRole("button", { name: "บันทึกเป็นร่าง" }));
+    expect(A.saveRingDesign).not.toHaveBeenCalled();
+    expect(await within(dlg).findByText(/กรอกช่วงไซซ์ที่ทำได้/)).toBeInTheDocument();
+    await u.type(within(dlg).getByLabelText("ไซซ์ต่ำสุด"), "45");
+    await u.type(within(dlg).getByLabelText("ไซซ์สูงสุด"), "68");
+    await u.click(within(dlg).getByRole("button", { name: "บันทึกเป็นร่าง" }));
+    expect(A.saveRingDesign).not.toHaveBeenCalled();
+    expect(await within(dlg).findByText(/ตั้งราคาตัวเรือนตอนสร้างแบบ/)).toBeInTheDocument();
+    await u.click(within(dlg).getByRole("button", { name: "ปิดหน้าต่าง" }));
+    await u.click(screen.getByRole("button", { name: "แก้ไข 3 เม็ด แบบทดสอบ ก" }));
+    const edit = screen.getByRole("dialog");
+    expect(within(edit).getByLabelText("ไซซ์ต่ำสุด")).not.toHaveValue("");
+  });
+
+  it("S7: action โยนตอนทำสำเนา → แสดงข้อผิดพลาด · ปุ่มไม่ค้าง", async () => {
+    const u = userEvent.setup();
+    A.duplicateRingDesign.mockRejectedValue(new Error("network"));
+    mount({ tab: "designs" });
+    await u.click(screen.getByRole("button", { name: "แก้ไข 3 เม็ด แบบทดสอบ ก" }));
+    await u.click(screen.getByRole("button", { name: "ทำสำเนาเป็นแบบใหม่" }));
+    expect(await screen.findByText("ทำสำเนาไม่สำเร็จ ลองใหม่อีกครั้ง")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "ทำสำเนาเป็นแบบใหม่" })).toBeEnabled();
   });
 
   it("ทรงไข่ต้องเลือกทิศ (ก่อนส่ง) · เลือกแล้วส่ง along_row และขนาด '4×3'", async () => {
@@ -303,12 +366,15 @@ describe("แท็บ แบบแหวน", () => {
     await u.selectOptions(within(dlg).getByLabelText("ทรงพลอย"), ID.oval);
     await u.type(within(dlg).getByLabelText("กว้าง (มม.)"), "4");
     await u.type(within(dlg).getByLabelText("ยาว (มม.)"), "3");
+    await u.type(within(dlg).getByLabelText("ไซซ์ต่ำสุด"), "53");
+    await u.type(within(dlg).getByLabelText("ไซซ์สูงสุด"), "68");
+    await u.type(within(dlg).getByLabelText("ราคาตัวเรือน (บาท · ทุกไซซ์)"), "500");
     await u.click(within(dlg).getByRole("button", { name: "บันทึกเป็นร่าง" }));
     expect(A.saveRingDesign).not.toHaveBeenCalled();
     expect(await within(dlg).findByText(/ทรงไข่ต้องระบุทิศเม็ด/)).toBeInTheDocument();
     await u.selectOptions(within(dlg).getByLabelText("ทิศเม็ดไข่"), "along_row");
     await u.click(within(dlg).getByRole("button", { name: "บันทึกเป็นร่าง" }));
-    expect(A.saveRingDesign).toHaveBeenCalledWith(expect.objectContaining({ size: "4×3", stoneAxis: "along_row", shapeId: ID.oval, bodyPriceThb: null }));
+    expect(A.saveRingDesign).toHaveBeenCalledWith(expect.objectContaining({ size: "4×3", stoneAxis: "along_row", shapeId: ID.oval, sizeMin: 53, sizeMax: 68, bodyPriceThb: 500 }));
   });
 
   it("error design_locked → ข้อความไทย · ค่าที่กรอกไม่หาย", async () => {

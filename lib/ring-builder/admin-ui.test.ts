@@ -3,6 +3,24 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import { composeSize, fmtDiffThb, fmtThb, parseRingTab, parseWholeThb, ringErrorText, RING_ERROR_MESSAGES } from "./admin-ui";
 
+describe("S3/sec#4 — ตารางข้อความ hint เหลือที่เดียว (admin-ui.ts) · ไม่ตกไป prototype", () => {
+  it("admin-server ไม่มีตารางของตัวเอง (import RING_ERROR_MESSAGES จาก admin-ui)", () => {
+    const src = readFileSync(join(process.cwd(), "lib/ring-builder/admin-server.ts"), "utf8");
+    expect(src).toContain('import { RING_ERROR_MESSAGES } from "./admin-ui"');
+    expect(src).not.toMatch(/HINT_MESSAGES|name_invalid:\s*"/);
+    expect(src).toContain("Object.hasOwn(RING_ERROR_MESSAGES");
+  });
+  it("code ชื่อ prototype (constructor / toString / __proto__ / hasOwnProperty) → ข้อความที่ action ส่งมา หรือข้อความกลาง ไม่ใช่ฟังก์ชัน/Object", () => {
+    for (const code of ["constructor", "toString", "__proto__", "hasOwnProperty", "valueOf"]) {
+      expect(ringErrorText({ error: "จาก action", code })).toBe("จาก action");
+      expect(ringErrorText({ code })).toBe("ทำรายการไม่สำเร็จ ลองใหม่อีกครั้ง");
+    }
+  });
+  it("มีข้อความของ stone_locked / price_required / price_invalid", () => {
+    for (const k of ["stone_locked", "price_required", "price_invalid"]) expect(Object.hasOwn(RING_ERROR_MESSAGES, k)).toBe(true);
+  });
+});
+
 describe("ringErrorText — code ของ DB → ข้อความไทย", () => {
   it("code ที่รู้จักชนะข้อความที่ส่งมา", () => {
     expect(ringErrorText({ error: "raw", code: "design_locked" })).toBe(RING_ERROR_MESSAGES.design_locked);

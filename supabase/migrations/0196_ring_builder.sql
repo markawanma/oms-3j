@@ -58,9 +58,8 @@ as $f$
   select p_t is not null
      and p_t = btrim(p_t)
      and char_length(p_t) between p_min and p_max
-     and p_t !~ '[[:cntrl:] ­ᅟᅠ᠎ -‏ -  -⁯⠀　ㅤ️﻿]'
-     -- L5 (security): ตัวล่องหน/ตัวเติมช่องว่างที่ blacklist ข้างบนไม่ครอบ — CGJ · khmer inherent vowel · variation selectors ทั้งชุด · halfwidth hangul filler · tag characters
-     and p_t !~ '[͏឴឵︀-️ﾠ\U000E0000-\U000E007F]'
+     -- อักขระล่องหน/เติมช่องว่าง/bidi/variation selector/tag ทั้งหมดเขียนเป็น escape (ห้ามไบต์ดิบในไฟล์ — รีวิวด้วยตาไม่เห็น)
+     and p_t !~ '[[:cntrl:]\u00A0\u00AD\u034F\u061C\u115F\u1160\u17B4\u17B5\u180E\u2000-\u200F\u2028-\u202F\u205F-\u206F\u2800\u3000\u3164\uFE00-\uFE0F\uFEFF\uFFA0\uFFF9-\uFFFB\U0001D173-\U0001D17A\U000E0000-\U000E007F\U000E0100-\U000E01EF]'
      and p_t ~ '[[:alnum:]]'
 $f$;
 
@@ -751,11 +750,14 @@ end;
 $f$;
 
 -- สร้าง/แก้แบบ (draft) · create: ได้ design_no ใหม่ (max+1 ห้ามใช้ซ้ำ) · update: หลัง publish แก้ได้เฉพาะ ชื่อ/ช่วงไซซ์/ลำดับ (ที่เหลือ trigger ล็อก)
---   p_axis: ทรงกลมต้อง null · ทรงไข่ต้องมี (along_row/across_row) · ราคาตัวเรือนตั้งทาง rb_design_price_set
+--   p_axis: ทรงกลมต้อง null · ทรงไข่ต้องมี (along_row/across_row)
+--   p_body_price_thb (S1): ตั้งราคาตัวเรือนในทรานแซกชันเดียวกับการบันทึกแบบ — create = บังคับ (ไม่มีทางได้แบบร่างที่ไม่มีราคาจากการกดซ้ำ/ราคาล้ม) · update = null คือไม่แตะราคา
+--   (ราคาเท่าล่าสุด = ไม่เขียนแถวใหม่ · ราคาเปลี่ยนในวินาทีเดียวกัน = price_too_fast) · rb_design_price_set ยังใช้ตั้งราคาอย่างเดียวได้
 drop function if exists analytics.rb_design_upsert(uuid, uuid, uuid, text, integer, uuid, integer, integer, text, integer, integer, integer);
+drop function if exists analytics.rb_design_upsert(uuid, uuid, uuid, text, integer, uuid, integer, integer, text, integer, integer, integer, integer);
 create function analytics.rb_design_upsert(
   p_shop_id uuid, p_actor uuid, p_id uuid, p_name text, p_stone_count integer, p_shape_id uuid,
-  p_major_mm100 integer, p_minor_mm100 integer, p_axis text, p_size_min integer, p_size_max integer, p_sort integer)
+  p_major_mm100 integer, p_minor_mm100 integer, p_axis text, p_size_min integer, p_size_max integer, p_sort integer, p_body_price_thb integer)
   returns jsonb
   language plpgsql
   security definer
@@ -768,10 +770,18 @@ declare
   v_row  analytics.rb_design;
   v_no   integer;
   v_rng  int4range := analytics.rb_size_range();
+  v_last integer;
+  v_eff  timestamptz := date_trunc('second', clock_timestamp()) + interval '1 second';
 begin
   perform analytics.rb_require_office(p_shop_id, p_actor);
   if not analytics.rb_text_ok(v_name, 1, 40) then
     raise exception 'ชื่อแบบต้องยาว 1-40 ตัวอักษรและไม่มีอักขระซ่อน' using errcode = '22023', hint = 'name_invalid';
+  end if;
+  if p_id is null and p_body_price_thb is null then
+    raise exception 'ต้องตั้งราคาตัวเรือนตอนสร้างแบบ' using errcode = '22023', hint = 'price_required';
+  end if;
+  if p_body_price_thb is not null and p_body_price_thb not between 1 and 1000000 then
+    raise exception 'ราคาตัวเรือนต้องเป็นจำนวนเต็มบาท 1-1,000,000' using errcode = '22023', hint = 'price_invalid';
   end if;
   if p_stone_count is null or p_stone_count not between 3 and 7 then
     raise exception 'จำนวนเม็ดต้องเป็น 3-7' using errcode = '22023', hint = 'stone_count_invalid';
@@ -803,6 +813,7 @@ begin
     insert into analytics.rb_design (shop_id, design_no, name, stone_count, shape_id, stone_major_mm100, stone_minor_mm100, stone_axis, size_min, size_max, sort, created_by)
     values (p_shop_id, v_no, v_name, p_stone_count, p_shape_id, v_hi, v_lo, p_axis, p_size_min, p_size_max, coalesce(p_sort, 0), p_actor)
     returning * into v_row;
+    insert into analytics.rb_design_price (design_id, effective_from, body_price_thb, created_by) values (v_row.id, v_eff, p_body_price_thb, p_actor);
     return jsonb_build_object('ok', true, 'id', v_row.id, 'design_no', v_row.design_no, 'created', true);
   end if;
 
@@ -818,6 +829,15 @@ begin
   exception when unique_violation then
     raise exception 'มีแบบที่เปิดอยู่ชื่อนี้ในจำนวนเม็ดเดียวกันแล้ว' using errcode = '22023', hint = 'name_dup';
   end;
+  if p_body_price_thb is not null then
+    select p.body_price_thb into v_last from analytics.rb_design_price p where p.design_id = v_row.id order by p.effective_from desc limit 1;
+    if v_last is distinct from p_body_price_thb then
+      if exists (select 1 from analytics.rb_design_price p where p.design_id = v_row.id and p.effective_from >= v_eff) then
+        raise exception 'ตั้งราคาถี่เกินไป — รอสักครู่แล้วลองใหม่' using errcode = '22023', hint = 'price_too_fast';
+      end if;
+      insert into analytics.rb_design_price (design_id, effective_from, body_price_thb, created_by) values (v_row.id, v_eff, p_body_price_thb, p_actor);
+    end if;
+  end if;
   return jsonb_build_object('ok', true, 'id', v_row.id, 'design_no', v_row.design_no, 'created', false);
 end;
 $f$;
@@ -943,7 +963,8 @@ begin
     raise exception 'เลขแบบเต็ม (4095 แบบตลอดอายุร้าน)' using errcode = '22023', hint = 'design_no_exhausted';
   end if;
   insert into analytics.rb_design (shop_id, design_no, name, stone_count, shape_id, stone_major_mm100, stone_minor_mm100, stone_axis, size_min, size_max, sort, created_by)
-  values (p_shop_id, v_no, v_src.name, v_src.stone_count, v_src.shape_id, v_src.stone_major_mm100, v_src.stone_minor_mm100, v_src.stone_axis, v_src.size_min, v_src.size_max, v_src.sort, p_actor)
+  -- N1: ต่อท้าย " (สำเนา)" ให้แยกจากต้นฉบับ (ตัดต้นฉบับให้พอดีเพดาน 40 · rtrim กัน rb_text_ok ที่ห้ามช่องว่างท้าย)
+  values (p_shop_id, v_no, rtrim(left(v_src.name, 40 - char_length(' (สำเนา)'))) || ' (สำเนา)', v_src.stone_count, v_src.shape_id, v_src.stone_major_mm100, v_src.stone_minor_mm100, v_src.stone_axis, v_src.size_min, v_src.size_max, v_src.sort, p_actor)
   returning * into v_new;
   select p.body_price_thb into v_last from analytics.rb_design_price p where p.design_id = v_src.id order by p.effective_from desc limit 1;
   if v_last is not null then
@@ -1068,6 +1089,8 @@ begin
     (select coalesce(jsonb_agg(jsonb_build_object(
         'id', st.id, 'stone_no', st.stone_no, 'name_th', st.name_th, 'short_name', st.short_name, 'color_hex', st.color_hex,
         'is_active', st.is_active, 'sort', st.sort,
+        -- S9: เคยมีแถวราคาขาย = ชื่อ/สีแก้ไม่ได้ (rb_stone_guard · stone_locked) — ให้หน้าจอปิดช่องก่อนกดบันทึก
+        'name_locked', exists (select 1 from analytics.rb_stone_offer lo join analytics.rb_offer_price lp on lp.offer_id = lo.id where lo.stone_id = st.id),
         'status_changed_at', to_char(st.status_changed_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
         'offers', (select coalesce(jsonb_agg(jsonb_build_object(
                       'id', so.id, 'shape_id', so.shape_id, 'shape_name', sh.name_th, 'major_mm100', so.major_mm100, 'minor_mm100', so.minor_mm100,

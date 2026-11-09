@@ -5,6 +5,7 @@
 // check char = Luhn mod 32 บนตัวอักษร payload+tag — ไม่ใช่ด่านความปลอดภัย (ใครก็คำนวณได้) · มีไว้แยก "พิมพ์ผิด" ออกจาก "ปลอม" · ความปลอดภัย = HMAC
 // ⚠️ จุดบอดที่รู้: Luhn mod 32 จับสลับตัวติดกันได้ทุกคู่ ยกเว้นคู่ "0" กับ "Z" (index 0 และ 31) — คู่นั้นไปตกที่ HMAC (ไม่ใช่ช่องโหว่)
 import { CODE_PREFIX, MAX_DESIGN_NO, MAX_STONE_NO, MAX_STONES, MAX_TOTAL_THB, MIN_STONES, PRICE_EPOCH_MS, RING_BUILDER_SIZES, SIZE_ADMIN_CHECK_IDX } from "./config";
+import { isInt } from "./util";
 
 export const ALPHABET = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
 export const CODE_VERSION = 1;
@@ -30,7 +31,6 @@ function toBits(value: number, width: number): string {
   return value.toString(2).padStart(width, "0");
 }
 
-const isInt = (v: unknown, lo: number, hi: number): v is number => typeof v === "number" && Number.isInteger(v) && v >= lo && v <= hi;
 
 export type PackResult = { ok: true; bits: string } | { ok: false; reason: "design_no" | "size" | "count" | "stone_no" | "total" | "priced_at" };
 
@@ -154,11 +154,64 @@ export function decodeCode(text: string): DecodeResult {
   return { ok: true, fields: { designNo, size, positions, totalThb, pricedAtSec }, payloadBits, tagBits, canonical: formatCode(body + rest.slice(-1)) };
 }
 
-/** ดึงรหัสจากข้อความทั้งก้อน (LINE) — `3JR-` + [0-9A-Za-z-]+ ไม่สนตัวพิมพ์ · ไม่ซ้ำ · ตามลำดับที่เจอ */
+const MAX_TOKENS = 14;
+const TOKEN_RE = /^[-\s]+([0-9A-Za-z]+)/;
+
+/**
+ * S11: หา "3JR" ในข้อความแล้วเก็บกลุ่มตัวอักษรที่ตามมา — คั่นด้วยขีด ช่องว่าง หรือขึ้นบรรทัดใหม่ก็ได้ (LINE ตัดบรรทัดกลางรหัสได้)
+ * หยุดเมื่อเจอตัวอักษรอื่น (เช่นข้อความไทย) · ต้องมีตัวคั่นหลัง 3JR (ไม่จับ "3JRX" ที่เป็นคำอื่น) · คืนรายการ token ต่อหนึ่งตำแหน่งที่เจอ
+ */
+function codeTokenRuns(text: string): string[][] {
+  const out: string[][] = [];
+  const re = /3JR(?=[-\s])/gi;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(text)) !== null) {
+    let rest = text.slice(m.index + 3, m.index + 3 + 160);
+    const tokens: string[] = [];
+    for (;;) {
+      if (tokens.length >= MAX_TOKENS) break;
+      const t = TOKEN_RE.exec(rest);
+      if (!t) break;
+      tokens.push(t[1]);
+      rest = rest.slice(t[0].length);
+    }
+    if (tokens.length > 0) out.push(tokens);
+  }
+  return out;
+}
+
+/** ผลถอดรหัสจากข้อความทั้งก้อน — ลองสะสมกลุ่มทีละกลุ่ม (กันคำภาษาอังกฤษท้ายรหัสถูกกลืนเข้าไป) · ไม่เจอ 3JR = not_found · ว่าง = empty */
+export function decodeFromText(text: string): DecodeResult | { ok: false; reason: "empty" | "not_found" } {
+  if (typeof text !== "string" || text.trim() === "") return { ok: false, reason: "empty" };
+  const runs = codeTokenRuns(text);
+  if (runs.length === 0) return { ok: false, reason: "not_found" };
+  let firstFail: DecodeResult | null = null;
+  for (const tokens of runs) {
+    for (let k = tokens.length; k >= 1; k--) {
+      const d = decodeCode("3JR-" + tokens.slice(0, k).join(""));
+      if (d.ok) return d;
+      if (firstFail === null && k === tokens.length) firstFail = d;
+    }
+  }
+  return firstFail ?? { ok: false, reason: "not_found" };
+}
+
+/** รหัสที่ดึงได้จากข้อความ (ตามลำดับที่เจอ · ไม่ซ้ำ) — ถอดได้ = canonical · ถอดไม่ได้ = "3JR-" + กลุ่มทั้งหมดที่ตามมา */
 export function extractCodes(text: string): string[] {
   if (typeof text !== "string") return [];
-  const found = text.match(/3JR-[0-9A-Za-z-]+/gi) ?? [];
-  return [...new Set(found.map((s) => s.replace(/-+$/, "")))];
+  const out: string[] = [];
+  for (const tokens of codeTokenRuns(text)) {
+    let best = "3JR-" + tokens.join("");
+    for (let k = tokens.length; k >= 1; k--) {
+      const d = decodeCode("3JR-" + tokens.slice(0, k).join(""));
+      if (d.ok) {
+        best = d.canonical;
+        break;
+      }
+    }
+    out.push(best);
+  }
+  return [...new Set(out)];
 }
 
 export function pricedAtToSec(iso: string): number | null {
