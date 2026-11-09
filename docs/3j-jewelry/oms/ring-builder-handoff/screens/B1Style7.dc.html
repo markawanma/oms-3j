@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<title>ออกแบบแหวนแถว · เลือกแบบ 7 เม็ด</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+Thai:wght@500;600;700&amp;family=IBM+Plex+Sans+Thai:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#a2191d}a:hover{color:#7d1316}
+.serif{font-family:'Noto Serif Thai',serif}
+.back{width:44px;height:44px;border-radius:99px;display:flex;align-items:center;justify-content:center;color:#2B1E1E;margin-left:-10px}
+.seg{flex:1;display:flex;flex-direction:column;gap:4px;font-size:12px;color:#6A5B58}
+.seg i{display:block;height:4px;border-radius:99px;background:#E6DAD0}
+.seg.on{color:#7d1316;font-weight:600}.seg.on i{background:#a2191d}
+.design{display:flex;align-items:stretch;gap:12px;padding:10px;border-radius:20px;background:#fff;border:1.5px solid #EADFD6;text-decoration:none;color:#2B1E1E}
+.design:hover{border-color:#a2191d;color:#2B1E1E}
+.pic{width:124px;height:100px;border-radius:14px;flex:none;background:radial-gradient(ellipse at 50% 40%,#FFFFFF 0%,#F3ECE5 60%,#E6DCD2 100%);display:flex;align-items:center;justify-content:center;position:relative}
+.tag{position:absolute;left:6px;bottom:6px;font-size:11px;font-weight:600;padding:1px 8px;border-radius:99px;background:#E4EEFB;color:#1C3F78}
+.spec{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:2px 9px;border-radius:99px;background:#F4EEE8;color:#3E302E;align-self:flex-start}
+</style>
+</helmet>
+<div style="width: 390px; height: 844px; box-sizing: border-box; font-family: 'IBM Plex Sans Thai', system-ui, sans-serif; line-height: 1.6; color: #2B1E1E; background: #FBF7F2; display: flex; flex-direction: column; padding: 10px 20px 20px">
+  <header style="display: flex; align-items: center; gap: 6px; min-height: 44px">
+    <a class="back" href="Main.dc.html" aria-label="กลับไปเลือกจำนวนเม็ด"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg></a>
+    <span style="flex: 1; font-size: 14px; color: #6A5B58">แถว 7 เม็ด</span>
+  </header>
+  <nav aria-label="ขั้นตอน" style="display: flex; gap: 6px; margin-top: 4px">
+    <span class="seg on"><i></i>แบบ</span><span class="seg"><i></i>พลอย</span><span class="seg"><i></i>ไซซ์</span><span class="seg"><i></i>สรุป</span>
+  </nav>
+
+  <h1 class="serif" style="margin: 16px 0 2px; font-size: 25px; font-weight: 700; line-height: 1.4">เลือกแบบแหวน 7 เม็ด</h1>
+  <p style="margin: 0; font-size: 14px; color: #5C4D49">มี 3 แบบ · แต่ละแบบใช้พลอยขนาดตายตัว</p>
+
+  <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 14px">
+    <a class="design" href="B2.dc.html">
+      <span class="pic"><svg aria-hidden="true" width="112" height="70" viewBox="0 0 112 70"><path d="M4 42c22-14 82-14 104 0v12c-22-14-82-14-104 0z" fill="#C9CAD2"></path><g fill="#F6F6F8" stroke="#8E8E9A"><circle cx="32" cy="34" r="4.5"></circle><circle cx="41" cy="33" r="4.5"></circle><circle cx="50" cy="32.5" r="4.5"></circle><circle cx="59" cy="32.5" r="4.5"></circle><circle cx="68" cy="32.5" r="4.5"></circle><circle cx="77" cy="33" r="4.5"></circle><circle cx="86" cy="34" r="4.5"></circle></g></svg><span class="tag">3D</span></span>
+      <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 4px"><span class="serif" style="font-size: 17px; font-weight: 600">แบบ ก</span><span class="spec">พลอยกลม 2×2 มม.</span><span style="font-size: 14px; font-weight: 600">ตัวเรือน ฿1,290</span></span>
+    </a>
+    <a class="design" href="B2.dc.html">
+      <span class="pic"><svg aria-hidden="true" width="112" height="70" viewBox="0 0 112 70"><path d="M4 44c22-14 82-14 104 0v12c-22-14-82-14-104 0z" fill="#C9CAD2"></path><g fill="#F6F6F8" stroke="#8E8E9A"><circle cx="20" cy="36" r="6.5"></circle><circle cx="32" cy="34" r="6.5"></circle><circle cx="44" cy="33" r="6.5"></circle><circle cx="56" cy="32.5" r="6.5"></circle><circle cx="68" cy="33" r="6.5"></circle><circle cx="80" cy="34" r="6.5"></circle><circle cx="92" cy="36" r="6.5"></circle></g></svg></span>
+      <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 4px"><span class="serif" style="font-size: 17px; font-weight: 600">แบบ ข</span><span class="spec">พลอยกลม 3×3 มม.</span><span style="font-size: 14px; font-weight: 600">ตัวเรือน ฿1,490</span></span>
+    </a>
+    <a class="design" href="B2Oval.dc.html">
+      <span class="pic"><svg aria-hidden="true" width="112" height="70" viewBox="0 0 112 70"><path d="M4 46c22-14 82-14 104 0v12c-22-14-82-14-104 0z" fill="#C9CAD2"></path><g fill="#F6F6F8" stroke="#8E8E9A"><ellipse cx="23" cy="34" rx="4.5" ry="7.5"></ellipse><ellipse cx="34" cy="32" rx="4.5" ry="7.5"></ellipse><ellipse cx="45" cy="31" rx="4.5" ry="7.5"></ellipse><ellipse cx="56" cy="30.5" rx="4.5" ry="7.5"></ellipse><ellipse cx="67" cy="31" rx="4.5" ry="7.5"></ellipse><ellipse cx="78" cy="32" rx="4.5" ry="7.5"></ellipse><ellipse cx="89" cy="34" rx="4.5" ry="7.5"></ellipse></g></svg><span class="tag">3D</span></span>
+      <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; justify-content: center; gap: 4px"><span class="serif" style="font-size: 17px; font-weight: 600">แบบ ค</span><span class="spec">พลอยทรงไข่ 4×3 มม.</span><span style="font-size: 14px; font-weight: 600">ตัวเรือน ฿1,690</span></span>
+    </a>
+  </div>
+
+  <div style="flex: 1"></div>
+  <p style="margin: 0; font-size: 13px; color: #6A5B58; text-align: center">ทุกเม็ดเริ่มเป็น CZ ขาว แล้วเปลี่ยนสีได้ในขั้นถัดไป</p>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":844}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

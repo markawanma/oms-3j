@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<title>ออกแบบแหวนแถว · เลือกไซซ์</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+Thai:wght@500;600;700&amp;family=IBM+Plex+Sans+Thai:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#a2191d}a:hover{color:#7d1316}
+button{font:inherit;color:inherit;cursor:pointer}
+.serif{font-family:'Noto Serif Thai',serif}
+.back{width:44px;height:44px;border-radius:99px;display:flex;align-items:center;justify-content:center;color:#2B1E1E;margin-left:-10px}
+.seg{flex:1;display:flex;flex-direction:column;gap:4px;font-size:12px;color:#6A5B58}
+.seg i{display:block;height:4px;border-radius:99px;background:#E6DAD0}
+.seg.on{color:#7d1316;font-weight:600}.seg.on i{background:#a2191d}.seg.done i{background:#C98A8C}
+.chip{min-height:48px;border-radius:12px;border:1.5px solid #E0D3C8;background:#fff;font-size:16px;font-weight:600}
+.chip.on{border:2px solid #a2191d;background:#a2191d;color:#fff}
+.opt{display:flex;align-items:center;gap:12px;width:100%;min-height:64px;padding:12px 14px;border-radius:16px;border:1.5px solid #E0D3C8;background:#fff;text-align:left;box-sizing:border-box}
+.opt.on{border:2px solid #a2191d;background:#FBEFEC}
+.dot{width:22px;height:22px;border-radius:99px;border:2px solid #B9AAA2;flex:none;box-sizing:border-box}
+.opt.on .dot{border:7px solid #a2191d}
+.cta{display:flex;align-items:center;justify-content:center;min-height:56px;border-radius:16px;background:#a2191d;color:#fff;font-size:17px;font-weight:600;text-decoration:none}
+.cta:hover{background:#7d1316;color:#fff}
+.cta.off{background:#E5D9D3;color:#6E605C;pointer-events:none}
+</style>
+</helmet>
+<div style="width: 390px; height: 1040px; box-sizing: border-box; font-family: 'IBM Plex Sans Thai', system-ui, sans-serif; line-height: 1.6; color: #2B1E1E; background: #FBF7F2; display: flex; flex-direction: column; padding: 10px 20px 22px">
+  <header style="display: flex; align-items: center; gap: 6px; min-height: 44px">
+    <a class="back" href="B2.dc.html" aria-label="กลับไปใส่พลอย"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg></a>
+    <span style="flex: 1; font-size: 14px; color: #6A5B58">แถว 5 เม็ด · ฿1,250</span>
+  </header>
+  <nav aria-label="ขั้นตอน" style="display: flex; gap: 6px; margin-top: 4px">
+    <span class="seg done"><i></i>แบบ</span><span class="seg done"><i></i>พลอย</span><span class="seg on"><i></i>ไซซ์</span><span class="seg"><i></i>สรุป</span>
+  </nav>
+
+  <h1 class="serif" style="margin: 16px 0 2px; font-size: 25px; font-weight: 700; line-height: 1.4">เลือกไซซ์แหวน</h1>
+  <p style="margin: 0; font-size: 14px; color: #5C4D49">ร้านทำเบอร์ 45–68 · ราคาเท่ากันทุกไซซ์</p>
+
+  <section aria-label="ผลวัดล่าสุด" style="margin-top: 14px; display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 16px; background: #EAF3EC">
+    <div style="flex: 1; font-size: 14px; color: #1F5132; line-height: 1.5"><strong>ผลวัดล่าสุดในเครื่องนี้: เบอร์ 54</strong><br>วัดเมื่อ 2 พ.ย. 2569</div>
+    <button onClick="{{use54}}" style="min-height: 44px; padding: 0 14px; border-radius: 12px; border: 1.5px solid #1F5132; background: #fff; color: #1F5132; font-weight: 600">ใช้เบอร์นี้</button>
+  </section>
+
+  <div role="radiogroup" aria-label="เบอร์แหวน" style="margin-top: 14px; display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px">
+    <sc-for list="{{sizes}}" as="s" hint-placeholder-count="24">
+      <button class="{{s.cls}}" role="radio" aria-checked="{{s.checked}}" onClick="{{s.pick}}">{{s.n}}</button>
+    </sc-for>
+  </div>
+
+  <div style="display: flex; align-items: center; gap: 10px; margin: 14px 0 10px; font-size: 13px; color: #6A5B58"><span style="flex: 1; height: 1px; background: #E6DAD0"></span>หรือ<span style="flex: 1; height: 1px; background: #E6DAD0"></span></div>
+
+  <button class="{{adminCls}}" role="radio" aria-checked="{{adminChecked}}" onClick="{{pickAdmin}}">
+    <span class="dot"></span>
+    <span style="flex: 1; line-height: 1.45"><span style="display: block; font-size: 16px; font-weight: 600">ยังไม่รู้ไซซ์ ให้แอดมินช่วยเช็ก</span><span style="display: block; font-size: 13px; color: #5C4D49">เหมาะกับซื้อเป็นของขวัญ แอดมินจะถามต่อในแชท</span></span>
+  </button>
+
+  <a href="#" style="margin-top: 10px; display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 16px; background: #fff; border: 1px solid #EADFD6; text-decoration: none; color: #2B1E1E">
+    <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="#a2191d" stroke-width="1.6" aria-hidden="true" style="flex: none"><rect x="6" y="2.5" width="12" height="19" rx="2.5"></rect><circle cx="12" cy="11" r="3.2"></circle></svg>
+    <span style="flex: 1; line-height: 1.45"><span style="display: block; font-size: 15px; font-weight: 600">วัดไซซ์ด้วยมือถือ 1 นาที</span><span style="display: block; font-size: 13px; color: #5C4D49">แหวนที่ออกแบบไว้ยังอยู่ วัดเสร็จกลับมาเลือกต่อได้</span></span>
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#a2191d" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"></path></svg>
+  </a>
+
+  <div style="flex: 1"></div>
+  <p role="status" style="margin: 0 0 8px; text-align: center; font-size: 14px; color: #5C4D49">{{statusText}}</p>
+  <a class="{{ctaCls}}" href="B4.dc.html" aria-disabled="{{notReady}}">ต่อไป: ดูสรุป</a>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1040}}'>
+class Component extends DCLogic {
+  constructor(props) { super(props); this.state = { size: null }; }
+  renderVals() {
+    var self = this, size = this.state.size, sizes = [];
+    for (var n = 45; n <= 68; n++) {
+      (function (n) {
+        sizes.push({ n: n, cls: 'chip' + (size === n ? ' on' : ''), checked: size === n ? 'true' : 'false', pick: function () { self.setState({ size: n }); } });
+      })(n);
+    }
+    var ready = size !== null;
+    return {
+      sizes: sizes,
+      adminCls: 'opt' + (size === 'admin' ? ' on' : ''), adminChecked: size === 'admin' ? 'true' : 'false',
+      pickAdmin: function () { self.setState({ size: 'admin' }); },
+      use54: function () { self.setState({ size: 54 }); },
+      statusText: size === 'admin' ? 'ไซซ์: รอแอดมินช่วยเช็ก' : (ready ? 'เลือกเบอร์ ' + size : 'เลือกเบอร์ หรือให้แอดมินช่วย'),
+      ctaCls: ready ? 'cta' : 'cta off', notReady: ready ? 'false' : 'true'
+    };
+  }
+}
+</script>
+</body>
+</html>
