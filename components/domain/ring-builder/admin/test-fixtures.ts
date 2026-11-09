@@ -36,7 +36,7 @@ export const catalogEmpty: AdminCatalog = { catalogAt: "2026-11-10T00:00:00Z", s
 
 export const checkView: CodeCheckView = {
   code: "3JR-AAAAA-BBBBB", designNo: 1, designName: "แบบทดสอบ ก", stoneCount: 5, shapeName: "กลม", stoneLabel: "2×2", size: 54, sizeStatus: "ok", sizeMin: 53, sizeMax: 68,
-  pricedAt: "2026-11-09T07:32:00Z", pricedAtLabel: "9 พ.ย. 2569 14:32", ageDays: 1, designActive: true, designClosedLabel: null,
+  pricedAt: "2026-11-09T07:32:00Z", pricedAtLabel: "9 พ.ย. 2569 14:32", ageDays: 1, designActive: true, designClosedLabel: null, shapeActive: true, closedLabel: null, closedBy: null,
   lines: [
     { pos: 1, stoneNo: 1, name: "พลอยทดสอบ A", closedNow: false },
     { pos: 2, stoneNo: 0, name: "CZ ขาว", closedNow: false },

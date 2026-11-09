@@ -55,11 +55,25 @@ describe("ผลตรวจ 8 สถานะ", () => {
     expect(screen.getByText(/ห้ามรับออเดอร์จากรหัสนี้/)).toBeInTheDocument();
   });
   it("design_closed: แบบปิดแล้ว แต่ยังแสดงรายละเอียดตามที่บันทึกไว้", async () => {
-    check.mockResolvedValue({ ok: true, data: { status: "design_closed", view: { ...checkView, designActive: false, designClosedLabel: "ปิดเมื่อ 1 พ.ย. 2569" } } });
+    check.mockResolvedValue({ ok: true, data: { status: "design_closed", view: { ...checkView, designActive: false, designClosedLabel: "1 พ.ย. 2569", closedBy: "design", closedLabel: "1 พ.ย. 2569" } } });
     await submit();
     expect(screen.getByText("เวอร์ชันเก่า / แบบปิดแล้ว")).toBeInTheDocument();
-    expect(screen.getByText(/รหัสถูกต้อง แต่แบบนี้ปิดไปแล้ว \(ปิดเมื่อ 1 พ.ย. 2569\)/)).toBeInTheDocument();
+    expect(screen.getByText(/รหัสถูกต้อง แต่แบบนี้ปิดไปแล้ว \(1 พ.ย. 2569\)/)).toBeInTheDocument();
     expect(screen.getByText("แบบทดสอบ ก", { exact: false })).toBeInTheDocument();
+  });
+  it("design_closed เพราะทรงพลอยปิด: บอก 'ทรงพลอยปิด' ไม่ใช่ 'แบบปิด'", async () => {
+    check.mockResolvedValue({ ok: true, data: { status: "design_closed", view: { ...checkView, shapeActive: false, closedBy: "shape", closedLabel: "5 พ.ย. 2569" } } });
+    await submit();
+    expect(screen.getByText("ทรงพลอยปิดแล้ว")).toBeInTheDocument();
+    expect(screen.getByText(/ทรงพลอยของแบบนี้ปิดไปแล้ว \(5 พ.ย. 2569\)/)).toBeInTheDocument();
+    expect(screen.queryByText(/แต่แบบนี้ปิดไปแล้ว/)).not.toBeInTheDocument();
+  });
+  it("bad_input จาก action: 'วางไม่ถูกต้อง' ไม่ใช่ 'ระบบตรวจไม่ได้' หรือ 'รูปแบบผิด'", async () => {
+    check.mockResolvedValue({ ok: false, error: "x", code: "bad_input" });
+    await submit();
+    expect(screen.getByText("วางไม่ถูกต้อง")).toBeInTheDocument();
+    expect(screen.queryByText("ระบบตรวจไม่ได้")).not.toBeInTheDocument();
+    expect(screen.queryByText("รูปแบบผิด")).not.toBeInTheDocument();
   });
   it("changed: ป้ายส่วนต่าง · ราคารายบรรทัด ตอนสร้าง/ปัจจุบัน/ต่าง · ปิดแล้วรายตำแหน่ง · ชื่อแบบ+ทรง/ขนาด", async () => {
     check.mockResolvedValue({ ok: true, data: { status: "changed", view: checkView } });

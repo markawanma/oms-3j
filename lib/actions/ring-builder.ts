@@ -296,7 +296,7 @@ export async function checkRingCode(text: string): Promise<RingActionResult<Code
     return { ok: false, error: NOT_ALLOWED };
   }
   if (!(await sessionOk())) return { ok: false, error: LOGIN_FIRST };
-  if (typeof text !== "string" || text.length > MAX_CHECK_TEXT) return bad();
+  if (typeof text !== "string" || text.length > MAX_CHECK_TEXT) return { ok: false, error: "ข้อความยาวเกินหรือวางไม่ถูกต้อง", code: "bad_input" };
   return { ok: true, data: await checkCodeText(text) };
 }
 

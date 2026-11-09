@@ -18,7 +18,8 @@ type State =
   | { k: "idle" }
   | { k: "loading" }
   | { k: "result"; r: CodeCheckResult }
-  | { k: "unavailable"; detail: string | null };
+  | { k: "unavailable"; detail: string | null }
+  | { k: "bad_input"; detail: string };
 
 export function VerifyTab() {
   const [text, setText] = useState("");
@@ -31,7 +32,8 @@ export function VerifyTab() {
     try {
       const res = await checkRingCode(value);
       if (my !== seq.current) return; // ผลเก่ามาช้า — ทิ้ง
-      if (!res.ok) setSt({ k: "unavailable", detail: ringErrorText(res) });
+      if (!res.ok && res.code === "bad_input") setSt({ k: "bad_input", detail: ringErrorText(res) });
+      else if (!res.ok) setSt({ k: "unavailable", detail: ringErrorText(res) });
       else setSt({ k: "result", r: res.data });
     } catch {
       if (my !== seq.current) return;
@@ -88,6 +90,13 @@ function Result({ st, onRetry }: { st: State; onRetry: () => void }) {
     return (
       <StatusCard badge="กำลังตรวจ" tone="blue" title="กำลังตรวจรหัส…">
         ปุ่ม "ตรวจ" ปิดชั่วคราวระหว่างรอ กันกดซ้ำ
+      </StatusCard>
+    );
+  }
+  if (st.k === "bad_input") {
+    return (
+      <StatusCard badge="วางไม่ถูกต้อง" tone="orange" title="ข้อความยาวเกินหรือวางไม่ถูกต้อง">
+        {st.detail} · ยังไม่ได้ตรวจรหัส (ไม่ใช่ปัญหาของระบบ และยังไม่ใช่ "รหัสผิด")
       </StatusCard>
     );
   }
@@ -184,13 +193,16 @@ function Detail({ status, view }: { status: "ok" | "changed" | "design_closed"; 
             <Badge tone="amber">{view.diffTotalThb !== null && view.diffTotalThb !== 0 ? `ราคาเปลี่ยนจากตอนสร้าง ${fmtDiffThb(view.diffTotalThb)}` : "ราคา/พลอยเปลี่ยนจากตอนสร้าง"}</Badge>
           </>
         )}
-        {status === "design_closed" && <Badge tone="orange">เวอร์ชันเก่า / แบบปิดแล้ว</Badge>}
+        {status === "design_closed" && <Badge tone="orange">{view.closedBy === "shape" ? "ทรงพลอยปิดแล้ว" : "เวอร์ชันเก่า / แบบปิดแล้ว"}</Badge>}
         <span className="font-mono text-sm font-semibold text-zinc-900">{view.code}</span>
       </div>
 
       {status === "design_closed" && (
         <p className="text-sm text-zinc-800">
-          รหัสถูกต้อง แต่แบบนี้ปิดไปแล้ว{view.designClosedLabel ? ` (${view.designClosedLabel})` : ""} — แสดงรายละเอียดตามที่บันทึกไว้ตอนออกรหัส · แอดมินตัดสินว่าจะรับทำหรือเสนอแบบอื่น
+          {view.closedBy === "shape"
+            ? "รหัสถูกต้อง แต่ทรงพลอยของแบบนี้ปิดไปแล้ว"
+            : "รหัสถูกต้อง แต่แบบนี้ปิดไปแล้ว"}
+          {view.closedLabel ?? view.designClosedLabel ? ` (${view.closedLabel ?? view.designClosedLabel})` : ""} — แสดงรายละเอียดตามที่บันทึกไว้ตอนออกรหัส · แอดมินตัดสินว่าจะรับทำหรือเสนอแบบอื่น
         </p>
       )}
       {status === "changed" && <p className="text-sm text-zinc-800">รหัสถูกต้อง แต่ราคาหรือพลอยเปลี่ยนจากตอนสร้าง — ไม่บล็อก แอดมินตัดสินว่าจะใช้ราคาไหน แล้วแจ้งลูกค้าในแชท</p>}
