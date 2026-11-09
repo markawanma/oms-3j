@@ -254,6 +254,6 @@ export const config = {
   // exempt-path.test.ts compiles this literal with Next's own matcher
   // compiler and fails on drift.
   matcher: [
-    "/((?!_next/static|_next/image|favicon\\.ico|api/webhooks(?:/|$)|api/gem-quiz/submit/?$|api/ring-size/event/?$|shop(?:/|$)|gem-quiz/?$|ring-size/?$|stock/hero(?:/|$)|w/[A-Za-z0-9_-]+/?$|w/s/[A-Za-z0-9_-]+/?$|[^/]+\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$|gem-quiz/[^/]+\\.(?:svg|png|jpg|jpeg|webp)$|ring-size/[^/]+\\.(?:svg|png|jpg|jpeg|webp)$).*)",
+    "/((?!_next/static|_next/image|favicon\\.ico|api/webhooks(?:/|$)|api/gem-quiz/submit/?$|api/ring-size/event/?$|api/ring-builder/quote/?$|shop(?:/|$)|gem-quiz/?$|ring-size/?$|ring-builder/?$|stock/hero(?:/|$)|w/[A-Za-z0-9_-]+/?$|w/s/[A-Za-z0-9_-]+/?$|[^/]+\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$|gem-quiz/[^/]+\\.(?:svg|png|jpg|jpeg|webp)$|ring-size/[^/]+\\.(?:svg|png|jpg|jpeg|webp)$).*)",
   ],
 };
