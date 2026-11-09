@@ -245,6 +245,40 @@ describe("checkRingCode — 8 สถานะ (ระบบตรวจไม่
     expect(r.view?.designClosedLabel).toBe("1 พ.ย. 2569");
     expect(r.view?.creationTotalThb).toBe(720);
   });
+  it("M1: ทรงปิดแล้ว (แบบเองยังเปิด) ⇒ design_closed · วันที่ปิดตามทรง · closedBy=shape · ไม่ใช่ ok", async () => {
+    const shapeClosed = dbCheck();
+    Object.assign(shapeClosed.design as Record<string, unknown>, { shape_active: false, shape_status_changed_at: "2026-11-05T05:00:00Z" });
+    rpc.mockResolvedValue({ data: shapeClosed, error: null });
+    const r = await run(code());
+    expect(r.status).toBe("design_closed");
+    expect(r.view).toMatchObject({ designActive: true, shapeActive: false, closedBy: "shape", closedLabel: "5 พ.ย. 2569", designClosedLabel: null });
+  });
+  it("M1: ปิดทั้งแบบและทรง ⇒ แสดงวันที่ของแบบ (closedBy=design) · แบบปิดอย่างเดียวคง field เดิม", async () => {
+    const both = dbCheck();
+    Object.assign(both.design as Record<string, unknown>, { is_active: false, shape_active: false, shape_status_changed_at: "2026-11-05T05:00:00Z" });
+    rpc.mockResolvedValue({ data: both, error: null });
+    const r = await run(code());
+    expect(r.view).toMatchObject({ closedBy: "design", closedLabel: "1 พ.ย. 2569", designClosedLabel: "1 พ.ย. 2569" });
+  });
+  it("M1: ไม่มี shape_active ในผลจาก DB ⇒ ตรวจไม่ได้ (ไม่เดาว่าเปิด)", async () => {
+    const noShape = dbCheck();
+    delete (noShape.design as Record<string, unknown>).shape_active;
+    rpc.mockResolvedValue({ data: noShape, error: null });
+    expect((await run(code())).status).toBe("unavailable");
+  });
+  it("L1: ไซซ์นอกช่วงของแบบ ⇒ changed (ไม่ใช่ ok)", async () => {
+    rpc.mockResolvedValue({ data: dbCheck({ size_status: "out_of_range" }), error: null });
+    const r = await run(code());
+    expect(r.status).toBe("changed");
+    expect(r.view?.sizeStatus).toBe("out_of_range");
+  });
+  it("L2: stone_locked แปลเป็นข้อความไทยพร้อม code", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    rpc.mockResolvedValue({ data: null, error: { code: "55000", hint: "stone_locked" } });
+    const res = await actions.saveRingStone({ id: UUID, name: "ชื่อใหม่", shortName: "ใหม่", colorHex: "#000000" });
+    spy.mockRestore();
+    expect(res).toEqual({ ok: false, error: "พลอยนี้เคยมีราคาขายแล้ว — แก้ชื่อ/สีไม่ได้ (เพิ่มพลอยใหม่แทน)", code: "stone_locked" });
+  });
   it("unavailable: DB ล้ม · โครงผิด · found=false · secret หาย — ไม่ปนกับรหัสผิด", async () => {
     const spy = vi.spyOn(console, "error").mockImplementation(() => {});
     const c = code();

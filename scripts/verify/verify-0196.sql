@@ -825,6 +825,37 @@ begin
     and not exists (select 1 from pg_policies p where p.schemaname = 'storage' and p.tablename in ('objects', 'buckets') and (coalesce(p.qual, '') || coalesce(p.with_check, '')) like '%ring-builder%'));
 
   -- --------------------------------------------------------------------
+  -- T26 — security รอบแก้: L2 ล็อกชื่อ/สีพลอยที่เคยมีราคา · L5 ตัวล่องหน · M1 วันที่ปิดของทรงใน code_check
+  -- --------------------------------------------------------------------
+  v_s := pg_temp.t_try(format('select analytics.rb_stone_upsert(%L,%L,%L,%L,%L,%L,0)', v_shop, v_actor, st_a, 'ชื่อใหม่-' || v_sfx, 'โกเมน', '#7A1F2B'));
+  v_s2 := pg_temp.t_try(format('select analytics.rb_stone_upsert(%L,%L,%L,%L,%L,%L,0)', v_shop, v_actor, st_a, 'โกเมน-' || v_sfx, 'โกเมน', '#000001'));
+  v_s3 := pg_temp.t_try(format('update analytics.rb_stone set name_th = %L where id = %L', 'ชื่อตรง-' || v_sfx, st_a));
+  perform pg_temp.chk('T26a (L2: พลอยที่เคยมีราคา แก้ชื่อ/สี ผ่าน RPC และ UPDATE ตรง → 55000 stone_locked)',
+    v_s = '55000:stone_locked' and v_s2 = '55000:stone_locked' and v_s3 = '55000:stone_locked', v_s || ' ' || v_s2 || ' ' || v_s3);
+  v_s := pg_temp.t_try(format('select analytics.rb_stone_upsert(%L,%L,%L,%L,%L,%L,5)', v_shop, v_actor, st_a, 'โกเมน-' || v_sfx, 'โกเมน2', '#7A1F2B'));
+  select s.short_name, s.sort into v_txt, v_int from analytics.rb_stone s where s.id = st_a;
+  perform pg_temp.chk('T26b (L2: short_name/ลำดับ/เปิดปิด ยังแก้ได้ — ไม่อยู่ในรหัส)', v_s = 'OK' and v_txt = 'โกเมน2' and v_int = 5, v_s || ' ' || v_txt);
+  v_j := analytics.rb_stone_upsert(v_shop, v_actor, null, 'ไม่มีราคา-' || v_sfx, 'ไม่มี', '#102030', 0);
+  v_s := pg_temp.t_try(format('select analytics.rb_stone_upsert(%L,%L,%L,%L,%L,%L,0)', v_shop, v_actor, (v_j ->> 'id')::uuid, 'แก้ได้-' || v_sfx, 'แก้ได้', '#405060'));
+  perform pg_temp.chk('T26c (L2: พลอยที่ยังไม่เคยมีแถวราคา แก้ชื่อ/สีได้ ไม่ถูกล็อกเกิน)', v_s = 'OK', v_s);
+
+  v_s := pg_temp.t_try(format('select analytics.rb_stone_upsert(%L,%L,null,%L,%L,%L,0)', v_shop, v_actor, 'ก' || chr(847) || v_sfx, 'ก1', '#112233'));
+  v_s2 := pg_temp.t_try(format('select analytics.rb_stone_upsert(%L,%L,null,%L,%L,%L,0)', v_shop, v_actor, 'ก' || chr(6068) || v_sfx, 'ก2', '#112233'));
+  v_s3 := pg_temp.t_try(format('select analytics.rb_stone_upsert(%L,%L,null,%L,%L,%L,0)', v_shop, v_actor, 'ก' || chr(65024) || v_sfx, 'ก3', '#112233'));
+  v_s4 := pg_temp.t_try(format('select analytics.rb_stone_upsert(%L,%L,null,%L,%L,%L,0)', v_shop, v_actor, 'ก' || chr(65440) || v_sfx, 'ก4', '#112233'));
+  v_s5 := pg_temp.t_try(format('select analytics.rb_stone_upsert(%L,%L,null,%L,%L,%L,0)', v_shop, v_actor, 'ก' || chr(917569) || v_sfx, 'ก5', '#112233'));
+  perform pg_temp.chk('T26d (L5: CGJ U+034F · khmer U+17B4 · variation selector U+FE00 · halfwidth filler U+FFA0 · tag U+E0041 → name_invalid)',
+    v_s = '22023:name_invalid' and v_s2 = '22023:name_invalid' and v_s3 = '22023:name_invalid' and v_s4 = '22023:name_invalid' and v_s5 = '22023:name_invalid',
+    v_s || ' ' || v_s2 || ' ' || v_s3 || ' ' || v_s4 || ' ' || v_s5);
+  perform pg_temp.chk('T26e (L5: ชื่อไทยปกติที่มีสระ/วรรณยุกต์ยังผ่าน)', analytics.rb_text_ok('ผู้หญิง-เพริดอต์', 1, 40) and analytics.rb_text_ok('บลูโทพาส', 1, 40));
+
+  perform analytics.rb_set_active(v_shop, v_actor, 'shape', sh_round, false);
+  v_cc := pg_temp.cc(n1, 54, array[n_a, 0, n_b, 0, n_a], v_t, 720);
+  perform analytics.rb_set_active(v_shop, v_actor, 'shape', sh_round, true);
+  perform pg_temp.chk('T26f (M1: code_check ส่ง shape_active=false + shape_status_changed_at ของทรงที่ปิดจริง ขณะที่แบบเองยังเปิด)',
+    (v_cc -> 'design' ->> 'shape_active') = 'false' and (v_cc -> 'design' ->> 'is_active') = 'true' and (v_cc -> 'design' ->> 'shape_status_changed_at') is not null, v_cc::text);
+
+  -- --------------------------------------------------------------------
   -- T25 — หลังทดสอบทั้งหมด: ACL ยังสะอาด · ไม่มี overload (ไม่มีอะไรถูก create or replace ลบสิทธิ์)
   -- --------------------------------------------------------------------
   perform pg_temp.chk('T25a (ปลายทาง: ไม่มี EXECUTE รั่วให้ PUBLIC/anon/authenticated บนฟังก์ชันใดในสคีมา)', pg_temp.fn_leaks() = 0, 'leaks=' || pg_temp.fn_leaks());

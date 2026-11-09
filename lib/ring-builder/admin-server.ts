@@ -58,6 +58,7 @@ const HINT_MESSAGES: Record<string, string> = {
   invalid: "ข้อมูลไม่ถูกต้อง",
   sort_invalid: "ลำดับไม่ถูกต้อง",
   count_mismatch: "จำนวนเม็ดไม่ตรงกับแบบ",
+  stone_locked: "พลอยนี้เคยมีราคาขายแล้ว — แก้ชื่อ/สีไม่ได้ (เพิ่มพลอยใหม่แทน)",
 };
 
 export function adminErrorMessage(hint: string | null): string {
@@ -206,8 +207,11 @@ export function buildCodeCheckResult(raw: unknown, code: string, signedTotal: nu
   const designNo = int(d.no), count = int(d.stone_count), major = int(d.major_mm100), minor = int(d.minor_mm100), smin = int(d.size_min), smax = int(d.size_max);
   const name = str(d.name), shapeName = str(d.shape_name), changedAt = str(d.status_changed_at), pricedAt = str(c.at);
   const designActive = bool(d.is_active);
+  // M1: ทรงที่ปิดแล้ว = ขายแบบนี้ไม่ได้ แม้แบบเองยังเปิด — ต้องอ่านสถานะทรงด้วย (ไม่มี = ตรวจไม่ได้ ไม่เดาว่าเปิด)
+  const shapeActive = bool(d.shape_active);
+  const shapeChangedAt = str(d.shape_status_changed_at);
   const cLines = mapCheckLines(c.lines, false), nLines = mapCheckLines(n.lines, true);
-  if (designNo === null || count === null || major === null || minor === null || smin === null || smax === null || !name || !shapeName || !changedAt || !pricedAt || designActive === null || !cLines || !nLines) return unavailable;
+  if (designNo === null || count === null || major === null || minor === null || smin === null || smax === null || !name || !shapeName || !changedAt || !pricedAt || designActive === null || shapeActive === null || !cLines || !nLines) return unavailable;
   if (cLines.length !== nLines.length) return unavailable;
   const sizeStatus = raw.size_status;
   if (sizeStatus !== "ok" && sizeStatus !== "admin_check" && sizeStatus !== "out_of_range") return unavailable;
@@ -250,6 +254,10 @@ export function buildCodeCheckResult(raw: unknown, code: string, signedTotal: nu
     sizeStatus, sizeMin: smin, sizeMax: smax, pricedAt, pricedAtLabel: formatThaiDateTimeBkk(pricedAt),
     ageDays: Number.isFinite(pricedAtMs) ? Math.max(0, Math.floor((nowMs - pricedAtMs) / 86_400_000)) : 0,
     designActive, designClosedLabel: designActive ? null : formatThaiDateBkk(changedAt),
+    shapeActive,
+    // วันที่ปิดตามตัวที่ปิดจริง: แบบปิดก่อน (ถ้าปิดทั้งคู่) ไม่งั้นทรง
+    closedLabel: !designActive ? formatThaiDateBkk(changedAt) : !shapeActive && shapeChangedAt ? formatThaiDateBkk(shapeChangedAt) : null,
+    closedBy: !designActive ? "design" : !shapeActive ? "shape" : null,
     lines: cLines.map((l) => ({ pos: l.pos, stoneNo: l.stoneNo, name: l.name ?? "", closedNow: closedNos.has(l.stoneNo) })),
     rows, creationTotalThb: cTotal, currentTotalThb: nTotal, diffTotalThb: total, signedTotalThb: signedTotal, historyMatchesSignedTotal: historyOk, closedStones,
     summaryText: [
@@ -265,8 +273,10 @@ export function buildCodeCheckResult(raw: unknown, code: string, signedTotal: nu
   };
 
   let status: CodeCheckResult["status"];
-  if (!designActive) status = "design_closed";
-  else if (closedStones.length > 0 || !historyOk || (total !== null && total !== 0) || cTotal === null || nTotal === null || (view.rows[0].diffThb ?? 0) !== 0) status = "changed";
+  const sellableNow = designActive && shapeActive;
+  if (!sellableNow) status = "design_closed";
+  // L1: ไซซ์นอกช่วงของแบบ = ต้องให้แอดมินตัดสินใจ ไม่ใช่ "ok"
+  else if (sizeStatus === "out_of_range" || closedStones.length > 0 || !historyOk || (total !== null && total !== 0) || cTotal === null || nTotal === null || (view.rows[0].diffThb ?? 0) !== 0) status = "changed";
   else status = "ok";
   return { status, view };
 }

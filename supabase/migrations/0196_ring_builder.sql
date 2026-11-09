@@ -59,6 +59,8 @@ as $f$
      and p_t = btrim(p_t)
      and char_length(p_t) between p_min and p_max
      and p_t !~ '[[:cntrl:] ­ᅟᅠ᠎ -‏ -  -⁯⠀　ㅤ️﻿]'
+     -- L5 (security): ตัวล่องหน/ตัวเติมช่องว่างที่ blacklist ข้างบนไม่ครอบ — CGJ · khmer inherent vowel · variation selectors ทั้งชุด · halfwidth hangul filler · tag characters
+     and p_t !~ '[͏឴឵︀-️ﾠ\U000E0000-\U000E007F]'
      and p_t ~ '[[:alnum:]]'
 $f$;
 
@@ -311,6 +313,11 @@ begin
   end if;
   if new.id <> old.id or new.shop_id <> old.shop_id or new.stone_no <> old.stone_no or new.created_at <> old.created_at then
     raise exception 'rb: id/ร้าน/เลขพลอย/วันที่สร้างแก้ไม่ได้' using errcode = '55000', hint = 'immutable';
+  end if;
+  -- L2 (security · TL ตัดสิน): ชื่อ/สีของพลอยที่เคยมีราคาขายแล้วแก้ไม่ได้ — รหัสเก่าตรวจย้อนด้วยชื่อ/สีปัจจุบัน จึงต้องไม่เปลี่ยนความหมาย (short_name แก้ได้ · ไม่อยู่ในรหัส)
+  if (new.name_th is distinct from old.name_th or new.color_hex is distinct from old.color_hex)
+     and exists (select 1 from analytics.rb_stone_offer o join analytics.rb_offer_price p on p.offer_id = o.id where o.stone_id = old.id) then
+    raise exception 'rb: พลอยนี้เคยมีราคาขายแล้ว — แก้ชื่อ/สีไม่ได้ (เพิ่มพลอยใหม่แทน)' using errcode = '55000', hint = 'stone_locked';
   end if;
   if new.is_active is distinct from old.is_active then
     new.status_changed_at := clock_timestamp();
@@ -1127,7 +1134,8 @@ begin
   v_then := date_trunc('second', p_priced_at);
 
   select dz.id, dz.name, dz.stone_count, dz.shape_id, dz.stone_major_mm100 as major, dz.stone_minor_mm100 as minor, dz.size_min, dz.size_max,
-         dz.is_active, dz.published_at, dz.status_changed_at, s.name_th as shape_name, s.render_kind, s.is_active as shape_active
+         dz.is_active, dz.published_at, dz.status_changed_at, s.name_th as shape_name, s.render_kind, s.is_active as shape_active,
+         s.status_changed_at as shape_status_changed_at
     into v_d
     from analytics.rb_design dz
     join analytics.rb_gem_shape s on s.id = dz.shape_id and s.shop_id = dz.shop_id
@@ -1180,7 +1188,8 @@ begin
       'no', p_design_no, 'name', v_d.name, 'stone_count', v_d.stone_count, 'shape_kind', v_d.render_kind, 'shape_name', v_d.shape_name,
       'major_mm100', v_d.major, 'minor_mm100', v_d.minor, 'size_min', v_d.size_min, 'size_max', v_d.size_max,
       'is_active', v_d.is_active, 'shape_active', v_d.shape_active,
-      'status_changed_at', to_char(v_d.status_changed_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
+      'status_changed_at', to_char(v_d.status_changed_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'),
+      'shape_status_changed_at', to_char(v_d.shape_status_changed_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"')),
     'size_status', v_size_st,
     'creation', jsonb_build_object('at', to_char(v_then at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"'), 'complete', v_c_ok,
                                    'body', v_c_body, 'total', case when v_c_ok then v_c_body + v_c_sum end, 'lines', v_c_lines),

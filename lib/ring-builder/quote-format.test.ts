@@ -58,7 +58,7 @@ describe("parseQuoteOk — ตรวจรูปร่างผลจาก DB",
   });
   it.each([
     ["total เป็นสตริง", { ...good, total: "720" }], ["total เกินเพดาน", { ...good, total: 262144 }], ["total NaN", { ...good, total: NaN }], ["ไม่มี design", { ...good, design: null }],
-    ["พลอยไม่มีชื่อ", { ...good, lines: [{ pos: 1, stone_no: 3, name: null, price: 80 }] }], ["ราคาพลอยติดลบ", { ...good, lines: [{ pos: 1, stone_no: 3, name: "x", price: -1 }] }],
+    ["พลอยสีราคา 0 (ต้อง ≥ 1)", { ...good, lines: [{ pos: 1, stone_no: 3, name: "x", price: 0 }] }], ["พลอยไม่มีชื่อ", { ...good, lines: [{ pos: 1, stone_no: 3, name: null, price: 80 }] }], ["ราคาพลอยติดลบ", { ...good, lines: [{ pos: 1, stone_no: 3, name: "x", price: -1 }] }],
   ])("%s ⇒ null", (_n, raw) => expect(parseQuoteOk(raw as Record<string, unknown>, 1)).toBeNull());
   it("จำนวนบรรทัดไม่ตรง ⇒ null", () => expect(parseQuoteOk(good, 2)).toBeNull());
 });
