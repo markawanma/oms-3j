@@ -119,15 +119,32 @@ describe("กราฟ runtime ของหน้า/route สาธารณะ
     expect(actionFiles).toContain("lib/actions/ring-builder.ts");
     expect(isUseServer(readFileSync(join(ROOT, "lib/actions/ring-builder.ts"), "utf8"))).toBe(true);
   });
-  it("ทั้งแอป: มีแค่ lib/actions/ring-builder.ts และ admin ของมันที่ import admin-server (ไม่มีทางอื่นเข้า)", () => {
+  it("ทั้งแอป: มีแค่ lib/actions/ring-builder.ts ที่ import admin-server (ไม่มีทางอื่นเข้า)", () => {
     const importers: string[] = [];
     for (const d of ["app", "lib", "components"]) {
       for (const f of walk(join(ROOT, d))) {
         const src = readFileSync(f, "utf8");
-        if (/ring-builder\/admin-(server|types)/.test(src) && !rel(f).startsWith("lib/ring-builder/")) importers.push(rel(f));
+        if (/ring-builder\/admin-server/.test(src) && !rel(f).startsWith("lib/ring-builder/")) importers.push(rel(f));
       }
     }
     expect(importers.sort()).toEqual(["lib/actions/ring-builder.ts"]);
+  });
+  // admin-types = type อย่างเดียว (ไม่มี runtime) — หน้าจอหลังบ้าน /catalog/ring-builder ต้องใช้ type ของ AdminCatalog · เปิดให้เฉพาะ 2 โฟลเดอร์ของหลังบ้าน และต้องเป็น `import type`
+  it("admin-types: import ได้เฉพาะ action + หน้า/คอมโพเนนต์หลังบ้าน (components/domain/ring-builder/admin · app/(dashboard)/catalog/ring-builder) และต้องเป็น import type", () => {
+    const allowed = (p: string) => p === "lib/actions/ring-builder.ts" || p.startsWith("components/domain/ring-builder/admin/") || p.startsWith("app/(dashboard)/catalog/ring-builder/");
+    const offenders: string[] = [];
+    for (const d of ["app", "lib", "components"]) {
+      for (const f of walk(join(ROOT, d))) {
+        const p = rel(f);
+        if (p.startsWith("lib/ring-builder/")) continue;
+        const src = readFileSync(f, "utf8");
+        for (const m of src.matchAll(/^\s*(?:import|export)\s+(type\s+)?[^;]*?from\s*["']([^"']*ring-builder\/admin-types)["']/gm)) {
+          if (!allowed(p)) offenders.push(`${p} (ไม่อยู่ในโฟลเดอร์หลังบ้าน)`);
+          else if (!m[1]) offenders.push(`${p} (ไม่ใช่ import type)`);
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
   });
 });
 
