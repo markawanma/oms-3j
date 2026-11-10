@@ -101,6 +101,7 @@
 ## 12. ออกแบบเครื่องประดับ · brand ops
 - memory: `3j-design-system` (DNA = folded satin) · `3j-silver-bar-facts`
 - docs: `docs/3j-jewelry/design-system/` · `docs/3j-jewelry/cad/` · `docs/3j-jewelry/brand-ops/`
+- spike 3D แหวนแถว (ring builder): `docs/3j-jewelry/cad/trinity-ring-preview.html` · `docs/3j-jewelry/cad/trinity-ring-spec.md`
 - agent: `jewelry-designer` (Sabé) ใต้ ux-ui
 
 ## 13. วิธีทำงานของทีม · dev environment

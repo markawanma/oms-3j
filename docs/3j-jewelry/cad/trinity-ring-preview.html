@@ -1,0 +1,670 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>TRINITY RING (Big) · 3D Preview (spike)</title>
+<style>
+  :root{
+    --ground:#F7F5F2; --panel:#FFFFFF; --ink:#1D1B19; --ink-soft:#6B6560;
+    --line:#E7E3DD; --line-2:#EFEBE5; --accent:#A2191D; --accent-soft:#C7514F;
+    --stage-1:#EEEAE4; --stage-2:#DAD4CB;
+    --serif:Georgia,"Times New Roman",serif;
+    --sans:-apple-system,"Segoe UI",system-ui,"Noto Sans Thai",Arial,sans-serif;
+    --mono:"SF Mono",ui-monospace,Menlo,Consolas,monospace;
+  }
+  @media (prefers-color-scheme:dark){
+    :root{
+      --ground:#151618; --panel:#1C1E21; --ink:#ECE9E4; --ink-soft:#9B948C;
+      --line:#2A2D31; --line-2:#23262A; --accent:#E4746F; --accent-soft:#B84A46;
+      --stage-1:#202327; --stage-2:#14161A;
+    }
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{background:var(--ground);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased;line-height:1.55}
+  .wrap{max-width:1160px;margin:0 auto;padding:26px 20px 30px}
+  .topbar{display:flex;align-items:baseline;justify-content:space-between;gap:16px;flex-wrap:wrap;
+    padding-bottom:16px;border-bottom:1px solid var(--line)}
+  .brand{display:flex;align-items:center;gap:10px}
+  .brand .mk{font-family:var(--serif);font-size:20px;font-weight:700;letter-spacing:.01em}
+  .brand .mk b{color:var(--accent)}
+  .brand .tag{font-size:9.5px;letter-spacing:.34em;text-transform:uppercase;color:var(--ink-soft)}
+  .coll{font-size:10.5px;letter-spacing:.28em;text-transform:uppercase;color:var(--ink-soft)}
+
+  .grid{display:grid;grid-template-columns:360px 1fr;gap:22px;margin-top:22px;align-items:start}
+  @media (max-width:860px){.grid{grid-template-columns:1fr}}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:22px 20px}
+  .eyebrow{font-size:10.5px;letter-spacing:.26em;text-transform:uppercase;color:var(--accent);font-weight:700;margin:0 0 8px}
+  h1{font-family:var(--serif);font-size:27px;line-height:1.1;margin:0 0 6px;font-weight:700}
+  h1 small{font-size:15px;font-weight:400;color:var(--ink-soft)}
+  .lede{color:var(--ink-soft);font-size:13px;margin:0 0 16px}
+
+  .grp{margin-top:16px}
+  .lbl{font-size:11px;letter-spacing:.08em;color:var(--ink-soft);margin-bottom:8px;display:flex;justify-content:space-between;gap:8px}
+  .lbl i{font-style:normal;color:var(--accent)}
+  .seg{display:flex;gap:6px;flex-wrap:wrap}
+  .seg button{font-family:var(--sans);font-size:12.5px;font-weight:600;border:1px solid var(--line);
+    background:var(--panel);color:var(--ink);padding:8px 13px;border-radius:20px;cursor:pointer}
+  .seg button[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:#fff}
+  .seg button:focus-visible,.sw button:focus-visible,.btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+  .prow{display:grid;grid-template-columns:96px 1fr;align-items:center;gap:6px 8px;padding:7px 0;border-bottom:1px solid var(--line-2)}
+  .prow:last-child{border-bottom:0}
+  .pn{font-size:12px;color:var(--ink)}
+  .pn span{color:var(--ink-soft);font-size:10.5px}
+  .sw{display:flex;gap:7px;flex-wrap:wrap}
+  .sw button{width:28px;height:28px;border-radius:50%;border:2px solid var(--line);cursor:pointer;padding:0}
+  .sw button[aria-pressed="true"]{border-color:var(--ink);box-shadow:0 0 0 2px var(--panel) inset}
+  .cn{grid-column:2;font-size:11px;color:var(--ink-soft);margin-top:-2px}
+
+  .spec{border-top:1px solid var(--line-2);margin-top:6px}
+  .spec .row{display:flex;justify-content:space-between;gap:12px;padding:7px 0;border-bottom:1px solid var(--line-2)}
+  .spec .k{font-family:var(--mono);font-size:10.5px;color:var(--ink-soft);white-space:nowrap;padding-top:2px}
+  .spec .v{font-size:12.5px;text-align:right;font-variant-numeric:tabular-nums}
+  .spec .v em{font-style:normal;color:var(--accent);font-size:10.5px}
+  .note{margin-top:14px;padding:11px 13px;background:var(--stage-1);border-radius:10px;font-size:11.5px;line-height:1.6;color:var(--ink-soft)}
+  .note b{color:var(--ink)}
+  .warn{margin-top:8px;font-size:11px;color:var(--accent)}
+
+  .stage{position:relative;border:1px solid var(--line);border-radius:16px;overflow:hidden;
+    background:radial-gradient(120% 90% at 50% 22%,var(--stage-1),var(--stage-2));
+    min-height:520px;aspect-ratio:1/1}
+  @media (max-width:860px){.stage{aspect-ratio:4/5;min-height:0}}
+  canvas{position:absolute;inset:0;display:block;width:100%;height:100%;touch-action:none;cursor:grab}
+  canvas:active{cursor:grabbing}
+  .badge{position:absolute;left:14px;top:14px;font-size:11px;color:var(--ink-soft);background:var(--panel);
+    border:1px solid var(--line);padding:5px 11px;border-radius:20px;pointer-events:none}
+  .hint{position:absolute;left:16px;bottom:16px;font-size:11px;color:var(--ink-soft);pointer-events:none;user-select:none}
+  .hint b{color:var(--ink);font-weight:600}
+  .controls{position:absolute;right:14px;bottom:14px;display:flex;gap:8px}
+  .btn{font-family:var(--sans);font-size:12.5px;font-weight:600;border:1px solid var(--line);
+    background:var(--panel);color:var(--ink);padding:9px 15px;border-radius:20px;cursor:pointer}
+  .btn:hover{border-color:var(--accent)}
+  .btn[aria-pressed="true"]{border-color:var(--accent);color:var(--accent)}
+  .msg{position:absolute;inset:0;display:none;align-items:center;justify-content:center;padding:40px;text-align:center;
+    color:var(--ink-soft);font-size:14px}
+  .foot{margin-top:14px;font-size:11px;color:var(--ink-soft);text-align:center;line-height:1.6}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="topbar">
+    <div class="brand"><span class="mk">3<b>J</b> Jewelry</span><span class="tag">CAD Studio</span></div>
+    <span class="coll">Ring Builder · row_v1 spike</span>
+  </div>
+
+  <div class="grid">
+    <div class="panel">
+      <p class="eyebrow">Spike · วาดจากรูปจริง</p>
+      <h1>TRINITY RING <small>(Big)</small></h1>
+      <p class="lede">แหวนพลอยกลมเรียงแถว หนามเตย 4 เขี้ยวต่อเม็ด · ตัวเรือนเรียบขัดเงา — ลองเปลี่ยนสีพลอยทีละเม็ดแล้วลากหมุนดู</p>
+
+      <div class="grp">
+        <div class="lbl"><span>จำนวนเม็ด</span></div>
+        <div class="seg" id="segCount" role="group" aria-label="จำนวนเม็ด">
+          <button type="button" data-v="3" aria-pressed="true">3 เม็ด</button>
+          <button type="button" data-v="5" aria-pressed="false">5 เม็ด</button>
+          <button type="button" data-v="7" aria-pressed="false">7 เม็ด</button>
+        </div>
+      </div>
+
+      <div class="grp">
+        <div class="lbl"><span>แบบการฝัง</span></div>
+        <div class="seg" id="segSet" role="group" aria-label="แบบการฝัง">
+          <button type="button" data-v="prong4" aria-pressed="true">หนามเตย 4 เขี้ยว/เม็ด</button>
+          <button type="button" data-v="shared_bead" aria-pressed="false">เม็ดเล็กฝังเสมอ (หนามเตยร่วม)</button>
+        </div>
+      </div>
+
+      <div class="grp">
+        <div class="lbl"><span>สีพลอยทีละเม็ด (ซ้าย → ขวา)</span><i>สีจำลองบนจอ</i></div>
+        <div id="rows"></div>
+      </div>
+
+      <div class="grp">
+        <div class="lbl"><span>ค่าที่ใช้ในภาพนี้</span><i>ประมาณจากรูป</i></div>
+        <div class="spec" id="spec"></div>
+        <div class="warn" id="warn"></div>
+      </div>
+
+      <div class="note"><b>ภาพจำลองจากรูปถ่าย ไม่ใช่ไฟล์ผลิต</b> — ตัวเลขทุกตัวเป็นค่าประมาณจากรูป รอวัดจากชิ้นจริง · โลหะและพลอยเป็นการเรนเดอร์จำลอง ไม่ใช่สีจริงของวัสดุ</div>
+    </div>
+
+    <div>
+      <div class="stage" id="stage">
+        <canvas id="c" aria-label="โมเดลแหวน 3 มิติ ลากเพื่อหมุน"></canvas>
+        <span class="badge">ภาพจำลอง — สีและสัดส่วนโดยประมาณ</span>
+        <div class="hint"><b>ลาก</b> หมุน · <b>สกอลล์</b> ซูม</div>
+        <div class="controls">
+          <button class="btn" id="spin" type="button" aria-pressed="false">หมุนช้า</button>
+          <button class="btn" id="reset" type="button">กลับมุมหน้า</button>
+        </div>
+        <div class="msg" id="msg"></div>
+      </div>
+      <p class="foot">ใช้ภาพนี้เทียบกับรูปแหวนจริงเท่านั้น · ไม่ใช่ข้อมูลสินค้า</p>
+    </div>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+/* =====================================================================
+   1) พารามิเตอร์ของ TRINITY (Big) — ทุกค่าด้านล่างอ่านจากรูปถ่ายถือมือ
+      มุมเอียง พื้นหลังเบลอ วัดสัดส่วนจริงไม่ได้ -> ห้ามอ้างเป็นค่าจริง
+      หน่วย มม. ทั้งหมด
+   ===================================================================== */
+var TRINITY = {
+  setting: "prong4",   // ประมาณจากรูป — รอวัดจริง (เห็นชัดว่าหนามเตย 4 เขี้ยวต่อเม็ด ไม่ใช่หนามเตยร่วม)
+  stoneCount: 3,       // ประมาณจากรูป — รอวัดจริง (นับได้ 3 เม็ด)
+  innerDiaMm: 17.2,    // ไซซ์อ้างอิงคงที่ EU 54 -> เส้นผ่านศูนย์กลางใน 17.2 mm (ใช้เท่ากับ satin-flow) ไม่ใช่ไซซ์จริงของชิ้น — รอวัดจริง
+  stoneMm: 4.0,        // ประมาณจากรูป — รอวัดจริง (ช่วงที่เป็นไปได้ราว 3.5-4.5 mm)
+  gapMm: 0.3,          // ประมาณจากรูป — รอวัดจริง (ระยะขอบพลอยถึงขอบพลอยข้างเคียง)
+  bandWidthMm: 3.2,    // ประมาณจากรูป — รอวัดจริง (กว้างตัวเรือนใต้แถวพลอย น้อยกว่าเส้นผ่านศูนย์กลางพลอยเล็กน้อย)
+  bandWidthBackMm: 2.6,// ประมาณจากรูป — รอวัดจริง (กว้างด้านหลังนิ้ว เดาว่าเรียวลงเล็กน้อย ความมั่นใจต่ำ)
+  bandThickMm: 1.5,    // ประมาณจากรูป — รอวัดจริง (หนาตัวเรือน)
+  cornerMm: 0.35,      // ประมาณจากรูป — รอวัดจริง (รัศมีมุมมนหน้าตัดสี่เหลี่ยม)
+  headHeightMm: 2.2,   // ประมาณจากรูป — รอวัดจริง (ขอบเอวพลอยสูงกว่าผิวตัวเรือน)
+  prongMm: 0.6,        // ประมาณจากรูป — รอวัดจริง (เส้นผ่านศูนย์กลางเขี้ยว รูปดูเรียวบางมาก)
+  prongOverMm: 0.3,    // ประมาณจากรูป — รอวัดจริง (ปลายเขี้ยวสูงกว่าขอบเอวพลอย)
+  railMm: 0.5          // ประมาณจากรูป — รอวัดจริง (เส้นผ่านศูนย์กลางราวเชื่อมโคนเขี้ยวข้างละเส้น)
+};
+
+/* =====================================================================
+   2) generator: buildRowRing(params)  (pure · หน่วย มม. · ไม่แตะ DOM/GL)
+      แกนโมเดล: วงแหวนอยู่ระนาบ XY · แกนนิ้ว = Z · หน้าแหวน = +Y
+      คืน { metal, gems[], info, params }
+        metal = { pos:Float32Array, nor:Float32Array, idx:Uint16Array }
+        gems[i] = { center:[x,y,z] (กลางขอบเอวพลอย), normal:[x,y,z], radiusMm, mesh }
+        gems เรียงซ้าย -> ขวาเมื่อมองหน้าแหวนจากด้านบน (x เพิ่มขึ้น)
+      ย้ายเป็น lib/ring-builder/gl/row_v1 ได้โดยตัดส่วนนี้ออกทั้งก้อน
+   ===================================================================== */
+var ROW_DEFAULTS = {          // ค่าสำรองของ generator เท่านั้น ไม่ใช่ค่าของแบบใด
+  setting: "prong4", stoneCount: 3, innerDiaMm: 17.2, stoneMm: 3.0, gapMm: 0.2,
+  bandWidthMm: 3.0, bandWidthBackMm: 3.0, bandThickMm: 1.5, cornerMm: 0.3,
+  headHeightMm: 2.0, prongMm: 0.7, prongOverMm: 0.3, railMm: 0.5, prongAtEnds: true
+};
+
+function buildRowRing(params){
+  var p = {}, k;
+  for(k in ROW_DEFAULTS) p[k] = ROW_DEFAULTS[k];
+  for(k in params) if(params[k] !== undefined) p[k] = params[k];
+
+  /* ---- helper เวกเตอร์ ---- */
+  function sub(a,b){return [a[0]-b[0],a[1]-b[1],a[2]-b[2]];}
+  function cross(a,b){return [a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];}
+  function dot(a,b){return a[0]*b[0]+a[1]*b[1]+a[2]*b[2];}
+  function norm(a){var l=Math.sqrt(dot(a,a))||1;return [a[0]/l,a[1]/l,a[2]/l];}
+  function smooth(t){t=Math.max(0,Math.min(1,t));return t*t*(3-2*t);}
+
+  /* ---- ค่าคำนวณพื้นฐาน ---- */
+  var notes = [];
+  var n = Math.max(1, Math.min(9, Math.round(p.stoneCount)));
+  var d = p.stoneMm, rg = d/2;
+  var T = p.bandThickMm, innerR = p.innerDiaMm/2, Rout = innerR + T, Rc = innerR + T/2;
+  var hc = 0.16*d, gT = 0.035*d, hp = 0.43*d;       // crown / girdle / pavilion ตามสัดส่วนกลมมาตรฐาน
+  var rp = p.prongMm/2;
+  var head;
+  if(p.setting === "shared_bead"){
+    head = Math.max(0.15, hp + gT - T + 0.45);      // ฝังเสมอ: ยกขึ้นเท่าที่ culet ไม่ทะลุผิวในตัวเรือน
+    notes.push("shared_bead: ยกขอบเอวพลอย " + head.toFixed(2) + " mm เหนือผิวตัวเรือน (คำนวณจากความหนา " + T + " mm)");
+  } else {
+    var minHead = hp + gT + 0.25;                   // culet ต้องห่างผิวตัวเรือน >= 0.25 mm
+    head = Math.max(p.headHeightMm, minHead);
+    if(head > p.headHeightMm + 1e-9) notes.push("headHeightMm ต่ำเกินไป — ปรับเป็น " + head.toFixed(2) + " mm เพื่อให้ culet พ้นผิว");
+  }
+  if(p.prongMm < 0.7) notes.push("prongMm " + p.prongMm + " mm ต่ำกว่าเกณฑ์หล่อเงิน 925 (~0.7 mm) — ภาพนี้เพื่อเทียบรูปเท่านั้น");
+  var Rg = Rout + head;                             // รัศมีจากแกนวงแหวนถึงกลางขอบเอวพลอย
+  var pitch = d + p.gapMm;
+  var dphi = 2*Math.asin(Math.min(0.99, pitch/(2*Rg)));   // มุมระหว่างเม็ด ให้ระยะ chord ระหว่างเม็ด = pitch
+  var spanDeg = n*dphi*180/Math.PI;
+  if(spanDeg > 200) notes.push("แถวพลอยพาดยาว " + spanDeg.toFixed(0) + " องศา — ตรวจความเหมาะสมกับไซซ์");
+
+  var frames = [], i, j;
+  for(i=0;i<n;i++){
+    var phi = Math.PI/2 + ((n-1)/2 - i)*dphi;       // i=0 อยู่ซ้ายสุด (x น้อยสุด)
+    var u = [Math.cos(phi), Math.sin(phi), 0];      // normal ของเม็ด (ชี้ออกนอกวง)
+    var t = [Math.sin(phi), -Math.cos(phi), 0];     // ทิศตามแถว
+    frames.push({phi:phi, u:u, t:t, G:[u[0]*Rg, u[1]*Rg, 0]});
+  }
+
+  /* ---- mesh builder ---- */
+  function tube(path, radii, seg){
+    var L = path.length, pos = [], nor = [], idx = [], a, b, Tn, ref, d0, Nn, Bn, an, c, s, nx, ny, nz;
+    for(var ii=0; ii<L; ii++){
+      a = path[ii>0?ii-1:0]; b = path[ii<L-1?ii+1:L-1];
+      Tn = norm(sub(b,a)); ref = [0,0,1];
+      if(Math.abs(dot(Tn,ref)) > 0.9) ref = [1,0,0];
+      d0 = dot(ref,Tn);
+      Nn = norm([ref[0]-Tn[0]*d0, ref[1]-Tn[1]*d0, ref[2]-Tn[2]*d0]);
+      Bn = cross(Tn,Nn);
+      for(var jj=0; jj<seg; jj++){
+        an = 2*Math.PI*jj/seg; c = Math.cos(an); s = Math.sin(an);
+        nx = c*Nn[0]+s*Bn[0]; ny = c*Nn[1]+s*Bn[1]; nz = c*Nn[2]+s*Bn[2];
+        pos.push(path[ii][0]+radii[ii]*nx, path[ii][1]+radii[ii]*ny, path[ii][2]+radii[ii]*nz);
+        nor.push(nx,ny,nz);
+      }
+    }
+    for(ii=0; ii<L-1; ii++) for(jj=0; jj<seg; jj++){
+      var j2 = (jj+1)%seg, q0 = ii*seg+jj, q1 = ii*seg+j2, q2 = (ii+1)*seg+j2, q3 = (ii+1)*seg+jj;
+      idx.push(q0,q1,q2, q0,q2,q3);
+    }
+    return {pos:pos, nor:nor, idx:idx};
+  }
+  function sphere(c, r, lat, lon){
+    var pos = [], nor = [], idx = [], ii, jj, th, ph, nx, ny, nz;
+    for(ii=0; ii<=lat; ii++){
+      th = Math.PI*ii/lat;
+      for(jj=0; jj<=lon; jj++){
+        ph = 2*Math.PI*jj/lon;
+        nx = Math.sin(th)*Math.cos(ph); ny = Math.cos(th); nz = Math.sin(th)*Math.sin(ph);
+        pos.push(c[0]+r*nx, c[1]+r*ny, c[2]+r*nz); nor.push(nx,ny,nz);
+      }
+    }
+    for(ii=0; ii<lat; ii++) for(jj=0; jj<lon; jj++){
+      var q = ii*(lon+1)+jj;
+      idx.push(q, q+1, q+lon+2, q, q+lon+2, q+lon+1);
+    }
+    return {pos:pos, nor:nor, idx:idx};
+  }
+  function merge(parts){
+    var P = [], N = [], I = [], off = 0, m, x;
+    for(var pi=0; pi<parts.length; pi++){
+      m = parts[pi];
+      for(x=0; x<m.pos.length; x++){P.push(m.pos[x]); N.push(m.nor[x]);}
+      for(x=0; x<m.idx.length; x++) I.push(m.idx[x]+off);
+      off += m.pos.length/3;
+    }
+    return {pos:P, nor:N, idx:I};
+  }
+  function finalize(m){
+    if(m.pos.length/3 > 65535) notes.push("mesh เกิน 65535 vertex — ต้องใช้ index 32 บิต");
+    return {pos:new Float32Array(m.pos), nor:new Float32Array(m.nor), idx:new Uint16Array(m.idx)};
+  }
+
+  /* ---- ตัวเรือน: กวาดหน้าตัดสี่เหลี่ยมมุมมนรอบวง กว้างเรียวลงหลังแถวพลอย ---- */
+  var NA = 6, M = 4*(NA+1), NSEG = 240;
+  function profile(hw, ht, r){
+    r = Math.min(r, hw*0.9, ht*0.9);
+    var cx = hw-r, cy = ht-r, out = [], cs = [[cx,cy,0],[-cx,cy,Math.PI/2],[-cx,-cy,Math.PI],[cx,-cy,1.5*Math.PI]], c, kk, a;
+    for(c=0;c<4;c++) for(kk=0;kk<=NA;kk++){
+      a = cs[c][2] + (Math.PI/2)*(kk/NA);
+      out.push([cs[c][0]+r*Math.cos(a), cs[c][1]+r*Math.sin(a), Math.cos(a), Math.sin(a)]);   // x=แกนนิ้ว y=รัศมี nx ny=normal
+    }
+    return out;
+  }
+  var rowHalf = ((n-1)/2)*dphi + dphi/2 + 0.02;
+  var bPos = [], bNor = [], bIdx = [];
+  for(i=0;i<NSEG;i++){
+    var th = 2*Math.PI*i/NSEG, co = Math.cos(th), si = Math.sin(th);
+    var delta = Math.abs(Math.atan2(Math.sin(th-Math.PI/2), Math.cos(th-Math.PI/2)));
+    var w = p.bandWidthMm + (p.bandWidthBackMm - p.bandWidthMm)*smooth((delta-rowHalf)/1.1);
+    var pr = profile(w/2, T/2, p.cornerMm);
+    for(j=0;j<M;j++){
+      var rr = Rc + pr[j][1];
+      bPos.push(rr*co, rr*si, pr[j][0]);
+      bNor.push(pr[j][3]*co, pr[j][3]*si, pr[j][2]);
+    }
+  }
+  for(i=0;i<NSEG;i++) for(j=0;j<M;j++){
+    var i2 = (i+1)%NSEG, j2 = (j+1)%M;
+    bIdx.push(i*M+j, i2*M+j, i2*M+j2, i*M+j, i2*M+j2, i*M+j2);
+  }
+  var parts = [{pos:bPos, nor:bNor, idx:bIdx}];
+
+  /* ---- การฝัง ---- */
+  var f, a;
+  if(p.setting === "prong4"){
+    /* เขี้ยว 4 ต่อเม็ด ที่มุมทแยง (45/135/225/315 องศา) ปลายงอทับขอบเอว */
+    var rho = rg + 0.6*rp, over = p.prongOverMm;
+    for(i=0;i<n;i++){
+      f = frames[i];
+      for(a=1;a<8;a+=2){
+        var al = a*Math.PI/4, cx = Math.cos(al), sx = Math.sin(al);
+        var P = function(rad, h){
+          var x = rad*cx, z = rad*sx;
+          return [f.G[0]+f.t[0]*x+f.u[0]*h, f.G[1]+f.t[1]*x+f.u[1]*h, f.G[2]+f.t[2]*x+f.u[2]*h+z];
+        };
+        var path = [P(rho,-head-0.2), P(rho,0), P(rho-0.25*rp,over*0.55), P(rho-0.8*rp,over*0.9), P(rho-1.3*rp,over*0.95)];
+        parts.push(tube(path, [1.15*rp, rp, 0.85*rp, 0.65*rp, 0.2*rp], 8));
+      }
+    }
+    /* ราวเชื่อมโคนเขี้ยว ข้างละเส้นตามโค้ง ผ่านศูนย์กลางเขี้ยวทุกต้น (gallery เปิดโล่งอยู่ใต้เม็ด) */
+    var off = rho*Math.SQRT1_2, Rrail = Rout + head*0.4;
+    var phiA = frames[0].phi + off/Rrail, phiB = frames[n-1].phi - off/Rrail;
+    var steps = Math.max(3, Math.ceil((phiA-phiB)/0.06));
+    for(var sg=-1; sg<=1; sg+=2){
+      var rpath = [], rrad = [];
+      for(i=0;i<=steps;i++){
+        var ph = phiA + (phiB-phiA)*i/steps;
+        rpath.push([Rrail*Math.cos(ph), Rrail*Math.sin(ph), sg*off]);
+        rrad.push(p.railMm/2);
+      }
+      parts.push(tube(rpath, rrad, 8));
+    }
+  } else {
+    /* shared_bead: เม็ดกลมเล็ก 2 เม็ดต่อช่องระหว่างพลอย (ซ้ายขวาของแหวน) + ที่หัวท้ายถ้าเปิด */
+    var rb = Math.max(rp, 0.32), zb = rg*0.74, Rb = Rout + Math.max(0.12, head-0.05);
+    for(i=0;i<=n;i++){
+      if(!p.prongAtEnds && (i===0 || i===n)) continue;
+      var pm = Math.PI/2 + ((n-1)/2 - (i-0.5))*dphi;
+      for(var s2=-1; s2<=1; s2+=2) parts.push(sphere([Rb*Math.cos(pm), Rb*Math.sin(pm), s2*zb], rb, 6, 10));
+    }
+  }
+  var metal = finalize(merge(parts));
+
+  /* ---- พลอยกลม: flat facet 8 ส่วนมงกุฎ (table + star + kite + upper girdle) + pavilion 16 ส่วน ---- */
+  function buildGem(fr){
+    var rt = 0.57*rg, rs = 0.80*rg;
+    var ys = hc*(1 - (rs*Math.cos(Math.PI/8) - rt)/(rg - rt));      // ความสูง star ให้ kite เป็นระนาบ
+    var G = fr.G, uu = fr.u, tt = fr.t;
+    function W(r, ang, y){
+      var x = r*Math.cos(ang), z = r*Math.sin(ang);
+      return [G[0]+tt[0]*x+uu[0]*y, G[1]+tt[1]*x+uu[1]*y, G[2]+tt[2]*x+uu[2]*y+z];
+    }
+    var C0 = W(0,0,-gT-hp*0.35), pos = [], nor = [], idx = [];
+    function tri(A,B,C){
+      var nn = norm(cross(sub(B,A), sub(C,A)));
+      var mm = [(A[0]+B[0]+C[0])/3-C0[0], (A[1]+B[1]+C[1])/3-C0[1], (A[2]+B[2]+C[2])/3-C0[2]];
+      if(dot(nn,mm) < 0) nn = [-nn[0],-nn[1],-nn[2]];
+      var b0 = pos.length/3;
+      pos.push(A[0],A[1],A[2], B[0],B[1],B[2], C[0],C[1],C[2]);
+      nor.push(nn[0],nn[1],nn[2], nn[0],nn[1],nn[2], nn[0],nn[1],nn[2]);
+      idx.push(b0,b0+1,b0+2);
+    }
+    var Tp = [], Sp = [], Gt = [], Gb = [], kk;
+    for(kk=0;kk<8;kk++){Tp.push(W(rt, kk*Math.PI/4, hc)); Sp.push(W(rs, (kk+0.5)*Math.PI/4, ys));}
+    for(kk=0;kk<16;kk++){Gt.push(W(rg, kk*Math.PI/8, 0)); Gb.push(W(rg, kk*Math.PI/8, -gT));}
+    var top = W(0,0,hc), culet = W(0,0,-gT-hp);
+    for(kk=0;kk<8;kk++){
+      var k1 = (kk+1)%8, km = (kk+7)%8;
+      tri(top, Tp[kk], Tp[k1]);                                   // table
+      tri(Tp[kk], Tp[k1], Sp[kk]);                                // star
+      tri(Tp[kk], Sp[km], Gt[2*kk]); tri(Tp[kk], Gt[2*kk], Sp[kk]);   // kite (2 สามเหลี่ยมระนาบเดียวกัน)
+      tri(Sp[kk], Gt[2*kk], Gt[2*kk+1]);                          // upper girdle
+      tri(Sp[kk], Gt[2*kk+1], Gt[(2*kk+2)%16]);
+    }
+    for(kk=0;kk<16;kk++){
+      var g1 = (kk+1)%16;
+      tri(Gt[kk], Gt[g1], Gb[g1]); tri(Gt[kk], Gb[g1], Gb[kk]);   // girdle
+      tri(culet, Gb[kk], Gb[g1]);                                 // pavilion
+    }
+    return {pos:new Float32Array(pos), nor:new Float32Array(nor), idx:new Uint16Array(idx)};
+  }
+  var gems = [];
+  for(i=0;i<n;i++) gems.push({center:frames[i].G.slice(), normal:frames[i].u.slice(), radiusMm:rg, mesh:buildGem(frames[i])});
+
+  return {
+    metal: metal, gems: gems, params: p,
+    info: {girdleRadiusMm:Rg, headEffMm:head, pitchMm:pitch, spanDeg:spanDeg, outerRadiusMm:Rout, notes:notes}
+  };
+}
+
+/* =====================================================================
+   3) viewer WebGL1 ดิบ (ไม่มีไลบรารีภายนอก)
+   ===================================================================== */
+(function(){
+  var STONES = [
+    {name:"CZ ขาว",   rgb:[0.90,0.92,0.96], cz:true},
+    {name:"โกเมน",    rgb:[0.62,0.07,0.13]},
+    {name:"ซิทริน",    rgb:[0.96,0.62,0.10]},
+    {name:"บลูโทพาส", rgb:[0.22,0.58,0.95]},
+    {name:"เพริดอต",  rgb:[0.55,0.80,0.15]},
+    {name:"อเมทิสต์", rgb:[0.56,0.30,0.80]}
+  ];
+  var cfg = {};
+  for(var kk in TRINITY) cfg[kk] = TRINITY[kk];
+  var colorIdx = [0,0,0,0,0,0,0];      // สีต่อตำแหน่ง เก็บไว้เมื่อสลับจำนวนเม็ด
+  var ring = null, hi = -1;
+
+  var canvas = document.getElementById("c"), stage = document.getElementById("stage"), msg = document.getElementById("msg");
+  var reduce = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
+
+  /* ---------- panel ---------- */
+  function hex(rgb){return "#"+rgb.map(function(v){var h=Math.round(v*255).toString(16);return h.length<2?"0"+h:h;}).join("");}
+  function buildRows(){
+    var box = document.getElementById("rows"), n = cfg.stoneCount;
+    box.innerHTML = "";
+    for(var i=0;i<n;i++){
+      (function(i){
+        var row = document.createElement("div"); row.className = "prow";
+        var side = i===0 ? " (ซ้าย)" : (i===n-1 ? " (ขวา)" : "");
+        row.innerHTML = '<div class="pn">ตำแหน่ง '+(i+1)+'<span>'+side+'</span></div><div class="sw"></div><div class="cn"></div>';
+        var sw = row.querySelector(".sw"), cn = row.querySelector(".cn");
+        function refresh(){
+          var bs = sw.children;
+          for(var b=0;b<bs.length;b++) bs[b].setAttribute("aria-pressed", b===colorIdx[i] ? "true" : "false");
+          cn.textContent = STONES[colorIdx[i]].name;
+        }
+        STONES.forEach(function(s, si){
+          var b = document.createElement("button"); b.type = "button";
+          b.style.background = hex(s.rgb); b.setAttribute("aria-label", "ตำแหน่ง "+(i+1)+" "+s.name);
+          b.addEventListener("click", function(){colorIdx[i] = si; refresh(); dirty = true;});
+          sw.appendChild(b);
+        });
+        row.addEventListener("mouseenter", function(){hi = i; dirty = true;});
+        row.addEventListener("mouseleave", function(){hi = -1; dirty = true;});
+        refresh(); box.appendChild(row);
+      })(i);
+    }
+  }
+  function buildSpec(){
+    var info = ring.info, sp = document.getElementById("spec");
+    function r(k,v){return '<div class="row"><span class="k">'+k+'</span><span class="v">'+v+'</span></div>';}
+    sp.innerHTML =
+      r("ไซซ์อ้างอิง","EU 54 · Ø ใน "+cfg.innerDiaMm.toFixed(1)+" mm")+
+      r("พลอย","Ø"+cfg.stoneMm.toFixed(1)+" mm × "+cfg.stoneCount+" <em>ประมาณ</em>")+
+      r("ช่องห่างเม็ด",cfg.gapMm.toFixed(1)+" mm <em>ประมาณ</em>")+
+      r("ตัวเรือน กว้าง",cfg.bandWidthMm.toFixed(1)+" → "+cfg.bandWidthBackMm.toFixed(1)+" mm <em>ประมาณ</em>")+
+      r("ตัวเรือน หนา",cfg.bandThickMm.toFixed(1)+" mm <em>ประมาณ</em>")+
+      r("ความสูงหัว",info.headEffMm.toFixed(1)+" mm <em>ประมาณ</em>")+
+      r("เขี้ยว",cfg.setting==="prong4" ? "Ø"+cfg.prongMm.toFixed(1)+" mm × 4/เม็ด <em>ประมาณ</em>" : "เม็ดกลม Ø"+Math.max(cfg.prongMm,0.64).toFixed(2)+" mm");
+    document.getElementById("warn").textContent = info.notes.join(" · ");
+  }
+  function setPressed(boxId, val){
+    var bs = document.getElementById(boxId).querySelectorAll("button");
+    for(var i=0;i<bs.length;i++) bs[i].setAttribute("aria-pressed", bs[i].getAttribute("data-v")===String(val) ? "true" : "false");
+  }
+  document.getElementById("segCount").addEventListener("click", function(e){
+    var v = e.target.getAttribute && e.target.getAttribute("data-v"); if(!v) return;
+    cfg.stoneCount = parseInt(v,10); setPressed("segCount", v); rebuild();
+  });
+  document.getElementById("segSet").addEventListener("click", function(e){
+    var v = e.target.getAttribute && e.target.getAttribute("data-v"); if(!v) return;
+    cfg.setting = v; setPressed("segSet", v); rebuild();
+  });
+
+  /* ---------- GL ---------- */
+  var gl = null, pm = null, pg = null, metalBuf = null, gemBufs = [], lost = false, dirty = true;
+  var frameSpan = 14;
+
+  var VS = ["attribute vec3 aPos;attribute vec3 aNormal;uniform mat4 uMVP;uniform mat4 uModel;",
+    "varying vec3 vN;varying vec3 vW;",
+    "void main(){vN=(uModel*vec4(aNormal,0.0)).xyz;vW=(uModel*vec4(aPos,1.0)).xyz;gl_Position=uMVP*vec4(aPos,1.0);}"].join("\n");
+  var PREC = "#ifdef GL_FRAGMENT_PRECISION_HIGH\nprecision highp float;\n#else\nprecision mediump float;\n#endif\n";
+  var FS_METAL = PREC + [
+    "varying vec3 vN;varying vec3 vW;uniform vec3 uCam;uniform vec3 uColor;",
+    "vec3 env(vec3 R){",
+    "  float sky=smoothstep(-0.6,0.8,R.y);",
+    "  vec3 c=mix(vec3(0.16,0.17,0.19),vec3(0.98,0.98,1.0),sky);",
+    "  c+=vec3(1.0)*pow(max(dot(R,normalize(vec3(0.35,0.75,0.55))),0.0),24.0)*0.8;",
+    "  c+=vec3(0.9,0.92,1.0)*pow(max(dot(R,normalize(vec3(-0.8,0.2,0.4))),0.0),16.0)*0.5;",
+    "  float b=(R.y+0.05)*5.0;",
+    "  c*=1.0-0.55*exp(-b*b);",
+    "  return c;",
+    "}",
+    "void main(){",
+    "  vec3 N=normalize(vN);vec3 V=normalize(uCam-vW);",
+    "  if(dot(N,V)<0.0)N=-N;",
+    "  vec3 R=reflect(-V,N);",
+    "  float ndv=max(dot(N,V),0.0);",
+    "  vec3 col=uColor*(0.10+0.90*env(R))+pow(1.0-ndv,4.0)*0.06;",
+    "  gl_FragColor=vec4(col,1.0);",
+    "}"].join("\n");
+  var FS_GEM = PREC + [
+    "varying vec3 vN;varying vec3 vW;uniform vec3 uCam;uniform vec3 uTint;uniform vec3 uSpark;uniform vec3 uCap;uniform float uGlow;",
+    "void main(){",
+    "  vec3 N=normalize(vN);vec3 V=normalize(uCam-vW);",
+    "  if(dot(N,V)<0.0)N=-N;",
+    "  vec3 R=reflect(-V,N);",
+    "  float dif=0.5+0.5*dot(N,normalize(vec3(0.25,0.55,0.8)));",
+    "  float h=fract(sin(dot(N.xy+N.z,vec2(12.9898,78.233)))*43758.5453);",
+    "  float k=(0.30+0.70*dif)*(0.85+0.30*h);",
+    "  float sp=pow(max(dot(R,normalize(vec3(0.4,0.8,0.6))),0.0),8.0)*0.9",
+    "          +pow(max(dot(R,normalize(vec3(-0.7,0.3,0.55))),0.0),10.0)*0.7",
+    "          +pow(max(dot(R,normalize(vec3(0.0,-0.6,0.8))),0.0),6.0)*0.5;",
+    "  vec3 col=uTint*k+uSpark*sp+vec3(uGlow);",
+    "  gl_FragColor=vec4(min(col,uCap),1.0);",
+    "}"].join("\n");
+
+  function compile(type, src){
+    var s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+    if(!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+    return s;
+  }
+  function program(fs, names){
+    var pr = gl.createProgram();
+    gl.attachShader(pr, compile(gl.VERTEX_SHADER, VS)); gl.attachShader(pr, compile(gl.FRAGMENT_SHADER, fs));
+    gl.bindAttribLocation(pr, 0, "aPos"); gl.bindAttribLocation(pr, 1, "aNormal");
+    gl.linkProgram(pr);
+    if(!gl.getProgramParameter(pr, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(pr));
+    var u = {};
+    names.forEach(function(nm){u[nm] = gl.getUniformLocation(pr, nm);});
+    return {pr:pr, u:u};
+  }
+  function initGL(){
+    pm = program(FS_METAL, ["uMVP","uModel","uCam","uColor"]);
+    pg = program(FS_GEM, ["uMVP","uModel","uCam","uTint","uSpark","uCap","uGlow"]);
+    gl.enable(gl.DEPTH_TEST); gl.disable(gl.CULL_FACE);
+  }
+  function upMesh(m){
+    var pb = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, pb); gl.bufferData(gl.ARRAY_BUFFER, m.pos, gl.STATIC_DRAW);
+    var nb = gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER, nb); gl.bufferData(gl.ARRAY_BUFFER, m.nor, gl.STATIC_DRAW);
+    var ib = gl.createBuffer(); gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, ib); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, m.idx, gl.STATIC_DRAW);
+    return {pb:pb, nb:nb, ib:ib, count:m.idx.length};
+  }
+  function freeMesh(b){if(b){gl.deleteBuffer(b.pb); gl.deleteBuffer(b.nb); gl.deleteBuffer(b.ib);}}
+  function uploadRing(){
+    freeMesh(metalBuf); gemBufs.forEach(freeMesh);
+    metalBuf = upMesh(ring.metal);
+    gemBufs = ring.gems.map(function(g){return upMesh(g.mesh);});
+  }
+  function drawBuf(b){
+    gl.bindBuffer(gl.ARRAY_BUFFER, b.pb); gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0,3,gl.FLOAT,false,0,0);
+    gl.bindBuffer(gl.ARRAY_BUFFER, b.nb); gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1,3,gl.FLOAT,false,0,0);
+    gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, b.ib); gl.drawElements(gl.TRIANGLES, b.count, gl.UNSIGNED_SHORT, 0);
+  }
+
+  function rebuild(){
+    ring = buildRowRing(cfg);
+    var mx = 0;
+    ring.gems.forEach(function(g){mx = Math.max(mx, Math.abs(g.center[0]));});
+    frameSpan = 2*(mx + cfg.stoneMm/2 + 0.4);       // กว้างรวมแถวพลอย+เขี้ยว ใช้ซูมให้แถวกว้าง ~80%
+    buildRows(); buildSpec();
+    if(gl && !lost) uploadRing();
+    dirty = true;
+  }
+
+  /* ---------- matrix ---------- */
+  function mmul(a,b){var o=new Float32Array(16);for(var c=0;c<4;c++)for(var r=0;r<4;r++)
+    o[c*4+r]=a[r]*b[c*4]+a[4+r]*b[c*4+1]+a[8+r]*b[c*4+2]+a[12+r]*b[c*4+3];return o;}
+  function persp(fovy,asp,n,f){var t=1/Math.tan(fovy/2),o=new Float32Array(16);o[0]=t/asp;o[5]=t;o[10]=(f+n)/(n-f);o[11]=-1;o[14]=2*f*n/(n-f);return o;}
+  function rotX(a){var c=Math.cos(a),s=Math.sin(a);return new Float32Array([1,0,0,0, 0,c,s,0, 0,-s,c,0, 0,0,0,1]);}
+  function rotY(a){var c=Math.cos(a),s=Math.sin(a);return new Float32Array([c,0,-s,0, 0,1,0,0, s,0,c,0, 0,0,0,1]);}
+  function trans(x,y,z){return new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, x,y,z,1]);}
+
+  /* ---------- กล้อง/ลากหมุน ---------- */
+  var FOV = 0.42, TILT = 0.5;                       // TILT = เอียงจากมุมมองตรงหน้าแถว (rad) เพื่อเห็นข้างตัวเรือน
+  var yaw = 0, pitch = 0, zoom = 1, drag = false, lx = 0, ly = 0, spin = false, anim = false;
+  canvas.addEventListener("pointerdown", function(e){drag = true; anim = false; lx = e.clientX; ly = e.clientY; canvas.setPointerCapture(e.pointerId);});
+  canvas.addEventListener("pointermove", function(e){
+    if(!drag) return;
+    yaw += (e.clientX-lx)*0.01; pitch += (e.clientY-ly)*0.01;
+    pitch = Math.max(-1.5, Math.min(1.5, pitch)); lx = e.clientX; ly = e.clientY; dirty = true;
+  });
+  canvas.addEventListener("pointerup", function(){drag = false;});
+  canvas.addEventListener("pointercancel", function(){drag = false;});
+  canvas.addEventListener("wheel", function(e){
+    e.preventDefault(); zoom *= (1+(e.deltaY>0?1:-1)*0.08); zoom = Math.max(0.5, Math.min(2.2, zoom)); dirty = true;
+  }, {passive:false});
+  document.getElementById("spin").addEventListener("click", function(){
+    spin = !spin; this.setAttribute("aria-pressed", spin ? "true" : "false");
+  });
+  document.getElementById("reset").addEventListener("click", function(){
+    if(reduce){yaw = 0; pitch = 0; zoom = 1; dirty = true;} else anim = true;
+  });
+
+  function resizeIfNeeded(){
+    var dpr = Math.min(window.devicePixelRatio||1, 2);
+    var W = Math.round((canvas.clientWidth||stage.clientWidth)*dpr), H = Math.round((canvas.clientHeight||stage.clientHeight)*dpr);
+    if(W>0 && H>0 && (canvas.width!==W || canvas.height!==H)){canvas.width = W; canvas.height = H; return true;}
+    return false;
+  }
+
+  function draw(){
+    var W = canvas.width, H = canvas.height; if(!W || !H) return;
+    gl.viewport(0,0,W,H); gl.clearColor(0,0,0,0); gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
+    var th = Math.tan(FOV/2), D = (frameSpan/0.8)/(2*th*(W/H))*zoom;
+    var Rg = ring.info.girdleRadiusMm;
+    var model = mmul(rotX(pitch), mmul(rotY(yaw), mmul(rotX(Math.PI/2-TILT), trans(0,-Rg,0))));
+    var mvp = mmul(persp(FOV, W/H, Math.max(1,D-45), D+70), mmul(trans(0,0,-D), model));
+
+    gl.useProgram(pm.pr);
+    gl.uniformMatrix4fv(pm.u.uMVP,false,mvp); gl.uniformMatrix4fv(pm.u.uModel,false,model);
+    gl.uniform3f(pm.u.uCam,0,0,D); gl.uniform3f(pm.u.uColor,0.86,0.87,0.90);
+    drawBuf(metalBuf);
+
+    gl.useProgram(pg.pr);
+    gl.uniformMatrix4fv(pg.u.uMVP,false,mvp); gl.uniformMatrix4fv(pg.u.uModel,false,model); gl.uniform3f(pg.u.uCam,0,0,D);
+    for(var i=0;i<gemBufs.length;i++){
+      var s = STONES[colorIdx[i]], c = s.rgb;
+      gl.uniform3f(pg.u.uTint, c[0],c[1],c[2]);
+      if(s.cz){gl.uniform3f(pg.u.uSpark,1,1,1); gl.uniform3f(pg.u.uCap,1,1,1);}
+      else{
+        gl.uniform3f(pg.u.uSpark, 1+(c[0]-1)*0.65, 1+(c[1]-1)*0.65, 1+(c[2]-1)*0.65);      // ประกายคงโทนสี ไม่ขาวล้วน
+        gl.uniform3f(pg.u.uCap, Math.min(1,c[0]*1.3+0.12), Math.min(1,c[1]*1.3+0.12), Math.min(1,c[2]*1.3+0.12));
+      }
+      gl.uniform1f(pg.u.uGlow, i===hi ? 0.10 : 0.0);
+      drawBuf(gemBufs[i]);
+    }
+  }
+
+  function frame(){
+    requestAnimationFrame(frame);
+    if(!gl || lost) return;
+    if(anim){
+      var ty = Math.round(yaw/(2*Math.PI))*2*Math.PI;
+      yaw += (ty-yaw)*0.18; pitch += (0-pitch)*0.18; zoom += (1-zoom)*0.18; dirty = true;
+      if(Math.abs(ty-yaw)<0.003 && Math.abs(pitch)<0.003 && Math.abs(1-zoom)<0.003){yaw = 0; pitch = 0; zoom = 1; anim = false;}
+    }
+    if(spin && !drag){yaw += 0.006; dirty = true;}
+    if(resizeIfNeeded()) dirty = true;
+    if(!dirty) return;
+    dirty = false; draw();
+  }
+
+  /* ---------- เริ่มต้น + fallback ---------- */
+  function showMsg(t){msg.textContent = t; msg.style.display = "flex"; canvas.style.display = "none";}
+  function start(){
+    try{
+      gl = canvas.getContext("webgl", {antialias:true, alpha:true, premultipliedAlpha:false, failIfMajorPerformanceCaveat:true});
+      if(!gl) throw new Error("no webgl");
+      initGL();
+    }catch(err){
+      gl = null; showMsg("เบราว์เซอร์นี้แสดงภาพ 3 มิติไม่ได้ — ใช้รูปถ่ายแหวนจริงประกอบการเลือกแทน"); return;
+    }
+    canvas.addEventListener("webglcontextlost", function(e){e.preventDefault(); lost = true; showMsg("ภาพ 3 มิติหยุดชั่วคราว กำลังกู้คืน…");});
+    canvas.addEventListener("webglcontextrestored", function(){
+      lost = false; msg.style.display = "none"; canvas.style.display = "block";
+      try{initGL(); uploadRing();}catch(err){showMsg("แสดงภาพ 3 มิติไม่ได้ — ใช้รูปถ่ายแหวนจริงแทน");}
+      dirty = true;
+    });
+    uploadRing(); requestAnimationFrame(frame);
+  }
+  rebuild();        // สร้าง generator + panel ก่อน (ใช้ได้แม้ไม่มี GL)
+  start();
+})();
+</script>
+</body>
+</html>
