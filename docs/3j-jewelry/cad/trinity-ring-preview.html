@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>TRINITY RING (Big) · 3D Preview (spike)</title>
+<title>แหวนพลอยแถว · 3D Preview (spike)</title>
 <style>
   :root{
     --ground:#F7F5F2; --panel:#FFFFFF; --ink:#1D1B19; --ink-soft:#6B6560;
@@ -66,6 +66,9 @@
   .note{margin-top:14px;padding:11px 13px;background:var(--stage-1);border-radius:10px;font-size:11.5px;line-height:1.6;color:var(--ink-soft)}
   .note b{color:var(--ink)}
   .warn{margin-top:8px;font-size:11px;color:var(--accent)}
+  .exp{margin-top:16px;border-top:1px solid var(--line-2);padding-top:12px}
+  .exp summary{cursor:pointer;font-size:11px;letter-spacing:.08em;color:var(--ink-soft)}
+  .exp summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 
   .stage{position:relative;border:1px solid var(--line);border-radius:16px;overflow:hidden;
     background:radial-gradient(120% 90% at 50% 22%,var(--stage-1),var(--stage-2));
@@ -97,23 +100,14 @@
   <div class="grid">
     <div class="panel">
       <p class="eyebrow">Spike · วาดจากรูปจริง</p>
-      <h1>TRINITY RING <small>(Big)</small></h1>
-      <p class="lede">แหวนพลอยกลมเรียงแถว หนามเตย 4 เขี้ยวต่อเม็ด · ตัวเรือนเรียบขัดเงา — ลองเปลี่ยนสีพลอยทีละเม็ดแล้วลากหมุนดู</p>
+      <h1 id="ttl">TRINITY RING <small>(Big)</small></h1>
+      <p class="lede" id="lede"></p>
 
       <div class="grp">
-        <div class="lbl"><span>จำนวนเม็ด</span></div>
-        <div class="seg" id="segCount" role="group" aria-label="จำนวนเม็ด">
-          <button type="button" data-v="3" aria-pressed="true">3 เม็ด</button>
-          <button type="button" data-v="5" aria-pressed="false">5 เม็ด</button>
-          <button type="button" data-v="7" aria-pressed="false">7 เม็ด</button>
-        </div>
-      </div>
-
-      <div class="grp">
-        <div class="lbl"><span>แบบการฝัง</span></div>
-        <div class="seg" id="segSet" role="group" aria-label="แบบการฝัง">
-          <button type="button" data-v="prong4" aria-pressed="true">หนามเตย 4 เขี้ยว/เม็ด</button>
-          <button type="button" data-v="shared_bead" aria-pressed="false">เม็ดเล็กฝังเสมอ (หนามเตยร่วม)</button>
+        <div class="lbl"><span>แบบ</span></div>
+        <div class="seg" id="segModel" role="group" aria-label="แบบแหวน">
+          <button type="button" data-v="trinity" aria-pressed="true">TRINITY (3 เม็ด)</button>
+          <button type="button" data-v="scroll6" aria-pressed="false">ก้นหอย 6 เม็ด</button>
         </div>
       </div>
 
@@ -127,6 +121,42 @@
         <div class="spec" id="spec"></div>
         <div class="warn" id="warn"></div>
       </div>
+
+      <details class="exp">
+        <summary>ทดลอง generator</summary>
+        <div class="grp">
+          <div class="lbl"><span>จำนวนเม็ด</span></div>
+          <div class="seg" id="segCount" role="group" aria-label="จำนวนเม็ด">
+            <button type="button" data-v="3" aria-pressed="false">3</button>
+            <button type="button" data-v="4" aria-pressed="false">4</button>
+            <button type="button" data-v="5" aria-pressed="false">5</button>
+            <button type="button" data-v="6" aria-pressed="false">6</button>
+            <button type="button" data-v="7" aria-pressed="false">7</button>
+          </div>
+        </div>
+        <div class="grp">
+          <div class="lbl"><span>แบบการฝัง</span></div>
+          <div class="seg" id="segSet" role="group" aria-label="แบบการฝัง">
+            <button type="button" data-v="prong4" aria-pressed="false">หนามเตย 4 เขี้ยว/เม็ด</button>
+            <button type="button" data-v="shared_prong" aria-pressed="false">หนามเตยร่วม (หัวยก)</button>
+            <button type="button" data-v="shared_bead" aria-pressed="false">เม็ดเล็กฝังเสมอ</button>
+          </div>
+        </div>
+        <div class="grp">
+          <div class="lbl"><span>ผนังข้างหัว (ใช้กับหนามเตยร่วม)</span></div>
+          <div class="seg" id="segGal" role="group" aria-label="ผนังข้างหัว">
+            <button type="button" data-v="plain" aria-pressed="false">เรียบ</button>
+            <button type="button" data-v="scroll" aria-pressed="false">ลายก้นหอยโปร่ง</button>
+          </div>
+        </div>
+        <div class="grp">
+          <div class="lbl"><span>ไหล่แหวน</span></div>
+          <div class="seg" id="segSh" role="group" aria-label="ไหล่แหวน">
+            <button type="button" data-v="plain" aria-pressed="false">เรียบ</button>
+            <button type="button" data-v="scroll_relief" aria-pressed="false">ลายก้นหอยนูน</button>
+          </div>
+        </div>
+      </details>
 
       <div class="note"><b>ภาพจำลองจากรูปถ่าย ไม่ใช่ไฟล์ผลิต</b> — ตัวเลขทุกตัวเป็นค่าประมาณจากรูป รอวัดจากชิ้นจริง · โลหะและพลอยเป็นการเรนเดอร์จำลอง ไม่ใช่สีจริงของวัสดุ</div>
     </div>
@@ -172,6 +202,40 @@ var TRINITY = {
 };
 
 /* =====================================================================
+   1b) พารามิเตอร์ของแบบ "ก้นหอย 6 เม็ด" [ต้องยืนยัน: ชื่อแบบ]
+       อ่านจากรูปถ่ายถือมือ 4 มุม วัดสัดส่วนจริงไม่ได้ -> ทุกค่าเป็นค่าประมาณ
+       น้ำหนักชิ้นจริงยังไม่มี [ต้องยืนยัน: น้ำหนักชิ้น] — ใช้เช็คสัดส่วนภายหลัง ห้ามเดา
+       หน่วย มม. ทั้งหมด
+   ===================================================================== */
+var SCROLL6 = {
+  setting: "shared_prong", // ประมาณจากรูป — รอวัดจริง (หัวยก + เขี้ยวเล็กแบ่งใช้ระหว่างเม็ด + เขี้ยวปลายแถว)
+  stoneCount: 6,           // ประมาณจากรูป — รอวัดจริง (นับได้ 6 เม็ด)
+  innerDiaMm: 17.2,        // ไซซ์อ้างอิงเดียวกับ TRINITY (EU 54) ไม่ใช่ไซซ์จริงของชิ้น — รอวัดจริง
+  stoneMm: 3.0,            // ประมาณจากรูป — รอวัดจริง (พลอยกลม ขนาดดูใกล้กัน อาจไล่ขนาดเล็กน้อย ใช้เท่ากันทุกเม็ด)
+  gapMm: 0.3,              // ประมาณจากรูป — รอวัดจริง (ระยะขอบพลอยถึงขอบพลอยข้างเคียง มีเขี้ยวร่วมคั่น)
+  bandWidthMm: 3.0,        // ประมาณจากรูป — รอวัดจริง (กว้างตัวเรือนใต้แถวพลอย ใกล้เส้นผ่านศูนย์กลางพลอย)
+  bandWidthBackMm: 1.7,    // ประมาณจากรูป — รอวัดจริง (ด้านหลังนิ้วดูเป็นเส้นบาง ความมั่นใจต่ำ)
+  bandThickMm: 1.7,        // ประมาณจากรูป — รอวัดจริง (หนาตัวเรือนด้านหน้า ใต้ผนังข้างหัว)
+  bandThickBackMm: 1.15,   // ประมาณจากรูป — รอวัดจริง (หนาด้านหลัง ก้านเรียวลงชัดจากรูปมองทะลุวง)
+  taperRad: 1.3,           // ประมาณจากรูป — รอวัดจริง (ระยะเรียวลง เป็นเรเดียน ความมั่นใจต่ำ)
+  cornerMm: 0.3,           // ประมาณจากรูป — รอวัดจริง (รัศมีมุมมนหน้าตัดตัวเรือน)
+  headHeightMm: 2.4,       // ประมาณจากรูป — รอวัดจริง (ขอบเอวพลอยสูงกว่าผิวตัวเรือน รวมผนังข้างหัว)
+  prongMm: 0.6,            // ประมาณจากรูป — รอวัดจริง (เส้นผ่านศูนย์กลางเขี้ยวร่วม)
+  prongOverMm: 0.25,       // ประมาณจากรูป — รอวัดจริง (ปลายเขี้ยวสูงกว่าขอบเอวพลอย)
+  railMm: 0.45,            // ประมาณจากรูป — รอวัดจริง (ขอบบนผนังข้างหัว/แท่นรองเอวพลอย)
+  gallery: "scroll",       // ประมาณจากรูป — รอวัดจริง (ผนังข้างหัวเป็นลายก้นหอยต่อเนื่องโปร่งทะลุ เห็นชัดในรูปมองทะลุวง)
+  scrollWireMm: 0.3,       // ประมาณจากรูป — รอวัดจริง (เส้นลายก้นหอย เล็กกว่า ~0.4 mm = เสี่ยงหล่อไม่ติด)
+  scrollRadiusMm: 0.78,    // ประมาณจากรูป — รอวัดจริง (รัศมีนอกสุดของก้นหอย 1 ตัว)
+  scrollTurns: 1.0,        // ประมาณจากรูป — รอวัดจริง (จำนวนรอบของก้นหอย 1 ตัว ในรูปราว 1-1.25 รอบ)
+  scrollInner: 0.3,        // ประมาณจากรูป — รอวัดจริง (สัดส่วนรัศมีปลายใน/นอก)
+  shoulder: "scroll_relief", // ประมาณจากรูป — รอวัดจริง (ไหล่แหวนมีลายก้นหอยนูน/แกะลงบนด้านข้าง)
+  reliefWireMm: 0.2,       // ประมาณจากรูป — รอวัดจริง (เส้นลายนูนบนไหล่ ยกจากผิวราว 0.1 mm)
+  reliefRadiusMm: 0.4,     // ประมาณจากรูป — รอวัดจริง (รัศมีก้นหอยบนไหล่)
+  reliefPitchMm: 1.5,      // ประมาณจากรูป — รอวัดจริง (ระยะห่างก้นหอยบนไหล่)
+  reliefCount: 3           // ประมาณจากรูป — รอวัดจริง (จำนวนก้นหอยต่อไหล่ข้างหนึ่ง)
+};
+
+/* =====================================================================
    2) generator: buildRowRing(params)  (pure · หน่วย มม. · ไม่แตะ DOM/GL)
       แกนโมเดล: วงแหวนอยู่ระนาบ XY · แกนนิ้ว = Z · หน้าแหวน = +Y
       คืน { metal, gems[], info, params }
@@ -183,7 +247,10 @@ var TRINITY = {
 var ROW_DEFAULTS = {          // ค่าสำรองของ generator เท่านั้น ไม่ใช่ค่าของแบบใด
   setting: "prong4", stoneCount: 3, innerDiaMm: 17.2, stoneMm: 3.0, gapMm: 0.2,
   bandWidthMm: 3.0, bandWidthBackMm: 3.0, bandThickMm: 1.5, cornerMm: 0.3,
-  headHeightMm: 2.0, prongMm: 0.7, prongOverMm: 0.3, railMm: 0.5, prongAtEnds: true
+  headHeightMm: 2.0, prongMm: 0.7, prongOverMm: 0.3, railMm: 0.5, prongAtEnds: true,
+  taperRad: 1.1, gallery: "plain", shoulder: "plain",          // bandThickBackMm ไม่ตั้ง = หนาเท่าหน้า (ไม่เรียวความหนา)
+  scrollWireMm: 0.3, scrollRadiusMm: 0.75, scrollTurns: 1.0, scrollInner: 0.3,
+  reliefWireMm: 0.2, reliefRadiusMm: 0.4, reliefPitchMm: 1.5, reliefCount: 3
 };
 
 function buildRowRing(params){
@@ -215,6 +282,8 @@ function buildRowRing(params){
     if(head > p.headHeightMm + 1e-9) notes.push("headHeightMm ต่ำเกินไป — ปรับเป็น " + head.toFixed(2) + " mm เพื่อให้ culet พ้นผิว");
   }
   if(p.prongMm < 0.7) notes.push("prongMm " + p.prongMm + " mm ต่ำกว่าเกณฑ์หล่อเงิน 925 (~0.7 mm) — ภาพนี้เพื่อเทียบรูปเท่านั้น");
+  if(p.gallery === "scroll" && p.setting !== "shared_prong") notes.push("ผนังข้างหัวลายก้นหอยใช้ได้กับ 'หนามเตยร่วม (หัวยก)' เท่านั้น — แบบการฝังนี้ไม่มีผนัง");
+  if(p.gallery === "scroll" && p.setting === "shared_prong" && p.scrollWireMm < 0.4) notes.push("เส้นลายโปร่ง " + p.scrollWireMm + " mm ต่ำกว่า ~0.4 mm — เสี่ยงหล่อไม่ติด/หัก ต้องให้ช่างหล่อยืนยัน");
   var Rg = Rout + head;                             // รัศมีจากแกนวงแหวนถึงกลางขอบเอวพลอย
   var pitch = d + p.gapMm;
   var dphi = 2*Math.asin(Math.min(0.99, pitch/(2*Rg)));   // มุมระหว่างเม็ด ให้ระยะ chord ระหว่างเม็ด = pitch
@@ -282,8 +351,30 @@ function buildRowRing(params){
     if(m.pos.length/3 > 65535) notes.push("mesh เกิน 65535 vertex — ต้องใช้ index 32 บิต");
     return {pos:new Float32Array(m.pos), nor:new Float32Array(m.nor), idx:new Uint16Array(m.idx)};
   }
+  function fill(len, v){var o = [], q; for(q=0;q<len;q++) o.push(v); return o;}
+  function seg2(a, b, r){return tube([a, [(a[0]+b[0])/2,(a[1]+b[1])/2,(a[2]+b[2])/2], b], [r,r,r], 8);}
 
-  /* ---- ตัวเรือน: กวาดหน้าตัดสี่เหลี่ยมมุมมนรอบวง กว้างเรียวลงหลังแถวพลอย ---- */
+  /* ---- เส้นก้นหอยต่อเนื่อง (running scroll) ในระนาบ 2 มิติ (x=ตามแถว, y=สูง) ----
+     คาบ = px ต่อก้นหอย 1 ตัว: คลื่นไซน์ต่อเนื่อง + ก้นหอยห้อยที่ยอดคลื่น (ม้วนตามเข็ม) สลับกับท้องคลื่น (ทวนเข็ม)
+     คืน array ของ polyline [[x,y],...] — ก้นหอยแตะคลื่นที่ยอด/ท้อง (เส้นซ้อนทับกันเป็นลายโปร่งที่เชื่อมกัน) */
+  function scrollChain(cnt, px, A, R0, turns, rIn, pad, step){
+    var paths = [], x0 = -(cnt-1)/2*px, xa = x0 - pad, xb = x0 + (cnt-1)*px + pad;
+    var ns = Math.max(8, Math.ceil((xb-xa)/step)), w = [], q, kk, x, Th = 2*Math.PI*turns;
+    for(q=0;q<=ns;q++){x = xa + (xb-xa)*q/ns; w.push([x, A*Math.cos(Math.PI*(x-x0)/px)]);}
+    paths.push(w);
+    for(kk=0;kk<cnt;kk++){
+      var sgn = (kk%2===0) ? 1 : -1, cx = x0 + kk*px, cy = sgn*(A-R0), a0 = sgn > 0 ? Math.PI/2 : -Math.PI/2;
+      var cs = Math.max(20, Math.ceil(Th*R0/step*1.4)), sp = [], tt, rr, an;
+      for(q=0;q<=cs;q++){
+        tt = Th*q/cs; rr = R0*(1-(1-rIn)*tt/Th); an = a0 - sgn*tt;
+        sp.push([cx + rr*Math.cos(an), cy + rr*Math.sin(an)]);
+      }
+      paths.push(sp);
+    }
+    return paths;
+  }
+
+  /* ---- ตัวเรือน: กวาดหน้าตัดสี่เหลี่ยมมุมมนรอบวง กว้าง/หนาเรียวลงหลังแถวพลอย ---- */
   var NA = 6, M = 4*(NA+1), NSEG = 240;
   function profile(hw, ht, r){
     r = Math.min(r, hw*0.9, ht*0.9);
@@ -295,14 +386,20 @@ function buildRowRing(params){
     return out;
   }
   var rowHalf = ((n-1)/2)*dphi + dphi/2 + 0.02;
+  var TB = (p.bandThickBackMm === undefined) ? T : p.bandThickBackMm;     // หนาด้านหลัง (ไม่ตั้ง = เท่าด้านหน้า)
+  function blendAt(thx){                                                    // 0 = หน้า (ใต้แถวพลอย) -> 1 = หลัง
+    var dl = Math.abs(Math.atan2(Math.sin(thx-Math.PI/2), Math.cos(thx-Math.PI/2)));
+    return smooth((dl-rowHalf)/p.taperRad);
+  }
+  function widthAt(bl){return p.bandWidthMm + (p.bandWidthBackMm - p.bandWidthMm)*bl;}
+  function thickAt(bl){return T + (TB - T)*bl;}
   var bPos = [], bNor = [], bIdx = [];
   for(i=0;i<NSEG;i++){
     var th = 2*Math.PI*i/NSEG, co = Math.cos(th), si = Math.sin(th);
-    var delta = Math.abs(Math.atan2(Math.sin(th-Math.PI/2), Math.cos(th-Math.PI/2)));
-    var w = p.bandWidthMm + (p.bandWidthBackMm - p.bandWidthMm)*smooth((delta-rowHalf)/1.1);
-    var pr = profile(w/2, T/2, p.cornerMm);
+    var bl0 = blendAt(th), Tt = thickAt(bl0);
+    var pr = profile(widthAt(bl0)/2, Tt/2, p.cornerMm);
     for(j=0;j<M;j++){
-      var rr = Rc + pr[j][1];
+      var rr = innerR + Tt/2 + pr[j][1];                                    // ผิวในคงที่ที่ innerR เสมอ (ไซซ์ไม่เพี้ยน)
       bPos.push(rr*co, rr*si, pr[j][0]);
       bNor.push(pr[j][3]*co, pr[j][3]*si, pr[j][2]);
     }
@@ -343,6 +440,56 @@ function buildRowRing(params){
       }
       parts.push(tube(rpath, rrad, 8));
     }
+  } else if(p.setting === "shared_prong"){
+    /* shared_prong: หัวยก = ผนังข้างหัว 2 ข้าง (z=±zw) + ราวบนรองเอวพลอย + เขี้ยวเล็กร่วมระหว่างเม็ด 2 ต้น/ช่อง
+       (ช่องระหว่างเม็ด + หัวท้ายแถว) ปลายเขี้ยวเป็นหัวมนทับขอบเอวพลอย — พิกัด (x ตามแถว, y สูง, z ข้าง) แปลงเป็นโค้งวงแหวนด้วย G3 */
+    var zw = 0.62*rg, wR = p.scrollWireMm/2, rR = p.railMm/2;
+    var Rtop = Rg - 0.3, Hg = Rtop - Rout, Rmid = Rout + Hg/2, pitchX = Rmid*dphi, Lx = n*pitchX;
+    var G3 = function(x, y, z){var ph = Math.PI/2 - x/Rmid, r = Rmid + y; return [r*Math.cos(ph), r*Math.sin(ph), z];};
+    var nsx = Math.max(8, Math.ceil(Lx/0.4)), sg2, q2, e2, pts2;
+    /* ราวบน 2 ข้าง (แท่นรองเอวพลอย) + ปิดหัวท้าย: เสาตั้ง + คานข้าม */
+    for(sg2=-1; sg2<=1; sg2+=2){
+      pts2 = [];
+      for(q2=0;q2<=nsx;q2++) pts2.push(G3(-Lx/2 + Lx*q2/nsx, Hg/2, sg2*zw));
+      parts.push(tube(pts2, fill(pts2.length, rR), 8));
+    }
+    for(e2=-1; e2<=1; e2+=2){
+      for(sg2=-1; sg2<=1; sg2+=2) parts.push(seg2(G3(e2*Lx/2, -Hg/2+0.05, sg2*zw), G3(e2*Lx/2, Hg/2, sg2*zw), rR));
+      parts.push(seg2(G3(e2*Lx/2, Hg/2, -zw), G3(e2*Lx/2, Hg/2, zw), rR));
+    }
+    /* ผนังข้างหัว */
+    if(p.gallery === "scroll"){
+      var gA = Hg/2 - wR, gR0 = Math.min(p.scrollRadiusMm, gA*0.98);
+      var chain = scrollChain(n, pitchX, gA, gR0, p.scrollTurns, p.scrollInner, pitchX/2, 0.25);
+      for(sg2=-1; sg2<=1; sg2+=2) chain.forEach(function(path){
+        var gp = path.map(function(q){return G3(q[0], q[1], sg2*zw);});
+        parts.push(tube(gp, fill(gp.length, wR), 6));
+      });
+    } else {
+      /* plain: แผ่นผนังบางเรียบ 2 ผิวต่อข้าง (ความหนา = scrollWireMm) */
+      var sp = [], sn = [], si2 = [], ss2, zz, vi, ph2;
+      for(sg2=-1; sg2<=1; sg2+=2) for(ss2=-1; ss2<=1; ss2+=2){
+        zz = sg2*zw + ss2*wR; vi = sp.length/3;
+        for(q2=0;q2<=nsx;q2++){
+          ph2 = Math.PI/2 - (-Lx/2 + Lx*q2/nsx)/Rmid;
+          sp.push(Rout*Math.cos(ph2), Rout*Math.sin(ph2), zz, Rtop*Math.cos(ph2), Rtop*Math.sin(ph2), zz);
+          sn.push(0,0,ss2, 0,0,ss2);
+        }
+        for(q2=0;q2<nsx;q2++){var ia = vi + q2*2; si2.push(ia,ia+1,ia+3, ia,ia+3,ia+2);}
+      }
+      parts.push({pos:sp, nor:sn, idx:si2});
+    }
+    /* เขี้ยวร่วม: ช่อง i = 0..n (หัวท้ายเปิดตาม prongAtEnds) */
+    for(i=0;i<=n;i++){
+      if(!p.prongAtEnds && (i===0 || i===n)) continue;
+      var pg = Math.PI/2 + ((n-1)/2 - (i-0.5))*dphi, cg = Math.cos(pg), sg = Math.sin(pg);
+      for(sg2=-1; sg2<=1; sg2+=2){
+        var PP = function(r, z){return [r*cg, r*sg, z];};
+        var tipC = PP(Rg + p.prongOverMm, sg2*zw*0.86);
+        parts.push(tube([PP(Rtop-0.05, sg2*zw), PP(Rg-0.1, sg2*zw*0.98), PP(Rg+0.05, sg2*zw*0.92), tipC], [1.1*rp, rp, 0.95*rp, 0.8*rp], 8));
+        parts.push(sphere(tipC, 1.15*rp, 5, 8));
+      }
+    }
   } else {
     /* shared_bead: เม็ดกลมเล็ก 2 เม็ดต่อช่องระหว่างพลอย (ซ้ายขวาของแหวน) + ที่หัวท้ายถ้าเปิด */
     var rb = Math.max(rp, 0.32), zb = rg*0.74, Rb = Rout + Math.max(0.12, head-0.05);
@@ -350,6 +497,25 @@ function buildRowRing(params){
       if(!p.prongAtEnds && (i===0 || i===n)) continue;
       var pm = Math.PI/2 + ((n-1)/2 - (i-0.5))*dphi;
       for(var s2=-1; s2<=1; s2+=2) parts.push(sphere([Rb*Math.cos(pm), Rb*Math.sin(pm), s2*zb], rb, 6, 10));
+    }
+  }
+  /* ---- ลายก้นหอยนูนบนไหล่: เส้นก้นหอยต่อเนื่องแปะบนด้านข้างตัวเรือนทั้ง 2 ด้านของแต่ละไหล่ ยกจากผิว ~ reliefWireMm/2 ----
+     (เป็นเส้นหลอดกลมวางบนผิว ไม่ใช่การแกะลึก — พอให้เห็นลายและไม่หนักเครื่อง) */
+  if(p.shoulder === "scroll_relief"){
+    var rw = p.reliefWireMm/2, pS = p.reliefPitchMm, cS = Math.max(2, Math.round(p.reliefCount));
+    var halfL = (cS-1)/2*pS + pS/2, Rs = innerR + T/2, sd, zs;
+    for(sd=-1; sd<=1; sd+=2){
+      var thC = Math.PI/2 + sd*(rowHalf + 0.10 + halfL/Rs);               // กึ่งกลางลาย เริ่มพ้นปลายแถวพลอยเล็กน้อย
+      var As = thickAt(blendAt(thC))/2 - p.cornerMm - rw;                 // สูงที่ใช้ได้บนผิวข้างเรียบ
+      if(As < 0.12){notes.push("ตัวเรือนบางเกินไป — ข้ามลายนูนบนไหล่"); break;}
+      var chs = scrollChain(cS, pS, As, Math.min(p.reliefRadiusMm, As*0.95), 0.9, 0.3, pS/2, 0.2);
+      for(zs=-1; zs<=1; zs+=2) chs.forEach(function(path){
+        var rp2 = path.map(function(q){
+          var th2 = thC + sd*q[0]/Rs, bl2 = blendAt(th2), r2 = innerR + thickAt(bl2)/2 + q[1];
+          return [r2*Math.cos(th2), r2*Math.sin(th2), zs*widthAt(bl2)/2];
+        });
+        parts.push(tube(rp2, fill(rp2.length, rw), 6));
+      });
     }
   }
   var metal = finalize(merge(parts));
@@ -395,9 +561,13 @@ function buildRowRing(params){
   var gems = [];
   for(i=0;i<n;i++) gems.push({center:frames[i].G.slice(), normal:frames[i].u.slice(), radiusMm:rg, mesh:buildGem(frames[i])});
 
+  var vtx = metal.pos.length/3;
+  gems.forEach(function(g){vtx += g.mesh.pos.length/3;});
+  if(vtx > 60000) notes.push("จุดยอดรวม " + vtx + " เกิน ~60,000 — อาจช้าบนมือถือรุ่นล่าง");
+
   return {
     metal: metal, gems: gems, params: p,
-    info: {girdleRadiusMm:Rg, headEffMm:head, pitchMm:pitch, spanDeg:spanDeg, outerRadiusMm:Rout, notes:notes}
+    info: {girdleRadiusMm:Rg, headEffMm:head, pitchMm:pitch, spanDeg:spanDeg, outerRadiusMm:Rout, vertexCount:vtx, notes:notes}
   };
 }
 
@@ -413,10 +583,27 @@ function buildRowRing(params){
     {name:"เพริดอต",  rgb:[0.55,0.80,0.15]},
     {name:"อเมทิสต์", rgb:[0.56,0.30,0.80]}
   ];
-  var cfg = {};
-  for(var kk in TRINITY) cfg[kk] = TRINITY[kk];
+  var MODELS = {
+    trinity: {
+      title: 'TRINITY RING <small>(Big)</small>', params: TRINITY,
+      lede: "แหวนพลอยกลมเรียงแถว หนามเตย 4 เขี้ยวต่อเม็ด · ตัวเรือนเรียบขัดเงา — ลองเปลี่ยนสีพลอยทีละเม็ดแล้วลากหมุนดู"
+    },
+    scroll6: {
+      title: 'ก้นหอย 6 เม็ด <small>(ชื่อชั่วคราว)</small>', params: SCROLL6,
+      lede: "แหวนพลอยกลมเรียงแถว 6 เม็ด หัวยกมีหนามเตยเล็กใช้ร่วมระหว่างเม็ด · ผนังข้างหัวเป็นลายก้นหอยโปร่ง ไหล่มีลายก้นหอยนูน ก้านเรียวลงด้านหลัง — ลองเปลี่ยนสีพลอยทีละเม็ดแล้วลากหมุนดู"
+    }
+  };
+  var cfg = {}, modelKey = "trinity";
   var colorIdx = [0,0,0,0,0,0,0];      // สีต่อตำแหน่ง เก็บไว้เมื่อสลับจำนวนเม็ด
   var ring = null, hi = -1;
+  function loadModel(key){
+    var m = MODELS[key], kk; modelKey = key; cfg = {};
+    for(kk in m.params) cfg[kk] = m.params[kk];
+    colorIdx = [0,0,0,0,0,0,0];
+    document.getElementById("ttl").innerHTML = m.title;
+    document.getElementById("lede").textContent = m.lede;
+    syncSegs();
+  }
 
   var canvas = document.getElementById("c"), stage = document.getElementById("stage"), msg = document.getElementById("msg");
   var reduce = !!(window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches);
@@ -452,27 +639,46 @@ function buildRowRing(params){
   function buildSpec(){
     var info = ring.info, sp = document.getElementById("spec");
     function r(k,v){return '<div class="row"><span class="k">'+k+'</span><span class="v">'+v+'</span></div>';}
+    var sh = cfg.setting, prongTxt =
+      sh==="prong4" ? "Ø"+cfg.prongMm.toFixed(1)+" mm × 4/เม็ด <em>ประมาณ</em>" :
+      sh==="shared_prong" ? "Ø"+cfg.prongMm.toFixed(1)+" mm ร่วมระหว่างเม็ด 2 ต้น/ช่อง <em>ประมาณ</em>" :
+      "เม็ดกลม Ø"+Math.max(cfg.prongMm,0.64).toFixed(2)+" mm";
+    var thick = (cfg.bandThickBackMm===undefined) ? cfg.bandThickMm.toFixed(1) : cfg.bandThickMm.toFixed(1)+" → "+cfg.bandThickBackMm.toFixed(1);
+    var galTxt = (cfg.gallery==="scroll" && sh==="shared_prong") ? "ลายก้นหอยโปร่ง เส้น "+cfg.scrollWireMm.toFixed(2)+" mm <em>ประมาณ</em>" : "เรียบ/ไม่มี";
+    var shTxt = cfg.shoulder==="scroll_relief" ? "ลายก้นหอยนูน (ลายนูนตื้น) <em>ประมาณ</em>" : "เรียบ";
     sp.innerHTML =
       r("ไซซ์อ้างอิง","EU 54 · Ø ใน "+cfg.innerDiaMm.toFixed(1)+" mm")+
       r("พลอย","Ø"+cfg.stoneMm.toFixed(1)+" mm × "+cfg.stoneCount+" <em>ประมาณ</em>")+
       r("ช่องห่างเม็ด",cfg.gapMm.toFixed(1)+" mm <em>ประมาณ</em>")+
       r("ตัวเรือน กว้าง",cfg.bandWidthMm.toFixed(1)+" → "+cfg.bandWidthBackMm.toFixed(1)+" mm <em>ประมาณ</em>")+
-      r("ตัวเรือน หนา",cfg.bandThickMm.toFixed(1)+" mm <em>ประมาณ</em>")+
+      r("ตัวเรือน หนา",thick+" mm <em>ประมาณ</em>")+
       r("ความสูงหัว",info.headEffMm.toFixed(1)+" mm <em>ประมาณ</em>")+
-      r("เขี้ยว",cfg.setting==="prong4" ? "Ø"+cfg.prongMm.toFixed(1)+" mm × 4/เม็ด <em>ประมาณ</em>" : "เม็ดกลม Ø"+Math.max(cfg.prongMm,0.64).toFixed(2)+" mm");
+      r("เขี้ยว",prongTxt)+
+      r("ผนังข้างหัว",galTxt)+
+      r("ไหล่แหวน",shTxt)+
+      r("จุดยอดรวม",info.vertexCount.toLocaleString("en-US")+" <em>เป้า &lt; 60,000</em>");
     document.getElementById("warn").textContent = info.notes.join(" · ");
   }
   function setPressed(boxId, val){
     var bs = document.getElementById(boxId).querySelectorAll("button");
     for(var i=0;i<bs.length;i++) bs[i].setAttribute("aria-pressed", bs[i].getAttribute("data-v")===String(val) ? "true" : "false");
   }
-  document.getElementById("segCount").addEventListener("click", function(e){
-    var v = e.target.getAttribute && e.target.getAttribute("data-v"); if(!v) return;
-    cfg.stoneCount = parseInt(v,10); setPressed("segCount", v); rebuild();
-  });
-  document.getElementById("segSet").addEventListener("click", function(e){
-    var v = e.target.getAttribute && e.target.getAttribute("data-v"); if(!v) return;
-    cfg.setting = v; setPressed("segSet", v); rebuild();
+  function syncSegs(){
+    setPressed("segModel", modelKey); setPressed("segCount", cfg.stoneCount); setPressed("segSet", cfg.setting);
+    setPressed("segGal", cfg.gallery || "plain"); setPressed("segSh", cfg.shoulder || "plain");
+  }
+  function segClick(boxId, apply){
+    document.getElementById(boxId).addEventListener("click", function(e){
+      var v = e.target.getAttribute && e.target.getAttribute("data-v"); if(!v) return;
+      apply(v); syncSegs(); rebuild();
+    });
+  }
+  segClick("segCount", function(v){cfg.stoneCount = parseInt(v,10);});
+  segClick("segSet", function(v){cfg.setting = v;});
+  segClick("segGal", function(v){cfg.gallery = v;});
+  segClick("segSh", function(v){cfg.shoulder = v;});
+  segClick("segModel", function(v){
+    loadModel(v); anim = false; yaw = 0; pitch = 0; zoom = 1;       // สลับแบบ -> กลับมุมหน้าแถว
   });
 
   /* ---------- GL ---------- */
@@ -662,6 +868,7 @@ function buildRowRing(params){
     });
     uploadRing(); requestAnimationFrame(frame);
   }
+  loadModel("trinity");
   rebuild();        // สร้าง generator + panel ก่อน (ใช้ได้แม้ไม่มี GL)
   start();
 })();
