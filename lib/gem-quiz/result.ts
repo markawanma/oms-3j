@@ -94,6 +94,8 @@ export interface GemQuizResultProduct {
 }
 
 export interface GemQuizResultView {
+  /** พลอยอันดับ 1–3 ตามลำดับ (ไม่ขึ้นกับ focusStoneCode) — หน้า /ring-builder ใช้เป็นแบบ 1/2/3 */
+  top3: readonly GemQuizStoneCode[];
   hero: GemQuizResultHero;
   pairing: GemQuizResultPairing;
   alternatives: readonly GemQuizResultAlternative[];
@@ -139,7 +141,7 @@ function getJewelryTypeConfig(code: string): GemQuizJewelryTypeConfig {
  * ทางเลือกอันดับ 2/3 จริง) ถ้าไม่เจอ fallback เป็น pair แรกที่มี pid อยู่เลย —
  * GEM_QUIZ_PAIRS ครอบทุกพลอยอย่างน้อย 1 pair เสมอ (invariant ที่พิสูจน์ไว้ใน
  * config.ts) จึง fallback ไม่มีทาง undefined ตราบใดที่ pid เป็นพลอยที่มีจริง. */
-function findPair(pid: GemQuizStoneCode, others: readonly GemQuizStoneCode[]): GemQuizPair {
+export function findPair(pid: GemQuizStoneCode, others: readonly GemQuizStoneCode[]): GemQuizPair {
   const preferred = GEM_QUIZ_PAIRS.find(
     (pair) => pair.gems.includes(pid) && others.some((other) => pair.gems.includes(other))
   );
@@ -270,6 +272,7 @@ export function buildResultView(input: GemQuizResultInput): GemQuizResultView {
   });
 
   return {
+    top3,
     hero,
     pairing,
     alternatives,

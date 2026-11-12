@@ -149,6 +149,26 @@ describe("GemQuizClient", () => {
     expect(screen.getByText("Power + Abundance")).toBeInTheDocument();
   }, 10000);
 
+  it("CTA หลักของหน้าผล = ลิงก์ไป /ring-builder?g=<top3> (ไม่ auto-redirect) · ปุ่ม LINE เดิมยังอยู่เป็นปุ่มรอง · submit ยิงครั้งเดียว", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const user = userEvent.setup();
+    renderQuiz();
+    await completeQuizToResult(user);
+
+    const cta = screen.getByRole("link", { name: /ลองพลอยของคุณบนแหวน/ });
+    expect(cta).toHaveAttribute("href", "/ring-builder?g=garnet.citrine.blue_topaz");
+    expect(cta).not.toHaveAttribute("target");
+    const line = screen.getByRole("link", { name: /ดูเครื่องประดับจากพลอยนี้/ });
+    expect(line.getAttribute("href")).toMatch(/^https:\/\/lin\.ee\//);
+
+    // ดูพลอยทางเลือกแล้ว top3 ใน CTA ต้องไม่เปลี่ยนลำดับ (ไม่ขึ้นกับ focus)
+    await user.click(screen.getByRole("button", { name: /Citrine/ }));
+    expect(screen.getByRole("link", { name: /ลองพลอยของคุณบนแหวน/ })).toHaveAttribute("href", "/ring-builder?g=garnet.citrine.blue_topaz");
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+  }, 10000);
+
   it("ทำครั้งแรก (ไม่มีธงใน localStorage) — ส่ง retake:false แล้ว set ธงเฉพาะตอนได้ 204", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
     vi.stubGlobal("fetch", fetchMock);
@@ -161,6 +181,8 @@ describe("GemQuizClient", () => {
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toBe("/api/gem-quiz/submit");
     expect(init.method).toBe("POST");
+    // มติ TL 12 พ.ย. 69 §7e: ลูกค้ากดลิงก์ไป /ring-builder เร็ว — request ต้องไม่ถูกตัดตอนเปลี่ยนหน้า
+    expect(init.keepalive).toBe(true);
     const body = JSON.parse(init.body as string);
     expect(body.retake).toBe(false);
     expect(body.v).toBe(QUIZ_VERSION);

@@ -13,6 +13,7 @@ import { PrimaryButton } from "../_components/PrimaryButton";
 import { GEM_QUIZ_STONE_BY_CODE, type GemQuizStoneCode } from "@/lib/gem-quiz/config";
 import type { GemQuizResultView } from "@/lib/gem-quiz/result";
 import { LINE_OA_URL } from "@/lib/shop/line";
+import { buildShowcaseHref } from "@/lib/ring-builder/showcase/quiz-link";
 
 // code review S5: code เป็น GemQuizStoneCode (literal union) อยู่แล้ว — TS
 // การันตีว่ามีจริงใน GEM_QUIZ_STONE_BY_CODE ไม่ต้อง throw/`!` เหมือนของเดิม
@@ -319,11 +320,22 @@ export function ResultScreen({
 
       {/* CTA + disclaimer */}
       <div className="flex flex-col gap-2.5 px-5 pt-6 pb-8">
+        {/* ปุ่มหลัก = ไปหน้าแหวน /ring-builder พร้อมพลอยอันดับ 1–3 (มติ TL 12 พ.ย. 69 §7a) · ลิงก์ธรรมดา ไม่ auto-redirect */}
+        <a
+          href={buildShowcaseHref(view.top3)}
+          className="inline-flex min-h-14 w-full items-center justify-center gap-2.5 rounded-full bg-[var(--gq-burgundy)] text-base font-medium text-white transition-colors hover:bg-[var(--gq-burgundy-dark)]"
+        >
+          ลองพลอยของคุณบนแหวน
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M5 12h14M13 6l6 6-6 6" />
+          </svg>
+        </a>
+        {/* ปุ่ม LINE เดิม — คงไว้เป็นปุ่มรอง */}
         <a
           href={LINE_OA_URL}
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex min-h-14 w-full items-center justify-center gap-2.5 rounded-full bg-[var(--gq-burgundy)] text-base font-medium text-white transition-colors hover:bg-[var(--gq-burgundy-dark)]"
+          className="inline-flex min-h-14 w-full items-center justify-center gap-2.5 rounded-full border border-[var(--gq-border)] bg-white text-base font-medium text-[var(--gq-text)] transition-colors hover:bg-[var(--gq-burgundy-soft)]"
         >
           ดูเครื่องประดับจากพลอยนี้
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
