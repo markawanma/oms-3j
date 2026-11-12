@@ -34,7 +34,7 @@ export default function RingViewer({ top, bottom, ariaLabel, onReady, onUnsuppor
     try {
       const ring: BypassRing = buildBypassRing();
       renderer = createRingRenderer(canvas, ring, {
-        autoRotate: true,
+        autoRotate: false, // TL 12 พ.ย.: ไม่หมุนเอง — หมุนแล้วพลอยหันหนีตอนลูกค้ากำลังเลือกแบบ 1/2/3 (ลากหมุนเองได้)
         reducedMotion,
         onReady: () => latest.current.onReady?.(),
         onUnsupported: (reason) => latest.current.onUnsupported?.(reason),
