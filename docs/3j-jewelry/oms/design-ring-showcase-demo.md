@@ -124,3 +124,12 @@ D1 ทำได้โดยไม่แตะ middleware, ไม่เขีย�
 | c | รูปจริง 5 รูป | **เจ้าของสั่งให้ใช้แล้ว** · ลบ EXIF + ย่อก่อนลง repo | ไฟล์ใน `_assets/` ต้องไม่มี EXIF (QA ตรวจ) |
 | d | สถานะ 0196 | **apply บน prod แล้วจริง** (10 พ.ย. · post-verify PASS 130) | §17 ของ `design-ring-builder.md` ที่เขียนว่า "ยังไม่เคย apply" ล้าสมัย · D2 ต้องออกเลข migration ใหม่ ห้ามแก้ 0196 |
 | e | submit ของ quiz ถูกตัดตอนกดลิงก์เร็ว | **เพิ่ม `keepalive: true` ได้** | แก้ `GemQuizClient.tsx` หนึ่งบรรทัด · QA ครอบ: submit ยังยิงครั้งเดียวต่อรอบ + retake flag เดิม |
+
+## §8 หนี้ที่รู้ตัว (code review C-3PO 12 พ.ย. — merge ได้ ไม่บล็อก)
+- D2-1 `gl-renderer.ts` rAF วนทุกเฟรมแม้ไม่มีอะไรเปลี่ยน (อ่าน clientWidth/Height 60 ครั้ง/วินาที) → เปลี่ยนเป็น kick-on-dirty + ResizeObserver
+- D2-2 `gl-renderer.ts` ไม่มี unit test (jsdom ไม่มี GL) — ready/lost/restored/dispose ยืนยันจากการเปิดหน้าจริงเท่านั้น
+- D2-3 `copyText` มี 2 สำเนา (ring-size / ring-builder showcase) เพราะ boundary test — ย้ายไป lib/shared + ใส่ removeChild ใน finally
+- D2-4 config ราคา/ไซซ์/รูปอยู่ในโค้ด (รู้แล้วตาม §2) — ตอนย้ายไป rb_* เก็บด่าน isShowcaseSize ไว้
+- D2-5 ข้อความ LINE ลูกค้าแก้ได้ → แอดมินยืนยัน 800 เองทุกครั้งจนกว่ามีรหัส HMAC
+- D2-6 canvas ไม่มีคำแนะนำคีย์บอร์ดสำหรับ screen reader · ปุ่ม "กลับมุมหน้า" ยังลอยตอน context lost
+- แก้แล้วก่อน merge: ไซซ์ 55–58 เหลือแหล่งเดียว (SHOWCASE_SIZE_RANGE คำนวณจาก SHOWCASE_SIZES)

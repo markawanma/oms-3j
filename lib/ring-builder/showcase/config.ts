@@ -9,7 +9,11 @@ export const SHOWCASE_PRICE_THB = 800;
 
 /** ไซซ์ที่เปิดให้เลือก (เบอร์ร้าน) · ต้องอยู่ในช่วงร้าน 45–68 (config.test.ts ล็อก) */
 export const SHOWCASE_SIZES = [55, 56, 57, 58] as const;
-export const SHOWCASE_SIZE_RANGE = { min: 55, max: 58 } as const;
+// review 12 พ.ย.: ช่วงคำนวณจากรายการเดียว — แก้ไซซ์ที่เดียว ด่าน isShowcaseSize/fitsDesignRange ตามเอง
+export const SHOWCASE_SIZE_RANGE = {
+  min: SHOWCASE_SIZES[0],
+  max: SHOWCASE_SIZES[SHOWCASE_SIZES.length - 1],
+} as const;
 
 /** พลอยไข่ (มม.) — ยาว × กว้าง */
 export const SHOWCASE_OVAL_MM = { long: 7, short: 5 } as const;
