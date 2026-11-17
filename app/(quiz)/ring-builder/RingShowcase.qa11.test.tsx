@@ -59,7 +59,7 @@ describe("page: param ผสมกัน → ไม่ throw · ไม่มี�
     const el = await RingShowcasePage({ searchParams: Promise.resolve({ t: "gac.acp.cpb.bgc.pab.gpa", i: "love", c: "peridot.amethyst", d: "own" }) });
     render(el);
     expect(modeRadio("เลือกพลอยเอง")).toHaveAttribute("aria-checked", "true");
-    expect(window.location.search).toBe("?t=gac.acp.cpb.bgc.pab.gpa&i=love&c=peridot.amethyst&d=own");
+    expect(window.location.search).toBe("?t=gac.acp.cpb.bgc.pab.gpa&i=love&q=love&c=peridot.amethyst&d=own");
   });
 });
 
@@ -153,9 +153,8 @@ describe("reload / แชร์ลิงก์ → ได้หน้าเด�
     render(<RingShowcaseClient params={params} />);
     expect(shownSig()).toBe(before);
   });
-  // 🔴 BUG-1 (QA 17 พ.ย. 69): ปัจจุบัน FAIL จริง — URL ถอด t เมื่อเรื่องต่างจากที่ตอบ แต่หน้าแสดง t[i] (ตารางตามคำตอบ) → reload ได้ intentionOnlyTop3 คนละชุด
-  // เมื่อแก้แล้วให้เปลี่ยน it.fails → it (ถ้า fix แล้ว test นี้ยังเป็น it.fails จะแดงเตือนเอง)
-  it.fails("เปลี่ยนเป็นเรื่องอื่นจากผล quiz แล้ว reload → ต้องได้พลอยชุดเดิมที่เห็นก่อน reload", async () => {
+  // BUG-1 (QA 17 พ.ย. 69) แก้แล้ว: URL เก็บ t+q เสมอ → reload ได้อันดับ t[i] ชุดเดิม
+  it("เปลี่ยนเป็นเรื่องอื่นจากผล quiz แล้ว reload → ต้องได้พลอยชุดเดิมที่เห็นก่อน reload", async () => {
     const u = userEvent.setup();
     const first = render(<RingShowcaseClient params={QUIZ} />);
     await u.click(screen.getByRole("button", { name: "เปลี่ยน" }));

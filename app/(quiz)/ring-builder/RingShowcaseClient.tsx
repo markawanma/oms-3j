@@ -30,7 +30,8 @@ type RecIndex = 1 | 2 | 3;
 export function RingShowcaseClient({ params }: { params: ShowcaseParams }) {
   // ค่าตอนโหลดหน้า (ไม่เปลี่ยนตลอด session) — ตารางจาก quiz + "เรื่องที่ตอบ" ใช้ตัดสินป้าย (Y6)
   const table: IntentionTable | null = params.intention ? params.table : null;
-  const answeredIntention: GemQuizIntention | null = table ? params.intention : null;
+  // q = เรื่องที่ตอบ · ไม่มี q (ลิงก์ t+i ที่ไม่มี q) → ถือว่า q = i ตอนโหลดแรก
+  const answeredIntention: GemQuizIntention | null = table ? (params.answered ?? params.intention) : null;
   const legacyTop3: GemTop3 | null = params.top3;
 
   const [intention, setIntention] = useState<GemQuizIntention | null>(params.intention);
@@ -75,10 +76,11 @@ export function RingShowcaseClient({ params }: { params: ShowcaseParams }) {
   const bottomLabel = bottomCode ? stoneLabel(bottomCode) : DIRECT_STONE_LABEL;
   const stageAria = `ภาพจำลองแหวน 3 มิติ พลอยบน ${topLabel} พลอยล่าง ${bottomLabel} CZ เล็ก 2 เม็ด`;
 
-  // เขียน state กลับ URL (ไม่เพิ่ม history) — ถอด t เมื่อเรื่องที่เลือกไม่ใช่เรื่องที่ตอบ เพื่อให้ reload ไม่อ้าง quiz
+  // เขียน state กลับ URL (ไม่เพิ่ม history) — เก็บ t + q เสมอเมื่อมีตาราง: reload/แชร์ได้อันดับชุดเดิม และป้าย "จากแบบทดสอบ" ตัดสินจาก i === q (Y6)
   const url = buildShowcaseUrl({
-    table: fromQuiz ? table : null,
+    table,
     intention,
+    answered: answeredIntention,
     legacyTop3: intention === null ? legacyTop3 : null,
     own,
     active,

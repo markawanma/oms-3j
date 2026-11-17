@@ -154,7 +154,7 @@ describe("GemQuizClient", () => {
   it("CTA หลักของหน้าผล = ลิงก์ไป /ring-builder?t=<ตาราง>&i=<เรื่อง> (ไม่ auto-redirect) · ปุ่ม LINE เดิมยังอยู่เป็นปุ่มรอง · submit ยิงครั้งเดียว", async () => {
     const demo = buildResultView({ answers: { birthDay: "sun", intention: "career", feeling: "energy", jewelryType: "ring" }, likedStoneCodes: ["garnet", "citrine", "amethyst"] });
     const expectedCta = buildShowcaseHref({ intention: demo.intention, table: demo.intentionTop3 });
-    expect(expectedCta).toMatch(/^\/ring-builder\?t=[gacpb.]{23}&i=career$/);
+    expect(expectedCta).toMatch(/^\/ring-builder\?t=[gacpb.]{23}&i=career&q=career$/);
     const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
     vi.stubGlobal("fetch", fetchMock);
 

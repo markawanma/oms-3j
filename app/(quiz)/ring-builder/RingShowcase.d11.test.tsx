@@ -5,7 +5,7 @@ import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
 import { GEM_QUIZ_PAIRS, GEM_QUIZ_STONES } from "@/lib/gem-quiz/config";
-import { EMPTY_SHOWCASE_PARAMS, parseTableParam, type IntentionTable, type ShowcaseParams } from "@/lib/ring-builder/showcase/quiz-link";
+import { EMPTY_SHOWCASE_PARAMS, parseTableParam, readShowcaseParams, type IntentionTable, type ShowcaseParams } from "@/lib/ring-builder/showcase/quiz-link";
 import RingShowcasePage from "./page";
 import { RingShowcaseClient } from "./RingShowcaseClient";
 
@@ -39,17 +39,37 @@ describe("Y6: ป้ายตามที่มา", () => {
     expect(screen.getByText("จัดอันดับตามเรื่องที่เลือก ไม่ใช่ผลแบบทดสอบ")).toBeInTheDocument();
     expect(screen.getAllByText(/ในเรื่องนี้/).length).toBe(3);
   });
-  it("เปลี่ยนเรื่อง → ป้ายเปลี่ยน · กลับมาเรื่องเดิม → ป้ายแรกกลับมา · URL ถอด t ตอนเรื่องต่าง", async () => {
+  it("เปลี่ยนเรื่อง → ป้ายเปลี่ยน · กลับมาเรื่องเดิม → ป้ายแรกกลับมา · URL เก็บ t+q เสมอ", async () => {
     const u = user();
     const { container } = render(<RingShowcaseClient params={QUIZ} />);
     await u.click(screen.getByRole("button", { name: "เปลี่ยน" }));
     await u.click(screen.getByRole("radio", { name: "การเงิน & โอกาส" }));
     expect(container.textContent).not.toContain("จากแบบทดสอบ");
-    expect(window.location.search).toBe("?i=wealth"); // ไม่มี t → reload จะไม่อ้าง quiz
+    expect(window.location.search).toBe("?t=gac.acp.cpb.bgc.pab.gpa&i=wealth&q=love"); // เก็บ t + q → reload ได้ชุดเดิม ป้ายตัดสินจาก i === q
     await u.click(screen.getByRole("button", { name: "เปลี่ยน" }));
     await u.click(screen.getByRole("radio", { name: "ความรัก & เสน่ห์" }));
     expect(screen.getByText("จากผลแบบทดสอบของคุณ")).toBeInTheDocument();
     expect(window.location.search).toContain("t=gac.acp.cpb.bgc.pab.gpa&i=love");
+  });
+  it("BUG-1: reload/แชร์หลังเปลี่ยนเรื่อง → อันดับ t[i] ชุดเดิม + ป้าย 'ในเรื่องนี้' (ไม่อ้าง quiz)", async () => {
+    const u = user();
+    const first = render(<RingShowcaseClient params={QUIZ} />);
+    await u.click(screen.getByRole("button", { name: "เปลี่ยน" }));
+    await u.click(screen.getByRole("radio", { name: "การเงิน & โอกาส" }));
+    const before = lineMessage();
+    const sp = Object.fromEntries(new URLSearchParams(window.location.search));
+    first.unmount();
+    const { container } = render(<RingShowcaseClient params={readShowcaseParams(sp)} />);
+    expect(lineMessage()).toBe(before);
+    expect(container.textContent).not.toContain("จากแบบทดสอบ");
+    expect(screen.getAllByText(/ในเรื่องนี้/).length).toBe(3);
+  });
+  it("ลิงก์ t+i ที่ไม่มี q → ถือ q=i ตอนโหลดแรก (ป้าย 'จากแบบทดสอบ' ยังขึ้น)", () => {
+    const params = readShowcaseParams({ t: "gac.acp.cpb.bgc.pab.gpa", i: "love" });
+    expect(params.answered).toBeNull();
+    render(<RingShowcaseClient params={params} />);
+    expect(screen.getByText("จากผลแบบทดสอบของคุณ")).toBeInTheDocument();
+    expect(window.location.search).toContain("&q=love");
   });
   it("ลิงก์ g เดิม: ไม่มีข้อความ basis (เหมือน D1) แต่ป้ายการ์ดจากแบบทดสอบ · กดเลือกเรื่อง → ถอด g", async () => {
     const u = user();

@@ -237,7 +237,7 @@ describe("X2: อ่านเฉพาะ 5 key (g t i c d)", () => {
 describe("buildShowcaseHref (CTA ของ quiz) / buildShowcaseUrl (เขียน URL กลับ)", () => {
   it("CTA = ?t=<ตาราง>&i=<เรื่อง> เลิกส่ง g · parse กลับได้ครบ", () => {
     const href = buildShowcaseHref({ intention: "career", table: table() });
-    expect(href).toBe(`/ring-builder?t=${TABLE_RAW}&i=career`);
+    expect(href).toBe(`/ring-builder?t=${TABLE_RAW}&i=career&q=career`);
     expect(href).not.toContain("g=");
     const sp = new URL(href, "https://x.test").searchParams;
     expect(readShowcaseParams(Object.fromEntries(sp))).toMatchObject({ table: table(), intention: "career" });
@@ -283,5 +283,28 @@ describe("buildShowcaseHref (CTA ของ quiz) / buildShowcaseUrl (เขี�
     expect(evil).toBe("/ring-builder?i=love");
     expect(buildShowcaseUrl({ ...base, intention: "constructor" as GemQuizIntention })).toBe("/ring-builder");
     expect(buildShowcaseUrl({ ...base, legacyTop3: ["garnet", "garnet", "citrine"] as never })).toBe("/ring-builder");
+  });
+});
+
+describe("q (เรื่องที่ตอบใน quiz · BUG-1)", () => {
+  it("q ดี + t + i → answered · ไม่มี q → null", () => {
+    expect(readShowcaseParams({ t: TABLE_RAW, i: "wealth", q: "love" }).answered).toBe("love");
+    expect(readShowcaseParams({ t: TABLE_RAW, i: "wealth" }).answered).toBeNull();
+  });
+  it("q ผิดรูป/ซ้ำ/array/นอก whitelist → ถือว่าไม่มี (ไม่ throw)", () => {
+    for (const q of ["Love", "constructor", "__proto__", "<b>", "", ["love"], ["love", "calm"], "love,calm", "love.calm", 1, null, "love".repeat(30)]) {
+      expect(() => readShowcaseParams({ t: TABLE_RAW, i: "wealth", q })).not.toThrow();
+      expect(readShowcaseParams({ t: TABLE_RAW, i: "wealth", q }).answered).toBeNull();
+    }
+  });
+  it("q ที่ไม่มี t (หรือ i เสีย) ถูกทิ้ง", () => {
+    expect(readShowcaseParams({ i: "wealth", q: "love" }).answered).toBeNull();
+    expect(readShowcaseParams({ t: TABLE_RAW, q: "love" }).answered).toBeNull();
+  });
+  it("buildShowcaseUrl เก็บ t เสมอเมื่อมีตาราง + เขียน q · q ผิดรูปไม่ถูกเขียน · ไม่มี t ไม่เขียน q", () => {
+    const b = { table: table(), intention: "wealth", answered: "love", legacyTop3: null, own: null, active: "rec", recIndex: 1 } as const;
+    expect(buildShowcaseUrl(b)).toBe(`/ring-builder?t=${TABLE_RAW}&i=wealth&q=love`);
+    expect(buildShowcaseUrl({ ...b, answered: "nope" as GemQuizIntention })).toBe(`/ring-builder?t=${TABLE_RAW}&i=wealth`);
+    expect(buildShowcaseUrl({ ...b, table: null })).toBe("/ring-builder?i=wealth");
   });
 });

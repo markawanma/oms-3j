@@ -1,9 +1,11 @@
 // lib/ring-builder/showcase/quiz-link.ts — สัญญา URL ของหน้าแหวน (§9.1 D1.1) + ตัว parse/สร้างลิงก์ (pure)
-// 🔴 หน้าอ่านแค่ 5 key: g (D1 เดิม) · t · i · c · d — ?price= ?size= ?design= ไม่มีผล (X2)
+// 🔴 หน้าอ่านแค่ 6 key: g (D1 เดิม) · t · i · q · c · d — ?price= ?size= ?design= ไม่มีผล (X2)
 // 🔴 ทุก key ตรวจแยกกัน ผิดรูป = ถือว่าไม่มี key นั้น ไม่ throw (X1/Y1) · ไม่มีค่าดิบจาก URL ไปถึง DOM/LINE — ค่าที่ผ่านคือรหัสใน whitelist เท่านั้น
-// 🔴 t = ตารางอันดับ 6 เรื่อง (รหัสพลอย 1 ตัวอักษร) — ไม่มีคำตอบ quiz ดิบ · วันเกิดอนุมานย้อนได้บางส่วน (design §9.2 · security รับแล้ว)
+// 🔴 t = ตารางอันดับ 6 เรื่อง — ไม่มีคำตอบดิบ แต่ย้อนอนุมานได้: วันเกิด 38% · feeling 44% · liked[0] 62% · ครบทั้งชุด 12.6% (security D1.1 17 พ.ย. 69: รับได้เพราะไม่ผูกตัวตน · เจ้าของต้องรับทราบก่อน production · ทางลดใน D2 = เก็บตารางใน sessionStorage)
+// q = เรื่องที่ตอบใน quiz (BUG-1) — t เก็บใน URL เสมอเมื่อมีตาราง · ป้าย "จากแบบทดสอบ" = มี t และ i === q
 import { GEM_QUIZ_STONE_CODES, type GemQuizIntention, type GemQuizStoneCode } from "@/lib/gem-quiz/config";
 import {
+  SHOWCASE_PARAM_ANSWERED,
   SHOWCASE_PARAM_DESIGN,
   SHOWCASE_PARAM_INTENTION,
   SHOWCASE_PARAM_KEY,
@@ -114,11 +116,13 @@ export interface ShowcaseParams {
   /** `t` — ใช้ได้เฉพาะเมื่อ `i` ผ่านด้วย (ไม่งั้นเป็น null) */
   table: IntentionTable | null;
   intention: GemQuizIntention | null;
+  /** `q` — เรื่องที่ตอบใน quiz · ใช้ได้เมื่อมี t · ไม่มี/ผิดรูป = null (ผู้ใช้ถือ q = i ตอนโหลดแรก) */
+  answered: GemQuizIntention | null;
   own: OwnGems | null;
   design: DesignParam | null;
 }
 
-export const EMPTY_SHOWCASE_PARAMS: ShowcaseParams = { top3: null, table: null, intention: null, own: null, design: null };
+export const EMPTY_SHOWCASE_PARAMS: ShowcaseParams = { top3: null, table: null, intention: null, answered: null, own: null, design: null };
 
 /** อ่านเฉพาะ 5 key ของ searchParams (ไม่แตะ key อื่นเลย) */
 export function readShowcaseParams(searchParams: Readonly<Record<string, unknown>>): ShowcaseParams {
@@ -128,6 +132,7 @@ export function readShowcaseParams(searchParams: Readonly<Record<string, unknown
     top3: parseGemParam(searchParams[SHOWCASE_PARAM_KEY]),
     table: intention ? table : null,
     intention,
+    answered: intention && table ? parseIntentionParam(searchParams[SHOWCASE_PARAM_ANSWERED]) : null,
     own: parseOwnParam(searchParams[SHOWCASE_PARAM_OWN]),
     design: parseDesignParam(searchParams[SHOWCASE_PARAM_DESIGN]),
   };
@@ -148,9 +153,11 @@ function encodeTable(table: IntentionTable): string {
 }
 
 export interface ShowcaseUrlState {
-  /** ส่งมาเฉพาะเมื่อ "เรื่องที่เลือกอยู่ = เรื่องที่ตอบใน quiz" — เปลี่ยนเรื่องแล้วถอด t ออก (reload = ป้ายที่ไม่อ้าง quiz · Y6) */
+  /** ตารางจาก quiz — เก็บใน URL เสมอเมื่อมี (reload/แชร์ได้อันดับชุดเดิม) */
   table: IntentionTable | null;
   intention: GemQuizIntention | null;
+  /** เรื่องที่ตอบใน quiz → `q` (เขียนเมื่อมี t) */
+  answered?: GemQuizIntention | null;
   /** `g` เดิม — ใส่ได้เฉพาะตอนยังไม่เลือกเรื่อง */
   legacyTop3: GemTop3 | null;
   own: OwnGems | null;
@@ -165,9 +172,11 @@ export interface ShowcaseUrlState {
 export function buildShowcaseUrl(state: ShowcaseUrlState): string {
   const parts: string[] = [];
   const intention = isIntentionCode(state.intention) ? state.intention : null;
-  if (intention && isCompleteTable(state.table)) parts.push(`${SHOWCASE_PARAM_TABLE}=${encodeTable(state.table)}`);
+  const hasTable = intention !== null && isCompleteTable(state.table);
+  if (hasTable) parts.push(`${SHOWCASE_PARAM_TABLE}=${encodeTable(state.table as IntentionTable)}`);
   if (intention) parts.push(`${SHOWCASE_PARAM_INTENTION}=${intention}`);
-  else if (isTop3(state.legacyTop3)) parts.push(`${SHOWCASE_PARAM_KEY}=${state.legacyTop3.join(".")}`);
+  if (hasTable && isIntentionCode(state.answered)) parts.push(`${SHOWCASE_PARAM_ANSWERED}=${state.answered}`);
+  if (!intention && isTop3(state.legacyTop3)) parts.push(`${SHOWCASE_PARAM_KEY}=${state.legacyTop3.join(".")}`);
   if (state.own && isStoneCode(state.own.top) && isStoneCode(state.own.bottom)) {
     parts.push(`${SHOWCASE_PARAM_OWN}=${state.own.top}.${state.own.bottom}`);
   }
@@ -176,11 +185,12 @@ export function buildShowcaseUrl(state: ShowcaseUrlState): string {
   return parts.length === 0 ? SHOWCASE_PATH : `${SHOWCASE_PATH}?${parts.join("&")}`;
 }
 
-/** href ของ CTA บนหน้าผล quiz — `?t=<ตาราง 6 เรื่อง>&i=<เรื่องที่ตอบ>` (เลิกส่ง g) · ตารางผิดรูป = ถอด t เหลือ i (ตกเป็นอันดับตามเรื่องล้วน ไม่อ้าง quiz) */
+/** href ของ CTA บนหน้าผล quiz — `?t=<ตาราง 6 เรื่อง>&i=<เรื่องที่ตอบ>&q=<เรื่องที่ตอบ>` (เลิกส่ง g) · ตารางผิดรูป = ถอด t เหลือ i (ตกเป็นอันดับตามเรื่องล้วน ไม่อ้าง quiz) */
 export function buildShowcaseHref(input: { intention: GemQuizIntention; table: IntentionTable }): string {
   return buildShowcaseUrl({
     table: input.table,
     intention: input.intention,
+    answered: input.intention,
     legacyTop3: null,
     own: null,
     active: "rec",
