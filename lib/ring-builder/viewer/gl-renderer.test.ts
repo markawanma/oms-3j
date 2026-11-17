@@ -59,7 +59,7 @@ function fakeGl(failFs: (src: string) => boolean) {
     bindBuffer: vi.fn(),
     bufferData: vi.fn(),
     deleteBuffer: vi.fn(),
-    deleteProgram: vi.fn(),
+    deleteProgram: vi.fn(), deleteShader: vi.fn(),
     enableVertexAttribArray: vi.fn(),
     vertexAttribPointer: vi.fn(),
     drawElements: vi.fn(),
@@ -154,6 +154,18 @@ describe("createRingRenderer (GL ปลอม)", () => {
     expect(used).toContain(FS_METAL_V1);
     expect(used).toContain(FS_GEM_V1);
     expect(() => setup(() => true)).toThrow();
+  });
+  it("N3: shader/program ที่พังถูกลบก่อน rethrow · gem V2 พังหลังโลหะสำเร็จ → ลบ program โลหะด้วย", () => {
+    const a = setup((src) => src === FS_GEM_V2);
+    // ครั้งแรก: metal V2 สำเร็จ → gem V2 พัง (ลบ shader + program gem + program metal) แล้วสร้าง V1 ใหม่ทั้งคู่
+    expect(a.gl.deleteShader).toHaveBeenCalled();
+    expect(a.gl.deleteProgram.mock.calls.length).toBeGreaterThanOrEqual(2);
+    const b = fakeGl(() => true);
+    const canvas = document.createElement("canvas");
+    vi.spyOn(canvas, "getContext").mockReturnValue(b.gl as never);
+    expect(() => createRingRenderer(canvas, buildBypassRing(), { autoRotate: false, reducedMotion: false })).toThrow();
+    expect(b.gl.deleteShader).toHaveBeenCalled();
+    expect(b.gl.deleteProgram).toHaveBeenCalled();
   });
   it("context lost → หยุดวาด + แจ้ง · restored → วาดต่อ + onReady", () => {
     const { canvas, gl, flush, onUnsupported, onReady } = setup();

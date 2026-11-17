@@ -86,23 +86,40 @@ export function createRingRenderer(canvas: HTMLCanvasElement, ring: BypassRing, 
   let anim = false;
   let spin = opts.autoRotate && !opts.reducedMotion;
 
+  /** shader ที่ compile ไม่ผ่านถูกลบก่อน throw (ไม่ทิ้ง object ค้างใน context · security N3) */
   function compile(type: number, src: string): WebGLShader {
     const s = gl.createShader(type);
     if (!s) throw new Error("createShader failed");
     gl.shaderSource(s, src);
     gl.compileShader(s);
-    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s) ?? "shader compile failed");
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+      const log = gl.getShaderInfoLog(s) ?? "shader compile failed";
+      gl.deleteShader(s);
+      throw new Error(log);
+    }
     return s;
   }
+  /** สร้าง program — พังตรงไหนก็ลบ shader/program ที่สร้างไปแล้วก่อน rethrow */
   function program(fs: string, names: string[]): Prog {
     const pr = gl.createProgram();
     if (!pr) throw new Error("createProgram failed");
-    gl.attachShader(pr, compile(gl.VERTEX_SHADER, VS));
-    gl.attachShader(pr, compile(gl.FRAGMENT_SHADER, fs));
-    gl.bindAttribLocation(pr, 0, "aPos");
-    gl.bindAttribLocation(pr, 1, "aNormal");
-    gl.linkProgram(pr);
-    if (!gl.getProgramParameter(pr, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(pr) ?? "program link failed");
+    const made: WebGLShader[] = [];
+    try {
+      const vsh = compile(gl.VERTEX_SHADER, VS);
+      made.push(vsh);
+      const fsh = compile(gl.FRAGMENT_SHADER, fs);
+      made.push(fsh);
+      gl.attachShader(pr, vsh);
+      gl.attachShader(pr, fsh);
+      gl.bindAttribLocation(pr, 0, "aPos");
+      gl.bindAttribLocation(pr, 1, "aNormal");
+      gl.linkProgram(pr);
+      if (!gl.getProgramParameter(pr, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(pr) ?? "program link failed");
+    } catch (e) {
+      made.forEach((sh) => gl.deleteShader(sh));
+      gl.deleteProgram(pr);
+      throw e;
+    }
     const u: Record<string, WebGLUniformLocation | null> = {};
     names.forEach((nm) => {
       u[nm] = gl.getUniformLocation(pr, nm);
@@ -111,8 +128,14 @@ export function createRingRenderer(canvas: HTMLCanvasElement, ring: BypassRing, 
   }
   function buildPrograms(fsMetal: string, fsGem: string) {
     // uniform ที่ shader ไม่ได้ใช้ (เช่น uColor ใน V2 · uCz ใน V1) ได้ location = null → gl.uniform* เป็น no-op ไม่ error
-    pm = program(fsMetal, ["uMVP", "uModel", "uCam", "uColor"]);
-    pg = program(fsGem, ["uMVP", "uModel", "uCam", "uTint", "uSpark", "uCap", "uGlow", "uCz"]);
+    const metal = program(fsMetal, ["uMVP", "uModel", "uCam", "uColor"]);
+    try {
+      pg = program(fsGem, ["uMVP", "uModel", "uCam", "uTint", "uSpark", "uCap", "uGlow", "uCz"]);
+    } catch (e) {
+      gl.deleteProgram(metal.pr); // gem พัง → ไม่ทิ้ง program โลหะที่สร้างสำเร็จไว้
+      throw e;
+    }
+    pm = metal;
   }
   function initGL() {
     try {

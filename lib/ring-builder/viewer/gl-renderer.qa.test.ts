@@ -23,7 +23,7 @@ function fakeGl(opts: { failCompile?: (src: string) => boolean; failLink?: (fsSr
     getProgramInfoLog: vi.fn(() => "link boom"),
     getUniformLocation: vi.fn(() => ({})),
     enable: vi.fn(), disable: vi.fn(),
-    createBuffer: vi.fn(() => ({})), bindBuffer: vi.fn(), bufferData: vi.fn(), deleteBuffer: vi.fn(), deleteProgram: vi.fn(),
+    createBuffer: vi.fn(() => ({})), bindBuffer: vi.fn(), bufferData: vi.fn(), deleteBuffer: vi.fn(), deleteProgram: vi.fn(), deleteShader: vi.fn(),
     enableVertexAttribArray: vi.fn(), vertexAttribPointer: vi.fn(), drawElements: vi.fn(),
     viewport: vi.fn(), clearColor: vi.fn(), clear: vi.fn(), useProgram: vi.fn(),
     uniformMatrix4fv: vi.fn(), uniform3f: vi.fn(), uniform1f: vi.fn(),
