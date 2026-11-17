@@ -27,9 +27,13 @@ export const SHOWCASE_DESIGN_NAME = "แหวนไขว้พลอยไข�
 /** จำนวนแบบพลอยที่ให้เลือก (แบบ 1/2/3 = พลอยอันดับ 1–3 จาก quiz) */
 export const SHOWCASE_SET_COUNT = 3;
 
-/** query key เดียวที่หน้าอ่าน (X2) */
-export const SHOWCASE_PARAM_KEY = "g";
-/** ความยาวสูงสุดของค่า g (X1) */
+/** query key ที่หน้าอ่าน (X2 · D1.1 §9.1) — มีแค่ 5 key นี้ · key อื่น (?price= ?size= ?design=) ไม่มีผล */
+export const SHOWCASE_PARAM_KEY = "g"; // ลิงก์ D1 เดิม: top3 รหัสเต็ม a.b.c
+export const SHOWCASE_PARAM_TABLE = "t"; // D1.1: top3 ของ 6 เรื่อง (ตารางคำนวณล่วงหน้าตอนสร้าง CTA)
+export const SHOWCASE_PARAM_INTENTION = "i"; // D1.1: เรื่องที่เลือกอยู่
+export const SHOWCASE_PARAM_OWN = "c"; // D1.1: พลอยที่เลือกเอง <บน>.<ล่าง>
+export const SHOWCASE_PARAM_DESIGN = "d"; // D1.1: 1/2/3/own
+/** ความยาวสูงสุดของค่า param ใดๆ (X1) — t ยาว 23 · g ยาวสุด 3 รหัสเต็ม < 64 */
 export const SHOWCASE_PARAM_MAX_LEN = 64;
 
 export const SHOWCASE_PATH = "/ring-builder";
@@ -58,7 +62,29 @@ export const SHOWCASE_COPY = {
   contextLost3d: "ภาพ 3 มิติหยุดชั่วคราว ดูรูปจริงด้านล่างแทน",
   pickerHeading: "พลอยที่คุณเลือกได้",
   pickerBasisNote: "บน = พลอยหลักของแบบ · ล่าง = พลอยเสริม · CZ เล็ก 2 เม็ดมาพร้อมแหวน",
+  // ป้ายการ์ด (Y6): คำนวณจาก "ที่มา" — "จากแบบทดสอบ" ใช้ได้เฉพาะเมื่อผลมาจาก quiz จริง (เรื่องที่ตอบ หรือลิงก์ g เดิม)
   rankBadge: (n: number) => `อันดับ ${n} จากแบบทดสอบ`,
+  rankBadgeIntention: (n: number) => `อันดับ ${n} ในเรื่องนี้`,
+  basisQuiz: "จากผลแบบทดสอบของคุณ",
+  basisIntention: "จัดอันดับตามเรื่องที่เลือก ไม่ใช่ผลแบบทดสอบ",
+  // โหมดเลือกพลอย (D1.1 · UX)
+  modeLabel: "วิธีเลือกพลอย",
+  modeRecommended: "แบบแนะนำ",
+  modeOwn: "เลือกพลอยเอง",
+  // เรื่องที่อยากเสริม
+  intentionHeading: "อยากเสริมเรื่องไหน",
+  intentionChosen: (label: string) => `เรื่องที่เลือก: ${label}`,
+  intentionChange: "เปลี่ยน",
+  intentionAnnounce: (label: string) => `แสดงแบบแนะนำสำหรับ ${label}`,
+  intentionDirect: "เลือกเรื่องด้านบนเพื่อดูแบบแนะนำ",
+  // เลือกพลอยเอง
+  ownTopLabel: "พลอยบน (เม็ดหลัก)",
+  ownBottomLabel: "พลอยล่าง (เม็ดเสริม)",
+  ownEmptyHint: "แตะพลอยบนก่อน ระบบใส่ชนิดเดียวกันให้ล่าง แล้วเปลี่ยนล่างได้",
+  ownBothSame: (label: string) => `${label} ทั้ง 2 เม็ด`,
+  ownNoPairNote: "คู่นี้ยังไม่มีคำอธิบายเฉพาะคู่ แสดงคำอธิบายรายเม็ดแทน",
+  gemNone: "ยังไม่ได้เลือกพลอย",
+  summaryOwn: "เลือกพลอยเอง",
   sameAs: (n: number) => `คู่เดียวกับแบบ ${n} — สลับว่าเม็ดไหนอยู่บน`,
   quizCardTitle: "อยากรู้ว่าพลอยไหนเหมาะกับคุณ?",
   quizCardCta: "ทำแบบทดสอบ 1 นาที",

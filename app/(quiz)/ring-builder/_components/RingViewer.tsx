@@ -17,9 +17,11 @@ export interface RingViewerProps {
   ariaLabel: string;
   onReady?: () => void;
   onUnsupported?: (reason: UnsupportedReason) => void;
+  /** ปุ่ม "กลับมุมหน้า" — แสดงเฉพาะเมื่อ stage อยู่ในโหมด ready (ซ่อนตอนโหลด/context lost · หนี้ D2-6) · ค่าเริ่มต้น false */
+  showReset?: boolean;
 }
 
-export default function RingViewer({ top, bottom, ariaLabel, onReady, onUnsupported }: RingViewerProps) {
+export default function RingViewer({ top, bottom, ariaLabel, onReady, onUnsupported, showReset = false }: RingViewerProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const rendererRef = useRef<RingRenderer | null>(null);
   // ค่าล่าสุดของ props ที่ effect ตอน mount ต้องใช้ โดยไม่ให้ตัววาดถูกสร้างใหม่ทุกครั้งที่สีเปลี่ยน
@@ -64,13 +66,15 @@ export default function RingViewer({ top, bottom, ariaLabel, onReady, onUnsuppor
         tabIndex={0}
         className="absolute inset-0 h-full w-full cursor-grab touch-pan-y focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-4px] focus-visible:outline-[var(--gq-burgundy)] active:cursor-grabbing"
       />
-      <button
-        type="button"
-        onClick={() => rendererRef.current?.resetView()}
-        className="absolute bottom-2.5 left-2.5 z-10 inline-flex min-h-11 items-center rounded-full border border-[var(--gq-border)] bg-white/90 px-4 text-sm font-medium text-[var(--gq-text)] transition-colors hover:bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--gq-burgundy)]"
-      >
-        {SHOWCASE_COPY.resetView}
-      </button>
+      {showReset && (
+        <button
+          type="button"
+          onClick={() => rendererRef.current?.resetView()}
+          className="absolute bottom-2.5 left-2.5 z-10 inline-flex min-h-11 items-center rounded-full border border-[var(--gq-border)] bg-white/90 px-4 text-sm font-medium text-[var(--gq-text)] transition-colors hover:bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--gq-burgundy)]"
+        >
+          {SHOWCASE_COPY.resetView}
+        </button>
+      )}
     </>
   );
 }

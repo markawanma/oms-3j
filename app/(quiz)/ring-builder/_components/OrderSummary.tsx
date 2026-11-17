@@ -6,22 +6,23 @@
 import { useEffect, useRef, useState } from "react";
 import { SHOWCASE_COPY, SHOWCASE_DESIGN_NAME, formatPriceThb } from "@/lib/ring-builder/showcase/config";
 import { copyText } from "@/lib/ring-builder/showcase/clipboard";
-import { buildShowcaseLineHref, buildShowcaseLineMessage } from "@/lib/ring-builder/showcase/line-message";
+import { buildShowcaseLineHref, buildShowcaseLineMessage, resolveChoice, type ShowcaseChoice } from "@/lib/ring-builder/showcase/line-message";
 
 const COPIED_MS = 3000;
 
 export function OrderSummary({
-  setIndex,
-  topLabel,
-  bottomLabel,
+  choice,
+  gemsEmpty,
   size,
 }: {
-  setIndex: number | null;
-  topLabel: string;
-  bottomLabel: string;
+  /** สิ่งที่เลือก — จอสรุปกับข้อความ LINE มาจากค่าเดียวกัน (resolveChoice) */
+  choice: ShowcaseChoice;
+  /** โหมดเลือกพลอยเองแต่ยังไม่ได้เลือก — แหวนยัง CZ ขาว สรุปแสดง "ยังไม่ได้เลือกพลอย" */
+  gemsEmpty: boolean;
   size: number | null;
 }) {
-  const input = { setIndex, topLabel, bottomLabel, size };
+  const input = { choice, size };
+  const resolved = resolveChoice(choice);
   const message = buildShowcaseLineMessage(input);
   const href = buildShowcaseLineHref(input);
 
@@ -50,9 +51,12 @@ export function OrderSummary({
   }
 
   const rows: [string, string][] = [
-    [SHOWCASE_COPY.summaryDesign, setIndex === null ? SHOWCASE_DESIGN_NAME : `${SHOWCASE_DESIGN_NAME} · แบบ ${setIndex}`],
-    [SHOWCASE_COPY.summaryTop, topLabel],
-    [SHOWCASE_COPY.summaryBottom, bottomLabel],
+    [
+      SHOWCASE_COPY.summaryDesign,
+      choice.kind === "rec" ? `${SHOWCASE_DESIGN_NAME} · แบบ ${choice.index}` : choice.kind === "own" ? `${SHOWCASE_DESIGN_NAME} · ${SHOWCASE_COPY.summaryOwn}` : SHOWCASE_DESIGN_NAME,
+    ],
+    [SHOWCASE_COPY.summaryTop, gemsEmpty ? SHOWCASE_COPY.gemNone : (resolved?.topLabel ?? "—")],
+    [SHOWCASE_COPY.summaryBottom, gemsEmpty ? SHOWCASE_COPY.gemNone : (resolved?.bottomLabel ?? "—")],
     [SHOWCASE_COPY.summarySize, size === null ? SHOWCASE_COPY.sizePending : SHOWCASE_COPY.sizeUnit(size)],
     [SHOWCASE_COPY.summaryPrice, formatPriceThb()],
   ];

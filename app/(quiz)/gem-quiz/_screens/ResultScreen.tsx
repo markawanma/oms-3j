@@ -320,9 +320,9 @@ export function ResultScreen({
 
       {/* CTA + disclaimer */}
       <div className="flex flex-col gap-2.5 px-5 pt-6 pb-8">
-        {/* ปุ่มหลัก = ไปหน้าแหวน /ring-builder พร้อมพลอยอันดับ 1–3 (มติ TL 12 พ.ย. 69 §7a) · ลิงก์ธรรมดา ไม่ auto-redirect */}
+        {/* ปุ่มหลัก = ไปหน้าแหวน /ring-builder?t=<อันดับ 6 เรื่อง>&i=<เรื่องที่ตอบ> (มติ TL 12 พ.ย. 69 §7a · D1.1 §9.1) · ลิงก์ธรรมดา ไม่ auto-redirect */}
         <a
-          href={buildShowcaseHref(view.top3)}
+          href={buildShowcaseHref({ intention: view.intention, table: view.intentionTop3 })}
           className="inline-flex min-h-14 w-full items-center justify-center gap-2.5 rounded-full bg-[var(--gq-burgundy)] text-base font-medium text-white transition-colors hover:bg-[var(--gq-burgundy-dark)]"
         >
           ลองพลอยของคุณบนแหวน

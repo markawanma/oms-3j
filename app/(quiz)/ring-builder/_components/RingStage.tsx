@@ -63,11 +63,18 @@ export function RingStage({
       aria-label={SHOWCASE_COPY.stageLabel}
       className="relative h-[40dvh] min-h-[240px] w-full overflow-hidden rounded-2xl border border-[var(--gq-border)] bg-gradient-to-b from-white to-[var(--gq-border-soft)] lg:h-[min(72dvh,640px)]"
     >
+      {/* เงาใต้แหวน (§9.4 ข้อ 5) = CSS radial-gradient ใต้ canvas — ไม่ใช่ texture/FBO · ตำแหน่งเทียบกับกรอบกล้องมุมหน้า ให้ TL ดูด้วยตา */}
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute left-1/2 top-[66%] h-[9%] w-[58%] -translate-x-1/2 rounded-[50%] bg-[radial-gradient(ellipse_at_center,rgba(60,48,48,0.22),rgba(60,48,48,0)_70%)]"
+      />
+
       {showViewer && Viewer && (
         <Viewer
           top={top}
           bottom={bottom}
           ariaLabel={ariaLabel}
+          showReset={mode === "ready"}
           onReady={() => setMode("ready")}
           onUnsupported={(reason) => setMode(reason === "context_lost" ? "lost" : "unsupported")}
         />

@@ -1,13 +1,17 @@
 // lib/ring-builder/viewer/gl-renderer.ts — viewer WebGL1 ดิบ (ไม่มีไลบรารีภายนอก · ไม่ fetch · ไม่โหลดอะไรจากโดเมนอื่น)
 //
-// พอร์ตจากส่วน "3) viewer WebGL1 ดิบ" ของ docs/3j-jewelry/cad/trinity-ring-preview.html — shader · ลำดับวาด · กล้อง · ลากหมุน
-// 🔴 ห้ามแก้ shader/สูตรกล้อง (matrix.ts) — TL เปิดเทียบกับต้นฉบับด้วยตา · ส่วนที่เพิ่มจากต้นฉบับมีแค่:
+// พอร์ตจากส่วน "3) viewer WebGL1 ดิบ" ของ docs/3j-jewelry/cad/trinity-ring-preview.html — ลำดับวาด · กล้อง · ลากหมุน
+// 🔴 D1.1 (17 พ.ย. 69): แก้ได้เฉพาะ fragment shader (ไฟล์ shaders.ts · ค่าแสงที่ SILVER_LOOK) — ห้ามแก้สูตรกล้อง (matrix.ts) และ bypass-ring.ts
+//   shader V2 (เงินขัดเงา) compile/link ไม่ผ่าน → ถอยไปใช้ shader V1 ของ D1 ก่อน · V1 ก็ไม่ผ่าน → throw ให้ผู้เรียกตก fallback เป็นรูปจริง
+// ส่วนที่เพิ่มจากต้นฉบับ:
 //   · ซูมด้วย wheel เฉพาะเมื่อกด Ctrl/⌘ (pinch บนแทร็กแพดก็เป็นแบบนี้) — เพราะเวทีติดบนจอ ล้อเลื่อนปกติต้องเลื่อนหน้าได้
 //   · คีย์บอร์ด (ลูกศร = หมุน · +/- = ซูม · Home = กลับมุมหน้า) · หมุนช้าอัตโนมัติ (ปิดเมื่อมีการโต้ตอบ/reduced-motion)
 //   · dispose() · callback onReady / onUnsupported แทนข้อความใน DOM (UI ตัดสินใจเอง)
+//   · D2-1: requestAnimationFrame ทำงานเฉพาะเมื่อมีอะไรเปลี่ยน (dirty / กำลังหมุน / กำลังเลื่อนกลับมุมหน้า) + ResizeObserver แทนการอ่านขนาดทุกเฟรม
 import type { BypassRing, RingMesh } from "./bypass-ring";
 import type { GemTint } from "./gem-colors";
 import { buildCamera } from "./matrix";
+import { FS_GEM_V1, FS_GEM_V2, FS_METAL_V1, FS_METAL_V2, VS } from "./shaders";
 
 export type UnsupportedReason = "no_webgl" | "context_lost" | "low_perf";
 
@@ -25,53 +29,6 @@ export interface RingRenderer {
   resetView(): void;
   dispose(): void;
 }
-
-const VS = [
-  "attribute vec3 aPos;attribute vec3 aNormal;uniform mat4 uMVP;uniform mat4 uModel;",
-  "varying vec3 vN;varying vec3 vW;",
-  "void main(){vN=(uModel*vec4(aNormal,0.0)).xyz;vW=(uModel*vec4(aPos,1.0)).xyz;gl_Position=uMVP*vec4(aPos,1.0);}",
-].join("\n");
-const PREC = "#ifdef GL_FRAGMENT_PRECISION_HIGH\nprecision highp float;\n#else\nprecision mediump float;\n#endif\n";
-const FS_METAL =
-  PREC +
-  [
-    "varying vec3 vN;varying vec3 vW;uniform vec3 uCam;uniform vec3 uColor;",
-    "vec3 env(vec3 R){",
-    "  float sky=smoothstep(-0.6,0.8,R.y);",
-    "  vec3 c=mix(vec3(0.16,0.17,0.19),vec3(0.98,0.98,1.0),sky);",
-    "  c+=vec3(1.0)*pow(max(dot(R,normalize(vec3(0.35,0.75,0.55))),0.0),24.0)*0.8;",
-    "  c+=vec3(0.9,0.92,1.0)*pow(max(dot(R,normalize(vec3(-0.8,0.2,0.4))),0.0),16.0)*0.5;",
-    "  float b=(R.y+0.05)*5.0;",
-    "  c*=1.0-0.55*exp(-b*b);",
-    "  return c;",
-    "}",
-    "void main(){",
-    "  vec3 N=normalize(vN);vec3 V=normalize(uCam-vW);",
-    "  if(dot(N,V)<0.0)N=-N;",
-    "  vec3 R=reflect(-V,N);",
-    "  float ndv=max(dot(N,V),0.0);",
-    "  vec3 col=uColor*(0.10+0.90*env(R))+pow(1.0-ndv,4.0)*0.06;",
-    "  gl_FragColor=vec4(col,1.0);",
-    "}",
-  ].join("\n");
-const FS_GEM =
-  PREC +
-  [
-    "varying vec3 vN;varying vec3 vW;uniform vec3 uCam;uniform vec3 uTint;uniform vec3 uSpark;uniform vec3 uCap;uniform float uGlow;",
-    "void main(){",
-    "  vec3 N=normalize(vN);vec3 V=normalize(uCam-vW);",
-    "  if(dot(N,V)<0.0)N=-N;",
-    "  vec3 R=reflect(-V,N);",
-    "  float dif=0.5+0.5*dot(N,normalize(vec3(0.25,0.55,0.8)));",
-    "  float h=fract(sin(dot(N.xy+N.z,vec2(12.9898,78.233)))*43758.5453);",
-    "  float k=(0.30+0.70*dif)*(0.85+0.30*h);",
-    "  float sp=pow(max(dot(R,normalize(vec3(0.4,0.8,0.6))),0.0),8.0)*0.9",
-    "          +pow(max(dot(R,normalize(vec3(-0.7,0.3,0.55))),0.0),10.0)*0.7",
-    "          +pow(max(dot(R,normalize(vec3(0.0,-0.6,0.8))),0.0),6.0)*0.5;",
-    "  vec3 col=uTint*k+uSpark*sp+vec3(uGlow);",
-    "  gl_FragColor=vec4(min(col,uCap),1.0);",
-    "}",
-  ].join("\n");
 
 const CONTEXT_ATTRS: WebGLContextAttributes = { antialias: true, alpha: true, premultipliedAlpha: false, failIfMajorPerformanceCaveat: true };
 
@@ -118,6 +75,7 @@ export function createRingRenderer(canvas: HTMLCanvasElement, ring: BypassRing, 
   let disposed = false;
   let raf = 0;
   let tints: GemTint[] = ring.gems.map(() => DEFAULT_TINT);
+  let resizeObserver: ResizeObserver | null = null;
 
   let yaw = 0;
   let pitch = 0;
@@ -151,9 +109,17 @@ export function createRingRenderer(canvas: HTMLCanvasElement, ring: BypassRing, 
     });
     return { pr, u };
   }
+  function buildPrograms(fsMetal: string, fsGem: string) {
+    // uniform ที่ shader ไม่ได้ใช้ (เช่น uColor ใน V2 · uCz ใน V1) ได้ location = null → gl.uniform* เป็น no-op ไม่ error
+    pm = program(fsMetal, ["uMVP", "uModel", "uCam", "uColor"]);
+    pg = program(fsGem, ["uMVP", "uModel", "uCam", "uTint", "uSpark", "uCap", "uGlow", "uCz"]);
+  }
   function initGL() {
-    pm = program(FS_METAL, ["uMVP", "uModel", "uCam", "uColor"]);
-    pg = program(FS_GEM, ["uMVP", "uModel", "uCam", "uTint", "uSpark", "uCap", "uGlow"]);
+    try {
+      buildPrograms(FS_METAL_V2, FS_GEM_V2);
+    } catch {
+      buildPrograms(FS_METAL_V1, FS_GEM_V1); // shader เงินขัดเงา compile ไม่ผ่าน → shader D1
+    }
     gl.enable(gl.DEPTH_TEST);
     gl.disable(gl.CULL_FACE);
   }
@@ -219,7 +185,7 @@ export function createRingRenderer(canvas: HTMLCanvasElement, ring: BypassRing, 
     gl.uniformMatrix4fv(pm.u.uMVP, false, mvp);
     gl.uniformMatrix4fv(pm.u.uModel, false, model);
     gl.uniform3f(pm.u.uCam, 0, 0, D);
-    gl.uniform3f(pm.u.uColor, 0.86, 0.87, 0.9);
+    gl.uniform3f(pm.u.uColor, 0.86, 0.87, 0.9); // ใช้เฉพาะ shader V1 (V2 คำนวณสีเงินจาก F0 ใน shaders.ts)
     drawBuf(metalBuf);
 
     gl.useProgram(pg.pr);
@@ -230,6 +196,7 @@ export function createRingRenderer(canvas: HTMLCanvasElement, ring: BypassRing, 
       const s = tints[i] ?? DEFAULT_TINT;
       const c = s.rgb;
       gl.uniform3f(pg.u.uTint, c[0], c[1], c[2]);
+      gl.uniform1f(pg.u.uCz, s.cz ? 1 : 0);
       if (s.cz) {
         gl.uniform3f(pg.u.uSpark, 1, 1, 1);
         gl.uniform3f(pg.u.uCap, 1, 1, 1);
@@ -242,10 +209,19 @@ export function createRingRenderer(canvas: HTMLCanvasElement, ring: BypassRing, 
     }
   }
 
-  function frame() {
-    if (disposed) return;
+  /** ขอวาดเฟรมถัดไป (ไม่ซ้อน · ไม่ทำอะไรเมื่อ dispose/context lost) — ไม่มี rAF วนเมื่อไม่มีอะไรเปลี่ยน (D2-1) */
+  function schedule() {
+    if (disposed || lost || raf) return;
     raf = requestAnimationFrame(frame);
-    if (lost) return;
+  }
+  function markDirty() {
+    dirty = true;
+    schedule();
+  }
+
+  function frame() {
+    raf = 0;
+    if (disposed || lost) return;
     if (anim) {
       const ty = Math.round(yaw / (2 * Math.PI)) * 2 * Math.PI;
       yaw += (ty - yaw) * 0.18;
@@ -263,10 +239,13 @@ export function createRingRenderer(canvas: HTMLCanvasElement, ring: BypassRing, 
       yaw += 0.004;
       dirty = true;
     }
-    if (resizeIfNeeded()) dirty = true;
-    if (!dirty) return;
-    dirty = false;
-    draw();
+    if (dirty) {
+      resizeIfNeeded();
+      dirty = false;
+      draw();
+    }
+    // วนต่อเฉพาะเมื่อยังมีการเคลื่อนไหวที่ต้องวาด — นอกนั้นหยุด รอ markDirty()
+    if (anim || (spin && !drag)) schedule();
   }
 
   /* ---------- โต้ตอบ ---------- */
@@ -292,7 +271,7 @@ export function createRingRenderer(canvas: HTMLCanvasElement, ring: BypassRing, 
     pitch = Math.max(-1.5, Math.min(1.5, pitch));
     lx = e.clientX;
     ly = e.clientY;
-    dirty = true;
+    markDirty();
   }
   function onPointerEnd() {
     drag = false;
@@ -303,7 +282,7 @@ export function createRingRenderer(canvas: HTMLCanvasElement, ring: BypassRing, 
     stopSpin();
     zoom *= 1 + (e.deltaY > 0 ? 1 : -1) * 0.08;
     zoom = Math.max(0.5, Math.min(2.2, zoom));
-    dirty = true;
+    markDirty();
   }
   function onKeyDown(e: KeyboardEvent) {
     let used = true;
@@ -336,12 +315,16 @@ export function createRingRenderer(canvas: HTMLCanvasElement, ring: BypassRing, 
     if (used) {
       e.preventDefault();
       stopSpin();
-      dirty = true;
+      markDirty();
     }
   }
   function onContextLost(e: Event) {
     e.preventDefault();
     lost = true;
+    if (raf) {
+      cancelAnimationFrame(raf);
+      raf = 0;
+    }
     opts.onUnsupported?.("context_lost");
   }
   function onContextRestored() {
@@ -349,7 +332,7 @@ export function createRingRenderer(canvas: HTMLCanvasElement, ring: BypassRing, 
     try {
       initGL();
       uploadRing();
-      dirty = true;
+      markDirty();
       opts.onReady?.();
     } catch {
       opts.onUnsupported?.("no_webgl");
@@ -362,9 +345,10 @@ export function createRingRenderer(canvas: HTMLCanvasElement, ring: BypassRing, 
       yaw = 0;
       pitch = 0;
       zoom = 1;
-      dirty = true;
+      markDirty();
     } else {
       anim = true;
+      schedule();
     }
   }
 
@@ -378,19 +362,30 @@ export function createRingRenderer(canvas: HTMLCanvasElement, ring: BypassRing, 
   canvas.addEventListener("keydown", onKeyDown);
   canvas.addEventListener("webglcontextlost", onContextLost);
   canvas.addEventListener("webglcontextrestored", onContextRestored);
-  raf = requestAnimationFrame(frame);
+  // ขนาดเปลี่ยน (หมุนจอ/ย่อขยายหน้าต่าง/layout ขยับ) → วาดใหม่ · เบราว์เซอร์ที่ไม่มี ResizeObserver ใช้ resize ของ window
+  const onWindowResize = () => markDirty();
+  if (typeof ResizeObserver !== "undefined") {
+    resizeObserver = new ResizeObserver(() => markDirty());
+    resizeObserver.observe(canvas);
+  } else {
+    window.addEventListener("resize", onWindowResize);
+  }
+  markDirty();
   opts.onReady?.();
 
   return {
     setTints(next) {
       tints = [...next];
-      dirty = true;
+      markDirty();
     },
     resetView,
     dispose() {
       if (disposed) return;
       disposed = true;
-      cancelAnimationFrame(raf);
+      if (raf) cancelAnimationFrame(raf);
+      raf = 0;
+      resizeObserver?.disconnect();
+      window.removeEventListener("resize", onWindowResize);
       canvas.removeEventListener("pointerdown", onPointerDown);
       canvas.removeEventListener("pointermove", onPointerMove);
       canvas.removeEventListener("pointerup", onPointerEnd);

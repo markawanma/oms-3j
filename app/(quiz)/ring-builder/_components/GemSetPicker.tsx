@@ -1,7 +1,8 @@
 "use client";
 
-// GemSetPicker — "พลอยที่คุณเลือกได้": แบบ 1/2/3 (พลอยอันดับ 1–3 จาก quiz) เป็น radiogroup การ์ดแนวตั้ง
-// เข้าตรง (ไม่มี g) = การ์ดชวนทำ quiz แทน (ไม่มีตัวเลือกพลอยรายเม็ด — มติ TL §7b)
+// GemSetPicker — "พลอยที่คุณเลือกได้": แบบ 1/2/3 (พลอยอันดับ 1–3) เป็น radiogroup การ์ดแนวตั้ง · แผงของโหมด "แบบแนะนำ" (D1.1)
+// ป้ายการ์ดมาจาก badgeKind (Y6): "quiz" = ผลมาจาก quiz จริง · "intention" = จัดอันดับตามเรื่องที่เลือก (ห้ามเขียนว่าจากแบบทดสอบ)
+// ไม่มีแบบแนะนำ (เข้าตรง/ยังไม่เลือกเรื่อง) = ข้อความให้เลือกเรื่อง + การ์ดชวนทำ quiz เป็นลิงก์รอง
 // ข้อความอธิบายคู่พลอย = GEM_QUIZ_PAIRS คำต่อคำ (title / th / "เหมาะกับ: fit") · ไม่แต่งสรรพคุณใหม่ (X7)
 import { useId, useRef } from "react";
 import { GEM_QUIZ_STONE_BY_CODE } from "@/lib/gem-quiz/config";
@@ -10,15 +11,22 @@ import type { ShowcaseSet } from "@/lib/ring-builder/showcase/sets";
 import { GemIcon } from "../../gem-quiz/_components/GemIcon";
 import { handleRadioKeyDown } from "./radio-keys";
 
+export type BadgeKind = "quiz" | "intention";
+
 export function GemSetPicker({
   sets,
   selectedIndex,
   onSelect,
+  badgeKind,
+  basisNote,
 }: {
-  /** null = เข้าตรง/param เสีย */
+  /** null = เข้าตรง/param เสีย/ยังไม่เลือกเรื่อง */
   sets: readonly ShowcaseSet[] | null;
   selectedIndex: 1 | 2 | 3;
   onSelect: (index: 1 | 2 | 3) => void;
+  badgeKind: BadgeKind;
+  /** ข้อความใต้หัวข้อ — null = ไม่แสดง (ลิงก์ g เดิม: เหมือน D1) */
+  basisNote: string | null;
 }) {
   const headingId = useId();
   const refs = useRef<(HTMLButtonElement | null)[]>([]);
@@ -27,6 +35,7 @@ export function GemSetPicker({
     return (
       <div className="flex flex-col gap-3">
         <h2 className="font-quiz-serif text-xl font-semibold text-[var(--gq-burgundy-dark)]">{SHOWCASE_COPY.pickerHeading}</h2>
+        <p className="text-sm text-[var(--gq-text-muted)]">{SHOWCASE_COPY.intentionDirect}</p>
         <div className="flex flex-col items-start gap-3 rounded-2xl border border-[var(--gq-burgundy-border)] bg-[var(--gq-burgundy-soft)] p-4">
           <p className="font-quiz-serif text-lg font-semibold text-[var(--gq-burgundy-dark)]">{SHOWCASE_COPY.quizCardTitle}</p>
           <p className="text-sm text-[var(--gq-text-muted)]">{SHOWCASE_COPY.quizCardNote}</p>
@@ -48,6 +57,7 @@ export function GemSetPicker({
       <h2 id={headingId} className="font-quiz-serif text-xl font-semibold text-[var(--gq-burgundy-dark)]">
         {SHOWCASE_COPY.pickerHeading}
       </h2>
+      {basisNote && <p className="-mt-1.5 text-sm text-[var(--gq-text-muted)]">{basisNote}</p>}
       <div role="radiogroup" aria-labelledby={headingId} className="flex flex-col gap-2.5">
         {sets.map((set, i) => {
           const checked = set.index === selected.index;
@@ -82,7 +92,7 @@ export function GemSetPicker({
               </span>
               <span className="flex min-w-0 flex-1 flex-col gap-0.5">
                 <span className="text-xs tracking-[0.08em] text-[var(--gq-burgundy)]">
-                  แบบ {set.index} · {SHOWCASE_COPY.rankBadge(set.index)}
+                  แบบ {set.index} · {badgeKind === "quiz" ? SHOWCASE_COPY.rankBadge(set.index) : SHOWCASE_COPY.rankBadgeIntention(set.index)}
                 </span>
                 <span className="text-base font-medium text-[var(--gq-text)]">
                   {topStone.labelTh} + {bottomStone.labelTh}
