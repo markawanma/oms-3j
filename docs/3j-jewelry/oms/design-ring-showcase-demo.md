@@ -133,3 +133,71 @@ D1 ทำได้โดยไม่แตะ middleware, ไม่เขีย�
 - D2-5 ข้อความ LINE ลูกค้าแก้ได้ → แอดมินยืนยัน 800 เองทุกครั้งจนกว่ามีรหัส HMAC
 - D2-6 canvas ไม่มีคำแนะนำคีย์บอร์ดสำหรับ screen reader · ปุ่ม "กลับมุมหน้า" ยังลอยตอน context lost
 - แก้แล้วก่อน merge: ไซซ์ 55–58 เหลือแหล่งเดียว (SHOWCASE_SIZE_RANGE คำนวณจาก SHOWCASE_SIZES)
+
+## §9 D1.1 — เลือกพลอยเอง · เปลี่ยนเรื่องที่อยากเสริม · เงินขัดเงา (Yoda 17 พ.ย. 69)
+
+> คำสั่งเจ้าของ 17 พ.ย. · ทับ §7b (picker รายเม็ดกลับมา) และคำสั่ง "ห้ามแก้ shader" หัวไฟล์ `gl-renderer.ts` (ยกเฉพาะ fragment shader — กล้อง/`matrix.ts`/`bypass-ring.ts` ห้ามแตะเหมือนเดิม) · ตัวเลข % มาจากการจำลอง 21,672 ชุดคำตอบ ยังไม่ได้รันโค้ดจริง · จอใหม่ต้องผ่าน Padmé ก่อน Luke
+
+### 9.1 URL contract
+ทุก key ตรวจแยกกัน ผิดรูป = ถือว่าไม่มี key นั้น ไม่ throw · หน้าอ่านแค่ 5 key นี้
+
+| key | รูปแบบ (whitelist) | ความหมาย |
+|---|---|---|
+| `t` | `^[gacpb]{3}(\.[gacpb]{3}){5}$` + ตัวอักษรในกลุ่มไม่ซ้ำ (g=garnet a=amethyst c=citrine p=peridot b=blue_topaz) | top3 ของ intention ทั้ง 6 เรียงตามลำดับตัวเลือกใน `GEM_QUIZ_QUESTIONS` · ใช้ได้เมื่อ `i` ผ่านด้วย ไม่งั้นทิ้ง |
+| `i` | 1 ใน 6 รหัส intention | เรื่องที่เลือกอยู่ |
+| `g` | เดิม (D1) | ลิงก์เก่า · ใช้เมื่อไม่มี `t` และไม่มี `i` |
+| `c` | `<บน>.<ล่าง>` รหัสเต็ม 2 ตัวจาก 5 ชนิด ซ้ำกันได้ (25 แบบ) | พลอยที่เลือกเอง — อยู่ใน URL เสมอแม้กำลังดูแบบแนะนำ |
+| `d` | `1`/`2`/`3`/`own` | ตัวที่เลือกอยู่ · ไม่มี = 1 เมื่อมีแบบแนะนำ · `own` ที่ไม่มี `c` = ค่าเริ่มต้น |
+
+ที่มาแบบแนะนำ (เรียงลำดับ): `t`+`i` → `t[i]` · `i` อย่างเดียว → ตาราง intention ล้วน · `g` → เหมือน D1 · ไม่มีเลย → เข้าตรง (CZ ขาว)
+CTA ของ quiz ส่ง `?t=…&i=<intention ที่ตอบ>` (เลิกส่ง `g`) · หน้าเขียน state กลับ URL ด้วย `history.replaceState` ผ่าน `buildShowcaseUrl(state)` ตัวเดียว → แชร์/กลับจาก `/ring-size` ได้หน้าเดิม (ปิดช่อง §6 ยกเว้นไซซ์)
+
+### 9.2 Re-rank — เลือก "ตารางคำนวณล่วงหน้า"
+ตอนสร้าง CTA เรียก `rankGems` 6 รอบ (คำตอบจริง เปลี่ยนแค่ intention) เก็บ top3 ลง `t` · หน้าแหวนแค่หยิบ `t[i]` ไม่คำนวณคะแนน
+- intention เดิม = top3 เดิมเป๊ะ และ intention อื่น = ผลที่ quiz จะให้ถ้าตอบข้อนั้นต่าง (ล็อกด้วย test ครบ 21,672 ชุด)
+- ข้อแลก: วันเกิดไม่อยู่ใน URL แต่ **อนุมานย้อนได้** — 38% ของชุดคำตอบ ตารางชี้วันเกิด (วันในสัปดาห์) ได้วันเดียว · security ต้องรับข้อนี้
+
+ตัดทิ้ง: ส่ง answers (วันเกิด+ความรู้สึก+พลอยที่ชอบติด URL ครบ 100%) · intention ล้วน (ตรงกับ quiz 15.5% อันดับ 1 ตรง 36%) · intention + ตัดเสมอด้วยลำดับ `g` (ตรง 22.9%)
+ลิงก์ `g` เก่า/เข้าตรง กดเรื่อง → ตาราง intention ล้วน (`rankGems` คำตอบอื่นว่าง) · ป้ายห้ามเขียน "จากแบบทดสอบ" · ลิงก์ `g` กดเรื่องแล้ว `g` ถูกถอดจาก URL (กลับชุดเดิมไม่ได้นอกจากเปิดลิงก์เดิม — รับได้ ลิงก์เก่ามีแค่บน preview)
+
+### 9.3 State (client)
+`intention` · `recIndex` 1–3 · `own {top,bottom}|null` · `active: rec|own` · `size`
+- สลับ `active` ไม่ล้างอีกฝั่ง · เปลี่ยน intention → `recIndex=1`, `active=rec`, `own` คงเดิม
+- `own` มีครบ 2 เม็ดหรือไม่มีเลย ห้ามมีครึ่งเดียว: เปิดครั้งแรก seed จากแบบที่ดูอยู่ · เข้าตรง แตะเม็ดแรก = ตั้งทั้งสองเม็ดเป็นพลอยนั้น
+- เลือกเอง: `findExactPair(a,b)` ตัวใหม่ (คู่ตรง `GEM_QUIZ_PAIRS` ไม่สนลำดับ · ไม่เจอ/พลอยซ้ำ = null) → มี = ข้อความคู่เดิม · null = แสดง `labelTh` + `keywords` รายเม็ดจาก config เท่านั้น · **ห้ามใช้ `findPair`** (fallback คืนคู่ที่ไม่มีเม็ดล่าง = สรรพคุณผิดคู่) · 25 แบบมีข้อความคู่ 10
+- LINE: บรรทัดแบบ = `… · แบบ n` หรือ `… · เลือกพลอยเอง` · `line-message.ts` รับรหัสพลอยแทน label แล้วตรวจ whitelist เอง · ไม่ใส่ intention · ราคาจาก `formatPriceThb()` ที่เดียว
+
+### 9.4 เงินขัดเงา (WebGL1 เดิม · แก้เฉพาะ `FS_METAL`/`FS_GEM`)
+เทาเข้มเพราะ: env ครึ่งล่าง 0.16 + แถบขอบฟ้ากด 55% + ไม่มี gamma · รูปจริง (`bypass2-1.jpg`) = ขาวสว่าง ไล่เทาอ่อน เส้นมืดบางที่ขอบ
+1. คิดสีแบบ linear → tone map (ACES ย่อ 1 บรรทัด) → `pow(c,1/2.2)` ทั้งโลหะและพลอย
+2. โลหะ: F0 เงิน ≈ (0.97,0.96,0.92) + Schlick `F0+(1-F0)*(1-ndv)^5` แทน `uColor*(0.10+0.90*env)`
+3. env แบบเต็นท์ถ่ายรูป (สูตรล้วน ไม่มี texture): พื้นล่าง 0.55–0.65 · บน 1.0 · softbox กว้าง 2 ดวงความสว่าง 1.6–2.5 · **เก็บเส้นมืดแคบ** (แถบขอบฟ้าแคบลง ลึก ~0.35 + การ์ดมืด 1 แถบ) — ไม่มีเส้นมืด = พลาสติกขาว
+4. พลอย: `refract(-V,N,1/1.6)` → env × tint + สะท้อน fresnel (F0 ~0.08 · CZ ~0.13) + ประกาย 3 lobe เดิม · CZ แยก IOR ราย RGB (env 3 ครั้ง) · คง `uCap` กันสีพลอยซีดขาว · ทึบเหมือนเดิม ไม่ blend
+5. เงาใต้แหวน = CSS radial-gradient ใต้ canvas
+6. compile shader ใหม่ไม่ผ่าน → ใช้ shader D1 (เก็บเป็น `_V1`) → ค่อยตกรูปจริง
+
+งบ: draw call 5 เท่าเดิม · ไม่มี texture/FBO/extension/loop · `env()` ต่อ fragment โลหะ 1 พลอย ≤4 · DPR cap 2 และ `failIfMajorPerformanceCaveat` ไม่แตะ · ลากหมุน ≥50 fps บนมือถือที่ QA ใช้ทดสอบ `[ต้องยืนยัน: รุ่นเครื่อง]`
+วัด "เหมือนจริง": จับภาพมุมหน้าเทียบ `bypass2-1.jpg` — (ก) ความสว่างกลางของตัวเรือน ±15% ของค่าที่วัดจากรูปจริง (ข) เป็นกลาง |R−B| ≤ 0.04 (ค) ยังมีมืด: p5 ≤ ครึ่งของ p95 (ง) hue พลอย 5 ชนิด ±15° จาก `colors.base` (จ) เจ้าของดู v1/v2 คู่รูปจริงแล้วเคาะ
+
+### 9.5 ไฟล์
+แก้: `lib/ring-builder/showcase/quiz-link.ts` (parser 5 key + `buildShowcaseUrl` + href จากคำตอบ) · `sets.ts` (intention table · `findExactPair`) · `line-message.ts` · `config.ts` (copy) · `lib/ring-builder/viewer/gl-renderer.ts` · `app/(quiz)/ring-builder/page.tsx` · `RingShowcaseClient.tsx` · `_components/GemSetPicker.tsx` `OrderSummary.tsx` · `gem-quiz/_screens/ResultScreen.tsx` (ส่งคำตอบให้ href) · tests คู่ · `ux-ring-showcase-demo.md` · READING-LISTS
+ใหม่: `_components/IntentionPicker.tsx` · `OwnGemPicker.tsx`
+ไม่แตะ: `recommend.ts` · `config.ts` ของ quiz · middleware/exempt-path · `bypass-ring.ts` · `matrix.ts`
+
+### 9.6 ห้ามผ่าน / ต้องไม่พัง
+| # | ห้ามผ่าน | ตกที่ |
+|---|---|---|
+| Y1 | `t`/`i`/`c`/`d` ผิดรูป: ตัวอักษรนอก gacpb · กลุ่มไม่ครบ 6 · ซ้ำในกลุ่ม · `constructor`/`__proto__` · array · ยาวเกิน · HTML | parser คืน null ราย key ไม่ throw |
+| Y2 | พลอยนอก 5 ชนิด หรือ CZ ใน `c` · `c` เม็ดเดียว/3 เม็ด | parser + `line-message.ts` คืน null |
+| Y3 | ราคาไม่ใช่ 800 ในทุก 25 คู่ × ทุก `d` · `?price=` มีผล | ราคาไม่รับ input (test วนครบ) |
+| Y4 | ข้อความคู่โผล่กับคู่นอก `GEM_QUIZ_PAIRS` หรือพลอยซ้ำ · ข้อความพลอยที่ไม่ได้มาจาก config | `findExactPair` + copy-guard test (X7 เดิม) |
+| Y5 | `t[i]` ไม่เท่า top3 ของ quiz | test 21,672 ชุด |
+| Y6 | ป้าย "จากแบบทดสอบ" เมื่อที่มาคือ intention ล้วน | test ตามที่มา |
+| Y7 | LINE เขียน "แบบ n" ตอนเลือกเอง หรือกลับกัน | test `line-message` |
+
+ต้องไม่พัง: ลิงก์ `?g=` เดิมได้ 3 ชุดเดิม · X1–X8 ของ D1 · quiz ทุก flow + submit ยิงครั้งเดียว · เข้าตรง · WebGL ไม่มี/context lost/shader ใหม่ compile ไม่ผ่าน · สลับ rec↔own แล้วค่าอยู่ครบ · reload/แชร์ได้หน้าเดิม · localStorage ถูกบล็อก · reduced-motion
+
+QA: **M** (หน้าสาธารณะ ไม่เขียน DB ราคาคงที่) + security ดูเร็ว: parser 5 key · ข้อ 9.2 เรื่องอนุมานวันเกิด · graph ไม่มี "use server"
+
+### 9.7 คำถามเจ้าของ
+1. เลือกเองให้พลอยบน=ล่างชนิดเดียวกันได้ (เสนอ: ได้) และพลอยไข่ 7×5 ครบ 5 ชนิดทุกคู่ในราคา 800 จริงไหม (ต่อจาก §6 ข้อ 2 ที่ยังค้าง)
