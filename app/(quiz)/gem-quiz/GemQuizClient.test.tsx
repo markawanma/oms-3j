@@ -5,6 +5,8 @@ import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
 import { GEM_QUIZ_QUESTIONS, GEM_QUIZ_STONES, MAX_LIKED_STONES, QUIZ_VERSION } from "@/lib/gem-quiz/config";
 import { GemQuizClient } from "./GemQuizClient";
+import { buildResultView } from "@/lib/gem-quiz/result";
+import { buildShowcaseHref } from "@/lib/ring-builder/showcase/quiz-link";
 
 // เหตุผลเดียวกับ components/ui/CollapsibleSection.test.tsx: vitest.config.ts
 // ไม่ได้เปิด test.globals ดังนั้น @testing-library/react ไม่ auto-cleanup เอง
@@ -149,7 +151,10 @@ describe("GemQuizClient", () => {
     expect(screen.getByText("Power + Abundance")).toBeInTheDocument();
   }, 10000);
 
-  it("CTA หลักของหน้าผล = ลิงก์ไป /ring-builder?g=<top3> (ไม่ auto-redirect) · ปุ่ม LINE เดิมยังอยู่เป็นปุ่มรอง · submit ยิงครั้งเดียว", async () => {
+  it("CTA หลักของหน้าผล = ลิงก์ไป /ring-builder?t=<ตาราง>&i=<เรื่อง> (ไม่ auto-redirect) · ปุ่ม LINE เดิมยังอยู่เป็นปุ่มรอง · submit ยิงครั้งเดียว", async () => {
+    const demo = buildResultView({ answers: { birthDay: "sun", intention: "career", feeling: "energy", jewelryType: "ring" }, likedStoneCodes: ["garnet", "citrine", "amethyst"] });
+    const expectedCta = buildShowcaseHref({ intention: demo.intention, table: demo.intentionTop3 });
+    expect(expectedCta).toMatch(/^\/ring-builder\?t=[gacpb.]{23}&i=career$/);
     const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
     vi.stubGlobal("fetch", fetchMock);
 
@@ -158,14 +163,14 @@ describe("GemQuizClient", () => {
     await completeQuizToResult(user);
 
     const cta = screen.getByRole("link", { name: /ลองพลอยของคุณบนแหวน/ });
-    expect(cta).toHaveAttribute("href", "/ring-builder?g=garnet.citrine.blue_topaz");
+    expect(cta).toHaveAttribute("href", expectedCta);
     expect(cta).not.toHaveAttribute("target");
     const line = screen.getByRole("link", { name: /ดูเครื่องประดับจากพลอยนี้/ });
     expect(line.getAttribute("href")).toMatch(/^https:\/\/lin\.ee\//);
 
     // ดูพลอยทางเลือกแล้ว top3 ใน CTA ต้องไม่เปลี่ยนลำดับ (ไม่ขึ้นกับ focus)
     await user.click(screen.getByRole("button", { name: /Citrine/ }));
-    expect(screen.getByRole("link", { name: /ลองพลอยของคุณบนแหวน/ })).toHaveAttribute("href", "/ring-builder?g=garnet.citrine.blue_topaz");
+    expect(screen.getByRole("link", { name: /ลองพลอยของคุณบนแหวน/ })).toHaveAttribute("href", expectedCta);
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
   }, 10000);
 

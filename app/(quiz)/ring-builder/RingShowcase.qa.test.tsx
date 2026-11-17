@@ -7,7 +7,7 @@
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import "@testing-library/jest-dom/vitest";
 import {
   GEM_QUIZ_BIRTH_DAY_SCORES,
@@ -18,7 +18,7 @@ import {
   type GemQuizStoneCode,
 } from "@/lib/gem-quiz/config";
 import { buildResultView } from "@/lib/gem-quiz/result";
-import { buildShowcaseHref, parseGemParam, type GemTop3 } from "@/lib/ring-builder/showcase/quiz-link";
+import { EMPTY_SHOWCASE_PARAMS, buildShowcaseHref, parseTableParam, type GemTop3, type IntentionTable } from "@/lib/ring-builder/showcase/quiz-link";
 import RingShowcasePage from "./page";
 import { RingShowcaseClient } from "./RingShowcaseClient";
 
@@ -39,10 +39,9 @@ describe("QA: ทุกคู่พลอย 5×4 แสดงครบบนจ
   it("60 top3 × 3 แบบ: มีข้อความคู่พลอย (title/th/fit จาก GEM_QUIZ_PAIRS) ไม่มี undefined/NaN/[object", () => {
     let checked = 0;
     for (const top3 of allTop3()) {
-      const { container, unmount } = render(<RingShowcaseClient top3={top3} />);
+      const { container, unmount } = render(<RingShowcaseClient params={{ ...EMPTY_SHOWCASE_PARAMS, top3 }} />);
       for (const idx of [1, 2, 3]) {
-        const radios = screen.getAllByRole("radio").filter((r) => r.getAttribute("aria-checked") !== null && /อันดับ|แบบ/.test(r.textContent ?? ""));
-        // radio พลอยคือกลุ่มแรก 3 ใบ (ไซซ์อยู่ถัดไป)
+        const radios = within(screen.getByRole("radiogroup", { name: "พลอยที่คุณเลือกได้" })).getAllByRole("radio");
         fireEvent.click(radios[idx - 1]);
         const text = container.textContent ?? "";
         expect(text, `top3=${top3.join(".")} แบบ ${idx}`).not.toMatch(BAD_TEXT);
@@ -89,9 +88,18 @@ describe("QA: CTA หน้าผล quiz สร้าง href ถูกทุ�
             const view = buildResultView({ answers: { birthDay, intention, feeling, jewelryType: "unknown" }, likedStoneCodes: l });
             expect(view.top3.length).toBe(3);
             expect(new Set(view.top3).size).toBe(3);
-            const href = buildShowcaseHref(view.top3);
-            const g = new URL(href, "https://x.test").searchParams.get("g");
-            expect(parseGemParam(g)).toEqual([...view.top3]);
+            // Y5: CTA ส่ง t+i · t[i ที่ตอบ] = top3 ของ quiz · เรื่องอื่น = ผลที่ quiz จะให้ถ้าตอบข้อนั้นต่าง
+            const href = buildShowcaseHref({ intention: view.intention, table: view.intentionTop3 });
+            const sp = new URL(href, "https://x.test").searchParams;
+            expect(sp.get("g")).toBeNull();
+            expect(sp.get("i")).toBe(intention);
+            const t = parseTableParam(sp.get("t")) as IntentionTable;
+            expect(t).not.toBeNull();
+            expect([...t[view.intention]]).toEqual([...view.top3]);
+            for (const other of Object.keys(GEM_QUIZ_INTENTIONS)) {
+              const alt = buildResultView({ answers: { birthDay, intention: other, feeling, jewelryType: "unknown" }, likedStoneCodes: l });
+              expect([...t[other as keyof IntentionTable]], `${birthDay}/${intention}->${other}`).toEqual([...alt.top3]);
+            }
             n++;
           }
     expect(n).toBe(7 * 6 * 6 * 86);
@@ -149,6 +157,13 @@ describe("QA: hostile g ผ่าน page จริง", () => {
       "%00",
     ];
     for (const g of hostile) {
+      for (const key of ["g", "t", "i", "c", "d"]) {
+      const el0 = await RingShowcasePage({ searchParams: Promise.resolve({ [key]: g as string }) });
+      const r0 = render(el0);
+      expect(r0.container.innerHTML).not.toContain("<script");
+      expect(r0.container.textContent).not.toContain("alert(1)");
+      r0.unmount();
+      }
       const el = await RingShowcasePage({ searchParams: Promise.resolve({ g: g as string }) });
       const { container, unmount } = render(el);
       expect(container.textContent).not.toContain("alert(1)");

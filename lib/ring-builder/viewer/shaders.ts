@@ -31,7 +31,7 @@ export const SILVER_LOOK = {
   gemSparkle: 1.0,
 } as const;
 
-export type SilverLook = typeof SILVER_LOOK;
+export type SilverLook = { readonly [K in keyof typeof SILVER_LOOK]: (typeof SILVER_LOOK)[K] extends number ? number : (typeof SILVER_LOOK)[K] };
 
 // ---------- V1 (D1 เดิม · คำต่อคำ) ----------
 export const VS = [

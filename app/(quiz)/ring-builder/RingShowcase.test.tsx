@@ -6,7 +6,7 @@ import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom/vitest";
 import { GEM_QUIZ_DISCLAIMER, GEM_QUIZ_PAIRS } from "@/lib/gem-quiz/config";
 import { buildShowcaseSets } from "@/lib/ring-builder/showcase/sets";
-import type { GemTop3 } from "@/lib/ring-builder/showcase/quiz-link";
+import { EMPTY_SHOWCASE_PARAMS, type GemTop3 } from "@/lib/ring-builder/showcase/quiz-link";
 import type { LastMeasuredSize } from "@/lib/ring-builder/last-size";
 import RingShowcasePage from "./page";
 import { RingShowcaseClient } from "./RingShowcaseClient";
@@ -26,6 +26,7 @@ beforeEach(() => {
 });
 
 const TOP3: GemTop3 = ["garnet", "citrine", "peridot"];
+const LEGACY = { ...EMPTY_SHOWCASE_PARAMS, top3: TOP3 };
 
 function lineHref(): string {
   const a = screen.getByRole("link", { name: /ส่งให้แอดมินทาง LINE/ });
@@ -38,7 +39,7 @@ function lineMessage(): string {
 
 describe("เข้าตรง (ไม่มี g) — โหมด CZ ขาว", () => {
   it("แสดงชื่อแบบ + 800 บาท + การ์ดชวนทำ quiz แทนแบบ 1/2/3 · ไม่มี radio ของพลอย", () => {
-    render(<RingShowcaseClient top3={null} />);
+    render(<RingShowcaseClient params={EMPTY_SHOWCASE_PARAMS} />);
     expect(screen.getByRole("heading", { level: 1, name: "แหวนไขว้พลอยไข่ 2 เม็ด" })).toBeInTheDocument();
     expect(screen.getAllByText("800 บาท").length).toBeGreaterThan(0);
     expect(screen.getByText(/พรีออเดอร์ ทำภายใน 21 วัน/)).toBeInTheDocument();
@@ -48,7 +49,7 @@ describe("เข้าตรง (ไม่มี g) — โหมด CZ ขา�
   });
   it("ยังเลือกไซซ์/ส่ง LINE ได้ · พลอย = CZ ขาว", async () => {
     const user = userEvent.setup();
-    render(<RingShowcaseClient top3={null} />);
+    render(<RingShowcaseClient params={EMPTY_SHOWCASE_PARAMS} />);
     await user.click(screen.getByRole("radio", { name: "เบอร์ 56" }));
     const msg = lineMessage();
     expect(msg).toContain("พลอยบน: CZ ขาว · พลอยล่าง: CZ ขาว · CZ เล็ก 2 เม็ด");
@@ -59,7 +60,7 @@ describe("เข้าตรง (ไม่มี g) — โหมด CZ ขา�
 
 describe("stage: WebGL ใช้ไม่ได้ → รูปจริงแทน ตัวเลือกยังใช้ได้", () => {
   it("แสดงข้อความ + รูปจริงรูปแรกพร้อม alt · ไม่มี canvas", async () => {
-    render(<RingShowcaseClient top3={TOP3} />);
+    render(<RingShowcaseClient params={LEGACY} />);
     const stage = screen.getByRole("region", { name: "ภาพแหวน" });
     expect(await within(stage).findByText("เครื่องนี้แสดงภาพ 3 มิติไม่ได้ ดูรูปจริงด้านล่างแทน")).toBeInTheDocument();
     expect(within(stage).getByRole("status")).toBeInTheDocument();
@@ -68,7 +69,7 @@ describe("stage: WebGL ใช้ไม่ได้ → รูปจริงแ�
   });
   it("เลือกพลอย/ไซซ์ได้ตามปกติ และข้อความอธิบายพลอยเปลี่ยน", async () => {
     const user = userEvent.setup();
-    render(<RingShowcaseClient top3={TOP3} />);
+    render(<RingShowcaseClient params={LEGACY} />);
     await user.click(screen.getAllByRole("radio", { name: /แบบ 3/ })[0]);
     const sets = buildShowcaseSets(TOP3);
     expect(screen.getByText(sets[2].pair.title)).toBeInTheDocument();
@@ -77,7 +78,7 @@ describe("stage: WebGL ใช้ไม่ได้ → รูปจริงแ�
 
 describe("เลือกแบบพลอย (มาจาก quiz)", () => {
   it("radiogroup 3 ใบ · แบบ 1 ถูกเลือกเริ่มต้น · ชื่อ 'บน + ล่าง' ตาม findPair เดียวกับ quiz", () => {
-    render(<RingShowcaseClient top3={TOP3} />);
+    render(<RingShowcaseClient params={LEGACY} />);
     const group = screen.getByRole("radiogroup", { name: "พลอยที่คุณเลือกได้" });
     const radios = within(group).getAllByRole("radio");
     expect(radios).toHaveLength(3);
@@ -91,7 +92,7 @@ describe("เลือกแบบพลอย (มาจาก quiz)", () => {
   });
 
   it("X7: คำอธิบายคู่พลอย = GEM_QUIZ_PAIRS คำต่อคำ (title / th / เหมาะกับ: fit) + คำอธิบายบน/ล่าง", () => {
-    render(<RingShowcaseClient top3={TOP3} />);
+    render(<RingShowcaseClient params={LEGACY} />);
     const pair = GEM_QUIZ_PAIRS.find((p) => p.gems.includes("garnet") && p.gems.includes("citrine"))!;
     expect(screen.getByText(pair.title)).toBeInTheDocument();
     expect(screen.getByText(pair.th)).toBeInTheDocument();
@@ -101,7 +102,7 @@ describe("เลือกแบบพลอย (มาจาก quiz)", () => {
 
   it("คลิกแบบ 3 → aria-checked เปลี่ยน · คำอธิบายเปลี่ยนเป็นคู่ของแบบ 3 · ข้อความ LINE มี 'แบบ 3'", async () => {
     const user = userEvent.setup();
-    render(<RingShowcaseClient top3={TOP3} />);
+    render(<RingShowcaseClient params={LEGACY} />);
     const radios = within(screen.getByRole("radiogroup", { name: "พลอยที่คุณเลือกได้" })).getAllByRole("radio");
     await user.click(radios[2]);
     expect(radios[2]).toHaveAttribute("aria-checked", "true");
@@ -115,7 +116,7 @@ describe("เลือกแบบพลอย (มาจาก quiz)", () => {
 
   it("ลูกศรซ้าย/ขวา/Home/End เลื่อนการเลือกและโฟกัส (roving tabindex)", async () => {
     const user = userEvent.setup();
-    render(<RingShowcaseClient top3={TOP3} />);
+    render(<RingShowcaseClient params={LEGACY} />);
     const radios = within(screen.getByRole("radiogroup", { name: "พลอยที่คุณเลือกได้" })).getAllByRole("radio");
     radios[0].focus();
     await user.keyboard("{ArrowRight}");
@@ -132,7 +133,7 @@ describe("เลือกแบบพลอย (มาจาก quiz)", () => {
 
 describe("เลือกไซซ์", () => {
   it("มีแค่ 55–58 · ไม่เลือก = แถบเตือน + ข้อความ 'รอแอดมินช่วยเช็ก' · ปุ่ม LINE ยังเป็นลิงก์ที่กดได้", () => {
-    render(<RingShowcaseClient top3={TOP3} />);
+    render(<RingShowcaseClient params={LEGACY} />);
     const sizes = within(screen.getByRole("radiogroup", { name: "เลือกไซซ์" })).getAllByRole("radio");
     expect(sizes.map((s) => s.textContent)).toEqual(["55", "56", "57", "58"]);
     expect(sizes.every((s) => s.getAttribute("aria-checked") === "false")).toBe(true);
@@ -145,7 +146,7 @@ describe("เลือกไซซ์", () => {
   });
   it("เลือก 57 → ข้อความ LINE 'เบอร์ 57' · แถบเตือนหาย · ล้างไซซ์กลับเป็นรอแอดมินได้", async () => {
     const user = userEvent.setup();
-    render(<RingShowcaseClient top3={TOP3} />);
+    render(<RingShowcaseClient params={LEGACY} />);
     await user.click(screen.getByRole("radio", { name: "เบอร์ 57" }));
     expect(screen.getByRole("radio", { name: "เบอร์ 57" })).toHaveAttribute("aria-checked", "true");
     expect(lineMessage()).toContain("ไซซ์: เบอร์ 57");
@@ -156,20 +157,20 @@ describe("เลือกไซซ์", () => {
   });
   it("ลูกศรเลื่อนไซซ์ได้", async () => {
     const user = userEvent.setup();
-    render(<RingShowcaseClient top3={TOP3} />);
+    render(<RingShowcaseClient params={LEGACY} />);
     const sizes = within(screen.getByRole("radiogroup", { name: "เลือกไซซ์" })).getAllByRole("radio");
     sizes[0].focus();
     await user.keyboard("{ArrowRight}");
     expect(sizes[1]).toHaveAttribute("aria-checked", "true");
   });
   it("มีลิงก์ไป /ring-size", () => {
-    render(<RingShowcaseClient top3={TOP3} />);
+    render(<RingShowcaseClient params={LEGACY} />);
     expect(screen.getByRole("link", { name: /วัดด้วยเครื่องมือวัดไซซ์/ })).toHaveAttribute("href", "/ring-size");
   });
   it("ผลวัดล่าสุดในช่วง → ปุ่มเสนอ 'ใช้เบอร์ n' (ไม่เลือกให้เอง) · กดแล้วเลือก", async () => {
     lastSizeMock.read.mockReturnValue({ size: 56, method: "A", savedAt: 1, inShopRange: true });
     const user = userEvent.setup();
-    render(<RingShowcaseClient top3={TOP3} />);
+    render(<RingShowcaseClient params={LEGACY} />);
     expect(await screen.findByText("ผลวัดล่าสุด: เบอร์ 56")).toBeInTheDocument();
     expect(screen.getByRole("radio", { name: "เบอร์ 56" })).toHaveAttribute("aria-checked", "false");
     await user.click(screen.getByRole("button", { name: "ใช้เบอร์ 56" }));
@@ -177,7 +178,7 @@ describe("เลือกไซซ์", () => {
   });
   it("ผลวัดล่าสุดนอก 55–58 → ข้อความแจ้ง ไม่มีปุ่มใช้เบอร์นี้", async () => {
     lastSizeMock.read.mockReturnValue({ size: 61, method: "B", savedAt: 1, inShopRange: true });
-    render(<RingShowcaseClient top3={TOP3} />);
+    render(<RingShowcaseClient params={LEGACY} />);
     expect(await screen.findByText("ผลวัดล่าสุด: เบอร์ 61")).toBeInTheDocument();
     expect(screen.getByText("ไซซ์นี้อยู่นอกช่วงของแบบนี้ ทักแอดมินได้")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /ใช้เบอร์/ })).toBeNull();
@@ -186,7 +187,7 @@ describe("เลือกไซซ์", () => {
     lastSizeMock.read.mockImplementation(() => {
       throw new Error("SecurityError");
     });
-    render(<RingShowcaseClient top3={TOP3} />);
+    render(<RingShowcaseClient params={LEGACY} />);
     expect(screen.getByRole("radiogroup", { name: "เลือกไซซ์" })).toBeInTheDocument();
     expect(screen.queryByText(/ผลวัดล่าสุด/)).toBeNull();
   });
@@ -194,7 +195,7 @@ describe("เลือกไซซ์", () => {
 
 describe("สรุป + ส่ง LINE + คัดลอก", () => {
   it("การ์ดสรุป: แบบ · พลอยบน · พลอยล่าง · ไซซ์ · 800 บาท · 'ยังไม่ใช่การสั่งซื้อ'", () => {
-    render(<RingShowcaseClient top3={TOP3} />);
+    render(<RingShowcaseClient params={LEGACY} />);
     const summary = screen.getByRole("heading", { name: "สรุปที่เลือก" }).parentElement as HTMLElement;
     expect(within(summary).getByText("แหวนไขว้พลอยไข่ 2 เม็ด · แบบ 1")).toBeInTheDocument();
     expect(within(summary).getByText("โกเมน")).toBeInTheDocument();
@@ -203,7 +204,7 @@ describe("สรุป + ส่ง LINE + คัดลอก", () => {
     expect(within(summary).getByText("ยังไม่ใช่การสั่งซื้อ — ส่งให้แอดมินยืนยันก่อน")).toBeInTheDocument();
   });
   it("ลิงก์ LINE เป็น <a> ปกติ (ไม่ใช่ window.open) จาก lineOaMessageUrl · ราคามีค่าเดียว", () => {
-    render(<RingShowcaseClient top3={TOP3} />);
+    render(<RingShowcaseClient params={LEGACY} />);
     const a = screen.getByRole("link", { name: /ส่งให้แอดมินทาง LINE/ });
     expect(a.getAttribute("href")).toMatch(/^https:\/\/line\.me\/R\/oaMessage\/%40/);
     expect([...lineMessage().matchAll(/(\d[\d,]*)\s*บาท/g)].map((m) => m[1])).toEqual(["800"]);
@@ -212,7 +213,7 @@ describe("สรุป + ส่ง LINE + คัดลอก", () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     try {
       const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
-      render(<RingShowcaseClient top3={TOP3} />);
+      render(<RingShowcaseClient params={LEGACY} />);
       await user.click(screen.getByRole("button", { name: "คัดลอกข้อความ" }));
       expect(await screen.findByRole("button", { name: "คัดลอกแล้ว ✓" })).toBeInTheDocument();
       expect(await navigator.clipboard.readText()).toBe(lineMessage());
@@ -224,7 +225,7 @@ describe("สรุป + ส่ง LINE + คัดลอก", () => {
   });
   it("คัดลอกไม่สำเร็จ → textarea อ่านอย่างเดียวพร้อมข้อความ · ปุ่ม LINE ยังเปิดได้", async () => {
     const user = userEvent.setup();
-    render(<RingShowcaseClient top3={TOP3} />);
+    render(<RingShowcaseClient params={LEGACY} />);
     vi.spyOn(navigator.clipboard, "writeText").mockRejectedValue(new Error("denied"));
     await user.click(screen.getByRole("button", { name: "คัดลอกข้อความ" }));
     const ta = (await screen.findByLabelText("กดค้างเพื่อคัดลอกเอง")) as HTMLTextAreaElement;
@@ -236,7 +237,7 @@ describe("สรุป + ส่ง LINE + คัดลอก", () => {
 
 describe("รูปจริง", () => {
   it("5 รูปพร้อม alt ตามมุมถ่าย · ปุ่มก่อนหน้า/ถัดไปมี aria-label", () => {
-    render(<RingShowcaseClient top3={TOP3} />);
+    render(<RingShowcaseClient params={LEGACY} />);
     const gallery = screen.getByRole("region", { name: "ดูของจริง" });
     const imgs = within(gallery).getAllByRole("img");
     expect(imgs).toHaveLength(5);
@@ -246,7 +247,7 @@ describe("รูปจริง", () => {
   });
   it("รูปโหลดไม่ได้ → กรอบ 'รูปนี้โหลดไม่ได้' + ลองอีกครั้ง แล้ว mount รูปใหม่", async () => {
     const user = userEvent.setup();
-    render(<RingShowcaseClient top3={TOP3} />);
+    render(<RingShowcaseClient params={LEGACY} />);
     const gallery = screen.getByRole("region", { name: "ดูของจริง" });
     fireEvent.error(within(gallery).getAllByRole("img")[1]);
     expect(within(gallery).getByText("รูปนี้โหลดไม่ได้")).toBeInTheDocument();
@@ -258,18 +259,18 @@ describe("รูปจริง", () => {
 
 describe("ข้อความท้ายหน้า + กฎแบรนด์", () => {
   it("disclaimer เดิมของ quiz คำต่อคำ · ไม่มีคำว่า 'เพชร' ทั้งหน้า (X7)", () => {
-    const { container } = render(<RingShowcaseClient top3={TOP3} />);
+    const { container } = render(<RingShowcaseClient params={LEGACY} />);
     expect(screen.getByText(GEM_QUIZ_DISCLAIMER, { exact: false })).toBeInTheDocument();
     expect(screen.getByText(/CZ คือคิวบิกเซอร์โคเนีย/)).toBeInTheDocument();
     expect(container.textContent).not.toContain("เพชร");
     expect(container.textContent).not.toMatch(/นำโชค|เสริมดวง/);
   });
   it("X6: ไม่มีน้ำหนัก/ต้นทุน/สเปคช่างบนหน้า", () => {
-    const { container } = render(<RingShowcaseClient top3={TOP3} />);
+    const { container } = render(<RingShowcaseClient params={LEGACY} />);
     expect(container.textContent).not.toMatch(/กรัม|น้ำหนัก|ต้นทุน|margin|3\.2/i);
   });
   it("ไม่มี horizontal-scroll class ที่ระดับเปลือก (overflow-x-hidden) และไม่มี input ข้อมูลส่วนบุคคล/ชำระเงิน", () => {
-    const { container } = render(<RingShowcaseClient top3={TOP3} />);
+    const { container } = render(<RingShowcaseClient params={LEGACY} />);
     expect(container.firstElementChild?.className).toContain("overflow-x-hidden");
     expect(container.querySelectorAll("input")).toHaveLength(0);
   });
@@ -277,8 +278,8 @@ describe("ข้อความท้ายหน้า + กฎแบรนด�
 
 describe("page.tsx — X1/X2", () => {
   async function propsOf(sp: Record<string, string | string[] | undefined>) {
-    const el = (await RingShowcasePage({ searchParams: Promise.resolve(sp) })) as { props: { top3: GemTop3 | null } };
-    return el.props.top3;
+    const el = (await RingShowcasePage({ searchParams: Promise.resolve(sp) })) as { props: { params: { top3: GemTop3 | null } } };
+    return el.props.params.top3;
   }
   it("g ถูกต้อง → top3 · ?price= ?size= ?design= ไม่มีผล", async () => {
     expect(await propsOf({ g: "garnet.citrine.peridot" })).toEqual(["garnet", "citrine", "peridot"]);
@@ -301,6 +302,6 @@ describe("page.tsx — X1/X2", () => {
     });
     await RingShowcasePage({ searchParams: Promise.resolve(proxy) });
     // await Promise.resolve(proxy) แตะ "then" ของ proxy เอง (กลไก Promise ไม่ใช่โค้ดหน้า) — ตัดออกก่อนเทียบ
-    expect(touched.filter((k) => k !== "then")).toEqual(["g"]);
+    expect(touched.filter((k) => k !== "then").sort()).toEqual(["c", "d", "g", "i", "t"]);
   });
 });

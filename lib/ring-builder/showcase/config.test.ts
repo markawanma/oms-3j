@@ -108,13 +108,13 @@ describe("copy-guard ของไฟล์ที่ถึงลูกค้า",
   });
   it("ข้อความ UI (SHOWCASE_COPY ทุกค่า) ไม่มีคำว่า 'เพชร'", () => {
     for (const v of Object.values(SHOWCASE_COPY)) {
-      const s = typeof v === "function" ? v(1) : v;
+      const s = typeof v === "function" ? (v as (x: number & string) => string)(1 as never) : v;
       expect(s).not.toContain("เพชร");
     }
   });
   it("SHOWCASE_COPY ไม่ซ้ำข้อความคำอธิบายพลอยของ GEM_QUIZ_PAIRS — ต้องดึงจาก config เดิมเท่านั้น", () => {
     const joined = Object.values(SHOWCASE_COPY)
-      .map((v) => (typeof v === "function" ? v(1) : v))
+      .map((v) => (typeof v === "function" ? (v as (x: number & string) => string)(1 as never) : v))
       .join("\n");
     for (const pair of GEM_QUIZ_PAIRS) {
       expect(joined).not.toContain(pair.fit);
