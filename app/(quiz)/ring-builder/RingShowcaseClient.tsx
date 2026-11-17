@@ -67,7 +67,7 @@ export function RingShowcaseClient({ params }: { params: ShowcaseParams }) {
   const currentSet = sets ? (sets.find((s) => s.index === recIndex) ?? sets[0]) : null;
 
   // พลอยที่แสดงบนแหวน + ค่าที่ส่งเข้า LINE/สรุป (ค่าเดียวกัน)
-  let choice: ShowcaseChoice = { kind: "direct" };
+  let choice: ShowcaseChoice = active === "own" ? { kind: "direct", unpicked: true } : { kind: "direct" };
   if (active === "own" && own) choice = { kind: "own", top: own.top, bottom: own.bottom };
   else if (active === "rec" && currentSet) choice = { kind: "rec", index: currentSet.index, top: currentSet.top, bottom: currentSet.bottom };
   const topCode: GemQuizStoneCode | null = choice.kind === "direct" ? null : choice.top;
@@ -169,7 +169,7 @@ export function RingShowcaseClient({ params }: { params: ShowcaseParams }) {
         </div>
 
         <div className="flex min-w-0 flex-col gap-4 lg:col-start-2 lg:row-start-4">
-          <OrderSummary choice={choice} gemsEmpty={active === "own" && own === null} size={size} />
+          <OrderSummary choice={choice} size={size} />
           <div className="border-t border-[var(--gq-divider)] pt-4">
             <p className="text-xs leading-[1.65] text-[var(--gq-text-faint)]">
               <strong className="font-semibold">ข้อควรทราบ:</strong> {GEM_QUIZ_DISCLAIMER}

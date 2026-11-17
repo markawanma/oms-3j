@@ -108,12 +108,13 @@ describe("โหมดเลือกพลอยเอง", () => {
     await u.click(modeRadio("เลือกพลอยเอง"));
     expect(gemRow("พลอยบน (เม็ดหลัก)").getByRole("radio", { name: "บลูโทพาส" })).toHaveAttribute("aria-checked", "true");
   });
-  it("เข้าตรง: ว่างทั้งคู่ + คำแนะนำ · แตะเม็ดแรก = ตั้งทั้งสอง (บน=ล่างได้) · แล้วเปลี่ยนล่างได้ · สรุปแสดง 'ยังไม่ได้เลือกพลอย' ตอนว่าง", async () => {
+  it("เข้าตรง: ว่างทั้งคู่ + คำแนะนำ · แตะเม็ดแรก = ตั้งทั้งสอง (บน=ล่างได้) · แล้วเปลี่ยนล่างได้ · สรุปและ LINE ตรงกัน 'CZ ขาว (ยังไม่ได้เลือกพลอยสี)' ตอนว่าง", async () => {
     const u = user();
     render(<RingShowcaseClient params={EMPTY_SHOWCASE_PARAMS} />);
     await u.click(modeRadio("เลือกพลอยเอง"));
     expect(screen.getByText("แตะพลอยบนก่อน ระบบใส่ชนิดเดียวกันให้ล่าง แล้วเปลี่ยนล่างได้")).toBeInTheDocument();
-    expect(screen.getAllByText("ยังไม่ได้เลือกพลอย")).toHaveLength(2);
+    expect(screen.getAllByText("CZ ขาว (ยังไม่ได้เลือกพลอยสี)")).toHaveLength(2);
+    expect(lineMessage()).toContain("พลอยบน: CZ ขาว (ยังไม่ได้เลือกพลอยสี) · พลอยล่าง: CZ ขาว (ยังไม่ได้เลือกพลอยสี)"); // จอ = LINE
     await u.click(gemRow("พลอยบน (เม็ดหลัก)").getByRole("radio", { name: "โกเมน" }));
     expect(gemRow("พลอยล่าง (เม็ดเสริม)").getByRole("radio", { name: "โกเมน" })).toHaveAttribute("aria-checked", "true");
     expect(screen.getByText("โกเมน ทั้ง 2 เม็ด")).toBeInTheDocument();

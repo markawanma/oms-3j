@@ -12,13 +12,10 @@ const COPIED_MS = 3000;
 
 export function OrderSummary({
   choice,
-  gemsEmpty,
   size,
 }: {
   /** สิ่งที่เลือก — จอสรุปกับข้อความ LINE มาจากค่าเดียวกัน (resolveChoice) */
   choice: ShowcaseChoice;
-  /** โหมดเลือกพลอยเองแต่ยังไม่ได้เลือก — แหวนยัง CZ ขาว สรุปแสดง "ยังไม่ได้เลือกพลอย" */
-  gemsEmpty: boolean;
   size: number | null;
 }) {
   const input = { choice, size };
@@ -55,8 +52,8 @@ export function OrderSummary({
       SHOWCASE_COPY.summaryDesign,
       choice.kind === "rec" ? `${SHOWCASE_DESIGN_NAME} · แบบ ${choice.index}` : choice.kind === "own" ? `${SHOWCASE_DESIGN_NAME} · ${SHOWCASE_COPY.summaryOwn}` : SHOWCASE_DESIGN_NAME,
     ],
-    [SHOWCASE_COPY.summaryTop, gemsEmpty ? SHOWCASE_COPY.gemNone : (resolved?.topLabel ?? "—")],
-    [SHOWCASE_COPY.summaryBottom, gemsEmpty ? SHOWCASE_COPY.gemNone : (resolved?.bottomLabel ?? "—")],
+    [SHOWCASE_COPY.summaryTop, resolved?.topLabel ?? "—"],
+    [SHOWCASE_COPY.summaryBottom, resolved?.bottomLabel ?? "—"],
     [SHOWCASE_COPY.summarySize, size === null ? SHOWCASE_COPY.sizePending : SHOWCASE_COPY.sizeUnit(size)],
     [SHOWCASE_COPY.summaryPrice, formatPriceThb()],
   ];

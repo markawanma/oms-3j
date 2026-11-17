@@ -11,8 +11,8 @@ import { isStoneCode } from "./quiz-link";
 
 /** สิ่งที่ลูกค้าเลือก — ใช้ทั้งการ์ดสรุปบนจอและข้อความ LINE (จุดเดียว ไม่มีทางไม่ตรงกัน) */
 export type ShowcaseChoice =
-  /** เข้าตรง / ยังไม่ได้เลือกพลอย: CZ ขาวทั้งสองเม็ด */
-  | { kind: "direct" }
+  /** เข้าตรง / ยังไม่ได้เลือกพลอย: CZ ขาวทั้งสองเม็ด · unpicked = อยู่ในโหมดเลือกเองแต่ยังไม่เลือก (ข้อความ "ยังไม่ได้เลือกพลอยสี" ตรงกันทั้งจอและ LINE) */
+  | { kind: "direct"; unpicked?: boolean }
   /** แบบแนะนำ 1..3 */
   | { kind: "rec"; index: number; top: GemQuizStoneCode; bottom: GemQuizStoneCode }
   /** เลือกพลอยเอง */
@@ -31,9 +31,10 @@ export function isShowcaseSize(size: unknown): size is number {
 /** ตรวจ choice (ค่าจากภายนอก type system) แล้วคืนป้ายพลอยบน/ล่าง + บรรทัดแบบ · ผิดอะไรก็ตาม = null */
 export function resolveChoice(choice: unknown): { topLabel: string; bottomLabel: string; designLine: string } | null {
   if (typeof choice !== "object" || choice === null) return null;
-  const c = choice as { kind?: unknown; index?: unknown; top?: unknown; bottom?: unknown };
+  const c = choice as { kind?: unknown; index?: unknown; top?: unknown; bottom?: unknown; unpicked?: unknown };
   if (c.kind === "direct") {
-    return { topLabel: CZ_WHITE.name, bottomLabel: CZ_WHITE.name, designLine: `แบบ: ${SHOWCASE_DESIGN_NAME}` };
+    const label = c.unpicked === true ? SHOWCASE_COPY.gemNone : CZ_WHITE.name;
+    return { topLabel: label, bottomLabel: label, designLine: `แบบ: ${SHOWCASE_DESIGN_NAME}` };
   }
   if (c.kind !== "rec" && c.kind !== "own") return null;
   if (!isStoneCode(c.top) || !isStoneCode(c.bottom)) return null;
