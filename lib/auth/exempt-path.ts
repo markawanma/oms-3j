@@ -57,8 +57,10 @@
 // และ POST Next-Action ไป URL เดียวกันก็ข้าม gate → action ที่ไม่มี guard ในตัวรันได้ (คนนอกถูกนับเป็น role staff)
 // ตอนนี้ยอมเฉพาะไฟล์ที่มีจริงใน public/: (1) ไฟล์ระดับ root เท่านั้น `[^/]+\.ext$` (ห้ามมี "/") (2) `gem-quiz/[^/]+\.ext$` ลึกหนึ่งชั้นพอดี (og.png) (3) `ring-size/[^/]+\.ext$` แบบเดียวกัน (3j-mark.png ของหน้า /ring-size — เพิ่ม 27 ต.ค. 69 ตอน merge ทับงาน ring-size)
 // ปลอดภัยตราบที่ไม่มี route ระดับ root ที่เป็น dynamic segment (ไม่มี app/[slug]) · เพิ่มโฟลเดอร์ใหม่ใต้ public/ = ต้องเพิ่มที่นี่ + middleware.ts โดยตั้งใจ
+// tools/?$ เพิ่ม 18 พ.ย. 69 (hub หน้ารวมเครื่องมือลูกค้า — static ไม่มี DB/env · design-tools-hub §2): exact เท่านั้น — /toolsx · /tools/x · /tools-admin · /TOOLS ต้องยัง gate
+// (lib/auth/exempt-path.tools.test.ts) · ต้องแก้คู่กับ middleware.ts matcher · บน host tools. ถูกส่งไป "/" ด้วย redirects() ใน next.config.mjs (ไม่ขึ้นกับไฟล์นี้)
 const EXEMPT_PATTERN =
-  /^(?:_next\/static|_next\/image|favicon\.ico|api\/webhooks(?:\/|$)|api\/gem-quiz\/submit\/?$|api\/ring-size\/event\/?$|api\/ring-builder\/quote\/?$|shop(?:\/|$)|gem-quiz\/?$|ring-size\/?$|ring-builder\/?$|stock\/hero(?:\/|$)|w\/[A-Za-z0-9_-]+\/?$|w\/s\/[A-Za-z0-9_-]+\/?$|[^/]+\.(?:svg|png|jpg|jpeg|gif|webp|ico)$|gem-quiz\/[^/]+\.(?:svg|png|jpg|jpeg|webp)$|ring-size\/[^/]+\.(?:svg|png|jpg|jpeg|webp)$)/;
+  /^(?:_next\/static|_next\/image|favicon\.ico|api\/webhooks(?:\/|$)|api\/gem-quiz\/submit\/?$|api\/ring-size\/event\/?$|api\/ring-builder\/quote\/?$|shop(?:\/|$)|gem-quiz\/?$|ring-size\/?$|ring-builder\/?$|tools\/?$|stock\/hero(?:\/|$)|w\/[A-Za-z0-9_-]+\/?$|w\/s\/[A-Za-z0-9_-]+\/?$|[^/]+\.(?:svg|png|jpg|jpeg|gif|webp|ico)$|gem-quiz\/[^/]+\.(?:svg|png|jpg|jpeg|webp)$|ring-size\/[^/]+\.(?:svg|png|jpg|jpeg|webp)$)/;
 
 /** true if `pathname` bypasses the auth gate entirely (middleware.ts never
  * runs for it) — mirrors config.matcher's negative-lookahead exactly. */

@@ -42,6 +42,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 import { createClient } from "@supabase/supabase-js";
 import { sanitizeNextParam } from "@/lib/auth/sanitize-next";
+import { TOOLS_ORIGIN, isToolsHost } from "@/lib/site/hosts";
 
 const AUTH_ENTRY_PATHS = new Set(["/login", "/register", "/pending"]);
 
@@ -80,8 +81,24 @@ function denyOrRedirect(request: NextRequest, target: URL, source: NextResponse)
   return withCookiesFrom(source, NextResponse.redirect(target));
 }
 
+/** ชั้น (2) ของ host tools. (design-tools-hub §1): "/" -> rewrite hub (/tools) · อย่างอื่นที่หลุดมาถึง middleware -> 307 "/"
+ * 🔴 ตัดสิทธิ์อย่างเดียว: return ก่อนอ่าน env/สร้าง Supabase client/แตะ cookie → ไม่มี Set-Cookie · ไม่ขึ้นกับ AUTH_GATE · ปลอม Host นี้ = เห็นน้อยลง
+ * non-GET/HEAD บน "/" = 405 (กัน POST + Next-Action ไปรันบน hub) · redirect เป็น absolute TOOLS_ORIGIN (ไม่เชื่อ Host ที่ส่งมา) */
+function toolsHostResponse(request: NextRequest): NextResponse {
+  const method = request.method.toUpperCase();
+  if (request.nextUrl.pathname === "/") {
+    if (method !== "GET" && method !== "HEAD") {
+      return new NextResponse(null, { status: 405, headers: { Allow: "GET, HEAD" } });
+    }
+    return NextResponse.rewrite(new URL("/tools", request.url));
+  }
+  return NextResponse.redirect(new URL("/", TOOLS_ORIGIN), 307);
+}
+
 export async function middleware(request: NextRequest) {
-  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  if (isToolsHost(request.headers.get("host"))) return toolsHostResponse(request);
+
+  const url =process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
   const gateOn = process.env.AUTH_GATE === "on";
 
@@ -254,6 +271,6 @@ export const config = {
   // exempt-path.test.ts compiles this literal with Next's own matcher
   // compiler and fails on drift.
   matcher: [
-    "/((?!_next/static|_next/image|favicon\\.ico|api/webhooks(?:/|$)|api/gem-quiz/submit/?$|api/ring-size/event/?$|api/ring-builder/quote/?$|shop(?:/|$)|gem-quiz/?$|ring-size/?$|ring-builder/?$|stock/hero(?:/|$)|w/[A-Za-z0-9_-]+/?$|w/s/[A-Za-z0-9_-]+/?$|[^/]+\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$|gem-quiz/[^/]+\\.(?:svg|png|jpg|jpeg|webp)$|ring-size/[^/]+\\.(?:svg|png|jpg|jpeg|webp)$).*)",
+    "/((?!_next/static|_next/image|favicon\\.ico|api/webhooks(?:/|$)|api/gem-quiz/submit/?$|api/ring-size/event/?$|api/ring-builder/quote/?$|shop(?:/|$)|gem-quiz/?$|ring-size/?$|ring-builder/?$|tools/?$|stock/hero(?:/|$)|w/[A-Za-z0-9_-]+/?$|w/s/[A-Za-z0-9_-]+/?$|[^/]+\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$|gem-quiz/[^/]+\\.(?:svg|png|jpg|jpeg|webp)$|ring-size/[^/]+\\.(?:svg|png|jpg|jpeg|webp)$).*)",
   ],
 };
