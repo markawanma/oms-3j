@@ -31,13 +31,13 @@ describe("ToolsHub — success (ไม่เคยวัดไซซ์)", () =>
     expect(screen.getByRole("heading", { level: 1 })).toHaveTextContent(TOOLS_HUB_COPY.heading);
     const list = screen.getByRole("list", { name: TOOLS_HUB_COPY.toolsLabel });
     const links = within(list).getAllByRole("link");
-    expect(links.map((a) => a.getAttribute("href"))).toEqual(["/ring-builder", "/gem-quiz", "/ring-size"]);
-    expect(HUB_TOOLS.map((t) => t.id)).toEqual(["ring-builder", "gem-quiz", "ring-size"]);
+    expect(links.map((a) => a.getAttribute("href"))).toEqual(["/ring-size", "/gem-quiz", "/ring-builder"]);
+    expect(HUB_TOOLS.map((t) => t.id)).toEqual(["ring-size", "gem-quiz", "ring-builder"]);
     for (const t of HUB_TOOLS) expect(within(list).getByRole("heading", { level: 2, name: new RegExp(t.title) })).toBeInTheDocument();
   });
 
   it("การ์ดแรกเท่านั้นเป็น primary (ปุ่มหลักเดียว)", () => {
-    expect(HUB_TOOLS.filter((t) => t.variant === "primary").map((t) => t.id)).toEqual(["ring-builder"]);
+    expect(HUB_TOOLS.filter((t) => t.variant === "primary").map((t) => t.id)).toEqual(["ring-size"]);
   });
 
   it("ราคา/ระยะเวลามาจากฟังก์ชันเดิม (ไม่พิมพ์เลขเอง)", () => {
@@ -55,7 +55,7 @@ describe("ToolsHub — success (ไม่เคยวัดไซซ์)", () =>
   it("copy ไม่มีคำต้องห้าม · ไม่มีราคาอื่นนอกจากราคาที่ formatPriceThb ให้", () => {
     const { container } = render(<ToolsHubPage />);
     const text = container.textContent ?? "";
-    for (const bad of ["เพชร", "TikTok", "Shopee", "ติ๊กต๊อก", "ช้อปปี้", "TODO_OWNER"]) expect(text).not.toContain(bad);
+    for (const bad of ["ใช้ฟรี", "ไม่ต้องสมัคร", "เพชร", "TikTok", "Shopee", "ติ๊กต๊อก", "ช้อปปี้", "TODO_OWNER"]) expect(text).not.toContain(bad);
     const prices = text.match(/[0-9][0-9,]*\s*บาท/g) ?? [];
     // "10 บาท" มาจากเหรียญ 10 บาทในคำอธิบายวัดไซซ์ (ประโยคเดิมของ /ring-size) ไม่ใช่ราคา
     expect(prices.map((p) => p.replace(/\s/g, "")).sort()).toEqual(["10บาท", formatPriceThb().replace(/\s/g, "")].sort());
