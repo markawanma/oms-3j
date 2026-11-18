@@ -135,7 +135,7 @@ describe("buildShowcaseUrl — URL ที่หน้าเขียนเอง
   });
 });
 
-describe("LINE — ไซซ์นอก 55–58 ไม่สร้างข้อความ · ราคา 800 ทุกสถานะ", () => {
+describe("LINE — ไซซ์นอก 55–58 ไม่สร้างข้อความ · ราคา 890 ทุกสถานะ", () => {
   const choices: ShowcaseChoice[] = [{ kind: "direct" }, { kind: "rec", index: 1, top: "garnet", bottom: "citrine" }, { kind: "own", top: "peridot", bottom: "peridot" }];
   it("ไซซ์ขอบเขต 54/59/0/-1/55.5/NaN/Infinity/'56'/null-ish ที่ไม่ใช่ null → null ทั้งข้อความและลิงก์ ทุกสถานะ", () => {
     for (const choice of choices) {
@@ -145,11 +145,11 @@ describe("LINE — ไซซ์นอก 55–58 ไม่สร้างข้�
       }
     }
   });
-  it("ราคาในข้อความมีตัวเดียว = 800 ทุก choice × (ไม่เลือกไซซ์ + 4 ไซซ์)", () => {
+  it("ราคาในข้อความมีตัวเดียว = 890 ทุก choice × (ไม่เลือกไซซ์ + 4 ไซซ์)", () => {
     for (const choice of choices) {
       for (const size of [null, ...SHOWCASE_SIZES]) {
         const msg = buildShowcaseLineMessage({ choice, size }) as string;
-        expect([...msg.matchAll(/(\d[\d,]*)\s*บาท/g)].map((m) => m[1])).toEqual(["800"]);
+        expect([...msg.matchAll(/(\d[\d,]*)\s*บาท/g)].map((m) => m[1])).toEqual(["890"]);
         expect(msg).not.toMatch(/เพชร|undefined|NaN|\[object/);
       }
     }
@@ -159,6 +159,6 @@ describe("LINE — ไซซ์นอก 55–58 ไม่สร้างข้�
     const msg = buildShowcaseLineMessage({ choice: evil, size: null }) as string;
     expect(msg).not.toContain("alert");
     expect(msg).not.toContain("love");
-    expect(msg).toContain("ราคา 800 บาท");
+    expect(msg).toContain("ราคา 890 บาท");
   });
 });

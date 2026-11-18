@@ -147,8 +147,8 @@ describe("โหมดเลือกพลอยเอง", () => {
             expect(text).toContain("คู่นี้ยังไม่มีคำอธิบายเฉพาะคู่ แสดงคำอธิบายรายเม็ดแทน");
           }
         }
-        // Y3: ราคาเดียว 800 ทุกคู่
-        expect([...lineMessage().matchAll(/(\d[\d,]*)\s*บาท/g)].map((m) => m[1])).toEqual(["800"]);
+        // Y3: ราคาเดียว 890 ทุกคู่
+        expect([...lineMessage().matchAll(/(\d[\d,]*)\s*บาท/g)].map((m) => m[1])).toEqual(["890"]);
         expect(text).not.toContain("เพชร");
         expect(text).not.toMatch(/undefined|NaN|\[object/);
       }
@@ -177,7 +177,7 @@ describe("page: key ใหม่ผ่าน page จริง · ราคา�
   it("?price=1&c=...&d=own ไม่เปลี่ยนราคา · c ผิดรูปถูกทิ้ง", async () => {
     const el = await RingShowcasePage({ searchParams: Promise.resolve({ price: "1", c: "garnet.citrine", d: "own" }) });
     render(el);
-    expect(lineMessage()).toContain("ราคา 800 บาท");
+    expect(lineMessage()).toContain("ราคา 890 บาท");
     cleanup();
     const bad = await RingShowcasePage({ searchParams: Promise.resolve({ c: "cz_white.garnet", d: "own", t: "x", i: "<b>" }) });
     const { container } = render(bad);
