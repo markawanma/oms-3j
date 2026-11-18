@@ -2,6 +2,7 @@ import { COPY } from "@/lib/ring-size/config";
 import { CardIcon, ArrowRightIcon, LockIcon, RingHero, RingSmallIcon, CheckIcon } from "../_components/Icons";
 import { RsButton } from "../_components/RsButton";
 import { StickyActionBar } from "../_components/StickyActionBar";
+import { ToolsHubLink } from "../../_components/ToolsHubLink";
 import { CARD, FOCUS, SERIF, TEXT, TEXT_2 } from "../_components/styles";
 
 // R0 / R0Return — หน้าแรก (ตัวเดียว 2 แบบ: คนใหม่ · คนกลับมา)
@@ -26,8 +27,11 @@ export function R0({ loaded, lastResultSize, calibrated, onStart, onViewLastResu
   return (
     <div className="flex flex-1 flex-col">
       <div className="flex flex-col px-[22px] pb-6 pt-7">
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/3j-logo.png" alt={COPY.common.logoAlt} className="h-[62px] w-auto self-center" />
+        {/* โลโก้หน้าแรกกดกลับหน้ารวมเครื่องมือได้ (P3 · ยังไม่เริ่มวัด = ไม่มีงานให้เสีย) */}
+        <ToolsHubLink variant="mark" className="self-center">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/3j-logo.png" alt={COPY.common.logoAlt} className="h-[62px] w-auto" />
+        </ToolsHubLink>
 
         <div className="mb-1.5 mt-[26px] flex justify-center [@media(max-height:719px)]:hidden" aria-hidden="true">
           <RingHero />

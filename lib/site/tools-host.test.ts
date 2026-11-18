@@ -109,8 +109,8 @@ describe("next.config.mjs — literal host ตรงกับ TOOLS_HOST (กั
 });
 
 describe("redirects ชั้น (1) บน tools. — ผ่านฟังก์ชันของ Next จริง", () => {
-  it("2 rule (Next-Action + นอก allowlist) · ทุกตัว 307 (permanent=false) · destination '/' · ผูก host tools. เสมอ", async () => {
-    const r = await cfg.redirects();
+  it("2 rule (Next-Action + นอก allowlist) · ทุกตัว 307 (permanent=false) · destination '/' · ผูก host tools. เสมอ (P2 เพิ่ม rule ฝั่ง app. ต่อท้าย — ดู describe P2)", async () => {
+    const r = (await cfg.redirects()).filter((x) => x.destination === "/");
     expect(r).toHaveLength(2);
     for (const x of r) {
       expect(x.permanent).toBe(false);
@@ -127,7 +127,9 @@ describe("redirects ชั้น (1) บน tools. — ผ่านฟังก�
     expect(await redirectFor(T, "/", { "next-action": "x" })).toBeNull();
   });
   it("T8: บน app./localhost ไม่โดน (ไม่เปลี่ยนพฤติกรรมเดิม N1/N2)", async () => {
-    for (const h of [APP_HOST, "localhost:3000", "evil-tools.3jthailand.com"]) expect(await redirectFor(h, "/ring-size", { "next-action": "x" }), h).toBeNull();
+    // app. โดนแค่ rule P2 (→ tools. ปลายทางตายตัว) ไม่ใช่ rule next-action ของ tools. ("/")
+    expect(await redirectFor(APP_HOST, "/ring-size", { "next-action": "x" })).toBe(`${TOOLS_ORIGIN}/ring-size`);
+    for (const h of ["localhost:3000", "evil-tools.3jthailand.com"]) expect(await redirectFor(h, "/ring-size", { "next-action": "x" }), h).toBeNull();
   });
 
   // T1–T7: ทุกอย่างนอก allowlist → "/"
@@ -185,7 +187,8 @@ describe("redirects ชั้น (1) บน tools. — ผ่านฟังก�
   it.each(["evil-tools.3jthailand.com", "tools.3jthailand.com.evil.com", "xtools.3jthailand.com", "app.3jthailand.com", "oms-3j.vercel.app", "localhost:3000", "3jthailand.com"])(
     "T11/N2: Host %s ไม่โดนกฎ tools. (dashboard · shop · w/* คงเดิม)",
     async (h) => {
-      for (const p of ["/dashboard", "/shop", `/w/${TOKEN}`, "/api/webhooks/x", "/login", "/tools"]) expect(await redirectFor(h, p), `${h} ${p}`).toBeNull();
+      // "/tools" บน app. = rule P2 (→ tools. "/") ไม่ใช่กฎ tools. — ตรวจใน describe P2
+      for (const p of ["/dashboard", "/shop", `/w/${TOKEN}`, "/api/webhooks/x", "/login", ...(h === "app.3jthailand.com" ? [] : ["/tools"])]) expect(await redirectFor(h, p), `${h} ${p}`).toBeNull();
     },
   );
 });
@@ -397,5 +400,86 @@ describe("M1: ชั้น (2) ทำงานเองโดยไม่พึ�
   });
   it("'/' GET ปกติยัง rewrite เป็น hub", async () => {
     expect((await call("/")).headers.get("x-middleware-rewrite")).toContain("/tools");
+  });
+});
+
+// ───────── P2 (18 พ.ย. 69) — app.3jthailand.com → tools. (design-tools-hub §1.2 · N5) ─────────
+// 🔴 redirectFor() ใช้ getPathMatch + matchHas ของ Next ตัวเดียวกับ next start · query/method ตรวจจริงใน scripts/verify/tools-host-p2-smoke-*.txt
+describe("P2: redirects ชั้น (3) app. → tools.", () => {
+  const A = APP_HOST;
+  const PAGES: Array<[string, string]> = [
+    ["/ring-size", `${TOOLS_ORIGIN}/ring-size`],
+    ["/gem-quiz", `${TOOLS_ORIGIN}/gem-quiz`],
+    ["/ring-builder", `${TOOLS_ORIGIN}/ring-builder`],
+    ["/tools", `${TOOLS_ORIGIN}/`],
+  ];
+
+  it("rule ของ app. มี 4 ตัวเท่านั้น · ทุกตัว 307 · ปลายทางเป็น literal https://tools.3jthailand.com (ไม่มี :param/* → ไม่เป็น open redirect) · source exact ไม่มี param", async () => {
+    const mod = (await import("../../next.config.mjs")) as unknown as { APP_HOST_REGEX: string };
+    const r = (await cfg.redirects()).filter((x) => x.has?.[0]?.value === mod.APP_HOST_REGEX);
+    expect(r.map((x) => x.source)).toEqual(PAGES.map(([p]) => p));
+    for (const x of r) {
+      expect(x.permanent).toBe(false);
+      expect(x.has).toHaveLength(1);
+      expect(x.destination).toMatch(new RegExp(`^${TOOLS_ORIGIN.replace(/./g, "\.")}/[a-z-]*$`));
+      expect(new URL(x.destination).pathname).not.toMatch(/[:*(]/); // ไม่มี param ในปลายทาง
+      expect(x.source).not.toMatch(/[:*(?]/);
+    }
+    // รวมทั้งหมด = 2 (tools.) + 4 (app.) — rule แปลกปลอมโผล่ = ตกที่นี่
+    expect(await cfg.redirects()).toHaveLength(6);
+  });
+
+  it("APP_HOST_REGEX anchored: ตรง app. (รวม . ท้าย/ตัวพิมพ์ใหญ่/port ผ่าน matchHas ของ Next) · ไม่ตรง look-alike (T11)", async () => {
+    const mod = (await import("../../next.config.mjs")) as unknown as { APP_HOST_REGEX: string };
+    const re = new RegExp(`^${mod.APP_HOST_REGEX}$`);
+    expect(re.test(APP_HOST)).toBe(true);
+    expect(re.test(`${APP_HOST}.`)).toBe(true);
+    for (const bad of ["evil-app.3jthailand.com", "xapp.3jthailand.com", `${APP_HOST}.evil.com`, `${APP_HOST}..`, "tools.3jthailand.com", "app-3jthailand.com", "oms-3j.vercel.app"]) {
+      expect(re.test(bad), bad).toBe(false);
+    }
+  });
+
+  it.each(PAGES)("N5: app. %s → 307 ปลายทางตายตัว", async (path, dest) => {
+    expect(await redirectFor(A, path)).toBe(dest);
+  });
+  it.each(["APP.3JTHAILAND.COM", "app.3jthailand.com.", "app.3jthailand.com:443", "App.3jthailand.com.:8080"])("N5/T9: Host %s ก็ redirect เหมือนกัน (ห้ามหลุดไปเสิร์ฟตรงบน app.)", async (h) => {
+    for (const [path, dest] of PAGES) expect(await redirectFor(h, path), `${h} ${path}`).toBe(dest);
+  });
+
+  it("ไม่วน: ปลายทางของทุก rule app. ไม่ตรง rule ใดบน host tools. (ยกเว้น path ใน allowlist ที่ผ่านตรง) · tools. ไม่โดน rule app.", async () => {
+    for (const [path, dest] of PAGES) {
+      const toolsPath = new URL(dest).pathname;
+      // บน tools. หน้าปลายทางต้อง "ไม่ถูก redirect ชั้น (1)" (hub "/" · 3 หน้า ผ่าน allowlist) → ไม่มี hop ที่สอง
+      expect(await redirectFor(T, toolsPath), `tools. ${toolsPath}`).toBeNull();
+      // tools. เปิด path เดิมของ app. แล้วไม่โดน rule ฝั่ง app. (ได้ null สำหรับ 3 หน้า · "/tools" บน tools. โดน rule tools. → "/")
+      expect(await redirectFor(T, path)).toBe(path === "/tools" ? "/" : null);
+    }
+  });
+
+  it("ต้องไม่พัง: API · asset · subtree · หลังบ้านบน app. ไม่ถูก redirect (N1 N3)", async () => {
+    for (const p of [
+      "/api/gem-quiz/submit", "/api/ring-size/event", "/api/ring-builder/quote", // API ยกเว้น — หน้าที่เปิดค้างบน app. ยัง submit ได้
+      "/ring-size/og.png", "/gem-quiz/og.png", "/3j-logo.png", "/_next/static/chunks/x.js", // asset (การ์ด OG เก่าที่ LINE แคชไว้ยังชี้ app.)
+      "/ring-size/x", "/gem-quiz/deep", "/ring-builders", "/toolsx", "/tools/x", // look-alike/subtree ไม่โดน (ยัง gate ตามเดิม)
+      "/", "/dashboard", "/login", "/shop", "/stock/hero", `/w/${TOKEN}`, `/w/s/${TOKEN}`, "/api/webhooks/x", "/oem", "/catalog/x",
+    ]) {
+      expect(await redirectFor(A, p), p).toBeNull();
+    }
+  });
+
+  it("N2: localhost / *.vercel.app / host ปลอม ไม่ redirect (เสิร์ฟตรงเหมือนเดิม)", async () => {
+    for (const h of ["localhost", "localhost:3000", "127.0.0.1:3000", "oms-3j.vercel.app", "oms-3j-git-feature-x.vercel.app", "evil-app.3jthailand.com", "app.3jthailand.com.evil.com", "xapp.3jthailand.com", "3jthailand.com"]) {
+      for (const [path] of PAGES) expect(await redirectFor(h, path), `${h} ${path}`).toBeNull();
+    }
+  });
+
+  it("literal ใน next.config ตรง hosts.ts: APP_HOST_REGEX ↔ APP_HOST · destination ↔ TOOLS_ORIGIN", async () => {
+    const mod = (await import("../../next.config.mjs")) as unknown as { APP_HOST_REGEX: string; APP_TO_TOOLS_REDIRECTS: Array<{ destination: string }> };
+    expect(new RegExp(`^${mod.APP_HOST_REGEX}$`).test(APP_HOST)).toBe(true);
+    for (const x of mod.APP_TO_TOOLS_REDIRECTS) expect(x.destination.startsWith(`${TOOLS_ORIGIN}/`)).toBe(true);
+  });
+
+  it("middleware: app. ไม่ผ่านชั้น (2) (isToolsHost=false) — rule P2 อยู่ใน next.config ชั้นเดียว ไม่แตะ gate เดิม", () => {
+    expect(isToolsHost(APP_HOST)).toBe(false);
   });
 });

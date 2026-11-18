@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { issueFormToken } from "@/lib/gem-quiz/form-token";
+import { TOOLS_ORIGIN } from "@/lib/site/hosts";
 import { GemQuizClient } from "./GemQuizClient";
 
 // app/(quiz)/gem-quiz/page.tsx — server component (design §4.1).
@@ -18,11 +19,15 @@ export const dynamic = "force-dynamic";
 // doc §9 O2 — copy อนุมัติแล้ว) — เนื้อหาอื่นของไฟล์นี้ (force-dynamic, robots
 // noindex, og image path) ไม่แก้ตามขอบเขตงาน §7 ("แก้ metadata เท่านั้น")
 export const metadata: Metadata = {
+  // P2 (18 พ.ย. 69): หน้านี้อยู่บน tools. — og:image/og:url/canonical resolve จาก origin นี้ ไม่พึ่ง fallback ของ Vercel (ค่าคงที่ ไม่ใช่ env)
+  metadataBase: new URL(TOOLS_ORIGIN),
+  alternates: { canonical: "/gem-quiz" },
   title: "Daily Gem Quiz — แบบทดสอบเลือกพลอยประจำวัน | 3J Jewelry",
   description:
     "ค้นหาพลอยที่เหมาะกับคุณสำหรับวันนี้ จากวันเกิด เป้าหมาย ความรู้สึก และสไตล์ที่คุณชอบ — 5 คำถาม ไม่ถึง 1 นาที ไม่เก็บข้อมูลส่วนตัว",
   robots: { index: false, follow: false },
   openGraph: {
+    url: "/gem-quiz",
     title: "Daily Gem Quiz — แบบทดสอบเลือกพลอยประจำวัน | 3J Jewelry",
     description:
       "ค้นหาพลอยที่เหมาะกับคุณสำหรับวันนี้ จากวันเกิด เป้าหมาย ความรู้สึก และสไตล์ที่คุณชอบ — 5 คำถาม ไม่ถึง 1 นาที ไม่เก็บข้อมูลส่วนตัว",
