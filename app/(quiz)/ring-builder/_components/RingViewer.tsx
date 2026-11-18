@@ -10,6 +10,7 @@ import { designTints, slotTints } from "@/lib/ring-builder/viewer/gem-colors";
 import { createRingRenderer, type RingRenderer, type UnsupportedReason } from "@/lib/ring-builder/viewer/gl-renderer";
 import { getShowcaseRing } from "@/lib/ring-builder/viewer/showcase-rings";
 import type { GemQuizStoneCode } from "@/lib/gem-quiz/config";
+import type { SlotCode } from "@/lib/ring-builder/showcase/quiz-link";
 import { SHOWCASE_COPY } from "@/lib/ring-builder/showcase/config";
 import type { ShowcaseDesignId } from "@/lib/ring-builder/showcase/designs";
 import type { ViewerRing } from "@/lib/ring-builder/viewer/ring-types";
@@ -21,7 +22,7 @@ export interface RingViewerProps {
   /** พลอยเสริม (null = CZ ขาว) */
   bottom: GemQuizStoneCode | null;
   /** D1.2a: สีรายเม็ดของแบบแถว (ซ้าย→ขวา) — มีค่า = ใช้แทน top/bottom · จำนวนไม่ตรงแบบ = CZ ขาว (ไม่ crash) */
-  slots?: readonly GemQuizStoneCode[] | null;
+  slots?: readonly SlotCode[] | null;
   /** สรุปพลอยปัจจุบันสำหรับ screen reader */
   ariaLabel: string;
   onReady?: () => void;
@@ -32,7 +33,7 @@ export interface RingViewerProps {
   showReset?: boolean;
 }
 
-function tintsFor(designId: ShowcaseDesignId, top: GemQuizStoneCode | null, bottom: GemQuizStoneCode | null, slots: readonly GemQuizStoneCode[] | null | undefined) {
+function tintsFor(designId: ShowcaseDesignId, top: GemQuizStoneCode | null, bottom: GemQuizStoneCode | null, slots: readonly SlotCode[] | null | undefined) {
   return slots ? slotTints(designId, slots) : designTints(designId, top, bottom);
 }
 

@@ -4,7 +4,7 @@
 import { GEM_QUIZ_PAIRS, GEM_QUIZ_STONE_BY_CODE, type GemQuizIntention, type GemQuizPair, type GemQuizStoneCode } from "@/lib/gem-quiz/config";
 import { rankGems } from "@/lib/gem-quiz/recommend";
 import { findPair } from "@/lib/gem-quiz/result";
-import type { GemTop3 } from "./quiz-link";
+import { isStoneCode, type GemTop3, type SlotCode } from "./quiz-link";
 
 export interface ShowcaseSet {
   /** 1..3 = อันดับพลอย (จาก quiz หรือจากเรื่องที่เลือก) */
@@ -65,7 +65,8 @@ export function stoneLabel(code: GemQuizStoneCode): string {
 }
 
 export type OwnSlotsDescription =
-  | { kind: "same"; code: GemQuizStoneCode; label: string; keywords: string }
+  /** withCz = ยังมีเม็ด CZ ขาวปน (คำอธิบายเป็นของพลอยตัวเดียว ไม่ใช่ "ทุกเม็ด") */
+  | { kind: "same"; code: GemQuizStoneCode; label: string; keywords: string; withCz: boolean }
   | { kind: "pair"; pair: GemQuizPair }
   | { kind: "list"; items: { label: string; keywords: string }[] };
 
@@ -73,12 +74,16 @@ export type OwnSlotsDescription =
  * คำอธิบายพลอยของโหมดรายเม็ด (D1.2a A6) — ข้อความมาจาก config ทั้งหมด ไม่แต่งความหมายเอง
  * 1 ชนิด = same · พอดี 2 ชนิดที่มีคู่ใน GEM_QUIZ_PAIRS = pair (ไม่สนลำดับ/จำนวนเม็ด) · นอกนั้น = รายชนิดตามลำดับซ้าย→ขวาที่เจอก่อน
  */
-export function describeOwnSlots(codes: readonly GemQuizStoneCode[]): OwnSlotsDescription | null {
+export function describeOwnSlots(codes: readonly SlotCode[]): OwnSlotsDescription | null {
   if (codes.length === 0) return null;
-  const kinds = [...new Set(codes)];
+  // CZ ขาวไม่มีความหมาย/ความเชื่อ — ไม่นับเป็นชนิดพลอย (โกเมน+CZ = คำอธิบายโกเมนตัวเดียว · CZ ล้วน = null)
+  const stones = codes.filter(isStoneCode);
+  const withCz = stones.length !== codes.length;
+  const kinds = [...new Set(stones)];
+  if (kinds.length === 0) return null;
   if (kinds.length === 1) {
     const s = GEM_QUIZ_STONE_BY_CODE[kinds[0]];
-    return { kind: "same", code: kinds[0], label: s.labelTh, keywords: s.keywords };
+    return { kind: "same", code: kinds[0], label: s.labelTh, keywords: s.keywords, withCz };
   }
   if (kinds.length === 2) {
     const pair = findExactPair(kinds[0], kinds[1]);

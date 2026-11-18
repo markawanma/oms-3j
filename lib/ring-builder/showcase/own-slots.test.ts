@@ -6,7 +6,7 @@ import { SHOWCASE_PRICE_THB } from "./config";
 import { DESIGNS, SHOWCASE_DESIGN_IDS, getShowcaseDesign, ownSlotCount, type ShowcaseDesignId } from "./designs";
 import { buildShowcaseLineMessage, resolveChoice } from "./line-message";
 import { fillAll, fitOwnToCount, formatOwnSlots, isOwnSlots, ownSlotLines } from "./own-slots";
-import { buildShowcaseUrl, parseOwnSlotsParam, readShowcaseParams, STONE_LETTER } from "./quiz-link";
+import { buildShowcaseUrl, parseOwnSlotsParam, readShowcaseParams, STONE_LETTER, type SlotCode } from "./quiz-link";
 import { describeOwnSlots } from "./sets";
 
 const G: GemQuizStoneCode = "garnet";
@@ -42,8 +42,8 @@ describe("fitOwnToCount (A5)", () => {
     }
   });
   it("7→4→7: สีเดิมกลับมาเมื่อ state เก็บต่อจำนวน (จำลองกลไกของ client: ไม่ fit ทับชุดที่มีอยู่)", () => {
-    const byCount: Record<number, GemQuizStoneCode[]> = { 7: [G, A, C, P, B, G, A] };
-    byCount[4] = fitOwnToCount(byCount[7], 4);
+    const byCount: Record<number, SlotCode[]> = { 7: [G, A, C, P, B, G, A] };
+    byCount[4] = fitOwnToCount(byCount[7], 4)!;
     expect(byCount[7]).toEqual([G, A, C, P, B, G, A]);
   });
 });
@@ -126,7 +126,7 @@ describe("param c ของแบบแถว (A8)", () => {
 });
 
 describe("LINE ownSlots — ทุกแบบแถว × รูปแบบสี", () => {
-  const patterns = (n: number): GemQuizStoneCode[][] => [
+  const patterns = (n: number): SlotCode[][] => [
     fillAll(n, G),
     Array.from({ length: n }, (_, i) => (i < n / 2 ? G : B)),
     Array.from({ length: n }, (_, i) => GEM_QUIZ_STONE_CODES[i % 5]),
@@ -148,7 +148,7 @@ describe("LINE ownSlots — ทุกแบบแถว × รูปแบบส
   it("ห้ามผ่าน: จำนวนไม่ตรง · นอก whitelist · ไขว้ · ไม่ใช่ array · id แบบผิด = null (ไม่ fallback)", () => {
     const six = fillAll(6, G);
     expect(buildShowcaseLineMessage({ designId: "bar7", choice: { kind: "ownSlots", codes: six }, size: null })).toBeNull();
-    expect(buildShowcaseLineMessage({ designId: "bar7", choice: { kind: "ownSlots", codes: [...fillAll(6, G), "cz" as never] }, size: null })).toBeNull();
+    expect(buildShowcaseLineMessage({ designId: "bar7", choice: { kind: "ownSlots", codes: [...fillAll(6, G), "xx" as never] }, size: null })).toBeNull();
     expect(buildShowcaseLineMessage({ designId: "bypass2", choice: { kind: "ownSlots", codes: fillAll(2, G) }, size: null })).toBeNull();
     expect(buildShowcaseLineMessage({ designId: "bar7", choice: { kind: "ownSlots", codes: "garnet" as never }, size: null })).toBeNull();
     expect(buildShowcaseLineMessage({ designId: "bar7", choice: { kind: "ownSlots" } as never, size: null })).toBeNull();

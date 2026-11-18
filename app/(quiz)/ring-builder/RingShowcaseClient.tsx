@@ -17,8 +17,8 @@ import { getLastMeasuredSize, type LastMeasuredSize } from "@/lib/ring-builder/l
 import { SHOWCASE_COPY, formatPriceThb, leadTimeLabel } from "@/lib/ring-builder/showcase/config";
 import { getShowcaseDesign, ownSlotCount, roleMainLabel, roleSubLabel, seedFromPair, type ShowcaseDesignId } from "@/lib/ring-builder/showcase/designs";
 import { DIRECT_STONE_LABEL, isShowcaseSize, type ShowcaseChoice } from "@/lib/ring-builder/showcase/line-message";
-import { fillAll, fitOwnToCount, formatOwnSlots, ownSlotsAria } from "@/lib/ring-builder/showcase/own-slots";
-import { buildShowcaseUrl, type GemTop3, type IntentionTable, type OwnGems, type ShowcaseParams } from "@/lib/ring-builder/showcase/quiz-link";
+import { fillAll, fitOwnToCount, formatOwnSlots, ownSlotsAria, slotLabel } from "@/lib/ring-builder/showcase/own-slots";
+import { buildShowcaseUrl, CZ_SLOT, isStoneCode, type SlotCode, type GemTop3, type IntentionTable, type OwnGems, type ShowcaseParams } from "@/lib/ring-builder/showcase/quiz-link";
 import { buildShowcaseSets, intentionOnlyTop3, stoneLabel } from "@/lib/ring-builder/showcase/sets";
 import { SHOWCASE_PHOTOS } from "./_assets";
 import { DesignPicker } from "./_components/DesignPicker";
@@ -34,7 +34,7 @@ import { ToolsHubLink } from "../_components/ToolsHubLink";
 
 type RecIndex = 1 | 2 | 3;
 /** สีที่เลือกเอง จำไว้ต่อ "จำนวนเม็ด" (2 = ไขว้ [บน, ล่าง] · 3/4/6/7 = แถว ซ้าย→ขวา) — แบบที่จำนวนเท่ากันใช้ชุดเดียวกัน */
-type OwnByCount = Partial<Record<number, readonly GemQuizStoneCode[]>>;
+type OwnByCount = Partial<Record<number, readonly SlotCode[]>>;
 
 function initialOwnByCount(params: ShowcaseParams): OwnByCount {
   const d = getShowcaseDesign(params.ring);
@@ -53,7 +53,7 @@ export function RingShowcaseClient({ params }: { params: ShowcaseParams }) {
   const [ownByCount, setOwnByCount] = useState<OwnByCount>(() => initialOwnByCount(params));
   const [selectedSlot, setSelectedSlot] = useState(0);
   // "เลิกทำ" ของ "ใส่ X ทุกเม็ด" — snapshot 1 ชั้น · หายเมื่อแก้อย่างอื่น
-  const [undoSnap, setUndoSnap] = useState<{ count: number; codes: readonly GemQuizStoneCode[] } | null>(null);
+  const [undoSnap, setUndoSnap] = useState<{ count: number; codes: readonly SlotCode[] } | null>(null);
   const [active, setActive] = useState<ShowcaseMode>(() => (params.design === "own" && Object.keys(initialOwnByCount(params)).length > 0 ? "own" : "rec"));
 
   // top3 ของแบบแนะนำ: เรื่องที่เลือก → t[i] (ถ้ามีตาราง) หรืออันดับตามเรื่องล้วน · ยังไม่เลือกเรื่อง → ลิงก์ g เดิม · ไม่มีเลย → เข้าตรง
@@ -91,9 +91,10 @@ export function RingShowcaseClient({ params }: { params: ShowcaseParams }) {
 
   const isRow = design.layout.kind === "row";
   const ownCount = ownSlotCount(design);
-  const ownCodes: readonly GemQuizStoneCode[] | null = ownByCount[ownCount] ?? null;
+  const ownCodes: readonly SlotCode[] | null = ownByCount[ownCount] ?? null;
   const slot = Math.min(selectedSlot, ownCount - 1);
-  const own: OwnGems | null = !isRow && ownCodes ? { top: ownCodes[0], bottom: ownCodes[1] } : null;
+  // ไขว้ (2 เม็ด) เก็บเฉพาะพลอย 5 ชนิด ไม่มี CZ (guard กันค่านอก type system)
+  const own: OwnGems | null = !isRow && ownCodes && isStoneCode(ownCodes[0]) && isStoneCode(ownCodes[1]) ? { top: ownCodes[0], bottom: ownCodes[1] } : null;
   const ownSlots = isRow ? ownCodes : null;
 
   const currentSet = sets ? (sets.find((s) => s.index === recIndex) ?? sets[0]) : null;
@@ -155,15 +156,14 @@ export function RingShowcaseClient({ params }: { params: ShowcaseParams }) {
     const sizeOut = size !== null && !isShowcaseSize(size, next);
     // เลือกเองอยู่ + จำนวนเม็ดเปลี่ยน: จำสีเดิมไว้ · จำนวนใหม่ที่ยังไม่เคยแก้ = จัดกึ่งกลางจากที่ดูอยู่ (A5) · กลับมาจำนวนเดิม สีเดิมกลับมาเป๊ะ
     const countChanged = active === "own" && nextCount !== ownCount;
-    if (countChanged && ownCodes && ownByCount[nextCount] === undefined) {
-      setOwnByCount((p) => ({ ...p, [nextCount]: fitOwnToCount(ownCodes, nextCount) }));
-    }
+    const fitted = countChanged && ownCodes && ownByCount[nextCount] === undefined ? fitOwnToCount(ownCodes, nextCount) : null;
+    if (fitted) setOwnByCount((p) => ({ ...p, [nextCount]: fitted }));
     setSelectedSlot((s) => Math.min(s, nextCount - 1));
     setUndoSnap(null);
     setAnnounce(
       SHOWCASE_COPY.designAnnounce(nextDesign.name) +
         (sizeOut ? SHOWCASE_COPY.designAnnounceSizeOut(size) : "") +
-        (countChanged && ownCodes ? ` · ${SHOWCASE_COPY.ownFitAnnounce(nextCount)}` : "")
+        (fitted ? ` · ${SHOWCASE_COPY.ownFitAnnounce(nextCount)}` : "")
     );
   }
 
@@ -186,9 +186,9 @@ export function RingShowcaseClient({ params }: { params: ShowcaseParams }) {
   }
 
   // แถว: แตะพลอย = เปลี่ยนเม็ดที่เลือกอยู่ (ไม่เลื่อนเอง) · แตะครั้งแรกตอนยังไม่เคยเลือก = ใส่ทุกเม็ดด้วยพลอยนั้น (ครบทุกเม็ดหรือไม่มีเลย)
-  function pickSlotGem(code: GemQuizStoneCode) {
+  function pickSlotGem(code: SlotCode) {
     setUndoSnap(null);
-    const name = stoneLabel(code);
+    const name = slotLabel(code);
     if (ownCodes === null) {
       setOwnByCount((p) => ({ ...p, [ownCount]: fillAll(ownCount, code) }));
       setAnnounce(SHOWCASE_COPY.ownFillAllDone(name));
@@ -199,10 +199,16 @@ export function RingShowcaseClient({ params }: { params: ShowcaseParams }) {
     setOwnByCount((p) => ({ ...p, [ownCount]: next }));
     setAnnounce(SHOWCASE_COPY.ownSlotsAnnounce(slot + 1, name));
   }
-  function fillAllSlots(code: GemQuizStoneCode) {
+  function fillAllSlots(code: SlotCode) {
     if (ownCodes) setUndoSnap({ count: ownCount, codes: ownCodes });
     setOwnByCount((p) => ({ ...p, [ownCount]: fillAll(ownCount, code) }));
-    setAnnounce(SHOWCASE_COPY.ownFillAllDone(stoneLabel(code)));
+    setAnnounce(SHOWCASE_COPY.ownFillAllDone(slotLabel(code)));
+  }
+  // ล้างค่า: ทุกเม็ดกลับเป็น CZ ขาว (เก็บเป็นรหัส "cz" ทุกเม็ด ไม่ใช่ null เพราะผู้ใช้เลือกแล้ว) · เลิกทำได้เหมือน "ใส่ X ทุกเม็ด"
+  function resetAllCz() {
+    if (ownCodes) setUndoSnap({ count: ownCount, codes: ownCodes });
+    setOwnByCount((p) => ({ ...p, [ownCount]: fillAll(ownCount, CZ_SLOT) }));
+    setAnnounce(SHOWCASE_COPY.ownResetCzDone);
   }
   function undoFill() {
     if (!undoSnap || undoSnap.count !== ownCount) return;
@@ -267,6 +273,7 @@ export function RingShowcaseClient({ params }: { params: ShowcaseParams }) {
                       onSelect: setSelectedSlot,
                       onPick: pickSlotGem,
                       onFillAll: fillAllSlots,
+                      onResetCz: resetAllCz,
                       onUndo: undoFill,
                       canUndo: undoSnap !== null && undoSnap.count === ownCount,
                     }

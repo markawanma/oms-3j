@@ -6,8 +6,11 @@
 // grid ใช้ CSS variable (--n/--wrap) ผ่าน style — class ไดนามิกของ Tailwind ไม่ทำงานเพราะไม่ถูก scan
 import type { CSSProperties } from "react";
 import { useRef } from "react";
-import { GEM_QUIZ_STONE_BY_CODE, type GemQuizStoneCode } from "@/lib/gem-quiz/config";
+import { GEM_QUIZ_STONE_BY_CODE } from "@/lib/gem-quiz/config";
 import { SHOWCASE_COPY } from "@/lib/ring-builder/showcase/config";
+import { slotLabel } from "@/lib/ring-builder/showcase/own-slots";
+import type { SlotCode } from "@/lib/ring-builder/showcase/quiz-link";
+import { czIconColors } from "@/lib/ring-builder/viewer/gem-colors";
 import { GemIcon } from "../../gem-quiz/_components/GemIcon";
 import { handleRadioKeyDown } from "./radio-keys";
 
@@ -17,7 +20,7 @@ export function OwnSlotBar({
   onSelect,
 }: {
   /** null = ยังไม่เลือก (วงเส้นประ) · ความยาว = จำนวนเม็ด */
-  codes: readonly (GemQuizStoneCode | null)[];
+  codes: readonly (SlotCode | null)[];
   selected: number;
   onSelect: (index: number) => void;
 }) {
@@ -33,7 +36,7 @@ export function OwnSlotBar({
     >
       {codes.map((code, i) => {
         const checked = i === selected;
-        const stone = code ? GEM_QUIZ_STONE_BY_CODE[code] : null;
+        const iconColors = code === null ? null : code === "cz" ? czIconColors() : GEM_QUIZ_STONE_BY_CODE[code].colors;
         return (
           <button
             key={i}
@@ -43,7 +46,7 @@ export function OwnSlotBar({
             type="button"
             role="radio"
             aria-checked={checked}
-            aria-label={SHOWCASE_COPY.ownSlotAria(i + 1, stone ? stone.labelTh : null)}
+            aria-label={SHOWCASE_COPY.ownSlotAria(i + 1, code ? slotLabel(code) : null)}
             tabIndex={checked ? 0 : -1}
             onClick={() => onSelect(i)}
             onKeyDown={(e) =>
@@ -56,8 +59,8 @@ export function OwnSlotBar({
               checked ? "border-2 border-[var(--gq-burgundy)] bg-[var(--gq-burgundy-soft)]" : "border-[var(--gq-border)] bg-white hover:border-[var(--gq-burgundy-border)]"
             }`}
           >
-            {stone ? (
-              <GemIcon colors={stone.colors} size={22} />
+            {iconColors ? (
+              <GemIcon colors={iconColors} size={22} />
             ) : (
               <span aria-hidden="true" className="h-[22px] w-[22px] rounded-full border border-dashed border-[var(--gq-text-muted)]" />
             )}

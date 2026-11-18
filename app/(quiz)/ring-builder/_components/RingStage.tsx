@@ -6,6 +6,7 @@
 // สลับแบบ = viewer.setRing() บน context เดิม (sync · ไม่มีช่วงรอให้เห็น) จึงไม่มี state "กำลังโหลดแบบ …" — เฟรมเก่าไม่ค้าง (design §2 Bundle)
 import { useEffect, useState, type ComponentType } from "react";
 import type { GemQuizStoneCode } from "@/lib/gem-quiz/config";
+import type { SlotCode } from "@/lib/ring-builder/showcase/quiz-link";
 import { SHOWCASE_COPY } from "@/lib/ring-builder/showcase/config";
 import type { ShowcaseDesign, ShowcaseDesignId } from "@/lib/ring-builder/showcase/designs";
 import { isWebGLAvailable } from "@/lib/ring-builder/viewer/gl-renderer";
@@ -28,7 +29,7 @@ export function RingStage({
   top: GemQuizStoneCode | null;
   bottom: GemQuizStoneCode | null;
   /** D1.2a: สีรายเม็ด (แบบแถว · โหมดเลือกเองที่เลือกครบแล้ว) */
-  slots?: readonly GemQuizStoneCode[] | null;
+  slots?: readonly SlotCode[] | null;
   ariaLabel: string;
   /** รูปจริงของแบบนี้ (undefined = ยังไม่มีรูปถ่ายจริง) */
   photo?: ShowcasePhoto;

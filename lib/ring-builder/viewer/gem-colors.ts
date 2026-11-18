@@ -2,6 +2,8 @@
 // 🔴 แหล่งเดียว = GEM_QUIZ_STONES[].colors.base (lib/gem-quiz/config.ts) — ห้ามมีตารางสีพลอยชุดที่สองที่นี่
 // CZ ขาว = ค่าตายตัวของต้นฉบับ (STONES[0] ใน trinity-ring-preview.html) · ห้ามเรียกว่าเพชร (กฎแบรนด์)
 import { GEM_QUIZ_STONE_BY_CODE, type GemQuizStoneCode } from "@/lib/gem-quiz/config";
+import type { SlotCode } from "../showcase/quiz-link";
+import { CZ_WHITE } from "../config";
 import { findShowcaseDesign, gemSlotCount, mainIndexes, type ShowcaseDesignId } from "../showcase/designs";
 
 export interface GemTint {
@@ -51,10 +53,21 @@ export function designTints(id: ShowcaseDesignId, main: GemQuizStoneCode | null,
  * สีรายเม็ด (D1.2a · แบบแถว · ซ้าย→ขวา) — ยาวเท่าจำนวนเม็ดของโมเดลเสมอ
  * จำนวนรหัสไม่ตรงกับแบบ / แบบไขว้ = CZ ขาวทุกเม็ด (ไม่เดา ไม่ crash) · id ผิด = throw เหมือน designTints
  */
-export function slotTints(id: ShowcaseDesignId, codes: readonly GemQuizStoneCode[]): GemTint[] {
+export function slotTints(id: ShowcaseDesignId, codes: readonly SlotCode[]): GemTint[] {
   const design = findShowcaseDesign(id);
   if (!design) throw new Error(`gem-colors: ไม่รู้จักแบบ "${String(id)}"`);
   const n = gemSlotCount(design);
   if (design.layout.kind !== "row" || codes.length !== n) return Array.from({ length: n }, () => CZ_TINT);
-  return codes.map((c) => stoneTint(c));
+  return codes.map((c) => (c === "cz" ? CZ_TINT : stoneTint(c)));
+}
+
+const toHex = (v: number) => Math.round(v * 255).toString(16).padStart(2, "0").toUpperCase();
+
+/**
+ * สีไอคอน 2D ของ CZ ขาว (ปุ่มเลือก/แถบเม็ด) — ได้จาก CZ_TINT (base) + CZ_WHITE.colorHex (light) · dark = base × 0.6 (อัตราส่วนเงาเทียบกับ base ของพลอยอื่นราว 0.5–0.6)
+ * ไม่ใช่ตารางสีใหม่: ค่าฐานเป็นค่าเดียวกับที่ 3D ใช้
+ */
+export function czIconColors(): { base: string; light: string; dark: string } {
+  const [r, g, b] = CZ_TINT.rgb;
+  return { base: `#${toHex(r)}${toHex(g)}${toHex(b)}`, light: CZ_WHITE.colorHex, dark: `#${toHex(r * 0.6)}${toHex(g * 0.6)}${toHex(b * 0.6)}` };
 }

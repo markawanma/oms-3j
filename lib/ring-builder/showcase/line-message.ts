@@ -11,7 +11,7 @@ import { CZ_WHITE, LINE_COPY } from "../config";
 import { SHOWCASE_COPY, formatPriceThb, leadTimeLabel } from "./config";
 import { findShowcaseDesign, ownSlotCount, roleMainLabel, roleSubLabel, type ShowcaseDesign, type ShowcaseDesignId } from "./designs";
 import { formatOwnSlots, isOwnSlots, ownSlotLines, type OwnSlotRow } from "./own-slots";
-import { isStoneCode } from "./quiz-link";
+import { isStoneCode, type SlotCode } from "./quiz-link";
 
 /** สิ่งที่ลูกค้าเลือก — ใช้ทั้งการ์ดสรุปบนจอและข้อความ LINE (จุดเดียว ไม่มีทางไม่ตรงกัน) · top = พลอยหลัก · bottom = พลอยเสริม */
 export type ShowcaseChoice =
@@ -22,7 +22,7 @@ export type ShowcaseChoice =
   /** เลือกพลอยเอง */
   | { kind: "own"; top: GemQuizStoneCode; bottom: GemQuizStoneCode }
   /** เลือกพลอยเองรายเม็ด (D1.2a · แบบแถวเท่านั้น) — ซ้าย→ขวา ยาวเท่าจำนวนเม็ดของแบบ · ทุกเม็ดเท่ากัน ไม่มีหลัก/เสริม */
-  | { kind: "ownSlots"; codes: readonly GemQuizStoneCode[] };
+  | { kind: "ownSlots"; codes: readonly SlotCode[] };
 
 export interface ShowcaseLineInput {
   /** แบบแหวน — ต้องอยู่ใน whitelist (ไม่งั้น null) */
