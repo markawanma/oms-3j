@@ -51,7 +51,7 @@ export function R6({ step, size, method, refKind, measuredAt, onBack, onRemeasur
 
   return (
     <div className="flex flex-1 flex-col">
-      <RsHeader step={step} onBack={onBack} />
+      <RsHeader step={step} onBack={onBack} hubLink />
       <div className="flex flex-col gap-3.5 px-[22px] pb-7 pt-1">
         <section aria-label={COPY.r6.label} className={`${CARD} relative overflow-hidden rounded-[28px] px-5 pb-[22px] pt-[26px] text-center`}>
           <svg aria-hidden="true" width="260" height="260" viewBox="0 0 260 260" fill="none" className="pointer-events-none absolute left-1/2 top-2 -ml-[130px] opacity-55">

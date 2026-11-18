@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { TOOLS_HUB_COPY } from "@/lib/tools-hub/config";
+import { TOOLS_ORIGIN } from "@/lib/site/hosts";
 import { ToolsHub } from "./ToolsHub";
 
 // app/(quiz)/tools/page.tsx — หน้ารวมเครื่องมือลูกค้า (hub) · server component static (ไม่มี DB/env/token · ไม่ import "use server")
@@ -7,12 +8,16 @@ import { ToolsHub } from "./ToolsHub";
 // metadata override ให้ครบ: ของ root layout คือคำอธิบายระบบภายใน (บทเรียน F9 — LINE preview จะโชว์ให้ลูกค้า) · noindex จนเจ้าของสั่ง (design §9 ข้อ 1)
 // path /tools exempt จาก auth gate แบบ exact · บน host tools. เข้าที่ "/" (middleware rewrite) · ลิงก์ในหน้า = <a href> ธรรมดา ห้าม next/link
 export const metadata: Metadata = {
+  // P2 (18 พ.ย. 69): canonical ของ hub = "/" บน tools. (/tools บน app. 307 มา "/" แล้ว)
+  metadataBase: new URL(TOOLS_ORIGIN),
+  alternates: { canonical: "/" },
   title: TOOLS_HUB_COPY.pageTitle,
   description: TOOLS_HUB_COPY.pageDescription,
   robots: { index: false, follow: false },
   referrer: "strict-origin",
   openGraph: {
     type: "website",
+    url: "/",
     title: TOOLS_HUB_COPY.pageTitle,
     description: TOOLS_HUB_COPY.pageDescription,
     siteName: "3J Jewelry",

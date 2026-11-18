@@ -41,12 +41,29 @@ const HUB_FRAME_HEADERS = [
   { key: "X-Frame-Options", value: "DENY" },
   { key: "Content-Security-Policy", value: "frame-ancestors 'none'" },
 ];
+// ───────── P2 (design-tools-hub §1.2) ชั้น (3): app.3jthailand.com → tools. ─────────
+// 🔴 ปลายทาง "ตายตัวทั้งก้อน" (literal origin + literal path ต่อ rule · ไม่มี :path/:param ในปลายทาง) → ไม่เป็น open redirect ไม่ว่า request มาแบบไหน
+//    4 path exact เท่านั้น (ไม่ใช่ subtree: /ring-size/og.png · /api/* · /w/* · /gem-quiz/x ไม่โดน) · API ไม่ redirect (ใครเปิดหน้าค้างบน app. ยัง submit ได้)
+// has host = app. เท่านั้น → tools. (ไม่โดน = ไม่วน) · localhost / *.vercel.app ไม่ตรง → เสิร์ฟตรงเหมือนเดิม (N2) · literal ต้องตรง APP_HOST/TOOLS_ORIGIN ใน lib/site/hosts.ts (test ตรวจ drift)
+// 307 ไม่ใช่ 308 (ถอยได้) · query ส่งต่อทั้งก้อนโดย Next (ไม่ parse → ไม่ผูกรายชื่อ key ของ ring-builder t/i/q/c/d/r) · method คงเดิม (POST ไม่กลายเป็น GET)
+// 🔴 ต้องอยู่ตลอดไป — QR บนการ์ดขอบคุณที่พิมพ์แล้ว + ลิงก์ที่แจกไปแล้วชี้ app.
+export const APP_HOST_REGEX = "app\\.3jthailand\\.com\\.?";
+const APP_HOST_HAS = [{ type: "host", value: APP_HOST_REGEX }];
+const TOOLS_ORIGIN_LITERAL = "https://tools.3jthailand.com";
+export const APP_TO_TOOLS_REDIRECTS = [
+  { source: "/ring-size", destination: `${TOOLS_ORIGIN_LITERAL}/ring-size` },
+  { source: "/gem-quiz", destination: `${TOOLS_ORIGIN_LITERAL}/gem-quiz` },
+  { source: "/ring-builder", destination: `${TOOLS_ORIGIN_LITERAL}/ring-builder` },
+  { source: "/tools", destination: `${TOOLS_ORIGIN_LITERAL}/` },
+].map((r) => ({ ...r, has: APP_HOST_HAS, permanent: false }));
+
 nextConfig.redirects = async () => [
   // T8 (พบจริงตอน smoke บน next start): Next หา Server Action ตาม id จาก "ทุก worker" ไม่ผูกกับหน้า — POST + Next-Action (id จริงของหลังบ้าน) ไป
   // /ring-size /gem-quiz /ring-builder (exempt · ไม่มี middleware) แล้ว action รันได้ · หน้าลูกค้า 3 หน้าไม่มี action ของตัวเอง → บน tools. ทุก request ที่มี
   // header next-action ต้องถูกตัดทิ้งก่อนถึง handler (ตัดสิทธิ์อย่างเดียว) · 307 คง method → "/" → middleware 405 · source เป็น /:path+ (ไม่ครอบ "/") กัน redirect วนตัวเอง — POST "/" ตกชั้น (2) ได้ 405
   { source: "/:path+", has: [...TOOLS_HOST_HAS, { type: "header", key: "next-action" }], destination: "/", permanent: false },
   { source: `/((?!${TOOLS_ALLOWLIST}).*)`, has: TOOLS_HOST_HAS, destination: "/", permanent: false },
+  ...APP_TO_TOOLS_REDIRECTS,
 ];
 
 // หน้าช่าง /w/<token>: token อยู่ใน URL → ห้ามรั่วผ่าน Referer · ห้าม search engine เก็บ · ห้ามแคช (security J1 §5.5)

@@ -83,11 +83,13 @@ describe("A8: ไม่มีโค้ดเรียกกล้องใน ri
     expect(outside).toEqual([]);
   });
 
-  it("graph ของหน้าไม่ลากไฟล์นอกขอบเขต (ต้องเป็น app/(quiz)/ring-size · lib/ring-size · lib/shop/line.ts เท่านั้น)", () => {
+  // P3 (18 พ.ย. 69): ลิงก์กลับหน้ารวมเครื่องมือ + ค่าคงที่ origin/HUB_URL — 3 ไฟล์ pure ไม่มี state/env/กล้อง (รายชื่อแคบ ไม่ใช่ prefix)
+  const EXTRA_ALLOWED = new Set(["lib/shop/line.ts", "app/(quiz)/_components/ToolsHubLink.tsx", "lib/site/hosts.ts"]);
+  it("graph ของหน้าไม่ลากไฟล์นอกขอบเขต (ต้องเป็น app/(quiz)/ring-size · lib/ring-size · lib/shop/line.ts · ToolsHubLink · lib/site/hosts.ts เท่านั้น)", () => {
     const { files } = walkGraph([join(RING_APP_DIR, "page.tsx"), join(RING_APP_DIR, "layout.tsx"), join(RING_APP_DIR, "RingSizeClient.tsx")]);
     const outside = files
       .map(rel)
-      .filter((p) => !p.startsWith("app/(quiz)/ring-size/") && !p.startsWith("lib/ring-size/") && p !== "lib/shop/line.ts");
+      .filter((p) => !p.startsWith("app/(quiz)/ring-size/") && !p.startsWith("lib/ring-size/") && !EXTRA_ALLOWED.has(p));
     expect(outside).toEqual([]);
   });
 });

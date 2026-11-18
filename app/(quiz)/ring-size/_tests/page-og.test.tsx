@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// รูปตัวอย่างลิงก์ (Open Graph) ของ /ring-size — LINE OA broadcast แปะ https://app.3jthailand.com/ring-size แล้วต้องขึ้นการ์ดมีรูป
+// รูปตัวอย่างลิงก์ (Open Graph) ของ /ring-size — LINE OA broadcast แปะ https://tools.3jthailand.com/ring-size แล้วต้องขึ้นการ์ดมีรูป
 //
 // ที่เทสต์นี้กัน:
 //   1) metadata ชี้รูปที่ "มีจริง" · absolute URL · ขนาดตรงไฟล์ · twitter summary_large_image · og:url = ลิงก์ที่เจ้าของแปะ
@@ -29,8 +29,8 @@ const resolve = (u: string | URL) => new URL(String(u), base);
 
 describe("OG metadata", () => {
   it("รูป og: absolute https ที่ origin เว็บจริง + path ของไฟล์ที่มีอยู่ + ขนาด/ชนิดตรงไฟล์", () => {
-    expect(base.origin).toBe("https://app.3jthailand.com");
-    expect(resolve(ogImage.url).href).toBe("https://app.3jthailand.com/ring-size/og.png");
+    expect(base.origin).toBe("https://tools.3jthailand.com");
+    expect(resolve(ogImage.url).href).toBe("https://tools.3jthailand.com/ring-size/og.png");
     expect(ogImage.width).toBe(1200);
     expect(ogImage.height).toBe(630);
     expect(ogImage.type).toBe("image/png");
@@ -40,7 +40,7 @@ describe("OG metadata", () => {
   });
 
   it("og:url = ลิงก์ที่เจ้าของแปะ (/ring-size ไม่มี / ท้าย — ไม่ให้ชี้ไปที่ต้อง redirect)", () => {
-    expect(resolve(String(og.url)).href).toBe("https://app.3jthailand.com/ring-size");
+    expect(resolve(String(og.url)).href).toBe("https://tools.3jthailand.com/ring-size");
   });
 
   it("og title/description = ของหน้า (ไม่ใช่คำอธิบายระบบภายในของ root layout) · type website · locale th_TH", () => {
@@ -151,5 +151,13 @@ describe("ข้อความบนรูป = ข้อความที่�
     expect(SCRIPT_CODE).not.toMatch(/https?:\/\/|@[a-z0-9_]{3,}|\b0\d{1,2}[- ]?\d{3}[- ]?\d{4}\b/i);
     expect(SCRIPT_CODE).toMatch(/"public", "3j-logo\.png"|3j-logo\.png/);
     expect(existsSync(join(ROOT, "public", "3j-logo.png"))).toBe(true);
+  });
+});
+
+describe("P2: canonical + origin = tools.", () => {
+  it("canonical = /ring-size (resolve จาก metadataBase tools.) · ไม่มี app. เหลือในซอร์สหน้า", () => {
+    const canonical = (metadata.alternates as { canonical: string }).canonical;
+    expect(resolve(canonical).href).toBe("https://tools.3jthailand.com/ring-size");
+    expect(PAGE_SRC).not.toMatch(/app\.3jthailand\.com/);
   });
 });

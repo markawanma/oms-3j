@@ -1,4 +1,5 @@
 import { COPY } from "@/lib/ring-size/config";
+import { ToolsHubLink } from "../../_components/ToolsHubLink";
 import { BackIcon } from "./Icons";
 import { FOCUS, SERIF, TEXT, TEXT_2 } from "./styles";
 
@@ -12,7 +13,12 @@ function pad2(n: number): string {
 /** ความสูงจริงของ header = pt-1.5 (6) + ปุ่มย้อน h-11 (44) + pb-0.5 (2) — ใช้เป็นค่าตั้งต้นก่อนวัดจริง (R5B วัดบล็อกบนรวมแถบ G1 เอง) */
 export const HEADER_PX = 52;
 
-export function RsHeader({ step, onBack }: { step?: { current: number; total: number } | null; onBack?: () => void }) {
+/** hubLink = มาร์ก 3J ขวาบนกดกลับหน้ารวมเครื่องมือได้ (P3) — ส่งเฉพาะหน้าผล (R6) · ระหว่างวัด (R1–R5/G4) ไม่ส่ง = รูปเฉยๆ กันกดพลาดทิ้งงานกลางทาง */
+export function RsHeader({ step, onBack, hubLink = false }: { step?: { current: number; total: number } | null; onBack?: () => void; hubLink?: boolean }) {
+  const mark = (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src="/ring-size/3j-mark.png" alt={COPY.common.markAlt} className="h-[30px] w-auto" />
+  );
   return (
     <header className="flex shrink-0 items-center justify-between px-[22px] pb-0.5 pt-1.5">
       {onBack ? (
@@ -37,8 +43,13 @@ export function RsHeader({ step, onBack }: { step?: { current: number; total: nu
       ) : (
         <span aria-hidden="true" />
       )}
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src="/ring-size/3j-mark.png" alt={COPY.common.markAlt} className="h-[30px] w-auto" />
+      {hubLink ? (
+        <ToolsHubLink variant="mark" className="-mr-2">
+          {mark}
+        </ToolsHubLink>
+      ) : (
+        mark
+      )}
     </header>
   );
 }

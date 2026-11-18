@@ -45,3 +45,9 @@ export function normalizeHost(raw: string | null | undefined): string | null {
 export function isToolsHost(raw: string | null | undefined): boolean {
   return normalizeHost(raw) === TOOLS_HOST;
 }
+
+/** ปลายทางของลิงก์ "← เครื่องมือ 3J" (ToolsHubLink) — "/" ไม่ใช่ "/tools" (P3 · 18 พ.ย. 69)
+ *  หลัง P2 หน้าลูกค้า 3 หน้า "อยู่บน tools. เสมอ" (app. 307 ออกหมด) → "/" บน tools. = hub ตรงๆ ไม่เสีย hop (/tools บน tools. = 307 → "/")
+ *  ⚠️ บน localhost / *.vercel.app (ไม่ redirect · N2) "/" = dashboard → login: กดลิงก์นี้ตอนทดสอบบน preview จะไปหน้า login — เป็นพฤติกรรมที่รู้ ไม่ใช่บั๊ก
+ *  relative ตั้งใจ: ห้ามใส่ origin เต็ม (กลาย app.→tools. ข้ามโดเมนแล้ว localStorage/ผลวัดหาย) · <a href> ธรรมดา ห้าม next/link */
+export const HUB_URL = "/";
