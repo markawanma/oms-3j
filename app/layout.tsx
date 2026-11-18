@@ -1,15 +1,23 @@
 import type { Metadata } from "next";
 import type { ReactNode } from "react";
-import { Noto_Sans_Thai } from "next/font/google";
+import localFont from "next/font/local";
 import "./globals.css";
 
-// Body text line-height >=1.5 handled in globals.css. next/font self-hosts
-// the font (no runtime Google Fonts request, good for offline/preview + CSP).
-const notoSansThai = Noto_Sans_Thai({
-  subsets: ["thai", "latin"],
-  weight: ["400", "500", "600", "700"],
+// Body text line-height >=1.5 handled in globals.css. ฟอนต์ self-host เป็นไฟล์ woff2
+// ใน app/fonts/ (next/font/local — build ไม่ดึง fonts.googleapis.com; README อยู่ใน app/fonts/).
+// next/font/local ใส่ unicode-range รายไฟล์ไม่ได้ จึงโหลด 2 call (latin + thai) แล้วรวมเป็น
+// font stack ใน tailwind.config.ts (`font-sans` = latin ก่อน thai — แต่ละไฟล์ไม่มีกลิฟของอีกสคริปต์
+// เบราว์เซอร์เลย fallback รายตัวอักษรเอง). Noto Sans Thai = variable font ไฟล์เดียวต่อ subset (400-700).
+const notoSansThaiLatin = localFont({
+  src: [{ path: "./fonts/noto-sans-thai/NotoSansThai-latin-variable.woff2", weight: "400 700", style: "normal" }],
   display: "swap",
-  variable: "--font-noto-sans-thai",
+  variable: "--font-noto-sans-thai-latin",
+});
+const notoSansThaiThai = localFont({
+  src: [{ path: "./fonts/noto-sans-thai/NotoSansThai-thai-variable.woff2", weight: "400 700", style: "normal" }],
+  display: "swap",
+  adjustFontFallback: false, // fallback metrics คิดจากไฟล์ latin แล้ว — ไฟล์ thai ไม่มีกลิฟละตินให้วัด
+  variable: "--font-noto-sans-thai-thai",
 });
 
 export const metadata: Metadata = {
@@ -19,7 +27,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="th" className={notoSansThai.variable}>
+    <html lang="th" className={`${notoSansThaiLatin.variable} ${notoSansThaiThai.variable}`}>
       <body className="font-sans min-h-screen">{children}</body>
     </html>
   );

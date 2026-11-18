@@ -12,7 +12,7 @@ import { RING_APP_DIR, RING_LIB_DIR, ROOT, listSources, readStripped, rel } from
 const CAMERA_RE = /getUserMedia|mediaDevices|capture\s*=|type\s*=\s*["']file["']|BarcodeDetector/;
 const EXTS = ["", ".ts", ".tsx", ".js", ".mjs", "/index.ts", "/index.tsx"];
 const IMPORT_RE = /(?:import|export)\s[^;]*?from\s+["']([^"']+)["']|import\s+["']([^"']+)["']|import\(\s*["']([^"']+)["']\s*\)/g;
-const ALLOWED_PACKAGES = new Set(["react", "next", "next/font/google", "react/jsx-runtime"]);
+const ALLOWED_PACKAGES = new Set(["react", "next", "next/font/local", "react/jsx-runtime"]);
 
 function resolveLocal(from: string, spec: string): string | null {
   let base: string;
