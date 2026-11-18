@@ -227,7 +227,7 @@ describe("D1.2a — URL + reload", () => {
     expect(slot(1)).toHaveAccessibleName("เม็ดที่ 1 อเมทิสต์");
   });
   it("c ปลอม (จำนวนไม่ตรง/ตัวใหญ่/นอก whitelist) + d=own → ไม่ crash · ยังไม่เลือก (แถบว่าง · LINE 'ยังไม่ได้เลือกพลอยสี')", () => {
-    for (const c of ["g.a.c", "G.A.C.P.B.G.A", "g.a.c.p.b.g.z", "x".repeat(80)]) {
+    for (const c of ["g.a.c", "G.A.C.P.B.G.A", "g.a.c.p.b.g.q", "x".repeat(80)]) {
       cleanup();
       render(<RingShowcaseClient params={readShowcaseParams({ c, d: "own", r: "bar7" })} />);
       // d=own ที่ไม่มีชุดสี → กลับไปแบบแนะนำ (เหมือนลิงก์ own ที่ c เสีย)

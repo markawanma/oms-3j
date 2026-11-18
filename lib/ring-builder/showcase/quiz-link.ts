@@ -42,6 +42,23 @@ const LETTER_STONE: ReadonlyMap<string, GemQuizStoneCode> = new Map(
   (Object.entries(STONE_LETTER) as [GemQuizStoneCode, string][]).map(([code, letter]) => [letter, code])
 );
 
+/**
+ * ตัวเลือกต่อเม็ดในโหมดรายเม็ด (own-cz) = พลอย 5 ชนิด หรือ CZ ขาว ("cz") · URL ใช้ตัวอักษร `z`
+ * ใช้เฉพาะ `c` ของแบบแถว — `t` / `g` / `c` ของไขว้ ไม่รับ CZ (whitelist เดิม gacpb)
+ */
+export type SlotCode = GemQuizStoneCode | "cz";
+export const CZ_SLOT = "cz" as const;
+export const CZ_SLOT_LETTER = "z";
+
+export function isSlotCode(code: unknown): code is SlotCode {
+  return code === CZ_SLOT || isStoneCode(code);
+}
+
+/** รหัสเม็ด → ตัวอักษรใน URL (gacpbz) */
+export function slotLetter(code: SlotCode): string {
+  return code === CZ_SLOT ? CZ_SLOT_LETTER : STONE_LETTER[code];
+}
+
 const TABLE_RE = /^[gacpb]{3}(\.[gacpb]{3}){5}$/;
 
 export function isStoneCode(code: unknown): code is GemQuizStoneCode {
@@ -104,18 +121,18 @@ function rowStoneCount(ring: unknown): number | null {
 }
 
 /**
- * `c` ของแบบแถว (D1.2a) — รหัส 1 ตัวอักษร (gacpb) ต่อเม็ด ซ้าย→ขวา คั่น `.` · ยาว = จำนวนเม็ดของแบบเป๊ะ
+ * `c` ของแบบแถว (D1.2a) — รหัส 1 ตัวอักษร (gacpbz · z = CZ ขาว) ต่อเม็ด ซ้าย→ขวา คั่น `.` · ยาว = จำนวนเม็ดของแบบเป๊ะ
  * ข้อยกเว้นเดียว: ยาว 2 (ลิงก์ preview D1.2 · รหัสเต็มหรือตัวอักษร) → ขยาย เม็ดกลาง = ตัวแรก ที่เหลือ = ตัวที่สอง
  * ไขว้ / จำนวนอื่น / รหัสนอก whitelist / ตัวพิมพ์ใหญ่ / ยาวเกิน 64 / ไม่ใช่ string = null (ถือว่ายังไม่เลือก · ไม่ throw)
  */
-export function parseOwnSlotsParam(raw: unknown, ring: unknown): GemQuizStoneCode[] | null {
+export function parseOwnSlotsParam(raw: unknown, ring: unknown): SlotCode[] | null {
   const n = rowStoneCount(ring);
   if (n === null || typeof raw !== "string" || raw.length === 0 || raw.length > SHOWCASE_PARAM_MAX_LEN) return null;
   const parts = raw.split(".");
   if (parts.length === n) {
-    const out: GemQuizStoneCode[] = [];
+    const out: SlotCode[] = [];
     for (const p of parts) {
-      const code = LETTER_STONE.get(p);
+      const code = p === CZ_SLOT_LETTER ? CZ_SLOT : LETTER_STONE.get(p);
       if (!code) return null;
       out.push(code);
     }
@@ -163,7 +180,7 @@ export interface ShowcaseParams {
   answered: GemQuizIntention | null;
   own: OwnGems | null;
   /** `c` ของแบบแถว (D1.2a) — N รหัสซ้าย→ขวา · แบบไขว้ = null เสมอ (ไขว้ใช้ `own`) */
-  ownSlots: GemQuizStoneCode[] | null;
+  ownSlots: SlotCode[] | null;
   design: DesignParam | null;
   /** `r` — แบบแหวน · ไม่มี/ผิด = ไขว้ (ลิงก์ D1/D1.1 เดิมเปิดแบบไขว้เหมือนเดิม) */
   ring: ShowcaseDesignId;
@@ -213,7 +230,7 @@ export interface ShowcaseUrlState {
   legacyTop3: GemTop3 | null;
   own: OwnGems | null;
   /** D1.2a: สีรายเม็ดของแบบแถว (ซ้าย→ขวา) — ใช้เมื่อ `ring` เป็นแบบแถวและจำนวนตรงเท่านั้น · ลำดับก่อน `own` */
-  ownSlots?: readonly GemQuizStoneCode[] | null;
+  ownSlots?: readonly SlotCode[] | null;
   active: "rec" | "own";
   recIndex: 1 | 2 | 3;
   /** แบบแหวน (`r`) — ไม่ใส่/ไขว้ = ไม่เขียน key (URL ของไขว้ = byte เดิมทุกสถานะ) */
@@ -233,9 +250,9 @@ export function buildShowcaseUrl(state: ShowcaseUrlState): string {
   if (hasTable && isIntentionCode(state.answered)) parts.push(`${SHOWCASE_PARAM_ANSWERED}=${state.answered}`);
   if (!intention && isTop3(state.legacyTop3)) parts.push(`${SHOWCASE_PARAM_KEY}=${state.legacyTop3.join(".")}`);
   const rowN = rowStoneCount(state.ring);
-  const slotsOk = rowN !== null && Array.isArray(state.ownSlots) && state.ownSlots.length === rowN && state.ownSlots.every(isStoneCode);
+  const slotsOk = rowN !== null && Array.isArray(state.ownSlots) && state.ownSlots.length === rowN && state.ownSlots.every(isSlotCode);
   if (slotsOk) {
-    parts.push(`${SHOWCASE_PARAM_OWN}=${(state.ownSlots as readonly GemQuizStoneCode[]).map((c) => STONE_LETTER[c]).join(".")}`);
+    parts.push(`${SHOWCASE_PARAM_OWN}=${(state.ownSlots as readonly SlotCode[]).map(slotLetter).join(".")}`);
   } else if (state.own && isStoneCode(state.own.top) && isStoneCode(state.own.bottom)) {
     parts.push(`${SHOWCASE_PARAM_OWN}=${state.own.top}.${state.own.bottom}`);
   }

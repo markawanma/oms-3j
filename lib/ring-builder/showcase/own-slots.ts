@@ -3,19 +3,31 @@
 // helper เดียวกันใช้ทั้ง LINE · การ์ดสรุป · aria ของ stage (ไม่ให้ 3 ที่เล่าไม่ตรงกัน)
 import { GEM_QUIZ_STONE_BY_CODE, type GemQuizStoneCode } from "@/lib/gem-quiz/config";
 import { mainIndexes, seedFromPair } from "./designs";
-import { isStoneCode } from "./quiz-link";
+import { CZ_WHITE } from "../config";
+import { CZ_SLOT, isSlotCode, isStoneCode, type SlotCode } from "./quiz-link";
 
-export type OwnSlots = readonly GemQuizStoneCode[];
+/** รหัสต่อเม็ด = พลอย 5 ชนิด หรือ "cz" (CZ ขาว) */
+export type OwnSlots = readonly SlotCode[];
 
 /** รหัสทุกตัวผ่าน whitelist และยาวเท่า count (ค่าจากภายนอก type system) */
 export function isOwnSlots(v: unknown, count: number): v is OwnSlots {
   if (!Array.isArray(v) || v.length !== count) return false;
-  for (let i = 0; i < count; i++) if (!isStoneCode(v[i])) return false;
+  for (let i = 0; i < count; i++) if (!isSlotCode(v[i])) return false;
   return true;
 }
 
-export function fillAll(count: number, code: GemQuizStoneCode): GemQuizStoneCode[] {
+export function fillAll(count: number, code: SlotCode): SlotCode[] {
   return Array.from({ length: count }, () => code);
+}
+
+/** ทุกเม็ดเป็น CZ ขาวอยู่แล้ว (ซ่อนปุ่ม "กลับเป็น CZ ขาวทั้งหมด") */
+export function isAllCz(codes: OwnSlots): boolean {
+  return codes.length > 0 && codes.every((c) => c === CZ_SLOT);
+}
+
+/** ชื่อไทยของเม็ด (พลอย หรือ CZ ขาว) */
+export function slotLabel(code: SlotCode): string {
+  return code === CZ_SLOT ? CZ_WHITE.name : GEM_QUIZ_STONE_BY_CODE[code].labelTh;
 }
 
 /**
@@ -23,11 +35,22 @@ export function fillAll(count: number, code: GemQuizStoneCode): GemQuizStoneCode
  *  7→3 เก็บเม็ด 3–5 · 7→4 เก็บเม็ด 2–5 · 3→7 = [1,1,1,2,3,3,3]
  * จาก/ไป ไขว้ (2 เม็ด = [บน, ล่าง]): ไขว้→แถว = กลาง=บน ที่เหลือ=ล่าง · แถว→ไขว้ = บน=เม็ดกลางตัวแรก ล่าง=เม็ดที่ 1
  */
-export function fitOwnToCount(codes: OwnSlots, newN: number): GemQuizStoneCode[] {
+export function fitOwnToCount(codes: OwnSlots, newN: number): SlotCode[] | null {
   const old = codes.length;
   if (old === newN) return [...codes];
-  if (old === 2) return seedFromPair(newN, codes[0], codes[1]);
-  if (newN === 2) return [codes[mainIndexes(old)[0]], codes[0]];
+  if (old === 2) {
+    // ไขว้ไม่มี CZ (ชุดของ 2 เม็ดเป็นพลอยล้วน) — กันค่านอก type system
+    const [a, b] = codes;
+    return isStoneCode(a) && isStoneCode(b) ? seedFromPair(newN, a, b) : null;
+  }
+  if (newN === 2) {
+    // แถว → ไขว้: ไขว้ไม่รองรับ CZ · เม็ดที่เป็น CZ แทนด้วยพลอยชนิดแรกที่เหลือในแถว · แถวเป็น CZ ล้วน = null (ไม่เดาสี)
+    const firstStone = codes.find(isStoneCode);
+    if (!firstStone) return null;
+    const top = codes[mainIndexes(old)[0]];
+    const bottom = codes[0];
+    return [isStoneCode(top) ? top : firstStone, isStoneCode(bottom) ? bottom : firstStone];
+  }
   const shift = Math.floor((old - newN) / 2);
   return Array.from({ length: newN }, (_, i) => codes[Math.min(Math.max(i + shift, 0), old - 1)]);
 }
@@ -53,8 +76,8 @@ function rangeLabel(from: number, to: number): string {
  */
 export function formatOwnSlots(codes: unknown): OwnSlotRow[] | null {
   if (!Array.isArray(codes) || codes.length === 0 || !isOwnSlots(codes, codes.length)) return null;
-  const label = (c: GemQuizStoneCode) => GEM_QUIZ_STONE_BY_CODE[c].labelTh;
-  const runs: { from: number; to: number; code: GemQuizStoneCode }[] = [];
+  const label = slotLabel;
+  const runs: { from: number; to: number; code: SlotCode }[] = [];
   codes.forEach((code, i) => {
     const last = runs[runs.length - 1];
     if (last && last.code === code) last.to = i + 1;
@@ -63,7 +86,7 @@ export function formatOwnSlots(codes: unknown): OwnSlotRow[] | null {
   if (runs.length > MAX_RUN_LINES) {
     return [{ label: `${rangeLabel(1, codes.length)} (ซ้ายไปขวา)`, value: codes.map(label).join(" · ") }];
   }
-  if (runs.length === 1) return [{ label: rangeLabel(1, codes.length), value: `${label(runs[0].code)} (ทุกเม็ด)` }];
+  if (runs.length === 1) return [{ label: rangeLabel(1, codes.length), value: runs[0].code === CZ_SLOT ? `${label(CZ_SLOT)}ทุกเม็ด` : `${label(runs[0].code)} (ทุกเม็ด)` }];
   return runs.map((r) => ({ label: rangeLabel(r.from, r.to), value: label(r.code) }));
 }
 

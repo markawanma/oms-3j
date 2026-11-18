@@ -40,6 +40,11 @@ export function leadTimeLabel(): string {
   return `พรีออเดอร์ ทำภายใน ${SHOWCASE_LEAD_DAYS} วัน`;
 }
 
+/** ชื่อที่ขึ้นต้นด้วยอักษรละติน (CZ ขาว) ต้องเว้นวรรคหน้าชื่อเมื่อต่อท้ายคำไทย — ชื่อพลอยไทยไม่ต้อง */
+function thaiGap(name: string): string {
+  return /^[A-Za-z]/.test(name) ? ` ${name}` : name;
+}
+
 /** ข้อความหน้าจอ (UX spec D1/D1.1/D1.2) — พลอยและคำอธิบายคู่พลอยมาจาก GEM_QUIZ_* ไม่ซ้ำที่นี่ · ข้อความที่ขึ้นกับแบบ (ชื่อ/ตำแหน่ง/CZ) มาจาก designs.ts */
 export const SHOWCASE_COPY = {
   pageTitle: "แหวนของ 3J Jewelry | ลองพลอยของคุณบนแหวน",
@@ -96,12 +101,14 @@ export const SHOWCASE_COPY = {
   ownSlotAria: (n: number, name: string | null) => (name ? `เม็ดที่ ${n} ${name}` : `เม็ดที่ ${n} ยังไม่เลือก`),
   ownSlotHeading: (n: number, name: string | null) => (name ? `เม็ดที่ ${n} · ${name}` : `เม็ดที่ ${n} · ยังไม่เลือก`),
   ownSlotRowAria: (n: number) => `เลือกพลอยให้เม็ดที่ ${n}`,
-  ownFillAll: (name: string) => `ใส่${name}ทุกเม็ด`,
-  ownFillAllDone: (name: string) => `ใส่${name}ทุกเม็ดแล้ว`,
+  ownFillAll: (name: string) => `ใส่${thaiGap(name)}ทุกเม็ด`,
+  ownFillAllDone: (name: string) => `ใส่${thaiGap(name)}ทุกเม็ดแล้ว`,
+  ownResetCz: "กลับเป็น CZ ขาวทั้งหมด",
+  ownResetCzDone: "กลับเป็น CZ ขาวทุกเม็ดแล้ว",
   ownUndo: "เลิกทำ",
   ownUndoDone: "เลิกทำแล้ว",
   ownEmptyHintPerGem: "แตะพลอยหนึ่งชนิดเพื่อใส่ทุกเม็ดก่อน แล้วแตะเลขเม็ดเพื่อเปลี่ยนทีละเม็ด",
-  ownSlotsAnnounce: (n: number, name: string) => `เม็ดที่ ${n} เป็น${name}แล้ว`,
+  ownSlotsAnnounce: (n: number, name: string) => `เม็ดที่ ${n} เป็น${thaiGap(name)}แล้ว`,
   ownFitAnnounce: (count: number) => `ปรับพลอยให้พอดี ${count} เม็ด กลับไปแบบเดิมสีเดิมจะกลับมา`,
   // ชุดพลอย 1/2/3 (D1.2: "แบบ" = แบบแหวนอย่างเดียว · ชุดพลอยเรียก "ชุด n" ทุกที่รวม LINE — UX §12 ข้อ 3 รอเจ้าของยืนยัน)
   setLabel: (n: number) => `ชุด ${n}`,

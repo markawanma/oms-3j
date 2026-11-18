@@ -9,6 +9,7 @@ import { SHOWCASE_COPY, formatPriceThb } from "@/lib/ring-builder/showcase/confi
 import { copyText } from "@/lib/ring-builder/showcase/clipboard";
 import { getShowcaseDesign, roleMainLabel, roleSubLabel, type ShowcaseDesignId } from "@/lib/ring-builder/showcase/designs";
 import { GEM_QUIZ_STONE_BY_CODE } from "@/lib/gem-quiz/config";
+import { czIconColors } from "@/lib/ring-builder/viewer/gem-colors";
 import { buildShowcaseLineHref, buildShowcaseLineMessage, resolveChoice, type ShowcaseChoice } from "@/lib/ring-builder/showcase/line-message";
 
 const COPIED_MS = 3000;
@@ -81,7 +82,7 @@ export function OrderSummary({
         // แถบสีเม็ด 1..N (ตกแต่ง — ข้อความด้านล่างคือข้อมูลจริง)
         <div aria-hidden="true" className="flex items-center justify-center gap-1.5">
           {choice.codes.map((c, i) => (
-            <GemIcon key={i} colors={GEM_QUIZ_STONE_BY_CODE[c].colors} size={20} />
+            <GemIcon key={i} colors={c === "cz" ? czIconColors() : GEM_QUIZ_STONE_BY_CODE[c].colors} size={20} />
           ))}
         </div>
       )}
