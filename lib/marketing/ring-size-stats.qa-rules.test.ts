@@ -374,7 +374,7 @@ describe("QA6 — /marketing/ring-size ยังถูก gate (matcher จร�
     }
   ).getMiddlewareMatchers;
   const mw = readFileSync(join(process.cwd(), "middleware.ts"), "utf8");
-  const m = /matcher:\s*\[\s*"([^"]+)"\s*,?\s*\]/.exec(mw);
+  const m = /matcher:\s*\[\s*"([^"]+)"/.exec(mw);
   const source = JSON.parse(`"${m![1]}"`) as string;
   const re = new RegExp(getMiddlewareMatchers(source, {} as never)[0].regexp);
   const middlewareRuns = (p: string) => re.test(p);

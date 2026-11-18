@@ -12,6 +12,43 @@ const nextConfig = {
   },
 };
 
+// ───────── โดเมนลูกค้า tools.3jthailand.com (design-tools-hub.md §1) ─────────
+// 🔴 กฎของ host นี้ "ตัดสิทธิ์" อย่างเดียว ห้ามให้สิทธิ์เพิ่ม · literal ต้องตรงกับ TOOLS_HOST ใน lib/site/hosts.ts (test ตรวจ drift)
+// `has` host ของ Next: lowercase + ตัด :port ให้เอง · anchor ^…$ ให้เอง · "." ท้ายไม่ตัด → ต้องมี `\.?` เอง
+export const TOOLS_HOST_REGEX = "tools\\.3jthailand\\.com\\.?";
+// ชั้น (1) redirects(): path นอก allowlist บน tools. → 307 "/" (รันก่อน middleware และไม่สน matcher → ครอบ /shop /w/* /api/webhooks ที่ middleware ไม่รัน)
+// ⚠️ regex 3 ก้อนต้องตรงกัน: allowlist นี้ · matcher ใน middleware.ts · EXEMPT_PATTERN ใน lib/auth/exempt-path.ts
+//    เพิ่มหน้าลูกค้าใหม่ = แก้ 3 ที่ (ลืมที่นี่ = หน้าใหม่ถูกส่งไป hub บน tools. · fail-closed) · test: lib/site/tools-host.test.ts
+// หน้าแรก "" ($) = hub (middleware rewrite → /tools) · `_next/static/` ต้องมี "/" ต่อท้าย (ไม่ใช่ prefix _next/staticx)
+// ⚠️ ชั้น (2) ใน middleware.ts ใช้รายการเดียวกัน (lib/site/hosts.ts TOOLS_PASSTHROUGH_ALTERNATIVES) — test ตรวจให้ตรงกัน (security M1: ห้ามพึ่งชั้น (1) ชั้นเดียว)
+export const TOOLS_ALLOWLIST_ITEMS = [
+  "$",
+  "ring-size/?$",
+  "gem-quiz/?$",
+  "ring-builder/?$",
+  "api/gem-quiz/submit/?$",
+  "api/ring-size/event/?$",
+  "api/ring-builder/quote/?$",
+  "_next/static/",
+  "_next/image/?$",
+  "[^/]+\\.(?:svg|png|jpg|jpeg|gif|webp|ico)$",
+  "gem-quiz/[^/]+\\.(?:svg|png|jpg|jpeg|webp)$",
+  "ring-size/[^/]+\\.(?:svg|png|jpg|jpeg|webp)$",
+];
+export const TOOLS_ALLOWLIST = TOOLS_ALLOWLIST_ITEMS.join("|");
+const TOOLS_HOST_HAS = [{ type: "host", value: TOOLS_HOST_REGEX }];
+const HUB_FRAME_HEADERS = [
+  { key: "X-Frame-Options", value: "DENY" },
+  { key: "Content-Security-Policy", value: "frame-ancestors 'none'" },
+];
+nextConfig.redirects = async () => [
+  // T8 (พบจริงตอน smoke บน next start): Next หา Server Action ตาม id จาก "ทุก worker" ไม่ผูกกับหน้า — POST + Next-Action (id จริงของหลังบ้าน) ไป
+  // /ring-size /gem-quiz /ring-builder (exempt · ไม่มี middleware) แล้ว action รันได้ · หน้าลูกค้า 3 หน้าไม่มี action ของตัวเอง → บน tools. ทุก request ที่มี
+  // header next-action ต้องถูกตัดทิ้งก่อนถึง handler (ตัดสิทธิ์อย่างเดียว) · 307 คง method → "/" → middleware 405 · source เป็น /:path+ (ไม่ครอบ "/") กัน redirect วนตัวเอง — POST "/" ตกชั้น (2) ได้ 405
+  { source: "/:path+", has: [...TOOLS_HOST_HAS, { type: "header", key: "next-action" }], destination: "/", permanent: false },
+  { source: `/((?!${TOOLS_ALLOWLIST}).*)`, has: TOOLS_HOST_HAS, destination: "/", permanent: false },
+];
+
 // หน้าช่าง /w/<token>: token อยู่ใน URL → ห้ามรั่วผ่าน Referer · ห้าม search engine เก็บ · ห้ามแคช (security J1 §5.5)
 // L3 (12 ต.ค.): ห้ามถูกฝังใน iframe/เว็บอื่น (clickjacking ปุ่มรับงาน/ส่งต่อ + ช่องใส่ PIN) — ทั้ง X-Frame-Options (เบราว์เซอร์เก่า) และ CSP frame-ancestors (มาตรฐานปัจจุบัน)
 nextConfig.headers = async () => [
@@ -50,6 +87,10 @@ nextConfig.headers = async () => [
       { key: "Content-Security-Policy", value: "frame-ancestors 'none'" },
     ],
   },
+  // หน้ารวมเครื่องมือลูกค้า (hub) — ห้ามฝัง iframe (design-tools-hub §2) · /tools ทุก host (ใช้ดูบน app./preview)
+  // "/" + host tools. แยกอีก rule: headers() จับ path ก่อน middleware rewrite "/" → /tools จึงต้องมี rule "/" เอง
+  { source: "/tools", headers: HUB_FRAME_HEADERS },
+  { source: "/", has: TOOLS_HOST_HAS, headers: HUB_FRAME_HEADERS },
 ];
 
 export default nextConfig;

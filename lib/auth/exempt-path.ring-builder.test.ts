@@ -12,7 +12,7 @@ const getMiddlewareMatchers = (
 
 function middlewareRuns(pathname: string): boolean {
   const mw = readFileSync(join(process.cwd(), "middleware.ts"), "utf8");
-  const m = /matcher:\s*\[\s*"([^"]+)"\s*,?\s*\]/.exec(mw);
+  const m = /matcher:\s*\[\s*"([^"]+)"/.exec(mw);
   if (!m) throw new Error("ไม่พบ config.matcher");
   const matchers = getMiddlewareMatchers(JSON.parse(`"${m[1]}"`) as string, {} as never);
   return new RegExp(matchers[0].regexp).test(pathname);

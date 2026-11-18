@@ -91,9 +91,9 @@
 - ข้อห้ามที่พังง่าย: ห้าม `"use server"` ใน graph ของ `app/(quiz)/` (มี test บังคับ) · ห้ามเพิ่ม sub-route ใต้ /gem-quiz (middleware เด้ง /login) · env `GEM_QUIZ_TOKEN_SECRET` ≥32 ตัว
 
 ## 9. Auth · สิทธิ์ · security · PII
-- memory: `auth-hardening` · `role-single-level` · `supabase-project` · `supabase-error-logging-trap` · `next-security-upgrade`
+- memory: `auth-hardening` · `role-single-level` · `supabase-project` · `supabase-error-logging-trap` · `next-security-upgrade` · `tools-hub` · `app-domain`
 - skill: `supabase-migrate` · `3j-migration-traps` (ข้อ 18 grant บน analytics)
-- docs: `docs/3j-jewelry/analytics/phase-auth-pii-hardening-design.md` · `docs/3j-jewelry/legal/` (ร่าง ห้ามเผยแพร่)
+- docs: `docs/3j-jewelry/analytics/phase-auth-pii-hardening-design.md` · `docs/3j-jewelry/legal/` (ร่าง ห้ามเผยแพร่) · `docs/3j-jewelry/oms/design-tools-hub.md` (โดเมนลูกค้า tools.3jthailand.com — host routing 2 ชั้น redirects()+middleware · T1–T12 · ลำดับ ship §6 · 18 พ.ย. 69) · `docs/3j-jewelry/oms/ux-tools-hub.md` (UX หน้ารวมเครื่องมือลูกค้า /tools)
 - migrations: `0002` · `0004` · `0012` · `0018` · `0046` · `0103` · `0122-0124` (no REST for users) · `0130` · `0147` · `0155-0156`
 - code: `app/(auth)/` · `lib/auth/` · `middleware.ts` · `app/(dashboard)/settings/` · `scripts/provision-member.mjs` · `scripts/check-analytics-grants.sql`
 

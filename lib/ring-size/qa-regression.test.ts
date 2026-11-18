@@ -24,7 +24,7 @@ const MAIN_MATCHER =
 
 function currentMatcher(): string {
   const mw = readFileSync(join(process.cwd(), "middleware.ts"), "utf8");
-  const m = /matcher:\s*\[\s*"([^"]+)"\s*,?\s*\]/.exec(mw);
+  const m = /matcher:\s*\[\s*"([^"]+)"/.exec(mw);
   if (!m) throw new Error("ไม่พบ config.matcher ใน middleware.ts");
   return JSON.parse(`"${m[1]}"`) as string;
 }
@@ -92,10 +92,11 @@ describe("middleware matcher: ต่างจาก main เฉพาะ /ring-s
 });
 
 describe("next.config headers: คอมไพล์ source แบบเดียวกับ next build แล้วดูว่า path ไหนโดน rule ไหน", () => {
-  type Rule = { source: string; headers: Array<{ key: string; value: string }> };
+  type Rule = { source: string; has?: unknown[]; headers: Array<{ key: string; value: string }> };
   async function compiled() {
     const rules = (await (nextConfig as unknown as { headers: () => Promise<Rule[]> }).headers()) as Rule[];
-    return rules.map((r) => ({ rule: r, re: new RegExp((buildCustomRoute("header", r as never) as { regex: string }).regex, "i") }));
+    // rule ที่มีเงื่อนไข host (hub "/" บน tools.) ไม่นับที่นี่ — helper นี้เทียบแค่ path · ตรวจเงื่อนไข host ใน lib/site/tools-host.test.ts
+    return rules.filter((r) => !r.has).map((r) => ({ rule: r, re: new RegExp((buildCustomRoute("header", r as never) as { regex: string }).regex, "i") }));
   }
   const hit = async (p: string) => (await compiled()).filter((c) => c.re.test(p)).map((c) => c.rule.source);
 

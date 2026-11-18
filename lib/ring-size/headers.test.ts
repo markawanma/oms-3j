@@ -57,8 +57,8 @@ describe("next.config headers() — /ring-size", () => {
   });
 
   // รายการ source ทั้งหมดของ headers() ยืนยัน "ที่เดียว" ที่นี่ (lib/jobs/headers.test.ts ไม่เทียบรายการเต็มแล้ว — กันต้องแก้สองไฟล์ทุกครั้งที่เพิ่ม rule)
-  it("sources ทั้งหมดมีแค่ 3 rule (หน้าช่าง + ring-size + ring-builder)", async () => {
-    expect((await rules()).map((r) => r.source)).toEqual(["/w/:path*", "/ring-size", "/ring-builder"]);
+  it("sources ทั้งหมดมีแค่ 5 rule (หน้าช่าง + ring-size + ring-builder + hub /tools + hub / บน host tools.)", async () => {
+    expect((await rules()).map((r) => r.source)).toEqual(["/w/:path*", "/ring-size", "/ring-builder", "/tools", "/"]);
   });
 });
 
