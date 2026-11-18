@@ -49,19 +49,19 @@ const config: Config = {
         11: "2.75rem", // 44px min touch target
       },
       fontFamily: {
-        // next/font self-hosts Noto Sans Thai and exposes it only via this
-        // CSS variable (see app/layout.tsx's `notoSansThai.variable` on
-        // <html>) — referencing the literal family name "Noto Sans Thai"
-        // here would NOT pick up the self-hosted font (next/font renames the
-        // injected @font-face internally).
-        sans: ["var(--font-noto-sans-thai)", "system-ui", "sans-serif"],
+        // next/font/local self-hosts Noto Sans Thai (app/fonts/) and exposes it only via
+        // these CSS variables (app/layout.tsx puts both .variable classes on <html>) —
+        // the literal family name "Noto Sans Thai" would NOT pick up the self-hosted font
+        // (next/font renames the injected @font-face). Two files = two variables, stacked
+        // latin first then thai (each file lacks the other script's glyphs).
+        sans: ["var(--font-noto-sans-thai-latin)", "var(--font-noto-sans-thai-thai)", "system-ui", "sans-serif"],
         // Gem Quiz v2 (app/(quiz)/**) — 3 self-hosted families declared in
-        // app/(quiz)/layout.tsx via next/font/google (same .variable pattern
-        // as above). Scoped under their own keys instead of overriding
+        // app/(quiz)/layout.tsx via next/font/local (same .variable pattern
+        // as above; Thai families = latin + thai variables stacked). Scoped under their own keys instead of overriding
         // `sans` so the rest of the app is unaffected.
         "quiz-display": ["var(--font-gem-quiz-display)", "serif"], // Cormorant Garamond — wordmark/hero numerals
-        "quiz-serif": ["var(--font-gem-quiz-serif)", "serif"], // Noto Serif Thai — Thai headings
-        "quiz-sans": ["var(--font-gem-quiz-sans)", "system-ui", "sans-serif"], // IBM Plex Sans Thai — body/UI
+        "quiz-serif": ["var(--font-gem-quiz-serif-latin)", "var(--font-gem-quiz-serif-thai)", "serif"], // Noto Serif Thai — Thai headings
+        "quiz-sans": ["var(--font-gem-quiz-sans-latin)", "var(--font-gem-quiz-sans-thai)", "system-ui", "sans-serif"], // IBM Plex Sans Thai — body/UI
       },
       keyframes: {
         // Entrance/ambient motion ported from the Quiz.dc.html mockup.

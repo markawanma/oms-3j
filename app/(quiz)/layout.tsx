@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { Cormorant_Garamond, IBM_Plex_Sans_Thai, Noto_Serif_Thai } from "next/font/google";
+import localFont from "next/font/local";
 
 // app/(quiz)/layout.tsx — shell ของแบบทดสอบเลือกพลอย v2 (design doc §5).
 //
@@ -16,30 +16,50 @@ import { Cormorant_Garamond, IBM_Plex_Sans_Thai, Noto_Serif_Thai } from "next/fo
 // result) เพราะ mockup ไม่มี header เดียวที่ใช้ร่วมกันได้ทุกจอ (บางจอมี back
 // บางจอมี restart บางจอไม่มีอะไรเลย).
 //
-// next/font self-host ทั้ง 3 ตระกูล (ไม่มี <link> ไป fonts.googleapis.com
-// ตรงๆ — ดาวน์โหลดมาเสิร์ฟเองตอน build, ไม่ส่ง IP ผู้ใช้ไปบุคคลที่สาม) เฉพาะ
-// subset/weight ที่ใช้งานจริงตาม mockup (Quiz.dc.html's <link> เดิม:
-// Cormorant+Garamond:wght@500;600, IBM+Plex+Sans+Thai:wght@400;500;600,
-// Noto+Serif+Thai:wght@500;600) + italic ของ Cormorant Garamond (tagline
-// หน้า landing "Your Gem. Your Intention. Your Day.").
-const cormorantGaramond = Cormorant_Garamond({
-  subsets: ["latin"], // ไม่มี subset "thai" ให้เลือก — ใช้กับตัวอักษรละติน/ตัวเลขเท่านั้น (wordmark, hero numerals, tagline)
-  weight: ["500", "600"],
-  style: ["normal", "italic"],
+// ฟอนต์ self-host เป็นไฟล์ woff2 ใน app/fonts/ ผ่าน next/font/local (ไม่มี <link> ไป
+// fonts.googleapis.com และ build ไม่ดึงจาก Google). 3 ตระกูล เฉพาะ weight/subset ที่ใช้จริงตาม
+// mockup (Quiz.dc.html: Cormorant 500/600 + italic, Noto Serif Thai 500/600, IBM Plex Sans Thai
+// 400/500/600). next/font/local ใส่ unicode-range รายไฟล์ไม่ได้ → ตระกูลไทยโหลด 2 call (latin + thai)
+// แล้วรวมเป็น stack ใน tailwind.config.ts (font-quiz-serif / font-quiz-sans = latin ก่อน thai).
+const cormorantGaramond = localFont({
+  // ไม่มี subset ไทย — ใช้กับตัวอักษรละติน/ตัวเลขเท่านั้น (wordmark, hero numerals, tagline); variable font 500-600
+  src: [
+    { path: "../fonts/cormorant-garamond/CormorantGaramond-latin-variable.woff2", weight: "500 600", style: "normal" },
+    { path: "../fonts/cormorant-garamond/CormorantGaramond-latin-italic-variable.woff2", weight: "500 600", style: "italic" },
+  ],
   display: "swap",
   variable: "--font-gem-quiz-display",
 });
-const notoSerifThai = Noto_Serif_Thai({
-  subsets: ["thai", "latin"],
-  weight: ["500", "600"],
+const notoSerifThaiLatin = localFont({
+  src: [{ path: "../fonts/noto-serif-thai/NotoSerifThai-latin-variable.woff2", weight: "500 600", style: "normal" }],
   display: "swap",
-  variable: "--font-gem-quiz-serif",
+  adjustFontFallback: "Times New Roman",
+  variable: "--font-gem-quiz-serif-latin",
 });
-const ibmPlexSansThai = IBM_Plex_Sans_Thai({
-  subsets: ["thai", "latin"],
-  weight: ["400", "500", "600"],
+const notoSerifThaiThai = localFont({
+  src: [{ path: "../fonts/noto-serif-thai/NotoSerifThai-thai-variable.woff2", weight: "500 600", style: "normal" }],
   display: "swap",
-  variable: "--font-gem-quiz-sans",
+  adjustFontFallback: false,
+  variable: "--font-gem-quiz-serif-thai",
+});
+const ibmPlexSansThaiLatin = localFont({
+  src: [
+    { path: "../fonts/ibm-plex-sans-thai/IBMPlexSansThai-latin-400.woff2", weight: "400", style: "normal" },
+    { path: "../fonts/ibm-plex-sans-thai/IBMPlexSansThai-latin-500.woff2", weight: "500", style: "normal" },
+    { path: "../fonts/ibm-plex-sans-thai/IBMPlexSansThai-latin-600.woff2", weight: "600", style: "normal" },
+  ],
+  display: "swap",
+  variable: "--font-gem-quiz-sans-latin",
+});
+const ibmPlexSansThaiThai = localFont({
+  src: [
+    { path: "../fonts/ibm-plex-sans-thai/IBMPlexSansThai-thai-400.woff2", weight: "400", style: "normal" },
+    { path: "../fonts/ibm-plex-sans-thai/IBMPlexSansThai-thai-500.woff2", weight: "500", style: "normal" },
+    { path: "../fonts/ibm-plex-sans-thai/IBMPlexSansThai-thai-600.woff2", weight: "600", style: "normal" },
+  ],
+  display: "swap",
+  adjustFontFallback: false,
+  variable: "--font-gem-quiz-sans-thai",
 });
 
 // Palette — O1 (design doc §9): แบรนด์เดิม #a2191d (= tailwind.config.ts's
@@ -70,7 +90,7 @@ const GEM_QUIZ_PALETTE_STYLE = {
 export default function QuizLayout({ children }: { children: ReactNode }) {
   return (
     <div
-      className={`${cormorantGaramond.variable} ${notoSerifThai.variable} ${ibmPlexSansThai.variable} font-quiz-sans min-h-screen bg-[var(--gq-ivory)] text-[var(--gq-text)]`}
+      className={`${cormorantGaramond.variable} ${notoSerifThaiLatin.variable} ${notoSerifThaiThai.variable} ${ibmPlexSansThaiLatin.variable} ${ibmPlexSansThaiThai.variable} font-quiz-sans min-h-screen bg-[var(--gq-ivory)] text-[var(--gq-text)]`}
       style={GEM_QUIZ_PALETTE_STYLE}
     >
       {/* Mobile (ต่ำกว่า sm): เต็มจอ 375-430px ตามที่ใช้งานจริงบนมือถือ, ไม่มี

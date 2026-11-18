@@ -37,7 +37,7 @@ export function ShareCardSheet({ data, onClose }: { data: ShareCardData; onClose
     const id = ++runId.current;
     setPhase("loading");
     try {
-      // ฟอนต์จริงของ next/font อ่านจาก computed style (ชื่อ family ถูก hash) — อ่านไม่ได้ = ฟอนต์ระบบ
+      // ฟอนต์จริงของ next/font/local อ่านจาก computed style (ชื่อ family ถูก hash · เป็นลิสต์ latin,thai — ใช้ใน canvas font shorthand + document.fonts.load ได้ตรงๆ) — อ่านไม่ได้ = ฟอนต์ระบบ
       const fonts: ShareCardFonts = { ...SYSTEM_FONTS };
       try {
         const s = serifProbe.current ? getComputedStyle(serifProbe.current).fontFamily : "";

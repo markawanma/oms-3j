@@ -4,7 +4,7 @@
 //   A10 ถ้อยคำต้องห้าม · A11 ความแม่นชุดเดียว · A12 ไม่มีเลขตัวอย่างจาก mockup ใน config · A13 ค่าที่ยังไม่ยืนยัน = ปิดบน production
 //   + ข้อบังคับ implement: ไม่มีเวทีจำลอง (A9 ส่วนซอร์ส) · ไม่มี border บนองค์ประกอบวัด · ไม่ใช้ 100vh · ไม่ปิด pinch-zoom (G1) ·
 //     ไม่ใช้ font-bold บน serif · ตัวหนังสือ ≥ 13 px · ปุ่มปิดใช้งานเป็น <button disabled> · ไม่มี network/Server Action ·
-//     ไม่มี <link> ฟอนต์ภายนอก (ใช้ next/font ของ layout แม่)
+//     ไม่มี <link> ฟอนต์ภายนอก (ใช้ next/font/local ของ layout แม่)
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";

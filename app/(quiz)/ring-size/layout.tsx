@@ -2,7 +2,7 @@ import type { CSSProperties, ReactNode } from "react";
 
 // app/(quiz)/ring-size/layout.tsx — shell ของเครื่องมือวัดไซส์แหวน (หน้าสาธารณะ ไม่ login · ไม่มี DB)
 //
-// ซ้อนอยู่ใน (quiz)/layout.tsx (ห้ามแก้ — gem quiz ใช้งานจริง): ได้ฟอนต์ next/font self-host ของ layout แม่มาฟรี
+// ซ้อนอยู่ใน (quiz)/layout.tsx (ห้ามแก้ — gem quiz ใช้งานจริง): ได้ฟอนต์ next/font/local self-host ของ layout แม่มาฟรี
 // (class font-quiz-sans / font-quiz-serif · ตัวแปร --font-gem-quiz-*) — ที่นี่ "ห้ามมี <link> ฟอนต์" ใดๆ
 //
 // 🔴 กฎโครงสร้างเดียวกับ gem quiz (design §1.2): ไฟล์ใต้ app/(quiz)/ring-size/** และ lib/ring-size/** ห้าม import
