@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import type { HubTool } from "@/lib/tools-hub/config";
 
 // ToolCard — การ์ดลิงก์ 1 เครื่องมือ · <a> ทั้งการ์ด (ไม่ใช่ div onClick) · ห้าม next/link (design-tools-hub §1.3: header ติดเฉพาะตอนโหลดหน้าเต็ม)
-// primary = พื้น burgundy ตัวขาว (ปุ่มหลักเดียวของหน้า) · outline = พื้นขาวขอบอ่อน
+// ทุกใบสไตล์เดียวกัน = พื้นขาวขอบอ่อน หัวข้อ burgundy (ไม่มีการ์ดเด่น · มติเจ้าของ 18 พ.ย. 69)
 // children = chip ผลวัดล่าสุด (ข้อความธรรมดาในการ์ดเดียวกัน)
 const FOCUS =
   "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--gq-burgundy)]";
@@ -42,37 +42,24 @@ function Icon({ id }: { id: HubTool["id"] }) {
 }
 
 export function ToolCard({ tool, children }: { tool: HubTool; children?: ReactNode }) {
-  const primary = tool.variant === "primary";
   return (
     <li>
       <a
         href={tool.href}
-        className={`group block min-h-[96px] rounded-2xl border p-4 transition-colors ${FOCUS} ${
-          primary
-            ? "border-[var(--gq-burgundy)] bg-[var(--gq-burgundy)] text-white hover:bg-[var(--gq-burgundy-dark)]"
-            : "border-[var(--gq-border)] bg-white text-[var(--gq-text)] hover:border-[var(--gq-burgundy-border)] hover:bg-[var(--gq-burgundy-soft)]"
-        }`}
+        className={`group block min-h-[96px] rounded-2xl border p-4 transition-colors ${FOCUS} border-[var(--gq-border)] bg-white text-[var(--gq-text)] hover:border-[var(--gq-burgundy-border)] hover:bg-[var(--gq-burgundy-soft)]`}
       >
         <div className="flex items-start gap-3">
-          <span className={primary ? "text-white" : "text-[var(--gq-burgundy)]"}>
+          <span className="text-[var(--gq-burgundy)]">
             <Icon id={tool.id} />
           </span>
           <div className="min-w-0 flex-1">
-            <h2
-              className={`font-quiz-serif text-[18px] font-semibold leading-snug [overflow-wrap:anywhere] ${
-                primary ? "text-white" : "text-[var(--gq-burgundy-dark)]"
-              }`}
-            >
+            <h2 className="font-quiz-serif text-[18px] font-semibold leading-snug text-[var(--gq-burgundy-dark)] [overflow-wrap:anywhere]">
               {tool.title}
             </h2>
-            <p className={`mt-1 text-[14px] leading-relaxed [overflow-wrap:anywhere] ${primary ? "text-white/90" : "text-[var(--gq-text-muted)]"}`}>
+            <p className="mt-1 text-[14px] leading-relaxed text-[var(--gq-text-muted)] [overflow-wrap:anywhere]">
               {tool.description}
             </p>
-            <p
-              className={`mt-2 inline-block rounded-full px-3 py-1 text-[12px] leading-snug ${
-                primary ? "bg-white text-[var(--gq-burgundy-dark)]" : "bg-[var(--gq-burgundy-soft)] text-[var(--gq-burgundy-dark)]"
-              }`}
-            >
+            <p className="mt-2 inline-block rounded-full bg-[var(--gq-burgundy-soft)] px-3 py-1 text-[12px] leading-snug text-[var(--gq-burgundy-dark)]">
               {tool.meta}
             </p>
             {children}

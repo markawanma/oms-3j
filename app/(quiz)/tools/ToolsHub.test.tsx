@@ -8,6 +8,7 @@ import "@testing-library/jest-dom/vitest";
 import type { LastMeasuredSize } from "@/lib/ring-builder/last-size";
 import { LINE_OA_URL } from "@/lib/shop/line";
 import { formatPriceThb, leadTimeLabel } from "@/lib/ring-builder/showcase/config";
+import { DESIGNS } from "@/lib/ring-builder/showcase/designs";
 import { HUB_TOOLS, TOOLS_HUB_COPY } from "@/lib/tools-hub/config";
 import ToolsHubPage, { metadata } from "./page";
 
@@ -36,8 +37,15 @@ describe("ToolsHub — success (ไม่เคยวัดไซซ์)", () =>
     for (const t of HUB_TOOLS) expect(within(list).getByRole("heading", { level: 2, name: new RegExp(t.title) })).toBeInTheDocument();
   });
 
-  it("การ์ดแรกเท่านั้นเป็น primary (ปุ่มหลักเดียว)", () => {
-    expect(HUB_TOOLS.filter((t) => t.variant === "primary").map((t) => t.id)).toEqual(["ring-size"]);
+  it("การ์ดทั้ง 3 ใบสไตล์เดียวกัน (ไม่มีการ์ดพื้นเข้ม) · copy ดูแหวนใช้จำนวนแบบจริง", () => {
+    render(<ToolsHubPage />);
+    const list = screen.getByRole("list", { name: TOOLS_HUB_COPY.toolsLabel });
+    for (const a of within(list).getAllByRole("link")) {
+      expect(a.className).toContain("bg-white");
+      expect(a.className).not.toContain("bg-[var(--gq-burgundy)]");
+    }
+    expect(HUB_TOOLS.every((t) => !("variant" in t))).toBe(true);
+    expect(HUB_TOOLS.find((t) => t.id === "ring-builder")?.description).toContain(`${DESIGNS.length} แบบ`);
   });
 
   it("ราคา/ระยะเวลามาจากฟังก์ชันเดิม (ไม่พิมพ์เลขเอง)", () => {
