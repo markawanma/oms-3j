@@ -1,0 +1,32 @@
+{"v":3,"createdOnFiles":{"v":1,"at":"2026-11-09T16:20:00Z"},"title":"3J – ออกแบบแหวนแถวเอง (Ring Builder)","launch":{"view":"canvas"},"pages":[],"boards":{
+"Main.dc.html":{"x":0,"y":0,"w":390,"h":1000,"title":"ขั้น 1ก เลือกจำนวนเม็ด"},
+"B1Style.dc.html":{"x":470,"y":0,"w":390,"h":1000,"title":"ขั้น 1ข เลือกแบบ · 5 เม็ด (2 แบบ)"},
+"B1Style7.dc.html":{"x":4230,"y":2040,"w":390,"h":844,"title":"ขั้น 1ข เลือกแบบ · 7 เม็ด (3 แบบ)"},
+"B2Oval.dc.html":{"x":3760,"y":2040,"w":390,"h":1000,"title":"ขั้น 2 · 7 เม็ด แบบ ค ทรงไข่"},
+"B2.dc.html":{"x":940,"y":0,"w":390,"h":1240,"title":"ขั้น 2 ใส่/สลับพลอย (กดลองได้)","is_interactive":true},
+"B3.dc.html":{"x":1410,"y":0,"w":390,"h":1040,"title":"ขั้น 3 ไซซ์ (กดลองได้)","is_interactive":true},
+"B4.dc.html":{"x":1880,"y":0,"w":390,"h":1580,"title":"ขั้น 4 สรุป · บันทึกรูป · ส่ง LINE (กดลองได้)","is_interactive":true},
+"SummaryImage.dc.html":{"x":2350,"y":0,"w":1080,"h":1920,"title":"รูปสรุปที่บันทึกได้ 1080×1920"},
+"B1Resume.dc.html":{"x":0,"y":2040,"w":390,"h":844,"title":"ขั้น 1 · มีงานค้างในเครื่อง"},
+"B1Error.dc.html":{"x":470,"y":2040,"w":390,"h":700,"title":"ขั้น 1 · โหลดแบบ/ราคาไม่ได้"},
+"B1Closed.dc.html":{"x":940,"y":2040,"w":390,"h":700,"title":"ขั้น 1 · ยังไม่เปิดให้ออกแบบ"},
+"B2StageStates.dc.html":{"x":1410,"y":2040,"w":390,"h":1120,"title":"ขั้น 2 · ภาพแหวน: โหลด / ล้ม / เครื่องช้า"},
+"B2GemClosed.dc.html":{"x":1880,"y":2040,"w":390,"h":844,"title":"ขั้น 2 · พลอยถูกปิดระหว่างเลือก"},
+"B2PriceStale.dc.html":{"x":2350,"y":2040,"w":390,"h":844,"title":"ขั้น 2 · ราคาอาจไม่ใช่ปัจจุบัน"},
+"B2ChangeDesign.dc.html":{"x":2820,"y":2040,"w":390,"h":844,"title":"ขั้น 2 · เปลี่ยนแบบกลางทาง"},
+"B2NoColor.dc.html":{"x":3290,"y":2040,"w":390,"h":844,"title":"ขั้น 2 · แบบนี้ไม่มีพลอยสีให้เลือก"},
+"B3States.dc.html":{"x":0,"y":3280,"w":390,"h":1060,"title":"ขั้น 3 · ผลวัดนอกช่วง / เครื่องจำงานไม่ได้"},
+"B4PriceChanged.dc.html":{"x":470,"y":3280,"w":390,"h":844,"title":"ขั้น 4 · ราคาเปลี่ยนระหว่างทำ"},
+"B4States.dc.html":{"x":940,"y":3280,"w":390,"h":1240,"title":"ขั้น 4 · ออกรหัสไม่ได้ / ทำรูปไม่ได้ / คัดลอกไม่ได้"},
+"AdminGems.dc.html":{"x":0,"y":4660,"w":1440,"h":1000,"title":"หลังบ้าน · พลอยสำหรับออกแบบแหวน (ราคาขาย)","expand":"fill"},
+"AdminDesigns.dc.html":{"x":1520,"y":4660,"w":1440,"h":1000,"title":"หลังบ้าน · แบบแหวน","expand":"fill"},
+"AdminVerify.dc.html":{"x":3040,"y":4660,"w":1440,"h":1000,"title":"หลังบ้าน · ตรวจรหัสสั่งทำ","expand":"fill"},
+"AdminVerifyStates.dc.html":{"x":4560,"y":4660,"w":1440,"h":1000,"title":"หลังบ้าน · ป้ายผลตรวจทุกแบบ","expand":"fill"}
+},"order":["Main.dc.html","B1Style.dc.html","B2.dc.html","B3.dc.html","B4.dc.html","SummaryImage.dc.html","B1Resume.dc.html","B1Error.dc.html","B1Closed.dc.html","B2StageStates.dc.html","B2GemClosed.dc.html","B2PriceStale.dc.html","B2ChangeDesign.dc.html","B2NoColor.dc.html","B2Oval.dc.html","B1Style7.dc.html","B3States.dc.html","B4PriceChanged.dc.html","B4States.dc.html","AdminGems.dc.html","AdminDesigns.dc.html","AdminVerify.dc.html","AdminVerifyStates.dc.html"],
+"notes":{
+"t1":{"x":0,"y":-300,"text":"ลูกค้า · จำนวนเม็ด → แบบ → พลอย → ไซซ์ → สรุป","kind":"title1","maxW":3430},
+"s1":{"x":3530,"y":0,"w":440,"text":"ข้อตกลงในแบบร่างนี้\n• ภาพแหวนเป็น 2D (แนะนำตาม Q1) — พื้นที่ภาพคือที่วางโมเดล 3D ทีหลัง\n• ชื่อพลอย 'CZ สี' เป็นตัวอย่าง รอ Q4 ว่าพลอยสีเป็นชนิดไหน\n• ราคา รหัส วันที่ ทั้งหมดเป็นตัวอย่าง — ของจริงมาจาก server\n• ช่อง [ต้องยืนยัน] = รอเจ้าของ ห้ามเติมเอง\n• ชื่อแบบใช้ 'แถว N เม็ด' ไว้ก่อน (Q2)","fill":"orange"},
+"t2":{"x":0,"y":1740,"text":"ขั้น 1–2 · สถานะ กรณีพิเศษ และแบบ 7 เม็ด","kind":"title1","maxW":4620},
+"t3":{"x":0,"y":2980,"text":"ขั้น 3–4 · สถานะและกรณีพิเศษ","kind":"title1","maxW":1330},
+"t4":{"x":0,"y":4360,"text":"หลังบ้าน (PC)","kind":"title1","maxW":6000}
+},"designSystems":[]}

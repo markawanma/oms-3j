@@ -55,6 +55,8 @@ interface NavItem {
   href: string;
   label: string;
   icon: LucideIcon;
+  /** เมนูของหน้าที่ owner/admin เท่านั้น — ซ่อนจาก staff (UI เท่านั้น · ด่านจริงอยู่ที่หน้า/action) */
+  ownerAdminOnly?: boolean;
 }
 
 interface NavGroup {
@@ -130,6 +132,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/settings", label: "ราคา & มาร์จิ้น", icon: Settings2 },
       { href: "/oem/rates", label: "ต้นทุน OEM", icon: Factory },
       { href: "/oem/gems", label: "แคตตาล็อกพลอย", icon: Diamond },
+      { href: "/catalog/ring-builder", label: "ออกแบบแหวน (ราคาขาย)", icon: Gem, ownerAdminOnly: true },
       { href: "/oem/quote", label: "คิดราคา OEM", icon: Calculator },
       { href: "/oem/quotes", label: "ใบเสนอราคา OEM", icon: ClipboardList },
     ],
@@ -267,7 +270,10 @@ export function DashboardShell({
   const [drawerOpen, setDrawerOpen] = useState(false);
 
   // กลุ่ม "ใบงาน" ซ่อนจาก staff (role null = ยังไม่มี session จริง/DEV flow → แสดงเหมือนเมนูอื่น) — UI เท่านั้น ด่านจริงอยู่ที่ canManageJobs + requireOwnerAdmin
-  const visibleGroups = role != null && !isOwnerOrAdmin(role) ? NAV_GROUPS.filter((g) => g.label !== "ใบงาน") : NAV_GROUPS;
+  const visibleGroups =
+    role != null && !isOwnerOrAdmin(role)
+      ? NAV_GROUPS.filter((g) => g.label !== "ใบงาน").map((g) => ({ ...g, items: g.items.filter((i) => !i.ownerAdminOnly) }))
+      : NAV_GROUPS;
   const navGroups: NavGroup[] =
     role === "owner"
       ? [

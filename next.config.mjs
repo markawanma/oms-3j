@@ -41,6 +41,15 @@ nextConfig.headers = async () => [
       { key: "Content-Security-Policy", value: "frame-ancestors 'none'" },
     ],
   },
+  // หน้าแบบแหวน /ring-builder (สาธารณะ · D1 demo): security L1 12 พ.ย. — ห้ามถูกฝังใน iframe (clickjacking ปุ่มส่ง LINE)
+  // exact path เหมือน /ring-size · ลิงก์จากหน้าผล quiz เป็น <a href> ธรรมดา header จึงติด
+  {
+    source: "/ring-builder",
+    headers: [
+      { key: "X-Frame-Options", value: "DENY" },
+      { key: "Content-Security-Policy", value: "frame-ancestors 'none'" },
+    ],
+  },
 ];
 
 export default nextConfig;

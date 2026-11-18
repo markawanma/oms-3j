@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<title>ภาพแหวน · สถานะโหลด</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+Thai:wght@500;600;700&amp;family=IBM+Plex+Sans+Thai:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+button{font:inherit;color:inherit;cursor:pointer}
+.serif{font-family:'Noto Serif Thai',serif}
+.stage{position:relative;height:210px;border-radius:24px;background:radial-gradient(ellipse at 50% 45%,#FFFFFF 0%,#F6F0EA 55%,#E9DFD5 100%);overflow:hidden}
+.st{position:absolute;top:100px;width:36px;height:36px;margin-left:-18px;border-radius:99px;box-shadow:inset -4px -6px 8px rgba(0,0,0,.18),inset 4px 4px 6px rgba(255,255,255,.65)}
+.cap{font-size:13px;font-weight:600;color:#5C4D49;letter-spacing:.02em}
+.pill{min-height:40px;padding:0 14px;border-radius:99px;border:1px solid #D9C9BD;background:#fff;font-size:14px;font-weight:600}
+</style>
+</helmet>
+<div style="width: 390px; height: 1120px; box-sizing: border-box; font-family: 'IBM Plex Sans Thai', system-ui, sans-serif; line-height: 1.6; color: #2B1E1E; background: #FBF7F2; display: flex; flex-direction: column; gap: 12px; padding: 20px 16px">
+  <h1 class="serif" style="margin: 0; font-size: 18px; font-weight: 600">ภาพแหวนในขั้นใส่พลอย · 3 สถานะ</h1>
+  <p style="margin: 0 0 6px; font-size: 13px; color: #5C4D49">ทุกสถานะ: แถบตำแหน่ง ตัวเลือกพลอย และราคา ใช้ได้ตามปกติ ไม่รอภาพ</p>
+
+  <div class="cap">ก · กำลังโหลดภาพ 3D</div>
+  <section aria-label="ภาพแหวน กำลังโหลด" class="stage">
+    <svg aria-hidden="true" width="358" height="210" viewBox="0 0 358 210" style="position: absolute; left: 0; top: 0; opacity: .55"><path d="M14 132c60-36 270-36 330 0v26c-60-34-270-34-330 0z" fill="#C9CAD2"></path></svg>
+    <span class="st" style="left: 67px; background: #C4162A; opacity: .55"></span><span class="st" style="left: 123px; background: #F6F6F8; opacity: .55"></span><span class="st" style="left: 179px; background: #C4162A; opacity: .55"></span><span class="st" style="left: 235px; background: #F6F6F8; opacity: .55"></span><span class="st" style="left: 291px; background: #F6F6F8; opacity: .55"></span>
+    <div role="status" style="position: absolute; left: 50%; top: 22px; transform: translateX(-50%); display: flex; align-items: center; gap: 8px; white-space: nowrap; padding: 6px 14px; border-radius: 99px; background: rgba(255,255,255,.92); font-size: 13px; color: #3E302E">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#a2191d" stroke-width="2.4" stroke-linecap="round" aria-hidden="true"><path d="M12 3a9 9 0 1 0 9 9"></path></svg>กำลังโหลดภาพแหวน · เลือกพลอยได้เลย
+    </div>
+  </section>
+
+  <div class="cap" style="margin-top: 10px">ข · ภาพ 3D โหลดไม่สำเร็จ → ใช้ภาพแผนภาพแทน</div>
+  <section aria-label="ภาพแหวน แบบแผนภาพ" class="stage">
+    <svg aria-hidden="true" width="358" height="210" viewBox="0 0 358 210" style="position: absolute; left: 0; top: 0"><path d="M14 132c60-36 270-36 330 0v26c-60-34-270-34-330 0z" fill="#C9CAD2"></path></svg>
+    <span class="st" style="left: 67px; background: #C4162A"></span><span class="st" style="left: 123px; background: #F6F6F8; border: 1px solid #9A9AA6"></span><span class="st" style="left: 179px; background: #C4162A"></span><span class="st" style="left: 235px; background: #F6F6F8; border: 1px solid #9A9AA6"></span><span class="st" style="left: 291px; background: #F6F6F8; border: 1px solid #9A9AA6"></span>
+  </section>
+  <div role="status" style="display: flex; align-items: center; gap: 10px; padding: 8px 8px 8px 14px; border-radius: 14px; background: #F4EEE8; font-size: 13px; color: #3E302E">
+    <span style="flex: 1">ภาพ 3D โหลดไม่ได้ ตอนนี้แสดงเป็นแผนภาพแทน</span>
+    <button class="pill">ลองอีกครั้ง</button>
+  </div>
+
+  <div class="cap" style="margin-top: 10px">ค · เครื่องหน่วง → เสนอให้เลือกเอง (ไม่สลับให้)</div>
+  <section aria-label="ภาพแหวน 3D" class="stage">
+    <svg aria-hidden="true" width="358" height="210" viewBox="0 0 358 210" style="position: absolute; left: 0; top: 0"><ellipse cx="179" cy="140" rx="150" ry="44" fill="none" stroke="#C9CAD2" stroke-width="16"></ellipse></svg>
+    <span class="st" style="left: 91px; top: 140px; width: 30px; height: 30px; background: #C4162A"></span><span class="st" style="left: 135px; top: 150px; width: 32px; height: 32px; background: #F6F6F8; border: 1px solid #9A9AA6"></span><span class="st" style="left: 179px; top: 154px; width: 32px; height: 32px; background: #C4162A"></span><span class="st" style="left: 223px; top: 150px; width: 32px; height: 32px; background: #F6F6F8; border: 1px solid #9A9AA6"></span><span class="st" style="left: 267px; top: 140px; width: 30px; height: 30px; background: #F6F6F8; border: 1px solid #9A9AA6"></span>
+    <span style="position: absolute; right: 12px; top: 10px; font-size: 12px; color: #5C4D49; background: rgba(255,255,255,.8); padding: 2px 10px; border-radius: 99px">ลากเพื่อหมุน</span>
+  </section>
+  <div role="status" style="display: flex; flex-direction: column; gap: 8px; padding: 12px 14px; border-radius: 14px; background: #F4EEE8; font-size: 14px; color: #3E302E">
+    <span>ภาพหมุนได้อาจทำให้เครื่องนี้ช้า ใช้ภาพแผนภาพแทนไหม</span>
+    <div style="display: flex; gap: 8px"><button class="pill">ใช้ภาพแผนภาพ</button><button class="pill" style="border-color: transparent; background: transparent">ใช้ภาพหมุนต่อ</button></div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1120}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

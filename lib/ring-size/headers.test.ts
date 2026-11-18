@@ -57,7 +57,18 @@ describe("next.config headers() — /ring-size", () => {
   });
 
   // รายการ source ทั้งหมดของ headers() ยืนยัน "ที่เดียว" ที่นี่ (lib/jobs/headers.test.ts ไม่เทียบรายการเต็มแล้ว — กันต้องแก้สองไฟล์ทุกครั้งที่เพิ่ม rule)
-  it("sources ทั้งหมดมีแค่ 2 rule (หน้าช่าง + ring-size)", async () => {
-    expect((await rules()).map((r) => r.source)).toEqual(["/w/:path*", "/ring-size"]);
+  it("sources ทั้งหมดมีแค่ 3 rule (หน้าช่าง + ring-size + ring-builder)", async () => {
+    expect((await rules()).map((r) => r.source)).toEqual(["/w/:path*", "/ring-size", "/ring-builder"]);
+  });
+});
+
+describe("next.config headers() — /ring-builder (security L1 12 พ.ย.)", () => {
+  it("exact path + กัน iframe ทั้ง X-Frame-Options และ CSP frame-ancestors", async () => {
+    const mod = (await import("../../next.config.mjs")) as { default: { headers: () => Promise<{ source: string; headers: { key: string; value: string }[] }[]> } };
+    const rule = (await mod.default.headers()).find((r) => r.source === "/ring-builder");
+    expect(rule).toBeDefined();
+    const h = Object.fromEntries(rule!.headers.map((x) => [x.key, x.value]));
+    expect(h["X-Frame-Options"]).toBe("DENY");
+    expect(h["Content-Security-Policy"]).toBe("frame-ancestors 'none'");
   });
 });

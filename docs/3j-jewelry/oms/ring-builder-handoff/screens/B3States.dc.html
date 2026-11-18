@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<title>ไซซ์ · กรณีพิเศษ</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+Thai:wght@500;600;700&amp;family=IBM+Plex+Sans+Thai:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#a2191d}a:hover{color:#7d1316}
+button{font:inherit;color:inherit;cursor:pointer}
+.serif{font-family:'Noto Serif Thai',serif}
+.cap{font-size:13px;font-weight:600;color:#5C4D49}
+.chip{min-height:48px;border-radius:12px;border:1.5px solid #E0D3C8;background:#fff;font-size:16px;font-weight:600}
+.cta{display:flex;align-items:center;justify-content:center;width:100%;min-height:54px;border:0;border-radius:16px;background:#a2191d;color:#fff;font-size:16px;font-weight:600}
+.sec{display:flex;align-items:center;justify-content:center;width:100%;min-height:50px;border-radius:16px;border:1.5px solid #D9C9BD;background:#fff;font-size:15px;font-weight:600}
+</style>
+</helmet>
+<div style="width: 390px; height: 1060px; box-sizing: border-box; font-family: 'IBM Plex Sans Thai', system-ui, sans-serif; line-height: 1.6; color: #2B1E1E; background: #FBF7F2; display: flex; flex-direction: column; gap: 12px; padding: 20px 20px">
+  <div class="cap">ก · กลับจากหน้าวัดไซซ์ ได้เบอร์นอกช่วงที่ร้านทำ</div>
+  <h1 class="serif" style="margin: 0; font-size: 23px; font-weight: 700">เลือกไซซ์แหวน</h1>
+  <section role="status" aria-label="ผลวัดล่าสุด" style="padding: 12px 14px; border-radius: 16px; background: #FFF4E5; border: 1px solid #EBCB97; font-size: 14px; color: #4A3200; line-height: 1.55">
+    <strong>ผลวัดล่าสุด: เบอร์ 43</strong> — ร้านทำเบอร์ 45–68 จึงใช้เบอร์นี้สั่งทำไม่ได้<br>ทักแอดมินถามได้ หรือเลือก "ให้แอดมินช่วยเช็ก"
+    <div style="margin-top: 8px"><a href="#" style="font-weight: 600; min-height: 40px; display: inline-flex; align-items: center">ทักแอดมินทาง LINE</a></div>
+  </section>
+  <div aria-hidden="true" style="display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 6px; opacity: .9">
+    <span class="chip" style="display: flex; align-items: center; justify-content: center">45</span><span class="chip" style="display: flex; align-items: center; justify-content: center">46</span><span class="chip" style="display: flex; align-items: center; justify-content: center">47</span><span class="chip" style="display: flex; align-items: center; justify-content: center">48</span><span class="chip" style="display: flex; align-items: center; justify-content: center">49</span><span class="chip" style="display: flex; align-items: center; justify-content: center">50</span>
+  </div>
+  <div style="font-size: 13px; color: #5C4D49">…ตารางเบอร์ 45–68 ตามปกติ (ไม่มีเบอร์ไหนถูกเลือกให้เอง)</div>
+
+  <div style="height: 1px; background: #E6DAD0; margin: 14px 0 6px"></div>
+
+  <div class="cap">ข · เครื่องนี้จำงานไม่ได้ (เก็บข้อมูลในเครื่องไม่ได้) แล้วกด "วัดไซซ์ด้วยมือถือ"</div>
+  <div role="dialog" aria-modal="true" aria-labelledby="ns-t" style="border-radius: 22px; background: #fff; border: 1px solid #EADFD6; box-shadow: 0 12px 30px rgba(43,30,30,.14); padding: 18px; display: flex; flex-direction: column; gap: 12px">
+    <h2 id="ns-t" class="serif" style="margin: 0; font-size: 19px; font-weight: 700">ไปวัดไซซ์แล้ว ต้องออกแบบใหม่</h2>
+    <p style="margin: 0; font-size: 15px; color: #3E302E">เบราว์เซอร์นี้จำแหวนที่ออกแบบไว้ไม่ได้ ถ้าออกไปหน้าวัดไซซ์ เมื่อกลับมาจะต้องเลือกแบบและพลอยใหม่</p>
+    <div style="padding: 10px 12px; border-radius: 12px; background: #F4EEE8; font-size: 13px; color: #3E302E">ทางที่ไม่ต้องเริ่มใหม่: เลือก "ให้แอดมินช่วยเช็กไซซ์" แล้ววัดทีหลังได้</div>
+    <button class="cta">ให้แอดมินช่วยเช็กไซซ์</button>
+    <button class="sec">ไปวัดไซซ์ (ออกแบบใหม่ทีหลัง)</button>
+    <button class="sec" style="border-color: transparent">อยู่หน้านี้</button>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1060}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

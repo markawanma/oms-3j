@@ -171,6 +171,8 @@ export function GemQuizClient({ token }: { token: string | null }) {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
+      // ลูกค้ากดลิงก์ไป /ring-builder ทันทีหลังเห็นผล — keepalive ให้ request ไม่ถูกตัดตอนเปลี่ยนหน้า (มติ TL 12 พ.ย. 69 §7e)
+      keepalive: true,
     })
       .then((res) => {
         if (res.status === 204) markDone();

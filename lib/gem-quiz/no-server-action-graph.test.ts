@@ -70,6 +70,38 @@ describe("R-9: module graph ของหน้าสาธารณะ gem-quiz 
     expect(serverActionModulesReachableFrom(entries)).toEqual([]);
   });
 
+  // D1 demo (12 พ.ย. 69) X5: หน้า /ring-builder (app/(quiz)/ring-builder/** ถูกนับในข้อบนแล้ว) + โค้ดที่หน้านั้นดึงใน lib/ring-builder
+  // ต้องไม่ลาก "use server" / lib/actions เข้ากราฟ — ระบุ entry ชัดเจนอีกชั้นเพื่อกัน glob/โฟลเดอร์ย้ายแล้วเทสต์ว่างเงียบ
+  it("X5: หน้า /ring-builder + lib/ring-builder/showcase|viewer + last-size ไม่ไปถึงไฟล์ use server หรือ lib/actions", () => {
+    const page = join(ROOT, "app", "(quiz)", "ring-builder", "page.tsx");
+    expect(existsSync(page)).toBe(true);
+    const entries = [
+      page,
+      ...listFiles(join(ROOT, "app", "(quiz)", "ring-builder")),
+      ...listFiles(join(ROOT, "lib", "ring-builder", "showcase")),
+      ...listFiles(join(ROOT, "lib", "ring-builder", "viewer")),
+      join(ROOT, "lib", "ring-builder", "last-size.ts"),
+      join(ROOT, "lib", "ring-builder", "config.ts"),
+    ];
+    expect(entries.length).toBeGreaterThan(15);
+    expect(serverActionModulesReachableFrom(entries)).toEqual([]);
+    // กราฟต้องไม่แตะ lib/actions เลย (แม้ไฟล์นั้นไม่ใช่ use server) และไม่ลากโค้ดหลังบ้านของ ring builder
+    const seen = new Set<string>();
+    const stack = [...entries];
+    while (stack.length) {
+      const f = stack.pop() as string;
+      if (seen.has(f)) continue;
+      seen.add(f);
+      if (!/\.(tsx?|m?js)$/.test(f)) continue;
+      for (const m of readFileSync(f, "utf8").matchAll(IMPORT_RE)) {
+        const r = resolveSpec(f, (m[1] ?? m[2] ?? m[3]) as string);
+        if (r) stack.push(r);
+      }
+    }
+    const rels = [...seen].map((f) => relative(ROOT, f).split("\\").join("/"));
+    expect(rels.filter((f) => f.startsWith("lib/actions/") || /lib\/ring-builder\/admin-(server|types)\.ts$/.test(f))).toEqual([]);
+  });
+
   it("negative control: /stock/hero (หน้า exempt อื่นที่มี server action อยู่แล้ว) ต้องจับได้ว่ามี", () => {
     // ยืนยันว่า scanner ตัวนี้ทำงานจริง ไม่ใช่ false-negative เงียบๆ — ถ้าเทสต์นี้
     // เริ่ม FAIL (ไม่เจอ server action ใน /stock/hero) แปลว่า scanner พังไปแล้ว

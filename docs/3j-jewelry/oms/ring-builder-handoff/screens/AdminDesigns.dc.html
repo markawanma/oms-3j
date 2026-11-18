@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<title>หลังบ้าน · แบบแหวน</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#a2191d}a:hover{color:#7d1316}
+button{font:inherit;color:inherit;cursor:pointer}
+input,select{font:inherit;color:inherit}
+.nav a{display:flex;align-items:center;min-height:40px;padding:0 12px;border-radius:10px;color:#2A2425;text-decoration:none;font-size:14px}
+.nav a.on{background:#F6E3E3;color:#7d1316;font-weight:600}
+.btn{min-height:40px;padding:0 16px;border-radius:10px;border:1px solid #D6CECE;background:#fff;font-size:14px;font-weight:600}
+.btn.pri{background:#a2191d;border-color:#a2191d;color:#fff}
+.chip{min-height:36px;padding:0 14px;border-radius:999px;border:1px solid #D6CECE;background:#fff;font-size:13px;font-weight:600}
+.chip.on{background:#2A2425;border-color:#2A2425;color:#fff}
+th{font-size:12px;font-weight:600;color:#5C5456;text-align:left;padding:10px 12px;border-bottom:1px solid #E8E2E2;white-space:nowrap}
+td{font-size:14px;padding:11px 12px;border-bottom:1px solid #F0EBEB;vertical-align:middle}
+tr.grp td{background:#F6F3F3;font-size:12px;font-weight:700;color:#5C5456;padding:6px 12px}
+.badge{display:inline-block;font-size:12px;font-weight:600;padding:2px 8px;border-radius:6px;white-space:nowrap}
+.fld{display:flex;flex-direction:column;gap:4px;font-size:13px;font-weight:600;color:#2A2425}
+.fld input,.fld select{min-height:40px;padding:0 10px;border-radius:10px;border:1px solid #D6CECE;font-size:14px;font-weight:400;background:#fff;min-width:0}
+.fld input:disabled,.fld select:disabled{background:#F0EBEB;color:#5C5456}
+</style>
+</helmet>
+<div style="min-height: 1000px; box-sizing: border-box; font-family: 'Noto Sans Thai', system-ui, sans-serif; line-height: 1.55; color: #2A2425; background: #F6F3F3; display: flex; flex-wrap: wrap">
+  <aside style="flex: 1 1 220px; max-width: 240px; background: #fff; border-right: 1px solid #E8E2E2; padding: 18px 12px; box-sizing: border-box">
+    <img src="../assets/3j-logo.png" alt="3J" style="height: 34px; width: auto; margin: 0 8px 14px">
+    <nav class="nav" aria-label="เมนู" style="display: flex; flex-direction: column; gap: 2px">
+      <div style="font-size: 12px; color: #5C5456; padding: 8px 12px 4px">ออกแบบแหวน</div>
+      <a href="AdminGems.dc.html">พลอย (ราคาขาย)</a>
+      <a class="on" href="AdminDesigns.dc.html" aria-current="page">แบบแหวน</a>
+      <a href="AdminVerify.dc.html">ตรวจรหัสสั่งทำ</a>
+    </nav>
+  </aside>
+
+  <main style="flex: 999 1 560px; min-width: 0; padding: 24px 28px; box-sizing: border-box; display: flex; flex-direction: column; gap: 16px">
+    <div style="display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; flex-wrap: wrap">
+      <div>
+        <h1 style="margin: 0; font-size: 24px; font-weight: 700">แบบแหวน</h1>
+        <p style="margin: 2px 0 0; font-size: 13px; color: #5C5456">แต่ละแบบกำหนดจำนวนเม็ด ทรง และขนาดพลอยตายตัว · ลูกค้าเลือกจำนวนเม็ดก่อน แล้วเห็นเฉพาะแบบของจำนวนนั้น</p>
+      </div>
+      <button class="btn pri">+ เพิ่มแบบ</button>
+    </div>
+
+    <div style="display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-start">
+      <section aria-label="รายการแบบ" style="flex: 999 1 560px; min-width: 0; background: #fff; border: 1px solid #E8E2E2; border-radius: 14px">
+        <div role="group" aria-label="กรองจำนวนเม็ด" style="display: flex; gap: 6px; padding: 12px; border-bottom: 1px solid #E8E2E2; flex-wrap: wrap">
+          <button class="chip on" aria-pressed="true">ทั้งหมด 7</button><button class="chip" aria-pressed="false">3 เม็ด · 1</button><button class="chip" aria-pressed="false">5 เม็ด · 2</button><button class="chip" aria-pressed="false">6 เม็ด · 1</button><button class="chip" aria-pressed="false">7 เม็ด · 3</button>
+        </div>
+        <div style="overflow-x: auto">
+          <table style="width: 100%; border-collapse: collapse; min-width: 700px">
+            <thead><tr><th>แบบ</th><th>พลอย (ทรง · ขนาด)</th><th>ตัวเรือน</th><th>ภาพ</th><th>พลอยสีที่ขายได้</th><th>สถานะ</th></tr></thead>
+            <tbody>
+              <tr class="grp"><td colspan="6">3 เม็ด</td></tr>
+              <tr><td><strong>แบบ ก</strong></td><td>กลม 2×2 มม.</td><td>฿890</td><td>แผนภาพ 2D</td><td>4 ชนิด</td><td><span class="badge" style="background: #DDF3EA; color: #13613F">เปิด</span></td></tr>
+              <tr class="grp"><td colspan="6">5 เม็ด</td></tr>
+              <tr style="background: #FBF7F7"><td><strong>แบบ ก</strong> <span class="badge" style="background: #E4EEFB; color: #1C4F9C">ล็อก · มีรหัสแล้ว</span></td><td>กลม 2×2 มม.</td><td>฿1,090</td><td>โมเดล 3D ✓</td><td>4 ชนิด</td><td><span class="badge" style="background: #DDF3EA; color: #13613F">เปิด</span></td></tr>
+              <tr><td><strong>แบบ ข</strong></td><td>กลม 3×3 มม.</td><td>฿1,290</td><td><span class="badge" style="background: #FFF1D6; color: #7A4B00">รอไฟล์ 3D</span></td><td><span class="badge" style="background: #FFF1D6; color: #7A4B00">3 ชนิด</span></td><td><span class="badge" style="background: #DDF3EA; color: #13613F">เปิด</span></td></tr>
+              <tr class="grp"><td colspan="6">6 เม็ด</td></tr>
+              <tr><td><strong>แบบ ก</strong></td><td>กลม 2×2 มม.</td><td>฿1,190</td><td>แผนภาพ 2D</td><td>4 ชนิด</td><td><span class="badge" style="background: #DDF3EA; color: #13613F">เปิด</span></td></tr>
+              <tr class="grp"><td colspan="6">7 เม็ด</td></tr>
+              <tr><td><strong>แบบ ก</strong></td><td>กลม 2×2 มม.</td><td>฿1,290</td><td>โมเดล 3D ✓</td><td>4 ชนิด</td><td><span class="badge" style="background: #DDF3EA; color: #13613F">เปิด</span></td></tr>
+              <tr><td><strong>แบบ ข</strong></td><td>กลม 3×3 มม.</td><td>฿1,490</td><td>แผนภาพ 2D</td><td><span class="badge" style="background: #FFF1D6; color: #7A4B00">3 ชนิด</span></td><td><span class="badge" style="background: #DDF3EA; color: #13613F">เปิด</span></td></tr>
+              <tr><td><strong>แบบ ค</strong></td><td>ไข่ 4×3 มม.</td><td>฿1,690</td><td>โมเดล 3D ✓</td><td><span class="badge" style="background: #FFF1D6; color: #7A4B00">2 ชนิด</span></td><td><span class="badge" style="background: #F0EBEB; color: #5C5456">ปิด</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section aria-label="แก้ไขแบบ" style="flex: 1 1 360px; max-width: 440px; background: #fff; border: 1px solid #E8E2E2; border-radius: 14px; padding: 18px; display: flex; flex-direction: column; gap: 12px; box-sizing: border-box">
+        <h2 style="margin: 0; font-size: 18px; font-weight: 700">แก้ไข · 5 เม็ด แบบ ก</h2>
+        <div style="padding: 10px 12px; border-radius: 10px; background: #E4EEFB; font-size: 13px; color: #1C3F78">ออกรหัสสั่งทำไปแล้ว 12 รหัส — จำนวนเม็ด ทรง และขนาดพลอยแก้ไม่ได้ ถ้าต้องการเปลี่ยน ให้ "ทำสำเนาเป็นแบบใหม่"</div>
+        <div style="display: flex; gap: 10px">
+          <div class="fld" style="flex: 1"><label for="d2">จำนวนเม็ด</label><select id="d2" disabled><option>5 เม็ด</option></select></div>
+          <div class="fld" style="flex: 1"><label for="d1">ชื่อแบบ (ลูกค้าเห็น)</label><input id="d1" value="แบบ ก"></div>
+        </div>
+        <div style="display: flex; gap: 10px">
+          <div class="fld" style="flex: 1"><label for="d6">ทรงพลอย</label><select id="d6" disabled><option>กลม</option><option>ไข่</option></select></div>
+          <div class="fld" style="flex: 1"><label for="d3">ขนาดพลอย กว้าง×ยาว (มม.)</label><input id="d3" value="2×2" disabled></div>
+        </div>
+        <div style="font-size: 12px; color: #5C5456; margin-top: -6px">ลูกค้าเห็นเฉพาะพลอยที่มีราคาทรงและขนาดนี้ (ตั้งราคาที่หน้า "พลอย")</div>
+        <div class="fld"><label for="d4">ราคาตัวเรือน (บาท · ทุกไซซ์)</label><input id="d4" value="1090"></div>
+        <div style="display: flex; flex-direction: column; gap: 6px">
+          <div style="font-size: 13px; font-weight: 600">ตำแหน่งเม็ดสำหรับภาพ 2D (นับซ้ายไปขวา)</div>
+          <div style="position: relative; height: 92px; border-radius: 12px; background: #F6F3F3">
+            <svg aria-hidden="true" width="100%" height="92" viewBox="0 0 400 92" preserveAspectRatio="xMidYMid meet" style="position: absolute; inset: 0"><path d="M20 62c80-28 280-28 360 0v14c-80-26-280-26-360 0z" fill="#C9CAD2"></path><g fill="#fff" stroke="#9A9AA6"><circle cx="120" cy="44" r="13"></circle><circle cx="160" cy="44" r="13"></circle><circle cx="200" cy="44" r="13"></circle><circle cx="240" cy="44" r="13"></circle><circle cx="280" cy="44" r="13"></circle></g><g font-size="12" font-weight="700" text-anchor="middle" fill="#2A2425"><text x="120" y="48">1</text><text x="160" y="48">2</text><text x="200" y="48">3</text><text x="240" y="48">4</text><text x="280" y="48">5</text></g></svg>
+          </div>
+        </div>
+        <div style="display: flex; gap: 10px; flex-wrap: wrap">
+          <div style="flex: 1; min-width: 150px; padding: 10px 12px; border-radius: 10px; border: 1px dashed #D6CECE; font-size: 13px"><strong>รูปบนการ์ดเลือกแบบ</strong><br><span style="color: #5C5456">5-a.jpg</span> · <a href="#">เปลี่ยน</a></div>
+          <div style="flex: 1; min-width: 150px; padding: 10px 12px; border-radius: 10px; border: 1px dashed #D6CECE; font-size: 13px"><strong>โมเดล 3D (ไม่บังคับ)</strong><br><span style="color: #13613F">พบเม็ดครบ 5/5 (gem_1–gem_5)</span> · <a href="#">เปลี่ยน</a></div>
+        </div>
+        <div class="fld"><label for="d5">สถานะ</label><select id="d5"><option>เปิด</option><option>ปิด</option></select></div>
+        <div style="padding: 10px 12px; border-radius: 10px; background: #FFF8EC; font-size: 12px; color: #7A4B00">ถ้าปิด: ลูกค้าที่มีงานค้างของแบบนี้จะเห็นว่าแบบปิดแล้ว และต้องเลือกแบบใหม่ · รหัสเก่ายังตรวจได้ · ถ้าจำนวนเม็ดใดเหลือแบบเดียว ลูกค้ายังเห็นหน้าเลือกแบบ (การ์ดเดียว)</div>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end">
+          <button class="btn">พรีวิวแบบลูกค้า</button>
+          <button class="btn">ทำสำเนาเป็นแบบใหม่</button>
+          <button class="btn pri">บันทึก</button>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

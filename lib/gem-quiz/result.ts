@@ -18,6 +18,7 @@
 import {
   GEM_QUIZ_DEFAULT_JEWELRY,
   GEM_QUIZ_DISCLAIMER,
+  GEM_QUIZ_INTENTIONS,
   GEM_QUIZ_HAND_NOTE,
   GEM_QUIZ_JEWELRY_TYPES,
   GEM_QUIZ_LENGTH_FIT_NOTE,
@@ -26,6 +27,7 @@ import {
   GEM_QUIZ_QUESTIONS,
   GEM_QUIZ_RING_FINGER,
   GEM_QUIZ_STONE_BY_CODE,
+  type GemQuizIntention,
   type GemQuizJewelryType,
   type GemQuizJewelryTypeConfig,
   type GemQuizPair,
@@ -94,6 +96,13 @@ export interface GemQuizResultProduct {
 }
 
 export interface GemQuizResultView {
+  /** พลอยอันดับ 1–3 ตามลำดับ (ไม่ขึ้นกับ focusStoneCode) — หน้า /ring-builder ใช้เป็นแบบ 1/2/3 */
+  top3: readonly GemQuizStoneCode[];
+  /** เรื่องที่ตอบใน quiz (รหัส) — CTA ส่งเป็น `i` ของหน้า /ring-builder */
+  intention: GemQuizIntention;
+  /** top3 ของ "ทั้ง 6 เรื่อง" เมื่อคำตอบอื่นคงเดิมและเปลี่ยนแค่ intention (D1.1 §9.2 · CTA ส่งเป็น `t`)
+   * intention ที่ตอบ = top3 ข้างบนเป๊ะ · intention อื่น = ผลที่ quiz จะให้ถ้าตอบข้อนั้นต่าง (test ล็อกทุกชุดคำตอบ) */
+  intentionTop3: Readonly<Record<GemQuizIntention, readonly [GemQuizStoneCode, GemQuizStoneCode, GemQuizStoneCode]>>;
   hero: GemQuizResultHero;
   pairing: GemQuizResultPairing;
   alternatives: readonly GemQuizResultAlternative[];
@@ -139,7 +148,7 @@ function getJewelryTypeConfig(code: string): GemQuizJewelryTypeConfig {
  * ทางเลือกอันดับ 2/3 จริง) ถ้าไม่เจอ fallback เป็น pair แรกที่มี pid อยู่เลย —
  * GEM_QUIZ_PAIRS ครอบทุกพลอยอย่างน้อย 1 pair เสมอ (invariant ที่พิสูจน์ไว้ใน
  * config.ts) จึง fallback ไม่มีทาง undefined ตราบใดที่ pid เป็นพลอยที่มีจริง. */
-function findPair(pid: GemQuizStoneCode, others: readonly GemQuizStoneCode[]): GemQuizPair {
+export function findPair(pid: GemQuizStoneCode, others: readonly GemQuizStoneCode[]): GemQuizPair {
   const preferred = GEM_QUIZ_PAIRS.find(
     (pair) => pair.gems.includes(pid) && others.some((other) => pair.gems.includes(other))
   );
@@ -169,6 +178,14 @@ export function buildResultView(input: GemQuizResultInput): GemQuizResultView {
   });
   const top3 = ranked.slice(0, 3).map((r) => r.code);
   const rank1 = top3[0];
+
+  // ตารางอันดับราย intention — rankGems ตัวเดียวกับ quiz (ไม่คำนวณคะแนนซ้ำที่อื่น)
+  const intentionTop3 = Object.fromEntries(
+    (Object.keys(GEM_QUIZ_INTENTIONS) as GemQuizIntention[]).map((intention) => {
+      const r = rankGems({ birthDay: answers.birthDay, intention, feeling: answers.feeling, likedStoneCodes });
+      return [intention, [r[0].code, r[1].code, r[2].code] as const];
+    })
+  ) as GemQuizResultView["intentionTop3"];
 
   const pid = input.focusStoneCode && top3.includes(input.focusStoneCode as GemQuizStoneCode)
     ? (input.focusStoneCode as GemQuizStoneCode)
@@ -270,6 +287,9 @@ export function buildResultView(input: GemQuizResultInput): GemQuizResultView {
   });
 
   return {
+    top3,
+    intention: answers.intention as GemQuizIntention, // getOptionLabel ข้างบนตรวจแล้วว่าเป็นตัวเลือกจริง (ไม่งั้น throw)
+    intentionTop3,
     hero,
     pairing,
     alternatives,

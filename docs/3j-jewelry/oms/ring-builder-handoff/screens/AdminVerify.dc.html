@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<title>หลังบ้าน · ตรวจรหัสสั่งทำ</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@400;500;600;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#a2191d}a:hover{color:#7d1316}
+button{font:inherit;color:inherit;cursor:pointer}
+.nav a{display:flex;align-items:center;min-height:40px;padding:0 12px;border-radius:10px;color:#2A2425;text-decoration:none;font-size:14px}
+.nav a.on{background:#F6E3E3;color:#7d1316;font-weight:600}
+.btn{min-height:40px;padding:0 16px;border-radius:10px;border:1px solid #D6CECE;background:#fff;font-size:14px;font-weight:600}
+.btn.pri{background:#a2191d;border-color:#a2191d;color:#fff}
+th{font-size:12px;font-weight:600;color:#5C5456;text-align:left;padding:8px 10px;border-bottom:1px solid #E8E2E2}
+td{font-size:14px;padding:10px;border-bottom:1px solid #F0EBEB}
+.badge{display:inline-block;font-size:12px;font-weight:600;padding:2px 8px;border-radius:6px;white-space:nowrap}
+.p{display:flex;align-items:center;gap:10px;min-height:40px;font-size:15px}
+.p b{width:28px;height:28px;border-radius:99px;background:#2A2425;color:#fff;font-size:13px;display:flex;align-items:center;justify-content:center;flex:none}
+.p i{width:20px;height:20px;border-radius:99px;flex:none}
+</style>
+</helmet>
+<div style="min-height: 1000px; box-sizing: border-box; font-family: 'Noto Sans Thai', system-ui, sans-serif; line-height: 1.55; color: #2A2425; background: #F6F3F3; display: flex; flex-wrap: wrap">
+  <aside style="flex: 1 1 220px; max-width: 240px; background: #fff; border-right: 1px solid #E8E2E2; padding: 18px 12px; box-sizing: border-box">
+    <img src="../assets/3j-logo.png" alt="3J" style="height: 34px; width: auto; margin: 0 8px 14px">
+    <nav class="nav" aria-label="เมนู" style="display: flex; flex-direction: column; gap: 2px">
+      <div style="font-size: 12px; color: #5C5456; padding: 8px 12px 4px">ออกแบบแหวน</div>
+      <a href="AdminGems.dc.html">พลอย (ราคาขาย)</a>
+      <a href="AdminDesigns.dc.html">แบบแหวน</a>
+      <a class="on" href="AdminVerify.dc.html" aria-current="page">ตรวจรหัสสั่งทำ</a>
+    </nav>
+  </aside>
+
+  <main style="flex: 999 1 560px; min-width: 0; padding: 24px 28px; box-sizing: border-box; display: flex; flex-direction: column; gap: 16px; max-width: 1100px">
+    <div>
+      <h1 style="margin: 0; font-size: 24px; font-weight: 700">ตรวจรหัสสั่งทำ</h1>
+      <p style="margin: 2px 0 0; font-size: 13px; color: #5C5456">วางรหัส หรือวางข้อความทั้งก้อนจากแชทได้เลย ระบบดึงรหัสเอง (ไม่สนตัวพิมพ์/ช่องว่าง)</p>
+    </div>
+
+    <section aria-label="วางรหัส" style="background: #fff; border: 1px solid #E8E2E2; border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 10px">
+      <label for="vc" style="font-size: 13px; font-weight: 600">รหัส หรือข้อความจากลูกค้า</label>
+      <textarea id="vc" rows="3" style="font: inherit; font-size: 14px; padding: 10px 12px; border-radius: 10px; border: 1px solid #D6CECE; resize: vertical">แบบ: แถว 5 เม็ด · ไซซ์: เบอร์ 54 ... รหัสสั่งทำ: 3jr-7k2m-9xqp</textarea>
+      <div style="display: flex; gap: 8px; flex-wrap: wrap"><button class="btn pri">ตรวจ</button><button class="btn">สแกน QR จากรูป</button></div>
+    </section>
+
+    <section aria-label="ผลตรวจ" style="background: #fff; border: 1px solid #E8E2E2; border-radius: 14px; padding: 18px; display: flex; flex-direction: column; gap: 14px">
+      <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap">
+        <span class="badge" style="background: #DDF3EA; color: #13613F; font-size: 14px; padding: 4px 10px">ระบบออกรหัสนี้จริง</span>
+        <span class="badge" style="background: #FFF1D6; color: #7A4B00; font-size: 14px; padding: 4px 10px">ราคาเปลี่ยนจากตอนสร้าง +฿20</span>
+        <span style="font-family: ui-monospace, Menlo, monospace; font-size: 18px; font-weight: 600; letter-spacing: .05em">3JR-7K2M-9XQP</span>
+      </div>
+      <div style="display: flex; flex-wrap: wrap; gap: 24px">
+        <div style="flex: 1 1 260px; display: flex; flex-direction: column; gap: 4px">
+          <div style="font-size: 13px; color: #5C5456">แบบ · ไซซ์ · เวลาที่ออกรหัส</div>
+          <div style="font-size: 16px; font-weight: 600">แถว 5 เม็ด · เบอร์ 54</div>
+          <div style="font-size: 13px; color: #5C5456">9 พ.ย. 2569 14:32</div>
+          <div style="font-size: 13px; color: #5C5456; margin-top: 10px">พลอยทีละตำแหน่ง (นับซ้ายไปขวา)</div>
+          <div class="p"><b>1</b><i style="background: #C4162A"></i>CZ แดง</div>
+          <div class="p"><b>2</b><i style="background: #F6F6F8; border: 1px solid #9A9AA6"></i>CZ ขาว</div>
+          <div class="p"><b>3</b><i style="background: #C4162A"></i>CZ แดง</div>
+          <div class="p"><b>4</b><i style="background: #F6F6F8; border: 1px solid #9A9AA6"></i>CZ ขาว</div>
+          <div class="p"><b>5</b><i style="background: #F6F6F8; border: 1px solid #9A9AA6"></i>CZ ขาว</div>
+        </div>
+        <div style="flex: 2 1 380px; min-width: 0">
+          <div style="overflow-x: auto">
+            <table style="width: 100%; border-collapse: collapse; min-width: 420px">
+              <thead><tr><th>รายการ</th><th>ตอนสร้าง</th><th>ปัจจุบัน</th><th>ต่าง</th></tr></thead>
+              <tbody>
+                <tr><td>ตัวเรือน แถว 5 เม็ด</td><td>฿1,090</td><td>฿1,090</td><td style="color: #5C5456">—</td></tr>
+                <tr><td>CZ แดง × 2</td><td>฿160</td><td>฿180</td><td style="color: #7A4B00; font-weight: 600">+฿20</td></tr>
+                <tr><td>CZ ขาว × 3</td><td>รวมในตัวเรือน</td><td>รวมในตัวเรือน</td><td style="color: #5C5456">—</td></tr>
+                <tr><td style="font-weight: 700">รวม</td><td style="font-weight: 700">฿1,250</td><td style="font-weight: 700">฿1,270</td><td style="color: #7A4B00; font-weight: 700">+฿20</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p style="margin: 8px 0 0; font-size: 13px; color: #5C5456">ไม่บล็อก — แอดมินตัดสินว่าจะใช้ราคาไหน แล้วแจ้งลูกค้าในแชท</p>
+        </div>
+      </div>
+      <div role="note" style="padding: 12px 14px; border-radius: 10px; background: #FFF8EC; font-size: 13px; color: #5A3D00">รหัสยืนยันว่า <strong>ระบบออกให้ และแบบ/พลอย/ไซซ์/ราคา ณ ตอนนั้นคือเท่านี้</strong> — ไม่ได้ยืนยันว่ารูปหรือข้อความที่ลูกค้าส่งไม่ถูกแก้ ต้องเทียบตำแหน่งพลอยกับรูปในแชทด้วยตาเสมอ</div>
+      <div style="display: flex; gap: 8px; flex-wrap: wrap"><button class="btn">คัดลอกสรุปไปใบงาน</button><button class="btn">คัดลอกข้อความแจ้งราคาใหม่</button></div>
+    </section>
+  </main>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1440,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

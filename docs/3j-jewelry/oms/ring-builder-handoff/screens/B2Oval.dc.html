@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<title>ออกแบบแหวนแถว · 7 เม็ด แบบ ค ทรงไข่</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Serif+Thai:wght@500;600;700&amp;family=IBM+Plex+Sans+Thai:wght@400;500;600&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+a{color:#a2191d}a:hover{color:#7d1316}
+button{font:inherit;color:inherit;cursor:pointer}
+.serif{font-family:'Noto Serif Thai',serif}
+.back{width:44px;height:44px;border-radius:99px;display:flex;align-items:center;justify-content:center;color:#2B1E1E;margin-left:-10px}
+.seg{flex:1;display:flex;flex-direction:column;gap:4px;font-size:12px;color:#6A5B58}
+.seg i{display:block;height:4px;border-radius:99px;background:#E6DAD0}
+.seg.on{color:#7d1316;font-weight:600}.seg.on i{background:#a2191d}.seg.done i{background:#C98A8C}
+.ov{position:absolute;top:80px;width:26px;height:42px;margin-left:-13px;border-radius:50%;box-shadow:inset -4px -6px 8px rgba(0,0,0,.18),inset 4px 4px 6px rgba(255,255,255,.65)}
+.nm{position:absolute;top:150px;width:30px;margin-left:-15px;text-align:center;font-size:13px;font-weight:600;color:#5C4D49}
+.pos{flex:1;min-width:0;min-height:64px;border-radius:12px;border:1.5px solid #E0D3C8;background:#fff;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;padding:4px 1px}
+.pos.sel{border:2px solid #a2191d;background:#FBEFEC}
+.pos b{font-size:15px;line-height:1.1}
+.pos small{font-size:10px;line-height:1.2;color:#4A3B38;text-align:center}
+.pos i{width:9px;height:14px;border-radius:50%}
+.gem{display:flex;align-items:center;gap:10px;min-height:56px;padding:8px 10px;border-radius:14px;border:1.5px solid #E0D3C8;background:#fff;text-align:left}
+.gem.on{border:2px solid #a2191d;background:#FBEFEC}
+.sw{width:20px;height:30px;border-radius:50%;flex:none;box-shadow:inset -3px -4px 6px rgba(0,0,0,.18),inset 3px 3px 5px rgba(255,255,255,.6)}
+.row{display:flex;justify-content:space-between;gap:12px;font-size:14px}
+.cta{display:flex;align-items:center;justify-content:center;gap:8px;min-height:52px;padding:0 20px;border-radius:14px;background:#a2191d;color:#fff;font-size:16px;font-weight:600;text-decoration:none}
+.cta:hover{background:#7d1316;color:#fff}
+</style>
+</helmet>
+<div style="width: 390px; height: 1000px; box-sizing: border-box; font-family: 'IBM Plex Sans Thai', system-ui, sans-serif; line-height: 1.6; color: #2B1E1E; background: #FBF7F2; display: flex; flex-direction: column">
+  <div style="padding: 10px 20px 0">
+    <header style="display: flex; align-items: center; gap: 6px; min-height: 44px">
+      <a class="back" href="B1Style7.dc.html" aria-label="กลับไปเลือกแบบ"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg></a>
+      <h1 class="serif" style="flex: 1; margin: 0; font-size: 19px; font-weight: 600">7 เม็ด · แบบ ค</h1>
+      <a href="B2ChangeDesign.dc.html" style="font-size: 14px; font-weight: 600; min-height: 44px; display: flex; align-items: center">เปลี่ยนแบบ</a>
+    </header>
+    <nav aria-label="ขั้นตอน" style="display: flex; gap: 6px; margin-top: 4px">
+      <span class="seg done"><i></i>แบบ</span><span class="seg on"><i></i>พลอย</span><span class="seg"><i></i>ไซซ์</span><span class="seg"><i></i>สรุป</span>
+    </nav>
+  </div>
+
+  <section aria-label="ภาพแหวน" style="position: relative; margin: 12px 16px 0; height: 190px; border-radius: 24px; background: radial-gradient(ellipse at 50% 45%, #FFFFFF 0%, #F6F0EA 55%, #E9DFD5 100%); overflow: hidden">
+    <span style="position: absolute; left: 12px; top: 10px; font-size: 12px; color: #5C4D49; background: rgba(255,255,255,.8); padding: 2px 10px; border-radius: 99px">ภาพจำลอง · พลอยทรงไข่ 4×3 มม.</span>
+    <svg aria-hidden="true" width="358" height="190" viewBox="0 0 358 190" style="position: absolute; left: 0; top: 0"><path d="M10 128c60-36 278-36 338 0v24c-60-34-278-34-338 0z" fill="#C9CAD2"></path></svg>
+    <span class="ov" style="left: 47px; background: #F07AA8; border: 1px solid #B8467A; outline: 3px solid #a2191d; outline-offset: 2px"></span>
+    <span class="ov" style="left: 91px; background: #F6F6F8; border: 1px solid #9A9AA6"></span>
+    <span class="ov" style="left: 135px; background: #F07AA8; border: 1px solid #B8467A"></span>
+    <span class="ov" style="left: 179px; background: #C4162A; border: 1px solid #7E0E1B"></span>
+    <span class="ov" style="left: 223px; background: #F07AA8; border: 1px solid #B8467A"></span>
+    <span class="ov" style="left: 267px; background: #F6F6F8; border: 1px solid #9A9AA6"></span>
+    <span class="ov" style="left: 311px; background: #F6F6F8; border: 1px solid #9A9AA6"></span>
+    <span class="nm" aria-hidden="true" style="left: 47px">1</span><span class="nm" aria-hidden="true" style="left: 91px">2</span><span class="nm" aria-hidden="true" style="left: 135px">3</span><span class="nm" aria-hidden="true" style="left: 179px">4</span><span class="nm" aria-hidden="true" style="left: 223px">5</span><span class="nm" aria-hidden="true" style="left: 267px">6</span><span class="nm" aria-hidden="true" style="left: 311px">7</span>
+  </section>
+
+  <div style="padding: 12px 16px 0; display: flex; flex-direction: column; gap: 12px">
+    <div role="group" aria-label="ตำแหน่งพลอย" style="display: flex; gap: 4px">
+      <button class="pos sel" aria-pressed="true"><i style="background: #F07AA8"></i><b>1</b><small>ชมพู</small></button>
+      <button class="pos" aria-pressed="false"><i style="background: #F6F6F8; border: 1px solid #9A9AA6"></i><b>2</b><small>ขาว</small></button>
+      <button class="pos" aria-pressed="false"><i style="background: #F07AA8"></i><b>3</b><small>ชมพู</small></button>
+      <button class="pos" aria-pressed="false"><i style="background: #C4162A"></i><b>4</b><small>แดง</small></button>
+      <button class="pos" aria-pressed="false"><i style="background: #F07AA8"></i><b>5</b><small>ชมพู</small></button>
+      <button class="pos" aria-pressed="false"><i style="background: #F6F6F8; border: 1px solid #9A9AA6"></i><b>6</b><small>ขาว</small></button>
+      <button class="pos" aria-pressed="false"><i style="background: #F6F6F8; border: 1px solid #9A9AA6"></i><b>7</b><small>ขาว</small></button>
+    </div>
+    <h2 class="serif" style="margin: 0; font-size: 17px; font-weight: 600">เม็ดที่ 1 · CZ ชมพู</h2>
+    <div role="radiogroup" aria-label="เลือกพลอยให้เม็ดที่ 1" style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px">
+      <button class="gem" role="radio" aria-checked="false"><span class="sw" style="background: #F6F6F8; border: 1px solid #9A9AA6"></span><span style="flex: 1; line-height: 1.35"><span style="display: block; font-size: 15px; font-weight: 600">CZ ขาว</span><span style="display: block; font-size: 12px; color: #5C4D49">รวมในตัวเรือน</span></span></button>
+      <button class="gem" role="radio" aria-checked="false"><span class="sw" style="background: #C4162A"></span><span style="flex: 1; line-height: 1.35"><span style="display: block; font-size: 15px; font-weight: 600">CZ แดง</span><span style="display: block; font-size: 12px; color: #5C4D49">+฿120 ต่อเม็ด</span></span></button>
+      <button class="gem on" role="radio" aria-checked="true"><span class="sw" style="background: #F07AA8"></span><span style="flex: 1; line-height: 1.35"><span style="display: block; font-size: 15px; font-weight: 600">CZ ชมพู</span><span style="display: block; font-size: 12px; color: #5C4D49">+฿120 ต่อเม็ด</span></span></button>
+    </div>
+    <p style="margin: 0; font-size: 13px; color: #5C4D49">แสดงเฉพาะพลอยที่มีทรงไข่ 4×3 มม. · CZ คือคิวบิกเซอร์โคเนีย ไม่ใช่เพชร</p>
+
+    <section aria-label="รายการราคา" style="background: #fff; border: 1px solid #EADFD6; border-radius: 18px; padding: 14px 16px; display: flex; flex-direction: column; gap: 6px">
+      <h2 class="serif" style="margin: 0 0 2px; font-size: 16px; font-weight: 600">รายการราคา</h2>
+      <div class="row"><span>ตัวเรือน 7 เม็ด แบบ ค</span><span>฿1,690</span></div>
+      <div class="row"><span>CZ ชมพู × 3 (฿120/เม็ด)</span><span>฿360</span></div>
+      <div class="row"><span>CZ แดง × 1 (฿120/เม็ด)</span><span>฿120</span></div>
+      <div class="row"><span>CZ ขาว × 3</span><span style="color: #5C4D49">รวมในตัวเรือน</span></div>
+      <div style="height: 1px; background: #EADFD6; margin: 4px 0"></div>
+      <div class="row" style="font-size: 16px; font-weight: 600"><span>รวม</span><span>฿2,170</span></div>
+    </section>
+  </div>
+
+  <div style="flex: 1"></div>
+  <div style="display: flex; align-items: center; gap: 12px; padding: 12px 16px 18px; background: #FFFFFF; border-top: 1px solid #EADFD6">
+    <div style="flex: 1; line-height: 1.3"><div style="font-size: 12px; color: #6A5B58">ราคารวม</div><div class="serif" style="font-size: 22px; font-weight: 700; color: #7d1316">฿2,170</div></div>
+    <a class="cta" href="B3.dc.html">ต่อไป: เลือกไซซ์</a>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":390,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>
