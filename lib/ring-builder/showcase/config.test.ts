@@ -4,17 +4,8 @@ import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
 import { GEM_QUIZ_PAIRS } from "@/lib/gem-quiz/config";
 import { RING_BUILDER_SIZES } from "../config";
-import {
-  SHOWCASE_COPY,
-  SHOWCASE_DESIGN_NAME,
-  SHOWCASE_LEAD_DAYS,
-  SHOWCASE_OVAL_MM,
-  SHOWCASE_PRICE_THB,
-  SHOWCASE_SIZES,
-  SHOWCASE_SIZE_RANGE,
-  formatPriceThb,
-  leadTimeLabel,
-} from "./config";
+import { SHOWCASE_COPY, SHOWCASE_LEAD_DAYS, SHOWCASE_PRICE_THB, formatPriceThb, leadTimeLabel } from "./config";
+import { DESIGNS, getShowcaseDesign, sizeRange } from "./designs";
 
 const ROOT = process.cwd();
 
@@ -40,25 +31,29 @@ function code(src: string): string {
     .replace(/\s\/\/ .*$/gm, "");
 }
 
-describe("ค่าจากเจ้าของ (12 พ.ย. 69)", () => {
-  it("ราคา 890 · ไซซ์ 55–58 · พลอยไข่ 7×5 · pre-order 21 วัน", () => {
+describe("ค่าจากเจ้าของ (12–18 พ.ย. 69)", () => {
+  it("ราคา 890 ทุกแบบ · ไซซ์ไขว้ 55–58 / แบบแถว 50–60 · pre-order 21 วัน", () => {
     expect(SHOWCASE_PRICE_THB).toBe(890);
-    expect([...SHOWCASE_SIZES]).toEqual([55, 56, 57, 58]);
-    expect(SHOWCASE_SIZE_RANGE).toEqual({ min: 55, max: 58 });
-    expect(SHOWCASE_OVAL_MM).toEqual({ long: 7, short: 5 });
+    expect([...getShowcaseDesign("bypass2").sizes]).toEqual([55, 56, 57, 58]);
+    expect(sizeRange("bypass2")).toEqual({ min: 55, max: 58 });
+    for (const d of DESIGNS.filter((x) => x.id !== "bypass2")) expect(sizeRange(d.id)).toEqual({ min: 50, max: 60 });
     expect(SHOWCASE_LEAD_DAYS).toBe(21);
     expect(formatPriceThb()).toBe("890 บาท");
     expect(leadTimeLabel()).toBe("พรีออเดอร์ ทำภายใน 21 วัน");
   });
   it("ไซซ์อยู่ในช่วงร้าน 45–68 (ล็อกกับ RING_BUILDER_SIZES ซึ่ง parity กับ DB)", () => {
-    for (const s of SHOWCASE_SIZES) {
-      expect(s).toBeGreaterThanOrEqual(RING_BUILDER_SIZES.min);
-      expect(s).toBeLessThanOrEqual(RING_BUILDER_SIZES.max);
+    for (const d of DESIGNS) {
+      for (const s of d.sizes) {
+        expect(s).toBeGreaterThanOrEqual(RING_BUILDER_SIZES.min);
+        expect(s).toBeLessThanOrEqual(RING_BUILDER_SIZES.max);
+      }
     }
   });
-  it("ชื่อแบบชั่วคราว + มี TODO_OWNER_DESIGN_NAME กำกับที่ config", () => {
-    expect(SHOWCASE_DESIGN_NAME).toBe("แหวนไขว้พลอยไข่ 2 เม็ด");
-    expect(readFileSync(join(ROOT, "lib/ring-builder/showcase/config.ts"), "utf8")).toContain("TODO_OWNER_DESIGN_NAME");
+  it("ชื่อแบบชั่วคราว + มี TODO_OWNER_* กำกับ (ค่าเจ้าของที่ยังไม่ยืนยัน)", () => {
+    expect(getShowcaseDesign("bypass2").name).toBe("แหวนไขว้พลอยไข่ 2 เม็ด");
+    const src = readFileSync(join(ROOT, "lib/ring-builder/showcase/designs.ts"), "utf8");
+    for (const k of ["TODO_OWNER_DESIGN_NAME", "TODO_OWNER_SCROLL6_CENTER", "TODO_OWNER_EXTRA_CZ", "TODO_OWNER_SIZES"]) expect(src).toContain(k);
+    expect(readFileSync(join(ROOT, "app/(quiz)/ring-builder/_assets/index.ts"), "utf8")).toContain("TODO_OWNER_PHOTOS");
   });
 });
 
@@ -79,9 +74,11 @@ describe("copy-guard ของไฟล์ที่ถึงลูกค้า",
     const hits: string[] = [];
     for (const f of FILES) {
       const c = code(readFileSync(f, "utf8"));
-      for (const re of [/\bbuildSpec\b/, /\bbuildRowRing\b/, /#dev\b/, /devonly/, /\bcost\b/i, /ต้นทุน/, /น้ำหนัก/, /\b3\.2\s*g\b/, /กรัม/, /margin/i]) {
+      for (const re of [/\bbuildSpec\b/, /#dev\b/, /devonly/, /\bcost\b/i, /ต้นทุน/, /น้ำหนัก/, /\b3\.2\s*g\b/, /กรัม/, /margin/i]) {
         if (re.test(c)) hits.push(`${rel(f)}: ${re}`);
       }
+      // D1.2: generator แถวใช้ได้เฉพาะ viewer ฝั่ง 3D (Z7/Z9) — ไม่ถึงไฟล์ UI/lib ส่วนลูกค้า
+      if (/\bbuildRowRing\b/.test(c) && !/^lib\/ring-builder\/viewer\/(row-ring|showcase-rings)\.ts$/.test(rel(f))) hits.push(`${rel(f)}: buildRowRing`);
     }
     expect(hits).toEqual([]);
   });
@@ -93,11 +90,17 @@ describe("copy-guard ของไฟล์ที่ถึงลูกค้า",
     }
     expect(hits).toEqual([]);
   });
-  it("X4: มีแบบเดียว — ไม่มีชื่อแบบอื่นของ spike ในไฟล์ของหน้า", () => {
+  it("X4 (D1.2): ชื่อแบบที่ลูกค้าเห็นอยู่ designs.ts ที่เดียว · ชื่อ const พารามิเตอร์ 3D อยู่ row-presets.ts ที่เดียว", () => {
     const hits: string[] = [];
     for (const f of FILES) {
       const c = code(readFileSync(f, "utf8"));
-      for (const re of [/TRINITY/i, /SCROLL6/, /CHANNEL[46]/, /BAR7/, /SMALL7/, /ก้นหอย/, /ฝังล็อค/, /เตย 7/, /แถวเล็ก/]) if (re.test(c)) hits.push(`${rel(f)}: ${re}`);
+      const r = rel(f);
+      if (r !== "lib/ring-builder/showcase/designs.ts" && r !== "lib/ring-builder/viewer/row-presets.ts") {
+        for (const re of [/TRINITY/, /ก้นหอย/, /ฝังล็อค/, /เตย 7/, /แถวเล็ก/]) if (re.test(c)) hits.push(`${r}: ${re}`);
+      }
+      if (r !== "lib/ring-builder/viewer/row-presets.ts") {
+        for (const re of [/\bSCROLL6\b/, /\bCHANNEL[46]\b/, /\bBAR7\b/, /\bSMALL7\b/]) if (re.test(c)) hits.push(`${r}: ${re}`);
+      }
     }
     expect(hits).toEqual([]);
   });

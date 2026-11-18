@@ -1,4 +1,4 @@
-// X1 + X2 + Y1/Y2: parser ของ 5 key (g · t · i · c · d) · ลิงก์จากหน้าผล quiz · buildShowcaseUrl · อ่าน key เดียว
+// X1 + X2 + Y1/Y2: parser ของ 7 key (g · t · i · q · c · d · r) · ลิงก์จากหน้าผล quiz · buildShowcaseUrl · อ่าน key เดียว
 import { describe, expect, it } from "vitest";
 import { GEM_QUIZ_QUESTIONS, GEM_QUIZ_STONE_CODES, type GemQuizIntention } from "@/lib/gem-quiz/config";
 import {
@@ -214,14 +214,14 @@ describe("readShowcaseParams — 5 key · แต่ละ key ตัดสิน
   });
 });
 
-describe("X2: อ่านเฉพาะ 5 key (g t i c d)", () => {
+describe("X2: อ่านเฉพาะ 7 key (g t i c d + r; q เมื่อมี t+i)", () => {
   it("?price= ?size= ?design= ?src= ไม่มีผลต่อผลลัพธ์", () => {
     const base = readShowcaseParams({ g: "garnet.citrine.peridot" });
     const noisy = readShowcaseParams({ g: "garnet.citrine.peridot", price: "1", size: "99", design: "9", src: "x", PRICE: "1" });
     expect(noisy).toEqual(base);
     expect(readShowcaseParams({ price: "1", size: "99", design: "9" })).toEqual(EMPTY_SHOWCASE_PARAMS);
   });
-  it("แตะ searchParams เฉพาะ 5 key (ตรวจด้วย Proxy)", () => {
+  it("แตะ searchParams เฉพาะ 6 key (ตรวจด้วย Proxy)", () => {
     const touched: (string | symbol)[] = [];
     const proxy = new Proxy({ g: "garnet.citrine.peridot", price: "1", size: "2", design: "3" } as Record<string, unknown>, {
       get(t, k) {
@@ -230,7 +230,7 @@ describe("X2: อ่านเฉพาะ 5 key (g t i c d)", () => {
       },
     });
     readShowcaseParams(proxy);
-    expect([...touched].sort()).toEqual(["c", "d", "g", "i", "t"]);
+    expect([...touched].sort()).toEqual(["c", "d", "g", "i", "r", "t"]);
   });
 });
 

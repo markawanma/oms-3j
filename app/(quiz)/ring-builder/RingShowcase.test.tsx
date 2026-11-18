@@ -38,9 +38,9 @@ function lineMessage(): string {
 }
 
 describe("เข้าตรง (ไม่มี g) — โหมด CZ ขาว", () => {
-  it("แสดงชื่อแบบ + 890 บาท + การ์ดชวนทำ quiz แทนแบบ 1/2/3 · ไม่มี radio ของพลอย", () => {
+  it("แสดง h1 + 890 บาททุกแบบ + การ์ดชวนทำ quiz แทนชุด 1/2/3 · ไม่มี radio ของพลอย", () => {
     render(<RingShowcaseClient params={EMPTY_SHOWCASE_PARAMS} />);
-    expect(screen.getByRole("heading", { level: 1, name: "แหวนไขว้พลอยไข่ 2 เม็ด" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "แหวนพลอยของ 3J Jewelry" })).toBeInTheDocument();
     expect(screen.getAllByText("890 บาท").length).toBeGreaterThan(0);
     expect(screen.getByText(/พรีออเดอร์ ทำภายใน 21 วัน/)).toBeInTheDocument();
     const quiz = screen.getByRole("link", { name: "ทำแบบทดสอบ 1 นาที" });
@@ -52,9 +52,9 @@ describe("เข้าตรง (ไม่มี g) — โหมด CZ ขา�
     render(<RingShowcaseClient params={EMPTY_SHOWCASE_PARAMS} />);
     await user.click(screen.getByRole("radio", { name: "เบอร์ 56" }));
     const msg = lineMessage();
-    expect(msg).toContain("พลอยบน: CZ ขาว · พลอยล่าง: CZ ขาว · CZ เล็ก 2 เม็ด");
+    expect(msg).toContain("พลอยหลัก (เม็ดบน): CZ ขาว · พลอยเสริม (เม็ดล่าง): CZ ขาว · CZ เล็ก 2 เม็ด");
     expect(msg).toContain("ไซซ์: เบอร์ 56");
-    expect(msg).not.toMatch(/· แบบ \d/);
+    expect(msg).not.toMatch(/ชุด \d/);
   });
 });
 
@@ -70,14 +70,14 @@ describe("stage: WebGL ใช้ไม่ได้ → รูปจริงแ�
   it("เลือกพลอย/ไซซ์ได้ตามปกติ และข้อความอธิบายพลอยเปลี่ยน", async () => {
     const user = userEvent.setup();
     render(<RingShowcaseClient params={LEGACY} />);
-    await user.click(screen.getAllByRole("radio", { name: /แบบ 3/ })[0]);
+    await user.click(screen.getAllByRole("radio", { name: /ชุด 3/ })[0]);
     const sets = buildShowcaseSets(TOP3);
     expect(screen.getByText(sets[2].pair.title)).toBeInTheDocument();
   });
 });
 
 describe("เลือกแบบพลอย (มาจาก quiz)", () => {
-  it("radiogroup 3 ใบ · แบบ 1 ถูกเลือกเริ่มต้น · ชื่อ 'บน + ล่าง' ตาม findPair เดียวกับ quiz", () => {
+  it("radiogroup 3 ใบ · ชุด 1 ถูกเลือกเริ่มต้น · ชื่อ 'หลัก + เสริม' ตาม findPair เดียวกับ quiz", () => {
     render(<RingShowcaseClient params={LEGACY} />);
     const group = screen.getByRole("radiogroup", { name: "พลอยที่คุณเลือกได้" });
     const radios = within(group).getAllByRole("radio");
@@ -88,19 +88,19 @@ describe("เลือกแบบพลอย (มาจาก quiz)", () => {
     expect(radios[0]).toHaveTextContent("โกเมน + ซิทริน");
     expect(radios[0]).toHaveTextContent("อันดับ 1 จากแบบทดสอบ");
     expect(radios[1]).toHaveTextContent("ซิทริน + โกเมน");
-    expect(radios[1]).toHaveTextContent("คู่เดียวกับแบบ 1 — สลับว่าเม็ดไหนอยู่บน");
+    expect(radios[1]).toHaveTextContent("คู่เดียวกับชุด 1 — สลับว่าเม็ดไหนเป็นพลอยหลัก");
   });
 
-  it("X7: คำอธิบายคู่พลอย = GEM_QUIZ_PAIRS คำต่อคำ (title / th / เหมาะกับ: fit) + คำอธิบายบน/ล่าง", () => {
+  it("X7: คำอธิบายคู่พลอย = GEM_QUIZ_PAIRS คำต่อคำ (title / th / เหมาะกับ: fit) + คำอธิบายตำแหน่งตามแบบ", () => {
     render(<RingShowcaseClient params={LEGACY} />);
     const pair = GEM_QUIZ_PAIRS.find((p) => p.gems.includes("garnet") && p.gems.includes("citrine"))!;
     expect(screen.getByText(pair.title)).toBeInTheDocument();
     expect(screen.getByText(pair.th)).toBeInTheDocument();
     expect(screen.getByText(`เหมาะกับ: ${pair.fit}`)).toBeInTheDocument();
-    expect(screen.getByText("บน = พลอยหลักของแบบ · ล่าง = พลอยเสริม · CZ เล็ก 2 เม็ดมาพร้อมแหวน")).toBeInTheDocument();
+    expect(screen.getByText("เม็ดบน = พลอยหลัก · เม็ดล่าง = พลอยเสริม · CZ เล็ก 2 เม็ดมาพร้อมแหวน")).toBeInTheDocument();
   });
 
-  it("คลิกแบบ 3 → aria-checked เปลี่ยน · คำอธิบายเปลี่ยนเป็นคู่ของแบบ 3 · ข้อความ LINE มี 'แบบ 3'", async () => {
+  it("คลิกชุด 3 → aria-checked เปลี่ยน · คำอธิบายเปลี่ยนเป็นคู่ของชุด 3 · ข้อความ LINE มี 'ชุด 3'", async () => {
     const user = userEvent.setup();
     render(<RingShowcaseClient params={LEGACY} />);
     const radios = within(screen.getByRole("radiogroup", { name: "พลอยที่คุณเลือกได้" })).getAllByRole("radio");
@@ -110,8 +110,9 @@ describe("เลือกแบบพลอย (มาจาก quiz)", () => {
     const s3 = buildShowcaseSets(TOP3)[2];
     expect(screen.getByText(`เหมาะกับ: ${s3.pair.fit}`)).toBeInTheDocument();
     const msg = lineMessage();
-    expect(msg).toContain("แบบ: แหวนไขว้พลอยไข่ 2 เม็ด · แบบ 3");
-    expect(msg).toContain("พลอยบน: เพอริดอท");
+    expect(msg).toContain("แบบแหวน: แหวนไขว้พลอยไข่ 2 เม็ด");
+    expect(msg).toContain("พลอย: ชุด 3");
+    expect(msg).toContain("พลอยหลัก (เม็ดบน): เพอริดอท");
   });
 
   it("ลูกศรซ้าย/ขวา/Home/End เลื่อนการเลือกและโฟกัส (roving tabindex)", async () => {
@@ -134,7 +135,7 @@ describe("เลือกแบบพลอย (มาจาก quiz)", () => {
 describe("เลือกไซซ์", () => {
   it("มีแค่ 55–58 · ไม่เลือก = แถบเตือน + ข้อความ 'รอแอดมินช่วยเช็ก' · ปุ่ม LINE ยังเป็นลิงก์ที่กดได้", () => {
     render(<RingShowcaseClient params={LEGACY} />);
-    const sizes = within(screen.getByRole("radiogroup", { name: "เลือกไซซ์" })).getAllByRole("radio");
+    const sizes = within(screen.getByRole("radiogroup", { name: /^เลือกไซซ์/ })).getAllByRole("radio");
     expect(sizes.map((s) => s.textContent)).toEqual(["55", "56", "57", "58"]);
     expect(sizes.every((s) => s.getAttribute("aria-checked") === "false")).toBe(true);
     expect(screen.getByText("ยังไม่ได้เลือกไซซ์ — ส่งได้เลย แอดมินจะช่วยเช็กไซซ์ให้")).toBeInTheDocument();
@@ -158,7 +159,7 @@ describe("เลือกไซซ์", () => {
   it("ลูกศรเลื่อนไซซ์ได้", async () => {
     const user = userEvent.setup();
     render(<RingShowcaseClient params={LEGACY} />);
-    const sizes = within(screen.getByRole("radiogroup", { name: "เลือกไซซ์" })).getAllByRole("radio");
+    const sizes = within(screen.getByRole("radiogroup", { name: /^เลือกไซซ์/ })).getAllByRole("radio");
     sizes[0].focus();
     await user.keyboard("{ArrowRight}");
     expect(sizes[1]).toHaveAttribute("aria-checked", "true");
@@ -188,16 +189,16 @@ describe("เลือกไซซ์", () => {
       throw new Error("SecurityError");
     });
     render(<RingShowcaseClient params={LEGACY} />);
-    expect(screen.getByRole("radiogroup", { name: "เลือกไซซ์" })).toBeInTheDocument();
+    expect(screen.getByRole("radiogroup", { name: /^เลือกไซซ์/ })).toBeInTheDocument();
     expect(screen.queryByText(/ผลวัดล่าสุด/)).toBeNull();
   });
 });
 
 describe("สรุป + ส่ง LINE + คัดลอก", () => {
-  it("การ์ดสรุป: แบบ · พลอยบน · พลอยล่าง · ไซซ์ · 890 บาท · 'ยังไม่ใช่การสั่งซื้อ'", () => {
+  it("การ์ดสรุป: แบบแหวน · พลอย · หลัก/เสริม · CZ เล็ก · ไซซ์ · 890 บาท · 'ยังไม่ใช่การสั่งซื้อ'", () => {
     render(<RingShowcaseClient params={LEGACY} />);
     const summary = screen.getByRole("heading", { name: "สรุปที่เลือก" }).parentElement as HTMLElement;
-    expect(within(summary).getByText("แหวนไขว้พลอยไข่ 2 เม็ด · แบบ 1")).toBeInTheDocument();
+    expect(within(summary).getByText("แหวนไขว้พลอยไข่ 2 เม็ด")).toBeInTheDocument();
     expect(within(summary).getByText("โกเมน")).toBeInTheDocument();
     expect(within(summary).getByText("ซิทริน")).toBeInTheDocument();
     expect(within(summary).getByText("890 บาท")).toBeInTheDocument();
@@ -292,7 +293,7 @@ describe("page.tsx — X1/X2", () => {
     }
     expect(await propsOf({ g: ["garnet.citrine.peridot", "x"] })).toBeNull();
   });
-  it("page อ่าน searchParams เฉพาะ key g", async () => {
+  it("page อ่าน searchParams เฉพาะ 6 key (g t i c d r · q เมื่อมี t+i)", async () => {
     const touched: (string | symbol)[] = [];
     const proxy = new Proxy({ g: "garnet.citrine.peridot", price: "1", size: "2" } as Record<string, string>, {
       get(t, k) {
@@ -302,6 +303,6 @@ describe("page.tsx — X1/X2", () => {
     });
     await RingShowcasePage({ searchParams: Promise.resolve(proxy) });
     // await Promise.resolve(proxy) แตะ "then" ของ proxy เอง (กลไก Promise ไม่ใช่โค้ดหน้า) — ตัดออกก่อนเทียบ
-    expect(touched.filter((k) => k !== "then").sort()).toEqual(["c", "d", "g", "i", "t"]);
+    expect(touched.filter((k) => k !== "then").sort()).toEqual(["c", "d", "g", "i", "r", "t"]);
   });
 });

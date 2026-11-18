@@ -99,26 +99,26 @@ describe("โหมดเลือกพลอยเอง", () => {
     await u.click(within(screen.getByRole("radiogroup", { name: "พลอยที่คุณเลือกได้" })).getAllByRole("radio")[1]); // แบบ 2
     await u.click(modeRadio("เลือกพลอยเอง"));
     const seeded = lineMessage();
-    expect(seeded).toContain("· เลือกพลอยเอง");
-    expect(seeded).not.toMatch(/· แบบ \d/);
-    await u.click(gemRow("พลอยบน (เม็ดหลัก)").getByRole("radio", { name: "บลูโทพาส" }));
+    expect(seeded).toContain("พลอย: เลือกพลอยเอง");
+    expect(seeded).not.toMatch(/ชุด \d/);
+    await u.click(gemRow("พลอยหลัก (เม็ดบน)").getByRole("radio", { name: "บลูโทพาส" }));
     await u.click(modeRadio("แบบแนะนำ"));
     expect(within(screen.getByRole("radiogroup", { name: "พลอยที่คุณเลือกได้" })).getAllByRole("radio")[1]).toHaveAttribute("aria-checked", "true");
-    expect(lineMessage()).toContain("· แบบ 2");
+    expect(lineMessage()).toContain("พลอย: ชุด 2");
     await u.click(modeRadio("เลือกพลอยเอง"));
-    expect(gemRow("พลอยบน (เม็ดหลัก)").getByRole("radio", { name: "บลูโทพาส" })).toHaveAttribute("aria-checked", "true");
+    expect(gemRow("พลอยหลัก (เม็ดบน)").getByRole("radio", { name: "บลูโทพาส" })).toHaveAttribute("aria-checked", "true");
   });
   it("เข้าตรง: ว่างทั้งคู่ + คำแนะนำ · แตะเม็ดแรก = ตั้งทั้งสอง (บน=ล่างได้) · แล้วเปลี่ยนล่างได้ · สรุปและ LINE ตรงกัน 'CZ ขาว (ยังไม่ได้เลือกพลอยสี)' ตอนว่าง", async () => {
     const u = user();
     render(<RingShowcaseClient params={EMPTY_SHOWCASE_PARAMS} />);
     await u.click(modeRadio("เลือกพลอยเอง"));
-    expect(screen.getByText("แตะพลอยบนก่อน ระบบใส่ชนิดเดียวกันให้ล่าง แล้วเปลี่ยนล่างได้")).toBeInTheDocument();
-    expect(screen.getAllByText("CZ ขาว (ยังไม่ได้เลือกพลอยสี)")).toHaveLength(2);
-    expect(lineMessage()).toContain("พลอยบน: CZ ขาว (ยังไม่ได้เลือกพลอยสี) · พลอยล่าง: CZ ขาว (ยังไม่ได้เลือกพลอยสี)"); // จอ = LINE
-    await u.click(gemRow("พลอยบน (เม็ดหลัก)").getByRole("radio", { name: "โกเมน" }));
-    expect(gemRow("พลอยล่าง (เม็ดเสริม)").getByRole("radio", { name: "โกเมน" })).toHaveAttribute("aria-checked", "true");
-    expect(screen.getByText("โกเมน ทั้ง 2 เม็ด")).toBeInTheDocument();
-    await u.click(gemRow("พลอยล่าง (เม็ดเสริม)").getByRole("radio", { name: "ซิทริน" }));
+    expect(screen.getByText("แตะพลอยหลักก่อน ระบบใส่ชนิดเดียวกันให้พลอยเสริม แล้วเปลี่ยนได้")).toBeInTheDocument();
+    expect(screen.getAllByText("CZ ขาว (ยังไม่ได้เลือกพลอยสี)")).toHaveLength(3); // แถวพลอย + หลัก + เสริม ในการ์ดสรุป
+    expect(lineMessage()).toContain("พลอยหลัก (เม็ดบน): CZ ขาว (ยังไม่ได้เลือกพลอยสี) · พลอยเสริม (เม็ดล่าง): CZ ขาว (ยังไม่ได้เลือกพลอยสี)"); // จอ = LINE
+    await u.click(gemRow("พลอยหลัก (เม็ดบน)").getByRole("radio", { name: "โกเมน" }));
+    expect(gemRow("พลอยเสริม (เม็ดล่าง)").getByRole("radio", { name: "โกเมน" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByText("โกเมน ทุกเม็ด")).toBeInTheDocument();
+    await u.click(gemRow("พลอยเสริม (เม็ดล่าง)").getByRole("radio", { name: "ซิทริน" }));
     expect(screen.getByText("Power + Abundance")).toBeInTheDocument();
     expect(window.location.search).toBe("?c=garnet.citrine&d=own");
   });
@@ -129,8 +129,8 @@ describe("โหมดเลือกพลอยเอง", () => {
     let withPair = 0;
     for (const a of GEM_QUIZ_STONES)
       for (const b of GEM_QUIZ_STONES) {
-        await u.click(gemRow("พลอยบน (เม็ดหลัก)").getByRole("radio", { name: a.labelTh }));
-        await u.click(gemRow("พลอยล่าง (เม็ดเสริม)").getByRole("radio", { name: b.labelTh }));
+        await u.click(gemRow("พลอยหลัก (เม็ดบน)").getByRole("radio", { name: a.labelTh }));
+        await u.click(gemRow("พลอยเสริม (เม็ดล่าง)").getByRole("radio", { name: b.labelTh }));
         const text = container.textContent ?? "";
         const exact = GEM_QUIZ_PAIRS.find((p) => p.gems.includes(a.code) && p.gems.includes(b.code) && a.code !== b.code);
         const shown = GEM_QUIZ_PAIRS.filter((p) => text.includes(p.title));
@@ -140,7 +140,7 @@ describe("โหมดเลือกพลอยเอง", () => {
           expect(text).not.toContain("คู่นี้ยังไม่มีคำอธิบายเฉพาะคู่");
         } else {
           expect(shown).toEqual([]); // ห้ามมีข้อความคู่ใดๆ
-          if (a.code === b.code) expect(text).toContain(`${a.labelTh} ทั้ง 2 เม็ด`);
+          if (a.code === b.code) expect(text).toContain(`${a.labelTh} ทุกเม็ด`);
           else {
             expect(text).toContain(a.keywords);
             expect(text).toContain(b.keywords);
@@ -157,7 +157,7 @@ describe("โหมดเลือกพลอยเอง", () => {
   it("d=own + c → เริ่มที่เลือกเอง · d=own ไม่มี c → แบบแนะนำ", () => {
     const { unmount } = render(<RingShowcaseClient params={{ ...QUIZ, own: { top: "peridot", bottom: "amethyst" }, design: "own" }} />);
     expect(modeRadio("เลือกพลอยเอง")).toHaveAttribute("aria-checked", "true");
-    expect(lineMessage()).toContain("พลอยบน: เพอริดอท · พลอยล่าง: อเมทิสต์");
+    expect(lineMessage()).toContain("พลอยหลัก (เม็ดบน): เพอริดอท · พลอยเสริม (เม็ดล่าง): อเมทิสต์");
     unmount();
     render(<RingShowcaseClient params={{ ...QUIZ, design: "own" }} />);
     expect(modeRadio("แบบแนะนำ")).toHaveAttribute("aria-checked", "true");

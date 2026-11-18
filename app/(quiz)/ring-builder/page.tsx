@@ -3,9 +3,9 @@ import { SHOWCASE_COPY } from "@/lib/ring-builder/showcase/config";
 import { readShowcaseParams } from "@/lib/ring-builder/showcase/quiz-link";
 import { RingShowcaseClient } from "./RingShowcaseClient";
 
-// app/(quiz)/ring-builder/page.tsx — หน้า "แบบของ 3J Jewelry" (D1 demo · แหวนไขว้พลอยไข่ 2 เม็ด แบบเดียว)
+// app/(quiz)/ring-builder/page.tsx — หน้า "แบบของ 3J Jewelry" (D1 demo · D1.2 เลือกได้ 7 แบบแหวน)
 // server component · ไม่เขียน DB · ไม่ตั้ง secret · ไม่ import "use server" (X5)
-// 🔴 อ่านจาก searchParams แค่ 5 key: g (D1 เดิม) · t · i · c · d (design §9.1) ผ่าน readShowcaseParams — ?price= ?size= ?design= ไม่มีผล (X2)
+// 🔴 อ่านจาก searchParams แค่ 7 key: g (D1 เดิม) · t · i · q · c · d (design §9.1) + r (แบบแหวน · D1.2 §4 · ไม่มี/ผิด = ไขว้) ผ่าน readShowcaseParams — ?price= ?size= ?design= ไม่มีผล (X2)
 //    ทุก key ตรวจแยกกัน ผิดรูป = ถือว่าไม่มี key นั้น → โหมดเข้าตรง (CZ ขาว + การ์ดชวนทำ quiz) ไม่ throw (X1/Y1)
 // 🔴 path นี้ exempt จาก auth gate อยู่แล้วแบบ exact (lib/auth/exempt-path.ts) — ไฟล์นี้ไม่แตะ middleware/exempt-path (X8)
 // รูปในหน้า = static import (/_next/static) ไม่ผ่าน public/ring-builder/ (test เดิมบังคับให้ path นั้นถูก gate)

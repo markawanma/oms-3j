@@ -4,22 +4,29 @@
 // 🔴 ไม่มีรหัส/QR/ฟอร์มข้อมูลส่วนบุคคล/ชำระเงิน · ลูกค้ากดส่งเองใน LINE · ข้อความแก้ได้ = ไม่ใช่หลักฐานราคา (แอดมินยืนยันเอง)
 // ปุ่ม LINE เป็น <a> ธรรมดา ไม่ disabled เมื่อไม่มีไซซ์ (UX §6) — มีแถบเตือน (ไอคอน + ข้อความ ไม่พึ่งสีอย่างเดียว)
 import { useEffect, useRef, useState } from "react";
-import { SHOWCASE_COPY, SHOWCASE_DESIGN_NAME, formatPriceThb } from "@/lib/ring-builder/showcase/config";
+import { GemIcon } from "../../gem-quiz/_components/GemIcon";
+import { SHOWCASE_COPY, formatPriceThb } from "@/lib/ring-builder/showcase/config";
 import { copyText } from "@/lib/ring-builder/showcase/clipboard";
+import { getShowcaseDesign, roleMainLabel, roleSubLabel, type ShowcaseDesignId } from "@/lib/ring-builder/showcase/designs";
+import { GEM_QUIZ_STONE_BY_CODE } from "@/lib/gem-quiz/config";
 import { buildShowcaseLineHref, buildShowcaseLineMessage, resolveChoice, type ShowcaseChoice } from "@/lib/ring-builder/showcase/line-message";
 
 const COPIED_MS = 3000;
 
 export function OrderSummary({
+  designId,
   choice,
   size,
 }: {
+  designId: ShowcaseDesignId;
   /** สิ่งที่เลือก — จอสรุปกับข้อความ LINE มาจากค่าเดียวกัน (resolveChoice) */
   choice: ShowcaseChoice;
+  /** effectiveSize เท่านั้น (ไซซ์ที่ใช้กับแบบนี้ได้ หรือ null) — ห้ามส่งไซซ์ดิบ (Z2 ชั้น 1) */
   size: number | null;
 }) {
-  const input = { choice, size };
-  const resolved = resolveChoice(choice);
+  const design = getShowcaseDesign(designId);
+  const input = { designId, choice, size };
+  const resolved = resolveChoice(choice, design);
   const message = buildShowcaseLineMessage(input);
   const href = buildShowcaseLineHref(input);
 
@@ -47,13 +54,22 @@ export function OrderSummary({
     }
   }
 
+  // D1.2a: รายเม็ด = แถวช่วงสี (ข้อความเดียวกับ LINE) · แบบแถวที่ยังไม่เลือกพลอยในโหมดเลือกเอง = แถวพลอยแถวเดียว (ไม่มีหลัก/เสริม)
+  const slotRows = resolved?.slotRows;
+  const unpickedRow = design.layout.kind === "row" && choice.kind === "direct" && choice.unpicked === true;
+  const gemRows: [string, string][] = slotRows
+    ? slotRows.map((r) => [r.label, r.value])
+    : unpickedRow
+      ? []
+      : [
+          [roleMainLabel(design), resolved?.mainLabel ?? "—"],
+          [roleSubLabel(design), resolved?.subLabel ?? "—"],
+        ];
   const rows: [string, string][] = [
-    [
-      SHOWCASE_COPY.summaryDesign,
-      choice.kind === "rec" ? `${SHOWCASE_DESIGN_NAME} · แบบ ${choice.index}` : choice.kind === "own" ? `${SHOWCASE_DESIGN_NAME} · ${SHOWCASE_COPY.summaryOwn}` : SHOWCASE_DESIGN_NAME,
-    ],
-    [SHOWCASE_COPY.summaryTop, resolved?.topLabel ?? "—"],
-    [SHOWCASE_COPY.summaryBottom, resolved?.bottomLabel ?? "—"],
+    [SHOWCASE_COPY.summaryDesign, design.name],
+    [SHOWCASE_COPY.summaryGems, resolved?.gemsLine ?? "—"],
+    ...gemRows,
+    ...(design.extraCz > 0 ? ([[SHOWCASE_COPY.summaryExtraCz, SHOWCASE_COPY.extraCzCount(design.extraCz)]] as [string, string][]) : []),
     [SHOWCASE_COPY.summarySize, size === null ? SHOWCASE_COPY.sizePending : SHOWCASE_COPY.sizeUnit(size)],
     [SHOWCASE_COPY.summaryPrice, formatPriceThb()],
   ];
@@ -61,6 +77,14 @@ export function OrderSummary({
   return (
     <div className="flex flex-col gap-3">
       <h2 className="font-quiz-serif text-xl font-semibold text-[var(--gq-burgundy-dark)]">{SHOWCASE_COPY.summaryHeading}</h2>
+      {choice.kind === "ownSlots" && (
+        // แถบสีเม็ด 1..N (ตกแต่ง — ข้อความด้านล่างคือข้อมูลจริง)
+        <div aria-hidden="true" className="flex items-center justify-center gap-1.5">
+          {choice.codes.map((c, i) => (
+            <GemIcon key={i} colors={GEM_QUIZ_STONE_BY_CODE[c].colors} size={20} />
+          ))}
+        </div>
+      )}
       <dl className="rounded-2xl border border-[var(--gq-border-soft)] bg-white px-4">
         {rows.map(([k, v]) => (
           <div key={k} className="flex items-baseline justify-between gap-4 border-b border-[var(--gq-divider)] py-3 last:border-b-0">
